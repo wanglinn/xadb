@@ -50,6 +50,7 @@
  *   WindowAggState
  *   UniqueState
  *   GatherState
+ *   GatherMergeState
  *   HashState
  *   SetOpState
  *   LockRowsState
@@ -533,6 +534,18 @@ BEGIN_NODE(Gather)
 	NODE_SCALAR(bool,invisible)
 END_NODE(Gather)
 #endif /* NO_NODE_Gather */
+
+#ifndef NO_NODE_GatherMerge
+BEGIN_NODE(GatherMerge)
+	NODE_BASE2(Plan,plan)
+	NODE_SCALAR(int,num_workers)
+	NODE_SCALAR(int,numCols)
+	NODE_SCALAR_POINT(AttrNumber,sortColIdx,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(Oid,sortOperators,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
+END_NODE(GatherMerge)
+#endif /* NO_NODE_GatherMerge */
 
 #ifndef NO_NODE_Hash
 BEGIN_NODE(Hash)
@@ -1384,6 +1397,7 @@ BEGIN_NODE(RelOptInfo)
 	NODE_NODE(List,cheapest_parameterized_paths)
 #ifdef ADB
 	NODE_NODE(List,cluster_pathlist)
+	NODE_NODE(List,cluster_partial_pathlist)
 	NODE_NODE(Path,cheapest_cluster_startup_path)
 	NODE_NODE(Path,cheapest_cluster_total_path)
 	NODE_NODE(Path,cheapest_cluster_unique_path)
@@ -1617,6 +1631,14 @@ BEGIN_NODE(GatherPath)
 	NODE_SCALAR(bool,single_copy)
 END_NODE(GatherPath)
 #endif /* NO_NODE_GatherPath */
+
+#ifndef NO_NODE_GatherMergePath
+BEGIN_NODE(GatherMergePath)
+	NODE_BASE2(Path,path)
+	NODE_NODE(Path,subpath)
+	NODE_SCALAR(int,num_workers)
+END_NODE(GatherMergePath)
+#endif /* NO_NODE_GatherMergePath */
 
 #ifndef NO_NODE_ProjectionPath
 BEGIN_NODE(ProjectionPath)

@@ -80,6 +80,8 @@ extern bool enable_nestloop;
 extern bool enable_material;
 extern bool enable_mergejoin;
 extern bool enable_hashjoin;
+extern bool enable_gathermerge;
+extern int	constraint_exclusion;
 #ifdef ADB
 extern bool enable_fast_query_shipping;
 extern bool pgxc_enable_remote_query;
@@ -88,7 +90,6 @@ extern bool enable_remotegroup;
 extern bool enable_remotesort;
 extern bool enable_remotelimit;
 #endif
-extern int	constraint_exclusion;
 
 extern double clamp_row_est(double nrows);
 extern double index_pages_fetched(double tuples_fetched, BlockNumber pages,
@@ -220,6 +221,11 @@ extern Selectivity clause_selectivity(PlannerInfo *root,
 				   int varRelid,
 				   JoinType jointype,
 				   SpecialJoinInfo *sjinfo);
+extern void cost_gather_merge(GatherMergePath *path, PlannerInfo *root,
+							  RelOptInfo *rel, ParamPathInfo *param_info,
+							  Cost input_startup_cost, Cost input_total_cost,
+							  double *rows);
+
 #ifdef ADB
 extern void cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel);
 extern void cost_div(Path *path, int n);

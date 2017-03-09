@@ -658,6 +658,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 			break;
 
 		case T_Gather:
+		case T_GatherMerge:
 #ifdef ADB
 		case T_ClusterGetCopyData:
 #endif /* ADB */

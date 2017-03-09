@@ -88,6 +88,8 @@
 #include "executor/nodeCustom.h"
 #include "executor/nodeForeignscan.h"
 #include "executor/nodeFunctionscan.h"
+#include "executor/nodeGather.h"
+#include "executor/nodeGatherMerge.h"
 #include "executor/nodeGroup.h"
 #include "executor/nodeHash.h"
 #include "executor/nodeHashjoin.h"
@@ -100,7 +102,6 @@
 #include "executor/nodeMergejoin.h"
 #include "executor/nodeModifyTable.h"
 #include "executor/nodeNestloop.h"
-#include "executor/nodeGather.h"
 #include "executor/nodeRecursiveunion.h"
 #include "executor/nodeResult.h"
 #include "executor/nodeSamplescan.h"
@@ -319,6 +320,11 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 		case T_Gather:
 			result = (PlanState *) ExecInitGather((Gather *) node,
 												  estate, eflags);
+			break;
+
+		case T_GatherMerge:
+			result = (PlanState *) ExecInitGatherMerge((GatherMerge *) node,
+													   estate, eflags);
 			break;
 
 		case T_Hash:
@@ -549,6 +555,10 @@ ExecProcNode(PlanState *node)
 			result = ExecGather((GatherState *) node);
 			break;
 
+		case T_GatherMergeState:
+			result = ExecGatherMerge((GatherMergeState *) node);
+			break;
+
 		case T_HashState:
 			result = ExecHash((HashState *) node);
 			break;
@@ -734,6 +744,10 @@ ExecEndNode(PlanState *node)
 			ExecEndGather((GatherState *) node);
 			break;
 
+		case T_GatherMergeState:
+			ExecEndGatherMerge((GatherMergeState *) node);
+			break;
+
 		case T_IndexScanState:
 			ExecEndIndexScan((IndexScanState *) node);
 			break;
@@ -887,6 +901,9 @@ ExecShutdownNode(PlanState *node)
 	{
 		case T_GatherState:
 			ExecShutdownGather((GatherState *) node);
+			break;
+		case T_GatherMergeState:
+			ExecShutdownGatherMerge((GatherMergeState *) node);
 			break;
 		default:
 			break;

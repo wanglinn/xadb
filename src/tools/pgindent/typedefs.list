@@ -770,6 +770,9 @@ GV
 Gather
 GatherPath
 GatherState
+GatherMerge
+GatherMergePath
+GatherMergeState
 Gene
 GenericCosts
 GenericExprState
