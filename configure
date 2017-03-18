@@ -754,6 +754,7 @@ build_vendor
 build_cpu
 build
 PG_MAJORVERSION
+ADB_VERSION
 configure_args
 target_alias
 host_alias
@@ -2711,6 +2712,18 @@ ac_configure="$SHELL $ac_aux_dir/configure"  # Please don't use this var.
 configure_args=$ac_configure_args
 
 
+ADB_VERSION='3.0devel'
+GIT_SHA1=`(cd $srcdir && git log -1 --pretty='format:%h' --no-color) 2>/dev/null`
+if test x"$GIT_SHA1" != x; then
+  ADB_VERSION="$ADB_VERSION $GIT_SHA1"
+fi
+
+
+cat >>confdefs.h <<_ACEOF
+#define ADB_VERSION "$ADB_VERSION"
+_ACEOF
+
+
 PG_MAJORVERSION=`expr "$PACKAGE_VERSION" : '\([0-9][0-9]*\.[0-9][0-9]*\)'`
 
 
@@ -2733,12 +2746,12 @@ if test "${with_extra_version+set}" = set; then :
       as_fn_error $? "argument required for --with-extra-version option" "$LINENO" 5
       ;;
     *)
-      PG_VERSION="$PACKAGE_VERSION$withval"
+      PG_VERSION="$PACKAGE_VERSION ADB $ADB_VERSION$withval"
       ;;
   esac
 
 else
-  PG_VERSION="$PACKAGE_VERSION"
+  PG_VERSION="$PACKAGE_VERSION ADB $ADB_VERSION"
 fi
 
 
@@ -4402,6 +4415,9 @@ else
     CFLAGS="-O"
   fi
 fi
+
+# for ADB set "-DADB" by default
+CFLAGS="$CFLAGS -DADB"
 
 # CFLAGS we determined above will be added back at the end
 user_CFLAGS=$CFLAGS

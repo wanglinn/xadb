@@ -29,13 +29,21 @@ AC_CONFIG_AUX_DIR(config)
 AC_PREFIX_DEFAULT(/usr/local/pgsql)
 AC_SUBST(configure_args, [$ac_configure_args])
 
+[ADB_VERSION='3.0devel']
+GIT_SHA1=`(cd $srcdir && git log -1 --pretty='format:%h' --no-color) 2>/dev/null`
+if test x"$GIT_SHA1" != x; then
+  ADB_VERSION="$ADB_VERSION $GIT_SHA1"
+fi
+AC_SUBST(ADB_VERSION)
+AC_DEFINE_UNQUOTED(ADB_VERSION, "$ADB_VERSION", [ADB version as a string])
+
 [PG_MAJORVERSION=`expr "$PACKAGE_VERSION" : '\([0-9][0-9]*\.[0-9][0-9]*\)'`]
 AC_SUBST(PG_MAJORVERSION)
 AC_DEFINE_UNQUOTED(PG_MAJORVERSION, "$PG_MAJORVERSION", [PostgreSQL major version as a string])
 
 PGAC_ARG_REQ(with, extra-version, [STRING], [append STRING to version],
-             [PG_VERSION="$PACKAGE_VERSION$withval"],
-             [PG_VERSION="$PACKAGE_VERSION"])
+             [PG_VERSION="$PACKAGE_VERSION ADB $ADB_VERSION$withval"],
+             [PG_VERSION="$PACKAGE_VERSION ADB $ADB_VERSION"])
 AC_DEFINE_UNQUOTED(PG_VERSION, "$PG_VERSION", [PostgreSQL version as a string])
 
 AC_CANONICAL_HOST
@@ -424,6 +432,9 @@ else
     CFLAGS="-O"
   fi
 fi
+
+# for ADB set "-DADB" by default
+CFLAGS="$CFLAGS -DADB"
 
 # CFLAGS we determined above will be added back at the end
 user_CFLAGS=$CFLAGS
