@@ -17,8 +17,12 @@
 #ifndef PG_REPLICATION_ORIGIN_H
 #define PG_REPLICATION_ORIGIN_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
 #include "access/xlogdefs.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_replication_origin.  cpp turns this into

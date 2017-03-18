@@ -17,8 +17,12 @@
 #ifndef INDEXING_H
 #define INDEXING_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "access/htup.h"
 #include "utils/relcache.h"
+#endif /* BUILD_BKI */
 
 /*
  * The state object used by CatalogOpenIndexes and friends is actually the

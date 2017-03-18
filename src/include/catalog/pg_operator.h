@@ -22,7 +22,11 @@
 #ifndef PG_OPERATOR_H
 #define PG_OPERATOR_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_operator definition.  cpp turns this into

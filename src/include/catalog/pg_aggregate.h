@@ -19,9 +19,13 @@
 #ifndef PG_AGGREGATE_H
 #define PG_AGGREGATE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
 #include "catalog/objectaddress.h"
 #include "nodes/pg_list.h"
+#endif /* BUILD_BKI */
 
 /* ----------------------------------------------------------------
  *		pg_aggregate definition.

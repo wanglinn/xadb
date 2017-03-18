@@ -27,7 +27,7 @@ all: $(BKIFILES) schemapg.h
 # the catalog header files are assembled into postgres.bki.  In particular,
 # indexing.h had better be last, and toasting.h just before it.
 
-POSTGRES_BKI_SRCS = $(addprefix $(top_srcdir)/src/include/catalog/,\
+POSTGRES_BKI_SRCS = \
 	pg_proc.h pg_type.h pg_attribute.h pg_class.h \
 	pg_attrdef.h pg_constraint.h pg_inherits.h pg_index.h pg_operator.h \
 	pg_opfamily.h pg_opclass.h pg_am.h pg_amop.h pg_amproc.h \
@@ -42,8 +42,12 @@ POSTGRES_BKI_SRCS = $(addprefix $(top_srcdir)/src/include/catalog/,\
 	pg_foreign_table.h pg_policy.h pg_replication_origin.h \
 	pg_default_acl.h pg_init_privs.h pg_seclabel.h pg_shseclabel.h \
 	pg_collation.h pg_range.h pg_transform.h \
-	toasting.h indexing.h \
-    )
+	toasting.h indexing.h 
+
+$(POSTGRES_BKI_SRCS): % : $(top_srcdir)/src/include/catalog/%
+	echo rm -f $@.c && $(LN_S) $< $@.c
+	$(CPP) $(CFLAGS) $(CPPFLAGS) -DBUILD_BKI -o $@ $@.c
+	rm -f $@.c
 
 # location of Catalog.pm
 catalogdir = $(top_srcdir)/src/backend/catalog
@@ -86,6 +90,7 @@ uninstall-data:
 # postgres.bki, postgres.description, postgres.shdescription, and schemapg.h
 # are in the distribution tarball, so they are not cleaned here.
 clean:
+	rm -f $(POSTGRES_BKI_SRCS)
 
 maintainer-clean: clean
 	rm -f $(BKIFILES)

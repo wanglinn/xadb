@@ -21,7 +21,11 @@
 #ifndef PG_AUTHID_H
 #define PG_AUTHID_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /*
  * The CATALOG definition has to refer to the type of rolvaliduntil as
@@ -31,7 +35,9 @@
  * there is no particular need for the C struct definition to show the
  * field type as TimestampTz --- instead we just make it int.
  */
+#ifndef BUILD_BKI
 #define timestamptz int
+#endif
 
 
 /* ----------------

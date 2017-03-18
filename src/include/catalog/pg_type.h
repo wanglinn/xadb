@@ -19,7 +19,11 @@
 #ifndef PG_TYPE_H
 #define PG_TYPE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_type definition.  cpp turns this into

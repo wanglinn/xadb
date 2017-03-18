@@ -47,4 +47,10 @@
 #define DESCR(x)  extern int no_such_variable
 #define SHDESCR(x) extern int no_such_variable
 
+/*
+ * This macro is just to keep the C compiler from spitting up on the
+ * upcoming commands for genbki.pl.
+ */
+#define DECLARE_TOAST(name,toastoid,indexoid) extern int no_such_variable
+
 #endif   /* GENBKI_H */

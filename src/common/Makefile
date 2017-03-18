@@ -44,7 +44,9 @@ OBJS_FRONTEND = $(OBJS_COMMON) fe_memutils.o restricted_token.o
 
 OBJS_SRV = $(OBJS_COMMON:%.o=%_srv.o)
 
-all: libpgcommon.a libpgcommon_srv.a
+OBJS_AGTM = $(OBJS_COMMON:%.o=%_agtm.o)
+
+all: libpgcommon.a libpgcommon_srv.a libpgcommon_agtm.a
 
 # libpgcommon is needed by some contrib
 install: all installdirs
@@ -68,6 +70,10 @@ libpgcommon_srv.a: $(OBJS_SRV)
 	rm -f $@
 	$(AR) $(AROPT) $@ $^
 
+libpgcommon_agtm.a: $(OBJS_AGTM)
+	rm -f $@
+	$(AR) $(AROPT) $@ $^
+
 # Because this uses its own compilation rule, it doesn't use the
 # dependency tracking logic from Makefile.global.  To make sure that
 # dependency tracking works anyway for the *_srv.o files, depend on
@@ -77,7 +83,10 @@ libpgcommon_srv.a: $(OBJS_SRV)
 %_srv.o: %.c %.o
 	$(CC) $(CFLAGS) $(subst -DFRONTEND ,, $(CPPFLAGS)) -c $< -o $@
 
-$(OBJS_SRV): | submake-errcodes
+%_agtm.o: %.c %.o
+	$(CC) -I$(top_builddir)/src/agtm/include -I$(top_srcdir)/src/agtm/include $(patsubst -DADB,, $(CFLAGS)) -DAGTM $(subst -DFRONTEND,, $(CPPFLAGS)) -c $< -o $@
+
+$(OBJS_SRV) $(OBJS_AGTM): | submake-errcodes
 
 .PHONY: submake-errcodes
 
@@ -89,9 +98,13 @@ submake-errcodes:
 # Note that gram.h isn't required for the frontend version of keywords.o.
 $(top_builddir)/src/include/parser/gram.h: $(top_srcdir)/src/backend/parser/gram.y
 	$(MAKE) -C $(top_builddir)/src/backend $(top_builddir)/src/include/parser/gram.h
+$(top_builddir)/src/agtm/include/parser/gram.h: $(top_srcdir)/src/agtm/parser/gram.y
+	$(MAKE) -C $(top_builddir)/src/agtm $@
 
 keywords.o: $(top_srcdir)/src/include/parser/kwlist.h
 keywords_srv.o: $(top_builddir)/src/include/parser/gram.h $(top_srcdir)/src/include/parser/kwlist.h
+keywords_agtm.o: $(top_builddir)/src/agtm/include/parser/gram.h $(top_srcdir)/src/agtm/include/parser/kwlist.h
 
 clean distclean maintainer-clean:
 	rm -f libpgcommon.a libpgcommon_srv.a $(OBJS_FRONTEND) $(OBJS_SRV)
+	rm -f libpgcommon_agtm.a $(OBJS_AGTM)

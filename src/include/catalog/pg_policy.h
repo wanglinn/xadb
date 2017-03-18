@@ -9,7 +9,11 @@
 #ifndef PG_POLICY_H
 #define PG_POLICY_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_policy definition. cpp turns this into
