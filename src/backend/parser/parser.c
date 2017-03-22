@@ -23,6 +23,9 @@
 
 #include "parser/gramparse.h"
 #include "parser/parser.h"
+#ifdef ADB
+#include "nodes/makefuncs.h"
+#endif
 
 
 /*
@@ -193,3 +196,90 @@ base_yylex(YYSTYPE *lvalp, YYLTYPE *llocp, core_yyscan_t yyscanner)
 
 	return cur_token;
 }
+
+#ifdef ADB
+List *OracleFuncName(char *name)
+{
+	return list_make2(makeString("oracle"), makeString(name));
+}
+
+TypeName *OracleTypeName(char *name)
+{
+	return makeTypeNameFromNameList(list_make2(makeString("oracle"),
+											   makeString(name)));
+}
+
+TypeName *OracleTypeNameLocation(char *name, int location)
+{
+	TypeName *typ = makeTypeNameFromNameList(list_make2(makeString("oracle"),
+												makeString(name)));
+	typ->location = location;
+	return typ;
+}
+
+void transformDistributeBy(DistributeBy *dbstmt)
+{
+	List *funcname = NIL;
+	List *funcargs = NIL;
+
+	if (dbstmt == NULL ||
+		/* must be replication or roundrobin */
+		dbstmt->disttype != DISTTYPE_USER_DEFINED)
+		return ;
+
+	funcname = dbstmt->funcname;
+	funcargs = dbstmt->funcargs;
+
+	Assert(funcname && funcargs);
+
+	/*
+	 * try to judge distribution type
+	 * HASH or MODULE or USER-DEFINED.
+	 */
+	if (list_length(funcname) == 1)
+	{
+		Node *argnode = linitial(funcargs);
+		char *fname = strVal(linitial(funcname));
+		if (strcasecmp(fname, "HASH") == 0)
+		{
+			if (list_length(funcargs) != 1 ||
+				IsA(argnode, ColumnRef) == false ||
+				list_length(((ColumnRef *)argnode)->fields) != 1)
+				ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					errmsg("Invalid distribution column specified for \"HASH\""),
+					errhint("Valid syntax input: HASH(column)")));
+
+			dbstmt->disttype = DISTTYPE_HASH;
+			dbstmt->colname = strVal(linitial(((ColumnRef *)argnode)->fields));
+		}
+		else
+		if (strcasecmp(fname, "MODULO") == 0)
+		{
+			if (list_length(funcargs) != 1 ||
+				IsA(argnode, ColumnRef) == false ||
+				list_length(((ColumnRef *)argnode)->fields) != 1)
+				ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					errmsg("Invalid distribution column specified for \"MODULO\""),
+					errhint("Valid syntax input: MODULO(column)")));
+
+			dbstmt->disttype = DISTTYPE_MODULO;
+			dbstmt->colname = strVal(linitial(((ColumnRef *)argnode)->fields));
+		}
+		else
+		{
+			/*
+			 * Nothing changed.
+			 * Just keep compiler quiet.
+			 */
+		}
+	} else
+	{
+		/*
+		 * Nothing changed.
+		 * Just keep compiler quiet.
+		 */
+	}
+}
+#endif

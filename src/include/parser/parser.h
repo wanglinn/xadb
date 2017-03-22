@@ -38,4 +38,11 @@ extern List *raw_parser(const char *str);
 extern List *SystemFuncName(char *name);
 extern TypeName *SystemTypeName(char *name);
 
+#ifdef ADB
+extern List *OracleFuncName(char *name);
+extern TypeName *OracleTypeName(char *name);
+extern TypeName *OracleTypeNameLocation(char *name, int location);
+extern void transformDistributeBy(DistributeBy *dbstmt);
+#endif
+
 #endif   /* PARSER_H */

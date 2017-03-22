@@ -8,6 +8,7 @@
  *
  * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  *
  * IDENTIFICATION
@@ -65,6 +66,11 @@
 #include "utils/datetime.h"
 #include "utils/numeric.h"
 #include "utils/xml.h"
+#ifdef ADB
+#include "nodes/nodes.h"
+#include "pgxc/poolmgr.h"
+#include "miscadmin.h"
+#endif
 
 
 /*
@@ -227,6 +233,10 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	struct ImportQual	*importqual;
 	InsertStmt			*istmt;
 	VariableSetStmt		*vsetstmt;
+/* ADB_BEGIN */
+	DistributeBy		*distby;
+	PGXCSubCluster		*subclus;
+/* ADB_END */
 }
 
 %type <node>	stmt schema_stmt
@@ -239,7 +249,8 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 		AlterCompositeTypeStmt AlterUserStmt AlterUserMappingStmt AlterUserSetStmt
 		AlterRoleStmt AlterRoleSetStmt AlterPolicyStmt
 		AlterDefaultPrivilegesStmt DefACLAction
-		AnalyzeStmt ClosePortalStmt ClusterStmt CommentStmt
+		/* PGXC add CleanConnStmt */
+		AnalyzeStmt CleanConnStmt ClosePortalStmt ClusterStmt CommentStmt
 		ConstraintsSetStmt CopyStmt CreateAsStmt CreateCastStmt
 		CreateDomainStmt CreateExtensionStmt CreateGroupStmt CreateOpClassStmt
 		CreateOpFamilyStmt AlterOpFamilyStmt CreatePLangStmt
@@ -252,7 +263,8 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 		DropAssertStmt DropTrigStmt DropRuleStmt DropCastStmt DropRoleStmt
 		DropPolicyStmt DropUserStmt DropdbStmt DropTableSpaceStmt DropFdwStmt
 		DropTransformStmt
-		DropForeignServerStmt DropUserMappingStmt ExplainStmt FetchStmt
+		/* PGXC add ExecDirectStmt */
+		DropForeignServerStmt DropUserMappingStmt ExplainStmt ExecDirectStmt FetchStmt
 		GrantStmt GrantRoleStmt ImportForeignSchemaStmt IndexStmt InsertStmt
 		ListenStmt LoadStmt LockStmt NotifyStmt ExplainableStmt PreparableStmt
 		CreateFunctionStmt AlterFunctionStmt ReindexStmt RemoveAggrStmt
@@ -265,6 +277,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 		DeallocateStmt PrepareStmt ExecuteStmt
 		DropOwnedStmt ReassignOwnedStmt
 		AlterTSConfigurationStmt AlterTSDictionaryStmt
+		/* PGXC add BarrierStmt AlterNodeStmt CreateNodeStmt DropNodeStmt CreateNodeGroupStmt DropNodeGroupStmt */
+		BarrierStmt AlterNodeStmt CreateNodeStmt DropNodeStmt
+		CreateNodeGroupStmt DropNodeGroupStmt
 		CreateMatViewStmt RefreshMatViewStmt CreateAmStmt
 
 %type <node>	select_no_parens select_with_parens select_clause
@@ -282,13 +297,15 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <list>	createdb_opt_list createdb_opt_items copy_opt_list
 				transaction_mode_list
 				create_extension_opt_list alter_extension_opt_list
+				/* PGXC add pgxcnode_list pgxcnodes */
+				pgxcnode_list pgxcnodes
 %type <defelt>	createdb_opt_item copy_opt_item
 				transaction_mode_item
 				create_extension_opt_item alter_extension_opt_item
 
 %type <ival>	opt_lock lock_type cast_context
 %type <ival>	vacuum_option_list vacuum_option_elem
-%type <boolean>	opt_or_replace
+%type <boolean>	opt_force opt_or_replace
 				opt_grant_grant_option opt_grant_admin_option
 				opt_nowait opt_if_exists opt_with_data
 %type <ival>	opt_nowait_or_skip
@@ -317,6 +334,8 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				database_name access_method_clause access_method attr_name
 				name cursor_name file_name
 				index_name opt_index_name cluster_index_specification
+				/* PGXC add pgxcnode_name pgxcgroup_name */
+				pgxcnode_name pgxcgroup_name
 
 %type <list>	func_name handler_name qual_Op qual_all_Op subquery_Op
 				opt_class opt_inline_handler opt_validator validator_clause
@@ -412,6 +431,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <boolean> opt_freeze opt_default opt_recheck
 %type <defelt>	opt_binary opt_oids copy_delimiter
 
+/* ADB_BEGIN */
+%type <str>		DirectStmt CleanConnDbName CleanConnUserName
+/* ADB_END */
 %type <boolean> copy_from opt_program
 
 %type <ival>	opt_column event cursor_options opt_hold opt_set_data
@@ -538,6 +560,13 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <windef>	window_definition over_clause window_specification
 				opt_frame_clause frame_extent frame_bound
 %type <str>		opt_existing_window_name
+
+/* ADB_BEGIN */
+%type <str>		opt_barrier_id OptDistributeType
+%type <distby>	OptDistributeBy OptDistributeByInternal
+%type <subclus> OptSubCluster OptSubClusterInternal
+/* ADB_END */
+
 %type <boolean> opt_if_not_exists
 
 /*
@@ -566,21 +595,26 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	AGGREGATE ALL ALSO ALTER ALWAYS ANALYSE ANALYZE AND ANY ARRAY AS ASC
 	ASSERTION ASSIGNMENT ASYMMETRIC AT ATTRIBUTE AUTHORIZATION
 
-	BACKWARD BEFORE BEGIN_P BETWEEN BIGINT BINARY BIT
+	/* PGXC add BARRIER token */
+	BACKWARD BARRIER BEFORE BEGIN_P BETWEEN BIGINT BINARY BIT
 	BOOLEAN_P BOTH BY
 
 	CACHE CALLED CASCADE CASCADED CASE CAST CATALOG_P CHAIN CHAR_P
-	CHARACTER CHARACTERISTICS CHECK CHECKPOINT CLASS CLOSE
+	/* PGXC add CLEAN token */
+	CHARACTER CHARACTERISTICS CHECK CHECKPOINT CLASS CLEAN CLOSE
 	CLUSTER COALESCE COLLATE COLLATION COLUMN COMMENT COMMENTS COMMIT
 	COMMITTED CONCURRENTLY CONFIGURATION CONFLICT CONNECTION CONSTRAINT
-	CONSTRAINTS CONTENT_P CONTINUE_P CONVERSION_P COPY COST CREATE
+	/* PGXC add COORDINATOR token */
+	CONSTRAINTS CONTENT_P CONTINUE_P CONVERSION_P COORDINATOR COPY COST CREATE
 	CROSS CSV CUBE CURRENT_P
 	CURRENT_CATALOG CURRENT_DATE CURRENT_ROLE CURRENT_SCHEMA
 	CURRENT_TIME CURRENT_TIMESTAMP CURRENT_USER CURSOR CYCLE
 
 	DATA_P DATABASE DAY_P DEALLOCATE DEC DECIMAL_P DECLARE DEFAULT DEFAULTS
 	DEFERRABLE DEFERRED DEFINER DELETE_P DELIMITER DELIMITERS DEPENDS DESC
-	DICTIONARY DISABLE_P DISCARD DISTINCT DO DOCUMENT_P DOMAIN_P DOUBLE_P DROP
+	/* PGXC add DIRECT, DISTRIBUTE token */
+	DICTIONARY DIRECT DISABLE_P DISCARD DISTINCT DISTRIBUTE DO DOCUMENT_P DOMAIN_P DOUBLE_P
+	DROP
 
 	EACH ELSE ENABLE_P ENCODING ENCRYPTED END_P ENUM_P ESCAPE EVENT EXCEPT
 	EXCLUDE EXCLUDING EXCLUSIVE EXECUTE EXISTS EXPLAIN
@@ -608,7 +642,8 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 	MAPPING MATCH MATERIALIZED MAXVALUE METHOD MINUTE_P MINVALUE MODE MONTH_P MOVE
 
-	NAME_P NAMES NATIONAL NATURAL NCHAR NEXT NO NONE
+	/* PGXC add NODE token */
+	NAME_P NAMES NATIONAL NATURAL NCHAR NEXT NO NODE NONE
 	NOT NOTHING NOTIFY NOTNULL NOWAIT NULL_P NULLIF
 	NULLS_P NUMERIC
 
@@ -616,7 +651,8 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	ORDER ORDINALITY OUT_P OUTER_P OVER OVERLAPS OVERLAY OWNED OWNER
 
 	PARALLEL PARSER PARTIAL PARTITION PASSING PASSWORD PLACING PLANS POLICY
-	POSITION PRECEDING PRECISION PRESERVE PREPARE PREPARED PRIMARY
+	/* PGXC add PREFERRED token */
+	POSITION PRECEDING PRECISION PREFERRED PRESERVE PREPARE PREPARED PRIMARY
 	PRIOR PRIVILEGES PROCEDURAL PROCEDURE PROGRAM
 
 	QUOTE
@@ -643,6 +679,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	VERBOSE VERSION_P VIEW VIEWS VOLATILE
 
 	WHEN WHERE WHITESPACE_P WINDOW WITH WITHIN WITHOUT WORK WRAPPER WRITE
+
+	/* AGTM add XID token */
+	XID
 
 	XML_P XMLATTRIBUTES XMLCONCAT XMLELEMENT XMLEXISTS XMLFOREST XMLPARSE
 	XMLPI XMLROOT XMLSERIALIZE
@@ -740,6 +779,14 @@ stmtblock:	stmtmulti
 /* the thrashing around here is to discard "empty" statements... */
 stmtmulti:	stmtmulti ';' stmt
 				{
+#ifdef ADB
+					BaseStmt *base;
+					if ($1 != NIL)
+					{
+						base = (BaseStmt *)llast($1);
+						base->endpos = @2;
+					}
+#endif
 					if ($3 != NULL)
 						$$ = lappend($1, $3);
 					else
@@ -768,6 +815,8 @@ stmt :
 			| AlterForeignTableStmt
 			| AlterFunctionStmt
 			| AlterGroupStmt
+/* PGXC add AlterNodeStmt rule */
+			| AlterNodeStmt
 			| AlterObjectDependsStmt
 			| AlterObjectSchemaStmt
 			| AlterOwnerStmt
@@ -786,7 +835,11 @@ stmt :
 			| AlterUserSetStmt
 			| AlterUserStmt
 			| AnalyzeStmt
+/* PGXC add BarrierStmt rule */
+			| BarrierStmt
 			| CheckPointStmt
+/* PGXC add CleanConnStmt rule */
+			| CleanConnStmt
 			| ClosePortalStmt
 			| ClusterStmt
 			| CommentStmt
@@ -804,6 +857,9 @@ stmt :
 			| CreateForeignTableStmt
 			| CreateFunctionStmt
 			| CreateGroupStmt
+/* PGXC add CreateNodeGroupStmt, CreateNodeStmt rules */
+			| CreateNodeGroupStmt
+			| CreateNodeStmt
 			| CreateMatViewStmt
 			| CreateOpClassStmt
 			| CreateOpFamilyStmt
@@ -832,6 +888,9 @@ stmt :
 			| DropFdwStmt
 			| DropForeignServerStmt
 			| DropGroupStmt
+/* PGXC add DropNodeGroupStmt, DropNodeStmt rules */
+			| DropNodeGroupStmt
+			| DropNodeStmt
 			| DropOpClassStmt
 			| DropOpFamilyStmt
 			| DropOwnedStmt
@@ -847,6 +906,8 @@ stmt :
 			| DropUserMappingStmt
 			| DropdbStmt
 			| ExecuteStmt
+/* PGXC add ExecDirectStmt rule */
+			| ExecDirectStmt
 			| ExplainStmt
 			| FetchStmt
 			| GrantStmt
@@ -1460,19 +1521,33 @@ set_rest_more:	/* Generic SET syntaxes: */
 				}
 			| ROLE NonReservedWord_or_Sconst
 				{
+#ifdef ADB
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							errmsg("ADB not support SET ROLE ... yet"),
+							parser_errposition(@1)));
+#else /* ADB */
 					VariableSetStmt *n = makeNode(VariableSetStmt);
 					n->kind = VAR_SET_VALUE;
 					n->name = "role";
 					n->args = list_make1(makeStringConst($2, @2));
 					$$ = n;
+#endif /* ADB */
 				}
 			| SESSION AUTHORIZATION NonReservedWord_or_Sconst
 				{
+#ifdef ADB
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							errmsg("ADB not support SET SESSION AUTHORIZATION yet"),
+							parser_errposition(@3)));
+#else
 					VariableSetStmt *n = makeNode(VariableSetStmt);
 					n->kind = VAR_SET_VALUE;
 					n->name = "session_authorization";
 					n->args = list_make1(makeStringConst($3, @3));
 					$$ = n;
+#endif
 				}
 			| SESSION AUTHORIZATION DEFAULT
 				{
@@ -1766,6 +1841,9 @@ AlterTableStmt:
 			ALTER TABLE relation_expr alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->relation = $3;
 					n->cmds = $4;
 					n->relkind = OBJECT_TABLE;
@@ -1775,6 +1853,9 @@ AlterTableStmt:
 		|	ALTER TABLE IF_P EXISTS relation_expr alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->relation = $5;
 					n->cmds = $6;
 					n->relkind = OBJECT_TABLE;
@@ -1806,6 +1887,9 @@ AlterTableStmt:
 		|	ALTER INDEX qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->relation = $3;
 					n->cmds = $4;
 					n->relkind = OBJECT_INDEX;
@@ -1815,6 +1899,9 @@ AlterTableStmt:
 		|	ALTER INDEX IF_P EXISTS qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->relation = $5;
 					n->cmds = $6;
 					n->relkind = OBJECT_INDEX;
@@ -1846,6 +1933,9 @@ AlterTableStmt:
 		|	ALTER SEQUENCE qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->relation = $3;
 					n->cmds = $4;
 					n->relkind = OBJECT_SEQUENCE;
@@ -1855,6 +1945,9 @@ AlterTableStmt:
 		|	ALTER SEQUENCE IF_P EXISTS qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->relation = $5;
 					n->cmds = $6;
 					n->relkind = OBJECT_SEQUENCE;
@@ -1864,6 +1957,9 @@ AlterTableStmt:
 		|	ALTER VIEW qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->relation = $3;
 					n->cmds = $4;
 					n->relkind = OBJECT_VIEW;
@@ -1873,6 +1969,9 @@ AlterTableStmt:
 		|	ALTER VIEW IF_P EXISTS qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->relation = $5;
 					n->cmds = $6;
 					n->relkind = OBJECT_VIEW;
@@ -1882,6 +1981,9 @@ AlterTableStmt:
 		|	ALTER MATERIALIZED VIEW qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->relation = $4;
 					n->cmds = $5;
 					n->relkind = OBJECT_MATVIEW;
@@ -1891,6 +1993,9 @@ AlterTableStmt:
 		|	ALTER MATERIALIZED VIEW IF_P EXISTS qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->relation = $6;
 					n->cmds = $7;
 					n->relkind = OBJECT_MATVIEW;
@@ -2366,6 +2471,40 @@ alter_table_cmd:
 					n->def = (Node *)$1;
 					$$ = (Node *) n;
 				}
+/* ADB_BEGIN */
+			/* ALTER TABLE <name> DISTRIBUTE BY ... */
+			| OptDistributeByInternal
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_DistributeBy;
+					n->def = (Node *)$1;
+					$$ = (Node *)n;
+				}
+			/* ALTER TABLE <name> TO [ NODE (nodelist) | GROUP groupname ] */
+			| OptSubClusterInternal
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_SubCluster;
+					n->def = (Node *)$1;
+					$$ = (Node *)n;
+				}
+			/* ALTER TABLE <name> ADD NODE (nodelist) */
+			| ADD_P NODE pgxcnodes
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_AddNodeList;
+					n->def = (Node *)$3;
+					$$ = (Node *)n;
+				}
+			/* ALTER TABLE <name> DELETE NODE (nodelist) */
+			| DELETE_P NODE pgxcnodes
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_DeleteNodeList;
+					n->def = (Node *)$3;
+					$$ = (Node *)n;
+				}
+/* ADB_END */
 		;
 
 alter_column_default:
@@ -2807,8 +2946,14 @@ copy_generic_opt_arg_list_item:
 
 CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 			OptInherit OptWith OnCommitOption OptTableSpace
+/* ADB_BEGIN */
+			OptDistributeBy OptSubCluster
+/* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					$4->relpersistence = $2;
 					n->relation = $4;
 					n->tableElts = $6;
@@ -2819,13 +2964,23 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->oncommit = $10;
 					n->tablespacename = $11;
 					n->if_not_exists = false;
+/* ADB_BEGIN */
+					n->distributeby = $12;
+					n->subcluster = $13;
+/* ADB_END */
 					$$ = (Node *)n;
 				}
 		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name '('
 			OptTableElementList ')' OptInherit OptWith OnCommitOption
 			OptTableSpace
+/* ADB_BEGIN */
+			OptDistributeBy OptSubCluster
+/* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					$7->relpersistence = $2;
 					n->relation = $7;
 					n->tableElts = $9;
@@ -2836,12 +2991,27 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->oncommit = $13;
 					n->tablespacename = $14;
 					n->if_not_exists = true;
+/* ADB_BEGIN */
+					n->distributeby = $15;
+					n->subcluster = $16;
+					if (n->inhRelations != NULL && n->distributeby != NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
+								 parser_errposition(exprLocation((Node *) n->distributeby))));
+/* ADB_END */
 					$$ = (Node *)n;
 				}
 		| CREATE OptTemp TABLE qualified_name OF any_name
 			OptTypedTableElementList OptWith OnCommitOption OptTableSpace
+/* ADB_BEGIN */
+			OptDistributeBy OptSubCluster
+/* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					$4->relpersistence = $2;
 					n->relation = $4;
 					n->tableElts = $7;
@@ -2853,12 +3023,27 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->oncommit = $9;
 					n->tablespacename = $10;
 					n->if_not_exists = false;
+/* ADB_BEGIN */
+					n->distributeby = $11;
+					n->subcluster = $12;
+					if (n->inhRelations != NULL && n->distributeby != NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
+								 parser_errposition(exprLocation((Node *) n->distributeby))));
+/* ADB_END */
 					$$ = (Node *)n;
 				}
 		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name OF any_name
 			OptTypedTableElementList OptWith OnCommitOption OptTableSpace
+/* ADB_BEGIN */
+			OptDistributeBy OptSubCluster
+/* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					$7->relpersistence = $2;
 					n->relation = $7;
 					n->tableElts = $10;
@@ -2870,6 +3055,15 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->oncommit = $12;
 					n->tablespacename = $13;
 					n->if_not_exists = true;
+/* ADB_BEGIN */
+					n->distributeby = $14;
+					n->subcluster = $15;
+					if (n->inhRelations != NULL && n->distributeby != NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
+								 parser_errposition(exprLocation((Node *) n->distributeby))));
+/* ADB_END */
 					$$ = (Node *)n;
 				}
 		;
@@ -3431,6 +3625,66 @@ OptTableSpace:   TABLESPACE name					{ $$ = $2; }
 			| /*EMPTY*/								{ $$ = NULL; }
 		;
 
+/* ADB_BEGIN */
+OptDistributeBy: OptDistributeByInternal			{ $$ = $1; }
+			| /* EMPTY */							{ $$ = NULL; }
+		;
+
+/*
+ * For the distribution type, we use IDENT to limit the impact of keywords
+ * related to distribution on other commands and to allow extensibility for
+ * new distributions.
+ */
+OptDistributeType: IDENT							{ $$ = $1; }
+		;
+
+OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType
+				{
+					DistributeBy *n = makeNode(DistributeBy);
+					if (strcmp($3, "replication") == 0)
+						n->disttype = DISTTYPE_REPLICATION;
+					else if (strcmp($3, "roundrobin") == 0)
+						n->disttype = DISTTYPE_ROUNDROBIN;
+                    else
+                        ereport(ERROR,
+                                (errcode(ERRCODE_SYNTAX_ERROR),
+                                 errmsg("unrecognized distribution option \"%s\"", $3)));
+					n->colname = NULL;
+					$$ = n;
+				}
+			| DISTRIBUTE BY func_name '(' func_arg_list ')'
+				{
+					DistributeBy *n = makeNode(DistributeBy);
+					n->disttype = DISTTYPE_USER_DEFINED;
+					n->funcname = $3;
+					n->funcargs = $5;
+					transformDistributeBy(n);
+					$$ = n;
+				}
+		;
+
+OptSubCluster: OptSubClusterInternal				{ $$ = $1; }
+			| /* EMPTY */							{ $$ = NULL; }
+		;
+
+OptSubClusterInternal:
+			TO NODE pgxcnodes
+				{
+					PGXCSubCluster *n = makeNode(PGXCSubCluster);
+					n->clustertype = SUBCLUSTER_NODE;
+					n->members = $3;
+					$$ = n;
+				}
+			| TO GROUP_P pgxcgroup_name
+				{
+					PGXCSubCluster *n = makeNode(PGXCSubCluster);
+					n->clustertype = SUBCLUSTER_GROUP;
+					n->members = list_make1(makeString($3));
+					$$ = n;
+				}
+		;
+/* ADB_END */
+
 OptConsTableSpace:   USING INDEX TABLESPACE name	{ $$ = $4; }
 			| /*EMPTY*/								{ $$ = NULL; }
 		;
@@ -3453,6 +3707,9 @@ CreateAsStmt:
 		CREATE OptTemp TABLE create_as_target AS SelectStmt opt_with_data
 				{
 					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
+#ifdef ADB
+					ctas->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					ctas->query = $6;
 					ctas->into = $4;
 					ctas->relkind = OBJECT_TABLE;
@@ -3480,6 +3737,9 @@ CreateAsStmt:
 
 create_as_target:
 			qualified_name opt_column_list OptWith OnCommitOption OptTableSpace
+/* ADB_BEGIN */
+			OptDistributeBy OptSubCluster
+/* ADB_END */
 				{
 					$$ = makeNode(IntoClause);
 					$$->rel = $1;
@@ -3489,6 +3749,10 @@ create_as_target:
 					$$->tableSpaceName = $5;
 					$$->viewQuery = NULL;
 					$$->skipData = false;		/* might get changed later */
+/* ADB_BEGIN */
+					$$->distributeby = $6;
+					$$->subcluster = $7;
+/* ADB_END */
 				}
 		;
 
@@ -3590,6 +3854,9 @@ CreateSeqStmt:
 					n->options = $5;
 					n->ownerId = InvalidOid;
 					n->if_not_exists = false;
+/* ADB_BEGIN */
+					n->is_serial = false;
+/* ADB_END */
 					$$ = (Node *)n;
 				}
 			| CREATE OptTemp SEQUENCE IF_P NOT EXISTS qualified_name OptSeqOptList
@@ -3611,6 +3878,9 @@ AlterSeqStmt:
 					n->sequence = $3;
 					n->options = $4;
 					n->missing_ok = false;
+/* ADB_BEGIN */
+					n->is_serial = false;
+/* ADB_END */
 					$$ = (Node *)n;
 				}
 			| ALTER SEQUENCE IF_P EXISTS qualified_name SeqOptList
@@ -6640,6 +6910,9 @@ IndexStmt:	CREATE opt_unique INDEX opt_concurrently opt_index_name
 			opt_reloptions OptTableSpace where_clause
 				{
 					IndexStmt *n = makeNode(IndexStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->unique = $2;
 					n->concurrent = $4;
 					n->idxname = $5;
@@ -8760,6 +9033,29 @@ TransactionStmt:
 					n->gid = $3;
 					$$ = (Node *)n;
 				}
+/* ADB_BEGIN */
+			| COMMIT PREPARED IF_P EXISTS Sconst
+				{
+					TransactionStmt *n = makeNode(TransactionStmt);
+#if defined(ADB)
+					n->missing_ok = true;
+#endif
+					n->kind = TRANS_STMT_COMMIT_PREPARED;
+					n->gid = $5;
+					$$ = (Node *)n;
+				}
+			| ROLLBACK PREPARED IF_P EXISTS Sconst
+				{
+					TransactionStmt *n = makeNode(TransactionStmt);
+#if defined(ADB)
+					n->missing_ok = true;
+#endif
+					n->kind = TRANS_STMT_ROLLBACK_PREPARED;
+					n->missing_ok = TRUE;
+					n->gid = $5;
+					$$ = (Node *)n;
+				}
+/* ADB_END */
 		;
 
 opt_transaction:	WORK							{}
@@ -8814,6 +9110,9 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 				AS SelectStmt opt_check_option
 				{
 					ViewStmt *n = makeNode(ViewStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->view = $4;
 					n->view->relpersistence = $2;
 					n->aliases = $5;
@@ -8827,6 +9126,9 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 				AS SelectStmt opt_check_option
 				{
 					ViewStmt *n = makeNode(ViewStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->view = $6;
 					n->view->relpersistence = $4;
 					n->aliases = $7;
@@ -8840,6 +9142,9 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 				AS SelectStmt opt_check_option
 				{
 					ViewStmt *n = makeNode(ViewStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->view = $5;
 					n->view->relpersistence = $2;
 					n->aliases = $7;
@@ -8858,6 +9163,9 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 				AS SelectStmt opt_check_option
 				{
 					ViewStmt *n = makeNode(ViewStmt);
+#ifdef ADB
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
 					n->view = $7;
 					n->view->relpersistence = $4;
 					n->aliases = $9;
@@ -9438,6 +9746,136 @@ opt_name_list:
 		;
 
 
+/* ADB_BEGIN */
+BarrierStmt: CREATE BARRIER opt_barrier_id
+				{
+					BarrierStmt *n = makeNode(BarrierStmt);
+					n->id = $3;
+					$$ = (Node *)n;
+				}
+			;
+
+opt_barrier_id:
+				Sconst
+				{
+					$$ = pstrdup($1);
+				}
+			| /* EMPTY */
+				{
+					$$ = NULL;
+				}
+			;
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *
+ *		CREATE NODE nodename WITH
+ *				(
+ *					[ TYPE = ('datanode' | 'coordinator'), ]
+ *					[ HOST = 'hostname', ]
+ *					[ PORT = portnum, ]
+ *					[ PRIMARY [ = boolean ], ]
+ *					[ PREFERRED [ = boolean ] ]
+ *				)
+ *
+ *****************************************************************************/
+
+CreateNodeStmt: CREATE NODE pgxcnode_name OptWith
+				{
+					CreateNodeStmt *n = makeNode(CreateNodeStmt);
+					n->node_name = $3;
+					n->options = $4;
+					$$ = (Node *)n;
+				}
+		;
+
+pgxcnode_name:
+			ColId							{ $$ = $1; };
+
+pgxcgroup_name:
+			ColId							{ $$ = $1; };
+
+pgxcnodes:
+			'(' pgxcnode_list ')'			{ $$ = $2; }
+		;
+
+pgxcnode_list:
+			pgxcnode_list ',' pgxcnode_name		{ $$ = lappend($1, makeString($3)); }
+			| pgxcnode_name						{ $$ = list_make1(makeString($1)); }
+		;
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *		ALTER NODE nodename WITH
+ *				(
+ *					[ TYPE = ('datanode' | 'coordinator'), ]
+ *					[ HOST = 'hostname', ]
+ *					[ PORT = portnum, ]
+ *					[ PRIMARY [ = boolean ], ]
+ *					[ PREFERRED [ = boolean ], ]
+ *				)
+ *
+ *****************************************************************************/
+
+AlterNodeStmt: ALTER NODE pgxcnode_name OptWith
+				{
+					AlterNodeStmt *n = makeNode(AlterNodeStmt);
+					n->node_name = $3;
+					n->options = $4;
+					$$ = (Node *)n;
+				}
+		;
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *				DROP NODE nodename
+ *
+ *****************************************************************************/
+
+DropNodeStmt: DROP NODE pgxcnode_name
+				{
+					DropNodeStmt *n = makeNode(DropNodeStmt);
+					n->node_name = $3;
+					$$ = (Node *)n;
+				}
+		;
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *				CREATE NODE GROUP groupname WITH (node1,...,nodeN)
+ *
+ *****************************************************************************/
+
+CreateNodeGroupStmt: CREATE NODE GROUP_P pgxcgroup_name WITH pgxcnodes
+				{
+					CreateGroupStmt *n = makeNode(CreateGroupStmt);
+					n->group_name = $4;
+					n->nodes = $6;
+					$$ = (Node *)n;
+				}
+		;
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *				DROP NODE GROUP groupname
+ *
+ *****************************************************************************/
+
+DropNodeGroupStmt: DROP NODE GROUP_P pgxcgroup_name
+				{
+					DropGroupStmt *n = makeNode(DropGroupStmt);
+					n->group_name = $4;
+					$$ = (Node *)n;
+				}
+		;
+
+/* ADB_END */
+
 /*****************************************************************************
  *
  *		QUERY:
@@ -9524,6 +9962,92 @@ explain_option_arg:
 /*****************************************************************************
  *
  *		QUERY:
+ *				EXECUTE DIRECT ON ( nodename [, ... ] ) query
+ *
+ *****************************************************************************/
+
+ExecDirectStmt: EXECUTE DIRECT ON pgxcnodes DirectStmt
+				{
+					ExecDirectStmt *n = makeNode(ExecDirectStmt);
+					n->node_names = $4;
+					n->query = $5;
+					$$ = (Node *)n;
+
+					if (!superuser())
+						ereport(ERROR,
+						       (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						        errmsg("must be superuser to use EXECUTE DIRECT")));
+				}
+		;
+
+DirectStmt:
+			Sconst					/* by default all are $$=$1 */
+		;
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *
+ *		CLEAN CONNECTION TO { COORDINATOR ( nodename ) | NODE ( nodename ) | ALL {FORCE} }
+ *				[ FOR DATABASE dbname ]
+ *				[ TO USER username ]
+ *
+ *****************************************************************************/
+
+CleanConnStmt: CLEAN CONNECTION TO COORDINATOR pgxcnodes CleanConnDbName CleanConnUserName
+				{
+					CleanConnStmt *n = makeNode(CleanConnStmt);
+					n->is_coord = true;
+					n->nodes = $5;
+					n->is_force = false;
+					n->dbname = $6;
+					n->username = $7;
+					$$ = (Node *)n;
+				}
+			| CLEAN CONNECTION TO NODE pgxcnodes CleanConnDbName CleanConnUserName
+				{
+					CleanConnStmt *n = makeNode(CleanConnStmt);
+					n->is_coord = false;
+					n->nodes = $5;
+					n->is_force = false;
+					n->dbname = $6;
+					n->username = $7;
+					$$ = (Node *)n;
+				}
+			| CLEAN CONNECTION TO ALL opt_force CleanConnDbName CleanConnUserName
+				{
+					CleanConnStmt *n = makeNode(CleanConnStmt);
+					n->is_coord = true;
+					n->nodes = NIL;
+					n->is_force = $5;
+					n->dbname = $6;
+					n->username = $7;
+					$$ = (Node *)n;
+				}
+		;
+
+CleanConnDbName: 
+			FOR DATABASE database_name			{ $$ = $3; }
+			| FOR database_name					{ $$ = $2; }
+			| /* EMPTY */						{ $$ = NULL; }
+		;
+
+CleanConnUserName:
+			TO USER RoleId						{ $$ = $3; }
+			| TO RoleId							{ $$ = $2; }
+			| /* EMPTY */						{ $$ = NULL; }
+		;
+
+opt_force:
+			FORCE								{ $$ = TRUE; }
+			| /*EMPTY*/ 						{ $$ = FALSE; }
+		;
+
+/* ADB_END */
+
+/*****************************************************************************
+ *
+ *		QUERY:
  *				PREPARE <plan_name> [(args, ...)] AS <query>
  *
  *****************************************************************************/
@@ -9576,6 +10100,11 @@ ExecuteStmt: EXECUTE name execute_param_clause
 					ctas->is_select_into = false;
 					/* cram additional flags into the IntoClause */
 					$4->rel->relpersistence = $2;
+#ifdef PGXC
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("CREATE TABLE AS EXECUTE not yet supported")));
+#endif
 					$4->skipData = !($9);
 					$$ = (Node *) ctas;
 				}
@@ -10678,6 +11207,12 @@ table_ref:	relation_expr opt_alias_clause
 				}
 			| LATERAL_P select_with_parens opt_alias_clause
 				{
+#ifdef ADB
+					ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR)
+						,errmsg("lateral (select...) no support yet!")
+						,parser_errposition(@1)));
+#else /* ADB */
 					RangeSubselect *n = makeNode(RangeSubselect);
 					n->lateral = true;
 					n->subquery = $2;
@@ -10700,6 +11235,7 @@ table_ref:	relation_expr opt_alias_clause
 									 parser_errposition(@2)));
 					}
 					$$ = (Node *) n;
+#endif /* ADB */
 				}
 			| joined_table
 				{
@@ -12206,6 +12742,14 @@ c_expr:		columnref								{ $$ = $1; }
 				  g->location = @1;
 				  $$ = (Node *)g;
 			  }
+/* ADB_BEGIN */
+			| '.' ROW
+				{
+					RownumExpr *r = makeNode(RownumExpr);
+					r->location = @1;
+					$$ = (Node*)r;
+				}
+/* ADB_END */
 		;
 
 func_application: func_name '(' ')'
@@ -13733,6 +14277,7 @@ ColLabel:	IDENT									{ $$ = $1; }
 
 /* "Unreserved" keywords --- available for use as any kind of name.
  */
+/* PGXC add DISTRIBUTE, DIRECT, COORDINATOR, CLEAN, NODE, BARRIER */
 unreserved_keyword:
 			  ABORT_P
 			| ABSOLUTE_P
@@ -13750,6 +14295,9 @@ unreserved_keyword:
 			| AT
 			| ATTRIBUTE
 			| BACKWARD
+/* ADB_BEGIN */
+			| BARRIER
+/* ADB_END */
 			| BEFORE
 			| BEGIN_P
 			| BY
@@ -13762,6 +14310,9 @@ unreserved_keyword:
 			| CHARACTERISTICS
 			| CHECKPOINT
 			| CLASS
+/* ADB_BEGIN */
+			| CLEAN
+/* ADB_END */
 			| CLOSE
 			| CLUSTER
 			| COMMENT
@@ -13775,6 +14326,9 @@ unreserved_keyword:
 			| CONTENT_P
 			| CONTINUE_P
 			| CONVERSION_P
+/* ADB_BEGIN */
+			| COORDINATOR
+/* ADB_END */
 			| COPY
 			| COST
 			| CSV
@@ -13795,8 +14349,14 @@ unreserved_keyword:
 			| DELIMITERS
 			| DEPENDS
 			| DICTIONARY
+/* ADB_BEGIN */
+			| DIRECT
+/* ADB_END */
 			| DISABLE_P
 			| DISCARD
+/* ADB_BEGIN */
+			| DISTRIBUTE
+/* ADB_END */
 			| DOCUMENT_P
 			| DOMAIN_P
 			| DOUBLE_P
@@ -13876,6 +14436,9 @@ unreserved_keyword:
 			| NAMES
 			| NEXT
 			| NO
+/* ADB_BEGIN */
+			| NODE
+/* ADB_END */
 			| NOTHING
 			| NOTIFY
 			| NOWAIT
@@ -13900,6 +14463,9 @@ unreserved_keyword:
 			| PLANS
 			| POLICY
 			| PRECEDING
+/* ADB_BEGIN */
+			| PREFERRED
+/* ADB_END */
 			| PREPARE
 			| PREPARED
 			| PRESERVE
@@ -14001,6 +14567,9 @@ unreserved_keyword:
 			| WORK
 			| WRAPPER
 			| WRITE
+/* AGTM BEGIN */
+			| XID
+/* AGTM END */
 			| XML_P
 			| YEAR_P
 			| YES_P
