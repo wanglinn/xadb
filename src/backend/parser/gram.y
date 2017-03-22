@@ -10100,7 +10100,7 @@ ExecuteStmt: EXECUTE name execute_param_clause
 					ctas->is_select_into = false;
 					/* cram additional flags into the IntoClause */
 					$4->rel->relpersistence = $2;
-#ifdef PGXC
+#ifdef ADB
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							 errmsg("CREATE TABLE AS EXECUTE not yet supported")));
