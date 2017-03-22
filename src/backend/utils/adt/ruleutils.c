@@ -6628,6 +6628,11 @@ get_name_for_var_field(Var *var, int fieldno,
 				}
 			}
 			break;
+#ifdef ADB
+		case RTE_REMOTE_DUMMY:
+			elog(ERROR, "Invalid RTE found");
+			break;
+#endif /* ADB */
 	}
 
 	/*

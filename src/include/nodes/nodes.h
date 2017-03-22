@@ -6,6 +6,7 @@
  *
  * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * src/include/nodes/nodes.h
  *
@@ -83,6 +84,21 @@ typedef enum NodeTag
 	T_NestLoopParam,
 	T_PlanRowMark,
 	T_PlanInvalItem,
+#ifdef ADB
+	/*
+	 * TAGS FOR PGXC NODES
+	 * (planner.h, locator.h, nodemgr.h, groupmgr.h)
+	 */
+	T_ExecNodes,
+	T_SimpleSort,
+	T_RemoteQuery,
+	T_PGXCNodeHandle,
+	T_AlterNodeStmt,
+	T_CreateNodeStmt,
+	T_DropNodeStmt,
+	T_CreateGroupStmt,
+	T_DropGroupStmt,
+#endif
 
 	/*
 	 * TAGS FOR PLAN STATE NODES (execnodes.h)
@@ -127,6 +143,9 @@ typedef enum NodeTag
 	T_SetOpState,
 	T_LockRowsState,
 	T_LimitState,
+#ifdef ADB
+	T_RemoteQueryState,
+#endif
 
 	/*
 	 * TAGS FOR PRIMITIVE NODES (primnodes.h)
@@ -173,6 +192,10 @@ typedef enum NodeTag
 	T_CoerceToDomainValue,
 	T_SetToDefault,
 	T_CurrentOfExpr,
+#ifdef ADB
+	T_RownumExpr,
+	T_LevelExpr,
+#endif
 	T_InferenceElem,
 	T_TargetEntry,
 	T_RangeTblRef,
@@ -180,6 +203,10 @@ typedef enum NodeTag
 	T_FromExpr,
 	T_OnConflictExpr,
 	T_IntoClause,
+#ifdef ADB
+	T_DistributeBy,
+	T_PGXCSubCluster,
+#endif
 
 	/*
 	 * TAGS FOR EXPRESSION STATE NODES (execnodes.h)
@@ -215,6 +242,9 @@ typedef enum NodeTag
 	T_NullTestState,
 	T_CoerceToDomainState,
 	T_DomainConstraintState,
+#ifdef ADB
+	T_RownumExprState,
+#endif
 
 	/*
 	 * TAGS FOR PLANNER NODES (relation.h)
@@ -268,6 +298,9 @@ typedef enum NodeTag
 	T_PlaceHolderInfo,
 	T_MinMaxAggInfo,
 	T_PlannerParamItem,
+#ifdef ADB
+	T_RemoteQueryPath,
+#endif
 
 	/*
 	 * TAGS FOR MEMORY NODES (memnodes.h)
@@ -388,6 +421,10 @@ typedef enum NodeTag
 	T_CreateUserMappingStmt,
 	T_AlterUserMappingStmt,
 	T_DropUserMappingStmt,
+#ifdef ADB
+	T_ExecDirectStmt,
+	T_CleanConnStmt,
+#endif
 	T_AlterTableSpaceOptionsStmt,
 	T_AlterTableMoveAllStmt,
 	T_SecLabelStmt,
@@ -405,12 +442,19 @@ typedef enum NodeTag
 	T_AlterPolicyStmt,
 	T_CreateTransformStmt,
 	T_CreateAmStmt,
+#ifdef ADB
+	T_BarrierStmt,
+#endif
 
 	/*
 	 * TAGS FOR PARSE TREE NODES (parsenodes.h)
 	 */
 	T_A_Expr = 900,
 	T_ColumnRef,
+#ifdef ADB
+	T_ColumnRefJoin,
+	T_PriorExpr,
+#endif
 	T_ParamRef,
 	T_A_Const,
 	T_FuncCall,
@@ -481,6 +525,43 @@ typedef enum NodeTag
 	T_IndexAmRoutine,			/* in access/amapi.h */
 	T_TsmRoutine,				/* in access/tsmapi.h */
 	T_ForeignKeyCacheInfo		/* in utils/rel.h */
+#ifdef ADBMGRD
+	,T_MGR_NODE_START = 1000
+	,T_MGRAddHost = T_MGR_NODE_START
+	,T_MGRListHost
+	,T_MGRDropHost
+	,T_MGRAlterHost
+	,T_MGRAddGtm
+	,T_MGRAlterGtm
+	,T_MGRDropGtm
+	,T_MGRListGtm
+	,T_MGRListParm
+	,T_MGRAddNode	
+	,T_MGRAlterNode
+	,T_MGRDropNode
+	,T_MGRListNode
+	,T_MGRUpdateparm
+	,T_MGRUpdateparmReset
+	,T_MGRShowParam
+	,T_MGRStartAgent
+	,T_MGRFlushHost
+	,T_MonitorJobitemAdd
+	,T_MonitorJobitemAlter
+	,T_MonitorJobitemDrop
+	,T_MonitorJobAdd
+	,T_MonitorJobAlter
+	,T_MonitorJobDrop
+	,T_MgrExtensionAdd
+	,T_MgrExtensionDrop
+	,T_MgrRemoveNode
+	/*,T_MGRDrop
+	,T_MGRList
+	,T_MGRMonitor
+	,T_MGRStart
+	,T_MGRStop
+	,T_MGRRestart*/
+	,T_MGR_NODE_END
+#endif /* ADBMGRD */
 } NodeTag;
 
 /*
@@ -495,6 +576,10 @@ typedef struct Node
 } Node;
 
 #define nodeTag(nodeptr)		(((const Node*)(nodeptr))->type)
+
+#ifdef ADBMGRD
+#define IsMgrNode(nodeptr) (nodeTag(nodeptr) >= T_MGR_NODE_START && nodeTag(nodeptr) < T_MGR_NODE_END)
+#endif /* ADBMGRD */
 
 /*
  * newNode -
@@ -566,6 +651,19 @@ castNodeImpl(NodeTag type, void *ptr)
  *					  extern declarations follow
  * ----------------------------------------------------------------
  */
+
+#if defined(ADB) || defined(ADBMGRD) || defined(AGTM)
+/*
+ * nodes/outobject.c
+ */
+extern char *printObject(const void *obj);
+#endif
+#ifdef ADB
+/* nodes/saveload.c */
+struct StringInfoData;
+extern void saveNode(struct StringInfoData* buf, const Node *node);
+extern Node* loadNode(struct StringInfoData* buf);
+#endif /* ADB */
 
 /*
  * nodes/{outfuncs.c,print.c}

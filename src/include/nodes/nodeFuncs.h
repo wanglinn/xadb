@@ -5,6 +5,7 @@
  *
  * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * src/include/nodes/nodeFuncs.h
  *
@@ -76,5 +77,15 @@ extern bool raw_expression_tree_walker(Node *node, bool (*walker) (),
 struct PlanState;
 extern bool planstate_tree_walker(struct PlanState *planstate, bool (*walker) (),
 											  void *context);
+
+#ifdef ADB
+/* not support PlannerInfo and RelOptInfo */
+extern bool node_tree_walker(Node *node, bool (*walker)(), void *context);
+
+extern Node *node_tree_mutator(Node *node, Node *(*mutator)(), void *context);
+
+extern bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar);
+
+#endif /* ADB */
 
 #endif   /* NODEFUNCS_H */

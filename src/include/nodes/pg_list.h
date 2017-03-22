@@ -29,6 +29,7 @@
  *
  * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * src/include/nodes/pg_list.h
  *
@@ -208,6 +209,9 @@ extern Oid	list_nth_oid(const List *list, int n);
 extern bool list_member(const List *list, const void *datum);
 extern bool list_member_ptr(const List *list, const void *datum);
 extern bool list_member_int(const List *list, int datum);
+#ifdef ADB
+extern bool list_member_int_idx(const List *list, int datum, int* idx);
+#endif
 extern bool list_member_oid(const List *list, Oid datum);
 
 extern List *list_delete(List *list, void *datum);

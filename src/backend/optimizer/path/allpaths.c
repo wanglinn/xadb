@@ -606,6 +606,12 @@ set_rel_consider_parallel(PlannerInfo *root, RelOptInfo *rel,
 			break;
 
 		case RTE_CTE:
+#ifdef ADB
+		/*
+		 * ADBQ: Can not decide remote dummy work with parallel now.
+		 */
+		case RTE_REMOTE_DUMMY:
+#endif
 
 			/*
 			 * CTE tuplestores aren't shared among parallel workers, so we

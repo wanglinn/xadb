@@ -372,6 +372,11 @@ markTargetListOrigin(ParseState *pstate, TargetEntry *tle,
 				tle->resorigcol = ste->resorigcol;
 			}
 			break;
+#ifdef ADB
+		case RTE_REMOTE_DUMMY:
+			elog(ERROR, "Invalid RTE found");
+			break;
+#endif /* ADB */
 	}
 }
 
@@ -1546,6 +1551,11 @@ expandRecordVariable(ParseState *pstate, Var *var, int levelsup)
 				/* else fall through to inspect the expression */
 			}
 			break;
+#ifdef ADB
+			case RTE_REMOTE_DUMMY:
+				elog(ERROR, "Invalid RTE found");
+				break;
+#endif /* ADB */
 	}
 
 	/*

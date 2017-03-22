@@ -6,6 +6,7 @@
  *
  * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * src/include/nodes/plannodes.h
  *
@@ -197,6 +198,9 @@ typedef struct ModifyTable
 	Node	   *onConflictWhere;	/* WHERE for ON CONFLICT UPDATE */
 	Index		exclRelRTI;		/* RTI of the EXCLUDED pseudo relation */
 	List	   *exclRelTlist;	/* tlist of the EXCLUDED pseudo relation */
+#ifdef ADB	
+	List	   *remote_plans;	/* per-target-table remote node */
+#endif
 } ModifyTable;
 
 /* ----------------
@@ -677,6 +681,12 @@ typedef struct Sort
 	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
 	Oid		   *collations;		/* OIDs of collations */
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+#ifdef ADB
+	bool		srt_start_merge;/* No need to create the sorted runs. The
+								 * underlying plan provides those runs. Merge
+								 * them.
+								 */
+#endif /* ADB */
 } Sort;
 
 /* ---------------
@@ -720,6 +730,11 @@ typedef struct Agg
 	/* Note: planner provides numGroups & aggParams only in AGG_HASHED case */
 	List	   *groupingSets;	/* grouping sets to use */
 	List	   *chain;			/* chained Agg/Sort nodes */
+#ifdef ADB
+	bool		skip_trans; 	/* apply collection directly on the data received
+								 * from remote Datanodes
+								 */
+#endif /* ADB */
 } Agg;
 
 /* ----------------
