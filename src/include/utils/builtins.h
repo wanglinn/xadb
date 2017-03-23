@@ -960,7 +960,6 @@ extern Datum rowid_larger(PG_FUNCTION_ARGS);
 extern Datum rowid_smaller(PG_FUNCTION_ARGS);
 #endif
 
-
 /* inet_cidr_ntop.c */
 extern char *inet_cidr_ntop(int af, const void *src, int bits,
 			   char *dst, size_t size);

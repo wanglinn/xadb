@@ -355,6 +355,14 @@ DATA(insert OID = 75 (	pg_attribute	PGNSP PGUID -1 f c C f t \054 1249 0 0 recor
 DATA(insert OID = 81 (	pg_proc			PGNSP PGUID -1 f c C f t \054 1255 0 0 record_in record_out record_recv record_send - - - d x f 0 -1 0 0 _null_ _null_ _null_ ));
 DATA(insert OID = 83 (	pg_class		PGNSP PGUID -1 f c C f t \054 1259 0 0 record_in record_out record_recv record_send - - - d x f 0 -1 0 0 _null_ _null_ _null_ ));
 
+#ifdef ADB
+DATA(insert OID = 336 (	rid				PGNSP PGUID 10 f b U f t \054 0 0 337 rowid_in rowid_out rowid_recv rowid_send - - - s p f 0 -1 0 0 _null_ _null_ _null_ ));
+DESCR("physical location of tuple, like oracle's rowid");
+#define RIDOID		336
+DATA(insert OID = 337 ( _rid			PGNSP PGUID -1 f b A f t \054 0 336 0 array_in array_out array_recv array_send - - array_typanalyze i x f 0 -1 0 0 _null_ _null_ _null_ ));
+#define RIDARRAYOID	337
+#endif /* ADB */
+
 /* OIDS 100 - 199 */
 DATA(insert OID = 114 ( json		   PGNSP PGUID -1 f b U f t \054 0 0 199 json_in json_out json_recv json_send - - - i x f 0 -1 0 0 _null_ _null_ _null_ ));
 #define JSONOID 114
