@@ -14,6 +14,10 @@
 #ifndef ELOG_H
 #define ELOG_H
 
+#if defined(ADB) || defined(ADBMGRD) || defined(AGTM)
+#include "lib/stringinfo.h"
+#endif
+
 #include <setjmp.h>
 
 /* Error level codes */
@@ -128,6 +132,10 @@ extern bool errstart(int elevel, const char *filename, int lineno,
 		 const char *funcname, const char *domain);
 extern void errfinish(int dummy,...);
 
+#if defined(ADB) || defined(ADBMGRD) || defined(AGTM)
+extern void errdump(void);
+#endif
+
 extern int	errcode(int sqlerrcode);
 
 extern int	errcode_for_file_access(void);
@@ -152,6 +160,10 @@ extern int errdetail_plural(const char *fmt_singular, const char *fmt_plural,
 	unsigned long n,...) pg_attribute_printf(1, 4) pg_attribute_printf(2, 4);
 
 extern int	errhint(const char *fmt,...) pg_attribute_printf(1, 2);
+
+#ifdef ADB
+extern const struct ErrorData* err_current_data(void);
+#endif /* ADB */
 
 /*
  * errcontext() is typically called in error context callback functions, not
@@ -182,6 +194,15 @@ extern int	geterrcode(void);
 extern int	geterrposition(void);
 extern int	getinternalerrposition(void);
 
+#if defined(ADB) || defined(ADBMGRD) || defined(AGTM)
+extern void geterrmsg(StringInfo buf);
+#endif
+#ifdef ADB
+extern int errnode(const char *node);
+#define errnode_gtm()		errnode("agtm")
+#define errnode_poolmgr()	errnode("poolmgr")
+#define errnode_rxact()		errnode("rxact")
+#endif /* ADB */
 
 /*----------
  * Old-style error reporting API: to be used in this way:
@@ -303,6 +324,50 @@ extern PGDLLIMPORT ErrorContextCallback *error_context_stack;
 		error_context_stack = save_context_stack; \
 	} while (0)
 
+/*----------
+ * API for catching ereport(ERROR) exits.  Use these macros like so:
+ *
+ *		PG_TRY();
+ *		{
+ *			... code that might throw ereport(ERROR) ...
+ *		}
+ *		PG_CATCH();
+ *		{
+ *			... error recovery code ...
+ *			here maybe not call PG_RE_THROW()
+ *		}
+ *		PG_END_TRY();
+ */
+#if defined(ADB) || defined(ADBMGRD)
+#define PG_TRY_HOLD()														\
+	do {																	\
+		extern PGDLLIMPORT volatile uint32 InterruptHoldoffCount;			\
+		extern PGDLLIMPORT volatile uint32 QueryCancelHoldoffCount;			\
+		sigjmp_buf *save_exception_stack = PG_exception_stack;				\
+		ErrorContextCallback *save_context_stack = error_context_stack;		\
+		volatile uint32 save_InterruptHoldoffCount = InterruptHoldoffCount;	\
+		volatile uint32 save_QueryCancelHoldoffCount = QueryCancelHoldoffCount; \
+		sigjmp_buf local_sigjmp_buf;										\
+		if (sigsetjmp(local_sigjmp_buf, 0) == 0) 							\
+		{ 																	\
+			PG_exception_stack = &local_sigjmp_buf
+
+#define PG_CATCH_HOLD()														\
+		}																	\
+		else																\
+		{																	\
+			PG_exception_stack = save_exception_stack;						\
+			error_context_stack = save_context_stack
+
+#define PG_END_TRY_HOLD()													\
+			InterruptHoldoffCount = save_InterruptHoldoffCount;				\
+			QueryCancelHoldoffCount = save_QueryCancelHoldoffCount;			\
+		}																	\
+		PG_exception_stack = save_exception_stack;							\
+		error_context_stack = save_context_stack;							\
+	} while (0)
+#endif /* defined(ADB) || defined(ADBMGRD) */
+
 /*
  * Some compilers understand pg_attribute_noreturn(); for other compilers,
  * insert pg_unreachable() so that the compiler gets the point.
@@ -354,6 +419,9 @@ typedef struct ErrorData
 	int			cursorpos;		/* cursor index into query string */
 	int			internalpos;	/* cursor index into internalquery */
 	char	   *internalquery;	/* text of internally-generated query */
+#ifdef ADB
+	char	   *node_name;		/* error from node name */
+#endif /* ADB */
 	int			saved_errno;	/* errno at entry */
 
 	/* context containing associated non-constant strings */

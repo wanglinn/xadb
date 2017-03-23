@@ -111,6 +111,11 @@ struct PGPROC
 	 */
 	bool		recoveryConflictPending;
 
+#ifdef ADB
+	/* Postgres-XC flags */
+	bool		isPooler;		/* true if process is Postgres-XC pooler */
+#endif
+
 	/* Info about LWLock the process is currently waiting for, if any. */
 	bool		lwWaiting;		/* true if waiting for an LW lock */
 	uint8		lwWaitMode;		/* lwlock mode being waited for */

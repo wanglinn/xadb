@@ -26,10 +26,10 @@ typedef enum
 {
 	REMOTE_CONN_APP,
 	REMOTE_CONN_COORD,
-	REMOTE_CONN_DATANODE,
 #ifdef ADB
 	REMOTE_CONN_RXACTMGR,
 #endif
+	REMOTE_CONN_DATANODE
 } RemoteConnTypes;
 
 /* Determine remote connection type for a PGXC backend */

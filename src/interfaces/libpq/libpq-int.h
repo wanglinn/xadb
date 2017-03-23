@@ -292,6 +292,15 @@ typedef struct pgDataValue
 	const char *value;			/* data value, without zero-termination */
 } PGdataValue;
 
+#ifdef ADB
+typedef struct PGcustumFuns
+{
+	int (*getRowDesc)();
+	int (*getAnotherTuple)();
+	/* return -1 for unknown message, 0 for continue, 1 for error */
+	int (*getUnknownMsg)(PGconn *conn, char c, int msgLength);
+}PGcustumFuns;
+#endif /* ADB */
 /*
  * PGconn stores all the state data associated with a single connection
  * to a backend.
@@ -467,6 +476,12 @@ struct pg_conn
 
 	/* Buffer for receiving various parts of messages */
 	PQExpBufferData workBuffer; /* expansible string */
+#ifdef ADB
+	void *custom;				/* user custom data */
+	const PGcustumFuns *funs;	/* custom functions */
+	bool is_attached;
+	bool close_sock_on_end;		/* attached conn, close socket when error or finish */
+#endif /* ADB */
 };
 
 /* PGcancel stores all data necessary to cancel a connection. A copy of this
@@ -569,7 +584,9 @@ extern PGresult *pqFunctionCall2(PGconn *conn, Oid fnid,
 				int *result_buf, int *actual_result_len,
 				int result_is_int,
 				const PQArgBlock *args, int nargs);
-
+#ifdef ADB
+extern int pqSendAgtmListenPort(PGconn *conn, int port);
+#endif
 /* === in fe-protocol3.c === */
 
 extern char *pqBuildStartupPacket3(PGconn *conn, int *packetlen,

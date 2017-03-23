@@ -3762,3 +3762,46 @@ PQunescapeBytea(const unsigned char *strtext, size_t *retbuflen)
 	*retbuflen = buflen;
 	return tmpbuf;
 }
+
+#ifdef ADB
+int pqSendAgtmListenPort(PGconn *conn, int port)
+{
+	if (!PQexecStart(conn) || !PQsendQueryStart(conn))
+		return -1;
+
+	/* send 'L' message */
+	if(pqPutMsgStart('L', false, conn) < 0
+		|| pqPutInt(port, sizeof(int), conn) < 0
+		|| pqPutMsgEnd(conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return -1;
+	}
+
+	/* remember we are using simple query protocol */
+	conn->queryclass = PGQUERY_SIMPLE;
+
+	/* and free last query text */
+	if (conn->last_query)
+	{
+		free(conn->last_query);
+		conn->last_query = NULL;
+	}
+
+	/*
+	 * Give the data a push.  In nonblock mode, don't complain if we're unable
+	 * to send it all; PQgetResult() will do any additional flushing needed.
+	 */
+	if (pqFlush(conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return -1;
+	}
+
+	/* OK, it's launched! */
+	conn->asyncStatus = PGASYNC_BUSY;
+
+	return 0;
+}
+#endif
+

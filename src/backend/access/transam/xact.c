@@ -166,7 +166,14 @@ typedef enum TBlockState
  */
 typedef struct TransactionStateData
 {
+#ifdef ADB  /* ADB COORD */
+	/* my GXID, or Invalid if none */
+	GlobalTransactionId transactionId;
+	bool				isLocalParameterUsed;		/* Check if a local parameter is active
+    											     * in transaction block (SET LOCAL, DEFERRED) */
+#else
 	TransactionId transactionId;	/* my XID, or Invalid if none */
+#endif
 	SubTransactionId subTransactionId;	/* my subxact ID */
 	char	   *name;			/* savepoint name, if any */
 	int			savepointLevel; /* savepoint level */
@@ -196,7 +203,12 @@ typedef TransactionStateData *TransactionState;
  * transaction at all, or when in a top-level transaction.
  */
 static TransactionStateData TopTransactionStateData = {
+#ifdef ADB
+	0,							/* global transaction id */
+	false,						/* isLocalParameterUsed */
+#else
 	0,							/* transaction id */
+#endif
 	0,							/* subtransaction id */
 	NULL,						/* savepoint name */
 	0,							/* savepoint level */
@@ -432,6 +444,31 @@ GetCurrentTransactionIdIfAny(void)
 {
 	return CurrentTransactionState->transactionId;
 }
+
+#ifdef ADB
+/*
+ *	GetCurrentLocalParamStatus
+ *
+ * This will return if current sub xact is using local parameters
+ * that may involve pooler session related parameters (SET LOCAL).
+ */
+bool
+GetCurrentLocalParamStatus(void)
+{
+	return CurrentTransactionState->isLocalParameterUsed;
+}
+
+/*
+ *	SetCurrentLocalParamStatus
+ *
+ * This sets local parameter usage for current sub xact.
+ */
+void
+SetCurrentLocalParamStatus(bool status)
+{
+	CurrentTransactionState->isLocalParameterUsed = status;
+}
+#endif
 
 /*
  *	MarkCurrentTransactionIdLoggedIfAny

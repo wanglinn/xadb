@@ -313,6 +313,10 @@ extern TransactionId GetTopTransactionId(void);
 extern TransactionId GetTopTransactionIdIfAny(void);
 extern TransactionId GetCurrentTransactionId(void);
 extern TransactionId GetCurrentTransactionIdIfAny(void);
+#ifdef ADB  /* ADB COORD */
+extern bool GetCurrentLocalParamStatus(void);
+extern void SetCurrentLocalParamStatus(bool status);
+#endif
 extern TransactionId GetStableLatestTransactionId(void);
 extern SubTransactionId GetCurrentSubTransactionId(void);
 extern void MarkCurrentTransactionIdLoggedIfAny(void);

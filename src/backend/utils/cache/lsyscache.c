@@ -34,6 +34,9 @@
 #include "catalog/pg_statistic.h"
 #include "catalog/pg_transform.h"
 #include "catalog/pg_type.h"
+#ifdef ADB
+#include "catalog/pgxc_node.h"
+#endif
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "utils/array.h"
@@ -2283,6 +2286,45 @@ getBaseTypeAndTypmod(Oid typid, int32 *typmod)
 
 	return typid;
 }
+
+#ifdef ADB
+
+/*
+ * get_pgxc_nodeoid
+ *		Obtain PGXC Node Oid for given node name
+ *		Return Invalid Oid if object does not exist
+ */
+Oid
+get_pgxc_nodeoid(const char *nodename)
+{
+	return GetSysCacheOid1(PGXCNODENAME,
+						   PointerGetDatum(nodename));
+}
+
+/*
+ * get_pgxc_nodetype
+ *		Get node type for given Oid
+ */
+char
+get_pgxc_nodetype(Oid nodeid)
+{
+	HeapTuple		tuple;
+	Form_pgxc_node	nodeForm;
+	char			result;
+
+	tuple = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(nodeid));
+
+	if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for node %u", nodeid);
+
+	nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
+	result = nodeForm->node_type;
+	ReleaseSysCache(tuple);
+
+	return result;
+}
+
+#endif
 
 /*
  * get_typavgwidth
