@@ -25,7 +25,7 @@
 
 #ifdef BUILD_BKI
 #include "catalog/buildbki.h"
-#else /* BUILD_BKI */
+#elif !defined(BUILD_FMGRTAB)
 #include "catalog/genbki.h"
 #endif /* BUILD_BKI */
 

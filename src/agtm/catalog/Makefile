@@ -45,8 +45,8 @@ POSTGRES_BKI_SRCS = \
 	toasting.h indexing.h 
 
 $(POSTGRES_BKI_SRCS): % : $(top_srcdir)/src/include/catalog/%
-	echo rm -f $@.c && $(LN_S) $< $@.c
-	$(CPP) $(CFLAGS) $(CPPFLAGS) -DBUILD_BKI -o $@ $@.c
+	rm -f $@.c && $(LN_S) $< $@.c
+	$(CPP) -I$(top_srcdir)/src/include -DBUILD_BKI -DCATALOG_VARLEN -DADB -o $@ $@.c
 	rm -f $@.c
 
 # location of Catalog.pm

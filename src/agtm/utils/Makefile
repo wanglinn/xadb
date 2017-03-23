@@ -4,7 +4,7 @@
 # src/agtm/utils/Makefile
 #
 
-subdir = src/backend/utils
+subdir = src/agtm/utils
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
@@ -24,10 +24,11 @@ $(SUBDIRS:%=%-recursive): fmgroids.h
 fmgroids.h: fmgrtab.c ;
 
 fmgrtab.c: Gen_fmgrtab.pl $(catalogdir)/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.h
-	$(LN_S) $(top_srcdir)/src/include/catalog/pg_proc.h pg_proc.h.c
-	$(CPP) $(CFLAGS) $(CPPFLAGS) -o pg_proc.h pg_proc.h.c
-	$(PERL) -I $(catalogdir) $< $(top_srcdir)/src/include/catalog/pg_proc.h
 	rm -f pg_proc.h.c
+	$(LN_S) $(top_srcdir)/src/include/catalog/pg_proc.h pg_proc.h.c
+	$(CPP) -DBUILD_FMGRTAB -DCATALOG_VARLEN -DAGTM -o pg_proc.h pg_proc.h.c
+	$(PERL) -I $(catalogdir) $< pg_proc.h
+	rm -f pg_proc.h
 
 ifneq ($(enable_dtrace), yes)
 probes.h: Gen_dummy_probes.sed
@@ -39,7 +40,7 @@ ifeq ($(enable_dtrace), yes)
 	sed -e 's/POSTGRESQL_/TRACE_POSTGRESQL_/g' $@.tmp >$@
 	rm $@.tmp
 else
-	sed -f $(srcdir)/Gen_dummy_probes.sed $< >$@
+	sed -f $(backend_src_dir)/$(cur_dir)/Gen_dummy_probes.sed $< >$@
 endif
 
 
