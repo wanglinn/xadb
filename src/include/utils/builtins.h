@@ -163,6 +163,10 @@ extern Datum binary_encode(PG_FUNCTION_ARGS);
 extern Datum binary_decode(PG_FUNCTION_ARGS);
 extern unsigned hex_encode(const char *src, unsigned len, char *dst);
 extern unsigned hex_decode(const char *src, unsigned len, char *dst);
+#ifdef ADB
+extern unsigned b64_encode(const char *src, unsigned len, char *dst);
+extern unsigned b64_decode(const char *src, unsigned len, char *dst);
+#endif
 
 /* enum.c */
 extern Datum enum_in(PG_FUNCTION_ARGS);
@@ -939,6 +943,23 @@ extern Datum translate(PG_FUNCTION_ARGS);
 extern Datum chr (PG_FUNCTION_ARGS);
 extern Datum repeat(PG_FUNCTION_ARGS);
 extern Datum ascii(PG_FUNCTION_ARGS);
+
+#ifdef ADB
+/* rowid.c */
+extern Datum rowid_in(PG_FUNCTION_ARGS);
+extern Datum rowid_out(PG_FUNCTION_ARGS);
+extern Datum rowid_recv(PG_FUNCTION_ARGS);
+extern Datum rowid_send(PG_FUNCTION_ARGS);
+extern Datum rowid_eq(PG_FUNCTION_ARGS);
+extern Datum rowid_ne(PG_FUNCTION_ARGS);
+extern Datum rowid_lt(PG_FUNCTION_ARGS);
+extern Datum rowid_le(PG_FUNCTION_ARGS);
+extern Datum rowid_gt(PG_FUNCTION_ARGS);
+extern Datum rowid_ge(PG_FUNCTION_ARGS);
+extern Datum rowid_larger(PG_FUNCTION_ARGS);
+extern Datum rowid_smaller(PG_FUNCTION_ARGS);
+#endif
+
 
 /* inet_cidr_ntop.c */
 extern char *inet_cidr_ntop(int af, const void *src, int bits,
