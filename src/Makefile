@@ -16,7 +16,7 @@ SUBDIRS = \
 	common \
 	port \
 	timezone \
-	agtm backend \
+	agtm adbmgrd backend \
 	backend/utils/mb/conversion_procs \
 	backend/snowball \
 	include \
