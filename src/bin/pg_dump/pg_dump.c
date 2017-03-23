@@ -15998,6 +15998,10 @@ getAttrName(int attrnum, TableInfo *tblInfo)
 			return "cmax";
 		case TableOidAttributeNumber:
 			return "tableoid";
+#ifdef ADB
+		case XC_NodeIdAttributeNumber:
+			return "xc_node_id";
+#endif
 	}
 	exit_horribly(NULL, "invalid column number %d for table \"%s\"\n",
 				  attrnum, tblInfo->dobj.name);

@@ -315,6 +315,11 @@ heap_attisnull(HeapTuple tup, int attnum)
 		case MinCommandIdAttributeNumber:
 		case MaxTransactionIdAttributeNumber:
 		case MaxCommandIdAttributeNumber:
+#ifdef ADB
+		case XC_NodeIdAttributeNumber:
+		case ADB_RowIdAttributeNumber:
+		case ADB_InfoMaskAttributeNumber:
+#endif
 			/* these are never null */
 			break;
 
@@ -587,6 +592,17 @@ heap_getsysattr(HeapTuple tup, int attnum, TupleDesc tupleDesc, bool *isnull)
 		case TableOidAttributeNumber:
 			result = ObjectIdGetDatum(tup->t_tableOid);
 			break;
+#ifdef ADB
+		case XC_NodeIdAttributeNumber:
+			result = UInt32GetDatum(tup->t_xc_node_id);
+			break;
+		case ADB_RowIdAttributeNumber:
+			result = rowid_make(tup->t_xc_node_id, &tup->t_self);
+			break;
+		case ADB_InfoMaskAttributeNumber:
+			result = DatumGetUInt16(tup->t_data->t_infomask);
+			break;
+#endif
 		default:
 			elog(ERROR, "invalid attnum: %d", attnum);
 			result = 0;			/* keep compiler quiet */

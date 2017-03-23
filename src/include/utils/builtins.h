@@ -1353,6 +1353,9 @@ extern Datum pg_cursor(PG_FUNCTION_ARGS);
 /* backend/pgxc/pool/poolutils.c */
 extern Datum pgxc_pool_check(PG_FUNCTION_ARGS);
 extern Datum pgxc_pool_reload(PG_FUNCTION_ARGS);
+
+/* src/backend/catalog/heap.c */
+extern Datum pg_explain_infomask(PG_FUNCTION_ARGS);
 #endif
 
 #endif   /* BUILTINS_H */

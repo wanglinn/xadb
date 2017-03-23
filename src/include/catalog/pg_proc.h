@@ -5330,6 +5330,27 @@ DESCR("pg_controldata recovery state information as a function");
 DATA(insert OID = 3444 ( pg_control_init PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 2249 "" "{23,23,23,23,23,23,23,23,23,16,16,16,23}" "{o,o,o,o,o,o,o,o,o,o,o,o,o}" "{max_data_alignment,database_block_size,blocks_per_segment,wal_block_size,bytes_per_wal_segment,max_identifier_length,max_index_columns,max_toast_chunk_size,large_object_chunk_size,bigint_timestamps,float4_pass_by_value,float8_pass_by_value,data_page_checksum_version}" _null_ _null_ pg_control_init _null_ _null_ _null_ ));
 DESCR("pg_controldata init state information as a function");
 
+#ifdef ADB
+/* rowid builtin functions */
+DATA(insert OID = 3343 (  rowid_in			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 336 "2275" _null_ _null_ _null_ _null_ _null_ rowid_in _null_ _null_ _null_ ));
+DATA(insert OID = 3344 (  rowid_out			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 2275 "336" _null_ _null_ _null_ _null_ _null_ rowid_out _null_ _null_ _null_ ));
+DATA(insert OID = 3345 (  rowid_recv		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 336 "2281" _null_ _null_ _null_ _null_ _null_ rowid_recv _null_ _null_ _null_ ));
+DATA(insert OID = 3346 (  rowid_send		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 17 "336" _null_ _null_ _null_ _null_ _null_ rowid_send _null_ _null_ _null_ ));
+DATA(insert OID = 3347 (  rowid_eq			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 16 "336 336" _null_ _null_ _null_ _null_ _null_ rowid_eq _null_ _null_ _null_ ));
+DATA(insert OID = 3348 (  rowid_ne			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 16 "336 336" _null_ _null_ _null_ _null_ _null_ rowid_ne _null_ _null_ _null_ ));
+DATA(insert OID = 3349 (  rowid_lt			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 16 "336 336" _null_ _null_ _null_ _null_ _null_ rowid_lt _null_ _null_ _null_ ));
+DATA(insert OID = 3350 (  rowid_le			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 16 "336 336" _null_ _null_ _null_ _null_ _null_ rowid_le _null_ _null_ _null_ ));
+DATA(insert OID = 3351 (  rowid_gt			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 16 "336 336" _null_ _null_ _null_ _null_ _null_ rowid_gt _null_ _null_ _null_ ));
+DATA(insert OID = 3352 (  rowid_ge			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 16 "336 336" _null_ _null_ _null_ _null_ _null_ rowid_ge _null_ _null_ _null_ ));
+DATA(insert OID = 3353 (  rowid_larger		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 336 "336 336" _null_ _null_ _null_ _null_ _null_ rowid_larger _null_ _null_ _null_ ));
+DESCR("larger of two");
+DATA(insert OID = 3354 (  rowid_smaller		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 336 "336 336" _null_ _null_ _null_ _null_ _null_ rowid_smaller _null_ _null_ _null_ ));
+DESCR("smaller of two");
+
+DATA(insert OID = 3355 ( pg_explain_infomask	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 25 "23" _null_ _null_ _null_ _null_ _null_ pg_explain_infomask _null_ _null_ _null_ ));
+DESCR("explain infomask of each heap tuple");
+#endif
+
 /*
  * Symbolic values for provolatile column: these indicate whether the result
  * of a function is dependent *only* on the values of its explicit arguments,

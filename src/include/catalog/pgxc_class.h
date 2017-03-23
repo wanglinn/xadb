@@ -24,11 +24,13 @@ CATALOG(pgxc_class,9001) BKI_WITHOUT_OIDS
 	int16		pcattnum;			/* Column number of distribution */
 	int16		pchashalgorithm;	/* Hashing algorithm */
 	int16		pchashbuckets;		/* Number of buckets */
+	Oid			pcfuncid;			/* User-defined distribution function oid */
 
 	/* VARIABLE LENGTH FIELDS: */
+#ifdef CATALOG_VARLEN			/* variable-length fields start here */
 	oidvector	nodeoids;			/* List of nodes used by table */
-	Oid			pcfuncid;			/* User-defined distribution function oid */
 	int2vector	pcfuncattnums;		/* List of column number of distribution */
+#endif
 } FormData_pgxc_class;
 
 typedef FormData_pgxc_class *Form_pgxc_class;
@@ -40,8 +42,8 @@ typedef FormData_pgxc_class *Form_pgxc_class;
 #define Anum_pgxc_class_pcattnum			3
 #define Anum_pgxc_class_pchashalgorithm		4
 #define Anum_pgxc_class_pchashbuckets		5
-#define Anum_pgxc_class_nodes				6
-#define Anum_pgxc_class_pcfuncid			7
+#define Anum_pgxc_class_pcfuncid			6
+#define Anum_pgxc_class_nodes				7
 #define Anum_pgxc_class_pcfuncattnums		8
 
 typedef enum PgxcClassAlterType

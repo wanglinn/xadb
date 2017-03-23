@@ -184,7 +184,36 @@ static FormData_pg_attribute a7 = {
 	true, 'p', 'i', true, false, false, true, 0
 };
 
+#ifdef ADB
+/*
+ * In XC we need some sort of node identification for each tuple
+ * We are adding another system column that would serve as node identifier.
+ * This is not only required by WHERE CURRENT OF but it can be used any
+ * where we want to know the originating Datanode of a tuple received
+ * at the Coordinator
+ */
+static FormData_pg_attribute a8 = {
+	0, {"xc_node_id"}, INT4OID, 0, sizeof(int32),
+	XC_NodeIdAttributeNumber, 0, -1, -1,
+	true, 'p', 'i', true, false, false, true, 0
+};
+
+static FormData_pg_attribute a9 = {
+	0, {"rowid"}, RIDOID, 0, 10,
+	ADB_RowIdAttributeNumber, 0, -1, -1,
+	false, 'p', 'i', true, false, false, true, 0
+};
+
+static FormData_pg_attribute a10 = {
+	0, {"infomask"}, INT2OID, 0, sizeof(int16),
+	ADB_InfoMaskAttributeNumber, 0, -1, -1,
+	true, 'p', 'i', true, false, false, true, 0
+};
+
+static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7, &a8, &a9, &a10};
+#else
 static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7};
+#endif
 
 /*
  * This function returns a Form_pg_attribute pointer for a system attribute.
@@ -3024,3 +3053,51 @@ insert_ordered_unique_oid(List *list, Oid datum)
 	lappend_cell_oid(list, prev, datum);
 	return list;
 }
+
+#ifdef ADB
+Datum pg_explain_infomask(PG_FUNCTION_ARGS)
+{
+	uint16			infomask;
+	StringInfoData	buf;
+	text*			result;
+
+	if (PG_ARGISNULL(0))
+		PG_RETURN_NULL();
+
+	infomask = PG_GETARG_UINT16(0);
+	initStringInfo(&buf);
+
+#define EXPLAIN_INFO(him)	\
+	if (infomask & (him))	\
+		appendStringInfoString(&buf, #him" | ")
+
+	EXPLAIN_INFO(HEAP_HASNULL);
+	EXPLAIN_INFO(HEAP_HASVARWIDTH);
+	EXPLAIN_INFO(HEAP_HASEXTERNAL);
+	EXPLAIN_INFO(HEAP_HASOID);
+	EXPLAIN_INFO(HEAP_XMAX_KEYSHR_LOCK);
+	EXPLAIN_INFO(HEAP_COMBOCID);
+	EXPLAIN_INFO(HEAP_XMAX_EXCL_LOCK);
+	EXPLAIN_INFO(HEAP_XMAX_LOCK_ONLY);
+	EXPLAIN_INFO(HEAP_XMIN_COMMITTED);
+	EXPLAIN_INFO(HEAP_XMIN_INVALID);
+	EXPLAIN_INFO(HEAP_XMAX_COMMITTED);
+	EXPLAIN_INFO(HEAP_XMAX_INVALID);
+	EXPLAIN_INFO(HEAP_XMAX_IS_MULTI);
+	EXPLAIN_INFO(HEAP_UPDATED);
+	EXPLAIN_INFO(HEAP_MOVED_OFF);
+	EXPLAIN_INFO(HEAP_MOVED_IN);
+
+#undef EXPLAIN_INFO
+
+	if (buf.len == 0)
+		PG_RETURN_NULL();
+
+	/* trim the last " | " */
+	buf.data[buf.len - 3] = '\0';
+	result = cstring_to_text(buf.data);
+	pfree(buf.data);
+
+	PG_RETURN_TEXT_P(result);
+}
+#endif

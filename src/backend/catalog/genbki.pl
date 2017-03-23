@@ -248,10 +248,21 @@ foreach my $catname (@{ $catalogs->{names} })
 					{ name => 'cmin',     type => 'cid' },
 					{ name => 'xmax',     type => 'xid' },
 					{ name => 'cmax',     type => 'cid' },
-					{ name => 'tableoid', type => 'oid' });
+					{ name => 'tableoid', type => 'oid' }
+# ADB_BEGIN
+					, { name => 'xc_node_id', type => 'int4' }
+					, { name => 'rowid', type => 'rid' }
+					, { name => 'infomask', type => 'int4' }
+# ADB_END
+					);
 				foreach my $attr (@SYS_ATTRS)
 				{
 					$attnum--;
+# ADB_BEGIN
+					# rowid is generated dynamically, so skip it.
+					my ($tmpkey, $tmpvalue) = %$attr;
+					next if $tmpvalue eq 'rowid';
+# ADB_END
 					my $row = emit_pgattr_row($table_name, $attr, 1);
 					$row->{attnum}        = $attnum;
 					$row->{attstattarget} = '0';

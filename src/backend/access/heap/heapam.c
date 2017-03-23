@@ -4304,6 +4304,9 @@ heap_tuple_attr_equals(TupleDesc tupdesc, int attrnum,
 	if (attrnum < 0)
 	{
 		if (attrnum != ObjectIdAttributeNumber &&
+#ifdef ADB
+			attrnum != XC_NodeIdAttributeNumber &&
+#endif
 			attrnum != TableOidAttributeNumber)
 			return false;
 	}

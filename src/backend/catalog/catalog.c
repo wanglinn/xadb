@@ -43,7 +43,10 @@
 #include "utils/fmgroids.h"
 #include "utils/rel.h"
 #include "utils/tqual.h"
-
+#ifdef ADB
+#include "catalog/pgxc_node.h"
+#include "catalog/pgxc_group.h"
+#endif
 
 /*
  * IsSystemRelation
@@ -226,6 +229,10 @@ IsSharedRelation(Oid relationId)
 		relationId == SharedDependRelationId ||
 		relationId == SharedSecLabelRelationId ||
 		relationId == TableSpaceRelationId ||
+#ifdef ADB
+		relationId == PgxcGroupRelationId ||
+		relationId == PgxcNodeRelationId ||
+#endif
 		relationId == DbRoleSettingRelationId ||
 		relationId == ReplicationOriginRelationId)
 		return true;
@@ -243,6 +250,13 @@ IsSharedRelation(Oid relationId)
 		relationId == SharedSecLabelObjectIndexId ||
 		relationId == TablespaceOidIndexId ||
 		relationId == TablespaceNameIndexId ||
+#ifdef ADB
+		relationId == PgxcNodeNodeNameIndexId ||
+		relationId == PgxcNodeNodeIdIndexId ||
+		relationId == PgxcNodeOidIndexId ||
+		relationId == PgxcGroupGroupNameIndexId ||
+		relationId == PgxcGroupOidIndexId ||
+#endif
 		relationId == DbRoleSettingDatidRolidIndexId ||
 		relationId == ReplicationOriginIdentIndex ||
 		relationId == ReplicationOriginNameIndex)
