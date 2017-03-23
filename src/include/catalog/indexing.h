@@ -45,9 +45,11 @@ extern void CatalogUpdateIndexes(Relation heapRel, HeapTuple heapTuple);
  * These macros are just to keep the C compiler from spitting up on the
  * upcoming commands for genbki.pl.
  */
+#ifndef BUILD_BKI
 #define DECLARE_INDEX(name,oid,decl) extern int no_such_variable
 #define DECLARE_UNIQUE_INDEX(name,oid,decl) extern int no_such_variable
 #define BUILD_INDICES
+#endif /* BUILD_BKI */
 
 
 /*
