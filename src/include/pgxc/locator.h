@@ -4,7 +4,7 @@
  *		Externally declared locator functions
  *
  *
- * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
+ * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
  * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * src/include/pgxc/locator.h

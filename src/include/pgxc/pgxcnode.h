@@ -5,8 +5,8 @@
  *	  Utility functions to communicate to Datanodes and Coordinators
  *
  *
- * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group ?
- * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
+ * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
  *
  * src/include/pgxc/pgxcnode.h
  *
