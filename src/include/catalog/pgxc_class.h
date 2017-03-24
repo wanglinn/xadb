@@ -26,8 +26,8 @@ CATALOG(pgxc_class,9001) BKI_WITHOUT_OIDS
 	int16		pchashbuckets;		/* Number of buckets */
 	Oid			pcfuncid;			/* User-defined distribution function oid */
 
-#ifdef CATALOG_VARLEN				/* variable-length fields start here */
 	oidvector	nodeoids;			/* List of nodes used by table */
+#ifdef CATALOG_VARLEN
 	int2vector	pcfuncattnums;		/* List of column number of distribution */
 #endif
 } FormData_pgxc_class;

@@ -3513,23 +3513,18 @@ int
 get_pgxc_classnodes(Oid tableid, Oid **nodes)
 {
 	HeapTuple		tuple;
-	int				numnodes;
-	bool			isNull;
-	Datum			nodeDatum;
-	oidvector	   *nodeVector;
+	Form_pgxc_class		classForm;
+	int			numnodes;
 
 	tuple = SearchSysCache1(PGXCCLASSRELID, ObjectIdGetDatum(tableid));
-	if (!HeapTupleIsValid(tuple))
-		elog(ERROR, "cache lookup failed for relation %u", tableid);
 
-	nodeDatum = SysCacheGetAttr(PGXCCLASSRELID, tuple,
-								Anum_pgxc_class_nodes,
-								&isNull);
-	Assert(!isNull);
-	nodeVector = (oidvector *) DatumGetPointer(nodeDatum);
-	numnodes = nodeVector->dim1;
-	if (nodes)
-		memcpy(*nodes, nodeVector->values, numnodes * sizeof(Oid));
+	if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for relation %u", tableid);
+
+	classForm = (Form_pgxc_class) GETSTRUCT(tuple);
+	numnodes = (int) classForm->nodeoids.dim1;
+	*nodes = (Oid *) palloc(numnodes * sizeof(Oid));
+	memcpy(*nodes, classForm->nodeoids.values, numnodes * sizeof(Oid));
 
 	ReleaseSysCache(tuple);
 	return numnodes;
