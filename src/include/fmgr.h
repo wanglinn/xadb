@@ -547,6 +547,10 @@ extern Datum OidFunctionCall9Coll(Oid functionId, Oid collation,
 					 Datum arg3, Datum arg4, Datum arg5,
 					 Datum arg6, Datum arg7, Datum arg8,
 					 Datum arg9);
+#ifdef ADB
+extern Datum OidFunctionCallNColl(Oid functionId, Oid collation, int nelems,
+					 Datum *values, bool* nulls);
+#endif
 
 /* These macros allow the collation argument to be omitted (with a default of
  * InvalidOid, ie, no collation).  They exist mostly for backwards

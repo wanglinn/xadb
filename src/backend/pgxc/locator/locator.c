@@ -536,9 +536,8 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 				
 				if (!isValueNull)
 				{
-					hashValue = 0;
-					//hashValue = compute_hash(dist_col_types[0], dist_col_values[0],
-					//						 rel_loc_info->locatorType);
+					hashValue = compute_hash(dist_col_types[0], dist_col_values[0],
+											 rel_loc_info->locatorType);
 					modulo = compute_modulo(labs(hashValue), list_length(rel_loc_info->nodeList));
 					nodeIndex = get_node_from_modulo(modulo, rel_loc_info->nodeList);
 					exec_nodes->nodeList = list_make1_int(nodeIndex);
@@ -601,13 +600,10 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 											  dist_col_values,
 											  dist_col_nulls,
 											  dist_col_types);
-					/*
 					result = OidFunctionCallN(rel_loc_info->funcid,
 											  nelems,
 											  dist_col_values,
 											  dist_col_nulls);
-					*/
-					result = (Datum)NULL;
 					modulo = compute_modulo(labs((long)result), list_length(rel_loc_info->nodeList));
 					nodeIndex = get_node_from_modulo(modulo, rel_loc_info->nodeList);
 					exec_nodes->nodeList = list_make1_int(nodeIndex);

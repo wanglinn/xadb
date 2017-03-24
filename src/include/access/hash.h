@@ -370,4 +370,9 @@ extern void hash_redo(XLogReaderState *record);
 extern void hash_desc(StringInfo buf, XLogReaderState *record);
 extern const char *hash_identify(uint8 info);
 
+#ifdef ADB
+extern Datum compute_hash(Oid type, Datum value, char locator);
+extern char *get_compute_hash_function(Oid type, char locator);
+#endif
+
 #endif   /* HASH_H */
