@@ -1,6 +1,6 @@
 /*-----------------------------------------------------------
  *
- * Copyright (c) 2010-2013 Postgres-XC Development Group
+ * Portions Copyright (c) 2010-2013, Postgres-XC Development Group
  * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  *-----------------------------------------------------------
@@ -26,8 +26,7 @@ CATALOG(pgxc_class,9001) BKI_WITHOUT_OIDS
 	int16		pchashbuckets;		/* Number of buckets */
 	Oid			pcfuncid;			/* User-defined distribution function oid */
 
-	/* VARIABLE LENGTH FIELDS: */
-#ifdef CATALOG_VARLEN			/* variable-length fields start here */
+#ifdef CATALOG_VARLEN				/* variable-length fields start here */
 	oidvector	nodeoids;			/* List of nodes used by table */
 	int2vector	pcfuncattnums;		/* List of column number of distribution */
 #endif

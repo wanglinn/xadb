@@ -103,6 +103,10 @@
  */
 #define REALTYPE_PRECISION 17
 
+#ifdef ADB
+bool distribute_by_replication_default;
+#endif
+
 /* XXX these should appear in other modules' header files */
 extern bool Log_disconnections;
 extern int	CommitDelay;
@@ -1656,6 +1660,18 @@ static struct config_bool ConfigureNamesBool[] =
 		true,
 		NULL, NULL, NULL
 	},
+
+#ifdef ADB
+	{
+		{"distribute_by_replication_default", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Set distribute by replication default."),
+			NULL
+		},
+		&distribute_by_replication_default,
+		false,
+		NULL, NULL, NULL
+	},
+#endif
 
 	/* End-of-list marker */
 	{

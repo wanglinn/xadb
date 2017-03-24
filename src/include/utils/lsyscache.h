@@ -170,4 +170,28 @@ extern Oid	get_range_subtype(Oid rangeOid);
 
 #define TypeIsToastable(typid)	(get_typstorage(typid) != 'p')
 
+#ifdef ADB
+extern int get_relnatts(Oid relid);
+extern char *get_current_schema(void);
+extern Oid get_namespaceid(const char *nspname);
+extern Oid get_typ_namespace(Oid typid);
+extern Oid get_typname_typid(const char *typname, Oid typnamespace);
+extern Oid get_funcid(const char *funcname, oidvector *argtypes, Oid funcnsp);
+extern Oid get_opnamespace(Oid opno);
+extern Oid get_operid(const char *oprname, Oid oprleft, Oid oprright, Oid oprnsp);
+extern char *get_typename(Oid typid);
+extern char *get_pgxc_nodename(Oid nodeoid);
+extern Oid get_pgxc_nodeoid(const char *nodename);
+extern uint32 get_pgxc_node_id(Oid nodeid);
+extern char get_pgxc_nodetype(Oid nodeid);
+extern int get_pgxc_nodeport(Oid nodeid);
+extern char *get_pgxc_nodehost(Oid nodeid);
+extern void get_pgxc_nodeinfo(Oid nodeid, char **nodehost, int *nodeport);
+extern bool is_pgxc_nodepreferred(Oid nodeid);
+extern bool is_pgxc_nodeprimary(Oid nodeid);
+extern Oid get_pgxc_groupoid(const char *groupname);
+extern int get_pgxc_groupmembers(Oid groupid, Oid **members);
+extern int get_pgxc_classnodes(Oid tableid, Oid **nodes);
+#endif
+
 #endif   /* LSYSCACHE_H */
