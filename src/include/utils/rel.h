@@ -20,6 +20,9 @@
 #include "catalog/pg_index.h"
 #include "fmgr.h"
 #include "nodes/bitmapset.h"
+#ifdef ADB
+#include "pgxc/locator.h"
+#endif
 #include "rewrite/prs2lock.h"
 #include "storage/block.h"
 #include "storage/relfilenode.h"
@@ -172,6 +175,9 @@ typedef struct RelationData
 
 	/* use "struct" here to avoid needing to include pgstat.h: */
 	struct PgStat_TableStatus *pgstat_info;		/* statistics collection area */
+#ifdef ADB
+	RelationLocInfo *rd_locator_info;
+#endif
 } RelationData;
 
 

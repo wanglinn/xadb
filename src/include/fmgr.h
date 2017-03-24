@@ -608,6 +608,10 @@ extern Datum OidFunctionCall9Coll(Oid functionId, Oid collation,
 	OidFunctionCall8Coll(functionId, InvalidOid, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
 #define OidFunctionCall9(functionId, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) \
 	OidFunctionCall9Coll(functionId, InvalidOid, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
+#ifdef ADB
+#define OidFunctionCallN(functionId, nelems, values, nulls) \
+		OidFunctionCallNColl(functionId, InvalidOid, nelems, values, nulls)
+#endif
 
 
 /* Special cases for convenient invocation of datatype I/O functions. */
