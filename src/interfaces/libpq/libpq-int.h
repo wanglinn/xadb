@@ -20,8 +20,14 @@
 #ifndef LIBPQ_INT_H
 #define LIBPQ_INT_H
 
+/* agtm_client.c include libpq-int.h to use PQexecFinish,
+ * that lead to error : "may not be included from frontend code" 
+ * so if 0 this code */
+#if 0
 /* We assume libpq-fe.h has already been included. */
 #include "postgres_fe.h"
+#endif
+
 #include "libpq-events.h"
 
 #include <time.h>
@@ -568,7 +574,10 @@ extern void pqSaveParameterStatus(PGconn *conn, const char *name,
 					  const char *value);
 extern int	pqRowProcessor(PGconn *conn, const char **errmsgp);
 extern void pqHandleSendFailure(PGconn *conn);
-
+#ifdef ADB
+extern bool PQsendQueryStart(PGconn *conn);
+PGresult *PQexecFinish(PGconn *conn);
+#endif
 /* === in fe-protocol2.c === */
 
 extern PostgresPollingStatusType pqSetenvPoll(PGconn *conn);

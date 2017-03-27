@@ -107,6 +107,9 @@
 #include "miscadmin.h"
 #include "pg_getopt.h"
 #include "pgstat.h"
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgworker_internals.h"
 #include "postmaster/fork_process.h"
@@ -370,6 +373,9 @@ static struct timeval random_start_time;
 static DNSServiceRef bonjour_sdref = NULL;
 #endif
 
+#ifdef ADB
+char			*PGXCNodeName = NULL;
+#endif 
 /*
  * postmaster.c - function prototypes
  */
@@ -528,6 +534,13 @@ static bool save_backend_variables(BackendParameters *param, Port *port,
 static void ShmemBackendArrayAdd(Backend *bn);
 static void ShmemBackendArrayRemove(Backend *bn);
 #endif   /* EXEC_BACKEND */
+
+#ifdef ADB
+bool isPGXCCoordinator = false;
+bool isPGXCDataNode = false;
+
+int remoteConnType = REMOTE_CONN_APP;
+#endif /* ADB */
 
 #define StartupDataBase()		StartChildProcess(StartupProcess)
 #define StartBackgroundWriter() StartChildProcess(BgWriterProcess)

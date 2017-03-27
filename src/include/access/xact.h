@@ -322,6 +322,12 @@ extern SubTransactionId GetCurrentSubTransactionId(void);
 extern void MarkCurrentTransactionIdLoggedIfAny(void);
 extern bool SubTransactionIsActive(SubTransactionId subxid);
 extern CommandId GetCurrentCommandId(bool used);
+#ifdef ADB
+extern void SetTopXactBeginAGTM(bool status);
+extern bool TopXactBeginAGTM(void);
+
+extern void SetCurrentTransactionStartTimestamp(TimestampTz timestamp);
+#endif
 extern TimestampTz GetCurrentTransactionStartTimestamp(void);
 extern TimestampTz GetCurrentStatementStartTimestamp(void);
 extern TimestampTz GetCurrentTransactionStopTimestamp(void);

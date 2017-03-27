@@ -107,6 +107,10 @@ enum SysCacheIdentifier
 	TYPEOID,
 	USERMAPPINGOID,
 	USERMAPPINGUSERSERVER
+#ifdef AGTM
+	,AGTMSEQUENCEOID
+	,AGTMSEQUENCEFIELDS
+#endif
 };
 
 extern void InitCatalogCache(void);

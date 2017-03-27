@@ -26,6 +26,13 @@
 #include "storage/proc.h"
 #include "utils/syscache.h"
 
+#ifdef ADB
+#include "agtm/agtm.h"
+#include "pgxc/pgxc.h"
+
+/* Global xid force from AGTM to obtain  */
+static bool ForceObtainXidFromAGTM = false;
+#endif /* ADB */
 
 /* Number of OIDs to prefetch (preallocate) per XLOG write */
 #define VAR_OID_PREFETCH		8192
@@ -33,6 +40,41 @@
 /* pointer to "variable cache" in shared memory (set up by shmem.c) */
 VariableCache ShmemVariableCache = NULL;
 
+#if defined(AGTM)
+/*
+ * AdjustTransactionId
+ *
+ * make sure next xid from AGTM is bigger than the caller's.
+ */
+void
+AdjustTransactionId(TransactionId least_xid)
+{
+	LWLockAcquire(XidGenLock, LW_SHARED);
+	elog(DEBUG1,
+		"AGTM adjust next xid from %u to %u",
+		ShmemVariableCache->nextXid, least_xid);
+
+	while (TransactionIdPrecedes(ShmemVariableCache->nextXid, least_xid))
+	{
+		ExtendCLOG(ShmemVariableCache->nextXid);
+		ExtendSUBTRANS(ShmemVariableCache->nextXid);
+		TransactionIdAdvance(ShmemVariableCache->nextXid);
+	}
+	LWLockRelease(XidGenLock);
+}
+#endif
+
+#ifdef ADB
+/*
+ * See if we should force using AGTM
+ * Useful for explicit VACUUM FULL
+ */
+bool
+GetForceXidFromGTM(void)
+{
+	return ForceObtainXidFromAGTM;
+}
+#endif /* ADB */
 
 /*
  * Allocate the next XID for a new transaction or subtransaction.

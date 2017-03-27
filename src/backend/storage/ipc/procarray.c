@@ -3992,3 +3992,28 @@ KnownAssignedXidsReset(void)
 
 	LWLockRelease(ProcArrayLock);
 }
+
+#ifdef ADB
+#define SNAPSHOT_ENLARGE_STEP 32
+void EnlargeSnapshotXip(Snapshot snapshot, uint32 need_size)
+{
+	void *p;
+	uint32 new_size;
+	AssertArg(snapshot);
+	if(need_size < snapshot->max_xcnt)
+		return;
+
+	new_size = need_size - (need_size % SNAPSHOT_ENLARGE_STEP) + SNAPSHOT_ENLARGE_STEP;
+	Assert(new_size >= need_size);
+
+	p = realloc(snapshot->xip, new_size * sizeof(snapshot->xip[0]));
+	if(p == NULL)
+	{
+		ereport(ERROR,
+			(errcode(ERRCODE_OUT_OF_MEMORY),
+			 errmsg("out of memory")));
+	}
+	snapshot->xip = p;
+	snapshot->max_xcnt = new_size;
+}
+#endif /* ADB */

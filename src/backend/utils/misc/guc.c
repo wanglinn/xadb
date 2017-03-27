@@ -454,6 +454,11 @@ int			tcp_keepalives_idle;
 int			tcp_keepalives_interval;
 int			tcp_keepalives_count;
 
+#ifdef ADB
+char		*AGtmHost;
+int			AGtmPort;
+#endif
+
 /*
  * SSL renegotiation was been removed in PostgreSQL 9.5, but we tolerate it
  * being set to zero (meaning never renegotiate) for backward compatibility.
@@ -3515,6 +3520,18 @@ static struct config_string ConfigureNamesString[] =
 		"pg_catalog.simple",
 		check_TSCurrentConfig, assign_TSCurrentConfig, NULL
 	},
+
+#ifdef ADB
+	{
+		{"agtm_host", PGC_SIGHUP, GTM,
+			gettext_noop("Host name or address of GTM"),
+			NULL
+		},
+		&AGtmHost,
+		"localhost",
+		check_agtm_host, NULL, NULL
+	},
+#endif
 
 	{
 		{"ssl_ciphers", PGC_POSTMASTER, CONN_AUTH_SECURITY,

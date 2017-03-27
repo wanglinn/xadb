@@ -98,7 +98,12 @@ enum config_group
 	ERROR_HANDLING_OPTIONS,
 	PRESET_OPTIONS,
 	CUSTOM_OPTIONS,
+#ifdef ADB	
+	DEVELOPER_OPTIONS,
+	GTM
+#else
 	DEVELOPER_OPTIONS
+#endif
 };
 
 /*

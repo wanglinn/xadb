@@ -52,7 +52,10 @@ static bool static_std_strings = false;
 
 static PGEvent *dupEvents(PGEvent *events, int count);
 static bool pqAddTuple(PGresult *res, PGresAttValue *tup);
+/* function used by agtm_client.c, need extern */
+#if 0
 static bool PQsendQueryStart(PGconn *conn);
+#endif
 static int PQsendQueryGuts(PGconn *conn,
 				const char *command,
 				const char *stmtName,
@@ -65,7 +68,10 @@ static int PQsendQueryGuts(PGconn *conn,
 static void parseInput(PGconn *conn);
 static PGresult *getCopyResult(PGconn *conn, ExecStatusType copytype);
 static bool PQexecStart(PGconn *conn);
+/* function used by agtm_client.c, need extern */
+#if 0
 static PGresult *PQexecFinish(PGconn *conn);
+#endif
 static int PQsendDescribe(PGconn *conn, char desc_type,
 			   const char *desc_target);
 static int	check_field_number(const PGresult *res, int field_num);
@@ -1361,7 +1367,11 @@ PQsendQueryPrepared(PGconn *conn,
 /*
  * Common startup code for PQsendQuery and sibling routines
  */
+#ifdef ADB /* only used by agtm_client.c */
+bool
+#else
 static bool
+#endif /* ADB */
 PQsendQueryStart(PGconn *conn)
 {
 	if (!conn)
@@ -1998,7 +2008,11 @@ PQexecStart(PGconn *conn)
 /*
  * Common code for PQexec and sibling routines: wait for command result
  */
+#ifdef ADB	/* only used by agtm_client.c */
+PGresult *
+#else
 static PGresult *
+#endif /* ADB */
 PQexecFinish(PGconn *conn)
 {
 	PGresult   *result;

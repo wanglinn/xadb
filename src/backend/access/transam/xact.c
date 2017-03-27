@@ -20,6 +20,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif
+
 #include "access/commit_ts.h"
 #include "access/multixact.h"
 #include "access/parallel.h"
@@ -161,6 +165,14 @@ typedef enum TBlockState
 	TBLOCK_SUBABORT_RESTART		/* failed subxact, ROLLBACK TO received */
 } TBlockState;
 
+#ifdef ADB
+typedef enum XactPhase
+{
+	XACT_PHASE_1,
+	XACT_PHASE_2
+} XactPhase;
+#endif
+
 /*
  *	transaction state structure
  */
@@ -171,6 +183,8 @@ typedef struct TransactionStateData
 	GlobalTransactionId transactionId;
 	bool				isLocalParameterUsed;		/* Check if a local parameter is active
     											     * in transaction block (SET LOCAL, DEFERRED) */
+	bool				agtm_begin;					/* mark agtm is begin or not in current xact */
+	XactPhase			xact_phase;					/* mark which phase the current xact in */
 #else
 	TransactionId transactionId;	/* my XID, or Invalid if none */
 #endif
@@ -206,6 +220,9 @@ static TransactionStateData TopTransactionStateData = {
 #ifdef ADB
 	0,							/* global transaction id */
 	false,						/* isLocalParameterUsed */
+
+	false,						/* agtm begin? */
+	false,						/* implicit two-phase commit? */
 #else
 	0,							/* transaction id */
 #endif
@@ -258,6 +275,10 @@ static bool currentCommandIdUsed;
 static TimestampTz xactStartTimestamp;
 static TimestampTz stmtStartTimestamp;
 static TimestampTz xactStopTimestamp;
+#ifdef ADB
+static TimestampTz globalXactStartTimestamp;
+static TimestampTz globalDeltaTimestmap;
+#endif
 
 /*
  * GID to be used for preparing the current transaction.  This is also
@@ -734,6 +755,49 @@ GetCurrentCommandId(bool used)
 	}
 	return currentCommandId;
 }
+
+#ifdef ADB
+
+void
+SetTopXactBeginAGTM(bool status)
+{
+	TopTransactionStateData.agtm_begin = status;
+}
+
+bool
+TopXactBeginAGTM(void)
+{
+	return TopTransactionStateData.agtm_begin;
+}
+
+/*
+ *  SetCurrentTransactionStartTimestamp
+ *
+ *  Note: Sets local timestamp delta with the value received from AGTM
+ */
+void
+SetCurrentTransactionStartTimestamp(TimestampTz timestamp)
+{
+	/*
+	 * Master-Coordinator get timestamp from AGTM along with getting
+	 * the first snapshot.
+	 *
+	 * Datanode or NoMaster-Coordinator get timestamp from Master-Co
+	 * ordinator.
+	 */
+	if ((IS_PGXC_COORDINATOR && !IsConnFromCoord() && !FirstSnapshotSet) ||
+		(IS_PGXC_DATANODE || IsConnFromCoord()))
+	{
+		globalXactStartTimestamp = timestamp;
+		globalDeltaTimestmap = globalXactStartTimestamp - xactStartTimestamp;
+	}
+
+#ifdef DEBUG_ADB
+	elog(LOG, "[ADB] node %s session flag %lx.%x",
+		PGXCNodeName, globalXactStartTimestamp, MyProcPid);
+#endif /* DEBUG_ADB */
+}
+#endif /* ADB */
 
 /*
  *	GetCurrentTransactionStartTimestamp

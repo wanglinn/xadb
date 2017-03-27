@@ -169,11 +169,20 @@ extern TransactionId TransactionIdLatest(TransactionId mainxid,
 extern XLogRecPtr TransactionIdGetCommitLSN(TransactionId xid);
 
 /* in transam/varsup.c */
+#if defined(AGTM)
+extern void AdjustTransactionId(TransactionId least_xid);
+#endif
+
+/* in transam/varsup.c */
 extern TransactionId GetNewTransactionId(bool isSubXact);
 extern TransactionId ReadNewTransactionId(void);
 extern void SetTransactionIdLimit(TransactionId oldest_datfrozenxid,
 					  Oid oldest_datoid);
 extern bool ForceTransactionIdLimitUpdate(void);
 extern Oid	GetNewObjectId(void);
+
+#ifdef ADB
+extern bool GetForceXidFromGTM(void);
+#endif
 
 #endif   /* TRAMSAM_H */

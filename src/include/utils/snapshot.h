@@ -109,6 +109,9 @@ typedef struct SnapshotData
 
 	int64		whenTaken;		/* timestamp when snapshot was taken */
 	XLogRecPtr	lsn;			/* position in the WAL stream when taken */
+#ifdef ADB
+	uint32		max_xcnt;		/* alloced xip size */
+#endif /* ADB */
 } SnapshotData;
 
 /*
