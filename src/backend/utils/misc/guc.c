@@ -104,6 +104,11 @@
 #define REALTYPE_PRECISION 17
 
 #ifdef ADB
+int pool_time_out;
+int AGtmPort;
+
+char *AGtmHost;
+
 bool distribute_by_replication_default;
 #endif
 
@@ -453,11 +458,6 @@ char	   *application_name;
 int			tcp_keepalives_idle;
 int			tcp_keepalives_interval;
 int			tcp_keepalives_count;
-
-#ifdef ADB
-char		*AGtmHost;
-int			AGtmPort;
-#endif
 
 /*
  * SSL renegotiation was been removed in PostgreSQL 9.5, but we tolerate it
@@ -2829,6 +2829,19 @@ static struct config_int ConfigureNamesInt[] =
 		4096, 64, MAX_KILOBYTES,
 		NULL, NULL, NULL
 	},
+
+#ifdef ADB
+	{
+		{"pool_time_out", PGC_BACKEND, CLIENT_CONN_OTHER,
+			gettext_noop("close connection from poolmgr to datanode idle process max time(s)"),
+			gettext_noop("A value of 0 uses the system default."),
+			GUC_UNIT_S
+		},
+		&pool_time_out,
+		60, 1, INT_MAX,
+		NULL, NULL, NULL
+	},
+#endif
 
 	/* End-of-list marker */
 	{

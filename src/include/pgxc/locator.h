@@ -99,7 +99,7 @@ typedef struct
 	Oid		en_relid;				/* Relation to determine execution nodes */
 	RelationAccessType accesstype;	/* Access type to determine execution
 									 * nodes */
-	List	*en_dist_vars;				/* See above for details */
+	List	*en_dist_vars;			/* See above for details */
 } ExecNodes;
 
 #define IsExecNodesReplicated(en)				IsLocatorReplicated((en)->baselocatortype)

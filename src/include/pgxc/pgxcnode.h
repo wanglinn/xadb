@@ -7,22 +7,25 @@
  *
  * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
- * src/include/pgxc/pgxcnode.h
+ * IDENTIFICATION
+ * 		src/include/pgxc/pgxcnode.h
  *
  *-------------------------------------------------------------------------
  */
 
 #ifndef PGXCNODE_H
 #define PGXCNODE_H
-#include "postgres.h"
-#include "utils/timestamp.h"
-#include "nodes/pg_list.h"
-#include "utils/snapshot.h"
+
 #include <unistd.h>
 
-#define NO_SOCKET -1
+#include "postgres.h"
+#include "nodes/pg_list.h"
+#include "utils/snapshot.h"
+#include "utils/timestamp.h"
 
+#define NO_SOCKET -1
 
 /* Connection to Datanode maintained by Pool Manager */
 typedef struct PGconn NODE_CONNECTION;
@@ -64,7 +67,6 @@ typedef enum
 	RESP_ROLLBACK_NOT_RECEIVED		/* Response is NOT ROLLBACK */
 }RESP_ROLLBACK;
 
-
 #define DN_CONNECTION_STATE_ERROR(dnconn) \
 		((dnconn)->state == DN_CONNECTION_STATE_ERROR_FATAL \
 			|| (dnconn)->transaction_status == 'E')
@@ -80,12 +82,10 @@ typedef enum
 struct pgxc_node_handle
 {
 	Oid			nodeoid;
-#ifdef ADB
 	NameData	name;
 	char		type;
 #ifdef DEBUG_ADB
 	char		last_query[DEBUG_BUF_SIZE];
-#endif
 #endif
 
 	/* fd of the connection */
@@ -120,14 +120,12 @@ struct pgxc_node_handle
 };
 typedef struct pgxc_node_handle PGXCNodeHandle;
 
-#ifdef ADB
 #define FreeHandleError(handle)								\
 	do {													\
 		if (((PGXCNodeHandle *) (handle))->error)			\
 			pfree(((PGXCNodeHandle *) (handle))->error);	\
 		((PGXCNodeHandle *) (handle))->error = NULL;		\
 	} while (0)
-#endif
 
 /* Structure used to get all the handles involved in a transaction */
 typedef struct
@@ -161,14 +159,13 @@ extern void pfree_pgxc_all_handles(PGXCNodeAllHandles *handles);
 
 extern void release_handles(void);
 
-#ifdef ADB
+extern bool is_data_node_ready(PGXCNodeHandle * conn);
 extern void release_handles2(bool force_close);
 extern void cancel_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
 								int num_cohandles, PGXCNodeHandle **cohandles);
 extern void clear_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
 								int num_cohandles, PGXCNodeHandle **cohandles);
 extern void clear_all_handles(bool error);
-#endif /* ADB */
 
 extern void cancel_query(void);
 extern void clear_all_data(void);
@@ -184,10 +181,8 @@ extern int	ensure_in_buffer_capacity(size_t bytes_needed, PGXCNodeHandle * handl
 extern int	ensure_out_buffer_capacity(size_t bytes_needed, PGXCNodeHandle * handle);
 
 extern int	pgxc_node_send_query(PGXCNodeHandle * handle, const char *query);
-#ifdef ADB
 struct StringInfoData;
 extern int	pgxc_node_send_query_tree(PGXCNodeHandle * handle, const char *query, struct StringInfoData *tree_data);
-#endif
 extern int	pgxc_node_send_describe(PGXCNodeHandle * handle, bool is_statement,
 						const char *name);
 extern int	pgxc_node_send_execute(PGXCNodeHandle * handle, const char *portal, int fetch);

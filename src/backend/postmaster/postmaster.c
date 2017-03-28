@@ -107,9 +107,6 @@
 #include "miscadmin.h"
 #include "pg_getopt.h"
 #include "pgstat.h"
-#ifdef ADB
-#include "pgxc/pgxc.h"
-#endif
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgworker_internals.h"
 #include "postmaster/fork_process.h"
@@ -134,6 +131,9 @@
 #include "storage/spin.h"
 #endif
 
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif
 
 /*
  * Possible types of a backend. Beyond being the possible bkend_type values in
@@ -374,8 +374,18 @@ static DNSServiceRef bonjour_sdref = NULL;
 #endif
 
 #ifdef ADB
-char			*PGXCNodeName = NULL;
-#endif 
+char		   *PGXCNodeName = NULL;
+int				PGXCNodeId = -1;
+Oid				PGXCNodeOid = InvalidOid;
+
+/*
+ * When a particular node starts up, store the node identifier in this variable
+ * so that we dont have to calculate it OR do a search in cache any where else
+ * This will have minimal impact on performance
+ */
+uint32			PGXCNodeIdentifier = 0;
+#endif
+
 /*
  * postmaster.c - function prototypes
  */
@@ -539,8 +549,27 @@ static void ShmemBackendArrayRemove(Backend *bn);
 bool isPGXCCoordinator = false;
 bool isPGXCDataNode = false;
 
+/*
+ * While adding a new node to the cluster we need to restore the schema of
+ * an existing database to the new node.
+ * If the new node is a datanode and we connect directly to it,
+ * it does not allow DDL, because it is in read only mode &
+ * If the new node is a coordinator it will send DDLs to all the other
+ * coordinators which we do not want it to do
+ * To provide ability to restore on the new node a new command line
+ * argument is provided called --restoremode
+ * It is to be provided in place of --coordinator OR --datanode.
+ * In restore mode both coordinator and datanode are internally
+ * treated as a datanode.
+ */
+bool isRestoreMode = false;
+
 int remoteConnType = REMOTE_CONN_APP;
-#endif /* ADB */
+
+/* key pair to be used as object id while using advisory lock for backup */
+Datum xc_lockForBackupKey1;
+Datum xc_lockForBackupKey2;
+#endif
 
 #define StartupDataBase()		StartChildProcess(StartupProcess)
 #define StartBackgroundWriter() StartChildProcess(BgWriterProcess)

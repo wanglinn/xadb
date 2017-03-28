@@ -1,21 +1,19 @@
 #-------------------------------------------------------------------------
 #
 # Makefile--
-#    Makefile for pool
+#    Makefile for node management routines
 #
-#  Portions Copyright (c) 2010-2012, Postgres-XC Development Group
+#  Portions Copyright (c) 2010-2012 Postgres-XC Development Group
 #
 # IDENTIFICATION
 #    $PostgreSQL$
 #
 #-------------------------------------------------------------------------
 
-subdir = src/backend/pgxc/pool
+subdir = src/backend/pgxc/nodemgr
 top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
-#OBJS = pgxcnode.o execRemote.o poolmgr_adb.o poolcomm.o poolutils.o
-#OBJS =  poolmgr_adb.o poolcomm.o poolutils.o
-OBJS = pgxcnode.o
+OBJS = nodemgr.o groupmgr.o
 
 include $(top_srcdir)/src/backend/common.mk

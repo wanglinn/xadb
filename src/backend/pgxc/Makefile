@@ -11,6 +11,6 @@ subdir = src/backend/pgxc
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-SUBDIRS	    = xc_maintenance_mode locator
+SUBDIRS = xc_maintenance_mode locator nodemgr pool
 
 include $(top_srcdir)/src/backend/common.mk

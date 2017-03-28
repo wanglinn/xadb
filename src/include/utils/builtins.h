@@ -1356,6 +1356,9 @@ extern Datum pgxc_pool_reload(PG_FUNCTION_ARGS);
 
 /* src/backend/catalog/heap.c */
 extern Datum pg_explain_infomask(PG_FUNCTION_ARGS);
-#endif
+
+/* src/backend/pgxc/pool/pgxcnode.c */
+extern Datum pgxc_node_str (PG_FUNCTION_ARGS);
+#endif   /* ADB */
 
 #endif   /* BUILTINS_H */

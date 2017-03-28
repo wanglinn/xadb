@@ -7,11 +7,11 @@
  *
  *
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
- * Portions Copyright (c) 2010-2012 Postgres-XC Development Group
- *
+ * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * IDENTIFICATION
- *		$$
+ *		src/backend/pgxc/locator/locator.c
  *
  *-------------------------------------------------------------------------
  */
@@ -22,40 +22,38 @@
 #include <time.h>
 
 #include "postgres.h"
-#include "access/skey.h"
+#include "fmgr.h"
+#include "access/hash.h"
 #include "access/relscan.h"
+#include "access/skey.h"
+#include "access/transam.h"
+#include "catalog/namespace.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_type.h"
-#include "nodes/pg_list.h"
+#include "catalog/pgxc_class.h"
+#include "catalog/pgxc_node.h"
+#include "nodes/nodes.h"
 #include "nodes/nodeFuncs.h"
+#include "nodes/pg_list.h"
 #include "utils/builtins.h"
 #include "utils/catcache.h"
+#include "utils/datum.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/relcache.h"
-#include "utils/tqual.h"
 #include "utils/syscache.h"
-#include "nodes/nodes.h"
+#include "utils/tqual.h"
 #include "optimizer/clauses.h"
 #include "parser/parse_coerce.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
-
-#include "catalog/pgxc_class.h"
-#include "catalog/pgxc_node.h"
-#include "catalog/namespace.h"
-#include "access/hash.h"
-
-#include "access/transam.h"
-#include "fmgr.h"
 #include "postmaster/autovacuum.h"
-#include "utils/datum.h"
 
-static Expr *pgxc_find_distcol_expr(Index varno, AttrNumber attrNum,
-												Node *quals);
+
+static Expr *pgxc_find_distcol_expr(Index varno, AttrNumber attrNum, Node *quals);
 
 Oid		primary_data_node = InvalidOid;
 int		num_preferred_data_nodes = 0;

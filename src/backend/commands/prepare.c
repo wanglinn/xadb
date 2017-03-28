@@ -33,6 +33,10 @@
 #include "utils/builtins.h"
 #include "utils/snapmgr.h"
 #include "utils/timestamp.h"
+#ifdef ADB
+#include "pgxc/nodemgr.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 /*
@@ -42,6 +46,15 @@
  * (statement names); the entries are PreparedStatement structs.
  */
 static HTAB *prepared_queries = NULL;
+
+#ifdef ADB
+/*
+ * The hash table where Datanode prepared statements are stored.
+ * The keys are statement names referenced from cached RemoteQuery nodes; the
+ * entries are DatanodeStatement structs
+ */
+static HTAB *datanode_queries = NULL;
+#endif
 
 static void InitQueryHashTable(void);
 static ParamListInfo EvaluateParams(PreparedStatement *pstmt, List *params,
@@ -431,6 +444,20 @@ InitQueryHashTable(void)
 								   32,
 								   &hash_ctl,
 								   HASH_ELEM);
+#ifdef ADB
+	if (IS_PGXC_COORDINATOR)
+	{
+		MemSet(&hash_ctl, 0, sizeof(hash_ctl));
+
+		hash_ctl.keysize = NAMEDATALEN;
+		hash_ctl.entrysize = sizeof(DatanodeStatement) + NumDataNodes * sizeof(int);
+
+		datanode_queries = hash_create("Datanode Queries",
+									   64,
+									   &hash_ctl,
+									   HASH_ELEM);
+	}
+#endif
 }
 
 /*
@@ -793,3 +820,34 @@ build_regtype_array(Oid *param_types, int num_params)
 	result = construct_array(tmp_ary, num_params, REGTYPEOID, 4, true, 'i');
 	return PointerGetDatum(result);
 }
+
+#ifdef ADB
+/*
+ * Return true if there is at least one active Datanode statement, so acquired
+ * Datanode connections should not be released
+ */
+bool
+HaveActiveDatanodeStatements(void)
+{
+	HASH_SEQ_STATUS seq;
+	DatanodeStatement *entry;
+
+	/* nothing cached */
+	if (!datanode_queries)
+		return false;
+
+	/* walk over cache */
+	hash_seq_init(&seq, datanode_queries);
+	while ((entry = hash_seq_search(&seq)) != NULL)
+	{
+		/* Stop walking and return true */
+		if (entry->number_of_nodes > 0)
+		{
+			hash_seq_term(&seq);
+			return true;
+		}
+	}
+	/* nothing found */
+	return false;
+}
+#endif
