@@ -110,6 +110,9 @@ static pid_t postmasterPID = -1;
 #define postmasterProcess shutdownHandles[1]
 #endif
 
+#ifdef ADB
+static char *pgxcCommand = NULL;
+#endif
 
 static void write_stderr(const char *fmt,...) pg_attribute_printf(1, 2);
 static void do_advice(void);
@@ -459,12 +462,23 @@ start_postmaster(void)
 	 * has the same PID as the current child process.
 	 */
 	if (log_file != NULL)
+#ifdef ADB
+		snprintf(cmd, MAXPGPATH, "exec \"%s\" %s %s%s < \"%s\" >> \"%s\" 2>&1",
+				exec_path, pgxcCommand, pgdata_opt, post_opts,
+				DEVNULL, log_file);
+#else
 		snprintf(cmd, MAXPGPATH, "exec \"%s\" %s%s < \"%s\" >> \"%s\" 2>&1",
 				 exec_path, pgdata_opt, post_opts,
 				 DEVNULL, log_file);
+#endif /* ADB */
 	else
+#ifdef ADB
+		snprintf(cmd, MAXPGPATH, "exec \"%s\" %s %s%s < \"%s\" 2>&1",
+				exec_path, pgxcCommand, pgdata_opt, post_opts, DEVNULL);
+#else
 		snprintf(cmd, MAXPGPATH, "exec \"%s\" %s%s < \"%s\" 2>&1",
 				 exec_path, pgdata_opt, post_opts, DEVNULL);
+#endif
 
 	(void) execl("/bin/sh", "/bin/sh", "-c", cmd, (char *) NULL);
 
@@ -840,7 +854,13 @@ do_init(void)
 	char		cmd[MAXPGPATH];
 
 	if (exec_path == NULL)
+#ifdef MGR_CTL
+		exec_path = find_other_exec_or_die(argv0, "initmgr", "initmgr (PostgreSQL) " PG_VERSION "\n");
+#elif defined(AGTM_CTL)
+		exec_path = find_other_exec_or_die(argv0, "initagtm", "initagtm (PostgreSQL) " PG_VERSION "\n");
+#else
 		exec_path = find_other_exec_or_die(argv0, "initdb", "initdb (PostgreSQL) " PG_VERSION "\n");
+#endif
 
 	if (pgdata_opt == NULL)
 		pgdata_opt = "";
@@ -884,7 +904,13 @@ do_start(void)
 		pgdata_opt = "";
 
 	if (exec_path == NULL)
+#ifdef MGR_CTL
+		exec_path = find_other_exec_or_die(argv0, "adbmgrd", PG_BACKEND_VERSIONSTR);
+#elif defined(AGTM_CTL)
+		exec_path = find_other_exec_or_die(argv0, "agtm", PG_BACKEND_VERSIONSTR);
+#else
 		exec_path = find_other_exec_or_die(argv0, "postgres", PG_BACKEND_VERSIONSTR);
+#endif
 
 #if defined(HAVE_GETRLIMIT) && defined(RLIMIT_CORE)
 	if (allow_core_files)
@@ -1906,13 +1932,25 @@ do_advice(void)
 static void
 do_help(void)
 {
+#ifdef MGR_CTL
+	printf(_("%s is a utility to initialize, start, stop, or control a ADB-Manager server.\n\n"), progname);
+#elif defined(AGTM_CTL)
+	printf(_("%s is a utility to initialize, start, stop, or control a ADB-Transaction-Manager server.\n\n"), progname);
+#else
 	printf(_("%s is a utility to initialize, start, stop, or control a PostgreSQL server.\n\n"), progname);
+#endif
 	printf(_("Usage:\n"));
 	printf(_("  %s init[db]               [-D DATADIR] [-s] [-o \"OPTIONS\"]\n"), progname);
+#ifdef ADB
+	printf(_("  %s start   [-w] [-t SECS] [-Z NODE-TYPE] [-D DATADIR] [-s] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
+	printf(_("  %s restart [-w] [-t SECS] [-Z NODE-TYPE] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"
+		 	 "                 [-o \"OPTIONS\"]\n"), progname);
+#else
 	printf(_("  %s start   [-w] [-t SECS] [-D DATADIR] [-s] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
-	printf(_("  %s stop    [-W] [-t SECS] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"), progname);
 	printf(_("  %s restart [-w] [-t SECS] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"
 			 "                 [-o \"OPTIONS\"]\n"), progname);
+#endif
+	printf(_("  %s stop    [-W] [-t SECS] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"), progname);
 	printf(_("  %s reload  [-D DATADIR] [-s]\n"), progname);
 	printf(_("  %s status  [-D DATADIR]\n"), progname);
 	printf(_("  %s promote [-D DATADIR] [-s]\n"), progname);
@@ -1933,6 +1971,9 @@ do_help(void)
 	printf(_("  -V, --version          output version information, then exit\n"));
 	printf(_("  -w                     wait until operation completes\n"));
 	printf(_("  -W                     do not wait until operation completes\n"));
+#ifdef ADB
+	printf(_("	-Z NODE-TYPE		   can be \"coordinator\" or \"datanode\" (Postgres-XC)\n"));
+#endif
 	printf(_("  -?, --help             show this help, then exit\n"));
 	printf(_("(The default is to wait for shutdown, but not for start or restart.)\n\n"));
 	printf(_("If the -D option is omitted, the environment variable PGDATA is used.\n"));
@@ -1970,7 +2011,11 @@ do_help(void)
 	printf(_("  demand     start service on demand\n"));
 #endif
 
+#ifdef ADB
+	printf(_("\nReport bugs to <postgres-xc-bugs@lists.sourceforge.net>.\n"));
+#else
 	printf(_("\nReport bugs to <pgsql-bugs@postgresql.org>.\n"));
+#endif
 }
 
 
@@ -2196,7 +2241,11 @@ main(int argc, char **argv)
 	/* process command-line options */
 	while (optind < argc)
 	{
+#ifdef ADB
+		while ((c = getopt_long(argc, argv, "cD:l:m:N:o:p:P:sS:t:U:wWZ:", long_options, &option_index)) != -1)
+#else
 		while ((c = getopt_long(argc, argv, "cD:e:l:m:N:o:p:P:sS:t:U:wW", long_options, &option_index)) != -1)
+#endif	/* ADB */
 		{
 			switch (c)
 			{
@@ -2248,6 +2297,17 @@ main(int argc, char **argv)
 				case 'P':
 					register_password = pg_strdup(optarg);
 					break;
+#ifdef ADB
+				case 'Z':
+					if (strcmp(optarg, "coordinator") == 0)
+						pgxcCommand = strdup("--coordinator");
+					else if (strcmp(optarg, "datanode") == 0)
+						pgxcCommand = strdup("--datanode");
+					else if (strcmp(optarg, "restoremode") == 0)
+						pgxcCommand = strdup("--restoremode");
+					else if (strcmp(optarg, "adbloader") == 0)
+						pgxcCommand = strdup("--adbloader");
+#endif
 				case 's':
 					silent_mode = true;
 					break;
@@ -2350,6 +2410,18 @@ main(int argc, char **argv)
 		do_advice();
 		exit(1);
 	}
+
+#ifdef ADB
+	/* stop command does not need to have Coordinator or Datanode options */
+	if ((ctl_command == START_COMMAND || ctl_command == RESTART_COMMAND)
+		&& !pgxcCommand)
+	{
+		write_stderr(_("%s: Coordinator or Datanode option not specified (-Z)\n"),
+					progname);
+		do_advice();
+		exit(1);
+	}
+#endif
 
 	/* Note we put any -D switch into the env var above */
 	pg_config = getenv("PGDATA");
