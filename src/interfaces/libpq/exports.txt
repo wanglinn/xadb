@@ -184,3 +184,4 @@ pqWait					  181
 PQexecFinish			  182
 pqPutc					  183
 pqReadData				  184
+pqWaitTimed				  185

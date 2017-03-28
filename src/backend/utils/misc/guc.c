@@ -52,6 +52,9 @@
 #include "parser/parser.h"
 #include "parser/scansup.h"
 #include "pgstat.h"
+#ifdef ADB
+#include "pgxc/poolmgr.h"
+#endif
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgworker.h"
 #include "postmaster/bgwriter.h"
@@ -458,6 +461,10 @@ char	   *application_name;
 int			tcp_keepalives_idle;
 int			tcp_keepalives_interval;
 int			tcp_keepalives_count;
+
+#ifdef AGTM
+extern int agtm_listen_port;
+#endif /* AGTM */
 
 /*
  * SSL renegotiation was been removed in PostgreSQL 9.5, but we tolerate it
@@ -1887,7 +1894,13 @@ static struct config_int ConfigureNamesInt[] =
 			NULL
 		},
 		&PostPortNumber,
+#ifdef ADBMGRD
+		6432, 1, 65535,
+#elif defined(AGTM)
+		7432, 1, 65535,
+#else
 		DEF_PGPORT, 1, 65535,
+#endif
 		NULL, NULL, NULL
 	},
 
@@ -2841,7 +2854,63 @@ static struct config_int ConfigureNamesInt[] =
 		60, 1, INT_MAX,
 		NULL, NULL, NULL
 	},
-#endif
+
+	{
+		{"min_pool_size", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Initial pool size."),
+			gettext_noop("If number of active connections decreased below this value, "
+						 "new connections are established")
+		},
+		&MinPoolSize,
+		1, 1, 65535,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"max_pool_size", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Max pool size."),
+			gettext_noop("If number of active connections reaches this value, "
+						 "other connection requests will be refused")
+		},
+		&MaxPoolSize,
+		100, 1, 65535,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"agtm_port", PGC_SIGHUP, GTM,
+			gettext_noop("Port of GTM."),
+			NULL
+		},
+		&AGtmPort,
+		6666, 1, 65535,
+		check_agtm_port, NULL, NULL
+	},
+
+	{
+		{"pool_remote_cmd_timeout", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("timeout for pool manager send message to nodes."),
+			NULL,
+			GUC_UNIT_MS
+		},
+		&PoolRemoteCmdTimeout,
+		10, 0, INT_MAX,
+		NULL, NULL, NULL
+	},
+#endif /* ADB */
+
+#ifdef AGTM
+	{
+		{"agtm_port", PGC_INTERNAL, CONN_AUTH,
+			gettext_noop("Other coordinator/datanode backend connect port."),
+			NULL,
+			GUC_NO_RESET_ALL | GUC_REPORT
+		},
+		&agtm_listen_port,
+		0, 0, 65535,
+		NULL, NULL, NULL
+	},
+#endif /* AGTM */
 
 	/* End-of-list marker */
 	{

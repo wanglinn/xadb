@@ -75,6 +75,15 @@
 #include "utils/timestamp.h"
 #include "mb/pg_wchar.h"
 
+#ifdef ADB
+#include "agtm/agtm.h"
+#include "agtm/agtm_client.h"
+#include "pgxc/poolmgr.h"
+#include "pgxc/poolutils.h"
+#endif
+#ifdef AGTM
+#include "agtm/agtm.h"
+#endif
 
 /* ----------------
  *		global variables
@@ -171,7 +180,9 @@ static ProcSignalReason RecoveryConflictReason;
  */
 static int	InteractiveBackend(StringInfo inBuf);
 static int	interactive_getc(void);
+#ifndef AGTM
 static int	SocketBackend(StringInfo inBuf);
+#endif /* AGTM */
 static int	ReadCommand(StringInfo inBuf);
 static void forbidden_in_wal_sender(char firstchar);
 static List *pg_rewrite_query(Query *query);
@@ -189,6 +200,9 @@ static void drop_unnamed_stmt(void);
 static void SigHupHandler(SIGNAL_ARGS);
 static void log_disconnections(int code, Datum arg);
 
+#ifdef AGTM
+#include "agtm.c"
+#endif /* AGTM */
 
 /* ----------------------------------------------------------------
  *		routines to obtain user input
@@ -321,6 +335,7 @@ interactive_getc(void)
  *	EOF is returned if the connection is lost.
  * ----------------
  */
+#ifndef AGTM
 static int
 SocketBackend(StringInfo inBuf)
 {
@@ -460,7 +475,10 @@ SocketBackend(StringInfo inBuf)
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
 						 errmsg("invalid frontend message type %d", qtype)));
 			break;
-
+#ifdef AGTM
+		case 'A':				/* agtm command */
+			break;
+#endif /* AGTM */
 		default:
 
 			/*
@@ -490,6 +508,7 @@ SocketBackend(StringInfo inBuf)
 
 	return qtype;
 }
+#endif /* AGTM */
 
 /* ----------------
  *		ReadCommand reads a command from either the frontend or
@@ -504,7 +523,11 @@ ReadCommand(StringInfo inBuf)
 	int			result;
 
 	if (whereToSendOutput == DestRemote)
+#ifdef AGTM
+		result = agtm_ReadCommand(inBuf);
+#else /* AGTM */
 		result = SocketBackend(inBuf);
+#endif /* AGTM */
 	else
 		result = InteractiveBackend(inBuf);
 	return result;
@@ -3746,6 +3769,10 @@ PostgresMain(int argc, char *argv[],
 	 * Now all GUC states are fully set up.  Report them to client if
 	 * appropriate.
 	 */
+#ifdef AGTM
+	if(IsUnderPostmaster)
+		start_agtm_listen();
+#endif /* AGTM */
 	BeginReportingGUCOptions();
 
 	/*
@@ -4261,6 +4288,23 @@ PostgresMain(int argc, char *argv[],
 				}
 				break;
 
+#if defined(ADB) || defined(AGTM)
+			case 'I':		/* query server info */
+				BeginReportingGUCOptions();
+				if(whereToSendOutput == DestRemote&&
+					PG_PROTOCOL_MAJOR(FrontendProtocol) >= 2)
+				{
+					StringInfoData buf;
+
+					pq_beginmessage(&buf, 'K');
+					pq_sendint(&buf, (int32) MyProcPid, sizeof(int32));
+					pq_sendint(&buf, (int32) MyCancelKey, sizeof(int32));
+					pq_endmessage(&buf);
+				}
+				send_ready_for_query = true;
+				break;
+#endif /* defined(ADB) || defined(AGTM) */
+
 			case 'H':			/* flush */
 				pq_getmsgend(&input_message);
 				if (whereToSendOutput == DestRemote)
@@ -4307,7 +4351,17 @@ PostgresMain(int argc, char *argv[],
 				 * is still sending data.
 				 */
 				break;
-
+#ifdef AGTM
+			case 'A':
+				{
+					/* process agtm command */
+					start_xact_command();
+					ProcessAGtmCommand(&input_message, whereToSendOutput);
+					finish_xact_command();
+					send_ready_for_query = true;
+				}
+				break;
+#endif
 			default:
 				ereport(FATAL,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),

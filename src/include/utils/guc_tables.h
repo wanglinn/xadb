@@ -100,6 +100,7 @@ enum config_group
 	CUSTOM_OPTIONS,
 #ifdef ADB
 	GTM,
+	DATA_NODES,
 	DEVELOPER_OPTIONS
 #else
 	DEVELOPER_OPTIONS
