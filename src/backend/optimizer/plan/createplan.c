@@ -242,9 +242,11 @@ static EquivalenceMember *find_ec_member_for_tle(EquivalenceClass *ec,
 					   TargetEntry *tle,
 					   Relids relids);
 static Sort *make_sort_from_pathkeys(Plan *lefttree, List *pathkeys);
+#ifndef ADB
 static Sort *make_sort_from_groupcols(List *groupcls,
 						 AttrNumber *grpColIdx,
 						 Plan *lefttree);
+#endif
 static Material *make_material(Plan *lefttree);
 static WindowAgg *make_windowagg(List *tlist, Index winref,
 			   int partNumCols, AttrNumber *partColIdx, Oid *partOperators,
@@ -5558,7 +5560,11 @@ make_sort_from_sortclauses(List *sortcls, Plan *lefttree)
  * appropriate to the grouping node.  So, only the sort ordering info
  * is used from the SortGroupClause entries.
  */
+#ifdef ADB
+Sort *
+#else
 static Sort *
+#endif
 make_sort_from_groupcols(List *groupcls,
 						 AttrNumber *grpColIdx,
 						 Plan *lefttree)
@@ -6228,3 +6234,40 @@ is_projection_capable_plan(Plan *plan)
 	}
 	return true;
 }
+
+#ifdef ADB
+/*
+ * Wrapper functions to expose some functions to PGXC planner. These functions
+ * are meant to be wrappers just calling the static function in this file. If
+ * you need to add more functionality, add it to the original function.
+ */
+List *
+pgxc_order_qual_clauses(PlannerInfo *root, List *clauses)
+{
+	return order_qual_clauses(root, clauses);
+}
+
+List *
+pgxc_build_path_tlist(PlannerInfo *root, Path *path)
+{
+	return build_path_tlist(root, path);
+}
+
+void
+pgxc_copy_path_costsize(Plan *dest, Path *src)
+{
+	copy_generic_path_info(dest, src);
+}
+
+Plan *
+pgxc_create_gating_plan(PlannerInfo *root, Path *path, Plan *plan, List *quals)
+{
+	return create_gating_plan(root, path, plan, quals);
+}
+
+extern Node *
+pgxc_replace_nestloop_params(PlannerInfo *root, Node *expr)
+{
+	return replace_nestloop_params(root, expr);
+}
+#endif /* ADB */

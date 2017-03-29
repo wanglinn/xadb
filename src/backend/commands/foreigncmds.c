@@ -1597,7 +1597,11 @@ ImportForeignSchema(ImportForeignSchemaStmt *stmt)
 			ProcessUtility((Node *) cstmt,
 						   cmd,
 						   PROCESS_UTILITY_SUBCOMMAND, NULL,
-						   None_Receiver, NULL);
+						   None_Receiver,
+#ifdef ADB
+						   true,	/* this is created at remote node level */
+#endif /* ADB */
+						   NULL);
 
 			/* Be sure to advance the command counter between subcommands */
 			CommandCounterIncrement();

@@ -53,7 +53,9 @@ static void expandTupleDesc(TupleDesc tupdesc, Alias *eref,
 				int location, bool include_dropped,
 				List **colnames, List **colvars);
 static int32 *getValuesTypmods(RangeTblEntry *rte);
+#ifndef ADB
 static int	specialAttNum(const char *attname);
+#endif
 static bool isQueryUsingTempRelation_walker(Node *node, void *context);
 
 
@@ -2998,7 +3000,11 @@ attnameAttNum(Relation rd, const char *attname, bool sysColOK)
  * Caller needs to verify that it really is an attribute of the rel,
  * at least in the case of "oid", which is now optional.
  */
+#ifdef ADB
+int
+#else
 static int
+#endif
 specialAttNum(const char *attname)
 {
 	Form_pg_attribute sysatt;

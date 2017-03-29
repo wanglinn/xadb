@@ -32,7 +32,11 @@ extern PGDLLIMPORT ProcessUtility_hook_type ProcessUtility_hook;
 
 extern void ProcessUtility(Node *parsetree, const char *queryString,
 			   ProcessUtilityContext context, ParamListInfo params,
-			   DestReceiver *dest, char *completionTag);
+			   DestReceiver *dest,
+#ifdef ADB
+			   bool sentToRemote,
+#endif /* ADB */
+			   char *completionTag);
 extern void standard_ProcessUtility(Node *parsetree, const char *queryString,
 						ProcessUtilityContext context, ParamListInfo params,
 						DestReceiver *dest, char *completionTag);

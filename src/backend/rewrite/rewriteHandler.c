@@ -36,7 +36,11 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
-
+#ifdef ADB
+#include "access/htup_details.h"
+#include "tcop/utility.h"
+#include "utils/syscache.h"
+#endif
 
 /* We use a list of these to detect recursion in RewriteQuery */
 typedef struct rewrite_event
@@ -3563,3 +3567,302 @@ QueryRewrite(Query *parsetree)
 
 	return results;
 }
+
+#ifdef ADB
+/*
+ * Rewrite the CREATE TABLE AS and SELECT INTO queries as a
+ * INSERT INTO .. SELECT query. The target table must be created first using
+ * utility command processing. This takes care of creating the target table on
+ * all the Coordinators and the Datanodes.
+ * This function is not used for CTAS statements for materialized views.
+ */
+List *
+QueryRewriteCTAS(Query *parsetree)
+{
+	RangeVar *relation;
+	CreateStmt *create_stmt;
+	List *tableElts = NIL;
+	StringInfoData cquery;
+	ListCell *col;
+	Query *cparsetree;
+	List *raw_parsetree_list, *tlist;
+	char *selectstr;
+	CreateTableAsStmt *stmt;
+	IntoClause *into;
+	ListCell *lc;
+
+	if (parsetree->commandType != CMD_UTILITY ||
+		!IsA(parsetree->utilityStmt, CreateTableAsStmt))
+		elog(ERROR, "Unexpected commandType or intoClause is not set properly");
+
+	/* Get the target table */
+	stmt = (CreateTableAsStmt *) parsetree->utilityStmt;
+	relation = stmt->into->rel;
+
+	/* Start building a CreateStmt for creating the target table */
+	create_stmt = makeNode(CreateStmt);
+	create_stmt->relation = relation;
+	into = stmt->into;
+
+	/* Obtain the target list of new table */
+	Assert(IsA(stmt->query, Query));
+	cparsetree = (Query *) stmt->query;
+	tlist = cparsetree->targetList;
+
+	/*
+	 * Based on the targetList, populate the column information for the target
+	 * table. If a column name list was specified in CREATE TABLE AS, override
+	 * the column names derived from the query. (Too few column names are OK, too
+	 * many are not.).
+	 */
+	lc = list_head(into->colNames);
+	foreach(col, tlist)
+	{
+		TargetEntry *tle = (TargetEntry *)lfirst(col);
+		ColumnDef   *coldef;
+		TypeName    *typename;
+
+		/* Ignore junk columns from the targetlist */
+		if (tle->resjunk)
+			continue;
+
+		coldef = makeNode(ColumnDef);
+		typename = makeNode(TypeName);
+
+		/* Take the column name specified if any */
+		if (lc)
+		{
+			coldef->colname = strVal(lfirst(lc));
+			lc = lnext(lc);
+		}
+		else
+			coldef->colname = pstrdup(tle->resname);
+
+		coldef->inhcount = 0;
+		coldef->is_local = true;
+		coldef->is_not_null = false;
+		coldef->raw_default = NULL;
+		coldef->cooked_default = NULL;
+		coldef->constraints = NIL;
+
+		/*
+		 * Set typeOid and typemod. The name of the type is derived while
+		 * generating query
+		 */
+		typename->typeOid = exprType((Node *)tle->expr);
+		typename->typemod = exprTypmod((Node *)tle->expr);
+
+		coldef->typeName = typename;
+
+		tableElts = lappend(tableElts, coldef);
+	}
+
+	if (lc != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("CREATE TABLE AS specifies too many column names")));
+
+	/*
+	 * Set column information and the distribution mechanism (which will be
+	 * NULL for SELECT INTO and the default mechanism will be picked)
+	 */
+	create_stmt->tableElts = tableElts;
+	create_stmt->distributeby = stmt->into->distributeby;
+	create_stmt->subcluster = stmt->into->subcluster;
+
+	create_stmt->tablespacename = stmt->into->tableSpaceName;
+	create_stmt->oncommit = stmt->into->onCommit;
+	create_stmt->options = stmt->into->options;
+
+	/*
+	 * Check consistency of arguments
+	 */
+	if (create_stmt->oncommit != ONCOMMIT_NOOP
+			&& create_stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+				 errmsg("ON COMMIT can only be used on temporary tables")));
+
+	/* Get a copy of the parsetree which we can freely modify  */
+	cparsetree = copyObject(parsetree);
+
+	/*
+	 * Now build a utility statement in order to run the CREATE TABLE DDL on
+	 * the local and remote nodes. We keep others fields as it is since they
+	 * are ignored anyways by deparse_query.
+	 */
+	cparsetree->commandType = CMD_UTILITY;
+	cparsetree->utilityStmt = (Node *) create_stmt;
+
+	initStringInfo(&cquery);
+	deparse_query(cparsetree, &cquery, NIL, false, false);
+
+	/* Finally, fire off the query to run the DDL */
+	ProcessUtility(cparsetree->utilityStmt,
+				   cquery.data,
+				   PROCESS_UTILITY_TOPLEVEL, NULL, NULL,  /* Tentative fix.  Nedd a review.  K.Suzuki */
+				   false,
+				   NULL);
+
+	/*
+	 * Now fold the CTAS statement into an INSERT INTO statement. The
+	 * utility is no more required.
+	 */
+	parsetree->utilityStmt = NULL;
+
+	/* Get the SELECT query string */
+	initStringInfo(&cquery);
+	deparse_query((Query *)stmt->query, &cquery, NIL, true, false);
+	selectstr = pstrdup(cquery.data);
+
+	/* Now, finally build the INSERT INTO statement */
+	initStringInfo(&cquery);
+
+	if (relation->schemaname)
+		appendStringInfo(&cquery, "INSERT INTO %s.%s",
+				relation->schemaname, relation->relname);
+	else
+		appendStringInfo(&cquery, "INSERT INTO %s", relation->relname);
+
+	appendStringInfo(&cquery, " %s", selectstr);
+
+	raw_parsetree_list = pg_parse_query(cquery.data);
+	return pg_analyze_and_rewrite(linitial(raw_parsetree_list), cquery.data,
+			NULL, 0);
+}
+
+/*
+ * pgxc_find_unique_index finds either primary key or unique index
+ * defined for the passed relation.
+ * Returns the number of columns in the primary key or unique index
+ * ZERO means no primary key or unique index is defined.
+ * The column attributes of the primary key or unique index are returned
+ * in the passed indexed_col_numbers.
+ * The function allocates space for indexed_col_numbers, the caller is
+ * supposed to free it after use.
+ */
+int
+pgxc_find_unique_index(Oid relid, int16 **indexed_col_numbers)
+{
+	HeapTuple		indexTuple = NULL;
+	HeapTuple		indexUnique = NULL;
+	Form_pg_index	indexStruct;
+	ListCell		*item;
+	int				i;
+
+	/* Get necessary information about relation */
+	Relation rel = relation_open(relid, AccessShareLock);
+
+	foreach(item, RelationGetIndexList(rel))
+	{
+		Oid			indexoid = lfirst_oid(item);
+
+		indexTuple = SearchSysCache1(INDEXRELID,
+									ObjectIdGetDatum(indexoid));
+		if (!HeapTupleIsValid(indexTuple))
+			elog(ERROR, "cache lookup failed for index %u", indexoid);
+
+		indexStruct = (Form_pg_index) GETSTRUCT(indexTuple);
+
+		if (indexStruct->indisprimary)
+		{
+			indexUnique = indexTuple;
+			ReleaseSysCache(indexTuple);
+			break;
+		}
+
+		/* In case we do not have a primary key, use a unique index */
+		if (indexStruct->indisunique)
+		{
+			indexUnique = indexTuple;
+		}
+
+		ReleaseSysCache(indexTuple);
+	}
+	relation_close(rel, AccessShareLock);
+
+	if (!indexUnique)
+		return 0;
+
+	indexStruct = (Form_pg_index) GETSTRUCT(indexUnique);
+
+	*indexed_col_numbers = palloc0(indexStruct->indnatts * sizeof(int16));
+
+	/*
+	 * Now get the list of PK attributes from the indkey definition (we
+	 * assume a primary key cannot have expressional elements)
+	 */
+	for (i = 0; i < indexStruct->indnatts; i++)
+	{
+		(*indexed_col_numbers)[i] = indexStruct->indkey.values[i];
+	}
+	return indexStruct->indnatts;
+}
+
+/*
+ * is_pk_being_changed determines whether the query is changing primary key
+ * or unique index.
+ * The attributes of the primary key / unique index and their count is
+ * passed to the function along with the query
+ * Returns true if the query is changing the primary key / unique index
+ * The function takes care of the fact that just having the primary key
+ * in set caluse does not mean that it is being changed unless the RHS
+ * is different that the LHS of the set caluse i.e. set pk = pk
+ * is taken as no change to the column
+ */
+bool
+is_pk_being_changed(const Query *query, int16 *indexed_col_numbers, int count)
+{
+	ListCell *lc;
+	int i;
+
+	if (query == NULL || query->rtable == NULL || indexed_col_numbers == NULL)
+		return false;
+
+	if (query->commandType != CMD_UPDATE)
+		return false;
+
+	for (i = 0; i < count; i++)
+	{
+		foreach(lc, query->targetList)
+		{
+			TargetEntry *tle = (TargetEntry *) lfirst(lc);
+
+			/* Nothing to do for a junk entry */
+			if (tle->resjunk)
+				continue;
+
+			/*
+			 * The TargetEntry::resno is the same as the attribute number
+			 * of the column being updated, if the attribute number of the
+			 * column being updated and the attribute of the primary key of
+			 * the table is same means this set clause entry is updating the
+			 * primary key column of the target table.
+			 */
+			if (indexed_col_numbers[i] == tle->resno)
+			{
+				Var *v;
+				/*
+				 * Although the set caluse contains pk column, but if it is
+				 * not being modified, we can use pk for updating the row
+				 */
+				if (!IsA(tle->expr, Var))
+					return true;
+
+				v = (Var *)tle->expr;
+				if (v->varno == query->resultRelation &&
+					v->varattno == tle->resno)
+				{
+					return false;
+				}
+				else
+				{
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
+#endif

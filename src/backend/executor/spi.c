@@ -2198,6 +2198,9 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 							   PROCESS_UTILITY_QUERY,
 							   paramLI,
 							   dest,
+#ifdef ADB
+							   false,
+#endif /* ADB */
 							   completionTag);
 
 				/* Update "processed" if stmt returned tuples */

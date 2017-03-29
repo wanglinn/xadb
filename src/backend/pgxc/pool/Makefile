@@ -15,6 +15,6 @@ top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
 #OBJS = pgxcnode.o execRemote.o poolmgr_adb.o poolcomm.o poolutils.o
-OBJS =  poolmgr_adb.o poolcomm.o poolutils.o pgxcnode.o
+OBJS =  poolmgr_adb.o poolcomm.o poolutils.o pgxcnode.o execRemote.o
 
 include $(top_srcdir)/src/backend/common.mk

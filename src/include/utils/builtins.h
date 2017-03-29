@@ -1359,6 +1359,12 @@ extern Datum pg_explain_infomask(PG_FUNCTION_ARGS);
 
 /* src/backend/pgxc/pool/pgxcnode.c */
 extern Datum pgxc_node_str (PG_FUNCTION_ARGS);
+
+extern List *deparse_context_for_plan(Node *plan, List *ancestors,
+									  List *rtable);
+
+extern void deparse_query(Query *query, StringInfo buf, List *parentnamespace,
+						  bool finalise_aggs, bool sortgroup_colno);
 #endif   /* ADB */
 
 #endif   /* BUILTINS_H */

@@ -1065,7 +1065,11 @@ ConvertTriggerToFK(CreateTrigStmt *stmt, Oid funcoid)
 		ProcessUtility((Node *) atstmt,
 					   "(generated ALTER TABLE ADD FOREIGN KEY command)",
 					   PROCESS_UTILITY_SUBCOMMAND, NULL,
-					   None_Receiver, NULL);
+					   None_Receiver,
+#ifdef ADB
+					   false,
+#endif
+					   NULL);
 
 		/* Remove the matched item from the list */
 		info_list = list_delete_ptr(info_list, info);
@@ -5017,3 +5021,79 @@ pg_trigger_depth(PG_FUNCTION_ARGS)
 {
 	PG_RETURN_INT32(MyTriggerDepth);
 }
+
+#ifdef ADB
+/*
+ * pgxc_has_trigger_for_event: Return true if it can be determined without
+ * peeking into each of the trigger that there is a trigger present for
+ * the given event.
+ */
+bool
+pgxc_has_trigger_for_event(int16 tg_event, TriggerDesc *trigdesc)
+{
+#define ANY_TRIGGER_MATCHES(trigdesc, event) \
+			((trigdesc)->trig_##event##_before_row || \
+			(trigdesc)->trig_##event##_after_row || \
+			(trigdesc)->trig_##event##_instead_row || \
+			(trigdesc)->trig_##event##_before_statement || \
+			(trigdesc)->trig_##event##_after_statement)
+
+	Assert(trigdesc);
+
+	switch (tg_event)
+	{
+		case TRIGGER_TYPE_INSERT:
+			return ANY_TRIGGER_MATCHES(trigdesc, insert);
+			break;
+		case TRIGGER_TYPE_UPDATE:
+			return ANY_TRIGGER_MATCHES(trigdesc, update);
+			break;
+		case TRIGGER_TYPE_DELETE:
+			return ANY_TRIGGER_MATCHES(trigdesc, delete);
+			break;
+		case TRIGGER_TYPE_TRUNCATE:
+			return (trigdesc->trig_truncate_before_statement ||
+					trigdesc->trig_truncate_after_statement);
+			break;
+		case CMD_SELECT:
+		default:
+			Assert(0); /* Shouldn't come here */
+	}
+
+	/* For Compiler's sake */
+	return false;
+}
+
+/* pgxc_get_trigevent: Converts the command type into a trigger event type */
+int16
+pgxc_get_trigevent(CmdType commandType)
+{
+	int16			ret = 0;
+
+	switch (commandType)
+	{
+		case CMD_INSERT:
+			ret = TRIGGER_TYPE_INSERT;
+			break;
+		case CMD_UPDATE:
+			ret = TRIGGER_TYPE_UPDATE;
+			break;
+		case CMD_DELETE:
+			ret = TRIGGER_TYPE_DELETE;
+			break;
+		case CMD_UTILITY:
+			/*
+			 * Assume this function is called only for TRUNCATE and no other
+			 * utility statement.
+			 */
+			ret = TRIGGER_TYPE_TRUNCATE;
+			break;
+		case CMD_SELECT:
+		default:
+			Assert(0); /* Shouldn't come here */
+	}
+
+	return ret;
+}
+
+#endif

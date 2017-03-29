@@ -7,42 +7,44 @@
  *
  * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
  * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
- * src/include/pgxc/execRemote.h
+ * IDENTIFICATION
+ * 		src/include/pgxc/execRemote.h
  *
  *-------------------------------------------------------------------------
  */
 
 #ifndef EXECREMOTE_H
 #define EXECREMOTE_H
+
 #include "locator.h"
-#include "nodes/nodes.h"
 #include "pgxcnode.h"
+
 #include "access/tupdesc.h"
+#include "access/xlog.h"
 #include "executor/tuptable.h"
 #include "nodes/execnodes.h"
+#include "nodes/nodes.h"
 #include "nodes/pg_list.h"
 #include "optimizer/pgxcplan.h"
 #include "tcop/dest.h"
 #include "tcop/pquery.h"
 #include "utils/snapshot.h"
 
-#ifdef ADB
-#include "access/xlog.h"
-#endif
 
 /* GUC parameters */
 extern bool EnforceTwoPhaseCommit;
 extern bool RequirePKeyForRepTab;
 
 /* Outputs of handle_response() */
-#define RESPONSE_EOF EOF
-#define RESPONSE_COMPLETE 0
-#define RESPONSE_SUSPENDED 1
-#define RESPONSE_TUPDESC 2
-#define RESPONSE_DATAROW 3
-#define RESPONSE_COPY 4
-#define RESPONSE_BARRIER_OK 5
+#define RESPONSE_EOF			EOF
+#define RESPONSE_COMPLETE		0
+#define RESPONSE_SUSPENDED		1
+#define RESPONSE_TUPDESC		2
+#define RESPONSE_DATAROW		3
+#define RESPONSE_COPY			4
+#define RESPONSE_BARRIER_OK		5
 
 typedef enum
 {
@@ -93,9 +95,7 @@ typedef struct RemoteQueryState
 	int			current_conn;			/* used to balance load when reading from connections */
 	CombineType combine_type;			/* see CombineType enum */
 	int			command_complete_count; /* count of received CommandComplete messages */
-#ifdef ADB
 	int			command_error_count;	/* count of received Error messages */
-#endif
 	RequestType request_type;			/* see RequestType enum */
 	TupleDesc	tuple_desc;				/* tuple descriptor to be referenced by emitted tuples */
 	int			description_count;		/* count of received RowDescription messages */
@@ -104,9 +104,7 @@ typedef struct RemoteQueryState
 	char		errorCode[5];			/* error code to send back to client */
 	StringInfoData errorMessage;			/* error message to send back to client */
 	char	   *errorDetail;			/* error detail to send back to client */
-#ifdef ADB
 	char	   *errorNodeName;			/* error node name to send back to client */
-#endif /* ADB */
 	bool		query_Done;				/* query has been sent down to Datanodes */
 	RemoteDataRowData currentRow;		/* next data ro to be wrapped into a tuple */
 	/* TODO use a tuplestore as a rowbuffer */
@@ -198,13 +196,12 @@ extern void AtEOXact_DBCleanup(bool isCommit);
 extern void set_dbcleanup_callback(xact_callback function, void *paraminfo, int paraminfo_size);
 extern void do_query(RemoteQueryState *node);
 
-#ifdef ADB
 extern void init_RemoteXactStateByNodes(int node_cnt, Oid *nodeIds, bool isPrepared);
 extern void TellRemoteXactLocalPrepared(bool status);
 extern int pgxcGetInvolvedRemoteNodes(Oid **nodeIds);
 extern int pgxcGetInvolvedNodes(bool localNode, Oid **nodeIds);
 extern void AbnormalAbort_Remote(void);
-#endif /* ADB */
+
 extern RemoteQueryState *CreateResponseCombiner(int node_count, CombineType combine_type);
 extern void CloseCombiner(RemoteQueryState *combiner);
 #endif

@@ -36,6 +36,7 @@
 #ifdef ADB
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/execRemote.h"
 #endif
 
 
@@ -822,6 +823,55 @@ build_regtype_array(Oid *param_types, int num_params)
 }
 
 #ifdef ADB
+DatanodeStatement *
+FetchDatanodeStatement(const char *stmt_name, bool throwError)
+{
+	DatanodeStatement *entry;
+
+	/*
+	 * If the hash table hasn't been initialized, it can't be storing
+	 * anything, therefore it couldn't possibly store our plan.
+	 */
+	if (datanode_queries)
+		entry = (DatanodeStatement *) hash_search(datanode_queries, stmt_name, HASH_FIND, NULL);
+	else
+		entry = NULL;
+
+	/* Report error if entry is not found */
+	if (!entry && throwError)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_PSTATEMENT),
+				 errmsg("datanode statement \"%s\" does not exist",
+						stmt_name)));
+
+	return entry;
+}
+
+/*
+ * Drop Datanode statement and close it on nodes if active
+ */
+void
+DropDatanodeStatement(const char *stmt_name)
+{
+	DatanodeStatement *entry;
+
+	entry = FetchDatanodeStatement(stmt_name, false);
+	if (entry)
+	{
+		int i;
+		List *nodelist = NIL;
+
+		/* make a List of integers from node numbers */
+		for (i = 0; i < entry->number_of_nodes; i++)
+			nodelist = lappend_int(nodelist, entry->dns_node_indices[i]);
+		entry->number_of_nodes = 0;
+
+		ExecCloseRemoteStatement(stmt_name, nodelist);
+
+		hash_search(datanode_queries, entry->stmt_name, HASH_REMOVE, NULL);
+	}
+}
+
 /*
  * Return true if there is at least one active Datanode statement, so acquired
  * Datanode connections should not be released
@@ -848,6 +898,31 @@ HaveActiveDatanodeStatements(void)
 		}
 	}
 	/* nothing found */
+	return false;
+}
+
+/*
+ * Mark Datanode statement as active on specified node
+ * Return true if statement has already been active on the node and can be used
+ * Returns false if statement has not been active on the node and should be
+ * prepared on the node
+ */
+bool
+ActivateDatanodeStatementOnNode(const char *stmt_name, int noid)
+{
+	DatanodeStatement *entry;
+	int i;
+
+	/* find the statement in cache */
+	entry = FetchDatanodeStatement(stmt_name, true);
+
+	/* see if statement already active on the node */
+	for (i = 0; i < entry->number_of_nodes; i++)
+		if (entry->dns_node_indices[i] == noid)
+			return true;
+
+	/* statement is not active on the specified node append item to the list */
+	entry->dns_node_indices[entry->number_of_nodes++] = noid;
 	return false;
 }
 #endif

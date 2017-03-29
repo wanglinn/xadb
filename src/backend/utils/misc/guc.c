@@ -87,6 +87,10 @@
 #include "utils/tzparser.h"
 #include "utils/xml.h"
 
+#ifdef ADB
+#include "pgxc/execRemote.h"
+#endif
+
 #ifndef PG_KRB_SRVTAB
 #define PG_KRB_SRVTAB ""
 #endif
@@ -113,6 +117,7 @@ int AGtmPort;
 char *AGtmHost;
 
 bool distribute_by_replication_default;
+bool enable_stable_func_shipping;
 #endif
 
 /* XXX these should appear in other modules' header files */
@@ -1681,6 +1686,88 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&distribute_by_replication_default,
 		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enable_stable_func_shipping", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables stable function shipping to ship query directly to datanode."),
+			NULL
+		},
+		&enable_stable_func_shipping,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enforce_two_phase_commit", PGC_SUSET, XC_HOUSEKEEPING_OPTIONS,
+			gettext_noop("Enforce the use of two-phase commit on transactions that"
+					"made use of temporary objects"),
+			NULL
+		},
+		&EnforceTwoPhaseCommit,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"require_replicated_table_pkey", PGC_USERSET, XC_HOUSEKEEPING_OPTIONS,
+			gettext_noop("When set, non-FQS UPDATEs & DELETEs to replicated tables without"
+					" primary key or a unique key are prohibited"),
+			NULL
+		},
+		&RequirePKeyForRepTab,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enable_remotejoin", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of remote join plans."),
+			NULL
+		},
+		&enable_remotejoin,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enable_fast_query_shipping", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of fast query shipping to ship query directly to datanode."),
+			NULL
+		},
+		&enable_fast_query_shipping,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enable_remotegroup", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of remote group plans."),
+			NULL
+		},
+		&enable_remotegroup,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enable_remotesort", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of remote sort plans."),
+			NULL
+		},
+		&enable_remotesort,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enable_remotelimit", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of remote limit plans."),
+			NULL
+		},
+		&enable_remotelimit,
+		true,
 		NULL, NULL, NULL
 	},
 #endif

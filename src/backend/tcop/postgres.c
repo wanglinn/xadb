@@ -78,6 +78,7 @@
 #ifdef ADB
 #include "agtm/agtm.h"
 #include "agtm/agtm_client.h"
+#include "pgxc/pgxc.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/poolutils.h"
 #endif
@@ -3341,6 +3342,9 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 	int			errs = 0;
 	GucSource	gucsource;
 	int			flag;
+#ifdef ADB
+	bool		singleuser = false;
+#endif
 
 	if (secure)
 	{
@@ -3351,6 +3355,9 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 		{
 			argv++;
 			argc--;
+#ifdef ADB
+			singleuser = true;
+#endif
 		}
 	}
 	else
@@ -3516,6 +3523,27 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 							   *value;
 
 					ParseLongOption(optarg, &name, &value);
+#ifdef ADB
+					/* A Coordinator is being activated */
+					if (strcmp(name, "coordinator") == 0 &&
+						!value)
+						isPGXCCoordinator = true;
+					/* A Datanode is being activated */
+					else if (strcmp(name, "datanode") == 0 &&
+							 !value)
+						isPGXCDataNode = true;
+					else if (strcmp(name, "localxid") == 0 &&
+							 !value)
+					{
+						if (!singleuser)
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									 errmsg("local xids can be used only in single user mode")));
+						useLocalXid = true;
+					}
+					else /* default case */
+					{
+#endif /* ADB */
 					if (!value)
 					{
 						if (flag == '-')
@@ -3530,6 +3558,9 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 											optarg)));
 					}
 					SetConfigOption(name, value, ctx, gucsource);
+#ifdef ADB
+					}
+#endif
 					free(name);
 					if (value)
 						free(value);
@@ -3544,6 +3575,26 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 		if (errs)
 			break;
 	}
+
+#ifdef ADB
+	/*
+	 * Make sure we specified the mode if Coordinator or Datanode.
+	 * Allow for the exception of initdb by checking config option
+	 * ADBQ
+	 */
+	if (!IS_PGXC_COORDINATOR && !IS_PGXC_DATANODE /*&& !IS_ADBLOADER*/ && IsUnderPostmaster)
+	{
+		ereport(FATAL,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+			 errmsg("Postgres-XC: must start as either a Coordinator (--coordinator) or "
+			 		"Datanode (-datanode) or ADBloader (--adbloader)\n")));
+	}
+	if (!IsPostmasterEnvironment)
+	{
+		/* Treat it as a Datanode for initdb to work properly */
+		isPGXCDataNode = true;
+	}
+#endif
 
 	/*
 	 * Optional database name should be there only if *dbname is NULL.

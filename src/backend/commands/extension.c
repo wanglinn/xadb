@@ -749,6 +749,9 @@ execute_sql_string(const char *sql, const char *filename)
 							   PROCESS_UTILITY_QUERY,
 							   NULL,
 							   dest,
+#ifdef ADB
+							   true,	/* this is created at remote node level */
+#endif /* ADB	 */
 							   NULL);
 			}
 

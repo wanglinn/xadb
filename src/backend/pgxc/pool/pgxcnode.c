@@ -844,8 +844,7 @@ void release_handles2(bool force_close)
 	}
 
 	/* And finally release all the connections on pooler */
-	/* ADBQ: TODO */
-	//PoolManagerReleaseConnections(force_close || has_error);
+	PoolManagerReleaseConnections(force_close || has_error);
 
 	datanode_count = 0;
 	coord_count = 0;
@@ -912,8 +911,7 @@ cancel_query(void)
 		}
 	}
 
-	/* ADBQ TODO */
-	//PoolManagerCancelQuery(dn_count, dn_cancel, co_count, co_cancel);
+	PoolManagerCancelQuery(dn_count, dn_cancel, co_count, co_cancel);
 
 	/*
 	 * Read responses from the nodes to whom we sent the cancel command. This
@@ -1073,8 +1071,7 @@ cancel_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
 			}
 		}
 
-		/* ADBQ TODO */
-		//PoolManagerCancelQuery(dn_count, dn_cancel, co_count, co_cancel);
+		PoolManagerCancelQuery(dn_count, dn_cancel, co_count, co_cancel);
 
 		/*
 		 * Read responses from the nodes to whom we sent the cancel command. This

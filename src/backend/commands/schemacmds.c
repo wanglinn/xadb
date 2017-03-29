@@ -179,6 +179,9 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString)
 					   PROCESS_UTILITY_SUBCOMMAND,
 					   NULL,
 					   None_Receiver,
+#ifdef ADB
+					   true,
+#endif /* ADB */
 					   NULL);
 		/* make sure later steps can see the object created here */
 		CommandCounterIncrement();

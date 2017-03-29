@@ -1,18 +1,19 @@
 #-------------------------------------------------------------------------
 #
 # Makefile--
-#    Makefile for optimizer/util
+#    Makefile for remote copy management
+#
+#  Copyright (c) 2010-2012 Postgres-XC Development Group
 #
 # IDENTIFICATION
-#    src/backend/optimizer/util/Makefile
+#    $PostgreSQL$
 #
 #-------------------------------------------------------------------------
 
-subdir = src/backend/optimizer/util
+subdir = src/backend/pgxc/copy
 top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = clauses.o joininfo.o orclauses.o pathnode.o placeholder.o \
-       plancat.o predtest.o relnode.o restrictinfo.o tlist.o var.o \
-       pgxcship.o
+OBJS = copyops.o remotecopy.o
+
 include $(top_srcdir)/src/backend/common.mk

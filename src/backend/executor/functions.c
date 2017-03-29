@@ -854,6 +854,9 @@ postquel_getnext(execution_state *es, SQLFunctionCachePtr fcache)
 					   PROCESS_UTILITY_QUERY,
 					   es->qd->params,
 					   es->qd->dest,
+#ifdef ADB
+					   false,
+#endif /* ADB */
 					   NULL);
 		result = true;			/* never stops early */
 	}

@@ -66,6 +66,13 @@ extern bool enable_nestloop;
 extern bool enable_material;
 extern bool enable_mergejoin;
 extern bool enable_hashjoin;
+#ifdef ADB
+extern bool enable_fast_query_shipping;
+extern bool enable_remotejoin;
+extern bool enable_remotegroup;
+extern bool enable_remotesort;
+extern bool enable_remotelimit;
+#endif
 extern int	constraint_exclusion;
 
 extern double clamp_row_est(double nrows);
@@ -198,5 +205,7 @@ extern Selectivity clause_selectivity(PlannerInfo *root,
 				   int varRelid,
 				   JoinType jointype,
 				   SpecialJoinInfo *sjinfo);
-
+#ifdef ADB
+extern void cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel);
+#endif
 #endif   /* COST_H */

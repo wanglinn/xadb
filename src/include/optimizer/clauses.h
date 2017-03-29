@@ -65,6 +65,10 @@ extern bool has_parallel_hazard(Node *node, bool allow_restricted);
 extern bool contain_nonstrict_functions(Node *clause);
 extern bool contain_leaked_vars(Node *clause);
 
+#ifdef ADB
+extern bool contain_volatile_functions_without_check_RownumExpr(Node *clause);
+#endif
+
 extern Relids find_nonnullable_rels(Node *clause);
 extern List *find_nonnullable_vars(Node *clause);
 extern List *find_forced_null_vars(Node *clause);

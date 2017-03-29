@@ -313,21 +313,11 @@ extern TransactionId GetTopTransactionId(void);
 extern TransactionId GetTopTransactionIdIfAny(void);
 extern TransactionId GetCurrentTransactionId(void);
 extern TransactionId GetCurrentTransactionIdIfAny(void);
-#ifdef ADB  /* ADB COORD */
-extern bool GetCurrentLocalParamStatus(void);
-extern void SetCurrentLocalParamStatus(bool status);
-#endif
 extern TransactionId GetStableLatestTransactionId(void);
 extern SubTransactionId GetCurrentSubTransactionId(void);
 extern void MarkCurrentTransactionIdLoggedIfAny(void);
 extern bool SubTransactionIsActive(SubTransactionId subxid);
 extern CommandId GetCurrentCommandId(bool used);
-#ifdef ADB
-extern void SetTopXactBeginAGTM(bool status);
-extern bool TopXactBeginAGTM(void);
-
-extern void SetCurrentTransactionStartTimestamp(TimestampTz timestamp);
-#endif
 extern TimestampTz GetCurrentTransactionStartTimestamp(void);
 extern TimestampTz GetCurrentStatementStartTimestamp(void);
 extern TimestampTz GetCurrentTransactionStopTimestamp(void);
@@ -393,5 +383,35 @@ extern void ParseAbortRecord(uint8 info, xl_xact_abort *xlrec, xl_xact_parsed_ab
 extern void EnterParallelMode(void);
 extern void ExitParallelMode(void);
 extern bool IsInParallelMode(void);
+
+#ifdef ADB
+extern void RegisterTransactionNodes(int count, void **connections, bool write);
+extern void ForgetTransactionNodes(void);
+extern void RegisterTransactionLocalNode(bool write);
+extern bool IsTransactionLocalNode(bool write);
+extern void ForgetTransactionLocalNode(void);
+extern bool IsXidImplicit(const char *xid);
+extern void SaveReceivedCommandId(CommandId cid);
+extern void SetReceivedCommandId(CommandId cid);
+extern CommandId GetReceivedCommandId(void);
+extern void ReportCommandIdChange(CommandId cid);
+extern bool IsSendCommandId(void);
+extern void SetSendCommandId(bool status);
+extern bool IsPGXCNodeXactReadOnly(void);
+extern bool IsPGXCNodeXactDatanodeDirect(void);
+extern void AbortCurrentTransactionOnce(void);
+
+extern bool GetCurrentLocalParamStatus(void);
+extern void SetCurrentLocalParamStatus(bool status);
+extern CommandId GetCurrentCommandIdIfAny(void);
+extern void SetTopXactBeginAGTM(bool status);
+extern bool TopXactBeginAGTM(void);
+extern void SetCurrentXactPhase1(void);
+extern void SetCurrentXactPhase2(void);
+extern bool IsCurrentXactInPhase2(void);
+extern void SetXactErrorAborted(bool flag);
+extern bool IsXactErrorAbort(void);
+extern void SetCurrentTransactionStartTimestamp(TimestampTz timestamp);
+#endif
 
 #endif   /* XACT_H */

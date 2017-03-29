@@ -80,6 +80,11 @@
 #define TimestampTzPlusMilliseconds(tz,ms) ((tz) + ((ms) / 1000.0))
 #endif
 
+#ifdef ADB
+#define InvalidGlobalTimestamp ((TimestampTz) 0)
+#define GlobalTimestampIsValid(timestamp) ((TimestampTz) (timestamp)) != InvalidGlobalTimestamp
+#endif
+
 
 /* Set at postmaster start */
 extern TimestampTz PgStartTime;

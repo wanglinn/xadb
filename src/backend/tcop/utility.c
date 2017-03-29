@@ -319,6 +319,9 @@ ProcessUtility(Node *parsetree,
 			   ProcessUtilityContext context,
 			   ParamListInfo params,
 			   DestReceiver *dest,
+#ifdef ADB
+			   bool	sentToRemote,
+#endif /* ADB */
 			   char *completionTag)
 {
 	Assert(queryString != NULL);	/* required as of 8.4 */
@@ -1031,6 +1034,9 @@ ProcessUtilitySlow(Node *parsetree,
 										   PROCESS_UTILITY_SUBCOMMAND,
 										   params,
 										   None_Receiver,
+#ifdef ADB
+										   true,
+#endif /* ADB */
 										   NULL);
 						}
 
@@ -1101,6 +1107,9 @@ ProcessUtilitySlow(Node *parsetree,
 											   PROCESS_UTILITY_SUBCOMMAND,
 											   params,
 											   None_Receiver,
+#ifdef ADB
+											   true,
+#endif
 											   NULL);
 								EventTriggerAlterTableStart(parsetree);
 								EventTriggerAlterTableRelid(relid);

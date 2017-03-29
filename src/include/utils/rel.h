@@ -20,15 +20,14 @@
 #include "catalog/pg_index.h"
 #include "fmgr.h"
 #include "nodes/bitmapset.h"
-#ifdef ADB
-#include "pgxc/locator.h"
-#endif
 #include "rewrite/prs2lock.h"
 #include "storage/block.h"
 #include "storage/relfilenode.h"
 #include "utils/relcache.h"
 #include "utils/reltrigger.h"
-
+#ifdef ADB
+#include "pgxc/locator.h"
+#endif
 
 /*
  * LockRelId and LockInfo really belong to lmgr.h, but it's more convenient
@@ -486,6 +485,21 @@ typedef struct ViewOptions
 #define RELATION_IS_LOCAL(relation) \
 	((relation)->rd_islocaltemp || \
 	 (relation)->rd_createSubid != InvalidSubTransactionId)
+
+#ifdef ADB
+/*
+ * RelationGetLocInfo
+ *		Return the location info of relation
+ */
+#define RelationGetLocInfo(relation) ((relation)->rd_locator_info)
+
+/*
+ * RelationGetLocatorType
+ *		Returns the rel's locator type.
+ */
+#define RelationGetLocatorType(relation) \
+	((relation)->rd_locator_info->locatorType)
+#endif
 
 /*
  * RELATION_IS_OTHER_TEMP

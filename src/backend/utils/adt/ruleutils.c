@@ -67,7 +67,13 @@
 #include "utils/tqual.h"
 #include "utils/typcache.h"
 #include "utils/xml.h"
-
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#include "optimizer/pgxcplan.h"
+#include "nodes/execnodes.h"
+#include "access/reloptions.h"
+#include "parser/parse_type.h"
+#endif
 
 /* ----------
  * Pretty formatting constants
@@ -111,6 +117,12 @@ typedef struct
 	bool		varprefix;		/* TRUE to print prefixes on Vars */
 	ParseExprKind special_exprkind;		/* set only for exprkinds needing
 										 * special handling */
+#ifdef ADB
+	bool		finalise_aggs;	/* should Datanode finalise the aggregates? */
+	bool		sortgroup_colno;/* instead of expression use resno for
+								 * sortgrouprefs.
+								 */
+#endif /* ADB */
 } deparse_context;
 
 /*
@@ -157,6 +169,12 @@ typedef struct
 	List	   *outer_tlist;	/* referent for OUTER_VAR Vars */
 	List	   *inner_tlist;	/* referent for INNER_VAR Vars */
 	List	   *index_tlist;	/* referent for INDEX_VAR Vars */
+#ifdef ADB
+	bool		remotequery;	/* deparse context for remote query */
+	CmdType		dpns_cmdType;	/* Command type of the query being deparsed */
+	int			dpns_resRel;	/* rtable index of target relation */
+								/* in the query being deparsed */
+#endif
 } deparse_namespace;
 
 /*
@@ -347,6 +365,9 @@ static void flatten_join_using_qual(Node *qual,
 						List **leftvars, List **rightvars);
 static char *get_rtable_name(int rtindex, deparse_context *context);
 static void set_deparse_planstate(deparse_namespace *dpns, PlanState *ps);
+#ifdef ADB
+static void set_deparse_plan(deparse_namespace *dpns, Plan *plan);
+#endif
 static void push_child_plan(deparse_namespace *dpns, PlanState *ps,
 				deparse_namespace *save_dpns);
 static void pop_child_plan(deparse_namespace *dpns,
@@ -361,7 +382,11 @@ static void make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 			 int prettyFlags, int wrapColumn);
 static void get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 			  TupleDesc resultDesc,
-			  int prettyFlags, int wrapColumn, int startIndent);
+			  int prettyFlags, int wrapColumn, int startIndent
+#ifdef ADB
+			  , bool finalise_aggregates, bool sortgroup_colno
+#endif /* ADB */
+			  );
 static void get_values_def(List *values_lists, deparse_context *context);
 static void get_with_clause(Query *query, deparse_context *context);
 static void get_select_query_def(Query *query, deparse_context *context,
@@ -985,6 +1010,9 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 		context.wrapColumn = WRAP_COLUMN_DEFAULT;
 		context.indentLevel = PRETTYINDENT_STD;
 		context.special_exprkind = EXPR_KIND_NONE;
+#ifdef ADB
+		context.finalise_aggs = false;
+#endif /* ADB */
 
 		get_rule_expr(qual, &context, false);
 
@@ -2655,6 +2683,9 @@ deparse_expression_pretty(Node *expr, List *dpcontext,
 	context.wrapColumn = WRAP_COLUMN_DEFAULT;
 	context.indentLevel = startIndent;
 	context.special_exprkind = EXPR_KIND_NONE;
+#ifdef ADB
+	context.finalise_aggs = false;
+#endif /* ADB */
 
 	get_rule_expr(expr, &context, showimplicit);
 
@@ -2691,6 +2722,9 @@ deparse_context_for(const char *aliasname, Oid relid)
 	/* Build one-element rtable */
 	dpns->rtable = list_make1(rte);
 	dpns->ctes = NIL;
+#ifdef ADB
+	dpns->remotequery = false;
+#endif
 	set_rtable_names(dpns, NIL, NULL);
 	set_simple_column_names(dpns);
 
@@ -2771,6 +2805,9 @@ set_deparse_context_planstate(List *dpcontext,
 	/* Should always have one-entry namespace list for Plan deparsing */
 	Assert(list_length(dpcontext) == 1);
 	dpns = (deparse_namespace *) linitial(dpcontext);
+#ifdef ADB
+	dpns->remotequery = false;
+#endif
 
 	/* Set our attention on the specific plan node passed in */
 	set_deparse_planstate(dpns, (PlanState *) planstate);
@@ -2823,6 +2860,53 @@ set_rtable_names(deparse_namespace *dpns, List *parent_namespaces,
 	bool		found;
 	int			rtindex;
 	ListCell   *lc;
+#ifdef ADB
+	Alias		*alias;
+	int 		list_index = 0;
+	bool		use_list_index = false;
+
+	/*
+	 * Consider this test case taken from with.sql
+	 *
+	 * CREATE TABLE y (a INTEGER) DISTRIBUTE BY REPLICATION;
+	 * INSERT INTO y SELECT generate_series(1, 10);
+	 * CREATE RULE y_rule AS ON DELETE TO y DO INSTEAD
+	 *							INSERT INTO y VALUES(42) RETURNING *;
+	 * DELETE FROM y RETURNING *;
+	 *
+	 * When the delete rule fires the query becomes an insert.
+	 * While setting range table names in deparse_namespace::rtable_names
+	 * this function makes sure that there are no duplicates
+	 * and appends digits to make them so.
+	 * For the above case the Query is such that it has
+	 * "y new old y" in the rtable
+	 * and deparse_namespace::rtable_names ends up having
+	 * "y new old y_1". The resultRelation in query points to last entry of
+	 * the above list. Hence after deparsing the insert query comes out to be
+	 * INSERT INTO public.y (a) VALUES ($1) RETURNING y_1.a
+	 * Notice that the returning list is using the changed rtable name.
+	 * This would not have been any problem had this been a non-insert query
+	 * because we could have simply used y_1 as the table alias but
+	 * the insert query does not support table alias.
+	 * To solve the problem we use a trick. Instead of changing the last entry
+	 * of the list deparse_namespace::rtable_names, we change the first entry
+	 * resulting in having "y_1 new old y" in the list
+	 * To implement the idea we start iterating the Query::rtable from the
+	 * entry at index Query::resultRelation-1, rather than first entry
+	 * and at end straighten the resulting list deparse_namespace::rtable_names
+	 */
+	/*
+	 * Is this an insert query and is it so that the result relation
+	 * is not the first relation of the rtable?
+	 * If yes, we would need to iterate rtable starting from list_index
+	 * rather than from the first entry
+	 */
+	if (dpns->dpns_cmdType == CMD_INSERT && dpns->dpns_resRel > 1)
+	{
+		list_index = dpns->dpns_resRel - 1;
+		use_list_index = true;
+	}
+#endif
 
 	dpns->rtable_names = NIL;
 	/* nothing more to do if empty rtable */
@@ -2869,6 +2953,19 @@ set_rtable_names(deparse_namespace *dpns, List *parent_namespaces,
 		RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
 		char	   *refname;
 
+#ifdef ADB
+		/*
+		 * Are we supposed to iterate the rtable list using list_index?
+		 * If yes forget what we just put in rte, and reinitialize
+		 * it by the element at the index list_index
+		 */
+		if (use_list_index)
+		{
+			rte = (RangeTblEntry *) list_nth(dpns->rtable, list_index++);
+			if (list_index >= list_length(dpns->rtable))
+				list_index = 0;
+		}
+#endif
 		/* Just in case this takes an unreasonable amount of time ... */
 		CHECK_FOR_INTERRUPTS();
 
@@ -2948,11 +3045,91 @@ set_rtable_names(deparse_namespace *dpns, List *parent_namespaces,
 				/* Name not previously used, need only initialize hentry */
 				hentry->counter = 0;
 			}
+			
+#ifdef ADB
+			/*
+			 * Just changing the refname won't suffice, we have to change the
+			 * alias too, but before we do that we should free any alias
+			 * that was there previously
+			 * For example
+			 *
+			 * CREATE TABLE a (aa TEXT) distribute by roundrobin;
+			 * CREATE TABLE b (bb TEXT) INHERITS (a) distribute by roundrobin;
+			 * INSERT INTO a(aa) VALUES('aa');
+			 * INSERT INTO b(aa) VALUES('bb');
+			 * explain verbose UPDATE a SET aa='zzzz' WHERE aa='aa';
+			 * prints queries like
+			 * UPDATE ONLY public.a SET aa = $1 WHERE ((a_1.ctid = $2) AND
+			 *										(a_1.xc_node_id = $3))
+			 * The reason of these erroneous queries is as follows
+			 * While planning the optimizer would try and expand each rangetable
+			 * entry that represents an inheritance set,resulting into dupliate
+			 * entries in the rtable member of the query structure.
+			 * The above query would have "a a b" in rtable after expansion.
+			 * At the time of deparsing the function set_rtable_names would
+			 * notice duplicate entries in the rtable and would try to generate
+			 * unique reference names for each, but that results in missing
+			 * alias in the generated query.
+			 */
+			if (rte->alias && rte->alias->colnames)
+			{
+				char *aliasname = pstrdup(refname);
+				pfree(rte->alias->aliasname);
+				refname = rte->alias->aliasname = aliasname;
+			} else
+			{
+				alias = makeAlias(refname, NIL);
+				rte->alias = alias;
+				refname = alias->aliasname;
+			}
+#endif
 		}
 
 		dpns->rtable_names = lappend(dpns->rtable_names, refname);
 		rtindex++;
 	}
+#ifdef ADB
+	/*
+	 * Did we use list_index to iterate rtable?
+	 * If yes it means that we would have to shuffle the resulting
+	 * rtable_names bacause the above loop would have put the changed name
+	 * of the element at list_index at the first location. We need it to be
+	 * at the location list_index in the resulting list
+	 */
+	if (use_list_index)
+	{
+		char	   *name;
+		int 		i;
+		List		*tmp_names = NIL;
+
+		/* Make a copy of the list to shuffle and free the original list */
+		tmp_names = list_copy(dpns->rtable_names);
+		list_free(dpns->rtable_names);
+		dpns->rtable_names = NIL;
+
+		/*
+		 * Start iterating the existing list from the element that we need
+		 * to put at the first location in the resulting list.
+		 * If list had 7 elements and we had started iterating from index 4
+		 * Then we would have iterated the list using indices
+		 * 4 5 6 0 1 2 3
+		 * In this case we need to put the element at index 3 at first
+		 * location in the resulting list
+		 * Knowing that dpns_resRel is one more than the index where we start
+		 * iterating we use the following formula
+		 * 7 - (5 - 1) = 3
+		 */
+		list_index = list_length(tmp_names) - (dpns->dpns_resRel - 1);
+
+		for (i = 0; i < list_length(tmp_names); i++)
+		{
+			name = (char *) list_nth(tmp_names, list_index++);
+			if (list_index >= list_length(tmp_names))
+				list_index = 0;
+			dpns->rtable_names = lappend(dpns->rtable_names, name);
+		}
+	}
+#endif
 
 	hash_destroy(names_hash);
 }
@@ -2974,6 +3151,11 @@ set_deparse_for_query(deparse_namespace *dpns, Query *query,
 	memset(dpns, 0, sizeof(deparse_namespace));
 	dpns->rtable = query->rtable;
 	dpns->ctes = query->cteList;
+#ifdef ADB
+	dpns->remotequery = false;
+	dpns->dpns_cmdType = query->commandType;
+	dpns->dpns_resRel = query->resultRelation;
+#endif
 
 	/* Assign a unique relation alias to each RTE */
 	set_rtable_names(dpns, parent_namespaces, NULL);
@@ -4336,6 +4518,9 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		context.wrapColumn = WRAP_COLUMN_DEFAULT;
 		context.indentLevel = PRETTYINDENT_STD;
 		context.special_exprkind = EXPR_KIND_NONE;
+#ifdef ADB
+		context.finalise_aggs = false;
+#endif /* ADB */
 
 		set_deparse_for_query(&dpns, query, NIL);
 
@@ -4359,7 +4544,11 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		{
 			query = (Query *) lfirst(action);
 			get_query_def(query, buf, NIL, NULL,
-						  prettyFlags, WRAP_COLUMN_DEFAULT, 0);
+						  prettyFlags, WRAP_COLUMN_DEFAULT, 0
+#ifdef ADB
+						  , false, false
+#endif /* ADB */
+						);
 			if (prettyFlags)
 				appendStringInfoString(buf, ";\n");
 			else
@@ -4377,7 +4566,11 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 		query = (Query *) linitial(actions);
 		get_query_def(query, buf, NIL, NULL,
-					  prettyFlags, WRAP_COLUMN_DEFAULT, 0);
+					  prettyFlags, WRAP_COLUMN_DEFAULT, 0
+#ifdef ADB
+						, false, false
+#endif /* ADB */
+					);
 		appendStringInfoChar(buf, ';');
 	}
 }
@@ -4441,12 +4634,173 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	ev_relation = heap_open(ev_class, AccessShareLock);
 
 	get_query_def(query, buf, NIL, RelationGetDescr(ev_relation),
-				  prettyFlags, wrapColumn, 0);
+				  prettyFlags, wrapColumn, 0
+#ifdef ADB
+				  , false, false
+#endif /* ADB */
+				  );
 	appendStringInfoChar(buf, ';');
 
 	heap_close(ev_relation, AccessShareLock);
 }
 
+#ifdef ADB
+/*
+ * This is a special case deparse context to be used at the planning time to
+ * generate query strings and expressions for remote shipping.
+ *
+ * XXX We should be careful while using this since the support is quite
+ * limited. The only supported use case at this point is for remote join
+ * reduction and some simple plan trees rooted by Agg node having a single
+ * RemoteQuery node as leftree.
+ */
+List *
+deparse_context_for_plan(Node *plan, List *ancestors,
+							  List *rtable)
+{
+	deparse_namespace *dpns;
+
+	dpns = (deparse_namespace *) palloc0(sizeof(deparse_namespace));
+
+	/* Initialize fields that stay the same across the whole plan tree */
+	dpns->rtable = rtable;
+	dpns->ctes = NIL;
+	dpns->remotequery = false;
+
+	/* Set our attention on the specific plan node passed in */
+	set_deparse_plan(dpns, (Plan *) plan);
+	dpns->ancestors = ancestors;
+
+	/* Return a one-deep namespace stack */
+	return list_make1(dpns);
+}
+
+/*
+ * Set deparse context for Plan. Only those plan nodes which are immediate (or
+ * through simple nodes) parents of RemoteQuery nodes are supported right now.
+ *
+ * This is a kind of work-around since the new deparse interface (since 9.1)
+ * expects a PlanState node. But planstates are instantiated only at execution
+ * time when InitPlan is called. But we are required to deparse the query
+ * during planning time, so we hand-cook these dummy PlanState nodes instead of
+ * init-ing the plan. Another approach could have been to delay the query
+ * generation to the execution time, but we are not yet sure if this can be
+ * safely done, especially for remote join reduction.
+ */
+static void
+set_deparse_plan(deparse_namespace *dpns, Plan *plan)
+{
+
+	if (IsA(plan, NestLoop))
+	{
+		NestLoop *nestloop = (NestLoop *) plan;
+
+		dpns->planstate = (PlanState *) makeNode(NestLoopState);
+		dpns->planstate->plan = plan;
+
+		dpns->outer_planstate = (PlanState *) makeNode(PlanState);
+		dpns->outer_planstate->plan = nestloop->join.plan.lefttree;
+
+		dpns->inner_planstate = (PlanState *) makeNode(PlanState);
+		dpns->inner_planstate->plan = nestloop->join.plan.righttree;
+	}
+	else if (IsA(plan, RemoteQuery))
+	{
+		dpns->planstate = (PlanState *) makeNode(PlanState);
+		dpns->planstate->plan = plan;
+	}
+	else if (IsA(plan, Agg) || IsA(plan, Group))
+	{
+		/*
+		 * We expect plan tree as Group/Agg->Sort->Result->Material->RemoteQuery,
+		 * Result, Material nodes are optional. Sort is compulsory for Group but not
+		 * for Agg.
+		 * anything else is not handled right now.
+		 */
+		Plan *temp_plan = plan->lefttree;
+		Plan *remote_scan = NULL;
+
+		if (temp_plan && IsA(temp_plan, Sort))
+			temp_plan = temp_plan->lefttree;
+		if (temp_plan && IsA(temp_plan, Result))
+			temp_plan = temp_plan->lefttree;
+		if (temp_plan && IsA(temp_plan, Material))
+			temp_plan = temp_plan->lefttree;
+		if (temp_plan && IsA(temp_plan, RemoteQuery))
+			remote_scan = temp_plan;
+
+		if (!remote_scan)
+			elog(ERROR, "Deparse of this query at planning is not supported yet");
+
+		dpns->planstate = (PlanState *) makeNode(PlanState);
+		dpns->planstate->plan = plan;
+	}
+	else
+		elog(ERROR, "Deparse of this query at planning not supported yet");
+}
+
+/* ----------
+ * deparse_query			 - Parse back one query parsetree
+ *
+ * Purpose of this function is to build up statement for a RemoteQuery
+ * The query generated has all object names schema-qualified. This is
+ * done by temporarily setting search_path to NIL.
+ * It calls get_query_def without pretty print flags.
+ * ----------
+ */
+void
+deparse_query(Query *query, StringInfo buf, List *parentnamespace,
+			  bool finalise_aggs, bool sortgroup_colno)
+{
+	OverrideSearchPath		*tmp_search_path;
+	List					*schema_list;
+	ListCell				*schema;
+
+	/*
+	* Before deparsing the query, set the search_patch to NIL so that all the
+	* object names in the deparsed query are schema qualified. This is required
+	* so as to not have any dependency on current search_path. For e.g the same
+	* remote query can be used even if search_path changes between two executes
+	* of a prepared statement.
+	* Note: We do not apply the above solution for temp tables for reasons shown
+	* in the below comment.
+	*/
+	tmp_search_path = GetOverrideSearchPath(CurrentMemoryContext);
+
+	tmp_search_path->addTemp = true;
+	schema_list = tmp_search_path->schemas;
+	foreach(schema, schema_list)
+	{
+		if (isTempNamespace(lfirst_oid(schema)))
+		{
+		  /* Is pg_temp the very first item ? If no, that means temp objects
+		   * should be qualified, otherwise the object name would possibly
+		   * be resolved from some other schema. We force schema
+		   * qualification by making sure the overridden search_path does not
+		   * have pg_temp implicitly added.
+		   * Why do we not *always* let the pg_temp qualification be there ?
+		   * Because the pg_temp schema name always gets deparsed into the
+		   * actual temp schema names like pg_temp_[1-9]*, and not the dummy
+		   * name pg_temp. And we do not want to use these names because
+		   * they are specific to the local node. pg_temp_2.obj1 at node 1
+		   * may be present in pg_temp_3 at node2.
+		   */
+		 if (list_head(schema_list) != schema)
+			 tmp_search_path->addTemp = false;
+
+		 break;
+		}
+	}
+
+	tmp_search_path->schemas = NIL;
+	PushOverrideSearchPath(tmp_search_path);
+
+	get_query_def(query, buf, parentnamespace, NULL, 0, WRAP_COLUMN_DEFAULT,
+			   0, finalise_aggs, sortgroup_colno);
+
+	PopOverrideSearchPath();
+}
+#endif
 
 /* ----------
  * get_query_def			- Parse back one query parsetree
@@ -4458,7 +4812,11 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 static void
 get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 			  TupleDesc resultDesc,
-			  int prettyFlags, int wrapColumn, int startIndent)
+			  int prettyFlags, int wrapColumn, int startIndent
+#ifdef ADB
+			  , bool finalise_aggs, bool sortgroup_colno
+#endif /* ADB */
+			)
 {
 	deparse_context context;
 	deparse_namespace dpns;
@@ -4488,6 +4846,10 @@ get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 	context.wrapColumn = wrapColumn;
 	context.indentLevel = startIndent;
 	context.special_exprkind = EXPR_KIND_NONE;
+#ifdef ADB
+	context.finalise_aggs = finalise_aggs;
+	context.sortgroup_colno = sortgroup_colno;
+#endif /* ADB */
 
 	set_deparse_for_query(&dpns, query, parentnamespace);
 
@@ -4619,7 +4981,11 @@ get_with_clause(Query *query, deparse_context *context)
 			appendContextKeyword(context, "", 0, 0, 0);
 		get_query_def((Query *) cte->ctequery, buf, context->namespaces, NULL,
 					  context->prettyFlags, context->wrapColumn,
-					  context->indentLevel);
+					  context->indentLevel
+#ifdef ADB
+					  , context->finalise_aggs, context->sortgroup_colno
+#endif /* ADB */
+					  );
 		if (PRETTY_INDENT(context))
 			appendContextKeyword(context, "", 0, 0, 0);
 		appendStringInfoChar(buf, ')');
@@ -5099,7 +5465,11 @@ get_setop_query(Node *setOp, Query *query, deparse_context *context,
 			appendStringInfoChar(buf, '(');
 		get_query_def(subquery, buf, context->namespaces, resultDesc,
 					  context->prettyFlags, context->wrapColumn,
-					  context->indentLevel);
+					  context->indentLevel
+#ifdef ADB
+					  , context->finalise_aggs, context->sortgroup_colno
+#endif /* ADB */
+					  );
 		if (need_paren)
 			appendStringInfoChar(buf, ')');
 	}
@@ -5223,7 +5593,11 @@ get_rule_sortgroupclause(Index ref, List *tlist, bool force_colno,
 	 * simple Var, then force extra parens around it, to ensure it can't be
 	 * misinterpreted as a cube() or rollup() construct.
 	 */
+#ifdef ADB
+	if (force_colno || context->sortgroup_colno)
+#else
 	if (force_colno)
+#endif
 	{
 		Assert(!tle->resjunk);
 		appendStringInfo(buf, "%d", tle->resno);
@@ -5524,6 +5898,43 @@ get_insert_query_def(Query *query, deparse_context *context)
 	/* Insert the WITH clause if given */
 	get_with_clause(query, context);
 
+#ifdef ADB
+	/*
+	 * In the case of "INSERT ... DEFAULT VALUES" analyzed in pgxc planner,
+	 * return the sql statement directly if the table has no default values.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !query->targetList)
+	{
+		appendStringInfo(buf, "%s", query->sql_statement);
+		return;
+	}
+
+	/*
+	 * select_rte and values_rte are not required by INSERT queries in XC
+	 * Both these should stay null for INSERT queries to work corretly
+	 * Consider an example
+	 * create table tt as values(1,'One'),(2,'Two');
+	 * This query uses values_rte, but we do not need them in XC
+	 * because it gets broken down into two queries
+	 * CREATE TABLE tt(column1 int4, column2 text)
+	 * and
+	 * INSERT INTO tt (column1, column2) VALUES ($1, $2)
+	 * Note that the insert query does not need values_rte
+	 *
+	 * Now consider another example
+	 * insert into tt select * from tt
+	 * This query uses select_rte, but again that is not required in XC
+	 * Again here the query gets broken down into two queries
+	 * SELECT column1, column2 FROM ONLY tt WHERE true
+	 * and
+	 * INSERT INTO tt (column1, column2) VALUES ($1, $2)
+	 * Note again that the insert query does not need select_rte
+	 * Hence we keep both select_rte and values_rte NULL.
+	 */
+	if (!(IS_PGXC_COORDINATOR && !IsConnFromCoord()))
+	{
+#endif
+
 	/*
 	 * If it's an INSERT ... SELECT or multi-row VALUES, there will be a
 	 * single RTE for the SELECT or VALUES.  Plain VALUES has neither.
@@ -5546,6 +5957,9 @@ get_insert_query_def(Query *query, deparse_context *context)
 			values_rte = rte;
 		}
 	}
+#ifdef ADB
+	}
+#endif
 	if (select_rte && values_rte)
 		elog(ERROR, "both subquery and values RTEs in INSERT");
 
@@ -5613,7 +6027,11 @@ get_insert_query_def(Query *query, deparse_context *context)
 		/* Add the SELECT */
 		get_query_def(select_rte->subquery, buf, NIL, NULL,
 					  context->prettyFlags, context->wrapColumn,
-					  context->indentLevel);
+					  context->indentLevel
+#ifdef ADB
+					  , context->finalise_aggs, context->sortgroup_colno
+#endif /* ADB */
+					  );
 	}
 	else if (values_rte)
 	{
@@ -5979,6 +6397,174 @@ get_utility_query_def(Query *query, deparse_context *context)
 			simple_quote_literal(buf, stmt->payload);
 		}
 	}
+#ifdef ADB
+	else if (query->utilityStmt && IsA(query->utilityStmt, CreateStmt))
+	{
+		CreateStmt *stmt = (CreateStmt *) query->utilityStmt;
+		ListCell   *column;
+		const char *delimiter = "";
+		RangeVar   *relation = stmt->relation;
+		bool		istemp = (relation->relpersistence == RELPERSISTENCE_TEMP);
+		bool		isunlogged = (relation->relpersistence == RELPERSISTENCE_UNLOGGED);
+
+		if (istemp && relation->schemaname)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+					 errmsg("temporary tables cannot specify a schema name")));
+
+		appendStringInfo(buf, "CREATE %s %s TABLE ",
+				istemp ? "TEMP" : "",
+				isunlogged ? "UNLOGGED" : "");
+
+		if (relation->schemaname && relation->schemaname[0])
+			appendStringInfo(buf, "%s.", relation->schemaname);
+		appendStringInfo(buf, "%s", relation->relname);
+
+		appendStringInfo(buf, "(");
+		foreach(column, stmt->tableElts)
+		{
+			Node *node = (Node *) lfirst(column);
+
+			appendStringInfo(buf, "%s", delimiter);
+			delimiter = ", ";
+
+			if (IsA(node, ColumnDef))
+			{
+				ColumnDef *coldef = (ColumnDef *) node;
+				TypeName *typename = coldef->typeName;
+				Type type;
+
+				/* error out if we have no recourse at all */
+				if (!OidIsValid(typename->typeOid))
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("improper type oid: \"%u\"", typename->typeOid)));
+
+				/* get typename from the oid */
+				type = typeidType(typename->typeOid);
+
+				if (!HeapTupleIsValid(type))
+					ereport(ERROR,
+							(errcode(ERRCODE_UNDEFINED_OBJECT),
+							 errmsg("type \"%u\" does not exist",
+								 typename->typeOid)));
+				appendStringInfo(buf, "%s %s", quote_identifier(coldef->colname),
+						typeTypeName(type));
+				ReleaseSysCache(type);
+			}
+			else
+				elog(ERROR, "Invalid table column definition.");
+		}
+		appendStringInfo(buf, ")");
+
+		/* Append storage parameters, like for instance WITH (OIDS) */
+		if (list_length(stmt->options) > 0)
+		{
+			Datum		 reloptions;
+			static char *validnsps[] = HEAP_RELOPT_NAMESPACES;
+
+			reloptions = transformRelOptions((Datum) 0, stmt->options, NULL, validnsps,
+										 false, false);
+
+			if (reloptions)
+			{
+				Datum	sep, txt;
+				/* Below is inspired from flatten_reloptions() */
+				sep = CStringGetTextDatum(", ");
+				txt = OidFunctionCall2(F_ARRAY_TO_TEXT, reloptions, sep);
+				appendStringInfo(buf, " WITH (%s)", TextDatumGetCString(txt));
+			}
+		}
+
+		/* add the on commit clauses for temporary tables */
+		switch (stmt->oncommit)
+		{
+			case ONCOMMIT_NOOP:
+				/* do nothing */
+				break;
+
+			case ONCOMMIT_PRESERVE_ROWS:
+				appendStringInfo(buf, " ON COMMIT PRESERVE ROWS");
+				break;
+
+			case ONCOMMIT_DELETE_ROWS:
+				appendStringInfo(buf, " ON COMMIT DELETE ROWS");
+				break;
+
+			case ONCOMMIT_DROP:
+				appendStringInfo(buf, " ON COMMIT DROP");
+				break;
+		}
+
+		if (stmt->distributeby)
+		{
+			/* add the on commit clauses for temporary tables */
+			switch (stmt->distributeby->disttype)
+			{
+				case DISTTYPE_REPLICATION:
+					appendStringInfo(buf, " DISTRIBUTE BY REPLICATION");
+					break;
+
+				case DISTTYPE_HASH:
+					appendStringInfo(buf, " DISTRIBUTE BY HASH(%s)", stmt->distributeby->colname);
+					break;
+
+				case DISTTYPE_ROUNDROBIN:
+					appendStringInfo(buf, " DISTRIBUTE BY ROUNDROBIN");
+					break;
+
+				case DISTTYPE_MODULO:
+					appendStringInfo(buf, " DISTRIBUTE BY MODULO(%s)", stmt->distributeby->colname);
+					break;
+
+				default:
+					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
+								errmsg("Invalid distribution type")));
+
+			}
+		}
+
+		if (stmt->subcluster)
+		{
+			ListCell   *cell;
+
+			switch (stmt->subcluster->clustertype)
+			{
+				case SUBCLUSTER_NODE:
+					appendStringInfo(buf, " TO NODE (");
+
+					/* Add node members */
+					Assert(stmt->subcluster->members);
+					foreach(cell, stmt->subcluster->members)
+					{
+						appendStringInfo(buf, " %s", strVal(lfirst(cell)));
+						if (cell->next)
+							appendStringInfo(buf, ",");
+					}
+					appendStringInfo(buf, ")");
+					break;
+
+				case SUBCLUSTER_GROUP:
+					appendStringInfo(buf, " TO GROUP");
+
+					/* Add group members */
+					Assert(stmt->subcluster->members);
+					foreach(cell, stmt->subcluster->members)
+					{
+						appendStringInfo(buf, " %s", strVal(lfirst(cell)));
+						if (cell->next)
+							appendStringInfo(buf, ",");
+					}
+					break;
+
+				case SUBCLUSTER_NONE:
+				default:
+					/* Nothing to do */
+					break;
+			}
+		}
+	}
+#endif
 	else
 	{
 		/* Currently only NOTIFY utility commands can appear in rules */
@@ -6031,6 +6617,14 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 	 * down into the subplans, or INDEX_VAR, which is resolved similarly. Also
 	 * find the aliases previously assigned for this RTE.
 	 */
+#ifdef ADB
+	if (dpns->remotequery)
+	{
+		rte = rt_fetch(1, dpns->rtable);
+		attnum = var->varattno;
+	}
+	else
+#endif
 	if (var->varno >= 1 && var->varno <= list_length(dpns->rtable))
 	{
 		rte = rt_fetch(var->varno, dpns->rtable);
@@ -6084,6 +6678,39 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 		pop_child_plan(dpns, &save_dpns);
 		return NULL;
 	}
+
+#ifdef ADB
+	if (rte->rtekind == RTE_REMOTE_DUMMY &&
+		attnum > list_length(rte->eref->colnames) &&
+		dpns->planstate)
+	{
+		TargetEntry *tle;
+		RemoteQuery *rqplan;
+		Assert(IsA(dpns->planstate, RemoteQueryState));
+		Assert(netlevelsup == 0);
+
+		/*
+		 * Get the expression representing the given Var from base_tlist of the
+		 * RemoteQuery
+		 */
+		rqplan = (RemoteQuery *)dpns->planstate->plan;
+		Assert(IsA(rqplan, RemoteQuery));
+		tle = get_tle_by_resno(rqplan->base_tlist, var->varattno);
+		if (!tle)
+			elog(ERROR, "bogus varattno for remotequery var: %d", var->varattno);
+		/*
+		 * Force parentheses because our caller probably assumed a Var is a
+		 * simple expression.
+		 */
+		if (!IsA(tle->expr, Var))
+			appendStringInfoChar(buf, '(');
+		get_rule_expr((Node *) tle->expr, context, true);
+		if (!IsA(tle->expr, Var))
+			appendStringInfoChar(buf, ')');
+
+		return NULL;
+	}
+#endif /* ADB */
 
 	/*
 	 * If it's an unnamed join, look at the expansion of the alias variable.
@@ -7704,6 +8331,11 @@ get_rule_expr(Node *node, deparse_context *context,
 					appendStringInfoChar(buf, ' ');
 				appendContextKeyword(context, "ELSE ",
 									 0, 0, 0);
+#ifdef ADB
+				if (!caseexpr->defresult)
+					appendStringInfoString(buf, "NULL ");
+				else
+#endif
 				get_rule_expr((Node *) caseexpr->defresult, context, true);
 				if (!PRETTY_INDENT(context))
 					appendStringInfoChar(buf, ' ');
@@ -8954,7 +9586,11 @@ get_sublink_expr(SubLink *sublink, deparse_context *context)
 
 	get_query_def(query, buf, context->namespaces, NULL,
 				  context->prettyFlags, context->wrapColumn,
-				  context->indentLevel);
+				  context->indentLevel
+#ifdef ADB
+				  , context->finalise_aggs, context->sortgroup_colno
+#endif /* ADB */
+				  );
 
 	if (need_paren)
 		appendStringInfoString(buf, "))");
@@ -9098,7 +9734,11 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 				appendStringInfoChar(buf, '(');
 				get_query_def(rte->subquery, buf, context->namespaces, NULL,
 							  context->prettyFlags, context->wrapColumn,
-							  context->indentLevel);
+							  context->indentLevel
+#ifdef ADB
+							  , context->finalise_aggs, context->sortgroup_colno
+#endif /* ADB */
+							  );
 				appendStringInfoChar(buf, ')');
 				break;
 			case RTE_FUNCTION:
@@ -9232,6 +9872,20 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 			if (strcmp(refname, get_relation_name(rte->relid)) != 0)
 				printalias = true;
 		}
+#ifdef ADB
+		else if (rte->rtekind == RTE_SUBQUERY && rte->eref->aliasname)
+		{
+			/*
+			 *
+			 * This condition arises when the from clause is a view. The
+			 * corresponding subquery RTE has its eref set to view name.
+			 * The remote query generated has this subquery of which the
+			 * columns can be referred to as view_name.col1, so it should
+			 * be possible to refer to this subquery object.
+			 */
+			printalias = true;
+		}
+#endif
 		else if (rte->rtekind == RTE_FUNCTION)
 		{
 			/*

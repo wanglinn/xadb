@@ -1195,6 +1195,9 @@ PortalRunUtility(Portal portal, Node *utilityStmt,
 			   isTopLevel ? PROCESS_UTILITY_TOPLEVEL : PROCESS_UTILITY_QUERY,
 				   portal->portalParams,
 				   dest,
+#ifdef ADB
+				   false,
+#endif /* ADB */
 				   completionTag);
 
 	/* Some utility statements may change context on us */
