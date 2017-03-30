@@ -1362,7 +1362,11 @@ CreateExtensionInternal(CreateExtensionStmt *stmt, List *parents)
 			csstmt->authrole = NULL;	/* will be created by current user */
 			csstmt->schemaElts = NIL;
 			csstmt->if_not_exists = false;
+#ifdef ADB
+			CreateSchemaCommand(csstmt, NULL, true);
+#else
 			CreateSchemaCommand(csstmt, NULL);
+#endif
 
 			/*
 			 * CreateSchemaCommand includes CommandCounterIncrement, so new

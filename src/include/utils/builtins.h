@@ -1360,6 +1360,9 @@ extern Datum pg_explain_infomask(PG_FUNCTION_ARGS);
 /* src/backend/pgxc/pool/pgxcnode.c */
 extern Datum pgxc_node_str (PG_FUNCTION_ARGS);
 
+/* src/backend/utils/adt/lockfuncs.c */
+extern Datum pgxc_lock_for_backup (PG_FUNCTION_ARGS);
+
 extern List *deparse_context_for_plan(Node *plan, List *ancestors,
 									  List *rtable);
 

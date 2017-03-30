@@ -88,6 +88,9 @@
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/timestamp.h"
+#ifdef ADB
+#include "pgxc/xc_maintenance_mode.h"
+#endif
 
 
 /*
@@ -509,7 +512,11 @@ MarkAsPrepared(GlobalTransaction gxact)
  *		Locate the prepared transaction and mark it busy for COMMIT or PREPARE.
  */
 static GlobalTransaction
+#if defined(ADB) || defined(AGTM)
+LockGXact(const char *gid, Oid user, bool missing_ok)
+#else
 LockGXact(const char *gid, Oid user)
+#endif
 {
 	int			i;
 
@@ -569,10 +576,27 @@ LockGXact(const char *gid, Oid user)
 
 	LWLockRelease(TwoPhaseStateLock);
 
+#ifdef ADB
+	/*
+	 * In PGXC, if xc_maintenance_mode is on, COMMIT/ROLLBACK PREPARED may be issued to the
+	 * node where the given xid does not exist.
+	 */
+	if (!xc_maintenance_mode)
+	{
+#endif
+	
+#if defined(ADB) || defined(AGTM)
+		if (!missing_ok)
+#endif
+
 	ereport(ERROR,
 			(errcode(ERRCODE_UNDEFINED_OBJECT),
 		 errmsg("prepared transaction with identifier \"%s\" does not exist",
 				gid)));
+
+#ifdef ADB
+	}
+#endif
 
 	/* NOTREACHED */
 	return NULL;
@@ -1321,6 +1345,24 @@ StandbyTransactionIdIsPrepared(TransactionId xid)
  */
 void
 FinishPreparedTransaction(const char *gid, bool isCommit)
+#if defined(ADB) || defined(AGTM)
+	{
+		FinishPreparedTransactionExt(gid,
+									 isCommit,
+#ifdef ADB
+									 true,
+#endif
+									 false);
+	}
+	
+	void
+	FinishPreparedTransactionExt(const char *gid,
+								 bool isCommit,
+#ifdef ADB
+								 bool isRemoteInit,
+#endif
+								 bool isMissingOK)
+#endif
 {
 	GlobalTransaction gxact;
 	PGPROC	   *proc;
@@ -1342,7 +1384,37 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 	 * Validate the GID, and lock the GXACT to ensure that two backends do not
 	 * try to commit the same GID at once.
 	 */
+#if defined(ADB) || defined(AGTM)
+	gxact = LockGXact(gid, GetUserId(), isMissingOK);
+#else
 	gxact = LockGXact(gid, GetUserId());
+#endif
+#ifdef ADB
+	/*
+	 * LockGXact returns NULL if this node does not contain given two-phase
+	 * TXN.  This can happen when COMMIT/ROLLBACK PREPARED is issued at
+	 * the originating Coordinator for cleanup.
+	 * In this case, no local handling is needed.	Only report to GTM
+	 * is needed and this has already been handled in
+	 * FinishRemotePreparedTransaction().
+	 *
+	 * Second predicate may not be necessary.	It is just in case.
+	 */
+	if (gxact == NULL && xc_maintenance_mode)
+		return ;
+
+	/*
+	 * Just for COMMIT/ROLLBACK PREPARED IF EXISTS XXX
+	 */
+	if (gxact == NULL && isMissingOK)
+		return ;
+
+	/* Access to field 'pgprocno' results in a dereference of a null
+	 * pointer (loaded from variable 'gxact')
+	 */
+	Assert(gxact);
+#endif
+
 	proc = &ProcGlobal->allProcs[gxact->pgprocno];
 	pgxact = &ProcGlobal->allPgXact[gxact->pgprocno];
 	xid = pgxact->xid;

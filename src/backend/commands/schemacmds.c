@@ -34,6 +34,11 @@
 #include "utils/builtins.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+#ifdef ADB
+#include "agtm/agtm.h"
+#include "optimizer/pgxcplan.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 static void AlterSchemaOwner_internal(HeapTuple tup, Relation rel, Oid newOwnerId);
@@ -42,7 +47,11 @@ static void AlterSchemaOwner_internal(HeapTuple tup, Relation rel, Oid newOwnerI
  * CREATE SCHEMA
  */
 Oid
+#ifdef ADB
+CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString, bool sentToRemote)
+#else
 CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString)
+#endif
 {
 	const char *schemaName = stmt->schemaname;
 	Oid			namespaceId;
@@ -162,6 +171,16 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString)
 	 * have actually executed the prior ones.
 	 */
 	parsetree_list = transformCreateSchemaStmt(stmt);
+
+#ifdef ADB
+	/*
+	 * Add a RemoteQuery node for a query at top level on a remote Coordinator,
+	 * if not done already.
+	 */
+	if (!sentToRemote)
+		parsetree_list = AddRemoteQueryNode(parsetree_list, queryString,
+											EXEC_ON_ALL_NODES, false);
+#endif
 
 	/*
 	 * Execute each command contained in the CREATE SCHEMA.  Since the grammar

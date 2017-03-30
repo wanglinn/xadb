@@ -26,5 +26,8 @@ extern ObjectAddress ExecCreateTableAs(CreateTableAsStmt *stmt, const char *quer
 extern int	GetIntoRelEFlags(IntoClause *intoClause);
 
 extern DestReceiver *CreateIntoRelDestReceiver(IntoClause *intoClause);
+#ifdef ADB
+extern Relation get_dest_into_rel(DestReceiver *self);
+#endif
 
 #endif   /* CREATEAS_H */

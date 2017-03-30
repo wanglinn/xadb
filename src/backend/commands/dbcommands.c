@@ -1025,6 +1025,25 @@ RenameDatabase(const char *oldname, const char *newname)
 	return address;
 }
 
+#ifdef ADB
+/*
+ * IsSetTableSpace:
+ * Returns true if it is ALTER DATABASE SET TABLESPACE
+ */
+bool
+IsSetTableSpace(AlterDatabaseStmt *stmt)
+{
+	ListCell   *option;
+	/* Handle the SET TABLESPACE option separately */
+	foreach(option, stmt->options)
+	{
+		DefElem    *defel = (DefElem *) lfirst(option);
+		if (strcmp(defel->defname, "tablespace") == 0)
+			return true;
+	}
+	return false;
+}
+#endif
 
 /*
  * ALTER DATABASE SET TABLESPACE

@@ -634,3 +634,13 @@ intorel_destroy(DestReceiver *self)
 {
 	pfree(self);
 }
+
+#ifdef ADB
+/* Function to expose the relation embedded by DR_intorel */
+extern Relation
+get_dest_into_rel(DestReceiver *self)
+{
+	return ((DR_intorel *) self)->rel;
+}
+#endif
+

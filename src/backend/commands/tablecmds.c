@@ -96,6 +96,11 @@
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 #include "utils/typcache.h"
+#ifdef ADB
+#include "optimizer/pgxcplan.h"
+#include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 /*
@@ -1000,8 +1005,13 @@ RangeVarCallbackForDropRelation(const RangeVar *rel, Oid relOid, Oid oldRelOid,
  * internal to the group that's being truncated.  Finally all the relations
  * are truncated and reindexed.
  */
+
 void
+#ifdef ADB
+ExecuteTruncate(TruncateStmt *stmt, const char *sql_statement)
+#else
 ExecuteTruncate(TruncateStmt *stmt)
+#endif
 {
 	List	   *rels = NIL;
 	List	   *relids = NIL;
@@ -1011,6 +1021,14 @@ ExecuteTruncate(TruncateStmt *stmt)
 	ResultRelInfo *resultRelInfo;
 	SubTransactionId mySubid;
 	ListCell   *cell;
+
+#ifdef ADB
+	if (stmt->restart_seqs)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("PGXC does not support RESTART IDENTITY yet"),
+				 errdetail("The feature is not supported currently")));
+#endif
 
 	/*
 	 * Open, exclusive-lock, and check all the explicitly-specified relations
@@ -1269,6 +1287,42 @@ ExecuteTruncate(TruncateStmt *stmt)
 		ExecASTruncateTriggers(estate, resultRelInfo);
 		resultRelInfo++;
 	}
+
+#ifdef ADB
+	/*
+	 * In Postgres-XC, TRUNCATE needs to be launched to remote nodes before the
+	 * AFTER triggers are launched. This insures that the triggers are being fired
+	 * by correct events.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		bool is_temp = false;
+		RemoteQuery *step = makeNode(RemoteQuery);
+
+		foreach(cell, stmt->relations)
+		{
+			Oid relid;
+			RangeVar *rel = (RangeVar *) lfirst(cell);
+
+			relid = RangeVarGetRelid(rel, NoLock, false);
+			if (IsTempTable(relid))
+			{
+				is_temp = true;
+				break;
+			}
+		}
+
+		step->combine_type = COMBINE_TYPE_SAME;
+		step->exec_nodes = NULL;
+		step->sql_statement = pstrdup(sql_statement);
+		step->force_autocommit = false;
+		step->exec_type = EXEC_ON_ALL_NODES;
+		step->is_temp = is_temp;
+		ExecRemoteUtility(step);
+		pfree(step->sql_statement);
+		pfree(step);
+	}
+#endif
 
 	/* Handle queued AFTER triggers */
 	AfterTriggerEndQuery(estate);

@@ -18,8 +18,13 @@
 #include "catalog/objectaddress.h"
 #include "nodes/parsenodes.h"
 
+#ifdef ADB
+extern Oid CreateSchemaCommand(CreateSchemaStmt *parsetree,
+					const char *queryString, bool is_top_level);
+#else
 extern Oid CreateSchemaCommand(CreateSchemaStmt *parsetree,
 					const char *queryString);
+#endif
 
 extern void RemoveSchemaById(Oid schemaOid);
 

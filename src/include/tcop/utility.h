@@ -27,7 +27,11 @@ typedef enum
 typedef void (*ProcessUtility_hook_type) (Node *parsetree,
 					  const char *queryString, ProcessUtilityContext context,
 													  ParamListInfo params,
-									DestReceiver *dest, char *completionTag);
+									DestReceiver *dest,
+#ifdef ADB
+										  bool sentToRemote,
+#endif /* ADB */
+									char *completionTag);
 extern PGDLLIMPORT ProcessUtility_hook_type ProcessUtility_hook;
 
 extern void ProcessUtility(Node *parsetree, const char *queryString,
@@ -39,7 +43,11 @@ extern void ProcessUtility(Node *parsetree, const char *queryString,
 			   char *completionTag);
 extern void standard_ProcessUtility(Node *parsetree, const char *queryString,
 						ProcessUtilityContext context, ParamListInfo params,
-						DestReceiver *dest, char *completionTag);
+						DestReceiver *dest,
+#ifdef ADB
+						bool sentToRemote,
+#endif /* ADB */
+						char *completionTag);
 
 extern bool UtilityReturnsTuples(Node *parsetree);
 
@@ -52,5 +60,9 @@ extern const char *CreateCommandTag(Node *parsetree);
 extern LogStmtLevel GetCommandLogLevel(Node *parsetree);
 
 extern bool CommandIsReadOnly(Node *parsetree);
+
+#ifdef ADB
+extern bool pgxc_lock_for_utility_stmt(Node *parsetree);
+#endif
 
 #endif   /* UTILITY_H */
