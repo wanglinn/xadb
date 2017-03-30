@@ -69,7 +69,11 @@ struct _helpStruct
 	int				nl_count;	/* number of newlines in syntax (for pager) */
 };
 
+#ifdef ADB
+extern const struct _helpStruct ADB_QL_HELP[];
+#else
 extern const struct _helpStruct QL_HELP[];
+#endif 
 ";
 
 print CFILE "/*
@@ -181,7 +185,11 @@ sql_help_$id(PQExpBuffer buf)
 }
 
 print CFILE "
+#ifdef ADB
+const struct _helpStruct ADB_QL_HELP[] = {
+#else 
 const struct _helpStruct QL_HELP[] = {
+#endif
 ";
 foreach (sort keys %entries)
 {
@@ -201,13 +209,19 @@ print CFILE "
 ";
 
 print HFILE "
+#ifdef ADB
+#define ADB_QL_HELP_COUNT	"
+  . scalar(keys %entries) . "		/* number of help items */
+#define ADB_QL_MAX_CMD_LEN	$maxlen		/* largest strlen(cmd) */
+#else
 #define QL_HELP_COUNT	"
   . scalar(keys %entries) . "		/* number of help items */
 #define QL_MAX_CMD_LEN	$maxlen		/* largest strlen(cmd) */
-
+#endif
 
 #endif /* $define */
 ";
+
 
 close CFILE;
 close HFILE;
