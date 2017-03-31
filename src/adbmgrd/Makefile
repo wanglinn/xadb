@@ -58,7 +58,7 @@ ifneq ($(PORTNAME), cygwin)
 ifneq ($(PORTNAME), win32)
 ifneq ($(PORTNAME), aix)
 
-adbmgrd: $(OBJS)
+adbmgrd: $(OBJS) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) $(call expand_subsys,$^) $(LIBS) -o $@
 
 endif
@@ -67,7 +67,7 @@ endif
 
 ifeq ($(PORTNAME), cygwin)
 
-adbmgrd: $(OBJS)
+adbmgrd: $(OBJS) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) -Wl,--stack,$(WIN32_STACK_RLIMIT) -Wl,--export-all-symbols -Wl,--out-implib=libadbmgrd.a $(call expand_subsys,$^) $(LIBS) -o $@
 
 # There is no correct way to write a rule that generates two files.
@@ -83,7 +83,7 @@ endif # cygwin
 ifeq ($(PORTNAME), win32)
 LIBS += -lsecur32
 
-adbmgrd: $(OBJS) $(WIN32RES)
+adbmgrd: $(OBJS) $(WIN32RES) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) -Wl,--stack=$(WIN32_STACK_RLIMIT) -Wl,--export-all-symbols -Wl,--out-implib=libadbmgrd.a $(call expand_subsys,$(OBJS)) $(WIN32RES) $(LIBS) -o $@$(X)
 
 libadbmgrd.a: adbmgrd ;
@@ -92,7 +92,7 @@ endif # win32
 
 ifeq ($(PORTNAME), aix)
 
-adbmgrd: $(AGTM_IMP)
+adbmgrd: $(AGTM_IMP) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(call expand_subsys,$(OBJS)) -Wl,-bE:$(top_builddir)/src/adbmgrd/$(AGTM_IMP) $(LIBS) -Wl,-brtllib -o $@
 
 $(AGTM_IMP): $(OBJS)
