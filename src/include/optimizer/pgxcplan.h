@@ -36,7 +36,7 @@ typedef enum
 /*
  * It is pretty much like Sort, but without Plan. We may use Sort later.
  */
-typedef struct
+typedef struct SimpleSort
 {
 	NodeTag		type;
 	int			numCols;		/* number of sort-key columns */
@@ -77,7 +77,7 @@ typedef enum
  * In the prototype this will be simple, but it will eventually
  * evolve into a GridSQL-style QueryStep.
  */
-typedef struct
+typedef struct RemoteQuery
 {
 	Scan			scan;
 	ExecDirectType		exec_direct_type;	/* track if remote query is execute direct and what type it is */

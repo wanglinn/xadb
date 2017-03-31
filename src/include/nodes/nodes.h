@@ -92,7 +92,6 @@ typedef enum NodeTag
 	T_ExecNodes,
 	T_SimpleSort,
 	T_RemoteQuery,
-	T_PGXCNodeHandle,
 	T_AlterNodeStmt,
 	T_CreateNodeStmt,
 	T_DropNodeStmt,
@@ -286,6 +285,9 @@ typedef enum NodeTag
 	T_LockRowsPath,
 	T_ModifyTablePath,
 	T_LimitPath,
+#ifdef ADB
+	T_RemoteQueryPath,
+#endif
 	/* these aren't subclasses of Path: */
 	T_EquivalenceClass,
 	T_EquivalenceMember,
@@ -298,9 +300,6 @@ typedef enum NodeTag
 	T_PlaceHolderInfo,
 	T_MinMaxAggInfo,
 	T_PlannerParamItem,
-#ifdef ADB
-	T_RemoteQueryPath,
-#endif
 
 	/*
 	 * TAGS FOR MEMORY NODES (memnodes.h)

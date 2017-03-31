@@ -260,10 +260,7 @@ typedef struct ColumnRefJoin
 {
 	NodeTag		type;
 	int			location;	/* location for "(+)" */
-	union{
-		ColumnRef	*column;
-		struct Var	*var;
-	};
+	Node	   *expr;
 }ColumnRefJoin;
 
 /*
@@ -1266,7 +1263,7 @@ typedef struct CommonTableExpr
 /*
  * oracle rownum expr
  */
-typedef struct 
+typedef struct RownumExpr
 {
 	NodeTag		type;
 	int			location;		/* token location, or -1 if unknown */

@@ -86,7 +86,7 @@ typedef struct
  * columns of either of relation. Hence a list. dist_vars is ignored in case of
  * distribution types other than HASH or MODULO.
  */
-typedef struct
+typedef struct ExecNodes
 {
 	NodeTag		type;
 	List		*primarynodelist;	/* Primary node list indexes */
