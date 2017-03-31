@@ -1346,22 +1346,22 @@ StandbyTransactionIdIsPrepared(TransactionId xid)
 void
 FinishPreparedTransaction(const char *gid, bool isCommit)
 #if defined(ADB) || defined(AGTM)
-	{
-		FinishPreparedTransactionExt(gid,
-									 isCommit,
+{
+	FinishPreparedTransactionExt(gid,
+								 isCommit,
 #ifdef ADB
-									 true,
+								 true,
 #endif
-									 false);
-	}
-	
-	void
-	FinishPreparedTransactionExt(const char *gid,
-								 bool isCommit,
+								 false);
+}
+
+void
+FinishPreparedTransactionExt(const char *gid,
+							 bool isCommit,
 #ifdef ADB
-								 bool isRemoteInit,
+							 bool isRemoteInit,
 #endif
-								 bool isMissingOK)
+							 bool isMissingOK)
 #endif
 {
 	GlobalTransaction gxact;

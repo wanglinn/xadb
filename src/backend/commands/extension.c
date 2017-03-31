@@ -751,7 +751,7 @@ execute_sql_string(const char *sql, const char *filename)
 							   dest,
 #ifdef ADB
 							   true,	/* this is created at remote node level */
-#endif /* ADB	 */
+#endif /* ADB */
 							   NULL);
 			}
 
