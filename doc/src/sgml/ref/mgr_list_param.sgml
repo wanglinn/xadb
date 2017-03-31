@@ -1,0 +1,102 @@
+<!--
+doc/src/sgml/ref/mgr_list_param.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-LISTPARAM">
+  <refmeta>
+    <refentrytitle>LIST PARAM</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>LIST PARAM</refname>
+    <refpurpose>show the content of the parameter table</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-listparam">
+    <primary>LIST PARAM</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+LIST PARAM
+LIST PARAM node_type node_name [ sub_like_string ]
+LIST PARAM cluster_type ALL [ sub_like_string ]
+
+<phrase>where <replaceable class="parameter">node_type</replaceable> can be one of:</phrase>
+
+    GTM MASTER
+    GTM SLAVE
+    GTM EXTRA
+    COORDINATOR
+    DATANODE MASTER
+    DATANODE SLAVE
+    DATANODE EXTRA
+
+<phrase>where <replaceable class="parameter">cluster_type</replaceable> can be one of:</phrase>
+
+    GTM
+    COORDINATOR
+    DATANODE
+    DATANODE MASTER
+    DATANODE SLAVE
+    DATANODE EXTRA
+</synopsis>
+</refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+   <command>LIST PARAM</command> show the content of parameter table.
+    </para>
+  </refsect1>
+  <refsect1>
+    <title>Parameters</title>
+  <variablelist>
+  <varlistentry>
+    <term><replaceable class="parameter">node_name</replaceable>
+    </term>
+    <listitem>
+     <para>
+      The gtm, coordinator or datanode name.
+     </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><replaceable class="parameter">sub_like_string</replaceable>
+    </term>
+    <listitem>
+     <para>
+      The name of parameter or substring for fuzzy query.
+     </para>
+    </listitem>
+  </varlistentry>	
+    </variablelist>
+  </refsect1>
+
+  <refsect1>
+    <title>Examples</title>
+  <para>
+   List the all content of parameter table:
+<programlisting>
+LIST PARAM;
+</programlisting>
+  </para>
+  <para>
+   List parameters of datanode master datanode_name1:
+<programlisting>
+LIST PARAM DATANODE MASTER datanode_name1;
+</programlisting>
+  </para>
+  </refsect1>
+      <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+    <member><xref linkend="mgr-setdatanode"></member>
+    <member><xref linkend="mgr-resetdatanode"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>

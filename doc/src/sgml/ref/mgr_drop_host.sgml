@@ -1,0 +1,74 @@
+<!--
+doc/src/sgml/ref/mgr_drop_host.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-DROPHOST">
+  <refmeta>
+    <refentrytitle>DROP HOST</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>DROP HOST</refname>
+    <refpurpose>drop the specifed host information in the host table</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-drophost">
+    <primary>DROP HOST</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+<synopsis>
+DROP HOST [ IF EXISTS ] <replaceable class="parameter">host_name</replaceable> [, ...] 
+</synopsis>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Parameters</title>
+
+  <variablelist>
+   <varlistentry>
+    <term>
+     <replaceable class="parameter">host_name</replaceable>
+    </term>
+    <listitem>
+     <para>
+      Host name.
+     </para>
+    </listitem>
+   </varlistentry>
+
+  </variablelist>
+  </refsect1>
+
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+   <command>DROP HOST</command> drop the specifed host information in the host table.
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Examples</title>
+
+<para>
+Drop host host_name in the host table:
+<programlisting>
+DROP HOST host_name;
+</programlisting>
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-addhost"></member>
+    </simplelist>
+  </refsect1>
+
+
+</refentry>

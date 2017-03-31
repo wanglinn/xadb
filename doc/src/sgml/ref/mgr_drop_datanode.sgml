@@ -1,0 +1,71 @@
+<!--
+doc/src/sgml/ref/mgr_drop_datanode.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-DROPDATANODE">
+  <refmeta>
+    <refentrytitle>DROP DATANODE</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>DROP DATANODE</refname>
+    <refpurpose>drop the specifed datanode in the node table</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-dropdatanode">
+    <primary>DROP DATANODE</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+<synopsis>
+DROP DATANODE { MASTER | SLAVE | EXTRA } [ IF EXISTS ] <replaceable class="parameter">node_name</replaceable> [, ...]
+</synopsis>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+   <command>DROP DATANODE</command> drop the specifed datanode in the node table.
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Parameters</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><replaceable class="parameter">node_name</replaceable></term>
+    <listitem>
+     <para>
+      Node name, corresponds to the name column in the node table.
+     </para>
+    </listitem>
+   </varlistentry>
+
+  </variablelist>
+  </refsect1>
+
+
+  <refsect1>
+    <title>Examples</title>
+<para>
+Drop datanode slave datanode_name1 in the node table:
+<programlisting>
+DROP DATANODE SLAVE datanode_name1;
+</programlisting>
+  </para>
+  </refsect1>
+
+  <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-adddatanode"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>

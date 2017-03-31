@@ -17,6 +17,7 @@ top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
 REFDOCDIR= $(top_srcdir)/doc/src/sgml/ref
+REFDOCDIR_MGR = $(top_srcdir)/doc/src/sgml/ref
 
 override CPPFLAGS := -I. -I$(srcdir) -I$(libpq_srcdir) $(CPPFLAGS)
 LDFLAGS += -L$(top_builddir)/src/fe_utils -lpgfeutils -lpq
@@ -36,8 +37,9 @@ psql: $(OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
 help.o: sql_help.h
 
 sql_help.c: sql_help.h ;
-sql_help.h: create_help.pl $(wildcard $(REFDOCDIR)/*.sgml)
-	$(PERL) $< $(REFDOCDIR) $*
+sql_help.h: create_help.pl $(wildcard $(REFDOCDIR)/*.sgml) $(wildcard $(REFDOCDIR_MGR)/mgr_*.sgml)
+	$(PERL) $< $(REFDOCDIR) $* $(REFDOCDIR_MGR)
+
 
 psqlscanslash.c: FLEXFLAGS = -Cfe -p -p
 psqlscanslash.c: FLEX_NO_BACKUP=yes

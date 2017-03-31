@@ -1,0 +1,141 @@
+<!--
+doc/src/sgml/ref/mgr_list_host.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-LISTHOST">
+  <refmeta>
+    <refentrytitle>LIST HOST</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>LIST HOST</refname>
+    <refpurpose>show the content of the host table</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-listhost">
+    <primary>LIST HOST</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+LIST HOST  [ ( <replaceable class="parameter">option</replaceable> ) ] [ <replaceable class="parameter">host_name</replaceable> [, ...] ]
+
+<phrase>where <replaceable class="parameter">option</replaceable> can be one of:</phrase>
+
+    NAME
+    USER
+    PORT
+    PROTOCOL
+    AGENTPORT
+    ADDRESS
+    ADBHOME
+</synopsis>
+</refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+   <command>LIST HOST</command> show the content of the host table.
+    </para>
+  </refsect1>
+  <refsect1>
+    <title>Parameters</title>
+    <variablelist>
+  <varlistentry>
+    <term><literal>NAME</literal></term>
+    <listitem>
+    <para>
+     Host name.
+    </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>USER</literal></term>
+    <listitem>
+     <para>
+      Select host's user name for run ADB.
+     </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>PORT</literal></term>
+    <listitem>
+     <para>
+      <literal>protocol</literal> listen port number.
+     </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>PROTOCOL</literal></term>
+  <listitem>
+     <para>
+      Connect <replaceable class="parameter">host_address</replaceable> using protocol:<literal>ssh</literal>, <literal>telnet</literal>, only support ssh now.
+     </para>
+  </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term>
+      <literal>AGENTPORT</literal>
+    </term>
+    <listitem>
+      <para>
+        Agent listen TCP port.
+      </para>
+    </listitem>
+  </varlistentry>
+
+  <varlistentry>
+    <term>
+    <literal>ADDRESS</literal></term>
+    <listitem>
+     <para>
+      Host address, only support IP address.
+     </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>ADBHOME</literal></term>
+    <listitem>
+     <para>
+      ADB programs install absolute path.
+     </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><replaceable class="parameter">host_name</replaceable></term>
+    <listitem>
+     <para>
+      Host name, not support IP address.
+     </para>
+    </listitem>
+  </varlistentry>
+    </variablelist>
+  </refsect1>
+  <refsect1>
+    <title>Examples</title>
+  <para>
+   List all content of the host table:
+<programlisting>
+LIST HOST;
+</programlisting>
+  </para>
+  <para>
+   List the content of host_name:
+<programlisting>
+LIST HOST host_name;
+</programlisting>
+  </para>
+  </refsect1>
+      <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-addhost"></member>
+      <member><xref linkend="mgr-alterhost"></member>
+      <member><xref linkend="mgr-drophost"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>

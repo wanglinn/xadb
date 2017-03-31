@@ -1,0 +1,136 @@
+<!--
+doc/src/sgml/ref/monitor_add_job.sgml
+ADB documentation
+-->
+
+<refentry id="MONITOR-ADDJOB">
+  <refmeta>
+    <refentrytitle>ADD JOB</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>ADD JOB</refname>
+    <refpurpose>add one row job information in the job table. The input string of "command" column should be in single quote. If using user-defined monitor item, the input of sql string format likes 'insert into tb_name select adbmonitor_job(''host_name'', ''item_name'')', the item_name in job item table</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="monitor-addjob">
+    <primary>ADD JOB</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+ADD JOB [IF NOT EXISTS] <replaceable class="parameter">job_name</replaceable> ( <replaceable class="parameter">option</replaceable> )
+
+<phrase>where <replaceable class="parameter">option</replaceable> must be the following:</phrase>
+
+    NEXTTIME = <replaceable class="parameter">next_time</replaceable>,
+    INTERVAL = <replaceable class="parameter">interval</replaceable>,
+    STATUS = <replaceable class="parameter">status</replaceable>,
+    COMMAND = <replaceable class="parameter">sql_string</replaceable>,
+    DESC = <replaceable class="parameter">description</replaceable></synopsis>
+
+    </refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+<command>ADD JOB</command> add one row job information in the job table. The value of the column "command" is standard SQL, just support INSERT or SELECT format. If we want to execute batch on the aim server machine, can use the system function "ADBMONITOR_JOB('hostname', 'item_name')", the item_name in job item table.
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Parameters</title>
+
+    <variablelist>
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">job_name</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Job name.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">next_time</replaceable>
+        </term>
+        <listitem>
+          <para>
+    The next time the job runs.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">interval</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Interval time, unit is seconds.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">status</replaceable>
+        </term>
+        <listitem>
+          <para>
+    The flag shows whether the job needs to run.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">sql_string</replaceable>
+        </term>
+        <listitem>
+          <para>
+    The format is standard SQL. If we want to execute arm batch on given server machine, the format input string likes 'INSERT INTO table_name SELECT ADBMONITOR_JOB(''host_name'', ''item_name'')', the item_name in job item table, the input string of "command" column should be in single quote.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">description</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Description of the job.
+          </para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+
+
+  <refsect1>
+    <title>Examples</title>
+
+    <para>
+Add job1 in job table:
+      <programlisting>
+ADD JOB job1 (NEXTTIME = '2017-02-06 14:00:00', INTERVAL = 30, STATUS =  true, COMMAND = 'insert into job_tb1 select ADBMONITOR_JOB(''host200'', ''item1'')', desc =  'job1' );
+</programlisting>
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="monitor-dropjob"></member>
+    </simplelist>
+  </refsect1>
+
+
+</refentry>

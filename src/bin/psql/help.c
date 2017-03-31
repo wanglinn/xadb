@@ -434,13 +434,12 @@ helpSQL(const char *topic, unsigned short int pager)
 	const struct _helpStruct *QL_HELP;
 	int QL_HELP_COUNT;
 	int QL_MAX_CMD_LEN;
-/*	if(pset.is_manage)
+	if(pset.is_manage)
 	{
 		QL_HELP = MGR_HELP;
 		QL_HELP_COUNT = MGR_HELP_COUNT;
 		QL_MAX_CMD_LEN = MGR_MAX_CMD_LEN;
 	}else
-*/
 	{
 		QL_HELP = ADB_QL_HELP;
 		QL_HELP_COUNT = ADB_QL_HELP_COUNT;

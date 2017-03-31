@@ -1,0 +1,73 @@
+<!--
+doc/src/sgml/ref/mgr_reset_coordinator.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-RESETCOORDINATOR">
+  <refmeta>
+    <refentrytitle>RESET COORDINATOR</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>RESET COORDINATOR</refname>
+    <refpurpose>reset specified parameters of pg_settings view to default</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-resetcoordinator">
+    <primary>RESET COORDINATOR</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+RESET COORDINATOR ALL ( parameter [, ...] ) [ FORCE ]
+RESET COORDINATOR <replaceable class="parameter">node_name</replaceable> ( parameter [, ...] ) [ FORCE ]
+</synopsis>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+<command>RESET COORDINATOR</command> reset the value of parameter to the default and the parameter which is own to the file of postgres.conf,it's also belong to the view of pg_settings;the operator won't check the the value and name of parameter correctly if adding 'force' at the tail of command line,in addition,it will update param table.
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Parameters</title>
+
+    <variablelist>
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">Parameter</replaceable>
+        </term>
+        <listitem>
+          <para>
+            The parameter that in the file of postgres.conf and alse belong to the view of pg_settings.
+          </para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+
+  <refsect1>
+    <title>Examples</title>
+
+    <para>
+      Reset the value of 'synchronous_commit' and 'max_wal_senders' to the default:
+<programlisting>
+reset coordinator coord_name1(synchronous_commit, max_wal_senders);
+</programlisting>
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-setcoordinator"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>

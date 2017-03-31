@@ -1,0 +1,44 @@
+<!--
+doc/src/sgml/ref/mgr_clean_all.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-CLEANALL">
+  <refmeta>
+    <refentrytitle>CLEAN ALL</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>CLEAN ALL</refname>
+    <refpurpose>clean all the data of the cluster</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-cleanall">
+    <primary>CLEAN ALL</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+<synopsis>
+CLEAN ALL
+</synopsis>
+  </refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+    <command>CLEAN ALL</command> clean all the data of the cluster. If the cluster is running, it needs to be stopped first.
+    </para>
+  </refsect1>
+
+  <refsect1>
+  <title>Examples</title>
+ <para>
+Clean all the data of cluster:
+<programlisting>
+CLEAN ALL;
+</programlisting>
+</para>
+  </refsect1>
+
+</refentry>
