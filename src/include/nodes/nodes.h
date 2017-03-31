@@ -528,21 +528,13 @@ typedef enum NodeTag
 #ifdef ADBMGRD
 	,T_MGR_NODE_START = 1000
 	,T_MGRAddHost = T_MGR_NODE_START
-	,T_MGRListHost
 	,T_MGRDropHost
 	,T_MGRAlterHost
-	,T_MGRAddGtm
-	,T_MGRAlterGtm
-	,T_MGRDropGtm
-	,T_MGRListGtm
-	,T_MGRListParm
 	,T_MGRAddNode	
 	,T_MGRAlterNode
 	,T_MGRDropNode
-	,T_MGRListNode
 	,T_MGRUpdateparm
 	,T_MGRUpdateparmReset
-	,T_MGRShowParam
 	,T_MGRStartAgent
 	,T_MGRFlushHost
 	,T_MonitorJobitemAdd
@@ -554,12 +546,6 @@ typedef enum NodeTag
 	,T_MgrExtensionAdd
 	,T_MgrExtensionDrop
 	,T_MgrRemoveNode
-	/*,T_MGRDrop
-	,T_MGRList
-	,T_MGRMonitor
-	,T_MGRStart
-	,T_MGRStop
-	,T_MGRRestart*/
 	,T_MGR_NODE_END
 #endif /* ADBMGRD */
 } NodeTag;

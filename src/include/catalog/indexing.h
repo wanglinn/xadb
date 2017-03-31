@@ -348,6 +348,69 @@ DECLARE_UNIQUE_INDEX(pg_replication_origin_roiident_index, 6001, on pg_replicati
 DECLARE_UNIQUE_INDEX(pg_replication_origin_roname_index, 6002, on pg_replication_origin using btree(roname text_pattern_ops));
 #define ReplicationOriginNameIndex 6002
 
+#ifdef ADBMGRD
+DECLARE_UNIQUE_INDEX(mgr_host_oid_index, 4909, on mgr_host using btree(oid oid_ops));
+#define HostOidIndexId 4909
+
+DECLARE_UNIQUE_INDEX(mgr_host_hostname_index, 4910, on mgr_host using btree(hostname name_ops));
+#define HostHostnameIndexId					4910
+
+DECLARE_UNIQUE_INDEX(mgr_parm_typename_index, 4951, on mgr_parm using btree(parmtype char_ops,parmname name_ops));
+#define ParmTypeNameIndexId 4951
+
+DECLARE_UNIQUE_INDEX(mgr_node_oid_index, 4949, on mgr_node using btree(oid oid_ops));
+#define NodeOidIndexId 4949
+
+DECLARE_UNIQUE_INDEX(mgr_hba_oid_index, 4971, on mgr_hba using btree(oid oid_ops));
+#define HbaOidIndexId 4971
+
+DECLARE_UNIQUE_INDEX(monitor_cpu_oid_index, 4956, on monitor_cpu using btree(oid oid_ops));
+#define MonitorCpuOidIndexId 4956
+
+DECLARE_UNIQUE_INDEX(monitor_mem_oid_index, 4957, on monitor_mem using btree(oid oid_ops));
+#define MonitorMemOidIndexId 4957
+
+DECLARE_UNIQUE_INDEX(monitor_disk_oid_index, 4958, on monitor_disk using btree(oid oid_ops));
+#define MonitorDiskOidIndexId 4958
+
+DECLARE_UNIQUE_INDEX(monitor_net_oid_index, 4959, on monitor_net using btree(oid oid_ops));
+#define MonitorNetOidIndexId 4959
+
+DECLARE_UNIQUE_INDEX(monitor_host_oid_index, 4960, on monitor_host using btree(oid oid_ops));
+#define MonitorHostOidIndexId 4960
+
+DECLARE_UNIQUE_INDEX(monitor_varparm_oid_index, 4961, on monitor_varparm using btree(oid oid_ops));
+#define MonitorVarparmOidIndexId 4961
+
+DECLARE_UNIQUE_INDEX(monitor_alarm_oid_index, 4970, on monitor_alarm using btree(oid oid_ops));
+#define MonitorAlarmOidIndexId 4970
+
+DECLARE_UNIQUE_INDEX(monitor_resolve_oid_index, 5022, on monitor_resolve using btree(oid oid_ops));
+#define MonitorResolveOidIndexId 5022
+
+DECLARE_UNIQUE_INDEX(monitor_user_oid_index, 4955, on monitor_user using btree(oid oid_ops));
+#define MonitorUserOidIndexId 4955
+
+DECLARE_UNIQUE_INDEX(mgr_updataparm_nodename_nodetype_key_index, 4972, on mgr_updateparm using btree(updateparmnodename name_ops, updateparmnodetype char_ops, updateparmkey name_ops));
+#define MgrUpdataparmNodenameNodetypeKeyIndexId 4972
+
+DECLARE_UNIQUE_INDEX(monitor_job_oid_index, 4919, on monitor_job using btree(oid oid_ops));
+#define MonitorJobOidIndexId 4919
+
+DECLARE_UNIQUE_INDEX(monitor_jobitem_name_index, 4930, on monitor_jobitem using btree(jobitem_itemname name_ops));
+#define MonitorJobitemItemnameIndexId 4930
+
+#endif /* ADBMGRD */
+
+#ifdef AGTM
+DECLARE_UNIQUE_INDEX(agtm_sequence_oid_index, 4998, on agtm_sequence using btree(oid oid_ops));
+#define AgtmSequenceOidIndexId 4998
+
+DECLARE_UNIQUE_INDEX(agtm_sequence_fields_index, 4999, on agtm_sequence using btree(database name_ops,schema name_ops,sequence name_ops));
+#define AgtmSequenceFieldsIndexId 4999
+
+#endif
+
 /* last step of initialization script: build the indexes declared above */
 BUILD_INDICES
 

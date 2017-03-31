@@ -42,7 +42,11 @@ POSTGRES_BKI_SRCS = \
 	pg_foreign_table.h pg_policy.h pg_replication_origin.h \
 	pg_default_acl.h pg_init_privs.h pg_seclabel.h pg_shseclabel.h \
 	pg_collation.h pg_range.h pg_transform.h \
-	toasting.h indexing.h 
+	mgr_host.h mgr_parm.h mgr_updateparm.h mgr_cndnnode.h mgr_hba.h\
+	monitor_host.h monitor_cpu.h monitor_mem.h monitor_net.h monitor_disk.h \
+	monitor_varparm.h monitor_host_threshlod.h monitor_databasetps.h monitor_databaseitem.h \
+	monitor_slowlog.h monitor_alarm.h monitor_resolve.h monitor_user.h monitor_job.h monitor_jobitem.h \
+        toasting.h indexing.h
 
 $(POSTGRES_BKI_SRCS): % : $(top_srcdir)/src/include/catalog/%
 	rm -f $@.c && $(LN_S) $< $@.c

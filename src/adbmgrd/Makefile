@@ -18,8 +18,9 @@ top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = access bootstrap catalog parser commands executor foreign lib libpq \
-	main nodes optimizer port postmaster regex replication rewrite \
-	storage tcop tsearch utils $(top_builddir)/src/timezone
+	main nodes optimizer port postmaster regex replication rewrite manager \
+	storage tcop tsearch utils $(top_builddir)/src/timezone \
+	$(top_builddir)/src/interfaces/libpq
 
 include $(srcdir)/common.mk
 
@@ -36,14 +37,14 @@ endif
 endif
 
 OBJS = $(SUBDIROBJS) $(LOCALOBJS) $(top_builddir)/src/port/libpgport_srv.a \
-       $(top_builddir)/src/common/libpgcommon_mgr.a
-
+	$(top_builddir)/src/common/libpgcommon_mgr.a
 # We put libpgport and libpgcommon into OBJS, so remove it from LIBS; also add
 # libldap
 LIBS := $(filter-out -lpgport -lpgcommon, $(LIBS)) $(LDAP_LIBS_BE)
 
 # The admbgrd doesn't need everything that's in LIBS, however
 LIBS := $(filter-out -lz -lreadline -ledit -ltermcap -lncurses -lcurses, $(LIBS))
+LIBS := $(LIBS) $(libpq) -lssh2
 
 ifeq ($(with_systemd),yes)
 LIBS += -lsystemd

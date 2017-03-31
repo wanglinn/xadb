@@ -2500,7 +2500,7 @@ DATA(insert OID = 2787 (  int8_avg_deserialize	  PGNSP PGUID 12 1 0 0 0 f f f f 
 DESCR("aggregate deserial function");
 DATA(insert OID = 3324 (  int4_avg_combine	  PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 1016 "1016 1016" _null_ _null_ _null_ _null_ _null_ int4_avg_combine _null_ _null_ _null_ ));
 DESCR("aggregate combine function");
-DATA(insert OID = 3178 (  numeric_sum	   PGNSP PGUID 12 1 0 0 0 f f f f f f i s 1 0 1700 "2281" _null_ _null_ _null_ _null_ _null_ numeric_sum _null_ _null_ _null_ ));
+DATA(insert OID = 4928 (  numeric_sum	   PGNSP PGUID 12 1 0 0 0 f f f f f f i s 1 0 1700 "2281" _null_ _null_ _null_ _null_ _null_ numeric_sum _null_ _null_ _null_ ));
 DESCR("aggregate final function");
 DATA(insert OID = 1837 (  numeric_avg	   PGNSP PGUID 12 1 0 0 0 f f f f f f i s 1 0 1700 "2281" _null_ _null_ _null_ _null_ _null_ numeric_avg _null_ _null_ _null_ ));
 DESCR("aggregate final function");
@@ -5349,6 +5349,252 @@ DESCR("smaller of two");
 
 DATA(insert OID = 3355 ( pg_explain_infomask	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 25 "23" _null_ _null_ _null_ _null_ _null_ pg_explain_infomask _null_ _null_ _null_ ));
 DESCR("explain infomask of each heap tuple");
+#endif
+
+#ifdef ADBMGRD
+DATA(insert OID = 4954 ( mgr_start_agent_all      PGNSP PGUID 12 10 400 0 0 f f f f f t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{hostname,status,description}" _null_ _null_ mgr_start_agent_all _null_ _null_ _null_ ));
+DESCR("start agent all");
+
+DATA(insert OID = 4917 ( mgr_start_agent_hostnamelist      PGNSP PGUID 12 10 400 0 0 f f f f f t s s 2 0 2249 "2275 1009" "{19,16,25}" "{o,o,o}" "{hostname,status,description}" _null_ _null_ mgr_start_agent_hostnamelist _null_ _null_ _null_ ));
+DESCR("start agent hostlist");
+
+DATA(insert OID = 4918 ( mgr_init_gtm_master      PGNSP PGUID 12 1 0 0 0 f f f f f t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_init_gtm_master _null_ _null_ _null_ ));
+DESCR("init gtm master");
+
+DATA(insert OID = 4948 ( mgr_init_gtm_slave      PGNSP PGUID 12 1 0 0 0 f f f f f t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_init_gtm_slave _null_ _null_ _null_ ));
+DESCR("init gtm slave");
+
+DATA(insert OID = 4925 ( mgr_init_gtm_extra      PGNSP PGUID 12 1 0 0 0 f f f f f t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_init_gtm_extra _null_ _null_ _null_ ));
+DESCR("init gtm extra");
+
+DATA(insert OID = 4952 ( mgr_init_cn_master      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_init_cn_master _null_ _null_ _null_ ));
+DESCR("init coordinator master");
+
+DATA(insert OID = 4953 ( mgr_init_dn_master      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_init_dn_master _null_ _null_ _null_ ));
+DESCR("init datanode master");
+
+DATA(insert OID = 4963 (  mgr_init_dn_slave_all        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_init_dn_slave_all _null_ _null_ _null_ ));
+DESCR("init datanode slave");
+
+DATA(insert OID = 4903 (  mgr_init_dn_extra_all       PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_init_dn_extra_all _null_ _null_ _null_ ));
+DESCR("init datanode extra");
+
+DATA(insert OID = 4964 ( mgr_start_cn_master      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_start_cn_master _null_ _null_ _null_ ));
+DESCR("start coordinator master");
+
+DATA(insert OID = 4965 ( mgr_stop_cn_master      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_stop_cn_master _null_ _null_ _null_ ));
+DESCR("stop coordinator master namelist");
+
+DATA(insert OID = 4986 (  mgr_monitor_all            PGNSP PGUID 12 10 400 0 0 f f f f f t s s 0 0 2249 "" "{19,19,16,25}" "{o,o,o,o}" "{nodename,nodetype,status,description}" _null_ _null_ mgr_monitor_all _null_ _null_ _null_ ));
+DESCR("monitor all");
+
+DATA(insert OID = 4994 (  mgr_monitor_datanode_all            PGNSP PGUID 12 10 400 0 0 f f f f f t s s 0 0 2249 "" "{19,19,16,25}" "{o,o,o,o}" "{nodename,nodetype,status,description}" _null_ _null_ mgr_monitor_datanode_all _null_ _null_ _null_ ));
+DESCR("monitor datanode all");
+
+DATA(insert OID = 4924 (  mgr_monitor_gtm_all            PGNSP PGUID 12 10 400 0 0 f f f f f t s s 0 0 2249 "" "{19,19,16,25}" "{o,o,o,o}" "{nodename,nodetype,status,description}" _null_ _null_ mgr_monitor_gtm_all _null_ _null_ _null_ ));
+DESCR("monitor gtm all");
+
+DATA(insert OID = 4975 (  mgr_monitor_nodetype_namelist           PGNSP PGUID 12 1 0 2276 0 f f f f f f s s 2 0 2249 "20 2276" "{19,19,16,25}" "{o,o,o,o}" "{nodename,nodetype,status,description}" _null_ _null_ mgr_monitor_nodetype_namelist _null_ _null_ _null_ ));
+DESCR("monitor node type namelist");
+
+DATA(insert OID = 4976 (  mgr_monitor_nodetype_all        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "20" "{19,19,16,25}" "{o,o,o,o}" "{nodename,nodetype,status,description}" _null_ _null_ mgr_monitor_nodetype_all _null_ _null_ _null_ ));
+DESCR("monitor nodetype all");
+
+DATA(insert OID = 4913 (  mgr_monitor_agent_all            PGNSP PGUID 12 10 400 0 0 f f f f f t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_monitor_agent_all _null_ _null_ _null_ ));
+DESCR("monitor agent all");
+
+DATA(insert OID = 4914 (  mgr_monitor_agent_hostlist            PGNSP PGUID 12 10 400 0 0 f f f f f t s s 1 0 2249 "1009" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_monitor_agent_hostlist _null_ _null_ _null_ ));
+DESCR("monitor agent all");
+
+DATA(insert OID = 4973 ( mgr_start_gtm_master      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_start_gtm_master _null_ _null_ _null_ ));
+DESCR("mgr start gtm");
+
+DATA(insert OID = 4902 ( mgr_stop_one_gtm_master       PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,19,16,25}" "{o,o,o,o}" "{nodename,nodetype,status,description}" _null_ _null_ mgr_stop_one_gtm_master _null_ _null_ _null_ ));
+DESCR("mgr stop gtm");
+
+DATA(insert OID = 4974 ( mgr_stop_gtm_master      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_stop_gtm_master _null_ _null_ _null_ ));
+DESCR("mgr stop gtm");
+
+DATA(insert OID = 4983 ( mgr_start_gtm_slave      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_start_gtm_slave _null_ _null_ _null_ ));
+DESCR("mgr start gtm slave");
+
+DATA(insert OID = 4950 ( mgr_stop_gtm_slave      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_stop_gtm_slave _null_ _null_ _null_ ));
+DESCR("mgr stop gtm slave");
+
+DATA(insert OID = 4915 ( mgr_stop_agent_all      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_stop_agent_all _null_ _null_ _null_ ));
+DESCR("mgr stop agent all");
+
+DATA(insert OID = 4916 ( mgr_stop_agent_hostnamelist      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "1009" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_stop_agent_hostnamelist _null_ _null_ _null_ ));
+DESCR("mgr stop agent hostname list");
+
+DATA(insert OID = 4901 ( mgr_failover_gtm      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 3 0 2249 "2275 2275 16" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_failover_gtm _null_ _null_ _null_ ));
+DESCR("mgr failover gtm");
+
+DATA(insert OID = 4900 ( mgr_stop_gtm_extra      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_stop_gtm_extra _null_ _null_ _null_ ));
+DESCR("mgr stop gtm extra");
+
+DATA(insert OID = 4926 ( mgr_start_gtm_extra      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_start_gtm_extra _null_ _null_ _null_ ));
+DESCR("mgr start gtm extra");
+
+DATA(insert OID = 4977 ( mgr_start_dn_master      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_start_dn_master _null_ _null_ _null_ ));
+DESCR("mgr start dn master");
+
+DATA(insert OID = 4978 ( mgr_stop_dn_master      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_stop_dn_master _null_ _null_ _null_ ));
+DESCR("mgr stop dn master namelist");
+
+DATA(insert OID = 4979 ( mgr_start_dn_slave      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_start_dn_slave _null_ _null_ _null_ ));
+DESCR("mgr start dn slave");
+
+DATA(insert OID = 4904 ( mgr_start_dn_extra      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_start_dn_extra _null_ _null_ _null_ ));
+DESCR("mgr start dn extra");
+
+DATA(insert OID = 4980 ( mgr_stop_dn_slave      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_stop_dn_slave _null_ _null_ _null_ ));
+DESCR("mgr stop dn slave namelist");
+
+DATA(insert OID = 4981 (  mgr_append_dnmaster        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_append_dnmaster _null_ _null_ _null_ ));
+DESCR("mgr append datanode master");
+
+DATA(insert OID = 4997 (  mgr_append_dnslave        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_append_dnslave _null_ _null_ _null_ ));
+DESCR("mgr append datanode slave");
+
+DATA(insert OID = 4920 (  mgr_append_dnextra        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_append_dnextra _null_ _null_ _null_ ));
+DESCR("mgr append datanode extra");
+
+DATA(insert OID = 4984 (  mgr_append_coordmaster        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_append_coordmaster _null_ _null_ _null_ ));
+DESCR("mgr append coordinator master");
+
+DATA(insert OID = 4907 (  mgr_append_agtmslave        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_append_agtmslave _null_ _null_ _null_ ));
+DESCR("mgr append agtm slave");
+
+DATA(insert OID = 4908 (  mgr_append_agtmextra        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_append_agtmextra _null_ _null_ _null_ ));
+DESCR("mgr append agtm extra");
+
+DATA(insert OID = 4982 ( mgr_failover_one_dn      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 3 0 2249 "2275 2275 16" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_failover_one_dn _null_ _null_ _null_ ));
+DESCR("mgr failover datanode");
+
+DATA(insert OID = 4985 ( mgr_configure_nodes_all      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_configure_nodes_all _null_ _null_ _null_ ));
+DESCR("mgr_configure_nodes_all");
+
+DATA(insert OID = 4987 ( mgr_start_one_dn_master      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_start_one_dn_master _null_ _null_ _null_ ));
+DESCR("mgr start one dn master");
+
+DATA(insert OID = 4988 ( mgr_stop_one_dn_master      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_stop_one_dn_master _null_ _null_ _null_ ));
+DESCR("mgr stop one dn master");
+
+DATA(insert OID = 4989 ( monitor_get_hostinfo      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{hostname,status,description}" _null_ _null_ monitor_get_hostinfo _null_ _null_ _null_ ));
+DESCR("monitor_get_hostinfo");
+
+DATA(insert OID = 4990 ( monitor_databasetps_insert_data      PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 25 "" _null_ _null_ _null_ _null_ _null_ monitor_databasetps_insert_data _null_ _null_ _null_ ));
+DESCR("monitor_databasetps_insert_data");
+
+DATA(insert OID = 4991 ( monitor_databaseitem_insert_data      PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 25 "" _null_ _null_ _null_ _null_ _null_ monitor_databaseitem_insert_data _null_ _null_ _null_ ));
+DESCR("monitor_databaseitem_insert_data");
+
+DATA(insert OID = 4992 ( monitor_slowlog_insert_data      PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 25 "" _null_ _null_ _null_ _null_ _null_ monitor_slowlog_insert_data _null_ _null_ _null_ ));
+DESCR("monitor_slowlog_insert_data");
+
+DATA(insert OID = 4993 ( get_dbthreshold      PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 25 "" _null_ _null_ _null_ _null_ _null_ get_dbthreshold _null_ _null_ _null_ ));
+DESCR("get_dbthreshold");
+
+DATA(insert OID = 4905 ( mgr_stop_dn_extra      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_stop_dn_extra _null_ _null_ _null_ ));
+DESCR("mgr stop dn extra namelist");
+
+DATA(insert OID = 4906 (  mgr_clean_all        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,19,16,25}" "{o,o,o,o}" "{nodename,nodetype,status,description}" _null_ _null_ mgr_clean_all _null_ _null_ _null_ ));
+DESCR("clean all");
+
+DATA(insert OID = 4996 ( mgr_flush_host  PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ mgr_flush_host _null_ _null_ _null_ ));
+DESCR("flush host");
+
+DATA(insert OID = 4921 ( mgr_list_hba_by_name      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,25}" "{o,o}" "{nodename,values}" _null_ _null_ mgr_list_hba_by_name _null_ _null_ _null_ ));
+DESCR("mgr list hba by name");
+
+DATA(insert OID = 4922 ( mgr_drop_hba      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,25}" "{o,o}" "{nodename,values}" _null_ _null_ mgr_drop_hba _null_ _null_ _null_ ));
+DESCR("mgr drop hba");
+
+DATA(insert OID = 4923 ( mgr_add_hba      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,25}" "{o,o}" "{nodename,values}" _null_ _null_ mgr_add_hba _null_ _null_ _null_ ));
+DESCR("mgr add hba");
+
+DATA(insert OID = 4995 (  mgr_priv_manage        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 3 0 25 "20 1009 1009" _null_ _null_ _null_ _null_ _null_ mgr_priv_manage _null_ _null_ _null_ ));
+DESCR("mgr grant to user and revoke from user");
+
+DATA(insert OID = 4911 (  mgr_priv_all_to_username        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 25 "20 1009" _null_ _null_ _null_ _null_ _null_ mgr_priv_all_to_username _null_ _null_ _null_ ));
+DESCR("mgr grant all to username_list and revoke all from username_list");
+
+DATA(insert OID = 4912 (  mgr_priv_list_to_all        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 25 "20 1009" _null_ _null_ _null_ _null_ _null_ mgr_priv_list_to_all _null_ _null_ _null_ ));
+DESCR("mgr grant all to username_list and revoke all from username_list");
+
+DATA(insert OID = 4929 (  mgr_list_acl_all            PGNSP PGUID 12 10 400 0 0 f f f f f t s s 0 0 2249 "" "{19,25}" "{o,o}" "{username, acl}" _null_ _null_ mgr_list_acl_all _null_ _null_ _null_ ));
+DESCR("mgr list access privileges all");
+
+DATA(insert OID = 4927 ( mgr_show_var_param      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{type,status,message}" _null_ _null_ mgr_show_var_param _null_ _null_ _null_ ));
+DESCR("mgr show nodename param");
+
+DATA(insert OID = 4932 (  mgr_add_host_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 3 0 16 "16 2275 2276" _null_ _null_ _null_ _null_ _null_ mgr_add_host_func _null_ _null_ _null_ ));
+DESCR("mgr add host");
+
+DATA(insert OID = 4933 (  mgr_add_node_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 4 0 16 "16 18 2275 2276" _null_ _null_ _null_ _null_ _null_ mgr_add_node_func _null_ _null_ _null_ ));
+DESCR("mgr add node");
+
+DATA(insert OID = 4934 (  mgr_drop_host_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 16 "16 2276" _null_ _null_ _null_ _null_ _null_ mgr_drop_host_func _null_ _null_ _null_ ));
+DESCR("mgr drop host");
+
+DATA(insert OID = 4935 (  mgr_drop_node_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 3 0 16 "16 18 2276" _null_ _null_ _null_ _null_ _null_ mgr_drop_node_func _null_ _null_ _null_ ));
+DESCR("mgr drop node");
+
+DATA(insert OID = 4936 (  mgr_alter_host_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 3 0 16 "16 2275 2276" _null_ _null_ _null_ _null_ _null_ mgr_alter_host_func _null_ _null_ _null_ ));
+DESCR("mgr alter host");
+
+DATA(insert OID = 4937 (  mgr_alter_node_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 4 0 16 "16 18 2275 2276" _null_ _null_ _null_ _null_ _null_ mgr_alter_node_func _null_ _null_ _null_ ));
+DESCR("mgr alter node");
+
+DATA(insert OID = 4938 (  mgr_add_updateparm_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 5 0 16 "18 2275 18 16 2276" _null_ _null_ _null_ _null_ _null_ mgr_add_updateparm_func _null_ _null_ _null_ ));
+DESCR("mgr set param");
+
+DATA(insert OID = 4939 (  mgr_reset_updateparm_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 5 0 16 "18 2275 18 16 2276" _null_ _null_ _null_ _null_ _null_ mgr_reset_updateparm_func _null_ _null_ _null_ ));
+DESCR("mgr reset param");
+
+DATA(insert OID = 4940 ( mgr_deploy_all      PGNSP PGUID 12 10 400 0 0 f f f f f t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{hostname,status,description}" _null_ _null_ mgr_deploy_all _null_ _null_ _null_ ));
+DESCR("start agent all");
+
+DATA(insert OID = 4941 ( mgr_deploy_hostnamelist      PGNSP PGUID 12 10 400 0 0 f f f f f t s s 2 0 2249 "2275 1009" "{19,16,25}" "{o,o,o}" "{hostname,status,description}" _null_ _null_ mgr_deploy_hostnamelist _null_ _null_ _null_ ));
+DESCR("start agent hostlist");
+
+DATA(insert OID = 4942 ( mgr_clean_node      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_clean_node _null_ _null_ _null_ ));
+DESCR("clean node");
+
+DATA(insert OID = 4931 ( monitor_jobitem_add_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 3 0 16 "16 2275 2276" _null_ _null_ _null_ _null_ _null_ monitor_jobitem_add_func _null_ _null_ _null_ ));
+DESCR("add item");
+
+DATA(insert OID = 4943 (  monitor_jobitem_alter_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 16 "2275 2276" _null_ _null_ _null_ _null_ _null_ monitor_jobitem_alter_func _null_ _null_ _null_ ));
+DESCR("alter item");
+
+DATA(insert OID = 4944 (  monitor_jobitem_drop_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 16 "16 2276" _null_ _null_ _null_ _null_ _null_ monitor_jobitem_drop_func _null_ _null_ _null_ ));
+DESCR("drop item");
+
+DATA(insert OID = 4945 ( monitor_job_add_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 3 0 16 "16 2275 2276" _null_ _null_ _null_ _null_ _null_ monitor_job_add_func _null_ _null_ _null_ ));
+DESCR("add job");
+
+DATA(insert OID = 4946 (  monitor_job_alter_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 16 "2275 2276" _null_ _null_ _null_ _null_ _null_ monitor_job_alter_func _null_ _null_ _null_ ));
+DESCR("alter job");
+
+DATA(insert OID = 4947 (  monitor_job_drop_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 16 "16 2276" _null_ _null_ _null_ _null_ _null_ monitor_job_drop_func _null_ _null_ _null_ ));
+DESCR("drop job");
+
+/*DATA(insert OID = 4962 (  adbmonitor_job        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 25 "2275 2275" _null_ _null_ _null_ _null_ _null_ adbmonitor_job _null_ _null_ _null_ ));
+DESCR("run job");
+*/
+DATA(insert OID = 4966 (  mgr_extension_handle        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 16 "2275" _null_ _null_ _null_ _null_ _null_ mgr_extension_handle _null_ _null_ _null_ ));
+DESCR("create extension");
+
+DATA(insert OID = 4967 (  mgr_update_param_gtm_failover        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 3 0 16 "2275 2275 2275" _null_ _null_ _null_ _null_ _null_ mgr_update_param_gtm_failover _null_ _null_ _null_ ));
+DESCR("create extension");
+
+DATA(insert OID = 4968 (  mgr_update_param_datanode_failover        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 3 0 16 "2275 2275 2275" _null_ _null_ _null_ _null_ _null_ mgr_update_param_datanode_failover _null_ _null_ _null_ ));
+DESCR("create extension");
+
+DATA(insert OID = 4969 (  mgr_remove_node_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 16 "18 2276" _null_ _null_ _null_ _null_ _null_ mgr_remove_node_func _null_ _null_ _null_ ));
+DESCR("mgr remove node");
+
 #endif
 
 /*

@@ -76,8 +76,19 @@
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
 #endif /* ADB */
-
-
+#ifdef ADBMGRD
+#include "catalog/mgr_host.h"
+#include "catalog/mgr_parm.h"
+#include "catalog/mgr_updateparm.h"
+#include "catalog/mgr_cndnnode.h"
+#include "catalog/monitor_databasetps.h"
+#include "catalog/monitor_databaseitem.h"
+#include "catalog/monitor_slowlog.h"
+#include "catalog/monitor_job.h"
+#endif /* ADBMGRD */
+#ifdef AGTM
+#include "catalog/agtm_sequence.h"
+#endif
 /*---------------------------------------------------------------------------
 
 	Adding system caches:
@@ -918,6 +929,98 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		2
 	}
+#ifdef ADBMGRD
+	,{HostRelationId,		/* HOSTHOSTNAME */
+		HostHostnameIndexId,
+		1,
+		{
+			Anum_mgr_host_hostname,
+			0,
+			0,
+			0
+		},
+		32
+	}
+	,{HostRelationId,		/* HOSTHOSTOID */
+		HostOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		32
+	}
+	,{ParmRelationId,		/* PARMPARMNODE */
+		ParmTypeNameIndexId,
+		2,
+		{
+			Anum_mgr_parm_type,
+			Anum_mgr_parm_name,
+			0,
+			0
+		},
+		32
+	}
+	,{NodeRelationId,		/* NODENAMEOID */
+		NodeOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		32
+	}
+	,{UpdateparmRelationId,		/* MGRUPDATAPARMNODENAMENODETYPEKEY */
+		MgrUpdataparmNodenameNodetypeKeyIndexId,
+		3,
+		{
+			Anum_mgr_updateparm_nodename,
+			Anum_mgr_updateparm_nodetype,
+			Anum_mgr_updateparm_key,
+			0
+		},
+		32
+	}
+	,{MjobRelationId,		/* MONITORJOBOID */
+		MonitorJobOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		32
+	}
+#endif /* ADBMGRD */
+#ifdef AGTM
+	,{AgtmSequenceRelationId,		/* AGTMSEQUENCEOID */
+		AgtmSequenceOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		32
+	}
+  ,{AgtmSequenceRelationId,		/* AGTMSEQUENCEFIELDS */
+		AgtmSequenceFieldsIndexId,
+		3,
+		{
+			Anum_agtm_sequence_database,
+			Anum_agtm_sequence_schema,
+			Anum_agtm_sequence_sequence,
+			0
+		},
+		32
+	}
+#endif
 };
 
 #define SysCacheSize	((int) lengthof(cacheinfo))
