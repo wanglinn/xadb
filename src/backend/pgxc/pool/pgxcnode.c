@@ -2077,9 +2077,8 @@ pgxc_node_send_cmd_id(PGXCNodeHandle *handle, CommandId cid)
 	int			i32;
 
 	/* No need to send command ID if its sending flag is not enabled */
-	/* ADBQ: Let caller do it */
-	/*if (!IsSendCommandId())
-		return 0;*/
+	if (!IsSendCommandId())
+		return 0;
 
 	/* Invalid connection state, return error */
 	if (handle->state != DN_CONNECTION_STATE_IDLE)
@@ -2411,9 +2410,7 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 	if (dn_allocate || co_allocate)
 	{
 		int	j = 0;
-		int *fds = NULL;
-		/* ADBQ TODO */
-		//int	*fds = PoolManagerGetConnections(dn_allocate, co_allocate);
+		int	*fds = PoolManagerGetConnections(dn_allocate, co_allocate);
 
 		if (!fds)
 		{
