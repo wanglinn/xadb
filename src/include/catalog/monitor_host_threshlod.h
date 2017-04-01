@@ -14,9 +14,9 @@
 #include "catalog/genbki.h"
 #endif /* BUILD_BKI */
 
-#define MonitorHostThresholdRelationId 4927
+#define MonitorHostThresholdRelationId 4811
 
-CATALOG(monitor_host_threshold,4927) BKI_WITHOUT_OIDS
+CATALOG(monitor_host_threshold,4811) BKI_WITHOUT_OIDS
 {
     int16       mt_type;                /* host alarm type */
     int16       mt_direction;              /*0 is '<', 1 is '>'*/

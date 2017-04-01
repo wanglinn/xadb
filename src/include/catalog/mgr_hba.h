@@ -9,9 +9,9 @@
 #endif /* BUILD_BKI */
 
 
-#define HbaRelationId 3191
+#define HbaRelationId 4800
 
-CATALOG(mgr_hba,3191)
+CATALOG(mgr_hba,4800)
 {
 	NameData	nodename;		/* node name */
 	text		hbavalue;		/* storing a line of pg_hba.conf */

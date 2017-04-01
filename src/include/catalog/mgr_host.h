@@ -8,9 +8,9 @@
 #include "catalog/genbki.h"
 #endif /* BUILD_BKI */
 
-#define HostRelationId 4908
+#define HostRelationId 4802
 
-CATALOG(mgr_host,4908)
+CATALOG(mgr_host,4802)
 {
 	NameData	hostname;		/* host name */
 	NameData	hostuser;		/* host user */

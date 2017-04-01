@@ -11,8 +11,8 @@
 #endif /* BUILD_BKI */
 
 
-#define MjobRelationId 4918
-CATALOG(monitor_job,4918)
+#define MjobRelationId 4803
+CATALOG(monitor_job,4803)
 {
 	NameData				name;
 	timestamptz			next_time;

@@ -9,8 +9,8 @@
 #include "utils/timestamp.h"
 #endif /* BUILD_BKI */
 
-#define MjobitemRelationId 4920
-CATALOG(monitor_jobitem,4920) BKI_WITHOUT_OIDS
+#define MjobitemRelationId 4804
+CATALOG(monitor_jobitem,4804) BKI_WITHOUT_OIDS
 {
 	NameData				jobitem_itemname;
 #ifdef CATALOG_VARLEN

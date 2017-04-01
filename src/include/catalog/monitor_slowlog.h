@@ -10,9 +10,9 @@
 #define timestamptz int
 #endif /* BUILD_BKI */
 
-#define MslowlogRelationId 4954
+#define MslowlogRelationId 4817
 
-CATALOG(monitor_slowlog,4954) BKI_WITHOUT_OIDS
+CATALOG(monitor_slowlog,4817) BKI_WITHOUT_OIDS
 {
 	NameData				slowlogdbname;				/*the database name*/
 	NameData				slowloguser;

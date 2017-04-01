@@ -14,9 +14,9 @@
 #define timestamptz int
 #endif /* BUILD_BKI */
 
-#define MonitorHostRelationId 4921
+#define MonitorHostRelationId 4805
 
-CATALOG(monitor_host,4921)
+CATALOG(monitor_host,4805)
 {
     Oid             host_oid;               /* host name */
     int16           mh_run_state;           /* host run state */

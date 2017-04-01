@@ -14,9 +14,9 @@
 #include "catalog/genbki.h"
 #endif /* BUILD_BKI */
 
-#define MonitorCpuRelationId 4922
+#define MonitorCpuRelationId 4806
 
-CATALOG(monitor_cpu,4922)
+CATALOG(monitor_cpu,4806)
 {
     Oid         host_oid;           /* host oid */
     timestamptz mc_timestamptz;     /* monitor cpu timestamptz */

@@ -13,9 +13,9 @@
 #define timestamptz int
 #endif /* BUILD_BKI */
 
-#define MonitorVarParmRelationId 4926
+#define MonitorVarParmRelationId 4810
 
-CATALOG(monitor_varparm,4926)
+CATALOG(monitor_varparm,4810)
 {
     int16       mv_cpu_threshold;   /* CPU threshold,More than this value will alarm */
     int16       mv_mem_threshold;   /* memory threshold,More than this value will alarm */

@@ -9,9 +9,9 @@
 #endif /* BUILD_BKI */
 
 
-#define NodeRelationId 4948
+#define NodeRelationId 4813
 
-CATALOG(mgr_node,4948)
+CATALOG(mgr_node,4813)
 {
 	NameData	nodename;		/* node name */
 	Oid			nodehost;		/* node hostoid from host*/

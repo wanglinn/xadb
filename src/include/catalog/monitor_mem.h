@@ -15,9 +15,9 @@
 #define timestamptz int
 #endif /* BUILD_BKI */
 
-#define MonitorMemRelationId 4923
+#define MonitorMemRelationId 4807
 
-CATALOG(monitor_mem,4923)
+CATALOG(monitor_mem,4807)
 {
     Oid         host_oid;           /* host oid */
     timestamptz mm_timestamptz;     /* monitor memory timestamp */

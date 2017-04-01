@@ -10,10 +10,10 @@
 #define timestamptz int
 #endif /* BUILD_BKI */
 
-#define MdatabaseitemRelationId 4952
+#define MdatabaseitemRelationId 4815
 
 
-CATALOG(monitor_databaseitem,4952) BKI_WITHOUT_OIDS
+CATALOG(monitor_databaseitem,4815) BKI_WITHOUT_OIDS
 {
 	timestamptz		monitor_databaseitem_time;		/* monitor timestamp */
 	NameData		monitor_databaseitem_dbname;

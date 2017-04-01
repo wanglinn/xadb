@@ -9,9 +9,9 @@
 #endif /* BUILD_BKI */
 
 
-#define ParmRelationId 4928
+#define ParmRelationId 4812
 
-CATALOG(mgr_parm,4928) BKI_WITHOUT_OIDS
+CATALOG(mgr_parm,4812) BKI_WITHOUT_OIDS
 {
 	char		parmtype;		/* parm type:c/d/g/'*' for all/'#' for datanode and coordinator*/
 	NameData	parmname;			/* parm name */

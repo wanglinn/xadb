@@ -16,9 +16,9 @@
 #define timestamptz int
 #endif /* BUILD_BKI */
 
-#define MonitorNetRelationId 4924
+#define MonitorNetRelationId 4808
 
-CATALOG(monitor_net,4924)
+CATALOG(monitor_net,4808)
 {
     Oid         host_oid;           /* host oid */
     timestamptz mn_timestamptz;     /* monitor network timestamp */

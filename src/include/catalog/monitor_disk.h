@@ -13,9 +13,9 @@
 #define timestamptz int
 #endif /* BUILD_BKI */
 
-#define MonitorDiskRelationId 4925
+#define MonitorDiskRelationId 4809
 
-CATALOG(monitor_disk,4925)
+CATALOG(monitor_disk,4809)
 {
     Oid         host_oid;           /* host oid */
     timestamptz md_timestamptz;     /* monitor disk timestamp */

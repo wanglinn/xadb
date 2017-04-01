@@ -9,9 +9,9 @@
 #endif /* BUILD_BKI */
 
 
-#define UpdateparmRelationId 3846
+#define UpdateparmRelationId 4801
 
-CATALOG(mgr_updateparm,3846) BKI_WITHOUT_OIDS
+CATALOG(mgr_updateparm,4801) BKI_WITHOUT_OIDS
 {
 	NameData	updateparmnodename;			/* updateparm nodename */
 	char		updateparmnodetype;
