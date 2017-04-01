@@ -163,7 +163,12 @@ IsToastClass(Form_pg_class reltuple)
 bool
 IsSystemNamespace(Oid namespaceId)
 {
+#ifdef ADB
+	return (namespaceId == PG_CATALOG_NAMESPACE ||
+			namespaceId == PG_ORACLE_NAMESPACE);
+#else
 	return namespaceId == PG_CATALOG_NAMESPACE;
+#endif
 }
 
 /*

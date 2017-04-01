@@ -3145,7 +3145,13 @@ GetOverrideSearchPath(MemoryContext context)
 			result->addTemp = true;
 		else
 		{
+#if defined(ADB) && defined(USE_ASSERT_CHECKING)
+			Oid ns = linitial_oid(schemas);
+			Assert(ns == PG_CATALOG_NAMESPACE
+				|| ns == PG_ORACLE_NAMESPACE);
+#else
 			Assert(linitial_oid(schemas) == PG_CATALOG_NAMESPACE);
+#endif
 			result->addCatalog = true;
 		}
 		schemas = list_delete_first(schemas);

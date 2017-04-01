@@ -79,7 +79,11 @@ DESCR("reserved schema for TOAST tables");
 DATA(insert OID = 2200 ( "public" PGUID _null_ ));
 DESCR("standard public schema");
 #define PG_PUBLIC_NAMESPACE 2200
-
+#ifdef ADB
+DATA(insert OID = 3999 ( "oracle" PGUID _null_ ));
+DESCR("compatible oracle schema");
+#define PG_ORACLE_NAMESPACE 3999
+#endif
 
 /*
  * prototypes for functions in pg_namespace.c
