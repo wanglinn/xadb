@@ -5349,6 +5349,9 @@ DESCR("smaller of two");
 
 DATA(insert OID = 3355 ( pg_explain_infomask	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 25 "23" _null_ _null_ _null_ _null_ _null_ pg_explain_infomask _null_ _null_ _null_ ));
 DESCR("explain infomask of each heap tuple");
+
+DATA(insert OID = 3178 (  ora_date_out		ORANSP PGUID 12 1 0 0 0 f f f f t f s s 1 0 2275 "1114" _null_ _null_ _null_ _null_ _null_ ora_date_out _null_ _null_ _null_ ));
+DESCR("I/O");
 #endif
 
 #ifdef ADBMGRD

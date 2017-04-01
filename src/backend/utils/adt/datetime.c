@@ -4103,6 +4103,17 @@ EncodeTimeOnly(struct pg_tm * tm, fsec_t fsec, bool print_tz, int tz, int style,
  */
 void
 EncodeDateTime(struct pg_tm * tm, fsec_t fsec, bool print_tz, int tz, const char *tzn, int style, char *str)
+#ifdef ADB
+{
+	EncodeDateTimeExtend(tm, fsec, print_tz, tz, tzn, style, str, false);
+}
+
+void
+EncodeDateTimeExtend(struct pg_tm * tm, fsec_t fsec,
+					 bool print_tz, int tz,
+					 const char *tzn, int style,
+					 char *str, bool is_ora_date)
+#endif
 {
 	int			day;
 

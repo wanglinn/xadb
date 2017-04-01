@@ -325,6 +325,12 @@ extern int DetermineTimeZoneAbbrevOffsetTS(TimestampTz ts, const char *abbr,
 extern void EncodeDateOnly(struct pg_tm * tm, int style, char *str);
 extern void EncodeTimeOnly(struct pg_tm * tm, fsec_t fsec, bool print_tz, int tz, int style, char *str);
 extern void EncodeDateTime(struct pg_tm * tm, fsec_t fsec, bool print_tz, int tz, const char *tzn, int style, char *str);
+#ifdef ADB
+extern void EncodeDateTimeExtend(struct pg_tm * tm, fsec_t fsec,
+								 bool print_tz, int tz,
+								 const char *tzn, int style,
+								 char *str, bool is_ora_date);
+#endif
 extern void EncodeInterval(struct pg_tm * tm, fsec_t fsec, int style, char *str);
 extern void EncodeSpecialTimestamp(Timestamp dt, char *str);
 

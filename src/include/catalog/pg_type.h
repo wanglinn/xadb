@@ -713,6 +713,16 @@ DATA(insert OID = 3310 ( tsm_handler	PGNSP PGUID  4 t p P f t \054 0 0 0 tsm_han
 DATA(insert OID = 3831 ( anyrange		PGNSP PGUID  -1 f p P f t \054 0 0 0 anyrange_in anyrange_out - - - - - d x f 0 -1 0 0 _null_ _null_ _null_ ));
 #define ANYRANGEOID		3831
 
+#ifdef ADB
+/* oracle.date */
+DATA(insert OID = 3997 ( date		 ORANSP PGUID 8 FLOAT8PASSBYVAL d D f t \054 0	0 3998 domain_in ora_date_out domain_recv timestamptz_send - - - d p f 1184 6 0 0 _null_ _null_ _null_ ));
+DESCR("oracle's date");
+#define ORADATEOID		3997
+
+/* oracle.date array */
+DATA(insert OID = 3998 ( _date		 ORANSP PGUID -1 f b A f t \054 0 3997 0 array_in array_out array_recv array_send - - array_typanalyze i x f 0 -1 0 0 _null_ _null_ _null_ ));
+#define ORADATEARRAYOID		3998
+#endif
 
 /*
  * macros

@@ -99,6 +99,9 @@ extern TimestampTz PgReloadTime;
 
 extern Datum timestamp_in(PG_FUNCTION_ARGS);
 extern Datum timestamp_out(PG_FUNCTION_ARGS);
+#ifdef ADB
+extern Datum ora_date_out(PG_FUNCTION_ARGS);
+#endif
 extern Datum timestamp_recv(PG_FUNCTION_ARGS);
 extern Datum timestamp_send(PG_FUNCTION_ARGS);
 extern Datum timestamptypmodin(PG_FUNCTION_ARGS);
