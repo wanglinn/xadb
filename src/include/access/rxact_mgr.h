@@ -38,8 +38,9 @@ extern void FreeRxactTransactionInfoList(List *list);
 extern void RxactWaitGID(const char *gid);
 
 /* xlog interfaces */
-extern void rxact_redo(XLogRecPtr lsn, XLogRecord *record);
-extern void rxact_desc(StringInfo buf, uint8 xl_info, char *rec);
+extern void rxact_redo(XLogReaderState *record);
+extern void rxact_desc(StringInfo buf, XLogReaderState *record);
+extern const char *rxact_identify(uint8 info);
 extern void rxact_xlog_startup(void);
 extern void rxact_xlog_cleanup(void);
 extern void CheckPointRxact(int flags);
