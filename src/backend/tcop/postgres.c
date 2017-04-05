@@ -81,6 +81,7 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/poolutils.h"
+#include "pgxc/pause.h"
 #endif
 #ifdef AGTM
 #include "agtm/agtm.h"
@@ -2664,6 +2665,14 @@ die(SIGNAL_ARGS)
 	/* If we're still here, waken anything waiting on the process latch */
 	SetLatch(MyLatch);
 
+#ifdef ADB
+	/* release cluster lock if holding it */
+	if (cluster_ex_lock_held)
+	{
+		ReleaseClusterLock(true);
+	}
+#endif
+
 	/*
 	 * If we're in single user mode, we want to quit immediately - we can't
 	 * rely on latches as they wouldn't work when stdin/stdout is a file.
@@ -3654,6 +3663,11 @@ PostgresMain(int argc, char *argv[],
 	volatile bool send_ready_for_query = true;
 	bool		disable_idle_in_transaction_timeout = false;
 
+#ifdef ADB
+	cluster_lock_held = false;
+	cluster_ex_lock_held = false;
+#endif
+
 	/* Initialize startup process environment if necessary. */
 	if (!IsUnderPostmaster)
 		InitStandaloneProcess(argv[0]);
@@ -3877,6 +3891,10 @@ PostgresMain(int argc, char *argv[],
 	 */
 	if (!IsUnderPostmaster)
 		PgStartTime = GetCurrentTimestamp();
+
+#ifdef ADB
+	on_shmem_exit(PGXCCleanClusterLock, 0);
+#endif
 
 	/*
 	 * POSTGRES main processing loop begins here
@@ -4109,6 +4127,24 @@ PostgresMain(int argc, char *argv[],
 		 */
 		CHECK_FOR_INTERRUPTS();
 		DoingCommandRead = false;
+
+#ifdef ADB
+		/*
+		 * Acquire the ClusterLock before starting query processing.
+		 *
+		 * If we are inside a transaction block, this lock will be already held
+		 * when the transaction began
+		 *
+		 * If the session has invoked a PAUSE CLUSTER earlier, then this lock
+		 * will be held already in exclusive mode. No need to lock in that case
+		 */
+		if (IsUnderPostmaster && IS_PGXC_COORDINATOR && !cluster_ex_lock_held && !cluster_lock_held)
+		{
+						bool exclusive = false;
+						AcquireClusterLock(exclusive);
+						cluster_lock_held = true;
+		}
+#endif
 
 		/*
 		 * (5) turn off the idle-in-transaction timeout
@@ -4419,6 +4455,21 @@ PostgresMain(int argc, char *argv[],
 						 errmsg("invalid frontend message type %d",
 								firstchar)));
 		}
+#ifdef ADB
+			/*
+				* If the connection is going idle, release the cluster lock. However
+				* if the session had invoked a PAUSE CLUSTER earlier, then wait for a
+				* subsequent UNPAUSE to release this lock
+				*/
+				if (IsUnderPostmaster && IS_PGXC_COORDINATOR && !IsAbortedTransactionBlockState()
+					&& !IsTransactionOrTransactionBlock()
+					&& cluster_lock_held && !cluster_ex_lock_held)
+				{
+					bool exclusive = false;
+					ReleaseClusterLock(exclusive);
+					cluster_lock_held = false;
+				}
+#endif
 	}							/* end of input-reading loop */
 }
 

@@ -2365,16 +2365,13 @@ static void agent_release_connections(PoolAgent *agent, bool force_destroy)
 	Size i;
 	AssertArg(agent);
 
-/* ADBQ: Wait for pgxc cluster */
-/*
 #ifdef ADB
-        if (!force_destroy && cluster_ex_lock_held)
-        {
-                elog(LOG, "Not releasing connection with cluster lock");
-                return;
-        }
+	if (!force_destroy && cluster_ex_lock_held)
+	{
+		elog(LOG, "Not releasing connection with cluster lock");
+		return;
+	}
 #endif
-*/
 
 	for(i=0;i<agent->num_dn_connections;++i)
 	{

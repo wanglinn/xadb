@@ -44,7 +44,8 @@
 #include "storage/sinvaladt.h"
 #include "storage/spin.h"
 #include "utils/snapmgr.h"
-
+#include "pgxc/pgxc.h"
+#include "pgxc/pause.h"
 
 shmem_startup_hook_type shmem_startup_hook = NULL;
 
@@ -141,6 +142,11 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		size = add_size(size, BTreeShmemSize());
 		size = add_size(size, SyncScanShmemSize());
 		size = add_size(size, AsyncShmemSize());
+#ifdef ADB
+		if (IS_PGXC_COORDINATOR)
+			size = add_size(size, ClusterLockShmemSize());
+#endif
+
 #ifdef EXEC_BACKEND
 		size = add_size(size, ShmemBackendArraySize());
 #endif
@@ -245,6 +251,11 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 	ReplicationOriginShmemInit();
 	WalSndShmemInit();
 	WalRcvShmemInit();
+
+#ifdef ADB
+if (IS_PGXC_COORDINATOR)
+	ClusterLockShmemInit();
+#endif
 
 	/*
 	 * Set up other modules that need some shared memory space

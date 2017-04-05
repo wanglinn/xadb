@@ -58,6 +58,10 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
+#ifdef ADB
+#include "pgxc/pause.h"
+#endif
+
 #define CMD_ID_MSG_LEN 8
 #define PGXC_CANCEL_DELAY 15
 
@@ -799,6 +803,14 @@ void release_handles2(bool force_close)
 {
 	int			i;
 	bool has_error = false;
+
+#ifdef ADB
+	/* don't free connection if holding a cluster lock */
+	if (cluster_ex_lock_held)
+	{
+		return;
+	}
+#endif
 
 	if (datanode_count == 0 && coord_count == 0)
 		return;
