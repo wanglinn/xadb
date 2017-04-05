@@ -6,6 +6,89 @@
 #ifndef END_NODE
 #	define END_NODE(t)
 #endif
+
+#ifndef NODE_BASE2
+#	define NODE_BASE2(t,m) NODE_BASE(t)
+#endif
+#ifndef NODE_SAME
+#	define NODE_SAME(t1,t2) \
+		BEGIN_NODE(t1)		\
+			NODE_BASE(t2)	\
+		END_NODE(t1)
+#endif
+#ifndef NODE_ARG_
+#	define NODE_ARG_ node
+#endif
+
+#ifndef NODE_BASE
+#	define NODE_BASE(b)
+#endif
+#ifndef NODE_NODE
+#	define NODE_NODE(t,m)
+#endif
+#ifndef NODE_NODE_MEB
+#	define NODE_NODE_MEB(t,m)
+#endif
+#ifndef NODE_NODE_ARRAY
+#	define NODE_NODE_ARRAY(t,m,l)
+#endif
+#ifndef NODE_BITMAPSET
+#	define NODE_BITMAPSET(t,m)
+#endif
+#ifndef NODE_BITMAPSET_ARRAY
+#	define NODE_BITMAPSET_ARRAY(t,m,l)
+#endif
+#ifndef NODE_RELIDS
+#	define NODE_RELIDS(t,m) NODE_BITMAPSET(Bitmapset,m)
+#endif
+#ifndef NODE_RELIDS_ARRAY
+#	define NODE_RELIDS_ARRAY(t,m,l) NODE_BITMAPSET_ARRAY(Bitmapset,m,l)
+#endif
+#ifndef NODE_LOCATION
+#	define NODE_LOCATION(t,m) NODE_SCALAR(t,m)
+#endif
+#ifndef NODE_SCALAR
+#	define NODE_SCALAR(t,m)
+#endif
+#ifndef NODE_OID
+#	define NODE_OID(t,m) NODE_SCALAR(Oid, m)
+#endif
+#ifndef NODE_SCALAR_POINT
+#	define NODE_SCALAR_POINT(t,m,l)
+#endif
+#ifndef NODE_SCALAR_ARRAY
+#	define NODE_SCALAR_ARRAY NODE_SCALAR_POINT
+#endif
+#ifndef NODE_OTHER_POINT
+#	define NODE_OTHER_POINT(t,m)
+#endif
+#ifndef NODE_STRING
+#	define NODE_STRING(m)
+#endif
+#ifndef NODE_StringInfo
+#	define NODE_StringInfo(m)
+#endif
+#ifndef NODE_STRUCT
+#	define NODE_STRUCT(t,m)
+#endif
+#ifndef NODE_STRUCT_ARRAY
+#	define NODE_STRUCT_ARRAY(t,m,l)
+#endif
+#ifndef NODE_STRUCT_LIST
+#	define NODE_STRUCT_LIST(t,m)
+#endif
+#ifndef NODE_STRUCT_MEB
+#	define NODE_STRUCT_MEB(t,m)
+#endif
+#ifndef NODE_ENUM
+#	define NODE_ENUM(t,m)
+#endif
+#ifndef NODE_DATUM
+#	define NODE_DATUM(t, m, o, n)
+#endif
+/*END_HEAD*/
+
+/*BEGIN_STRUCT_HEAD*/
 #ifndef BEGIN_STRUCT
 #	define BEGIN_STRUCT(t)
 #endif
@@ -92,7 +175,7 @@
 #ifndef NODE_DATUM
 #	define NODE_DATUM(t, m, o, n)
 #endif
-/*END_HEAD*/
+/*END_STRUCT_HEAD*/
 
 #ifndef NO_NODE_Const
 BEGIN_NODE(Const)
@@ -240,4 +323,4 @@ END_SPECIAL_MEB(RemoteQuery)
 
 
 /* ENUM_IF_DEFINED(enum_name, macro_name [, ...]) */
-ENUM_IF_DEFINED(RelationAccessType, ADB)
+IDENT_IF_DEFINED(RelationAccessType, ADB)
