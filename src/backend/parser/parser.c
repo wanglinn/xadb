@@ -827,6 +827,22 @@ makeRangeVarFromAnyName(List *names, int position, core_yyscan_t yyscanner)
 	return r;
 }
 
+ResTarget* make_star_target(int location)
+{
+	ResTarget *target;
+	ColumnRef *n = makeNode(ColumnRef);
+	n->fields = list_make1(makeNode(A_Star));
+	n->location = -1;
+
+	target = makeNode(ResTarget);
+	target->name = NULL;
+	target->indirection = NIL;
+	target->val = (Node *)n;
+	target->location = -1;
+
+	return target;
+}
+
 /* Separate Constraint nodes from COLLATE clauses in a ColQualList */
 void
 SplitColQualList(List *qualList,

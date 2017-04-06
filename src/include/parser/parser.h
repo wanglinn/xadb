@@ -76,6 +76,7 @@ extern Node *makeXmlExpr(XmlExprOp op, char *name, List *named_args,
 extern List *mergeTableFuncParameters(List *func_args, List *columns);
 extern TypeName *TableFuncTypeName(List *columns);
 extern RangeVar *makeRangeVarFromAnyName(List *names, int position, core_yyscan_t yyscanner);
+extern ResTarget* make_star_target(int location);
 extern void SplitColQualList(List *qualList,
 							 List **constraintList, CollateClause **collClause,
 							 core_yyscan_t yyscanner);
