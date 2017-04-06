@@ -148,10 +148,16 @@ extern void ExecASDeleteTriggers(EState *estate,
 extern bool ExecBRDeleteTriggers(EState *estate,
 					 EPQState *epqstate,
 					 ResultRelInfo *relinfo,
+#ifdef ADB
+					 HeapTupleHeader datanode_tuphead,
+#endif
 					 ItemPointer tupleid,
 					 HeapTuple fdw_trigtuple);
 extern void ExecARDeleteTriggers(EState *estate,
 					 ResultRelInfo *relinfo,
+#ifdef ADB
+					 HeapTupleHeader trigtuphead,
+#endif
 					 ItemPointer tupleid,
 					 HeapTuple fdw_trigtuple);
 extern bool ExecIRDeleteTriggers(EState *estate,
@@ -164,6 +170,9 @@ extern void ExecASUpdateTriggers(EState *estate,
 extern TupleTableSlot *ExecBRUpdateTriggers(EState *estate,
 					 EPQState *epqstate,
 					 ResultRelInfo *relinfo,
+#ifdef ADB
+					 HeapTupleHeader datanode_tuphead,
+#endif
 					 ItemPointer tupleid,
 					 HeapTuple fdw_trigtuple,
 					 TupleTableSlot *slot);
@@ -172,6 +181,9 @@ extern void ExecARUpdateTriggers(EState *estate,
 					 ItemPointer tupleid,
 					 HeapTuple fdw_trigtuple,
 					 HeapTuple newtuple,
+#ifdef ADB
+					 HeapTupleHeader trigtuphead,
+#endif
 					 List *recheckIndexes);
 extern TupleTableSlot *ExecIRUpdateTriggers(EState *estate,
 					 ResultRelInfo *relinfo,

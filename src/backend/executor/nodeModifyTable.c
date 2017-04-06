@@ -39,18 +39,36 @@
 
 #include "access/htup_details.h"
 #include "access/xact.h"
+#ifdef ADB
+#include "access/sysattr.h"
+#endif
 #include "commands/trigger.h"
 #include "executor/executor.h"
 #include "executor/nodeModifyTable.h"
 #include "foreign/fdwapi.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
+#ifdef ADB
+#include "parser/parsetree.h"
+#include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
+#endif
 #include "storage/bufmgr.h"
 #include "storage/lmgr.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/tqual.h"
+
+#ifdef ADB
+static TupleTableSlot *fill_slot_with_oldvals(TupleTableSlot *slot, HeapTupleHeader oldtuphd, Bitmapset *modifiedCols);
+
+/* Copied from trigger.c */
+#define GetModifiedColumns(relinfo, estate) \
+	(rt_fetch((relinfo)->ri_RangeTableIndex, (estate)->es_range_table)->updatedCols)
+/* Copied from tid.c */
+#define DatumGetItemPointer(X)	 ((ItemPointer) DatumGetPointer(X))
+#endif
 
 
 static bool ExecOnConflictUpdate(ModifyTableState *mtstate,
@@ -261,6 +279,9 @@ ExecInsert(ModifyTableState *mtstate,
 	Relation	resultRelationDesc;
 	Oid			newId;
 	List	   *recheckIndexes = NIL;
+#ifdef ADB	
+	RemoteQueryState  *resultRemoteRel = NULL;
+#endif
 
 	/*
 	 * get the heap tuple out of the tuple table slot, making sure we have a
@@ -273,6 +294,9 @@ ExecInsert(ModifyTableState *mtstate,
 	 */
 	resultRelInfo = estate->es_result_relation_info;
 	resultRelationDesc = resultRelInfo->ri_RelationDesc;
+#ifdef ADB
+	resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
+#endif
 
 	/*
 	 * If the result relation has OIDs, force the tuple's OID to zero so that
@@ -372,6 +396,21 @@ ExecInsert(ModifyTableState *mtstate,
 		if (resultRelationDesc->rd_att->constr)
 			ExecConstraints(resultRelInfo, slot, estate);
 
+#ifdef ADB
+		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+		{
+			slot = ExecProcNodeDMLInXC(estate, planSlot, slot);
+			/*
+			 * PGXCTODO: If target table uses WITH OIDS, this should be set to the Oid inserted
+			 * but Oids are not consistent among nodes in Postgres-XC, so this is set to the
+			 * default value InvalidOid for the time being. It corrects at least tags for all
+			 * the other INSERT commands.
+			 */
+			newId = InvalidOid;
+		}
+		else
+#endif				
+		{
 		if (onconflict != ONCONFLICT_NONE && resultRelInfo->ri_NumIndices > 0)
 		{
 			/* Perform a speculative insertion. */
@@ -497,10 +536,16 @@ ExecInsert(ModifyTableState *mtstate,
 													   estate, false, NULL,
 													   arbiterIndexes);
 		}
+		}
 	}
 
 	if (canSetTag)
 	{
+#ifdef ADB
+		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+			estate->es_processed += resultRemoteRel->rqs_processed;
+		else
+#endif	
 		(estate->es_processed)++;
 		estate->es_lastoid = newId;
 		setLastTid(&(tuple->t_self));
@@ -528,7 +573,15 @@ ExecInsert(ModifyTableState *mtstate,
 
 	/* Process RETURNING if present */
 	if (resultRelInfo->ri_projectReturning)
+#ifdef ADB
+	{
+		if (TupIsNull(slot))
+			return NULL;
+#endif
 		return ExecProcessReturning(resultRelInfo, slot, planSlot);
+#ifdef ADB
+	}
+#endif
 
 	return NULL;
 }
@@ -557,7 +610,12 @@ ExecDelete(ItemPointer tupleid,
 		   TupleTableSlot *planSlot,
 		   EPQState *epqstate,
 		   EState *estate,
+#ifndef ADB
 		   bool canSetTag)
+#else
+		   bool canSetTag,
+		   TupleTableSlot *pslot)
+#endif
 {
 	ResultRelInfo *resultRelInfo;
 	Relation	resultRelationDesc;
@@ -565,11 +623,18 @@ ExecDelete(ItemPointer tupleid,
 	HeapUpdateFailureData hufd;
 	TupleTableSlot *slot = NULL;
 
+#ifdef ADB
+	RemoteQueryState  *resultRemoteRel = NULL;
+#endif
+
 	/*
 	 * get information on the (current) result relation
 	 */
 	resultRelInfo = estate->es_result_relation_info;
 	resultRelationDesc = resultRelInfo->ri_RelationDesc;
+#ifdef ADB
+	resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
+#endif
 
 	/* BEFORE ROW DELETE Triggers */
 	if (resultRelInfo->ri_TrigDesc &&
@@ -578,6 +643,9 @@ ExecDelete(ItemPointer tupleid,
 		bool		dodelete;
 
 		dodelete = ExecBRDeleteTriggers(estate, epqstate, resultRelInfo,
+#ifdef ADB
+										oldtuple->t_data,
+#endif
 										tupleid, oldtuple);
 
 		if (!dodelete)			/* "do nothing" */
@@ -640,6 +708,26 @@ ExecDelete(ItemPointer tupleid,
 		 * mode transactions.
 		 */
 ldelete:;
+#ifdef ADB
+		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+		{
+			/*
+			* Pass in the source plan slot, we may attributes other than ctid
+			* in case delete is based on primay key or other unique column.
+			* planSlot can't be passed in place of pslot here because of the
+			* following test case failure
+			* create table t2(a int, b int) distribute by replication;
+			* insert into t2 values(1,2), (3,4), (5,6);
+			* set enable_fast_query_shipping=false;
+			* delete from t2 where a = 1;
+			* ERROR:  operator does not exist: tid = integer
+			*/
+			slot = ExecProcNodeDMLInXC(estate, planSlot, pslot);
+		}
+		else
+		{
+#endif
+
 		result = heap_delete(resultRelationDesc, tupleid,
 							 estate->es_output_cid,
 							 estate->es_crosscheck_snapshot,
@@ -723,15 +811,43 @@ ldelete:;
 		 * take care of it later.  We can't delete index tuples immediately
 		 * anyway, since the tuple is still visible to other transactions.
 		 */
+#ifdef ADB
+		}
+#endif
 	}
 
 	if (canSetTag)
+#ifdef ADB
+	{
+		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+			estate->es_processed += resultRemoteRel->rqs_processed;
+		else
+#endif
 		(estate->es_processed)++;
+#ifdef ADB
+	}
+#endif
 
+
+#ifdef ADB
+	ExecARDeleteTriggers(estate, resultRelInfo, oldtuple->t_data, tupleid, oldtuple);
+#else
 	/* AFTER ROW DELETE Triggers */
 	ExecARDeleteTriggers(estate, resultRelInfo, tupleid, oldtuple);
+#endif
 
 	/* Process RETURNING if present */
+#ifdef ADB
+	if (IS_PGXC_COORDINATOR && resultRemoteRel &&
+			resultRelInfo->ri_projectReturning)
+	{
+		if (TupIsNull(slot))
+			return NULL;
+
+		return ExecProcessReturning(resultRelInfo, slot, planSlot);
+	}
+	else
+#endif
 	if (resultRelInfo->ri_projectReturning)
 	{
 		/*
@@ -824,12 +940,31 @@ ExecUpdate(ItemPointer tupleid,
 	HTSU_Result result;
 	HeapUpdateFailureData hufd;
 	List	   *recheckIndexes = NIL;
+#ifdef ADB
+	RemoteQueryState  *resultRemoteRel = NULL;
+#endif
 
 	/*
 	 * abort the operation if not running transactions
 	 */
 	if (IsBootstrapProcessingMode())
 		elog(ERROR, "cannot UPDATE during bootstrap");
+
+#ifdef ADB
+	resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
+	
+	/*
+	* For remote tables, the plan slot does not have all NEW tuple values in
+	* the plan slot. If oldtuple is supplied, we would also need a complete
+	* NEW tuple. Currently for remote tables, triggers are the only case where
+	* oldtuple is passed. Craft the NEW tuple using OLD tuple and updated
+	* values from NEW tuple slot, and store the NEW tuple back into the NEW
+	* tuple slot.
+	*/
+	if (IS_PGXC_COORDINATOR && resultRemoteRel && oldtuple != NULL)
+		slot = fill_slot_with_oldvals(slot, oldtuple->t_data,
+				GetModifiedColumns(estate->es_result_relation_info, estate));
+#endif
 
 	/*
 	 * get the heap tuple out of the tuple table slot, making sure we have a
@@ -847,8 +982,13 @@ ExecUpdate(ItemPointer tupleid,
 	if (resultRelInfo->ri_TrigDesc &&
 		resultRelInfo->ri_TrigDesc->trig_update_before_row)
 	{
+#ifdef ADB
+		slot = ExecBRUpdateTriggers(estate, epqstate, resultRelInfo,
+											oldtuple->t_data, tupleid, oldtuple, slot);
+#else
 		slot = ExecBRUpdateTriggers(estate, epqstate, resultRelInfo,
 									tupleid, oldtuple, slot);
+#endif
 
 		if (slot == NULL)		/* "do nothing" */
 			return NULL;
@@ -924,6 +1064,15 @@ lreplace:;
 		 */
 		if (resultRelationDesc->rd_att->constr)
 			ExecConstraints(resultRelInfo, slot, estate);
+
+#ifdef ADB
+		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+		{
+			slot = ExecProcNodeDMLInXC(estate, planSlot, slot);
+		}
+		else
+		{
+#endif
 
 		/*
 		 * replace the heap tuple
@@ -1029,6 +1178,9 @@ lreplace:;
 		if (resultRelInfo->ri_NumIndices > 0 && !HeapTupleIsHeapOnly(tuple))
 			recheckIndexes = ExecInsertIndexTuples(slot, &(tuple->t_self),
 												   estate, false, NULL, NIL);
+	#ifdef ADB
+		}
+	#endif
 	}
 
 	if (canSetTag)
@@ -1036,6 +1188,9 @@ lreplace:;
 
 	/* AFTER ROW UPDATE Triggers */
 	ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldtuple, tuple,
+#ifdef ADB
+						 oldtuple->t_data,
+#endif
 						 recheckIndexes);
 
 	list_free(recheckIndexes);
@@ -1054,7 +1209,15 @@ lreplace:;
 
 	/* Process RETURNING if present */
 	if (resultRelInfo->ri_projectReturning)
+#ifdef ADB
+	{
+		if (TupIsNull(slot))
+			return NULL;
+#endif
 		return ExecProcessReturning(resultRelInfo, slot, planSlot);
+#ifdef ADB
+	}
+#endif
 
 	return NULL;
 }
@@ -1321,6 +1484,11 @@ ExecModifyTable(ModifyTableState *node)
 	ResultRelInfo *saved_resultRelInfo;
 	ResultRelInfo *resultRelInfo;
 	PlanState  *subplanstate;
+#ifdef ADB
+	PlanState  *remoterelstate;
+	PlanState  *saved_resultRemoteRel;
+	RemoteQuery		*step = NULL;
+#endif	
 	JunkFilter *junkfilter;
 	TupleTableSlot *slot;
 	TupleTableSlot *planSlot;
@@ -1362,6 +1530,13 @@ ExecModifyTable(ModifyTableState *node)
 	/* Preload local variables */
 	resultRelInfo = node->resultRelInfo + node->mt_whichplan;
 	subplanstate = node->mt_plans[node->mt_whichplan];
+#ifdef ADB
+	/* Initialize remote plan state */
+	remoterelstate = node->mt_remoterels[node->mt_whichplan];
+	if (!IS_PGXC_DATANODE && remoterelstate != NULL)
+		step = (RemoteQuery *)((RemoteQueryState *)remoterelstate)->ss.ps.plan;
+#endif
+
 	junkfilter = resultRelInfo->ri_junkFilter;
 
 	/*
@@ -1373,7 +1548,13 @@ ExecModifyTable(ModifyTableState *node)
 	 */
 	saved_resultRelInfo = estate->es_result_relation_info;
 
+#ifdef ADB
+		saved_resultRemoteRel = estate->es_result_remoterel;
+#endif
 	estate->es_result_relation_info = resultRelInfo;
+#ifdef ADB
+		estate->es_result_remoterel = remoterelstate;
+#endif
 
 	/*
 	 * Fetch rows from subplan(s), and execute the required table modification
@@ -1399,6 +1580,13 @@ ExecModifyTable(ModifyTableState *node)
 			{
 				resultRelInfo++;
 				subplanstate = node->mt_plans[node->mt_whichplan];
+
+#ifdef ADB
+				/* Move to next remote plan */
+				estate->es_result_remoterel = node->mt_remoterels[node->mt_whichplan];
+				remoterelstate = node->mt_remoterels[node->mt_whichplan];
+#endif
+
 				junkfilter = resultRelInfo->ri_junkFilter;
 				estate->es_result_relation_info = resultRelInfo;
 				EvalPlanQualSetPlan(&node->mt_epqstate, subplanstate->plan,
@@ -1458,6 +1646,33 @@ ExecModifyTable(ModifyTableState *node)
 					tuple_ctid = *tupleid;		/* be sure we don't free
 												 * ctid!! */
 					tupleid = &tuple_ctid;
+
+#ifdef ADB
+					/* If available, also extract the OLD row */
+					if (IS_PGXC_COORDINATOR &&
+						RelationGetLocInfo(resultRelInfo->ri_RelationDesc) &&
+						junkfilter->jf_xc_wholerow != InvalidAttrNumber)
+					{
+						datum = ExecGetJunkAttribute(slot,
+													junkfilter->jf_xc_wholerow,
+													&isNull);
+				
+						if (!isNull)
+						{
+							oldtupdata.t_data = DatumGetHeapTupleHeader(datum);
+							oldtupdata.t_len =
+								HeapTupleHeaderGetDatumLength(oldtupdata.t_data);
+							ItemPointerSetInvalid(&(oldtupdata.t_self));
+							/* Historically, view triggers see invalid t_tableOid. */
+							oldtupdata.t_tableOid =
+							(relkind == RELKIND_VIEW) ? InvalidOid :
+							RelationGetRelid(resultRelInfo->ri_RelationDesc);
+
+							oldtuple = &oldtupdata;						
+						}
+					}
+#endif
+												 
 				}
 
 				/*
@@ -1503,7 +1718,23 @@ ExecModifyTable(ModifyTableState *node)
 			 */
 			if (operation != CMD_DELETE)
 				slot = ExecFilterJunk(junkfilter, slot);
+
+
+
+
+#ifndef ADB
+			if (operation != CMD_DELETE)
+#else
+			if (operation != CMD_DELETE ||
+				(!IS_PGXC_DATANODE && step != NULL &&
+					!step->rq_use_pk_for_rep_change))
+#endif
+				slot = ExecFilterJunk(junkfilter, slot);			
 		}
+
+#ifdef ADB
+		estate->es_result_remoterel = remoterelstate;
+#endif
 
 		switch (operation)
 		{
@@ -1518,7 +1749,12 @@ ExecModifyTable(ModifyTableState *node)
 				break;
 			case CMD_DELETE:
 				slot = ExecDelete(tupleid, oldtuple, planSlot,
-								&node->mt_epqstate, estate, node->canSetTag);
+#ifdef ADB
+				&node->mt_epqstate, estate, node->canSetTag, slot);
+#else
+				&node->mt_epqstate, estate, node->canSetTag);
+#endif
+				
 				break;
 			default:
 				elog(ERROR, "unknown operation");
@@ -1532,12 +1768,18 @@ ExecModifyTable(ModifyTableState *node)
 		if (slot)
 		{
 			estate->es_result_relation_info = saved_resultRelInfo;
+#ifdef ADB
+			estate->es_result_remoterel = saved_resultRemoteRel;
+#endif
 			return slot;
 		}
 	}
 
 	/* Restore es_result_relation_info before exiting */
 	estate->es_result_relation_info = saved_resultRelInfo;
+#ifdef ADB
+	estate->es_result_remoterel = saved_resultRemoteRel;
+#endif	
 
 	/*
 	 * We're done, but fire AFTER STATEMENT triggers before exiting.
@@ -1565,6 +1807,9 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	Plan	   *subplan;
 	ListCell   *l;
 	int			i;
+#ifdef ADB
+		PlanState  *saved_remoteRelInfo;
+#endif
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
@@ -1582,6 +1827,9 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	mtstate->mt_done = false;
 
 	mtstate->mt_plans = (PlanState **) palloc0(sizeof(PlanState *) * nplans);
+#ifdef ADB
+	mtstate->mt_remoterels = (PlanState **) palloc0(sizeof(PlanState *) * nplans);
+#endif	
 	mtstate->resultRelInfo = estate->es_result_relations + node->resultRelIndex;
 	mtstate->mt_arowmarks = (List **) palloc0(sizeof(List *) * nplans);
 	mtstate->mt_nplans = nplans;
@@ -1601,12 +1849,23 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	 * sub-plan; ExecContextForcesOids depends on that!
 	 */
 	saved_resultRelInfo = estate->es_result_relation_info;
+#ifdef ADB
+	saved_remoteRelInfo = estate->es_result_remoterel;
+#endif
 
 	resultRelInfo = mtstate->resultRelInfo;
 	i = 0;
 	foreach(l, node->plans)
 	{
+#ifdef ADB
+		Plan *remoteplan = NULL;
+#endif
+
 		subplan = (Plan *) lfirst(l);
+#ifdef ADB
+		if (node->remote_plans)
+			remoteplan = list_nth(node->remote_plans, i);
+#endif
 
 		/* Initialize the usesFdwDirectModify flag */
 		resultRelInfo->ri_usesFdwDirectModify = bms_is_member(i,
@@ -1649,11 +1908,25 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 															 eflags);
 		}
 
+#ifdef ADB
+		if (remoteplan)
+		{
+			/* 
+			* Init the plan for the remote execution for this result rel. This is
+			* used to execute data modification queries on the remote nodes
+			*/
+			mtstate->mt_remoterels[i] = ExecInitNode(remoteplan, estate, eflags);
+		}
+#endif		
+
 		resultRelInfo++;
 		i++;
 	}
 
 	estate->es_result_relation_info = saved_resultRelInfo;
+#ifdef ADB
+	estate->es_result_remoterel = saved_remoteRelInfo;
+#endif
 
 	/*
 	 * Initialize any WITH CHECK OPTION constraints if needed.
@@ -1891,6 +2164,20 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 						j->jf_junkAttNo = ExecFindJunkAttribute(j, "ctid");
 						if (!AttributeNumberIsValid(j->jf_junkAttNo))
 							elog(ERROR, "could not find junk ctid column");
+#ifdef ADB
+						if (IS_PGXC_COORDINATOR &&
+							RelationGetLocInfo(resultRelInfo->ri_RelationDesc))
+						{
+							/*
+							* We may or may not need these attributes depending upon
+							* the exact kind of trigger. We defer the check; instead throw
+							* error only at the point when we need but don't find one.
+							*/
+							j->jf_xc_node_id = ExecFindJunkAttribute(j, "xc_node_id");
+							j->jf_xc_wholerow = ExecFindJunkAttribute(j, "wholerow");
+						}
+#endif
+						
 					}
 					else if (relkind == RELKIND_FOREIGN_TABLE)
 					{
@@ -1991,6 +2278,14 @@ ExecEndModifyTable(ModifyTableState *node)
 	 */
 	for (i = 0; i < node->mt_nplans; i++)
 		ExecEndNode(node->mt_plans[i]);
+
+#ifdef ADB
+	/*
+	 * shut down remoteplans
+	 */
+	for (i = 0; i < node->mt_nplans; i++)
+		ExecEndNode(node->mt_remoterels[i]);
+#endif
 }
 
 void
@@ -2002,3 +2297,57 @@ ExecReScanModifyTable(ModifyTableState *node)
 	 */
 	elog(ERROR, "ExecReScanModifyTable is not implemented");
 }
+
+#ifdef ADB
+/*
+ * fill_slot_with_oldvals:
+ * Create a new tuple using the existing 'oldtuphd' and new data from
+ * 'replace_slot'. So the values of the modified attributes are taken from
+ * replace_slot, and overwritten onto the oldtuphd. Finally the new tuple is
+ * stored in 'replace_slot'. This is a convenience function for generating
+ * the NEW tuple given the plan slot and old tuple.
+ */
+static TupleTableSlot *
+fill_slot_with_oldvals(TupleTableSlot *replace_slot, HeapTupleHeader oldtuphd, Bitmapset *modifiedCols)
+{
+	HeapTupleData oldtuple;
+	HeapTuple newtuple;
+	int natts = replace_slot->tts_tupleDescriptor->natts;
+	int attindex;
+	bool *replaces;
+
+	if (!oldtuphd)
+		elog(ERROR, "expected valid OLD tuple for triggers");
+		
+	oldtuple.t_data = oldtuphd;
+	oldtuple.t_len = HeapTupleHeaderGetDatumLength(oldtuphd);
+	ItemPointerSetInvalid(&(oldtuple.t_self));
+	oldtuple.t_tableOid = InvalidOid;
+	oldtuple.t_xc_node_id = 0;
+
+	replaces = (bool *) palloc0(natts * sizeof(bool));
+	for (attindex = 0; attindex < natts; attindex++)
+	{
+		if (bms_is_member(attindex + 1 - FirstLowInvalidHeapAttributeNumber,
+							  modifiedCols))
+			replaces[attindex] = true;
+		else
+			replaces[attindex] = false;
+	}
+
+	slot_getallattrs(replace_slot);
+
+	newtuple = heap_modify_tuple(&oldtuple, replace_slot->tts_tupleDescriptor,
+	                             replace_slot->tts_values,
+	                             replace_slot->tts_isnull,
+	                             replaces);
+
+	pfree(replaces);
+
+	/*
+	 * Ultimately store the tuple in the same slot from where we retrieved
+	 * values to be replaced.
+	 */
+	return ExecStoreTuple(newtuple, replace_slot, InvalidBuffer, false);
+}
+#endif

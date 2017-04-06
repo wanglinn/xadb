@@ -2206,6 +2206,9 @@ ExecASDeleteTriggers(EState *estate, ResultRelInfo *relinfo)
 bool
 ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 					 ResultRelInfo *relinfo,
+#ifdef ADB
+					 HeapTupleHeader datanode_tuphead,
+#endif
 					 ItemPointer tupleid,
 					 HeapTuple fdw_trigtuple)
 {
@@ -2272,8 +2275,11 @@ ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 
 void
 ExecARDeleteTriggers(EState *estate, ResultRelInfo *relinfo,
-					 ItemPointer tupleid,
-					 HeapTuple fdw_trigtuple)
+#ifdef ADB
+							HeapTupleHeader trigtuphead,
+#endif
+							ItemPointer tupleid,
+					 		HeapTuple fdw_trigtuple)
 {
 	TriggerDesc *trigdesc = relinfo->ri_TrigDesc;
 
@@ -2411,6 +2417,9 @@ ExecASUpdateTriggers(EState *estate, ResultRelInfo *relinfo)
 TupleTableSlot *
 ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 					 ResultRelInfo *relinfo,
+#ifdef ADB
+					 HeapTupleHeader datanode_tuphead,
+#endif
 					 ItemPointer tupleid,
 					 HeapTuple fdw_trigtuple,
 					 TupleTableSlot *slot)
@@ -2528,6 +2537,9 @@ ExecARUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
 					 ItemPointer tupleid,
 					 HeapTuple fdw_trigtuple,
 					 HeapTuple newtuple,
+#ifdef ADB
+					 HeapTupleHeader trigtuphead,
+#endif
 					 List *recheckIndexes)
 {
 	TriggerDesc *trigdesc = relinfo->ri_TrigDesc;
