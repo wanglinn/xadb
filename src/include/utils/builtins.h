@@ -1368,6 +1368,11 @@ extern List *deparse_context_for_plan(Node *plan, List *ancestors,
 
 extern void deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 						  bool finalise_aggs, bool sortgroup_colno);
+
+/* src/backend/access/rxact/rxact_comm.c */
+extern Datum rxact_wait_gid(PG_FUNCTION_ARGS);
+extern Datum rxact_get_running(PG_FUNCTION_ARGS);
+
 #endif   /* ADB */
 
 #endif   /* BUILTINS_H */
