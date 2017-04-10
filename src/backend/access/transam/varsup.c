@@ -30,6 +30,16 @@
 #include "agtm/agtm.h"
 #include "pgxc/pgxc.h"
 
+/*
+ * Parameters as below are used only in Datanode or NoMaster-Coordinator.
+ */
+/* ADBQ:
+ * How to obtain global xid under the situation sub transaction
+ * is involved. what about making gxid list?
+ */
+static GlobalTransactionId GlobalXid = InvalidGlobalTransactionId;
+static bool GlobalXidSetFromCOOR = false;
+
 /* Global xid force from AGTM to obtain  */
 static bool ForceObtainXidFromAGTM = false;
 #endif /* ADB */
@@ -65,16 +75,284 @@ AdjustTransactionId(TransactionId least_xid)
 #endif
 
 #ifdef ADB
+void
+SetGlobalTransactionId(GlobalTransactionId gxid)
+{
+	Assert(IS_PGXC_DATANODE || IsConnFromCoord());
+	GlobalXid = gxid;
+	GlobalXidSetFromCOOR = true;
+}
+
+void
+UnsetGlobalTransactionId(void)
+{
+	GlobalXid = InvalidGlobalTransactionId;
+	GlobalXidSetFromCOOR = false;
+	//ForceObtainXidFromAGTM = false;
+}
+
+void
+SetForceObtainXidFromAGTM(bool val)
+{
+	ForceObtainXidFromAGTM = val;
+}
+
 /*
  * See if we should force using AGTM
  * Useful for explicit VACUUM FULL
  */
 bool
-GetForceXidFromGTM(void)
+GetForceXidFromAGTM(void)
 {
 	return ForceObtainXidFromAGTM;
 }
-#endif /* ADB */
+
+
+static GlobalTransactionId
+ObtainGlobalTransactionId(bool isSubXact)
+{
+	GlobalTransactionId gxid = InvalidGlobalTransactionId;
+
+	/*
+	 * Master-Coordinator get xid from AGTM
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		gxid = agtm_GetGlobalTransactionId(isSubXact);
+		return gxid;
+	}
+
+	/*
+	 * Datanode or NoMaster-Coordinator get xid
+	 * from AGTM when
+	 * a. GlobalXid is invalid.
+	 * b. Current process is autovacuum process.
+	 * c. Xid force from AGTM to obtain.
+	 */
+	if (GlobalXid == InvalidGlobalTransactionId ||
+		GlobalXidSetFromCOOR == false ||
+		ForceObtainXidFromAGTM == true ||
+		IsAnyAutoVacuumProcess())
+	{
+		gxid = agtm_GetGlobalTransactionId(isSubXact);
+		return gxid;
+	}
+
+	/*
+	 * Datanode or NoMaster-Coordinator return GlobalXid got
+	 * from Master-Coordinator.
+	 */
+	return GlobalXid;
+}
+
+TransactionId
+GetNewGlobalTransactionId(bool isSubXact)
+{
+	TransactionId xid;
+	TransactionId gxid;
+
+	/*
+	 * During bootstrap initialization, we return the special bootstrap
+	 * transaction id.
+	 */
+	Assert(IsNormalProcessingMode());
+
+	/* safety check, we should never get this far in a HS slave */
+	if (RecoveryInProgress())
+		elog(ERROR, "cannot assign TransactionIds during recovery");
+
+	/* Vacuum check */
+	xid = ReadNewTransactionId();
+
+	/*----------
+	 * Check to see if it's safe to assign another XID.  This protects against
+	 * catastrophic data loss due to XID wraparound.  The basic rules are:
+	 *
+	 * If we're past xidVacLimit, start trying to force autovacuum cycles.
+	 * If we're past xidWarnLimit, start issuing warnings.
+	 * If we're past xidStopLimit, refuse to execute transactions, unless
+	 * we are running in a standalone backend (which gives an escape hatch
+	 * to the DBA who somehow got past the earlier defenses).
+	 *
+	 * Note that this coding also appears in GetNewMultiXactId.
+	 *----------
+	 */
+	if (TransactionIdFollowsOrEquals(xid, ShmemVariableCache->xidVacLimit))
+	{
+		/*
+		 * For safety's sake, we release XidGenLock while sending signals,
+		 * warnings, etc.  This is not so much because we care about
+		 * preserving concurrency in this situation, as to avoid any
+		 * possibility of deadlock while doing get_database_name(). First,
+		 * copy all the shared values we'll need in this path.
+		 */
+		TransactionId xidWarnLimit = ShmemVariableCache->xidWarnLimit;
+		TransactionId xidStopLimit = ShmemVariableCache->xidStopLimit;
+		TransactionId xidWrapLimit = ShmemVariableCache->xidWrapLimit;
+		Oid			oldest_datoid = ShmemVariableCache->oldestXidDB;
+
+		/*
+		 * To avoid swamping the postmaster with signals, we issue the autovac
+		 * request only once per 64K transaction starts.  This still gives
+		 * plenty of chances before we get into real trouble.
+		 */
+		if (IsUnderPostmaster && (xid % 65536) == 0)
+			SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
+
+		if (IsUnderPostmaster &&
+			TransactionIdFollowsOrEquals(xid, xidStopLimit))
+		{
+			char	   *oldest_datname = get_database_name(oldest_datoid);
+			/* complain even if that DB has disappeared */
+			if (oldest_datname)
+				ereport(ERROR,
+					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+					 errmsg("database is not accepting commands to avoid wraparound data loss in database \"%s\"",
+							oldest_datname),
+					 errhint("Stop the postmaster and use a standalone backend to vacuum that database.\n"
+							 "You might also need to commit or roll back old prepared transactions.")));
+			else
+				ereport(ERROR,
+					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+					 errmsg("database is not accepting commands to avoid wraparound data loss in database with OID %u",
+							oldest_datoid),
+					 errhint("Stop the postmaster and use a standalone backend to vacuum that database.\n"
+							 "You might also need to commit or roll back old prepared transactions.")));
+		}
+		else if (TransactionIdFollowsOrEquals(xid, xidWarnLimit))
+		{
+			char  *oldest_datname = (OidIsValid(MyDatabaseId) ?
+			           get_database_name(oldest_datoid): NULL);
+
+			/* complain even if that DB has disappeared */
+			if (oldest_datname)
+				ereport(WARNING,
+						(errmsg("database \"%s\" must be vacuumed within %u transactions",
+								oldest_datname,
+								xidWrapLimit - xid),
+						 errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
+								 "You might also need to commit or roll back old prepared transactions.")));
+			else
+				ereport(WARNING,
+						(errmsg("database with OID %u must be vacuumed within %u transactions",
+								oldest_datoid,
+								xidWrapLimit - xid),
+						 errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
+								 "You might also need to commit or roll back old prepared transactions.")));
+		}
+	}
+
+	gxid = ObtainGlobalTransactionId(isSubXact);
+
+	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+
+	/*
+	 * If we are allocating the first XID of a new page of the commit log,
+	 * zero out that commit-log page before returning. We must do this while
+	 * holding XidGenLock, else another xact could acquire and commit a later
+	 * XID before we zero the page.  Fortunately, a page of the commit log
+	 * holds 32K or more transactions, so we don't have to do this very often.
+	 *
+	 * Extend pg_subtrans too.
+	 */
+	ExtendCLOG(gxid);
+	ExtendSUBTRANS(gxid);
+
+	if (TransactionIdFollowsOrEquals(gxid, ShmemVariableCache->nextXid))
+	{
+		ShmemVariableCache->nextXid = gxid;
+	} else
+	{
+		/*
+		 * Sometime, the global XID got from the AGTM may be used locally.
+		 * It may lead to conflict of XidStatus of XID. For example, when
+		 * we failover the AGTM master, the next XID of the AGTM slave may
+		 * be less than the AGTM master.(It is possiable as XLOG has not
+		 * been synchronized.)
+		 *
+		 * It is a fatal situation that global XID is less than
+		 * ShmemVariableCache->nextXid.
+		 */
+		if (TransactionLogFetch(gxid) != TRANSACTION_STATUS_IN_PROGRESS)
+		{
+			LWLockRelease(XidGenLock);
+			ereport(ERROR,
+				(errmsg("Global XID %u is already in use, please try again!", gxid)));
+		}
+	}
+
+	/*
+	 * Now advance the nextXid counter.  This must not happen until after we
+	 * have successfully completed ExtendCLOG() --- if that routine fails, we
+	 * want the next incoming transaction to try it again.  We cannot assign
+	 * more XIDs until there is CLOG space for them.
+	 */
+	TransactionIdAdvance(ShmemVariableCache->nextXid);
+
+	/*
+	 * We must store the new XID into the shared ProcArray before releasing
+	 * XidGenLock.  This ensures that every active XID older than
+	 * latestCompletedXid is present in the ProcArray, which is essential for
+	 * correct OldestXmin tracking; see src/backend/access/transam/README.
+	 *
+	 * XXX by storing xid into MyPgXact without acquiring ProcArrayLock, we
+	 * are relying on fetch/store of an xid to be atomic, else other backends
+	 * might see a partially-set xid here.  But holding both locks at once
+	 * would be a nasty concurrency hit.  So for now, assume atomicity.
+	 *
+	 * Note that readers of PGXACT xid fields should be careful to fetch the
+	 * value only once, rather than assume they can read a value multiple
+	 * times and get the same answer each time.
+	 *
+	 * The same comments apply to the subxact xid count and overflow fields.
+	 *
+	 * A solution to the atomic-store problem would be to give each PGXACT its
+	 * own spinlock used only for fetching/storing that PGXACT's xid and
+	 * related fields.
+	 *
+	 * If there's no room to fit a subtransaction XID into PGPROC, set the
+	 * cache-overflowed flag instead.  This forces readers to look in
+	 * pg_subtrans to map subtransaction XIDs up to top-level XIDs. There is a
+	 * race-condition window, in that the new XID will not appear as running
+	 * until its parent link has been placed into pg_subtrans. However, that
+	 * will happen before anyone could possibly have a reason to inquire about
+	 * the status of the XID, so it seems OK.  (Snapshots taken during this
+	 * window *will* include the parent XID, so they will deliver the correct
+	 * answer later on when someone does have a reason to inquire.)
+	 */
+	{
+		/*
+		 * Use volatile pointer to prevent code rearrangement; other backends
+		 * could be examining my subxids info concurrently, and we don't want
+		 * them to see an invalid intermediate state, such as incrementing
+		 * nxids before filling the array entry.  Note we are assuming that
+		 * TransactionId and int fetch/store are atomic.
+		 */
+		volatile PGPROC *myproc = MyProc;
+		volatile PGXACT *mypgxact = MyPgXact;
+
+		if (!isSubXact)
+			mypgxact->xid = gxid;
+		else
+		{
+			int			nxids = mypgxact->nxids;
+
+			if (nxids < PGPROC_MAX_CACHED_SUBXIDS)
+			{
+				myproc->subxids.xids[nxids] = gxid;
+				mypgxact->nxids = nxids + 1;
+			}
+			else
+				mypgxact->overflowed = true;
+		}
+	}
+
+	LWLockRelease(XidGenLock);
+
+	elog(DEBUG1, "Return new global xid: %u", gxid);
+	return gxid;
+}
+#endif
 
 /*
  * Allocate the next XID for a new transaction or subtransaction.

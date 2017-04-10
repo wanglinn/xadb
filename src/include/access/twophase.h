@@ -35,10 +35,18 @@ extern void PostPrepare_Twophase(void);
 
 extern PGPROC *TwoPhaseGetDummyProc(TransactionId xid);
 extern BackendId TwoPhaseGetDummyBackendId(TransactionId xid);
-
+#ifdef ADB
+extern GlobalTransaction MarkAsPreparing(TransactionId xid, const char *gid,
+				TimestampTz prepared_at,
+				Oid owner, Oid databaseid,
+				int nodecnt, Oid *nodeIds, bool isimplicit);
+extern void StartRemoteXactPrepare(GlobalTransaction gxact);
+extern void EndRemoteXactPrepare(GlobalTransaction gxact);
+#else
 extern GlobalTransaction MarkAsPreparing(TransactionId xid, const char *gid,
 				TimestampTz prepared_at,
 				Oid owner, Oid databaseid);
+#endif
 
 extern void StartPrepare(GlobalTransaction gxact);
 extern void EndPrepare(GlobalTransaction gxact);

@@ -65,18 +65,15 @@
 #include "pg_trace.h"
 
 #ifdef ADB
+#include "access/remote_xact.h"
+#include "agtm/agtm.h"
+#include "libpq/libpq.h"
+#include "libpq/pqformat.h"
+#include "pgxc/execRemote.h"
+#include "pgxc/pause.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/xc_maintenance_mode.h"
-#include "pgxc/execRemote.h"
 #include "postmaster/autovacuum.h"
-#include "libpq/pqformat.h"
-#include "libpq/libpq.h"
-#include "agtm/agtm.h"
-//#include "access/remote_xact.h"
-#endif
-
-#ifdef ADB
-#include "pgxc/pause.h"
 #endif
 
 /*
@@ -201,7 +198,7 @@ static bool xact_error_abort = false;
  */
 typedef struct TransactionStateData
 {
-#ifdef ADB  /* ADB COORD */
+#ifdef ADB
 	/* my GXID, or Invalid if none */
 	GlobalTransactionId transactionId;
 	bool				isLocalParameterUsed;		/* Check if a local parameter is active
@@ -326,8 +323,7 @@ static char *prepareGID;
 
 #ifdef ADB
 /* Gid for implicit internal twophase commit */
-/* ADBQ */
-//static char *savePrepareGID;
+static char *savePrepareGID;
 
 /* Is current xact read local node */
 static bool XactReadLocalNode;
@@ -335,7 +331,6 @@ static bool XactReadLocalNode;
 /* Is current xact write local node */
 static bool XactWriteLocalNode;
 
-#if 0 /* ADBQ */
 #define SafeFreeSaveGID() \
 	do { \
 		if (savePrepareGID) \
@@ -344,7 +339,6 @@ static bool XactWriteLocalNode;
 			savePrepareGID = NULL; \
 		} \
 	} while (0)
-#endif
 #endif
 
 /*
@@ -424,6 +418,9 @@ static void ShowTransactionState(const char *str);
 static void ShowTransactionStateRec(TransactionState state);
 static const char *BlockStateAsString(TBlockState blockState);
 static const char *TransStateAsString(TransState state);
+#ifdef ADB
+static void PrepareTransaction(void);
+#endif
 
 
 /* ----------------------------------------------------------------
@@ -895,7 +892,6 @@ IsXactErrorAbort(void)
 	return xact_error_abort;
 }
 
-#if 0 /* ADBQ */
 /*
  * Run at the end of the current transaction,
  * to make sure commit/abort the transaction
@@ -923,7 +919,6 @@ AtEOXact_Local(bool commit)
 		SafeFreeSaveGID();
 	}
 }
-#endif
 
 /*
  *  SetCurrentTransactionStartTimestamp
@@ -2286,6 +2281,11 @@ CommitTransaction(void)
 	TransactionState s = CurrentTransactionState;
 	TransactionId latestXid;
 	bool		is_parallel_worker;
+#ifdef ADB
+	bool		isimplicit = !(s->blockState == TBLOCK_PREPARE);
+	int			nodecnt = 0;
+	Oid		   *nodeIds = NULL;
+#endif
 
 	is_parallel_worker = (s->blockState == TBLOCK_PARALLEL_INPROGRESS);
 
@@ -2302,6 +2302,79 @@ CommitTransaction(void)
 		elog(WARNING, "CommitTransaction while in %s state",
 			 TransStateAsString(s->state));
 	Assert(s->parent == NULL);
+
+#ifdef ADB
+	/*
+	 * If we are a Coordinator and currently serving the client,
+	 * we must run a 2PC if more than one nodes are involved in this
+	 * transaction. We first prepare on the remote nodes and if everything goes
+	 * right, we commit locally and then commit on the remote nodes. We must
+	 * also be careful to prepare locally on this Coordinator only if the
+	 * local Coordinator has done some write activity.
+	 *
+	 * If there are any errors, they will be reported via ereport and the
+	 * transaction will be aborted.
+	 *
+	 * First save the current top transaction ID before it may get overwritten
+	 * by PrepareTransaction below.
+	 */
+	if (isimplicit && IsUnderRemoteXact())
+	{
+		SafeFreeSaveGID();
+
+		/*
+		 * Check if there are any ON COMMIT actions or if temporary objects are in use.
+		 * If session is set-up to enforce 2PC for such transactions, return an error.
+		 * If not, simply enforce autocommit on each remote node.
+		 */
+		if (IsOnCommitActions() || ExecIsTempObjectIncluded())
+		{
+			if (!EnforceTwoPhaseCommit || isimplicit)
+				ExecSetTempObjectIncluded();
+			else
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot PREPARE a transaction that has operated on temporary tables"),
+						 errdetail("Disabling enforce_two_phase_commit is recommended to enforce COMMIT")));
+		}
+
+		/*
+		 * If the local node has done some write activity, prepare the local node
+		 * first. If that fails, the transaction is aborted on all the remote
+		 * nodes
+		 */
+		if (IsTwoPhaseCommitRequired(XactWriteLocalNode))
+		{
+			prepareGID = MemoryContextAlloc(TopTransactionContext, 256);
+			sprintf(prepareGID, "T%u", GetTopTransactionId());
+
+			savePrepareGID = MemoryContextStrdup(TopMemoryContext, prepareGID);
+
+			//if (XactWriteLocalNode)
+			{
+				PrepareTransaction();
+				s->blockState = TBLOCK_DEFAULT;
+
+				/*
+				 * PrepareTransaction would have ended the current transaction.
+				 * Start a new transaction. We can also use the GXID of this
+				 * new transaction to run the COMMIT/ROLLBACK PREPARED
+				 * commands. Note that information as part of the
+				 * auxilliaryTransactionId
+				 */
+				StartTransaction();
+
+				/*
+				 * Nodes involved are prepared and now the transaction step into
+				 * the second phase(COMMIT/ROLLBACK PREPARED XXX).
+				 */
+				s = CurrentTransactionState;
+				SetXactPhase2(s);
+				TellRemoteXactLocalPrepared(true);
+			}
+		}
+	}
+#endif
 
 	/*
 	 * Do pre-commit processing that involves calling user-defined code, such
@@ -2364,6 +2437,60 @@ CommitTransaction(void)
 	 * holding the notify-insertion lock.
 	 */
 	PreCommit_Notify();
+	
+#ifdef ADB
+	if (IsUnderRemoteXact())
+	{
+		/*
+		 * Now that all the remote nodes have successfully prepared and
+		 * commited, commit the local transaction as well. Remember, any errors
+		 * before this point would have been reported via ereport. The fact
+		 * that we are here shows that the transaction has been committed
+		 * successfully on the remote nodes
+		 */
+		if (IsXactInPhase2(s))
+		{
+			PreventTransactionChain(true, "COMMIT IMPLICIT PREPARED");
+
+			PG_TRY();
+			{
+				FinishPreparedTransactionExt(savePrepareGID, true, false, false);
+			} PG_CATCH();
+			{
+				SafeFreeSaveGID();
+				PG_RE_THROW();
+			} PG_END_TRY();
+
+			SetXactPhase1(s);
+			SafeFreeSaveGID();
+		} else
+		{
+			nodecnt = pgxcGetInvolvedRemoteNodes(&nodeIds);
+
+			/* Here is where we commit remote xact */
+			RemoteXactCommit(nodecnt, nodeIds);
+		}
+
+		/*
+		 * The current transaction may have been ended and we might have
+		 * started a new transaction. Re-initialize with
+		 * CurrentTransactionState
+		 */
+		s = CurrentTransactionState;
+
+		/*
+		 * Let the normal commit processing now handle the main transaction if
+		 * the local node was not involved. Otherwise, we are in an
+		 * auxilliary transaction and that will be closed along with the main
+		 * transaction
+		 */
+	}
+	else if (IS_PGXC_DATANODE && GetForceXidFromAGTM())
+	{
+		agtm_CommitTransaction(NULL, false);
+		agtm_Close();
+	}
+#endif
 
 	/* Prevent cancel/die interrupt while cleaning up */
 	HOLD_INTERRUPTS();
@@ -2429,6 +2556,15 @@ CommitTransaction(void)
 	CallXactCallbacks(is_parallel_worker ? XACT_EVENT_PARALLEL_COMMIT
 					  : XACT_EVENT_COMMIT);
 
+#ifdef ADB
+	/*
+	 * Call any callback functions initialized for post-commit cleaning up
+	 * of database/tablespace operations. Mostly this should involve resetting
+	 * the abort callback functions registered during the db/tbspc operations.
+	 */
+	AtEOXact_DBCleanup(true);
+#endif
+
 	ResourceOwnerRelease(TopTransactionResourceOwner,
 						 RESOURCE_RELEASE_BEFORE_LOCKS,
 						 true, true);
@@ -2454,8 +2590,8 @@ CommitTransaction(void)
 	/* If the cluster lock was held at commit time, keep it locked! */
 	if (cluster_ex_lock_held)
 	{
-			elog(DEBUG2, "PAUSE CLUSTER still held at commit");
-			/*if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		elog(DEBUG2, "PAUSE CLUSTER still held at commit");
+		/*if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 			RequestClusterPause(false, NULL);*/
 	}
 #endif
@@ -2513,6 +2649,23 @@ CommitTransaction(void)
 	XactTopTransactionId = InvalidTransactionId;
 	nParallelCurrentXids = 0;
 
+#ifdef ADB
+	UnsetGlobalTransactionId();
+	s->isLocalParameterUsed = false;
+	ForgetTransactionLocalNode();
+
+	/*
+	 * Set the command ID of Coordinator to be sent to the remote nodes
+	 * as the 1st one.
+	 * For remote nodes, enforce the command ID sending flag to false to avoid
+	 * sending any command ID by default as now transaction is done.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		SetReceivedCommandId(FirstCommandId);
+	else
+		SetSendCommandId(false);
+#endif
+
 	/*
 	 * done with commit processing, set current transaction state back to
 	 * default
@@ -2520,6 +2673,18 @@ CommitTransaction(void)
 	s->state = TRANS_DEFAULT;
 
 	RESUME_INTERRUPTS();
+
+#ifdef ADB
+	AtEOXact_Local(true);
+
+	/*
+	 * XXX We now close the main and auxilliary transaction (if any) on the
+	 * GTM. We do this after resuming interrupts to ensure that we don't end
+	 * blocking forever on the communication channel. But we need to see if
+	 * this is safe in all cases (TODO)
+	 */
+	AtEOXact_Remote();
+#endif
 }
 
 
@@ -2535,6 +2700,11 @@ PrepareTransaction(void)
 	TransactionId xid = GetCurrentTransactionId();
 	GlobalTransaction gxact;
 	TimestampTz prepared_at;
+#ifdef ADB
+	bool isimplicit = !(s->blockState == TBLOCK_PREPARE);
+	int nodecnt = 0;
+	Oid	*nodeIds = NULL;
+#endif
 
 	Assert(!IsInParallelMode());
 
@@ -2615,7 +2785,11 @@ PrepareTransaction(void)
 	 * cases, such as a temp table created and dropped all within the
 	 * transaction.  That seems to require much more bookkeeping though.
 	 */
+#ifdef ADB
+	if (MyXactAccessedTempRel && !isimplicit)
+#else
 	if (MyXactAccessedTempRel)
+#endif
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("cannot PREPARE a transaction that has operated on temporary tables")));
@@ -2648,8 +2822,21 @@ PrepareTransaction(void)
 	 * Reserve the GID for this transaction. This could fail if the requested
 	 * GID is invalid or already in use.
 	 */
+#ifdef ADB
+	/*
+	 * Get all involved remote nodes, also include local node.
+	 */
+	nodecnt = pgxcGetInvolvedNodes(true, &nodeIds);
+
+	gxact = MarkAsPreparing(xid, prepareGID, prepared_at,
+							GetUserId(), MyDatabaseId,
+							nodecnt, nodeIds, isimplicit);
+
+	StartRemoteXactPrepare(gxact);
+#else
 	gxact = MarkAsPreparing(xid, prepareGID, prepared_at,
 							GetUserId(), MyDatabaseId);
+#endif
 	prepareGID = NULL;
 
 	/*
@@ -2780,6 +2967,10 @@ PrepareTransaction(void)
 	s->childXids = NULL;
 	s->nChildXids = 0;
 	s->maxChildXids = 0;
+#ifdef ADB
+	EndRemoteXactPrepare(gxact);
+	UnsetGlobalTransactionId();
+#endif
 
 	XactTopTransactionId = InvalidTransactionId;
 	nParallelCurrentXids = 0;
@@ -2791,8 +2982,65 @@ PrepareTransaction(void)
 	s->state = TRANS_DEFAULT;
 
 	RESUME_INTERRUPTS();
+#ifdef ADB
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		SetReceivedCommandId(FirstCommandId);
+	else
+		SetSendCommandId(false);
+#endif
 }
 
+#ifdef ADB
+static void
+NormalAbortRemoteXact(TransactionState s)
+{
+	int		 nodecnt;
+	Oid		*nodeIds;
+
+	if (!IsUnderRemoteXact())
+		return ;
+
+	/* we are now in phase 2 */
+	if (IsXactInPhase2(s))
+	{
+		PreventTransactionChain(true, "ROLLBACK IMPLICIT PREPARED");
+
+		PG_TRY();
+		{
+			FinishPreparedTransactionExt(savePrepareGID, false, false, false);
+		} PG_CATCH();
+		{
+			SafeFreeSaveGID();
+			PG_RE_THROW();
+		} PG_END_TRY();
+
+		SetXactPhase1(s);
+		SafeFreeSaveGID();
+	}
+	/* we are now in phase 1 */
+	else
+	{
+		Assert(s->xact_phase == XACT_PHASE_1);
+		nodecnt = pgxcGetInvolvedRemoteNodes(&nodeIds);
+		/* Abort remote xact */
+		RemoteXactAbort(nodecnt, nodeIds, true);
+	}
+}
+
+static void
+UnexpectedAbortRemoteXact(TransactionState s)
+{
+	int		 nodecnt;
+	Oid		*nodeIds;
+
+	if (!IsUnderRemoteXact())
+		return ;
+
+	nodecnt = pgxcGetInvolvedRemoteNodes(&nodeIds);
+	/* Abort remote xact */
+	RemoteXactAbort(nodecnt, nodeIds, false);
+}
+#endif
 
 /*
  *	AbortTransaction
@@ -2802,7 +3050,27 @@ AbortTransaction(void)
 {
 	TransactionState s = CurrentTransactionState;
 	TransactionId latestXid;
-	bool		is_parallel_worker;
+	bool        is_parallel_worker;
+
+#ifdef ADB
+	/*
+	 * Cleanup the files created during database/tablespace operations.
+	 * This must happen before we release locks, because we want to hold the
+	 * locks acquired initially while we cleanup the files.
+	 */
+	AtEOXact_DBCleanup(false);
+
+	if (IsXactErrorAbort())
+		UnexpectedAbortRemoteXact(s);
+	else
+		NormalAbortRemoteXact(s);
+
+	if (IS_PGXC_DATANODE && GetForceXidFromAGTM())
+	{
+		agtm_AbortTransaction(NULL, false);	
+		agtm_Close();
+	}
+#endif
 
 	/* Prevent cancel/die interrupt while cleaning up */
 	HOLD_INTERRUPTS();
@@ -2965,10 +3233,20 @@ AbortTransaction(void)
 		pgstat_report_xact_timestamp(0);
 	}
 
+#ifdef ADB
+	ForgetTransactionLocalNode();
+#endif
+
 	/*
 	 * State remains TRANS_ABORT until CleanupTransaction().
 	 */
 	RESUME_INTERRUPTS();
+
+#ifdef ADB
+	AtEOXact_Local(false);
+
+	AtEOXact_Remote();
+#endif
 }
 
 /*
@@ -3009,6 +3287,9 @@ CleanupTransaction(void)
 	s->nChildXids = 0;
 	s->maxChildXids = 0;
 	s->parallelModeLevel = 0;
+#ifdef ADB
+	UnsetGlobalTransactionId();
+#endif
 
 	XactTopTransactionId = InvalidTransactionId;
 	nParallelCurrentXids = 0;
@@ -3018,6 +3299,21 @@ CleanupTransaction(void)
 	 * default
 	 */
 	s->state = TRANS_DEFAULT;
+#ifdef ADB
+	s->isLocalParameterUsed = false;
+	/*
+	 * Set the command ID of Coordinator to be sent to the remote nodes
+	 * as the 1st one.
+	 * For remote nodes, enforce the command ID sending flag to false to avoid
+	 * sending any command ID by default as now transaction is done.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		SetReceivedCommandId(FirstCommandId);
+	else
+		SetSendCommandId(false);
+	s->agtm_begin = false;
+	SetXactPhase1(s);
+#endif
 }
 
 /*
@@ -3806,6 +4102,17 @@ BeginTransactionBlock(void)
 				 BlockStateAsString(s->blockState));
 			break;
 	}
+
+#ifdef ADB
+	/*
+	 * Set command Id sending flag only for a local Coordinator when transaction begins,
+	 * For a remote node this flag is set to true only if a command ID has been received
+	 * from a Coordinator. This may not be always the case depending on the queries being
+	 * run and how command Ids are generated on remote nodes.
+	 */
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		SetSendCommandId(true);
+#endif
 }
 
 /*
@@ -3855,6 +4162,11 @@ PrepareTransactionBlock(char *gid)
 			result = false;
 		}
 	}
+
+#ifdef ADB
+	/* Reset command ID sending flag */
+	SetSendCommandId(false);
+#endif
 
 	return result;
 }
@@ -3986,6 +4298,11 @@ EndTransactionBlock(void)
 			break;
 	}
 
+#ifdef ADB
+	/* Reset command Id sending flag */
+	SetSendCommandId(false);
+#endif
+
 	return result;
 }
 
@@ -4088,6 +4405,11 @@ UserAbortTransactionBlock(void)
 				 BlockStateAsString(s->blockState));
 			break;
 	}
+
+#ifdef ADB
+	/* Reset Command Id sending flag */
+	SetSendCommandId(false);
+#endif
 }
 
 /*

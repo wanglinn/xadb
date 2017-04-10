@@ -235,7 +235,7 @@ void agtm_BeginTransaction(void)
 	if (!IsUnderAGTM())
 		return ;
 
-	if (!GetForceXidFromGTM() && ((!IS_PGXC_COORDINATOR || IsConnFromCoord())))
+	if (!GetForceXidFromAGTM() && ((!IS_PGXC_COORDINATOR || IsConnFromCoord())))
 		return;
 
 	if (TopXactBeginAGTM())
@@ -290,7 +290,7 @@ void agtm_CommitTransaction(const char *prepared_gid, bool missing_ok)
 	if (!IsUnderAGTM())
 		return ;
 
-	if (!GetForceXidFromGTM() && ((!IS_PGXC_COORDINATOR || IsConnFromCoord())))
+	if (!GetForceXidFromAGTM() && ((!IS_PGXC_COORDINATOR || IsConnFromCoord())))
 		return ;
 
 	/*
@@ -344,7 +344,7 @@ void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok)
 	if (!IsUnderAGTM())
 		return;
 
-	if (!GetForceXidFromGTM() && ((!IS_PGXC_COORDINATOR || IsConnFromCoord())))
+	if (!GetForceXidFromAGTM() && ((!IS_PGXC_COORDINATOR || IsConnFromCoord())))
 		return ;
 
 	/*

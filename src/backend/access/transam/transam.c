@@ -34,9 +34,10 @@ static TransactionId cachedFetchXid = InvalidTransactionId;
 static XidStatus cachedFetchXidStatus;
 static XLogRecPtr cachedCommitLSN;
 
+#ifndef ADB
 /* Local functions */
 static XidStatus TransactionLogFetch(TransactionId transactionId);
-
+#endif
 
 /* ----------------------------------------------------------------
  *		Postgres log access method interface
@@ -48,7 +49,11 @@ static XidStatus TransactionLogFetch(TransactionId transactionId);
 /*
  * TransactionLogFetch --- fetch commit status of specified transaction id
  */
+#ifdef ADB
+XidStatus
+#else
 static XidStatus
+#endif
 TransactionLogFetch(TransactionId transactionId)
 {
 	XidStatus	xidstatus;
