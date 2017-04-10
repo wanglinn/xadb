@@ -152,10 +152,22 @@ GetNewGlobalTransactionId(bool isSubXact)
 	TransactionId gxid;
 
 	/*
+	 * Workers synchronize transaction state at the beginning of each parallel
+	 * operation, so we can't account for new XIDs after that point.
+	 */
+	if (IsInParallelMode())
+		elog(ERROR, "cannot assign TransactionIds during a parallel operation");
+
+	/*
 	 * During bootstrap initialization, we return the special bootstrap
 	 * transaction id.
 	 */
-	Assert(IsNormalProcessingMode());
+	if (IsBootstrapProcessingMode())
+	{
+		Assert(!isSubXact);
+		MyPgXact->xid = BootstrapTransactionId;
+		return BootstrapTransactionId;
+	}
 
 	/* safety check, we should never get this far in a HS slave */
 	if (RecoveryInProgress())
@@ -171,7 +183,7 @@ GetNewGlobalTransactionId(bool isSubXact)
 	 * If we're past xidVacLimit, start trying to force autovacuum cycles.
 	 * If we're past xidWarnLimit, start issuing warnings.
 	 * If we're past xidStopLimit, refuse to execute transactions, unless
-	 * we are running in a standalone backend (which gives an escape hatch
+	 * we are running in single-user mode (which gives an escape hatch
 	 * to the DBA who somehow got past the earlier defenses).
 	 *
 	 * Note that this coding also appears in GetNewMultiXactId.
@@ -189,7 +201,7 @@ GetNewGlobalTransactionId(bool isSubXact)
 		TransactionId xidWarnLimit = ShmemVariableCache->xidWarnLimit;
 		TransactionId xidStopLimit = ShmemVariableCache->xidStopLimit;
 		TransactionId xidWrapLimit = ShmemVariableCache->xidWrapLimit;
-		Oid			oldest_datoid = ShmemVariableCache->oldestXidDB;
+		Oid 		oldest_datoid = ShmemVariableCache->oldestXidDB;
 
 		/*
 		 * To avoid swamping the postmaster with signals, we issue the autovac
@@ -203,26 +215,26 @@ GetNewGlobalTransactionId(bool isSubXact)
 			TransactionIdFollowsOrEquals(xid, xidStopLimit))
 		{
 			char	   *oldest_datname = get_database_name(oldest_datoid);
+
 			/* complain even if that DB has disappeared */
 			if (oldest_datname)
 				ereport(ERROR,
-					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-					 errmsg("database is not accepting commands to avoid wraparound data loss in database \"%s\"",
-							oldest_datname),
-					 errhint("Stop the postmaster and use a standalone backend to vacuum that database.\n"
-							 "You might also need to commit or roll back old prepared transactions.")));
+						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+						 errmsg("database is not accepting commands to avoid wraparound data loss in database \"%s\"",
+								oldest_datname),
+						 errhint("Stop the postmaster and vacuum that database in single-user mode.\n"
+								 "You might also need to commit or roll back old prepared transactions.")));
 			else
 				ereport(ERROR,
-					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-					 errmsg("database is not accepting commands to avoid wraparound data loss in database with OID %u",
-							oldest_datoid),
-					 errhint("Stop the postmaster and use a standalone backend to vacuum that database.\n"
-							 "You might also need to commit or roll back old prepared transactions.")));
+						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+						 errmsg("database is not accepting commands to avoid wraparound data loss in database with OID %u",
+								oldest_datoid),
+						 errhint("Stop the postmaster and vacuum that database in single-user mode.\n"
+								 "You might also need to commit or roll back old prepared transactions.")));
 		}
 		else if (TransactionIdFollowsOrEquals(xid, xidWarnLimit))
 		{
-			char  *oldest_datname = (OidIsValid(MyDatabaseId) ?
-			           get_database_name(oldest_datoid): NULL);
+			char	   *oldest_datname = get_database_name(oldest_datoid);
 
 			/* complain even if that DB has disappeared */
 			if (oldest_datname)
@@ -253,9 +265,10 @@ GetNewGlobalTransactionId(bool isSubXact)
 	 * XID before we zero the page.  Fortunately, a page of the commit log
 	 * holds 32K or more transactions, so we don't have to do this very often.
 	 *
-	 * Extend pg_subtrans too.
+	 * Extend pg_subtrans and pg_commit_ts too.
 	 */
 	ExtendCLOG(gxid);
+	ExtendCommitTs(gxid);
 	ExtendSUBTRANS(gxid);
 
 	if (TransactionIdFollowsOrEquals(gxid, ShmemVariableCache->nextXid))
@@ -284,20 +297,20 @@ GetNewGlobalTransactionId(bool isSubXact)
 	/*
 	 * Now advance the nextXid counter.  This must not happen until after we
 	 * have successfully completed ExtendCLOG() --- if that routine fails, we
-	 * want the next incoming transaction to try it again.  We cannot assign
+	 * want the next incoming transaction to try it again.	We cannot assign
 	 * more XIDs until there is CLOG space for them.
 	 */
 	TransactionIdAdvance(ShmemVariableCache->nextXid);
 
 	/*
 	 * We must store the new XID into the shared ProcArray before releasing
-	 * XidGenLock.  This ensures that every active XID older than
+	 * XidGenLock.	This ensures that every active XID older than
 	 * latestCompletedXid is present in the ProcArray, which is essential for
 	 * correct OldestXmin tracking; see src/backend/access/transam/README.
 	 *
 	 * XXX by storing xid into MyPgXact without acquiring ProcArrayLock, we
 	 * are relying on fetch/store of an xid to be atomic, else other backends
-	 * might see a partially-set xid here.  But holding both locks at once
+	 * might see a partially-set xid here.	But holding both locks at once
 	 * would be a nasty concurrency hit.  So for now, assume atomicity.
 	 *
 	 * Note that readers of PGXACT xid fields should be careful to fetch the
@@ -335,7 +348,7 @@ GetNewGlobalTransactionId(bool isSubXact)
 			mypgxact->xid = gxid;
 		else
 		{
-			int			nxids = mypgxact->nxids;
+			int 		nxids = mypgxact->nxids;
 
 			if (nxids < PGPROC_MAX_CACHED_SUBXIDS)
 			{
@@ -350,6 +363,7 @@ GetNewGlobalTransactionId(bool isSubXact)
 	LWLockRelease(XidGenLock);
 
 	elog(DEBUG1, "Return new global xid: %u", gxid);
+
 	return gxid;
 }
 #endif
