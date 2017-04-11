@@ -285,6 +285,28 @@ extern struct varlena *pg_detoast_datum_packed(struct varlena * datum);
 #define PG_GETARG_BPCHAR_P_SLICE(n,a,b) DatumGetBpCharPSlice(PG_GETARG_DATUM(n),a,b)
 #define PG_GETARG_VARCHAR_P_SLICE(n,a,b) DatumGetVarCharPSlice(PG_GETARG_DATUM(n),a,b)
 
+#ifdef ADB
+#define PG_GETARG_TEXT_P_IF_EXISTS(_n) \
+	(PG_NARGS() > (_n) ? PG_GETARG_TEXT_P(_n) : NULL)
+#define PG_GETARG_TEXT_P_IF_NULL(_n)\
+	(PG_ARGISNULL(_n) ? NULL : PG_GETARG_TEXT_P_IF_EXISTS(_n))
+
+#define PG_GETARG_TEXT_PP_IF_EXISTS(_n) \
+	(PG_NARGS() > (_n) ? PG_GETARG_TEXT_PP(_n) : NULL)
+#define PG_GETARG_TEXT_PP_IF_NULL(_n)\
+	(PG_ARGISNULL(_n) ? NULL : PG_GETARG_TEXT_PP_IF_EXISTS(_n))
+
+#define PG_GETARG_INT32_0_IF_EXISTS(_n) \
+	(PG_NARGS() > (_n) ? PG_GETARG_INT32(_n) : 0)
+#define PG_GETARG_INT32_0_IF_NULL(_n) \
+	(PG_ARGISNULL(_n) ? 0 : PG_GETARG_INT32_0_IF_EXISTS(_n))
+
+#define PG_GETARG_INT32_1_IF_EXISTS(_n) \
+	(PG_NARGS() > (_n) ? PG_GETARG_INT32(_n) : 1)
+#define PG_GETARG_INT32_1_IF_NULL(_n) \
+	(PG_ARGISNULL(_n) ? 1 : PG_GETARG_INT32_1_IF_EXISTS(_n))
+#endif
+
 /* To return a NULL do this: */
 #define PG_RETURN_NULL()  \
 	do { fcinfo->isnull = true; return (Datum) 0; } while (0)

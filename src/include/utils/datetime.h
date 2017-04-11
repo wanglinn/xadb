@@ -182,6 +182,11 @@ struct tzEntry;
 #define DTK_ISOYEAR		36
 #define DTK_ISODOW		37
 
+#ifdef ADB
+#define ORA_ROUND_NONE		1	/* round nothing */
+#define ORA_ROUND_MONTH		2	/* round day cascade of interval */
+#define ORA_ROUND_DAY		3	/* round time of interval */
+#endif
 
 /*
  * Bit mask definitions for time parsing.

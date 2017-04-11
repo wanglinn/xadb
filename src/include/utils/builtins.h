@@ -945,6 +945,115 @@ extern Datum repeat(PG_FUNCTION_ARGS);
 extern Datum ascii(PG_FUNCTION_ARGS);
 
 #ifdef ADB
+/* orastr.c */
+extern Datum orastr_instr2(PG_FUNCTION_ARGS);
+extern Datum orastr_instr3(PG_FUNCTION_ARGS);
+extern Datum orastr_instr4(PG_FUNCTION_ARGS);
+extern Datum orastr_normalize(PG_FUNCTION_ARGS);
+extern Datum orastr_is_prefix_text(PG_FUNCTION_ARGS);
+extern Datum orastr_is_prefix_int(PG_FUNCTION_ARGS);
+extern Datum orastr_is_prefix_int64(PG_FUNCTION_ARGS);
+extern Datum orastr_rvrs(PG_FUNCTION_ARGS);
+extern Datum orastr_left(PG_FUNCTION_ARGS);
+extern Datum orastr_right(PG_FUNCTION_ARGS);
+extern Datum orachr_nth(PG_FUNCTION_ARGS);
+extern Datum orachr_first(PG_FUNCTION_ARGS);
+extern Datum orachr_last(PG_FUNCTION_ARGS);
+extern Datum orachr_is_kind_i(PG_FUNCTION_ARGS);
+extern Datum orachr_is_kind_a(PG_FUNCTION_ARGS);
+extern Datum orachr_char_name(PG_FUNCTION_ARGS);
+extern Datum orastr_substr3(PG_FUNCTION_ARGS);
+extern Datum orastr_substr2(PG_FUNCTION_ARGS);
+extern Datum orastr_swap(PG_FUNCTION_ARGS);
+extern Datum orastr_betwn_i(PG_FUNCTION_ARGS);
+extern Datum orastr_betwn_c(PG_FUNCTION_ARGS);
+extern Datum orastr_bpcharlen(PG_FUNCTION_ARGS);
+extern Datum orastr_soundex(PG_FUNCTION_ARGS);
+extern Datum orastr_convert2(PG_FUNCTION_ARGS);
+extern Datum orastr_convert(PG_FUNCTION_ARGS);
+extern Datum orastr_translate(PG_FUNCTION_ARGS);
+extern Datum orastr_nls_charset_id(PG_FUNCTION_ARGS);
+extern Datum orastr_nls_charset_name(PG_FUNCTION_ARGS);
+
+/* oradate.c */
+extern Datum ora_next_day(PG_FUNCTION_ARGS);
+extern Datum last_day(PG_FUNCTION_ARGS);
+extern Datum months_between(PG_FUNCTION_ARGS);
+extern Datum add_months(PG_FUNCTION_ARGS);
+extern Datum ora_date_trunc(PG_FUNCTION_ARGS);
+extern Datum ora_timestamptz_trunc(PG_FUNCTION_ARGS);
+extern Datum ora_date_round(PG_FUNCTION_ARGS);
+extern Datum ora_timestamptz_round(PG_FUNCTION_ARGS);
+extern Datum ora_sys_now(PG_FUNCTION_ARGS);
+extern Datum ora_dbtimezone(PG_FUNCTION_ARGS);
+extern Datum ora_session_timezone(PG_FUNCTION_ARGS);
+extern Datum ora_numtoyminterval(PG_FUNCTION_ARGS);
+extern Datum ora_numtodsinterval(PG_FUNCTION_ARGS);
+extern Datum ora_to_yminterval(PG_FUNCTION_ARGS);
+extern Datum ora_to_dsinterval(PG_FUNCTION_ARGS);
+
+/* others.c */
+extern Datum ora_lnnvl(PG_FUNCTION_ARGS);
+extern Datum ora_concat(PG_FUNCTION_ARGS);
+extern Datum ora_nvl(PG_FUNCTION_ARGS);
+extern Datum ora_nvl2(PG_FUNCTION_ARGS);
+extern Datum ora_set_nls_sort(PG_FUNCTION_ARGS);
+extern Datum ora_nlssort(PG_FUNCTION_ARGS);
+extern Datum ora_dump(PG_FUNCTION_ARGS);
+
+/* convert.c */
+extern Datum int4_tochar(PG_FUNCTION_ARGS);
+extern Datum int8_tochar(PG_FUNCTION_ARGS);
+extern Datum float4_tochar(PG_FUNCTION_ARGS);
+extern Datum float8_tochar(PG_FUNCTION_ARGS);
+extern Datum numeric_tochar(PG_FUNCTION_ARGS);
+extern Datum text_tochar(PG_FUNCTION_ARGS);
+extern Datum timestamp_tochar(PG_FUNCTION_ARGS);
+extern Datum timestamptz_tochar(PG_FUNCTION_ARGS);
+extern Datum interval_tochar(PG_FUNCTION_ARGS);
+
+extern Datum trunc_text_toint2(PG_FUNCTION_ARGS);
+extern Datum trunc_text_toint4(PG_FUNCTION_ARGS);
+extern Datum trunc_text_toint8(PG_FUNCTION_ARGS);
+extern Datum text_toint2(PG_FUNCTION_ARGS);
+extern Datum text_toint4(PG_FUNCTION_ARGS);
+extern Datum text_toint8(PG_FUNCTION_ARGS);
+extern Datum text_tofloat4(PG_FUNCTION_ARGS);
+extern Datum text_tofloat8(PG_FUNCTION_ARGS);
+extern Datum text_todate(PG_FUNCTION_ARGS);
+extern Datum text_totimestamp(PG_FUNCTION_ARGS);
+extern Datum text_totimestamptz(PG_FUNCTION_ARGS);
+extern Datum text_tocstring(PG_FUNCTION_ARGS);
+extern Datum text_tonumber(PG_FUNCTION_ARGS);
+extern Datum float4_tonumber(PG_FUNCTION_ARGS);
+extern Datum float8_tonumber(PG_FUNCTION_ARGS);
+
+extern Datum ora_to_multi_byte(PG_FUNCTION_ARGS);
+extern Datum ora_to_single_byte(PG_FUNCTION_ARGS);
+
+/* varchar2.c */
+extern Datum varchar2in(PG_FUNCTION_ARGS);
+extern Datum varchar2out(PG_FUNCTION_ARGS);
+extern Datum varchar2recv(PG_FUNCTION_ARGS);
+extern Datum varchar2(PG_FUNCTION_ARGS);
+
+/* nvarchar2.c */
+extern Datum nvarchar2in(PG_FUNCTION_ARGS);
+extern Datum nvarchar2out(PG_FUNCTION_ARGS);
+extern Datum nvarchar2recv(PG_FUNCTION_ARGS);
+extern Datum nvarchar2(PG_FUNCTION_ARGS);
+
+/* random.c */
+extern Datum dbms_random_initialize(PG_FUNCTION_ARGS);
+extern Datum dbms_random_normal(PG_FUNCTION_ARGS);
+extern Datum dbms_random_random(PG_FUNCTION_ARGS);
+extern Datum dbms_random_seed_int(PG_FUNCTION_ARGS);
+extern Datum dbms_random_seed_varchar(PG_FUNCTION_ARGS);
+extern Datum dbms_random_string(PG_FUNCTION_ARGS);
+extern Datum dbms_random_terminate(PG_FUNCTION_ARGS);
+extern Datum dbms_random_value(PG_FUNCTION_ARGS);
+extern Datum dbms_random_value_range(PG_FUNCTION_ARGS);
+
 /* rowid.c */
 extern Datum rowid_in(PG_FUNCTION_ARGS);
 extern Datum rowid_out(PG_FUNCTION_ARGS);
