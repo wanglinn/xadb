@@ -3772,7 +3772,12 @@ appendStringInfoRegexpSubstr(StringInfo str, text *replace_text,
  */
 text *
 replace_text_regexp(text *src_text, void *regexp,
-					text *replace_text, bool glob)
+					text *replace_text,
+#ifdef ADB
+					int start_position,
+					int match_occurence,
+#endif
+					bool glob)
 {
 	text	   *ret_text;
 	regex_t    *re = (regex_t *) regexp;
@@ -3783,8 +3788,17 @@ replace_text_regexp(text *src_text, void *regexp,
 	size_t		data_len;
 	int			search_start;
 	int			data_pos;
+#ifdef ADB
+	int			match_cnt;
+	int			chunk_len;
+#endif
 	char	   *start_ptr;
 	bool		have_escape;
+
+#ifdef ADB
+	Assert(start_position >= 0);
+	Assert(match_occurence >= 0);
+#endif
 
 	initStringInfo(&buf);
 
@@ -3799,7 +3813,12 @@ replace_text_regexp(text *src_text, void *regexp,
 	start_ptr = (char *) VARDATA_ANY(src_text);
 	data_pos = 0;
 
+#ifdef ADB
+	match_cnt = 0;
+	search_start = start_position;
+#else
 	search_start = 0;
+#endif
 	while (search_start <= data_len)
 	{
 		int			regexec_result;
@@ -3835,7 +3854,9 @@ replace_text_regexp(text *src_text, void *regexp,
 		 */
 		if (pmatch[0].rm_so - data_pos > 0)
 		{
+#ifndef ADB
 			int			chunk_len;
+#endif
 
 			chunk_len = charlen_to_bytelen(start_ptr,
 										   pmatch[0].rm_so - data_pos);
@@ -3848,6 +3869,40 @@ replace_text_regexp(text *src_text, void *regexp,
 			start_ptr += chunk_len;
 			data_pos = pmatch[0].rm_so;
 		}
+
+#ifdef ADB
+		/*
+		 * Get one match, and get pmatch length "chunk_len"
+		 */
+		match_cnt++;
+		chunk_len = charlen_to_bytelen(start_ptr, pmatch[0].rm_eo - data_pos);
+
+		/*
+		 * If match_occurence is 0, then we replace all occurrences of the match.
+		 * If match_occurence equal match_cnt, then we replace the current 
+		 * occurrence of the match and break. see line 3121.
+		 *
+		 * Otherwise, we keep the source text.
+		 */
+		if (match_occurence == 0 || match_cnt == match_occurence)
+		{
+			/*
+			 * Copy the replace_text. Process back references when the
+			 * replace_text has escape characters.
+			 */
+			if (have_escape)
+				appendStringInfoRegexpSubstr(&buf, replace_text, pmatch,
+											 start_ptr, data_pos);
+			else
+				appendStringInfoText(&buf, replace_text);
+		} else
+		{
+			appendBinaryStringInfo(&buf, start_ptr, chunk_len);
+		}
+
+		/* Advance start_ptr and data_pos over the matched text. */
+		start_ptr += chunk_len;
+#else
 
 		/*
 		 * Copy the replace_text. Process back references when the
@@ -3862,13 +3917,24 @@ replace_text_regexp(text *src_text, void *regexp,
 		/* Advance start_ptr and data_pos over the matched text. */
 		start_ptr += charlen_to_bytelen(start_ptr,
 										pmatch[0].rm_eo - data_pos);
+#endif
 		data_pos = pmatch[0].rm_eo;
 
+#ifdef ADB
+		/*
+		 * When global option is off, replace the first instance only.
+		 * Or
+		 * We replace the appropriate occurence of the match.
+		 */
+		if (!glob || match_cnt == match_occurence)
+			break;
+#else
 		/*
 		 * When global option is off, replace the first instance only.
 		 */
 		if (!glob)
 			break;
+#endif
 
 		/*
 		 * Advance search position.  Normally we start the next search at the

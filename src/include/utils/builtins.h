@@ -640,6 +640,29 @@ extern Datum regexp_split_to_array(PG_FUNCTION_ARGS);
 extern Datum regexp_split_to_array_no_flags(PG_FUNCTION_ARGS);
 extern char *regexp_fixed_prefix(text *text_re, bool case_insensitive,
 					Oid collation, bool *exact);
+#ifdef ADB
+extern Datum ora_regexp_count2(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_count3(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_count(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_replace2(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_replace3(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_replace4(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_replace5(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_replace(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_substr2(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_substr3(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_substr4(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_substr5(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_substr(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_instr2(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_instr3(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_instr4(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_instr5(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_instr6(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_instr(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_like2(PG_FUNCTION_ARGS);
+extern Datum ora_regexp_like(PG_FUNCTION_ARGS);
+#endif
 
 /* regproc.c */
 extern Datum regprocin(PG_FUNCTION_ARGS);
@@ -862,7 +885,12 @@ extern bool SplitDirectoriesString(char *rawstring, char separator,
 					   List **namelist);
 extern Datum replace_text(PG_FUNCTION_ARGS);
 extern text *replace_text_regexp(text *src_text, void *regexp,
-					text *replace_text, bool glob);
+					text *replace_text,
+#ifdef ADB
+					int start_position,
+					int match_occurence,
+#endif
+					bool glob);
 extern Datum split_text(PG_FUNCTION_ARGS);
 extern Datum text_to_array(PG_FUNCTION_ARGS);
 extern Datum array_to_text(PG_FUNCTION_ARGS);
