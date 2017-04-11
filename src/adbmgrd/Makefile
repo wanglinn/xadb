@@ -224,8 +224,10 @@ ifeq ($(MAKE_DLL), true)
 	$(INSTALL_DATA) libadbmgrd.a '$(DESTDIR)$(libdir)/libadbmgrd.a'
 endif
 endif
-	$(INSTALL_DATA) $(srcdir)/utils/misc/adbmgrd.conf.sample '$(DESTDIR)$(datadir)/adbmgrd.conf.sample'
-
+	$(MAKE) -C catalog install-data
+	$(INSTALL_DATA) $(srcdir)/utils/misc/postgresql.conf.sample '$(DESTDIR)$(datadir)/adbmgrd.conf.sample'
+	$(INSTALL_DATA) $(srcdir)/manager/adbmgr_init.sql '$(DESTDIR)$(datadir)/adbmgr_init.sql'
+        
 install-bin: adbmgrd $(POSTGRES_IMP) installdirs
 	$(INSTALL_PROGRAM) adbmgrd$(X) '$(DESTDIR)$(bindir)/adbmgrd$(X)'
 ifeq ($(MAKE_EXPORTS), true)
