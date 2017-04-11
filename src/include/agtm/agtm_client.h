@@ -4,12 +4,11 @@
 #include "agtm/agtm_msg.h"
 #include "agtm/agtm_protocol.h"
 #include "lib/stringinfo.h"
-#include "../../interfaces/libpq/libpq-fe.h"
 
 typedef struct AGTM_Conn
 {
-	PGconn 		*pg_Conn;
-	PGresult	*pg_res;
+	struct pg_conn 		*pg_Conn;
+	struct pg_result	*pg_res;
 } AGTM_Conn;
 
 #define AGTM_RESULT_COMM_ERROR (-2) /* Communication error */
@@ -39,10 +38,10 @@ extern int agtm_GetListenPort(void);
 extern void agtm_SetPort(int listen_port);
 extern void agtm_SetDefaultPort(void);
 
-extern PGconn* getAgtmConnection(void);
-extern PGresult* agtm_GetResult(void);
-extern StringInfo agtm_use_result_data(const PGresult *res, StringInfo buf);
-extern StringInfo agtm_use_result_type(const PGresult *res, StringInfo buf, AGTM_ResultType type);
+extern struct pg_conn * getAgtmConnection(void);
+extern struct pg_result * agtm_GetResult(void);
+extern StringInfo agtm_use_result_data(const struct pg_result *res, StringInfo buf);
+extern StringInfo agtm_use_result_type(const struct pg_result *res, StringInfo buf, AGTM_ResultType type);
 extern void agtm_check_result(StringInfo buf, AGTM_ResultType type);
 extern void agtm_use_result_end(StringInfo buf);
 
