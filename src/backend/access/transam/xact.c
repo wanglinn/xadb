@@ -67,6 +67,7 @@
 #ifdef ADB
 #include "access/remote_xact.h"
 #include "agtm/agtm.h"
+#include "agtm/agtm_client.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "pgxc/execRemote.h"
