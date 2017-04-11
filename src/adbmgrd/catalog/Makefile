@@ -17,7 +17,7 @@ OBJS = catalog.o dependency.o heap.o index.o indexing.o namespace.o aclchk.o \
        pg_operator.o pg_proc.o pg_range.o pg_db_role_setting.o pg_shdepend.o \
        pg_type.o storage.o toasting.o
 
-BKIFILES = mgr.bki mgr.description mgr.shdescription
+BKIFILES = adbmgrd.bki adbmgrd.description adbmgrd.shdescription
 
 include $(top_srcdir)/src/adbmgrd/common.mk
 
@@ -60,30 +60,30 @@ catalogdir = $(backend_src_dir)/catalog
 pg_includes = -I$(top_srcdir)/src/include/catalog -I$(top_builddir)/src/include/catalog
 
 # see explanation in ../parser/Makefile
-mgr.description: mgr.bki ;
+adbmgrd.description: adbmgrd.bki ;
 
-mgr.shdescription: mgr.bki ;
+adbmgrd.shdescription: adbmgrd.bki ;
 
-schemapg.h: mgr.bki ;
+schemapg.h: adbmgrd.bki ;
 
 # Technically, this should depend on Makefile.global, but then
 # postgres.bki would need to be rebuilt after every configure run,
 # even in distribution tarballs.  So this is cheating a bit, but it
 # will achieve the goal of updating the version number when it
 # changes.
-mgr.bki: genbki.pl Catalog.pm $(POSTGRES_BKI_SRCS) $(top_srcdir)/configure $(top_srcdir)/src/include/catalog/duplicate_oids
+adbmgrd.bki: genbki.pl Catalog.pm $(POSTGRES_BKI_SRCS) $(top_srcdir)/configure $(top_srcdir)/src/include/catalog/duplicate_oids
 	cd $(top_srcdir)/src/include/catalog && $(PERL) ./duplicate_oids
 	$(PERL) -I $(catalogdir) $< $(pg_includes) --set-version=$(MAJORVERSION) $(POSTGRES_BKI_SRCS)
-	mv postgres.bki mgr.bki
-	mv postgres.description mgr.description
-	mv postgres.shdescription mgr.shdescription
+	mv postgres.bki adbmgrd.bki
+	mv postgres.description adbmgrd.description
+	mv postgres.shdescription adbmgrd.shdescription
 
 .PHONY: install-data
 install-data: $(BKIFILES) installdirs
-	$(INSTALL_DATA) $(call vpathsearch,mgr.bki) '$(DESTDIR)$(datadir)/mgr.bki'
-	$(INSTALL_DATA) $(call vpathsearch,mgr.description) '$(DESTDIR)$(datadir)/mgr.description'
-	$(INSTALL_DATA) $(call vpathsearch,mgr.shdescription) '$(DESTDIR)$(datadir)/mgr.shdescription'
-	$(INSTALL_DATA) $(srcdir)/system_views.sql '$(DESTDIR)$(datadir)/mgr_views.sql'
+	$(INSTALL_DATA) $(call vpathsearch,adbmgrd.bki) '$(DESTDIR)$(datadir)/adbmgrd.bki'
+	$(INSTALL_DATA) $(call vpathsearch,adbmgrd.description) '$(DESTDIR)$(datadir)/adbmgrd.description'
+	$(INSTALL_DATA) $(call vpathsearch,adbmgrd.shdescription) '$(DESTDIR)$(datadir)/adbmgrd.shdescription'
+	$(INSTALL_DATA) $(srcdir)/system_views.sql '$(DESTDIR)$(datadir)/adbmgrd_views.sql'
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(datadir)'

@@ -223,6 +223,7 @@ ifeq ($(MAKE_DLL), true)
 	$(INSTALL_DATA) libagtm.a '$(DESTDIR)$(libdir)/libagtm.a'
 endif
 endif
+	$(MAKE) -C catalog install-data
 	$(INSTALL_DATA) $(srcdir)/utils/misc/agtm.conf.sample '$(DESTDIR)$(datadir)/agtm.conf.sample'
 
 install-bin: agtm $(POSTGRES_IMP) installdirs
