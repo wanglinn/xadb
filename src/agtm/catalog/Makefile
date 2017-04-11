@@ -46,7 +46,7 @@ POSTGRES_BKI_SRCS = \
 
 $(POSTGRES_BKI_SRCS): % : $(top_srcdir)/src/include/catalog/%
 	rm -f $@.c && $(LN_S) $< $@.c
-	$(CPP) -I$(top_srcdir)/src/include -DBUILD_BKI -DCATALOG_VARLEN -DADB -o $@ $@.c
+	$(CPP) -I$(top_srcdir)/src/include -DBUILD_BKI -DCATALOG_VARLEN -DAGTM -o $@ $@.c
 	rm -f $@.c
 
 # location of Catalog.pm
