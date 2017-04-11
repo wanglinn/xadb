@@ -74,6 +74,9 @@
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
 #include "mb/pg_wchar.h"
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif
 
 #ifdef ADB
 #include "agtm/agtm.h"

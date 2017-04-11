@@ -105,6 +105,9 @@
 #include "libpq/libpq.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif
 #include "pg_getopt.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
@@ -565,11 +568,14 @@ bool isPGXCDataNode = false;
 bool isRestoreMode = false;
 
 int remoteConnType = REMOTE_CONN_APP;
+bool isADBLoader = false;
 
 /* key pair to be used as object id while using advisory lock for backup */
 Datum xc_lockForBackupKey1;
 Datum xc_lockForBackupKey2;
-#endif
+
+#define StartPoolManager()		StartChildProcess(PoolerProcess)
+#endif /* ADB */
 
 #define StartupDataBase()		StartChildProcess(StartupProcess)
 #define StartBackgroundWriter() StartChildProcess(BgWriterProcess)
@@ -827,6 +833,31 @@ PostmasterMain(int argc, char *argv[])
 							   *value;
 
 					ParseLongOption(optarg, &name, &value);
+#ifdef ADB
+					/* A Coordinator is being activated */
+					if (strcmp(name, "coordinator") == 0 &&
+						!value)
+						isPGXCCoordinator = true;
+					else if (strcmp(name, "datanode") == 0 &&
+						!value)
+						isPGXCDataNode = true;
+					else if (strcmp(name, "restoremode") == 0 && !value)
+					{
+						/*
+						 * In restore mode both coordinator and datanode
+						 * are internally treeated as datanodes
+						 */
+						isRestoreMode = true;
+						isPGXCDataNode = true;
+					}
+					else if (strcmp(name, "adbloader") == 0 && !value)
+					{
+						isADBLoader = true;
+					}
+					else /* default case */
+					{
+#endif
+
 					if (!value)
 					{
 						if (opt == '-')
@@ -842,6 +873,10 @@ PostmasterMain(int argc, char *argv[])
 					}
 
 					SetConfigOption(name, value, PGC_POSTMASTER, PGC_S_ARGV);
+#ifdef ADB
+					}
+#endif
+
 					free(name);
 					if (value)
 						free(value);

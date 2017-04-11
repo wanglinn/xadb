@@ -983,8 +983,12 @@ ExecUpdate(ItemPointer tupleid,
 		resultRelInfo->ri_TrigDesc->trig_update_before_row)
 	{
 #ifdef ADB
-		slot = ExecBRUpdateTriggers(estate, epqstate, resultRelInfo,
+		if(oldtuple!=0)
+			slot = ExecBRUpdateTriggers(estate, epqstate, resultRelInfo,
 											oldtuple->t_data, tupleid, oldtuple, slot);
+		else
+			slot = ExecBRUpdateTriggers(estate, epqstate, resultRelInfo,
+											0, tupleid, oldtuple, slot);
 #else
 		slot = ExecBRUpdateTriggers(estate, epqstate, resultRelInfo,
 									tupleid, oldtuple, slot);
@@ -1186,12 +1190,20 @@ lreplace:;
 	if (canSetTag)
 		(estate->es_processed)++;
 
-	/* AFTER ROW UPDATE Triggers */
-	ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldtuple, tuple,
+	if(oldtuple!=0)
+		/* AFTER ROW UPDATE Triggers */
+		ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldtuple, tuple,
 #ifdef ADB
-						 oldtuple->t_data,
+							 oldtuple->t_data,
 #endif
-						 recheckIndexes);
+							 recheckIndexes);
+	else
+		ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldtuple, tuple,
+#ifdef ADB
+							0,
+#endif
+							recheckIndexes);
+		
 
 	list_free(recheckIndexes);
 

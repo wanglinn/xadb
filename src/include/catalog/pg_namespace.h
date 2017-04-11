@@ -84,6 +84,11 @@ DATA(insert OID = 3999 ( "oracle" PGUID _null_ ));
 DESCR("compatible oracle schema");
 #define PG_ORACLE_NAMESPACE 3999
 #endif
+#ifdef ADBMGRD
+DATA(insert OID = 3358 ( "adbmgr" PGUID _null_ ));
+DESCR("ADB manager schema");
+#define PG_MANAGER_NAMESPACE 3358
+#endif /* ADBMGRD */
 
 /*
  * prototypes for functions in pg_namespace.c
