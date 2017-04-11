@@ -716,13 +716,32 @@ DATA(insert OID = 3831 ( anyrange		PGNSP PGUID  -1 f p P f t \054 0 0 0 anyrange
 
 #ifdef ADB
 /* oracle.date */
-DATA(insert OID = 3997 ( date		 ORANSP PGUID 8 FLOAT8PASSBYVAL d D f t \054 0	0 3998 domain_in ora_date_out domain_recv timestamptz_send - - - d p f 1184 6 0 0 _null_ _null_ _null_ ));
+DATA(insert OID = 3997 ( date		ORANSP PGUID 8 FLOAT8PASSBYVAL d D f t \054 0	0 3998 domain_in ora_date_out domain_recv timestamptz_send - - - d p f 1184 6 0 0 _null_ _null_ _null_ ));
 DESCR("oracle's date");
 #define ORADATEOID		3997
 
 /* oracle.date array */
-DATA(insert OID = 3998 ( _date		 ORANSP PGUID -1 f b A f t \054 0 3997 0 array_in array_out array_recv array_send - - array_typanalyze i x f 0 -1 0 0 _null_ _null_ _null_ ));
+DATA(insert OID = 3998 ( _date		ORANSP PGUID -1 f b A f t \054 0 3997 0 array_in array_out array_recv array_send - - array_typanalyze i x f 0 -1 0 0 _null_ _null_ _null_ ));
 #define ORADATEARRAYOID		3998
+
+/* varchar2 */
+DATA(insert OID = 4001 ( varchar2	PGNSP PGUID -1 f b S f t \054 0 0 4002 varchar2in varchar2out varchar2recv varcharsend varchartypmodin varchartypmodout - i x f 0 -1 0 100 _null_ _null_ _null_ ));
+DESCR("oracle varchar2(length)");
+#define VARCHAR2OID		4001
+
+/* varchar2 array */
+DATA(insert OID = 4002 ( _varchar2	PGNSP PGUID -1 f b A f t \054 0 4001 0 array_in array_out array_recv array_send varchartypmodin varchartypmodout array_typanalyze i x f 0 -1 0 100 _null_ _null_ _null_ ));
+#define VARCHAR2ARRAYOID	4002
+
+/* nvarchar2 */
+DATA(insert OID = 4003 ( nvarchar2	PGNSP PGUID -1 f b S f t \054 0 0 4004 nvarchar2in nvarchar2out nvarchar2recv varcharsend varchartypmodin varchartypmodout - i x f 0 -1 0 100 _null_ _null_ _null_ ));
+DESCR("oracle nvarchar2(length)");
+#define NVARCHAR2OID	4003
+
+/* nvarchar2 array */
+DATA(insert OID = 4004 ( _nvarchar2	PGNSP PGUID -1 f b A f t \054 0 4003 0 array_in array_out array_recv array_send varchartypmodin varchartypmodout array_typanalyze i x f 0 -1 0 100 _null_ _null_ _null_ ));
+#define NVARCHAR2ARRAYOID	4004
+
 #endif
 
 /*

@@ -5357,7 +5357,28 @@ DESCR("wait RXACT transaction finish");
 
 DATA(insert OID = 3178 (  ora_date_out		ORANSP PGUID 12 1 0 0 0 f f f f t f s s 1 0 2275 "1114" _null_ _null_ _null_ _null_ _null_ ora_date_out _null_ _null_ _null_ ));
 DESCR("I/O");
-#endif
+
+/* varchar2 built-in functions */
+DATA(insert OID = 4005 (  varchar2in		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 3 0 1043 "2275 26 23" _null_ _null_ _null_ _null_ _null_ varchar2in _null_ _null_ _null_ ));
+DESCR("I/O");
+DATA(insert OID = 4006 (  varchar2out		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 2275 "1043" _null_ _null_ _null_ _null_ _null_ varchar2out _null_ _null_ _null_ ));
+DESCR("I/O");
+DATA(insert OID = 4007 (  varchar2recv		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 3 0 1043 "2281 26 23" _null_ _null_ _null_ _null_  _null_ varchar2recv _null_ _null_ _null_ ));
+DESCR("I/O");
+DATA(insert OID = 4008 (  varchar2			PGNSP PGUID 12 1 0 0 varchar_transform f f f f t f i s 3 0 3968 "3968 23 16" _null_ _null_ _null_ _null_ _null_ varchar2 _null_ _null_ _null_ ));
+DESCR("adjust varchar2() to typmod length");
+
+/* nvarchar2 built-in functions */
+DATA(insert OID = 4009 (  nvarchar2in		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 3 0 1043 "2275 26 23" _null_ _null_ _null_ _null_ _null_ nvarchar2in _null_ _null_ _null_ ));
+DESCR("I/O");
+DATA(insert OID = 4010 (  nvarchar2out		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 2275 "1043" _null_ _null_ _null_ _null_ _null_ nvarchar2out _null_ _null_ _null_ ));
+DESCR("I/O");
+DATA(insert OID = 4011 (  nvarchar2recv		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 3 0 1043 "2281 26 23" _null_ _null_ _null_ _null_ _null_ nvarchar2recv _null_ _null_ _null_ ));
+DESCR("I/O");
+DATA(insert OID = 4012 (  nvarchar2			PGNSP PGUID 12 1 0 0 varchar_transform f f f f t f i s 3 0 3969 "3969 23 16" _null_ _null_ _null_ _null_ _null_ nvarchar2 _null_ _null_ _null_ ));
+DESCR("adjust nvarchar2() to typmod length");
+
+#endif /* ADB */
 
 #ifdef ADBMGRD
 DATA(insert OID = 4954 ( mgr_start_agent_all      PGNSP PGUID 12 10 400 0 0 f f f f f t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{hostname,status,description}" _null_ _null_ mgr_start_agent_all _null_ _null_ _null_ ));
