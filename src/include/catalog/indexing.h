@@ -311,7 +311,7 @@ DECLARE_UNIQUE_INDEX(pgxc_node_id_index, 9003, on pgxc_node using btree(node_id 
 
 DECLARE_UNIQUE_INDEX(ora_cast_oid_index, 9016, on ora_cast using btree(oid oid_ops));
 #define OraCastOidIndexId	9016
-DECLARE_UNIQUE_INDEX(ora_cast_source_target_index, 9017, on ora_cast using btree(castsource oid_ops, casttarget oid_ops));
+DECLARE_UNIQUE_INDEX(ora_cast_source_target_index, 9017, on ora_cast using btree(castsource oid_ops, casttarget oid_ops, castcontext char_ops));
 #define OraCastSourceTargetIndexId  9017
 
 #endif

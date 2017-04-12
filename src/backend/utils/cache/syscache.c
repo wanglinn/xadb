@@ -657,11 +657,11 @@ static const struct cachedesc cacheinfo[] = {
 	{
 		OraCastRelationId,			/* ORACASTSOURCETARGET */
 		OraCastSourceTargetIndexId,
-		2,
+		3,
 		{
 			Anum_ora_cast_castsource,
 			Anum_ora_cast_casttarget,
-			0,
+			Anum_ora_cast_castcontext,
 			0
 		},
 		256
