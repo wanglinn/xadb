@@ -72,6 +72,7 @@
 #include "utils/catcache.h"
 #include "utils/syscache.h"
 #ifdef ADB
+#include "catalog/ora_cast.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
@@ -648,6 +649,18 @@ static const struct cachedesc cacheinfo[] = {
 		{
 			Anum_pgxc_node_id,
 			0,
+			0,
+			0
+		},
+		256
+	},
+	{
+		OraCastRelationId,			/* ORACASTSOURCETARGET */
+		OraCastSourceTargetIndexId,
+		2,
+		{
+			Anum_ora_cast_castsource,
+			Anum_ora_cast_casttarget,
 			0,
 			0
 		},

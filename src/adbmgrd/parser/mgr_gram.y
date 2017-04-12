@@ -264,10 +264,10 @@ stmt :
 	| AddHbaStmt
 	| DropHbaStmt
 	| ListHbaStmt
-	|	AddJobitemStmt
-	|	AlterJobitemStmt
-	|	DropJobitemStmt
-	|	ListJobStmt
+	| AddJobitemStmt
+	| AlterJobitemStmt
+	| DropJobitemStmt
+	| ListJobStmt
 	| AddExtensionStmt
 	| DropExtensionStmt
 	| RemoveNodeStmt
