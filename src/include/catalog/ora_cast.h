@@ -55,6 +55,13 @@ typedef enum OraCoercionContext
 	ORA_COERCE_NOUSE = 'n'				/* disable coerce */
 } OraCoercionContext;
 
+#define OraCoercionContextIsValid(ctx)			\
+	((ctx) == ORA_COERCE_DEFAULT ||				\
+	 (ctx) == ORA_COERCE_OPERATOR ||			\
+	 (ctx) == ORA_COERCE_COMMON_FUNCTION ||		\
+	 (ctx) == ORA_COERCE_SPECIAL_FUNCTION ||	\
+	 (ctx) == ORA_COERCE_NOUSE)
+
 /* ----------------
  *		compiler constants for pg_cast
  * ----------------

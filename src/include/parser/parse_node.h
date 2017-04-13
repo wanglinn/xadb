@@ -80,6 +80,11 @@ typedef Node *(*CoerceParamHook) (ParseState *pstate, Param *param,
 									   Oid targetTypeId, int32 targetTypeMod,
 											  int location);
 
+#ifdef ADB
+#define IsOracleParseGram(pstate) \
+	(pstate && ((ParseState *)pstate)->p_grammar == PARSE_GRAM_ORACLE)
+#endif
+
 
 /*
  * State information used during parse analysis
@@ -166,6 +171,10 @@ struct ParseState
 	ParseParamRefHook p_paramref_hook;
 	CoerceParamHook p_coerce_param_hook;
 	void	   *p_ref_hook_state;		/* common passthrough link for above */
+
+#ifdef ADB
+	enum ParseGrammar p_grammar;
+#endif
 };
 
 /*
