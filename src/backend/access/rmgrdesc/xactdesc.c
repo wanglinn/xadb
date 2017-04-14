@@ -297,6 +297,13 @@ xact_desc(StringInfo buf, XLogReaderState *record)
 		appendStringInfo(buf, "xtop %u: ", xlrec->xtop);
 		xact_desc_assignment(buf, xlrec);
 	}
+#ifdef AGTM
+	else if (info == XLOG_XACT_XID_ASSIGNMENT)
+	{
+		TransactionId xid = *(TransactionId *) rec;
+		appendStringInfo(buf, "xid assignment by AGTM %u: ", xid);
+	}
+#endif
 }
 
 const char *
@@ -324,6 +331,11 @@ xact_identify(uint8 info)
 		case XLOG_XACT_ASSIGNMENT:
 			id = "ASSIGNMENT";
 			break;
+#ifdef AGTM
+		case XLOG_XACT_XID_ASSIGNMENT:
+			id = "XID_ASSIGNMENT";
+			break;
+#endif
 	}
 
 	return id;

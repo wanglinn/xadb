@@ -66,11 +66,32 @@ AdjustTransactionId(TransactionId least_xid)
 
 	while (TransactionIdPrecedes(ShmemVariableCache->nextXid, least_xid))
 	{
-		ExtendCLOG(ShmemVariableCache->nextXid);
-		ExtendSUBTRANS(ShmemVariableCache->nextXid);
+		if (!RecoveryInProgress())
+		{
+			ExtendCLOG(ShmemVariableCache->nextXid);
+			ExtendSUBTRANS(ShmemVariableCache->nextXid);
+		}
 		TransactionIdAdvance(ShmemVariableCache->nextXid);
 	}
 	LWLockRelease(XidGenLock);
+}
+
+static void
+WriteXidAssignmentXLog(TransactionId xid, bool flush)
+{
+	XLogRecPtr	recptr;
+
+	Assert(TransactionIdIsValid(xid));
+
+	START_CRIT_SECTION();
+
+	XLogBeginInsert();
+	XLogRegisterData((char *) (&xid), sizeof(xid));
+	recptr = XLogInsert(RM_XACT_ID, XLOG_XACT_XID_ASSIGNMENT);
+	if (flush)
+		XLogFlush(recptr);
+
+	END_CRIT_SECTION();
 }
 #endif
 
@@ -573,6 +594,14 @@ GetNewTransactionId(bool isSubXact)
 	}
 
 	LWLockRelease(XidGenLock);
+
+#ifdef AGTM
+	/*
+	 * Write ahead xid assignment xlog to ensure that the same xid
+	 * will never be assigned two times.
+	 */
+	WriteXidAssignmentXLog(xid, true);
+#endif
 
 	return xid;
 }
