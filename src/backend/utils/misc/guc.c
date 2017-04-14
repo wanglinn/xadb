@@ -52,9 +52,6 @@
 #include "parser/parser.h"
 #include "parser/scansup.h"
 #include "pgstat.h"
-#ifdef ADB
-#include "pgxc/poolmgr.h"
-#endif
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgworker.h"
 #include "postmaster/bgwriter.h"
@@ -89,6 +86,8 @@
 
 #ifdef ADB
 #include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
+#include "pgxc/poolmgr.h"
 #endif
 
 #ifndef PG_KRB_SRVTAB
@@ -409,6 +408,25 @@ static const struct config_enum_entry force_parallel_mode_options[] = {
 	{"0", FORCE_PARALLEL_OFF, true},
 	{NULL, 0, false}
 };
+
+#ifdef ADB
+/*
+ * Define remote connection types for PGXC
+ */
+static const struct config_enum_entry pgxc_conn_types[] = {
+	{"application", REMOTE_CONN_APP, false},
+	{"coordinator", REMOTE_CONN_COORD, false},
+	{"datanode", REMOTE_CONN_DATANODE, false},
+	{"rxactmgr", REMOTE_CONN_RXACTMGR, false},
+	{NULL, 0, false}
+};
+
+static const struct config_enum_entry parse_grammer_options[] = {
+	{"postgres", PARSE_GRAM_POSTGRES, false},
+	{"oracle", PARSE_GRAM_ORACLE, false},
+	{NULL, 0, false}
+};
+#endif /* ADB */
 
 /*
  * Options for enum values stored in other modules
@@ -4009,6 +4027,28 @@ static struct config_enum ConfigureNamesEnum[] =
 		FORCE_PARALLEL_OFF, force_parallel_mode_options,
 		NULL, NULL, NULL
 	},
+
+#ifdef ADB
+	{
+		{"remotetype", PGC_BACKEND, CONN_AUTH,
+			gettext_noop("Sets the type of Postgres-XC remote connection"),
+			NULL
+		},
+		&remoteConnType,
+		REMOTE_CONN_APP, pgxc_conn_types,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"grammar", PGC_USERSET, UNGROUPED,
+			gettext_noop("Set SQL grammar"),
+			NULL
+		},
+		&parse_grammar,
+		PARSE_GRAM_POSTGRES, parse_grammer_options,
+		NULL, NULL, NULL
+	},
+#endif /* ADB */
 
 	/* End-of-list marker */
 	{

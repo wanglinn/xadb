@@ -31,6 +31,9 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/typcache.h"
+#ifdef ADB
+#include "oraschema/oracoerce.h"
+#endif
 
 
 static void markTargetListOrigin(ParseState *pstate, TargetEntry *tle,
@@ -172,6 +175,29 @@ transformTargetList(ParseState *pstate, List *targetlist,
 				}
 			}
 		}
+
+#ifdef ADB
+		/*
+		 * we need transform target first in oracle grammar
+		 * in default grammar(pg) stmt "UPDATE t set t.col ..." the "t.col" is invalid,
+		 * we test dot and change name to last name
+		 */
+		if(exprKind == EXPR_KIND_UPDATE_SOURCE
+			&& res->indirection != NIL
+			&& pstate->p_grammar == PARSE_GRAM_ORACLE)
+		{
+			Node *node;
+			ColumnRef cref;
+			NodeSetTag(&cref, T_ColumnRef);
+			cref.fields = lcons(makeString(res->name), res->indirection);
+			cref.location = res->location;
+			node = transformExpr(pstate, (Node*)&cref, EXPR_KIND_UPDATE_TARGET);
+			res->name = strVal(llast(cref.fields));
+			res->indirection = NIL;
+			/* we don't need transformed node(Var) */
+			pfree(node);
+		}
+#endif /* ADB */
 
 		/*
 		 * Not "something.*", or we want to treat that as a plain whole-row
@@ -440,6 +466,13 @@ transformAssignedExpr(ParseState *pstate,
 	attrtype = attnumTypeId(rd, attrno);
 	attrtypmod = rd->rd_att->attrs[attrno - 1]->atttypmod;
 	attrcollation = rd->rd_att->attrs[attrno - 1]->attcollation;
+#ifdef ADB
+	if (IsOracleParseGram(pstate) &&
+		(exprKind == EXPR_KIND_INSERT_TARGET ||
+		 exprKind == EXPR_KIND_UPDATE_TARGET) &&
+		 IsNullConst(expr))
+		expr = (Expr *)makeNullConst(attrtype, attrtypmod, attrcollation);
+#endif
 
 	/*
 	 * If the expression is a DEFAULT placeholder, insert the attribute's
@@ -525,7 +558,36 @@ transformAssignedExpr(ParseState *pstate,
 		 * coercion.
 		 */
 		Node	   *orig_expr = (Node *) expr;
+#ifdef ADB
+		if (IsOracleParseGram(pstate) &&
+			(exprKind == EXPR_KIND_INSERT_TARGET ||
+			 exprKind == EXPR_KIND_UPDATE_TARGET))
+		{
+			CoercionForm cformat = COERCE_EXPLICIT_CAST;
+			OraCoercionContext oldContext;
+			
+			oldContext = OraCoercionContextSwitchTo(ORA_COERCE_COMMON_FUNCTION);
+			
+			if (TypeCategory(attrtype) == TYPCATEGORY_STRING)
+				cformat = COERCE_IMPLICIT_CAST;
 
+			PG_TRY();
+			{
+				expr = (Expr *)
+					coerce_to_target_type(pstate,
+										  orig_expr, type_id,
+										  attrtype, attrtypmod,
+										  COERCION_ASSIGNMENT,
+										  cformat,
+										  -1);
+			} PG_CATCH();
+			{
+				(void) OraCoercionContextSwitchTo(oldContext);
+				PG_RE_THROW();
+			} PG_END_TRY();
+			(void) OraCoercionContextSwitchTo(oldContext);
+		} else
+#endif
 		expr = (Expr *)
 			coerce_to_target_type(pstate,
 								  orig_expr, type_id,
@@ -947,6 +1009,24 @@ checkInsertTargets(ParseState *pstate, List *cols, List **attrnos)
 			ResTarget  *col = (ResTarget *) lfirst(tl);
 			char	   *name = col->name;
 			int			attrno;
+			
+#ifdef ADB
+			if(pstate->p_grammar == PARSE_GRAM_ORACLE)
+			{
+				/* oracle grammar support table and column alias */
+				Var *var;
+				ColumnRef cref;
+				NodeSetTag(&cref, T_ColumnRef);
+				cref.fields = lcons(makeString(name), col->indirection);
+				cref.location = col->location;
+				var = (Var*)transformExpr(pstate, (Node*)&cref, EXPR_KIND_INSERT_TARGET);
+				Assert(IsA(var, Var));
+				name = col->name = strVal(llast(cref.fields));
+				col->indirection = NIL;
+				attrno = var->varattno;
+				pfree(var);
+			}else
+#endif /* ADB */
 
 			/* Lookup column name, ereport on failure */
 			attrno = attnameAttNum(pstate->p_target_relation, name, false);
@@ -1815,6 +1895,14 @@ FigureColnameInternal(Node *node, char **name)
 		case T_XmlSerialize:
 			*name = "xmlserialize";
 			return 2;
+#ifdef ADB
+		case T_RownumExpr:
+			*name = "rownum";
+			return 2;
+		case T_LevelExpr:
+			*name = "level";
+			return 2;
+#endif /* ADB */
 		default:
 			break;
 	}

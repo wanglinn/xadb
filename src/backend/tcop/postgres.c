@@ -179,6 +179,11 @@ static bool RecoveryConflictPending = false;
 static bool RecoveryConflictRetryable = true;
 static ProcSignalReason RecoveryConflictReason;
 
+#ifdef ADB
+int parse_grammar = PARSE_GRAM_POSTGRES;
+int current_grammar = PARSE_GRAM_POSTGRES;
+#endif
+
 /* ----------------------------------------------------------------
  *		decls for routines only used in this file
  * ----------------------------------------------------------------

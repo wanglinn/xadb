@@ -29,7 +29,9 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #include "utils/varbit.h"
-
+#ifdef ADB
+#include "oraschema/oracoerce.h"
+#endif
 
 static void pcb_error_callback(void *arg);
 
@@ -61,6 +63,9 @@ make_parsestate(ParseState *parentParseState)
 		pstate->p_paramref_hook = parentParseState->p_paramref_hook;
 		pstate->p_coerce_param_hook = parentParseState->p_coerce_param_hook;
 		pstate->p_ref_hook_state = parentParseState->p_ref_hook_state;
+#ifdef ADB
+		pstate->p_grammar = parentParseState->p_grammar;
+#endif
 	}
 
 	return pstate;
@@ -529,6 +534,33 @@ make_const(ParseState *pstate, Value *value, int location)
 			break;
 
 		case T_String:
+#ifdef ADB
+			if (IsOracleParseGram(pstate))
+			{
+				if (/*IsOracleCoerceFunc() && */strVal(value)[0] == 0x00)
+				{
+					con = makeConst(TEXTOID,
+									-1,
+									100,
+									-1,
+									(Datum) 0,
+									true,
+									false);
+				} else
+				{
+					con = makeConst(TEXTOID,
+									-1,
+									100,
+									-1,
+									CStringGetTextDatum(strVal(value)),
+									false,
+									false);
+				}
+				con->location = location;
+
+				return con;
+			}
+#endif
 
 			/*
 			 * We assume here that UNKNOWN's internal representation is the

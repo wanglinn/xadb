@@ -1079,6 +1079,9 @@ FuncnameGetCandidates(List *names, int nargs, List *argnames,
 			palloc(offsetof(struct _FuncCandidateList, args) +
 				   effective_nargs * sizeof(Oid));
 		newResult->pathpos = pathpos;
+#ifdef ADB
+		newResult->nspoid = procform->pronamespace;
+#endif
 		newResult->oid = HeapTupleGetOid(proctup);
 		newResult->nargs = effective_nargs;
 		newResult->argnumbers = argnumbers;
@@ -1695,6 +1698,9 @@ OpernameGetCandidates(List *names, char oprkind, bool missing_schema_ok)
 		nextResult += SPACE_PER_OP;
 
 		newResult->pathpos = pathpos;
+#ifdef ADB
+		newResult->nspoid = operform->oprnamespace;
+#endif
 		newResult->oid = HeapTupleGetOid(opertup);
 		newResult->nargs = 2;
 		newResult->nvargs = 0;
@@ -3296,6 +3302,62 @@ PushOverrideSearchPath(OverrideSearchPath *newpath)
 
 	MemoryContextSwitchTo(oldcxt);
 }
+
+#ifdef ADB
+/*
+ * PushOverrideSearchPathForGrammar - using grammar's search path
+ * myTempNamespace > grammar-namespace > catalog-namespace > other
+ */
+void PushOverrideSearchPathForGrammar(int grammar)
+{
+	OverrideSearchPath *sp;
+	Oid ns_gram = InvalidOid;
+	switch((ParseGrammar)grammar)
+	{
+	case PARSE_GRAM_POSTGRES:
+		ns_gram = PG_CATALOG_NAMESPACE;
+		break;
+	case PARSE_GRAM_ORACLE:
+		ns_gram = PG_ORACLE_NAMESPACE;
+		break;
+	/* no default, we need a compiler a warning */
+	}
+	/* and report an error when not case all grammar */
+	Assert(OidIsValid(ns_gram));
+
+	sp = GetOverrideSearchPath(CurrentMemoryContext);
+	Assert(sp);
+
+	if(sp->addCatalog)
+	{
+		sp->schemas = lcons_oid(PG_CATALOG_NAMESPACE, sp->schemas);
+		sp->addCatalog = false;
+	}
+
+	if(sp->schemas == NIL)
+	{
+		sp->schemas = list_make1_oid(ns_gram);
+	}else if(!list_member_oid(sp->schemas, ns_gram))
+	{
+		sp->schemas = lcons_oid(ns_gram, sp->schemas);
+	}else if(linitial_oid(sp->schemas) != ns_gram)
+	{
+		sp->schemas = list_delete_oid(sp->schemas, ns_gram);
+		sp->schemas = lcons_oid(ns_gram, sp->schemas);
+	}
+
+	if(sp->addTemp)
+	{
+		if(OidIsValid(myTempNamespace))
+			sp->schemas = lcons_oid(myTempNamespace, sp->schemas);
+		sp->addTemp = false;
+	}
+
+	PushOverrideSearchPath(sp);
+	list_free(sp->schemas);
+	pfree(sp);
+}
+#endif
 
 /*
  * PopOverrideSearchPath - undo a previous PushOverrideSearchPath

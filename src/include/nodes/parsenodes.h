@@ -258,9 +258,12 @@ typedef struct ColumnRef
  */
 typedef struct ColumnRefJoin
 {
-	NodeTag		type;
-	int			location;	/* location for "(+)" */
-	Node	   *expr;
+	NodeTag 	type;
+	int 		location;	/* location for "(+)" */
+	union{
+		ColumnRef	*column;
+		struct Var	*var;
+	};
 }ColumnRefJoin;
 
 /*
