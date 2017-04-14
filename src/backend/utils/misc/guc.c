@@ -119,6 +119,10 @@ bool distribute_by_replication_default;
 bool enable_stable_func_shipping;
 #endif
 
+#ifdef DEBUG_ADB
+bool ADB_DEBUG;
+#endif
+
 /* XXX these should appear in other modules' header files */
 extern bool Log_disconnections;
 extern int	CommitDelay;
@@ -1786,6 +1790,19 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&enable_remotelimit,
 		true,
+		NULL, NULL, NULL
+	},
+#endif
+
+#ifdef DEBUG_ADB
+	{
+		{"adb_debug", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("Emit ADB debugging output."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&ADB_DEBUG,
+		false,
 		NULL, NULL, NULL
 	},
 #endif

@@ -20,6 +20,10 @@
 
 #include <setjmp.h>
 
+#ifdef DEBUG_ADB
+extern bool ADB_DEBUG;
+#endif
+
 /* Error level codes */
 #define DEBUG5		10			/* Debugging messages, in categories of
 								 * decreasing detail. */
@@ -125,6 +129,38 @@
 
 #define ereport(elevel, rest)	\
 	ereport_domain(elevel, TEXTDOMAIN, rest)
+
+#ifdef DEBUG_ADB
+
+#ifdef HAVE__BUILTIN_CONSTANT_P
+#define adb_ereport_domain(elevel, domain, rest)	\
+	do { \
+		if (ADB_DEBUG) \
+		{ \
+			if (errstart(elevel, __FILE__, __LINE__, PG_FUNCNAME_MACRO, domain)) \
+				errfinish rest; \
+			if (__builtin_constant_p(elevel) && (elevel) >= ERROR) \
+				pg_unreachable(); \
+		} \
+	} while(0)
+#else							/* !HAVE__BUILTIN_CONSTANT_P */
+#define adb_ereport_domain(elevel, domain, rest)	\
+	do { \
+		if (ADB_DEBUG) \
+		{ \
+			const int elevel_ = (elevel); \
+			if (errstart(elevel_, __FILE__, __LINE__, PG_FUNCNAME_MACRO, domain)) \
+				errfinish rest; \
+			if (elevel_ >= ERROR) \
+				pg_unreachable(); \
+		} \
+	} while(0)
+#endif   /* HAVE__BUILTIN_CONSTANT_P */
+
+#define adb_ereport(elevel, rest)	\
+	adb_ereport_domain(elevel, TEXTDOMAIN, rest)
+
+#endif    /* DEBUG_ADB */
 
 #define TEXTDOMAIN NULL
 

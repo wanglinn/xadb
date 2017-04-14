@@ -1415,7 +1415,7 @@ static void
 print_work_job(void)
 {
 #ifdef DEBUG_ADB
-	if (MyWorkerInfo != NULL)
+	if (ADB_DEBUG && MyWorkerInfo != NULL)
 	{
 		StringInfoData	buf;
 		Oid jobid = MyWorkerInfo->wi_job;
@@ -1446,22 +1446,25 @@ static void
 print_workers(void)
 {
 #ifdef DEBUG_ADB
-	WorkerInfo	workers;
-	int			i;
-
-	LWLockAcquire(AdbmonitorLock, LW_SHARED);
-
-	workers = (WorkerInfo) ((char *) AdbMonitorShmem +
-							MAXALIGN(sizeof(AdbMonitorShmemStruct)));
-	for (i = 0; i < adbmonitor_max_workers; i++)
+	if (ADB_DEBUG)
 	{
-		if (OidIsValid(workers[i].wi_job))
-		{
-			elog(DEBUG1, "Launcher find workers[%d] %d is running",
-				i, workers[i].wi_job);
-		}
-	}
+		WorkerInfo	workers;
+		int			i;
 
-	LWLockRelease(AdbmonitorLock);
+		LWLockAcquire(AdbmonitorLock, LW_SHARED);
+
+		workers = (WorkerInfo) ((char *) AdbMonitorShmem +
+								MAXALIGN(sizeof(AdbMonitorShmemStruct)));
+		for (i = 0; i < adbmonitor_max_workers; i++)
+		{
+			if (OidIsValid(workers[i].wi_job))
+			{
+				elog(DEBUG1, "Launcher find workers[%d] %d is running",
+					i, workers[i].wi_job);
+			}
+		}
+
+		LWLockRelease(AdbmonitorLock);
+	}
 #endif
 }
