@@ -2322,7 +2322,7 @@ find_coercion_pathway(Oid targetTypeId, Oid sourceTypeId,
 			result = COERCION_PATH_COERCEVIAIO;
 		else
 		{
-			*funcid = ora_find_coerce_func(sourceTypeId, targetTypeId);
+			*funcid = OraFindCoercionFunction(sourceTypeId, targetTypeId);
 			if (*funcid != InvalidOid)
 				result = COERCION_PATH_ORA_FUNC;
 		}

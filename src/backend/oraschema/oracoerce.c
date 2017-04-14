@@ -100,6 +100,15 @@ static Oid GetOraCoercionFunctionOid(Oid srctype, Oid targettype,
 static OraOperKind GetOraOperationKind(List *opname);
 static int GetOraPrecedence(Oid typoid);
 static int OraTypePerferred(Oid typoid1, Oid typoid2);
+static void TryOraOperatorCoercion(ParseState *pstate,	/* in */
+								   List *opname,		/* in */
+								   Node *lexpr,			/* in */
+								   Node *rexpr,			/* in */
+								   CoerceDrct drct,		/* in */ 
+								   Node **ret_lexpr,	/* out */
+								   Node **ret_rexpr		/* out */
+								   );
+
 
 OraCoercionContext
 OraCoercionContextSwitchTo(OraCoercionContext context)
@@ -153,7 +162,7 @@ GetOraCoercionFunctionOid(Oid srctype, Oid targettype,
 }
 
 Oid
-ora_find_coerce_func(Oid srctype, Oid targettype)
+OraFindCoercionFunction(Oid srctype, Oid targettype)
 {
 	Oid		castFunc = InvalidOid;
 
@@ -220,8 +229,8 @@ GetOraOperationKind(List *opname)
 	return result;
 }
 
-void
-try_coerce_in_operator(ParseState *pstate,	/* in */
+static void
+TryOraOperatorCoercion(ParseState *pstate,	/* in */
 					   List *opname,		/* in */
 					   Node *lexpr,			/* in */
 					   Node *rexpr,			/* in */
@@ -618,7 +627,7 @@ transformOraAExprOp(ParseState * pstate,
    PG_TRY();
    {
 	   if (IsA(lexpr, CaseTestExpr))
-		   try_coerce_in_operator(pstate,
+		   TryOraOperatorCoercion(pstate,
 								  opname,
 								  lexpr,
 								  rexpr,
@@ -626,7 +635,7 @@ transformOraAExprOp(ParseState * pstate,
 								  &lexpr,
 								  &rexpr);
 	   else
-		   try_coerce_in_operator(pstate,
+		   TryOraOperatorCoercion(pstate,
 								  opname,
 								  lexpr,
 								  rexpr,

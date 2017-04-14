@@ -40,15 +40,7 @@ typedef enum CoerceDrct
 
 extern OraCoercionContext OraCoercionContextSwitchTo(OraCoercionContext context);
 extern bool IsOraFunctionCoercionContext(void);
-extern Oid ora_find_coerce_func(Oid sourceTypeId, Oid targetTypeId);
-extern void try_coerce_in_operator(ParseState *pstate,	/* in */
-								   List *opname,		/* in */
-								   Node *lexpr,			/* in */
-								   Node *rexpr,			/* in */
-								   CoerceDrct drct,		/* in */ 
-								   Node **ret_lexpr,	/* out */
-								   Node **ret_rexpr		/* out */
-								   );
+extern Oid OraFindCoercionFunction(Oid sourceTypeId, Oid targetTypeId);
 extern List *transformNvlArgs(ParseState *pstate, List *args);
 extern List *transformNvl2Args(ParseState *pstate, List *args);
 extern Node *transformOraAExprOp(ParseState * pstate,
