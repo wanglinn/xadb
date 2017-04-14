@@ -66,6 +66,12 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
+#ifdef ADB
+#include "agtm/agtm.h"
+#include "libpq/pqformat.h"
+#include "pgxc/pgxc.h"
+#include "postmaster/autovacuum.h"
+#endif
 
 
 /*
@@ -150,6 +156,10 @@ static Snapshot CurrentSnapshot = NULL;
 static Snapshot SecondarySnapshot = NULL;
 static Snapshot CatalogSnapshot = NULL;
 static Snapshot HistoricSnapshot = NULL;
+#ifdef ADB
+static Snapshot GlobalSnapshot = NULL;
+static bool GlobalSnapshotSet = false;
+#endif
 
 /*
  * These are updated by GetSnapshotData.  We initialize them this way
@@ -1135,6 +1145,10 @@ AtEOXact_Snapshot(bool isCommit)
 	SecondarySnapshot = NULL;
 
 	FirstSnapshotSet = false;
+
+#ifdef ADB
+	UnsetGlobalSnapshot();
+#endif
 
 	SnapshotResetXmin();
 }
@@ -2133,3 +2147,190 @@ RestoreTransactionSnapshot(Snapshot snapshot, void *master_pgproc)
 {
 	SetTransactionSnapshot(snapshot, InvalidTransactionId, master_pgproc);
 }
+
+#ifdef ADB
+#ifdef SHOW_GLOBAL_SNAPSHOT
+static void
+OutputGlobalSnapshot(Snapshot snapshot)
+{
+	StringInfoData buf;
+	int i;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "Global Snapshot:");
+	if (snapshot)
+	{
+		appendStringInfo(&buf, " xmin: %u", snapshot->xmin);
+		appendStringInfo(&buf, " xmax: %u", snapshot->xmax);
+		appendStringInfo(&buf, " curcid: %u", snapshot->curcid);
+		appendStringInfo(&buf, " xip:");
+		for (i = 0; i < snapshot->xcnt; i++)
+			appendStringInfo(&buf, " %u", snapshot->xip[i]);
+		appendStringInfo(&buf, " subxip:");
+		for (i = 0; i < snapshot->subxcnt; i++)
+			appendStringInfo(&buf, " %u", snapshot->subxip[i]);
+		appendStringInfo(&buf, " suboverflowed: %s", snapshot->suboverflowed ? "true" : "false");
+		/*
+		appendStringInfo(&buf, " takenDuringRecovery: %s", snapshot->takenDuringRecovery ? "true" : "false");
+		appendStringInfo(&buf, " copied: %s", snapshot->copied ? "true" : "false");
+		appendStringInfo(&buf, " active_count: %u", snapshot->active_count);
+		appendStringInfo(&buf, " regd_count: %u", snapshot->regd_count);
+		*/
+	}
+
+	ereport(LOG,
+		(errmsg("%s", buf.data)));
+	pfree(buf.data);
+}
+#endif
+
+void
+SetGlobalSnapshot(StringInfo input_message)
+{
+	uint32			xcnt;
+	int32			subxcnt;
+	int32			maxsubxcnt;
+	bool			suboverflowed = false;
+	int				i;
+	TransactionId	*subxip = NULL;
+
+	Assert(IS_PGXC_DATANODE || IsConnFromCoord());
+	RecentGlobalXmin = pq_getmsgint(input_message, sizeof(TransactionId));
+	if (GlobalSnapshot == NULL)
+	{
+		GlobalSnapshot = (Snapshot) malloc(sizeof(SnapshotData));
+		if (GlobalSnapshot == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+				  errmsg("Fail to malloc \"GlobalSnapshot\"")));
+		memset(GlobalSnapshot, 0, sizeof(SnapshotData));
+	}
+	/* xmin */
+	GlobalSnapshot->xmin = pq_getmsgint(input_message, sizeof(TransactionId));
+	/* xmax */
+	GlobalSnapshot->xmax = pq_getmsgint(input_message, sizeof(TransactionId));
+	/* curcid */
+	GlobalSnapshot->curcid = pq_getmsgint(input_message, sizeof(CommandId));
+	/* xcnt */
+	xcnt = pq_getmsgint(input_message, sizeof(uint32));
+	/* xip */
+	EnlargeSnapshotXip(GlobalSnapshot, xcnt);
+	for (i = 0; i < xcnt; i++)
+		GlobalSnapshot->xip[i] = pq_getmsgint(input_message, sizeof(TransactionId));
+	GlobalSnapshot->xcnt = xcnt;
+	/* subxcnt */
+	subxcnt = pq_getmsgint(input_message, sizeof(int32));
+	/* subxip */
+	if (subxcnt > 0)
+	{
+		maxsubxcnt = GetMaxSnapshotSubxidCount();
+		if (subxcnt > maxsubxcnt)
+		{
+			subxcnt = maxsubxcnt;
+			suboverflowed = true;
+		}
+		if (GlobalSnapshot->subxip == NULL)
+		{
+			subxip = (TransactionId *) malloc(maxsubxcnt * sizeof(TransactionId));
+			if (subxip == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+					  errmsg("Fail to malloc %d subxip of \"GlobalSnapshot\"", maxsubxcnt)));
+			GlobalSnapshot->subxip = subxip;
+		}
+		GlobalSnapshot->subxcnt = subxcnt;
+		GlobalSnapshot->suboverflowed = suboverflowed;
+		for (i = 0; i < subxcnt; i++)
+				GlobalSnapshot->subxip[i] = pq_getmsgint(input_message, sizeof(TransactionId));
+	}
+
+	GlobalSnapshotSet = true;
+#ifdef SHOW_GLOBAL_SNAPSHOT
+	OutputGlobalSnapshot(GlobalSnapshot);
+#endif
+}
+
+void
+UnsetGlobalSnapshot(void)
+{
+	GlobalSnapshotSet = false;
+}
+
+static Snapshot
+CopyGlobalSnapshot(Snapshot snapshot)
+{
+	Assert(snapshot && snapshot->xip && snapshot->subxip);
+	Assert(GlobalSnapshotSet);
+	Assert(GlobalSnapshot);
+
+	snapshot->xmin = GlobalSnapshot->xmin;
+	snapshot->xmax = GlobalSnapshot->xmax;
+	snapshot->curcid = GlobalSnapshot->curcid;
+	EnlargeSnapshotXip(snapshot, GlobalSnapshot->xcnt);
+	memcpy(snapshot->xip, GlobalSnapshot->xip,
+		GlobalSnapshot->xcnt * sizeof(TransactionId));
+	snapshot->xcnt = GlobalSnapshot->xcnt;
+	Assert(GlobalSnapshot->subxcnt <= GetMaxSnapshotSubxidCount());
+	snapshot->subxcnt = GlobalSnapshot->subxcnt;
+	snapshot->suboverflowed = GlobalSnapshot->suboverflowed;
+	memcpy(snapshot->subxip, GlobalSnapshot->subxip,
+		GlobalSnapshot->subxcnt * sizeof(TransactionId));
+	return snapshot;
+}
+
+/*
+ * Entry of snapshot obtention for Postgres-XC node
+ */
+Snapshot
+GetGlobalSnapshot(Snapshot snapshot)
+{
+	Snapshot	snap;
+	CommandId	cid;
+
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		/*
+	 	 * Master-Coordinator get snapshot from AGTM.
+	 	 */
+		snap = agtm_GetGlobalSnapShot(snapshot);
+	} else if (GlobalSnapshot == NULL ||
+		GlobalSnapshotSet == false ||
+		IsAnyAutoVacuumProcess())
+	{
+		/*
+		 * Datanode or NoMaster-Coordinator get snapshot
+		 * from AGTM when GlobalSnapshot is invalid or
+		 * current process is AutoVacuum process.
+		 */
+		snap = agtm_GetGlobalSnapShot(snapshot);
+#ifdef SHOW_GLOBAL_SNAPSHOT
+		if (IsAnyAutoVacuumProcess())
+		{
+			elog(LOG, "Auto vacuum process get snapshot from AGTM, and RecentGlobalMin is %u",
+				RecentGlobalXmin);
+		}
+#endif
+	} else
+	{
+		/*
+		 * Datanode or NoMaster-Coordinator copy snapshot
+		 * from Master-Coordinator.
+		 */
+		snap = CopyGlobalSnapshot(snapshot);
+	}
+
+	/*
+	 * We replace "curcid" if the current command id is
+	 * bigger than the snapshot's.
+	 */
+	cid = GetCurrentCommandId(false);
+	if (cid > snap->curcid)
+		snap->curcid = cid;
+
+#ifdef SHOW_GLOBAL_SNAPSHOT
+	OutputGlobalSnapshot(snap);
+#endif
+
+	return snap;
+}
+#endif /* ADB */

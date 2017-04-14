@@ -110,4 +110,10 @@ extern void SerializeSnapshot(Snapshot snapshot, char *start_address);
 extern Snapshot RestoreSnapshot(char *start_address);
 extern void RestoreTransactionSnapshot(Snapshot snapshot, void *master_pgproc);
 
+#ifdef ADB
+extern void SetGlobalSnapshot(StringInfo input_message);
+extern void UnsetGlobalSnapshot(void);
+extern Snapshot GetGlobalSnapshot(Snapshot snapshot);
+#endif
+
 #endif   /* SNAPMGR_H */

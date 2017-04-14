@@ -59,6 +59,10 @@
 #include "utils/builtins.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
+#ifdef ADB
+#include "agtm/agtm.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 /* Our shared memory area */
@@ -1563,6 +1567,10 @@ GetSnapshotData(Snapshot snapshot)
 	bool		suboverflowed = false;
 	volatile TransactionId replication_slot_xmin = InvalidTransactionId;
 	volatile TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
+#ifdef ADB
+	bool		is_under_agtm;
+	bool		hint;
+#endif /* ADB */
 
 	Assert(snapshot != NULL);
 
@@ -1583,20 +1591,65 @@ GetSnapshotData(Snapshot snapshot)
 		 * First call for this snapshot. Snapshot is same size whether or not
 		 * we are in recovery, see later comments.
 		 */
+#ifdef ADB
+		snapshot->max_xcnt = 0;
+		EnlargeSnapshotXip(snapshot, GetMaxSnapshotXidCount());
+#else /* ADB */
 		snapshot->xip = (TransactionId *)
 			malloc(GetMaxSnapshotXidCount() * sizeof(TransactionId));
 		if (snapshot->xip == NULL)
 			ereport(ERROR,
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 					 errmsg("out of memory")));
+#endif /* ADB */
 		Assert(snapshot->subxip == NULL);
 		snapshot->subxip = (TransactionId *)
 			malloc(GetMaxSnapshotSubxidCount() * sizeof(TransactionId));
 		if (snapshot->subxip == NULL)
+#ifdef ADB
+		{
+			free(snapshot->xip);
+			snapshot->xip = NULL;
+			snapshot->max_xcnt = 0;
 			ereport(ERROR,
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 					 errmsg("out of memory")));
+		}
+#else
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
+#endif /* ADB */
 	}
+
+#ifdef ADB
+	/*
+	 * Obtain a global snapshot for a Postgres-XC session
+	 */
+	is_under_agtm = IsUnderAGTM();
+	if (IsUnderAGTM())
+	{
+		Snapshot snap PG_USED_FOR_ASSERTS_ONLY;
+		snap = GetGlobalSnapshot(snapshot);
+		Assert(snap == snapshot);
+		Assert(snap->xcnt <= snap->max_xcnt);
+		subcount = snapshot->subxcnt;
+		count = snapshot->xcnt;
+		suboverflowed = snapshot->suboverflowed;
+#if 0
+		LWLockAcquire(ProcArrayLock, LW_SHARED);
+		if (!TransactionIdIsValid(MyPgXact->xmin))
+			MyPgXact->xmin = TransactionXmin = snapshot->xmin;
+		LWLockRelease(ProcArrayLock);
+
+		if (!TransactionIdIsNormal(RecentGlobalXmin))
+			RecentGlobalXmin = FirstNormalTransactionId;
+		RecentXmin = snapshot->xmin;
+
+		return snapshot;
+#endif
+	}
+#endif /* ADB */
 
 	/*
 	 * It is sufficient to get shared lock on ProcArrayLock, even if we are
@@ -1610,6 +1663,14 @@ GetSnapshotData(Snapshot snapshot)
 	TransactionIdAdvance(xmax);
 
 	/* initialize xmin calculation with xmax */
+#ifdef ADB
+	if(is_under_agtm)
+	{
+		if(TransactionIdPrecedes(xmax, snapshot->xmax))
+			xmax = snapshot->xmax;
+		globalxmin = xmin = snapshot->xmin;
+	}else
+#endif /* ADB */
 	globalxmin = xmin = xmax;
 
 	snapshot->takenDuringRecovery = RecoveryInProgress();
@@ -1670,6 +1731,27 @@ GetSnapshotData(Snapshot snapshot)
 			if (pgxact == MyPgXact)
 				continue;
 
+#ifdef ADB
+			if(is_under_agtm)
+			{
+				int i;
+				hint = false;
+				for(i=0;i<count;++i)
+				{
+					if(snapshot->xip[i] == xid)
+					{
+						hint = true;
+						break;
+					}
+				}
+				if(hint == false)
+				{
+					EnlargeSnapshotXip(snapshot, count+1);
+					snapshot->xip[count++] = xid;
+				}
+			}else
+#endif /* ADB */
+
 			/* Add XID to snapshot. */
 			snapshot->xip[count++] = xid;
 
@@ -1700,10 +1782,47 @@ GetSnapshotData(Snapshot snapshot)
 					{
 						volatile PGPROC *proc = &allProcs[pgprocno];
 
+#ifdef ADB
+						if(is_under_agtm)
+						{
+							int i,j;
+							for(i=0;i<nxids;++i)
+							{
+								hint = false;
+								for(j=0;j<subcount;++j)
+								{
+									if(snapshot->subxip[j] == proc->subxids.xids[i])
+									{
+										hint = true;
+										break;
+									}
+								}
+								if(hint == false)
+								{
+									if(subcount == GetMaxSnapshotSubxidCount())
+									{
+										suboverflowed = true;
+										break;
+									}
+									snapshot->subxip[subcount++] = proc->subxids.xids[i];
+								}
+							}
+						}else if(nxids + subcount > GetMaxSnapshotSubxidCount())
+						{
+							suboverflowed = true;
+						}else
+						{
+							memcpy(snapshot->subxip + subcount,
+								   (void *) proc->subxids.xids,
+								   nxids * sizeof(TransactionId));
+							subcount += nxids;
+						}
+#else /* ADB */
 						memcpy(snapshot->subxip + subcount,
 							   (void *) proc->subxids.xids,
 							   nxids * sizeof(TransactionId));
 						subcount += nxids;
+#endif /* ADB */
 					}
 				}
 			}

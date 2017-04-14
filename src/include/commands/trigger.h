@@ -226,6 +226,7 @@ extern Datum pg_trigger_depth(PG_FUNCTION_ARGS);
 
 #ifdef ADB
 /* Postgres-XC related functions for triggers */
+extern bool IsAnyAfterTriggerDeferred(void);
 extern bool pgxc_trig_oldrow_reqd(Relation rel, CmdType commandType);
 extern int16 pgxc_get_trigevent(CmdType commandType);
 extern bool pgxc_should_exec_br_trigger(Relation rel, int16 trigevent);

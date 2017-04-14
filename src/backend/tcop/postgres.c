@@ -75,16 +75,14 @@
 #include "utils/timestamp.h"
 #include "mb/pg_wchar.h"
 #ifdef ADB
-#include "pgxc/pgxc.h"
-#endif
-
-#ifdef ADB
+#include "access/transam.h"
 #include "agtm/agtm.h"
 #include "agtm/agtm_client.h"
+#include "commands/trigger.h"
+#include "pgxc/pause.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/poolutils.h"
-#include "pgxc/pause.h"
 #endif
 #ifdef AGTM
 #include "agtm/agtm.h"
@@ -4108,6 +4106,15 @@ PostgresMain(int argc, char *argv[],
 			}
 
 			ReadyForQuery(whereToSendOutput);
+#ifdef ADB
+			/*
+			 * Helps us catch any problems where we did not send down a snapshot
+			 * when it was expected. However if any deferred trigger is supposed
+			 * to be fired at commit time we need to preserve the snapshot sent previously
+			 */
+			if ((IS_PGXC_DATANODE || IsConnFromCoord()) && !IsAnyAfterTriggerDeferred())
+				UnsetGlobalSnapshot();
+#endif
 			send_ready_for_query = false;
 		}
 
@@ -4148,9 +4155,9 @@ PostgresMain(int argc, char *argv[],
 		 */
 		if (IsUnderPostmaster && IS_PGXC_COORDINATOR && !cluster_ex_lock_held && !cluster_lock_held)
 		{
-						bool exclusive = false;
-						AcquireClusterLock(exclusive);
-						cluster_lock_held = true;
+			bool exclusive = false;
+			AcquireClusterLock(exclusive);
+			cluster_lock_held = true;
 		}
 #endif
 
@@ -4457,6 +4464,50 @@ PostgresMain(int argc, char *argv[],
 				}
 				break;
 #endif
+
+#ifdef ADB
+			case 'M':			/* Command ID */
+				{
+					CommandId cid = (CommandId) pq_getmsgint(&input_message, 4);
+					elog(DEBUG1, "Received cmd id %u", cid);
+					SaveReceivedCommandId(cid);
+				}
+				break;
+
+			case 'g':			/* gxid */
+				{
+					/* Set the GXID got from Master-Coordinator */
+					GlobalTransactionId gxid = InvalidGlobalTransactionId;
+
+					Assert(IS_PGXC_DATANODE || IsConnFromCoord());
+					gxid = (GlobalTransactionId) pq_getmsgint(&input_message, 4);
+					elog(DEBUG1, "Received new global xid %u", gxid);
+					SetGlobalTransactionId(gxid);
+					pq_getmsgend(&input_message);
+				}
+				break;
+
+			case 's':			/* global snapshot */
+				{
+					Assert(IS_PGXC_DATANODE || IsConnFromCoord());
+					SetGlobalSnapshot(&input_message);
+				}
+				break;
+
+			case 't':			/* timestamp */
+				{
+					TimestampTz timestamp = (TimestampTz) pq_getmsgint64(&input_message);
+					pq_getmsgend(&input_message);
+
+					/*
+					 * Set in xact.x the static Timestamp difference value with AGTM
+					 * and the timestampreceivedvalues for Datanode reference
+					 */
+					SetCurrentTransactionStartTimestamp(timestamp);
+				}
+				break;
+#endif /* ADB */
+
 			default:
 				ereport(FATAL,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
@@ -4464,19 +4515,19 @@ PostgresMain(int argc, char *argv[],
 								firstchar)));
 		}
 #ifdef ADB
-			/*
-				* If the connection is going idle, release the cluster lock. However
-				* if the session had invoked a PAUSE CLUSTER earlier, then wait for a
-				* subsequent UNPAUSE to release this lock
-				*/
-				if (IsUnderPostmaster && IS_PGXC_COORDINATOR && !IsAbortedTransactionBlockState()
-					&& !IsTransactionOrTransactionBlock()
-					&& cluster_lock_held && !cluster_ex_lock_held)
-				{
-					bool exclusive = false;
-					ReleaseClusterLock(exclusive);
-					cluster_lock_held = false;
-				}
+		/*
+		 * If the connection is going idle, release the cluster lock. However
+		 * if the session had invoked a PAUSE CLUSTER earlier, then wait for a
+		 * subsequent UNPAUSE to release this lock
+		 */
+		if (IsUnderPostmaster && IS_PGXC_COORDINATOR && !IsAbortedTransactionBlockState()
+			&& !IsTransactionOrTransactionBlock()
+			&& cluster_lock_held && !cluster_ex_lock_held)
+		{
+			bool exclusive = false;
+			ReleaseClusterLock(exclusive);
+			cluster_lock_held = false;
+		}
 #endif
 	}							/* end of input-reading loop */
 }
