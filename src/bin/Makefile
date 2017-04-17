@@ -17,6 +17,7 @@ SUBDIRS = \
 	initdb \
 	pg_archivecleanup \
 	pg_basebackup \
+	pg_clogdump \
 	pg_config \
 	pg_controldata \
 	pg_ctl \
