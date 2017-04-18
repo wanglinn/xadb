@@ -62,7 +62,7 @@ static bool			log_verbose = false;		/* -v */
 
 static const char *loglevel(int elevel);
 static void logstart(int elevel, const char *filename, int lineno, const char *funcname);
-static void logfinish(const char *fmt,...) printf(1, 2);
+static void logfinish(const char *fmt,...) pg_attribute_printf(1, 2);
 static bool verify_directory(const char *directory);
 static int fuzzy_open_file(const char *directory, const char *fname);
 static void output_xid_status(TransactionId xid, char status);
