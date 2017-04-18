@@ -1,4 +1,4 @@
-# src/bin/pg_xlogdump/Makefile
+# src/bin/pg_clogdump/Makefile
 
 PGFILEDESC = "pg_clogdump - decode and display transaction status of any transaction id"
 PGAPPICON=win32

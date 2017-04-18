@@ -22,6 +22,7 @@ SUBDIRS = \
 	pg_controldata \
 	pg_ctl \
 	pg_dump \
+	pg_extendpage \
 	pg_resetxlog \
 	pg_rewind \
 	pg_test_fsync \

@@ -346,7 +346,7 @@ display_xid_clog(CLogDumpConfig *config)
 static void
 usage(void)
 {
-	printf("%s decodes and displays PostgreSQL transaction status for debugging.\n\n",
+	printf("%s - Decodes and displays PostgreSQL transaction status for debugging.\n\n",
 		   progname);
 	printf("Usage:\n");
 	printf("  %s [OPTION]\n", progname);
@@ -387,7 +387,7 @@ int main(int argc, char * const argv[])
 	config.start_xid = InvalidTransactionId;
 
 	if (argc <= 1)
-		fatal_log("%s: no arguments specified", progname);
+		fatal_log("no arguments specified");
 
 	while ((option = getopt_long(argc, argv, "n:p:vV?x:",
 								 long_options, &optindex)) != -1)
@@ -401,8 +401,8 @@ int main(int argc, char * const argv[])
 			case 'n':
 				if (sscanf(optarg, "%d", &config.stop_after_records) != 1)
 				{
-					fatal_log("%s: could not parse limit \"%s\"\n",
-						progname, optarg);
+					fatal_log("could not parse limit \"%s\"",
+						optarg);
 				}
 				if (config.stop_after_records <= 0)
 					config.stop_after_records = 1;
@@ -414,14 +414,14 @@ int main(int argc, char * const argv[])
 				log_verbose = true;
 				break;
 			case 'V':
-				puts("pg_clogdump (PostgreSQL) " PG_VERSION);
+				fprintf(stdout, "%s (PostgreSQL) %s\n", progname, PG_VERSION);
 				exit(EXIT_SUCCESS);
 				break;
 			case 'x':
 				if (sscanf(optarg, "%u", &config.start_xid) != 1)
 				{
-					fatal_log("%s: could not parse \"%s\" as a valid xid\n",
-						progname, optarg);
+					fatal_log("could not parse \"%s\" as a valid xid",
+						optarg);
 				}
 
 				if (!TransactionIdIsValid(config.start_xid))
@@ -436,8 +436,8 @@ int main(int argc, char * const argv[])
 
 	if ((optind + 2) < argc)
 	{
-		fatal_log("%s: too many command-line arguments (first is \"%s\")\n",
-			progname, argv[optind + 2]);
+		fatal_log("too many command-line arguments (first is \"%s\")",
+			argv[optind + 2]);
 	}
 
 	if (config.inpath != NULL)
@@ -445,8 +445,8 @@ int main(int argc, char * const argv[])
 		/* validate path points to directory */
 		if (!verify_directory(config.inpath))
 		{
-			fatal_log("%s: path \"%s\" cannot be opened: %s\n",
-				progname, config.inpath, strerror(errno));
+			fatal_log("path \"%s\" cannot be opened: %m",
+				config.inpath);
 		}
 	}
 
