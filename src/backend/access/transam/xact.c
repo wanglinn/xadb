@@ -6327,8 +6327,20 @@ xact_redo(XLogReaderState *record)
 		TransactionId xid = * (TransactionId *) XLogRecGetData(record);
 
 		Assert(TransactionIdIsValid(xid));
-		TransactionIdAdvance(xid);
-		AdjustTransactionId(xid);
+
+		/*
+		 * If we got WAL log like this, it means the TransactionId xid
+		 * was already assigned. So advance it to ensure never assign
+		 * the same xid twice.
+		 */
+		if (TransactionIdFollowsOrEquals(xid,
+										 ShmemVariableCache->nextXid))
+		{
+			LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+			ShmemVariableCache->nextXid = xid;
+			TransactionIdAdvance(ShmemVariableCache->nextXid);
+			LWLockRelease(XidGenLock);
+		}
 	}
 #endif
 	else

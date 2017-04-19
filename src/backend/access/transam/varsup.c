@@ -59,21 +59,23 @@ VariableCache ShmemVariableCache = NULL;
 void
 AdjustTransactionId(TransactionId least_xid)
 {
-	LWLockAcquire(XidGenLock, LW_SHARED);
-	elog(DEBUG1,
-		"AGTM adjust next xid from %u to %u",
-		ShmemVariableCache->nextXid, least_xid);
-
-	while (TransactionIdPrecedes(ShmemVariableCache->nextXid, least_xid))
+	/*
+	 * First time to check nextXid.
+	 */
+	if (TransactionIdPrecedes(ShmemVariableCache->nextXid, least_xid))
 	{
-		if (!RecoveryInProgress())
+		LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+		/*
+		 * Check it again after we acquire an execluse lock.
+		 */
+		if (TransactionIdPrecedes(ShmemVariableCache->nextXid, least_xid))
 		{
-			ExtendCLOG(ShmemVariableCache->nextXid);
-			ExtendSUBTRANS(ShmemVariableCache->nextXid);
+			ShmemVariableCache->nextXid = least_xid;
+			elog(DEBUG1, "AGTM adjust next xid from %u to %u",
+				ShmemVariableCache->nextXid, least_xid);
 		}
-		TransactionIdAdvance(ShmemVariableCache->nextXid);
+		LWLockRelease(XidGenLock);
 	}
-	LWLockRelease(XidGenLock);
 }
 
 static void
