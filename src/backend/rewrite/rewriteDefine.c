@@ -43,6 +43,12 @@
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 
+#ifdef ADB
+#include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
+
+static void dropRemoteTable(const char *relname, bool is_temp);
+#endif
 
 static void checkRuleResultList(List *targetList, TupleDesc resultDesc,
 					bool isSelect, bool requireColumnNameMatch);
@@ -590,6 +596,11 @@ DefineQueryRewrite(char *rulename,
 		 */
 		CommandCounterIncrement();
 
+#ifdef ADB
+		dropRemoteTable(NameStr(event_relation->rd_rel->relname),
+						event_relation->rd_islocaltemp);
+#endif
+
 		/*
 		 * Fix pg_class entry to look like a normal view's, including setting
 		 * the correct relkind and removal of reltoastrelid of the toast table
@@ -1009,3 +1020,32 @@ RenameRewriteRule(RangeVar *relation, const char *oldName,
 
 	return address;
 }
+
+#ifdef ADB
+static void
+dropRemoteTable(const char *relname, bool is_temp)
+{
+  RemoteQuery	  *step;
+  StringInfoData   sql;
+
+  if (IS_PGXC_DATANODE || IsConnFromCoord())
+	  return ;
+
+  initStringInfo(&sql);
+  appendStringInfo(&sql, "DROP%s TABLE IF EXISTS %s",
+	  is_temp ? " TEMP" : "",
+	  relname);
+
+  step = makeNode(RemoteQuery);
+  step->combine_type = COMBINE_TYPE_SAME;
+  step->exec_nodes = NULL;
+  step->sql_statement = sql.data;
+  step->force_autocommit = false;
+  step->exec_type = EXEC_ON_DATANODES;
+  step->is_temp = is_temp;
+  ExecRemoteUtility(step);
+  pfree(sql.data);
+  pfree(step);
+}
+#endif
+
