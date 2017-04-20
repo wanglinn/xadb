@@ -30,6 +30,7 @@
 #include "utils/relmapper.h"
 #ifdef ADB
 #include "access/rxact_mgr.h"
+#include "pgxc/barrier.h"
 #endif /* ADB */
 
 /* must be kept in sync with RmgrData definition in xlog_internal.h */
