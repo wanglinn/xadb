@@ -36,10 +36,18 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
+
 #ifdef ADB
-#include "access/htup_details.h"
+#include "pgxc/locator.h"
+#include "pgxc/nodemgr.h"
+#include "pgxc/pgxc.h"
+#include "nodes/nodes.h"
+#include "optimizer/planner.h"
+#include "optimizer/var.h"
+#include "tcop/tcopprot.h"
 #include "tcop/utility.h"
 #include "utils/syscache.h"
+#include "access/htup_details.h"
 #endif
 
 /* We use a list of these to detect recursion in RewriteQuery */
@@ -86,6 +94,16 @@ static Query *fireRIRrules(Query *parsetree, List *activeRIRs,
 static bool view_has_instead_trigger(Relation view, CmdType event);
 static Bitmapset *adjust_view_column_set(Bitmapset *cols, List *targetlist);
 
+#ifdef ADB
+typedef struct pull_qual_vars_context
+{
+	List *varlist;
+	int sublevels_up;
+	int resultRelation;
+} pull_qual_vars_context;
+static List * pull_qual_vars(Node *node, int varno);
+static bool pull_qual_vars_walker(Node *node, pull_qual_vars_context *context);
+#endif
 
 /*
  * AcquireRewriteLocks -
@@ -1203,6 +1221,68 @@ rewriteValuesRTE(RangeTblEntry *rte, Relation target_relation, List *attrnos)
 	rte->values_lists = newValues;
 }
 
+#ifdef ADB
+/*
+ * pull_qual_vars(Node *node, int varno)
+ * Extract vars from quals belonging to resultRelation. This function is mainly
+ * taken from pull_qual_vars_clause(), but since the later does not peek into
+ * subquery, we need to write this walker.
+ */
+static List *
+pull_qual_vars(Node *node, int varno)
+{
+	pull_qual_vars_context context;
+	context.varlist = NIL;
+	context.sublevels_up = 0;
+	context.resultRelation = varno;
+
+	query_or_expression_tree_walker(node,
+									pull_qual_vars_walker,
+									(void *) &context,
+									0);
+	return context.varlist;
+}
+
+static bool
+pull_qual_vars_walker(Node *node, pull_qual_vars_context *context)
+{
+	if (node == NULL)
+		return false;
+	if (IsA(node, Var))
+	{
+		Var *var = (Var *) node;
+
+		/*
+		 * Add only if this var belongs to the resultRelation and refers to the table
+		 * from the same query.
+		 */
+		if (var->varno == context->resultRelation &&
+		    var->varlevelsup == context->sublevels_up)
+		{
+			Var *newvar = palloc(sizeof(Var));
+			*newvar = *var;
+			newvar->varlevelsup = 0;
+			context->varlist = lappend(context->varlist, newvar);
+		}
+		return false;
+	}
+	if (IsA(node, Query))
+	{
+		/* Recurse into RTE subquery or not-yet-planned sublink subquery */
+		bool		result;
+
+		context->sublevels_up++;
+		result = query_tree_walker((Query *) node, pull_qual_vars_walker,
+								   (void *) context, 0);
+		context->sublevels_up--;
+		return result;
+	}
+	return expression_tree_walker(node, pull_qual_vars_walker,
+								  (void *) context);
+}
+
+#endif /* ADB */
+
 
 /*
  * rewriteTargetListUD - rewrite UPDATE/DELETE targetlist as needed
@@ -1224,6 +1304,128 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 	Var		   *var = NULL;
 	const char *attrname;
 	TargetEntry *tle;
+
+#ifdef ADB
+	List *var_list = NIL;
+	ListCell *elt;
+	bool can_use_pk_for_rep_change = false;
+	int16 *indexed_col_numbers = NULL;
+	int index_col_count = 0;
+
+	/*
+	 * In Postgres-XC, we need to evaluate quals of the parse tree and determine
+	 * if they are Coordinator quals. If they are, their attribute need to be
+	 * added to target list for evaluation. In case some are found, add them as
+	 * junks in the target list. The junk status will be used by remote UPDATE
+	 * planning to associate correct element to a clause.
+	 * For DELETE, having such columns in target list helps to evaluate Quals
+	 * correctly on Coordinator.
+	 * PGXCTODO: This list could be reduced to keep only in target list the
+	 * vars using Coordinator Quals.
+	 */
+	if (IS_PGXC_COORDINATOR && parsetree->jointree)
+		var_list = pull_qual_vars((Node *) parsetree->jointree, parsetree->resultRelation);
+
+	foreach(elt, var_list)
+	{
+		Form_pg_attribute att_tup;
+		int numattrs = RelationGetNumberOfAttributes(target_relation);
+
+		var = (Var *) lfirst(elt);
+		/* Bypass in case of extra target items like ctid */
+		if (var->varattno < 1 || var->varattno > numattrs)
+			continue;
+
+
+		att_tup = target_relation->rd_att->attrs[var->varattno - 1];
+		tle = makeTargetEntry((Expr *) var,
+							  list_length(parsetree->targetList) + 1,
+							  pstrdup(NameStr(att_tup->attname)),
+							  true);
+
+		parsetree->targetList = lappend(parsetree->targetList, tle);
+	}
+
+	if (IS_PGXC_COORDINATOR && RelationGetLocInfo(target_relation) != NULL
+		&& target_relation->rd_rel->relkind == RELKIND_RELATION)
+	{
+		can_use_pk_for_rep_change = IsRelationReplicated(RelationGetLocInfo(
+															target_relation));
+		if (can_use_pk_for_rep_change)
+		{
+			index_col_count = pgxc_find_unique_index(target_relation->rd_id,
+													&indexed_col_numbers);
+			if (index_col_count <= 0)
+				can_use_pk_for_rep_change = false;
+
+			if (can_use_pk_for_rep_change)
+			{
+				if (is_pk_being_changed(parsetree, indexed_col_numbers,
+										index_col_count))
+				{
+					can_use_pk_for_rep_change = false;
+				}
+			}
+		}
+
+		if (can_use_pk_for_rep_change)
+		{
+			int i;
+
+			for (i = 0; i < index_col_count; i++)
+			{
+				int 		pkattno = indexed_col_numbers[i];
+				bool		found = false;
+				TargetEntry *qtle;
+				char		*pkattname = get_attname(target_rte->relid, pkattno);
+
+				/*
+				 * Is it so that the primary key is already in the target list?
+				 */
+				foreach(elt, parsetree->targetList)
+				{
+					qtle = lfirst(elt);
+
+					if (qtle->resname == NULL)
+						continue;
+
+					if (!strcmp(qtle->resname, pkattname))
+					{
+						found = true;
+						break;
+					}
+				}
+
+				/*
+				 * Add all the primary key columns to the target list of the
+				 * query if one is not already there.
+				 */
+				if (!found)
+				{
+					TargetEntry 	*tle;
+					Var 			*var;
+					Oid 			var_type;
+					int32			var_typmod;
+					Oid 			var_collid;
+
+					get_rte_attribute_type(target_rte, pkattno, &var_type,
+							&var_typmod, &var_collid);
+
+					var = makeVar(parsetree->resultRelation, pkattno, var_type,
+									var_typmod, var_collid, 0);
+
+					tle = makeTargetEntry((Expr *) var,
+										list_length(parsetree->targetList) + 1,
+										pkattname, true);
+
+					parsetree->targetList = lappend(parsetree->targetList, tle);
+				}
+			}
+		}
+	}
+	if (indexed_col_numbers != NULL)
+		pfree(indexed_col_numbers);
+#endif /* END ADB */
 
 	if (target_relation->rd_rel->relkind == RELKIND_RELATION ||
 		target_relation->rd_rel->relkind == RELKIND_MATVIEW)
@@ -1297,6 +1499,51 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 
 		parsetree->targetList = lappend(parsetree->targetList, tle);
 	}
+
+#ifdef ADB
+	/* Add further attributes required for Coordinator */
+
+	if (IS_PGXC_COORDINATOR && RelationGetLocInfo(target_relation) != NULL
+		&& target_relation->rd_rel->relkind == RELKIND_RELATION)
+	{
+		/*
+		 * If relation is non-replicated, we need also to identify the Datanode
+		 * from where tuple is fetched.
+		 */
+		if (!IsRelationReplicated(RelationGetLocInfo(target_relation)))
+		{
+			var = makeVar(parsetree->resultRelation,
+						  XC_NodeIdAttributeNumber,
+						  INT4OID,
+						  -1,
+						  InvalidOid,
+						  0);
+
+			tle = makeTargetEntry((Expr *) var,
+								  list_length(parsetree->targetList) + 1,
+								  pstrdup("xc_node_id"),
+								  true);
+
+			parsetree->targetList = lappend(parsetree->targetList, tle);
+		}
+
+		/* For non-shippable triggers, we need OLD row. */
+		if (pgxc_trig_oldrow_reqd(target_relation,
+								  parsetree->commandType))
+		{
+			var = makeWholeRowVar(target_rte,
+								  parsetree->resultRelation,
+								  0,
+								  false);
+
+			tle = makeTargetEntry((Expr *) var,
+				  list_length(parsetree->targetList) + 1,
+				  pstrdup("wholerow"),
+				  true);
+			parsetree->targetList = lappend(parsetree->targetList, tle);
+		}
+	}
+#endif /* END ADB */
 }
 
 
@@ -3266,6 +3513,10 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 		locks = matchLocks(event, rt_entry_relation->rd_rules,
 						   result_relation, parsetree, &hasUpdate);
 
+#ifdef ADB
+	   product_queries = NIL;
+	   if (IS_PGXC_COORDINATOR)
+#endif
 		product_queries = fireRules(parsetree,
 									result_relation,
 									event,
@@ -3546,6 +3797,9 @@ QueryRewrite(Query *parsetree)
 		if (query->querySource == QSRC_ORIGINAL)
 		{
 			Assert(query->canSetTag);
+#ifndef ADB
+			Assert(!foundOriginalQuery);
+#endif
 			Assert(!foundOriginalQuery);
 			foundOriginalQuery = true;
 #ifndef USE_ASSERT_CHECKING

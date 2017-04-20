@@ -49,6 +49,9 @@
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/bytea.h"
+#ifdef ADB
+#include "utils/datum.h"
+#endif
 #include "utils/fmgroids.h"
 #include "utils/inval.h"
 #include "utils/lsyscache.h"
@@ -58,6 +61,10 @@
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 #include "utils/tuplestore.h"
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#include "optimizer/pgxcship.h"
+#endif
 
 
 /* GUC variables */
@@ -99,6 +106,10 @@ static void AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 					  List *recheckIndexes, Bitmapset *modifiedCols);
 static void AfterTriggerEnlargeQueryState(void);
 
+#ifdef ADB
+static bool pgxc_should_exec_triggers(Relation rel, int16 tgtype_event,
+									  int16 tgtype_level, int16 tgtype_timing);
+#endif
 
 /*
  * Create a trigger.  Returns the address of the created trigger.
@@ -5132,6 +5143,171 @@ pgxc_get_trigevent(CmdType commandType)
 	}
 
 	return ret;
+}
+
+/*
+ * pgxc_should_exec_triggers:
+ * Return true if it is determined that all of the triggers for the relation
+ * should be executed here, on this node.
+ * On coordinator, returns true if there is at least one non-shippable
+ * trigger for the relation that matches the given event, level and timing.
+ * On datanode (or for any local-only table for that matter), returns false if
+ * all of the matching triggers are shippable.
+ *
+ * PG behaviour is such that the triggers for the same table should be executed
+ * in alphabetical order. This make it essential to execute all the triggers
+ * on the same node, be it coordinator or datanode. So the idea used is: if all
+ * matching triggers are shippable, they should be executed for local tables
+ * (i.e. for datanodes). Even if there is a single trigger that is not
+ * shippable, all the triggers should be fired on remote tables (i.e. on
+ * coordinator) . This ensures that either all the triggers are executed on
+ * coordinator, or all are executed on datanodes.
+ */
+static bool
+pgxc_should_exec_triggers(Relation rel, int16 tgtype_event,
+						 int16 tgtype_level, int16 tgtype_timing)
+{
+	bool		has_nonshippable;
+
+	/*
+	 * First rule out the INSTEAD trigger case. INSTEAD triggers should always
+	 * be executed on coordinator because they are defined only for views and
+	 * views are defined only on coordinator.
+	 */
+	if (TRIGGER_FOR_INSTEAD(tgtype_timing))
+		return (IS_PGXC_COORDINATOR);
+
+	/*
+	 * On datanode, it is not possible to know if the query we are executing is
+	 * actually an FQS. Also, for non-FQS queries, statement triggers should
+	 * anyway be executed on coordinator only because the non-FQS query executes
+	 * for each of the rows processed so these would cause stmt triggers to
+	 * be fired multiple times if we choose to fire them on datanode. So the
+	 * safest bet is to *always* fire stmt triggers on coordinator. For FQS'ed
+	 * query, these get explicitly fired during RemoteQuery execution on
+	 * coordinator.
+	 */
+	if (tgtype_level == TRIGGER_TYPE_STATEMENT)
+		return (IS_PGXC_COORDINATOR);
+
+	/*
+	 * We are done dealing with views/instead_triggers and statement triggers as
+	 * special cases.
+	 */
+
+	/* Do we have any non-shippable trigger for the given event and timing ? */
+	has_nonshippable = pgxc_find_nonshippable_row_trig(rel, tgtype_event,
+													   tgtype_timing, false);
+
+	if (IS_PGXC_COORDINATOR)
+	{
+		if (RelationGetLocInfo(rel))
+		{
+			/*
+			 * So this is a typical coordinator table that has locator info.
+			 * This means the query would execute on datanodes as well. So fire
+			 * all of them on coordinator if they have a non-shippable trigger.
+			 */
+			if (has_nonshippable)
+				return true;
+		}
+		else
+		{
+			/*
+			 * For a local-only table, we know for sure that this query won't reach
+			 * datanode. So ensure we execute all triggers here at the coordinator.
+			 */
+			return true;
+		}
+	}
+	else
+	{
+		/*
+		 * On datanode, it is straightforward; just execute if all are
+		 * shippable. Coordinator would have skipped such triggers.
+		 */
+		if (!has_nonshippable)
+			return true;
+	}
+
+	/* In all other cases, this is not the correct node to fire triggers */
+	return false;
+}
+
+ /*
+  * pgxc_should_exec_br_trigger:
+  * Returns true if the BR trigger if present should be executed here on this
+  * node. If BR triggers are not present, always returns false.
+  * The BR trigger should be fired on coordinator if either of BR or AR trigger
+  * is non-shippable. Even if there is a AR non-shippable trigger and shippable
+  * BR trigger, we should still execute the BR trigger on coordinator. Once we
+  * know that the AR triggers are going to be executed on coordinator, there's
+  * no point in executing BR trigger on datanode and then fetching the updated
+  * OLD row back to the coordinator so that AR trigger can use them. Also, we
+  * would have needed to fetch the BR trigger tuple by using RETURNING, which
+  * means additional changes to handle this.
+  */
+ bool
+ pgxc_should_exec_br_trigger(Relation rel, int16 trigevent)
+ {
+	 bool		 has_nonshippable_row_triggers;
+ 
+	 /*
+	  * If we don't have BR triggers in the first place, then presence of AR
+	  * triggers should not matter; we should always return false.
+	  */
+	 if (!rel->trigdesc ||
+		 (TRIGGER_FOR_UPDATE(trigevent) && !rel->trigdesc->trig_update_before_row) ||
+		 (TRIGGER_FOR_INSERT(trigevent) && !rel->trigdesc->trig_insert_before_row) ||
+		 (TRIGGER_FOR_DELETE(trigevent) && !rel->trigdesc->trig_delete_before_row))
+		 return false;
+ 
+	 /* Check presence of AR or BR triggers that are non-shippable */
+	 has_nonshippable_row_triggers =
+					 pgxc_find_nonshippable_row_trig(rel,
+						 trigevent, TRIGGER_TYPE_BEFORE, false)
+					 ||
+					 pgxc_find_nonshippable_row_trig(rel,
+						 trigevent, TRIGGER_TYPE_AFTER, false);
+ 
+	 if (RelationGetLocInfo(rel) && has_nonshippable_row_triggers)
+		 return true;
+	 if (!RelationGetLocInfo(rel) && !has_nonshippable_row_triggers)
+		 return true;
+ 
+	 return false;
+ }
+
+/*
+ * pgxc_trig_oldrow_reqd:
+ * To handle triggers from coordinator, we require OLD row to be fetched from the
+ * source plan if we know there are triggers that are going to be executed on
+ * coordinator.
+ *
+ * This function is to be called only in case of non-local tables.
+ * For local tables, the OLD row is required in PG for views (INSTEAD triggers)
+ * which is already handled in PG.
+ */
+bool
+pgxc_trig_oldrow_reqd(Relation rel, CmdType commandType)
+{
+	int16		trigevent = pgxc_get_trigevent(commandType);
+
+	/* Should be called only for remote tables */
+	Assert(RelationGetLocInfo(rel));
+
+	/*
+	 * We require OLD row if we are going to execute BR triggers on coordinator,
+	 * and also when we are going to execute AR triggers on coordinator.
+	 */
+	if (pgxc_should_exec_br_trigger(rel, trigevent) ||
+		pgxc_should_exec_triggers(rel,
+								 trigevent,
+								 TRIGGER_TYPE_ROW,
+								 TRIGGER_TYPE_AFTER))
+		return true;
+
+	return false;
 }
 
 #endif
