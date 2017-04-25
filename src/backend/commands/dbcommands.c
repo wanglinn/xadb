@@ -63,6 +63,10 @@
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 
+#ifdef ADB
+#include "agtm/agtm.h"
+#include "pgxc/pgxc.h"
+#endif
 
 typedef struct
 {
@@ -1012,6 +1016,11 @@ RenameDatabase(const char *oldname, const char *newname)
 	namestrcpy(&(((Form_pg_database) GETSTRUCT(newtup))->datname), newname);
 	simple_heap_update(rel, &newtup->t_self, newtup);
 	CatalogUpdateIndexes(rel, newtup);
+
+#ifdef ADB
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		agtm_RenameSeuqneceByDataBase(oldname, newname);
+#endif
 
 	InvokeObjectPostAlterHook(DatabaseRelationId, db_id, 0);
 

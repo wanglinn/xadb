@@ -38,4 +38,5 @@ StringInfo ProcessSequenceDropByDatabase(StringInfo message, StringInfo output);
 
 StringInfo ProcessSequenceRename(StringInfo message, StringInfo output);
 
+StringInfo ProcessSequenceRenameByDatabase(StringInfo message, StringInfo output);
 #endif
