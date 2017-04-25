@@ -254,6 +254,28 @@ DefineSequence(CreateSeqStmt *seq)
 	return address;
 }
 
+#ifdef ADB
+/*
+ * IsTempSequence
+ *
+ * Determine if given sequence is temporary or not.
+ */
+bool
+IsTempSequence(Oid relid)
+{
+	Relation seqrel;
+	bool res;
+	SeqTable	elm;
+
+	/* open and AccessShareLock sequence */
+	init_sequence(relid, &elm, &seqrel);
+
+	res = seqrel->rd_backend == MyBackendId;
+	relation_close(seqrel, NoLock);
+	return res;
+}
+#endif
+
 /*
  * Reset a sequence to its initial value.
  *

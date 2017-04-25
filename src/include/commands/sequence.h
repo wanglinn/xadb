@@ -73,6 +73,10 @@ extern Datum lastval(PG_FUNCTION_ARGS);
 
 extern Datum pg_sequence_parameters(PG_FUNCTION_ARGS);
 
+#ifdef ADB
+extern bool IsTempSequence(Oid relid);
+#endif
+
 extern ObjectAddress DefineSequence(CreateSeqStmt *stmt);
 extern ObjectAddress AlterSequence(AlterSeqStmt *stmt);
 extern void ResetSequence(Oid seq_relid);

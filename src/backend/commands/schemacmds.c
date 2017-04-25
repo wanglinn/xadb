@@ -36,6 +36,7 @@
 #include "utils/syscache.h"
 #ifdef ADB
 #include "agtm/agtm.h"
+#include "catalog/pg_depend.h"
 #include "optimizer/pgxcplan.h"
 #include "pgxc/pgxc.h"
 #endif
@@ -288,6 +289,25 @@ RenameSchema(const char *oldname, const char *newname)
 	namestrcpy(&(((Form_pg_namespace) GETSTRUCT(tup))->nspname), newname);
 	simple_heap_update(rel, &tup->t_self, tup);
 	CatalogUpdateIndexes(rel, tup);
+
+#ifdef ADB
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	{
+		ObjectAddress		object;
+		Oid 				namespaceId;
+		/* Check object dependency and see if there is a sequence. If yes rename it */
+		namespaceId = GetSysCacheOid(NAMESPACENAME,
+									 CStringGetDatum(oldname),
+									 0, 0, 0);
+		/* Create the object that will be checked for the dependencies */
+		object.classId = NamespaceRelationId;
+		object.objectId = namespaceId;
+		object.objectSubId = 0;
+
+		/* Rename all the objects depending on this schema */
+		performRenameSchema(&object, oldname, newname);
+	}
+#endif /* END ADB */
 
 	InvokeObjectPostAlterHook(NamespaceRelationId, HeapTupleGetOid(tup), 0);
 
