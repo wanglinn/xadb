@@ -17,6 +17,31 @@
  * myProcLocks lists.  They can be distinguished from regular backend PGPROCs
  * at need by checking for pid == 0.
  *
+ #ifdef ADB
+ * Vanilla PostgreSQL assumes maximum TransactinIds in any snapshot is
+ * arrayP->maxProcs.  It does not apply to XC because XC's snapshot
+ * should include XIDs running in other node, which may come at any
+ * time.   This means that needed size of xip varies from time to time.
+ *
+ * This must be handled properly in all the functions in this module.
+ *
+ * The member max_xcnt was added as SnapshotData member to indicate the
+ * real size of xip array.
+ * 
+ * Here, the following assumption is made for SnapshotData struct throughout
+ * this module.
+ *
+ * 1. xip member physical size is indicated by max_xcnt member.
+ * 2. If max_xcnt == 0, it means that xip members is NULL, and vise versa.
+ * 3. xip (and subxip) are allocated usign malloc() or realloc() directly.
+ *
+ * For Postgres-XC, there is some special handling for ANALYZE.
+ * An XID for a local ANALYZE command will never involve other nodes.
+ * Also, ANALYZE may run for a long time, affecting snapshot xmin values
+ * on other nodes unnecessarily.  We want to exclude the XID
+ * in global snapshots, but include it in local ones. As a result,
+ * these are tracked in shared memory separately.
+#endif
  * During hot standby, we also keep a list of XIDs representing transactions
  * that are known to be running in the master (or more precisely, were running
  * as of the current point in the WAL stream).  This list is kept in the
@@ -61,7 +86,10 @@
 #include "utils/snapmgr.h"
 #ifdef ADB
 #include "agtm/agtm.h"
+#include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
+#include "postmaster/autovacuum.h"
+#include "storage/ipc.h"
 #endif
 
 
@@ -363,6 +391,9 @@ ProcArrayRemove(PGPROC *proc, TransactionId latestXid)
 	}
 	else
 	{
+#ifdef ADB
+		if (IS_PGXC_DATANODE || !IsConnFromCoord())
+#endif
 		/* Shouldn't be trying to remove a live transaction here */
 		Assert(!TransactionIdIsValid(allPgXact[proc->pgprocno].xid));
 	}
@@ -414,7 +445,17 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 		 * else is taking a snapshot.  See discussion in
 		 * src/backend/access/transam/README.
 		 */
+#ifdef ADB
+		/*
+		 * Remove this assertion. We have seen this failing because a ROLLBACK
+		 * statement may get canceled by a Coordinator, leading to recursive
+		 * abort of a transaction. This must be a PostgreSQL issue, highlighted
+		 * by XC. See thread on hackers with subject "Canceling ROLLBACK
+		 * statement"
+		 */
+#else
 		Assert(TransactionIdIsValid(allPgXact[proc->pgprocno].xid));
+#endif
 
 		/*
 		 * If we can immediately acquire ProcArrayLock, we clear our own XID
@@ -1366,6 +1407,11 @@ GetOldestXmin(Relation rel, bool ignoreVacuum)
 
 	volatile TransactionId replication_slot_xmin = InvalidTransactionId;
 	volatile TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
+
+#ifdef ADB
+	if (TransactionIdIsValid(RecentGlobalXmin))
+		return RecentGlobalXmin;
+#endif
 
 	/*
 	 * If we're not computing a relation specific limit, or if a shared
@@ -3071,6 +3117,14 @@ CountOtherDBBackends(Oid databaseId, int *nbackends, int *nprepared)
 				continue;
 			if (proc == MyProc)
 				continue;
+#ifdef ADB
+			/*
+			 * PGXC pooler just refers to XC-specific catalogs,
+			 * it does not create any consistency issues.
+			 */
+			if (proc->isPooler)
+				continue;
+#endif
 
 			found = true;
 
@@ -3602,6 +3656,25 @@ static void
 KnownAssignedXidsAdd(TransactionId from_xid, TransactionId to_xid,
 					 bool exclusive_lock)
 {
+#ifdef ADB
+	/*
+	 * Postgres-XC Version 1.0.x supports log shipping replication but not hot standby
+	 * because hot standby needs to provide consistent database views for all the
+	 * datanode, which is not available yet.
+	 *
+	 * On the other hand, in the slave, current KnownAssignedXids ignores latter half
+	 * of XLOG_XACT_ASSIGNMENT wal record and registers all the possible XIDs found
+	 * at the first half of the wal record.   Some of them can be missing and such missing
+	 * Xids remain in the buffer, causing overflow and the slave stops.
+	 *
+	 * It will need various change in the code, while the hot standby does not work correctly.
+	 *
+	 * For short term solution for Version 1.0.x, it was determined to disable whole hot
+	 * hot staydby.
+	 *
+	 * Hot standby correction will be done in next major release.
+	 */
+#else
 	/* use volatile pointer to prevent code rearrangement */
 	volatile ProcArrayStruct *pArray = procArray;
 	TransactionId next_xid;
@@ -3706,6 +3779,7 @@ KnownAssignedXidsAdd(TransactionId from_xid, TransactionId to_xid,
 		pArray->headKnownAssignedXids = head;
 		SpinLockRelease(&pArray->known_assigned_xids_lck);
 	}
+#endif
 }
 
 /*
@@ -3875,6 +3949,25 @@ KnownAssignedXidsRemoveTree(TransactionId xid, int nsubxids,
 static void
 KnownAssignedXidsRemovePreceding(TransactionId removeXid)
 {
+#ifdef ADB
+	/*
+	 * Postgres-XC Version 1.0.x supports log shipping replication but not hot standby
+	 * because hot standby needs to provide consistent database views for all the
+	 * datanode, which is not available yet.
+	 *
+	 * On the other hand, in the slave, current KnownAssignedXids ignores latter half
+	 * of XLOG_XACT_ASSIGNMENT wal record and registers all the possible XIDs found
+	 * at the first half of the wal record.   Some of them can be missing and such missing
+	 * Xids remain in the buffer, causing overflow and the slave stops.
+	 *
+	 * It will need various change in the code, while the hot standby does not work correctly.
+	 *
+	 * For short term solution for Version 1.0.x, it was determined to disable whole hot
+	 * hot staydby.
+	 *
+	 * Hot standby correction will be done in next major release.
+	 */
+#else
 	/* use volatile pointer to prevent code rearrangement */
 	volatile ProcArrayStruct *pArray = procArray;
 	int			count = 0;
@@ -3940,6 +4033,7 @@ KnownAssignedXidsRemovePreceding(TransactionId removeXid)
 
 	/* Opportunistically compress the array */
 	KnownAssignedXidsCompress(false);
+#endif
 }
 
 /*
@@ -3969,6 +4063,26 @@ static int
 KnownAssignedXidsGetAndSetXmin(TransactionId *xarray, TransactionId *xmin,
 							   TransactionId xmax)
 {
+#ifdef ADB
+	/*
+	 * Postgres-XC Version 1.0.x supports log shipping replication but not hot standby
+	 * because hot standby needs to provide consistent database views for all the
+	 * datanode, which is not available yet.
+	 *
+	 * On the other hand, in the slave, current KnownAssignedXids ignores latter half
+	 * of XLOG_XACT_ASSIGNMENT wal record and registers all the possible XIDs found
+	 * at the first half of the wal record.   Some of them can be missing and such missing
+	 * Xids remain in the buffer, causing overflow and the slave stops.
+	 *
+	 * It will need various change in the code, while the hot standby does not work correctly.
+	 *
+	 * For short term solution for Version 1.0.x, it was determined to disable whole hot
+	 * hot staydby.
+	 *
+	 * Hot standby correction will be done in next major release.
+	 */
+	return 0;
+#else
 	int			count = 0;
 	int			head,
 				tail;
@@ -4017,6 +4131,7 @@ KnownAssignedXidsGetAndSetXmin(TransactionId *xarray, TransactionId *xmin,
 	}
 
 	return count;
+#endif
 }
 
 /*
@@ -4026,6 +4141,26 @@ KnownAssignedXidsGetAndSetXmin(TransactionId *xarray, TransactionId *xmin,
 static TransactionId
 KnownAssignedXidsGetOldestXmin(void)
 {
+#ifdef ADB
+	/*
+	 * Postgres-XC Version 1.0.x supports log shipping replication but not hot standby
+	 * because hot standby needs to provide consistent database views for all the
+	 * datanode, which is not available yet.
+	 *
+	 * On the other hand, in the slave, current KnownAssignedXids ignores latter half
+	 * of XLOG_XACT_ASSIGNMENT wal record and registers all the possible XIDs found
+	 * at the first half of the wal record.	 Some of them can be missing and such missing
+	 * Xids remain in the buffer, causing overflow and the slave stops.
+	 *
+	 * It will need various change in the code, while the hot standby does not work correctly.
+	 *
+	 * For short term solution for Version 1.0.x, it was determined to disable whole hot
+	 * hot staydby.
+	 *
+	 * Hot standby correction will be done in next major release.
+	 */
+	return InvalidTransactionId;
+#else
 	int			head,
 				tail;
 	int			i;
@@ -4046,6 +4181,7 @@ KnownAssignedXidsGetOldestXmin(void)
 	}
 
 	return InvalidTransactionId;
+#endif
 }
 
 /*
