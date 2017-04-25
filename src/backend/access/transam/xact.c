@@ -6321,26 +6321,15 @@ xact_redo(XLogReaderState *record)
 			ProcArrayApplyXidAssignment(xlrec->xtop,
 										xlrec->nsubxacts, xlrec->xsub);
 	}
-#ifdef AGTM
+#if defined(ADB) || defined(AGTM)
 	else if (info == XLOG_XACT_XID_ASSIGNMENT)
 	{
-		TransactionId xid = * (TransactionId *) XLogRecGetData(record);
+		xl_xid_assignment	*xlrec = (xl_xid_assignment *) XLogRecGetData(record);
 
-		Assert(TransactionIdIsValid(xid));
-
-		/*
-		 * If we got WAL log like this, it means the TransactionId xid
-		 * was already assigned. So advance it to ensure never assign
-		 * the same xid twice.
-		 */
-		if (TransactionIdFollowsOrEquals(xid,
-										 ShmemVariableCache->nextXid))
-		{
-			LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-			ShmemVariableCache->nextXid = xid;
-			TransactionIdAdvance(ShmemVariableCache->nextXid);
-			LWLockRelease(XidGenLock);
-		}
+		if (xlrec->assign)
+			ProcAssignedXids(xlrec->nxids, xlrec->xids);
+		else
+			ProcUnassignedXids(xlrec->nxids, xlrec->xids);
 	}
 #endif
 	else

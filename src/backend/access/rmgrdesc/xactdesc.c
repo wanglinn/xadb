@@ -297,11 +297,18 @@ xact_desc(StringInfo buf, XLogReaderState *record)
 		appendStringInfo(buf, "xtop %u: ", xlrec->xtop);
 		xact_desc_assignment(buf, xlrec);
 	}
-#ifdef AGTM
+#if defined(ADB) || defined(AGTM)
 	else if (info == XLOG_XACT_XID_ASSIGNMENT)
 	{
-		TransactionId xid = *(TransactionId *) rec;
-		appendStringInfo(buf, "xid assignment by AGTM %u: ", xid);
+		int i;
+		xl_xid_assignment *xlrec = (xl_xid_assignment *) rec;
+
+		appendStringInfo(buf, "%s xids: %u",
+						xlrec->assign ? "assigned" : "unassigned",
+						xlrec->xids[0]);
+
+		for (i = 1; i < xlrec->nxids; i++)
+			appendStringInfo(buf, ", %u", xlrec->xids[i]);
 	}
 #endif
 }

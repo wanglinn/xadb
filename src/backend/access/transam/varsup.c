@@ -52,6 +52,16 @@ VariableCache ShmemVariableCache = NULL;
 
 #if defined(AGTM)
 /*
+ * It is used to save previous "nextXid" after AdjustTransactionId
+ * adjust it. and [prev_nextXid, nextXid) will be recorded as unassigned
+ * xids xlog, see XLogRecordXidAssignment.
+ *
+ * Caller must hold XidGenLock in exclusive mode when change it just like
+ * "ShmemVariableCache->nextXid".
+ */
+static TransactionId prev_nextXid = InvalidTransactionId;
+
+/*
  * AdjustTransactionId
  *
  * make sure next xid from AGTM is bigger than the caller's.
@@ -65,35 +75,84 @@ AdjustTransactionId(TransactionId least_xid)
 	if (TransactionIdPrecedes(ShmemVariableCache->nextXid, least_xid))
 	{
 		LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+
 		/*
 		 * Check it again after we acquire an execluse lock.
 		 */
 		if (TransactionIdPrecedes(ShmemVariableCache->nextXid, least_xid))
 		{
+#ifdef DEBUG_ADB
+			adb_ereport(LOG,
+				(errmsg("AGTM adjust nextXid from %u to %u",
+				 ShmemVariableCache->nextXid, least_xid)));
+#endif
+			prev_nextXid = ShmemVariableCache->nextXid;
 			ShmemVariableCache->nextXid = least_xid;
-			elog(DEBUG1, "AGTM adjust next xid from %u to %u",
-				ShmemVariableCache->nextXid, least_xid);
 		}
+
 		LWLockRelease(XidGenLock);
 	}
 }
 
 static void
-WriteXidAssignmentXLog(TransactionId xid, bool flush)
+XLogPutXid(TransactionId *xids, int nxids, bool assign, bool flush)
 {
-	XLogRecPtr	recptr;
+	xl_xid_assignment	xlrec;
+	XLogRecPtr			record;
 
-	Assert(TransactionIdIsValid(xid));
-
-	START_CRIT_SECTION();
+	xlrec.assign = assign;
+	xlrec.nxids = nxids;
 
 	XLogBeginInsert();
-	XLogRegisterData((char *) (&xid), sizeof(xid));
-	recptr = XLogInsert(RM_XACT_ID, XLOG_XACT_XID_ASSIGNMENT);
-	if (flush)
-		XLogFlush(recptr);
+	XLogRegisterData((char *) &xlrec, MinSizeOfXidAssignment);
+	XLogRegisterData((char *) xids, nxids * sizeof(TransactionId));
 
-	END_CRIT_SECTION();
+	record = XLogInsert(RM_XACT_ID, XLOG_XACT_XID_ASSIGNMENT);
+	if (flush)
+		XLogFlush(record);
+}
+
+/*
+ * XLogRecordXidAssignment
+ *		Record log of assigned xid, also record log of unassigned xids.
+ *
+ * Caller must hold XidGenLock in exclusive mode.
+ */
+static void
+XLogRecordXidAssignment(TransactionId xid)
+{
+	TransactionId	xids[PGPROC_MAX_CACHED_SUBXIDS];
+	int				nxids = 0;
+
+	/*
+	 * We must have a record of assigned xids first, then record unassigned
+	 * xids. if not, redo process will never remove unassigned xids from
+	 * "KnownAssignedXids".
+	 */
+	XLogPutXid(&xid, 1, true, true);
+
+	/*
+	 * Here we makeup an array of unassigned xids.
+	 */
+	if (TransactionIdIsValid(prev_nextXid))
+	{
+		while (TransactionIdPrecedes(prev_nextXid, xid))
+		{
+			if (nxids >= PGPROC_MAX_CACHED_SUBXIDS)
+			{
+				XLogPutXid(xids, nxids, false, false);
+				nxids = 0;
+			}
+
+			xids[nxids++] = prev_nextXid;
+			TransactionIdAdvance(prev_nextXid);
+		}
+
+		if (nxids > 0)
+			XLogPutXid(xids, nxids, false, false);
+
+		prev_nextXid = InvalidTransactionId;
+	}
 }
 #endif
 
@@ -595,14 +654,19 @@ GetNewTransactionId(bool isSubXact)
 		}
 	}
 
-	LWLockRelease(XidGenLock);
-
 #ifdef AGTM
 	/*
 	 * Write ahead xid assignment xlog to ensure that the same xid
-	 * will never be assigned two times.
+	 * will never be assigned twice.
 	 */
-	WriteXidAssignmentXLog(xid, true);
+	XLogRecordXidAssignment(xid);
+#endif
+
+	LWLockRelease(XidGenLock);
+
+#ifdef DEBUG_ADB
+	adb_ereport(LOG,
+ 		(errmsg("Return new local xid: %u", xid)));
 #endif
 
 	return xid;
