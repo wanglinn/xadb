@@ -267,7 +267,15 @@ init_ps_display(const char *username, const char *dbname,
 	 */
 #define PROGRAM_NAME_PREFIX ""
 #else
+
+#if defined(ADBMGRD)
+#define PROGRAM_NAME_PREFIX "adbmgr: "
+#elif defined(AGTM)
+#define PROGRAM_NAME_PREFIX "agtm: "
+#else
 #define PROGRAM_NAME_PREFIX "postgres: "
+#endif
+
 #endif
 
 	if (*cluster_name == '\0')
