@@ -77,6 +77,10 @@
 #include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
+#ifdef ADB
+#include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 /* In this module, access gettext() via err_gettext() */
@@ -1631,6 +1635,10 @@ CopyErrorData(void)
 		newedata->constraint_name = pstrdup(newedata->constraint_name);
 	if (newedata->internalquery)
 		newedata->internalquery = pstrdup(newedata->internalquery);
+#ifdef ADB
+	if(newedata->node_name)
+		newedata->node_name = pstrdup(newedata->node_name);
+#endif /* ADB */
 
 	/* Use the calling context for string allocation */
 	newedata->assoc_context = CurrentMemoryContext;
@@ -1669,6 +1677,10 @@ FreeErrorData(ErrorData *edata)
 		pfree(edata->constraint_name);
 	if (edata->internalquery)
 		pfree(edata->internalquery);
+#ifdef ADB
+	if(edata->node_name)
+		pfree(edata->node_name);
+#endif /* ADB */
 	pfree(edata);
 }
 
@@ -1747,6 +1759,10 @@ ThrowErrorData(ErrorData *edata)
 	newedata->internalpos = edata->internalpos;
 	if (edata->internalquery)
 		newedata->internalquery = pstrdup(edata->internalquery);
+#ifdef ADB
+	if(newedata->node_name)
+		newedata->node_name = pstrdup(newedata->node_name);
+#endif /* ADB */
 
 	MemoryContextSwitchTo(oldcontext);
 	recursion_depth--;
@@ -3040,6 +3056,13 @@ send_message_to_server_log(ErrorData *edata)
 				appendStringInfo(&buf, _("LOCATION:  %s:%d\n"),
 								 edata->filename, edata->lineno);
 			}
+#ifdef ADB
+			if(edata->node_name)
+			{
+				log_line_prefix(&buf, edata);
+				appendStringInfo(&buf, _("NODE:  %s\n"), edata->node_name);
+			}
+#endif /* ADB */
 		}
 	}
 
@@ -3369,6 +3392,14 @@ send_message_to_frontend(ErrorData *edata)
 			pq_sendbyte(&msgbuf, PG_DIAG_SOURCE_FUNCTION);
 			err_sendstring(&msgbuf, edata->funcname);
 		}
+
+#ifdef ADB
+		if (edata->node_name)
+		{
+			pq_sendbyte(&msgbuf, PG_DIAG_NODE_NAME);
+			err_sendstring(&msgbuf, edata->node_name);
+		}
+#endif /* ADB */
 
 		pq_sendbyte(&msgbuf, '\0');		/* terminator */
 	}
