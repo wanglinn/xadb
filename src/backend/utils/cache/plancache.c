@@ -150,6 +150,9 @@ InitPlanCache(void)
 CachedPlanSource *
 CreateCachedPlan(Node *raw_parse_tree,
 				 const char *query_string,
+#ifdef ADB
+				 const char *stmt_name,
+#endif
 				 const char *commandTag)
 {
 	CachedPlanSource *plansource;
@@ -188,6 +191,9 @@ CreateCachedPlan(Node *raw_parse_tree,
 	plansource->fixed_result = false;
 	plansource->resultDesc = NULL;
 	plansource->context = source_context;
+#ifdef ADB
+	plansource->stmt_name = (stmt_name ? pstrdup(stmt_name) : NULL);
+#endif
 	plansource->query_list = NIL;
 	plansource->relationOids = NIL;
 	plansource->invalItems = NIL;

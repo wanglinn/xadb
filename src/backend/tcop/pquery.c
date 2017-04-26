@@ -24,6 +24,12 @@
 #include "tcop/utility.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
+#ifdef ADB
+#include "access/relscan.h"
+#include "optimizer/pgxcplan.h"
+#include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 /*
@@ -281,8 +287,68 @@ ChoosePortalStrategy(List *stmts)
 					/* it can't be ONE_RETURNING, so give up */
 					return PORTAL_MULTI_QUERY;
 				}
+#ifdef ADB
+				/*
+				 * This is possible with an EXECUTE DIRECT in a SPI.
+				 * PGXCTODO: there might be a better way to manage the
+				 * cases with EXECUTE DIRECT here like using a special
+				 * utility command and redirect it to a correct portal
+				 * strategy.
+				 * Something like PORTAL_UTIL_SELECT might be far better.
+				 */
+				if (query->commandType == CMD_SELECT &&
+					query->utilityStmt != NULL &&
+					IsA(query->utilityStmt, RemoteQuery))
+				{
+					RemoteQuery *step = (RemoteQuery *) stmt;
+					/*
+					 * Let's choose PORTAL_ONE_SELECT for now
+					 * After adding more PGXC functionality we may have more
+					 * sophisticated algorithm of determining portal strategy
+					 *
+					 * EXECUTE DIRECT is a utility but depending on its inner query
+					 * it can return tuples or not depending on the query used.
+					 */
+					if (step->exec_direct_type == EXEC_DIRECT_SELECT
+						|| step->exec_direct_type == EXEC_DIRECT_UPDATE
+						|| step->exec_direct_type == EXEC_DIRECT_DELETE
+						|| step->exec_direct_type == EXEC_DIRECT_INSERT
+						|| step->exec_direct_type == EXEC_DIRECT_LOCAL)
+						return PORTAL_ONE_SELECT;
+					else if (step->exec_direct_type == EXEC_DIRECT_UTILITY
+							 || step->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY)
+						return PORTAL_MULTI_QUERY;
+					else
+						return PORTAL_ONE_SELECT;
+				}
+#endif
 			}
 		}
+#ifdef ADB
+		else if (IsA(stmt, RemoteQuery))
+		{
+			RemoteQuery *step = (RemoteQuery *) stmt;
+			/*
+			 * Let's choose PORTAL_ONE_SELECT for now
+			 * After adding more PGXC functionality we may have more
+			 * sophisticated algorithm of determining portal strategy.
+			 *
+			 * EXECUTE DIRECT is a utility but depending on its inner query
+			 * it can return tuples or not depending on the query used.
+			 */
+			if (step->exec_direct_type == EXEC_DIRECT_SELECT
+				|| step->exec_direct_type == EXEC_DIRECT_UPDATE
+				|| step->exec_direct_type == EXEC_DIRECT_DELETE
+				|| step->exec_direct_type == EXEC_DIRECT_INSERT
+				|| step->exec_direct_type == EXEC_DIRECT_LOCAL)
+				return PORTAL_ONE_SELECT;
+			else if (step->exec_direct_type == EXEC_DIRECT_UTILITY
+					 || step->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY)
+				return PORTAL_MULTI_QUERY;
+			else
+				return PORTAL_ONE_SELECT;
+		}
+#endif
 		else if (IsA(stmt, PlannedStmt))
 		{
 			PlannedStmt *pstmt = (PlannedStmt *) stmt;
@@ -945,6 +1011,32 @@ PortalRunSelect(Portal portal,
 		else
 		{
 			PushActiveSnapshot(queryDesc->snapshot);
+#ifdef ADB
+			if (portal->name != NULL &&
+			    portal->name[0] != '\0' &&
+			    IsA(queryDesc->planstate, RemoteQueryState))
+			{
+				/*
+				 * The snapshot in the query descriptor contains the
+				 * command id of the command creating the cursor. We copy
+				 * that snapshot in RemoteQueryState so that the do_query
+				 * function knows while sending the select (resulting from
+				 * a fetch) to the corresponding remote node with the command
+				 * id of the command that created the cursor.
+				 */
+				HeapScanDesc scan;
+				RemoteQueryState *rqs = (RemoteQueryState *)queryDesc->planstate;
+
+				/* Allocate and initialize scan descriptor */
+				scan = (HeapScanDesc) palloc0(sizeof(HeapScanDescData));
+				/* Copy snap shot into the scan descriptor */
+				scan->rs_snapshot = queryDesc->snapshot;
+				/* Copy scan descriptor in remote query state */
+				rqs->ss.ss_currentScanDesc = scan;
+
+				rqs->cursor = pstrdup(portal->name);
+			}
+#endif
 			ExecutorRun(queryDesc, direction, (uint64) count);
 			nprocessed = queryDesc->estate->es_processed;
 			PopActiveSnapshot();
@@ -1174,7 +1266,11 @@ PortalRunUtility(Portal portal, Node *utilityStmt,
 		  IsA(utilityStmt, ListenStmt) ||
 		  IsA(utilityStmt, NotifyStmt) ||
 		  IsA(utilityStmt, UnlistenStmt) ||
+#ifdef ADB
+		  (IsA(utilityStmt, CheckPointStmt) && IS_PGXC_DATANODE)))
+#else
 		  IsA(utilityStmt, CheckPointStmt)))
+#endif
 	{
 		snapshot = GetTransactionSnapshot();
 		/* If told to, register the snapshot we're using and save in portal */
@@ -1226,6 +1322,12 @@ PortalRunMulti(Portal portal,
 {
 	bool		active_snapshot_set = false;
 	ListCell   *stmtlist_item;
+#ifdef ADB
+	CombineTag	combine;
+
+	combine.cmdType = CMD_UNKNOWN;
+	combine.data[0] = '\0';
+#endif
 
 	/*
 	 * If the destination is DestRemoteExecute, change to DestNone.  The
@@ -1307,6 +1409,13 @@ PortalRunMulti(Portal portal,
 							 portal->sourceText,
 							 portal->portalParams,
 							 dest, completionTag);
+#ifdef ADB
+				/* it's special for INSERT */
+				if (IS_PGXC_COORDINATOR &&
+					pstmt->commandType == CMD_INSERT)
+					HandleCmdComplete(pstmt->commandType, &combine,
+							completionTag, strlen(completionTag));
+#endif
 			}
 			else
 			{
@@ -1385,6 +1494,10 @@ PortalRunMulti(Portal portal,
 	 * e.g.  an INSERT that does an UPDATE instead should not print "0 1" if
 	 * one row was updated.  See QueryRewrite(), step 3, for details.
 	 */
+#ifdef ADB
+	if (IS_PGXC_COORDINATOR && combine.data[0] != '\0')
+		strcpy(completionTag, combine.data);
+#endif
 	if (completionTag && completionTag[0] == '\0')
 	{
 		if (portal->commandTag)

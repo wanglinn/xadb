@@ -2288,14 +2288,13 @@ ProcessUtilitySlow(Node *parsetree,
 				address = ExecCreateTableAs((CreateTableAsStmt *) parsetree,
 										 queryString, params, completionTag);
 #ifdef ADB
-				 /* Send CREATE MATERIALIZED VIEW command to all coordinators. */
-				 Assert(((CreateTableAsStmt *) parsetree)->relkind == OBJECT_MATVIEW);
-				 if (!((CreateTableAsStmt *) parsetree)->into->skipData && !IsConnFromCoord())
-					 pgxc_send_matview_data(((CreateTableAsStmt *) parsetree)->into->rel,
-											 queryString);
-				 else
-					 ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_COORDS, false);
- 
+				/* Send CREATE MATERIALIZED VIEW command to all coordinators. */
+				Assert(((CreateTableAsStmt *) parsetree)->relkind == OBJECT_MATVIEW);
+				if (!((CreateTableAsStmt *) parsetree)->into->skipData && !IsConnFromCoord())
+					pgxc_send_matview_data(((CreateTableAsStmt *) parsetree)->into->rel,
+											queryString);
+				else
+					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_COORDS, false);
 #endif /* ADB */
 				break;
 

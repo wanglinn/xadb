@@ -446,6 +446,9 @@ extern const struct config_enum_entry dynamic_shared_memory_options[];
 bool		log_duration = false;
 bool		Debug_print_plan = false;
 bool		Debug_print_parse = false;
+#ifdef ADB
+bool		Debug_print_grammar = false;
+#endif
 bool		Debug_print_rewritten = false;
 bool		Debug_pretty_print = true;
 
@@ -1141,6 +1144,17 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
+#ifdef ADB
+	{
+		{"debug_print_grammar", PGC_USERSET, LOGGING_WHAT,
+			gettext_noop("Logs each query's grammar tree."),
+			NULL
+		},
+		&Debug_print_grammar,
+		false,
+		NULL, NULL, NULL
+	},
+#endif
 	{
 		{"debug_print_rewritten", PGC_USERSET, LOGGING_WHAT,
 			gettext_noop("Logs each query's rewritten parse tree."),

@@ -30,6 +30,9 @@
 #include "tcop/pquery.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif
 
 
 /*
@@ -72,6 +75,13 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	 * Create a portal and copy the plan and queryString into its memory.
 	 */
 	portal = CreatePortal(cstmt->portalname, false, false);
+#ifdef ADB
+	/*
+	 * Consume the command id of the command creating the cursor
+	 */
+	if (IS_PGXC_COORDINATOR&& !IsConnFromCoord())
+		GetCurrentCommandId(true);
+#endif
 
 	oldContext = MemoryContextSwitchTo(PortalGetHeapMemory(portal));
 

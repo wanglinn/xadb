@@ -233,6 +233,9 @@ typedef enum
 extern bool log_duration;
 extern bool Debug_print_plan;
 extern bool Debug_print_parse;
+#ifdef ADB
+extern bool Debug_print_grammar;
+#endif
 extern bool Debug_print_rewritten;
 extern bool Debug_pretty_print;
 

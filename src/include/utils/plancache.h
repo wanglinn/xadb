@@ -17,6 +17,9 @@
 
 #include "access/tupdesc.h"
 #include "nodes/params.h"
+#ifdef ADB
+#include "nodes/parsenodes.h"
+#endif
 
 #define CACHEDPLANSOURCE_MAGIC		195726186
 #define CACHEDPLAN_MAGIC			953717834
@@ -111,6 +114,9 @@ typedef struct CachedPlanSource
 	double		generic_cost;	/* cost of generic plan, or -1 if not known */
 	double		total_custom_cost;		/* total cost of custom plans so far */
 	int			num_custom_plans;		/* number of plans included in total */
+#ifdef ADB
+	char	   *stmt_name;		/* If set, this is a copy of prepared stmt name */
+#endif
 } CachedPlanSource;
 
 /*
@@ -146,6 +152,9 @@ extern void ResetPlanCache(void);
 
 extern CachedPlanSource *CreateCachedPlan(Node *raw_parse_tree,
 				 const char *query_string,
+#ifdef ADB
+				 const char *stmt_name,
+#endif
 				 const char *commandTag);
 extern CachedPlanSource *CreateOneShotCachedPlan(Node *raw_parse_tree,
 						const char *query_string,

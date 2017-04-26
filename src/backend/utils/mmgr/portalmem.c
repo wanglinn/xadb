@@ -26,6 +26,13 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 #include "utils/timestamp.h"
+#ifdef ADB
+#include "access/hash.h"
+#include "catalog/pg_collation.h"
+#include "pgxc/pgxc.h"
+#include "utils/formatting.h"
+#include "utils/lsyscache.h"
+#endif
 
 /*
  * Estimate of the maximum number of open portals a user would have,
@@ -239,6 +246,18 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 
 	/* put portal in table (sets portal->name) */
 	PortalHashTableInsert(portal, name);
+
+#ifdef ADB
+	if (PGXCNodeIdentifier == 0)
+	{
+		/*
+		 * It is not necessary to check whether the node_oid
+		 * is valid or not. Such as "single" mode postgres.
+		 */
+		Oid node_oid = get_pgxc_nodeoid(PGXCNodeName);
+		PGXCNodeIdentifier = get_pgxc_node_id(node_oid);
+	}
+#endif
 
 	return portal;
 }
