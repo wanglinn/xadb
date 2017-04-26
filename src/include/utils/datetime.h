@@ -181,8 +181,11 @@ struct tzEntry;
 #define DTK_TZ_MINUTE	35
 #define DTK_ISOYEAR		36
 #define DTK_ISODOW		37
-
 #ifdef ADB
+#define DTK_TZ_ABBR		38
+#define DTK_TZ_REGION	39
+
+
 #define ORA_ROUND_NONE		1	/* round nothing */
 #define ORA_ROUND_MONTH		2	/* round day cascade of interval */
 #define ORA_ROUND_DAY		3	/* round time of interval */
@@ -359,5 +362,11 @@ extern void InstallTimeZoneAbbrevs(TimeZoneAbbrevTable *tbl);
 
 extern Datum pg_timezone_abbrevs(PG_FUNCTION_ARGS);
 extern Datum pg_timezone_names(PG_FUNCTION_ARGS);
+
+#ifdef ADB
+extern int try_decode_date(const char *str, struct pg_tm *tm);
+extern int try_decode_time(const char *str, struct pg_tm *tm, fsec_t *fsec, int *tzp);
+extern int try_decode_date_time(const char *str, struct pg_tm *tm, fsec_t *fsec, int *tzp);
+#endif
 
 #endif   /* DATETIME_H */

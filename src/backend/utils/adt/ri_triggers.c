@@ -57,6 +57,9 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif
 
 
 /* ----------
@@ -265,6 +268,15 @@ RI_FKey_check(TriggerData *trigdata)
 	RI_QueryKey qkey;
 	SPIPlanPtr	qplan;
 	int			i;
+
+#ifdef ADB
+	/* 
+	 * Referential integrity is not supported on Coordinator as it has no data, so
+	 * we just come out of the function without actually performing any integrity checks.
+	 */
+	if (IS_PGXC_COORDINATOR)
+		return PointerGetDatum(NULL);
+#endif
 
 	/*
 	 * Get arguments.
@@ -3669,8 +3681,14 @@ ri_HashCompareOp(Oid eq_opr, Oid typeid)
 			pathtype = find_coercion_pathway(lefttype, typeid,
 											 COERCION_IMPLICIT,
 											 &castfunc);
+#ifdef ADB
+			if (pathtype != COERCION_PATH_FUNC &&
+				pathtype != COERCION_PATH_ORA_FUNC &&
+				pathtype != COERCION_PATH_RELABELTYPE)
+#else
 			if (pathtype != COERCION_PATH_FUNC &&
 				pathtype != COERCION_PATH_RELABELTYPE)
+#endif
 			{
 				/*
 				 * The declared input type of the eq_opr might be a

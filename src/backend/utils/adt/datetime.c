@@ -54,6 +54,10 @@ static void AdjustFractSeconds(double frac, struct pg_tm * tm, fsec_t *fsec,
 				   int scale);
 static void AdjustFractDays(double frac, struct pg_tm * tm, fsec_t *fsec,
 				int scale);
+#ifdef ADB
+static void AdjustFracMonths(double frac, struct pg_tm *tm, fsec_t *fsec,
+				int scale);
+#endif
 static int DetermineTimeZoneOffsetInternal(struct pg_tm * tm, pg_tz *tzp,
 								pg_time_t *tp);
 static bool DetermineTimeZoneAbbrevOffsetInternal(pg_time_t t,
@@ -225,8 +229,14 @@ static const datetkn deltatktbl[] = {
 	{"seconds", UNITS, DTK_SECOND},
 	{"secs", UNITS, DTK_SECOND},
 	{DTIMEZONE, UNITS, DTK_TZ}, /* "timezone" time offset */
+#ifdef ADB
+	{"timezone_a", UNITS, DTK_TZ_ABBR}, /* timezone abbreviations */
+#endif
 	{"timezone_h", UNITS, DTK_TZ_HOUR}, /* timezone hour units */
 	{"timezone_m", UNITS, DTK_TZ_MINUTE},		/* timezone minutes units */
+#ifdef ADB
+	{"timezone_r", UNITS, DTK_TZ_REGION}, /* timezone region */
+#endif
 	{"undefined", RESERV, DTK_INVALID}, /* pre-v6.1 invalid time */
 	{"us", UNITS, DTK_MICROSEC},	/* "microsecond" relative */
 	{"usec", UNITS, DTK_MICROSEC},		/* "microsecond" relative */
@@ -568,6 +578,22 @@ AdjustFractDays(double frac, struct pg_tm * tm, fsec_t *fsec, int scale)
 	frac -= extra_days;
 	AdjustFractSeconds(frac, tm, fsec, SECS_PER_DAY);
 }
+
+#ifdef ADB
+static void
+AdjustFracMonths(double frac, struct pg_tm *tm, fsec_t *fsec, int scale)
+{
+	int			extra_months;
+
+	if (frac == 0)
+		return ;
+	frac *= scale;
+	extra_months = (int)frac;
+	tm->tm_mon += extra_months;
+	frac -= extra_months;
+	AdjustFractDays(frac, tm, fsec, DAYS_PER_MONTH);
+}
+#endif
 
 /* Fetch a fractional-second value with suitable error checking */
 static int
@@ -3407,8 +3433,12 @@ DecodeInterval(char **field, int *ftype, int nf, int range,
 
 					case DTK_YEAR:
 						tm->tm_year += val;
+#ifdef ADB
+						AdjustFracMonths(fval, tm, fsec, MONTHS_PER_YEAR);
+#else
 						if (fval != 0)
 							tm->tm_mon += fval * MONTHS_PER_YEAR;
+#endif
 						tmask = DTK_M(YEAR);
 						break;
 

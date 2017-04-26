@@ -72,7 +72,9 @@ static Timestamp dt2local(Timestamp dt, int timezone);
 static void AdjustTimestampForTypmod(Timestamp *time, int32 typmod);
 static void AdjustIntervalForTypmod(Interval *interval, int32 typmod);
 static TimestampTz timestamp2timestamptz(Timestamp timestamp);
-
+#ifdef ADB
+static int try_decode_time_internal(char *str, struct pg_tm *tm, fsec_t *fsec, int *tzp);
+#endif
 
 /* common code for timestamptypmodin and timestamptztypmodin */
 static int32
@@ -154,12 +156,22 @@ timestamp_in(PG_FUNCTION_ARGS)
 	int			ftype[MAXDATEFIELDS];
 	char		workbuf[MAXDATELEN + MAXDATEFIELDS];
 
+#ifdef ADB
+	if((nf=try_decode_date_time(str, tm, &fsec, &tz)) == 0 || str[nf] != '\0')
+	{
+#endif
 	dterr = ParseDateTime(str, workbuf, sizeof(workbuf),
 						  field, ftype, MAXDATEFIELDS, &nf);
 	if (dterr == 0)
 		dterr = DecodeDateTime(field, ftype, nf, &dtype, tm, &fsec, &tz);
 	if (dterr != 0)
 		DateTimeParseError(dterr, str, "timestamp");
+#ifdef ADB
+	} else
+	{
+		dtype = DTK_DATE;
+	}
+#endif
 
 	switch (dtype)
 	{
@@ -458,12 +470,22 @@ timestamptz_in(PG_FUNCTION_ARGS)
 	int			ftype[MAXDATEFIELDS];
 	char		workbuf[MAXDATELEN + MAXDATEFIELDS];
 
+#ifdef ADB
+	if((nf=try_decode_date_time(str, tm, &fsec, &tz)) == 0 || str[nf] != '\0')
+	{
+#endif
 	dterr = ParseDateTime(str, workbuf, sizeof(workbuf),
 						  field, ftype, MAXDATEFIELDS, &nf);
 	if (dterr == 0)
 		dterr = DecodeDateTime(field, ftype, nf, &dtype, tm, &fsec, &tz);
 	if (dterr != 0)
 		DateTimeParseError(dterr, str, "timestamp with time zone");
+#ifdef ADB
+	} else
+	{
+		dtype = DTK_DATE;
+	}
+#endif
 
 	switch (dtype)
 	{
@@ -5702,3 +5724,131 @@ generate_series_timestamptz(PG_FUNCTION_ARGS)
 		SRF_RETURN_DONE(funcctx);
 	}
 }
+
+#ifdef ADB
+#define isdigit2(a,b) (isdigit(a) && isdigit(b))
+#define isdigit3(a,b,c) (isdigit2(a,b) && isdigit(c))
+#define isdigit4(a,b,c,d) (isdigit3(a,b,c) && isdigit(d))
+#define digit_val2(a, b) ((a-'0')*10+(b-'0'))
+#define digit_val4(a,b,c,d) ( ((a-'0')*1000) + ((b-'0')*100) + ((c-'0')*10) + (d-'0') )
+
+/* YYYY-MM-DD */
+int try_decode_date(const char *str, struct pg_tm *tm)
+{
+	if(isdigit4(str[0], str[1], str[2], str[3])
+		&& str[4] == '-' && isdigit2(str[5], str[6])
+		&& str[7] == '-' && isdigit2(str[8], str[9]))
+	{
+		tm->tm_year = digit_val4(str[0], str[1], str[2], str[3]);
+		tm->tm_mon = digit_val2(str[5], str[6]);
+		tm->tm_mday = digit_val2(str[8], str[9]);
+		
+		if (tm->tm_year <= 0 || (tm->tm_mon < 1 || tm->tm_mon > MONTHS_PER_YEAR) || (tm->tm_mday < 1 || tm->tm_mday > 31) )
+			return 0;
+		/*
+		 * Check for valid day of month, now that we know for sure the month
+		 * and year.  Note we don't use MD_FIELD_OVERFLOW here, since it seems
+		 * unlikely that "Feb 29" is a YMD-order error.
+		 */
+		if (tm->tm_mday > day_tab[isleap(tm->tm_year)][tm->tm_mon - 1] )
+			return 0;
+			
+		return 10;
+	}
+	return 0;
+}
+
+
+/* HH:mm:ss[.nn][+n] */
+int try_decode_time(const char *str, struct pg_tm *tm, fsec_t *fsec, int *tzp)
+{
+	char *new_str = pstrdup(str);
+	int rval = try_decode_time_internal(new_str, tm, fsec, tzp);
+	pfree(new_str);
+	return rval;
+}
+
+static int try_decode_time_internal(char *str, struct pg_tm *tm, fsec_t *fsec, int *tzp)
+{
+	int rval;
+	/* HH:mm:ss */
+	if(isdigit2(str[0], str[1])
+		&& str[2]==':' && isdigit2(str[3], str[4])
+		&& str[5]==':' && isdigit2(str[6], str[7]))
+	{
+		tm->tm_hour = digit_val2(str[0], str[1]);
+		tm->tm_min = digit_val2(str[3], str[4]);
+		tm->tm_sec = digit_val2(str[6], str[7]);
+		rval = 8;
+		str += 8;
+	}else
+	{
+		return 0;
+	}
+
+	*fsec = 0;
+	/* .n */
+	if(str[0] == '.')
+	{
+		double frac;
+		char *end;
+		errno = 0;
+		frac = strtod(str, &end);
+		if(errno != 0)
+			return 0;
+#ifdef HAVE_INT64_TIMESTAMP
+		*fsec = rint(frac * 1000000);
+#else
+		*fsec = frac;
+#endif
+		rval += (end-str);
+		str = end;
+	}
+
+	/* at end parse timezone */
+	if(str[0] == '\0')
+	{
+		if(tzp)
+			*tzp = DetermineTimeZoneOffset(tm, session_timezone);
+	}else if(str[0] == '+' || str[1] == '-')
+	{
+		if(tzp == NULL || DecodeTimezone(str, tzp) != 0)
+			return 0;
+		rval += strlen(str);
+	}else
+	{
+		return 0;
+	}
+	return rval;
+}
+
+/* YYYY-MM-DD HH:mm:ss[.n][+n] */
+int try_decode_date_time(const char *str, struct pg_tm *tm, fsec_t *fsec, int *tzp)
+{
+	int rval,tmp;
+	rval = try_decode_date(str, tm);
+	if(rval == 0)
+		return 0;
+
+	if(str[rval] == '\0')
+	{
+		/* date only */
+		tm->tm_hour = tm->tm_min = tm->tm_sec = 0;
+		*fsec = 0;
+		*tzp = DetermineTimeZoneOffset(tm, session_timezone);
+		return rval;
+	}else if(str[rval] != ' ')
+	{
+		return 0;
+	}
+	++rval;
+
+	tmp = try_decode_time(str+rval, tm, fsec, tzp);
+	if(tmp == 0)
+		return 0;
+
+	rval+=tmp;
+
+	return rval;
+}
+#endif

@@ -4757,14 +4757,14 @@ deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 	ListCell				*schema;
 
 	/*
-	* Before deparsing the query, set the search_patch to NIL so that all the
-	* object names in the deparsed query are schema qualified. This is required
-	* so as to not have any dependency on current search_path. For e.g the same
-	* remote query can be used even if search_path changes between two executes
-	* of a prepared statement.
-	* Note: We do not apply the above solution for temp tables for reasons shown
-	* in the below comment.
-	*/
+	 * Before deparsing the query, set the search_patch to NIL so that all the
+	 * object names in the deparsed query are schema qualified. This is required
+	 * so as to not have any dependency on current search_path. For e.g the same
+	 * remote query can be used even if search_path changes between two executes
+	 * of a prepared statement.
+	 * Note: We do not apply the above solution for temp tables for reasons shown
+	 * in the below comment.
+	 */
 	tmp_search_path = GetOverrideSearchPath(CurrentMemoryContext);
 
 	tmp_search_path->addTemp = true;
@@ -4773,22 +4773,22 @@ deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 	{
 		if (isTempNamespace(lfirst_oid(schema)))
 		{
-		  /* Is pg_temp the very first item ? If no, that means temp objects
-		   * should be qualified, otherwise the object name would possibly
-		   * be resolved from some other schema. We force schema
-		   * qualification by making sure the overridden search_path does not
-		   * have pg_temp implicitly added.
-		   * Why do we not *always* let the pg_temp qualification be there ?
-		   * Because the pg_temp schema name always gets deparsed into the
-		   * actual temp schema names like pg_temp_[1-9]*, and not the dummy
-		   * name pg_temp. And we do not want to use these names because
-		   * they are specific to the local node. pg_temp_2.obj1 at node 1
-		   * may be present in pg_temp_3 at node2.
-		   */
-		 if (list_head(schema_list) != schema)
-			 tmp_search_path->addTemp = false;
+			/* Is pg_temp the very first item ? If no, that means temp objects
+			 * should be qualified, otherwise the object name would possibly
+			 * be resolved from some other schema. We force schema
+			 * qualification by making sure the overridden search_path does not
+			 * have pg_temp implicitly added.
+			 * Why do we not *always* let the pg_temp qualification be there ?
+			 * Because the pg_temp schema name always gets deparsed into the
+			 * actual temp schema names like pg_temp_[1-9]*, and not the dummy
+			 * name pg_temp. And we do not want to use these names because
+			 * they are specific to the local node. pg_temp_2.obj1 at node 1
+			 * may be present in pg_temp_3 at node2.
+			 */
+			if (list_head(schema_list) != schema)
+				tmp_search_path->addTemp = false;
 
-		 break;
+			break;
 		}
 	}
 
@@ -4796,7 +4796,7 @@ deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 	PushOverrideSearchPath(tmp_search_path);
 
 	get_query_def(query, buf, parentnamespace, NULL, 0, WRAP_COLUMN_DEFAULT,
-			   0, finalise_aggs, sortgroup_colno);
+				  0, finalise_aggs, sortgroup_colno);
 
 	PopOverrideSearchPath();
 }
@@ -5315,6 +5315,9 @@ get_target_list(List *targetList, deparse_context *context,
 	char	   *sep;
 	int			colno;
 	ListCell   *l;
+#ifdef ADB
+	bool no_targetlist = true;
+#endif
 
 	/* we use targetbuf to hold each TLE's text temporarily */
 	initStringInfo(&targetbuf);
@@ -5329,6 +5332,12 @@ get_target_list(List *targetList, deparse_context *context,
 
 		if (tle->resjunk)
 			continue;			/* ignore junk entries */
+
+#ifdef ADB
+		/* Found at least one element in the target list */
+		if (no_targetlist)
+			no_targetlist = false;
+#endif
 
 		appendStringInfoString(buf, sep);
 		sep = ", ";
@@ -5432,6 +5441,16 @@ get_target_list(List *targetList, deparse_context *context,
 		appendStringInfoString(buf, targetbuf.data);
 	}
 
+#ifdef ADB
+	/*
+	 * Because the empty target list can generate invalid SQL
+	 * clause. Here, just fill a '*' to process a table without
+	 * any columns, this statement will be sent to Datanodes
+	 * and treated correctly on remote nodes.
+	 */
+	if (no_targetlist)
+		appendStringInfo(buf, " *");
+#endif
 	/* clean up */
 	pfree(targetbuf.data);
 }
