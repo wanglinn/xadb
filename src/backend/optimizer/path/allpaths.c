@@ -661,7 +661,10 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	 * its tlist.
 	 */
 	required_outer = rel->lateral_relids;
-
+#ifdef ADB
+	if (!create_plainrel_rqpath(root, rel, rte, required_outer))
+	{
+#endif
 	/* Consider sequential scan */
 	add_path(rel, create_seqscan_path(root, rel, required_outer, 0));
 
@@ -674,6 +677,9 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Consider TID scans */
 	create_tidscan_paths(root, rel);
+#ifdef ADB
+	}
+#endif
 }
 
 /*

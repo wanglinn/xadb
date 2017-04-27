@@ -1,0 +1,47 @@
+./contrib/postgres_fdw/deparse.c:731:	 * We require columns specified in foreignrel->reltarget->exprs and those
+./contrib/postgres_fdw/deparse.c:735:					   pull_var_clause((Node *) foreignrel->reltarget->exprs,
+./contrib/postgres_fdw/postgres_fdw.c:561:	pull_varattnos((Node *) baserel->reltarget->exprs, baserel->relid,
+./contrib/postgres_fdw/postgres_fdw.c:612:		baserel->reltarget->width = fpinfo->width;
+./contrib/postgres_fdw/postgres_fdw.c:629:				(10 * BLCKSZ) / (baserel->reltarget->width +
+./contrib/postgres_fdw/postgres_fdw.c:2573:		width = foreignrel->reltarget->width;
+./contrib/postgres_fdw/postgres_fdw.c:4313:	joinrel->reltarget->width = width;
+./contrib/file_fdw/file_fdw.c:825:	pull_varattnos((Node *) baserel->reltarget->exprs, baserel->relid,
+./contrib/file_fdw/file_fdw.c:957:		tuple_width = MAXALIGN(baserel->reltarget->width) +
+./doc/src/sgml/fdwhandler.sgml:1386:     <literal>baserel-&gt;reltarget-&gt;exprs</> can be used to determine which
+./src/backend/optimizer/plan/initsplan.c:218:				rel->reltarget->exprs = lappend(rel->reltarget->exprs,
+./src/backend/optimizer/plan/createplan.c:3299:		pull_varattnos((Node *) rel->reltarget->exprs, scan_relid, &attrs_used);
+./src/backend/optimizer/plan/planner.c:5237:	rel->reltarget->width = get_relation_data_width(tableOid, NULL);
+./src/backend/optimizer/plan/planner.c:5253:			  seqScanPath->total_cost, rel->tuples, rel->reltarget->width,
+./src/backend/optimizer/path/costsize.c:4555: * This function also sets reltarget->cost, so it's a bit misnamed now.
+./src/backend/optimizer/path/costsize.c:4576:	rel->reltarget->cost.startup = 0;
+./src/backend/optimizer/path/costsize.c:4577:	rel->reltarget->cost.per_tuple = 0;
+./src/backend/optimizer/path/costsize.c:4579:	foreach(lc, rel->reltarget->exprs)
+./src/backend/optimizer/path/costsize.c:4646:			 * scanning this rel, so be sure to include it in reltarget->cost.
+./src/backend/optimizer/path/costsize.c:4654:			rel->reltarget->cost.startup += cost.startup;
+./src/backend/optimizer/path/costsize.c:4655:			rel->reltarget->cost.per_tuple += cost.per_tuple;
+./src/backend/optimizer/path/costsize.c:4672:			rel->reltarget->cost.startup += cost.startup;
+./src/backend/optimizer/path/costsize.c:4673:			rel->reltarget->cost.per_tuple += cost.per_tuple;
+./src/backend/optimizer/path/costsize.c:4710:	rel->reltarget->width = tuple_width;
+./src/backend/optimizer/path/indxpath.c:1811:	pull_varattnos((Node *) rel->reltarget->exprs, rel->relid, &attrs_used);
+./src/backend/optimizer/path/allpaths.c:642:	if (has_parallel_hazard((Node *) rel->reltarget->exprs, false))
+./src/backend/optimizer/path/allpaths.c:979:		 * NB: the resulting childrel->reltarget->exprs may contain arbitrary
+./src/backend/optimizer/path/allpaths.c:990:		childrel->reltarget->exprs = (List *)
+./src/backend/optimizer/path/allpaths.c:992:								   (Node *) rel->reltarget->exprs,
+./src/backend/optimizer/path/allpaths.c:1059:		parent_size += childrel->reltarget->width * childrel->rows;
+./src/backend/optimizer/path/allpaths.c:1069:		forboth(parentvars, rel->reltarget->exprs,
+./src/backend/optimizer/path/allpaths.c:1070:				childvars, childrel->reltarget->exprs)
+./src/backend/optimizer/path/allpaths.c:1105:		rel->reltarget->width = rint(parent_size / parent_rows);
+./src/backend/optimizer/path/allpaths.c:1586:	rel->reltarget->width = 0;
+./src/backend/optimizer/path/allpaths.c:1842:		foreach(lc, rel->reltarget->exprs)
+./src/backend/optimizer/path/allpaths.c:2802:	pull_varattnos((Node *) rel->reltarget->exprs, rel->relid, &attrs_used);
+./src/backend/optimizer/path/allpaths.c:3124:	printf("): rows=%.0f width=%d\n", rel->rows, rel->reltarget->width);
+./src/backend/optimizer/util/relnode.c:519:		!has_parallel_hazard((Node *) joinrel->reltarget->exprs, false))
+./src/backend/optimizer/util/relnode.c:617:	foreach(vars, input_rel->reltarget->exprs)
+./src/backend/optimizer/util/relnode.c:647:			joinrel->reltarget->exprs = lappend(joinrel->reltarget->exprs, var);
+./src/backend/optimizer/util/relnode.c:648:			/* Vars have cost zero, so no need to adjust reltarget->cost */
+./src/backend/optimizer/util/relnode.c:649:			joinrel->reltarget->width += baserel->attr_widths[ndx];
+./src/backend/optimizer/util/placeholder.c:394:			rel->reltarget->exprs = lappend(rel->reltarget->exprs,
+./src/backend/optimizer/util/placeholder.c:428:				joinrel->reltarget->exprs = lappend(joinrel->reltarget->exprs,
+./src/backend/optimizer/util/placeholder.c:430:				joinrel->reltarget->width += phinfo->ph_width;
+./src/backend/optimizer/util/placeholder.c:450:					joinrel->reltarget->cost.startup += cost.startup;
+./src/backend/optimizer/util/placeholder.c:451:					joinrel->reltarget->cost.per_tuple += cost.per_tuple;

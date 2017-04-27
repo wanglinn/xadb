@@ -2292,7 +2292,14 @@ match_clause_to_indexcol(IndexOptInfo *index,
 											opfamily, idxcollation,
 											(RowCompareExpr *) clause);
 	}
+#ifdef ADB
+	/* fix: Access to field 'type' results in a dereference of a null
+	 * pointer (loaded from variable 'clause')
+	 */
+	else if (index->amsearchnulls && clause && IsA(clause, NullTest))
+#else
 	else if (index->amsearchnulls && IsA(clause, NullTest))
+#endif
 	{
 		NullTest   *nt = (NullTest *) clause;
 
@@ -3424,7 +3431,12 @@ expand_indexqual_conditions(IndexOptInfo *index,
 				continue;
 			}
 		}
-
+#ifdef ADB
+		/* fix: Access to field 'type' results in a dereference of a null
+		 * pointer (loaded from variable 'clause')
+		 */
+		Assert(clause);
+#endif
 		/*
 		 * Else it must be an opclause (usual case), ScalarArrayOp,
 		 * RowCompare, or NullTest

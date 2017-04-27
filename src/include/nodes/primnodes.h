@@ -290,6 +290,10 @@ typedef struct Aggref
 	Oid			aggcollid;		/* OID of collation of result */
 	Oid			inputcollid;	/* OID of collation that function should use */
 	Oid			aggtranstype;	/* type Oid of aggregate's transition value */
+#ifdef ADB
+	Oid			aggtrantype;		/* type Oid of transition results */
+	bool			agghas_collectfn;	/* is collection function available */
+#endif /* ADB */
 	List	   *aggargtypes;	/* type Oids of direct and aggregated args */
 	List	   *aggdirectargs;	/* direct arguments, if an ordered-set agg */
 	List	   *args;			/* aggregated arguments and sort expressions */

@@ -21,7 +21,9 @@
 #include "catalog/pg_inherits_fn.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_proc.h"
+#ifdef ADB
 #include "catalog/pg_trigger.h"
+#endif
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
 #include "commands/trigger.h"
@@ -42,8 +44,9 @@
 #include "nodes/pg_list.h"
 #endif
 
+#ifdef ADB
 extern bool enable_stable_func_shipping;
-
+#endif
 /*
  * Shippability_context
  * This context structure is used by the Fast Query Shipping walker, to gather
@@ -231,9 +234,13 @@ pgxc_FQS_datanodes_for_rtr(Index varno, Shippability_context *sc_context)
 			 * map the Vars on which its distributed to the columns in the
 			 * result.
 			 */
+#ifdef ADB
 			if (exec_nodes && 
 				(IsExecNodesDistributedByValue(exec_nodes) ||
 				IsExecNodesDistributedByUserDefined(exec_nodes)))
+#else
+			if (exec_nodes && IsExecNodesDistributedByValue(exec_nodes))
+#endif
 				pgxc_replace_dist_vars_subquery(rte->subquery, exec_nodes, varno);
 			return exec_nodes;
 		}
@@ -494,6 +501,7 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 		rel_exec_nodes = GetRelationNodesByQuals(rte->relid, varno,
 												 query->jointree->quals, rel_access);
 	else
+#ifdef ADB
 	{
 		Datum value = (Datum)0;
 		bool null = true;
@@ -505,7 +513,10 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 										  &type,
 										  rel_access);
 	}
-
+#else
+		rel_exec_nodes = GetRelationNodes(rel_loc_info, (Datum) 0,
+										  true, InvalidOid, rel_access);
+#endif
 	if (!rel_exec_nodes)
 		return NULL;
 
@@ -514,11 +525,12 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 		Var	*dist_var = pgxc_get_dist_var(varno, rte, query->targetList);
 		rel_exec_nodes->en_dist_vars = list_make1(dist_var);
 	}
+#ifdef ADB
 	else if (IsExecNodesDistributedByUserDefined(rel_exec_nodes))
 	{
 		rel_exec_nodes->en_dist_vars = pgxc_get_dist_var_list(varno, rte);
 	}
-
+#endif
 	if (rel_access == RELATION_ACCESS_INSERT &&
 			 IsRelationDistributedByValue(rel_loc_info))
 	{
@@ -551,10 +563,15 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 		rel_exec_nodes->primarynodelist = NULL;
 		list_free(rel_exec_nodes->nodeList);
 		rel_exec_nodes->nodeList = NULL;
+#ifdef ADB
 		rel_exec_nodes->en_funcid = rel_loc_info->funcid;
 		rel_exec_nodes->en_expr = list_make1(tle->expr);
+#else
+		rel_exec_nodes->en_expr = tle->expr;
+#endif
 		rel_exec_nodes->en_relid = rel_loc_info->relid;
 	}
+#ifdef ADB
 	else if (rel_access == RELATION_ACCESS_INSERT &&
 			 IsRelationDistributedByUserDefined(rel_loc_info))
 	{
@@ -590,7 +607,7 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 		rel_exec_nodes->en_expr = en_expr_list;
 		rel_exec_nodes->en_relid = rel_loc_info->relid;
 	}
-
+#endif
 	return rel_exec_nodes;
 }
 
@@ -826,7 +843,6 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 
 		case T_Aggref:
 		{
-#if 0
 			Aggref *aggref = (Aggref *)node;
 			/*
 			 * An aggregate is completely shippable to the Datanode, if the
@@ -855,9 +871,6 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
 
 			pgxc_set_exprtype_shippability(exprType(node), sc_context);
-#else
-			pgxc_set_shippability_reason(sc_context, SS_HAS_AGG_EXPR);
-#endif
 		}
 		break;
 
@@ -1485,6 +1498,7 @@ pgxc_is_expr_shippable(Expr *node, bool *has_aggs)
 bool
 pgxc_is_func_shippable(Oid funcid)
 {
+#ifdef ADB
 	/*
 	 * ADBQ: here we treat function which is stable or immutable
 	 * shippable to make sure query is shippable, maybe cause
@@ -1496,14 +1510,14 @@ pgxc_is_func_shippable(Oid funcid)
 		return (func_vol == PROVOLATILE_STABLE) ||
 			(func_vol == PROVOLATILE_IMMUTABLE);
 	 }
-
+#endif
 	/*
 	 * For the time being a function is thought as shippable
 	 * only if it is immutable.
 	 */
 	return func_volatile(funcid) == PROVOLATILE_IMMUTABLE;
 }
-
+#ifdef ADB
 /*
  * pgxc_find_user_defined_equijoin_quals
  * Check equijoin conditions on given relations with distributing by user-
@@ -1666,7 +1680,7 @@ pgxc_find_user_defined_equijoin_quals(ExecNodes *nodes1,
 
 	return equal_qual_list;
 }
-
+#endif
 /*
  * pgxc_find_dist_equijoin_qual
  * Check equijoin conditions on given relations
@@ -1832,7 +1846,9 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 			merged_en->nodeList = list_copy(en2->nodeList);
 			merged_en->baselocatortype = en2->baselocatortype;
 			merged_en->en_dist_vars = en2->en_dist_vars;
+#ifdef ADB
 			merged_en->en_funcid = en2->en_funcid;
+#endif
 		}
 		return merged_en;
 	}
@@ -1860,7 +1876,9 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 			merged_en->nodeList = list_copy(en1->nodeList);
 			merged_en->baselocatortype = en1->baselocatortype;
 			merged_en->en_dist_vars = en1->en_dist_vars;
+#ifdef ADB
 			merged_en->en_funcid = en1->en_funcid;
+#endif
 		}
 		return merged_en;
 	}
@@ -1882,9 +1900,11 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 			if (en1->baselocatortype == en2->baselocatortype)
 			{
 				merged_en->baselocatortype = en1->baselocatortype;
+#ifdef ADB
 				if (OidIsValid(en1->en_funcid) &&
 					en1->en_funcid == en2->en_funcid)
 					merged_en->en_funcid = en1->en_funcid;
+#endif
 				merged_en->en_dist_vars = list_concat(list_copy(en1->en_dist_vars),
 												list_copy(en2->en_dist_vars));
 			}
@@ -2059,7 +2079,7 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 				 * remotely as the distribution column is included in index.
 				 */
 				break;
-
+#ifdef ADB
 			case LOCATOR_TYPE_USER_DEFINED:
 				{
 					List *attr_diff = NIL;
@@ -2087,7 +2107,7 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 					}
 				}
 				break;
-
+#endif
 			/* Those types are not supported yet */
 			case LOCATOR_TYPE_RANGE:
 			case LOCATOR_TYPE_NONE:
@@ -2151,8 +2171,9 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 			 */
 			result = false;
 			break;
-
+#ifdef ADB
 		case LOCATOR_TYPE_USER_DEFINED:
+#endif
 		case LOCATOR_TYPE_HASH:
 		case LOCATOR_TYPE_MODULO:
 			/*
@@ -2193,7 +2214,7 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 				result = false;
 				break;
 			}
-
+#ifdef ADB
 			if (IsRelationDistributedByUserDefined(parentLocInfo))
 			{
 				List *childRefsDiff = NIL;
@@ -2249,6 +2270,7 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 					}
 				}
 			} else
+#endif
 			/*
 			 * Check that child and parents are referenced using their
 			 * distribution column.
@@ -2364,7 +2386,7 @@ pgxc_get_dist_var(Index varno, RangeTblEntry *rte, List *tlist)
 						dist_var_typmod, dist_var_collid, 0);
 	return dist_var;
 }
-
+#ifdef ADB
 List *
 pgxc_get_dist_var_list(Index varno, RangeTblEntry *rte)
 {
@@ -2396,7 +2418,7 @@ pgxc_get_dist_var_list(Index varno, RangeTblEntry *rte)
 
 	return dist_var_list;
 }
-
+#endif
 /*
  * pgxc_is_join_shippable
  * The shippability of JOIN is decided in following steps
@@ -2490,7 +2512,9 @@ pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en,
 																join_quals);
 			if (equi_join_expr && pgxc_is_expr_shippable(equi_join_expr, NULL))
 				merge_nodes = true;
-		} else
+		}
+#ifdef ADB
+		else
 		if (inner_en->baselocatortype == outer_en->baselocatortype &&
 			IsExecNodesDistributedByUserDefined(inner_en))
 		{
@@ -2502,6 +2526,7 @@ pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en,
 			if (equi_join_exprs && pgxc_is_expr_shippable((Expr *)equi_join_exprs, NULL))
 				merge_nodes = true;
 		}
+#endif
 	}
 	/*
 	 * If outer side is distributed and inner side is replicated, we can ship

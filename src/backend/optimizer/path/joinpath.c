@@ -228,6 +228,16 @@ add_paths_to_joinrel(PlannerInfo *root,
 	if (set_join_pathlist_hook)
 		set_join_pathlist_hook(root, joinrel, outerrel, innerrel,
 							   jointype, &extra);
+
+#ifdef ADB
+	/*
+	 * If the inner and outer relations have RemoteQuery paths, check if this
+	 * JOIN can be pushed to the data-nodes. If so, create a RemoteQuery path
+	 * corresponding to the this JOIN.
+	 */
+	create_joinrel_rqpath(root, joinrel, outerrel, innerrel, restrictlist,
+								jointype, sjinfo, extra.param_source_rels);
+#endif /* ADB */
 }
 
 /*

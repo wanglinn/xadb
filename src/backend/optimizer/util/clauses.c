@@ -104,6 +104,7 @@ static bool contain_mutable_functions_walker(Node *node, void *context);
 static bool contain_volatile_functions_walker(Node *node, void *context);
 static bool contain_volatile_functions_not_nextval_walker(Node *node, void *context);
 #ifdef ADB
+static bool contain_rownum_walker(Node *node, void *context);
 static bool contain_volatile_functions_walker_without_check_RownumExpr(Node *node, void *context);
 #endif
 static bool has_parallel_hazard_walker(Node *node,
@@ -936,6 +937,21 @@ contain_subplans_walker(Node *node, void *context)
 	return expression_tree_walker(node, contain_subplans_walker, context);
 }
 
+#ifdef ADB
+bool contain_rownum(Node *clause)
+{
+	return contain_rownum_walker(clause, NULL);
+}
+
+static bool contain_rownum_walker(Node *node, void *context)
+{
+	if(node == NULL)
+		return false;
+	if(IsA(node, RownumExpr))
+		return true;
+	return expression_tree_walker(node, contain_rownum_walker, context);
+}
+#endif /* ADB */
 
 /*****************************************************************************
  *		Check clauses for mutable functions

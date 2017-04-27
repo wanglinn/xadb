@@ -25,7 +25,9 @@
 #include "optimizer/tlist.h"
 #include "utils/hsearch.h"
 
-
+#ifdef PGXC
+#include "pgxc/pgxc.h"
+#endif
 typedef struct JoinHashEntry
 {
 	Relids		join_relids;	/* hash key --- MUST BE FIRST */
