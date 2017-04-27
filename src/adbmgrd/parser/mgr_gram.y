@@ -279,7 +279,7 @@ AlterUserStmt:
 			ALTER USER RoleId AlterOptRoleList
 				 {
 					AlterRoleStmt *n = makeNode(AlterRoleStmt);
-					n->role = $3;
+					n->role = (Node *)makeString($3);
 					n->action = +1; /* add, if there are members */
 					n->options = $4;
 					$$ = (Node *)n;
