@@ -42,6 +42,9 @@
 #include "parser/parse_clause.h"
 #include "parser/parsetree.h"
 #include "utils/lsyscache.h"
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif /* ADB */
 
 
 /*
@@ -465,6 +468,12 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 											  (LimitPath *) best_path,
 											  flags);
 			break;
+#ifdef ADB
+		case T_RemoteQuery:
+			plan = create_remotequery_plan(root,
+										   (RemoteQueryPath *) best_path);
+			break;
+#endif
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) best_path->pathtype);
@@ -3593,6 +3602,10 @@ create_mergejoin_plan(PlannerInfo *root,
 
 		label_sort_with_costsize(root, sort, -1.0);
 		outer_plan = (Plan *) sort;
+#ifdef ADB
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+			outer_plan = (Plan *) create_remotesort_plan(root, outer_plan);
+#endif
 		outerpathkeys = best_path->outersortkeys;
 	}
 	else
@@ -3605,6 +3618,20 @@ create_mergejoin_plan(PlannerInfo *root,
 
 		label_sort_with_costsize(root, sort, -1.0);
 		inner_plan = (Plan *) sort;
+#ifdef ADB
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		{
+			inner_plan = (Plan *) create_remotesort_plan(root, inner_plan);
+			/* If Sort node is not needed on top of RemoteQuery node, we
+			 * will need to materialize the datanode result so that
+			 * mark/restore on the inner node can be handled.
+			 * We shouldn't be changing the members in path structure while
+			 * creating plan, but changing the one below isn't harmful.
+			 */
+			if (IsA(inner_plan, RemoteQuery))
+				best_path->materialize_inner = true; 
+		}
+#endif
 		innerpathkeys = best_path->innersortkeys;
 	}
 	else
