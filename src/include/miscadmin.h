@@ -471,4 +471,8 @@ extern bool has_rolreplication(Oid roleid);
 extern bool BackupInProgress(void);
 extern void CancelBackup(void);
 
+#ifdef ADB
+void PGXC_init_lock_files(void);
+#endif
+
 #endif   /* MISCADMIN_H */

@@ -36,6 +36,9 @@
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#if defined(ADBMGRD)
+#include "postmaster/adbmonitor.h"
+#endif
 #include "postmaster/autovacuum.h"
 #include "postmaster/postmaster.h"
 #include "replication/walsender.h"
@@ -314,7 +317,13 @@ CheckMyDatabase(const char *name, bool am_superuser)
 	 *
 	 * We do not enforce them for autovacuum worker processes either.
 	 */
+#if defined(ADBMGRD)
+	if (IsUnderPostmaster &&
+		!IsAutoVacuumWorkerProcess() &&
+		!IsAnyAdbMonitorProcess())
+#else
 	if (IsUnderPostmaster && !IsAutoVacuumWorkerProcess())
+#endif
 	{
 		/*
 		 * Check that the database is currently allowing connections.
@@ -496,9 +505,16 @@ InitializeMaxBackends(void)
 {
 	Assert(MaxBackends == 0);
 
+#if defined(ADBMGRD)
+	/* the extra unit accounts for the autovacuum launcher and adb monitor launcher */
+	MaxBackends = MaxConnections + autovacuum_max_workers + 1 +
+		adbmonitor_max_workers + 1 + 
+		max_worker_processes;
+#else
 	/* the extra unit accounts for the autovacuum launcher */
 	MaxBackends = MaxConnections + autovacuum_max_workers + 1 +
 		max_worker_processes;
+#endif /* ADBMGRD */
 
 	/* internal error because the values were all checked previously */
 	if (MaxBackends > MAX_BACKENDS)
@@ -699,7 +715,13 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	 * In standalone mode and in autovacuum worker processes, we use a fixed
 	 * ID, otherwise we figure it out from the authenticated user name.
 	 */
+#if defined(ADBMGRD)
+	if (bootstrap ||
+		IsAutoVacuumWorkerProcess() ||
+		IsAnyAdbMonitorProcess())
+#else
 	if (bootstrap || IsAutoVacuumWorkerProcess())
+#endif
 	{
 		InitializeSessionUserIdStandalone();
 		am_superuser = true;
