@@ -233,6 +233,9 @@ static int64 AlignTimestampToMinuteBoundary(int64 ts);
 static Snapshot CopySnapshot(Snapshot snapshot);
 static void FreeSnapshot(Snapshot snapshot);
 static void SnapshotResetXmin(void);
+#ifdef ADB
+static Snapshot CopyGlobalSnapshot(Snapshot snapshot);
+#endif
 
 /*
  * Snapshot fields to be serialized.
@@ -366,7 +369,35 @@ GetTransactionSnapshot(void)
 	}
 
 	if (IsolationUsesXactSnapshot())
+#ifdef ADB
+	{
+		/*
+		 * Consider this test case taken from portals.sql
+		 *
+		 * CREATE TABLE cursor (a int, b int) distribute by replication;
+		 * INSERT INTO cursor VALUES (10);
+		 * BEGIN;
+		 * SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+		 * DECLARE c1 NO SCROLL CURSOR FOR SELECT * FROM cursor FOR UPDATE;
+		 * INSERT INTO cursor VALUES (2);
+		 * FETCH ALL FROM c1;
+		 * would result in
+		 * ERROR:  attempted to lock invisible tuple
+		 * because FETCH would be sent as a select to the remote nodes
+		 * with command id 0, whereas the command id would be 2
+		 * in the current snapshot.
+		 * (1 sent by Coordinator due to declare cursor &
+		 *  2 because of the insert inside the transaction)
+		 * The command id should therefore be updated in the
+		 * current snapshot.
+		 */
+		if (IsConnFromCoord())
+			SnapshotSetCommandId(GetCurrentCommandId(false));
+#endif
 		return CurrentSnapshot;
+#ifdef ADB
+	}
+#endif
 
 	/* Don't allow catalog snapshot to be older than xact snapshot. */
 	InvalidateCatalogSnapshot();
@@ -557,6 +588,10 @@ SnapshotSetCommandId(CommandId curcid)
 	if (SecondarySnapshot)
 		SecondarySnapshot->curcid = curcid;
 	/* Should we do the same with CatalogSnapshot? */
+#ifdef ADB
+	if (GlobalSnapshot)
+		GlobalSnapshot->curcid = curcid;
+#endif
 }
 
 /*
@@ -843,6 +878,14 @@ PopActiveSnapshot(void)
 Snapshot
 GetActiveSnapshot(void)
 {
+#ifdef ADB
+	/*
+	 * Check if topmost snapshot is null or not,
+	 * if it is, a new one will be taken from GTM.
+	 */
+	if (!ActiveSnapshot && IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		return NULL;
+#endif
 	Assert(ActiveSnapshot != NULL);
 
 	return ActiveSnapshot->as_snap;
