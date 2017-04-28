@@ -5108,7 +5108,7 @@ readRecoveryCommandFile(void)
 			recoveryTarget = RECOVERY_TARGET_BARRIER;
 			recoveryTargetBarrierId = pstrdup(item->value);
 		}
-#endif		
+#endif
 		else if (strcmp(item->name, "recovery_target_name") == 0)
 		{
 			recoveryTarget = RECOVERY_TARGET_NAME;
@@ -6154,9 +6154,9 @@ StartupXLOG(void)
 							timestamptz_to_str(recoveryTargetTime))));
 #ifdef ADB
 		else if (recoveryTarget == RECOVERY_TARGET_BARRIER)
-					ereport(LOG,
-							(errmsg("starting point-in-time recovery to barrier %s",
-									(recoveryTargetBarrierId))));
+			ereport(LOG,
+					(errmsg("starting point-in-time recovery to barrier %s",
+							(recoveryTargetBarrierId))));
 #endif
 		else if (recoveryTarget == RECOVERY_TARGET_NAME)
 			ereport(LOG,

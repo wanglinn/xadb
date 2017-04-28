@@ -582,8 +582,8 @@ compute_hash(Oid type, Datum value, char locator)
 		case INT2VECTOROID:
 			return DirectFunctionCall1(hashint2vector, value);
 
-		//case VARCHAR2OID:
-		//case NVARCHAR2OID:
+		case VARCHAR2OID:
+		case NVARCHAR2OID:
 
 		case VARCHAROID:
 		case TEXTOID:
@@ -622,7 +622,7 @@ compute_hash(Oid type, Datum value, char locator)
 		case TIMEOID:
 			return DirectFunctionCall1(time_hash, value);
 
-		//case ORADATEOID:
+		case ORADATEOID:
 
 		case TIMESTAMPOID:
 			return DirectFunctionCall1(timestamp_hash, value);
@@ -684,8 +684,8 @@ get_compute_hash_function(Oid type, char locator)
 		case INT2VECTOROID:
 			return "hashint2vector";
 
-		//case VARCHAR2OID:
-		//case NVARCHAR2OID:
+		case VARCHAR2OID:
+		case NVARCHAR2OID:
 
 		case VARCHAROID:
 		case TEXTOID:

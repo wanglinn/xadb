@@ -189,7 +189,6 @@ GetForceXidFromAGTM(void)
 	return ForceObtainXidFromAGTM;
 }
 
-
 static GlobalTransactionId
 ObtainGlobalTransactionId(bool isSubXact)
 {
@@ -483,6 +482,20 @@ GetNewTransactionId(bool isSubXact)
 		return BootstrapTransactionId;
 	}
 
+#if defined(ADB)
+	if (!isADBLoader)
+	{
+		if (IsUnderAGTM())
+		{
+			/*
+			 * The new XID must be got from AGTM when processing mode is normal.
+			 */
+			Assert(!(IsUnderPostmaster && IsNormalProcessingMode()));
+		}
+	}
+
+#endif
+
 	/* safety check, we should never get this far in a HS slave */
 	if (RecoveryInProgress())
 		elog(ERROR, "cannot assign TransactionIds during recovery");
@@ -666,7 +679,7 @@ GetNewTransactionId(bool isSubXact)
 
 #ifdef DEBUG_ADB
 	adb_ereport(LOG,
- 		(errmsg("Return new local xid: %u", xid)));
+		(errmsg("Return new local xid: %u", xid)));
 #endif
 
 	return xid;

@@ -229,6 +229,10 @@ typedef struct PROC_HDR
 	PGPROC	   *freeProcs;
 	/* Head of list of autovacuum's free PGPROC structures */
 	PGPROC	   *autovacFreeProcs;
+#if defined(ADBMGRD)
+	/* Head of list of adb monitor's free PGPROC structures */
+	PGPROC	   *adbmntFreeProcs;
+#endif
 	/* Head of list of bgworker free PGPROC structures */
 	PGPROC	   *bgworkerFreeProcs;
 	/* First pgproc waiting for group XID clear */
@@ -258,7 +262,11 @@ extern PGPROC *PreparedXactProcs;
  * Startup process and WAL receiver also consume 2 slots, but WAL writer is
  * launched only after startup has exited, so we only need 4 slots.
  */
+#ifdef ADB
+#define NUM_AUXILIARY_PROCS		6	/* include pooler manager and rxact manager processes  */
+#else
 #define NUM_AUXILIARY_PROCS		4
+#endif
 
 
 /* configurable options */

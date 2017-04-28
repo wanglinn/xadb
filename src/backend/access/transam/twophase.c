@@ -649,11 +649,10 @@ LockGXact(const char *gid, Oid user)
 	if (!xc_maintenance_mode)
 	{
 #endif
-	
+
 #if defined(ADB) || defined(AGTM)
 		if (!missing_ok)
 #endif
-
 	ereport(ERROR,
 			(errcode(ERRCODE_UNDEFINED_OBJECT),
 		 errmsg("prepared transaction with identifier \"%s\" does not exist",

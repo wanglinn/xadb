@@ -32,6 +32,9 @@
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
+#ifdef ADB
+#include "access/xact.h"
+#endif
 
 /*
  * How many times should we try to find a unique indetifier
@@ -309,6 +312,13 @@ PgxcNodeListAndCount(void)
 	Relation rel;
 	HeapScanDesc scan;
 	HeapTuple   tuple;
+	bool need_begin = !IsTransactionState();
+
+	if (need_begin)
+	{
+		StartTransactionCommand();
+		(void) GetTransactionSnapshot();
+	}
 
 	LWLockAcquire(NodeTableLock, LW_EXCLUSIVE);
 
@@ -359,6 +369,9 @@ PgxcNodeListAndCount(void)
 		qsort(dnDefs, *shmemNumDataNodes, sizeof(NodeDefinition), cmp_nodes);
 
 	LWLockRelease(NodeTableLock);
+
+	if (need_begin)
+		CommitTransactionCommand();
 }
 
 

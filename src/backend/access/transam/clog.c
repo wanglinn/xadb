@@ -159,6 +159,13 @@ TransactionIdSetTreeStatus(TransactionId xid, int nsubxids,
 	Assert(status == TRANSACTION_STATUS_COMMITTED ||
 		   status == TRANSACTION_STATUS_ABORTED);
 
+#ifdef ADB
+	if (status == TRANSACTION_STATUS_COMMITTED)
+		elog(DEBUG1, "Record transaction commit %u", xid);
+	else
+		elog(DEBUG1, "Record transaction abort %u", xid);
+#endif
+
 	/*
 	 * See how many subxids, if any, are on the same page as the parent, if
 	 * any.

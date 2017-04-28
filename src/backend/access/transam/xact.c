@@ -419,9 +419,7 @@ static void ShowTransactionState(const char *str);
 static void ShowTransactionStateRec(TransactionState state);
 static const char *BlockStateAsString(TBlockState blockState);
 static const char *TransStateAsString(TransState state);
-#ifdef ADB
 static void PrepareTransaction(void);
-#endif
 
 
 /* ----------------------------------------------------------------
@@ -605,10 +603,18 @@ AssignTransactionId(TransactionState s)
 	bool		isSubXact = (s->parent != NULL);
 	ResourceOwner currentOwner;
 	bool		log_unknown_top = false;
+#ifdef ADB
+	bool		is_under_agtm = IsUnderAGTM();
+#endif /* ADB */
 
 	/* Assert that caller didn't screw up */
 	Assert(!TransactionIdIsValid(s->transactionId));
 	Assert(s->state == TRANS_INPROGRESS);
+
+#ifdef ADB
+	if(isSubXact && is_under_agtm)
+		ereport(ERROR, (errmsg("cannot assign XIDs in child transaction")));
+#endif /* ADB */
 
 	/*
 	 * Workers synchronize transaction state at the beginning of each parallel
@@ -668,6 +674,16 @@ AssignTransactionId(TransactionState s)
 	 * PG_PROC, the subtrans entry is needed to ensure that other backends see
 	 * the Xid as "running".  See GetNewTransactionId.
 	 */
+#ifdef ADB
+	/*
+	 * Get global transaction xid from AGTM.
+	 */
+	if (is_under_agtm)
+	{
+		agtm_BeginTransaction();
+		s->transactionId = GetNewGlobalTransactionId(isSubXact);
+	} else
+#endif
 	s->transactionId = GetNewTransactionId(isSubXact);
 	if (!isSubXact)
 		XactTopTransactionId = s->transactionId;
