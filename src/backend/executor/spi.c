@@ -1304,11 +1304,18 @@ SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 	{
 		/* Use a random nonconflicting name */
 		portal = CreateNewPortal();
+#ifdef ADB
+		portal->grammar = plansource->grammar;
+#endif
 	}
 	else
 	{
+#ifdef ADB
+		portal = CreatePortal(name, false, false, plansource->grammar);
+#else
 		/* In this path, error if portal of same name already exists */
 		portal = CreatePortal(name, false, false);
+#endif
 	}
 
 	/* Copy the plan's query string into the portal */

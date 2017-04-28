@@ -116,6 +116,7 @@ typedef struct CachedPlanSource
 	int			num_custom_plans;		/* number of plans included in total */
 #ifdef ADB
 	char	   *stmt_name;		/* If set, this is a copy of prepared stmt name */
+	ParseGrammar grammar;
 #endif
 } CachedPlanSource;
 

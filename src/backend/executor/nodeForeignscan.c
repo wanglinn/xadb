@@ -28,6 +28,12 @@
 #include "utils/memutils.h"
 #include "utils/rel.h"
 
+#ifdef ADB
+#include "utils/lsyscache.h"
+#include "pgxc/pgxc.h"
+#endif
+
+
 static TupleTableSlot *ForeignNext(ForeignScanState *node);
 static bool ForeignRecheck(ForeignScanState *node, TupleTableSlot *slot);
 
@@ -65,6 +71,9 @@ ForeignNext(ForeignScanState *node)
 		HeapTuple	tup = ExecMaterializeSlot(slot);
 
 		tup->t_tableOid = RelationGetRelid(node->ss.ss_currentRelation);
+#ifdef ADB
+		tup->t_xc_node_id = PGXCNodeIdentifier;
+#endif
 	}
 
 	return slot;

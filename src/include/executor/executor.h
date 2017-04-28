@@ -115,6 +115,9 @@ extern bool execCurrentOf(CurrentOfExpr *cexpr,
 			  ExprContext *econtext,
 			  Oid table_oid,
 			  ItemPointer current_tid);
+#ifdef ADB
+ScanState *search_plan_tree(PlanState *node, Oid table_oid);
+#endif
 
 /*
  * prototypes from functions in execGrouping.c

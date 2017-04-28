@@ -74,13 +74,17 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	/*
 	 * Create a portal and copy the plan and queryString into its memory.
 	 */
-	portal = CreatePortal(cstmt->portalname, false, false);
+
 #ifdef ADB
+	portal = CreatePortal(cstmt->portalname, false, false, PARSE_GRAM_POSTGRES);
+
 	/*
 	 * Consume the command id of the command creating the cursor
 	 */
 	if (IS_PGXC_COORDINATOR&& !IsConnFromCoord())
 		GetCurrentCommandId(true);
+#else
+	portal = CreatePortal(cstmt->portalname, false, false);
 #endif
 
 	oldContext = MemoryContextSwitchTo(PortalGetHeapMemory(portal));

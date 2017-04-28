@@ -107,6 +107,10 @@ CreateExecutorState(void)
 	estate->es_num_result_relations = 0;
 	estate->es_result_relation_info = NULL;
 
+#ifdef ADB
+	estate->es_result_remoterel = NULL;
+#endif	
+
 	estate->es_trig_target_relations = NIL;
 	estate->es_trig_tuple_slot = NULL;
 	estate->es_trig_oldtup_slot = NULL;

@@ -116,6 +116,9 @@
 #include "executor/nodeWorktablescan.h"
 #include "nodes/nodeFuncs.h"
 #include "miscadmin.h"
+#ifdef ADB
+#include "pgxc/execRemote.h"
+#endif
 
 
 /* ------------------------------------------------------------------------
@@ -334,6 +337,13 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 												 estate, eflags);
 			break;
 
+#ifdef ADB
+		case T_RemoteQuery:
+			result = (PlanState *) ExecInitRemoteQuery((RemoteQuery *) node,
+												estate, eflags);
+			break;
+#endif
+
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
 			result = NULL;		/* keep compiler quiet */
@@ -530,6 +540,12 @@ ExecProcNode(PlanState *node)
 		case T_LimitState:
 			result = ExecLimit((LimitState *) node);
 			break;
+
+#ifdef ADB
+		case T_RemoteQueryState:
+			result = ExecRemoteQuery((RemoteQueryState *) node);
+			break;
+#endif
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
@@ -778,6 +794,11 @@ ExecEndNode(PlanState *node)
 		case T_LimitState:
 			ExecEndLimit((LimitState *) node);
 			break;
+#ifdef ADB
+		case T_RemoteQueryState:
+			ExecEndRemoteQuery((RemoteQueryState *) node);
+			break;
+#endif
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));

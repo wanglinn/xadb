@@ -56,6 +56,9 @@
 #include "nodes/relation.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+#ifdef ADB
+#include "pgxc/execRemote.h"
+#endif
 
 
 static bool TargetListSupportsBackwardScan(List *targetlist);
@@ -209,6 +212,11 @@ ExecReScan(PlanState *node)
 		case T_ForeignScanState:
 			ExecReScanForeignScan((ForeignScanState *) node);
 			break;
+#ifdef ADB
+		case T_RemoteQueryState:
+			ExecRemoteQueryReScan((RemoteQueryState *) node, node->ps_ExprContext);
+		break;
+#endif
 
 		case T_CustomScanState:
 			ExecReScanCustomScan((CustomScanState *) node);

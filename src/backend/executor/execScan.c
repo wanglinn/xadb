@@ -218,6 +218,10 @@ ExecScan(ScanState *node,
 				 * from this scan tuple, in which case continue scan.
 				 */
 				resultSlot = ExecProject(projInfo, &isDone);
+#ifdef ADB
+				/* Copy the xcnodeoid if underlying scanned slot has one */
+				resultSlot->tts_xcnodeoid = slot->tts_xcnodeoid;
+#endif
 				if (isDone != ExprEndResult)
 				{
 					node->ps.ps_TupFromTlist = (isDone == ExprMultipleResult);

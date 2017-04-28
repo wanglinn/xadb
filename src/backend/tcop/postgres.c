@@ -1042,6 +1042,7 @@ exec_simple_query(const char *query_string)
 #ifdef ADB
 	List	   *sql_list;
 	ListCell   *sql_item;
+	ParseGrammar grammar;	
 #endif
 	bool		save_log_statement_stats = log_statement_stats;
 	bool		was_logged = false;
@@ -1231,7 +1232,12 @@ exec_simple_query(const char *query_string)
 		 * Create unnamed portal to run the query or queries in. If there
 		 * already is one, silently drop it.
 		 */
+#ifdef ADB
+		portal = CreatePortal("", true, true, grammar);
+#else
 		portal = CreatePortal("", true, true);
+#endif
+
 		/* Don't display the portal in pg_cursors */
 		portal->visible = false;
 
@@ -1821,9 +1827,18 @@ exec_bind_message(StringInfo input_message)
 	 * if the unnamed portal is specified.
 	 */
 	if (portal_name[0] == '\0')
+#ifdef ADB
+		portal = CreatePortal(portal_name, true, true, psrc->grammar);
+#else
 		portal = CreatePortal(portal_name, true, true);
+#endif
 	else
+#ifdef ADB
+		portal = CreatePortal(portal_name, false, false, psrc->grammar);
+#else
 		portal = CreatePortal(portal_name, false, false);
+#endif
+
 
 	/*
 	 * Prepare to copy stuff into the portal's memory context.  We do all this

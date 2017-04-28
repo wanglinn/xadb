@@ -34,6 +34,10 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#include "commands/prepare.h"
+#endif
 
 /*
  * Specialized DestReceiver for collecting query output in a SQL function

@@ -199,7 +199,11 @@ PortalListGetPrimaryStmt(List *stmts)
  * dupSilent: if true, don't even emit a WARNING.
  */
 Portal
-CreatePortal(const char *name, bool allowDup, bool dupSilent)
+#ifdef ADB
+	CreatePortal(const char *name, bool allowDup, bool dupSilent, ParseGrammar grammar)
+#else
+	CreatePortal(const char *name, bool allowDup, bool dupSilent)
+#endif
 {
 	Portal		portal;
 
@@ -257,6 +261,7 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 		Oid node_oid = get_pgxc_nodeoid(PGXCNodeName);
 		PGXCNodeIdentifier = get_pgxc_node_id(node_oid);
 	}
+	portal->grammar = grammar;	
 #endif
 
 	return portal;
@@ -282,7 +287,11 @@ CreateNewPortal(void)
 			break;
 	}
 
+#ifdef ADB
+	return CreatePortal(portalname, false, false, PARSE_GRAM_POSTGRES);
+#else
 	return CreatePortal(portalname, false, false);
+#endif
 }
 
 /*
