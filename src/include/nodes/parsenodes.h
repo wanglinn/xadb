@@ -1329,21 +1329,25 @@ typedef struct BaseStmt
 	IsA(node, AlterFdwStmt) || \
 	IsA(node, AlterForeignServerStmt) || \
 	IsA(node, AlterFunctionStmt) || \
+	IsA(node, AlterNodeStmt) || \
 	IsA(node, AlterObjectDependsStmt) || \
 	IsA(node, AlterObjectSchemaStmt) || \
 	IsA(node, AlterOwnerStmt) || \
 	IsA(node, AlterOperatorStmt) || \
+	IsA(node, AlterOpFamilyStmt) || \
 	IsA(node, AlterPolicyStmt) || \
+	IsA(node, AlterRoleStmt) || \
+	IsA(node, AlterRoleSetStmt) || \
 	IsA(node, AlterSeqStmt) || \
 	IsA(node, AlterSystemStmt) || \
 	IsA(node, AlterTableStmt) || \
 	IsA(node, AlterTableSpaceOptionsStmt) || \
-	IsA(node, AlterRoleSetStmt) || \
-	IsA(node, AlterRoleStmt) || \
 	IsA(node, AlterTSConfigurationStmt) || \
 	IsA(node, AlterTSDictionaryStmt) || \
 	IsA(node, AlterUserMappingStmt) || \
+	IsA(node, BarrierStmt) || \
 	IsA(node, CheckPointStmt) || \
+	IsA(node, CleanConnStmt) || \
 	IsA(node, ClosePortalStmt) || \
 	IsA(node, ClusterStmt) || \
 	IsA(node, CommentStmt) || \
@@ -1359,14 +1363,15 @@ typedef struct BaseStmt
 	IsA(node, CreateForeignTableStmt) || \
 	IsA(node, CreateFunctionStmt) || \
 	IsA(node, CreateGroupStmt) || \
+	IsA(node, CreateNodeStmt) || \
 	IsA(node, CreateOpClassStmt) || \
 	IsA(node, CreateOpFamilyStmt) || \
-	IsA(node, AlterOpFamilyStmt) || \
 	IsA(node, CreatePolicyStmt) || \
 	IsA(node, CreatePLangStmt) || \
 	IsA(node, CreateSchemaStmt) || \
 	IsA(node, CreateSeqStmt) || \
 	IsA(node, CreateStmt) || \
+	IsA(node, CreateTableAsStmt) || \
 	IsA(node, CreateTableSpaceStmt) || \
 	IsA(node, CreateTransformStmt) || \
 	IsA(node, CreateTrigStmt) || \
@@ -1381,12 +1386,14 @@ typedef struct BaseStmt
 	IsA(node, DiscardStmt) || \
 	IsA(node, DoStmt) || \
 	IsA(node, DropGroupStmt) || \
+	IsA(node, DropNodeStmt) || \
 	IsA(node, DropOwnedStmt) || \
 	IsA(node, DropStmt) || \
 	IsA(node, DropTableSpaceStmt) || \
 	IsA(node, DropRoleStmt) || \
 	IsA(node, DropUserMappingStmt) || \
 	IsA(node, DropdbStmt) || \
+	IsA(node, ExecDirectStmt) || \
 	IsA(node, ExecuteStmt) || \
 	IsA(node, ExplainStmt) || \
 	IsA(node, FetchStmt) || \
@@ -1414,9 +1421,7 @@ typedef struct BaseStmt
 	IsA(node, VacuumStmt) || \
 	IsA(node, VariableSetStmt) || \
 	IsA(node, VariableShowStmt) || \
-	IsA(node, ViewStmt) || \
-	IsA(node, ExecDirectStmt) || \
-	IsA(node, CleanConnStmt)
+	IsA(node, ViewStmt)
 #endif
 
 /* ----------------------
