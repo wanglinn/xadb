@@ -46,6 +46,7 @@
 #ifdef ADB
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
+#include "pgxc/pgxc.h"
 #endif
 
 /*
@@ -166,6 +167,9 @@ IsSystemNamespace(Oid namespaceId)
 #ifdef ADB
 	return (namespaceId == PG_CATALOG_NAMESPACE ||
 			namespaceId == PG_ORACLE_NAMESPACE);
+#elif defined(ADBMGRD)
+	return (namespaceId == PG_CATALOG_NAMESPACE ||
+			namespaceId == PG_MANAGER_NAMESPACE);
 #else
 	return namespaceId == PG_CATALOG_NAMESPACE;
 #endif

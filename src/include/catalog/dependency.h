@@ -157,6 +157,11 @@ typedef enum ObjectClass
 	OCLASS_FDW,					/* pg_foreign_data_wrapper */
 	OCLASS_FOREIGN_SERVER,		/* pg_foreign_server */
 	OCLASS_USER_MAPPING,		/* pg_user_mapping */
+#ifdef ADB
+	OCLASS_PGXC_CLASS,			/* pgxc_class */
+	OCLASS_PGXC_NODE,			/* pgxc_node */
+	OCLASS_PGXC_GROUP,			/* pgxc_group */
+#endif
 	OCLASS_DEFACL,				/* pg_default_acl */
 	OCLASS_EXTENSION,			/* pg_extension */
 	OCLASS_EVENT_TRIGGER,		/* pg_event_trigger */

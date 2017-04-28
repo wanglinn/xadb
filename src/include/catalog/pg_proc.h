@@ -240,6 +240,8 @@ DATA(insert OID =  84 (  boolne			   PGNSP PGUID 12 1 0 0 0 f f f t t f i s 2 0 
 DATA(insert OID =  89 (  version		   PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 25 "" _null_ _null_ _null_ _null_ _null_ pgsql_version _null_ _null_ _null_ ));
 DESCR("PostgreSQL version string");
 
+/* ADBQ:need to add Postgres-XC version string */
+
 DATA(insert OID = 86  (  pg_ddl_command_in		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 32 "2275" _null_ _null_ _null_ _null_ _null_ pg_ddl_command_in _null_ _null_ _null_ ));
 DESCR("I/O");
 DATA(insert OID = 87  (  pg_ddl_command_out		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 2275 "32" _null_ _null_ _null_ _null_ _null_ pg_ddl_command_out _null_ _null_ _null_ ));
@@ -3061,8 +3063,13 @@ DATA(insert OID = 1371 (  pg_lock_status   PGNSP PGUID 12 1 1000 0 0 f f f f t t
 DESCR("view system lock information");
 DATA(insert OID = 2561 (  pg_blocking_pids PGNSP PGUID 12 1 0 0 0 f f f f t f v s 1 0 1007 "23" _null_ _null_ _null_ _null_ _null_ pg_blocking_pids _null_ _null_ _null_ ));
 DESCR("get array of PIDs of sessions blocking specified backend PID");
+#ifdef ADB
+DATA(insert OID = 3371 (  pg_prepared_xact PGNSP PGUID 12 1 1000 0 0 f f f f t t v s 0 0 2249 "" "{28,25,1184,26,26,16,30}" "{o,o,o,o,o,o,o}" "{transaction,gid,prepared,ownerid,dbid,implicit,rnodes}" _null_ _null_ pg_prepared_xact _null_ _null_ _null_ ));
+#else
 DATA(insert OID = 1065 (  pg_prepared_xact PGNSP PGUID 12 1 1000 0 0 f f f f t t v s 0 0 2249 "" "{28,25,1184,26,26}" "{o,o,o,o,o}" "{transaction,gid,prepared,ownerid,dbid}" _null_ _null_ pg_prepared_xact _null_ _null_ _null_ ));
+#endif
 DESCR("view two-phase transactions");
+
 DATA(insert OID = 3819 (  pg_get_multixact_members PGNSP PGUID 12 1 1000 0 0 f f f f t t v s 1 0 2249 "28" "{28,28,25}" "{i,o,o}" "{multixid,xid,mode}" _null_ _null_ pg_get_multixact_members _null_ _null_ _null_ ));
 DESCR("view members of a multixactid");
 
@@ -3273,6 +3280,11 @@ DATA(insert OID = 2244 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 1042
 DESCR("maximum value of all bpchar input values");
 DATA(insert OID = 2797 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 27 "27" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("maximum value of all tid input values");
+#ifdef ADB
+DATA(insert OID = 3367 (  max				ORANSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 3970 "3970" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
+DATA(insert OID = 3369 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 86 "86" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
+DESCR("maximum value of all rid input values");
+#endif /* ADB */
 DATA(insert OID = 3564 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 869 "869" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("maximum value of all inet input values");
 
@@ -3314,6 +3326,11 @@ DATA(insert OID = 2245 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 1042
 DESCR("minimum value of all bpchar input values");
 DATA(insert OID = 2798 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 27 "27" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("minimum value of all tid input values");
+#ifdef ADB
+DATA(insert OID = 3368 (  min				ORANSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 3970 "3970" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
+DATA(insert OID = 3370 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 86 "86" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
+DESCR("minimum value of all rid input values");
+#endif /* ADB */
 DATA(insert OID = 3565 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 869 "869" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("minimum value of all inet input values");
 
@@ -5140,6 +5157,24 @@ DESCR("SP-GiST support for radix tree over text");
 DATA(insert OID = 4031 (  spg_text_leaf_consistent	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 16 "2281 2281" _null_ _null_ _null_ _null_  _null_ spg_text_leaf_consistent _null_ _null_ _null_ ));
 DESCR("SP-GiST support for radix tree over text");
 
+#ifdef ADB
+DATA(insert OID = 3359 ( pgxc_pool_check	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_pool_check _null_ _null_ _null_ ));
+DESCR("check connection information consistency in pooler");
+DATA(insert OID = 3360 ( pgxc_pool_reload	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_pool_reload _null_ _null_ _null_ ));
+DESCR("reload connection information in pooler and reload server sessions");
+DATA(insert OID = 3361 ( pgxc_node_str		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 19 "" _null_ _null_ _null_ _null_ _null_ pgxc_node_str _null_ _null_ _null_ ));
+DESCR("get the name of the node");
+DATA(insert OID = 3362 (  pgxc_is_committed	PGNSP PGUID 12 1 1 0 0 f f f f t t s s 1 0 16 "28" _null_ _null_ _null_ _null_ _null_ pgxc_is_committed _null_ _null_ _null_ ));
+DESCR("is given GXID committed or aborted?");
+DATA(insert OID = 3363 ( pgxc_lock_for_backup	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_lock_for_backup _null_ _null_ _null_ ));
+DESCR("lock the cluster for taking backup");
+#endif
+
+#if defined(ADB) || defined(AGTM)
+DATA(insert OID = 3366 (  pg_xact_status	PGNSP PGUID 12 1 1 0 0 f f f f t t s s 1 0 2275 "20" _null_ _null_ _null_ _null_ _null_ pg_xact_status _null_ _null_ _null_ ));
+DESCR("transaction status of specifical xid");
+#endif
+
 DATA(insert OID = 3469 (  spg_range_quad_config PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 2278 "2281 2281" _null_ _null_ _null_ _null_  _null_ spg_range_quad_config _null_ _null_ _null_ ));
 DESCR("SP-GiST support for quad tree over range");
 DATA(insert OID = 3470 (  spg_range_quad_choose PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 2278 "2281 2281" _null_ _null_ _null_ _null_  _null_ spg_range_quad_choose _null_ _null_ _null_ ));
@@ -5530,6 +5565,11 @@ DATA(insert OID = 5400 ( ora_date_pl_interval	ORANSP PGUID 12 1 0 0 0 f f f f t 
 DATA(insert OID = 5401 ( interval_pl_ora_date	ORANSP PGUID 14 1 0 0 0 f f f f t f s s 2 0 3997 "1186 3997" _null_ _null_ _null_ _null_ _null_	"select $2 + $1" _null_ _null_ _null_ ));
 DATA(insert OID = 5402 ( ora_date_mi_interval	ORANSP PGUID 12 1 0 0 0 f f f f t f s s 2 0 3997 "3997 1186" _null_ _null_ _null_ _null_ _null_ timestamptz_mi_interval _null_ _null_ _null_ ));
 
+DATA(insert OID = 3372 (  pool_close_idle_conn		PGNSP PGUID 12 1 0 0 0 f f f f f f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pool_close_idle_conn _null_ _null_ _null_ ));
+DESCR("close pool connection in  idle_slot");
+
+DATA(insert OID = 3373 ( sync_agtm_xid	 PGNSP PGUID 12 10 100 0 0 f f f f t t s s 0 0 2249 "" "{19,28,28}" "{o,o,o}" "{node,local,agtm}" _null_ _null_ sync_agtm_xid _null_ _null_ _null_ ));
+DESCR("synchronize the next XID with AGTM");
 #endif /* ADB */
 
 #ifdef ADBMGRD

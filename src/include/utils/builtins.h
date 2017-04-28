@@ -1491,6 +1491,8 @@ extern Datum pg_cursor(PG_FUNCTION_ARGS);
 extern Datum pgxc_pool_check(PG_FUNCTION_ARGS);
 extern Datum pgxc_pool_reload(PG_FUNCTION_ARGS);
 
+extern Datum pgxc_is_committed(PG_FUNCTION_ARGS);
+
 /* src/backend/catalog/heap.c */
 extern Datum pg_explain_infomask(PG_FUNCTION_ARGS);
 
@@ -1511,5 +1513,9 @@ extern Datum rxact_wait_gid(PG_FUNCTION_ARGS);
 extern Datum rxact_get_running(PG_FUNCTION_ARGS);
 
 #endif   /* ADB */
+
+#if defined(ADB) || defined(AGTM)
+extern Datum pg_xact_status(PG_FUNCTION_ARGS);
+#endif
 
 #endif   /* BUILTINS_H */

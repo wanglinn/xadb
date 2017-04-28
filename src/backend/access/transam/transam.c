@@ -24,6 +24,10 @@
 #include "access/transam.h"
 #include "utils/snapmgr.h"
 
+#if defined(ADB) || defined(AGTM)
+#include "utils/builtins.h"
+#endif
+
 /*
  * Single-item cache for results of TransactionLogFetch.  It's worth having
  * such a cache because we frequently find ourselves repeatedly checking the
@@ -97,6 +101,27 @@ TransactionLogFetch(TransactionId transactionId)
 
 	return xidstatus;
 }
+
+#ifdef ADB
+/*
+ * For given Transaction ID, check if transaction is committed or aborted
+ */
+Datum
+pgxc_is_committed(PG_FUNCTION_ARGS)
+{
+	TransactionId	tid = (TransactionId) PG_GETARG_UINT32(0);
+	XidStatus   xidstatus;
+
+	xidstatus = TransactionLogFetch(tid);
+
+	if (xidstatus == TRANSACTION_STATUS_COMMITTED)
+		PG_RETURN_BOOL(true);
+	else if (xidstatus == TRANSACTION_STATUS_ABORTED)
+		PG_RETURN_BOOL(false);
+	else
+		PG_RETURN_NULL();
+}
+#endif
 
 /* ----------------------------------------------------------------
  *						Interface functions
@@ -428,3 +453,29 @@ TransactionIdGetCommitLSN(TransactionId xid)
 
 	return result;
 }
+
+#if defined(ADB) || defined(AGTM)
+Datum pg_xact_status(PG_FUNCTION_ARGS)
+{
+	TransactionId	tid = (TransactionId) PG_GETARG_INT64(0);
+	XidStatus		xidstatus;
+
+	xidstatus = TransactionLogFetch(tid);
+
+	switch (xidstatus)
+	{
+		case TRANSACTION_STATUS_IN_PROGRESS:
+			PG_RETURN_CSTRING("IN PROGRESS");
+		case TRANSACTION_STATUS_COMMITTED:
+			PG_RETURN_CSTRING("COMMITTED");
+		case TRANSACTION_STATUS_ABORTED:
+			PG_RETURN_CSTRING("ABORTED");
+		case TRANSACTION_STATUS_SUB_COMMITTED:
+			PG_RETURN_CSTRING("SUB COMMITTED");
+		default:
+			break;
+	}
+	PG_RETURN_CSTRING("UNKNOWN");
+}
+#endif
+

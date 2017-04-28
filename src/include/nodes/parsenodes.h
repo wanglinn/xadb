@@ -1421,7 +1421,10 @@ typedef struct BaseStmt
 	IsA(node, VacuumStmt) || \
 	IsA(node, VariableSetStmt) || \
 	IsA(node, VariableShowStmt) || \
-	IsA(node, ViewStmt)
+	IsA(node, ViewStmt) || \
+	IsA(node, ExecDirectStmt) || \
+	IsA(node, CleanConnStmt) || \
+	IsA(node, CreateNodeStmt)
 #endif
 
 /* ----------------------

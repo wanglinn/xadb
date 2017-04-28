@@ -3140,6 +3140,13 @@ getObjectDescription(const ObjectAddress *object)
 				break;
 			}
 
+#ifdef ADB
+		case OCLASS_PGXC_CLASS:
+			appendStringInfo(&buffer, "pgxc_class %u",
+							 object->objectId);
+			break;
+#endif
+
 		case OCLASS_POLICY:
 			{
 				Relation	policy_rel;
@@ -3662,6 +3669,12 @@ getObjectTypeDescription(const ObjectAddress *object)
 		case OCLASS_EVENT_TRIGGER:
 			appendStringInfoString(&buffer, "event trigger");
 			break;
+
+#ifdef ADB
+		case OCLASS_PGXC_CLASS:
+			appendStringInfo(&buffer, "pgxc_class");
+			break;
+#endif
 
 		case OCLASS_POLICY:
 			appendStringInfoString(&buffer, "policy");
@@ -4596,6 +4609,13 @@ getObjectIdentityParts(const ObjectAddress *object,
 				ReleaseSysCache(tup);
 				break;
 			}
+
+#ifdef ADB
+		case OCLASS_PGXC_CLASS:
+			appendStringInfo(&buffer, "pgxc_class %u",
+							 object->objectId);
+			break;
+#endif
 
 		case OCLASS_TRANSFORM:
 			{

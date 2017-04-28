@@ -40,6 +40,10 @@
 #include "utils/resowner.h"
 #include "utils/syscache.h"
 
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#include "commands/dbcommands.h"
+#endif
 
 /*
  * We don't want to log each fetching of a value from a sequence,
@@ -273,6 +277,32 @@ IsTempSequence(Oid relid)
 	res = seqrel->rd_backend == MyBackendId;
 	relation_close(seqrel, NoLock);
 	return res;
+}
+
+void
+register_sequence_cb(Relation rel, AGTM_SequenceKeyType key, AGTM_SequenceDropType type)
+{
+	switch(type)
+	{
+		case AGTM_DROP_SEQ:
+			{
+				char * seqName = NULL;
+				char * databaseName = NULL;
+				char * schemaName = NULL;
+
+				seqName = RelationGetRelationName(rel);
+				databaseName = get_database_name(rel->rd_node.dbNode);
+				schemaName = get_namespace_name(RelationGetNamespace(rel));
+
+				agtm_DropSequence(seqName, databaseName, schemaName);
+				break;
+			}
+		case AGTM_CREATE_SEQ:
+			break;
+		default:
+			break;
+	}
+
 }
 #endif
 

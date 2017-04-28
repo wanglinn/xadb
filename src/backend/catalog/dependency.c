@@ -80,8 +80,13 @@
 
 #ifdef ADB
 #include "agtm/agtm.h"
+#include "catalog/pgxc_class.h"
+#include "catalog/pgxc_node.h"
+#include "catalog/pgxc_group.h"
 #include "commands/dbcommands.h"
 #include "commands/sequence.h"
+#include "commands/tablecmds.h"
+#include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 #endif
 
@@ -165,6 +170,11 @@ static const Oid object_classes[] = {
 	ForeignDataWrapperRelationId,		/* OCLASS_FDW */
 	ForeignServerRelationId,	/* OCLASS_FOREIGN_SERVER */
 	UserMappingRelationId,		/* OCLASS_USER_MAPPING */
+#ifdef ADB
+	PgxcClassRelationId,		/* OCLASS_PGXC_CLASS */
+	PgxcNodeRelationId,			/* OCLASS_PGXC_NODE */
+	PgxcGroupRelationId,		/* OCLASS_PGXC_GROUP */
+#endif
 	DefaultAclRelationId,		/* OCLASS_DEFACL */
 	ExtensionRelationId,		/* OCLASS_EXTENSION */
 	EventTriggerRelationId,		/* OCLASS_EVENT_TRIGGER */
@@ -1242,6 +1252,68 @@ doDeletion(const ObjectAddress *object, int flags)
 					else
 						heap_drop_with_catalog(object->objectId);
 				}
+#ifdef ADB
+				/*
+				 * Do not do extra process if this session is connected to a remote
+				 * Coordinator.
+				 */
+				if (!(IS_PGXC_COORDINATOR && !IsConnFromCoord()))
+					break;
+				
+				/*
+				 * This session is connected directly to application, so extra
+				 * process related to remote nodes and GTM is needed.
+				 */
+				 switch (relKind)
+			 	{
+			 		case RELKIND_SEQUENCE:
+						/*
+						 * Drop the sequence on AGTM.
+						 * Sequence is dropped on AGTM by a remote Coordinator only
+						 * for a non temporary sequence.
+						 */
+						 if (!IsTempSequence(object->objectId))
+						 {
+						 	/*
+							 * The sequence has already been removed from Coordinator,
+							 * finish the stuff on AGTM too
+							 */
+							 Relation relseq;
+								 /*
+							 * A relation is opened to get the schema and database name as
+							 * such data is not available before when dropping a function.
+							 */
+							 relseq = relation_open(object->objectId, AccessShareLock);
+
+							/*
+							 * Sequence is not immediately removed on AGTM, but at the end
+							 * of the transaction block. In case this transaction fails,
+							 * all the data remains intact on AGTM.
+							 */
+							 register_sequence_cb(relseq, AGTM_SEQ_FULL_NAME, AGTM_DROP_SEQ);
+
+							 /* Then close the relation opened previously */
+							 relation_close(relseq, AccessShareLock);
+						 }
+						break;
+
+					case RELKIND_RELATION:
+					case RELKIND_VIEW:
+						/*
+						 * Flag temporary objects in use in case a temporary table or view
+						 * is dropped by dependency. This check is particularly useful with
+						 * CASCADE when temporary objects are removed by dependency in order
+						 * to avoid implicit 2PC would result in an error as temporary
+						 * objects cannot be prepared.
+						 */
+						if (IsTempTable(object->objectId))
+							ExecSetTempObjectIncluded();
+						break;
+
+					default:
+						break;
+				}
+#endif
 				break;
 			}
 
@@ -1353,6 +1425,17 @@ doDeletion(const ObjectAddress *object, int flags)
 		case OCLASS_DEFACL:
 			RemoveDefaultACLById(object->objectId);
 			break;
+
+#ifdef ADB
+		case OCLASS_PGXC_CLASS:
+			RemovePgxcClass(object->objectId);
+			break;
+
+		/*
+		 * OCLASS_PGXC_NODE, OCLASS_PGXC_GROUP intentionally not
+		 * handled here
+		 */
+#endif
 
 		case OCLASS_EXTENSION:
 			RemoveExtensionById(object->objectId);
@@ -2520,6 +2603,17 @@ getObjectClass(const ObjectAddress *object)
 		case EventTriggerRelationId:
 			return OCLASS_EVENT_TRIGGER;
 
+#ifdef ADB
+		case PgxcClassRelationId:
+			Assert(object->objectSubId == 0);
+			return OCLASS_PGXC_CLASS;
+
+		case PgxcNodeRelationId:
+			return OCLASS_PGXC_NODE;
+
+		case PgxcGroupRelationId:
+			return OCLASS_PGXC_GROUP;
+#endif
 		case PolicyRelationId:
 			return OCLASS_POLICY;
 

@@ -1169,6 +1169,13 @@ EventTriggerSupportsObjectClass(ObjectClass objclass)
 		case OCLASS_POLICY:
 		case OCLASS_AM:
 			return true;
+#ifdef ADB
+		case OCLASS_PGXC_CLASS:
+		case OCLASS_PGXC_NODE:
+		case OCLASS_PGXC_GROUP:
+			return false;
+#endif
+
 	}
 
 	return true;
