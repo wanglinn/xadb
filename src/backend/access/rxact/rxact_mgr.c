@@ -494,16 +494,6 @@ re_poll_:
 static void RemoteXactBaseInit(void)
 {
 	/*
-	 * If possible, make this process a group leader, so that the postmaster
-	 * can signal any child processes too.	(pool manager probably never has any
-	 * child processes, but for consistency we make all postmaster child
-	 * processes do this.)
-	 */
-#ifdef HAVE_SETSID
-	if (setsid() < 0)
-		elog(FATAL, "setsid() failed: %m");
-#endif
-	/*
 	 * Properly accept or ignore signals the postmaster might send us
 	 */
 	pqsignal(SIGINT, SIG_IGN);
@@ -526,7 +516,6 @@ static void RemoteXactMgrInit(void)
 	unsigned int i;
 
 	MaxRxactAgent = MaxBackends * 2;
-	START_CRIT_SECTION();
 
 	/* init listen socket */
 	Assert(rxact_server_fd == PGINVALID_SOCKET);
@@ -555,7 +544,6 @@ static void RemoteXactMgrInit(void)
 										   ALLOCSET_DEFAULT_INITSIZE,
 										   ALLOCSET_DEFAULT_MAXSIZE);
 
-	END_CRIT_SECTION();
 	on_proc_exit(on_exit_rxact_mgr, (Datum)0);
 }
 
@@ -564,7 +552,7 @@ static void RemoteXactHtabInit(void)
 	HASHCTL hctl;
 	DbAndNodeOid key;
 	NodeConn *pconn;
-	START_CRIT_SECTION();
+
 	/* create HTAB for RemoteNode */
 	Assert(htab_remote_node == NULL);
 	MemSet(&hctl, 0, sizeof(hctl));
@@ -615,7 +603,6 @@ static void RemoteXactHtabInit(void)
 	htab_rxid = hash_create("DatabaseNode"
 		, 512
 		, &hctl, HASH_ELEM | HASH_CONTEXT);
-	END_CRIT_SECTION();
 }
 
 static void

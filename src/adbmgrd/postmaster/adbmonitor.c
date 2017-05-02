@@ -203,6 +203,8 @@ StartAdbMntLauncher(void)
 
 		case 0:
 			/* in postmaster child ... */
+			InitPostmasterChild();
+
 			/* Close the postmaster's sockets */
 			ClosePostmasterPorts(false);
 
@@ -249,17 +251,6 @@ AdbMntLauncherMain(int argc, char *argv[])
 		pg_usleep(PostAuthDelay * 1000000L);
 
 	SetProcessingMode(InitProcessing);
-
-	/*
-	 * If possible, make this process a group leader, so that the postmaster
-	 * can signal any child processes too.  (adb monitor probably never has any
-	 * child processes, but for consistency we make all postmaster child
-	 * processes do this.)
-	 */
-#ifdef HAVE_SETSID
-	if (setsid() < 0)
-		elog(FATAL, "setsid() failed: %m");
-#endif
 
 	/*
 	 * Set up signal handlers.  We operate on databases much like a regular
@@ -993,17 +984,6 @@ AdbMntWorkerMain(int argc, char *argv[])
 	init_ps_display("adb monitor worker process", "", "", "");
 
 	SetProcessingMode(InitProcessing);
-
-	/*
-	 * If possible, make this process a group leader, so that the postmaster
-	 * can signal any child processes too.  (adn monitor probably never has any
-	 * child processes, but for consistency we make all postmaster child
-	 * processes do this.)
-	 */
-#ifdef HAVE_SETSID
-	if (setsid() < 0)
-		elog(FATAL, "setsid() failed: %m");
-#endif
 
 	/*
 	 * Set up signal handlers.  We operate on databases much like a regular

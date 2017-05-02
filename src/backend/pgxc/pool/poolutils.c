@@ -108,11 +108,9 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 	if (IS_PGXC_DATANODE)
 		PG_RETURN_BOOL(true);
 
-/* ADBQ : Wait for rxact  */	
-/*
 #ifdef ADB
 	RemoteXactReloadNode();
-#endif */ /* ADB */
+#endif
 
 	/* Take a lock on pooler to forbid any action during reload */
 	PoolManagerLock(true);

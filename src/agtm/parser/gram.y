@@ -606,6 +606,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 	WHEN WHERE WHITESPACE_P WINDOW WITH WITHIN WITHOUT WORK WRAPPER WRITE
 
+	/* Added for AGTM */
+	XID
+
 	XML_P XMLATTRIBUTES XMLCONCAT XMLELEMENT XMLEXISTS XMLFOREST XMLPARSE
 	XMLPI XMLROOT XMLSERIALIZE
 
@@ -8745,6 +8748,10 @@ transaction_mode_item:
 			| NOT DEFERRABLE
 					{ $$ = makeDefElem("transaction_deferrable",
 									   makeIntConst(FALSE, @1)); }
+			/* Added for AGTM */
+			| LEAST XID IS Iconst
+					{ $$ = makeDefElem("least_xid_is",
+									   makeIntConst($4, @4)); }
 		;
 
 /* Syntax with commas is SQL-spec, without commas is Postgres historical */
@@ -13963,6 +13970,8 @@ unreserved_keyword:
 			| WORK
 			| WRAPPER
 			| WRITE
+			/* Added for AGTM */
+			| XID
 			| XML_P
 			| YEAR_P
 			| YES_P
