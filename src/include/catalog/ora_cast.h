@@ -226,4 +226,9 @@ DATA(insert (	701		1700	1743	1743	f	));						/* float8 -> numeric */
 DATA(insert (	1700	700		1745	1745	f	));						/* numeric -> float4 */
 DATA(insert (	1700	701		1746	1746	f	));						/* numeric -> float8 */
 
+DATA(insert (	23		21		314		314		f	));						/* int4 -> int2 */
+DATA(insert (	20		21		714		714		f	));						/* int8 -> int2 */
+DATA(insert (	20		23		480		480		f	));						/* int8 -> int4 */
+DATA(insert (	701		700		312		312		f	));						/* float8 -> float4 */
+
 #endif /* ORA_CAST_H */
