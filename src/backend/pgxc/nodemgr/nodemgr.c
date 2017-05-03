@@ -312,13 +312,6 @@ PgxcNodeListAndCount(void)
 	Relation rel;
 	HeapScanDesc scan;
 	HeapTuple   tuple;
-	bool need_begin = !IsTransactionState();
-
-	if (need_begin)
-	{
-		StartTransactionCommand();
-		(void) GetTransactionSnapshot();
-	}
 
 	LWLockAcquire(NodeTableLock, LW_EXCLUSIVE);
 
@@ -333,7 +326,7 @@ PgxcNodeListAndCount(void)
 	 * 3) Complete primary/preferred node information
 	 */
 	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
-	scan = heap_beginscan(rel, NULL, 0, NULL);
+	scan = heap_beginscan_catalog(rel, 0, NULL);
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		Form_pgxc_node  nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
@@ -369,9 +362,6 @@ PgxcNodeListAndCount(void)
 		qsort(dnDefs, *shmemNumDataNodes, sizeof(NodeDefinition), cmp_nodes);
 
 	LWLockRelease(NodeTableLock);
-
-	if (need_begin)
-		CommitTransactionCommand();
 }
 
 

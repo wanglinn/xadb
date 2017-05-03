@@ -149,6 +149,7 @@ InitMultinodeExecutor(bool is_force)
 	Oid				*coOids = NULL;
 	Oid				*dnOids = NULL;
 	char			*nodeName = NULL;
+	MemoryContext	oldCtx = NULL;
 
 	/* Free all the existing information first */
 	if (is_force)
@@ -158,6 +159,8 @@ InitMultinodeExecutor(bool is_force)
 	if (dn_handles != NULL &&
 		co_handles != NULL)
 		return;
+
+	oldCtx = MemoryContextSwitchTo(TopMemoryContext);
 
 	/* Update node table in the shared memory */
 	PgxcNodeListAndCount();
@@ -207,6 +210,8 @@ InitMultinodeExecutor(bool is_force)
 		pfree(coOids);
 	if (dnOids)
 		pfree(dnOids);
+
+	(void) MemoryContextSwitchTo(oldCtx);
 
 	datanode_count = 0;
 	coord_count = 0;

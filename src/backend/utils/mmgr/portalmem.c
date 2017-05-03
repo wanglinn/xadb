@@ -200,9 +200,9 @@ PortalListGetPrimaryStmt(List *stmts)
  */
 Portal
 #ifdef ADB
-	CreatePortal(const char *name, bool allowDup, bool dupSilent, ParseGrammar grammar)
+CreatePortal(const char *name, bool allowDup, bool dupSilent, ParseGrammar grammar)
 #else
-	CreatePortal(const char *name, bool allowDup, bool dupSilent)
+CreatePortal(const char *name, bool allowDup, bool dupSilent)
 #endif
 {
 	Portal		portal;
