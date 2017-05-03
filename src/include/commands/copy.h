@@ -36,4 +36,9 @@ extern void CopyFromErrorCallback(void *arg);
 
 extern DestReceiver *CreateCopyDestReceiver(void);
 
+#ifdef ADB
+extern CopyState pgxcMatViewBeginCopyTo(Relation mvrel);
+extern int64 pgxcDoCopyTo(CopyState cstate);
+#endif /* ADB */
+
 #endif   /* COPY_H */

@@ -32,6 +32,10 @@ typedef struct ExplainState
 	bool		analyze;		/* print actual times */
 	bool		costs;			/* print estimated costs */
 	bool		buffers;		/* print buffer usage */
+#ifdef ADB
+	bool		nodes;			/* print nodes in RemoteQuery node */
+	bool		num_nodes;		/* print number of nodes in RemoteQuery node */
+#endif /* ADB */
 	bool		timing;			/* print detailed node timing */
 	bool		summary;		/* print total planning and execution timing */
 	ExplainFormat format;		/* output format */

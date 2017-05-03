@@ -34,7 +34,9 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
-
+#ifdef ADB
+#include "pgxc/execRemote.h"
+#endif
 
 static void checkViewTupleDesc(TupleDesc newdesc, TupleDesc olddesc);
 
@@ -428,8 +430,15 @@ DefineView(ViewStmt *stmt, const char *queryString)
 	 * Since parse analysis scribbles on its input, copy the raw parse tree;
 	 * this ensures we don't corrupt a prepared statement, for example.
 	 */
+#ifdef ADB
+/*ADBQ : parse_analyze_for_gram notd define */
+//	viewParse = parse_analyze_for_gram((Node *) copyObject(stmt->query),
+//									  queryString, NULL, 0, stmt->grammar);
+	viewParse = NULL;
+#else
 	viewParse = parse_analyze((Node *) copyObject(stmt->query),
 							  queryString, NULL, 0);
+#endif
 
 	/*
 	 * The grammar should ensure that the result is a single SELECT Query.
@@ -550,6 +559,12 @@ DefineView(ViewStmt *stmt, const char *queryString)
 				(errmsg("view \"%s\" will be a temporary view",
 						view->relname)));
 	}
+
+#ifdef ADB
+	/* In case view is temporary, be sure not to use 2PC on such relations */
+	if (view->relpersistence == RELPERSISTENCE_TEMP)
+		ExecSetTempObjectIncluded();
+#endif
 
 	/*
 	 * Create the view relation

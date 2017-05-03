@@ -86,19 +86,19 @@ extern void AtEOSubXact_on_commit_actions(bool isCommit,
 							  SubTransactionId mySubid,
 							  SubTransactionId parentSubid);
 
-extern void RangeVarCallbackOwnsTable(const RangeVar *relation,
-						  Oid relId, Oid oldRelId, void *arg);
-
-extern void RangeVarCallbackOwnsRelation(const RangeVar *relation,
-							 Oid relId, Oid oldRelId, void *noCatalogs);
-
 #ifdef ADB
 extern bool IsTempTable(Oid relid);
 extern bool IsIndexUsingTempTable(Oid relid);
 extern bool IsOnCommitActions(void);
 extern void DropTableThrowErrorExternal(RangeVar *relation,
-									 ObjectType removeType,
-									 bool missing_ok);
+								   ObjectType removeType,
+								   bool missing_ok);
 #endif
+
+extern void RangeVarCallbackOwnsTable(const RangeVar *relation,
+						  Oid relId, Oid oldRelId, void *arg);
+
+extern void RangeVarCallbackOwnsRelation(const RangeVar *relation,
+							 Oid relId, Oid oldRelId, void *noCatalogs);
 
 #endif   /* TABLECMDS_H */

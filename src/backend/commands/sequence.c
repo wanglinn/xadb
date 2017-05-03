@@ -98,8 +98,13 @@ static void create_seq_hashtable(void);
 static void init_sequence(Oid relid, SeqTable *p_elm, Relation *p_rel);
 static Form_pg_sequence read_seq_tuple(SeqTable elm, Relation rel,
 			   Buffer *buf, HeapTuple seqtuple);
+#ifdef ADB
+static void init_params(List *options, bool isInit,
+						Form_pg_sequence new, List **owned_by, bool *is_restart);
+#else
 static void init_params(List *options, bool isInit,
 			Form_pg_sequence new, List **owned_by);
+#endif
 static void do_setval(Oid relid, int64 next, bool iscalled);
 static void process_owned_by(Relation seqrel, List *owned_by);
 
@@ -123,6 +128,11 @@ DefineSequence(CreateSeqStmt *seq)
 	bool		null[SEQ_COL_LASTCOL];
 	int			i;
 	NameData	name;
+
+#ifdef ADB
+	bool			is_restart;
+	List			*seqOptions;
+#endif
 
 	/* Unlogged sequences are not implemented -- not clear if useful. */
 	if (seq->sequence->relpersistence == RELPERSISTENCE_UNLOGGED)
@@ -149,7 +159,12 @@ DefineSequence(CreateSeqStmt *seq)
 	}
 
 	/* Check and set all option values */
+#ifdef ADB
+	seqOptions = seq->options;
+	init_params(seq->options, true, &new, &owned_by, &is_restart);
+#else
 	init_params(seq->options, true, &new, &owned_by);
+#endif
 
 	/*
 	 * Create relation (and fill value[] and null[] for the tuple)
@@ -255,6 +270,26 @@ DefineSequence(CreateSeqStmt *seq)
 
 	heap_close(rel, NoLock);
 
+#ifdef ADB
+	/*
+	 * Remote Coordinator is in charge of creating sequence in AGTM.
+	 * If sequence is temporary, it is not necessary to create it on AGTM.
+	 */
+	if (IS_PGXC_COORDINATOR &&
+		!IsConnFromCoord() &&
+		(seq->sequence->relpersistence == RELPERSISTENCE_PERMANENT ||
+		 seq->sequence->relpersistence == RELPERSISTENCE_UNLOGGED))
+	{
+		char * databaseName = NULL;
+		char * schemaName = NULL;
+
+		databaseName = get_database_name(rel->rd_node.dbNode);
+		schemaName = get_namespace_name(RelationGetNamespace(rel));
+
+		agtm_CreateSequence(seq->sequence->relname, databaseName,
+			schemaName, seqOptions);
+	}
+#endif
 	return address;
 }
 
@@ -277,6 +312,58 @@ IsTempSequence(Oid relid)
 	res = seqrel->rd_backend == MyBackendId;
 	relation_close(seqrel, NoLock);
 	return res;
+}
+
+/*
+ * GetGlobalSeqName
+ *
+ * Returns a global sequence name adapted to AGTM
+ * Name format is dbname.schemaname.seqname
+ * so as to identify in a unique way in the whole cluster each sequence
+ */
+char *
+GetGlobalSeqName(Relation seqrel, const char *new_seqname, const char *new_schemaname)
+{
+	char *seqname, *dbname, *schemaname, *relname;
+	int charlen;
+
+	/* Get all the necessary relation names */
+	dbname = get_database_name(seqrel->rd_node.dbNode);
+
+	if (new_seqname)
+		relname = (char *) new_seqname;
+	else
+		relname = RelationGetRelationName(seqrel);
+
+	if (new_schemaname)
+		schemaname = (char *) new_schemaname;
+	else
+		schemaname = get_namespace_name(RelationGetNamespace(seqrel));
+
+	/* Calculate the global name size including the dots and \0 */
+	charlen = strlen(dbname) + strlen(schemaname) + strlen(relname) + 3;
+	seqname = (char *) palloc(charlen);
+
+	/* Form a unique sequence name with schema and database name for GTM */
+	snprintf(seqname,
+			 charlen,
+			 "%s.%s.%s",
+			 dbname,
+			 schemaname,
+			 relname);
+
+	if (dbname)
+		pfree(dbname);
+	if (schemaname)
+		pfree(schemaname);
+
+	return seqname;
+}
+
+extern void GetSequenceInfoByName(Relation seqrel, char ** dbname, char ** schemaName)
+{
+	*dbname = get_database_name(seqrel->rd_node.dbNode);
+	*schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 }
 
 void
@@ -468,6 +555,11 @@ AlterSequence(AlterSeqStmt *stmt)
 	List	   *owned_by;
 	ObjectAddress address;
 
+#ifdef ADB
+	bool			is_restart;
+	List			*seqOptions;
+#endif
+
 	/* Open and lock sequence. */
 	relid = RangeVarGetRelid(stmt->sequence, AccessShareLock, stmt->missing_ok);
 	if (relid == InvalidOid)
@@ -492,7 +584,12 @@ AlterSequence(AlterSeqStmt *stmt)
 	memcpy(&new, seq, sizeof(FormData_pg_sequence));
 
 	/* Check and set new values */
+#ifdef ADB
+	seqOptions = stmt->options;
+	init_params(stmt->options, false, &new, &owned_by, &is_restart);
+#else
 	init_params(stmt->options, false, &new, &owned_by);
+#endif
 
 	/* Clear local cache so that we don't think we have cached numbers */
 	/* Note that we do not change the currval() state */
@@ -543,6 +640,25 @@ AlterSequence(AlterSeqStmt *stmt)
 
 	relation_close(seqrel, NoLock);
 
+#ifdef ADB
+	/*
+	 * Remote Coordinator is in charge of create sequence in AGTM
+	 * If sequence is temporary, no need to go through GTM.
+	 */
+	 if (IS_PGXC_COORDINATOR &&
+		!IsConnFromCoord() &&
+		seqrel->rd_backend != MyBackendId)
+	{
+		char * databaseName = NULL;
+		char * schemaName = NULL;
+
+		databaseName = get_database_name(seqrel->rd_node.dbNode);
+		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
+
+		agtm_AlterSequence(RelationGetRelationName(seqrel), databaseName,
+			schemaName, seqOptions);
+	}
+#endif
 	return address;
 }
 
@@ -603,6 +719,10 @@ nextval_internal(Oid relid)
 				rescnt = 0;
 	bool		logit = false;
 
+#ifdef ADB
+	bool		is_temp;
+#endif
+
 	/* open and AccessShareLock sequence */
 	init_sequence(relid, &elm, &seqrel);
 
@@ -638,10 +758,45 @@ nextval_internal(Oid relid)
 	seq = read_seq_tuple(elm, seqrel, &buf, &seqtuple);
 	page = BufferGetPage(buf);
 
+#ifdef ADB
+	is_temp = seqrel->rd_backend == MyBackendId;
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !is_temp)
+	{
+		char * seqName = NULL;
+		char * databaseName = NULL;
+		char * schemaName = NULL;
+
+		seqName = RelationGetRelationName(seqrel);
+		databaseName = get_database_name(seqrel->rd_node.dbNode);
+		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
+
+		result = agtm_GetSeqNextVal(seqName, databaseName, schemaName);
+
+		pfree(databaseName);
+		pfree(schemaName);
+
+		/* Update the on-disk data */
+		seq->last_value = result; /* last fetched number */
+		seq->is_called = true;
+
+		/* save info in local cache */
+		elm->last = result; 		/* last returned number */
+		elm->cached = result;		/* last fetched number */
+		elm->last_valid = true;
+
+		last_used_seq = elm;
+	}
+	else
+	{
+#endif
 	last = next = result = seq->last_value;
 	incby = seq->increment_by;
 	maxv = seq->max_value;
 	minv = seq->min_value;
+#ifdef ADB
+	}
+#endif
+
 	fetch = cache = seq->cache_value;
 	log = seq->log_cnt;
 
@@ -685,6 +840,11 @@ nextval_internal(Oid relid)
 		 * Check MAXVALUE for ascending sequences and MINVALUE for descending
 		 * sequences
 		 */
+#ifdef ADB
+		/* Temporary sequences go through normal process */
+		if (is_temp)
+		{
+#endif
 		if (incby > 0)
 		{
 			/* ascending sequence */
@@ -731,20 +891,36 @@ nextval_internal(Oid relid)
 			else
 				next += incby;
 		}
+#ifdef ADB
+		}
+#endif
 		fetch--;
 		if (rescnt < cache)
 		{
 			log--;
 			rescnt++;
+#ifdef ADB
+			/* Temporary sequences can go through normal process */
+			if (is_temp)
+			{
+#endif
 			last = next;
 			if (rescnt == 1)	/* if it's first result - */
 				result = next;	/* it's what to return */
+#ifdef ADB
+			}
+#endif
 		}
 	}
 
 	log -= fetch;				/* adjust for any unfetched numbers */
 	Assert(log >= 0);
 
+#ifdef ADB
+	/* Temporary sequences go through normal process */
+	if (is_temp)
+	{
+#endif
 	/* save info in local cache */
 	elm->last = result;			/* last returned number */
 	elm->cached = last;			/* last fetched number */
@@ -812,7 +988,13 @@ nextval_internal(Oid relid)
 	seq->log_cnt = log;			/* how much is logged */
 
 	END_CRIT_SECTION();
-
+#ifdef ADB
+	}
+	else
+	{
+		seq->log_cnt = log;
+	}
+#endif
 	UnlockReleaseBuffer(buf);
 
 	relation_close(seqrel, NoLock);
@@ -830,6 +1012,24 @@ currval_oid(PG_FUNCTION_ARGS)
 
 	/* open and AccessShareLock sequence */
 	init_sequence(relid, &elm, &seqrel);
+
+#ifdef ADB
+	{
+		int64		seq_val;
+
+		char * seqName = NULL;
+		char * databaseName = NULL;
+		char * schemaName = NULL;
+
+		seqName = RelationGetRelationName(seqrel);
+		databaseName = get_database_name(seqrel->rd_node.dbNode);
+		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
+		
+		seq_val = agtm_GetSeqCurrVal(seqName, databaseName, schemaName);
+		relation_close(seqrel, NoLock);
+		PG_RETURN_INT64(seq_val);
+	}
+#endif
 
 	if (pg_class_aclcheck(elm->relid, GetUserId(),
 						  ACL_SELECT | ACL_USAGE) != ACLCHECK_OK)
@@ -856,6 +1056,12 @@ lastval(PG_FUNCTION_ARGS)
 {
 	Relation	seqrel;
 	int64		result;
+
+#ifdef ADB
+	int64		seq_val;
+	seq_val = agtm_GetSeqLastVal(" "," "," ");
+	PG_RETURN_INT64(seq_val);
+#endif
 
 	if (last_used_seq == NULL)
 		ereport(ERROR,
@@ -1006,6 +1212,26 @@ setval_oid(PG_FUNCTION_ARGS)
 	Oid			relid = PG_GETARG_OID(0);
 	int64		next = PG_GETARG_INT64(1);
 
+#ifdef ADB
+	Relation	seqrel;
+	SeqTable	elm;
+	int64		seq_val;
+
+	char * seqName = NULL;
+	char * databaseName = NULL;
+	char * schemaName = NULL;
+
+	init_sequence(relid, &elm, &seqrel);
+
+	seqName = RelationGetRelationName(seqrel);
+	databaseName = get_database_name(seqrel->rd_node.dbNode);
+	schemaName = get_namespace_name(RelationGetNamespace(seqrel));
+
+	seq_val = agtm_SetSeqVal(seqName, databaseName, schemaName, next);
+	relation_close(seqrel, NoLock);
+	PG_RETURN_INT64(seq_val);
+#endif
+
 	do_setval(relid, next, true);
 
 	PG_RETURN_INT64(next);
@@ -1021,6 +1247,26 @@ setval3_oid(PG_FUNCTION_ARGS)
 	Oid			relid = PG_GETARG_OID(0);
 	int64		next = PG_GETARG_INT64(1);
 	bool		iscalled = PG_GETARG_BOOL(2);
+
+#ifdef ADB
+	Relation	seqrel;
+	SeqTable	elm;
+	int64		seq_val;
+	char * seqName = NULL;
+	char * databaseName = NULL;
+	char * schemaName = NULL;
+
+	/* open and AccessShareLock sequence */
+	init_sequence(relid, &elm, &seqrel);
+
+	seqName = RelationGetRelationName(seqrel);
+	databaseName = get_database_name(seqrel->rd_node.dbNode);
+	schemaName = get_namespace_name(RelationGetNamespace(seqrel));
+
+	seq_val = agtm_SetSeqValCalled(seqName, databaseName, schemaName, next, iscalled);
+	relation_close(seqrel, NoLock);
+	PG_RETURN_INT64(seq_val);
+#endif
 
 	do_setval(relid, next, iscalled);
 
@@ -1214,9 +1460,14 @@ read_seq_tuple(SeqTable elm, Relation rel, Buffer *buf, HeapTuple seqtuple)
  * If isInit is true, fill any unspecified options with default values;
  * otherwise, do not change existing options that aren't explicitly overridden.
  */
+#ifdef ADB
+void init_params(List *options, bool isInit,
+						Form_pg_sequence new, List **owned_by, bool *is_restart)
+#else
 static void
 init_params(List *options, bool isInit,
 			Form_pg_sequence new, List **owned_by)
+#endif
 {
 	DefElem    *start_value = NULL;
 	DefElem    *restart_value = NULL;
@@ -1226,6 +1477,10 @@ init_params(List *options, bool isInit,
 	DefElem    *cache_value = NULL;
 	DefElem    *is_cycled = NULL;
 	ListCell   *option;
+
+#ifdef ADB
+	*is_restart = false;
+#endif
 
 	*owned_by = NIL;
 
@@ -1420,6 +1675,9 @@ init_params(List *options, bool isInit,
 			new->last_value = defGetInt64(restart_value);
 		else
 			new->last_value = new->start_value;
+#ifdef ADB
+		*is_restart = true;
+#endif
 		new->is_called = false;
 		new->log_cnt = 0;
 	}

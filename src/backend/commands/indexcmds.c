@@ -42,6 +42,11 @@
 #include "parser/parse_coerce.h"
 #include "parser/parse_func.h"
 #include "parser/parse_oper.h"
+#ifdef ADB
+#include "optimizer/pgxcship.h"
+#include "parser/parse_utilcmd.h"
+#include "pgxc/pgxc.h"
+#endif
 #include "storage/lmgr.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
@@ -569,6 +574,37 @@ DefineIndex(Oid relationId,
 					  stmt->excludeOpNames, relationId,
 					  accessMethodName, accessMethodId,
 					  amcanorder, stmt->isconstraint);
+#ifdef ADB
+		/* Check if index is safely shippable */
+		if (IS_PGXC_COORDINATOR)
+		{
+			List *indexAttrs = NIL;
+	
+			/* Prepare call for shippability evaluation */
+			for (i = 0; i < indexInfo->ii_NumIndexAttrs; i++)
+			{
+				/*
+				 * Expression attributes are set at 0, and do not make sense
+				 * when comparing them to distribution columns, so bypass.
+				 */
+				if (indexInfo->ii_KeyAttrNumbers[i] > 0)
+					indexAttrs = lappend_int(indexAttrs, indexInfo->ii_KeyAttrNumbers[i]);
+			}
+	
+			/* Finalize check */
+			if (!pgxc_check_index_shippability(GetRelationLocInfo(relationId),
+											   stmt->primary,
+											   stmt->unique,
+											   stmt->excludeOpNames != NULL,
+											   indexAttrs,
+											   indexInfo->ii_Expressions))
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("Cannot create index whose evaluation cannot be "
+								"enforced to remote nodes")));
+	}
+#endif /*ADB*/
+
 
 	/*
 	 * Extra checks when creating a PRIMARY KEY index.

@@ -65,6 +65,7 @@
 
 #ifdef ADB
 #include "agtm/agtm.h"
+#include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 #endif
 
@@ -78,6 +79,9 @@ typedef struct
 {
 	Oid			dest_dboid;		/* DB we are trying to move */
 	Oid			dest_tsoid;		/* tablespace we are trying to move to */
+#ifdef ADB
+	Oid 		src_tsoid;		/* tablespace we are trying to move from */
+#endif
 } movedb_failure_params;
 
 /* non-export function prototypes */
@@ -94,6 +98,11 @@ static bool have_createdb_privilege(void);
 static void remove_dbtablespaces(Oid db_id);
 static bool check_db_file_conflict(Oid db_id);
 static int	errdetail_busy_db(int notherbackends, int npreparedxacts);
+#ifdef ADB
+static void createdb_xact_callback(bool isCommit, void *arg);
+static void movedb_xact_callback(bool isCommit, void *arg);
+static void movedb_success_callback(Oid db_id, Oid tblspcoid);
+#endif /* ADB */
 
 
 /*
@@ -686,6 +695,15 @@ createdb(const CreatedbStmt *stmt)
 	}
 	PG_END_ENSURE_ERROR_CLEANUP(createdb_failure_callback,
 								PointerGetDatum(&fparms));
+#ifdef ADB
+	/*
+	 * Even if we are successful, ultimately this transaction can be aborted
+	 * because some other node failed. So arrange for cleanup on transaction
+	 * abort.
+	 */
+	set_dbcleanup_callback(createdb_xact_callback, &fparms.dest_dboid,
+						  sizeof(fparms.dest_dboid));
+#endif /*ADB*/
 
 	return dboid;
 }
@@ -748,6 +766,25 @@ check_encoding_locale_matches(int encoding, const char *collate, const char *cty
 		 errdetail("The chosen LC_COLLATE setting requires encoding \"%s\".",
 				   pg_encoding_to_char(collate_encoding))));
 }
+
+#ifdef ADB
+/*
+ * Error cleanup callback for createdb. Aftec createdb() succeeds, the
+ * transaction can still be aborted due to other nodes. So on abort-transaction,
+ * this function is called to do the cleanup. This involves removing directories
+ * created after successful completion.
+ * Nothing to be done on commit.
+ */
+static void
+createdb_xact_callback(bool isCommit, void *arg)
+{
+	if (isCommit)
+		return;
+
+	/* Throw away any successfully copied subdirectories */
+	remove_dbtablespaces(*(Oid *) arg);
+}
+#endif
 
 /* Error cleanup callback for createdb */
 static void
@@ -1102,6 +1139,14 @@ movedb(const char *dbname, const char *tblspcname)
 	 */
 	LockSharedObjectForSession(DatabaseRelationId, db_id, 0,
 							   AccessExclusiveLock);
+#ifdef ADB
+   /*
+	* Now that we have session lock, transaction lock is not necessary.
+	* Besides, a PREPARE does not allow both transaction and session lock on the
+	* same object
+	*/
+   UnlockSharedObject(DatabaseRelationId, db_id, 0, AccessExclusiveLock);
+#endif
 
 	/*
 	 * Permission checks
@@ -1328,6 +1373,29 @@ movedb(const char *dbname, const char *tblspcname)
 	PG_END_ENSURE_ERROR_CLEANUP(movedb_failure_callback,
 								PointerGetDatum(&fparms));
 
+#ifdef ADB
+	/*
+	 * Even if we are successful, ultimately this transaction may or may not
+	 * be committed. so arrange for cleanup of source directory or target
+	 * directory during commit or abort, respectively.
+	 */
+	fparms.src_tsoid = src_tblspcoid;
+	set_dbcleanup_callback(movedb_xact_callback, &fparms, sizeof(fparms));
+}
+
+/*
+ * movedb_success_callback:
+ * Cleanup files in the dbpath directory corresponding to db_id and tblspcoid.
+ * This function code is actual part of the movedb() operation in PG. We have
+ * made a function out of it for PGXC, and it gets called as part of the
+ * at-commit xact callback mechanism.
+ */
+static void
+movedb_success_callback(Oid db_id, Oid src_tblspcoid)
+{
+	char	   *src_dbpath = GetDatabasePath(db_id, src_tblspcoid);
+#endif /* ADB */
+
 	/*
 	 * Commit the transaction so that the pg_database update is committed. If
 	 * we crash while removing files, the database won't be corrupt, we'll
@@ -1339,11 +1407,18 @@ movedb(const char *dbname, const char *tblspcname)
 	 * convinced it's a good idea; consider elog just after the transaction
 	 * really commits.
 	 */
+#ifdef ADB
+	/*
+	 * Don't commit the transaction. We don't require the two separate
+	 * commits since we handle this function as at-commit xact callback.
+	 */
+#else
 	PopActiveSnapshot();
 	CommitTransactionCommand();
 
 	/* Start new transaction for the remaining work; don't need a snapshot */
 	StartTransactionCommand();
+#endif
 
 	/*
 	 * Remove files from the old tablespace
@@ -1372,7 +1447,33 @@ movedb(const char *dbname, const char *tblspcname)
 	/* Now it's safe to release the database lock */
 	UnlockSharedObjectForSession(DatabaseRelationId, db_id, 0,
 								 AccessExclusiveLock);
+#ifdef ADB
+	pfree(src_dbpath);
+#endif
+
 }
+
+#ifdef ADB
+/*
+ * Error cleanup callback for movedb. Aftec movedb() succeeds, the
+ * transaction can still be aborted due to other nodes. So on abort-transaction,
+ * this function is called to do the cleanup of target tablespace directory,
+ * and on transaction commit, it is called to cleanup source directory.
+ */
+static void
+movedb_xact_callback(bool isCommit, void *arg)
+{
+	movedb_failure_params *fparms = (movedb_failure_params *) DatumGetPointer(arg);
+
+	if (isCommit)
+		movedb_success_callback(fparms->dest_dboid, fparms->src_tsoid);
+	else
+	{
+		/* Call the same function that is used in ENSURE block for movedb() */
+		movedb_failure_callback(XACT_EVENT_ABORT, PointerGetDatum(arg));
+	}
+}
+#endif
 
 /* Error cleanup callback for movedb */
 static void
@@ -1467,8 +1568,16 @@ AlterDatabase(AlterDatabaseStmt *stmt, bool isTopLevel)
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 			   errmsg("option \"%s\" cannot be specified with other options",
 					  dtablespace->defname)));
+#ifdef ADB
+		/* ... but we allow it on remote nodes */
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+#endif /*ADB*/
+
+/* prevent agtm check IsTransactionBlock(), user PGXC restrict, by lvcx */
+#ifndef AGTM
 		/* this case isn't allowed within a transaction block */
 		PreventTransactionChain(isTopLevel, "ALTER DATABASE SET TABLESPACE");
+#endif
 		movedb(stmt->dbname, defGetString(dtablespace));
 		return InvalidOid;
 	}

@@ -50,6 +50,14 @@
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 
+#ifdef ADB
+#include "access/visibilitymap.h"
+#include "executor/executor.h"
+#include "nodes/makefuncs.h"
+#include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
+#include "utils/lsyscache.h"
+#endif /* ADB */
 
 /*
  * GUC parameters
@@ -846,7 +854,12 @@ vac_update_relstats(Relation relation,
 		pgcform->relfrozenxid != frozenxid &&
 		(TransactionIdPrecedes(pgcform->relfrozenxid, frozenxid) ||
 		 TransactionIdPrecedes(ReadNewTransactionId(),
-							   pgcform->relfrozenxid)))
+							   pgcform->relfrozenxid)
+#ifdef ADB
+			|| !IsPostmasterEnvironment))
+#else
+			))
+#endif
 	{
 		pgcform->relfrozenxid = frozenxid;
 		dirty = true;
@@ -999,7 +1012,11 @@ vac_update_datfrozenxid(void)
 	 */
 	if (dbform->datfrozenxid != newFrozenXid &&
 		(TransactionIdPrecedes(dbform->datfrozenxid, newFrozenXid) ||
-		 TransactionIdPrecedes(lastSaneFrozenXid, dbform->datfrozenxid)))
+		 TransactionIdPrecedes(lastSaneFrozenXid, dbform->datfrozenxid)
+#ifdef ADB
+		|| !IsPostmasterEnvironment
+#endif
+		))
 	{
 		dbform->datfrozenxid = newFrozenXid;
 		dirty = true;
@@ -1145,13 +1162,19 @@ vac_truncate_clog(TransactionId frozenXID,
 		ereport(WARNING,
 				(errmsg("some databases have not been vacuumed in over 2 billion transactions"),
 				 errdetail("You might have already suffered transaction-wraparound data loss.")));
+#ifndef ADB
+		/* Don't return if PGXC: We want to update the transaction limits anyways */
 		return;
+#endif
 	}
 
 	/* chicken out if data is bogus in any other way */
 	if (bogus)
 		return;
 
+#ifdef ADB
+	if (!frozenAlreadyWrapped)
+#endif
 	/*
 	 * Truncate CLOG, multixact and CommitTs to the oldest computed value.
 	 */
@@ -1198,6 +1221,15 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	/* Begin a transaction for vacuuming this relation */
 	StartTransactionCommand();
 
+#ifndef ADB
+	/* In Postgres-XC, take a snapshot after setting the vacuum flags */
+	/*
+	 * Functions in indexes may want a snapshot set.  Also, setting a snapshot
+	 * ensures that RecentGlobalXmin is kept truly recent.
+	 */
+	PushActiveSnapshot(GetTransactionSnapshot());
+#endif
+
 	/*
 	 * Functions in indexes may want a snapshot set.  Also, setting a snapshot
 	 * ensures that RecentGlobalXmin is kept truly recent.
@@ -1232,6 +1264,15 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 			MyPgXact->vacuumFlags |= PROC_VACUUM_FOR_WRAPAROUND;
 		LWLockRelease(ProcArrayLock);
 	}
+
+#ifdef ADB
+	elog(DEBUG1, "Starting autovacuum");
+
+	/* Now that flags have been set, we can take a snapshot correctly */
+	PushActiveSnapshot(GetTransactionSnapshot());
+
+	elog(DEBUG1, "Started autovacuum");
+#endif
 
 	/*
 	 * Check for user-requested abort.  Note we want this to be inside a
@@ -1374,6 +1415,17 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
 	save_nestlevel = NewGUCNestLevel();
 
+#ifdef ADB
+	/*
+	 * If we are on coordinator and target relation is distributed, read
+	 * the statistics from the data node instead of vacuuming local relation.
+	 */
+	if (IS_PGXC_COORDINATOR && onerel->rd_locator_info)
+	{
+		vacuum_rel_coordinator(onerel, true);
+	}
+	else
+#endif
 	/*
 	 * Do the actual work --- either FULL or "lazy" vacuum
 	 */
@@ -1529,3 +1581,294 @@ vacuum_delay_point(void)
 		CHECK_FOR_INTERRUPTS();
 	}
 }
+
+#ifdef ADB
+/*
+ * For the data node query make up TargetEntry representing specified column
+ * of pg_class catalog table
+ */
+TargetEntry *
+make_relation_tle(Oid reloid, const char *relname, const char *column, AttrNumber attnum)
+{
+	HeapTuple	tuple;
+	Var		   *var;
+	Form_pg_attribute att_tup;
+	TargetEntry *tle;
+
+	tuple = SearchSysCacheAttName(reloid, column);
+	if (!HeapTupleIsValid(tuple))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_COLUMN),
+				 errmsg("column \"%s\" of relation \"%s\" does not exist",
+						column, relname)));
+	att_tup = (Form_pg_attribute) GETSTRUCT(tuple);
+
+	var = makeVar(1,
+				  attnum,
+				  att_tup->atttypid,
+				  att_tup->atttypmod,
+				  InvalidOid,
+				  0);
+
+	tle = makeTargetEntry((Expr *) var, attnum, NULL, false);
+	ReleaseSysCache(tuple);
+	return tle;
+}
+
+
+/*
+ * Get relation statistics from remote data nodes
+ * Returns number of nodes that returned correct statistics.
+ */
+static int
+get_remote_relstat(char *nspname, char *relname, bool replicated,
+				   int32 *pages, float4 *tuples, TransactionId *frozenXid)
+{
+	StringInfoData query;
+	EState 	   *estate;
+	MemoryContext oldcontext;
+	RemoteQuery *step;
+	RemoteQueryState *node;
+	TupleTableSlot *result;
+	int			validpages,
+				validtuples,
+				validfrozenxids;
+	AttrNumber	attnum = 1;
+
+	/* Make up query string */
+	initStringInfo(&query);
+	appendStringInfo(&query, "SELECT c.relpages, "
+									"c.reltuples, "
+									"c.relfrozenxid "
+							 "FROM pg_class c JOIN pg_namespace n "
+							 "ON c.relnamespace = n.oid "
+							 "WHERE n.nspname = '%s' "
+							 "AND c.relname = '%s'",
+					 nspname, relname);
+
+	/* Build up RemoteQuery */
+	step = makeNode(RemoteQuery);
+
+	step->combine_type = COMBINE_TYPE_NONE;
+	step->exec_nodes = NULL;
+	step->sql_statement = query.data;
+	step->force_autocommit = true;
+	step->exec_type = EXEC_ON_DATANODES;
+
+	/* Add targetlist entries */
+	step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
+										 make_relation_tle(RelationRelationId,
+														   "pg_class",
+														   "relpages",
+														   attnum++));
+	step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
+										 make_relation_tle(RelationRelationId,
+														   "pg_class",
+														   "reltuples",
+														   attnum++));
+	step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
+										 make_relation_tle(RelationRelationId,
+														   "pg_class",
+														   "relfrozenxid",
+														   attnum++));
+
+	/* Execute query on the data nodes */
+	estate = CreateExecutorState();
+
+	oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
+
+	estate->es_snapshot = GetActiveSnapshot();
+
+	node = ExecInitRemoteQuery(step, estate, 0);
+	MemoryContextSwitchTo(oldcontext);
+	/* get ready to combine results */
+	*pages = 0;
+	*tuples = 0.0;
+	*frozenXid = InvalidTransactionId;
+	validpages = 0;
+	validtuples = 0;
+	validfrozenxids = 0;
+	result = ExecRemoteQuery(node);
+	while (result != NULL && !TupIsNull(result))
+	{
+		Datum 	value;
+		bool	isnull;
+		/* Process statistics from the data node */
+		value = slot_getattr(result, 1, &isnull); /* relpages */
+		if (!isnull)
+		{
+			validpages++;
+			*pages += DatumGetInt32(value);
+		}
+		value = slot_getattr(result, 2, &isnull); /* reltuples */
+		if (!isnull)
+		{
+			validtuples++;
+			*tuples += DatumGetFloat4(value);
+		}
+		value = slot_getattr(result, 3, &isnull); /* relfrozenxid */
+		if (!isnull)
+		{
+			/*
+			 * relfrozenxid on coordinator should be the lowest one from the
+			 * datanodes.
+			 */
+			TransactionId xid = DatumGetTransactionId(value);
+			if (TransactionIdIsValid(xid))
+			{
+				validfrozenxids++;
+				if (!TransactionIdIsValid(*frozenXid) ||
+						TransactionIdPrecedes(xid, *frozenXid))
+				{
+					*frozenXid = xid;
+				}
+			}
+		}
+		/* fetch next */
+		result = ExecRemoteQuery(node);
+	}
+	ExecEndRemoteQuery(node);
+
+	if (replicated)
+	{
+		/*
+		 * Normally numbers should be the same on the nodes, but relations
+		 * are autovacuum'ed independedly, so they may differ.
+		 * Average is good enough approximation in this case.
+		 */
+		if (validpages > 0)
+			*pages /= validpages;
+
+		if (validtuples > 0)
+			*tuples /= validtuples;
+	}
+
+	if (validfrozenxids < validpages || validfrozenxids < validtuples)
+	{
+		/*
+		 * If some node returned invalid value for frozenxid we can not set
+		 * it on coordinator. There are other cases when returned value of
+		 * frozenXid should be ignored, these cases are checked by caller.
+		 * Basically, to be sure, there should be one value from each node,
+		 * where the table is partitioned.
+		 */
+		*frozenXid = InvalidTransactionId;
+		return Max(validpages, validtuples);
+	}
+	else
+	{
+		return validfrozenxids;
+	}
+}
+
+
+/*
+ * Coordinator does not contain any data, so we never need to vacuum relations.
+ * This function only updates optimizer statistics based on info from the
+ * data nodes.
+ */
+void
+vacuum_rel_coordinator(Relation onerel, bool is_outer)
+{
+	char	   *nspname;
+	char	   *relname;
+	/* fields to combine relation statistics */
+	int32		num_pages;
+	float4		num_tuples;
+	TransactionId min_frozenxid;
+	bool		hasindex;
+	bool		replicated;
+	int 		rel_nodes;
+	BlockNumber relallvisible;
+
+	/* Get the relation identifier */
+	relname = RelationGetRelationName(onerel);
+	nspname = get_namespace_name(RelationGetNamespace(onerel));
+
+	elog(LOG, "Getting relation statistics for %s.%s", nspname, relname);
+
+	replicated = IsLocatorReplicated(RelationGetLocatorType(onerel));
+	/*
+	 * Get stats from the remote nodes. Function returns the number of nodes
+	 * returning correct stats.
+	 */
+	rel_nodes = get_remote_relstat(nspname, relname, replicated,
+								   &num_pages, &num_tuples, &min_frozenxid);
+	if (rel_nodes > 0)
+	{
+		int 		nindexes;
+		Relation   *Irel;
+		int 		nodes = list_length(RelationGetLocInfo(onerel)->nodeList);
+
+		vac_open_indexes(onerel, ShareUpdateExclusiveLock, &nindexes, &Irel);
+		hasindex = (nindexes > 0);
+
+		if (hasindex)
+		{
+			int 	i;
+
+			/* Fetch index stats */
+			for (i = 0; i < nindexes; i++)
+			{
+				int32	idx_pages;
+				float4	idx_tuples;
+				TransactionId idx_frozenxid;
+				int idx_nodes;
+
+				/* Get the index identifier */
+				relname = RelationGetRelationName(Irel[i]);
+				nspname = get_namespace_name(RelationGetNamespace(Irel[i]));
+				/* Index is replicated if parent relation is replicated */
+				idx_nodes = get_remote_relstat(nspname, relname, replicated,
+										&idx_pages, &idx_tuples, &idx_frozenxid);
+				if (idx_nodes > 0)
+				{
+					/*
+					 * Do not update the frozenxid if information was not from
+					 * all the expected nodes.
+					 */
+					if (idx_nodes < nodes)
+					{
+						idx_frozenxid = InvalidTransactionId;
+					}
+					/* save changes */
+					/* !!TODO Get multi-xid from remote nodes */
+					vac_update_relstats(Irel[i],
+										(BlockNumber) idx_pages,
+										(double) idx_tuples,
+										0,
+										false,
+										idx_frozenxid,
+										InvalidMultiXactId,
+										is_outer);
+				}
+			}
+		}
+
+		/* Done with indexes */
+		vac_close_indexes(nindexes, Irel, NoLock);
+
+		/*
+		 * Do not update the frozenxid if information was not from all
+		 * the expected nodes.
+		 */
+		if (rel_nodes < nodes)
+		{
+			min_frozenxid = InvalidTransactionId;
+		}
+/*ADBQ*/
+		visibilitymap_count(onerel, &relallvisible, NULL);
+		/* save changes */
+		vac_update_relstats(onerel,
+							(BlockNumber) num_pages,
+							(double) num_tuples,
+/* ADBQ:visibilitymap_count expected 3 param and return void */
+							relallvisible,
+							hasindex,
+							min_frozenxid,
+							InvalidMultiXactId,
+							is_outer);
+	}
+}
+#endif
+

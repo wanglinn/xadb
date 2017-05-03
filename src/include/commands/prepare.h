@@ -43,7 +43,6 @@ typedef struct
 } DatanodeStatement;
 #endif
 
-
 /* Utility statements PREPARE, EXECUTE, DEALLOCATE, EXPLAIN EXECUTE */
 extern void PrepareQuery(PrepareStmt *stmt, const char *queryString);
 extern void ExecuteQuery(ExecuteStmt *stmt, IntoClause *intoClause,
@@ -71,6 +70,8 @@ extern DatanodeStatement *FetchDatanodeStatement(const char *stmt_name, bool thr
 extern bool ActivateDatanodeStatementOnNode(const char *stmt_name, int noid);
 extern bool HaveActiveDatanodeStatements(void);
 extern void DropDatanodeStatement(const char *stmt_name);
+extern int SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
+						Oid *param_types, int n);
 #endif
 
 #endif   /* PREPARE_H */

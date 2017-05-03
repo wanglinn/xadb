@@ -34,11 +34,12 @@
 #include "utils/snapmgr.h"
 #include "utils/timestamp.h"
 #ifdef ADB
-#include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
+#include "nodes/nodes.h"
+#include "pgxc/nodemgr.h"
 #include "pgxc/execRemote.h"
+#include "catalog/pgxc_node.h"
 #endif
-
 
 /*
  * The hash table in which prepared queries are stored. This is
@@ -242,6 +243,9 @@ ExecuteQuery(ExecuteStmt *stmt, IntoClause *intoClause,
 	portal = CreateNewPortal();
 	/* Don't display the portal in pg_cursors, it is for internal use only */
 	portal->visible = false;
+#ifdef ADB
+	portal->grammar = entry->plansource->grammar;
+#endif
 
 	/* Copy the plan's saved query string into the portal's memory */
 	query_string = MemoryContextStrdup(PortalGetHeapMemory(portal),
@@ -463,6 +467,102 @@ InitQueryHashTable(void)
 	}
 #endif
 }
+
+#ifdef ADB
+/*
+ * Assign the statement name for all the RemoteQueries in the plan tree, so
+ * they use Datanode statements
+ */
+int
+SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
+						Oid *param_types, int n)
+{
+	/* If no plan simply return */
+	if (!plan)
+		return 0;
+
+	/* Leave if no parameters */
+	if (num_params == 0 || !param_types)
+		return 0;
+
+	if (IsA(plan, RemoteQuery))
+	{
+		RemoteQuery *remotequery = (RemoteQuery *) plan;
+		DatanodeStatement *entry;
+		bool exists;
+		char name[NAMEDATALEN];
+
+		/* Nothing to do if parameters are already set for this query */
+		if (remotequery->rq_num_params != 0)
+			return 0;
+
+		if (stmt_name)
+		{
+				strcpy(name, stmt_name);
+				/*
+				 * Append modifier. If resulting string is going to be truncated,
+				 * truncate better the base string, otherwise we may enter endless
+				 * loop
+				 */
+				if (n)
+				{
+					char modifier[NAMEDATALEN];
+					sprintf(modifier, "__%d", n);
+					/*
+					 * if position NAMEDATALEN - strlen(modifier) - 1 is beyond the
+					 * base string this is effectively noop, otherwise it truncates
+					 * the base string
+					 */
+					name[NAMEDATALEN - strlen(modifier) - 1] = '\0';
+					strcat(name, modifier);
+				}
+				n++;
+				hash_search(datanode_queries, name, HASH_FIND, &exists);
+
+			/* If it already exists, that means this plan has just been revalidated. */
+			if (!exists)
+			{
+				entry = (DatanodeStatement *) hash_search(datanode_queries,
+												  name,
+												  HASH_ENTER,
+												  NULL);
+				entry->number_of_nodes = 0;
+			}
+
+			remotequery->statement = pstrdup(name);
+		}
+		else if (remotequery->statement)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Passing parameters in PREPARE statement is not supported")));
+
+		remotequery->rq_num_params = num_params;
+		remotequery->rq_param_types = param_types;
+	}
+	else if (IsA(plan, ModifyTable))
+	{
+		ModifyTable	*mt_plan = (ModifyTable *)plan;
+		/* For ModifyTable plan recurse into each of the plans underneath */
+		ListCell	*l;
+		foreach(l, mt_plan->plans)
+		{
+			Plan *plan = lfirst(l);
+			n = SetRemoteStatementName(plan, stmt_name, num_params,
+										param_types, n);
+		}
+	}
+
+	if (innerPlan(plan))
+		n = SetRemoteStatementName(innerPlan(plan), stmt_name, num_params,
+									param_types, n);
+
+	if (outerPlan(plan))
+		n = SetRemoteStatementName(outerPlan(plan), stmt_name, num_params,
+									param_types, n);
+
+	return n;
+}
+#endif
 
 /*
  * Store all the data pertaining to a query in the hash table using

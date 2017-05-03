@@ -30,6 +30,7 @@
 #include "tcop/pquery.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
+
 #ifdef ADB
 #include "pgxc/pgxc.h"
 #endif

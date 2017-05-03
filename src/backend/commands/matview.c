@@ -327,6 +327,19 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	LockRelationOid(OIDNewHeap, AccessExclusiveLock);
 	dest = CreateTransientRelDestReceiver(OIDNewHeap);
 
+#ifdef ADB
+	/*
+	 * If the REFRESH command was received from other coordinator, it will also send
+	 * the data to be filled in the materialized view, using COPY protocol.
+	 */
+	if (IsConnFromCoord())
+	{
+		Assert(IS_PGXC_COORDINATOR);
+		pgxc_fill_matview_by_copy(dest, stmt->skipData, 0, NULL);
+	}
+	else
+#endif /* ADB */
+
 	/*
 	 * Now lock down security-restricted operations.
 	 */
