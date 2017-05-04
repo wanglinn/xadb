@@ -3311,9 +3311,7 @@ ATController(AlterTableStmt *parsetree,
 
 #ifdef ADB
 	/* Perform pre-catalog-update redistribution operations */
-/*ADBQ:PGXCRedistribTable not define*/
-
-//	PGXCRedistribTable(redistribState, CATALOG_UPDATE_BEFORE);
+	PGXCRedistribTable(redistribState, CATALOG_UPDATE_BEFORE);
 #endif
 	/* Phase 2: update system catalogs */
 	ATRewriteCatalogs(&wqueue, lockmode);
@@ -3331,10 +3329,8 @@ ATController(AlterTableStmt *parsetree,
 		relation_close(rel2, NoLock);
 	}
 	/* Perform post-catalog-update redistribution operations */
-
-/*ADBQ:PGXCRedistribTable and FreeRedistribState not define*/
-//	PGXCRedistribTable(redistribState, CATALOG_UPDATE_AFTER);
-//	FreeRedistribState(redistribState);
+	PGXCRedistribTable(redistribState, CATALOG_UPDATE_AFTER);
+	FreeRedistribState(redistribState);
 #endif
 
 	/* Phase 3: scan/rewrite tables as needed */
@@ -12096,9 +12092,7 @@ ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 static RedistribState *
 BuildRedistribCommands(Oid relid, List *subCmds)
 {
-/*ADBQ:makeRedistribState NOT define */
-//	RedistribState   *redistribState = makeRedistribState(relid);
-	RedistribState	 *redistribState = NULL;
+	RedistribState   *redistribState = makeRedistribState(relid);
 	RelationLocInfo *oldLocInfo, *newLocInfo; /* Former locator info */
 	Relation	rel;
 	Oid		   *new_oid_array;	/* Modified list of Oids */
@@ -12192,9 +12186,7 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 															 PGXC_NODE_DATANODE));
 
 	/* Build the command tree for table redistribution */
-
-/*ADBQ: PGXCRedistribCreateCommandList not define*/
-//	PGXCRedistribCreateCommandList(redistribState, newLocInfo);
+	PGXCRedistribCreateCommandList(redistribState, newLocInfo);
 
 	/*
 	 * Using the new locator info already available, check if constraints on
