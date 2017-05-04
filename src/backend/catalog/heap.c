@@ -1193,8 +1193,7 @@ lookup_distribute_function(List *funcname, List *funcargs)
 	int 			nargs;
 	FuncDetailCode 	fdresult;
 	Oid				funcid;
-
-	Oid			vatype;
+	Oid				vatype;
 
 	if (list_length(funcargs) > FUNC_MAX_ARGS)
 		ereport(ERROR,

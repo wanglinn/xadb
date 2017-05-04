@@ -1791,9 +1791,6 @@ setup_sysviews(FILE *cmdfd)
 static void
 setup_nodeself(FILE *cmdfd)
 {
-	fputs(_("creating cluster information ... "), stdout);
-	fflush(stdout);
-
 	PG_CMD_PRINTF1("CREATE NODE \"%s\" WITH (type = 'coordinator');\n",
 				   nodename);
 }
