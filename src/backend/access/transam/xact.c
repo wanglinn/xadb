@@ -2825,11 +2825,13 @@ PrepareTransaction(void)
 	/* Prevent cancel/die interrupt while cleaning up */
 	HOLD_INTERRUPTS();
 
+#ifndef ADB
 	/*
 	 * set the current transaction state information appropriately during
 	 * prepare processing
 	 */
 	s->state = TRANS_PREPARE;
+#endif
 
 	prepared_at = GetCurrentTimestamp();
 
@@ -2851,6 +2853,12 @@ PrepareTransaction(void)
 							nodecnt, nodeIds, isimplicit);
 
 	StartRemoteXactPrepare(gxact);
+
+	/*
+	 * set the current transaction state information appropriately during
+	 * prepare processing
+	 */
+	s->state = TRANS_PREPARE;
 #else
 	gxact = MarkAsPreparing(xid, prepareGID, prepared_at,
 							GetUserId(), MyDatabaseId);
