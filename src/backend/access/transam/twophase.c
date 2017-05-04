@@ -1600,7 +1600,9 @@ FinishPreparedTransactionExt(const char *gid,
 	 */
 	if (gxact == NULL && xc_maintenance_mode)
 		return ;
+#endif /*ADB*/
 
+#if defined(ADB) || defined(AGTM)
 	/*
 	 * Just for COMMIT/ROLLBACK PREPARED IF EXISTS XXX
 	 */
@@ -1611,7 +1613,7 @@ FinishPreparedTransactionExt(const char *gid,
 	 * pointer (loaded from variable 'gxact')
 	 */
 	Assert(gxact);
-#endif
+#endif /*ADB AGTM*/
 
 	proc = &ProcGlobal->allProcs[gxact->pgprocno];
 	pgxact = &ProcGlobal->allPgXact[gxact->pgprocno];

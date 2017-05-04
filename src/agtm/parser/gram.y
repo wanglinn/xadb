@@ -8725,6 +8725,26 @@ TransactionStmt:
 					n->gid = $3;
 					$$ = (Node *)n;
 				}
+			| COMMIT PREPARED IF_P EXISTS Sconst
+				{
+					TransactionStmt *n = makeNode(TransactionStmt);
+#if defined(AGTM)
+					n->missing_ok = true;
+#endif
+					n->kind = TRANS_STMT_COMMIT_PREPARED;
+					n->gid = $5;
+					$$ = (Node *)n;
+				}
+			| ROLLBACK PREPARED IF_P EXISTS Sconst
+				{
+					TransactionStmt *n = makeNode(TransactionStmt);
+#if defined(AGTM)
+					n->missing_ok = true;
+#endif
+					n->kind = TRANS_STMT_ROLLBACK_PREPARED;
+					n->gid = $5;
+					$$ = (Node *)n;
+				}
 		;
 
 opt_transaction:	WORK							{}
