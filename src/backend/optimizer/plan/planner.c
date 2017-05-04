@@ -54,6 +54,10 @@
 #include "utils/selfuncs.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#include "optimizer/pgxcplan.h"
+#endif
 
 
 /* GUC parameters */
@@ -152,6 +156,9 @@ static List *make_pathkeys_for_window(PlannerInfo *root, WindowClause *wc,
 static PathTarget *make_sort_input_target(PlannerInfo *root,
 					   PathTarget *final_target,
 					   bool *have_postponed_srfs);
+#ifdef ADB
+static void separate_rowmarks(PlannerInfo *root);
+#endif
 
 
 /*****************************************************************************
@@ -175,6 +182,15 @@ planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	if (planner_hook)
 		result = (*planner_hook) (parse, cursorOptions, boundParams);
 	else
+#ifdef ADB
+		/*
+		 * A Coordinator receiving a query from another Coordinator
+		 * is not allowed to go into PGXC planner.
+		 */
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+			result = pgxc_planner(parse, cursorOptions, boundParams);
+		else
+#endif
 		result = standard_planner(parse, cursorOptions, boundParams);
 	return result;
 }
@@ -465,6 +481,9 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	root->grouping_map = NULL;
 	root->minmax_aggs = NIL;
 	root->hasInheritedTarget = false;
+#ifdef ADB
+	root->rs_alias_index = 1;
+#endif
 	root->hasRecursion = hasRecursion;
 	if (hasRecursion)
 		root->wt_param_id = SS_assign_special_param(root);
@@ -541,6 +560,26 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	 * expand_inherited_tables to examine and modify).
 	 */
 	preprocess_rowmarks(root);
+
+#ifdef ADB
+	/*
+	 * In Coordinators we separate row marks in two groups
+	 * one comprises of row marks of types ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE
+	 * and the other contains the rest of the types of row marks
+	 * The former is handeled on Coordinator in such a way that
+	 * FOR UPDATE/SHARE gets added in the remote query, whereas
+	 * the later needs to be handeled the way pg does
+	 *
+	 * PGXCTODO : This is not a very efficient way of handling row marks
+	 * Consider this join query
+	 * select * from t1, t2 where t1.val = t2.val for update
+	 * It results in this query to be fired at the Datanodes
+	 * SELECT val, val2, ctid FROM ONLY t2 WHERE true FOR UPDATE OF t2
+	 * We are locking the complete table where as we should have locked
+	 * only the rows where t1.val = t2.val is met
+	 */
+	separate_rowmarks(root);
+#endif
 
 	/*
 	 * Expand any rangetable entries that are inheritance sets into "append
@@ -2234,6 +2273,43 @@ preprocess_rowmarks(PlannerInfo *root)
 
 	root->rowMarks = prowmarks;
 }
+
+#ifdef ADB
+/*
+ * separate_rowmarks - In XC Coordinators are supposed to skip handling
+ *                of type ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE.
+ *                In order to do that we simply remove such type
+ *                of row marks from the list. Instead they are saved
+ *                in another list that is then handeled to add
+ *                FOR UPDATE/SHARE in the remote query
+ *                in the function create_remotequery_plan
+ */
+static void
+separate_rowmarks(PlannerInfo *root)
+{
+	List		*rml_1, *rml_2;
+	ListCell	*rm;
+
+	if (IS_PGXC_DATANODE || IsConnFromCoord() || root->rowMarks == NULL)
+		return;
+
+	rml_1 = NULL;
+	rml_2 = NULL;
+
+	foreach(rm, root->rowMarks)
+	{
+		PlanRowMark *prm = (PlanRowMark *) lfirst(rm);
+
+		if (prm->markType == ROW_MARK_EXCLUSIVE || prm->markType == ROW_MARK_SHARE)
+			rml_1 = lappend(rml_1, prm);
+		else
+			rml_2 = lappend(rml_2, prm);
+	}
+	list_free(root->rowMarks);
+	root->rowMarks = rml_2;
+	root->xc_rowMarks = rml_1;
+}
+#endif
 
 /*
  * Select RowMarkType to use for a given table
