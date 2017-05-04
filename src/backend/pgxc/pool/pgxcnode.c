@@ -94,7 +94,7 @@ bool		enable_node_tcp_log;
 extern int	MyProcPid;
 
 static void pgxc_node_init(PGXCNodeHandle *handle, int sock);
-static void pgxc_node_free(PGXCNodeHandle *handle);
+static void pgxc_node_free(PGXCNodeHandle *handle, bool freebuf);
 static void pgxc_node_all_free(void);
 
 static int	get_int(PGXCNodeHandle * conn, size_t len, int *out);
@@ -315,15 +315,18 @@ PGXCNodeConnected(NODE_CONNECTION *conn)
  * is destroyed in xact.c.
  */
 static void
-pgxc_node_free(PGXCNodeHandle *handle)
+pgxc_node_free(PGXCNodeHandle *handle, bool freebuf)
 {
 	close(handle->sock);
 	handle->sock = NO_SOCKET;
 	handle->state = DN_CONNECTION_STATE_IDLE;
 	handle->combiner = NULL;
 	FreeHandleError(handle);
-	safe_pfree(handle->outBuffer);
-	safe_pfree(handle->inBuffer);
+	if (freebuf)
+	{
+		safe_pfree(handle->outBuffer);
+		safe_pfree(handle->inBuffer);
+	}
 	if(handle->file_data)
 	{
 		char file_name[20];
@@ -346,7 +349,7 @@ pgxc_node_all_free(void)
 		while(NumDataNodes > 0)
 		{
 			--NumDataNodes;
-			pgxc_node_free(&dn_handles[NumDataNodes]);
+			pgxc_node_free(&dn_handles[NumDataNodes], true);
 		}
 		pfree(dn_handles);
 		dn_handles = NULL;
@@ -357,7 +360,7 @@ pgxc_node_all_free(void)
 		while(NumCoords > 0)
 		{
 			--NumCoords;
-			pgxc_node_free(&co_handles[NumCoords]);
+			pgxc_node_free(&co_handles[NumCoords], true);
 		}
 		pfree(co_handles);
 		co_handles = NULL;
@@ -828,7 +831,7 @@ void release_handles2(bool force_close)
 					"Connection to Datanode %s has unexpected state %d and will be dropped",
 					 NameStr(handle->name), handle->state);
 			}
-			pgxc_node_free(handle);
+			pgxc_node_free(handle, false);
 		}
 	}
 
@@ -846,7 +849,7 @@ void release_handles2(bool force_close)
 					"Connection to Coordinator %s has unexpected state %d and will be dropped",
 					 NameStr(handle->name), handle->state);
 			}
-			pgxc_node_free(handle);
+			pgxc_node_free(handle, false);
 		}
 	}
 
