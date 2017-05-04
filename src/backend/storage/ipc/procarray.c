@@ -90,6 +90,7 @@
 #include "pgxc/pgxc.h"
 #include "postmaster/autovacuum.h"
 #include "storage/ipc.h"
+#include "utils/tqual.h"
 #endif
 
 
@@ -1673,7 +1674,7 @@ GetSnapshotData(Snapshot snapshot)
 	 * Obtain a global snapshot for a Postgres-XC session
 	 */
 	is_under_agtm = IsUnderAGTM();
-	if (IsUnderAGTM())
+	if (IsUnderAGTM() && !IsCatalogSnapshot(snapshot))
 	{
 		Snapshot snap PG_USED_FOR_ASSERTS_ONLY;
 		snap = GetGlobalSnapshot(snapshot);
