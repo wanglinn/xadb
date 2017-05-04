@@ -121,9 +121,9 @@ init_pgxc_handle(PGXCNodeHandle *pgxc_handle)
 	/* Initialise buffers */
 	pgxc_handle->error = NULL;
 	pgxc_handle->outSize = 16 * 1024;
-	pgxc_handle->outBuffer = (char *) palloc(pgxc_handle->outSize);
+	pgxc_handle->outBuffer = (char *) MemoryContextAllocZero(TopMemoryContext, pgxc_handle->outSize);
 	pgxc_handle->inSize = 16 * 1024;
-	pgxc_handle->inBuffer = (char *) palloc(pgxc_handle->inSize);
+	pgxc_handle->inBuffer = (char *) MemoryContextAllocZero(TopMemoryContext, pgxc_handle->inSize);
 	pgxc_handle->combiner = NULL;
 	pgxc_handle->inStart = 0;
 	pgxc_handle->inEnd = 0;
@@ -149,7 +149,6 @@ InitMultinodeExecutor(bool is_force)
 	Oid				*coOids = NULL;
 	Oid				*dnOids = NULL;
 	char			*nodeName = NULL;
-	MemoryContext	oldCtx = NULL;
 
 	/* Free all the existing information first */
 	if (is_force)
@@ -160,8 +159,6 @@ InitMultinodeExecutor(bool is_force)
 		co_handles != NULL)
 		return;
 
-	oldCtx = MemoryContextSwitchTo(TopMemoryContext);
-
 	/* Update node table in the shared memory */
 	PgxcNodeListAndCount();
 
@@ -170,11 +167,11 @@ InitMultinodeExecutor(bool is_force)
 
 	/* Do proper initialization of handles */
 	if (NumDataNodes > 0)
-		dn_handles = (PGXCNodeHandle *)
-			palloc0(NumDataNodes * sizeof(PGXCNodeHandle));
+		dn_handles = (PGXCNodeHandle *) MemoryContextAllocZero(TopMemoryContext,
+			NumDataNodes * sizeof(PGXCNodeHandle));
 	if (NumCoords > 0)
-		co_handles = (PGXCNodeHandle *)
-			palloc0(NumCoords * sizeof(PGXCNodeHandle));
+		co_handles = (PGXCNodeHandle *) MemoryContextAllocZero(TopMemoryContext,
+			NumCoords * sizeof(PGXCNodeHandle));
 
 	if ((!dn_handles && NumDataNodes > 0) ||
 		(!co_handles && NumCoords > 0))
@@ -189,9 +186,7 @@ InitMultinodeExecutor(bool is_force)
 		dn_handles[count].nodeoid = dnOids[count];
 		dn_handles[count].type = PGXC_NODE_DATANODE;
 		nodeName = get_pgxc_nodename(dn_handles[count].nodeoid);
-		strncpy(NameStr(dn_handles[count].name),
-				nodeName,
-				NAMEDATALEN);
+		namestrcpy(&(dn_handles[count].name), nodeName);
 		pfree(nodeName);
 	}
 	for (count = 0; count < NumCoords; count++)
@@ -200,18 +195,12 @@ InitMultinodeExecutor(bool is_force)
 		co_handles[count].nodeoid = coOids[count];
 		co_handles[count].type = PGXC_NODE_COORDINATOR;
 		nodeName = get_pgxc_nodename(co_handles[count].nodeoid);
-		strncpy(NameStr(co_handles[count].name),
-				nodeName,
-				NAMEDATALEN);
+		namestrcpy(&(co_handles[count].name), nodeName);
 		pfree(nodeName);
 	}
 
-	if (coOids)
-		pfree(coOids);
-	if (dnOids)
-		pfree(dnOids);
-
-	(void) MemoryContextSwitchTo(oldCtx);
+	safe_pfree(coOids);
+	safe_pfree(dnOids);
 
 	datanode_count = 0;
 	coord_count = 0;
@@ -220,8 +209,7 @@ InitMultinodeExecutor(bool is_force)
 	/* Finally determine which is the node-self */
 	for (count = 0; count < NumCoords; count++)
 	{
-		if (pg_strcasecmp(PGXCNodeName,
-				   get_pgxc_nodename(co_handles[count].nodeoid)) == 0)
+		if (pg_strcasecmp(PGXCNodeName, NameStr(co_handles[count].name)) == 0)
 		{
 			PGXCNodeId = count + 1;
 			PGXCNodeOid = co_handles[count].nodeoid;
@@ -334,6 +322,8 @@ pgxc_node_free(PGXCNodeHandle *handle)
 	handle->state = DN_CONNECTION_STATE_IDLE;
 	handle->combiner = NULL;
 	FreeHandleError(handle);
+	safe_pfree(handle->outBuffer);
+	safe_pfree(handle->inBuffer);
 	if(handle->file_data)
 	{
 		char file_name[20];
