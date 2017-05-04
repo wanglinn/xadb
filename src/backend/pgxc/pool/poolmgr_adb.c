@@ -1248,7 +1248,7 @@ void PoolManagerCancelQuery(int dn_count, int* dn_list, int co_count, int* co_li
 	pool_end_flush_msg(&(poolHandle->port), &buf);
 }
 
-#ifdef 0
+#if 0
 /*
  *
  */
