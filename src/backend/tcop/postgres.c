@@ -1042,7 +1042,7 @@ exec_simple_query(const char *query_string)
 #ifdef ADB
 	List	   *sql_list;
 	ListCell   *sql_item;
-	ParseGrammar grammar;	
+	ParseGrammar grammar = PARSE_GRAM_POSTGRES;	
 #endif
 	bool		save_log_statement_stats = log_statement_stats;
 	bool		was_logged = false;
@@ -4187,11 +4187,12 @@ PostgresMain(int argc, char *argv[],
 	/* If this postgres is launched from another Coord, do not initialize handles. skip it */
 	if (!am_walsender && IS_PGXC_COORDINATOR && !IsPoolHandle())
 	{
-		ResourceOwner reload_ro = ResourceOwnerCreate(CurrentResourceOwner, "ForPGXCNodes");
-		CurrentResourceOwner = reload_ro;
 		need_reload_pooler = false;
 
+		start_xact_command();
 		InitMultinodeExecutor(false);
+		finish_xact_command();
+
 		if (!IsConnFromCoord())
 		{
 			pool_handle = GetPoolManagerHandle();
@@ -4204,12 +4205,6 @@ PostgresMain(int argc, char *argv[],
 			/* Pooler initialization has to be made before ressource is released */
 			PoolManagerConnect(pool_handle, dbname, username, session_options());
 		}
-
-		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
-		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_LOCKS, true, true);
-		ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_AFTER_LOCKS, true, true);
-		CurrentResourceOwner = ResourceOwnerGetParent(reload_ro);
-		ResourceOwnerDelete(reload_ro);
 
 		/* If we exit, first try and clean connections and send to pool */
 		on_proc_exit (PGXCNodeCleanAndRelease, 0);
