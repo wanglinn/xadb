@@ -1230,12 +1230,6 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	PushActiveSnapshot(GetTransactionSnapshot());
 #endif
 
-	/*
-	 * Functions in indexes may want a snapshot set.  Also, setting a snapshot
-	 * ensures that RecentGlobalXmin is kept truly recent.
-	 */
-	PushActiveSnapshot(GetTransactionSnapshot());
-
 	if (!(options & VACOPT_FULL))
 	{
 		/*
