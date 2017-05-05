@@ -302,6 +302,9 @@ sepgsql_utility_command(Node *parsetree,
 						ProcessUtilityContext context,
 						ParamListInfo params,
 						DestReceiver *dest,
+#ifdef ADB
+						bool sentToRemote,
+#endif /* ADB */
 						char *completionTag)
 {
 	sepgsql_context_info_t saved_context_info = sepgsql_context_info;
@@ -364,11 +367,19 @@ sepgsql_utility_command(Node *parsetree,
 		if (next_ProcessUtility_hook)
 			(*next_ProcessUtility_hook) (parsetree, queryString,
 										 context, params,
-										 dest, completionTag);
+										 dest,
+#ifdef ADB
+										 sentToRemote,
+#endif
+										 completionTag);
 		else
 			standard_ProcessUtility(parsetree, queryString,
 									context, params,
-									dest, completionTag);
+									dest,
+#ifdef ADB
+									sentToRemote,
+#endif
+									completionTag);
 	}
 	PG_CATCH();
 	{
