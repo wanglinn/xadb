@@ -60,7 +60,7 @@ CREATE CAST (nvarchar2 AS interval) WITH INOUT AS IMPLICIT;
 
 CREATE CAST (interval AS nvarchar2) WITH INOUT AS IMPLICIT;
 
-CREATE CAST (nvarchar2 AS nvarchar2) WITH FUNCTION oracle.nvarchar2(nvarchar2, integer, boolean) AS IMPLICIT;
+CREATE CAST (nvarchar2 AS nvarchar2) WITH FUNCTION pg_catalog.nvarchar2(nvarchar2, integer, boolean) AS IMPLICIT;
 
 /* CREATE CAST FOR VARCHAR2 */
 CREATE CAST (varchar2 AS text) WITHOUT FUNCTION AS IMPLICIT;
@@ -115,7 +115,7 @@ CREATE CAST (varchar2 AS interval) WITH INOUT AS IMPLICIT;
 
 CREATE CAST (interval AS varchar2) WITH INOUT AS IMPLICIT;
 
-CREATE CAST (varchar2 AS varchar2) WITH FUNCTION oracle.varchar2(varchar2, integer, boolean) AS IMPLICIT;
+CREATE CAST (varchar2 AS varchar2) WITH FUNCTION pg_catalog.varchar2(varchar2, integer, boolean) AS IMPLICIT;
 
 /* CREATE CAST FOR RID */
 CREATE CAST (rid AS varchar) WITH INOUT AS IMPLICIT;

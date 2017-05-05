@@ -164,6 +164,7 @@ static char *conversion_file;
 static char *dictionary_file;
 static char *info_schema_file;
 #ifdef ADB
+static char *oracle_schema_file;
 static char *adb_views_file;
 #endif
 static char *features_file;
@@ -284,6 +285,7 @@ static void setup_privileges(FILE *cmdfd);
 static void set_info_version(void);
 static void setup_schema(FILE *cmdfd);
 #ifdef ADB
+static void setup_oracle_schema(FILE *cmdfd);
 static void setup_adb_views(FILE *cmdfd);
 #endif
 static void load_plpgsql(FILE *cmdfd);
@@ -1743,6 +1745,14 @@ setup_depend(FILE *cmdfd)
 		"INSERT INTO pg_depend SELECT 0,0,0, tableoid,oid,0, 'p' "
 		" FROM pg_namespace "
 		"    WHERE nspname LIKE 'pg%';\n\n",
+#ifdef ADB
+		/*
+		 * restriction here to avoid dropping the oracle namespace
+		 */
+		"INSERT INTO pg_depend SELECT 0,0,0, tableoid,oid,0, 'p' "
+		" FROM pg_namespace "
+		"	 WHERE nspname = 'oracle';\n\n",
+#endif
 
 		"INSERT INTO pg_depend SELECT 0,0,0, tableoid,oid,0, 'p' "
 		" FROM pg_ts_parser;\n\n",
@@ -2281,6 +2291,26 @@ setup_schema(FILE *cmdfd)
 }
 
 #ifdef ADB
+/*
+ * load oracle schema
+ */
+static void
+setup_oracle_schema(FILE *cmdfd)
+{
+	char	  **line;
+	char	  **lines;
+
+	lines = readfile(oracle_schema_file);
+
+	for (line = lines; *line != NULL; line++)
+	{
+		PG_CMD_PUTS(*line);
+		free(*line);
+	}
+
+	free(lines);
+}
+
 /*
  * load PL/pgsql server-side language
  */
@@ -3112,6 +3142,7 @@ setup_data_file_paths(void)
 	set_input(&dictionary_file, "snowball_create.sql");
 	set_input(&info_schema_file, "information_schema.sql");
 #ifdef ADB
+	set_input(&oracle_schema_file, "oracle_schema.sql");
 	set_input(&adb_views_file, "adb_views.sql");
 #endif
 	set_input(&features_file, "sql_features.txt");
@@ -3152,6 +3183,9 @@ setup_data_file_paths(void)
 	check_input(conversion_file);
 	check_input(dictionary_file);
 	check_input(info_schema_file);
+#ifdef ADB
+	check_input(oracle_schema_file);
+#endif
 	check_input(features_file);
 	check_input(system_views_file);
 }
@@ -3514,6 +3548,7 @@ initialize_data_directory(void)
 	load_plpgsql(cmdfd);
 
 #ifdef ADB
+	setup_oracle_schema(cmdfd);
 	setup_adb_views(cmdfd);
 #endif
 

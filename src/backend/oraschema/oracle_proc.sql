@@ -144,29 +144,31 @@ CREATE FUNCTION oracle.months_between(TIMESTAMP WITH TIME ZONE, TIMESTAMP WITH T
  * Function: new_time
  * Parameter Type: (timestamp, text, text)
  */
-CREATE OR REPLACE FUNCTION oracle.new_time(tt timestamp with time zone, z1 text, z2 text)
-    RETURNS timestamp
-    AS $$
-    DECLARE
-    src_interval INTERVAL;
-    dst_interval INTERVAL;
-    BEGIN
-        SELECT utc_offset INTO src_interval FROM pg_timezone_abbrevs WHERE abbrev = z1;
-        IF NOT FOUND THEN
-            RAISE EXCEPTION 'Invalid time zone: %', z1;
-        END IF;
-
-        SELECT utc_offset INTO dst_interval FROM pg_timezone_abbrevs WHERE abbrev = z2;
-        IF NOT FOUND THEN
-            RAISE EXCEPTION 'Invalid time zone: %', z2;
-        END IF;
-
-        RETURN tt - src_interval + dst_interval;
-    END;
-    $$
-    LANGUAGE plpgsql
-    IMMUTABLE
-    STRICT;
+/*
+ * CREATE OR REPLACE FUNCTION oracle.new_time(tt timestamp with time zone, z1 text, z2 text)
+ *     RETURNS timestamp
+ *     AS $$
+ *     DECLARE
+ *     src_interval INTERVAL;
+ *     dst_interval INTERVAL;
+ *     BEGIN
+ *         SELECT utc_offset INTO src_interval FROM pg_timezone_abbrevs WHERE abbrev = z1;
+ *         IF NOT FOUND THEN
+ *             RAISE EXCEPTION 'Invalid time zone: %', z1;
+ *         END IF;
+ * 
+ *         SELECT utc_offset INTO dst_interval FROM pg_timezone_abbrevs WHERE abbrev = z2;
+ *         IF NOT FOUND THEN
+ *             RAISE EXCEPTION 'Invalid time zone: %', z2;
+ *         END IF;
+ * 
+ *         RETURN tt - src_interval + dst_interval;
+ *     END;
+ *     $$
+ *     LANGUAGE plpgsql
+ *     IMMUTABLE
+ *     STRICT;
+ */
 
 /*
  * Function: next_day
