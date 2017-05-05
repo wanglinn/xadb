@@ -352,16 +352,6 @@ PoolManagerInit()
 												ALLOCSET_DEFAULT_MAXSIZE);
 
 	/*
-	 * If possible, make this process a group leader, so that the postmaster
-	 * can signal any child processes too.	(pool manager probably never has any
-	 * child processes, but for consistency we make all postmaster child
-	 * processes do this.)
-	 */
-#ifdef HAVE_SETSID
-	if (setsid() < 0)
-		elog(FATAL, "setsid() failed: %m");
-#endif
-	/*
 	 * Properly accept or ignore signals the postmaster might send us
 	 */
 	pqsignal(SIGINT, StatementCancelHandler);
@@ -2483,11 +2473,11 @@ static void agent_release_connections(PoolAgent *agent, bool force_destroy)
 	Size i;
 	AssertArg(agent);
 #ifdef ADB
-        if (!force_destroy && cluster_ex_lock_held)
-        {
-                elog(LOG, "Not releasing connection with cluster lock");
-                return;
-        }
+	if (!force_destroy && cluster_ex_lock_held)
+	{
+		elog(LOG, "Not releasing connection with cluster lock");
+		return;
+	}
 #endif
 
 	for(i=0;i<agent->num_dn_connections;++i)
