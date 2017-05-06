@@ -2659,6 +2659,16 @@ ClosePortalStmt:
 				}
 		;
 
+/*****************************************************************************
+ *
+ *		QUERY :
+ *				COPY FUNCTION function FROM file TO file [WITH] [(options)]
+ *
+ *				where 'file' can be one of:
+ *				{ PROGRAM 'command' | STDIN | STDOUT | 'filename' }
+ *
+ *****************************************************************************/
+	/*ADBQ, the grammar for ADB LOAD*/
 
 /*****************************************************************************
  *
