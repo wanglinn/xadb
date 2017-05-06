@@ -775,7 +775,11 @@ pgss_post_parse_analyze(ParseState *pstate, Query *query)
 
 	if (prev_post_parse_analyze_hook)
 		prev_post_parse_analyze_hook(pstate, query);
-
+#ifdef ADB
+	Assert(query);
+	if (query->queryId != 0)
+		return ;
+#endif
 	/* Assert we didn't do this already */
 	Assert(query->queryId == 0);
 
