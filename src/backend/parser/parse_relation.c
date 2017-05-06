@@ -1199,6 +1199,9 @@ addRangeTableEntry(ParseState *pstate,
 	rel = parserOpenTable(pstate, relation, lockmode);
 	rte->relid = RelationGetRelid(rel);
 	rte->relkind = rel->rd_rel->relkind;
+#ifdef ADB
+	rte->relname = RelationGetRelationName(rel);
+#endif
 
 	/*
 	 * Build the list of effective column names using user-supplied aliases
@@ -1261,7 +1264,9 @@ addRangeTableEntryForRelation(ParseState *pstate,
 	rte->alias = alias;
 	rte->relid = RelationGetRelid(rel);
 	rte->relkind = rel->rd_rel->relkind;
-
+#ifdef ADB
+	rte->relname = RelationGetRelationName(rel);
+#endif
 	/*
 	 * Build the list of effective column names using user-supplied aliases
 	 * and/or actual column names.

@@ -55,6 +55,13 @@
 #include "parser/parse_target.h"
 #include "parser/parse_type.h"
 #include "parser/parse_utilcmd.h"
+#ifdef ADB
+#include "optimizer/pgxcship.h"
+#include "pgxc/locator.h"
+#include "pgxc/pgxc.h"
+#include "optimizer/pgxcplan.h"
+#include "pgxc/execRemote.h"
+#endif
 #include "parser/parser.h"
 #include "rewrite/rewriteManip.h"
 #include "utils/acl.h"
@@ -86,6 +93,11 @@ typedef struct
 	List	   *alist;			/* "after list" of things to do after creating
 								 * the table */
 	IndexStmt  *pkey;			/* PRIMARY KEY index, if any */
+#ifdef ADB
+	char	  *fallback_dist_col;	/* suggested column to distribute on */
+	DistributeBy	*distributeby;		/* original distribute by column of CREATE TABLE */
+	PGXCSubCluster	*subcluster;		/* original subcluster option of CREATE TABLE */
+#endif
 } CreateStmtContext;
 
 /* State shared by transformCreateSchemaStmt and its subroutines */
@@ -205,6 +217,12 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 		stmt->relation->schemaname = get_namespace_name(namespaceid);
 
 	/* Set up CreateStmtContext */
+#ifdef ADB
+	pstate->p_grammar = stmt->grammar;
+	PushOverrideSearchPathForGrammar(stmt->grammar);
+	PG_TRY();
+	{
+#endif /* ADB */
 	cxt.pstate = pstate;
 	if (IsA(stmt, CreateForeignTableStmt))
 	{
@@ -228,7 +246,10 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	cxt.blist = NIL;
 	cxt.alist = NIL;
 	cxt.pkey = NULL;
-
+#ifdef ADB
+	cxt.fallback_dist_col = NULL;
+	cxt.distributeby = stmt->distributeby;
+#endif
 	/*
 	 * Notice that we allow OIDs here only for plain tables, even though
 	 * foreign tables also support them.  This is necessary because the
@@ -323,7 +344,27 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	result = lappend(cxt.blist, stmt);
 	result = list_concat(result, cxt.alist);
 	result = list_concat(result, save_alist);
+#ifdef ADB
+	/*
+	 * If the user did not specify any distribution clause and there is no
+	 * inherits clause, try and use PK or unique index
+	 */
+	if (!stmt->distributeby && !stmt->inhRelations && cxt.fallback_dist_col)
+	{
+		stmt->distributeby = (DistributeBy *) palloc0(sizeof(DistributeBy));
+		stmt->distributeby->disttype = DISTTYPE_HASH;
+		stmt->distributeby->colname = cxt.fallback_dist_col;
+	}
+#endif
 
+#ifdef ADB
+	}PG_CATCH();
+	{
+		PopOverrideSearchPath();
+		PG_RE_THROW();
+	}PG_END_TRY();
+	PopOverrideSearchPath();
+#endif
 	return result;
 }
 
@@ -441,7 +482,9 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
 		seqstmt = makeNode(CreateSeqStmt);
 		seqstmt->sequence = makeRangeVar(snamespace, sname, -1);
 		seqstmt->options = NIL;
-
+#ifdef ADB
+		seqstmt->is_serial = true;
+#endif
 		/*
 		 * If this is ALTER ADD COLUMN, make sure the sequence will be owned
 		 * by the table's owner.  The current user might be someone else
@@ -463,6 +506,9 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
 		 */
 		altseqstmt = makeNode(AlterSeqStmt);
 		altseqstmt->sequence = makeRangeVar(snamespace, sname, -1);
+#ifdef ADB
+		altseqstmt->is_serial = true;
+#endif
 		attnamelist = list_make3(makeString(snamespace),
 								 makeString(cxt->relation->relname),
 								 makeString(column->colname));
@@ -754,7 +800,31 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 						RelationGetRelationName(relation))));
 
 	cancel_parser_errposition_callback(&pcbstate);
+#ifdef ADB
+	/*
+	 * Check if relation is temporary and assign correct flag.
+	 * This will override transaction direct commit as no 2PC
+	 * can be used for transactions involving temporary objects.
+	 */
+	if (IsTempTable(RelationGetRelid(relation)))
+		ExecSetTempObjectIncluded();
 
+	/*
+	 * Block the creation of tables using views in their LIKE clause.
+	 * Views are not created on Datanodes, so this will result in an error
+	 * PGXCTODO: In order to fix this problem, it will be necessary to
+	 * transform the query string of CREATE TABLE into something not using
+	 * the view definition. Now Postgres-XC only uses the raw string...
+	 * There is some work done with event triggers in 9.3, so it might
+	 * be possible to use that code to generate the SQL query to be sent to
+	 * remote nodes. When this is done, this error will be removed.
+	 */
+	if (relation->rd_rel->relkind == RELKIND_VIEW)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Postgres-XC does not support VIEW in LIKE clauses"),
+				 errdetail("The feature is not currently supported")));
+#endif
 	/*
 	 * Check for privileges
 	 */
@@ -1901,7 +1971,19 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 					 parser_errposition(cxt->pstate, constraint->location)));
 			}
 		}
-
+#ifdef ADB
+		if (IS_PGXC_COORDINATOR)
+		{
+			/*
+			 * Set fallback distribution column.
+			 * If not set, set it to first column in index.
+			 * If primary key, we prefer that over a unique constraint.
+			 */
+			if (index->indexParams == NIL &&
+				(index->primary || !cxt->fallback_dist_col))
+				cxt->fallback_dist_col = pstrdup(key);
+		}
+#endif
 		/* OK, add it to the index definition */
 		iparam = makeNode(IndexElem);
 		iparam->name = pstrdup(key);
@@ -1977,6 +2059,33 @@ transformFKConstraints(CreateStmtContext *cxt,
 
 			constraint->skip_validation = true;
 			constraint->initially_valid = true;
+#ifdef ADB
+			/*
+			 * Set fallback distribution column.
+			 * If not yet set, set it to first column in FK constraint
+			 * if it references a partitioned table
+			 */
+			if (IS_PGXC_COORDINATOR &&
+				!cxt->fallback_dist_col &&
+				list_length(constraint->pk_attrs) != 0)
+			{
+				Oid pk_rel_id = RangeVarGetRelid(constraint->pktable, NoLock, false);
+				AttrNumber attnum = get_attnum(pk_rel_id,
+											   strVal(list_nth(constraint->fk_attrs, 0)));
+
+				/* Make sure key is done on a partitioned column */
+				if (IsDistribColumn(pk_rel_id, attnum))
+				{
+					/* take first column */
+#ifdef ADB
+					char *colstr = strVal(list_nth(constraint->fk_attrs,0));
+#else
+					char *colstr = strdup(strVal(list_nth(constraint->fk_attrs,0)));
+#endif
+					cxt->fallback_dist_col = pstrdup(colstr);
+				}
+			}
+#endif
 		}
 	}
 
@@ -2046,6 +2155,12 @@ transformIndexStmt(Oid relid, IndexStmt *stmt, const char *queryString)
 
 	/* Set up pstate */
 	pstate = make_parsestate(NULL);
+#ifdef ADB
+	pstate->p_grammar = stmt->grammar;
+	PushOverrideSearchPathForGrammar(stmt->grammar);
+	PG_TRY();
+	{
+#endif /* ADB */
 	pstate->p_sourcetext = queryString;
 
 	/*
@@ -2120,7 +2235,14 @@ transformIndexStmt(Oid relid, IndexStmt *stmt, const char *queryString)
 
 	/* Mark statement as successfully transformed */
 	stmt->transformed = true;
-
+#ifdef ADB
+	}PG_CATCH();
+	{
+		PopOverrideSearchPath();
+		PG_RE_THROW();
+	}PG_END_TRY();
+	PopOverrideSearchPath();
+#endif
 	return stmt;
 }
 
@@ -2252,7 +2374,12 @@ transformRuleStmt(RuleStmt *stmt, const char *queryString,
 					   *top_subqry;
 			bool		has_old,
 						has_new;
-
+#ifdef ADB
+			if (IsA(action, NotifyStmt))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+						 errmsg("Rule may not use NOTIFY, it is not yet supported")));
+#endif
 			/*
 			 * Since outer ParseState isn't parent of inner, have to pass down
 			 * the query text by hand.
@@ -2476,7 +2603,12 @@ transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
 										false,
 										true);
 	addRTEtoQuery(pstate, rte, false, true, true);
-
+#ifdef ADB
+	pstate->p_grammar = stmt->grammar;
+	PushOverrideSearchPathForGrammar(stmt->grammar);
+	PG_TRY();
+	{
+#endif /* ADB */
 	/* Set up CreateStmtContext */
 	cxt.pstate = pstate;
 	if (stmt->relkind == OBJECT_FOREIGN_TABLE)
@@ -2502,7 +2634,11 @@ transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
 	cxt.blist = NIL;
 	cxt.alist = NIL;
 	cxt.pkey = NULL;
-
+#ifdef ADB
+	cxt.fallback_dist_col = NULL;
+	cxt.distributeby = NULL;
+	cxt.subcluster = NULL;
+#endif
 	/*
 	 * The only subtypes that currently require parse transformation handling
 	 * are ADD COLUMN, ADD CONSTRAINT and SET DATA TYPE.  These largely re-use
@@ -2655,7 +2791,14 @@ transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
 	result = lappend(cxt.blist, stmt);
 	result = list_concat(result, cxt.alist);
 	result = list_concat(result, save_alist);
-
+#ifdef ADB
+	}PG_CATCH();
+	{
+		PopOverrideSearchPath();
+		PG_RE_THROW();
+	}PG_END_TRY();
+	PopOverrideSearchPath();
+#endif
 	return result;
 }
 

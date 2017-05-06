@@ -35,6 +35,10 @@ extern PGDLLIMPORT bool standard_conforming_strings;
 /* Primary entry point for the raw parsing functions */
 extern List *raw_parser(const char *str);
 
+#ifdef ADB
+extern List *ora_raw_parser(const char *str);
+#endif
+
 /* Utility functions exported by gram.y (perhaps these should be elsewhere) */
 extern List *SystemFuncName(char *name);
 extern TypeName *SystemTypeName(char *name);
@@ -51,6 +55,11 @@ extern Node *makeBitStringConst(char *str, int location);
 extern Node *makeNullAConst(int location);
 extern Node *makeAConst(Value *v, int location);
 extern Node *makeBoolAConst(bool state, int location);
+#ifdef ADB
+extern List *check_sequence_name(List *names, core_yyscan_t yyscanner, int location);
+extern Node *makeConnectByStmt(SelectStmt *stmt, Node *start, Node *connect_by,
+							core_yyscan_t yyscanner);
+#endif
 extern Node *makeRoleSpec(RoleSpecType type, int location);
 extern void check_qualified_name(List *names, core_yyscan_t yyscanner);
 extern List *check_func_name(List *names, core_yyscan_t yyscanner);

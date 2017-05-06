@@ -430,9 +430,13 @@ DefineView(ViewStmt *stmt, const char *queryString)
 	 * Since parse analysis scribbles on its input, copy the raw parse tree;
 	 * this ensures we don't corrupt a prepared statement, for example.
 	 */
-	/*ADBQ : parse_analyze_for_gram notd define */
+#ifdef ADB
+	viewParse = parse_analyze_for_gram((Node *) copyObject(stmt->query),
+							  queryString, NULL, 0, stmt->grammar);
+#else
 	viewParse = parse_analyze((Node *) copyObject(stmt->query),
 							  queryString, NULL, 0);
+#endif
 
 	/*
 	 * The grammar should ensure that the result is a single SELECT Query.

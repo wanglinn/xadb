@@ -26,7 +26,12 @@ extern Query *parse_analyze(Node *parseTree, const char *sourceText,
 			  Oid *paramTypes, int numParams);
 extern Query *parse_analyze_varparams(Node *parseTree, const char *sourceText,
 						Oid **paramTypes, int *numParams);
-
+#ifdef ADB 
+extern Query *parse_analyze_for_gram(Node *parseTree, const char *sourceText,
+                          Oid *paramTypes, int numParams, ParseGrammar grammar);
+extern Query *parse_analyze_varparams_for_gram(Node *parseTree, const char *sourceText,
+                                                Oid **paramTypes, int *numParams, ParseGrammar grammar);
+#endif
 extern Query *parse_sub_analyze(Node *parseTree, ParseState *parentParseState,
 				  CommonTableExpr *parentCTE,
 				  bool locked_from_parent);
