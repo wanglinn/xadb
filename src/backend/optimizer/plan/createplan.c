@@ -44,6 +44,7 @@
 #include "utils/lsyscache.h"
 #ifdef ADB
 #include "pgxc/pgxc.h"
+#include "optimizer/pgxcplan.h"
 #endif /* ADB */
 
 
@@ -2229,6 +2230,9 @@ create_modifytable_plan(PlannerInfo *root, ModifyTablePath *best_path)
 							best_path->epqParam);
 
 	copy_generic_path_info(&plan->plan, &best_path->path);
+#ifdef ADB
+	plan = (ModifyTable*)pgxc_make_modifytable(root, (Plan*)plan);
+#endif /* ADB */
 
 	return plan;
 }
