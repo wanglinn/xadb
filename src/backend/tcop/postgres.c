@@ -4599,6 +4599,7 @@ PostgresMain(int argc, char *argv[],
 #ifdef ADB
 						if (IsConnFromCoord())
 						{
+							paramTypes = (Oid *) palloc(numParams * sizeof(Oid));
 							paramTypeNames = (char **)palloc(numParams * sizeof(char *));
 							for (i = 0; i < numParams; i++)
 								paramTypeNames[i] = (char *)pq_getmsgstring(&input_message);
