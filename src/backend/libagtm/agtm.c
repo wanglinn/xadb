@@ -16,9 +16,12 @@
 #include "libpq/libpq-fe.h"
 #include "libpq/libpq-int.h"
 #include "libpq/pqformat.h"
+#include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/pgxcnode.h"
 #include "storage/procarray.h"
 #include "utils/builtins.h"
+#include "utils/lsyscache.h"
 #include "utils/snapmgr.h"
 
 static AGTM_Sequence agtm_DealSequence(const char *seqname, const char * database,
@@ -384,31 +387,113 @@ agtm_TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn)
 	return xid_status;
 }
 
-void
-agtm_SyncXidWithAGTM(TransactionId *local_xid, TransactionId *agtm_xid)
+static void
+get_cluster_nextXids(TransactionId **xidarray,	/* output */
+					 TransactionId *max_cxid,	/* output */
+					 Oid **oidarray,			/* output */
+					 Oid *max_node,				/* output */
+					 int *arraylen)				/* output */
 {
+	TransactionId	xid;
+	TransactionId	max_xid = FirstNormalTransactionId;
+	Datum			value;
+	int				numcoords = 0;
+	int				numdnodes = 0;
+	int				i;
+	int				num, idx = 0;
+	char		   *query = "select current_xid()";
+	Oid			   *coOids = NULL;
+	Oid			   *dnOids = NULL;
+	Oid				node;
+
+	/* Only master-coordinator can do this */
+	if (IS_PGXC_DATANODE || IsConnFromCoord())
+		return ;
+
+	/* Get cluster nodes' oids */
+	PgxcNodeGetOids(&coOids, &dnOids, &numcoords, &numdnodes, false);
+
+	num = numcoords + numdnodes;
+	if (arraylen)
+		*arraylen = num;
+	if (xidarray)
+		*xidarray = (TransactionId *) palloc0(num * sizeof(TransactionId));
+	if (oidarray)
+		*oidarray = (Oid *) palloc0(num * sizeof(Oid));
+
+	/* Get all coordinators' nextXid */
+	for (i = 0; i < numcoords; i++)
+	{
+		value = pgxc_execute_on_nodes(1, &coOids[i], query);
+		xid = DatumGetTransactionId(value);
+		if (TransactionIdFollows(xid, max_xid))
+		{
+			max_xid = xid;
+			node = coOids[i];
+		}
+		if (xidarray)
+			(*xidarray)[idx] = xid;
+		if (oidarray)
+			(*oidarray)[idx] = coOids[i];
+		idx++;
+	}
+	safe_pfree(coOids);
+
+	/* Get all datanodes' nextXid */
+	for (i = 0; i < numdnodes; i++)
+	{
+		value = pgxc_execute_on_nodes(1, &dnOids[i], query);
+		xid = DatumGetTransactionId(value);
+		if (TransactionIdFollows(xid, max_xid))
+		{
+			max_xid = xid;
+			node = dnOids[i];
+		}
+		if (xidarray)
+			(*xidarray)[idx] = xid;
+		if (oidarray)
+			(*oidarray)[idx] = dnOids[i];
+		idx++;
+	}
+	safe_pfree(dnOids);
+
+	if (max_node)
+		*max_node = node;
+	if (max_cxid)
+		*max_cxid = max_xid;
+}
+
+static Oid
+agtm_SyncXidWithAGTM(TransactionId *src_xid,		/* output */
+					 TransactionId *agtm_xid,		/* output */
+					 bool src_from_local)			/* input, decide where "*src_xid" is from */
+{
+	TransactionId	sxid = InvalidTransactionId;
+	TransactionId	axid = InvalidTransactionId;
+	Oid				node = InvalidOid;
 	PGresult	   *res = NULL;
-	TransactionId	lxid,	/* local xid */
-					axid;	/* agtm xid */
 	StringInfoData	buf;
 
 	PG_TRY();
 	{
-		lxid = ReadNewTransactionId();
-		agtm_send_message(AGTM_MSG_SYNC_XID, "%d%d", (int)lxid, (int)sizeof(lxid));
+		if (src_from_local)
+			sxid = ReadNewTransactionId();
+		else
+			get_cluster_nextXids(NULL, &sxid, NULL, &node, NULL);
+		agtm_send_message(AGTM_MSG_SYNC_XID, "%d%d", (int)sxid, (int)sizeof(sxid));
 		res = agtm_get_result(AGTM_MSG_SYNC_XID);
 		Assert(res);
 		agtm_use_result_type(res, &buf, AGTM_SYNC_XID_RESULT);
 		axid = (TransactionId) pq_getmsgint(&buf, 4);
 
 		ereport(DEBUG1,
-			(errmsg("Sync local xid %u with AGTM xid %u OK", lxid, axid)));
+			(errmsg("Sync source xid %u with AGTM xid %u OK", sxid, axid)));
 
 		agtm_use_result_end(&buf);
 		PQclear(res);
 
-		if (local_xid)
-			*local_xid = lxid;
+		if (src_xid)
+			*src_xid = sxid;
 		if (agtm_xid)
 			*agtm_xid = axid;
 	} PG_CATCH();
@@ -416,18 +501,37 @@ agtm_SyncXidWithAGTM(TransactionId *local_xid, TransactionId *agtm_xid)
 		PQclear(res);
 		PG_RE_THROW();
 	} PG_END_TRY();
+
+	return node;
 }
 
-Datum sync_agtm_xid(PG_FUNCTION_ARGS)
+Oid
+agtm_SyncLocalXidWithAGTM(TransactionId *cluster_xid, TransactionId *agtm_xid)
 {
-	TransactionId	lxid,	/* local xid */
+	return agtm_SyncXidWithAGTM(cluster_xid, agtm_xid, true);
+}
+
+Oid
+agtm_SyncClusterXidWithAGTM(TransactionId *cluster_xid, TransactionId *agtm_xid)
+{
+	return agtm_SyncXidWithAGTM(cluster_xid, agtm_xid, false);
+}
+
+Datum
+sync_cluster_xid(PG_FUNCTION_ARGS)
+{
+	TransactionId	cxid,	/* cluster max xid */
 					axid;	/* agtm xid */
 	TupleDesc		tupdesc;
 	Datum			values[3];
 	bool			isnull[3];
 	NameData		nodename;
+	Oid				nodeoid;
 
-	agtm_SyncXidWithAGTM(&lxid, &axid);
+	if (IS_PGXC_DATANODE || IsConnFromCoord())
+		PG_RETURN_NULL();
+
+	nodeoid = agtm_SyncClusterXidWithAGTM(&cxid, &axid);
 
 	tupdesc = CreateTemplateTupleDesc(3, false);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "node",
@@ -441,19 +545,119 @@ Datum sync_agtm_xid(PG_FUNCTION_ARGS)
 
 	memset(isnull, 0, sizeof(isnull));
 
-	if (PGXCNodeName && PGXCNodeName[0])
-	{
-		namestrcpy(&nodename, PGXCNodeName);
-		values[0] = NameGetDatum(&nodename);
-	} else
-	{
-		isnull[0] = true;
-	}
-
-	values[1] = TransactionIdGetDatum(lxid);
+	namestrcpy(&nodename, get_pgxc_nodename(nodeoid));
+	values[0] = NameGetDatum(&nodename);
+	values[1] = TransactionIdGetDatum(cxid);
 	values[2] = TransactionIdGetDatum(axid);
 
 	return HeapTupleGetDatum(heap_form_tuple(tupdesc, values, isnull));
+}
+
+Datum
+sync_local_xid(PG_FUNCTION_ARGS)
+{
+	TransactionId	lxid,	/* local nextXid */
+					axid;	/* agtm xid */
+	TupleDesc		tupdesc;
+	Datum			values[2];
+	bool			isnull[2];
+
+	(void) agtm_SyncLocalXidWithAGTM(&lxid, &axid);
+
+	tupdesc = CreateTemplateTupleDesc(2, false);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "local",
+					   XIDOID, -1, 0);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 2, "agtm",
+					   XIDOID, -1, 0);
+
+	BlessTupleDesc(tupdesc);
+
+	memset(isnull, 0, sizeof(isnull));
+
+	values[0] = TransactionIdGetDatum(lxid);
+	values[1] = TransactionIdGetDatum(axid);
+
+	return HeapTupleGetDatum(heap_form_tuple(tupdesc, values, isnull));
+}
+
+Datum
+show_cluster_xid(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	typedef struct ClusterNextXids
+	{
+		Oid				*nodes;
+		TransactionId	*xids;
+		int				 length;
+		int				 curidx;
+	} ClusterNextXids;
+	ClusterNextXids *status = NULL;
+
+	if (IS_PGXC_DATANODE || IsConnFromCoord())
+		PG_RETURN_NULL();
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		TupleDesc	tupdesc;
+		MemoryContext oldcontext;
+
+		/* create a function context for cross-call persistence */
+		funcctx = SRF_FIRSTCALL_INIT();
+
+		/*
+		 * Switch to memory context appropriate for multiple function calls
+		 */
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		/* build tupdesc for result tuples */
+		tupdesc = CreateTemplateTupleDesc(2, false);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "node",
+						   NAMEOID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "nextXid",
+						   XIDOID, -1, 0);
+
+		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
+
+		status = (ClusterNextXids *) palloc(sizeof(ClusterNextXids));
+		funcctx->user_fctx = (void *) status;
+
+		get_cluster_nextXids(&(status->xids), NULL, &(status->nodes), NULL, &(status->length));
+		status->curidx = 0;
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	status = (ClusterNextXids *) funcctx->user_fctx;
+
+	while (status->nodes != NULL && status->xids != NULL && status->curidx < status->length)
+	{
+		TransactionId 	xid = status->xids[status->curidx];
+		Oid				node = status->nodes[status->curidx];
+		NameData 		nodename;
+		Datum			values[2];
+		bool			nulls[2];
+ 		HeapTuple		tuple;
+		Datum			result;
+
+		/*
+		 * Form tuple with appropriate data.
+		 */
+		MemSet(values, 0, sizeof(values));
+		MemSet(nulls, 0, sizeof(nulls));
+
+		namestrcpy(&nodename, get_pgxc_nodename(node));
+		values[0] = NameGetDatum(&nodename);
+		values[1] = TransactionIdGetDatum(xid);
+
+		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
+		result = HeapTupleGetDatum(tuple);
+
+		status->curidx++;
+		SRF_RETURN_NEXT(funcctx, result);
+	}
+
+	SRF_RETURN_DONE(funcctx);
 }
 
 static AGTM_Sequence 

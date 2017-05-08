@@ -54,12 +54,27 @@ extern XidStatus agtm_TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn)
 /*
  * synchronize transaction ID with AGTM.
  */
-extern void agtm_SyncXidWithAGTM(TransactionId *local_xid, TransactionId *agtm_xid);
+extern Oid agtm_SyncLocalXidWithAGTM(TransactionId *local_xid, TransactionId *agtm_xid);
 
 /*
  * synchronize transaction ID with AGTM.
  */
-extern Datum sync_agtm_xid(PG_FUNCTION_ARGS);
+extern Oid agtm_SyncClusterXidWithAGTM(TransactionId *cluster_xid, TransactionId *agtm_xid);
+
+/*
+ * synchronize transaction ID with AGTM.
+ */
+extern Datum sync_cluster_xid(PG_FUNCTION_ARGS);
+
+/*
+ * synchronize transaction ID with AGTM.
+ */
+extern Datum sync_local_xid(PG_FUNCTION_ARGS);
+
+/*
+ * show cluster nextXid.
+ */
+extern Datum show_cluster_xid(PG_FUNCTION_ARGS);
 
 /*
  * create sequence on agtm

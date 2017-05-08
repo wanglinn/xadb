@@ -6659,11 +6659,11 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 				mgr_host= (Form_mgr_host)GETSTRUCT(host_tuple);
 				Assert(mgr_host);
 				try = maxtry;
-				ereport(LOG, (errmsg("on datanode master \"%s\" execute \"%s\"", NameStr(mgr_nodetmp->nodename), "select * from sync_agtm_xid()")));
+				ereport(LOG, (errmsg("on datanode master \"%s\" execute \"%s\"", NameStr(mgr_nodetmp->nodename), "select * from sync_local_xid()")));
 				while(try -- >= 0)
 				{
 					resetStringInfo(&resultstrdata);
-					monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, mgr_host->hostagentport, "select * from sync_agtm_xid()", NameStr(mgr_host->hostuser), address, mgr_nodetmp->nodeport, DEFAULT_DB, &resultstrdata);
+					monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, mgr_host->hostagentport, "select * from sync_local_xid()", NameStr(mgr_host->hostuser), address, mgr_nodetmp->nodeport, DEFAULT_DB, &resultstrdata);
 					pstr = resultstrdata.data;
 					if (resultstrdata.len != 0 && strcasecmp(pstr, NameStr(mgr_nodetmp->nodename)) == 0)
 					{
@@ -6673,8 +6673,8 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 				ReleaseSysCache(host_tuple);
 				if (try < 0)
 				{
-					ereport(WARNING, (errmsg("on datanode master \"%s\" execute \"%s\" fail", NameStr(mgr_nodetmp->nodename), "select * from sync_agtm_xid()")));
-					appendStringInfo(&recorderr, "on datanode master \"%s\" execute \"%s\" fail\n", NameStr(mgr_nodetmp->nodename), "select * from sync_agtm_xid()");
+					ereport(WARNING, (errmsg("on datanode master \"%s\" execute \"%s\" fail", NameStr(mgr_nodetmp->nodename), "select * from sync_local_xid()")));
+					appendStringInfo(&recorderr, "on datanode master \"%s\" execute \"%s\" fail\n", NameStr(mgr_nodetmp->nodename), "select * from sync_local_xid()");
 				}
 			}
 			pfree(address);
@@ -6772,7 +6772,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 		mgr_nodetmp = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_nodetmp);
 		resetStringInfo(&infosendsyncmsg);
-		appendStringInfo(&infosendsyncmsg,"EXECUTE DIRECT ON (\"%s\") 'select * from sync_agtm_xid()';", NameStr(mgr_nodetmp->nodename));
+		appendStringInfo(&infosendsyncmsg,"EXECUTE DIRECT ON (\"%s\") 'select * from sync_local_xid()';", NameStr(mgr_nodetmp->nodename));
 		ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", cnnamedata.data, infosendsyncmsg.data)));
 		try = maxtry;
 		while(try-- >= 0)

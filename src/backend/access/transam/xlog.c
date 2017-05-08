@@ -8068,6 +8068,14 @@ GetNextXidAndEpoch(TransactionId *xid, uint32 *epoch)
 	*epoch = ckptXidEpoch;
 }
 
+#ifdef ADB
+Datum
+current_xid(PG_FUNCTION_ARGS)
+{
+	return TransactionIdGetDatum(ReadNewTransactionId());
+}
+#endif
+
 /*
  * This must be called ONCE during postmaster or standalone-backend shutdown
  */

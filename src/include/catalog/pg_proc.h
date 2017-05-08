@@ -5568,8 +5568,18 @@ DATA(insert OID = 5402 ( ora_date_mi_interval	ORANSP PGUID 12 1 0 0 0 f f f f t 
 DATA(insert OID = 3372 (  pool_close_idle_conn		PGNSP PGUID 12 1 0 0 0 f f f f f f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pool_close_idle_conn _null_ _null_ _null_ ));
 DESCR("close pool connection in  idle_slot");
 
-DATA(insert OID = 3373 ( sync_agtm_xid	 PGNSP PGUID 12 10 100 0 0 f f f f t t s s 0 0 2249 "" "{19,28,28}" "{o,o,o}" "{node,local,agtm}" _null_ _null_ sync_agtm_xid _null_ _null_ _null_ ));
-DESCR("synchronize the next XID with AGTM");
+DATA(insert OID = 3373 ( sync_cluster_xid	 PGNSP PGUID 12 10 100 0 0 f f f f t t s s 0 0 2249 "" "{19,28,28}" "{o,o,o}" "{node,local,agtm}" _null_ _null_ sync_cluster_xid _null_ _null_ _null_ ));
+DESCR("synchronize the whole cluster next XID with AGTM");
+
+DATA(insert OID = 3374 ( show_cluster_xid	 PGNSP PGUID 12 10 100 0 0 f f f f t t s s 0 0 2249 "" "{19,28}" "{o,o}" "{node,nextXid}" _null_ _null_ show_cluster_xid _null_ _null_ _null_ ));
+DESCR("show nextXid of whole cluster");
+
+DATA(insert OID = 3375 ( current_xid	PGNSP PGUID 12 1  0 0 0 f f f f t f s u 0 0 28 "" _null_ _null_ _null_ _null_ _null_ current_xid _null_ _null_ _null_ ));
+DESCR("show current nextXid");
+
+DATA(insert OID = 3376 ( sync_local_xid	 PGNSP PGUID 12 10 100 0 0 f f f f t t s s 0 0 2249 "" "{28,28}" "{o,o}" "{local,agtm}" _null_ _null_ sync_local_xid _null_ _null_ _null_ ));
+DESCR("synchronize the local next XID with AGTM");
+
 #endif /* ADB */
 
 #ifdef ADBMGRD

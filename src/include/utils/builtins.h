@@ -1512,6 +1512,8 @@ extern void deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 extern Datum rxact_wait_gid(PG_FUNCTION_ARGS);
 extern Datum rxact_get_running(PG_FUNCTION_ARGS);
 
+/* src/backend/access/transam/varsup.c */
+extern Datum current_xid(PG_FUNCTION_ARGS);
 #endif   /* ADB */
 
 #if defined(ADB) || defined(AGTM)
