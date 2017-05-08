@@ -79,7 +79,10 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
-
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#include "postmaster/autovacuum.h"
+#endif /* ADB */
 
 /*
  *		name of relcache init file(s), used to speed up backend startup
@@ -1045,6 +1048,17 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 		RelationBuildRowSecurity(relation);
 	else
 		relation->rd_rsdesc = NULL;
+
+#ifdef ADB
+	if (IS_PGXC_COORDINATOR &&
+		relation->rd_id >= FirstNormalObjectId &&
+		!IsAutoVacuumWorkerProcess()
+#if defined(ADBMGRD)
+		&& !IsAnyAdbMonitorProcess()
+#endif
+		)
+		RelationBuildLocator(relation);
+#endif
 
 	/* foreign key data is not loaded till asked for */
 	relation->rd_fkeylist = NIL;
