@@ -91,7 +91,7 @@ PgxcClassCreate(Oid pcrelid,
 		values[Anum_pgxc_class_pcfuncattnums - 1] = PointerGetDatum(attrs_array);
 	} else
 	{
-		nulls[Anum_pgxc_class_pcfuncid - 1] = true;
+		values[Anum_pgxc_class_pcfuncid -1] = ObjectIdGetDatum(InvalidOid);
 		nulls[Anum_pgxc_class_pcfuncattnums - 1] = true;
 	}
 
