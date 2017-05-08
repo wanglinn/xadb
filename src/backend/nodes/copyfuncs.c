@@ -28,7 +28,9 @@
 #include "nodes/relation.h"
 #include "utils/datum.h"
 #include "utils/rel.h"
-
+#ifdef ADB
+#include "optimizer/pgxcplan.h"
+#endif /* ADB */
 
 /*
  * Macros to simplify copying of different kinds of fields.  Use these
@@ -4268,6 +4270,88 @@ _copyForeignKeyCacheInfo(const ForeignKeyCacheInfo *from)
 	return newnode;
 }
 
+#ifdef ADB
+static ExecDirectStmt * _copyExecDirectStmt(const ExecDirectStmt *from)
+{
+	ExecDirectStmt *newnode = makeNode(ExecDirectStmt);
+
+	COPY_SCALAR_FIELD(endpos);
+	COPY_NODE_FIELD(node_names);
+	COPY_STRING_FIELD(query);
+
+	return newnode;
+}
+
+/*
+ * _copyRemoteQuery
+ */
+static RemoteQuery *
+_copyRemoteQuery(const RemoteQuery *from)
+{
+	RemoteQuery *newnode = makeNode(RemoteQuery);
+
+	/*
+	 * copy node superclass fields
+	 */
+	CopyScanFields((Scan *) from, (Scan *) newnode);
+
+	/*
+	 * copy remainder of node
+	 */
+	COPY_SCALAR_FIELD(exec_direct_type);
+	COPY_STRING_FIELD(sql_statement);
+	COPY_NODE_FIELD(exec_nodes);
+	COPY_SCALAR_FIELD(combine_type);
+	COPY_SCALAR_FIELD(read_only);
+	COPY_SCALAR_FIELD(force_autocommit);
+	COPY_STRING_FIELD(statement);
+	COPY_STRING_FIELD(cursor);
+	COPY_SCALAR_FIELD(rq_num_params);
+	if (from->rq_param_types)
+		COPY_POINTER_FIELD(rq_param_types,
+			sizeof(from->rq_param_types[0]) * from->rq_num_params);
+	else
+		newnode->rq_param_types = NULL;
+	COPY_SCALAR_FIELD(exec_type);
+	COPY_SCALAR_FIELD(is_temp);
+	COPY_SCALAR_FIELD(rq_finalise_aggs);
+	COPY_SCALAR_FIELD(rq_sortgroup_colno);
+	COPY_NODE_FIELD(remote_query);
+	COPY_NODE_FIELD(base_tlist);
+	COPY_NODE_FIELD(coord_var_tlist);
+	COPY_NODE_FIELD(query_var_tlist);
+	COPY_SCALAR_FIELD(has_row_marks);
+	COPY_SCALAR_FIELD(rq_save_command_id);
+	COPY_SCALAR_FIELD(rq_params_internal);
+	COPY_SCALAR_FIELD(rq_use_pk_for_rep_change);
+	COPY_SCALAR_FIELD(rq_max_param_num);
+
+	return newnode;
+}
+
+/*
+ * _copyExecNodes
+ */
+static ExecNodes *
+_copyExecNodes(const ExecNodes *from)
+{
+	ExecNodes *newnode = makeNode(ExecNodes);
+
+	COPY_NODE_FIELD(primarynodelist);
+	COPY_NODE_FIELD(nodeList);
+	COPY_SCALAR_FIELD(baselocatortype);
+#ifdef ADB
+	COPY_SCALAR_FIELD(en_funcid);
+#endif
+	COPY_NODE_FIELD(en_expr);
+	COPY_SCALAR_FIELD(en_relid);
+	COPY_SCALAR_FIELD(accesstype);
+	COPY_NODE_FIELD(en_dist_vars);
+
+	return newnode;
+}
+
+#endif /* ADB */
 
 /*
  * copyObject
@@ -5073,7 +5157,17 @@ copyObject(const void *from)
 		case T_ForeignKeyCacheInfo:
 			retval = _copyForeignKeyCacheInfo(from);
 			break;
-
+#ifdef ADB
+		case T_ExecDirectStmt:
+			retval = _copyExecDirectStmt(from);
+			break;
+		case T_RemoteQuery:
+			retval = _copyRemoteQuery(from);
+			break;
+		case T_ExecNodes:
+			retval = _copyExecNodes(from);
+			break;
+#endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(from));
 			retval = 0;			/* keep compiler quiet */
