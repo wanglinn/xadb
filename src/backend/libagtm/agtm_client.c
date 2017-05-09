@@ -45,8 +45,22 @@ static void
 agtm_Connect(void)
 {
 	PGconn volatile	*pg_conn;
-	StringInfoData 	 agtmOption;
 	char			 port_buf[10];
+	/* libpq connection keywords */
+	const char *keywords[] = {
+								"host", "port", "user",
+								"dbname", "client_encoding",
+								NULL							/* must be last */
+		                     };
+	/*
+	 * libpq connection values.
+	 * must keep the same order with keywords above.
+	 */
+	const char *values[]   = {
+								AGtmHost, port_buf, AGTM_USER,
+								AGTM_DBNAME, GetDatabaseEncodingName(),
+								NULL							/* must be last */
+							 };
 
 	agtm_Close();
 
@@ -56,18 +70,8 @@ agtm_Connect(void)
 	SaveDefaultAGtmPort(AGtmPort);
 
 	sprintf(port_buf, "%d", AGtmPort);
-	initStringInfo(&agtmOption);
-	appendStringInfo(&agtmOption, "-c client_encoding=%s", GetDatabaseEncodingName());
 
-	pg_conn = PQsetdbLogin(AGtmHost,
-						   port_buf,
-						   agtmOption.data,
-						   NULL,
-						   AGTM_DBNAME,
-						   AGTM_USER,
-						   NULL);
-	pfree(agtmOption.data);
-
+	pg_conn = PQconnectdbParams(keywords, values, true);
 	if(pg_conn == NULL)
 		ereport(ERROR,
 			(errmsg("Fail to connect to AGTM(return NULL pointer)."),
