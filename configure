@@ -2712,7 +2712,7 @@ ac_configure="$SHELL $ac_aux_dir/configure"  # Please don't use this var.
 configure_args=$ac_configure_args
 
 
-ADB_VERSION='3.0devel'
+ADB_VERSION='3.1devel'
 GIT_SHA1=`(cd $srcdir && git log -1 --pretty='format:%h' --no-color) 2>/dev/null`
 if test x"$GIT_SHA1" != x; then
   ADB_VERSION="$ADB_VERSION $GIT_SHA1"
