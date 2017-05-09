@@ -464,14 +464,14 @@ get_cluster_nextXids(TransactionId **xidarray,	/* output */
 }
 
 static Oid
-agtm_SyncXidWithAGTM(TransactionId *src_xid,		/* output */
-					 TransactionId *agtm_xid,		/* output */
-					 bool src_from_local)			/* input, decide where "*src_xid" is from */
+agtm_SyncNextXid(TransactionId *src_xid,		/* output */
+				 TransactionId *agtm_xid,		/* output */
+				 bool src_from_local)			/* input, decide where "*src_xid" is from */
 {
 	TransactionId	sxid = InvalidTransactionId;
 	TransactionId	axid = InvalidTransactionId;
 	Oid				node = InvalidOid;
-	PGresult	   *res = NULL;
+	PGresult	   *volatile res = NULL;
 	StringInfoData	buf;
 
 	PG_TRY();
@@ -506,15 +506,15 @@ agtm_SyncXidWithAGTM(TransactionId *src_xid,		/* output */
 }
 
 Oid
-agtm_SyncLocalXidWithAGTM(TransactionId *cluster_xid, TransactionId *agtm_xid)
+agtm_SyncLocalNextXid(TransactionId *cluster_xid, TransactionId *agtm_xid)
 {
-	return agtm_SyncXidWithAGTM(cluster_xid, agtm_xid, true);
+	return agtm_SyncNextXid(cluster_xid, agtm_xid, true);
 }
 
 Oid
-agtm_SyncClusterXidWithAGTM(TransactionId *cluster_xid, TransactionId *agtm_xid)
+agtm_SyncClusterNextXid(TransactionId *cluster_xid, TransactionId *agtm_xid)
 {
-	return agtm_SyncXidWithAGTM(cluster_xid, agtm_xid, false);
+	return agtm_SyncNextXid(cluster_xid, agtm_xid, false);
 }
 
 Datum
@@ -531,7 +531,7 @@ sync_cluster_xid(PG_FUNCTION_ARGS)
 	if (IS_PGXC_DATANODE || IsConnFromCoord())
 		PG_RETURN_NULL();
 
-	nodeoid = agtm_SyncClusterXidWithAGTM(&cxid, &axid);
+	nodeoid = agtm_SyncClusterNextXid(&cxid, &axid);
 
 	tupdesc = CreateTemplateTupleDesc(3, false);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "node",
@@ -562,7 +562,7 @@ sync_local_xid(PG_FUNCTION_ARGS)
 	Datum			values[2];
 	bool			isnull[2];
 
-	(void) agtm_SyncLocalXidWithAGTM(&lxid, &axid);
+	(void) agtm_SyncLocalNextXid(&lxid, &axid);
 
 	tupdesc = CreateTemplateTupleDesc(2, false);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "local",
