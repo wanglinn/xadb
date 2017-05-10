@@ -3007,7 +3007,7 @@ _copyGrantRoleStmt(const GrantRoleStmt *from)
 	GrantRoleStmt *newnode = makeNode(GrantRoleStmt);
 #ifdef ADB
 	COPY_SCALAR_FIELD(endpos);
-#endif 
+#endif
 	COPY_NODE_FIELD(granted_roles);
 	COPY_NODE_FIELD(grantee_roles);
 	COPY_SCALAR_FIELD(is_grant);
@@ -3998,7 +3998,7 @@ static AlterUserMappingStmt *
 _copyAlterUserMappingStmt(const AlterUserMappingStmt *from)
 {
 	AlterUserMappingStmt *newnode = makeNode(AlterUserMappingStmt);
-	
+
 	COPY_NODE_FIELD(user);
 	COPY_STRING_FIELD(servername);
 	COPY_NODE_FIELD(options);
@@ -4594,9 +4594,7 @@ _copyExecNodes(const ExecNodes *from)
 	COPY_NODE_FIELD(primarynodelist);
 	COPY_NODE_FIELD(nodeList);
 	COPY_SCALAR_FIELD(baselocatortype);
-#ifdef ADB
 	COPY_SCALAR_FIELD(en_funcid);
-#endif
 	COPY_NODE_FIELD(en_expr);
 	COPY_SCALAR_FIELD(en_relid);
 	COPY_SCALAR_FIELD(accesstype);
@@ -4605,9 +4603,30 @@ _copyExecNodes(const ExecNodes *from)
 	return newnode;
 }
 
-#endif /* ADB */
+static DistributeBy *
+_copyDistributeBy(const DistributeBy *from)
+{
+	DistributeBy *newnode = makeNode(DistributeBy);
 
-#ifdef ADB
+	COPY_SCALAR_FIELD(disttype);
+	COPY_STRING_FIELD(colname);
+	COPY_NODE_FIELD(funcname);
+	COPY_NODE_FIELD(funcargs);
+
+	return newnode;
+}
+
+static PGXCSubCluster *
+_copyPGXCSubCluster(const PGXCSubCluster *from)
+{
+	PGXCSubCluster *newnode = makeNode(PGXCSubCluster);
+
+	COPY_SCALAR_FIELD(clustertype);
+	COPY_NODE_FIELD(members);
+
+	return newnode;
+}
+
 /* ****************************************************************
  *					barrier.h copy functions
  * ****************************************************************
@@ -4617,9 +4636,7 @@ _copyBarrierStmt(const BarrierStmt *from)
 {
 	BarrierStmt *newnode = makeNode(BarrierStmt);
 
-#ifdef ADB
 	COPY_SCALAR_FIELD(endpos);
-#endif
 	COPY_STRING_FIELD(id);
 
 	return newnode;
@@ -4634,9 +4651,7 @@ _copyAlterNodeStmt(const AlterNodeStmt *from)
 {
 	AlterNodeStmt *newnode = makeNode(AlterNodeStmt);
 
-#ifdef ADB
 	COPY_SCALAR_FIELD(endpos);
-#endif
 	COPY_STRING_FIELD(node_name);
 	COPY_NODE_FIELD(options);
 
@@ -4648,9 +4663,7 @@ _copyCreateNodeStmt(const CreateNodeStmt *from)
 {
 	CreateNodeStmt *newnode = makeNode(CreateNodeStmt);
 
-#ifdef ADB
 	COPY_SCALAR_FIELD(endpos);
-#endif
 	COPY_STRING_FIELD(node_name);
 	COPY_NODE_FIELD(options);
 
@@ -4662,9 +4675,7 @@ _copyDropNodeStmt(const DropNodeStmt *from)
 {
 	DropNodeStmt *newnode = makeNode(DropNodeStmt);
 
-#ifdef ADB
 	COPY_SCALAR_FIELD(endpos);
-#endif
 	COPY_STRING_FIELD(node_name);
 
 	return newnode;
@@ -4679,9 +4690,7 @@ _copyCreateGroupStmt(const CreateGroupStmt *from)
 {
 	CreateGroupStmt *newnode = makeNode(CreateGroupStmt);
 
-#ifdef ADB
 	COPY_SCALAR_FIELD(endpos);
-#endif
 	COPY_STRING_FIELD(group_name);
 	COPY_NODE_FIELD(nodes);
 
@@ -4693,9 +4702,7 @@ _copyDropGroupStmt(const DropGroupStmt *from)
 {
 	DropGroupStmt *newnode = makeNode(DropGroupStmt);
 
-#ifdef ADB
 	COPY_SCALAR_FIELD(endpos);
-#endif
 	COPY_STRING_FIELD(group_name);
 
 	return newnode;
@@ -4710,9 +4717,7 @@ _copyCleanConnStmt(const CleanConnStmt *from)
 {
 	CleanConnStmt *newnode = makeNode(CleanConnStmt);
 
-#ifdef ADB
 	COPY_SCALAR_FIELD(endpos);
-#endif
 	COPY_NODE_FIELD(nodes);
 	COPY_STRING_FIELD(dbname);
 	COPY_STRING_FIELD(username);
@@ -4739,7 +4744,7 @@ _copyMGRAddHost(const MGRAddHost *from)
 	COPY_NODE_FIELD(options);
 	return newnode;
 }
- 
+
 static MGRDropHost *
 _copyMGRDropHost(const MGRDropHost *from)
 {
@@ -5492,7 +5497,7 @@ copyObject(const void *from)
 		case T_ColumnRefJoin:
 			retval = _copyColumnRefJoin(from);
 			break;
-#endif 
+#endif
 		case T_ParamRef:
 			retval = _copyParamRef(from);
 			break;
@@ -5623,6 +5628,12 @@ copyObject(const void *from)
 			break;
 		case T_ExecNodes:
 			retval = _copyExecNodes(from);
+			break;
+		case T_DistributeBy:
+			retval = _copyDistributeBy(from);
+			break;
+		case T_PGXCSubCluster:
+			retval = _copyPGXCSubCluster(from);
 			break;
 #endif /* ADB */
 
