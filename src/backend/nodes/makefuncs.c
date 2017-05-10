@@ -206,7 +206,12 @@ makeWholeRowVar(RangeTblEntry *rte,
 								 varlevelsup);
 			}
 			break;
-
+#ifdef ADB
+		case RTE_REMOTE_DUMMY:
+			result = NULL;
+			elog(ERROR, "Invalid RTE found");
+			break;
+#endif /* ADB */
 		default:
 
 			/*

@@ -487,6 +487,10 @@ exprTypmod(const Node *expr)
 			return ((const SetToDefault *) expr)->typeMod;
 		case T_PlaceHolderVar:
 			return exprTypmod((Node *) ((const PlaceHolderVar *) expr)->phexpr);
+#ifdef ADB
+		case T_ColumnRefJoin:
+			return exprTypmod((Node*)(((ColumnRefJoin*)expr)->var));
+#endif /* ADB */
 		default:
 			break;
 	}
@@ -919,6 +923,11 @@ exprCollation(const Node *expr)
 		case T_PlaceHolderVar:
 			coll = exprCollation((Node *) ((const PlaceHolderVar *) expr)->phexpr);
 			break;
+#ifdef ADB
+		case T_ColumnRefJoin:
+			coll = exprCollation((Node*)(((ColumnRefJoin*)expr)->var));
+			break;
+#endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
 			coll = InvalidOid;	/* keep compiler quiet */
@@ -1114,6 +1123,11 @@ exprSetCollation(Node *expr, Oid collation)
 		case T_CurrentOfExpr:
 			Assert(!OidIsValid(collation));		/* result is always boolean */
 			break;
+#ifdef ADB
+		case T_ColumnRefJoin:
+			exprSetCollation((Node*)(((ColumnRefJoin*)expr)->var), collation);
+			break;
+#endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
 			break;
@@ -1535,6 +1549,11 @@ exprLocation(const Node *expr)
 			/* just use nested expr's location */
 			loc = exprLocation((Node *) ((const InferenceElem *) expr)->expr);
 			break;
+#ifdef ADB
+		case T_LevelExpr:
+			loc = ((const LevelExpr*)expr)->location;
+			break;
+#endif /* ADB */
 		default:
 			/* for any other node type it's just unknown... */
 			loc = -1;
@@ -1859,6 +1878,9 @@ expression_tree_walker(Node *node,
 		case T_CaseTestExpr:
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
+#ifdef ADB
+		case T_LevelExpr:
+#endif /* ADB */
 		case T_RangeTblRef:
 		case T_SortGroupClause:
 			/* primitive node types with no expression subnodes */
@@ -2179,6 +2201,12 @@ expression_tree_walker(Node *node,
 			break;
 		case T_PlaceHolderInfo:
 			return walker(((PlaceHolderInfo *) node)->ph_var, context);
+#ifdef ADB
+		case T_ColumnRefJoin:
+			return walker(((ColumnRefJoin*)node)->column, context);
+		case T_PriorExpr:
+			return walker(((PriorExpr*)node)->expr, context);
+#endif /* ADB */
 		case T_RangeTblFunction:
 			return walker(((RangeTblFunction *) node)->funcexpr, context);
 		case T_TableSampleClause:
@@ -2438,6 +2466,9 @@ expression_tree_mutator(Node *node,
 		case T_CaseTestExpr:
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
+#ifdef ADB 
+		case T_LevelExpr:
+#endif /* ADB */
 		case T_RangeTblRef:
 		case T_SortGroupClause:
 			return (Node *) copyObject(node);
@@ -2708,6 +2739,9 @@ expression_tree_mutator(Node *node,
 				MUTATE(newnode->arg, caseexpr->arg, Expr *);
 				MUTATE(newnode->args, caseexpr->args, List *);
 				MUTATE(newnode->defresult, caseexpr->defresult, Expr *);
+#ifdef ADB
+				newnode->isdecode = caseexpr->isdecode;
+#endif
 				return (Node *) newnode;
 			}
 			break;
@@ -2992,6 +3026,28 @@ expression_tree_mutator(Node *node,
 				return (Node *) newnode;
 			}
 			break;
+#ifdef ADB
+		case T_ColumnRefJoin:
+			{
+				ColumnRefJoin *crj = (ColumnRefJoin*)node;
+				ColumnRefJoin *newnode;
+
+				FLATCOPY(newnode, crj, ColumnRefJoin);
+				MUTATE(newnode->column, crj->column, ColumnRef *);
+				return (Node*)newnode;
+			}
+			break;
+		case T_PriorExpr:
+			{
+				PriorExpr *pe = (PriorExpr*)node;
+				PriorExpr *newnode;
+
+				FLATCOPY(newnode, pe, PriorExpr);
+				MUTATE(newnode->expr, pe->expr, Node *);
+				return (Node*)newnode;
+			}
+			break;
+#endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(node));
@@ -3205,6 +3261,9 @@ raw_expression_tree_walker(Node *node,
 	{
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
+#ifdef ADB
+		case T_LevelExpr:
+#endif /* ADB */
 		case T_Integer:
 		case T_Float:
 		case T_String:
@@ -3422,6 +3481,12 @@ raw_expression_tree_walker(Node *node,
 		case T_ColumnRef:
 			/* we assume the fields contain nothing interesting */
 			break;
+#ifdef ADB
+		case T_ColumnRefJoin:
+			if(walker(((ColumnRefJoin*)node)->column, context))
+				return true;
+			break;
+#endif /* ADB */
 		case T_FuncCall:
 			{
 				FuncCall   *fcall = (FuncCall *) node;
@@ -3748,3 +3813,42 @@ planstate_walk_members(List *plans, PlanState **planstates,
 
 	return false;
 }
+
+#ifdef ADB
+bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar)
+{
+	ParseGrammar gram;
+	if(node == NULL)
+		return false;
+	switch(nodeTag(node))
+	{
+	case T_List:
+		{
+			ListCell *lc;
+			foreach(lc, (List*)node)
+			{
+				if(get_parse_node_grammar(lfirst(lc), grammar))
+					return true;
+			}
+		}
+		return false;
+	case T_IndexStmt:
+		gram = ((IndexStmt*)node)->grammar;
+		break;
+	case T_CreateStmt:
+		gram = ((CreateStmt*)node)->grammar;
+		break;
+	case T_CreateTableAsStmt:
+		gram = ((CreateTableAsStmt*)node)->grammar;
+		break;
+	case T_AlterTableStmt:
+		gram = ((AlterTableStmt*)node)->grammar;
+		break;
+	default:
+		return false;
+	}
+	if(grammar)
+		*grammar = gram;
+	return true;
+}
+#endif /* ADB */

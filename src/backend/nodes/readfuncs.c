@@ -33,7 +33,9 @@
 #include "nodes/parsenodes.h"
 #include "nodes/plannodes.h"
 #include "nodes/readfuncs.h"
-
+#ifdef ADB
+#include "access/htup.h"
+#endif
 
 /*
  * Macros to simplify reading of different kinds of fields.  Use these
@@ -546,6 +548,10 @@ _readAggref(void)
 
 	READ_OID_FIELD(aggfnoid);
 	READ_OID_FIELD(aggtype);
+#ifdef ADB
+	READ_OID_FIELD(aggtrantype);
+	READ_BOOL_FIELD(agghas_collectfn);
+#endif /* ADB */
 	READ_OID_FIELD(aggcollid);
 	READ_OID_FIELD(inputcollid);
 	READ_OID_FIELD(aggtranstype);
@@ -920,7 +926,9 @@ _readCaseExpr(void)
 	READ_NODE_FIELD(args);
 	READ_NODE_FIELD(defresult);
 	READ_LOCATION_FIELD(location);
-
+#ifdef ADB
+	READ_BOOL_FIELD(isdecode);
+#endif
 	READ_DONE();
 }
 
@@ -1275,6 +1283,9 @@ _readRangeTblEntry(void)
 	READ_NODE_FIELD(alias);
 	READ_NODE_FIELD(eref);
 	READ_ENUM_FIELD(rtekind, RTEKind);
+#ifdef ADB
+	READ_STRING_FIELD(relname);
+#endif
 
 	switch (local_node->rtekind)
 	{
@@ -1307,6 +1318,11 @@ _readRangeTblEntry(void)
 			READ_NODE_FIELD(ctecoltypmods);
 			READ_NODE_FIELD(ctecolcollations);
 			break;
+#ifdef ADB
+		case RTE_REMOTE_DUMMY:
+		/* Nothing to do */
+		break;
+#endif /* ADB */		
 		default:
 			elog(ERROR, "unrecognized RTE kind: %d",
 				 (int) local_node->rtekind);

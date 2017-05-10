@@ -11,7 +11,7 @@ my $same_node;
 my %all_enum;
 my %ident_if_defined;
 my $ident = '[a-zA-Z_][a-zA-Z0-9_]*';
-my $scalar_ident = 'char|bool|int|int16|uint16|int32|uint32|bits32|double|long|Cost|AttrNumber|Index|Oid|BlockNumber|Selectivity|Size|float8';
+my $scalar_ident = 'char|bool|int|int16|uint16|int32|uint32|bits32|double|long|Cost|AttrNumber|Index|Oid|BlockNumber|Selectivity|Size|float8|TimeLineID|Buffer|AclMode|TriggerEvent|XLogRecPtr';
 my $reg_args = "\\s*$ident\\s*(,\\s*$ident\\s*)*";
 my %special_node;
 my %special_member;
@@ -54,7 +54,23 @@ if (defined $special_file)
 				if (/^\s*END_NODE\s*\(\s*($ident)\s*\)\s*$/)
 				{
 					die "diffent BEGIN_NODE($node_name) and END_NODE($1)" if !($node_name eq $1);
-					die "multiple BEGIN_NODE($node_name)"	if defined $special_node{$node_name};
+					die "multiple BEGIN_STRUCT($node_name) or BEGIN_NODE($node_name)"	if defined $special_node{$node_name};
+					$special_node{$node_name} = \@node_item;
+					last;
+				}
+				push @node_item,$_;
+			}
+		}
+		elsif (/^\s*BEGIN_STRUCT\s*\(\s*($ident)\s*\)\s*$/)
+		{
+			my $node_name = $1;
+			my @node_item;
+			while(<H>)
+			{
+				if (/^\s*END_STRUCT\s*\(\s*($ident)\s*\)\s*$/)
+				{
+					die "diffent BEGIN_STRUCT($node_name) and END_STRUCT($1)" if !($node_name eq $1);
+					die "multiple BEGIN_STRUCT($node_name) or BEGIN_NODE($node_name)"	if defined $special_node{$node_name};
 					$special_node{$node_name} = \@node_item;
 					last;
 				}
@@ -140,6 +156,20 @@ while(<>)
 					or $1 eq 'PlannerInfo'
 					or $1 eq 'WindowObjectData'
 					or $1 eq 'TsmRoutine'
+					or $1 eq 'TriggerData'
+					or $1 eq 'ReturnSetInfo'
+					or $1 eq 'ForeignKeyOptInfo'
+					or $1 eq 'ExprContext_CB'
+					or $1 eq 'ForeignKeyCacheInfo'
+					or $1 eq 'IndexInfo'
+					or $1 eq 'CustomPath'
+					or $1 eq 'PathTarget'
+					or $1 eq 'CustomScan'
+					or $1 eq 'ExecRowMark'
+					or $1 eq 'TupleHashEntryData'
+					or $1 eq 'RelationData'
+					or $1 eq 'StartReplicationCmd'
+					or $1 eq 'TimeLineHistoryCmd'
 					or $1 =~ '^(FdwRoutine|TIDBitmap|IndexAmRoutine)$'
 					or $1 =~ '^(Value|Integer|Float|String|BitString|Null)$'
 					or $1 =~ '^(List|IntList|OidList)$'
@@ -188,6 +218,7 @@ while(<>)
 		$same_node{$2} = ${1};
 	}
 }
+push @node_tags,"JoinPath";
 
 open H,'>',$output_path . 'enum_define.h' or die "can not open $output_path" . "enum_define.h:$!";
 print H
@@ -222,11 +253,21 @@ foreach my $key (sort{ $all_enum{$a} <=> $all_enum{$b} } keys %all_enum)
 			$tmp_str = " ||";
 		}
 	}
-
+	if ($key eq 'CostSelector' || $key eq 'CommandMode' || $key eq 'DomainConstraintType' || $key eq 'SetFunctionReturnMode' || $key eq 'ExprDoneCond' || $key eq 'UpperRelationKind' || $key eq 'LimitStateCond' || $key eq 'TableLikeOption' || $key eq 'VacuumOption')
+	{
+		next;
+	}
 	print H "\n#ifndef NO_ENUM_$key\nBEGIN_ENUM($key)\n";
 	foreach my $item (@{$all_enum{$key}})
 	{
-		$item =~ s/\s|,//g; 
+		if($item =~ /ifdef/)
+		{
+			$item =~ s/\n//g;
+		}
+		else
+		{
+			$item =~ s/\s|,//g;
+		}
 		$item =~ s/=.+$//;
 		if ($item =~ /^#/)
 		{
@@ -234,7 +275,10 @@ foreach my $key (sort{ $all_enum{$a} <=> $all_enum{$b} } keys %all_enum)
 		}
 		else
 		{
-			print H "\tENUM_VALUE($item)\n"
+			if($item)
+			{
+				print H "\tENUM_VALUE($item)\n"
+			}
 		}
 	}
 	print H "END_ENUM($key)\n#endif /* NO_ENUM_$key */\n";
@@ -381,7 +425,10 @@ foreach $struct_name (sort{ $all_node{$a} <=> $all_node{$b} } keys %all_node)
 	}
 
 	my $special_mem = $special_member{$struct_name};
-
+	if ($struct_name eq 'ExprContext_CB' || $struct_name eq 'ExecRowMark' || $struct_name eq 'TupleHashEntryData' || $struct_name eq 'RelationData' || $struct_name eq 'TupleHashTableData' || $struct_name eq  'ExecAuxRowMark' || $struct_name eq 'LockInfoData' || $struct_name eq 'ViewOptions' || $struct_name eq 'StdRdOptions' || $struct_name eq 'AutoVacOpts' || $struct_name eq 'ParamExecData' || $struct_name eq 'LockRelId' || $struct_name eq 'Node' || $struct_name eq 'CustomScanMethods' || $struct_name eq 'CustomExecMethods' || $struct_name eq 'CustomPathMethods' || $struct_name eq 'ExtensibleNodeMethods' || $struct_name eq 'EPQState' || $struct_name eq 'JoinCostWorkspace' || $struct_name eq 'JoinPathExtraData' || $struct_name eq 'AggClauseCosts' || $struct_name eq 'BaseStmt' || $struct_name eq 'SemiAntiJoinFactors' || $struct_name eq 'MGRStopAgent' || $struct_name eq 'MGRMonitorAgent' || $struct_name eq 'MGRAlterParm')
+	{
+		next;
+	}
 	print H "\n#ifndef NO_STRUCT_$struct_name\nBEGIN_STRUCT($struct_name)\n";
 	foreach my $item (@{$all_node{$struct_name}})
 	{
@@ -521,11 +568,16 @@ sub process_node_member
 		}
 	}
 	# [const] scalar_ident ident[ident]
-	elsif ($item =~ /^(const\s+){0,1}($scalar_ident)\s+($ident)\s*\[\s*($ident)\s*\]$/)
+	elsif ($item =~ /^(const\s+){0,1}($scalar_ident|$ident)\s+($ident)\s*\[\s*($ident)\s*\]$/)
 	{
 		if (defined $special_mem and defined $$special_mem{$3})
 		{
 			print H "\t$$special_mem{$3}\n";
+		}
+		#/*ADBQ*/
+		elsif ($item =~ /ParamExternData/)
+		{
+			print H "\tNODE_STRUCT_ARRAY(ParamExternData,params, NODE_ARG_->numParams)\n";
 		}else
 		{
 			print H "$item\n";

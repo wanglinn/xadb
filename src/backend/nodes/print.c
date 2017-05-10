@@ -264,6 +264,9 @@ print_rt(const List *rtable)
 		switch (rte->rtekind)
 		{
 			case RTE_RELATION:
+#ifdef ADB
+			case RTE_REMOTE_DUMMY:
+#endif /* ADB */
 				printf("%d\t%s\t%u\t%c",
 					   i, rte->eref->aliasname, rte->relid, rte->relkind);
 				break;

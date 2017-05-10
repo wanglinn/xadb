@@ -7,12 +7,7 @@
 
 #include "nodes/nodes.h"
 #include "nodes/pg_list.h"
-typedef struct MGRAddHba
-{
-	NodeTag		type;
-	char		*name;		/* host name */
-	List		*options;	/* list of DefElem */
-}MGRAddHba;
+#ifdef ADBMGRD
 typedef struct MGRAddHost
 {
 	NodeTag		type;
@@ -181,4 +176,5 @@ typedef struct MgrRemoveNode
 	List            *names;
 }MgrRemoveNode;
 
+#endif
 #endif /* MGR_NODE_H */

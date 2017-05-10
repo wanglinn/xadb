@@ -262,6 +262,7 @@ NODE_SPECIAL_MEB(IndexOptInfo)
 	reverse_sort NODE_SCALAR_POINT(bool,reverse_sort,NODE_ARG_->ncolumns)
 	nulls_first NODE_SCALAR_POINT(bool,nulls_first,NODE_ARG_->ncolumns)
 	canreturn NODE_SCALAR_POINT(bool,canreturn,NODE_ARG_->ncolumns)
+	amcostestimate NODE_NODE(void,amcostestimate)
 END_SPECIAL_MEB(IndexOptInfo)
 
 NODE_SPECIAL_MEB(RelOptInfo)
@@ -321,6 +322,234 @@ END_SPECIAL_MEB(RemoteQuery)
 
 /* end ADB */
 
-
+NODE_SPECIAL_MEB(RestrictInfo)
+	scansel_cache NODE_STRUCT_LIST(MergeScanSelCache,scansel_cache)
+END_SPECIAL_MEB(RestrictInfo)	
 /* ENUM_IF_DEFINED(enum_name, macro_name [, ...]) */
 IDENT_IF_DEFINED(RelationAccessType, ADB)
+
+#ifndef NO_NODE_PlannerGlobal
+BEGIN_NODE(PlannerGlobal)
+	NODE_STRUCT(ParamListInfoData,boundParams)
+	NODE_NODE(List,subplans)
+	NODE_NODE(List,subroots)
+	NODE_BITMAPSET(Bitmapset,rewindPlanIDs)
+	NODE_NODE(List,finalrtable)
+	NODE_NODE(List,finalrowmarks)
+	NODE_NODE(List,resultRelations)
+	NODE_NODE(List,relationOids)
+	NODE_NODE(List,invalItems)
+	NODE_SCALAR(int,nParamExec)
+	NODE_SCALAR(Index,lastPHId)
+	NODE_SCALAR(Index,lastRowMarkId)
+	NODE_SCALAR(bool,transientPlan)
+END_NODE(PlannerGlobal)
+#endif /* NO_NODE_PlannerGlobal */
+
+#ifdef ADB
+#ifndef NO_NODE_ColumnRefJoin
+BEGIN_NODE(ColumnRefJoin)
+	NODE_LOCATION(int,location)	/* location for "(+)" */
+	NODE_NODE(ColumnRef,column)
+END_NODE(ColumnRefJoin)
+#endif /* NO_NODE_ColumnRefJoin */
+#endif
+
+NODE_SPECIAL_MEB(ParamListInfoData)
+	paramFetch NODE_OTHER_POINT(ParamFetchHook,paramFetch)
+	parserSetup NODE_OTHER_POINT(ParserSetupHook,parserSetup)
+END_SPECIAL_MEB(ParamListInfoData)
+
+NODE_SPECIAL_MEB(ParamExternData)
+	value NODE_DATUM(Datum,value,NODE_ARG_->ptype, NODE_ARG_->isnull)
+END_SPECIAL_MEB(ParamExternData)
+
+NODE_SPECIAL_MEB(SortGroupClause)
+	sortop NODE_OID(operator,sortop)
+END_SPECIAL_MEB(SortGroupClause)
+
+NODE_SPECIAL_MEB(Var)
+	varcollid NODE_OID(collation,varcollid)
+END_SPECIAL_MEB(Var)
+
+NODE_SPECIAL_MEB(Aggref)
+	aggfnoid NODE_OID(proc,aggfnoid)
+	aggtype NODE_OID(type,aggtype)
+	aggcollid NODE_OID(collation,aggcollid)
+	aggtrantype NODE_OID(type,aggtrantype)	
+	aggtranstype NODE_OID(type,aggtranstype)
+	inputcollid NODE_OID(collation,inputcollid)
+END_SPECIAL_MEB(Aggref)
+
+NODE_SPECIAL_MEB(WindowFunc)
+	inputcollid NODE_OID(collation,inputcollid)
+END_SPECIAL_MEB(WindowFunc)
+
+NODE_SPECIAL_MEB(FuncExpr)
+	inputcollid NODE_OID(collation,inputcollid)
+END_SPECIAL_MEB(FuncExpr)
+
+NODE_SPECIAL_MEB(OpExpr)
+	inputcollid NODE_OID(collation,inputcollid)
+END_SPECIAL_MEB(OpExpr)
+	
+NODE_SPECIAL_MEB(ScalarArrayOpExpr)
+	inputcollid NODE_OID(collation,inputcollid)
+END_SPECIAL_MEB(ScalarArrayOpExpr)
+
+NODE_SPECIAL_MEB(MinMaxExpr)
+	inputcollid NODE_OID(collation,inputcollid)
+END_SPECIAL_MEB(MinMaxExpr)
+
+NODE_SPECIAL_MEB(MinMaxAggInfo)
+	aggfnoid NODE_OID(proc,aggfnoid)
+END_SPECIAL_MEB(MinMaxAggInfo)
+
+NODE_SPECIAL_MEB(CaseExpr)
+	casetype NODE_OID(type,casetype)
+	casecollid NODE_OID(collation,casecollid)
+END_SPECIAL_MEB(CaseExpr)
+
+NODE_SPECIAL_MEB(CaseTestExpr)
+	typeId NODE_OID(type,typeId)
+	collation NODE_OID(collation,collation)
+END_SPECIAL_MEB(CaseTestExpr)
+
+NODE_SPECIAL_MEB(CoalesceExpr)
+	coalescetype NODE_OID(type,coalescetype)
+	coalescecollid NODE_OID(collation,coalescecollid)
+END_SPECIAL_MEB(CoalesceExpr)
+
+NODE_SPECIAL_MEB(CoerceToDomain)
+	resulttype NODE_OID(type,resulttype)
+	resultcollid NODE_OID(collation,resultcollid)
+END_SPECIAL_MEB(CoerceToDomain)
+
+NODE_SPECIAL_MEB(CoerceToDomainValue)
+	typeId NODE_OID(type,typeId)
+	collation NODE_OID(collation,collation)
+END_SPECIAL_MEB(CoerceToDomainValue)
+
+NODE_SPECIAL_MEB(CoerceViaIO)
+	resulttype NODE_OID(type,resulttype)
+	resultcollid NODE_OID(collation,resultcollid)
+END_SPECIAL_MEB(CoerceViaIO)
+
+NODE_SPECIAL_MEB(CollateExpr)
+	collOid NODE_OID(collation,collOid)
+END_SPECIAL_MEB(CollateExpr)
+
+NODE_SPECIAL_MEB(ColumnDef)
+	collOid NODE_OID(collation,collOid)
+END_SPECIAL_MEB(ColumnDef)
+
+NODE_SPECIAL_MEB(ConvertRowtypeExpr)
+	resulttype NODE_OID(type,resulttype)
+END_SPECIAL_MEB(ConvertRowtypeExpr)
+
+NODE_SPECIAL_MEB(EquivalenceClass)
+	ec_collation NODE_OID(collation,ec_collation)
+END_SPECIAL_MEB(EquivalenceClass)
+
+NODE_SPECIAL_MEB(ExecNodes)
+	en_funcid NODE_OID(proc,en_funcid)
+END_SPECIAL_MEB(ExecNodes)
+
+NODE_SPECIAL_MEB(FieldSelect)
+	resulttype NODE_OID(type,resulttype)
+	resultcollid NODE_OID(collation,resultcollid)
+END_SPECIAL_MEB(FieldSelect)
+
+NODE_SPECIAL_MEB(FieldStore)
+	resulttype NODE_OID(type,resulttype)
+END_SPECIAL_MEB(FieldStore)
+
+NODE_SPECIAL_MEB(FuncExpr)
+	funcid NODE_OID(proc,funcid)
+	funcresulttype NODE_OID(type,funcresulttype)
+	funccollid NODE_OID(collation,funccollid)
+	inputcollid NODE_OID(collation,inputcollid)
+END_SPECIAL_MEB(FuncExpr)
+
+NODE_SPECIAL_MEB(MinMaxExpr)
+	minmaxtype NODE_OID(type,minmaxtype)
+	minmaxcollid NODE_OID(collation,minmaxcollid)
+	inputcollid NODE_OID(collation,inputcollid)
+END_SPECIAL_MEB(MinMaxExpr)
+
+NODE_SPECIAL_MEB(OpExpr)
+	opno NODE_OID(operator,opno)
+	opfuncid NODE_OID(proc,opfuncid)
+	opresulttype NODE_OID(type,opresulttype)
+	opcollid NODE_OID(collation,opcollid)
+	inputcollid NODE_OID(collation,inputcollid)
+END_SPECIAL_MEB(OpExpr)
+
+
+NODE_SPECIAL_MEB(RelabelType)
+	resulttype NODE_OID(type,resulttype)
+	resultcollid NODE_OID(collation,resultcollid)
+END_SPECIAL_MEB(RelabelType)
+
+NODE_SPECIAL_MEB(RowExpr)
+row_typeid NODE_OID(type,row_typeid)
+END_SPECIAL_MEB(RowExpr)
+
+NODE_SPECIAL_MEB(ScalarArrayOpExpr)
+	opno NODE_OID(operator,opno)
+	opfuncid NODE_OID(proc,opfuncid)
+	inputcollid NODE_OID(collation,inputcollid)
+END_SPECIAL_MEB(ScalarArrayOpExpr)
+
+NODE_SPECIAL_MEB(SetToDefault)
+	typeId NODE_OID(type,typeId)
+	collation NODE_OID(collation,collation)
+END_SPECIAL_MEB(SetToDefault)
+
+NODE_SPECIAL_MEB(SortGroupClause)
+	eqop NODE_OID(operator,eqop)
+END_SPECIAL_MEB(SortGroupClause)
+
+NODE_SPECIAL_MEB(TypeName)
+	typeOid NODE_OID(type,typeOid)
+END_SPECIAL_MEB(TypeName)
+
+NODE_SPECIAL_MEB(Var)
+	vartype NODE_OID(type,vartype)
+END_SPECIAL_MEB(Var)
+
+NODE_SPECIAL_MEB(WindowFunc)
+	winfnoid NODE_OID(proc,winfnoid)
+	wintype NODE_OID(type,wintype)
+	wincollid NODE_OID(collation,wincollid)
+	inputcollid NODE_OID(collation,inputcollid)
+END_SPECIAL_MEB(WindowFunc)
+
+NODE_SPECIAL_MEB(AppendRelInfo)
+	parent_reltype NODE_OID(type,parent_reltype)
+	child_reltype NODE_OID(type,child_reltype)
+END_SPECIAL_MEB(AppendRelInfo)
+
+NODE_SPECIAL_MEB(ArrayCoerceExpr)
+	elemfuncid NODE_OID(collation,elemfuncid)
+	resulttype NODE_OID(type,resulttype)
+	resultcollid NODE_OID(collation,resultcollid)
+END_SPECIAL_MEB(ArrayCoerceExpr)
+
+NODE_SPECIAL_MEB(ArrayRef)
+	refarraytype NODE_OID(type,refarraytype)
+	refelemtype NODE_OID(type,refelemtype)
+	refcollid NODE_OID(collation,refcollid)
+END_SPECIAL_MEB(ArrayRef)
+
+NODE_SPECIAL_MEB(Param)
+	NODE_OID(type,paramtype)
+	NODE_OID(collation,paramcollid)
+END_SPECIAL_MEB(Param)
+
+NODE_SPECIAL_MEB(SubPlan)
+	firstColType NODE_OID(type,firstColType)
+	firstColCollation NODE_OID(collation,firstColCollation)
+END_SPECIAL_MEB(SubPlan)
+
+
