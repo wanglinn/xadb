@@ -2058,6 +2058,10 @@ RelationDestroyRelation(Relation relation, bool remember_tupdesc)
 		MemoryContextDelete(relation->rd_rsdesc->rscxt);
 	if (relation->rd_fdwroutine)
 		pfree(relation->rd_fdwroutine);
+#ifdef ADB
+	if (relation->rd_locator_info)
+		FreeRelationLocInfo(relation->rd_locator_info);
+#endif
 	pfree(relation);
 }
 
@@ -5566,8 +5570,14 @@ RelationCacheInitFileRemove(void)
 		if (strspn(de->d_name, "0123456789") == strlen(de->d_name))
 		{
 			/* Scan the tablespace dir for per-database dirs */
+#ifdef ADB
+			/* Postgres-XC tablespaces include node name in path */
+			snprintf(path, sizeof(path), "%s/%s/%s_%s",
+					 tblspcdir, de->d_name, TABLESPACE_VERSION_DIRECTORY, PGXCNodeName);
+#else
 			snprintf(path, sizeof(path), "%s/%s/%s",
 					 tblspcdir, de->d_name, TABLESPACE_VERSION_DIRECTORY);
+#endif
 			RelationCacheInitFileRemoveInDir(path);
 		}
 	}
