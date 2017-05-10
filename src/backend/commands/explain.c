@@ -296,6 +296,9 @@ NewExplainState(void)
 
 	/* Set default options (most fields can be left as zeroes). */
 	es->costs = true;
+#ifdef ADB
+	es->nodes = true;
+#endif
 	/* Prepare output buffer. */
 	es->str = makeStringInfo();
 
