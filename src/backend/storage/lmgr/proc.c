@@ -39,6 +39,9 @@
 #include "access/twophase.h"
 #include "access/xact.h"
 #include "miscadmin.h"
+#if defined(ADBMGRD)
+#include "postmaster/adbmonitor.h"
+#endif
 #include "postmaster/autovacuum.h"
 #include "replication/slot.h"
 #include "replication/syncrep.h"
@@ -177,6 +180,9 @@ InitProcGlobal(void)
 	ProcGlobal->spins_per_delay = DEFAULT_SPINS_PER_DELAY;
 	ProcGlobal->freeProcs = NULL;
 	ProcGlobal->autovacFreeProcs = NULL;
+#if defined(ADBMGRD)
+	ProcGlobal->adbmntFreeProcs = NULL;
+#endif
 	ProcGlobal->bgworkerFreeProcs = NULL;
 	ProcGlobal->startupProc = NULL;
 	ProcGlobal->startupProcPid = 0;
@@ -254,6 +260,15 @@ InitProcGlobal(void)
 			ProcGlobal->autovacFreeProcs = &procs[i];
 			procs[i].procgloballist = &ProcGlobal->autovacFreeProcs;
 		}
+#if defined(ADBMGRD)
+		else if (i < MaxConnections + autovacuum_max_workers + 1 +
+					 adbmonitor_max_workers + 1)
+		{
+			/* PGPROC for adb monitor launcher/worker, add to adbmntFreeProcs list */
+			procs[i].links.next = (SHM_QUEUE *) ProcGlobal->adbmntFreeProcs;
+			ProcGlobal->adbmntFreeProcs = &procs[i];
+		}
+#endif
 		else if (i < MaxBackends)
 		{
 			/* PGPROC for bgworker, add to bgworkerFreeProcs list */
@@ -319,11 +334,32 @@ InitProcess(void)
 
 	set_spins_per_delay(ProcGlobal->spins_per_delay);
 
-	MyProc = *procgloballist;
-
+	// ADBQ, direct copy from adb2.2
+	//MyProc = *procgloballist;
+	if (IsAnyAutoVacuumProcess())
+		MyProc = ProcGlobal->autovacFreeProcs;
+#if defined(ADBMGRD)
+	else if (IsAnyAdbMonitorProcess())
+		MyProc = ProcGlobal->adbmntFreeProcs;
+#endif
+	else if (IsBackgroundWorker)
+		MyProc = ProcGlobal->bgworkerFreeProcs;
+	else
+		MyProc = ProcGlobal->freeProcs;
 	if (MyProc != NULL)
 	{
-		*procgloballist = (PGPROC *) MyProc->links.next;
+		// ADBQ, direct copy from adb2.2
+		//*procgloballist = (PGPROC *) MyProc->links.next;
+		if (IsAnyAutoVacuumProcess())
+			ProcGlobal->autovacFreeProcs = (PGPROC *) MyProc->links.next;
+#if defined(ADBMGRD)
+		else if (IsAnyAdbMonitorProcess())
+			ProcGlobal->adbmntFreeProcs = (PGPROC *) MyProc->links.next;
+#endif
+		else if (IsBackgroundWorker)
+			ProcGlobal->bgworkerFreeProcs = (PGPROC *) MyProc->links.next;
+		else
+			ProcGlobal->freeProcs = (PGPROC *) MyProc->links.next;
 		SpinLockRelease(ProcStructLock);
 	}
 	else
@@ -353,7 +389,13 @@ InitProcess(void)
 	 * cleaning up.  (XXX autovac launcher currently doesn't participate in
 	 * this; it probably should.)
 	 */
+#if defined(ADBMGRD)
+	if (IsUnderPostmaster &&
+		!IsAutoVacuumLauncherProcess() &&
+		!IsAdbMonitorLauncherProcess())
+#else
 	if (IsUnderPostmaster && !IsAutoVacuumLauncherProcess())
+#endif
 		MarkPostmasterChildActive();
 
 	/*
@@ -867,10 +909,17 @@ ProcKill(int code, Datum arg)
 	{
 		/* Since lockGroupLeader is NULL, lockGroupMembers should be empty. */
 		Assert(dlist_is_empty(&proc->lockGroupMembers));
-
+#if defined(ADBMGRD)
+	if (IsAnyAdbMonitorProcess())
+	{
+		proc->links.next = (SHM_QUEUE *) ProcGlobal->adbmntFreeProcs;
+		ProcGlobal->adbmntFreeProcs = proc;
+	}
+#else
 		/* Return PGPROC structure (and semaphore) to appropriate freelist */
 		proc->links.next = (SHM_QUEUE *) *procgloballist;
 		*procgloballist = proc;
+#endif
 	}
 
 	/* Update shared estimate of spins_per_delay */
@@ -883,12 +932,23 @@ ProcKill(int code, Datum arg)
 	 * way, so tell the postmaster we've cleaned up acceptably well. (XXX
 	 * autovac launcher should be included here someday)
 	 */
+#if defined(ADBMGRD)
+	if (IsUnderPostmaster &&
+		!IsAutoVacuumLauncherProcess() &&
+		!IsAdbMonitorLauncherProcess())
+#else
 	if (IsUnderPostmaster && !IsAutoVacuumLauncherProcess())
+#endif
 		MarkPostmasterChildInactive();
 
 	/* wake autovac launcher if needed -- see comments in FreeWorkerInfo */
 	if (AutovacuumLauncherPid != 0)
 		kill(AutovacuumLauncherPid, SIGUSR2);
+#if defined(ADBMGRD)
+	/* wake adb monitor launcher if needed -- see comments in FreeWorkerInfo */
+	if (AdbMonitorLauncherPid != 0)
+		kill(AdbMonitorLauncherPid, SIGUSR2);
+#endif
 }
 
 /*

@@ -53,6 +53,15 @@ extern int current_grammar;
 #endif
 
 extern List *pg_parse_query(const char *query_string);
+#ifdef ADB
+extern List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram);
+extern List *pg_analyze_and_rewrite_for_gram(Node *parsetree, const char *query_string,
+						Oid *paramTypes, int numParams, ParseGrammar grammar);
+#endif /* ADB */
+
+#ifdef ADBMGRD
+extern List *mgr_parse_query(const char *query_string);
+#endif /* ADBMGRD */
 extern List *pg_analyze_and_rewrite(Node *parsetree, const char *query_string,
 					   Oid *paramTypes, int numParams);
 extern List *pg_analyze_and_rewrite_params(Node *parsetree,

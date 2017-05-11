@@ -2912,6 +2912,10 @@ pmdie(SIGNAL_ARGS)
 			/* set stopwatch for them to die */
 			AbortStartTime = time(NULL);
 
+#if defined(ADBMGRD)
+			if (AdbMntPID != 0)
+				signal_child(AdbMntPID, SIGQUIT);
+#endif /* ADBMGRD */
 			/*
 			 * Now wait for backends to exit.  If there are none,
 			 * PostmasterStateMachine will take the next step.

@@ -63,6 +63,7 @@ extern Datum mgr_deploy_hostnamelist(PG_FUNCTION_ARGS);
 
 extern Datum mgr_drop_host_func(PG_FUNCTION_ARGS);
 extern Datum mgr_alter_host_func(PG_FUNCTION_ARGS);
+extern Datum mgr_start_agent_all(PG_FUNCTION_ARGS);
 
 extern Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS);
 extern Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS);

@@ -419,11 +419,9 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_all_nodename_in_spec_host(hostname tex
     RETURNS table (all_nodename name)
     AS 
     $$
-
     select nodename as all_node_name
     from mgr_node
     where nodehost = (select oid from mgr_host where hostname = $1);
-
     $$
     LANGUAGE SQL
     IMMUTABLE
@@ -950,7 +948,6 @@ insert into monitor_user values('adbmonitor', 2, '2016-01-01','2050-01-01', '123
 CREATE OR REPLACE  FUNCTION  pg_catalog.monitor_checkuser_func(in Name, in Name)
 RETURNS oid AS $$
   select oid from pg_catalog.monitor_user where username=$1 and userpassword=$2;
-
 $$  LANGUAGE sql IMMUTABLE STRICT;
 	
 --show user info

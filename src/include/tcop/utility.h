@@ -65,4 +65,13 @@ extern bool CommandIsReadOnly(Node *parsetree);
 extern bool pgxc_lock_for_utility_stmt(Node *parsetree);
 #endif
 
+#ifdef ADBMGRD
+/* in utility_mgr.c */
+extern const char *mgr_CreateCommandTag(Node *parsetree);
+extern void mgr_ProcessUtility(Node *parsetree, const char *queryString,
+									ProcessUtilityContext context, ParamListInfo params,
+									DestReceiver *dest,
+									char *completionTag);
+#endif /* ADBMGRD */
+
 #endif   /* UTILITY_H */

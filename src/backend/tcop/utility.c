@@ -388,6 +388,10 @@ ProcessUtility(Node *parsetree,
 								sentToRemote,
 #endif /* ADB */
 								completionTag);
+#ifdef ADBMGRD
+	else if(IsMgrNode(parsetree))
+		mgr_ProcessUtility(parsetree, queryString, context, params, dest, completionTag);
+#endif /* ADBMGRD */
 	else
 		standard_ProcessUtility(parsetree, queryString,
 								context, params,
@@ -3313,7 +3317,10 @@ const char *
 CreateCommandTag(Node *parsetree)
 {
 	const char *tag;
-
+#ifdef ADBMGRD
+	if(IsMgrNode(parsetree))
+		return mgr_CreateCommandTag(parsetree);
+#endif
 	switch (nodeTag(parsetree))
 	{
 			/* raw plannable queries */

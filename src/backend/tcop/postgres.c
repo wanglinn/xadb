@@ -53,6 +53,9 @@
 #include "parser/analyze.h"
 #include "parser/parser.h"
 #include "pg_getopt.h"
+#if defined(ADBMGRD)
+#include "postmaster/adbmonitor.h"
+#endif
 #include "postmaster/autovacuum.h"
 #include "postmaster/postmaster.h"
 #include "replication/slot.h"
@@ -667,6 +670,81 @@ ProcessClientWriteInterrupt(bool blocked)
 
 	errno = save_errno;
 }
+#ifdef ADB
+List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram)
+{
+	static const struct
+	{
+		const char *token;
+		int token_len;
+		ParseGrammar gram;
+	}token_gram[]={
+		 {"pg",2,PARSE_GRAM_POSTGRES}
+		,{"postgres", 8, PARSE_GRAM_POSTGRES}
+		,{"oracle", 6, PARSE_GRAM_ORACLE}
+		,{"ora", 3, PARSE_GRAM_ORACLE}
+	};
+	const char *str;
+	ParseGrammar grammer;
+	size_t i;
+
+	/* skip space */
+	Assert(query_string);
+	for(str = query_string;*str;++str)
+	{
+		if(!isspace(*str))
+			break;
+	}
+
+	grammer = parse_grammar;
+	if(str[0] == '-' && str[1] == '-')
+	{
+		str += 2;
+		for(i=0;i<lengthof(token_gram);++i)
+		{
+			/* test "token\s" */
+			if(strncmp(str, token_gram[i].token, token_gram[i].token_len) == 0
+				&& isspace(str[token_gram[i].token_len]))
+			{
+				grammer = token_gram[i].gram;
+				break;
+			}
+		}
+	}else if(str[0] == '/' && str[1] == '*')
+	{
+		str += 2;
+		for(i=0;i<lengthof(token_gram);++i)
+		{
+			// test "token(\s|\*/)"
+			if(strncmp(str, token_gram[i].token, token_gram[i].token_len) == 0
+				&& (isspace(str[token_gram[i].token_len]) || 
+					(str[token_gram[i].token_len] == '*' && str[token_gram[i].token_len+1] == '/')
+				))
+			{
+				grammer = token_gram[i].gram;
+				break;
+			}
+		}
+	}
+
+	if(gram)
+		*gram = grammer;
+	switch(grammer)
+	{
+	case PARSE_GRAM_POSTGRES:
+		return pg_parse_query(query_string);
+	/*ADBQ, function ora_parse_query undefine*/
+	//case PARSE_GRAM_ORACLE:
+	//	return ora_parse_query(query_string);
+	default:
+		ereport(ERROR, (errmsg("Unknown grammar %d", grammer)
+				, errcode(ERRCODE_INTERNAL_ERROR)
+				, errhint("Use SQL:\"set grammar=postgres|oracle\" to change grammar")));
+		break;
+	}
+	return NIL;
+}
+#endif
 
 /*
  * Do raw parsing (only).
@@ -714,6 +792,7 @@ pg_parse_query(const char *query_string)
 	return raw_parsetree_list;
 }
 
+
 /*
  * Given a raw parsetree (gram.y output), and optionally information about
  * types of parameter symbols ($n), perform parse analysis and rule rewriting.
@@ -727,6 +806,16 @@ List *
 pg_analyze_and_rewrite(Node *parsetree, const char *query_string,
 					   Oid *paramTypes, int numParams)
 {
+#ifdef ADB
+	return pg_analyze_and_rewrite_for_gram(parsetree, query_string
+		, paramTypes, numParams, PARSE_GRAM_POSTGRES);
+}
+
+List *
+pg_analyze_and_rewrite_for_gram(Node *parsetree, const char *query_string,
+					   Oid *paramTypes, int numParams, ParseGrammar grammar)
+{
+#endif
 	Query	   *query;
 	List	   *querytree_list;
 
@@ -738,7 +827,11 @@ pg_analyze_and_rewrite(Node *parsetree, const char *query_string,
 	if (log_parser_stats)
 		ResetUsage();
 
+#ifdef ADB
+	query = parse_analyze_for_gram(parsetree, query_string, paramTypes, numParams, grammar);
+#else
 	query = parse_analyze(parsetree, query_string, paramTypes, numParams);
+#endif
 
 	if (log_parser_stats)
 		ShowUsage("PARSE ANALYSIS STATISTICS");
@@ -1092,7 +1185,33 @@ exec_simple_query(const char *query_string)
 	 * Do basic parsing of the query or queries (this should be safe even if
 	 * we are in aborted transaction state!)
 	 */
+#ifdef ADB
+	if(query_node)
+	{
+		parsetree_list = IsA(query_node, List) ? (List*)query_node : list_make1(query_node);
+		if(get_parse_node_grammar(query_node, &grammar) == false)
+			grammar = PARSE_GRAM_POSTGRES;
+	}else
+	{
+		parsetree_list = parse_query_auto_gram(query_string, &grammar);
+	}
+#elif defined(ADBMGRD)
+	if(IsUnderPostmaster)
+	{
+		if(mgr_cmd_mode == CMD_MODE_MGR)
+			parsetree_list = mgr_parse_query(query_string);
+		else if(mgr_cmd_mode == CMD_MODE_SQL)
+			parsetree_list = pg_parse_query(query_string);
+		else
+			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("unknown command mode %d", mgr_cmd_mode)));
+	}else
+	{
+		parsetree_list = pg_parse_query(query_string);
+	}
+#else
 	parsetree_list = pg_parse_query(query_string);
+#endif
 
 #ifdef ADB
 	sql_list = segment_query_string(query_string, parsetree_list);
@@ -1205,9 +1324,13 @@ exec_simple_query(const char *query_string)
 		 */
 		oldcontext = MemoryContextSwitchTo(MessageContext);
 
+#ifdef ADB
+		querytree_list = pg_analyze_and_rewrite_for_gram(parsetree
+							, query_sql, NULL, 0, grammar);
+#else
 		querytree_list = pg_analyze_and_rewrite(parsetree, query_string,
 												NULL, 0);
-
+#endif
 		plantree_list = pg_plan_queries(querytree_list,
 										CURSOR_OPT_PARALLEL_OK, NULL);
 
@@ -1421,6 +1544,9 @@ exec_parse_message(const char *query_string,	/* string to execute */
 	const char *commandTag;
 	List	   *querytree_list;
 	CachedPlanSource *psrc;
+#ifdef ADB
+	ParseGrammar	grammar;
+#endif
 	bool		is_named;
 	bool		save_log_statement_stats = log_statement_stats;
 	char		msec_str[32];
@@ -1436,7 +1562,6 @@ exec_parse_message(const char *query_string,	/* string to execute */
 
 	if (save_log_statement_stats)
 		ResetUsage();
-
 	ereport(DEBUG2,
 			(errmsg("parse %s: %s",
 					*stmt_name ? stmt_name : "<unnamed>",
@@ -1501,8 +1626,19 @@ exec_parse_message(const char *query_string,	/* string to execute */
 	 * Do basic parsing of the query or queries (this should be safe even if
 	 * we are in aborted transaction state!)
 	 */
+#ifdef ADB
+	parsetree_list = parse_query_auto_gram(query_string, &grammar);
+#elif defined(ADBMGRD)
+	if(mgr_cmd_mode == CMD_MODE_MGR)
+		parsetree_list = mgr_parse_query(query_string);
+	else if(mgr_cmd_mode == CMD_MODE_SQL)
 	parsetree_list = pg_parse_query(query_string);
-
+	else
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+			,errmsg("unknown command mode %d", mgr_cmd_mode)));
+#else
+	parsetree_list = pg_parse_query(query_string);
+#endif
 	/*
 	 * We only allow a single user statement in a prepared statement. This is
 	 * mainly to keep the protocol simple --- otherwise we'd need to worry
@@ -1569,11 +1705,18 @@ exec_parse_message(const char *query_string,	/* string to execute */
 		if (log_parser_stats)
 			ResetUsage();
 
+#ifdef ADB
+	query = parse_analyze_varparams_for_gram(raw_parse_tree,
+												 query_string,
+												 &paramTypes,
+												 &numParams,
+												 grammar);
+#else
 		query = parse_analyze_varparams(raw_parse_tree,
 										query_string,
 										&paramTypes,
 										&numParams);
-
+#endif
 		/*
 		 * Check all parameter types got determined.
 		 */

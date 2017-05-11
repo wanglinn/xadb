@@ -52,6 +52,9 @@
 #include "parser/parser.h"
 #include "parser/scansup.h"
 #include "pgstat.h"
+#if defined(ADBMGRD)
+#include "postmaster/adbmonitor.h"
+#endif /* ADBMGRD */
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgworker.h"
 #include "postmaster/bgwriter.h"
