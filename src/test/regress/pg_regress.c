@@ -50,7 +50,6 @@ typedef enum
 	ADB_COORD_2,
 	ADB_DATANODE_1,
 	ADB_DATANODE_2,
-	ADB_DATANODE_3,
 	ADB_AGTM
 } ADBNodeTypeNum;
 #endif
@@ -116,7 +115,6 @@ static int	port = -1;
 static int	port_coord2 = -1;
 static int	port_dn1 = -1;
 static int	port_dn2 = -1;
-static int	port_dn3 = -1;
 static int	port_agtm = -1;
 
 /* Data folder of each node */
@@ -124,14 +122,12 @@ const char *data_co1 = "data_co1"; /* Coordinator 1 */
 const char *data_co2 = "data_co2"; /* Coordinator 2 */
 const char *data_dn1 = "data_dn1"; /* Datanode 1 */
 const char *data_dn2 = "data_dn2"; /* Datanode 2 */
-const char *data_dn3 = "data_dn3"; /* Datanode 3 */
 const char *data_agtm = "data_agtm"; /* AGTM */
 /* Node names */
 const char *name_co1 = "coord1"; /* Coordinator 1 */
 const char *name_co2 = "coord2"; /* Coordinator 2 */
 const char *name_dn1 = "dn1"; /* Datanode 1 */
 const char *name_dn2 = "dn2"; /* Datanode 2 */
-const char *name_dn3 = "dn3"; /* Datanode 3 */
 
 /* 7 port numbers are needed */
 #define PORT_NUM_INTERVAL 7
@@ -162,7 +158,6 @@ static PID_TYPE coord1_pid = INVALID_PID;
 static PID_TYPE coord2_pid = INVALID_PID;
 static PID_TYPE dn1_pid = INVALID_PID;
 static PID_TYPE dn2_pid = INVALID_PID;
-static PID_TYPE dn3_pid = INVALID_PID;
 static PID_TYPE agtm_pid = INVALID_PID;
 #else
 static PID_TYPE postmaster_pid = INVALID_PID;
@@ -337,9 +332,6 @@ find_data_folder(ADBNodeTypeNum node)
 		case ADB_DATANODE_2:
 			data_folder = data_dn2;
 			break;
-		case ADB_DATANODE_3:
-			data_folder = data_dn3;
-			break;
 		case ADB_AGTM:
 			data_folder = data_agtm;
 			break;
@@ -429,7 +421,6 @@ stop_postmaster(void)
 		stop_node(ADB_COORD_2);
 		stop_node(ADB_DATANODE_1);
 		stop_node(ADB_DATANODE_2);
-		stop_node(ADB_DATANODE_3);
 
 		/* Stop AGTM at the end */
 		stop_agtm();
@@ -477,8 +468,6 @@ get_port_number(ADBNodeTypeNum node)
 			return port_dn1;
 		case ADB_DATANODE_2:
 			return port_dn2;
-		case ADB_DATANODE_3:
-			return port_dn3;
 		case ADB_AGTM:
 			return port_agtm;
 		default:
@@ -503,8 +492,6 @@ get_node_name(ADBNodeTypeNum node)
 			return name_dn1;
 		case ADB_DATANODE_2:
 			return name_dn2;
-		case ADB_DATANODE_3:
-			return name_dn3;
 		case ADB_AGTM:
 		default:
 			/* Should not happen */
@@ -531,9 +518,6 @@ set_port_number(ADBNodeTypeNum node, int port_number)
 			break;
 		case ADB_DATANODE_2:
 			port_dn2 = port_number;
-			break;
-		case ADB_DATANODE_3:
-			port_dn3 = port_number;
 			break;
 		case ADB_AGTM:
 			port_agtm = port_number;
@@ -645,9 +629,6 @@ set_node_pid(ADBNodeTypeNum node, PID_TYPE pid_number)
 		case ADB_DATANODE_2:
 			dn2_pid = pid_number;
 			break;
-		case ADB_DATANODE_3:
-			dn3_pid = pid_number;
-			break;
 		case ADB_AGTM:
 			agtm_pid = pid_number;
 			break;
@@ -673,8 +654,6 @@ get_node_pid(ADBNodeTypeNum node)
 			return dn1_pid;
 		case ADB_DATANODE_2:
 			return dn2_pid;
-		case ADB_DATANODE_3:
-			return dn3_pid;
 		case ADB_AGTM:
 			return agtm_pid;
 		default:
@@ -858,6 +837,21 @@ set_node_config_file(ADBNodeTypeNum node)
 
 		/* Set pgxcnode_cancel_delay to 100msec only for this test */
 		fputs("pgxcnode_cancel_delay = 100\n", pg_conf);
+
+		/* Add extra configuration for ADB */
+		fputs("logging_collector = on\n"
+			  "log_destination = 'csvlog'\n"
+			  "log_directory = 'pg_log'\n"
+			  "log_file_mode = 0600\n"
+			  "log_truncate_on_rotation = on\n"
+			  "log_rotation_age = 1d\n"
+			  "min_pool_size = 1\n"
+			  "max_pool_size = 100\n"
+			  "log_error_verbosity = verbose\n"
+			  "log_min_duration_statement = 0\n"
+			  "log_min_messages = debug1\n"
+			  "adb_debug = on\n"
+			  , pg_conf);
 	}
 
 	for (sl = temp_configs; sl != NULL; sl = sl->next)
@@ -943,10 +937,6 @@ setup_connection_information(void)
 					  " type = 'datanode', PORT = %d);",
 					  (char *)get_node_name(ADB_DATANODE_2),
 					  get_port_number(ADB_DATANODE_2));
-	psql_command_node("postgres", ADB_COORD_1, "CREATE NODE %s WITH (HOST = 'localhost',"
-					  " type = 'datanode', PORT = %d);",
-					  (char *)get_node_name(ADB_DATANODE_3),
-					  get_port_number(ADB_DATANODE_3));
 	/* Datanodes on Coordinator 2 */
 	psql_command_node("postgres", ADB_COORD_2, "CREATE NODE %s WITH (HOST = 'localhost',"
 					  " type = 'datanode', PORT = %d);",
@@ -956,10 +946,6 @@ setup_connection_information(void)
 					  " type = 'datanode', PORT = %d);",
 					  (char *)get_node_name(ADB_DATANODE_2),
 					  get_port_number(ADB_DATANODE_2));
-	psql_command_node("postgres", ADB_COORD_2, "CREATE NODE %s WITH (HOST = 'localhost',"
-					  " type = 'datanode', PORT = %d);",
-					  (char *)get_node_name(ADB_DATANODE_3),
-					  get_port_number(ADB_DATANODE_3));
 
 	/* Remote Coordinator on Coordinator 1 */
 	psql_command_node("postgres", ADB_COORD_1, "CREATE NODE %s WITH (HOST = 'localhost',"
@@ -2933,7 +2919,6 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 	port_coord2 = (0xC000 | (PG_VERSION_NUM & 0x3FFF)) + 1;
 	port_dn1 = (0xC000 | (PG_VERSION_NUM & 0x3FFF)) + 2;
 	port_dn2 = (0xC000 | (PG_VERSION_NUM & 0x3FFF)) + 3;
-	port_dn3 = (0xC000 | (PG_VERSION_NUM & 0x3FFF)) + 4;
 	port_agtm = (0xC000 | (PG_VERSION_NUM & 0x3FFF)) + 5;
 #endif
 
@@ -2994,7 +2979,6 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		initdb_node(ADB_COORD_2);
 		initdb_node(ADB_DATANODE_1);
 		initdb_node(ADB_DATANODE_2);
-		initdb_node(ADB_DATANODE_3);
 #else
 		snprintf(buf, sizeof(buf),
 				 "\"%s%sinitdb\" -D \"%s/data\" --noclean --nosync%s%s > \"%s/log/initdb.log\" 2>&1",
@@ -3030,7 +3014,6 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		set_node_config_file(ADB_COORD_2);
 		set_node_config_file(ADB_DATANODE_1);
 		set_node_config_file(ADB_DATANODE_2);
-		set_node_config_file(ADB_DATANODE_3);
 #else
 		snprintf(buf, sizeof(buf), "%s/data/postgresql.conf", temp_instance);
 		pg_conf = fopen(buf, "a");
@@ -3084,7 +3067,6 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		calculate_node_port(ADB_COORD_2, false);
 		calculate_node_port(ADB_DATANODE_1, false);
 		calculate_node_port(ADB_DATANODE_2, false);
-		calculate_node_port(ADB_DATANODE_3, false);
 #else
 		/*
 		 * Check if there is a postmaster running already.
@@ -3136,7 +3118,6 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		start_node(ADB_COORD_2, true, false);
 		start_node(ADB_DATANODE_1, false, false);
 		start_node(ADB_DATANODE_2, false, false);
-		start_node(ADB_DATANODE_3, false, false);
 #else
 		snprintf(buf, sizeof(buf),
 				 "\"%s%spostgres\" -D \"%s/data\" -F%s "
@@ -3180,8 +3161,7 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 			if (check_node_running(ADB_COORD_1) &&
 				check_node_running(ADB_COORD_2) &&
 				check_node_running(ADB_DATANODE_1) &&
-				check_node_running(ADB_DATANODE_2) &&
-				check_node_running(ADB_DATANODE_3))
+				check_node_running(ADB_DATANODE_2))
 				break;
 
 			/* Check node failure */
@@ -3189,7 +3169,6 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 			check_node_fail(ADB_COORD_2);
 			check_node_fail(ADB_DATANODE_1);
 			check_node_fail(ADB_DATANODE_2);
-			check_node_fail(ADB_DATANODE_3);
 #else
 			/* Done if psql succeeds */
 			if (system(buf2) == 0)
@@ -3219,7 +3198,6 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 			kill_node(ADB_COORD_2);
 			kill_node(ADB_DATANODE_1);
 			kill_node(ADB_DATANODE_2);
-			kill_node(ADB_DATANODE_3);
 #else
 			fprintf(stderr, _("\n%s: postmaster did not respond within %d seconds\nExamine %s/log/postmaster.log for the reason\n"),
 					progname, wait_seconds, outputdir);
@@ -3264,8 +3242,6 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 			   get_port_number(ADB_DATANODE_1), ULONGPID(get_node_pid(ADB_DATANODE_1)));
 		printf(_("running on port %d with PID %lu for Datanode 2\n"),
 			   get_port_number(ADB_DATANODE_2), ULONGPID(get_node_pid(ADB_DATANODE_2)));
-		printf(_("running on port %d with PID %lu for Datanode 3\n"),
-			   get_port_number(ADB_DATANODE_3), ULONGPID(get_node_pid(ADB_DATANODE_3)));
 		printf(_("running on port %d with PID %lu for AGTM\n"),
 			   get_port_number(ADB_AGTM), ULONGPID(get_node_pid(ADB_AGTM)));
 
