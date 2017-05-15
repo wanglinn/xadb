@@ -817,9 +817,11 @@ static void pool_report_error(pgsocket sock, uint32 msg_len)
 	uint32 recv_len;
 	if(msg_len > 0)
 	{
-		START_CRIT_SECTION();
-		err_msg = palloc(msg_len+1);
-		END_CRIT_SECTION();
+		err_msg = palloc_extended(msg_len+1, MCXT_ALLOC_NO_OOM);
+		if (err_msg == NULL)
+			ereport(FATAL,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
 
 		recv_len = pool_block_recv(sock, err_msg, msg_len);
 		if(recv_len != msg_len)
