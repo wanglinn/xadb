@@ -25,6 +25,9 @@
 
 
 static const char *progname;
+#ifdef ADB
+const char *nodename;
+#endif
 
 typedef struct XLogDumpPrivate
 {
@@ -678,6 +681,9 @@ usage(void)
 	printf("  -b, --bkp-details      output detailed information about backup blocks\n");
 	printf("  -e, --end=RECPTR       stop reading at log position RECPTR\n");
 	printf("  -f, --follow           keep retrying after reaching end of WAL\n");
+#ifdef ADB
+	printf("  -N, --nodename=NAME    set current node's name for ADB\n");
+#endif
 	printf("  -n, --limit=N          number of records to display\n");
 	printf("  -p, --path=PATH        directory in which to find log segment files or a\n");
 	printf("                         directory with a ./pg_xlog that contains such files\n"
@@ -712,6 +718,9 @@ main(int argc, char **argv)
 		{"end", required_argument, NULL, 'e'},
 		{"follow", no_argument, NULL, 'f'},
 		{"help", no_argument, NULL, '?'},
+#ifdef ADB
+		{"nodename", required_argument, NULL, 'N'},
+#endif
 		{"limit", required_argument, NULL, 'n'},
 		{"path", required_argument, NULL, 'p'},
 		{"rmgr", required_argument, NULL, 'r'},
@@ -753,8 +762,13 @@ main(int argc, char **argv)
 		goto bad_argument;
 	}
 
+#ifdef ADB
+	while ((option = getopt_long(argc, argv, "be:?fN:n:p:r:s:t:Vx:z",
+								 long_options, &optindex)) != -1)
+#else
 	while ((option = getopt_long(argc, argv, "be:?fn:p:r:s:t:Vx:z",
 								 long_options, &optindex)) != -1)
+#endif
 	{
 		switch (option)
 		{
@@ -777,6 +791,16 @@ main(int argc, char **argv)
 				usage();
 				exit(EXIT_SUCCESS);
 				break;
+#ifdef ADB
+			case 'N':
+				nodename = pg_strdup(optarg);
+				if (strlen(nodename) > NAMEDATALEN)
+				{
+					fprintf(stderr, _("Invalid node name \"%s\""), nodename);
+					goto bad_argument;
+				}
+				break;
+#endif
 			case 'n':
 				if (sscanf(optarg, "%d", &config.stop_after_records) != 1)
 				{
@@ -873,6 +897,14 @@ main(int argc, char **argv)
 				progname, argv[optind + 2]);
 		goto bad_argument;
 	}
+
+#ifdef ADB
+	if (nodename == NULL)
+	{
+		fprintf(stderr, _("%s: need a valid node name\n"), progname);
+		goto bad_argument;
+	}
+#endif
 
 	if (private.inpath != NULL)
 	{
@@ -984,13 +1016,6 @@ main(int argc, char **argv)
 	xlogreader_state = XLogReaderAllocate(XLogDumpReadPage, &private);
 	if (!xlogreader_state)
 		fatal_error("out of memory");
-
-#ifdef ADB
-	/* fix: Access to field 'ReadRecPtr' results in a dereference of
-	 * a null pointer (loaded from variable 'xlogreader_state')
-	 */
-	AssertArg(xlogreader_state);
-#endif
 
 	/* first find a valid recptr to start from */
 	first_record = XLogFindNextRecord(xlogreader_state, private.startptr);

@@ -42,25 +42,33 @@ OBJS_COMMON = config_info.o controldata_utils.o exec.o keywords.o \
 
 OBJS_FRONTEND = $(OBJS_COMMON) fe_memutils.o restricted_token.o
 
+OBJS_PG_FRONTEND = $(OBJS_FRONTEND:%.o=%_pg.o)
+
 OBJS_SRV = $(OBJS_COMMON:%.o=%_srv.o)
 
 OBJS_AGTM = $(OBJS_COMMON:%.o=%_agtm.o)
 
 OBJS_MGR = $(OBJS_COMMON:%.o=%_mgr.o)
 
-all: libpgcommon.a libpgcommon_srv.a libpgcommon_agtm.a libpgcommon_mgr.a
+all: libpgcommon.a libpgcommon_srv.a libpgcommon_agtm.a libpgcommon_mgr.a libpgcommon_pg.a
 
 # libpgcommon is needed by some contrib
 install: all installdirs
 	$(INSTALL_STLIB) libpgcommon.a '$(DESTDIR)$(libdir)/libpgcommon.a'
+	$(INSTALL_STLIB) libpgcommon_pg.a '$(DESTDIR)$(libdir)/libpgcommon_pg.a'
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(libdir)'
 
 uninstall:
 	rm -f '$(DESTDIR)$(libdir)/libpgcommon.a'
+	rm -f '$(DESTDIR)$(libdir)/libpgcommon_pg.a'
 
 libpgcommon.a: $(OBJS_FRONTEND)
+	rm -f $@
+	$(AR) $(AROPT) $@ $^
+
+libpgcommon_pg.a: $(OBJS_PG_FRONTEND)
 	rm -f $@
 	$(AR) $(AROPT) $@ $^
 
@@ -95,6 +103,9 @@ libpgcommon_mgr.a: $(OBJS_MGR)
 %_mgr.o: %.c %.o
 	$(CC) -I$(top_builddir)/src/adbmgrd/include -I$(top_srcdir)/src/adbmgrd/include $(patsubst -DADB,, $(CFLAGS)) -DADBMGRD $(subst -DFRONTEND,, $(CPPFLAGS)) -c $< -o $@
 
+%_pg.o: %.c %.o
+	$(CC) $(filter-out -DADB, $(CFLAGS)) $(CPPFLAGS) -c $< -o $@
+
 $(OBJS_SRV) $(OBJS_AGTM): | submake-errcodes
 
 .PHONY: submake-errcodes
@@ -120,3 +131,4 @@ keywords_mgr.o: $(top_builddir)/src/adbmgrd/include/parser/gram.h $(top_srcdir)/
 clean distclean maintainer-clean:
 	rm -f libpgcommon.a libpgcommon_srv.a $(OBJS_FRONTEND) $(OBJS_SRV)
 	rm -f libpgcommon_agtm.a $(OBJS_AGTM) libpgcommon_mgr.a $(OBJS_MGR)
+	rm -f libpgcommon_pg.a $(OBJS_PG_FRONTEND)
