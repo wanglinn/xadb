@@ -1,11 +1,11 @@
 /*-------------------------------------------------------------------------
  *
- * pg_clogdump.c - decode and display transaction status of any transaction id
+ * adb_clogdump.c - decode and display transaction status of any transaction id
  *
  * Copyright (c) 2014-2017, ADB Global Development Group
  *
  * IDENTIFICATION
- *		  src/bin/pg_clogdump/pg_clogdump.c
+ *		  src/bin/adb_clogdump/adb_clogdump.c
  *-------------------------------------------------------------------------
  */
 #define FRONTEND 1
