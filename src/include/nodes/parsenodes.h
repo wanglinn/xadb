@@ -1312,7 +1312,7 @@ typedef struct BaseStmt
 							 * Due to get itself sql text of each parsetree in
 							 * "exec_simple_query" and no other use, so we don't
 							 * deal with the "endpos" parameter of every statement,
-							 * see below, in functions such as "equal()", 
+							 * see below, in functions such as "equal()",
 							 * "_outNode" and "parseNodeString".
 							 */
 } BaseStmt;
@@ -1342,6 +1342,7 @@ typedef struct BaseStmt
 	IsA(node, AlterSystemStmt) || \
 	IsA(node, AlterTableStmt) || \
 	IsA(node, AlterTableSpaceOptionsStmt) || \
+	IsA(node, AlterTableMoveAllStmt) || \
 	IsA(node, AlterTSConfigurationStmt) || \
 	IsA(node, AlterTSDictionaryStmt) || \
 	IsA(node, AlterUserMappingStmt) || \
@@ -2181,6 +2182,9 @@ typedef struct AlterTableSpaceOptionsStmt
 typedef struct AlterTableMoveAllStmt
 {
 	NodeTag		type;
+#ifdef ADB
+	int 		endpos; 		/* the position of ';' in the sql */
+#endif
 	char	   *orig_tablespacename;
 	ObjectType	objtype;		/* Object type to move */
 	List	   *roles;			/* List of roles to move objects of */
@@ -2308,7 +2312,7 @@ typedef struct CreateUserMappingStmt
 #ifdef ADB
 	int 		endpos;			/* the position of ';' in the sql */
 #endif
-	Node       *user;           /* user role */ 
+	Node       *user;           /* user role */
 	char	   *servername;		/* server name */
 	List	   *options;		/* generic options to server */
 } CreateUserMappingStmt;
