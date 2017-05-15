@@ -74,6 +74,7 @@ create_remotequery_path(PlannerInfo *root, RelOptInfo *rel, ExecNodes *exec_node
 	rqpath->path.parent = rel;
 	rqpath->path.param_info = param_info;
 	rqpath->path.pathkeys = NIL;	/* result is always unordered */
+	rqpath->path.pathtarget = rel->reltarget;
 	rqpath->rqpath_en = exec_nodes;
 	rqpath->leftpath = leftpath;
 	rqpath->rightpath = rightpath;
