@@ -235,7 +235,7 @@ pgxc_FQS_datanodes_for_rtr(Index varno, Shippability_context *sc_context)
 			 * result.
 			 */
 #ifdef ADB
-			if (exec_nodes && 
+			if (exec_nodes &&
 				(IsExecNodesDistributedByValue(exec_nodes) ||
 				IsExecNodesDistributedByUserDefined(exec_nodes)))
 #else
@@ -1072,7 +1072,7 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
 
                          /* Grouping by non distribution column can not be FQS*/
-                         if (query->groupClause != NULL &&  
+                         if (query->groupClause != NULL &&
                                sc_context->sc_exec_nodes &&
                                !pgxc_query_has_distcolgrouping(query, sc_context->sc_exec_nodes))
                                pgxc_set_shippability_reason(sc_context, SS_NEED_SINGLENODE);
@@ -1252,6 +1252,21 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			return false;
 		}
 		break;
+
+		case T_OnConflictExpr:
+			{
+				/* ADBQ: how and what to do? */
+			}
+			break;
+		case T_InferenceElem:
+			pgxc_set_exprtype_shippability(exprType(node), sc_context);
+			break;
+		case T_WithCheckOption:
+			{
+				WithCheckOption *wco = (WithCheckOption *) node;
+				return expression_tree_walker(wco->qual, pgxc_shippability_walker, (void *)sc_context);
+			}
+			break;
 
 		default:
 			elog(ERROR, "unrecognized node type: %d",
@@ -1596,7 +1611,7 @@ pgxc_find_user_defined_equijoin_quals(ExecNodes *nodes1,
 					IsA(((RelabelType *)linitial(op->args))->arg, Var))
 		{
 			lvar = (Var *)((RelabelType *)linitial(op->args))->arg;
-		} 
+		}
 		else
 			continue;
 
@@ -1724,7 +1739,7 @@ pgxc_find_dist_equijoin_qual(List *dist_vars1, List *dist_vars2, Node *quals)
 					IsA(((RelabelType *)linitial(op->args))->arg, Var))
 		{
 			lvar = (Var *)((RelabelType *)linitial(op->args))->arg;
-		} 
+		}
 		else
 			continue;
 

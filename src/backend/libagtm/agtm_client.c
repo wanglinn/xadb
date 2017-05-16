@@ -51,7 +51,7 @@ agtm_Connect(void)
 								"host", "port", "user",
 								"dbname", "client_encoding",
 								NULL							/* must be last */
-		                     };
+							 };
 	/*
 	 * libpq connection values.
 	 * must keep the same order with keywords above.
@@ -240,7 +240,7 @@ getAgtmConnection(void)
 	if (agtm_conn == NULL)
 	{
 		agtm_Connect();
-		
+
 		return agtm_conn ? agtm_conn->pg_Conn : NULL;
 	}
 
