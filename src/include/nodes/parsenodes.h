@@ -1427,6 +1427,7 @@ typedef struct BaseStmt
 	IsA(node, VariableSetStmt) || \
 	IsA(node, VariableShowStmt) || \
 	IsA(node, ViewStmt)
+#endif
 
 /* ----------------------
  *		Insert Statement
