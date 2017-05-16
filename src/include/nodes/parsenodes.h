@@ -1352,7 +1352,6 @@ typedef struct BaseStmt
 	IsA(node, ClosePortalStmt) || \
 	IsA(node, ClusterStmt) || \
 	IsA(node, CommentStmt) || \
-	IsA(node, CompositeTypeStmt) || \
 	IsA(node, ConstraintsSetStmt) || \
 	IsA(node, CopyStmt) || \
 	IsA(node, CreateAmStmt) || \
@@ -1377,9 +1376,7 @@ typedef struct BaseStmt
 	IsA(node, CreateTableSpaceStmt) || \
 	IsA(node, CreateTransformStmt) || \
 	IsA(node, CreateTrigStmt) || \
-	IsA(node, CreateEnumStmt) || \
 	IsA(node, CreateEventTrigStmt) || \
-	IsA(node, CreateRangeStmt) || \
 	IsA(node, CreateRoleStmt) || \
 	IsA(node, CreateUserMappingStmt) || \
 	IsA(node, CreatedbStmt) || \
