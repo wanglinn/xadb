@@ -1335,17 +1335,17 @@ typedef struct BaseStmt
 	IsA(node, AlterOperatorStmt) || \
 	IsA(node, AlterOpFamilyStmt) || \
 	IsA(node, AlterOwnerStmt) || \
-	IsA(node, AlterPolicyStmt) || \) || \
-	IsA(node, AlterRoleSetStmt) || \) || \
-	IsA(node, AlterRoleStmt) || \) || \
-	IsA(node, AlterSeqStmt) || \) || \
-	IsA(node, AlterSystemStmt) || \) || \
-	IsA(node, AlterTableMoveAllStmt) || \) || \
-	IsA(node, AlterTableSpaceOptionsStmt) || \) || \
-	IsA(node, AlterTableStmt) || \) || \
-	IsA(node, AlterTSConfigurationStmt) || \) || \
-	IsA(node, AlterTSDictionaryStmt) || \) || \
-	IsA(node, AlterUserMappingStmt) || \) || \
+	IsA(node, AlterPolicyStmt) || \
+	IsA(node, AlterRoleSetStmt) || \
+	IsA(node, AlterRoleStmt) || \
+	IsA(node, AlterSeqStmt) || \
+	IsA(node, AlterSystemStmt) || \
+	IsA(node, AlterTableMoveAllStmt) || \
+	IsA(node, AlterTableSpaceOptionsStmt) || \
+	IsA(node, AlterTableStmt) || \
+	IsA(node, AlterTSConfigurationStmt) || \
+	IsA(node, AlterTSDictionaryStmt) || \
+	IsA(node, AlterUserMappingStmt) || \
 	IsA(node, BarrierStmt) || \
 	IsA(node, CheckPointStmt) || \
 	IsA(node, CleanConnStmt) || \
