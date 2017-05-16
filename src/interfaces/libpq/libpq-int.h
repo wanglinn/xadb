@@ -698,4 +698,16 @@ extern char *libpq_ngettext(const char *msgid, const char *msgid_plural, unsigne
 #define SOCK_ERRNO_SET(e) (errno = (e))
 #endif
 
+#ifdef ADB
+
+extern PGconn *PQattach(pgsocket sock, void *custom, int close_sock_on_end);
+/* async interface
+ * use PQconnectPoll finish connection
+ * start status is PGRES_POLLING_READING
+ */
+extern PGconn *PQbeginAttach(pgsocket sock, void *custom, int close_sock_on_end);
+extern void PQdetach(PGconn *conn);
+
+#endif /* ADB */
+
 #endif   /* LIBPQ_INT_H */

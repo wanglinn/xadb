@@ -290,6 +290,13 @@ pqParseInput3(PGconn *conn)
 					else if (conn->result == NULL ||
 							 conn->queryclass == PGQUERY_DESCRIBE)
 					{
+#ifdef ADB
+						if(conn->funs && conn->funs->getRowDesc)
+						{
+							if((*conn->funs->getRowDesc)(conn, msgLength))
+								return;
+						}else
+#endif /* ADB */
 						/* First 'T' in a query sequence */
 						if (getRowDescriptions(conn, msgLength))
 							return;
@@ -346,6 +353,13 @@ pqParseInput3(PGconn *conn)
 					if (conn->result != NULL &&
 						conn->result->resultStatus == PGRES_TUPLES_OK)
 					{
+#ifdef ADB
+						if(conn->funs && conn->funs->getAnotherTuple)
+						{
+							if((*conn->funs->getAnotherTuple)(conn, msgLength))
+								return;
+						}else
+#endif
 						/* Read another tuple of a normal query response */
 						if (getAnotherTuple(conn, msgLength))
 							return;
@@ -407,6 +421,19 @@ pqParseInput3(PGconn *conn)
 					 */
 					break;
 				default:
+#ifdef ADB
+					/* we use avail for temp */
+					if(conn->funs && conn->funs->getUnknownMsg)
+						avail = (*conn->funs->getUnknownMsg)(conn, id, msgLength);
+					else
+						avail = -1;
+					if(avail > 0)
+						return;
+					else if(avail == 0)
+						break;
+					else
+					{
+#endif
 					printfPQExpBuffer(&conn->errorMessage,
 									  libpq_gettext(
 													"unexpected response from server; first received character was \"%c\"\n"),
@@ -418,6 +445,9 @@ pqParseInput3(PGconn *conn)
 					/* Discard the unexpected message */
 					conn->inCursor += msgLength;
 					break;
+#ifdef ADB
+					}
+#endif
 			}					/* switch on protocol character */
 		}
 		/* Successfully consumed this message */
@@ -872,6 +902,7 @@ set_error_result:
  * Exit: returns 0 if successfully consumed message.
  *		 returns EOF if not enough data.
  */
+/*ADBQ, this function not same with ADB2.2*/
 int
 pqGetErrorNotice3(PGconn *conn, bool isError)
 {
