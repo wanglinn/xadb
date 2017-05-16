@@ -327,6 +327,12 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	LockRelationOid(OIDNewHeap, AccessExclusiveLock);
 	dest = CreateTransientRelDestReceiver(OIDNewHeap);
 
+	/*
+	 * Now lock down security-restricted operations.
+	 */
+	SetUserIdAndSecContext(relowner,
+						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
+
 #ifdef ADB
 	/*
 	 * If the REFRESH command was received from other coordinator, it will also send
@@ -339,13 +345,6 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	}
 	else
 #endif /* ADB */
-
-	/*
-	 * Now lock down security-restricted operations.
-	 */
-	SetUserIdAndSecContext(relowner,
-						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
-
 	/* Generate the data, if wanted. */
 	if (!stmt->skipData)
 		refresh_matview_datafill(dest, dataQuery, queryString);
