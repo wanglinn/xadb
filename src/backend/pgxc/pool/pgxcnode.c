@@ -41,7 +41,7 @@
 #include "nodes/nodes.h"
 #include "pgxc/pause.h"
 #include "pgxc/pgxcnode.h"
-//#include "pgxc/execRemote.h"
+#include "pgxc/execRemote.h"
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
@@ -885,7 +885,7 @@ cancel_query(void)
 			if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
 				handle->state == DN_CONNECTION_STATE_COPY_OUT)
 			{
-				//DataNodeCopyEnd(handle, true);
+				DataNodeCopyEnd(handle, true);
 			}
 			else
 			{
@@ -908,7 +908,7 @@ cancel_query(void)
 			if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
 				handle->state == DN_CONNECTION_STATE_COPY_OUT)
 			{
-				//DataNodeCopyEnd(handle, true);
+				DataNodeCopyEnd(handle, true);
 			}
 			else
 			{
@@ -1036,7 +1036,7 @@ cancel_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
 				if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
 					handle->state == DN_CONNECTION_STATE_COPY_OUT)
 				{
-					//DataNodeCopyEnd(handle, true);
+					DataNodeCopyEnd(handle, true);
 				} else
 				{
 					if (handle->state != DN_CONNECTION_STATE_IDLE)
@@ -1067,7 +1067,7 @@ cancel_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
 				if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
 					handle->state == DN_CONNECTION_STATE_COPY_OUT)
 				{
-					//DataNodeCopyEnd(handle, true);
+					DataNodeCopyEnd(handle, true);
 				} else
 				{
 					if (handle->state != DN_CONNECTION_STATE_IDLE)
@@ -1165,7 +1165,7 @@ clear_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
 		if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
 			handle->state == DN_CONNECTION_STATE_COPY_OUT)
 		{
-			//DataNodeCopyEnd(handle, true);
+			DataNodeCopyEnd(handle, true);
 		}
 
 		/* try to flush read any data */
@@ -1197,7 +1197,7 @@ clear_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
 		if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
 			handle->state == DN_CONNECTION_STATE_COPY_OUT)
 		{
-			//DataNodeCopyEnd(handle, true);
+			DataNodeCopyEnd(handle, true);
 		}
 
 		/* try to flush read any data */
@@ -1243,7 +1243,7 @@ clear_all_handles(bool error)
 		if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
 			handle->state == DN_CONNECTION_STATE_COPY_OUT)
 		{
-			//DataNodeCopyEnd(handle, error);
+			DataNodeCopyEnd(handle, error);
 		}
 
 		/* try to flush read any data */
@@ -1275,7 +1275,7 @@ clear_all_handles(bool error)
 		if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
 			handle->state == DN_CONNECTION_STATE_COPY_OUT)
 		{
-			//DataNodeCopyEnd(handle, error);
+			DataNodeCopyEnd(handle, error);
 		}
 
 		/* try to flush read any data */
