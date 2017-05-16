@@ -1318,46 +1318,50 @@ typedef struct BaseStmt
 } BaseStmt;
 
 #define IsBaseStmt(node)	\
-	IsA(node, AlterEventTrigStmt) || \
-	IsA(node, AlterDatabaseStmt) || \
 	IsA(node, AlterDatabaseSetStmt) || \
+	IsA(node, AlterDatabaseStmt) || \
 	IsA(node, AlterDefaultPrivilegesStmt) || \
 	IsA(node, AlterDomainStmt) || \
 	IsA(node, AlterEnumStmt) || \
-	IsA(node, AlterExtensionStmt) || \
+	IsA(node, AlterEventTrigStmt) || \
 	IsA(node, AlterExtensionContentsStmt) || \
+	IsA(node, AlterExtensionStmt) || \
 	IsA(node, AlterFdwStmt) || \
 	IsA(node, AlterForeignServerStmt) || \
 	IsA(node, AlterFunctionStmt) || \
 	IsA(node, AlterNodeStmt) || \
 	IsA(node, AlterObjectDependsStmt) || \
 	IsA(node, AlterObjectSchemaStmt) || \
-	IsA(node, AlterOwnerStmt) || \
 	IsA(node, AlterOperatorStmt) || \
 	IsA(node, AlterOpFamilyStmt) || \
-	IsA(node, AlterPolicyStmt) || \
-	IsA(node, AlterRoleStmt) || \
-	IsA(node, AlterRoleSetStmt) || \
-	IsA(node, AlterSeqStmt) || \
-	IsA(node, AlterSystemStmt) || \
-	IsA(node, AlterTableStmt) || \
-	IsA(node, AlterTableSpaceOptionsStmt) || \
-	IsA(node, AlterTableMoveAllStmt) || \
-	IsA(node, AlterTSConfigurationStmt) || \
-	IsA(node, AlterTSDictionaryStmt) || \
-	IsA(node, AlterUserMappingStmt) || \
+	IsA(node, AlterOwnerStmt) || \
+	IsA(node, AlterPolicyStmt) || \) || \
+	IsA(node, AlterRoleSetStmt) || \) || \
+	IsA(node, AlterRoleStmt) || \) || \
+	IsA(node, AlterSeqStmt) || \) || \
+	IsA(node, AlterSystemStmt) || \) || \
+	IsA(node, AlterTableMoveAllStmt) || \) || \
+	IsA(node, AlterTableSpaceOptionsStmt) || \) || \
+	IsA(node, AlterTableStmt) || \) || \
+	IsA(node, AlterTSConfigurationStmt) || \) || \
+	IsA(node, AlterTSDictionaryStmt) || \) || \
+	IsA(node, AlterUserMappingStmt) || \) || \
 	IsA(node, BarrierStmt) || \
 	IsA(node, CheckPointStmt) || \
 	IsA(node, CleanConnStmt) || \
 	IsA(node, ClosePortalStmt) || \
 	IsA(node, ClusterStmt) || \
 	IsA(node, CommentStmt) || \
+	IsA(node, CompositeTypeStmt) || \
 	IsA(node, ConstraintsSetStmt) || \
 	IsA(node, CopyStmt) || \
 	IsA(node, CreateAmStmt) || \
 	IsA(node, CreateCastStmt) || \
 	IsA(node, CreateConversionStmt) || \
+	IsA(node, CreatedbStmt) || \
 	IsA(node, CreateDomainStmt) || \
+	IsA(node, CreateEnumStmt) || \
+	IsA(node, CreateEventTrigStmt) || \
 	IsA(node, CreateExtensionStmt) || \
 	IsA(node, CreateFdwStmt) || \
 	IsA(node, CreateForeignServerStmt) || \
@@ -1367,8 +1371,10 @@ typedef struct BaseStmt
 	IsA(node, CreateNodeStmt) || \
 	IsA(node, CreateOpClassStmt) || \
 	IsA(node, CreateOpFamilyStmt) || \
-	IsA(node, CreatePolicyStmt) || \
 	IsA(node, CreatePLangStmt) || \
+	IsA(node, CreatePolicyStmt) || \
+	IsA(node, CreateRangeStmt) || \
+	IsA(node, CreateRoleStmt) || \
 	IsA(node, CreateSchemaStmt) || \
 	IsA(node, CreateSeqStmt) || \
 	IsA(node, CreateStmt) || \
@@ -1376,45 +1382,43 @@ typedef struct BaseStmt
 	IsA(node, CreateTableSpaceStmt) || \
 	IsA(node, CreateTransformStmt) || \
 	IsA(node, CreateTrigStmt) || \
-	IsA(node, CreateEventTrigStmt) || \
-	IsA(node, CreateRoleStmt) || \
 	IsA(node, CreateUserMappingStmt) || \
-	IsA(node, CreatedbStmt) || \
 	IsA(node, DeallocateStmt) || \
 	IsA(node, DeclareCursorStmt) || \
 	IsA(node, DefineStmt) || \
 	IsA(node, DeleteStmt) || \
 	IsA(node, DiscardStmt) || \
 	IsA(node, DoStmt) || \
+	IsA(node, DropdbStmt) || \
 	IsA(node, DropGroupStmt) || \
 	IsA(node, DropNodeStmt) || \
 	IsA(node, DropOwnedStmt) || \
+	IsA(node, DropRoleStmt) || \
 	IsA(node, DropStmt) || \
 	IsA(node, DropTableSpaceStmt) || \
-	IsA(node, DropRoleStmt) || \
 	IsA(node, DropUserMappingStmt) || \
-	IsA(node, DropdbStmt) || \
 	IsA(node, ExecDirectStmt) || \
 	IsA(node, ExecuteStmt) || \
 	IsA(node, ExplainStmt) || \
 	IsA(node, FetchStmt) || \
-	IsA(node, GrantStmt) || \
 	IsA(node, GrantRoleStmt) || \
+	IsA(node, GrantStmt) || \
 	IsA(node, ImportForeignSchemaStmt) || \
 	IsA(node, IndexStmt) || \
 	IsA(node, InsertStmt) || \
 	IsA(node, ListenStmt) || \
-	IsA(node, RefreshMatViewStmt) || \
 	IsA(node, LoadStmt) || \
 	IsA(node, LockStmt) || \
 	IsA(node, NotifyStmt) || \
 	IsA(node, PrepareStmt) || \
 	IsA(node, ReassignOwnedStmt) || \
+	IsA(node, RefreshMatViewStmt) || \
 	IsA(node, ReindexStmt) || \
 	IsA(node, RenameStmt) || \
 	IsA(node, RuleStmt) || \
 	IsA(node, SecLabelStmt) || \
 	IsA(node, SelectStmt) || \
+	IsA(node, SetOperationStmt) || \
 	IsA(node, TransactionStmt) || \
 	IsA(node, TruncateStmt) || \
 	IsA(node, UnlistenStmt) || \
@@ -1422,15 +1426,7 @@ typedef struct BaseStmt
 	IsA(node, VacuumStmt) || \
 	IsA(node, VariableSetStmt) || \
 	IsA(node, VariableShowStmt) || \
-	IsA(node, ViewStmt) || \
-	IsA(node, ExecDirectStmt) || \
-	IsA(node, CleanConnStmt) || \
-	IsA(node, CreateNodeStmt) || \
-	IsA(node, CompositeTypeStmt) || \
-	IsA(node, CreateEnumStmt) || \
-	IsA(node, CreateRangeStmt) || \
-	IsA(node, SetOperationStmt)
-#endif
+	IsA(node, ViewStmt)
 
 /* ----------------------
  *		Insert Statement
@@ -2471,7 +2467,7 @@ typedef struct AlterEventTrigStmt
 {
 	NodeTag		type;
 #ifdef ADB
-	int			endpos;			/* the position of ';' in the sql */
+	int 		endpos;			/* the position of ';' in the sql */
 #endif
 	char	   *trigname;		/* TRIGGER's name */
 	char		tgenabled;		/* trigger's firing configuration WRT
