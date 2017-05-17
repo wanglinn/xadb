@@ -1319,8 +1319,6 @@ addRangeTableEntryForSubquery(ParseState *pstate,
 	int			varattno;
 	ListCell   *tlistitem;
 
-	Assert(pstate != NULL);
-
 	rte->rtekind = RTE_SUBQUERY;
 	rte->relid = InvalidOid;
 	rte->subquery = subquery;
@@ -1374,7 +1372,8 @@ addRangeTableEntryForSubquery(ParseState *pstate,
 	 * Add completed RTE to pstate's range table list, but not to join list
 	 * nor namespace --- caller must do that if appropriate.
 	 */
-	pstate->p_rtable = lappend(pstate->p_rtable, rte);
+	if (pstate != NULL)
+		pstate->p_rtable = lappend(pstate->p_rtable, rte);
 
 	return rte;
 }
@@ -1704,7 +1703,8 @@ addRangeTableEntryForValues(ParseState *pstate,
 	 * Add completed RTE to pstate's range table list, but not to join list
 	 * nor namespace --- caller must do that if appropriate.
 	 */
-	pstate->p_rtable = lappend(pstate->p_rtable, rte);
+	if (pstate != NULL)
+		pstate->p_rtable = lappend(pstate->p_rtable, rte);
 
 	return rte;
 }
@@ -1725,8 +1725,6 @@ addRangeTableEntryForJoin(ParseState *pstate,
 	RangeTblEntry *rte = makeNode(RangeTblEntry);
 	Alias	   *eref;
 	int			numaliases;
-
-	Assert(pstate != NULL);
 
 	/*
 	 * Fail if join has too many columns --- we must be able to reference any
@@ -1774,7 +1772,8 @@ addRangeTableEntryForJoin(ParseState *pstate,
 	 * Add completed RTE to pstate's range table list, but not to join list
 	 * nor namespace --- caller must do that if appropriate.
 	 */
-	pstate->p_rtable = lappend(pstate->p_rtable, rte);
+	if (pstate != NULL)
+		pstate->p_rtable = lappend(pstate->p_rtable, rte);
 
 	return rte;
 }
@@ -1876,7 +1875,8 @@ addRangeTableEntryForCTE(ParseState *pstate,
 	 * Add completed RTE to pstate's range table list, but not to join list
 	 * nor namespace --- caller must do that if appropriate.
 	 */
-	pstate->p_rtable = lappend(pstate->p_rtable, rte);
+	if (pstate != NULL)
+		pstate->p_rtable = lappend(pstate->p_rtable, rte);
 
 	return rte;
 }
