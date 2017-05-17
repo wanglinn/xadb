@@ -1327,9 +1327,6 @@ func_get_detail(List *funcname,
 	FuncCandidateList raw_candidates;
 	FuncCandidateList best_candidate;
 
-	/* Passing NULL for argtypes is no longer allowed */
-	Assert(argtypes);
-
 	/* initialize output arguments to silence compiler warnings */
 	*funcid = InvalidOid;
 	*rettype = InvalidOid;
