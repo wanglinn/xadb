@@ -794,7 +794,7 @@ standard_ProcessUtility(Node *parsetree,
 					sprintf(query, "CLEAN CONNECTION TO ALL FOR DATABASE %s;", stmt->dbname);
 
 					ExecUtilityStmtOnNodes(query, NULL, sentToRemote, true, EXEC_ON_COORDS, false);
-					
+
 				}
 				/* Allow this to be run inside transaction block on remote nodes */
 				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
@@ -809,7 +809,7 @@ standard_ProcessUtility(Node *parsetree,
 			}
 #ifdef ADB
 			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);				
+				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
 #endif
 			break;
 
@@ -1281,7 +1281,7 @@ standard_ProcessUtility(Node *parsetree,
 										   sentToRemote,
 										   false,
 										   exec_type,
-										   is_temp);					
+										   is_temp);
 				}
 #endif
 
@@ -1397,7 +1397,7 @@ standard_ProcessUtility(Node *parsetree,
 										   false,
 										   exec_type,
 										   is_temp);
-					
+
 					/* execute alter sequecne (set schema)	on agtm */
 					if (stmt->objectType == OBJECT_SEQUENCE)
 					{
@@ -1791,7 +1791,7 @@ ProcessUtilitySlow(Node *parsetree,
 								 * pgxc_node, the RemoteQuery added for the AlterTableStmt
 								 * should only be done on coordinators.
 								 */
-								if (atstmt->relkind == OBJECT_TABLE && 
+								if (atstmt->relkind == OBJECT_TABLE &&
 									IsAlterTableStmtRedistribution(atstmt))
 									exec_type = EXEC_ON_COORDS;
 
@@ -2050,7 +2050,7 @@ ProcessUtilitySlow(Node *parsetree,
 													 parsetree);
 					commandCollected = true;
 					EventTriggerAlterTableEnd();
-					
+
 #ifdef ADB
 					if (IS_PGXC_COORDINATOR && !stmt->isconstraint && !IsConnFromCoord())
 						ExecUtilityStmtOnNodes2((Node*)stmt, queryString, NULL,
@@ -2198,7 +2198,7 @@ ProcessUtilitySlow(Node *parsetree,
 				/* stashed internally */
 				commandCollected = true;
 				EventTriggerAlterTableEnd();
-				
+
 #ifdef ADB
 				if (IS_PGXC_COORDINATOR)
 				{
@@ -2293,12 +2293,16 @@ ProcessUtilitySlow(Node *parsetree,
 										 queryString, params, completionTag);
 #ifdef ADB
 				/* Send CREATE MATERIALIZED VIEW command to all coordinators. */
+				/* see pg_rewrite_query */
 				Assert(((CreateTableAsStmt *) parsetree)->relkind == OBJECT_MATVIEW);
-				if (!((CreateTableAsStmt *) parsetree)->into->skipData && !IsConnFromCoord())
-					pgxc_send_matview_data(((CreateTableAsStmt *) parsetree)->into->rel,
-											queryString);
-				else
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_COORDS, false);
+				if (!ObjectAddressIsInValid(address))
+				{
+					if (!((CreateTableAsStmt *) parsetree)->into->skipData && !IsConnFromCoord())
+						pgxc_send_matview_data(((CreateTableAsStmt *) parsetree)->into->rel,
+												queryString);
+					else
+						ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_COORDS, false);
+				}
 #endif /* ADB */
 				break;
 
@@ -2323,7 +2327,7 @@ ProcessUtilitySlow(Node *parsetree,
 				}
 				PG_END_TRY();
 				EventTriggerUndoInhibitCommandCollection();
-				
+
 #ifdef ADB
 				Assert(IS_PGXC_COORDINATOR);
 				/* Send REFRESH MATERIALIZED VIEW command and the data to be populated

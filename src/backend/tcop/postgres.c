@@ -717,7 +717,7 @@ List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram)
 		{
 			// test "token(\s|\*/)"
 			if(strncmp(str, token_gram[i].token, token_gram[i].token_len) == 0
-				&& (isspace(str[token_gram[i].token_len]) || 
+				&& (isspace(str[token_gram[i].token_len]) ||
 					(str[token_gram[i].token_len] == '*' && str[token_gram[i].token_len+1] == '/')
 				))
 			{
@@ -939,7 +939,7 @@ pg_rewrite_query(Query *query)
 		 * into an INSERT INTO statement. This step is not carried out for
 		 * materialized views.
 		 */
-			querytree_list = QueryRewriteCTAS(query);
+		querytree_list = QueryRewriteCTAS(query);
 	}
 	else
 #endif
@@ -1135,7 +1135,7 @@ exec_simple_query(const char *query_string)
 #ifdef ADB
 	List	   *sql_list;
 	ListCell   *sql_item;
-	ParseGrammar grammar = PARSE_GRAM_POSTGRES;	
+	ParseGrammar grammar = PARSE_GRAM_POSTGRES;
 #endif
 	bool		save_log_statement_stats = log_statement_stats;
 	bool		was_logged = false;
@@ -1271,7 +1271,7 @@ exec_simple_query(const char *query_string)
 		if (IS_PGXC_DATANODE || IsConnFromCoord())
 			SetForceObtainXidFromAGTM(false);
 
-#endif 
+#endif
 
 		/*
 		 * Get the command name for use in status display (it also becomes the
@@ -4326,7 +4326,7 @@ PostgresMain(int argc, char *argv[],
 	xc_lockForBackupKey2 = Int32GetDatum(XC_LOCK_FOR_BACKUP_KEY_2);
 
 	on_shmem_exit(PGXCCleanClusterLock, 0);
-	
+
 	/* If this postgres is launched from another Coord, do not initialize handles. skip it */
 	if (!am_walsender && IS_PGXC_COORDINATOR && !IsPoolHandle())
 	{
