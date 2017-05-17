@@ -1425,7 +1425,11 @@ typedef struct BaseStmt
 	IsA(node, ViewStmt) || \
 	IsA(node, ExecDirectStmt) || \
 	IsA(node, CleanConnStmt) || \
-	IsA(node, CreateNodeStmt)
+	IsA(node, CreateNodeStmt) || \
+	IsA(node, CompositeTypeStmt) || \
+	IsA(node, CreateEnumStmt) || \
+	IsA(node, CreateRangeStmt) || \
+	IsA(node, SetOperationStmt)
 #endif
 
 /* ----------------------
