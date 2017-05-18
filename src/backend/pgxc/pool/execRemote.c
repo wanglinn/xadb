@@ -4926,7 +4926,7 @@ AbnormalAbort_Remote(void)
 		conn = connections[i];
 
 		/* Check whether is valid connection or not */
-		if (!conn || conn->sock == NO_SOCKET ||
+		if (!conn || conn->sock == PGINVALID_SOCKET ||
 			conn->state == DN_CONNECTION_STATE_ERROR_FATAL)
 			continue;
 

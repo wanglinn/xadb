@@ -116,7 +116,7 @@ init_pgxc_handle(PGXCNodeHandle *pgxc_handle)
 	 * Socket descriptor is small non-negative integer,
 	 * Indicate the handle is not initialized yet
 	 */
-	pgxc_handle->sock = NO_SOCKET;
+	pgxc_handle->sock = PGINVALID_SOCKET;
 
 	/* Initialise buffers */
 	pgxc_handle->error = NULL;
@@ -318,7 +318,7 @@ static void
 pgxc_node_free(PGXCNodeHandle *handle, bool freebuf)
 {
 	close(handle->sock);
-	handle->sock = NO_SOCKET;
+	handle->sock = PGINVALID_SOCKET;
 	handle->state = DN_CONNECTION_STATE_IDLE;
 	handle->combiner = NULL;
 	FreeHandleError(handle);
@@ -618,7 +618,7 @@ retry:
 				conn->state = DN_CONNECTION_STATE_ERROR_FATAL;	/* No more connection to
 															* backend */
 				closesocket(conn->sock);
-				conn->sock = NO_SOCKET;
+				conn->sock = PGINVALID_SOCKET;
 			}
 			return -1;
 		}
@@ -631,7 +631,7 @@ retry:
 			conn->state = DN_CONNECTION_STATE_ERROR_FATAL;	/* No more connection to
 															* backend */
 			closesocket(conn->sock);
-			conn->sock = NO_SOCKET;
+			conn->sock = PGINVALID_SOCKET;
 		}
 		return -1;
 
@@ -677,7 +677,7 @@ retry:
 			conn->state = DN_CONNECTION_STATE_ERROR_FATAL;	/* No more connection to
 															* backend */
 			closesocket(conn->sock);
-			conn->sock = NO_SOCKET;
+			conn->sock = PGINVALID_SOCKET;
 		}
 		return -1;
 	}
@@ -822,7 +822,7 @@ void release_handles2(bool force_close)
 	{
 		PGXCNodeHandle *handle = &dn_handles[i];
 
-		if (handle->sock != NO_SOCKET)
+		if (handle->sock != PGINVALID_SOCKET)
 		{
 			if (handle->state != DN_CONNECTION_STATE_IDLE)
 			{
@@ -840,7 +840,7 @@ void release_handles2(bool force_close)
 	{
 		PGXCNodeHandle *handle = &co_handles[i];
 
-		if (handle->sock != NO_SOCKET)
+		if (handle->sock != PGINVALID_SOCKET)
 		{
 			if (handle->state != DN_CONNECTION_STATE_IDLE)
 			{
@@ -880,7 +880,7 @@ cancel_query(void)
 	{
 		PGXCNodeHandle *handle = &dn_handles[i];
 
-		if (handle->sock != NO_SOCKET)
+		if (handle->sock != PGINVALID_SOCKET)
 		{
 			if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
 				handle->state == DN_CONNECTION_STATE_COPY_OUT)
@@ -903,7 +903,7 @@ cancel_query(void)
 	{
 		PGXCNodeHandle *handle = &co_handles[i];
 
-		if (handle->sock != NO_SOCKET)
+		if (handle->sock != PGINVALID_SOCKET)
 		{
 			if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
 				handle->state == DN_CONNECTION_STATE_COPY_OUT)
@@ -931,7 +931,7 @@ cancel_query(void)
 	{
 		PGXCNodeHandle *handle = &dn_handles[i];
 
-		if ((handle->sock != NO_SOCKET) && (handle->state != DN_CONNECTION_STATE_IDLE))
+		if ((handle->sock != PGINVALID_SOCKET) && (handle->state != DN_CONNECTION_STATE_IDLE))
 		{
 			pgxc_node_flush_read(handle);
 			handle->state = DN_CONNECTION_STATE_IDLE;
@@ -942,7 +942,7 @@ cancel_query(void)
 	{
 		PGXCNodeHandle *handle = &co_handles[i];
 
-		if (handle->sock != NO_SOCKET && handle->state != DN_CONNECTION_STATE_IDLE)
+		if (handle->sock != PGINVALID_SOCKET && handle->state != DN_CONNECTION_STATE_IDLE)
 		{
 			pgxc_node_flush_read(handle);
 			handle->state = DN_CONNECTION_STATE_IDLE;
@@ -977,7 +977,7 @@ clear_all_data(void)
 	{
 		handle = &dn_handles[i];
 
-		if (handle->sock != NO_SOCKET && handle->state != DN_CONNECTION_STATE_IDLE)
+		if (handle->sock != PGINVALID_SOCKET && handle->state != DN_CONNECTION_STATE_IDLE)
 		{
 			pgxc_node_flush_read(handle);
 			handle->state = DN_CONNECTION_STATE_IDLE;
@@ -991,7 +991,7 @@ clear_all_data(void)
 	{
 		handle = &co_handles[i];
 
-		if (handle->sock != NO_SOCKET && handle->state != DN_CONNECTION_STATE_IDLE)
+		if (handle->sock != PGINVALID_SOCKET && handle->state != DN_CONNECTION_STATE_IDLE)
 		{
 			pgxc_node_flush_read(handle);
 			handle->state = DN_CONNECTION_STATE_IDLE;
@@ -1030,7 +1030,7 @@ cancel_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
 			for (i = 0; i < num_dnhandles; i++)
 			{
 				handle = dnhandles[i];
-				if (!handle || handle->sock == NO_SOCKET)
+				if (!handle || handle->sock == PGINVALID_SOCKET)
 					continue;
 
 				if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
@@ -1061,7 +1061,7 @@ cancel_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
 			for (i = 0; i < num_cohandles; i++)
 			{
 				handle = cohandles[i];
-				if (!handle || handle->sock == NO_SOCKET)
+				if (!handle || handle->sock == PGINVALID_SOCKET)
 					continue;
 
 				if (handle->state == DN_CONNECTION_STATE_COPY_IN ||
@@ -1155,7 +1155,7 @@ clear_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
 		FreeHandleError(handle);
 
 		/* Continue if invalid socket or invalid connection state */
-		if (handle->sock == NO_SOCKET ||
+		if (handle->sock == PGINVALID_SOCKET ||
 			handle->state == DN_CONNECTION_STATE_ERROR_FATAL)
 		{
 			handle->combiner = NULL;
@@ -1187,7 +1187,7 @@ clear_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
 		FreeHandleError(handle);
 
 		/* Continue if invalid socket or invalid connection state */
-		if (handle->sock == NO_SOCKET ||
+		if (handle->sock == PGINVALID_SOCKET ||
 			handle->state == DN_CONNECTION_STATE_ERROR_FATAL)
 		{
 			handle->combiner = NULL;
@@ -1233,7 +1233,7 @@ clear_all_handles(bool error)
 		FreeHandleError(handle);
 
 		/* Continue if invalid socket or invalid connection state */
-		if (handle->sock == NO_SOCKET ||
+		if (handle->sock == PGINVALID_SOCKET ||
 			handle->state == DN_CONNECTION_STATE_ERROR_FATAL)
 		{
 			handle->combiner = NULL;
@@ -1265,7 +1265,7 @@ clear_all_handles(bool error)
 		FreeHandleError(handle);
 
 		/* Continue if invalid socket or invalid connection state */
-		if (handle->sock == NO_SOCKET ||
+		if (handle->sock == PGINVALID_SOCKET ||
 			handle->state == DN_CONNECTION_STATE_ERROR_FATAL)
 		{
 			handle->combiner = NULL;
@@ -1938,7 +1938,7 @@ void pgxc_node_flush_read(PGXCNodeHandle *handle)
 	fd_set rfd;
 	struct timeval tv;
 
-	if(handle == NULL || handle->sock == NO_SOCKET)
+	if(handle == NULL || handle->sock == PGINVALID_SOCKET)
 		return;
 
 	last_time = time(NULL);
@@ -2316,7 +2316,7 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 				node_handle = &dn_handles[i];
 				FreeHandleError(node_handle);
 				result->datanode_handles[i] = node_handle;
-				if (node_handle->sock == NO_SOCKET)
+				if (node_handle->sock == PGINVALID_SOCKET)
 					dn_allocate = lappend_int(dn_allocate, i);
 			}
 		}
@@ -2351,7 +2351,7 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 				node_handle = &dn_handles[node];
 				FreeHandleError(node_handle);
 				result->datanode_handles[i++] = node_handle;
-				if (node_handle->sock == NO_SOCKET)
+				if (node_handle->sock == PGINVALID_SOCKET)
 					dn_allocate = lappend_int(dn_allocate, node);
 			}
 		}
@@ -2384,7 +2384,7 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 				node_handle = &co_handles[i];
 				FreeHandleError(node_handle);
 				result->coord_handles[i] = node_handle;
-				if (node_handle->sock == NO_SOCKET)
+				if (node_handle->sock == PGINVALID_SOCKET)
 					co_allocate = lappend_int(co_allocate, i);
 			}
 		}
@@ -2419,7 +2419,7 @@ get_handles(List *datanodelist, List *coordlist, bool is_coord_only_query)
 				node_handle = &co_handles[node];
 				FreeHandleError(node_handle);
 				result->coord_handles[i++] = node_handle;
-				if (node_handle->sock == NO_SOCKET)
+				if (node_handle->sock == PGINVALID_SOCKET)
 					co_allocate = lappend_int(co_allocate, node);
 			}
 		}

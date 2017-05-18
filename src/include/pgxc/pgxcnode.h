@@ -25,8 +25,6 @@
 #include "utils/snapshot.h"
 #include "utils/timestamp.h"
 
-#define NO_SOCKET -1
-
 /* Connection to Datanode maintained by Pool Manager */
 typedef struct PGconn NODE_CONNECTION;
 typedef struct PGcancel NODE_CANCEL;
@@ -79,7 +77,7 @@ typedef enum
 #define DEBUG_BUF_SIZE 1024
 #endif
 
-struct pgxc_node_handle
+typedef struct PGXCNodeHandle
 {
 	Oid			nodeoid;
 	NameData	name;
@@ -89,7 +87,7 @@ struct pgxc_node_handle
 #endif
 
 	/* fd of the connection */
-	int		sock;
+	pgsocket	sock;
 	/* Connection state */
 	char		transaction_status;
 	DNConnectionState state;
@@ -117,8 +115,7 @@ struct pgxc_node_handle
 	 * For details see comments of RESP_ROLLBACK
 	 */
 	RESP_ROLLBACK	ck_resp_rollback;
-};
-typedef struct pgxc_node_handle PGXCNodeHandle;
+}PGXCNodeHandle;
 
 #define FreeHandleError(handle)								\
 	do {													\
