@@ -624,7 +624,6 @@ ExecDelete(ItemPointer tupleid,
 	TupleTableSlot *slot = NULL;
 #ifdef ADB
 	RemoteQueryState  *resultRemoteRel = NULL;
-	HeapTupleHeader oldtupleHeader = oldtuple ? oldtuple->t_data : NULL;
 #endif
 
 	/*
@@ -643,9 +642,6 @@ ExecDelete(ItemPointer tupleid,
 		bool		dodelete;
 
 		dodelete = ExecBRDeleteTriggers(estate, epqstate, resultRelInfo,
-#ifdef ADB
-										oldtupleHeader,
-#endif
 										tupleid, oldtuple);
 
 		if (!dodelete)			/* "do nothing" */
@@ -828,13 +824,8 @@ ldelete:;
 	}
 #endif
 
-
-#ifdef ADB
-	ExecARDeleteTriggers(estate, resultRelInfo, oldtupleHeader, tupleid, oldtuple);
-#else
 	/* AFTER ROW DELETE Triggers */
 	ExecARDeleteTriggers(estate, resultRelInfo, tupleid, oldtuple);
-#endif
 
 	/* Process RETURNING if present */
 #ifdef ADB
@@ -982,17 +973,8 @@ ExecUpdate(ItemPointer tupleid,
 	if (resultRelInfo->ri_TrigDesc &&
 		resultRelInfo->ri_TrigDesc->trig_update_before_row)
 	{
-#ifdef ADB
-		if(oldtuple!=0)
-			slot = ExecBRUpdateTriggers(estate, epqstate, resultRelInfo,
-											oldtuple->t_data, tupleid, oldtuple, slot);
-		else
-			slot = ExecBRUpdateTriggers(estate, epqstate, resultRelInfo,
-											0, tupleid, oldtuple, slot);
-#else
 		slot = ExecBRUpdateTriggers(estate, epqstate, resultRelInfo,
 									tupleid, oldtuple, slot);
-#endif
 
 		if (slot == NULL)		/* "do nothing" */
 			return NULL;
@@ -1193,15 +1175,9 @@ lreplace:;
 	if(oldtuple!=0)
 		/* AFTER ROW UPDATE Triggers */
 		ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldtuple, tuple,
-#ifdef ADB
-							 oldtuple->t_data,
-#endif
 							 recheckIndexes);
 	else
 		ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldtuple, tuple,
-#ifdef ADB
-							0,
-#endif
 							recheckIndexes);
 
 
@@ -1676,8 +1652,8 @@ ExecModifyTable(ModifyTableState *node)
 							ItemPointerSetInvalid(&(oldtupdata.t_self));
 							/* Historically, view triggers see invalid t_tableOid. */
 							oldtupdata.t_tableOid =
-							(relkind == RELKIND_VIEW) ? InvalidOid :
-							RelationGetRelid(resultRelInfo->ri_RelationDesc);
+								(relkind == RELKIND_VIEW) ? InvalidOid :
+								RelationGetRelid(resultRelInfo->ri_RelationDesc);
 
 							oldtuple = &oldtupdata;
 						}
