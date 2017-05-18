@@ -150,6 +150,8 @@ extern void PGXCNodeCleanAndRelease(int code, Datum arg);
 extern int PGXCNodeGetNodeId(Oid nodeoid, char node_type);
 extern Oid PGXCNodeGetNodeOid(int nodeid, char node_type);
 extern List *PGXCNodeGetNodeOidList(List *list, char node_type);
+extern const char *PGXCNodeOidGetName(Oid nodeoid);
+extern const char *PGXCNodeIdGetName(int nodeid, char node_type);
 extern int PGXCNodeGetNodeIdFromName(char *node_name, char node_type);
 
 extern PGXCNodeAllHandles *get_handles(List *datanodelist, List *coordlist, bool is_query_coord_only);

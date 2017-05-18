@@ -110,6 +110,7 @@ extern int	MyProcPid;
 static void pgxc_node_init(PGXCNodeHandle *handle, pgsocket sock);
 static void pgxc_node_free(PGXCNodeHandle *handle, bool freebuf);
 static void pgxc_node_all_free(void);
+static PGXCNodeHandle *pgxc_get_node_handle(int nodeid, char node_type);
 
 static int	get_int(PGXCNodeHandle * conn, size_t len, int *out);
 static int	get_char(PGXCNodeHandle * conn, char *out);
@@ -216,7 +217,7 @@ InitMultinodeExecutor(bool is_force)
 		handle->sock = PGINVALID_SOCKET;
 	PG_TRY();
 	{
-		foreach(handle)
+		foreach_all_handle(handle)
 		{
 			init_pgxc_handle(handle);
 			nodeName = get_pgxc_nodename(handle->nodeoid);
@@ -816,7 +817,6 @@ release_handles(void)
 void release_handles2(bool force_close)
 {
 	PGXCNodeHandle *handle;
-	int			i;
 	bool has_error = false;
 
 #ifdef ADB
@@ -862,7 +862,6 @@ void release_handles2(bool force_close)
 void
 cancel_query(void)
 {
-	int			i;
 	int 		dn_cancel[NumDataNodes];
 	int			co_cancel[NumCoords];
 	int			dn_count = 0;
@@ -931,7 +930,6 @@ void
 clear_all_data(void)
 {
 	PGXCNodeHandle *handle;
-	int				i;
 
 	if (datanode_count == 0 && coord_count == 0)
 		return;
@@ -1165,7 +1163,6 @@ void
 clear_all_handles(bool error)
 {
 	PGXCNodeHandle *handle;
-	int 			i;
 
 	if (datanode_count <= 0 && coord_count <= 0)
 		return ;
@@ -2464,23 +2461,8 @@ PGXCNodeGetNodeId(Oid nodeoid, char node_type)
 Oid
 PGXCNodeGetNodeOid(int nodeid, char node_type)
 {
-	PGXCNodeHandle *handles;
-
-	switch (node_type)
-	{
-		case PGXC_NODE_COORDINATOR:
-			handles = co_handles;
-			break;
-		case PGXC_NODE_DATANODE:
-			handles = dn_handles;
-			break;
-		default:
-			/* Should not happen */
-			Assert(0);
-			return InvalidOid;
-	}
-
-	return handles[nodeid].nodeoid;
+	PGXCNodeHandle *handles = pgxc_get_node_handle(nodeid, node_type);
+	return handles->nodeoid;
 }
 
 List *PGXCNodeGetNodeOidList(List *list, char node_type)
@@ -2519,6 +2501,55 @@ List *PGXCNodeGetNodeOidList(List *list, char node_type)
 		oid_list = lappend_oid(oid_list, handles[x].nodeoid);
 	}
 	return oid_list;
+}
+
+const char *PGXCNodeOidGetName(Oid nodeoid)
+{
+	PGXCNodeHandle *handle;
+	foreach_all_handle(handle)
+	{
+		if(handle->nodeoid == nodeoid)
+			return NameStr(handle->name);
+	}
+	return NULL;
+}
+
+const char *PGXCNodeIdGetName(int nodeid, char node_type)
+{
+	PGXCNodeHandle *handle = pgxc_get_node_handle(nodeid, node_type);
+	return NameStr(handle->name);
+}
+
+static PGXCNodeHandle *pgxc_get_node_handle(int nodeid, char node_type)
+{
+	PGXCNodeHandle *handles;
+	int array_size;
+
+	switch (node_type)
+	{
+	case PGXC_NODE_COORDINATOR:
+		handles = co_handles;
+		array_size = NumCoords;
+		break;
+	case PGXC_NODE_DATANODE:
+		handles = dn_handles;
+		array_size = NumDataNodes;
+		break;
+	default:
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+			errmsg("unknown node type %u", node_type)));
+		return NULL;	/* keep compiler quiet */
+	}
+
+	if(nodeid < 0 || nodeid >= array_size)
+	{
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("Invalid node ID index %d", nodeid),
+				errhint("node type '%c', number must between 0 and %d", node_type, array_size-1)));
+		return NULL; /* keep analyze quiet */
+	}
+
+	return &(handles[nodeid]);
 }
 
 /*
