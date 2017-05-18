@@ -26,7 +26,9 @@
 #include "storage/shmem.h"
 #include "storage/sinval.h"
 #include "tcop/tcopprot.h"
-
+#ifdef ADB
+#include "pgxc/poolutils.h"
+#endif
 
 /*
  * The SIGUSR1 signal is multiplexed to support signalling multiple event
@@ -266,6 +268,11 @@ procsignal_sigusr1_handler(SIGNAL_ARGS)
 
 	if (CheckProcSignal(PROCSIG_NOTIFY_INTERRUPT))
 		HandleNotifyInterrupt();
+
+#ifdef ADB
+	if (CheckProcSignal(PROCSIG_PGXCPOOL_RELOAD))
+		need_reload_pooler = true;
+#endif
 
 	if (CheckProcSignal(PROCSIG_PARALLEL_MESSAGE))
 		HandleParallelMessageInterrupt();
