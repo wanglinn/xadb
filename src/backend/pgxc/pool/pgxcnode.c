@@ -2588,6 +2588,44 @@ PGXCNodeGetNodeOid(int nodeid, char node_type)
 	return handles[nodeid].nodeoid;
 }
 
+List *PGXCNodeGetNodeOidList(List *list, char node_type)
+{
+	List	   *oid_list;
+	ListCell   *lc;
+	PGXCNodeHandle *handles;
+	int array_size;
+
+	switch (node_type)
+	{
+	case PGXC_NODE_COORDINATOR:
+		handles = co_handles;
+		array_size = NumCoords;
+		break;
+	case PGXC_NODE_DATANODE:
+		handles = dn_handles;
+		array_size = NumDataNodes;
+		break;
+	default:
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+			errmsg("unknown node type %u", node_type)));
+		return NIL;	/* keep compiler quiet */
+	}
+
+	oid_list = NIL;
+	foreach(lc, list)
+	{
+		register int x = lfirst_int(lc);
+		if(x >= array_size || x < 0)
+		{
+			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("Invalid node ID index %d", x),
+				errhint("node type '%c', number must between 0 and %d", node_type, array_size-1)));
+		}
+		oid_list = lappend_oid(oid_list, handles[x].nodeoid);
+	}
+	return oid_list;
+}
+
 /*
  * pgxc_node_str
  *
