@@ -187,3 +187,4 @@ pqWaitTimed               184
 PQattach                  185
 PQbeginAttach             186
 PQdetach                  187
+PQsendPlan                188

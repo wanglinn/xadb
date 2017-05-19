@@ -396,6 +396,9 @@ extern PGresult *PQexecPrepared(PGconn *conn,
 
 /* Interface for multiple-result or asynchronous queries */
 extern int	PQsendQuery(PGconn *conn, const char *query);
+#ifdef ADB
+extern int PQsendPlan(PGconn *conn, const char *plan, int length);
+#endif /* ADB */
 extern int PQsendQueryParams(PGconn *conn,
 				  const char *command,
 				  int nParams,
@@ -416,7 +419,6 @@ extern int PQsendQueryPrepared(PGconn *conn,
 					int resultFormat);
 extern int	PQsetSingleRowMode(PGconn *conn);
 extern PGresult *PQgetResult(PGconn *conn);
-
 /* Routines for managing an asynchronous query */
 extern int	PQisBusy(PGconn *conn);
 extern int	PQconsumeInput(PGconn *conn);
