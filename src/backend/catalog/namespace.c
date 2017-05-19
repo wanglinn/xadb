@@ -3138,11 +3138,22 @@ SetTempNamespaceState(Oid tempNamespaceId, Oid tempToastNamespaceId)
  */
 OverrideSearchPath *
 GetOverrideSearchPath(MemoryContext context)
+#ifdef ADB
+{
+	return GetOverrideSearchPathExtend(context, true);
+}
+
+OverrideSearchPath *
+GetOverrideSearchPathExtend(MemoryContext context, bool recompute)
+#endif
 {
 	OverrideSearchPath *result;
 	List	   *schemas;
 	MemoryContext oldcxt;
 
+#ifdef ADB
+	if (recompute)
+#endif
 	recomputeNamespacePath();
 
 	oldcxt = MemoryContextSwitchTo(context);
@@ -3329,7 +3340,7 @@ void PushOverrideSearchPathForGrammar(int grammar)
 	/* and report an error when not case all grammar */
 	Assert(OidIsValid(ns_gram));
 
-	sp = GetOverrideSearchPath(CurrentMemoryContext);
+	sp = GetOverrideSearchPathExtend(CurrentMemoryContext, IsTransactionState());
 	Assert(sp);
 
 	if(sp->addCatalog)
