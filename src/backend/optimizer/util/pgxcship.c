@@ -1264,7 +1264,8 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 		case T_WithCheckOption:
 			{
 				WithCheckOption *wco = (WithCheckOption *) node;
-				return expression_tree_walker(wco->qual, pgxc_shippability_walker, (void *)sc_context);
+				if (wco->kind == WCO_VIEW_CHECK)
+					pgxc_set_shippability_reason(sc_context, SS_NEEDS_COORD);
 			}
 			break;
 
