@@ -399,7 +399,19 @@ ExecInsert(ModifyTableState *mtstate,
 #ifdef ADB
 		if (IS_PGXC_COORDINATOR && resultRemoteRel)
 		{
+			TupleTableSlot *saveSlot = NULL;
+
+			if (resultRelInfo->ri_WithCheckOptions != NIL)
+			{
+				saveSlot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor);
+				saveSlot = ExecCopySlot(saveSlot, slot);
+			}
+
 			slot = ExecProcNodeDMLInXC(estate, planSlot, slot);
+
+			if (TupIsNull(slot))
+				slot = saveSlot;
+
 			/*
 			 * PGXCTODO: If target table uses WITH OIDS, this should be set to the Oid inserted
 			 * but Oids are not consistent among nodes in Postgres-XC, so this is set to the
@@ -409,8 +421,8 @@ ExecInsert(ModifyTableState *mtstate,
 			newId = InvalidOid;
 		}
 		else
-#endif
 		{
+#endif
 		if (onconflict != ONCONFLICT_NONE && resultRelInfo->ri_NumIndices > 0)
 		{
 			/* Perform a speculative insertion. */
@@ -536,7 +548,9 @@ ExecInsert(ModifyTableState *mtstate,
 													   estate, false, NULL,
 													   arbiterIndexes);
 		}
+#ifdef ADB
 		}
+#endif
 	}
 
 	if (canSetTag)
@@ -1054,7 +1068,18 @@ lreplace:;
 #ifdef ADB
 		if (IS_PGXC_COORDINATOR && resultRemoteRel)
 		{
+			TupleTableSlot *saveSlot = NULL;
+
+			if (resultRelInfo->ri_WithCheckOptions != NIL)
+			{
+				saveSlot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor);
+				saveSlot = ExecCopySlot(saveSlot, slot);
+			}
+
 			slot = ExecProcNodeDMLInXC(estate, planSlot, slot);
+
+			if (TupIsNull(slot))
+				slot = saveSlot;
 		}
 		else
 		{
