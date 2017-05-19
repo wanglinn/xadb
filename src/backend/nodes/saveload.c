@@ -1000,3 +1000,42 @@ Node* loadNode(StringInfo buf)
 	}
 	return NULL;
 }
+
+void SaveParamList(struct StringInfoData *buf, ParamListInfo paramLI)
+{
+	int			nparams;
+	int			i;
+
+	/* Write number of parameters. */
+	if (paramLI == NULL || paramLI->numParams <= 0)
+	{
+		SAVE_IS_NOT_NULL();
+		return;
+	}else
+	{
+		nparams = paramLI->numParams;
+	}
+
+	for (i = 0; i < nparams; i++)
+	{
+		ParamExternData *prm = &paramLI->params[i];
+
+		if(bms_is_member(i, paramLI->paramMask))
+		{
+			/* give hook a chance in case parameter is dynamic */
+			if (!OidIsValid(prm->ptype) && paramLI->paramFetch != NULL)
+				(*paramLI->paramFetch) (paramLI, i + 1);
+		}
+	}
+	SAVE_IS_NOT_NULL();
+	save_ParamListInfoData(buf, paramLI);
+}
+
+ParamListInfo LoadParamList(struct StringInfoData *buf)
+{
+	ParamListInfo info;
+	if(LOAD_IS_NULL())
+		return NULL;
+	info = palloc(sizeof(*info));
+	return load_ParamListInfoData(buf, info);
+}
