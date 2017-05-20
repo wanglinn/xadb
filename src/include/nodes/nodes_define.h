@@ -2995,6 +2995,9 @@ END_NODE(AlterTableSpaceOptionsStmt)
 
 #ifndef NO_NODE_AlterTableMoveAllStmt
 BEGIN_NODE(AlterTableMoveAllStmt)
+#ifdef ADB
+	NODE_SCALAR(int,endpos)
+#endif
 	NODE_STRING(orig_tablespacename)
 	NODE_ENUM(ObjectType,objtype)
 	NODE_NODE(List,roles)
