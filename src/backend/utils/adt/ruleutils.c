@@ -68,11 +68,12 @@
 #include "utils/typcache.h"
 #include "utils/xml.h"
 #ifdef ADB
-#include "pgxc/pgxc.h"
-#include "optimizer/pgxcplan.h"
-#include "nodes/execnodes.h"
 #include "access/reloptions.h"
+#include "nodes/execnodes.h"
+#include "optimizer/pgxcplan.h"
 #include "parser/parse_type.h"
+#include "pgxc/pgxc.h"
+#include "utils/memutils.h"
 #endif
 
 /* ----------
@@ -3045,7 +3046,7 @@ set_rtable_names(deparse_namespace *dpns, List *parent_namespaces,
 				/* Name not previously used, need only initialize hentry */
 				hentry->counter = 0;
 			}
-			
+
 #ifdef ADB
 			/*
 			 * Just changing the refname won't suffice, we have to change the
@@ -3071,16 +3072,20 @@ set_rtable_names(deparse_namespace *dpns, List *parent_namespaces,
 			 * unique reference names for each, but that results in missing
 			 * alias in the generated query.
 			 */
-			if (rte->alias && rte->alias->colnames)
 			{
-				char *aliasname = pstrdup(refname);
-				pfree(rte->alias->aliasname);
-				refname = rte->alias->aliasname = aliasname;
-			} else
-			{
-				alias = makeAlias(refname, NIL);
-				rte->alias = alias;
-				refname = alias->aliasname;
+				MemoryContext oldcxt = MemoryContextSwitchTo(GetMemoryChunkContext(rte));
+				if (rte->alias && rte->alias->colnames)
+				{
+					char *aliasname = pstrdup(refname);
+					pfree(rte->alias->aliasname);
+					refname = rte->alias->aliasname = aliasname;
+				} else
+				{
+					alias = makeAlias(refname, NIL);
+					rte->alias = alias;
+					refname = alias->aliasname;
+				}
+				(void) MemoryContextSwitchTo(oldcxt);
 			}
 #endif
 		}
