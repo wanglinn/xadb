@@ -1915,6 +1915,16 @@ static struct config_bool ConfigureNamesBool[] =
 		true,
 		NULL, NULL, NULL
 	},
+
+	{
+		{"debug_enable_satisfy_mvcc", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Turn on HeapTupleSatisfiesMVCC always return true."),
+		 	gettext_noop("Can set ON by SET command by superuser.")
+		},
+		&debug_enable_satisfy_mvcc,
+		false,
+		NULL, NULL, NULL
+	},
 #endif
 
 #ifdef DEBUG_ADB
@@ -4030,7 +4040,7 @@ static struct config_string ConfigureNamesString[] =
 		"YYYY-MM-DD HH24:MI:SS.US",
 		NULL, NULL, NULL
 	},
-		
+
 	{
 		{"nls_timestamp_tz_format", PGC_USERSET, CUSTOM_OPTIONS,
 			gettext_noop("Emulate oracle's timestamp with time zone output behaviour."),
@@ -10819,7 +10829,7 @@ static bool
 check_max_worker_processes(int *newval, void **extra, GucSource source)
 {
 #if defined(ADBMGRD)
-	if (MaxConnections + autovacuum_max_workers + 1 + 
+	if (MaxConnections + autovacuum_max_workers + 1 +
 		adbmonitor_max_workers + 1 + *newval > MAX_BACKENDS)
 #else
 	if (MaxConnections + autovacuum_max_workers + 1 + *newval > MAX_BACKENDS)
