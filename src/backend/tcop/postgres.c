@@ -1706,7 +1706,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 			ResetUsage();
 
 #ifdef ADB
-	query = parse_analyze_varparams_for_gram(raw_parse_tree,
+		query = parse_analyze_varparams_for_gram(raw_parse_tree,
 												 query_string,
 												 &paramTypes,
 												 &numParams,

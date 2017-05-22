@@ -34,6 +34,9 @@
 #include "utils/memutils.h"
 #include "utils/resowner.h"
 #include "utils/snapmgr.h"
+#ifdef ADB
+#include "pgxc/pgxcnode.h"
+#endif
 
 
 /*
@@ -1040,6 +1043,13 @@ ParallelWorkerMain(Datum main_arg)
 	/* Restore database connection. */
 	BackgroundWorkerInitializeConnectionByOid(fps->database_id,
 											  fps->authenticated_user_id);
+
+#ifdef ADB
+	StartTransactionCommand();
+	/* Initialize executor. This must be done inside a transaction block. */
+	InitMultinodeExecutor(false);
+	CommitTransactionCommand();
+#endif
 
 	/*
 	 * Set the client encoding to the database encoding, since that is what

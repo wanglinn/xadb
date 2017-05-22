@@ -192,7 +192,6 @@ InitMultinodeExecutor(bool is_force)
 	co_handles = NumCoords > 0 ? all_node_handles : NULL;
 	dn_handles = NumDataNodes > 0 ? &all_node_handles[NumCoords] : NULL;
 
-
 	count = 0;
 	foreach_coord_handle(handle)
 	{
@@ -659,7 +658,7 @@ retry:
 		if(conn->file_data)
 		{
 			bool bwrite = false;
-			fwrite(&bwrite, sizeof(bwrite), 1, conn->file_data); 
+			fwrite(&bwrite, sizeof(bwrite), 1, conn->file_data);
 			fwrite(&nread, sizeof(nread), 1, conn->file_data);
 			fwrite(conn->inBuffer+conn->inEnd, 1, nread, conn->file_data);
 		}
@@ -1155,7 +1154,7 @@ clear_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
 	}
 
 	/*
-	 * We cannot release handle here, it is decided with the caller. 
+	 * We cannot release handle here, it is decided with the caller.
 	 */
 }
 
@@ -1195,7 +1194,7 @@ clear_all_handles(bool error)
 	}
 
 	/*
-	 * We cannot release handle here, it is decided with the caller. 
+	 * We cannot release handle here, it is decided with the caller.
 	 */
 }
 
@@ -1411,7 +1410,7 @@ pgxc_node_send_parse(PGXCNodeHandle * handle, const char* statement,
 	int			cnt_params;
 #if USE_ASSERT_CHECKING
 	size_t		old_outEnd = handle->outEnd;
-#endif	
+#endif
 
 	/* if there are parameters, param_types should exist */
 	Assert(num_params <= 0 || param_types);
@@ -1836,7 +1835,7 @@ void pgxc_node_flush_read(PGXCNodeHandle *handle)
 	{
 		if (is_data_node_ready(handle))
 			break;
-		
+
 		FD_ZERO(&rfd);
 		FD_SET(handle->sock, &rfd);
 		tv.tv_sec = FLUSH_READ_TIMEOUT - (time(NULL) - last_time);
