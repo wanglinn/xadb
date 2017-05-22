@@ -5334,6 +5334,11 @@ getTables(Archive *fout, int *numTables)
 						  "d.refobjid AS owning_tab, "
 						  "d.refobjsubid AS owning_col, "
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
+#ifdef ADB
+						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
+						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+						  "(SELECT '\"' || string_agg(node_name,'\",\"') || '\"' AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
+#endif
 						  "array_remove(array_remove(c.reloptions,'check_option=local'),'check_option=cascaded') AS reloptions, "
 						  "CASE WHEN 'check_option=local' = ANY (c.reloptions) THEN 'LOCAL'::text "
 						  "WHEN 'check_option=cascaded' = ANY (c.reloptions) THEN 'CASCADED'::text ELSE NULL END AS checkoption, "
@@ -5411,6 +5416,12 @@ getTables(Archive *fout, int *numTables)
 						  "d.refobjid AS owning_tab, "
 						  "d.refobjsubid AS owning_col, "
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
+#ifdef ADB
+						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
+						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+						  "(SELECT '\"' || string_agg(node_name,'\",\"') || '\"' AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
+#endif
+
 						  "array_remove(array_remove(c.reloptions,'check_option=local'),'check_option=cascaded') AS reloptions, "
 						  "CASE WHEN 'check_option=local' = ANY (c.reloptions) THEN 'LOCAL'::text "
 						  "WHEN 'check_option=cascaded' = ANY (c.reloptions) THEN 'CASCADED'::text ELSE NULL END AS checkoption, "
@@ -5457,6 +5468,11 @@ getTables(Archive *fout, int *numTables)
 						  "d.refobjid AS owning_tab, "
 						  "d.refobjsubid AS owning_col, "
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
+#ifdef ADB
+						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
+						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+						  "(SELECT '\"' || string_agg(node_name,'\",\"') || '\"' AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
+#endif
 						  "array_remove(array_remove(c.reloptions,'check_option=local'),'check_option=cascaded') AS reloptions, "
 						  "CASE WHEN 'check_option=local' = ANY (c.reloptions) THEN 'LOCAL'::text "
 						  "WHEN 'check_option=cascaded' = ANY (c.reloptions) THEN 'CASCADED'::text ELSE NULL END AS checkoption, "
@@ -6030,7 +6046,7 @@ getTables(Archive *fout, int *numTables)
 #endif
 
 
-		
+
 		tblinfo[i].reltablespace = pg_strdup(PQgetvalue(res, i, i_reltablespace));
 		tblinfo[i].reloptions = pg_strdup(PQgetvalue(res, i, i_reloptions));
 		if (i_checkoption == -1 || PQgetisnull(res, i, i_checkoption))
@@ -16758,20 +16774,20 @@ dumpSequenceData(Archive *fout, TableDataInfo *tdinfo)
 	called = (strcmp(PQgetvalue(res, 0, 1), "t") == 0);
 
 #ifdef ADB
-	/*																														  
-	 * In Postgres-XC it is possible that the current value of a															  
-	 * sequence cached on each node is different as several sessions														  
-	 * might use the sequence on different nodes. So what we do here														  
-	 * to get a consistent dump is to get the next value of sequence.														  
-	 * This insures that sequence value is unique as nextval is directly													  
-	 * obtained from GTM.																									  
+	/*
+	 * In Postgres-XC it is possible that the current value of a
+	 * sequence cached on each node is different as several sessions
+	 * might use the sequence on different nodes. So what we do here
+	 * to get a consistent dump is to get the next value of sequence.
+	 * This insures that sequence value is unique as nextval is directly
+	 * obtained from GTM.
 	 */
 	resetPQExpBuffer(query);
 	appendPQExpBuffer(query, "SELECT pg_catalog.nextval(");
 	appendStringLiteralAH(query, fmtId(tbinfo->dobj.name), fout);
 	appendPQExpBuffer(query, ");\n");
 	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
-	
+
 	if (PQntuples(res) != 1)
 	{
 		write_msg(NULL, ngettext("query to get nextval of sequence \"%s\" "
@@ -16782,7 +16798,7 @@ dumpSequenceData(Archive *fout, TableDataInfo *tdinfo)
 					  tbinfo->dobj.name, PQntuples(res));
 		exit_nicely(1);
 	}
-	
+
 	last = PQgetvalue(res, 0, 0);
 #endif
 
