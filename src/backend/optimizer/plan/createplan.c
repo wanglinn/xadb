@@ -3633,7 +3633,7 @@ create_mergejoin_plan(PlannerInfo *root,
 			 * creating plan, but changing the one below isn't harmful.
 			 */
 			if (IsA(inner_plan, RemoteQuery))
-				best_path->materialize_inner = true; 
+				best_path->materialize_inner = true;
 		}
 #endif
 		innerpathkeys = best_path->innersortkeys;
@@ -6293,7 +6293,10 @@ pgxc_copy_path_costsize(Plan *dest, Path *src)
 Plan *
 pgxc_create_gating_plan(PlannerInfo *root, Path *path, Plan *plan, List *quals)
 {
-	return create_gating_plan(root, path, plan, quals);
+	if (quals)
+		return create_gating_plan(root, path, plan, quals);
+	else
+		return plan;
 }
 
 extern Node *
