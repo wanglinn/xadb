@@ -3281,8 +3281,8 @@ DESCR("maximum value of all bpchar input values");
 DATA(insert OID = 2797 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 27 "27" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("maximum value of all tid input values");
 #ifdef ADB
-DATA(insert OID = 3367 (  max				ORANSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 3970 "3970" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
-DATA(insert OID = 3369 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 86 "86" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
+DATA(insert OID = 3367 (  max				ORANSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 3997 "3997" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
+DATA(insert OID = 3369 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 336 "336" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("maximum value of all rid input values");
 #endif /* ADB */
 DATA(insert OID = 3564 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 869 "869" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
@@ -3327,8 +3327,8 @@ DESCR("minimum value of all bpchar input values");
 DATA(insert OID = 2798 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 27 "27" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("minimum value of all tid input values");
 #ifdef ADB
-DATA(insert OID = 3368 (  min				ORANSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 3970 "3970" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
-DATA(insert OID = 3370 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 86 "86" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
+DATA(insert OID = 3368 (  min				ORANSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 3997 "3997" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
+DATA(insert OID = 3370 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 336 "336" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("minimum value of all rid input values");
 #endif /* ADB */
 DATA(insert OID = 3565 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 869 "869" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
