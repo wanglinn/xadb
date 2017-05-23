@@ -19,6 +19,7 @@
 
 #ifdef ADB
 #include "access/rxact_mgr.h"
+#include "catalog/namespace.h"
 #include "pgxc/execRemote.h"
 #endif /* ADB */
 #include "pgxc/pgxc.h"
@@ -409,6 +410,11 @@ HandlePoolerReload(void)
 
 	/* Abort existing xact if any */
 	AbortCurrentTransaction();
+
+	/* Drop temp objects */
+	StartTransactionCommand();
+	ResetTempTableNamespace();
+	CommitTransactionCommand();
 
 	/* Session is being reloaded, drop prepared and temporary objects */
 	DropAllPreparedStatements();
