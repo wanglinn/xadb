@@ -188,3 +188,6 @@ PQattach                  185
 PQbeginAttach             186
 PQdetach                  187
 PQsendPlan                188
+PQisCopyOutState          189
+PQisCopyInState           190
+PQgetCopyDataBuffer       191

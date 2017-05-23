@@ -586,6 +586,9 @@ extern char *pqBuildStartupPacket2(PGconn *conn, int *packetlen,
 					  const PQEnvironmentOption *options);
 extern void pqParseInput2(PGconn *conn);
 extern int	pqGetCopyData2(PGconn *conn, char **buffer, int async);
+#ifdef ADB
+extern int	pqGetCopyData2Ex(PGconn *conn, char **buffer, int async, bool alloc_buf);
+#endif /* ADB */
 extern int	pqGetline2(PGconn *conn, char *s, int maxlen);
 extern int	pqGetlineAsync2(PGconn *conn, char *buffer, int bufsize);
 extern int	pqEndcopy2(PGconn *conn);
@@ -605,6 +608,9 @@ extern int	pqGetErrorNotice3(PGconn *conn, bool isError);
 extern void pqBuildErrorMessage3(PQExpBuffer msg, const PGresult *res,
 					 PGVerbosity verbosity, PGContextVisibility show_context);
 extern int	pqGetCopyData3(PGconn *conn, char **buffer, int async);
+#ifdef ADB
+extern int	pqGetCopyData3Ex(PGconn *conn, char **buffer, int async, bool alloc_buf);
+#endif /* ADB */
 extern int	pqGetline3(PGconn *conn, char *s, int maxlen);
 extern int	pqGetlineAsync3(PGconn *conn, char *buffer, int bufsize);
 extern int	pqEndcopy3(PGconn *conn);

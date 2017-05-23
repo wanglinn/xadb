@@ -1160,6 +1160,12 @@ getNotify(PGconn *conn)
 int
 pqGetCopyData2(PGconn *conn, char **buffer, int async)
 {
+#ifdef ADB
+	return pqGetCopyData2Ex(conn, buffer, async, true);
+}
+int pqGetCopyData2Ex(PGconn *conn, char **buffer, int async, bool alloc_buf)
+{
+#endif /* ADB */
 	bool		found;
 	int			msgLength;
 
@@ -1199,6 +1205,10 @@ pqGetCopyData2(PGconn *conn, char **buffer, int async)
 		/*
 		 * Pass the line back to the caller.
 		 */
+#ifdef ADB
+		if(alloc_buf)
+		{
+#endif /* ADB */
 		*buffer = (char *) malloc(msgLength + 1);
 		if (*buffer == NULL)
 		{
@@ -1208,6 +1218,12 @@ pqGetCopyData2(PGconn *conn, char **buffer, int async)
 		}
 		memcpy(*buffer, &conn->inBuffer[conn->inStart], msgLength);
 		(*buffer)[msgLength] = '\0';	/* Add terminating null */
+#ifdef ADB
+		}else
+		{
+			*buffer = &conn->inBuffer[conn->inStart];
+		}
+#endif /* ADB */
 
 		/* Mark message consumed */
 		conn->inStart = conn->inCursor;

@@ -1671,6 +1671,12 @@ getCopyDataMessage(PGconn *conn)
 int
 pqGetCopyData3(PGconn *conn, char **buffer, int async)
 {
+#ifdef ADB
+	return pqGetCopyData3Ex(conn, buffer, async, true);
+}
+int pqGetCopyData3Ex(PGconn *conn, char **buffer, int async, bool alloc_buf)
+{
+#endif /* ADB */
 	int			msgLength;
 
 	for (;;)
@@ -1702,6 +1708,10 @@ pqGetCopyData3(PGconn *conn, char **buffer, int async)
 		msgLength -= 4;
 		if (msgLength > 0)
 		{
+#ifdef ADB
+			if(alloc_buf)
+			{
+#endif /* ADB */
 			*buffer = (char *) malloc(msgLength + 1);
 			if (*buffer == NULL)
 			{
@@ -1711,6 +1721,12 @@ pqGetCopyData3(PGconn *conn, char **buffer, int async)
 			}
 			memcpy(*buffer, &conn->inBuffer[conn->inCursor], msgLength);
 			(*buffer)[msgLength] = '\0';		/* Add terminating null */
+#ifdef ADB
+			}else
+			{
+				*buffer = &conn->inBuffer[conn->inCursor];
+			}
+#endif /* ADB */
 
 			/* Mark message consumed */
 			conn->inStart = conn->inCursor + msgLength;

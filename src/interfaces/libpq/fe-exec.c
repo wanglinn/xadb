@@ -2454,6 +2454,48 @@ PQgetCopyData(PGconn *conn, char **buffer, int async)
 		return pqGetCopyData2(conn, buffer, async);
 }
 
+#ifdef ADB
+int PQgetCopyDataBuffer(PGconn *conn, const char **buffer, int async)
+{
+	if (!conn)
+		return -2;
+	if (conn->asyncStatus != PGASYNC_COPY_OUT &&
+		conn->asyncStatus != PGASYNC_COPY_BOTH)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+						  libpq_gettext("no COPY in progress\n"));
+		return -2;
+	}
+	if (PG_PROTOCOL_MAJOR(conn->pversion) >= 3)
+		return pqGetCopyData3Ex(conn, (char**)buffer, async, false);
+	else
+		return pqGetCopyData2Ex(conn, (char**)buffer, async, false);
+}
+
+int PQisCopyOutState(PGconn *conn)
+{
+	if(conn
+		&& (conn->asyncStatus == PGASYNC_COPY_OUT
+		|| conn->asyncStatus == PGASYNC_COPY_BOTH))
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+int PQisCopyInState(PGconn *conn)
+{
+	if(conn
+		&& (conn->asyncStatus == PGASYNC_COPY_IN
+		|| conn->asyncStatus == PGASYNC_COPY_BOTH))
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+#endif /* ADB */
+
 /*
  * PQgetline - gets a newline-terminated string from the backend.
  *

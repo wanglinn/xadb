@@ -430,6 +430,11 @@ extern PGnotify *PQnotifies(PGconn *conn);
 extern int	PQputCopyData(PGconn *conn, const char *buffer, int nbytes);
 extern int	PQputCopyEnd(PGconn *conn, const char *errormsg);
 extern int	PQgetCopyData(PGconn *conn, char **buffer, int async);
+#ifdef ADB
+extern int	PQgetCopyDataBuffer(PGconn *conn, const char **buffer, int async);
+extern int	PQisCopyOutState(PGconn *conn);
+extern int	PQisCopyInState(PGconn *conn);
+#endif /* ADB */
 
 /* Deprecated routines for copy in/out */
 extern int	PQgetline(PGconn *conn, char *string, int length);
