@@ -3407,7 +3407,7 @@ aclcheck_error(AclResult aclerr, AclObjectKind objectkind,
 			break;
 		case ACLCHECK_NO_PRIV:
 #ifdef ADBMGRD
-	ereport(ERROR, (errmsg("permission denied")));
+			ereport(ERROR, (errmsg("permission denied")));
 #endif
 			ereport(ERROR,
 					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),

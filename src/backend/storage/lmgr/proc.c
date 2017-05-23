@@ -55,6 +55,9 @@
 #include "storage/spin.h"
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
+#ifdef ADB
+#include "pgxc/poolmgr.h"
+#endif
 
 
 /* GUC variables */
@@ -267,6 +270,7 @@ InitProcGlobal(void)
 			/* PGPROC for adb monitor launcher/worker, add to adbmntFreeProcs list */
 			procs[i].links.next = (SHM_QUEUE *) ProcGlobal->adbmntFreeProcs;
 			ProcGlobal->adbmntFreeProcs = &procs[i];
+			procs[i].procgloballist = &ProcGlobal->adbmntFreeProcs;
 		}
 #endif
 		else if (i < MaxBackends)
@@ -318,6 +322,10 @@ InitProcess(void)
 	/* Decide which list should supply our PGPROC. */
 	if (IsAnyAutoVacuumProcess())
 		procgloballist = &ProcGlobal->autovacFreeProcs;
+#if defined(ADBMGRD)
+	else if (IsAnyAdbMonitorProcess())
+		procgloballist = &ProcGlobal->adbmntFreeProcs;
+#endif
 	else if (IsBackgroundWorker)
 		procgloballist = &ProcGlobal->bgworkerFreeProcs;
 	else
@@ -334,32 +342,10 @@ InitProcess(void)
 
 	set_spins_per_delay(ProcGlobal->spins_per_delay);
 
-	// ADBQ, direct copy from adb2.2
-	//MyProc = *procgloballist;
-	if (IsAnyAutoVacuumProcess())
-		MyProc = ProcGlobal->autovacFreeProcs;
-#if defined(ADBMGRD)
-	else if (IsAnyAdbMonitorProcess())
-		MyProc = ProcGlobal->adbmntFreeProcs;
-#endif
-	else if (IsBackgroundWorker)
-		MyProc = ProcGlobal->bgworkerFreeProcs;
-	else
-		MyProc = ProcGlobal->freeProcs;
+	MyProc = *procgloballist;
 	if (MyProc != NULL)
 	{
-		// ADBQ, direct copy from adb2.2
-		//*procgloballist = (PGPROC *) MyProc->links.next;
-		if (IsAnyAutoVacuumProcess())
-			ProcGlobal->autovacFreeProcs = (PGPROC *) MyProc->links.next;
-#if defined(ADBMGRD)
-		else if (IsAnyAdbMonitorProcess())
-			ProcGlobal->adbmntFreeProcs = (PGPROC *) MyProc->links.next;
-#endif
-		else if (IsBackgroundWorker)
-			ProcGlobal->bgworkerFreeProcs = (PGPROC *) MyProc->links.next;
-		else
-			ProcGlobal->freeProcs = (PGPROC *) MyProc->links.next;
+		*procgloballist = (PGPROC *) MyProc->links.next;
 		SpinLockRelease(ProcStructLock);
 	}
 	else
@@ -415,6 +401,9 @@ InitProcess(void)
 	MyProc->databaseId = InvalidOid;
 	MyProc->roleId = InvalidOid;
 	MyProc->isBackgroundWorker = IsBackgroundWorker;
+#ifdef ADB
+	MyProc->isPooler = IsPGXCPoolerProcess();
+#endif
 	MyPgXact->delayChkpt = false;
 	MyPgXact->vacuumFlags = 0;
 	/* NB -- autovac launcher intentionally does not set IS_AUTOVACUUM */
@@ -587,6 +576,9 @@ InitAuxiliaryProcess(void)
 	MyProc->backendId = InvalidBackendId;
 	MyProc->databaseId = InvalidOid;
 	MyProc->roleId = InvalidOid;
+#ifdef ADB
+	MyProc->isPooler = IsPGXCPoolerProcess();
+#endif
 	MyProc->isBackgroundWorker = IsBackgroundWorker;
 	MyPgXact->delayChkpt = false;
 	MyPgXact->vacuumFlags = 0;
@@ -909,17 +901,10 @@ ProcKill(int code, Datum arg)
 	{
 		/* Since lockGroupLeader is NULL, lockGroupMembers should be empty. */
 		Assert(dlist_is_empty(&proc->lockGroupMembers));
-#if defined(ADBMGRD)
-	if (IsAnyAdbMonitorProcess())
-	{
-		proc->links.next = (SHM_QUEUE *) ProcGlobal->adbmntFreeProcs;
-		ProcGlobal->adbmntFreeProcs = proc;
-	}
-#else
+
 		/* Return PGPROC structure (and semaphore) to appropriate freelist */
 		proc->links.next = (SHM_QUEUE *) *procgloballist;
 		*procgloballist = proc;
-#endif
 	}
 
 	/* Update shared estimate of spins_per_delay */

@@ -30,8 +30,8 @@ typedef enum
 	PMSIGNAL_START_AUTOVAC_WORKER,		/* start an autovacuum worker */
 	PMSIGNAL_BACKGROUND_WORKER_CHANGE,	/* background worker state change */
 #if defined(ADBMGRD)
-        PMSIGNAL_START_ADBMNT_LAUNCHER,         /* start an adb monitor launcher */
-        PMSIGNAL_START_ADBMNT_WORKER,           /* start an adb monitor worker */
+	PMSIGNAL_START_ADBMNT_LAUNCHER,		/* start an adb monitor launcher */
+	PMSIGNAL_START_ADBMNT_WORKER,		/* start an adb monitor worker */
 #endif /* ADBMGRD */
 	PMSIGNAL_START_WALRECEIVER, /* start a walreceiver */
 	PMSIGNAL_ADVANCE_STATE_MACHINE,		/* advance postmaster's state machine */

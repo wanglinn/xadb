@@ -508,7 +508,7 @@ InitializeMaxBackends(void)
 #if defined(ADBMGRD)
 	/* the extra unit accounts for the autovacuum launcher and adb monitor launcher */
 	MaxBackends = MaxConnections + autovacuum_max_workers + 1 +
-		adbmonitor_max_workers + 1 + 
+		adbmonitor_max_workers + 1 +
 		max_worker_processes;
 #else
 	/* the extra unit accounts for the autovacuum launcher */
@@ -682,14 +682,6 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	/* The autovacuum launcher is done here */
 	if (IsAutoVacuumLauncherProcess())
 		return;
-#if 0
-	/* The adb monitor launcher also need a valid database */
-#if defined(ADBMGRD)
-	/* The adb monitor launcher is done here */
-	if (IsAdbMonitorLauncherProcess())
-		return;
-#endif /* ADBMGRD */
-#endif
 
 	/*
 	 * Start a new transaction here before first access to db, and get a

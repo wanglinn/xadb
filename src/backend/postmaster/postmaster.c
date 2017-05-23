@@ -1432,7 +1432,7 @@ PostmasterMain(int argc, char *argv[])
 	 * K.Suzuki memo, Sep.2nd, 2013.
 	 * PG 9.3 added a call to StartOneBackgroundWorker().  THis should be
 	 * called after XC checks if it is coordinator.
-	 * Although pooler is a kind of background worker, so far it is 
+	 * Although pooler is a kind of background worker, so far it is
 	 * handled separately.
 	 *
 	 * We may need to clean this up later.
@@ -2681,7 +2681,7 @@ SIGHUP_handler(SIGNAL_ARGS)
 		SignalChildren(SIGHUP);
 		if (StartupPID != 0)
 			signal_child(StartupPID, SIGHUP);
-#ifdef ADB		
+#ifdef ADB
 		if (IS_PGXC_COORDINATOR && PgPoolerPID != 0)
 			signal_child(PgPoolerPID, SIGHUP);
 
