@@ -1034,6 +1034,10 @@ currval_oid(PG_FUNCTION_ARGS)
 		relation_close(seqrel, NoLock);
 		PG_RETURN_INT64(seq_val);
 	}
+	else
+	{
+		PreventCommandIfReadOnly("currval()");
+	}
 }
 #endif
 
@@ -1077,6 +1081,10 @@ lastval(PG_FUNCTION_ARGS)
 			PG_RETURN_INT64(seq_val);
 		}
     }
+	else
+	{
+		PreventCommandIfReadOnly("lastval()");
+	}
 #endif
 
 	if (last_used_seq == NULL)
@@ -1255,6 +1263,10 @@ setval_oid(PG_FUNCTION_ARGS)
 		}
 		relation_close(seqrel, NoLock);
 	}
+	else
+	{
+		PreventCommandIfReadOnly("setval()");
+	}
 #endif
 
 	do_setval(relid, next, true);
@@ -1300,6 +1312,10 @@ setval3_oid(PG_FUNCTION_ARGS)
 			PG_RETURN_INT64(seq_val);
 		}
 		relation_close(seqrel, NoLock);
+	}
+	else
+	{
+		PreventCommandIfReadOnly("setval()");
 	}
 #endif
 
