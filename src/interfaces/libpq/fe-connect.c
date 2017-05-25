@@ -6004,16 +6004,16 @@ PQregisterThreadLock(pgthreadlock_t newhandler)
 
 #ifdef ADB
 
-PGconn *PQattach(pgsocket sock, void *custom, int close_sock_on_end)
+PGconn *PQattach(pgsocket sock, void *custom, int close_sock_on_end, int pgversion)
 {
-	PGconn *conn = PQbeginAttach(sock, custom, close_sock_on_end);
+	PGconn *conn = PQbeginAttach(sock, custom, close_sock_on_end, pgversion);
 	if(conn && conn->status != CONNECTION_BAD)
 		(void)connectDBCompleteFlag(conn, PGRES_POLLING_READING);
 	return conn;
 }
 
 /* async interface, use PQconnectPoll finish connection */
-PGconn *PQbeginAttach(pgsocket sock, void *custom, int close_sock_on_end)
+PGconn *PQbeginAttach(pgsocket sock, void *custom, int close_sock_on_end, int pgversion)
 {
 	PGconn		*conn;
 	char		sebuf[256];
@@ -6029,7 +6029,7 @@ PGconn *PQbeginAttach(pgsocket sock, void *custom, int close_sock_on_end)
 	conn->custom = custom;
 	conn->is_attached = true;
 	conn->close_sock_on_end = close_sock_on_end ? true:false;
-	conn->pversion = PG_PROTOCOL_LATEST;
+	conn->pversion = pgversion;
 	conn->auth_req_received = true;
 
 	/* Fill in the client address */

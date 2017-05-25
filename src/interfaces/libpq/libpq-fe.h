@@ -268,6 +268,16 @@ extern PGconn *PQsetdbLogin(const char *pghost, const char *pgport,
 /* close the current connection and free the PGconn data structure */
 extern void PQfinish(PGconn *conn);
 
+#ifdef ADB
+extern PGconn *PQattach(pgsocket sock, void *custom, int close_sock_on_end, int pgversion);
+/* async interface
+ * use PQconnectPoll finish connection
+ * start status is PGRES_POLLING_READING
+ */
+extern PGconn *PQbeginAttach(pgsocket sock, void *custom, int close_sock_on_end, int pgversion);
+extern void PQdetach(PGconn *conn);
+#endif /* ADB */
+
 /* get info about connection options known to PQconnectdb */
 extern PQconninfoOption *PQconndefaults(void);
 
