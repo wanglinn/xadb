@@ -1064,9 +1064,19 @@ lastval(PG_FUNCTION_ARGS)
 	int64		result;
 
 #ifdef ADB
-	int64		seq_val;
-	seq_val = agtm_GetSeqLastVal(" "," "," ");
-	PG_RETURN_INT64(seq_val);
+    if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+    {
+		int64		seq_val;
+		bool		is_temp;
+		seqrel = open_share_lock(last_used_seq);
+		is_temp = seqrel->rd_backend == MyBackendId;
+		relation_close(seqrel, NoLock);
+		if (!is_temp)
+		{
+			seq_val = agtm_GetSeqLastVal(" "," "," ");
+			PG_RETURN_INT64(seq_val);
+		}
+    }
 #endif
 
 	if (last_used_seq == NULL)
