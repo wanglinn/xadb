@@ -1009,11 +1009,16 @@ currval_oid(PG_FUNCTION_ARGS)
 	int64		result;
 	SeqTable	elm;
 	Relation	seqrel;
-
+#ifdef ADB
+	bool		is_temp;
+#endif
 	/* open and AccessShareLock sequence */
 	init_sequence(relid, &elm, &seqrel);
 
 #ifdef ADB
+{
+	is_temp = seqrel->rd_backend == MyBackendId;
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !is_temp)
 	{
 		int64		seq_val;
 
@@ -1029,6 +1034,7 @@ currval_oid(PG_FUNCTION_ARGS)
 		relation_close(seqrel, NoLock);
 		PG_RETURN_INT64(seq_val);
 	}
+}
 #endif
 
 	if (pg_class_aclcheck(elm->relid, GetUserId(),
