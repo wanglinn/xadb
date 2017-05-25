@@ -204,7 +204,7 @@ const char* ma_last_error_msg(const ManagerAgent *ma)
 static void ma_set_error(ManagerAgent *ma, const char *fmt, ...)
 {
 	va_list args;
-	bool success;
+	int success;
 	AssertArg(ma && fmt);
 	resetStringInfo(&(ma->err_buf));
 	for(;;)
@@ -212,7 +212,7 @@ static void ma_set_error(ManagerAgent *ma, const char *fmt, ...)
 		va_start(args, fmt);
 		success = appendStringInfoVA(&(ma->err_buf), _(fmt), args);
 		va_end(args);
-		if(success)
+		if(0 == success)
 			break;
 		enlargeStringInfo(&(ma->err_buf), ma->err_buf.maxlen+1024);
 	}

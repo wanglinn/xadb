@@ -23,6 +23,7 @@ extern PGDLLIMPORT volatile bool InterruptPending;
 extern PGDLLIMPORT volatile bool QueryCancelPending;
 extern PGDLLIMPORT volatile bool ProcDiePending;
 extern PGDLLIMPORT volatile uint32 QueryCancelHoldoffCount;
+extern PGDLLIMPORT volatile uint32 CritSectionCount;
 extern void agt_ProcessInterrupts(void);
 
 /*

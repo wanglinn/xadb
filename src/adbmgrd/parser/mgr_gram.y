@@ -88,6 +88,7 @@ static int mgr_yylex(union YYSTYPE *lvalp, YYLTYPE *llocp,
 List *mgr_parse_query(const char *query_string);
 static Node* make_column_in(const char *col_name, List *values);
 static Node* makeNode_RangeFunction(const char *func_name, List *func_args);
+static Node* make_func_call(const char *func_name, List *func_args);
 /* static List* make_start_agent_args(List *options); */
 extern char *defGetString(DefElem *def);
 static Node* make_ColumnRef(const char *col_name);
@@ -2646,6 +2647,17 @@ static Node* make_column_in(const char *col_name, List *values)
 }
 
 static Node* makeNode_RangeFunction(const char *func_name, List *func_args)
+{
+	RangeFunction *n = makeNode(RangeFunction);
+	n->lateral = false;
+	n->coldeflist = NIL;
+	n->ordinality = false;
+	n->is_rowsfrom = false;
+	n->functions = list_make1(list_make2(make_func_call(func_name, func_args), NIL));
+	return (Node *) n;
+}
+
+static Node* make_func_call(const char *func_name, List *func_args)
 {
 	FuncCall *n = makeNode(FuncCall);
 	n->funcname = list_make1(makeString(pstrdup(func_name)));
