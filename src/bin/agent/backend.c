@@ -16,10 +16,15 @@ void agent_backend(pgsocket fd)
 
 	pqsignal(SIGCHLD, SIG_DFL);
 	PG_exception_stack = NULL;
-	MemoryContextReset(TopMemoryContext);
+	MemoryContextResetAndDeleteChildren(TopMemoryContext);
 	MemoryContextSwitchTo(TopMemoryContext);
 	agt_msg_init(fd);
 	MessageContext = AllocSetContextCreate(TopMemoryContext,
+										 "MessageContext",
+										 ALLOCSET_SMALL_MINSIZE,
+										 ALLOCSET_SMALL_INITSIZE,
+										 ALLOCSET_SMALL_MAXSIZE);
+	ErrorContext = AllocSetContextCreate(TopMemoryContext,
 										 "ErrorContext",
 										 ALLOCSET_SMALL_MINSIZE,
 										 ALLOCSET_SMALL_INITSIZE,

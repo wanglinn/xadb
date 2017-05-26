@@ -69,13 +69,13 @@ emit_log_hook_type emit_log_hook = NULL;
 		for (;;) \
 		{ \
 			va_list		args; \
-			bool		success; \
+			int		needed; \
 			va_start(args, fmt); \
-			success = appendStringInfoVA(&buf, fmtbuf, args); \
+			needed = appendStringInfoVA(&buf, fmtbuf, args); \
 			va_end(args); \
-			if (success) \
+			if (0 == needed) \
 				break; \
-			enlargeStringInfo(&buf, buf.maxlen); \
+			enlargeStringInfo(&buf, needed); \
 		} \
 		/* Done with expanded fmt */ \
 		pfree(fmtbuf); \
@@ -1194,29 +1194,29 @@ static const char *error_severity(int elevel)
 		case DEBUG3:
 		case DEBUG4:
 		case DEBUG5:
-			prefix = _("DEBUG");
+			prefix = gettext_noop("DEBUG");
 			break;
 		case LOG:
-		case COMMERROR:
-			prefix = _("LOG");
+		case LOG_SERVER_ONLY:
+			prefix = gettext_noop("LOG");
 			break;
 		case INFO:
-			prefix = _("INFO");
+			prefix = gettext_noop("INFO");
 			break;
 		case NOTICE:
-			prefix = _("NOTICE");
+			prefix = gettext_noop("NOTICE");
 			break;
 		case WARNING:
-			prefix = _("WARNING");
+			prefix = gettext_noop("WARNING");
 			break;
 		case ERROR:
-			prefix = _("ERROR");
+			prefix = gettext_noop("ERROR");
 			break;
 		case FATAL:
-			prefix = _("FATAL");
+			prefix = gettext_noop("FATAL");
 			break;
 		case PANIC:
-			prefix = _("PANIC");
+			prefix = gettext_noop("PANIC");
 			break;
 		default:
 			prefix = "???";
