@@ -37,6 +37,7 @@ typedef enum AGTM_MessageType
 	AGTM_MSG_SEQUENCE_GET_CUR,
 	AGTM_MSG_SEQUENCE_GET_LAST,	/* Get the last sequence value of sequence */
 	AGTM_MSG_SEQUENCE_SET_VAL,	/* Set values for sequence */
+	AGTM_MSG_SEQUENCE_RESET_CACHE, /* Reset agtm cache */
 	AGTM_MSG_GET_STATUS			/* Get status of a given transaction */
 } AGTM_MessageType;
 #define AGTM_MSG_TYPE_COUNT (AGTM_MSG_GET_STATUS+1)
@@ -64,6 +65,7 @@ typedef enum AGTM_ResultType
 	AGTM_MSG_SEQUENCE_GET_CUR_RESULT,
 	AGTM_SEQUENCE_GET_LAST_RESULT,
 	AGTM_SEQUENCE_SET_VAL_RESULT,
+	AGTM_MSG_SEQUENCE_RESET_CACHE_RESULT,
 	AGTM_COMPLETE_RESULT			/* for no message result */
 } AGTM_ResultType;
 #define AGTM_RESULT_TYPE_COUNT (AGTM_COMPLETE_RESULT+1)

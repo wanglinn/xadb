@@ -784,6 +784,24 @@ agtm_SetSeqValCalled(const char *seqname, const char * database,
 	return seq;
 }
 
+extern void
+agtm_ResetSequenceCaches(void)
+{
+	PGresult		*res;
+	StringInfoData	buf;
+
+	if(!IsUnderAGTM())
+	ereport(ERROR,
+		(errmsg("agtm_ResetSequenceCaches function must under AGTM")));
+
+	agtm_send_message(AGTM_MSG_SEQUENCE_RESET_CACHE, "");
+	res = agtm_get_result(AGTM_MSG_SEQUENCE_RESET_CACHE);
+	Assert(res);
+	agtm_use_result_type(res, &buf, AGTM_MSG_SEQUENCE_RESET_CACHE_RESULT);
+	agtm_use_result_end(&buf);
+	PQclear(res);
+}
+
 /*
  * call pqPutMsgStart ... pqPutMsgEnd
  * only support:

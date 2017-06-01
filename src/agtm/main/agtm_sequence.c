@@ -131,6 +131,15 @@ ProcessSetSeqCommand(StringInfo message, StringInfo output)
 	return output;
 }
 
+StringInfo
+ProcessDiscardCommand(StringInfo message, StringInfo output)
+{
+	ResetSequenceCaches();
+	/* Respond to the client */
+	pq_sendint(output, AGTM_MSG_SEQUENCE_RESET_CACHE_RESULT, 4);
+	return output;
+}
+
 static	void parse_seqFullName_to_details(StringInfo message, char ** dbName, 
 							char ** schemaName, char ** sequenceName)
 {

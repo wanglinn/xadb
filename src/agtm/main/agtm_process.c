@@ -123,6 +123,10 @@ ProcessAGtmCommand(StringInfo input_message, CommandDest dest)
 			output = PorcessLastSeqCommand(input_message, &buf);
 			break;
 
+		case AGTM_MSG_SEQUENCE_RESET_CACHE:
+			output = ProcessDiscardCommand(input_message, &buf);
+			break;
+
 		default:
 			ereport(FATAL,
 					(EPROTO,

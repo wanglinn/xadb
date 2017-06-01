@@ -36,4 +36,6 @@ StringInfo PorcessLastSeqCommand(StringInfo message, StringInfo output);
 
 StringInfo ProcessSetSeqCommand(StringInfo message, StringInfo output);
 
+StringInfo ProcessDiscardCommand(StringInfo message, StringInfo output);
+
 #endif

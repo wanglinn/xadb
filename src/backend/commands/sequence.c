@@ -1991,6 +1991,15 @@ seq_redo(XLogReaderState *record)
 void
 ResetSequenceCaches(void)
 {
+#ifdef ADB
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		agtm_ResetSequenceCaches();
+	else
+	{
+		PreventCommandIfReadOnly("DISCARD SEQUENCES");
+	}
+#endif
+
 	if (seqhashtab)
 	{
 		hash_destroy(seqhashtab);
