@@ -50,7 +50,7 @@
 /*
  * How relation is accessed in the query
  */
-typedef enum
+typedef enum RelationAccessType
 {
 	RELATION_ACCESS_READ,				/* SELECT */
 	RELATION_ACCESS_READ_FOR_UPDATE,	/* SELECT FOR UPDATE */

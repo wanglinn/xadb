@@ -1,23 +1,22 @@
 #include "postgres.h"
 
-#include "fmgr.h"
+#include "access/xlogdefs.h"
+#include "commands/event_trigger.h"
 #include "lib/stringinfo.h"
+#include "nodes/bitmapset.h"
+#include "nodes/enum_funcs.h"
+#include "nodes/extensible.h"
 #include "nodes/nodes.h"
+#include "nodes/params.h"
 #include "nodes/parsenodes.h"
 #include "nodes/pg_list.h"
 #include "nodes/plannodes.h"
 #include "nodes/primnodes.h"
 #include "nodes/relation.h"
-#include "nodes/bitmapset.h"
-#include "nodes/extensible.h"
 #include "nodes/replnodes.h"
-#include "nodes/params.h"
 #include "nodes/value.h"
-#include "access/xlogdefs.h"
-#include "utils/lsyscache.h"
 #include "parser/mgr_node.h"
-#include "commands/event_trigger.h"
-#include "c.h"
+#include "utils/lsyscache.h"
 
 #ifdef ADB
 #include "optimizer/pgxcplan.h"
@@ -335,27 +334,6 @@ SIMPLE_OUTPUT_DECLARE(bits32, "%08x")
 #include "nodes/nodes_define.h"
 #include "nodes/nodes_undef.h"
 
-/* output enum functions */
-#define BEGIN_ENUM(e)						\
-static void output##e(StringInfo str, e v)	\
-{											\
-	const char *val = NULL;					\
-	switch(v)								\
-	{
-#define END_ENUM(e)							\
-	default:								\
-		ereport(ERROR, (errmsg("unknown enum " #e " value %d", v)));	\
-	}										\
-	appendStringInfoString(str, val);		\
-	appendStringInfoChar(str, '\n');		\
-}
-#define ENUM_VALUE(ev)						\
-	case ev:								\
-		val = #ev;							\
-		break;
-#include "nodes/enum_define.h"
-#include "nodes/enum_undef.h"
-
 /* functions */
 #define BEGIN_NODE(type) 								\
 	static void output##type(const type *node, StringInfo str, int space)	\
@@ -435,10 +413,23 @@ static void output##e(StringInfo str, e v)	\
 		appendObjectMebName(str, #m, space);	\
 		outputDatum(str, node->m, o, n);
 
-#define NODE_ENUM(t, m)							\
-		appendObjectMebName(str, #m, space);	\
-		output##t(str, node->m);
+#define NODE_ENUM(t, m)										\
+		do													\
+		{													\
+			const char *s = get_enum_string_##t(node->m);	\
+			if(s == NULL)									\
+				ereport(ERROR, (							\
+				errmsg("unknown enum " #t " value %d", node->m)));\
+			appendObjectMebName(str, #m, space);			\
+			appendStringInfoString(str, s);					\
+			appendStringInfoChar(str, '\n');				\
+		}while(0);
 
+#include "nodes/def_no_all_struct.h"
+#undef NO_STRUCT_ParamListInfoData
+#undef NO_STRUCT_ParamExternData
+#undef NO_STRUCT_QualCost
+#undef NO_STRUCT_MergeScanSelCache
 #include "nodes/struct_define.h"
 #include "nodes/nodes_define.h"
 #include "nodes/nodes_undef.h"

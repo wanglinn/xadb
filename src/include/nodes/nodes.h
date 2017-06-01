@@ -637,12 +637,11 @@ castNodeImpl(NodeTag type, void *ptr)
  * ----------------------------------------------------------------
  */
 
-#if defined(ADB) || defined(ADBMGRD) || defined(AGTM)
 /*
  * nodes/outobject.c
  */
 extern char *printObject(const void *obj);
-#endif
+
 #ifdef ADB
 /* nodes/saveload.c */
 struct StringInfoData;

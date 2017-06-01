@@ -94,12 +94,31 @@
 #	define NODE_DATUM(t, m, o, n)
 #endif
 
+#ifndef NO_STRUCT_BaseStmt
+BEGIN_STRUCT(BaseStmt)
+	NODE_ENUM(NodeTag,type)
+	NODE_SCALAR(int,endpos)
+END_STRUCT(BaseStmt)
+#endif /* NO_STRUCT_BaseStmt */
+
 #ifndef NO_STRUCT_QualCost
 BEGIN_STRUCT(QualCost)
 	NODE_SCALAR(Cost,startup)
 	NODE_SCALAR(Cost,per_tuple)
 END_STRUCT(QualCost)
 #endif /* NO_STRUCT_QualCost */
+
+#ifndef NO_STRUCT_AggClauseCosts
+BEGIN_STRUCT(AggClauseCosts)
+	NODE_SCALAR(int,numAggs)
+	NODE_SCALAR(int,numOrderedAggs)
+	NODE_SCALAR(bool,hasNonPartial)
+	NODE_SCALAR(bool,hasNonSerial)
+	NODE_STRUCT_MEB(QualCost,transCost)
+	NODE_SCALAR(Cost,finalCost)
+	NODE_SCALAR(Size,transitionSpace)
+END_STRUCT(AggClauseCosts)
+#endif /* NO_STRUCT_AggClauseCosts */
 
 #ifndef NO_STRUCT_MergeScanSelCache
 BEGIN_STRUCT(MergeScanSelCache)
@@ -113,6 +132,276 @@ BEGIN_STRUCT(MergeScanSelCache)
 	NODE_SCALAR(Selectivity,rightendsel)
 END_STRUCT(MergeScanSelCache)
 #endif /* NO_STRUCT_MergeScanSelCache */
+
+#ifndef NO_STRUCT_SemiAntiJoinFactors
+BEGIN_STRUCT(SemiAntiJoinFactors)
+	NODE_SCALAR(Selectivity,outer_match_frac)
+	NODE_SCALAR(Selectivity,match_count)
+END_STRUCT(SemiAntiJoinFactors)
+#endif /* NO_STRUCT_SemiAntiJoinFactors */
+
+#ifndef NO_STRUCT_JoinPathExtraData
+BEGIN_STRUCT(JoinPathExtraData)
+	NODE_NODE(List,restrictlist)
+	NODE_NODE(List,mergeclause_list)
+	NODE_NODE(SpecialJoinInfo,sjinfo)
+	NODE_STRUCT_MEB(SemiAntiJoinFactors,semifactors)
+	NODE_RELIDS(Relids,param_source_rels)
+END_STRUCT(JoinPathExtraData)
+#endif /* NO_STRUCT_JoinPathExtraData */
+
+#ifndef NO_STRUCT_JoinCostWorkspace
+BEGIN_STRUCT(JoinCostWorkspace)
+	NODE_SCALAR(Cost,startup_cost)
+	NODE_SCALAR(Cost,total_cost)
+	NODE_SCALAR(Cost,run_cost)
+	NODE_SCALAR(Cost,inner_run_cost)
+	NODE_SCALAR(Cost,inner_rescan_run_cost)
+	NODE_SCALAR(double,outer_rows)
+	NODE_SCALAR(double,inner_rows)
+	NODE_SCALAR(double,outer_skip_rows)
+	NODE_SCALAR(double,inner_skip_rows)
+	NODE_SCALAR(int,numbuckets)
+	NODE_SCALAR(int,numbatches)
+END_STRUCT(JoinCostWorkspace)
+#endif /* NO_STRUCT_JoinCostWorkspace */
+
+#ifndef NO_STRUCT_ExprContext_CB
+BEGIN_STRUCT(ExprContext_CB)
+	NODE_STRUCT(ExprContext_CB,next)
+	NODE_OTHER_POINT(ExprContextCallbackFunction, function)
+	NODE_SCALAR(Datum, arg)
+END_STRUCT(ExprContext_CB)
+#endif /* NO_STRUCT_ExprContext_CB */
+
+#ifndef NO_STRUCT_ExecRowMark
+BEGIN_STRUCT(ExecRowMark)
+	NODE_OTHER_POINT(Relation, relation)
+	NODE_SCALAR(Oid,relid)
+	NODE_SCALAR(Index,rti)
+	NODE_SCALAR(Index,prti)
+	NODE_SCALAR(Index,rowmarkId)
+	NODE_ENUM(RowMarkType,markType)
+	NODE_ENUM(LockClauseStrength,strength)
+	NODE_ENUM(LockWaitPolicy,waitPolicy)
+	NODE_SCALAR(bool,ermActive)
+	NODE_OTHER_POINT(ItemPointerData, curCtid)
+	NODE_OTHER_POINT(void,ermExtra)
+END_STRUCT(ExecRowMark)
+#endif /* NO_STRUCT_ExecRowMark */
+
+#ifndef NO_STRUCT_ExecAuxRowMark
+BEGIN_STRUCT(ExecAuxRowMark)
+	NODE_STRUCT(ExecRowMark,rowmark)
+	NODE_SCALAR(AttrNumber,ctidAttNo)
+	NODE_SCALAR(AttrNumber,toidAttNo)
+	NODE_SCALAR(AttrNumber,wholeAttNo)
+END_STRUCT(ExecAuxRowMark)
+#endif /* NO_STRUCT_ExecAuxRowMark */
+
+#ifndef NO_STRUCT_TupleHashEntryData
+BEGIN_STRUCT(TupleHashEntryData)
+	NODE_OTHER_POINT(MinimalTuple, firstTuple)
+END_STRUCT(TupleHashEntryData)
+#endif /* NO_STRUCT_TupleHashEntryData */
+
+#ifndef NO_STRUCT_TupleHashTableData
+BEGIN_STRUCT(TupleHashTableData)
+	NODE_OTHER_POINT(HTAB, hashtab)
+	NODE_SCALAR(int,numCols)
+	NODE_SCALAR_POINT(AttrNumber,keyColIdx,NODE_ARG_->numCols)
+	NODE_OTHER_POINT(FmgrInfo, tab_hash_funcs)
+	NODE_OTHER_POINT(FmgrInfo, tab_eq_funcs)
+	NODE_NODE_MEB(MemoryContext,tablecxt)
+	NODE_NODE_MEB(MemoryContext,tempcxt)
+	NODE_SCALAR(Size,entrysize)
+	NODE_NODE(TupleTableSlot,tableslot)
+	NODE_NODE(TupleTableSlot,inputslot)
+	NODE_OTHER_POINT(FmgrInfo, in_hash_funcs)
+	NODE_OTHER_POINT(FmgrInfo, cur_eq_funcs)
+END_STRUCT(TupleHashTableData)
+#endif /* NO_STRUCT_TupleHashTableData */
+
+#ifndef NO_STRUCT_EPQState
+BEGIN_STRUCT(EPQState)
+	NODE_NODE(EState,estate)
+	NODE_NODE(PlanState,planstate)
+	NODE_NODE(TupleTableSlot,origslot)
+	NODE_NODE(Plan,plan)
+	NODE_NODE(List,arowMarks)
+	NODE_SCALAR(int,epqParam)
+END_STRUCT(EPQState)
+#endif /* NO_STRUCT_EPQState */
+
+#ifndef NO_STRUCT_ExtensibleNodeMethods
+BEGIN_STRUCT(ExtensibleNodeMethods)
+	NODE_STRING(extnodename)
+	NODE_SCALAR(Size,node_size)
+	NODE_OTHER_POINT(void,nodeCopy)
+	NODE_OTHER_POINT(void,nodeEqual)
+	NODE_OTHER_POINT(void,nodeOut)
+	NODE_OTHER_POINT(void,nodeRead)
+END_STRUCT(ExtensibleNodeMethods)
+#endif /* NO_STRUCT_ExtensibleNodeMethods */
+
+#ifndef NO_STRUCT_CustomPathMethods
+BEGIN_STRUCT(CustomPathMethods)
+	NODE_STRING(CustomName)
+	NODE_OTHER_POINT(void,PlanCustomPath)
+END_STRUCT(CustomPathMethods)
+#endif /* NO_STRUCT_CustomPathMethods */
+
+#ifndef NO_STRUCT_CustomScanMethods
+BEGIN_STRUCT(CustomScanMethods)
+	NODE_STRING(CustomName)
+	NODE_OTHER_POINT(void,CreateCustomScanState)
+END_STRUCT(CustomScanMethods)
+#endif /* NO_STRUCT_CustomScanMethods */
+
+#ifndef NO_STRUCT_CustomExecMethods
+BEGIN_STRUCT(CustomExecMethods)
+	NODE_STRING(CustomName)
+	NODE_OTHER_POINT(void,BeginCustomScan)
+	NODE_OTHER_POINT(void,ExecCustomScan)
+	NODE_OTHER_POINT(void,EndCustomScan)
+	NODE_OTHER_POINT(void,ReScanCustomScan)
+	NODE_OTHER_POINT(void,MarkPosCustomScan)
+	NODE_OTHER_POINT(void,RestrPosCustomScan)
+	NODE_OTHER_POINT(void,EstimateDSMCustomScan)
+	NODE_OTHER_POINT(void,InitializeDSMCustomScan)
+	NODE_OTHER_POINT(void,InitializeWorkerCustomScan)
+	NODE_OTHER_POINT(void,ExplainCustomScan)
+END_STRUCT(CustomExecMethods)
+#endif /* NO_STRUCT_CustomExecMethods */
+
+#ifndef NO_STRUCT_MGRAlterParm
+BEGIN_STRUCT(MGRAlterParm)
+	NODE_ENUM(NodeTag,type)
+	NODE_SCALAR(bool,if_not_exists)
+	NODE_STRING(parmkey)
+	NODE_STRING(parmnode)
+	NODE_NODE(List,options)
+END_STRUCT(MGRAlterParm)
+#endif /* NO_STRUCT_MGRAlterParm */
+
+#ifndef NO_STRUCT_MGRMonitorAgent
+BEGIN_STRUCT(MGRMonitorAgent)
+	NODE_ENUM(NodeTag,type)
+	NODE_NODE(List,hosts)
+END_STRUCT(MGRMonitorAgent)
+#endif /* NO_STRUCT_MGRMonitorAgent */
+
+#ifndef NO_STRUCT_MGRStopAgent
+BEGIN_STRUCT(MGRStopAgent)
+	NODE_ENUM(NodeTag,type)
+	NODE_NODE(List,hosts)
+END_STRUCT(MGRStopAgent)
+#endif /* NO_STRUCT_MGRStopAgent */
+
+#ifndef NO_STRUCT_LockRelId
+BEGIN_STRUCT(LockRelId)
+	NODE_SCALAR(Oid,relId)
+	NODE_SCALAR(Oid,dbId)
+END_STRUCT(LockRelId)
+#endif /* NO_STRUCT_LockRelId */
+
+#ifndef NO_STRUCT_LockInfoData
+BEGIN_STRUCT(LockInfoData)
+	NODE_STRUCT_MEB(LockRelId,lockRelId)
+END_STRUCT(LockInfoData)
+#endif /* NO_STRUCT_LockInfoData */
+
+#ifndef NO_STRUCT_RelationData
+BEGIN_STRUCT(RelationData)
+RelFileNode rd_node
+struct SMgrRelationData *rd_smgr
+	NODE_SCALAR(int,rd_refcnt)
+BackendId rd_backend
+	NODE_SCALAR(bool,rd_islocaltemp)
+	NODE_SCALAR(bool,rd_isnailed)
+	NODE_SCALAR(bool,rd_isvalid)
+	NODE_SCALAR(char,rd_indexvalid)
+SubTransactionId rd_createSubid
+SubTransactionId rd_newRelfilenodeSubid
+Form_pg_class rd_rel
+TupleDesc rd_att
+	NODE_SCALAR(Oid,rd_id)
+	NODE_STRUCT_MEB(LockInfoData,rd_lockInfo)
+RuleLock *rd_rules
+	NODE_NODE_MEB(MemoryContext,rd_rulescxt)
+TriggerDesc *trigdesc
+struct RowSecurityDesc *rd_rsdesc
+	NODE_NODE(List,rd_fkeylist)
+	NODE_SCALAR(bool,rd_fkeyvalid)
+	NODE_NODE(List,rd_indexlist)
+	NODE_SCALAR(Oid,rd_oidindex)
+	NODE_SCALAR(Oid,rd_replidindex)
+	NODE_BITMAPSET(Bitmapset,rd_indexattr)
+	NODE_BITMAPSET(Bitmapset,rd_keyattr)
+	NODE_BITMAPSET(Bitmapset,rd_idattr)
+bytea *rd_options
+Form_pg_index rd_index
+struct HeapTupleData *rd_indextuple
+	NODE_SCALAR(Oid,rd_amhandler)
+	NODE_NODE_MEB(MemoryContext,rd_indexcxt)
+	NODE_NODE(IndexAmRoutine,rd_amroutine)
+	NODE_SCALAR_POINT(Oid,rd_opfamily,NODE_ARG_->------)
+	NODE_SCALAR_POINT(Oid,rd_opcintype,NODE_ARG_->------)
+RegProcedure *rd_support
+FmgrInfo *rd_supportinfo
+	NODE_SCALAR_POINT(int16,rd_indoption,NODE_ARG_->------)
+	NODE_NODE(List,rd_indexprs)
+	NODE_NODE(List,rd_indpred)
+	NODE_SCALAR_POINT(Oid,rd_exclops,NODE_ARG_->------)
+	NODE_SCALAR_POINT(Oid,rd_exclprocs,NODE_ARG_->------)
+	NODE_SCALAR_POINT(uint16,rd_exclstrats,NODE_ARG_->------)
+	NODE_OTHER_POINT(void,rd_amcache)
+	NODE_SCALAR_POINT(Oid,rd_indcollation,NODE_ARG_->------)
+	NODE_NODE(FdwRoutine,rd_fdwroutine)
+	NODE_SCALAR(Oid,rd_toastoid)
+struct PgStat_TableStatus *pgstat_info
+#ifdef ADB
+RelationLocInfo *rd_locator_info
+#endif
+END_STRUCT(RelationData)
+#endif /* NO_STRUCT_RelationData */
+
+#ifndef NO_STRUCT_AutoVacOpts
+BEGIN_STRUCT(AutoVacOpts)
+	NODE_SCALAR(bool,enabled)
+	NODE_SCALAR(int,vacuum_threshold)
+	NODE_SCALAR(int,analyze_threshold)
+	NODE_SCALAR(int,vacuum_cost_delay)
+	NODE_SCALAR(int,vacuum_cost_limit)
+	NODE_SCALAR(int,freeze_min_age)
+	NODE_SCALAR(int,freeze_max_age)
+	NODE_SCALAR(int,freeze_table_age)
+	NODE_SCALAR(int,multixact_freeze_min_age)
+	NODE_SCALAR(int,multixact_freeze_max_age)
+	NODE_SCALAR(int,multixact_freeze_table_age)
+	NODE_SCALAR(int,log_min_duration)
+	NODE_SCALAR(float8,vacuum_scale_factor)
+	NODE_SCALAR(float8,analyze_scale_factor)
+END_STRUCT(AutoVacOpts)
+#endif /* NO_STRUCT_AutoVacOpts */
+
+#ifndef NO_STRUCT_StdRdOptions
+BEGIN_STRUCT(StdRdOptions)
+	NODE_SCALAR(int32,vl_len_)
+	NODE_SCALAR(int,fillfactor)
+	NODE_STRUCT_MEB(AutoVacOpts,autovacuum)
+	NODE_SCALAR(bool,user_catalog_table)
+	NODE_SCALAR(int,parallel_workers)
+END_STRUCT(StdRdOptions)
+#endif /* NO_STRUCT_StdRdOptions */
+
+#ifndef NO_STRUCT_ViewOptions
+BEGIN_STRUCT(ViewOptions)
+	NODE_SCALAR(int32,vl_len_)
+	NODE_SCALAR(bool,security_barrier)
+	NODE_SCALAR(int,check_option_offset)
+END_STRUCT(ViewOptions)
+#endif /* NO_STRUCT_ViewOptions */
 
 #ifndef NO_STRUCT_ParamExternData
 BEGIN_STRUCT(ParamExternData)
@@ -134,3 +423,11 @@ BEGIN_STRUCT(ParamListInfoData)
 	NODE_STRUCT_ARRAY(ParamExternData,params, NODE_ARG_->numParams)
 END_STRUCT(ParamListInfoData)
 #endif /* NO_STRUCT_ParamListInfoData */
+
+#ifndef NO_STRUCT_ParamExecData
+BEGIN_STRUCT(ParamExecData)
+	NODE_OTHER_POINT(void,execPlan)
+Datum value
+	NODE_SCALAR(bool,isnull)
+END_STRUCT(ParamExecData)
+#endif /* NO_STRUCT_ParamExecData */

@@ -18,122 +18,6 @@
 #	define ENUM_VALUE(v)
 #endif
 
-#ifndef NO_ENUM_DropBehavior
-BEGIN_ENUM(DropBehavior)
-	ENUM_VALUE(DROP_RESTRICT)
-	ENUM_VALUE(DROP_CASCADE)
-END_ENUM(DropBehavior)
-#endif /* NO_ENUM_DropBehavior */
-
-#ifndef NO_ENUM_AlterTableType
-BEGIN_ENUM(AlterTableType)
-	ENUM_VALUE(AT_AddColumn)
-	ENUM_VALUE(AT_AddColumnRecurse)
-	ENUM_VALUE(AT_AddColumnToView)
-	ENUM_VALUE(AT_ColumnDefault)
-	ENUM_VALUE(AT_DropNotNull)
-	ENUM_VALUE(AT_SetNotNull)
-	ENUM_VALUE(AT_SetStatistics)
-	ENUM_VALUE(AT_SetOptions)
-	ENUM_VALUE(AT_ResetOptions)
-	ENUM_VALUE(AT_SetStorage)
-	ENUM_VALUE(AT_DropColumn)
-	ENUM_VALUE(AT_DropColumnRecurse)
-	ENUM_VALUE(AT_AddIndex)
-	ENUM_VALUE(AT_ReAddIndex)
-	ENUM_VALUE(AT_AddConstraint)
-	ENUM_VALUE(AT_AddConstraintRecurse)
-	ENUM_VALUE(AT_ReAddConstraint)
-	ENUM_VALUE(AT_AlterConstraint)
-	ENUM_VALUE(AT_ValidateConstraint)
-	ENUM_VALUE(AT_ValidateConstraintRecurse)
-	ENUM_VALUE(AT_ProcessedConstraint)
-	ENUM_VALUE(AT_AddIndexConstraint)
-	ENUM_VALUE(AT_DropConstraint)
-	ENUM_VALUE(AT_DropConstraintRecurse)
-	ENUM_VALUE(AT_ReAddComment)
-	ENUM_VALUE(AT_AlterColumnType)
-	ENUM_VALUE(AT_AlterColumnGenericOptions)
-	ENUM_VALUE(AT_ChangeOwner)
-	ENUM_VALUE(AT_ClusterOn)
-	ENUM_VALUE(AT_DropCluster)
-	ENUM_VALUE(AT_SetLogged)
-	ENUM_VALUE(AT_SetUnLogged)
-	ENUM_VALUE(AT_AddOids)
-	ENUM_VALUE(AT_AddOidsRecurse)
-	ENUM_VALUE(AT_DropOids)
-	ENUM_VALUE(AT_SetTableSpace)
-	ENUM_VALUE(AT_SetRelOptions)
-	ENUM_VALUE(AT_ResetRelOptions)
-	ENUM_VALUE(AT_ReplaceRelOptions)
-	ENUM_VALUE(AT_EnableTrig)
-	ENUM_VALUE(AT_EnableAlwaysTrig)
-	ENUM_VALUE(AT_EnableReplicaTrig)
-	ENUM_VALUE(AT_DisableTrig)
-	ENUM_VALUE(AT_EnableTrigAll)
-	ENUM_VALUE(AT_DisableTrigAll)
-	ENUM_VALUE(AT_EnableTrigUser)
-	ENUM_VALUE(AT_DisableTrigUser)
-	ENUM_VALUE(AT_EnableRule)
-	ENUM_VALUE(AT_EnableAlwaysRule)
-	ENUM_VALUE(AT_EnableReplicaRule)
-	ENUM_VALUE(AT_DisableRule)
-	ENUM_VALUE(AT_AddInherit)
-	ENUM_VALUE(AT_DropInherit)
-	ENUM_VALUE(AT_AddOf)
-	ENUM_VALUE(AT_DropOf)
-	ENUM_VALUE(AT_ReplicaIdentity)
-	ENUM_VALUE(AT_EnableRowSecurity)
-	ENUM_VALUE(AT_DisableRowSecurity)
-	ENUM_VALUE(AT_ForceRowSecurity)
-	ENUM_VALUE(AT_NoForceRowSecurity)
-#ifdef ADB
-	ENUM_VALUE(AT_DistributeBy)
-	ENUM_VALUE(AT_SubCluster)
-	ENUM_VALUE(AT_AddNodeList)
-	ENUM_VALUE(AT_DeleteNodeList)
-#endif
-	ENUM_VALUE(AT_GenericOptions)
-END_ENUM(AlterTableType)
-#endif /* NO_ENUM_AlterTableType */
-
-#ifndef NO_ENUM_GrantTargetType
-BEGIN_ENUM(GrantTargetType)
-	ENUM_VALUE(ACL_TARGET_OBJECT)
-	ENUM_VALUE(ACL_TARGET_ALL_IN_SCHEMA)
-	ENUM_VALUE(ACL_TARGET_DEFAULTS)
-END_ENUM(GrantTargetType)
-#endif /* NO_ENUM_GrantTargetType */
-
-#ifndef NO_ENUM_GrantObjectType
-BEGIN_ENUM(GrantObjectType)
-	ENUM_VALUE(ACL_OBJECT_COLUMN)
-	ENUM_VALUE(ACL_OBJECT_RELATION)
-	ENUM_VALUE(ACL_OBJECT_SEQUENCE)
-	ENUM_VALUE(ACL_OBJECT_DATABASE)
-	ENUM_VALUE(ACL_OBJECT_DOMAIN)
-	ENUM_VALUE(ACL_OBJECT_FDW)
-	ENUM_VALUE(ACL_OBJECT_FOREIGN_SERVER)
-	ENUM_VALUE(ACL_OBJECT_FUNCTION)
-	ENUM_VALUE(ACL_OBJECT_LANGUAGE)
-	ENUM_VALUE(ACL_OBJECT_LARGEOBJECT)
-	ENUM_VALUE(ACL_OBJECT_NAMESPACE)
-	ENUM_VALUE(ACL_OBJECT_TABLESPACE)
-	ENUM_VALUE(ACL_OBJECT_TYPE)
-END_ENUM(GrantObjectType)
-#endif /* NO_ENUM_GrantObjectType */
-
-#ifndef NO_ENUM_VariableSetKind
-BEGIN_ENUM(VariableSetKind)
-	ENUM_VALUE(VAR_SET_VALUE)
-	ENUM_VALUE(VAR_SET_DEFAULT)
-	ENUM_VALUE(VAR_SET_CURRENT)
-	ENUM_VALUE(VAR_SET_MULTI)
-	ENUM_VALUE(VAR_RESET)
-	ENUM_VALUE(VAR_RESET_ALL)
-END_ENUM(VariableSetKind)
-#endif /* NO_ENUM_VariableSetKind */
-
 #ifndef NO_ENUM_CmdType
 BEGIN_ENUM(CmdType)
 	ENUM_VALUE(CMD_UNKNOWN)
@@ -769,6 +653,7 @@ BEGIN_ENUM(BoolTestType)
 END_ENUM(BoolTestType)
 #endif /* NO_ENUM_BoolTestType */
 
+#if defined(ADB)
 #ifndef NO_ENUM_DistributionType
 BEGIN_ENUM(DistributionType)
 	ENUM_VALUE(DISTTYPE_REPLICATION)
@@ -778,7 +663,9 @@ BEGIN_ENUM(DistributionType)
 	ENUM_VALUE(DISTTYPE_USER_DEFINED)
 END_ENUM(DistributionType)
 #endif /* NO_ENUM_DistributionType */
+#endif
 
+#if defined(ADB)
 #ifndef NO_ENUM_PGXCSubClusterType
 BEGIN_ENUM(PGXCSubClusterType)
 	ENUM_VALUE(SUBCLUSTER_NONE)
@@ -786,6 +673,7 @@ BEGIN_ENUM(PGXCSubClusterType)
 	ENUM_VALUE(SUBCLUSTER_GROUP)
 END_ENUM(PGXCSubClusterType)
 #endif /* NO_ENUM_PGXCSubClusterType */
+#endif
 
 #ifndef NO_ENUM_QuerySource
 BEGIN_ENUM(QuerySource)
@@ -814,12 +702,14 @@ BEGIN_ENUM(SortByNulls)
 END_ENUM(SortByNulls)
 #endif /* NO_ENUM_SortByNulls */
 
+#if defined(ADB)
 #ifndef NO_ENUM_ParseGrammar
 BEGIN_ENUM(ParseGrammar)
 	ENUM_VALUE(PARSE_GRAM_POSTGRES)
 	ENUM_VALUE(PARSE_GRAM_ORACLE)
 END_ENUM(ParseGrammar)
 #endif /* NO_ENUM_ParseGrammar */
+#endif
 
 #ifndef NO_ENUM_A_Expr_Kind
 BEGIN_ENUM(A_Expr_Kind)
@@ -850,15 +740,6 @@ BEGIN_ENUM(RoleSpecType)
 	ENUM_VALUE(ROLESPEC_PUBLIC)
 END_ENUM(RoleSpecType)
 #endif /* NO_ENUM_RoleSpecType */
-
-#ifndef NO_ENUM_FetchDirection
-BEGIN_ENUM(FetchDirection)
-	ENUM_VALUE(FETCH_FORWARD)
-	ENUM_VALUE(FETCH_BACKWARD)
-	ENUM_VALUE(FETCH_ABSOLUTE)
-	ENUM_VALUE(FETCH_RELATIVE)
-END_ENUM(FetchDirection)
-#endif /* NO_ENUM_FetchDirection */
 
 #ifndef NO_ENUM_DefElemAction
 BEGIN_ENUM(DefElemAction)
@@ -960,6 +841,122 @@ BEGIN_ENUM(ObjectType)
 END_ENUM(ObjectType)
 #endif /* NO_ENUM_ObjectType */
 
+#ifndef NO_ENUM_DropBehavior
+BEGIN_ENUM(DropBehavior)
+	ENUM_VALUE(DROP_RESTRICT)
+	ENUM_VALUE(DROP_CASCADE)
+END_ENUM(DropBehavior)
+#endif /* NO_ENUM_DropBehavior */
+
+#ifndef NO_ENUM_AlterTableType
+BEGIN_ENUM(AlterTableType)
+	ENUM_VALUE(AT_AddColumn)
+	ENUM_VALUE(AT_AddColumnRecurse)
+	ENUM_VALUE(AT_AddColumnToView)
+	ENUM_VALUE(AT_ColumnDefault)
+	ENUM_VALUE(AT_DropNotNull)
+	ENUM_VALUE(AT_SetNotNull)
+	ENUM_VALUE(AT_SetStatistics)
+	ENUM_VALUE(AT_SetOptions)
+	ENUM_VALUE(AT_ResetOptions)
+	ENUM_VALUE(AT_SetStorage)
+	ENUM_VALUE(AT_DropColumn)
+	ENUM_VALUE(AT_DropColumnRecurse)
+	ENUM_VALUE(AT_AddIndex)
+	ENUM_VALUE(AT_ReAddIndex)
+	ENUM_VALUE(AT_AddConstraint)
+	ENUM_VALUE(AT_AddConstraintRecurse)
+	ENUM_VALUE(AT_ReAddConstraint)
+	ENUM_VALUE(AT_AlterConstraint)
+	ENUM_VALUE(AT_ValidateConstraint)
+	ENUM_VALUE(AT_ValidateConstraintRecurse)
+	ENUM_VALUE(AT_ProcessedConstraint)
+	ENUM_VALUE(AT_AddIndexConstraint)
+	ENUM_VALUE(AT_DropConstraint)
+	ENUM_VALUE(AT_DropConstraintRecurse)
+	ENUM_VALUE(AT_ReAddComment)
+	ENUM_VALUE(AT_AlterColumnType)
+	ENUM_VALUE(AT_AlterColumnGenericOptions)
+	ENUM_VALUE(AT_ChangeOwner)
+	ENUM_VALUE(AT_ClusterOn)
+	ENUM_VALUE(AT_DropCluster)
+	ENUM_VALUE(AT_SetLogged)
+	ENUM_VALUE(AT_SetUnLogged)
+	ENUM_VALUE(AT_AddOids)
+	ENUM_VALUE(AT_AddOidsRecurse)
+	ENUM_VALUE(AT_DropOids)
+	ENUM_VALUE(AT_SetTableSpace)
+	ENUM_VALUE(AT_SetRelOptions)
+	ENUM_VALUE(AT_ResetRelOptions)
+	ENUM_VALUE(AT_ReplaceRelOptions)
+	ENUM_VALUE(AT_EnableTrig)
+	ENUM_VALUE(AT_EnableAlwaysTrig)
+	ENUM_VALUE(AT_EnableReplicaTrig)
+	ENUM_VALUE(AT_DisableTrig)
+	ENUM_VALUE(AT_EnableTrigAll)
+	ENUM_VALUE(AT_DisableTrigAll)
+	ENUM_VALUE(AT_EnableTrigUser)
+	ENUM_VALUE(AT_DisableTrigUser)
+	ENUM_VALUE(AT_EnableRule)
+	ENUM_VALUE(AT_EnableAlwaysRule)
+	ENUM_VALUE(AT_EnableReplicaRule)
+	ENUM_VALUE(AT_DisableRule)
+	ENUM_VALUE(AT_AddInherit)
+	ENUM_VALUE(AT_DropInherit)
+	ENUM_VALUE(AT_AddOf)
+	ENUM_VALUE(AT_DropOf)
+	ENUM_VALUE(AT_ReplicaIdentity)
+	ENUM_VALUE(AT_EnableRowSecurity)
+	ENUM_VALUE(AT_DisableRowSecurity)
+	ENUM_VALUE(AT_ForceRowSecurity)
+	ENUM_VALUE(AT_NoForceRowSecurity)
+#ifdef ADB
+	ENUM_VALUE(AT_DistributeBy)
+	ENUM_VALUE(AT_SubCluster)
+	ENUM_VALUE(AT_AddNodeList)
+	ENUM_VALUE(AT_DeleteNodeList)
+#endif
+	ENUM_VALUE(AT_GenericOptions)
+END_ENUM(AlterTableType)
+#endif /* NO_ENUM_AlterTableType */
+
+#ifndef NO_ENUM_GrantTargetType
+BEGIN_ENUM(GrantTargetType)
+	ENUM_VALUE(ACL_TARGET_OBJECT)
+	ENUM_VALUE(ACL_TARGET_ALL_IN_SCHEMA)
+	ENUM_VALUE(ACL_TARGET_DEFAULTS)
+END_ENUM(GrantTargetType)
+#endif /* NO_ENUM_GrantTargetType */
+
+#ifndef NO_ENUM_GrantObjectType
+BEGIN_ENUM(GrantObjectType)
+	ENUM_VALUE(ACL_OBJECT_COLUMN)
+	ENUM_VALUE(ACL_OBJECT_RELATION)
+	ENUM_VALUE(ACL_OBJECT_SEQUENCE)
+	ENUM_VALUE(ACL_OBJECT_DATABASE)
+	ENUM_VALUE(ACL_OBJECT_DOMAIN)
+	ENUM_VALUE(ACL_OBJECT_FDW)
+	ENUM_VALUE(ACL_OBJECT_FOREIGN_SERVER)
+	ENUM_VALUE(ACL_OBJECT_FUNCTION)
+	ENUM_VALUE(ACL_OBJECT_LANGUAGE)
+	ENUM_VALUE(ACL_OBJECT_LARGEOBJECT)
+	ENUM_VALUE(ACL_OBJECT_NAMESPACE)
+	ENUM_VALUE(ACL_OBJECT_TABLESPACE)
+	ENUM_VALUE(ACL_OBJECT_TYPE)
+END_ENUM(GrantObjectType)
+#endif /* NO_ENUM_GrantObjectType */
+
+#ifndef NO_ENUM_VariableSetKind
+BEGIN_ENUM(VariableSetKind)
+	ENUM_VALUE(VAR_SET_VALUE)
+	ENUM_VALUE(VAR_SET_DEFAULT)
+	ENUM_VALUE(VAR_SET_CURRENT)
+	ENUM_VALUE(VAR_SET_MULTI)
+	ENUM_VALUE(VAR_RESET)
+	ENUM_VALUE(VAR_RESET_ALL)
+END_ENUM(VariableSetKind)
+#endif /* NO_ENUM_VariableSetKind */
+
 #ifndef NO_ENUM_ConstrType
 BEGIN_ENUM(ConstrType)
 	ENUM_VALUE(CONSTR_NULL)
@@ -992,6 +989,15 @@ BEGIN_ENUM(RoleStmtType)
 	ENUM_VALUE(ROLESTMT_GROUP)
 END_ENUM(RoleStmtType)
 #endif /* NO_ENUM_RoleStmtType */
+
+#ifndef NO_ENUM_FetchDirection
+BEGIN_ENUM(FetchDirection)
+	ENUM_VALUE(FETCH_FORWARD)
+	ENUM_VALUE(FETCH_BACKWARD)
+	ENUM_VALUE(FETCH_ABSOLUTE)
+	ENUM_VALUE(FETCH_RELATIVE)
+END_ENUM(FetchDirection)
+#endif /* NO_ENUM_FetchDirection */
 
 #ifndef NO_ENUM_FunctionParameterMode
 BEGIN_ENUM(FunctionParameterMode)
@@ -1128,6 +1134,7 @@ END_ENUM(RelationAccessType)
 #endif /* NO_ENUM_RelationAccessType */
 #endif
 
+#if defined(ADB)
 #ifndef NO_ENUM_CombineType
 BEGIN_ENUM(CombineType)
 	ENUM_VALUE(COMBINE_TYPE_NONE)
@@ -1135,7 +1142,9 @@ BEGIN_ENUM(CombineType)
 	ENUM_VALUE(COMBINE_TYPE_SAME)
 END_ENUM(CombineType)
 #endif /* NO_ENUM_CombineType */
+#endif
 
+#if defined(ADB)
 #ifndef NO_ENUM_RemoteQueryExecType
 BEGIN_ENUM(RemoteQueryExecType)
 	ENUM_VALUE(EXEC_ON_DATANODES)
@@ -1144,7 +1153,9 @@ BEGIN_ENUM(RemoteQueryExecType)
 	ENUM_VALUE(EXEC_ON_NONE)
 END_ENUM(RemoteQueryExecType)
 #endif /* NO_ENUM_RemoteQueryExecType */
+#endif
 
+#if defined(ADB)
 #ifndef NO_ENUM_ExecDirectType
 BEGIN_ENUM(ExecDirectType)
 	ENUM_VALUE(EXEC_DIRECT_NONE)
@@ -1157,3 +1168,4 @@ BEGIN_ENUM(ExecDirectType)
 	ENUM_VALUE(EXEC_DIRECT_DELETE)
 END_ENUM(ExecDirectType)
 #endif /* NO_ENUM_ExecDirectType */
+#endif

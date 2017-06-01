@@ -81,6 +81,7 @@ if (defined $special_file)
 		{
 			my $node_name = $1;
 			my %node_mem;
+			die "multiple NODE_SPECIAL_MEM($node_name)" if defined $special_member{$node_name};
 			while(<H>)
 			{
 				if(/^\s*END_SPECIAL_MEB\s*\(\s*($ident)\s*\)\s*$/)
@@ -166,7 +167,6 @@ while(<>)
 					or $1 eq 'PathTarget'
 					or $1 eq 'CustomScan'
 					or $1 eq 'ExecRowMark'
-					or $1 eq 'TupleHashEntryData'
 					or $1 eq 'RelationData'
 					or $1 eq 'StartReplicationCmd'
 					or $1 eq 'TimeLineHistoryCmd'
@@ -413,10 +413,12 @@ foreach $item (@struct_head)
 
 foreach $struct_name (sort{ $all_node{$a} <=> $all_node{$b} } keys %all_node)
 {
-	next if defined $map_except_node{$struct_name} or defined $map_node_tag{$struct_name};
+	next if defined $map_except_node{$struct_name}
+		or defined $map_node_tag{$struct_name}
+		or $struct_name eq 'Node';
 	if(defined $ident_if_defined{$struct_name})
 	{
-		my %tmp_str = "\n#if";
+		my $tmp_str = "\n#if";
 		foreach my $item (@{$ident_if_defined{$struct_name}})
 		{
 			print H "$tmp_str defined($item)";
@@ -425,10 +427,6 @@ foreach $struct_name (sort{ $all_node{$a} <=> $all_node{$b} } keys %all_node)
 	}
 
 	my $special_mem = $special_member{$struct_name};
-	if ($struct_name eq 'ExprContext_CB' || $struct_name eq 'ExecRowMark' || $struct_name eq 'TupleHashEntryData' || $struct_name eq 'RelationData' || $struct_name eq 'TupleHashTableData' || $struct_name eq  'ExecAuxRowMark' || $struct_name eq 'LockInfoData' || $struct_name eq 'ViewOptions' || $struct_name eq 'StdRdOptions' || $struct_name eq 'AutoVacOpts' || $struct_name eq 'ParamExecData' || $struct_name eq 'LockRelId' || $struct_name eq 'Node' || $struct_name eq 'CustomScanMethods' || $struct_name eq 'CustomExecMethods' || $struct_name eq 'CustomPathMethods' || $struct_name eq 'ExtensibleNodeMethods' || $struct_name eq 'EPQState' || $struct_name eq 'JoinCostWorkspace' || $struct_name eq 'JoinPathExtraData' || $struct_name eq 'AggClauseCosts' || $struct_name eq 'BaseStmt' || $struct_name eq 'SemiAntiJoinFactors' || $struct_name eq 'MGRStopAgent' || $struct_name eq 'MGRMonitorAgent' || $struct_name eq 'MGRAlterParm')
-	{
-		next;
-	}
 	print H "\n#ifndef NO_STRUCT_$struct_name\nBEGIN_STRUCT($struct_name)\n";
 	foreach my $item (@{$all_node{$struct_name}})
 	{
@@ -447,6 +445,19 @@ foreach $struct_name (sort{ $all_node{$a} <=> $all_node{$b} } keys %all_node)
 
 	print H "#endif\n" if defined $ident_if_defined{$struct_name};
 }
+close H;
+
+open H,'>',$output_path . 'undef_no_all_struct.h' or die "can not open $output_path" . "undef_no_all_struct.h:$!";
+open H2,'>',$output_path . 'def_no_all_struct.h' or die "can not open $output_path" . "def_no_all_struct.h:$!";
+foreach $struct_name (sort{ $all_node{$a} <=> $all_node{$b} } keys %all_node)
+{
+	next if defined $map_except_node{$struct_name}
+		or defined $map_node_tag{$struct_name}
+		or $struct_name eq 'Node';
+	print H "#undef NO_STRUCT_$struct_name\n";
+	print H2 "#define NO_STRUCT_$struct_name\n";
+}
+close H;
 
 sub process_node_member
 {

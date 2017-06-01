@@ -25,7 +25,7 @@
 #include "nodes/relation.h"
 
 
-typedef enum
+typedef enum CombineType
 {
 	COMBINE_TYPE_NONE,			/* it is known that no row count, do not parse */
 	COMBINE_TYPE_SUM,			/* sum row counts (partitioned, round robin) */
@@ -52,7 +52,7 @@ typedef struct SimpleSort
  * on Datanodes (normal Remote Queries),
  * or on all Postgres-XC nodes (Utilities and DDL).
  */
-typedef enum
+typedef enum RemoteQueryExecType
 {
 	EXEC_ON_DATANODES,
 	EXEC_ON_COORDS,
@@ -60,7 +60,7 @@ typedef enum
 	EXEC_ON_NONE
 } RemoteQueryExecType;
 
-typedef enum
+typedef enum ExecDirectType
 {
 	EXEC_DIRECT_NONE,
 	EXEC_DIRECT_LOCAL,

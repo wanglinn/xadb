@@ -177,7 +177,6 @@
 #endif
 /*END_STRUCT_HEAD*/
 
-#ifndef NO_NODE_Const
 BEGIN_NODE(Const)
 	NODE_OID(type,consttype)
 	NODE_SCALAR(int32,consttypmod)
@@ -188,7 +187,43 @@ BEGIN_NODE(Const)
 	NODE_DATUM(Datum,constvalue,NODE_ARG_->consttype, NODE_ARG_->constisnull)
 	NODE_LOCATION(int,location)
 END_NODE(Const)
-#endif /* NO_NODE_Const */
+
+BEGIN_NODE(PlannerGlobal)
+	NODE_STRUCT(ParamListInfoData,boundParams)
+	NODE_NODE(List,subplans)
+	NODE_NODE(List,subroots)
+	NODE_BITMAPSET(Bitmapset,rewindPlanIDs)
+	NODE_NODE(List,finalrtable)
+	NODE_NODE(List,finalrowmarks)
+	NODE_NODE(List,resultRelations)
+	NODE_NODE(List,relationOids)
+	NODE_NODE(List,invalItems)
+	NODE_SCALAR(int,nParamExec)
+	NODE_SCALAR(Index,lastPHId)
+	NODE_SCALAR(Index,lastRowMarkId)
+	NODE_SCALAR(bool,transientPlan)
+END_NODE(PlannerGlobal)
+
+BEGIN_NODE(ColumnRefJoin)
+	NODE_LOCATION(int,location)	/* location for "(+)" */
+	NODE_NODE(ColumnRef,column)
+END_NODE(ColumnRefJoin)
+
+BEGIN_NODE(ForeignKeyOptInfo)
+	NODE_SCALAR(Index,con_relid)
+	NODE_SCALAR(Index,ref_relid)
+	NODE_SCALAR(int,nkeys)
+	NODE_SCALAR_ARRAY(AttrNumber,conkey,NODE_ARG_->nkeys)
+	NODE_SCALAR_ARRAY(AttrNumber,confkey,NODE_ARG_->nkeys)
+	NODE_SCALAR_ARRAY(Oid,conpfeqop,NODE_ARG_->nkeys)
+	NODE_SCALAR(int,nmatched_ec)
+	NODE_SCALAR(int,nmatched_rcols)
+	NODE_SCALAR(int,nmatched_ri)
+	NODE_NODE_ARRAY(EquivalenceClass,eclass,NODE_ARG_->nkeys)
+	NODE_NODE_ARRAY(List,rinfos,NODE_ARG_->nkeys)
+END_NODE(ForeignKeyOptInfo)
+
+/*********************************************************************/
 
 NODE_SPECIAL_MEB(IndexInfo)
 	ii_KeyAttrNumbers NODE_SCALAR_ARRAY(AttrNumber,ii_KeyAttrNumbers,NODE_ARG_->ii_NumIndexAttrs)
@@ -270,20 +305,6 @@ NODE_SPECIAL_MEB(RelOptInfo)
 	attr_widths NODE_SCALAR_POINT(int32, attr_widths,(NODE_ARG_->max_attr-NODE_ARG_->min_attr))
 END_SPECIAL_MEB(RelOptInfo)
 
-BEGIN_NODE(ForeignKeyOptInfo)
-	NODE_SCALAR(Index,con_relid)
-	NODE_SCALAR(Index,ref_relid)
-	NODE_SCALAR(int,nkeys)
-	NODE_SCALAR_ARRAY(AttrNumber,conkey,NODE_ARG_->nkeys)
-	NODE_SCALAR_ARRAY(AttrNumber,confkey,NODE_ARG_->nkeys)
-	NODE_SCALAR_ARRAY(Oid,conpfeqop,NODE_ARG_->nkeys)
-	NODE_SCALAR(int,nmatched_ec)
-	NODE_SCALAR(int,nmatched_rcols)
-	NODE_SCALAR(int,nmatched_ri)
-	NODE_NODE_ARRAY(EquivalenceClass,eclass,NODE_ARG_->nkeys)
-	NODE_NODE_ARRAY(List,rinfos,NODE_ARG_->nkeys)
-END_NODE(ForeignKeyOptInfo)
-
 NODE_SPECIAL_MEB(CustomPath)
 	methods NODE_OTHER_POINT(CustomPathMethods,methods)
 END_SPECIAL_MEB(CustomPath)
@@ -325,35 +346,6 @@ END_SPECIAL_MEB(RemoteQuery)
 NODE_SPECIAL_MEB(RestrictInfo)
 	scansel_cache NODE_STRUCT_LIST(MergeScanSelCache,scansel_cache)
 END_SPECIAL_MEB(RestrictInfo)	
-/* ENUM_IF_DEFINED(enum_name, macro_name [, ...]) */
-IDENT_IF_DEFINED(RelationAccessType, ADB)
-
-#ifndef NO_NODE_PlannerGlobal
-BEGIN_NODE(PlannerGlobal)
-	NODE_STRUCT(ParamListInfoData,boundParams)
-	NODE_NODE(List,subplans)
-	NODE_NODE(List,subroots)
-	NODE_BITMAPSET(Bitmapset,rewindPlanIDs)
-	NODE_NODE(List,finalrtable)
-	NODE_NODE(List,finalrowmarks)
-	NODE_NODE(List,resultRelations)
-	NODE_NODE(List,relationOids)
-	NODE_NODE(List,invalItems)
-	NODE_SCALAR(int,nParamExec)
-	NODE_SCALAR(Index,lastPHId)
-	NODE_SCALAR(Index,lastRowMarkId)
-	NODE_SCALAR(bool,transientPlan)
-END_NODE(PlannerGlobal)
-#endif /* NO_NODE_PlannerGlobal */
-
-#ifdef ADB
-#ifndef NO_NODE_ColumnRefJoin
-BEGIN_NODE(ColumnRefJoin)
-	NODE_LOCATION(int,location)	/* location for "(+)" */
-	NODE_NODE(ColumnRef,column)
-END_NODE(ColumnRefJoin)
-#endif /* NO_NODE_ColumnRefJoin */
-#endif
 
 NODE_SPECIAL_MEB(ParamListInfoData)
 	paramFetch NODE_OTHER_POINT(ParamFetchHook,paramFetch)
@@ -364,11 +356,8 @@ NODE_SPECIAL_MEB(ParamExternData)
 	value NODE_DATUM(Datum,value,NODE_ARG_->ptype, NODE_ARG_->isnull)
 END_SPECIAL_MEB(ParamExternData)
 
-NODE_SPECIAL_MEB(SortGroupClause)
-	sortop NODE_OID(operator,sortop)
-END_SPECIAL_MEB(SortGroupClause)
-
 NODE_SPECIAL_MEB(Var)
+	vartype NODE_OID(type,vartype)
 	varcollid NODE_OID(collation,varcollid)
 END_SPECIAL_MEB(Var)
 
@@ -380,26 +369,6 @@ NODE_SPECIAL_MEB(Aggref)
 	aggtranstype NODE_OID(type,aggtranstype)
 	inputcollid NODE_OID(collation,inputcollid)
 END_SPECIAL_MEB(Aggref)
-
-NODE_SPECIAL_MEB(WindowFunc)
-	inputcollid NODE_OID(collation,inputcollid)
-END_SPECIAL_MEB(WindowFunc)
-
-NODE_SPECIAL_MEB(FuncExpr)
-	inputcollid NODE_OID(collation,inputcollid)
-END_SPECIAL_MEB(FuncExpr)
-
-NODE_SPECIAL_MEB(OpExpr)
-	inputcollid NODE_OID(collation,inputcollid)
-END_SPECIAL_MEB(OpExpr)
-	
-NODE_SPECIAL_MEB(ScalarArrayOpExpr)
-	inputcollid NODE_OID(collation,inputcollid)
-END_SPECIAL_MEB(ScalarArrayOpExpr)
-
-NODE_SPECIAL_MEB(MinMaxExpr)
-	inputcollid NODE_OID(collation,inputcollid)
-END_SPECIAL_MEB(MinMaxExpr)
 
 NODE_SPECIAL_MEB(MinMaxAggInfo)
 	aggfnoid NODE_OID(proc,aggfnoid)
@@ -485,14 +454,13 @@ NODE_SPECIAL_MEB(OpExpr)
 	inputcollid NODE_OID(collation,inputcollid)
 END_SPECIAL_MEB(OpExpr)
 
-
 NODE_SPECIAL_MEB(RelabelType)
 	resulttype NODE_OID(type,resulttype)
 	resultcollid NODE_OID(collation,resultcollid)
 END_SPECIAL_MEB(RelabelType)
 
 NODE_SPECIAL_MEB(RowExpr)
-row_typeid NODE_OID(type,row_typeid)
+	row_typeid NODE_OID(type,row_typeid)
 END_SPECIAL_MEB(RowExpr)
 
 NODE_SPECIAL_MEB(ScalarArrayOpExpr)
@@ -508,15 +476,12 @@ END_SPECIAL_MEB(SetToDefault)
 
 NODE_SPECIAL_MEB(SortGroupClause)
 	eqop NODE_OID(operator,eqop)
+	sortop NODE_OID(operator,sortop)
 END_SPECIAL_MEB(SortGroupClause)
 
 NODE_SPECIAL_MEB(TypeName)
 	typeOid NODE_OID(type,typeOid)
 END_SPECIAL_MEB(TypeName)
-
-NODE_SPECIAL_MEB(Var)
-	vartype NODE_OID(type,vartype)
-END_SPECIAL_MEB(Var)
 
 NODE_SPECIAL_MEB(WindowFunc)
 	winfnoid NODE_OID(proc,winfnoid)
@@ -552,4 +517,42 @@ NODE_SPECIAL_MEB(SubPlan)
 	firstColCollation NODE_OID(collation,firstColCollation)
 END_SPECIAL_MEB(SubPlan)
 
+NODE_SPECIAL_MEB(RelationLocInfo)
+	roundRobinNode NODE_OTHER_POINT(ListCell, roundRobinNode)
+END_SPECIAL_MEB(RelationLocInfo)
 
+NODE_SPECIAL_MEB(ExprContext_CB)
+	function NODE_OTHER_POINT(ExprContextCallbackFunction, function)
+	arg NODE_SCALAR(Datum, arg)
+END_SPECIAL_MEB(ExprContext_CB)
+
+NODE_SPECIAL_MEB(ExecRowMark)
+	relation NODE_OTHER_POINT(Relation, relation)
+	curCtid NODE_OTHER_POINT(ItemPointerData, curCtid)
+END_SPECIAL_MEB(ExecRowMark)
+
+NODE_SPECIAL_MEB(TupleHashEntryData)
+	firstTuple NODE_OTHER_POINT(MinimalTuple, firstTuple)
+END_SPECIAL_MEB(TupleHashEntryData)
+
+NODE_SPECIAL_MEB(TupleHashTableData)
+	hashtab NODE_OTHER_POINT(HTAB, hashtab)
+	keyColIdx NODE_SCALAR_POINT(AttrNumber,keyColIdx,NODE_ARG_->numCols)
+	tab_hash_funcs NODE_OTHER_POINT(FmgrInfo, tab_hash_funcs)
+	tab_eq_funcs NODE_OTHER_POINT(FmgrInfo, tab_eq_funcs)
+	in_hash_funcs NODE_OTHER_POINT(FmgrInfo, in_hash_funcs)
+	cur_eq_funcs NODE_OTHER_POINT(FmgrInfo, cur_eq_funcs)
+END_SPECIAL_MEB(TupleHashTableData)
+
+/*******************************************************************/
+
+/* ENUM_IF_DEFINED(type_name, macro_name [, ...]) */
+IDENT_IF_DEFINED(RelationAccessType, ADB)
+IDENT_IF_DEFINED(DistributionType, ADB)
+IDENT_IF_DEFINED(PGXCSubClusterType, ADB)
+IDENT_IF_DEFINED(ParseGrammar, ADB)
+IDENT_IF_DEFINED(CombineType, ADB)
+IDENT_IF_DEFINED(RemoteQueryExecType, ADB)
+IDENT_IF_DEFINED(ExecDirectType, ADB)
+
+IDENT_IF_DEFINED(RelationLocInfo, ADB)
