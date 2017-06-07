@@ -1153,6 +1153,11 @@ pqBuildErrorMessage3(PQExpBuffer msg, const PGresult *res,
 								  valf, vall);
 			appendPQExpBufferChar(msg, '\n');
 		}
+#ifdef ADB
+		val = PQresultErrorField(res, PG_DIAG_NODE_NAME);
+		if(val)
+			appendPQExpBuffer(msg, libpq_gettext("NODE NAME:  %s\n"), val);
+#endif /* ADB */
 	}
 }
 
