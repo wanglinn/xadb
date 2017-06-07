@@ -2018,43 +2018,13 @@ pgxc_node_send_snapshot(PGXCNodeHandle *handle, Snapshot snapshot)
 {
 	StringInfoData	buf;
 	uint32			nval;
-	int				i;
 
 	/* Invalid connection state, return error */
 	if (handle->state != DN_CONNECTION_STATE_IDLE)
 		return EOF;
 
 	initStringInfo(&buf);
-	/* RecentGlobalXmin */
-	nval = htonl(RecentGlobalXmin);
-	appendBinaryStringInfo(&buf, (const char *) &nval, sizeof(TransactionId));
-	/* xmin */
-	nval = htonl(snapshot->xmin);
-	appendBinaryStringInfo(&buf, (const char *) &nval, sizeof(TransactionId));
-	/* xmax */
-	nval = htonl(snapshot->xmax);
-	appendBinaryStringInfo(&buf, (const char *) &nval, sizeof(TransactionId));
-	/* curcid */
-	nval = htonl(snapshot->curcid);
-	appendBinaryStringInfo(&buf, (const char *) &nval, sizeof(CommandId));
-	/* xcnt */
-	nval = htonl(snapshot->xcnt);
-	appendBinaryStringInfo(&buf, (const char *) &nval, sizeof(uint32));
-	/* xip */
-	for (i = 0; i < snapshot->xcnt; i++)
-	{
-		nval = htonl(snapshot->xip[i]);
-		appendBinaryStringInfo(&buf, (const char *) &nval, sizeof(TransactionId));
-	}
-	/* subxcnt */
-	nval = htonl(snapshot->subxcnt);
-	appendBinaryStringInfo(&buf, (const char *) &nval, sizeof(int32));
-	/* subxip */
-	for (i = 0; i < snapshot->subxcnt; i++)
-	{
-		nval = htonl(snapshot->subxip[i]);
-		appendBinaryStringInfo(&buf, (const char *) &nval, sizeof(TransactionId));
-	}
+	pgxc_serialize_snapshot(&buf, snapshot);
 
 	/* message length */
 	if (ensure_out_buffer_capacity(handle->outEnd + 1 + 4 + buf.len, handle) != 0)
@@ -2072,6 +2042,44 @@ pgxc_node_send_snapshot(PGXCNodeHandle *handle, Snapshot snapshot)
 	pfree(buf.data);
 
 	return 0;
+}
+
+void pgxc_serialize_snapshot(StringInfo buf, Snapshot snapshot)
+{
+	uint32			nval;
+	int				i;
+	AssertArg(buf && snapshot);
+
+	/* RecentGlobalXmin */
+	nval = htonl(RecentGlobalXmin);
+	appendBinaryStringInfo(buf, (const char *) &nval, sizeof(TransactionId));
+	/* xmin */
+	nval = htonl(snapshot->xmin);
+	appendBinaryStringInfo(buf, (const char *) &nval, sizeof(TransactionId));
+	/* xmax */
+	nval = htonl(snapshot->xmax);
+	appendBinaryStringInfo(buf, (const char *) &nval, sizeof(TransactionId));
+	/* curcid */
+	nval = htonl(snapshot->curcid);
+	appendBinaryStringInfo(buf, (const char *) &nval, sizeof(CommandId));
+	/* xcnt */
+	nval = htonl(snapshot->xcnt);
+	appendBinaryStringInfo(buf, (const char *) &nval, sizeof(uint32));
+	/* xip */
+	for (i = 0; i < snapshot->xcnt; i++)
+	{
+		nval = htonl(snapshot->xip[i]);
+		appendBinaryStringInfo(buf, (const char *) &nval, sizeof(TransactionId));
+	}
+	/* subxcnt */
+	nval = htonl(snapshot->subxcnt);
+	appendBinaryStringInfo(buf, (const char *) &nval, sizeof(int32));
+	/* subxip */
+	for (i = 0; i < snapshot->subxcnt; i++)
+	{
+		nval = htonl(snapshot->subxip[i]);
+		appendBinaryStringInfo(buf, (const char *) &nval, sizeof(TransactionId));
+	}
 }
 
 int
