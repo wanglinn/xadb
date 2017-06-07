@@ -108,6 +108,9 @@ double		cpu_index_tuple_cost = DEFAULT_CPU_INDEX_TUPLE_COST;
 double		cpu_operator_cost = DEFAULT_CPU_OPERATOR_COST;
 double		parallel_tuple_cost = DEFAULT_PARALLEL_TUPLE_COST;
 double		parallel_setup_cost = DEFAULT_PARALLEL_SETUP_COST;
+#ifdef ADB
+double		remote_tuple_cost = DEFAULT_REMOTE_TUPLE_COST;
+#endif /* ADB */
 
 int			effective_cache_size = DEFAULT_EFFECTIVE_CACHE_SIZE;
 
@@ -3201,9 +3204,16 @@ cost_rescan(PlannerInfo *root, Path *path,
 void
 cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel)
 {
-	rqpath->path.startup_cost = 0;
-	rqpath->path.total_cost = 0;
-	rqpath->path.rows = rel->rows;
+	if(rel->reloptkind == RELOPT_BASEREL)
+	{
+		cost_seqscan(&rqpath->path, root, rel, rqpath->path.param_info);
+	}else
+	{
+		rqpath->path.startup_cost = parallel_setup_cost * 2;
+		rqpath->path.total_cost = rqpath->path.startup_cost +
+									rel->rows * remote_tuple_cost;
+		rqpath->path.rows = rel->rows;
+	}
 }
 #endif /* ADB */
 
@@ -4844,3 +4854,37 @@ get_parallel_divisor(Path *path)
 
 	return parallel_divisor;
 }
+
+#ifdef ADB
+void cost_div(Path *path, int n)
+{
+	if(n > 0)
+	{
+		path->rows /= n;
+		path->startup_cost /= n;
+		path->total_cost /= n;
+	}
+}
+void cost_cluster_gather(ClusterGatherPath *path, RelOptInfo *baserel, ParamPathInfo *param_info, double *rows)
+{
+	Cost		startup_cost = 0;
+	Cost		run_cost = 0;
+
+	/* Mark the path with the correct row estimate */
+	if (rows)
+		path->path.rows = *rows;
+	else if (param_info)
+		path->path.rows = param_info->ppi_rows;
+	else
+		path->path.rows = baserel->rows;
+
+	startup_cost = path->subpath->startup_cost;
+
+	run_cost = path->subpath->total_cost - path->subpath->startup_cost;
+
+	run_cost += remote_tuple_cost * path->path.rows;
+
+	path->path.startup_cost = startup_cost;
+	path->path.total_cost = (startup_cost + run_cost);
+}
+#endif /* ADB */

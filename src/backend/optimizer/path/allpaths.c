@@ -44,7 +44,10 @@
 #include "parser/parsetree.h"
 #include "rewrite/rewriteManip.h"
 #include "utils/lsyscache.h"
-
+#ifdef ADB
+#include "catalog/pgxc_node.h"
+#include "pgxc/pgxcnode.h"
+#endif /* ADB */
 
 /* results of subquery_is_pushdown_safe */
 typedef struct pushdown_safety_info
@@ -662,6 +665,19 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	 */
 	required_outer = rel->lateral_relids;
 #ifdef ADB
+	if(root->glob->clusterPlanOK && rel->loc_info)
+	{
+		Path *path = create_seqscan_path(root, rel, required_outer, 0);
+		List *quals = extract_actual_clauses(rel->baserestrictinfo, false);
+		ExecNodes *nodes =  GetRelationNodesByQuals(rte->relid, rel->relid,
+														(Node *)quals,
+														RELATION_ACCESS_READ);
+
+		ClusterScanPath *cscan;
+		cost_div(path, list_length(nodes->nodeList));
+		cscan = create_cluster_path(path, nodes);
+		add_cluster_path(rel, (Path*)cscan);
+	}
 	if (!create_plainrel_rqpath(root, rel, rte, required_outer))
 	{
 #endif

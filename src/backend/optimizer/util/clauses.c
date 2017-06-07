@@ -1234,6 +1234,13 @@ contain_volatile_functions_walker_without_check_RownumExpr(Node *node, void *con
 	return expression_tree_walker(node, contain_volatile_functions_walker_without_check_RownumExpr,
 								  context);
 }
+
+bool has_cluster_hazard(Node *node)
+{
+	/* ADBQ: TODO add code */
+	return false;
+}
+
 #endif
 
 /*****************************************************************************

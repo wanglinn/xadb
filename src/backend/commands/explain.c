@@ -137,6 +137,7 @@ static void ExplainDummyGroup(const char *objtype, const char *labelname,
 				  ExplainState *es);
 #ifdef ADB
 static void ExplainExecNodes(ExecNodes *en, ExplainState *es);
+static void ExplainRemoteList(List *rnode, ExplainState *es);
 static void ExplainRemoteQuery(RemoteQuery *plan, PlanState *planstate,
 								List *ancestors, ExplainState *es);
 #endif
@@ -935,6 +936,12 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_RemoteQuery:
 			pname = sname = "Data Node Scan";
 			break;
+		case T_ClusterGather:
+			pname = sname = "Cluster Gather";
+			break;
+		case T_ClusterScan:
+			pname = sname = "Cluster Scan";
+			break;
 #endif /*ADB*/
 		case T_ForeignScan:
 			sname = "Foreign Scan";
@@ -1230,6 +1237,11 @@ ExplainNode(PlanState *planstate, List *ancestors,
 					ExplainPropertyText("Command", setopcmd, es);
 			}
 			break;
+#ifdef ADB
+		case T_ClusterScan:
+			ExplainExecNodes(((ClusterScan*)plan)->execnode, es);
+			break;
+#endif /* ADB */
 		default:
 			break;
 	}
@@ -1554,6 +1566,12 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_Hash:
 			show_hash_info((HashState *) planstate, es);
 			break;
+#ifdef ADB
+		case T_ClusterGather:
+			if(es->verbose)
+				ExplainRemoteList(((ClusterGather*)plan)->rnodes, es);
+			break;
+#endif /* ADB */
 		default:
 			break;
 	}
@@ -3393,6 +3411,26 @@ ExplainExecNodes(ExecNodes *en, ExplainState *es)
 	}
 }
 
+static void ExplainRemoteList(List *rnode, ExplainState *es)
+{
+	ListCell *lc;
+	if (es->format == EXPLAIN_FORMAT_TEXT)
+	{
+		const char *tmp = " ";
+		appendStringInfoSpaces(es->str, es->indent * 2);
+		appendStringInfoString(es->str, "Remote node:");
+		foreach(lc, rnode)
+		{
+			appendStringInfoString(es->str, tmp);
+			appendStringInfo(es->str, "%d", lfirst_int(lc));
+			tmp = ",";
+		}
+		appendStringInfoChar(es->str, '\n');
+	}else
+	{
+		ExplainPropertyList("Remote node", rnode, es);
+	}
+}
 /*
  * Emit remote query planning details
  */

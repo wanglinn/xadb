@@ -2088,4 +2088,22 @@ typedef struct LimitState
 	TupleTableSlot *subSlot;	/* tuple last obtained from subplan */
 } LimitState;
 
+#ifdef ADB
+
+typedef struct ClusterScanState
+{
+	PlanState	ps;
+	ExprState   *expr;
+	bool		run_node;			/* run at this node? */
+}ClusterScanState;
+
+typedef struct ClusterGatherState
+{
+	PlanState	ps;
+	List	   *remotes;
+	struct pollfd *pfds;
+}ClusterGatherState;
+
+#endif /* ADB */
+
 #endif   /* EXECNODES_H */

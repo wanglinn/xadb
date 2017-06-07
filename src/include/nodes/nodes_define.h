@@ -55,6 +55,8 @@
  *   LockRowsState
  *   LimitState
  *   RemoteQueryState
+ *   ClusterScanState
+ *   ClusterGatherState
  *   ExprState
  *   GenericExprState
  *   WholeRowVarExprState
@@ -686,6 +688,28 @@ BEGIN_NODE(DropGroupStmt)
 	NODE_STRING(group_name)
 END_NODE(DropGroupStmt)
 #endif /* NO_NODE_DropGroupStmt */
+
+#ifndef NO_NODE_ClusterPath
+BEGIN_NODE(ClusterPath)
+	NODE_BASE2(Path,path)
+	NODE_NODE(Path,subpath)
+	NODE_NODE(ExecNodes,exec_nodes)
+END_NODE(ClusterPath)
+#endif /* NO_NODE_ClusterPath */
+
+#ifndef NO_NODE_ClusterScan
+BEGIN_NODE(ClusterScan)
+	NODE_BASE2(Plan,plan)
+	NODE_NODE(ExecNodes,execnode)
+END_NODE(ClusterScan)
+#endif /* NO_NODE_ClusterScan */
+
+#ifndef NO_NODE_ClusterGather
+BEGIN_NODE(ClusterGather)
+	NODE_BASE2(Plan,plan)
+	NODE_NODE(List,rnodes)
+END_NODE(ClusterGather)
+#endif /* NO_NODE_ClusterGather */
 
 #endif
 
@@ -1325,6 +1349,10 @@ BEGIN_NODE(RelOptInfo)
 	NODE_NODE(Path,cheapest_startup_path)
 	NODE_NODE(Path,cheapest_total_path)
 	NODE_NODE(Path,cheapest_unique_path)
+#ifdef ADB
+	NODE_NODE(List,cluster_pathlist)
+	NODE_STRUCT(RelationLocInfo,loc_info)
+#endif
 	NODE_NODE(List,cheapest_parameterized_paths)
 	NODE_RELIDS(Relids,direct_lateral_relids)
 	NODE_RELIDS(Relids,lateral_relids)
@@ -1690,6 +1718,19 @@ BEGIN_NODE(RemoteQueryPath)
 	NODE_SCALAR(bool,rqhas_unshippable_tlist)
 END_NODE(RemoteQueryPath)
 #endif /* NO_NODE_RemoteQueryPath */
+
+#ifndef NO_NODE_ClusterScanPath
+BEGIN_NODE(ClusterScanPath)
+	NODE_BASE2(ClusterPath,cluster_path)
+END_NODE(ClusterScanPath)
+#endif /* NO_NODE_ClusterScanPath */
+
+#ifndef NO_NODE_ClusterGatherPath
+BEGIN_NODE(ClusterGatherPath)
+	NODE_BASE2(Path,path)
+	NODE_NODE(Path,subpath)
+END_NODE(ClusterGatherPath)
+#endif /* NO_NODE_ClusterGatherPath */
 
 #endif
 

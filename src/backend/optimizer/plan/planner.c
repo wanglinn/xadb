@@ -63,6 +63,9 @@
 /* GUC parameters */
 double		cursor_tuple_fraction = DEFAULT_CURSOR_TUPLE_FRACTION;
 int			force_parallel_mode = FORCE_PARALLEL_OFF;
+#ifdef ADB
+extern bool enable_cluster_plan;
+#endif /* ADB */
 
 /* Hook for plugins to get control in planner() */
 planner_hook_type planner_hook = NULL;
@@ -84,6 +87,12 @@ create_upper_paths_hook_type create_upper_paths_hook = NULL;
 #define EXPRKIND_TABLESAMPLE	9
 #define EXPRKIND_ARBITER_ELEM	10
 
+#ifdef ADB
+#define CLUSTER_PLAN_OK(option, parse_)								\
+	(enable_cluster_plan && (option & CURSOR_OPT_PARALLEL_OK) != 0 && \
+		IsUnderPostmaster && (parse_)->utilityStmt == NULL &&		\
+		!IsParallelWorker() && !has_cluster_hazard((Node*) (parse_)))
+#endif /* ADB */
 /* Passthrough data for standard_qp_callback */
 typedef struct
 {
@@ -187,7 +196,7 @@ planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		 * A Coordinator receiving a query from another Coordinator
 		 * is not allowed to go into PGXC planner.
 		 */
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !CLUSTER_PLAN_OK(cursorOptions, parse))
 			result = pgxc_planner(parse, cursorOptions, boundParams);
 		else
 #endif
@@ -263,6 +272,10 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		parse->utilityStmt == NULL && max_parallel_workers_per_gather > 0 &&
 		!IsParallelWorker() && !IsolationIsSerializable() &&
 		!has_parallel_hazard((Node *) parse, true);
+
+#ifdef ADB
+	glob->clusterPlanOK = IS_PGXC_COORDINATOR && !IsConnFromCoord() && CLUSTER_PLAN_OK(cursorOptions, parse);
+#endif /* ADB */
 
 	/*
 	 * glob->parallelModeNeeded should tell us whether it's necessary to
@@ -2067,6 +2080,35 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		/* And shove it into final_rel */
 		add_path(final_rel, path);
 	}
+#ifdef ADB
+	foreach(lc, current_rel->cluster_pathlist)
+	{
+		Path *path = lfirst(lc);
+
+		if (parse->rowMarks)
+		{
+			break;
+		}
+
+		if(limit_needed(parse))
+		{
+			break;
+		}
+
+		if(parse->commandType != CMD_SELECT)
+		{
+			break;
+		}
+
+		if(root->parent_root == NULL)
+		{
+			add_path(final_rel, (Path*)create_cluster_gather_path(path));
+		}else
+		{
+			add_cluster_path(final_rel, path);
+		}
+	}
+#endif /* ADB */
 
 	/*
 	 * If there is an FDW that's responsible for all baserels of the query,

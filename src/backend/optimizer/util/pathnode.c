@@ -50,7 +50,7 @@ typedef enum
 #define STD_FUZZ_FACTOR 1.01
 
 static List *translate_sub_tlist(List *tlist, int relid);
-
+static List *add_partial_path_internal(List *partial_pathlist, Path *new_path);
 
 /*****************************************************************************
  *		MISC. PATH UTILITIES
@@ -753,8 +753,7 @@ add_path_precheck(RelOptInfo *parent_rel,
  *	  IndexPaths here; for safety, we instead Assert that a path to be freed
  *	  isn't an IndexPath.
  */
-void
-add_partial_path(RelOptInfo *parent_rel, Path *new_path)
+static List *add_partial_path_internal(List *partial_pathlist, Path *new_path)
 {
 	bool		accept_new = true;		/* unless we find a superior old path */
 	ListCell   *insert_after = NULL;	/* where to insert new item */
@@ -770,7 +769,7 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 	 * path, but throw out the new path if some existing path dominates it.
 	 */
 	p1_prev = NULL;
-	for (p1 = list_head(parent_rel->partial_pathlist); p1 != NULL;
+	for (p1 = list_head(partial_pathlist); p1 != NULL;
 		 p1 = p1_next)
 	{
 		Path	   *old_path = (Path *) lfirst(p1);
@@ -828,8 +827,8 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 		 */
 		if (remove_old)
 		{
-			parent_rel->partial_pathlist =
-				list_delete_cell(parent_rel->partial_pathlist, p1, p1_prev);
+			partial_pathlist =
+				list_delete_cell(partial_pathlist, p1, p1_prev);
 			/* we should not see IndexPaths here, so always safe to delete */
 			Assert(!IsA(old_path, IndexPath));
 			pfree(old_path);
@@ -857,10 +856,10 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 	{
 		/* Accept the new path: insert it at proper place */
 		if (insert_after)
-			lappend_cell(parent_rel->partial_pathlist, insert_after, new_path);
+			lappend_cell(partial_pathlist, insert_after, new_path);
 		else
-			parent_rel->partial_pathlist =
-				lcons(new_path, parent_rel->partial_pathlist);
+			partial_pathlist =
+				lcons(new_path, partial_pathlist);
 	}
 	else
 	{
@@ -869,7 +868,26 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 		/* Reject and recycle the new path */
 		pfree(new_path);
 	}
+
+	return partial_pathlist;
 }
+
+void
+add_partial_path(RelOptInfo *parent_rel, Path *new_path)
+{
+	AssertArg(parent_rel && new_path);
+	parent_rel->partial_pathlist =
+		add_partial_path_internal(parent_rel->partial_pathlist, new_path);
+}
+
+#ifdef ADB
+void add_cluster_path(RelOptInfo *parent_rel, Path *new_path)
+{
+	AssertArg(parent_rel && new_path);
+	parent_rel->cluster_pathlist =
+		add_partial_path_internal(parent_rel->cluster_pathlist, new_path);
+}
+#endif /* ADB */
 
 /*
  * add_partial_path_precheck
@@ -3219,3 +3237,65 @@ reparameterize_path(PlannerInfo *root, Path *path,
 	}
 	return NULL;
 }
+
+#ifdef ADB
+
+static void copy_path_info(Path *dest, const Path *src);
+bool is_cluster_path(Path *path)
+{
+	AssertArg(path);
+	switch(nodeTag(path))
+	{
+	case T_ClusterScanPath:
+	case T_ClusterGatherPath:
+		return true;
+	default:
+		break;
+	}
+	return false;
+}
+
+ClusterGatherPath *create_cluster_gather_path(Path *sub_path)
+{
+	ClusterGatherPath *path = makeNode(ClusterGatherPath);
+	copy_path_info((Path*)path, sub_path);
+	path->path.pathtype = T_ClusterGather;
+
+	path->subpath = sub_path;
+	cost_cluster_gather(path, NULL, NULL, &sub_path->rows);
+
+	return path;
+}
+
+ClusterScanPath *create_cluster_path(Path *sub_path, struct ExecNodes *exec_node)
+{
+	ClusterScanPath *path = makeNode(ClusterScanPath);
+	copy_path_info((Path*)path, sub_path);
+
+	path->cluster_path.path.pathtype = T_ClusterScan;
+
+	path->cluster_path.exec_nodes = exec_node;
+	path->cluster_path.subpath = sub_path;
+
+	return path;
+}
+
+static void copy_path_info(Path *dest, const Path *src)
+{
+	dest->parent = src->parent;
+	dest->pathtarget = src->pathtarget;
+
+	dest->param_info = src->param_info;
+
+	dest->parallel_aware = src->parallel_aware;
+	dest->parallel_safe = src->parallel_safe;
+	dest->parallel_workers = src->parallel_workers;
+
+	dest->rows = src->rows;
+	dest->startup_cost = src->startup_cost;
+	dest->total_cost = src->total_cost;
+
+	dest->pathkeys = src->pathkeys;
+}
+
+#endif /* ADB */

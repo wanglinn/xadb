@@ -129,6 +129,10 @@ typedef struct PlannerGlobal
 	bool		parallelModeOK; /* parallel mode potentially OK? */
 
 	bool		parallelModeNeeded;		/* parallel mode actually required? */
+
+#ifdef ADB
+	bool		clusterPlanOK;	/* cluster plan potentially OK? */
+#endif /* ADB */
 } PlannerGlobal;
 
 /* macro for fetching the Plan associated with a SubPlan node */
@@ -518,6 +522,10 @@ typedef struct RelOptInfo
 	struct Path *cheapest_startup_path;
 	struct Path *cheapest_total_path;
 	struct Path *cheapest_unique_path;
+#ifdef ADB
+	List	   *cluster_pathlist;
+	struct RelationLocInfo *loc_info;	/* when RELOPT_BASEREL */
+#endif /* ADB */
 	List	   *cheapest_parameterized_paths;
 
 	/* parameterization information needed for both base rels and join rels */
@@ -1528,6 +1536,33 @@ typedef struct LimitPath
 	Node	   *limitCount;		/* COUNT parameter, or NULL if none */
 } LimitPath;
 
+#ifdef ADB
+
+typedef struct ClusterPath
+{
+	Path		path;
+	Path	   *subpath;		/* path representing input source */
+	ExecNodes  *exec_nodes;			/* remote nodes */
+} ClusterPath;
+
+/*
+ * ClusterFetchPath use
+ */
+typedef struct ClusterScanPath
+{
+	ClusterPath cluster_path;
+} ClusterScanPath;
+
+/*
+ * ClusterGather gather remote query result
+ */
+typedef struct ClusterGatherPath
+{
+	Path		path;
+	Path	   *subpath;
+} ClusterGatherPath;
+
+#endif /* ADB */
 
 /*
  * Restriction clause info.

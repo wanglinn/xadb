@@ -118,6 +118,8 @@
 #include "miscadmin.h"
 #ifdef ADB
 #include "pgxc/execRemote.h"
+#include "executor/nodeClusterGather.h"
+#include "executor/nodeClusterScan.h"
 #endif
 
 
@@ -342,6 +344,16 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 			result = (PlanState *) ExecInitRemoteQuery((RemoteQuery *) node,
 												estate, eflags);
 			break;
+
+		case T_ClusterGather:
+			result = (PlanState *) ExecInitClusterGather((ClusterGather *) node,
+												estate, eflags);
+			break;
+
+		case T_ClusterScan:
+			result = (PlanState *) ExecInitClusterScan((ClusterScan *) node,
+												estate, eflags);
+			break;
 #endif
 
 		default:
@@ -544,6 +556,14 @@ ExecProcNode(PlanState *node)
 #ifdef ADB
 		case T_RemoteQueryState:
 			result = ExecRemoteQuery((RemoteQueryState *) node);
+			break;
+
+		case T_ClusterGatherState:
+			result = ExecClusterGather((ClusterGatherState *) node);
+			break;
+
+		case T_ClusterScanState:
+			result = ExecClusterScan((ClusterScanState *) node);
 			break;
 #endif
 
@@ -797,6 +817,14 @@ ExecEndNode(PlanState *node)
 #ifdef ADB
 		case T_RemoteQueryState:
 			ExecEndRemoteQuery((RemoteQueryState *) node);
+			break;
+
+		case T_ClusterGatherState:
+			ExecEndClusterGather((ClusterGatherState *) node);
+			break;
+
+		case T_ClusterScanState:
+			ExecEndClusterScan((ClusterScanState *) node);
 			break;
 #endif
 

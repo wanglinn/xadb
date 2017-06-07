@@ -97,6 +97,9 @@ typedef enum NodeTag
 	T_DropNodeStmt,
 	T_CreateGroupStmt,
 	T_DropGroupStmt,
+	T_ClusterPath,
+	T_ClusterScan,
+	T_ClusterGather,
 #endif
 
 	/*
@@ -144,6 +147,8 @@ typedef enum NodeTag
 	T_LimitState,
 #ifdef ADB
 	T_RemoteQueryState,
+	T_ClusterScanState,
+	T_ClusterGatherState,
 #endif
 
 	/*
@@ -287,6 +292,8 @@ typedef enum NodeTag
 	T_LimitPath,
 #ifdef ADB
 	T_RemoteQueryPath,
+	T_ClusterScanPath,
+	T_ClusterGatherPath,
 #endif
 	/* these aren't subclasses of Path: */
 	T_EquivalenceClass,

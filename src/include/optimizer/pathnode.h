@@ -32,6 +32,9 @@ extern bool add_path_precheck(RelOptInfo *parent_rel,
 extern void add_partial_path(RelOptInfo *parent_rel, Path *new_path);
 extern bool add_partial_path_precheck(RelOptInfo *parent_rel,
 						  Cost total_cost, List *pathkeys);
+#ifdef ADB
+extern void add_cluster_path(RelOptInfo *parent_rel, Path *new_path);
+#endif /* ADB */
 
 extern Path *create_seqscan_path(PlannerInfo *root, RelOptInfo *rel,
 					Relids required_outer, int parallel_workers);
@@ -229,6 +232,11 @@ extern LimitPath *create_limit_path(PlannerInfo *root, RelOptInfo *rel,
 extern Path *reparameterize_path(PlannerInfo *root, Path *path,
 					Relids required_outer,
 					double loop_count);
+#ifdef ADB
+extern bool is_cluster_path(Path *path);
+extern ClusterGatherPath *create_cluster_gather_path(Path *sub_path);
+extern ClusterScanPath *create_cluster_path(Path *sub_path, struct ExecNodes *exec_node);
+#endif /* ADB */
 
 /*
  * prototypes for relnode.c

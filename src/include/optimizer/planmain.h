@@ -129,6 +129,7 @@ extern List *pgxc_build_path_tlist(PlannerInfo *root, Path *path);
 extern void pgxc_copy_path_costsize(Plan *dest, Path *src);
 extern Plan *pgxc_create_gating_plan(PlannerInfo *root, Path *path, Plan *plan, List *quals);
 extern Node *pgxc_replace_nestloop_params(PlannerInfo *root, Node *expr);
+extern List* get_remote_nodes(Plan *top_plan);
 #endif
 
 #endif   /* PLANMAIN_H */

@@ -84,6 +84,8 @@
 #include "agtm/agtm_client.h"
 #include "commands/copy.h"
 #include "commands/trigger.h"
+#include "executor/execCluster.h"
+#include "libpq/libpq-node.h"
 #include "nodes/nodes.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/parsenodes.h"
@@ -533,6 +535,7 @@ SocketBackend(StringInfo inBuf)
 		case 'g':				/* gxid */
 		case 's':				/* snapshot */
 		case 't':				/* Timestamp */
+		case 'p':				/* PlannedStmt */
 			break;
 		case 'L':				/* agtm backend listen port */
 		case 'I':				/* query server info */
@@ -4479,6 +4482,7 @@ PostgresMain(int argc, char *argv[],
 		xact_started = false;
 #ifdef ADB
 		SetXactErrorAborted(false);
+		PQNReleaseAllConnect();
 #endif
 
 		/*
@@ -4518,6 +4522,7 @@ PostgresMain(int argc, char *argv[],
 		{
 			clear_all_handles(false);
 			release_handles();
+			PQNReleaseAllConnect();
 		}
 		if(need_reload_pooler)
 		{
@@ -5054,6 +5059,10 @@ PostgresMain(int argc, char *argv[],
 					 */
 					SetCurrentTransactionStartTimestamp(timestamp);
 				}
+				break;
+			case 'p':			/* planstmt */
+				exec_cluster_plan(input_message.data + input_message.cursor, input_message.len - input_message.cursor);
+				send_ready_for_query = true;
 				break;
 #endif /* ADB */
 

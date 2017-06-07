@@ -58,6 +58,8 @@
 #include "utils/syscache.h"
 #ifdef ADB
 #include "pgxc/execRemote.h"
+#include "executor/nodeClusterGather.h"
+#include "executor/nodeClusterScan.h"
 #endif
 
 
@@ -215,7 +217,15 @@ ExecReScan(PlanState *node)
 #ifdef ADB
 		case T_RemoteQueryState:
 			ExecRemoteQueryReScan((RemoteQueryState *) node, node->ps_ExprContext);
-		break;
+			break;
+
+		case T_ClusterGatherState:
+			ExecReScanClusterGather((ClusterGatherState *)node);
+			break;
+
+		case T_ClusterScanState:
+			ExecReScanClusterScan((ClusterScanState *)node);
+			break;
 #endif
 
 		case T_CustomScanState:

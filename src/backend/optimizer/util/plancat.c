@@ -148,6 +148,11 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 	else
 		hasindex = relation->rd_rel->relhasindex;
 
+#ifdef ADB
+	if(relation->rd_locator_info)
+		rel->loc_info = CopyRelationLocInfo(relation->rd_locator_info);
+#endif /* ADB */
+
 	if (hasindex)
 	{
 		List	   *indexoidlist;

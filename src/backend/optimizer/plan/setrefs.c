@@ -658,6 +658,10 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 			break;
 
 		case T_Gather:
+#ifdef ADB
+		case T_ClusterGather:
+		case T_ClusterScan:
+#endif /* ADB */
 			set_upper_references(root, plan, rtoffset);
 			break;
 

@@ -43,6 +43,8 @@
 #include "parser/parsetree.h"
 #include "utils/lsyscache.h"
 #ifdef ADB
+#include "catalog/pgxc_node.h"
+#include "pgxc/pgxcnode.h"
 #include "pgxc/pgxc.h"
 #include "optimizer/pgxcplan.h"
 #endif /* ADB */
@@ -276,7 +278,10 @@ static ModifyTable *make_modifytable(PlannerInfo *root,
 				 List *resultRelations, List *subplans,
 				 List *withCheckOptionLists, List *returningLists,
 				 List *rowMarks, OnConflictExpr *onconflict, int epqParam);
-
+#ifdef ADB
+static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags);
+static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath *path, int flags);
+#endif /* ADB */
 
 /*
  * create_plan
@@ -473,6 +478,14 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 		case T_RemoteQuery:
 			plan = create_remotequery_plan(root,
 										   (RemoteQueryPath *) best_path);
+			break;
+		case T_ClusterGather:
+			plan = (Plan*) create_cluster_gather_plan(root
+						, (ClusterGatherPath*) best_path, flags);
+			break;
+		case T_ClusterScan:
+			plan = (Plan*) create_cluster_scan_plan(root
+						, (ClusterScanPath*) best_path, flags);
 			break;
 #endif
 		default:
@@ -6304,4 +6317,84 @@ pgxc_replace_nestloop_params(PlannerInfo *root, Node *expr)
 {
 	return replace_nestloop_params(root, expr);
 }
+
+static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags)
+{
+	ClusterGather *plan;
+	Plan *subplan;
+
+	subplan = create_plan_recurse(root, path->subpath, flags);
+
+	plan = makeNode(ClusterGather);
+	plan->plan.targetlist = subplan->targetlist;
+	outerPlan(plan) = subplan;
+	plan->rnodes = get_remote_nodes(subplan);
+
+	copy_generic_path_info(&plan->plan, (Path*)path);
+
+	return plan;
+}
+
+static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath *path, int flags)
+{
+	ClusterScan *plan;
+	Plan *subplan;
+
+	subplan = create_plan_recurse(root, path->cluster_path.subpath, flags);
+
+	plan = makeNode(ClusterScan);
+	plan->plan.targetlist = subplan->targetlist;
+	outerPlan(plan) = subplan;
+	plan->execnode = copyObject(path->cluster_path.exec_nodes);
+
+	copy_generic_path_info((Plan*)plan, (Path*)path);
+
+	return plan;
+}
+
+static bool search_remote_nodes(Node *node, Bitmapset **nodes)
+{
+	ExecNodes *exec;
+	ListCell *lc;
+	if(node == NULL)
+		return false;
+
+	check_stack_depth();
+
+	switch(nodeTag(node))
+	{
+	case T_ExecNodes:
+		exec = (ExecNodes*)node;
+		foreach(lc, exec->nodeList)
+		{
+			*nodes = bms_add_member(*nodes, lfirst_int(lc));
+		}
+		return false;
+	default:
+		break;
+	}
+	return node_tree_walker(node, search_remote_nodes, (void*)nodes);
+}
+
+/* return remote node's Oid */
+List* get_remote_nodes(Plan *top_plan)
+{
+	Bitmapset *bs;
+	List *list;
+	int x;
+	AssertArg(top_plan);
+
+	bs = NULL;
+	search_remote_nodes((Node*)top_plan, &bs);
+	if(bs == NULL)
+		return NIL;
+
+	list = NIL;
+	while( (x = bms_first_member(bs)) >= 0)
+	{
+		list = lappend_oid(list, PGXCNodeGetNodeOid(x, PGXC_NODE_DATANODE));
+	}
+	return list;
+}
+
 #endif /* ADB */

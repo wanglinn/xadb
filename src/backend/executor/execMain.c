@@ -60,8 +60,9 @@
 #include "utils/snapmgr.h"
 #include "utils/tqual.h"
 #ifdef ADB
-#include "pgxc/pgxc.h"
 #include "commands/copy.h"
+#include "executor/execCluster.h"
+#include "pgxc/pgxc.h"
 #endif
 
 

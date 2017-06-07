@@ -848,6 +848,21 @@ typedef struct Limit
 	Node	   *limitCount;		/* COUNT parameter, or NULL if none */
 } Limit;
 
+#ifdef ADB
+
+typedef struct ClusterScan
+{
+	Plan		plan;
+	struct ExecNodes   *execnode;			/* remote node oids */
+}ClusterScan;
+
+typedef struct ClusterGather
+{
+	Plan		plan;
+	List	   *rnodes;			/* remote node oids */
+} ClusterGather;
+
+#endif /* ADB */
 
 /*
  * RowMarkType -

@@ -298,6 +298,20 @@ BEGIN_STRUCT(MGRStopAgent)
 END_STRUCT(MGRStopAgent)
 #endif /* NO_STRUCT_MGRStopAgent */
 
+#if defined(ADB)
+#ifndef NO_STRUCT_RelationLocInfo
+BEGIN_STRUCT(RelationLocInfo)
+	NODE_SCALAR(Oid,relid)
+	NODE_SCALAR(char,locatorType)
+	NODE_SCALAR(AttrNumber,partAttrNum)
+	NODE_NODE(List,nodeList)
+	NODE_OTHER_POINT(ListCell, roundRobinNode)
+	NODE_SCALAR(Oid,funcid)
+	NODE_NODE(List,funcAttrNums)
+END_STRUCT(RelationLocInfo)
+#endif /* NO_STRUCT_RelationLocInfo */
+#endif
+
 #ifndef NO_STRUCT_LockRelId
 BEGIN_STRUCT(LockRelId)
 	NODE_SCALAR(Oid,relId)
@@ -361,7 +375,7 @@ FmgrInfo *rd_supportinfo
 	NODE_SCALAR(Oid,rd_toastoid)
 struct PgStat_TableStatus *pgstat_info
 #ifdef ADB
-RelationLocInfo *rd_locator_info
+	NODE_STRUCT(RelationLocInfo,rd_locator_info)
 #endif
 END_STRUCT(RelationData)
 #endif /* NO_STRUCT_RelationData */

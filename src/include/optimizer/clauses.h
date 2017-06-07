@@ -70,6 +70,7 @@ extern bool contain_leaked_vars(Node *clause);
 
 #ifdef ADB
 extern bool contain_volatile_functions_without_check_RownumExpr(Node *clause);
+extern bool has_cluster_hazard(Node *node);
 #endif
 
 extern Relids find_nonnullable_rels(Node *clause);
