@@ -645,8 +645,37 @@ extern char *printObject(const void *obj);
 #ifdef ADB
 /* nodes/saveload.c */
 struct StringInfoData;
+struct Bitmapset;
 extern void saveNode(struct StringInfoData* buf, const Node *node);
+/*
+ * bool savehook(StringInfo buf, Node *not_null_node, void *context)
+ * return true if hook saved node
+ */
+extern void saveNodeAndHook(struct StringInfoData *buf, const Node *node
+							, bool (*hook)(), const void *context);
 extern Node* loadNode(struct StringInfoData* buf);
+/*
+ * Node* loadhook(StringInfo buf, NodeTag tag, void *context)
+ * return NULL if not load
+ */
+extern Node* loadNodeAndHook(struct StringInfoData* buf, void* (*hook)()
+							, const void *context);
+extern Node* loadNodeAndHookWithTag(struct StringInfoData *buf, void* (*hook)()
+							, const void *context, NodeTag tag);
+extern Oid load_oid_operator(struct StringInfoData *buf);
+extern Oid load_oid_proc(struct StringInfoData *buf);
+extern Oid load_oid_collation(struct StringInfoData *buf);
+extern Oid load_oid_type(struct StringInfoData *buf);
+extern Oid load_namespace(struct StringInfoData *buf);
+extern char * load_node_string(struct StringInfoData *buf, bool need_dup);
+extern struct Bitmapset* load_Bitmapset(struct StringInfoData *buf);
+extern void save_oid_operator(struct StringInfoData *buf, Oid op);
+extern void save_oid_proc(struct StringInfoData *buf, Oid proc);
+extern void save_oid_collation(struct StringInfoData *buf, Oid collation);
+extern void save_oid_type(struct StringInfoData *buf, Oid typid);
+extern void save_namespace(struct StringInfoData *buf, Oid nsp);
+extern void save_node_string(struct StringInfoData *buf, const char *str);
+extern void save_node_bitmapset(struct StringInfoData *buf, const struct Bitmapset *node);
 #endif /* ADB */
 
 /*

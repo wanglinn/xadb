@@ -43,8 +43,10 @@
 
 /* declare static functions */
 #define BEGIN_NODE(type) 										\
-	static void save_##type(StringInfo buf, const type *node);	\
-	static type* load_##type(StringInfo buf, type *node);
+	static void save_##type(StringInfo buf, const type *node	\
+					, bool (*hook)(), const void *context);		\
+	static type* load_##type(StringInfo buf, type *node			\
+					, void* (*hook)(), const void *context);
 #define NODE_SAME(t1, t2)
 #define BEGIN_STRUCT(type) BEGIN_NODE(type)
 #include "nodes/nodes_define.h"
@@ -56,14 +58,16 @@
 #define SAVE_BOOL(b_)			pq_sendbyte(buf, (b_) ? true:false)
 
 #define BEGIN_NODE(type) 											\
-static void save_##type(StringInfo buf, const type *node)			\
+static void save_##type(StringInfo buf, const type *node			\
+					, bool (*hook)(), const void *context)			\
 {																	\
 	AssertArg(node);
 #define END_NODE(type)												\
 }
 
 #define BEGIN_STRUCT(type)											\
-static void save_##type(StringInfo buf, const type *node)			\
+static void save_##type(StringInfo buf, const type *node			\
+					, bool (*hook)(), const void *context)			\
 {																	\
 	if(node == NULL)												\
 	{																\
@@ -74,8 +78,14 @@ static void save_##type(StringInfo buf, const type *node)			\
 }
 
 #define NODE_SAME(t1,t2)
-#define NODE_BASE(base)				save_##base(buf, (const base*)node);
-#define NODE_NODE(t,m)				saveNode(buf, (Node*)node->m);
+#define NODE_BASE(base)											\
+		save_##base(buf, (const base*)node, hook, context);
+#define NODE_NODE(t,m)											\
+	do{															\
+		if(hook == NULL || node->m == NULL						\
+			|| (*hook)(buf, node->m, context) == false)			\
+			saveNodeAndHook(buf, (Node*)node->m, hook, context);\
+	}while(0);
 #define NODE_NODE_MEB(t,m)			not support yet//saveNode(buf, (Node*)&(node->m));
 #define NODE_NODE_ARRAY(t,m,l)		not support yet//SAVE_ARRAY(t,m,l,saveNode,Node);
 #define NODE_BITMAPSET(t,m)			save_node_bitmapset(buf, node->m);
@@ -103,7 +113,7 @@ static void save_##type(StringInfo buf, const type *node)			\
 			SAVE_IS_NULL();										\
 		}														\
 	}while(0);
-#define NODE_STRUCT(t,m)				save_##t(buf, node->m);
+#define NODE_STRUCT(t,m)				save_##t(buf, node->m, hook, context);
 #define NODE_STRUCT_ARRAY(t,m,l)		not support yet//SAVE_ARRAY(t,m,l,save_##t, t)
 #define NODE_STRUCT_LIST(t,m)									\
 	do{															\
@@ -134,13 +144,13 @@ static void save_##type(StringInfo buf, const type *node)			\
 			f(buf, (const t2*)node->m[i]);									\
 	}while(0);*/
 
-static void save_node_string(StringInfo buf, const char *str)
+void save_node_string(StringInfo buf, const char *str)
 {
 	int len = strlen(str);
 	appendBinaryStringInfo(buf, str, len+1);
 }
 
-static void save_node_bitmapset(StringInfo buf, const Bitmapset *node)
+void save_node_bitmapset(StringInfo buf, const Bitmapset *node)
 {
 	if(node == NULL)
 	{
@@ -153,7 +163,7 @@ static void save_node_bitmapset(StringInfo buf, const Bitmapset *node)
 	}
 }
 
-static void save_namespace(StringInfo buf, Oid nsp)
+void save_namespace(StringInfo buf, Oid nsp)
 {
 	Form_pg_namespace nspForm;
 	HeapTuple tup;
@@ -180,7 +190,7 @@ static void save_namespace(StringInfo buf, Oid nsp)
 	}
 }
 
-static void save_oid_type(StringInfo buf, Oid typid)
+void save_oid_type(StringInfo buf, Oid typid)
 {
 	Type type;
 	Form_pg_type typ;
@@ -203,7 +213,7 @@ static void save_oid_type(StringInfo buf, Oid typid)
 	ReleaseSysCache(type);
 }
 
-static void save_oid_collation(StringInfo buf, Oid collation)
+void save_oid_collation(StringInfo buf, Oid collation)
 {
 	Form_pg_collation form_collation;
 	HeapTuple	tuple;
@@ -231,7 +241,7 @@ static void save_oid_collation(StringInfo buf, Oid collation)
 	}
 }
 
-static void save_oid_proc(StringInfo buf, Oid proc)
+void save_oid_proc(StringInfo buf, Oid proc)
 {
 	HeapTuple	proctup;
 	Form_pg_proc procform;
@@ -266,7 +276,7 @@ static void save_oid_proc(StringInfo buf, Oid proc)
 	}
 }
 
-static void save_oid_operator(StringInfo buf, Oid op)
+void save_oid_operator(StringInfo buf, Oid op)
 {
 	HeapTuple opertup;
 	Form_pg_operator operform;
@@ -381,8 +391,18 @@ BEGIN_NODE(List)
 	do{
 		ListCell *lc;
 		pq_sendbytes(buf, (const char *)&(node->length), sizeof(node->length));
-		foreach(lc,node)
-			saveNode(buf, lfirst(lc));
+		if(hook)
+		{
+			foreach(lc, node)
+			{
+				if(lfirst(lc) == NULL || (*hook)(buf, lfirst(lc), context) == false)
+					saveNodeAndHook(buf, lfirst(lc), hook, context);
+			}
+		}else
+		{
+			foreach(lc,node)
+				saveNodeAndHook(buf, lfirst(lc), NULL, context);
+		}
 	}while(0);
 END_NODE(List)
 
@@ -450,6 +470,12 @@ END_NODE(A_Const)
 
 void saveNode(StringInfo buf, const Node *node)
 {
+	saveNodeAndHook(buf, node, NULL, NULL);
+}
+
+void saveNodeAndHook(StringInfo buf, const Node *node
+					, bool (*hook)(), const void *context)
+{
 	AssertArg(buf);
 	if(node == NULL)
 	{
@@ -461,9 +487,9 @@ void saveNode(StringInfo buf, const Node *node)
 	pq_sendbytes(buf, (const char*)&(node->type), sizeof(node->type));
 	switch(nodeTag(node))
 	{
-#define CASE_TYPE(type, fun)					\
-	case T_##type:								\
-		save_##fun(buf, (type *)node);			\
+#define CASE_TYPE(type, fun)							\
+	case T_##type:										\
+		save_##fun(buf, (type *)node, hook, context);	\
 		break
 #define BEGIN_NODE(type)	CASE_TYPE(type,type);
 #define NODE_SAME(t1,t2)	CASE_TYPE(t1,t2);
@@ -477,7 +503,7 @@ void saveNode(StringInfo buf, const Node *node)
 	case T_Null:
 		break;
 	case T_List:
-		save_List(buf, (const List*)node);break;
+		save_List(buf, (const List*)node, hook, context);break;
 	case T_IntList:
 		save_IntList(buf, (const List*)node);break;
 	case T_OidList:
@@ -495,7 +521,8 @@ void saveNode(StringInfo buf, const Node *node)
 #define LOAD_BOOL() pq_getmsgbyte(buf)
 
 #define BEGIN_NODE(type)									\
-	static type* load_##type(StringInfo buf, type *node)	\
+	static type* load_##type(StringInfo buf, type *node		\
+					, void* (*hook)(), const void *context)	\
 	{														\
 		AssertArg(buf && node);
 #define END_NODE(type)										\
@@ -504,8 +531,8 @@ void saveNode(StringInfo buf, const Node *node)
 #define BEGIN_STRUCT(type)			BEGIN_NODE(type)
 #define END_STRUCT(type)			END_NODE(type)
 #define NODE_SAME(t1,t2)
-#define NODE_BASE(base)				load_##base(buf, (base*)node);
-#define NODE_NODE(t,m)				node->m = (t*)loadNode(buf);
+#define NODE_BASE(base)				load_##base(buf, (base*)node, hook, context);
+#define NODE_NODE(t,m)				node->m = (t*)loadNodeAndHook(buf, hook, context);
 #define NODE_NODE_MEB(t,m)			not support yet
 #define NODE_NODE_ARRAY(t,m,l)		not support yet
 #define NODE_BITMAPSET(t,m)			node->m = load_Bitmapset(buf);
@@ -525,7 +552,7 @@ void saveNode(StringInfo buf, const Node *node)
 		if(LOAD_IS_NULL())									\
 			node->m = NULL;									\
 		else												\
-			node->m = load_##t(buf, palloc0(sizeof(node->m[0])));	\
+			node->m = load_##t(buf, palloc0(sizeof(node->m[0])), hook, context);	\
 	}while(0);
 #define NODE_STRUCT_ARRAY(t,m,l)		not support yet//SAVE_ARRAY(t,m,l,save_##t, t)
 #define NODE_STRUCT_LIST(t,m)								\
@@ -551,7 +578,7 @@ void saveNode(StringInfo buf, const Node *node)
 #define NODE_DATUM(t,m,o,n)				not support
 #define NODE_OID(t,m)					node->m = load_oid_##t(buf);
 
-static char * load_node_string(StringInfo buf, bool need_dup)
+char * load_node_string(StringInfo buf, bool need_dup)
 {
 	char *str;
 	int len;
@@ -570,7 +597,7 @@ static char * load_node_string(StringInfo buf, bool need_dup)
 	return str;
 }
 
-static Bitmapset* load_Bitmapset(StringInfo buf)
+Bitmapset* load_Bitmapset(StringInfo buf)
 {
 	Bitmapset *node;
 	int nwords;
@@ -584,7 +611,7 @@ static Bitmapset* load_Bitmapset(StringInfo buf)
 	return node;
 }
 
-static Oid load_namespace(StringInfo buf)
+Oid load_namespace(StringInfo buf)
 {
 	Oid oid;
 	if(LOAD_BOOL())
@@ -598,7 +625,7 @@ static Oid load_namespace(StringInfo buf)
 	return oid;
 }
 
-static Oid load_oid_type(StringInfo buf)
+Oid load_oid_type(StringInfo buf)
 {
 	const char *str_type;
 	HeapTuple tup;
@@ -624,7 +651,7 @@ static Oid load_oid_type(StringInfo buf)
 	return typid;
 }
 
-static Oid load_oid_collation(StringInfo buf)
+Oid load_oid_collation(StringInfo buf)
 {
 	Oid oid;
 	if(LOAD_BOOL())
@@ -658,7 +685,7 @@ static Oid load_oid_collation(StringInfo buf)
 	return oid;
 }
 
-static Oid load_oid_proc(StringInfo buf)
+Oid load_oid_proc(StringInfo buf)
 {
 	Oid oid;
 	if(LOAD_BOOL())
@@ -726,7 +753,7 @@ static Oid load_oid_proc(StringInfo buf)
 	return oid;
 }
 
-static Oid load_oid_operator(StringInfo buf)
+Oid load_oid_operator(StringInfo buf)
 {
 	Oid oid;
 	if(LOAD_BOOL())
@@ -870,13 +897,13 @@ static Value* load_String(StringInfo buf, Value *node)
 	return node;
 }
 
-static List* load_List(StringInfo buf)
+static List* load_List(StringInfo buf, void* (*hook)(), const void *context)
 {
 	List *list = NIL;
 	int i,length;
 	pq_copymsgbytes(buf, (char*)&length, sizeof(length));
 	for(i=0;i<length;++i)
-		list = lappend(list, loadNode(buf));
+		list = lappend(list, loadNodeAndHook(buf, hook, context));
 	return list;
 }
 
@@ -955,6 +982,13 @@ END_NODE(A_Const)
 
 Node* loadNode(StringInfo buf)
 {
+	return loadNodeAndHook(buf, NULL, NULL);
+}
+
+Node* loadNodeAndHook(struct StringInfoData* buf
+							, void* (*hook)(), const void *context)
+{
+	Node *node;
 	NodeTag tag;
 	AssertArg(buf);
 
@@ -962,6 +996,15 @@ Node* loadNode(StringInfo buf)
 		return NULL;
 
 	pq_copymsgbytes(buf, (char*)&tag, sizeof(tag));
+	if(hook == NULL
+		|| (node = (*hook)(buf, tag, context)) == NULL)
+		node = loadNodeAndHookWithTag(buf, hook, context, tag);
+	return node;
+}
+
+Node* loadNodeAndHookWithTag(struct StringInfoData *buf, void* (*hook)()
+							, const void *context, NodeTag tag)
+{
 	switch(tag)
 	{
 	case T_Integer:
@@ -978,7 +1021,7 @@ Node* loadNode(StringInfo buf)
 			return (Node*)value;
 		}
 	case T_List:
-		return (Node*)load_List(buf);
+		return (Node*)load_List(buf, hook, context);
 	case T_IntList:
 		return (Node*)load_IntList(buf);
 	case T_OidList:
@@ -986,7 +1029,7 @@ Node* loadNode(StringInfo buf)
 #undef CASE_TYPE
 #define CASE_TYPE(type, fun)							\
 	case T_##type:										\
-		return (Node*)load_##fun(buf, makeNode(type))
+		return (Node*)load_##fun(buf, makeNode(type), hook, context)
 #define BEGIN_NODE(type)	CASE_TYPE(type,type);
 #define NODE_SAME(t1,t2)	CASE_TYPE(t1,t2);
 #define NO_NODE_JoinPath
@@ -1009,7 +1052,7 @@ void SaveParamList(struct StringInfoData *buf, ParamListInfo paramLI)
 	/* Write number of parameters. */
 	if (paramLI == NULL || paramLI->numParams <= 0)
 	{
-		SAVE_IS_NOT_NULL();
+		SAVE_IS_NULL();
 		return;
 	}else
 	{
@@ -1028,7 +1071,7 @@ void SaveParamList(struct StringInfoData *buf, ParamListInfo paramLI)
 		}
 	}
 	SAVE_IS_NOT_NULL();
-	save_ParamListInfoData(buf, paramLI);
+	save_ParamListInfoData(buf, paramLI, NULL, NULL);
 }
 
 ParamListInfo LoadParamList(struct StringInfoData *buf)
@@ -1037,5 +1080,5 @@ ParamListInfo LoadParamList(struct StringInfoData *buf)
 	if(LOAD_IS_NULL())
 		return NULL;
 	info = palloc(sizeof(*info));
-	return load_ParamListInfoData(buf, info);
+	return load_ParamListInfoData(buf, info, NULL, NULL);
 }
