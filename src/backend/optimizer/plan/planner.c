@@ -2092,7 +2092,13 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 
 		if(limit_needed(parse))
 		{
-			break;
+			if(parse->limitOffset == NULL)
+			{
+				path = (Path*) create_limit_path(root, final_rel, path,
+					NULL /* parse->limitOffset is NULL */,
+					parse->limitCount,
+					offset_est, count_est);
+			}
 		}
 
 		if(parse->commandType != CMD_SELECT)
@@ -2102,7 +2108,15 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 
 		if(root->parent_root == NULL)
 		{
-			add_path(final_rel, (Path*)create_cluster_gather_path(path));
+			path = (Path*)create_cluster_gather_path(path);
+
+			if(limit_needed(parse))
+				path = (Path*) create_limit_path(root, final_rel, path,
+					parse->limitOffset,
+					parse->limitCount,
+					offset_est, count_est);
+
+			add_path(final_rel, path);
 		}else
 		{
 			add_cluster_path(final_rel, path);
