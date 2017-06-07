@@ -77,6 +77,7 @@ bool node_tree_walker(Node *n, bool (*walker)(), void *context)
 #define BEGIN_NODE(type)	CASE_TYPE(type,type);
 #define NODE_SAME(t1,t2)	CASE_TYPE(t1,t2);
 #define NO_NODE_JoinPath 1
+#define NO_NODE_ClusterPath
 
 #include "nodes/nodes_define.h"
 	case T_List:

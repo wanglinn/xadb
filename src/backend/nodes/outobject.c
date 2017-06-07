@@ -252,7 +252,7 @@ static void outputAclMode(StringInfo str, const AclMode *value)
 	AclMode v;
 	char tmp;
 	Assert(value);
-	
+
 	v = *value;
 	if(v == 0)
 	{
@@ -430,6 +430,7 @@ SIMPLE_OUTPUT_DECLARE(bits32, "%08x")
 #undef NO_STRUCT_ParamExternData
 #undef NO_STRUCT_QualCost
 #undef NO_STRUCT_MergeScanSelCache
+#undef NO_STRUCT_RelationLocInfo
 #include "nodes/struct_define.h"
 #include "nodes/nodes_define.h"
 #include "nodes/nodes_undef.h"

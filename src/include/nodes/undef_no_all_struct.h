@@ -18,6 +18,7 @@
 #undef NO_STRUCT_MGRAlterParm
 #undef NO_STRUCT_MGRMonitorAgent
 #undef NO_STRUCT_MGRStopAgent
+#undef NO_STRUCT_RelationLocInfo
 #undef NO_STRUCT_LockRelId
 #undef NO_STRUCT_LockInfoData
 #undef NO_STRUCT_RelationData

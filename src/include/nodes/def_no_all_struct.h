@@ -18,6 +18,7 @@
 #define NO_STRUCT_MGRAlterParm
 #define NO_STRUCT_MGRMonitorAgent
 #define NO_STRUCT_MGRStopAgent
+#define NO_STRUCT_RelationLocInfo
 #define NO_STRUCT_LockRelId
 #define NO_STRUCT_LockInfoData
 #define NO_STRUCT_RelationData

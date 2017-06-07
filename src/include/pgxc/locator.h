@@ -58,7 +58,7 @@ typedef enum RelationAccessType
 	RELATION_ACCESS_INSERT				/* INSERT */
 } RelationAccessType;
 
-typedef struct
+typedef struct RelationLocInfo
 {
 	Oid			relid;					/* OID of relation */
 	char		locatorType;			/* locator type, see above */
