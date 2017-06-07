@@ -468,6 +468,7 @@ bool		Debug_print_plan = false;
 bool		Debug_print_parse = false;
 #ifdef ADB
 bool		Debug_print_grammar = false;
+bool		enable_cluster_plan = false;
 #endif
 bool		Debug_print_rewritten = false;
 bool		Debug_pretty_print = true;
@@ -1203,6 +1204,15 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&Debug_print_grammar,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_cluster_plan", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Using cluster plan for quer."),
+			NULL
+		},
+		&enable_cluster_plan,
 		false,
 		NULL, NULL, NULL
 	},
@@ -3311,6 +3321,18 @@ static struct config_real ConfigureNamesReal[] =
 		DEFAULT_PARALLEL_TUPLE_COST, 0, DBL_MAX,
 		NULL, NULL, NULL
 	},
+#ifdef ADB
+	{
+		{"remote_tuple_cost", PGC_USERSET, QUERY_TUNING_COST,
+			gettext_noop("Sets the planner's estimate of the cost of "
+				  "passing each tuple (row) from datanode to coord."),
+			NULL
+		},
+		&remote_tuple_cost,
+		DEFAULT_REMOTE_TUPLE_COST, 0, DBL_MAX,
+		NULL, NULL, NULL
+	},
+#endif /* ADB */
 	{
 		{"parallel_setup_cost", PGC_USERSET, QUERY_TUNING_COST,
 			gettext_noop("Sets the planner's estimate of the cost of "
@@ -4012,7 +4034,7 @@ static struct config_string ConfigureNamesString[] =
 		{"pgxc_node_name", PGC_POSTMASTER, GTM,
 			gettext_noop("The Coordinator or Datanode name."),
 			NULL,
-			GUC_NO_RESET_ALL | GUC_IS_NAME
+			GUC_NO_RESET_ALL | GUC_IS_NAME | GUC_REPORT
 		},
 		&PGXCNodeName,
 		"",
