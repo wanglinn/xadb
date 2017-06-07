@@ -57,4 +57,6 @@ extern Expr *preprocess_phv_expression(PlannerInfo *root, Expr *expr);
 
 extern bool plan_cluster_use_sort(Oid tableOid, Oid indexOid);
 
+extern bool limit_needed(Query *parse);
+
 #endif   /* PLANNER_H */
