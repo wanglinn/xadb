@@ -2475,6 +2475,7 @@ int PQgetCopyDataBuffer(PGconn *conn, const char **buffer, int async)
 int PQisCopyOutState(PGconn *conn)
 {
 	if(conn
+		&& conn->status == CONNECTION_OK
 		&& (conn->asyncStatus == PGASYNC_COPY_OUT
 		|| conn->asyncStatus == PGASYNC_COPY_BOTH))
 	{
@@ -2486,6 +2487,7 @@ int PQisCopyOutState(PGconn *conn)
 int PQisCopyInState(PGconn *conn)
 {
 	if(conn
+		&& conn->status == CONNECTION_OK
 		&& (conn->asyncStatus == PGASYNC_COPY_IN
 		|| conn->asyncStatus == PGASYNC_COPY_BOTH))
 	{
