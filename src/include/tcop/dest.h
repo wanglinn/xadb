@@ -96,6 +96,9 @@ typedef enum
 	DestSQLFunction,			/* results sent to SQL-language func mgr */
 	DestTransientRel,			/* results sent to transient relation */
 	DestTupleQueue				/* results sent to tuple queue */
+#ifdef ADB
+	,DestClusterOut				/* results sent to master(COPY TO) */
+#endif /* ADB */
 } CommandDest;
 
 /* ----------------

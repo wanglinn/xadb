@@ -39,7 +39,9 @@
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "utils/portal.h"
-
+#ifdef ADB
+#include "executor/clusterReceiver.h"
+#endif /* ADB */
 
 /* ----------------
  *		dummy DestReceiver functions
@@ -134,6 +136,11 @@ CreateDestReceiver(CommandDest dest)
 
 		case DestTupleQueue:
 			return CreateTupleQueueDestReceiver(NULL);
+
+#ifdef ADB
+		case DestClusterOut:
+			return createClusterReceiver();//create_cluster_receiver();
+#endif /* ADB */
 	}
 
 	/* should never get here */
@@ -151,6 +158,9 @@ EndCommand(const char *commandTag, CommandDest dest)
 	{
 		case DestRemote:
 		case DestRemoteExecute:
+#ifdef ADB
+		case DestClusterOut:
+#endif /* ADB */
 
 			/*
 			 * We assume the commandTag is plain ASCII and therefore requires
@@ -195,7 +205,9 @@ NullCommand(CommandDest dest)
 	{
 		case DestRemote:
 		case DestRemoteExecute:
-
+#ifdef ADB
+		case DestClusterOut:
+#endif /* ADB */
 			/*
 			 * tell the fe that we saw an empty query string.  In protocols
 			 * before 3.0 this has a useless empty-string message body.
@@ -237,6 +249,9 @@ ReadyForQuery(CommandDest dest)
 	{
 		case DestRemote:
 		case DestRemoteExecute:
+#ifdef ADB
+		case DestClusterOut:
+#endif /* ADB */
 #ifdef DEBUG_ADB
 			adb_ereport(LOG,
 				(errmsg("[ADB]Send Command(Z)")));
