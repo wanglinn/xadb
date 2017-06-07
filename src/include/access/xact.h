@@ -356,6 +356,12 @@ extern Size EstimateTransactionStateSpace(void);
 extern void SerializeTransactionState(Size maxsize, char *start_address);
 extern void StartParallelWorkerTransaction(char *tstatespace);
 extern void EndParallelWorkerTransaction(void);
+#ifdef ADB
+struct StringInfoData;
+extern void SerializeClusterTransaction(struct StringInfoData *buf);
+extern void StartClusterTransaction(char *tstatespace);
+extern void EndClusterTransaction(void);
+#endif /* ADB */
 extern bool IsTransactionBlock(void);
 extern bool IsTransactionOrTransactionBlock(void);
 extern char TransactionBlockStatusCode(void);

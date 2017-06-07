@@ -70,6 +70,7 @@
 #include "agtm/agtm_client.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
+#include "lib/stringinfo.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pause.h"
 #include "pgxc/pgxc.h"
@@ -2455,7 +2456,7 @@ CommitTransaction(void)
 	 * holding the notify-insertion lock.
 	 */
 	PreCommit_Notify();
-	
+
 #ifdef ADB
 	if (IsUnderRemoteXact())
 	{
@@ -3093,7 +3094,7 @@ AbortTransaction(void)
 
 	if (IS_PGXC_DATANODE && GetForceXidFromAGTM())
 	{
-		agtm_AbortTransaction(NULL, false);	
+		agtm_AbortTransaction(NULL, false);
 		agtm_Close();
 	}
 #endif
@@ -5641,6 +5642,41 @@ EndParallelWorkerTransaction(void)
 	CommitTransaction();
 	CurrentTransactionState->blockState = TBLOCK_DEFAULT;
 }
+
+#ifdef ADB
+void SerializeClusterTransaction(struct StringInfoData *buf)
+{
+	appendBinaryStringInfo(buf, (char*)&XactIsoLevel, sizeof(XactIsoLevel));
+	appendBinaryStringInfo(buf, (char*)&XactDeferrable, sizeof(XactDeferrable));
+	appendBinaryStringInfo(buf, (char*)&XactTopTransactionId, sizeof(XactTopTransactionId));
+	appendBinaryStringInfo(buf, (char*)&CurrentTransactionState->transactionId
+							, sizeof(CurrentTransactionState->transactionId));
+	appendBinaryStringInfo(buf, (char*)&currentCommandId, sizeof(currentCommandId));
+}
+
+void StartClusterTransaction(char *tstatespace)
+{
+#define LOAD_VALUE(v) memcpy(&(v), tstatespace, sizeof(v));tstatespace+=sizeof(v)
+
+	StartTransaction();
+
+	LOAD_VALUE(XactIsoLevel);
+	LOAD_VALUE(XactDeferrable);
+	LOAD_VALUE(XactTopTransactionId);
+	LOAD_VALUE(CurrentTransactionState->transactionId);
+	LOAD_VALUE(currentCommandId);
+
+#undef LOAD_VALUE
+	CurrentTransactionState->blockState = TBLOCK_INPROGRESS;
+}
+
+void EndClusterTransaction(void)
+{
+	CommitTransaction();
+	CurrentTransactionState->blockState = TBLOCK_DEFAULT;
+}
+
+#endif /* ADB */
 
 /*
  * ShowTransactionState
