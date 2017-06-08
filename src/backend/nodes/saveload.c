@@ -1,4 +1,4 @@
-/* 
+/*
  * saveNode and loadNode
  */
 
@@ -97,7 +97,8 @@ static void save_##type(StringInfo buf, const type *node			\
 		if(len)													\
 		{														\
 			Assert(node->m);									\
-			pq_sendbytes(buf, (const char*)node->m, len);		\
+			pq_sendbytes(buf, (const char*)node->m				\
+						, len * sizeof(node->m[0]));			\
 		}														\
 	}while(0);
 #define NODE_OTHER_POINT(t,m)		not support
@@ -538,7 +539,16 @@ void saveNodeAndHook(StringInfo buf, const Node *node
 #define NODE_BITMAPSET(t,m)			node->m = load_Bitmapset(buf);
 #define NODE_BITMAPSET_ARRAY(t,m,l)	not support yet
 #define NODE_SCALAR(t,m)			pq_copymsgbytes(buf, (char*)&(node->m), sizeof(node->m));
-#define NODE_SCALAR_POINT(t,m,l)	pq_copymsgbytes(buf, (char*)&(node->m), l);
+#define NODE_SCALAR_POINT(t,m,l)							\
+	do{														\
+		uint32 len = (l);									\
+		if(len)												\
+		{													\
+			len *= sizeof(node->m[0]);						\
+			node->m = palloc(len);							\
+			pq_copymsgbytes(buf, (char*)node->m, len);		\
+		}													\
+	}while(0);
 #define NODE_OTHER_POINT(t,m)		not support
 #define NODE_STRING(m)										\
 	do{														\
