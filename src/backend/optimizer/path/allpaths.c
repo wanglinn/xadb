@@ -3100,6 +3100,19 @@ print_path(PlannerInfo *root, Path *path, int indent)
 			ptype = "HashJoin";
 			join = true;
 			break;
+#ifdef ADB
+		case T_RemoteQueryPath:
+			ptype = "RemoteQuery";
+			break;
+		case T_ClusterScanPath:
+			ptype = "ClusterScan";
+			subpath = ((ClusterScanPath*) path)->cluster_path.subpath;
+			break;
+		case T_ClusterGatherPath:
+			ptype = "ClusterGather";
+			subpath = ((ClusterGatherPath*) path)->subpath;
+			break;
+#endif /* ADB */
 		default:
 			ptype = "???Path";
 			break;
@@ -3205,6 +3218,12 @@ debug_print_rel(PlannerInfo *root, RelOptInfo *rel)
 		print_path(root, rel->cheapest_total_path, 1);
 	}
 	printf("\n");
+#ifdef ADB
+	printf("\tcluster path list:\n");
+	foreach(l, rel->cluster_pathlist)
+		print_path(root, lfirst(l), 1);
+	printf("\n");
+#endif /* ADB */
 	fflush(stdout);
 }
 
