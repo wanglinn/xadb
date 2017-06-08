@@ -125,6 +125,8 @@ re_loop_:
 re_get_:
 		if(PQstatus(conn) == CONNECTION_BAD)
 		{
+			res = PQgetResult(conn);
+			PQNReportResultError(res, conn, ERROR, true);
 			node->remotes = list_delete_ptr(node->remotes, conn);
 			goto re_loop_;
 		}
