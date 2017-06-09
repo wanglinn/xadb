@@ -3,6 +3,7 @@
 #include "catalog/pgxc_node.h"
 #include "libpq/libpq-fe.h"
 #include "libpq/pqcomm.h"
+#include "miscadmin.h"
 #include "utils/memutils.h"
 #include "nodes/pg_list.h"
 #include "pgxc/nodemgr.h"
@@ -31,8 +32,9 @@ static void init_htab_oid_pgconn(void);
 static List* apply_for_node_use_oid(List *oid_list);
 static OidPGconn* insert_pgconn_to_htab(int index, char type, PGconn *conn);
 static List* pg_conn_attach_socket(int *fds, Size n);
-static void PQNListExecFinish_trouble(List *list);
 static void PQNExecFinsh_trouble(PGconn *conn);
+static bool PQNExecFinish(PGconn *conn, PQNExecFinishHook_function hook, const void *context);
+static int PQNIsConnectiong(PGconn *conn);
 
 List *PQNGetConnUseOidList(List *oid_list)
 {
@@ -111,7 +113,7 @@ static List* apply_for_node_use_oid(List *oid_list)
 		}
 
 		conns = pg_conn_attach_socket(fds, list_length(dn_list) + list_length(co_list));
-		PQNListExecFinish(conns, true);
+		PQNListExecFinish(conns, PQNEFHNormal, NULL);
 
 		foreach(lc,dn_list)
 		{
@@ -176,7 +178,7 @@ static List* pg_conn_attach_socket(int *fds, Size n)
 		if(conn == NULL)
 		{
 			ListCell *lc;
-			PQNListExecFinish(list, false);
+			PQNListExecFinish(list, PQNEFHNormal, NULL);
 			foreach(lc, list)
 				PQdetach(lfirst(lc));
 			ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY),
@@ -189,241 +191,219 @@ static List* pg_conn_attach_socket(int *fds, Size n)
 	return list;
 }
 
-/*
- * return index of conn_list (start with 1)
- * when result==0 is no connection need wait
- * when result<0 is error number
- */
-int PQNWaitResult(List *conn_list, struct pg_conn **ppconn, bool noError)
-{
-	ListCell *lc;
-	PGconn *conn;
-	struct pollfd *pfd = NULL;
-	int i,n,ret;
-
-	*ppconn = NULL;
-	for(;;)
-	{
-		i = 1;
-		foreach(lc, conn_list)
-		{
-			conn = lfirst(lc);
-			Assert(conn != NULL);
-			n = PQisCopyOutState(conn);
-			if((n == true && PQgetCopyDataBuffer(conn, NULL, true) > 0)
-				|| (n == false && PQisBusy(conn) == false)
-				|| PQstatus(conn) == CONNECTION_BAD
-				|| PQflush(conn) != 0)
-			{
-				if(pfd)
-					pfree(pfd);
-				*ppconn = conn;
-				return i;
-			}
-			++i;
-		}
-		if(pfd == NULL)
-		{
-			pfd = palloc_extended(sizeof(pfd[0]) * list_length(conn_list)
-				, noError ? MCXT_ALLOC_NO_OOM:0);
-			if(pfd == NULL)
-				return -ENOMEM;
-		}
-
-		n = 0;
-		foreach(lc, conn_list)
-		{
-			pfd[n].events = 0;
-			conn = lfirst(lc);
-switch_again_:
-			switch(PQstatus(conn))
-			{
-			case CONNECTION_OK:
-				switch(PQtransactionStatus(conn))
-				{
-				case PQTRANS_ACTIVE:
-					pfd[n].events = POLLIN;
-					break;
-				case PQTRANS_UNKNOWN:
-					*ppconn = conn;
-					goto return_pqn_wait_;
-				default:
-					break;
-				}
-				break;
-			case CONNECTION_BAD:
-				*ppconn = conn;
-				goto return_pqn_wait_;
-			case CONNECTION_NEEDED:
-				(void)PQconnectPoll(conn);
-				goto switch_again_;
-			case CONNECTION_STARTED:
-			case CONNECTION_MADE:
-				pfd[n].events = POLLOUT;
-				break;
-			case CONNECTION_AWAITING_RESPONSE:
-			case CONNECTION_AUTH_OK:
-			case CONNECTION_SSL_STARTUP:
-				pfd[n].events = POLLIN;
-				break;
-			case CONNECTION_SETENV:
-				pfree(pfd);
-				if(noError == false)
-				{
-					ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION),
-						errmsg("No support protocol 2.0 version for remote node")));
-				}
-				return -EINVAL;
-			}
-			if(pfd[n].events != 0)
-			{
-				pfd[n].fd = PQsocket(conn);
-				++n;
-			}
-		}
-
-		if(n == 0)
-		{
-			pfree(pfd);
-			*ppconn = NULL;
-			return 0;
-		}
-
-		ret = poll(pfd, n, -1);
-		if(ret < 0)
-		{
-			*ppconn = NULL;
-			pfree(pfd);
-			return -errno;
-		}
-
-		for(i=0,lc=list_head(conn_list);i<n;++i)
-		{
-			if(pfd[i].revents == 0)
-				continue;
-
-			for(;;)
-			{
-				conn = lfirst(lc);
-				if(PQsocket(conn) != pfd[i].fd)
-					lc = lnext(lc);
-				else
-					break;
-			}
-
-			Assert(pfd[i].fd == PQsocket(conn));
-			switch(PQstatus(conn))
-			{
-			case CONNECTION_OK:
-				PQconsumeInput(conn);
-				break;
-			case CONNECTION_STARTED:
-			case CONNECTION_MADE:
-			case CONNECTION_AWAITING_RESPONSE:
-			case CONNECTION_AUTH_OK:
-			case CONNECTION_SETENV:
-			case CONNECTION_SSL_STARTUP:
-				(void)PQconnectPoll(conn);
-				break;
-			default:
-				ExceptionalCondition("Status error", "FailedAssertion", __FILE__, __LINE__);
-			}
-		}
-	}
-
-return_pqn_wait_:
-	if(*ppconn == NULL)
-		return 0;
-	i=1;
-	foreach(lc, conn_list)
-	{
-		if(lfirst(lc) == *ppconn)
-			return i;
-		++i;
-	}
-	Assert(0);
-	return 0;
-}
-
-void PQNListExecFinish(List *conn_list, bool report_error)
+bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const void *context)
 {
 	List *list;
 	ListCell *lc;
-	PGconn *conn,*error_conn = NULL;
-	PGresult *res,*error_res = NULL;
-	int index;
+	PGconn *conn;
+	struct pollfd *pfds;
+	int i,n;
+	bool res;
 
-	/* copy list */
-	list = NIL;
+	if(conn_list == NIL)
+		return false;
+
+	/* first try got data */
 	foreach(lc, conn_list)
 	{
 		conn = lfirst(lc);
-		if(PQisCopyInState(conn))
-			PQputCopyEnd(conn, NULL);
-		list = lappend(list, conn);
+		if(PQNIsConnectiong(conn) == 0 &&
+			(res = PQNExecFinish(conn, hook, context)) != false)
+			return res;
 	}
 
+	list = NIL;
+	foreach(lc,conn_list)
+	{
+		conn = lfirst(lc);
+		if(PQNIsConnectiong(conn) == 0
+			&& PQstatus(conn) != CONNECTION_BAD
+			&& PQtransactionStatus(conn) != PQTRANS_ACTIVE)
+			continue;
+		list = lappend(list, conn);
+	}
+	if(list == NIL)
+		return false;
+
+	res = false;
+	pfds = palloc(sizeof(pfds[0]) * list_length(list));
 	while(list != NIL)
 	{
-		index = PQNWaitResult(list, &conn, true);
-		if(index < 0)
+		for(i=0,lc=list_head(list);lc!=NULL;)
 		{
-			if(index == -EINTR)
-				continue;
-
-			PQNListExecFinish_trouble(list);
-			list_free(list);
-
-			if(error_res && report_error)
-				PQNReportResultError(error_res, conn, ERROR, true);
-			PQclear(error_res);
-			return;
-		}else if(index == 0)
-		{
-			break;
-		}
-		if(PQisCopyOutState(conn))
-		{
-			/* we just use res for temp, PQgetCopyDataBuffer don't need free result memory point */
-			PQgetCopyDataBuffer(conn, (const char**)&res, true);
-		}else
-		{
-			res = PQgetResult(conn);
-			if(res)
+			conn = lfirst(lc);
+			if((n=PQNIsConnectiong(conn)) != 0)
 			{
-				switch(PQresultStatus(res))
-				{
-				case PGRES_COPY_IN:
-					PQputCopyEnd(conn, NULL);
-					break;
-				case PGRES_FATAL_ERROR:
-					if(report_error && error_res == NULL)
-					{
-						error_res = res;
-						error_conn = conn;
-						res = NULL;
-					}
-					break;
-				default:
-					break;
-				}
-				PQclear(res);
+				if(n > 0)
+					pfds[i].events = POLLOUT;
+				else
+					pfds[i].events = POLLIN;
+			}else if(PQisCopyInState(conn) && !PQisCopyOutState(conn))
+			{
+				lc = lnext(lc);
+				list = list_delete_ptr(list, conn);
+				continue;
 			}else
 			{
+				pfds[i].events = POLLIN;
+			}
+			pfds[i].fd = PQsocket(conn);
+			++i;
+			lc = lnext(lc);
+		}
+
+re_poll_:
+		n = poll(pfds, list_length(list), -1);
+		CHECK_FOR_INTERRUPTS();
+		if(n < 0)
+		{
+			if(errno == EINTR)
+				goto re_poll_;
+			res = (*hook)((void*)context, NULL, PQNHFT_ERROR);
+			if(res)
+				break;
+		}
+
+		/* first consume all socket data */
+		for(i=0,lc=list_head(list);lc!=NULL;lc=lnext(lc),++i)
+		{
+			if(pfds[i].revents != 0)
+			{
+				conn = lfirst(lc);
+				if(PQNIsConnectiong(conn))
+				{
+					PQconnectPoll(conn);
+				}else
+				{
+					PQconsumeInput(conn);
+				}
+			}
+		}
+
+		/* second analyze socket data one by one */
+		for(i=0,lc=list_head(list);lc!=NULL;++i)
+		{
+			if(pfds[i].revents == 0
+				|| PQNIsConnectiong(lfirst(lc)))
+			{
+				lc = lnext(lc);
+				continue;
+			}
+
+			conn = lfirst(lc);
+			res = PQNExecFinish(conn, hook, context);
+			if(res)
+				goto end_loop_;
+			if(PQstatus(conn) == CONNECTION_BAD
+				|| PQtransactionStatus(conn) != PQTRANS_ACTIVE)
+			{
+				lc = lnext(lc);
 				list = list_delete_ptr(list, conn);
+			}else
+			{
+				lc = lnext(lc);
 			}
 		}
 	}
 
-	if(report_error && error_res)
-		PQNReportResultError(error_res, error_conn, ERROR, true);
+end_loop_:
+	pfree(pfds);
+	list_free(list);
+	return res;
 }
 
-static void PQNListExecFinish_trouble(List *list)
+bool PQNEFHNormal(void *context, struct pg_conn *conn, PQNHookFuncType type,...)
 {
-	ListCell *lc;
-	foreach(lc, list)
-		PQNExecFinsh_trouble(lfirst(lc));
+	if(type ==PQNHFT_ERROR)
+		ereport(ERROR, (errmsg("%m")));
+	return false;
+}
+
+static bool PQNExecFinish(PGconn *conn, PQNExecFinishHook_function hook, const void *context)
+{
+	const char *buf;
+	PGresult *res;
+	int n;
+	bool hook_res;
+
+re_get_:
+	if(PQstatus(conn) == CONNECTION_BAD)
+	{
+		res = PQgetResult(conn);
+		hook_res = (*hook)((void*)context, conn, PQNHFT_RESULT, res);
+		PQclear(res);
+		if(hook_res)
+			return hook_res;
+	}else if(PQisCopyOutState(conn))
+	{
+		n = PQgetCopyDataBuffer(conn, &buf, true);
+		if(n > 0)
+		{
+			hook_res = (*hook)((void*)context, conn, PQNHFT_COPY_OUT_DATA, buf, n);
+			if(hook_res)
+				return hook_res;
+			goto re_get_;
+		}else if(n < 0)
+		{
+			goto re_get_;
+		}else if(n == 0)
+		{
+			return false;
+		}
+	}else if(PQisCopyInState(conn))
+	{
+		hook_res = (*hook)((void*)context, conn, PQNHFT_COPY_IN_ONLY);
+		if(hook_res)
+			return hook_res;
+	}else if(PQisBusy(conn) == false)
+	{
+		res = PQgetResult(conn);
+		hook_res = (*hook)((void*)context, conn, PQNHFT_RESULT, res);
+		PQclear(res);
+		if(hook_res)
+			return hook_res;
+	}
+	return false;
+}
+
+/*
+ * return 0 for not connectiong
+ * <0 for need input
+ * >0 for need output
+ */
+static int PQNIsConnectiong(PGconn *conn)
+{
+	AssertArg(conn);
+	switch(PQstatus(conn))
+	{
+	case CONNECTION_OK:
+	case CONNECTION_BAD:
+		break;
+	case CONNECTION_STARTED:
+	case CONNECTION_MADE:
+		return 1;
+	case CONNECTION_AWAITING_RESPONSE:
+	case CONNECTION_AUTH_OK:
+		return -1;
+	case CONNECTION_SETENV:
+		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION),
+						errmsg("No support protocol 2.0 version for remote node")));
+		break;
+	case CONNECTION_SSL_STARTUP:
+		return -1;
+	case CONNECTION_NEEDED:
+		switch(PQconnectPoll(conn))
+		{
+		case PGRES_POLLING_READING:
+			return -1;
+		case PGRES_POLLING_WRITING:
+			return 1;
+		default:
+			break;
+		}
+		break;
+	}
+	return 0;
 }
 
 static void PQNExecFinsh_trouble(PGconn *conn)
@@ -465,19 +445,6 @@ void PQNReleaseAllConnect(void)
 	hash_destroy(htab_oid_pgconn);
 	htab_oid_pgconn = NULL;
 	PoolManagerReleaseConnections(false);
-}
-
-int PQNListGetReslut(List *conn_list, struct pg_result **ppres, bool noError)
-{
-	int index;
-	PGconn *conn;
-
-	*ppres = NULL;
-	index = PQNWaitResult(conn_list, &conn, noError);
-	if(index <= 0)
-		return index;
-	*ppres = PQgetResult(conn);
-	return index;
 }
 
 void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int elevel, bool free_result)
