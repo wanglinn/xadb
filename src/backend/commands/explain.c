@@ -3435,7 +3435,11 @@ static void ExplainRemoteList(List *rnode, ExplainState *es)
 		appendStringInfoChar(es->str, '\n');
 	}else
 	{
-		ExplainPropertyList("Remote node", rnode, es);
+		List *list = NIL;
+		foreach(lc, rnode)
+			list = lappend(list, psprintf("%d", lfirst_int(lc)));
+		ExplainPropertyList("Remote node", list, es);
+		list_free_deep(list);
 	}
 }
 /*
