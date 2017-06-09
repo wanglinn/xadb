@@ -383,7 +383,7 @@ typedef struct EState
 	ResultRelInfo *es_result_relations; /* array of ResultRelInfos */
 	int			es_num_result_relations;		/* length of array */
 	ResultRelInfo *es_result_relation_info;		/* currently active array elt */
-#ifdef ADB	
+#ifdef ADB
 	struct PlanState	*es_result_remoterel;	/* currently active remote rel */
 #endif
 
@@ -2101,7 +2101,6 @@ typedef struct ClusterGatherState
 {
 	PlanState	ps;
 	List	   *remotes;
-	struct pollfd *pfds;
 }ClusterGatherState;
 
 #endif /* ADB */

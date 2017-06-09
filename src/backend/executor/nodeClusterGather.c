@@ -15,11 +15,7 @@
 #include "libpq/libpq-node.h"
 #include "miscadmin.h"
 
-#ifdef HAVE_POLL_H
-#include <poll.h>
-#elif defined(HAVE_SYS_POLL_H)
-#include <sys/poll.h>
-#endif
+static bool cg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 
 ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, int flags)
 {
@@ -42,178 +38,70 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 	outerPlanState(gatherstate) = ExecStartClusterPlan(outerPlan(node)
 		, estate, flags, node->rnodes);
 	if((flags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
-	{
 		gatherstate->remotes = PQNGetConnUseOidList(node->rnodes);
-		gatherstate->pfds = palloc(sizeof(struct pollfd) * list_length(node->rnodes));
-	}
 
 	return gatherstate;
 }
 
 TupleTableSlot *ExecClusterGather(ClusterGatherState *node)
 {
-	PGconn *conn;
-	const char *buf;
-	PGresult *res;
-	int n;
-	ExecStatusType status;
-#if 0
-	while(node->remotes)
-	{
-		CHECK_FOR_INTERRUPTS();
-		n = PQNWaitResult(node->remotes, &conn, false);
-		if(n < 0)
-		{
-			CHECK_FOR_INTERRUPTS();
-			if(errno == EINTR)
-				continue;
-			ereport(ERROR, (errmsg("wait remote result error:%m")));
-		}
-		Assert(n > 0);
-		if(PQisCopyOutState(conn) == false)
-		{
-			/* test has error */
-			res = PQgetResult(conn);
-			if(res == NULL)
-			{
-				node->remotes = list_delete_ptr(node->remotes, conn);
-				continue;
-			}
-			status = PQresultStatus(res);
-			if(status == PGRES_FATAL_ERROR)
-			{
-				PQNReportResultError(res, conn, ERROR, true);
-			}else if(status == PGRES_COMMAND_OK)
-			{
-				node->remotes = list_delete_ptr(node->remotes, conn);
-				continue;
-			}else if(status == PGRES_COPY_IN)
-			{
-				PQputCopyEnd(conn, NULL);
-				continue;
-			}else if(status == PGRES_COPY_OUT)
-			{
-				continue;
-			}else
-			{
-				ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("not support execute status type \"%d\"", status)));
-			}
-		}
-		n = PQgetCopyDataBuffer(conn, &buf, true);
-		Assert(n != 0);
-		if(n >= 0)
-		{
-			if(clusterRecvTuple(node->ps.ps_ResultTupleSlot, buf, n))
-				return node->ps.ps_ResultTupleSlot;
-			else
-				continue;
-		}
-		/* end copy or error
-		 * continue;
-		 */
-	}
-#else
-	ListCell *lc;
-re_loop_:
-	if(node->remotes == NIL)
-		return ExecClearTuple(node->ps.ps_ResultTupleSlot);
-
-	foreach(lc, node->remotes)
-	{
-		conn = lfirst(lc);
-re_get_:
-		if(PQstatus(conn) == CONNECTION_BAD)
-		{
-			res = PQgetResult(conn);
-			PQNReportResultError(res, conn, ERROR, true);
-			node->remotes = list_delete_ptr(node->remotes, conn);
-			goto re_loop_;
-		}
-		if(PQisCopyOutState(conn))
-		{
-			n = PQgetCopyDataBuffer(conn, &buf, true);
-			if(n > 0)
-			{
-				if(clusterRecvTuple(node->ps.ps_ResultTupleSlot, buf, n))
-					return node->ps.ps_ResultTupleSlot;
-				goto re_get_;
-			}else if(n < 0)
-			{
-				goto re_get_;
-			}
-		}else if(PQisCopyInState(conn))
-		{
-			PQputCopyEnd(conn, NULL);
-		}else if(PQisBusy(conn) == false)
-		{
-			res = PQgetResult(conn);
-			if(res == NULL)
-			{
-				node->remotes = list_delete_ptr(node->remotes, conn);
-				goto re_loop_;
-			}
-			status = PQresultStatus(res);
-			if(status == PGRES_FATAL_ERROR)
-			{
-				PQNReportResultError(res, conn, ERROR, true);
-			}else if(status == PGRES_COMMAND_OK)
-			{
-				node->remotes = list_delete_ptr(node->remotes, conn);
-				continue;
-			}else if(status == PGRES_COPY_IN)
-			{
-				PQputCopyEnd(conn, NULL);
-				continue;
-			}else if(status == PGRES_COPY_OUT)
-			{
-				continue;
-			}else
-			{
-				ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("not support execute status type \"%d\"", status)));
-			}
-		}
-	}
-	n=0;
-	foreach(lc, node->remotes)
-	{
-		conn = lfirst(lc);
-		node->pfds[n].fd = PQsocket(conn);
-		node->pfds[n].events = POLLIN;
-		++n;
-	}
-
-re_poll_:
-	n = poll(node->pfds, list_length(node->remotes), -1);
-	CHECK_FOR_INTERRUPTS();
-	if(n < 0)
-	{
-		CHECK_FOR_INTERRUPTS();
-		if(errno == EINTR)
-			goto re_poll_;
-		ereport(ERROR, (errcode_for_socket_access(),
-			errmsg("poll error:%m")));
-	}
-
-	for(n=0,lc=list_head(node->remotes);lc!=NULL;lc=lnext(lc),++n)
-	{
-		if(node->pfds[n].revents == 0)
-			continue;
-		PQconsumeInput(conn);
-	}
-	goto re_loop_;
-
-#endif
-	return ExecClearTuple(node->ps.ps_ResultTupleSlot);
+	ExecClearTuple(node->ps.ps_ResultTupleSlot);
+	PQNListExecFinish(node->remotes, cg_pqexec_finish_hook, node);
+	return node->ps.ps_ResultTupleSlot;
 }
 
 void ExecEndClusterGather(ClusterGatherState *node)
 {
-	/*ExecFreeExprContext(&node->ps);*/
 	ExecEndNode(outerPlanState(node));
 }
 
 void ExecReScanClusterGather(ClusterGatherState *node)
 {
+}
+
+static bool cg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
+{
+	PlanState *ps;
+	va_list args;
+	switch(type)
+	{
+	case PQNHFT_ERROR:
+		return PQNEFHNormal(NULL, conn, type);
+	case PQNHFT_COPY_OUT_DATA:
+		{
+			const char *buf;
+			int len;
+			va_start(args, type);
+			buf = va_arg(args, const char*);
+			len = va_arg(args, int);
+			ps = context;
+			if(clusterRecvTuple(ps->ps_ResultTupleSlot, buf, len))
+			{
+				va_end(args);
+				return true;
+			}
+			va_end(args);
+		}
+		break;
+	case PQNHFT_COPY_IN_ONLY:
+		PQputCopyEnd(conn, NULL);
+		break;
+	case PQNHFT_RESULT:
+		{
+			PGresult *res;
+			va_start(args, type);
+			res = va_arg(args, PGresult*);
+			if(res)
+			{
+				ExecStatusType status = PQresultStatus(res);
+				if(status == PGRES_FATAL_ERROR)
+					PQNReportResultError(res, conn, ERROR, true);
+				else if(status == PGRES_COPY_IN)
+					PQputCopyEnd(conn, NULL);
+			}
+			va_end(args);
+		}
+		break;
+	}
+	return false;
 }
