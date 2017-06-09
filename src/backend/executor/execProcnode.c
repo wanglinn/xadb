@@ -119,6 +119,7 @@
 #ifdef ADB
 #include "pgxc/execRemote.h"
 #include "executor/nodeClusterGather.h"
+#include "executor/nodeClusterMergeGather.h"
 #include "executor/nodeClusterScan.h"
 #endif
 
@@ -350,6 +351,11 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 												estate, eflags);
 			break;
 
+		case T_ClusterMergeGather:
+			result = (PlanState *) ExecInitClusterMergeGather(
+									(ClusterMergeGather*)node, estate, eflags);
+			break;
+
 		case T_ClusterScan:
 			result = (PlanState *) ExecInitClusterScan((ClusterScan *) node,
 												estate, eflags);
@@ -560,6 +566,10 @@ ExecProcNode(PlanState *node)
 
 		case T_ClusterGatherState:
 			result = ExecClusterGather((ClusterGatherState *) node);
+			break;
+
+		case T_ClusterMergeGatherState:
+			result = ExecClusterMergeGather((ClusterMergeGatherState*) node);
 			break;
 
 		case T_ClusterScanState:
@@ -821,6 +831,10 @@ ExecEndNode(PlanState *node)
 
 		case T_ClusterGatherState:
 			ExecEndClusterGather((ClusterGatherState *) node);
+			break;
+
+		case T_ClusterMergeGatherState:
+			ExecEndClusterMergeGather((ClusterMergeGatherState*) node);
 			break;
 
 		case T_ClusterScanState:

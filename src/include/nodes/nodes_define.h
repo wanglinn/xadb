@@ -57,6 +57,7 @@
  *   RemoteQueryState
  *   ClusterScanState
  *   ClusterGatherState
+ *   ClusterMergeGatherState
  *   ExprState
  *   GenericExprState
  *   WholeRowVarExprState
@@ -711,6 +712,18 @@ BEGIN_NODE(ClusterGather)
 END_NODE(ClusterGather)
 #endif /* NO_NODE_ClusterGather */
 
+#ifndef NO_NODE_ClusterMergeGather
+BEGIN_NODE(ClusterMergeGather)
+	NODE_BASE2(Plan,plan)
+	NODE_NODE(List,rnodes)
+	NODE_SCALAR(int,numCols)
+	NODE_SCALAR_POINT(AttrNumber,sortColIdx,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(Oid,sortOperators,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
+END_NODE(ClusterMergeGather)
+#endif /* NO_NODE_ClusterMergeGather */
+
 #endif
 
 #ifdef ADB
@@ -790,7 +803,7 @@ BEGIN_NODE(Aggref)
 	NODE_OID(collation,inputcollid)
 	NODE_OID(type,aggtranstype)
 #ifdef ADB
-	NODE_OID(type,aggtrantype)	
+	NODE_OID(type,aggtrantype)
 	NODE_SCALAR(bool,agghas_collectfn)
 #endif
 	NODE_NODE(List,aggargtypes)
@@ -1731,6 +1744,13 @@ BEGIN_NODE(ClusterGatherPath)
 	NODE_NODE(Path,subpath)
 END_NODE(ClusterGatherPath)
 #endif /* NO_NODE_ClusterGatherPath */
+
+#ifndef NO_NODE_ClusterMergeGatherPath
+BEGIN_NODE(ClusterMergeGatherPath)
+	NODE_BASE2(Path,path)
+	NODE_NODE(Path,subpath)
+END_NODE(ClusterMergeGatherPath)
+#endif /* NO_NODE_ClusterMergeGatherPath */
 
 #endif
 

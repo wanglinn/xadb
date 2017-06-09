@@ -3255,6 +3255,23 @@ bool is_cluster_path(Path *path)
 	return false;
 }
 
+ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
+	, RelOptInfo *rel, Path *sub_path, List *pathkeys)
+{
+	ClusterMergeGatherPath *path = makeNode(ClusterMergeGatherPath);
+
+	path->path.pathtype = T_ClusterMergeGather;
+	path->path.parent = rel;
+	path->path.pathtarget = rel->reltarget;
+
+	path->path.pathkeys = pathkeys;
+	path->subpath = sub_path;
+
+	path->path.startup_cost = sub_path->startup_cost;
+	path->path.total_cost = sub_path->total_cost;
+	return path;
+}
+
 ClusterGatherPath *create_cluster_gather_path(Path *sub_path)
 {
 	ClusterGatherPath *path = makeNode(ClusterGatherPath);

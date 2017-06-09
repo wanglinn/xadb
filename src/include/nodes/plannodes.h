@@ -198,7 +198,7 @@ typedef struct ModifyTable
 	Node	   *onConflictWhere;	/* WHERE for ON CONFLICT UPDATE */
 	Index		exclRelRTI;		/* RTI of the EXCLUDED pseudo relation */
 	List	   *exclRelTlist;	/* tlist of the EXCLUDED pseudo relation */
-#ifdef ADB	
+#ifdef ADB
 	List	   *remote_plans;	/* per-target-table remote node */
 #endif
 } ModifyTable;
@@ -861,6 +861,18 @@ typedef struct ClusterGather
 	Plan		plan;
 	List	   *rnodes;			/* remote node oids */
 } ClusterGather;
+
+typedef struct ClusterMergeGather
+{
+	Plan		plan;
+	List	   *rnodes;			/* remote node oids */
+	/* remaining fields are just like the sort-key info in struct Sort */
+	int			numCols;		/* number of sort-key columns */
+	AttrNumber *sortColIdx;		/* their indexes in the target list */
+	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
+	Oid		   *collations;		/* OIDs of collations */
+	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+}ClusterMergeGather;
 
 #endif /* ADB */
 

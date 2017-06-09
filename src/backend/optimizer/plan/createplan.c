@@ -279,6 +279,8 @@ static ModifyTable *make_modifytable(PlannerInfo *root,
 				 List *withCheckOptionLists, List *returningLists,
 				 List *rowMarks, OnConflictExpr *onconflict, int epqParam);
 #ifdef ADB
+static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
+							ClusterMergeGatherPath *path, int flags);
 static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags);
 static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath *path, int flags);
 #endif /* ADB */
@@ -482,6 +484,10 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 		case T_ClusterGather:
 			plan = (Plan*) create_cluster_gather_plan(root
 						, (ClusterGatherPath*) best_path, flags);
+			break;
+		case T_ClusterMergeGather:
+			plan = (Plan*) create_cluster_merge_gather_plan(root
+								, (ClusterMergeGatherPath*) best_path, flags);
 			break;
 		case T_ClusterScan:
 			plan = (Plan*) create_cluster_scan_plan(root
@@ -6316,6 +6322,33 @@ extern Node *
 pgxc_replace_nestloop_params(PlannerInfo *root, Node *expr)
 {
 	return replace_nestloop_params(root, expr);
+}
+
+static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
+							ClusterMergeGatherPath *path, int flags)
+{
+	ClusterMergeGather *plan;
+	Plan *subplan;
+
+	subplan = create_plan_recurse(root, path->subpath, flags);
+
+	plan = makeNode(ClusterMergeGather);
+	plan->plan.targetlist = subplan->targetlist;
+	outerPlan(plan) = subplan;
+	plan->rnodes = get_remote_nodes(subplan);
+
+	copy_generic_path_info(&plan->plan, (Path*)path);
+
+	prepare_sort_from_pathkeys(&plan->plan, path->path.pathkeys,
+				path->path.parent->relids,
+				NULL, true,
+				&plan->numCols,
+				&plan->sortColIdx,
+				&plan->sortOperators,
+				&plan->collations,
+				&plan->nullsFirst);
+
+	return plan;
 }
 
 static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags)

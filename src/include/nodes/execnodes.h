@@ -2103,6 +2103,18 @@ typedef struct ClusterGatherState
 	List	   *remotes;
 }ClusterGatherState;
 
+typedef struct ClusterMergeGatherState
+{
+	PlanState		ps;
+	int				nremote;	/* number of PGconn for my inputs */
+	int				nkeys;		/* number of sork key */
+	SortSupport		sortkeys;	/* array of length nkeys */
+	TupleTableSlot **slots;		/* array of length nremote */
+	struct binaryheap *binheap;	/* binary heap of slot indices */
+	struct pg_conn **conns;		/* remote connections */
+	bool			initialized;
+}ClusterMergeGatherState;
+
 #endif /* ADB */
 
 #endif   /* EXECNODES_H */

@@ -345,7 +345,7 @@ END_SPECIAL_MEB(RemoteQuery)
 
 NODE_SPECIAL_MEB(RestrictInfo)
 	scansel_cache NODE_STRUCT_LIST(MergeScanSelCache,scansel_cache)
-END_SPECIAL_MEB(RestrictInfo)	
+END_SPECIAL_MEB(RestrictInfo)
 
 NODE_SPECIAL_MEB(ParamListInfoData)
 	paramFetch NODE_OTHER_POINT(ParamFetchHook,paramFetch)
@@ -365,7 +365,7 @@ NODE_SPECIAL_MEB(Aggref)
 	aggfnoid NODE_OID(proc,aggfnoid)
 	aggtype NODE_OID(type,aggtype)
 	aggcollid NODE_OID(collation,aggcollid)
-	aggtrantype NODE_OID(type,aggtrantype)	
+	aggtrantype NODE_OID(type,aggtrantype)
 	aggtranstype NODE_OID(type,aggtranstype)
 	inputcollid NODE_OID(collation,inputcollid)
 END_SPECIAL_MEB(Aggref)
@@ -543,6 +543,13 @@ NODE_SPECIAL_MEB(TupleHashTableData)
 	in_hash_funcs NODE_OTHER_POINT(FmgrInfo, in_hash_funcs)
 	cur_eq_funcs NODE_OTHER_POINT(FmgrInfo, cur_eq_funcs)
 END_SPECIAL_MEB(TupleHashTableData)
+
+NODE_SPECIAL_MEB(ClusterMergeGather)
+	sortColIdx NODE_SCALAR_POINT(AttrNumber,sortColIdx,NODE_ARG_->numCols)
+	sortOperators NODE_SCALAR_POINT(Oid,sortOperators,NODE_ARG_->numCols)
+	collations NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numCols)
+	nullsFirst NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
+END_SPECIAL_MEB(ClusterMergeGather)
 
 /*******************************************************************/
 

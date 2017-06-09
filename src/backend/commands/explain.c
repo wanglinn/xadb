@@ -939,6 +939,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_ClusterGather:
 			pname = sname = "Cluster Gather";
 			break;
+		case T_ClusterMergeGather:
+			pname = sname = "Cluster Merge Gather";
+			break;
 		case T_ClusterScan:
 			pname = sname = "Cluster Scan";
 			break;
@@ -1570,6 +1573,10 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_ClusterGather:
 			if(es->verbose)
 				ExplainRemoteList(((ClusterGather*)plan)->rnodes, es);
+			break;
+		case T_ClusterMergeGather:
+			if(es->verbose)
+				ExplainRemoteList(((ClusterMergeGather*)plan)->rnodes, es);
 			break;
 #endif /* ADB */
 		default:

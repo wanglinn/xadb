@@ -1562,6 +1562,12 @@ typedef struct ClusterGatherPath
 	Path	   *subpath;
 } ClusterGatherPath;
 
+typedef struct ClusterMergeGatherPath
+{
+	Path		path;
+	Path	   *subpath;
+} ClusterMergeGatherPath;
+
 #endif /* ADB */
 
 /*

@@ -3112,6 +3112,10 @@ print_path(PlannerInfo *root, Path *path, int indent)
 			ptype = "ClusterGather";
 			subpath = ((ClusterGatherPath*) path)->subpath;
 			break;
+		case T_ClusterMergeGatherPath:
+			ptype = "ClusterMergeGather";
+			subpath = ((ClusterMergeGatherPath*) path)->subpath;
+			break;
 #endif /* ADB */
 		default:
 			ptype = "???Path";

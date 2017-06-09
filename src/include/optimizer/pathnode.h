@@ -234,6 +234,8 @@ extern Path *reparameterize_path(PlannerInfo *root, Path *path,
 					double loop_count);
 #ifdef ADB
 extern bool is_cluster_path(Path *path);
+extern ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
+			, RelOptInfo *rel, Path *sub_path, List *pathkeys);
 extern ClusterGatherPath *create_cluster_gather_path(Path *sub_path);
 extern ClusterScanPath *create_cluster_path(Path *sub_path, struct ExecNodes *exec_node);
 #endif /* ADB */

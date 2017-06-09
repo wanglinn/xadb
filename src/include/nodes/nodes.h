@@ -100,6 +100,7 @@ typedef enum NodeTag
 	T_ClusterPath,
 	T_ClusterScan,
 	T_ClusterGather,
+	T_ClusterMergeGather,
 #endif
 
 	/*
@@ -149,6 +150,7 @@ typedef enum NodeTag
 	T_RemoteQueryState,
 	T_ClusterScanState,
 	T_ClusterGatherState,
+	T_ClusterMergeGatherState,
 #endif
 
 	/*
@@ -294,6 +296,7 @@ typedef enum NodeTag
 	T_RemoteQueryPath,
 	T_ClusterScanPath,
 	T_ClusterGatherPath,
+	T_ClusterMergeGatherPath,
 #endif
 	/* these aren't subclasses of Path: */
 	T_EquivalenceClass,
@@ -536,7 +539,7 @@ typedef enum NodeTag
 	,T_MGRAddHost = T_MGR_NODE_START
 	,T_MGRDropHost
 	,T_MGRAlterHost
-	,T_MGRAddNode	
+	,T_MGRAddNode
 	,T_MGRAlterNode
 	,T_MGRDropNode
 	,T_MGRUpdateparm

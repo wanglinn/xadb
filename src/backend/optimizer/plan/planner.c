@@ -2107,7 +2107,14 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 
 		if(root->parent_root == NULL)
 		{
-			path = (Path*)create_cluster_gather_path(path);
+			if(parse->sortClause)
+			{
+				path = (Path*)create_cluster_merge_gather_path(root
+							, final_rel, path, root->sort_pathkeys);
+			}else
+			{
+				path = (Path*)create_cluster_gather_path(path);
+			}
 
 			if(limit_needed(parse))
 				path = (Path*) create_limit_path(root, final_rel, path,
@@ -4424,6 +4431,32 @@ create_ordered_paths(PlannerInfo *root,
 			add_path(ordered_rel, path);
 		}
 	}
+#ifdef ADB
+	foreach(lc, input_rel->cluster_pathlist)
+	{
+		Path	   *path = (Path *) lfirst(lc);
+		bool		is_sorted;
+
+		is_sorted = pathkeys_contained_in(root->sort_pathkeys,
+										  path->pathkeys);
+		if(!is_sorted)
+		{
+			/* An explicit sort here can take advantage of LIMIT */
+			path = (Path *) create_sort_path(root,
+											 ordered_rel,
+											 path,
+											 root->sort_pathkeys,
+											 limit_tuples);
+		}
+
+		/* Add projection step if needed */
+		if (path->pathtarget != target)
+			path = apply_projection_to_path(root, ordered_rel,
+											path, target);
+
+		add_cluster_path(ordered_rel, path);
+	}
+#endif /* ADB */
 
 	/*
 	 * If there is an FDW that's responsible for all baserels of the query,

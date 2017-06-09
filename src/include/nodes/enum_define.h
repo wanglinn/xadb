@@ -92,6 +92,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_ClusterPath)
 	ENUM_VALUE(T_ClusterScan)
 	ENUM_VALUE(T_ClusterGather)
+	ENUM_VALUE(T_ClusterMergeGather)
 #endif
 	ENUM_VALUE(T_PlanState)
 	ENUM_VALUE(T_ResultState)
@@ -135,6 +136,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_RemoteQueryState)
 	ENUM_VALUE(T_ClusterScanState)
 	ENUM_VALUE(T_ClusterGatherState)
+	ENUM_VALUE(T_ClusterMergeGatherState)
 #endif
 	ENUM_VALUE(T_Alias)
 	ENUM_VALUE(T_RangeVar)
@@ -265,6 +267,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_RemoteQueryPath)
 	ENUM_VALUE(T_ClusterScanPath)
 	ENUM_VALUE(T_ClusterGatherPath)
+	ENUM_VALUE(T_ClusterMergeGatherPath)
 #endif
 	ENUM_VALUE(T_EquivalenceClass)
 	ENUM_VALUE(T_EquivalenceMember)
@@ -487,15 +490,6 @@ BEGIN_ENUM(NodeTag)
 #endif
 END_ENUM(NodeTag)
 #endif /* NO_ENUM_NodeTag */
-
-#ifndef NO_ENUM_FetchDirection
-BEGIN_ENUM(FetchDirection)
-	ENUM_VALUE(FETCH_FORWARD)
-	ENUM_VALUE(FETCH_BACKWARD)
-	ENUM_VALUE(FETCH_ABSOLUTE)
-	ENUM_VALUE(FETCH_RELATIVE)
-END_ENUM(FetchDirection)
-#endif /* NO_ENUM_FetchDirection */
 
 #ifndef NO_ENUM_JoinType
 BEGIN_ENUM(JoinType)
@@ -1005,6 +999,15 @@ BEGIN_ENUM(RoleStmtType)
 	ENUM_VALUE(ROLESTMT_GROUP)
 END_ENUM(RoleStmtType)
 #endif /* NO_ENUM_RoleStmtType */
+
+#ifndef NO_ENUM_FetchDirection
+BEGIN_ENUM(FetchDirection)
+	ENUM_VALUE(FETCH_FORWARD)
+	ENUM_VALUE(FETCH_BACKWARD)
+	ENUM_VALUE(FETCH_ABSOLUTE)
+	ENUM_VALUE(FETCH_RELATIVE)
+END_ENUM(FetchDirection)
+#endif /* NO_ENUM_FetchDirection */
 
 #ifndef NO_ENUM_FunctionParameterMode
 BEGIN_ENUM(FunctionParameterMode)

@@ -59,6 +59,7 @@
 #ifdef ADB
 #include "pgxc/execRemote.h"
 #include "executor/nodeClusterGather.h"
+#include "executor/nodeClusterMergeGather.h"
 #include "executor/nodeClusterScan.h"
 #endif
 
@@ -221,6 +222,10 @@ ExecReScan(PlanState *node)
 
 		case T_ClusterGatherState:
 			ExecReScanClusterGather((ClusterGatherState *)node);
+			break;
+
+		case T_ClusterMergeGatherState:
+			ExecReScanClusterMergeGather((ClusterMergeGatherState*)node);
 			break;
 
 		case T_ClusterScanState:
