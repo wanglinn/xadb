@@ -34,7 +34,7 @@ static OidPGconn* insert_pgconn_to_htab(int index, char type, PGconn *conn);
 static List* pg_conn_attach_socket(int *fds, Size n);
 static void PQNExecFinsh_trouble(PGconn *conn);
 static bool PQNExecFinish(PGconn *conn, PQNExecFinishHook_function hook, const void *context);
-static int PQNIsConnectiong(PGconn *conn);
+static int PQNIsConnecting(PGconn *conn);
 
 List *PQNGetConnUseOidList(List *oid_list)
 {
@@ -207,7 +207,7 @@ bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const v
 	foreach(lc, conn_list)
 	{
 		conn = lfirst(lc);
-		if(PQNIsConnectiong(conn) == 0 &&
+		if(PQNIsConnecting(conn) == 0 &&
 			(res = PQNExecFinish(conn, hook, context)) != false)
 			return res;
 	}
@@ -216,7 +216,7 @@ bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const v
 	foreach(lc,conn_list)
 	{
 		conn = lfirst(lc);
-		if(PQNIsConnectiong(conn) == 0
+		if(PQNIsConnecting(conn) == 0
 			&& PQstatus(conn) != CONNECTION_BAD
 			&& PQtransactionStatus(conn) != PQTRANS_ACTIVE)
 			continue;
@@ -232,7 +232,7 @@ bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const v
 		for(i=0,lc=list_head(list);lc!=NULL;)
 		{
 			conn = lfirst(lc);
-			if((n=PQNIsConnectiong(conn)) != 0)
+			if((n=PQNIsConnecting(conn)) != 0)
 			{
 				if(n > 0)
 					pfds[i].events = POLLOUT;
@@ -270,7 +270,7 @@ re_poll_:
 			if(pfds[i].revents != 0)
 			{
 				conn = lfirst(lc);
-				if(PQNIsConnectiong(conn))
+				if(PQNIsConnecting(conn))
 				{
 					PQconnectPoll(conn);
 				}else
@@ -284,7 +284,7 @@ re_poll_:
 		for(i=0,lc=list_head(list);lc!=NULL;++i)
 		{
 			if(pfds[i].revents == 0
-				|| PQNIsConnectiong(lfirst(lc)))
+				|| PQNIsConnecting(lfirst(lc)))
 			{
 				lc = lnext(lc);
 				continue;
@@ -371,7 +371,7 @@ re_get_:
  * <0 for need input
  * >0 for need output
  */
-static int PQNIsConnectiong(PGconn *conn)
+static int PQNIsConnecting(PGconn *conn)
 {
 	AssertArg(conn);
 	switch(PQstatus(conn))
