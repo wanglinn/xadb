@@ -52,7 +52,17 @@ TupleTableSlot *ExecClusterGather(ClusterGatherState *node)
 
 void ExecEndClusterGather(ClusterGatherState *node)
 {
+	ListCell *lc;
+	PGconn *conn;
+	foreach(lc, node->remotes)
+	{
+		conn = lfirst(lc);
+		if(PQisCopyInState(conn))
+			PQputCopyEnd(conn, NULL);
+	}
 	ExecEndNode(outerPlanState(node));
+	if(node->remotes != NIL)
+		PQNListExecFinish(node->remotes, PQNEFHNormal, NULL);
 }
 
 void ExecReScanClusterGather(ClusterGatherState *node)
