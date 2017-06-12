@@ -16,6 +16,7 @@
 #include "tcop/dest.h"
 #include "utils/combocid.h"
 #include "utils/lsyscache.h"
+#include "utils/ps_status.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 
@@ -59,9 +60,11 @@ void exec_cluster_plan(const void *splan, int length)
 
 	ExecutorStart(query_desc, 0);
 
+	set_ps_display("<claster query>", false);
+
 	/* Send a message
 	 * 'H' for copy out, 'W' for copy both */
-	pq_beginmessage(&buf, 'H');
+	pq_beginmessage(&buf, 'W');
 	pq_sendbyte(&buf, 0);
 	pq_sendint(&buf, 0, 2);
 	pq_endmessage(&buf);
