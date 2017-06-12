@@ -3255,6 +3255,25 @@ bool is_cluster_path(Path *path)
 	return false;
 }
 
+extern bool have_cluster_gather_path(Node *node, void *context)
+{
+	check_stack_depth();
+
+	if(node == NULL)
+	{
+		return false;
+	}else if(IsA(node, ClusterGatherPath)
+		|| IsA(node, ClusterMergeGatherPath))
+	{
+		return true;
+	}else if(IsA(node, SubqueryScanPath))
+	{
+		return false;
+	}
+
+	return path_tree_walker(node, have_cluster_gather_path, context);
+}
+
 ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 	, RelOptInfo *rel, Path *sub_path, List *pathkeys)
 {
