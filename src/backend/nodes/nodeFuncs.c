@@ -3851,4 +3851,139 @@ bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar)
 		*grammar = gram;
 	return true;
 }
+
+bool path_tree_walker(Node *node, bool (*walker)(), void *context)
+{
+	check_stack_depth();
+	if(node == NULL)
+		return false;
+
+#define CHECK_CHILD_PATH(type, meb)										\
+	if(path_tree_walker((Node*)((type*)node)->meb, walker, context))	\
+		return true
+#define WALK_CHILD_PATH(type, meb)					\
+	if((*walker)(((type*)node)->meb, context))		\
+		return true
+
+	switch(nodeTag(node))
+	{
+	case T_List:
+		{
+			ListCell *lc;
+			foreach(lc, (List*)node)
+			{
+				if(path_tree_walker(lfirst(lc), walker, context))
+					return true;
+			}
+		}
+		break;
+	case T_Path:
+	case T_IndexPath:
+		break;
+	case T_BitmapHeapPath:
+		CHECK_CHILD_PATH(BitmapHeapPath,bitmapqual);
+		break;
+	case T_BitmapAndPath:
+		WALK_CHILD_PATH(BitmapAndPath,bitmapquals);
+		break;
+	case T_BitmapOrPath:
+		WALK_CHILD_PATH(BitmapOrPath,bitmapquals);
+		break;
+	case T_TidPath:
+		break;
+	case T_SubqueryScanPath:
+		CHECK_CHILD_PATH(SubqueryScanPath, subpath);
+		break;
+	case T_ForeignPath:
+		WALK_CHILD_PATH(ForeignPath, fdw_outerpath);
+		break;
+	case T_CustomPath:
+		CHECK_CHILD_PATH(CustomPath, custom_paths);
+		break;
+	case T_NestPath:
+	case T_MergePath:
+	case T_HashPath:
+		WALK_CHILD_PATH(JoinPath, outerjoinpath);
+		WALK_CHILD_PATH(JoinPath, innerjoinpath);
+		break;
+	case T_AppendPath:
+		CHECK_CHILD_PATH(AppendPath, subpaths);
+		break;
+	case T_MergeAppendPath:
+		CHECK_CHILD_PATH(MergeAppendPath, subpaths);
+		break;
+	case T_ResultPath:
+		break;
+	case T_MaterialPath:
+		WALK_CHILD_PATH(MaterialPath, subpath);
+		break;
+	case T_UniquePath:
+		WALK_CHILD_PATH(UniquePath, subpath);
+		break;
+	case T_GatherPath:
+		WALK_CHILD_PATH(GatherPath, subpath);
+		break;
+	case T_ProjectionPath:
+		WALK_CHILD_PATH(ProjectionPath, subpath);
+		break;
+	case T_SortPath:
+		WALK_CHILD_PATH(SortPath, subpath);
+		break;
+	case T_GroupPath:
+		WALK_CHILD_PATH(GroupPath, subpath);
+		break;
+	case T_UpperUniquePath:
+		WALK_CHILD_PATH(UpperUniquePath, subpath);
+		break;
+	case T_AggPath:
+		WALK_CHILD_PATH(AggPath, subpath);
+		break;
+	case T_GroupingSetsPath:
+		WALK_CHILD_PATH(GroupingSetsPath, subpath);
+		break;
+	case T_MinMaxAggPath:
+		CHECK_CHILD_PATH(MinMaxAggPath, mmaggregates);
+		break;
+	case T_WindowAggPath:
+		WALK_CHILD_PATH(WindowAggPath, subpath);
+		break;
+	case T_SetOpPath:
+		WALK_CHILD_PATH(SetOpPath, subpath);
+		break;
+	case T_RecursiveUnionPath:
+		WALK_CHILD_PATH(RecursiveUnionPath, leftpath);
+		WALK_CHILD_PATH(RecursiveUnionPath, rightpath);
+		break;
+	case T_LockRowsPath:
+		WALK_CHILD_PATH(LockRowsPath, subpath);
+		break;
+	case T_ModifyTablePath:
+		CHECK_CHILD_PATH(ModifyTablePath, subpaths);
+		break;
+	case T_LimitPath:
+		WALK_CHILD_PATH(LimitPath, subpath);
+		break;
+	case T_RemoteQueryPath:
+		WALK_CHILD_PATH(RemoteQueryPath, leftpath);
+		WALK_CHILD_PATH(RemoteQueryPath, rightpath);
+		break;
+	case T_ClusterScanPath:
+		WALK_CHILD_PATH(ClusterPath, subpath);
+		break;
+	case T_ClusterGatherPath:
+		WALK_CHILD_PATH(ClusterGatherPath, subpath);
+		break;
+	case T_ClusterMergeGatherPath:
+		WALK_CHILD_PATH(ClusterMergeGatherPath, subpath);
+		break;
+	case T_MinMaxAggInfo:
+		WALK_CHILD_PATH(MinMaxAggInfo, path);
+		break;
+	default:
+		ereport(ERROR, (errmsg("unrecognized node type: %d",
+			 (int) nodeTag(node))));
+		break;
+	}
+	return false;
+}
 #endif /* ADB */
