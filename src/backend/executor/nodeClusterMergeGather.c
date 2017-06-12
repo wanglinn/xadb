@@ -14,7 +14,6 @@
 
 static int cmg_heap_compare_slots(Datum a, Datum b, void *arg);
 static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot);
-static bool cmg_pqexec_finish_hook(void *context, PGconn *conn, PQNHookFuncType type, ...);
 
 ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, EState *estate, int eflags)
 {
@@ -118,6 +117,13 @@ void ExecEndClusterMergeGather(ClusterMergeGatherState *node)
 {
 	List *list;
 	int i;
+
+	for(i=0;i<node->nremote;++i)
+	{
+		PGconn *conn = node->conns[i];
+		if(conn != NULL && PQisCopyInState(conn))
+			PQputCopyEnd(conn, NULL);
+	}
 	ExecEndNode(outerPlanState(node));
 
 	list = NIL;
@@ -133,7 +139,7 @@ void ExecEndClusterMergeGather(ClusterMergeGatherState *node)
 	}
 	if(list != NIL)
 	{
-		PQNListExecFinish(list, cmg_pqexec_finish_hook, NULL);
+		PQNListExecFinish(list, PQNEFHNormal, NULL);
 		list_free(list);
 	}
 }
@@ -242,16 +248,4 @@ static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot)
 		}
 	}
 	return ExecClearTuple(slot);
-}
-
-bool cmg_pqexec_finish_hook(void *context, PGconn *conn, PQNHookFuncType type,...)
-{
-	if(type == PQNHFT_COPY_IN_ONLY)
-	{
-		PQputCopyEnd(conn, NULL);
-	}else
-	{
-		return PQNEFHNormal(NULL, conn, type);
-	}
-	return false;
 }
