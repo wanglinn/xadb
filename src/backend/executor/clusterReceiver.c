@@ -6,13 +6,16 @@
 #include "executor/clusterReceiver.h"
 #include "executor/tuptable.h"
 #include "libpq/libpq.h"
+#include "storage/ipc.h"
 #include "tcop/dest.h"
 
+#include <time.h>
 
 typedef struct ClusterPlanReceiver
 {
 	DestReceiver pub;
 	StringInfoData buf;
+	time_t lastCheckTime;	/* last check client message time */
 }ClusterPlanReceiver;
 
 static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self);
@@ -80,13 +83,68 @@ static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self)
 {
 	ClusterPlanReceiver * r = (ClusterPlanReceiver*)self;
 	MinimalTuple tup = ExecFetchSlotMinimalTuple(slot);
+	time_t time_now;
+	bool need_more_slot;
+
 	resetStringInfo(&r->buf);
 	appendStringInfoChar(&r->buf, 'D');
 	appendBinaryStringInfo(&r->buf, (char*)&(tup->t_infomask2)
 		, tup->t_len - offsetof(MinimalTupleData, t_infomask2));
 	pq_putmessage('d', r->buf.data, r->buf.len);
 	pq_flush();
-	return true;
+
+	/* check client message */
+	time_now = time(NULL);
+	need_more_slot = true;
+	if(time_now != r->lastCheckTime)
+	{
+		int n;
+		unsigned char first_char;
+		r->lastCheckTime = time_now;
+		pq_startmsgread();
+		n = pq_getbyte_if_available(&first_char);
+		if(n == 0)
+		{
+			/* no message from client */
+			pq_endmsgread();
+			need_more_slot = true;
+		}else if(n < 0)
+		{
+			/* eof, we don't need more slot */
+			pq_endmsgread();
+			need_more_slot = false;
+		}else
+		{
+			resetStringInfo(&r->buf);
+			if(pq_getmessage(&r->buf, 0))
+			{
+				ereport(COMMERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("unexpected EOF on coordinator connection")));
+				proc_exit(0);
+			}
+
+			if(first_char == 'c'
+				|| first_char == 'X')
+			{
+				/* copy end */
+				need_more_slot = false;
+			}else if(first_char == 'd')
+			{
+				/* message */
+				ereport(ERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						errmsg("not support copy data in yet")));
+			}else
+			{
+				ereport(FATAL,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("invalid coordinator message type \"%c\"",
+								first_char)));
+			}
+		}
+	}
+	return need_more_slot;
 }
 
 static void cluster_receive_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
