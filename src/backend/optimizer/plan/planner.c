@@ -2102,13 +2102,15 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 	foreach(lc, current_rel->cluster_pathlist)
 	{
 		Path *path = lfirst(lc);
+		bool have_gather;
 
 		if (parse->rowMarks)
 		{
 			break;
 		}
 
-		if(limit_needed(parse))
+		have_gather = have_cluster_gather_path((Node*)path, NULL);
+		if(!have_gather && limit_needed(parse))
 		{
 			if(parse->limitOffset == NULL)
 			{
@@ -2126,13 +2128,20 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 
 		if(root->parent_root == NULL)
 		{
-			if(parse->sortClause)
+			if(!have_gather)
 			{
-				path = (Path*)create_cluster_merge_gather_path(root
-							, final_rel, path, root->sort_pathkeys);
-			}else
+				if(parse->sortClause)
+				{
+					path = (Path*)create_cluster_merge_gather_path(root
+								, final_rel, path, root->sort_pathkeys);
+				}else
+				{
+					path = (Path*)create_cluster_gather_path(path);
+				}
+			}else if(parse->sortClause
+					&& !pathkeys_contained_in(path->pathkeys, root->sort_pathkeys))
 			{
-				path = (Path*)create_cluster_gather_path(path);
+				path = (Path*)create_sort_path(root, final_rel, path, root->sort_pathkeys, -1.0);
 			}
 
 			if(limit_needed(parse))
@@ -3454,6 +3463,9 @@ create_grouping_paths(PlannerInfo *root,
 	bool		can_hash;
 	bool		can_sort;
 	bool		try_parallel_aggregation;
+#ifdef ADB
+	bool		try_cluster_aggregation;
+#endif /* ADB */
 
 	ListCell   *lc;
 
@@ -3958,6 +3970,201 @@ create_grouping_paths(PlannerInfo *root,
 			}
 		}
 	}
+
+#ifdef ADB
+	if(has_cluster_hazard((Node*)target->exprs)
+		|| has_cluster_hazard(parse->havingQual)
+		|| input_rel->cluster_pathlist == NIL	/* Nothing to use as input for cluster aggregate. */
+		|| (!parse->hasAggs && parse->groupClause == NIL)
+		|| parse->groupingSets
+		|| root->parent_root != NULL	/* not support distribute for now */
+		|| (agg_costs->hasNonPartial || agg_costs->hasNonSerial))
+	{
+		try_cluster_aggregation = false;
+	}else
+	{
+		try_cluster_aggregation = true;
+	}
+
+	if(try_cluster_aggregation)
+	{
+		Path *cheapest_cluster_path = linitial(input_rel->cluster_pathlist);
+
+		if(partial_grouping_target == NULL)
+			partial_grouping_target = make_partial_grouping_target(root, target);
+
+		dNumPartialGroups = get_number_of_groups(root,
+												cheapest_cluster_path->rows,
+												NIL,
+												NIL);
+
+		MemSet(&agg_partial_costs, 0, sizeof(AggClauseCosts));
+		MemSet(&agg_final_costs, 0, sizeof(AggClauseCosts));
+		if (parse->hasAggs)
+		{
+			/* partial phase */
+			get_agg_clause_costs(root, (Node *) partial_grouping_target->exprs,
+								 AGGSPLIT_INITIAL_SERIAL,
+								 &agg_partial_costs);
+
+			/* final phase */
+			get_agg_clause_costs(root, (Node *) target->exprs,
+								 AGGSPLIT_FINAL_DESERIAL,
+								 &agg_final_costs);
+			get_agg_clause_costs(root, parse->havingQual,
+								 AGGSPLIT_FINAL_DESERIAL,
+								 &agg_final_costs);
+		}
+
+		if (can_sort)
+		{
+			/* This was checked before setting try_parallel_aggregation */
+			Assert(parse->hasAggs || parse->groupClause);
+
+			foreach(lc, input_rel->cluster_pathlist)
+			{
+				Path *path = lfirst(lc);
+				bool is_sorted = pathkeys_contained_in(root->group_pathkeys,
+														path->pathkeys);
+
+				if(path == cheapest_cluster_path || is_sorted)
+				{
+					if(!is_sorted)
+						path = (Path*)create_sort_path(root,
+														grouped_rel,
+														path,
+														root->group_pathkeys,
+														-1.0);
+
+					if (parse->hasAggs)
+						path = (Path*)create_agg_path(root,
+													grouped_rel,
+													path,
+													partial_grouping_target,
+								parse->groupClause ? AGG_SORTED : AGG_PLAIN,
+													AGGSPLIT_INITIAL_SERIAL,
+													parse->groupClause,
+													NIL,
+													&agg_partial_costs,
+													dNumPartialGroups);
+					else
+						path = (Path*)create_group_path(root,
+													grouped_rel,
+													path,
+													partial_grouping_target,
+													parse->groupClause,
+													NIL,
+													dNumPartialGroups);
+
+					/* build gather path */
+					if(root->parent_root == NULL)
+					{
+						if(root->group_pathkeys)
+						{
+							path = (Path*)
+								create_cluster_merge_gather_path(root,
+																grouped_rel,
+																path,
+																path->pathkeys);
+						}else
+						{
+							path = (Path*)create_cluster_gather_path(path);
+						}
+					}else
+					{
+						Assert(0);
+					}
+
+					/* build final path */
+					if(root->group_pathkeys &&
+						!pathkeys_contained_in(root->group_pathkeys, path->pathkeys))
+					{
+						path = (Path*)
+								create_sort_path(root, grouped_rel, path,
+												root->group_pathkeys, -1.0);
+					}
+
+					if(parse->hasAggs)
+					{
+						path = (Path *)
+								 create_agg_path(root,
+												 grouped_rel,
+												 path,
+												 target,
+										 parse->groupClause ? AGG_SORTED : AGG_PLAIN,
+												 AGGSPLIT_FINAL_DESERIAL,
+												 parse->groupClause,
+												 (List *) parse->havingQual,
+												 &agg_final_costs,
+												 dNumGroups);
+					}else
+					{
+						path = (Path *)
+								 create_group_path(root,
+												   grouped_rel,
+												   path,
+												   target,
+												   parse->groupClause,
+												   (List *) parse->havingQual,
+												   dNumGroups);
+					}
+					add_cluster_path(grouped_rel, path);
+				}
+			}
+		}
+
+		if(can_hash)
+		{
+			/* Checked above */
+			Assert(parse->hasAggs || parse->groupClause);
+
+			hashaggtablesize =
+				estimate_hashagg_tablesize(cheapest_cluster_path,
+										   &agg_partial_costs,
+										   dNumPartialGroups);
+
+			/*
+			 * Tentatively produce a partial HashAgg Path, depending on if it
+			 * looks as if the hash table will fit in work_mem.
+			 */
+			if (hashaggtablesize < work_mem * 1024L)
+			{
+				Path *path = (Path*)
+							create_agg_path(root,
+											grouped_rel,
+											cheapest_cluster_path,
+											partial_grouping_target,
+											AGG_HASHED,
+											AGGSPLIT_INITIAL_SERIAL,
+											parse->groupClause,
+											NIL,
+											&agg_partial_costs,
+											dNumPartialGroups);
+
+				if(root->parent_root == NULL)
+				{
+					path = (Path*)create_cluster_gather_path(path);
+				}else
+				{
+					Assert(0);
+				}
+
+				path = (Path*)
+						 create_agg_path(root,
+										 grouped_rel,
+										 path,
+										 target,
+										 AGG_HASHED,
+										 AGGSPLIT_FINAL_DESERIAL,
+										 parse->groupClause,
+										 (List *) parse->havingQual,
+										 &agg_final_costs,
+										 dNumGroups);
+				add_cluster_path(grouped_rel, path);
+			}
+		}
+	}
+#endif /* ADB */
 
 	/* Give a helpful error if we failed to find any implementation */
 	if (grouped_rel->pathlist == NIL)
