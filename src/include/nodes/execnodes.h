@@ -1056,6 +1056,9 @@ typedef struct PlanState
 
 	Instrumentation *instrument;	/* Optional runtime stats for this node */
 	WorkerInstrumentation *worker_instrument;	/* per-worker instrumentation */
+#ifdef ADB
+	List	   *list_cluster_instrument;
+#endif /* ADB */
 
 	/*
 	 * Common structural data for all Plan types.  These links to subsidiary

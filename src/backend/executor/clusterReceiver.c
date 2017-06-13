@@ -3,9 +3,13 @@
 
 #include "access/htup_details.h"
 #include "access/tupdesc.h"
+#include "nodes/execnodes.h"
 #include "executor/clusterReceiver.h"
 #include "executor/tuptable.h"
 #include "libpq/libpq.h"
+#include "libpq/libpq-node.h"
+#include "libpq/pqformat.h"
+#include "nodes/nodeFuncs.h"
 #include "storage/ipc.h"
 #include "tcop/dest.h"
 
@@ -18,16 +22,25 @@ typedef struct ClusterPlanReceiver
 	time_t lastCheckTime;	/* last check client message time */
 }ClusterPlanReceiver;
 
+typedef struct RestoreInstrumentContext
+{
+	StringInfoData buf;
+	Oid		nodeOid;
+}RestoreInstrumentContext;
+
 static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self);
 static void cluster_receive_startup(DestReceiver *self,int operation,TupleDesc typeinfo);
 static void cluster_receive_shutdown(DestReceiver *self);
 static void cluster_receive_destroy(DestReceiver *self);
+static bool serialize_instrument_walker(PlanState *ps, StringInfo buf);
+static void restore_instrument_message(PlanState *ps, const char *msg, int len, struct pg_conn *conn);
+static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *context);
 
 /*
  * return ture if got data
  * false is other data
  */
-bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len)
+bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState *ps, struct pg_conn *conn)
 {
 	if(*msg == 'D')
 	{
@@ -70,6 +83,10 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len)
 					errdetail("local is %u, remote is %u", desc->attrs[i]->atttypid, oid)));
 			}
 		}
+		return false;
+	}else if(*msg == 'I' && ps != NULL)
+	{
+		restore_instrument_message(ps, msg+1, len-1, conn);
 		return false;
 	}else
 	{
@@ -188,4 +205,95 @@ DestReceiver *createClusterReceiver(void)
 	self->pub.rDestroy = cluster_receive_destroy;
 
 	return &self->pub;
+}
+
+void serialize_instrument_message(PlanState *ps, StringInfo buf)
+{
+	appendStringInfoChar(buf, 'I');
+	serialize_instrument_walker(ps, buf);
+}
+
+static bool serialize_instrument_walker(PlanState *ps, StringInfo buf)
+{
+	int num_worker;
+
+	if(ps == NULL)
+		return false;
+
+	/* plan ID */
+	appendBinaryStringInfo(buf,
+						   (char*)&(ps->plan->plan_node_id),
+						   sizeof(ps->plan->plan_node_id));
+
+	if(ps->worker_instrument && ps->worker_instrument->num_workers)
+	{
+		num_worker = ps->worker_instrument->num_workers;
+	}else
+	{
+		num_worker = 0;
+	}
+	/* worker instrument */
+	appendBinaryStringInfo(buf, (char*)&num_worker, sizeof(num_worker));
+
+	appendBinaryStringInfo(buf,
+						   (char*)ps->instrument,
+						   sizeof(*(ps->instrument)));
+	if(num_worker)
+		appendBinaryStringInfo(buf,
+							   (char*)(ps->worker_instrument->instrument),
+							   sizeof(Instrumentation) * num_worker);
+
+	return planstate_tree_walker(ps, serialize_instrument_walker, buf);
+}
+
+static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *context)
+{
+	int n;
+	if(ps == NULL)
+		return false;
+
+	Assert(context->buf.len - context->buf.cursor > sizeof(n));
+	memcpy(&n, context->buf.data + context->buf.cursor, sizeof(n));
+	if(n == ps->plan->plan_node_id)
+	{
+		MemoryContext oldcontext;
+		ClusterInstrumentation *ci;
+		context->buf.cursor += sizeof(n);	/* plan_node_id */
+
+		pq_copymsgbytes(&(context->buf), (char*)&n, sizeof(n));	/* count of worker */
+
+		oldcontext = MemoryContextSwitchTo(ps->state->es_query_cxt);
+		ci = palloc(sizeof(*ci) + sizeof(ci->instrument[0]) * n);
+		ci->num_workers = n;
+		ci->nodeOid = context->nodeOid;
+		ps->list_cluster_instrument = lappend(ps->list_cluster_instrument, ci);
+		MemoryContextSwitchTo(oldcontext);
+
+		pq_copymsgbytes(&(context->buf),
+						(char*)&(ci->instrument[0]),
+						sizeof(ci->instrument[0]) * (n+1));
+		return true;
+	}
+	return planstate_tree_walker(ps, restore_instrument_walker, context);
+}
+
+static void restore_instrument_message(PlanState *ps, const char *msg, int len, struct pg_conn *conn)
+{
+	RestoreInstrumentContext context;
+	context.buf.data = (char*)msg;
+	context.buf.cursor = 0;
+	context.buf.len = context.buf.maxlen = len;
+	if(conn)
+		context.nodeOid = PQNConnectOid(conn);
+
+	while(context.buf.cursor < context.buf.len)
+	{
+		Assert(context.buf.len-context.buf.cursor >= sizeof(int)+sizeof(Instrumentation));
+		if(planstate_tree_walker(ps, restore_instrument_walker, &context) == false)
+		{
+			int plan_id;
+			memcpy(&plan_id, context.buf.data + context.buf.cursor, sizeof(plan_id));
+			ereport(ERROR, (errmsg("plan node %d not found", plan_id)));
+		}
+	}
 }

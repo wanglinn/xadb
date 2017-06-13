@@ -13,7 +13,7 @@
 #include "executor/nodeClusterMergeGather.h"
 
 static int cmg_heap_compare_slots(Datum a, Datum b, void *arg);
-static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot);
+static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot, PlanState *ps);
 
 ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, EState *estate, int eflags)
 {
@@ -85,7 +85,7 @@ TupleTableSlot *ExecClusterMergeGather(ClusterMergeGatherState *node)
 	{
 		for(i=0;i<node->nremote;++i)
 		{
-			result = cmg_get_remote_slot(node->conns[i], node->slots[i]);
+			result = cmg_get_remote_slot(node->conns[i], node->slots[i], &node->ps);
 			if(!TupIsNull(result))
 				binaryheap_add_unordered(node->binheap, Int32GetDatum(i));
 		}
@@ -94,7 +94,7 @@ TupleTableSlot *ExecClusterMergeGather(ClusterMergeGatherState *node)
 	}else
 	{
 		i = DatumGetInt32(binaryheap_first(node->binheap));
-		result = cmg_get_remote_slot(node->conns[i], node->slots[i]);
+		result = cmg_get_remote_slot(node->conns[i], node->slots[i], &node->ps);
 		if(!TupIsNull(result))
 			binaryheap_replace_first(node->binheap, Int32GetDatum(i));
 		else
@@ -188,7 +188,7 @@ cmg_heap_compare_slots(Datum a, Datum b, void *arg)
 	return 0;
 }
 
-static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot)
+static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot, PlanState *ps)
 {
 	const char *buf;
 	PGresult *res;
@@ -209,7 +209,7 @@ static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot)
 			n = PQgetCopyDataBuffer(conn, &buf, false);
 			if(n > 0)
 			{
-				if(clusterRecvTuple(slot, buf, n))
+				if(clusterRecvTuple(slot, buf, n, ps, conn))
 					return slot;
 				continue;
 			}else if(n < 0)

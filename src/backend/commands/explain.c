@@ -1658,6 +1658,139 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		if (opened_group)
 			ExplainCloseGroup("Workers", "Workers", false, es);
 	}
+#ifdef ADB
+	if(es->analyze && es->verbose && planstate->list_cluster_instrument != NIL)
+	{
+		ListCell *lc;
+		ClusterInstrumentation *ci;
+		int		i;
+		bool	opened_group;
+
+		foreach(lc, planstate->list_cluster_instrument)
+		{
+			double		nloops;
+			double		startup_sec;
+			double		total_sec;
+			double		rows;
+			ci = lfirst(lc);
+
+			if(es->format == EXPLAIN_FORMAT_TEXT)
+			{
+				appendStringInfoSpaces(es->str, es->indent * 2);
+				appendStringInfo(es->str, "Node %u:", ci->nodeOid);
+			}else
+			{
+				ExplainOpenGroup("Node", "Node", false, es);
+				ExplainPropertyInteger("Oid", ci->nodeOid, es);
+			}
+			nloops = ci->instrument[0].nloops;
+			if(nloops <= 0)
+			{
+				if(es->format == EXPLAIN_FORMAT_TEXT)
+				{
+					appendStringInfoString(es->str, " (never executed)");
+					appendStringInfoChar(es->str, '\n');
+				}else
+				{
+					ExplainCloseGroup("Node", "Node", false, es);
+				}
+				continue;
+			}
+
+			startup_sec = 1000.0 * ci->instrument[0].startup / nloops;
+			total_sec = 1000.0 * ci->instrument[0].total / nloops;
+			rows = ci->instrument[0].ntuples / nloops;
+
+			if(es->format == EXPLAIN_FORMAT_TEXT)
+			{
+				if(es->timing)
+					appendStringInfo(es->str,
+									" (actual time=%.3f..%.3f rows=%.0f loops=%.0f)",
+										startup_sec, total_sec, rows, nloops);
+				else
+					appendStringInfo(es->str,
+									 " (actual rows=%.0f loops=%.0f)",
+									 rows, nloops);
+				appendStringInfoChar(es->str, '\n');
+			}else
+			{
+				if(es->timing)
+				{
+					ExplainPropertyFloat("Actual Startup Time", startup_sec, 3, es);
+					ExplainPropertyFloat("Actual Total Time", total_sec, 3, es);
+				}
+				ExplainPropertyFloat("Actual Rows", rows, 0, es);
+				ExplainPropertyFloat("Actual Loops", nloops, 0, es);
+			}
+
+			if (es->buffers)
+			{
+				es->indent++;
+				show_buffer_usage(es, &ci->instrument[0].bufusage);
+				es->indent--;
+			}
+			opened_group = false;
+			es->indent++;
+			for(i=1;i<=ci->num_workers;++i)
+			{
+				Instrumentation *instrument = &(ci->instrument[i]);
+				nloops = instrument->nloops;
+
+				if (nloops <= 0)
+					continue;
+				startup_sec = 1000.0 * instrument->startup / nloops;
+				total_sec = 1000.0 * instrument->total / nloops;
+				rows = instrument->ntuples / nloops;
+
+				if (es->format == EXPLAIN_FORMAT_TEXT)
+				{
+					appendStringInfoSpaces(es->str, es->indent * 2);
+					appendStringInfo(es->str, "Worker %d: ", i-1);
+					if (es->timing)
+						appendStringInfo(es->str,
+								 "actual time=%.3f..%.3f rows=%.0f loops=%.0f\n",
+										 startup_sec, total_sec, rows, nloops);
+					else
+						appendStringInfo(es->str,
+										 "actual rows=%.0f loops=%.0f\n",
+										 rows, nloops);
+					if (es->buffers)
+					{
+						es->indent++;
+						show_buffer_usage(es, &instrument->bufusage);
+						es->indent--;
+					}
+				}
+				else
+				{
+					if (!opened_group)
+					{
+						ExplainOpenGroup("Workers", "Workers", false, es);
+						opened_group = true;
+					}
+					ExplainOpenGroup("Worker", NULL, true, es);
+					ExplainPropertyInteger("Worker Number", i-1, es);
+
+					if (es->timing)
+					{
+						ExplainPropertyFloat("Actual Startup Time", startup_sec, 3, es);
+						ExplainPropertyFloat("Actual Total Time", total_sec, 3, es);
+					}
+					ExplainPropertyFloat("Actual Rows", rows, 0, es);
+					ExplainPropertyFloat("Actual Loops", nloops, 0, es);
+
+					if (es->buffers)
+						show_buffer_usage(es, &instrument->bufusage);
+
+					ExplainCloseGroup("Worker", NULL, true, es);
+				}
+			}
+			es->indent--;
+		}
+
+		ExplainCloseGroup("Node", "Node", false, es);
+	}
+#endif /* ADB */
 
 	/* Get ready to display the child plans */
 	haschildren = planstate->initPlan ||

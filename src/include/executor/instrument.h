@@ -69,6 +69,15 @@ typedef struct WorkerInstrumentation
 	Instrumentation instrument[FLEXIBLE_ARRAY_MEMBER];
 } WorkerInstrumentation;
 
+#ifdef ADB
+typedef struct ClusterInstrumentation
+{
+	Oid			nodeOid;
+	int			num_workers;
+	Instrumentation	instrument[1];	/* num_workers+1, 0 for node */
+}ClusterInstrumentation;
+#endif /* ADB */
+
 extern PGDLLIMPORT BufferUsage pgBufferUsage;
 
 extern Instrumentation *InstrAlloc(int n, int instrument_options);

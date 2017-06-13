@@ -7,8 +7,8 @@
  */
 #include "postgres.h"
 
-#include "executor/clusterReceiver.h"
 #include "executor/executor.h"
+#include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
 #include "executor/nodeClusterGather.h"
 #include "libpq/libpq-fe.h"
@@ -85,7 +85,7 @@ static bool cg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFu
 			buf = va_arg(args, const char*);
 			len = va_arg(args, int);
 			ps = context;
-			if(clusterRecvTuple(ps->ps_ResultTupleSlot, buf, len))
+			if(clusterRecvTuple(ps->ps_ResultTupleSlot, buf, len, ps, conn))
 			{
 				va_end(args);
 				return true;

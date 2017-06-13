@@ -20,6 +20,7 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 
+#include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
 
 #include "libpq/libpq-fe.h"
@@ -33,6 +34,7 @@
 #define REMOTE_KEY_PARAM					0xFFFFFF06
 #define REMOTE_KEY_NODE_OID					0xFFFFFF07
 #define REMOTE_KEY_RTE_LIST					0xFFFFFF08
+#define REMOTE_KEY_ES_INSTRUMENT			0xFFFFFF09
 
 static Oid cluster_node_oid = InvalidOid;
 
@@ -43,12 +45,14 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt, ParamListInfo p
 static bool SerializePlanHook(StringInfo buf, Node *node, void *context);
 static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context);
 static void StartRemotePlan(StringInfo msg, List *rnodes);
+static bool InstrumentEndLoop_walker(PlanState *ps, void *);
 
 void exec_cluster_plan(const void *splan, int length)
 {
 	QueryDesc *query_desc;
 	DestReceiver *receiver;
 	StringInfoData buf;
+	bool need_instrument;
 
 	buf.data = (char*)splan;
 	buf.cursor = 0;
@@ -57,6 +61,10 @@ void exec_cluster_plan(const void *splan, int length)
 	restore_cluster_plan_info(&buf);
 	receiver = CreateDestReceiver(DestClusterOut);
 	query_desc = create_cluster_query_desc(&buf, receiver);
+	if(mem_toc_lookup(&buf, REMOTE_KEY_ES_INSTRUMENT, NULL) != NULL)
+		need_instrument = true;
+	else
+		need_instrument = false;
 
 	ExecutorStart(query_desc, 0);
 
@@ -72,9 +80,20 @@ void exec_cluster_plan(const void *splan, int length)
 
 	/* run plan */
 	ExecutorRun(query_desc, ForwardScanDirection, 0L);
+	/* and finish */
+	ExecutorFinish(query_desc);
+
+	/* send Instrumentation info */
+	if(need_instrument)
+	{
+		InstrumentEndLoop_walker(query_desc->planstate, NULL);
+		initStringInfo(&buf);
+		serialize_instrument_message(query_desc->planstate, &buf);
+		pq_putmessage('d', buf.data, buf.len);
+		pfree(buf.data);
+	}
 
 	/* and clean up */
-	ExecutorFinish(query_desc);
 	ExecutorEnd(query_desc);
 	FreeQueryDesc(query_desc);
 	cluster_node_oid = InvalidOid;
@@ -133,6 +152,7 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	PlannedStmt *stmt;
 	ParamListInfo paramLI;
 	StringInfoData buf;
+	int es_instrument;
 	int i,n;
 
 	buf.data = mem_toc_lookup(info, REMOTE_KEY_RTE_LIST, &buf.len);
@@ -179,10 +199,16 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	{
 		paramLI = NULL;
 	}
+
+	buf.data = mem_toc_lookup(info, REMOTE_KEY_ES_INSTRUMENT, 0);
+	if(buf.data)
+		memcpy(&es_instrument, buf.data, sizeof(es_instrument));
+	else
+		es_instrument = 0;
 	return CreateQueryDesc(stmt,
 						   "<claster query>",
 						   GetTransactionSnapshot()/*GetActiveSnapshot()*/, InvalidSnapshot,
-						   r, paramLI, 0);
+						   r, paramLI, es_instrument);
 }
 
 /************************************************************************/
@@ -204,6 +230,15 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 	initStringInfo(&msg);
 	SerializePlanInfo(&msg, stmt, estate->es_param_list_info);
 	pfree(stmt);
+
+	if(estate->es_instrument)
+	{
+		begin_mem_toc_insert(&msg, REMOTE_KEY_ES_INSTRUMENT);
+		appendBinaryStringInfo(&msg,
+							   (char*)&(estate->es_instrument),
+							   sizeof(estate->es_instrument));
+		end_mem_toc_insert(&msg, REMOTE_KEY_ES_INSTRUMENT);
+	}
 
 	StartRemotePlan(&msg, rnodes);
 	pfree(msg.data);
@@ -400,4 +435,13 @@ static void StartRemotePlan(StringInfo msg, List *rnodes)
 Oid get_cluster_node_oid(void)
 {
 	return cluster_node_oid;
+}
+
+static bool InstrumentEndLoop_walker(PlanState *ps, void *context)
+{
+	if(ps == NULL)
+		return false;
+	if(ps->instrument)
+		InstrEndLoop(ps->instrument);
+	return planstate_tree_walker(ps, InstrumentEndLoop_walker, NULL);
 }
