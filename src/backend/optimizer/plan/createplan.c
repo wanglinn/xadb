@@ -1486,6 +1486,22 @@ create_projection_plan(PlannerInfo *root, ProjectionPath *best_path)
 		plan->plan_width = best_path->path.pathtarget->width;
 		/* ... but be careful not to munge subplan's parallel-aware flag */
 	}
+#ifdef ADB
+	else if(IsA(subplan, ClusterScan)
+			&& (is_projection_capable_plan(outerPlan(subplan))
+				|| tlist_same_exprs(tlist, subplan->targetlist)))
+	{
+		plan = subplan;
+		subplan = outerPlan(subplan);
+
+		plan->targetlist = subplan->targetlist = tlist;
+
+		plan->startup_cost = subplan->startup_cost = best_path->path.startup_cost;
+		plan->total_cost = subplan->total_cost = best_path->path.total_cost;
+		plan->plan_rows = subplan->plan_rows = best_path->path.rows;
+		plan->plan_width = subplan->plan_width = best_path->path.pathtarget->width;
+	}
+#endif /* ADB */
 	else
 	{
 		/* We need a Result node */
@@ -6241,6 +6257,11 @@ is_projection_capable_path(Path *path)
 		case T_ModifyTable:
 		case T_MergeAppend:
 		case T_RecursiveUnion:
+#ifdef ADB
+		case T_ClusterScan:
+		case T_ClusterGather:
+		case T_ClusterMergeGather:
+#endif /* ADB */
 			return false;
 		case T_Append:
 
@@ -6278,6 +6299,11 @@ is_projection_capable_plan(Plan *plan)
 		case T_Append:
 		case T_MergeAppend:
 		case T_RecursiveUnion:
+#ifdef ADB
+		case T_ClusterScan:
+		case T_ClusterGather:
+		case T_ClusterMergeGather:
+#endif /* ADB */
 			return false;
 		default:
 			break;
