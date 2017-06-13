@@ -1869,6 +1869,25 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			 */
 			current_rel->partial_pathlist = NIL;
 		}
+#ifdef ADB
+		if(current_rel->cluster_pathlist &&
+			!has_cluster_hazard((Node*)scanjoin_target->exprs))
+		{
+			foreach(lc, current_rel->cluster_pathlist)
+			{
+				Path *subpath = lfirst(lc);
+				Assert(subpath->param_info == NULL);
+
+				lfirst(lc) = create_projection_path(root,
+													current_rel,
+														subpath,
+														scanjoin_target);
+			}
+		}else
+		{
+			current_rel->cluster_pathlist = NIL;
+		}
+#endif /* ADB */
 
 		/*
 		 * Save the various upper-rel PathTargets we just computed into
