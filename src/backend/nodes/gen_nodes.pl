@@ -164,10 +164,8 @@ while(<>)
 					or $1 eq 'ForeignKeyCacheInfo'
 					or $1 eq 'IndexInfo'
 					or $1 eq 'CustomPath'
-					or $1 eq 'PathTarget'
 					or $1 eq 'CustomScan'
 					or $1 eq 'ExecRowMark'
-					or $1 eq 'RelationData'
 					or $1 eq 'StartReplicationCmd'
 					or $1 eq 'TimeLineHistoryCmd'
 					or $1 =~ '^(FdwRoutine|TIDBitmap|IndexAmRoutine)$'
@@ -219,6 +217,8 @@ while(<>)
 	}
 }
 push @node_tags,"JoinPath";
+push @except_node,"RelationData";
+push @except_node,"ParamExecData";
 
 open H,'>',$output_path . 'enum_define.h' or die "can not open $output_path" . "enum_define.h:$!";
 print H
@@ -253,10 +253,10 @@ foreach my $key (sort{ $all_enum{$a} <=> $all_enum{$b} } keys %all_enum)
 			$tmp_str = " ||";
 		}
 	}
-	if ($key eq 'CostSelector' || $key eq 'CommandMode' || $key eq 'DomainConstraintType' || $key eq 'SetFunctionReturnMode' || $key eq 'ExprDoneCond' || $key eq 'UpperRelationKind' || $key eq 'LimitStateCond' || $key eq 'TableLikeOption' || $key eq 'VacuumOption')
-	{
-		next;
-	}
+#	if ($key eq 'CostSelector' || $key eq 'CommandMode' || $key eq 'DomainConstraintType' || $key eq 'SetFunctionReturnMode' || $key eq 'ExprDoneCond' || $key eq 'UpperRelationKind' || $key eq 'LimitStateCond' || $key eq 'TableLikeOption' || $key eq 'VacuumOption')
+#	{
+#		next;
+#	}
 	print H "\n#ifndef NO_ENUM_$key\nBEGIN_ENUM($key)\n";
 	foreach my $item (@{$all_enum{$key}})
 	{

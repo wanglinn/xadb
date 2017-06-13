@@ -90,7 +90,6 @@
  *   PlannerInfo
  *   ForeignKeyOptInfo
  *   CustomPath
- *   PathTarget
  *   MemoryContext
  *   AllocSetContext
  *   Value
@@ -112,6 +111,8 @@
  *   IndexAmRoutine
  *   TsmRoutine
  *   ForeignKeyCacheInfo
+ *   RelationData
+ *   ParamExecData
  */
 
 #ifndef BEGIN_NODE
@@ -1790,6 +1791,15 @@ BEGIN_NODE(PathKey)
 	NODE_SCALAR(bool,pk_nulls_first)
 END_NODE(PathKey)
 #endif /* NO_NODE_PathKey */
+
+#ifndef NO_NODE_PathTarget
+BEGIN_NODE(PathTarget)
+	NODE_NODE(List,exprs)
+	NODE_SCALAR_POINT(Index,sortgrouprefs,list_length(NODE_ARG_->exprs))
+	NODE_STRUCT_MEB(QualCost,cost)
+	NODE_SCALAR(int,width)
+END_NODE(PathTarget)
+#endif /* NO_NODE_PathTarget */
 
 #ifndef NO_NODE_RestrictInfo
 BEGIN_NODE(RestrictInfo)

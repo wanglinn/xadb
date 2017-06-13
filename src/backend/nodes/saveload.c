@@ -35,11 +35,8 @@
 #define NO_NODE_PlannerInfo
 #define NO_NODE_RelOptInfo
 #define NO_NODE_RestrictInfo
-#define NO_STRUCT_ParamListInfoData
-#define NO_STRUCT_ParamExternData
-#define NO_STRUCT_MergeScanSelCache
-/* not used struct */
-#define NO_STRUCT_QualCost
+#include "nodes/def_no_all_struct.h"
+#undef NO_STRUCT_QualCost
 
 /* declare static functions */
 #define BEGIN_NODE(type) 										\
@@ -50,6 +47,7 @@
 #define NODE_SAME(t1, t2)
 #define BEGIN_STRUCT(type) BEGIN_NODE(type)
 #include "nodes/nodes_define.h"
+#include "nodes/struct_define.h"
 #include "nodes/nodes_undef.h"
 
 /* save functions */
@@ -131,7 +129,7 @@ static void save_##type(StringInfo buf, const type *node			\
 			SAVE_IS_NULL();										\
 		}														\
 	}while(0);
-#define NODE_STRUCT_MEB(t,m)			save_##t(buf, &node->m);
+#define NODE_STRUCT_MEB(t,m)			save_##t(buf, &node->m, hook, context);
 #define NODE_ENUM(t,m)					NODE_SCALAR(t,m)
 #define NODE_DATUM(t,m,o,n)			not support
 #define NODE_OID(t, m)					save_oid_##t(buf, node->m);
@@ -465,6 +463,7 @@ END_NODE(A_Const)
 #define NO_NODE_A_Const
 #define NO_NODE_Const
 #include "nodes/nodes_define.h"
+#include "nodes/struct_define.h"
 #include "nodes/nodes_undef.h"
 #undef NO_NODE_A_Const
 #undef NO_NODE_Const
@@ -583,7 +582,7 @@ void saveNodeAndHook(StringInfo buf, const Node *node
 			}												\
 		}													\
 	}while(0);
-#define NODE_STRUCT_MEB(t,m)			(void)load_##t(buf,&(node->m));
+#define NODE_STRUCT_MEB(t,m)			(void)load_##t(buf,&(node->m), hook, context);
 #define NODE_ENUM(t,m)					NODE_SCALAR(t,m)
 #define NODE_DATUM(t,m,o,n)				not support
 #define NODE_OID(t,m)					node->m = load_oid_##t(buf);
@@ -986,6 +985,7 @@ END_NODE(A_Const)
 #define NO_NODE_Const
 #define NO_NODE_A_Const
 #include "nodes/nodes_define.h"
+#include "nodes/struct_define.h"
 #include "nodes/nodes_undef.h"
 #undef NO_NODE_Const
 #undef NO_NODE_A_Const

@@ -325,61 +325,6 @@ BEGIN_STRUCT(LockInfoData)
 END_STRUCT(LockInfoData)
 #endif /* NO_STRUCT_LockInfoData */
 
-#ifndef NO_STRUCT_RelationData
-BEGIN_STRUCT(RelationData)
-RelFileNode rd_node
-struct SMgrRelationData *rd_smgr
-	NODE_SCALAR(int,rd_refcnt)
-BackendId rd_backend
-	NODE_SCALAR(bool,rd_islocaltemp)
-	NODE_SCALAR(bool,rd_isnailed)
-	NODE_SCALAR(bool,rd_isvalid)
-	NODE_SCALAR(char,rd_indexvalid)
-SubTransactionId rd_createSubid
-SubTransactionId rd_newRelfilenodeSubid
-Form_pg_class rd_rel
-TupleDesc rd_att
-	NODE_SCALAR(Oid,rd_id)
-	NODE_STRUCT_MEB(LockInfoData,rd_lockInfo)
-RuleLock *rd_rules
-	NODE_NODE_MEB(MemoryContext,rd_rulescxt)
-TriggerDesc *trigdesc
-struct RowSecurityDesc *rd_rsdesc
-	NODE_NODE(List,rd_fkeylist)
-	NODE_SCALAR(bool,rd_fkeyvalid)
-	NODE_NODE(List,rd_indexlist)
-	NODE_SCALAR(Oid,rd_oidindex)
-	NODE_SCALAR(Oid,rd_replidindex)
-	NODE_BITMAPSET(Bitmapset,rd_indexattr)
-	NODE_BITMAPSET(Bitmapset,rd_keyattr)
-	NODE_BITMAPSET(Bitmapset,rd_idattr)
-bytea *rd_options
-Form_pg_index rd_index
-struct HeapTupleData *rd_indextuple
-	NODE_SCALAR(Oid,rd_amhandler)
-	NODE_NODE_MEB(MemoryContext,rd_indexcxt)
-	NODE_NODE(IndexAmRoutine,rd_amroutine)
-	NODE_SCALAR_POINT(Oid,rd_opfamily,NODE_ARG_->------)
-	NODE_SCALAR_POINT(Oid,rd_opcintype,NODE_ARG_->------)
-RegProcedure *rd_support
-FmgrInfo *rd_supportinfo
-	NODE_SCALAR_POINT(int16,rd_indoption,NODE_ARG_->------)
-	NODE_NODE(List,rd_indexprs)
-	NODE_NODE(List,rd_indpred)
-	NODE_SCALAR_POINT(Oid,rd_exclops,NODE_ARG_->------)
-	NODE_SCALAR_POINT(Oid,rd_exclprocs,NODE_ARG_->------)
-	NODE_SCALAR_POINT(uint16,rd_exclstrats,NODE_ARG_->------)
-	NODE_OTHER_POINT(void,rd_amcache)
-	NODE_SCALAR_POINT(Oid,rd_indcollation,NODE_ARG_->------)
-	NODE_NODE(FdwRoutine,rd_fdwroutine)
-	NODE_SCALAR(Oid,rd_toastoid)
-struct PgStat_TableStatus *pgstat_info
-#ifdef ADB
-	NODE_STRUCT(RelationLocInfo,rd_locator_info)
-#endif
-END_STRUCT(RelationData)
-#endif /* NO_STRUCT_RelationData */
-
 #ifndef NO_STRUCT_AutoVacOpts
 BEGIN_STRUCT(AutoVacOpts)
 	NODE_SCALAR(bool,enabled)
@@ -437,11 +382,3 @@ BEGIN_STRUCT(ParamListInfoData)
 	NODE_STRUCT_ARRAY(ParamExternData,params, NODE_ARG_->numParams)
 END_STRUCT(ParamListInfoData)
 #endif /* NO_STRUCT_ParamListInfoData */
-
-#ifndef NO_STRUCT_ParamExecData
-BEGIN_STRUCT(ParamExecData)
-	NODE_OTHER_POINT(void,execPlan)
-Datum value
-	NODE_SCALAR(bool,isnull)
-END_STRUCT(ParamExecData)
-#endif /* NO_STRUCT_ParamExecData */

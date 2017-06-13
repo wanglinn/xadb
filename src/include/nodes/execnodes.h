@@ -156,7 +156,7 @@ typedef struct ExprContext
 /*
  * Set-result status returned by ExecEvalExpr()
  */
-typedef enum
+typedef enum ExprDoneCond
 {
 	ExprSingleResult,			/* expression does not return a set */
 	ExprMultipleResult,			/* this result is an element of a set */
@@ -169,7 +169,7 @@ typedef enum
  * modes.  SFRM_Materialize_Random and SFRM_Materialize_Preferred are
  * auxiliary flags about SFRM_Materialize mode, rather than separate modes.
  */
-typedef enum
+typedef enum SetFunctionReturnMode
 {
 	SFRM_ValuePerCall = 0x01,	/* one value returned per call */
 	SFRM_Materialize = 0x02,	/* result set instantiated in Tuplestore */
@@ -2064,7 +2064,7 @@ typedef struct LockRowsState
  * When lstate == LIMIT_INITIAL, offset/count/noCount haven't been set yet.
  * ----------------
  */
-typedef enum
+typedef enum LimitStateCond
 {
 	LIMIT_INITIAL,				/* initial state for LIMIT node */
 	LIMIT_RESCAN,				/* rescan after recomputing parameters */

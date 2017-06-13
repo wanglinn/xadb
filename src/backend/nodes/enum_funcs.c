@@ -1,6 +1,7 @@
 
 #include "postgres.h"
 
+#include "nodes/execnodes.h"
 #include "nodes/nodes.h"
 #include "nodes/primnodes.h"
 #include "nodes/parsenodes.h"

@@ -721,6 +721,15 @@ END_ENUM(ParseGrammar)
 #endif /* NO_ENUM_ParseGrammar */
 #endif
 
+#if defined(ADBMGRD)
+#ifndef NO_ENUM_CommandMode
+BEGIN_ENUM(CommandMode)
+	ENUM_VALUE(CMD_MODE_SQL)
+	ENUM_VALUE(CMD_MODE_MGR)
+END_ENUM(CommandMode)
+#endif /* NO_ENUM_CommandMode */
+#endif
+
 #ifndef NO_ENUM_A_Expr_Kind
 BEGIN_ENUM(A_Expr_Kind)
 	ENUM_VALUE(AEXPR_OP)
@@ -750,6 +759,17 @@ BEGIN_ENUM(RoleSpecType)
 	ENUM_VALUE(ROLESPEC_PUBLIC)
 END_ENUM(RoleSpecType)
 #endif /* NO_ENUM_RoleSpecType */
+
+#ifndef NO_ENUM_TableLikeOption
+BEGIN_ENUM(TableLikeOption)
+	ENUM_VALUE(CREATE_TABLE_LIKE_DEFAULTS)
+	ENUM_VALUE(CREATE_TABLE_LIKE_CONSTRAINTS)
+	ENUM_VALUE(CREATE_TABLE_LIKE_INDEXES)
+	ENUM_VALUE(CREATE_TABLE_LIKE_STORAGE)
+	ENUM_VALUE(CREATE_TABLE_LIKE_COMMENTS)
+	ENUM_VALUE(CREATE_TABLE_LIKE_ALL)
+END_ENUM(TableLikeOption)
+#endif /* NO_ENUM_TableLikeOption */
 
 #ifndef NO_ENUM_DefElemAction
 BEGIN_ENUM(DefElemAction)
@@ -1042,6 +1062,19 @@ BEGIN_ENUM(ViewCheckOption)
 END_ENUM(ViewCheckOption)
 #endif /* NO_ENUM_ViewCheckOption */
 
+#ifndef NO_ENUM_VacuumOption
+BEGIN_ENUM(VacuumOption)
+	ENUM_VALUE(VACOPT_VACUUM)
+	ENUM_VALUE(VACOPT_ANALYZE)
+	ENUM_VALUE(VACOPT_VERBOSE)
+	ENUM_VALUE(VACOPT_FREEZE)
+	ENUM_VALUE(VACOPT_FULL)
+	ENUM_VALUE(VACOPT_NOWAIT)
+	ENUM_VALUE(VACOPT_SKIPTOAST)
+	ENUM_VALUE(VACOPT_DISABLE_PAGE_SKIPPING)
+END_ENUM(VacuumOption)
+#endif /* NO_ENUM_VacuumOption */
+
 #ifndef NO_ENUM_DiscardMode
 BEGIN_ENUM(DiscardMode)
 	ENUM_VALUE(DISCARD_ALL)
@@ -1082,6 +1115,24 @@ BEGIN_ENUM(RowMarkType)
 END_ENUM(RowMarkType)
 #endif /* NO_ENUM_RowMarkType */
 
+#ifndef NO_ENUM_CostSelector
+BEGIN_ENUM(CostSelector)
+	ENUM_VALUE(STARTUP_COST)
+	ENUM_VALUE(TOTAL_COST)
+END_ENUM(CostSelector)
+#endif /* NO_ENUM_CostSelector */
+
+#ifndef NO_ENUM_UpperRelationKind
+BEGIN_ENUM(UpperRelationKind)
+	ENUM_VALUE(UPPERREL_SETOP)
+	ENUM_VALUE(UPPERREL_GROUP_AGG)
+	ENUM_VALUE(UPPERREL_WINDOW)
+	ENUM_VALUE(UPPERREL_DISTINCT)
+	ENUM_VALUE(UPPERREL_ORDERED)
+	ENUM_VALUE(UPPERREL_FINAL)
+END_ENUM(UpperRelationKind)
+#endif /* NO_ENUM_UpperRelationKind */
+
 #ifndef NO_ENUM_RelOptKind
 BEGIN_ENUM(RelOptKind)
 	ENUM_VALUE(RELOPT_BASEREL)
@@ -1099,6 +1150,42 @@ BEGIN_ENUM(UniquePathMethod)
 	ENUM_VALUE(UNIQUE_PATH_SORT)
 END_ENUM(UniquePathMethod)
 #endif /* NO_ENUM_UniquePathMethod */
+
+#ifndef NO_ENUM_ExprDoneCond
+BEGIN_ENUM(ExprDoneCond)
+	ENUM_VALUE(ExprSingleResult)
+	ENUM_VALUE(ExprMultipleResult)
+	ENUM_VALUE(ExprEndResult)
+END_ENUM(ExprDoneCond)
+#endif /* NO_ENUM_ExprDoneCond */
+
+#ifndef NO_ENUM_SetFunctionReturnMode
+BEGIN_ENUM(SetFunctionReturnMode)
+	ENUM_VALUE(SFRM_ValuePerCall)
+	ENUM_VALUE(SFRM_Materialize)
+	ENUM_VALUE(SFRM_Materialize_Random)
+	ENUM_VALUE(SFRM_Materialize_Preferred)
+END_ENUM(SetFunctionReturnMode)
+#endif /* NO_ENUM_SetFunctionReturnMode */
+
+#ifndef NO_ENUM_DomainConstraintType
+BEGIN_ENUM(DomainConstraintType)
+	ENUM_VALUE(DOM_CONSTRAINT_NOTNULL)
+	ENUM_VALUE(DOM_CONSTRAINT_CHECK)
+END_ENUM(DomainConstraintType)
+#endif /* NO_ENUM_DomainConstraintType */
+
+#ifndef NO_ENUM_LimitStateCond
+BEGIN_ENUM(LimitStateCond)
+	ENUM_VALUE(LIMIT_INITIAL)
+	ENUM_VALUE(LIMIT_RESCAN)
+	ENUM_VALUE(LIMIT_EMPTY)
+	ENUM_VALUE(LIMIT_INWINDOW)
+	ENUM_VALUE(LIMIT_SUBPLANEOF)
+	ENUM_VALUE(LIMIT_WINDOWEND)
+	ENUM_VALUE(LIMIT_WINDOWSTART)
+END_ENUM(LimitStateCond)
+#endif /* NO_ENUM_LimitStateCond */
 
 #ifndef NO_ENUM_ReplicationKind
 BEGIN_ENUM(ReplicationKind)

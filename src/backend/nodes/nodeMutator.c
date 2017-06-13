@@ -21,10 +21,8 @@
 #define NO_NODE_Value
 #define NO_NODE_PlannerGlobal
 #define NO_NODE_RestrictInfo
-#define NO_STRUCT_ParamListInfoData
-#define NO_STRUCT_MergeScanSelCache
-#define NO_STRUCT_QualCost
-#define NO_STRUCT_ParamExternData
+#include "nodes/def_no_all_struct.h"
+#undef NO_STRUCT_QualCost
 
 static void *pmemdup(const void *src, Size size);
 
@@ -34,6 +32,7 @@ static void *pmemdup(const void *src, Size size);
 #define NODE_SAME(t1, t2)
 #define BEGIN_STRUCT BEGIN_NODE
 #include "nodes/nodes_define.h"
+#include "nodes/struct_define.h"
 #include "nodes/nodes_undef.h"
 
 /* mutator functions */
@@ -71,6 +70,7 @@ static type* _mutator_##type(type *dest, const type *src,		\
 #define NODE_DATUM(t,m,o,n)
 
 #include "nodes/nodes_define.h"
+#include "nodes/struct_define.h"
 #include "nodes/nodes_undef.h"
 
 Node *node_tree_mutator(Node *node, Node *(*mutator)(), void *context)

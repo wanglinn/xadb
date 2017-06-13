@@ -21,10 +21,8 @@
 #define NO_STRUCT_RelationLocInfo
 #define NO_STRUCT_LockRelId
 #define NO_STRUCT_LockInfoData
-#define NO_STRUCT_RelationData
 #define NO_STRUCT_AutoVacOpts
 #define NO_STRUCT_StdRdOptions
 #define NO_STRUCT_ViewOptions
 #define NO_STRUCT_ParamExternData
 #define NO_STRUCT_ParamListInfoData
-#define NO_STRUCT_ParamExecData
