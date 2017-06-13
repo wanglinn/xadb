@@ -20,4 +20,6 @@ extern bool PQNEFHNormal(void *context, struct pg_conn *conn, PQNHookFuncType ty
 extern void PQNReleaseAllConnect(void);
 extern void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int elevel, bool free_result);
 extern const char *PQNConnectName(struct pg_conn *conn);
+extern Oid PQNConnectOid(struct pg_conn *conn);
+
 #endif /* LIBPQ_NODE_H */

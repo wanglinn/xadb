@@ -517,7 +517,7 @@ void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int el
 		PQclear(result);
 }
 
-extern const char *PQNConnectName(struct pg_conn *conn)
+const char *PQNConnectName(struct pg_conn *conn)
 {
 	OidPGconn *op;
 	HASH_SEQ_STATUS status;
@@ -534,4 +534,23 @@ extern const char *PQNConnectName(struct pg_conn *conn)
 		}
 	}
 	return NULL;
+}
+
+Oid PQNConnectOid(struct pg_conn *conn)
+{
+	OidPGconn *op;
+	HASH_SEQ_STATUS status;
+	if(htab_oid_pgconn)
+	{
+		hash_seq_init(&status, htab_oid_pgconn);
+		while((op = hash_seq_search(&status)) != NULL)
+		{
+			if(op->conn == conn)
+			{
+				hash_seq_term(&status);
+				return op->oid;
+			}
+		}
+	}
+	return InvalidOid;
 }
