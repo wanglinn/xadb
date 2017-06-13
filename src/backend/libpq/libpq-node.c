@@ -355,6 +355,8 @@ re_get_:
 		hook_res = (*hook)((void*)context, conn, PQNHFT_COPY_IN_ONLY);
 		if(hook_res)
 			return hook_res;
+		if(!PQisCopyInState(conn))
+			goto re_get_;
 	}else if(PQisBusy(conn) == false)
 	{
 		res = PQgetResult(conn);
