@@ -84,6 +84,10 @@ static void show_sort_keys(SortState *sortstate, List *ancestors,
 			   ExplainState *es);
 static void show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 					   ExplainState *es);
+#ifdef ADB
+static void show_merge_gather_keys(ClusterMergeGatherState *mgstate, List *ancestors,
+					   ExplainState *es);
+#endif /* ADB */
 static void show_agg_keys(AggState *astate, List *ancestors,
 			  ExplainState *es);
 static void show_grouping_sets(PlanState *planstate, Agg *agg,
@@ -1577,6 +1581,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_ClusterMergeGather:
 			if(es->verbose)
 				ExplainRemoteList(((ClusterMergeGather*)plan)->rnodes, es);
+			show_merge_gather_keys((ClusterMergeGatherState*)planstate, ancestors, es);
 			break;
 #endif /* ADB */
 		default:
@@ -1909,6 +1914,17 @@ show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 						 ancestors, es);
 }
 
+static void show_merge_gather_keys(ClusterMergeGatherState *mgstate, List *ancestors,
+					   ExplainState *es)
+{
+	ClusterMergeGather *plan = (ClusterMergeGather*) mgstate->ps.plan;
+
+	show_sort_group_keys((PlanState *)mgstate, "Sort Key",
+						 plan->numCols, plan->sortColIdx,
+						 plan->sortOperators, plan->collations,
+						 plan->nullsFirst,
+						 ancestors, es);
+}
 /*
  * Show the grouping keys for an Agg node.
  */
