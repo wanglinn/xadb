@@ -172,7 +172,9 @@ static void set_rel_width(PlannerInfo *root, RelOptInfo *rel);
 static double relation_byte_size(double tuples, int width);
 static double page_size(double tuples, int width);
 static double get_parallel_divisor(Path *path);
-
+static void cost_seqscan_internal(Path *path, PlannerInfo *root,
+							RelOptInfo *baserel, ParamPathInfo *param_info,
+							Cost tuple_cost);
 
 /*
  * clamp_row_est
@@ -205,6 +207,13 @@ clamp_row_est(double nrows)
 void
 cost_seqscan(Path *path, PlannerInfo *root,
 			 RelOptInfo *baserel, ParamPathInfo *param_info)
+{
+	cost_seqscan_internal(path, root, baserel, param_info, cpu_tuple_cost);
+}
+
+static void cost_seqscan_internal(Path *path, PlannerInfo *root,
+							RelOptInfo *baserel, ParamPathInfo *param_info,
+							Cost tuple_cost)
 {
 	Cost		startup_cost = 0;
 	Cost		cpu_run_cost;
@@ -240,7 +249,7 @@ cost_seqscan(Path *path, PlannerInfo *root,
 	get_restriction_qual_cost(root, baserel, param_info, &qpqual_cost);
 
 	startup_cost += qpqual_cost.startup;
-	cpu_per_tuple = cpu_tuple_cost + qpqual_cost.per_tuple;
+	cpu_per_tuple = tuple_cost + qpqual_cost.per_tuple;
 	cpu_run_cost = cpu_per_tuple * baserel->tuples;
 	/* tlist eval costs are paid per output row, not per tuple scanned */
 	startup_cost += path->pathtarget->cost.startup;
@@ -3206,12 +3215,15 @@ cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel)
 {
 	if(rel->reloptkind == RELOPT_BASEREL)
 	{
-		cost_seqscan(&rqpath->path, root, rel, rqpath->path.param_info);
+		cost_seqscan_internal(&rqpath->path, root, rel,
+							  rqpath->path.param_info,
+							  /* remote query using input/output function */
+							  DEFAULT_PGXC_REMOTE_TUPLE_COST);
 	}else
 	{
 		rqpath->path.startup_cost = parallel_setup_cost * 2;
 		rqpath->path.total_cost = rqpath->path.startup_cost +
-									rel->rows * remote_tuple_cost;
+									rel->rows * DEFAULT_PGXC_REMOTE_TUPLE_COST;
 		rqpath->path.rows = rel->rows;
 	}
 }

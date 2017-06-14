@@ -30,6 +30,7 @@
 #define DEFAULT_PARALLEL_SETUP_COST  1000.0
 #ifdef ADB
 #define DEFAULT_REMOTE_TUPLE_COST 0.3
+#define DEFAULT_PGXC_REMOTE_TUPLE_COST 0.9
 #endif /* ADB */
 
 #define DEFAULT_EFFECTIVE_CACHE_SIZE  524288	/* measured in pages */
