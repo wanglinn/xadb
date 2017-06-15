@@ -12,9 +12,16 @@ typedef enum PQNHookFuncType
 	PQNHFT_RESULT			/* got PQresult */
 }PQNHookFuncType;
 
+#define PQN_COORD_VALUE		0x40000000
+#define PQN_DATANODE_VALUE	0x80000000
+/*#define PQN_AGTM_MARK		0xC0000000*/
+#define PQN_NODE_VALUE_MARK	0x3FFFFFFF
+#define PQN_NODE_TYPE_MARK	0xC0000000
+
 typedef bool (*PQNExecFinishHook_function)(void *context, struct pg_conn *conn, PQNHookFuncType type,  ...);
 
 extern List *PQNGetConnUseOidList(List *oid_list);
+extern Oid PQNNodeGetNodeOid(int node_index);
 extern bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const void *context);
 extern bool PQNEFHNormal(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 extern void PQNReleaseAllConnect(void);
