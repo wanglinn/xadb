@@ -26,6 +26,7 @@ typedef struct RestoreInstrumentContext
 {
 	StringInfoData buf;
 	Oid		nodeOid;
+	int		plan_id;
 }RestoreInstrumentContext;
 
 static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self);
@@ -248,17 +249,14 @@ static bool serialize_instrument_walker(PlanState *ps, StringInfo buf)
 
 static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *context)
 {
-	int n;
 	if(ps == NULL)
 		return false;
 
-	Assert(context->buf.len - context->buf.cursor > sizeof(n));
-	memcpy(&n, context->buf.data + context->buf.cursor, sizeof(n));
-	if(n == ps->plan->plan_node_id)
+	if(context->plan_id == ps->plan->plan_node_id)
 	{
 		MemoryContext oldcontext;
 		ClusterInstrumentation *ci;
-		context->buf.cursor += sizeof(n);	/* plan_node_id */
+		int n;
 
 		pq_copymsgbytes(&(context->buf), (char*)&n, sizeof(n));	/* count of worker */
 
@@ -288,12 +286,14 @@ static void restore_instrument_message(PlanState *ps, const char *msg, int len, 
 
 	while(context.buf.cursor < context.buf.len)
 	{
-		Assert(context.buf.len-context.buf.cursor >= sizeof(int)+sizeof(Instrumentation));
+		if(context.buf.len-context.buf.cursor < sizeof(context.plan_id)+sizeof(Instrumentation))
+			ereport(ERROR,
+					(errmsg("invalid instrumentation message length"),
+					errcode(ERRCODE_INTERNAL_ERROR)));
+		pq_copymsgbytes(&context.buf, (char*)&(context.plan_id), sizeof(context.plan_id));
 		if(planstate_tree_walker(ps, restore_instrument_walker, &context) == false)
 		{
-			int plan_id;
-			memcpy(&plan_id, context.buf.data + context.buf.cursor, sizeof(plan_id));
-			ereport(ERROR, (errmsg("plan node %d not found", plan_id)));
+			ereport(ERROR, (errmsg("plan node %d not found", context.plan_id)));
 		}
 	}
 }
