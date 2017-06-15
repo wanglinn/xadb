@@ -6339,9 +6339,14 @@ Plan *
 pgxc_create_gating_plan(PlannerInfo *root, Path *path, Plan *plan, List *quals)
 {
 	if (quals)
-		return create_gating_plan(root, path, plan, quals);
-	else
-		return plan;
+	{
+		List *gating_clauses = order_qual_clauses(root, quals);
+		gating_clauses = extract_actual_clauses(gating_clauses, true);
+		if(gating_clauses != NIL)
+			plan = create_gating_plan(root, path, plan, gating_clauses);
+	}
+
+	return plan;
 }
 
 extern Node *
