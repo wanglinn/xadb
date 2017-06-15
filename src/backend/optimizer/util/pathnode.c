@@ -990,7 +990,10 @@ Path *
 create_samplescan_path(PlannerInfo *root, RelOptInfo *rel, Relids required_outer)
 {
 	Path	   *pathnode = makeNode(Path);
-
+#ifdef ADB
+	if(rel->loc_info)
+		ereport(ERROR, (errmsg("cluster table not support TABLESAMPLE yet!")));
+#endif /* ADB */
 	pathnode->pathtype = T_SampleScan;
 	pathnode->parent = rel;
 	pathnode->pathtarget = rel->reltarget;
