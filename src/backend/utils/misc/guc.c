@@ -3332,6 +3332,16 @@ static struct config_real ConfigureNamesReal[] =
 		DEFAULT_REMOTE_TUPLE_COST, 0, DBL_MAX,
 		NULL, NULL, NULL
 	},
+	{
+		{"pgxc_remote_tuple_cost", PGC_USERSET, QUERY_TUNING_COST,
+			gettext_noop("Sets the planner's estimate of the cost of "
+				  "passing each tuple (row) from datanode to coord."),
+			NULL
+		},
+		&pgxc_remote_tuple_cost,
+		DEFAULT_PGXC_REMOTE_TUPLE_COST, 0, DBL_MAX,
+		NULL, NULL, NULL
+	},
 #endif /* ADB */
 	{
 		{"parallel_setup_cost", PGC_USERSET, QUERY_TUNING_COST,

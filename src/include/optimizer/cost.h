@@ -57,6 +57,7 @@ extern PGDLLIMPORT double cpu_operator_cost;
 extern PGDLLIMPORT double parallel_tuple_cost;
 #ifdef ADB
 extern PGDLLIMPORT double remote_tuple_cost;
+extern PGDLLIMPORT double pgxc_remote_tuple_cost;
 #endif /* ADB */
 extern PGDLLIMPORT double parallel_setup_cost;
 extern PGDLLIMPORT int effective_cache_size;

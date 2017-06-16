@@ -110,6 +110,7 @@ double		parallel_tuple_cost = DEFAULT_PARALLEL_TUPLE_COST;
 double		parallel_setup_cost = DEFAULT_PARALLEL_SETUP_COST;
 #ifdef ADB
 double		remote_tuple_cost = DEFAULT_REMOTE_TUPLE_COST;
+double		pgxc_remote_tuple_cost = DEFAULT_PGXC_REMOTE_TUPLE_COST;
 #endif /* ADB */
 
 int			effective_cache_size = DEFAULT_EFFECTIVE_CACHE_SIZE;
@@ -3217,13 +3218,12 @@ cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel)
 	{
 		cost_seqscan_internal(&rqpath->path, root, rel,
 							  rqpath->path.param_info,
-							  /* remote query using input/output function */
-							  DEFAULT_PGXC_REMOTE_TUPLE_COST);
+							  pgxc_remote_tuple_cost);
 	}else
 	{
 		rqpath->path.startup_cost = parallel_setup_cost * 2;
 		rqpath->path.total_cost = rqpath->path.startup_cost +
-									rel->rows * DEFAULT_PGXC_REMOTE_TUPLE_COST;
+									rel->rows * pgxc_remote_tuple_cost;
 		rqpath->path.rows = rel->rows;
 	}
 }
