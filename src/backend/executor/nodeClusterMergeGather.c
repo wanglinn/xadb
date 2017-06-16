@@ -12,8 +12,15 @@
 
 #include "executor/nodeClusterMergeGather.h"
 
+typedef struct CMGHookContext
+{
+	PlanState *ps;
+	TupleTableSlot *slot;
+}CMGHookContext;
+
 static int cmg_heap_compare_slots(Datum a, Datum b, void *arg);
 static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot, PlanState *ps);
+static bool cmg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 
 ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, EState *estate, int eflags)
 {
@@ -208,62 +215,56 @@ cmg_heap_compare_slots(Datum a, Datum b, void *arg)
 
 static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot, PlanState *ps)
 {
-	const char *buf;
-	PGresult *res;
-	ExecStatusType status;
-	int n;
+	CMGHookContext context;
+	context.ps = ps;
+	context.slot = slot;
+	ExecClearTuple(slot);
+	PQNOneExecFinish(conn, cmg_pqexec_finish_hook, &context, true);
+	return slot;
+}
 
-	for(;;)
+bool cmg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
+{
+	va_list args;
+	const char *buf;
+	int len;
+
+	switch(type)
 	{
-		if(PQstatus(conn) == CONNECTION_BAD)
+	case PQNHFT_ERROR:
+		return PQNEFHNormal(NULL, conn, type);
+	case PQNHFT_COPY_OUT_DATA:
+		va_start(args, type);
+		buf = va_arg(args, const char*);
+		len = va_arg(args, int);
+		if(clusterRecvTuple(((CMGHookContext*)context)->slot, buf, len,
+							((CMGHookContext*)context)->ps, conn))
 		{
-			res = PQgetResult(conn);
-			PQNReportResultError(res, conn, ERROR, true);
-			return NULL;	/* never run */
+			va_end(args);
+			return true;
 		}
-		if(PQisCopyOutState(conn))
+		va_end(args);
+		break;
+	case PQNHFT_COPY_IN_ONLY:
+		PQputCopyEnd(conn, NULL);
+		break;
+	case PQNHFT_RESULT:
 		{
-			/* TODO select and CHECK_FOR_INTERRUPTS */
-			n = PQgetCopyDataBuffer(conn, &buf, false);
-			if(n > 0)
+			PGresult *res;
+			ExecStatusType status;
+			va_start(args, type);
+			res = va_arg(args, PGresult*);
+			if(res)
 			{
-				if(clusterRecvTuple(slot, buf, n, ps, conn))
-					return slot;
-				continue;
-			}else if(n < 0)
-			{
-				continue;
+				status = PQresultStatus(res);
+				if(status == PGRES_FATAL_ERROR)
+					PQNReportResultError(res, conn, ERROR, true);
+				else if(status == PGRES_COPY_IN)
+					PQputCopyEnd(conn, NULL);
 			}
-		}else if(PQisCopyInState(conn))
-		{
-			PQputCopyEnd(conn, NULL);
-		}else if(PQisBusy(conn) == false)
-		{
-			res = PQgetResult(conn);
-			if(res == NULL)
-			{
-				return ExecClearTuple(slot);
-			}
-			status = PQresultStatus(res);
-			if(status == PGRES_FATAL_ERROR)
-			{
-				PQNReportResultError(res, conn, ERROR, true);
-			}else if(status == PGRES_COMMAND_OK)
-			{
-				return ExecClearTuple(slot);
-			}else if(status == PGRES_COPY_IN)
-			{
-				PQputCopyEnd(conn, NULL);
-				continue;
-			}else if(status == PGRES_COPY_OUT)
-			{
-				continue;
-			}else
-			{
-				ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("not support execute status type \"%d\"", status)));
-			}
+			va_end(args);
 		}
+		break;
 	}
-	return ExecClearTuple(slot);
+	return false;
 }
