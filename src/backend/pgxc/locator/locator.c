@@ -1081,7 +1081,11 @@ void
 FreeRelationLocInfo(RelationLocInfo *relationLocInfo)
 {
 	if (relationLocInfo)
+	{
+		list_free(relationLocInfo->nodeList);
+		list_free(relationLocInfo->funcAttrNums);
 		pfree(relationLocInfo);
+	}
 }
 
 /*
