@@ -28,6 +28,7 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 	gatherstate = makeNode(ClusterGatherState);
 	gatherstate->ps.plan = (Plan*)node;
 	gatherstate->ps.state = estate;
+	gatherstate->local_end = false;
 
 	/*ExecAssignExprContext(estate, &gatherstate->ps);*/
 
@@ -45,8 +46,34 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 
 TupleTableSlot *ExecClusterGather(ClusterGatherState *node)
 {
+	TupleTableSlot *slot;
+	bool blocking;
 	ExecClearTuple(node->ps.ps_ResultTupleSlot);
-	PQNListExecFinish(node->remotes, cg_pqexec_finish_hook, node, true);
+
+	blocking = false;	/* first time try nonblocking */
+	while(node->remotes != NIL || node->local_end == false)
+	{
+		/* first try get remote data */
+		if(node->remotes != NIL
+			&& PQNListExecFinish(node->remotes, cg_pqexec_finish_hook, node, blocking))
+		{
+			return node->ps.ps_ResultTupleSlot;
+		}
+
+		/* try local node */
+		if(node->local_end == false)
+		{
+			slot = ExecProcNode(outerPlanState(node));
+			if(TupIsNull(slot))
+				node->local_end = true;
+			else
+				return slot;
+		}
+		if(blocking)
+			break;
+		blocking = true;
+	}
+
 	return node->ps.ps_ResultTupleSlot;
 }
 

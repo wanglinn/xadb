@@ -26,6 +26,7 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 
 	ps->ps.plan = (Plan*)node;
 	ps->ps.state = estate;
+	ps->local_end = false;
 
 	ExecInitResultTupleSlot(estate, &ps->ps);
 	ExecAssignResultTypeFromTL(&ps->ps);
@@ -49,9 +50,9 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 	Assert(nremote > 0);
 	ps->nremote = nremote;
 
-	ps->binheap = binaryheap_allocate(nremote, cmg_heap_compare_slots, ps);
+	ps->binheap = binaryheap_allocate(nremote+1, cmg_heap_compare_slots, ps);
 	ps->conns = palloc0(sizeof(ps->conns[0]) * nremote);
-	ps->slots = palloc0(sizeof(ps->slots[0]) * nremote);
+	ps->slots = palloc0(sizeof(ps->slots[0]) * (nremote+1));
 	for(i=0;i<nremote;++i)
 	{
 		ps->slots[i] = ExecAllocTableSlot(&estate->es_tupleTable);
@@ -89,12 +90,29 @@ TupleTableSlot *ExecClusterMergeGather(ClusterMergeGatherState *node)
 			if(!TupIsNull(result))
 				binaryheap_add_unordered(node->binheap, Int32GetDatum(i));
 		}
+		result = ExecProcNode(outerPlanState(node));
+		if(!TupIsNull(result))
+		{
+			node->slots[node->nremote] = result;
+			binaryheap_add_unordered(node->binheap, Int32GetDatum(node->nremote));
+		}else
+		{
+			node->local_end = true;
+		}
 		binaryheap_build(node->binheap);
 		node->initialized = true;
 	}else
 	{
 		i = DatumGetInt32(binaryheap_first(node->binheap));
-		result = cmg_get_remote_slot(node->conns[i], node->slots[i], &node->ps);
+		if(i < node->nremote)
+		{
+			result = cmg_get_remote_slot(node->conns[i], node->slots[i], &node->ps);
+		}else
+		{
+			Assert(i == node->nremote);
+			result = ExecProcNode(outerPlanState(node));
+			node->slots[i] = result;
+		}
 		if(!TupIsNull(result))
 			binaryheap_replace_first(node->binheap, Int32GetDatum(i));
 		else

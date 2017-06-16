@@ -2104,6 +2104,7 @@ typedef struct ClusterGatherState
 {
 	PlanState	ps;
 	List	   *remotes;
+	bool		local_end;	/* local plan is end of tup */
 }ClusterGatherState;
 
 typedef struct ClusterMergeGatherState
@@ -2116,6 +2117,7 @@ typedef struct ClusterMergeGatherState
 	struct binaryheap *binheap;	/* binary heap of slot indices */
 	struct pg_conn **conns;		/* remote connections */
 	bool			initialized;
+	bool			local_end;	/* local plan is end of tup */
 }ClusterMergeGatherState;
 
 #endif /* ADB */
