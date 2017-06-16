@@ -127,7 +127,7 @@ static List* apply_for_node_use_oid(List *oid_list)
 		}
 
 		conns = pg_conn_attach_socket(fds, list_length(dn_list) + list_length(co_list));
-		PQNListExecFinish(conns, PQNEFHNormal, NULL);
+		PQNListExecFinish(conns, PQNEFHNormal, NULL, true);
 
 		foreach(lc,dn_list)
 		{
@@ -192,9 +192,11 @@ static List* pg_conn_attach_socket(int *fds, Size n)
 		if(conn == NULL)
 		{
 			ListCell *lc;
-			PQNListExecFinish(list, PQNEFHNormal, NULL);
 			foreach(lc, list)
+			{
+				PQNOneExecFinish(lfirst(lc), PQNEFHNormal, NULL, true);
 				PQdetach(lfirst(lc));
+			}
 			ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY),
 				errmsg("Out of memory")));
 		}else
@@ -205,7 +207,82 @@ static List* pg_conn_attach_socket(int *fds, Size n)
 	return list;
 }
 
-bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const void *context)
+bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, const void *context, bool blocking)
+{
+	struct pollfd pfd;
+	int connecting_status;
+	int poll_res;
+	AssertArg(conn && hook);
+
+	connecting_status = PQNIsConnecting(conn);
+	while(connecting_status != 0)
+	{
+		pfd.fd = PQsocket(conn);
+		if(connecting_status > 0)
+			pfd.events = POLLOUT;
+		else
+			pfd.events = POLLIN;
+		poll_res = poll(&pfd, 1, blocking ? -1:0);
+		CHECK_FOR_INTERRUPTS();
+		if(poll_res == 0)
+		{
+			/* timeout */
+			return false;
+		}else if(poll_res > 0)
+		{
+			PostgresPollingStatusType pstatus;
+			pstatus = PQconnectPoll(conn);
+			if(pstatus == PGRES_POLLING_READING)
+				connecting_status = -1;
+			else if(pstatus == PGRES_POLLING_WRITING)
+				connecting_status = 1;
+			else
+				connecting_status = 0;
+		}else
+		{
+			if(errno != EINTR)
+			{
+				if((*hook)((void*)context, NULL, PQNHFT_ERROR))
+					return true;
+			}
+		}
+	}
+
+	if(PQNExecFinish(conn, hook, context))
+		return true;
+	if(blocking == false
+		|| PQstatus(conn) == CONNECTION_BAD
+		|| (PQisCopyInState(conn) && ! PQisCopyOutState(conn)))
+		return false;
+
+	pfd.fd = PQsocket(conn);
+	pfd.events = POLLIN;
+	for(;;)
+	{
+		if(PQstatus(conn) == CONNECTION_BAD
+			|| PQtransactionStatus(conn) != PQTRANS_ACTIVE)
+			break;
+
+		poll_res = poll(&pfd, 1, -1);
+		CHECK_FOR_INTERRUPTS();
+		if(poll_res < 0)
+		{
+			if(errno == EINTR)
+				continue;
+			if((*hook)((void*)context, NULL, PQNHFT_ERROR))
+				return true;
+			continue;
+		}
+		Assert(poll_res > 0);
+		PQconsumeInput(conn);
+		if(PQNExecFinish(conn, hook, context))
+			return true;
+	}
+
+	return false;
+}
+
+bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const void *context, bool blocking)
 {
 	List *list;
 	ListCell *lc;
@@ -216,6 +293,8 @@ bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const v
 
 	if(conn_list == NIL)
 		return false;
+	else if(list_length(conn_list) == 1)
+		return PQNOneExecFinish(linitial(conn_list), hook, context, blocking);
 
 	/* first try got data */
 	foreach(lc, conn_list)
@@ -225,6 +304,9 @@ bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const v
 			(res = PQNExecFinish(conn, hook, context)) != false)
 			return res;
 	}
+
+	if(blocking == false)
+		return false;
 
 	list = NIL;
 	foreach(lc,conn_list)

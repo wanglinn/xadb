@@ -139,7 +139,7 @@ void ExecEndClusterMergeGather(ClusterMergeGatherState *node)
 	}
 	if(list != NIL)
 	{
-		PQNListExecFinish(list, PQNEFHNormal, NULL);
+		PQNListExecFinish(list, PQNEFHNormal, NULL, true);
 		list_free(list);
 	}
 }

@@ -46,7 +46,7 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 TupleTableSlot *ExecClusterGather(ClusterGatherState *node)
 {
 	ExecClearTuple(node->ps.ps_ResultTupleSlot);
-	PQNListExecFinish(node->remotes, cg_pqexec_finish_hook, node);
+	PQNListExecFinish(node->remotes, cg_pqexec_finish_hook, node, true);
 	return node->ps.ps_ResultTupleSlot;
 }
 
@@ -62,7 +62,7 @@ void ExecEndClusterGather(ClusterGatherState *node)
 	}
 	ExecEndNode(outerPlanState(node));
 	if(node->remotes != NIL)
-		PQNListExecFinish(node->remotes, PQNEFHNormal, NULL);
+		PQNListExecFinish(node->remotes, PQNEFHNormal, NULL, true);
 }
 
 void ExecReScanClusterGather(ClusterGatherState *node)
