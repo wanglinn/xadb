@@ -20,6 +20,7 @@ typedef struct ClusterPlanReceiver
 	DestReceiver pub;
 	StringInfoData buf;
 	time_t lastCheckTime;	/* last check client message time */
+	bool check_end_msg;
 }ClusterPlanReceiver;
 
 typedef struct RestoreInstrumentContext
@@ -100,21 +101,17 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self)
 {
 	ClusterPlanReceiver * r = (ClusterPlanReceiver*)self;
-	MinimalTuple tup = ExecFetchSlotMinimalTuple(slot);
 	time_t time_now;
 	bool need_more_slot;
 
 	resetStringInfo(&r->buf);
-	appendStringInfoChar(&r->buf, 'D');
-	appendBinaryStringInfo(&r->buf, (char*)&(tup->t_infomask2)
-		, tup->t_len - offsetof(MinimalTupleData, t_infomask2));
+	serialize_slot_message(&r->buf, slot);
 	pq_putmessage('d', r->buf.data, r->buf.len);
 	pq_flush();
 
 	/* check client message */
-	time_now = time(NULL);
 	need_more_slot = true;
-	if(time_now != r->lastCheckTime)
+	if(r->check_end_msg && (time_now = time(NULL)) != r->lastCheckTime)
 	{
 		int n;
 		unsigned char first_char;
@@ -168,16 +165,11 @@ static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self)
 static void cluster_receive_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 {
 	ClusterPlanReceiver * r = (ClusterPlanReceiver*)self;
-	int i;
 
 	initStringInfo(&r->buf);
 
 	/* send tuple desc */
-	appendStringInfoChar(&r->buf, 'T');
-	appendStringInfoChar(&r->buf, typeinfo->tdhasoid);
-	appendBinaryStringInfo(&r->buf, (char*)&typeinfo->natts, sizeof(typeinfo->natts));
-	for(i=0;i<typeinfo->natts;++i)
-		save_oid_type(&r->buf, typeinfo->attrs[i]->atttypid);
+	serialize_slot_head_message(&r->buf, typeinfo);
 	pq_putmessage('d', r->buf.data, r->buf.len);
 	pq_flush();
 }
@@ -204,14 +196,52 @@ DestReceiver *createClusterReceiver(void)
 	self->pub.rStartup = cluster_receive_startup;
 	self->pub.rShutdown = cluster_receive_shutdown;
 	self->pub.rDestroy = cluster_receive_destroy;
+	self->check_end_msg = true;
+	/* self->lastCheckTime = 0; */
 
 	return &self->pub;
+}
+
+bool clusterRecvSetCheckEndMsg(DestReceiver *r, bool check)
+{
+	ClusterPlanReceiver *self;
+	bool old_check;
+	Assert(r->mydest == DestClusterOut);
+
+	self = (ClusterPlanReceiver*)r;
+	old_check = self->check_end_msg;
+	self->check_end_msg = check ? true:false;
+
+	return old_check;
 }
 
 void serialize_instrument_message(PlanState *ps, StringInfo buf)
 {
 	appendStringInfoChar(buf, 'I');
 	serialize_instrument_walker(ps, buf);
+}
+
+void serialize_slot_head_message(StringInfo buf, TupleDesc desc)
+{
+	int i;
+	AssertArg(buf && desc);
+
+	appendStringInfoChar(buf, 'T');
+	appendStringInfoChar(buf, desc->tdhasoid);
+	appendBinaryStringInfo(buf, (char*)&(desc->natts), sizeof(desc->natts));
+	for(i=0;i<desc->natts;++i)
+		save_oid_type(buf, desc->attrs[i]->atttypid);
+}
+
+void serialize_slot_message(StringInfo buf, TupleTableSlot *slot)
+{
+	MinimalTuple tup;
+	AssertArg(buf && !TupIsNull(slot));
+
+	tup = ExecFetchSlotMinimalTuple(slot);
+	appendStringInfoChar(buf, 'D');
+	appendBinaryStringInfo(buf, (char*)&(tup->t_infomask2),
+						   tup->t_len - offsetof(MinimalTupleData, t_infomask2));
 }
 
 static bool serialize_instrument_walker(PlanState *ps, StringInfo buf)
