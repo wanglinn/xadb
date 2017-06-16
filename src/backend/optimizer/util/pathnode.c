@@ -31,6 +31,7 @@
 
 #ifdef ADB
 #include "commands/tablecmds.h"
+#include "libpq/libpq-node.h"
 #include "optimizer/restrictinfo.h"
 #endif
 
@@ -3335,6 +3336,155 @@ static void copy_path_info(Path *dest, const Path *src)
 	dest->total_cost = src->total_cost;
 
 	dest->pathkeys = src->pathkeys;
+}
+
+typedef struct GPEOContext
+{
+	Bitmapset *bmsDatanodes;
+	List *dn_oid_list;
+	int flags;
+	int execute_on;
+	bool have_local;
+}GPEOContext;
+
+static bool get_path_execute_on_walker(Path *path, GPEOContext *context)
+{
+	RelOptInfo *rel;
+
+	if(path == NULL)
+		return false;
+
+	rel = path->parent;
+	switch(nodeTag(path))
+	{
+	case T_Path:
+		switch(path->pathtype)
+		{
+		case T_SeqScan:
+		case T_SampleScan:
+		case T_IndexScan:
+		case T_IndexOnlyScan:
+		case T_BitmapHeapScan:
+		case T_TidScan:
+			Assert(rel && rel->loc_info == NULL);
+			context->have_local = true;
+			break;
+		case T_FunctionScan:
+			{
+				RangeTblEntry *rte = planner_rt_fetch(rel->relid, rel->subroot);
+				Assert(rte);
+				if(has_cluster_hazard((Node*)(rte->functions)))
+				{
+					context->have_local = true;
+					context->execute_on |= REMOTE_EXECUTE_ON_MUST_LOCAL;
+				}
+			}
+			break;
+		case T_CteScan:
+			context->have_local = true;
+			context->execute_on |= REMOTE_EXECUTE_ON_MUST_LOCAL;
+			break;
+		default:
+			break;
+		}
+		break;
+	/* TODO:
+	 * case T_TidPath:
+		break;*/
+	case T_SubqueryScanPath:
+		if(context->flags & GPEO_IGNORE_SUBQUERY)
+			return false;
+		break;
+	case T_ForeignPath:
+	case T_CustomPath:
+		context->have_local = true;
+		context->execute_on |= REMOTE_EXECUTE_ON_MUST_LOCAL;
+		break;
+	case T_ModifyTablePath:
+		{
+			ModifyTablePath *mtp = (ModifyTablePath*)path;
+			Query *parse = rel->subroot->parse;
+			RangeTblEntry *rte;
+			RelationLocInfo *rel_loc_info;
+			ListCell *lc,*lc2;
+			foreach(lc, mtp->resultRelations)
+			{
+				rte = rt_fetch(lfirst_int(lc), parse->rtable);
+				rel_loc_info = GetRelationLocInfo(rte->relid);
+				if(rel_loc_info == NULL)
+				{
+					context->have_local = true;
+					context->execute_on = REMOTE_EXECUTE_ON_MUST_LOCAL;
+					continue;
+				}else if(rel_loc_info->nodeList != NIL)
+				{
+					foreach(lc2, rel_loc_info->nodeList)
+					{
+						context->bmsDatanodes =
+								bms_add_member(context->bmsDatanodes,
+											   lfirst_int(lc2));
+					}
+					context->execute_on |= REMOTE_EXECUTE_ON_DATANODE;
+				}
+				FreeRelationLocInfo(rel_loc_info);
+			}
+		}
+		break;
+	case T_ClusterScanPath:
+		{
+			ListCell *lc;
+			foreach(lc, ((ClusterPath*)path)->exec_nodes->nodeList)
+			{
+				context->bmsDatanodes = bms_add_member(context->bmsDatanodes,
+													   lfirst_int(lc));
+			}
+			context->execute_on |= REMOTE_EXECUTE_ON_DATANODE;
+		}
+		return false;
+	default:
+		break;
+	}
+
+	if(context->flags & GPEO_IGNORE_ANY_OTHER)
+		return false;
+
+	return path_tree_walker((Node*)path, get_path_execute_on_walker, context);
+}
+
+List* get_path_execute_on(Path *path, int flags, int *execute_on)
+{
+	GPEOContext context;
+	int x;
+
+	context.flags = flags;
+	context.execute_on = 0;
+	context.bmsDatanodes = NULL;
+	context.dn_oid_list = NIL;
+	context.have_local = false;
+	get_path_execute_on_walker(path, &context);
+
+	if(context.have_local)
+	{
+		context.execute_on |= REMOTE_EXECUTE_ON_LOCAL;
+	}else if(context.execute_on == 0)
+	{
+		Assert(context.bmsDatanodes == NULL);
+		Assert(context.dn_oid_list = NIL);
+		context.execute_on = REMOTE_EXECUTE_ON_ANY;
+	}
+	while((x = bms_first_member(context.bmsDatanodes)) >= 0)
+	{
+		Oid oid = PQNNodeGetNodeOid(x|PQN_DATANODE_VALUE);
+		Assert(OidIsValid(oid));
+		if(list_member_oid(context.dn_oid_list, oid) == false)
+			context.dn_oid_list = lappend_oid(context.dn_oid_list, oid);
+	}
+
+	if(execute_on)
+		*execute_on = context.execute_on;
+	bms_free(context.bmsDatanodes);
+
+	return context.dn_oid_list;
 }
 
 #endif /* ADB */

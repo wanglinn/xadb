@@ -233,12 +233,26 @@ extern Path *reparameterize_path(PlannerInfo *root, Path *path,
 					Relids required_outer,
 					double loop_count);
 #ifdef ADB
+
+#define REMOTE_EXECUTE_ON_ANY			1		/* any datanode */
+#define REMOTE_EXECUTE_ON_DATANODE		(1<<1)	/* have datanode */
+#define REMOTE_EXECUTE_ON_COORD			(1<<2)	/* have coordinator */
+#define REMOTE_EXECUTE_ON_LOCAL			(1<<3)	/* have local coordinator */
+#define REMOTE_EXECUTE_ON_MUST_LOCAL	(1<<4)	/* must run at local coordinator */
+
+/* get_path_execute_on flags */
+#define GPEO_IGNORE_SUBQUERY		1
+#define GPEO_IGNORE_ANY_OTHER		(1<<1)
+
 extern bool is_cluster_path(Path *path);
 extern bool have_cluster_gather_path(Node *node, void *context);
 extern ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 			, RelOptInfo *rel, Path *sub_path, List *pathkeys);
 extern ClusterGatherPath *create_cluster_gather_path(Path *sub_path);
 extern ClusterScanPath *create_cluster_path(Path *sub_path, struct ExecNodes *exec_node);
+
+extern List* get_path_execute_on(Path *path, int flags, int *execute_on);
+
 #endif /* ADB */
 
 /*
