@@ -3765,6 +3765,23 @@ create_grouping_paths(PlannerInfo *root,
 		}
 	}
 
+#ifdef ADB
+	if(root->parent_root == NULL && input_rel->cluster_pathlist != NIL)
+	{
+		foreach(lc, input_rel->cluster_pathlist)
+		{
+			Path *path = lfirst(lc);
+			if(have_cluster_gather_path((Node*)path, NULL))
+				continue;
+			path = (Path*)create_cluster_gather_path(path);
+			/* we use lappend, not use add_path(), add_path possible free old path */
+			input_rel->pathlist = lappend(input_rel->pathlist, path);
+			if(path->total_cost < cheapest_path->total_cost)
+				cheapest_path = path;
+		}
+	}
+#endif /* ADB */
+
 	/* Build final grouping paths */
 	if (can_sort)
 	{
