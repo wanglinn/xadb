@@ -12,6 +12,7 @@
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/plannodes.h"
+#include "storage/lmgr.h"
 #include "storage/mem_toc.h"
 #include "tcop/dest.h"
 #include "utils/combocid.h"
@@ -301,6 +302,8 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 	{
 		RangeTblEntry *rte = (RangeTblEntry*)node;
 		Relation rel = heap_open(rte->relid, NoLock);
+		LOCKMODE locked_mode = GetLocalLockedRelationOidMode(rte->relid);
+		Assert(locked_mode != NoLock);
 		/* save is temp table ? */
 		appendStringInfoChar(buf, RelationUsesLocalBuffers(rel) ? '\1':'\0');
 		/* save namespace */
@@ -308,6 +311,7 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 		/* save relation name */
 		save_node_string(buf, RelationGetRelationName(rel));
 		heap_close(rel, NoLock);
+		appendBinaryStringInfo(buf, (char*)&locked_mode, sizeof(locked_mode));
 	}
 	return true;
 }
@@ -324,6 +328,7 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 			/* get relation oid */
 			char *rel_name;
 			Oid nsp_oid;
+			LOCKMODE lock_mode;
 
 			++(buf->cursor);	/* skip is temp table */
 			nsp_oid = load_namespace(buf);
@@ -337,6 +342,9 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 					 errmsg("relation \"%s.%s\" does not exist",
 							get_namespace_name(nsp_oid), rel_name)));
 			}
+			/* we must lock relation now */
+			pq_copymsgbytes(buf, (char*)&lock_mode, sizeof(lock_mode));
+			LockRelationOid(rte->relid, lock_mode);
 		}
 	}else if(IsA(node, Var)
 		&& !IS_SPECIAL_VARNO(((Var*)node)->varno)
