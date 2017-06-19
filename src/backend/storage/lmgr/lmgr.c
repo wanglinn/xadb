@@ -125,6 +125,17 @@ LockRelationOid(Oid relid, LOCKMODE lockmode)
 		AcceptInvalidationMessages();
 }
 
+#ifdef ADB
+
+LOCKMODE GetLocalLockedRelationOidMode(Oid relid)
+{
+	LOCKTAG		tag;
+	SetLocktagRelationOid(&tag, relid);
+	return LockGetLocalLockedMode(&tag);
+}
+
+#endif /* ADB */
+
 /*
  *		ConditionalLockRelationOid
  *
