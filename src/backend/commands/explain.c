@@ -2047,6 +2047,7 @@ show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 						 ancestors, es);
 }
 
+#ifdef ADB
 static void show_merge_gather_keys(ClusterMergeGatherState *mgstate, List *ancestors,
 					   ExplainState *es)
 {
@@ -2058,6 +2059,8 @@ static void show_merge_gather_keys(ClusterMergeGatherState *mgstate, List *ances
 						 plan->nullsFirst,
 						 ancestors, es);
 }
+#endif /* ADB */
+
 /*
  * Show the grouping keys for an Agg node.
  */
