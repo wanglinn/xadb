@@ -47,6 +47,14 @@ initStringInfo(StringInfo str)
 {
 	int			size = 1024;	/* initial default buffer size */
 
+#ifdef ADB
+	initStringInfoExtend(str, size);
+}
+
+void
+initStringInfoExtend(StringInfo str, int size)
+{
+#endif
 	str->data = (char *) palloc(size);
 	str->maxlen = size;
 	resetStringInfo(str);

@@ -78,6 +78,15 @@ extern StringInfo makeStringInfo(void);
  */
 extern void initStringInfo(StringInfo str);
 
+#ifdef ADB
+/*------------------------
+ * initStringInfoExtend
+ * Initialize a StringInfoData struct (with specified length and previously
+ * undefined contents) to describe an empty string.
+ */
+extern void initStringInfoExtend(StringInfo str, int size);
+#endif
+
 /*------------------------
  * resetStringInfo
  * Clears the current content of the StringInfo, if any. The

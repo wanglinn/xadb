@@ -14,10 +14,11 @@ top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = \
+	adb_clogdump \
+	adb_reduce \
 	initdb \
 	pg_archivecleanup \
 	pg_basebackup \
-	adb_clogdump \
 	pg_config \
 	pg_controldata \
 	pg_ctl \
