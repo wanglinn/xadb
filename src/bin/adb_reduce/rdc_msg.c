@@ -545,9 +545,9 @@ rdc_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId expecte
 	firstchar = rdc_getmessage(port, 0);
 	if (!(firstchar == RDC_START_RSP || firstchar == RDC_ERROR_MSG))
 	{
-		rdc_puterror_format(port,
-							"expected startup response from server, "
-							"but received %c", firstchar);
+		rdc_puterror(port,
+					 "expected startup response from server, "
+					 "but received %c", firstchar);
 		return EOF;
 	}
 
@@ -555,7 +555,7 @@ rdc_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId expecte
 	if (firstchar == RDC_ERROR_MSG)
 	{
 		const char *errmsg = rdc_getmsgstring(RdcInBuf(port));
-		rdc_puterror(port, errmsg);
+		rdc_puterror(port, "%s", errmsg);
 		return EOF;
 	} else
 	{
@@ -566,32 +566,32 @@ rdc_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId expecte
 		rsp_ver = rdc_getmsgint(msg, sizeof(rsp_ver));
 		if (rsp_ver != RDC_VERSION_NUM)
 		{
-			rdc_puterror_format(port,
-								"expected version '%d' from server, "
-								"but received response version '%d'",
-								RDC_VERSION_NUM,
-								rsp_ver);
+			rdc_puterror(port,
+						 "expected version '%d' from server, "
+						 "but received response version '%d'",
+						 RDC_VERSION_NUM,
+						 rsp_ver);
 			return EOF;
 		}
 
 		rsp_type = rdc_getmsgint(RdcInBuf(port), sizeof(rsp_type));
 		if (rsp_type != expected_type)
 		{
-			rdc_puterror_format(port,
-								"expected port type '%s' from server, "
-								"but received response type '%s'",
-								rdc_type2string(expected_type),
-								rdc_type2string(rsp_type));
+			rdc_puterror(port,
+						 "expected port type '%s' from server, "
+						 "but received response type '%s'",
+						 rdc_type2string(expected_type),
+						 rdc_type2string(rsp_type));
 			return EOF;
 		}
 
 		rsp_id = rdc_getmsgint(RdcInBuf(port), sizeof(rsp_id));
 		if (rsp_id != expected_id)
 		{
-			rdc_puterror_format(port,
-								"expected port id '%d' from server, "
-								"but received response id '%d'",
-								expected_id, rsp_id);
+			rdc_puterror(port,
+						 "expected port id '%d' from server, "
+						 "but received response id '%d'",
+						 expected_id, rsp_id);
 			return EOF;
 		}
 
@@ -610,9 +610,9 @@ rdc_recv_group_rsp(RdcPort *port)
 	firstchar = rdc_getmessage(port, 0);
 	if (firstchar != RDC_GROUP_RSP)
 	{
-		rdc_puterror_format(port,
-							"expected group response from server, "
-							"but received %c", firstchar);
+		rdc_puterror(port,
+					 "expected group response from server, "
+					 "but received %c", firstchar);
 		return EOF;
 	}
 	rdc_getmsgend(RdcInBuf(port));

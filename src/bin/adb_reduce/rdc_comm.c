@@ -158,9 +158,9 @@ rdc_connect(const char *host, uint32 port, RdcPortType type, RdcPortId id)
 		if (rdc_port->addrs)
 			freeaddrinfo(rdc_port->addrs);
 
-		rdc_puterror_format(rdc_port,
-							"could not resolve address %s:%d: %s",
-							host, port, gai_strerror(ret));
+		rdc_puterror(rdc_port,
+					 "could not resolve address %s:%d: %s",
+					 host, port, gai_strerror(ret));
 		return rdc_port;
 	}
 
@@ -176,9 +176,9 @@ rdc_connect(const char *host, uint32 port, RdcPortType type, RdcPortId id)
 		{
 			if (addr->ai_next)
 				continue;
-			rdc_puterror_format(rdc_port,
-								"fail to create a socket for %s:%u: %m",
-								host, port);
+			rdc_puterror(rdc_port,
+						 "fail to create a socket for %s:%u: %m",
+						 host, port);
 			return rdc_port;
 		}
 
@@ -199,9 +199,9 @@ reconnect:
 			if (addr->ai_next)
 				continue;
 
-			rdc_puterror_format(rdc_port,
-								"fail to connect %s:%u: %m",
-								host, port);
+			rdc_puterror(rdc_port,
+						 "fail to connect %s:%u: %m",
+						 host, port);
 			return rdc_port;
 		}
 
@@ -215,9 +215,9 @@ reconnect:
 			if (addr->ai_next)
 				continue;
 
-			rdc_puterror_format(rdc_port,
-								"fail to send to %s:%u startup request: %m",
-								host, port);
+			rdc_puterror(rdc_port,
+						 "fail to send to %s:%u startup request: %m",
+						 host, port);
 			return rdc_port;
 		}
 
@@ -231,9 +231,9 @@ reconnect:
 			if (addr->ai_next)
 				continue;
 
-			rdc_puterror_format(rdc_port,
-								"fail to receive from %s:%u startup response: %m",
-								host, port);
+			rdc_puterror(rdc_port,
+						 "fail to receive from %s:%u startup response: %m",
+						 host, port);
 			return rdc_port;
 		}
 
@@ -250,8 +250,8 @@ reconnect:
 			if (addr->ai_next)
 				continue;
 
-			rdc_puterror_format(rdc_port,
-								"could not get client address from socket: %m");
+			rdc_puterror(rdc_port,
+						 "could not get client address from socket: %m");
 			return rdc_port;
 		}
 
@@ -449,7 +449,7 @@ keep_going: 					/* We will come back to here until there is
 					 * connect failures at this point, so provide a friendly
 					 * error message.
 					 */
-					rdc_puterror_format(port, "some error occurred when connect: %s", strerror(optval));
+					rdc_puterror(port, "some error occurred when connect: %s", strerror(optval));
 					drop_connection(port, true);
 
 					/*
@@ -573,10 +573,10 @@ keep_going: 					/* We will come back to here until there is
 			}
 
 		default:
-			rdc_puterror_format(port,
-								"invalid connection state %d, "
-								"probably indicative of memory corruption",
-								RdcStatus(port));
+			rdc_puterror(port,
+						 "invalid connection state %d, "
+						 "probably indicative of memory corruption",
+						 RdcStatus(port));
 			goto error_return;
 	}
 
@@ -753,9 +753,9 @@ rdc_parse_group(RdcPort *port,				/* IN */
 				foreach (cell, clist)
 					rdc_freeport((RdcPort *) lfirst(cell));
 
-				rdc_puterror_format(port,
-									"could not resolve address %s:%u: %s",
-									host, portnum, gai_strerror(ret));
+				rdc_puterror(port,
+							 "could not resolve address %s:%u: %s",
+							 host, portnum, gai_strerror(ret));
 				return STATUS_ERROR;
 			}
 			rdc_port->addr_cur = rdc_port->addrs;
@@ -771,11 +771,11 @@ rdc_parse_group(RdcPort *port,				/* IN */
 				foreach (cell, clist)
 					rdc_freeport((RdcPort *) lfirst(cell));
 
-				rdc_puterror_format(port,
-									"fail to connect with [%s %d] {%s:%s}: %s",
-									RdcTypeStr(rdc_port), RdcID(rdc_port),
-									RdcHostStr(rdc_port), RdcPortStr(rdc_port),
-									RdcError(rdc_port));
+				rdc_puterror(port,
+							 "fail to connect with [%s %d] {%s:%s}: %s",
+							 RdcTypeStr(rdc_port), RdcID(rdc_port),
+							 RdcHostStr(rdc_port), RdcPortStr(rdc_port),
+							 RdcError(rdc_port));
 				return STATUS_ERROR;
 			}
 			/* OK and add it */
@@ -800,15 +800,6 @@ rdc_parse_group(RdcPort *port,				/* IN */
 }
 
 /*
- * rdc_puterror -- put error message in error buffer
- */
-int
-rdc_puterror(RdcPort *port, const char *s)
-{
-	return internal_puterror(port, s, strlen(s), false);
-}
-
-/*
  * rdc_puterror_binary -- put error message in error buffer
  */
 int
@@ -821,7 +812,7 @@ rdc_puterror_binary(RdcPort *port, const char *s, size_t len)
  * rdc_puterror_format -- put error message in error buffer
  */
 int
-rdc_puterror_format(RdcPort *port, const char *fmt, ...)
+rdc_puterror(RdcPort *port, const char *fmt, ...)
 {
 	va_list			args;
 	int				needed;
@@ -843,15 +834,6 @@ rdc_puterror_format(RdcPort *port, const char *fmt, ...)
 	}
 
 	return 0;
-}
-
-/*
- * rdc_puterror_extend -- put error message in error buffer
- */
-int
-rdc_puterror_extend(RdcPort *port, const char *s, size_t len, bool replace)
-{
-	return internal_puterror(port, s, len, replace);
 }
 
 /*
@@ -967,10 +949,10 @@ rdc_recv(RdcPort *port)
 					(errcode_for_socket_access(),
 					 errmsg("could not receive data from client: %m")));
 
-			rdc_puterror_format(port,
-								"could not receive data from [%s %d] {%s:%s}: %m",
-								RdcTypeStr(port), RdcID(port),
-								RdcHostStr(port), RdcPortStr(port));
+			rdc_puterror(port,
+						 "could not receive data from [%s %d] {%s:%s}: %m",
+						 RdcTypeStr(port), RdcID(port),
+						 RdcHostStr(port), RdcPortStr(port));
 			return EOF;
 		}
 		if (r == 0)
@@ -979,10 +961,10 @@ rdc_recv(RdcPort *port)
 			 * EOF detected.  We used to write a log message here, but it's
 			 * better to expect the ultimate caller to do that.
 			 */
-			rdc_puterror_format(port,
-								"the peer of [%s %d] {%s:%s} has performed an orderly shutdown",
-								RdcTypeStr(port), RdcID(port),
-								RdcHostStr(port), RdcPortStr(port));
+			rdc_puterror(port,
+						 "the peer of [%s %d] {%s:%s} has performed an orderly shutdown",
+						 RdcTypeStr(port), RdcID(port),
+						 RdcHostStr(port), RdcPortStr(port));
 			return EOF;
 		}
 		/* r contains number of bytes read, so just increase length */
@@ -1396,9 +1378,9 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver, RdcPortType expceted_
 
 	if (beresp != RDC_START_RQT)
 	{
-		rdc_puterror_format(port,
-							"expected startup request from client, "
-							"but received %c", beresp);
+		rdc_puterror(port,
+					 "expected startup request from client, "
+					 "but received %c", beresp);
 		return RDC_POLLING_FAILED;
 	}
 
@@ -1448,10 +1430,10 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver, RdcPortType expceted_
 
 	if (rqt_ver != expected_ver)
 	{
-		rdc_puterror_format(port,
-							"expected Reduce version '%d' from client, "
-							"but received request version '%d'",
-							expected_ver, rqt_ver);
+		rdc_puterror(port,
+					 "expected Reduce version '%d' from client, "
+					 "but received request version '%d'",
+					 expected_ver, rqt_ver);
 		return RDC_POLLING_FAILED;
 	}
 #ifdef DEBUG_ADB
@@ -1506,9 +1488,9 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 	 */
 	if (!(beresp == RDC_START_RSP || beresp == RDC_ERROR_MSG))
 	{
-		rdc_puterror_format(port,
-							"expected startup response from "
-							"server, but received %c", beresp);
+		rdc_puterror(port,
+					 "expected startup response from "
+					 "server, but received %c", beresp);
 		return RDC_POLLING_FAILED;
 	}
 
@@ -1544,7 +1526,7 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 
 			errmsg = rdc_getmsgstring(msg);
 			rdc_getmsgend(msg);
-			rdc_puterror(port, errmsg);
+			rdc_puterror(port, "%s", errmsg);
 		} else
 		{
 			rdc_getmsgend(msg);
@@ -1560,30 +1542,30 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 		rsp_ver = rdc_getmsgint(msg, sizeof(rsp_ver));
 		if (rsp_ver != RDC_VERSION_NUM)
 		{
-			rdc_puterror_format(port,
-								"expected Reduce version '%d' from server, "
-								"but received response type '%d'",
-								RDC_VERSION_NUM,
-								rsp_ver);
+			rdc_puterror(port,
+						 "expected Reduce version '%d' from server, "
+						 "but received response type '%d'",
+						 RDC_VERSION_NUM,
+						 rsp_ver);
 			return RDC_POLLING_FAILED;
 		}
 		rsp_type = rdc_getmsgint(msg, sizeof(rsp_type));
 		if (rsp_type != expected_type)
 		{
-			rdc_puterror_format(port,
-								"expected port type '%s' from server, "
-								"but received response type '%s'",
-								rdc_type2string(expected_type),
-								rdc_type2string(rsp_type));
+			rdc_puterror(port,
+						 "expected port type '%s' from server, "
+						 "but received response type '%s'",
+						 rdc_type2string(expected_type),
+						 rdc_type2string(rsp_type));
 			return RDC_POLLING_FAILED;
 		}
 		rsp_id = rdc_getmsgint(msg, sizeof(rsp_id));
 		if (rsp_id != expected_id)
 		{
-			rdc_puterror_format(port,
-								"expected port id '%d' from server, "
-								"but received response id '%d'",
-								expected_id, rsp_id);
+			rdc_puterror(port,
+						 "expected port id '%d' from server, "
+						 "but received response id '%d'",
+						 expected_id, rsp_id);
 			return RDC_POLLING_FAILED;
 		}
 		rdc_getmsgend(msg);

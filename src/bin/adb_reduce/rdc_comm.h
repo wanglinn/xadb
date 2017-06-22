@@ -157,10 +157,8 @@ extern int rdc_parse_group(RdcPort *port,			/* IN */
 #endif
 						   List **connect_list);	/* OUT */
 extern RdcPollingStatusType rdc_connect_poll(RdcPort *port);
-extern int rdc_puterror(RdcPort *port, const char *s);
+extern int rdc_puterror(RdcPort *port, const char *fmt, ...) pg_attribute_printf(2, 3);
 extern int rdc_puterror_binary(RdcPort *port, const char *s, size_t len);
-extern int rdc_puterror_extend(RdcPort *port, const char *s, size_t len, bool replace);
-extern int rdc_puterror_format(RdcPort *port, const char *fmt, ...) pg_attribute_printf(2, 3);
 extern int rdc_putmessage(RdcPort *port, const char *s, size_t len);
 extern int rdc_putmessage_extend(RdcPort *port, const char *s, size_t len, bool enlarge);
 extern int rdc_flush(RdcPort *port);
