@@ -21,7 +21,12 @@
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "utils/lsyscache.h"
-
+#ifdef ADB
+#include "parser/parser.h"
+#include "parser/parse_oper.h"
+#include "utils/builtins.h"
+#include "utils/typcache.h"
+#endif /* ADB */
 
 /*
  * makeA_Expr -
@@ -613,3 +618,36 @@ makeGroupingSet(GroupingSetKind kind, List *content, int location)
 	n->location = location;
 	return n;
 }
+
+#ifdef ADB
+
+Expr *makeHashExpr(Expr *expr)
+{
+	TypeCacheEntry *typeCache;
+	Oid typoid = exprType((Node*)expr);
+	Oid collid = exprCollation((Node*)expr);
+	typeCache = lookup_type_cache(typoid, TYPECACHE_HASH_PROC);
+
+	if(!OidIsValid(typeCache->hash_proc))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("could not identify a hash function for type %s",
+						format_type_be(typoid))));
+	}
+	return (Expr*)makeFuncExpr(typeCache->hash_proc,
+							   INT4OID,
+							   list_make1(expr),
+							   collid, collid,
+							   COERCE_EXPLICIT_CALL);
+}
+
+/* (expr % right) */
+Expr *makeModuloExpr(Expr *expr, int right)
+{
+	Const *r = makeConst(INT4OID, -1, InvalidOid, sizeof(int32),
+						 Int32GetDatum(right), false, true);
+	return make_op(NULL, SystemFuncName("%"), (Node*)expr, (Node*)r, -1);
+}
+
+#endif /* ADB */

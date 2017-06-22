@@ -86,4 +86,9 @@ extern DefElem *makeDefElemExtended(char *nameSpace, char *name, Node *arg,
 
 extern GroupingSet *makeGroupingSet(GroupingSetKind kind, List *content, int location);
 
+#ifdef ADB
+extern Expr *makeHashExpr(Expr *expr);
+extern Expr *makeModuloExpr(Expr *expr, int right);
+#endif /* ADB */
+
 #endif   /* MAKEFUNC_H */
