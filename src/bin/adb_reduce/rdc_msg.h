@@ -16,6 +16,7 @@
 #include "rdc_comm.h"
 
 /* -----------Reduce message------------- */
+#define RDC_LISTEN_PORT		'L'
 #define RDC_ERROR_MSG		'E'
 #define RDC_EOF_MSG			'e'
 #define RDC_START_RQT		'S'

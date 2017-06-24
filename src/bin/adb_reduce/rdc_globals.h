@@ -10,11 +10,7 @@
 #define ENABLE_LIST_COMPAT
 #include "rdc_list.h"
 
-#ifdef	HAVE_UNIX_SOCKETS
-#define IS_AF_UNIX(fam) ((fam) == AF_UNIX)
-#else
-#define IS_AF_UNIX(fam) (0)
-#endif
+#define IS_AF_INET(fam) ((fam) == AF_INET)
 
 #if defined(safe_pfree)
 #undef safe_pfree
@@ -66,8 +62,7 @@ typedef struct ReduceOptionsData
 
 extern ReduceOptions	MyReduceOpts;
 extern int				MyReduceId;
-extern pgsocket			MyListenSock[];
-extern int				MyListenNum;
+extern pgsocket			MyListenSock;
 extern pgsocket			MyParentSock;
 extern pgsocket			MyLogSock;
 extern int				MyListenPort;

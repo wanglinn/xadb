@@ -15,6 +15,7 @@
 
 #include "getaddrinfo.h"
 #include "rdc_tupstore.h"
+#include "reduce/wait_event.h"
 #include "lib/stringinfo.h"
 
 typedef enum
@@ -63,10 +64,6 @@ typedef int RdcPortType;
 #define InvalidPortType			TYPE_UNDEFINE
 #define PortTypeIsValid(typ)	((typ) == TYPE_PLAN || \
 								 (typ) == TYPE_REDUCE)
-
-#define WE_NONE					(0)
-#define WE_SOCKET_READABLE		(1 << 0)
-#define WE_SOCKET_WRITEABLE		(1 << 1)
 
 struct RdcPort
 {
@@ -117,9 +114,9 @@ struct PlanPort
 #define RdcType(port)				(((RdcPort *) (port))->type)
 #define RdcID(port)					(((RdcPort *) (port))->from_to)
 #define RdcStatus(port)				(((RdcPort *) (port))->status)
-#define RdcWaitEvent(port)			(((RdcPort *) (port))->wait_events)
-#define RdcWaitRead(port)			((((RdcPort *) (port))->wait_events) & WE_SOCKET_READABLE)
-#define RdcWaitWrite(port)			((((RdcPort *) (port))->wait_events) & WE_SOCKET_WRITEABLE)
+#define RdcWaitEvents(port)			(((RdcPort *) (port))->wait_events)
+#define RdcWaitRead(port)			((((RdcPort *) (port))->wait_events) & WAIT_SOCKET_READABLE)
+#define RdcWaitWrite(port)			((((RdcPort *) (port))->wait_events) & WAIT_SOCKET_WRITEABLE)
 #define RdcError(port)				rdc_geterror(port)
 #define RdcTypeStr(port)			rdc_type2string(RdcType(port))
 #define RdcInBuf(port)				&(((RdcPort *) (port))->in_buf)

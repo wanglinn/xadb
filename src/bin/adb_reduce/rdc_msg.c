@@ -118,7 +118,7 @@ try_handle_plan_read(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 		firstchar = rdc_getbyte(port);
 		if (firstchar == EOF)
 		{
-			port->wait_events |= WE_SOCKET_READABLE;
+			port->wait_events |= WAIT_SOCKET_READABLE;
 			continue;
 		}
 
@@ -137,7 +137,7 @@ try_handle_plan_read(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 					if (rdc_getbytes(port, sizeof(totallen)) == EOF)
 					{
 						msg->cursor = sv_cursor;
-						port->wait_events |= WE_SOCKET_READABLE;
+						port->wait_events |= WAIT_SOCKET_READABLE;
 						break;
 					}
 					totallen = rdc_getmsgint(msg, sizeof(totallen));
@@ -145,7 +145,7 @@ try_handle_plan_read(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 					if (rdc_getbytes(port, totallen) == EOF)
 					{
 						msg->cursor = sv_cursor;
-						port->wait_events |= WE_SOCKET_READABLE;
+						port->wait_events |= WAIT_SOCKET_READABLE;
 						break;
 					}
 					/* data length and data */
@@ -168,7 +168,7 @@ try_handle_plan_read(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 						} else
 						{
 							/* send eof to reduce */
-							RdcWaitEvent(port) &= ~WE_SOCKET_READABLE;
+							RdcWaitEvents(port) &= ~WAIT_SOCKET_READABLE;
 							send_rdc2rdc(rdc_port, RdcID(port), NULL, 0);
 						}
 					}
@@ -245,7 +245,7 @@ try_handle_plan_write(PlanPort *pln_port)
 			/* break and wait for next time if can't continue sending */
 			if (buf->cursor < buf->len)
 			{
-				RdcWaitEvent(port) |= WE_SOCKET_WRITEABLE;
+				RdcWaitEvents(port) |= WAIT_SOCKET_WRITEABLE;
 				break;
 			}
 			/* output buffer is empty, continue trying rdcstore */
@@ -260,7 +260,7 @@ try_handle_plan_write(PlanPort *pln_port)
 				rdcstore_gettuple(rdcstore, buf, &hasData);
 				if (!hasData)
 				{
-					RdcWaitEvent(port) &= ~WE_SOCKET_WRITEABLE;
+					RdcWaitEvents(port) &= ~WAIT_SOCKET_WRITEABLE;
 					break;
 				}
 			}
@@ -294,7 +294,7 @@ try_handle_reduce_read(RdcPort *port, List **pln_list)
 	firstchar = rdc_getbyte(port);
 	if (firstchar == EOF)
 	{
-		port->wait_events |= WE_SOCKET_READABLE;
+		port->wait_events |= WAIT_SOCKET_READABLE;
 		return ;
 	}
 
@@ -313,7 +313,7 @@ try_handle_reduce_read(RdcPort *port, List **pln_list)
 					rdc_getbytes(port, sizeof(planid)) == EOF)
 				{
 					msg->cursor = sv_cursor;
-					port->wait_events |= WE_SOCKET_READABLE;
+					port->wait_events |= WAIT_SOCKET_READABLE;
 					break ;
 				}
 				datalen = rdc_getmsgint(msg, sizeof(datalen));
@@ -339,7 +339,7 @@ try_handle_reduce_read(RdcPort *port, List **pln_list)
 				if (rdc_getbytes(port, datalen) == EOF)
 				{
 					msg->cursor = sv_cursor;
-					port->wait_events |= WE_SOCKET_READABLE;
+					port->wait_events |= WAIT_SOCKET_READABLE;
 					break ;
 				}
 				data = rdc_getmsgbytes(msg, datalen);
@@ -366,9 +366,9 @@ try_handle_reduce_write(RdcPort *port)
 	ret = rdc_try_flush(port);
 	CHECK_FOR_INTERRUPTS();
 	if (ret != 0)
-		RdcWaitEvent(port) |= WE_SOCKET_WRITEABLE;
+		RdcWaitEvents(port) |= WAIT_SOCKET_WRITEABLE;
 	else
-		RdcWaitEvent(port) &= ~WE_SOCKET_WRITEABLE;
+		RdcWaitEvents(port) &= ~WAIT_SOCKET_WRITEABLE;
 }
 
 static void
@@ -410,7 +410,7 @@ send_rdc2plan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datale
 	port = pln_port->port;
 	while (port != NULL)
 	{
-		RdcWaitEvent(port) |= WE_SOCKET_WRITEABLE;
+		RdcWaitEvents(port) |= WAIT_SOCKET_WRITEABLE;
 		port = RdcNext(port);
 	}
 	try_handle_plan_write(pln_port);
@@ -442,9 +442,9 @@ send_rdc2rdc(RdcPort *port, RdcPortId planid, const char *data, int datalen)
 	ret = rdc_try_flush(port);
 	CHECK_FOR_INTERRUPTS();
 	if (ret != 0)
-		RdcWaitEvent(port) |= WE_SOCKET_WRITEABLE;
+		RdcWaitEvents(port) |= WAIT_SOCKET_WRITEABLE;
 	else
-		RdcWaitEvent(port) &= ~WE_SOCKET_WRITEABLE;
+		RdcWaitEvents(port) &= ~WAIT_SOCKET_WRITEABLE;
 }
 
 int

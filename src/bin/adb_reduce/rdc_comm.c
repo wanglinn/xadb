@@ -35,7 +35,7 @@ static int internal_flush_buffer(pgsocket sock, StringInfo buf, bool block);
 static int internal_put_buffer(RdcPort *port, const char *s, size_t len, bool enlarge);
 static int internal_puterror(RdcPort *port, const char *s, size_t len, bool replace);
 
-static RdcPollingStatusType internal_recv_startup_rqt(RdcPort *port, int expected_ver, RdcPortType expceted_type);
+static RdcPollingStatusType internal_recv_startup_rqt(RdcPort *port, int expected_ver);
 static RdcPollingStatusType internal_recv_startup_rsp(RdcPort *port, RdcPortType expceted_type, RdcPortId expceted_id);
 static int connect_nodelay(RdcPort *port);
 static int connect_keepalive(RdcPort *port);
@@ -76,7 +76,7 @@ rdc_newport(pgsocket sock)
 	rdc_port->type = InvalidPortType;
 	rdc_port->from_to = InvalidPortId;
 	rdc_port->version = 0;
-	rdc_port->wait_events = WE_NONE;
+	rdc_port->wait_events = WAIT_NONE;
 #ifdef DEBUG_ADB
 	rdc_port->hoststr = NULL;
 	rdc_port->portstr = NULL;
@@ -166,8 +166,8 @@ rdc_connect(const char *host, uint32 port, RdcPortType type, RdcPortId id)
 
 	for (addr = rdc_port->addrs; addr != NULL; addr = addr->ai_next)
 	{
-		/* skip unix address */
-		if (IS_AF_UNIX(addr->ai_family))
+		/* skip not INET address */
+		if (!IS_AF_INET(addr->ai_family))
 			continue;
 
 		/* create a socket */
@@ -342,9 +342,8 @@ keep_going: 					/* We will come back to here until there is
 				{
 					addr_cur = port->addr_cur;
 
-					/* skip UNIX address */
-					if (IS_AF_UNIX(addr_cur->ai_family) ||
-						addr_cur->ai_family != AF_INET)
+					/* skip not INET address */
+					if (!IS_AF_INET(addr_cur->ai_family))
 					{
 						port->addr_cur = addr_cur->ai_next;
 						continue;
@@ -384,7 +383,12 @@ keep_going: 					/* We will come back to here until there is
 						port->addr_cur = addr_cur->ai_next;
 						continue;
 					}
-
+#ifdef DEBUG_ADB
+					elog(LOG,
+						 "Try to connect [%s %d] {%s:%s}",
+						 RdcTypeStr(port), RdcID(port),
+						 RdcHostStr(port), RdcPortStr(port));
+#endif
 					/*
 					 * Start/make connection.  This should not block, since we
 					 * are in nonblock mode.  If it does, well, too bad.
@@ -400,11 +404,14 @@ keep_going: 					/* We will come back to here until there is
 							 * wait for write-ready on socket.
 							 */
 							RdcStatus(port) = CONNECTION_STARTED;
-							RdcWaitEvent(port) = WE_SOCKET_WRITEABLE;
+							RdcWaitEvents(port) = WAIT_SOCKET_WRITEABLE;
 							return RDC_POLLING_WRITING;
 						}
 
-						rdc_puterror(port, "could not connect OK: %m");
+						rdc_puterror(port,
+									 "fail to connect [%s:%d] {%s:%s}: %m",
+									 RdcTypeStr(port), RdcID(port),
+									 RdcHostStr(port), RdcPortStr(port));
 					}
 					else
 					{
@@ -433,7 +440,7 @@ keep_going: 					/* We will come back to here until there is
 
 		case CONNECTION_STARTED:
 			{
-				socklen_t	optlen;
+				socklen_t	optlen = sizeof(optval);
 				socklen_t	addrlen;
 
 				if (getsockopt(RdcSocket(port), SOL_SOCKET, SO_ERROR,
@@ -479,7 +486,7 @@ keep_going: 					/* We will come back to here until there is
 				 * Make sure we can write before advancing to next step.
 				 */
 				RdcStatus(port) = CONNECTION_MADE;
-				RdcWaitEvent(port) = WE_SOCKET_WRITEABLE;
+				RdcWaitEvents(port) = WAIT_SOCKET_WRITEABLE;
 				return RDC_POLLING_WRITING;
 			}
 
@@ -492,7 +499,7 @@ keep_going: 					/* We will come back to here until there is
 					goto error_return;
 				}
 				RdcStatus(port) = CONNECTION_AWAITING_RESPONSE;
-				RdcWaitEvent(port) = WE_SOCKET_READABLE;
+				RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
 				return RDC_POLLING_READING;
 			}
 
@@ -510,7 +517,7 @@ keep_going: 					/* We will come back to here until there is
 						goto keep_going;
 						break;
 					case RDC_POLLING_READING:
-						RdcWaitEvent(port) = WE_SOCKET_READABLE;
+						RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
 						return status;
 					case RDC_POLLING_WRITING:
 					default:
@@ -526,17 +533,17 @@ keep_going: 					/* We will come back to here until there is
 			{
 				RdcPollingStatusType status;
 
-				status = internal_recv_startup_rqt(port, RDC_VERSION_NUM, RdcType(port));
+				status = internal_recv_startup_rqt(port, RDC_VERSION_NUM);
 				switch (status)
 				{
 					case RDC_POLLING_FAILED:
 						goto error_return;
 						break;
 					case RDC_POLLING_READING:
-						RdcWaitEvent(port) = WE_SOCKET_READABLE;
+						RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
 						return status;
 					case RDC_POLLING_WRITING:
-						RdcWaitEvent(port) = WE_SOCKET_WRITEABLE;
+						RdcWaitEvents(port) = WAIT_SOCKET_WRITEABLE;
 						return status;
 					case RDC_POLLING_OK:
 					default:
@@ -567,7 +574,7 @@ keep_going: 					/* We will come back to here until there is
 				}
 				resetStringInfo(RdcOutBuf(port));
 				resetStringInfo(RdcErrBuf(port));
-				RdcWaitEvent(port) = WE_SOCKET_READABLE;
+				RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
 				RdcStatus(port) = CONNECTION_OK;
 				return RDC_POLLING_OK;
 			}
@@ -625,7 +632,7 @@ _re_accept:
 				 errmsg("fail to set socket options while accept: %s",
 				 RdcError(port))));
 	RdcStatus(port) = CONNECTION_ACCEPT;
-	RdcWaitEvent(port) = WE_SOCKET_READABLE;
+	RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
 
 #ifdef DEBUG_ADB
 	{
@@ -1345,7 +1352,7 @@ internal_put_buffer(RdcPort *port, const char *s, size_t len, bool enlarge)
  *		connection.
  */
 static RdcPollingStatusType
-internal_recv_startup_rqt(RdcPort *port, int expected_ver, RdcPortType expceted_type)
+internal_recv_startup_rqt(RdcPort *port, int expected_ver)
 {
 	char		beresp;
 	uint32		length;
@@ -1420,13 +1427,6 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver, RdcPortType expceted_
 	RdcID(port) = rqt_id;
 
 	rdc_getmsgend(msg);
-
-	if (rqt_type != expceted_type)
-		ereport(WARNING,
-				(errmsg("expceted port type '%s' from client, "
-				 		"but received request type '%s'",
-				 		rdc_type2string(expceted_type),
-				 		rdc_type2string(rqt_type))));
 
 	if (rqt_ver != expected_ver)
 	{

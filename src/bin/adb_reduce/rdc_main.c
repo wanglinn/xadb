@@ -9,17 +9,13 @@
 #include "rdc_comm.h"
 #include "rdc_msg.h"
 #include "getopt_long.h"
+#include "reduce/wait_event.h"
 #include "utils/memutils.h"		/* for MemoryContext */
-
-#include <poll.h>
 
 static const char	   *progname;
 ReduceOptions 			MyReduceOpts = NULL;
 int						MyReduceId = -1;
-#define 				MAXLISTEN	64
-pgsocket				MyListenSock[MAXLISTEN];
-int						MyListenNum = 0;
-
+pgsocket				MyListenSock = PGINVALID_SOCKET;
 pgsocket				MyParentSock = PGINVALID_SOCKET;
 pgsocket				MyLogSock = PGINVALID_SOCKET;
 int						MyListenPort = 0;
@@ -30,7 +26,8 @@ static void InitReduceOptions(void);
 static void FreeReduceOptions(int code, Datum arg);
 static void ParseReduceOptions(int argc, char * const argvs[]);
 static void Usage(bool exit_success);
-static int  ReduceListenInet(void);
+static void ReduceListen(void);
+static void TransListenPort(void);
 static void CloseReduceListenSocket(int code, Datum arg);
 static void ResetReduceGroup(void);
 static void DropReduceGroup(void);
@@ -43,13 +40,11 @@ static void ReduceDieHandler(SIGNAL_ARGS);
 static void SetReduceSignals(void);
 static void WaitForReduceGroupReady(void);
 static bool IsReduceGroupReady(RdcPort **rdc_nodes, int rdc_num);
-static int PrepareConstSocks(struct pollfd *fds, int begin);
-static int PrepareSetupGroup(RdcPort **rdc_nodes,	/* IN/OUT */
-							 struct pollfd *fds,	/* IN/OUT */
-							 RdcPortType expected,	/* IN */
-							 int begin,				/* IN */
-							 List **rdc_list,		/* IN/OUT */
-							 List **poll_list);		/* OUT */
+static void PrepareConnectGroup(RdcPort **rdc_nodes,  /* IN/OUT */
+								RdcPortType expected, /* IN */
+								List **rdc_list);		/* IN/OUT */
+static pgsocket GetRdcPortSocket(void *port);
+static uint32 GetRdcPortWaitEvents(void *port);
 static void SetupReduceGroup(RdcPort *port);
 static bool BackendIsAlive(void);
 static void ReduceAcceptPlanConn(List **accept_list, List **pln_list);
@@ -177,173 +172,152 @@ Usage(bool exit_success)
 	exit(exit_success ? EXIT_SUCCESS: EXIT_FAILURE);
 }
 
-static int
-ReduceListenInet(void)
+static void
+ReduceListen(void)
 {
-	int					i;
-	int 				fd;
-	struct addrinfo		hint;
-	char				portNumberStr[32];
-	char			   *service;
-	struct addrinfo	   *addrs = NULL,
-					   *addr;
-	int					ret;
+	int					fd;
 	int					err;
-	int					listen_index = 0;
-#if !defined(WIN32) || defined(IPV6_V6ONLY)
+	struct sockaddr_in	addr_inet;
+	socklen_t			addrlen;
+	char			   *listen_host = NULL;
+#if !defined(WIN32)
 	int					one = 1;
 #endif
 
-	/*
-	 * Establish input sockets.
-	 *
-	 * First, mark them all closed, and set up an on_proc_exit function that's
-	 * charged with closing the sockets again at exit.
-	 */
-	for (i = 0; i < MAXLISTEN; i++)
-		MyListenSock[i] = PGINVALID_SOCKET;
-
+	MyListenSock = PGINVALID_SOCKET;
+	MyListenPort = MyReduceOpts->lport;
 	/* don't forget close listen socket */
 	on_rdc_exit(CloseReduceListenSocket, 0);
 
-	/* Initialize hint structure */
-	MemSet(&hint, 0, sizeof(hint));
-	hint.ai_family = AF_INET;
-	hint.ai_flags = AI_PASSIVE;
-	hint.ai_socktype = SOCK_STREAM;
-
-	snprintf(portNumberStr, sizeof(portNumberStr), "%d", MyReduceOpts->lport);
-	service = portNumberStr;
-
-	ret = getaddrinfo(MyReduceOpts->lhost, service, &hint, &addrs);
-	if (ret || !addrs)
+	if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == PGINVALID_SOCKET)
 	{
-		if (MyReduceOpts->lhost)
-			ereport(LOG,
-					(errmsg("could not translate host name \"%s\", service \"%s\" to address: %s",
-							MyReduceOpts->lhost, service, gai_strerror(ret))));
-		else
-			ereport(LOG,
-				 (errmsg("could not translate service \"%s\" to address: %s",
-						 service, gai_strerror(ret))));
-		if (addrs)
-			freeaddrinfo(addrs);
-		return STATUS_ERROR;
+		ereport(LOG,
+				(errcode_for_socket_access(),
+				 errmsg("could not create socket: %m")));
+		goto _error_end;
 	}
 
-	for (addr = addrs; addr; addr = addr->ai_next)
+	if (!pg_set_noblock(fd))
 	{
-		/* See if there is still room to add 1 more socket. */
-		for (; listen_index < MAXLISTEN; listen_index++)
-		{
-			if (MyListenSock[listen_index] == PGINVALID_SOCKET)
-				break;
-		}
-		if (listen_index >= MAXLISTEN)
-		{
-			ereport(LOG,
-					(errmsg("could not bind to all requested addresses: MAXLISTEN (%d) exceeded",
-							MAXLISTEN)));
-			break;
-		}
-
-		if ((fd = socket(addr->ai_family, SOCK_STREAM, 0)) == PGINVALID_SOCKET)
-		{
-			ereport(LOG,
-					(errcode_for_socket_access(),
-					 errmsg("could not create %s socket: %m",
-							_("IPv4"))));
-			continue;
-		}
-
-		if (!pg_set_noblock(fd))
-		{
-			ereport(LOG,
-					(errcode_for_socket_access(),
-					 errmsg("set noblocking mode failed: %m")));
-			continue;
-		}
+		ereport(LOG,
+				(errcode_for_socket_access(),
+				 errmsg("set noblocking mode failed: %m")));
+		goto _error_end;
+	}
 
 #ifndef WIN32
-
-		/*
-		 * Without the SO_REUSEADDR flag, a new reduce can't be started
-		 * right away after a stop or crash, giving "address already in use"
-		 * error on TCP ports.
-		 *
-		 * On win32, however, this behavior only happens if the
-		 * SO_EXLUSIVEADDRUSE is set. With SO_REUSEADDR, win32 allows multiple
-		 * servers to listen on the same address, resulting in unpredictable
-		 * behavior. With no flags at all, win32 behaves as Unix with
-		 * SO_REUSEADDR.
-		 */
-		if ((setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
-						(char *) &one, sizeof(one))) == -1)
-		{
-			ereport(LOG,
-					(errcode_for_socket_access(),
-					 errmsg("setsockopt(SO_REUSEADDR) failed: %m")));
-			closesocket(fd);
-			continue;
-		}
+	/*
+	 * Without the SO_REUSEADDR flag, a new reduce can't be started
+	 * right away after a stop or crash, giving "address already in use"
+	 * error on TCP ports.
+	 *
+	 * On win32, however, this behavior only happens if the
+	 * SO_EXLUSIVEADDRUSE is set. With SO_REUSEADDR, win32 allows multiple
+	 * servers to listen on the same address, resulting in unpredictable
+	 * behavior. With no flags at all, win32 behaves as Unix with
+	 * SO_REUSEADDR.
+	 */
+	if ((setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+					(char *) &one, sizeof(one))) == -1)
+	{
+		ereport(LOG,
+				(errcode_for_socket_access(),
+				 errmsg("setsockopt(SO_REUSEADDR) failed: %m")));
+		goto _error_end;
+	}
 #endif
 
-		/*
-		 * Note: This might fail on some OS's, like Linux older than
-		 * 2.4.21-pre3, that don't have the IPV6_V6ONLY socket option, and map
-		 * ipv4 addresses to ipv6.  It will show ::ffff:ipv4 for all ipv4
-		 * connections.
-		 */
-		err = bind(fd, addr->ai_addr, addr->ai_addrlen);
-		if (err < 0)
-		{
-			ereport(LOG,
-					(errcode_for_socket_access(),
-					 errmsg("could not bind %s socket: %m",
-							_("IPv4")),
-				  errhint("Is another reduce already running on port %d?"
-						  " If not, wait a few seconds and retry.",
-						  (int) MyReduceOpts->lport)));
-			closesocket(fd);
-			continue;
-		}
+	/* Create an INET socket address */
+	addrlen = sizeof(addr_inet);
+	MemSet(&addr_inet, 0, addrlen);
+	addr_inet.sin_family = AF_INET;
+	addr_inet.sin_port = htons(MyListenPort);
+	if (MyReduceOpts->lhost)
+		addr_inet.sin_addr.s_addr = inet_addr(MyReduceOpts->lhost);
+	else
+		addr_inet.sin_addr.s_addr = htonl(INADDR_ANY);
 
-		err = listen(fd, PG_SOMAXCONN);
-		if (err < 0)
-		{
-			ereport(LOG,
-					(errcode_for_socket_access(),
-			/* translator: %s is IPv4, IPv6, or Unix */
-					 errmsg("could not listen on %s socket: %m",
-							_("IPv4"))));
-			closesocket(fd);
-			continue;
-		}
-		MyListenSock[listen_index] = fd;
-		MyListenNum++;
+	/*
+	 * Note: This might fail on some OS's, like Linux older than
+	 * 2.4.21-pre3, that don't have the IPV6_V6ONLY socket option, and map
+	 * ipv4 addresses to ipv6.  It will show ::ffff:ipv4 for all ipv4
+	 * connections.
+	 */
+	err = bind(fd, (struct sockaddr *) &addr_inet, addrlen);
+	if (err < 0)
+	{
+		ereport(LOG,
+				(errcode_for_socket_access(),
+				 errmsg("could not bind IPv4 socket: %m"),
+				 errhint("Is another reduce already running on port %d?"
+						 " If not, wait a few seconds and retry.",
+						 MyListenPort)));
+		goto _error_end;
 	}
 
-	freeaddrinfo(addrs);
+	err = listen(fd, PG_SOMAXCONN);
+	if (err < 0)
+	{
+		ereport(LOG,
+				(errcode_for_socket_access(),
+				 errmsg("could not listen on IPv4 socket: %m")));
+		goto _error_end;
+	}
 
-	if (!MyListenNum)
-		return STATUS_ERROR;
+	if (MyListenPort == 0)
+	{
+		/* Get random listen port */
+		MemSet(&addr_inet, 0, addrlen);
+		if (getsockname(fd, (struct sockaddr *) &addr_inet, &addrlen) < 0)
+		{
+			ereport(LOG,
+				(errcode_for_socket_access(),
+				 errmsg("getsockname(2) failed: %m")));
+			goto _error_end;
+		}
+		MyListenPort = ntohs(addr_inet.sin_port);
+		listen_host = inet_ntoa(addr_inet.sin_addr);
+		elog(LOG, "Listen on {%s:%d}", listen_host, MyListenPort);
+	}
+	MyListenSock = fd;
 
-	return STATUS_OK;
+	/* OK */
+	return ;
+
+_error_end:
+	if (fd != PGINVALID_SOCKET)
+		closesocket(fd);
+	ereport(ERROR,
+			(errmsg("could not create listen socket for \"%s : %d\"",
+					MyReduceOpts->lhost, MyReduceOpts->lport)));
+	rdc_exit(EXIT_FAILURE);
+}
+
+static void
+TransListenPort(void)
+{
+	if (MyParentSock != PGINVALID_SOCKET)
+	{
+		StringInfoData	buf;
+		RdcPort		   *parent_watch = MyReduceOpts->parent_watch;
+
+		Assert(MyListenPort > 0);
+		Assert(parent_watch);
+		rdc_beginmessage(&buf, RDC_LISTEN_PORT);
+		rdc_sendint(&buf, MyListenPort, sizeof(MyListenPort));
+		rdc_endmessage(parent_watch, &buf);
+		rdc_flush(parent_watch);
+	}
 }
 
 static void
 CloseReduceListenSocket(int code, Datum arg)
 {
-	int		i;
-
-	for (i = 0; i < MAXLISTEN; i++)
+	if (MyListenSock != PGINVALID_SOCKET)
 	{
-		if (MyListenSock[i] != PGINVALID_SOCKET)
-		{
-			elog(LOG, "close listen socket: %d", MyListenSock[i]);
-			closesocket(MyListenSock[i]);
-			MyListenSock[i] = PGINVALID_SOCKET;
-		}
+		elog(LOG, "close listen socket: %d", MyListenSock);
+		closesocket(MyListenSock);
+		MyListenSock = PGINVALID_SOCKET;
 	}
 }
 
@@ -358,7 +332,7 @@ ResetReduceGroup(void)
 		if (i == MyReduceId)
 			continue;
 		port = MyReduceOpts->rdc_nodes[i];
-		RdcWaitEvent(port) = WE_SOCKET_READABLE;
+		RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
 		elog(LOG,
 			 "reset [%s %d] {%s:%s}",
 			 RdcTypeStr(port), RdcID(port),
@@ -444,13 +418,10 @@ int main(int argc, char* const argvs[])
 	ParseReduceOptions(argc, argvs);
 
 	/* start listen */
-	if (ReduceListenInet() != STATUS_OK ||
-		MyListenSock[0] == PGINVALID_SOCKET)
-	{
-		ereport(ERROR,
-				(errmsg("could not create listen socket for \"%s : %d\"",
-						MyReduceOpts->lhost, MyReduceOpts->lport)));
-	}
+	ReduceListen();
+
+	/* tell its parent listen port */
+	TransListenPort();
 
 	/* set signals */
 	SetReduceSignals();
@@ -631,45 +602,20 @@ IsReduceGroupReady(RdcPort **rdc_nodes, int rdc_num)
 	return ready;
 }
 
-static int
-PrepareConstSocks(struct pollfd *fds, int begin)
-{
-	int nfds;
-
-	for (nfds = 0; nfds < MyListenNum; nfds++)
-	{
-		fds[begin].fd = MyListenSock[nfds];
-		fds[begin].events = POLLIN;
-		begin++;
-	}
-	if (MyParentSock != PGINVALID_SOCKET)
-	{
-		fds[begin].fd = MyParentSock;
-		fds[begin].events = POLLIN;
-		begin++;
-	}
-
-	return begin;
-}
-
-static int
-PrepareSetupGroup(RdcPort **rdc_nodes,	/* IN/OUT */
-				  struct pollfd *fds,	/* IN/OUT */
-				  RdcPortType expected,	/* IN */
-				  int begin,			/* IN */
-				  List **rdc_list,		/* IN/OUT */
-				  List **poll_list)		/* OUT */
+static void
+PrepareConnectGroup(RdcPort **rdc_nodes,  /* IN/OUT */
+					RdcPortType expected, /* IN */
+					List **rdc_list)		/* IN/OUT */
 {
 	RdcPort		   *port = NULL;
 	ListCell	   *cell = NULL;
 
 	if (rdc_list == NULL)
-		return begin;
+		return ;
 
 	for (cell = list_head(*rdc_list); cell != NULL;)
 	{
 		port = (RdcPort *) lfirst(cell);
-		Assert(port);
 		cell = lnext(cell);
 
 		/* skip it which is not my concerned */
@@ -703,40 +649,33 @@ PrepareSetupGroup(RdcPort **rdc_nodes,	/* IN/OUT */
 			}
 			continue;
 		}
-		Assert(RdcSockIsValid(port));
-
-		fds[begin].fd = RdcSocket(port);
-		fds[begin].events = 0;
-		if (RdcWaitRead(port))
-			fds[begin].events |= POLLIN;
-		if (RdcWaitWrite(port))
-			fds[begin].events |= POLLOUT;
-		if (poll_list)
-			*poll_list = lappend(*poll_list, port);
-		begin++;
 	}
+}
 
-	return begin;
+static pgsocket
+GetRdcPortSocket(void *port)
+{
+	return RdcSocket(port);
+}
+
+static uint32
+GetRdcPortWaitEvents(void *port)
+{
+	return RdcWaitEvents(port);
 }
 
 static void
 SetupReduceGroup(RdcPort *port)
 {
+	int					timeout = -1;
 	int					rdc_num = 0;
-	int					i;
 	int					nready = 0;
 	List			   *accept_list = NIL;
 	List			   *connect_list = NIL;
-	List			   *poll_list = NIL;
 #ifdef DEBUG_ADB
 	ReduceInfo		   *rdc_infos = NULL;
 #endif
-	ListCell		   *cell = NULL;
 	RdcPort			  **rdc_nodes = NULL;
-
-	struct pollfd	   *fds;
-	int					nfds, max_nfds, cur_nfds;
-	int					timeout = 10;		/* 10 milliseconds */
 
 	if (rdc_parse_group(port, &rdc_num,
 #ifdef DEBUG_ADB
@@ -756,15 +695,12 @@ SetupReduceGroup(RdcPort *port)
 	MyReduceOpts->rdc_infos = rdc_infos;
 #endif
 
-	max_nfds = MyListenNum + 1 + rdc_num;
-	fds = (struct pollfd *) palloc(max_nfds * sizeof(struct pollfd));
-
 	for (;;)
 	{
-		list_free(poll_list);
-		poll_list = NIL;
-
 		CHECK_FOR_INTERRUPTS();
+
+		PrepareConnectGroup(rdc_nodes, TYPE_REDUCE, &connect_list);
+		PrepareConnectGroup(rdc_nodes, TYPE_UNDEFINE|TYPE_REDUCE, &accept_list);
 
 		/* all Reduce are ready */
 		if (IsReduceGroupReady(rdc_nodes, rdc_num))
@@ -774,79 +710,68 @@ SetupReduceGroup(RdcPort *port)
 			break;
 		}
 
-		cur_nfds = MyListenNum + 1 + list_length(connect_list) +
-				   list_length(accept_list);
-		if (cur_nfds > max_nfds)
-		{
-			max_nfds = cur_nfds;
-			fds = (struct pollfd *)
-				repalloc(fds, max_nfds * sizeof(struct pollfd));
-		}
+		begin_wait_events();
+		add_wait_events_sock(MyListenSock, WAIT_SOCKET_READABLE);
+		add_wait_events_sock(MyParentSock, WAIT_SOCKET_READABLE);
+		add_wait_events_list(connect_list, GetRdcPortSocket, GetRdcPortWaitEvents);
+		add_wait_events_list(accept_list, GetRdcPortSocket, GetRdcPortWaitEvents);
 
-		nfds = PrepareConstSocks(fds, 0);
-		nfds = PrepareSetupGroup(rdc_nodes, fds, TYPE_REDUCE, nfds,
-							&connect_list, &poll_list);
-		nfds = PrepareSetupGroup(rdc_nodes, fds, TYPE_UNDEFINE | TYPE_REDUCE, nfds,
-							&accept_list, &poll_list);
-_re_poll:
-		nready = poll(fds, nfds, timeout);
-		CHECK_FOR_INTERRUPTS();
+		nready = exec_wait_events(timeout);
 		if (nready < 0)
 		{
-			if (errno == EINTR)
-				goto _re_poll;
-
 			ereport(ERROR,
-					(errmsg("fail to poll: %m")));
-		} else if (nready == 0)
+					(errmsg("fail to wait read/write of sockets: %m")));
+		} else
+		if (nready == 0)
 		{
 			/* do nothing if timeout */
 		} else
 		{
-			/* check MyListenSock */
-			for (i = 0; i < MyListenNum; i++)
+			WaitEventElt	*wee = NULL;
+			RdcPort			*port = NULL;
+
+			/* listen sock */
+			wee = wee_next();
+			if (WEEHasError(wee))
+				ereport(ERROR,
+						(errcode(ERRCODE_CONNECTION_FAILURE),
+						 errmsg("something wrong with listen socket")));
+			if (WEECanRead(wee))
 			{
-				if (fds[i].revents & (POLLERR | POLLHUP | POLLNVAL))
-					ereport(ERROR,
-							(errcode(ERRCODE_CONNECTION_FAILURE),
-							 errmsg("something wrong with listen socket")));
-				/* accept a new connection */
-				if (fds[i].revents & POLLIN)
+				for (;;)
 				{
-					for (;;)
-					{
-						RdcPort		*port = NULL;
-
-						port = rdc_accept(MyListenSock[i]);
-						if (port == NULL)
-							break;
-
-						accept_list = lappend(accept_list, port);
-					}
+					RdcPort		*port = NULL;
+					port = rdc_accept(WEEGetSock(wee));
+					if (port == NULL)
+						break;
+					accept_list = lappend(accept_list, port);
 				}
 			}
-
 			/* check MyParentSock */
 			if (MyParentSock != PGINVALID_SOCKET)
 			{
-				if (fds[i].revents & (POLLERR | POLLHUP | POLLNVAL))
+				wee = wee_next();
+				if (WEEHasError(wee) ||
+					(WEECanRead(wee) && !BackendIsAlive()))
 					break;
-				if (fds[i].revents & POLLIN && !BackendIsAlive())
-					break;
-				i++;
 			}
-
-			/* check Reduce group nodes */
-			foreach (cell, poll_list)
+			/* check reduce group */
+			while ((wee = wee_next()) != NULL)
 			{
-				Assert(lfirst(cell));
-				(void) rdc_connect_poll((RdcPort *) lfirst(cell));
+				port = (RdcPort *) WEEGetArg(wee);
+				if (WEEHasError(wee))
+					ereport(ERROR,
+							(errcode(ERRCODE_CONNECTION_FAILURE),
+							 errmsg("something wrong with [%s %d] {%s:%s} socket",
+							 RdcTypeStr(port), RdcID(port),
+							 RdcHostStr(port), RdcPortStr(port))));
+				if (WEECanRead(wee) || WEECanWrite(wee))
+					(void) rdc_connect_poll(port);
 			}
 		}
+
+		end_wait_events();
 	}
-	safe_pfree(fds);
-	list_free(connect_list);
-	list_free(accept_list);
 }
 
 static bool
@@ -883,7 +808,7 @@ ReduceAcceptPlanConn(List **accept_list, List **pln_list)
 		 * Connection came from other Reduce will be rejected,
 		 * Bad connection will be done the same.
 		 */
-		if (IsPortForReduce(port) ||
+		if (!IsPortForPlan(port) ||
 			RdcStatus(port) == CONNECTION_BAD)
 		{
 			*accept_list = lremove(port, *accept_list);
@@ -895,11 +820,8 @@ ReduceAcceptPlanConn(List **accept_list, List **pln_list)
 static int
 ReduceLoopRun(void)
 {
-	struct pollfd		   *fds = NULL;
-	int						max_num, cur_num;
-	nfds_t					nfds;
 	int						timeout = -1;
-	int						i, ret;
+	int						nready;
 	int						rdc_num;
 	PlanPort			   *pln_port;
 	RdcPort				   *port;
@@ -952,125 +874,72 @@ ReduceLoopRun(void)
 				(errmsg("Reduce group is crushed")));
 
 	MemoryContextSwitchTo(MessageContext);
-	max_num = MyListenNum + 1 + rdc_num +
-			  get_plan_port_num(pln_list) +
-			  list_length(accept_list);
-	fds = (struct pollfd *) palloc(max_num * sizeof(struct pollfd));
 
 	for (;;)
 	{
 		CHECK_FOR_INTERRUPTS();
 
-		cur_num = MyListenNum + 1 + rdc_num +
-				  get_plan_port_num(pln_list) +
-				  list_length(accept_list);
-		if (max_num > cur_num)
-		{
-			max_num = cur_num;
-			fds = (struct pollfd *)
-				repalloc(fds, max_num * sizeof(struct pollfd));
-		}
-
-		nfds = PrepareConstSocks(fds, 0);
-		for (i = 0; i < rdc_num; i++)
-		{
-			if (i == MyReduceId)
-				continue;
-			port = rdc_nodes[i];
-			if (RdcWaitEvent(port) == WE_NONE)
-				continue;
-			fds[nfds].fd = RdcSocket(port);
-			fds[nfds].events = 0;
-			if (RdcWaitRead(port))
-				fds[nfds].events |= POLLIN;
-			if (RdcWaitWrite(port))
-				fds[nfds].events |= POLLOUT;
-			nfds++;
-		}
+		begin_wait_events();
+		add_wait_events_sock(MyListenSock, WAIT_SOCKET_READABLE);
+		add_wait_events_sock(MyParentSock, WAIT_SOCKET_READABLE);
+		add_wait_events_array((void **)rdc_nodes, rdc_num, GetRdcPortSocket, GetRdcPortWaitEvents);
+		add_wait_events_list(accept_list, GetRdcPortSocket, GetRdcPortWaitEvents);
 		foreach(cell, pln_list)
 		{
 			pln_port = (PlanPort *) lfirst(cell);
 			port = pln_port->port;
 			while (port != NULL)
 			{
-				if (RdcWaitEvent(port) == WE_NONE)
-					continue;
-				fds[nfds].fd = RdcSocket(port);
-				fds[nfds].events = 0;
-				if (RdcWaitRead(port))
-					fds[nfds].events |= POLLIN;
-				if (RdcWaitWrite(port))
-					fds[nfds].events |= POLLOUT;
-				nfds++;
+				add_wait_events_element(port, GetRdcPortSocket, GetRdcPortWaitEvents);
 				port = RdcNext(port);
 			}
 		}
-		foreach(cell, accept_list)
-		{
-			port = (RdcPort *) lfirst(cell);
-			Assert(port);
-			if (RdcWaitEvent(port) == WE_NONE)
-				continue;
-			fds[nfds].fd = RdcSocket(port);
-			fds[nfds].events = 0;
-			if (RdcWaitRead(port))
-				fds[nfds].events |= POLLIN;
-			if (RdcWaitWrite(port))
-				fds[nfds].events |= POLLOUT;
-			nfds++;
-		}
 
-_re_poll:
-		ret = poll(fds, nfds, timeout);
-		CHECK_FOR_INTERRUPTS();
-		if (ret < 0)
+		nready = exec_wait_events(timeout);
+		if (nready < 0)
 		{
-			if (errno == EINTR)
-				goto _re_poll;
-
 			ereport(ERROR,
-					(errmsg("fail to poll(2): %m")));
-		}
-		else if (ret == 0)
+					(errmsg("fail to wait read/write of sockets: %m")));
+		} else
+		if (nready == 0)
 		{
 			/* do nothing if timeout */
-		}
-		else
+		} else
 		{
-			for (i = 0; i < MyListenNum; i++)
+			WaitEventElt	*wee = NULL;
+
+			/* listen sock */
+			wee = wee_next();
+			if (WEEHasError(wee))
+				ereport(ERROR,
+						(errcode(ERRCODE_CONNECTION_FAILURE),
+						 errmsg("something wrong with listen socket")));
+			if (WEECanRead(wee))
 			{
-				if (fds[i].revents & (POLLERR | POLLHUP | POLLNVAL))
-					ereport(ERROR,
-							(errmsg("something wrong with listen socket: %m")));
-				/* accept a new connection */
-				if (fds[i].revents & POLLIN)
+				for (;;)
 				{
-					for (;;)
-					{
-						RdcPort		*port = NULL;
-
-						port = rdc_accept(MyListenSock[i]);
-						if (port == NULL)
-							break;
-
-						accept_list = lappend(accept_list, port);
-					}
+					RdcPort		*port = NULL;
+					port = rdc_accept(WEEGetSock(wee));
+					if (port == NULL)
+						break;
+					accept_list = lappend(accept_list, port);
 				}
 			}
-
+			/* check MyParentSock */
 			if (MyParentSock != PGINVALID_SOCKET)
 			{
-				if (fds[i].revents & (POLLERR | POLLHUP | POLLNVAL))
+				wee = wee_next();
+				if (WEEHasError(wee) ||
+					(WEECanRead(wee) && !BackendIsAlive()))
 					break;
-				if (fds[i].revents & POLLIN && !BackendIsAlive())
-					break;
-				i++;
 			}
 
 			ReduceAcceptPlanConn(&accept_list, &pln_list);
 			rdc_handle_reduce(rdc_nodes, rdc_num, &pln_list);
 			rdc_handle_plannode(rdc_nodes, rdc_num, pln_list);
 		}
+		end_wait_events();
 	}
+
 	return STATUS_OK;
 }
