@@ -1014,7 +1014,11 @@ Datum
 currval_oid(PG_FUNCTION_ARGS)
 {
 	Oid			relid = PG_GETARG_OID(0);
+#ifdef ADB
+	int64		result = 0;
+#else
 	int64		result;
+#endif
 	SeqTable	elm;
 	Relation	seqrel;
 
@@ -1052,8 +1056,11 @@ Datum
 lastval(PG_FUNCTION_ARGS)
 {
 	Relation	seqrel;
+#ifdef ADB
+	int64		result = 0;
+#else
 	int64		result;
-
+#endif
 	if (last_used_seq == NULL)
 	ereport(ERROR,
 			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
