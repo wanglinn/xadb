@@ -10,8 +10,6 @@
 #define ENABLE_LIST_COMPAT
 #include "rdc_list.h"
 
-#define IS_AF_INET(fam) ((fam) == AF_INET)
-
 #if defined(safe_pfree)
 #undef safe_pfree
 #endif
@@ -27,19 +25,13 @@
 #undef TEXTDOMAIN
 #endif
 #define TEXTDOMAIN			PG_TEXTDOMAIN("adb_reduce")
-#define RDC_VERSION_NUM		PG_VERSION_NUM
 
 typedef struct RdcPort  RdcPort;
 typedef struct PlanPort PlanPort;
-
 #ifdef DEBUG_ADB
-typedef struct ReduceInfo
-{
-	int			rnid;			/* reduce node id start with 0 */
-	char	   *host;			/* reduce server host */
-	int			port;			/* reduce server port */
-} ReduceInfo;
+typedef struct ReduceInfo ReduceInfo;
 #endif
+
 /* define adb reduce run options */
 typedef struct ReduceOptionsData
 {
@@ -61,7 +53,6 @@ typedef struct ReduceOptionsData
 } ReduceOptionsData, *ReduceOptions;
 
 extern ReduceOptions	MyReduceOpts;
-extern int				MyReduceId;
 extern pgsocket			MyListenSock;
 extern pgsocket			MyParentSock;
 extern pgsocket			MyLogSock;
@@ -108,6 +99,7 @@ extern void rdc_ProcessInterrupts(void);
 extern PGDLLIMPORT bool assert_enabled;
 
 typedef uintptr_t Datum;
+
 /*
  * DatumGetPointer
  *		Returns pointer value of a datum.

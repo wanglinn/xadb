@@ -6,15 +6,15 @@
 
 #include "rdc_globals.h"
 #include "rdc_exit.h"
-#include "rdc_comm.h"
-#include "rdc_msg.h"
+#include "rdc_plan.h"
+#include "rdc_handler.h"
 #include "getopt_long.h"
+#include "reduce/rdc_msg.h"
 #include "reduce/wait_event.h"
 #include "utils/memutils.h"		/* for MemoryContext */
 
 static const char	   *progname;
 ReduceOptions 			MyReduceOpts = NULL;
-int						MyReduceId = -1;
 pgsocket				MyListenSock = PGINVALID_SOCKET;
 pgsocket				MyParentSock = PGINVALID_SOCKET;
 pgsocket				MyLogSock = PGINVALID_SOCKET;
@@ -126,13 +126,11 @@ ParseReduceOptions(int argc, char * const argvs[])
 				break;
 			case 'W':
 				MyParentSock = atoi(optarg);
-				MyReduceOpts->parent_watch = rdc_newport(MyParentSock);
-				MyReduceOpts->parent_watch->type = TYPE_BACKEND;
+				MyReduceOpts->parent_watch = rdc_newport(MyParentSock, TYPE_BACKEND, InvalidPortId);
 				break;
 			case 'L':
 				MyLogSock = atoi(optarg);
-				MyReduceOpts->log_watch = rdc_newport(MyLogSock);
-				MyReduceOpts->log_watch->type = TYPE_BACKEND;
+				MyReduceOpts->log_watch = rdc_newport(MyLogSock, TYPE_BACKEND, InvalidPortId);
 				break;
 			case '?':
 				Usage(true);
@@ -498,7 +496,7 @@ ReduceGroupHook(SIGNAL_ARGS)
 								 9005, 9006, 9007, 9008, 9009};
 
 		rdc_num = sizeof(portnum)/sizeof(portnum[0]);
-		port = rdc_newport(PGINVALID_SOCKET);
+		port = rdc_newport(PGINVALID_SOCKET, InvalidPortType, InvalidPortId);
 		MyReduceOpts->parent_watch = port;
 		initStringInfo(&buf);
 		rdc_beginmessage(&buf, RDC_GROUP_RQT);

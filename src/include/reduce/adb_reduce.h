@@ -13,6 +13,6 @@
 #ifndef ADB_REDUCE_H
 #define ADB_REDUCE_H
 
-extern int StartAdbReduceLauncher(void);
+extern int StartAdbReduceLauncher(int rid);
 
 #endif /* ADB_BROKER_H */

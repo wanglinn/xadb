@@ -34,9 +34,11 @@
  *		rdc_getmsgstring - get a null-terminated text string - NO conversion
  *		rdc_getmsgend	- verify message fully consumed
  */
-
+#if defined(RDC_FRONTEND)
 #include "rdc_globals.h"
-#include "rdc_comm.h"
+#endif
+
+#include "reduce/rdc_comm.h"
 
 static void rdc_endmessage_internal(RdcPort *port, StringInfo buf, bool iserror);
 

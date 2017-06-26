@@ -7,7 +7,7 @@
  *
  *
  * IDENTIFICATION
- *	  src/bin/adb_reduce/rdc_comm.c
+ *	  src/backend/reduce/rdc_comm.c
  *
  * NOTES
  *	  RdcPort is port for communication between Reduce and other Reduce,
@@ -20,13 +20,17 @@
  *	  are parallel-works for the Plan node.
  *-------------------------------------------------------------------------
  */
-#include <poll.h>
+#include <unistd.h>
 
+#if defined(RDC_FRONTEND)
 #include "rdc_globals.h"
-#include "rdc_comm.h"
-#include "rdc_msg.h"
-#include "rdc_exit.h"
-#include "rdc_tupstore.h"
+#else
+#include "postgres.h"
+#include "miscadmin.h"
+#endif
+
+#include "reduce/rdc_comm.h"
+#include "reduce/rdc_msg.h"
 #include "utils/memutils.h"
 
 #define RDC_BUFFER_SIZE		8192
@@ -65,7 +69,7 @@ rdc_type2string(RdcPortType type)
 }
 
 RdcPort *
-rdc_newport(pgsocket sock)
+rdc_newport(pgsocket sock, RdcPortType type, RdcPortId id)
 {
 	RdcPort		   *rdc_port = NULL;
 
@@ -73,8 +77,8 @@ rdc_newport(pgsocket sock)
 	rdc_port->next = NULL;
 	rdc_port->sock = sock;
 	rdc_port->noblock = false;
-	rdc_port->type = InvalidPortType;
-	rdc_port->from_to = InvalidPortId;
+	rdc_port->type = type;
+	rdc_port->from_to = id;
 	rdc_port->version = 0;
 	rdc_port->wait_events = WAIT_NONE;
 #ifdef DEBUG_ADB
@@ -140,9 +144,7 @@ rdc_connect(const char *host, uint32 port, RdcPortType type, RdcPortId id)
 	char				portstr[MAXPGPATH];
 	socklen_t			addrlen;
 
-	rdc_port = rdc_newport(PGINVALID_SOCKET);
-	RdcType(rdc_port) = type;
-	RdcID(rdc_port) = id;
+	rdc_port = rdc_newport(PGINVALID_SOCKET, type, id);
 
 	snprintf(portstr, sizeof(portstr), "%u", port);
 
@@ -605,7 +607,7 @@ rdc_accept(pgsocket sock)
 	RdcPort	   *port = NULL;
 	socklen_t	addrlen;
 
-	port = rdc_newport(PGINVALID_SOCKET);
+	port = rdc_newport(PGINVALID_SOCKET, InvalidPortType, InvalidPortId);
 	addrlen = sizeof(port->raddr);
 _re_accept:
 	RdcSocket(port) = accept(sock, &port->raddr, &addrlen);
@@ -742,9 +744,7 @@ rdc_parse_group(RdcPort *port,				/* IN */
 			(PortIdIsOdd(MyReduceId) && PortIdIsOdd(i) && i > MyReduceId) ||
 			(PortIdIsOdd(MyReduceId) && PortIdIsEven(i) && i < MyReduceId))
 		{
-			rdc_port = rdc_newport(PGINVALID_SOCKET);
-			RdcType(rdc_port) = TYPE_REDUCE;
-			RdcID(rdc_port) = i;
+			rdc_port = rdc_newport(PGINVALID_SOCKET, TYPE_REDUCE, i);
 
 			MemSet(&hint, 0, sizeof(hint));
 			hint.ai_socktype = SOCK_STREAM;
@@ -1646,118 +1646,4 @@ drop_connection(RdcPort *port, bool flushInput)
 	/* Always discard any unsent data */
 	resetStringInfo(RdcOutBuf(port));
 	/* resetStringInfo(RdcErrBuf(port)); */
-}
-
-/*
- * plan_newport - create a new PlanPort with plan id.
- */
-PlanPort *
-plan_newport(RdcPortId pln_id)
-{
-	PlanPort	   *pln_port = NULL;
-	int				rdc_num = MyReduceOpts->rdc_num;
-	int				work_mem = MyReduceOpts->work_mem;
-
-	pln_port = (PlanPort *) palloc0(sizeof(*pln_port) + rdc_num * sizeof(bool));
-	pln_port->work_num = 0;
-	pln_port->pln_id = pln_id;
-	pln_port->rdcstore = rdcstore_begin(work_mem, "PLAN", pln_id);
-	pln_port->rdc_num = rdc_num;
-
-	return pln_port;
-}
-
-/*
- * plan_freeport - free a PlanPort
- */
-void
-plan_freeport(PlanPort *pln_port)
-{
-	if (pln_port)
-	{
-		rdc_freeport(pln_port->port);
-		rdcstore_end(pln_port->rdcstore);
-		safe_pfree(pln_port);
-	}
-}
-
-/*
- * find_plan_port - find a PlanPort with the plan id
- *
- * returns NULL if not found
- */
-PlanPort *
-find_plan_port(List *pln_list, RdcPortId pln_id)
-{
-	ListCell	   *cell = NULL;
-	PlanPort	   *port = NULL;
-
-	foreach (cell, pln_list)
-	{
-		port = (PlanPort *) lfirst(cell);
-		Assert(port);
-
-		if (port->pln_id == pln_id)
-			break;
-	}
-
-	return port;
-}
-
-/*
- * add_new_plan_port - add a new RdcPort in the PlanPort list
- */
-void
-add_new_plan_port(List **pln_list, RdcPort *new_port)
-{
-	PlanPort	   *plan_port = NULL;
-
-	AssertArg(pln_list && new_port);
-	Assert(PortIdIsValid(RdcID(new_port)));
-
-	plan_port = find_plan_port(*pln_list, RdcID(new_port));
-	if (plan_port == NULL)
-	{
-		plan_port = plan_newport(RdcID(new_port));
-		plan_port->port = new_port;
-		plan_port->work_num++;
-		*pln_list = lappend(*pln_list, plan_port);
-	} else
-	{
-		RdcPort		   *port = plan_port->port;
-		/*
-		 * It happens when get data from other Reduce and current
-		 * Reduce has not accepted a connection from the PlanPort.
-		 */
-		if (port == NULL)
-		{
-			plan_port->port = new_port;
-			plan_port->work_num++;
-		} else
-		{
-			while (port && RdcNext(port))
-				port = RdcNext(port);
-			port->next = new_port;
-			plan_port->work_num++;
-		}
-	}
-}
-
-/*
- * get_plan_port_num - RdcPort number in the PlanPort list
- */
-int
-get_plan_port_num(List *pln_list)
-{
-	ListCell   *lc = NULL;
-	int			num = 0;
-	PlanPort   *pln_port;
-
-	foreach (lc, pln_list)
-	{
-		pln_port = (PlanPort *) lfirst(lc);
-		num += pln_port->work_num;
-	}
-
-	return num;
 }

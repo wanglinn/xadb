@@ -6,17 +6,39 @@
  * Copyright (c) 2016-2017, ADB Development Group
  *
  * IDENTIFICATION
- *		src/bin/adb_reduce/rdc_comm.h
+ *		src/include/reduce/rdc_comm.h
  *
  *-------------------------------------------------------------------------
  */
 #ifndef RDC_COMM_H
 #define RDC_COMM_H
 
+#if defined(RDC_FRONTEND)
+#include "rdc_globals.h"
+#else
+#include "postgres.h"
+#include "nodes/pg_list.h"
+#endif
+
 #include "getaddrinfo.h"
-#include "rdc_tupstore.h"
 #include "reduce/wait_event.h"
 #include "lib/stringinfo.h"
+
+#define IS_AF_INET(fam) ((fam) == AF_INET)
+
+#if !defined(RDC_FRONTEND)
+typedef struct RdcPort RdcPort;
+typedef struct ReduceInfo ReduceInfo;
+#endif
+
+#ifdef DEBUG_ADB
+struct ReduceInfo
+{
+	int			rnid;			/* reduce node id start with 0 */
+	char	   *host;			/* reduce server host */
+	int			port;			/* reduce server port */
+};
+#endif
 
 typedef enum
 {
@@ -67,7 +89,7 @@ typedef int RdcPortType;
 
 struct RdcPort
 {
-	RdcPort			   *next;			/* RdcPort next for Plan node port with the same plan id */
+	RdcPort	   *next;			/* RdcPort next for Plan node port with the same plan id */
 	pgsocket			sock;			/* File descriptors for one plan node id */
 	bool				noblock;		/* is the socket in non-blocking mode? */
 	RdcPortType			type;			/* port type, see above */
@@ -89,16 +111,6 @@ struct RdcPort
 	StringInfoData		in_buf;			/* for normal message */
 	StringInfoData		out_buf;		/* for normal message */
 	StringInfoData		err_buf;		/* error message should be sent prior if have. */
-};
-
-struct PlanPort
-{
-	RdcPort			   *port;
-	RdcPortId			pln_id;
-	int					work_num;
-	RSstate			   *rdcstore;
-	int					rdc_num;
-	bool				rdc_eofs[1];
 };
 
 #ifdef DEBUG_ADB
@@ -142,7 +154,7 @@ typedef int ReduceNodeId;
 									 PortIdIsValid(RdcID(port)))
 
 extern const char *rdc_type2string(RdcPortType type);
-extern RdcPort *rdc_newport(pgsocket sock);
+extern RdcPort *rdc_newport(pgsocket sock, RdcPortType type, RdcPortId id);
 extern void rdc_freeport(RdcPort *port);
 extern void rdc_resetport(RdcPort *port);
 extern RdcPort *rdc_connect(const char *host, uint32 port, RdcPortType type, RdcPortId id);
@@ -169,11 +181,6 @@ extern int rdc_set_block(RdcPort *port);
 extern int rdc_set_noblock(RdcPort *port);
 extern const char *rdc_geterror(RdcPort *port);
 
-extern PlanPort *plan_newport(RdcPortId pln_id);
-extern void plan_freeport(PlanPort *pln_port);
-extern PlanPort *find_plan_port(List *pln_list, RdcPortId pln_id);
-extern void add_new_plan_port(List **pln_list, RdcPort *new_port);
-extern int get_plan_port_num(List *pln_list);
 /* -----------Reduce format functions---------------- */
 extern void rdc_beginmessage(StringInfo buf, char msgtype);
 extern void rdc_sendbyte(StringInfo buf, int byt);

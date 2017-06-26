@@ -4,6 +4,7 @@
 #include "postgres.h"
 #include "postmaster/fork_process.h"
 #include "reduce/adb_reduce.h"
+#include "reduce/rdc_msg.h"
 #include "storage/ipc.h"
 
 
@@ -21,14 +22,14 @@ static void InitCommunicationChannel(void);
 static void CloseBackendPort(void);
 static void CloseReducePort(void);
 static int  GetReduceListenPort(void);
-static void AdbReduceLauncherMain(int argc, const char *argv[]);
+static void AdbReduceLauncherMain(int rid);
 
 /*
  * Main entry point for adb reduce launcher process, to be called from the
  * backend.
  */
 int
-StartAdbReduceLauncher(void)
+StartAdbReduceLauncher(int rid)
 {
 	pid_t		AdbReducePID;
 
@@ -44,7 +45,7 @@ StartAdbReduceLauncher(void)
 			/* Lose the backend's on-exit routines */
 			on_exit_reset();
 			CloseBackendPort();
-			AdbReduceLauncherMain(0, NULL);
+			AdbReduceLauncherMain(rid);
 			break;
 
 		default:
@@ -141,8 +142,17 @@ GetReduceListenPort(void)
 }
 
 static void
-AdbReduceLauncherMain(int argc, const char *argv[])
+AdbReduceLauncherMain(int rid)
 {
+	StringInfoData	cmd;
 
+	initStringInfo(&cmd);
+	appendStringInfo(&cmd, "exec \"adb_reduce\" -n %d -W %d",
+		rid, backend_reduce_fds[RDC_REDUCE_HOLD]);
+
+	(void) execl("/bin/sh", "/bin/sh", "-c", cmd, (char *) NULL);
+
+	ereport(ERROR,
+			(errmsg("fail to start adb_reduce: %m")));
 }
 
