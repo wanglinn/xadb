@@ -22,9 +22,13 @@
 #include "nodes/nodeFuncs.h"
 #include "utils/lsyscache.h"
 #ifdef ADB
+#include "executor/executor.h"
+#include "nodes/execnodes.h"
 #include "parser/parser.h"
+#include "parser/parse_coerce.h"
 #include "parser/parse_oper.h"
 #include "utils/builtins.h"
+#include "utils/memutils.h"
 #include "utils/typcache.h"
 #endif /* ADB */
 
@@ -642,12 +646,70 @@ Expr *makeHashExpr(Expr *expr)
 							   COERCE_EXPLICIT_CALL);
 }
 
+int32 execHashValue(Datum datum, Oid typid, Oid collid)
+{
+	TypeCacheEntry *typeCache;
+	Datum result;
+	typeCache = lookup_type_cache(typid, TYPECACHE_HASH_PROC_FINFO);
+	if(!OidIsValid(typeCache->hash_proc_finfo.fn_oid))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("could not identify a hash function for type %s",
+						format_type_be(typid))));
+	}
+	Assert(get_func_rettype(typeCache->hash_proc_finfo.fn_oid) == INT4OID);
+
+	result = FunctionCall1Coll(&typeCache->hash_proc_finfo,
+							  collid,
+							  datum);
+	return DatumGetInt32(result);
+}
+
 /* (expr % right) */
 Expr *makeModuloExpr(Expr *expr, int right)
 {
 	Const *r = makeConst(INT4OID, -1, InvalidOid, sizeof(int32),
 						 Int32GetDatum(right), false, true);
 	return make_op(NULL, SystemFuncName("%"), (Node*)expr, (Node*)r, -1);
+}
+
+int32 execModuloValue(Datum datum, Oid typid, int right)
+{
+	MemoryContext context,old_context;
+	Const *left;
+	Expr *expr;
+	ExprState *exprState;
+	Datum result;
+	int16 typlen;
+	bool boolValue;
+
+	context = AllocSetContextCreate(CurrentMemoryContext,
+									"exec module",
+									ALLOCSET_DEFAULT_MINSIZE,
+									ALLOCSET_DEFAULT_INITSIZE,
+									ALLOCSET_DEFAULT_MAXSIZE);
+	old_context = MemoryContextSwitchTo(context);
+
+	get_typlenbyval(typid, &typlen, &boolValue);
+	left = makeConst(typid, -1, InvalidOid, typlen, datum, false, boolValue);
+	expr = makeModuloExpr((Expr*)left, right);
+	expr = (Expr*)coerce_to_target_type(NULL, (Node*)expr,
+										exprType((Node*)expr),
+										INT4OID,
+										-1,
+										COERCION_EXPLICIT,
+										COERCE_IMPLICIT_CAST,
+										-1);
+
+	exprState = ExecInitExpr(expr, NULL);
+	result = ExecEvalExpr(exprState, NULL, &boolValue, NULL);
+	Assert(boolValue == false);
+
+	MemoryContextSwitchTo(old_context);
+	MemoryContextDelete(context);
+
+	return DatumGetInt32(result);
 }
 
 #endif /* ADB */
