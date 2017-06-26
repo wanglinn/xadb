@@ -32,6 +32,9 @@
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
+#include "executor/executor.h"
+#include "nodes/execnodes.h"
+#include "nodes/makefuncs.h"
 #include "nodes/nodes.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/pg_list.h"
@@ -45,82 +48,40 @@
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 #include "optimizer/clauses.h"
+#include "optimizer/paths.h"
 #include "parser/parse_coerce.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
 #include "postmaster/autovacuum.h"
+#include "utils/typcache.h"
 
+typedef struct ExecNodeStateEvalInfo
+{
+	Expr xpr;
+	List *list;
+	ListCell *lc;
+}ExecNodeStateEvalInfo;
 
 static Expr *pgxc_find_distcol_expr(Index varno, AttrNumber attrNum, Node *quals);
+static Datum rrobinStateEvalFunc(ExprState *expression,
+												ExprContext *econtext,
+												bool *isNull,
+												ExprDoneCond *isDone);
+static Datum nthIntEvalFunc(GenericExprState *expression,
+												ExprContext *econtext,
+												bool *isNull,
+												ExprDoneCond *isDone);
+
+static Datum OidStateEvalFunc(GenericExprState *expression,
+												ExprContext *econtext,
+												bool *isNull,
+												ExprDoneCond *isDone);
 
 Oid		primary_data_node = InvalidOid;
 int		num_preferred_data_nodes = 0;
 Oid		preferred_data_node[MAX_PREFERRED_NODES];
-
-static const unsigned int xc_mod_m[] =
-{
-  0x00000000, 0x55555555, 0x33333333, 0xc71c71c7,
-  0x0f0f0f0f, 0xc1f07c1f, 0x3f03f03f, 0xf01fc07f,
-  0x00ff00ff, 0x07fc01ff, 0x3ff003ff, 0xffc007ff,
-  0xff000fff, 0xfc001fff, 0xf0003fff, 0xc0007fff,
-  0x0000ffff, 0x0001ffff, 0x0003ffff, 0x0007ffff,
-  0x000fffff, 0x001fffff, 0x003fffff, 0x007fffff,
-  0x00ffffff, 0x01ffffff, 0x03ffffff, 0x07ffffff,
-  0x0fffffff, 0x1fffffff, 0x3fffffff, 0x7fffffff
-};
-
-static const unsigned int xc_mod_q[][6] =
-{
-  { 0,  0,  0,  0,  0,  0}, {16,  8,  4,  2,  1,  1}, {16,  8,  4,  2,  2,  2},
-  {15,  6,  3,  3,  3,  3}, {16,  8,  4,  4,  4,  4}, {15,  5,  5,  5,  5,  5},
-  {12,  6,  6,  6 , 6,  6}, {14,  7,  7,  7,  7,  7}, {16,  8,  8,  8,  8,  8},
-  { 9,  9,  9,  9,  9,  9}, {10, 10, 10, 10, 10, 10}, {11, 11, 11, 11, 11, 11},
-  {12, 12, 12, 12, 12, 12}, {13, 13, 13, 13, 13, 13}, {14, 14, 14, 14, 14, 14},
-  {15, 15, 15, 15, 15, 15}, {16, 16, 16, 16, 16, 16}, {17, 17, 17, 17, 17, 17},
-  {18, 18, 18, 18, 18, 18}, {19, 19, 19, 19, 19, 19}, {20, 20, 20, 20, 20, 20},
-  {21, 21, 21, 21, 21, 21}, {22, 22, 22, 22, 22, 22}, {23, 23, 23, 23, 23, 23},
-  {24, 24, 24, 24, 24, 24}, {25, 25, 25, 25, 25, 25}, {26, 26, 26, 26, 26, 26},
-  {27, 27, 27, 27, 27, 27}, {28, 28, 28, 28, 28, 28}, {29, 29, 29, 29, 29, 29},
-  {30, 30, 30, 30, 30, 30}, {31, 31, 31, 31, 31, 31}
-};
-
-static const unsigned int xc_mod_r[][6] =
-{
-  {0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
-  {0x0000ffff, 0x000000ff, 0x0000000f, 0x00000003, 0x00000001, 0x00000001},
-  {0x0000ffff, 0x000000ff, 0x0000000f, 0x00000003, 0x00000003, 0x00000003},
-  {0x00007fff, 0x0000003f, 0x00000007, 0x00000007, 0x00000007, 0x00000007},
-  {0x0000ffff, 0x000000ff, 0x0000000f, 0x0000000f, 0x0000000f, 0x0000000f},
-  {0x00007fff, 0x0000001f, 0x0000001f, 0x0000001f, 0x0000001f, 0x0000001f},
-  {0x00000fff, 0x0000003f, 0x0000003f, 0x0000003f, 0x0000003f, 0x0000003f},
-  {0x00003fff, 0x0000007f, 0x0000007f, 0x0000007f, 0x0000007f, 0x0000007f},
-  {0x0000ffff, 0x000000ff, 0x000000ff, 0x000000ff, 0x000000ff, 0x000000ff},
-  {0x000001ff, 0x000001ff, 0x000001ff, 0x000001ff, 0x000001ff, 0x000001ff},
-  {0x000003ff, 0x000003ff, 0x000003ff, 0x000003ff, 0x000003ff, 0x000003ff},
-  {0x000007ff, 0x000007ff, 0x000007ff, 0x000007ff, 0x000007ff, 0x000007ff},
-  {0x00000fff, 0x00000fff, 0x00000fff, 0x00000fff, 0x00000fff, 0x00000fff},
-  {0x00001fff, 0x00001fff, 0x00001fff, 0x00001fff, 0x00001fff, 0x00001fff},
-  {0x00003fff, 0x00003fff, 0x00003fff, 0x00003fff, 0x00003fff, 0x00003fff},
-  {0x00007fff, 0x00007fff, 0x00007fff, 0x00007fff, 0x00007fff, 0x00007fff},
-  {0x0000ffff, 0x0000ffff, 0x0000ffff, 0x0000ffff, 0x0000ffff, 0x0000ffff},
-  {0x0001ffff, 0x0001ffff, 0x0001ffff, 0x0001ffff, 0x0001ffff, 0x0001ffff},
-  {0x0003ffff, 0x0003ffff, 0x0003ffff, 0x0003ffff, 0x0003ffff, 0x0003ffff},
-  {0x0007ffff, 0x0007ffff, 0x0007ffff, 0x0007ffff, 0x0007ffff, 0x0007ffff},
-  {0x000fffff, 0x000fffff, 0x000fffff, 0x000fffff, 0x000fffff, 0x000fffff},
-  {0x001fffff, 0x001fffff, 0x001fffff, 0x001fffff, 0x001fffff, 0x001fffff},
-  {0x003fffff, 0x003fffff, 0x003fffff, 0x003fffff, 0x003fffff, 0x003fffff},
-  {0x007fffff, 0x007fffff, 0x007fffff, 0x007fffff, 0x007fffff, 0x007fffff},
-  {0x00ffffff, 0x00ffffff, 0x00ffffff, 0x00ffffff, 0x00ffffff, 0x00ffffff},
-  {0x01ffffff, 0x01ffffff, 0x01ffffff, 0x01ffffff, 0x01ffffff, 0x01ffffff},
-  {0x03ffffff, 0x03ffffff, 0x03ffffff, 0x03ffffff, 0x03ffffff, 0x03ffffff},
-  {0x07ffffff, 0x07ffffff, 0x07ffffff, 0x07ffffff, 0x07ffffff, 0x07ffffff},
-  {0x0fffffff, 0x0fffffff, 0x0fffffff, 0x0fffffff, 0x0fffffff, 0x0fffffff},
-  {0x1fffffff, 0x1fffffff, 0x1fffffff, 0x1fffffff, 0x1fffffff, 0x1fffffff},
-  {0x3fffffff, 0x3fffffff, 0x3fffffff, 0x3fffffff, 0x3fffffff, 0x3fffffff},
-  {0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff}
-};
 
 /*
  * GetPreferredReplicationNode
@@ -153,59 +114,6 @@ GetPreferredReplicationNode(List *relNodes)
 		return list_make1_int(linitial_int(relNodes));
 
 	return list_make1_int(nodeid);
-}
-
-/*
- * compute_modulo
- * This function performs modulo in an optimized way
- * It optimizes modulo of any positive number by
- * 1,2,3,4,7,8,15,16,31,32,63,64 and so on
- * for the rest of the denominators it uses % operator
- * The optimized algos have been taken from
- * http://www-graphics.stanford.edu/~seander/bithacks.html
- */
-static int
-compute_modulo(unsigned int numerator, unsigned int denominator)
-{
-	unsigned int d;
-	unsigned int m;
-	unsigned int s;
-	unsigned int mask;
-	int k;
-	unsigned int q, r;
-
-	if (numerator == 0)
-		return 0;
-
-	/* Check if denominator is a power of 2 */
-	if ((denominator & (denominator - 1)) == 0)
-		return numerator & (denominator - 1);
-
-	/* Check if (denominator+1) is a power of 2 */
-	d = denominator + 1;
-	if ((d & (d - 1)) == 0)
-	{
-		/* Which power of 2 is this number */
-		s = 0;
-		mask = 0x01;
-		for (k = 0; k < 32; k++)
-		{
-			if ((d & mask) == mask)
-				break;
-			s++;
-			mask = mask << 1;
-		}
-
-		m = (numerator & xc_mod_m[s]) + ((numerator >> s) & xc_mod_m[s]);
-
-		for (q = 0, r = 0; m > denominator; q++, r++)
-			m = (m >> xc_mod_q[s][q]) + (m & xc_mod_r[s][r]);
-
-		m = m == denominator ? 0 : m;
-
-		return m;
-	}
-	return numerator % denominator;
 }
 
 /*
@@ -313,40 +221,8 @@ IsDistribColumn(Oid relid, AttrNumber attNum)
 bool
 IsTypeDistributable(Oid col_type)
 {
-	if(col_type == INT8OID
-	|| col_type == INT2OID
-	|| col_type == OIDOID
-	|| col_type == INT4OID
-	|| col_type == BOOLOID
-	|| col_type == CHAROID
-	|| col_type == NAMEOID
-	|| col_type == INT2VECTOROID
-	|| col_type == TEXTOID
-	|| col_type == OIDVECTOROID
-	|| col_type == FLOAT4OID
-	|| col_type == FLOAT8OID
-	|| col_type == ABSTIMEOID
-	|| col_type == RELTIMEOID
-	|| col_type == CASHOID
-	|| col_type == BPCHAROID
-	|| col_type == BYTEAOID
-	|| col_type == VARCHAROID
-	|| col_type == DATEOID
-	|| col_type == TIMEOID
-	|| col_type == TIMESTAMPOID
-	|| col_type == TIMESTAMPTZOID
-	|| col_type == INTERVALOID
-	|| col_type == TIMETZOID
-	|| col_type == NUMERICOID
-	/*
-	|| col_type == ORADATEOID
-	|| col_type == VARCHAR2OID
-	|| col_type == NVARCHAR2OID
-	*/
-	)
-		return true;
-
-	return false;
+	TypeCacheEntry *typeCache = lookup_type_cache(col_type, TYPECACHE_HASH_PROC);
+	return OidIsValid(typeCache->hash_proc);
 }
 
 
@@ -470,9 +346,8 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 				 RelationAccessType accessType)
 {
 	ExecNodes	*exec_nodes;
-	long		hashValue;
-	int		modulo;
-	int		nodeIndex;
+	int32 modulo;
+	int nodeIndex;
 
 	if (rel_loc_info == NULL)
 		return NULL;
@@ -528,26 +403,33 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 		case LOCATOR_TYPE_HASH:
 		case LOCATOR_TYPE_MODULO:
 			{
-				bool isValueNull = dist_col_nulls[0];
-
-				Assert(nelems == 1);
-				
-				if (!isValueNull)
+				if(dist_col_nulls[0])
 				{
-					hashValue = compute_hash(dist_col_types[0], dist_col_values[0],
-											 rel_loc_info->locatorType);
-					modulo = compute_modulo(labs(hashValue), list_length(rel_loc_info->nodeList));
-					nodeIndex = get_node_from_modulo(modulo, rel_loc_info->nodeList);
-					exec_nodes->nodeList = list_make1_int(nodeIndex);
-				}
-				else
-				{
-					if (accessType == RELATION_ACCESS_INSERT)
+					if(accessType == RELATION_ACCESS_INSERT)
+					{
 						/* Insert NULL to first node*/
-						exec_nodes->nodeList = list_make1_int(linitial_int(rel_loc_info->nodeList));
-					else
+						modulo = 0;
+					}else
+					{
 						exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
+						break;
+					}
+				}else
+				{
+					if(rel_loc_info->locatorType == LOCATOR_TYPE_HASH)
+					{
+						modulo = execHashValue(dist_col_values[0],
+											  dist_col_types[0],
+											  InvalidOid);
+					}else
+					{
+						modulo = execModuloValue(dist_col_values[0],
+												dist_col_types[0],
+												list_length(rel_loc_info->nodeList));
+					}
 				}
+				nodeIndex = get_node_from_modulo(modulo, rel_loc_info->nodeList);
+				exec_nodes->nodeList = list_make1_int(nodeIndex);
 			}
 			break;
 
@@ -602,7 +484,9 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 											  nelems,
 											  dist_col_values,
 											  dist_col_nulls);
-					modulo = compute_modulo(labs((long)result), list_length(rel_loc_info->nodeList));
+					modulo = execModuloValue(result,
+											 get_func_rettype(rel_loc_info->funcid),
+											 list_length(rel_loc_info->nodeList));
 					nodeIndex = get_node_from_modulo(modulo, rel_loc_info->nodeList);
 					exec_nodes->nodeList = list_make1_int(nodeIndex);
 				} else
@@ -983,7 +867,7 @@ RelationBuildLocator(Relation rel)
 		 * pick a random one to start with,
 		 * since each process will do this independently
 		 */
-		offset = compute_modulo(abs(rand()), list_length(relationLocInfo->nodeList));
+		offset = abs(rand()) % list_length(relationLocInfo->nodeList);
 
 		srand(time(NULL));
 		/* fix: Access to field 'head' results in a dereference of a
@@ -1211,4 +1095,180 @@ pgxc_find_distcol_expr(Index varno,
 	}
 	/* Exhausted all quals, but no distribution column expression */
 	return NULL;
+}
+
+ExprState *ExecInitRelationExecNode(RelationLocInfo *loc,
+									RelationAccessType relaccess,
+									Index rel_index)
+{
+	Expr *expr;
+	ExprState *exprState;
+	AssertArg(loc);
+
+	exprState = NULL;
+	if(IsRelationReplicated(loc))
+	{
+		ereport(ERROR, (errmsg("not support replicate table")));
+	}else if(IsLocatorNone(loc->locatorType))
+	{
+		ereport(ERROR, (errmsg("not support replicate none table")));
+	}else if(loc->locatorType == LOCATOR_TYPE_HASH
+			|| loc->locatorType == LOCATOR_TYPE_MODULO
+			|| loc->locatorType == LOCATOR_TYPE_USER_DEFINED)
+	{
+		ListCell *lc;
+		Oid typid;
+		int32 typmod;
+		Oid collid;
+		int i;
+		if(loc->locatorType != LOCATOR_TYPE_USER_DEFINED)
+		{
+			get_atttypetypmodcoll(loc->relid, loc->partAttrNum, &typid, &typmod, &collid);
+			expr = (Expr*) makeVar(rel_index, loc->partAttrNum, typid, typmod, collid, 0);
+			if(loc->locatorType == LOCATOR_TYPE_HASH)
+				expr = makeHashExpr(expr);
+			else
+				expr = (Expr*)coerce_to_target_type(NULL, (Node*)expr,
+													typid, INT8OID, -1,
+													COERCION_EXPLICIT,
+													COERCE_IMPLICIT_CAST,
+													-1);
+		}else
+		{
+			List *args = NIL;
+			Oid *argTypes;
+			int narg;
+			get_func_signature(loc->funcid, &argTypes, &narg);
+			if(narg < list_length(loc->funcAttrNums))
+			{
+				Relation rel = RelationIdGetRelation(loc->relid);
+				ereport(ERROR,
+							  (errmsg("too many argument for user hash distrbute table \"%s\"",
+							   RelationGetRelationName(rel))));
+			}
+			i=0;
+			foreach(lc, loc->funcAttrNums)
+			{
+				get_atttypetypmodcoll(loc->relid, lfirst_int(lc), &typid, &typmod, &collid);
+				expr = (Expr*)makeVar(rel_index, lfirst_int(lc), typid, typmod, collid, 0);
+				expr = (Expr*)coerce_to_target_type(NULL,
+													(Node*)expr,
+													typid,
+													argTypes[i],
+													-1,
+													COERCION_EXPLICIT,
+													COERCE_IMPLICIT_CAST,
+													-1);
+				args = lappend(args, expr);
+				++i;
+			}
+			for(;i<narg;++i)
+				args = lappend(args, makeNullConst(argTypes[i], -1, InvalidOid));
+
+			expr = (Expr*) makeFuncExpr(loc->funcid,
+										get_func_rettype(loc->funcid),
+										args,
+										InvalidOid, InvalidOid,
+										COERCE_EXPLICIT_CALL);
+		}
+		Assert(expr);
+		expr = makeModuloExpr(expr, list_length(loc->nodeList));
+		{
+			GenericExprState *ge = makeNode(GenericExprState);
+			int *pint = palloc(sizeof(int) * list_length(loc->nodeList));
+			for(i=0,lc=list_head(loc->nodeList);lc!=NULL;lc=lnext(lc),++i)
+				pint[i] = lfirst_int(lc);
+			ge->xprstate.expr = (Expr*)pint;
+			ge->xprstate.evalfunc = (ExprStateEvalFunc)nthIntEvalFunc;
+			ge->arg = ExecInitExpr(expr, NULL);
+			exprState = (ExprState*)ge;
+		}
+	}else if(loc->locatorType == LOCATOR_TYPE_RROBIN)
+	{
+		ExecNodeStateEvalInfo *info;
+		Assert(list_length(loc->nodeList) > 0);
+		info = palloc0(sizeof(*info));
+		NodeSetTag(info, T_Expr);
+		info->list = list_copy(loc->nodeList);
+		info->lc = NULL;
+		exprState = makeNode(ExprState);
+		exprState->evalfunc = rrobinStateEvalFunc;
+		exprState->expr = (Expr*)info;
+	}else
+	{
+		ereport(ERROR, (errmsg("not support locator type '%c'", loc->locatorType)));
+	}
+
+	return exprState;
+}
+
+struct ExprState *ExecInitRelationExecNodeOid(RelationLocInfo *loc,
+										   RelationAccessType relaccess,
+										   Index rel_index)
+{
+	ListCell *lc;
+	Oid *oids;
+	int max_val;
+	GenericExprState *exprState = makeNode(GenericExprState);
+	exprState->arg = ExecInitRelationExecNode(loc, relaccess, rel_index);
+
+	max_val = 0;
+	foreach(lc, loc->nodeList)
+	{
+		if(lfirst_int(lc) > max_val)
+			max_val = lfirst_int(lc);
+	}
+
+	oids = palloc0(sizeof(Oid)*(max_val+1));
+	foreach(lc, loc->nodeList)
+	{
+		oids[lfirst_int(lc)] = PGXCNodeGetNodeOid(lfirst_int(lc), PGXC_NODE_DATANODE);
+	}
+	exprState->xprstate.expr = (Expr*)oids;
+	exprState->xprstate.evalfunc = (ExprStateEvalFunc)OidStateEvalFunc;
+
+	return (ExprState*)exprState;
+}
+
+static Datum rrobinStateEvalFunc(ExprState *expression, ExprContext *econtext,
+								 bool *isNull, ExprDoneCond *isDone)
+{
+	ExecNodeStateEvalInfo *info = (ExecNodeStateEvalInfo*)(expression->expr);
+	ListCell *lc = info->lc;
+
+	if(lc)
+		lc = lnext(lc);
+	if(lc == NULL)
+		lc = list_head(info->list);
+	info->lc = lc;
+
+	*isNull = false;
+	if(isDone)
+		*isDone = ExprSingleResult;
+
+	return Int32GetDatum(lfirst_int(lc));
+}
+
+static Datum nthIntEvalFunc(GenericExprState *expression,
+												ExprContext *econtext,
+												bool *isNull,
+												ExprDoneCond *isDone)
+{
+	int *pint = (int*)expression->xprstate.expr;
+	Datum datum = ExecEvalExpr(expression->arg, econtext, isNull, isDone);
+	if(*isNull)
+		return (Datum)0;
+
+	return Int32GetDatum(pint[DatumGetInt32(datum)]);
+}
+
+static Datum OidStateEvalFunc(GenericExprState *expression, ExprContext *econtext,
+							bool *isNull, ExprDoneCond *isDone)
+{
+	Oid *oid = (Oid*)expression->xprstate.expr;
+	Datum datum = ExecEvalExpr(expression->arg, econtext, isNull, isDone);
+	if(*isNull)
+		return (Datum)0;
+
+	return ObjectIdGetDatum(oid[DatumGetInt32(datum)]);
 }

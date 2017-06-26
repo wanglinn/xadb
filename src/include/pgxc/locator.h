@@ -150,6 +150,13 @@ extern void CoerceUserDefinedFuncArgs(Oid funcid,
 									  Datum *values,
 									  bool *nulls,
 									  Oid *types);
+struct ExprState;
+extern struct ExprState *ExecInitRelationExecNode(RelationLocInfo *loc,
+										   RelationAccessType relaccess,
+										   Index rel_index);
+extern struct ExprState *ExecInitRelationExecNodeOid(RelationLocInfo *loc,
+										   RelationAccessType relaccess,
+										   Index rel_index);
 
 /* Global locator data */
 extern void FreeExecNodes(ExecNodes **exec_nodes);
