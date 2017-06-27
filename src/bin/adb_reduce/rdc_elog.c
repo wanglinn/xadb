@@ -1,12 +1,12 @@
-#include "rdc_globals.h"
-#include "reduce/rdc_comm.h"
-#include "reduce/rdc_msg.h"
-#include "rdc_exit.h"
-
 #include <time.h>
 #include <sys/time.h>
 
+#include "rdc_globals.h"
+#include "rdc_exit.h"
+
 #include "lib/stringinfo.h"
+#include "reduce/rdc_comm.h"
+#include "reduce/rdc_msg.h"
 #include "utils/memutils.h"
 
 /* In this module, access gettext() via err_gettext() */

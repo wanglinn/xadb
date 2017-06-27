@@ -11,8 +11,8 @@
  *
  *-------------------------------------------------------------------------
  */
-#include "reduce/rdc_msg.h"
 #include "reduce/rdc_comm.h"
+#include "reduce/rdc_msg.h"
 
 int		MyReduceId = -1;
 
@@ -187,4 +187,16 @@ rdc_recv_group_rsp(RdcPort *port)
 	rdc_getmsgend(RdcInBuf(port));
 
 	return 0;
+}
+
+int
+rdc_send_close_rqt(RdcPort *port)
+{
+	StringInfoData	buf;
+
+	AssertArg(port);
+	rdc_beginmessage(&buf, RDC_CLOSE_MSG);
+	rdc_endmessage(port, &buf);
+
+	return rdc_flush(port);
 }

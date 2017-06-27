@@ -1,14 +1,14 @@
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
 #include <signal.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
+#include "getopt_long.h"
 #include "rdc_globals.h"
 #include "rdc_exit.h"
-#include "rdc_plan.h"
 #include "rdc_handler.h"
-#include "getopt_long.h"
+#include "rdc_plan.h"
 #include "reduce/rdc_msg.h"
 #include "reduce/wait_event.h"
 #include "utils/memutils.h"		/* for MemoryContext */
@@ -127,6 +127,7 @@ ParseReduceOptions(int argc, char * const argvs[])
 			case 'W':
 				MyParentSock = atoi(optarg);
 				MyReduceOpts->parent_watch = rdc_newport(MyParentSock, TYPE_BACKEND, InvalidPortId);
+				rdc_set_noblock(MyReduceOpts->parent_watch);
 				break;
 			case 'L':
 				MyLogSock = atoi(optarg);
@@ -561,6 +562,10 @@ WaitForReduceGroupReady(void)
 				break;
 		}
 	}
+	if (rdc_send_group_rsp(port) == EOF)
+		ereport(ERROR,
+				(errmsg("fail to send setup group response:%s",
+						RdcError(port))));
 }
 
 static bool
@@ -708,73 +713,93 @@ SetupReduceGroup(RdcPort *port)
 			break;
 		}
 
-		begin_wait_events();
-		add_wait_events_sock(MyListenSock, WAIT_SOCKET_READABLE);
-		add_wait_events_sock(MyParentSock, WAIT_SOCKET_READABLE);
-		add_wait_events_list(connect_list, GetRdcPortSocket, GetRdcPortWaitEvents);
-		add_wait_events_list(accept_list, GetRdcPortSocket, GetRdcPortWaitEvents);
+		PG_TRY();
+		{
+			begin_wait_events();
+			add_wait_events_sock(MyListenSock, WAIT_SOCKET_READABLE);
+			add_wait_events_sock(MyParentSock, WAIT_SOCKET_READABLE);
+			add_wait_events_list(connect_list, GetRdcPortSocket, GetRdcPortWaitEvents);
+			add_wait_events_list(accept_list, GetRdcPortSocket, GetRdcPortWaitEvents);
 
-		nready = exec_wait_events(timeout);
-		if (nready < 0)
-		{
-			ereport(ERROR,
-					(errmsg("fail to wait read/write of sockets: %m")));
-		} else
-		if (nready == 0)
-		{
-			/* do nothing if timeout */
-		} else
-		{
-			WaitEventElt	*wee = NULL;
-			RdcPort			*port = NULL;
-
-			/* listen sock */
-			wee = wee_next();
-			if (WEEHasError(wee))
+			nready = exec_wait_events(timeout);
+			if (nready < 0)
+			{
 				ereport(ERROR,
-						(errcode(ERRCODE_CONNECTION_FAILURE),
-						 errmsg("something wrong with listen socket")));
-			if (WEECanRead(wee))
+						(errmsg("fail to wait read/write of sockets: %m")));
+			} else
+			if (nready == 0)
 			{
-				for (;;)
-				{
-					RdcPort		*port = NULL;
-					port = rdc_accept(WEEGetSock(wee));
-					if (port == NULL)
-						break;
-					accept_list = lappend(accept_list, port);
-				}
-			}
-			/* check MyParentSock */
-			if (MyParentSock != PGINVALID_SOCKET)
+				/* do nothing if timeout */
+			} else
 			{
+				WaitEventElt	*wee = NULL;
+				RdcPort			*port = NULL;
+
+				/* listen sock */
 				wee = wee_next();
-				if (WEEHasError(wee) ||
-					(WEECanRead(wee) && !BackendIsAlive()))
-					break;
-			}
-			/* check reduce group */
-			while ((wee = wee_next()) != NULL)
-			{
-				port = (RdcPort *) WEEGetArg(wee);
 				if (WEEHasError(wee))
 					ereport(ERROR,
 							(errcode(ERRCODE_CONNECTION_FAILURE),
-							 errmsg("something wrong with [%s %d] {%s:%s} socket",
-							 RdcTypeStr(port), RdcID(port),
-							 RdcHostStr(port), RdcPortStr(port))));
-				if (WEECanRead(wee) || WEECanWrite(wee))
-					(void) rdc_connect_poll(port);
+							 errmsg("something wrong with listen socket")));
+				if (WEECanRead(wee))
+				{
+					for (;;)
+					{
+						RdcPort		*port = NULL;
+						port = rdc_accept(WEEGetSock(wee));
+						if (port == NULL)
+							break;
+						accept_list = lappend(accept_list, port);
+					}
+				}
+				/* check MyParentSock */
+				if (MyParentSock != PGINVALID_SOCKET)
+				{
+					wee = wee_next();
+					if (WEEHasError(wee) ||
+						(WEECanRead(wee) && !BackendIsAlive()))
+						break;
+				}
+				/* check reduce group */
+				while ((wee = wee_next()) != NULL)
+				{
+					port = (RdcPort *) WEEGetArg(wee);
+					if (WEEHasError(wee))
+						ereport(ERROR,
+								(errcode(ERRCODE_CONNECTION_FAILURE),
+								 errmsg("something wrong with [%s %d] {%s:%s} socket",
+								 RdcTypeStr(port), RdcID(port),
+								 RdcHostStr(port), RdcPortStr(port))));
+					if (WEECanRead(wee) || WEECanWrite(wee))
+						(void) rdc_connect_poll(port);
+				}
 			}
-		}
 
-		end_wait_events();
+			end_wait_events();
+		} PG_CATCH();
+		{
+			end_wait_events();
+			PG_RE_THROW();
+		} PG_END_TRY();
 	}
 }
 
 static bool
 BackendIsAlive(void)
 {
+	char		c;
+	ssize_t		rc;
+
+	rc = recv(MyParentSock, &c, 1, MSG_PEEK);
+
+	/* the peer has performed an orderly shutdown */
+	if (rc == 0)
+		return false;
+
+	/* receive close message request */
+	if (rc > 0 && c == RDC_CLOSE_MSG)
+		return false;
+
 	return true;
 }
 
@@ -877,66 +902,73 @@ ReduceLoopRun(void)
 	{
 		CHECK_FOR_INTERRUPTS();
 
-		begin_wait_events();
-		add_wait_events_sock(MyListenSock, WAIT_SOCKET_READABLE);
-		add_wait_events_sock(MyParentSock, WAIT_SOCKET_READABLE);
-		add_wait_events_array((void **)rdc_nodes, rdc_num, GetRdcPortSocket, GetRdcPortWaitEvents);
-		add_wait_events_list(accept_list, GetRdcPortSocket, GetRdcPortWaitEvents);
-		foreach(cell, pln_list)
+		PG_TRY();
 		{
-			pln_port = (PlanPort *) lfirst(cell);
-			port = pln_port->port;
-			while (port != NULL)
+			begin_wait_events();
+			add_wait_events_sock(MyListenSock, WAIT_SOCKET_READABLE);
+			add_wait_events_sock(MyParentSock, WAIT_SOCKET_READABLE);
+			add_wait_events_array((void **)rdc_nodes, rdc_num, GetRdcPortSocket, GetRdcPortWaitEvents);
+			add_wait_events_list(accept_list, GetRdcPortSocket, GetRdcPortWaitEvents);
+			foreach(cell, pln_list)
 			{
-				add_wait_events_element(port, GetRdcPortSocket, GetRdcPortWaitEvents);
-				port = RdcNext(port);
-			}
-		}
-
-		nready = exec_wait_events(timeout);
-		if (nready < 0)
-		{
-			ereport(ERROR,
-					(errmsg("fail to wait read/write of sockets: %m")));
-		} else
-		if (nready == 0)
-		{
-			/* do nothing if timeout */
-		} else
-		{
-			WaitEventElt	*wee = NULL;
-
-			/* listen sock */
-			wee = wee_next();
-			if (WEEHasError(wee))
-				ereport(ERROR,
-						(errcode(ERRCODE_CONNECTION_FAILURE),
-						 errmsg("something wrong with listen socket")));
-			if (WEECanRead(wee))
-			{
-				for (;;)
+				pln_port = (PlanPort *) lfirst(cell);
+				port = pln_port->port;
+				while (port != NULL)
 				{
-					RdcPort		*port = NULL;
-					port = rdc_accept(WEEGetSock(wee));
-					if (port == NULL)
-						break;
-					accept_list = lappend(accept_list, port);
+					add_wait_events_element(port, GetRdcPortSocket, GetRdcPortWaitEvents);
+					port = RdcNext(port);
 				}
 			}
-			/* check MyParentSock */
-			if (MyParentSock != PGINVALID_SOCKET)
-			{
-				wee = wee_next();
-				if (WEEHasError(wee) ||
-					(WEECanRead(wee) && !BackendIsAlive()))
-					break;
-			}
 
-			ReduceAcceptPlanConn(&accept_list, &pln_list);
-			rdc_handle_reduce(rdc_nodes, rdc_num, &pln_list);
-			rdc_handle_plannode(rdc_nodes, rdc_num, pln_list);
-		}
-		end_wait_events();
+			nready = exec_wait_events(timeout);
+			if (nready < 0)
+			{
+				ereport(ERROR,
+						(errmsg("fail to wait read/write of sockets: %m")));
+			} else
+			if (nready == 0)
+			{
+				/* do nothing if timeout */
+			} else
+			{
+				WaitEventElt	*wee = NULL;
+
+				/* listen sock */
+				wee = wee_next();
+				if (WEEHasError(wee))
+					ereport(ERROR,
+							(errcode(ERRCODE_CONNECTION_FAILURE),
+							 errmsg("something wrong with listen socket")));
+				if (WEECanRead(wee))
+				{
+					for (;;)
+					{
+						RdcPort		*port = NULL;
+						port = rdc_accept(WEEGetSock(wee));
+						if (port == NULL)
+							break;
+						accept_list = lappend(accept_list, port);
+					}
+				}
+				/* check MyParentSock */
+				if (MyParentSock != PGINVALID_SOCKET)
+				{
+					wee = wee_next();
+					if (WEEHasError(wee) ||
+						(WEECanRead(wee) && !BackendIsAlive()))
+						break;
+				}
+
+				ReduceAcceptPlanConn(&accept_list, &pln_list);
+				rdc_handle_reduce(rdc_nodes, rdc_num, &pln_list);
+				rdc_handle_plannode(rdc_nodes, rdc_num, pln_list);
+			}
+			end_wait_events();
+		} PG_CATCH();
+		{
+			end_wait_events();
+			PG_RE_THROW();
+		} PG_END_TRY();
 	}
 
 	return STATUS_OK;

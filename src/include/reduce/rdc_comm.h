@@ -21,8 +21,8 @@
 #endif
 
 #include "getaddrinfo.h"
-#include "reduce/wait_event.h"
 #include "lib/stringinfo.h"
+#include "reduce/wait_event.h"
 
 #define IS_AF_INET(fam) ((fam) == AF_INET)
 
@@ -100,13 +100,16 @@ struct RdcPort
 	char			   *portstr;
 #endif
 
-	struct sockaddr		laddr;			/* local addr */
-	struct sockaddr		raddr;			/* remote addr */
+	struct sockaddr		laddr;			/* local address */
+	struct sockaddr		raddr;			/* remote address */
 
 	struct addrinfo	   *addrs;			/* used for connect */
 	struct addrinfo	   *addr_cur;		/* used for connect */
-	ConnStatusType		status;			/* used to connect other Reduce */
+	ConnStatusType		status;			/* used to connect with other Reduce */
 
+	bool				got_eof;		/* used for communication between Reduce and Reduce, also
+										   between Reduce and Plan node. Set true only if receive
+										   eof message.*/
 	uint32				wait_events;	/* used for select/poll */
 	StringInfoData		in_buf;			/* for normal message */
 	StringInfoData		out_buf;		/* for normal message */
@@ -127,6 +130,7 @@ struct RdcPort
 #define RdcID(port)					(((RdcPort *) (port))->from_to)
 #define RdcStatus(port)				(((RdcPort *) (port))->status)
 #define RdcWaitEvents(port)			(((RdcPort *) (port))->wait_events)
+#define RdcGotEof(port)				(((RdcPort *) (port))->got_eof)
 #define RdcWaitRead(port)			((((RdcPort *) (port))->wait_events) & WAIT_SOCKET_READABLE)
 #define RdcWaitWrite(port)			((((RdcPort *) (port))->wait_events) & WAIT_SOCKET_WRITEABLE)
 #define RdcError(port)				rdc_geterror(port)

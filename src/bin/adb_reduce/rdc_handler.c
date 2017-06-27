@@ -12,8 +12,9 @@
  *-------------------------------------------------------------------------
  */
 #include "rdc_globals.h"
-#include "rdc_plan.h"
+
 #include "rdc_handler.h"
+#include "rdc_plan.h"
 #include "reduce/rdc_msg.h"
 
 static int  try_read_some(RdcPort *port);
@@ -170,6 +171,7 @@ try_handle_plan_read(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 						} else
 						{
 							/* send eof to reduce */
+							RdcGotEof(port) = true;
 							RdcWaitEvents(port) &= ~WAIT_SOCKET_READABLE;
 							send_rdc2rdc(rdc_port, RdcID(port), NULL, 0);
 						}
@@ -177,9 +179,14 @@ try_handle_plan_read(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 					rdc_getmsgend(msg);
 				}
 				break;
-			case RDC_P2R_CLOSE:
+			case RDC_CLOSE_MSG:
 				{
 					/* TODO: how to close? */
+					elog(LOG,
+						 "Receive close message from [%s %d] {%s:%s}",
+						 RdcTypeStr(port), RdcID(port),
+						 RdcHostStr(port), RdcPortStr(port));
+					rdc_freeport(port);
 				}
 				break;
 			case RDC_ERROR_MSG:
@@ -333,6 +340,7 @@ try_handle_reduce_read(RdcPort *port, List **pln_list)
 				if (firstchar == RDC_EOF_MSG)
 				{
 					rdc_getmsgend(msg);
+					RdcGotEof(port) = true;
 					/* fill in eof */
 					send_rdc2plan(pln_port, RdcID(port), NULL, 0);
 					break ;
@@ -351,6 +359,15 @@ try_handle_reduce_read(RdcPort *port, List **pln_list)
 				send_rdc2plan(pln_port, RdcID(port), data, datalen);
 			}
 			break;
+		case RDC_CLOSE_MSG:
+			{
+				/* TODO: how to close? */
+				elog(LOG,
+					 "Receive close message from [%s %d] {%s:%s}",
+					 RdcTypeStr(port), RdcID(port),
+					 RdcHostStr(port), RdcPortStr(port));
+				rdc_freeport(port);
+			}
 		case RDC_ERROR_MSG:
 			break;
 		default:

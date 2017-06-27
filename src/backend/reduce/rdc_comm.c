@@ -81,6 +81,7 @@ rdc_newport(pgsocket sock, RdcPortType type, RdcPortId id)
 	rdc_port->from_to = id;
 	rdc_port->version = 0;
 	rdc_port->wait_events = WAIT_NONE;
+	rdc_port->got_eof = false;
 #ifdef DEBUG_ADB
 	rdc_port->hoststr = NULL;
 	rdc_port->portstr = NULL;

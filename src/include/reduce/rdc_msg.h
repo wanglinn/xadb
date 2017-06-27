@@ -22,12 +22,12 @@ extern int				MyReduceId;
 /* -----------Reduce message------------- */
 #define RDC_LISTEN_PORT		'L'
 #define RDC_ERROR_MSG		'E'
+#define RDC_CLOSE_MSG		'C'
 #define RDC_EOF_MSG			'e'
 #define RDC_START_RQT		'S'
 #define RDC_START_RSP		's'
 #define RDC_GROUP_RQT		'G'
 #define RDC_GROUP_RSP		'g'
-#define RDC_P2R_CLOSE		'C'
 #define RDC_P2R_DATA		'P'
 #define RDC_R2P_DATA		'p'
 #define RDC_R2R_DATA		'R'
@@ -39,5 +39,7 @@ extern int rdc_recv_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id);
 extern int rdc_send_group_rqt(RdcPort *port, int num, const char *hosts[], int ports[]);
 extern int rdc_send_group_rsp(RdcPort *port);
 extern int rdc_recv_group_rsp(RdcPort *port);
+
+extern int rdc_send_close_rqt(RdcPort *port);
 
 #endif	/* RDC_MSG_H */

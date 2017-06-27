@@ -1,7 +1,7 @@
+#include <stdlib.h>
+
 #include "rdc_globals.h"
 #include "rdc_exit.h"
-
-#include <stdlib.h>
 
 bool		rdc_exit_inprogress = false;
 
