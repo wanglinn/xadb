@@ -18,14 +18,13 @@
 #include "reduce/rdc_msg.h"
 
 static int  try_read_some(RdcPort *port);
-static void try_handle_reduce_read(RdcPort *port, List **pln_list);
-static void try_handle_reduce_write(RdcPort *port);
-
-static void try_handle_plan_read(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num);
-static void try_handle_plan_write(PlanPort *pln_port);
+static bool try_read_from_reduce(RdcPort *port, List **pln_list);
+static void try_write_to_reduce(RdcPort *port);
+static void try_read_from_plan(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num);
+static void try_write_to_plan(PlanPort *pln_port);
 static void build_packet_rdc2plan(StringInfo buf, RdcPortId rdc_id, const char *data, int datalen);
 static void send_rdc2plan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen);
-static void send_rdc2rdc(RdcPort *port, RdcPortId planid, const char *data, int datalen);
+static int  send_rdc2rdc(RdcPort *port, RdcPortId planid, const char *data, int datalen);
 
 /*
  * rdc_handle_plannode - handle port for Plan node
@@ -39,8 +38,8 @@ rdc_handle_plannode(RdcPort **rdc_nodes, int rdc_num, List *pln_list)
 	foreach (cell, pln_list)
 	{
 		pln_port = (PlanPort *) lfirst(cell);
-		try_handle_plan_read(pln_port, rdc_nodes, rdc_num);
-		try_handle_plan_write(pln_port);
+		try_read_from_plan(pln_port, rdc_nodes, rdc_num);
+		try_write_to_plan(pln_port);
 	}
 }
 
@@ -56,10 +55,16 @@ rdc_handle_reduce(RdcPort **rdc_nodes, int rdc_num, List **pln_list)
 	for (i = 0; i < rdc_num; i++)
 	{
 		port = rdc_nodes[i];
+		/* skip if null (MyReduceId or be free) */
+		if (port == NULL)
+			continue;
 		if (RdcWaitRead(port))
-			try_handle_reduce_read(port, pln_list);
+		{
+			if (try_read_from_reduce(port, pln_list))
+				rdc_nodes[i] = NULL;
+		}
 		if (RdcWaitWrite(port))
-			try_handle_reduce_write(port);
+			try_write_to_reduce(port);
 	}
 }
 
@@ -85,15 +90,19 @@ try_read_some(RdcPort *port)
 }
 
 /*
- * try_handle_plan_read - handle message from Plan node
+ * try_read_from_plan - handle message from Plan node
  */
 static void
-try_handle_plan_read(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
+try_read_from_plan(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 {
 	StringInfo		msg;
 	int				sv_cursor;
 	char			firstchar;
+	bool			port_free;
+	bool			quit;
 	RdcPort		   *port;
+	RdcPort		   *next;
+	RdcPort		   *prev = NULL;
 
 	AssertArg(pln_port && rdc_nodes);
 	Assert(rdc_num > 0);
@@ -104,105 +113,136 @@ try_handle_plan_read(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 		Assert(PlanPortIsValid(port));
 		Assert(RdcSockIsValid(port));
 
+		next = RdcNext(port);
+
+		/* set true if got RDC_CLOSE_MSG */
+		port_free = false;
+
 		/* skip if do not care about READ event */
 		if (!RdcWaitRead(port))
-			continue;
-
-		/* set noblocking mode and read some data */
-		if (try_read_some(port) == EOF)
-			ereport(ERROR,
-					(errmsg("fail to read some from [%s %d] {%s:%s}",
-							RdcTypeStr(port), RdcID(port),
-							RdcHostStr(port), RdcPortStr(port)),
-					 errhint("connection to client lost")));
-
-		msg = RdcInBuf(port);
-		sv_cursor = msg->cursor;
-		firstchar = rdc_getbyte(port);
-		if (firstchar == EOF)
 		{
-			port->wait_events |= WAIT_SOCKET_READABLE;
+			port = next;
 			continue;
 		}
 
-		switch (firstchar)
+		/* try to read as much as possible */
+		quit = false;
+		while (!quit)
 		{
-			case RDC_P2R_DATA:
-			case RDC_EOF_MSG:
-				{
-					RdcPort		   *rdc_port;
-					RdcPortId		rid;
-					const char	   *data;
-					int				num, i;
-					int				totallen, datalen;
-
-					/* total data length */
-					if (rdc_getbytes(port, sizeof(totallen)) == EOF)
-					{
-						msg->cursor = sv_cursor;
-						port->wait_events |= WAIT_SOCKET_READABLE;
-						break;
-					}
-					totallen = rdc_getmsgint(msg, sizeof(totallen));
-					totallen -= sizeof(totallen);
-					if (rdc_getbytes(port, totallen) == EOF)
-					{
-						msg->cursor = sv_cursor;
-						port->wait_events |= WAIT_SOCKET_READABLE;
-						break;
-					}
-					/* data length and data */
-					datalen = rdc_getmsgint(msg, sizeof(datalen));
-					data = rdc_getmsgbytes(msg, datalen);
-					/* reduce number */
-					num = rdc_getmsgint(msg, sizeof(num));
-					/* reduce id */
-					for (i = 0; i < num; i++)
-					{
-						rid = rdc_getmsgint(msg, sizeof(rid));
-						Assert(rid != MyReduceId);
-						Assert(rid >= 0 && rid < rdc_num);
-						/* reduce port */
-						rdc_port = rdc_nodes[rid];
-						if (firstchar == RDC_P2R_DATA)
-						{
-							/* send data to reduce */
-							send_rdc2rdc(rdc_port, RdcID(port), data, datalen);
-						} else
-						{
-							/* send eof to reduce */
-							RdcGotEof(port) = true;
-							RdcWaitEvents(port) &= ~WAIT_SOCKET_READABLE;
-							send_rdc2rdc(rdc_port, RdcID(port), NULL, 0);
-						}
-					}
-					rdc_getmsgend(msg);
-				}
-				break;
-			case RDC_CLOSE_MSG:
-				{
-					/* TODO: how to close? */
-					elog(LOG,
-						 "Receive close message from [%s %d] {%s:%s}",
-						 RdcTypeStr(port), RdcID(port),
-						 RdcHostStr(port), RdcPortStr(port));
-					rdc_freeport(port);
-				}
-				break;
-			case RDC_ERROR_MSG:
-				break;
-			default:
+			/* set noblocking mode and read some data */
+			if (try_read_some(port) == EOF)
 				ereport(ERROR,
-						(errmsg("unexpected message type %c of Plan port",
-								firstchar)));
+						(errmsg("fail to read some from [%s %d] {%s:%s}",
+								RdcTypeStr(port), RdcID(port),
+								RdcHostStr(port), RdcPortStr(port)),
+						 errhint("connection to client lost")));
+
+			msg = RdcInBuf(port);
+			sv_cursor = msg->cursor;
+			firstchar = rdc_getbyte(port);
+			if (firstchar == EOF)
+			{
+				port->wait_events |= WAIT_SOCKET_READABLE;
+				break;		/* break while */
+			}
+
+			switch (firstchar)
+			{
+				case RDC_P2R_DATA:
+				case RDC_EOF_MSG:
+					{
+						RdcPort		   *rdc_port;
+						RdcPortId		rid;
+						const char	   *data;
+						int				num, i;
+						int				totallen, datalen;
+
+						/* total data length */
+						if (rdc_getbytes(port, sizeof(totallen)) == EOF)
+						{
+							msg->cursor = sv_cursor;
+							port->wait_events |= WAIT_SOCKET_READABLE;
+							quit = true;	/* break while */
+							break;			/* break case */
+						}
+						totallen = rdc_getmsgint(msg, sizeof(totallen));
+						totallen -= sizeof(totallen);
+						if (rdc_getbytes(port, totallen) == EOF)
+						{
+							msg->cursor = sv_cursor;
+							port->wait_events |= WAIT_SOCKET_READABLE;
+							quit = true;	/* break while */
+							break;			/* break case */
+						}
+						/* data length and data */
+						datalen = rdc_getmsgint(msg, sizeof(datalen));
+						data = rdc_getmsgbytes(msg, datalen);
+						/* reduce number */
+						num = rdc_getmsgint(msg, sizeof(num));
+						/* reduce id */
+						for (i = 0; i < num; i++)
+						{
+							rid = rdc_getmsgint(msg, sizeof(rid));
+							Assert(rid != MyReduceId);
+							Assert(rid >= 0 && rid < rdc_num);
+							/* reduce port */
+							rdc_port = rdc_nodes[rid];
+							if (firstchar == RDC_P2R_DATA)
+							{
+								/* send data to reduce */
+								if (send_rdc2rdc(rdc_port, RdcID(port), data, datalen))
+									quit = true;	/* break while */
+							} else
+							{
+								/* send eof to reduce */
+								RdcGotEof(port) = true;
+								RdcWaitEvents(port) &= ~WAIT_SOCKET_READABLE;
+								if (send_rdc2rdc(rdc_port, RdcID(port), NULL, 0))
+									quit = true;	/* break while */
+							}
+						}
+						rdc_getmsgend(msg);
+					}
+					break;
+				case RDC_CLOSE_MSG:
+					{
+						/* TODO: how to close? */
+						elog(LOG,
+							 "Receive close message from [%s %d] {%s:%s}",
+							 RdcTypeStr(port), RdcID(port),
+							 RdcHostStr(port), RdcPortStr(port));
+
+						/* close the first RdcPort of PlanPort */
+						if (prev == NULL)
+							pln_port->port = next;
+						else
+							RdcNext(prev) = next;
+						rdc_freeport(port);
+						port_free = true;
+						quit = true;	/* break while */
+					}
+					break;
+				case RDC_ERROR_MSG:
+					break;
+				default:
+					ereport(ERROR,
+							(errmsg("unexpected message type %c of Plan port",
+									firstchar)));
+			}
 		}
 
-		port = RdcNext(port);
+		if (!port_free)
+			prev = port;
+		port = next;
 	}
+
+	/* The worker RdcPort of PlanPort is all free */
+	if (pln_port->port == NULL)
+		plan_freeport(pln_port);
 }
 
 static void
-try_handle_plan_write(PlanPort *pln_port)
+try_write_to_plan(PlanPort *pln_port)
 {
 	StringInfo		buf;
 	RdcPort		   *port;
@@ -218,9 +258,14 @@ try_handle_plan_write(PlanPort *pln_port)
 		Assert(PlanPortIsValid(port));
 		Assert(RdcSockIsValid(port));
 
+		/* skip if do not care about WRITE event */
 		if (!RdcWaitWrite(port))
+		{
+			port = RdcNext(port);
 			continue;
+		}
 
+		/* set in noblocking mode */
 		if (!rdc_set_noblock(port))
 			ereport(ERROR,
 					(errmsg("fail to set noblocking mode for [%s %d] {%s:%s}",
@@ -241,7 +286,7 @@ try_handle_plan_write(PlanPort *pln_port)
 
 					if (errno == EAGAIN ||
 						errno == EWOULDBLOCK)
-						break;
+						break;		/* break while */
 
 					buf->cursor = buf->len = 0;
 					ClientConnectionLost = 1;
@@ -255,22 +300,24 @@ try_handle_plan_write(PlanPort *pln_port)
 			if (buf->cursor < buf->len)
 			{
 				RdcWaitEvents(port) |= WAIT_SOCKET_WRITEABLE;
-				break;
+				break;		/* break for */
 			}
 			/* output buffer is empty, continue trying rdcstore */
 			else
 			{
 				bool	hasData = false;
 
+				/* it is safe to reset output buffer */
 				resetStringInfo(buf);
 				Assert(rdcstore);
 
-				/* get one tuple from rdcstore */
+				/* try to get one tuple from rdcstore */
 				rdcstore_gettuple(rdcstore, buf, &hasData);
+				/* break rdcstore is also empty */
 				if (!hasData)
 				{
 					RdcWaitEvents(port) &= ~WAIT_SOCKET_WRITEABLE;
-					break;
+					break;	/* break for */
 				}
 			}
 		}
@@ -279,107 +326,121 @@ try_handle_plan_write(PlanPort *pln_port)
 	}
 }
 
-static void
-try_handle_reduce_read(RdcPort *port, List **pln_list)
+static bool
+try_read_from_reduce(RdcPort *port, List **pln_list)
 {
 	StringInfo		msg;
 	int				sv_cursor;
 	char			firstchar;
+	bool			quit;
+	bool			port_free;
 
 	AssertArg(port && pln_list);
 	Assert(ReducePortIsValid(port));
 	Assert(RdcID(port) != MyReduceId);
 
-	/* set noblocking mode and read some data */
-	if (try_read_some(port) == EOF)
-		ereport(ERROR,
-				(errmsg("fail to read some from [%s %d] {%s:%s}",
-						RdcTypeStr(port), RdcID(port),
-						RdcHostStr(port), RdcPortStr(port)),
-				 errhint("connection to client lost")));
-
+	quit = false;
+	port_free = false;
 	msg = RdcInBuf(port);
-	sv_cursor = msg->cursor;
-	firstchar = rdc_getbyte(port);
-	if (firstchar == EOF)
+	while (!quit)
 	{
-		port->wait_events |= WAIT_SOCKET_READABLE;
-		return ;
-	}
-
-	switch (firstchar)
-	{
-		case RDC_R2R_DATA:
-		case RDC_EOF_MSG:
-			{
-				PlanPort	   *pln_port;
-				const char	   *data;
-				RdcPortId		planid;
-				int				datalen;
-
-				/* length and planid */
-				if (rdc_getbytes(port, sizeof(datalen)) == EOF ||
-					rdc_getbytes(port, sizeof(planid)) == EOF)
-				{
-					msg->cursor = sv_cursor;
-					port->wait_events |= WAIT_SOCKET_READABLE;
-					break ;
-				}
-				datalen = rdc_getmsgint(msg, sizeof(datalen));
-				datalen -= sizeof(datalen);
-				planid = rdc_getmsgint(msg, sizeof(planid));
-				datalen -= sizeof(planid);
-				/* find RdcPort of plan */
-				pln_port = find_plan_port(*pln_list, planid);
-				if (pln_port == NULL)
-				{
-					pln_port = plan_newport(planid);
-					*pln_list = lappend(*pln_list, pln_port);
-				}
-				/* got eof */
-				if (firstchar == RDC_EOF_MSG)
-				{
-					rdc_getmsgend(msg);
-					RdcGotEof(port) = true;
-					/* fill in eof */
-					send_rdc2plan(pln_port, RdcID(port), NULL, 0);
-					break ;
-				}
-				/* got data */
-				if (rdc_getbytes(port, datalen) == EOF)
-				{
-					msg->cursor = sv_cursor;
-					port->wait_events |= WAIT_SOCKET_READABLE;
-					break ;
-				}
-				data = rdc_getmsgbytes(msg, datalen);
-				rdc_getmsgend(msg);
-
-				/* fill in data */
-				send_rdc2plan(pln_port, RdcID(port), data, datalen);
-			}
-			break;
-		case RDC_CLOSE_MSG:
-			{
-				/* TODO: how to close? */
-				elog(LOG,
-					 "Receive close message from [%s %d] {%s:%s}",
-					 RdcTypeStr(port), RdcID(port),
-					 RdcHostStr(port), RdcPortStr(port));
-				rdc_freeport(port);
-			}
-		case RDC_ERROR_MSG:
-			break;
-		default:
+		/* set noblocking mode and read some data */
+		if (try_read_some(port) == EOF)
 			ereport(ERROR,
-					(errmsg("unexpected message type %c of Reduce port",
-							firstchar)));
-			break;
+					(errmsg("fail to read some from [%s %d] {%s:%s}",
+							RdcTypeStr(port), RdcID(port),
+							RdcHostStr(port), RdcPortStr(port)),
+					 errhint("connection to client lost")));
+
+		sv_cursor = msg->cursor;
+		firstchar = rdc_getbyte(port);
+		if (firstchar == EOF)
+		{
+			port->wait_events |= WAIT_SOCKET_READABLE;
+			break;		/* break while */
+		}
+
+		switch (firstchar)
+		{
+			case RDC_R2R_DATA:
+			case RDC_EOF_MSG:
+				{
+					PlanPort	   *pln_port;
+					const char	   *data;
+					RdcPortId		planid;
+					int				datalen;
+
+					/* length and planid */
+					if (rdc_getbytes(port, sizeof(datalen)) == EOF ||
+						rdc_getbytes(port, sizeof(planid)) == EOF)
+					{
+						msg->cursor = sv_cursor;
+						port->wait_events |= WAIT_SOCKET_READABLE;
+						quit = true;	/* break while */
+						break;			/* break case */
+					}
+					datalen = rdc_getmsgint(msg, sizeof(datalen));
+					datalen -= sizeof(datalen);
+					planid = rdc_getmsgint(msg, sizeof(planid));
+					datalen -= sizeof(planid);
+					/* find RdcPort of plan */
+					pln_port = find_plan_port(*pln_list, planid);
+					if (pln_port == NULL)
+					{
+						pln_port = plan_newport(planid);
+						*pln_list = lappend(*pln_list, pln_port);
+					}
+					/* got eof */
+					if (firstchar == RDC_EOF_MSG)
+					{
+						rdc_getmsgend(msg);
+						RdcGotEof(port) = true;
+						/* fill in eof */
+						send_rdc2plan(pln_port, RdcID(port), NULL, 0);
+						break ;			/* break case */
+					}
+					/* got data */
+					if (rdc_getbytes(port, datalen) == EOF)
+					{
+						msg->cursor = sv_cursor;
+						port->wait_events |= WAIT_SOCKET_READABLE;
+						quit = true;	/* break while */
+						break ;			/* break case */
+					}
+					data = rdc_getmsgbytes(msg, datalen);
+					rdc_getmsgend(msg);
+
+					/* fill in data */
+					send_rdc2plan(pln_port, RdcID(port), data, datalen);
+				}
+				break;
+			case RDC_CLOSE_MSG:
+				{
+					/* TODO: how to close? */
+					elog(LOG,
+						 "Receive close message from [%s %d] {%s:%s}",
+						 RdcTypeStr(port), RdcID(port),
+						 RdcHostStr(port), RdcPortStr(port));
+					rdc_freeport(port);
+					port_free = true;
+					quit = true;		/* break while */
+				}
+				break;
+			case RDC_ERROR_MSG:
+				break;
+			default:
+				ereport(ERROR,
+						(errmsg("unexpected message type %c of Reduce port",
+								firstchar)));
+				break;
+		}
 	}
+
+	return port_free;
 }
 
 static void
-try_handle_reduce_write(RdcPort *port)
+try_write_to_reduce(RdcPort *port)
 {
 	int ret;
 	ret = rdc_try_flush(port);
@@ -432,10 +493,10 @@ send_rdc2plan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datale
 		RdcWaitEvents(port) |= WAIT_SOCKET_WRITEABLE;
 		port = RdcNext(port);
 	}
-	try_handle_plan_write(pln_port);
+	try_write_to_plan(pln_port);
 }
 
-static void
+static int
 send_rdc2rdc(RdcPort *port, RdcPortId planid, const char *data, int datalen)
 {
 	StringInfoData		buf;
@@ -464,5 +525,7 @@ send_rdc2rdc(RdcPort *port, RdcPortId planid, const char *data, int datalen)
 		RdcWaitEvents(port) |= WAIT_SOCKET_WRITEABLE;
 	else
 		RdcWaitEvents(port) &= ~WAIT_SOCKET_WRITEABLE;
+
+	return ret;
 }
 
