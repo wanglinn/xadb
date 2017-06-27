@@ -748,6 +748,7 @@ nextval_internal(Oid relid)
 	{
 		Assert(elm->last_valid);
 		Assert(elm->increment != 0);
+
 		elm->last += elm->increment;
 		relation_close(seqrel, NoLock);
 		last_used_seq = elm;
@@ -766,6 +767,34 @@ nextval_internal(Oid relid)
 		char * databaseName = NULL;
 		char * schemaName = NULL;
 
+		incby = seq->increment_by;
+		maxv = seq->max_value;
+		minv = seq->min_value;
+		/* reach max value or min value */
+		if (!seq->is_cycled)
+		{
+			if (incby > 0 &&
+				((elm->last >= maxv) || (elm->last + incby > maxv)))
+			{
+				char		buf[100];
+				snprintf(buf, sizeof(buf), INT64_FORMAT, maxv);
+				ereport(ERROR,
+							  (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+							   errmsg("nextval: reached maximum value of sequence \"%s\" (%s)",
+									  RelationGetRelationName(seqrel), buf)));
+			}
+			else if (incby < 0 &&
+				((elm->last <= minv) || (elm->last + incby < minv)))
+			{
+				char		buf[100];
+				snprintf(buf, sizeof(buf), INT64_FORMAT, minv);
+				ereport(ERROR,
+							  (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+							   errmsg("nextval: reached minimum value of sequence \"%s\" (%s)",
+									  RelationGetRelationName(seqrel), buf)));
+			}
+		}
+
 		seqName = RelationGetRelationName(seqrel);
 		databaseName = get_database_name(seqrel->rd_node.dbNode);
 		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
@@ -781,7 +810,16 @@ nextval_internal(Oid relid)
 
 		/* save info in local cache */
 		elm->last = result;			/* last returned number */
-		elm->cached = result + seq->cache_value -1;
+
+		elm->cached = result + seq->cache_value * incby - incby;
+		if (incby > 0 && elm->cached > maxv)
+		{
+			elm->cached = maxv - ((maxv - result) % incby);
+		}
+		else if (incby < 0 && elm->cached < minv)
+		{
+			elm->cached = minv - ((minv - result) % incby);
+		}
 		elm->last_valid = true;
 
 		last_used_seq = elm;
