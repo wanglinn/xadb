@@ -19,11 +19,11 @@ pgsocket				MyListenSock = PGINVALID_SOCKET;
 pgsocket				MyParentSock = PGINVALID_SOCKET;
 pgsocket				MyLogSock = PGINVALID_SOCKET;
 int						MyListenPort = 0;
-
 static volatile bool	reduce_group_ready = false;
 
 static void InitReduceOptions(void);
 static void FreeReduceOptions(int code, Datum arg);
+static void ParseExtraOptions(char *extra_options);
 static void ParseReduceOptions(int argc, char * const argvs[]);
 static void Usage(bool exit_success);
 static void ReduceListen(void);
@@ -83,23 +83,142 @@ FreeReduceOptions(int code, Datum arg)
 }
 
 static void
+ParseExtraOptions(char *extra_options)
+{
+	char	   *pname;
+	char	   *pval;
+	char	   *cp;
+	char	   *cp2;
+
+	cp = extra_options;
+	while (*cp)
+	{
+		/* Skip blanks before the parameter name */
+		if (isspace((unsigned char) *cp))
+		{
+			cp++;
+			continue;
+		}
+
+		/* Get the parameter name */
+		pname = cp;
+		while (*cp)
+		{
+			if (*cp == '=')
+				break;
+			if (isspace((unsigned char) *cp))
+			{
+				*cp++ = '\0';
+				while (*cp)
+				{
+					if (!isspace((unsigned char) *cp))
+						break;
+					cp++;
+				}
+				break;
+			}
+			cp++;
+		}
+
+		/* Check that there is a following '=' */
+		if (*cp != '=')
+		{
+			elog(ERROR,
+				 _("missing \"=\" after \"%s\" in extra option string\n"),
+				 pname);
+		}
+		*cp++ = '\0';
+
+		/* Skip blanks after the '=' */
+		while (*cp)
+		{
+			if (!isspace((unsigned char) *cp))
+				break;
+			cp++;
+		}
+
+		/* Get the parameter value */
+		pval = cp;
+
+		if (*cp != '\'')
+		{
+			cp2 = pval;
+			while (*cp)
+			{
+				if (isspace((unsigned char) *cp))
+				{
+					*cp++ = '\0';
+					break;
+				}
+				if (*cp == '\\')
+				{
+					cp++;
+					if (*cp != '\0')
+						*cp2++ = *cp++;
+				}
+				else
+					*cp2++ = *cp++;
+			}
+			*cp2 = '\0';
+		}
+		else
+		{
+			cp2 = pval;
+			cp++;
+			for (;;)
+			{
+				if (*cp == '\0')
+				{
+					elog(ERROR,
+						 _("unterminated quoted string in extra option string"));
+				}
+				if (*cp == '\\')
+				{
+					cp++;
+					if (*cp != '\0')
+						*cp2++ = *cp++;
+					continue;
+				}
+				if (*cp == '\'')
+				{
+					*cp2 = '\0';
+					cp++;
+					break;
+				}
+				*cp2++ = *cp++;
+			}
+		}
+
+		/*
+		 * Now that we have the name and the value, store the record.
+		 */
+		if (strcmp(pname, "log_min_messages") == 0)
+			MyReduceOpts->log_min_messages = atoi(pval);
+		else if (strcmp(pname, "work_mem") == 0)
+			MyReduceOpts->work_mem = atoi(pval);
+		else
+			elog(ERROR, "invalid extra option \"%s\"", pname);
+	}
+}
+
+static void
 ParseReduceOptions(int argc, char * const argvs[])
 {
 	int			c;
 	int			optindex;
+	char	   *extra_options = NULL;
 	static struct option long_options[] = {
 		{"reduce_id", required_argument, NULL, 'n'},
 		{"host", required_argument, NULL, 'h'},
 		{"port", required_argument, NULL, 'p'},
 		{"parent_watch", required_argument, NULL, 'W'},
 		{"log_watch", required_argument, NULL, 'L'},
-		{"log_min_messages", required_argument, NULL, 'l'},
-		{"work_mem", required_argument, NULL, 'S'},
 		{"help", no_argument, NULL, '?'},
+		{"extra", required_argument, NULL, 'E'},
 		{NULL, 0, NULL, 0}
 	};
 
-	while ((c = getopt_long(argc, argvs, "n:h:p:l:S:W:L:?", long_options, &optindex)) != -1)
+	while ((c = getopt_long(argc, argvs, "n:h:p:E:W:L:?", long_options, &optindex)) != -1)
 	{
 		switch (c)
 		{
@@ -116,14 +235,6 @@ ParseReduceOptions(int argc, char * const argvs[])
 				if (MyReduceOpts->lport > 65535 || MyReduceOpts->lport < 1024)
 					elog(ERROR, "Invalid listen port: %d", MyReduceOpts->lport);
 				break;
-			case 'S':
-				MyReduceOpts->work_mem = atoi(optarg);
-				/* should i check it? */
-				break;
-			case 'l':
-				MyReduceOpts->log_min_messages = atoi(optarg);
-				/* should i check it? */
-				break;
 			case 'W':
 				MyParentSock = atoi(optarg);
 				MyReduceOpts->parent_watch = rdc_newport(MyParentSock, TYPE_BACKEND, InvalidPortId);
@@ -132,6 +243,9 @@ ParseReduceOptions(int argc, char * const argvs[])
 			case 'L':
 				MyLogSock = atoi(optarg);
 				MyReduceOpts->log_watch = rdc_newport(MyLogSock, TYPE_BACKEND, InvalidPortId);
+				break;
+			case 'E':
+				extra_options = pstrdup(optarg);
 				break;
 			case '?':
 				Usage(true);
@@ -147,6 +261,12 @@ ParseReduceOptions(int argc, char * const argvs[])
 
 	if (MyReduceId < 0)
 		Usage(false);
+
+	if (extra_options)
+	{
+		ParseExtraOptions(extra_options);
+		pfree(extra_options);
+	}
 }
 
 static void
@@ -162,11 +282,14 @@ Usage(bool exit_success)
 	fprintf(fd, "  -n, --reduce_id=RID              set the reduce ID number, it is requisite\n");
 	fprintf(fd, "  -h, --host=HOSTNAME              local server host(default: 0.0.0.0)\n");
 	fprintf(fd, "  -p, --port=PORT                  local server port(default: 0)\n");
-	fprintf(fd, "  -w, --parent_watch=SOCK          file descriptor from parent process for interprocess communication\n");
-	fprintf(fd, "  -l, --log_watch=SOCK             file descriptor from parent process for log record\n");
-	fprintf(fd, "  -S, --work_mem=WORKMEM           set amount of memory for tupstore (in kB)\n");
-	fprintf(fd, "  -d, --log_min_messages=elevel    set the message levels that are logged\n");
+	fprintf(fd, "  -W, --parent_watch=SOCK          file descriptor from parent process for interprocess communication\n");
+	fprintf(fd, "  -L, --log_watch=SOCK             file descriptor from parent process for log record\n");
+	fprintf(fd, "  -E, --extra=STRING               extra key-value options, quoted string\n");
 	fprintf(fd, "  -?, --help                       show this help, then exit\n");
+
+	fprintf(fd, "\nExtra options:\n");
+	fprintf(fd, "  log_min_messages=ELEVEL          set the minimum log level\n");
+	fprintf(fd, "  work_mem=WORKMEM                 set amount of memory for tupstore (in kB)\n");
 
 	exit(exit_success ? EXIT_SUCCESS: EXIT_FAILURE);
 }
