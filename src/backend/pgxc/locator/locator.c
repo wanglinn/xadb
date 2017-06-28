@@ -418,9 +418,12 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 				{
 					if(rel_loc_info->locatorType == LOCATOR_TYPE_HASH)
 					{
-						modulo = execHashValue(dist_col_values[0],
+						int32 hashVal = execHashValue(dist_col_values[0],
 											  dist_col_types[0],
 											  InvalidOid);
+						modulo = execModuloValue(Int32GetDatum(hashVal),
+												 INT4OID,
+												 list_length(rel_loc_info->nodeList));
 					}else
 					{
 						modulo = execModuloValue(dist_col_values[0],
@@ -1173,6 +1176,13 @@ ExprState *ExecInitRelationExecNode(RelationLocInfo *loc,
 		}
 		Assert(expr);
 		expr = makeModuloExpr(expr, list_length(loc->nodeList));
+		expr = (Expr*)coerce_to_target_type(NULL, (Node*)expr,
+									exprType((Node*)expr),
+									INT4OID,
+									-1,
+									COERCION_EXPLICIT,
+									COERCE_IMPLICIT_CAST,
+									-1);
 		{
 			GenericExprState *ge = makeNode(GenericExprState);
 			int *pint = palloc(sizeof(int) * list_length(loc->nodeList));
@@ -1256,10 +1266,14 @@ static Datum nthIntEvalFunc(GenericExprState *expression,
 {
 	int *pint = (int*)expression->xprstate.expr;
 	Datum datum = ExecEvalExpr(expression->arg, econtext, isNull, isDone);
+	int32 i32;
 	if(*isNull)
 		return (Datum)0;
 
-	return Int32GetDatum(pint[DatumGetInt32(datum)]);
+	i32 = DatumGetInt32(datum);
+	if(i32<0)
+		i32 = -i32;
+	return Int32GetDatum(pint[i32]);
 }
 
 static Datum OidStateEvalFunc(GenericExprState *expression, ExprContext *econtext,

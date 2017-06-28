@@ -28,7 +28,6 @@
 #include "parser/parse_coerce.h"
 #include "parser/parse_oper.h"
 #include "utils/builtins.h"
-#include "utils/memutils.h"
 #include "utils/typcache.h"
 #endif /* ADB */
 
@@ -676,20 +675,18 @@ Expr *makeModuloExpr(Expr *expr, int right)
 
 int32 execModuloValue(Datum datum, Oid typid, int right)
 {
-	MemoryContext context,old_context;
+	MemoryContext old_context;
+	EState *estate;
 	Const *left;
 	Expr *expr;
 	ExprState *exprState;
 	Datum result;
+	int32 i32;
 	int16 typlen;
 	bool boolValue;
 
-	context = AllocSetContextCreate(CurrentMemoryContext,
-									"exec module",
-									ALLOCSET_DEFAULT_MINSIZE,
-									ALLOCSET_DEFAULT_INITSIZE,
-									ALLOCSET_DEFAULT_MAXSIZE);
-	old_context = MemoryContextSwitchTo(context);
+	estate = CreateExecutorState();
+	old_context = MemoryContextSwitchTo(estate->es_query_cxt);
 
 	get_typlenbyval(typid, &typlen, &boolValue);
 	left = makeConst(typid, -1, InvalidOid, typlen, datum, false, boolValue);
@@ -703,13 +700,16 @@ int32 execModuloValue(Datum datum, Oid typid, int right)
 										-1);
 
 	exprState = ExecInitExpr(expr, NULL);
-	result = ExecEvalExpr(exprState, NULL, &boolValue, NULL);
+	result = ExecEvalExpr(exprState, GetPerTupleExprContext(estate), &boolValue, NULL);
 	Assert(boolValue == false);
 
 	MemoryContextSwitchTo(old_context);
-	MemoryContextDelete(context);
+	FreeExecutorState(estate);
 
-	return DatumGetInt32(result);
+	i32 = DatumGetInt32(result);
+	if(i32 < 0)
+		i32 = -i32;
+	return i32;
 }
 
 #endif /* ADB */
