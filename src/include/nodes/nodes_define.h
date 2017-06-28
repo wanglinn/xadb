@@ -58,6 +58,7 @@
  *   ClusterScanState
  *   ClusterGatherState
  *   ClusterMergeGatherState
+ *   ClusterGetCopyDataState
  *   ExprState
  *   GenericExprState
  *   WholeRowVarExprState
@@ -724,6 +725,10 @@ BEGIN_NODE(ClusterMergeGather)
 	NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
 END_NODE(ClusterMergeGather)
 #endif /* NO_NODE_ClusterMergeGather */
+
+#ifndef NO_NODE_ClusterGetCopyData
+NODE_SAME(ClusterGetCopyData, Plan)
+#endif /* NO_NODE_ClusterGetCopyData */
 
 #endif
 
