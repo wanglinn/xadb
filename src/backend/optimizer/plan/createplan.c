@@ -6261,6 +6261,7 @@ is_projection_capable_path(Path *path)
 		case T_ClusterScan:
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
+		case T_ClusterGetCopyData:
 #endif /* ADB */
 			return false;
 		case T_Append:
@@ -6303,6 +6304,7 @@ is_projection_capable_plan(Plan *plan)
 		case T_ClusterScan:
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
+		case T_ClusterGetCopyData:
 #endif /* ADB */
 			return false;
 		default:

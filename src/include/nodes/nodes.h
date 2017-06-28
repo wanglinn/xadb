@@ -101,6 +101,7 @@ typedef enum NodeTag
 	T_ClusterScan,
 	T_ClusterGather,
 	T_ClusterMergeGather,
+	T_ClusterGetCopyData,
 #endif
 
 	/*
@@ -151,6 +152,7 @@ typedef enum NodeTag
 	T_ClusterScanState,
 	T_ClusterGatherState,
 	T_ClusterMergeGatherState,
+	T_ClusterGetCopyDataState,
 #endif
 
 	/*

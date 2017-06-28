@@ -2120,6 +2120,12 @@ typedef struct ClusterMergeGatherState
 	bool			local_end;	/* local plan is end of tup */
 }ClusterMergeGatherState;
 
+typedef struct ClusterGetCopyDataState
+{
+	PlanState		ps;
+	StringInfoData	buf;
+}ClusterGetCopyDataState;
+
 #endif /* ADB */
 
 #endif   /* EXECNODES_H */

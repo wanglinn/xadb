@@ -874,6 +874,8 @@ typedef struct ClusterMergeGather
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
 }ClusterMergeGather;
 
+typedef Plan ClusterGetCopyData;
+
 #endif /* ADB */
 
 /*
