@@ -7,10 +7,14 @@
 #include "postgres.h"
 #include "miscadmin.h"
 #include "postmaster/fork_process.h"
+#include "postmaster/syslogger.h"
 #include "reduce/adb_reduce.h"
 #include "reduce/rdc_msg.h"
 #include "storage/ipc.h"
+#include "utils/guc.h"
 #include "utils/memutils.h"
+
+extern bool redirection_done;
 
 #ifndef WIN32
 static int backend_reduce_fds[2] = {-1, -1};
@@ -189,6 +193,16 @@ AdbReduceLauncherMain(int rid)
 	initStringInfo(&cmd);
 	appendStringInfo(&cmd, "exec \"adb_reduce\" -n %d -W %d",
 		rid, backend_reduce_fds[RDC_REDUCE_HOLD]);
+
+	appendStringInfo(&cmd, " -E \""
+						   "work_mem=%d "
+						   "log_min_messages=%d "
+						   "log_destination=%d "
+						   "redirection_done=%d\"",
+						   work_mem,
+						   log_min_messages,
+						   Log_destination,
+						   redirection_done);
 
 	(void) execl("/bin/sh", "/bin/sh", "-c", cmd.data, (char *) NULL);
 

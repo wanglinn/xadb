@@ -3,6 +3,7 @@
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <time.h>
 
 #include "getopt_long.h"
 #include "rdc_globals.h"
@@ -14,6 +15,9 @@
 #include "utils/memutils.h"		/* for MemoryContext */
 
 static const char	   *progname;
+
+int						MyProcPid;
+pg_time_t				MyStartTime;
 ReduceOptions 			MyReduceOpts = NULL;
 pgsocket				MyListenSock = PGINVALID_SOCKET;
 pgsocket				MyParentSock = PGINVALID_SOCKET;
@@ -61,6 +65,9 @@ InitReduceOptions(void)
 	MyReduceOpts->lport = 0;
 	MyReduceOpts->work_mem = 1024;
 	MyReduceOpts->log_min_messages = WARNING;
+	MyReduceOpts->Log_error_verbosity = PGERROR_DEFAULT;
+	MyReduceOpts->Log_destination = LOG_DESTINATION_STDERR;
+	MyReduceOpts->redirection_done = false;
 
 	/* don't forget free Reduce options */
 	on_rdc_exit(FreeReduceOptions, 0);
@@ -196,6 +203,12 @@ ParseExtraOptions(char *extra_options)
 			MyReduceOpts->log_min_messages = atoi(pval);
 		else if (strcmp(pname, "work_mem") == 0)
 			MyReduceOpts->work_mem = atoi(pval);
+		else if (strcmp(pname, "log_error_verbosity") == 0)
+			MyReduceOpts->Log_error_verbosity = atoi(pval);
+		else if (strcmp(pname, "log_destination") == 0)
+			MyReduceOpts->Log_destination = atoi(pval);
+		else if (strcmp(pname, "redirection_done") == 0)
+			MyReduceOpts->redirection_done = (bool) atoi(pval);
 		else
 			elog(ERROR, "invalid extra option \"%s\"", pname);
 	}
@@ -287,9 +300,13 @@ Usage(bool exit_success)
 	fprintf(fd, "  -E, --extra=STRING               extra key-value options, quoted string\n");
 	fprintf(fd, "  -?, --help                       show this help, then exit\n");
 
-	fprintf(fd, "\nExtra options:\n");
-	fprintf(fd, "  log_min_messages=ELEVEL          set the minimum log level\n");
+	fprintf(fd, "\nExtra options:\n\n");
+	fprintf(fd, "  These options only come from backend, do not set if not sure.\n\n");
 	fprintf(fd, "  work_mem=WORKMEM                 set amount of memory for tupstore (in kB)\n");
+	fprintf(fd, "  log_min_messages=ELEVEL          set the minimum log level\n");
+	fprintf(fd, "  log_error_verbosity=VERBOSE      set the verbosity of logged messages\n");
+	fprintf(fd, "  log_destination=DEST             set the destination for server log output\n");
+	fprintf(fd, "  redirection_done=(T|F)           set true if stderr is redirected done\n");
 
 	exit(exit_success ? EXIT_SUCCESS: EXIT_FAILURE);
 }
@@ -526,6 +543,9 @@ DropReduceNodeInfo(void)
 
 int main(int argc, char* const argvs[])
 {
+	MyProcPid = getpid();
+	MyStartTime = time(NULL);
+
 	set_pglocale_pgservice(argvs[0], TEXTDOMAIN);
 
 	progname = get_progname(argvs[0]);
@@ -604,6 +624,7 @@ ReduceDieHandler(SIGNAL_ARGS)
 	errno = save_errno;
 }
 
+#ifdef RDC_TEST
 static void
 ReduceGroupHook(SIGNAL_ARGS)
 {
@@ -637,6 +658,7 @@ ReduceGroupHook(SIGNAL_ARGS)
 		buf.data = NULL;
 	}
 }
+#endif
 
 static void
 SetReduceSignals(void)
@@ -646,7 +668,11 @@ SetReduceSignals(void)
 	pqsignal(SIGQUIT, ReduceDieHandler);
 	pqsignal(SIGPIPE, SIG_IGN);
 	pqsignal(SIGCHLD, SIG_IGN);
+#ifdef RDC_TEST
 	pqsignal(SIGUSR1, ReduceGroupHook);		/* for test */
+#else
+	pqsignal(SIGUSR1, SIG_IGN);
+#endif
 	pqsignal(SIGUSR2, SIG_IGN);
 }
 
@@ -685,10 +711,12 @@ WaitForReduceGroupReady(void)
 				break;
 		}
 	}
+#if !defined(RDC_TEST)
 	if (rdc_send_group_rsp(port) == EOF)
 		ereport(ERROR,
 				(errmsg("fail to send setup group response:%s",
 						RdcError(port))));
+#endif
 }
 
 static bool

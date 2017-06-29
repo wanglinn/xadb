@@ -10,6 +10,11 @@
 #define ENABLE_LIST_COMPAT
 #include "rdc_list.h"
 
+#define pg_time_t time_t
+
+extern int			MyProcPid;
+extern pg_time_t	MyStartTime;
+
 #if defined(safe_pfree)
 #undef safe_pfree
 #endif
@@ -40,6 +45,9 @@ typedef struct ReduceOptionsData
 	int			lport;					/* 0 means random port */
 	int			work_mem;				/* for tupstorestate, Unit: KB */
 	int			log_min_messages;		/* for log output */
+	int			Log_error_verbosity;
+	int			Log_destination;
+	bool		redirection_done;
 
 	RdcPort	   *parent_watch;			/* for interprocess communication with parent */
 	RdcPort	   *log_watch;				/* for log record */

@@ -8,6 +8,7 @@
 #include "reduce/rdc_comm.h"
 #include "reduce/rdc_msg.h"
 #include "utils/memutils.h"
+#include "postmaster/syslogger.h"
 
 /* In this module, access gettext() via err_gettext() */
 #undef _
@@ -59,17 +60,23 @@ static RdcPort *MyRdcPort = NULL;
 		} \
 	} while (0)
 
+static const char *err_gettext(const char *str) pg_attribute_format_arg(1);
 static void set_errdata_field(MemoryContextData *cxt, char **ptr, const char *str);
 static char *expand_fmt_string(const char *fmt, ErrorData *edata);
 static const char *useful_strerror(int errnum);
 static const char *get_errno_symbol(int errnum);
 static const char *error_severity(int elevel);
 
+static void write_csvlog(ErrorData *edata);
 static void rdc_send_message_to_server_log(ErrorData *edata);
+static void write_pipe_chunks(char *data, int len, int dest);
 static void rdc_send_message_to_frontend(ErrorData *edata);
 static void write_console(const char *line, int len);
 static void append_with_tabs(StringInfo buf, const char *str);
 static void setup_formatted_log_time(void);
+static bool is_log_level_output(int elevel, int log_min_level);
+static void setup_formatted_start_time(void);
+
 
 /*
  * in_error_recursion_trouble --- are we at risk of infinite error recursion?
@@ -137,6 +144,24 @@ errstart(int elevel, const char *filename, int lineno,
 		if (CritSectionCount > 0)
 			elevel = PANIC;
 
+		/* Check reasons for treating ERROR as FATAL:
+		 *
+		 * 1. we have no handler to pass the error to (implies we are in the
+		 * postmaster or in backend startup).
+		 *
+		 * 2. ExitOnAnyError mode switch is set (initdb uses this).
+		 *
+		 * 3. the error occurred after proc_exit has begun to run.  (It's
+		 * proc_exit's responsibility to see that this doesn't turn into
+		 * infinite recursion!)
+		 */
+		if (elevel == ERROR)
+		{
+			if (PG_exception_stack == NULL ||
+				rdc_exit_inprogress)
+				elevel = FATAL;
+		}
+
 		/*
 		 * If the error level is ERROR or more, errfinish is not going to
 		 * return to caller; therefore, if there is any stacked error already
@@ -149,9 +174,13 @@ errstart(int elevel, const char *filename, int lineno,
 			elevel = Max(elevel, errordata[i].elevel);
 	}
 
-	output_to_server = true;
+	output_to_server = is_log_level_output(elevel, MyReduceOpts->log_min_messages);
 
-	//output_to_client = (elevel >= ERROR);
+	output_to_client = (elevel >= ERROR);
+
+	/* Skip processing effort if non-error message will not be output */
+	if (elevel < ERROR && !output_to_server && !output_to_client)
+		return false;
 
 	/*
 	 * We need to do some actual work.	Make sure that memory context
@@ -219,7 +248,7 @@ errstart(int elevel, const char *filename, int lineno,
 	edata->lineno = lineno;
 	edata->funcname = funcname;
 	/* the default text domain is the backend's */
-	edata->domain = domain ? domain : PG_TEXTDOMAIN("postgres");
+	edata->domain = domain ? domain : PG_TEXTDOMAIN("adb_reduce");
 	/* initialize context_domain the same way (see set_errcontext_domain()) */
 	edata->context_domain = edata->domain;
 	/* Select default errcode based on elevel */
@@ -870,7 +899,7 @@ set_errcontext_domain(const char *domain)
 	CHECK_STACK_DEPTH();
 
 	/* the default text domain is the backend's */
-	edata->context_domain = domain ? domain : PG_TEXTDOMAIN("postgres");
+	edata->context_domain = domain ? domain : PG_TEXTDOMAIN("adb_reduce");
 
 	return 0;					/* return value does not matter */
 }
@@ -1479,8 +1508,8 @@ EmitErrorReport(void)
 		rdc_send_message_to_server_log(edata);
 
 	/* Send to frontend */
-	if (edata->output_to_client)
-		rdc_send_message_to_frontend(edata);
+	//if (edata->output_to_client)
+	//	rdc_send_message_to_frontend(edata);
 
 	MemoryContextSwitchTo(oldcontext);
 	recursion_depth--;
@@ -1766,6 +1795,69 @@ pg_re_throw(void)
 						 __FILE__, __LINE__);
 }
 
+/*
+ * setup formatted_start_time
+ */
+static void
+setup_formatted_start_time(void)
+{
+	pg_time_t	stamp_time = (pg_time_t) MyStartTime;
+
+	/*
+	 * Note: we expect that guc.c will ensure that log_timezone is set up (at
+	 * least with a minimal GMT value) before Log_line_prefix can become
+	 * nonempty or CSV mode can be selected.
+	 */
+	strftime(formatted_start_time, FORMATTED_TS_LEN,
+				"%Y-%m-%d %H:%M:%S %Z",
+				localtime(&stamp_time));
+}
+
+/*
+ * append a CSV'd version of a string to a StringInfo
+ * We use the PostgreSQL defaults for CSV, i.e. quote = escape = '"'
+ * If it's NULL, append nothing.
+ */
+static inline void
+appendCSVLiteral(StringInfo buf, const char *data)
+{
+	const char *p = data;
+	char		c;
+
+	/* avoid confusing an empty string with NULL */
+	if (p == NULL)
+		return;
+
+	appendStringInfoCharMacro(buf, '"');
+	while ((c = *p++) != '\0')
+	{
+		if (c == '"')
+			appendStringInfoCharMacro(buf, '"');
+		appendStringInfoCharMacro(buf, c);
+	}
+	appendStringInfoCharMacro(buf, '"');
+}
+
+/*
+ * Unpack MAKE_SQLSTATE code. Note that this returns a pointer to a
+ * static buffer.
+ */
+char *
+unpack_sql_state(int sql_state)
+{
+	static char buf[12];
+	int			i;
+
+	for (i = 0; i < 5; i++)
+	{
+		buf[i] = PGUNSIXBIT(sql_state);
+		sql_state >>= 6;
+	}
+
+	buf[i] = '\0';
+	return buf;
+}
+
 static void
 rdc_send_message_to_server_log(ErrorData *edata)
 {
@@ -1795,56 +1887,352 @@ rdc_send_message_to_server_log(ErrorData *edata)
 
 	appendStringInfoChar(&buf, '\n');
 
-	if (edata->detail_log)
+	if (MyReduceOpts->Log_error_verbosity >= PGERROR_DEFAULT)
 	{
-		appendStringInfo(&buf, "[%s]", formatted_log_time);
-		appendStringInfoString(&buf, _("DETAIL:  "));
-		append_with_tabs(&buf, edata->detail_log);
-		appendStringInfoChar(&buf, '\n');
+		if (edata->detail_log)
+		{
+			appendStringInfo(&buf, "[%s]", formatted_log_time);
+			appendStringInfoString(&buf, _("DETAIL:  "));
+			append_with_tabs(&buf, edata->detail_log);
+			appendStringInfoChar(&buf, '\n');
+		}
+		else if (edata->detail)
+		{
+			appendStringInfo(&buf, "[%s]", formatted_log_time);
+			appendStringInfoString(&buf, _("DETAIL:  "));
+			append_with_tabs(&buf, edata->detail);
+			appendStringInfoChar(&buf, '\n');
+		}
+		if (edata->hint)
+		{
+			appendStringInfo(&buf, "[%s]", formatted_log_time);
+			appendStringInfoString(&buf, _("HINT:  "));
+			append_with_tabs(&buf, edata->hint);
+			appendStringInfoChar(&buf, '\n');
+		}
+		if (edata->internalquery)
+		{
+			appendStringInfo(&buf, "[%s]", formatted_log_time);
+			appendStringInfoString(&buf, _("QUERY:	"));
+			append_with_tabs(&buf, edata->internalquery);
+			appendStringInfoChar(&buf, '\n');
+		}
+		if (edata->context && !edata->hide_ctx)
+		{
+			appendStringInfo(&buf, "[%s]", formatted_log_time);
+			appendStringInfoString(&buf, _("CONTEXT:  "));
+			append_with_tabs(&buf, edata->context);
+			appendStringInfoChar(&buf, '\n');
+		}
+
+		if (MyReduceOpts->Log_error_verbosity >= PGERROR_VERBOSE)
+		{
+			/* assume no newlines in funcname or filename... */
+			if (edata->funcname && edata->filename)
+			{
+				appendStringInfo(&buf, "[%s]", formatted_log_time);
+				appendStringInfo(&buf, _("LOCATION:  %s, %s:%d\n"),
+								 edata->funcname, edata->filename,
+								 edata->lineno);
+			}
+			else if (edata->filename)
+			{
+				appendStringInfo(&buf, "[%s]", formatted_log_time);
+				appendStringInfo(&buf, _("LOCATION:  %s:%d\n"),
+								 edata->filename, edata->lineno);
+			}
+		}
 	}
-	else if (edata->detail)
+
+	/* Write to stderr, if enabled */
+	if ((MyReduceOpts->Log_destination & LOG_DESTINATION_STDERR))
 	{
-		appendStringInfo(&buf, "[%s]", formatted_log_time);
-		appendStringInfoString(&buf, _("DETAIL:  "));
-		append_with_tabs(&buf, edata->detail);
-		appendStringInfoChar(&buf, '\n');
+		/*
+		 * Use the chunking protocol if we know the syslogger should be
+		 * catching stderr output, and we are not ourselves the syslogger.
+		 * Otherwise, just do a vanilla write to stderr.
+		 */
+		if (MyReduceOpts->redirection_done)
+			write_pipe_chunks(buf.data, buf.len, LOG_DESTINATION_STDERR);
+		else
+			write_console(buf.data, buf.len);
 	}
-	if (edata->hint)
+
+	/* Write to CSV log if enabled */
+	if (MyReduceOpts->Log_destination & LOG_DESTINATION_CSVLOG)
 	{
-		appendStringInfo(&buf, "[%s]", formatted_log_time);
-		appendStringInfoString(&buf, _("HINT:  "));
-		append_with_tabs(&buf, edata->hint);
-		appendStringInfoChar(&buf, '\n');
+		if (MyReduceOpts->redirection_done)
+		{
+			/*
+			 * send CSV data if it's safe to do so (syslogger doesn't need the
+			 * pipe). First get back the space in the message buffer.
+			 */
+			pfree(buf.data);
+			write_csvlog(edata);
+		}
+		else
+		{
+			/*
+			 * syslogger not up (yet), so just dump the message to stderr,
+			 * unless we already did so above.
+			 */
+			if (!(MyReduceOpts->Log_destination & LOG_DESTINATION_STDERR))
+				write_console(buf.data, buf.len);
+			pfree(buf.data);
+		}
 	}
-	if (edata->internalquery)
+	else
 	{
-		appendStringInfo(&buf, "[%s]", formatted_log_time);
-		appendStringInfoString(&buf, _("QUERY:	"));
-		append_with_tabs(&buf, edata->internalquery);
-		appendStringInfoChar(&buf, '\n');
+		pfree(buf.data);
 	}
-	if (edata->context && !edata->hide_ctx)
+}
+
+/*
+ * Send data to the syslogger using the chunked protocol
+ *
+ * Note: when there are multiple backends writing into the syslogger pipe,
+ * it's critical that each write go into the pipe indivisibly, and not
+ * get interleaved with data from other processes.  Fortunately, the POSIX
+ * spec requires that writes to pipes be atomic so long as they are not
+ * more than PIPE_BUF bytes long.  So we divide long messages into chunks
+ * that are no more than that length, and send one chunk per write() call.
+ * The collector process knows how to reassemble the chunks.
+ *
+ * Because of the atomic write requirement, there are only two possible
+ * results from write() here: -1 for failure, or the requested number of
+ * bytes.  There is not really anything we can do about a failure; retry would
+ * probably be an infinite loop, and we can't even report the error usefully.
+ * (There is noplace else we could send it!)  So we might as well just ignore
+ * the result from write().  However, on some platforms you get a compiler
+ * warning from ignoring write()'s result, so do a little dance with casting
+ * rc to void to shut up the compiler.
+ */
+static void
+write_pipe_chunks(char *data, int len, int dest)
+{
+	PipeProtoChunk p;
+	int			fd = fileno(stderr);
+	int			rc;
+
+	Assert(len > 0);
+
+	p.proto.nuls[0] = p.proto.nuls[1] = '\0';
+	p.proto.pid = MyProcPid;
+
+	/* write all but the last chunk */
+	while (len > PIPE_MAX_PAYLOAD)
 	{
-		appendStringInfo(&buf, "[%s]", formatted_log_time);
-		appendStringInfoString(&buf, _("CONTEXT:  "));
-		append_with_tabs(&buf, edata->context);
-		appendStringInfoChar(&buf, '\n');
+		p.proto.is_last = (dest == LOG_DESTINATION_CSVLOG ? 'F' : 'f');
+		p.proto.len = PIPE_MAX_PAYLOAD;
+		memcpy(p.proto.data, data, PIPE_MAX_PAYLOAD);
+		rc = write(fd, &p, PIPE_HEADER_SIZE + PIPE_MAX_PAYLOAD);
+		(void) rc;
+		data += PIPE_MAX_PAYLOAD;
+		len -= PIPE_MAX_PAYLOAD;
 	}
-	/* assume no newlines in funcname or filename... */
-	/*if (edata->funcname && edata->filename)
+
+	/* write the last chunk */
+	p.proto.is_last = (dest == LOG_DESTINATION_CSVLOG ? 'T' : 't');
+	p.proto.len = len;
+	memcpy(p.proto.data, data, len);
+	rc = write(fd, &p, PIPE_HEADER_SIZE + len);
+	(void) rc;
+}
+
+/*
+ * Constructs the error message, depending on the Errordata it gets, in a CSV
+ * format which is described in doc/src/sgml/config.sgml.
+ */
+static void
+write_csvlog(ErrorData *edata)
+{
+	StringInfoData buf;
+	//bool		print_stmt = false;
+
+	/* static counter for line numbers */
+	static long log_line_number = 0;
+
+	/* has counter been reset in current process? */
+	static int	log_my_pid = 0;
+
+	/*
+	 * This is one of the few places where we'd rather not inherit a static
+	 * variable's value from the postmaster.  But since we will, reset it when
+	 * MyProcPid changes.
+	 */
+	if (log_my_pid != MyProcPid)
 	{
-		appendStringInfo(&buf, "[%s]", formatted_log_time);
-		appendStringInfo(&buf, _("LOCATION:  %s, %s:%d\n"),
-						 edata->funcname, edata->filename,
-						 edata->lineno);
+		log_line_number = 0;
+		log_my_pid = MyProcPid;
+		formatted_start_time[0] = '\0';
 	}
-	else if (edata->filename)
+	log_line_number++;
+
+	initStringInfo(&buf);
+
+	/*
+	 * timestamp with milliseconds
+	 *
+	 * Check if the timestamp is already calculated for the syslog message,
+	 * and use it if so.  Otherwise, get the current timestamp.  This is done
+	 * to put same timestamp in both syslog and csvlog messages.
+	 */
+	if (formatted_log_time[0] == '\0')
+		setup_formatted_log_time();
+
+	appendStringInfoString(&buf, formatted_log_time);
+	appendStringInfoChar(&buf, ',');
+
+	/* username */
+	//if (MyProcPort)
+	//	appendCSVLiteral(&buf, MyProcPort->user_name);
+	appendStringInfoChar(&buf, ',');
+
+	/* database name */
+	//if (MyProcPort)
+	//	appendCSVLiteral(&buf, MyProcPort->database_name);
+	appendStringInfoChar(&buf, ',');
+
+	/* Process id  */
+	if (MyProcPid != 0)
+		appendStringInfo(&buf, "%d", MyProcPid);
+	appendStringInfoChar(&buf, ',');
+
+	/* Remote host and port */
+	/*if (MyProcPort && MyProcPort->remote_host)
 	{
-		appendStringInfo(&buf, "[%s]", formatted_log_time);
-		appendStringInfo(&buf, _("LOCATION:  %s:%d\n"),
-						 edata->filename, edata->lineno);
+		appendStringInfoChar(&buf, '"');
+		appendStringInfoString(&buf, MyProcPort->remote_host);
+		if (MyProcPort->remote_port && MyProcPort->remote_port[0] != '\0')
+		{
+			appendStringInfoChar(&buf, ':');
+			appendStringInfoString(&buf, MyProcPort->remote_port);
+		}
+		appendStringInfoChar(&buf, '"');
 	}*/
-	write_console(buf.data, buf.len);
+	appendStringInfoChar(&buf, ',');
+
+	/* session id */
+	appendStringInfo(&buf, "%lx.%x", (long) MyStartTime, MyProcPid);
+	appendStringInfoChar(&buf, ',');
+
+	/* Line number */
+	appendStringInfo(&buf, "%ld", log_line_number);
+	appendStringInfoChar(&buf, ',');
+
+	/* PS display */
+	/*if (MyProcPort)
+	{
+		StringInfoData msgbuf;
+		const char *psdisp;
+		int			displen;
+
+		initStringInfo(&msgbuf);
+
+		psdisp = get_ps_display(&displen);
+		appendBinaryStringInfo(&msgbuf, psdisp, displen);
+		appendCSVLiteral(&buf, msgbuf.data);
+
+		pfree(msgbuf.data);
+	}*/
+	appendStringInfoChar(&buf, ',');
+
+	/* session start timestamp */
+	if (formatted_start_time[0] == '\0')
+		setup_formatted_start_time();
+	appendStringInfoString(&buf, formatted_start_time);
+	appendStringInfoChar(&buf, ',');
+
+	/* Virtual transaction id */
+	/* keep VXID format in sync with lockfuncs.c */
+	/*if (MyProc != NULL && MyProc->backendId != InvalidBackendId)
+		appendStringInfo(&buf, "%d/%u", MyProc->backendId, MyProc->lxid);*/
+	appendStringInfoChar(&buf, ',');
+
+	/* Transaction id */
+	//appendStringInfo(&buf, "%u", GetTopTransactionIdIfAny());
+	appendStringInfoChar(&buf, ',');
+
+	/* Error severity */
+	appendStringInfoString(&buf, _(error_severity(edata->elevel)));
+	appendStringInfoChar(&buf, ',');
+
+	/* SQL state code */
+	appendStringInfoString(&buf, unpack_sql_state(edata->sqlerrcode));
+	appendStringInfoChar(&buf, ',');
+
+	/* errmessage */
+	appendCSVLiteral(&buf, edata->message);
+	appendStringInfoChar(&buf, ',');
+
+	/* errdetail or errdetail_log */
+	if (edata->detail_log)
+		appendCSVLiteral(&buf, edata->detail_log);
+	else
+		appendCSVLiteral(&buf, edata->detail);
+	appendStringInfoChar(&buf, ',');
+
+	/* errhint */
+	appendCSVLiteral(&buf, edata->hint);
+	appendStringInfoChar(&buf, ',');
+
+	/* internal query */
+	appendCSVLiteral(&buf, edata->internalquery);
+	appendStringInfoChar(&buf, ',');
+
+	/* if printed internal query, print internal pos too */
+	if (edata->internalpos > 0 && edata->internalquery != NULL)
+		appendStringInfo(&buf, "%d", edata->internalpos);
+	appendStringInfoChar(&buf, ',');
+
+	/* errcontext */
+	if (!edata->hide_ctx)
+		appendCSVLiteral(&buf, edata->context);
+	appendStringInfoChar(&buf, ',');
+
+	/* user query --- only reported if not disabled by the caller */
+	/*if (is_log_level_output(edata->elevel, log_min_error_statement) &&
+		debug_query_string != NULL &&
+		!edata->hide_stmt)
+		print_stmt = true;
+	if (print_stmt)
+		appendCSVLiteral(&buf, debug_query_string);
+	appendStringInfoChar(&buf, ',');
+	if (print_stmt && edata->cursorpos > 0)
+		appendStringInfo(&buf, "%d", edata->cursorpos);*/
+	appendStringInfoChar(&buf, ',');
+
+	/* file error location */
+	if (MyReduceOpts->Log_error_verbosity >= PGERROR_VERBOSE)
+	{
+		StringInfoData msgbuf;
+
+		initStringInfo(&msgbuf);
+
+		if (edata->funcname && edata->filename)
+			appendStringInfo(&msgbuf, "%s, %s:%d",
+							 edata->funcname, edata->filename,
+							 edata->lineno);
+		else if (edata->filename)
+			appendStringInfo(&msgbuf, "%s:%d",
+							 edata->filename, edata->lineno);
+		appendCSVLiteral(&buf, msgbuf.data);
+		pfree(msgbuf.data);
+	}
+	appendStringInfoChar(&buf, ',');
+
+	/* application name */
+	//if (application_name)
+		appendCSVLiteral(&buf, "adb_reduce");
+
+	appendStringInfoChar(&buf, '\n');
+
+	/* If in the syslogger process, try to write messages direct to file */
+	//if (am_syslogger)
+	//	write_syslogger_file(buf.data, buf.len, LOG_DESTINATION_CSVLOG);
+	//else
+		write_pipe_chunks(buf.data, buf.len, LOG_DESTINATION_CSVLOG);
+
 	pfree(buf.data);
 }
 
@@ -2214,6 +2602,35 @@ write_stderr(const char *fmt,...)
 	}
 #endif
 	va_end(ap);
+}
+
+/*
+ * is_log_level_output -- is elevel logically >= log_min_level?
+ *
+ * We use this for tests that should consider LOG to sort out-of-order,
+ * between ERROR and FATAL.  Generally this is the right thing for testing
+ * whether a message should go to the postmaster log, whereas a simple >=
+ * test is correct for testing whether the message should go to the client.
+ */
+static bool
+is_log_level_output(int elevel, int log_min_level)
+{
+	if (elevel == LOG || elevel == LOG_SERVER_ONLY)
+	{
+		if (log_min_level == LOG || log_min_level <= ERROR)
+			return true;
+	}
+	else if (log_min_level == LOG)
+	{
+		/* elevel != LOG */
+		if (elevel >= FATAL)
+			return true;
+	}
+	/* Neither is LOG */
+	else if (elevel >= log_min_level)
+		return true;
+
+	return false;
 }
 
 /*
