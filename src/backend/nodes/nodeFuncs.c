@@ -3769,6 +3769,69 @@ planstate_tree_walker(PlanState *planstate,
 	return false;
 }
 
+#ifdef ADB
+bool plan_tree_walker(struct Plan *plan, bool (*walker)(), void *context)
+{
+	ListCell *lc;
+	List *list;
+
+	/* initPlan-s */
+	foreach(lc, plan->initPlan)
+	{
+		if((*walker)(lfirst(lc), context))
+			return true;
+	}
+
+	/* lefttree */
+	if (outerPlan(plan) &&
+		(*walker)(outerPlan(plan), context))
+		return true;
+
+	/* righttree */
+	if(innerPlan(plan) &&
+		(*walker)(innerPlan(plan), context))
+		return true;
+
+	/* special child plans */
+	list = NIL;
+	switch(nodeTag(plan))
+	{
+	case T_ModifyTable:
+		list = ((ModifyTable*)plan)->plans;
+		break;
+	case T_Append:
+		list = ((Append*)plan)->appendplans;
+		break;
+	case T_MergeAppend:
+		list = ((MergeAppend*)plan)->mergeplans;
+		break;
+	case T_BitmapAnd:
+		list = ((BitmapAnd*)plan)->bitmapplans;
+		break;
+	case T_BitmapOr:
+		list = ((BitmapOr*)plan)->bitmapplans;
+		break;
+	case T_SubqueryScan:
+		if((*walker)(((SubqueryScan*)plan)->subplan, context))
+			return true;
+		break;
+	case T_CustomScan:
+		list = ((CustomScan*)plan)->custom_plans;
+		break;
+	default:
+		break;
+	}
+
+	foreach(lc, list)
+	{
+		if((*walker)(lfirst(lc), context))
+			return true;
+	}
+
+	return false;
+}
+#endif /* ADB */
+
 /*
  * Walk a list of SubPlans (or initPlans, which also use SubPlan nodes).
  */
