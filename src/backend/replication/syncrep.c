@@ -263,12 +263,11 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 
 #ifdef DEBUG_ADB
 	if (!SHMQueueIsDetached(&(MyProc->syncRepLinks)))
-		adb_ereport(LOG, 
+		adb_ereport(LOG,
 			(errmsg("[ADB] It is impossible. [lsn] %X/%X [prev] %p [next] %p",
 				(uint32) (MyProc->waitLSN >> 32), (uint32) MyProc->waitLSN,
 				MyProc->syncRepLinks.prev, MyProc->syncRepLinks.next)));
 #endif
-
 
 	/*
 	 * WalSender has checked our LSN and has removed us from queue. Clean up
@@ -276,6 +275,7 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 	 * holding SyncRepLock, because any walsenders will ignore us anyway when
 	 * we're not on the queue.
 	 */
+	pg_read_barrier();
 	Assert(SHMQueueIsDetached(&(MyProc->syncRepLinks)));
 	MyProc->syncRepState = SYNC_REP_NOT_WAITING;
 	MyProc->waitLSN = 0;
@@ -324,7 +324,7 @@ SyncRepQueueInsert(int mode)
 		SHMQueueInsertAfter(&(WalSndCtl->SyncRepQueue[mode]), &(MyProc->syncRepLinks));
 
 #ifdef DEBUG_ADB
-	adb_ereport(LOG, 
+	adb_ereport(LOG,
 		(errmsg("[ADB] Insert [lsn] %X/%X [prev] %p [next] %p",
 			(uint32) (MyProc->waitLSN >> 32), (uint32) MyProc->waitLSN,
 			MyProc->syncRepLinks.prev, MyProc->syncRepLinks.next)));
@@ -807,15 +807,17 @@ SyncRepWakeQueue(bool all, int mode)
 									   offsetof(PGPROC, syncRepLinks));
 
 		/*
+		 * Remove thisproc from queue.
+		 */
+		SHMQueueDelete(&(thisproc->syncRepLinks));
+
+		pg_write_barrier();
+
+		/*
 		 * Set state to complete; see SyncRepWaitForLSN() for discussion of
 		 * the various states.
 		 */
 		thisproc->syncRepState = SYNC_REP_WAIT_COMPLETE;
-
-		/*
-		 * Remove thisproc from queue.
-		 */
-		SHMQueueDelete(&(thisproc->syncRepLinks));
 
 #ifdef DEBUG_ADB
 		adb_ereport(LOG,
