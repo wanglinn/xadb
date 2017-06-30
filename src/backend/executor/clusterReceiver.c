@@ -15,6 +15,11 @@
 
 #include <time.h>
 
+#define CLUSTER_MSG_TUPLE_DESC	'T'
+#define CLUSTER_MSG_TUPLE_DATA	'D'
+#define CLUSTER_MSG_INSTRUMENT	'I'
+#define CLUSTER_MSG_PROCESSED	'P'
+
 typedef struct ClusterPlanReceiver
 {
 	DestReceiver pub;
@@ -44,7 +49,7 @@ static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *c
  */
 bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState *ps, struct pg_conn *conn)
 {
-	if(*msg == 'D')
+	if(*msg == CLUSTER_MSG_TUPLE_DATA)
 	{
 		uint32 t_len = offsetof(MinimalTupleData, t_infomask2) - 1 + len;
 		MinimalTuple tup = palloc(t_len);
@@ -53,7 +58,7 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 		memcpy(&tup->t_infomask2, msg + 1, len-1);
 		ExecStoreMinimalTuple(tup, slot, true);
 		return true;
-	}else if(*msg == 'T')
+	}else if(*msg == CLUSTER_MSG_TUPLE_DESC)
 	{
 		TupleDesc desc = slot->tts_tupleDescriptor;
 		StringInfoData buf;
@@ -86,9 +91,19 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 			}
 		}
 		return false;
-	}else if(*msg == 'I' && ps != NULL)
+	}else if(*msg == CLUSTER_MSG_INSTRUMENT)
 	{
-		restore_instrument_message(ps, msg+1, len-1, conn);
+		if(ps != NULL)
+			restore_instrument_message(ps, msg+1, len-1, conn);
+		return false;
+	}else if(*msg == CLUSTER_MSG_PROCESSED)
+	{
+		if(ps != NULL)
+		{
+			uint64 processed;
+			memcpy(&processed, msg+1, sizeof(processed));
+			ps->state->es_processed += processed;
+		}
 		return false;
 	}else
 	{
@@ -217,8 +232,14 @@ bool clusterRecvSetCheckEndMsg(DestReceiver *r, bool check)
 
 void serialize_instrument_message(PlanState *ps, StringInfo buf)
 {
-	appendStringInfoChar(buf, 'I');
+	appendStringInfoChar(buf, CLUSTER_MSG_INSTRUMENT);
 	serialize_instrument_walker(ps, buf);
+}
+
+void serialize_processed_message(StringInfo buf, uint64 processed)
+{
+	appendStringInfoChar(buf, CLUSTER_MSG_PROCESSED);
+	appendBinaryStringInfo(buf, (char*)&processed, sizeof(processed));
 }
 
 void serialize_slot_head_message(StringInfo buf, TupleDesc desc)
@@ -226,7 +247,7 @@ void serialize_slot_head_message(StringInfo buf, TupleDesc desc)
 	int i;
 	AssertArg(buf && desc);
 
-	appendStringInfoChar(buf, 'T');
+	appendStringInfoChar(buf, CLUSTER_MSG_TUPLE_DESC);
 	appendStringInfoChar(buf, desc->tdhasoid);
 	appendBinaryStringInfo(buf, (char*)&(desc->natts), sizeof(desc->natts));
 	for(i=0;i<desc->natts;++i)
@@ -239,7 +260,7 @@ void serialize_slot_message(StringInfo buf, TupleTableSlot *slot)
 	AssertArg(buf && !TupIsNull(slot));
 
 	tup = ExecFetchSlotMinimalTuple(slot);
-	appendStringInfoChar(buf, 'D');
+	appendStringInfoChar(buf, CLUSTER_MSG_TUPLE_DATA);
 	appendBinaryStringInfo(buf, (char*)&(tup->t_infomask2),
 						   tup->t_len - offsetof(MinimalTupleData, t_infomask2));
 }
