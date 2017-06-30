@@ -35,6 +35,7 @@
 
 #define RDC_BUFFER_SIZE		8192
 
+static ssize_t rdc_secure_read(RdcPort *port, void *ptr, size_t len, int flags);
 static int internal_flush_buffer(pgsocket sock, StringInfo buf, bool block);
 static int internal_put_buffer(RdcPort *port, const char *s, size_t len, bool enlarge);
 static int internal_puterror(RdcPort *port, const char *s, size_t len, bool replace);
@@ -903,6 +904,52 @@ rdc_try_flush(RdcPort *port)
 }
 
 /*
+ *	Read data from a secure connection.
+ */
+static ssize_t
+rdc_secure_read(RdcPort *port, void *ptr, size_t len, int flags)
+{
+	ssize_t		n;
+	int			nready;
+	uint32		waitfor;
+
+retry:
+	n = recv(RdcSocket(port), ptr, len, flags);
+	waitfor = WAIT_SOCKET_READABLE;
+
+	/* In blocking mode, wait until the socket is ready */
+	if (n < 0 && !port->noblock && (errno == EWOULDBLOCK || errno == EAGAIN))
+	{
+		PG_TRY();
+		{
+			begin_wait_events();
+			add_wait_events_sock(RdcSocket(port), waitfor);
+			nready = exec_wait_events(-1);
+			if (nready < 0)
+				ereport(ERROR,
+					(errcode(ERRCODE_ADMIN_SHUTDOWN),
+					 errmsg("fail to wait read/write event for socket of [%s %d]",
+					 		RdcTypeStr(port), RdcID(port))));
+			end_wait_events();
+			goto retry;
+		} PG_CATCH();
+		{
+			end_wait_events();
+			PG_RE_THROW();
+		} PG_END_TRY();
+	}
+
+	/*
+	 * Process interrupts that happened while (or before) receiving. Note that
+	 * we signal that we're not blocking, which will prevent some types of
+	 * interrupts from being processed.
+	 */
+	CHECK_FOR_INTERRUPTS();
+
+	return n;
+}
+
+/*
  * rdc_recv - receive data
  *
  * returns 0 if nothing is received in noblocking mode
@@ -913,11 +960,9 @@ int
 rdc_recv(RdcPort *port)
 {
 	StringInfo	buf;
-	pgsocket	sock;
 
 	AssertArg(port);
 	buf = RdcInBuf(port);
-	sock = RdcSocket(port);
 	Assert(RdcSockIsValid(port));
 
 	if (buf->cursor > 0)
@@ -937,7 +982,7 @@ rdc_recv(RdcPort *port)
 	{
 		int 		r;
 
-		r = recv(sock, buf->data + buf->len, buf->maxlen - buf->len, 0);
+		r = rdc_secure_read(port, buf->data + buf->len, buf->maxlen - buf->len, 0);
 
 		if (r < 0)
 		{
@@ -1118,44 +1163,54 @@ rdc_getmessage(RdcPort *port, size_t maxlen)
 	sv_noblock = port->noblock;
 	if (sv_noblock)
 		rdc_set_block(port);
-
-	rdctype = rdc_getbyte(port);
-	if (rdctype == EOF)
+	PG_TRY();
 	{
-		rdc_puterror(port, "unexpected EOF on client connection: %m");
-		return rdctype;
-	}
-
-	if (rdc_getbytes(port, sizeof(len)) == EOF)
-	{
-		rdc_puterror(port, "unexpected EOF within message length word: %m");
-		return EOF;
-	}
-
-	len = rdc_getmsgint(RdcInBuf(port), sizeof(len));
-	if (len < 4 ||
-		(maxlen > 0 && len > maxlen))
-	{
-		rdc_puterror(port, "invalid message length");
-		return EOF;
-	}
-
-	len -= 4;					/* discount length itself */
-	if (len > 0)
-	{
-		if (rdc_getbytes(port, len) == EOF)
+		rdctype = rdc_getbyte(port);
+		if (rdctype == EOF)
 		{
-			rdc_puterror(port, "incomplete message from client");
-			return EOF;
+			rdc_puterror(port, "unexpected EOF on client connection: %m");
+			goto eof_end;
 		}
-	}
 
-	/* set in noblocking mode */
-	if (sv_noblock)
-		rdc_set_noblock(port);
+		if (rdc_getbytes(port, sizeof(len)) == EOF)
+		{
+			rdc_puterror(port, "unexpected EOF within message length word: %m");
+			goto eof_end;
+		}
+
+		len = rdc_getmsgint(RdcInBuf(port), sizeof(len));
+		if (len < 4 ||
+			(maxlen > 0 && len > maxlen))
+		{
+			rdc_puterror(port, "invalid message length");
+			goto eof_end;
+		}
+
+		len -= 4;					/* discount length itself */
+		if (len > 0)
+		{
+			if (rdc_getbytes(port, len) == EOF)
+			{
+				rdc_puterror(port, "incomplete message from client");
+				goto eof_end;
+			}
+		}
+	} PG_CATCH();
+	{
+		/* set in noblocking mode */
+		if (sv_noblock)
+			rdc_set_noblock(port);
+		PG_RE_THROW();
+	} PG_END_TRY();
 
 	/* already parse firstchar and length, just parse other data left */
 	return rdctype;
+
+eof_end:
+	/* set in noblocking mode */
+	if (sv_noblock)
+		rdc_set_noblock(port);
+	return EOF;
 }
 
 /*
@@ -1170,25 +1225,37 @@ rdc_geterror(RdcPort *port)
 	return port->err_buf.data;
 }
 
+/*
+ * rdc_set_block
+ *
+ * Only mark false for RdcPort->noblock,but do
+ * not set block for the socket of RdcPort actually.
+ */
 int
 rdc_set_block(RdcPort *port)
 {
 	if (port == NULL)
 		return 0;
 
-	if (port->noblock == false)
+	/*if (port->noblock == false)
 		return 1;
 
 	if (!pg_set_block(RdcSocket(port)))
 	{
 		rdc_puterror(port, "could set socket to blocking mode: %m");
 		return 0;
-	}
+	}*/
 	port->noblock = false;
 
 	return 1;
 }
 
+/*
+ * rdc_set_noblock
+ *
+ * Set noblock for socket of RdcPort, and mark true
+ * for RdcPort->noblock.
+ */
 int
 rdc_set_noblock(RdcPort *port)
 {
