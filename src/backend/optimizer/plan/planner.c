@@ -195,7 +195,7 @@ planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		 * A Coordinator receiving a query from another Coordinator
 		 * is not allowed to go into PGXC planner.
 		 */
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !CLUSTER_PLAN_OK(cursorOptions, parse))
+		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 			result = pgxc_planner(parse, cursorOptions, boundParams);
 		else
 #endif
@@ -2121,9 +2121,29 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			}
 		}
 
-		if(parse->commandType != CMD_SELECT)
+		if (parse->commandType != CMD_SELECT && !inheritance_update)
 		{
-			break;
+			if (parse->rowMarks == NIL &&
+				parse->withCheckOptions == NIL &&
+				(parse->onConflict == NULL || parse->onConflict->action == ONCONFLICT_NOTHING))
+			{
+				path = (Path *)
+					create_modifytable_path(root, final_rel,
+											parse->commandType,
+											parse->canSetTag,
+											parse->resultRelation,
+											list_make1_int(parse->resultRelation),
+											list_make1(path),
+											list_make1(root),
+											NIL,	/* no check options */
+											parse->returningList ? list_make1(parse->returningList) : NIL,
+											NIL,	/* no row marks */
+											parse->onConflict,
+											SS_assign_special_param(root));
+			}else
+			{
+				break;
+			}
 		}
 
 		if(root->parent_root == NULL)

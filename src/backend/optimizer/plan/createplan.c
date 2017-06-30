@@ -322,7 +322,13 @@ create_plan(PlannerInfo *root, Path *best_path)
 	 * top-level tlist seen at execution time.  However, ModifyTable plan
 	 * nodes don't have a tlist matching the querytree targetlist.
 	 */
+#ifdef ADB
+	if (!IsA(plan, ModifyTable) &&
+		!(IsA(plan, ClusterGather) && IsA(outerPlan(plan), ModifyTable)) &&
+		!(IsA(plan, ClusterMergeGather) && IsA(outerPlan(plan), ModifyTable)))
+#else
 	if (!IsA(plan, ModifyTable))
+#endif /* ADB */
 		apply_tlist_labeling(plan->targetlist, root->processed_tlist);
 
 	/*
@@ -6392,7 +6398,15 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 	subplan = create_plan_recurse(root, path->subpath, flags);
 
 	plan = makeNode(ClusterGather);
-	plan->plan.targetlist = subplan->targetlist;
+	if(IsA(subplan, ModifyTable))
+	{
+		ModifyTable *mt = (ModifyTable*)subplan;
+		if(mt->returningLists)
+			plan->plan.targetlist = linitial(mt->returningLists);
+	}else
+	{
+		plan->plan.targetlist = subplan->targetlist;
+	}
 	outerPlan(plan) = subplan;
 	plan->rnodes = get_remote_nodes(subplan);
 

@@ -1410,6 +1410,12 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp)
 		if (rel_loc_info == NULL)
 			continue;
 
+		/* Get the plan that is supposed to supply source data to this plan */
+		sourceDataPlan = list_nth(mt->plans, relcount);
+
+		if(have_cluster_plan_walker(sourceDataPlan, NULL))
+			continue;
+
 		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
 
 		/*
@@ -1425,9 +1431,6 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp)
 			pgxc_add_returning_list(fstep,
 									list_nth(mt->returningLists, relcount),
 									resultRelationIndex);
-
-		/* Get the plan that is supposed to supply source data to this plan */
-		sourceDataPlan = list_nth(mt->plans, relcount);
 
 		pgxc_build_dml_statement(root, cmdtyp, resultRelationIndex, fstep,
 									sourceDataPlan->targetlist);
