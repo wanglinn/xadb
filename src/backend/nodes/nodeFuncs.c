@@ -3830,6 +3830,24 @@ bool plan_tree_walker(struct Plan *plan, bool (*walker)(), void *context)
 
 	return false;
 }
+
+bool have_cluster_plan_walker(struct Plan *plan, void *notUse)
+{
+	if(plan == NULL)
+		return false;
+	switch(nodeTag(plan))
+	{
+	case T_ClusterScan:
+	case T_ClusterGather:
+	case T_ClusterMergeGather:
+	case T_ClusterGetCopyData:
+		return true;
+	default:
+		break;
+	}
+	return plan_tree_walker(plan, have_cluster_plan_walker, NULL);
+}
+
 #endif /* ADB */
 
 /*
