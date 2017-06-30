@@ -71,12 +71,13 @@ void exec_cluster_plan(const void *splan, int length)
 
 	set_ps_display("<claster query>", false);
 
+	initStringInfo(&buf);
+
 	/* Send a message
 	 * 'H' for copy out, 'W' for copy both */
-	pq_beginmessage(&buf, 'W');
 	pq_sendbyte(&buf, 0);
 	pq_sendint(&buf, 0, 2);
-	pq_endmessage(&buf);
+	pq_putmessage('W', buf.data, buf.len);
 	pq_flush();
 
 	/* run plan */
@@ -84,20 +85,28 @@ void exec_cluster_plan(const void *splan, int length)
 	/* and finish */
 	ExecutorFinish(query_desc);
 
+	if(need_instrument)
+		InstrumentEndLoop_walker(query_desc->planstate, NULL);
+
+	/* send processed message */
+	resetStringInfo(&buf);
+	serialize_processed_message(&buf, query_desc->estate->es_processed);
+	pq_putmessage('d', buf.data, buf.len);
+
 	/* send Instrumentation info */
 	if(need_instrument)
 	{
-		InstrumentEndLoop_walker(query_desc->planstate, NULL);
-		initStringInfo(&buf);
+		resetStringInfo(&buf);
 		serialize_instrument_message(query_desc->planstate, &buf);
 		pq_putmessage('d', buf.data, buf.len);
-		pfree(buf.data);
 	}
 
 	/* and clean up */
 	ExecutorEnd(query_desc);
 	FreeQueryDesc(query_desc);
 	cluster_node_oid = InvalidOid;
+
+	pfree(buf.data);
 
 	/* Send Copy Done message */
 	pq_putemptymessage('c');
