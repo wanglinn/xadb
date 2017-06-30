@@ -659,13 +659,18 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 
 		case T_Gather:
 #ifdef ADB
-		case T_ClusterGather:
-		case T_ClusterMergeGather:
 		case T_ClusterScan:
 		case T_ClusterGetCopyData:
 #endif /* ADB */
 			set_upper_references(root, plan, rtoffset);
 			break;
+
+#ifdef ADB
+		case T_ClusterGather:
+		case T_ClusterMergeGather:
+			set_dummy_tlist_references(plan, rtoffset);
+			break;
+#endif /* ADB */
 
 		case T_Hash:
 		case T_Material:
