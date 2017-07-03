@@ -724,6 +724,10 @@ expression_returns_set_walker(Node *node, void *context)
 		return false;
 	if (IsA(node, XmlExpr))
 		return false;
+#ifdef ADB
+	if (IsA(node, OidVectorLoopExpr))
+		return ((OidVectorLoopExpr*)node)->signalRowMode ? false:true;
+#endif /* ADB */
 
 	return expression_tree_walker(node, expression_returns_set_walker,
 								  context);

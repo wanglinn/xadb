@@ -1005,6 +1005,13 @@ typedef struct RownumExprState
 	ExprState	xprstate;
 	struct PlanState *parent;
 } RownumExprState;
+
+typedef struct OidVectorLoopExprState
+{
+	ExprState	xprstate;
+	int32		curent;
+}OidVectorLoopExprState;
+
 #endif
 
 /*

@@ -551,6 +551,10 @@ NODE_SPECIAL_MEB(ClusterMergeGather)
 	nullsFirst NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
 END_SPECIAL_MEB(ClusterMergeGather)
 
+NODE_SPECIAL_MEB(OidVectorLoopExpr)
+	vector NODE_DATUM(Datum, vector, OIDVECTOROID, false)
+END_SPECIAL_MEB(OidVectorLoopExpr)
+
 /*******************************************************************/
 
 /* ENUM_IF_DEFINED(type_name, macro_name [, ...]) */

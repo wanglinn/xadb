@@ -88,6 +88,7 @@
  *   CoerceToDomainState
  *   DomainConstraintState
  *   RownumExprState
+ *   OidVectorLoopExprState
  *   PlannerInfo
  *   ForeignKeyOptInfo
  *   CustomPath
@@ -1231,6 +1232,13 @@ BEGIN_NODE(LevelExpr)
 	NODE_SCALAR(int,location)
 END_NODE(LevelExpr)
 #endif /* NO_NODE_LevelExpr */
+
+#ifndef NO_NODE_OidVectorLoopExpr
+BEGIN_NODE(OidVectorLoopExpr)
+	NODE_SCALAR(bool,signalRowMode)
+	NODE_DATUM(Datum, vector, OIDVECTOROID, false)
+END_NODE(OidVectorLoopExpr)
+#endif /* NO_NODE_OidVectorLoopExpr */
 
 #endif
 

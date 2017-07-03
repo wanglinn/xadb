@@ -1,6 +1,7 @@
 #include "postgres.h"
 
 #include "access/xlogdefs.h"
+#include "catalog/pg_type.h"
 #include "commands/event_trigger.h"
 #include "lib/stringinfo.h"
 #include "nodes/bitmapset.h"

@@ -184,7 +184,11 @@ static Datum ExecEvalCurrentOfExpr(ExprState *exprstate, ExprContext *econtext,
 static Datum ExecEvalGroupingFuncExpr(GroupingFuncExprState *gstate,
 						 ExprContext *econtext,
 						 bool *isNull, ExprDoneCond *isDone);
-
+#ifdef ADB
+static Datum ExecEvalOidVectorLoopExpr(OidVectorLoopExprState *vstate,
+						ExprContext *econtext,
+						bool *isNull, ExprDoneCond *isDone);
+#endif /* ADB */
 
 /* ----------------------------------------------------------------
  *		ExecEvalExpr routines
@@ -5184,6 +5188,16 @@ ExecInitExpr(Expr *node, PlanState *parent)
 			state = (ExprState *) makeNode(ExprState);
 			state->evalfunc = ExecEvalCurrentOfExpr;
 			break;
+#ifdef ADB
+		case T_OidVectorLoopExpr:
+			{
+				OidVectorLoopExprState *vstate = makeNode(OidVectorLoopExprState);
+				vstate->xprstate.expr = node;
+				vstate->xprstate.evalfunc = (ExprStateEvalFunc) ExecEvalOidVectorLoopExpr;
+				state = (ExprState *) vstate;
+			}
+			break;
+#endif /* ADB */
 		case T_TargetEntry:
 			{
 				TargetEntry *tle = (TargetEntry *) node;
@@ -5669,3 +5683,49 @@ ExecProject(ProjectionInfo *projInfo, ExprDoneCond *isDone)
 	 */
 	return ExecStoreVirtualTuple(slot);
 }
+
+#ifdef ADB
+static Datum ExecEvalOidVectorLoopExpr(OidVectorLoopExprState* vstate,
+									   ExprContext *econtext,
+									   bool *isNull,
+									   ExprDoneCond *isDone)
+{
+	OidVectorLoopExpr *expr = (OidVectorLoopExpr*)(vstate->xprstate.expr);
+	oidvector *vector = (oidvector *) DatumGetPointer(expr->vector);
+	Oid oid;
+	*isNull = false;
+	Assert(vector->dim1 > 0);
+
+	if(expr->signalRowMode)
+	{
+		if(isDone)
+			*isDone = ExprSingleResult;
+		if(vstate->curent >= vector->dim1)
+			vstate->curent = 0;
+		oid = vector->values[vstate->curent];
+		++(vstate->curent);
+	}else
+	{
+		if(isDone == NULL)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					errmsg("set-valued function called in context that cannot accept a set")));
+		}
+		if(vstate->curent >= vector->dim1)
+		{
+			oid = InvalidOid;
+			*isDone = ExprEndResult;
+			vstate->curent = 0;
+		}else
+		{
+			oid = vector->values[vstate->curent];
+			*isDone = ExprMultipleResult;
+			++(vstate->curent);
+		}
+	}
+
+	return ObjectIdGetDatum(oid);
+}
+
+#endif /* ADB */

@@ -185,6 +185,7 @@ BEGIN_ENUM(NodeTag)
 #ifdef ADB
 	ENUM_VALUE(T_RownumExpr)
 	ENUM_VALUE(T_LevelExpr)
+	ENUM_VALUE(T_OidVectorLoopExpr)
 #endif
 	ENUM_VALUE(T_InferenceElem)
 	ENUM_VALUE(T_TargetEntry)
@@ -227,6 +228,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_DomainConstraintState)
 #ifdef ADB
 	ENUM_VALUE(T_RownumExprState)
+	ENUM_VALUE(T_OidVectorLoopExprState)
 #endif
 	ENUM_VALUE(T_PlannerInfo)
 	ENUM_VALUE(T_PlannerGlobal)

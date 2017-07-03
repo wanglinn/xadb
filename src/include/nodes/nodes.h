@@ -203,6 +203,7 @@ typedef enum NodeTag
 #ifdef ADB
 	T_RownumExpr,
 	T_LevelExpr,
+	T_OidVectorLoopExpr,
 #endif
 	T_InferenceElem,
 	T_TargetEntry,
@@ -252,6 +253,7 @@ typedef enum NodeTag
 	T_DomainConstraintState,
 #ifdef ADB
 	T_RownumExprState,
+	T_OidVectorLoopExprState,
 #endif
 
 	/*

@@ -439,6 +439,11 @@ BEGIN_NODE(Const)
 	NODE_SCALAR(int,location)
 END_NODE(Const)
 
+BEGIN_NODE(OidVectorLoopExpr)
+	NODE_SCALAR(bool, signalRowMode)
+	save_datum(buf, OIDVECTOROID, node->vector);
+END_NODE(OidVectorLoopExpr)
+
 BEGIN_NODE(A_Const)
 	NODE_SCALAR(NodeTag, val.type);
 	switch(node->val.type)
@@ -462,11 +467,13 @@ END_NODE(A_Const)
 
 #define NO_NODE_A_Const
 #define NO_NODE_Const
+#define NO_NODE_OidVectorLoopExpr
 #include "nodes/nodes_define.h"
 #include "nodes/struct_define.h"
 #include "nodes/nodes_undef.h"
 #undef NO_NODE_A_Const
 #undef NO_NODE_Const
+#undef NO_NODE_OidVectorLoopExpr
 
 void saveNode(StringInfo buf, const Node *node)
 {
@@ -961,6 +968,11 @@ BEGIN_NODE(Const)
 	NODE_SCALAR(int,location)
 END_NODE(Const)
 
+BEGIN_NODE(OidVectorLoopExpr)
+	NODE_SCALAR(bool, signalRowMode)
+	node->vector = load_datum(buf, OIDVECTOROID);
+END_NODE(OidVectorLoopExpr)
+
 BEGIN_NODE(A_Const)
 	NODE_SCALAR(NodeTag, val.type);
 	switch(node->val.type)
@@ -984,11 +996,13 @@ END_NODE(A_Const)
 
 #define NO_NODE_Const
 #define NO_NODE_A_Const
+#define NO_NODE_OidVectorLoopExpr
 #include "nodes/nodes_define.h"
 #include "nodes/struct_define.h"
 #include "nodes/nodes_undef.h"
 #undef NO_NODE_Const
 #undef NO_NODE_A_Const
+#undef NO_NODE_OidVectorLoopExpr
 
 Node* loadNode(StringInfo buf)
 {
