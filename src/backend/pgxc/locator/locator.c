@@ -78,6 +78,8 @@ static Datum OidStateEvalFunc(GenericExprState *expression,
 												ExprContext *econtext,
 												bool *isNull,
 												ExprDoneCond *isDone);
+static oidvector *makeDatanodeOidVector(List *list);
+static Expr *makeLocatorModuleExpr(RelationLocInfo *loc, Index varno);
 
 Oid		primary_data_node = InvalidOid;
 int		num_preferred_data_nodes = 0;
@@ -1119,80 +1121,20 @@ ExprState *ExecInitRelationExecNode(RelationLocInfo *loc,
 			|| loc->locatorType == LOCATOR_TYPE_MODULO
 			|| loc->locatorType == LOCATOR_TYPE_USER_DEFINED)
 	{
+		GenericExprState *ge;
 		ListCell *lc;
-		Oid typid;
-		int32 typmod;
-		Oid collid;
 		int i;
-		if(loc->locatorType != LOCATOR_TYPE_USER_DEFINED)
-		{
-			get_atttypetypmodcoll(loc->relid, loc->partAttrNum, &typid, &typmod, &collid);
-			expr = (Expr*) makeVar(rel_index, loc->partAttrNum, typid, typmod, collid, 0);
-			if(loc->locatorType == LOCATOR_TYPE_HASH)
-				expr = makeHashExpr(expr);
-			else
-				expr = (Expr*)coerce_to_target_type(NULL, (Node*)expr,
-													typid, INT8OID, -1,
-													COERCION_EXPLICIT,
-													COERCE_IMPLICIT_CAST,
-													-1);
-		}else
-		{
-			List *args = NIL;
-			Oid *argTypes;
-			int narg;
-			get_func_signature(loc->funcid, &argTypes, &narg);
-			if(narg < list_length(loc->funcAttrNums))
-			{
-				Relation rel = RelationIdGetRelation(loc->relid);
-				ereport(ERROR,
-							  (errmsg("too many argument for user hash distrbute table \"%s\"",
-							   RelationGetRelationName(rel))));
-			}
-			i=0;
-			foreach(lc, loc->funcAttrNums)
-			{
-				get_atttypetypmodcoll(loc->relid, lfirst_int(lc), &typid, &typmod, &collid);
-				expr = (Expr*)makeVar(rel_index, lfirst_int(lc), typid, typmod, collid, 0);
-				expr = (Expr*)coerce_to_target_type(NULL,
-													(Node*)expr,
-													typid,
-													argTypes[i],
-													-1,
-													COERCION_EXPLICIT,
-													COERCE_IMPLICIT_CAST,
-													-1);
-				args = lappend(args, expr);
-				++i;
-			}
-			for(;i<narg;++i)
-				args = lappend(args, makeNullConst(argTypes[i], -1, InvalidOid));
 
-			expr = (Expr*) makeFuncExpr(loc->funcid,
-										get_func_rettype(loc->funcid),
-										args,
-										InvalidOid, InvalidOid,
-										COERCE_EXPLICIT_CALL);
-		}
-		Assert(expr);
-		expr = makeModuloExpr(expr, list_length(loc->nodeList));
-		expr = (Expr*)coerce_to_target_type(NULL, (Node*)expr,
-									exprType((Node*)expr),
-									INT4OID,
-									-1,
-									COERCION_EXPLICIT,
-									COERCE_IMPLICIT_CAST,
-									-1);
-		{
-			GenericExprState *ge = makeNode(GenericExprState);
-			int *pint = palloc(sizeof(int) * list_length(loc->nodeList));
-			for(i=0,lc=list_head(loc->nodeList);lc!=NULL;lc=lnext(lc),++i)
-				pint[i] = lfirst_int(lc);
-			ge->xprstate.expr = (Expr*)pint;
-			ge->xprstate.evalfunc = (ExprStateEvalFunc)nthIntEvalFunc;
-			ge->arg = ExecInitExpr(expr, NULL);
-			exprState = (ExprState*)ge;
-		}
+		expr = makeLocatorModuleExpr(loc, rel_index);
+
+		ge = makeNode(GenericExprState);
+		int *pint = palloc(sizeof(int) * list_length(loc->nodeList));
+		for(i=0,lc=list_head(loc->nodeList);lc!=NULL;lc=lnext(lc),++i)
+			pint[i] = lfirst_int(lc);
+		ge->xprstate.expr = (Expr*)pint;
+		ge->xprstate.evalfunc = (ExprStateEvalFunc)nthIntEvalFunc;
+		ge->arg = ExecInitExpr(expr, NULL);
+		exprState = (ExprState*)ge;
 	}else if(loc->locatorType == LOCATOR_TYPE_RROBIN)
 	{
 		ExecNodeStateEvalInfo *info;
@@ -1285,4 +1227,170 @@ static Datum OidStateEvalFunc(GenericExprState *expression, ExprContext *econtex
 		return (Datum)0;
 
 	return ObjectIdGetDatum(oid[DatumGetInt32(datum)]);
+}
+
+/*
+ * Var(s) using OUTER
+ */
+struct Expr *MakeReduceExpr(RelationLocInfo *loc, RelationAccessType relaccess)
+{
+	Expr *expr;
+	oidvector *vector;
+	if(loc == NULL)
+	{
+		Assert(relaccess == RELATION_ACCESS_READ);
+		Assert(OidIsValid(PGXCNodeOid));
+		return (Expr*)makeConst(OIDOID,
+								-1,
+								InvalidOid,
+								sizeof(Oid),
+								ObjectIdGetDatum(PGXCNodeOid),
+								false,
+								true);
+	}
+	Assert(list_length(loc->nodeList) > 0);
+	if(IsRelationReplicated(loc))
+	{
+		if(relaccess == RELATION_ACCESS_READ)
+		{
+			ereport(ERROR, (errmsg("not support replicate table yet")));
+		}else
+		{
+			OidVectorLoopExpr *ovl = makeNode(OidVectorLoopExpr);
+			ovl->signalRowMode = false;
+			vector = makeDatanodeOidVector(loc->nodeList);
+			ovl->vector = PointerGetDatum(vector);
+			expr = (Expr*)ovl;
+		}
+	}else if(IsLocatorNone(loc->locatorType))
+	{
+		ereport(ERROR, (errmsg("not support replicate none table")));
+	}else if(loc->locatorType == LOCATOR_TYPE_HASH
+			|| loc->locatorType == LOCATOR_TYPE_MODULO
+			|| loc->locatorType == LOCATOR_TYPE_USER_DEFINED)
+	{
+		expr = makeLocatorModuleExpr(loc, OUTER_VAR);
+		vector = makeDatanodeOidVector(loc->nodeList);
+		ArrayRef *aref = makeNode(ArrayRef);
+		aref->refarraytype = OIDARRAYOID;
+		aref->refelemtype = OIDOID;
+		aref->reftypmod = -1;
+		aref->refcollid = InvalidOid;
+		aref->refupperindexpr = list_make1(expr);
+		aref->reflowerindexpr = NIL;
+		aref->refexpr = (Expr*)makeConst(OIDARRAYOID,
+										 -1,
+										 InvalidOid,
+										 -1,
+										 PointerGetDatum(vector),
+										 false,
+										 false);
+		aref->refassgnexpr = NULL;
+		expr = &aref->xpr;
+	}else if(loc->locatorType == LOCATOR_TYPE_RROBIN)
+	{
+		OidVectorLoopExpr *ovl = makeNode(OidVectorLoopExpr);
+		ovl->signalRowMode = true;
+		vector = makeDatanodeOidVector(loc->nodeList);
+		ovl->vector = PointerGetDatum(vector);
+		expr = (Expr*)ovl;
+	}else
+	{
+		ereport(ERROR, (errmsg("not support locator type '%c'", loc->locatorType)));
+	}
+
+	return expr;
+}
+
+static oidvector *makeDatanodeOidVector(List *list)
+{
+	oidvector *oids;
+	ListCell *lc;
+	Size i;
+
+	oids = palloc0(offsetof(oidvector, values) + list_length(list) * sizeof(Oid));
+	oids->ndim = 1;
+	oids->dataoffset = 0;
+	oids->elemtype = OIDOID;
+	oids->dim1 = list_length(list);
+	oids->lbound1 = 0;
+	i = 0;
+	foreach(lc, list)
+	{
+		oids->values[i] = PGXCNodeGetNodeOid(lfirst_int(lc), PGXC_NODE_DATANODE);
+		++i;
+	}
+
+	return oids;
+}
+
+static Expr *makeLocatorModuleExpr(RelationLocInfo *loc, Index varno)
+{
+	ListCell *lc;
+	Expr *expr;
+	Oid typid;
+	int32 typmod;
+	Oid collid;
+	int i;
+	if(loc->locatorType != LOCATOR_TYPE_USER_DEFINED)
+	{
+		get_atttypetypmodcoll(loc->relid, loc->partAttrNum, &typid, &typmod, &collid);
+		expr = (Expr*) makeVar(varno, loc->partAttrNum, typid, typmod, collid, 0);
+		if(loc->locatorType == LOCATOR_TYPE_HASH)
+			expr = makeHashExpr(expr);
+		else
+			expr = (Expr*)coerce_to_target_type(NULL, (Node*)expr,
+												typid, INT8OID, -1,
+												COERCION_EXPLICIT,
+												COERCE_IMPLICIT_CAST,
+												-1);
+	}else
+	{
+		List *args = NIL;
+		Oid *argTypes;
+		int narg;
+		get_func_signature(loc->funcid, &argTypes, &narg);
+		if(narg < list_length(loc->funcAttrNums))
+		{
+			Relation rel = RelationIdGetRelation(loc->relid);
+			ereport(ERROR,
+						  (errmsg("too many argument for user hash distrbute table \"%s\"",
+						   RelationGetRelationName(rel))));
+		}
+		i=0;
+		foreach(lc, loc->funcAttrNums)
+		{
+			get_atttypetypmodcoll(loc->relid, lfirst_int(lc), &typid, &typmod, &collid);
+			expr = (Expr*)makeVar(varno, lfirst_int(lc), typid, typmod, collid, 0);
+			expr = (Expr*)coerce_to_target_type(NULL,
+												(Node*)expr,
+												typid,
+												argTypes[i],
+												-1,
+												COERCION_EXPLICIT,
+												COERCE_IMPLICIT_CAST,
+												-1);
+			args = lappend(args, expr);
+			++i;
+		}
+		for(;i<narg;++i)
+			args = lappend(args, makeNullConst(argTypes[i], -1, InvalidOid));
+
+		expr = (Expr*) makeFuncExpr(loc->funcid,
+									get_func_rettype(loc->funcid),
+									args,
+									InvalidOid, InvalidOid,
+									COERCE_EXPLICIT_CALL);
+	}
+	Assert(expr);
+	expr = makeModuloExpr(expr, list_length(loc->nodeList));
+	expr = (Expr*)coerce_to_target_type(NULL, (Node*)expr,
+								exprType((Node*)expr),
+								INT4OID,
+								-1,
+								COERCION_EXPLICIT,
+								COERCE_IMPLICIT_CAST,
+								-1);
+
+	return expr;
 }
