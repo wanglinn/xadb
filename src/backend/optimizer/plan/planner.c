@@ -2109,7 +2109,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			break;
 		}
 
-		have_gather = have_cluster_gather_path((Node*)path, NULL);
+		have_gather = have_cluster_gather_path(path, NULL);
 		if(!have_gather && limit_needed(parse))
 		{
 			if(parse->limitOffset == NULL)
@@ -3791,7 +3791,7 @@ create_grouping_paths(PlannerInfo *root,
 		foreach(lc, input_rel->cluster_pathlist)
 		{
 			Path *path = lfirst(lc);
-			if(have_cluster_gather_path((Node*)path, NULL))
+			if(have_cluster_gather_path(path, NULL))
 				continue;
 			path = (Path*)create_cluster_gather_path(path);
 			/* we use lappend, not use add_path(), add_path possible free old path */

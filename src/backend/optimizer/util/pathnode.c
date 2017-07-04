@@ -3259,23 +3259,23 @@ bool is_cluster_path(Path *path)
 	return false;
 }
 
-extern bool have_cluster_gather_path(Node *node, void *context)
+extern bool have_cluster_gather_path(Path *path, void *context)
 {
 	check_stack_depth();
 
-	if(node == NULL)
+	if(path == NULL)
 	{
 		return false;
-	}else if(IsA(node, ClusterGatherPath)
-		|| IsA(node, ClusterMergeGatherPath))
+	}else if(IsA(path, ClusterGatherPath)
+		|| IsA(path, ClusterMergeGatherPath))
 	{
 		return true;
-	}else if(IsA(node, SubqueryScanPath))
+	}else if(IsA(path, SubqueryScanPath))
 	{
 		return false;
 	}
 
-	return path_tree_walker(node, have_cluster_gather_path, context);
+	return path_tree_walker(path, have_cluster_gather_path, context);
 }
 
 ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
@@ -3318,6 +3318,18 @@ ClusterScanPath *create_cluster_path(Path *sub_path, struct ExecNodes *exec_node
 	path->cluster_path.subpath = sub_path;
 
 	return path;
+}
+
+ClusterReducePath *create_cluster_reduce_path(Path *sub_path, Expr *reduce)
+{
+	ClusterReducePath *crp = makeNode(ClusterReducePath);
+	copy_path_info(&crp->path, sub_path);
+
+	crp->subpath = sub_path;
+	crp->path.pathtype = T_ClusterReduce;
+	crp->reduce = reduce;
+
+	return crp;
 }
 
 static void copy_path_info(Path *dest, const Path *src)
@@ -3448,7 +3460,7 @@ static bool get_path_execute_on_walker(Path *path, GPEOContext *context)
 	if(context->flags & GPEO_IGNORE_ANY_OTHER)
 		return false;
 
-	return path_tree_walker((Node*)path, get_path_execute_on_walker, context);
+	return path_tree_walker(path, get_path_execute_on_walker, context);
 }
 
 List* get_path_execute_on(Path *path, int flags, int *execute_on)

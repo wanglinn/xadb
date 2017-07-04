@@ -150,7 +150,6 @@ extern void CoerceUserDefinedFuncArgs(Oid funcid,
 									  Datum *values,
 									  bool *nulls,
 									  Oid *types);
-struct Expr;
 struct ExprState;
 extern struct ExprState *ExecInitRelationExecNode(RelationLocInfo *loc,
 										   RelationAccessType relaccess,
@@ -158,8 +157,14 @@ extern struct ExprState *ExecInitRelationExecNode(RelationLocInfo *loc,
 extern struct ExprState *ExecInitRelationExecNodeOid(RelationLocInfo *loc,
 										   RelationAccessType relaccess,
 										   Index rel_index);
-extern struct Expr *MakeReduceExpr(RelationLocInfo *loc,
-								   RelationAccessType relaccess);
+extern Expr *MakeReducePathExpr(RelationLocInfo *loc,
+									   RelationAccessType relaccess,
+									   Index rel_index);
+extern Expr *ReducePathExpr2PlanExpr(Expr *expr);
+extern Expr *MakeReduce2CoordinatorExpr(void);
+extern bool IsReduce2Coordinator(Expr *expr);
+extern bool IsReduceExprByValue(Expr *expr);
+extern Index PullReducePathExprAttnos(Expr *expr, Bitmapset **varattnos);
 
 /* Global locator data */
 extern void FreeExecNodes(ExecNodes **exec_nodes);

@@ -670,6 +670,10 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 		case T_ClusterMergeGather:
 			set_dummy_tlist_references(plan, rtoffset);
 			break;
+		case T_ClusterReduce:
+			set_dummy_tlist_references(plan, rtoffset);
+			fix_scan_expr(root, (Node*)((ClusterReduce*)plan)->reduce, 0);
+			break;
 #endif /* ADB */
 
 		case T_Hash:

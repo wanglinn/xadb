@@ -26,6 +26,7 @@
 #include "access/hash.h"
 #include "access/relscan.h"
 #include "access/skey.h"
+#include "access/sysattr.h"
 #include "access/transam.h"
 #include "catalog/namespace.h"
 #include "catalog/indexing.h"
@@ -64,6 +65,19 @@ typedef struct ExecNodeStateEvalInfo
 	ListCell *lc;
 }ExecNodeStateEvalInfo;
 
+typedef struct ReduceParam
+{
+	Param param;
+	Index relid;
+	AttrNumber attno;
+}ReduceParam;
+
+typedef struct PullReducePathExprVarAttnosContext
+{
+	Bitmapset *varattnos;
+	Index relid;
+} PullReducePathExprVarAttnosContext;
+
 static Expr *pgxc_find_distcol_expr(Index varno, AttrNumber attrNum, Node *quals);
 static Datum rrobinStateEvalFunc(ExprState *expression,
 												ExprContext *econtext,
@@ -79,7 +93,11 @@ static Datum OidStateEvalFunc(GenericExprState *expression,
 												bool *isNull,
 												ExprDoneCond *isDone);
 static oidvector *makeDatanodeOidVector(List *list);
-static Expr *makeLocatorModuleExpr(RelationLocInfo *loc, Index varno);
+static Expr *makeLocatorModuleExpr(RelationLocInfo *loc, Index varno, bool using_param);
+static Param *makeReduceParam(Oid type, int paramid, int parammod, Oid collid, Index relid, AttrNumber varno);
+static bool expr_have_param(Node *node, void *none);
+static Node *reduceParam2VarMutator(Node *node, void *none);
+static bool PullReducePathExprAttnosWalker(ReduceParam *rp, PullReducePathExprVarAttnosContext *context);
 
 Oid		primary_data_node = InvalidOid;
 int		num_preferred_data_nodes = 0;
@@ -1125,7 +1143,7 @@ ExprState *ExecInitRelationExecNode(RelationLocInfo *loc,
 		ListCell *lc;
 		int i;
 
-		expr = makeLocatorModuleExpr(loc, rel_index);
+		expr = makeLocatorModuleExpr(loc, rel_index, false);
 
 		ge = makeNode(GenericExprState);
 		int *pint = palloc(sizeof(int) * list_length(loc->nodeList));
@@ -1230,9 +1248,11 @@ static Datum OidStateEvalFunc(GenericExprState *expression, ExprContext *econtex
 }
 
 /*
- * Var(s) using OUTER
+ * Var(s) using Param
  */
-struct Expr *MakeReduceExpr(RelationLocInfo *loc, RelationAccessType relaccess)
+Expr *MakeReducePathExpr(RelationLocInfo *loc,
+								RelationAccessType relaccess,
+								Index rel_index)
 {
 	Expr *expr;
 	oidvector *vector;
@@ -1269,7 +1289,7 @@ struct Expr *MakeReduceExpr(RelationLocInfo *loc, RelationAccessType relaccess)
 			|| loc->locatorType == LOCATOR_TYPE_MODULO
 			|| loc->locatorType == LOCATOR_TYPE_USER_DEFINED)
 	{
-		expr = makeLocatorModuleExpr(loc, OUTER_VAR);
+		expr = makeLocatorModuleExpr(loc, rel_index, true);
 		vector = makeDatanodeOidVector(loc->nodeList);
 		ArrayRef *aref = makeNode(ArrayRef);
 		aref->refarraytype = OIDARRAYOID;
@@ -1302,6 +1322,62 @@ struct Expr *MakeReduceExpr(RelationLocInfo *loc, RelationAccessType relaccess)
 	return expr;
 }
 
+Expr *ReducePathExpr2PlanExpr(Expr *expr)
+{
+	if(expr_have_param((Node*)expr, NULL) == false)
+		return expr;
+	return (Expr*)reduceParam2VarMutator((Node*)expr, NULL);
+}
+
+Expr *MakeReduce2CoordinatorExpr(void)
+{
+	Assert(OidIsValid(PGXCNodeOid));
+	return (Expr*) makeConst(OIDOID,
+							 -1,
+							 InvalidOid,
+							 sizeof(Oid),
+							 ObjectIdGetDatum(PGXCNodeOid),
+							 false,
+							 false);
+}
+
+bool IsReduce2Coordinator(Expr *expr)
+{
+	Const *c;
+	if(!IsA(expr, Const))
+		return false;
+	Assert(OidIsValid(PGXCNodeOid));
+	c = (Const*)expr;
+
+	return c->constisnull == false &&
+		   c->consttype == OIDOID &&
+		   DatumGetObjectId(c->constvalue) == PGXCNodeOid;
+}
+
+bool IsReduceExprByValue(Expr *expr)
+{
+	ArrayRef *ref;
+	if(expr == NULL || !IsA(expr, ArrayRef))
+		return false;
+
+	ref = (ArrayRef*)expr;
+	return ref->refarraytype == OIDARRAYOID &&
+		   ref->refelemtype == OIDOID &&
+		   IsA(ref->refexpr, Const);
+}
+
+Index PullReducePathExprAttnos(Expr *expr, Bitmapset **varattnos)
+{
+	PullReducePathExprVarAttnosContext context;
+
+	context.relid = 0;
+	context.varattnos = *varattnos;
+
+	PullReducePathExprAttnosWalker((ReduceParam*)expr, &context);
+
+	return context.relid;
+}
+
 static oidvector *makeDatanodeOidVector(List *list)
 {
 	oidvector *oids;
@@ -1324,7 +1400,7 @@ static oidvector *makeDatanodeOidVector(List *list)
 	return oids;
 }
 
-static Expr *makeLocatorModuleExpr(RelationLocInfo *loc, Index varno)
+static Expr *makeLocatorModuleExpr(RelationLocInfo *loc, Index varno, bool using_param)
 {
 	ListCell *lc;
 	Expr *expr;
@@ -1335,7 +1411,13 @@ static Expr *makeLocatorModuleExpr(RelationLocInfo *loc, Index varno)
 	if(loc->locatorType != LOCATOR_TYPE_USER_DEFINED)
 	{
 		get_atttypetypmodcoll(loc->relid, loc->partAttrNum, &typid, &typmod, &collid);
-		expr = (Expr*) makeVar(varno, loc->partAttrNum, typid, typmod, collid, 0);
+		if(using_param == 0)
+		{
+			expr = (Expr*) makeReduceParam(typid, 1, typmod, collid, varno, loc->partAttrNum);
+		}else
+		{
+			expr = (Expr*) makeVar(varno, loc->partAttrNum, typid, typmod, collid, 0);
+		}
 		if(loc->locatorType == LOCATOR_TYPE_HASH)
 			expr = makeHashExpr(expr);
 		else
@@ -1361,7 +1443,13 @@ static Expr *makeLocatorModuleExpr(RelationLocInfo *loc, Index varno)
 		foreach(lc, loc->funcAttrNums)
 		{
 			get_atttypetypmodcoll(loc->relid, lfirst_int(lc), &typid, &typmod, &collid);
-			expr = (Expr*)makeVar(varno, lfirst_int(lc), typid, typmod, collid, 0);
+			if(varno == 0)
+			{
+				expr = (Expr*)makeReduceParam(typid, i+1, typmod, collid, varno, lfirst_int(lc));
+			}else
+			{
+				expr = (Expr*)makeVar(varno, lfirst_int(lc), typid, typmod, collid, 0);
+			}
 			expr = (Expr*)coerce_to_target_type(NULL,
 												(Node*)expr,
 												typid,
@@ -1393,4 +1481,66 @@ static Expr *makeLocatorModuleExpr(RelationLocInfo *loc, Index varno)
 								-1);
 
 	return expr;
+}
+
+static Param *makeReduceParam(Oid type, int paramid, int parammod, Oid collid, Index relid, AttrNumber varno)
+{
+	ReduceParam *rp = palloc0(sizeof(ReduceParam));
+	Param *param = &rp->param;
+	NodeSetTag(param, T_Param);
+	param->location = -1;
+	param->paramid = paramid;
+	param->paramtype = type;
+	param->paramcollid = collid;
+	param->paramtypmod = parammod;
+	param->paramkind = PARAM_EXTERN;
+	rp->relid = relid;
+	rp->attno = varno;
+	return param;
+}
+
+static bool PullReducePathExprAttnosWalker(ReduceParam *rp, PullReducePathExprVarAttnosContext *context)
+{
+	if(rp == NULL)
+		return false;
+	if(IsA(rp, Param))
+	{
+		if(context->relid == 0)
+			context->relid = rp->relid;
+		else if(context->relid != rp->relid)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("invalid reduce expression")));
+		context->varattnos = bms_add_member(context->varattnos,
+											rp->attno - FirstLowInvalidHeapAttributeNumber);
+		return false;
+	}
+	return expression_tree_walker((Node*)rp, PullReducePathExprAttnosWalker, context);
+}
+
+static bool expr_have_param(Node *node, void *none)
+{
+	if(node == NULL)
+		return false;
+	if(IsA(node, Param))
+		return true;
+	return expression_tree_walker(node, expr_have_param, NULL);
+}
+
+static Node *reduceParam2VarMutator(Node *node, void *none)
+{
+	if(node == NULL)
+		return NULL;
+	if(IsA(node, Param))
+	{
+		ReduceParam *rp = (ReduceParam*)node;
+		Assert(rp->attno > 0);
+		return (Node*)makeVar(rp->relid,
+							  rp->attno,
+							  rp->param.paramtype,
+							  rp->param.paramtypmod,
+							  rp->param.paramcollid,
+							  0);
+	}
+	return expression_tree_mutator(node, reduceParam2VarMutator, NULL);
 }

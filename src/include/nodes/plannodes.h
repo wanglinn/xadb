@@ -876,6 +876,12 @@ typedef struct ClusterMergeGather
 
 typedef Plan ClusterGetCopyData;
 
+typedef struct ClusterReduce
+{
+	Plan		plan;
+	Expr	   *reduce;			/* reduce expr, result NODE Oid(s) */
+} ClusterReduce;
+
 #endif /* ADB */
 
 /*

@@ -102,6 +102,7 @@ typedef enum NodeTag
 	T_ClusterGather,
 	T_ClusterMergeGather,
 	T_ClusterGetCopyData,
+	T_ClusterReduce,
 #endif
 
 	/*
@@ -153,6 +154,7 @@ typedef enum NodeTag
 	T_ClusterGatherState,
 	T_ClusterMergeGatherState,
 	T_ClusterGetCopyDataState,
+	T_ClusterReduceState,
 #endif
 
 	/*
@@ -301,6 +303,7 @@ typedef enum NodeTag
 	T_ClusterScanPath,
 	T_ClusterGatherPath,
 	T_ClusterMergeGatherPath,
+	T_ClusterReducePath,
 #endif
 	/* these aren't subclasses of Path: */
 	T_EquivalenceClass,

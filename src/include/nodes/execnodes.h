@@ -2133,6 +2133,12 @@ typedef struct ClusterGetCopyDataState
 	StringInfoData	buf;
 }ClusterGetCopyDataState;
 
+typedef struct ClusterReduceState
+{
+	PlanState		ps;
+	ExprState	   *reduceState;
+} ClusterReduceState;
+
 #endif /* ADB */
 
 #endif   /* EXECNODES_H */

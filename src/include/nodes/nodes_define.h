@@ -59,6 +59,7 @@
  *   ClusterGatherState
  *   ClusterMergeGatherState
  *   ClusterGetCopyDataState
+ *   ClusterReduceState
  *   ExprState
  *   GenericExprState
  *   WholeRowVarExprState
@@ -730,6 +731,13 @@ END_NODE(ClusterMergeGather)
 #ifndef NO_NODE_ClusterGetCopyData
 NODE_SAME(ClusterGetCopyData, Plan)
 #endif /* NO_NODE_ClusterGetCopyData */
+
+#ifndef NO_NODE_ClusterReduce
+BEGIN_NODE(ClusterReduce)
+	NODE_BASE2(Plan,plan)
+	NODE_NODE(Expr,reduce)
+END_NODE(ClusterReduce)
+#endif /* NO_NODE_ClusterReduce */
 
 #endif
 
@@ -1765,6 +1773,14 @@ BEGIN_NODE(ClusterMergeGatherPath)
 	NODE_NODE(Path,subpath)
 END_NODE(ClusterMergeGatherPath)
 #endif /* NO_NODE_ClusterMergeGatherPath */
+
+#ifndef NO_NODE_ClusterReducePath
+BEGIN_NODE(ClusterReducePath)
+	NODE_BASE2(Path,path)
+	NODE_NODE(Path,subpath)
+	NODE_NODE(Expr,reduce)
+END_NODE(ClusterReducePath)
+#endif /* NO_NODE_ClusterReducePath */
 
 #endif
 

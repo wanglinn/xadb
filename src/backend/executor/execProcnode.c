@@ -120,6 +120,7 @@
 #include "pgxc/execRemote.h"
 #include "executor/nodeClusterGather.h"
 #include "executor/nodeClusterMergeGather.h"
+#include "executor/nodeClusterReduce.h"
 #include "executor/nodeClusterScan.h"
 #include "executor/nodeGetCopyData.h"
 #endif
@@ -366,6 +367,11 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 			result = (PlanState *) ExecInitClusterGetCopyData((ClusterGetCopyData*)node,
 												estate, eflags);
 			break;
+
+		case T_ClusterReduce:
+			result = (PlanState*) ExecInitClusterReduce((ClusterReduce*)node,
+												estate, eflags);
+			break;
 #endif
 
 		default:
@@ -584,6 +590,10 @@ ExecProcNode(PlanState *node)
 
 		case T_ClusterGetCopyDataState:
 			result = ExecClusterGetCopyData((ClusterGetCopyDataState*) node);
+			break;
+
+		case T_ClusterReduceState:
+			result = ExecClusterReduce((ClusterReduceState *) node);
 			break;
 #endif
 
@@ -853,6 +863,10 @@ ExecEndNode(PlanState *node)
 
 		case T_ClusterGetCopyDataState:
 			ExecEndClusterGetCopyData((ClusterGetCopyDataState*) node);
+			break;
+
+		case T_ClusterReduceState:
+			ExecEndClusterReduce((ClusterReduceState*) node);
 			break;
 #endif
 

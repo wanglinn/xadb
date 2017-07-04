@@ -1884,6 +1884,7 @@ expression_tree_walker(Node *node,
 		case T_CurrentOfExpr:
 #ifdef ADB
 		case T_LevelExpr:
+		case T_OidVectorLoopExpr:
 #endif /* ADB */
 		case T_RangeTblRef:
 		case T_SortGroupClause:
@@ -3051,6 +3052,16 @@ expression_tree_mutator(Node *node,
 				return (Node*)newnode;
 			}
 			break;
+		case T_OidVectorLoopExpr:
+			{
+				OidVectorLoopExpr *v = (OidVectorLoopExpr*)node;
+				OidVectorLoopExpr *newnode;
+
+				FLATCOPY(newnode, v, OidVectorLoopExpr);
+				/* XXX we don't bother with datumCopy; should we? */
+
+				return (Node*)newnode;
+			}
 #endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized node type: %d",
@@ -3845,6 +3856,7 @@ bool have_cluster_plan_walker(struct Plan *plan, void *notUse)
 	case T_ClusterGather:
 	case T_ClusterMergeGather:
 	case T_ClusterGetCopyData:
+	case T_ClusterReduce:
 		return true;
 	default:
 		break;
@@ -3937,53 +3949,50 @@ bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar)
 	return true;
 }
 
-bool path_tree_walker(Node *node, bool (*walker)(), void *context)
+bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
 {
 	check_stack_depth();
-	if(node == NULL)
+	if(path == NULL)
 		return false;
 
-#define CHECK_CHILD_PATH(type, meb)										\
-	if(path_tree_walker((Node*)((type*)node)->meb, walker, context))	\
-		return true
+#define CHECK_LIST_PATH(type, meb)										\
+	do{																	\
+		ListCell *lc;													\
+		foreach(lc, ((type*)path)->meb)									\
+		{																\
+			if((*walker)(lfirst(lc), context))							\
+				return true;											\
+		}																\
+	}while(0)
+
 #define WALK_CHILD_PATH(type, meb)					\
-	if((*walker)(((type*)node)->meb, context))		\
+	if((*walker)(((type*)path)->meb, context))		\
 		return true
 
-	switch(nodeTag(node))
+	switch(nodeTag(path))
 	{
-	case T_List:
-		{
-			ListCell *lc;
-			foreach(lc, (List*)node)
-			{
-				if(path_tree_walker(lfirst(lc), walker, context))
-					return true;
-			}
-		}
-		break;
 	case T_Path:
 	case T_IndexPath:
 		break;
 	case T_BitmapHeapPath:
-		CHECK_CHILD_PATH(BitmapHeapPath,bitmapqual);
+		WALK_CHILD_PATH(BitmapHeapPath,bitmapqual);
 		break;
 	case T_BitmapAndPath:
-		WALK_CHILD_PATH(BitmapAndPath,bitmapquals);
+		CHECK_LIST_PATH(BitmapAndPath,bitmapquals);
 		break;
 	case T_BitmapOrPath:
-		WALK_CHILD_PATH(BitmapOrPath,bitmapquals);
+		CHECK_LIST_PATH(BitmapOrPath,bitmapquals);
 		break;
 	case T_TidPath:
 		break;
 	case T_SubqueryScanPath:
-		CHECK_CHILD_PATH(SubqueryScanPath, subpath);
+		WALK_CHILD_PATH(SubqueryScanPath, subpath);
 		break;
 	case T_ForeignPath:
 		WALK_CHILD_PATH(ForeignPath, fdw_outerpath);
 		break;
 	case T_CustomPath:
-		CHECK_CHILD_PATH(CustomPath, custom_paths);
+		CHECK_LIST_PATH(CustomPath, custom_paths);
 		break;
 	case T_NestPath:
 	case T_MergePath:
@@ -3992,10 +4001,10 @@ bool path_tree_walker(Node *node, bool (*walker)(), void *context)
 		WALK_CHILD_PATH(JoinPath, innerjoinpath);
 		break;
 	case T_AppendPath:
-		CHECK_CHILD_PATH(AppendPath, subpaths);
+		CHECK_LIST_PATH(AppendPath, subpaths);
 		break;
 	case T_MergeAppendPath:
-		CHECK_CHILD_PATH(MergeAppendPath, subpaths);
+		CHECK_LIST_PATH(MergeAppendPath, subpaths);
 		break;
 	case T_ResultPath:
 		break;
@@ -4027,7 +4036,16 @@ bool path_tree_walker(Node *node, bool (*walker)(), void *context)
 		WALK_CHILD_PATH(GroupingSetsPath, subpath);
 		break;
 	case T_MinMaxAggPath:
-		CHECK_CHILD_PATH(MinMaxAggPath, mmaggregates);
+		{
+			ListCell *lc;
+			MinMaxAggInfo *info;
+			foreach(lc, ((MinMaxAggPath*)path)->mmaggregates)
+			{
+				info = lfirst(lc);
+				if((*walker)(info->path, context))
+					return true;
+			}
+		}
 		break;
 	case T_WindowAggPath:
 		WALK_CHILD_PATH(WindowAggPath, subpath);
@@ -4043,7 +4061,7 @@ bool path_tree_walker(Node *node, bool (*walker)(), void *context)
 		WALK_CHILD_PATH(LockRowsPath, subpath);
 		break;
 	case T_ModifyTablePath:
-		CHECK_CHILD_PATH(ModifyTablePath, subpaths);
+		CHECK_LIST_PATH(ModifyTablePath, subpaths);
 		break;
 	case T_LimitPath:
 		WALK_CHILD_PATH(LimitPath, subpath);
@@ -4061,12 +4079,12 @@ bool path_tree_walker(Node *node, bool (*walker)(), void *context)
 	case T_ClusterMergeGatherPath:
 		WALK_CHILD_PATH(ClusterMergeGatherPath, subpath);
 		break;
-	case T_MinMaxAggInfo:
-		WALK_CHILD_PATH(MinMaxAggInfo, path);
+	case T_ClusterReducePath:
+		WALK_CHILD_PATH(ClusterReducePath, subpath);
 		break;
 	default:
-		ereport(ERROR, (errmsg("unrecognized node type: %d",
-			 (int) nodeTag(node))));
+		ereport(ERROR, (errmsg("unrecognized path type: %d",
+			 (int) nodeTag(path))));
 		break;
 	}
 	return false;

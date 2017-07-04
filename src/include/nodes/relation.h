@@ -1568,6 +1568,14 @@ typedef struct ClusterMergeGatherPath
 	Path	   *subpath;
 } ClusterMergeGatherPath;
 
+typedef struct ClusterReducePath
+{
+	Path		path;
+	Path	   *subpath;
+	/* NULL for reduce to coordinator, other result NODE Oid(s) */
+	Expr	   *reduce;
+} ClusterReducePath;
+
 #endif /* ADB */
 
 /*

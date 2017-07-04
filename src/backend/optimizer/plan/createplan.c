@@ -279,10 +279,20 @@ static ModifyTable *make_modifytable(PlannerInfo *root,
 				 List *withCheckOptionLists, List *returningLists,
 				 List *rowMarks, OnConflictExpr *onconflict, int epqParam);
 #ifdef ADB
+typedef struct FindReduceExprContext
+{
+	Expr *reference;
+	Expr *result;
+} FindReduceExprContext;
+
 static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 							ClusterMergeGatherPath *path, int flags);
 static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags);
 static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath *path, int flags);
+static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
+static bool find_cluster_reduce_expr(Path *path, FindReduceExprContext *context);
+static bool is_pathtarget_include_reduce_varattnos(PathTarget *pt, Expr *expr);
+static Expr *get_best_reduce_expr(List *list, PlannerInfo *root);
 #endif /* ADB */
 
 /*
@@ -498,6 +508,11 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 		case T_ClusterScan:
 			plan = (Plan*) create_cluster_scan_plan(root
 						, (ClusterScanPath*) best_path, flags);
+			break;
+		case T_ClusterReduce:
+			plan = create_cluster_reduce_plan(root,
+								(ClusterReducePath*)best_path,
+								flags);
 			break;
 #endif
 		default:
@@ -6477,4 +6492,147 @@ List* get_remote_nodes(Plan *top_plan)
 	return list;
 }
 
+Expr *get_reduce_expr(Path *path, Expr *reference)
+{
+	FindReduceExprContext context;
+	if(reference && IsReduceExprByValue(reference))
+		context.reference = reference;
+	else
+		context.reference = NULL;
+	context.result = NULL;
+
+	if(find_cluster_reduce_expr(path, &context))
+	{
+		Assert(context.result != NULL);
+		return context.result;
+	}
+	return NULL;
+}
+
+static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags)
+{
+	Plan *subplan;
+	Expr *to,*from;
+	ClusterReduce *plan;
+
+	to = path->reduce;
+	while(IsA(path->subpath, ClusterReducePath))
+		path = (ClusterReducePath*)(path->subpath);
+
+	if ((from = get_reduce_expr(&path->path, to))
+		&& equal(from, to))
+	{
+		return create_plan(root, path->subpath);
+	}
+
+	plan = makeNode(ClusterReduce);
+	outerPlan(plan) = subplan = create_plan(root, path->subpath);
+	plan->reduce = ReducePathExpr2PlanExpr(to);
+	copy_generic_path_info((Plan*)plan, (Path*)path);
+	plan->plan.targetlist = subplan->targetlist;
+
+	return (Plan*)plan;
+}
+
+static bool find_cluster_reduce_expr(Path *path, FindReduceExprContext *context)
+{
+	if(path == NULL)
+		return false;
+	if(IsA(path, ClusterReducePath))
+	{
+		context->result = ((ClusterReducePath*)path)->reduce;
+		return true;
+	}else if(IsA(path, NestLoop)
+			 || IsA(path, MergeJoin)
+			 || IsA(path, HashJoin))
+	{
+		FindReduceExprContext jcontext;
+		ListCell *lc;
+		JoinPath *jp = (JoinPath*)path;
+		List *path_list = list_make2(jp->outerjoinpath, jp->innerjoinpath);
+		List *expr_list = NIL;
+		jcontext.reference = context->reference;
+
+		foreach(lc, path_list)
+		{
+			jcontext.result = NULL;
+			if (find_cluster_reduce_expr(lfirst(lc), &jcontext) &&
+				jcontext.result != NULL &&
+				is_pathtarget_include_reduce_varattnos(path->pathtarget, jcontext.result))
+			{
+				if(equal(context->reference, jcontext.result))
+				{
+					list_free(expr_list);
+					context->result = jcontext.result;
+					return true;
+				}
+				if(IsReduceExprByValue(jcontext.result))
+					expr_list = lappend(expr_list, jcontext.result);
+			}
+		}
+
+		/* only on reduce expr */
+		context->result = get_best_reduce_expr(expr_list, NULL);
+		list_free(expr_list);
+		return true;
+	}else if(IsA(path, AppendPath) ||
+			 IsA(path, MergeAppendPath))
+	{
+		/* not support yet */
+		return false;
+	}else if(IsA(path, BitmapOrPath) ||
+			 IsA(path, BitmapAndPath))
+	{
+		/* not support yet */
+		return false;
+	}else if(IsA(path, CustomPath))
+	{
+		/* I don't how to find */
+		return false;
+	}else if(IsA(path, ModifyTablePath))
+	{
+		/* not support yet */
+		return false;
+	}
+
+	return path_tree_walker(path, find_cluster_reduce_expr, context);
+}
+
+static bool is_pathtarget_include_reduce_varattnos(PathTarget *pt, Expr *expr)
+{
+	Bitmapset *reduce_attnos = NULL;
+	Bitmapset *path_attnos = NULL;
+	Index relid = PullReducePathExprAttnos(expr, &reduce_attnos);
+	bool result;
+	pull_varattnos((Node*)(pt->exprs), relid, &path_attnos);
+
+	result = bms_is_subset(reduce_attnos, path_attnos);
+	bms_free(path_attnos);
+	bms_free(reduce_attnos);
+	return result;
+}
+
+static Expr *get_best_reduce_expr(List *list, PlannerInfo *root)
+{
+	ListCell *lc;
+	Expr *expr_best;
+	QualCost cost_best,cost;
+	Assert(list);
+
+	if(list_length(list) == 1)
+		return linitial(list);
+
+	lc = list_head(list);
+	expr_best = lfirst(lc);
+	cost_qual_eval_node(&cost_best, (Node*)expr_best, root);
+	for(lc=lnext(lc);lc!=NULL;lc=lnext(lc))
+	{
+		cost_qual_eval_node(&cost, lfirst(lc), root);
+		if(cost.per_tuple + cost.startup < cost_best.per_tuple + cost_best.startup)
+		{
+			expr_best = lfirst(lc);
+		}
+	}
+	return expr_best;
+}
 #endif /* ADB */

@@ -245,11 +245,12 @@ extern Path *reparameterize_path(PlannerInfo *root, Path *path,
 #define GPEO_IGNORE_ANY_OTHER		(1<<1)
 
 extern bool is_cluster_path(Path *path);
-extern bool have_cluster_gather_path(Node *node, void *context);
+extern bool have_cluster_gather_path(Path *path, void *context);
 extern ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 			, RelOptInfo *rel, Path *sub_path, List *pathkeys);
 extern ClusterGatherPath *create_cluster_gather_path(Path *sub_path);
 extern ClusterScanPath *create_cluster_path(Path *sub_path, struct ExecNodes *exec_node);
+extern ClusterReducePath *create_cluster_reduce_path(Path *sub_path, Expr *reduce);
 
 extern List* get_path_execute_on(Path *path, int flags, int *execute_on);
 

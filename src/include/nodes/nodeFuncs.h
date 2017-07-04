@@ -89,7 +89,8 @@ struct Plan;
 extern bool plan_tree_walker(struct Plan *plan, bool (*walker)(), void *context);
 extern bool have_cluster_plan_walker(struct Plan *plan, void *notUse);
 extern Node *node_copy(Node *node);
-extern bool path_tree_walker(Node *node, bool (*walker)(), void *context);
+struct Path;
+extern bool path_tree_walker(struct Path *path, bool (*walker)(), void *context);
 #endif /* ADB */
 
 #endif   /* NODEFUNCS_H */
