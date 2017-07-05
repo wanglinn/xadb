@@ -525,6 +525,7 @@ typedef struct RelOptInfo
 #ifdef ADB
 	List	   *cluster_pathlist;
 	struct RelationLocInfo *loc_info;	/* when RELOPT_BASEREL */
+	struct Expr *reduce;				/* reduce expression for read */
 #endif /* ADB */
 	List	   *cheapest_parameterized_paths;
 
