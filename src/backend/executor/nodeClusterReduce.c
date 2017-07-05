@@ -81,4 +81,5 @@ TupleTableSlot *ExecClusterReduce(ClusterReduceState *node)
 
 void ExecEndClusterReduce(ClusterReduceState *node)
 {
+	ExecEndNode(outerPlanState(node));
 }
