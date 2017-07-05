@@ -131,6 +131,7 @@ extern Plan *pgxc_create_gating_plan(PlannerInfo *root, Path *path, Plan *plan, 
 extern Node *pgxc_replace_nestloop_params(PlannerInfo *root, Node *expr);
 extern List* get_remote_nodes(Plan *top_plan);
 extern Expr *get_reduce_expr(Path *path, Expr *reference);
+extern bool is_grouping_reduce_expr(PathTarget *target, Expr *expr);
 #endif
 
 #endif   /* PLANMAIN_H */

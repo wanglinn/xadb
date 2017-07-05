@@ -6509,6 +6509,45 @@ Expr *get_reduce_expr(Path *path, Expr *reference)
 	return NULL;
 }
 
+bool is_grouping_reduce_expr(PathTarget *target, Expr *expr)
+{
+	Bitmapset *attnos;
+	Bitmapset *group_attnos;
+	ListCell *lc;
+	Index relid,i;
+	bool result;
+	AssertArg(target && expr && target->sortgrouprefs);
+	if(expr == NULL || IsReduceExprByValue(expr) == false)
+		return false;
+
+	attnos = NULL;
+	relid = PullReducePathExprAttnos(expr, &attnos);
+	Assert(relid > 0 && attnos != NULL);
+	if(bms_num_members(attnos) != 1)
+	{
+		/* for now, we only support distribute by one column yet */
+		bms_free(attnos);
+		return false;
+	}
+
+	i=0;
+	group_attnos = NULL;
+	foreach(lc, target->exprs)
+	{
+		if (target->sortgrouprefs[i] &&
+			IsA(lfirst(lc), Var))
+		{
+			pull_varattnos(lfirst(lc), relid, &group_attnos);
+		}
+		++i;
+	}
+
+	result = bms_is_subset(attnos, group_attnos);
+	bms_free(group_attnos);
+	bms_free(attnos);
+	return result;
+}
+
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags)
 {
 	Plan *subplan;
@@ -6575,6 +6614,17 @@ static bool find_cluster_reduce_expr(Path *path, FindReduceExprContext *context)
 		context->result = get_best_reduce_expr(expr_list, NULL);
 		list_free(expr_list);
 		return true;
+	}else if(IsA(path, GroupPath) ||
+			 IsA(path, AggPath))
+	{
+		Assert(offsetof(GroupPath, subpath) == offsetof(AggPath, subpath));
+		return find_cluster_reduce_expr(((GroupPath*)path)->subpath, context) &&
+			   context->result &&
+			   is_grouping_reduce_expr(path->pathtarget, context->result);
+	}else if(IsA(path, GroupingSetsPath))
+	{
+		/* not support yet */
+		return false;
 	}else if(IsA(path, AppendPath) ||
 			 IsA(path, MergeAppendPath))
 	{
@@ -6593,6 +6643,10 @@ static bool find_cluster_reduce_expr(Path *path, FindReduceExprContext *context)
 	{
 		/* not support yet */
 		return false;
+	}else if(IsA(path, Path))
+	{
+		context->result = path->parent->reduce;
+		return true;
 	}
 
 	return path_tree_walker(path, find_cluster_reduce_expr, context);
