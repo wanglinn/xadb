@@ -6558,7 +6558,7 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 	while(IsA(path->subpath, ClusterReducePath))
 		path = (ClusterReducePath*)(path->subpath);
 
-	if ((from = get_reduce_expr(&path->path, to))
+	if ((from = get_reduce_expr(path->subpath, to))
 		&& equal(from, to))
 	{
 		return create_plan(root, path->subpath);
