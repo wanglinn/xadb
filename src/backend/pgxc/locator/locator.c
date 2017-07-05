@@ -1375,6 +1375,7 @@ Index PullReducePathExprAttnos(Expr *expr, Bitmapset **varattnos)
 
 	PullReducePathExprAttnosWalker((ReduceParam*)expr, &context);
 
+	*varattnos = context.varattnos;
 	return context.relid;
 }
 
@@ -1411,7 +1412,7 @@ static Expr *makeLocatorModuleExpr(RelationLocInfo *loc, Index varno, bool using
 	if(loc->locatorType != LOCATOR_TYPE_USER_DEFINED)
 	{
 		get_atttypetypmodcoll(loc->relid, loc->partAttrNum, &typid, &typmod, &collid);
-		if(using_param == 0)
+		if(using_param)
 		{
 			expr = (Expr*) makeReduceParam(typid, 1, typmod, collid, varno, loc->partAttrNum);
 		}else
@@ -1443,7 +1444,7 @@ static Expr *makeLocatorModuleExpr(RelationLocInfo *loc, Index varno, bool using
 		foreach(lc, loc->funcAttrNums)
 		{
 			get_atttypetypmodcoll(loc->relid, lfirst_int(lc), &typid, &typmod, &collid);
-			if(varno == 0)
+			if(using_param)
 			{
 				expr = (Expr*)makeReduceParam(typid, i+1, typmod, collid, varno, lfirst_int(lc));
 			}else
