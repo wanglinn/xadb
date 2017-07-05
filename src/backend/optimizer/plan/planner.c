@@ -4014,7 +4014,6 @@ create_grouping_paths(PlannerInfo *root,
 		|| input_rel->cluster_pathlist == NIL	/* Nothing to use as input for cluster aggregate. */
 		|| (!parse->hasAggs && parse->groupClause == NIL)
 		|| parse->groupingSets
-		|| root->parent_root != NULL	/* not support distribute for now */
 		|| (agg_costs->hasNonPartial || agg_costs->hasNonSerial))
 	{
 		try_cluster_aggregation = false;
@@ -4119,7 +4118,18 @@ create_grouping_paths(PlannerInfo *root,
 						}
 					}else
 					{
-						Assert(0);
+						path = (Path*)
+							   create_cluster_reduce_path(path,
+														  MakeReduce2CoordinatorExpr(),
+														  grouped_rel);
+						/* now we not have reduce merge path,so we sort again */
+						if(root->group_pathkeys)
+							path = (Path*)
+								   create_sort_path(root,
+													grouped_rel,
+													path,
+													path->pathkeys,
+													-1.0);
 					}
 
 					/* build final path */
@@ -4216,7 +4226,10 @@ create_grouping_paths(PlannerInfo *root,
 					path = (Path*)create_cluster_gather_path(path, grouped_rel);
 				}else
 				{
-					Assert(0);
+					path = (Path*)
+						   create_cluster_reduce_path(path,
+													  MakeReduce2CoordinatorExpr(),
+													  grouped_rel);
 				}
 
 				path = (Path*)

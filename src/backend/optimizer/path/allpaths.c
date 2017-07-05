@@ -1821,35 +1821,21 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 										  pathkeys, required_outer));
 	}
 #ifdef ADB
-	if(subquery->sortClause == NULL
-		&& subquery->hasAggs == false
-		&& subquery->groupClause == NULL
-		&& subquery->groupingSets == NULL
-		&& subquery->havingQual == NULL
-		&& subquery->distinctClause == NULL
-		&& subquery->hasWindowFuncs == false
-		&& subquery->windowClause == NULL
-		&& limit_needed(subquery) == false)
+	foreach(lc, sub_final_rel->cluster_pathlist)
 	{
-		foreach(lc, sub_final_rel->cluster_pathlist)
-		{
-			Path	   *subpath = (Path *) lfirst(lc);
-			List	   *pathkeys;
+		Path	   *subpath = (Path *) lfirst(lc);
+		List	   *pathkeys;
 
-			/* Convert subpath's pathkeys to outer representation */
-			pathkeys = convert_subquery_pathkeys(root,
-												 rel,
-												 subpath->pathkeys,
-								make_tlist_from_pathtarget(subpath->pathtarget));
+		/* Convert subpath's pathkeys to outer representation */
+		pathkeys = convert_subquery_pathkeys(root,
+											 rel,
+											 subpath->pathkeys,
+							make_tlist_from_pathtarget(subpath->pathtarget));
 
-			/* Generate outer path using this subpath */
-			add_cluster_path(rel, (Path *)
-					 create_subqueryscan_path(root, rel, subpath,
-											  pathkeys, required_outer));
-		}
-	}else
-	{
-		/* ADBQ: TODO distribute to master */
+		/* Generate outer path using this subpath */
+		add_cluster_path(rel, (Path *)
+				 create_subqueryscan_path(root, rel, subpath,
+										  pathkeys, required_outer));
 	}
 #endif /* ADB */
 }
