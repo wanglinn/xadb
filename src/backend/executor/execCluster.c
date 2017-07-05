@@ -4,6 +4,7 @@
 
 #include "executor/execdesc.h"
 #include "executor/executor.h"
+#include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
 #include "lib/stringinfo.h"
 #include "libpq/libpq.h"
@@ -37,8 +38,6 @@
 #define REMOTE_KEY_RTE_LIST					0xFFFFFF08
 #define REMOTE_KEY_ES_INSTRUMENT			0xFFFFFF09
 
-static Oid cluster_node_oid = InvalidOid;
-
 static void restore_cluster_plan_info(StringInfo buf);
 static QueryDesc *create_cluster_query_desc(StringInfo buf, DestReceiver *r);
 
@@ -47,17 +46,24 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context);
 static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context);
 static void StartRemotePlan(StringInfo msg, List *rnodes);
 static bool InstrumentEndLoop_walker(PlanState *ps, void *);
+static void ExecClusterErrorHook(void *arg);
 
 void exec_cluster_plan(const void *splan, int length)
 {
 	QueryDesc *query_desc;
 	DestReceiver *receiver;
 	StringInfoData buf;
+	ErrorContextCallback error_context_hook;
 	bool need_instrument;
 
 	buf.data = (char*)splan;
 	buf.cursor = 0;
 	buf.len = buf.maxlen = length;
+
+	error_context_hook.arg = (void*)(Size)PGXCNodeOid;
+	error_context_hook.callback = ExecClusterErrorHook;
+	error_context_hook.previous = error_context_stack;
+	error_context_stack = &error_context_hook;
 
 	restore_cluster_plan_info(&buf);
 	receiver = CreateDestReceiver(DestClusterOut);
@@ -104,7 +110,8 @@ void exec_cluster_plan(const void *splan, int length)
 	/* and clean up */
 	ExecutorEnd(query_desc);
 	FreeQueryDesc(query_desc);
-	cluster_node_oid = InvalidOid;
+	error_context_stack = error_context_hook.previous;
+	PGXCNodeOid = (Oid)(Size)(error_context_hook.arg);
 
 	pfree(buf.data);
 
@@ -134,7 +141,7 @@ static void restore_cluster_plan_info(StringInfo buf)
 	if(ptr == NULL)
 		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)
 			, errmsg("Can not find Node Oid")));
-	memcpy(&cluster_node_oid, ptr, sizeof(cluster_node_oid));
+	memcpy(&PGXCNodeOid, ptr, sizeof(PGXCNodeOid));
 
 	/*ptr = mem_toc_lookup(buf, REMOTE_KEY_TRANSACTION_SNAPSHOT, NULL);
 	if(ptr == NULL)
@@ -449,11 +456,6 @@ static void StartRemotePlan(StringInfo msg, List *rnodes)
 	}PG_END_TRY();
 }
 
-Oid get_cluster_node_oid(void)
-{
-	return cluster_node_oid;
-}
-
 static bool InstrumentEndLoop_walker(PlanState *ps, void *context)
 {
 	if(ps == NULL)
@@ -461,4 +463,9 @@ static bool InstrumentEndLoop_walker(PlanState *ps, void *context)
 	if(ps->instrument)
 		InstrEndLoop(ps->instrument);
 	return planstate_tree_walker(ps, InstrumentEndLoop_walker, NULL);
+}
+
+static void ExecClusterErrorHook(void *arg)
+{
+	PGXCNodeOid = (Oid)(Size)(arg);
 }
