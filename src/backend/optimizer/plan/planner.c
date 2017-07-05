@@ -4061,8 +4061,10 @@ create_grouping_paths(PlannerInfo *root,
 			foreach(lc, input_rel->cluster_pathlist)
 			{
 				Path *path = lfirst(lc);
+				Expr *reduce = get_reduce_expr(path, NULL);
 				bool is_sorted = pathkeys_contained_in(root->group_pathkeys,
 														path->pathkeys);
+				bool only_once;
 
 				if(path == cheapest_cluster_path || is_sorted)
 				{
@@ -4072,14 +4074,16 @@ create_grouping_paths(PlannerInfo *root,
 														path,
 														root->group_pathkeys,
 														-1.0);
+					only_once = reduce &&
+								is_grouping_reduce_expr(target, reduce);
 
 					if (parse->hasAggs)
 						path = (Path*)create_agg_path(root,
 													grouped_rel,
 													path,
-													partial_grouping_target,
+								only_once ? target : partial_grouping_target,
 								parse->groupClause ? AGG_SORTED : AGG_PLAIN,
-													AGGSPLIT_INITIAL_SERIAL,
+								only_once ? AGGSPLIT_SIMPLE : AGGSPLIT_INITIAL_SERIAL,
 													parse->groupClause,
 													NIL,
 													&agg_partial_costs,
@@ -4092,6 +4096,12 @@ create_grouping_paths(PlannerInfo *root,
 													parse->groupClause,
 													NIL,
 													dNumPartialGroups);
+
+					if(only_once)
+					{
+						add_cluster_path(grouped_rel, path);
+						continue;
+					}
 
 					/* build gather path */
 					if(root->parent_root == NULL)
@@ -4152,8 +4162,29 @@ create_grouping_paths(PlannerInfo *root,
 
 		if(can_hash)
 		{
+			Expr *reduce;
+			bool only_once;
 			/* Checked above */
 			Assert(parse->hasAggs || parse->groupClause);
+
+			reduce = get_reduce_expr(cheapest_cluster_path, NULL);
+			only_once = reduce &&
+						is_grouping_reduce_expr(target, reduce);
+
+			if(only_once || grouped_rel->cluster_pathlist == NIL)
+			{
+				add_cluster_path(grouped_rel, (Path*)
+								 create_agg_path(root,
+												 grouped_rel,
+												 cheapest_cluster_path,
+												 target,
+												 AGG_HASHED,
+												 AGGSPLIT_SIMPLE,
+												 parse->groupClause,
+												 NIL,
+												 agg_costs,
+												 dNumGroups));
+			}
 
 			hashaggtablesize =
 				estimate_hashagg_tablesize(cheapest_cluster_path,
@@ -4164,7 +4195,9 @@ create_grouping_paths(PlannerInfo *root,
 			 * Tentatively produce a partial HashAgg Path, depending on if it
 			 * looks as if the hash table will fit in work_mem.
 			 */
-			if (hashaggtablesize < work_mem * 1024L)
+			if (only_once == false &&
+				(hashaggtablesize < work_mem * 1024L ||
+				 grouped_rel->cluster_pathlist == NIL))
 			{
 				Path *path = (Path*)
 							create_agg_path(root,
