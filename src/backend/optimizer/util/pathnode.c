@@ -3295,10 +3295,11 @@ ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 	return path;
 }
 
-ClusterGatherPath *create_cluster_gather_path(Path *sub_path)
+ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel)
 {
 	ClusterGatherPath *path = makeNode(ClusterGatherPath);
 	copy_path_info((Path*)path, sub_path);
+	path->path.parent = rel;
 	path->path.pathtype = T_ClusterGather;
 
 	path->subpath = sub_path;
@@ -3307,10 +3308,11 @@ ClusterGatherPath *create_cluster_gather_path(Path *sub_path)
 	return path;
 }
 
-ClusterScanPath *create_cluster_path(Path *sub_path, struct ExecNodes *exec_node)
+ClusterScanPath *create_cluster_scan_path(Path *sub_path, struct ExecNodes *exec_node, RelOptInfo *rel)
 {
 	ClusterScanPath *path = makeNode(ClusterScanPath);
 	copy_path_info((Path*)path, sub_path);
+	path->cluster_path.path.parent = rel;
 
 	path->cluster_path.path.pathtype = T_ClusterScan;
 
@@ -3320,10 +3322,11 @@ ClusterScanPath *create_cluster_path(Path *sub_path, struct ExecNodes *exec_node
 	return path;
 }
 
-ClusterReducePath *create_cluster_reduce_path(Path *sub_path, Expr *reduce)
+ClusterReducePath *create_cluster_reduce_path(Path *sub_path, Expr *reduce, RelOptInfo *rel)
 {
 	ClusterReducePath *crp = makeNode(ClusterReducePath);
 	copy_path_info(&crp->path, sub_path);
+	crp->path.parent = rel;
 
 	crp->subpath = sub_path;
 	crp->path.pathtype = T_ClusterReduce;
@@ -3334,7 +3337,6 @@ ClusterReducePath *create_cluster_reduce_path(Path *sub_path, Expr *reduce)
 
 static void copy_path_info(Path *dest, const Path *src)
 {
-	dest->parent = src->parent;
 	dest->pathtarget = src->pathtarget;
 
 	dest->param_info = src->param_info;

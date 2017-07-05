@@ -675,7 +675,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 		ClusterScanPath *cscan;
 		cost_div(path, list_length(nodes->nodeList));
-		cscan = create_cluster_path(path, nodes);
+		cscan = create_cluster_scan_path(path, nodes, rel);
 		add_cluster_path(rel, (Path*)cscan);
 	}
 	if (!create_plainrel_rqpath(root, rel, rte, required_outer))

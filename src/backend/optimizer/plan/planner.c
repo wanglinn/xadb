@@ -2156,7 +2156,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 								, final_rel, path, root->sort_pathkeys);
 				}else
 				{
-					path = (Path*)create_cluster_gather_path(path);
+					path = (Path*)create_cluster_gather_path(path, final_rel);
 				}
 			}else if(parse->sortClause
 					&& !pathkeys_contained_in(path->pathkeys, root->sort_pathkeys))
@@ -3793,7 +3793,7 @@ create_grouping_paths(PlannerInfo *root,
 			Path *path = lfirst(lc);
 			if(have_cluster_gather_path(path, NULL))
 				continue;
-			path = (Path*)create_cluster_gather_path(path);
+			path = (Path*)create_cluster_gather_path(path, grouped_rel);
 			/* we use lappend, not use add_path(), add_path possible free old path */
 			input_rel->pathlist = lappend(input_rel->pathlist, path);
 			if(path->total_cost < cheapest_path->total_cost)
@@ -4105,7 +4105,7 @@ create_grouping_paths(PlannerInfo *root,
 																path->pathkeys);
 						}else
 						{
-							path = (Path*)create_cluster_gather_path(path);
+							path = (Path*)create_cluster_gather_path(path, grouped_rel);
 						}
 					}else
 					{
@@ -4180,7 +4180,7 @@ create_grouping_paths(PlannerInfo *root,
 
 				if(root->parent_root == NULL)
 				{
-					path = (Path*)create_cluster_gather_path(path);
+					path = (Path*)create_cluster_gather_path(path, grouped_rel);
 				}else
 				{
 					Assert(0);
