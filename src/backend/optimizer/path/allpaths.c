@@ -1661,6 +1661,9 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	double		tuple_fraction;
 	RelOptInfo *sub_final_rel;
 	ListCell   *lc;
+#ifdef ADB
+	bool need_limit;
+#endif
 
 	/*
 	 * Must copy the Query so that planning doesn't mess up the RTE contents
@@ -1821,6 +1824,7 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 										  pathkeys, required_outer));
 	}
 #ifdef ADB
+	need_limit = limit_needed(subquery);
 	foreach(lc, sub_final_rel->cluster_pathlist)
 	{
 		Path	   *subpath = (Path *) lfirst(lc);
@@ -1831,6 +1835,35 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 											 rel,
 											 subpath->pathkeys,
 							make_tlist_from_pathtarget(subpath->pathtarget));
+
+		if (need_limit || subquery->sortClause)
+		{
+			subpath = (Path*)
+					  create_cluster_reduce_path(subpath,
+												 MakeReduce2CoordinatorExpr(),
+												 sub_final_rel);
+			if(subquery->sortClause)
+			{
+				/* we have no mergereduce, sort it again */
+				subpath = (Path*)
+						  create_sort_path(root,
+										   sub_final_rel,
+										   subpath,
+										   rel->subroot->sort_pathkeys,
+										   -1.0);
+			}
+			if(need_limit)
+			{
+				/* we need limit again */
+				subpath = (Path*)
+						  create_limit_path(root,
+											rel,
+											subpath,
+											subquery->limitOffset,
+											subquery->limitCount,
+											0,0);
+			}
+		}
 
 		/* Generate outer path using this subpath */
 		add_cluster_path(rel, (Path *)
