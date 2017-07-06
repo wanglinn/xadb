@@ -370,19 +370,22 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 		Form_pg_attribute attr;
 		Var *var = (Var*)node;
 		Relation rel = ((Relation*)context)[var->varno-1];
-		if(var->varattno > RelationGetNumberOfAttributes(rel))
+		if(rel != NULL)
 		{
-			ereport(ERROR, (errcode(ERRCODE_INVALID_COLUMN_REFERENCE)
-				,err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel))
-				,errmsg("invalid column index %d", var->varattno)));
-		}
-		attr = RelationGetDescr(rel)->attrs[var->varattno-1];
-		if(var->vartype != attr->atttypid)
-		{
-			ereport(ERROR, (errcode(ERRCODE_INVALID_COLUMN_DEFINITION)
-				,err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel))
-				,err_generic_string(PG_DIAG_COLUMN_NAME, NameStr(attr->attname))
-				,errmsg("column \"%s\" type is diffent", NameStr(attr->attname))));
+			if(var->varattno > RelationGetNumberOfAttributes(rel))
+			{
+				ereport(ERROR, (errcode(ERRCODE_INVALID_COLUMN_REFERENCE)
+					,err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel))
+					,errmsg("invalid column index %d", var->varattno)));
+			}
+			attr = RelationGetDescr(rel)->attrs[var->varattno-1];
+			if(var->vartype != attr->atttypid)
+			{
+				ereport(ERROR, (errcode(ERRCODE_INVALID_COLUMN_DEFINITION)
+					,err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel))
+					,err_generic_string(PG_DIAG_COLUMN_NAME, NameStr(attr->attname))
+					,errmsg("column \"%s\" type is diffent", NameStr(attr->attname))));
+			}
 		}
 	}
 
