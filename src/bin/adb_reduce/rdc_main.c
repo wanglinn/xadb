@@ -941,15 +941,29 @@ BackendIsAlive(void)
 	char		c;
 	ssize_t		rc;
 
-	rc = recv(MyParentSock, &c, 1, MSG_PEEK);
+	/* Always return true if MyParentSock is not set */
+	if (MyParentSock == PGINVALID_SOCKET)
+		return true;
 
+_re_recv:
+	rc = recv(MyParentSock, &c, 1, MSG_PEEK);
 	/* the peer has performed an orderly shutdown */
 	if (rc == 0)
 		return false;
-
+	else
 	/* receive close message request */
 	if (rc > 0 && c == RDC_CLOSE_MSG)
 		return false;
+	else
+	if (rc < 0)
+	{
+		if (errno == EINTR)
+			goto _re_recv;
+
+		if (errno != EAGAIN &&
+			errno != EWOULDBLOCK)
+			return false;
+	}
 
 	return true;
 }
