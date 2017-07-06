@@ -2,47 +2,134 @@
 #include "postgres.h"
 
 #include "executor/executor.h"
+#include "executor/nodeClusterReduce.h"
 #include "nodes/execnodes.h"
 #include "pgxc/pgxc.h"
+#include "reduce/adb_reduce.h"
+#include "miscadmin.h"
 
-#include "executor/nodeClusterReduce.h"
-
-ClusterReduceState *ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
+ClusterReduceState *
+ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 {
-	ClusterReduceState *rs;
+	ClusterReduceState	   *crstate;
+	Plan				   *outerPlan;
 
 	Assert(outerPlan(node) != NULL);
 	Assert(innerPlan(node) == NULL);
-	Assert((eflags & (EXEC_FLAG_MARK|EXEC_FLAG_BACKWARD|EXEC_FLAG_REWIND)) == 0);
 
-	rs = makeNode(ClusterReduceState);
-	rs->ps.plan = (Plan*)node;
-	rs->ps.state = estate;
+	/*
+	 * create state structure
+	 */
+	crstate = makeNode(ClusterReduceState);
+	crstate->ps.plan = (Plan*)node;
+	crstate->ps.state = estate;
 
-	ExecInitResultTupleSlot(estate, &rs->ps);
-	ExecAssignExprContext(estate, &rs->ps);
+	/*
+	 * We must have a tuplestore buffering the subplan output to do backward
+	 * scan or mark/restore.  We also prefer to materialize the subplan output
+	 * if we might be called on to rewind and replay it many times. However,
+	 * if none of these cases apply, we can skip storing the data.
+	 */
+	crstate->eflags = (eflags & (EXEC_FLAG_REWIND |
+								 EXEC_FLAG_BACKWARD |
+								 EXEC_FLAG_MARK));
 
-	ExecAssignResultTypeFromTL(&rs->ps);
+	/*
+	 * Tuplestore's interpretation of the flag bits is subtly different from
+	 * the general executor meaning: it doesn't think BACKWARD necessarily
+	 * means "backwards all the way to start".  If told to support BACKWARD we
+	 * must include REWIND in the tuplestore eflags, else tuplestore_trim
+	 * might throw away too much.
+	 */
+	if (eflags & EXEC_FLAG_BACKWARD)
+		crstate->eflags |= EXEC_FLAG_REWIND;
 
-	rs->reduceState = ExecInitExpr(node->reduce, &rs->ps);
+	crstate->eof_underlying = false;
+	crstate->eof_network = false;
+	crstate->tuplestorestate = NULL;
+	crstate->port = NULL;
 
-	outerPlanState(rs) = ExecInitNode(outerPlan(node), estate, eflags);
+	ExecInitResultTupleSlot(estate, &crstate->ps);
 
-	/*if((flags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
-	{
-		TODO init cluster execute info
-	}*/
+	/*
+	 * initialize child nodes
+	 *
+	 * We shield the child node from the need to support REWIND, BACKWARD, or
+	 * MARK/RESTORE.
+	 */
+	eflags &= ~(EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK);
 
-	return rs;
+	outerPlan = outerPlan(node);
+	outerPlanState(crstate) = ExecInitNode(outerPlan, estate, eflags);
+
+	ExecAssignExprContext(estate, &crstate->ps);
+	ExecAssignResultTypeFromTL(&crstate->ps);
+	crstate->reduceState = ExecInitExpr(node->reduce, &crstate->ps);
+
+	return crstate;
 }
 
-TupleTableSlot *ExecClusterReduce(ClusterReduceState *node)
+TupleTableSlot *
+ExecClusterReduce(ClusterReduceState *node)
 {
-	TupleTableSlot *slot;
-	ExprContext *econtext;
-	ExprDoneCond done;
-	bool isNull;
-	Oid oid;
+	TupleTableSlot	   *slot;
+	ExprContext		   *econtext;
+	EState			   *estate;
+	ScanDirection		dir;
+	bool				forward;
+	Tuplestorestate	   *tuplestorestate;
+	RdcPort			   *port;
+	bool				eof_tuplestore;
+	bool				eof_network;
+	ExprDoneCond		done;
+	bool				isNull;
+	Oid					oid;
+
+	/*
+	 * get state info from node
+	 */
+	estate = node->ps.state;
+	dir = estate->es_direction;
+	forward = ScanDirectionIsForward(dir);
+	tuplestorestate = node->tuplestorestate;
+	port = node->port;
+
+	/*
+	 * If first time through, and we need a tuplestore, initialize it.
+	 */
+	if (tuplestorestate == NULL && node->eflags != 0)
+	{
+		tuplestorestate = tuplestore_begin_heap(true, false, work_mem);
+		tuplestore_set_eflags(tuplestorestate, node->eflags);
+		if (node->eflags & EXEC_FLAG_MARK)
+		{
+			/*
+			 * Allocate a second read pointer to serve as the mark. We know it
+			 * must have index 1, so needn't store that.
+			 */
+			int ptrno	PG_USED_FOR_ASSERTS_ONLY;
+
+			ptrno = tuplestore_alloc_read_pointer(tuplestorestate,
+												  node->eflags);
+			Assert(ptrno == 1);
+		}
+		node->tuplestorestate = tuplestorestate;
+	}
+
+	/*
+	 * First time to connect Reduce subprocess.
+	 */
+	if (port == NULL)
+	{
+		port = rdc_connect("127.0.0.1", AdbRdcListenPort,
+						   TYPE_REDUCE, InvalidPortId,
+						   TYPE_PLAN, node->ps.plan->plan_node_id);
+		if (IsRdcPortError(port))
+			ereport(ERROR,
+					(errmsg("fail to connect Reduce subprocess:%s",
+					 RdcError(port))));
+		node->port = port;
+	}
 
 	slot = ExecProcNode(outerPlanState(node));
 	ExecClearTuple(node->ps.ps_ResultTupleSlot);

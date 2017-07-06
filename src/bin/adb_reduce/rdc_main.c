@@ -250,12 +250,16 @@ ParseReduceOptions(int argc, char * const argvs[])
 				break;
 			case 'W':
 				MyParentSock = atoi(optarg);
-				MyReduceOpts->parent_watch = rdc_newport(MyParentSock, TYPE_BACKEND, InvalidPortId);
+				MyReduceOpts->parent_watch = rdc_newport(MyParentSock,
+														 TYPE_BACKEND, InvalidPortId,
+														 TYPE_REDUCE, MyReduceId);
 				rdc_set_noblock(MyReduceOpts->parent_watch);
 				break;
 			case 'L':
 				MyLogSock = atoi(optarg);
-				MyReduceOpts->log_watch = rdc_newport(MyLogSock, TYPE_BACKEND, InvalidPortId);
+				MyReduceOpts->log_watch = rdc_newport(MyLogSock,
+													  TYPE_BACKEND, InvalidPortId,
+													  TYPE_REDUCE, MyReduceId);
 				break;
 			case 'E':
 				extra_options = pstrdup(optarg);
@@ -474,8 +478,8 @@ ResetReduceGroup(void)
 		RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
 		elog(LOG,
 			 "reset [%s %d] {%s:%s}",
-			 RdcTypeStr(port), RdcID(port),
-			 RdcHostStr(port), RdcPortStr(port));
+			 RdcPeerTypeStr(port), RdcPeerID(port),
+			 RdcPeerHost(port), RdcPeerPort(port));
 		rdc_resetport(port);
 	}
 }
@@ -495,8 +499,8 @@ DropReduceGroup(void)
 		port = MyReduceOpts->rdc_nodes[i];
 		elog(LOG,
 			 "free [%s %d] {%s:%s}",
-			 RdcTypeStr(port), RdcID(port),
-			 RdcHostStr(port), RdcPortStr(port));
+			 RdcPeerTypeStr(port), RdcPeerID(port),
+			 RdcPeerHost(port), RdcPeerPort(port));
 		rdc_freeport(port);
 	}
 	safe_pfree(MyReduceOpts->rdc_nodes);
@@ -641,7 +645,9 @@ ReduceGroupHook(SIGNAL_ARGS)
 								 9005, 9006, 9007, 9008, 9009};
 
 		rdc_num = sizeof(portnum)/sizeof(portnum[0]);
-		port = rdc_newport(PGINVALID_SOCKET, InvalidPortType, InvalidPortId);
+		port = rdc_newport(PGINVALID_SOCKET,
+						   InvalidPortType, InvalidPortId,
+						   TYPE_REDUCE, MyReduceId);
 		MyReduceOpts->parent_watch = port;
 		initStringInfo(&buf);
 		rdc_beginmessage(&buf, RDC_GROUP_RQT);
@@ -741,14 +747,14 @@ IsReduceGroupReady(RdcPort **rdc_nodes, int rdc_num)
 			break;
 		}
 
-		if (RdcStatus(port) == CONNECTION_BAD)
+		if (RdcStatus(port) == RDC_CONNECTION_BAD)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_CONNECTION_FAILURE),
 					 errmsg("fail to connect or to be "
 							"connected [%s %d] {%s:%s}: %s",
-							RdcTypeStr(port), RdcID(port),
-							RdcHostStr(port), RdcPortStr(port),
+							RdcPeerTypeStr(port), RdcPeerID(port),
+							RdcPeerHost(port), RdcPeerPort(port),
 							RdcError(port))));
 		}
 	}
@@ -773,10 +779,10 @@ PrepareConnectGroup(RdcPort **rdc_nodes,  /* IN/OUT */
 		cell = lnext(cell);
 
 		/* skip it which is not my concerned */
-		if (!(RdcType(port) & expected))
+		if (!(RdcPeerType(port) & expected))
 		{
 			/* dump it if it is bad connection */
-			if (RdcStatus(port) == CONNECTION_BAD)
+			if (RdcStatus(port) == RDC_CONNECTION_BAD)
 			{
 				*rdc_list = lremove(port, *rdc_list);
 				rdc_freeport(port);
@@ -784,17 +790,17 @@ PrepareConnectGroup(RdcPort **rdc_nodes,  /* IN/OUT */
 			continue;
 		}
 
-		if (RdcStatus(port) == CONNECTION_BAD)
+		if (RdcStatus(port) == RDC_CONNECTION_BAD)
 			ereport(ERROR,
 					(errmsg("fail to connect or to be "
 							"connected [%s %d] {%s:%s}: %s",
-							RdcTypeStr(port), RdcID(port),
-							RdcHostStr(port), RdcPortStr(port),
+							RdcPeerTypeStr(port), RdcPeerID(port),
+							RdcPeerHost(port), RdcPeerPort(port),
 							RdcError(port))));
 
-		if (RdcStatus(port) == CONNECTION_OK)
+		if (RdcStatus(port) == RDC_CONNECTION_OK)
 		{
-			int port_id = RdcID(port);
+			int port_id = RdcPeerID(port);
 			Assert(ReducePortIsValid(port));
 			if (rdc_nodes[port_id] == NULL)
 			{
@@ -900,6 +906,8 @@ SetupReduceGroup(RdcPort *port)
 						port = rdc_accept(WEEGetSock(wee));
 						if (port == NULL)
 							break;
+						RdcSelfType(port) = TYPE_REDUCE;
+						RdcSelfID(port) = MyReduceId;
 						accept_list = lappend(accept_list, port);
 					}
 				}
@@ -919,8 +927,8 @@ SetupReduceGroup(RdcPort *port)
 						ereport(ERROR,
 								(errcode(ERRCODE_CONNECTION_FAILURE),
 								 errmsg("something wrong with [%s %d] {%s:%s} socket",
-								 RdcTypeStr(port), RdcID(port),
-								 RdcHostStr(port), RdcPortStr(port))));
+								 RdcPeerTypeStr(port), RdcPeerID(port),
+								 RdcPeerHost(port), RdcPeerPort(port))));
 					if (WEECanRead(wee) || WEECanWrite(wee))
 						(void) rdc_connect_poll(port);
 				}
@@ -986,7 +994,7 @@ ReduceAcceptPlanConn(List **accept_list, List **pln_list)
 		 * Only good connection from Plan Node will be accepted.
 		 */
 		if (PlanPortIsValid(port) &&
-			RdcStatus(port) == CONNECTION_OK)
+			RdcStatus(port) == RDC_CONNECTION_OK)
 		{
 			*accept_list = lremove(port, *accept_list);
 			add_new_plan_port(pln_list, port);
@@ -997,7 +1005,7 @@ ReduceAcceptPlanConn(List **accept_list, List **pln_list)
 		 * Bad connection will be done the same.
 		 */
 		if (!IsPortForPlan(port) ||
-			RdcStatus(port) == CONNECTION_BAD)
+			RdcStatus(port) == RDC_CONNECTION_BAD)
 		{
 			*accept_list = lremove(port, *accept_list);
 			rdc_freeport(port);
@@ -1112,6 +1120,8 @@ ReduceLoopRun(void)
 						port = rdc_accept(WEEGetSock(wee));
 						if (port == NULL)
 							break;
+						RdcSelfType(port) = TYPE_REDUCE;
+						RdcSelfID(port) = MyReduceId;
 						accept_list = lappend(accept_list, port);
 					}
 				}

@@ -66,12 +66,12 @@ add_new_plan_port(List **pln_list, RdcPort *new_port)
 	PlanPort	   *plan_port = NULL;
 
 	AssertArg(pln_list && new_port);
-	Assert(PortIdIsValid(RdcID(new_port)));
+	Assert(PortIdIsValid(RdcPeerID(new_port)));
 
-	plan_port = find_plan_port(*pln_list, RdcID(new_port));
+	plan_port = find_plan_port(*pln_list, RdcPeerID(new_port));
 	if (plan_port == NULL)
 	{
-		plan_port = plan_newport(RdcID(new_port));
+		plan_port = plan_newport(RdcPeerID(new_port));
 		plan_port->port = new_port;
 		plan_port->work_num++;
 		*pln_list = lappend(*pln_list, plan_port);

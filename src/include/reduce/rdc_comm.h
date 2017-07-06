@@ -42,23 +42,23 @@ struct ReduceInfo
 
 typedef enum
 {
-	CONNECTION_OK,
-	CONNECTION_BAD,
+	RDC_CONNECTION_OK,
+	RDC_CONNECTION_BAD,
 	/* Non-blocking mode only below here */
 
 	/*
 	 * The existence of these should never be relied upon - they should only
 	 * be used for user feedback or similar purposes.
 	 */
-	CONNECTION_STARTED,					/* Waiting for connection to be made.  */
-	CONNECTION_MADE,					/* Connect OK; waiting to send startup request */
-	CONNECTION_AWAITING_RESPONSE,		/* Send startup request OK; Waiting for a response from the server */
-	CONNECTION_ACCEPT,					/* Accept OK; waiting for a startup request from client */
-	CONNECTION_SENDING_RESPONSE,		/* Receive startup request OK; waiting to send response */
-	CONNECTION_AUTH_OK,					/* No use here. */
-	CONNECTION_ACCEPT_NEED,				/* Internal state: accpet() needed */
-	CONNECTION_NEEDED					/* Internal state: connect() needed */
-} ConnStatusType;
+	RDC_CONNECTION_STARTED,					/* Waiting for connection to be made.  */
+	RDC_CONNECTION_MADE,					/* Connect OK; waiting to send startup request */
+	RDC_CONNECTION_AWAITING_RESPONSE,		/* Send startup request OK; Waiting for a response from the server */
+	RDC_CONNECTION_ACCEPT,					/* Accept OK; waiting for a startup request from client */
+	RDC_CONNECTION_SENDING_RESPONSE,		/* Receive startup request OK; waiting to send response */
+	RDC_CONNECTION_AUTH_OK,					/* No use here. */
+	RDC_CONNECTION_ACCEPT_NEED,				/* Internal state: accpet() needed */
+	RDC_CONNECTION_NEEDED					/* Internal state: connect() needed */
+} RdcConnStatusType;
 
 typedef enum
 {
@@ -75,13 +75,14 @@ typedef int RdcPortId;
 #define PortIdIsEven(id)		((id) % 2 == 0)		/* even number */
 #define PortIdIsOdd(id)			((id) % 2 == 1)		/* odd nnumber */
 
-typedef int RdcPortType;
-
-#define TYPE_UNDEFINE			(1 << 0)	/* used for accept */
-#define TYPE_LOCAL				(1 << 1)	/* used for listen */
-#define TYPE_BACKEND			(1 << 2)	/* used for interprocess communication */
-#define TYPE_PLAN				(1 << 3)	/* used for plan node from backend */
-#define TYPE_REDUCE				(1 << 4)	/* used for connect to or connected from other reduce */
+typedef enum
+{
+	TYPE_UNDEFINE	=	(1 << 0),	/* used for accept */
+	TYPE_LOCAL		=	(1 << 1),	/* used for listen */
+	TYPE_BACKEND	=	(1 << 2),	/* used for interprocess communication */
+	TYPE_PLAN		=	(1 << 3),	/* used for plan node from backend */
+	TYPE_REDUCE		=	(1 << 4),	/* used for connect to or connected from other reduce */
+} RdcPortType;
 
 #define InvalidPortType			TYPE_UNDEFINE
 #define PortTypeIsValid(typ)	((typ) == TYPE_PLAN || \
@@ -89,15 +90,19 @@ typedef int RdcPortType;
 
 struct RdcPort
 {
-	RdcPort	   *next;			/* RdcPort next for Plan node port with the same plan id */
-	pgsocket			sock;			/* File descriptors for one plan node id */
+	RdcPort			   *next;			/* RdcPort next for Plan node port with the same plan id */
+	pgsocket			sock;			/* file descriptors for one plan node id */
 	bool				noblock;		/* is the socket in non-blocking mode? */
-	RdcPortType			type;			/* port type, see above */
-	RdcPortId			from_to;		/* accept from or connect to */
+	RdcPortType			peer_type;		/* the identity type of the peer side */
+	RdcPortId			peer_id;		/* the identity id of the peer side */
+	RdcPortType			self_type;		/* local identity type */
+	RdcPortId			self_id;		/* local identity id */
 	int					version;		/* version num */
 #ifdef DEBUG_ADB
-	char			   *hoststr;
-	char			   *portstr;
+	char			   *peer_host;		/* remote host string */
+	char			   *peer_port;		/* remote port string */
+	char			   *self_host;		/* local host string */
+	char			   *self_port;		/* local port string */
 #endif
 
 	struct sockaddr		laddr;			/* local address */
@@ -105,7 +110,7 @@ struct RdcPort
 
 	struct addrinfo	   *addrs;			/* used for connect */
 	struct addrinfo	   *addr_cur;		/* used for connect */
-	ConnStatusType		status;			/* used to connect with other Reduce */
+	RdcConnStatusType	status;			/* used to connect with other Reduce */
 
 	bool				got_eof;		/* used for communication between Reduce and Reduce, also
 										   between Reduce and Plan node. Set true only if receive
@@ -117,51 +122,62 @@ struct RdcPort
 };
 
 #ifdef DEBUG_ADB
-#define RdcHostStr(port)			(((RdcPort *) (port))->hoststr)
-#define RdcPortStr(port)			(((RdcPort *) (port))->portstr)
+#define RdcPeerHost(port)			(((RdcPort *) (port))->peer_host)
+#define RdcPeerPort(port)			(((RdcPort *) (port))->peer_port)
+#define RdcSelfHost(port)			(((RdcPort *) (port))->self_host)
+#define RdcSelfPort(port)			(((RdcPort *) (port))->self_port)
 #else
-#define RdcHostStr(port)			"null"
-#define RdcPortStr(port)			"null"
+#define RdcPeerHost(port)			"null"
+#define RdcPeerPort(port)			"null"
+#define RdcSelfHost(port)			"null"
+#define RdcSelfPort(port)			"null"
 #endif
 #define RdcNext(port)				(((RdcPort *) (port))->next)
 #define RdcVersion(port)			(((RdcPort *) (port))->version)
 #define RdcSocket(port)				(((RdcPort *) (port))->sock)
-#define RdcType(port)				(((RdcPort *) (port))->type)
-#define RdcID(port)					(((RdcPort *) (port))->from_to)
+#define RdcPeerType(port)			(((RdcPort *) (port))->peer_type)
+#define RdcPeerID(port)				(((RdcPort *) (port))->peer_id)
+#define RdcSelfType(port)			(((RdcPort *) (port))->self_type)
+#define RdcSelfID(port)				(((RdcPort *) (port))->self_id)
 #define RdcStatus(port)				(((RdcPort *) (port))->status)
 #define RdcWaitEvents(port)			(((RdcPort *) (port))->wait_events)
 #define RdcGotEof(port)				(((RdcPort *) (port))->got_eof)
 #define RdcWaitRead(port)			((((RdcPort *) (port))->wait_events) & WAIT_SOCKET_READABLE)
 #define RdcWaitWrite(port)			((((RdcPort *) (port))->wait_events) & WAIT_SOCKET_WRITEABLE)
 #define RdcError(port)				rdc_geterror(port)
-#define RdcTypeStr(port)			rdc_type2string(RdcType(port))
+#define RdcPeerTypeStr(port)		rdc_type2string(RdcPeerType(port))
+#define RdcSelfTypeStr(port)		rdc_type2string(RdcSelfType(port))
 #define RdcInBuf(port)				&(((RdcPort *) (port))->in_buf)
 #define RdcOutBuf(port)				&(((RdcPort *) (port))->out_buf)
 #define RdcErrBuf(port)				&(((RdcPort *) (port))->err_buf)
 
 #define RdcSockIsValid(port)		(RdcSocket(port) != PGINVALID_SOCKET)
-#define IsRdcPortError(port)		(RdcStatus(port) == CONNECTION_BAD || \
+#define IsRdcPortError(port)		(RdcStatus(port) == RDC_CONNECTION_BAD || \
 									 ((RdcPort *) (port))->err_buf.len > 0)
 
-#define IsPortForBackend(port)		(RdcType(port) == TYPE_BACKEND)
-#define IsPortForPlan(port)			(RdcType(port) == TYPE_PLAN)
-#define IsPortForReduce(port)		(RdcType(port) == TYPE_REDUCE)
+#define IsPortForBackend(port)		(RdcPeerType(port) == TYPE_BACKEND)
+#define IsPortForPlan(port)			(RdcPeerType(port) == TYPE_PLAN)
+#define IsPortForReduce(port)		(RdcPeerType(port) == TYPE_REDUCE)
 
 typedef int PlanNodeId;
 #define InvalidPlanNodeId			-1
 #define PlanPortIsValid(port)		(IsPortForPlan(port) && \
-									 PortIdIsValid(RdcID(port)))
+									 PortIdIsValid(RdcPeerID(port)))
 
 typedef int ReduceNodeId;
 #define InvalidReduceId				-1
 #define ReducePortIsValid(port)		(IsPortForReduce(port) && \
-									 PortIdIsValid(RdcID(port)))
+									 PortIdIsValid(RdcPeerID(port)))
 
 extern const char *rdc_type2string(RdcPortType type);
-extern RdcPort *rdc_newport(pgsocket sock, RdcPortType type, RdcPortId id);
+extern RdcPort *rdc_newport(pgsocket sock,
+							RdcPortType peer_type, RdcPortId peer_id,
+							RdcPortType self_type, RdcPortId self_id);
 extern void rdc_freeport(RdcPort *port);
 extern void rdc_resetport(RdcPort *port);
-extern RdcPort *rdc_connect(const char *host, uint32 port, RdcPortType type, RdcPortId id);
+extern RdcPort *rdc_connect(const char *host, uint32 port,
+							RdcPortType peer_type, RdcPortId peer_id,
+							RdcPortType self_type, RdcPortId self_id);
 extern RdcPort *rdc_accept(pgsocket sock);
 extern int rdc_parse_group(RdcPort *port,			/* IN */
 						   int *rdc_num,			/* OUT */

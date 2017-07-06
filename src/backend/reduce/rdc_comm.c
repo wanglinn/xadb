@@ -21,6 +21,9 @@
  *-------------------------------------------------------------------------
  */
 #include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #if defined(RDC_FRONTEND)
 #include "rdc_globals.h"
@@ -34,6 +37,12 @@
 #include "utils/memutils.h"
 
 #define RDC_BUFFER_SIZE		8192
+
+static int RdcWaitTimed(int forRead, int forWrite, RdcPort *port, int timeout);
+static RdcPort *RdcConnectStart(const char *host, uint32 port,
+								RdcPortType peer_type, RdcPortId peer_id,
+								RdcPortType self_type, RdcPortId self_id);
+static int RdcConnectComplete(RdcPort *port);
 
 static ssize_t rdc_secure_read(RdcPort *port, void *ptr, size_t len, int flags);
 static int internal_flush_buffer(pgsocket sock, StringInfo buf, bool block);
@@ -70,7 +79,9 @@ rdc_type2string(RdcPortType type)
 }
 
 RdcPort *
-rdc_newport(pgsocket sock, RdcPortType type, RdcPortId id)
+rdc_newport(pgsocket sock,
+			RdcPortType peer_type, RdcPortId peer_id,
+			RdcPortType self_type, RdcPortId self_id)
 {
 	RdcPort		   *rdc_port = NULL;
 
@@ -78,14 +89,18 @@ rdc_newport(pgsocket sock, RdcPortType type, RdcPortId id)
 	rdc_port->next = NULL;
 	rdc_port->sock = sock;
 	rdc_port->noblock = false;
-	rdc_port->type = type;
-	rdc_port->from_to = id;
+	rdc_port->peer_type = peer_type;
+	rdc_port->peer_id = peer_id;
+	rdc_port->self_type = self_type;
+	rdc_port->self_id = self_id;
 	rdc_port->version = 0;
 	rdc_port->wait_events = WAIT_NONE;
 	rdc_port->got_eof = false;
 #ifdef DEBUG_ADB
-	rdc_port->hoststr = NULL;
-	rdc_port->portstr = NULL;
+	rdc_port->peer_host = NULL;
+	rdc_port->peer_port = NULL;
+	rdc_port->self_host = NULL;
+	rdc_port->self_port = NULL;
 #endif
 	rdc_port->addrs = NULL;
 	rdc_port->addr_cur = NULL;
@@ -116,8 +131,10 @@ rdc_freeport(RdcPort *port)
 		pfree(port->out_buf.data);
 		pfree(port->err_buf.data);
 #ifdef DEBUG_ADB
-		safe_pfree(RdcHostStr(port));
-		safe_pfree(RdcPortStr(port));
+		safe_pfree(RdcPeerHost(port));
+		safe_pfree(RdcPeerPort(port));
+		safe_pfree(RdcSelfHost(port));
+		safe_pfree(RdcSelfPort(port));
 #endif
 		pfree(port);
 		port = next;
@@ -136,23 +153,55 @@ rdc_resetport(RdcPort *port)
 	}
 }
 
-RdcPort *
-rdc_connect(const char *host, uint32 port, RdcPortType type, RdcPortId id)
+static int
+RdcWaitTimed(int forRead, int forWrite, RdcPort *port, int timeout)
+{
+	int		nready;
+
+	PG_TRY();
+	{
+		begin_wait_events();
+		if (forRead)
+			add_wait_events_sock(RdcSocket(port), WAIT_SOCKET_READABLE);
+		if (forWrite)
+			add_wait_events_sock(RdcSocket(port), WAIT_SOCKET_WRITEABLE);
+		nready = exec_wait_events(timeout);
+		if (nready < 0)
+		{
+			rdc_puterror(port,
+						 "fail to wait read/write event for socket of [%s %d]",
+						 RdcPeerTypeStr(port), RdcPeerID(port));
+			end_wait_events();
+			return EOF;
+		}
+		end_wait_events();
+		return 0;
+	} PG_CATCH();
+	{
+		end_wait_events();
+		PG_RE_THROW();
+	} PG_END_TRY();
+}
+
+static RdcPort *
+RdcConnectStart(const char *host, uint32 port,
+				RdcPortType peer_type, RdcPortId peer_id,
+				RdcPortType self_type, RdcPortId self_id)
 {
 	RdcPort			   *rdc_port = NULL;
-	struct addrinfo	   *addr = NULL;
 	int					ret;
 	struct addrinfo		hint;
-	char				portstr[MAXPGPATH];
-	socklen_t			addrlen;
+	char				portstr[NI_MAXSERV];
 
-	rdc_port = rdc_newport(PGINVALID_SOCKET, type, id);
+	rdc_port = rdc_newport(PGINVALID_SOCKET,
+						   peer_type, peer_id,
+						   self_type, self_id);
 
 	snprintf(portstr, sizeof(portstr), "%u", port);
 
 	MemSet(&hint, 0, sizeof(hint));
 	hint.ai_socktype = SOCK_STREAM;
-	hint.ai_family = AF_UNSPEC;
+	hint.ai_family = AF_INET;
 	hint.ai_flags = AI_PASSIVE;
 
 	/* Use getaddrinfo() to resolve the address */
@@ -167,104 +216,72 @@ rdc_connect(const char *host, uint32 port, RdcPortType type, RdcPortId id)
 					 host, port, gai_strerror(ret));
 		return rdc_port;
 	}
+	rdc_port->addr_cur = rdc_port->addrs;
+	RdcStatus(rdc_port) = RDC_CONNECTION_NEEDED;
+#ifdef DEBUG_ADB
+	RdcPeerHost(rdc_port) = pstrdup(host);
+	RdcPeerPort(rdc_port) = pstrdup(portstr);
+#endif
 
-	for (addr = rdc_port->addrs; addr != NULL; addr = addr->ai_next)
+	(void) rdc_connect_poll(rdc_port);
+
+	return rdc_port;
+}
+
+static int
+RdcConnectComplete(RdcPort *port)
+{
+	RdcPollingStatusType	flag = RDC_POLLING_WRITING;
+	int						finish_time = -1;
+
+	for (;;)
 	{
-		/* skip not INET address */
-		if (!IS_AF_INET(addr->ai_family))
-			continue;
-
-		/* create a socket */
-		RdcSocket(rdc_port) = socket(addr->ai_family, SOCK_STREAM, 0);
-		if (RdcSocket(rdc_port) == PGINVALID_SOCKET)
+		switch (flag)
 		{
-			if (addr->ai_next)
-				continue;
-			rdc_puterror(rdc_port,
-						 "fail to create a socket for %s:%u: %m",
-						 host, port);
-			return rdc_port;
+			case RDC_POLLING_OK:
+				return 1;		/* success! */
+
+			case RDC_POLLING_READING:
+				if (RdcWaitTimed(1, 0, port, finish_time))
+				{
+					RdcStatus(port) = RDC_CONNECTION_BAD;
+					return 0;
+				}
+				break;
+
+			case RDC_POLLING_WRITING:
+				if (RdcWaitTimed(0, 1, port, finish_time))
+				{
+					RdcStatus(port) = RDC_CONNECTION_BAD;
+					return 0;
+				}
+				break;
+
+			default:
+				/* Just in case we failed to set it in rdc_connect_poll */
+				RdcStatus(port) = RDC_CONNECTION_BAD;
+				return 0;
 		}
 
-		/* set socket block */
-		rdc_set_block(rdc_port);
-
-reconnect:
-		/* try to connect */
-		ret = connect(RdcSocket(rdc_port), addr->ai_addr, addr->ai_addrlen);
-		if (ret < 0)
-		{
-			CHECK_FOR_INTERRUPTS();
-			if (errno == EINTR)
-				goto reconnect;
-			closesocket(RdcSocket(rdc_port));
-			RdcSocket(rdc_port) = PGINVALID_SOCKET;
-
-			if (addr->ai_next)
-				continue;
-
-			rdc_puterror(rdc_port,
-						 "fail to connect %s:%u: %m",
-						 host, port);
-			return rdc_port;
-		}
-
-		/* connect OK. send startup request */
-		if (rdc_send_startup_rqt(rdc_port, type, id))
-		{
-			CHECK_FOR_INTERRUPTS();
-			closesocket(RdcSocket(rdc_port));
-			RdcSocket(rdc_port) = PGINVALID_SOCKET;
-
-			if (addr->ai_next)
-				continue;
-
-			rdc_puterror(rdc_port,
-						 "fail to send to %s:%u startup request: %m",
-						 host, port);
-			return rdc_port;
-		}
-
-		/* receive statup response */
-		if (rdc_recv_startup_rsp(rdc_port, type, id))
-		{
-			CHECK_FOR_INTERRUPTS();
-			closesocket(RdcSocket(rdc_port));
-			RdcSocket(rdc_port) = PGINVALID_SOCKET;
-
-			if (addr->ai_next)
-				continue;
-
-			rdc_puterror(rdc_port,
-						 "fail to receive from %s:%u startup response: %m",
-						 host, port);
-			return rdc_port;
-		}
-
-		/* Remember client and server address for possible error msg */
-		memcpy(&rdc_port->raddr, addr->ai_addr, addr->ai_addrlen);
-		addrlen = sizeof(rdc_port->laddr);
-		if (getsockname(RdcSocket(rdc_port), (struct sockaddr *) &(rdc_port->laddr),
-			&addrlen) < 0)
-		{
-			CHECK_FOR_INTERRUPTS();
-			closesocket(RdcSocket(rdc_port));
-			RdcSocket(rdc_port) = PGINVALID_SOCKET;
-
-			if (addr->ai_next)
-				continue;
-
-			rdc_puterror(rdc_port,
-						 "could not get client address from socket: %m");
-			return rdc_port;
-		}
-
-		/* connect and authentication OK */
-		break;
+		/*
+		 * Now try to advance the state machine.
+		 */
+		flag = rdc_connect_poll(port);
 	}
+}
 
-	freeaddrinfo(rdc_port->addrs);
-	rdc_port->addrs = NULL;
+RdcPort *
+rdc_connect(const char *host, uint32 port,
+			RdcPortType peer_type, RdcPortId peer_id,
+			RdcPortType self_type, RdcPortId self_id)
+{
+	RdcPort *rdc_port = NULL;
+
+	rdc_port = RdcConnectStart(host, port,
+						   peer_type, peer_id,
+						   self_type, self_id);
+	if (!IsRdcPortError(rdc_port))
+		(void) RdcConnectComplete(rdc_port);
 
 	return rdc_port;
 }
@@ -291,15 +308,15 @@ rdc_connect_poll(RdcPort *port)
 		 * We really shouldn't have been polled in these two cases, but we
 		 * can handle it.
 		 */
-		case CONNECTION_BAD:
+		case RDC_CONNECTION_BAD:
 			return RDC_POLLING_FAILED;
-		case CONNECTION_OK:
+		case RDC_CONNECTION_OK:
 			return RDC_POLLING_OK;
 
 		/* These are reading states */
-		case CONNECTION_AWAITING_RESPONSE:
-		case CONNECTION_ACCEPT:
-		case CONNECTION_AUTH_OK:
+		case RDC_CONNECTION_AWAITING_RESPONSE:
+		case RDC_CONNECTION_ACCEPT:
+		case RDC_CONNECTION_AUTH_OK:
 			{
 				/* Load waiting data */
 				int 		n = rdc_recv(port);
@@ -313,13 +330,13 @@ rdc_connect_poll(RdcPort *port)
 			}
 
 			/* These are writing states, so we just proceed. */
-		case CONNECTION_STARTED:
-		case CONNECTION_MADE:
-		case CONNECTION_SENDING_RESPONSE:
+		case RDC_CONNECTION_STARTED:
+		case RDC_CONNECTION_MADE:
+		case RDC_CONNECTION_SENDING_RESPONSE:
 			break;
 
-		case CONNECTION_ACCEPT_NEED:
-		case CONNECTION_NEEDED:
+		case RDC_CONNECTION_ACCEPT_NEED:
+		case RDC_CONNECTION_NEEDED:
 			break;
 
 		default:
@@ -333,7 +350,7 @@ keep_going: 					/* We will come back to here until there is
 								 * nothing left to do. */
 	switch (RdcStatus(port))
 	{
-		case CONNECTION_NEEDED:
+		case RDC_CONNECTION_NEEDED:
 			{
 				struct addrinfo    *addr_cur = NULL;
 
@@ -390,8 +407,8 @@ keep_going: 					/* We will come back to here until there is
 #ifdef DEBUG_ADB
 					elog(LOG,
 						 "Try to connect [%s %d] {%s:%s}",
-						 RdcTypeStr(port), RdcID(port),
-						 RdcHostStr(port), RdcPortStr(port));
+						 RdcPeerTypeStr(port), RdcPeerID(port),
+						 RdcPeerHost(port), RdcPeerPort(port));
 #endif
 					/*
 					 * Start/make connection.  This should not block, since we
@@ -407,15 +424,15 @@ keep_going: 					/* We will come back to here until there is
 							 * the connection is in progress.  Tell caller to
 							 * wait for write-ready on socket.
 							 */
-							RdcStatus(port) = CONNECTION_STARTED;
+							RdcStatus(port) = RDC_CONNECTION_STARTED;
 							RdcWaitEvents(port) = WAIT_SOCKET_WRITEABLE;
 							return RDC_POLLING_WRITING;
 						}
 
 						rdc_puterror(port,
 									 "fail to connect [%s:%d] {%s:%s}: %m",
-									 RdcTypeStr(port), RdcID(port),
-									 RdcHostStr(port), RdcPortStr(port));
+									 RdcPeerTypeStr(port), RdcPeerID(port),
+									 RdcPeerHost(port), RdcPeerPort(port));
 					}
 					else
 					{
@@ -424,7 +441,7 @@ keep_going: 					/* We will come back to here until there is
 						 * connection" wasn't.	Advance the state machine and
 						 * go do the next stuff.
 						 */
-						RdcStatus(port) = CONNECTION_STARTED;
+						RdcStatus(port) = RDC_CONNECTION_STARTED;
 						goto keep_going;
 					}
 
@@ -442,7 +459,7 @@ keep_going: 					/* We will come back to here until there is
 				goto error_return;
 			}
 
-		case CONNECTION_STARTED:
+		case RDC_CONNECTION_STARTED:
 			{
 				socklen_t	optlen = sizeof(optval);
 				socklen_t	addrlen;
@@ -470,7 +487,7 @@ keep_going: 					/* We will come back to here until there is
 					if (port->addr_cur->ai_next != NULL)
 					{
 						port->addr_cur = port->addr_cur->ai_next;
-						RdcStatus(port) = CONNECTION_NEEDED;
+						RdcStatus(port) = RDC_CONNECTION_NEEDED;
 						goto keep_going;
 					}
 					goto error_return;
@@ -485,33 +502,44 @@ keep_going: 					/* We will come back to here until there is
 					rdc_puterror(port, "could not get client address from socket: %m");
 					goto error_return;
 				}
+#ifdef DEBUG_ADB
+				{
+					char   *self_host = inet_ntoa(((struct sockaddr_in *) &(port->laddr))->sin_addr);
+					int		portnum = (int) ntohs(((struct sockaddr_in *) &(port->laddr))->sin_port);
+					char	portstr[NI_MAXSERV];
+
+					snprintf(portstr, NI_MAXSERV, "%d", portnum);
+					RdcSelfHost(port) = self_host ? pstrdup(self_host) : pstrdup("???");
+					RdcSelfPort(port) = pstrdup(portstr);
+				}
+#endif
 
 				/*
 				 * Make sure we can write before advancing to next step.
 				 */
-				RdcStatus(port) = CONNECTION_MADE;
+				RdcStatus(port) = RDC_CONNECTION_MADE;
 				RdcWaitEvents(port) = WAIT_SOCKET_WRITEABLE;
 				return RDC_POLLING_WRITING;
 			}
 
-		case CONNECTION_MADE:
+		case RDC_CONNECTION_MADE:
 			{
-				if (rdc_send_startup_rqt(port, TYPE_REDUCE, MyReduceId))
+				if (rdc_send_startup_rqt(port, RdcSelfType(port), RdcSelfID(port)))
 				{
 					drop_connection(port, true);
 					rdc_puterror(port, "could not send startup packet: %m");
 					goto error_return;
 				}
-				RdcStatus(port) = CONNECTION_AWAITING_RESPONSE;
+				RdcStatus(port) = RDC_CONNECTION_AWAITING_RESPONSE;
 				RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
 				return RDC_POLLING_READING;
 			}
 
-		case CONNECTION_AWAITING_RESPONSE:
+		case RDC_CONNECTION_AWAITING_RESPONSE:
 			{
 				RdcPollingStatusType status;
 
-				status = internal_recv_startup_rsp(port, TYPE_REDUCE, MyReduceId);
+				status = internal_recv_startup_rsp(port, RdcSelfType(port), RdcSelfID(port));
 				switch (status)
 				{
 					case RDC_POLLING_FAILED:
@@ -530,10 +558,10 @@ keep_going: 					/* We will come back to here until there is
 				}
 			}
 
-		case CONNECTION_ACCEPT_NEED:
+		case RDC_CONNECTION_ACCEPT_NEED:
 			break;
 
-		case CONNECTION_ACCEPT:
+		case RDC_CONNECTION_ACCEPT:
 			{
 				RdcPollingStatusType status;
 
@@ -556,20 +584,20 @@ keep_going: 					/* We will come back to here until there is
 				}
 			}
 
-		case CONNECTION_SENDING_RESPONSE:
+		case RDC_CONNECTION_SENDING_RESPONSE:
 			{
-				if (rdc_send_startup_rsp(port, port->type, port->from_to))
+				if (rdc_send_startup_rsp(port, RdcPeerType(port), RdcPeerID(port)))
 				{
 					drop_connection(port, true);
 					rdc_puterror(port, "could not send startup response: %m");
 					goto error_return;
 				}
 
-				RdcStatus(port) = CONNECTION_AUTH_OK;
+				RdcStatus(port) = RDC_CONNECTION_AUTH_OK;
 				goto keep_going;
 			}
 
-		case CONNECTION_AUTH_OK:
+		case RDC_CONNECTION_AUTH_OK:
 			{
 				if (port->addrs)
 				{
@@ -579,7 +607,7 @@ keep_going: 					/* We will come back to here until there is
 				resetStringInfo(RdcOutBuf(port));
 				resetStringInfo(RdcErrBuf(port));
 				RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
-				RdcStatus(port) = CONNECTION_OK;
+				RdcStatus(port) = RDC_CONNECTION_OK;
 				return RDC_POLLING_OK;
 			}
 
@@ -592,7 +620,7 @@ keep_going: 					/* We will come back to here until there is
 	}
 
 error_return:
-	RdcStatus(port) = CONNECTION_BAD;
+	RdcStatus(port) = RDC_CONNECTION_BAD;
 	return RDC_POLLING_FAILED;
 }
 
@@ -609,7 +637,11 @@ rdc_accept(pgsocket sock)
 	RdcPort	   *port = NULL;
 	socklen_t	addrlen;
 
-	port = rdc_newport(PGINVALID_SOCKET, InvalidPortType, InvalidPortId);
+	port = rdc_newport(PGINVALID_SOCKET,
+					   /* the identity of peer will be set by Startup Packet */
+					   InvalidPortType, InvalidPortId,
+					   /* the locl identity will be set by caller if needed */
+					   InvalidPortType, InvalidPortId);
 	addrlen = sizeof(port->raddr);
 _re_accept:
 	RdcSocket(port) = accept(sock, &port->raddr, &addrlen);
@@ -635,7 +667,7 @@ _re_accept:
 				(errcode(ERRCODE_CONNECTION_FAILURE),
 				 errmsg("fail to set socket options while accept: %s",
 				 RdcError(port))));
-	RdcStatus(port) = CONNECTION_ACCEPT;
+	RdcStatus(port) = RDC_CONNECTION_ACCEPT;
 	RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
 
 #ifdef DEBUG_ADB
@@ -653,8 +685,8 @@ _re_accept:
 					 errmsg("fail to getnameinfo while accept: %s",
 					 gai_strerror(ret))));
 		}
-		RdcHostStr(port) = pstrdup(hbuf);
-		RdcPortStr(port) = pstrdup(sbuf);
+		RdcPeerHost(port) = pstrdup(hbuf);
+		RdcPeerPort(port) = pstrdup(sbuf);
 	}
 #endif
 
@@ -686,7 +718,7 @@ rdc_parse_group(RdcPort *port,				/* IN */
 	StringInfo			msg;
 	int					ret;
 	struct addrinfo		hint;
-	char				portstr[32];
+	char				portstr[NI_MAXSERV];
 	List			   *clist = NIL;
 	ListCell		   *cell = NULL;
 	RdcPort			   *rdc_port = NULL;
@@ -746,7 +778,9 @@ rdc_parse_group(RdcPort *port,				/* IN */
 			(PortIdIsOdd(MyReduceId) && PortIdIsOdd(i) && i > MyReduceId) ||
 			(PortIdIsOdd(MyReduceId) && PortIdIsEven(i) && i < MyReduceId))
 		{
-			rdc_port = rdc_newport(PGINVALID_SOCKET, TYPE_REDUCE, i);
+			rdc_port = rdc_newport(PGINVALID_SOCKET,
+								   TYPE_REDUCE, i,
+								   TYPE_REDUCE, MyReduceId);
 
 			MemSet(&hint, 0, sizeof(hint));
 			hint.ai_socktype = SOCK_STREAM;
@@ -768,10 +802,10 @@ rdc_parse_group(RdcPort *port,				/* IN */
 				return STATUS_ERROR;
 			}
 			rdc_port->addr_cur = rdc_port->addrs;
-			RdcStatus(rdc_port) = CONNECTION_NEEDED;
+			RdcStatus(rdc_port) = RDC_CONNECTION_NEEDED;
 #ifdef DEBUG_ADB
-			RdcHostStr(rdc_port) = pstrdup(host);
-			RdcPortStr(rdc_port) = pstrdup(portstr);
+			RdcPeerHost(rdc_port) = pstrdup(host);
+			RdcPeerPort(rdc_port) = pstrdup(portstr);
 #endif
 			/* try to poll connect once */
 			if (rdc_connect_poll(rdc_port) != RDC_POLLING_WRITING)
@@ -782,8 +816,8 @@ rdc_parse_group(RdcPort *port,				/* IN */
 
 				rdc_puterror(port,
 							 "fail to connect with [%s %d] {%s:%s}: %s",
-							 RdcTypeStr(rdc_port), RdcID(rdc_port),
-							 RdcHostStr(rdc_port), RdcPortStr(rdc_port),
+							 RdcPeerTypeStr(rdc_port), RdcPeerID(rdc_port),
+							 RdcPeerHost(rdc_port), RdcPeerPort(rdc_port),
 							 RdcError(rdc_port));
 				return STATUS_ERROR;
 			}
@@ -929,7 +963,7 @@ retry:
 				ereport(ERROR,
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
 					 errmsg("fail to wait read/write event for socket of [%s %d]",
-					 		RdcTypeStr(port), RdcID(port))));
+					 		RdcPeerTypeStr(port), RdcPeerID(port))));
 			end_wait_events();
 			goto retry;
 		} PG_CATCH();
@@ -1004,8 +1038,8 @@ rdc_recv(RdcPort *port)
 
 			rdc_puterror(port,
 						 "could not receive data from [%s %d] {%s:%s}: %m",
-						 RdcTypeStr(port), RdcID(port),
-						 RdcHostStr(port), RdcPortStr(port));
+						 RdcPeerTypeStr(port), RdcPeerID(port),
+						 RdcPeerHost(port), RdcPeerPort(port));
 			return EOF;
 		}
 		if (r == 0)
@@ -1016,8 +1050,8 @@ rdc_recv(RdcPort *port)
 			 */
 			rdc_puterror(port,
 						 "the peer of [%s %d] {%s:%s} has performed an orderly shutdown",
-						 RdcTypeStr(port), RdcID(port),
-						 RdcHostStr(port), RdcPortStr(port));
+						 RdcPeerTypeStr(port), RdcPeerID(port),
+						 RdcPeerHost(port), RdcPeerPort(port));
 			return EOF;
 		}
 		/* r contains number of bytes read, so just increase length */
@@ -1488,11 +1522,11 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver)
 
 	rqt_type = rdc_getmsgint(msg, sizeof(rqt_type));
 	Assert(PortTypeIsValid(rqt_type));
-	RdcType(port) = rqt_type;
+	RdcPeerType(port) = rqt_type;
 
 	rqt_id = rdc_getmsgint(msg, sizeof(rqt_id));
 	Assert(PortIdIsValid(rqt_id));
-	RdcID(port) = rqt_id;
+	RdcPeerID(port) = rqt_id;
 
 	rdc_getmsgend(msg);
 
@@ -1507,12 +1541,12 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver)
 #ifdef DEBUG_ADB
 	elog(LOG,
 		 "recv startup request from [%s %d] {%s:%s}",
-		 rdc_type2string(rqt_type), RdcID(port),
-		 RdcHostStr(port), RdcPortStr(port));
+		 rdc_type2string(rqt_type), RdcPeerID(port),
+		 RdcPeerHost(port), RdcPeerPort(port));
 #endif
 
 	/* We are done with authentication exchange */
-	RdcStatus(port) = CONNECTION_SENDING_RESPONSE;
+	RdcStatus(port) = RDC_CONNECTION_SENDING_RESPONSE;
 	return RDC_POLLING_WRITING;
 }
 
@@ -1641,12 +1675,12 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 #ifdef DEBUG_ADB
 		elog(LOG,
 			 "recv startup response from [%s %d] {%s:%s}",
-			 rdc_type2string(rsp_type), RdcID(port),
-			 RdcHostStr(port), RdcPortStr(port));
+			 rdc_type2string(rsp_type), RdcPeerID(port),
+			 RdcPeerHost(port), RdcPeerPort(port));
 #endif
 
 		/* We are done with authentication exchange */
-		RdcStatus(port) = CONNECTION_AUTH_OK;
+		RdcStatus(port) = RDC_CONNECTION_AUTH_OK;
 		return RDC_POLLING_OK;
 	}
 }

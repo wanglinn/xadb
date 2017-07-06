@@ -26,8 +26,8 @@ rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id)
 #ifdef DEBUG_ADB
 	elog(LOG,
 		 "send startup request to [%s %d] {%s:%s}",
-		 RdcTypeStr(port), RdcID(port),
-		 RdcHostStr(port), RdcPortStr(port));
+		 RdcPeerTypeStr(port), RdcPeerID(port),
+		 RdcPeerHost(port), RdcPeerPort(port));
 #endif
 
 	initStringInfo(&buf);
@@ -50,8 +50,8 @@ rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id)
 #ifdef DEBUG_ADB
 	elog(LOG,
 		 "send startup response to [%s %d] {%s:%s}",
-		 RdcTypeStr(port), RdcID(port),
-		 RdcHostStr(port), RdcPortStr(port));
+		 RdcPeerTypeStr(port), RdcPeerID(port),
+		 RdcPeerHost(port), RdcPeerPort(port));
 #endif
 
 	initStringInfo(&buf);

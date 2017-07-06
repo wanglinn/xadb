@@ -16,6 +16,12 @@
 
 extern bool redirection_done;
 
+/*
+ * 1. Used to connect local Reduce for local plan node.
+ * 2. Used to be connected for other Reduces.
+ */
+int		AdbRdcListenPort = 0;
+
 #ifndef WIN32
 static int backend_reduce_fds[2] = {-1, -1};
 #else
@@ -25,7 +31,6 @@ static HANDLE	BackendHandle;
 
 static pid_t	AdbReducePID = 0;
 static RdcPort *backend_hold_port = NULL;
-static int		AdbRdcListenPort = 0;
 
 #define RDC_BACKEND_HOLD	0
 #define RDC_REDUCE_HOLD		1
@@ -50,6 +55,7 @@ CleanUpReduce(int code, Datum arg)
  	}
 	rdc_freeport(backend_hold_port);
 	backend_hold_port = NULL;
+	AdbRdcListenPort = 0;
 }
 
 static void
@@ -94,7 +100,10 @@ StartAdbReduceLauncher(int rid)
 		default:
 			CloseReducePort();
 			old_context = MemoryContextSwitchTo(TopMemoryContext);
-			backend_hold_port = rdc_newport(backend_reduce_fds[RDC_BACKEND_HOLD], TYPE_REDUCE, InvalidPortId);
+			/* TODO: be sure ID of local Reduce */
+			backend_hold_port = rdc_newport(backend_reduce_fds[RDC_BACKEND_HOLD],
+											TYPE_REDUCE, InvalidPortId,
+											TYPE_BACKEND, InvalidPortId);
 			(void) MemoryContextSwitchTo(old_context);
 			AdbRdcListenPort = GetReduceListenPort();
 			return AdbRdcListenPort;

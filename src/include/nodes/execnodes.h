@@ -24,6 +24,9 @@
 #include "utils/sortsupport.h"
 #include "utils/tuplestore.h"
 #include "utils/tuplesort.h"
+#ifdef ADB
+#include "reduce/rdc_comm.h"
+#endif
 
 
 /* ----------------
@@ -2137,6 +2140,11 @@ typedef struct ClusterReduceState
 {
 	PlanState		ps;
 	ExprState	   *reduceState;
+	RdcPort		   *port;			/* RdcPort for current ClusterReduce plan node */
+	int				eflags;			/* capability flags to pass to tuplestore */
+	bool			eof_underlying; /* reached end of underlying plan? */
+	bool			eof_network;	/* reached end of network? */
+	Tuplestorestate *tuplestorestate;
 } ClusterReduceState;
 
 #endif /* ADB */

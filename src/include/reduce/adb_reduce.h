@@ -15,6 +15,8 @@
 
 #include "reduce/rdc_comm.h"
 
+extern int AdbRdcListenPort;
+
 extern int StartAdbReduceLauncher(int rid);
 
 extern int StartAdbReduceGroup(const char *hosts[], int ports[], int num);

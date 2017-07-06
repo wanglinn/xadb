@@ -80,8 +80,8 @@ try_read_some(RdcPort *port)
 	if (!rdc_set_noblock(port))
 		ereport(ERROR,
 				(errmsg("fail to set noblocking mode for [%s %d] {%s:%s}",
-						RdcTypeStr(port), RdcID(port),
-						RdcHostStr(port), RdcPortStr(port))));
+						RdcPeerTypeStr(port), RdcPeerID(port),
+						RdcPeerHost(port), RdcPeerPort(port))));
 
 	if (rdc_recv(port) == EOF)
 		return EOF;
@@ -133,8 +133,8 @@ try_read_from_plan(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 			if (try_read_some(port) == EOF)
 				ereport(ERROR,
 						(errmsg("fail to read some from [%s %d] {%s:%s}",
-								RdcTypeStr(port), RdcID(port),
-								RdcHostStr(port), RdcPortStr(port)),
+								RdcPeerTypeStr(port), RdcPeerID(port),
+								RdcPeerHost(port), RdcPeerPort(port)),
 						 errhint("connection to client lost")));
 
 			msg = RdcInBuf(port);
@@ -190,14 +190,14 @@ try_read_from_plan(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 							if (firstchar == RDC_P2R_DATA)
 							{
 								/* send data to reduce */
-								if (send_rdc2rdc(rdc_port, RdcID(port), data, datalen))
+								if (send_rdc2rdc(rdc_port, RdcPeerID(port), data, datalen))
 									quit = true;	/* break while */
 							} else
 							{
 								/* send eof to reduce */
 								RdcGotEof(port) = true;
 								RdcWaitEvents(port) &= ~WAIT_SOCKET_READABLE;
-								if (send_rdc2rdc(rdc_port, RdcID(port), NULL, 0))
+								if (send_rdc2rdc(rdc_port, RdcPeerID(port), NULL, 0))
 									quit = true;	/* break while */
 							}
 						}
@@ -209,8 +209,8 @@ try_read_from_plan(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 						/* TODO: how to close? */
 						elog(LOG,
 							 "Receive close message from [%s %d] {%s:%s}",
-							 RdcTypeStr(port), RdcID(port),
-							 RdcHostStr(port), RdcPortStr(port));
+							 RdcPeerTypeStr(port), RdcPeerID(port),
+							 RdcPeerHost(port), RdcPeerPort(port));
 
 						/* close the first RdcPort of PlanPort */
 						if (prev == NULL)
@@ -269,8 +269,8 @@ try_write_to_plan(PlanPort *pln_port)
 		if (!rdc_set_noblock(port))
 			ereport(ERROR,
 					(errmsg("fail to set noblocking mode for [%s %d] {%s:%s}",
-							RdcTypeStr(port), RdcID(port),
-							RdcHostStr(port), RdcPortStr(port))));
+							RdcPeerTypeStr(port), RdcPeerID(port),
+							RdcPeerHost(port), RdcPeerPort(port))));
 
 		buf = RdcOutBuf(port);
 		for (;;)
@@ -337,7 +337,7 @@ try_read_from_reduce(RdcPort *port, List **pln_list)
 
 	AssertArg(port && pln_list);
 	Assert(ReducePortIsValid(port));
-	Assert(RdcID(port) != MyReduceId);
+	Assert(RdcPeerID(port) != MyReduceId);
 
 	quit = false;
 	port_free = false;
@@ -348,8 +348,8 @@ try_read_from_reduce(RdcPort *port, List **pln_list)
 		if (try_read_some(port) == EOF)
 			ereport(ERROR,
 					(errmsg("fail to read some from [%s %d] {%s:%s}",
-							RdcTypeStr(port), RdcID(port),
-							RdcHostStr(port), RdcPortStr(port)),
+							RdcPeerTypeStr(port), RdcPeerID(port),
+							RdcPeerHost(port), RdcPeerPort(port)),
 					 errhint("connection to client lost")));
 
 		sv_cursor = msg->cursor;
@@ -396,7 +396,7 @@ try_read_from_reduce(RdcPort *port, List **pln_list)
 						rdc_getmsgend(msg);
 						RdcGotEof(port) = true;
 						/* fill in eof */
-						send_rdc2plan(pln_port, RdcID(port), NULL, 0);
+						send_rdc2plan(pln_port, RdcPeerID(port), NULL, 0);
 						break ;			/* break case */
 					}
 					/* got data */
@@ -411,7 +411,7 @@ try_read_from_reduce(RdcPort *port, List **pln_list)
 					rdc_getmsgend(msg);
 
 					/* fill in data */
-					send_rdc2plan(pln_port, RdcID(port), data, datalen);
+					send_rdc2plan(pln_port, RdcPeerID(port), data, datalen);
 				}
 				break;
 			case RDC_CLOSE_MSG:
@@ -419,8 +419,8 @@ try_read_from_reduce(RdcPort *port, List **pln_list)
 					/* TODO: how to close? */
 					elog(LOG,
 						 "Receive close message from [%s %d] {%s:%s}",
-						 RdcTypeStr(port), RdcID(port),
-						 RdcHostStr(port), RdcPortStr(port));
+						 RdcPeerTypeStr(port), RdcPeerID(port),
+						 RdcPeerHost(port), RdcPeerPort(port));
 					rdc_freeport(port);
 					port_free = true;
 					quit = true;		/* break while */
