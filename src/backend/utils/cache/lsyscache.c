@@ -1153,6 +1153,21 @@ op_input_types(Oid opno, Oid *lefttype, Oid *righttype)
 	ReleaseSysCache(tp);
 }
 
+bool op_is_equivalence(Oid opno)
+{
+	HeapTuple	tp;
+	Form_pg_operator optup;
+	bool result;
+
+	tp = SearchSysCache1(OPEROID, ObjectIdGetDatum(opno));
+	if (!HeapTupleIsValid(tp))	/* shouldn't happen */
+		elog(ERROR, "cache lookup failed for operator %u", opno);
+	optup = (Form_pg_operator) GETSTRUCT(tp);
+	result = (NameStr(optup->oprname)[0] == '=' && NameStr(optup->oprname)[1] == '\0');
+	ReleaseSysCache(tp);
+	return result;
+}
+
 /*
  * op_mergejoinable
  *
