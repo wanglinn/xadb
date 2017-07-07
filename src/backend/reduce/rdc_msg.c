@@ -65,10 +65,11 @@ rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id)
 }
 
 int
-rdc_send_group_rqt(RdcPort *port, int num, const char *hosts[], int ports[])
+rdc_send_group_rqt(RdcPort *port, RdcListenMask *rdc_masks, int num)
 {
 	StringInfoData	buf;
 	int				i = 0;
+	RdcListenMask  *mask;
 
 	AssertArg(port);
 	Assert(num > 1);
@@ -78,10 +79,12 @@ rdc_send_group_rqt(RdcPort *port, int num, const char *hosts[], int ports[])
 	rdc_sendint(&buf, num, sizeof(num));
 	for (i = 0; i < num; i++)
 	{
-		Assert(hosts[i] && hosts[i][0]);
-		Assert(ports[i] > 1024 && ports[i] < 65535);
-		rdc_sendstring(&buf, hosts[i]);
-		rdc_sendint(&buf, ports[i], sizeof(ports[i]));
+		mask = &(rdc_masks[i]);
+		Assert(mask);
+		Assert(mask->rdc_host[0]);
+		Assert(mask->rdc_port > 1024 && mask->rdc_port < 65535);
+		rdc_sendstring(&buf, mask->rdc_host);
+		rdc_sendint(&buf, mask->rdc_port, sizeof(mask->rdc_port));
 	}
 	rdc_endmessage(port, &buf);
 

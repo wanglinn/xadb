@@ -121,9 +121,7 @@ ExecClusterReduce(ClusterReduceState *node)
 	 */
 	if (port == NULL)
 	{
-		port = rdc_connect("127.0.0.1", AdbRdcListenPort,
-						   TYPE_REDUCE, InvalidPortId,
-						   TYPE_PLAN, node->ps.plan->plan_node_id);
+		port = ConnectSelfReduce(TYPE_PLAN, node->ps.plan->plan_node_id);
 		if (IsRdcPortError(port))
 			ereport(ERROR,
 					(errmsg("fail to connect Reduce subprocess:%s",

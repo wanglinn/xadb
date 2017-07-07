@@ -14,16 +14,19 @@
 #define ADB_REDUCE_H
 
 #include "reduce/rdc_comm.h"
+#include "reduce/rdc_msg.h"
 
-extern int AdbRdcListenPort;
+extern void EndSelfReduce(int code, Datum arg);
 
-extern int StartAdbReduceLauncher(int rid);
+extern RdcPort *ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id);
 
-extern int StartAdbReduceGroup(const char *hosts[], int ports[], int num);
+extern int StartSelfReduceLauncher(int rid);
 
-extern int SendTupleToReduce(RdcPort *port, const Oid nodeIds[], int num,
+extern void StartSelfReduceGroup(RdcListenMask *rdc_masks, int num);
+
+extern int SendTupleToSelfReduce(RdcPort *port, const Oid nodeIds[], int num,
 							 const char *data, int len);
 
-extern void* GetTupleFromReduce(RdcPort *port);
+extern void* GetTupleFromSelfReduce(RdcPort *port);
 
 #endif /* ADB_BROKER_H */

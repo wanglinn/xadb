@@ -19,6 +19,12 @@
 
 extern int				MyReduceId;
 
+typedef struct ReduceListenMask
+{
+	int		rdc_port;
+	char   *rdc_host;
+} RdcListenMask;
+
 /* -----------Reduce message------------- */
 #define RDC_LISTEN_PORT		'L'
 #define RDC_ERROR_MSG		'E'
@@ -36,7 +42,7 @@ extern int rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id);
 extern int rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id);
 extern int rdc_recv_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id);
 
-extern int rdc_send_group_rqt(RdcPort *port, int num, const char *hosts[], int ports[]);
+extern int rdc_send_group_rqt(RdcPort *port, RdcListenMask *rdc_masks, int num);
 extern int rdc_send_group_rsp(RdcPort *port);
 extern int rdc_recv_group_rsp(RdcPort *port);
 

@@ -16,12 +16,6 @@
 
 extern bool redirection_done;
 
-/*
- * 1. Used to connect local Reduce for local plan node.
- * 2. Used to be connected for other Reduces.
- */
-int		AdbRdcListenPort = 0;
-
 #ifndef WIN32
 static int backend_reduce_fds[2] = {-1, -1};
 #else
@@ -29,33 +23,41 @@ static int backend_reduce_fds[2] = {-1, -1};
 static HANDLE	BackendHandle;
 #endif	/* WIN32 */
 
+static int		SelfReduceID = -1;
+static int		RdcListenPort = 0;
 static pid_t	AdbReducePID = 0;
 static RdcPort *backend_hold_port = NULL;
 
 #define RDC_BACKEND_HOLD	0
 #define RDC_REDUCE_HOLD		1
 
-static void CleanUpReduce(int code, Datum arg);
 static void InitCommunicationChannel(void);
 static void CloseBackendPort(void);
 static void CloseReducePort(void);
 static int  GetReduceListenPort(void);
 static void AdbReduceLauncherMain(int rid);
 
-static void
-CleanUpReduce(int code, Datum arg)
+void
+EndSelfReduce(int code, Datum arg)
 {
 	if (AdbReducePID != 0)
 	{
 		int ret = kill(AdbReducePID, SIGTERM);
+		bool no_error = DatumGetBool(arg);
 		if (!(ret == 0 || errno == ESRCH))
-			ereport(ERROR,
+		{
+			if (no_error)
+			{
+				ereport(ERROR,
 					(errmsg("fail to terminate adb reduce subprocess")));
+			}
+		}
 		AdbReducePID = 0;
  	}
 	rdc_freeport(backend_hold_port);
 	backend_hold_port = NULL;
-	AdbRdcListenPort = 0;
+	RdcListenPort = 0;
+	SelfReduceID = -1;
 }
 
 static void
@@ -74,15 +76,16 @@ SigChldHandler(SIGNAL_ARGS)
  * return 0 if trouble.
  */
 int
-StartAdbReduceLauncher(int rid)
+StartSelfReduceLauncher(int rid)
 {
 	MemoryContext	old_context;
 
 	pqsignal(SIGCHLD, SigChldHandler);
-	CleanUpReduce(0, 0);
+	EndSelfReduce(0, 0);
 	InitCommunicationChannel();
-	on_proc_exit(CleanUpReduce, 0);
+	on_proc_exit(EndSelfReduce, 0);
 
+	SelfReduceID = rid;
 	switch ((AdbReducePID = fork_process()))
 	{
 		case -1:
@@ -100,17 +103,27 @@ StartAdbReduceLauncher(int rid)
 		default:
 			CloseReducePort();
 			old_context = MemoryContextSwitchTo(TopMemoryContext);
-			/* TODO: be sure ID of local Reduce */
 			backend_hold_port = rdc_newport(backend_reduce_fds[RDC_BACKEND_HOLD],
-											TYPE_REDUCE, InvalidPortId,
+											TYPE_REDUCE, SelfReduceID,
 											TYPE_BACKEND, InvalidPortId);
 			(void) MemoryContextSwitchTo(old_context);
-			AdbRdcListenPort = GetReduceListenPort();
-			return AdbRdcListenPort;
+
+			return GetReduceListenPort();
 	}
 
 	/* shouldn't get here */
 	return 0;
+}
+
+RdcPort *
+ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id)
+{
+	Assert(AdbReducePID != 0);
+	Assert(RdcListenPort != 0);
+	Assert(SelfReduceID != -1);
+	return rdc_connect("127.0.0.1", RdcListenPort,
+					   TYPE_REDUCE, SelfReduceID,
+					   self_type, self_id);
 }
 
 /*
@@ -191,6 +204,7 @@ GetReduceListenPort(void)
 					 errhint("%s", error_msg ? error_msg : RdcError(backend_hold_port))));
 			break;
 	}
+	RdcListenPort = port;
 	return port;
 }
 
@@ -219,19 +233,18 @@ AdbReduceLauncherMain(int rid)
 			(errmsg("fail to start adb_reduce: %m")));
 }
 
-int
-StartAdbReduceGroup(const char *hosts[], int ports[], int num)
+void
+StartSelfReduceGroup(RdcListenMask *rdc_masks, int num)
 {
-	if (rdc_send_group_rqt(backend_hold_port, num, hosts, ports) == EOF ||
+	if (rdc_send_group_rqt(backend_hold_port, rdc_masks, num) == EOF ||
 		rdc_recv_group_rsp(backend_hold_port) == EOF)
 		ereport(ERROR,
 				(errmsg("fail to start adb reduce group"),
 				 errhint("%s", RdcError(backend_hold_port))));
-	return 0;
 }
 
 int
-SendTupleToReduce(RdcPort *port, const Oid nodeIds[], int num,
+SendTupleToSelfReduce(RdcPort *port, const Oid nodeIds[], int num,
 				  const char *data, int datalen)
 {
 	StringInfoData	buf;
@@ -263,7 +276,7 @@ SendTupleToReduce(RdcPort *port, const Oid nodeIds[], int num,
 }
 
 void*
-GetTupleFromReduce(RdcPort *port)
+GetTupleFromSelfReduce(RdcPort *port)
 {
 	return NULL;
 }

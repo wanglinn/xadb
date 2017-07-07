@@ -1972,7 +1972,7 @@ do_help(void)
 	printf(_("  -w                     wait until operation completes\n"));
 	printf(_("  -W                     do not wait until operation completes\n"));
 #ifdef ADB
-	printf(_("	-Z NODE-TYPE		   can be \"coordinator\" or \"datanode\" (Postgres-XC)\n"));
+	printf(_("  -Z NODE-TYPE            can be \"coordinator\" or \"datanode\" (Postgres-XC)\n"));
 #endif
 	printf(_("  -?, --help             show this help, then exit\n"));
 	printf(_("(The default is to wait for shutdown, but not for start or restart.)\n\n"));

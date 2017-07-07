@@ -19,6 +19,7 @@
 #define CLUSTER_MSG_TUPLE_DATA	'D'
 #define CLUSTER_MSG_INSTRUMENT	'I'
 #define CLUSTER_MSG_PROCESSED	'P'
+#define CLUSTER_MSG_RDC_PORT	'p'
 
 typedef struct ClusterPlanReceiver
 {
@@ -42,6 +43,32 @@ static void cluster_receive_destroy(DestReceiver *self);
 static bool serialize_instrument_walker(PlanState *ps, StringInfo buf);
 static void restore_instrument_message(PlanState *ps, const char *msg, int len, struct pg_conn *conn);
 static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *context);
+
+void serialize_rdc_listen_port_message(StringInfo buf, int port)
+{
+	initStringInfo(buf);
+	appendStringInfoChar(buf, CLUSTER_MSG_RDC_PORT);
+	appendBinaryStringInfo(buf, (char *) &port, sizeof(port));
+}
+
+bool clusterRecvRdcListenPort(struct pg_conn *conn, const char *msg, int len, int *port)
+{
+	const char *nodename;
+	if (*msg == CLUSTER_MSG_RDC_PORT)
+	{
+		Assert(len == sizeof(*port) + 1);
+		if (port)
+			memcpy(port, msg + 1, sizeof(*port));
+		return true;
+	}
+	nodename = PQNConnectName(conn);
+	ereport(ERROR,
+			(errcode(ERRCODE_INTERNAL_ERROR),
+			 errmsg("fail to get reduce listen port"),
+			 errdetail("unexpected cluster message type %d", msg[0]),
+			 nodename ? errnode(nodename) : 0));
+	return false;
+}
 
 /*
  * return ture if got data
