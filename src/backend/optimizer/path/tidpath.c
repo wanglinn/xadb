@@ -43,7 +43,12 @@
 #include "optimizer/clauses.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
-
+#ifdef ADB
+#include "nodes/relation.h"
+#include "optimizer/cost.h"
+#include "optimizer/restrictinfo.h"
+#include "parser/parsetree.h"
+#endif /* ADB */
 
 static bool IsTidEqualClause(OpExpr *node, int varno);
 static bool IsTidEqualAnyClause(ScalarArrayOpExpr *node, int varno);
@@ -265,6 +270,24 @@ create_tidscan_paths(PlannerInfo *root, RelOptInfo *rel)
 	tidquals = TidQualFromRestrictinfo(rel->baserestrictinfo, rel->relid);
 
 	if (tidquals)
+	{
 		add_path(rel, (Path *) create_tidscan_path(root, rel, tidquals,
 												   required_outer));
+#ifdef ADB
+		if(root->glob->clusterPlanOK && rel->loc_info)
+		{
+			RangeTblEntry *rte = planner_rt_fetch(rel->relid, root);
+			Path *path = (Path*)create_tidscan_path(root, rel, tidquals,
+												   required_outer);
+			List *quals = extract_actual_clauses(rel->baserestrictinfo, false);
+			ExecNodes *nodes =  GetRelationNodesByQuals(rte->relid, rel->relid,
+																(Node *)quals,
+																RELATION_ACCESS_READ);
+			ClusterScanPath *cscan;
+			cost_div(path, list_length(rel->loc_info->nodeList));
+			cscan = create_cluster_scan_path(path, nodes, rel);
+			add_cluster_path(rel, (Path*)cscan);
+		}
+#endif /* ADB */
+	}
 }
