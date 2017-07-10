@@ -166,6 +166,7 @@ static PathTarget *make_sort_input_target(PlannerInfo *root,
 					   bool *have_postponed_srfs);
 #ifdef ADB
 static void separate_rowmarks(PlannerInfo *root);
+static bool can_once_grouping_cluster_path(PathTarget *target, Path *path);
 #endif
 
 
@@ -4025,6 +4026,7 @@ create_grouping_paths(PlannerInfo *root,
 	if(try_cluster_aggregation)
 	{
 		Path *cheapest_cluster_path = linitial(input_rel->cluster_pathlist);
+		bool only_once;
 
 		if(partial_grouping_target == NULL)
 			partial_grouping_target = make_partial_grouping_target(root, target);
@@ -4060,10 +4062,8 @@ create_grouping_paths(PlannerInfo *root,
 			foreach(lc, input_rel->cluster_pathlist)
 			{
 				Path *path = lfirst(lc);
-				Expr *reduce = get_reduce_expr(path, NULL);
 				bool is_sorted = pathkeys_contained_in(root->group_pathkeys,
 														path->pathkeys);
-				bool only_once;
 
 				if(path == cheapest_cluster_path || is_sorted)
 				{
@@ -4073,8 +4073,7 @@ create_grouping_paths(PlannerInfo *root,
 														path,
 														root->group_pathkeys,
 														-1.0);
-					only_once = reduce &&
-								is_grouping_reduce_expr(target, reduce);
+					only_once = can_once_grouping_cluster_path(target, path);
 
 					if (parse->hasAggs)
 						path = (Path*)create_agg_path(root,
@@ -4172,14 +4171,11 @@ create_grouping_paths(PlannerInfo *root,
 
 		if(can_hash)
 		{
-			Expr *reduce;
 			bool only_once;
 			/* Checked above */
 			Assert(parse->hasAggs || parse->groupClause);
 
-			reduce = get_reduce_expr(cheapest_cluster_path, NULL);
-			only_once = reduce &&
-						is_grouping_reduce_expr(target, reduce);
+			only_once = can_once_grouping_cluster_path(target, cheapest_cluster_path);
 
 			if(only_once || grouped_rel->cluster_pathlist == NIL)
 			{
@@ -5734,3 +5730,25 @@ plan_cluster_use_sort(Oid tableOid, Oid indexOid)
 
 	return (seqScanAndSortPath.total_cost < indexScanPath->path.total_cost);
 }
+
+#ifdef ADB
+static bool can_once_grouping_cluster_path(PathTarget *target, Path *path)
+{
+	List *list;
+	ListCell *lc;
+	bool result = false;
+
+	list = get_reduce_info_list(path);
+	foreach(lc, list)
+	{
+		if(is_grouping_reduce_expr(target, lfirst(lc)))
+		{
+			result = true;
+			break;
+		}
+	}
+	free_reduce_info_list(list);
+
+	return result;
+}
+#endif /* ADB */
