@@ -674,7 +674,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 														RELATION_ACCESS_READ);
 
 		ClusterScanPath *cscan;
-		cost_div(path, list_length(nodes->nodeList));
+		cost_div(path, list_length(rel->loc_info->nodeList));
 		cscan = create_cluster_scan_path(path, nodes, rel);
 		add_cluster_path(rel, (Path*)cscan);
 	}
