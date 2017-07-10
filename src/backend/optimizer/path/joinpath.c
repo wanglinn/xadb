@@ -309,6 +309,7 @@ try_nestloop_path(PlannerInfo *root,
 				  Path *inner_path,
 				  List *pathkeys,
 				  JoinType jointype,
+				  ADB_ONLY_ARG(bool is_cluster)
 				  JoinPathExtraData *extra)
 {
 	Relids		required_outer;
@@ -352,7 +353,11 @@ try_nestloop_path(PlannerInfo *root,
 						  workspace.startup_cost, workspace.total_cost,
 						  pathkeys, required_outer))
 	{
+#ifdef ADB
+		Path *path = ((Path*)
+#else
 		add_path(joinrel, (Path *)
+#endif /* ADB */
 				 create_nestloop_path(root,
 									  joinrel,
 									  jointype,
@@ -364,6 +369,12 @@ try_nestloop_path(PlannerInfo *root,
 									  extra->restrictlist,
 									  pathkeys,
 									  required_outer));
+#ifdef ADB
+		if(is_cluster)
+			add_cluster_path(joinrel, path);
+		else
+			add_path(joinrel, path);
+#endif /* ADB */
 	}
 	else
 	{
@@ -1054,6 +1065,7 @@ match_unsorted_outer(PlannerInfo *root,
 							  inner_cheapest_total,
 							  merge_pathkeys,
 							  jointype,
+							  ADB_ONLY_ARG(false)
 							  extra);
 		}
 		else if (nestjoinOK)
@@ -1076,6 +1088,7 @@ match_unsorted_outer(PlannerInfo *root,
 								  innerpath,
 								  merge_pathkeys,
 								  jointype,
+								  ADB_ONLY_ARG(false)
 								  extra);
 			}
 
@@ -1087,6 +1100,7 @@ match_unsorted_outer(PlannerInfo *root,
 								  matpath,
 								  merge_pathkeys,
 								  jointype,
+								  ADB_ONLY_ARG(false)
 								  extra);
 		}
 
@@ -1297,6 +1311,44 @@ match_unsorted_outer(PlannerInfo *root,
 				break;
 		}
 	}
+
+#ifdef ADB
+	if(jointype == JOIN_INNER)
+	{
+		Path *outer_cluster_path;
+		Path *inner_cluster_path;
+		List	   *merge_pathkeys;
+		if(make_cheapest_cluster_join_paths(root,
+										 outerrel,
+										 innerrel,
+										 &outer_cluster_path,
+										 &inner_cluster_path,
+										 extra->restrictlist,
+										 T_NestLoop))
+		{
+			/*
+			 * The result will have this sort order (even if it is implemented as
+			 * a nestloop, and even if some of the mergeclauses are implemented by
+			 * qpquals rather than as true mergeclauses):
+			 */
+			merge_pathkeys = build_join_pathkeys(root, joinrel, jointype,
+												 outer_cluster_path->pathkeys);
+			if (enable_material &&
+				!ExecMaterializesOutput(inner_cluster_path->pathtype))
+				inner_cluster_path = (Path*)
+					create_material_path(innerrel, inner_cluster_path);
+
+			try_nestloop_path(root,
+							  joinrel,
+							  outer_cluster_path,
+							  inner_cluster_path,
+							  merge_pathkeys,
+							  JOIN_INNER,
+							  true,
+							  extra);
+		}
+	}
+#endif /* ADB */
 
 	/*
 	 * If the joinrel is parallel-safe and the join type supports nested
