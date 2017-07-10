@@ -8,6 +8,8 @@
 #include "reduce/adb_reduce.h"
 #include "miscadmin.h"
 
+static void SendTupleToRemote(EState *estate, List *destOids);
+
 ClusterReduceState *
 ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 {
@@ -84,6 +86,7 @@ ExecClusterReduce(ClusterReduceState *node)
 	ExprDoneCond		done;
 	bool				isNull;
 	Oid					oid;
+	List			   *destOids = NIL;
 
 	/*
 	 * get state info from node
@@ -121,7 +124,7 @@ ExecClusterReduce(ClusterReduceState *node)
 	 */
 	if (port == NULL)
 	{
-		port = ConnectSelfReduce(TYPE_PLAN, node->ps.plan->plan_node_id);
+		port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(node->ps.plan));
 		if (IsRdcPortError(port))
 			ereport(ERROR,
 					(errmsg("fail to connect Reduce subprocess:%s",
@@ -141,7 +144,7 @@ ExecClusterReduce(ClusterReduceState *node)
 			datum = ExecEvalExpr(node->reduceState, econtext, &isNull, &done);
 			if(isNull)
 			{
-				/* TODO null */
+				Assert(0);
 			}else if(done == ExprEndResult)
 			{
 				break;
@@ -153,12 +156,16 @@ ExecClusterReduce(ClusterReduceState *node)
 					ExecCopySlot(node->ps.ps_ResultTupleSlot, slot);
 				}else
 				{
-					/* send to remote */
+					/* This tuple should be sent to remote nodes */
+					destOids = lappend_oid(destOids, oid);
 				}
 				if(done == ExprSingleResult)
 					break;
 			}
 		}
+
+		/* Here we truly send to remote plan nodes */
+		SendTupleToRemote(estate, destOids);
 	}
 
 	return node->ps.ps_ResultTupleSlot;
@@ -167,4 +174,10 @@ ExecClusterReduce(ClusterReduceState *node)
 void ExecEndClusterReduce(ClusterReduceState *node)
 {
 	ExecEndNode(outerPlanState(node));
+}
+
+static void
+SendTupleToRemote(EState *estate, List *destOids)
+{
+	/* TODO: */
 }

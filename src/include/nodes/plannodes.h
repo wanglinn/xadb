@@ -149,7 +149,9 @@ typedef struct Plan
  */
 #define innerPlan(node)			(((Plan *)(node))->righttree)
 #define outerPlan(node)			(((Plan *)(node))->lefttree)
-
+#ifdef ADB
+#define PlanNodeID(node)		(((Plan *)(node))->plan_node_id)
+#endif
 
 /* ----------------
  *	 Result node -
