@@ -33,7 +33,7 @@
  *-------------------------------------------------------------------------
  */
 #include "reduce/wait_event.h"
-
+#include "utils/memutils.h"
 #if defined(RDC_FRONTEND)
 #include "rdc_exit.h"
 #include "rdc_list.h"
@@ -80,11 +80,11 @@ init_wait_elements(void)
 	{
 		max_number = STEP_SIZE;
 		sz = max_number * sizeof(WaitEventElt);
-		WaitElements = (WaitEventElt *) palloc0(sz);
+		WaitElements = (WaitEventElt *) MemoryContextAllocZero(TopMemoryContext, sz);
 #if defined(WAIT_USE_POLL)
 		Assert(WaitFds == NULL);
 		sz = max_number * sizeof(struct pollfd);
-		WaitFds = (struct pollfd *) palloc0(sz);
+		WaitFds = (struct pollfd *) MemoryContextAllocZero(TopMemoryContext, sz);
 #endif
 	} else
 	{
@@ -134,6 +134,9 @@ begin_wait_events(void)
 	cur_number = 0;
 	idx_number = 0;
 	wait_begin = true;
+#ifdef DEBUG_ADB	
+	elog(LOG, "wait_begin = true");
+#endif
 #if defined(WAIT_USE_SELECT)
 	FD_ZERO(&rmask);
 	FD_ZERO(&wmask);
@@ -362,6 +365,9 @@ end_wait_events(void)
 	wait_begin = false;
 	cur_number = 0;
 	idx_number = 0;
+#ifdef DEBUG_ADB
+	elog(LOG, "wait_begin = false");
+#endif
 }
 
 /*

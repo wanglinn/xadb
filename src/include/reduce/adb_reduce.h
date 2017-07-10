@@ -24,6 +24,8 @@ extern int StartSelfReduceLauncher(int rid);
 
 extern void StartSelfReduceGroup(RdcListenMask *rdc_masks, int num);
 
+extern void EndSelfReduceGroup(void);
+
 extern int SendTupleToSelfReduce(RdcPort *port, const Oid nodeIds[], int num,
 							 const char *data, int len);
 

@@ -83,6 +83,9 @@ rdc_send_group_rqt(RdcPort *port, RdcListenMask *rdc_masks, int num)
 		Assert(mask);
 		Assert(mask->rdc_host[0]);
 		Assert(mask->rdc_port > 1024 && mask->rdc_port < 65535);
+#ifdef DEBUG_ADB
+		elog(LOG, "[Reduce %d] {%s:%d}", i, mask->rdc_host, mask->rdc_port);
+#endif
 		rdc_sendstring(&buf, mask->rdc_host);
 		rdc_sendint(&buf, mask->rdc_port, sizeof(mask->rdc_port));
 	}

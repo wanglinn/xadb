@@ -236,11 +236,19 @@ AdbReduceLauncherMain(int rid)
 void
 StartSelfReduceGroup(RdcListenMask *rdc_masks, int num)
 {
-	if (rdc_send_group_rqt(backend_hold_port, rdc_masks, num) == EOF ||
-		rdc_recv_group_rsp(backend_hold_port) == EOF)
+	if (rdc_send_group_rqt(backend_hold_port, rdc_masks, num) == EOF)
 		ereport(ERROR,
-				(errmsg("fail to start adb reduce group"),
-				 errhint("%s", RdcError(backend_hold_port))));
+				(errmsg("fail to send reduce group message"),
+				 errdetail("%s", RdcError(backend_hold_port))));
+}
+
+void
+EndSelfReduceGroup(void)
+{
+	if (rdc_recv_group_rsp(backend_hold_port) == EOF)
+		ereport(ERROR,
+				(errmsg("fail to receive reduce group response"),
+				 errdetail("%s", RdcError(backend_hold_port))));
 }
 
 int

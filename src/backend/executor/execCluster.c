@@ -502,6 +502,8 @@ static void wait_rdc_group_message(void)
 
 	StartSelfReduceGroup(rdc_masks, rdc_cnt);
 
+	EndSelfReduceGroup();
+
 	pfree(msg.data);
 }
 
@@ -544,6 +546,9 @@ StartRemoteReduceGroup(List *conns, RdcListenMask *rdc_masks, int rdc_cnt)
 	int				i;
 	ListCell	   *lc;
 	PGconn		   *conn;
+	char		   *host;
+	int				port;
+	int				len;
 
 	AssertArg(conns && rdc_masks);
 	AssertArg(rdc_cnt > 0);
@@ -553,16 +558,23 @@ StartRemoteReduceGroup(List *conns, RdcListenMask *rdc_masks, int rdc_cnt)
 	appendBinaryStringInfo(&msg, (char *) &rdc_cnt, sizeof(rdc_cnt));
 	for (i = 0; i < rdc_cnt; i++)
 	{
-		appendStringInfoString(&msg, rdc_masks[i].rdc_host);
-		appendBinaryStringInfo(&msg, (char *) &(rdc_masks[i].rdc_port),
-							   sizeof(rdc_masks[i].rdc_port));
+		host = rdc_masks[i].rdc_host;
+		port = rdc_masks[i].rdc_port;
+		Assert(host && host[0]);
+
+		/* including the terminating null byte ('\0') */
+		len = strlen(host) + 1;
+		appendBinaryStringInfo(&msg, host, len);
+		len = sizeof(port);
+		appendBinaryStringInfo(&msg, (char *) &port, len);
 	}
 	end_mem_toc_insert(&msg, REMOTE_KEY_REDUCE_GROUP);
 
 	foreach (lc, conns)
 	{
 		conn = lfirst(lc);
-		if(PQputCopyData(conn, msg.data, msg.len) == false)
+		if (PQputCopyData(conn, msg.data, msg.len) <= 0 ||
+			PQflush(conn))
 		{
 			pfree(msg.data);
 			const char *node_name = PQNConnectName(conn);
@@ -700,6 +712,9 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, bool has_reduce)
 
 		/* tell other reduce infomation about reduce group */
 		StartRemoteReduceGroup(list_conn, rdc_masks, reduce_id);
+
+		/* wait for self reduce start reduce group OK */
+		EndSelfReduceGroup();
 	}
 
 	error_context_stack = error_context_hook.previous;
@@ -717,7 +732,11 @@ static bool InstrumentEndLoop_walker(PlanState *ps, void *context)
 
 static void ExecClusterErrorHook(void *arg)
 {
+	const ErrorData *err_data;
+
 	PGXCNodeOid = (Oid)(Size)(arg);
 
-	EndSelfReduce(0, 0);
+	if ((err_data = err_current_data()) != NULL &&
+		err_data->elevel >= ERROR)
+		EndSelfReduce(0, 0);
 }
