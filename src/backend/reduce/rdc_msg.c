@@ -14,7 +14,36 @@
 #include "reduce/rdc_comm.h"
 #include "reduce/rdc_msg.h"
 
-int		MyReduceId = -1;
+RdcPortId	MyReduceId = InvalidPortId;
+int			MyReduceIdx = -1;
+
+void
+rdc_freemasks(RdcListenMask *masks, int num)
+{
+	int i;
+	for (i = 0; i < num; i++)
+	{
+		safe_pfree(masks[i].rdc_host);
+	}
+	pfree(masks);
+}
+
+int
+rdc_portidx(RdcListenMask *rdc_masks, int num, RdcPortId roid)
+{
+	int i;
+
+	if (rdc_masks == NULL)
+		return -1;
+
+	for (i = 0; i < num; i++)
+	{
+		if (rdc_masks[i].rdc_roid == roid)
+			return i;
+	}
+
+	return -1;
+}
 
 int
 rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id)
@@ -25,7 +54,7 @@ rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id)
 
 #ifdef DEBUG_ADB
 	elog(LOG,
-		 "send startup request to [%s %d] {%s:%s}",
+		 "send startup request to [%s %ld] {%s:%s}",
 		 RdcPeerTypeStr(port), RdcPeerID(port),
 		 RdcPeerHost(port), RdcPeerPort(port));
 #endif
@@ -34,7 +63,7 @@ rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id)
 	rdc_beginmessage(&buf, RDC_START_RQT);
 	rdc_sendint(&buf, RDC_VERSION_NUM, sizeof(int));		/* version */
 	rdc_sendint(&buf, type, sizeof(type));
-	rdc_sendint(&buf, id, sizeof(id));
+	rdc_sendint64(&buf, id);
 	rdc_endmessage(port, &buf);
 
 	return rdc_flush(port);
@@ -49,7 +78,7 @@ rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id)
 
 #ifdef DEBUG_ADB
 	elog(LOG,
-		 "send startup response to [%s %d] {%s:%s}",
+		 "send startup response to [%s %ld] {%s:%s}",
 		 RdcPeerTypeStr(port), RdcPeerID(port),
 		 RdcPeerHost(port), RdcPeerPort(port));
 #endif
@@ -58,7 +87,7 @@ rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id)
 	rdc_beginmessage(&buf, RDC_START_RSP);
 	rdc_sendint(&buf, RDC_VERSION_NUM, sizeof(int));
 	rdc_sendint(&buf, type, sizeof(type));
-	rdc_sendint(&buf, id, sizeof(id));
+	rdc_sendint64(&buf, id);
 	rdc_endmessage(port, &buf);
 
 	return rdc_flush(port);
@@ -84,10 +113,11 @@ rdc_send_group_rqt(RdcPort *port, RdcListenMask *rdc_masks, int num)
 		Assert(mask->rdc_host[0]);
 		Assert(mask->rdc_port > 1024 && mask->rdc_port < 65535);
 #ifdef DEBUG_ADB
-		elog(LOG, "[Reduce %d] {%s:%d}", i, mask->rdc_host, mask->rdc_port);
+		elog(LOG, "[Reduce %ld] {%s:%d}", mask->rdc_roid, mask->rdc_host, mask->rdc_port);
 #endif
 		rdc_sendstring(&buf, mask->rdc_host);
 		rdc_sendint(&buf, mask->rdc_port, sizeof(mask->rdc_port));
+		rdc_sendint64(&buf, mask->rdc_roid);
 	}
 	rdc_endmessage(port, &buf);
 
@@ -160,12 +190,12 @@ rdc_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId expecte
 			return EOF;
 		}
 
-		rsp_id = rdc_getmsgint(RdcInBuf(port), sizeof(rsp_id));
+		rsp_id = rdc_getmsgint64(RdcInBuf(port));
 		if (rsp_id != expected_id)
 		{
 			rdc_puterror(port,
-						 "expected port id '%d' from server, "
-						 "but received response id '%d'",
+						 "expected port id '%ld' from server, "
+						 "but received response id '%ld'",
 						 expected_id, rsp_id);
 			return EOF;
 		}

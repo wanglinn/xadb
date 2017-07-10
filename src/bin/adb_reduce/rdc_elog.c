@@ -1871,7 +1871,7 @@ rdc_send_message_to_server_log(ErrorData *edata)
 	setup_formatted_log_time();
 	appendStringInfo(&buf, "[%s]", formatted_log_time);
 	appendStringInfo(&buf, "[%s]: ", _(error_severity(edata->elevel)));
-	appendStringInfo(&buf, "[REDUCE %d] ", MyReduceId);
+	appendStringInfo(&buf, "[REDUCE %ld] ", MyReduceId);
 
 	if (edata->message)
 		append_with_tabs(&buf, edata->message);

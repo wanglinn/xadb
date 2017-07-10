@@ -37,6 +37,8 @@
 #include "utils/memutils.h"
 
 #define RDC_BUFFER_SIZE		8192
+#define IdxIsEven(idx)		((idx) % 2 == 0)		/* even number */
+#define IdxIsOdd(idx)		((idx) % 2 == 1)		/* odd nnumber */
 
 static int RdcWaitTimed(int forRead, int forWrite, RdcPort *port, int timeout);
 static RdcPort *RdcConnectStart(const char *host, uint32 port,
@@ -53,6 +55,7 @@ static RdcPollingStatusType internal_recv_startup_rqt(RdcPort *port, int expecte
 static RdcPollingStatusType internal_recv_startup_rsp(RdcPort *port, RdcPortType expceted_type, RdcPortId expceted_id);
 static int connect_nodelay(RdcPort *port);
 static int connect_keepalive(RdcPort *port);
+static int connect_close_on_exec(RdcPort *port);
 static void drop_connection(RdcPort *port, bool flushInput);
 
 const char *
@@ -89,6 +92,7 @@ rdc_newport(pgsocket sock,
 	rdc_port->next = NULL;
 	rdc_port->sock = sock;
 	rdc_port->noblock = false;
+	rdc_port->active = false;
 	rdc_port->peer_type = peer_type;
 	rdc_port->peer_id = peer_id;
 	rdc_port->self_type = self_type;
@@ -169,7 +173,7 @@ RdcWaitTimed(int forRead, int forWrite, RdcPort *port, int timeout)
 		if (nready < 0)
 		{
 			rdc_puterror(port,
-						 "fail to wait read/write event for socket of [%s %d]",
+						 "fail to wait read/write event for socket of [%s %ld]",
 						 RdcPeerTypeStr(port), RdcPeerID(port));
 			end_wait_events();
 			return EOF;
@@ -398,7 +402,8 @@ keep_going: 					/* We will come back to here until there is
 					 */
 					if (!rdc_set_noblock(port) ||
 						!connect_nodelay(port) ||
-						!connect_keepalive(port))
+						!connect_keepalive(port) ||
+						!connect_close_on_exec(port))
 					{
 						drop_connection(port, true);
 						port->addr_cur = addr_cur->ai_next;
@@ -406,7 +411,7 @@ keep_going: 					/* We will come back to here until there is
 					}
 #ifdef DEBUG_ADB
 					elog(LOG,
-						 "Try to connect [%s %d] {%s:%s}",
+						 "Try to connect [%s %ld] {%s:%s}",
 						 RdcPeerTypeStr(port), RdcPeerID(port),
 						 RdcPeerHost(port), RdcPeerPort(port));
 #endif
@@ -430,7 +435,7 @@ keep_going: 					/* We will come back to here until there is
 						}
 
 						rdc_puterror(port,
-									 "fail to connect [%s:%d] {%s:%s}: %m",
+									 "fail to connect [%s:%ld] {%s:%s}: %m",
 									 RdcPeerTypeStr(port), RdcPeerID(port),
 									 RdcPeerHost(port), RdcPeerPort(port));
 					}
@@ -706,15 +711,14 @@ _re_accept:
 int
 rdc_parse_group(RdcPort *port,				/* IN */
 				int *rdc_num,				/* OUT */
-#ifdef DEBUG_ADB
-				ReduceInfo **nodeinfos,		/* OUT */
-#endif
+				RdcListenMask **masks,		/* OUT */
 				List **connect_list)		/* OUT */
 {
 	const char		   *host = NULL;
 	int					num;
 	int					i;
 	uint32				portnum;
+	RdcPortId			roid;
 	StringInfo			msg;
 	int					ret;
 	struct addrinfo		hint;
@@ -722,6 +726,11 @@ rdc_parse_group(RdcPort *port,				/* IN */
 	List			   *clist = NIL;
 	ListCell		   *cell = NULL;
 	RdcPort			   *rdc_port = NULL;
+	RdcListenMask	   *rdc_masks = NULL;
+	RdcListenMask	   *rdc_mask = NULL;
+
+	int					self_rdc_idx;
+	int					othr_rdc_idx;
 
 	if (port == NULL)
 		return STATUS_ERROR;
@@ -729,28 +738,33 @@ rdc_parse_group(RdcPort *port,				/* IN */
 	msg = RdcInBuf(port);
 	num = rdc_getmsgint(msg, sizeof(num));
 	Assert(num > 0);
-#ifdef DEBUG_ADB
-	if (nodeinfos)
-		*nodeinfos = (ReduceInfo *) palloc0(num * sizeof(ReduceInfo));
-#endif
+	rdc_masks = (RdcListenMask*) MemoryContextAllocZero(TopMemoryContext,
+														num * sizeof(RdcListenMask));
 
 	for (i = 0; i < num; i++)
 	{
-		host = rdc_getmsgstring(msg);
-		portnum = rdc_getmsgint(msg, sizeof(portnum));
+		rdc_masks[i].rdc_host = MemoryContextStrdup(TopMemoryContext,
+													rdc_getmsgstring(msg));
+		rdc_masks[i].rdc_port = rdc_getmsgint(msg, sizeof(rdc_masks[i].rdc_port));
+		rdc_masks[i].rdc_roid = rdc_getmsgint64(msg);
+	}
 
-#ifdef DEBUG_ADB
-		if (nodeinfos)
-		{
-			(*nodeinfos)[i].rnid = i;
-			(*nodeinfos)[i].host = pstrdup(host);
-			(*nodeinfos)[i].port = portnum;
-		}
-#endif
+	for (i = 0; i < num; i++)
+	{
+		rdc_mask = &(rdc_masks[i]);
+		roid = rdc_mask->rdc_roid;
+		host = rdc_mask->rdc_host;
+		portnum = rdc_mask->rdc_port;
 
 		/* skip self Reduce */
-		if (i == MyReduceId)
+		if (roid == MyReduceId)
 			continue;
+
+		self_rdc_idx = rdc_portidx(rdc_masks, num, MyReduceId);
+		othr_rdc_idx = rdc_portidx(rdc_masks, num, roid);
+
+		Assert(self_rdc_idx >= 0);
+		Assert(othr_rdc_idx >= 0);
 
 		/*
 		 * If MyReduceId is even, i will connect with Reduce node whose id is
@@ -773,13 +787,13 @@ rdc_parse_group(RdcPort *port,				/* IN */
 		 *		4	5	4	5	4	5	4	5	4	5
 		 *	total: 45 connects
 		 */
-		if ((PortIdIsEven(MyReduceId) && PortIdIsEven(i) && i > MyReduceId) ||
-			(PortIdIsEven(MyReduceId) && PortIdIsOdd(i) && i < MyReduceId) ||
-			(PortIdIsOdd(MyReduceId) && PortIdIsOdd(i) && i > MyReduceId) ||
-			(PortIdIsOdd(MyReduceId) && PortIdIsEven(i) && i < MyReduceId))
+		if ((IdxIsEven(self_rdc_idx) && IdxIsEven(othr_rdc_idx) && othr_rdc_idx > self_rdc_idx) ||
+			(IdxIsEven(self_rdc_idx) && IdxIsOdd(othr_rdc_idx) && othr_rdc_idx < self_rdc_idx) ||
+			(IdxIsOdd(self_rdc_idx) && IdxIsOdd(othr_rdc_idx) && othr_rdc_idx > self_rdc_idx) ||
+			(IdxIsOdd(self_rdc_idx) && IdxIsEven(othr_rdc_idx) && othr_rdc_idx < self_rdc_idx))
 		{
 			rdc_port = rdc_newport(PGINVALID_SOCKET,
-								   TYPE_REDUCE, i,
+								   TYPE_REDUCE, roid,
 								   TYPE_REDUCE, MyReduceId);
 
 			MemSet(&hint, 0, sizeof(hint));
@@ -803,6 +817,7 @@ rdc_parse_group(RdcPort *port,				/* IN */
 			}
 			rdc_port->addr_cur = rdc_port->addrs;
 			RdcStatus(rdc_port) = RDC_CONNECTION_NEEDED;
+			RdcActive(rdc_port) = true;
 #ifdef DEBUG_ADB
 			RdcPeerHost(rdc_port) = pstrdup(host);
 			RdcPeerPort(rdc_port) = pstrdup(portstr);
@@ -815,7 +830,7 @@ rdc_parse_group(RdcPort *port,				/* IN */
 					rdc_freeport((RdcPort *) lfirst(cell));
 
 				rdc_puterror(port,
-							 "fail to connect with [%s %d] {%s:%s}: %s",
+							 "fail to connect with [%s %ld] {%s:%s}: %s",
 							 RdcPeerTypeStr(rdc_port), RdcPeerID(rdc_port),
 							 RdcPeerHost(rdc_port), RdcPeerPort(rdc_port),
 							 RdcError(rdc_port));
@@ -838,6 +853,10 @@ rdc_parse_group(RdcPort *port,				/* IN */
 		foreach (cell, clist)
 			rdc_freeport((RdcPort *) lfirst(cell));
 	}
+	if (masks)
+		*masks = rdc_masks;
+	else
+		rdc_freemasks(rdc_masks, num);
 
 	return STATUS_OK;
 }
@@ -962,7 +981,7 @@ retry:
 			if (nready < 0)
 				ereport(ERROR,
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
-					 errmsg("fail to wait read/write event for socket of [%s %d]",
+					 errmsg("fail to wait read/write event for socket of [%s %ld]",
 					 		RdcPeerTypeStr(port), RdcPeerID(port))));
 			end_wait_events();
 			goto retry;
@@ -1037,7 +1056,7 @@ rdc_recv(RdcPort *port)
 					 errmsg("could not receive data from client: %m")));
 
 			rdc_puterror(port,
-						 "could not receive data from [%s %d] {%s:%s}: %m",
+						 "could not receive data from [%s %ld] {%s:%s}: %m",
 						 RdcPeerTypeStr(port), RdcPeerID(port),
 						 RdcPeerHost(port), RdcPeerPort(port));
 			return EOF;
@@ -1049,7 +1068,7 @@ rdc_recv(RdcPort *port)
 			 * better to expect the ultimate caller to do that.
 			 */
 			rdc_puterror(port,
-						 "the peer of [%s %d] {%s:%s} has performed an orderly shutdown",
+						 "the peer of [%s %ld] {%s:%s} has performed an orderly shutdown",
 						 RdcPeerTypeStr(port), RdcPeerID(port),
 						 RdcPeerHost(port), RdcPeerPort(port));
 			return EOF;
@@ -1521,12 +1540,12 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver)
 	RdcVersion(port) = rqt_ver;
 
 	rqt_type = rdc_getmsgint(msg, sizeof(rqt_type));
-	Assert(PortTypeIsValid(rqt_type));
 	RdcPeerType(port) = rqt_type;
 
-	rqt_id = rdc_getmsgint(msg, sizeof(rqt_id));
-	Assert(PortIdIsValid(rqt_id));
+	rqt_id = rdc_getmsgint64(msg);
 	RdcPeerID(port) = rqt_id;
+
+	Assert(PortIdIsValid(port));
 
 	rdc_getmsgend(msg);
 
@@ -1540,7 +1559,7 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver)
 	}
 #ifdef DEBUG_ADB
 	elog(LOG,
-		 "recv startup request from [%s %d] {%s:%s}",
+		 "recv startup request from [%s %ld] {%s:%s}",
 		 rdc_type2string(rqt_type), RdcPeerID(port),
 		 RdcPeerHost(port), RdcPeerPort(port));
 #endif
@@ -1661,12 +1680,12 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 						 rdc_type2string(rsp_type));
 			return RDC_POLLING_FAILED;
 		}
-		rsp_id = rdc_getmsgint(msg, sizeof(rsp_id));
+		rsp_id = rdc_getmsgint64(msg);
 		if (rsp_id != expected_id)
 		{
 			rdc_puterror(port,
-						 "expected port id '%d' from server, "
-						 "but received response id '%d'",
+						 "expected port id '%ld' from server, "
+						 "but received response id '%ld'",
 						 expected_id, rsp_id);
 			return RDC_POLLING_FAILED;
 		}
@@ -1674,7 +1693,7 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 
 #ifdef DEBUG_ADB
 		elog(LOG,
-			 "recv startup response from [%s %d] {%s:%s}",
+			 "recv startup response from [%s %ld] {%s:%s}",
 			 rdc_type2string(rsp_type), RdcPeerID(port),
 			 RdcPeerHost(port), RdcPeerPort(port));
 #endif
@@ -1730,6 +1749,25 @@ connect_keepalive(RdcPort *port)
 	/* TODO on WIN32 platform */
 #endif	/* WIN32 */
 
+	return 1;
+}
+
+/*
+ * connect_close_on_exec - set socket FD_CLOEXEC option
+ *
+ * returns 1 if OK
+ * returns 0 if trouble
+ */
+static int
+connect_close_on_exec(RdcPort *port)
+{
+#ifdef F_SETFD
+	if (fcntl(RdcSocket(port), F_SETFD, FD_CLOEXEC) == -1)
+	{
+		rdc_puterror("could not set socket to close-on-exec mode: %m");
+		return 0;
+	}
+#endif   /* F_SETFD */
 	return 1;
 }
 

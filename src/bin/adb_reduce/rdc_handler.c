@@ -79,7 +79,7 @@ try_read_some(RdcPort *port)
 {
 	if (!rdc_set_noblock(port))
 		ereport(ERROR,
-				(errmsg("fail to set noblocking mode for [%s %d] {%s:%s}",
+				(errmsg("fail to set noblocking mode for [%s %ld] {%s:%s}",
 						RdcPeerTypeStr(port), RdcPeerID(port),
 						RdcPeerHost(port), RdcPeerPort(port))));
 
@@ -132,7 +132,7 @@ try_read_from_plan(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 			/* set noblocking mode and read some data */
 			if (try_read_some(port) == EOF)
 				ereport(ERROR,
-						(errmsg("fail to read some from [%s %d] {%s:%s}",
+						(errmsg("fail to read some from [%s %ld] {%s:%s}",
 								RdcPeerTypeStr(port), RdcPeerID(port),
 								RdcPeerHost(port), RdcPeerPort(port)),
 						 errhint("connection to client lost")));
@@ -153,6 +153,7 @@ try_read_from_plan(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 					{
 						RdcPort		   *rdc_port;
 						RdcPortId		rid;
+						int				ridx;
 						const char	   *data;
 						int				num, i;
 						int				totallen, datalen;
@@ -182,11 +183,13 @@ try_read_from_plan(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 						/* reduce id */
 						for (i = 0; i < num; i++)
 						{
-							rid = rdc_getmsgint(msg, sizeof(rid));
+							rid = rdc_getmsgint64(msg);
 							Assert(rid != MyReduceId);
 							Assert(rid >= 0 && rid < rdc_num);
 							/* reduce port */
-							rdc_port = rdc_nodes[rid];
+							ridx = rdc_portidx(MyReduceOpts->rdc_masks, MyReduceOpts->rdc_num, rid);
+							Assert(ridx >= 0);
+							rdc_port = rdc_nodes[ridx];
 							if (firstchar == RDC_P2R_DATA)
 							{
 								/* send data to reduce */
@@ -208,7 +211,7 @@ try_read_from_plan(PlanPort *pln_port, RdcPort **rdc_nodes, int rdc_num)
 					{
 						/* TODO: how to close? */
 						elog(LOG,
-							 "Receive close message from [%s %d] {%s:%s}",
+							 "Receive close message from [%s %ld] {%s:%s}",
 							 RdcPeerTypeStr(port), RdcPeerID(port),
 							 RdcPeerHost(port), RdcPeerPort(port));
 
@@ -268,7 +271,7 @@ try_write_to_plan(PlanPort *pln_port)
 		/* set in noblocking mode */
 		if (!rdc_set_noblock(port))
 			ereport(ERROR,
-					(errmsg("fail to set noblocking mode for [%s %d] {%s:%s}",
+					(errmsg("fail to set noblocking mode for [%s %ld] {%s:%s}",
 							RdcPeerTypeStr(port), RdcPeerID(port),
 							RdcPeerHost(port), RdcPeerPort(port))));
 
@@ -347,7 +350,7 @@ try_read_from_reduce(RdcPort *port, List **pln_list)
 		/* set noblocking mode and read some data */
 		if (try_read_some(port) == EOF)
 			ereport(ERROR,
-					(errmsg("fail to read some from [%s %d] {%s:%s}",
+					(errmsg("fail to read some from [%s %ld] {%s:%s}",
 							RdcPeerTypeStr(port), RdcPeerID(port),
 							RdcPeerHost(port), RdcPeerPort(port)),
 					 errhint("connection to client lost")));
@@ -381,7 +384,7 @@ try_read_from_reduce(RdcPort *port, List **pln_list)
 					}
 					datalen = rdc_getmsgint(msg, sizeof(datalen));
 					datalen -= sizeof(datalen);
-					planid = rdc_getmsgint(msg, sizeof(planid));
+					planid = rdc_getmsgint64(msg);
 					datalen -= sizeof(planid);
 					/* find RdcPort of plan */
 					pln_port = find_plan_port(*pln_list, planid);
@@ -418,7 +421,7 @@ try_read_from_reduce(RdcPort *port, List **pln_list)
 				{
 					/* TODO: how to close? */
 					elog(LOG,
-						 "Receive close message from [%s %d] {%s:%s}",
+						 "Receive close message from [%s %ld] {%s:%s}",
 						 RdcPeerTypeStr(port), RdcPeerID(port),
 						 RdcPeerHost(port), RdcPeerPort(port));
 					rdc_freeport(port);
@@ -465,7 +468,7 @@ build_packet_rdc2plan(StringInfo buf, RdcPortId rdc_id, const char *data, int da
 		Assert(datalen == 0);
 		rdc_beginmessage(buf, RDC_EOF_MSG);
 	}
-	rdc_sendint(buf, rdc_id, sizeof(rdc_id));
+	rdc_sendint64(buf, rdc_id);
 	if (data)
 		rdc_sendbytes(buf, data, datalen);
 	rdc_sendlength(buf);
@@ -514,7 +517,7 @@ send_rdc2rdc(RdcPort *port, RdcPortId planid, const char *data, int datalen)
 		Assert(datalen == 0);
 		rdc_beginmessage(&buf, RDC_EOF_MSG);
 	}
-	rdc_sendint(&buf, planid, sizeof(RdcPortId));
+	rdc_sendint64(&buf, planid);
 	if (data)
 		rdc_sendbytes(&buf, data, datalen);
 	rdc_endmessage(port, &buf);

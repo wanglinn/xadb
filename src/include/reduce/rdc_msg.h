@@ -17,13 +17,18 @@
 
 #define RDC_VERSION_NUM		PG_VERSION_NUM
 
-extern int				MyReduceId;
+extern RdcPortId		MyReduceId;
+extern int				MyReduceIdx;
 
-typedef struct ReduceListenMask
+struct RdcListenMask
 {
-	int		rdc_port;
-	char   *rdc_host;
-} RdcListenMask;
+	RdcPortId	rdc_roid;
+	int			rdc_port;
+	char	   *rdc_host;
+};
+
+extern void rdc_freemasks(RdcListenMask *masksm, int num);
+extern int rdc_portidx(RdcListenMask *rdc_masks, int num, RdcPortId roid);
 
 /* -----------Reduce message------------- */
 #define RDC_LISTEN_PORT		'L'

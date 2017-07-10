@@ -19,7 +19,6 @@
 #include "postgres.h"
 #include "nodes/pg_list.h"
 #endif
-
 #include "getaddrinfo.h"
 #include "lib/stringinfo.h"
 #include "reduce/wait_event.h"
@@ -28,16 +27,7 @@
 
 #if !defined(RDC_FRONTEND)
 typedef struct RdcPort RdcPort;
-typedef struct ReduceInfo ReduceInfo;
-#endif
-
-#ifdef DEBUG_ADB
-struct ReduceInfo
-{
-	int			rnid;			/* reduce node id start with 0 */
-	char	   *host;			/* reduce server host */
-	int			port;			/* reduce server port */
-};
+typedef struct RdcListenMask RdcListenMask;
 #endif
 
 typedef enum
@@ -68,12 +58,9 @@ typedef enum
 	RDC_POLLING_OK,
 } RdcPollingStatusType;
 
-typedef int RdcPortId;
+typedef int64 RdcPortId;
 
-#define InvalidPortId			-1
-#define PortIdIsValid(id)		((id) > InvalidPortId)
-#define PortIdIsEven(id)		((id) % 2 == 0)		/* even number */
-#define PortIdIsOdd(id)			((id) % 2 == 1)		/* odd nnumber */
+#define InvalidPortId			((RdcPortId) -1)
 
 typedef enum
 {
@@ -93,6 +80,7 @@ struct RdcPort
 	RdcPort			   *next;			/* RdcPort next for Plan node port with the same plan id */
 	pgsocket			sock;			/* file descriptors for one plan node id */
 	bool				noblock;		/* is the socket in non-blocking mode? */
+	bool				active;			/* true means connect, false means be connected */
 	RdcPortType			peer_type;		/* the identity type of the peer side */
 	RdcPortId			peer_id;		/* the identity id of the peer side */
 	RdcPortType			self_type;		/* local identity type */
@@ -140,6 +128,7 @@ struct RdcPort
 #define RdcSelfType(port)			(((RdcPort *) (port))->self_type)
 #define RdcSelfID(port)				(((RdcPort *) (port))->self_id)
 #define RdcStatus(port)				(((RdcPort *) (port))->status)
+#define RdcActive(port)				(((RdcPort *) (port))->active)
 #define RdcWaitEvents(port)			(((RdcPort *) (port))->wait_events)
 #define RdcGotEof(port)				(((RdcPort *) (port))->got_eof)
 #define RdcWaitRead(port)			((((RdcPort *) (port))->wait_events) & WAIT_SOCKET_READABLE)
@@ -162,12 +151,14 @@ struct RdcPort
 typedef int PlanNodeId;
 #define InvalidPlanNodeId			-1
 #define PlanPortIsValid(port)		(IsPortForPlan(port) && \
-									 PortIdIsValid(RdcPeerID(port)))
+									 RdcPeerID(port) > InvalidPlanNodeId)
 
 typedef int ReduceNodeId;
-#define InvalidReduceId				-1
+#define InvalidReduceId				0
 #define ReducePortIsValid(port)		(IsPortForReduce(port) && \
-									 PortIdIsValid(RdcPeerID(port)))
+									 RdcPeerID(port) > InvalidReduceId)
+
+#define PortIdIsValid(port)			(PlanPortIsValid(port) || ReducePortIsValid(port))
 
 extern const char *rdc_type2string(RdcPortType type);
 extern RdcPort *rdc_newport(pgsocket sock,
@@ -181,9 +172,7 @@ extern RdcPort *rdc_connect(const char *host, uint32 port,
 extern RdcPort *rdc_accept(pgsocket sock);
 extern int rdc_parse_group(RdcPort *port,			/* IN */
 						   int *rdc_num,			/* OUT */
-#ifdef DEBUG_ADB
-						   ReduceInfo **nodeinfos,	/* OUT */
-#endif
+						   RdcListenMask **masks,	/* OUT */
 						   List **connect_list);	/* OUT */
 extern RdcPollingStatusType rdc_connect_poll(RdcPort *port);
 extern int rdc_puterror(RdcPort *port, const char *fmt, ...) pg_attribute_printf(2, 3);

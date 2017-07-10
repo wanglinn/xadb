@@ -23,10 +23,10 @@ static int backend_reduce_fds[2] = {-1, -1};
 static HANDLE	BackendHandle;
 #endif	/* WIN32 */
 
-static int		SelfReduceID = -1;
-static int		RdcListenPort = 0;
-static pid_t	AdbReducePID = 0;
-static RdcPort *backend_hold_port = NULL;
+static RdcPortId	SelfReduceID = InvalidOid;
+static int			RdcListenPort = 0;
+static pid_t		AdbReducePID = 0;
+static RdcPort	   *backend_hold_port = NULL;
 
 #define RDC_BACKEND_HOLD	0
 #define RDC_REDUCE_HOLD		1
@@ -57,7 +57,7 @@ EndSelfReduce(int code, Datum arg)
 	rdc_freeport(backend_hold_port);
 	backend_hold_port = NULL;
 	RdcListenPort = 0;
-	SelfReduceID = -1;
+	SelfReduceID = InvalidOid;
 }
 
 static void
@@ -76,7 +76,7 @@ SigChldHandler(SIGNAL_ARGS)
  * return 0 if trouble.
  */
 int
-StartSelfReduceLauncher(int rid)
+StartSelfReduceLauncher(RdcPortId rid)
 {
 	MemoryContext	old_context;
 
@@ -86,6 +86,7 @@ StartSelfReduceLauncher(int rid)
 	on_proc_exit(EndSelfReduce, 0);
 
 	SelfReduceID = rid;
+	Assert(OidIsValid(rid));
 	switch ((AdbReducePID = fork_process()))
 	{
 		case -1:
@@ -120,7 +121,7 @@ ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id)
 {
 	Assert(AdbReducePID != 0);
 	Assert(RdcListenPort != 0);
-	Assert(SelfReduceID != -1);
+	Assert(SelfReduceID != InvalidOid);
 	return rdc_connect("127.0.0.1", RdcListenPort,
 					   TYPE_REDUCE, SelfReduceID,
 					   self_type, self_id);
