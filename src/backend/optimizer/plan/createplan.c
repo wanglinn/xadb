@@ -44,6 +44,7 @@
 #include "utils/lsyscache.h"
 #ifdef ADB
 #include "catalog/pgxc_node.h"
+#include "lib/ilist.h"
 #include "pgxc/pgxcnode.h"
 #include "pgxc/pgxc.h"
 #include "optimizer/pgxcplan.h"
@@ -281,8 +282,8 @@ static ModifyTable *make_modifytable(PlannerInfo *root,
 #ifdef ADB
 typedef struct FindReduceExprContext
 {
-	Expr *reference;
-	Expr *result;
+	ReduceExprInfo rinfo;
+	slist_node snode;
 } FindReduceExprContext;
 
 static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
@@ -290,9 +291,8 @@ static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags);
 static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath *path, int flags);
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
-static bool find_cluster_reduce_expr(Path *path, FindReduceExprContext *context);
-static bool is_pathtarget_include_reduce_varattnos(PathTarget *pt, Expr *expr);
-static Expr *get_best_reduce_expr(List *list, PlannerInfo *root);
+static bool find_cluster_reduce_expr(Path *path, slist_head *shead);
+static AttrNumber get_target_varattno(PathTarget *target, Index varno, AttrNumber attno);
 #endif /* ADB */
 
 /*
@@ -6492,76 +6492,100 @@ List* get_remote_nodes(Plan *top_plan)
 	return list;
 }
 
-Expr *get_reduce_expr(Path *path, Expr *reference)
+List *get_reduce_info_list(Path *path)
 {
-	FindReduceExprContext context;
-	if(reference && IsReduceExprByValue(reference))
-		context.reference = reference;
-	else
-		context.reference = NULL;
-	context.result = NULL;
+	List *list;
+	FindReduceExprContext *context;
+	slist_iter iter;
+	slist_head head = SLIST_STATIC_INIT(head);
 
-	if(find_cluster_reduce_expr(path, &context))
+	find_cluster_reduce_expr(path, &head);
+
+	list = NIL;
+	slist_foreach(iter, &head)
 	{
-		Assert(context.result != NULL);
-		return context.result;
+		context = slist_container(FindReduceExprContext, snode, iter.cur);
+		if(context->rinfo.relid == 0 && IsReduceExprByValue(context->rinfo.expr))
+		{
+			context->rinfo.relid = PullReducePathExprAttnos(context->rinfo.expr, &context->rinfo.varattnos);
+			Assert(context->rinfo.relid > 0 && bms_membership(context->rinfo.varattnos) != BMS_EMPTY_SET);
+		}
+		list = lappend(list, &context->rinfo);
 	}
-	return NULL;
+	return list;
 }
 
-bool is_grouping_reduce_expr(PathTarget *target, Expr *expr)
+void free_reduce_info_list(List *list)
 {
-	Bitmapset *attnos;
+	ListCell *lc;
+	foreach(lc, list)
+		free_reduce_info(lfirst(lc));
+}
+
+void free_reduce_info(ReduceExprInfo *info)
+{
+	if(info)
+	{
+		bms_free(info->varattnos);
+		pfree(info);
+	}
+}
+
+bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info)
+{
 	Bitmapset *group_attnos;
 	ListCell *lc;
-	Index relid,i;
+	Index i;
 	bool result;
-	AssertArg(target && expr && target->sortgrouprefs);
-	if(expr == NULL || IsReduceExprByValue(expr) == false)
+	AssertArg(target && info && target->sortgrouprefs);
+	if(info->expr == NULL || IsReduceExprByValue(info->expr) == false)
 		return false;
 
-	attnos = NULL;
-	relid = PullReducePathExprAttnos(expr, &attnos);
-	Assert(relid > 0 && attnos != NULL);
-	if(bms_num_members(attnos) != 1)
-	{
-		/* for now, we only support distribute by one column yet */
-		bms_free(attnos);
-		return false;
-	}
+	AssertArg(info->relid > 0 && info->varattnos != NULL);
 
 	i=0;
 	group_attnos = NULL;
 	foreach(lc, target->exprs)
 	{
-		if (target->sortgrouprefs[i] &&
-			IsA(lfirst(lc), Var))
+		if (target->sortgrouprefs[i])
 		{
-			pull_varattnos(lfirst(lc), relid, &group_attnos);
+			Expr *expr = lfirst(lc);
+			while(IsA(expr, RelabelType))
+				expr = ((RelabelType *) expr)->arg;
+			if(IsA(expr, Var))	/* must group by Var */
+				pull_varattnos((Node*)expr, info->relid, &group_attnos);
 		}
 		++i;
 	}
 
-	result = bms_is_subset(attnos, group_attnos);
+	result = bms_is_subset(info->varattnos, group_attnos);
 	bms_free(group_attnos);
-	bms_free(attnos);
 	return result;
 }
 
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags)
 {
 	Plan *subplan;
-	Expr *to,*from;
+	Expr *to;
 	ClusterReduce *plan;
+	List *reduce_list;
+	ListCell *lc;
+	ReduceExprInfo *info;
 
 	to = path->reduce;
 	while(IsA(path->subpath, ClusterReducePath))
 		path = (ClusterReducePath*)(path->subpath);
 
-	if ((from = get_reduce_expr(path->subpath, to))
-		&& equal(from, to))
+	reduce_list = get_reduce_info_list(path->subpath);
+	foreach(lc, reduce_list)
 	{
-		return create_plan(root, path->subpath);
+		info = lfirst(lc);
+		if(equal(info->expr, to))
+		{
+			subplan = create_plan(root, path->subpath);
+			list_free_deep(reduce_list);
+			return subplan;
+		}
 	}
 
 	plan = makeNode(ClusterReduce);
@@ -6573,120 +6597,165 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 	return (Plan*)plan;
 }
 
-static bool find_cluster_reduce_expr(Path *path, FindReduceExprContext *context)
+static bool find_cluster_reduce_expr(Path *path, slist_head *shead)
 {
 	if(path == NULL)
 		return false;
-	if(IsA(path, ClusterReducePath))
-	{
-		context->result = ((ClusterReducePath*)path)->reduce;
-		return true;
-	}else if(IsA(path, NestLoop)
-			 || IsA(path, MergeJoin)
-			 || IsA(path, HashJoin))
-	{
-		FindReduceExprContext jcontext;
-		ListCell *lc;
-		JoinPath *jp = (JoinPath*)path;
-		List *path_list = list_make2(jp->outerjoinpath, jp->innerjoinpath);
-		List *expr_list = NIL;
-		jcontext.reference = context->reference;
 
-		foreach(lc, path_list)
+	switch(nodeTag(path))
+	{
+	case T_ClusterReducePath:
 		{
-			jcontext.result = NULL;
-			if (find_cluster_reduce_expr(lfirst(lc), &jcontext) &&
-				jcontext.result != NULL &&
-				is_pathtarget_include_reduce_varattnos(path->pathtarget, jcontext.result))
+			FindReduceExprContext *context = palloc0(sizeof(*context));
+			context->rinfo.expr = ((ClusterReducePath*)path)->reduce;
+			slist_push_head(shead, &context->snode);
+			return false;
+		}
+		break;
+	case T_GroupPath:
+	case T_AggPath:
+		{
+			FindReduceExprContext *context;
+			slist_mutable_iter iter;
+
+			StaticAssertStmt(offsetof(GroupPath, subpath) == offsetof(AggPath, subpath), "change code");
+			find_cluster_reduce_expr(((GroupPath*)path)->subpath, shead);
+
+			slist_foreach_modify(iter, shead)
 			{
-				if(equal(context->reference, jcontext.result))
+				bool remove = true;
+				context = slist_container(FindReduceExprContext, snode, iter.cur);
+				if(IsReduce2Coordinator(context->rinfo.expr))
 				{
-					list_free(expr_list);
-					context->result = jcontext.result;
-					return true;
+					remove = false;
+				}else if(IsReduceExprByValue(context->rinfo.expr))
+				{
+					if(context->rinfo.relid == 0)
+						context->rinfo.relid = PullReducePathExprAttnos(context->rinfo.expr, &context->rinfo.varattnos);
+					Assert(context->rinfo.relid > 0);
+					if(is_grouping_reduce_expr(path->pathtarget, &context->rinfo))
+						remove = false;
 				}
-				if(IsReduceExprByValue(jcontext.result))
-					expr_list = lappend(expr_list, jcontext.result);
+
+				if(remove)
+				{
+					slist_delete_current(&iter);
+					free_reduce_info(&context->rinfo);
+				}
 			}
 		}
-
-		/* only on reduce expr */
-		context->result = get_best_reduce_expr(expr_list, NULL);
-		list_free(expr_list);
-		return true;
-	}else if(IsA(path, GroupPath) ||
-			 IsA(path, AggPath))
-	{
-		Assert(offsetof(GroupPath, subpath) == offsetof(AggPath, subpath));
-		return find_cluster_reduce_expr(((GroupPath*)path)->subpath, context) &&
-			   context->result &&
-			   is_grouping_reduce_expr(path->pathtarget, context->result);
-	}else if(IsA(path, GroupingSetsPath))
-	{
-		/* not support yet */
 		return false;
-	}else if(IsA(path, AppendPath) ||
-			 IsA(path, MergeAppendPath))
-	{
-		/* not support yet */
-		return false;
-	}else if(IsA(path, BitmapOrPath) ||
-			 IsA(path, BitmapAndPath))
-	{
-		/* not support yet */
-		return false;
-	}else if(IsA(path, CustomPath))
-	{
-		/* I don't how to find */
-		return false;
-	}else if(IsA(path, ModifyTablePath))
-	{
-		/* not support yet */
-		return false;
-	}else if(IsA(path, Path))
-	{
-		context->result = path->parent->reduce;
-		return true;
-	}
-
-	return path_tree_walker(path, find_cluster_reduce_expr, context);
-}
-
-static bool is_pathtarget_include_reduce_varattnos(PathTarget *pt, Expr *expr)
-{
-	Bitmapset *reduce_attnos = NULL;
-	Bitmapset *path_attnos = NULL;
-	Index relid = PullReducePathExprAttnos(expr, &reduce_attnos);
-	bool result;
-	pull_varattnos((Node*)(pt->exprs), relid, &path_attnos);
-
-	result = bms_is_subset(reduce_attnos, path_attnos);
-	bms_free(path_attnos);
-	bms_free(reduce_attnos);
-	return result;
-}
-
-static Expr *get_best_reduce_expr(List *list, PlannerInfo *root)
-{
-	ListCell *lc;
-	Expr *expr_best;
-	QualCost cost_best,cost;
-	Assert(list);
-
-	if(list_length(list) == 1)
-		return linitial(list);
-
-	lc = list_head(list);
-	expr_best = lfirst(lc);
-	cost_qual_eval_node(&cost_best, (Node*)expr_best, root);
-	for(lc=lnext(lc);lc!=NULL;lc=lnext(lc))
-	{
-		cost_qual_eval_node(&cost, lfirst(lc), root);
-		if(cost.per_tuple + cost.startup < cost_best.per_tuple + cost_best.startup)
+	case T_SubqueryScanPath:
 		{
-			expr_best = lfirst(lc);
+			FindReduceExprContext *context;
+			ReduceExprInfo *rinfo;
+			slist_mutable_iter iter;
+			Index relid;
+			Bitmapset *attnos;
+			PathTarget *sub_target;
+			int x;
+			AttrNumber attno;
+			bool remove;
+
+			find_cluster_reduce_expr(((SubqueryScanPath*)path)->subpath, shead);
+
+			/* we must transform varno and varattno */
+			sub_target = path->parent->subroot->upper_targets[UPPERREL_FINAL];
+			slist_foreach_modify(iter, shead)
+			{
+				context = slist_container(FindReduceExprContext, snode, iter.cur);
+				rinfo = &context->rinfo;
+				if (IsReduce2Coordinator(rinfo->expr) ||
+					!IsReduceExprByValue(rinfo->expr))
+					continue;
+
+				if(rinfo->relid == 0)
+				{
+					Assert(rinfo->varattnos == NULL);
+					attnos = NULL;
+					relid = PullReducePathExprAttnos(rinfo->expr, &attnos);
+				}else
+				{
+					Assert(!bms_is_empty(rinfo->varattnos));
+					relid = rinfo->relid;
+					attnos = rinfo->varattnos;
+					rinfo->varattnos = NULL;
+				}
+				Assert(bms_membership(attnos) != BMS_EMPTY_SET);
+				rinfo->relid = path->parent->relid;
+
+				remove = false;
+				while((x=bms_first_member(attnos)) >= 0)
+				{
+					attno = get_target_varattno(sub_target,
+											  relid,
+											  x + FirstLowInvalidHeapAttributeNumber);
+					if(attno == InvalidAttrNumber)
+					{
+						remove = true;
+						break;
+					}
+					rinfo->varattnos = bms_add_member(rinfo->varattnos,
+													  attno - FirstLowInvalidHeapAttributeNumber);
+				}
+				if(remove)
+				{
+					slist_delete_current(&iter);
+					free_reduce_info(rinfo);
+				}
+				bms_free(attnos);
+			}
 		}
+		return false;
+	case T_GroupingSetsPath:
+	case T_AppendPath:
+	case T_MergeAppendPath:
+	case T_BitmapOrPath:
+	case T_BitmapAndPath:
+	case T_CustomPath:		/* I don't how to find */
+	case T_ModifyTablePath:
+		{
+			FindReduceExprContext *context;
+			slist_node *snode;
+			while(!slist_is_empty(shead))
+			{
+				snode = slist_pop_head_node(shead);
+				context = slist_container(FindReduceExprContext, snode, snode);
+				free_reduce_info(&context->rinfo);
+			}
+		}
+		return false;
+	case T_Path:
+		if(path->parent->reduce)
+		{
+			FindReduceExprContext *context = palloc0(sizeof(*context));
+			context->rinfo.expr = path->parent->reduce;
+			slist_push_head(shead, &context->snode);
+		}
+		return false;
+	default:
+		break;
 	}
-	return expr_best;
+
+	return path_tree_walker(path, find_cluster_reduce_expr, shead);
 }
+
+static AttrNumber get_target_varattno(PathTarget *target, Index varno, AttrNumber attno)
+{
+	Var *var;
+	ListCell *lc;
+	AttrNumber result;
+	for(result=1,lc=list_head(target->exprs);lc!=NULL;lc=lnext(lc),++result)
+	{
+		var = lfirst(lc);
+		while(IsA(var, RelabelType))
+			var = (Var*)(((RelabelType *) var)->arg);
+		if(!IsA(var, Var))
+			continue;
+		if(var->varno == varno && var->varattno == attno)
+			return result;
+	}
+	return InvalidAttrNumber;
+}
+
 #endif /* ADB */

@@ -117,6 +117,13 @@ extern void extract_query_dependencies(Node *query,
 /*
  * prototypes for plan/pgxcplan.c
  */
+typedef struct ReduceExprInfo
+{
+	Expr	   *expr;		/* reduce expr for path */
+	Bitmapset  *varattnos;	/* var attno(s) */
+	Index		relid;
+}ReduceExprInfo;
+
 extern Plan *create_remotedml_plan(PlannerInfo *root, Plan *topplan,
 									CmdType cmdtyp);
 extern Plan *create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan);
@@ -130,8 +137,10 @@ extern void pgxc_copy_path_costsize(Plan *dest, Path *src);
 extern Plan *pgxc_create_gating_plan(PlannerInfo *root, Path *path, Plan *plan, List *quals);
 extern Node *pgxc_replace_nestloop_params(PlannerInfo *root, Node *expr);
 extern List* get_remote_nodes(Plan *top_plan);
-extern Expr *get_reduce_expr(Path *path, Expr *reference);
-extern bool is_grouping_reduce_expr(PathTarget *target, Expr *expr);
+extern List* get_reduce_info_list(Path *path);
+extern void free_reduce_info_list(List *list);
+extern void free_reduce_info(ReduceExprInfo *info);
+extern bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info);
 #endif
 
 #endif   /* PLANMAIN_H */
