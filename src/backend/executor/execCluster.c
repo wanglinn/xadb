@@ -230,6 +230,8 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	buf.cursor = 0;
 	stmt = (PlannedStmt*)loadNodeAndHook(&buf, LoadPlanHook, (void*)base_rels);
 	stmt->rtable = rte_list;
+	foreach(lc, stmt->planTree->targetlist)
+		((TargetEntry*)lfirst(lc))->resjunk = false;
 	for(i=0;i<n;++i)
 	{
 		if(base_rels[i])
