@@ -522,12 +522,16 @@ typedef struct RelOptInfo
 	struct Path *cheapest_startup_path;
 	struct Path *cheapest_total_path;
 	struct Path *cheapest_unique_path;
+	List	   *cheapest_parameterized_paths;
 #ifdef ADB
 	List	   *cluster_pathlist;
+	struct Path *cheapest_cluster_startup_path;
+	struct Path *cheapest_cluster_total_path;
+	struct Path *cheapest_cluster_unique_path;
+	List	   *cheapest_cluster_parameterized_paths;
 	struct RelationLocInfo *loc_info;	/* when RELOPT_BASEREL */
 	struct Expr *reduce;				/* reduce expression for read */
 #endif /* ADB */
-	List	   *cheapest_parameterized_paths;
 
 	/* parameterization information needed for both base rels and join rels */
 	/* (see also lateral_vars and lateral_referencers) */

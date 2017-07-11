@@ -52,6 +52,7 @@ typedef enum
 
 static List *translate_sub_tlist(List *tlist, int relid);
 static List *add_partial_path_internal(List *partial_pathlist, Path *new_path);
+static Path* get_cheapest_path(List *list, Path **cheapest_start,List **parameterizeds);
 
 /*****************************************************************************
  *		MISC. PATH UTILITIES
@@ -238,21 +239,41 @@ compare_path_costs_fuzzily(Path *path1, Path *path2, double fuzz_factor)
 void
 set_cheapest(RelOptInfo *parent_rel)
 {
+	Assert(IsA(parent_rel, RelOptInfo));
+
+	if (parent_rel->pathlist == NIL)
+		elog(ERROR, "could not devise a query plan for the given query");
+
+	parent_rel->cheapest_total_path =
+					get_cheapest_path(parent_rel->pathlist,
+									  &parent_rel->cheapest_startup_path,
+									  &parent_rel->cheapest_parameterized_paths);
+
+	parent_rel->cheapest_unique_path = NULL;	/* computed only if needed */
+#ifdef ADB
+	if(parent_rel->cluster_pathlist)
+	{
+		parent_rel->cheapest_cluster_total_path =
+						get_cheapest_path(parent_rel->cluster_pathlist,
+										  &parent_rel->cheapest_cluster_startup_path,
+										  &parent_rel->cheapest_cluster_parameterized_paths);
+	}
+	parent_rel->cheapest_cluster_unique_path = NULL;
+#endif /* ADB */
+}
+
+static Path* get_cheapest_path(List *list, Path **cheapest_start, List **parameterizeds)
+{
 	Path	   *cheapest_startup_path;
 	Path	   *cheapest_total_path;
 	Path	   *best_param_path;
 	List	   *parameterized_paths;
 	ListCell   *p;
 
-	Assert(IsA(parent_rel, RelOptInfo));
-
-	if (parent_rel->pathlist == NIL)
-		elog(ERROR, "could not devise a query plan for the given query");
-
 	cheapest_startup_path = cheapest_total_path = best_param_path = NULL;
 	parameterized_paths = NIL;
 
-	foreach(p, parent_rel->pathlist)
+	foreach(p, list)
 	{
 		Path	   *path = (Path *) lfirst(p);
 		int			cmp;
@@ -349,10 +370,11 @@ set_cheapest(RelOptInfo *parent_rel)
 		cheapest_total_path = best_param_path;
 	Assert(cheapest_total_path != NULL);
 
-	parent_rel->cheapest_startup_path = cheapest_startup_path;
-	parent_rel->cheapest_total_path = cheapest_total_path;
-	parent_rel->cheapest_unique_path = NULL;	/* computed only if needed */
-	parent_rel->cheapest_parameterized_paths = parameterized_paths;
+	if(cheapest_start)
+		*cheapest_start = cheapest_startup_path;
+	if(parameterizeds)
+		*parameterizeds = parameterized_paths;
+	return cheapest_total_path;
 }
 
 /*
