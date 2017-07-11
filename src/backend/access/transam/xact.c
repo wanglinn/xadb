@@ -5652,6 +5652,10 @@ void SerializeClusterTransaction(struct StringInfoData *buf)
 	appendBinaryStringInfo(buf, (char*)&CurrentTransactionState->transactionId
 							, sizeof(CurrentTransactionState->transactionId));
 	appendBinaryStringInfo(buf, (char*)&currentCommandId, sizeof(currentCommandId));
+
+	appendBinaryStringInfo(buf, (char*)&globalXactStartTimestamp, sizeof(globalXactStartTimestamp));
+	appendBinaryStringInfo(buf, (char*)&globalDeltaTimestmap, sizeof(globalDeltaTimestmap));
+	appendBinaryStringInfo(buf, (char*)&xactStartTimestamp, sizeof(xactStartTimestamp));
 }
 
 void StartClusterTransaction(char *tstatespace)
@@ -5665,6 +5669,10 @@ void StartClusterTransaction(char *tstatespace)
 	LOAD_VALUE(XactTopTransactionId);
 	LOAD_VALUE(CurrentTransactionState->transactionId);
 	LOAD_VALUE(currentCommandId);
+
+	LOAD_VALUE(globalXactStartTimestamp);
+	LOAD_VALUE(globalDeltaTimestmap);
+	LOAD_VALUE(xactStartTimestamp);
 
 #undef LOAD_VALUE
 	CurrentTransactionState->blockState = TBLOCK_INPROGRESS;
