@@ -53,7 +53,10 @@ typedef enum
 static List *translate_sub_tlist(List *tlist, int relid);
 static List *add_partial_path_internal(List *partial_pathlist, Path *new_path);
 static Path* get_cheapest_path(List *list, Path **cheapest_start,List **parameterizeds);
-
+#ifdef ADB
+static UniquePath *create_unique_path_internal(PlannerInfo *root, RelOptInfo *rel,
+				   Path *subpath, SpecialJoinInfo *sjinfo, bool is_cluster);
+#endif /* ADB */
 /*****************************************************************************
  *		MISC. PATH UTILITIES
  *****************************************************************************/
@@ -1475,6 +1478,19 @@ UniquePath *
 create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 				   SpecialJoinInfo *sjinfo)
 {
+#ifdef ADB
+	return create_unique_path_internal(root, rel, subpath, sjinfo, false);
+}
+UniquePath *create_cluster_unique_path(PlannerInfo *root, RelOptInfo *rel,
+				   Path *subpath, SpecialJoinInfo *sjinfo)
+{
+	return create_unique_path_internal(root, rel, subpath, sjinfo, true);
+}
+static UniquePath *create_unique_path_internal(PlannerInfo *root, RelOptInfo *rel,
+				   Path *subpath, SpecialJoinInfo *sjinfo, bool is_cluster)
+{
+#endif /* ADB */
+
 	UniquePath *pathnode;
 	Path		sort_path;		/* dummy for result of cost_sort */
 	Path		agg_path;		/* dummy for result of cost_agg */
@@ -1482,13 +1498,20 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 	int			numCols;
 
 	/* Caller made a mistake if subpath isn't cheapest_total ... */
+#ifdef ADB
+	Assert(is_cluster ? true:(subpath == rel->cheapest_total_path));
+#else
 	Assert(subpath == rel->cheapest_total_path);
+#endif /* ADB */
 	Assert(subpath->parent == rel);
 	/* ... or if SpecialJoinInfo is the wrong one */
 	Assert(sjinfo->jointype == JOIN_SEMI);
 	Assert(bms_equal(rel->relids, sjinfo->syn_righthand));
 
 	/* If result already cached, return it */
+#ifdef ADB
+	if (is_cluster == false)
+#endif /* ADB */
 	if (rel->cheapest_unique_path)
 		return (UniquePath *) rel->cheapest_unique_path;
 
@@ -1540,6 +1563,11 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 		pathnode->path.total_cost = subpath->total_cost;
 		pathnode->path.pathkeys = subpath->pathkeys;
 
+#ifdef ADB
+		if(is_cluster)
+			rel->cheapest_cluster_unique_path = (Path*) pathnode;
+		else
+#endif /* ADB */
 		rel->cheapest_unique_path = (Path *) pathnode;
 
 		MemoryContextSwitchTo(oldcontext);
@@ -1578,6 +1606,9 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 				pathnode->path.total_cost = subpath->total_cost;
 				pathnode->path.pathkeys = subpath->pathkeys;
 
+#ifdef ADB
+				if(is_cluster == false)
+#endif /* ADB */
 				rel->cheapest_unique_path = (Path *) pathnode;
 
 				MemoryContextSwitchTo(oldcontext);
@@ -1670,6 +1701,9 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 		pathnode->path.total_cost = sort_path.total_cost;
 	}
 
+#ifdef ADB
+	if(is_cluster == false)
+#endif /* ADB */
 	rel->cheapest_unique_path = (Path *) pathnode;
 
 	MemoryContextSwitchTo(oldcontext);

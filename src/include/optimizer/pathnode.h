@@ -76,6 +76,10 @@ extern ResultPath *create_result_path(PlannerInfo *root, RelOptInfo *rel,
 extern MaterialPath *create_material_path(RelOptInfo *rel, Path *subpath);
 extern UniquePath *create_unique_path(PlannerInfo *root, RelOptInfo *rel,
 				   Path *subpath, SpecialJoinInfo *sjinfo);
+#ifdef ADB
+extern UniquePath *create_cluster_unique_path(PlannerInfo *root, RelOptInfo *rel,
+				   Path *subpath, SpecialJoinInfo *sjinfo);
+#endif /* ADB */
 extern GatherPath *create_gather_path(PlannerInfo *root,
 				   RelOptInfo *rel, Path *subpath, PathTarget *target,
 				   Relids required_outer, double *rows);
