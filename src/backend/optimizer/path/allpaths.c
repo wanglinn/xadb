@@ -667,16 +667,31 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 #ifdef ADB
 	if(root->glob->clusterPlanOK && rel->loc_info)
 	{
-		Path *path = create_seqscan_path(root, rel, required_outer, 0);
+		ClusterScanPath *cscan;
+		Path *path;
+		ListCell *lc;
 		List *quals = extract_actual_clauses(rel->baserestrictinfo, false);
 		ExecNodes *nodes =  GetRelationNodesByQuals(rte->relid, rel->relid,
 														(Node *)quals,
 														RELATION_ACCESS_READ);
 
-		ClusterScanPath *cscan;
-		cost_div(path, list_length(rel->loc_info->nodeList));
-		cscan = create_cluster_scan_path(path, nodes, rel);
-		add_cluster_path(rel, (Path*)cscan);
+		add_path(rel, create_seqscan_path(root, rel, required_outer, 0));
+
+		/* Consider index scans */
+		create_index_paths(root, rel);
+
+		/* Consider TID scans */
+		create_tidscan_paths(root, rel);
+
+		/* remove pathlist to cluster_pathlist */
+		foreach(lc, rel->pathlist)
+		{
+			path = lfirst(lc);
+			cost_div(path, list_length(rel->loc_info->nodeList));
+			cscan = create_cluster_scan_path(path, nodes, rel);
+			add_cluster_path(rel, (Path*)cscan);
+		}
+		rel->pathlist = NIL;
 	}
 	if (!create_plainrel_rqpath(root, rel, rte, required_outer))
 	{

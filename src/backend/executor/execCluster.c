@@ -332,7 +332,7 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt, ParamListInfo p
 
 	stmt->rtable = NIL;
 	begin_mem_toc_insert(msg, REMOTE_KEY_PLAN_STMT);
-	saveNode(msg, (Node*)stmt);
+	saveNodeAndHook(msg, (Node*)stmt, SerializePlanHook, NULL);
 	end_mem_toc_insert(msg, REMOTE_KEY_PLAN_STMT);
 	stmt->rtable = rte_list;
 
@@ -365,6 +365,7 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt, ParamListInfo p
 
 /*
  * save RangeTblEntry::relid to string
+ * save IndexScan::indexid to string
  */
 static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 {
@@ -385,6 +386,13 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 		save_node_string(buf, RelationGetRelationName(rel));
 		heap_close(rel, NoLock);
 		appendBinaryStringInfo(buf, (char*)&locked_mode, sizeof(locked_mode));
+	}else if(IsA(node, IndexScan))
+	{
+		IndexScan *scan = (IndexScan*)node;
+		Relation rel = relation_open(scan->indexid, NoLock);
+		save_namespace(buf, RelationGetNamespace(rel));
+		save_node_string(buf, RelationGetRelationName(rel));
+		heap_close(rel, NoLock);
 	}
 	return true;
 }
@@ -418,6 +426,21 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 			/* we must lock relation now */
 			pq_copymsgbytes(buf, (char*)&lock_mode, sizeof(lock_mode));
 			LockRelationOid(rte->relid, lock_mode);
+		}
+	}else if(IsA(node, IndexScan))
+	{
+		IndexScan *scan = (IndexScan*)node;
+		char *rel_name;
+		Oid nsp_oid;
+		nsp_oid = load_namespace(buf);
+		rel_name = load_node_string(buf, false);
+		scan->indexid = get_relname_relid(rel_name, nsp_oid);
+		if(!OidIsValid(scan->indexid))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("index \"%s.%s\" does not exist",
+							get_namespace_name(nsp_oid), rel_name)));
 		}
 	}else if(IsA(node, Var)
 		&& !IS_SPECIAL_VARNO(((Var*)node)->varno)

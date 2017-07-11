@@ -38,10 +38,6 @@
 #include "utils/lsyscache.h"
 #include "utils/pg_locale.h"
 #include "utils/selfuncs.h"
-#ifdef ADB
-#include "nodes/relation.h"
-#include "parser/parsetree.h"
-#endif /* ADB */
 
 #define IsBooleanOpfamily(opfamily) \
 	((opfamily) == BOOL_BTREE_FAM_OID || (opfamily) == BOOL_HASH_FAM_OID)
@@ -242,11 +238,6 @@ create_index_paths(PlannerInfo *root, RelOptInfo *rel)
 	IndexClauseSet jclauseset;
 	IndexClauseSet eclauseset;
 	ListCell   *lc;
-#ifdef ADB
-	List *quals;
-	ExecNodes *exec_nodes;
-	ClusterScanPath *cscan;
-#endif /* ADB */
 
 	/* Skip the whole mess if no indexes */
 	if (rel->indexlist == NIL)
@@ -331,21 +322,6 @@ create_index_paths(PlannerInfo *root, RelOptInfo *rel)
 									   joinorclauses, rel->baserestrictinfo);
 	bitjoinpaths = list_concat(bitjoinpaths, indexpaths);
 
-#ifdef ADB
-	if(root->glob->clusterPlanOK && rel->loc_info)
-	{
-		RangeTblEntry *rte = planner_rt_fetch(rel->relid, root);
-		quals = extract_actual_clauses(rel->baserestrictinfo, false);
-		exec_nodes = GetRelationNodesByQuals(rte->relid, rel->relid,
-											 (Node*)quals,
-											 RELATION_ACCESS_READ);
-	}else
-	{
-		quals = NULL;
-		exec_nodes = NULL;
-	}
-#endif /* ADB */
-
 	/*
 	 * If we found anything usable, generate a BitmapHeapPath for the most
 	 * promising combination of restriction bitmap index paths.  Note there
@@ -362,16 +338,6 @@ create_index_paths(PlannerInfo *root, RelOptInfo *rel)
 		bpath = create_bitmap_heap_path(root, rel, bitmapqual,
 										rel->lateral_relids, 1.0);
 		add_path(rel, (Path *) bpath);
-#ifdef ADB
-		if(exec_nodes)
-		{
-			bpath = create_bitmap_heap_path(root, rel, bitmapqual,
-										rel->lateral_relids, 1.0);
-			cost_div(&bpath->path, list_length(rel->loc_info->nodeList));
-			cscan = create_cluster_scan_path(&bpath->path, exec_nodes, rel);
-			add_cluster_path(rel, (Path *) cscan);
-		}
-#endif /* ADB */
 	}
 
 	/*
@@ -445,16 +411,6 @@ create_index_paths(PlannerInfo *root, RelOptInfo *rel)
 			bpath = create_bitmap_heap_path(root, rel, bitmapqual,
 											required_outer, loop_count);
 			add_path(rel, (Path *) bpath);
-#ifdef ADB
-			if(exec_nodes)
-			{
-				bpath = create_bitmap_heap_path(root, rel, bitmapqual,
-												required_outer, loop_count);
-				cost_div(&bpath->path, list_length(rel->loc_info->nodeList));
-				cscan = create_cluster_scan_path(&bpath->path, exec_nodes, rel);
-				add_cluster_path(rel, (Path *) cscan);
-			}
-#endif /* ADB */
 		}
 	}
 }
