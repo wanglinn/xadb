@@ -6,6 +6,8 @@
 
 #include "postgres.h"
 #include "miscadmin.h"
+#include "access/htup.h"
+#include "access/htup_details.h"
 #include "postmaster/fork_process.h"
 #include "postmaster/syslogger.h"
 #include "reduce/adb_reduce.h"
@@ -252,41 +254,116 @@ EndSelfReduceGroup(void)
 				 errdetail("%s", RdcError(backend_hold_port))));
 }
 
-int
-SendTupleToSelfReduce(RdcPort *port, const Oid nodeIds[], int num,
-				  const char *data, int datalen)
+void
+SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot)
 {
-	StringInfoData	buf;
-	int				i;
+	StringInfoData  msg;
 
 	AssertArg(port);
-	Assert(num > 0);
-	if (data)
+	if (TupIsNull(slot))
 	{
-		Assert(datalen > 0);
-		rdc_beginmessage(&buf, RDC_P2R_DATA);
+		rdc_beginmessage(&msg, RDC_EOF_MSG);
+	} else if (destNodes)
+	{
+		ListCell	   *lc;
+		int				num;
+		MinimalTuple	tup;
+		int				len;
+
+		AssertArg(slot);
+		tup = ExecFetchSlotMinimalTuple(slot);
+		len = (int) GetMemoryChunkSpace(tup);
+		rdc_beginmessage(&msg, RDC_P2R_DATA);
+		rdc_sendint(&msg, len, sizeof(len));
+		rdc_sendbytes(&msg, (const char * ) tup, len);
+		num = list_length(destNodes);
+		rdc_sendint(&msg, num, sizeof(num));
+		foreach (lc, destNodes)
+			rdc_sendRdcPortID(&msg, lfirst_oid(lc));
 	} else
 	{
-		Assert(datalen == 0);
-		rdc_beginmessage(&buf, RDC_EOF_MSG);
+		return ;
 	}
-	rdc_sendint(&buf, num, sizeof(num));
-	for (i = 0; i < num; i++)
-		rdc_sendint(&buf, nodeIds[i], sizeof(nodeIds[i]));
-	rdc_sendbytes(&buf, data, datalen);
-	rdc_endmessage(port, &buf);
-
+	rdc_endmessage(port, &msg);
 	if (rdc_flush(port) == EOF)
 		ereport(ERROR,
-				(errmsg("fail to send tuple to adb reduce"),
-				 errhint("%s", RdcError(port))));
-
-	return 0;
+				(errmsg("fail to send tuple to remote"),
+				 errdetail("%s", RdcError(port))));
 }
 
-void*
-GetTupleFromSelfReduce(RdcPort *port)
+TupleTableSlot *
+GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof)
 {
-	return NULL;
-}
+	int			msg_type;
+	StringInfo	msg;
+	int			sv_cursor;
+	bool		sv_noblock;
 
+	AssertArg(port);
+	AssertArg(slot);
+
+	msg = RdcInBuf(port);
+	sv_noblock = port->noblock;
+	sv_cursor = msg->cursor;
+
+	msg_type = rdc_getbyte(port);
+	if (msg_type == EOF)
+		goto _eof_got;
+
+	switch (msg_type)
+	{
+		case RDC_R2P_DATA:
+			{
+				const char	   *data;
+				int				datalen;
+				MinimalTuple	tup;
+#ifdef DEBUG_ADB
+				RdcPortId		rid;
+#endif
+
+				/* data length */
+				if (rdc_getbytes(port, sizeof(datalen)) == EOF)
+					goto _eof_got;
+				datalen = rdc_getmsgint(msg, sizeof(datalen));
+
+				/* total data */
+				datalen -= sizeof(datalen);
+				if (rdc_getbytes(port, datalen) == EOF)
+					goto _eof_got;
+
+#ifdef DEBUG_ADB
+				/* reduce id while slot comes from */
+				rid = rdc_getmsgRdcPortID(msg);
+				elog(LOG, "Fetch tuple from REDUCE %ld", rid);
+				datalen -= sizeof(rid);
+#endif
+				data = rdc_getmsgbytes(msg, datalen);
+				rdc_getmsgend(msg);
+
+				tup = (MinimalTuple) MemoryContextAlloc(slot->tts_mcxt, datalen);
+				memcpy(tup, data, datalen);
+				return ExecStoreMinimalTuple(tup, slot, true);
+			}
+		case RDC_EOF_MSG:
+			if (eof)
+				*eof = true;
+			break;
+		default:
+			ereport(ERROR,
+					(errmsg("unexpected message type '%d' from self reduce",
+							msg_type),
+					 errdetail("%s", RdcError(port))));
+	}
+
+_eof_got:
+	if (sv_noblock)
+	{
+		msg->cursor = sv_cursor;
+		return NULL;		/* not enough data */
+	}
+
+	ereport(ERROR,
+			(errmsg("fail to fetch slot from self reduce"),
+			 errdetail("%s", RdcError(port))));
+	return NULL;	/* keep compiler quiet */
+}

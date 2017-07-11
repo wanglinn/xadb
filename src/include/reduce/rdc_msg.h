@@ -22,7 +22,7 @@ extern int				MyReduceIdx;
 
 struct RdcListenMask
 {
-	RdcPortId	rdc_roid;
+	RdcPortId	rdc_rpid;
 	int			rdc_port;
 	char	   *rdc_host;
 };

@@ -81,6 +81,7 @@ struct RdcPort
 	pgsocket			sock;			/* file descriptors for one plan node id */
 	bool				noblock;		/* is the socket in non-blocking mode? */
 	bool				active;			/* true means connect, false means be connected */
+	bool				send_eof;		/* true if send EOF message */
 	RdcPortType			peer_type;		/* the identity type of the peer side */
 	RdcPortId			peer_id;		/* the identity id of the peer side */
 	RdcPortType			self_type;		/* local identity type */
@@ -100,9 +101,6 @@ struct RdcPort
 	struct addrinfo	   *addr_cur;		/* used for connect */
 	RdcConnStatusType	status;			/* used to connect with other Reduce */
 
-	bool				got_eof;		/* used for communication between Reduce and Reduce, also
-										   between Reduce and Plan node. Set true only if receive
-										   eof message.*/
 	uint32				wait_events;	/* used for select/poll */
 	StringInfoData		in_buf;			/* for normal message */
 	StringInfoData		out_buf;		/* for normal message */
@@ -129,8 +127,8 @@ struct RdcPort
 #define RdcSelfID(port)				(((RdcPort *) (port))->self_id)
 #define RdcStatus(port)				(((RdcPort *) (port))->status)
 #define RdcActive(port)				(((RdcPort *) (port))->active)
+#define RdcSendEOF(port)			(((RdcPort *) (port))->send_eof)
 #define RdcWaitEvents(port)			(((RdcPort *) (port))->wait_events)
-#define RdcGotEof(port)				(((RdcPort *) (port))->got_eof)
 #define RdcWaitRead(port)			((((RdcPort *) (port))->wait_events) & WAIT_SOCKET_READABLE)
 #define RdcWaitWrite(port)			((((RdcPort *) (port))->wait_events) & WAIT_SOCKET_WRITEABLE)
 #define RdcError(port)				rdc_geterror(port)
@@ -197,6 +195,7 @@ extern void rdc_sendbytes(StringInfo buf, const char *data, int datalen);
 extern void rdc_sendstring(StringInfo buf, const char *str);
 extern void rdc_sendint(StringInfo buf, int i, int b);
 extern void rdc_sendint64(StringInfo buf, int64 i);
+extern void rdc_sendRdcPortID(StringInfo buf, RdcPortId id);
 extern void rdc_sendfloat4(StringInfo buf, float4 f);
 extern void rdc_sendfloat8(StringInfo buf, float8 f);
 extern void rdc_sendlength(StringInfo buf);
@@ -206,6 +205,7 @@ extern void rdc_enderror(RdcPort *port, StringInfo buf);
 extern int	rdc_getmsgbyte(StringInfo msg);
 extern unsigned int rdc_getmsgint(StringInfo msg, int b);
 extern int64 rdc_getmsgint64(StringInfo msg);
+extern RdcPortId rdc_getmsgRdcPortID(StringInfo msg);
 extern float4 rdc_getmsgfloat4(StringInfo msg);
 extern float8 rdc_getmsgfloat8(StringInfo msg);
 extern const char *rdc_getmsgbytes(StringInfo msg, int datalen);

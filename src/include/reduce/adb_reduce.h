@@ -13,6 +13,7 @@
 #ifndef ADB_REDUCE_H
 #define ADB_REDUCE_H
 
+#include "executor/tuptable.h"
 #include "reduce/rdc_comm.h"
 #include "reduce/rdc_msg.h"
 
@@ -26,9 +27,8 @@ extern void StartSelfReduceGroup(RdcListenMask *rdc_masks, int num);
 
 extern void EndSelfReduceGroup(void);
 
-extern int SendTupleToSelfReduce(RdcPort *port, const Oid nodeIds[], int num,
-							 const char *data, int len);
+extern void SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot);
 
-extern void* GetTupleFromSelfReduce(RdcPort *port);
+extern TupleTableSlot* GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof);
 
 #endif /* ADB_BROKER_H */

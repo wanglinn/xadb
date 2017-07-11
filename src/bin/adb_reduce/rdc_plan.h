@@ -11,7 +11,7 @@ struct PlanPort
 	int					work_num;
 	RSstate			   *rdcstore;
 	int					rdc_num;
-	bool				rdc_eofs[1];
+	List			   *rdc_eofs;
 };
 
 extern PlanPort *plan_newport(RdcPortId pln_id);

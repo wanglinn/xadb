@@ -38,7 +38,7 @@ rdc_portidx(RdcListenMask *rdc_masks, int num, RdcPortId roid)
 
 	for (i = 0; i < num; i++)
 	{
-		if (rdc_masks[i].rdc_roid == roid)
+		if (rdc_masks[i].rdc_rpid == roid)
 			return i;
 	}
 
@@ -63,7 +63,7 @@ rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id)
 	rdc_beginmessage(&buf, RDC_START_RQT);
 	rdc_sendint(&buf, RDC_VERSION_NUM, sizeof(int));		/* version */
 	rdc_sendint(&buf, type, sizeof(type));
-	rdc_sendint64(&buf, id);
+	rdc_sendRdcPortID(&buf, id);
 	rdc_endmessage(port, &buf);
 
 	return rdc_flush(port);
@@ -87,7 +87,7 @@ rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id)
 	rdc_beginmessage(&buf, RDC_START_RSP);
 	rdc_sendint(&buf, RDC_VERSION_NUM, sizeof(int));
 	rdc_sendint(&buf, type, sizeof(type));
-	rdc_sendint64(&buf, id);
+	rdc_sendRdcPortID(&buf, id);
 	rdc_endmessage(port, &buf);
 
 	return rdc_flush(port);
@@ -113,11 +113,11 @@ rdc_send_group_rqt(RdcPort *port, RdcListenMask *rdc_masks, int num)
 		Assert(mask->rdc_host[0]);
 		Assert(mask->rdc_port > 1024 && mask->rdc_port < 65535);
 #ifdef DEBUG_ADB
-		elog(LOG, "[Reduce %ld] {%s:%d}", mask->rdc_roid, mask->rdc_host, mask->rdc_port);
+		elog(LOG, "[Reduce %ld] {%s:%d}", mask->rdc_rpid, mask->rdc_host, mask->rdc_port);
 #endif
 		rdc_sendstring(&buf, mask->rdc_host);
 		rdc_sendint(&buf, mask->rdc_port, sizeof(mask->rdc_port));
-		rdc_sendint64(&buf, mask->rdc_roid);
+		rdc_sendRdcPortID(&buf, mask->rdc_rpid);
 	}
 	rdc_endmessage(port, &buf);
 
@@ -190,7 +190,7 @@ rdc_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId expecte
 			return EOF;
 		}
 
-		rsp_id = rdc_getmsgint64(RdcInBuf(port));
+		rsp_id = rdc_getmsgRdcPortID(RdcInBuf(port));
 		if (rsp_id != expected_id)
 		{
 			rdc_puterror(port,

@@ -55,9 +55,8 @@ static void
 InitReduceOptions(void)
 {
 	if (MyReduceOpts == NULL)
-		MyReduceOpts = (ReduceOptions) palloc(sizeof(*MyReduceOpts));
+		MyReduceOpts = (ReduceOptions) palloc0(sizeof(*MyReduceOpts));
 
-	MemSet(MyReduceOpts, 0, sizeof(*MyReduceOpts));
 	MyReduceOpts->lhost = NULL;
 	MyReduceOpts->lport = 0;
 	MyReduceOpts->work_mem = 1024;
@@ -630,7 +629,7 @@ ReduceGroupHook(SIGNAL_ARGS)
 		{
 			rdc_sendstring(&buf, host[i]);
 			rdc_sendint(&buf, portnum[i], sizeof(portnum[i]));
-			rdc_sendint64(&buf, portid[i]);
+			rdc_sendRdcPortID(&buf, portid[i]);
 		}
 		n32 = htonl((uint32)(buf.len - 1));
 		memcpy(&buf.data[1], &n32, sizeof(n32));
@@ -1113,8 +1112,8 @@ ReduceLoopRun(void)
 				}
 
 				ReduceAcceptPlanConn(&accept_list, &pln_list);
-				rdc_handle_reduce(rdc_nodes, rdc_num, &pln_list);
-				rdc_handle_plannode(rdc_nodes, rdc_num, pln_list);
+				rdc_handle_reduce(&pln_list);
+				rdc_handle_plannode(pln_list);
 			}
 			end_wait_events();
 		} PG_CATCH();

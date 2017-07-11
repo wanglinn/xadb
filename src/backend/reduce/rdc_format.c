@@ -145,6 +145,12 @@ rdc_sendint64(StringInfo buf, int64 i)
 	appendBinaryStringInfo(buf, (char *) &n32, 4);
 }
 
+void
+rdc_sendRdcPortID(StringInfo buf, RdcPortId id)
+{
+	rdc_sendint64(buf, (int64) id);
+}
+
 /* --------------------------------
  *		rdc_sendfloat4	- append a float4 to a StringInfo buffer
  *
@@ -318,6 +324,13 @@ rdc_getmsgint64(StringInfo msg)
 
 	return result;
 }
+
+RdcPortId
+rdc_getmsgRdcPortID(StringInfo msg)
+{
+	return (RdcPortId) rdc_getmsgint64(msg);
+}
+
 
 /* --------------------------------
  *		rdc_getmsgfloat4 - get a float4 from a message buffer

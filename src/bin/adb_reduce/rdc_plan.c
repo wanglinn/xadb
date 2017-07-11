@@ -11,7 +11,7 @@ plan_newport(RdcPortId pln_id)
 	int				rdc_num = MyReduceOpts->rdc_num;
 	int				work_mem = MyReduceOpts->work_mem;
 
-	pln_port = (PlanPort *) palloc0(sizeof(*pln_port) + rdc_num * sizeof(bool));
+	pln_port = (PlanPort *) palloc0(sizeof(*pln_port));
 	pln_port->work_num = 0;
 	pln_port->pln_id = pln_id;
 	pln_port->rdcstore = rdcstore_begin(work_mem, "PLAN", pln_id);

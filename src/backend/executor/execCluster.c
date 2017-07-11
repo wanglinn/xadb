@@ -544,8 +544,8 @@ static void wait_rdc_group_message(void)
 		rdc_masks[i].rdc_host = (char *) pq_getmsgrawstring(&buf);
 		pq_copymsgbytes(&buf, (char *) &(rdc_masks[i].rdc_port),
 						sizeof(rdc_masks[i].rdc_port));
-		pq_copymsgbytes(&buf, (char *) &(rdc_masks[i].rdc_roid),
-						sizeof(rdc_masks[i].rdc_roid));
+		pq_copymsgbytes(&buf, (char *) &(rdc_masks[i].rdc_rpid),
+						sizeof(rdc_masks[i].rdc_rpid));
 	}
 	pq_getmsgend(&buf);
 
@@ -610,7 +610,7 @@ StartRemoteReduceGroup(List *conns, RdcListenMask *rdc_masks, int rdc_cnt)
 	{
 		host = rdc_masks[i].rdc_host;
 		port = rdc_masks[i].rdc_port;
-		rpid = rdc_masks[i].rdc_roid;
+		rpid = rdc_masks[i].rdc_rpid;
 		Assert(host && host[0]);
 
 		/* including the terminating null byte ('\0') */
@@ -665,7 +665,7 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, bool has_reduce, bool 
 		rdc_masks = (RdcListenMask *) palloc0(rdc_cnt * sizeof(RdcListenMask));
 		if (self_start_reduce)
 		{
-			rdc_masks[rdc_id].rdc_roid = PGXCNodeOid;
+			rdc_masks[rdc_id].rdc_rpid = PGXCNodeOid;
 			rdc_masks[rdc_id].rdc_port = 0;	/* fill later */
 			rdc_masks[rdc_id].rdc_host = get_pgxc_nodehost(PGXCNodeOid);
 			rdc_id++;
@@ -687,7 +687,7 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, bool has_reduce, bool 
 		/* send reduce group map and reduce ID to remote */
 		if (has_reduce)
 		{
-			rdc_masks[rdc_id].rdc_roid = lfirst_oid(lc2);
+			rdc_masks[rdc_id].rdc_rpid = lfirst_oid(lc2);
 			rdc_masks[rdc_id].rdc_port = 0;	/* fill later */
 			rdc_masks[rdc_id].rdc_host = get_pgxc_nodehost(lfirst_oid(lc2));
 			rdc_id++;

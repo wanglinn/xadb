@@ -99,7 +99,7 @@ rdc_newport(pgsocket sock,
 	rdc_port->self_id = self_id;
 	rdc_port->version = 0;
 	rdc_port->wait_events = WAIT_NONE;
-	rdc_port->got_eof = false;
+	rdc_port->send_eof = false;
 #ifdef DEBUG_ADB
 	rdc_port->peer_host = NULL;
 	rdc_port->peer_port = NULL;
@@ -718,7 +718,7 @@ rdc_parse_group(RdcPort *port,				/* IN */
 	int					num;
 	int					i;
 	uint32				portnum;
-	RdcPortId			roid;
+	RdcPortId			rpid;
 	StringInfo			msg;
 	int					ret;
 	struct addrinfo		hint;
@@ -746,22 +746,22 @@ rdc_parse_group(RdcPort *port,				/* IN */
 		rdc_masks[i].rdc_host = MemoryContextStrdup(TopMemoryContext,
 													rdc_getmsgstring(msg));
 		rdc_masks[i].rdc_port = rdc_getmsgint(msg, sizeof(rdc_masks[i].rdc_port));
-		rdc_masks[i].rdc_roid = rdc_getmsgint64(msg);
+		rdc_masks[i].rdc_rpid = rdc_getmsgRdcPortID(msg);
 	}
 
 	for (i = 0; i < num; i++)
 	{
 		rdc_mask = &(rdc_masks[i]);
-		roid = rdc_mask->rdc_roid;
+		rpid = rdc_mask->rdc_rpid;
 		host = rdc_mask->rdc_host;
 		portnum = rdc_mask->rdc_port;
 
 		/* skip self Reduce */
-		if (roid == MyReduceId)
+		if (rpid == MyReduceId)
 			continue;
 
 		self_rdc_idx = rdc_portidx(rdc_masks, num, MyReduceId);
-		othr_rdc_idx = rdc_portidx(rdc_masks, num, roid);
+		othr_rdc_idx = rdc_portidx(rdc_masks, num, rpid);
 
 		Assert(self_rdc_idx >= 0);
 		Assert(othr_rdc_idx >= 0);
@@ -793,7 +793,7 @@ rdc_parse_group(RdcPort *port,				/* IN */
 			(IdxIsOdd(self_rdc_idx) && IdxIsEven(othr_rdc_idx) && othr_rdc_idx < self_rdc_idx))
 		{
 			rdc_port = rdc_newport(PGINVALID_SOCKET,
-								   TYPE_REDUCE, roid,
+								   TYPE_REDUCE, rpid,
 								   TYPE_REDUCE, MyReduceId);
 
 			MemSet(&hint, 0, sizeof(hint));
@@ -1120,6 +1120,7 @@ rdc_getbytes(RdcPort *port, size_t len)
 {
 	StringInfo	buf;
 	size_t		amount;
+	bool		noblock;
 
 	AssertArg(port);
 
@@ -1128,27 +1129,29 @@ rdc_getbytes(RdcPort *port, size_t len)
 		return 0;
 
 	buf = RdcInBuf(port);
+	noblock = port->noblock;
 	while (len > 0)
 	{
-		PG_TRY();
-		{
-			enlargeStringInfo(buf, len);
-		} PG_CATCH();
-		{
-			if (rdc_discardbytes(port, len))
-				ereport(COMMERROR,
-						(errcode(ERRCODE_PROTOCOL_VIOLATION),
-						 errmsg("incomplete message from client")));
-			PG_RE_THROW();
-		} PG_END_TRY();
-
-		while (buf->cursor >= buf->len)
+		while (buf->cursor + len > buf->len)
 		{
 			/* return EOF if in noblocking mode */
 			if (port->noblock)
 				return EOF;		/* try to read next time */
 
-			/* If nothing in buffer, then recv some in blocking mode */
+			PG_TRY();
+			{
+				if (buf->maxlen - buf->len - 1 + buf->cursor < len)
+					enlargeStringInfo(buf, len);
+			} PG_CATCH();
+			{
+				if (rdc_discardbytes(port, len))
+					ereport(COMMERROR,
+							(errcode(ERRCODE_PROTOCOL_VIOLATION),
+							 errmsg("incomplete message from client")));
+				PG_RE_THROW();
+			} PG_END_TRY();
+
+			/* If not enough in buffer, then recv some in blocking mode */
 			if (rdc_recv(port) == EOF)
 				return EOF; 	/* Failed to recv data */
 		}
@@ -1542,7 +1545,7 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver)
 	rqt_type = rdc_getmsgint(msg, sizeof(rqt_type));
 	RdcPeerType(port) = rqt_type;
 
-	rqt_id = rdc_getmsgint64(msg);
+	rqt_id = rdc_getmsgRdcPortID(msg);
 	RdcPeerID(port) = rqt_id;
 
 	Assert(PortIdIsValid(port));
@@ -1680,7 +1683,7 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 						 rdc_type2string(rsp_type));
 			return RDC_POLLING_FAILED;
 		}
-		rsp_id = rdc_getmsgint64(msg);
+		rsp_id = rdc_getmsgRdcPortID(msg);
 		if (rsp_id != expected_id)
 		{
 			rdc_puterror(port,
@@ -1694,7 +1697,7 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 #ifdef DEBUG_ADB
 		elog(LOG,
 			 "recv startup response from [%s %ld] {%s:%s}",
-			 rdc_type2string(rsp_type), RdcPeerID(port),
+			 RdcPeerTypeStr(port), RdcPeerID(port),
 			 RdcPeerHost(port), RdcPeerPort(port));
 #endif
 
