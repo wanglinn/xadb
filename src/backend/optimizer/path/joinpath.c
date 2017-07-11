@@ -23,7 +23,6 @@
 #include "optimizer/paths.h"
 
 #ifdef ADB
-#include "access/sysattr.h"
 #include "optimizer/clauses.h"
 #include "optimizer/planmain.h"
 #include "utils/lsyscache.h"
@@ -71,11 +70,6 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 											 Path **inner_path,
 											 List *restrictlist,
 											 NodeTag method);
-static bool reduce_can_join(List *outer_reduce_list,
-							List *inner_reduce_list,
-							List *restrictlist,
-							PlannerInfo *root);
-static bool expr_is_var(Expr *expr, Index relid, int attno);
 #endif /* ADB */
 
 /*
@@ -1874,7 +1868,7 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 			if (inner_reduce_list == NULL)
 				continue;
 
-			if(reduce_can_join(outer_reduce_list, inner_reduce_list, restrictlist, root))
+			if(is_reduce_list_can_join(outer_reduce_list, inner_reduce_list, restrictlist))
 			{
 				*inner_path = innerClusterPath;
 				*outer_path = outerClusterPath;
@@ -1889,87 +1883,10 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 make_finish_:
 	foreach(inner_lc_list, inner_reduce_list_list)
 		free_reduce_info_list(lfirst(inner_lc_list));
+	list_free(inner_reduce_list_list);
 	free_reduce_info_list(outer_reduce_list);
 	return result;
 }
 
-static bool reduce_can_join(List *outer_reduce_list,
-							List *inner_reduce_list,
-							List *restrictlist,
-							PlannerInfo *root)
-{
-	ReduceExprInfo *outer_rinfo;
-	ReduceExprInfo *inner_rinfo;
-	Expr *left_expr;
-	Expr *right_expr;
-	ListCell *lc;
-	ListCell *outer_lc,*inner_lc;
-	RestrictInfo *ri;
-
-	foreach(outer_lc, outer_reduce_list)
-	{
-		outer_rinfo = lfirst(outer_lc);
-		AssertArg(outer_rinfo);
-		/* for now support only one distribute cloumn */
-		if(bms_membership(outer_rinfo->varattnos) == BMS_MULTIPLE)
-			continue;
-		foreach(inner_lc, inner_reduce_list)
-		{
-			inner_rinfo = lfirst(inner_lc);
-			AssertArg(inner_rinfo);
-
-			if (IsReduce2Coordinator(outer_rinfo->expr) &&
-				IsReduce2Coordinator(inner_rinfo->expr))
-				return true;
-			if (equal(outer_rinfo->expr, inner_rinfo->expr) == false ||
-				!IsReduceExprByValue(outer_rinfo->expr) ||
-				!IsReduceExprByValue(inner_rinfo->expr))
-				continue;
-
-			Assert(bms_membership(outer_rinfo->varattnos) != BMS_EMPTY_SET);
-			Assert(bms_num_members(outer_rinfo->varattnos) == bms_num_members(inner_rinfo->varattnos));
-
-			foreach(lc, restrictlist)
-			{
-				ri = lfirst(lc);
-
-				/* only support X=X expression */
-				if (!is_opclause(ri->clause) ||
-					!op_is_equivalence(((OpExpr *)(ri->clause))->opno) ||
-					bms_membership(ri->left_relids) != BMS_SINGLETON ||
-					bms_membership(ri->right_relids) != BMS_SINGLETON)
-					continue;
-
-				left_expr = (Expr*)get_leftop(ri->clause);
-				right_expr = (Expr*)get_rightop(ri->clause);
-
-				while(IsA(left_expr, RelabelType))
-					left_expr = ((RelabelType *) left_expr)->arg;
-				while(IsA(right_expr, RelabelType))
-					right_expr = ((RelabelType *) right_expr)->arg;
-
-				Assert(bms_membership(inner_rinfo->varattnos) == BMS_SINGLETON);
-				if ((expr_is_var(left_expr, inner_rinfo->relid, bms_next_member(inner_rinfo->varattnos, -1)) &&
-						expr_is_var(right_expr, outer_rinfo->relid, bms_next_member(outer_rinfo->varattnos, -1)))
-					|| (expr_is_var(right_expr, inner_rinfo->relid, bms_next_member(inner_rinfo->varattnos, -1)) &&
-						expr_is_var(left_expr, outer_rinfo->relid, bms_next_member(outer_rinfo->varattnos, -1))))
-				{
-					return true;
-				}
-			}
-		}
-	}
-
-	return false;
-}
-
-static bool expr_is_var(Expr *expr, Index relid, int attno)
-{
-	if (IsA(expr, Var) &&
-		((Var*)expr)->varno == relid &&
-		((Var*)expr)->varattno == attno + FirstLowInvalidHeapAttributeNumber)
-		return true;
-	return false;
-}
 
 #endif /* ADB */

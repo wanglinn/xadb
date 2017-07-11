@@ -292,6 +292,8 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath *path, int flags);
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
 static bool find_cluster_reduce_expr(Path *path, slist_head *shead);
+static bool is_reduce_info_can_join(ReduceExprInfo *outer_rinfo, ReduceExprInfo *inner_rinfo, List *restrictlist);
+static bool expr_is_var(Expr *expr, Index relid, int attno);
 static AttrNumber get_target_varattno(PathTarget *target, Index varno, AttrNumber attno);
 #endif /* ADB */
 
@@ -6520,6 +6522,7 @@ void free_reduce_info_list(List *list)
 	ListCell *lc;
 	foreach(lc, list)
 		free_reduce_info(lfirst(lc));
+	list_free(list);
 }
 
 void free_reduce_info(ReduceExprInfo *info)
@@ -6561,6 +6564,91 @@ bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info)
 	result = bms_is_subset(info->varattnos, group_attnos);
 	bms_free(group_attnos);
 	return result;
+}
+
+bool is_reduce_list_can_join(List *outer_reduce_list,
+							List *inner_reduce_list,
+							List *restrictlist)
+{
+	ListCell *outer_lc,*inner_lc;
+
+	foreach(outer_lc, outer_reduce_list)
+	{
+		AssertArg(lfirst(outer_lc));
+		foreach(inner_lc, inner_reduce_list)
+		{
+			AssertArg(lfirst(inner_lc));
+			if(is_reduce_info_can_join(lfirst(outer_lc), lfirst(inner_lc), restrictlist))
+				return true;
+		}
+	}
+
+	return false;
+}
+
+static bool is_reduce_info_can_join(ReduceExprInfo *outer_rinfo, ReduceExprInfo *inner_rinfo, List *restrictlist)
+{
+	Expr *left_expr;
+	Expr *right_expr;
+	RestrictInfo *ri;
+	ListCell *lc;
+
+	AssertArg(outer_rinfo && inner_rinfo);
+
+	/* for now support only one distribute cloumn */
+	if(bms_membership(outer_rinfo->varattnos) == BMS_MULTIPLE)
+		return false;
+
+	if (IsReduce2Coordinator(outer_rinfo->expr) &&
+		IsReduce2Coordinator(inner_rinfo->expr))
+		return true;
+	if (equal(outer_rinfo->expr, inner_rinfo->expr) == false ||
+		!IsReduceExprByValue(outer_rinfo->expr) ||
+		!IsReduceExprByValue(inner_rinfo->expr))
+		return false;
+
+	Assert(bms_membership(outer_rinfo->varattnos) != BMS_EMPTY_SET);
+	Assert(bms_num_members(outer_rinfo->varattnos) == bms_num_members(inner_rinfo->varattnos));
+
+	foreach(lc, restrictlist)
+	{
+		ri = lfirst(lc);
+
+		/* only support X=X expression */
+		if (!is_opclause(ri->clause) ||
+			!op_is_equivalence(((OpExpr *)(ri->clause))->opno) ||
+			bms_membership(ri->left_relids) != BMS_SINGLETON ||
+			bms_membership(ri->right_relids) != BMS_SINGLETON)
+			continue;
+
+		left_expr = (Expr*)get_leftop(ri->clause);
+		right_expr = (Expr*)get_rightop(ri->clause);
+
+		while(IsA(left_expr, RelabelType))
+			left_expr = ((RelabelType *) left_expr)->arg;
+		while(IsA(right_expr, RelabelType))
+			right_expr = ((RelabelType *) right_expr)->arg;
+
+		Assert(bms_membership(inner_rinfo->varattnos) == BMS_SINGLETON);
+		if ((expr_is_var(left_expr, inner_rinfo->relid, bms_next_member(inner_rinfo->varattnos, -1)) &&
+				expr_is_var(right_expr, outer_rinfo->relid, bms_next_member(outer_rinfo->varattnos, -1)))
+			|| (expr_is_var(right_expr, inner_rinfo->relid, bms_next_member(inner_rinfo->varattnos, -1)) &&
+				expr_is_var(left_expr, outer_rinfo->relid, bms_next_member(outer_rinfo->varattnos, -1))))
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static bool expr_is_var(Expr *expr, Index relid, int attno)
+{
+	if (IsA(expr, Var) &&
+		((Var*)expr)->varno == relid &&
+		((Var*)expr)->varattno == attno + FirstLowInvalidHeapAttributeNumber)
+		return true;
+	return false;
 }
 
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags)

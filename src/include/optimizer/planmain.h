@@ -141,6 +141,7 @@ extern List* get_reduce_info_list(Path *path);
 extern void free_reduce_info_list(List *list);
 extern void free_reduce_info(ReduceExprInfo *info);
 extern bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info);
+extern bool is_reduce_list_can_join(List *outer_reduce_list, List *inner_reduce_list, List *restrictlist);
 #endif
 
 #endif   /* PLANMAIN_H */
