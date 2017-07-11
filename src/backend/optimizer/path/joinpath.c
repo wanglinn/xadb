@@ -1882,7 +1882,8 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 	{
 		outerClusterPath = lfirst(outer_lc);
 		outer_reduce_list = get_reduce_info_list(outerClusterPath);
-		if(outer_reduce_list == NIL)
+		if (outer_reduce_list == NIL ||
+			PATH_PARAM_BY_REL(outerClusterPath, innerrel))
 			continue;
 
 		forboth(inner_lc, innerrel->cluster_pathlist, inner_lc_list, inner_reduce_list_list)
@@ -1890,6 +1891,9 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 			innerClusterPath = lfirst(inner_lc);
 			inner_reduce_list = lfirst(inner_lc_list);
 			if (inner_reduce_list == NULL)
+				continue;
+			if (method == T_MergeJoin &&
+				PATH_PARAM_BY_REL(innerClusterPath, outerrel))
 				continue;
 
 			if(is_reduce_list_can_join(outer_reduce_list, inner_reduce_list, restrictlist))
