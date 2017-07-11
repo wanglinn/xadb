@@ -768,7 +768,7 @@ sort_inner_and_outer(PlannerInfo *root,
 		if(outer_cluster_path)
 		{
 			outer_cluster_path = (Path*)
-							 create_unique_path(root, outerrel,
+							 create_cluster_unique_path(root, outerrel,
 												outer_cluster_path, extra->sjinfo);
 			Assert(outer_cluster_path);
 		}
@@ -783,7 +783,7 @@ sort_inner_and_outer(PlannerInfo *root,
 #ifdef ADB
 		if(inner_cluster_path)
 		{
-			inner_cluster_path = (Path*) create_unique_path(root, innerrel,
+			inner_cluster_path = (Path*) create_cluster_unique_path(root, innerrel,
 												inner_cluster_path, extra->sjinfo);
 			Assert(inner_cluster_path);
 		}
@@ -1320,6 +1320,19 @@ match_unsorted_outer(PlannerInfo *root,
 										 extra->restrictlist,
 										 T_NestLoop))
 		{
+			if(save_jointype == JOIN_UNIQUE_OUTER)
+				outer_cluster_path = (Path*)
+									 create_cluster_unique_path(root,
+																outerrel,
+																outer_cluster_path,
+																extra->sjinfo);
+			else if(save_jointype == JOIN_UNIQUE_INNER)
+				inner_cluster_path = (Path*)
+									 create_cluster_unique_path(root,
+																innerrel,
+																inner_cluster_path,
+																extra->sjinfo);
+
 			/*
 			 * The result will have this sort order (even if it is implemented as
 			 * a nestloop, and even if some of the mergeclauses are implemented by
@@ -1669,9 +1682,8 @@ hash_inner_and_outer(PlannerInfo *root,
 #ifdef ADB
 		/*
 		 * only support INNER JOIN yet
-		 * we can not make UniquePath for now,
-		 *   so also not support JOIN_UNIQUE_OUTER and JOIN_UNIQUE_INNER */
-		if (save_jointype == JOIN_INNER)
+		 */
+		if (jointype == JOIN_INNER)
 		{
 			Path *outer_cluster_path;
 			Path *inner_cluster_path;
@@ -1684,6 +1696,18 @@ hash_inner_and_outer(PlannerInfo *root,
 												T_HashJoin))
 			{
 				Assert(outer_cluster_path && inner_cluster_path);
+				if(save_jointype == JOIN_UNIQUE_OUTER)
+					outer_cluster_path = (Path*)
+										 create_cluster_unique_path(root,
+																	outerrel,
+																	outer_cluster_path,
+																	extra->sjinfo);
+				else if(save_jointype == JOIN_UNIQUE_INNER)
+					inner_cluster_path = (Path*)
+										 create_cluster_unique_path(root,
+																	innerrel,
+																	inner_cluster_path,
+																	extra->sjinfo);
 				try_hashjoin_path(root,
 								  joinrel,
 								  outer_cluster_path,
