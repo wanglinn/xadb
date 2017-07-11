@@ -6814,6 +6814,7 @@ static bool find_cluster_reduce_expr(Path *path, slist_head *shead)
 		}
 		return false;
 	case T_Path:
+	case T_IndexPath:
 		if(path->parent->reduce)
 		{
 			FindReduceExprContext *context = palloc0(sizeof(*context));
