@@ -132,6 +132,7 @@ bool		enable_mergejoin = true;
 bool		enable_hashjoin = true;
 #ifdef ADB
 bool		enable_fast_query_shipping = true;
+bool		pgxc_enable_remote_query = true;
 bool		enable_remotejoin = true;
 bool		enable_remotegroup = true;
 bool		enable_remotesort = true;
@@ -3225,6 +3226,11 @@ cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel)
 		rqpath->path.total_cost = rqpath->path.startup_cost +
 									rel->rows * pgxc_remote_tuple_cost;
 		rqpath->path.rows = rel->rows;
+	}
+	if(!pgxc_enable_remote_query)
+	{
+		rqpath->path.startup_cost += disable_cost;
+		rqpath->path.total_cost += disable_cost;
 	}
 }
 #endif /* ADB */

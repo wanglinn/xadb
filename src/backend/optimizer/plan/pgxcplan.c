@@ -755,7 +755,10 @@ create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 	pgxc_copy_path_costsize(&(result_node->scan.plan), (Path *)best_path);
 
 	/* PGXCTODO - get better estimates */
- 	result_node->scan.plan.plan_rows = 1000;
+	if(best_path->path.rows)
+		result_node->scan.plan.plan_rows = best_path->path.rows;
+	else
+		result_node->scan.plan.plan_rows = 1000;
 
 	result_node->rq_save_command_id = root->parse->has_to_save_cmd_id;
 	/*

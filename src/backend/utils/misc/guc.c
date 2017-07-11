@@ -1808,6 +1808,15 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
+		{"pgxc_enable_remote_query", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enable the planner's use of remote query"),
+			NULL
+		},
+		&pgxc_enable_remote_query,
+		true,
+		NULL, NULL, NULL
+	},
+	{
 		{"enable_remotegroup", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of remote group plans."),
 			NULL

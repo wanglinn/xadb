@@ -76,6 +76,7 @@ extern bool enable_mergejoin;
 extern bool enable_hashjoin;
 #ifdef ADB
 extern bool enable_fast_query_shipping;
+extern bool pgxc_enable_remote_query;
 extern bool enable_remotejoin;
 extern bool enable_remotegroup;
 extern bool enable_remotesort;
