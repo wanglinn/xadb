@@ -386,10 +386,16 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 		save_node_string(buf, RelationGetRelationName(rel));
 		heap_close(rel, NoLock);
 		appendBinaryStringInfo(buf, (char*)&locked_mode, sizeof(locked_mode));
-	}else if(IsA(node, IndexScan))
+	}else if(IsA(node, IndexScan) ||
+			 IsA(node, IndexOnlyScan) ||
+			 IsA(node, BitmapIndexScan))
 	{
-		IndexScan *scan = (IndexScan*)node;
-		Relation rel = relation_open(scan->indexid, NoLock);
+		Relation rel;
+		Oid indexid;
+		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(IndexOnlyScan, indexid), "");
+		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(BitmapIndexScan, indexid), "");
+		indexid = ((IndexScan*)node)->indexid;
+		rel = relation_open(indexid, NoLock);
 		save_namespace(buf, RelationGetNamespace(rel));
 		save_node_string(buf, RelationGetRelationName(rel));
 		heap_close(rel, NoLock);
@@ -427,11 +433,16 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 			pq_copymsgbytes(buf, (char*)&lock_mode, sizeof(lock_mode));
 			LockRelationOid(rte->relid, lock_mode);
 		}
-	}else if(IsA(node, IndexScan))
+	}else if(IsA(node, IndexScan) ||
+			 IsA(node, IndexOnlyScan) ||
+			 IsA(node, BitmapIndexScan))
 	{
 		IndexScan *scan = (IndexScan*)node;
 		char *rel_name;
 		Oid nsp_oid;
+		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(IndexOnlyScan, indexid), "");
+		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(BitmapIndexScan, indexid), "");
+
 		nsp_oid = load_namespace(buf);
 		rel_name = load_node_string(buf, false);
 		scan->indexid = get_relname_relid(rel_name, nsp_oid);
