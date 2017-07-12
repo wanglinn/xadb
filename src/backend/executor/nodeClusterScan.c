@@ -10,6 +10,7 @@
 #include "executor/executor.h"
 #include "executor/execCluster.h"
 #include "executor/nodeClusterScan.h"
+#include "pgxc/pgxc.h"
 
 ClusterScanState *ExecInitClusterScan(ClusterScan *node, EState *estate, int flags)
 {
@@ -30,7 +31,7 @@ ClusterScanState *ExecInitClusterScan(ClusterScan *node, EState *estate, int fla
 
 	ExecAssignResultTypeFromTL(&ss->ps);
 
-	/*if(list_member_oid(node->execnode->nodeList, get_cluster_node_oid()))*/
+	if(list_member_oid(node->rnodes, PGXCNodeOid))
 		ss->run_node = true;
 
 	return ss;

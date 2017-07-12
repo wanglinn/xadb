@@ -11,6 +11,7 @@
 #include "libpq/libpq-node.h"
 #include "libpq/pqformat.h"
 #include "miscadmin.h"
+#include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/plannodes.h"
 #include "storage/lmgr.h"
@@ -477,6 +478,34 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 					,err_generic_string(PG_DIAG_COLUMN_NAME, NameStr(attr->attname))
 					,errmsg("column \"%s\" type is diffent", NameStr(attr->attname))));
 			}
+		}
+	}else if(IsA(node, ClusterScan))
+	{
+		/*
+		 * return outer plan if run at this node
+		 * return result and set once-time as false if not run this node
+		 */
+		ListCell *lc;
+		bool at_this = false;
+		foreach(lc, ((ClusterScan*)node)->rnodes)
+		{
+			if(lfirst_oid(lc) == PGXCNodeOid)
+			{
+				at_this = true;
+				break;
+			}
+		}
+		if(at_this)
+		{
+			node = (Node*)outerPlan(node);
+		}else
+		{
+			Result *result = palloc(sizeof(*result));
+			memcpy(result, node, sizeof(Plan));
+			NodeSetTag(result, T_Result);
+			result->resconstantqual = makeBoolConst(false, false);
+			outerPlan(result) = NULL;
+			node = (Node*)result;
 		}
 	}
 

@@ -674,6 +674,8 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		ExecNodes *nodes =  GetRelationNodesByQuals(rte->relid, rel->relid,
 														(Node *)quals,
 														RELATION_ACCESS_READ);
+		List *rnodes = PGXCNodeGetNodeOidList(nodes->nodeList, PGXC_NODE_DATANODE);
+		FreeExecNodes(&nodes);
 
 		add_path(rel, create_seqscan_path(root, rel, required_outer, 0));
 
@@ -688,7 +690,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		{
 			path = lfirst(lc);
 			cost_div(path, list_length(rel->loc_info->nodeList));
-			cscan = create_cluster_scan_path(path, nodes, rel);
+			cscan = create_cluster_scan_path(path, rnodes, rel);
 			add_cluster_path(rel, (Path*)cscan);
 		}
 		rel->pathlist = NIL;

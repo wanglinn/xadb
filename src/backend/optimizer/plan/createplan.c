@@ -6442,55 +6442,43 @@ static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath 
 	plan = makeNode(ClusterScan);
 	plan->plan.targetlist = subplan->targetlist;
 	outerPlan(plan) = subplan;
-	plan->execnode = copyObject(path->cluster_path.exec_nodes);
+	plan->rnodes = copyObject(path->cluster_path.rnodes);
 
 	copy_generic_path_info((Plan*)plan, (Path*)path);
 
 	return plan;
 }
 
-static bool search_remote_nodes(Node *node, Bitmapset **nodes)
+static bool search_remote_nodes(Node *node, List **pplist)
 {
-	ExecNodes *exec;
-	ListCell *lc;
 	if(node == NULL)
 		return false;
 
 	check_stack_depth();
 
-	switch(nodeTag(node))
+	if(IsA(node, ClusterScan))
 	{
-	case T_ExecNodes:
-		exec = (ExecNodes*)node;
-		foreach(lc, exec->nodeList)
+		ListCell *lc;
+		List *list = *pplist;
+		foreach(lc, ((ClusterScan*)node)->rnodes)
 		{
-			*nodes = bms_add_member(*nodes, lfirst_int(lc));
+			if(list_member_oid(list, lfirst_oid(lc)) == false)
+				list = lappend_oid(list, lfirst_oid(lc));
 		}
+		*pplist = list;
 		return false;
-	default:
-		break;
 	}
-	return node_tree_walker(node, search_remote_nodes, (void*)nodes);
+	return node_tree_walker(node, search_remote_nodes, (void*)pplist);
 }
 
 /* return remote node's Oid */
 List* get_remote_nodes(Plan *top_plan)
 {
-	Bitmapset *bs;
 	List *list;
-	int x;
 	AssertArg(top_plan);
 
-	bs = NULL;
-	search_remote_nodes((Node*)top_plan, &bs);
-	if(bs == NULL)
-		return NIL;
-
 	list = NIL;
-	while( (x = bms_first_member(bs)) >= 0)
-	{
-		list = lappend_oid(list, PGXCNodeGetNodeOid(x, PGXC_NODE_DATANODE));
-	}
+	search_remote_nodes((Node*)top_plan, &list);
 	return list;
 }
 

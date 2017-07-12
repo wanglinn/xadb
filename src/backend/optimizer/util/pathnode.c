@@ -3364,7 +3364,7 @@ ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel)
 	return path;
 }
 
-ClusterScanPath *create_cluster_scan_path(Path *sub_path, struct ExecNodes *exec_node, RelOptInfo *rel)
+ClusterScanPath *create_cluster_scan_path(Path *sub_path, List *rnodes, RelOptInfo *rel)
 {
 	ClusterScanPath *path = makeNode(ClusterScanPath);
 	copy_path_info((Path*)path, sub_path);
@@ -3372,7 +3372,7 @@ ClusterScanPath *create_cluster_scan_path(Path *sub_path, struct ExecNodes *exec
 
 	path->cluster_path.path.pathtype = T_ClusterScan;
 
-	path->cluster_path.exec_nodes = exec_node;
+	path->cluster_path.rnodes = rnodes;
 	path->cluster_path.subpath = sub_path;
 
 	return path;
@@ -3503,10 +3503,10 @@ static bool get_path_execute_on_walker(Path *path, GPEOContext *context)
 	case T_ClusterScanPath:
 		{
 			ListCell *lc;
-			foreach(lc, ((ClusterPath*)path)->exec_nodes->nodeList)
+			foreach(lc, ((ClusterPath*)path)->rnodes)
 			{
-				context->bmsDatanodes = bms_add_member(context->bmsDatanodes,
-													   lfirst_int(lc));
+				if(list_member_oid(context->dn_oid_list, lfirst_oid(lc)) == false)
+					context->dn_oid_list = lappend_oid(context->dn_oid_list, lfirst_oid(lc));
 			}
 			context->execute_on |= REMOTE_EXECUTE_ON_DATANODE;
 		}

@@ -1547,7 +1547,7 @@ typedef struct ClusterPath
 {
 	Path		path;
 	Path	   *subpath;		/* path representing input source */
-	ExecNodes  *exec_nodes;			/* remote nodes */
+	List	   *rnodes;			/* remote nodes */
 } ClusterPath;
 
 /*

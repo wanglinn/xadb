@@ -698,14 +698,14 @@ END_NODE(DropGroupStmt)
 BEGIN_NODE(ClusterPath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(Path,subpath)
-	NODE_NODE(ExecNodes,exec_nodes)
+	NODE_NODE(List,rnodes)
 END_NODE(ClusterPath)
 #endif /* NO_NODE_ClusterPath */
 
 #ifndef NO_NODE_ClusterScan
 BEGIN_NODE(ClusterScan)
 	NODE_BASE2(Plan,plan)
-	NODE_NODE(ExecNodes,execnode)
+	NODE_NODE(List,rnodes)
 END_NODE(ClusterScan)
 #endif /* NO_NODE_ClusterScan */
 
@@ -1384,11 +1384,16 @@ BEGIN_NODE(RelOptInfo)
 	NODE_NODE(Path,cheapest_startup_path)
 	NODE_NODE(Path,cheapest_total_path)
 	NODE_NODE(Path,cheapest_unique_path)
+	NODE_NODE(List,cheapest_parameterized_paths)
 #ifdef ADB
 	NODE_NODE(List,cluster_pathlist)
+	NODE_NODE(Path,cheapest_cluster_startup_path)
+	NODE_NODE(Path,cheapest_cluster_total_path)
+	NODE_NODE(Path,cheapest_cluster_unique_path)
+	NODE_NODE(List,cheapest_cluster_parameterized_paths)
 	NODE_STRUCT(RelationLocInfo,loc_info)
+	NODE_NODE(Expr,reduce)
 #endif
-	NODE_NODE(List,cheapest_parameterized_paths)
 	NODE_RELIDS(Relids,direct_lateral_relids)
 	NODE_RELIDS(Relids,lateral_relids)
 	NODE_SCALAR(Index,relid)

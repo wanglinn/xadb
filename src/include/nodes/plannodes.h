@@ -855,7 +855,7 @@ typedef struct Limit
 typedef struct ClusterScan
 {
 	Plan		plan;
-	struct ExecNodes   *execnode;			/* remote node oids */
+	List	   *rnodes;			/* remote node oids */
 }ClusterScan;
 
 typedef struct ClusterGather

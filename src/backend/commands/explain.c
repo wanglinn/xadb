@@ -1247,11 +1247,6 @@ ExplainNode(PlanState *planstate, List *ancestors,
 					ExplainPropertyText("Command", setopcmd, es);
 			}
 			break;
-#ifdef ADB
-		case T_ClusterScan:
-			ExplainExecNodes(((ClusterScan*)plan)->execnode, es);
-			break;
-#endif /* ADB */
 		default:
 			break;
 	}
@@ -1577,6 +1572,10 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			show_hash_info((HashState *) planstate, es);
 			break;
 #ifdef ADB
+		case T_ClusterScan:
+			if(es->verbose)
+				ExplainRemoteList(((ClusterScan*)plan)->rnodes, es);
+			break;
 		case T_ClusterGather:
 			if(es->verbose)
 				ExplainRemoteList(((ClusterGather*)plan)->rnodes, es);
