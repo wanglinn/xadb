@@ -18,17 +18,6 @@
 #define RDC_VERSION_NUM		PG_VERSION_NUM
 
 extern RdcPortId		MyReduceId;
-extern int				MyReduceIdx;
-
-struct RdcMask
-{
-	RdcPortId	rdc_rpid;
-	int			rdc_port;
-	char	   *rdc_host;
-};
-
-extern void rdc_freemasks(RdcMask *masks, int num);
-extern int rdc_portidx(RdcMask *rdc_masks, int num, RdcPortId roid);
 
 /* -----------Reduce message------------- */
 #define RDC_LISTEN_PORT		'L'

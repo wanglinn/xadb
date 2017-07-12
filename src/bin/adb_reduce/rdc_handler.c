@@ -21,7 +21,7 @@ static int  try_read_some(RdcPort *port);
 static bool try_read_from_reduce(RdcPort *port, List **pln_list);
 static void try_write_to_reduce(RdcPort *port);
 static void try_read_from_plan(PlanPort *pln_port);
-static void try_write_to_plan(PlanPort *pln_port);
+static void try_write_to_plan(PlanPort *pln_port, bool flush);
 static void send_rdc2plan_data(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen);
 static void send_rdc2plan_eof(PlanPort *pln_port, RdcPortId rdc_id);
 static int  send_rdc2rdc_data(RdcPort *port, RdcPortId planid, const char *data, int datalen);
@@ -37,11 +37,13 @@ rdc_handle_plannode(List *pln_list)
 	ListCell	   *cell = NULL;
 	PlanPort	   *pln_port = NULL;
 
-	foreach (cell, pln_list)
+	for (cell = list_head(pln_list); cell;)
 	{
 		pln_port = (PlanPort *) lfirst(cell);
+		cell = lnext(cell);
+
 		try_read_from_plan(pln_port);
-		try_write_to_plan(pln_port);
+		try_write_to_plan(pln_port, false);
 	}
 }
 
@@ -51,7 +53,8 @@ rdc_handle_plannode(List *pln_list)
 void
 rdc_handle_reduce(List **pln_list)
 {
-	RdcPort		  **rdc_nodes = NULL;
+	RdcNode		   *rdc_nodes = NULL;
+	RdcNode		   *rdc_node = NULL;
 	RdcPort		   *port = NULL;
 	int				rdc_num;
 	int				i;
@@ -60,14 +63,15 @@ rdc_handle_reduce(List **pln_list)
 	rdc_num = MyRdcOpts->rdc_num;
 	for (i = 0; i < rdc_num; i++)
 	{
-		port = rdc_nodes[i];
-		/* skip if null (MyReduceId or be freed) */
-		if (port == NULL)
+		rdc_node = &(rdc_nodes[i]);
+		port = rdc_node->port;
+		if (rdc_node->mask.rdc_rpid == MyReduceId ||
+			port == NULL)
 			continue;
 		if (RdcWaitRead(port))
 		{
 			if (try_read_from_reduce(port, pln_list))
-				rdc_nodes[i] = NULL;
+				rdc_node->port = NULL;
 		}
 		if (RdcWaitWrite(port))
 			try_write_to_reduce(port);
@@ -238,14 +242,10 @@ try_read_from_plan(PlanPort *pln_port)
 			prev = port;
 		port = next;
 	}
-
-	/* The worker RdcPort of PlanPort is all free */
-	if (pln_port->port == NULL)
-		plan_freeport(pln_port);
 }
 
 static void
-try_write_to_plan(PlanPort *pln_port)
+try_write_to_plan(PlanPort *pln_port, bool flush)
 {
 	StringInfo		buf;
 	RdcPort		   *port;
@@ -257,7 +257,7 @@ try_write_to_plan(PlanPort *pln_port)
 
 	rdcstore = pln_port->rdcstore;
 	port = pln_port->port;
-	eof = (list_length(pln_port->rdc_eofs) == pln_port->rdc_num - 1);
+	eof = (pln_port->eof_num == pln_port->rdc_num - 1);
 
 	while (port != NULL)
 	{
@@ -292,7 +292,11 @@ try_write_to_plan(PlanPort *pln_port)
 
 					if (errno == EAGAIN ||
 						errno == EWOULDBLOCK)
+					{
+						if (flush)
+							continue;
 						break;		/* break while */
+					}
 
 					buf->cursor = buf->len = 0;
 					ClientConnectionLost = 1;
@@ -329,7 +333,8 @@ try_write_to_plan(PlanPort *pln_port)
 						RdcSendEOF(port) = true;
 					} else
 					{
-						RdcWaitEvents(port) &= ~WAIT_SOCKET_WRITEABLE;
+						if (RdcSendEOF(port))
+							RdcWaitEvents(port) &= ~WAIT_SOCKET_WRITEABLE;
 						break;	/* break for */
 					}
 				}
@@ -495,24 +500,28 @@ send_rdc2plan_data(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int d
 		RdcWaitEvents(port) |= WAIT_SOCKET_WRITEABLE;
 		port = RdcNext(port);
 	}
-	try_write_to_plan(pln_port);
+	try_write_to_plan(pln_port, false);
 }
 
 static void
 send_rdc2plan_eof(PlanPort *pln_port, RdcPortId rdc_id)
 {
-	List	   *rdc_eofs;
 	RdcPort	   *port;
-	ListCell   *lc;
+	int			i;
 	bool		exists;
 
 	AssertArg(pln_port);
-	rdc_eofs = pln_port->rdc_eofs;
+
+#ifdef DEBUG_ADB
+	elog(LOG,
+		 "receive EOF message of plan %ld from reduce %ld",
+		 pln_port->pln_id, rdc_id);
+#endif
 
 	exists = false;
-	foreach (lc, rdc_eofs)
+	for (i = 0; i < pln_port->eof_num; i++)
 	{
-		if (*(RdcPortId *) lfirst(lc) == rdc_id)
+		if (pln_port->rdc_eofs[i] == rdc_id)
 		{
 			exists = true;
 			break;
@@ -520,10 +529,9 @@ send_rdc2plan_eof(PlanPort *pln_port, RdcPortId rdc_id)
 	}
 	if (exists)
 		ereport(ERROR,
-				(errmsg("receive EOF from REDUCE %ld once again", rdc_id)));
-
-	rdc_eofs = lappend(rdc_eofs, (void *) &rdc_id);
-	pln_port->rdc_eofs = rdc_eofs;
+				(errmsg("receive EOF message of plan %ld from REDUCE %ld once again",
+				 pln_port->pln_id, rdc_id)));
+	pln_port->rdc_eofs[pln_port->eof_num++] = rdc_id;
 
 	port = pln_port->port;
 	while (port != NULL)
@@ -531,7 +539,7 @@ send_rdc2plan_eof(PlanPort *pln_port, RdcPortId rdc_id)
 		RdcWaitEvents(port) |= WAIT_SOCKET_WRITEABLE;
 		port = RdcNext(port);
 	}
-	try_write_to_plan(pln_port);
+	try_write_to_plan(pln_port, true);
 }
 
 static int
@@ -564,8 +572,9 @@ static int
 send_rdc2rdc_eof(RdcPortId planid)
 {
 	int				i;
-	int				num = MyRdcOpts->rdc_num;
-	RdcPort		  **rdc_nodes = MyRdcOpts->rdc_nodes;
+	int				rdc_num = MyRdcOpts->rdc_num;
+	RdcNode		   *rdc_nodes = MyRdcOpts->rdc_nodes;
+	RdcNode		   *rdc_node = NULL;
 	RdcPort		   *rdc_port;
 	StringInfoData	buf;
 	int				ret;
@@ -575,13 +584,19 @@ send_rdc2rdc_eof(RdcPortId planid)
 	rdc_sendRdcPortID(&buf, planid);
 	rdc_sendlength(&buf);
 
-	for (i = 0; i < num; i++)
+	for (i = 0; i < rdc_num; i++)
 	{
-		rdc_port = rdc_nodes[i];
-		if (!rdc_port)
+		rdc_node = &(rdc_nodes[i]);
+		rdc_port = rdc_node->port;
+		if (rdc_node->mask.rdc_rpid == MyReduceId)
 			continue;
 
 		Assert(RdcPeerID(rdc_port) != MyReduceId);
+#ifdef DEBUG_ADB
+		elog(LOG,
+			 "Send EOF message of plan %ld to reduce %ld",
+			 planid, RdcPeerID(rdc_port));
+#endif
 		rdc_putmessage(rdc_port, buf.data, buf.len);
 
 		ret = rdc_try_flush(rdc_port);
@@ -603,16 +618,16 @@ static RdcPort *
 find_rdc_port(RdcPortId rpid)
 {
 	int			i;
-	int			num = MyRdcOpts->rdc_num;
-	RdcPort	  **rdc_nodes = MyRdcOpts->rdc_nodes;
-	RdcPort	   *rdc_port;
+	int			rdc_num = MyRdcOpts->rdc_num;
+	RdcNode	   *rdc_nodes = MyRdcOpts->rdc_nodes;
+	RdcNode	   *rdc_node = NULL;
 
 	Assert(rpid != MyReduceId);
-	for (i = 0; i < num; i++)
+	for (i = 0; i < rdc_num; i++)
 	{
-		rdc_port = rdc_nodes[i];
-		if (rdc_port && RdcPeerID(rdc_port) == rpid)
-			return rdc_port;
+		rdc_node = &(rdc_nodes[i]);
+		if (rdc_node->mask.rdc_rpid == rpid)
+			return rdc_node->port;
 	}
 
 	return NULL;

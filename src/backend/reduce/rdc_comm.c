@@ -92,7 +92,7 @@ rdc_newport(pgsocket sock,
 	rdc_port->next = NULL;
 	rdc_port->sock = sock;
 	rdc_port->noblock = false;
-	rdc_port->active = false;
+	rdc_port->positive = false;
 	rdc_port->peer_type = peer_type;
 	rdc_port->peer_id = peer_id;
 	rdc_port->self_type = self_type;
@@ -108,6 +108,7 @@ rdc_newport(pgsocket sock,
 #endif
 	rdc_port->addrs = NULL;
 	rdc_port->addr_cur = NULL;
+	rdc_port->hook = NULL;
 	initStringInfoExtend(RdcInBuf(rdc_port), RDC_BUFFER_SIZE);
 	initStringInfoExtend(RdcOutBuf(rdc_port), RDC_BUFFER_SIZE);
 	initStringInfoExtend(RdcErrBuf(rdc_port), RDC_BUFFER_SIZE);
@@ -510,10 +511,10 @@ keep_going: 					/* We will come back to here until there is
 #ifdef DEBUG_ADB
 				{
 					char   *self_host = inet_ntoa(((struct sockaddr_in *) &(port->laddr))->sin_addr);
-					int		portnum = (int) ntohs(((struct sockaddr_in *) &(port->laddr))->sin_port);
+					int		rprt = (int) ntohs(((struct sockaddr_in *) &(port->laddr))->sin_port);
 					char	portstr[NI_MAXSERV];
 
-					snprintf(portstr, NI_MAXSERV, "%d", portnum);
+					snprintf(portstr, NI_MAXSERV, "%d", rprt);
 					RdcSelfHost(port) = self_host ? pstrdup(self_host) : pstrdup("???");
 					RdcSelfPort(port) = pstrdup(portstr);
 				}
@@ -613,6 +614,8 @@ keep_going: 					/* We will come back to here until there is
 				resetStringInfo(RdcErrBuf(port));
 				RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
 				RdcStatus(port) = RDC_CONNECTION_OK;
+				if (port->hook)
+					(*port->hook)(port);
 				return RDC_POLLING_OK;
 			}
 
@@ -626,6 +629,8 @@ keep_going: 					/* We will come back to here until there is
 
 error_return:
 	RdcStatus(port) = RDC_CONNECTION_BAD;
+	if (port->hook)
+		(*port->hook)(port);
 	return RDC_POLLING_FAILED;
 }
 
@@ -698,27 +703,40 @@ _re_accept:
 	return port;
 }
 
+static int
+rdc_idx(RdcNode *rdc_nodes, int num, RdcPortId rpid)
+{
+	int i;
+
+	if (rdc_nodes == NULL)
+		return -1;
+
+	for (i = 0; i < num; i++)
+	{
+		if (rdc_nodes[i].mask.rdc_rpid == rpid)
+			return i;
+	}
+
+	return -1;
+}
+
+
 /*
  * rdc_parse_group -- parse group message from client
  *
  * rdc_num      output reduce group number
- * nodeinfos    output reduce group node infomation
- * connect_list output a list which contains RdcPort connect to.
  *
- * returns STATUS_OK if OK.
- * returns STATUS_ERROR if trouble.
+ * returns RdcNode if OK.
+ * returns NULL if trouble.
  */
-int
-rdc_parse_group(RdcPort *port,				/* IN */
-				int *rdc_num,				/* OUT */
-				RdcMask **masks,		/* OUT */
-				List **connect_list)		/* OUT */
+RdcNode *
+rdc_parse_group(RdcPort *port, int *rdc_num, RdcConnHook hook)
 {
-	const char		   *host = NULL;
+	RdcPortId			rpid;
+	int					rprt;
+	const char		   *rhst;
 	int					num;
 	int					i;
-	uint32				portnum;
-	RdcPortId			rpid;
 	StringInfo			msg;
 	int					ret;
 	struct addrinfo		hint;
@@ -726,46 +744,46 @@ rdc_parse_group(RdcPort *port,				/* IN */
 	List			   *clist = NIL;
 	ListCell		   *cell = NULL;
 	RdcPort			   *rdc_port = NULL;
-	RdcMask			   *rdc_masks = NULL;
-	RdcMask			   *rdc_mask = NULL;
-
+	RdcNode			   *rdc_nodes = NULL;
+	RdcNode			   *rdc_node = NULL;
 	int					self_rdc_idx;
 	int					othr_rdc_idx;
 
 	if (port == NULL)
-		return STATUS_ERROR;
+		return NULL;
 
 	msg = RdcInBuf(port);
 	num = rdc_getmsgint(msg, sizeof(num));
 	Assert(num > 0);
-	rdc_masks = (RdcMask*) MemoryContextAllocZero(TopMemoryContext,
-														num * sizeof(RdcMask));
+	rdc_nodes = (RdcNode *) palloc0(num * sizeof(RdcNode));
 
+	/* parse group message */
 	for (i = 0; i < num; i++)
 	{
-		rdc_masks[i].rdc_host = MemoryContextStrdup(TopMemoryContext,
-													rdc_getmsgstring(msg));
-		rdc_masks[i].rdc_port = rdc_getmsgint(msg, sizeof(rdc_masks[i].rdc_port));
-		rdc_masks[i].rdc_rpid = rdc_getmsgRdcPortID(msg);
+		rdc_node = &(rdc_nodes[i]);
+		rdc_node->mask.rdc_rpid = rdc_getmsgRdcPortID(msg);
+		rdc_node->mask.rdc_port = rdc_getmsgint(msg, sizeof(rdc_node->mask.rdc_port));
+		rdc_node->mask.rdc_host = pstrdup(rdc_getmsgstring(msg));
+		rdc_node->port = NULL;
 	}
 
 	for (i = 0; i < num; i++)
 	{
-		rdc_mask = &(rdc_masks[i]);
-		rpid = rdc_mask->rdc_rpid;
-		host = rdc_mask->rdc_host;
-		portnum = rdc_mask->rdc_port;
+		rdc_node = &(rdc_nodes[i]);
+		rpid = rdc_node->mask.rdc_rpid;
+		rhst = rdc_node->mask.rdc_host;
+		rprt = rdc_node->mask.rdc_port;
 
 		/* skip self Reduce */
 		if (rpid == MyReduceId)
 			continue;
 
-		self_rdc_idx = rdc_portidx(rdc_masks, num, MyReduceId);
-		othr_rdc_idx = rdc_portidx(rdc_masks, num, rpid);
-
+		self_rdc_idx = rdc_idx(rdc_nodes, num, MyReduceId);
+		othr_rdc_idx = rdc_idx(rdc_nodes, num, rpid);
 		Assert(self_rdc_idx >= 0);
 		Assert(othr_rdc_idx >= 0);
 
+		rdc_port = NULL;
 		/*
 		 * If MyReduceId is even, i will connect with Reduce node whose id is
 		 * even and bigger than me. also connect Reduce node whose id is odd
@@ -801,42 +819,36 @@ rdc_parse_group(RdcPort *port,				/* IN */
 			hint.ai_family = AF_INET;
 			hint.ai_flags = AI_PASSIVE;
 
-			snprintf(portstr, sizeof(portstr), "%u", portnum);
+			snprintf(portstr, sizeof(portstr), "%d", rprt);
 			/* Use getaddrinfo() to resolve the address */
-			ret = getaddrinfo(host, portstr, &hint, &(rdc_port->addrs));
+			ret = getaddrinfo(rhst, portstr, &hint, &(rdc_port->addrs));
 			if (ret || !rdc_port->addrs)
 			{
-				rdc_freeport(rdc_port);
-				foreach (cell, clist)
-					rdc_freeport((RdcPort *) lfirst(cell));
-
 				rdc_puterror(port,
-							 "could not resolve address %s:%u: %s",
-							 host, portnum, gai_strerror(ret));
-				return STATUS_ERROR;
+							 "could not resolve address %s:%d: %s",
+							 rhst, rprt, gai_strerror(ret));
+				goto _err_parse;
 			}
 			rdc_port->addr_cur = rdc_port->addrs;
 			RdcStatus(rdc_port) = RDC_CONNECTION_NEEDED;
-			RdcActive(rdc_port) = true;
+			RdcPositive(rdc_port) = true;
+			RdcHook(rdc_port) = hook;
 #ifdef DEBUG_ADB
-			RdcPeerHost(rdc_port) = pstrdup(host);
+			RdcPeerHost(rdc_port) = pstrdup(rhst);
 			RdcPeerPort(rdc_port) = pstrdup(portstr);
 #endif
 			/* try to poll connect once */
 			if (rdc_connect_poll(rdc_port) != RDC_POLLING_WRITING)
 			{
-				rdc_freeport(rdc_port);
-				foreach (cell, clist)
-					rdc_freeport((RdcPort *) lfirst(cell));
-
 				rdc_puterror(port,
 							 "fail to connect with [%s %ld] {%s:%s}: %s",
 							 RdcPeerTypeStr(rdc_port), RdcPeerID(rdc_port),
 							 RdcPeerHost(rdc_port), RdcPeerPort(rdc_port),
 							 RdcError(rdc_port));
-				return STATUS_ERROR;
+				goto _err_parse;
 			}
 			/* OK and add it */
+			rdc_node->port = rdc_port;
 			clist = lappend(clist, rdc_port);
 		}
 		/*
@@ -844,21 +856,20 @@ rdc_parse_group(RdcPort *port,				/* IN */
 		 */
 	}
 
+	list_free(clist);
 	if (rdc_num)
 		*rdc_num = num;
-	if (connect_list)
-		*connect_list = clist;
-	else
-	{
-		foreach (cell, clist)
-			rdc_freeport((RdcPort *) lfirst(cell));
-	}
-	if (masks)
-		*masks = rdc_masks;
-	else
-		rdc_freemasks(rdc_masks, num);
 
-	return STATUS_OK;
+	return rdc_nodes;
+
+_err_parse:
+	if (rdc_port != NULL)
+		rdc_freeport(rdc_port);
+	foreach (cell, clist)
+		rdc_freeport((RdcPort *) lfirst(cell));
+	pfree(rdc_nodes);
+
+	return NULL;
 }
 
 /*

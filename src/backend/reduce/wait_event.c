@@ -134,7 +134,7 @@ begin_wait_events(void)
 	cur_number = 0;
 	idx_number = 0;
 	wait_begin = true;
-#ifdef DEBUG_ADB	
+#ifdef DEBUG_ADB
 	elog(LOG, "wait_begin = true");
 #endif
 #if defined(WAIT_USE_SELECT)

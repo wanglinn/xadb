@@ -7,15 +7,19 @@
 PlanPort *
 plan_newport(RdcPortId pln_id)
 {
-	PlanPort	   *pln_port = NULL;
-	int				rdc_num = MyRdcOpts->rdc_num;
-	int				work_mem = MyRdcOpts->work_mem;
+	PlanPort   *pln_port = NULL;
+	int			rdc_num = MyRdcOpts->rdc_num;
+	int			work_mem = MyRdcOpts->work_mem;
+	int			i;
 
-	pln_port = (PlanPort *) palloc0(sizeof(*pln_port));
+	pln_port = (PlanPort *) palloc0(sizeof(*pln_port) + rdc_num * sizeof(RdcPortId));
 	pln_port->work_num = 0;
 	pln_port->pln_id = pln_id;
 	pln_port->rdcstore = rdcstore_begin(work_mem, "PLAN", pln_id);
 	pln_port->rdc_num = rdc_num;
+	pln_port->eof_num = 0;
+	for (i = 0; i < rdc_num; i++)
+		pln_port->rdc_eofs[i] = InvalidPortId;
 
 	return pln_port;
 }
@@ -28,6 +32,9 @@ plan_freeport(PlanPort *pln_port)
 {
 	if (pln_port)
 	{
+#ifdef DEBUG_ADB
+		elog(LOG, "free plan port %ld", pln_port->pln_id);
+#endif
 		rdc_freeport(pln_port->port);
 		rdcstore_end(pln_port->rdcstore);
 		safe_pfree(pln_port);

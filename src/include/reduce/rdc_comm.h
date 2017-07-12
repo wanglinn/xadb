@@ -28,6 +28,7 @@
 #if !defined(RDC_FRONTEND)
 typedef struct RdcPort RdcPort;
 typedef struct RdcMask RdcMask;
+typedef struct RdcNode RdcNode;
 #endif
 
 typedef enum
@@ -75,12 +76,27 @@ typedef enum
 #define PortTypeIsValid(typ)	((typ) == TYPE_PLAN || \
 								 (typ) == TYPE_REDUCE)
 
+struct RdcMask
+{
+	RdcPortId			rdc_rpid;
+	int 				rdc_port;
+	char			   *rdc_host;
+};
+
+struct RdcNode
+{
+	RdcMask				mask;
+	RdcPort			   *port;
+};
+
+typedef void (*RdcConnHook)(void *arg);
+
 struct RdcPort
 {
 	RdcPort			   *next;			/* RdcPort next for Plan node port with the same plan id */
 	pgsocket			sock;			/* file descriptors for one plan node id */
 	bool				noblock;		/* is the socket in non-blocking mode? */
-	bool				active;			/* true means connect, false means be connected */
+	bool				positive;		/* true means connect, false means be connected */
 	bool				send_eof;		/* true if send EOF message */
 	RdcPortType			peer_type;		/* the identity type of the peer side */
 	RdcPortId			peer_id;		/* the identity id of the peer side */
@@ -100,6 +116,7 @@ struct RdcPort
 	struct addrinfo	   *addrs;			/* used for connect */
 	struct addrinfo	   *addr_cur;		/* used for connect */
 	RdcConnStatusType	status;			/* used to connect with other Reduce */
+	RdcConnHook			hook;			/* callback function when connect done */
 
 	uint32				wait_events;	/* used for select/poll */
 	StringInfoData		in_buf;			/* for normal message */
@@ -126,7 +143,8 @@ struct RdcPort
 #define RdcSelfType(port)			(((RdcPort *) (port))->self_type)
 #define RdcSelfID(port)				(((RdcPort *) (port))->self_id)
 #define RdcStatus(port)				(((RdcPort *) (port))->status)
-#define RdcActive(port)				(((RdcPort *) (port))->active)
+#define RdcPositive(port)			(((RdcPort *) (port))->positive)
+#define RdcHook(port)				(((RdcPort *) (port))->hook)
 #define RdcSendEOF(port)			(((RdcPort *) (port))->send_eof)
 #define RdcWaitEvents(port)			(((RdcPort *) (port))->wait_events)
 #define RdcWaitRead(port)			((((RdcPort *) (port))->wait_events) & WAIT_SOCKET_READABLE)
@@ -142,18 +160,18 @@ struct RdcPort
 #define IsRdcPortError(port)		(RdcStatus(port) == RDC_CONNECTION_BAD || \
 									 ((RdcPort *) (port))->err_buf.len > 0)
 
-#define IsPortForBackend(port)		(RdcPeerType(port) == TYPE_BACKEND)
-#define IsPortForPlan(port)			(RdcPeerType(port) == TYPE_PLAN)
-#define IsPortForReduce(port)		(RdcPeerType(port) == TYPE_REDUCE)
+#define PortForBackend(port)		(RdcPeerType(port) == TYPE_BACKEND)
+#define PortForPlan(port)			(RdcPeerType(port) == TYPE_PLAN)
+#define PortForReduce(port)			(RdcPeerType(port) == TYPE_REDUCE)
 
 typedef int PlanNodeId;
 #define InvalidPlanNodeId			-1
-#define PlanPortIsValid(port)		(IsPortForPlan(port) && \
+#define PlanPortIsValid(port)		(PortForPlan(port) && \
 									 RdcPeerID(port) > InvalidPlanNodeId)
 
 typedef int ReduceNodeId;
 #define InvalidReduceId				0
-#define ReducePortIsValid(port)		(IsPortForReduce(port) && \
+#define ReducePortIsValid(port)		(PortForReduce(port) && \
 									 RdcPeerID(port) > InvalidReduceId)
 
 #define PortIdIsValid(port)			(PlanPortIsValid(port) || ReducePortIsValid(port))
@@ -168,10 +186,7 @@ extern RdcPort *rdc_connect(const char *host, uint32 port,
 							RdcPortType peer_type, RdcPortId peer_id,
 							RdcPortType self_type, RdcPortId self_id);
 extern RdcPort *rdc_accept(pgsocket sock);
-extern int rdc_parse_group(RdcPort *port,			/* IN */
-						   int *rdc_num,			/* OUT */
-						   RdcMask **masks,	/* OUT */
-						   List **connect_list);	/* OUT */
+extern RdcNode *rdc_parse_group(RdcPort *port, int *rdc_num, RdcConnHook hook);
 extern RdcPollingStatusType rdc_connect_poll(RdcPort *port);
 extern int rdc_puterror(RdcPort *port, const char *fmt, ...) pg_attribute_printf(2, 3);
 extern int rdc_puterror_binary(RdcPort *port, const char *s, size_t len);

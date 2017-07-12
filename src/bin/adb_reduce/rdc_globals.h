@@ -34,6 +34,7 @@ extern pg_time_t	MyStartTime;
 typedef struct RdcPort  RdcPort;
 typedef struct PlanPort PlanPort;
 typedef struct RdcMask RdcMask;
+typedef struct RdcNode RdcNode;
 
 /* define adb reduce run options */
 typedef struct ReduceOptionsData
@@ -51,8 +52,7 @@ typedef struct ReduceOptionsData
 	RdcPort	   *log_watch;				/* for log record */
 
 	int			rdc_num;
-	RdcMask	   *rdc_masks;				/* for reduce group */
-	RdcPort	  **rdc_nodes;				/* for reduce group */
+	RdcNode	   *rdc_nodes;				/* for reduce group */
 	List	   *pln_nodes;				/* for plan node */
 } ReduceOptionsData, *RdcOptions;
 

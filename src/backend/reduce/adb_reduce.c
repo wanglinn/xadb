@@ -60,6 +60,7 @@ EndSelfReduce(int code, Datum arg)
 	backend_hold_port = NULL;
 	RdcListenPort = 0;
 	SelfReduceID = InvalidOid;
+	cancel_before_shmem_exit(EndSelfReduce, 0);
 }
 
 static void
@@ -85,7 +86,7 @@ StartSelfReduceLauncher(RdcPortId rid)
 	pqsignal(SIGCHLD, SigChldHandler);
 	EndSelfReduce(0, 0);
 	InitCommunicationChannel();
-	on_proc_exit(EndSelfReduce, 0);
+	before_shmem_exit(EndSelfReduce, 0);
 
 	SelfReduceID = rid;
 	Assert(OidIsValid(rid));
@@ -262,6 +263,9 @@ SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot)
 	AssertArg(port);
 	if (TupIsNull(slot))
 	{
+#ifdef DEBUG_ADB
+		elog(LOG, "Backend send EOF message of plan %ld", RdcSelfID(port));
+#endif
 		rdc_beginmessage(&msg, RDC_EOF_MSG);
 	} else if (destNodes)
 	{
@@ -354,6 +358,8 @@ GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof)
 							msg_type),
 					 errdetail("%s", RdcError(port))));
 	}
+
+	return ExecClearTuple(slot);
 
 _eof_got:
 	if (sv_noblock)

@@ -15,35 +15,6 @@
 #include "reduce/rdc_msg.h"
 
 RdcPortId	MyReduceId = InvalidPortId;
-int			MyReduceIdx = -1;
-
-void
-rdc_freemasks(RdcMask *masks, int num)
-{
-	int i;
-	for (i = 0; i < num; i++)
-	{
-		safe_pfree(masks[i].rdc_host);
-	}
-	pfree(masks);
-}
-
-int
-rdc_portidx(RdcMask *rdc_masks, int num, RdcPortId roid)
-{
-	int i;
-
-	if (rdc_masks == NULL)
-		return -1;
-
-	for (i = 0; i < num; i++)
-	{
-		if (rdc_masks[i].rdc_rpid == roid)
-			return i;
-	}
-
-	return -1;
-}
 
 int
 rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id)
@@ -115,9 +86,9 @@ rdc_send_group_rqt(RdcPort *port, RdcMask *rdc_masks, int num)
 #ifdef DEBUG_ADB
 		elog(LOG, "[Reduce %ld] {%s:%d}", mask->rdc_rpid, mask->rdc_host, mask->rdc_port);
 #endif
-		rdc_sendstring(&buf, mask->rdc_host);
-		rdc_sendint(&buf, mask->rdc_port, sizeof(mask->rdc_port));
 		rdc_sendRdcPortID(&buf, mask->rdc_rpid);
+		rdc_sendint(&buf, mask->rdc_port, sizeof(mask->rdc_port));
+		rdc_sendstring(&buf, mask->rdc_host);
 	}
 	rdc_endmessage(port, &buf);
 
