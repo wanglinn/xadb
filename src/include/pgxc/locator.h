@@ -163,6 +163,9 @@ extern Expr *MakeReducePathExpr(RelationLocInfo *loc,
 extern Expr *ReducePathExpr2PlanExpr(Expr *expr);
 extern Expr *MakeReduce2CoordinatorExpr(void);
 extern bool IsReduce2Coordinator(Expr *expr);
+extern Expr *MakeReduceReplicateExpr(List *oids);
+extern bool IsReduceReplicateExpr(Expr *expr);
+extern List *ReduceReplicateExprGetList(Expr *expr);
 extern bool IsReduceExprByValue(Expr *expr);
 extern Index PullReducePathExprAttnos(Expr *expr, Bitmapset **varattnos);
 

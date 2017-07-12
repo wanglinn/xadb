@@ -1354,6 +1354,49 @@ bool IsReduce2Coordinator(Expr *expr)
 		   DatumGetObjectId(c->constvalue) == PGXCNodeOid;
 }
 
+static int oid_qsort_cmp(const void *a, const void *b)
+{
+	Oid l = *(Oid*)a;
+	Oid r = *(Oid*)b;
+
+	if(l < r)
+		return -1;
+	else if(l == r)
+		return 0;
+	return 1;
+}
+
+Expr *MakeReduceReplicateExpr(List *oids)
+{
+	OidVectorLoopExpr *ovl = makeNode(OidVectorLoopExpr);
+	oidvector *vector = makeDatanodeOidVector(oids);
+	ovl->signalRowMode = false;
+	pg_qsort(vector->values, vector->dim1, sizeof(Oid), oid_qsort_cmp);
+	ovl->vector = PointerGetDatum(vector);
+	return (Expr*)ovl;
+}
+
+bool IsReduceReplicateExpr(Expr *expr)
+{
+	return IsA(expr, OidVectorLoopExpr) &&
+		   ((OidVectorLoopExpr*)expr)->signalRowMode == false;
+}
+
+List *ReduceReplicateExprGetList(Expr *expr)
+{
+	List *list;
+	oidvector *oids;
+	Size i;
+	Assert(IsReduceReplicateExpr(expr));
+	oids = (oidvector*)DatumGetPointer(((OidVectorLoopExpr*)expr)->vector);
+
+	list = NIL;
+	for(i=0;i<oids->dim1;++i)
+		list = lappend_oid(list, oids->values[i]);
+
+	return list;
+}
+
 bool IsReduceExprByValue(Expr *expr)
 {
 	ArrayRef *ref;
@@ -1385,6 +1428,7 @@ static oidvector *makeDatanodeOidVector(List *list)
 	ListCell *lc;
 	Size i;
 
+	Assert(list != NIL);
 	oids = palloc0(offsetof(oidvector, values) + list_length(list) * sizeof(Oid));
 	oids->ndim = 1;
 	oids->dataoffset = 0;
@@ -1392,10 +1436,21 @@ static oidvector *makeDatanodeOidVector(List *list)
 	oids->dim1 = list_length(list);
 	oids->lbound1 = 0;
 	i = 0;
-	foreach(lc, list)
+	if(IsA(list, OidList))
 	{
-		oids->values[i] = PGXCNodeGetNodeOid(lfirst_int(lc), PGXC_NODE_DATANODE);
-		++i;
+		foreach(lc, list)
+		{
+			oids->values[i] = lfirst_oid(lc);
+			++i;
+		}
+	}else
+	{
+		Assert(IsA(list, IntList));
+		foreach(lc, list)
+		{
+			oids->values[i] = PGXCNodeGetNodeOid(lfirst_int(lc), PGXC_NODE_DATANODE);
+			++i;
+		}
 	}
 
 	return oids;
