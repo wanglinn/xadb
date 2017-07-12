@@ -174,7 +174,7 @@ errstart(int elevel, const char *filename, int lineno,
 			elevel = Max(elevel, errordata[i].elevel);
 	}
 
-	output_to_server = is_log_level_output(elevel, MyReduceOpts->log_min_messages);
+	output_to_server = is_log_level_output(elevel, MyRdcOpts->log_min_messages);
 
 	output_to_client = (elevel >= ERROR);
 
@@ -1887,7 +1887,7 @@ rdc_send_message_to_server_log(ErrorData *edata)
 
 	appendStringInfoChar(&buf, '\n');
 
-	if (MyReduceOpts->Log_error_verbosity >= PGERROR_DEFAULT)
+	if (MyRdcOpts->Log_error_verbosity >= PGERROR_DEFAULT)
 	{
 		if (edata->detail_log)
 		{
@@ -1925,7 +1925,7 @@ rdc_send_message_to_server_log(ErrorData *edata)
 			appendStringInfoChar(&buf, '\n');
 		}
 
-		if (MyReduceOpts->Log_error_verbosity >= PGERROR_VERBOSE)
+		if (MyRdcOpts->Log_error_verbosity >= PGERROR_VERBOSE)
 		{
 			/* assume no newlines in funcname or filename... */
 			if (edata->funcname && edata->filename)
@@ -1945,23 +1945,23 @@ rdc_send_message_to_server_log(ErrorData *edata)
 	}
 
 	/* Write to stderr, if enabled */
-	if ((MyReduceOpts->Log_destination & LOG_DESTINATION_STDERR))
+	if ((MyRdcOpts->Log_destination & LOG_DESTINATION_STDERR))
 	{
 		/*
 		 * Use the chunking protocol if we know the syslogger should be
 		 * catching stderr output, and we are not ourselves the syslogger.
 		 * Otherwise, just do a vanilla write to stderr.
 		 */
-		if (MyReduceOpts->redirection_done)
+		if (MyRdcOpts->redirection_done)
 			write_pipe_chunks(buf.data, buf.len, LOG_DESTINATION_STDERR);
 		else
 			write_console(buf.data, buf.len);
 	}
 
 	/* Write to CSV log if enabled */
-	if (MyReduceOpts->Log_destination & LOG_DESTINATION_CSVLOG)
+	if (MyRdcOpts->Log_destination & LOG_DESTINATION_CSVLOG)
 	{
-		if (MyReduceOpts->redirection_done)
+		if (MyRdcOpts->redirection_done)
 		{
 			/*
 			 * send CSV data if it's safe to do so (syslogger doesn't need the
@@ -1976,7 +1976,7 @@ rdc_send_message_to_server_log(ErrorData *edata)
 			 * syslogger not up (yet), so just dump the message to stderr,
 			 * unless we already did so above.
 			 */
-			if (!(MyReduceOpts->Log_destination & LOG_DESTINATION_STDERR))
+			if (!(MyRdcOpts->Log_destination & LOG_DESTINATION_STDERR))
 				write_console(buf.data, buf.len);
 			pfree(buf.data);
 		}
@@ -2203,7 +2203,7 @@ write_csvlog(ErrorData *edata)
 	appendStringInfoChar(&buf, ',');
 
 	/* file error location */
-	if (MyReduceOpts->Log_error_verbosity >= PGERROR_VERBOSE)
+	if (MyRdcOpts->Log_error_verbosity >= PGERROR_VERBOSE)
 	{
 		StringInfoData msgbuf;
 

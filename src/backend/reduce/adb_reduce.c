@@ -237,7 +237,7 @@ AdbReduceLauncherMain(int rid)
 }
 
 void
-StartSelfReduceGroup(RdcListenMask *rdc_masks, int num)
+StartSelfReduceGroup(RdcMask *rdc_masks, int num)
 {
 	if (rdc_send_group_rqt(backend_hold_port, rdc_masks, num) == EOF)
 		ereport(ERROR,

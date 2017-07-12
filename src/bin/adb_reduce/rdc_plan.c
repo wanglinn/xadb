@@ -8,8 +8,8 @@ PlanPort *
 plan_newport(RdcPortId pln_id)
 {
 	PlanPort	   *pln_port = NULL;
-	int				rdc_num = MyReduceOpts->rdc_num;
-	int				work_mem = MyReduceOpts->work_mem;
+	int				rdc_num = MyRdcOpts->rdc_num;
+	int				work_mem = MyRdcOpts->work_mem;
 
 	pln_port = (PlanPort *) palloc0(sizeof(*pln_port));
 	pln_port->work_num = 0;

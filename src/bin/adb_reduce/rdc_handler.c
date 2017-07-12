@@ -56,8 +56,8 @@ rdc_handle_reduce(List **pln_list)
 	int				rdc_num;
 	int				i;
 
-	rdc_nodes = MyReduceOpts->rdc_nodes;
-	rdc_num = MyReduceOpts->rdc_num;
+	rdc_nodes = MyRdcOpts->rdc_nodes;
+	rdc_num = MyRdcOpts->rdc_num;
 	for (i = 0; i < rdc_num; i++)
 	{
 		port = rdc_nodes[i];
@@ -564,8 +564,8 @@ static int
 send_rdc2rdc_eof(RdcPortId planid)
 {
 	int				i;
-	int				num = MyReduceOpts->rdc_num;
-	RdcPort		  **rdc_nodes = MyReduceOpts->rdc_nodes;
+	int				num = MyRdcOpts->rdc_num;
+	RdcPort		  **rdc_nodes = MyRdcOpts->rdc_nodes;
 	RdcPort		   *rdc_port;
 	StringInfoData	buf;
 	int				ret;
@@ -603,8 +603,8 @@ static RdcPort *
 find_rdc_port(RdcPortId rpid)
 {
 	int			i;
-	int			num = MyReduceOpts->rdc_num;
-	RdcPort	  **rdc_nodes = MyReduceOpts->rdc_nodes;
+	int			num = MyRdcOpts->rdc_num;
+	RdcPort	  **rdc_nodes = MyRdcOpts->rdc_nodes;
 	RdcPort	   *rdc_port;
 
 	Assert(rpid != MyReduceId);

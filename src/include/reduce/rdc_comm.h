@@ -27,7 +27,7 @@
 
 #if !defined(RDC_FRONTEND)
 typedef struct RdcPort RdcPort;
-typedef struct RdcListenMask RdcListenMask;
+typedef struct RdcMask RdcMask;
 #endif
 
 typedef enum
@@ -170,7 +170,7 @@ extern RdcPort *rdc_connect(const char *host, uint32 port,
 extern RdcPort *rdc_accept(pgsocket sock);
 extern int rdc_parse_group(RdcPort *port,			/* IN */
 						   int *rdc_num,			/* OUT */
-						   RdcListenMask **masks,	/* OUT */
+						   RdcMask **masks,	/* OUT */
 						   List **connect_list);	/* OUT */
 extern RdcPollingStatusType rdc_connect_poll(RdcPort *port);
 extern int rdc_puterror(RdcPort *port, const char *fmt, ...) pg_attribute_printf(2, 3);

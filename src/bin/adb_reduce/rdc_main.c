@@ -18,7 +18,7 @@ static const char	   *progname;
 
 int						MyProcPid;
 pg_time_t				MyStartTime;
-ReduceOptions 			MyReduceOpts = NULL;
+RdcOptions 				MyRdcOpts = NULL;
 pgsocket				MyListenSock = PGINVALID_SOCKET;
 pgsocket				MyParentSock = PGINVALID_SOCKET;
 pgsocket				MyLogSock = PGINVALID_SOCKET;
@@ -54,16 +54,16 @@ static int  ReduceLoopRun(void);
 static void
 InitReduceOptions(void)
 {
-	if (MyReduceOpts == NULL)
-		MyReduceOpts = (ReduceOptions) palloc0(sizeof(*MyReduceOpts));
+	if (MyRdcOpts == NULL)
+		MyRdcOpts = (RdcOptions) palloc0(sizeof(*MyRdcOpts));
 
-	MyReduceOpts->lhost = NULL;
-	MyReduceOpts->lport = 0;
-	MyReduceOpts->work_mem = 1024;
-	MyReduceOpts->log_min_messages = WARNING;
-	MyReduceOpts->Log_error_verbosity = PGERROR_DEFAULT;
-	MyReduceOpts->Log_destination = LOG_DESTINATION_STDERR;
-	MyReduceOpts->redirection_done = false;
+	MyRdcOpts->lhost = NULL;
+	MyRdcOpts->lport = 0;
+	MyRdcOpts->work_mem = 1024;
+	MyRdcOpts->log_min_messages = WARNING;
+	MyRdcOpts->Log_error_verbosity = PGERROR_DEFAULT;
+	MyRdcOpts->Log_destination = LOG_DESTINATION_STDERR;
+	MyRdcOpts->redirection_done = false;
 
 	/* don't forget free Reduce options */
 	on_rdc_exit(FreeReduceOptions, 0);
@@ -72,12 +72,12 @@ InitReduceOptions(void)
 static void
 FreeReduceOptions(int code, Datum arg)
 {
-	rdc_freeport(MyReduceOpts->parent_watch);
-	rdc_freeport(MyReduceOpts->log_watch);
+	rdc_freeport(MyRdcOpts->parent_watch);
+	rdc_freeport(MyRdcOpts->log_watch);
 	DropReduceGroup();
 	DropPlanGroup();
-	safe_pfree(MyReduceOpts->lhost);
-	safe_pfree(MyReduceOpts);
+	safe_pfree(MyRdcOpts->lhost);
+	safe_pfree(MyRdcOpts);
 
 	return ;
 }
@@ -193,15 +193,15 @@ ParseExtraOptions(char *extra_options)
 		 * Now that we have the name and the value, store the record.
 		 */
 		if (strcmp(pname, "log_min_messages") == 0)
-			MyReduceOpts->log_min_messages = atoi(pval);
+			MyRdcOpts->log_min_messages = atoi(pval);
 		else if (strcmp(pname, "work_mem") == 0)
-			MyReduceOpts->work_mem = atoi(pval);
+			MyRdcOpts->work_mem = atoi(pval);
 		else if (strcmp(pname, "log_error_verbosity") == 0)
-			MyReduceOpts->Log_error_verbosity = atoi(pval);
+			MyRdcOpts->Log_error_verbosity = atoi(pval);
 		else if (strcmp(pname, "log_destination") == 0)
-			MyReduceOpts->Log_destination = atoi(pval);
+			MyRdcOpts->Log_destination = atoi(pval);
 		else if (strcmp(pname, "redirection_done") == 0)
-			MyReduceOpts->redirection_done = (bool) atoi(pval);
+			MyRdcOpts->redirection_done = (bool) atoi(pval);
 		else
 			elog(ERROR, "invalid extra option \"%s\"", pname);
 	}
@@ -234,23 +234,23 @@ ParseReduceOptions(int argc, char * const argvs[])
 					elog(ERROR, "Invalid Reduce ID number: %ld", MyReduceId);
 				break;
 			case 'h':
-				MyReduceOpts->lhost = pstrdup(optarg);
+				MyRdcOpts->lhost = pstrdup(optarg);
 				break;
 			case 'p':
-				MyReduceOpts->lport = atoi(optarg);
-				if (MyReduceOpts->lport > 65535 || MyReduceOpts->lport < 1024)
-					elog(ERROR, "Invalid listen port: %d", MyReduceOpts->lport);
+				MyRdcOpts->lport = atoi(optarg);
+				if (MyRdcOpts->lport > 65535 || MyRdcOpts->lport < 1024)
+					elog(ERROR, "Invalid listen port: %d", MyRdcOpts->lport);
 				break;
 			case 'W':
 				MyParentSock = atoi(optarg);
-				MyReduceOpts->parent_watch = rdc_newport(MyParentSock,
+				MyRdcOpts->parent_watch = rdc_newport(MyParentSock,
 														 TYPE_BACKEND, InvalidPortId,
 														 TYPE_REDUCE, MyReduceId);
-				rdc_set_noblock(MyReduceOpts->parent_watch);
+				rdc_set_noblock(MyRdcOpts->parent_watch);
 				break;
 			case 'L':
 				MyLogSock = atoi(optarg);
-				MyReduceOpts->log_watch = rdc_newport(MyLogSock,
+				MyRdcOpts->log_watch = rdc_newport(MyLogSock,
 													  TYPE_BACKEND, InvalidPortId,
 													  TYPE_REDUCE, MyReduceId);
 				break;
@@ -318,7 +318,7 @@ ReduceListen(void)
 #endif
 
 	MyListenSock = PGINVALID_SOCKET;
-	MyListenPort = MyReduceOpts->lport;
+	MyListenPort = MyRdcOpts->lport;
 	/* don't forget close listen socket */
 	on_rdc_exit(CloseReduceListenSocket, 0);
 
@@ -365,8 +365,8 @@ ReduceListen(void)
 	MemSet(&addr_inet, 0, addrlen);
 	addr_inet.sin_family = AF_INET;
 	addr_inet.sin_port = htons(MyListenPort);
-	if (MyReduceOpts->lhost)
-		addr_inet.sin_addr.s_addr = inet_addr(MyReduceOpts->lhost);
+	if (MyRdcOpts->lhost)
+		addr_inet.sin_addr.s_addr = inet_addr(MyRdcOpts->lhost);
 	else
 		addr_inet.sin_addr.s_addr = htonl(INADDR_ANY);
 
@@ -422,7 +422,7 @@ _error_end:
 		closesocket(fd);
 	ereport(ERROR,
 			(errmsg("could not create listen socket for \"%s : %d\"",
-					MyReduceOpts->lhost, MyReduceOpts->lport)));
+					MyRdcOpts->lhost, MyRdcOpts->lport)));
 	rdc_exit(EXIT_FAILURE);
 }
 
@@ -432,7 +432,7 @@ TransListenPort(void)
 	if (MyParentSock != PGINVALID_SOCKET)
 	{
 		StringInfoData	buf;
-		RdcPort		   *parent_watch = MyReduceOpts->parent_watch;
+		RdcPort		   *parent_watch = MyRdcOpts->parent_watch;
 
 		Assert(MyListenPort > 0);
 		Assert(parent_watch);
@@ -461,11 +461,11 @@ ResetReduceGroup(void)
 	int				i;
 
 	Assert(MyReduceIdx >= 0);
-	for (i = 0; i < MyReduceOpts->rdc_num; i++)
+	for (i = 0; i < MyRdcOpts->rdc_num; i++)
 	{
 		if (i == MyReduceIdx)
 			continue;
-		port = MyReduceOpts->rdc_nodes[i];
+		port = MyRdcOpts->rdc_nodes[i];
 		Assert (RdcPeerID(port) != MyReduceId);
 		RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
 		elog(LOG,
@@ -483,9 +483,9 @@ DropReduceGroup(void)
 	RdcPort	   *port;
 
 	Assert(MyReduceIdx >= 0);
-	for (i = 0; i < MyReduceOpts->rdc_num; i++)
+	for (i = 0; i < MyRdcOpts->rdc_num; i++)
 	{
-		port = MyReduceOpts->rdc_nodes[i];
+		port = MyRdcOpts->rdc_nodes[i];
 		if (port == NULL || i == MyReduceIdx)
 			continue;
 		Assert(RdcPeerID(port) != MyReduceId);
@@ -496,7 +496,7 @@ DropReduceGroup(void)
 			 RdcPeerHost(port), RdcPeerPort(port));
 		rdc_freeport(port);
 	}
-	safe_pfree(MyReduceOpts->rdc_nodes);
+	safe_pfree(MyRdcOpts->rdc_nodes);
 }
 
 static void
@@ -505,15 +505,15 @@ DropPlanGroup(void)
 	ListCell	   *cell = NULL;
 	PlanPort	   *pln_port = NULL;
 
-	foreach (cell, MyReduceOpts->pln_nodes)
+	foreach (cell, MyRdcOpts->pln_nodes)
 	{
 		pln_port = (PlanPort *) lfirst(cell);
 		elog(LOG,
 			 "free [PLAN %ld]", pln_port->pln_id);
 		plan_freeport(pln_port);
 	}
-	list_free(MyReduceOpts->pln_nodes);
-	MyReduceOpts->pln_nodes = NIL;
+	list_free(MyRdcOpts->pln_nodes);
+	MyRdcOpts->pln_nodes = NIL;
 }
 
 int main(int argc, char* const argvs[])
@@ -603,7 +603,7 @@ ReduceDieHandler(SIGNAL_ARGS)
 static void
 ReduceGroupHook(SIGNAL_ARGS)
 {
-	if (MyReduceOpts && !MyReduceOpts->parent_watch)
+	if (MyRdcOpts && !MyRdcOpts->parent_watch)
 	{
 		RdcPort		*port;
 		StringInfoData	buf;
@@ -621,7 +621,7 @@ ReduceGroupHook(SIGNAL_ARGS)
 		port = rdc_newport(PGINVALID_SOCKET,
 						   InvalidPortType, InvalidPortId,
 						   TYPE_REDUCE, MyReduceId);
-		MyReduceOpts->parent_watch = port;
+		MyRdcOpts->parent_watch = port;
 		initStringInfo(&buf);
 		rdc_beginmessage(&buf, RDC_GROUP_RQT);
 		rdc_sendint(&buf, rdc_num, sizeof(rdc_num));
@@ -660,13 +660,13 @@ static void
 WaitForReduceGroupReady(void)
 {
 	char		firstchar;
-	RdcPort	   *port = MyReduceOpts->parent_watch;
+	RdcPort	   *port = MyRdcOpts->parent_watch;
 
 	while (!reduce_group_ready)
 	{
 		CHECK_FOR_INTERRUPTS();
 
-		port = MyReduceOpts->parent_watch;
+		port = MyRdcOpts->parent_watch;
 		if (!port)
 		{
 			pg_usleep(1000000);
@@ -776,8 +776,8 @@ PrepareConnectGroup(RdcPort **rdc_nodes,  /* IN/OUT */
 
 		if (RdcStatus(port) == RDC_CONNECTION_OK)
 		{
-			int port_idx = rdc_portidx(MyReduceOpts->rdc_masks,
-									   MyReduceOpts->rdc_num,
+			int port_idx = rdc_portidx(MyRdcOpts->rdc_masks,
+									   MyRdcOpts->rdc_num,
 									   RdcPeerID(port));
 			Assert(port_idx >= 0);
 			Assert(port_idx != MyReduceIdx);
@@ -813,7 +813,7 @@ SetupReduceGroup(RdcPort *port)
 	List			   *accept_list = NIL;
 	List			   *connect_list = NIL;
 	RdcPort			  **rdc_nodes = NULL;
-	RdcListenMask	   *rdc_masks = NULL;
+	RdcMask			   *rdc_masks = NULL;
 
 	if (rdc_parse_group(port,
 						&rdc_num,
@@ -827,10 +827,10 @@ SetupReduceGroup(RdcPort *port)
 
 	MyReduceIdx = rdc_portidx(rdc_masks, rdc_num, MyReduceId);
 	Assert(MyReduceIdx >= 0);
-	MyReduceOpts->rdc_masks = rdc_masks;
+	MyRdcOpts->rdc_masks = rdc_masks;
 	rdc_nodes = (RdcPort **)palloc0(rdc_num * sizeof(RdcPort *));
-	MyReduceOpts->rdc_nodes = rdc_nodes;
-	MyReduceOpts->rdc_num = rdc_num;
+	MyRdcOpts->rdc_nodes = rdc_nodes;
+	MyRdcOpts->rdc_num = rdc_num;
 
 	for (;;)
 	{
@@ -1033,13 +1033,13 @@ ReduceLoopRun(void)
 		/* Now we can allow interrupts again */
 		RESUME_INTERRUPTS();
 	}
-	MyReduceOpts->rdc_work_stack = &local_sigjmp_buf;
+	MyRdcOpts->rdc_work_stack = &local_sigjmp_buf;
 
 	Assert(reduce_group_ready);
-	Assert(MyReduceOpts->rdc_nodes);
-	rdc_nodes = MyReduceOpts->rdc_nodes;
-	rdc_num = MyReduceOpts->rdc_num;
-	pln_list = MyReduceOpts->pln_nodes;
+	Assert(MyRdcOpts->rdc_nodes);
+	rdc_nodes = MyRdcOpts->rdc_nodes;
+	rdc_num = MyRdcOpts->rdc_num;
+	pln_list = MyRdcOpts->pln_nodes;
 
 	/* Check Reduce group again */
 	if (!IsReduceGroupReady(rdc_nodes, rdc_num))

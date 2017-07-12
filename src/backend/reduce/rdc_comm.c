@@ -711,7 +711,7 @@ _re_accept:
 int
 rdc_parse_group(RdcPort *port,				/* IN */
 				int *rdc_num,				/* OUT */
-				RdcListenMask **masks,		/* OUT */
+				RdcMask **masks,		/* OUT */
 				List **connect_list)		/* OUT */
 {
 	const char		   *host = NULL;
@@ -726,8 +726,8 @@ rdc_parse_group(RdcPort *port,				/* IN */
 	List			   *clist = NIL;
 	ListCell		   *cell = NULL;
 	RdcPort			   *rdc_port = NULL;
-	RdcListenMask	   *rdc_masks = NULL;
-	RdcListenMask	   *rdc_mask = NULL;
+	RdcMask			   *rdc_masks = NULL;
+	RdcMask			   *rdc_mask = NULL;
 
 	int					self_rdc_idx;
 	int					othr_rdc_idx;
@@ -738,8 +738,8 @@ rdc_parse_group(RdcPort *port,				/* IN */
 	msg = RdcInBuf(port);
 	num = rdc_getmsgint(msg, sizeof(num));
 	Assert(num > 0);
-	rdc_masks = (RdcListenMask*) MemoryContextAllocZero(TopMemoryContext,
-														num * sizeof(RdcListenMask));
+	rdc_masks = (RdcMask*) MemoryContextAllocZero(TopMemoryContext,
+														num * sizeof(RdcMask));
 
 	for (i = 0; i < num; i++)
 	{

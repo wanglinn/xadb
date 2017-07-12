@@ -23,7 +23,7 @@ extern RdcPort *ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id);
 
 extern int StartSelfReduceLauncher(RdcPortId rid);
 
-extern void StartSelfReduceGroup(RdcListenMask *rdc_masks, int num);
+extern void StartSelfReduceGroup(RdcMask *rdc_masks, int num);
 
 extern void EndSelfReduceGroup(void);
 

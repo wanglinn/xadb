@@ -20,15 +20,15 @@
 extern RdcPortId		MyReduceId;
 extern int				MyReduceIdx;
 
-struct RdcListenMask
+struct RdcMask
 {
 	RdcPortId	rdc_rpid;
 	int			rdc_port;
 	char	   *rdc_host;
 };
 
-extern void rdc_freemasks(RdcListenMask *masksm, int num);
-extern int rdc_portidx(RdcListenMask *rdc_masks, int num, RdcPortId roid);
+extern void rdc_freemasks(RdcMask *masks, int num);
+extern int rdc_portidx(RdcMask *rdc_masks, int num, RdcPortId roid);
 
 /* -----------Reduce message------------- */
 #define RDC_LISTEN_PORT		'L'
@@ -47,7 +47,7 @@ extern int rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id);
 extern int rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id);
 extern int rdc_recv_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id);
 
-extern int rdc_send_group_rqt(RdcPort *port, RdcListenMask *rdc_masks, int num);
+extern int rdc_send_group_rqt(RdcPort *port, RdcMask *rdc_masks, int num);
 extern int rdc_send_group_rsp(RdcPort *port);
 extern int rdc_recv_group_rsp(RdcPort *port);
 

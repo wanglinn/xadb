@@ -51,7 +51,7 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context);
 static void send_rdc_listend_port(int port);
 static void wait_rdc_group_message(void);
 static bool get_rdc_listen_port_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
-static void StartRemoteReduceGroup(List *conns, RdcListenMask *rdc_masks, int rdc_cnt);
+static void StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt);
 static void StartRemotePlan(StringInfo msg, List *rnodes, bool has_reduce, bool self_start_reduce);
 static bool InstrumentEndLoop_walker(PlanState *ps, void *);
 static void ExecClusterErrorHook(void *arg);
@@ -498,7 +498,7 @@ static void wait_rdc_group_message(void)
 	int				i;
 	int				type;
 	int				rdc_cnt;
-	RdcListenMask  *rdc_masks;
+	RdcMask		   *rdc_masks;
 	StringInfoData	buf;
 	StringInfoData	msg;
 
@@ -538,7 +538,7 @@ static void wait_rdc_group_message(void)
 
 	pq_copymsgbytes(&buf, (char *) &rdc_cnt, sizeof(rdc_cnt));
 	Assert(rdc_cnt > 0);
-	rdc_masks = (RdcListenMask *) palloc0(rdc_cnt * sizeof(RdcListenMask));
+	rdc_masks = (RdcMask *) palloc0(rdc_cnt * sizeof(RdcMask));
 	for (i = 0; i < rdc_cnt; i++)
 	{
 		rdc_masks[i].rdc_host = (char *) pq_getmsgrawstring(&buf);
@@ -559,7 +559,7 @@ static void wait_rdc_group_message(void)
 static bool
 get_rdc_listen_port_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
 {
-	RdcListenMask  *rdc_mask = (RdcListenMask *) context;
+	RdcMask		   *rdc_mask = (RdcMask *) context;
 	va_list			args;
 	const char	   *buf;
 	int				len;
@@ -589,7 +589,7 @@ get_rdc_listen_port_hook(void *context, struct pg_conn *conn, PQNHookFuncType ty
 }
 
 static void
-StartRemoteReduceGroup(List *conns, RdcListenMask *rdc_masks, int rdc_cnt)
+StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt)
 {
 	StringInfoData	msg;
 	int				i;
@@ -650,7 +650,7 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, bool has_reduce, bool 
 
 	int				rdc_id;
 	int				rdc_cnt;
-	RdcListenMask  *rdc_masks = NULL;
+	RdcMask		   *rdc_masks = NULL;
 	ErrorContextCallback error_context_hook;
 
 	error_context_hook.arg = NULL;
@@ -662,7 +662,7 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, bool has_reduce, bool 
 	if (has_reduce)
 	{
 		rdc_cnt = list_length(rnodes) + (self_start_reduce ? 1 : 0);
-		rdc_masks = (RdcListenMask *) palloc0(rdc_cnt * sizeof(RdcListenMask));
+		rdc_masks = (RdcMask *) palloc0(rdc_cnt * sizeof(RdcMask));
 		if (self_start_reduce)
 		{
 			rdc_masks[rdc_id].rdc_rpid = PGXCNodeOid;

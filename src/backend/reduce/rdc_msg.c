@@ -18,7 +18,7 @@ RdcPortId	MyReduceId = InvalidPortId;
 int			MyReduceIdx = -1;
 
 void
-rdc_freemasks(RdcListenMask *masks, int num)
+rdc_freemasks(RdcMask *masks, int num)
 {
 	int i;
 	for (i = 0; i < num; i++)
@@ -29,7 +29,7 @@ rdc_freemasks(RdcListenMask *masks, int num)
 }
 
 int
-rdc_portidx(RdcListenMask *rdc_masks, int num, RdcPortId roid)
+rdc_portidx(RdcMask *rdc_masks, int num, RdcPortId roid)
 {
 	int i;
 
@@ -94,11 +94,11 @@ rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id)
 }
 
 int
-rdc_send_group_rqt(RdcPort *port, RdcListenMask *rdc_masks, int num)
+rdc_send_group_rqt(RdcPort *port, RdcMask *rdc_masks, int num)
 {
 	StringInfoData	buf;
 	int				i = 0;
-	RdcListenMask  *mask;
+	RdcMask		   *mask;
 
 	AssertArg(port);
 	Assert(num > 1);
