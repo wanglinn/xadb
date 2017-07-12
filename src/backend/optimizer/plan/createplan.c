@@ -6541,7 +6541,11 @@ bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info)
 	Index i;
 	bool result;
 	AssertArg(target && info && target->sortgrouprefs);
-	if(info->expr == NULL || IsReduceExprByValue(info->expr) == false)
+	if(info->expr == NULL)
+		return false;
+	if(IsReduce2Coordinator(info->expr))
+		return true;
+	if(IsReduceExprByValue(info->expr) == false)
 		return false;
 
 	AssertArg(info->relid > 0 && info->varattnos != NULL);
