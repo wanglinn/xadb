@@ -83,6 +83,13 @@ typedef struct PullReducePathExprVarAttnosContext
 	int			flags;	/* PUSH_REDUCE_EXPR_XXX */
 } PullReducePathExprVarAttnosContext;
 
+typedef struct CreateReduceExprContext
+{
+	List *oldAttrs;
+	List *newAttrs;
+	Index newRelid;
+} CreateReduceExprContext;
+
 static Expr *pgxc_find_distcol_expr(Index varno, AttrNumber attrNum, Node *quals);
 static Datum rrobinStateEvalFunc(ExprState *expression,
 												ExprContext *econtext,
@@ -103,6 +110,7 @@ static Param *makeReduceParam(Oid type, int paramid, int parammod, Oid collid, I
 static bool expr_have_param(Node *node, void *none);
 static Node *reduceParam2VarMutator(Node *node, void *none);
 static bool PullReducePathExprAttnosWalker(ReduceParam *rp, PullReducePathExprVarAttnosContext *context);
+static Node *CreateReduceExprMutator(Node *node, CreateReduceExprContext *context);
 
 Oid		primary_data_node = InvalidOid;
 int		num_preferred_data_nodes = 0;
@@ -1402,6 +1410,43 @@ List *ReduceReplicateExprGetList(Expr *expr)
 	return list;
 }
 
+Expr *CreateReduceValExprAs(Expr *expr, Index newRelid, List *newAttnos)
+{
+	ListCell *lc;
+	CreateReduceExprContext context;
+	Expr *newExpr;
+	AssertArg(expr && IsReduceExprByValue(expr));
+	AssertArg(newRelid > 0 && newAttnos != NIL);
+
+	context.oldAttrs = GetReducePathExprAttnoList(expr, NULL);
+	if(list_length(context.oldAttrs) != list_length(newAttnos))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("diffent count of varattno")));
+	}
+
+	/* check replicate attno */
+	context.newAttrs = NIL;
+	foreach(lc, newAttnos)
+	{
+		if(list_member_int(context.newAttrs, lfirst_int(lc)))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("replicate var attno %d", lfirst_int(lc))));
+		}
+		context.newAttrs = lappend_int(context.newAttrs, lfirst_int(lc));
+	}
+
+	context.newRelid = newRelid;
+	newExpr = (Expr*)CreateReduceExprMutator((Node*)expr, &context);
+
+	list_free(context.newAttrs);
+	list_free(context.oldAttrs);
+	return newExpr;
+}
+
 bool IsReduceExprByValue(Expr *expr)
 {
 	ArrayRef *ref;
@@ -1632,4 +1677,35 @@ static Node *reduceParam2VarMutator(Node *node, void *none)
 							  0);
 	}
 	return expression_tree_mutator(node, reduceParam2VarMutator, NULL);
+}
+
+static Node *CreateReduceExprMutator(Node *node, CreateReduceExprContext *context)
+{
+	if(node == NULL)
+		return NULL;
+
+	if(IsA(node, Param))
+	{
+		ReduceParam *rp = (ReduceParam*)node;
+		ReduceParam *new_rp = palloc(sizeof(*new_rp));
+		ListCell *lcNew;
+		ListCell *lcOld;
+		memcpy(new_rp, rp, sizeof(Param));
+		new_rp->attno = InvalidAttrNumber;
+		new_rp->relid = 0;
+		forboth(lcNew, context->newAttrs, lcOld, context->oldAttrs)
+		{
+			if(rp->attno == lfirst_int(lcOld))
+			{
+				new_rp->attno = lfirst_int(lcNew);
+				new_rp->relid = context->newRelid;
+				break;
+			}
+		}
+		Assert(new_rp->attno != InvalidAttrNumber);
+		Assert(new_rp->relid > 0);
+		return (Node*)new_rp;
+	}
+
+	return expression_tree_mutator(node, CreateReduceExprMutator, context);
 }

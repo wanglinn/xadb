@@ -166,6 +166,7 @@ extern bool IsReduce2Coordinator(Expr *expr);
 extern Expr *MakeReduceReplicateExpr(List *oids);
 extern bool IsReduceReplicateExpr(Expr *expr);
 extern List *ReduceReplicateExprGetList(Expr *expr);
+extern Expr *CreateReduceValExprAs(Expr *expr, Index newRelid, List *newAttnos);
 extern bool IsReduceExprByValue(Expr *expr);
 extern Index PullReducePathExprAttnos(Expr *expr, Bitmapset **varattnos);
 extern List *GetReducePathExprAttnoList(Expr *expr, Index *relid);
