@@ -58,7 +58,6 @@ typedef struct ReduceOptionsData
 
 extern RdcOptions		MyRdcOpts;
 extern pgsocket			MyListenSock;
-extern pgsocket			MyParentSock;
 extern pgsocket			MyLogSock;
 extern int				MyListenPort;
 

@@ -12,24 +12,21 @@
  * NOTES
  *	  The correct way to use these routines is like this:
  *
- *	  First of all, call "begin_wait_events" to initialize elements used
- *	  internally.
+ *	  First of all, call "initWaitEVSet" to initialize an empty WaitEVSet.
  *
- *	  The next, call "add_wait_events_sock" to add wait events for the
- *	  specified socket, also you can call "add_wait_events_list" to add
- *	  wait events for a whole list, of course you should offer functions
- *	  to "GetWaitSocket" and "GetWaitEvents".
+ *	  The next, call "addWaitEventBySock" to add wait events for the
+ *	  specified socket, also you can call "addWaitEventByArg",
+ *	  "addWaitEventByList", "addWaitEventByArray" to add wait events
+ *	  for a wait argument, of course you should offer functions to
+ *	  "GetWaitSocket" and "GetWaitEvents".
  *
- *	  Then call "exec_wait_events" to wait until one or more events occured
+ *	  Then call "execWaitEVSet" to wait until one or more events occured
  *	  on these sockets. On success, a positive number is returned, and now
- *	  you can call "wee_next" to have a WaitEventElt traversal.
+ *	  you can call "nextWaitEventElt" to have a WaitEventElt traversal.
  *
- *	  Finally, do not forget to call "end_wait_events" to reset elements
- *	  used internally, otherwise a assert statement will happen when call
- *	  "begin_wait_events" next time.
+ *	  Finally, do not forget to call "freeWaitEVSet" to free WaitEVSet.
  *
- *	  Of course, you can call "exit_wait_events" to reset and free all used
- *	  elements.
+ *	  Call "resetWaitEVSet" to reset a WaitEVSet to use once again, if need.
  *-------------------------------------------------------------------------
  */
 #include "reduce/wait_event.h"
@@ -43,257 +40,310 @@
 #include "nodes/pg_list.h"
 #endif
 
-#define STEP_SIZE			32
-static WaitEventElt		   *WaitElements = NULL;
-#if defined(WAIT_USE_POLL)
-static struct pollfd	   *WaitFds = NULL;
-#elif defined(WAIT_USE_SELECT)
-static fd_set				rmask;
-static fd_set				wmask;
-static fd_set				emask;
-#endif
-static volatile uint32		max_number = 0;
-static volatile uint32		cur_number = 0;
-static volatile uint32		idx_number = 0;
-static volatile bool		on_exit_set = false;
-static volatile bool		wait_begin = false;
+#define SET_STEP			32
 
-static void init_wait_elements(void);
-static void enlarge_wait_elements(uint32 add_number);
-static void add_wait_event_internal(pgsocket wait_sock,
-									uint32 wait_events,
-									void *wait_arg);
+static void addWaitEventInternal(WaitEVSet set,
+								 pgsocket wait_sock,
+								 EventType wait_events,
+								 void *wait_arg);
 
 /*
- * init_wait_elements
- *	  initialize wait event elements used internal
+ * makeWaitEVSet
  *
- * Here we keep global static variable "WaitElements" (maybe include
- * "WaitFds" if WAIT_USE_POLL) to avoid malloc and free memory frequently.
- * You can use "exit_wait_events" to free them.
+ * Create an empty 'WaitEVSetData' & return a pointer to it.
  */
-static void
-init_wait_elements(void)
+WaitEVSet
+makeWaitEVSet(void)
 {
-	Size	sz;
-	if (WaitElements == NULL)
-	{
-		max_number = STEP_SIZE;
-		sz = max_number * sizeof(WaitEventElt);
-		WaitElements = (WaitEventElt *) MemoryContextAllocZero(TopMemoryContext, sz);
-#if defined(WAIT_USE_POLL)
-		Assert(WaitFds == NULL);
-		sz = max_number * sizeof(struct pollfd);
-		WaitFds = (struct pollfd *) MemoryContextAllocZero(TopMemoryContext, sz);
-#endif
-	} else
-	{
-		sz = max_number * sizeof(WaitEventElt);
-		MemSet(WaitElements, 0, sz);
-#if defined(WAIT_USE_POLL)
-		sz = max_number * sizeof(struct pollfd);
-		MemSet(WaitFds, 0, sz);
-#endif
-	}
+	WaitEVSet set;
+
+	set = (WaitEVSet) palloc(sizeof(WaitEVSetData));
+
+	initWaitEVSet(set);
+
+	return set;
 }
 
 /*
- * enlarge_wait_elements
- *	  enlarge memory of static variable if needed
+ * makeWaitEVSetExtend
+ *
+ * Create an empty 'WaitEVSetData' & return a pointer to it.
  */
-static void
-enlarge_wait_elements(uint32 add_number)
+WaitEVSet
+makeWaitEVSetExtend(int num)
 {
-	Size	sz;
-	if (cur_number + add_number > max_number)
-	{
-		Assert(wait_begin);
-		Assert(WaitElements != NULL);
+	WaitEVSet set;
 
-		while (cur_number + add_number > max_number)
-			max_number += STEP_SIZE;
+	set = (WaitEVSet) palloc(sizeof(WaitEVSetData));
 
-		sz = max_number * sizeof(WaitEventElt);
-		WaitElements = (WaitEventElt *) repalloc(WaitElements, sz);
-#if defined(WAIT_USE_POLL)
-		sz = max_number * sizeof(struct pollfd);
-		WaitFds = (struct pollfd *) repalloc(WaitFds, sz);
-#endif
-	}
+	initWaitEVSetExtend(set, num);
+
+	return set;
 }
 
 /*
- * begin_wait_events
- *	  initialize all wait event elements
+ * initWaitEVSet
+ *
+ * Initialize a WaitEVSetData struct (with previously undefined contents)
+ * to describe SET_STEP wait event elements.
  */
 void
-begin_wait_events(void)
+initWaitEVSet(WaitEVSet set)
 {
-	Assert(!wait_begin);
-	init_wait_elements();
-	cur_number = 0;
-	idx_number = 0;
-	wait_begin = true;
-#ifdef DEBUG_ADB
-	elog(LOG, "wait_begin = true");
-#endif
-#if defined(WAIT_USE_SELECT)
-	FD_ZERO(&rmask);
-	FD_ZERO(&wmask);
-	FD_ZERO(&emask);
-#endif
+	initWaitEVSetExtend(set, SET_STEP);
+}
 
-	if (!on_exit_set)
-	{
-#if defined(RDC_FRONTEND)
-	on_rdc_exit(exit_wait_events, 0);
-#else
-	on_proc_exit(exit_wait_events, 0);
+/*
+ * initWaitEVSetExtend
+ *
+ * Like initWaitEVSet, but describe specified "num" wait event elements.
+ */
+void
+initWaitEVSetExtend(WaitEVSet set, int num)
+{
+	AssertArg(set);
+
+	set->events = (WaitEventElt *) palloc(num * sizeof(WaitEventElt));
+#if defined(WAIT_USE_POLL)
+	set->pollfds = (struct pollfd *) palloc(num * sizeof(struct pollfd));
 #endif
-	on_exit_set = true;
+	set->maxno = num;
+
+	resetWaitEVSet(set);
+}
+
+/*
+ * resetWaitEVSet
+ *
+ * Reset the WaitEVSet: the "events" remains valid, but its
+ * previous content, if any, is cleared.
+ */
+void
+resetWaitEVSet(WaitEVSet set)
+{
+	Assert(set && set->maxno > 0);
+	set->curno = 0;
+	set->idxno = 0;
+	MemSet(set->events, 0, set->maxno * sizeof(WaitEventElt));
+#if defined(WAIT_USE_POLL)
+	MemSet(set->pollfds, 0, set->maxno * sizeof(struct pollfd));
+#elif defined(WAIT_USE_SELECT)
+	FD_ZERO(&(set->rmask));
+	FD_ZERO(&(set->wmask));
+	FD_ZERO(&(set->emask));
+#endif
+}
+
+/*
+ * freeWaitEVSet
+ *
+ * Free the WaitEVSet: the "events" remains valid, but its
+ * previous content, if any, is cleared.
+ */
+void
+freeWaitEVSet(WaitEVSet set)
+{
+	if (set)
+	{
+		safe_pfree(set->events);
+#if defined(WAIT_USE_POLL)
+		safe_pfree(set->pollfds);
+#elif defined(WAIT_USE_SELECT)
+		FD_ZERO(&(set->rmask));
+		FD_ZERO(&(set->wmask));
+		FD_ZERO(&(set->emask));
+#endif
+		set->curno = 0;
+		set->idxno = 0;
+		set->maxno = 0;
 	}
 }
 
 /*
- * add_wait_event_internal
- *	  add wait events for a socket with wait_arg argument
+ * enlargeWaitEVSet
+ *
+ * Make sure there is enough space for 'needed' more WaitEventElt.
+ *
+ * External callers usually need not concern themselves with this, since
+ * all wait_event.c routines do it automatically.
+ *
+ * NB: because we use repalloc() to enlarge the buffer, the events
+ * will remain allocated in the same memory context that was current when
+ * initWaitEVSet was called, even if another context is now current.
+ * This is the desired and indeed critical behavior!
+ */
+void
+enlargeWaitEVSet(WaitEVSet set, int needed)
+{
+	Size	sz;
+	int		newno;
+
+	if (needed < 0)
+		elog(ERROR,
+			 "invalid wait event set enlargement request size: %d",
+			 needed);
+
+	AssertArg(set && set->maxno > 0);
+	needed += set->curno;
+	if (needed <= set->maxno)
+		return ;
+
+	newno = set->maxno + SET_STEP;
+	while (needed > newno)
+		newno += SET_STEP;
+
+	sz = newno * sizeof(WaitEventElt);
+	set->events = (WaitEventElt *) repalloc(set->events, sz);
+#if defined(WAIT_USE_POLL)
+	sz = newno * sizeof(struct pollfd);
+	set->pollfds = (struct pollfd *) repalloc(set->pollfds, sz);
+#endif
+	set->maxno = newno;
+}
+
+
+/*
+ * addWaitEventInternal
+ *
+ * add wait events for a socket with wait_arg argument to WaitEVSet.
  */
 static void
-add_wait_event_internal(pgsocket wait_sock,
-						uint32 wait_events,
-						void *wait_arg)
+addWaitEventInternal(WaitEVSet set,
+					 pgsocket wait_sock,
+					 EventType wait_events,
+					 void *wait_arg)
 {
-	Assert(wait_begin);
+	AssertArg(set);
 	if (wait_sock != PGINVALID_SOCKET)
 	{
-		WaitEventElt *wee = NULL;
+		WaitEventElt   *wee = NULL;
 
-		enlarge_wait_elements(1);
-
-		wee = &(WaitElements[cur_number++]);
+		enlargeWaitEVSet(set, 1);
+		wee = &(set->events[set->curno++]);
+		MemSet(wee, 0, sizeof(*wee));
+		wee->wait_sock = wait_sock;
+		wee->wait_events = wait_events;
+		wee->wait_arg = wait_arg;
 #if defined(WAIT_USE_POLL)
 		wee->pfd = NULL;
 #elif defined(WAIT_USE_SELECT)
-		wee->rmask = &rmask;
-		wee->wmask = &wmask;
-		wee->emask = &emask;
+		wee->rmask = &(set->rmask);
+		wee->wmask = &(set->wmask);
+		wee->emask = &(set->emask);
 #endif
-		wee->sock = wait_sock;
-		wee->wait_events = wait_events;
-		wee->arg = wait_arg;
 	}
 }
 
 /*
- * add_wait_events_sock
- *	  add wait events for a socket.
+ * addWaitEventBySock
+ *
+ * add wait events for a socket to WaitEVSet.
  */
 void
-add_wait_events_sock(pgsocket wait_sock, uint32 wait_events)
+addWaitEventBySock(WaitEVSet set, pgsocket wait_sock, EventType wait_events)
 {
-	add_wait_event_internal(wait_sock, wait_events, NULL);
+	addWaitEventInternal(set, wait_sock, wait_events, NULL);
 }
 
 /*
- * add_wait_events_element
- *	  add wait events for a element.
+ * addWaitEventByArg
  *
- * NOTES
- *	  The wait socket will be got by function "GetWaitSocket"
- *	  The wait events will be got by function "GetWaitEvents"
+ * add wait events for a wait_arg argument to WaitEVSet.
  */
 void
-add_wait_events_element(void *wait_arg,
-						pgsocket (*GetWaitSocket)(void *arg),
-						uint32 (*GetWaitEvents)(void *arg))
+addWaitEventByArg(WaitEVSet set, void *wait_arg,
+				  pgsocket (*GetWaitSocket)(void *),
+				  uint32 (*GetWaitEvents)(void *))
 {
 	if (wait_arg)
 	{
 		pgsocket	wait_sock;
-		uint32		wait_events;
+		EventType	wait_events;
 
 		AssertArg(GetWaitSocket && GetWaitEvents);
 		wait_sock = (*GetWaitSocket)(wait_arg);
 		wait_events = (*GetWaitEvents)(wait_arg);
 
-		add_wait_event_internal(wait_sock, wait_events, wait_arg);
+		addWaitEventInternal(set, wait_sock, wait_events, wait_arg);
 	}
 }
 
 /*
- * add_wait_events_list
- *	  add wait events for a whole list.
+ * addWaitEventByList
+ *
+ * add wait events for a list of wait_arg argument to WaitEVSet.
  */
 void
-add_wait_events_list(struct List *wait_list,
-					 pgsocket (*GetWaitSocket)(void *arg),
-					 uint32 (*GetWaitEvents)(void *arg))
+addWaitEventByList(WaitEVSet set, struct List *wait_list,
+				   pgsocket (*GetWaitSocket)(void *),
+				   uint32 (*GetWaitEvents)(void *))
 {
 	ListCell   *lc = NULL;
 
 	foreach (lc, wait_list)
 	{
-		add_wait_events_element(lfirst(lc),
-								GetWaitSocket,
-								GetWaitEvents);
+		addWaitEventByArg(set, lfirst(lc),
+						  GetWaitSocket,
+						  GetWaitEvents);
 	}
 }
 
 /*
- * add_wait_events_array
- *	  add wait events for an array.
+ * addWaitEventByArray
+ *
+ * add wait events for a array of wait_arg argument to WaitEVSet.
  */
 void
-add_wait_events_array(void **elements, int num,
-					  pgsocket (*GetWaitSocket)(void *arg),
-					  uint32 (*GetWaitEvents)(void *arg))
+addWaitEventByArray(WaitEVSet set, void **wait_args, int num,
+					pgsocket (*GetWaitSocket)(void *),
+					uint32 (*GetWaitEvents)(void *))
 {
 	int					i;
 
 	for (i = 0; i < num; i++)
 	{
-		add_wait_events_element(elements[i],
-								GetWaitSocket,
-								GetWaitEvents);
+		addWaitEventByArg(set, wait_args[i],
+						  GetWaitSocket,
+						  GetWaitEvents);
 	}
 }
 
 /*
- * exec_wait_events
- *	  execute I/O multiplexing to wait until some events occurred
+ * execWaitEVSet
+ *
+ * execute I/O multiplexing to wait until some events occurred on
+ * the sockets of WaitEVSet.
  */
 int
-exec_wait_events(int timeout)
+execWaitEVSet(WaitEVSet set, int timeout)
 {
 	WaitEventElt	   *wee = NULL;
 	int					nready = 0;
 
-	Assert(wait_begin);
 #if defined(WAIT_USE_POLL)
 	int					nfds = 0;
 
-	for (nfds = 0; nfds < cur_number; nfds++)
+	AssertArg(set);
+	for (nfds = 0; nfds < set->curno; nfds++)
 	{
-		wee = &(WaitElements[nfds]);
-		WaitFds[nfds].fd = wee->sock;
-		WaitFds[nfds].events = 0;
-		WaitFds[nfds].revents = 0;
+		wee = &(set->events[nfds]);
+		set->pollfds[nfds].fd = wee->wait_sock;
+		set->pollfds[nfds].events = 0;
+		set->pollfds[nfds].revents = 0;
 		if (WaitRead(WaitEvents(wee)))
-			WaitFds[nfds].events |= POLLIN;
+			set->pollfds[nfds].events |= POLLIN;
 		if (WaitWrite(WaitEvents(wee)))
-			WaitFds[nfds].events |= POLLOUT;
-		wee->pfd = &(WaitFds[nfds]);
+			set->pollfds[nfds].events |= POLLOUT;
+		wee->pfd = &(set->pollfds[nfds]);
 	}
 
 _re_poll:
-	nready = poll(WaitFds, nfds, timeout);
+	nready = poll(set->pollfds, nfds, timeout);
 	CHECK_FOR_INTERRUPTS();
 	if (nready < 0)
 	{
 		if (errno == EINTR)
 			goto _re_poll;
-
-		goto _error_end;
 	}
 	return nready;
 
@@ -302,6 +352,7 @@ _re_poll:
 	struct timeval	tv, *ptv;
 	pgsocket		max_sock = PGINVALID_SOCKET;
 
+	AssertArg(set);
 	if (timeout > 0)
 	{
 		tv.tv_sec = 0;
@@ -310,76 +361,42 @@ _re_poll:
 	} else
 		ptv = NULL;
 
-	for (i = 0; i < cur_number; i++)
+	for (i = 0; i < set->curno; i++)
 	{
-		wee = &(WaitElements[i]);
-		if (wee->sock > max_sock)
-			max_sock = wee->sock;
+		wee = &(set->events[i]);
+		if (wee->wait_sock > max_sock)
+			max_sock = wee->wait_sock;
 		if (WaitRead(WaitEvents(wee)))
-			FD_SET(wee->sock, &rmask);
+			FD_SET(wee->wait_sock, &(set->rmask));
 		if (WaitWrite(WaitEvents(wee)))
-			FD_SET(wee->sock, &wmask);
-		FD_SET(wee->sock, &emask);
+			FD_SET(wee->wait_sock, &(set->wmask));
+		FD_SET(wee->wait_sock, &(set->emask));
 	}
 
 _re_select:
-	nready = select(max_sock + 1, &rmask, &wmask, &emask, ptv);
+	nready = select(max_sock + 1, &(set->rmask), &(set->wmask), &(set->emask), ptv);
 	CHECK_FOR_INTERRUPTS();
 	if (nready < 0)
 	{
 		if (errno == EINTR)
 			goto _re_select;
-
-		goto _error_end;
 	}
 
 	return nready;
 #endif
-
-_error_end:
-	end_wait_events();
-	return nready;
 }
 
 /*
- * wee_next
- *	  iterator for the "WaitElements"
+ * nextWaitEventElt
+ *
+ * get iterator of WaitEVSet.
  */
 WaitEventElt *
-wee_next(void)
+nextWaitEventElt(WaitEVSet set)
 {
-	Assert(wait_begin);
-	if (idx_number < cur_number)
-		return &(WaitElements[idx_number++]);
+	AssertArg(set);
+	if (set->idxno < set->curno)
+		return &(set->events[set->idxno++]);
 
 	return NULL;
-}
-
-/*
- * end_wait_events
- *	  reset some elements but do not free memory
- */
-void
-end_wait_events(void)
-{
-	wait_begin = false;
-	cur_number = 0;
-	idx_number = 0;
-#ifdef DEBUG_ADB
-	elog(LOG, "wait_begin = false");
-#endif
-}
-
-/*
- * exit_wait_events
- *	  reset and free all elements
- */
-void
-exit_wait_events(int code, Datum arg)
-{
-	end_wait_events();
-	safe_pfree(WaitElements);
-#if defined(WAIT_USE_POLL)
-	safe_pfree(WaitFds);
-#endif
 }

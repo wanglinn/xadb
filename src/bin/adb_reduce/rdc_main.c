@@ -20,7 +20,6 @@ int						MyProcPid;
 pg_time_t				MyStartTime;
 RdcOptions 				MyRdcOpts = NULL;
 pgsocket				MyListenSock = PGINVALID_SOCKET;
-pgsocket				MyParentSock = PGINVALID_SOCKET;
 pgsocket				MyLogSock = PGINVALID_SOCKET;
 int						MyListenPort = 0;
 
@@ -48,8 +47,7 @@ static void ConnectReduceHook(void *arg);
 static void AcceptReduceHook(void *arg);
 static void StartSetupReduceGroup(RdcPort *port);
 static void EndSetupReduceGroup(void);
-static bool BackendIsAlive(void);
-static void ReduceAcceptPlanConn(List **accept_list, List **pln_list);
+static void ReduceAcceptPlanConn(List **accept_list, List **pln_nodes);
 static int  ReduceLoopRun(void);
 
 static void
@@ -243,8 +241,8 @@ ParseReduceOptions(int argc, char * const argvs[])
 					elog(ERROR, "Invalid listen port: %d", MyRdcOpts->lport);
 				break;
 			case 'W':
-				MyParentSock = atoi(optarg);
-				MyRdcOpts->parent_watch = rdc_newport(MyParentSock,
+				MyBossSock = atoi(optarg);
+				MyRdcOpts->parent_watch = rdc_newport(MyBossSock,
 													  TYPE_BACKEND, InvalidPortId,
 													  TYPE_REDUCE, MyReduceId);
 				rdc_set_noblock(MyRdcOpts->parent_watch);
@@ -438,7 +436,7 @@ _error_end:
 static void
 TransListenPort(void)
 {
-	if (MyParentSock != PGINVALID_SOCKET)
+	if (MyBossSock != PGINVALID_SOCKET)
 	{
 		StringInfoData	buf;
 		RdcPort		   *parent_watch = MyRdcOpts->parent_watch;
@@ -826,37 +824,38 @@ EndSetupReduceGroup(void)
 	RdcPort			   *acpt_port = NULL;
 	List			   *accept_list = NIL;
 	ListCell		   *lc = NULL;
+	WaitEVSetData		set;
 
 	Assert(MyRdcOpts->rdc_nodes);
 	rdc_nodes = MyRdcOpts->rdc_nodes;
 	rdc_num = MyRdcOpts->rdc_num;
-
-	for (;;)
+	initWaitEVSet(&set);
+	PG_TRY();
 	{
-		CHECK_FOR_INTERRUPTS();
-
-		/* all Reduce are ready */
-		if (IsReduceGroupReady())
+		for (;;)
 		{
-			ereport(LOG,
-					(errmsg("Reduce group network is OK")));
-			break;
-		}
+			CHECK_FOR_INTERRUPTS();
 
-		PG_TRY();
-		{
-			begin_wait_events();
-			add_wait_events_sock(MyListenSock, WAIT_SOCKET_READABLE);
-			add_wait_events_sock(MyParentSock, WAIT_SOCKET_READABLE);
+			/* all Reduce are ready */
+			if (IsReduceGroupReady())
+			{
+				ereport(LOG,
+						(errmsg("Reduce group network is OK")));
+				break;
+			}
+
+			resetWaitEVSet(&set);
+			addWaitEventBySock(&set, MyListenSock, WAIT_SOCKET_READABLE);
+			addWaitEventBySock(&set, MyBossSock, WAIT_SOCKET_READABLE);
 			for (i = 0; i < rdc_num; i++)
 			{
 				rdc_node = &(rdc_nodes[i]);
 				if (rdc_node->port &&
 					RdcStatus(rdc_node->port) != RDC_CONNECTION_OK)
 				{
-					add_wait_events_element(rdc_node->port,
-											GetRdcPortSocket,
-											GetRdcPortWaitEvents);
+					addWaitEventByArg(&set, rdc_node->port,
+									  GetRdcPortSocket,
+									  GetRdcPortWaitEvents);
 				}
 			}
 			for (lc = list_head(accept_list); lc != NULL;)
@@ -872,12 +871,11 @@ EndSetupReduceGroup(void)
 				}
 
 				if (RdcStatus(acpt_port) != RDC_CONNECTION_OK)
-					add_wait_events_element(acpt_port,
-											GetRdcPortSocket,
-											GetRdcPortWaitEvents);
+					addWaitEventByArg(&set, acpt_port,
+									  GetRdcPortSocket,
+									  GetRdcPortWaitEvents);
 			}
-
-			nready = exec_wait_events(timeout);
+			nready = execWaitEVSet(&set, timeout);
 			if (nready < 0)
 			{
 				ereport(ERROR,
@@ -892,7 +890,7 @@ EndSetupReduceGroup(void)
 				RdcPort			*port = NULL;
 
 				/* listen sock */
-				wee = wee_next();
+				wee = nextWaitEventElt(&set);
 				if (WEEHasError(wee))
 					ereport(ERROR,
 							(errcode(ERRCODE_CONNECTION_FAILURE),
@@ -910,16 +908,16 @@ EndSetupReduceGroup(void)
 						accept_list = lappend(accept_list, acpt_port);
 					}
 				}
-				/* check MyParentSock */
-				if (MyParentSock != PGINVALID_SOCKET)
+				/* check MyBossSock */
+				if (MyBossSock != PGINVALID_SOCKET)
 				{
-					wee = wee_next();
+					wee = nextWaitEventElt(&set);
 					if (WEEHasError(wee) ||
-						(WEECanRead(wee) && !BackendIsAlive()))
+						(WEECanRead(wee) && !BossIsLeave()))
 						break;
 				}
 				/* check reduce group */
-				while ((wee = wee_next()) != NULL)
+				while ((wee = nextWaitEventElt(&set)) != NULL)
 				{
 					port = (RdcPort *) WEEGetArg(wee);
 					if (WEEHasError(wee))
@@ -932,56 +930,23 @@ EndSetupReduceGroup(void)
 						(void) rdc_connect_poll(port);
 				}
 			}
-
-			end_wait_events();
-		} PG_CATCH();
-		{
-			end_wait_events();
-			PG_RE_THROW();
-		} PG_END_TRY();
-	}
-}
-
-static bool
-BackendIsAlive(void)
-{
-	char		c;
-	ssize_t		rc;
-
-	/* Always return true if MyParentSock is not set */
-	if (MyParentSock == PGINVALID_SOCKET)
-		return true;
-
-_re_recv:
-	rc = recv(MyParentSock, &c, 1, MSG_PEEK);
-	/* the peer has performed an orderly shutdown */
-	if (rc == 0)
-		return false;
-	else
-	/* receive close message request */
-	if (rc > 0 && c == RDC_CLOSE_MSG)
-		return false;
-	else
-	if (rc < 0)
+		}
+	} PG_CATCH();
 	{
-		if (errno == EINTR)
-			goto _re_recv;
+		freeWaitEVSet(&set);
+		PG_RE_THROW();
+	} PG_END_TRY();
 
-		if (errno != EAGAIN &&
-			errno != EWOULDBLOCK)
-			return false;
-	}
-
-	return true;
+	freeWaitEVSet(&set);
 }
 
 static void
-ReduceAcceptPlanConn(List **accept_list, List **pln_list)
+ReduceAcceptPlanConn(List **accept_list, List **pln_nodes)
 {
 	RdcPort		   *port;
 	ListCell	   *cell;
 
-	Assert(pln_list);
+	Assert(pln_nodes);
 	for (cell = list_head(*accept_list); cell != NULL;)
 	{
 		port = (RdcPort *) lfirst(cell);
@@ -997,7 +962,7 @@ ReduceAcceptPlanConn(List **accept_list, List **pln_list)
 		{
 			*accept_list = lremove(port, *accept_list);
 			RdcWaitEvents(port) |= WAIT_SOCKET_WRITEABLE;
-			add_new_plan_port(pln_list, port);
+			add_new_plan_port(pln_nodes, port);
 		}
 
 		/*
@@ -1024,9 +989,10 @@ ReduceLoopRun(void)
 	RdcPort				   *port = NULL;
 	RdcNode				   *rdc_nodes = NULL;
 	RdcNode				   *rdc_node = NULL;
-	List				   *pln_list = NIL;
+	List				  **pln_nodes = NULL;
 	List				   *accept_list = NIL;
 	ListCell			   *cell = NULL;
+	WaitEVSetData			set;
 #ifdef NOT_USED
 	sigjmp_buf				local_sigjmp_buf;
 
@@ -1064,41 +1030,42 @@ ReduceLoopRun(void)
 	MemoryContextSwitchTo(MessageContext);
 #endif
 	Assert(MyRdcOpts->rdc_nodes);
-	rdc_nodes = MyRdcOpts->rdc_nodes;
 	rdc_num = MyRdcOpts->rdc_num;
-	pln_list = MyRdcOpts->pln_nodes;
-	for (;;)
+	rdc_nodes = MyRdcOpts->rdc_nodes;
+	pln_nodes = &(MyRdcOpts->pln_nodes);
+	initWaitEVSet(&set);
+	PG_TRY();
 	{
-		CHECK_FOR_INTERRUPTS();
-
-		PG_TRY();
+		for (;;)
 		{
-			begin_wait_events();
-			add_wait_events_sock(MyListenSock, WAIT_SOCKET_READABLE);
-			add_wait_events_sock(MyParentSock, WAIT_SOCKET_READABLE);
-			add_wait_events_list(accept_list,
-								 GetRdcPortSocket,
-								 GetRdcPortWaitEvents);
+			CHECK_FOR_INTERRUPTS();
+
+			resetWaitEVSet(&set);
+			addWaitEventBySock(&set, MyListenSock, WAIT_SOCKET_READABLE);
+			addWaitEventBySock(&set, MyBossSock, WAIT_SOCKET_READABLE);
+			addWaitEventByList(&set, accept_list,
+							   GetRdcPortSocket,
+							   GetRdcPortWaitEvents);
 			for (i = 0; i < rdc_num; i++)
 			{
 				rdc_node = &(rdc_nodes[i]);
-				add_wait_events_element(rdc_node->port,
-										GetRdcPortSocket,
-										GetRdcPortWaitEvents);
+				addWaitEventByArg(&set, rdc_node->port,
+								  GetRdcPortSocket,
+								  GetRdcPortWaitEvents);
 			}
-			foreach(cell, pln_list)
+			foreach(cell, *pln_nodes)
 			{
 				pln_port = (PlanPort *) lfirst(cell);
 				port = pln_port->port;
 				while (port != NULL)
 				{
-					add_wait_events_element(port,
-											GetRdcPortSocket,
-											GetRdcPortWaitEvents);
+					addWaitEventByArg(&set, port,
+									  GetRdcPortSocket,
+									  GetRdcPortWaitEvents);
 					port = RdcNext(port);
 				}
 			}
-			nready = exec_wait_events(timeout);
+			nready = execWaitEVSet(&set, timeout);
 			if (nready < 0)
 			{
 				ereport(ERROR,
@@ -1112,7 +1079,7 @@ ReduceLoopRun(void)
 				WaitEventElt	*wee = NULL;
 
 				/* listen sock */
-				wee = wee_next();
+				wee = nextWaitEventElt(&set);
 				if (WEEHasError(wee))
 					ereport(ERROR,
 							(errcode(ERRCODE_CONNECTION_FAILURE),
@@ -1130,26 +1097,27 @@ ReduceLoopRun(void)
 						accept_list = lappend(accept_list, port);
 					}
 				}
-				/* check MyParentSock */
-				if (MyParentSock != PGINVALID_SOCKET)
+				/* check MyBossSock */
+				if (MyBossSock != PGINVALID_SOCKET)
 				{
-					wee = wee_next();
+					wee = nextWaitEventElt(&set);
 					if (WEEHasError(wee) ||
-						(WEECanRead(wee) && !BackendIsAlive()))
+						(WEECanRead(wee) && !BossIsLeave()))
 						break;
 				}
 
-				ReduceAcceptPlanConn(&accept_list, &pln_list);
-				rdc_handle_reduce(&pln_list);
-				rdc_handle_plannode(pln_list);
+				ReduceAcceptPlanConn(&accept_list, pln_nodes);
+				rdc_handle_reduce(pln_nodes);
+				rdc_handle_plannode(pln_nodes);
 			}
-			end_wait_events();
-		} PG_CATCH();
-		{
-			end_wait_events();
-			PG_RE_THROW();
-		} PG_END_TRY();
-	}
+		}
+	} PG_CATCH();
+	{
+		freeWaitEVSet(&set);
+		PG_RE_THROW();
+	} PG_END_TRY();
+
+	freeWaitEVSet(&set);
 
 	return STATUS_OK;
 }

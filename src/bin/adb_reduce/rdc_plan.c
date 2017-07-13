@@ -47,12 +47,12 @@ plan_freeport(PlanPort *pln_port)
  * returns NULL if not found
  */
 PlanPort *
-find_plan_port(List *pln_list, RdcPortId pln_id)
+find_plan_port(List *pln_nodes, RdcPortId pln_id)
 {
 	ListCell	   *cell = NULL;
 	PlanPort	   *port = NULL;
 
-	foreach (cell, pln_list)
+	foreach (cell, pln_nodes)
 	{
 		port = (PlanPort *) lfirst(cell);
 		Assert(port);
@@ -68,20 +68,20 @@ find_plan_port(List *pln_list, RdcPortId pln_id)
  * add_new_plan_port - add a new RdcPort in the PlanPort list
  */
 void
-add_new_plan_port(List **pln_list, RdcPort *new_port)
+add_new_plan_port(List **pln_nodes, RdcPort *new_port)
 {
 	PlanPort	   *plan_port = NULL;
 
-	AssertArg(pln_list && new_port);
+	AssertArg(pln_nodes && new_port);
 	Assert(PortIdIsValid(new_port));
 
-	plan_port = find_plan_port(*pln_list, RdcPeerID(new_port));
+	plan_port = find_plan_port(*pln_nodes, RdcPeerID(new_port));
 	if (plan_port == NULL)
 	{
 		plan_port = plan_newport(RdcPeerID(new_port));
 		plan_port->port = new_port;
 		plan_port->work_num++;
-		*pln_list = lappend(*pln_list, plan_port);
+		*pln_nodes = lappend(*pln_nodes, plan_port);
 	} else
 	{
 		RdcPort		   *port = plan_port->port;
@@ -107,13 +107,13 @@ add_new_plan_port(List **pln_list, RdcPort *new_port)
  * get_plan_port_num - RdcPort number in the PlanPort list
  */
 int
-get_plan_port_num(List *pln_list)
+get_plan_port_num(List *pln_nodes)
 {
 	ListCell   *lc = NULL;
 	int			num = 0;
 	PlanPort   *pln_port;
 
-	foreach (lc, pln_list)
+	foreach (lc, pln_nodes)
 	{
 		pln_port = (PlanPort *) lfirst(lc);
 		num += pln_port->work_num;

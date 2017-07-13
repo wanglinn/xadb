@@ -36,15 +36,19 @@
 #include "reduce/rdc_msg.h"
 #include "utils/memutils.h"
 
+pgsocket MyBossSock = PGINVALID_SOCKET;
+
+static WaitEVSet RdcWaitSet = NULL;
+
 #define RDC_BUFFER_SIZE		8192
 #define IdxIsEven(idx)		((idx) % 2 == 0)		/* even number */
 #define IdxIsOdd(idx)		((idx) % 2 == 1)		/* odd nnumber */
 
-static int RdcWaitTimed(int forRead, int forWrite, RdcPort *port, int timeout);
-static RdcPort *RdcConnectStart(const char *host, uint32 port,
+static int rdc_wait_timed(int forRead, int forWrite, RdcPort *port, int timeout);
+static RdcPort *rdc_connect_start(const char *host, uint32 port,
 								RdcPortType peer_type, RdcPortId peer_id,
 								RdcPortType self_type, RdcPortId self_id);
-static int RdcConnectComplete(RdcPort *port);
+static int rdc_connect_complete(RdcPort *port);
 
 static ssize_t rdc_secure_read(RdcPort *port, void *ptr, size_t len, int flags);
 static int internal_flush_buffer(pgsocket sock, StringInfo buf, bool block);
@@ -80,6 +84,40 @@ rdc_type2string(RdcPortType type)
 	}
 	return "UNKNOWN";
 }
+
+bool
+BossIsLeave(void)
+{
+	char		c;
+	ssize_t		rc;
+
+	/* Always return true if MyBossSock is not set */
+	if (MyBossSock == PGINVALID_SOCKET)
+		return true;
+
+_re_recv:
+	rc = recv(MyBossSock, &c, 1, MSG_PEEK);
+	/* the peer has performed an orderly shutdown */
+	if (rc == 0)
+		return false;
+	else
+	/* receive close message request */
+	if (rc > 0 && c == RDC_CLOSE_MSG)
+		return false;
+	else
+	if (rc < 0)
+	{
+		if (errno == EINTR)
+			goto _re_recv;
+
+		if (errno != EAGAIN &&
+			errno != EWOULDBLOCK)
+			return false;
+	}
+
+	return true;
+}
+
 
 RdcPort *
 rdc_newport(pgsocket sock,
@@ -159,37 +197,40 @@ rdc_resetport(RdcPort *port)
 }
 
 static int
-RdcWaitTimed(int forRead, int forWrite, RdcPort *port, int timeout)
+rdc_wait_timed(int forRead, int forWrite, RdcPort *port, int timeout)
 {
-	int		nready;
+	int			nready;
+	EventType	wait_events = WAIT_NONE;
 
-	PG_TRY();
+	if (RdcWaitSet == NULL)
 	{
-		begin_wait_events();
-		if (forRead)
-			add_wait_events_sock(RdcSocket(port), WAIT_SOCKET_READABLE);
-		if (forWrite)
-			add_wait_events_sock(RdcSocket(port), WAIT_SOCKET_WRITEABLE);
-		nready = exec_wait_events(timeout);
-		if (nready < 0)
-		{
-			rdc_puterror(port,
-						 "fail to wait read/write event for socket of [%s %ld]",
-						 RdcPeerTypeStr(port), RdcPeerID(port));
-			end_wait_events();
-			return EOF;
-		}
-		end_wait_events();
-		return 0;
-	} PG_CATCH();
+		MemoryContext oldcontext;
+		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+		RdcWaitSet = makeWaitEVSetExtend(2);
+		(void) MemoryContextSwitchTo(oldcontext);
+	}
+
+	resetWaitEVSet(RdcWaitSet);
+	if (forRead)
+		wait_events |= WAIT_SOCKET_READABLE;
+	if (forWrite)
+		wait_events |= WAIT_SOCKET_WRITEABLE;
+	addWaitEventBySock(RdcWaitSet, RdcSocket(port), wait_events);
+	nready = execWaitEVSet(RdcWaitSet, timeout);
+	if (nready < 0 || WEEHasError(nextWaitEventElt(RdcWaitSet)))
 	{
-		end_wait_events();
-		PG_RE_THROW();
-	} PG_END_TRY();
+		rdc_puterror(port,
+					 "something wrong while waiting read/write "
+					 "event for socket of [%s %ld]",
+					 RdcPeerTypeStr(port), RdcPeerID(port));
+		return EOF;
+	}
+
+	return 0;
 }
 
 static RdcPort *
-RdcConnectStart(const char *host, uint32 port,
+rdc_connect_start(const char *host, uint32 port,
 				RdcPortType peer_type, RdcPortId peer_id,
 				RdcPortType self_type, RdcPortId self_id)
 {
@@ -234,7 +275,7 @@ RdcConnectStart(const char *host, uint32 port,
 }
 
 static int
-RdcConnectComplete(RdcPort *port)
+rdc_connect_complete(RdcPort *port)
 {
 	RdcPollingStatusType	flag = RDC_POLLING_WRITING;
 	int						finish_time = -1;
@@ -247,7 +288,7 @@ RdcConnectComplete(RdcPort *port)
 				return 1;		/* success! */
 
 			case RDC_POLLING_READING:
-				if (RdcWaitTimed(1, 0, port, finish_time))
+				if (rdc_wait_timed(1, 0, port, finish_time))
 				{
 					RdcStatus(port) = RDC_CONNECTION_BAD;
 					return 0;
@@ -255,7 +296,7 @@ RdcConnectComplete(RdcPort *port)
 				break;
 
 			case RDC_POLLING_WRITING:
-				if (RdcWaitTimed(0, 1, port, finish_time))
+				if (rdc_wait_timed(0, 1, port, finish_time))
 				{
 					RdcStatus(port) = RDC_CONNECTION_BAD;
 					return 0;
@@ -282,11 +323,11 @@ rdc_connect(const char *host, uint32 port,
 {
 	RdcPort *rdc_port = NULL;
 
-	rdc_port = RdcConnectStart(host, port,
+	rdc_port = rdc_connect_start(host, port,
 						   peer_type, peer_id,
 						   self_type, self_id);
 	if (!IsRdcPortError(rdc_port))
-		(void) RdcConnectComplete(rdc_port);
+		(void) rdc_connect_complete(rdc_port);
 
 	return rdc_port;
 }
@@ -975,32 +1016,41 @@ rdc_secure_read(RdcPort *port, void *ptr, size_t len, int flags)
 {
 	ssize_t		n;
 	int			nready;
-	uint32		waitfor;
+	WaitEventElt *wee = NULL;
 
-retry:
+	if (RdcWaitSet == NULL)
+	{
+		MemoryContext oldcontext;
+		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+		RdcWaitSet = makeWaitEVSetExtend(2);
+		(void) MemoryContextSwitchTo(oldcontext);
+	}
+
+_retry_recv:
 	n = recv(RdcSocket(port), ptr, len, flags);
-	waitfor = WAIT_SOCKET_READABLE;
 
 	/* In blocking mode, wait until the socket is ready */
 	if (n < 0 && !port->noblock && (errno == EWOULDBLOCK || errno == EAGAIN))
 	{
-		PG_TRY();
+		resetWaitEVSet(RdcWaitSet);
+		addWaitEventBySock(RdcWaitSet, MyBossSock, WAIT_SOCKET_READABLE);
+		addWaitEventBySock(RdcWaitSet, RdcSocket(port), WAIT_SOCKET_READABLE);
+		nready = execWaitEVSet(RdcWaitSet, -1);
+		if (nready < 0)
+			ereport(ERROR,
+				(errcode(ERRCODE_ADMIN_SHUTDOWN),
+				 errmsg("fail to wait read/write event for socket of [%s %ld]",
+				 		RdcPeerTypeStr(port), RdcPeerID(port))));
+		if (MyBossSock != PGINVALID_SOCKET)
 		{
-			begin_wait_events();
-			add_wait_events_sock(RdcSocket(port), waitfor);
-			nready = exec_wait_events(-1);
-			if (nready < 0)
+			wee = nextWaitEventElt(RdcWaitSet);
+			if (WEEHasError(wee) ||
+				(WEECanRead(wee) && !BossIsLeave()))
 				ereport(ERROR,
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
-					 errmsg("fail to wait read/write event for socket of [%s %ld]",
-					 		RdcPeerTypeStr(port), RdcPeerID(port))));
-			end_wait_events();
-			goto retry;
-		} PG_CATCH();
-		{
-			end_wait_events();
-			PG_RE_THROW();
-		} PG_END_TRY();
+					 errmsg("terminating connection due to unexpected backend exit")));
+		}
+		goto _retry_recv;
 	}
 
 	/*

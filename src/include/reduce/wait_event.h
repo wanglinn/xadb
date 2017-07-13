@@ -24,12 +24,18 @@
 #error "Can not use poll(2) or select(2), what a pity!"
 #endif
 
-#define WAIT_NONE					0
-#define WAIT_SOCKET_READABLE		(1 << 0)
-#define WAIT_SOCKET_WRITEABLE		(1 << 1)
+typedef enum EventType
+{
+	WAIT_NONE				=	0,
+	WAIT_SOCKET_READABLE	=	(1 << 0),
+	WAIT_SOCKET_WRITEABLE	=	(1 << 1),
+} EventType;
 
 typedef struct WaitEventElt
 {
+	pgsocket			wait_sock;
+	EventType			wait_events;
+	void			   *wait_arg;
 #if defined(WAIT_USE_POLL)
 	struct pollfd	   *pfd;
 #elif defined(WAIT_USE_SELECT)
@@ -37,18 +43,15 @@ typedef struct WaitEventElt
 	fd_set			   *wmask;
 	fd_set			   *emask;
 #endif
-	pgsocket			sock;
-	uint32				wait_events;
-	void			   *arg;
 } WaitEventElt;
 
 #define WaitEvents(wee)		(((WaitEventElt *) wee)->wait_events)
 #define WaitRead(events)	(events & WAIT_SOCKET_READABLE)
 #define WaitWrite(events)	(events & WAIT_SOCKET_WRITEABLE)
 
-#define WEEGetSock(wee)		(((WaitEventElt *) (wee))->sock)
+#define WEEGetSock(wee)		(((WaitEventElt *) (wee))->wait_sock)
 #define WEEGetEvents(wee)	(((WaitEventElt *) (wee))->wait_events)
-#define WEEGetArg(wee)		(((WaitEventElt *) (wee))->arg)
+#define WEEGetArg(wee)		(((WaitEventElt *) (wee))->wait_arg)
 #if defined(WAIT_USE_POLL)
 #define WEEHasError(wee)	((((WaitEventElt *) (wee))->pfd->revents) & (POLLERR | POLLHUP | POLLNVAL))
 #define WEECanRead(wee)		((((WaitEventElt *) (wee))->pfd->revents) & (POLLIN))
@@ -59,21 +62,49 @@ typedef struct WaitEventElt
 #define WEECanWrite(wee)	FD_ISSET(WEEGetSock(wee), ((WaitEventElt *) (wee))->wmask)
 #endif
 
-extern void begin_wait_events(void);
-extern void add_wait_events_sock(pgsocket wait_sock, uint32 wait_events);
-extern void add_wait_events_element(void *wait_arg,
-									pgsocket (*GetWaitSocket)(void *arg),
-									uint32 (*GetWaitEvents)(void *arg));
+typedef struct WaitEVSetData
+{
+	int				curno;		/* number of registered events */
+	int				maxno;		/* maximum number of events in this set */
+	int				idxno;		/* used for traversal RdcWaitEvent like iterator */
+
+	/*
+	 * Array, of maxno length, storing the definition of events this
+	 * set is waiting for.
+	 */
+	WaitEventElt   *events;
+#if defined(WAIT_USE_POLL)
+	/* poll expects events to be waited on every poll() call, prepare once */
+	struct pollfd  *pollfds;
+#elif defined(WAIT_USE_SELECT)
+	fd_set			rmask;
+	fd_set			wmask;
+	fd_set			emask;
+#endif
+} WaitEVSetData;
+
+typedef WaitEVSetData *WaitEVSet;
+
+extern WaitEVSet makeWaitEVSet(void);
+extern WaitEVSet makeWaitEVSetExtend(int num);
+extern void initWaitEVSet(WaitEVSet set);
+extern void initWaitEVSetExtend(WaitEVSet set, int num);
+extern void resetWaitEVSet(WaitEVSet set);
+extern void freeWaitEVSet(WaitEVSet set);
+extern void enlargeWaitEVSet(WaitEVSet set, int needed);
+extern void addWaitEventBySock(WaitEVSet set, pgsocket sock,
+					EventType wait_events);
+extern void addWaitEventByArg(WaitEVSet set, void *wait_arg,
+					pgsocket (*GetWaitSocket)(void *),
+					uint32 (*GetWaitEvents)(void *));
 struct List;
-extern void add_wait_events_list(struct List *wait_list,
-								 pgsocket (*GetWaitSocket)(void *arg),
-								 uint32 (*GetWaitEvents)(void *arg));
-extern void add_wait_events_array(void **elements, int num,
-								  pgsocket (*GetWaitSocket)(void *arg),
-								  uint32 (*GetWaitEvents)(void *arg));
-extern int  exec_wait_events(int timeout);
-extern WaitEventElt *wee_next(void);
-extern void end_wait_events(void);
-extern void exit_wait_events(int code, Datum arg);
+extern void addWaitEventByList(WaitEVSet set, struct List *wait_list,
+					pgsocket (*GetWaitSocket)(void *),
+					uint32 (*GetWaitEvents)(void *));
+extern void addWaitEventByArray(WaitEVSet set, void **wait_args, int num,
+					pgsocket (*GetWaitSocket)(void *),
+					uint32 (*GetWaitEvents)(void *));
+extern int  execWaitEVSet(WaitEVSet set, int timeout);
+extern WaitEventElt *nextWaitEventElt(WaitEVSet set);
 
 #endif	/* RDC_WAIT_EVENT_H */

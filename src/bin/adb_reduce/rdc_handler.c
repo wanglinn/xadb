@@ -18,7 +18,7 @@
 #include "reduce/rdc_msg.h"
 
 static int  try_read_some(RdcPort *port);
-static bool try_read_from_reduce(RdcPort *port, List **pln_list);
+static bool try_read_from_reduce(RdcPort *port, List **pln_nodes);
 static void try_write_to_reduce(RdcPort *port);
 static void try_read_from_plan(PlanPort *pln_port);
 static void try_write_to_plan(PlanPort *pln_port, bool flush);
@@ -32,16 +32,15 @@ static RdcPort *find_rdc_port(RdcPortId rpid);
  * rdc_handle_plannode - handle port for Plan node
  */
 void
-rdc_handle_plannode(List *pln_list)
+rdc_handle_plannode(List **pln_nodes)
 {
 	ListCell	   *cell = NULL;
 	PlanPort	   *pln_port = NULL;
 
-	for (cell = list_head(pln_list); cell;)
+	AssertArg(pln_nodes);
+	foreach (cell, *pln_nodes)
 	{
 		pln_port = (PlanPort *) lfirst(cell);
-		cell = lnext(cell);
-
 		try_read_from_plan(pln_port);
 		try_write_to_plan(pln_port, false);
 	}
@@ -51,7 +50,7 @@ rdc_handle_plannode(List *pln_list)
  * rdc_handle_reduce - handle port for Reduce
  */
 void
-rdc_handle_reduce(List **pln_list)
+rdc_handle_reduce(List **pln_nodes)
 {
 	RdcNode		   *rdc_nodes = NULL;
 	RdcNode		   *rdc_node = NULL;
@@ -59,6 +58,7 @@ rdc_handle_reduce(List **pln_list)
 	int				rdc_num;
 	int				i;
 
+	AssertArg(pln_nodes);
 	rdc_nodes = MyRdcOpts->rdc_nodes;
 	rdc_num = MyRdcOpts->rdc_num;
 	for (i = 0; i < rdc_num; i++)
@@ -70,7 +70,7 @@ rdc_handle_reduce(List **pln_list)
 			continue;
 		if (RdcWaitRead(port))
 		{
-			if (try_read_from_reduce(port, pln_list))
+			if (try_read_from_reduce(port, pln_nodes))
 				rdc_node->port = NULL;
 		}
 		if (RdcWaitWrite(port))
@@ -346,7 +346,7 @@ try_write_to_plan(PlanPort *pln_port, bool flush)
 }
 
 static bool
-try_read_from_reduce(RdcPort *port, List **pln_list)
+try_read_from_reduce(RdcPort *port, List **pln_nodes)
 {
 	StringInfo		msg;
 	int				sv_cursor;
@@ -354,7 +354,7 @@ try_read_from_reduce(RdcPort *port, List **pln_list)
 	bool			quit;
 	bool			port_free;
 
-	AssertArg(port && pln_list);
+	AssertArg(port && pln_nodes);
 	Assert(ReducePortIsValid(port));
 	Assert(RdcPeerID(port) != MyReduceId);
 
@@ -411,11 +411,11 @@ try_read_from_reduce(RdcPort *port, List **pln_list)
 					/* plan node id */
 					planid = rdc_getmsgRdcPortID(msg);
 					/* find RdcPort of plan */
-					pln_port = find_plan_port(*pln_list, planid);
+					pln_port = find_plan_port(*pln_nodes, planid);
 					if (pln_port == NULL)
 					{
 						pln_port = plan_newport(planid);
-						*pln_list = lappend(*pln_list, pln_port);
+						*pln_nodes = lappend(*pln_nodes, pln_port);
 					}
 					/* data */
 					if (firstchar == RDC_R2R_DATA)

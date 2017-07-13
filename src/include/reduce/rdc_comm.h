@@ -25,6 +25,8 @@
 
 #define IS_AF_INET(fam) ((fam) == AF_INET)
 
+extern pgsocket MyBossSock;
+
 #if !defined(RDC_FRONTEND)
 typedef struct RdcPort RdcPort;
 typedef struct RdcMask RdcMask;
@@ -118,7 +120,7 @@ struct RdcPort
 	RdcConnStatusType	status;			/* used to connect with other Reduce */
 	RdcConnHook			hook;			/* callback function when connect done */
 
-	uint32				wait_events;	/* used for select/poll */
+	EventType			wait_events;	/* used for select/poll */
 	StringInfoData		in_buf;			/* for normal message */
 	StringInfoData		out_buf;		/* for normal message */
 	StringInfoData		err_buf;		/* error message should be sent prior if have. */
@@ -177,6 +179,7 @@ typedef int ReduceNodeId;
 #define PortIdIsValid(port)			(PlanPortIsValid(port) || ReducePortIsValid(port))
 
 extern const char *rdc_type2string(RdcPortType type);
+extern bool BossIsLeave(void);
 extern RdcPort *rdc_newport(pgsocket sock,
 							RdcPortType peer_type, RdcPortId peer_id,
 							RdcPortType self_type, RdcPortId self_id);
