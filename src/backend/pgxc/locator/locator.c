@@ -58,6 +58,9 @@
 #include "postmaster/autovacuum.h"
 #include "utils/typcache.h"
 
+#define PUSH_REDUCE_EXPR_BMS	1
+#define PUSH_REDUCE_EXPR_LIST	2
+
 typedef struct ExecNodeStateEvalInfo
 {
 	Expr xpr;
@@ -74,8 +77,10 @@ typedef struct ReduceParam
 
 typedef struct PullReducePathExprVarAttnosContext
 {
-	Bitmapset *varattnos;
-	Index relid;
+	Bitmapset  *varattnos;
+	List	   *attnoList;
+	Index 		relid;
+	int			flags;	/* PUSH_REDUCE_EXPR_XXX */
 } PullReducePathExprVarAttnosContext;
 
 static Expr *pgxc_find_distcol_expr(Index varno, AttrNumber attrNum, Node *quals);
@@ -1415,11 +1420,29 @@ Index PullReducePathExprAttnos(Expr *expr, Bitmapset **varattnos)
 
 	context.relid = 0;
 	context.varattnos = *varattnos;
+	context.attnoList = NIL;
+	context.flags = PUSH_REDUCE_EXPR_BMS;
 
 	PullReducePathExprAttnosWalker((ReduceParam*)expr, &context);
 
 	*varattnos = context.varattnos;
 	return context.relid;
+}
+
+List *GetReducePathExprAttnoList(Expr *expr, Index *relid)
+{
+	PullReducePathExprVarAttnosContext context;
+
+	context.relid = 0;
+	context.varattnos = NULL;
+	context.attnoList = NIL;
+	context.flags = PUSH_REDUCE_EXPR_LIST;
+
+	PullReducePathExprAttnosWalker((ReduceParam*)expr, &context);
+
+	if(relid)
+		*relid = context.relid;
+	return context.attnoList;
 }
 
 static oidvector *makeDatanodeOidVector(List *list)
@@ -1561,14 +1584,24 @@ static bool PullReducePathExprAttnosWalker(ReduceParam *rp, PullReducePathExprVa
 		return false;
 	if(IsA(rp, Param))
 	{
+		int attno;
 		if(context->relid == 0)
 			context->relid = rp->relid;
 		else if(context->relid != rp->relid)
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					errmsg("invalid reduce expression")));
-		context->varattnos = bms_add_member(context->varattnos,
-											rp->attno - FirstLowInvalidHeapAttributeNumber);
+
+		attno = rp->attno - FirstLowInvalidHeapAttributeNumber;
+
+		if (context->flags & PUSH_REDUCE_EXPR_BMS)
+			context->varattnos = bms_add_member(context->varattnos, attno);
+
+		if (context->flags & PUSH_REDUCE_EXPR_LIST &&
+			list_member_int(context->attnoList, attno) == false)
+		{
+			context->attnoList = lappend_int(context->attnoList, attno);
+		}
 		return false;
 	}
 	return expression_tree_walker((Node*)rp, PullReducePathExprAttnosWalker, context);
