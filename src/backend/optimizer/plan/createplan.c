@@ -292,6 +292,7 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath *path, int flags);
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
 static bool find_cluster_reduce_expr(Path *path, slist_head *shead);
+static void fill_reduce_expr_info(ReduceExprInfo *rinfo);
 static bool is_reduce_info_can_join(ReduceExprInfo *outer_rinfo, ReduceExprInfo *inner_rinfo, List *restrictlist);
 static bool expr_is_var(Expr *expr, Index relid, int attno);
 static AttrNumber get_target_varattno(PathTarget *target, Index varno, AttrNumber attno);
@@ -6496,10 +6497,7 @@ List *get_reduce_info_list(Path *path)
 	{
 		context = slist_container(FindReduceExprContext, snode, iter.cur);
 		if(context->rinfo.relid == 0 && IsReduceExprByValue(context->rinfo.expr))
-		{
-			context->rinfo.relid = PullReducePathExprAttnos(context->rinfo.expr, &context->rinfo.varattnos);
-			Assert(context->rinfo.relid > 0 && bms_membership(context->rinfo.varattnos) != BMS_EMPTY_SET);
-		}
+			fill_reduce_expr_info(&context->rinfo);
 		list = lappend(list, &context->rinfo);
 	}
 	return list;
@@ -6518,6 +6516,7 @@ void free_reduce_info(ReduceExprInfo *info)
 	if(info)
 	{
 		bms_free(info->varattnos);
+		list_free(info->attnoList);
 		pfree(info);
 	}
 }
@@ -6711,7 +6710,7 @@ static bool find_cluster_reduce_expr(Path *path, slist_head *shead)
 				}else if(IsReduceExprByValue(context->rinfo.expr))
 				{
 					if(context->rinfo.relid == 0)
-						context->rinfo.relid = PullReducePathExprAttnos(context->rinfo.expr, &context->rinfo.varattnos);
+						fill_reduce_expr_info(&context->rinfo);
 					Assert(context->rinfo.relid > 0);
 					if(is_grouping_reduce_expr(path->pathtarget, &context->rinfo))
 						remove = false;
@@ -6731,9 +6730,8 @@ static bool find_cluster_reduce_expr(Path *path, slist_head *shead)
 			ReduceExprInfo *rinfo;
 			slist_mutable_iter iter;
 			Index relid;
-			Bitmapset *attnos;
+			ListCell *lc;
 			PathTarget *sub_target;
-			int x;
 			AttrNumber attno;
 			bool remove;
 
@@ -6749,41 +6747,32 @@ static bool find_cluster_reduce_expr(Path *path, slist_head *shead)
 					!IsReduceExprByValue(rinfo->expr))
 					continue;
 
-				if(rinfo->relid == 0)
-				{
-					Assert(rinfo->varattnos == NULL);
-					attnos = NULL;
-					relid = PullReducePathExprAttnos(rinfo->expr, &attnos);
-				}else
-				{
-					Assert(!bms_is_empty(rinfo->varattnos));
-					relid = rinfo->relid;
-					attnos = rinfo->varattnos;
-					rinfo->varattnos = NULL;
-				}
-				Assert(bms_membership(attnos) != BMS_EMPTY_SET);
+				fill_reduce_expr_info(rinfo);
+				Assert(rinfo->attnoList != NIL && rinfo->relid > 0);
+				relid = rinfo->relid;
 				rinfo->relid = path->parent->relid;
+				bms_free(rinfo->varattnos);
+				rinfo->varattnos = NULL;
 
 				remove = false;
-				while((x=bms_first_member(attnos)) >= 0)
+				foreach(lc, rinfo->attnoList)
 				{
 					attno = get_target_varattno(sub_target,
 											  relid,
-											  x + FirstLowInvalidHeapAttributeNumber);
+											  lfirst_int(lc) + FirstLowInvalidHeapAttributeNumber);
 					if(attno == InvalidAttrNumber)
 					{
 						remove = true;
 						break;
 					}
-					rinfo->varattnos = bms_add_member(rinfo->varattnos,
-													  attno - FirstLowInvalidHeapAttributeNumber);
+					lfirst_int(lc) = (attno - FirstLowInvalidHeapAttributeNumber);
 				}
 				if(remove)
 				{
 					slist_delete_current(&iter);
 					free_reduce_info(rinfo);
 				}
-				bms_free(attnos);
+				fill_reduce_expr_info(rinfo);
 			}
 		}
 		return false;
@@ -6819,6 +6808,37 @@ static bool find_cluster_reduce_expr(Path *path, slist_head *shead)
 	}
 
 	return path_tree_walker(path, find_cluster_reduce_expr, shead);
+}
+
+static void fill_reduce_expr_info(ReduceExprInfo *rinfo)
+{
+	ListCell *lc;
+	Index relid;
+	AssertArg(rinfo && rinfo->expr);
+	AssertArg(IsReduceExprByValue(rinfo->expr));
+
+	if(rinfo->attnoList && rinfo->varattnos)
+	{
+		Assert(rinfo->relid > 0);
+		return;
+	}
+
+	if(rinfo->attnoList == NIL)
+	{
+		rinfo->attnoList = GetReducePathExprAttnoList(rinfo->expr, &relid);
+		if(rinfo->relid == 0)
+			rinfo->relid = relid;
+		else
+			Assert(rinfo->relid == relid);
+	}
+	if(rinfo->varattnos == NULL)
+	{
+		foreach(lc, rinfo->attnoList)
+			rinfo->varattnos = bms_add_member(rinfo->varattnos, lfirst_int(lc));
+	}
+	Assert(relid > 0);
+	Assert(rinfo->attnoList != NIL);
+	Assert(list_length(rinfo->attnoList) == bms_num_members(rinfo->varattnos));
 }
 
 static AttrNumber get_target_varattno(PathTarget *target, Index varno, AttrNumber attno)
