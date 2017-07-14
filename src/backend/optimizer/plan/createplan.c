@@ -6653,12 +6653,12 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 		info = lfirst(lc);
 		if(equal(info->expr, to->expr))
 		{
-			return create_plan(root, path->subpath);
+			return create_plan_recurse(root, path->subpath, flags);
 		}
 	}
 
 	plan = makeNode(ClusterReduce);
-	outerPlan(plan) = subplan = create_plan(root, path->subpath);
+	outerPlan(plan) = subplan = create_plan_recurse(root, path->subpath, flags);
 	plan->reduce = ReducePathExpr2PlanExpr(to->expr);
 	copy_generic_path_info((Plan*)plan, (Path*)path);
 	plan->plan.targetlist = subplan->targetlist;
