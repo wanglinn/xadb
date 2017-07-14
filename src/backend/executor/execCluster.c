@@ -576,7 +576,7 @@ static void wait_rdc_group_message(void)
 		pq_copymsgbytes(&buf, (char *) &(rdc_masks[i].rdc_rpid),
 						sizeof(rdc_masks[i].rdc_rpid));
 	}
-	pq_getmsgend(&buf);
+	/*pq_getmsgend(&buf);*/
 
 	StartSelfReduceGroup(rdc_masks, rdc_cnt);
 
