@@ -1481,6 +1481,10 @@ BEGIN_NODE(Path)
 	NODE_SCALAR(Cost,startup_cost)
 	NODE_SCALAR(Cost,total_cost)
 	NODE_NODE(List,pathkeys)
+#ifdef ADB
+	NODE_STRUCT_LIST(ReduceExprInfo, reduce_info_list)
+	NODE_SCALAR(bool,reduce_is_valid)
+#endif
 END_NODE(Path)
 #endif /* NO_NODE_Path */
 
@@ -1783,7 +1787,6 @@ END_NODE(ClusterMergeGatherPath)
 BEGIN_NODE(ClusterReducePath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(Path,subpath)
-	NODE_NODE(Expr,reduce)
 END_NODE(ClusterReducePath)
 #endif /* NO_NODE_ClusterReducePath */
 

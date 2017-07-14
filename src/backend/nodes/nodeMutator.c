@@ -12,6 +12,9 @@
 #include "nodes/replnodes.h"
 #include "commands/event_trigger.h"
 #include "foreign/fdwapi.h"
+#ifdef ADB
+#include "optimizer/planmain.h"
+#endif /* ADB */
 
 /* not support Node(s) */
 #define NO_NODE_PlannerInfo
@@ -23,8 +26,21 @@
 #define NO_NODE_RestrictInfo
 #include "nodes/def_no_all_struct.h"
 #undef NO_STRUCT_QualCost
+#undef NO_STRUCT_ReduceExprInfo
 
 static void *pmemdup(const void *src, Size size);
+static List *mutator_struct_list(List *list, Size size, void*(*fun)(), Node*(*mutator)(), void *context)
+{
+	ListCell *lc;
+	List *newList = NIL;
+	foreach(lc, list)
+	{
+		void *dest = pmemdup(lfirst(lc), size);
+		(*fun)(dest, lfirst(lc), mutator, context);
+		newList = lappend(newList, dest);
+	}
+	return newList;
+}
 
 /* declare mutator functions */
 #define BEGIN_NODE(type)	\
@@ -64,7 +80,7 @@ static type* _mutator_##type(type *dest, const type *src,		\
 	}while(false);
 #define NODE_STRUCT_ARRAY(t,m,l) not support yet
 #define NODE_STRUCT_LIST(t,m) dest->m = mutator_struct_list(src->m, sizeof(t), \
-	_mutator_##t, mutator, context);
+	(void*(*)())_mutator_##t, mutator, context);
 #define NODE_STRUCT_MEB(t,m) _mutator_##t(&(dest->m), &(src->m), mutator, context);
 /* need copy datum ? */
 #define NODE_DATUM(t,m,o,n)

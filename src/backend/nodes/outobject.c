@@ -21,6 +21,7 @@
 
 #ifdef ADB
 #include "optimizer/pgxcplan.h"
+#include "optimizer/planmain.h"
 #endif
 
 #ifdef ADBMGRD
@@ -432,6 +433,7 @@ SIMPLE_OUTPUT_DECLARE(bits32, "%08x")
 #undef NO_STRUCT_QualCost
 #undef NO_STRUCT_MergeScanSelCache
 #undef NO_STRUCT_RelationLocInfo
+#undef NO_STRUCT_ReduceExprInfo
 #include "nodes/struct_define.h"
 #include "nodes/nodes_define.h"
 #include "nodes/nodes_undef.h"

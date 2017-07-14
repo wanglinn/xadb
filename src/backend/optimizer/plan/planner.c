@@ -4119,7 +4119,7 @@ create_grouping_paths(PlannerInfo *root,
 					{
 						path = (Path*)
 							   create_cluster_reduce_path(path,
-														  MakeReduce2CoordinatorExpr(),
+														  make_reduce_coord(),
 														  grouped_rel);
 						/* now we not have reduce merge path,so we sort again */
 						if(root->group_pathkeys)
@@ -4224,7 +4224,7 @@ create_grouping_paths(PlannerInfo *root,
 				{
 					path = (Path*)
 						   create_cluster_reduce_path(path,
-													  MakeReduce2CoordinatorExpr(),
+													  make_reduce_coord(),
 													  grouped_rel);
 				}
 
@@ -5747,7 +5747,6 @@ static bool can_once_grouping_cluster_path(PathTarget *target, Path *path)
 			break;
 		}
 	}
-	free_reduce_info_list(list);
 
 	return result;
 }

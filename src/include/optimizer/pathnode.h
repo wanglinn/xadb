@@ -248,13 +248,15 @@ extern Path *reparameterize_path(PlannerInfo *root, Path *path,
 #define GPEO_IGNORE_SUBQUERY		1
 #define GPEO_IGNORE_ANY_OTHER		(1<<1)
 
+struct ReduceExprInfo;
+
 extern bool is_cluster_path(Path *path);
 extern bool have_cluster_gather_path(Path *path, void *context);
 extern ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 			, RelOptInfo *rel, Path *sub_path, List *pathkeys);
 extern ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel);
 extern ClusterScanPath *create_cluster_scan_path(Path *sub_path, List *rnodes, RelOptInfo *rel);
-extern ClusterReducePath *create_cluster_reduce_path(Path *sub_path, Expr *reduce, RelOptInfo *rel);
+extern ClusterReducePath *create_cluster_reduce_path(Path *sub_path, struct ReduceExprInfo *rinfo, RelOptInfo *rel);
 
 extern List* get_path_execute_on(Path *path, int flags, int *execute_on);
 

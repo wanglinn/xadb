@@ -341,6 +341,10 @@ NODE_SPECIAL_MEB(RemoteQuery)
 	rq_param_types NODE_SCALAR_POINT(Oid,rq_param_types,NODE_ARG_->rq_num_params)
 END_SPECIAL_MEB(RemoteQuery)
 
+NODE_SPECIAL_MEB(Path)
+	reduce_info_list NODE_STRUCT_LIST(ReduceExprInfo, reduce_info_list)
+END_SPECIAL_MEB(Path)
+
 /* end ADB */
 
 NODE_SPECIAL_MEB(RestrictInfo)
@@ -568,3 +572,4 @@ IDENT_IF_DEFINED(ExecDirectType, ADB)
 IDENT_IF_DEFINED(CommandMode, ADBMGRD)
 
 IDENT_IF_DEFINED(RelationLocInfo, ADB)
+IDENT_IF_DEFINED(ReduceExprInfo, ADB)

@@ -28,6 +28,9 @@
 #include "nodes/extensible.h"
 #include "nodes/replnodes.h"
 #include "commands/event_trigger.h"
+#ifdef ADB
+#include "optimizer/planmain.h"
+#endif /* ADB */
 
 #define IS_OID_BUILTIN(oid_) (oid_ < FirstNormalObjectId)
 
@@ -37,6 +40,7 @@
 #define NO_NODE_RestrictInfo
 #include "nodes/def_no_all_struct.h"
 #undef NO_STRUCT_QualCost
+#undef NO_STRUCT_ReduceExprInfo
 
 /* declare static functions */
 #define BEGIN_NODE(type) 										\
@@ -123,7 +127,7 @@ static void save_##type(StringInfo buf, const type *node			\
 			pq_sendbytes(buf, (const char*)&(node->m->length)	\
 				, sizeof(node->m->length));						\
 			foreach(lc, node->m)								\
-				save_##t(buf, lfirst(lc));						\
+				save_##t(buf, lfirst(lc), hook, context);		\
 		}else													\
 		{														\
 			SAVE_IS_NULL();										\
@@ -584,7 +588,7 @@ void saveNodeAndHook(StringInfo buf, const Node *node
 				if(LOAD_IS_NULL())							\
 					v = NULL;								\
 				else										\
-					v = load_##t(buf, palloc0(sizeof(*v)));	\
+					v = load_##t(buf, palloc0(sizeof(*v)), hook, context);	\
 				node->m = lappend(node->m, v);				\
 			}												\
 		}													\

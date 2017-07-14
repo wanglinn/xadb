@@ -1,4 +1,10 @@
 #undef NO_STRUCT_BaseStmt
+#undef NO_STRUCT_AutoVacOpts
+#undef NO_STRUCT_StdRdOptions
+#undef NO_STRUCT_ViewOptions
+#undef NO_STRUCT_ParamExternData
+#undef NO_STRUCT_ParamListInfoData
+#undef NO_STRUCT_ReduceExprInfo
 #undef NO_STRUCT_QualCost
 #undef NO_STRUCT_AggClauseCosts
 #undef NO_STRUCT_MergeScanSelCache
@@ -21,8 +27,3 @@
 #undef NO_STRUCT_RelationLocInfo
 #undef NO_STRUCT_LockRelId
 #undef NO_STRUCT_LockInfoData
-#undef NO_STRUCT_AutoVacOpts
-#undef NO_STRUCT_StdRdOptions
-#undef NO_STRUCT_ViewOptions
-#undef NO_STRUCT_ParamExternData
-#undef NO_STRUCT_ParamListInfoData

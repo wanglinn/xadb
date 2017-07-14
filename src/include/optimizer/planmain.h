@@ -18,7 +18,7 @@
 #include "nodes/relation.h"
 
 /* possible values for force_parallel_mode */
-typedef enum
+typedef enum ForceParallelMode
 {
 	FORCE_PARALLEL_OFF,
 	FORCE_PARALLEL_ON,
@@ -139,8 +139,9 @@ extern Plan *pgxc_create_gating_plan(PlannerInfo *root, Path *path, Plan *plan, 
 extern Node *pgxc_replace_nestloop_params(PlannerInfo *root, Node *expr);
 extern List* get_remote_nodes(Plan *top_plan);
 extern List* get_reduce_info_list(Path *path);
-extern void free_reduce_info_list(List *list);
-extern void free_reduce_info(ReduceExprInfo *info);
+extern List* copy_reduce_info_list(List *list);
+extern ReduceExprInfo* copy_reduce_info(const ReduceExprInfo *info);
+extern ReduceExprInfo* make_reduce_coord(void);
 extern bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info);
 extern bool is_reduce_list_can_join(List *outer_reduce_list, List *inner_reduce_list, List *restrictlist);
 #endif

@@ -46,6 +46,7 @@
 #include "utils/lsyscache.h"
 #ifdef ADB
 #include "catalog/pgxc_node.h"
+#include "optimizer/planmain.h"
 #include "pgxc/pgxcnode.h"
 #endif /* ADB */
 
@@ -670,6 +671,8 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		ClusterScanPath *cscan;
 		Path *path;
 		ListCell *lc;
+		List *reduce_info_list;
+		ReduceExprInfo *rinfo;
 		List *quals = extract_actual_clauses(rel->baserestrictinfo, false);
 		ExecNodes *nodes =  GetRelationNodesByQuals(rte->relid, rel->relid,
 														(Node *)quals,
@@ -685,13 +688,26 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		/* Consider TID scans */
 		create_tidscan_paths(root, rel);
 
-		/* remove pathlist to cluster_pathlist */
+		rinfo = palloc0(sizeof(*rinfo));
+		rinfo->expr = rel->reduce;
+		rinfo->attnoList = GetReducePathExprAttnoList(rinfo->expr, NULL);
+		rinfo->relid = PullReducePathExprAttnos(rinfo->expr, &rinfo->varattnos);
+		reduce_info_list = list_make1(rinfo);
+
+		/* move pathlist to cluster_pathlist */
 		foreach(lc, rel->pathlist)
 		{
 			path = lfirst(lc);
+
+			path->reduce_info_list = reduce_info_list;
+			path->reduce_is_valid = true;
+
 			cost_div(path, list_length(rel->loc_info->nodeList));
 			cscan = create_cluster_scan_path(path, rnodes, rel);
 			add_cluster_path(rel, (Path*)cscan);
+
+			if(lnext(lc))
+				reduce_info_list = copy_reduce_info_list(reduce_info_list);
 		}
 		rel->pathlist = NIL;
 	}
@@ -1857,7 +1873,7 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		{
 			subpath = (Path*)
 					  create_cluster_reduce_path(subpath,
-												 MakeReduce2CoordinatorExpr(),
+												 make_reduce_coord(),
 												 sub_final_rel);
 			if(subquery->sortClause)
 			{

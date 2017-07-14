@@ -1904,15 +1904,11 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 				goto make_finish_;
 			}
 		}
-		free_reduce_info_list(outer_reduce_list);
 		outer_reduce_list = NIL;
 	}
 
 make_finish_:
-	foreach(inner_lc_list, inner_reduce_list_list)
-		free_reduce_info_list(lfirst(inner_lc_list));
 	list_free(inner_reduce_list_list);
-	free_reduce_info_list(outer_reduce_list);
 	return result;
 }
 

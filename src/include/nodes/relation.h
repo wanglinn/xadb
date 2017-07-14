@@ -927,6 +927,10 @@ typedef struct Path
 
 	List	   *pathkeys;		/* sort ordering of path's output */
 	/* pathkeys is a List of PathKey nodes; see above */
+#ifdef ADB
+	List	   *reduce_info_list;
+	bool		reduce_is_valid;
+#endif /* ADB */
 } Path;
 
 /* Macro for extracting a path's parameterization relids; beware double eval */
@@ -1577,8 +1581,6 @@ typedef struct ClusterReducePath
 {
 	Path		path;
 	Path	   *subpath;
-	/* NULL for reduce to coordinator, other result NODE Oid(s) */
-	Expr	   *reduce;
 } ClusterReducePath;
 
 #endif /* ADB */

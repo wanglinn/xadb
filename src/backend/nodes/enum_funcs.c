@@ -10,6 +10,7 @@
 #include "nodes/replnodes.h"
 #include "pgxc/locator.h"
 #include "optimizer/pgxcplan.h"
+#include "optimizer/planmain.h"
 
 #include "nodes/enum_funcs.h"
 

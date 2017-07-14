@@ -1273,3 +1273,11 @@ BEGIN_ENUM(ExecDirectType)
 END_ENUM(ExecDirectType)
 #endif /* NO_ENUM_ExecDirectType */
 #endif
+
+#ifndef NO_ENUM_ForceParallelMode
+BEGIN_ENUM(ForceParallelMode)
+	ENUM_VALUE(FORCE_PARALLEL_OFF)
+	ENUM_VALUE(FORCE_PARALLEL_ON)
+	ENUM_VALUE(FORCE_PARALLEL_REGRESS)
+END_ENUM(ForceParallelMode)
+#endif /* NO_ENUM_ForceParallelMode */

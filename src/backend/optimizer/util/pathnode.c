@@ -3378,7 +3378,7 @@ ClusterScanPath *create_cluster_scan_path(Path *sub_path, List *rnodes, RelOptIn
 	return path;
 }
 
-ClusterReducePath *create_cluster_reduce_path(Path *sub_path, Expr *reduce, RelOptInfo *rel)
+ClusterReducePath *create_cluster_reduce_path(Path *sub_path, struct ReduceExprInfo *rinfo, RelOptInfo *rel)
 {
 	ClusterReducePath *crp = makeNode(ClusterReducePath);
 	copy_path_info(&crp->path, sub_path);
@@ -3386,7 +3386,7 @@ ClusterReducePath *create_cluster_reduce_path(Path *sub_path, Expr *reduce, RelO
 
 	crp->subpath = sub_path;
 	crp->path.pathtype = T_ClusterReduce;
-	crp->reduce = reduce;
+	crp->path.reduce_info_list = list_make1(rinfo);
 
 	return crp;
 }
