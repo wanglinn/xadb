@@ -116,6 +116,7 @@ try_read_from_plan(PlanPort *pln_port)
 
 	AssertArg(pln_port);
 
+	SetRdcPsStatus(" reading from plan %ld", pln_port->pln_id);
 	port = pln_port->port;
 	while (port != NULL)
 	{
@@ -255,6 +256,7 @@ try_write_to_plan(PlanPort *pln_port, bool flush)
 
 	AssertArg(pln_port);
 
+	SetRdcPsStatus(" writing to plan %ld", pln_port->pln_id);
 	rdcstore = pln_port->rdcstore;
 	port = pln_port->port;
 	eof = (pln_port->eof_num == pln_port->rdc_num - 1);
@@ -358,6 +360,7 @@ try_read_from_reduce(RdcPort *port, List **pln_nodes)
 	Assert(ReducePortIsValid(port));
 	Assert(RdcPeerID(port) != MyReduceId);
 
+	SetRdcPsStatus(" reading from reduce %ld", RdcPeerID(port));
 	quit = false;
 	port_free = false;
 	msg = RdcInBuf(port);
@@ -462,6 +465,11 @@ static void
 try_write_to_reduce(RdcPort *port)
 {
 	int ret;
+
+	AssertArg(port);
+	Assert(ReducePortIsValid(port));
+
+	SetRdcPsStatus(" writing to reduce %ld", RdcPeerID(port));;
 	ret = rdc_try_flush(port);
 	CHECK_FOR_INTERRUPTS();
 	if (ret != 0)

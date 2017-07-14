@@ -13,6 +13,7 @@
 #define pg_time_t time_t
 
 extern int			MyProcPid;
+extern int			MyBossPid;
 extern pg_time_t	MyStartTime;
 
 #if defined(safe_pfree)
@@ -48,7 +49,7 @@ typedef struct ReduceOptionsData
 	int			Log_destination;
 	bool		redirection_done;
 
-	RdcPort	   *parent_watch;			/* for interprocess communication with parent */
+	RdcPort	   *boss_watch;				/* for interprocess communication with boss */
 	RdcPort	   *log_watch;				/* for log record */
 
 	int			rdc_num;
@@ -92,6 +93,8 @@ extern PGDLLIMPORT volatile uint32 InterruptHoldoffCount;
 extern PGDLLIMPORT volatile uint32 QueryCancelHoldoffCount;
 
 extern void rdc_ProcessInterrupts(void);
+
+extern void SetRdcPsStatus(const char * format, ...) pg_attribute_printf(1, 2);
 
 /*
  * These declarations supports the assertion-related macros in c.h.

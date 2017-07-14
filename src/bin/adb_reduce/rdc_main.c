@@ -13,10 +13,13 @@
 #include "reduce/rdc_msg.h"
 #include "reduce/wait_event.h"
 #include "utils/memutils.h"		/* for MemoryContext */
+#include "utils/ps_status.h"
 
-static const char	   *progname;
+static const char	   *progname = NULL;
+static StringInfo		MyPsCmd = NULL;
 
-int						MyProcPid;
+int						MyProcPid = -1;
+int						MyBossPid = -1;
 pg_time_t				MyStartTime;
 RdcOptions 				MyRdcOpts = NULL;
 pgsocket				MyListenSock = PGINVALID_SOCKET;
@@ -26,7 +29,7 @@ int						MyListenPort = 0;
 static void InitReduceOptions(void);
 static void FreeReduceOptions(int code, Datum arg);
 static void ParseExtraOptions(char *extra_options);
-static void ParseReduceOptions(int argc, char * const argvs[]);
+static void ParseReduceOptions(int argc, char *const argv[]);
 static void Usage(bool exit_success);
 static void ReduceListen(void);
 static void TransListenPort(void);
@@ -71,7 +74,7 @@ InitReduceOptions(void)
 static void
 FreeReduceOptions(int code, Datum arg)
 {
-	rdc_freeport(MyRdcOpts->parent_watch);
+	rdc_freeport(MyRdcOpts->boss_watch);
 	rdc_freeport(MyRdcOpts->log_watch);
 	DropReduceGroup();
 	DropPlanGroup();
@@ -207,7 +210,7 @@ ParseExtraOptions(char *extra_options)
 }
 
 static void
-ParseReduceOptions(int argc, char * const argvs[])
+ParseReduceOptions(int argc, char *const argv[])
 {
 	int			c;
 	int			optindex;
@@ -216,14 +219,15 @@ ParseReduceOptions(int argc, char * const argvs[])
 		{"reduce_id", required_argument, NULL, 'n'},
 		{"host", required_argument, NULL, 'h'},
 		{"port", required_argument, NULL, 'p'},
-		{"parent_watch", required_argument, NULL, 'W'},
+		{"boss_watch", required_argument, NULL, 'W'},
 		{"log_watch", required_argument, NULL, 'L'},
-		{"help", no_argument, NULL, '?'},
 		{"extra", required_argument, NULL, 'E'},
+		{"help", no_argument, NULL, '?'},
+		{"version", no_argument, NULL, 'V'},
 		{NULL, 0, NULL, 0}
 	};
 
-	while ((c = getopt_long(argc, argvs, "n:h:p:E:W:L:?", long_options, &optindex)) != -1)
+	while ((c = getopt_long(argc, argv, "n:h:p:E:W:L:V?", long_options, &optindex)) != -1)
 	{
 		switch (c)
 		{
@@ -242,10 +246,10 @@ ParseReduceOptions(int argc, char * const argvs[])
 				break;
 			case 'W':
 				MyBossSock = atoi(optarg);
-				MyRdcOpts->parent_watch = rdc_newport(MyBossSock,
+				MyRdcOpts->boss_watch = rdc_newport(MyBossSock,
 													  TYPE_BACKEND, InvalidPortId,
 													  TYPE_REDUCE, MyReduceId);
-				rdc_set_noblock(MyRdcOpts->parent_watch);
+				rdc_set_noblock(MyRdcOpts->boss_watch);
 				break;
 			case 'L':
 				MyLogSock = atoi(optarg);
@@ -256,6 +260,9 @@ ParseReduceOptions(int argc, char * const argvs[])
 			case 'E':
 				extra_options = pstrdup(optarg);
 				break;
+			case 'V':
+				fprintf(stdout, "%s based on (PG " PG_VERSION ")\n", progname);
+				exit(EXIT_SUCCESS);
 			case '?':
 				Usage(true);
 				break;
@@ -275,12 +282,41 @@ ParseReduceOptions(int argc, char * const argvs[])
 	}
 
 #if !defined(RDC_TEST)
-	if (MyRdcOpts->parent_watch == NULL)
+	if (MyRdcOpts->boss_watch == NULL)
 	{
 		ereport(ERROR,
 				(errmsg("lack of pipe with parent process")));
 	}
 #endif
+
+	{
+		StringInfoData buf;
+		initStringInfo(&buf);
+		appendStringInfo(&buf, "reduce process(%ld)", MyReduceId);
+		init_ps_display(buf.data, "", "", "");
+		pfree(buf.data);
+		buf.data = NULL;
+	}
+}
+
+void
+SetRdcPsStatus(const char *format, ...)
+{
+	va_list			args;
+	int				needed;
+
+	AssertArg(MyPsCmd);
+	resetStringInfo(MyPsCmd);
+	for(;;)
+	{
+		va_start(args, format);
+		needed = appendStringInfoVA(MyPsCmd, format, args);
+		va_end(args);
+		if(needed == 0)
+			break;
+		enlargeStringInfo(MyPsCmd, needed);
+	}
+	set_ps_display(MyPsCmd->data, false);
 }
 
 static void
@@ -296,9 +332,10 @@ Usage(bool exit_success)
 	fprintf(fd, "  -n, --reduce_id=RID              set the reduce ID number, it is requisite\n");
 	fprintf(fd, "  -h, --host=HOSTNAME              local server host(default: 0.0.0.0)\n");
 	fprintf(fd, "  -p, --port=PORT                  local server port(default: 0)\n");
-	fprintf(fd, "  -W, --parent_watch=SOCK          file descriptor from parent process for interprocess communication\n");
+	fprintf(fd, "  -W, --boss_watch=SOCK            file descriptor from parent process for interprocess communication\n");
 	fprintf(fd, "  -L, --log_watch=SOCK             file descriptor from parent process for log record\n");
 	fprintf(fd, "  -E, --extra=STRING               extra key-value options, quoted string\n");
+	fprintf(fd, "  -V, --version                    output version information, then exit\n");
 	fprintf(fd, "  -?, --help                       show this help, then exit\n");
 
 	fprintf(fd, "\nExtra options:\n\n");
@@ -439,14 +476,14 @@ TransListenPort(void)
 	if (MyBossSock != PGINVALID_SOCKET)
 	{
 		StringInfoData	buf;
-		RdcPort		   *parent_watch = MyRdcOpts->parent_watch;
+		RdcPort		   *boss_watch = MyRdcOpts->boss_watch;
 
 		Assert(MyListenPort > 0);
-		Assert(parent_watch);
+		Assert(boss_watch);
 		rdc_beginmessage(&buf, RDC_LISTEN_PORT);
 		rdc_sendint(&buf, MyListenPort, sizeof(MyListenPort));
-		rdc_endmessage(parent_watch, &buf);
-		rdc_flush(parent_watch);
+		rdc_endmessage(boss_watch, &buf);
+		rdc_flush(boss_watch);
 	}
 }
 
@@ -529,23 +566,27 @@ DropPlanGroup(void)
 	MyRdcOpts->pln_nodes = NIL;
 }
 
-int main(int argc, char* const argvs[])
+int main(int argc, char** argv)
 {
 	MyProcPid = getpid();
+	MyBossPid = getppid();
 	MyStartTime = time(NULL);
 
-	set_pglocale_pgservice(argvs[0], TEXTDOMAIN);
+	set_pglocale_pgservice(argv[0], TEXTDOMAIN);
 
-	progname = get_progname(argvs[0]);
+	progname = get_progname(argv[0]);
+
+	argv = save_ps_display_args(argc, argv);
 
 	/* Initialize TopMemoryContext and ErrorContext */
 	MemoryContextInit();
+	MyPsCmd = makeStringInfo();
 
 	/* Initialize Reduce options */
 	InitReduceOptions();
 
 	/* parse options */
-	ParseReduceOptions(argc, argvs);
+	ParseReduceOptions(argc, argv);
 
 	/* start listen */
 	ReduceListen();
@@ -616,7 +657,7 @@ ReduceDieHandler(SIGNAL_ARGS)
 static void
 ReduceGroupHook(SIGNAL_ARGS)
 {
-	if (MyRdcOpts && !MyRdcOpts->parent_watch)
+	if (MyRdcOpts && !MyRdcOpts->boss_watch)
 	{
 		RdcPort		*port;
 		StringInfoData	buf;
@@ -634,7 +675,7 @@ ReduceGroupHook(SIGNAL_ARGS)
 		port = rdc_newport(PGINVALID_SOCKET,
 						   InvalidPortType, InvalidPortId,
 						   TYPE_REDUCE, MyReduceId);
-		MyRdcOpts->parent_watch = port;
+		MyRdcOpts->boss_watch = port;
 		initStringInfo(&buf);
 		rdc_beginmessage(&buf, RDC_GROUP_RQT);
 		rdc_sendint(&buf, rdc_num, sizeof(rdc_num));
@@ -673,14 +714,15 @@ static void
 WaitForReduceGroupReady(void)
 {
 	bool		quit = false;
-	RdcPort	   *port = MyRdcOpts->parent_watch;
+	RdcPort	   *port = MyRdcOpts->boss_watch;
 
+	SetRdcPsStatus(" make up reduce group");
 	while (!quit)
 	{
 		CHECK_FOR_INTERRUPTS();
 
 #ifdef RDC_TEST
-		port = MyRdcOpts->parent_watch;
+		port = MyRdcOpts->boss_watch;
 		if (!port)
 		{
 			pg_usleep(1000000);
@@ -1065,7 +1107,9 @@ ReduceLoopRun(void)
 					port = RdcNext(port);
 				}
 			}
+			SetRdcPsStatus(" idle");
 			nready = execWaitEVSet(&set, timeout);
+			SetRdcPsStatus(" running");
 			if (nready < 0)
 			{
 				ereport(ERROR,

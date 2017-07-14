@@ -787,8 +787,8 @@ rdc_parse_group(RdcPort *port, int *rdc_num, RdcConnHook hook)
 	RdcPort			   *rdc_port = NULL;
 	RdcNode			   *rdc_nodes = NULL;
 	RdcNode			   *rdc_node = NULL;
-	int					self_rdc_idx;
-	int					othr_rdc_idx;
+	int					self_idx;
+	int					othr_idx;
 
 	if (port == NULL)
 		return NULL;
@@ -819,10 +819,10 @@ rdc_parse_group(RdcPort *port, int *rdc_num, RdcConnHook hook)
 		if (rpid == MyReduceId)
 			continue;
 
-		self_rdc_idx = rdc_idx(rdc_nodes, num, MyReduceId);
-		othr_rdc_idx = rdc_idx(rdc_nodes, num, rpid);
-		Assert(self_rdc_idx >= 0);
-		Assert(othr_rdc_idx >= 0);
+		self_idx = rdc_idx(rdc_nodes, num, MyReduceId);
+		othr_idx = rdc_idx(rdc_nodes, num, rpid);
+		Assert(self_idx >= 0);
+		Assert(othr_idx >= 0);
 
 		rdc_port = NULL;
 		/*
@@ -846,10 +846,10 @@ rdc_parse_group(RdcPort *port, int *rdc_num, RdcConnHook hook)
 		 *		4	5	4	5	4	5	4	5	4	5
 		 *	total: 45 connects
 		 */
-		if ((IdxIsEven(self_rdc_idx) && IdxIsEven(othr_rdc_idx) && othr_rdc_idx > self_rdc_idx) ||
-			(IdxIsEven(self_rdc_idx) && IdxIsOdd(othr_rdc_idx) && othr_rdc_idx < self_rdc_idx) ||
-			(IdxIsOdd(self_rdc_idx) && IdxIsOdd(othr_rdc_idx) && othr_rdc_idx > self_rdc_idx) ||
-			(IdxIsOdd(self_rdc_idx) && IdxIsEven(othr_rdc_idx) && othr_rdc_idx < self_rdc_idx))
+		if ((IdxIsEven(self_idx) && IdxIsEven(othr_idx) && othr_idx > self_idx) ||
+			(IdxIsEven(self_idx) && IdxIsOdd(othr_idx) && othr_idx < self_idx) ||
+			(IdxIsOdd(self_idx) && IdxIsOdd(othr_idx) && othr_idx > self_idx) ||
+			(IdxIsOdd(self_idx) && IdxIsEven(othr_idx) && othr_idx < self_idx))
 		{
 			rdc_port = rdc_newport(PGINVALID_SOCKET,
 								   TYPE_REDUCE, rpid,

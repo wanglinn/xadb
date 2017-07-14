@@ -7,12 +7,12 @@ subdir = src/bin/adb_reduce
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-LINKS = assert.c aset.c mcxt.c stringinfo.c \
+LINKS = assert.c aset.c mcxt.c stringinfo.c ps_status.c \
 		wait_event.c rdc_msg.c rdc_comm.c rdc_format.c
 
 OBJS = 	rdc_main.o rdc_tupstore.o rdc_msg.o rdc_plan.o rdc_handler.o \
 		rdc_globals.o rdc_elog.o rdc_exit.o rdc_list.o \
-		assert.o aset.o mcxt.o stringinfo.o \
+		assert.o aset.o mcxt.o stringinfo.o ps_status.o\
 		wait_event.o rdc_msg.o rdc_comm.o rdc_format.o
 
 override CPPFLAGS := -DRDC_FRONTEND $(CPPFLAGS)
@@ -27,6 +27,9 @@ aset.c mcxt.c: % : $(top_srcdir)/src/backend/utils/mmgr/%
 	rm -f $@ && $(LN_S) $< .
 
 stringinfo.c: % : $(top_srcdir)/src/backend/lib/%
+	rm -f $@ && $(LN_S) $< .
+
+ps_status.c: % : $(top_srcdir)/src/backend/utils/misc/%
 	rm -f $@ && $(LN_S) $< .
 
 wait_event.c rdc_msg.c rdc_comm.c rdc_format.c: % : $(top_srcdir)/src/backend/reduce/%
