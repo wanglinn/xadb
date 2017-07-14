@@ -6517,8 +6517,9 @@ bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info)
 	ListCell *lc;
 	Index i;
 	bool result;
-	AssertArg(target && info && target->sortgrouprefs);
-	if(info->expr == NULL)
+	AssertArg(target && info);
+
+	if(info->expr == NULL || target->sortgrouprefs == NULL)
 		return false;
 	if(IsReduce2Coordinator(info->expr))
 		return true;
