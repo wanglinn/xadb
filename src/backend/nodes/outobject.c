@@ -434,9 +434,63 @@ SIMPLE_OUTPUT_DECLARE(bits32, "%08x")
 #undef NO_STRUCT_MergeScanSelCache
 #undef NO_STRUCT_RelationLocInfo
 #undef NO_STRUCT_ReduceExprInfo
+#define NO_NODE_Path
+#define NO_NODE_IndexOptInfo
 #include "nodes/struct_define.h"
+BEGIN_NODE(Path)
+	NODE_ENUM(NodeTag,pathtype)
+	NODE_OTHER_POINT(RelOptInfo,parent)	/* don't print parent */
+	NODE_NODE(PathTarget,pathtarget)
+	NODE_NODE(ParamPathInfo,param_info)
+	NODE_SCALAR(bool,parallel_aware)
+	NODE_SCALAR(bool,parallel_safe)
+	NODE_SCALAR(int,parallel_workers)
+	NODE_SCALAR(double,rows)
+	NODE_SCALAR(Cost,startup_cost)
+	NODE_SCALAR(Cost,total_cost)
+	NODE_NODE(List,pathkeys)
+#ifdef ADB
+	NODE_STRUCT_LIST(ReduceExprInfo, reduce_info_list)
+	NODE_SCALAR(bool,reduce_is_valid)
+#endif
+END_NODE(Path)
+BEGIN_NODE(IndexOptInfo)
+	NODE_SCALAR(Oid,indexoid)
+	NODE_SCALAR(Oid,reltablespace)
+	NODE_OTHER_POINT(RelOptInfo,rel) /* don't print parent */
+	NODE_SCALAR(BlockNumber,pages)
+	NODE_SCALAR(double,tuples)
+	NODE_SCALAR(int,tree_height)
+	NODE_SCALAR(int,ncolumns)
+	NODE_SCALAR_POINT(int,indexkeys,NODE_ARG_->ncolumns)
+	NODE_SCALAR_POINT(Oid,indexcollations,NODE_ARG_->ncolumns)
+	NODE_SCALAR_POINT(Oid,opfamily,NODE_ARG_->ncolumns)
+	NODE_SCALAR_POINT(Oid,opcintype,NODE_ARG_->ncolumns)
+	NODE_SCALAR_POINT(Oid,sortopfamily,NODE_ARG_->ncolumns)
+	NODE_SCALAR_POINT(bool,reverse_sort,NODE_ARG_->ncolumns)
+	NODE_SCALAR_POINT(bool,nulls_first,NODE_ARG_->ncolumns)
+	NODE_SCALAR_POINT(bool,canreturn,NODE_ARG_->ncolumns)
+	NODE_SCALAR(Oid,relam)
+	NODE_NODE(List,indexprs)
+	NODE_NODE(List,indpred)
+	NODE_NODE(List,indextlist)
+	NODE_NODE(List,indrestrictinfo)
+	NODE_SCALAR(bool,predOK)
+	NODE_SCALAR(bool,unique)
+	NODE_SCALAR(bool,immediate)
+	NODE_SCALAR(bool,hypothetical)
+	NODE_SCALAR(bool,amcanorderbyop)
+	NODE_SCALAR(bool,amoptionalkey)
+	NODE_SCALAR(bool,amsearcharray)
+	NODE_SCALAR(bool,amsearchnulls)
+	NODE_SCALAR(bool,amhasgettuple)
+	NODE_SCALAR(bool,amhasgetbitmap)
+	NODE_OTHER_POINT(void,amcostestimate)
+END_NODE(IndexOptInfo)
 #include "nodes/nodes_define.h"
 #include "nodes/nodes_undef.h"
+#undef NO_NODE_Path
+#undef NO_NODE_IndexOptInfo
 
 static void printNode(const void *obj, StringInfo str, int space)
 {

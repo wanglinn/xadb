@@ -297,7 +297,7 @@ NODE_SPECIAL_MEB(IndexOptInfo)
 	reverse_sort NODE_SCALAR_POINT(bool,reverse_sort,NODE_ARG_->ncolumns)
 	nulls_first NODE_SCALAR_POINT(bool,nulls_first,NODE_ARG_->ncolumns)
 	canreturn NODE_SCALAR_POINT(bool,canreturn,NODE_ARG_->ncolumns)
-	amcostestimate NODE_NODE(void,amcostestimate)
+	amcostestimate NODE_OTHER_POINT(void,amcostestimate)
 END_SPECIAL_MEB(IndexOptInfo)
 
 NODE_SPECIAL_MEB(RelOptInfo)

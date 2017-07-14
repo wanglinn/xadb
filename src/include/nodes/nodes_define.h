@@ -1456,7 +1456,7 @@ BEGIN_NODE(IndexOptInfo)
 	NODE_SCALAR(bool,amsearchnulls)
 	NODE_SCALAR(bool,amhasgettuple)
 	NODE_SCALAR(bool,amhasgetbitmap)
-	NODE_NODE(void,amcostestimate)
+	NODE_OTHER_POINT(void,amcostestimate)
 END_NODE(IndexOptInfo)
 #endif /* NO_NODE_IndexOptInfo */
 

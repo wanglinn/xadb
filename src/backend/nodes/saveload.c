@@ -38,6 +38,7 @@
 #define NO_NODE_PlannerInfo
 #define NO_NODE_RelOptInfo
 #define NO_NODE_RestrictInfo
+#define NO_NODE_IndexOptInfo
 #include "nodes/def_no_all_struct.h"
 #undef NO_STRUCT_QualCost
 #undef NO_STRUCT_ReduceExprInfo
