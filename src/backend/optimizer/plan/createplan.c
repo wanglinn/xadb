@@ -6764,7 +6764,8 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 				{
 					newInfo->relid = path->parent->relid;
 					newInfo->expr = rinfo->expr;
-					fill_reduce_expr_info(newInfo);
+					if(IsReduceExprByValue(newInfo->expr))
+						fill_reduce_expr_info(newInfo);
 					path->reduce_info_list = lappend(path->reduce_info_list, newInfo);
 				}
 			}

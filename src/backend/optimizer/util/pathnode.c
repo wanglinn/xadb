@@ -3387,6 +3387,7 @@ ClusterReducePath *create_cluster_reduce_path(Path *sub_path, struct ReduceExprI
 	crp->subpath = sub_path;
 	crp->path.pathtype = T_ClusterReduce;
 	crp->path.reduce_info_list = list_make1(rinfo);
+	crp->path.reduce_is_valid = true;
 
 	return crp;
 }
