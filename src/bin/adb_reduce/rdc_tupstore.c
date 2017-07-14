@@ -1342,8 +1342,16 @@ rdcstore_end(RSstate *state)
 
 	if (state->memtuples)
 	{
-		for (i = state->memtupdeleted; i < state->memtupcount; i++)
-			pfree(state->memtuples[i]);
+		if (state->status == TSS_INMEM)
+		{
+			/* tuple had been read and memory free, but rdcstore_trim not 
+			 * set position pointer to null .SO get max memtupdeleted and
+			 * read current to avoid free memory twice
+			 */
+			int pos = Max(state->memtupdeleted, state->readptr->current);
+			for (i = pos; i < state->memtupcount; i++)
+				pfree(state->memtuples[i]);
+		}
 		pfree(state->memtuples);
 	}
 
