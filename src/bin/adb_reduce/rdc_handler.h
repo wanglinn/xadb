@@ -16,7 +16,7 @@
 #include "rdc_list.h"
 #include "reduce/rdc_comm.h"
 
-extern void rdc_handle_plannode(List **pln_nodes);
-extern void rdc_handle_reduce(List **pln_nodes);
+extern void HandlePlanIO(List **pln_nodes);
+extern void HandleReduceIO(List **pln_nodes);
 
 #endif	/* RDC_HANDLE_H */

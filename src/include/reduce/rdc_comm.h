@@ -149,8 +149,8 @@ struct RdcPort
 #define RdcHook(port)				(((RdcPort *) (port))->hook)
 #define RdcSendEOF(port)			(((RdcPort *) (port))->send_eof)
 #define RdcWaitEvents(port)			(((RdcPort *) (port))->wait_events)
-#define RdcWaitRead(port)			((((RdcPort *) (port))->wait_events) & WAIT_SOCKET_READABLE)
-#define RdcWaitWrite(port)			((((RdcPort *) (port))->wait_events) & WAIT_SOCKET_WRITEABLE)
+#define RdcWaitRead(port)			((((RdcPort *) (port))->wait_events) & WT_SOCK_READABLE)
+#define RdcWaitWrite(port)			((((RdcPort *) (port))->wait_events) & WT_SOCK_WRITEABLE)
 #define RdcError(port)				rdc_geterror(port)
 #define RdcPeerTypeStr(port)		rdc_type2string(RdcPeerType(port))
 #define RdcSelfTypeStr(port)		rdc_type2string(RdcSelfType(port))
@@ -166,14 +166,19 @@ struct RdcPort
 #define PortForPlan(port)			(RdcPeerType(port) == TYPE_PLAN)
 #define PortForReduce(port)			(RdcPeerType(port) == TYPE_REDUCE)
 
+#define PortAddEvents(port, events)	do {if (port) {RdcWaitEvents(port) |= (events);}} while(0)
+#define PortRmvEvents(port, events)	do {if (port) {RdcWaitEvents(port) &= ~(events);}} while(0)
+
 typedef int PlanNodeId;
 #define InvalidPlanNodeId			-1
-#define PlanPortIsValid(port)		(PortForPlan(port) && \
+#define PlanPortIsValid(port)		((port) != NULL && \
+									 PortForPlan(port) && \
 									 RdcPeerID(port) > InvalidPlanNodeId)
 
 typedef int ReduceNodeId;
 #define InvalidReduceId				0
-#define ReducePortIsValid(port)		(PortForReduce(port) && \
+#define ReducePortIsValid(port)		((port) != NULL && \
+									 PortForReduce(port) && \
 									 RdcPeerID(port) > InvalidReduceId)
 
 #define PortIdIsValid(port)			(PlanPortIsValid(port) || ReducePortIsValid(port))

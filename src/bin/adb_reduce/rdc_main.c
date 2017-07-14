@@ -50,7 +50,7 @@ static void ConnectReduceHook(void *arg);
 static void AcceptReduceHook(void *arg);
 static void StartSetupReduceGroup(RdcPort *port);
 static void EndSetupReduceGroup(void);
-static void ReduceAcceptPlanConn(List **accept_list, List **pln_nodes);
+static void RdcAcceptPlanConn(List **accept_list, List **pln_nodes);
 static int  ReduceLoopRun(void);
 
 static void
@@ -515,7 +515,7 @@ ResetReduceGroup(void)
 			port == NULL)
 			continue;
 		Assert (RdcPeerID(port) != MyReduceId);
-		RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
+		RdcWaitEvents(port) = WT_SOCK_READABLE;
 		elog(LOG,
 			 "reset [%s %ld] {%s:%s}",
 			 RdcPeerTypeStr(port), RdcPeerID(port),
@@ -887,8 +887,8 @@ EndSetupReduceGroup(void)
 			}
 
 			resetWaitEVSet(&set);
-			addWaitEventBySock(&set, MyListenSock, WAIT_SOCKET_READABLE);
-			addWaitEventBySock(&set, MyBossSock, WAIT_SOCKET_READABLE);
+			addWaitEventBySock(&set, MyListenSock, WT_SOCK_READABLE);
+			addWaitEventBySock(&set, MyBossSock, WT_SOCK_READABLE);
 			for (i = 0; i < rdc_num; i++)
 			{
 				rdc_node = &(rdc_nodes[i]);
@@ -983,7 +983,7 @@ EndSetupReduceGroup(void)
 }
 
 static void
-ReduceAcceptPlanConn(List **accept_list, List **pln_nodes)
+RdcAcceptPlanConn(List **accept_list, List **pln_nodes)
 {
 	RdcPort		   *port;
 	ListCell	   *cell;
@@ -1003,7 +1003,7 @@ ReduceAcceptPlanConn(List **accept_list, List **pln_nodes)
 			RdcStatus(port) == RDC_CONNECTION_OK)
 		{
 			*accept_list = lremove(port, *accept_list);
-			RdcWaitEvents(port) |= WAIT_SOCKET_WRITEABLE;
+			RdcWaitEvents(port) |= WT_SOCK_WRITEABLE;
 			add_new_plan_port(pln_nodes, port);
 		}
 
@@ -1083,8 +1083,8 @@ ReduceLoopRun(void)
 			CHECK_FOR_INTERRUPTS();
 
 			resetWaitEVSet(&set);
-			addWaitEventBySock(&set, MyListenSock, WAIT_SOCKET_READABLE);
-			addWaitEventBySock(&set, MyBossSock, WAIT_SOCKET_READABLE);
+			addWaitEventBySock(&set, MyListenSock, WT_SOCK_READABLE);
+			addWaitEventBySock(&set, MyBossSock, WT_SOCK_READABLE);
 			addWaitEventByList(&set, accept_list,
 							   GetRdcPortSocket,
 							   GetRdcPortWaitEvents);
@@ -1150,9 +1150,9 @@ ReduceLoopRun(void)
 						break;
 				}
 
-				ReduceAcceptPlanConn(&accept_list, pln_nodes);
-				rdc_handle_reduce(pln_nodes);
-				rdc_handle_plannode(pln_nodes);
+				RdcAcceptPlanConn(&accept_list, pln_nodes);
+				HandleReduceIO(pln_nodes);
+				HandlePlanIO(pln_nodes);
 			}
 		}
 	} PG_CATCH();

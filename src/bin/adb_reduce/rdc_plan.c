@@ -42,12 +42,12 @@ plan_freeport(PlanPort *pln_port)
 }
 
 /*
- * find_plan_port - find a PlanPort with the plan id
+ * LookUpPlanPort - find a PlanPort with the plan id
  *
  * returns NULL if not found
  */
 PlanPort *
-find_plan_port(List *pln_nodes, RdcPortId pln_id)
+LookUpPlanPort(List *pln_nodes, RdcPortId pln_id)
 {
 	ListCell	   *cell = NULL;
 	PlanPort	   *port = NULL;
@@ -75,7 +75,7 @@ add_new_plan_port(List **pln_nodes, RdcPort *new_port)
 	AssertArg(pln_nodes && new_port);
 	Assert(PortIdIsValid(new_port));
 
-	plan_port = find_plan_port(*pln_nodes, RdcPeerID(new_port));
+	plan_port = LookUpPlanPort(*pln_nodes, RdcPeerID(new_port));
 	if (plan_port == NULL)
 	{
 		plan_port = plan_newport(RdcPeerID(new_port));

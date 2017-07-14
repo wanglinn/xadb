@@ -26,9 +26,9 @@
 
 typedef enum EventType
 {
-	WAIT_NONE				=	0,
-	WAIT_SOCKET_READABLE	=	(1 << 0),
-	WAIT_SOCKET_WRITEABLE	=	(1 << 1),
+	WAIT_NONE			=	0,
+	WT_SOCK_READABLE	=	(1 << 0),
+	WT_SOCK_WRITEABLE	=	(1 << 1),
 } EventType;
 
 typedef struct WaitEventElt
@@ -46,8 +46,8 @@ typedef struct WaitEventElt
 } WaitEventElt;
 
 #define WaitEvents(wee)		(((WaitEventElt *) wee)->wait_events)
-#define WaitRead(events)	(events & WAIT_SOCKET_READABLE)
-#define WaitWrite(events)	(events & WAIT_SOCKET_WRITEABLE)
+#define WaitRead(events)	(events & WT_SOCK_READABLE)
+#define WaitWrite(events)	(events & WT_SOCK_WRITEABLE)
 
 #define WEEGetSock(wee)		(((WaitEventElt *) (wee))->wait_sock)
 #define WEEGetEvents(wee)	(((WaitEventElt *) (wee))->wait_events)

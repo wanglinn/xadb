@@ -212,9 +212,9 @@ rdc_wait_timed(int forRead, int forWrite, RdcPort *port, int timeout)
 
 	resetWaitEVSet(RdcWaitSet);
 	if (forRead)
-		wait_events |= WAIT_SOCKET_READABLE;
+		wait_events |= WT_SOCK_READABLE;
 	if (forWrite)
-		wait_events |= WAIT_SOCKET_WRITEABLE;
+		wait_events |= WT_SOCK_WRITEABLE;
 	addWaitEventBySock(RdcWaitSet, RdcSocket(port), wait_events);
 	nready = execWaitEVSet(RdcWaitSet, timeout);
 	if (nready < 0 || WEEHasError(nextWaitEventElt(RdcWaitSet)))
@@ -472,7 +472,7 @@ keep_going: 					/* We will come back to here until there is
 							 * wait for write-ready on socket.
 							 */
 							RdcStatus(port) = RDC_CONNECTION_STARTED;
-							RdcWaitEvents(port) = WAIT_SOCKET_WRITEABLE;
+							RdcWaitEvents(port) = WT_SOCK_WRITEABLE;
 							return RDC_POLLING_WRITING;
 						}
 
@@ -565,7 +565,7 @@ keep_going: 					/* We will come back to here until there is
 				 * Make sure we can write before advancing to next step.
 				 */
 				RdcStatus(port) = RDC_CONNECTION_MADE;
-				RdcWaitEvents(port) = WAIT_SOCKET_WRITEABLE;
+				RdcWaitEvents(port) = WT_SOCK_WRITEABLE;
 				return RDC_POLLING_WRITING;
 			}
 
@@ -578,7 +578,7 @@ keep_going: 					/* We will come back to here until there is
 					goto error_return;
 				}
 				RdcStatus(port) = RDC_CONNECTION_AWAITING_RESPONSE;
-				RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
+				RdcWaitEvents(port) = WT_SOCK_READABLE;
 				return RDC_POLLING_READING;
 			}
 
@@ -596,7 +596,7 @@ keep_going: 					/* We will come back to here until there is
 						goto keep_going;
 						break;
 					case RDC_POLLING_READING:
-						RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
+						RdcWaitEvents(port) = WT_SOCK_READABLE;
 						return status;
 					case RDC_POLLING_WRITING:
 					default:
@@ -619,10 +619,10 @@ keep_going: 					/* We will come back to here until there is
 						goto error_return;
 						break;
 					case RDC_POLLING_READING:
-						RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
+						RdcWaitEvents(port) = WT_SOCK_READABLE;
 						return status;
 					case RDC_POLLING_WRITING:
-						RdcWaitEvents(port) = WAIT_SOCKET_WRITEABLE;
+						RdcWaitEvents(port) = WT_SOCK_WRITEABLE;
 						return status;
 					case RDC_POLLING_OK:
 					default:
@@ -653,7 +653,7 @@ keep_going: 					/* We will come back to here until there is
 				}
 				resetStringInfo(RdcOutBuf(port));
 				resetStringInfo(RdcErrBuf(port));
-				RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
+				RdcWaitEvents(port) = WT_SOCK_READABLE;
 				RdcStatus(port) = RDC_CONNECTION_OK;
 				if (port->hook)
 					(*port->hook)(port);
@@ -719,7 +719,7 @@ _re_accept:
 				 errmsg("fail to set socket options while accept: %s",
 				 RdcError(port))));
 	RdcStatus(port) = RDC_CONNECTION_ACCEPT;
-	RdcWaitEvents(port) = WAIT_SOCKET_READABLE;
+	RdcWaitEvents(port) = WT_SOCK_READABLE;
 
 #ifdef DEBUG_ADB
 	{
@@ -1033,8 +1033,8 @@ _retry_recv:
 	if (n < 0 && !port->noblock && (errno == EWOULDBLOCK || errno == EAGAIN))
 	{
 		resetWaitEVSet(RdcWaitSet);
-		addWaitEventBySock(RdcWaitSet, MyBossSock, WAIT_SOCKET_READABLE);
-		addWaitEventBySock(RdcWaitSet, RdcSocket(port), WAIT_SOCKET_READABLE);
+		addWaitEventBySock(RdcWaitSet, MyBossSock, WT_SOCK_READABLE);
+		addWaitEventBySock(RdcWaitSet, RdcSocket(port), WT_SOCK_READABLE);
 		nready = execWaitEVSet(RdcWaitSet, -1);
 		if (nready < 0)
 			ereport(ERROR,
@@ -1181,7 +1181,6 @@ rdc_getbytes(RdcPort *port, size_t len)
 {
 	StringInfo	buf;
 	size_t		amount;
-	bool		noblock;
 
 	AssertArg(port);
 
@@ -1190,7 +1189,6 @@ rdc_getbytes(RdcPort *port, size_t len)
 		return 0;
 
 	buf = RdcInBuf(port);
-	noblock = port->noblock;
 	while (len > 0)
 	{
 		while (buf->cursor + len > buf->len)
@@ -1201,6 +1199,10 @@ rdc_getbytes(RdcPort *port, size_t len)
 
 			PG_TRY();
 			{
+				/*
+				 * in blocking mode, we still have space as below:
+				 * (buf->maxlen - buf->len -1 + buf->cursor).
+				 */
 				if (buf->maxlen - buf->len - 1 + buf->cursor < len)
 					enlargeStringInfo(buf, len);
 			} PG_CATCH();
