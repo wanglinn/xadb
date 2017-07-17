@@ -5168,6 +5168,7 @@ DATA(insert OID = 3362 (  pgxc_is_committed	PGNSP PGUID 12 1 1 0 0 f f f f t t s
 DESCR("is given GXID committed or aborted?");
 DATA(insert OID = 3363 ( pgxc_lock_for_backup	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_lock_for_backup _null_ _null_ _null_ ));
 DESCR("lock the cluster for taking backup");
+DATA(insert OID = 9018 ( adb_node_oid		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 26 "" _null_ _null_ _null_ _null_ _null_ adb_node_oid _null_ _null_ _null_ ));
 #endif
 
 #if defined(ADB) || defined(AGTM)

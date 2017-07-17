@@ -2571,6 +2571,15 @@ pgxc_node_str(PG_FUNCTION_ARGS)
 }
 
 /*
+ * adb_node_oid
+ *   get the oid of the node
+ */
+Datum adb_node_oid(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_OID(PGXCNodeOid);
+}
+
+/*
  * PGXCNodeGetNodeIdFromName
  *		Return node position in handles array
  */
