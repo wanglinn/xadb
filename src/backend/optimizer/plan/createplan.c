@@ -6501,6 +6501,7 @@ ReduceExprInfo* copy_reduce_info(const ReduceExprInfo *info)
 	newInfo->relid = info->relid;
 	newInfo->varattnos = bms_copy(info->varattnos);
 	newInfo->attnoList = list_copy(info->attnoList);
+	newInfo->execList = list_copy(info->execList);
 	return newInfo;
 }
 
@@ -6508,6 +6509,8 @@ ReduceExprInfo* make_reduce_coord(void)
 {
 	ReduceExprInfo *rinfo = palloc0(sizeof(*rinfo));
 	rinfo->expr = MakeReduce2CoordinatorExpr();
+	Assert(OidIsValid(PGXCNodeOid));
+	rinfo->execList = list_make1_oid(PGXCNodeOid);
 	return rinfo;
 }
 
@@ -6764,6 +6767,7 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 				{
 					newInfo->relid = path->parent->relid;
 					newInfo->expr = rinfo->expr;
+					newInfo->execList = list_copy(rinfo->execList);
 					if(IsReduceExprByValue(newInfo->expr))
 						fill_reduce_expr_info(newInfo);
 					path->reduce_info_list = lappend(path->reduce_info_list, newInfo);

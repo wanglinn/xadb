@@ -122,6 +122,7 @@ typedef struct ReduceExprInfo
 	Expr	   *expr;		/* reduce expr for path */
 	Bitmapset  *varattnos;	/* var attno(s) */
 	List	   *attnoList;	/* var attno(s), order by useing by reduce expr */
+	List	   *execList;	/* execute on nodes Oid */
 	Index		relid;
 }ReduceExprInfo;
 

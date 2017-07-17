@@ -692,6 +692,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		rinfo->expr = rel->reduce;
 		rinfo->attnoList = GetReducePathExprAttnoList(rinfo->expr, NULL);
 		rinfo->relid = PullReducePathExprAttnos(rinfo->expr, &rinfo->varattnos);
+		rinfo->execList = list_copy(rnodes);
 		reduce_info_list = list_make1(rinfo);
 
 		/* move pathlist to cluster_pathlist */

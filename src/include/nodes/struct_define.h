@@ -165,6 +165,7 @@ BEGIN_STRUCT(ReduceExprInfo)
 	NODE_NODE(Expr,expr)
 	NODE_BITMAPSET(Bitmapset,varattnos)
 	NODE_NODE(List,attnoList)
+	NODE_NODE(List,execList)
 	NODE_SCALAR(Index,relid)
 END_STRUCT(ReduceExprInfo)
 #endif /* NO_STRUCT_ReduceExprInfo */
