@@ -51,17 +51,21 @@ HandlePlanIO(List **pln_nodes)
 		pln_port = (PlanPort *) lfirst(cell);
 		next = lnext(cell);
 
-		if (!PlanPortIsValid(pln_port))
-		{
-			/*
-			 * Here we truly close port of plan
-			 */
-			*pln_nodes = list_delete_ptr(*pln_nodes, pln_port);
-			plan_freeport(pln_port);
-		} else
+		if (PlanPortIsValid(pln_port))
 		{
 			HandleReadFromPlan(pln_port);
 			HandleWriteToPlan(pln_port);
+		}
+
+		/*
+		 * PlanPort may be invalid after reading from plan,
+		 * so close it.
+		 */
+		if (!PlanPortIsValid(pln_port))
+		{
+			/* Here is we truly close port of plan */
+			*pln_nodes = list_delete_ptr(*pln_nodes, pln_port);
+			plan_freeport(pln_port);
 		}
 	}
 }
@@ -90,21 +94,23 @@ HandleReduceIO(List **pln_nodes)
 		if (RdcNodeID(rdc_node) == MyReduceId ||
 			rdc_port == NULL)
 			continue;
+
+		if (PortIsValid(rdc_port))
+		{
+			if (RdcWaitRead(rdc_port))
+				HandleReadFromReduce(rdc_port, pln_nodes);
+			if (RdcWaitWrite(rdc_port))
+				HandleWriteToReduce(rdc_port);
+		}
+
 		if (!PortIsValid(rdc_port))
 		{
 			/*
-			 * Here we truly close port of reduce
+			 * Here is we truly close port of reduce
 			 * rdc_freeport(rdc_port);
 			 * rdc_node->port = NULL;
-			 *
-			 * Maybe can reuse it?
 			 */
-			continue;
 		}
-		if (RdcWaitRead(rdc_port))
-			HandleReadFromReduce(rdc_port, pln_nodes);
-		if (RdcWaitWrite(rdc_port))
-			HandleWriteToReduce(rdc_port);
 	}
 }
 

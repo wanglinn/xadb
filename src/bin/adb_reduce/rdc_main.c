@@ -13,7 +13,7 @@
 #include "reduce/rdc_msg.h"
 #include "reduce/wait_event.h"
 #include "utils/memutils.h"		/* for MemoryContext */
-#include "utils/ps_status.h"
+#include "utils/ps_status.h"	/* for ps status display */
 
 static const char	   *progname = NULL;
 static StringInfo		MyPsCmd = NULL;

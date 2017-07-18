@@ -123,7 +123,12 @@ extern int	durable_link_or_rename(const char *oldfile, const char *newfile, int 
 extern void SyncDataDirectory(void);
 
 /* Filename components for OpenTemporaryFile */
-#define PG_TEMP_FILES_DIR "reduce"
-#define PG_TEMP_FILE_PREFIX "reduce_tmp"
+#define PG_TEMP_FILES_DIR  "pgsql"
+#define PG_TEMP_FILE_PREFIX "pgsql_tmp"
+
+#if defined(RDC_FRONTEND)
+#define RDC_TEMP_FILES_DIR  "reduce"
+#define RDC_TEMP_FILE_PREFIX "reduce_tmp"
+#endif
 
 #endif   /* FD_H */

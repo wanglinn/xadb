@@ -60,8 +60,9 @@ ExecClusterReduce(ClusterReduceState *node)
 		port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(node->ps.plan));
 		if (IsRdcPortError(port))
 			ereport(ERROR,
-					(errmsg("fail to connect Reduce subprocess:%s",
-					 RdcError(port))));
+					(errmsg("fail to connect self reduce subprocess"),
+					 errdetail("%s", RdcError(port))));
+		RdcFlags(port) = RDC_FLAG_VALID;
 		node->port = port;
 	}
 
@@ -85,7 +86,7 @@ ExecClusterReduce(ClusterReduceState *node)
 					return outerslot;
 			}
 
-			/* fetch tuple from subnode */
+			/* fetch tuple from outer node */
 			if (!node->eof_underlying)
 			{
 				outerValid = false;

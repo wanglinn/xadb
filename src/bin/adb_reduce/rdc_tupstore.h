@@ -94,8 +94,8 @@ typedef struct ReduceStorestate
 	int 		fileCounter;    /* file counter */
 } RSstate;
 
-extern RSstate *rdcstore_begin(	  int maxKBytes,char* purpose, int nodeId,
-										pid_t pid, pid_t parentPid, pg_time_t time);
+extern RSstate *rdcstore_begin(int maxKBytes,char* purpose, int nodeId,
+							   pid_t pid, pid_t ppid, pg_time_t time);
 
 extern bool rdcstore_ateof(RSstate *state);
 

@@ -62,13 +62,12 @@ struct RdcBufFile
 };
 
 /* used for extern API */
-static RSstate *rdcstore_begin_common(		int maxKBytes, char* purpose, int nodeId,
-												pid_t pid, pid_t parentPid, pg_time_t time);
+static RSstate *rdcstore_begin_common(int maxKBytes, char* purpose, int nodeId,
+									  pid_t pid, pid_t ppid, pg_time_t time);
 static void *rdcstore_gettuple_common(RSstate *state);
 static void rdcstore_puttuple_common(RSstate *state, void *tuple);
 
 /* tool function */
-static char *rdcStrCopy(char *str);
 static bool rdcGrowMemtuples(RSstate *state);
 static void rdcDumpTuples(RSstate *state);
 static void rdcCreateDir(char *path);
@@ -133,11 +132,9 @@ static int   rdcNodeId = 0;
  */
 static RSstate *
 rdcstore_begin_common(int maxKBytes, char *purpose, int nodeId,
-								pid_t pid, pid_t parentPid, pg_time_t time)
+					  pid_t pid, pid_t ppid, pg_time_t time)
 {
 	RSstate *state;
-	int len;
-	char *str;
 
 	state = (RSstate *) palloc0(sizeof(RSstate));
 	state->status = TSS_INMEM;
@@ -164,17 +161,11 @@ rdcstore_begin_common(int maxKBytes, char *purpose, int nodeId,
 	USEMEM(state, GetMemoryChunkSpace(state->readptr));
 
 	state->nodeId = nodeId;
-	len = strlen(purpose);
-	len = len + (sizeof(pid) + sizeof(parentPid) + sizeof(time)) * 2 + 3;
-	str = (char*)palloc0(len + 1);
-	sprintf(str, "%X.%X.%X.%s",
-				(uint32)(pid),
-				(uint32)(parentPid),
-				(uint32)(time),
-				purpose);
-	str[len] = '\0';
-	state->purpose = rdcStrCopy(str);
-	pfree(str);
+	state->purpose = psprintf("%X.%X.%X.%s",
+							  (uint32) pid,
+							  (uint32) ppid,
+							  (uint32) time,
+							  purpose);
 	USEMEM(state, GetMemoryChunkSpace(state->purpose));
 
 	return state;
@@ -330,23 +321,6 @@ rdcstore_puttuple_common(RSstate *state, void *tuple)
 			elog(ERROR, "invalid reduce store state");
 			break;
 	}
-}
-
-/* copy str and return , memory need to free */
-static char *
-rdcStrCopy(char *str)
-{
-	char *data = NULL;
-	int	  len;
-
-	if (NULL == str)
-		return data;
-
-	len = strlen(str);
-	data = (char*)palloc0(len + 1);
-	memcpy(data, str, len);
-	data[len] = '\0';
-	return data;
 }
 
 /*
@@ -681,7 +655,7 @@ rdcBufFileClose(RdcFile *file)
 	for (i = 0; i < file->numFiles; i++)
 	{
 		if (FILE_CLOSE == file->files[i] ||
-					FILE_REMOVE == file->files[i])
+			FILE_REMOVE == file->files[i])
 			continue;
 
 		close(file->files[i]);
@@ -690,9 +664,10 @@ rdcBufFileClose(RdcFile *file)
 		if (file->isTemp)
 		{
 			/* delete file */
-			if ( 0 != remove(file->filelnames[i]))
-				elog(ERROR, "remove temp file error, filename : %s  msg: %s",
-						file->filelnames[i], strerror(errno));
+			if (0 != remove(file->filelnames[i]))
+				elog(ERROR,
+					 "fail to remove file \"%s\":%m",
+					 file->filelnames[i]);
 			pfree(file->filelnames[i]);
 		}
 	}
@@ -710,10 +685,12 @@ rdcRemoveReadCompleteFile(RdcFile *file, int pos)
 	/* close read completely file */
 	close(file->files[pos]);
 	file->files[pos] = FILE_CLOSE;
+
 	/* delete file */
-	if ( 0 != remove(file->filelnames[pos]))
-		elog(ERROR, "remove file error, filename : %s  msg: %s",
-				file->filelnames[pos], strerror(errno));
+	if (0 != remove(file->filelnames[pos]))
+		elog(ERROR,
+			 "fail to remove file \"%s\":%m",
+			 file->filelnames[pos]);
 	pfree(file->filelnames[pos]);
 	file->filelnames[pos] = NULL;
 	file->offsets[pos] = 0;
@@ -742,9 +719,10 @@ rdcCkeckReadFile(RSstate *state)
 			{
 				if (FILE_CLOSE == fd)
 				{
-					if ( 0 != remove(file->filelnames[i]))
-							elog(ERROR, "remove file error, filename : %s  msg: %s",
-									file->filelnames[i], strerror(errno));
+					if (0 != remove(file->filelnames[i]))
+						elog(ERROR,
+							 "fail to remove file \"%s\":%m",
+							 file->filelnames[i]);
 					pfree(file->filelnames[i]);
 					file->filelnames[i] = NULL;
 					file->offsets[i] = 0;
@@ -964,38 +942,40 @@ rdcOpenTempFile(char ** filename)
 	char    tempfilepath[MAXPGPATH];
 	File    file;
 	int		len;
+
 	/* The default tablespace is {datadir}/base */
-	snprintf(tempdirpath, sizeof(tempdirpath), "base/%s",
-				PG_TEMP_FILES_DIR);
+	snprintf(tempdirpath, sizeof(tempdirpath), "base/%s", RDC_TEMP_FILES_DIR);
+
 	/*
 	 * Generate a tempfile name that should be unique within the current
 	 * database instance
 	 */
-	 snprintf(tempfilepath, sizeof(tempfilepath), "%s/%s.%s.%d.%d",
-	 		tempdirpath, PG_TEMP_FILE_PREFIX, rdcPurpose, rdcNodeId, (*rdcFileCounter)++);
+	snprintf(tempfilepath, sizeof(tempfilepath), "%s/%s.%s.%d.%d",
+			 tempdirpath, RDC_TEMP_FILE_PREFIX,
+			 rdcPurpose, rdcNodeId, (*rdcFileCounter)++);
 
 	/*
 	 * Open the file.  Note: we don't use O_EXCL, in case there is an orphaned
 	 * temp file that can be reused.
 	 */
-	 file = open(tempfilepath, O_RDWR | O_CREAT);
+	file = open(tempfilepath, O_RDWR | O_CREAT);
 
-	 if (file < 0)
-	 {
-	 	rdcCreateDir(tempdirpath);
+	if (file < 0)
+	{
+		rdcCreateDir(tempdirpath);
 		file = open(tempfilepath, O_RDWR | O_CREAT);
 
 		if (file < 0)
 			elog(ERROR, "could not create temporary file \"%s\": %m",
 				 tempfilepath);
-	 }
+	}
 
-	 len = strlen(tempfilepath);
-	 *filename = (char *)palloc0(len + 1);
-	 memcpy(*filename, tempfilepath, len);
-	 (*filename)[len] = '\0';
+	len = strlen(tempfilepath);
+	*filename = (char *)palloc0(len + 1);
+	memcpy(*filename, tempfilepath, len);
+	(*filename)[len] = '\0';
 
-	 return file;
+	return file;
 }
 
 static int
@@ -1179,13 +1159,13 @@ retry:
  */
 RSstate *
 rdcstore_begin(int maxKBytes, char* purpose, int nodeId,
-						pid_t pid, pid_t parentPid, pg_time_t time)
+			   pid_t pid, pid_t ppid, pg_time_t time)
 {
 	RSstate *state;
 	Assert(maxKBytes > 0 && NULL !=purpose && nodeId >= 0);
 
 	state = rdcstore_begin_common(maxKBytes, purpose, nodeId,
-								pid, parentPid, time);
+								  pid, ppid, time);
 
 	state->copytup = rdcCopyTuple;
 	state->writetup = rdcWriteTuple;
@@ -1359,7 +1339,7 @@ rdcstore_end(RSstate *state)
 	{
 		if (state->status == TSS_INMEM)
 		{
-			/* tuple had been read and memory free, but rdcstore_trim not 
+			/* tuple had been read and memory free, but rdcstore_trim not
 			 * set position pointer to null .SO get max memtupdeleted and
 			 * read current to avoid free memory twice
 			 */

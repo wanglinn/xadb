@@ -10,12 +10,6 @@
 #define ENABLE_LIST_COMPAT
 #include "rdc_list.h"
 
-#define pg_time_t time_t
-
-extern int			MyProcPid;
-extern int			MyBossPid;
-extern pg_time_t	MyStartTime;
-
 #if defined(safe_pfree)
 #undef safe_pfree
 #endif
@@ -30,12 +24,12 @@ extern pg_time_t	MyStartTime;
 #if defined(TEXTDOMAIN)
 #undef TEXTDOMAIN
 #endif
-#define TEXTDOMAIN			PG_TEXTDOMAIN("adb_reduce")
+#define TEXTDOMAIN		PG_TEXTDOMAIN("adb_reduce")
 
 typedef struct RdcPort  RdcPort;
 typedef struct PlanPort PlanPort;
-typedef struct RdcMask RdcMask;
-typedef struct RdcNode RdcNode;
+typedef struct RdcMask  RdcMask;
+typedef struct RdcNode  RdcNode;
 
 /* define adb reduce run options */
 typedef struct ReduceOptionsData
@@ -57,10 +51,15 @@ typedef struct ReduceOptionsData
 	List	   *pln_nodes;				/* for plan node */
 } ReduceOptionsData, *RdcOptions;
 
-extern RdcOptions		MyRdcOpts;
-extern pgsocket			MyListenSock;
-extern pgsocket			MyLogSock;
-extern int				MyListenPort;
+#define pg_time_t time_t
+
+extern RdcOptions	MyRdcOpts;
+extern pgsocket		MyListenSock;
+extern pgsocket		MyLogSock;
+extern int			MyListenPort;
+extern int			MyProcPid;
+extern int			MyBossPid;
+extern pg_time_t	MyStartTime;
 
 #define HOLD_INTERRUPTS()  (InterruptHoldoffCount++)
 
