@@ -465,7 +465,6 @@ rdcDumpTuples(RSstate *state)
 	ReadPointer *readptr = state->readptr;
 	int			i;
 
-	Assert(state->status == TSS_INMEM);
 	for (i = readptr->current;; i++)
 	{
 		if (i == readptr->current && !readptr->eof_reached)
