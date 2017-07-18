@@ -102,7 +102,7 @@ _re_recv:
 		return false;
 	else
 	/* receive close message request */
-	if (rc > 0 && c == RDC_CLOSE_MSG)
+	if (rc > 0 && c == MSG_RDC_CLOSE)
 		return false;
 	else
 	if (rc < 0)
@@ -137,6 +137,7 @@ rdc_newport(pgsocket sock,
 	rdc_port->self_id = self_id;
 	rdc_port->version = 0;
 	rdc_port->wait_events = WAIT_NONE;
+	rdc_port->flags = RDC_FLAG_NONE;
 	rdc_port->send_eof = false;
 #ifdef DEBUG_ADB
 	rdc_port->peer_host = NULL;
@@ -816,7 +817,7 @@ rdc_parse_group(RdcPort *port, int *rdc_num, RdcConnHook hook)
 		rprt = rdc_node->mask.rdc_port;
 
 		/* skip self Reduce */
-		if (rpid == MyReduceId)
+		if (RdcIdIsSelfID(rpid))
 			continue;
 
 		self_idx = rdc_idx(rdc_nodes, num, MyReduceId);
@@ -980,7 +981,13 @@ rdc_flush(RdcPort *port)
 
 	/* flush out buffer */
 	if (internal_flush_buffer(RdcSocket(port), RdcOutBuf(port), true))
+	{
+#ifdef RDC_FRONTEND
+		ClientConnectionLostType = RdcPeerType(port);
+		ClientConnectionLostID = RdcPeerID(port);
+#endif
 		return EOF;
+	}
 
 	/* just return if no error */
 	//if (!IsRdcPortError(port))
@@ -1570,7 +1577,7 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver)
 		return RDC_POLLING_READING;
 	}
 
-	if (beresp != RDC_START_RQT)
+	if (beresp != MSG_START_RQT)
 	{
 		rdc_puterror(port,
 					 "expected startup request from client, "
@@ -1611,7 +1618,7 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver)
 	rqt_id = rdc_getmsgRdcPortID(msg);
 	RdcPeerID(port) = rqt_id;
 
-	Assert(PortIdIsValid(port));
+	Assert(PortTypeIDIsValid(port));
 
 	rdc_getmsgend(msg);
 
@@ -1673,7 +1680,7 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 	 * request or an error here.  Anything else probably means
 	 * it's not Reduce on the other end at all.
 	 */
-	if (!(beresp == RDC_START_RSP || beresp == RDC_ERROR_MSG))
+	if (!(beresp == MSG_START_RSP || beresp == MSG_ERROR))
 	{
 		rdc_puterror(port,
 					 "expected startup response from "
@@ -1705,7 +1712,7 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 	}
 
 	/* Check message */
-	if (beresp == RDC_ERROR_MSG)
+	if (beresp == MSG_ERROR)
 	{
 		if (length > 0)
 		{

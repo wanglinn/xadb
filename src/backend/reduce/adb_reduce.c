@@ -189,17 +189,17 @@ static int
 GetReduceListenPort(void)
 {
 	int		port = 0;
-	char	firstchar;
+	char	mtype;
 	const char *error_msg = NULL;
 
-	firstchar = rdc_getmessage(backend_hold_port, 0);
-	switch (firstchar)
+	mtype = rdc_getmessage(backend_hold_port, 0);
+	switch (mtype)
 	{
-		case RDC_LISTEN_PORT:
+		case MSG_LISTEN_PORT:
 			port = rdc_getmsgint(RdcInBuf(backend_hold_port), sizeof(port));
 			rdc_getmsgend(RdcInBuf(backend_hold_port));
 			break;
-		case RDC_ERROR_MSG:
+		case MSG_ERROR:
 			error_msg = rdc_getmsgstring(RdcInBuf(backend_hold_port));
 			rdc_getmsgend(RdcInBuf(backend_hold_port));
 		default:
@@ -216,6 +216,14 @@ static void
 AdbReduceLauncherMain(int rid)
 {
 	StringInfoData	cmd;
+	int				fd = 3;
+
+	/* close already opened fd */
+	while (fd < backend_reduce_fds[RDC_REDUCE_HOLD])
+	{
+		close(fd);
+		fd++;
+	}
 
 	initStringInfo(&cmd);
 	appendStringInfo(&cmd, "exec \"adb_reduce\" -n %d -W %d",
@@ -256,17 +264,56 @@ EndSelfReduceGroup(void)
 }
 
 void
+SendPlanCloseToSelfReduce(RdcPort *port, bool broadcast)
+{
+	StringInfoData  msg;
+	ssize_t			rsz;
+	char			buf[1];
+
+	elog(LOG,
+		 "Backend send CLOSE message of plan %ld",
+		 RdcSelfID(port));
+
+	if (!RdcSockIsValid(port))
+		return ;
+
+	/* check validation of socket */
+	rsz = recv(RdcSocket(port), buf, 1, MSG_PEEK);
+	/* the peer has performed an orderly shutdown */
+	if (rsz == 0)
+		return ;
+	else if (rsz < 0)
+	{
+		/* return when socket is invalid */
+		if (errno != EAGAIN && errno != EWOULDBLOCK)
+			return ;
+	}
+
+	rdc_beginmessage(&msg, MSG_PLAN_CLOSE);
+	rdc_sendint(&msg, broadcast, sizeof(broadcast));
+	rdc_endmessage(port, &msg);
+
+	if (rdc_flush(port) == EOF)
+		ereport(ERROR,
+				(errmsg("fail to send CLOSE message to remote"),
+				 errdetail("%s", RdcError(port))));
+}
+
+void
 SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot)
 {
 	StringInfoData  msg;
+	char		   *buf = "tuple";
 
 	AssertArg(port);
 	if (TupIsNull(slot))
 	{
-#ifdef DEBUG_ADB
-		elog(LOG, "Backend send EOF message of plan %ld", RdcSelfID(port));
-#endif
-		rdc_beginmessage(&msg, RDC_EOF_MSG);
+		elog(LOG,
+			 "Backend send EOF message of plan %ld",
+			 RdcSelfID(port));
+
+		buf = "EOF message";
+		rdc_beginmessage(&msg, MSG_EOF);
 	} else if (destNodes)
 	{
 		ListCell	   *lc;
@@ -277,7 +324,7 @@ SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot)
 		AssertArg(slot);
 		tup = ExecFetchSlotMinimalTuple(slot);
 		len = (int) GetMemoryChunkSpace(tup);
-		rdc_beginmessage(&msg, RDC_P2R_DATA);
+		rdc_beginmessage(&msg, MSG_P2R_DATA);
 		rdc_sendint(&msg, len, sizeof(len));
 		rdc_sendbytes(&msg, (const char * ) tup, len);
 		num = list_length(destNodes);
@@ -291,15 +338,16 @@ SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot)
 	rdc_endmessage(port, &msg);
 	if (rdc_flush(port) == EOF)
 		ereport(ERROR,
-				(errmsg("fail to send tuple to remote"),
+				(errmsg("fail to send %s to remote", buf),
 				 errdetail("%s", RdcError(port))));
 }
 
 TupleTableSlot *
-GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof)
+GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof, List **closed_remote)
 {
-	int			msg_type;
 	StringInfo	msg;
+	int			msg_type;
+	int			msg_len;
 	int			sv_cursor;
 	bool		sv_noblock;
 
@@ -310,47 +358,50 @@ GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof)
 	sv_noblock = port->noblock;
 	sv_cursor = msg->cursor;
 
-	msg_type = rdc_getbyte(port);
-	if (msg_type == EOF)
+	if ((msg_type = rdc_getbyte(port)) == EOF ||
+		rdc_getbytes(port, sizeof(msg_len)) == EOF)
+		goto _eof_got;
+	msg_len = rdc_getmsgint(msg, sizeof(msg_len));
+	/* total data */
+	msg_len -= sizeof(msg_len);
+	if (rdc_getbytes(port, msg_len) == EOF)
 		goto _eof_got;
 
 	switch (msg_type)
 	{
-		case RDC_R2P_DATA:
+		case MSG_R2P_DATA:
 			{
 				const char	   *data;
-				int				datalen;
 				MinimalTuple	tup;
 #ifdef DEBUG_ADB
 				RdcPortId		rid;
-#endif
-
-				/* data length */
-				if (rdc_getbytes(port, sizeof(datalen)) == EOF)
-					goto _eof_got;
-				datalen = rdc_getmsgint(msg, sizeof(datalen));
-
-				/* total data */
-				datalen -= sizeof(datalen);
-				if (rdc_getbytes(port, datalen) == EOF)
-					goto _eof_got;
-
-#ifdef DEBUG_ADB
 				/* reduce id while slot comes from */
 				rid = rdc_getmsgRdcPortID(msg);
 				elog(LOG, "Fetch tuple from REDUCE %ld", rid);
-				datalen -= sizeof(rid);
+				msg_len -= sizeof(rid);
 #endif
-				data = rdc_getmsgbytes(msg, datalen);
+				data = rdc_getmsgbytes(msg, msg_len);
 				rdc_getmsgend(msg);
 
-				tup = (MinimalTuple) MemoryContextAlloc(slot->tts_mcxt, datalen);
-				memcpy(tup, data, datalen);
+				tup = (MinimalTuple) MemoryContextAlloc(slot->tts_mcxt, msg_len);
+				memcpy(tup, data, msg_len);
 				return ExecStoreMinimalTuple(tup, slot, true);
 			}
-		case RDC_EOF_MSG:
-			if (eof)
-				*eof = true;
+		case MSG_EOF:
+			{
+				rdc_getmsgend(msg);
+				if (eof)
+					*eof = true;
+			}
+			break;
+		case MSG_PLAN_CLOSE:
+			{
+				RdcPortId rid = rdc_getmsgRdcPortID(msg);
+				rdc_getmsgend(msg);
+
+				if (closed_remote)
+					*closed_remote = lappend_oid(*closed_remote, (Oid) rid);
+			}
 			break;
 		default:
 			ereport(ERROR,

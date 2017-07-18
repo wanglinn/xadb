@@ -1,4 +1,5 @@
 #include "rdc_globals.h"
+#include "reduce/rdc_comm.h"
 
 volatile bool InterruptPending = false;
 volatile bool QueryCancelPending = false;
@@ -7,6 +8,9 @@ volatile bool ClientConnectionLost = false;
 volatile uint32 CritSectionCount = 0;
 volatile uint32 InterruptHoldoffCount = 0;
 volatile uint32 QueryCancelHoldoffCount = 0;
+
+volatile uint32 ClientConnectionLostType = 0;
+volatile int64 ClientConnectionLostID = -1;
 
 void rdc_ProcessInterrupts(void)
 {
@@ -27,7 +31,9 @@ void rdc_ProcessInterrupts(void)
 		QueryCancelPending = false;		/* lost connection trumps QueryCancel */
 		ereport(FATAL,
 				(errcode(ERRCODE_CONNECTION_FAILURE),
-				 errmsg("connection to client lost")));
+				 errmsg("connection with [%s %ld] to client lost",
+						rdc_type2string(ClientConnectionLostType),
+						ClientConnectionLostID)));
 	}
 
 	if (QueryCancelPending)

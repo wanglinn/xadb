@@ -2,7 +2,9 @@
 #include "rdc_plan.h"
 
 /*
- * plan_newport - create a new PlanPort with plan id.
+ * plan_newport
+ *
+ * create a new PlanPort with plan id.
  */
 PlanPort *
 plan_newport(RdcPortId pln_id)
@@ -25,16 +27,16 @@ plan_newport(RdcPortId pln_id)
 }
 
 /*
- * plan_freeport - free a PlanPort
+ * plan_freeport
+ *
+ * free a PlanPort
  */
 void
 plan_freeport(PlanPort *pln_port)
 {
 	if (pln_port)
 	{
-#ifdef DEBUG_ADB
-		elog(LOG, "free plan port %ld", pln_port->pln_id);
-#endif
+		elog(LOG, "free plan port %ld", PlanID(pln_port));
 		rdc_freeport(pln_port->port);
 		rdcstore_end(pln_port->rdcstore);
 		safe_pfree(pln_port);
@@ -42,7 +44,9 @@ plan_freeport(PlanPort *pln_port)
 }
 
 /*
- * LookUpPlanPort - find a PlanPort with the plan id
+ * LookUpPlanPort
+ *
+ * find a PlanPort with the plan id.
  *
  * returns NULL if not found
  */
@@ -50,74 +54,57 @@ PlanPort *
 LookUpPlanPort(List *pln_nodes, RdcPortId pln_id)
 {
 	ListCell	   *cell = NULL;
-	PlanPort	   *port = NULL;
+	PlanPort	   *pln_port = NULL;
 
 	foreach (cell, pln_nodes)
 	{
-		port = (PlanPort *) lfirst(cell);
-		Assert(port);
+		pln_port = (PlanPort *) lfirst(cell);
+		Assert(pln_port);
 
-		if (port->pln_id == pln_id)
+		if (PlanID(pln_port) == pln_id)
 			break;
 	}
 
-	return port;
+	return pln_port;
 }
 
 /*
- * add_new_plan_port - add a new RdcPort in the PlanPort list
+ * AddNewPlanPort
+ *
+ * add a new RdcPort in the PlanPort list
  */
 void
-add_new_plan_port(List **pln_nodes, RdcPort *new_port)
+AddNewPlanPort(List **pln_nodes, RdcPort *new_port)
 {
-	PlanPort	   *plan_port = NULL;
+	PlanPort	   *pln_port = NULL;
 
 	AssertArg(pln_nodes && new_port);
-	Assert(PortIdIsValid(new_port));
+	Assert(PlanTypeIDIsValid(new_port));
 
-	plan_port = LookUpPlanPort(*pln_nodes, RdcPeerID(new_port));
-	if (plan_port == NULL)
+	pln_port = LookUpPlanPort(*pln_nodes, RdcPeerID(new_port));
+	if (pln_port == NULL)
 	{
-		plan_port = plan_newport(RdcPeerID(new_port));
-		plan_port->port = new_port;
-		plan_port->work_num++;
-		*pln_nodes = lappend(*pln_nodes, plan_port);
+		pln_port = plan_newport(RdcPeerID(new_port));
+		pln_port->port = new_port;
+		pln_port->work_num++;
+		*pln_nodes = lappend(*pln_nodes, pln_port);
 	} else
 	{
-		RdcPort		   *port = plan_port->port;
+		RdcPort		   *port = pln_port->port;
 		/*
 		 * It happens when get data from other Reduce and current
 		 * Reduce has not accepted a connection from the PlanPort.
 		 */
 		if (port == NULL)
 		{
-			plan_port->port = new_port;
-			plan_port->work_num++;
+			pln_port->port = new_port;
+			pln_port->work_num++;
 		} else
 		{
 			while (port && RdcNext(port))
 				port = RdcNext(port);
-			port->next = new_port;
-			plan_port->work_num++;
+			RdcNext(port) = new_port;
+			pln_port->work_num++;
 		}
 	}
-}
-
-/*
- * get_plan_port_num - RdcPort number in the PlanPort list
- */
-int
-get_plan_port_num(List *pln_nodes)
-{
-	ListCell   *lc = NULL;
-	int			num = 0;
-	PlanPort   *pln_port;
-
-	foreach (lc, pln_nodes)
-	{
-		pln_port = (PlanPort *) lfirst(lc);
-		num += pln_port->work_num;
-	}
-
-	return num;
 }

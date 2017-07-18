@@ -15,8 +15,9 @@ struct PlanPort
 	RdcPortId			rdc_eofs[1];
 };
 
-#define PlanID(pln_port)		(((PlanPort *) (pln_port))->pln_id)
-#define PlanWorkNum(pln_port)	(((PlanPort *) (pln_port))->work_num)
+#define PlanID(pln_port)			(((PlanPort *) (pln_port))->pln_id)
+#define PlanWorkNum(pln_port)		(((PlanPort *) (pln_port))->work_num)
+#define PlanPortIsValid(pln_port)	(PlanWorkNum(pln_port) >= 0)
 
 #define PlanPortAddEvents(pln_port, events)			\
 	do {											\
@@ -43,7 +44,6 @@ struct PlanPort
 extern PlanPort *plan_newport(RdcPortId pln_id);
 extern void plan_freeport(PlanPort *pln_port);
 extern PlanPort *LookUpPlanPort(List *pln_nodes, RdcPortId pln_id);
-extern void add_new_plan_port(List **pln_nodes, RdcPort *new_port);
-extern int get_plan_port_num(List *pln_nodes);
+extern void AddNewPlanPort(List **pln_nodes, RdcPort *new_port);
 
 #endif	/* RDC_PLAN_H */

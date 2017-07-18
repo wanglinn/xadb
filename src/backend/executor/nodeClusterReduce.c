@@ -24,6 +24,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate = makeNode(ClusterReduceState);
 	crstate->ps.plan = (Plan*)node;
 	crstate->ps.state = estate;
+	crstate->closed_remote = NIL;
 	crstate->eof_underlying = false;
 	crstate->eof_network = false;
 	crstate->port = NULL;
@@ -79,7 +80,7 @@ ExecClusterReduce(ClusterReduceState *node)
 				ExecClearTuple(slot);
 				if (node->eof_underlying)
 					rdc_set_block(port);
-				outerslot = GetSlotFromRemote(port, slot, &node->eof_network);
+				outerslot = GetSlotFromRemote(port, slot, &node->eof_network, &node->closed_remote);
 				if (!node->eof_network && !TupIsNull(outerslot))
 					return outerslot;
 			}
@@ -113,8 +114,11 @@ ExecClusterReduce(ClusterReduceState *node)
 							if(oid == PGXCNodeOid)
 								outerValid = true;
 							else
+							{
 								/* This tuple should be sent to remote nodes */
-								destOids = lappend_oid(destOids, oid);
+								if (!list_member_oid(node->closed_remote, oid))
+									destOids = lappend_oid(destOids, oid);
+							}
 
 							if(done == ExprSingleResult)
 								break;
@@ -130,10 +134,10 @@ ExecClusterReduce(ClusterReduceState *node)
 					ExecClearTuple(outerslot);
 				} else
 				{
-					node->eof_underlying = true;
-
 					/* Here we send eof to remote plan nodes */
 					SendSlotToRemote(port, destOids, outerslot);
+
+					node->eof_underlying = true;
 				}
 			}
 		}
@@ -147,5 +151,24 @@ ExecClusterReduce(ClusterReduceState *node)
 
 void ExecEndClusterReduce(ClusterReduceState *node)
 {
+	if (node->port)
+	{
+		/*
+		 * if either of these(node->eof_underlying and node->eof_network)
+		 * is false, it means local backend doesn't fetch all tuple (include
+		 * tuple from other backend and from the outer node).
+		 *
+		 * Here we should tell other backend that the local cluster reduce
+		 * will be closed and no more data is needed.
+		 */
+		SendPlanCloseToSelfReduce(node->port,
+			!(node->eof_network && node->eof_underlying));
+		rdc_freeport(node->port);
+		node->port = NULL;
+	}
+	node->eof_network = false;
+	node->eof_underlying = false;
+	list_free(node->closed_remote);
+
 	ExecEndNode(outerPlanState(node));
 }

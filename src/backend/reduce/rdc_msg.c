@@ -31,7 +31,7 @@ rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id)
 #endif
 
 	initStringInfo(&buf);
-	rdc_beginmessage(&buf, RDC_START_RQT);
+	rdc_beginmessage(&buf, MSG_START_RQT);
 	rdc_sendint(&buf, RDC_VERSION_NUM, sizeof(int));		/* version */
 	rdc_sendint(&buf, type, sizeof(type));
 	rdc_sendRdcPortID(&buf, id);
@@ -55,7 +55,7 @@ rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id)
 #endif
 
 	initStringInfo(&buf);
-	rdc_beginmessage(&buf, RDC_START_RSP);
+	rdc_beginmessage(&buf, MSG_START_RSP);
 	rdc_sendint(&buf, RDC_VERSION_NUM, sizeof(int));
 	rdc_sendint(&buf, type, sizeof(type));
 	rdc_sendRdcPortID(&buf, id);
@@ -75,7 +75,7 @@ rdc_send_group_rqt(RdcPort *port, RdcMask *rdc_masks, int num)
 	Assert(num > 1);
 
 	initStringInfo(&buf);
-	rdc_beginmessage(&buf, RDC_GROUP_RQT);
+	rdc_beginmessage(&buf, MSG_GROUP_RQT);
 	rdc_sendint(&buf, num, sizeof(num));
 	for (i = 0; i < num; i++)
 	{
@@ -102,7 +102,7 @@ rdc_send_group_rsp(RdcPort *port)
 
 	AssertArg(port);
 	initStringInfo(&buf);
-	rdc_beginmessage(&buf, RDC_GROUP_RSP);
+	rdc_beginmessage(&buf, MSG_GROUP_RSP);
 	rdc_endmessage(port, &buf);
 
 	return rdc_flush(port);
@@ -119,7 +119,7 @@ rdc_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId expecte
 	msg = RdcInBuf(port);
 
 	firstchar = rdc_getmessage(port, 0);
-	if (!(firstchar == RDC_START_RSP || firstchar == RDC_ERROR_MSG))
+	if (!(firstchar == MSG_START_RSP || firstchar == MSG_ERROR))
 	{
 		rdc_puterror(port,
 					 "expected startup response from server, "
@@ -128,7 +128,7 @@ rdc_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId expecte
 	}
 
 	/* error response */
-	if (firstchar == RDC_ERROR_MSG)
+	if (firstchar == MSG_ERROR)
 	{
 		const char *errmsg = rdc_getmsgstring(RdcInBuf(port));
 		rdc_puterror(port, "%s", errmsg);
@@ -184,7 +184,7 @@ rdc_recv_group_rsp(RdcPort *port)
 
 	AssertArg(port);
 	firstchar = rdc_getmessage(port, 0);
-	if (firstchar != RDC_GROUP_RSP)
+	if (firstchar != MSG_GROUP_RSP)
 	{
 		rdc_puterror(port,
 					 "expected group response from server, "
@@ -194,16 +194,4 @@ rdc_recv_group_rsp(RdcPort *port)
 	rdc_getmsgend(RdcInBuf(port));
 
 	return 0;
-}
-
-int
-rdc_send_close_rqt(RdcPort *port)
-{
-	StringInfoData	buf;
-
-	AssertArg(port);
-	rdc_beginmessage(&buf, RDC_CLOSE_MSG);
-	rdc_endmessage(port, &buf);
-
-	return rdc_flush(port);
 }

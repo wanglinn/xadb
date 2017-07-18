@@ -92,6 +92,9 @@ extern PGDLLIMPORT volatile uint32 CritSectionCount;
 extern PGDLLIMPORT volatile uint32 InterruptHoldoffCount;
 extern PGDLLIMPORT volatile uint32 QueryCancelHoldoffCount;
 
+extern PGDLLEXPORT volatile uint32 ClientConnectionLostType;
+extern PGDLLEXPORT volatile int64 ClientConnectionLostID;
+
 extern void rdc_ProcessInterrupts(void);
 
 extern void SetRdcPsStatus(const char * format, ...) pg_attribute_printf(1, 2);

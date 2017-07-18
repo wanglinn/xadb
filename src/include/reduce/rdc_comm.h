@@ -55,6 +55,14 @@ typedef enum
 
 typedef enum
 {
+	RDC_FLAG_NONE	=	(1 << 0),
+	RDC_FLAG_VALID	=	(1 << 1),
+	RDC_FLAG_CLOSED	=	(1 << 2),
+	RDC_FLAG_RESET	=	(1 << 3),
+} RdcFlagType;
+
+typedef enum
+{
 	RDC_POLLING_FAILED = 0,
 	RDC_POLLING_READING,				/* These two indicate that one may	  */
 	RDC_POLLING_WRITING,				/* use select before polling again.   */
@@ -90,6 +98,7 @@ struct RdcNode
 	RdcMask				mask;
 	RdcPort			   *port;
 };
+#define RdcNodeID(node)				(((RdcNode *) (node))->mask.rdc_rpid)
 
 typedef void (*RdcConnHook)(void *arg);
 
@@ -120,6 +129,7 @@ struct RdcPort
 	RdcConnStatusType	status;			/* used to connect with other Reduce */
 	RdcConnHook			hook;			/* callback function when connect done */
 
+	RdcFlagType			flags;			/* used for running flags */
 	EventType			wait_events;	/* used for select/poll */
 	StringInfoData		in_buf;			/* for normal message */
 	StringInfoData		out_buf;		/* for normal message */
@@ -145,6 +155,7 @@ struct RdcPort
 #define RdcSelfType(port)			(((RdcPort *) (port))->self_type)
 #define RdcSelfID(port)				(((RdcPort *) (port))->self_id)
 #define RdcStatus(port)				(((RdcPort *) (port))->status)
+#define RdcFlags(port)				(((RdcPort *) (port))->flags)
 #define RdcPositive(port)			(((RdcPort *) (port))->positive)
 #define RdcHook(port)				(((RdcPort *) (port))->hook)
 #define RdcSendEOF(port)			(((RdcPort *) (port))->send_eof)
@@ -162,6 +173,9 @@ struct RdcPort
 #define IsRdcPortError(port)		(RdcStatus(port) == RDC_CONNECTION_BAD || \
 									 ((RdcPort *) (port))->err_buf.len > 0)
 
+#define PortIsValid(port)			((port) != NULL && RdcFlags(port) == RDC_FLAG_VALID)
+#define PortMustClosed(port)		((port) != NULL && RdcFlags(port) == RDC_FLAG_CLOSED)
+
 #define PortForBackend(port)		(RdcPeerType(port) == TYPE_BACKEND)
 #define PortForPlan(port)			(RdcPeerType(port) == TYPE_PLAN)
 #define PortForReduce(port)			(RdcPeerType(port) == TYPE_REDUCE)
@@ -169,19 +183,16 @@ struct RdcPort
 #define PortAddEvents(port, events)	do {if (port) {RdcWaitEvents(port) |= (events);}} while(0)
 #define PortRmvEvents(port, events)	do {if (port) {RdcWaitEvents(port) &= ~(events);}} while(0)
 
-typedef int PlanNodeId;
-#define InvalidPlanNodeId			-1
-#define PlanPortIsValid(port)		((port) != NULL && \
+#define PlanTypeIDIsValid(port)		((port) != NULL && \
 									 PortForPlan(port) && \
-									 RdcPeerID(port) > InvalidPlanNodeId)
+									 RdcPeerID(port) > InvalidPortId)
 
-typedef int ReduceNodeId;
-#define InvalidReduceId				0
-#define ReducePortIsValid(port)		((port) != NULL && \
+#define ReduceTypeIDIsValid(port)	((port) != NULL && \
 									 PortForReduce(port) && \
-									 RdcPeerID(port) > InvalidReduceId)
+									 RdcPeerID(port) > InvalidPortId &&\
+									 !RdcIdIsSelfID(RdcPeerID(port)))
 
-#define PortIdIsValid(port)			(PlanPortIsValid(port) || ReducePortIsValid(port))
+#define PortTypeIDIsValid(port)		(PlanTypeIDIsValid(port) || ReduceTypeIDIsValid(port))
 
 extern const char *rdc_type2string(RdcPortType type);
 extern bool BossIsLeave(void);

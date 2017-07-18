@@ -233,7 +233,7 @@ ParseReduceOptions(int argc, char *const argv[])
 		{
 			case 'n':
 				MyReduceId = atoll(optarg);
-				if (MyReduceId <= InvalidReduceId)
+				if (MyReduceId <= InvalidPortId)
 					elog(ERROR, "Invalid Reduce ID number: %ld", MyReduceId);
 				break;
 			case 'h':
@@ -480,7 +480,7 @@ TransListenPort(void)
 
 		Assert(MyListenPort > 0);
 		Assert(boss_watch);
-		rdc_beginmessage(&buf, RDC_LISTEN_PORT);
+		rdc_beginmessage(&buf, MSG_LISTEN_PORT);
 		rdc_sendint(&buf, MyListenPort, sizeof(MyListenPort));
 		rdc_endmessage(boss_watch, &buf);
 		rdc_flush(boss_watch);
@@ -511,7 +511,7 @@ ResetReduceGroup(void)
 
 		node = &(MyRdcOpts->rdc_nodes[i]);
 		port = node->port;
-		if (node->mask.rdc_rpid == MyReduceId ||
+		if (RdcNodeID(node) == MyReduceId ||
 			port == NULL)
 			continue;
 		Assert (RdcPeerID(port) != MyReduceId);
@@ -521,6 +521,7 @@ ResetReduceGroup(void)
 			 RdcPeerTypeStr(port), RdcPeerID(port),
 			 RdcPeerHost(port), RdcPeerPort(port));
 		rdc_resetport(port);
+		RdcFlags(port) = RDC_FLAG_VALID;
 	}
 }
 #endif
@@ -536,7 +537,7 @@ DropReduceGroup(void)
 	{
 		node = &(MyRdcOpts->rdc_nodes[i]);
 		port = node->port;
-		if (node->mask.rdc_rpid == MyReduceId ||
+		if (RdcNodeID(node) == MyReduceId ||
 			port == NULL)
 			continue;
 		Assert(RdcPeerID(port) != MyReduceId);
@@ -677,7 +678,7 @@ ReduceGroupHook(SIGNAL_ARGS)
 						   TYPE_REDUCE, MyReduceId);
 		MyRdcOpts->boss_watch = port;
 		initStringInfo(&buf);
-		rdc_beginmessage(&buf, RDC_GROUP_RQT);
+		rdc_beginmessage(&buf, MSG_GROUP_RQT);
 		rdc_sendint(&buf, rdc_num, sizeof(rdc_num));
 		for (i = 0; i < rdc_num; i++)
 		{
@@ -730,7 +731,7 @@ WaitForReduceGroupReady(void)
 		}
 #endif
 
-		if (rdc_getmessage(port, 0) == RDC_GROUP_RQT)
+		if (rdc_getmessage(port, 0) == MSG_GROUP_RQT)
 		{
 			StartSetupReduceGroup(port);
 			EndSetupReduceGroup();
@@ -763,7 +764,7 @@ IsReduceGroupReady(void)
 	for (i = 0; i < MyRdcOpts->rdc_num; i++)
 	{
 		node = &(MyRdcOpts->rdc_nodes[i]);
-		if (node->mask.rdc_rpid == MyReduceId)
+		if (RdcNodeID(node) == MyReduceId)
 			continue;
 
 		if (node->port == NULL ||
@@ -802,6 +803,9 @@ ConnectReduceHook(void *arg)
 						RdcPeerTypeStr(port), RdcPeerID(port),
 						RdcPeerHost(port), RdcPeerPort(port)),
 				 errdetail("%s", RdcError(port))));
+
+	Assert(RdcStatus(port) == RDC_CONNECTION_OK);
+	RdcFlags(port) = RDC_FLAG_VALID;
 }
 
 static void
@@ -814,7 +818,10 @@ AcceptReduceHook(void *arg)
 
 	Assert(port);
 	if (!(RdcPeerType(port) & (TYPE_REDUCE | TYPE_UNDEFINE)))
+	{
+		RdcFlags(port) = RDC_FLAG_CLOSED;
 		return ;
+	}
 
 	if (RdcStatus(port) == RDC_CONNECTION_BAD)
 		ereport(ERROR,
@@ -835,6 +842,7 @@ AcceptReduceHook(void *arg)
 	}
 	Assert(node->port == NULL);
 	node->port= port;
+	RdcFlags(port) = RDC_FLAG_VALID;
 }
 
 static void
@@ -905,7 +913,7 @@ EndSetupReduceGroup(void)
 				acpt_port = (RdcPort *) lfirst(lc);
 				lc = lnext(lc);
 
-				if (!(RdcPeerType(acpt_port) & (TYPE_REDUCE | TYPE_UNDEFINE)))
+				if (PortMustClosed(acpt_port))
 				{
 					accept_list = list_delete_ptr(accept_list, acpt_port);
 					rdc_freeport(acpt_port);
@@ -999,12 +1007,13 @@ RdcAcceptPlanConn(List **accept_list, List **pln_nodes)
 		/*
 		 * Only good connection from Plan Node will be accepted.
 		 */
-		if (PlanPortIsValid(port) &&
+		if (PlanTypeIDIsValid(port) &&
 			RdcStatus(port) == RDC_CONNECTION_OK)
 		{
 			*accept_list = lremove(port, *accept_list);
 			RdcWaitEvents(port) |= WT_SOCK_WRITEABLE;
-			add_new_plan_port(pln_nodes, port);
+			RdcFlags(port) = RDC_FLAG_VALID;
+			AddNewPlanPort(pln_nodes, port);
 		}
 
 		/*
@@ -1014,6 +1023,7 @@ RdcAcceptPlanConn(List **accept_list, List **pln_nodes)
 		if (!PortForPlan(port) ||
 			RdcStatus(port) == RDC_CONNECTION_BAD)
 		{
+			RdcFlags(port) = RDC_FLAG_CLOSED;
 			*accept_list = lremove(port, *accept_list);
 			rdc_freeport(port);
 		}
@@ -1075,6 +1085,7 @@ ReduceLoopRun(void)
 	rdc_num = MyRdcOpts->rdc_num;
 	rdc_nodes = MyRdcOpts->rdc_nodes;
 	pln_nodes = &(MyRdcOpts->pln_nodes);
+
 	initWaitEVSet(&set);
 	PG_TRY();
 	{
@@ -1091,6 +1102,10 @@ ReduceLoopRun(void)
 			for (i = 0; i < rdc_num; i++)
 			{
 				rdc_node = &(rdc_nodes[i]);
+				if (RdcNodeID(rdc_node) == MyReduceId ||
+					rdc_node->port == NULL ||
+					!PortIsValid(rdc_node->port))
+					continue;
 				addWaitEventByArg(&set, rdc_node->port,
 								  GetRdcPortSocket,
 								  GetRdcPortWaitEvents);
@@ -1099,8 +1114,13 @@ ReduceLoopRun(void)
 			{
 				pln_port = (PlanPort *) lfirst(cell);
 				port = pln_port->port;
+				if (!PlanPortIsValid(pln_port))
+					continue;
 				while (port != NULL)
 				{
+					if (!PortIsValid(port))
+						continue;
+
 					addWaitEventByArg(&set, port,
 									  GetRdcPortSocket,
 									  GetRdcPortWaitEvents);
@@ -1151,8 +1171,8 @@ ReduceLoopRun(void)
 				}
 
 				RdcAcceptPlanConn(&accept_list, pln_nodes);
-				HandleReduceIO(pln_nodes);
 				HandlePlanIO(pln_nodes);
+				HandleReduceIO(pln_nodes);
 			}
 		}
 	} PG_CATCH();
