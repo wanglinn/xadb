@@ -165,12 +165,12 @@ rdcstore_begin_common(int maxKBytes, char *purpose, int nodeId,
 
 	state->nodeId = nodeId;
 	len = strlen(purpose);
-	len = len + (sizeof(pid) + sizeof(parentPid) + sizeof(time)) * 2;
+	len = len + (sizeof(pid) + sizeof(parentPid) + sizeof(time)) * 2 + 3;
 	str = (char*)palloc0(len + 1);
-	sprintf(str, "%X%X%X%s",
-				(uint32) (pid),
-				(uint32) (parentPid),
-				(uint32) (time),
+	sprintf(str, "%X.%X.%X.%s",
+				(uint32)(pid),
+				(uint32)(parentPid),
+				(uint32)(time),
 				purpose);
 	str[len] = '\0';
 	state->purpose = rdcStrCopy(str);
