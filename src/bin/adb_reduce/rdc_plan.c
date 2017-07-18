@@ -17,7 +17,7 @@ plan_newport(RdcPortId pln_id)
 	pln_port = (PlanPort *) palloc0(sizeof(*pln_port) + rdc_num * sizeof(RdcPortId));
 	pln_port->work_num = 0;
 	pln_port->pln_id = pln_id;
-	pln_port->rdcstore = rdcstore_begin(work_mem, "PLAN", pln_id);
+	pln_port->rdcstore = rdcstore_begin(work_mem, "PLAN", pln_id, MyProcPid, MyBossPid, MyStartTime);
 	pln_port->rdc_num = rdc_num;
 	pln_port->eof_num = 0;
 	for (i = 0; i < rdc_num; i++)

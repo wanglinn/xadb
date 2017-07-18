@@ -62,8 +62,8 @@ struct RdcBufFile
 };
 
 /* used for extern API */
-static RSstate *rdcstore_begin_common(		int maxKBytes,
-										char* purpose, int nodeId);
+static RSstate *rdcstore_begin_common(		int maxKBytes, char* purpose, int nodeId,
+												pid_t pid, pid_t parentPid, pg_time_t time);
 static void *rdcstore_gettuple_common(RSstate *state);
 static void rdcstore_puttuple_common(RSstate *state, void *tuple);
 
@@ -132,9 +132,12 @@ static int   rdcNodeId = 0;
  * Initialize for a reduce store operation.
  */
 static RSstate *
-rdcstore_begin_common(int maxKBytes, char *purpose, int nodeId)
+rdcstore_begin_common(int maxKBytes, char *purpose, int nodeId,
+								pid_t pid, pid_t parentPid, pg_time_t time)
 {
 	RSstate *state;
+	int len;
+	char *str;
 
 	state = (RSstate *) palloc0(sizeof(RSstate));
 	state->status = TSS_INMEM;
@@ -161,7 +164,17 @@ rdcstore_begin_common(int maxKBytes, char *purpose, int nodeId)
 	USEMEM(state, GetMemoryChunkSpace(state->readptr));
 
 	state->nodeId = nodeId;
-	state->purpose = rdcStrCopy(purpose);
+	len = strlen(purpose);
+	len = len + (sizeof(pid) + sizeof(parentPid) + sizeof(time)) * 2;
+	str = (char*)palloc0(len + 1);
+	sprintf(str, "%X%X%X%s",
+				(uint32) (pid),
+				(uint32) (parentPid),
+				(uint32) (time),
+				purpose);
+	str[len] = '\0';
+	state->purpose = rdcStrCopy(str);
+	pfree(str);
 	USEMEM(state, GetMemoryChunkSpace(state->purpose));
 
 	return state;
@@ -1165,12 +1178,14 @@ retry:
  * amount is paged to disk).  When in doubt, use work_mem.
  */
 RSstate *
-rdcstore_begin(int maxKBytes, char* purpose, int nodeId)
+rdcstore_begin(int maxKBytes, char* purpose, int nodeId,
+						pid_t pid, pid_t parentPid, pg_time_t time)
 {
 	RSstate *state;
 	Assert(maxKBytes > 0 && NULL !=purpose && nodeId >= 0);
 
-	state = rdcstore_begin_common(maxKBytes, purpose, nodeId);
+	state = rdcstore_begin_common(maxKBytes, purpose, nodeId,
+								pid, parentPid, time);
 
 	state->copytup = rdcCopyTuple;
 	state->writetup = rdcWriteTuple;
