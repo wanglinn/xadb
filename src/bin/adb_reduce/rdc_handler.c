@@ -26,11 +26,11 @@ static void HandleReadFromPlan(PlanPort *pln_port);
 static void HandleWriteToPlan(PlanPort *pln_port);
 static void SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen);
 static void SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists);
-static void SendRdcCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id);
+static void SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id);
 static int  SendPlanDataToRdc(RdcPort *rdc_port, RdcPortId planid, const char *data, int datalen);
 static int  SendPlanEofToRdc(RdcPortId planid);
 static int  SendPlanCloseToRdc(RdcPortId planid);
-static int  BroadcastPlanDataToRdc(char msg_type, RdcPortId planid);
+static int  BroadcastDataToRdc(StringInfo buf, bool flush);
 static RdcPort *LookUpReducePort(RdcPortId rpid);
 
 /*
@@ -127,6 +127,9 @@ TryReadSome(RdcPort *port)
 {
 	int res;
 
+	if (!PortIsValid(port))
+		return 0;
+
 	if (!rdc_set_noblock(port))
 		ereport(ERROR,
 				(errmsg("fail to set noblocking mode for [%s %ld] {%s:%s}",
@@ -138,7 +141,7 @@ TryReadSome(RdcPort *port)
 				(errmsg("fail to read some from [%s %ld] {%s:%s}",
 						RdcPeerTypeStr(port), RdcPeerID(port),
 						RdcPeerHost(port), RdcPeerPort(port)),
-				 errdetail("connection to client lost: %s", RdcError(port))));
+				 errdetail("%s", RdcError(port))));
 	return res;
 }
 
@@ -308,8 +311,8 @@ HandleReadFromPlan(PlanPort *pln_port)
 		/* try to read as mush as possible */
 		while (HandlePlanMsg(work_port, pln_port) == 0)
 		{
-			/* set noblocking mode and read some data */
-			if (TryReadSome(work_port) == 0)
+			if (!PortIsValid(work_port) ||		/* break if work port is invalid */
+				TryReadSome(work_port) == 0)	/* break if read would block */
 				break;
 		}
 	}
@@ -510,8 +513,8 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 							 "Receive CLOSE message of PLAN %ld from [%s %ld] {%s:%s}",
 							 planid, RdcPeerTypeStr(rdc_port), RdcPeerID(rdc_port),
 							 RdcPeerHost(rdc_port), RdcPeerPort(rdc_port));
-						/* fill in CLOSE message */
-						SendRdcCloseToPlan(pln_port, RdcPeerID(rdc_port));
+						/* fill in PLAN CLOSE message */
+						SendPlanCloseToPlan(pln_port, RdcPeerID(rdc_port));
 					}
 				}
 				break;
@@ -544,6 +547,8 @@ HandleReadFromReduce(RdcPort *rdc_port, List **pln_nodes)
 	SetRdcPsStatus(" reading from reduce %ld", RdcPeerID(rdc_port));
 	do {
 		HandleRdcMsg(rdc_port, pln_nodes);
+		if (!PortIsValid(rdc_port))		/* break if port is invalid */
+			break;
 	} while (TryReadSome(rdc_port));
 }
 
@@ -645,12 +650,12 @@ SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 }
 
 /*
- * SendRdcCloseToPlan
+ * SendPlanCloseToPlan
  *
  * send CLOSE to plan node
  */
 static void
-SendRdcCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id)
+SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id)
 {
 	RSstate			   *rdcstore = NULL;
 	StringInfoData		buf;
@@ -729,11 +734,17 @@ SendPlanDataToRdc(RdcPort *rdc_port, RdcPortId planid, const char *data, int dat
 static int
 SendPlanEofToRdc(RdcPortId planid)
 {
+	StringInfoData	buf;
+
+	rdc_beginmessage(&buf, MSG_EOF);
+	rdc_sendRdcPortID(&buf, planid);
+	rdc_sendlength(&buf);
+
 	elog(LOG,
 		 "broadcast EOF message of plan %ld to reduce group",
 		 planid);
 
-	return BroadcastPlanDataToRdc(MSG_EOF, planid);
+	return BroadcastDataToRdc(&buf, false);
 }
 
 /*
@@ -747,15 +758,21 @@ SendPlanEofToRdc(RdcPortId planid)
 static int
 SendPlanCloseToRdc(RdcPortId planid)
 {
+	StringInfoData	buf;
+
+	rdc_beginmessage(&buf, MSG_PLAN_CLOSE);
+	rdc_sendRdcPortID(&buf, planid);
+	rdc_sendlength(&buf);
+
 	elog(LOG,
 		 "broadcast CLOSE message of plan %ld to reduce group",
 		 planid);
 
-	return BroadcastPlanDataToRdc(MSG_PLAN_CLOSE, planid);
+	return BroadcastDataToRdc(&buf, false);
 }
 
 /*
- * BroadcastPlanDataToRdc
+ * BroadcastDataToRdc
  *
  * broadcast message of plan node to other reduce.
  *
@@ -763,7 +780,7 @@ SendPlanCloseToRdc(RdcPortId planid)
  * return 1 if some data unsent.
  */
 static int
-BroadcastPlanDataToRdc(char msg_type, RdcPortId planid)
+BroadcastDataToRdc(StringInfo buf, bool flush)
 {
 	int				i;
 	int				rdc_num = MyRdcOpts->rdc_num;
@@ -772,11 +789,6 @@ BroadcastPlanDataToRdc(char msg_type, RdcPortId planid)
 	RdcPort		   *rdc_port;
 	int				ret;
 	int				res = 0;
-	StringInfoData	buf;
-
-	rdc_beginmessage(&buf, msg_type);
-	rdc_sendRdcPortID(&buf, planid);
-	rdc_sendlength(&buf);
 
 	for (i = 0; i < rdc_num; i++)
 	{
@@ -789,21 +801,26 @@ BroadcastPlanDataToRdc(char msg_type, RdcPortId planid)
 			continue;
 
 		Assert(RdcPeerID(rdc_port) != MyReduceId);
-		rdc_putmessage(rdc_port, buf.data, buf.len);
+		rdc_putmessage(rdc_port, buf->data, buf->len);
 
-		ret = rdc_try_flush(rdc_port);
-		/* touble will be checked */
-		CHECK_FOR_INTERRUPTS();
-		if (ret != 0)
-		{
-			res = ret;
-			RdcWaitEvents(rdc_port) |= WT_SOCK_WRITEABLE;
-		}
+		if (flush)
+			ret = rdc_flush(rdc_port);
 		else
-			RdcWaitEvents(rdc_port) &= ~WT_SOCK_WRITEABLE;
+		{
+			ret = rdc_try_flush(rdc_port);
+			/* touble will be checked */
+			CHECK_FOR_INTERRUPTS();
+			if (ret != 0)
+			{
+				res = ret;
+				RdcWaitEvents(rdc_port) |= WT_SOCK_WRITEABLE;
+			}
+			else
+				RdcWaitEvents(rdc_port) &= ~WT_SOCK_WRITEABLE;
+		}
 	}
-	pfree(buf.data);
-	buf.data = NULL;
+	pfree(buf->data);
+	buf->data = NULL;
 
 	return res;
 }

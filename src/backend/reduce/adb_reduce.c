@@ -110,6 +110,9 @@ StartSelfReduceLauncher(RdcPortId rid)
 			backend_hold_port = rdc_newport(backend_reduce_fds[RDC_BACKEND_HOLD],
 											TYPE_REDUCE, SelfReduceID,
 											TYPE_BACKEND, InvalidPortId);
+			if (!rdc_set_noblock(backend_hold_port))
+				ereport(ERROR,
+						(errmsg("%s", RdcError(backend_hold_port))));
 			(void) MemoryContextSwitchTo(old_context);
 
 			return GetReduceListenPort();
@@ -188,20 +191,22 @@ CloseReducePort(void)
 static int
 GetReduceListenPort(void)
 {
-	int		port = 0;
-	char	mtype;
 	const char *error_msg = NULL;
+	StringInfo	msg_buf;
+	char		msg_type;
+	int			port;
 
-	mtype = rdc_getmessage(backend_hold_port, 0);
-	switch (mtype)
+	msg_type = rdc_getmessage(backend_hold_port, 0);
+	msg_buf = RdcInBuf(backend_hold_port);
+	switch (msg_type)
 	{
 		case MSG_LISTEN_PORT:
-			port = rdc_getmsgint(RdcInBuf(backend_hold_port), sizeof(port));
-			rdc_getmsgend(RdcInBuf(backend_hold_port));
+			port = rdc_getmsgint(msg_buf, sizeof(port));
+			rdc_getmsgend(msg_buf);
 			break;
 		case MSG_ERROR:
-			error_msg = rdc_getmsgstring(RdcInBuf(backend_hold_port));
-			rdc_getmsgend(RdcInBuf(backend_hold_port));
+			error_msg = rdc_getmsgstring(msg_buf);
+			rdc_getmsgend(msg_buf);
 		default:
 			ereport(ERROR,
 					(errmsg("fail to get reduce listen port"),

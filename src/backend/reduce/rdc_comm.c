@@ -51,7 +51,7 @@ static RdcPort *rdc_connect_start(const char *host, uint32 port,
 static int rdc_connect_complete(RdcPort *port);
 
 static ssize_t rdc_secure_read(RdcPort *port, void *ptr, size_t len, int flags);
-static int internal_flush_buffer(pgsocket sock, StringInfo buf, bool block);
+static int rdc_flush_buffer(RdcPort *port, StringInfo buf, bool block);
 static int internal_put_buffer(RdcPort *port, const char *s, size_t len, bool enlarge);
 static int internal_puterror(RdcPort *port, const char *s, size_t len, bool replace);
 
@@ -977,27 +977,7 @@ rdc_putmessage_extend(RdcPort *port, const char *s, size_t len, bool enlarge)
 int
 rdc_flush(RdcPort *port)
 {
-	AssertArg(port);
-
-	/* flush out buffer */
-	if (internal_flush_buffer(RdcSocket(port), RdcOutBuf(port), true))
-	{
-#ifdef RDC_FRONTEND
-		ClientConnectionLostType = RdcPeerType(port);
-		ClientConnectionLostID = RdcPeerID(port);
-#endif
-		return EOF;
-	}
-
-	/* just return if no error */
-	//if (!IsRdcPortError(port))
-	//	return 0;
-
-	/* flush error buffer */
-	//if (internal_flush_buffer(RdcSocket(port), &(port->err_buf), true))
-	//	return EOF;
-
-	return 0;
+	return rdc_flush_buffer(port, RdcOutBuf(port), true);
 }
 
 /*
@@ -1010,9 +990,7 @@ rdc_flush(RdcPort *port)
 int
 rdc_try_flush(RdcPort *port)
 {
-	AssertArg(port);
-
-	return internal_flush_buffer(RdcSocket(port), RdcOutBuf(port), false);
+	return rdc_flush_buffer(port, RdcOutBuf(port), false);
 }
 
 /*
@@ -1427,14 +1405,17 @@ internal_puterror(RdcPort *port, const char *s, size_t len, bool replace)
 }
 
 static int
-internal_flush_buffer(pgsocket sock, StringInfo buf, bool block)
+rdc_flush_buffer(RdcPort *port, StringInfo buf, bool block)
 {
 	int			r;
 	static int	last_reported_send_errno = 0;
+	pgsocket	sock = PGINVALID_SOCKET;
 
-	AssertArg(sock != PGINVALID_SOCKET);
+	AssertArg(port);
 	AssertArg(buf);
+	Assert(RdcSockIsValid(port));
 
+	sock = RdcSocket(port);
 	while (buf->cursor < buf->len)
 	{
 		r = send(sock, buf->data + buf->cursor, buf->len - buf->cursor, 0);
@@ -1480,6 +1461,10 @@ internal_flush_buffer(pgsocket sock, StringInfo buf, bool block)
 			 * the connection.
 			 */
 			buf->cursor = buf->len = 0;
+#if defined(RDC_FRONTEND)
+			ClientConnectionLostType = RdcPeerType(port);
+			ClientConnectionLostID = RdcPeerID(port);
+#endif
 			ClientConnectionLost = 1;
 			InterruptPending = 1;
 			return EOF;
