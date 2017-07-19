@@ -5736,12 +5736,17 @@ static bool can_once_grouping_cluster_path(PathTarget *target, Path *path)
 {
 	List *list;
 	ListCell *lc;
+	ReduceExprInfo *info;
 	bool result = false;
 
 	list = get_reduce_info_list(path);
 	foreach(lc, list)
 	{
-		if(is_grouping_reduce_expr(target, lfirst(lc)))
+		info = lfirst(lc);
+		if (IsReduce2Coordinator(info->expr)  ||
+			IsReduceReplicateExpr(info->expr) ||
+			list_length(info->execList) == 1  ||
+			is_grouping_reduce_expr(target, info))
 		{
 			result = true;
 			break;
