@@ -36,12 +36,12 @@ typedef struct
 
 typedef struct ReduceStorestate
 {
-	TupStoreStatus status;		/* enumerated value as shown above */
-	bool		truncated;		/* tuplestore_trim has removed tuples? */
-	int64		availMem;		/* remaining memory available, in bytes */
-	int64		allowedMem;		/* total memory allowed, in bytes */
-	RdcFile    *myfile;			/* underlying file, or NULL if none */
-	MemoryContext context;		/* memory context for holding tuples */
+	TupStoreStatus	status;		/* enumerated value as shown above */
+	bool			truncated;		/* tuplestore_trim has removed tuples? */
+	int64			availMem;		/* remaining memory available, in bytes */
+	int64			allowedMem;		/* total memory allowed, in bytes */
+	RdcFile			*myfile;			/* underlying file, or NULL if none */
+	MemoryContext	context;		/* memory context for holding tuples */
 
 	/*
 	 * Function to copy a supplied input tuple into palloc'd space. (NB: we
@@ -49,7 +49,7 @@ typedef struct ReduceStorestate
 	 * the representation must be "flat" in one palloc chunk.) state->availMem
 	 * must be decreased by the amount of space used.
 	 */
-	void	   *(*copytup) (struct ReduceStorestate *state, void *tup, uint32 len);
+	void		*(*copytup) (struct ReduceStorestate *state, void *tup, uint32 len);
 
 	/*
 	 * Function to write a stored tuple onto tape.  The representation of the
@@ -66,7 +66,7 @@ typedef struct ReduceStorestate
 	 * palloc'd copy, and decrease state->availMem by the amount of memory
 	 * space consumed.
 	 */
-	void	   *(*readtup) (struct ReduceStorestate *state, uint32 len);
+	void		*(*readtup) (struct ReduceStorestate *state, uint32 len);
 
 	/*
 	 * This array holds pointers to tuples in memory if we are in state INMEM.
@@ -78,7 +78,7 @@ typedef struct ReduceStorestate
 	 * are set to NULL to catch any invalid accesses.  Note that memtupcount
 	 * includes the deleted pointers.
 	 */
-	void	  **memtuples;		/* array of pointers to palloc'd tuples */
+	void		**memtuples;		/* array of pointers to palloc'd tuples */
 	int			memtupdeleted;	/* the first N slots are currently unused */
 	int			memtupcount;	/* number of tuples currently present */
 	int			memtupsize;		/* allocated length of memtuples array */
@@ -89,7 +89,7 @@ typedef struct ReduceStorestate
 	int			writepos_file;	/* file# (valid if READFILE state) */
 	off_t		writepos_offset;	/* offset (valid if READFILE state) */
 
-	char	   *purpose;		/* RSstate used  purpose */
+	char		*purpose;		/* RSstate used  purpose */
 	int			nodeId;			/* node id */
 	int 		fileCounter;    /* file counter */
 } RSstate;

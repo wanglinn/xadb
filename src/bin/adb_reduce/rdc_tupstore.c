@@ -103,10 +103,19 @@ static size_t rdcBufFileRead(RdcFile *file, void *ptr,
 						size_t size);
 static File rdcOpenTempFile(char ** filename);
 
-/* RSstate temp file info */
+/* RSstate temp file info .Some function use rdcFileCounter,but can't get RSstate,
+ * so use global params to store info.For example function : rdcOpenTempFile.
+ * RdcFileCounter : point to &(state->fileCounter),when temp file was created, sync info
+ * to RSstate.
+ */
 static int  *rdcFileCounter = NULL;
 static char *rdcPurpose = NULL;
 static int   rdcNodeId = 0;
+
+/*
+ * PUT_FILE_INFO and RESET_FILE_INFO must be used in function's begin and end,
+ * which may read or write file.
+ */
 
 /* set RSstate temp file info */
 #define PUT_FILE_INFO(state) \
@@ -293,15 +302,15 @@ rdcstore_puttuple_common(RSstate *state, void *tuple)
 			WRITETUP(state, tuple);
 			break;
 
-		 case TSS_READFILE:
-		 	/*
+		case TSS_READFILE:
+			/*
 			 * Switch from reading to writing.
 			 */
-			if (!readptr->eof_reached)  /* whether read eof */
+			if (!readptr->eof_reached)	/* whether read eof */
 				rdcBufFileTell(state->myfile, &readptr->file,
 							&readptr->offset);
 
-			 /* when switch from reading to writing, check read completely file */
+			/* when switch from reading to writing, check read completely file */
 			rdcCkeckReadFile(state);
 
 			if (rdcBufFileSeek(state->myfile,
@@ -315,7 +324,7 @@ rdcstore_puttuple_common(RSstate *state, void *tuple)
 			/* put new data in buffer, if eof_reached is true, set state */
 			if (readptr->eof_reached)
 				readptr->eof_reached = false;
-		 	break;
+			break;
 
 		default:
 			elog(ERROR, "invalid reduce store state");
@@ -346,7 +355,10 @@ rdcGrowMemtuples(RSstate *state)
 
 	/* Forget it if we've already maxed out memtuples, per comment above */
 	if (!state->growmemtuples)
+	{
+		elog(WARNING, "we've already maxed out memtuples befor, can't grow again");
 		return false;
+	}
 
 	/* Select new value of memtupsize */
 	if (memNowUsed <= state->availMem)
@@ -507,7 +519,7 @@ rdcWriteTuple(RSstate *state, void *tup)
 
 	/* record data len */
 	if (rdcBufFileWrite(state->myfile, (void *) &(rdData->len),
-					 			sizeof(rdData->len)) != sizeof(rdData->len))
+								sizeof(rdData->len)) != sizeof(rdData->len))
 			elog(ERROR, "write tuple size failed");
 
 	/* record data */
@@ -555,10 +567,7 @@ rdcCreateDir(char *path)
 	Assert(NULL != path);
 
 	len = strlen(path);
-	dir_path = (char*)palloc0(len + 1);
-	dir_path[len] = '\0';
-
-	strncpy(dir_path, path, len);
+	dir_path = pstrdup(path);
 
 	for(i = 0; i < len; i++)
 	{
@@ -568,8 +577,8 @@ rdcCreateDir(char *path)
 			if (access(dir_path, F_OK) < 0)
 			{
 				if (mkdir(dir_path, (S_IRUSR | S_IWUSR | S_IXUSR)) < 0)
-					elog(ERROR, "create dir error, mkdir=%s:msg=%s",
-							dir_path, strerror(errno));
+					elog(ERROR, "create dir error, mkdir=%s : %m",
+							dir_path);
 			}
 			dir_path[i] = '/';
 		}
@@ -579,8 +588,8 @@ rdcCreateDir(char *path)
 		if (access(dir_path, F_OK) < 0)
 		{
 			if (mkdir(dir_path, (S_IRUSR | S_IWUSR | S_IXUSR)) < 0)
-					elog(ERROR, "create dir error, mkdir=%s:msg=%s",
-							dir_path, strerror(errno));
+					elog(ERROR, "create dir error, mkdir=%s : %m",
+							dir_path);
 		}
 	}
 	pfree(dir_path);
@@ -610,12 +619,12 @@ rdcGetTupleLen(RSstate *state)
 static RdcFile *
 rdcBufFileCreateTemp(void)
 {
-	RdcFile    *file;
+	RdcFile		*file;
 	File		pfile;
 	char		*filename = NULL;
 
 	pfile = rdcOpenTempFile(&filename);
-	Assert(pfile >= 0);
+	Assert(pfile >= 0 && NULL != filename);
 
 	file = makeRdcBufFile(pfile);
 	file->isTemp = true;
@@ -626,13 +635,13 @@ rdcBufFileCreateTemp(void)
 static RdcFile *
 makeRdcBufFile(File firstfile)
 {
-	RdcFile    *file = (RdcFile *) palloc(sizeof(RdcFile));
+	RdcFile	*file = (RdcFile *)palloc(sizeof(RdcFile));
 
 	file->numFiles = 1;
-	file->files = (File *) palloc(sizeof(File));
+	file->files = (File *)palloc(sizeof(File));
 	file->files[0] = firstfile;
-	file->filelnames = (char**)palloc(sizeof(char *) * file->numFiles);
-	file->offsets = (off_t *) palloc(sizeof(off_t));
+	file->filelnames = (char**)palloc(sizeof(char *));
+	file->offsets = (off_t *)palloc(sizeof(off_t));
 	file->offsets[0] = 0L;
 	file->isTemp = false;
 	file->dirty = false;
@@ -641,7 +650,7 @@ makeRdcBufFile(File firstfile)
 	file->pos = 0;
 	file->nbytes = 0;
 
-	return file;
+	return	file;
 }
 
 static void
@@ -778,40 +787,39 @@ rdcBufFileDumpBuffer(RdcFile *file)
 		 * Enforce per-file size limit only for temp files, else just try to
 		 * write as much as asked...
 		 */
-		 bytestowrite = file->nbytes - wpos;
-		 if (file->isTemp)
-		 {
-		 	off_t		availbytes = MAX_PHYSICAL_FILESIZE - file->curOffset;
+		bytestowrite = file->nbytes - wpos;
+		if (file->isTemp)
+		{
+			off_t		availbytes = MAX_PHYSICAL_FILESIZE - file->curOffset;
 
 			if ((off_t) bytestowrite > availbytes)
 				bytestowrite = (int) availbytes;
-		 }
+		}
 
-		 /*
-		 * May need to reposition physical file.
-		 */
-		 thisfile = file->files[file->curFile];
+		/*
+		* May need to reposition physical file.
+		*/
+		thisfile = file->files[file->curFile];
 
-		 if (file->curOffset != file->offsets[file->curFile])
-		 {
-		 	if (lseek(thisfile, file->curOffset, SEEK_SET) < 0)
-		 	{
+		if (file->curOffset != file->offsets[file->curFile])
+		{
+			if (lseek(thisfile, file->curOffset, SEEK_SET) < 0)
+			{
 				if (EBADF == errno)
-					elog(ERROR, "lseek file error : %s, the file may be not open",
-						strerror(errno));
+					elog(ERROR, "lseek file error : %m, the file may be not open");
 
-				elog(ERROR, "lseek file error : %s", strerror(errno));
+				elog(ERROR, "lseek file error : %m");
 			}
 			else
 				file->offsets[file->curFile] = file->curOffset;
-		 }
+		}
 
-		 bytestowrite = rdcFileWrite(thisfile, file->buffer + wpos, bytestowrite);
-		 if (bytestowrite <= 0)
-			return;				/* failed to write */
-		 file->offsets[file->curFile] += bytestowrite;
-		 file->curOffset += bytestowrite;
-		 wpos += bytestowrite;
+		bytestowrite = rdcFileWrite(thisfile, file->buffer + wpos, bytestowrite);
+
+		Assert(bytestowrite >= 0);
+		file->offsets[file->curFile] += bytestowrite;
+		file->curOffset += bytestowrite;
+		wpos += bytestowrite;
 	}
 	file->dirty = false;
 
@@ -840,10 +848,12 @@ static void
 rdcExtendBufFile(RdcFile *file)
 {
 	File		pfile;
-	char 	  *filename;
+	char		*filename;
 
 	Assert(file->isTemp);
+	/* create new temp file */
 	pfile = rdcOpenTempFile(&filename);
+
 	Assert(pfile >= 0);
 
 	file->files = (File *) repalloc(file->files,
@@ -862,27 +872,26 @@ rdcExtendBufFile(RdcFile *file)
 static int
 rdcFileWrite(File file, char *buffer, int amount)
 {
-	int			returnCode;
-	Assert(file > 0);
+	int			writeBytes;
 
+	Assert(file > 0 && NULL != buffer && amount > 0);
 retry:
-	errno = 0;
-	returnCode = write(file, buffer, amount);
+	writeBytes = write(file, buffer, amount);
 
-	/* if write didn't set errno, assume problem is no disk space */
-	if (returnCode != amount && errno == 0)
-		errno = ENOSPC;
-
-	if (returnCode < 0)
+	if (writeBytes < 0)
 	{
 		/* OK to retry if interrupted */
 		if (errno == EINTR)
 			goto retry;
 		else
-			elog(WARNING, "write temp file error , %s",
-				 strerror(errno));
+			elog(ERROR, "write temp file error , %m");
 	}
-	return returnCode;
+	else if (writeBytes > 0 && writeBytes != amount)
+	{
+		/* problem is no disk space */
+		elog(ERROR, "write temp file no disk space ");
+	}
+	return writeBytes;
 }
 
 static size_t
@@ -939,9 +948,8 @@ static File
 rdcOpenTempFile(char ** filename)
 {
 	char	tempdirpath[MAXPGPATH];
-	char    tempfilepath[MAXPGPATH];
-	File    file;
-	int		len;
+	char	tempfilepath[MAXPGPATH];
+	File	file;
 
 	/* The default tablespace is {datadir}/base */
 	snprintf(tempdirpath, sizeof(tempdirpath), "base/%s", RDC_TEMP_FILES_DIR);
@@ -958,22 +966,19 @@ rdcOpenTempFile(char ** filename)
 	 * Open the file.  Note: we don't use O_EXCL, in case there is an orphaned
 	 * temp file that can be reused.
 	 */
-	file = open(tempfilepath, O_RDWR | O_CREAT);
+	file = open(tempfilepath, O_RDWR | O_CREAT | O_TRUNC | PG_BINARY);
 
 	if (file < 0)
 	{
 		rdcCreateDir(tempdirpath);
-		file = open(tempfilepath, O_RDWR | O_CREAT);
+		file = open(tempfilepath, O_RDWR | O_CREAT | O_TRUNC | PG_BINARY);
 
 		if (file < 0)
 			elog(ERROR, "could not create temporary file \"%s\": %m",
 				 tempfilepath);
 	}
 
-	len = strlen(tempfilepath);
-	*filename = (char *)palloc0(len + 1);
-	memcpy(*filename, tempfilepath, len);
-	(*filename)[len] = '\0';
+	*filename = pstrdup(tempfilepath);
 
 	return file;
 }
@@ -1000,8 +1005,8 @@ rdcBufFileSeek(RdcFile *file, int fileno,
 	}
 
 	if(newFile == file->curFile &&
-	   newOffset >= file->curOffset &&
-	   newOffset <= file->curOffset + file->nbytes)
+		newOffset >= file->curOffset &&
+		newOffset <= file->curOffset + file->nbytes)
 	{
 		/*
 		 * Seek is to a point within existing buffer; we can just adjust
@@ -1162,7 +1167,9 @@ rdcstore_begin(int maxKBytes, char* purpose, int nodeId,
 			   pid_t pid, pid_t ppid, pg_time_t time)
 {
 	RSstate *state;
-	Assert(maxKBytes > 0 && NULL !=purpose && nodeId >= 0);
+
+	Assert(maxKBytes > 0 && NULL !=purpose &&
+		nodeId >= 0 && pid > 0 && ppid > 0 && time > 0);
 
 	state = rdcstore_begin_common(maxKBytes, purpose, nodeId,
 								  pid, ppid, time);
