@@ -249,6 +249,14 @@ extern Path *reparameterize_path(PlannerInfo *root, Path *path,
 #define GPEO_IGNORE_ANY_OTHER		(1<<1)
 
 struct ReduceExprInfo;
+struct HTAB;
+typedef struct ExecNodeInfo
+{
+	Oid nodeOid;
+	uint32 rep_count;	/* replicate table count */
+	double size;		/* rows*width with replicate table */
+	uint32 part_count;	/* partial table count */
+}ExecNodeInfo;
 
 extern bool is_cluster_path(Path *path);
 extern bool have_cluster_gather_path(Path *path, void *context);
@@ -258,7 +266,7 @@ extern ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo 
 extern ClusterScanPath *create_cluster_scan_path(Path *sub_path, List *rnodes, RelOptInfo *rel);
 extern ClusterReducePath *create_cluster_reduce_path(Path *sub_path, struct ReduceExprInfo *rinfo, RelOptInfo *rel);
 
-extern List* get_path_execute_on(Path *path, int flags, int *execute_on);
+extern struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab);
 
 #endif /* ADB */
 

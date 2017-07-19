@@ -30,9 +30,11 @@
 #include "utils/selfuncs.h"
 
 #ifdef ADB
+#include "catalog/pgxc_node.h"
 #include "commands/tablecmds.h"
 #include "libpq/libpq-node.h"
 #include "optimizer/restrictinfo.h"
+#include "pgxc/pgxcnode.h"
 #endif
 
 typedef enum
@@ -3409,153 +3411,102 @@ static void copy_path_info(Path *dest, const Path *src)
 	dest->pathkeys = src->pathkeys;
 }
 
-typedef struct GPEOContext
+static ExecNodeInfo* get_exec_node_info(HTAB *htab, Oid nodeOid)
 {
-	Bitmapset *bmsDatanodes;
-	List *dn_oid_list;
-	int flags;
-	int execute_on;
-	bool have_local;
-}GPEOContext;
+	ExecNodeInfo *info;
+	bool found;
+	info = hash_search(htab, &nodeOid, HASH_ENTER, &found);
+	if(found == false)
+	{
+		info->nodeOid = nodeOid;
+		info->rep_count = 0;
+		info->part_count = 0;
+		info->size = 0.0;
+	}
+	return info;
+}
 
-static bool get_path_execute_on_walker(Path *path, GPEOContext *context)
+static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 {
-	RelOptInfo *rel;
-
+	RelationLocInfo *loc;
 	if(path == NULL)
 		return false;
-
-	rel = path->parent;
 	switch(nodeTag(path))
 	{
 	case T_Path:
-		switch(path->pathtype)
-		{
-		case T_SeqScan:
-		case T_SampleScan:
-		case T_IndexScan:
-		case T_IndexOnlyScan:
-		case T_BitmapHeapScan:
-		case T_TidScan:
-			Assert(rel && rel->loc_info == NULL);
-			context->have_local = true;
-			break;
-		case T_FunctionScan:
-			{
-				RangeTblEntry *rte = planner_rt_fetch(rel->relid, rel->subroot);
-				Assert(rte);
-				if(has_cluster_hazard((Node*)(rte->functions)))
-				{
-					context->have_local = true;
-					context->execute_on |= REMOTE_EXECUTE_ON_MUST_LOCAL;
-				}
-			}
-			break;
-		case T_CteScan:
-			context->have_local = true;
-			context->execute_on |= REMOTE_EXECUTE_ON_MUST_LOCAL;
-			break;
-		default:
-			break;
-		}
-		break;
-	/* TODO:
-	 * case T_TidPath:
-		break;*/
-	case T_SubqueryScanPath:
-		if(context->flags & GPEO_IGNORE_SUBQUERY)
+		if(path->pathtype != T_SeqScan)
 			return false;
-		break;
-	case T_ForeignPath:
-	case T_CustomPath:
-		context->have_local = true;
-		context->execute_on |= REMOTE_EXECUTE_ON_MUST_LOCAL;
-		break;
-	case T_ModifyTablePath:
+		/* don't add "break;" here */
+	case T_IndexPath:
+	case T_TidPath:
+		Assert(path->parent->reloptkind == RELOPT_BASEREL &&
+			   path->parent->rtekind == RTE_RELATION);
+		loc = path->parent->loc_info;
+		if(loc != NULL)
 		{
-			ModifyTablePath *mtp = (ModifyTablePath*)path;
-			Query *parse = rel->subroot->parse;
-			RangeTblEntry *rte;
-			RelationLocInfo *rel_loc_info;
-			ListCell *lc,*lc2;
-			foreach(lc, mtp->resultRelations)
-			{
-				rte = rt_fetch(lfirst_int(lc), parse->rtable);
-				rel_loc_info = GetRelationLocInfo(rte->relid);
-				if(rel_loc_info == NULL)
-				{
-					context->have_local = true;
-					context->execute_on = REMOTE_EXECUTE_ON_MUST_LOCAL;
-					continue;
-				}else if(rel_loc_info->nodeList != NIL)
-				{
-					foreach(lc2, rel_loc_info->nodeList)
-					{
-						context->bmsDatanodes =
-								bms_add_member(context->bmsDatanodes,
-											   lfirst_int(lc2));
-					}
-					context->execute_on |= REMOTE_EXECUTE_ON_DATANODE;
-				}
-				FreeRelationLocInfo(rel_loc_info);
-			}
-		}
-		break;
-	case T_ClusterScanPath:
-		{
+			ExecNodeInfo *exec_info;
 			ListCell *lc;
-			foreach(lc, ((ClusterPath*)path)->rnodes)
+			if(IsRelationReplicated(loc))
 			{
-				if(list_member_oid(context->dn_oid_list, lfirst_oid(lc)) == false)
-					context->dn_oid_list = lappend_oid(context->dn_oid_list, lfirst_oid(lc));
+				double size = path->rows * path->pathtarget->width;
+				List *list = PGXCNodeGetNodeOidList(loc->nodeList, PGXC_NODE_DATANODE);
+				foreach(lc, list)
+				{
+					exec_info = get_exec_node_info(htab, lfirst_oid(lc));
+					++(exec_info->rep_count);
+					exec_info->size += size;
+				}
+				list_free(list);
+			}else if(IsRelationDistributedByValue(loc))
+			{
+				Assert(list_length(path->reduce_info_list) == 1);
+				ReduceExprInfo *reduceInfo = linitial(path->reduce_info_list);
+				foreach(lc, reduceInfo->execList)
+				{
+					exec_info = get_exec_node_info(htab, lfirst_oid(lc));
+					++(exec_info->part_count);
+				}
+			}else if(loc->locatorType == LOCATOR_TYPE_RROBIN)
+			{
+				List *list = PGXCNodeGetNodeOidList(loc->nodeList, PGXC_NODE_DATANODE);
+				foreach(lc, list)
+				{
+					exec_info = get_exec_node_info(htab, lfirst_oid(lc));
+					++(exec_info->part_count);
+				}
+			}else
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						errmsg("unknown locator type %d", loc->locatorType)));
 			}
-			context->execute_on |= REMOTE_EXECUTE_ON_DATANODE;
+		}else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("not support local table yet!")));
 		}
 		return false;
 	default:
 		break;
 	}
 
-	if(context->flags & GPEO_IGNORE_ANY_OTHER)
-		return false;
-
-	return path_tree_walker(path, get_path_execute_on_walker, context);
+	return path_tree_walker(path, get_path_execute_on_walker, htab);
 }
 
-List* get_path_execute_on(Path *path, int flags, int *execute_on)
+struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab)
 {
-	GPEOContext context;
-	int x;
-
-	context.flags = flags;
-	context.execute_on = 0;
-	context.bmsDatanodes = NULL;
-	context.dn_oid_list = NIL;
-	context.have_local = false;
-	get_path_execute_on_walker(path, &context);
-
-	if(context.have_local)
+	if(htab == NULL)
 	{
-		context.execute_on |= REMOTE_EXECUTE_ON_LOCAL;
-	}else if(context.execute_on == 0)
-	{
-		Assert(context.bmsDatanodes == NULL);
-		Assert(context.dn_oid_list = NIL);
-		context.execute_on = REMOTE_EXECUTE_ON_ANY;
+		HASHCTL hctl;
+		MemSet(&hctl, 0, sizeof(hctl));
+		hctl.keysize = sizeof(Oid);
+		hctl.entrysize = sizeof(ExecNodeInfo);
+		hctl.hcxt = CurrentMemoryContext;
+		htab = hash_create("hash execute node info", 128, &hctl, HASH_ELEM|HASH_CONTEXT);
 	}
-	while((x = bms_first_member(context.bmsDatanodes)) >= 0)
-	{
-		Oid oid = PQNNodeGetNodeOid(x|PQN_DATANODE_VALUE);
-		Assert(OidIsValid(oid));
-		if(list_member_oid(context.dn_oid_list, oid) == false)
-			context.dn_oid_list = lappend_oid(context.dn_oid_list, oid);
-	}
-
-	if(execute_on)
-		*execute_on = context.execute_on;
-	bms_free(context.bmsDatanodes);
-
-	return context.dn_oid_list;
+	get_path_execute_on_walker(path, htab);
+	return htab;
 }
 
 #endif /* ADB */
