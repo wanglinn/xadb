@@ -46,6 +46,7 @@
 #include "catalog/pgxc_node.h"
 #include "pgxc/pgxcnode.h"
 #include "pgxc/pgxc.h"
+#include "optimizer/pathnode.h"
 #include "optimizer/pgxcplan.h"
 #endif /* ADB */
 
@@ -6386,7 +6387,7 @@ static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 	plan = makeNode(ClusterMergeGather);
 	plan->plan.targetlist = subplan->targetlist;
 	outerPlan(plan) = subplan;
-	plan->rnodes = get_remote_nodes(subplan);
+	plan->rnodes = get_remote_nodes(root, path->subpath);
 
 	copy_generic_path_info(&plan->plan, (Path*)path);
 
@@ -6420,7 +6421,7 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 		plan->plan.targetlist = subplan->targetlist;
 	}
 	outerPlan(plan) = subplan;
-	plan->rnodes = get_remote_nodes(subplan);
+	plan->rnodes = get_remote_nodes(root, path->subpath);
 
 	copy_generic_path_info(&plan->plan, (Path*)path);
 
@@ -6444,36 +6445,51 @@ static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath 
 	return plan;
 }
 
-static bool search_remote_nodes(Node *node, List **pplist)
-{
-	if(node == NULL)
-		return false;
-
-	check_stack_depth();
-
-	if(IsA(node, ClusterScan))
-	{
-		ListCell *lc;
-		List *list = *pplist;
-		foreach(lc, ((ClusterScan*)node)->rnodes)
-		{
-			if(list_member_oid(list, lfirst_oid(lc)) == false)
-				list = lappend_oid(list, lfirst_oid(lc));
-		}
-		*pplist = list;
-		return false;
-	}
-	return node_tree_walker(node, search_remote_nodes, (void*)pplist);
-}
-
 /* return remote node's Oid */
-List* get_remote_nodes(Plan *top_plan)
+List* get_remote_nodes(PlannerInfo *root, Path *path)
 {
 	List *list;
-	AssertArg(top_plan);
+	HTAB *htab;
+	ListCell *lc;
+	ExecNodeInfo *info;
+	HASH_SEQ_STATUS seq_status;
+	AssertArg(root && path);
+
+	htab = get_path_execute_on(path, NULL);
+	foreach(lc, root->glob->subroots)
+	{
+		PlannerInfo *subroot = lfirst(lc);
+		RelOptInfo *rel = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
+		/* for now we only can using cheapest_cluster_total_path */
+		if(rel->cheapest_cluster_total_path == NULL)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("not support none cluster path")));
+		}
+		htab = get_path_execute_on(rel->cheapest_cluster_total_path, htab);
+	}
 
 	list = NIL;
-	search_remote_nodes((Node*)top_plan, &list);
+	hash_seq_init(&seq_status, htab);
+	while((info = hash_seq_search(&seq_status)) != NULL)
+	{
+		if(info->part_count > 0)
+			list = lappend_oid(list, info->nodeOid);
+	}
+	if(list == NIL)
+	{
+		hash_seq_init(&seq_status, htab);
+		while((info = hash_seq_search(&seq_status)) != NULL)
+		{
+			Assert(info->rep_count > 0);
+			list = lappend_oid(list, info->nodeOid);
+			hash_seq_term(&seq_status);
+			break;
+		}
+	}
+	hash_destroy(htab);
+
 	return list;
 }
 
