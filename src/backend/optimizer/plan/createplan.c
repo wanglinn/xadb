@@ -6567,19 +6567,36 @@ bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info)
 	return result;
 }
 
-bool is_reduce_list_can_join(List *outer_reduce_list,
+bool is_reduce_list_can_inner_join(List *outer_reduce_list,
 							List *inner_reduce_list,
 							List *restrictlist)
 {
 	ListCell *outer_lc,*inner_lc;
+	ReduceExprInfo *outer_reduce;
+	ReduceExprInfo *inner_reduce;
 
 	foreach(outer_lc, outer_reduce_list)
 	{
-		AssertArg(lfirst(outer_lc));
+		outer_reduce = lfirst(outer_lc);
+		AssertArg(outer_reduce);
+		if(IsReduceReplicateExpr(outer_reduce->expr))
+			return true;
+
 		foreach(inner_lc, inner_reduce_list)
 		{
-			AssertArg(lfirst(inner_lc));
-			if(is_reduce_info_can_join(lfirst(outer_lc), lfirst(inner_lc), restrictlist))
+			inner_reduce = lfirst(inner_lc);
+			AssertArg(inner_reduce);
+			if (IsReduceReplicateExpr(inner_reduce->expr) ||
+				(IsReduce2Coordinator(outer_reduce->expr) && IsReduce2Coordinator(inner_reduce->expr)))
+				return true;
+			if (!IsReduce2Coordinator(outer_reduce->expr) &&
+				/* !IsReduce2Coordinator(inner_reduce->expr) && // don't need this line */
+				equal(outer_reduce->expr, inner_reduce->expr) &&
+				list_length(outer_reduce->execList) == 1 &&
+				equal(outer_reduce->execList, inner_reduce->execList))
+				return true;
+			if (equal(outer_reduce->expr, inner_reduce->expr) &&
+				is_reduce_info_can_join(outer_reduce, inner_reduce, restrictlist))
 				return true;
 		}
 	}
@@ -6703,9 +6720,6 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 	{
 	case T_LimitPath:
 	case T_SortPath:
-	case T_NestPath:
-	case T_MergePath:
-	case T_HashPath:
 	case T_ResultPath:
 	case T_MaterialPath:
 	case T_ProjectionPath:
@@ -6791,6 +6805,82 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 			}
 			path->reduce_is_valid = true;
 		}
+		break;
+	case T_HashPath:
+	case T_MergePath:
+	case T_NestPath:
+		{
+			JoinPath *jpath = (JoinPath*)path;
+			List *outer_reduce_list = NIL;
+			List *inner_reduce_list = NIL;
+			ListCell *outer_lc,*inner_lc;
+			ReduceExprInfo *outer_reduce,*inner_reduce;
+			Bitmapset *bms_inner = NULL;
+			int i;
+			find_cluster_reduce_expr(jpath->outerjoinpath, &outer_reduce_list);
+			find_cluster_reduce_expr(jpath->innerjoinpath, &inner_reduce_list);
+			foreach(outer_lc, outer_reduce_list)
+			{
+				bool outer_saved;
+				outer_reduce = lfirst(outer_lc);
+				if(IsReduce2Coordinator(outer_reduce->expr))
+				{
+					Assert(list_length(outer_reduce_list) == 1 &&
+						   list_length(inner_reduce_list) == 1 &&
+						   IsReduce2Coordinator(((ReduceExprInfo*)linitial(inner_reduce_list))->expr));
+					path->reduce_info_list = lappend(path->reduce_info_list, copy_reduce_info(outer_reduce));
+					break;
+				}else if(IsReduceReplicateExpr(outer_reduce->expr))
+				{
+					Assert(list_length(outer_reduce_list) == 1);
+					if (list_length(inner_reduce_list) == 1 &&
+						IsReduceReplicateExpr(((ReduceExprInfo*)linitial(inner_reduce_list))->expr))
+					{
+						path->reduce_info_list = lappend(path->reduce_info_list, copy_reduce_info(outer_reduce));
+					}else
+					{
+						Assert(jpath->jointype == JOIN_INNER);
+					}
+					break;
+				}
+
+				Assert(IsReduceExprByValue(outer_reduce->expr));
+				outer_saved = false;
+				for(i=0,inner_lc=list_head(inner_reduce_list);inner_lc!=NULL;inner_lc=lnext(inner_lc),++i)
+				{
+					bool hint;
+					if(bms_is_member(i,bms_inner))
+						continue;
+
+					inner_reduce = lfirst(inner_lc);
+					hint = false;
+					if (list_length(outer_reduce->execList) == 1
+						&& equal(outer_reduce->execList, inner_reduce->execList))
+					{
+						hint = true;
+					}
+					else if(jpath->jointype == JOIN_INNER)
+					{
+						Assert(equal(outer_reduce->expr, inner_reduce->expr));
+						hint = true;
+					}
+					if(hint)
+					{
+						if(outer_saved == false)
+						{
+							path->reduce_info_list = lappend(path->reduce_info_list,
+															 copy_reduce_info(outer_reduce));
+							outer_saved = true;
+						}
+						path->reduce_info_list = lappend(path->reduce_info_list,
+														 copy_reduce_info(inner_reduce));
+						bms_inner = bms_add_member(bms_inner, i);
+					}
+				}
+			}
+			bms_free(bms_inner);
+		}
+		path->reduce_is_valid = true;
 		break;
 	case T_GroupingSetsPath:
 	case T_AppendPath:

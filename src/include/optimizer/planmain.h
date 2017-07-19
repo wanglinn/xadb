@@ -144,7 +144,7 @@ extern List* copy_reduce_info_list(List *list);
 extern ReduceExprInfo* copy_reduce_info(const ReduceExprInfo *info);
 extern ReduceExprInfo* make_reduce_coord(void);
 extern bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info);
-extern bool is_reduce_list_can_join(List *outer_reduce_list, List *inner_reduce_list, List *restrictlist);
+extern bool is_reduce_list_can_inner_join(List *outer_reduce_list, List *inner_reduce_list, List *restrictlist);
 #endif
 
 #endif   /* PLANMAIN_H */
