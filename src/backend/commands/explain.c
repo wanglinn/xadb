@@ -952,6 +952,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_ClusterGetCopyData:
 			pname = sname = "Cluster Get Copy Data";
 			break;
+		case T_ClusterReduce:
+			pname = sname = "Cluster Reduce";
+			break;
 #endif /*ADB*/
 		case T_ForeignScan:
 			sname = "Foreign Scan";
