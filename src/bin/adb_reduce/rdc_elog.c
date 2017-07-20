@@ -48,7 +48,9 @@ static bool saved_timeval_set = false;
 static char formatted_start_time[FORMATTED_TS_LEN];
 static char formatted_log_time[FORMATTED_TS_LEN];
 
+#ifdef NOT_USED
 static RdcPort *MyRdcPort = NULL;
+#endif
 
 /* Macro for checking errordata_stack_depth is reasonable */
 #define CHECK_STACK_DEPTH() \
@@ -70,7 +72,9 @@ static const char *error_severity(int elevel);
 static void write_csvlog(ErrorData *edata);
 static void rdc_send_message_to_server_log(ErrorData *edata);
 static void write_pipe_chunks(char *data, int len, int dest);
+#ifdef NOT_USED
 static void rdc_send_message_to_frontend(ErrorData *edata);
+#endif
 static void write_console(const char *line, int len);
 static void append_with_tabs(StringInfo buf, const char *str);
 static void setup_formatted_log_time(void);
@@ -1871,7 +1875,7 @@ rdc_send_message_to_server_log(ErrorData *edata)
 	setup_formatted_log_time();
 	appendStringInfo(&buf, "[%s]", formatted_log_time);
 	appendStringInfo(&buf, "[%s]: ", _(error_severity(edata->elevel)));
-	appendStringInfo(&buf, "[REDUCE %ld] ", MyReduceId);
+	appendStringInfo(&buf, "[REDUCE " PORTID_FORMAT "] ", MyReduceId);
 
 	if (edata->message)
 		append_with_tabs(&buf, edata->message);
@@ -2236,6 +2240,7 @@ write_csvlog(ErrorData *edata)
 	pfree(buf.data);
 }
 
+#ifdef NOT_USED
 /*
  * Write error report to server's log
  */
@@ -2381,6 +2386,7 @@ rdc_send_message_to_frontend(ErrorData *edata)
 	 */
 	rdc_flush(MyRdcPort);
 }
+#endif
 
 /*
  * elog_start --- startup for old-style API

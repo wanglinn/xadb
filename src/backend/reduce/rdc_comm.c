@@ -1021,8 +1021,8 @@ _retry_recv:
 		if (nready < 0)
 			ereport(ERROR,
 				(errcode(ERRCODE_ADMIN_SHUTDOWN),
-				 errmsg("fail to wait read/write event for socket of [%s %ld]",
-				 		RdcPeerTypeStr(port), RdcPeerID(port))));
+				 errmsg("fail to wait read/write event for socket of" RDC_PORT_PRINT_FORMAT,
+				 		RDC_PORT_PRINT_VALUE(port))));
 		if (MyBossSock != PGINVALID_SOCKET)
 		{
 			wee = nextWaitEventElt(RdcWaitSet);
@@ -1737,8 +1737,8 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 		if (rsp_id != expected_id)
 		{
 			rdc_puterror(port,
-						 "expected port id '%ld' from server, "
-						 "but received response id '%ld'",
+						 "expected port id '" PORTID_FORMAT "' from server, "
+						 "but received response id '" PORTID_FORMAT "'",
 						 expected_id, rsp_id);
 			return RDC_POLLING_FAILED;
 		}

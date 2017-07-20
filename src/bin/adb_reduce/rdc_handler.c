@@ -310,7 +310,7 @@ HandleReadFromPlan(PlanPort *pln_port)
 	if (!PlanPortIsValid(pln_port))
 		return ;
 
-	SetRdcPsStatus(" reading from plan %ld", PlanID(pln_port));
+	SetRdcPsStatus(" reading from plan " PORTID_FORMAT, PlanID(pln_port));
 	for (work_port = pln_port->port;
 		 work_port != NULL;
 		 work_port= RdcNext(work_port))
@@ -351,7 +351,7 @@ HandleWriteToPlan(PlanPort *pln_port)
 	if (!PlanPortIsValid(pln_port))
 		return ;
 
-	SetRdcPsStatus(" writing to plan %ld", PlanID(pln_port));
+	SetRdcPsStatus(" writing to plan " PORTID_FORMAT, PlanID(pln_port));
 	rdcstore = pln_port->rdcstore;
 	port = pln_port->port;
 	eof = (pln_port->eof_num == (pln_port->rdc_num - 1));
@@ -521,7 +521,8 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 					{
 						rdc_getmsgend(msg);
 						elog(LOG,
-							 "receive EOF message of PLAN %ld from" RDC_PORT_PRINT_FORMAT,
+							 "receive EOF message of PLAN " PORTID_FORMAT
+							 " from" RDC_PORT_PRINT_FORMAT,
 							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in EOF message */
 						SendRdcEofToPlan(pln_port, RdcPeerID(rdc_port), true);
@@ -530,7 +531,8 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 					{
 						rdc_getmsgend(msg);
 						elog(LOG,
-							 "receive CLOSE message of PLAN %ld from" RDC_PORT_PRINT_FORMAT,
+							 "receive CLOSE message of PLAN " PORTID_FORMAT
+							 " from" RDC_PORT_PRINT_FORMAT,
 							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in PLAN CLOSE message */
 						SendPlanCloseToPlan(pln_port, RdcPeerID(rdc_port));
@@ -563,7 +565,7 @@ HandleReadFromReduce(RdcPort *rdc_port, List **pln_nodes)
 	if (!PortIsValid(rdc_port))
 		return ;
 
-	SetRdcPsStatus(" reading from reduce %ld", RdcPeerID(rdc_port));
+	SetRdcPsStatus(" reading from reduce " PORTID_FORMAT, RdcPeerID(rdc_port));
 	do {
 		HandleRdcMsg(rdc_port, pln_nodes);
 		if (!PortIsValid(rdc_port))		/* break if port is invalid */
@@ -585,7 +587,7 @@ HandleWriteToReduce(RdcPort *rdc_port)
 	if (!PortIsValid(rdc_port))
 		return ;
 
-	SetRdcPsStatus(" writing to reduce %ld", RdcPeerID(rdc_port));;
+	SetRdcPsStatus(" writing to reduce " PORTID_FORMAT, RdcPeerID(rdc_port));;
 	ret = rdc_try_flush(rdc_port);
 	CHECK_FOR_INTERRUPTS();
 	if (ret != 0)
@@ -672,7 +674,8 @@ SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 	{
 		if (error_if_exists)
 			ereport(ERROR,
-				(errmsg("receive EOF message of plan %ld from REDUCE %ld once again",
+				(errmsg("receive EOF message of plan " PORTID_FORMAT
+						" from REDUCE " PORTID_FORMAT " once again",
 				 PlanID(pln_port), rdc_id)));
 	} else
 		pln_port->rdc_eofs[pln_port->eof_num++] = rdc_id;
@@ -786,7 +789,7 @@ SendPlanEofToRdc(RdcPortId planid)
 	rdc_sendlength(&buf);
 
 	elog(LOG,
-		 "broadcast EOF message of plan %ld to reduce group",
+		 "broadcast EOF message of plan " PORTID_FORMAT " to reduce group",
 		 planid);
 
 	return BroadcastDataToRdc(&buf, false);
@@ -810,7 +813,7 @@ SendPlanCloseToRdc(RdcPortId planid)
 	rdc_sendlength(&buf);
 
 	elog(LOG,
-		 "broadcast CLOSE message of plan %ld to reduce group",
+		 "broadcast CLOSE message of plan " PORTID_FORMAT " to reduce group",
 		 planid);
 
 	return BroadcastDataToRdc(&buf, false);
@@ -893,7 +896,7 @@ LookUpReducePort(RdcPortId rpid)
 	}
 
 	ereport(ERROR,
-			(errmsg("REDUCE %ld doesn't exists", rpid)));
+			(errmsg("REDUCE " PORTID_FORMAT " doesn't exists", rpid)));
 
 	return NULL;
 }

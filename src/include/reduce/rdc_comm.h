@@ -71,6 +71,7 @@ typedef enum
 
 typedef int64 RdcPortId;
 
+#define PORTID_FORMAT			INT64_FORMAT
 #define InvalidPortId			((RdcPortId) -1)
 
 typedef enum

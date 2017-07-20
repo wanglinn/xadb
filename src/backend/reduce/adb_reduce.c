@@ -276,7 +276,7 @@ SendPlanCloseToSelfReduce(RdcPort *port, bool broadcast)
 	char			buf[1];
 
 	elog(LOG,
-		 "Backend send CLOSE message of plan %ld",
+		 "Backend send CLOSE message of plan " PORTID_FORMAT,
 		 RdcSelfID(port));
 
 	if (!RdcSockIsValid(port))
@@ -314,7 +314,7 @@ SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot)
 	if (TupIsNull(slot))
 	{
 		elog(LOG,
-			 "Backend send EOF message of plan %ld",
+			 "Backend send EOF message of plan " PORTID_FORMAT,
 			 RdcSelfID(port));
 
 		buf = "EOF message";
@@ -382,7 +382,7 @@ GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof, List **closed_
 				RdcPortId		rid;
 				/* reduce id while slot comes from */
 				rid = rdc_getmsgRdcPortID(msg);
-				elog(DEBUG1, "fetch tuple from REDUCE %ld", rid);
+				elog(DEBUG1, "fetch tuple from REDUCE " PORTID_FORMAT, rid);
 				msg_len -= sizeof(rid);
 #endif
 				data = rdc_getmsgbytes(msg, msg_len);

@@ -237,7 +237,7 @@ ParseReduceOptions(int argc, char *const argv[])
 			case 'n':
 				MyReduceId = atoll(optarg);
 				if (MyReduceId <= InvalidPortId)
-					elog(ERROR, "invalid Reduce ID number: %ld", MyReduceId);
+					elog(ERROR, "invalid Reduce ID number: " PORTID_FORMAT, MyReduceId);
 				break;
 			case 'h':
 				MyRdcOpts->lhost = pstrdup(optarg);
@@ -295,7 +295,7 @@ ParseReduceOptions(int argc, char *const argv[])
 	{
 		StringInfoData buf;
 		initStringInfo(&buf);
-		appendStringInfo(&buf, "reduce process(%ld)", MyReduceId);
+		appendStringInfo(&buf, "reduce process(" PORTID_FORMAT ")", MyReduceId);
 		init_ps_display(buf.data, "", "", "");
 		pfree(buf.data);
 		buf.data = NULL;
@@ -561,7 +561,7 @@ DropPlanGroup(void)
 	{
 		pln_port = (PlanPort *) lfirst(cell);
 		elog(LOG,
-			 "free [PLAN %ld]", pln_port->pln_id);
+			 "free [PLAN " PORTID_FORMAT "]", PlanID(pln_port));
 		plan_freeport(pln_port);
 	}
 	list_free(MyRdcOpts->pln_nodes);

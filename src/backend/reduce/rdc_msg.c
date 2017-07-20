@@ -82,7 +82,9 @@ rdc_send_group_rqt(RdcPort *port, RdcMask *rdc_masks, int num)
 		Assert(mask->rdc_host[0]);
 		Assert(mask->rdc_port > 1024 && mask->rdc_port < 65535);
 #ifdef DEBUG_ADB
-		elog(LOG, "[Reduce %ld] {%s:%d}", mask->rdc_rpid, mask->rdc_host, mask->rdc_port);
+		elog(LOG,
+			 "[REDUCE " PORTID_FORMAT "] {%s:%d}",
+			 mask->rdc_rpid, mask->rdc_host, mask->rdc_port);
 #endif
 		rdc_sendRdcPortID(&buf, mask->rdc_rpid);
 		rdc_sendint(&buf, mask->rdc_port, sizeof(mask->rdc_port));
@@ -163,8 +165,8 @@ rdc_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId expecte
 		if (rsp_id != expected_id)
 		{
 			rdc_puterror(port,
-						 "expected port id '%ld' from server, "
-						 "but received response id '%ld'",
+						 "expected port id '" PORTID_FORMAT "' from server, "
+						 "but received response id '" PORTID_FORMAT "'",
 						 expected_id, rsp_id);
 			return EOF;
 		}

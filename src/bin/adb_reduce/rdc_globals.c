@@ -31,7 +31,7 @@ void rdc_ProcessInterrupts(void)
 		QueryCancelPending = false;		/* lost connection trumps QueryCancel */
 		ereport(FATAL,
 				(errcode(ERRCODE_CONNECTION_FAILURE),
-				 errmsg("connection to [%s %ld] lost",
+				 errmsg("connection to [%s " PORTID_FORMAT "] lost",
 						rdc_type2string(ClientConnectionLostType),
 						ClientConnectionLostID)));
 	}
