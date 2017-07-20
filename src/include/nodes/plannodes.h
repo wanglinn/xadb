@@ -852,6 +852,13 @@ typedef struct Limit
 
 #ifdef ADB
 
+typedef enum ClusterGatherType
+{
+	CLUSTER_GATHER_COORD = 1,
+	CLUSTER_GATHER_DATANODE = 2,
+	CLUSTER_GATHER_ALL = CLUSTER_GATHER_COORD | CLUSTER_GATHER_DATANODE
+}ClusterGatherType;
+
 typedef struct ClusterScan
 {
 	Plan		plan;
@@ -862,6 +869,7 @@ typedef struct ClusterGather
 {
 	Plan		plan;
 	List	   *rnodes;			/* remote node oids */
+	ClusterGatherType gatherType;
 } ClusterGather;
 
 typedef struct ClusterMergeGather

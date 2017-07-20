@@ -47,9 +47,11 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 TupleTableSlot *ExecClusterGather(ClusterGatherState *node)
 {
 	TupleTableSlot *slot;
+	ClusterGatherType gatherType;
 	bool blocking;
 	ExecClearTuple(node->ps.ps_ResultTupleSlot);
 
+	gatherType = ((ClusterGather*)node->ps.plan)->gatherType;
 	blocking = false;	/* first time try nonblocking */
 	while(node->remotes != NIL || node->local_end == false)
 	{
@@ -57,6 +59,11 @@ TupleTableSlot *ExecClusterGather(ClusterGatherState *node)
 		if(node->remotes != NIL
 			&& PQNListExecFinish(node->remotes, cg_pqexec_finish_hook, node, blocking))
 		{
+			if((gatherType & CLUSTER_GATHER_DATANODE) == 0)
+			{
+				ExecClearTuple(node->ps.ps_ResultTupleSlot);
+				continue;
+			}
 			return node->ps.ps_ResultTupleSlot;
 		}
 
@@ -66,7 +73,7 @@ TupleTableSlot *ExecClusterGather(ClusterGatherState *node)
 			slot = ExecProcNode(outerPlanState(node));
 			if(TupIsNull(slot))
 				node->local_end = true;
-			else
+			else if(gatherType & CLUSTER_GATHER_COORD)
 				return slot;
 		}
 		if(blocking)

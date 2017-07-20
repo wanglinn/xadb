@@ -6407,6 +6407,7 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 {
 	ClusterGather *plan;
 	Plan *subplan;
+	List *reduce_info_list = get_reduce_info_list(path->subpath);
 
 	subplan = create_plan_recurse(root, path->subpath, flags);
 
@@ -6422,6 +6423,17 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 	}
 	outerPlan(plan) = subplan;
 	plan->rnodes = get_remote_nodes(root, path->subpath);
+	if(reduce_info_list == NIL)
+	{
+		plan->gatherType = CLUSTER_GATHER_ALL;
+	}else
+	{
+		ReduceExprInfo *info = linitial(reduce_info_list);
+		if(IsReduce2Coordinator(info->expr))
+			plan->gatherType = CLUSTER_GATHER_COORD;
+		else
+			plan->gatherType = CLUSTER_GATHER_ALL;
+	}
 
 	copy_generic_path_info(&plan->plan, (Path*)path);
 
