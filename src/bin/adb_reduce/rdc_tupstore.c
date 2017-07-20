@@ -313,6 +313,7 @@ rdcstore_puttuple_common(RSstate *state, void *tuple)
 			/* when switch from reading to writing, check read completely file */
 			rdcCkeckReadFile(state);
 
+			/* state->myfile nbytes and pos used for read,this step will set to zero */
 			if (rdcBufFileSeek(state->myfile,
 							state->writepos_file, state->writepos_offset,
 							SEEK_SET) != 0)
@@ -774,6 +775,7 @@ rdcBufFileDumpBuffer(RdcFile *file)
 	{
 		/*
 		 * Advance to next component file if necessary and possible.
+		 * BLCKSZ must less than MAX_PHYSICAL_FILESIZE
 		 */
 		if (file->curOffset >= MAX_PHYSICAL_FILESIZE && file->isTemp)
 		{
@@ -1061,13 +1063,16 @@ rdcBufFileRead(RdcFile *file, void *ptr,
 	if (file->dirty)
 	{
 		if (rdcBufFileFlush(file) != 0)
-			return 0;			/* could not flush... */
+		{
+			elog(ERROR, "Flush data to disk error :%m");
+			return EOF;			/* could not flush... */
+		}
 		Assert(!file->dirty);
 	}
 
 	while (size > 0)
 	{
-		/* only first time pos = 0.  then read times, pos = nbytes
+		/* only first time pos = 0 and nbytes = 0. Then read times, pos = nbytes
 		 * read file to buffer again and set current offset
 		 */
 		if (file->pos >= file->nbytes)
@@ -1119,10 +1124,9 @@ rdcBufFileLoadBuffer(RdcFile *file)
 		if (lseek(thisfile, file->curOffset, SEEK_SET) < 0)
 		{
 			if (EBADF == errno)
-				elog(ERROR, "lseek file error : %s, the file may be not open",
-					strerror(errno));
+				elog(ERROR, "lseek file error : %m, the file may be not open");
 
-			elog(ERROR, "lseek file error : %s", strerror(errno));
+			elog(ERROR, "lseek file error : %m");
 		}
 		else
 			file->offsets[file->curFile] = file->curOffset;
@@ -1132,26 +1136,36 @@ rdcBufFileLoadBuffer(RdcFile *file)
 	 * Read whatever we can get, up to a full bufferload.
 	 */
 	file->nbytes = rdcFileRead(thisfile, file->buffer, sizeof(file->buffer));
-	if (file->nbytes < 0)
-		file->nbytes = 0;
 
+	Assert(file->nbytes >= 0);
 	file->offsets[file->curFile] += file->nbytes;
+
+	if (0 == file->nbytes || file->nbytes < sizeof(file->buffer))
+		elog(INFO, "read end of the file, file name : %s",
+			file->filelnames[file->curFile]);
 }
 
+/*
+ * read data from file
+ */
 static int
 rdcFileRead(File file, char *buffer, int amount)
 {
-	int			returnCode;
-	/* check file is exist */
+	int			readBytes;
+	Assert(file >= 0);
 retry:
-	returnCode = read(file, buffer, amount);
+	readBytes = read(file, buffer, amount);
 
-	if (returnCode < 0)
-	/* OK to retry if interrupted */
-	if (errno == EINTR)
-		goto retry;
+	if (readBytes < 0)
+	{
+		/* OK to retry if interrupted */
+		if (errno == EINTR)
+			goto retry;
+		else
+			elog(ERROR, "read file error : %m");
+	}
 
-	return returnCode;
+	return readBytes;
 }
 
 /*
