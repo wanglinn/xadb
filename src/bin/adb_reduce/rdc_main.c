@@ -50,7 +50,10 @@ static void ConnectReduceHook(void *arg);
 static void AcceptReduceHook(void *arg);
 static void StartSetupReduceGroup(RdcPort *port);
 static void EndSetupReduceGroup(void);
-static void RdcAcceptPlanConn(List **accept_list, List **pln_nodes);
+static void HandleAcceptConn(List **acp_nodes, List **pln_nodes);
+static void PrePrepareAcceptNodes(WaitEVSet set, List *acp_nodes);
+static void PrePrepareRdcNodes(WaitEVSet set, RdcNode *rdc_nodes, int rdc_num);
+static void PrePreparePlanNodes(WaitEVSet set, List *pln_nodes);
 static int  ReduceLoopRun(void);
 
 static void
@@ -868,7 +871,7 @@ EndSetupReduceGroup(void)
 	RdcNode			   *rdc_nodes = NULL;
 	RdcNode			   *rdc_node = NULL;
 	RdcPort			   *acpt_port = NULL;
-	List			   *accept_list = NIL;
+	List			   *acp_nodes = NIL;
 	ListCell		   *lc = NULL;
 	WaitEVSetData		set;
 
@@ -904,14 +907,14 @@ EndSetupReduceGroup(void)
 									  GetRdcPortWaitEvents);
 				}
 			}
-			for (lc = list_head(accept_list); lc != NULL;)
+			for (lc = list_head(acp_nodes); lc != NULL;)
 			{
 				acpt_port = (RdcPort *) lfirst(lc);
 				lc = lnext(lc);
 
 				if (PortMustClosed(acpt_port))
 				{
-					accept_list = list_delete_ptr(accept_list, acpt_port);
+					acp_nodes = list_delete_ptr(acp_nodes, acpt_port);
 					rdc_freeport(acpt_port);
 					continue;
 				}
@@ -951,7 +954,7 @@ EndSetupReduceGroup(void)
 						RdcSelfType(acpt_port) = TYPE_REDUCE;
 						RdcSelfID(acpt_port) = MyReduceId;
 						RdcHook(acpt_port) = AcceptReduceHook;
-						accept_list = lappend(accept_list, acpt_port);
+						acp_nodes = lappend(acp_nodes, acpt_port);
 					}
 				}
 				/* check MyBossSock */
@@ -986,13 +989,13 @@ EndSetupReduceGroup(void)
 }
 
 static void
-RdcAcceptPlanConn(List **accept_list, List **pln_nodes)
+HandleAcceptConn(List **acp_nodes, List **pln_nodes)
 {
 	RdcPort		   *port;
 	ListCell	   *cell;
 
 	Assert(pln_nodes);
-	for (cell = list_head(*accept_list); cell != NULL;)
+	for (cell = list_head(*acp_nodes); cell != NULL;)
 	{
 		port = (RdcPort *) lfirst(cell);
 		Assert(port);
@@ -1005,7 +1008,7 @@ RdcAcceptPlanConn(List **accept_list, List **pln_nodes)
 		if (PlanTypeIDIsValid(port) &&
 			RdcStatus(port) == RDC_CONNECTION_OK)
 		{
-			*accept_list = lremove(port, *accept_list);
+			*acp_nodes = list_delete_ptr(*acp_nodes, port);
 			RdcWaitEvents(port) |= WT_SOCK_WRITEABLE;
 			RdcFlags(port) = RDC_FLAG_VALID;
 			AddNewPlanPort(pln_nodes, port);
@@ -1019,8 +1022,61 @@ RdcAcceptPlanConn(List **accept_list, List **pln_nodes)
 			RdcStatus(port) == RDC_CONNECTION_BAD)
 		{
 			RdcFlags(port) = RDC_FLAG_CLOSED;
-			*accept_list = lremove(port, *accept_list);
+			*acp_nodes = list_delete_ptr(*acp_nodes, port);
 			rdc_freeport(port);
+		}
+	}
+}
+
+static void
+PrePrepareAcceptNodes(WaitEVSet set, List *acp_nodes)
+{
+	addWaitEventByList(set, acp_nodes,
+					   GetRdcPortSocket,
+					   GetRdcPortWaitEvents);
+}
+
+static void
+PrePrepareRdcNodes(WaitEVSet set, RdcNode *rdc_nodes, int rdc_num)
+{
+	RdcNode	   *rdc_node;
+	int			rdc_idx;
+
+	for (rdc_idx = 0; rdc_idx < rdc_num; rdc_idx++)
+	{
+		rdc_node = &(rdc_nodes[rdc_idx]);
+		if (RdcNodeID(rdc_node) == MyReduceId ||
+			rdc_node->port == NULL ||
+			!PortIsValid(rdc_node->port))
+			continue;
+		addWaitEventByArg(set, rdc_node->port,
+						  GetRdcPortSocket,
+						  GetRdcPortWaitEvents);
+	}
+}
+
+static void
+PrePreparePlanNodes(WaitEVSet set, List *pln_nodes)
+{
+	PlanPort	   *pln_port;
+	RdcPort		   *wrk_port;
+	ListCell	   *cell;
+
+	foreach(cell, pln_nodes)
+	{
+		pln_port = (PlanPort *) lfirst(cell);
+		wrk_port = pln_port->port;
+		if (!PlanPortIsValid(pln_port))
+			continue;
+		while (wrk_port != NULL)
+		{
+			if (!PortIsValid(wrk_port))
+				continue;
+
+			addWaitEventByArg(set, wrk_port,
+							  GetRdcPortSocket,
+							  GetRdcPortWaitEvents);
+			wrk_port = RdcNext(wrk_port);
 		}
 	}
 }
@@ -1031,14 +1087,9 @@ ReduceLoopRun(void)
 	int						timeout = -1;
 	int						nready;
 	int						rdc_num;
-	int						i;
-	PlanPort			   *pln_port = NULL;
-	RdcPort				   *port = NULL;
 	RdcNode				   *rdc_nodes = NULL;
-	RdcNode				   *rdc_node = NULL;
 	List				  **pln_nodes = NULL;
-	List				   *accept_list = NIL;
-	ListCell			   *cell = NULL;
+	List				   *acp_nodes = NIL;
 	WaitEVSetData			set;
 #ifdef NOT_USED
 	sigjmp_buf				local_sigjmp_buf;
@@ -1091,37 +1142,10 @@ ReduceLoopRun(void)
 			resetWaitEVSet(&set);
 			addWaitEventBySock(&set, MyListenSock, WT_SOCK_READABLE);
 			addWaitEventBySock(&set, MyBossSock, WT_SOCK_READABLE);
-			addWaitEventByList(&set, accept_list,
-							   GetRdcPortSocket,
-							   GetRdcPortWaitEvents);
-			for (i = 0; i < rdc_num; i++)
-			{
-				rdc_node = &(rdc_nodes[i]);
-				if (RdcNodeID(rdc_node) == MyReduceId ||
-					rdc_node->port == NULL ||
-					!PortIsValid(rdc_node->port))
-					continue;
-				addWaitEventByArg(&set, rdc_node->port,
-								  GetRdcPortSocket,
-								  GetRdcPortWaitEvents);
-			}
-			foreach(cell, *pln_nodes)
-			{
-				pln_port = (PlanPort *) lfirst(cell);
-				port = pln_port->port;
-				if (!PlanPortIsValid(pln_port))
-					continue;
-				while (port != NULL)
-				{
-					if (!PortIsValid(port))
-						continue;
+			PrePrepareAcceptNodes(&set, acp_nodes);
+			PrePrepareRdcNodes(&set, rdc_nodes, rdc_num);
+			PrePreparePlanNodes(&set, *pln_nodes);
 
-					addWaitEventByArg(&set, port,
-									  GetRdcPortSocket,
-									  GetRdcPortWaitEvents);
-					port = RdcNext(port);
-				}
-			}
 			SetRdcPsStatus(" idle");
 			nready = execWaitEVSet(&set, timeout);
 			SetRdcPsStatus(" running");
@@ -1153,7 +1177,7 @@ ReduceLoopRun(void)
 							break;
 						RdcSelfType(port) = TYPE_REDUCE;
 						RdcSelfID(port) = MyReduceId;
-						accept_list = lappend(accept_list, port);
+						acp_nodes = lappend(acp_nodes, port);
 					}
 				}
 				/* check MyBossSock */
@@ -1165,7 +1189,7 @@ ReduceLoopRun(void)
 						break;
 				}
 
-				RdcAcceptPlanConn(&accept_list, pln_nodes);
+				HandleAcceptConn(&acp_nodes, pln_nodes);
 				HandlePlanIO(pln_nodes);
 				HandleReduceIO(pln_nodes);
 			}

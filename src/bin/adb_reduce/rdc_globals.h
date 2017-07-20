@@ -6,8 +6,6 @@
 #include "c.h"
 #include "utils/elog.h"
 #include "utils/palloc.h"		/* for palloc/pfree */
-
-#define ENABLE_LIST_COMPAT
 #include "rdc_list.h"
 
 #if defined(safe_pfree)

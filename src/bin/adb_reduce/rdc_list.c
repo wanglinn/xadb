@@ -1088,8 +1088,10 @@ list_copy_tail(const List *oldlist, int nskip)
  * list_length() macro in order to avoid the overhead of a function
  * call.
  */
+#ifdef ENABLE_LIST_COMPAT
 int
 length(const List *list)
 {
 	return list_length(list);
 }
+#endif
