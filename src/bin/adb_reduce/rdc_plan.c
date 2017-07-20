@@ -62,7 +62,7 @@ PlanPortStats(PlanPort *pln_port)
 	if (pln_port)
 	{
 		elog(LOG,
-			 "PLAN " PORTID_FORMAT " statistics: "
+			 "[PLAN " PORTID_FORMAT "] statistics: "
 			 "time to live " INT64_FORMAT
 			 " seconds, recv from PLAN " UINT64_FORMAT
 			 ", dscd from REDUDE " UINT64_FORMAT

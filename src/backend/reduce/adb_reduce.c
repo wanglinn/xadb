@@ -340,6 +340,7 @@ SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot)
 	{
 		return ;
 	}
+	port->send_num++;
 	rdc_endmessage(port, &msg);
 	if (rdc_flush(port) == EOF)
 		ereport(ERROR,
@@ -372,6 +373,7 @@ GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof, List **closed_
 	if (rdc_getbytes(port, msg_len) == EOF)
 		goto _eof_got;
 
+	port->recv_num++;
 	switch (msg_type)
 	{
 		case MSG_R2P_DATA:

@@ -118,6 +118,25 @@ _re_recv:
 	return true;
 }
 
+void
+RdcPortStats(RdcPort *port)
+{
+#if !defined(RDC_FRONTEND)
+	if (port)
+	{
+		elog(LOG,
+			 "[%s " PORTID_FORMAT"] -> [%s " PORTID_FORMAT "] statistics:"
+			 "time to live " INT64_FORMAT
+			 " seconds, send " UINT64_FORMAT
+			 ", recv " UINT64_FORMAT,
+			 RdcSelfTypeStr(port), RdcSelfID(port),
+			 RdcPeerTypeStr(port), RdcPeerID(port),
+			 time(NULL) - port->create_time,
+			 port->send_num,
+			 port->recv_num);
+	}
+#endif
+}
 
 RdcPort *
 rdc_newport(pgsocket sock,
@@ -139,6 +158,11 @@ rdc_newport(pgsocket sock,
 	rdc_port->wait_events = WAIT_NONE;
 	rdc_port->flags = RDC_FLAG_NONE;
 	rdc_port->send_eof = false;
+#if !defined(RDC_FRONTEND)
+	rdc_port->create_time = time(NULL);
+	rdc_port->recv_num = 0;
+	rdc_port->send_num = 0;
+#endif
 #ifdef DEBUG_ADB
 	rdc_port->peer_host = NULL;
 	rdc_port->peer_port = NULL;
@@ -164,6 +188,7 @@ rdc_freeport(RdcPort *port)
 	{
 		next = RdcNext(port);
 
+		RdcPortStats(port);
 		if (RdcSockIsValid(port))
 			closesocket(RdcSocket(port));
 		if (port->addrs)

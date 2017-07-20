@@ -13,6 +13,8 @@
 #ifndef RDC_COMM_H
 #define RDC_COMM_H
 
+#include <time.h>
+
 #if defined(RDC_FRONTEND)
 #include "rdc_globals.h"
 #else
@@ -115,6 +117,11 @@ struct RdcPort
 	RdcPortType			self_type;		/* local identity type */
 	RdcPortId			self_id;		/* local identity id */
 	int					version;		/* version num */
+#if !defined(RDC_FRONTEND)
+	time_t				create_time;	/* at now used for client */
+	uint64				recv_num;		/* at now used for client */
+	uint64				send_num;		/* at now used for client */
+#endif
 #ifdef DEBUG_ADB
 	char			   *peer_host;		/* remote host string */
 	char			   *peer_port;		/* remote port string */
@@ -195,8 +202,9 @@ struct RdcPort
 
 #define PortTypeIDIsValid(port)		(PlanTypeIDIsValid(port) || ReduceTypeIDIsValid(port))
 
-extern const char *rdc_type2string(RdcPortType type);
 extern bool BossIsLeave(void);
+extern void RdcPortStats(RdcPort *port);
+extern const char *rdc_type2string(RdcPortType type);
 extern RdcPort *rdc_newport(pgsocket sock,
 							RdcPortType peer_type, RdcPortId peer_id,
 							RdcPortType self_type, RdcPortId self_id);
