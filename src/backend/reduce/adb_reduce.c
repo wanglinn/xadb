@@ -298,6 +298,7 @@ SendPlanCloseToSelfReduce(RdcPort *port, bool broadcast)
 	rdc_sendint(&msg, broadcast, sizeof(broadcast));
 	rdc_endmessage(port, &msg);
 
+	port->send_num++;
 	if (rdc_flush(port) == EOF)
 		ereport(ERROR,
 				(errmsg("fail to send CLOSE message to remote"),
@@ -340,8 +341,8 @@ SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot)
 	{
 		return ;
 	}
-	port->send_num++;
 	rdc_endmessage(port, &msg);
+	port->send_num++;
 	if (rdc_flush(port) == EOF)
 		ereport(ERROR,
 				(errmsg("fail to send %s to remote", buf),
