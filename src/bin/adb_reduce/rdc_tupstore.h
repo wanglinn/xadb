@@ -91,7 +91,11 @@ typedef struct ReduceStorestate
 
 	char		*purpose;		/* RSstate used  purpose */
 	int			nodeId;			/* node id */
-	int 		fileCounter;    /* file counter */
+	int 		fileCounter;	/* file counter */
+
+	/* statistics */
+	unsigned long	totalWrite;
+	unsigned long	totalRead;
 } RSstate;
 
 extern RSstate *rdcstore_begin(int maxKBytes,char* purpose, int nodeId,

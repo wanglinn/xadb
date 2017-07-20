@@ -177,6 +177,7 @@ rdcstore_begin_common(int maxKBytes, char *purpose, int nodeId,
 							  purpose);
 	USEMEM(state, GetMemoryChunkSpace(state->purpose));
 
+	state->totalRead = state->totalWrite = 0;
 	return state;
 }
 
@@ -1231,6 +1232,8 @@ rdcstore_puttuple(RSstate *state, char *data, int len)
 
 	MemoryContextSwitchTo(oldcxt);
 	RESET_FILE_INFO();
+
+	state->totalWrite++;
 }
 
 /*
@@ -1257,6 +1260,7 @@ rdcstore_gettuple(RSstate *state, StringInfo buf, bool *hasData)
 		pfree(rsData);
 		/* trim free data position */
 		rdcstore_trim(state);
+		state->totalRead++;
 	}
 	else
 		*hasData = false;
