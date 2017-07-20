@@ -196,6 +196,12 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 					int				num, i;
 					int				datalen;
 
+					/*
+					 * get one whole data from PLAN, so increase the
+					 * number of receiving from PLAN.
+					 */
+					pln_port->recv_from_pln++;
+
 					/* data length and data */
 					datalen = rdc_getmsgint(msg, sizeof(datalen));
 					data = rdc_getmsgbytes(msg, datalen);
@@ -228,6 +234,13 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 					elog(LOG,
 						 "receive EOF message from" RDC_PORT_PRINT_FORMAT,
 						 RDC_PORT_PRINT_VALUE(work_port));
+
+					/*
+					 * get EOF message from PLAN, so increase the
+					 * number of receiving from PLAN.
+					 */
+					pln_port->recv_from_pln++;
+
 					if (SendPlanEofToRdc(RdcPeerID(work_port)))
 					{
 						/*
@@ -246,6 +259,12 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 					elog(LOG,
 						 "receive CLOSE message from" RDC_PORT_PRINT_FORMAT,
 						 RDC_PORT_PRINT_VALUE(work_port));
+
+					/*
+					 * get CLOSE message from PLAN, so increase the
+					 * number of receiving from PLAN.
+					 */
+					pln_port->recv_from_pln++;
 
 					/*
 					 * do not wait read events on socket of port as
@@ -415,6 +434,13 @@ HandleWriteToPlan(PlanPort *pln_port)
 							RdcWaitEvents(port) &= ~WT_SOCK_WRITEABLE;
 						break;	/* break for */
 					}
+				} else
+				{
+					/*
+					 * OK to get tuple from rdcstore, so increase the
+					 * number of sending to PLAN.
+					 */
+					pln_port->send_to_pln++;
 				}
 			}
 		}
@@ -590,7 +616,20 @@ SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int da
 	 * discard this data.
 	 */
 	if (!PlanPortIsValid(pln_port))
+	{
+		/*
+		 * PlanPort is invalid, the message will be discarded,
+		 * so increase the number of discarding.
+		 */
+		pln_port->dscd_from_rdc++;
 		return ;
+	}
+
+	/*
+	 * the data received from other reduce will be put in RdcStore,
+	 * so increase the number of receiving from reduce.
+	 */
+	pln_port->recv_from_rdc++;
 
 	rdc_beginmessage(&buf, MSG_R2P_DATA);
 #ifdef DEBUG_ADB
@@ -661,8 +700,21 @@ SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id)
 	 * return if there is no worker of PlanPort.
 	 * discard this data.
 	 */
-	if (PlanWorkNum(pln_port) < 0)
+	if (!PlanPortIsValid(pln_port))
+	{
+		/*
+		 * PlanPort is invalid, the message will be discarded,
+		 * so increase the number of discarding.
+		 */
+		pln_port->dscd_from_rdc++;
 		return ;
+	}
+
+	/*
+	 * the CLOSE message received from other reduce will be put in RdcStore,
+	 * so increase the number of receiving from reduce.
+	 */
+	pln_port->recv_from_rdc++;
 
 	rdc_beginmessage(&buf, MSG_PLAN_CLOSE);
 	rdc_sendRdcPortID(&buf, rdc_id);

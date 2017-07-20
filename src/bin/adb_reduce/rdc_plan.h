@@ -10,6 +10,11 @@ struct PlanPort
 	RdcPortId			pln_id;
 	int					work_num;
 	RSstate			   *rdcstore;
+	pg_time_t			create_time;
+	uint64				recv_from_pln;
+	uint64				dscd_from_rdc;
+	uint64				recv_from_rdc;
+	uint64				send_to_pln;
 	int					rdc_num;
 	int					eof_num;
 	RdcPortId			rdc_eofs[1];
@@ -43,6 +48,7 @@ struct PlanPort
 
 extern PlanPort *plan_newport(RdcPortId pln_id);
 extern void plan_freeport(PlanPort *pln_port);
+extern void PlanPortStats(PlanPort *pln_port);
 extern PlanPort *LookUpPlanPort(List *pln_nodes, RdcPortId pln_id);
 extern void AddNewPlanPort(List **pln_nodes, RdcPort *new_port);
 

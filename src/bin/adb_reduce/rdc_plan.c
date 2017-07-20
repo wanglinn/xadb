@@ -1,3 +1,5 @@
+#include <time.h>
+
 #include "rdc_globals.h"
 #include "rdc_plan.h"
 
@@ -15,8 +17,13 @@ plan_newport(RdcPortId pln_id)
 	int			i;
 
 	pln_port = (PlanPort *) palloc0(sizeof(*pln_port) + rdc_num * sizeof(RdcPortId));
-	pln_port->work_num = 0;
 	pln_port->pln_id = pln_id;
+	pln_port->work_num = 0;
+	pln_port->create_time = time(NULL);
+	pln_port->recv_from_pln = 0;
+	pln_port->dscd_from_rdc = 0;
+	pln_port->recv_from_rdc = 0;
+	pln_port->send_to_pln = 0;
 	pln_port->rdcstore = rdcstore_begin(work_mem, "PLAN", pln_id,
 										MyProcPid, MyBossPid, MyStartTime);
 	pln_port->rdc_num = rdc_num;
@@ -37,10 +44,36 @@ plan_freeport(PlanPort *pln_port)
 {
 	if (pln_port)
 	{
+		PlanPortStats(pln_port);
 		elog(LOG, "free port of PLAN %ld", PlanID(pln_port));
 		rdc_freeport(pln_port->port);
 		rdcstore_end(pln_port->rdcstore);
 		safe_pfree(pln_port);
+	}
+}
+
+/*
+ * PlanPortStats
+ *		Print statistics about the PlanPort.
+ */
+void
+PlanPortStats(PlanPort *pln_port)
+{
+	if (pln_port)
+	{
+		elog(LOG,
+			 "PLAN %ld statistics: "
+			 "time to live %ld seconds, "
+			 "recv from PLAN %u, "
+			 "dscd from REDUDE %u, "
+			 "recv from REDUCE %u, "
+			 "send to PLAN %u",
+			 PlanID(pln_port),
+			 time(NULL) - pln_port->create_time,
+			 pln_port->recv_from_pln,
+			 pln_port->dscd_from_rdc,
+			 pln_port->recv_from_rdc,
+			 pln_port->send_to_pln);
 	}
 }
 

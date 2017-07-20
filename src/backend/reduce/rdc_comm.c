@@ -221,9 +221,9 @@ rdc_wait_timed(int forRead, int forWrite, RdcPort *port, int timeout)
 	if (nready < 0 || WEEHasError(nextWaitEventElt(RdcWaitSet)))
 	{
 		rdc_puterror(port,
-					 "something wrong while waiting read/write "
-					 "event for socket of [%s %ld]",
-					 RdcPeerTypeStr(port), RdcPeerID(port));
+					 "something wrong while waiting for read/write "
+					 "event on socket of" RDC_PORT_PRINT_FORMAT,
+					 RDC_PORT_PRINT_VALUE(port));
 		return EOF;
 	}
 
