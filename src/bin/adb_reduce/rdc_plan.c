@@ -37,7 +37,7 @@ plan_freeport(PlanPort *pln_port)
 {
 	if (pln_port)
 	{
-		elog(LOG, "free plan port %ld", PlanID(pln_port));
+		elog(LOG, "free port of PLAN %ld", PlanID(pln_port));
 		rdc_freeport(pln_port->port);
 		rdcstore_end(pln_port->rdcstore);
 		safe_pfree(pln_port);

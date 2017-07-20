@@ -454,9 +454,8 @@ keep_going: 					/* We will come back to here until there is
 					}
 #ifdef DEBUG_ADB
 					elog(LOG,
-						 "Try to connect [%s %ld] {%s:%s}",
-						 RdcPeerTypeStr(port), RdcPeerID(port),
-						 RdcPeerHost(port), RdcPeerPort(port));
+						 "Try to connect" RDC_PORT_PRINT_FORMAT,
+						 RDC_PORT_PRINT_VALUE(port));
 #endif
 					/*
 					 * Start/make connection.  This should not block, since we
@@ -478,9 +477,8 @@ keep_going: 					/* We will come back to here until there is
 						}
 
 						rdc_puterror(port,
-									 "fail to connect [%s:%ld] {%s:%s}: %m",
-									 RdcPeerTypeStr(port), RdcPeerID(port),
-									 RdcPeerHost(port), RdcPeerPort(port));
+									 "fail to connect" RDC_PORT_PRINT_FORMAT ":%m",
+									 RDC_PORT_PRINT_VALUE(port));
 					}
 					else
 					{
@@ -883,9 +881,8 @@ rdc_parse_group(RdcPort *port, int *rdc_num, RdcConnHook hook)
 			if (rdc_connect_poll(rdc_port) != RDC_POLLING_WRITING)
 			{
 				rdc_puterror(port,
-							 "fail to connect with [%s %ld] {%s:%s}: %s",
-							 RdcPeerTypeStr(rdc_port), RdcPeerID(rdc_port),
-							 RdcPeerHost(rdc_port), RdcPeerPort(rdc_port),
+							 "fail to connect with" RDC_PORT_PRINT_FORMAT ": %s",
+							 RDC_PORT_PRINT_VALUE(rdc_port),
 							 RdcError(rdc_port));
 				goto _err_parse;
 			}
@@ -1102,9 +1099,8 @@ rdc_recv(RdcPort *port)
 					 errmsg("could not receive data from client: %m")));
 
 			rdc_puterror(port,
-						 "could not receive data from [%s %ld] {%s:%s}: %m",
-						 RdcPeerTypeStr(port), RdcPeerID(port),
-						 RdcPeerHost(port), RdcPeerPort(port));
+						 "could not receive data from" RDC_PORT_PRINT_FORMAT ": %m",
+						 RDC_PORT_PRINT_VALUE(port));
 			return EOF;
 		}
 		if (r == 0)
@@ -1114,9 +1110,8 @@ rdc_recv(RdcPort *port)
 			 * better to expect the ultimate caller to do that.
 			 */
 			rdc_puterror(port,
-						 "the peer of [%s %ld] {%s:%s} has performed an orderly shutdown",
-						 RdcPeerTypeStr(port), RdcPeerID(port),
-						 RdcPeerHost(port), RdcPeerPort(port));
+						 "the peer of" RDC_PORT_PRINT_FORMAT "has performed an orderly shutdown",
+						 RDC_PORT_PRINT_VALUE(port));
 			return EOF;
 		}
 		/* r contains number of bytes read, so just increase length */
@@ -1615,11 +1610,11 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver)
 					 expected_ver, rqt_ver);
 		return RDC_POLLING_FAILED;
 	}
+
 #ifdef DEBUG_ADB
 	elog(LOG,
-		 "recv startup request from [%s %ld] {%s:%s}",
-		 rdc_type2string(rqt_type), RdcPeerID(port),
-		 RdcPeerHost(port), RdcPeerPort(port));
+		 "recv startup request from" RDC_PORT_PRINT_FORMAT,
+		 RDC_PORT_PRINT_VALUE(port));
 #endif
 
 	/* We are done with authentication exchange */
@@ -1751,9 +1746,8 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 
 #ifdef DEBUG_ADB
 		elog(LOG,
-			 "recv startup response from [%s %ld] {%s:%s}",
-			 RdcPeerTypeStr(port), RdcPeerID(port),
-			 RdcPeerHost(port), RdcPeerPort(port));
+			 "recv startup response from" RDC_PORT_PRINT_FORMAT,
+			 RDC_PORT_PRINT_VALUE(port));
 #endif
 
 		/* We are done with authentication exchange */

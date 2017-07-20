@@ -141,11 +141,11 @@ struct RdcPort
 #define RdcPeerPort(port)			(((RdcPort *) (port))->peer_port)
 #define RdcSelfHost(port)			(((RdcPort *) (port))->self_host)
 #define RdcSelfPort(port)			(((RdcPort *) (port))->self_port)
+#define RDC_PORT_PRINT_FORMAT		" [%s %ld] {%s:%s}"
+#define RDC_PORT_PRINT_VALUE(port)	RdcPeerTypeStr(port), RdcPeerID(port), RdcPeerHost(port), RdcPeerPort(port)
 #else
-#define RdcPeerHost(port)			"null"
-#define RdcPeerPort(port)			"null"
-#define RdcSelfHost(port)			"null"
-#define RdcSelfPort(port)			"null"
+#define RDC_PORT_PRINT_FORMAT		" [%s %ld]"
+#define RDC_PORT_PRINT_VALUE(port)	RdcPeerTypeStr(port), RdcPeerID(port)
 #endif
 #define RdcNext(port)				(((RdcPort *) (port))->next)
 #define RdcVersion(port)			(((RdcPort *) (port))->version)

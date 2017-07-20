@@ -132,15 +132,13 @@ TryReadSome(RdcPort *port)
 
 	if (!rdc_set_noblock(port))
 		ereport(ERROR,
-				(errmsg("fail to set noblocking mode for [%s %ld] {%s:%s}",
-						RdcPeerTypeStr(port), RdcPeerID(port),
-						RdcPeerHost(port), RdcPeerPort(port))));
+				(errmsg("fail to set noblocking mode for" RDC_PORT_PRINT_FORMAT,
+						RDC_PORT_PRINT_VALUE(port))));
 	res = rdc_recv(port);
 	if (res == EOF)
 		ereport(ERROR,
-				(errmsg("fail to read some from [%s %ld] {%s:%s}",
-						RdcPeerTypeStr(port), RdcPeerID(port),
-						RdcPeerHost(port), RdcPeerPort(port)),
+				(errmsg("fail to read some from" RDC_PORT_PRINT_FORMAT,
+						RDC_PORT_PRINT_VALUE(port)),
 				 errdetail("%s", RdcError(port))));
 	return res;
 }
@@ -228,9 +226,8 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 				{
 					rdc_getmsgend(msg);
 					elog(LOG,
-						 "Receive EOF message from [%s %ld] {%s:%s}",
-						 RdcPeerTypeStr(work_port), RdcPeerID(work_port),
-						 RdcPeerHost(work_port), RdcPeerPort(work_port));
+						 "receive EOF message from" RDC_PORT_PRINT_FORMAT,
+						 RDC_PORT_PRINT_VALUE(work_port));
 					if (SendPlanEofToRdc(RdcPeerID(work_port)))
 					{
 						/*
@@ -247,9 +244,8 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 					bool broadcast = rdc_getmsgint(msg, sizeof(broadcast));
 					rdc_getmsgend(msg);
 					elog(LOG,
-						 "Receive CLOSE message from [%s %ld] {%s:%s}",
-						 RdcPeerTypeStr(work_port), RdcPeerID(work_port),
-						 RdcPeerHost(work_port), RdcPeerPort(work_port));
+						 "receive CLOSE message from" RDC_PORT_PRINT_FORMAT,
+						 RDC_PORT_PRINT_VALUE(work_port));
 
 					/*
 					 * do not wait read events on socket of port as
@@ -357,9 +353,8 @@ HandleWriteToPlan(PlanPort *pln_port)
 		/* set in noblocking mode */
 		if (!rdc_set_noblock(port))
 			ereport(ERROR,
-					(errmsg("fail to set noblocking mode for [%s %ld] {%s:%s}",
-							RdcPeerTypeStr(port), RdcPeerID(port),
-							RdcPeerHost(port), RdcPeerPort(port))));
+					(errmsg("fail to set noblocking mode for" RDC_PORT_PRINT_FORMAT,
+							RDC_PORT_PRINT_VALUE(port))));
 
 		buf = RdcOutBuf(port);
 		for (;;)
@@ -500,9 +495,8 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 					{
 						rdc_getmsgend(msg);
 						elog(LOG,
-							 "Receive EOF message of PLAN %ld from [%s %ld] {%s:%s}",
-							 planid, RdcPeerTypeStr(rdc_port), RdcPeerID(rdc_port),
-							 RdcPeerHost(rdc_port), RdcPeerPort(rdc_port));
+							 "receive EOF message of PLAN %ld from" RDC_PORT_PRINT_FORMAT,
+							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in EOF message */
 						SendRdcEofToPlan(pln_port, RdcPeerID(rdc_port), true);
 					} else
@@ -510,9 +504,8 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 					{
 						rdc_getmsgend(msg);
 						elog(LOG,
-							 "Receive CLOSE message of PLAN %ld from [%s %ld] {%s:%s}",
-							 planid, RdcPeerTypeStr(rdc_port), RdcPeerID(rdc_port),
-							 RdcPeerHost(rdc_port), RdcPeerPort(rdc_port));
+							 "receive CLOSE message of PLAN %ld from" RDC_PORT_PRINT_FORMAT,
+							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in PLAN CLOSE message */
 						SendPlanCloseToPlan(pln_port, RdcPeerID(rdc_port));
 					}

@@ -382,7 +382,7 @@ GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof, List **closed_
 				RdcPortId		rid;
 				/* reduce id while slot comes from */
 				rid = rdc_getmsgRdcPortID(msg);
-				elog(LOG, "Fetch tuple from REDUCE %ld", rid);
+				elog(DEBUG1, "fetch tuple from REDUCE %ld", rid);
 				msg_len -= sizeof(rid);
 #endif
 				data = rdc_getmsgbytes(msg, msg_len);

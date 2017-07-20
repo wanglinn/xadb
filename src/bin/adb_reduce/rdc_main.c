@@ -234,7 +234,7 @@ ParseReduceOptions(int argc, char *const argv[])
 			case 'n':
 				MyReduceId = atoll(optarg);
 				if (MyReduceId <= InvalidPortId)
-					elog(ERROR, "Invalid Reduce ID number: %ld", MyReduceId);
+					elog(ERROR, "invalid Reduce ID number: %ld", MyReduceId);
 				break;
 			case 'h':
 				MyRdcOpts->lhost = pstrdup(optarg);
@@ -242,7 +242,7 @@ ParseReduceOptions(int argc, char *const argv[])
 			case 'p':
 				MyRdcOpts->lport = atoi(optarg);
 				if (MyRdcOpts->lport > 65535 || MyRdcOpts->lport < 1024)
-					elog(ERROR, "Invalid listen port: %d", MyRdcOpts->lport);
+					elog(ERROR, "invalid listen port: %d", MyRdcOpts->lport);
 				break;
 			case 'W':
 				MyBossSock = atoi(optarg);
@@ -454,7 +454,7 @@ ReduceListen(void)
 		}
 		MyListenPort = ntohs(addr_inet.sin_port);
 		listen_host = inet_ntoa(addr_inet.sin_addr);
-		elog(LOG, "Listen on {%s:%d}", listen_host, MyListenPort);
+		elog(LOG, "listen on {%s:%d}", listen_host, MyListenPort);
 	}
 	MyListenSock = fd;
 
@@ -517,9 +517,8 @@ ResetReduceGroup(void)
 		Assert (RdcPeerID(port) != MyReduceId);
 		RdcWaitEvents(port) = WT_SOCK_READABLE;
 		elog(LOG,
-			 "reset [%s %ld] {%s:%s}",
-			 RdcPeerTypeStr(port), RdcPeerID(port),
-			 RdcPeerHost(port), RdcPeerPort(port));
+			 "reset" RDC_PORT_PRINT_FORMAT,
+			 RDC_PORT_PRINT_VALUE(port));
 		rdc_resetport(port);
 		RdcFlags(port) = RDC_FLAG_VALID;
 	}
@@ -542,9 +541,8 @@ DropReduceGroup(void)
 			continue;
 		Assert(RdcPeerID(port) != MyReduceId);
 		elog(LOG,
-			 "free [%s %ld] {%s:%s}",
-			 RdcPeerTypeStr(port), RdcPeerID(port),
-			 RdcPeerHost(port), RdcPeerPort(port));
+			 "free" RDC_PORT_PRINT_FORMAT,
+			 RDC_PORT_PRINT_VALUE(port));
 		rdc_freeport(port);
 	}
 	safe_pfree(MyRdcOpts->rdc_nodes);
@@ -799,9 +797,8 @@ ConnectReduceHook(void *arg)
 	Assert(PortForReduce(port));
 	if (RdcStatus(port) == RDC_CONNECTION_BAD)
 		ereport(ERROR,
-				(errmsg("fail to connect [%s %ld] {%s:%s}",
-						RdcPeerTypeStr(port), RdcPeerID(port),
-						RdcPeerHost(port), RdcPeerPort(port)),
+				(errmsg("fail to connect" RDC_PORT_PRINT_FORMAT,
+						RDC_PORT_PRINT_VALUE(port)),
 				 errdetail("%s", RdcError(port))));
 
 	Assert(RdcStatus(port) == RDC_CONNECTION_OK);
@@ -825,9 +822,8 @@ AcceptReduceHook(void *arg)
 
 	if (RdcStatus(port) == RDC_CONNECTION_BAD)
 		ereport(ERROR,
-				(errmsg("fail to accept connect from [%s %ld] {%s:%s}",
-						RdcPeerTypeStr(port), RdcPeerID(port),
-						RdcPeerHost(port), RdcPeerPort(port)),
+				(errmsg("fail to accept connect from" RDC_PORT_PRINT_FORMAT,
+						RDC_PORT_PRINT_VALUE(port)),
 				 errdetail("%s", RdcError(port))));
 
 	Assert(RdcStatus(port) == RDC_CONNECTION_OK);
@@ -890,7 +886,7 @@ EndSetupReduceGroup(void)
 			if (IsReduceGroupReady())
 			{
 				ereport(LOG,
-						(errmsg("Reduce group network is OK")));
+						(errmsg("reduce group network is OK")));
 				break;
 			}
 
@@ -973,9 +969,8 @@ EndSetupReduceGroup(void)
 					if (WEEHasError(wee))
 						ereport(ERROR,
 								(errcode(ERRCODE_CONNECTION_FAILURE),
-								 errmsg("something wrong with [%s %ld] {%s:%s} socket",
-								 RdcPeerTypeStr(port), RdcPeerID(port),
-								 RdcPeerHost(port), RdcPeerPort(port))));
+								 errmsg("something wrong with socket of" RDC_PORT_PRINT_FORMAT,
+								 		RDC_PORT_PRINT_VALUE(port))));
 					if (WEECanRead(wee) || WEECanWrite(wee))
 						(void) rdc_connect_poll(port);
 				}
