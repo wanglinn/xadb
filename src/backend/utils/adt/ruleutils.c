@@ -8881,6 +8881,29 @@ get_rule_expr(Node *node, deparse_context *context,
 				}
 			}
 			break;
+#ifdef ADB
+		case T_OidVectorLoopExpr:
+			{
+				OidVectorLoopExpr *ovl = (OidVectorLoopExpr*)node;
+				oidvector *ov = (oidvector*)DatumGetPointer(ovl->vector);
+				if(ov->dim1 > 0)
+				{
+					int i;
+					char tmp = ovl->signalRowMode ? '{':'[';
+					for(i=0;i<ov->dim1;++i)
+					{
+						appendStringInfoChar(buf, tmp);
+						appendStringInfo(buf, "%u", ov->values[i]);
+						tmp = ' ';
+					}
+					appendStringInfoChar(buf, ovl->signalRowMode ? '}':']');
+				}else
+				{
+					appendStringInfoString(buf, ovl->signalRowMode ? "{}":"[]");
+				}
+			}
+			break;
+#endif /* ADB */
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
