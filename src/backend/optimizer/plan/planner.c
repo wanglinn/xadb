@@ -167,6 +167,7 @@ static PathTarget *make_sort_input_target(PlannerInfo *root,
 #ifdef ADB
 static void separate_rowmarks(PlannerInfo *root);
 static bool can_once_grouping_cluster_path(PathTarget *target, Path *path);
+static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path);
 #endif
 
 
@@ -2128,6 +2129,22 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				parse->withCheckOptions == NIL &&
 				(parse->onConflict == NULL || parse->onConflict->action == ONCONFLICT_NOTHING))
 			{
+				if(parse->commandType == CMD_INSERT)
+				{
+					Path *reduce_path = reduce_to_relation_insert(root, parse->resultRelation, path);
+					if(reduce_path == NULL)
+					{
+						/* local table */
+						if(have_gather == false)
+						{
+							path = (Path*)create_cluster_gather_path(path, final_rel);
+							have_gather = true;
+						}
+					}else
+					{
+						path = reduce_path;
+					}
+				}
 				path = (Path *)
 					create_modifytable_path(root, final_rel,
 											parse->commandType,
@@ -5755,4 +5772,86 @@ static bool can_once_grouping_cluster_path(PathTarget *target, Path *path)
 
 	return result;
 }
+
+static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path)
+{
+	ReduceExprInfo *reduce_info;
+	RelationLocInfo *loc_info;
+	List *reduce_list;
+	ListCell *lc;
+
+	if (rel_id < root->simple_rel_array_size &&
+		root->simple_rel_array[rel_id] != NULL)
+	{
+		loc_info = root->simple_rel_array[rel_id]->loc_info;
+	}else
+	{
+		RangeTblEntry *rte = planner_rt_fetch(rel_id, root);
+		Relation rel;
+		Assert(rte->rtekind == RTE_RELATION);
+		rel = relation_open(rte->relid, NoLock);
+
+		if(rel->rd_locator_info)
+			loc_info = CopyRelationLocInfo(rel->rd_locator_info);
+		else
+			loc_info = NULL;
+		relation_close(rel, NoLock);
+	}
+
+	if(loc_info == NULL)
+		return NULL;
+
+	reduce_list = get_reduce_info_list(path);
+	if(IsRelationReplicated(loc_info))
+	{
+		if (list_length(reduce_list) == 1 &&
+			IsReduceReplicateExpr(((ReduceExprInfo*)linitial(reduce_list))->expr))
+		{
+			List *sub_nodes;
+			List *to_nodes;
+			Expr *to_expr;
+			reduce_info = linitial(reduce_list);
+			sub_nodes = ReduceReplicateExprGetList(reduce_info->expr);
+			to_expr = MakeReduceReplicateExpr(loc_info->nodeList);
+			to_nodes = ReduceReplicateExprGetList(to_expr);
+			if(equal(to_nodes, sub_nodes))
+				return path;
+			ereport(ERROR, (errmsg("not support diffent replicate table yet!")));
+		}else
+		{
+			reduce_info = palloc0(sizeof(*reduce_info));
+			reduce_info->expr = MakeReduceReplicateExpr(loc_info->nodeList);
+			path = (Path*)create_cluster_reduce_path(path, reduce_info, path->parent);
+		}
+	}
+	else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
+	{
+		ereport(ERROR, (errmsg("not support robin yet!")));
+	}else
+	{
+		reduce_info = palloc0(sizeof(*reduce_info));
+		if (list_length(reduce_list) == 1 &&
+			IsReduceReplicateExpr(((ReduceExprInfo*)linitial(reduce_list))->expr))
+		{
+			ereport(ERROR, (errmsg("not support replicate to hash yet!")));
+		}else
+		{
+			List *exprs = NIL;
+			reduce_info->expr = MakeReducePathExpr(loc_info, RELATION_ACCESS_INSERT, rel_id);
+			if(IsRelationDistributedByUserDefined(loc_info))
+			{
+				foreach(lc, loc_info->funcAttrNums)
+					exprs = lappend(exprs, list_nth(path->pathtarget->exprs, lfirst_int(lc)-1));
+			}else
+			{
+				exprs = list_make1(list_nth(path->pathtarget->exprs, loc_info->partAttrNum-1));
+			}
+			reduce_info->expr = CreateReduceValExprAs(reduce_info->expr, 0, exprs);
+			path = (Path*)create_cluster_reduce_path(path, reduce_info, path->parent);
+		}
+	}
+
+	return path;
+}
+
 #endif /* ADB */
