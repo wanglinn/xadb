@@ -1434,7 +1434,7 @@ List *GetReducePathExprNodes(Expr *expr)
 		Assert(IsA(expr, ArrayRef) &&
 			   array->refelemtype == OIDOID &&
 			   IsA(array->refexpr, Const));
-		ov = DatumGetPointer(((Const*)array->refexpr)->constvalue);
+		ov = (oidvector*)DatumGetPointer(((Const*)array->refexpr)->constvalue);
 		list = NIL;
 		for(i=0;i<ov->dim1;++i)
 			list = lappend_oid(list, ov->values[i]);
