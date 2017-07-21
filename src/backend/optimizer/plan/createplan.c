@@ -6489,6 +6489,7 @@ List* get_remote_nodes(PlannerInfo *root, Path *path)
 		if(info->part_count > 0)
 			list = lappend_oid(list, info->nodeOid);
 	}
+	get_modify_insert_nodes_walker(path, &list);
 	if(list == NIL)
 	{
 		hash_seq_init(&seq_status, htab);
