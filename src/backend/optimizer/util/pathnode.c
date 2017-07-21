@@ -3494,6 +3494,44 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 	return path_tree_walker(path, get_path_execute_on_walker, htab);
 }
 
+bool get_modify_insert_nodes_walker(Path *path, List **rnodes)
+{
+	if(path == NULL)
+		return false;
+	if(IsA(path, ModifyTablePath) && ((ModifyTablePath*)path)->operation == CMD_INSERT)
+	{
+		ModifyTablePath *mtp = (ModifyTablePath*)path;
+		ListCell *lc;
+		List *result;
+		foreach(lc, mtp->subpaths)
+		{
+			Path *subpath = lfirst(lc);
+			if(IsA(subpath, ClusterReducePath))
+			{
+				ReduceExprInfo *rinfo;
+				List *reduce_info_list = get_reduce_info_list(subpath);
+				Assert(list_length(reduce_info_list) == 1);
+				rinfo = linitial(reduce_info_list);
+				if(!IsReduce2Coordinator(rinfo->expr))
+				{
+					List *expr_nodes = GetReducePathExprNodes(rinfo->expr);
+					ListCell *lc_nodes;
+					result = *rnodes;
+					foreach(lc_nodes, expr_nodes)
+					{
+						if(list_member_oid(result, lfirst_oid(lc_nodes)) == false)
+							result = lappend_oid(result, lfirst_oid(lc_nodes));
+					}
+					*rnodes = result;
+				}
+			}
+			path_tree_walker(subpath, get_modify_insert_nodes_walker, (void*)rnodes);
+		}
+		return false;
+	}
+	return path_tree_walker(path, get_modify_insert_nodes_walker, (void*)rnodes);
+}
+
 struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab)
 {
 	if(htab == NULL)

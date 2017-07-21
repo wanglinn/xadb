@@ -265,7 +265,7 @@ extern ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *roo
 extern ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel);
 extern ClusterScanPath *create_cluster_scan_path(Path *sub_path, List *rnodes, RelOptInfo *rel);
 extern ClusterReducePath *create_cluster_reduce_path(Path *sub_path, struct ReduceExprInfo *rinfo, RelOptInfo *rel);
-
+extern bool get_modify_insert_nodes_walker(Path *path, List **rnodes);
 extern struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab);
 
 #endif /* ADB */
