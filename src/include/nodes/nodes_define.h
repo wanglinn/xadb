@@ -713,6 +713,7 @@ END_NODE(ClusterScan)
 BEGIN_NODE(ClusterGather)
 	NODE_BASE2(Plan,plan)
 	NODE_NODE(List,rnodes)
+	NODE_ENUM(ClusterGatherType,gatherType)
 END_NODE(ClusterGather)
 #endif /* NO_NODE_ClusterGather */
 
@@ -1589,6 +1590,9 @@ END_NODE(MergeAppendPath)
 BEGIN_NODE(ResultPath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(List,quals)
+#ifdef ADB
+	NODE_NODE(Path,subpath)
+#endif
 END_NODE(ResultPath)
 #endif /* NO_NODE_ResultPath */
 

@@ -1188,6 +1188,11 @@ create_result_plan(PlannerInfo *root, ResultPath *best_path)
 
 	copy_generic_path_info(&plan->plan, (Path *) best_path);
 
+#ifdef ADB
+	if(best_path->subpath)
+		outerPlan(plan) = create_plan_recurse(root, best_path->subpath, 0);
+#endif /* ADB */
+
 	return plan;
 }
 

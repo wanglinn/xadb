@@ -1111,6 +1111,14 @@ BEGIN_ENUM(AlterTSConfigType)
 END_ENUM(AlterTSConfigType)
 #endif /* NO_ENUM_AlterTSConfigType */
 
+#ifndef NO_ENUM_ClusterGatherType
+BEGIN_ENUM(ClusterGatherType)
+	ENUM_VALUE(CLUSTER_GATHER_COORD)
+	ENUM_VALUE(CLUSTER_GATHER_DATANODE)
+	ENUM_VALUE(CLUSTER_GATHER_ALL)
+END_ENUM(ClusterGatherType)
+#endif /* NO_ENUM_ClusterGatherType */
+
 #ifndef NO_ENUM_RowMarkType
 BEGIN_ENUM(RowMarkType)
 	ENUM_VALUE(ROW_MARK_EXCLUSIVE)

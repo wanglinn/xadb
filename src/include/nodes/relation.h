@@ -1172,6 +1172,9 @@ typedef struct ResultPath
 {
 	Path		path;
 	List	   *quals;
+#ifdef ADB
+	Path	   *subpath;
+#endif /* ADB */
 } ResultPath;
 
 /*
