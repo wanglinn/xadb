@@ -1588,6 +1588,19 @@ ExplainNode(PlanState *planstate, List *ancestors,
 				ExplainRemoteList(((ClusterMergeGather*)plan)->rnodes, es);
 			show_merge_gather_keys((ClusterMergeGatherState*)planstate, ancestors, es);
 			break;
+		case T_ClusterReduce:
+			if(es->verbose)
+			{
+				List *context = set_deparse_context_planstate(es->deparse_cxt,
+															  (Node*)planstate,
+															  ancestors);
+				char *expr = deparse_expression((Node*)((ClusterReduce*)plan)->reduce,
+												context,
+												list_length(es->rtable) > 1,
+												false);
+				ExplainPropertyText("Reduce", expr, es);
+			}
+			break;
 #endif /* ADB */
 		default:
 			break;
@@ -1914,6 +1927,13 @@ show_plan_tlist(PlanState *planstate, List *ancestors, ExplainState *es)
 		return;
 	if (IsA(plan, RecursiveUnion))
 		return;
+#ifdef ADB
+	if (IsA(plan, ClusterScan) ||
+		IsA(plan, ClusterGather) ||
+		IsA(plan, ClusterMergeGather) ||
+		IsA(plan, ClusterReduce))
+		return;
+#endif /* ADB */
 
 	/*
 	 * Likewise for ForeignScan that executes a direct INSERT/UPDATE/DELETE
