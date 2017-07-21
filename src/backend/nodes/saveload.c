@@ -331,24 +331,13 @@ static void save_datum(StringInfo buf, Oid typid, Datum datum)
 		pq_sendbytes(buf, DatumGetCString(datum), len);
 	}else if(typlen == -1)
 	{
-		/* "varlena" type */
-		TupleDesc desc;
-		Size need_size;
-		uint16 infomask;
-		bool isnull;
-
-		desc = CreateTemplateTupleDesc(1, false);
-		TupleDescInitEntry(desc, 1, "???", typid, -1, 0);
-
-		isnull = false;
-		need_size = heap_compute_data_size(desc, &datum, &isnull);
-		enlargeStringInfo(buf, (int)need_size);
-
-		infomask = 0;
-		heap_fill_tuple(desc, &datum, &isnull, buf->data+buf->len, need_size, &infomask, NULL);
-		buf->len += need_size;
-
-		FreeTupleDesc(desc);
+		bytea *data;
+		Oid typSend;
+		bool typIsVarlena;
+		getTypeBinaryOutputInfo(typid, &typSend, &typIsVarlena);
+		data = OidSendFunctionCall(typSend, datum);
+		appendBinaryStringInfo(buf, (char*)data, VARSIZE(data));
+		pfree(data);
 	}else
 	{
 		ereport(ERROR, (errmsg("unknown type length %d", typlen)));
@@ -861,13 +850,15 @@ static Datum load_datum(StringInfo buf, Oid typid)
 		datum = CStringGetDatum(str);
 	}else if(typlen == -1)
 	{
-		/* "varlena" type */
-		void *p = (buf->data + buf->cursor);
-		void *var;
-		int len = VARSIZE_ANY(p);
-		var = palloc(len);
-		pq_copymsgbytes(buf, var, len);
-		datum = PointerGetDatum(var);
+		Oid typReceive;
+		Oid typIOParam;
+		StringInfoData data;
+		data.data = buf->data+buf->cursor;
+		data.maxlen = data.len = VARSIZE(data.data);
+		data.cursor = VARHDRSZ;
+		getTypeBinaryInputInfo(typid, &typReceive, &typIOParam);
+		datum = OidReceiveFunctionCall(typReceive, &data, typIOParam, -1);
+		buf->cursor += data.cursor;
 	}else
 	{
 		ereport(ERROR, (errmsg("unknown type length %d", typlen)));
