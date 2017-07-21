@@ -671,8 +671,17 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 			set_dummy_tlist_references(plan, rtoffset);
 			break;
 		case T_ClusterReduce:
-			set_dummy_tlist_references(plan, rtoffset);
-			fix_scan_expr(root, (Node*)((ClusterReduce*)plan)->reduce, 0);
+			{
+				ClusterReduce *reduce = (ClusterReduce*)plan;
+				indexed_tlist *subplan_itlist = build_tlist_index(outerPlan(plan)->targetlist);
+				set_dummy_tlist_references(plan, rtoffset);
+				reduce->reduce = (Expr*)fix_upper_expr(root,
+													   (Node*)(reduce->reduce),
+													   subplan_itlist,
+													   OUTER_VAR,
+													   rtoffset);
+				pfree(subplan_itlist);
+			}
 			break;
 #endif /* ADB */
 
