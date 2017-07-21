@@ -55,8 +55,10 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #ifdef ADB
+#include "catalog/pg_namespace.h"
 #include "pgxc/pgxc.h"
 #include "optimizer/pgxcplan.h"
+#include "utils/fmgroids.h"
 #endif
 
 
@@ -168,6 +170,7 @@ static PathTarget *make_sort_input_target(PlannerInfo *root,
 static void separate_rowmarks(PlannerInfo *root);
 static bool can_once_grouping_cluster_path(PathTarget *target, Path *path);
 static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path);
+static bool is_remote_relation(PlannerInfo *root, Index relid);
 #endif
 
 
@@ -2082,6 +2085,71 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			else
 				rowMarks = root->rowMarks;
 
+#ifdef ADB
+			/* try cluster insert plan */
+			if (root->glob->clusterPlanOK &&
+				parse->commandType == CMD_INSERT &&
+				current_rel->cluster_pathlist == NIL &&
+				/* need this? safety add it */
+				root->parent_root == NULL &&
+				!has_row_triggers(root, parse->resultRelation, CMD_INSERT) &&
+				!have_remote_query_path(path, NULL) &&
+				is_remote_relation(root, parse->resultRelation) &&
+				path->rows >= 5.0)
+			{
+				ResultPath *rp;
+				/* first make ResultPath add "adb_node_oid()=PGXCNodeOid" to qual */
+				OpExpr *op = makeNode(OpExpr);
+				Assert(OidIsValid(PGXCNodeOid));
+				op->args = list_make2(makeFuncExpr(F_ADB_NODE_OID,
+												   OIDOID,
+												   NIL,
+												   InvalidOid,
+												   InvalidOid,
+												   COERCE_EXPLICIT_CALL),
+									  makeConst(OIDOID,
+												-1,
+												InvalidOid,
+												sizeof(Oid),
+												ObjectIdGetDatum(PGXCNodeOid),
+												false,
+												true));
+				op->opno = get_operid("=", OIDOID, OIDOID, PG_CATALOG_NAMESPACE);
+				Assert(OidIsValid(op->opno));
+				op->opfuncid = F_OIDEQ;
+				op->opresulttype = BOOLOID;
+				op->opretset = false;
+				op->opcollid = op->inputcollid = InvalidOid;
+				op->location = -1;
+				if(IsA(path, ResultPath))
+					rp = (ResultPath*)path;
+				else
+					rp = create_result_path(root, current_rel, path->pathtarget, list_make1(op));
+				memcpy(rp, path, sizeof(Path));
+				NodeSetTag(rp, T_ResultPath);
+				rp->path.pathtype = T_Result;
+				rp->subpath = path;
+				path = (Path*)rp;
+
+				/* make reduce path */
+				path = reduce_to_relation_insert(root, parse->resultRelation, path);
+
+				path = (Path *)
+					create_modifytable_path(root, final_rel,
+											parse->commandType,
+											parse->canSetTag,
+											parse->resultRelation,
+											list_make1_int(parse->resultRelation),
+											list_make1(path),
+											list_make1(root),
+											withCheckOptionLists,
+											returningLists,
+											rowMarks,
+											parse->onConflict,
+											SS_assign_special_param(root));
+				path = (Path*)create_cluster_gather_path(path, final_rel);
+			}else
+#endif /* ADB */
 			path = (Path *)
 				create_modifytable_path(root, final_rel,
 										parse->commandType,
@@ -5853,6 +5921,25 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 	}
 
 	return path;
+}
+
+static bool is_remote_relation(PlannerInfo *root, Index relid)
+{
+	if (relid < root->simple_rel_array_size &&
+		root->simple_rel_array[relid] != NULL)
+	{
+		return root->simple_rel_array[relid]->loc_info != NULL;
+	}else
+	{
+		RangeTblEntry *rte = planner_rt_fetch(relid, root);
+		Relation rel;
+		bool result;
+		Assert(rte->rtekind == RTE_RELATION);
+		rel = relation_open(rte->relid, NoLock);
+		result = rel->rd_locator_info != NULL;
+		relation_close(rel, NoLock);
+		return result;
+	}
 }
 
 #endif /* ADB */
