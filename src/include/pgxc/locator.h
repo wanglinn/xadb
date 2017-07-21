@@ -170,6 +170,7 @@ extern Expr *CreateReduceValExprAs(Expr *expr, Index newRelid, List *newAttnos);
 extern bool IsReduceExprByValue(Expr *expr);
 extern Index PullReducePathExprAttnos(Expr *expr, Bitmapset **varattnos);
 extern List *GetReducePathExprAttnoList(Expr *expr, Index *relid);
+extern List *GetReducePathExprNodes(Expr *expr);
 
 /* Global locator data */
 extern void FreeExecNodes(ExecNodes **exec_nodes);

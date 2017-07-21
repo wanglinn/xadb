@@ -1416,6 +1416,38 @@ List *ReduceReplicateExprGetList(Expr *expr)
 	return list;
 }
 
+List *GetReducePathExprNodes(Expr *expr)
+{
+	AssertArg(expr);
+	if(IsReduceReplicateExpr(expr))
+	{
+		return ReduceReplicateExprGetList(expr);
+	}else if(IsReduce2Coordinator(expr))
+	{
+		return list_make1_oid(PGXCNodeOid);
+	}else if(IsReduceExprByValue(expr))
+	{
+		ArrayRef *array = (ArrayRef*)expr;
+		oidvector *ov;
+		List *list;
+		int i;
+		Assert(IsA(expr, ArrayRef) &&
+			   array->refelemtype == OIDOID &&
+			   IsA(array->refexpr, Const));
+		ov = DatumGetPointer(((Const*)array->refexpr)->constvalue);
+		list = NIL;
+		for(i=0;i<ov->dim1;++i)
+			list = lappend_oid(list, ov->values[i]);
+		return list;
+	}else
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("unknown reduce type")));
+	}
+	return NIL;
+}
+
 Expr *CreateReduceValExprAs(Expr *expr, Index newRelid, List *newAttnos)
 {
 	ListCell *lc;
