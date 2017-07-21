@@ -3317,7 +3317,7 @@ bool is_cluster_path(Path *path)
 	return false;
 }
 
-extern bool have_cluster_gather_path(Path *path, void *context)
+bool have_cluster_gather_path(Path *path, void *context)
 {
 	check_stack_depth();
 
@@ -3334,6 +3334,19 @@ extern bool have_cluster_gather_path(Path *path, void *context)
 	}
 
 	return path_tree_walker(path, have_cluster_gather_path, context);
+}
+
+bool have_remote_query_path(Path *path, void *context)
+{
+	check_stack_depth();
+	if(path == NULL)
+	{
+		return false;
+	}else if(IsA(path, RemoteQueryPath))
+	{
+		return true;
+	}
+	return path_tree_walker(path, have_remote_query_path, NULL);
 }
 
 ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
