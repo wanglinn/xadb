@@ -111,6 +111,7 @@ static bool expr_have_param(Node *node, void *none);
 static Node *reduceParam2VarMutator(Node *node, void *none);
 static bool PullReducePathExprAttnosWalker(ReduceParam *rp, PullReducePathExprVarAttnosContext *context);
 static Node *CreateReduceExprMutator(Node *node, CreateReduceExprContext *context);
+static Node *Var2ReduceParamMutator(Node *node, void *context);
 
 Oid		primary_data_node = InvalidOid;
 int		num_preferred_data_nodes = 0;
@@ -1303,6 +1304,11 @@ Expr *MakeReducePathExpr(RelationLocInfo *loc,
 			|| loc->locatorType == LOCATOR_TYPE_USER_DEFINED)
 	{
 		expr = makeLocatorModuleExpr(loc, rel_index, true);
+		expr = (Expr*) makeFuncExpr(F_INT4ABS,
+									INT4OID,
+									list_make1(expr),
+									InvalidOid, InvalidOid,
+									COERCE_EXPLICIT_CALL);
 		vector = makeDatanodeOidVector(loc->nodeList);
 		ArrayRef *aref = makeNode(ArrayRef);
 		aref->refarraytype = OIDARRAYOID;
@@ -1415,8 +1421,8 @@ Expr *CreateReduceValExprAs(Expr *expr, Index newRelid, List *newAttnos)
 	ListCell *lc;
 	CreateReduceExprContext context;
 	Expr *newExpr;
-	AssertArg(expr && IsReduceExprByValue(expr));
-	AssertArg(newRelid > 0 && newAttnos != NIL);
+	AssertArg(expr && IsReduceExprByValue(expr) && newAttnos);
+	AssertArg((newRelid > 0 && IsA(newAttnos,IntList)) || (newRelid == 0 && IsA(newAttnos, List)));
 
 	context.oldAttrs = GetReducePathExprAttnoList(expr, NULL);
 	if(list_length(context.oldAttrs) != list_length(newAttnos))
@@ -1428,21 +1434,30 @@ Expr *CreateReduceValExprAs(Expr *expr, Index newRelid, List *newAttnos)
 
 	/* check replicate attno */
 	context.newAttrs = NIL;
-	foreach(lc, newAttnos)
+	if(newRelid > 0)
 	{
-		if(list_member_int(context.newAttrs, lfirst_int(lc)))
+		Assert(IsA(newAttnos, IntList));
+		foreach(lc, newAttnos)
 		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("replicate var attno %d", lfirst_int(lc))));
+			if(list_member_int(context.newAttrs, lfirst_int(lc)))
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						errmsg("replicate var attno %d", lfirst_int(lc))));
+			}
+			context.newAttrs = lappend_int(context.newAttrs, lfirst_int(lc));
 		}
-		context.newAttrs = lappend_int(context.newAttrs, lfirst_int(lc));
+	}else
+	{
+		Assert(IsA(newAttnos, List));
+		context.newAttrs = newAttnos;
 	}
 
 	context.newRelid = newRelid;
 	newExpr = (Expr*)CreateReduceExprMutator((Node*)expr, &context);
 
-	list_free(context.newAttrs);
+	if(IsA(context.newAttrs, IntList))
+		list_free(context.newAttrs);
 	list_free(context.oldAttrs);
 	return newExpr;
 }
@@ -1520,6 +1535,7 @@ static oidvector *makeDatanodeOidVector(List *list)
 			++i;
 		}
 	}
+	SET_VARSIZE(oids, sizeof(Oid)*list_length(list));
 
 	return oids;
 }
@@ -1687,25 +1703,48 @@ static Node *CreateReduceExprMutator(Node *node, CreateReduceExprContext *contex
 	if(IsA(node, Param))
 	{
 		ReduceParam *rp = (ReduceParam*)node;
-		ReduceParam *new_rp = palloc(sizeof(*new_rp));
 		ListCell *lcNew;
 		ListCell *lcOld;
-		memcpy(new_rp, rp, sizeof(Param));
-		new_rp->attno = InvalidAttrNumber;
-		new_rp->relid = 0;
+		AttrNumber attno = rp->attno - FirstLowInvalidHeapAttributeNumber;
 		forboth(lcNew, context->newAttrs, lcOld, context->oldAttrs)
 		{
-			if(rp->attno == lfirst_int(lcOld))
+			if(attno == lfirst_int(lcOld))
 			{
-				new_rp->attno = lfirst_int(lcNew);
-				new_rp->relid = context->newRelid;
+				if(context->newRelid == 0)
+				{
+					Assert(IsA(context->newAttrs, List));
+					Assert(exprType(lfirst(lcNew)) == rp->param.paramtype);
+					return Var2ReduceParamMutator(lfirst(lcNew), NULL);
+				}else
+				{
+					ReduceParam *new_rp = palloc(sizeof(*new_rp));
+					memcpy(new_rp, rp, sizeof(Param));
+					new_rp->attno = lfirst_int(lcNew);
+					new_rp->relid = context->newRelid;
+					return (Node*)new_rp;
+				}
 				break;
 			}
 		}
-		Assert(new_rp->attno != InvalidAttrNumber);
-		Assert(new_rp->relid > 0);
-		return (Node*)new_rp;
+		Assert(0);
 	}
 
 	return expression_tree_mutator(node, CreateReduceExprMutator, context);
+}
+
+static Node *Var2ReduceParamMutator(Node *node, void *context)
+{
+	if(node == NULL)
+		return NULL;
+	if(IsA(node, Var))
+	{
+		Var *var = (Var*)node;
+		return (Node*)makeReduceParam(var->vartype,
+									  var->varattno,	/* param id just use this */
+									  var->vartypmod,
+									  var->varcollid,
+									  var->varno,
+									  var->varattno);
+	}
+	return expression_tree_mutator(node, Var2ReduceParamMutator, context);
 }
