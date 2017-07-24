@@ -673,12 +673,26 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		ListCell *lc;
 		List *reduce_info_list;
 		ReduceExprInfo *rinfo;
-		List *quals = extract_actual_clauses(rel->baserestrictinfo, false);
-		ExecNodes *nodes =  GetRelationNodesByQuals(rte->relid, rel->relid,
-														(Node *)quals,
-														RELATION_ACCESS_READ);
-		List *rnodes = PGXCNodeGetNodeOidList(nodes->nodeList, PGXC_NODE_DATANODE);
-		FreeExecNodes(&nodes);
+		List *rnodes;
+		rinfo = palloc0(sizeof(*rinfo));
+		if(IsRelationReplicated(rel->loc_info))
+		{
+			rnodes = PGXCNodeGetNodeOidList(rel->loc_info->nodeList, PGXC_NODE_DATANODE);
+			rinfo->expr = MakeReduceReplicateExpr(rnodes);
+			rinfo->relid = rel->relid;
+		}else
+		{
+			List *quals = extract_actual_clauses(rel->baserestrictinfo, false);
+			ExecNodes *nodes =  GetRelationNodesByQuals(rte->relid, rel->relid,
+															(Node *)quals,
+															RELATION_ACCESS_READ);
+			rnodes = PGXCNodeGetNodeOidList(nodes->nodeList, PGXC_NODE_DATANODE);
+			FreeExecNodes(&nodes);
+
+			rinfo->expr = rel->reduce;
+			rinfo->attnoList = GetReducePathExprAttnoList(rinfo->expr, NULL);
+			rinfo->relid = PullReducePathExprAttnos(rinfo->expr, &rinfo->varattnos);
+		}
 
 		add_path(rel, create_seqscan_path(root, rel, required_outer, 0));
 
@@ -688,10 +702,6 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		/* Consider TID scans */
 		create_tidscan_paths(root, rel);
 
-		rinfo = palloc0(sizeof(*rinfo));
-		rinfo->expr = rel->reduce;
-		rinfo->attnoList = GetReducePathExprAttnoList(rinfo->expr, NULL);
-		rinfo->relid = PullReducePathExprAttnos(rinfo->expr, &rinfo->varattnos);
 		rinfo->execList = list_copy(rnodes);
 		reduce_info_list = list_make1(rinfo);
 
