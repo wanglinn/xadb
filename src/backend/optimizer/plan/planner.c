@@ -2128,11 +2128,13 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				memcpy(rp, path, sizeof(Path));
 				NodeSetTag(rp, T_ResultPath);
 				rp->path.pathtype = T_Result;
-				rp->subpath = path;
+				if((Path*)rp != path)
+					rp->subpath = path;
 				path = (Path*)rp;
 
 				/* make reduce path */
 				path = reduce_to_relation_insert(root, parse->resultRelation, path);
+				Assert(path);
 
 				path = (Path *)
 					create_modifytable_path(root, final_rel,
