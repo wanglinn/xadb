@@ -1916,6 +1916,40 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 		outer_reduce_list = NIL;
 	}
 
+	/* no we need a reduce path */
+	foreach(outer_lc, outerrel->cluster_pathlist)
+	{
+		List *exprList;
+		ListCell *lc_reduce;
+		ReduceExprInfo *outer_reduce;
+		outerClusterPath = lfirst(outer_lc);
+		outer_reduce_list = get_reduce_info_list(outerClusterPath);
+		if (outer_reduce_list == NIL ||
+			PATH_PARAM_BY_REL(outerClusterPath, innerrel) ||
+			is_reduce_by_value_list(outer_reduce_list) == false)
+			continue;
+
+		foreach(lc_reduce, outer_reduce_list)
+		{
+			outer_reduce = lfirst(lc_reduce);
+			exprList = find_join_equal_exprs(outer_reduce, restrictlist, innerrel);
+			if(exprList)
+			{
+				ClusterReducePath *path;
+				ReduceExprInfo *rinfo = palloc0(sizeof(*rinfo));
+				rinfo->expr = CreateReduceValExprAs(outer_reduce->expr, 0, exprList);
+				fill_reduce_expr_info(rinfo);
+				path = create_cluster_reduce_path(innerrel->cheapest_cluster_total_path,
+												  rinfo,
+												  innerrel);
+				*outer_path = outerClusterPath;
+				*inner_path = (Path*)path;
+				result = true;
+				goto make_finish_;
+			}
+		}
+	}
+
 make_finish_:
 	list_free(inner_reduce_list_list);
 	return result;
