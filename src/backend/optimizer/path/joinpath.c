@@ -1886,17 +1886,13 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 			PATH_PARAM_BY_REL(outerClusterPath, innerrel))
 			continue;
 
-		if(list_length(outer_reduce_list) == 1)
+		if(is_reduce_replacate_list(outer_reduce_list))
 		{
-			ReduceExprInfo *outer_reduce_info = linitial(outer_reduce_list);
-			if(IsReduceReplicateExpr(outer_reduce_info->expr))
-			{
-				*outer_path = outerClusterPath;
-				Assert(innerrel->cheapest_cluster_total_path != NULL);
-				*inner_path = innerrel->cheapest_cluster_total_path;
-				result = true;
-				goto make_finish_;
-			}
+			*outer_path = outerClusterPath;
+			Assert(innerrel->cheapest_cluster_total_path != NULL);
+			*inner_path = innerrel->cheapest_cluster_total_path;
+			result = true;
+			goto make_finish_;
 		}
 
 		forboth(inner_lc, innerrel->cluster_pathlist, inner_lc_list, inner_reduce_list_list)

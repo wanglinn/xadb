@@ -5875,8 +5875,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 	reduce_list = get_reduce_info_list(path);
 	if(IsRelationReplicated(loc_info))
 	{
-		if (list_length(reduce_list) == 1 &&
-			IsReduceReplicateExpr(((ReduceExprInfo*)linitial(reduce_list))->expr))
+		if (is_reduce_replacate_list(reduce_list))
 		{
 			List *sub_nodes;
 			List *to_nodes;
@@ -5901,8 +5900,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 	}else
 	{
 		reduce_info = palloc0(sizeof(*reduce_info));
-		if (list_length(reduce_list) == 1 &&
-			IsReduceReplicateExpr(((ReduceExprInfo*)linitial(reduce_list))->expr))
+		if (is_reduce_replacate_list(reduce_list))
 		{
 			ereport(ERROR, (errmsg("not support replicate to hash yet!")));
 		}else
