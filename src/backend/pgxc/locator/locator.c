@@ -111,7 +111,7 @@ static bool expr_have_param(Node *node, void *none);
 static Node *reduceParam2VarMutator(Node *node, void *none);
 static bool PullReducePathExprAttnosWalker(ReduceParam *rp, PullReducePathExprVarAttnosContext *context);
 static Node *CreateReduceExprMutator(Node *node, CreateReduceExprContext *context);
-static Node *Var2ReduceParamMutator(Node *node, void *context);
+static Node *Var2ReduceParamMutator(Node *node, ReduceParam *oldParam);
 
 Oid		primary_data_node = InvalidOid;
 int		num_preferred_data_nodes = 0;
@@ -1746,7 +1746,7 @@ static Node *CreateReduceExprMutator(Node *node, CreateReduceExprContext *contex
 				{
 					Assert(IsA(context->newAttrs, List));
 					Assert(exprType(lfirst(lcNew)) == rp->param.paramtype);
-					return Var2ReduceParamMutator(lfirst(lcNew), NULL);
+					return Var2ReduceParamMutator(lfirst(lcNew), rp);
 				}else
 				{
 					ReduceParam *new_rp = palloc(sizeof(*new_rp));
@@ -1764,7 +1764,7 @@ static Node *CreateReduceExprMutator(Node *node, CreateReduceExprContext *contex
 	return expression_tree_mutator(node, CreateReduceExprMutator, context);
 }
 
-static Node *Var2ReduceParamMutator(Node *node, void *context)
+static Node *Var2ReduceParamMutator(Node *node, ReduceParam *oldParam)
 {
 	if(node == NULL)
 		return NULL;
@@ -1772,11 +1772,11 @@ static Node *Var2ReduceParamMutator(Node *node, void *context)
 	{
 		Var *var = (Var*)node;
 		return (Node*)makeReduceParam(var->vartype,
-									  var->varattno,	/* param id just use this */
+									  oldParam->param.paramid,
 									  var->vartypmod,
 									  var->varcollid,
 									  var->varno,
 									  var->varattno);
 	}
-	return expression_tree_mutator(node, Var2ReduceParamMutator, context);
+	return expression_tree_mutator(node, Var2ReduceParamMutator, oldParam);
 }
