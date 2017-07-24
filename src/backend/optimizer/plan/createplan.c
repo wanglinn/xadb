@@ -6527,6 +6527,23 @@ List* copy_reduce_info_list(List *list)
 	return newList;
 }
 
+bool is_reduce_replacate_list(List *list)
+{
+	ListCell *lc;
+	bool result = false;
+	foreach(lc, list)
+	{
+		ReduceExprInfo *rinfo = lfirst(lc);
+		if(IsReduceReplicateExpr(rinfo->expr))
+		{
+			result = true;
+			Assert(list_length(list) == 1);
+			break;
+		}
+	}
+	return result;
+}
+
 ReduceExprInfo* copy_reduce_info(const ReduceExprInfo *info)
 {
 	AssertArg(info);
