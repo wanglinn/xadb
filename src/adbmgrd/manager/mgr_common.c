@@ -28,7 +28,6 @@ static TupleDesc common_command_tuple_desc = NULL;
 static TupleDesc common_list_acl_tuple_desc = NULL;
 static TupleDesc showparam_command_tuple_desc = NULL;
 static TupleDesc ha_replication_tuple_desc = NULL;
-static void myUsleep(long microsec);
 
 TupleDesc get_common_command_tuple_desc(void)
 {
@@ -121,7 +120,6 @@ TupleDesc get_list_acl_command_tuple_desc(void)
 	Assert(common_list_acl_tuple_desc);
 	return common_list_acl_tuple_desc;
 }
-
 /*hba replication tuple desc*/
 HeapTuple build_ha_replication_tuple(const Name type, const Name nodename, const Name app, const Name client_addr, const Name state, const Name sent_location, const Name replay_location, const Name sync_state, const Name master_location, const Name sent_delay, const Name replay_delay)
 {
@@ -351,7 +349,7 @@ bool mgr_recv_msg_for_monitor(ManagerAgent *ma, bool *ret, StringInfo agentRstSt
 		else if (msg_type == AGT_MSG_RESULT)
 		{
 			*ret = true;
-			ereport(LOG, (errmsg("receive msg: %s", agentRstStr->data)));
+			ereport(DEBUG1, (errmsg("receive msg: %s", agentRstStr->data)));
 			initdone = true;
 			break;
 		}
@@ -391,84 +389,151 @@ bool is_valid_ip(char *ip)
 }
 
 /* ping someone node for monitor */
-int pingNode_user(char *host, char *port, char *user)
+int pingNode_user(char *host_addr, char *node_port, char *node_user)
 {
-	PGPing ret;
-	char conninfo[MAXLINE + 1] = {0};
-	char editBuf[MAXPATH + 1] = {0};
-	int retry;
+	int ping_status;
+	bool execok = false;
+	ManagerAgent *ma;
+	StringInfoData sendstrmsg;
+	StringInfoData buf;
+	char pid_file_path[MAXPATH] = {0};
+	Datum nodepath;
+	int32 agent_port;
+	Relation rel;
+	HeapScanDesc rel_scan;
+	ScanKeyData key[2];
+	HeapTuple tuple;
+	Oid host_tuple_oid;
+	Form_mgr_host mgr_host;
+	GetAgentCmdRst getAgentCmdRst;
+	bool isnull;
+	Assert(host_addr && node_port && node_user);
 
-	if (host)
+	/*get the host port base on the port of node and host*/
+	ScanKeyInit(&key[0]
+				,Anum_mgr_host_hostaddr
+				,BTEqualStrategyNumber
+				,F_TEXTEQ
+				,CStringGetTextDatum(host_addr));
+	rel = heap_open(HostRelationId, AccessShareLock);
+	rel_scan = heap_beginscan_catalog(rel, 1, key);
+	tuple = heap_getnext(rel_scan, ForwardScanDirection);
+	host_tuple_oid = HeapTupleGetOid(tuple);
+	if (!HeapTupleIsValid(tuple))
 	{
-		snprintf(editBuf, MAXPATH, "host='%s' ", host);
-		strncat(conninfo, editBuf, MAXLINE);
+		ereport(ERROR, (errmsg("host\"%s\" does not exist in the host table", host_addr)));
 	}
+	mgr_host = (Form_mgr_host)GETSTRUCT(tuple);
+	Assert(mgr_host);
+	agent_port = mgr_host->hostagentport;
+	heap_endscan(rel_scan);
+	heap_close(rel, AccessShareLock);
 
-	if (port)
+	/*get postmaster.pid file path */
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodeport
+				,BTEqualStrategyNumber
+				,F_INT4EQ
+				,Int32GetDatum(atol(node_port)));
+	ScanKeyInit(&key[1]
+				,Anum_mgr_node_nodehost
+				,BTEqualStrategyNumber
+				,F_OIDEQ
+				,ObjectIdGetDatum(host_tuple_oid));
+	rel = heap_open(NodeRelationId, AccessShareLock);
+	rel_scan = heap_beginscan_catalog(rel, 2, key);
+	tuple = heap_getnext(rel_scan, ForwardScanDirection);
+	if (!HeapTupleIsValid(tuple))
 	{
-		snprintf(editBuf, MAXPATH, "port=%d ", atoi(port));
-		strncat(conninfo, editBuf, MAXLINE);
+		ereport(ERROR, (errmsg("port \"%s\" does not exist in the node table", node_port)));
 	}
-
-	if (user)
+	nodepath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel), &isnull);
+	snprintf(pid_file_path, MAXPATH, "%s/postmaster.pid", TextDatumGetCString(nodepath));
+	heap_endscan(rel_scan);
+	heap_close(rel, AccessShareLock);
+	
+	/*send the node message to agent*/
+	initStringInfo(&sendstrmsg);
+	initStringInfo(&(getAgentCmdRst.description));
+	appendStringInfo(&sendstrmsg, "%s", host_addr);
+	appendStringInfoChar(&sendstrmsg, '\0');
+	appendStringInfo(&sendstrmsg, "%s", node_port);
+	appendStringInfoChar(&sendstrmsg, '\0');
+	appendStringInfo(&sendstrmsg, "%s", node_user);
+	appendStringInfoChar(&sendstrmsg, '\0');
+	appendStringInfo(&sendstrmsg, "%s", pid_file_path);
+	
+	ma = ma_connect(host_addr, agent_port);;
+	if (!ma_isconnected(ma))
 	{
-		snprintf(editBuf, MAXPATH, "user=%s ", user);
-		strncat(conninfo, editBuf, MAXLINE);
+		/*report error message*/
+		getAgentCmdRst.ret = false;
+		appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
+		ma_close(ma);
+		ereport(LOG, (errmsg("could not connect socket for agent \"%s\".",
+						host_addr)));
+		pfree(sendstrmsg.data);
+		pfree(getAgentCmdRst.description.data);
+		return AGENT_DOWN;
 	}
-
-	/*timeout set 2s*/
-	snprintf(editBuf, MAXPATH,"connect_timeout=2");
-	strncat(conninfo, editBuf, MAXLINE);
-
-	if (conninfo[0])
+	getAgentCmdRst.ret = false;
+	ma_beginmessage(&buf, AGT_MSG_COMMAND);
+	ma_sendbyte(&buf, AGT_CMD_PING_NODE);
+	mgr_append_infostr_infostr(&buf, &sendstrmsg);
+	pfree(sendstrmsg.data);
+	ma_endmessage(&buf, ma);
+	if (! ma_flush(ma, true))
 	{
-		elog(DEBUG1, "Ping node string: %s.\n", conninfo);
-		for (retry = RETRY; retry; retry--)
-		{
-			ret = PQping(conninfo);
-			switch (ret)
-			{
-				case PQPING_OK:
-					return PQPING_OK;
-				case PQPING_REJECT:
-					return PQPING_REJECT;
-				case PQPING_NO_ATTEMPT:
-					return PQPING_NO_ATTEMPT;
-				case PQPING_NO_RESPONSE:
-					return PQPING_NO_RESPONSE;
-				default:
-					myUsleep(SLEEP_MICRO);
-					continue;
-			}
-		}
+		getAgentCmdRst.ret = false;
+		appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
+		ma_close(ma);
+		return -1;
 	}
-
-	return -1;
-}
-
-static void
-myUsleep(long microsec)
-{
-    struct timeval delay;
-
-    if (microsec <= 0)
-        return; 
-
-    delay.tv_sec = microsec / 1000000L;
-    delay.tv_usec = microsec % 1000000L;
-    (void) select(0, NULL, NULL, NULL, &delay);
+	/*check the receive msg*/
+	mgr_recv_msg_for_monitor(ma, &execok, &getAgentCmdRst.description);
+	ma_close(ma);
+	if (!execok)
+	{
+		ereport(WARNING, (errmsg("monitor (host=%s port=%s) fail \"%s\"",
+			host_addr, node_port, getAgentCmdRst.description.data)));
+	}
+	if (getAgentCmdRst.description.len == 1)
+		ping_status = getAgentCmdRst.description.data[0];
+	else
+		ereport(ERROR, (errmsg("receive msg from agent \"%s\" error.", host_addr)));
+	pfree(getAgentCmdRst.description.data);
+	switch(ping_status)
+	{
+		case PQPING_OK:
+		case PQPING_REJECT:
+		case PQPING_NO_ATTEMPT:
+		case PQPING_NO_RESPONSE:
+			return ping_status;
+		default:
+			return PQPING_NO_RESPONSE;
+	}
+	pfree(buf.data);
 }
 
 /*check the host in use or not*/
-bool mgr_check_host_in_use(Oid hostoid)
+bool mgr_check_host_in_use(Oid hostoid, bool check_inited)
 {
 	HeapScanDesc rel_scan;
 	HeapTuple tuple =NULL;
 	Form_mgr_node mgr_node;
 	Relation rel;
-	
-	rel = heap_open(NodeRelationId, RowExclusiveLock);
-	rel_scan = heap_beginscan_catalog(rel, 0, NULL);
+	ScanKeyData key[1];
+	bool is_using = false;
+	rel = heap_open(NodeRelationId, AccessShareLock);
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodeinited
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+	if (!check_inited)
+		rel_scan = heap_beginscan_catalog(rel, 0, NULL);
+	else
+		rel_scan = heap_beginscan_catalog(rel, 1, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		/* check this tuple incluster or not, if it has incluster, cannot be dropped/alter. */
@@ -476,14 +541,16 @@ bool mgr_check_host_in_use(Oid hostoid)
 		Assert(mgr_node);
 		if(mgr_node->nodehost == hostoid)
 		{
-			heap_endscan(rel_scan);
-			heap_close(rel, RowExclusiveLock);
-			return true;
+			break;
 		}
 	}
+	if (HeapTupleIsValid(tuple))
+		is_using =  true;
+	else
+		is_using =  false;
 	heap_endscan(rel_scan);
-	heap_close(rel, RowExclusiveLock);
-	return false;
+	heap_close(rel, AccessShareLock);
+	return is_using;
 }
 
 /*
@@ -712,7 +779,7 @@ bool mgr_has_table_privilege_name(char *tablename, char *priv_type)
 */
 void mgr_recv_sql_stringvalues_msg(ManagerAgent	*ma, StringInfo resultstrdata)
 {
-	char			msg_type;
+	char msg_type;
 	StringInfoData recvbuf;
 	initStringInfo(&recvbuf);
 	for(;;)
@@ -773,4 +840,369 @@ bool mgr_get_active_node(Name nodename, char nodetype)
 	SPI_finish();
 	
 	return bresult;
+}
+
+/*
+* given the input parameter n_days as interval time, the data in the table before n_days will be droped
+*
+*/
+void monitor_delete_data(MonitorDeleteData *node, ParamListInfo params, DestReceiver *dest)
+{
+	if (mgr_has_priv_alter())
+	{
+		DirectFunctionCall1(monitor_delete_data_interval_days, Int32GetDatum(node->days));
+		return;
+	}
+	else
+	{
+		ereport(ERROR, (errmsg("permission denied")));
+		return ;
+	}
+
+}
+
+/*
+* given the input parameter n_days as interval time, the data in the table before n_days will be droped
+*
+*/
+
+Datum monitor_delete_data_interval_days(PG_FUNCTION_ARGS)
+{
+	int interval_days = PG_GETARG_INT32(0);
+	int ret;
+	int iloop = 0;
+	StringInfoData sqlstrdata;
+	struct del_tablename
+	{
+		char *tbname;
+		char *coltimename;
+	}del_tablename[]={
+		{"monitor_cpu", "mc_timestamptz"},
+		{"monitor_disk", "md_timestamptz"},
+		{"monitor_host", "mh_current_time"},
+		{"monitor_mem", "mm_timestamptz"},
+		{"monitor_net", "mn_timestamptz"},
+		{"monitor_resolve", "mr_resolve_timetz"},
+		{"monitor_alarm", "ma_alarm_timetz"},
+		{"monitor_databaseitem", "monitor_databaseitem_time"},
+		{"monitor_databasetps", "monitor_databasetps_time"},
+		{"monitor_slowlog", "slowlogtime"},
+		{NULL, NULL}
+		};
+
+	if ((ret = SPI_connect()) < 0)
+		ereport(ERROR, (errmsg("ADB Monitor SPI_connect failed: error code %d", ret)));
+	
+	initStringInfo(&sqlstrdata);
+	
+	for(iloop=0; del_tablename[iloop].tbname != NULL; iloop++)
+	{
+		appendStringInfo(&sqlstrdata, "delete from %s where %s < timestamp'now()' - interval'%d day';"
+			,del_tablename[iloop].tbname, del_tablename[iloop].coltimename, interval_days);
+		ret = SPI_execute(sqlstrdata.data, false, 0);
+		if (ret != SPI_OK_DELETE)
+			ereport(ERROR, (errmsg("ADB Monitor SPI_execute \"%s\"failed: error code %d", sqlstrdata.data, ret)));
+		ereport(LOG, (errmsg("ADB Monitor clean data: table \"%s\", data of \"%d\" days ago"
+			,del_tablename[iloop].tbname, interval_days)));
+		resetStringInfo(&sqlstrdata);
+		SPI_freetuptable(SPI_tuptable);
+	}
+	pfree(sqlstrdata.data);
+	SPI_finish();
+	
+	PG_RETURN_BOOL(true);
+}
+
+/*
+* set cluster init in mgr_node table,initialized=true, incluster=true
+*/
+void mgr_set_init(MGRSetClusterInit *node, ParamListInfo params, DestReceiver *dest)
+{
+	if (mgr_has_priv_add())
+	{
+		DirectFunctionCall1(mgr_set_init_cluster, (Datum)0);
+		return;
+	}
+	else
+	{
+		ereport(ERROR, (errmsg("permission denied")));
+		return ;
+	}
+}
+
+/*
+* update mgr_node table, set initialized=true, incluster=true
+*/
+
+Datum mgr_set_init_cluster(PG_FUNCTION_ARGS)
+{
+	char *sqlstr = "update mgr_node set nodeinited=true,nodeincluster=true;";
+	int ret;
+
+	if ((ret = SPI_connect()) < 0)
+		ereport(ERROR, (errmsg("ADB Manager SPI_connect failed: error code %d", ret)));
+
+	ret = SPI_execute(sqlstr, false, 0);
+	if (ret != SPI_OK_UPDATE)
+		ereport(ERROR, (errmsg("ADB Manager SPI_execute \"%s\"failed: error code %d", sqlstr, ret)));
+	ereport(LOG, (errmsg("update mgr_node table, set initialized=true, incluster=true")));
+	SPI_freetuptable(SPI_tuptable);
+	SPI_finish();
+	
+	PG_RETURN_BOOL(true);
+	
+}
+
+
+/*
+* promote the gtm or datanode node
+*
+*/
+
+bool mgr_promote_node(char cmdtype, Oid hostOid, char *path, StringInfo strinfo)
+{
+	bool res = false;
+	StringInfoData infosendmsg;
+
+	/*check the cmdtype*/
+	if (AGT_CMD_GTM_SLAVE_FAILOVER != cmdtype || AGT_CMD_DN_FAILOVER != cmdtype)
+	{
+		appendStringInfo(strinfo, "the cmdtype is \"%d\", not for gtm promote or datanode promote", cmdtype);
+		return false;
+	}
+	/*check the path*/
+	if (!path || path[0] != '/')
+	{
+		appendStringInfoString(strinfo, "the path is not absolute path");
+		return false;
+	}
+
+	initStringInfo(&infosendmsg);
+	appendStringInfo(&infosendmsg, " promote -w -D %s", path);
+	res = mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostOid, strinfo);
+	pfree(infosendmsg.data);
+
+	return res;
+}
+
+/*
+* wait the new master accept connect
+*
+*/
+bool mgr_check_node_connect(char nodetype, Oid hostOid, int nodeport)
+{
+	char *hostaddr;
+	char nodeport_buf[10];
+	char *username = NULL;
+
+	hostaddr = get_hostaddress_from_hostoid(hostOid);
+	/*check recovery finish*/
+	fputs(_("waiting for the new master can accept connections..."), stdout);
+	fflush(stdout);
+	while(1)
+	{
+		if (mgr_check_node_recovery_finish(nodetype, hostOid, nodeport, hostaddr))
+			break;
+		fputs(_("."), stdout);
+		fflush(stdout);
+		pg_usleep(1 * 1000000L);
+	}
+	sprintf(nodeport_buf, "%d", nodeport);
+	if (nodetype != GTM_TYPE_GTM_MASTER && nodetype != GTM_TYPE_GTM_SLAVE 
+			&& nodetype != GTM_TYPE_GTM_EXTRA)
+			username = get_hostname_from_hostoid(hostOid);
+
+	while(1)
+	{
+		if (pingNode_user(hostaddr, nodeport_buf, username == NULL ? AGTM_USER : username) != 0)
+		{
+			fputs(_("."), stdout);
+			fflush(stdout);
+			pg_usleep(1 * 1000000L);
+		}
+		else
+			break;
+	}
+	fputs(_(" done\n"), stdout);
+	fflush(stdout);
+
+	pfree(hostaddr);
+	if (username)
+		pfree(username);
+	
+	return true;
+}
+
+/*
+* rewind the node
+*
+*/
+
+bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
+{
+	char cmdtype = AGT_CMD_NODE_REWIND;
+	char mastertype;
+	char *nodetypestr;
+	bool res = false;
+	bool slave_is_exist = false;
+	bool slave_is_running = false;
+	bool master_is_exist = false;
+	bool master_is_running = false;
+	AppendNodeInfo slave_nodeinfo;
+	AppendNodeInfo master_nodeinfo;
+	StringInfoData infosendmsg;
+	GetAgentCmdRst getAgentCmdRst;
+	Relation rel_node;
+	HeapTuple tuple;
+
+	/*check node type*/
+	if (nodetype != GTM_TYPE_GTM_SLAVE && nodetype != GTM_TYPE_GTM_EXTRA
+		&& nodetype != CNDN_TYPE_DATANODE_SLAVE && nodetype != CNDN_TYPE_DATANODE_EXTRA)
+	{
+		appendStringInfo(strinfo, "the nodetype is \"%d\", not for gtm rewind or datanode rewind", nodetype);
+		return false;
+	}
+
+	Assert(nodename);
+
+	nodetypestr = mgr_nodetype_str(nodetype);
+	/* check exists */
+	rel_node = heap_open(NodeRelationId, AccessShareLock);
+	tuple = mgr_get_tuple_node_from_name_type(rel_node, nodename, nodetype);
+	if(!(HeapTupleIsValid(tuple)))
+	{
+		heap_close(rel_node, AccessShareLock);
+		appendStringInfo(strinfo, "%s \"%s\" does not exist", nodetypestr, nodename);
+		pfree(nodetypestr);
+		return false;
+	}
+	/*restart the node then stop it with fast mode*/
+	initStringInfo(&(getAgentCmdRst.description));
+	ereport(NOTICE, (errmsg("pg_ctl restart %s \"%s\"", nodetypestr, nodename)));
+	mgr_runmode_cndn_get_result(AGT_CMD_DN_RESTART, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
+	if(!getAgentCmdRst.ret)
+	{
+		heap_freetuple(tuple);
+		heap_close(rel_node, AccessShareLock);
+		ereport(WARNING, (errmsg("pg_ctl restart %s \"%s\" fail, %s", nodetypestr, nodename, getAgentCmdRst.description.data)));
+		appendStringInfo(strinfo, "pg_ctl restart %s \"%s\" fail, %s", nodetypestr, nodename, getAgentCmdRst.description.data);
+		pfree(nodetypestr);
+		return false;
+	}
+	ereport(NOTICE, (errmsg("pg_ctl stop %s \"%s\" with fast mode", nodetypestr, nodename)));
+	resetStringInfo(&(getAgentCmdRst.description));
+	mgr_runmode_cndn_get_result(AGT_CMD_DN_STOP, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
+	if(!getAgentCmdRst.ret)
+	{
+		heap_freetuple(tuple);
+		heap_close(rel_node, AccessShareLock);
+		ereport(WARNING, (errmsg("pg_ctl stop %s \"%s\" with fast mode fail, %s", nodetypestr, nodename, getAgentCmdRst.description.data)));
+		appendStringInfo(strinfo, "pg_ctl stop %s \"%s\" with fast mode fail, %s", nodetypestr, nodename, getAgentCmdRst.description.data);
+		pfree(nodetypestr);
+		return false;
+	}
+	heap_freetuple(tuple);
+	heap_close(rel_node, AccessShareLock);
+	pfree(nodetypestr);
+
+	/*get the slave info, no matter it is in cluster or not*/
+	mgr_get_nodeinfo_byname_type(nodename, nodetype, false, &slave_is_exist, &slave_is_running, &slave_nodeinfo);
+	/*get its master info*/
+	mastertype = mgr_get_master_type(nodetype);
+	get_nodeinfo_byname(nodename, mastertype, &master_is_exist, &master_is_running, &master_nodeinfo);
+	if (master_is_exist && (!master_is_running))
+	{
+			pfree_AppendNodeInfo(master_nodeinfo);
+			pfree_AppendNodeInfo(slave_nodeinfo);
+			nodetypestr = mgr_nodetype_str(mastertype);
+			appendStringInfo(strinfo, "%s \"%s\" does not running normal", nodetypestr, nodename);
+			pfree(nodetypestr);
+			pfree(getAgentCmdRst.description.data);
+			return false;
+	}
+
+	/*start the node then stop it with fast mode*/
+
+	/* update master's pg_hba.conf */
+	initStringInfo(&infosendmsg);
+	resetStringInfo(&(getAgentCmdRst.description));
+	ereport(NOTICE, (errmsg("update datanode master \"%s\" pg_hba.conf", nodename)));
+	mgr_add_parameters_hbaconf(master_nodeinfo.tupleoid, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
+	mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", master_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
+	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF,
+							master_nodeinfo.nodepath,
+							&infosendmsg,
+							master_nodeinfo.nodehost,
+							&getAgentCmdRst);
+	if (!getAgentCmdRst.ret)
+	{
+		pfree_AppendNodeInfo(master_nodeinfo);
+		pfree_AppendNodeInfo(slave_nodeinfo);
+		appendStringInfo(strinfo, "%s", getAgentCmdRst.description.data);
+		pfree(getAgentCmdRst.description.data);
+		return false;
+	}
+
+	pfree(getAgentCmdRst.description.data);
+
+	/*node rewind*/
+	resetStringInfo(&infosendmsg);
+	appendStringInfo(&infosendmsg, " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres' -N %s", slave_nodeinfo.nodepath, master_nodeinfo.nodeaddr, master_nodeinfo.nodeport, slave_nodeinfo.nodeusername, nodename);
+	ereport(NOTICE, (errmsg("pg_rewind %s", infosendmsg.data)));
+
+	res = mgr_ma_send_cmd(cmdtype, infosendmsg.data, slave_nodeinfo.nodehost, strinfo);
+	pfree(infosendmsg.data);
+	pfree_AppendNodeInfo(master_nodeinfo);
+	pfree_AppendNodeInfo(slave_nodeinfo);
+	return res;
+}
+
+/*
+* send adbmgr command string to agent; if fail, the error information in strinfo
+*
+*/
+bool mgr_ma_send_cmd(char cmdtype, char *cmdstr, Oid hostOid, StringInfo strinfo)
+{
+	char *hostaddr;
+	char cmdheadstr[64];
+	ManagerAgent *ma;
+	GetAgentCmdRst getAgentCmdRst;
+	StringInfoData buf;
+	bool res = false;
+
+	hostaddr = get_hostaddress_from_hostoid(hostOid);
+	/* connection agent */
+	ma = ma_connect_hostoid(hostOid);
+	if(!ma_isconnected(ma))
+	{
+		/* report error message */
+		appendStringInfo(strinfo, "%s", ma_last_error_msg(ma));
+		ma_close(ma);
+		pfree(hostaddr);
+		return false;
+	}
+
+	mgr_get_cmd_head_word(cmdtype, cmdheadstr);
+	ereport(LOG, (errmsg("%s, %s %s", hostaddr, cmdheadstr, cmdstr)));
+	pfree(hostaddr);
+	
+	/*send cmd*/
+	ma_beginmessage(&buf, AGT_MSG_COMMAND);
+	ma_sendbyte(&buf, cmdtype);
+	ma_sendstring(&buf,cmdstr);
+	ma_endmessage(&buf, ma);
+	if (! ma_flush(ma, true))
+	{
+		appendStringInfoString(strinfo, ma_last_error_msg(ma));
+		ma_close(ma);
+		return false;
+	}
+	/*check the receive msg*/
+	initStringInfo(&(getAgentCmdRst.description));
+	res = mgr_recv_msg(ma, &getAgentCmdRst);
+	ma_close(ma);
+	appendStringInfoString(strinfo, getAgentCmdRst.description.data);
+	pfree(getAgentCmdRst.description.data);
+	
+	return res;
 }

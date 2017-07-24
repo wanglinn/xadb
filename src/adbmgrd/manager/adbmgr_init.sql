@@ -45,6 +45,7 @@ SELECT
 FROM pg_catalog.mgr_updateparm order by 1,2;
 
 CREATE VIEW adbmgr.node AS
+	SELECT * FROM(
   SELECT
     mgrnode.nodename    AS  name,
     hostname   AS  host,
@@ -64,8 +65,17 @@ CREATE VIEW adbmgr.node AS
     mgrnode.nodepath    AS  path,
     mgrnode.nodeinited  AS  initialized,
     mgrnode.nodeincluster AS incluster
-  FROM pg_catalog.mgr_node AS mgrnode LEFT JOIN pg_catalog.mgr_host ON mgrnode.nodehost = pg_catalog.mgr_host.oid LEFT JOIN pg_catalog.mgr_node AS node_alise
-  ON node_alise.oid = mgrnode.nodemasternameoid order by 1,3;
+  FROM pg_catalog.mgr_node AS mgrnode LEFT JOIN pg_catalog.mgr_host ON mgrnode.nodehost = pg_catalog.mgr_host.oid
+		LEFT JOIN pg_catalog.mgr_node AS node_alise ON node_alise.oid = mgrnode.nodemasternameoid) AS node_tb 
+		order by 1,(case type 
+			when 'gtm master' then 0 
+			when 'gtm slave' then 1 
+			when 'gtm extra' then 2 
+			when 'coordinator' then 3 
+			when 'datanode master' then 4 
+			when 'datanode slave' then 5 
+			when 'datanode extra' then 6 
+			End) ASC;
 
 CREATE VIEW adbmgr.job AS
   SELECT
@@ -84,6 +94,9 @@ CREATE VIEW adbmgr.jobitem AS
     jobitem_path AS path,
     jobitem_desc AS description
   FROM pg_catalog.monitor_jobitem order by 1;
+
+CREATE VIEW adbmgr.ha as
+	SELECT * FROM mgr_monitor_ha();
 
 --monitor all
 CREATE VIEW adbmgr.monitor_all AS
@@ -269,28 +282,28 @@ CREATE VIEW adbmgr.get_all_host_parm AS
         
         (
             select * from (
-                            select *, (ROW_NUMBER()OVER(PARTITION BY T.host_oid ORDER BY T.mc_timestamptz desc)) as rm
+                            select *, (ROW_NUMBER()OVER(PARTITION BY T.hostname ORDER BY T.mc_timestamptz desc)) as rm
                             from monitor_cpu t
                            ) tt where tt.rm = 1
         ) c,
         
         (
             select * from (
-                            select *,(ROW_NUMBER()OVER(PARTITION BY T.host_oid ORDER BY T.mm_timestamptz desc)) as rm
+                            select *,(ROW_NUMBER()OVER(PARTITION BY T.hostname ORDER BY T.mm_timestamptz desc)) as rm
                             from monitor_mem t
                            ) tt where tt.rm =1
         ) m,
         
         (
             select * from (
-                            select *, (ROW_NUMBER()OVER(PARTITION BY T.host_oid ORDER BY T.md_timestamptz desc)) as rm
+                            select *, (ROW_NUMBER()OVER(PARTITION BY T.hostname ORDER BY T.md_timestamptz desc)) as rm
                             from monitor_disk t
                            ) tt where tt.rm = 1
         ) d,
         
         (
             select * from (
-                            select *, (ROW_NUMBER()OVER(PARTITION BY T.host_oid ORDER BY T.mh_current_time desc)) as rm
+                            select *, (ROW_NUMBER()OVER(PARTITION BY T.hostname ORDER BY T.mh_current_time desc)) as rm
                             from monitor_host t
                            ) tt where tt.rm = 1
         ) nh,
@@ -306,10 +319,10 @@ CREATE VIEW adbmgr.get_all_host_parm AS
         (
             select * from monitor_host_threshold where mt_type = 3
         )mtd
-    where mgh.oid = c.host_oid and
-        c.host_oid = m.host_oid and
-        m.host_oid = d.host_oid and
-        d.host_oid = nh.host_oid;
+    where mgh.hostname = c.hostname and
+        c.hostname = m.hostname and
+        m.hostname = d.hostname and
+        d.hostname = nh.hostname;
 
 -- for ADB monitor host page: get specific host various parameters.
 CREATE VIEW adbmgr.get_spec_host_parm AS
@@ -333,43 +346,43 @@ CREATE VIEW adbmgr.get_spec_host_parm AS
     
         (
             select * from (
-                            select *, (ROW_NUMBER()OVER(PARTITION BY t.host_oid ORDER BY t.mh_current_time desc)) as rm
+                            select *, (ROW_NUMBER()OVER(PARTITION BY t.hostname ORDER BY t.mh_current_time desc)) as rm
                             from monitor_host t
                            ) tt where tt.rm = 1
         ) mh,
         
         (
             select * from (
-                            select *,(ROW_NUMBER()OVER(PARTITION BY t.host_oid ORDER BY t.mc_timestamptz desc)) as rm
+                            select *,(ROW_NUMBER()OVER(PARTITION BY t.hostname ORDER BY t.mc_timestamptz desc)) as rm
                             from monitor_cpu t
                            ) tt where tt.rm = 1
         ) mc,
         
         (
             select * from (
-                            select *,(ROW_NUMBER()OVER(PARTITION BY t.host_oid ORDER BY t.mm_timestamptz desc)) as rm
+                            select *,(ROW_NUMBER()OVER(PARTITION BY t.hostname ORDER BY t.mm_timestamptz desc)) as rm
                             from monitor_mem t
                            ) tt where tt.rm =1
         ) mm,
         
         (
             select * from (
-                            select *, (ROW_NUMBER()OVER(PARTITION BY t.host_oid ORDER BY t.md_timestamptz desc)) as rm
+                            select *, (ROW_NUMBER()OVER(PARTITION BY t.hostname ORDER BY t.md_timestamptz desc)) as rm
                             from monitor_disk t
                            ) tt where tt.rm = 1
         ) md,
         
         (
             select * from (
-                            select *, (ROW_NUMBER()OVER(PARTITION BY t.host_oid ORDER BY t.mn_timestamptz desc)) as rm
+                            select *, (ROW_NUMBER()OVER(PARTITION BY t.hostname ORDER BY t.mn_timestamptz desc)) as rm
                             from monitor_net t
                            ) tt where tt.rm = 1
         ) mn
-    where mgh.oid = mh.host_oid and
-        mh.host_oid = mc.host_oid and
-        mc.host_oid = mm.host_oid and
-        mm.host_oid = md.host_oid and
-        md.host_oid = mn.host_oid;
+    where mgh.hostname = mh.hostname and
+        mh.hostname = mc.hostname and
+        mc.hostname = mm.hostname and
+        mm.hostname = md.hostname and
+        md.hostname = mn.hostname;
 
 -- for ADB monitor host page: get cpu, memory, i/o and net info for specific time period.
 CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage(hostname text, i int)
@@ -393,13 +406,13 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage(hostname text, i in
            round((d.md_io_write_bytes/1024.0/1024.0)/(d.md_io_write_time/1000.0), 1) as iowriteps,
            round(n.mn_recv/1024.0,1) as netinps,
            round(n.mn_sent/1024.0,1) as netoutps
-    from monitor_cpu c left join monitor_mem  m on(c.host_oid = m.host_oid and c.mc_timestamptz = m.mm_timestamptz)
-                       left join monitor_disk d on(c.host_oid = d.host_oid and c.mc_timestamptz = d.md_timestamptz)
-                       left join monitor_net  n on(c.host_oid = n.host_oid and c.mc_timestamptz = n.mn_timestamptz)
-                       left join monitor_host h on(c.host_oid = h.host_oid and c.mc_timestamptz = h.mh_current_time)
-                       left join mgr_host   mgr on(c.host_oid = mgr.oid),
+    from monitor_cpu c left join monitor_mem  m on(c.hostname = m.hostname and c.mc_timestamptz = m.mm_timestamptz)
+                       left join monitor_disk d on(c.hostname = d.hostname and c.mc_timestamptz = d.md_timestamptz)
+                       left join monitor_net  n on(c.hostname = n.hostname and c.mc_timestamptz = n.mn_timestamptz)
+                       left join monitor_host h on(c.hostname = h.hostname and c.mc_timestamptz = h.mh_current_time)
+                       left join mgr_host   mgr on(c.hostname = mgr.hostname),
 
-                       (select mh.host_oid, mh.mh_current_time 
+                       (select mh.hostname, mh.mh_current_time 
                         from monitor_host mh 
                         order by mh.mh_current_time desc 
                         limit 1) as temp
@@ -414,12 +427,67 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage(hostname text, i in
     IMMUTABLE
     RETURNS NULL ON NULL INPUT;
 
--- for ADB monitor host page: The names of all the nodes on a host
-CREATE OR REPLACE FUNCTION pg_catalog.get_all_nodename_in_spec_host(hostname text)
-    RETURNS table (all_nodename name)
+-- for ADB monitor host page: get cpu, memory, i/o and net info for specific time period.
+CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage_by_time_period(hostname text, starttime timestamptz, endtime timestamptz)
+    RETURNS table 
+    (
+        recordtimes timestamptz,
+        cpuuseds numeric,
+        memuseds numeric,
+        ioreadps numeric,
+        iowriteps numeric,
+        netinps numeric,
+        netoutps numeric
+    )
     AS 
     $$
-    select nodename as all_node_name
+
+    select c.mc_timestamptz as recordtimes,
+           round(c.mc_cpu_usage::numeric, 1) as cpuuseds,
+           round(m.mm_usage::numeric, 1) as memuseds,
+           round((d.md_io_read_bytes/1024.0/1024.0)/(d.md_io_read_time/1000.0), 1) as ioreadps,
+           round((d.md_io_write_bytes/1024.0/1024.0)/(d.md_io_write_time/1000.0), 1) as iowriteps,
+           round(n.mn_recv/1024.0,1) as netinps,
+           round(n.mn_sent/1024.0,1) as netoutps
+    from monitor_cpu c left join monitor_mem  m on(c.hostname = m.hostname and c.mc_timestamptz = m.mm_timestamptz)
+                       left join monitor_disk d on(c.hostname = d.hostname and c.mc_timestamptz = d.md_timestamptz)
+                       left join monitor_net  n on(c.hostname = n.hostname and c.mc_timestamptz = n.mn_timestamptz)
+                       left join monitor_host h on(c.hostname = h.hostname and c.mc_timestamptz = h.mh_current_time)
+                       left join mgr_host   mgr on(c.hostname = mgr.hostname),
+
+                       (select mh.hostname, mh.mh_current_time 
+                        from monitor_host mh 
+                        order by mh.mh_current_time desc 
+                        limit 1) as temp
+    where c.mc_timestamptz  between $2 and $3
+            and mgr.hostname = $1;
+    $$
+    LANGUAGE SQL
+    IMMUTABLE
+    RETURNS NULL ON NULL INPUT;
+
+-- for ADB monitor host page: The names of all the nodes on a host
+CREATE OR REPLACE FUNCTION pg_catalog.get_all_nodename_in_spec_host(hostname text)
+    RETURNS table
+	(
+		nodename name,
+		nodetype text,
+		nodesync name
+	)
+    AS 
+    $$
+    select
+	nodename,
+		case nodetype
+		when 'g' then 'gtm master'
+		when 'p' then 'gtm slave'
+		when 'e' then 'gtm extra'
+		when 'c' then 'coordinator'
+		when 'd' then 'datanode master'
+		when 'b' then 'datanode slave'
+		when 'n' then 'datanode extra'
+		end as nodetype,
+		nodesync
     from mgr_node
     where nodehost = (select oid from mgr_host where hostname = $1);
     $$
@@ -492,7 +560,7 @@ AS
 		GROUP BY  monitor_databasetps_time
 	) AS d
 	join 
-	( SELECT (sum(md_total/1024.0/1024)/1024)::numeric(18,2) AS md_total FROM (SELECT  host_oid,md_timestamptz, md_total, (ROW_NUMBER()OVER(PARTITION BY host_oid  ORDER BY  md_timestamptz desc ))AS tc   from monitor_disk) AS d WHERE tc =1
+	( SELECT (sum(md_total/1024.0/1024)/1024)::numeric(18,2) AS md_total FROM (SELECT  hostname,md_timestamptz, md_total, (ROW_NUMBER()OVER(PARTITION BY hostname  ORDER BY  md_timestamptz desc ))AS tc   from monitor_disk) AS d WHERE tc =1
 	) AS e
 	on 1=1;
 
@@ -519,7 +587,29 @@ CREATE OR REPLACE FUNCTION pg_catalog.monitor_databasetps_func(in text, in times
 	$$
 		LANGUAGE SQL
 	IMMUTABLE
-	RETURNS NULL ON NULL INPUT;	
+	RETURNS NULL ON NULL INPUT;
+
+--make function to get tps and qps for given dbname time and start time and end time
+CREATE OR REPLACE FUNCTION pg_catalog.monitor_databasetps_func_by_time_period(dbname text, starttime timestamptz, endtime timestamptz)
+		RETURNS TABLE
+	(
+		recordtime timestamptz(0),
+		tps int,
+		qps int
+	)
+	AS $$
+	SELECT monitor_databasetps_time::timestamptz(0) AS recordtime,
+				monitor_databasetps_tps   AS tps,
+				monitor_databasetps_qps   AS qps
+	FROM 
+				monitor_databasetps
+	WHERE monitor_databasetps_dbname = $1 and 
+		  monitor_databasetps_time between $2 and $3;
+	$$
+		LANGUAGE SQL
+	IMMUTABLE
+	RETURNS NULL ON NULL INPUT;
+
 --to show all database tps, qps, runtime at current_time
  CREATE VIEW adbmgr.monitor_all_dbname_tps_qps_runtime_v
  AS 
@@ -653,7 +743,7 @@ insert into pg_catalog.monitor_host_threshold values(32, 1, 100, 0, 0);
 --slow query min time
 insert into pg_catalog.monitor_host_threshold values(33, 1, 2, 0, 0);
 --get limit num slowlog from database cluster once time
-insert into pg_catalog.monitor_host_threshold values(34, 1, 5, 0, 0);
+insert into pg_catalog.monitor_host_threshold values(34, 1, 100, 0, 0);
 
 -- for ADB monitor the topology in home page : get datanode node topology
 CREATE VIEW adbmgr.get_datanode_node_topology AS
@@ -668,10 +758,11 @@ CREATE VIEW adbmgr.get_datanode_node_topology AS
                                            end 
                                            || ':' || '{' || '"node_name"' || ':' || '"' || f.nodename || '"' || ',' 
                                                          || '"node_port"' || ':' ||        f.nodeport        || ','
-                                                         || '"node_ip"'   || ':' || '"' || f.hostaddr || '"' ||
+                                                         || '"node_ip"'   || ':' || '"' || f.hostaddr || '"' || ','
+                                                         || '"sync_state"'|| ':' || '"' || f.nodesync || '"' ||
                                                      '}'
                                     from(
-                                            select n.nodename,n.oid,n.nodetype,n.nodeport,n.nodemasternameoid, h.hostaddr
+                                            select n.nodename,n.oid,n.nodetype,n.nodesync,n.nodeport,n.nodemasternameoid, h.hostaddr
                                             from mgr_node n, mgr_host h
                                             where n.nodemasternameoid = '0' and 
                                                   n.nodename = x.nodename  and 
@@ -682,7 +773,7 @@ CREATE VIEW adbmgr.get_datanode_node_topology AS
                                             
                                             union all
                                             
-                                            select t2.nodename,t2.oid,t2.nodetype,t2.nodeport,t2.nodemasternameoid,t2.hostaddr
+                                            select t2.nodename,t2.oid,t2.nodetype,t2.nodesync,t2.nodeport,t2.nodemasternameoid,t2.hostaddr
                                             from (
                                                     select n.nodename,n.oid,n.nodetype,n.nodeport,n.nodemasternameoid,h.hostaddr
                                                     from mgr_node n,mgr_host h
@@ -695,7 +786,7 @@ CREATE VIEW adbmgr.get_datanode_node_topology AS
                                                 ) t1
                                                 left join 
                                                 (
-                                                    select n.nodename,n.oid,n.nodetype,n.nodeport,n.nodemasternameoid,h.hostaddr
+                                                    select n.nodename,n.oid,n.nodetype,n.nodesync,n.nodeport,n.nodemasternameoid,h.hostaddr
                                                     from mgr_node n,mgr_host h
                                                     where h.oid = n.nodehost and
                                                           n.nodeincluster = true and
@@ -731,10 +822,11 @@ CREATE VIEW adbmgr.get_agtm_node_topology AS
                                         end 
                                         || ':' || '{' || '"node_name"' || ':' || '"' || f.nodename || '"' || ',' 
                                                       || '"node_port"' || ':' ||        f.nodeport        || ','
-                                                      || '"node_ip"'   || ':' || '"' || f.hostaddr || '"' ||
+                                                      || '"node_ip"'   || ':' || '"' || f.hostaddr || '"' || ','
+                                                      || '"sync_state"'|| ':' || '"' || f.nodesync || '"' ||
                                                 '}'
                                     from(
-                                        select n.nodename,n.oid,n.nodetype,n.nodeport,n.nodemasternameoid, h.hostaddr
+                                        select n.nodename,n.oid,n.nodetype,n.nodesync,n.nodeport,n.nodemasternameoid, h.hostaddr
                                         from mgr_node n, mgr_host h
                                         where n.nodeincluster = true and
                                               n.nodeinited = true and
@@ -1014,7 +1106,7 @@ grant usage on schema adbmgr to public;
 -- clean
 revoke execute on function mgr_clean_all() from public;
 revoke execute on function mgr_clean_node("any") from public;
-
+revoke execute on function monitor_delete_data_interval_days(int) from public;
 -- failover
 revoke execute on function mgr_failover_gtm(cstring, cstring, bool), mgr_failover_one_dn(cstring, cstring, bool) from public;
 
@@ -1038,7 +1130,8 @@ mgr_monitor_agent_hostlist(text[]),
 mgr_monitor_gtm_all(),
 mgr_monitor_datanode_all(),
 mgr_monitor_nodetype_namelist(bigint, "any"),
-mgr_monitor_nodetype_all(bigint)
+mgr_monitor_nodetype_all(bigint),
+mgr_monitor_ha()
 from public;
 
 revoke execute on function mgr_priv_manage(bigint,text[],text[]) from public;
@@ -1082,7 +1175,8 @@ from public;
 
 --set
 revoke execute on function
-mgr_add_updateparm_func("char", cstring, "char", boolean, "any")
+mgr_add_updateparm_func("char", cstring, "char", boolean, "any"),
+mgr_set_init_cluster()
 from public;
 
 --reset
@@ -1116,7 +1210,8 @@ revoke execute on function mgr_flush_host() from public;
 --get the content "INSERT INTO adbmgr.parm VALUES..."
 --create table parm(id1 char,name text,setting text,context text,vartype text,unit text, min_val text,max_val text,enumvals text[]) distribute by replication;
 --insert into parm select '*', name, setting, context, vartype, unit, min_val, max_val, enumvals from pg_settings order by 2;
---update parm set id1='#' where name in ('adb_ha_param_delimiter', 'agtm_host', 'agtm_port', 'enable_adb_ha_sync', 'enable_adb_ha_sync_select', 'enable_fast_query_shipping', 'enable_remotegroup', 'enable_remotejoin', 'enable_remotelimit', 'enable_remotesort', 'enforce_two_phase_commit', 'grammar', 'max_coordinators', 'max_datanodes', 'max_pool_size', 'min_pool_size', 'nls_date_format', 'nls_timestamp_format', 'nls_timestamp_tz_format', 'persistent_datanode_connections', 'pgxc_node_name', 'pgxcnode_cancel_delay', 'pool_remote_cmd_timeout', 'remotetype', 'require_replicated_table_pkey', 'snapshot_level', 'xc_enable_node_tcp_log', 'xc_maintenance_mode');
+--update parm set id1='#' where name in ('adb_ha_param_delimiter', 'agtm_host', 'agtm_port', 'enable_adb_ha_sync', 'enable_adb_ha_sync_select', 'enable_fast_query_shipping', 'enable_remotegroup', 'enable_remotejoin', 'enable_remotelimit', 'enable_remotesort', 'enforce_two_phase_commit', 'grammar', 'max_coordinators', 'max_datanodes', 'max_pool_size', 'min_pool_size', 'nls_date_format', 'nls_timestamp_format', 'nls_timestamp_tz_format', 'persistent_datanode_connections', 'pgxc_node_name', 'pgxcnode_cancel_delay', 'pool_remote_cmd_timeout', 'remotetype', 'require_replicated_table_pkey', 'snapshot_level', 'xc_enable_node_tcp_log', 'xc_maintenance_mode',
+-- 'distribute_by_replication_default', 'rep_max_avail_flag', 'rep_max_avail_lsn_lag', 'rep_read_archive_path', 'rep_read_archive_path_flag', 'adb_slot_enable_mvcc', 'enable_distrib_on_dn', 'enable_slot');
 --update parm set setting='minimal' where name = 'wal_level';
 --update parm set setting='localhost' where name = 'agtm_host';
 --update parm set unit='8kB' where name = 'wal_buffers';
@@ -1134,6 +1229,7 @@ revoke execute on function mgr_flush_host() from public;
 INSERT INTO adbmgr.parm VALUES ('*', 'DateStyle', 'ISO, MDY', 'user', 'string', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'IntervalStyle', 'postgres', 'user', 'enum', NULL, NULL, NULL, '{postgres,postgres_verbose,sql_standard,iso_8601}');
 INSERT INTO adbmgr.parm VALUES ('*', 'TimeZone', 'PRC', 'user', 'string', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('*', 'adb_debug', 'off', 'superuser', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'allow_system_table_mods', 'off', 'postmaster', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'application_name', 'psql', 'user', 'string', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'archive_command', '(disabled)', 'sighup', 'string', NULL, NULL, NULL, NULL);
@@ -1373,14 +1469,17 @@ INSERT INTO adbmgr.parm VALUES ('*', 'xmlbinary', 'base64', 'user', 'enum', NULL
 INSERT INTO adbmgr.parm VALUES ('*', 'xmloption', 'content', 'user', 'enum', NULL, NULL, NULL, '{content,document}');
 INSERT INTO adbmgr.parm VALUES ('*', 'zero_damaged_pages', 'off', 'superuser', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'adb_ha_param_delimiter', '$&#$', 'user', 'string', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('#', 'adb_slot_enable_mvcc', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'agtm_port', '56666', 'sighup', 'integer', '', '1', '65535', NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'enable_adb_ha_sync', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'enable_adb_ha_sync_select', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('#', 'enable_distrib_on_dn', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'enable_fast_query_shipping', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'enable_remotegroup', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'enable_remotejoin', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'enable_remotelimit', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'enable_remotesort', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('#', 'enable_slot', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'enforce_two_phase_commit', 'on', 'superuser', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'grammar', 'postgres', 'user', 'enum', NULL, NULL, NULL, '{postgres,oracle}');
 INSERT INTO adbmgr.parm VALUES ('#', 'max_coordinators', '16', 'postmaster', 'integer', '', '2', '65535', NULL);
@@ -1394,6 +1493,11 @@ INSERT INTO adbmgr.parm VALUES ('#', 'persistent_datanode_connections', 'off', '
 INSERT INTO adbmgr.parm VALUES ('#', 'pgxcnode_cancel_delay', '10', 'user', 'integer', 'ms', '0', '2147483647', NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'pool_remote_cmd_timeout', '10', 'postmaster', 'integer', 'ms', '0', '2147483647', NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'remotetype', 'application', 'backend', 'enum', NULL, NULL, NULL, '{application,coordinator,datanode,rxactmgr}');
+INSERT INTO adbmgr.parm VALUES ('#', 'rep_max_avail_flag', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('#', 'rep_max_avail_lsn_lag', '8192', 'postmaster', 'integer', '', '1', '81920', NULL);
+INSERT INTO adbmgr.parm VALUES ('#', 'rep_read_archive_path', '', 'user', 'string', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('#', 'rep_read_archive_path_flag', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('#', 'adb_ha_parm_delimiter', '$&#$', 'user', 'string', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'require_replicated_table_pkey', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'xc_enable_node_tcp_log', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'xc_maintenance_mode', 'off', 'superuser', 'bool', NULL, NULL, NULL, NULL);
@@ -1403,3 +1507,5 @@ INSERT INTO adbmgr.parm VALUES ('*', 'pg_stat_statements.max', '1000', 'postmast
 INSERT INTO adbmgr.parm VALUES ('*', 'pg_stat_statements.track', 'top', 'superuser', 'enum', NULL, NULL, NULL, '{none,top,all}');
 INSERT INTO adbmgr.parm VALUES ('*', 'pg_stat_statements.save', 'on', 'sighup', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'pg_stat_statements.track_utility', 'on', 'superuser', 'bool', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('#', 'copy_cmd_comment', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('#', 'copy_cmd_comment_str', '//', 'user', 'string', NULL, NULL, NULL, NULL);

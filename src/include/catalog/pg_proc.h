@@ -5830,6 +5830,24 @@ DESCR("mgr remove node");
 DATA(insert OID = 4821 (  mgr_monitor_ha            PGNSP PGUID 12 10 400 0 0 f f f f f t s s 0 0 2249 "" "{19,19,19,19,19,19,19,19,19,19,19}" "{o,o,o,o,o,o,o,o,o,o,o}" "{type,nodename, application_name, client_addr,state,sent_location,replay_location,sync_state,master_location,sent_delay,replay_deplay}" _null_ _null_ mgr_monitor_ha _null_ _null_ _null_ ));
 DESCR("monitor hba");
 
+DATA(insert OID = 4824 ( monitor_delete_data_interval_days  PGNSP PGUID 12 1 0 0 0 f f f f t f s s 1 0 16 "23" _null_ _null_ _null_ _null_ _null_ monitor_delete_data_interval_days _null_ _null_ _null_ ));
+DESCR("clean monitor data");
+
+DATA(insert OID = 4825 ( mgr_set_init_cluster  PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ mgr_set_init_cluster _null_ _null_ _null_ ));
+DESCR("set init cluster");
+
+DATA(insert OID = 4826 ( mgr_failover_manual_adbmgr_func  PGNSP PGUID 12 1 0 0 0 f f f f t f s s 2 0 16 "23 2275" _null_ _null_ _null_ _null_ _null_ mgr_failover_manual_adbmgr_func _null_ _null_ _null_ ));
+DESCR("manual promote adbmgr");
+
+DATA(insert OID = 4827 ( mgr_failover_manual_promote_func  PGNSP PGUID 12 1 0 0 0 f f f f t f s s 2 0 16 "23 2275" _null_ _null_ _null_ _null_ _null_ mgr_failover_manual_promote_func _null_ _null_ _null_ ));
+DESCR("manual promote node");
+
+DATA(insert OID = 4828 ( mgr_failover_manual_pgxcnode_func  PGNSP PGUID 12 1 0 0 0 f f f f t f s s 2 0 16 "23 2275" _null_ _null_ _null_ _null_ _null_ mgr_failover_manual_pgxcnode_func _null_ _null_ _null_ ));
+DESCR("manual refresh pgxcnode");
+
+DATA(insert OID = 4829 ( mgr_failover_manual_rewind_func  PGNSP PGUID 12 1 0 0 0 f f f f t f s s 2 0 16 "23 2275" _null_ _null_ _null_ _null_ _null_ mgr_failover_manual_rewind_func _null_ _null_ _null_ ));
+DESCR("manual wind");
+
 #endif
 
 /*

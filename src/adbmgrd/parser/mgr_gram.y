@@ -31,7 +31,8 @@
 #include "mgr/mgr_cmds.h"
 #include "mgr/mgr_msg_type.h"
 #include "miscadmin.h"
-
+#include "nodes/parsenodes.h"
+#include "parser/mgr_node.h"
 /*
  * The YY_EXTRA data that a flex scanner allows us to pass around.  Private
  * state needed for raw parsing/lexing goes here.
@@ -153,7 +154,7 @@ static void check_jobitem_name_isvaild(List *node_name_list);
 				AddHbaStmt DropHbaStmt ListHbaStmt ListAclStmt
 				CreateUserStmt DropUserStmt GrantStmt privilege username hostname
 				AlterUserStmt AddJobitemStmt AlterJobitemStmt DropJobitemStmt ListJobStmt
-				AddExtensionStmt DropExtensionStmt RemoveNodeStmt
+				AddExtensionStmt DropExtensionStmt RemoveNodeStmt FailoverManualStmt
 
 %type <list>	general_options opt_general_options general_option_list HbaParaList
 				AConstList targetList ObjList var_list NodeConstList set_parm_general_options
@@ -166,6 +167,7 @@ static void check_jobitem_name_isvaild(List *node_name_list);
 %type <defelt>	CreateOptRoleElem AlterOptRoleElem
 
 %type <ival>	Iconst SignedIconst opt_gtm_inner_type opt_dn_inner_type opt_general_force
+		opt_slave_inner_type
 %type <vsetstmt> set_rest set_rest_more
 %type <value>	NumericOnly
 
@@ -178,7 +180,7 @@ static void check_jobitem_name_isvaild(List *node_name_list);
 
 %type <chr>		node_type cluster_type
 
-%token<keyword>	ADD_P DEPLOY DROP ALTER LIST CREATE ACL
+%token<keyword>	ADD_P DEPLOY DROP ALTER LIST CREATE ACL CLUSTER
 %token<keyword>	IF_P EXISTS NOT
 %token<keyword>	FALSE_P TRUE_P
 %token<keyword>	HOST MONITOR PARAM HBA HA
@@ -186,15 +188,19 @@ static void check_jobitem_name_isvaild(List *node_name_list);
 %token<keyword> PASSWORD CLEAN RESET WHERE ROW_ID
 %token<keyword> START AGENT STOP FAILOVER
 %token<keyword> SET TO ON OFF
-%token<keyword> APPEND /* CONFIG */ MODE FAST SMART IMMEDIATE S I F FORCE SHOW FLUSH
-%token<keyword> GRANT REVOKE FROM ITEM JOB EXTENSION REMOVE
+%token<keyword> APPEND CONFIG MODE FAST SMART IMMEDIATE S I F FORCE SHOW FLUSH
+%token<keyword> GRANT REVOKE FROM ITEM JOB EXTENSION REMOVE DATA_CHECKSUMS
+%token<keyword> PROMOTE ADBMGR REWIND
 
 /* for ADB monitor*/
 %token<keyword> GET_HOST_LIST_ALL GET_HOST_LIST_SPEC
-				GET_HOST_HISTORY_USAGE GET_ALL_NODENAME_IN_SPEC_HOST
+				GET_HOST_HISTORY_USAGE
+				GET_HOST_HISTORY_USAGE_BY_TIME_PERIOD
+				GET_ALL_NODENAME_IN_SPEC_HOST
 				GET_AGTM_NODE_TOPOLOGY GET_COORDINATOR_NODE_TOPOLOGY GET_DATANODE_NODE_TOPOLOGY
 				GET_CLUSTER_FOURITEM GET_CLUSTER_SUMMARY GET_DATABASE_TPS_QPS GET_CLUSTER_HEADPAGE_LINE
-				GET_DATABASE_TPS_QPS_INTERVAL_TIME GET_DATABASE_SUMMARY GET_SLOWLOG GET_USER_INFO UPDATE_USER GET_SLOWLOG_COUNT
+				GET_DATABASE_TPS_QPS_INTERVAL_TIME MONITOR_DATABASETPS_FUNC_BY_TIME_PERIOD
+				GET_DATABASE_SUMMARY GET_SLOWLOG GET_USER_INFO UPDATE_USER GET_SLOWLOG_COUNT
 				UPDATE_THRESHOLD_VALUE UPDATE_PASSWORD CHECK_USER USER
 				GET_THRESHOLD_TYPE GET_THRESHOLD_ALL_TYPE CHECK_PASSWORD GET_DB_THRESHOLD_ALL_TYPE
 				GET_ALARM_INFO_ASC GET_ALARM_INFO_DESC RESOLVE_ALARM GET_ALARM_INFO_COUNT
@@ -272,6 +278,7 @@ stmt :
 	| AddExtensionStmt
 	| DropExtensionStmt
 	| RemoveNodeStmt
+	| FailoverManualStmt
 	| /* empty */
 		{ $$ = NULL; }
 	;
@@ -444,6 +451,16 @@ AppendNodeStmt:
 			List *args = list_make1(makeStringConst($4, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_dnmaster", args));
+			with_data_checksums = false;
+			$$ = (Node*)stmt;
+		}
+		|	APPEND DATANODE MASTER Ident DATA_CHECKSUMS
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($4, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_dnmaster", args));
+			with_data_checksums = true;
 			$$ = (Node*)stmt;
 		}
 		| APPEND DATANODE SLAVE Ident
@@ -468,6 +485,16 @@ AppendNodeStmt:
 			List *args = list_make1(makeStringConst($3, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_coordmaster", args));
+			with_data_checksums = false;
+			$$ = (Node*)stmt;
+		}
+		| APPEND COORDINATOR Ident DATA_CHECKSUMS
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($3, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_coordmaster", args));
+			with_data_checksums = true;
 			$$ = (Node*)stmt;
 		}
 		| APPEND GTM SLAVE Ident
@@ -590,6 +617,16 @@ Gethostparm:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("get_host_history_usage", args));
 			$$ = (Node*)stmt;
 		}
+		| GET_HOST_HISTORY_USAGE_BY_TIME_PERIOD '(' Ident ',' Ident ',' Ident ')'
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($3, -1));
+			args = lappend(args, makeStringConst($5, -1));
+			args = lappend(args, makeStringConst($7, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("get_host_history_usage_by_time_period", args));
+			$$ = (Node*)stmt;
+		}
         | GET_ALL_NODENAME_IN_SPEC_HOST '(' Ident ')'
         {
 			SelectStmt *stmt = makeNode(SelectStmt);
@@ -705,8 +742,33 @@ MonitorStmt:
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_monitor_ha", NULL));
+			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("ha"), -1));
 			$$ = (Node*)stmt;
+		}
+		| MONITOR HA '(' targetList ')'
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = $4;
+			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("ha"), -1));
+			$$ = (Node*)stmt;
+		}
+	| MONITOR HA AConstList
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("ha"), -1));
+			stmt->whereClause = make_column_in("nodename", $3);
+			$$ = (Node*)stmt;
+			check__name_isvaild($3);
+		}
+	| MONITOR HA'(' targetList ')' AConstList
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = $4;
+			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("ha"), -1));
+			stmt->whereClause = make_column_in("nodename", $6);
+			$$ = (Node*)stmt;
+			check__name_isvaild($6);
 		}
 		;
 
@@ -1154,6 +1216,11 @@ AddUpdataparmStmt:
 				node->is_force = true;
 				$$ = (Node*)node;
 		}
+	| SET CLUSTER INIT
+		{
+			MGRSetClusterInit *node = makeNode(MGRSetClusterInit);
+			$$ = (Node*)node;
+		}
 		;
 ResetUpdataparmStmt:
 		RESET GTM opt_gtm_inner_type Ident set_parm_general_options
@@ -1455,6 +1522,12 @@ CleanAllStmt:
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_clean_node", args));
 			$$ = (Node*)stmt;
+		}
+	| CLEAN MONITOR ICONST
+		{
+			MonitorDeleteData *node = makeNode(MonitorDeleteData);
+			node->days = $3;
+			$$ = (Node*)node;
 		}
 	;
 /*hba start*/
@@ -1830,6 +1903,15 @@ INIT ALL
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("initall"), -1));
+			with_data_checksums = false;
+			$$ = (Node*)stmt;
+	}
+| INIT ALL DATA_CHECKSUMS
+	{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("initall"), -1));
+			with_data_checksums = true;
 			$$ = (Node*)stmt;
 	}
 	;
@@ -2191,6 +2273,12 @@ opt_dn_inner_type:
 	|SLAVE { $$ = CNDN_TYPE_DATANODE_SLAVE; }
 	| EXTRA { $$ = CNDN_TYPE_DATANODE_EXTRA; }
 	;
+opt_slave_inner_type:
+		GTM SLAVE { $$ = GTM_TYPE_GTM_SLAVE; }
+	|	GTM EXTRA { $$ = GTM_TYPE_GTM_EXTRA; }
+	|	DATANODE SLAVE { $$ = CNDN_TYPE_DATANODE_SLAVE; }
+	|	DATANODE EXTRA { $$ = CNDN_TYPE_DATANODE_EXTRA; }
+	;
 
 cluster_type:
 	GTM               {$$ = GTM_TYPE;}
@@ -2245,6 +2333,16 @@ ListMonitor:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("monitor_databasetps_func", args));
 			$$ = (Node*)stmt;
 		}
+	| MONITOR_DATABASETPS_FUNC_BY_TIME_PERIOD '(' Ident ',' Ident ',' Ident ')'
+	{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($3, -1));
+			args = lappend(args, makeStringConst($5, -1));
+			args = lappend(args, makeStringConst($7, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("monitor_databasetps_func_by_time_period", args));
+			$$ = (Node*)stmt;
+	}
 	| GET_DATABASE_SUMMARY '(' Ident')'
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
@@ -2498,10 +2596,66 @@ RemoveNodeStmt:
 			node->names = $4;
 			$$ = (Node*)node;
 		}
+	|	REMOVE COORDINATOR ObjList
+		{
+			MgrRemoveNode *node = makeNode(MgrRemoveNode);
+			node->nodetype = CNDN_TYPE_COORDINATOR_MASTER;
+			node->names = $3;
+			$$ = (Node*)node;
+		}	
+	;
+
+FailoverManualStmt:
+		ADBMGR PROMOTE opt_slave_inner_type Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeIntConst($3, @3));
+			args = lappend(args, makeStringConst($4, @4));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_manual_adbmgr_func", args));
+			$$ = (Node*)stmt;
+		}
+	|	PROMOTE GTM opt_gtm_inner_type Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeIntConst($3, @3));
+			args = lappend(args, makeStringConst($4, @4));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_manual_promote_func", args));
+			$$ = (Node*)stmt;
+		}
+	| PROMOTE DATANODE opt_dn_inner_type Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeIntConst($3, @3));
+			args = lappend(args, makeStringConst($4, @4));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_manual_promote_func", args));
+			$$ = (Node*)stmt;
+		}
+	|	CONFIG DATANODE MASTER Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeIntConst(CNDN_TYPE_DATANODE_MASTER, @3));
+			args = lappend(args, makeStringConst($4, @4));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_manual_pgxcnode_func", args));
+			$$ = (Node*)stmt;
+		}
+	| REWIND opt_slave_inner_type Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeIntConst($2, @2));
+			args = lappend(args, makeStringConst($3, @3));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_manual_rewind_func", args));
+			$$ = (Node*)stmt;
+		}
 	;
 
 unreserved_keyword:
 	  ACL
+	| ADBMGR
 	| ADD_P
 	| AGENT
 	| ALTER
@@ -2509,7 +2663,9 @@ unreserved_keyword:
 	| CHECK_PASSWORD
 	| CHECK_USER
 	| CLEAN
-/*	| CONFIG */
+	| CONFIG
+	| CLUSTER
+	| DATA_CHECKSUMS
 	| DEPLOY
 	| DROP
 	| EXISTS
@@ -2535,6 +2691,7 @@ unreserved_keyword:
 	| GET_DATANODE_NODE_TOPOLOGY
 	| GET_DB_THRESHOLD_ALL_TYPE
 	| GET_HOST_HISTORY_USAGE
+	| GET_HOST_HISTORY_USAGE_BY_TIME_PERIOD
 	| GET_HOST_LIST_ALL
 	| GET_HOST_LIST_SPEC
 	| GET_SLOWLOG
@@ -2559,10 +2716,12 @@ unreserved_keyword:
 	| OFF
 	| PARAM
 	| PASSWORD
+	| PROMOTE
 	| REMOVE
 	| RESET
 	| REVOKE
 	| RESOLVE_ALARM
+	| REWIND
 	| S
 	| SET
 	| SHOW

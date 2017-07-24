@@ -562,6 +562,8 @@ typedef enum NodeTag
 	,T_MgrExtensionAdd
 	,T_MgrExtensionDrop
 	,T_MgrRemoveNode
+	,T_MGRSetClusterInit
+	,T_MonitorDeleteData
 	,T_MGR_NODE_END
 #endif /* ADBMGRD */
 } NodeTag;

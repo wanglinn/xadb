@@ -8,6 +8,12 @@
 #include "nodes/nodes.h"
 #include "nodes/pg_list.h"
 #ifdef ADBMGRD
+typedef struct MGRAddHba
+{
+	NodeTag	type;
+	char	*name;		/* host name */
+	List	*options;	/* list of DefElem */
+}MGRAddHba;
 typedef struct MGRAddHost
 {
 	NodeTag		type;
@@ -175,6 +181,17 @@ typedef struct MgrRemoveNode
 	char            nodetype;
 	List            *names;
 }MgrRemoveNode;
+
+typedef struct MGRSetClusterInit
+{
+	NodeTag	type;
+}MGRSetClusterInit;
+
+typedef struct MonitorDeleteData
+{
+	NodeTag	type;
+	int32	days;
+}MonitorDeleteData;
 
 #endif
 #endif /* MGR_NODE_H */
