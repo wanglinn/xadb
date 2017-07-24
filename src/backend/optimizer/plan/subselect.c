@@ -555,6 +555,24 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 						   subLinkType, subLinkId,
 						   testexpr, true, isTopQual);
 #ifdef ADB
+	/* check can cluster plan */
+	if (root->glob->clusterPlanOK &&
+		final_rel->cluster_pathlist != NIL)
+	{
+		ListCell *lc;
+		List *reduce_list;
+		foreach(lc, final_rel->cluster_pathlist)
+		{
+			reduce_list = get_reduce_info_list(lfirst(lc));
+			if(is_reduce_replacate_list(reduce_list))
+				break;
+		}
+		if(lc == NULL)
+		{
+			/* we have no replicate, can not execute cluster subplan */
+			root->glob->clusterPlanOK = false;
+		}
+	}
 	/* This is not necessary for a PGXC Coordinator, we just need one plan */
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 		return result;

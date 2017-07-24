@@ -328,6 +328,36 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	/* Select best Path and turn it into a Plan */
 	final_rel = fetch_upper_rel(root, UPPERREL_FINAL, NULL);
 	best_path = get_cheapest_fractional_path(final_rel, tuple_fraction);
+#ifdef ADB
+	if (have_cluster_gather_path(best_path, NULL) &&
+		glob->subplans != NIL)
+	{
+		/* we need change subplan */
+		ListCell *lc_subroot;
+		ListCell *lc_subplan;
+		ListCell *lc_path;
+		PlannerInfo *subroot;
+		RelOptInfo *sub_final;
+		forboth(lc_subroot, root->glob->subroots, lc_subplan, root->glob->subplans)
+		{
+			subroot = lfirst(lc_subroot);
+			sub_final = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
+			foreach(lc_path, sub_final->cluster_pathlist)
+			{
+				Path *path = lfirst(lc_path);
+				if(is_reduce_replacate_list(get_reduce_info_list(path)))
+				{
+					Plan *plan = create_plan(subroot, path);
+					lfirst(lc_subplan) = plan;
+					break;
+				}
+			}
+			/* must have replicate cluster path */
+			Assert(lc_path != NULL);
+		}
+
+	}
+#endif /* ADB */
 
 	top_plan = create_plan(root, best_path);
 
@@ -2171,6 +2201,9 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		add_path(final_rel, path);
 	}
 #ifdef ADB
+	/* make_subplan maybe change clusterPlanOK, check it again */
+	if(root->glob->clusterPlanOK == false)
+		current_rel->cluster_pathlist = NIL;
 	foreach(lc, current_rel->cluster_pathlist)
 	{
 		Path *path = lfirst(lc);
