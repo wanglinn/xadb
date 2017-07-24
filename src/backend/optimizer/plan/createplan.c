@@ -287,7 +287,6 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath *path, int flags);
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
 static bool find_cluster_reduce_expr(Path *path, List **pplist);
-static void fill_reduce_expr_info(ReduceExprInfo *rinfo);
 static bool is_reduce_info_can_join(ReduceExprInfo *outer_rinfo, ReduceExprInfo *inner_rinfo, List *restrictlist);
 static bool expr_is_var(Expr *expr, Index relid, int attno);
 static AttrNumber get_target_varattno(PathTarget *target, Index varno, AttrNumber attno);
@@ -6544,6 +6543,28 @@ bool is_reduce_replacate_list(List *list)
 	return result;
 }
 
+bool is_reduce_by_value_list(List *list)
+{
+	ReduceExprInfo *info;
+	ListCell *lc;
+	bool result;
+	if(list == NIL)
+		return false;
+
+	result = true;
+	foreach(lc, list)
+	{
+		info = lfirst(lc);
+		if(IsReduceExprByValue(info->expr) == false)
+		{
+			result = false;
+			break;
+		}
+	}
+
+	return result;
+}
+
 ReduceExprInfo* copy_reduce_info(const ReduceExprInfo *info)
 {
 	AssertArg(info);
@@ -6704,6 +6725,83 @@ static bool expr_is_var(Expr *expr, Index relid, int attno)
 	return false;
 }
 
+List *find_join_equal_exprs(ReduceExprInfo *rinfo, List *restrictlist, RelOptInfo *inner_rel)
+{
+	ListCell *lc_restrict;
+	ListCell *lc_attno;
+	List *result;
+	RestrictInfo *ri;
+	Expr *left_expr;
+	Expr *right_expr;
+	Bitmapset *bms_found;
+	Relids right_relids;
+	if(restrictlist == NIL)
+		return NIL;
+
+	AssertArg(IsReduceExprByValue(rinfo->expr));
+	AssertArg(rinfo->relid != 0 && rinfo->varattnos != NULL);
+
+	result = NIL;
+	bms_found = NULL;
+	foreach(lc_restrict, restrictlist)
+	{
+		ri = lfirst(lc_restrict);
+
+		/* only support X=X expression */
+		if (!is_opclause(ri->clause) ||
+			!op_is_equivalence(((OpExpr *)(ri->clause))->opno) ||
+			bms_membership(ri->left_relids) != BMS_SINGLETON ||
+			bms_membership(ri->right_relids) != BMS_SINGLETON)
+			continue;
+
+		if(bms_next_member(ri->left_relids, -1) == rinfo->relid)
+		{
+			left_expr = (Expr*)get_leftop(ri->clause);
+			right_expr = (Expr*)get_rightop(ri->clause);
+			right_relids = ri->right_relids;
+		}else if(bms_next_member(ri->right_relids, -1) == rinfo->relid)
+		{
+			left_expr = (Expr*)get_rightop(ri->clause);
+			right_expr = (Expr*)get_leftop(ri->clause);
+			right_relids = ri->left_relids;
+		}else
+		{
+			/* not found */
+			continue;
+		}
+
+		while(IsA(left_expr, RelabelType))
+			left_expr = ((RelabelType *) left_expr)->arg;
+
+		foreach(lc_attno, rinfo->attnoList)
+		{
+			if(bms_is_member(lfirst_int(lc_attno), bms_found))
+				continue;
+			if (expr_is_var(left_expr, rinfo->relid, lfirst_int(lc_attno)) &&
+				bms_is_subset(right_relids, inner_rel->relids))
+			{
+				while(IsA(right_expr, RelabelType))
+					right_expr = ((RelabelType *) right_expr)->arg;
+				result = lappend(result, right_expr);
+				bms_found = bms_add_member(bms_found, lfirst_int(lc_attno));
+				break;
+			}
+		}
+
+		if(bms_equal(bms_found, rinfo->varattnos))
+		{
+			/* all found */
+			Assert(list_length(rinfo->attnoList) == list_length(result));
+			bms_free(bms_found);
+			return result;
+		}
+	}
+
+	bms_free(bms_found);
+	list_free(result);
+	return result;
+}
+
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags)
 {
 	Plan *subplan;
@@ -6724,7 +6822,18 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 		info = lfirst(lc);
 		if(equal(info->expr, to->expr))
 		{
-			return create_plan_recurse(root, path->subpath, flags);
+			if(IsReduceExprByValue(info->expr))
+			{
+				Assert(info->relid != 0 && to->relid != 0);
+				Assert(info->varattnos != NULL && to->varattnos != NULL);
+				if (bms_equal(info->varattnos, to->varattnos))
+				{
+					return create_plan_recurse(root, path->subpath, flags);
+				}
+			}else
+			{
+				return create_plan_recurse(root, path->subpath, flags);
+			}
 		}
 	}
 
@@ -6935,7 +7044,7 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 	return false;
 }
 
-static void fill_reduce_expr_info(ReduceExprInfo *rinfo)
+void fill_reduce_expr_info(ReduceExprInfo *rinfo)
 {
 	ListCell *lc;
 	AssertArg(rinfo && rinfo->expr);
