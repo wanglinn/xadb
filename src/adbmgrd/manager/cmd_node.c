@@ -968,6 +968,9 @@ mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 	mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(mgr_node->nodemasternameoid));
 	if(!HeapTupleIsValid(mastertuple))
 	{
+		heap_endscan(info->rel_scan);
+		heap_close(info->rel_node, RowExclusiveLock);
+		pfree(info);
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 			, errmsg("datanode master \"%s\" does not exist", NameStr(mgr_node->nodename))));
 	}
@@ -1045,6 +1048,9 @@ mgr_init_dn_extra_all(PG_FUNCTION_ARGS)
 	mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(mgr_node->nodemasternameoid));
 	if(!HeapTupleIsValid(mastertuple))
 	{
+		heap_endscan(info->rel_scan);
+		heap_close(info->rel_node, RowExclusiveLock);
+		pfree(info);
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 			, errmsg("datanode master \"%s\" does not exist", NameStr(mgr_node->nodename))));
 	}
@@ -1362,6 +1368,8 @@ Datum mgr_start_one_dn_master(PG_FUNCTION_ARGS)
 	aimtuple = mgr_get_tuple_node_from_name_type(info->rel_node, nodename, CNDN_TYPE_DATANODE_MASTER);
 	if (!HeapTupleIsValid(aimtuple))
 	{
+		heap_close(info->rel_node, RowExclusiveLock);
+		pfree(info);
 		ereport(ERROR,
 			(errmsg("datanode master \"%s\" does not exist", nodename)));
 	}
@@ -1930,6 +1938,8 @@ Datum mgr_stop_one_dn_master(PG_FUNCTION_ARGS)
 	aimtuple = mgr_get_tuple_node_from_name_type(info->rel_node, nodename, CNDN_TYPE_DATANODE_MASTER);
 	if (!HeapTupleIsValid(aimtuple))
 	{
+		heap_close(info->rel_node, RowExclusiveLock);
+		pfree(info);
 		ereport(ERROR, (errmsg("datanode master \"%s\" does not exist", nodename)));
 	}
 	/*get execute cmd result from agent*/
@@ -1992,6 +2002,7 @@ Datum mgr_runmode_cndn(char nodetype, char cmdtype, List* nodenamelist , char *s
 	HeapTuple aimtuple =NULL;
 	FuncCallContext *funcctx;
 	ListCell **lcp;
+	List *new_list;
 	InitNodeInfo *info;
 	char *nodestrname;
 	NameData nodenamedata;
@@ -2008,8 +2019,12 @@ Datum mgr_runmode_cndn(char nodetype, char cmdtype, List* nodenamelist , char *s
 		/* allocate memory for user context */
 		info = palloc(sizeof(*info));
 		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
+		new_list = list_copy(nodenamelist);
+		*(info->lcp) = list_head(new_list);
+		list_free(nodenamelist);
+
 		info->rel_node = heap_open(NodeRelationId, RowExclusiveLock);
-		*(info->lcp) = list_head(nodenamelist);
+		/* save info */
 		funcctx->user_fctx = info;
 		MemoryContextSwitchTo(oldcontext);
 	}
@@ -2021,8 +2036,9 @@ Datum mgr_runmode_cndn(char nodetype, char cmdtype, List* nodenamelist , char *s
 	lcp = info->lcp;
 	if (*lcp == NULL)
 	{
-		list_free(nodenamelist);
 		heap_close(info->rel_node, RowExclusiveLock);
+		pfree(info->lcp);
+		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
 	nodestrname = (char *) lfirst(*lcp);
@@ -2030,6 +2046,8 @@ Datum mgr_runmode_cndn(char nodetype, char cmdtype, List* nodenamelist , char *s
 	if(namestrcpy(&nodenamedata, nodestrname) != 0)
 	{
 		heap_close(info->rel_node, RowExclusiveLock);
+		pfree(info->lcp);
+		pfree(info);
 		ereport(ERROR, (errmsg("namestrcpy %s fail", nodestrname)));
 	}
 	aimtuple = mgr_get_tuple_node_from_name_type(info->rel_node, NameStr(nodenamedata), nodetype);
@@ -11609,6 +11627,7 @@ Datum mgr_monitor_ha(PG_FUNCTION_ARGS)
 
 	heap_endscan(info->rel_scan);
 	heap_close(info->rel_node, AccessShareLock);
+	pfree(info);
 	pfree(resultstrdata.data);
 	SRF_RETURN_DONE(funcctx);
 }
