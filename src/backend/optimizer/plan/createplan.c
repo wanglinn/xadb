@@ -7028,7 +7028,7 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 					}
 					else if(jpath->jointype == JOIN_INNER)
 					{
-						Assert(equal(outer_reduce->expr, inner_reduce->expr));
+						Assert(IsReduceExprByValue(inner_reduce->expr));
 						hint = true;
 					}
 					if(hint)
