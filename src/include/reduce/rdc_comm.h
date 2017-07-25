@@ -57,11 +57,18 @@ typedef enum
 
 typedef enum
 {
-	RDC_FLAG_NONE	=	(1 << 0),
-	RDC_FLAG_VALID	=	(1 << 1),
-	RDC_FLAG_CLOSED	=	(1 << 2),
-	RDC_FLAG_RESET	=	(1 << 3),
+	RDC_FLAG_NONE	=	(0),
+	RDC_FLAG_VALID	=	(1 << 0),
+	RDC_FLAG_CLOSED	=	(1 << 1),
+	RDC_FLAG_RESET	=	(1 << 2),
 } RdcFlagType;
+
+typedef enum
+{
+	RDC_END_NONE	=	(0),
+	RDC_END_EOF		=	(1 << 0),
+	RDC_END_CLOSE	=	(1 << 1),
+} RdcEndStatusType;
 
 typedef enum
 {
@@ -111,7 +118,7 @@ struct RdcPort
 	pgsocket			sock;			/* file descriptors for one plan node id */
 	bool				noblock;		/* is the socket in non-blocking mode? */
 	bool				positive;		/* true means connect, false means be connected */
-	bool				send_eof;		/* true if send EOF message */
+	RdcEndStatusType	end_status;		/* see RdcEndStatusType above */
 	RdcPortType			peer_type;		/* the identity type of the peer side */
 	RdcPortId			peer_id;		/* the identity id of the peer side */
 	RdcPortType			self_type;		/* local identity type */
@@ -166,7 +173,9 @@ struct RdcPort
 #define RdcFlags(port)				(((RdcPort *) (port))->flags)
 #define RdcPositive(port)			(((RdcPort *) (port))->positive)
 #define RdcHook(port)				(((RdcPort *) (port))->hook)
-#define RdcSendEOF(port)			(((RdcPort *) (port))->send_eof)
+#define RdcEndStatus(port)			(((RdcPort *) (port))->end_status)
+#define RdcSendEOF(port)			((RdcEndStatus(port) & RDC_END_EOF) == RDC_END_EOF)
+#define RdcSendCLOSE(port)			((RdcEndStatus(port) & RDC_END_CLOSE) == RDC_END_CLOSE)
 #define RdcWaitEvents(port)			(((RdcPort *) (port))->wait_events)
 #define RdcWaitRead(port)			((((RdcPort *) (port))->wait_events) & WT_SOCK_READABLE)
 #define RdcWaitWrite(port)			((((RdcPort *) (port))->wait_events) & WT_SOCK_WRITEABLE)

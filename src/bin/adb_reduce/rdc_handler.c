@@ -427,7 +427,7 @@ HandleWriteToPlan(PlanPort *pln_port)
 					{
 						rdc_beginmessage(buf, MSG_EOF);
 						rdc_sendlength(buf);
-						RdcSendEOF(port) = true;
+						RdcEndStatus(port) |= RDC_END_EOF;
 					} else
 					{
 						if (RdcSendEOF(port))

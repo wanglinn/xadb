@@ -4,9 +4,12 @@
 #include "executor/executor.h"
 #include "executor/nodeClusterReduce.h"
 #include "nodes/execnodes.h"
+#include "nodes/nodeFuncs.h"
 #include "pgxc/pgxc.h"
 #include "reduce/adb_reduce.h"
 #include "miscadmin.h"
+
+static bool EndReduceStateWalker(PlanState *node, void *context);
 
 ClusterReduceState *
 ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
@@ -28,6 +31,19 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate->eof_underlying = false;
 	crstate->eof_network = false;
 	crstate->port = NULL;
+
+	/*
+	 * First time to connect Reduce subprocess.
+	 */
+	if ((eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
+	{
+		crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(&(node->plan)));
+		if (IsRdcPortError(crstate->port))
+			ereport(ERROR,
+					(errmsg("fail to connect self reduce subprocess"),
+					 errdetail("%s", RdcError(crstate->port))));
+		RdcFlags(crstate->port) = RDC_FLAG_VALID;
+	}
 
 	ExecInitResultTupleSlot(estate, &crstate->ps);
 
@@ -52,19 +68,7 @@ ExecClusterReduce(ClusterReduceState *node)
 	Oid					oid;
 
 	port = node->port;
-	/*
-	 * First time to connect Reduce subprocess.
-	 */
-	if (port == NULL)
-	{
-		port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(node->ps.plan));
-		if (IsRdcPortError(port))
-			ereport(ERROR,
-					(errmsg("fail to connect self reduce subprocess"),
-					 errdetail("%s", RdcError(port))));
-		RdcFlags(port) = RDC_FLAG_VALID;
-		node->port = port;
-	}
+	Assert(port);
 
 	slot = node->ps.ps_ResultTupleSlot;
 	{
@@ -136,7 +140,7 @@ ExecClusterReduce(ClusterReduceState *node)
 				} else
 				{
 					/* Here we send eof to remote plan nodes */
-					SendSlotToRemote(port, destOids, outerslot);
+					SendSlotToRemote(port, NIL, outerslot);
 
 					node->eof_underlying = true;
 				}
@@ -172,4 +176,33 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 	list_free(node->closed_remote);
 
 	ExecEndNode(outerPlanState(node));
+}
+
+static bool
+EndReduceStateWalker(PlanState *node, void *context)
+{
+	if (node == NULL)
+		return false;
+
+	if (IsA(node, ClusterReduceState))
+	{
+		ClusterReduceState *crs = (ClusterReduceState *) node;
+		RdcPort			   *port = crs->port;
+		Assert(crs->port);
+
+		if (!RdcSendEOF(port) && !RdcSendCLOSE(port))
+		{
+			/* send eof to self reduce */
+			SendSlotToRemote(crs->port, NIL, NULL);
+		}
+		return false;
+	}
+
+	return planstate_tree_walker(node, EndReduceStateWalker, context);
+}
+
+void
+ExecEndAllReduceState(PlanState *node)
+{
+	(void) EndReduceStateWalker(node, NULL);
 }

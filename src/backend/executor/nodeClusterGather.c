@@ -9,6 +9,7 @@
 
 #include "executor/executor.h"
 #include "executor/clusterReceiver.h"
+#include "executor/nodeClusterReduce.h"
 #include "executor/execCluster.h"
 #include "executor/nodeClusterGather.h"
 #include "libpq/libpq-fe.h"
@@ -72,7 +73,10 @@ TupleTableSlot *ExecClusterGather(ClusterGatherState *node)
 		{
 			slot = ExecProcNode(outerPlanState(node));
 			if(TupIsNull(slot))
+			{
+				ExecEndAllReduceState(&(node->ps));
 				node->local_end = true;
+			}
 			else if(gatherType & CLUSTER_GATHER_COORD)
 				return slot;
 		}

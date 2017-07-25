@@ -157,7 +157,7 @@ rdc_newport(pgsocket sock,
 	rdc_port->version = 0;
 	rdc_port->wait_events = WAIT_NONE;
 	rdc_port->flags = RDC_FLAG_NONE;
-	rdc_port->send_eof = false;
+	rdc_port->end_status = RDC_END_NONE;
 #if !defined(RDC_FRONTEND)
 	rdc_port->create_time = time(NULL);
 	rdc_port->recv_num = 0;
