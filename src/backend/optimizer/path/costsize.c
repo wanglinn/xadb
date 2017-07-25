@@ -111,6 +111,7 @@ double		parallel_setup_cost = DEFAULT_PARALLEL_SETUP_COST;
 #ifdef ADB
 double		remote_tuple_cost = DEFAULT_REMOTE_TUPLE_COST;
 double		pgxc_remote_tuple_cost = DEFAULT_PGXC_REMOTE_TUPLE_COST;
+double		reduce_setup_cost = DEFAULT_REDUCE_SETUP_COST;
 #endif /* ADB */
 
 int			effective_cache_size = DEFAULT_EFFECTIVE_CACHE_SIZE;

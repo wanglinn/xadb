@@ -3351,6 +3351,16 @@ static struct config_real ConfigureNamesReal[] =
 		DEFAULT_PGXC_REMOTE_TUPLE_COST, 0, DBL_MAX,
 		NULL, NULL, NULL
 	},
+	{
+		{"reduce_setup_cost", PGC_USERSET, QUERY_TUNING_COST,
+			gettext_noop("Sets the planner's estime of the cost of "
+					"starting up reduce for cluster query."),
+			NULL
+		},
+		&reduce_setup_cost,
+		DEFAULT_REDUCE_SETUP_COST, 0, DBL_MAX,
+		NULL, NULL, NULL
+	},
 #endif /* ADB */
 	{
 		{"parallel_setup_cost", PGC_USERSET, QUERY_TUNING_COST,
