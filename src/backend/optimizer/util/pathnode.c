@@ -3393,6 +3393,8 @@ ClusterReducePath *create_cluster_reduce_path(Path *sub_path, struct ReduceExprI
 	crp->path.reduce_info_list = list_make1(rinfo);
 	crp->path.reduce_is_valid = true;
 
+	cost_cluster_reduce(crp);
+
 	return crp;
 }
 

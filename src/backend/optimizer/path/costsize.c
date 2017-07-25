@@ -4906,4 +4906,50 @@ void cost_cluster_gather(ClusterGatherPath *path, RelOptInfo *baserel, ParamPath
 	path->path.startup_cost = startup_cost;
 	path->path.total_cost = (startup_cost + run_cost);
 }
+
+void cost_cluster_reduce(ClusterReducePath *path)
+{
+	Path *subpath = path->subpath;
+	ReduceExprInfo *reduce_to;
+	ReduceExprInfo *reduce_from;
+	List *reduce_from_list;
+
+	path->path.startup_cost = subpath->startup_cost + reduce_setup_cost;
+	path->path.total_cost = subpath->total_cost + reduce_setup_cost;
+	path->path.rows = subpath->rows;
+	Assert(path->path.reduce_is_valid && list_length(path->path.reduce_info_list) == 1);
+
+	reduce_to = linitial(path->path.reduce_info_list);
+	reduce_from_list = get_reduce_info_list(subpath);
+	if (IsReduceReplicateExpr(reduce_to->expr) ||
+		IsReduce2Coordinator(reduce_to->expr))
+	{
+		if (is_reduce_replacate_list(reduce_from_list) ||
+			is_reduce_to_coord_list(reduce_from_list))
+		{
+			path->path.total_cost += path->path.rows * remote_tuple_cost;
+		}else if(reduce_from_list != NIL)
+		{
+			reduce_from = linitial(reduce_from_list);
+			if(reduce_from->execList != NIL)
+			{
+				path->path.rows *= list_length(reduce_from->execList);
+				path->path.total_cost += path->path.rows * remote_tuple_cost;
+			}
+		}
+	}else if(IsReduceExprByValue(reduce_to->expr))
+	{
+		if (is_reduce_replacate_list(reduce_from_list) ||
+			is_reduce_to_coord_list(reduce_from_list))
+		{
+			Assert(list_length(reduce_to->execList) > 0);
+			path->path.total_cost += path->path.rows * remote_tuple_cost;
+			path->path.rows /= list_length(reduce_to->execList);
+		}else
+		{
+			path->path.total_cost += path->path.rows * remote_tuple_cost;
+		}
+	}
+}
+
 #endif /* ADB */
