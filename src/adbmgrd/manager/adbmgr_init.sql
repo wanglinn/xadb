@@ -100,7 +100,16 @@ CREATE VIEW adbmgr.ha as
 
 --monitor all
 CREATE VIEW adbmgr.monitor_all AS
-        select * from mgr_monitor_all() order by 1,2;
+        select * from mgr_monitor_all() order by 1,
+			(case nodetype 
+				when 'gtm master' then 0 
+				when 'gtm slave' then 1 
+				when 'gtm extra' then 2 
+				when 'coordinator' then 3 
+				when 'datanode master' then 4 
+				when 'datanode slave' then 5 
+				when 'datanode extra' then 6 
+			End) ASC;
 
 --list hba
 CREATE VIEW adbmgr.hba AS
