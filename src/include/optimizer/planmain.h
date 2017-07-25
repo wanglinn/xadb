@@ -143,6 +143,7 @@ extern List* get_reduce_info_list(Path *path);
 extern List* copy_reduce_info_list(List *list);
 extern bool is_reduce_replacate_list(List *list);
 extern bool is_reduce_by_value_list(List *list);
+extern bool is_reduce_to_coord_list(List *list);
 extern ReduceExprInfo* copy_reduce_info(const ReduceExprInfo *info);
 extern ReduceExprInfo* make_reduce_coord(void);
 extern void fill_reduce_expr_info(ReduceExprInfo *rinfo);

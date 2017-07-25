@@ -6565,6 +6565,29 @@ bool is_reduce_by_value_list(List *list)
 	return result;
 }
 
+bool is_reduce_to_coord_list(List *list)
+{
+	ReduceExprInfo *info;
+	ListCell *lc;
+	bool result;
+	if(list == NIL)
+		return false;
+
+	result = false;
+	foreach(lc, list)
+	{
+		info = lfirst(lc);
+		if(IsReduce2Coordinator(info->expr) == true)
+		{
+			Assert(list_length(list) == 1);
+			result = true;
+			break;
+		}
+	}
+
+	return result;
+}
+
 ReduceExprInfo* copy_reduce_info(const ReduceExprInfo *info)
 {
 	AssertArg(info);
