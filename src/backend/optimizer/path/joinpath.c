@@ -1845,6 +1845,29 @@ select_mergejoin_clauses(PlannerInfo *root,
 }
 
 #ifdef ADB
+
+static Path* get_cheapest_no_param_by_rel_path(List *pathlist, RelOptInfo *rel)
+{
+	Path *result;
+	Path *path;
+	ListCell *lc;
+
+	result = NULL;
+	foreach(lc, pathlist)
+	{
+		path = lfirst(lc);
+		if(PATH_PARAM_BY_REL(path, rel))
+			continue;
+		if (result == NULL ||
+			result->total_cost > path->total_cost)
+		{
+			result = path;
+		}
+	}
+
+	return result;
+}
+
 static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 											 RelOptInfo *outerrel,
 											 RelOptInfo *innerrel,
@@ -1935,15 +1958,21 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 			exprList = find_join_equal_exprs(outer_reduce, restrictlist, innerrel);
 			if(exprList)
 			{
-				ClusterReducePath *path;
-				ReduceExprInfo *rinfo = palloc0(sizeof(*rinfo));
+				Path *path;
+				ReduceExprInfo *rinfo;
+				path = get_cheapest_no_param_by_rel_path(innerrel->cluster_pathlist, outerrel);
+				if(path == NULL)
+				{
+					/* have no path */
+					break;
+				}
+				Assert(!PATH_PARAM_BY_REL(path, outerrel));
+				rinfo = palloc0(sizeof(*rinfo));
 				rinfo->expr = CreateReduceValExprAs(outer_reduce->expr, 0, exprList);
 				fill_reduce_expr_info(rinfo);
-				path = create_cluster_reduce_path(innerrel->cheapest_cluster_total_path,
-												  rinfo,
-												  innerrel);
+				path = (Path*)create_cluster_reduce_path(path, rinfo, innerrel);
 				*outer_path = outerClusterPath;
-				*inner_path = (Path*)path;
+				*inner_path = path;
 				result = true;
 				goto make_finish_;
 			}
