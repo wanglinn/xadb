@@ -87,8 +87,8 @@ PlanPortStats(PlanPort *pln_port)
 PlanPort *
 LookUpPlanPort(List *pln_nodes, RdcPortId pln_id)
 {
-	ListCell	   *cell = NULL;
-	PlanPort	   *pln_port = NULL;
+	ListCell	   *cell;
+	PlanPort	   *pln_port;
 
 	foreach (cell, pln_nodes)
 	{
@@ -96,10 +96,10 @@ LookUpPlanPort(List *pln_nodes, RdcPortId pln_id)
 		Assert(pln_port);
 
 		if (PlanID(pln_port) == pln_id)
-			break;
+			return pln_port;
 	}
 
-	return pln_port;
+	return NULL;
 }
 
 /*
