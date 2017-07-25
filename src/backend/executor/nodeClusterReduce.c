@@ -52,7 +52,14 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 
 	ExecAssignExprContext(estate, &crstate->ps);
 	ExecAssignResultTypeFromTL(&crstate->ps);
-	crstate->reduceState = ExecInitExpr(node->reduce, &crstate->ps);
+	if(node->special_node == PGXCNodeOid)
+	{
+		Assert(OidIsValid(PGXCNodeOid) && node->special_reduce != NULL);
+		crstate->reduceState = ExecInitExpr(node->special_reduce, &crstate->ps);
+	}else
+	{
+		crstate->reduceState = ExecInitExpr(node->reduce, &crstate->ps);
+	}
 
 	return crstate;
 }

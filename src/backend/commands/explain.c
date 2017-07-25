@@ -1591,14 +1591,25 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_ClusterReduce:
 			if(es->verbose)
 			{
+				ClusterReduce *reducePlan = (ClusterReduce*)plan;
 				List *context = set_deparse_context_planstate(es->deparse_cxt,
 															  (Node*)planstate,
 															  ancestors);
-				char *expr = deparse_expression((Node*)((ClusterReduce*)plan)->reduce,
+				char *expr = deparse_expression((Node*)reducePlan->reduce,
 												context,
 												list_length(es->rtable) > 1,
 												false);
 				ExplainPropertyText("Reduce", expr, es);
+				if(OidIsValid(reducePlan->special_node))
+				{
+					char *label = psprintf("%u Reduce", reducePlan->special_node);
+					pfree(expr);
+					expr = deparse_expression((Node*)reducePlan->special_reduce,
+											  context,
+											  list_length(es->rtable) > 1,
+											  false);
+					ExplainPropertyText(label, expr, es);
+				}
 			}
 			break;
 #endif /* ADB */

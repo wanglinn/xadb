@@ -890,6 +890,8 @@ typedef struct ClusterReduce
 {
 	Plan		plan;
 	Expr	   *reduce;			/* reduce expr, result NODE Oid(s) */
+	Expr	   *special_reduce;
+	Oid			special_node;
 } ClusterReduce;
 
 #endif /* ADB */

@@ -1584,6 +1584,8 @@ typedef struct ClusterReducePath
 {
 	Path		path;
 	Path	   *subpath;
+	Expr	   *special_reduce;
+	Oid			special_node;
 } ClusterReducePath;
 
 #endif /* ADB */
