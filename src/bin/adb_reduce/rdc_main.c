@@ -1009,9 +1009,9 @@ HandleAcceptConn(List **acp_nodes, List **pln_nodes)
 			RdcStatus(port) == RDC_CONNECTION_OK)
 		{
 			*acp_nodes = list_delete_ptr(*acp_nodes, port);
-			RdcWaitEvents(port) |= WT_SOCK_WRITEABLE;
 			RdcFlags(port) = RDC_FLAG_VALID;
 			AddNewPlanPort(pln_nodes, port);
+			continue ;
 		}
 
 		/*

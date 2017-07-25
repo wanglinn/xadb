@@ -479,7 +479,7 @@ keep_going: 					/* We will come back to here until there is
 					}
 #ifdef DEBUG_ADB
 					elog(LOG,
-						 "Try to connect" RDC_PORT_PRINT_FORMAT,
+						 "try to connect" RDC_PORT_PRINT_FORMAT,
 						 RDC_PORT_PRINT_VALUE(port));
 #endif
 					/*

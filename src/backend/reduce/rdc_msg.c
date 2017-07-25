@@ -111,24 +111,24 @@ rdc_send_group_rsp(RdcPort *port)
 int
 rdc_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId expected_id)
 {
-	char		firstchar;
+	char		mtype;
 	StringInfo	msg;
 
 	AssertArg(port);
 
 	msg = RdcInBuf(port);
 
-	firstchar = rdc_getmessage(port, 0);
-	if (!(firstchar == MSG_START_RSP || firstchar == MSG_ERROR))
+	mtype = rdc_getmessage(port, 0);
+	if (!(mtype == MSG_START_RSP || mtype == MSG_ERROR))
 	{
 		rdc_puterror(port,
 					 "expected startup response from server, "
-					 "but received %c", firstchar);
+					 "but received %c", mtype);
 		return EOF;
 	}
 
 	/* error response */
-	if (firstchar == MSG_ERROR)
+	if (mtype == MSG_ERROR)
 	{
 		const char *errmsg = rdc_getmsgstring(RdcInBuf(port));
 		rdc_puterror(port, "%s", errmsg);
@@ -180,15 +180,15 @@ rdc_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId expecte
 int
 rdc_recv_group_rsp(RdcPort *port)
 {
-	char		firstchar;
+	char		mtype;
 
 	AssertArg(port);
-	firstchar = rdc_getmessage(port, 0);
-	if (firstchar != MSG_GROUP_RSP)
+	mtype = rdc_getmessage(port, 0);
+	if (mtype != MSG_GROUP_RSP)
 	{
 		rdc_puterror(port,
 					 "expected group response from server, "
-					 "but received %c", firstchar);
+					 "but received %c", mtype);
 		return EOF;
 	}
 	rdc_getmsgend(RdcInBuf(port));

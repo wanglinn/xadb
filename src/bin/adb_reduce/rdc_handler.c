@@ -232,7 +232,7 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 				{
 					rdc_getmsgend(msg);
 					elog(LOG,
-						 "receive EOF message from" RDC_PORT_PRINT_FORMAT,
+						 "recv EOF message from" RDC_PORT_PRINT_FORMAT,
 						 RDC_PORT_PRINT_VALUE(work_port));
 
 					/*
@@ -257,7 +257,7 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 					bool broadcast = rdc_getmsgint(msg, sizeof(broadcast));
 					rdc_getmsgend(msg);
 					elog(LOG,
-						 "receive CLOSE message from" RDC_PORT_PRINT_FORMAT,
+						 "recv CLOSE message from" RDC_PORT_PRINT_FORMAT,
 						 RDC_PORT_PRINT_VALUE(work_port));
 
 					/*
@@ -345,7 +345,6 @@ HandleWriteToPlan(PlanPort *pln_port)
 	RdcPort		   *port;
 	RSstate		   *rdcstore;
 	int				r;
-	volatile bool	eof;
 
 	AssertArg(pln_port);
 	if (!PlanPortIsValid(pln_port))
@@ -354,7 +353,13 @@ HandleWriteToPlan(PlanPort *pln_port)
 	SetRdcPsStatus(" writing to plan " PORTID_FORMAT, PlanID(pln_port));
 	rdcstore = pln_port->rdcstore;
 	port = pln_port->port;
-	eof = (pln_port->eof_num == (pln_port->rdc_num - 1));
+
+	/*
+	 * To avoid forgetting to send data, add wait events again
+	 * for PlanPort.
+	 */
+	if (!rdcstore_ateof(rdcstore))
+		PlanPortAddEvents(pln_port, WT_SOCK_WRITEABLE);
 
 	while (port != NULL)
 	{
@@ -423,17 +428,8 @@ HandleWriteToPlan(PlanPort *pln_port)
 				/* break rdcstore is also empty */
 				if (!hasData)
 				{
-					if (eof && !RdcSendEOF(port))
-					{
-						rdc_beginmessage(buf, MSG_EOF);
-						rdc_sendlength(buf);
-						RdcEndStatus(port) |= RDC_END_EOF;
-					} else
-					{
-						if (RdcSendEOF(port))
-							RdcWaitEvents(port) &= ~WT_SOCK_WRITEABLE;
-						break;	/* break for */
-					}
+					RdcWaitEvents(port) &= ~WT_SOCK_WRITEABLE;
+					break;	/* break for */
 				} else
 				{
 					/*
@@ -521,8 +517,8 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 					{
 						rdc_getmsgend(msg);
 						elog(LOG,
-							 "receive EOF message of PLAN " PORTID_FORMAT
-							 " from" RDC_PORT_PRINT_FORMAT,
+							 "receive EOF message of [PLAN " PORTID_FORMAT
+							 "] from" RDC_PORT_PRINT_FORMAT,
 							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in EOF message */
 						SendRdcEofToPlan(pln_port, RdcPeerID(rdc_port), true);
@@ -531,8 +527,8 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 					{
 						rdc_getmsgend(msg);
 						elog(LOG,
-							 "receive CLOSE message of PLAN " PORTID_FORMAT
-							 " from" RDC_PORT_PRINT_FORMAT,
+							 "receive CLOSE message of [PLAN " PORTID_FORMAT
+							 "] from" RDC_PORT_PRINT_FORMAT,
 							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in PLAN CLOSE message */
 						SendPlanCloseToPlan(pln_port, RdcPeerID(rdc_port));
@@ -543,8 +539,8 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 				break;
 			default:
 				ereport(ERROR,
-						(errmsg("unexpected message type %c of Reduce port",
-								msg_type)));
+						(errmsg("unexpected message type %c from" RDC_PORT_PRINT_FORMAT,
+								msg_type, RDC_PORT_PRINT_VALUE(rdc_port))));
 				break;
 		}
 	}
@@ -644,8 +640,12 @@ SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int da
 	pfree(buf.data);
 	buf.data = NULL;
 
+	/*
+	 * It may be not useful, because "port" of "pln_port" may be
+	 * NULL until now. so try to add wait events for PlanPort again
+	 * see in HandleWriteToPlan.
+	 */
 	PlanPortAddEvents(pln_port, WT_SOCK_WRITEABLE);
-	//HandleWriteToPlan(pln_port);
 }
 
 /*
@@ -674,14 +674,38 @@ SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 	{
 		if (error_if_exists)
 			ereport(ERROR,
-				(errmsg("receive EOF message of plan " PORTID_FORMAT
-						" from REDUCE " PORTID_FORMAT " once again",
+				(errmsg("recv EOF message of [PLAN " PORTID_FORMAT
+						"] from [REDUCE " PORTID_FORMAT "] once again",
 				 PlanID(pln_port), rdc_id)));
 	} else
 		pln_port->rdc_eofs[pln_port->eof_num++] = rdc_id;
 
-	PlanPortAddEvents(pln_port, WT_SOCK_WRITEABLE);
-	//HandleWriteToPlan(pln_port);
+	/*
+	 * Here we have got all EOF message of PLAN node from all other
+	 * reduce, now we can make EOF message which will be sent to
+	 * PLAN node of self Backend.
+	 */
+	if (pln_port->eof_num == (pln_port->rdc_num - 1))
+	{
+		StringInfoData		buf;
+		RSstate			   *rdcstore;
+
+		Assert(pln_port->rdcstore);
+		rdcstore = pln_port->rdcstore;
+
+		rdc_beginmessage(&buf, MSG_EOF);
+		rdc_sendlength(&buf);
+		rdcstore_puttuple(rdcstore, buf.data, buf.len);
+		pfree(buf.data);
+		buf.data = NULL;
+
+		/*
+		 * It may be not useful, because "port" of "pln_port" may be
+		 * NULL until now. so try to add wait events for PlanPort again
+		 * see in HandleWriteToPlan.
+		 */
+		PlanPortAddEvents(pln_port, WT_SOCK_WRITEABLE);
+	}
 }
 
 /*
@@ -789,7 +813,7 @@ SendPlanEofToRdc(RdcPortId planid)
 	rdc_sendlength(&buf);
 
 	elog(LOG,
-		 "broadcast EOF message of plan " PORTID_FORMAT " to reduce group",
+		 "broadcast EOF message of [PLAN " PORTID_FORMAT "] to reduce group",
 		 planid);
 
 	return BroadcastDataToRdc(&buf, false);
@@ -813,7 +837,7 @@ SendPlanCloseToRdc(RdcPortId planid)
 	rdc_sendlength(&buf);
 
 	elog(LOG,
-		 "broadcast CLOSE message of plan " PORTID_FORMAT " to reduce group",
+		 "broadcast CLOSE message of [PLAN " PORTID_FORMAT "] to reduce group",
 		 planid);
 
 	return BroadcastDataToRdc(&buf, false);
