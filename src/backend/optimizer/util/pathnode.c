@@ -53,7 +53,6 @@ typedef enum
 #define STD_FUZZ_FACTOR 1.01
 
 static List *translate_sub_tlist(List *tlist, int relid);
-static List *add_partial_path_internal(List *partial_pathlist, Path *new_path);
 static Path* get_cheapest_path(List *list, Path **cheapest_start,List **parameterizeds);
 #ifdef ADB
 static UniquePath *create_unique_path_internal(PlannerInfo *root, RelOptInfo *rel,
@@ -781,7 +780,8 @@ add_path_precheck(RelOptInfo *parent_rel,
  *	  IndexPaths here; for safety, we instead Assert that a path to be freed
  *	  isn't an IndexPath.
  */
-static List *add_partial_path_internal(List *partial_pathlist, Path *new_path)
+void
+add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 {
 	bool		accept_new = true;		/* unless we find a superior old path */
 	ListCell   *insert_after = NULL;	/* where to insert new item */
@@ -797,7 +797,7 @@ static List *add_partial_path_internal(List *partial_pathlist, Path *new_path)
 	 * path, but throw out the new path if some existing path dominates it.
 	 */
 	p1_prev = NULL;
-	for (p1 = list_head(partial_pathlist); p1 != NULL;
+	for (p1 = list_head(parent_rel->partial_pathlist); p1 != NULL;
 		 p1 = p1_next)
 	{
 		Path	   *old_path = (Path *) lfirst(p1);
@@ -855,8 +855,8 @@ static List *add_partial_path_internal(List *partial_pathlist, Path *new_path)
 		 */
 		if (remove_old)
 		{
-			partial_pathlist =
-				list_delete_cell(partial_pathlist, p1, p1_prev);
+			parent_rel->partial_pathlist =
+				list_delete_cell(parent_rel->partial_pathlist, p1, p1_prev);
 			/* we should not see IndexPaths here, so always safe to delete */
 			Assert(!IsA(old_path, IndexPath));
 			pfree(old_path);
@@ -884,10 +884,10 @@ static List *add_partial_path_internal(List *partial_pathlist, Path *new_path)
 	{
 		/* Accept the new path: insert it at proper place */
 		if (insert_after)
-			lappend_cell(partial_pathlist, insert_after, new_path);
+			lappend_cell(parent_rel->partial_pathlist, insert_after, new_path);
 		else
-			partial_pathlist =
-				lcons(new_path, partial_pathlist);
+			parent_rel->partial_pathlist =
+				lcons(new_path, parent_rel->partial_pathlist);
 	}
 	else
 	{
@@ -896,24 +896,13 @@ static List *add_partial_path_internal(List *partial_pathlist, Path *new_path)
 		/* Reject and recycle the new path */
 		pfree(new_path);
 	}
-
-	return partial_pathlist;
-}
-
-void
-add_partial_path(RelOptInfo *parent_rel, Path *new_path)
-{
-	AssertArg(parent_rel && new_path);
-	parent_rel->partial_pathlist =
-		add_partial_path_internal(parent_rel->partial_pathlist, new_path);
 }
 
 #ifdef ADB
 void add_cluster_path(RelOptInfo *parent_rel, Path *new_path)
 {
 	AssertArg(parent_rel && new_path);
-	parent_rel->cluster_pathlist =
-		add_partial_path_internal(parent_rel->cluster_pathlist, new_path);
+	parent_rel->cluster_pathlist = lappend(parent_rel->cluster_pathlist, new_path);
 }
 #endif /* ADB */
 
