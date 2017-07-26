@@ -63,9 +63,12 @@ HandlePlanIO(List **pln_nodes)
 		 */
 		if (!PlanPortIsValid(pln_port))
 		{
-			/* Here is we truly close port of plan */
-			*pln_nodes = list_delete_ptr(*pln_nodes, pln_port);
-			plan_freeport(pln_port);
+			/*
+			 * Here is we truly free sources of port of PLAN.
+			 * but we do not delete from PlanPort list, as it
+			 * is already marked invalid and no use anymore.
+			 */
+			FreeInvalidPlanPort(pln_port);
 		}
 	}
 }
@@ -517,8 +520,8 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 					{
 						rdc_getmsgend(msg);
 						elog(LOG,
-							 "receive EOF message of [PLAN " PORTID_FORMAT
-							 "] from" RDC_PORT_PRINT_FORMAT,
+							 "recv EOF message of" PLAN_PORT_PRINT_FORMAT
+							 " from" RDC_PORT_PRINT_FORMAT,
 							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in EOF message */
 						SendRdcEofToPlan(pln_port, RdcPeerID(rdc_port), true);
@@ -527,8 +530,8 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 					{
 						rdc_getmsgend(msg);
 						elog(LOG,
-							 "receive CLOSE message of [PLAN " PORTID_FORMAT
-							 "] from" RDC_PORT_PRINT_FORMAT,
+							 "recv CLOSE message of" PLAN_PORT_PRINT_FORMAT
+							 " from" RDC_PORT_PRINT_FORMAT,
 							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in PLAN CLOSE message */
 						SendPlanCloseToPlan(pln_port, RdcPeerID(rdc_port));
@@ -674,8 +677,8 @@ SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 	{
 		if (error_if_exists)
 			ereport(ERROR,
-				(errmsg("recv EOF message of [PLAN " PORTID_FORMAT
-						"] from [REDUCE " PORTID_FORMAT "] once again",
+				(errmsg("recv EOF message of" PLAN_PORT_PRINT_FORMAT
+						" from [REDUCE " PORTID_FORMAT "] once again",
 				 PlanID(pln_port), rdc_id)));
 	} else
 		pln_port->rdc_eofs[pln_port->eof_num++] = rdc_id;
@@ -813,7 +816,7 @@ SendPlanEofToRdc(RdcPortId planid)
 	rdc_sendlength(&buf);
 
 	elog(LOG,
-		 "broadcast EOF message of [PLAN " PORTID_FORMAT "] to reduce group",
+		 "broadcast EOF message of" PLAN_PORT_PRINT_FORMAT " to reduce group",
 		 planid);
 
 	return BroadcastDataToRdc(&buf, false);
@@ -837,7 +840,7 @@ SendPlanCloseToRdc(RdcPortId planid)
 	rdc_sendlength(&buf);
 
 	elog(LOG,
-		 "broadcast CLOSE message of [PLAN " PORTID_FORMAT "] to reduce group",
+		 "broadcast CLOSE message of" PLAN_PORT_PRINT_FORMAT " to reduce group",
 		 planid);
 
 	return BroadcastDataToRdc(&buf, false);

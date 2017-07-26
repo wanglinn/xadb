@@ -86,17 +86,6 @@ ExecClusterReduce(ClusterReduceState *node)
 
 		while (!node->eof_underlying || !node->eof_network)
 		{
-			/* fetch tuple from network */
-			if (!node->eof_network)
-			{
-				ExecClearTuple(slot);
-				if (node->eof_underlying)
-					rdc_set_block(port);
-				outerslot = GetSlotFromRemote(port, slot, &node->eof_network, &node->closed_remote);
-				if (!node->eof_network && !TupIsNull(outerslot))
-					return outerslot;
-			}
-
 			/* fetch tuple from outer node */
 			if (!node->eof_underlying)
 			{
@@ -147,10 +136,21 @@ ExecClusterReduce(ClusterReduceState *node)
 				} else
 				{
 					/* Here we send eof to remote plan nodes */
-					SendSlotToRemote(port, NIL, outerslot);
+					SendEofToRemote(port);
 
 					node->eof_underlying = true;
 				}
+			}
+
+			/* fetch tuple from network */
+			if (!node->eof_network)
+			{
+				ExecClearTuple(slot);
+				if (node->eof_underlying)
+					rdc_set_block(port);
+				outerslot = GetSlotFromRemote(port, slot, &node->eof_network, &node->closed_remote);
+				if (!node->eof_network && !TupIsNull(outerslot))
+					return outerslot;
 			}
 		}
 	}
@@ -163,24 +163,27 @@ ExecClusterReduce(ClusterReduceState *node)
 
 void ExecEndClusterReduce(ClusterReduceState *node)
 {
-	if (node->port)
-	{
-		/*
-		 * if either of these(node->eof_underlying and node->eof_network)
-		 * is false, it means local backend doesn't fetch all tuple (include
-		 * tuple from other backend and from the outer node).
-		 *
-		 * Here we should tell other backend that the local cluster reduce
-		 * will be closed and no more data is needed.
-		 */
-		SendPlanCloseToSelfReduce(node->port,
-			!(node->eof_network && node->eof_underlying));
-		rdc_freeport(node->port);
-		node->port = NULL;
-	}
+	Assert(node);
+	Assert(node->port);
+	/*
+	 * if either of these(node->eof_underlying and node->eof_network)
+	 * is false, it means local backend doesn't fetch all tuple (include
+	 * tuple from other backend and from the outer node).
+	 *
+	 * Here we should tell other backend that the local cluster reduce
+	 * will be closed and no more data is needed.
+	 *
+	 * If we have already sent EOF message of current plan node, it is
+	 * no need to broadcast CLOSE message to other reduce.
+	 */
+	if (!RdcSendCLOSE(node->port))
+		SendPlanCloseToSelfReduce(node->port, !RdcSendEOF(node->port));
+	rdc_freeport(node->port);
+	node->port = NULL;
 	node->eof_network = false;
 	node->eof_underlying = false;
 	list_free(node->closed_remote);
+	node->closed_remote = NIL;
 
 	ExecEndNode(outerPlanState(node));
 }
@@ -199,10 +202,12 @@ EndReduceStateWalker(PlanState *node, void *context)
 
 		if (!RdcSendEOF(port) && !RdcSendCLOSE(port))
 		{
-			/* send eof to self reduce */
-			SendSlotToRemote(crs->port, NIL, NULL);
+			elog(LOG,
+				 "drive to send EOF message of" PLAN_PORT_PRINT_FORMAT,
+				 RdcSelfID(port));
+			/* send EOF message to remote */
+			SendEofToRemote(crs->port);
 		}
-		return false;
 	}
 
 	return planstate_tree_walker(node, EndReduceStateWalker, context);
@@ -211,5 +216,7 @@ EndReduceStateWalker(PlanState *node, void *context)
 void
 ExecEndAllReduceState(PlanState *node)
 {
+	elog(LOG,
+		 "Top-down drive cluster reduce to send EOF message");
 	(void) EndReduceStateWalker(node, NULL);
 }

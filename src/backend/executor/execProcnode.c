@@ -606,6 +606,11 @@ ExecProcNode(PlanState *node)
 	if (node->instrument)
 		InstrStopNode(node->instrument, TupIsNull(result) ? 0.0 : 1.0);
 
+#ifdef ADB
+	if (TupIsNull(result))
+		ExecEndAllReduceState(node);
+#endif
+
 	return result;
 }
 

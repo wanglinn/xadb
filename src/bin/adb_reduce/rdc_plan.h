@@ -48,6 +48,7 @@ struct PlanPort
 
 extern PlanPort *plan_newport(RdcPortId pln_id);
 extern void plan_freeport(PlanPort *pln_port);
+extern void FreeInvalidPlanPort(PlanPort *pln_port);
 extern void PlanPortStats(PlanPort *pln_port);
 extern PlanPort *LookUpPlanPort(List *pln_nodes, RdcPortId pln_id);
 extern void AddNewPlanPort(List **pln_nodes, RdcPort *new_port);

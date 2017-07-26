@@ -544,7 +544,7 @@ DropReduceGroup(void)
 			continue;
 		Assert(RdcPeerID(port) != MyReduceId);
 		elog(LOG,
-			 "free" RDC_PORT_PRINT_FORMAT,
+			 "free port of" RDC_PORT_PRINT_FORMAT,
 			 RDC_PORT_PRINT_VALUE(port));
 		rdc_freeport(port);
 	}
@@ -560,8 +560,6 @@ DropPlanGroup(void)
 	foreach (cell, MyRdcOpts->pln_nodes)
 	{
 		pln_port = (PlanPort *) lfirst(cell);
-		elog(LOG,
-			 "free [PLAN " PORTID_FORMAT "]", PlanID(pln_port));
 		plan_freeport(pln_port);
 	}
 	list_free(MyRdcOpts->pln_nodes);

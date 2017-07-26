@@ -276,7 +276,7 @@ SendPlanCloseToSelfReduce(RdcPort *port, bool broadcast)
 	char			buf[1];
 
 	elog(LOG,
-		 "Backend send CLOSE message of plan " PORTID_FORMAT,
+		 "Backend send CLOSE message of" PLAN_PORT_PRINT_FORMAT,
 		 RdcSelfID(port));
 
 	if (!RdcSockIsValid(port))
@@ -298,31 +298,44 @@ SendPlanCloseToSelfReduce(RdcPort *port, bool broadcast)
 	rdc_sendint(&msg, broadcast, sizeof(broadcast));
 	rdc_endmessage(port, &msg);
 
-	port->send_num++;
-	RdcEndStatus(port) |= RDC_END_CLOSE;
-
 	if (rdc_flush(port) == EOF)
 		ereport(ERROR,
 				(errmsg("fail to send CLOSE message to remote"),
 				 errdetail("%s", RdcError(port))));
+
+	port->send_num++;
+	RdcEndStatus(port) |= RDC_END_CLOSE;
+}
+
+void
+SendEofToRemote(RdcPort *port)
+{
+	StringInfoData  msg;
+
+	AssertArg(port);
+	elog(LOG,
+		 "Backend send EOF message of" PLAN_PORT_PRINT_FORMAT,
+		 RdcSelfID(port));
+
+	rdc_beginmessage(&msg, MSG_EOF);
+	rdc_endmessage(port, &msg);
+
+	if (rdc_flush(port) == EOF)
+		ereport(ERROR,
+				(errmsg("fail to send EOF message to remote"),
+				 errdetail("%s", RdcError(port))));
+
+	port->send_num++;
+	RdcEndStatus(port) |= RDC_END_EOF;
 }
 
 void
 SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot)
 {
 	StringInfoData  msg;
-	char		   *buf = "tuple";
 
 	AssertArg(port);
-	if (TupIsNull(slot))
-	{
-		elog(LOG,
-			 "Backend send EOF message of plan " PORTID_FORMAT,
-			 RdcSelfID(port));
-
-		buf = "EOF message";
-		rdc_beginmessage(&msg, MSG_EOF);
-	} else if (destNodes)
+	if (destNodes)
 	{
 		ListCell	   *lc;
 		int				num;
@@ -345,13 +358,12 @@ SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot)
 	}
 	rdc_endmessage(port, &msg);
 
-	port->send_num++;
-	RdcEndStatus(port) |= RDC_END_EOF;
-
 	if (rdc_flush(port) == EOF)
 		ereport(ERROR,
-				(errmsg("fail to send %s to remote", buf),
+				(errmsg("fail to send tuple to remote"),
 				 errdetail("%s", RdcError(port))));
+
+	port->send_num++;
 }
 
 TupleTableSlot *

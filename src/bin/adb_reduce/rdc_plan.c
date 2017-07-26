@@ -44,11 +44,26 @@ plan_freeport(PlanPort *pln_port)
 {
 	if (pln_port)
 	{
+		elog(LOG,
+			 "free port of" PLAN_PORT_PRINT_FORMAT,
+			 PlanID(pln_port));
 		PlanPortStats(pln_port);
-		elog(LOG, "free port of PLAN " PORTID_FORMAT, PlanID(pln_port));
 		rdc_freeport(pln_port->port);
 		rdcstore_end(pln_port->rdcstore);
 		safe_pfree(pln_port);
+	}
+}
+
+void
+FreeInvalidPlanPort(PlanPort *pln_port)
+{
+	if (pln_port)
+	{
+		PlanPortStats(pln_port);
+		rdc_freeport(pln_port->port);
+		pln_port->port = NULL;
+		rdcstore_end(pln_port->rdcstore);
+		pln_port->rdcstore = NULL;
 	}
 }
 
@@ -62,7 +77,7 @@ PlanPortStats(PlanPort *pln_port)
 	if (pln_port)
 	{
 		elog(LOG,
-			 "[PLAN " PORTID_FORMAT "] statistics: "
+			 PLAN_PORT_PRINT_FORMAT " statistics: "
 			 "time to live " INT64_FORMAT
 			 " seconds, recv from PLAN " UINT64_FORMAT
 			 ", dscd from REDUDE " UINT64_FORMAT
