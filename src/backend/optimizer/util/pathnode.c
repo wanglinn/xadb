@@ -243,6 +243,11 @@ compare_path_costs_fuzzily(Path *path1, Path *path2, double fuzz_factor)
 void
 set_cheapest(RelOptInfo *parent_rel)
 {
+#ifdef ADB
+	ListCell *lc;
+	Path *path;
+	List *reduce_list;
+#endif /* ADB */
 	Assert(IsA(parent_rel, RelOptInfo));
 
 	if (parent_rel->pathlist == NIL)
@@ -263,6 +268,24 @@ set_cheapest(RelOptInfo *parent_rel)
 										  &parent_rel->cheapest_cluster_parameterized_paths);
 	}
 	parent_rel->cheapest_cluster_unique_path = NULL;
+	Assert(parent_rel->cheapest_replicate_path == NULL);
+	Assert(parent_rel->cheapest_coordinator_path == NULL);
+	foreach(lc, parent_rel->cluster_pathlist)
+	{
+		path = lfirst(lc);
+		reduce_list = get_reduce_info_list(path);
+		if(is_reduce_replacate_list(reduce_list))
+		{
+			if (parent_rel->cheapest_replicate_path == NULL ||
+				parent_rel->cheapest_replicate_path->total_cost > path->total_cost)
+				parent_rel->cheapest_replicate_path = path;
+		}else if(is_reduce_to_coord_list(reduce_list))
+		{
+			if (parent_rel->cheapest_coordinator_path == NULL ||
+				parent_rel->cheapest_coordinator_path->total_cost > path->total_cost)
+				parent_rel->cheapest_coordinator_path = path;
+		}
+	}
 #endif /* ADB */
 }
 
