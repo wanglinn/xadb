@@ -664,6 +664,26 @@ SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 
 	AssertArg(pln_port);
 
+	/*
+	 * return if there is no worker of PlanPort.
+	 * discard this data.
+	 */
+	if (!PlanPortIsValid(pln_port))
+	{
+		/*
+		 * PlanPort is invalid, the message will be discarded,
+		 * so increase the number of discarding.
+		 */
+		pln_port->dscd_from_rdc++;
+		return ;
+	}
+
+	/*
+	 * the CLOSE message received from other reduce will be put in RdcStore,
+	 * so increase the number of receiving from reduce.
+	 */
+	pln_port->recv_from_rdc++;
+
 	found = false;
 	for (i = 0; i < pln_port->eof_num; i++)
 	{
