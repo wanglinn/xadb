@@ -164,7 +164,7 @@ ExecClusterReduce(ClusterReduceState *node)
 void ExecEndClusterReduce(ClusterReduceState *node)
 {
 	Assert(node);
-	Assert(node->port);
+
 	/*
 	 * if either of these(node->eof_underlying and node->eof_network)
 	 * is false, it means local backend doesn't fetch all tuple (include
@@ -176,7 +176,7 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 	 * If we have already sent EOF message of current plan node, it is
 	 * no need to broadcast CLOSE message to other reduce.
 	 */
-	if (!RdcSendCLOSE(node->port))
+	if (node->port && !RdcSendCLOSE(node->port))
 		SendPlanCloseToSelfReduce(node->port, !RdcSendEOF(node->port));
 	rdc_freeport(node->port);
 	node->port = NULL;
