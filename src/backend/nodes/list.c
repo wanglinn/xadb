@@ -503,7 +503,7 @@ bool
 list_member_int_idx(const List *list, int datum, int* idx)
 {
 	const ListCell *cell;
-	
+
 	Assert(IsIntegerList(list));
 	check_list_invariants(list);
 
@@ -872,6 +872,34 @@ list_intersection_int(const List *list1, const List *list2)
 	check_list_invariants(result);
 	return result;
 }
+
+#ifdef ADB
+/*
+ * As list_intersection but operates on lists of OIDs.
+ */
+List *
+list_intersection_oid(const List *list1, const List *list2)
+{
+	List	   *result;
+	const ListCell *cell;
+
+	if (list1 == NIL || list2 == NIL)
+		return NIL;
+
+	Assert(IsOidList(list1));
+	Assert(IsOidList(list2));
+
+	result = NIL;
+	foreach(cell, list1)
+	{
+		if (list_member_oid(list2, lfirst_oid(cell)))
+			result = lappend_oid(result, lfirst_oid(cell));
+	}
+
+	check_list_invariants(result);
+	return result;
+}
+#endif
 
 /*
  * Return a list that contains all the cells in list1 that are not in

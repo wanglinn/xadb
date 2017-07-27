@@ -44,6 +44,7 @@
 #include "utils/lsyscache.h"
 #ifdef ADB
 #include "catalog/pgxc_node.h"
+#include "nodes/pg_list.h"
 #include "pgxc/pgxcnode.h"
 #include "pgxc/pgxc.h"
 #include "optimizer/pathnode.h"
@@ -290,6 +291,7 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist);
 static bool is_reduce_info_can_join(ReduceExprInfo *outer_rinfo, ReduceExprInfo *inner_rinfo, List *restrictlist);
 static bool expr_is_var(Expr *expr, Index relid, int attno);
 static AttrNumber get_target_varattno(PathTarget *target, Index varno, AttrNumber attno);
+static List* reduce_list_to_node_list(List *reduce_list);
 #endif /* ADB */
 
 /*
@@ -6681,6 +6683,72 @@ bool is_reduce_list_can_inner_join(List *outer_reduce_list,
 	}
 
 	return false;
+}
+
+static List*
+reduce_list_to_node_list(List *reduce_list)
+{
+	List		   *node_list;
+	ListCell	   *lc;
+	ReduceExprInfo *reduce_info;
+
+	node_list = NIL;
+	foreach (lc, reduce_list)
+	{
+		reduce_info = lfirst(lc);
+		Assert(reduce_info);
+
+		if (node_list == NIL)
+			node_list = list_copy(reduce_info->execList);
+		else
+			node_list = list_intersection_oid(node_list, reduce_info->execList);
+	}
+
+	return node_list;
+}
+
+bool is_reduce_list_can_left_join(List *outer_reduce_list,
+								  List *inner_reduce_list,
+								  List *restrictlist)
+{
+	List *outer_nodes = NIL;
+	List *inner_nodes = NIL;
+	bool  res = true;
+
+	outer_nodes = reduce_list_to_node_list(outer_reduce_list);
+	inner_nodes = reduce_list_to_node_list(inner_reduce_list);
+
+	if (list_length(outer_nodes) == 1 &&
+		list_length(inner_nodes) == 1 &&
+		linitial_oid(outer_nodes) == linitial_oid(inner_nodes))
+		res = false;
+
+	list_free(outer_nodes);
+	list_free(inner_nodes);
+
+	return res;
+}
+
+bool is_reduce_list_can_right_join(List *outer_reduce_list,
+								   List *inner_reduce_list,
+								   List *restrictlist)
+{
+	List *outer_nodes = NIL;
+	List *inner_nodes = NIL;
+	bool  res = true;
+
+	outer_nodes = reduce_list_to_node_list(outer_reduce_list);
+	inner_nodes = reduce_list_to_node_list(inner_reduce_list);
+
+	if (list_length(outer_nodes) == 1 &&
+		list_length(inner_nodes) == 1 &&
+		linitial_oid(outer_nodes) == linitial_oid(inner_nodes))
+		res = false;
+
+	list_free(outer_nodes);
+	list_free(inner_nodes);
+
+	return res;
 }
 
 static bool is_reduce_info_can_join(ReduceExprInfo *outer_rinfo, ReduceExprInfo *inner_rinfo, List *restrictlist)

@@ -69,6 +69,7 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 											 Path **outer_path,
 											 Path **inner_path,
 											 List *restrictlist,
+											 JoinType jointype,
 											 NodeTag method);
 #endif /* ADB */
 
@@ -738,19 +739,30 @@ sort_inner_and_outer(PlannerInfo *root,
 		PATH_PARAM_BY_REL(inner_path, outerrel))
 		return;
 #ifdef ADB
-	/* only support JOIN_INNER yet */
-	if ((jointype != JOIN_UNIQUE_OUTER &&
-		 jointype != JOIN_UNIQUE_INNER &&
-		 jointype != JOIN_INNER) ||
-		make_cheapest_cluster_join_paths(root,
-										 outerrel,
-										 innerrel,
-										 &outer_cluster_path,
-										 &inner_cluster_path,
-										 extra->restrictlist,
-										 T_MergeJoin) == false)
+	switch (jointype)
 	{
-		outer_cluster_path = inner_cluster_path = NULL;
+		case JOIN_UNIQUE_OUTER:
+		case JOIN_UNIQUE_INNER:
+		case JOIN_INNER:
+		case JOIN_LEFT:
+		case JOIN_RIGHT:
+			if (make_cheapest_cluster_join_paths(root,
+												 outerrel,
+												 innerrel,
+												 &outer_cluster_path,
+												 &inner_cluster_path,
+												 extra->restrictlist,
+												 jointype,
+												 T_MergeJoin) == false)
+			{
+				outer_cluster_path = NULL;
+				inner_cluster_path = NULL;
+			}
+			break;
+		default:
+			outer_cluster_path = NULL;
+			inner_cluster_path = NULL;
+			break;
 	}
 #endif /* ADB */
 
@@ -1307,7 +1319,9 @@ match_unsorted_outer(PlannerInfo *root,
 	}
 
 #ifdef ADB
-	if(jointype == JOIN_INNER)
+	if (jointype == JOIN_INNER ||
+		jointype == JOIN_LEFT ||
+		jointype == JOIN_RIGHT)
 	{
 		Path *outer_cluster_path;
 		Path *inner_cluster_path;
@@ -1318,6 +1332,7 @@ match_unsorted_outer(PlannerInfo *root,
 										 &outer_cluster_path,
 										 &inner_cluster_path,
 										 extra->restrictlist,
+										 jointype,
 										 T_NestLoop))
 		{
 			if(save_jointype == JOIN_UNIQUE_OUTER)
@@ -1350,7 +1365,7 @@ match_unsorted_outer(PlannerInfo *root,
 							  outer_cluster_path,
 							  inner_cluster_path,
 							  merge_pathkeys,
-							  JOIN_INNER,
+							  jointype,
 							  true,
 							  extra);
 		}
@@ -1683,7 +1698,9 @@ hash_inner_and_outer(PlannerInfo *root,
 		/*
 		 * only support INNER JOIN yet
 		 */
-		if (jointype == JOIN_INNER)
+		if (jointype == JOIN_INNER ||
+			jointype == JOIN_LEFT ||
+			jointype == JOIN_RIGHT)
 		{
 			Path *outer_cluster_path;
 			Path *inner_cluster_path;
@@ -1693,6 +1710,7 @@ hash_inner_and_outer(PlannerInfo *root,
 												&outer_cluster_path,
 												&inner_cluster_path,
 												hashclauses,
+												jointype,
 												T_HashJoin))
 			{
 				Assert(outer_cluster_path && inner_cluster_path);
@@ -1713,7 +1731,7 @@ hash_inner_and_outer(PlannerInfo *root,
 								  outer_cluster_path,
 								  inner_cluster_path,
 								  hashclauses,
-								  JOIN_INNER,
+								  jointype,
 								  true,
 								  extra);
 			}
@@ -1874,6 +1892,7 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 											 Path **outer_path,
 											 Path **inner_path,
 											 List *restrictlist,
+											 JoinType jointype,
 											 NodeTag method)
 {
 	List *outer_reduce_list;
@@ -1928,10 +1947,24 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 				PATH_PARAM_BY_REL(innerClusterPath, outerrel))
 				continue;
 
-			if(is_reduce_list_can_inner_join(outer_reduce_list, inner_reduce_list, restrictlist))
+			if((jointype == JOIN_UNIQUE_OUTER ||
+				jointype == JOIN_UNIQUE_INNER ||
+				jointype == JOIN_INNER) &&
+				is_reduce_list_can_inner_join(outer_reduce_list, inner_reduce_list, restrictlist))
 			{
 				*inner_path = innerClusterPath;
 				*outer_path = outerClusterPath;
+				result = true;
+				goto make_finish_;
+			}
+
+			if ((jointype == JOIN_LEFT &&
+				 is_reduce_list_can_left_join(outer_reduce_list, inner_reduce_list, restrictlist)) ||
+				(jointype == JOIN_RIGHT &&
+				 is_reduce_list_can_right_join(outer_reduce_list, inner_reduce_list, restrictlist)))
+			{
+				*inner_path = (Path *) create_cluster_reduce_path(innerClusterPath, make_reduce_coord(), innerrel);
+				*outer_path = (Path *) create_cluster_reduce_path(outerClusterPath, make_reduce_coord(), outerrel);
 				result = true;
 				goto make_finish_;
 			}

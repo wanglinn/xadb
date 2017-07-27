@@ -228,6 +228,9 @@ extern List *list_union_oid(const List *list1, const List *list2);
 
 extern List *list_intersection(const List *list1, const List *list2);
 extern List *list_intersection_int(const List *list1, const List *list2);
+#ifdef ADB
+extern List *list_intersection_oid(const List *list1, const List *list2);
+#endif
 
 /* currently, there's no need for list_intersection_ptr etc */
 

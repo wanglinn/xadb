@@ -197,17 +197,18 @@ EndReduceStateWalker(PlanState *node, void *context)
 	if (IsA(node, ClusterReduceState))
 	{
 		ClusterReduceState *crs = (ClusterReduceState *) node;
-		RdcPort			   *port = crs->port;
 		Assert(crs->port);
 
-		if (!RdcSendEOF(port) && !RdcSendCLOSE(port))
+		/*
+		 * Drive all ClusterReduce to send slot, discard slot
+		 * used for local.
+		 */
+		while (!crs->eof_network || !crs->eof_underlying)
 		{
-			elog(LOG,
-				 "drive to send EOF message of" PLAN_PORT_PRINT_FORMAT,
-				 RdcSelfID(port));
-			/* send EOF message to remote */
-			SendEofToRemote(crs->port);
+			(void) ExecClusterReduce(crs);
 		}
+
+		return false;
 	}
 
 	return planstate_tree_walker(node, EndReduceStateWalker, context);

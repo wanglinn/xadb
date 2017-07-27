@@ -95,14 +95,14 @@ extern void add_paths_to_joinrel(PlannerInfo *root, RelOptInfo *joinrel,
 #ifdef ADB
 /*
  * rquerypath.c
- *              routines to create RemoteQuery paths
+ *	   routines to create RemoteQuery paths
  */
 extern bool create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel,
-                                                                        RangeTblEntry *rte, Relids required_outer);
+					 RangeTblEntry *rte, Relids required_outer);
 extern void create_joinrel_rqpath(PlannerInfo *root, RelOptInfo *joinrel,
-                                                RelOptInfo *outerrel, RelOptInfo *innerrel,
-                                                List *restrictlist, JoinType jointype,
-                                                SpecialJoinInfo *sjinfo, Relids param_source_rels);
+					 RelOptInfo *outerrel, RelOptInfo *innerrel,
+					 List *restrictlist, JoinType jointype,
+					 SpecialJoinInfo *sjinfo, Relids param_source_rels);
 #endif /* ADB */
 
 /*

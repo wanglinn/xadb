@@ -150,6 +150,8 @@ extern void fill_reduce_expr_info(ReduceExprInfo *rinfo);
 extern bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info);
 extern bool is_reduce_list_can_inner_join(List *outer_reduce_list, List *inner_reduce_list, List *restrictlist);
 extern List *find_join_equal_exprs(ReduceExprInfo *rinfo, List *restrictlist, RelOptInfo *inner_rel);
+extern bool is_reduce_list_can_left_join(List *outer_reduce_list, List *inner_reduce_list, List *restrictlist);
+extern bool is_reduce_list_can_right_join(List *outer_reduce_list, List *inner_reduce_list, List *restrictlist);
 #endif
 
 #endif   /* PLANMAIN_H */
