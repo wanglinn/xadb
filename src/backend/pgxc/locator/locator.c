@@ -1357,7 +1357,7 @@ Expr *MakeReduce2CoordinatorExpr(void)
 							 sizeof(Oid),
 							 ObjectIdGetDatum(PGXCNodeOid),
 							 false,
-							 false);
+							 true);
 }
 
 bool IsReduce2Coordinator(Expr *expr)
