@@ -743,6 +743,32 @@ list_intersection_int(const List *list1, const List *list2)
 }
 
 /*
+ * As list_intersection but operates on lists of OIDs.
+ */
+List *
+list_intersection_oid(const List *list1, const List *list2)
+{
+	List	   *result;
+	const ListCell *cell;
+
+	if (list1 == NIL || list2 == NIL)
+		return NIL;
+
+	Assert(IsOidList(list1));
+	Assert(IsOidList(list2));
+
+	result = NIL;
+	foreach(cell, list1)
+	{
+		if (list_member_oid(list2, lfirst_oid(cell)))
+			result = lappend_oid(result, lfirst_oid(cell));
+	}
+
+	check_list_invariants(result);
+	return result;
+}
+
+/*
  * This variant of list_difference() determines list membership via
  * simple pointer equality.
  */
