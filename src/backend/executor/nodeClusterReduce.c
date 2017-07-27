@@ -9,6 +9,8 @@
 #include "reduce/adb_reduce.h"
 #include "miscadmin.h"
 
+extern bool enable_cluster_plan;
+
 static bool EndReduceStateWalker(PlanState *node, void *context);
 
 ClusterReduceState *
@@ -205,7 +207,7 @@ EndReduceStateWalker(PlanState *node, void *context)
 		 */
 		while (!crs->eof_network || !crs->eof_underlying)
 		{
-			(void) ExecClusterReduce(crs);
+			(void) ExecProcNode(node);
 		}
 
 		return false;
@@ -217,6 +219,9 @@ EndReduceStateWalker(PlanState *node, void *context)
 void
 ExecEndAllReduceState(PlanState *node)
 {
+	if (!enable_cluster_plan || !IsUnderPostmaster)
+		return ;
+
 	elog(LOG,
 		 "Top-down drive cluster reduce to send EOF message");
 	(void) EndReduceStateWalker(node, NULL);
