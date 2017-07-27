@@ -91,12 +91,6 @@ TupleTableSlot *ExecClusterMergeGather(ClusterMergeGatherState *node)
 
 	if(node->initialized == false)
 	{
-		for(i=0;i<node->nremote;++i)
-		{
-			result = cmg_get_remote_slot(node->conns[i], node->slots[i], &node->ps);
-			if(!TupIsNull(result))
-				binaryheap_add_unordered(node->binheap, Int32GetDatum(i));
-		}
 		result = ExecProcNode(outerPlanState(node));
 		if(!TupIsNull(result))
 		{
@@ -105,6 +99,12 @@ TupleTableSlot *ExecClusterMergeGather(ClusterMergeGatherState *node)
 		}else
 		{
 			node->local_end = true;
+		}
+		for(i=0;i<node->nremote;++i)
+		{
+			result = cmg_get_remote_slot(node->conns[i], node->slots[i], &node->ps);
+			if(!TupIsNull(result))
+				binaryheap_add_unordered(node->binheap, Int32GetDatum(i));
 		}
 		binaryheap_build(node->binheap);
 		node->initialized = true;
