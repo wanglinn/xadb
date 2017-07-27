@@ -4243,13 +4243,6 @@ create_grouping_paths(PlannerInfo *root,
 														  make_reduce_coord(),
 														  grouped_rel);
 						/* now we not have reduce merge path,so we sort again */
-						if(root->group_pathkeys)
-							path = (Path*)
-								   create_sort_path(root,
-													grouped_rel,
-													path,
-													path->pathkeys,
-													-1.0);
 					}
 
 					/* build final path */
