@@ -609,8 +609,6 @@ SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int da
 	AssertArg(pln_port);
 	AssertArg(data);
 	Assert(datalen > 0);
-	Assert(pln_port->rdcstore);
-	rdcstore = pln_port->rdcstore;
 
 	/*
 	 * return if there is no worker of PlanPort.
@@ -632,6 +630,8 @@ SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int da
 	 */
 	pln_port->recv_from_rdc++;
 
+	Assert(pln_port->rdcstore);
+	rdcstore = pln_port->rdcstore;
 	rdc_beginmessage(&buf, MSG_R2P_DATA);
 #ifdef DEBUG_ADB
 	rdc_sendRdcPortID(&buf, rdc_id);
@@ -743,8 +743,6 @@ SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id)
 	StringInfoData		buf;
 
 	AssertArg(pln_port);
-	Assert(pln_port->rdcstore);
-	rdcstore = pln_port->rdcstore;
 
 	/*
 	 * return if there is no worker of PlanPort.
@@ -766,6 +764,8 @@ SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id)
 	 */
 	pln_port->recv_from_rdc++;
 
+	Assert(pln_port->rdcstore);
+	rdcstore = pln_port->rdcstore;
 	rdc_beginmessage(&buf, MSG_PLAN_CLOSE);
 	rdc_sendRdcPortID(&buf, rdc_id);
 	rdc_sendlength(&buf);
