@@ -5949,6 +5949,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 				exprs = list_make1(list_nth(path->pathtarget->exprs, loc_info->partAttrNum-1));
 			}
 			reduce_info->expr = CreateReduceValExprAs(reduce_info->expr, 0, exprs);
+			fill_reduce_expr_info(reduce_info);
 			path = (Path*)create_cluster_reduce_path(path, reduce_info, path->parent);
 		}
 	}
