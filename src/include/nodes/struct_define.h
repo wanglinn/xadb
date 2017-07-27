@@ -101,76 +101,6 @@ BEGIN_STRUCT(BaseStmt)
 END_STRUCT(BaseStmt)
 #endif /* NO_STRUCT_BaseStmt */
 
-#ifndef NO_STRUCT_AutoVacOpts
-BEGIN_STRUCT(AutoVacOpts)
-	NODE_SCALAR(bool,enabled)
-	NODE_SCALAR(int,vacuum_threshold)
-	NODE_SCALAR(int,analyze_threshold)
-	NODE_SCALAR(int,vacuum_cost_delay)
-	NODE_SCALAR(int,vacuum_cost_limit)
-	NODE_SCALAR(int,freeze_min_age)
-	NODE_SCALAR(int,freeze_max_age)
-	NODE_SCALAR(int,freeze_table_age)
-	NODE_SCALAR(int,multixact_freeze_min_age)
-	NODE_SCALAR(int,multixact_freeze_max_age)
-	NODE_SCALAR(int,multixact_freeze_table_age)
-	NODE_SCALAR(int,log_min_duration)
-	NODE_SCALAR(float8,vacuum_scale_factor)
-	NODE_SCALAR(float8,analyze_scale_factor)
-END_STRUCT(AutoVacOpts)
-#endif /* NO_STRUCT_AutoVacOpts */
-
-#ifndef NO_STRUCT_StdRdOptions
-BEGIN_STRUCT(StdRdOptions)
-	NODE_SCALAR(int32,vl_len_)
-	NODE_SCALAR(int,fillfactor)
-	NODE_STRUCT_MEB(AutoVacOpts,autovacuum)
-	NODE_SCALAR(bool,user_catalog_table)
-	NODE_SCALAR(int,parallel_workers)
-END_STRUCT(StdRdOptions)
-#endif /* NO_STRUCT_StdRdOptions */
-
-#ifndef NO_STRUCT_ViewOptions
-BEGIN_STRUCT(ViewOptions)
-	NODE_SCALAR(int32,vl_len_)
-	NODE_SCALAR(bool,security_barrier)
-	NODE_SCALAR(int,check_option_offset)
-END_STRUCT(ViewOptions)
-#endif /* NO_STRUCT_ViewOptions */
-
-#ifndef NO_STRUCT_ParamExternData
-BEGIN_STRUCT(ParamExternData)
-	NODE_DATUM(Datum,value,NODE_ARG_->ptype, NODE_ARG_->isnull)
-	NODE_SCALAR(bool,isnull)
-	NODE_SCALAR(uint16,pflags)
-	NODE_SCALAR(Oid,ptype)
-END_STRUCT(ParamExternData)
-#endif /* NO_STRUCT_ParamExternData */
-
-#ifndef NO_STRUCT_ParamListInfoData
-BEGIN_STRUCT(ParamListInfoData)
-	NODE_OTHER_POINT(ParamFetchHook,paramFetch)
-	NODE_OTHER_POINT(void,paramFetchArg)
-	NODE_OTHER_POINT(ParserSetupHook,parserSetup)
-	NODE_OTHER_POINT(void,parserSetupArg)
-	NODE_SCALAR(int,numParams)
-	NODE_BITMAPSET(Bitmapset,paramMask)
-	NODE_STRUCT_ARRAY(ParamExternData,params, NODE_ARG_->numParams)
-END_STRUCT(ParamListInfoData)
-#endif /* NO_STRUCT_ParamListInfoData */
-
-#if defined(ADB)
-#ifndef NO_STRUCT_ReduceExprInfo
-BEGIN_STRUCT(ReduceExprInfo)
-	NODE_NODE(Expr,expr)
-	NODE_BITMAPSET(Bitmapset,varattnos)
-	NODE_NODE(List,attnoList)
-	NODE_NODE(List,execList)
-	NODE_SCALAR(Index,relid)
-END_STRUCT(ReduceExprInfo)
-#endif /* NO_STRUCT_ReduceExprInfo */
-#endif
-
 #ifndef NO_STRUCT_QualCost
 BEGIN_STRUCT(QualCost)
 	NODE_SCALAR(Cost,startup)
@@ -344,6 +274,14 @@ BEGIN_STRUCT(CustomExecMethods)
 END_STRUCT(CustomExecMethods)
 #endif /* NO_STRUCT_CustomExecMethods */
 
+#ifndef NO_STRUCT_MGRAddHba
+BEGIN_STRUCT(MGRAddHba)
+	NODE_ENUM(NodeTag,type)
+	NODE_STRING(name)
+	NODE_NODE(List,options)
+END_STRUCT(MGRAddHba)
+#endif /* NO_STRUCT_MGRAddHba */
+
 #ifndef NO_STRUCT_MGRAlterParm
 BEGIN_STRUCT(MGRAlterParm)
 	NODE_ENUM(NodeTag,type)
@@ -394,3 +332,73 @@ BEGIN_STRUCT(LockInfoData)
 	NODE_STRUCT_MEB(LockRelId,lockRelId)
 END_STRUCT(LockInfoData)
 #endif /* NO_STRUCT_LockInfoData */
+
+#ifndef NO_STRUCT_AutoVacOpts
+BEGIN_STRUCT(AutoVacOpts)
+	NODE_SCALAR(bool,enabled)
+	NODE_SCALAR(int,vacuum_threshold)
+	NODE_SCALAR(int,analyze_threshold)
+	NODE_SCALAR(int,vacuum_cost_delay)
+	NODE_SCALAR(int,vacuum_cost_limit)
+	NODE_SCALAR(int,freeze_min_age)
+	NODE_SCALAR(int,freeze_max_age)
+	NODE_SCALAR(int,freeze_table_age)
+	NODE_SCALAR(int,multixact_freeze_min_age)
+	NODE_SCALAR(int,multixact_freeze_max_age)
+	NODE_SCALAR(int,multixact_freeze_table_age)
+	NODE_SCALAR(int,log_min_duration)
+	NODE_SCALAR(float8,vacuum_scale_factor)
+	NODE_SCALAR(float8,analyze_scale_factor)
+END_STRUCT(AutoVacOpts)
+#endif /* NO_STRUCT_AutoVacOpts */
+
+#ifndef NO_STRUCT_StdRdOptions
+BEGIN_STRUCT(StdRdOptions)
+	NODE_SCALAR(int32,vl_len_)
+	NODE_SCALAR(int,fillfactor)
+	NODE_STRUCT_MEB(AutoVacOpts,autovacuum)
+	NODE_SCALAR(bool,user_catalog_table)
+	NODE_SCALAR(int,parallel_workers)
+END_STRUCT(StdRdOptions)
+#endif /* NO_STRUCT_StdRdOptions */
+
+#ifndef NO_STRUCT_ViewOptions
+BEGIN_STRUCT(ViewOptions)
+	NODE_SCALAR(int32,vl_len_)
+	NODE_SCALAR(bool,security_barrier)
+	NODE_SCALAR(int,check_option_offset)
+END_STRUCT(ViewOptions)
+#endif /* NO_STRUCT_ViewOptions */
+
+#ifndef NO_STRUCT_ParamExternData
+BEGIN_STRUCT(ParamExternData)
+	NODE_DATUM(Datum,value,NODE_ARG_->ptype, NODE_ARG_->isnull)
+	NODE_SCALAR(bool,isnull)
+	NODE_SCALAR(uint16,pflags)
+	NODE_SCALAR(Oid,ptype)
+END_STRUCT(ParamExternData)
+#endif /* NO_STRUCT_ParamExternData */
+
+#ifndef NO_STRUCT_ParamListInfoData
+BEGIN_STRUCT(ParamListInfoData)
+	NODE_OTHER_POINT(ParamFetchHook,paramFetch)
+	NODE_OTHER_POINT(void,paramFetchArg)
+	NODE_OTHER_POINT(ParserSetupHook,parserSetup)
+	NODE_OTHER_POINT(void,parserSetupArg)
+	NODE_SCALAR(int,numParams)
+	NODE_BITMAPSET(Bitmapset,paramMask)
+	NODE_STRUCT_ARRAY(ParamExternData,params, NODE_ARG_->numParams)
+END_STRUCT(ParamListInfoData)
+#endif /* NO_STRUCT_ParamListInfoData */
+
+#if defined(ADB)
+#ifndef NO_STRUCT_ReduceExprInfo
+BEGIN_STRUCT(ReduceExprInfo)
+	NODE_NODE(Expr,expr)
+	NODE_BITMAPSET(Bitmapset,varattnos)
+	NODE_NODE(List,attnoList)
+	NODE_NODE(List,execList)
+	NODE_SCALAR(Index,relid)
+END_STRUCT(ReduceExprInfo)
+#endif /* NO_STRUCT_ReduceExprInfo */
+#endif

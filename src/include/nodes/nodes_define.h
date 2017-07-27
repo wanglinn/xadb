@@ -737,6 +737,8 @@ NODE_SAME(ClusterGetCopyData, Plan)
 BEGIN_NODE(ClusterReduce)
 	NODE_BASE2(Plan,plan)
 	NODE_NODE(Expr,reduce)
+	NODE_NODE(Expr,special_reduce)
+	NODE_SCALAR(Oid,special_node)
 END_NODE(ClusterReduce)
 #endif /* NO_NODE_ClusterReduce */
 
@@ -1391,6 +1393,8 @@ BEGIN_NODE(RelOptInfo)
 	NODE_NODE(Path,cheapest_cluster_startup_path)
 	NODE_NODE(Path,cheapest_cluster_total_path)
 	NODE_NODE(Path,cheapest_cluster_unique_path)
+	NODE_NODE(Path,cheapest_replicate_path)
+	NODE_NODE(Path,cheapest_coordinator_path)
 	NODE_NODE(List,cheapest_cluster_parameterized_paths)
 	NODE_STRUCT(RelationLocInfo,loc_info)
 	NODE_NODE(Expr,reduce)
@@ -1791,6 +1795,8 @@ END_NODE(ClusterMergeGatherPath)
 BEGIN_NODE(ClusterReducePath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(Path,subpath)
+	NODE_NODE(Expr,special_reduce)
+	NODE_SCALAR(Oid,special_node)
 END_NODE(ClusterReducePath)
 #endif /* NO_NODE_ClusterReducePath */
 
@@ -3963,6 +3969,17 @@ BEGIN_NODE(MgrRemoveNode)
 	NODE_NODE(List,names)
 END_NODE(MgrRemoveNode)
 #endif /* NO_NODE_MgrRemoveNode */
+
+#ifndef NO_NODE_MGRSetClusterInit
+BEGIN_NODE(MGRSetClusterInit)
+END_NODE(MGRSetClusterInit)
+#endif /* NO_NODE_MGRSetClusterInit */
+
+#ifndef NO_NODE_MonitorDeleteData
+BEGIN_NODE(MonitorDeleteData)
+	NODE_SCALAR(int32,days)
+END_NODE(MonitorDeleteData)
+#endif /* NO_NODE_MonitorDeleteData */
 
 #endif
 

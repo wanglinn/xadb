@@ -494,6 +494,8 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_MgrExtensionAdd)
 	ENUM_VALUE(T_MgrExtensionDrop)
 	ENUM_VALUE(T_MgrRemoveNode)
+	ENUM_VALUE(T_MGRSetClusterInit)
+	ENUM_VALUE(T_MonitorDeleteData)
 #endif
 END_ENUM(NodeTag)
 #endif /* NO_ENUM_NodeTag */
