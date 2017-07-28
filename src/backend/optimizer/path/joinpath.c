@@ -1928,7 +1928,8 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 			PATH_PARAM_BY_REL(outerClusterPath, innerrel))
 			continue;
 
-		if(is_reduce_replacate_list(outer_reduce_list))
+		if (jointype == JOIN_INNER &&
+			is_reduce_replacate_list(outer_reduce_list))
 		{
 			*outer_path = outerClusterPath;
 			Assert(innerrel->cheapest_cluster_total_path != NULL);
@@ -1958,10 +1959,9 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 				goto make_finish_;
 			}
 
-			if ((jointype == JOIN_LEFT &&
-				 is_reduce_list_can_left_join(outer_reduce_list, inner_reduce_list, restrictlist)) ||
-				(jointype == JOIN_RIGHT &&
-				 is_reduce_list_can_right_join(outer_reduce_list, inner_reduce_list, restrictlist)))
+			if ((jointype == JOIN_LEFT ||
+				 jointype == JOIN_RIGHT) &&
+				 is_reduce_list_can_left_or_right_join(outer_reduce_list, inner_reduce_list, restrictlist))
 			{
 				*inner_path = (Path *) create_cluster_reduce_path(innerClusterPath, make_reduce_coord(), innerrel);
 				*outer_path = (Path *) create_cluster_reduce_path(outerClusterPath, make_reduce_coord(), outerrel);
@@ -1970,6 +1970,13 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 			}
 		}
 		outer_reduce_list = NIL;
+	}
+
+	if (jointype == JOIN_LEFT ||
+		jointype == JOIN_RIGHT)
+	{
+		result = false;
+		goto make_finish_;
 	}
 
 	/* no we need a reduce path */

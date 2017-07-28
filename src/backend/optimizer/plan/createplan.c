@@ -291,7 +291,6 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist);
 static bool is_reduce_info_can_join(ReduceExprInfo *outer_rinfo, ReduceExprInfo *inner_rinfo, List *restrictlist);
 static bool expr_is_var(Expr *expr, Index relid, int attno);
 static AttrNumber get_target_varattno(PathTarget *target, Index varno, AttrNumber attno);
-static List* reduce_list_to_node_list(List *reduce_list);
 #endif /* ADB */
 
 /*
@@ -6685,68 +6684,58 @@ bool is_reduce_list_can_inner_join(List *outer_reduce_list,
 	return false;
 }
 
-static List*
-reduce_list_to_node_list(List *reduce_list)
+bool
+is_reduce_list_can_left_or_right_join(List *outer_reduce_list,
+									  List *inner_reduce_list,
+									  List *restrictlist)
 {
-	List		   *node_list;
-	ListCell	   *lc;
+	List *outer_nodes = NIL;
+	List *inner_nodes = NIL;
+	List *intersection_nodes = NIL;
+	bool  res = true;
+	ListCell *lc;
 	ReduceExprInfo *reduce_info;
 
-	node_list = NIL;
-	foreach (lc, reduce_list)
+	foreach (lc, outer_reduce_list)
 	{
-		reduce_info = lfirst(lc);
+		reduce_info = (ReduceExprInfo *) lfirst(lc);
 		Assert(reduce_info);
-
-		if (node_list == NIL)
-			node_list = list_copy(reduce_info->execList);
+		/* do not support left/right join if outer is replicatable */
+		if(IsReduceReplicateExpr(reduce_info->expr))
+		{
+			list_free(outer_nodes);
+			return false;
+		}
+		if (outer_nodes == NIL)
+			outer_nodes = list_copy(reduce_info->execList);
 		else
-			node_list = list_intersection_oid(node_list, reduce_info->execList);
+			outer_nodes = list_intersection_oid(outer_nodes, reduce_info->execList);
 	}
 
-	return node_list;
-}
+	foreach (lc, inner_reduce_list)
+	{
+		reduce_info = (ReduceExprInfo *) lfirst(lc);
+		Assert(reduce_info);
+		/* do not support left/right join if inner is replicatable */
+		if(IsReduceReplicateExpr(reduce_info->expr))
+		{
+			list_free(outer_nodes);
+			list_free(inner_nodes);
+			return false;
+		}
+		if (inner_nodes == NIL)
+			inner_nodes = list_copy(reduce_info->execList);
+		else
+			inner_nodes = list_intersection_oid(inner_nodes, reduce_info->execList);
+	}
 
-bool is_reduce_list_can_left_join(List *outer_reduce_list,
-								  List *inner_reduce_list,
-								  List *restrictlist)
-{
-	List *outer_nodes = NIL;
-	List *inner_nodes = NIL;
-	bool  res = true;
-
-	outer_nodes = reduce_list_to_node_list(outer_reduce_list);
-	inner_nodes = reduce_list_to_node_list(inner_reduce_list);
-
-	if (list_length(outer_nodes) == 1 &&
-		list_length(inner_nodes) == 1 &&
-		linitial_oid(outer_nodes) == linitial_oid(inner_nodes))
+	intersection_nodes = list_intersection_oid(outer_nodes, inner_nodes);
+	if (list_length(intersection_nodes) == 1)
 		res = false;
 
 	list_free(outer_nodes);
 	list_free(inner_nodes);
-
-	return res;
-}
-
-bool is_reduce_list_can_right_join(List *outer_reduce_list,
-								   List *inner_reduce_list,
-								   List *restrictlist)
-{
-	List *outer_nodes = NIL;
-	List *inner_nodes = NIL;
-	bool  res = true;
-
-	outer_nodes = reduce_list_to_node_list(outer_reduce_list);
-	inner_nodes = reduce_list_to_node_list(inner_reduce_list);
-
-	if (list_length(outer_nodes) == 1 &&
-		list_length(inner_nodes) == 1 &&
-		linitial_oid(outer_nodes) == linitial_oid(inner_nodes))
-		res = false;
-
-	list_free(outer_nodes);
-	list_free(inner_nodes);
+	list_free(intersection_nodes);
 
 	return res;
 }
