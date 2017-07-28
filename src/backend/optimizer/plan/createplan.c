@@ -6527,6 +6527,37 @@ List* copy_reduce_info_list(List *list)
 	return newList;
 }
 
+List* find_reduce_target(ReduceExprInfo* reduce, PathTarget *target)
+{
+	ListCell *lc_attno;
+	ListCell *lc_target;
+	List *result = NIL;
+	AssertArg(target && reduce);
+	AssertArg(IsReduceExprByValue(reduce->expr) &&
+			  reduce->attnoList != NIL &&
+			  reduce->relid > 0);
+
+	foreach(lc_attno, reduce->attnoList)
+	{
+		int i = 1;
+		foreach(lc_target, target->exprs)
+		{
+			if (expr_is_var(lfirst(lc_target),reduce->relid,lfirst_int(lc_attno)))
+			{
+				result = lappend_int(result, i);
+				break;
+			}
+			++i;
+		}
+		if(lc_target == NULL)
+		{
+			list_free(result);
+			return NIL;
+		}
+	}
+	return result;
+}
+
 bool is_reduce_replacate_list(List *list)
 {
 	ListCell *lc;

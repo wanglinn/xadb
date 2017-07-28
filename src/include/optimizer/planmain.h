@@ -141,6 +141,7 @@ extern Node *pgxc_replace_nestloop_params(PlannerInfo *root, Node *expr);
 extern List* get_remote_nodes(PlannerInfo *root, Path *path);
 extern List* get_reduce_info_list(Path *path);
 extern List* copy_reduce_info_list(List *list);
+extern List* find_reduce_target(ReduceExprInfo* reduce, PathTarget *target);
 extern bool is_reduce_replacate_list(List *list);
 extern bool is_reduce_by_value_list(List *list);
 extern bool is_reduce_to_coord_list(List *list);
