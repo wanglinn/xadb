@@ -3467,7 +3467,8 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 		/* don't add "break;" here */
 	case T_IndexPath:
 	case T_TidPath:
-		Assert(path->parent->reloptkind == RELOPT_BASEREL &&
+		Assert((path->parent->reloptkind == RELOPT_BASEREL ||
+				path->parent->reloptkind == RELOPT_OTHER_MEMBER_REL) &&
 			   path->parent->rtekind == RTE_RELATION);
 		loc = path->parent->loc_info;
 		if(loc != NULL)
