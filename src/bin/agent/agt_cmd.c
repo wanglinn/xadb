@@ -34,7 +34,7 @@
 #define PG_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
 #define PSQL_VERSION "(ADB 3.0 based on PostgreSQL) " PG_VERSION "\n"
 #define PG_DUMPALL_VERSION "pg_dumpall (PostgreSQL) " PG_VERSION "\n"
-#define PG_REWIND_VERSION "pg_rewind 1.0.0""\n"
+#define PG_REWIND_VERSION "pg_rewind (PostgreSQL) " PG_VERSION "\n"
 
 static void myUsleep(long microsec);
 static bool parse_ping_node_msg(const StringInfo msg, Name host, Name port, Name user, char *file_path);

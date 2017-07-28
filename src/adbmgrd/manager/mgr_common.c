@@ -1136,7 +1136,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 		,F_BOOLEQ
 		,BoolGetDatum(true));
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
-	rel_scan = heap_beginscan(rel_node, SnapshotNow, 1, key);
+	rel_scan = heap_beginscan_catalog(rel_node, 1, key);
 	while((node_tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(node_tuple);
@@ -1184,7 +1184,8 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 			heap_close(rel_node, AccessShareLock);
 			return false;
 		}
-		mgr_reload_conf(mgr_node->nodehost, node_path);
+		if (!(mgr_node->nodetype == nodetype && strcmp(nodename, NameStr(mgr_node->nodename)) ==0))
+			mgr_reload_conf(mgr_node->nodehost, node_path);
 	}
 
 	heap_endscan(rel_scan);

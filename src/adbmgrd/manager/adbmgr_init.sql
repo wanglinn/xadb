@@ -95,8 +95,8 @@ CREATE VIEW adbmgr.jobitem AS
     jobitem_desc AS description
   FROM pg_catalog.monitor_jobitem order by 1;
 
-CREATE VIEW adbmgr.ha as
-	SELECT * FROM mgr_monitor_ha();
+CREATE VIEW adbmgr.ha as 
+	SELECT * FROM mgr_monitor_ha() order by 2 asc, 1 desc;
 
 --monitor all
 CREATE VIEW adbmgr.monitor_all AS
