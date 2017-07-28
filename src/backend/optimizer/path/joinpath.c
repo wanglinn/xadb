@@ -746,6 +746,8 @@ sort_inner_and_outer(PlannerInfo *root,
 		case JOIN_INNER:
 		case JOIN_LEFT:
 		case JOIN_RIGHT:
+		case JOIN_SEMI:
+		case JOIN_ANTI:
 			if (make_cheapest_cluster_join_paths(root,
 												 outerrel,
 												 innerrel,
@@ -1321,7 +1323,9 @@ match_unsorted_outer(PlannerInfo *root,
 #ifdef ADB
 	if (jointype == JOIN_INNER ||
 		jointype == JOIN_LEFT ||
-		jointype == JOIN_RIGHT)
+		jointype == JOIN_RIGHT||
+		jointype == JOIN_SEMI ||
+		jointype == JOIN_ANTI)
 	{
 		Path *outer_cluster_path;
 		Path *inner_cluster_path;
@@ -1700,7 +1704,9 @@ hash_inner_and_outer(PlannerInfo *root,
 		 */
 		if (jointype == JOIN_INNER ||
 			jointype == JOIN_LEFT ||
-			jointype == JOIN_RIGHT)
+			jointype == JOIN_RIGHT ||
+			jointype == JOIN_SEMI ||
+			jointype == JOIN_ANTI)
 		{
 			Path *outer_cluster_path;
 			Path *inner_cluster_path;
@@ -1968,12 +1974,34 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 				result = true;
 				goto make_finish_;
 			}
+
+			if (jointype == JOIN_SEMI ||jointype == JOIN_ANTI)
+			{
+				SemiAntiJoinContext context;
+
+				context.outer_rel = outerrel;
+				context.inner_rel = innerrel;
+				context.outer_path = outerClusterPath;
+				context.inner_path = innerClusterPath;
+				context.outer_reduce_list = outer_reduce_list;
+				context.inner_reduce_list = inner_reduce_list;
+				context.restrict_list = restrictlist;
+				if (can_make_semi_anti_cluster_join_path(&context))
+				{
+					*outer_path = context.outer_path;
+					*inner_path = context.inner_path;
+					result = true;
+					goto make_finish_;
+				}
+			}
 		}
 		outer_reduce_list = NIL;
 	}
 
 	if (jointype == JOIN_LEFT ||
-		jointype == JOIN_RIGHT)
+		jointype == JOIN_RIGHT ||
+		jointype == JOIN_SEMI ||
+		jointype == JOIN_ANTI)
 	{
 		result = false;
 		goto make_finish_;

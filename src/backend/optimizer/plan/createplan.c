@@ -6732,7 +6732,7 @@ is_reduce_list_can_left_or_right_join(List *outer_reduce_list,
 		reduce_info = (ReduceExprInfo *) lfirst(lc);
 		Assert(reduce_info);
 		/* do not support left/right join if outer is replicatable */
-		if(IsReduceReplicateExpr(reduce_info->expr))
+		if (IsReduceReplicateExpr(reduce_info->expr))
 		{
 			list_free(outer_nodes);
 			return false;
@@ -6748,7 +6748,7 @@ is_reduce_list_can_left_or_right_join(List *outer_reduce_list,
 		reduce_info = (ReduceExprInfo *) lfirst(lc);
 		Assert(reduce_info);
 		/* do not support left/right join if inner is replicatable */
-		if(IsReduceReplicateExpr(reduce_info->expr))
+		if (IsReduceReplicateExpr(reduce_info->expr))
 		{
 			list_free(outer_nodes);
 			list_free(inner_nodes);
@@ -6769,6 +6769,108 @@ is_reduce_list_can_left_or_right_join(List *outer_reduce_list,
 	list_free(intersection_nodes);
 
 	return res;
+}
+
+bool
+can_make_semi_anti_cluster_join_path(SemiAntiJoinContext *context)
+{
+	RestrictInfo   *ri;
+	ReduceExprInfo *outer_reduce;
+	ReduceExprInfo *inner_reduce;
+	ListCell	   *ri_lc;
+	ListCell	   *outer_lc;
+	ListCell	   *inner_lc;
+	Expr		   *lexpr;
+	Expr		   *rexpr;
+	Path		   *outer_path = NULL;
+	Path		   *inner_path = NULL;
+	List		   *outer_nodes = NIL;
+	List		   *inner_nodes = NIL;
+	List		   *outer_reduce_list = NIL;
+	List		   *inner_reduce_list = NIL;
+
+	AssertArg(context);
+	outer_reduce_list = context->outer_reduce_list;
+	inner_reduce_list = context->inner_reduce_list;
+	outer_path = context->outer_path;
+	inner_path = context->inner_path;
+
+	foreach (outer_lc, outer_reduce_list)
+	{
+		outer_reduce = (ReduceExprInfo *) lfirst(outer_lc);
+		Assert(outer_reduce);
+		/* do not support semi/anti join if outer is replicatable */
+		if (IsReduceReplicateExpr(outer_reduce->expr))
+			return false;
+		outer_nodes = outer_reduce->execList;
+
+		foreach (inner_lc, inner_reduce_list)
+		{
+			inner_reduce = (ReduceExprInfo *) lfirst(inner_lc);
+			Assert(inner_reduce);
+			if (IsReduceReplicateExpr(inner_reduce->expr))
+			{
+				List *diff_nodes = NIL;
+				inner_nodes = inner_reduce->execList;
+				diff_nodes = list_difference_oid(outer_nodes, inner_nodes);
+				if (diff_nodes != NIL)
+				{
+					list_free(diff_nodes);
+					return false;
+				}
+				return true;
+			}
+
+			if (IsReduce2Coordinator(outer_reduce->expr) &&
+				IsReduce2Coordinator(inner_reduce->expr))
+				return true;
+
+			if (equal(outer_reduce->expr, inner_reduce->expr) &&
+				IsReduceExprByValue(outer_reduce->expr) &&
+				IsReduceExprByValue(inner_reduce->expr))
+			{
+				Assert(bms_membership(outer_reduce->varattnos) != BMS_EMPTY_SET);
+				Assert(bms_num_members(outer_reduce->varattnos) ==
+					   bms_num_members(inner_reduce->varattnos));
+
+				if (bms_membership(outer_reduce->varattnos) != BMS_SINGLETON)
+					continue;
+
+				foreach (ri_lc, context->restrict_list)
+				{
+					ri = lfirst(ri_lc);
+
+					/* only support X=X expression */
+					if (!is_opclause(ri->clause) ||
+						!op_is_equivalence(((OpExpr *)(ri->clause))->opno) ||
+						bms_membership(ri->left_relids) != BMS_SINGLETON ||
+						bms_membership(ri->right_relids) != BMS_SINGLETON)
+						continue;
+
+					lexpr = (Expr*)get_leftop(ri->clause);
+					rexpr = (Expr*)get_rightop(ri->clause);
+
+					while(IsA(lexpr, RelabelType))
+						lexpr = ((RelabelType *) lexpr)->arg;
+					while(IsA(rexpr, RelabelType))
+						rexpr = ((RelabelType *) rexpr)->arg;
+
+					Assert(bms_membership(inner_reduce->varattnos) == BMS_SINGLETON);
+					if ((expr_is_var(lexpr, inner_reduce->relid, bms_next_member(inner_reduce->varattnos, -1)) &&
+						 expr_is_var(rexpr, outer_reduce->relid, bms_next_member(outer_reduce->varattnos, -1))) ||
+						(expr_is_var(rexpr, inner_reduce->relid, bms_next_member(inner_reduce->varattnos, -1)) &&
+						 expr_is_var(lexpr, outer_reduce->relid, bms_next_member(inner_reduce->varattnos, -1))))
+						return true;
+				}
+			}
+		}
+	}
+
+	/* reduce to coordinator */
+	context->outer_path = (Path *) create_cluster_reduce_path(outer_path, make_reduce_coord(), context->outer_rel);
+	context->inner_path = (Path *) create_cluster_reduce_path(inner_path, make_reduce_coord(), context->inner_rel);
+
+	return true;
 }
 
 static bool is_reduce_info_can_join(ReduceExprInfo *outer_rinfo, ReduceExprInfo *inner_rinfo, List *restrictlist)

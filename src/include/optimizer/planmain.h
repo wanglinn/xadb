@@ -152,6 +152,18 @@ extern bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info);
 extern bool is_reduce_list_can_inner_join(List *outer_reduce_list, List *inner_reduce_list, List *restrictlist);
 extern List *find_join_equal_exprs(ReduceExprInfo *rinfo, List *restrictlist, RelOptInfo *inner_rel);
 extern bool is_reduce_list_can_left_or_right_join(List *outer_reduce_list, List *inner_reduce_list, List *restrictlist);
+
+typedef struct SemiAntiJoinContext
+{
+	RelOptInfo *outer_rel;
+	RelOptInfo *inner_rel;
+	Path *outer_path;
+	Path *inner_path;
+	List *outer_reduce_list;
+	List *inner_reduce_list;
+	List *restrict_list;
+} SemiAntiJoinContext;
+extern bool can_make_semi_anti_cluster_join_path(SemiAntiJoinContext *context);
 #endif
 
 #endif   /* PLANMAIN_H */
