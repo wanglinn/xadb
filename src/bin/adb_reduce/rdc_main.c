@@ -1063,7 +1063,7 @@ PrePreparePlanNodes(WaitEVSet set, List *pln_nodes)
 	foreach(cell, pln_nodes)
 	{
 		pln_port = (PlanPort *) lfirst(cell);
-		wrk_port = pln_port->port;
+		wrk_port = pln_port->work_port;
 		if (!PlanPortIsValid(pln_port))
 			continue;
 		while (wrk_port != NULL)

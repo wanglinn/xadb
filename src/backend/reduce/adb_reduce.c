@@ -1,3 +1,18 @@
+/*-------------------------------------------------------------------------
+ *
+ * adb_reduce.c
+ *	  interface for communication between backend process and its self reduce
+ *	  process.
+ *
+ * Copyright (c) 2016-2017, ADB Development Group
+ *
+ * IDENTIFICATION
+ *		src/backend/reduce/adb_reduce.c
+ *
+ * NOTES
+ *
+ *-------------------------------------------------------------------------
+ */
 #include <fcntl.h>
 #include <signal.h>
 #include <unistd.h>
@@ -210,7 +225,7 @@ GetReduceListenPort(void)
 		default:
 			ereport(ERROR,
 					(errmsg("fail to get reduce listen port"),
-					 errhint("%s", error_msg ? error_msg : RdcError(backend_hold_port))));
+					 errdetail("%s", error_msg ? error_msg : RdcError(backend_hold_port))));
 			break;
 	}
 	RdcListenPort = port;

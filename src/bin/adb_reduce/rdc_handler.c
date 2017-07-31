@@ -50,6 +50,7 @@ HandlePlanIO(List **pln_nodes)
 	{
 		pln_port = (PlanPort *) lfirst(cell);
 		next = lnext(cell);
+		Assert(pln_port);
 
 		if (PlanPortIsValid(pln_port))
 		{
@@ -59,17 +60,13 @@ HandlePlanIO(List **pln_nodes)
 
 		/*
 		 * PlanPort may be invalid after reading from plan,
-		 * so close it.
+		 * so release it.
+		 *
+		 * Here is we truly free sources of a PlanPort,
+		 * but we do not delete from PlanPort list, as it
+		 * is already marked invalid and no use anymore.
 		 */
-		if (!PlanPortIsValid(pln_port))
-		{
-			/*
-			 * Here is we truly free sources of port of PLAN.
-			 * but we do not delete from PlanPort list, as it
-			 * is already marked invalid and no use anymore.
-			 */
-			FreeInvalidPlanPort(pln_port);
-		}
+		FreeInvalidPlanPort(pln_port);
 	}
 }
 
@@ -189,6 +186,7 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 			break;		/* break while */
 		}
 
+		/* enough length of buffer for one whole message */
 		switch (msg_type)
 		{
 			case MSG_P2R_DATA:
@@ -271,7 +269,7 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 
 					/*
 					 * do not wait read events on socket of port as
-					 * it would "CLOSEd".
+					 * it would be "CLOSEd".
 					 */
 					RdcWaitEvents(work_port) &= ~WT_SOCK_READABLE;
 					RdcWaitEvents(work_port) &= ~WT_SOCK_WRITEABLE;
@@ -314,7 +312,7 @@ HandleReadFromPlan(PlanPort *pln_port)
 		return ;
 
 	SetRdcPsStatus(" reading from plan " PORTID_FORMAT, PlanID(pln_port));
-	for (work_port = pln_port->port;
+	for (work_port = pln_port->work_port;
 		 work_port != NULL;
 		 work_port= RdcNext(work_port))
 	{
@@ -345,7 +343,7 @@ static void
 HandleWriteToPlan(PlanPort *pln_port)
 {
 	StringInfo		buf;
-	RdcPort		   *port;
+	RdcPort		   *work_port;
 	RSstate		   *rdcstore;
 	int				r;
 
@@ -355,7 +353,7 @@ HandleWriteToPlan(PlanPort *pln_port)
 
 	SetRdcPsStatus(" writing to plan " PORTID_FORMAT, PlanID(pln_port));
 	rdcstore = pln_port->rdcstore;
-	port = pln_port->port;
+	work_port = pln_port->work_port;
 
 	/*
 	 * To avoid forgetting to send data, add wait events again
@@ -364,32 +362,32 @@ HandleWriteToPlan(PlanPort *pln_port)
 	if (!rdcstore_ateof(rdcstore))
 		PlanPortAddEvents(pln_port, WT_SOCK_WRITEABLE);
 
-	while (port != NULL)
+	while (work_port != NULL)
 	{
-		Assert(PlanTypeIDIsValid(port));
-		Assert(RdcSockIsValid(port));
+		Assert(PlanTypeIDIsValid(work_port));
+		Assert(RdcSockIsValid(work_port));
 
 		/* skip if do not care about WRITE event */
-		if (!PortIsValid(port) ||
-			!RdcWaitWrite(port))
+		if (!PortIsValid(work_port) ||
+			!RdcWaitWrite(work_port))
 		{
-			port = RdcNext(port);
+			work_port = RdcNext(work_port);
 			continue;
 		}
 
 		/* set in noblocking mode */
-		if (!rdc_set_noblock(port))
+		if (!rdc_set_noblock(work_port))
 			ereport(ERROR,
 					(errmsg("fail to set noblocking mode for" RDC_PORT_PRINT_FORMAT,
-							RDC_PORT_PRINT_VALUE(port))));
+							RDC_PORT_PRINT_VALUE(work_port))));
 
-		buf = RdcOutBuf(port);
+		buf = RdcOutBuf(work_port);
 		for (;;)
 		{
 			/* output buffer has unsent data, try to send them first */
 			while (buf->cursor < buf->len)
 			{
-				r = send(RdcSocket(port), buf->data + buf->cursor, buf->len - buf->cursor, 0);
+				r = send(RdcSocket(work_port), buf->data + buf->cursor, buf->len - buf->cursor, 0);
 				if (r <= 0)
 				{
 					if (errno == EINTR)
@@ -401,8 +399,8 @@ HandleWriteToPlan(PlanPort *pln_port)
 
 					buf->cursor = buf->len = 0;
 #ifdef RDC_FRONTEND
-					ClientConnectionLostType = RdcPeerType(port);
-					ClientConnectionLostID = RdcPeerID(port);
+					ClientConnectionLostType = RdcPeerType(work_port);
+					ClientConnectionLostID = RdcPeerID(work_port);
 #endif
 					ClientConnectionLost = 1;
 					InterruptPending = 1;
@@ -414,7 +412,7 @@ HandleWriteToPlan(PlanPort *pln_port)
 			/* break and wait for next time if can't continue sending */
 			if (buf->cursor < buf->len)
 			{
-				RdcWaitEvents(port) |= WT_SOCK_WRITEABLE;
+				RdcWaitEvents(work_port) |= WT_SOCK_WRITEABLE;
 				break;		/* break for */
 			}
 			/* output buffer is empty, try to read from rdcstore */
@@ -431,7 +429,7 @@ HandleWriteToPlan(PlanPort *pln_port)
 				/* break rdcstore is also empty */
 				if (!hasData)
 				{
-					RdcWaitEvents(port) &= ~WT_SOCK_WRITEABLE;
+					RdcWaitEvents(work_port) &= ~WT_SOCK_WRITEABLE;
 					break;	/* break for */
 				} else
 				{
@@ -444,7 +442,7 @@ HandleWriteToPlan(PlanPort *pln_port)
 			}
 		}
 
-		port = RdcNext(port);
+		work_port = RdcNext(work_port);
 	}
 }
 

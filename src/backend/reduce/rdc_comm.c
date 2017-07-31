@@ -46,17 +46,17 @@ static WaitEVSet RdcWaitSet = NULL;
 
 static int rdc_wait_timed(int forRead, int forWrite, RdcPort *port, int timeout);
 static RdcPort *rdc_connect_start(const char *host, uint32 port,
-								RdcPortType peer_type, RdcPortId peer_id,
-								RdcPortType self_type, RdcPortId self_id);
+					RdcPortType peer_type, RdcPortId peer_id,
+					RdcPortType self_type, RdcPortId self_id);
 static int rdc_connect_complete(RdcPort *port);
-
 static ssize_t rdc_secure_read(RdcPort *port, void *ptr, size_t len, int flags);
 static int rdc_flush_buffer(RdcPort *port, StringInfo buf, bool block);
 static int internal_put_buffer(RdcPort *port, const char *s, size_t len, bool enlarge);
 static int internal_puterror(RdcPort *port, const char *s, size_t len, bool replace);
 
 static RdcPollingStatusType internal_recv_startup_rqt(RdcPort *port, int expected_ver);
-static RdcPollingStatusType internal_recv_startup_rsp(RdcPort *port, RdcPortType expceted_type, RdcPortId expceted_id);
+static RdcPollingStatusType internal_recv_startup_rsp(RdcPort *port, RdcPortType expceted_type,
+					RdcPortId expceted_id);
 static int connect_nodelay(RdcPort *port);
 static int connect_keepalive(RdcPort *port);
 static int connect_close_on_exec(RdcPort *port);

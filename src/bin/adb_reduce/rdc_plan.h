@@ -6,9 +6,9 @@
 
 struct PlanPort
 {
-	struct RdcPort	   *port;
-	RdcPortId			pln_id;
+	struct RdcPort	   *work_port;
 	int					work_num;
+	RdcPortId			pln_id;
 	RSstate			   *rdcstore;
 	pg_time_t			create_time;
 	uint64				recv_from_pln;
@@ -27,10 +27,10 @@ struct PlanPort
 #define PlanPortAddEvents(pln_port, events)			\
 	do {											\
 		if (pln_port) {								\
-			RdcPort *port = pln_port->port;			\
-			while (port) {							\
-				RdcWaitEvents(port) |= (events);	\
-				port = RdcNext(port);				\
+			RdcPort *work_port = pln_port->work_port;			\
+			while (work_port) {							\
+				RdcWaitEvents(work_port) |= (events);	\
+				work_port = RdcNext(work_port);				\
 			}										\
 		}											\
 	} while (0)
@@ -38,10 +38,10 @@ struct PlanPort
 #define PlanPortRmvEvents(pln_port, events)			\
 	do {											\
 		if (pln_port) { 							\
-			RdcPort *port = pln_port->port; 		\
-			while (port) {							\
-				RdcWaitEvents(port) &= ~(events);	\
-				port = RdcNext(port);				\
+			RdcPort *work_port = pln_port->work_port; 		\
+			while (work_port) {							\
+				RdcWaitEvents(work_port) &= ~(events);	\
+				work_port = RdcNext(work_port);				\
 			}										\
 		}											\
 	} while (0)
