@@ -355,14 +355,17 @@ SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot)
 		ListCell	   *lc;
 		int				num;
 		MinimalTuple	tup;
-		int				len;
+		char		   *tupbody;
+		unsigned int	tupbodylen;
 
 		AssertArg(slot);
 		tup = ExecFetchSlotMinimalTuple(slot);
-		len = (int) GetMemoryChunkSpace(tup);
+		/* the part of the MinimalTuple we'll write: */
+		tupbody = (char *) tup + MINIMAL_TUPLE_DATA_OFFSET;
+		tupbodylen = tup->t_len - MINIMAL_TUPLE_DATA_OFFSET;
 		rdc_beginmessage(&msg, MSG_P2R_DATA);
-		rdc_sendint(&msg, len, sizeof(len));
-		rdc_sendbytes(&msg, (const char * ) tup, len);
+		rdc_sendint(&msg, tupbodylen, sizeof(tupbodylen));
+		rdc_sendbytes(&msg, (const char * ) tupbody, tupbodylen);
 		num = list_length(destNodes);
 		rdc_sendint(&msg, num, sizeof(num));
 		foreach (lc, destNodes)
@@ -412,7 +415,9 @@ GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof, List **closed_
 		case MSG_R2P_DATA:
 			{
 				const char	   *data;
-				MinimalTuple	tup;
+				char		   *tupbody;
+				MinimalTuple	tuple;
+				unsigned int	tuplen;
 #ifdef DEBUG_ADB
 				RdcPortId		rid;
 				/* reduce id while slot comes from */
@@ -423,9 +428,13 @@ GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof, List **closed_
 				data = rdc_getmsgbytes(msg, msg_len);
 				rdc_getmsgend(msg);
 
-				tup = (MinimalTuple) MemoryContextAlloc(slot->tts_mcxt, msg_len);
-				memcpy(tup, data, msg_len);
-				return ExecStoreMinimalTuple(tup, slot, true);
+				tuplen = msg_len + MINIMAL_TUPLE_DATA_OFFSET;
+				tuple = (MinimalTuple) MemoryContextAlloc(slot->tts_mcxt, tuplen);
+				tupbody = (char *) tuple + MINIMAL_TUPLE_DATA_OFFSET;
+				tuple->t_len = tuplen;
+				memcpy(tupbody, data, msg_len);
+
+				return ExecStoreMinimalTuple(tuple, slot, true);
 			}
 		case MSG_EOF:
 			{
