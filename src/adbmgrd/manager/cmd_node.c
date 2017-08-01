@@ -4261,10 +4261,6 @@ void mgr_get_nodeinfo_byname_type(char *node_name, char node_type, bool binclust
 
 	*is_exist = true;
 	*is_running = true;
-	nodeinfo->nodename = NULL;
-	nodeinfo->nodeaddr = NULL;
-	nodeinfo->nodeusername = NULL;
-	nodeinfo->nodepath = NULL;
 
 	namestrcpy(&nodename, node_name);
 	if (bincluster)
@@ -4322,7 +4318,10 @@ void mgr_get_nodeinfo_byname_type(char *node_name, char node_type, bool binclust
 		pfree(info);
 
 		*is_exist = false;
-		*is_running = false;
+		nodeinfo->nodename = NULL;
+		nodeinfo->nodeaddr = NULL;
+		nodeinfo->nodeusername = NULL;
+		nodeinfo->nodepath = NULL;
 		return;
 	}
 
