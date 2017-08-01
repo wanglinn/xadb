@@ -41,6 +41,7 @@
 #include "executor/spi.h"
 #include "../../interfaces/libpq/libpq-fe.h"
 #include "nodes/makefuncs.h"
+#include "access/xlog.h"
 
 #define MAX_PREPARED_TRANSACTIONS_DEFAULT	120
 #define PG_DUMPALL_TEMP_FILE "/tmp/pg_dumpall_temp"
@@ -505,6 +506,9 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 	Assert(name_str);
 	nodetype = PG_GETARG_CHAR(1);
 
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+
 	rel = heap_open(NodeRelationId, RowExclusiveLock);
 	cndn_dsc = RelationGetDescr(rel);
 	namestrcpy(&name, name_str);
@@ -852,6 +856,9 @@ mgr_init_gtm_master(PG_FUNCTION_ARGS)
 {
 	List *nodenamelist = NIL;
 
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+
 	nodenamelist = mgr_get_nodetype_namelist(GTM_TYPE_GTM_MASTER);
 	return mgr_runmode_cndn(GTM_TYPE_GTM_MASTER, AGT_CMD_GTM_INIT, nodenamelist, TAKEPLAPARM_N, fcinfo);
 }
@@ -864,6 +871,9 @@ mgr_init_gtm_slave(PG_FUNCTION_ARGS)
 {
 	List *nodenamelist = NIL;
 
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+
 	nodenamelist = mgr_get_nodetype_namelist(GTM_TYPE_GTM_SLAVE);
 	return mgr_runmode_cndn(GTM_TYPE_GTM_SLAVE, AGT_CMD_GTM_SLAVE_INIT, nodenamelist, TAKEPLAPARM_N, fcinfo);
 }
@@ -874,6 +884,9 @@ Datum
 mgr_init_gtm_extra(PG_FUNCTION_ARGS)
 {
 	List *nodenamelist = NIL;
+
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	nodenamelist = mgr_get_nodetype_namelist(GTM_TYPE_GTM_EXTRA);
 	return mgr_runmode_cndn(GTM_TYPE_GTM_EXTRA, AGT_CMD_GTM_SLAVE_INIT, nodenamelist, TAKEPLAPARM_N, fcinfo);
@@ -886,6 +899,9 @@ Datum
 mgr_init_cn_master(PG_FUNCTION_ARGS)
 {
 	List *nodenamelist = NIL;
+
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	if (PG_ARGISNULL(0))
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_MASTER);
@@ -903,6 +919,9 @@ Datum
 mgr_init_dn_master(PG_FUNCTION_ARGS)
 {
 	List *nodenamelist = NIL;
+
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	if (PG_ARGISNULL(0))
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_MASTER);
@@ -930,6 +949,9 @@ mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 	Oid masterhostOid;
 	char *masterhostaddress;
 	char *mastername;
+
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	/*output the exec result: col1 hostname,col2 SUCCESS(t/f),col3 description*/
 	if (SRF_IS_FIRSTCALL())
@@ -1010,6 +1032,9 @@ mgr_init_dn_extra_all(PG_FUNCTION_ARGS)
 	Oid masterhostOid;
 	char *masterhostaddress;
 	char *mastername;
+
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	/*output the exec result: col1 hostname,col2 SUCCESS(t/f),col3 description*/
 	if (SRF_IS_FIRSTCALL())
@@ -2781,6 +2806,9 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 	GetAgentCmdRst getAgentCmdRst;
 	bool result = true;
 
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+
 	memset(&appendnodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&agtm_m_nodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&agtm_s_nodeinfo, 0, sizeof(AppendNodeInfo));
@@ -3002,6 +3030,9 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 	char nodeport_buf[10];
 	Oid mastertupleoid;
 	Relation rel;
+
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	memset(&appendnodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&parentnodeinfo, 0, sizeof(AppendNodeInfo));
@@ -3272,6 +3303,9 @@ Datum mgr_append_dnextra(PG_FUNCTION_ARGS)
 	char nodeport_buf[10];
 	Oid mastertupleoid;
 	Relation rel;
+
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	memset(&appendnodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&parentnodeinfo, 0, sizeof(AppendNodeInfo));
@@ -3544,6 +3578,9 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 	const int max_pingtry = 60;
 	int ret = 0;
 
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
 	memset(&appendnodeinfo, 0, sizeof(AppendNodeInfo));
@@ -3760,6 +3797,9 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 	Oid mastertupleoid;
 	Relation rel;
 
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+
 	memset(&appendnodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&agtm_m_nodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&agtm_e_nodeinfo, 0, sizeof(AppendNodeInfo));
@@ -3970,6 +4010,9 @@ Datum mgr_append_agtmextra(PG_FUNCTION_ARGS)
 	const int max_pingtry = 60;
 	Oid mastertupleoid;
 	Relation rel;
+
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	memset(&appendnodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&agtm_m_nodeinfo, 0, sizeof(AppendNodeInfo));
@@ -4218,6 +4261,11 @@ void mgr_get_nodeinfo_byname_type(char *node_name, char node_type, bool binclust
 
 	*is_exist = true;
 	*is_running = true;
+	nodeinfo->nodename = NULL;
+	nodeinfo->nodeaddr = NULL;
+	nodeinfo->nodeusername = NULL;
+	nodeinfo->nodepath = NULL;
+
 	namestrcpy(&nodename, node_name);
 	if (bincluster)
 	{
@@ -4274,10 +4322,7 @@ void mgr_get_nodeinfo_byname_type(char *node_name, char node_type, bool binclust
 		pfree(info);
 
 		*is_exist = false;
-		nodeinfo->nodename = NULL;
-		nodeinfo->nodeaddr = NULL;
-		nodeinfo->nodeusername = NULL;
-		nodeinfo->nodepath = NULL;
+		*is_running = false;
 		return;
 	}
 
@@ -5739,6 +5784,9 @@ Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
 	bool nodetypechange = false;
 	Datum datum;
 
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+
 	if(force_get)
 		force = true;
 	if (strcmp(typestr, "slave") == 0)
@@ -6574,6 +6622,9 @@ Datum mgr_failover_gtm(PG_FUNCTION_ARGS)
 	bool nodetypechange = false;
 	Datum datum;
 
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+
 	if(force_get)
 		force = true;
 
@@ -7240,6 +7291,9 @@ Datum mgr_clean_all(PG_FUNCTION_ARGS)
 {
 	NameData resnamedata;
 	NameData restypedata;
+
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	/*check all node stop*/
 	if (!mgr_check_cluster_stop(&resnamedata, &restypedata))
@@ -11167,6 +11221,9 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	StringInfoData infostrparam;
 	Value *val;
 	char *user;
+
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	/*ndoe type*/
 	nodetype = PG_GETARG_CHAR(0);
