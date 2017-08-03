@@ -169,6 +169,8 @@ static PathTarget *make_sort_input_target(PlannerInfo *root,
 #ifdef ADB
 static void separate_rowmarks(PlannerInfo *root);
 static bool can_once_grouping_cluster_path(PathTarget *target, Path *path);
+static bool can_once_distinct_cluster_reduce_list(List *distinct, List *reduce_list);
+static bool can_once_distinct_cluster_reduce(List *distinct, ReduceExprInfo *reduce_info);
 static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path);
 static bool is_remote_relation(PlannerInfo *root, Index relid);
 #endif
@@ -4593,6 +4595,7 @@ create_distinct_paths(PlannerInfo *root,
 	bool		allow_hash;
 	Path	   *path;
 	ListCell   *lc;
+	List	   *distinctExprs;
 
 	/* For now, do all work in the (DISTINCT, NULL) upperrel */
 	distinct_rel = fetch_upper_rel(root, UPPERREL_DISTINCT, NULL);
@@ -4624,13 +4627,13 @@ create_distinct_paths(PlannerInfo *root,
 		 * already mostly unique).
 		 */
 		numDistinctRows = cheapest_input_path->rows;
+		distinctExprs = NIL;
 	}
 	else
 	{
 		/*
 		 * Otherwise, the UNIQUE filter has effects comparable to GROUP BY.
 		 */
-		List	   *distinctExprs;
 
 		distinctExprs = get_sortgrouplist_exprs(parse->distinctClause,
 												parse->targetList);
@@ -4703,6 +4706,35 @@ create_distinct_paths(PlannerInfo *root,
 										  path,
 										list_length(root->distinct_pathkeys),
 										  numDistinctRows));
+#ifdef ADB
+		if(input_rel->cluster_pathlist && distinctExprs == NIL)
+			distinctExprs = get_sortgrouplist_exprs(parse->distinctClause,
+													parse->targetList);
+		foreach(lc, input_rel->cluster_pathlist)
+		{
+			Path	   *path = (Path*) lfirst(lc);
+			List	   *reduce_list = get_reduce_info_list(path);
+
+			if (is_reduce_to_coord_list(reduce_list) ||
+				is_reduce_replacate_list(reduce_list) ||
+				can_once_distinct_cluster_reduce_list(distinctExprs, reduce_list))
+			{
+				if (!pathkeys_contained_in(root->distinct_pathkeys, path->pathkeys))
+					path = (Path*) create_sort_path(root,
+													distinct_rel,
+													path,
+													needed_pathkeys,
+													-1.0);
+
+				path = (Path*)create_upper_unique_path(root,
+													   distinct_rel,
+													   path,
+													   list_length(root->distinct_pathkeys),
+													   numDistinctRows);
+				add_cluster_path(distinct_rel, path);
+			}
+		}
+#endif /* ADB */
 	}
 
 	/*
@@ -4751,6 +4783,37 @@ create_distinct_paths(PlannerInfo *root,
 								 NULL,
 								 numDistinctRows));
 	}
+#ifdef ADB
+	if (grouping_is_hashable(parse->distinctClause))
+	{
+		if(input_rel->cluster_pathlist && distinctExprs == NIL)
+			distinctExprs = get_sortgrouplist_exprs(parse->distinctClause,
+													parse->targetList);
+
+		foreach(lc, input_rel->cluster_pathlist)
+		{
+			Path	   *path = (Path*) lfirst(lc);
+			List	   *reduce_list = get_reduce_info_list(path);
+
+			if (is_reduce_to_coord_list(reduce_list) ||
+				is_reduce_replacate_list(reduce_list) ||
+				can_once_distinct_cluster_reduce_list(distinctExprs,reduce_list))
+			{
+				path = (Path*)create_agg_path(root,
+											  distinct_rel,
+											  path,
+											  path->pathtarget,
+											  AGG_HASHED,
+											  AGGSPLIT_SIMPLE,
+											  parse->distinctClause,
+											  NIL,
+											  NULL,
+											  numDistinctRows);
+				add_cluster_path(distinct_rel, path);
+			}
+		}
+	}
+#endif /* ADB */
 
 	/* Give a helpful error if we failed to find any implementation */
 	if (distinct_rel->pathlist == NIL)
@@ -5867,6 +5930,40 @@ static bool can_once_grouping_cluster_path(PathTarget *target, Path *path)
 		}
 	}
 
+	return result;
+}
+
+static bool can_once_distinct_cluster_reduce_list(List *distinct, List *reduce_list)
+{
+	ListCell *lc_reduce;
+	foreach(lc_reduce, reduce_list)
+	{
+		if(can_once_distinct_cluster_reduce(distinct, lfirst(lc_reduce)))
+			return true;
+	}
+	return false;
+}
+
+static bool can_once_distinct_cluster_reduce(List *distinct, ReduceExprInfo *reduce_info)
+{
+	Bitmapset *bms_hint;
+	ListCell *lc_distinct;
+	bool result;
+
+	if(IsReduceExprByValue(reduce_info->expr) == false)
+		false;
+
+	bms_hint = NULL;
+	foreach(lc_distinct, distinct)
+	{
+		Expr *expr = lfirst(lc_distinct);
+		while(IsA(expr, RelabelType))
+			expr = ((RelabelType *) expr)->arg;
+		if(IsA(expr, Var))
+			pull_varattnos((Node*)expr, reduce_info->relid, &bms_hint);
+	}
+	result = bms_is_subset(reduce_info->varattnos, bms_hint);
+	bms_free(bms_hint);
 	return result;
 }
 
