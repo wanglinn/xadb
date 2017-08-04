@@ -6623,6 +6623,19 @@ bool is_reduce_to_coord_list(List *list)
 	return result;
 }
 
+bool is_reduce_in_one_node(List *list)
+{
+	ReduceExprInfo *info;
+	ListCell *lc;
+	foreach(lc, list)
+	{
+		info = lfirst(lc);
+		if(list_length(info->execList) == 1)
+			return true;
+	}
+	return false;
+}
+
 ReduceExprInfo* copy_reduce_info(const ReduceExprInfo *info)
 {
 	AssertArg(info);

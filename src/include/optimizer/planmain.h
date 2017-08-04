@@ -145,6 +145,7 @@ extern List* find_reduce_target(ReduceExprInfo* reduce, PathTarget *target);
 extern bool is_reduce_replacate_list(List *list);
 extern bool is_reduce_by_value_list(List *list);
 extern bool is_reduce_to_coord_list(List *list);
+extern bool is_reduce_in_one_node(List *list);
 extern ReduceExprInfo* copy_reduce_info(const ReduceExprInfo *info);
 extern ReduceExprInfo* make_reduce_coord(void);
 extern void fill_reduce_expr_info(ReduceExprInfo *rinfo);
