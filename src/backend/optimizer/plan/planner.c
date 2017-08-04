@@ -4651,6 +4651,11 @@ create_distinct_paths(PlannerInfo *root,
 											  cheapest_input_path->rows,
 											  NULL);
 	}
+#ifdef ADB
+	if(distinctExprs == NIL && input_rel->cluster_pathlist != NIL)
+		distinctExprs = get_sortgrouplist_exprs(parse->distinctClause,
+												parse->targetList);
+#endif /* ADB */
 
 	/*
 	 * Consider sort-based implementations of DISTINCT, if possible.
@@ -4717,9 +4722,6 @@ create_distinct_paths(PlannerInfo *root,
 										list_length(root->distinct_pathkeys),
 										  numDistinctRows));
 #ifdef ADB
-		if(input_rel->cluster_pathlist && distinctExprs == NIL)
-			distinctExprs = get_sortgrouplist_exprs(parse->distinctClause,
-													parse->targetList);
 		foreach(lc, input_rel->cluster_pathlist)
 		{
 			Path	   *path = (Path*) lfirst(lc);
@@ -4796,10 +4798,6 @@ create_distinct_paths(PlannerInfo *root,
 #ifdef ADB
 	if (grouping_is_hashable(parse->distinctClause))
 	{
-		if(input_rel->cluster_pathlist && distinctExprs == NIL)
-			distinctExprs = get_sortgrouplist_exprs(parse->distinctClause,
-													parse->targetList);
-
 		foreach(lc, input_rel->cluster_pathlist)
 		{
 			Path	   *path = (Path*) lfirst(lc);
@@ -4820,6 +4818,52 @@ create_distinct_paths(PlannerInfo *root,
 											  NULL,
 											  numDistinctRows);
 				add_cluster_path(distinct_rel, path);
+			}
+		}
+	}
+
+	if (distinct_rel->cluster_pathlist == NIL &&
+		input_rel->cluster_pathlist != NIL)
+	{
+		bool can_hash = grouping_is_hashable(parse->distinctClause);
+		bool can_sort = grouping_is_sortable(parse->distinctClause);
+		/* reduct to coordinator */
+		foreach(lc, input_rel->cluster_pathlist)
+		{
+			Path	   *path = (Path*) lfirst(lc);
+			Path	   *reduce = (Path*)create_cluster_reduce_path(path, make_reduce_coord(),input_rel);
+
+			/* first create sort distinct */
+			if(can_sort)
+			{
+				path = (Path*)create_sort_path(root,
+											   distinct_rel,
+											   reduce,
+											   root->distinct_pathkeys,
+											   -1.0);
+				path = (Path*)create_upper_unique_path(root,
+													   distinct_rel,
+													   path,
+													   list_length(root->distinct_pathkeys),
+													   numDistinctRows);
+				add_cluster_path(distinct_rel, path);
+			}
+
+			if(can_hash)
+			{
+				/* create hash distinct */
+				path = (Path*)create_agg_path(root,
+											  distinct_rel,
+											  reduce,
+											  reduce->pathtarget,
+											  AGG_HASHED,
+											  AGGSPLIT_SIMPLE,
+											  parse->distinctClause,
+											  NIL,
+											  NULL,
+											  numDistinctRows);
+				add_cluster_path(distinct_rel, path);
+				/* need tow step hash distinct? */
 			}
 		}
 	}
