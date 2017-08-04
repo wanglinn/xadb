@@ -3576,4 +3576,51 @@ struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab)
 	return htab;
 }
 
+static bool have_exec_param_walker(Node *node, void *context)
+{
+	if(IsA(node, Param))
+	{
+		Param *param = (Param*)node;
+		return param->paramkind == PARAM_EXEC;
+	}
+	return expression_tree_walker(node, have_exec_param_walker, context);
+}
+
+bool restrict_list_have_exec_param(List *list)
+{
+	RestrictInfo *ri;
+	ListCell *lc;
+	foreach(lc, list)
+	{
+		ri = lfirst(lc);
+		if(have_exec_param_walker((Node*)ri->clause, NULL))
+			return true;
+	}
+	return false;
+}
+
+bool path_tree_have_exec_param(Path *path, PlannerInfo *root)
+{
+	if(path == NULL)
+		return false;
+
+	switch(nodeTag(path))
+	{
+	case T_Path:
+		return restrict_list_have_exec_param(path->parent->baserestrictinfo);
+	case T_IndexPath:
+		return restrict_list_have_exec_param(((IndexPath*)path)->indexclauses)
+			|| restrict_list_have_exec_param(((IndexPath*)path)->indexquals);
+	case T_SubqueryScanPath:
+		if(restrict_list_have_exec_param(path->parent->baserestrictinfo))
+			return true;
+		return path_tree_have_exec_param(((SubqueryScanPath*)path)->subpath,
+										 path->parent->subroot);
+	default:
+		break;
+	}
+
+	return path_tree_walker(path, path_tree_have_exec_param, root);
+}
+
 #endif /* ADB */

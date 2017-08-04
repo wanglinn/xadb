@@ -556,18 +556,39 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 						   testexpr, true, isTopQual);
 #ifdef ADB
 	/* check can cluster plan */
-	if (root->glob->clusterPlanOK &&
-		final_rel->cluster_pathlist != NIL)
+	if(root->glob->clusterPlanOK)
 	{
-		ListCell *lc;
-		List *reduce_list;
-		foreach(lc, final_rel->cluster_pathlist)
+		if (final_rel->cheapest_replicate_path == NULL ||
+			path_tree_have_exec_param(final_rel->cheapest_replicate_path, subroot))
 		{
-			reduce_list = get_reduce_info_list(lfirst(lc));
-			if(is_reduce_replacate_list(reduce_list))
-				break;
+			/* make a new replicate path */
+			Path *cheapest_replicate = NULL;
+			Path *path;
+			ListCell *lc;
+			ReduceExprInfo *rinfo = NULL;
+
+			foreach(lc, final_rel->cluster_pathlist)
+			{
+				path = lfirst(lc);
+				if(path_tree_have_exec_param(path, subroot))
+					continue;
+				if(!is_reduce_replacate_list(get_reduce_info_list(path)))
+				{
+					if(rinfo == NULL)
+					{
+						rinfo = palloc0(sizeof(*rinfo));
+						/* for now just reduce to InvalidOid, before create plan change it */
+						rinfo->expr = MakeReduceReplicateExpr(list_make1_oid(InvalidOid));
+					}
+					path = (Path*)create_cluster_reduce_path(path, rinfo, final_rel);
+				}
+				if(cheapest_replicate == NULL || cheapest_replicate->total_cost > path->total_cost)
+					cheapest_replicate = path;
+			}
+
+			final_rel->cheapest_replicate_path = cheapest_replicate;
 		}
-		if(lc == NULL)
+		if(final_rel->cheapest_replicate_path == NULL)
 		{
 			/* we have no replicate, can not execute cluster subplan */
 			root->glob->clusterPlanOK = false;

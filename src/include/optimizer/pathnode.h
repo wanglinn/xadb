@@ -268,7 +268,8 @@ extern ClusterScanPath *create_cluster_scan_path(Path *sub_path, List *rnodes, R
 extern ClusterReducePath *create_cluster_reduce_path(Path *sub_path, struct ReduceExprInfo *rinfo, RelOptInfo *rel);
 extern bool get_modify_insert_nodes_walker(Path *path, List **rnodes);
 extern struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab);
-
+extern bool restrict_list_have_exec_param(List *list);
+extern bool path_tree_have_exec_param(Path *path, PlannerInfo *root);
 #endif /* ADB */
 
 /*

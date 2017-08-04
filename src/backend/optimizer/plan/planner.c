@@ -331,31 +331,41 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	final_rel = fetch_upper_rel(root, UPPERREL_FINAL, NULL);
 	best_path = get_cheapest_fractional_path(final_rel, tuple_fraction);
 #ifdef ADB
-	if (have_cluster_gather_path(best_path, NULL) &&
-		glob->subplans != NIL)
+	if (glob->subplans != NIL &&
+		have_cluster_gather_path(best_path, NULL))
 	{
 		/* we need change subplan */
 		ListCell *lc_subroot;
 		ListCell *lc_subplan;
-		ListCell *lc_path;
 		PlannerInfo *subroot;
 		RelOptInfo *sub_final;
+		Path *path;
+		List *nodeOids = get_remote_nodes(root, best_path);
+		int sub_plan_id = 1;
+
 		forboth(lc_subroot, root->glob->subroots, lc_subplan, root->glob->subplans)
 		{
 			subroot = lfirst(lc_subroot);
 			sub_final = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
-			foreach(lc_path, sub_final->cluster_pathlist)
+			Assert(sub_final->cheapest_replicate_path != NULL);
+			path = sub_final->cheapest_replicate_path;
+			if(IsA(path, ClusterReducePath))
 			{
-				Path *path = lfirst(lc_path);
-				if(is_reduce_replacate_list(get_reduce_info_list(path)))
-				{
-					Plan *plan = create_plan(subroot, path);
-					lfirst(lc_subplan) = plan;
-					break;
-				}
+				/* change replicate to all remote nodes */
+				ReduceExprInfo *rinfo;
+				Assert(path->reduce_is_valid &&
+					   is_reduce_replacate_list(path->reduce_info_list));
+
+				rinfo = linitial(path->reduce_info_list);
+				rinfo->expr = MakeReduceReplicateExpr(nodeOids);
 			}
-			/* must have replicate cluster path */
-			Assert(lc_path != NULL);
+
+			if (bms_is_member(sub_plan_id, glob->rewindPlanIDs) &&
+				!ExecMaterializesOutput(path->pathtype))
+				path = (Path*)create_material_path(sub_final, path);
+
+			lfirst(lc_subplan) = create_plan(subroot, path);
+			++sub_plan_id;
 		}
 
 	}
