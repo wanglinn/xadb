@@ -233,6 +233,7 @@ extern int rdc_putmessage_extend(RdcPort *port, const char *s, size_t len, bool 
 extern int rdc_flush(RdcPort *port);
 extern int rdc_try_flush(RdcPort *port);
 extern int rdc_recv(RdcPort *port);
+extern int rdc_try_read_some(RdcPort *port);
 extern int rdc_getbyte(RdcPort *port);
 extern int rdc_getbytes(RdcPort *port, size_t len);
 extern int rdc_discardbytes(RdcPort *port, size_t len);

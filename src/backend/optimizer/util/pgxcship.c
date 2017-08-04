@@ -2238,7 +2238,6 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 				ListCell *cell1 = NULL;
 				ListCell *cell2 = NULL;
 				int childAttIdx, parentAttIdx;
-				bool isChildAttDist, isParentAttDist;
 
 				/* Parent and child need to have the same distribution function */
 				Assert(OidIsValid(parentLocInfo->funcid));
@@ -2272,14 +2271,14 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 				/* Parent and child distribution columns need to have the same order. */
 				forboth (cell1, childRefs, cell2, parentRefs)
 				{
-					isChildAttDist = list_member_int_idx(childLocInfo->funcAttrNums,
-														lfirst_int(cell1), &childAttIdx);
-					isParentAttDist = list_member_int_idx(parentLocInfo->funcAttrNums,
-														lfirst_int(cell2), &parentAttIdx);
-					if (!isChildAttDist && !isParentAttDist)
+					childAttIdx = list_member_int_idx(childLocInfo->funcAttrNums,
+													  lfirst_int(cell1));
+					parentAttIdx = list_member_int_idx(parentLocInfo->funcAttrNums,
+													  lfirst_int(cell2));
+					if (childAttIdx < 0 && parentAttIdx < 0)
 						continue;
 
-					if (!(childAttIdx == parentAttIdx && parentAttIdx >= 0))
+					if (childAttIdx != parentAttIdx)
 					{
 						result = false;
 						break;

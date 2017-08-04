@@ -369,7 +369,7 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 			break;
 
 		case T_ClusterReduce:
-			result = (PlanState*) ExecInitClusterReduce((ClusterReduce*)node,
+			result = (PlanState *) ExecInitClusterReduce((ClusterReduce*)node,
 												estate, eflags);
 			break;
 #endif

@@ -372,7 +372,7 @@ IsLocatorInfoEqual(RelationLocInfo *locInfo1,
  * The returned List is a copy, so it should be freed when finished.
  */
 ExecNodes *
-GetRelationNodes(RelationLocInfo *rel_loc_info, 
+GetRelationNodes(RelationLocInfo *rel_loc_info,
 				 int nelems,
 				 Datum* dist_col_values,
 				 bool* dist_col_nulls,
@@ -645,7 +645,7 @@ GetRelationNodesByMultQuals(RelationLocInfo *rel_loc_info,
 							RelationAccessType relaccess)
 {
 	int			i;
-	int 		nargs;		
+	int 		nargs;
 	Oid 		disttype;
 	int32 		disttypmod;
 	Expr		*distcol_expr = NULL;
@@ -751,7 +751,7 @@ CoerceUserDefinedFuncArgs(Oid funcid,
 	Oid 		srcTypOutput;
 	bool 		srcTypIsVarlena;
 	Datum 		srcValue;
-	
+
 	(void)get_func_signature(funcid, &func_argstype, &nelems);
 	Assert(nargs == nelems);
 
@@ -925,12 +925,12 @@ RelationBuildLocator(Relation rel)
 		bool isnull;
 		int2vector *attrnums = NULL;
 
-		funcidDatum = SysCacheGetAttr(PGXCCLASSRELID, htup, 
+		funcidDatum = SysCacheGetAttr(PGXCCLASSRELID, htup,
 									Anum_pgxc_class_pcfuncid, &isnull);
 		Assert(!isnull);
 		relationLocInfo->funcid = DatumGetObjectId(funcidDatum);
 
-		attrnumsDatum = SysCacheGetAttr(PGXCCLASSRELID, htup, 
+		attrnumsDatum = SysCacheGetAttr(PGXCCLASSRELID, htup,
 									Anum_pgxc_class_pcfuncattnums, &isnull);
 		Assert(!isnull);
 		attrnums = (int2vector *)DatumGetPointer(attrnumsDatum);
@@ -1439,6 +1439,13 @@ List *GetReducePathExprNodes(Expr *expr)
 		for(i=0;i<ov->dim1;++i)
 			list = lappend_oid(list, ov->values[i]);
 		return list;
+	}else if (IsA(expr, Const))
+	{
+		Const *c = (Const *) expr;
+		Assert(c->constisnull == false &&
+			   c->constbyval == true &&
+			   c->consttype == OIDOID);
+		return list_make1_oid(DatumGetObjectId(c->constvalue));
 	}else
 	{
 		ereport(ERROR,

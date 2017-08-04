@@ -1969,8 +1969,16 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 				 jointype == JOIN_RIGHT) &&
 				 is_reduce_list_can_left_or_right_join(outer_reduce_list, inner_reduce_list, restrictlist))
 			{
-				*inner_path = (Path *) create_cluster_reduce_path(innerClusterPath, make_reduce_coord(), innerrel);
-				*outer_path = (Path *) create_cluster_reduce_path(outerClusterPath, make_reduce_coord(), outerrel);
+				*inner_path = create_cluster_reduce_path(root,
+														 innerClusterPath,
+														 make_reduce_coord(),
+														 innerrel,
+														 NIL);
+				*outer_path = create_cluster_reduce_path(root,
+														 outerClusterPath,
+														 make_reduce_coord(),
+														 outerrel,
+														 NIL);
 				result = true;
 				goto make_finish_;
 			}
@@ -1986,7 +1994,7 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 				context.outer_reduce_list = outer_reduce_list;
 				context.inner_reduce_list = inner_reduce_list;
 				context.restrict_list = restrictlist;
-				if (can_make_semi_anti_cluster_join_path(&context))
+				if (can_make_semi_anti_cluster_join_path(root, &context))
 				{
 					*outer_path = context.outer_path;
 					*inner_path = context.inner_path;
@@ -2038,7 +2046,7 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 				rinfo = palloc0(sizeof(*rinfo));
 				rinfo->expr = CreateReduceValExprAs(outer_reduce->expr, 0, exprList);
 				fill_reduce_expr_info(rinfo);
-				path = (Path*)create_cluster_reduce_path(path, rinfo, innerrel);
+				path = create_cluster_reduce_path(root, path, rinfo, innerrel, NIL);
 				*outer_path = outerClusterPath;
 				*inner_path = path;
 				result = true;

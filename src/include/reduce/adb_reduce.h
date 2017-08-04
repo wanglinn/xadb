@@ -27,12 +27,16 @@ extern void StartSelfReduceGroup(RdcMask *rdc_masks, int num);
 
 extern void EndSelfReduceGroup(void);
 
+extern List *GetReduceGroup(void);
+
 extern void SendPlanCloseToSelfReduce(RdcPort *port, bool broadcast);
 
 extern void SendEofToRemote(RdcPort *port);
 
 extern void SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot);
 
-extern TupleTableSlot* GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof, List **closed_remote);
+extern TupleTableSlot* GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot,
+										 Oid *slot_oid, Oid *eof_oid,
+										 List **closed_remote);
 
 #endif /* ADB_BROKER_H */

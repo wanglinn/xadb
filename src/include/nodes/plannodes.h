@@ -892,8 +892,14 @@ typedef struct ClusterReduce
 	Expr	   *reduce;			/* reduce expr, result NODE Oid(s) */
 	Expr	   *special_reduce;
 	Oid			special_node;
-} ClusterReduce;
 
+	/* remaining fields are just like the sort-key info in struct Sort */
+	int			numCols;		/* number of sort-key columns */
+	AttrNumber *sortColIdx;		/* their indexes in the target list */
+	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
+	Oid		   *collations;		/* OIDs of collations */
+	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+} ClusterReduce;
 #endif /* ADB */
 
 /*

@@ -17,7 +17,6 @@
 #include "rdc_plan.h"
 #include "reduce/rdc_msg.h"
 
-static int  TryReadSome(RdcPort *port);
 static int  HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port);
 static void HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes);
 static void HandleReadFromReduce(RdcPort *port, List **pln_nodes);
@@ -112,35 +111,6 @@ HandleReduceIO(List **pln_nodes)
 			 */
 		}
 	}
-}
-
-/*
- * TryReadSome
- *
- * set noblock and try to read some data.
- *
- * return 0 if receive would block.
- * return 1 if receive some data.
- */
-static int
-TryReadSome(RdcPort *port)
-{
-	int res;
-
-	if (!PortIsValid(port))
-		return 0;
-
-	if (!rdc_set_noblock(port))
-		ereport(ERROR,
-				(errmsg("fail to set noblocking mode for" RDC_PORT_PRINT_FORMAT,
-						RDC_PORT_PRINT_VALUE(port))));
-	res = rdc_recv(port);
-	if (res == EOF)
-		ereport(ERROR,
-				(errmsg("fail to read some from" RDC_PORT_PRINT_FORMAT,
-						RDC_PORT_PRINT_VALUE(port)),
-				 errdetail("%s", RdcError(port))));
-	return res;
 }
 
 /*
@@ -328,7 +298,7 @@ HandleReadFromPlan(PlanPort *pln_port)
 		while (HandlePlanMsg(work_port, pln_port) == 0)
 		{
 			if (!PortIsValid(work_port) ||		/* break if work port is invalid */
-				TryReadSome(work_port) == 0)	/* break if read would block */
+				rdc_try_read_some(work_port) == 0)	/* break if read would block */
 				break;
 		}
 	}
@@ -567,7 +537,7 @@ HandleReadFromReduce(RdcPort *rdc_port, List **pln_nodes)
 		HandleRdcMsg(rdc_port, pln_nodes);
 		if (!PortIsValid(rdc_port))		/* break if port is invalid */
 			break;
-	} while (TryReadSome(rdc_port));
+	} while (rdc_try_read_some(rdc_port));
 }
 
 /*
@@ -631,9 +601,7 @@ SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int da
 	Assert(pln_port->rdcstore);
 	rdcstore = pln_port->rdcstore;
 	rdc_beginmessage(&buf, MSG_R2P_DATA);
-#ifdef DEBUG_ADB
 	rdc_sendRdcPortID(&buf, rdc_id);
-#endif
 	rdc_sendbytes(&buf, data, datalen);
 	rdc_sendlength(&buf);
 
@@ -657,8 +625,10 @@ SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int da
 static void
 SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 {
-	int			i;
-	bool		found;
+	StringInfoData	buf;
+	RSstate		   *rdcstore;
+	int				i;
+	bool			found;
 
 	AssertArg(pln_port);
 
@@ -698,9 +668,29 @@ SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 				(errmsg("recv EOF message of" PLAN_PORT_PRINT_FORMAT
 						" from [REDUCE " PORTID_FORMAT "] once again",
 				 PlanID(pln_port), rdc_id)));
+
+		return ;
 	} else
 		pln_port->rdc_eofs[pln_port->eof_num++] = rdc_id;
 
+	Assert(pln_port->rdcstore);
+	rdcstore = pln_port->rdcstore;
+	rdc_beginmessage(&buf, MSG_EOF);
+	rdc_sendRdcPortID(&buf, rdc_id);
+	rdc_sendlength(&buf);
+
+	rdcstore_puttuple(rdcstore, buf.data, buf.len);
+	pfree(buf.data);
+	buf.data = NULL;
+
+	/*
+	 * It may be not useful, because "port" of "pln_port" may be
+	 * NULL until now. so try to add wait events for PlanPort again
+	 * see in HandleWriteToPlan.
+	 */
+	PlanPortAddEvents(pln_port, WT_SOCK_WRITEABLE);
+
+#if NOT_USED
 	/*
 	 * Here we have got all EOF message of PLAN node from all other
 	 * reduce, now we can make EOF message which will be sent to
@@ -727,6 +717,7 @@ SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 		 */
 		PlanPortAddEvents(pln_port, WT_SOCK_WRITEABLE);
 	}
+#endif
 }
 
 /*

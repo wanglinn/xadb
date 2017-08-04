@@ -1147,6 +1147,35 @@ rdc_recv(RdcPort *port)
 }
 
 /*
+ * rdc_try_read_some
+ *
+ * set noblock and try to read some data.
+ *
+ * return 0 if receive would block.
+ * return 1 if receive some data.
+ */
+int
+rdc_try_read_some(RdcPort *port)
+{
+	int res;
+
+	if (!PortIsValid(port))
+		return 0;
+
+	if (!rdc_set_noblock(port))
+		ereport(ERROR,
+				(errmsg("fail to set noblocking mode for" RDC_PORT_PRINT_FORMAT,
+						RDC_PORT_PRINT_VALUE(port))));
+	res = rdc_recv(port);
+	if (res == EOF)
+		ereport(ERROR,
+				(errmsg("fail to read some from" RDC_PORT_PRINT_FORMAT,
+						RDC_PORT_PRINT_VALUE(port)),
+				 errdetail("%s", RdcError(port))));
+	return res;
+}
+
+/*
  * rdc_getbyte - get one byte
  *
  * returns EOF if not enough data in noblocking mode

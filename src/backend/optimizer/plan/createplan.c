@@ -6788,7 +6788,7 @@ is_reduce_list_can_left_or_right_join(List *outer_reduce_list,
 }
 
 bool
-can_make_semi_anti_cluster_join_path(SemiAntiJoinContext *context)
+can_make_semi_anti_cluster_join_path(PlannerInfo *root, SemiAntiJoinContext *context)
 {
 	RestrictInfo   *ri;
 	ReduceExprInfo *outer_reduce;
@@ -6883,8 +6883,16 @@ can_make_semi_anti_cluster_join_path(SemiAntiJoinContext *context)
 	}
 
 	/* reduce to coordinator */
-	context->outer_path = (Path *) create_cluster_reduce_path(outer_path, make_reduce_coord(), context->outer_rel);
-	context->inner_path = (Path *) create_cluster_reduce_path(inner_path, make_reduce_coord(), context->inner_rel);
+	context->outer_path = create_cluster_reduce_path(root,
+													 outer_path,
+													 make_reduce_coord(),
+													 context->outer_rel,
+													 NIL);
+	context->inner_path = create_cluster_reduce_path(root,
+													 inner_path,
+													 make_reduce_coord(),
+													 context->inner_rel,
+													 NIL);
 
 	return true;
 }
@@ -7041,10 +7049,8 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 	ReduceExprInfo *info;
 
 	Assert(list_length(path->path.reduce_info_list) == 1);
+	Assert (!IsA(path->subpath, ClusterReducePath));
 	to = linitial(path->path.reduce_info_list);
-	while(IsA(path->subpath, ClusterReducePath))
-		path = (ClusterReducePath*)(path->subpath);
-
 	reduce_list = get_reduce_info_list(path->subpath);
 	foreach(lc, reduce_list)
 	{
@@ -7072,7 +7078,21 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 	copy_generic_path_info((Plan*)plan, (Path*)path);
 	plan->plan.targetlist = subplan->targetlist;
 
-	return (Plan*)plan;
+	if (path->path.pathkeys != NIL)
+	{
+		(void) prepare_sort_from_pathkeys(&plan->plan,
+										  path->path.pathkeys,
+										  path->path.parent->relids,
+										  NULL,
+										  true,
+										  &plan->numCols,
+										  &plan->sortColIdx,
+										  &plan->sortOperators,
+										  &plan->collations,
+										  &plan->nullsFirst);
+	}
+
+	return (Plan*) plan;
 }
 
 static bool find_cluster_reduce_expr(Path *path, List **pplist)

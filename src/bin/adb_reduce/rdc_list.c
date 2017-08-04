@@ -471,32 +471,6 @@ list_member_int(const List *list, int datum)
 	return false;
 }
 
-bool
-list_member_int_idx(const List *list, int datum, int* idx)
-{
-	const ListCell *cell;
-
-	Assert(IsIntegerList(list));
-	check_list_invariants(list);
-
-	if (idx)
-		*idx = -1;
-
-	foreach(cell, list)
-	{
-		if (idx)
-			(*idx)++;
-
-		if (lfirst_int(cell) == datum)
-			return true;
-	}
-
-	if (idx)
-		*idx = -1;
-
-	return false;
-}
-
 /*
  * Return true iff the OID 'datum' is a member of the list.
  */
@@ -515,6 +489,44 @@ list_member_oid(const List *list, Oid datum)
 	}
 
 	return false;
+}
+
+int
+list_member_int_idx(const List *list, int datum)
+{
+	const ListCell *cell;
+	int idx = -1;
+
+	Assert(IsIntegerList(list));
+	check_list_invariants(list);
+
+	foreach(cell, list)
+	{
+		idx++;
+		if (lfirst_int(cell) == datum)
+			return idx;
+	}
+
+	return -1;
+}
+
+int
+list_member_oid_idx(const List *list, Oid datum)
+{
+	const ListCell *cell;
+	int idx = -1;
+
+	Assert(IsOidList(list));
+	check_list_invariants(list);
+
+	foreach (cell, list)
+	{
+		idx++;
+		if (lfirst_oid(cell) == datum)
+			return idx;
+	}
+
+	return -1;
 }
 
 /*

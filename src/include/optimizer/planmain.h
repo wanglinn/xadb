@@ -164,7 +164,7 @@ typedef struct SemiAntiJoinContext
 	List *inner_reduce_list;
 	List *restrict_list;
 } SemiAntiJoinContext;
-extern bool can_make_semi_anti_cluster_join_path(SemiAntiJoinContext *context);
+extern bool can_make_semi_anti_cluster_join_path(PlannerInfo *root, SemiAntiJoinContext *context);
 #endif
 
 #endif   /* PLANMAIN_H */

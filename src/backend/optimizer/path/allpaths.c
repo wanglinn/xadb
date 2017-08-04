@@ -1696,7 +1696,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 			{
 				path->reduce_info_list = NIL;
 				path->reduce_is_valid = true;
-				path = (Path*)create_cluster_reduce_path(path, make_reduce_coord(), rel);
+				path = create_cluster_reduce_path(root, path, make_reduce_coord(), rel, NIL);
 			}else
 			{
 				path->reduce_info_list = list_make1(make_reduce_coord());
@@ -2217,10 +2217,11 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 
 		if (need_limit || subquery->sortClause)
 		{
-			subpath = (Path*)
-					  create_cluster_reduce_path(subpath,
+			subpath = create_cluster_reduce_path(root,
+												 subpath,
 												 make_reduce_coord(),
-												 sub_final_rel);
+												 sub_final_rel,
+												 NIL);
 			if(subquery->sortClause)
 			{
 				/* we have no mergereduce, sort it again */

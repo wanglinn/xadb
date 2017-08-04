@@ -2471,7 +2471,7 @@ expression_tree_mutator(Node *node,
 		case T_CaseTestExpr:
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
-#ifdef ADB 
+#ifdef ADB
 		case T_LevelExpr:
 #endif /* ADB */
 		case T_RangeTblRef:

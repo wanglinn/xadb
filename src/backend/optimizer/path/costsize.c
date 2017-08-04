@@ -4921,6 +4921,7 @@ void cost_cluster_reduce(ClusterReducePath *path)
 
 	reduce_to = linitial(path->path.reduce_info_list);
 	reduce_from_list = get_reduce_info_list(subpath);
+
 	if (IsReduceReplicateExpr(reduce_to->expr) ||
 		IsReduce2Coordinator(reduce_to->expr))
 	{
@@ -4949,6 +4950,28 @@ void cost_cluster_reduce(ClusterReducePath *path)
 		{
 			path->path.total_cost += path->path.rows * remote_tuple_cost;
 		}
+	}
+
+	/* Calculate the cost of sorting */
+	if (path->path.pathkeys != NIL)
+	{
+		Cost		comparison_cost;
+		double		N;
+		double		logN;
+		int			num_nodes = list_length(reduce_to->execList);
+
+		N = (num_nodes < 2) ? 2.0 : (double) num_nodes;
+		logN = LOG2(N);
+
+		/* Assumed cost per tuple comparison */
+		comparison_cost = 2.0 * cpu_operator_cost;
+
+		/* Heap creation cost */
+		path->path.startup_cost += comparison_cost * logN;
+		path->path.total_cost += comparison_cost * logN;
+
+		/* Per-tuple heap maintenance cost */
+		path->path.total_cost += path->path.rows * comparison_cost * 2.0 * logN;
 	}
 }
 

@@ -41,9 +41,10 @@ static HANDLE	BackendHandle;
 #endif	/* WIN32 */
 
 static RdcPortId	SelfReduceID = InvalidOid;
-static int			RdcListenPort = 0;
-static pid_t		AdbReducePID = 0;
-static RdcPort	   *backend_hold_port = NULL;
+static pid_t		SelfReducePID = 0;
+static int			SelfReduceListenPort = 0;
+static RdcPort	   *SelfReducePort = NULL;
+static List		   *GroupReduceList = NIL;
 
 #define RDC_BACKEND_HOLD	0
 #define RDC_REDUCE_HOLD		1
@@ -57,9 +58,9 @@ static void AdbReduceLauncherMain(int rid);
 void
 EndSelfReduce(int code, Datum arg)
 {
-	if (AdbReducePID != 0)
+	if (SelfReducePID != 0)
 	{
-		int ret = kill(AdbReducePID, SIGTERM);
+		int ret = kill(SelfReducePID, SIGTERM);
 		bool no_error = DatumGetBool(arg);
 		if (!(ret == 0 || errno == ESRCH))
 		{
@@ -69,12 +70,14 @@ EndSelfReduce(int code, Datum arg)
 					(errmsg("fail to terminate adb reduce subprocess")));
 			}
 		}
-		AdbReducePID = 0;
+		SelfReducePID = 0;
  	}
-	rdc_freeport(backend_hold_port);
-	backend_hold_port = NULL;
-	RdcListenPort = 0;
+	rdc_freeport(SelfReducePort);
+	SelfReducePort = NULL;
+	SelfReduceListenPort = 0;
 	SelfReduceID = InvalidOid;
+	list_free(GroupReduceList);
+	GroupReduceList = NIL;
 	cancel_before_shmem_exit(EndSelfReduce, 0);
 }
 
@@ -105,7 +108,7 @@ StartSelfReduceLauncher(RdcPortId rid)
 
 	SelfReduceID = rid;
 	Assert(OidIsValid(rid));
-	switch ((AdbReducePID = fork_process()))
+	switch ((SelfReducePID = fork_process()))
 	{
 		case -1:
 			ereport(LOG,
@@ -122,12 +125,15 @@ StartSelfReduceLauncher(RdcPortId rid)
 		default:
 			CloseReducePort();
 			old_context = MemoryContextSwitchTo(TopMemoryContext);
-			backend_hold_port = rdc_newport(backend_reduce_fds[RDC_BACKEND_HOLD],
+			SelfReducePort = rdc_newport(backend_reduce_fds[RDC_BACKEND_HOLD],
 											TYPE_REDUCE, SelfReduceID,
 											TYPE_BACKEND, InvalidPortId);
-			if (!rdc_set_noblock(backend_hold_port))
+			if (GroupReduceList != NIL)
+				list_free(GroupReduceList);
+			GroupReduceList = NIL;
+			if (!rdc_set_noblock(SelfReducePort))
 				ereport(ERROR,
-						(errmsg("%s", RdcError(backend_hold_port))));
+						(errmsg("%s", RdcError(SelfReducePort))));
 			(void) MemoryContextSwitchTo(old_context);
 
 			return GetReduceListenPort();
@@ -140,10 +146,10 @@ StartSelfReduceLauncher(RdcPortId rid)
 RdcPort *
 ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id)
 {
-	Assert(AdbReducePID != 0);
-	Assert(RdcListenPort != 0);
+	Assert(SelfReducePID != 0);
+	Assert(SelfReduceListenPort != 0);
 	Assert(SelfReduceID != InvalidOid);
-	return rdc_connect("127.0.0.1", RdcListenPort,
+	return rdc_connect("127.0.0.1", SelfReduceListenPort,
 					   TYPE_REDUCE, SelfReduceID,
 					   self_type, self_id);
 }
@@ -211,8 +217,8 @@ GetReduceListenPort(void)
 	char		msg_type;
 	int			port;
 
-	msg_type = rdc_getmessage(backend_hold_port, 0);
-	msg_buf = RdcInBuf(backend_hold_port);
+	msg_type = rdc_getmessage(SelfReducePort, 0);
+	msg_buf = RdcInBuf(SelfReducePort);
 	switch (msg_type)
 	{
 		case MSG_LISTEN_PORT:
@@ -225,10 +231,10 @@ GetReduceListenPort(void)
 		default:
 			ereport(ERROR,
 					(errmsg("fail to get reduce listen port"),
-					 errdetail("%s", error_msg ? error_msg : RdcError(backend_hold_port))));
+					 errdetail("%s", error_msg ? error_msg : RdcError(SelfReducePort))));
 			break;
 	}
-	RdcListenPort = port;
+	SelfReduceListenPort = port;
 	return port;
 }
 
@@ -268,19 +274,35 @@ AdbReduceLauncherMain(int rid)
 void
 StartSelfReduceGroup(RdcMask *rdc_masks, int num)
 {
-	if (rdc_send_group_rqt(backend_hold_port, rdc_masks, num) == EOF)
+	MemoryContext	oldcontext;
+	int				i;
+
+	Assert(GroupReduceList == NIL);
+	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+	for (i = 0; i < num; i++)
+		GroupReduceList = lappend_oid(GroupReduceList, (Oid) rdc_masks[i].rdc_rpid);
+	(void) MemoryContextSwitchTo(oldcontext);
+
+	if (rdc_send_group_rqt(SelfReducePort, rdc_masks, num) == EOF)
 		ereport(ERROR,
 				(errmsg("fail to send reduce group message"),
-				 errdetail("%s", RdcError(backend_hold_port))));
+				 errdetail("%s", RdcError(SelfReducePort))));
 }
 
 void
 EndSelfReduceGroup(void)
 {
-	if (rdc_recv_group_rsp(backend_hold_port) == EOF)
+	if (rdc_recv_group_rsp(SelfReducePort) == EOF)
 		ereport(ERROR,
 				(errmsg("fail to receive reduce group response"),
-				 errdetail("%s", RdcError(backend_hold_port))));
+				 errdetail("%s", RdcError(SelfReducePort))));
+}
+
+List *
+GetReduceGroup(void)
+{
+	Assert(GroupReduceList != NIL);
+	return GroupReduceList;
 }
 
 void
@@ -385,13 +407,16 @@ SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot)
 }
 
 TupleTableSlot *
-GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof, List **closed_remote)
+GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot,
+				  Oid *slot_oid, Oid *eof_oid,
+				  List **closed_remote)
 {
 	StringInfo	msg;
 	int			msg_type;
 	int			msg_len;
 	int			sv_cursor;
 	bool		sv_noblock;
+	RdcPortId	rid;
 
 	AssertArg(port);
 	AssertArg(slot);
@@ -418,13 +443,11 @@ GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof, List **closed_
 				char		   *tupbody;
 				MinimalTuple	tuple;
 				unsigned int	tuplen;
-#ifdef DEBUG_ADB
-				RdcPortId		rid;
-				/* reduce id while slot comes from */
+
+				/* reduce id while slot come */
 				rid = rdc_getmsgRdcPortID(msg);
 				elog(DEBUG1, "fetch tuple from REDUCE " PORTID_FORMAT, rid);
 				msg_len -= sizeof(rid);
-#endif
 				data = rdc_getmsgbytes(msg, msg_len);
 				rdc_getmsgend(msg);
 
@@ -434,18 +457,22 @@ GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot, bool *eof, List **closed_
 				tuple->t_len = tuplen;
 				memcpy(tupbody, data, msg_len);
 
+				if (slot_oid)
+					*slot_oid = (Oid) rid;
 				return ExecStoreMinimalTuple(tuple, slot, true);
 			}
 		case MSG_EOF:
 			{
+				/* reduce id while EOF message come */
+				rid = rdc_getmsgRdcPortID(msg);
 				rdc_getmsgend(msg);
-				if (eof)
-					*eof = true;
+				if (eof_oid)
+					*eof_oid = (Oid) rid;
 			}
 			break;
 		case MSG_PLAN_CLOSE:
 			{
-				RdcPortId rid = rdc_getmsgRdcPortID(msg);
+				rid = rdc_getmsgRdcPortID(msg);
 				rdc_getmsgend(msg);
 
 				if (closed_remote)

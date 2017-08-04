@@ -3405,21 +3405,46 @@ ClusterScanPath *create_cluster_scan_path(Path *sub_path, List *rnodes, RelOptIn
 	return path;
 }
 
-ClusterReducePath *create_cluster_reduce_path(Path *sub_path, struct ReduceExprInfo *rinfo, RelOptInfo *rel)
+Path *
+create_cluster_reduce_path(PlannerInfo *root,
+						   Path *sub_path,
+						   struct ReduceExprInfo *rinfo,
+						   RelOptInfo *rel,
+						   List *pathkeys)
 {
-	ClusterReducePath *crp = makeNode(ClusterReducePath);
+	ClusterReducePath *crp = NULL;
+
+	/* avoid nested generating ClusterReducePath */
+	while (IsA(sub_path, ClusterReducePath))
+		sub_path = ((ClusterReducePath *) sub_path)->subpath;
+
+	crp = makeNode(ClusterReducePath);
 	copy_path_info(&crp->path, sub_path);
 	crp->path.parent = rel;
-
 	crp->subpath = sub_path;
-	crp->path.pathkeys = NIL;
 	crp->path.pathtype = T_ClusterReduce;
 	crp->path.reduce_info_list = list_make1(rinfo);
 	crp->path.reduce_is_valid = true;
 
-	cost_cluster_reduce(crp);
+	/* ClusterReducePath or "ClusterMergeReducePath" */
+	if (pathkeys_contained_in(pathkeys, sub_path->pathkeys))
+	{
+		crp->path.pathkeys = pathkeys;
+		cost_cluster_reduce(crp);
 
-	return crp;
+		return (Path *) crp;
+	}
+	else
+	{
+		crp->path.pathkeys = NIL;
+		cost_cluster_reduce(crp);
+
+		return (Path *) create_sort_path(root,
+										 rel,
+										 (Path *) crp,
+										 pathkeys,
+										 -1.0);
+	}
 }
 
 static void copy_path_info(Path *dest, const Path *src)

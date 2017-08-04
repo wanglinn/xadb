@@ -2145,8 +2145,19 @@ typedef struct ClusterReduceState
 	bool			eof_underlying; /* reached end of underlying plan? */
 	bool			eof_network;	/* reached end of network? */
 	bool			started;
-} ClusterReduceState;
+	int				nrdcs;			/* number of reduce group */
+	int				neofs;			/* number of EOF messages */
+	Oid			   *rdc_oids;		/* array of length nrdcs */
+	Oid			   *rdc_eofs;		/* array of length nrdcs */
 
+	/* used for merge reduce as below */
+	int					nkeys;
+	SortSupport 		sortkeys;	/* array of length nkeys */
+	TupleTableSlot	  **slots;		/* array of length of rdc_nodes */
+	Tuplestorestate	  **stores;		/* array of length of rdc_nodes */
+	struct binaryheap  *binheap; 	/* binary heap of slot indices */
+	bool				initialized;/* are subplans started? */
+} ClusterReduceState;
 #endif /* ADB */
 
 #endif   /* EXECNODES_H */

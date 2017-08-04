@@ -265,7 +265,11 @@ extern ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *roo
 			, RelOptInfo *rel, Path *sub_path, List *pathkeys);
 extern ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel);
 extern ClusterScanPath *create_cluster_scan_path(Path *sub_path, List *rnodes, RelOptInfo *rel);
-extern ClusterReducePath *create_cluster_reduce_path(Path *sub_path, struct ReduceExprInfo *rinfo, RelOptInfo *rel);
+extern Path *create_cluster_reduce_path(PlannerInfo *root,
+			Path *sub_path,
+			struct ReduceExprInfo *rinfo,
+			RelOptInfo *rel,
+			List *pathkeys);
 extern bool get_modify_insert_nodes_walker(Path *path, List **rnodes);
 extern struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab);
 extern bool restrict_list_have_exec_param(List *list);

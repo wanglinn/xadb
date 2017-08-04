@@ -87,6 +87,8 @@ static void show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 #ifdef ADB
 static void show_merge_gather_keys(ClusterMergeGatherState *mgstate, List *ancestors,
 					   ExplainState *es);
+static void show_cluster_reduce_keys(ClusterReduceState *crstate, List *ancestors,
+					   ExplainState *es);
 #endif /* ADB */
 static void show_agg_keys(AggState *astate, List *ancestors,
 			  ExplainState *es);
@@ -953,7 +955,13 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			pname = sname = "Cluster Get Copy Data";
 			break;
 		case T_ClusterReduce:
-			pname = sname = "Cluster Reduce";
+			{
+				ClusterReduce *cr = (ClusterReduce *) plan;
+				if (cr->numCols > 0)
+					pname = sname = "Cluster Merge Reduce";
+				else
+					pname = sname = "Cluster Reduce";
+			}
 			break;
 #endif /*ADB*/
 		case T_ForeignScan:
@@ -1558,15 +1566,14 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			break;
 		case T_ModifyTable:
 #ifdef ADB
-		{
-			/* Remote query planning on DMLs */
-			ModifyTable *mt = (ModifyTable *)plan;
-			ListCell *elt;
-			foreach(elt, mt->remote_plans)
-				ExplainRemoteQuery((RemoteQuery *) lfirst(elt), planstate, ancestors, es);
-		}
+			{
+				/* Remote query planning on DMLs */
+				ModifyTable *mt = (ModifyTable *)plan;
+				ListCell *elt;
+				foreach(elt, mt->remote_plans)
+					ExplainRemoteQuery((RemoteQuery *) lfirst(elt), planstate, ancestors, es);
+			}
 #else
-
 			show_modifytable_info((ModifyTableState *) planstate, ancestors,
 								  es);
 #endif
@@ -1611,6 +1618,8 @@ ExplainNode(PlanState *planstate, List *ancestors,
 					ExplainPropertyText(label, expr, es);
 				}
 			}
+			show_cluster_reduce_keys((ClusterReduceState *) planstate,
+									 ancestors, es);
 			break;
 #endif /* ADB */
 		default:
@@ -2090,6 +2099,19 @@ static void show_merge_gather_keys(ClusterMergeGatherState *mgstate, List *ances
 	ClusterMergeGather *plan = (ClusterMergeGather*) mgstate->ps.plan;
 
 	show_sort_group_keys((PlanState *)mgstate, "Sort Key",
+						 plan->numCols, plan->sortColIdx,
+						 plan->sortOperators, plan->collations,
+						 plan->nullsFirst,
+						 ancestors, es);
+}
+
+static void
+show_cluster_reduce_keys(ClusterReduceState *crstate, List *ancestors,
+					   ExplainState *es)
+{
+	ClusterReduce *plan = (ClusterReduce *) crstate->ps.plan;
+
+	show_sort_group_keys((PlanState *) crstate, "Sort Key",
 						 plan->numCols, plan->sortColIdx,
 						 plan->sortOperators, plan->collations,
 						 plan->nullsFirst,
