@@ -264,15 +264,21 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 
 /************************************************************************/
 static bool
-ReducePlanWalker(Node *node, void *context)
+ReducePlanWalker(Node *node, PlannedStmt *stmt)
 {
 	if (node == NULL)
 		return false;
 
 	if (IsA(node, ClusterReduce))
+	{
 		return true;
+	}else if(IsA(node, SubPlan))
+	{
+		SubPlan *subPlan = (SubPlan*)node;
+		return ReducePlanWalker(list_nth(stmt->subplans, subPlan->plan_id-1), stmt);
+	}
 
-	return node_tree_walker(node, ReducePlanWalker, context);
+	return node_tree_walker(node, ReducePlanWalker, stmt);
 }
 
 PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rnodes)
@@ -294,7 +300,6 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 
 	initStringInfo(&msg);
 	SerializePlanInfo(&msg, stmt, estate->es_param_list_info);
-	pfree(stmt);
 
 	if(estate->es_instrument)
 	{
@@ -307,7 +312,8 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 
 	/* TODO: judge whether start self reduce or not */
 	self_start_reduce = true;
-	has_reduce = ReducePlanWalker((Node *) plan, NULL);
+	has_reduce = ReducePlanWalker((Node *) plan, stmt);
+	pfree(stmt);
 	if (has_reduce)
 	{
 		begin_mem_toc_insert(&msg, REMOTE_KEY_HAS_REDUCE);
