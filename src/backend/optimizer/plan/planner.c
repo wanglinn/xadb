@@ -340,7 +340,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		PlannerInfo *subroot;
 		RelOptInfo *sub_final;
 		Path *path;
-		List *nodeOids = get_remote_nodes(root, best_path);
+		List *nodeOids = get_remote_nodes(NULL, best_path);
 		int sub_plan_id = 1;
 
 		forboth(lc_subroot, root->glob->subroots, lc_subplan, root->glob->subplans)
