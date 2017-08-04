@@ -4729,6 +4729,7 @@ create_distinct_paths(PlannerInfo *root,
 
 			if (is_reduce_to_coord_list(reduce_list) ||
 				is_reduce_replacate_list(reduce_list) ||
+				is_reduce_in_one_node(reduce_list) ||
 				can_once_distinct_cluster_reduce_list(distinctExprs, reduce_list))
 			{
 				if (!pathkeys_contained_in(root->distinct_pathkeys, path->pathkeys))
@@ -4805,6 +4806,7 @@ create_distinct_paths(PlannerInfo *root,
 
 			if (is_reduce_to_coord_list(reduce_list) ||
 				is_reduce_replacate_list(reduce_list) ||
+				is_reduce_in_one_node(reduce_list) ||
 				can_once_distinct_cluster_reduce_list(distinctExprs,reduce_list))
 			{
 				path = (Path*)create_agg_path(root,
