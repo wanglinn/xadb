@@ -6467,24 +6467,27 @@ List* get_remote_nodes(PlannerInfo *root, Path *path)
 {
 	List *list;
 	HTAB *htab;
-	ListCell *lc;
 	ExecNodeInfo *info;
 	HASH_SEQ_STATUS seq_status;
-	AssertArg(root && path);
+	AssertArg(path);
 
 	htab = get_path_execute_on(path, NULL);
-	foreach(lc, root->glob->subroots)
+	if(root)
 	{
-		PlannerInfo *subroot = lfirst(lc);
-		RelOptInfo *rel = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
-		/* for now we only can using cheapest_cluster_total_path */
-		if(rel->cheapest_cluster_total_path == NULL)
+		ListCell *lc;
+		foreach(lc, root->glob->subroots)
 		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("not support none cluster path")));
+			PlannerInfo *subroot = lfirst(lc);
+			RelOptInfo *rel = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
+			/* for now we only can using cheapest_cluster_total_path */
+			if(rel->cheapest_replicate_path == NULL)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						errmsg("only support replicate cluster subplan path")));
+			}
+			htab = get_path_execute_on(rel->cheapest_replicate_path, htab);
 		}
-		htab = get_path_execute_on(rel->cheapest_cluster_total_path, htab);
 	}
 
 	list = NIL;
