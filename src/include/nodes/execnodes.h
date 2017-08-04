@@ -2144,6 +2144,7 @@ typedef struct ClusterReduceState
 	List		   *closed_remote;	/* list of remote reduce which tell MSG_PLAN_CLOSE */
 	bool			eof_underlying; /* reached end of underlying plan? */
 	bool			eof_network;	/* reached end of network? */
+	bool			started;
 } ClusterReduceState;
 
 #endif /* ADB */

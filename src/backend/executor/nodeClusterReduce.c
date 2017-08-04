@@ -11,7 +11,8 @@
 
 extern bool enable_cluster_plan;
 
-static bool EndReduceStateWalker(PlanState *node, void *context);
+static bool ExecConnectReduceWalker(ClusterReduceState *node, EState *estate);
+static bool EndReduceStateWalker(PlanState *crstate, void *context);
 
 ClusterReduceState *
 ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
@@ -35,9 +36,9 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate->port = NULL;
 
 	/*
-	 * First time to connect Reduce subprocess.
+	 * This time don't connect Reduce subprocess.
 	 */
-	if ((eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
+	if ((eflags & (EXEC_FLAG_EXPLAIN_ONLY|EXEC_FLAG_IN_SUBPLAN)) == 0)
 	{
 		crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(&(node->plan)));
 		if (IsRdcPortError(crstate->port))
@@ -66,6 +67,30 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	return crstate;
 }
 
+static bool ExecConnectReduceWalker(ClusterReduceState *crstate, EState *estate)
+{
+	if(crstate == NULL)
+		return false;
+
+	if (IsA(crstate, ClusterReduceState) &&
+		crstate->port == NULL)
+	{
+		crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(crstate->ps.plan));
+		if (IsRdcPortError(crstate->port))
+			ereport(ERROR,
+					(errmsg("fail to connect self reduce subprocess"),
+					 errdetail("%s", RdcError(crstate->port))));
+		RdcFlags(crstate->port) = RDC_FLAG_VALID;
+	}
+	return planstate_tree_walker((PlanState*)crstate, ExecConnectReduceWalker, estate);
+}
+
+void ExecConnectReduce(PlanState *node)
+{
+	Assert((node->state->es_top_eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0);
+	ExecConnectReduceWalker((ClusterReduceState*)node, node->state);
+}
+
 TupleTableSlot *
 ExecClusterReduce(ClusterReduceState *node)
 {
@@ -77,6 +102,7 @@ ExecClusterReduce(ClusterReduceState *node)
 	Oid					oid;
 
 	port = node->port;
+	node->started = true;
 	Assert(port);
 
 	slot = node->ps.ps_ResultTupleSlot;
@@ -188,6 +214,14 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 	node->closed_remote = NIL;
 
 	ExecEndNode(outerPlanState(node));
+}
+
+void ExecReScanClusterReduce(ClusterReduceState *node)
+{
+	if(node->started)
+	{
+		ereport(ERROR, (errmsg("rescan cluster reduce no support")));
+	}
 }
 
 static bool

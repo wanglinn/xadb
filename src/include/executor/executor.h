@@ -62,7 +62,9 @@
 #define EXEC_FLAG_WITH_OIDS		0x0020	/* force OIDs in returned tuples */
 #define EXEC_FLAG_WITHOUT_OIDS	0x0040	/* force no OIDs in returned tuples */
 #define EXEC_FLAG_WITH_NO_DATA	0x0080	/* rel scannability doesn't matter */
-
+#ifdef ADB
+#define EXEC_FLAG_IN_SUBPLAN	0x0100	/* at subplan */
+#endif /* ADB */
 
 /*
  * ExecEvalExpr was formerly a function containing a switch statement;

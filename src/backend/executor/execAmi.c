@@ -60,6 +60,7 @@
 #include "pgxc/execRemote.h"
 #include "executor/nodeClusterGather.h"
 #include "executor/nodeClusterMergeGather.h"
+#include "executor/nodeClusterReduce.h"
 #include "executor/nodeClusterScan.h"
 #endif
 
@@ -230,6 +231,10 @@ ExecReScan(PlanState *node)
 
 		case T_ClusterScanState:
 			ExecReScanClusterScan((ClusterScanState *)node);
+			break;
+
+		case T_ClusterReduceState:
+			ExecReScanClusterReduce((ClusterReduceState *)node);
 			break;
 #endif
 

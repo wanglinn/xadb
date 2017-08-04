@@ -62,6 +62,7 @@
 #ifdef ADB
 #include "commands/copy.h"
 #include "executor/execCluster.h"
+#include "executor/nodeClusterReduce.h"
 #include "pgxc/pgxc.h"
 #endif
 
@@ -954,6 +955,9 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 			& (EXEC_FLAG_EXPLAIN_ONLY | EXEC_FLAG_WITH_NO_DATA);
 		if (bms_is_member(i, plannedstmt->rewindPlanIDs))
 			sp_eflags |= EXEC_FLAG_REWIND;
+#ifdef ADB
+		sp_eflags |= EXEC_FLAG_IN_SUBPLAN;
+#endif /* ADB */
 
 		subplanstate = ExecInitNode(subplan, estate, sp_eflags);
 
@@ -969,6 +973,13 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 	 * processing tuples.
 	 */
 	planstate = ExecInitNode(plan, estate, eflags);
+#ifdef ADB
+	if((eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
+	{
+		foreach(l, estate->es_subplanstates)
+			ExecConnectReduce(lfirst(l));
+	}
+#endif /* ADB */
 
 	/*
 	 * Get the tuple descriptor describing the type of tuples to return.
