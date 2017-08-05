@@ -2136,6 +2136,16 @@ typedef struct ClusterGetCopyDataState
 	StringInfoData	buf;
 }ClusterGetCopyDataState;
 
+typedef struct
+{
+	Oid					re_key;
+	TupleTableSlot	   *re_slot;
+	Tuplestorestate	   *re_store;
+	bool				re_eof;
+} ReduceEntryData;
+
+typedef ReduceEntryData *ReduceEntry;
+
 typedef struct ClusterReduceState
 {
 	PlanState		ps;
@@ -2147,16 +2157,14 @@ typedef struct ClusterReduceState
 	bool			started;
 	int				nrdcs;			/* number of reduce group */
 	int				neofs;			/* number of EOF messages */
-	Oid			   *rdc_oids;		/* array of length nrdcs */
-	Oid			   *rdc_eofs;		/* array of length nrdcs */
+	HTAB		   *rdc_htab;
+	ReduceEntry	   *rdc_elts;		/* array of length nrdcs */
 
 	/* used for merge reduce as below */
-	int					nkeys;
-	SortSupport 		sortkeys;	/* array of length nkeys */
-	TupleTableSlot	  **slots;		/* array of length of rdc_nodes */
-	Tuplestorestate	  **stores;		/* array of length of rdc_nodes */
+	int				nkeys;
+	SortSupport 	sortkeys;	/* array of length nkeys */
 	struct binaryheap  *binheap; 	/* binary heap of slot indices */
-	bool				initialized;/* are subplans started? */
+	bool			initialized;/* are subplans started? */
 } ClusterReduceState;
 #endif /* ADB */
 

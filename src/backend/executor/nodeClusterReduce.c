@@ -1,5 +1,6 @@
 
 #include "postgres.h"
+#include "miscadmin.h"
 
 #include "executor/executor.h"
 #include "executor/nodeClusterReduce.h"
@@ -8,17 +9,15 @@
 #include "nodes/nodeFuncs.h"
 #include "pgxc/pgxc.h"
 #include "reduce/adb_reduce.h"
-#include "miscadmin.h"
+#include "utils/hsearch.h"
 
 extern bool enable_cluster_plan;
 
 typedef int32 SlotNumber;
 static int32 cmr_heap_compare_slots(Datum a, Datum b, void *arg);
-static int Oid2NodeIndex(ClusterReduceState *node, Oid noid);
 static TupleTableSlot *GetSlotFromOuterNode(ClusterReduceState *node);
 static TupleTableSlot *GetSlotFromSpecialRemote(ClusterReduceState *node,
-												Oid remote_oid,
-												TupleTableSlot *slot);
+												ReduceEntry entry);
 static TupleTableSlot *ExecClusterMergeReduce(ClusterReduceState *node);
 static bool ExecConnectReduceWalker(PlanState *node, EState *estate);
 static bool EndReduceStateWalker(PlanState *node, void *context);
@@ -27,11 +26,15 @@ ClusterReduceState *
 ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 {
 	ClusterReduceState	   *crstate;
+	TupleTableSlot		   *slot;
 	Plan				   *outerPlan;
 	List				   *nodesReduceTo;
 	List				   *nodesReduceFrom;
 	ListCell			   *lc;
+	ReduceEntry				entry;
 	int						i;
+	HASHCTL					hctl;
+	Oid						rdc_oid;
 
 	Assert(outerPlan(node) != NULL);
 	Assert(innerPlan(node) == NULL);
@@ -69,11 +72,27 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 		nodesReduceFrom = GetReduceGroup();
 		crstate->nrdcs = list_length(nodesReduceFrom);
 		crstate->neofs = 0;
-		crstate->rdc_oids = (Oid *) palloc0(sizeof(Oid) * crstate->nrdcs);
-		crstate->rdc_eofs = (Oid *) palloc0(sizeof(Oid) * crstate->nrdcs);
+
+		hctl.keysize = sizeof(Oid);
+		hctl.entrysize = sizeof(ReduceEntryData);
+		hctl.hcxt = CurrentMemoryContext;
+		crstate->rdc_htab = hash_create("reduce group",
+										32,
+										&hctl,	/* magic number here FIXME */
+										HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+
+		crstate->rdc_elts = (ReduceEntry *) palloc0(sizeof(ReduceEntry) * crstate->nrdcs);
 		i = 0;
 		foreach (lc, nodesReduceFrom)
-			crstate->rdc_oids[i++] = lfirst_oid(lc);
+		{
+			rdc_oid = lfirst_oid(lc);
+			entry = hash_search(crstate->rdc_htab, &rdc_oid, HASH_ENTER, NULL);
+			entry->re_eof = false;
+			entry->re_slot = NULL;
+			entry->re_store = NULL;
+			crstate->rdc_elts[i] = entry;
+			i++;
+		}
 	}
 
 	/* Need ClusterReduce to merge sort */
@@ -106,12 +125,13 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 
 			if (!(eflags & EXEC_FLAG_EXPLAIN_ONLY))
 			{
-				crstate->slots = (TupleTableSlot **) palloc0(sizeof(TupleTableSlot *) * crstate->nrdcs);
-				crstate->stores = (Tuplestorestate **) palloc0(sizeof(Tuplestorestate *) * crstate->nrdcs);
 				for (i = 0; i < crstate->nrdcs; i++)
 				{
-					crstate->slots[i] = MakeSingleTupleTableSlot(crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor);
-					crstate->stores[i] = tuplestore_begin_heap(true, false, work_mem);
+					entry = crstate->rdc_elts[i];
+					slot = crstate->ps.ps_ResultTupleSlot;
+					if (entry->re_key != PGXCNodeOid)
+						entry->re_slot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor);
+					entry->re_store = tuplestore_begin_heap(true, false, work_mem);
 				}
 				crstate->binheap = binaryheap_allocate(crstate->nrdcs, cmr_heap_compare_slots, crstate);
 			}
@@ -132,20 +152,6 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	}
 
 	return crstate;
-}
-
-static int
-Oid2NodeIndex(ClusterReduceState *node, Oid noid)
-{
-	int idx;
-
-	for (idx = 0; idx < node->nrdcs; idx++)
-	{
-		if ((node->rdc_oids)[idx] == noid)
-			return idx;
-	}
-	Assert(false);
-	return -1;
 }
 
 static TupleTableSlot *
@@ -227,8 +233,9 @@ ExecClusterReduce(ClusterReduceState *node)
 {
 	TupleTableSlot	   *slot;
 	RdcPort			   *port;
+	ReduceEntry			entry;
+	bool				found;
 	Oid					eof_oid;
-	int					nidx;
 
 	/* ClusterReduce need to sort by keys */
 	if (node->nkeys > 0)
@@ -264,13 +271,10 @@ ExecClusterReduce(ClusterReduceState *node)
 				outerslot = GetSlotFromRemote(port, slot, NULL, &eof_oid, &node->closed_remote);
 				if (OidIsValid(eof_oid))
 				{
-					nidx = Oid2NodeIndex(node, eof_oid);
-					/*
-					 * There will not be two EOF messages
-					 * of the same reduce.
-					 */
-					Assert(node->rdc_eofs[nidx] == InvalidOid);
-					node->rdc_eofs[nidx] = eof_oid;
+					found = false;
+					entry = hash_search(node->rdc_htab, &eof_oid, HASH_FIND, &found);
+					Assert(found && !entry->re_eof);
+					entry->re_eof = true;
 					node->neofs++;
 					node->eof_network = (node->neofs == node->nrdcs - 1);
 				} else if (!TupIsNull(outerslot))
@@ -286,34 +290,35 @@ ExecClusterReduce(ClusterReduceState *node)
 }
 
 static TupleTableSlot *
-GetSlotFromSpecialRemote(ClusterReduceState *node, Oid remote_oid, TupleTableSlot *slot)
+GetSlotFromSpecialRemote(ClusterReduceState *node, ReduceEntry entry)
 {
 	TupleTableSlot	   *outerslot;
-	Tuplestorestate	   *tuplestorestate;
+	TupleTableSlot	   *cur_slot;
+	Tuplestorestate	   *cur_store;
 	RdcPort			   *port;
+	ReduceEntry			othr_entry;
+	Oid					cur_oid;
 	Oid					slot_oid;
 	Oid					eof_oid;
-	int					ridx;
-	int					nidx;
+	bool				found;
 
 	Assert(node && node->port && node->nkeys > 0);
-	Assert(OidIsValid(remote_oid));
 
-	ridx = Oid2NodeIndex(node, remote_oid);
+	cur_oid = entry->re_key;
+	cur_slot = entry->re_slot;
+	cur_store = entry->re_store;
 
 	/*
 	 * try to get from its Tuplestorestate
 	 */
-	tuplestorestate = node->stores[ridx];
-	Assert(tuplestorestate);
-	if (!tuplestore_ateof(tuplestorestate))
+	if (!tuplestore_ateof(cur_store))
 	{
-		if (tuplestore_gettupleslot(tuplestorestate, true, true, slot))
+		if (tuplestore_gettupleslot(cur_store, true, true, cur_slot))
 		{
 #ifdef DEBUG_ADB
-			elog(LOG, "got slot of %u from store", remote_oid);
+			elog(LOG, "got slot of %u from store", cur_oid);
 #endif
-			return slot;
+			return cur_slot;
 		}
 	}
 
@@ -321,95 +326,98 @@ GetSlotFromSpecialRemote(ClusterReduceState *node, Oid remote_oid, TupleTableSlo
 	 * already receive EOF message, so
 	 * return NULL slot.
 	 */
-	if (node->rdc_eofs[ridx] == remote_oid)
-		return ExecClearTuple(slot);
-	Assert(node->rdc_eofs[ridx] == InvalidOid);
+	if (entry->re_eof)
+		return ExecClearTuple(cur_slot);
 
 	port = node->port;
-	while (node->rdc_eofs[ridx] == InvalidOid)
+	while (!entry->re_eof)
 	{
-		ExecClearTuple(slot);
+		ExecClearTuple(cur_slot);
 		slot_oid = InvalidOid;
 		eof_oid = InvalidOid;
 		if (node->eof_underlying)
 			rdc_set_block(port);
 		else
 			(void) rdc_try_read_some(port);
-		outerslot = GetSlotFromRemote(port, slot, &slot_oid, &eof_oid, &(node->closed_remote));
+		outerslot = GetSlotFromRemote(port, cur_slot, &slot_oid, &eof_oid, &(node->closed_remote));
 		if (OidIsValid(eof_oid))
 		{
-			nidx = Oid2NodeIndex(node, eof_oid);
-			/*
-			 * There will not be two EOF messages
-			 * of the same reduce.
-			 */
-			Assert(node->rdc_eofs[nidx] == InvalidOid);
-			node->rdc_eofs[nidx] = eof_oid;
 			node->neofs++;
 			node->eof_network = (node->neofs == node->nrdcs - 1);
-			if (eof_oid == remote_oid)
-				return ExecClearTuple(slot);
+			if (eof_oid == cur_oid)
+			{
+				entry->re_eof = true;
+				return ExecClearTuple(cur_slot);
+			} else
+			{
+				found = false;
+				othr_entry = hash_search(node->rdc_htab, &eof_oid, HASH_FIND, &found);
+				Assert(found && !othr_entry->re_eof);
+				othr_entry->re_eof = true;
+			}
 		} else if (!TupIsNull(outerslot))
 		{
 			Assert(OidIsValid(slot_oid));
-			if (slot_oid == remote_oid)
+			if (slot_oid == cur_oid)
 				return outerslot;
 
 #ifdef DEBUG_ADB
 			elog(LOG, "put slot from %u into store", slot_oid);
 #endif
-			nidx = Oid2NodeIndex(node, slot_oid);
-			tuplestorestate = node->stores[nidx];
-			Assert(tuplestorestate);
-			if (tuplestore_ateof(tuplestorestate))
-				tuplestore_clear(tuplestorestate);
-			tuplestore_puttupleslot(tuplestorestate, outerslot);
+			found = false;
+			othr_entry = hash_search(node->rdc_htab, &slot_oid, HASH_FIND, &found);
+			Assert(found && !othr_entry->re_eof);
+			cur_store = othr_entry->re_store;
+			if (tuplestore_ateof(cur_store))
+				tuplestore_clear(cur_store);
+			tuplestore_puttupleslot(cur_store, outerslot);
 		}
 	}
 
-	return ExecClearTuple(slot);
+	return ExecClearTuple(cur_slot);
 }
 
 static TupleTableSlot *
 ExecClusterMergeReduce(ClusterReduceState *node)
 {
 	TupleTableSlot	   *result;
-	SlotNumber			i;
-	Oid					oid;
-	int					nidx;
+	ReduceEntry			entry;
+	bool				found;
+	int					i;
 
 	Assert(node && node->nkeys > 0);
 	if (!node->initialized)
 	{
 		/* initialize local slot */
-		nidx = Oid2NodeIndex(node, PGXCNodeOid);
-		node->slots[nidx] = GetSlotFromOuterNode(node);
-		if (!TupIsNull(node->slots[nidx]))
-			binaryheap_add_unordered(node->binheap, Int32GetDatum(nidx));
+		found = false;
+		entry = hash_search(node->rdc_htab, &PGXCNodeOid, HASH_FIND, &found);
+		Assert(found && !entry->re_eof);
+		entry->re_slot = GetSlotFromOuterNode(node);
+		if (!TupIsNull(entry->re_slot))
+			binaryheap_add_unordered(node->binheap, PointerGetDatum(entry));
 
 		/* iniialize remote slot */
 		for (i = 0; i < node->nrdcs; i++)
 		{
-			oid = node->rdc_oids[i];
-			if (oid == PGXCNodeOid)
+			entry = node->rdc_elts[i];
+			if (entry->re_key == PGXCNodeOid)
 				continue;
-			node->slots[i] = GetSlotFromSpecialRemote(node, oid, node->slots[i]);
-			if (!TupIsNull(node->slots[i]))
-				binaryheap_add_unordered(node->binheap, Int32GetDatum(i));
+			entry->re_slot = GetSlotFromSpecialRemote(node, entry);
+			if (!TupIsNull(entry->re_slot))
+				binaryheap_add_unordered(node->binheap, PointerGetDatum(entry));
 		}
 		binaryheap_build(node->binheap);
 		node->initialized = true;
 	} else
 	{
-		i = DatumGetInt32(binaryheap_first(node->binheap));
-		oid = node->rdc_oids[i];
-		if (oid == PGXCNodeOid)
-			node->slots[i] = GetSlotFromOuterNode(node);
+		entry = (ReduceEntry) DatumGetPointer(binaryheap_first(node->binheap));
+		if (entry->re_key == PGXCNodeOid)
+			entry->re_slot = GetSlotFromOuterNode(node);
 		else
-			node->slots[i] = GetSlotFromSpecialRemote(node, oid, node->slots[i]);
+			entry->re_slot = GetSlotFromSpecialRemote(node, entry);
 
-		if (!TupIsNull(node->slots[i]))
-			binaryheap_replace_first(node->binheap, Int32GetDatum(i));
+		if (!TupIsNull(entry->re_slot))
+			binaryheap_replace_first(node->binheap, PointerGetDatum(entry));
 		else
 			(void) binaryheap_remove_first(node->binheap);
 	}
@@ -419,8 +427,8 @@ ExecClusterMergeReduce(ClusterReduceState *node)
 		result = ExecClearTuple(node->ps.ps_ResultTupleSlot);
 	} else
 	{
-		i = DatumGetInt32(binaryheap_first(node->binheap));
-		result = node->slots[i];
+		entry = (ReduceEntry) DatumGetPointer(binaryheap_first(node->binheap));
+		result = entry->re_slot;
 	}
 
 	return result;
@@ -433,11 +441,10 @@ static int32
 cmr_heap_compare_slots(Datum a, Datum b, void *arg)
 {
 	ClusterReduceState *node = (ClusterReduceState *) arg;
-	SlotNumber	slot1 = DatumGetInt32(a);
-	SlotNumber	slot2 = DatumGetInt32(b);
-
-	TupleTableSlot *s1 = node->slots[slot1];
-	TupleTableSlot *s2 = node->slots[slot2];
+	ReduceEntry			re1 = (ReduceEntry) PointerGetDatum(a);
+	ReduceEntry			re2 = (ReduceEntry) PointerGetDatum(b);
+	TupleTableSlot	   *s1 = re1->re_slot;
+	TupleTableSlot	   *s2 = re2->re_slot;
 	int			nkey;
 
 	Assert(!TupIsNull(s1));
@@ -486,20 +493,19 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 	node->eof_underlying = false;
 	list_free(node->closed_remote);
 	node->closed_remote = NIL;
-	safe_pfree(node->rdc_oids);
-	safe_pfree(node->rdc_eofs);
-	node->rdc_oids = NULL;
-	node->rdc_eofs = NULL;
-	if (node->stores)
+	if (node->rdc_elts)
 	{
 		int i;
 		for (i = 0; i < node->nrdcs; i++)
 		{
-			Assert(node->stores[i]);
-			tuplestore_end(node->stores[i]);
-			node->stores[i] = NULL;
+			if (node->rdc_elts[i]->re_store)
+				tuplestore_end(node->rdc_elts[i]->re_store);
+			node->rdc_elts[i]->re_store = NULL;
 		}
+		pfree(node->rdc_elts);
 	}
+	if (node->rdc_htab)
+		hash_destroy(node->rdc_htab);
 
 	ExecEndNode(outerPlanState(node));
 }
