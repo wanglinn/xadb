@@ -174,6 +174,7 @@ rdc_newport(pgsocket sock,
 	rdc_port->hook = NULL;
 	initStringInfoExtend(RdcInBuf(rdc_port), RDC_BUFFER_SIZE);
 	initStringInfoExtend(RdcOutBuf(rdc_port), RDC_BUFFER_SIZE);
+	initStringInfoExtend(RdcOutBuf2(rdc_port), RDC_BUFFER_SIZE);
 	initStringInfoExtend(RdcErrBuf(rdc_port), RDC_BUFFER_SIZE);
 
 	return rdc_port;
@@ -198,6 +199,7 @@ rdc_freeport(RdcPort *port)
 		}
 		pfree(port->in_buf.data);
 		pfree(port->out_buf.data);
+		pfree(port->out_buf2.data);
 		pfree(port->err_buf.data);
 #ifdef DEBUG_ADB
 		safe_pfree(RdcPeerHost(port));

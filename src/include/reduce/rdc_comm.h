@@ -149,6 +149,7 @@ struct RdcPort
 	EventType			wait_events;	/* used for select/poll */
 	StringInfoData		in_buf;			/* for normal message */
 	StringInfoData		out_buf;		/* for normal message */
+	StringInfoData		out_buf2;		/* for normal message */
 	StringInfoData		err_buf;		/* error message should be sent prior if have. */
 };
 
@@ -185,6 +186,7 @@ struct RdcPort
 #define RdcSelfTypeStr(port)		rdc_type2string(RdcSelfType(port))
 #define RdcInBuf(port)				&(((RdcPort *) (port))->in_buf)
 #define RdcOutBuf(port)				&(((RdcPort *) (port))->out_buf)
+#define RdcOutBuf2(port)			&(((RdcPort *) (port))->out_buf2)
 #define RdcErrBuf(port)				&(((RdcPort *) (port))->err_buf)
 
 #define RdcSockIsValid(port)		(RdcSocket(port) != PGINVALID_SOCKET)

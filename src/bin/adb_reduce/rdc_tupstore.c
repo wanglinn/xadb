@@ -1267,6 +1267,54 @@ rdcstore_gettuple(RSstate *state, StringInfo buf, bool *hasData)
 }
 
 /*
+ * Fetch multiple tuples in forward direction.
+ *
+ * Get and put the tuple into buf1 as much as possible and
+ * put the tuple into buf2 if it will make buf1 overflow,
+ * then quit and return the count of tuple, 0 means there
+ * is no more data.
+ */
+int
+rdcstore_gettuple_multi(RSstate *state, StringInfo buf1, StringInfo buf2)
+{
+	RSdata *rsData = NULL;
+	int		count = 0;
+	bool	quit = false;
+
+	Assert(state && buf1 && buf2);
+
+	while (!quit)
+	{
+		PUT_FILE_INFO(state);
+		rsData = (RSdata*) rdcstore_gettuple_common(state);
+		RESET_FILE_INFO();
+
+		if(rsData)
+		{
+			state->totalRead++;
+			count++;
+			if (buf1->len + rsData->len <= buf1->maxlen)
+				appendBinaryStringInfo(buf1, rsData->data, rsData->len);
+			else
+			{
+				appendBinaryStringInfo(buf2, rsData->data, rsData->len);
+				quit = true;
+			}
+			FREEMEM(state, RDC_GET_DATA_MEM(rsData));
+			pfree(rsData);
+		}
+		else
+			break;
+	}
+
+	/* trim free data position */
+	rdcstore_trim(state);
+
+	return count;
+}
+
+
+/*
  * rdcstore_trim	- remove all no-longer-needed tuples
  */
 void

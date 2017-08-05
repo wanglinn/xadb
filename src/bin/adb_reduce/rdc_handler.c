@@ -313,6 +313,7 @@ static void
 HandleWriteToPlan(PlanPort *pln_port)
 {
 	StringInfo		buf;
+	StringInfo		buf2;
 	RdcPort		   *work_port;
 	RSstate		   *rdcstore;
 	int				r;
@@ -352,6 +353,7 @@ HandleWriteToPlan(PlanPort *pln_port)
 							RDC_PORT_PRINT_VALUE(work_port))));
 
 		buf = RdcOutBuf(work_port);
+		buf2 = RdcOutBuf2(work_port);
 		for (;;)
 		{
 			/* output buffer has unsent data, try to send them first */
@@ -388,6 +390,33 @@ HandleWriteToPlan(PlanPort *pln_port)
 			/* output buffer is empty, try to read from rdcstore */
 			else
 			{
+				int		count;
+
+				/* it is safe to reset output buffer */
+				resetStringInfo(buf);
+				Assert(rdcstore);
+				if (buf2->len - buf2->cursor > 0)
+				{
+					appendBinaryStringInfo(buf,
+										   buf2->data + buf2->cursor,
+										   buf2->len - buf2->cursor);
+					resetStringInfo(buf2);
+				}
+
+				count = rdcstore_gettuple_multi(rdcstore, buf, buf2);
+				if (count == 0)
+				{
+					RdcWaitEvents(work_port) &= ~WT_SOCK_WRITEABLE;
+					break;	/* break for */
+				} else
+				{
+					/*
+					 * OK to get tuple from rdcstore, so increase the
+					 * number of sending to PLAN.
+					 */
+					pln_port->send_to_pln += count;
+				}
+#ifdef NOT_USED
 				bool	hasData = false;
 
 				/* it is safe to reset output buffer */
@@ -409,6 +438,7 @@ HandleWriteToPlan(PlanPort *pln_port)
 					 */
 					pln_port->send_to_pln++;
 				}
+#endif
 			}
 		}
 

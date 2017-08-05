@@ -105,6 +105,8 @@ extern bool rdcstore_ateof(RSstate *state);
 
 extern void rdcstore_gettuple(RSstate *state ,StringInfo buf, bool *hasData);
 
+extern int rdcstore_gettuple_multi(RSstate *state, StringInfo buf1, StringInfo buf2);
+
 extern void rdcstore_puttuple(RSstate *state, char *data, int len);
 
 extern void rdcstore_trim(RSstate *state);
