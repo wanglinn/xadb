@@ -267,7 +267,7 @@ extern ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo 
 extern ClusterScanPath *create_cluster_scan_path(Path *sub_path, List *rnodes, RelOptInfo *rel);
 extern Path *create_cluster_reduce_path(PlannerInfo *root,
 			Path *sub_path,
-			struct ReduceExprInfo *rinfo,
+			List *rinfo_list,
 			RelOptInfo *rel,
 			List *pathkeys);
 extern bool get_modify_insert_nodes_walker(Path *path, List **rnodes);

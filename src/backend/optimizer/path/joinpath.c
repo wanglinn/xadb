@@ -892,6 +892,19 @@ sort_inner_and_outer(PlannerInfo *root,
 						   extra);
 #ifdef ADB
 		if(inner_cluster_path && outer_cluster_path)
+		{
+			if (outerkeys)
+				outer_cluster_path = create_cluster_reduce_path(root,
+																outer_cluster_path,
+																outer_cluster_path->reduce_info_list,
+																outerrel,
+																outerkeys);
+			if (innerkeys)
+				inner_cluster_path = create_cluster_reduce_path(root,
+																inner_cluster_path,
+																inner_cluster_path->reduce_info_list,
+																innerrel,
+																innerkeys);
 			try_mergejoin_path(root,
 							   joinrel,
 							   outer_cluster_path,
@@ -903,6 +916,7 @@ sort_inner_and_outer(PlannerInfo *root,
 							   jointype,
 							   true,
 							   extra);
+		}
 #endif /* ADB */
 	}
 }
@@ -1971,12 +1985,12 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 			{
 				*inner_path = create_cluster_reduce_path(root,
 														 innerClusterPath,
-														 make_reduce_coord(),
+														 list_make1(make_reduce_coord()),
 														 innerrel,
 														 NIL);
 				*outer_path = create_cluster_reduce_path(root,
 														 outerClusterPath,
-														 make_reduce_coord(),
+														 list_make1(make_reduce_coord()),
 														 outerrel,
 														 NIL);
 				result = true;
@@ -2046,7 +2060,7 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 				rinfo = palloc0(sizeof(*rinfo));
 				rinfo->expr = CreateReduceValExprAs(outer_reduce->expr, 0, exprList);
 				fill_reduce_expr_info(rinfo);
-				path = create_cluster_reduce_path(root, path, rinfo, innerrel, NIL);
+				path = create_cluster_reduce_path(root, path, list_make1(rinfo), innerrel, NIL);
 				*outer_path = outerClusterPath;
 				*inner_path = path;
 				result = true;

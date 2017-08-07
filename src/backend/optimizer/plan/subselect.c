@@ -580,7 +580,7 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 						/* for now just reduce to InvalidOid, before create plan change it */
 						rinfo->expr = MakeReduceReplicateExpr(list_make1_oid(InvalidOid));
 					}
-					path = create_cluster_reduce_path(root, path, rinfo, final_rel, NIL);
+					path = create_cluster_reduce_path(root, path, list_make1(rinfo), final_rel, NIL);
 				}
 				if(cheapest_replicate == NULL || cheapest_replicate->total_cost > path->total_cost)
 					cheapest_replicate = path;

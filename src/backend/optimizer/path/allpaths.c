@@ -1696,7 +1696,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 			{
 				path->reduce_info_list = NIL;
 				path->reduce_is_valid = true;
-				path = create_cluster_reduce_path(root, path, make_reduce_coord(), rel, NIL);
+				path = create_cluster_reduce_path(root, path, list_make1(make_reduce_coord()), rel, NIL);
 			}else
 			{
 				path->reduce_info_list = list_make1(make_reduce_coord());
@@ -2219,7 +2219,7 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		{
 			subpath = create_cluster_reduce_path(root,
 												 subpath,
-												 make_reduce_coord(),
+												 list_make1(make_reduce_coord()),
 												 sub_final_rel,
 												 NIL);
 			if(subquery->sortClause)

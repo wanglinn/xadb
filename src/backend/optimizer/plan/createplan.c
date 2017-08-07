@@ -6885,12 +6885,12 @@ can_make_semi_anti_cluster_join_path(PlannerInfo *root, SemiAntiJoinContext *con
 	/* reduce to coordinator */
 	context->outer_path = create_cluster_reduce_path(root,
 													 outer_path,
-													 make_reduce_coord(),
+													 list_make1(make_reduce_coord()),
 													 context->outer_rel,
 													 NIL);
 	context->inner_path = create_cluster_reduce_path(root,
 													 inner_path,
-													 make_reduce_coord(),
+													 list_make1(make_reduce_coord()),
 													 context->inner_rel,
 													 NIL);
 

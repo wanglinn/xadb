@@ -96,9 +96,9 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	}
 
 	/* Need ClusterReduce to merge sort */
-	if (node->numCols > 0)
+	if (list_member_oid((const List *) nodesReduceTo, PGXCNodeOid))
 	{
-		if (list_member_oid((const List *) nodesReduceTo, PGXCNodeOid))
+		if (node->numCols > 0)
 		{
 			crstate->nkeys = node->numCols;
 			crstate->sortkeys = palloc0(sizeof(SortSupportData) * node->numCols);

@@ -3408,7 +3408,7 @@ ClusterScanPath *create_cluster_scan_path(Path *sub_path, List *rnodes, RelOptIn
 Path *
 create_cluster_reduce_path(PlannerInfo *root,
 						   Path *sub_path,
-						   struct ReduceExprInfo *rinfo,
+						   List *rinfo_list,
 						   RelOptInfo *rel,
 						   List *pathkeys)
 {
@@ -3423,7 +3423,7 @@ create_cluster_reduce_path(PlannerInfo *root,
 	crp->path.parent = rel;
 	crp->subpath = sub_path;
 	crp->path.pathtype = T_ClusterReduce;
-	crp->path.reduce_info_list = list_make1(rinfo);
+	crp->path.reduce_info_list = rinfo_list;
 	crp->path.reduce_is_valid = true;
 
 	/* ClusterReducePath or "ClusterMergeReducePath" */

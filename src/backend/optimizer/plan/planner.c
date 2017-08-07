@@ -4252,7 +4252,7 @@ create_grouping_paths(PlannerInfo *root,
 					{
 						path = create_cluster_reduce_path(root,
 														  path,
-														  make_reduce_coord(),
+														  list_make1(make_reduce_coord()),
 														  grouped_rel,
 														  path->pathkeys);
 						/* now we not have reduce merge path,so we sort again */
@@ -4351,7 +4351,7 @@ create_grouping_paths(PlannerInfo *root,
 				{
 					path = create_cluster_reduce_path(root,
 													  path,
-													  make_reduce_coord(),
+													  list_make1(make_reduce_coord()),
 													  grouped_rel,
 													  NIL);
 				}
@@ -4835,7 +4835,11 @@ create_distinct_paths(PlannerInfo *root,
 		foreach(lc, input_rel->cluster_pathlist)
 		{
 			Path	   *path = (Path*) lfirst(lc);
-			Path	   *reduce = create_cluster_reduce_path(root, path, make_reduce_coord(),input_rel, NIL);
+			Path	   *reduce = create_cluster_reduce_path(root,
+															path,
+															list_make1(make_reduce_coord()),
+															input_rel,
+															NIL);
 
 			/* first create sort distinct */
 			if(can_sort)
@@ -6072,7 +6076,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 		{
 			reduce_info = palloc0(sizeof(*reduce_info));
 			reduce_info->expr = MakeReduceReplicateExpr(loc_info->nodeList);
-			path = create_cluster_reduce_path(root, path, reduce_info, path->parent, NIL);
+			path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 		}
 	}
 	else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
@@ -6098,7 +6102,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 			}
 			reduce_info->expr = CreateReduceValExprAs(reduce_info->expr, 0, exprs);
 			fill_reduce_expr_info(reduce_info);
-			path = create_cluster_reduce_path(root, path, reduce_info, path->parent, NIL);
+			path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 		}
 	}
 
