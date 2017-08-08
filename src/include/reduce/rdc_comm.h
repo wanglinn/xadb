@@ -113,6 +113,8 @@ struct RdcNode
 
 typedef void (*RdcConnHook)(void *arg);
 
+typedef StringInfoData *RdcExtra;
+
 struct RdcPort
 {
 	RdcPort			   *next;			/* RdcPort next for Plan node port with the same plan id */
@@ -122,8 +124,10 @@ struct RdcPort
 	RdcEndStatusType	end_status;		/* see RdcEndStatusType above */
 	RdcPortType			peer_type;		/* the identity type of the peer side */
 	RdcPortId			peer_id;		/* the identity id of the peer side */
+	StringInfoData		peer_extra;		/* the extra data of the peer side */
 	RdcPortType			self_type;		/* local identity type */
 	RdcPortId			self_id;		/* local identity id */
+	StringInfoData		self_extra;		/* local extra data */
 	int					version;		/* version num */
 #if !defined(RDC_FRONTEND)
 	time_t				create_time;	/* at now used for client */
@@ -169,8 +173,10 @@ struct RdcPort
 #define RdcSocket(port)				(((RdcPort *) (port))->sock)
 #define RdcPeerType(port)			(((RdcPort *) (port))->peer_type)
 #define RdcPeerID(port)				(((RdcPort *) (port))->peer_id)
+#define RdcPeerExtra(port)			&(((RdcPort *) (port))->peer_extra)
 #define RdcSelfType(port)			(((RdcPort *) (port))->self_type)
 #define RdcSelfID(port)				(((RdcPort *) (port))->self_id)
+#define RdcSelfExtra(port)			&(((RdcPort *) (port))->self_extra)
 #define RdcStatus(port)				(((RdcPort *) (port))->status)
 #define RdcFlags(port)				(((RdcPort *) (port))->flags)
 #define RdcPositive(port)			(((RdcPort *) (port))->positive)
@@ -224,7 +230,7 @@ extern void rdc_freeport(RdcPort *port);
 extern void rdc_resetport(RdcPort *port);
 extern RdcPort *rdc_connect(const char *host, uint32 port,
 							RdcPortType peer_type, RdcPortId peer_id,
-							RdcPortType self_type, RdcPortId self_id);
+							RdcPortType self_type, RdcPortId self_id, RdcExtra self_extra);
 extern RdcPort *rdc_accept(pgsocket sock);
 extern RdcNode *rdc_parse_group(RdcPort *port, int *rdc_num, RdcConnHook hook);
 extern RdcPollingStatusType rdc_connect_poll(RdcPort *port);
@@ -248,6 +254,7 @@ extern const char *rdc_geterror(RdcPort *port);
 extern void rdc_beginmessage(StringInfo buf, char msgtype);
 extern void rdc_sendbyte(StringInfo buf, int byt);
 extern void rdc_sendbytes(StringInfo buf, const char *data, int datalen);
+extern void rdc_sendStringInfo(StringInfo buf, StringInfo src);
 extern void rdc_sendstring(StringInfo buf, const char *str);
 extern void rdc_sendint(StringInfo buf, int i, int b);
 extern void rdc_sendint64(StringInfo buf, int64 i);

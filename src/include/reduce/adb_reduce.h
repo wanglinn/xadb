@@ -19,7 +19,7 @@
 
 extern void EndSelfReduce(int code, Datum arg);
 
-extern RdcPort *ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id);
+extern RdcPort *ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id, RdcExtra self_extra);
 
 extern int StartSelfReduceLauncher(RdcPortId rid);
 

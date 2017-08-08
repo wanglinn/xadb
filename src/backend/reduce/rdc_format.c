@@ -76,6 +76,16 @@ rdc_sendbytes(StringInfo buf, const char *data, int datalen)
 }
 
 /* --------------------------------
+ *		rdc_sendbytes	- append raw data to a StringInfo buffer
+ * --------------------------------
+ */
+void
+rdc_sendStringInfo(StringInfo buf, StringInfo src)
+{
+	appendStringInfoStringInfo(buf, src);
+}
+
+/* --------------------------------
  *		rdc_sendstring	- append a null-terminated text string (with conversion)
  *
  * NB: passed text string must be null-terminated, and so is the data

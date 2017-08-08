@@ -395,13 +395,8 @@ HandleWriteToPlan(PlanPort *pln_port)
 				/* it is safe to reset output buffer */
 				resetStringInfo(buf);
 				Assert(rdcstore);
-				if (buf2->len - buf2->cursor > 0)
-				{
-					appendBinaryStringInfo(buf,
-										   buf2->data + buf2->cursor,
-										   buf2->len - buf2->cursor);
-					resetStringInfo(buf2);
-				}
+				appendStringInfoStringInfo(buf, buf2);
+				resetStringInfo(buf2);
 
 				count = rdcstore_gettuple_multi(rdcstore, buf, buf2);
 				if (count == 0)

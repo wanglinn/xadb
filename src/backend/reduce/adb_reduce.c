@@ -144,14 +144,14 @@ StartSelfReduceLauncher(RdcPortId rid)
 }
 
 RdcPort *
-ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id)
+ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id, RdcExtra self_extra)
 {
 	Assert(SelfReducePID != 0);
 	Assert(SelfReduceListenPort != 0);
 	Assert(SelfReduceID != InvalidOid);
 	return rdc_connect("127.0.0.1", SelfReduceListenPort,
 					   TYPE_REDUCE, SelfReduceID,
-					   self_type, self_id);
+					   self_type, self_id, self_extra);
 }
 
 /*

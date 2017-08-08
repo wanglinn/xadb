@@ -62,7 +62,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	 */
 	if (!(eflags & (EXEC_FLAG_EXPLAIN_ONLY | EXEC_FLAG_IN_SUBPLAN)))
 	{
-		crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(&(node->plan)));
+		crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(&(node->plan)), NULL);
 		if (IsRdcPortError(crstate->port))
 			ereport(ERROR,
 					(errmsg("fail to connect self reduce subprocess"),
@@ -529,7 +529,7 @@ ExecConnectReduceWalker(PlanState *node, EState *estate)
 		ClusterReduceState *crstate = (ClusterReduceState *) node;
 		if (crstate->port == NULL)
 		{
-			crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(crstate->ps.plan));
+			crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(crstate->ps.plan), NULL);
 			if (IsRdcPortError(crstate->port))
 				ereport(ERROR,
 						(errmsg("fail to connect self reduce subprocess"),

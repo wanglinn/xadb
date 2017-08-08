@@ -17,7 +17,7 @@
 RdcPortId	MyReduceId = InvalidPortId;
 
 int
-rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id)
+rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id, RdcExtra extra)
 {
 	StringInfoData	buf;
 
@@ -34,6 +34,7 @@ rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id)
 	rdc_sendint(&buf, RDC_VERSION_NUM, sizeof(int));		/* version */
 	rdc_sendint(&buf, type, sizeof(type));
 	rdc_sendRdcPortID(&buf, id);
+	rdc_sendStringInfo(&buf, extra);
 	rdc_endmessage(port, &buf);
 
 	return rdc_flush(port);
