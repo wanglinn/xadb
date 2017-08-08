@@ -232,6 +232,28 @@ appendBinaryStringInfo(StringInfo str, const char *data, int datalen)
 	str->data[str->len] = '\0';
 }
 
+#ifdef ADB
+/*
+ * appendStringInfoStringInfo
+ *
+ * Append arbitrary binary data of the StringInfo "src" to the StringInfo "dst",
+ * but don't change any raw data of src, it is up to the caller.
+ *
+ */
+void
+appendStringInfoStringInfo(StringInfo dst, StringInfo src)
+{
+	Assert(dst != NULL);
+
+	if (src && src->len - src->cursor > 0)
+	{
+		appendBinaryStringInfo(dst,
+							   src->data + src->cursor,
+							   src->len - src->cursor);
+	}
+}
+#endif
+
 /*
  * enlargeStringInfo
  *

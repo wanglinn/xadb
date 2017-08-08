@@ -152,6 +152,14 @@ extern void appendStringInfoSpaces(StringInfo str, int count);
 extern void appendBinaryStringInfo(StringInfo str,
 					   const char *data, int datalen);
 
+#ifdef ADB
+/*------------------------
+ * appendStringInfoStringInfo
+ * Append arbitrary binary data of StringInfo "src" to a StringInfo "dst".
+ */
+extern void appendStringInfoStringInfo(StringInfo dst, StringInfo src);
+#endif
+
 /*------------------------
  * enlargeStringInfo
  * Make sure a StringInfo's buffer can hold at least 'needed' more bytes.
