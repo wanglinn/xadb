@@ -52,6 +52,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate->closed_remote = NIL;
 	crstate->eof_underlying = false;
 	crstate->eof_network = false;
+	crstate->tgt_nodes = nodesReduceTo;
 
 	ExecInitResultTupleSlot(estate, &crstate->ps);
 	ExecAssignExprContext(estate, &crstate->ps);
@@ -137,7 +138,8 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 			}
 			crstate->initialized = false;
 		}
-	}
+	} else
+		crstate->eof_network = true;
 
 	outerPlan = outerPlan(node);
 	outerPlanState(crstate) = ExecInitNode(outerPlan, estate, eflags);
@@ -219,7 +221,7 @@ GetSlotFromOuterNode(ClusterReduceState *node)
 		} else
 		{
 			/* Here we send eof to remote plan nodes */
-			SendEofToRemote(port);
+			SendEofToRemote(port, node->tgt_nodes);
 
 			node->eof_underlying = true;
 		}
@@ -486,7 +488,10 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 	 * no need to broadcast CLOSE message to other reduce.
 	 */
 	if (node->port && !RdcSendCLOSE(node->port))
-		SendPlanCloseToSelfReduce(node->port, !RdcSendEOF(node->port));
+	{
+		List *dest_nodes = (RdcSendEOF(node->port) ? NIL : node->tgt_nodes);
+		SendPlanCloseToSelfReduce(node->port, dest_nodes);
+	}
 	rdc_freeport(node->port);
 	node->port = NULL;
 	node->eof_network = false;
@@ -581,6 +586,7 @@ ExecEndAllReduceState(PlanState *node)
 		return ;
 
 	elog(LOG,
-		 "Top-down drive cluster reduce to send EOF message");
+		 "[PLAN %d] Top-down drive cluster reduce to send EOF message",
+		 PlanNodeID(node->plan));
 	(void) EndReduceStateWalker(node, NULL);
 }

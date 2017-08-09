@@ -193,7 +193,10 @@ rdc_freeport(RdcPort *port)
 
 		RdcPortStats(port);
 		if (RdcSockIsValid(port))
+		{
+			shutdown(RdcSocket(port), SHUT_RDWR);
 			closesocket(RdcSocket(port));
+		}
 		if (port->addrs)
 		{
 			freeaddrinfo(port->addrs);
@@ -1434,6 +1437,32 @@ rdc_set_noblock(RdcPort *port)
 	port->noblock = true;
 
 	return 1;
+}
+
+void
+rdc_set_opt(RdcPort *port, int level, int optname, const void *optval, socklen_t optlen)
+{
+	if (port == NULL)
+	{
+		rdc_puterror(port, "port is invalid");
+		return ;
+	}
+
+	if (setsockopt(RdcSocket(port), level, optname, optval, optlen) != 0)
+		rdc_puterror(port, "could set socket option: %m");
+}
+
+void
+rdc_get_opt(RdcPort *port, int level, int optname, void *optval, socklen_t *optlen)
+{
+	if (port == NULL)
+	{
+		rdc_puterror(port, "port is invalid");
+		return ;
+	}
+
+	if (getsockopt(RdcSocket(port), level, optname, optval, optlen) != 0)
+		rdc_puterror(port, "could get socket option: %m");
 }
 
 static int

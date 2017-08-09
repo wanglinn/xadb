@@ -16,6 +16,9 @@
 #include "rdc_handler.h"
 #include "rdc_plan.h"
 #include "reduce/rdc_msg.h"
+#include "utils/memutils.h"		/* for MemoryContext */
+
+static StringInfo rdc_buf = NULL;
 
 static int  HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port);
 static void HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes);
@@ -26,10 +29,15 @@ static void HandleWriteToPlan(PlanPort *pln_port);
 static void SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen);
 static void SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists);
 static void SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id);
-static int  SendPlanDataToRdc(RdcPort *rdc_port, RdcPortId planid, const char *data, int datalen);
-static int  SendPlanEofToRdc(RdcPortId planid);
-static int  SendPlanCloseToRdc(RdcPortId planid);
-static int  BroadcastDataToRdc(StringInfo buf, bool flush);
+static int  SendPlanDataToRdc(StringInfo msg, RdcPortId planid);
+static int  SendPlanEofToRdc(StringInfo msg, RdcPortId planid);
+static int  SendPlanCloseToRdc(StringInfo msg, RdcPortId planid);
+static int  BroadcastDataToRdc(StringInfo msg,
+							   RdcPortId planid,
+							   char msg_type,
+							   const char *msg_data,
+							   int msg_len,
+							   bool flush);
 static RdcPort *LookUpReducePort(RdcPortId rpid);
 
 /*
@@ -156,63 +164,35 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 			break;		/* break while */
 		}
 
-		/* enough length of buffer for one whole message */
+		/*
+		 * enough length of buffer for one whole message from PLAN,
+		 * so increase the number of receiving from PLAN.
+		 */
+		pln_port->recv_from_pln++;
+
 		switch (msg_type)
 		{
 			case MSG_P2R_DATA:
 				{
-					RdcPort		   *rdc_port;
-					RdcPortId		rid;
-					const char	   *data;
-					int				num, i;
-					int				datalen;
-
-					/*
-					 * get one whole data from PLAN, so increase the
-					 * number of receiving from PLAN.
-					 */
-					pln_port->recv_from_pln++;
-
-					/* data length and data */
-					datalen = rdc_getmsgint(msg, sizeof(datalen));
-					data = rdc_getmsgbytes(msg, datalen);
-					/* reduce number */
-					num = rdc_getmsgint(msg, sizeof(num));
-					/* reduce id */
-					for (i = 0; i < num; i++)
+					if (SendPlanDataToRdc(msg, RdcPeerID(work_port)))
 					{
-						rid = rdc_getmsgRdcPortID(msg);
-						Assert(!RdcIdIsSelfID(rid));
-						/* reduce port */
-						rdc_port = LookUpReducePort(rid);
-						/* send data to reduce */
-						if (SendPlanDataToRdc(rdc_port, RdcPeerID(work_port), data, datalen))
-						{
-							/*
-							 * flush to other reduce would block,
-							 * and we try to read from plan next time.
-							 */
-							res = 1;
-							quit = true;	/* break while */
-						}
+						/*
+						 * flush to other reduce would block,
+						 * and we try to read from plan next time.
+						 */
+						res = 1;
+						quit = true;	/* break while */
 					}
-					rdc_getmsgend(msg);
 				}
 				break;
 			case MSG_EOF:
 				{
-					rdc_getmsgend(msg);
 					elog(LOG,
 						 "recv EOF message from" RDC_PORT_PRINT_FORMAT,
 						 RDC_PORT_PRINT_VALUE(work_port));
 
-					/*
-					 * get EOF message from PLAN, so increase the
-					 * number of receiving from PLAN.
-					 */
-					pln_port->recv_from_pln++;
-
-					if (SendPlanEofToRdc(RdcPeerID(work_port)))
+					/* msg contains the target nodes(number and RdcPortIds) */
+					if (SendPlanEofToRdc(msg, RdcPeerID(work_port)))
 					{
 						/*
 						 * flush to other reduce would block,
@@ -225,17 +205,9 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 				break;
 			case MSG_PLAN_CLOSE:
 				{
-					bool broadcast = rdc_getmsgint(msg, sizeof(broadcast));
-					rdc_getmsgend(msg);
 					elog(LOG,
 						 "recv CLOSE message from" RDC_PORT_PRINT_FORMAT,
 						 RDC_PORT_PRINT_VALUE(work_port));
-
-					/*
-					 * get CLOSE message from PLAN, so increase the
-					 * number of receiving from PLAN.
-					 */
-					pln_port->recv_from_pln++;
 
 					/*
 					 * do not wait read events on socket of port as
@@ -251,8 +223,7 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 					quit = true;	/* break while */
 					res = EOF;
 
-					if (broadcast)
-						(void) SendPlanCloseToRdc(RdcPeerID(work_port));
+					(void) SendPlanCloseToRdc(msg, RdcPeerID(work_port));
 				}
 				break;
 			case MSG_ERROR:
@@ -800,36 +771,18 @@ SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id)
  * return 1 if some data unsent.
  */
 static int
-SendPlanDataToRdc(RdcPort *rdc_port, RdcPortId planid, const char *data, int datalen)
+SendPlanDataToRdc(StringInfo msg, RdcPortId planid)
 {
-	StringInfoData		buf;
-	int					ret;
+	int			datalen;
+	const char *data;
 
-	AssertArg(data);
-	Assert(datalen > 0);
-	Assert(ReduceTypeIDIsValid(rdc_port));
+	AssertArg(msg);
 
-	/*
-	 * return if port is marked invalid
-	 * (flag of port is not RDC_FLAG_VALID)
-	 */
-	if (!PortIsValid(rdc_port))
-		return 0;
+	/* data length and data */
+	datalen = rdc_getmsgint(msg, sizeof(datalen));
+	data = rdc_getmsgbytes(msg, datalen);
 
-	rdc_beginmessage(&buf, MSG_R2R_DATA);
-	rdc_sendRdcPortID(&buf, planid);
-	rdc_sendbytes(&buf, data, datalen);
-	rdc_endmessage(rdc_port, &buf);
-
-	ret = rdc_try_flush(rdc_port);
-	/* trouble will be checked */
-	CHECK_FOR_INTERRUPTS();
-	if (ret != 0)
-		RdcWaitEvents(rdc_port) |= WT_SOCK_WRITEABLE;
-	else
-		RdcWaitEvents(rdc_port) &= ~WT_SOCK_WRITEABLE;
-
-	return ret;
+	return BroadcastDataToRdc(msg, planid, MSG_R2R_DATA, data, datalen, false);
 }
 
 /*
@@ -841,19 +794,9 @@ SendPlanDataToRdc(RdcPort *rdc_port, RdcPortId planid, const char *data, int dat
  * return 1 if some data unsent.
  */
 static int
-SendPlanEofToRdc(RdcPortId planid)
+SendPlanEofToRdc(StringInfo msg, RdcPortId planid)
 {
-	StringInfoData	buf;
-
-	rdc_beginmessage(&buf, MSG_EOF);
-	rdc_sendRdcPortID(&buf, planid);
-	rdc_sendlength(&buf);
-
-	elog(LOG,
-		 "broadcast EOF message of" PLAN_PORT_PRINT_FORMAT " to reduce group",
-		 planid);
-
-	return BroadcastDataToRdc(&buf, false);
+	return BroadcastDataToRdc(msg, planid, MSG_EOF, NULL, 0, false);
 }
 
 /*
@@ -865,19 +808,9 @@ SendPlanEofToRdc(RdcPortId planid)
  * return 1 if some data unsent.
  */
 static int
-SendPlanCloseToRdc(RdcPortId planid)
+SendPlanCloseToRdc(StringInfo msg, RdcPortId planid)
 {
-	StringInfoData	buf;
-
-	rdc_beginmessage(&buf, MSG_PLAN_CLOSE);
-	rdc_sendRdcPortID(&buf, planid);
-	rdc_sendlength(&buf);
-
-	elog(LOG,
-		 "broadcast CLOSE message of" PLAN_PORT_PRINT_FORMAT " to reduce group",
-		 planid);
-
-	return BroadcastDataToRdc(&buf, false);
+	return BroadcastDataToRdc(msg, planid, MSG_PLAN_CLOSE, NULL, 0, false);
 }
 
 /*
@@ -889,28 +822,77 @@ SendPlanCloseToRdc(RdcPortId planid)
  * return 1 if some data unsent.
  */
 static int
-BroadcastDataToRdc(StringInfo buf, bool flush)
+BroadcastDataToRdc(StringInfo msg,
+				   RdcPortId planid,
+				   char msg_type,
+				   const char *msg_data,
+				   int msg_len,
+				   bool flush)
 {
-	int				i;
-	int				rdc_num = MyRdcOpts->rdc_num;
-	RdcNode		   *rdc_nodes = MyRdcOpts->rdc_nodes;
-	RdcNode		   *rdc_node = NULL;
+	RdcPortId		rid;
 	RdcPort		   *rdc_port;
+	int				num, i;
 	int				ret;
 	int				res = 0;
+	const char	   *log_str;
 
-	for (i = 0; i < rdc_num; i++)
+	AssertArg(msg);
+
+	if (rdc_buf == NULL)
 	{
-		rdc_node = &(rdc_nodes[i]);
-		rdc_port = rdc_node->port;
+		MemoryContext oldcontext;
+		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+		rdc_buf = makeStringInfo();
+		(void) MemoryContextSwitchTo(oldcontext);
+	}
+	resetStringInfo(rdc_buf);
 
-		if (RdcNodeID(rdc_node) == MyReduceId ||	/* skip self reduce */
-			rdc_port == NULL ||						/* skip null reduce port */
-			!PortIsValid(rdc_port))					/* skip invalid reduce port */
+	/* makeup packet to broadcast */
+	rdc_beginmessage(rdc_buf, msg_type);
+	rdc_sendRdcPortID(rdc_buf, planid);
+	switch (msg_type)
+	{
+		case MSG_EOF:
+			log_str = "EOF message";
+			Assert(!msg_data && !msg_len);
+			break;
+		case MSG_PLAN_CLOSE:
+			log_str = "CLOSE message";
+			Assert(!msg_data && !msg_len);
+			break;
+		case MSG_R2R_DATA:
+			log_str = NULL;
+			Assert(msg_data && msg_len > 0);
+			rdc_sendbytes(rdc_buf, msg_data, msg_len);
+			break;
+		default:
+			Assert(false);
+			break;
+	}
+	rdc_sendlength(rdc_buf);
+
+	/* parse reduce nodes which will be broadcasted */
+	num = rdc_getmsgint(msg, sizeof(num));
+	for (i = 0; i < num; i++)
+	{
+		rid = rdc_getmsgRdcPortID(msg);
+		if (rid == MyReduceId)
+			continue;
+		rdc_port = LookUpReducePort(rid);
+
+		/*
+		 * return if port is marked invalid
+		 * (flag of port is not RDC_FLAG_VALID)
+		 */
+		if (!PortIsValid(rdc_port))
 			continue;
 
-		Assert(RdcPeerID(rdc_port) != MyReduceId);
-		rdc_putmessage(rdc_port, buf->data, buf->len);
+		rdc_putmessage(rdc_port, rdc_buf->data, rdc_buf->len);
+
+		if (log_str)
+			elog(LOG,
+				 "send %s of" PLAN_PORT_PRINT_FORMAT " to" RDC_PORT_PRINT_FORMAT,
+				 log_str, planid, RDC_PORT_PRINT_VALUE(rdc_port));
 
 		if (flush)
 			ret = rdc_flush(rdc_port);
@@ -928,8 +910,7 @@ BroadcastDataToRdc(StringInfo buf, bool flush)
 				RdcWaitEvents(rdc_port) &= ~WT_SOCK_WRITEABLE;
 		}
 	}
-	pfree(buf->data);
-	buf->data = NULL;
+	rdc_getmsgend(msg);
 
 	return res;
 }

@@ -29,11 +29,11 @@ extern void EndSelfReduceGroup(void);
 
 extern List *GetReduceGroup(void);
 
-extern void SendPlanCloseToSelfReduce(RdcPort *port, bool broadcast);
+extern void SendPlanCloseToSelfReduce(RdcPort *port, List *dest_nodes);
 
-extern void SendEofToRemote(RdcPort *port);
+extern void SendEofToRemote(RdcPort *port, List *dest_nodes);
 
-extern void SendSlotToRemote(RdcPort *port, List *destNodes, TupleTableSlot *slot);
+extern void SendSlotToRemote(RdcPort *port, List *dest_nodes, TupleTableSlot *slot);
 
 extern TupleTableSlot* GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot,
 										 Oid *slot_oid, Oid *eof_oid,

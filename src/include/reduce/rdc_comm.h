@@ -248,6 +248,8 @@ extern int rdc_discardbytes(RdcPort *port, size_t len);
 extern int rdc_getmessage(RdcPort *port, size_t maxlen);
 extern int rdc_set_block(RdcPort *port);
 extern int rdc_set_noblock(RdcPort *port);
+extern void rdc_set_opt(RdcPort *port, int level, int optname, const void *optval, socklen_t optlen);
+extern void rdc_get_opt(RdcPort *port, int level, int optname, void *optval, socklen_t *optlen);
 extern const char *rdc_geterror(RdcPort *port);
 
 /* -----------Reduce format functions---------------- */

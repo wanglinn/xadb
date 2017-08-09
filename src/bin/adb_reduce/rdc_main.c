@@ -457,9 +457,11 @@ ReduceListen(void)
 		}
 		MyListenPort = ntohs(addr_inet.sin_port);
 		listen_host = inet_ntoa(addr_inet.sin_addr);
-		elog(LOG, "listen on {%s:%d}", listen_host, MyListenPort);
 	}
 	MyListenSock = fd;
+
+	elog(LOG, "[REDUCE " PORTID_FORMAT "] listen on {%s:%d}",
+		MyReduceId, listen_host, MyListenPort);
 
 	/* OK */
 	return ;
