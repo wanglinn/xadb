@@ -2246,6 +2246,13 @@ SS_charge_for_initplans(PlannerInfo *root, RelOptInfo *final_rel)
 void
 SS_attach_initplans(PlannerInfo *root, Plan *plan)
 {
+#ifdef ADB
+	/* we need send initPlan to remote */
+	if (IsA(plan, ClusterGather) ||
+		IsA(plan, ClusterMergeGather))
+		outerPlan(plan)->initPlan = root->init_plans;
+	else
+#endif /* ADB */
 	plan->initPlan = root->init_plans;
 }
 
@@ -2262,6 +2269,15 @@ void
 SS_finalize_plan(PlannerInfo *root, Plan *plan)
 {
 	/* No setup needed, just recurse through plan tree. */
+#ifdef ADB
+	if (IsA(plan, ClusterGather) ||
+		IsA(plan, ClusterMergeGather))
+	{
+		(void)finalize_plan(root, outerPlan(plan), root->outer_params, NULL);
+		plan->allParam = bms_copy(outerPlan(plan)->allParam);
+		plan->extParam = bms_copy(outerPlan(plan)->extParam);
+	}else
+#endif /* ADB */
 	(void) finalize_plan(root, plan, root->outer_params, NULL);
 }
 
