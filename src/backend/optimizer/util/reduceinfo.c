@@ -454,7 +454,7 @@ extern List* MakeVarList(List *attnos, Index relid, PathTarget *target)
 	List *result = NIL;
 	foreach(lc, attnos)
 	{
-		expr = list_nth(target->exprs, lfirst_int(lc));
+		expr = list_nth(target->exprs, lfirst_int(lc)-1);
 		var = makeVar(relid,
 					  lfirst_int(lc),
 					  exprType((Node*)expr),
