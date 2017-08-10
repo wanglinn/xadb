@@ -34,6 +34,7 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #ifdef ADB
+#include "optimizer/reduceinfo.h"
 #include "pgxc/pgxc.h"
 #endif
 
@@ -565,20 +566,19 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 			Path *cheapest_replicate = NULL;
 			Path *path;
 			ListCell *lc;
-			ReduceExprInfo *rinfo = NULL;
+			ReduceInfo *rinfo = NULL;
 
 			foreach(lc, final_rel->cluster_pathlist)
 			{
 				path = lfirst(lc);
 				if(path_tree_have_exec_param(path, subroot))
 					continue;
-				if(!is_reduce_replacate_list(get_reduce_info_list(path)))
+				if(!IsReduceInfoListReplicated(get_reduce_info_list(path)))
 				{
 					if(rinfo == NULL)
 					{
-						rinfo = palloc0(sizeof(*rinfo));
 						/* for now just reduce to InvalidOid, before create plan change it */
-						rinfo->expr = MakeReduceReplicateExpr(list_make1_oid(InvalidOid));
+						rinfo = MakeReplicateReduceInfo(list_make1_oid(InvalidOid));
 					}
 					path = create_cluster_reduce_path(root, path, list_make1(rinfo), final_rel, NIL);
 				}

@@ -58,6 +58,7 @@
 #include "catalog/pg_namespace.h"
 #include "pgxc/pgxc.h"
 #include "optimizer/pgxcplan.h"
+#include "optimizer/reduceinfo.h"
 #include "utils/fmgroids.h"
 #endif
 
@@ -168,9 +169,6 @@ static PathTarget *make_sort_input_target(PlannerInfo *root,
 					   bool *have_postponed_srfs);
 #ifdef ADB
 static void separate_rowmarks(PlannerInfo *root);
-static bool can_once_grouping_cluster_path(PathTarget *target, Path *path);
-static bool can_once_distinct_cluster_reduce_list(List *distinct, List *reduce_list);
-static bool can_once_distinct_cluster_reduce(List *distinct, ReduceExprInfo *reduce_info);
 static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path);
 static bool is_remote_relation(PlannerInfo *root, Index relid);
 #endif
@@ -352,12 +350,12 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 			if(IsA(path, ClusterReducePath))
 			{
 				/* change replicate to all remote nodes */
-				ReduceExprInfo *rinfo;
+				ReduceInfo *rinfo;
 				Assert(path->reduce_is_valid &&
-					   is_reduce_replacate_list(path->reduce_info_list));
+					   IsReduceInfoListReplicated(path->reduce_info_list));
 
 				rinfo = linitial(path->reduce_info_list);
-				rinfo->expr = MakeReduceReplicateExpr(nodeOids);
+				rinfo->storage_nodes = nodeOids;
 			}
 
 			if (bms_is_member(sub_plan_id, glob->rewindPlanIDs) &&
@@ -4206,7 +4204,7 @@ create_grouping_paths(PlannerInfo *root,
 														path,
 														root->group_pathkeys,
 														-1.0);
-					only_once = can_once_grouping_cluster_path(target, path);
+					only_once = CanOnceGroupingClusterPath(target, path);
 
 					if (parse->hasAggs)
 						path = (Path*)create_agg_path(root,
@@ -4252,7 +4250,7 @@ create_grouping_paths(PlannerInfo *root,
 					{
 						path = create_cluster_reduce_path(root,
 														  path,
-														  list_make1(make_reduce_coord()),
+														  list_make1(MakeCoordinatorReduceInfo()),
 														  grouped_rel,
 														  path->pathkeys);
 						/* now we not have reduce merge path,so we sort again */
@@ -4302,7 +4300,7 @@ create_grouping_paths(PlannerInfo *root,
 			/* Checked above */
 			Assert(parse->hasAggs || parse->groupClause);
 
-			only_once = can_once_grouping_cluster_path(target, cheapest_cluster_path);
+			only_once = CanOnceGroupingClusterPath(target, cheapest_cluster_path);
 
 			if(only_once || grouped_rel->cluster_pathlist == NIL)
 			{
@@ -4351,7 +4349,7 @@ create_grouping_paths(PlannerInfo *root,
 				{
 					path = create_cluster_reduce_path(root,
 													  path,
-													  list_make1(make_reduce_coord()),
+													  list_make1(MakeCoordinatorReduceInfo()),
 													  grouped_rel,
 													  NIL);
 				}
@@ -4729,10 +4727,10 @@ create_distinct_paths(PlannerInfo *root,
 			Path	   *path = (Path*) lfirst(lc);
 			List	   *reduce_list = get_reduce_info_list(path);
 
-			if (is_reduce_to_coord_list(reduce_list) ||
-				is_reduce_replacate_list(reduce_list) ||
-				is_reduce_in_one_node(reduce_list) ||
-				can_once_distinct_cluster_reduce_list(distinctExprs, reduce_list))
+			if (IsReduceInfoListCoordinator(reduce_list) ||
+				IsReduceInfoListReplicated(reduce_list) ||
+				IsReduceInfoListInOneNode(reduce_list) ||
+				CanOnceDistinctReduceInfoList(distinctExprs, reduce_list))
 			{
 				if (!pathkeys_contained_in(root->distinct_pathkeys, path->pathkeys))
 					path = (Path*) create_sort_path(root,
@@ -4806,10 +4804,10 @@ create_distinct_paths(PlannerInfo *root,
 			Path	   *path = (Path*) lfirst(lc);
 			List	   *reduce_list = get_reduce_info_list(path);
 
-			if (is_reduce_to_coord_list(reduce_list) ||
-				is_reduce_replacate_list(reduce_list) ||
-				is_reduce_in_one_node(reduce_list) ||
-				can_once_distinct_cluster_reduce_list(distinctExprs,reduce_list))
+			if (IsReduceInfoListCoordinator(reduce_list) ||
+				IsReduceInfoListReplicated(reduce_list) ||
+				IsReduceInfoListInOneNode(reduce_list) ||
+				CanOnceDistinctReduceInfoList(distinctExprs, reduce_list))
 			{
 				path = (Path*)create_agg_path(root,
 											  distinct_rel,
@@ -4837,7 +4835,7 @@ create_distinct_paths(PlannerInfo *root,
 			Path	   *path = (Path*) lfirst(lc);
 			Path	   *reduce = create_cluster_reduce_path(root,
 															path,
-															list_make1(make_reduce_coord()),
+															list_make1(MakeCoordinatorReduceInfo()),
 															input_rel,
 															NIL);
 
@@ -5971,70 +5969,11 @@ plan_cluster_use_sort(Oid tableOid, Oid indexOid)
 }
 
 #ifdef ADB
-static bool can_once_grouping_cluster_path(PathTarget *target, Path *path)
-{
-	List *list;
-	ListCell *lc;
-	ReduceExprInfo *info;
-	bool result = false;
-
-	list = get_reduce_info_list(path);
-	foreach(lc, list)
-	{
-		info = lfirst(lc);
-		if (IsReduce2Coordinator(info->expr)  ||
-			IsReduceReplicateExpr(info->expr) ||
-			list_length(info->execList) == 1  ||
-			is_grouping_reduce_expr(target, info))
-		{
-			result = true;
-			break;
-		}
-	}
-
-	return result;
-}
-
-static bool can_once_distinct_cluster_reduce_list(List *distinct, List *reduce_list)
-{
-	ListCell *lc_reduce;
-	foreach(lc_reduce, reduce_list)
-	{
-		if(can_once_distinct_cluster_reduce(distinct, lfirst(lc_reduce)))
-			return true;
-	}
-	return false;
-}
-
-static bool can_once_distinct_cluster_reduce(List *distinct, ReduceExprInfo *reduce_info)
-{
-	Bitmapset *bms_hint;
-	ListCell *lc_distinct;
-	bool result;
-
-	if(IsReduceExprByValue(reduce_info->expr) == false)
-		false;
-
-	bms_hint = NULL;
-	foreach(lc_distinct, distinct)
-	{
-		Expr *expr = lfirst(lc_distinct);
-		while(IsA(expr, RelabelType))
-			expr = ((RelabelType *) expr)->arg;
-		if(IsA(expr, Var))
-			pull_varattnos((Node*)expr, reduce_info->relid, &bms_hint);
-	}
-	result = bms_is_subset(reduce_info->varattnos, bms_hint);
-	bms_free(bms_hint);
-	return result;
-}
-
 static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path)
 {
-	ReduceExprInfo *reduce_info;
+	ReduceInfo *reduce_info;
 	RelationLocInfo *loc_info;
 	List *reduce_list;
-	ListCell *lc;
 
 	if (rel_id < root->simple_rel_array_size &&
 		root->simple_rel_array[rel_id] != NULL)
@@ -6060,50 +5999,72 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 	reduce_list = get_reduce_info_list(path);
 	if(IsRelationReplicated(loc_info))
 	{
-		if (is_reduce_replacate_list(reduce_list))
+		if (IsReduceInfoListReplicated(reduce_list))
 		{
-			List *sub_nodes;
 			List *to_nodes;
-			Expr *to_expr;
 			reduce_info = linitial(reduce_list);
-			sub_nodes = ReduceReplicateExprGetList(reduce_info->expr);
-			to_expr = MakeReduceReplicateExpr(loc_info->nodeList);
-			to_nodes = ReduceReplicateExprGetList(to_expr);
-			if(equal(to_nodes, sub_nodes))
+			to_nodes = SortOidList(list_copy(loc_info->nodeList));
+			if(equal(to_nodes, reduce_info->storage_nodes))
+			{
+				list_free(to_nodes);
 				return path;
+			}
 			ereport(ERROR, (errmsg("not support diffent replicate table yet!")));
 		}else
 		{
-			reduce_info = palloc0(sizeof(*reduce_info));
-			reduce_info->expr = MakeReduceReplicateExpr(loc_info->nodeList);
+			reduce_info = MakeReplicateReduceInfo(loc_info->nodeList);
 			path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 		}
 	}
 	else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
 	{
 		ereport(ERROR, (errmsg("not support robin yet!")));
+	}else if(loc_info->locatorType == LOCATOR_TYPE_HASH ||
+			 loc_info->locatorType == LOCATOR_TYPE_MODULO ||
+			 loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
+	{
+		Expr *expr;
+		if (IsReduceInfoListReplicated(reduce_list))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("not support replicate to distribute yet!")));
+		}
+		reduce_info = NULL;
+		if(loc_info->locatorType == LOCATOR_TYPE_HASH)
+		{
+			expr = list_nth(path->pathtarget->exprs, loc_info->partAttrNum - 1);
+			reduce_info = MakeHashReduceInfo(loc_info->nodeList,
+											 NIL,
+											 expr);
+		}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
+		{
+			expr = list_nth(path->pathtarget->exprs, loc_info->partAttrNum - 1);
+			reduce_info = MakeModuloReduceInfo(loc_info->nodeList,
+											   NIL,
+											   expr);
+		}else if(loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
+		{
+			ListCell *lc;
+			List *params = NIL;
+			foreach(lc, loc_info->funcAttrNums)
+			{
+				expr = list_nth(path->pathtarget->exprs, lfirst_int(lc)-1);
+				params = lappend(params, expr);
+			}
+			reduce_info = MakeCustomReduceInfo(loc_info->nodeList,
+											   NIL,
+											   params,
+											   loc_info->funcid,
+											   planner_rt_fetch(rel_id, root)->relid);
+		}
+		Assert(reduce_info);
+		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 	}else
 	{
-		reduce_info = palloc0(sizeof(*reduce_info));
-		if (is_reduce_replacate_list(reduce_list))
-		{
-			ereport(ERROR, (errmsg("not support replicate to hash yet!")));
-		}else
-		{
-			List *exprs = NIL;
-			reduce_info->expr = MakeReducePathExpr(loc_info, RELATION_ACCESS_INSERT, rel_id);
-			if(IsRelationDistributedByUserDefined(loc_info))
-			{
-				foreach(lc, loc_info->funcAttrNums)
-					exprs = lappend(exprs, list_nth(path->pathtarget->exprs, lfirst_int(lc)-1));
-			}else
-			{
-				exprs = list_make1(list_nth(path->pathtarget->exprs, loc_info->partAttrNum-1));
-			}
-			reduce_info->expr = CreateReduceValExprAs(reduce_info->expr, 0, exprs);
-			fill_reduce_expr_info(reduce_info);
-			path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
-		}
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("unknown locator type %d", loc_info->locatorType)));
 	}
 
 	return path;

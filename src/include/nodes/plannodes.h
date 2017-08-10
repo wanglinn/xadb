@@ -891,6 +891,7 @@ typedef struct ClusterReduce
 	Plan		plan;
 	Expr	   *reduce;			/* reduce expr, result NODE Oid(s) */
 	Expr	   *special_reduce;
+	List	   *reduce_oids;
 	Oid			special_node;
 
 	/* remaining fields are just like the sort-key info in struct Sort */

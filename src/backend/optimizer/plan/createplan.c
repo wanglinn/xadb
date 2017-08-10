@@ -49,6 +49,7 @@
 #include "pgxc/pgxc.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/pgxcplan.h"
+#include "optimizer/reduceinfo.h"
 #endif /* ADB */
 
 
@@ -288,9 +289,6 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath *path, int flags);
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
 static bool find_cluster_reduce_expr(Path *path, List **pplist);
-static bool is_reduce_info_can_join(ReduceExprInfo *outer_rinfo, ReduceExprInfo *inner_rinfo, List *restrictlist);
-static bool expr_is_var(Expr *expr, Index relid, int attno);
-static AttrNumber get_target_varattno(PathTarget *target, Index varno, AttrNumber attno);
 #endif /* ADB */
 
 /*
@@ -6433,8 +6431,8 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 		plan->gatherType = CLUSTER_GATHER_ALL;
 	}else
 	{
-		ReduceExprInfo *info = linitial(reduce_info_list);
-		if(IsReduce2Coordinator(info->expr))
+		ReduceInfo *info = linitial(reduce_info_list);
+		if(IsReduceInfoCoordinator(info))
 			plan->gatherType = CLUSTER_GATHER_COORD;
 		else
 			plan->gatherType = CLUSTER_GATHER_ALL;
@@ -6521,560 +6519,30 @@ List *get_reduce_info_list(Path *path)
 	return list;
 }
 
-List* copy_reduce_info_list(List *list)
-{
-	ListCell *lc;
-	List *newList = NIL;
-	foreach(lc, list)
-		newList = lappend(newList, copy_reduce_info(lfirst(lc)));
-	return newList;
-}
-
-List* find_reduce_target(ReduceExprInfo* reduce, PathTarget *target)
-{
-	ListCell *lc_attno;
-	ListCell *lc_target;
-	List *result = NIL;
-	AssertArg(target && reduce);
-	AssertArg(IsReduceExprByValue(reduce->expr) &&
-			  reduce->attnoList != NIL &&
-			  reduce->relid > 0);
-
-	foreach(lc_attno, reduce->attnoList)
-	{
-		int i = 1;
-		foreach(lc_target, target->exprs)
-		{
-			if (expr_is_var(lfirst(lc_target),reduce->relid,lfirst_int(lc_attno)))
-			{
-				result = lappend_int(result, i);
-				break;
-			}
-			++i;
-		}
-		if(lc_target == NULL)
-		{
-			list_free(result);
-			return NIL;
-		}
-	}
-	return result;
-}
-
-bool is_reduce_replacate_list(List *list)
-{
-	ListCell *lc;
-	bool result = false;
-	foreach(lc, list)
-	{
-		ReduceExprInfo *rinfo = lfirst(lc);
-		if(IsReduceReplicateExpr(rinfo->expr))
-		{
-			result = true;
-			Assert(list_length(list) == 1);
-			break;
-		}
-	}
-	return result;
-}
-
-bool is_reduce_by_value_list(List *list)
-{
-	ReduceExprInfo *info;
-	ListCell *lc;
-	bool result;
-	if(list == NIL)
-		return false;
-
-	result = true;
-	foreach(lc, list)
-	{
-		info = lfirst(lc);
-		if(IsReduceExprByValue(info->expr) == false)
-		{
-			result = false;
-			break;
-		}
-	}
-
-	return result;
-}
-
-bool is_reduce_to_coord_list(List *list)
-{
-	ReduceExprInfo *info;
-	ListCell *lc;
-	bool result;
-	if(list == NIL)
-		return false;
-
-	result = false;
-	foreach(lc, list)
-	{
-		info = lfirst(lc);
-		if(IsReduce2Coordinator(info->expr) == true)
-		{
-			Assert(list_length(list) == 1);
-			result = true;
-			break;
-		}
-	}
-
-	return result;
-}
-
-bool is_reduce_in_one_node(List *list)
-{
-	ReduceExprInfo *info;
-	ListCell *lc;
-	foreach(lc, list)
-	{
-		info = lfirst(lc);
-		if(list_length(info->execList) == 1)
-			return true;
-	}
-	return false;
-}
-
-ReduceExprInfo* copy_reduce_info(const ReduceExprInfo *info)
-{
-	AssertArg(info);
-	ReduceExprInfo *newInfo = palloc(sizeof(*info));
-	newInfo->expr = info->expr;
-	newInfo->relid = info->relid;
-	newInfo->varattnos = bms_copy(info->varattnos);
-	newInfo->attnoList = list_copy(info->attnoList);
-	newInfo->execList = list_copy(info->execList);
-	return newInfo;
-}
-
-ReduceExprInfo* make_reduce_coord(void)
-{
-	ReduceExprInfo *rinfo = palloc0(sizeof(*rinfo));
-	rinfo->expr = MakeReduce2CoordinatorExpr();
-	Assert(OidIsValid(PGXCNodeOid));
-	rinfo->execList = list_make1_oid(PGXCNodeOid);
-	return rinfo;
-}
-
-bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info)
-{
-	Bitmapset *group_attnos;
-	ListCell *lc;
-	Index i;
-	bool result;
-	AssertArg(target && info);
-
-	if(info->expr == NULL || target->sortgrouprefs == NULL)
-		return false;
-	if(IsReduce2Coordinator(info->expr))
-		return true;
-	if(IsReduceExprByValue(info->expr) == false)
-		return false;
-
-	AssertArg(info->relid > 0 && info->varattnos != NULL);
-
-	i=0;
-	group_attnos = NULL;
-	foreach(lc, target->exprs)
-	{
-		if (target->sortgrouprefs[i])
-		{
-			Expr *expr = lfirst(lc);
-			while(IsA(expr, RelabelType))
-				expr = ((RelabelType *) expr)->arg;
-			if(IsA(expr, Var))	/* must group by Var */
-				pull_varattnos((Node*)expr, info->relid, &group_attnos);
-		}
-		++i;
-	}
-
-	result = bms_is_subset(info->varattnos, group_attnos);
-	bms_free(group_attnos);
-	return result;
-}
-
-bool is_reduce_list_can_inner_join(List *outer_reduce_list,
-							List *inner_reduce_list,
-							List *restrictlist)
-{
-	ListCell *outer_lc,*inner_lc;
-	ReduceExprInfo *outer_reduce;
-	ReduceExprInfo *inner_reduce;
-
-	foreach(outer_lc, outer_reduce_list)
-	{
-		outer_reduce = lfirst(outer_lc);
-		AssertArg(outer_reduce);
-		if(IsReduceReplicateExpr(outer_reduce->expr))
-			return true;
-
-		foreach(inner_lc, inner_reduce_list)
-		{
-			inner_reduce = lfirst(inner_lc);
-			AssertArg(inner_reduce);
-			if (IsReduceReplicateExpr(inner_reduce->expr) ||
-				(IsReduce2Coordinator(outer_reduce->expr) && IsReduce2Coordinator(inner_reduce->expr)))
-				return true;
-			if (!IsReduce2Coordinator(outer_reduce->expr) &&
-				/* !IsReduce2Coordinator(inner_reduce->expr) && // don't need this line */
-				equal(outer_reduce->expr, inner_reduce->expr) &&
-				list_length(outer_reduce->execList) == 1 &&
-				equal(outer_reduce->execList, inner_reduce->execList))
-				return true;
-			if (equal(outer_reduce->expr, inner_reduce->expr) &&
-				is_reduce_info_can_join(outer_reduce, inner_reduce, restrictlist))
-				return true;
-		}
-	}
-
-	return false;
-}
-
-bool
-is_reduce_list_can_left_or_right_join(List *outer_reduce_list,
-									  List *inner_reduce_list,
-									  List *restrictlist)
-{
-	List *outer_nodes = NIL;
-	List *inner_nodes = NIL;
-	List *intersection_nodes = NIL;
-	bool  res = true;
-	ListCell *lc;
-	ReduceExprInfo *reduce_info;
-
-	foreach (lc, outer_reduce_list)
-	{
-		reduce_info = (ReduceExprInfo *) lfirst(lc);
-		Assert(reduce_info);
-		/* do not support left/right join if outer is replicatable */
-		if (IsReduceReplicateExpr(reduce_info->expr))
-		{
-			list_free(outer_nodes);
-			return false;
-		}
-		if (outer_nodes == NIL)
-			outer_nodes = list_copy(reduce_info->execList);
-		else
-			outer_nodes = list_intersection_oid(outer_nodes, reduce_info->execList);
-	}
-
-	foreach (lc, inner_reduce_list)
-	{
-		reduce_info = (ReduceExprInfo *) lfirst(lc);
-		Assert(reduce_info);
-		/* do not support left/right join if inner is replicatable */
-		if (IsReduceReplicateExpr(reduce_info->expr))
-		{
-			list_free(outer_nodes);
-			list_free(inner_nodes);
-			return false;
-		}
-		if (inner_nodes == NIL)
-			inner_nodes = list_copy(reduce_info->execList);
-		else
-			inner_nodes = list_intersection_oid(inner_nodes, reduce_info->execList);
-	}
-
-	intersection_nodes = list_intersection_oid(outer_nodes, inner_nodes);
-	if (list_length(intersection_nodes) == 1)
-		res = false;
-
-	list_free(outer_nodes);
-	list_free(inner_nodes);
-	list_free(intersection_nodes);
-
-	return res;
-}
-
-bool
-can_make_semi_anti_cluster_join_path(PlannerInfo *root, SemiAntiJoinContext *context)
-{
-	RestrictInfo   *ri;
-	ReduceExprInfo *outer_reduce;
-	ReduceExprInfo *inner_reduce;
-	ListCell	   *ri_lc;
-	ListCell	   *outer_lc;
-	ListCell	   *inner_lc;
-	Expr		   *lexpr;
-	Expr		   *rexpr;
-	Path		   *outer_path = NULL;
-	Path		   *inner_path = NULL;
-	List		   *outer_nodes = NIL;
-	List		   *inner_nodes = NIL;
-	List		   *outer_reduce_list = NIL;
-	List		   *inner_reduce_list = NIL;
-
-	AssertArg(context);
-	outer_reduce_list = context->outer_reduce_list;
-	inner_reduce_list = context->inner_reduce_list;
-	outer_path = context->outer_path;
-	inner_path = context->inner_path;
-
-	foreach (outer_lc, outer_reduce_list)
-	{
-		outer_reduce = (ReduceExprInfo *) lfirst(outer_lc);
-		Assert(outer_reduce);
-		/* do not support semi/anti join if outer is replicatable */
-		if (IsReduceReplicateExpr(outer_reduce->expr))
-			return false;
-		outer_nodes = outer_reduce->execList;
-
-		foreach (inner_lc, inner_reduce_list)
-		{
-			inner_reduce = (ReduceExprInfo *) lfirst(inner_lc);
-			Assert(inner_reduce);
-			if (IsReduceReplicateExpr(inner_reduce->expr))
-			{
-				List *diff_nodes = NIL;
-				inner_nodes = inner_reduce->execList;
-				diff_nodes = list_difference_oid(outer_nodes, inner_nodes);
-				if (diff_nodes != NIL)
-				{
-					list_free(diff_nodes);
-					return false;
-				}
-				return true;
-			}
-
-			if (IsReduce2Coordinator(outer_reduce->expr) &&
-				IsReduce2Coordinator(inner_reduce->expr))
-				return true;
-
-			if (equal(outer_reduce->expr, inner_reduce->expr) &&
-				IsReduceExprByValue(outer_reduce->expr) &&
-				IsReduceExprByValue(inner_reduce->expr))
-			{
-				Assert(bms_membership(outer_reduce->varattnos) != BMS_EMPTY_SET);
-				Assert(bms_num_members(outer_reduce->varattnos) ==
-					   bms_num_members(inner_reduce->varattnos));
-
-				if (bms_membership(outer_reduce->varattnos) != BMS_SINGLETON)
-					continue;
-
-				foreach (ri_lc, context->restrict_list)
-				{
-					ri = lfirst(ri_lc);
-
-					/* only support X=X expression */
-					if (!is_opclause(ri->clause) ||
-						!op_is_equivalence(((OpExpr *)(ri->clause))->opno) ||
-						bms_membership(ri->left_relids) != BMS_SINGLETON ||
-						bms_membership(ri->right_relids) != BMS_SINGLETON)
-						continue;
-
-					lexpr = (Expr*)get_leftop(ri->clause);
-					rexpr = (Expr*)get_rightop(ri->clause);
-
-					while(IsA(lexpr, RelabelType))
-						lexpr = ((RelabelType *) lexpr)->arg;
-					while(IsA(rexpr, RelabelType))
-						rexpr = ((RelabelType *) rexpr)->arg;
-
-					Assert(bms_membership(inner_reduce->varattnos) == BMS_SINGLETON);
-					if ((expr_is_var(lexpr, inner_reduce->relid, bms_next_member(inner_reduce->varattnos, -1)) &&
-						 expr_is_var(rexpr, outer_reduce->relid, bms_next_member(outer_reduce->varattnos, -1))) ||
-						(expr_is_var(rexpr, inner_reduce->relid, bms_next_member(inner_reduce->varattnos, -1)) &&
-						 expr_is_var(lexpr, outer_reduce->relid, bms_next_member(inner_reduce->varattnos, -1))))
-						return true;
-				}
-			}
-		}
-	}
-
-	/* reduce to coordinator */
-	context->outer_path = create_cluster_reduce_path(root,
-													 outer_path,
-													 list_make1(make_reduce_coord()),
-													 context->outer_rel,
-													 NIL);
-	context->inner_path = create_cluster_reduce_path(root,
-													 inner_path,
-													 list_make1(make_reduce_coord()),
-													 context->inner_rel,
-													 NIL);
-
-	return true;
-}
-
-static bool is_reduce_info_can_join(ReduceExprInfo *outer_rinfo, ReduceExprInfo *inner_rinfo, List *restrictlist)
-{
-	Expr *left_expr;
-	Expr *right_expr;
-	RestrictInfo *ri;
-	ListCell *lc;
-
-	AssertArg(outer_rinfo && inner_rinfo);
-
-	/* for now support only one distribute cloumn */
-	if(bms_membership(outer_rinfo->varattnos) == BMS_MULTIPLE)
-		return false;
-
-	if (IsReduce2Coordinator(outer_rinfo->expr) &&
-		IsReduce2Coordinator(inner_rinfo->expr))
-		return true;
-	if (equal(outer_rinfo->expr, inner_rinfo->expr) == false ||
-		!IsReduceExprByValue(outer_rinfo->expr) ||
-		!IsReduceExprByValue(inner_rinfo->expr))
-		return false;
-
-	Assert(bms_membership(outer_rinfo->varattnos) != BMS_EMPTY_SET);
-	Assert(bms_num_members(outer_rinfo->varattnos) == bms_num_members(inner_rinfo->varattnos));
-
-	foreach(lc, restrictlist)
-	{
-		ri = lfirst(lc);
-
-		/* only support X=X expression */
-		if (!is_opclause(ri->clause) ||
-			!op_is_equivalence(((OpExpr *)(ri->clause))->opno) ||
-			bms_membership(ri->left_relids) != BMS_SINGLETON ||
-			bms_membership(ri->right_relids) != BMS_SINGLETON)
-			continue;
-
-		left_expr = (Expr*)get_leftop(ri->clause);
-		right_expr = (Expr*)get_rightop(ri->clause);
-
-		while(IsA(left_expr, RelabelType))
-			left_expr = ((RelabelType *) left_expr)->arg;
-		while(IsA(right_expr, RelabelType))
-			right_expr = ((RelabelType *) right_expr)->arg;
-
-		Assert(bms_membership(inner_rinfo->varattnos) == BMS_SINGLETON);
-		if ((expr_is_var(left_expr, inner_rinfo->relid, bms_next_member(inner_rinfo->varattnos, -1)) &&
-				expr_is_var(right_expr, outer_rinfo->relid, bms_next_member(outer_rinfo->varattnos, -1)))
-			|| (expr_is_var(right_expr, inner_rinfo->relid, bms_next_member(inner_rinfo->varattnos, -1)) &&
-				expr_is_var(left_expr, outer_rinfo->relid, bms_next_member(outer_rinfo->varattnos, -1))))
-		{
-			return true;
-		}
-	}
-
-	return false;
-}
-
-static bool expr_is_var(Expr *expr, Index relid, int attno)
-{
-	if (IsA(expr, Var) &&
-		((Var*)expr)->varno == relid &&
-		((Var*)expr)->varattno == attno + FirstLowInvalidHeapAttributeNumber)
-		return true;
-	return false;
-}
-
-List *find_join_equal_exprs(ReduceExprInfo *rinfo, List *restrictlist, RelOptInfo *inner_rel)
-{
-	ListCell *lc_restrict;
-	ListCell *lc_attno;
-	List *result;
-	RestrictInfo *ri;
-	Expr *left_expr;
-	Expr *right_expr;
-	Bitmapset *bms_found;
-	Relids right_relids;
-	if(restrictlist == NIL)
-		return NIL;
-
-	AssertArg(IsReduceExprByValue(rinfo->expr));
-	AssertArg(rinfo->relid != 0 && rinfo->varattnos != NULL);
-
-	result = NIL;
-	bms_found = NULL;
-	foreach(lc_restrict, restrictlist)
-	{
-		ri = lfirst(lc_restrict);
-
-		/* only support X=X expression */
-		if (!is_opclause(ri->clause) ||
-			!op_is_equivalence(((OpExpr *)(ri->clause))->opno) ||
-			bms_membership(ri->left_relids) != BMS_SINGLETON ||
-			bms_membership(ri->right_relids) != BMS_SINGLETON)
-			continue;
-
-		if(bms_next_member(ri->left_relids, -1) == rinfo->relid)
-		{
-			left_expr = (Expr*)get_leftop(ri->clause);
-			right_expr = (Expr*)get_rightop(ri->clause);
-			right_relids = ri->right_relids;
-		}else if(bms_next_member(ri->right_relids, -1) == rinfo->relid)
-		{
-			left_expr = (Expr*)get_rightop(ri->clause);
-			right_expr = (Expr*)get_leftop(ri->clause);
-			right_relids = ri->left_relids;
-		}else
-		{
-			/* not found */
-			continue;
-		}
-
-		while(IsA(left_expr, RelabelType))
-			left_expr = ((RelabelType *) left_expr)->arg;
-
-		foreach(lc_attno, rinfo->attnoList)
-		{
-			if(bms_is_member(lfirst_int(lc_attno), bms_found))
-				continue;
-			if (expr_is_var(left_expr, rinfo->relid, lfirst_int(lc_attno)) &&
-				bms_is_subset(right_relids, inner_rel->relids))
-			{
-				while(IsA(right_expr, RelabelType))
-					right_expr = ((RelabelType *) right_expr)->arg;
-				result = lappend(result, right_expr);
-				bms_found = bms_add_member(bms_found, lfirst_int(lc_attno));
-				break;
-			}
-		}
-
-		if(bms_equal(bms_found, rinfo->varattnos))
-		{
-			/* all found */
-			Assert(list_length(rinfo->attnoList) == list_length(result));
-			bms_free(bms_found);
-			return result;
-		}
-	}
-
-	bms_free(bms_found);
-	list_free(result);
-	return result;
-}
-
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags)
 {
 	Plan *subplan;
-	ReduceExprInfo *to;
+	ReduceInfo *to;
 	ClusterReduce *plan;
 	List *reduce_list;
 	ListCell *lc;
-	ReduceExprInfo *info;
+	ReduceInfo *info;
 
 	Assert(list_length(path->path.reduce_info_list) == 1);
-	Assert (!IsA(path->subpath, ClusterReducePath));
+	Assert(!IsA(path->subpath, ClusterReducePath));
 	to = linitial(path->path.reduce_info_list);
 	reduce_list = get_reduce_info_list(path->subpath);
 	foreach(lc, reduce_list)
 	{
 		info = lfirst(lc);
-		if(equal(info->expr, to->expr))
-		{
-			if(IsReduceExprByValue(info->expr))
-			{
-				Assert(info->relid != 0 && to->relid != 0);
-				Assert(info->varattnos != NULL && to->varattnos != NULL);
-				if (bms_equal(info->varattnos, to->varattnos))
-				{
-					return create_plan_recurse(root, path->subpath, flags);
-				}
-			}else
-			{
-				return create_plan_recurse(root, path->subpath, flags);
-			}
-		}
+		if(IsReduceInfoEqual(info, to))
+			return create_plan_recurse(root, path->subpath, flags);
 	}
 
 	plan = makeNode(ClusterReduce);
 	outerPlan(plan) = subplan = create_plan_recurse(root, path->subpath, flags);
-	plan->reduce = ReducePathExpr2PlanExpr(to->expr);
+	plan->reduce = CreateExprUsingReduceInfo(to);
+	plan->reduce_oids = list_copy(to->storage_nodes);
 	copy_generic_path_info((Plan*)plan, (Path*)path);
 	plan->plan.targetlist = subplan->targetlist;
 
@@ -7126,25 +6594,27 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 	case T_GroupPath:
 	case T_AggPath:
 		{
-			ReduceExprInfo *rinfo;
+			ReduceInfo *rinfo;
 			bool copy;
 			foreach(lc, *pplist)
 			{
 				rinfo = lfirst(lc);
 				copy = false;
-				if(IsReduceExprByValue(rinfo->expr))
+				if(IsReduceInfoByValue(rinfo))
 				{
-					fill_reduce_expr_info(rinfo);
-					if(is_grouping_reduce_expr(path->pathtarget, rinfo))
+					if (IsReduceInfoInOneNode(rinfo) ||
+						IsGroupingReduceExpr(path->pathtarget, rinfo))
 						copy = true;
-				}else
+				}else if(IsReduceInfoReplicated(rinfo) ||
+						IsReduceInfoCoordinator(rinfo) ||
+						IsReduceInfoInOneNode(rinfo))
 				{
 					copy = true;
 				}
 				if(copy)
 				{
 					path->reduce_info_list = lappend(path->reduce_info_list,
-													 copy_reduce_info(rinfo));
+													 CopyReduceInfo(rinfo));
 				}
 			}
 			path->reduce_is_valid = true;
@@ -7152,49 +6622,33 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 		break;
 	case T_SubqueryScanPath:
 		{
-			ReduceExprInfo *rinfo;
-			ReduceExprInfo *newInfo;
+			ReduceInfo *rinfo;
+			ReduceInfo *newInfo;
 			ListCell *lc;
-			ListCell *lc2;
 			PathTarget *sub_target;
-			AttrNumber attno;
-			bool remove;
 
 			sub_target = path->parent->subroot->upper_targets[UPPERREL_FINAL];
 			foreach(lc, *pplist)
 			{
+				newInfo = NULL;
 				rinfo = lfirst(lc);
-				newInfo = palloc0(sizeof(*rinfo));
-				remove = false;
-				if(IsReduceExprByValue(rinfo->expr))
+				if(IsReduceInfoByValue(rinfo))
 				{
-					fill_reduce_expr_info(rinfo);
-					foreach(lc2, rinfo->attnoList)
+					List *attnos = ReduceInfoFindTarget(rinfo, sub_target);
+					if(attnos != NIL)
 					{
-						attno = get_target_varattno(sub_target,
-													rinfo->relid,
-													lfirst_int(lc2) + FirstLowInvalidHeapAttributeNumber);
-						if(attno == InvalidAttrNumber)
-						{
-							remove = true;
-							break;
-						}
-						newInfo->attnoList = lappend_int(newInfo->attnoList, attno - FirstLowInvalidHeapAttributeNumber);
+						newInfo = MakeReduceInfoAs(rinfo, MakeVarList(attnos, path->parent->relid, path->pathtarget));
+						list_free(attnos);
 					}
+				}else if(IsReduceInfoCoordinator(rinfo) ||
+						 IsReduceInfoReplicated(rinfo) ||
+						 IsReduceInfoRound(rinfo))
+				{
+					newInfo = rinfo;
 				}
-				if(remove)
-				{
-					list_free(newInfo->attnoList);
-					pfree(newInfo);
-				}else
-				{
-					newInfo->relid = path->parent->relid;
-					newInfo->expr = rinfo->expr;
-					newInfo->execList = list_copy(rinfo->execList);
-					if(IsReduceExprByValue(newInfo->expr))
-						fill_reduce_expr_info(newInfo);
+
+				if(newInfo)
 					path->reduce_info_list = lappend(path->reduce_info_list, newInfo);
-				}
 			}
 			path->reduce_is_valid = true;
 		}
@@ -7207,7 +6661,7 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 			List *outer_reduce_list = NIL;
 			List *inner_reduce_list = NIL;
 			ListCell *outer_lc,*inner_lc;
-			ReduceExprInfo *outer_reduce,*inner_reduce;
+			ReduceInfo *outer_reduce,*inner_reduce;
 			Bitmapset *bms_inner = NULL;
 			int i;
 			find_cluster_reduce_expr(jpath->outerjoinpath, &outer_reduce_list);
@@ -7216,28 +6670,34 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 			{
 				bool outer_saved;
 				outer_reduce = lfirst(outer_lc);
-				if(IsReduce2Coordinator(outer_reduce->expr))
+				if(IsReduceInfoCoordinator(outer_reduce))
 				{
 					Assert(list_length(outer_reduce_list) == 1 &&
 						   list_length(inner_reduce_list) == 1 &&
-						   IsReduce2Coordinator(((ReduceExprInfo*)linitial(inner_reduce_list))->expr));
-					path->reduce_info_list = lappend(path->reduce_info_list, copy_reduce_info(outer_reduce));
+						   IsReduceInfoCoordinator((ReduceInfo*)linitial(inner_reduce_list)));
+					path->reduce_info_list = lappend(path->reduce_info_list, CopyReduceInfo(outer_reduce));
 					break;
-				}else if(IsReduceReplicateExpr(outer_reduce->expr))
+				}else if(IsReduceInfoReplicated(outer_reduce))
 				{
 					Assert(list_length(outer_reduce_list) == 1);
+					Assert(list_length(inner_reduce_list) >= 1);
+					inner_reduce = linitial(inner_reduce_list);
 					if (list_length(inner_reduce_list) == 1 &&
-						IsReduceReplicateExpr(((ReduceExprInfo*)linitial(inner_reduce_list))->expr))
+						IsReduceInfoReplicated(inner_reduce))
 					{
-						path->reduce_info_list = lappend(path->reduce_info_list, copy_reduce_info(outer_reduce));
+						path->reduce_info_list = lappend(path->reduce_info_list, CopyReduceInfo(outer_reduce));
+					}else if(jpath->jointype == JOIN_INNER &&
+							 IsReduceInfoByValue(inner_reduce))
+					{
+						path->reduce_info_list = lappend(path->reduce_info_list, CopyReduceInfo(inner_reduce));
 					}else
 					{
-						Assert(jpath->jointype == JOIN_INNER);
+						Assert(0);
 					}
 					break;
 				}
 
-				Assert(IsReduceExprByValue(outer_reduce->expr));
+				Assert(IsReduceInfoByValue(outer_reduce));
 				outer_saved = false;
 				for(i=0,inner_lc=list_head(inner_reduce_list);inner_lc!=NULL;inner_lc=lnext(inner_lc),++i)
 				{
@@ -7247,14 +6707,14 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 
 					inner_reduce = lfirst(inner_lc);
 					hint = false;
-					if (list_length(outer_reduce->execList) == 1
-						&& equal(outer_reduce->execList, inner_reduce->execList))
+					if (IsReduceInfoInOneNode(outer_reduce) &&
+						CompReduceInfo(outer_reduce, inner_reduce, REDUCE_MARK_STORAGE|REDUCE_MARK_EXCLUDE) == true)
 					{
 						hint = true;
 					}
 					else if(jpath->jointype == JOIN_INNER)
 					{
-						if(IsReduceExprByValue(inner_reduce->expr))
+						if(IsReduceInfoByValue(inner_reduce))
 							hint = true;
 					}
 					if(hint)
@@ -7262,11 +6722,11 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 						if(outer_saved == false)
 						{
 							path->reduce_info_list = lappend(path->reduce_info_list,
-															 copy_reduce_info(outer_reduce));
+															 CopyReduceInfo(outer_reduce));
 							outer_saved = true;
 						}
 						path->reduce_info_list = lappend(path->reduce_info_list,
-														 copy_reduce_info(inner_reduce));
+														 CopyReduceInfo(inner_reduce));
 						bms_inner = bms_add_member(bms_inner, i);
 					}
 				}
@@ -7291,49 +6751,6 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 	Assert(path->reduce_is_valid);
 	*pplist = path->reduce_info_list;
 	return false;
-}
-
-void fill_reduce_expr_info(ReduceExprInfo *rinfo)
-{
-	ListCell *lc;
-	AssertArg(rinfo && rinfo->expr);
-	AssertArg(IsReduceExprByValue(rinfo->expr));
-
-	if(rinfo->attnoList && rinfo->varattnos)
-	{
-		Assert(rinfo->relid > 0);
-		return;
-	}
-
-	if(rinfo->attnoList == NIL)
-		rinfo->attnoList = GetReducePathExprAttnoList(rinfo->expr, &rinfo->relid);
-
-	if(rinfo->varattnos == NULL)
-	{
-		foreach(lc, rinfo->attnoList)
-			rinfo->varattnos = bms_add_member(rinfo->varattnos, lfirst_int(lc));
-	}
-	Assert(rinfo->relid > 0);
-	Assert(rinfo->attnoList != NIL);
-	Assert(list_length(rinfo->attnoList) == bms_num_members(rinfo->varattnos));
-}
-
-static AttrNumber get_target_varattno(PathTarget *target, Index varno, AttrNumber attno)
-{
-	Var *var;
-	ListCell *lc;
-	AttrNumber result;
-	for(result=1,lc=list_head(target->exprs);lc!=NULL;lc=lnext(lc),++result)
-	{
-		var = lfirst(lc);
-		while(IsA(var, RelabelType))
-			var = (Var*)(((RelabelType *) var)->arg);
-		if(!IsA(var, Var))
-			continue;
-		if(var->varno == varno && var->varattno == attno)
-			return result;
-	}
-	return InvalidAttrNumber;
 }
 
 #endif /* ADB */

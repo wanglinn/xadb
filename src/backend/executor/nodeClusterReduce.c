@@ -40,7 +40,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	Assert(innerPlan(node) == NULL);
 	Assert((eflags & (EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)) == 0);
 
-	nodesReduceTo = GetReducePathExprNodes(node->reduce);
+	nodesReduceTo = node->reduce_oids;
 
 	/*
 	 * create state structure

@@ -22,6 +22,7 @@
 #ifdef ADB
 #include "optimizer/pgxcplan.h"
 #include "optimizer/planmain.h"
+#include "optimizer/reduceinfo.h"
 #endif
 
 #ifdef ADBMGRD
@@ -433,7 +434,7 @@ SIMPLE_OUTPUT_DECLARE(bits32, "%08x")
 #undef NO_STRUCT_QualCost
 #undef NO_STRUCT_MergeScanSelCache
 #undef NO_STRUCT_RelationLocInfo
-#undef NO_STRUCT_ReduceExprInfo
+#undef NO_STRUCT_ReduceInfo
 #define NO_NODE_Path
 #define NO_NODE_IndexOptInfo
 #include "nodes/struct_define.h"
@@ -450,7 +451,7 @@ BEGIN_NODE(Path)
 	NODE_SCALAR(Cost,total_cost)
 	NODE_NODE(List,pathkeys)
 #ifdef ADB
-	NODE_STRUCT_LIST(ReduceExprInfo, reduce_info_list)
+	NODE_STRUCT_LIST(ReduceInfo, reduce_info_list)
 	NODE_SCALAR(bool,reduce_is_valid)
 #endif
 END_NODE(Path)

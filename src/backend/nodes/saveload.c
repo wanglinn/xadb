@@ -29,6 +29,7 @@
 #include "nodes/replnodes.h"
 #include "commands/event_trigger.h"
 #ifdef ADB
+#include "optimizer/reduceinfo.h"
 #include "optimizer/planmain.h"
 #endif /* ADB */
 
@@ -41,7 +42,7 @@
 #define NO_NODE_IndexOptInfo
 #include "nodes/def_no_all_struct.h"
 #undef NO_STRUCT_QualCost
-#undef NO_STRUCT_ReduceExprInfo
+#undef NO_STRUCT_ReduceInfo
 
 /* declare static functions */
 #define BEGIN_NODE(type) 										\

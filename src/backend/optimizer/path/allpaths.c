@@ -47,6 +47,7 @@
 #ifdef ADB
 #include "catalog/pgxc_node.h"
 #include "optimizer/planmain.h"
+#include "optimizer/reduceinfo.h"
 #include "pgxc/pgxcnode.h"
 #endif /* ADB */
 
@@ -675,26 +676,66 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		Path *path;
 		ListCell *lc;
 		List *reduce_info_list;
-		ReduceExprInfo *rinfo;
-		List *rnodes;
-		rinfo = palloc0(sizeof(*rinfo));
-		if(IsRelationReplicated(rel->loc_info))
+		ReduceInfo *rinfo;
+		RelationLocInfo *loc_info = rel->loc_info;
+		List *rnodes = PGXCNodeGetNodeOidList(rel->loc_info->nodeList, PGXC_NODE_DATANODE);
+		if(IsRelationReplicated(loc_info))
 		{
-			rnodes = PGXCNodeGetNodeOidList(rel->loc_info->nodeList, PGXC_NODE_DATANODE);
-			rinfo->expr = MakeReduceReplicateExpr(rnodes);
-			rinfo->relid = rel->relid;
+			rinfo = MakeReplicateReduceInfo(rnodes);
+		}else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
+		{
+			rinfo = MakeRoundReduceInfo(rnodes);
+		}else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
+		{
+			rinfo = MakeRoundReduceInfo(rnodes);
 		}else
 		{
+			List *exclude;
 			List *quals = extract_actual_clauses(rel->baserestrictinfo, false);
 			ExecNodes *nodes =  GetRelationNodesByQuals(rte->relid, rel->relid,
 															(Node *)quals,
 															RELATION_ACCESS_READ);
-			rnodes = PGXCNodeGetNodeOidList(nodes->nodeList, PGXC_NODE_DATANODE);
+			if(equal(nodes->nodeList, loc_info->nodeList) == false)
+			{
+				List *exec_nodes = PGXCNodeGetNodeOidList(nodes->nodeList, PGXC_NODE_DATANODE);
+				exclude = list_difference_oid(rnodes, exec_nodes);
+				list_free(exec_nodes);
+			}else
+			{
+				exclude = NIL;
+			}
 			FreeExecNodes(&nodes);
 
-			rinfo->expr = rel->reduce;
-			rinfo->attnoList = GetReducePathExprAttnoList(rinfo->expr, NULL);
-			rinfo->relid = PullReducePathExprAttnos(rinfo->expr, &rinfo->varattnos);
+			if(loc_info->locatorType == LOCATOR_TYPE_HASH)
+			{
+				Var *var = makeVarByRel(loc_info->partAttrNum,
+										rte->relid,
+										rel->relid);
+				rinfo = MakeHashReduceInfo(rnodes,
+										   exclude,
+										   (Expr*)var);
+			}else if(loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
+			{
+				rinfo = MakeCustomReduceInfoByRel(rnodes,
+												  exclude,
+												  loc_info->funcAttrNums,
+												  loc_info->funcid,
+												  rte->relid,
+												  rel->relid);
+			}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
+			{
+				Var *var = makeVarByRel(loc_info->partAttrNum,
+										rte->relid,
+										rel->relid);
+				rinfo = MakeModuloReduceInfo(rnodes,
+											 exclude,
+											 (Expr*)var);
+			}else
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						errmsg("unknown locator type %d", loc_info->locatorType)));
+			}
 		}
 
 		add_path(rel, create_seqscan_path(root, rel, required_outer, 0));
@@ -705,7 +746,6 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		/* Consider TID scans */
 		create_tidscan_paths(root, rel);
 
-		rinfo->execList = list_copy(rnodes);
 		reduce_info_list = list_make1(rinfo);
 
 		/* move pathlist to cluster_pathlist */
@@ -716,12 +756,9 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			path->reduce_info_list = reduce_info_list;
 			path->reduce_is_valid = true;
 
-			cost_div(path, list_length(rel->loc_info->nodeList));
+			cost_div(path, list_length(loc_info->nodeList));
 			cscan = create_cluster_scan_path(path, rnodes, rel);
 			add_cluster_path(rel, (Path*)cscan);
-
-			if(lnext(lc))
-				reduce_info_list = copy_reduce_info_list(reduce_info_list);
 		}
 		rel->pathlist = NIL;
 	}
@@ -1212,7 +1249,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	List	   *reduce_var_map;
 	List	   *all_reduce_by_val_list;
 	List	   *all_replicate_oid;
-	ReduceExprInfo *reduce_info;
+	ReduceInfo *reduce_info;
 	ListCell   *lc_new_attno;
 	bool		have_reduce_coord = false;
 #endif /* ADB */
@@ -1448,11 +1485,12 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 			have_reduce_coord = true;
 		if(childrel->cheapest_replicate_path)
 		{
-			List *oids;
+			/* remember all replicated nodes oid */
+			Assert(list_length(childrel->cheapest_replicate_path->reduce_info_list) == 1);
 			reduce_list = get_reduce_info_list(childrel->cheapest_replicate_path);
-			oids = ReduceReplicateExprGetList(((ReduceExprInfo*)linitial(reduce_list))->expr);
-			all_replicate_oid = list_concat_unique_oid(all_replicate_oid, oids);
-			list_free(oids);
+			Assert(list_length(reduce_list) == 1);
+			reduce_info = linitial(reduce_list);
+			all_replicate_oid = list_concat_unique_oid(all_replicate_oid, reduce_info->storage_nodes);
 		}
 
 		/* find all reduce info */
@@ -1469,21 +1507,20 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 			}
 
 			reduce_list = get_reduce_info_list(path);
-			if(is_reduce_by_value_list(reduce_list))
+			if(IsReduceInfoListByValue(reduce_list))
 			{
 				ListCell *lc_path_reduce;
 				ListCell *lc_saved_reduce;
-				ReduceExprInfo *save_reduce;
+				ReduceInfo *save_reduce;
 
 				foreach(lc_path_reduce, reduce_list)
 				{
 					List *new_attno;
 					reduce_info = lfirst(lc_path_reduce);
-					Assert(IsReduceExprByValue(reduce_info->expr));
-					Assert(reduce_info->relid != 0 && reduce_info->attnoList != NIL);
+					Assert(IsReduceInfoByValue(reduce_info));
 
 					/* find reduce column(s) target */
-					new_attno = find_reduce_target(reduce_info, path->pathtarget);
+					new_attno = ReduceInfoFindTarget(reduce_info, path->pathtarget);
 					if(new_attno == NIL)
 					{
 						/* lost target */
@@ -1493,8 +1530,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 					foreach(lc_saved_reduce, all_reduce_by_val_list)
 					{
 						save_reduce = lfirst(lc_saved_reduce);
-						if (equal(reduce_info->expr, save_reduce->expr) &&
-							equal(reduce_info->attnoList, save_reduce->attnoList))
+						if (IsReduceInfoSame(reduce_info, save_reduce))
 							break;
 					}
 					if(lc_saved_reduce == NULL)
@@ -1520,7 +1556,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	/* make redue by value AppendPath */
 	forboth(l, all_reduce_by_val_list, lc_new_attno, reduce_var_map)
 	{
-		ReduceExprInfo *sub_reduce;
+		ReduceInfo *sub_reduce;
 		ListCell *lc_rel;
 		ListCell *lc_path;
 		ListCell *lc_reduce;
@@ -1537,17 +1573,16 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 				if(PATH_REQ_OUTER((Path*)lfirst(lc_path)))
 					continue;
 				reduce_list = get_reduce_info_list(lfirst(lc_path));
-				if(!is_reduce_by_value_list(reduce_list))
+				if(!IsReduceInfoListByValue(reduce_list))
 					continue;
 
 				foreach(lc_reduce, reduce_list)
 				{
 					List *new_attno;
 					sub_reduce = lfirst(lc_reduce);
-					new_attno = find_reduce_target(sub_reduce, ((Path*)lfirst(lc_path))->pathtarget);
+					new_attno = ReduceInfoFindTarget(sub_reduce, ((Path*)lfirst(lc_path))->pathtarget);
 					if (equal(new_attno, lfirst(lc_new_attno)) &&
-						equal(sub_reduce->attnoList, reduce_info->attnoList) &&
-						equal(sub_reduce->expr, reduce_info->expr))
+						IsReduceInfoSame(sub_reduce, reduce_info))
 					{
 						/* found match reduce */
 						path = lfirst(lc_path);
@@ -1571,9 +1606,9 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		if(subpaths_valid)
 		{
 			/* make new reduce for AppendPath */
-			sub_reduce = palloc0(sizeof(*sub_reduce));
-			sub_reduce->expr = CreateReduceValExprAs(reduce_info->expr, rel->relid, lfirst(lc_new_attno));
-			fill_reduce_expr_info(sub_reduce);
+			List *params = MakeVarList(lfirst(lc_new_attno), rel->relid, rel->reltarget);
+			Assert(params != NIL);
+			sub_reduce = MakeReduceInfoAs(reduce_info, params);
 			path = (Path*)create_append_path(rel, subpaths, NULL, 0);
 			path->reduce_info_list = list_make1(sub_reduce);
 			path->reduce_is_valid = true;
@@ -1588,6 +1623,9 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	{
 		/* make a none reduce path */
 		ListCell *lc_path;
+		ListCell *lc_reduce;
+		List *storage = NIL;
+		List *exclude = NIL;
 		subpaths = NIL;
 		subpaths_valid = true;
 		foreach(l, live_childrels)
@@ -1601,11 +1639,19 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 				if(PATH_REQ_OUTER(tmp))
 					continue;
 				reduce_list = get_reduce_info_list(tmp);
-				if (is_reduce_to_coord_list(reduce_list) ||
-					is_reduce_replacate_list(reduce_list))
+				if (IsReduceInfoListCoordinator(reduce_list) ||
+					IsReduceInfoListReplicated(reduce_list))
 					continue;
 				if(path == NULL || path->total_cost > tmp->total_cost)
+				{
 					path = tmp;
+					foreach(lc_reduce, reduce_list)
+					{
+						reduce_info = lfirst(lc_reduce);
+						storage = list_concat_unique_oid(storage, reduce_info->storage_nodes);
+						exclude = list_concat_unique_oid(exclude, reduce_info->exclude_exec);
+					}
+				}
 			}
 			if(path == NULL)
 			{
@@ -1618,10 +1664,20 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		}
 		if(subpaths_valid)
 		{
+			List *new_exclude = NIL;
+			foreach(l, exclude)
+			{
+				if(!list_member_oid(storage, lfirst_oid(l)))
+					new_exclude = lappend_oid(new_exclude, lfirst_oid(l));
+			}
+			reduce_info = MakeRoundReduceInfo(storage);
+			reduce_info->exclude_exec = new_exclude;
 			path = (Path*)create_append_path(rel, subpaths, NULL, 0);
-			path->reduce_info_list = NIL;
+			path->reduce_info_list = list_make1(reduce_info);
 			path->reduce_is_valid = true;
 			add_cluster_path(rel, path);
+			list_free(storage);
+			list_free(exclude);
 		}
 	}
 
@@ -1654,7 +1710,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 					Path *subpath = lfirst(lc);
 					if(PATH_REQ_OUTER(path))
 						continue;
-					if(is_reduce_to_coord_list(get_reduce_info_list(subpath)))
+					if(IsReduceInfoListCoordinator(get_reduce_info_list(subpath)))
 					{
 						if (path == NULL ||
 							path->total_cost > subpath->total_cost)
@@ -1685,7 +1741,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 			foreach(l, subpaths)
 			{
 				path = lfirst(l);
-				if(is_reduce_to_coord_list(get_reduce_info_list(lfirst(l))) == false)
+				if(IsReduceInfoListCoordinator(get_reduce_info_list(lfirst(l))) == false)
 				{
 					have_not_reduce_coord_path = true;
 					break;
@@ -1696,10 +1752,10 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 			{
 				path->reduce_info_list = NIL;
 				path->reduce_is_valid = true;
-				path = create_cluster_reduce_path(root, path, list_make1(make_reduce_coord()), rel, NIL);
+				path = create_cluster_reduce_path(root, path, list_make1(MakeCoordinatorReduceInfo()), rel, NIL);
 			}else
 			{
-				path->reduce_info_list = list_make1(make_reduce_coord());
+				path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
 				path->reduce_is_valid = true;
 			}
 			add_cluster_path(rel, path);
@@ -1722,7 +1778,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 				if(PATH_REQ_OUTER(tmp))
 					continue;
 				reduce_list = get_reduce_info_list(tmp);
-				if (!is_reduce_replacate_list(reduce_list))
+				if (!IsReduceInfoListReplicated(reduce_list))
 					continue;
 				if(path == NULL || path->total_cost > tmp->total_cost)
 					path = tmp;
@@ -1738,8 +1794,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		}
 		if(subpaths_valid)
 		{
-			reduce_info = palloc0(sizeof(reduce_info));
-			reduce_info->expr = MakeReduceReplicateExpr(all_replicate_oid);
+			reduce_info = MakeReplicateReduceInfo(all_replicate_oid);
 			path = (Path*)create_append_path(rel, subpaths, NULL, 0);
 			path->reduce_info_list = list_make1(reduce_info);
 			path->reduce_is_valid = true;
@@ -2219,7 +2274,7 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		{
 			subpath = create_cluster_reduce_path(root,
 												 subpath,
-												 list_make1(make_reduce_coord()),
+												 list_make1(MakeCoordinatorReduceInfo()),
 												 sub_final_rel,
 												 NIL);
 			if(subquery->sortClause)

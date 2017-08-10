@@ -342,7 +342,7 @@ NODE_SPECIAL_MEB(RemoteQuery)
 END_SPECIAL_MEB(RemoteQuery)
 
 NODE_SPECIAL_MEB(Path)
-	reduce_info_list NODE_STRUCT_LIST(ReduceExprInfo, reduce_info_list)
+	reduce_info_list NODE_STRUCT_LIST(ReduceInfo, reduce_info_list)
 END_SPECIAL_MEB(Path)
 
 /* end ADB */
@@ -555,6 +555,13 @@ NODE_SPECIAL_MEB(ClusterMergeGather)
 	nullsFirst NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
 END_SPECIAL_MEB(ClusterMergeGather)
 
+NODE_SPECIAL_MEB(ClusterReduce)
+	sortColIdx NODE_SCALAR_POINT(AttrNumber,sortColIdx,NODE_ARG_->numCols)
+	sortOperators NODE_SCALAR_POINT(Oid,sortOperators,NODE_ARG_->numCols)
+	collations NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numCols)
+	nullsFirst NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
+END_SPECIAL_MEB(ClusterReduce)
+
 NODE_SPECIAL_MEB(OidVectorLoopExpr)
 	vector NODE_DATUM(Datum, vector, OIDVECTOROID, false)
 END_SPECIAL_MEB(OidVectorLoopExpr)
@@ -573,4 +580,4 @@ IDENT_IF_DEFINED(CommandMode, ADBMGRD)
 IDENT_IF_DEFINED(ClusterGatherType, ADB)
 
 IDENT_IF_DEFINED(RelationLocInfo, ADB)
-IDENT_IF_DEFINED(ReduceExprInfo, ADB)
+IDENT_IF_DEFINED(ReduceInfo, ADB)

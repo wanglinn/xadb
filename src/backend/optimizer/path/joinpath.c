@@ -25,6 +25,7 @@
 #ifdef ADB
 #include "optimizer/clauses.h"
 #include "optimizer/planmain.h"
+#include "optimizer/reduceinfo.h"
 #include "utils/lsyscache.h"
 #endif /* ADB */
 
@@ -1949,7 +1950,7 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 			continue;
 
 		if (jointype == JOIN_INNER &&
-			is_reduce_replacate_list(outer_reduce_list))
+			IsReduceInfoListReplicated(outer_reduce_list))
 		{
 			*outer_path = outerClusterPath;
 			Assert(innerrel->cheapest_cluster_total_path != NULL);
@@ -1971,7 +1972,7 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 			if((jointype == JOIN_UNIQUE_OUTER ||
 				jointype == JOIN_UNIQUE_INNER ||
 				jointype == JOIN_INNER) &&
-				is_reduce_list_can_inner_join(outer_reduce_list, inner_reduce_list, restrictlist))
+				IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
 			{
 				*inner_path = innerClusterPath;
 				*outer_path = outerClusterPath;
@@ -1981,16 +1982,16 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 
 			if ((jointype == JOIN_LEFT ||
 				 jointype == JOIN_RIGHT) &&
-				 is_reduce_list_can_left_or_right_join(outer_reduce_list, inner_reduce_list, restrictlist))
+				 IsReduceInfoListCanLeftOrRightJoin(outer_reduce_list, inner_reduce_list, restrictlist))
 			{
 				*inner_path = create_cluster_reduce_path(root,
 														 innerClusterPath,
-														 list_make1(make_reduce_coord()),
+														 list_make1(MakeCoordinatorReduceInfo()),
 														 innerrel,
 														 NIL);
 				*outer_path = create_cluster_reduce_path(root,
 														 outerClusterPath,
-														 list_make1(make_reduce_coord()),
+														 list_make1(MakeCoordinatorReduceInfo()),
 														 outerrel,
 														 NIL);
 				result = true;
@@ -2008,7 +2009,7 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 				context.outer_reduce_list = outer_reduce_list;
 				context.inner_reduce_list = inner_reduce_list;
 				context.restrict_list = restrictlist;
-				if (can_make_semi_anti_cluster_join_path(root, &context))
+				if (CanMakeSemiAntiClusterJoinPath(root, &context))
 				{
 					*outer_path = context.outer_path;
 					*inner_path = context.inner_path;
@@ -2034,22 +2035,22 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 	{
 		List *exprList;
 		ListCell *lc_reduce;
-		ReduceExprInfo *outer_reduce;
+		ReduceInfo *outer_reduce;
 		outerClusterPath = lfirst(outer_lc);
 		outer_reduce_list = get_reduce_info_list(outerClusterPath);
 		if (outer_reduce_list == NIL ||
 			PATH_PARAM_BY_REL(outerClusterPath, innerrel) ||
-			is_reduce_by_value_list(outer_reduce_list) == false)
+			IsReduceInfoListByValue(outer_reduce_list) == false)
 			continue;
 
 		foreach(lc_reduce, outer_reduce_list)
 		{
 			outer_reduce = lfirst(lc_reduce);
-			exprList = find_join_equal_exprs(outer_reduce, restrictlist, innerrel);
+			exprList = FindJoinEqualExprs(outer_reduce, restrictlist, innerrel);
 			if(exprList)
 			{
 				Path *path;
-				ReduceExprInfo *rinfo;
+				ReduceInfo *rinfo;
 				path = get_cheapest_no_param_by_rel_path(innerrel->cluster_pathlist, outerrel);
 				if(path == NULL)
 				{
@@ -2057,9 +2058,7 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 					break;
 				}
 				Assert(!PATH_PARAM_BY_REL(path, outerrel));
-				rinfo = palloc0(sizeof(*rinfo));
-				rinfo->expr = CreateReduceValExprAs(outer_reduce->expr, 0, exprList);
-				fill_reduce_expr_info(rinfo);
+				rinfo = MakeReduceInfoAs(outer_reduce, exprList);
 				path = create_cluster_reduce_path(root, path, list_make1(rinfo), innerrel, NIL);
 				*outer_path = outerClusterPath;
 				*inner_path = path;

@@ -13,6 +13,7 @@
 #include "commands/event_trigger.h"
 #include "foreign/fdwapi.h"
 #ifdef ADB
+#include "optimizer/reduceinfo.h"
 #include "optimizer/planmain.h"
 #endif /* ADB */
 
@@ -26,7 +27,7 @@
 #define NO_NODE_RestrictInfo
 #include "nodes/def_no_all_struct.h"
 #undef NO_STRUCT_QualCost
-#undef NO_STRUCT_ReduceExprInfo
+#undef NO_STRUCT_ReduceInfo
 
 static void *pmemdup(const void *src, Size size);
 static List *mutator_struct_list(List *list, Size size, void*(*fun)(), Node*(*mutator)(), void *context)

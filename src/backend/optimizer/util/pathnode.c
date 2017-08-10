@@ -33,6 +33,7 @@
 #include "catalog/pgxc_node.h"
 #include "commands/tablecmds.h"
 #include "libpq/libpq-node.h"
+#include "optimizer/reduceinfo.h"
 #include "optimizer/restrictinfo.h"
 #include "pgxc/pgxcnode.h"
 #endif
@@ -274,12 +275,12 @@ set_cheapest(RelOptInfo *parent_rel)
 	{
 		path = lfirst(lc);
 		reduce_list = get_reduce_info_list(path);
-		if(is_reduce_replacate_list(reduce_list))
+		if(IsReduceInfoListReplicated(reduce_list))
 		{
 			if (parent_rel->cheapest_replicate_path == NULL ||
 				parent_rel->cheapest_replicate_path->total_cost > path->total_cost)
 				parent_rel->cheapest_replicate_path = path;
-		}else if(is_reduce_to_coord_list(reduce_list))
+		}else if(IsReduceInfoListCoordinator(reduce_list))
 		{
 			if (parent_rel->cheapest_coordinator_path == NULL ||
 				parent_rel->cheapest_coordinator_path->total_cost > path->total_cost)
@@ -3514,9 +3515,11 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 			}else if(IsRelationDistributedByValue(loc))
 			{
 				Assert(list_length(path->reduce_info_list) == 1);
-				ReduceExprInfo *reduceInfo = linitial(path->reduce_info_list);
-				foreach(lc, reduceInfo->execList)
+				ReduceInfo *reduceInfo = linitial(path->reduce_info_list);
+				foreach(lc, reduceInfo->storage_nodes)
 				{
+					if(list_member_oid(reduceInfo->exclude_exec, lfirst_oid(lc)))
+						continue;
 					exec_info = get_exec_node_info(htab, lfirst_oid(lc));
 					++(exec_info->part_count);
 				}
@@ -3556,27 +3559,18 @@ bool get_modify_insert_nodes_walker(Path *path, List **rnodes)
 	{
 		ModifyTablePath *mtp = (ModifyTablePath*)path;
 		ListCell *lc;
-		List *result;
 		foreach(lc, mtp->subpaths)
 		{
 			Path *subpath = lfirst(lc);
 			if(IsA(subpath, ClusterReducePath))
 			{
-				ReduceExprInfo *rinfo;
+				ReduceInfo *rinfo;
 				List *reduce_info_list = get_reduce_info_list(subpath);
 				Assert(list_length(reduce_info_list) == 1);
 				rinfo = linitial(reduce_info_list);
-				if(!IsReduce2Coordinator(rinfo->expr))
+				if(!IsReduceInfoCoordinator(rinfo))
 				{
-					List *expr_nodes = GetReducePathExprNodes(rinfo->expr);
-					ListCell *lc_nodes;
-					result = *rnodes;
-					foreach(lc_nodes, expr_nodes)
-					{
-						if(list_member_oid(result, lfirst_oid(lc_nodes)) == false)
-							result = lappend_oid(result, lfirst_oid(lc_nodes));
-					}
-					*rnodes = result;
+					*rnodes = list_concat_unique_oid(*rnodes, rinfo->storage_nodes);
 				}
 			}
 			path_tree_walker(subpath, get_modify_insert_nodes_walker, (void*)rnodes);

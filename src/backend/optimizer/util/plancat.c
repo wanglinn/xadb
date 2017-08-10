@@ -150,14 +150,7 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 
 #ifdef ADB
 	if(relation->rd_locator_info)
-	{
 		rel->loc_info = CopyRelationLocInfo(relation->rd_locator_info);
-		if(!IsRelationReplicated(rel->loc_info))
-			rel->reduce = MakeReducePathExpr(rel->loc_info, RELATION_ACCESS_READ, rel->relid);
-	}else if(IS_PGXC_COORDINATOR)
-	{
-		rel->reduce = MakeReduce2CoordinatorExpr();
-	}
 #endif /* ADB */
 
 	if (hasindex)

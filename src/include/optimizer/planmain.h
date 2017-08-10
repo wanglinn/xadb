@@ -117,14 +117,6 @@ extern void extract_query_dependencies(Node *query,
 /*
  * prototypes for plan/pgxcplan.c
  */
-typedef struct ReduceExprInfo
-{
-	Expr	   *expr;		/* reduce expr for path */
-	Bitmapset  *varattnos;	/* var attno(s) */
-	List	   *attnoList;	/* var attno(s), order by useing by reduce expr */
-	List	   *execList;	/* execute on nodes Oid */
-	Index		relid;
-}ReduceExprInfo;
 
 extern Plan *create_remotedml_plan(PlannerInfo *root, Plan *topplan,
 									CmdType cmdtyp);
@@ -141,30 +133,7 @@ extern Node *pgxc_replace_nestloop_params(PlannerInfo *root, Node *expr);
 extern List* get_remote_nodes(PlannerInfo *root, Path *path);
 extern List* get_reduce_info_list(Path *path);
 extern List* copy_reduce_info_list(List *list);
-extern List* find_reduce_target(ReduceExprInfo* reduce, PathTarget *target);
-extern bool is_reduce_replacate_list(List *list);
-extern bool is_reduce_by_value_list(List *list);
-extern bool is_reduce_to_coord_list(List *list);
-extern bool is_reduce_in_one_node(List *list);
-extern ReduceExprInfo* copy_reduce_info(const ReduceExprInfo *info);
-extern ReduceExprInfo* make_reduce_coord(void);
-extern void fill_reduce_expr_info(ReduceExprInfo *rinfo);
-extern bool is_grouping_reduce_expr(PathTarget *target, ReduceExprInfo *info);
-extern bool is_reduce_list_can_inner_join(List *outer_reduce_list, List *inner_reduce_list, List *restrictlist);
-extern List *find_join_equal_exprs(ReduceExprInfo *rinfo, List *restrictlist, RelOptInfo *inner_rel);
-extern bool is_reduce_list_can_left_or_right_join(List *outer_reduce_list, List *inner_reduce_list, List *restrictlist);
 
-typedef struct SemiAntiJoinContext
-{
-	RelOptInfo *outer_rel;
-	RelOptInfo *inner_rel;
-	Path *outer_path;
-	Path *inner_path;
-	List *outer_reduce_list;
-	List *inner_reduce_list;
-	List *restrict_list;
-} SemiAntiJoinContext;
-extern bool can_make_semi_anti_cluster_join_path(PlannerInfo *root, SemiAntiJoinContext *context);
 #endif
 
 #endif   /* PLANMAIN_H */

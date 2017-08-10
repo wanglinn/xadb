@@ -96,7 +96,9 @@
 #include "utils/selfuncs.h"
 #include "utils/spccache.h"
 #include "utils/tuplesort.h"
-
+#ifdef ADB
+#include "optimizer/reduceinfo.h"
+#endif /* ABD */
 
 #define LOG2(x)  (log(x) / 0.693147180559945)
 
@@ -4910,8 +4912,8 @@ void cost_cluster_gather(ClusterGatherPath *path, RelOptInfo *baserel, ParamPath
 void cost_cluster_reduce(ClusterReducePath *path)
 {
 	Path *subpath = path->subpath;
-	ReduceExprInfo *reduce_to;
-	ReduceExprInfo *reduce_from;
+	ReduceInfo *reduce_to;
+	ReduceInfo *reduce_from;
 	List *reduce_from_list;
 
 	path->path.startup_cost = subpath->startup_cost + reduce_setup_cost;
@@ -4922,30 +4924,30 @@ void cost_cluster_reduce(ClusterReducePath *path)
 	reduce_to = linitial(path->path.reduce_info_list);
 	reduce_from_list = get_reduce_info_list(subpath);
 
-	if (IsReduceReplicateExpr(reduce_to->expr) ||
-		IsReduce2Coordinator(reduce_to->expr))
+	if (IsReduceInfoReplicated(reduce_to) ||
+		IsReduceInfoCoordinator(reduce_to))
 	{
-		if (is_reduce_replacate_list(reduce_from_list) ||
-			is_reduce_to_coord_list(reduce_from_list))
+		if (IsReduceInfoListReplicated(reduce_from_list) ||
+			IsReduceInfoListCoordinator(reduce_from_list))
 		{
 			path->path.total_cost += path->path.rows * remote_tuple_cost;
 		}else if(reduce_from_list != NIL)
 		{
 			reduce_from = linitial(reduce_from_list);
-			if(reduce_from->execList != NIL)
+			if(reduce_from->storage_nodes != NIL)
 			{
-				path->path.rows *= list_length(reduce_from->execList);
+				path->path.rows *= list_length(reduce_from->storage_nodes);
 				path->path.total_cost += path->path.rows * remote_tuple_cost;
 			}
 		}
-	}else if(IsReduceExprByValue(reduce_to->expr))
+	}else if(IsReduceInfoByValue(reduce_to))
 	{
-		if (is_reduce_replacate_list(reduce_from_list) ||
-			is_reduce_to_coord_list(reduce_from_list))
+		if (IsReduceInfoListReplicated(reduce_from_list) ||
+			IsReduceInfoListCoordinator(reduce_from_list))
 		{
-			Assert(list_length(reduce_to->execList) > 0);
+			Assert(list_length(reduce_to->storage_nodes) > 0);
 			path->path.total_cost += path->path.rows * remote_tuple_cost;
-			path->path.rows /= list_length(reduce_to->execList);
+			path->path.rows /= list_length(reduce_to->storage_nodes);
 		}else
 		{
 			path->path.total_cost += path->path.rows * remote_tuple_cost;
@@ -4958,7 +4960,7 @@ void cost_cluster_reduce(ClusterReducePath *path)
 		Cost		comparison_cost;
 		double		N;
 		double		logN;
-		int			num_nodes = list_length(reduce_to->execList);
+		int			num_nodes = list_length(reduce_to->storage_nodes);
 
 		N = (num_nodes < 2) ? 2.0 : (double) num_nodes;
 		logN = LOG2(N);
