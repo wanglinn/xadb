@@ -370,17 +370,14 @@ HandleWriteToPlan(PlanPort *pln_port)
 				resetStringInfo(buf2);
 
 				count = rdcstore_gettuple_multi(rdcstore, buf, buf2);
-				if (count == 0)
+				Assert(count >= 0 && buf->len >= 0 && buf2->len >= 0);
+				pln_port->send_to_pln += count;
+
+				/* nothing to send, remove write event and break */
+				if (buf->len == 0 && buf2->len == 0)
 				{
 					RdcWaitEvents(work_port) &= ~WT_SOCK_WRITEABLE;
 					break;	/* break for */
-				} else
-				{
-					/*
-					 * OK to get tuple from rdcstore, so increase the
-					 * number of sending to PLAN.
-					 */
-					pln_port->send_to_pln += count;
 				}
 #ifdef NOT_USED
 				bool	hasData = false;
