@@ -480,14 +480,17 @@ TransListenPort(void)
 {
 	if (MyBossSock != PGINVALID_SOCKET)
 	{
-		StringInfoData	buf;
+		StringInfo		buf;
 		RdcPort		   *boss_watch = MyRdcOpts->boss_watch;
 
 		Assert(MyListenPort > 0);
 		Assert(boss_watch);
-		rdc_beginmessage(&buf, MSG_LISTEN_PORT);
-		rdc_sendint(&buf, MyListenPort, sizeof(MyListenPort));
-		rdc_endmessage(boss_watch, &buf);
+		buf = RdcMsgBuf(boss_watch);
+
+		resetStringInfo(buf);
+		rdc_beginmessage(buf, MSG_LISTEN_PORT);
+		rdc_sendint(buf, MyListenPort, sizeof(MyListenPort));
+		rdc_endmessage(boss_watch, buf);
 		rdc_flush(boss_watch);
 	}
 }

@@ -19,7 +19,7 @@ RdcPortId	MyReduceId = InvalidPortId;
 int
 rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id, RdcExtra extra)
 {
-	StringInfoData	buf;
+	StringInfo	buf;
 
 	AssertArg(port);
 
@@ -29,13 +29,16 @@ rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id, RdcExtra ext
 		 RDC_PORT_PRINT_VALUE(port));
 #endif
 
-	initStringInfo(&buf);
-	rdc_beginmessage(&buf, MSG_START_RQT);
-	rdc_sendint(&buf, RDC_VERSION_NUM, sizeof(int));		/* version */
-	rdc_sendint(&buf, type, sizeof(type));
-	rdc_sendRdcPortID(&buf, id);
-	rdc_sendStringInfo(&buf, extra);
-	rdc_endmessage(port, &buf);
+	buf = RdcMsgBuf(port);
+
+	resetStringInfo(buf);
+	rdc_beginmessage(buf, MSG_START_RQT);
+	rdc_sendint(buf, RDC_VERSION_NUM, sizeof(int));		/* version */
+	rdc_sendint(buf, type, sizeof(type));
+	rdc_sendRdcPortID(buf, id);
+	rdc_sendStringInfo(buf, extra);
+	rdc_endmessage(port, buf);
+
 
 	return rdc_flush(port);
 }
@@ -43,7 +46,7 @@ rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id, RdcExtra ext
 int
 rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id)
 {
-	StringInfoData	buf;
+	StringInfo buf;
 
 	AssertArg(port);
 
@@ -53,12 +56,14 @@ rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id)
 		 RDC_PORT_PRINT_VALUE(port));
 #endif
 
-	initStringInfo(&buf);
-	rdc_beginmessage(&buf, MSG_START_RSP);
-	rdc_sendint(&buf, RDC_VERSION_NUM, sizeof(int));
-	rdc_sendint(&buf, type, sizeof(type));
-	rdc_sendRdcPortID(&buf, id);
-	rdc_endmessage(port, &buf);
+	buf = RdcMsgBuf(port);
+
+	resetStringInfo(buf);
+	rdc_beginmessage(buf, MSG_START_RSP);
+	rdc_sendint(buf, RDC_VERSION_NUM, sizeof(int));
+	rdc_sendint(buf, type, sizeof(type));
+	rdc_sendRdcPortID(buf, id);
+	rdc_endmessage(port, buf);
 
 	return rdc_flush(port);
 }
@@ -66,16 +71,18 @@ rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id)
 int
 rdc_send_group_rqt(RdcPort *port, RdcMask *rdc_masks, int num)
 {
-	StringInfoData	buf;
+	StringInfo		buf;
 	int				i = 0;
 	RdcMask		   *mask;
 
 	AssertArg(port);
 	Assert(num > 1);
 
-	initStringInfo(&buf);
-	rdc_beginmessage(&buf, MSG_GROUP_RQT);
-	rdc_sendint(&buf, num, sizeof(num));
+	buf = RdcMsgBuf(port);
+
+	resetStringInfo(buf);
+	rdc_beginmessage(buf, MSG_GROUP_RQT);
+	rdc_sendint(buf, num, sizeof(num));
 	for (i = 0; i < num; i++)
 	{
 		mask = &(rdc_masks[i]);
@@ -87,11 +94,11 @@ rdc_send_group_rqt(RdcPort *port, RdcMask *rdc_masks, int num)
 			 "[REDUCE " PORTID_FORMAT "] {%s:%d}",
 			 mask->rdc_rpid, mask->rdc_host, mask->rdc_port);
 #endif
-		rdc_sendRdcPortID(&buf, mask->rdc_rpid);
-		rdc_sendint(&buf, mask->rdc_port, sizeof(mask->rdc_port));
-		rdc_sendstring(&buf, mask->rdc_host);
+		rdc_sendRdcPortID(buf, mask->rdc_rpid);
+		rdc_sendint(buf, mask->rdc_port, sizeof(mask->rdc_port));
+		rdc_sendstring(buf, mask->rdc_host);
 	}
-	rdc_endmessage(port, &buf);
+	rdc_endmessage(port, buf);
 
 	return rdc_flush(port);
 }
@@ -99,12 +106,14 @@ rdc_send_group_rqt(RdcPort *port, RdcMask *rdc_masks, int num)
 int
 rdc_send_group_rsp(RdcPort *port)
 {
-	StringInfoData	buf;
+	StringInfo	buf;
 
 	AssertArg(port);
-	initStringInfo(&buf);
-	rdc_beginmessage(&buf, MSG_GROUP_RSP);
-	rdc_endmessage(port, &buf);
+	buf = RdcMsgBuf(port);
+
+	resetStringInfo(buf);
+	rdc_beginmessage(buf, MSG_GROUP_RSP);
+	rdc_endmessage(port, buf);
 
 	return rdc_flush(port);
 }

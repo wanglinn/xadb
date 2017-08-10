@@ -40,7 +40,11 @@ pgsocket MyBossSock = PGINVALID_SOCKET;
 
 static WaitEVSet RdcWaitSet = NULL;
 
+#define RDC_EXTRA_SIZE		64
+#define RDC_ERROR_SIZE		128
+#define RDC_MSG_SIZE		256
 #define RDC_BUFFER_SIZE		8192
+
 #define IdxIsEven(idx)		((idx) % 2 == 0)		/* even number */
 #define IdxIsOdd(idx)		((idx) % 2 == 1)		/* odd nnumber */
 
@@ -172,12 +176,13 @@ rdc_newport(pgsocket sock,
 	rdc_port->addrs = NULL;
 	rdc_port->addr_cur = NULL;
 	rdc_port->hook = NULL;
-	initStringInfoExtend(RdcPeerExtra(rdc_port), 64);
-	initStringInfoExtend(RdcSelfExtra(rdc_port), 64);
+	initStringInfoExtend(RdcMsgBuf(rdc_port), RDC_MSG_SIZE);
+	initStringInfoExtend(RdcPeerExtra(rdc_port), RDC_EXTRA_SIZE);
+	initStringInfoExtend(RdcSelfExtra(rdc_port), RDC_EXTRA_SIZE);
 	initStringInfoExtend(RdcInBuf(rdc_port), RDC_BUFFER_SIZE);
 	initStringInfoExtend(RdcOutBuf(rdc_port), RDC_BUFFER_SIZE);
 	initStringInfoExtend(RdcOutBuf2(rdc_port), RDC_BUFFER_SIZE);
-	initStringInfoExtend(RdcErrBuf(rdc_port), RDC_BUFFER_SIZE);
+	initStringInfoExtend(RdcErrBuf(rdc_port), RDC_ERROR_SIZE);
 
 	return rdc_port;
 }
@@ -204,6 +209,7 @@ rdc_freeport(RdcPort *port)
 		}
 		pfree(port->self_extra.data);
 		pfree(port->peer_extra.data);
+		pfree(port->msg_buf.data);
 		pfree(port->in_buf.data);
 		pfree(port->out_buf.data);
 		pfree(port->out_buf2.data);

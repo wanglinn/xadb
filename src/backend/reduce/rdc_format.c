@@ -49,8 +49,6 @@ static void rdc_endmessage_internal(RdcPort *port, StringInfo buf, bool iserror)
 void
 rdc_beginmessage(StringInfo buf, char msgtype)
 {
-	initStringInfo(buf);
-
 	appendStringInfoChar(buf, msgtype);		/* data[0] is message type */
 	appendStringInfoSpaces(buf, 4);			/* keep data[1]~data[4] as placeholder for message length */
 }
@@ -240,10 +238,6 @@ rdc_endmessage_internal(RdcPort *port, StringInfo buf, bool iserror)
 		(void) rdc_puterror_binary(port, buf->data, buf->len);
 	else
 		(void) rdc_putmessage(port, buf->data, buf->len);
-
-	/* no need to complain about any failure, since pqcomm.c already did */
-	pfree(buf->data);
-	buf->data = NULL;
 }
 
 void

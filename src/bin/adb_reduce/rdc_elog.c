@@ -2256,6 +2256,7 @@ rdc_send_message_to_frontend(ErrorData *edata)
 	int			i;
 
 	/* 'N' (Notice) is for nonfatal conditions, 'E' is for errors */
+	initStringInfo(&msgbuf);
 	rdc_beginmessage(&msgbuf, (edata->elevel < ERROR) ? 'N' : 'E');
 
 	sev = error_severity(edata->elevel);
@@ -2375,6 +2376,8 @@ rdc_send_message_to_frontend(ErrorData *edata)
 	rdc_sendbyte(&msgbuf, '\0');		/* terminator */
 
 	rdc_enderror(MyRdcPort, &msgbuf);
+	pfree(msgbuf.data);
+	msgbuf.data = NULL;
 
 	/*
 	 * This flush is normally not necessary, since postgres.c will flush out

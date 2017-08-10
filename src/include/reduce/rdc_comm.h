@@ -151,6 +151,10 @@ struct RdcPort
 
 	RdcFlagType			flags;			/* used for running flags */
 	EventType			wait_events;	/* used for select/poll */
+
+	StringInfoData		msg_buf;		/* used for make up message, to avoid malloc and free
+										   memory multiple times, call resetStringInfo before
+										   use it and never free until destory RdcPort. */
 	StringInfoData		in_buf;			/* for normal message */
 	StringInfoData		out_buf;		/* for normal message */
 	StringInfoData		out_buf2;		/* for normal message */
@@ -190,6 +194,7 @@ struct RdcPort
 #define RdcError(port)				rdc_geterror(port)
 #define RdcPeerTypeStr(port)		rdc_type2string(RdcPeerType(port))
 #define RdcSelfTypeStr(port)		rdc_type2string(RdcSelfType(port))
+#define RdcMsgBuf(port)				&(((RdcPort *) (port))->msg_buf)
 #define RdcInBuf(port)				&(((RdcPort *) (port))->in_buf)
 #define RdcOutBuf(port)				&(((RdcPort *) (port))->out_buf)
 #define RdcOutBuf2(port)			&(((RdcPort *) (port))->out_buf2)

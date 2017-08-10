@@ -308,7 +308,7 @@ GetReduceGroup(void)
 void
 SendPlanCloseToSelfReduce(RdcPort *port, List *dest_nodes)
 {
-	StringInfoData  msg;
+	StringInfo		msg;
 	ssize_t			rsz;
 	ListCell	   *lc;
 	int				num;
@@ -329,12 +329,15 @@ SendPlanCloseToSelfReduce(RdcPort *port, List *dest_nodes)
 			return ;
 	}
 
-	rdc_beginmessage(&msg, MSG_PLAN_CLOSE);
+	msg = RdcMsgBuf(port);
+
+	resetStringInfo(msg);
+	rdc_beginmessage(msg, MSG_PLAN_CLOSE);
 	num = list_length(dest_nodes);
-	rdc_sendint(&msg, num, sizeof(num));
+	rdc_sendint(msg, num, sizeof(num));
 	foreach (lc, dest_nodes)
-		rdc_sendRdcPortID(&msg, lfirst_oid(lc));
-	rdc_endmessage(port, &msg);
+		rdc_sendRdcPortID(msg, lfirst_oid(lc));
+	rdc_endmessage(port, msg);
 
 	if (rdc_flush(port) == EOF)
 		ereport(ERROR,
@@ -352,19 +355,22 @@ SendPlanCloseToSelfReduce(RdcPort *port, List *dest_nodes)
 void
 SendEofToRemote(RdcPort *port, List *dest_nodes)
 {
-	StringInfoData  msg;
+	StringInfo		msg;
 	ListCell	   *lc;
 	int				num;
 
 	AssertArg(port);
 	AssertArg(dest_nodes);
 
-	rdc_beginmessage(&msg, MSG_EOF);
+	msg = RdcMsgBuf(port);
+
+	resetStringInfo(msg);
+	rdc_beginmessage(msg, MSG_EOF);
 	num = list_length(dest_nodes);
-	rdc_sendint(&msg, num, sizeof(num));
+	rdc_sendint(msg, num, sizeof(num));
 	foreach (lc, dest_nodes)
-		rdc_sendRdcPortID(&msg, lfirst_oid(lc));
-	rdc_endmessage(port, &msg);
+		rdc_sendRdcPortID(msg, lfirst_oid(lc));
+	rdc_endmessage(port, msg);
 
 	if (rdc_flush(port) == EOF)
 		ereport(ERROR,
@@ -382,34 +388,34 @@ SendEofToRemote(RdcPort *port, List *dest_nodes)
 void
 SendSlotToRemote(RdcPort *port, List *dest_nodes, TupleTableSlot *slot)
 {
-	StringInfoData  msg;
+	StringInfo		msg;
+	ListCell	   *lc;
+	int				num;
+	MinimalTuple	tup;
+	char		   *tupbody;
+	unsigned int	tupbodylen;
 
 	AssertArg(port);
-	if (dest_nodes)
-	{
-		ListCell	   *lc;
-		int				num;
-		MinimalTuple	tup;
-		char		   *tupbody;
-		unsigned int	tupbodylen;
-
-		AssertArg(slot);
-		tup = ExecFetchSlotMinimalTuple(slot);
-		/* the part of the MinimalTuple we'll write: */
-		tupbody = (char *) tup + MINIMAL_TUPLE_DATA_OFFSET;
-		tupbodylen = tup->t_len - MINIMAL_TUPLE_DATA_OFFSET;
-		rdc_beginmessage(&msg, MSG_P2R_DATA);
-		rdc_sendint(&msg, tupbodylen, sizeof(tupbodylen));
-		rdc_sendbytes(&msg, (const char * ) tupbody, tupbodylen);
-		num = list_length(dest_nodes);
-		rdc_sendint(&msg, num, sizeof(num));
-		foreach (lc, dest_nodes)
-			rdc_sendRdcPortID(&msg, lfirst_oid(lc));
-	} else
-	{
+	if (!dest_nodes)
 		return ;
-	}
-	rdc_endmessage(port, &msg);
+
+	AssertArg(slot);
+
+	tup = ExecFetchSlotMinimalTuple(slot);
+	/* the part of the MinimalTuple we'll write: */
+	tupbody = (char *) tup + MINIMAL_TUPLE_DATA_OFFSET;
+	tupbodylen = tup->t_len - MINIMAL_TUPLE_DATA_OFFSET;
+	msg = RdcMsgBuf(port);
+
+	resetStringInfo(msg);
+	rdc_beginmessage(msg, MSG_P2R_DATA);
+	rdc_sendint(msg, tupbodylen, sizeof(tupbodylen));
+	rdc_sendbytes(msg, (const char * ) tupbody, tupbodylen);
+	num = list_length(dest_nodes);
+	rdc_sendint(msg, num, sizeof(num));
+	foreach (lc, dest_nodes)
+		rdc_sendRdcPortID(msg, lfirst_oid(lc));
+	rdc_endmessage(port, msg);
 
 	if (rdc_flush(port) == EOF)
 		ereport(ERROR,

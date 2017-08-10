@@ -568,7 +568,7 @@ static void
 SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen)
 {
 	RSstate			   *rdcstore = NULL;
-	StringInfoData		buf;
+	StringInfo			buf;
 
 	AssertArg(pln_port);
 	AssertArg(data);
@@ -596,14 +596,15 @@ SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int da
 
 	Assert(pln_port->rdcstore);
 	rdcstore = pln_port->rdcstore;
-	rdc_beginmessage(&buf, MSG_R2P_DATA);
-	rdc_sendRdcPortID(&buf, rdc_id);
-	rdc_sendbytes(&buf, data, datalen);
-	rdc_sendlength(&buf);
+	buf = PlanMsgBuf(pln_port);
 
-	rdcstore_puttuple(rdcstore, buf.data, buf.len);
-	pfree(buf.data);
-	buf.data = NULL;
+	resetStringInfo(buf);
+	rdc_beginmessage(buf, MSG_R2P_DATA);
+	rdc_sendRdcPortID(buf, rdc_id);
+	rdc_sendbytes(buf, data, datalen);
+	rdc_sendlength(buf);
+
+	rdcstore_puttuple(rdcstore, buf->data, buf->len);
 
 	/*
 	 * It may be not useful, because "port" of "pln_port" may be
@@ -621,7 +622,7 @@ SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int da
 static void
 SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 {
-	StringInfoData	buf;
+	StringInfo		buf;
 	RSstate		   *rdcstore;
 	int				i;
 	bool			found;
@@ -671,13 +672,14 @@ SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 
 	Assert(pln_port->rdcstore);
 	rdcstore = pln_port->rdcstore;
-	rdc_beginmessage(&buf, MSG_EOF);
-	rdc_sendRdcPortID(&buf, rdc_id);
-	rdc_sendlength(&buf);
+	buf = PlanMsgBuf(pln_port);
 
-	rdcstore_puttuple(rdcstore, buf.data, buf.len);
-	pfree(buf.data);
-	buf.data = NULL;
+	resetStringInfo(buf);
+	rdc_beginmessage(buf, MSG_EOF);
+	rdc_sendRdcPortID(buf, rdc_id);
+	rdc_sendlength(buf);
+
+	rdcstore_puttuple(rdcstore, buf->data, buf->len);
 
 	/*
 	 * It may be not useful, because "port" of "pln_port" may be
@@ -699,12 +701,12 @@ SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 
 		Assert(pln_port->rdcstore);
 		rdcstore = pln_port->rdcstore;
+		buf = PlanMsgBuf(pln_port);
 
-		rdc_beginmessage(&buf, MSG_EOF);
-		rdc_sendlength(&buf);
-		rdcstore_puttuple(rdcstore, buf.data, buf.len);
-		pfree(buf.data);
-		buf.data = NULL;
+		resetStringInfo(buf);
+		rdc_beginmessage(buf, MSG_EOF);
+		rdc_sendlength(buf);
+		rdcstore_puttuple(rdcstore, buf->data, buf->len);
 
 		/*
 		 * It may be not useful, because "port" of "pln_port" may be
@@ -725,7 +727,7 @@ static void
 SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id)
 {
 	RSstate			   *rdcstore = NULL;
-	StringInfoData		buf;
+	StringInfo			buf;
 
 	AssertArg(pln_port);
 
@@ -751,13 +753,14 @@ SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id)
 
 	Assert(pln_port->rdcstore);
 	rdcstore = pln_port->rdcstore;
-	rdc_beginmessage(&buf, MSG_PLAN_CLOSE);
-	rdc_sendRdcPortID(&buf, rdc_id);
-	rdc_sendlength(&buf);
+	buf = PlanMsgBuf(pln_port);
 
-	rdcstore_puttuple(rdcstore, buf.data, buf.len);
-	pfree(buf.data);
-	buf.data = NULL;
+	resetStringInfo(buf);
+	rdc_beginmessage(buf, MSG_PLAN_CLOSE);
+	rdc_sendRdcPortID(buf, rdc_id);
+	rdc_sendlength(buf);
+
+	rdcstore_puttuple(rdcstore, buf->data, buf->len);
 
 	SendRdcEofToPlan(pln_port, rdc_id, false);
 }

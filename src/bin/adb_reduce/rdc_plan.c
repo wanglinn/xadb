@@ -51,6 +51,7 @@ plan_newport(RdcPortId pln_id)
 	pln_port->eof_num = 0;
 	for (i = 0; i < rdc_num; i++)
 		pln_port->rdc_eofs[i] = InvalidPortId;
+	initStringInfo(PlanMsgBuf(pln_port));
 
 	return pln_port;
 }
@@ -71,6 +72,8 @@ plan_freeport(PlanPort *pln_port)
 		PlanPortStats(pln_port);
 		rdc_freeport(pln_port->work_port);
 		rdcstore_end(pln_port->rdcstore);
+		pfree(pln_port->msg_buf.data);
+		pln_port->msg_buf.data = NULL;
 		safe_pfree(pln_port);
 	}
 }
