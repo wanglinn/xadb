@@ -13,34 +13,91 @@
 
 extern bool enable_cluster_plan;
 
-typedef int32 SlotNumber;
-static int32 cmr_heap_compare_slots(Datum a, Datum b, void *arg);
-static TupleTableSlot *GetSlotFromOuterNode(ClusterReduceState *node);
-static TupleTableSlot *GetSlotFromSpecialRemote(ClusterReduceState *node,
-												ReduceEntry entry);
-static TupleTableSlot *ExecClusterMergeReduce(ClusterReduceState *node);
+#define PlanGetTargetNodes(plan)	\
+	((ClusterReduce *) (plan))->reduce_oids
+
+#define PlanStateGetTargetNodes(state) \
+	PlanGetTargetNodes(((ClusterReduceState *) (state))->ps.plan)
+
+static void ExecInitClusterReduceStateExtra(ClusterReduceState *crstate);
 static bool ExecConnectReduceWalker(PlanState *node, EState *estate);
 static bool EndReduceStateWalker(PlanState *node, void *context);
+static int32 cmr_heap_compare_slots(Datum a, Datum b, void *arg);
+static TupleTableSlot *GetSlotFromOuterNode(ClusterReduceState *node);
+static TupleTableSlot *GetSlotFromSpecialRemote(ClusterReduceState *node, ReduceEntry entry);
+static TupleTableSlot *ExecClusterMergeReduce(ClusterReduceState *node);
+
+static void
+ExecInitClusterReduceStateExtra(ClusterReduceState *crstate)
+{
+	ClusterReduce  *plan;
+	List		   *nodesReduceFrom;
+	ListCell	   *lc;
+	ReduceEntry		entry;
+	int				i;
+	HASHCTL			hctl;
+	Oid				rdc_oid;
+	bool			is_tgt_node;
+
+	AssertArg(crstate);
+	AssertArg(crstate->port == NULL);
+	plan = (ClusterReduce *) crstate->ps.plan;
+
+	crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(plan), NULL);
+	if (IsRdcPortError(crstate->port))
+		ereport(ERROR,
+				(errmsg("fail to connect self reduce subprocess"),
+				 errdetail("%s", RdcError(crstate->port))));
+	RdcFlags(crstate->port) = RDC_FLAG_VALID;
+
+	nodesReduceFrom = GetReduceGroup();
+	crstate->nrdcs = list_length(nodesReduceFrom);
+	crstate->neofs = 0;
+
+	hctl.keysize = sizeof(Oid);
+	hctl.entrysize = sizeof(ReduceEntryData);
+	hctl.hcxt = CurrentMemoryContext;
+	crstate->rdc_htab = hash_create("reduce group",
+									32,
+									&hctl,	/* magic number here FIXME */
+									HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+
+	crstate->rdc_entrys = (ReduceEntry *) palloc0(sizeof(ReduceEntry) * crstate->nrdcs);
+	for (lc = list_head(nodesReduceFrom), i = 0; lc != NULL; lc = lnext(lc), i++)
+	{
+		rdc_oid = lfirst_oid(lc);
+		entry = hash_search(crstate->rdc_htab, &rdc_oid, HASH_ENTER, NULL);
+		entry->re_eof = false;
+		entry->re_slot = NULL;
+		entry->re_store = NULL;
+		crstate->rdc_entrys[i] = entry;
+	}
+
+	is_tgt_node = list_member_oid(PlanGetTargetNodes(plan), PGXCNodeOid);
+	if (plan->numCols > 0 && is_tgt_node)
+	{
+		TupleTableSlot *slot = crstate->ps.ps_ResultTupleSlot;
+		for (i = 0; i < crstate->nrdcs; i++)
+		{
+			entry = crstate->rdc_entrys[i];
+			if (entry->re_key != PGXCNodeOid)
+				entry->re_slot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor);
+			entry->re_store = tuplestore_begin_heap(true, false, work_mem);
+		}
+		crstate->binheap = binaryheap_allocate(crstate->nrdcs, cmr_heap_compare_slots, crstate);
+		crstate->initialized = false;
+	}
+}
 
 ClusterReduceState *
 ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 {
-	ClusterReduceState	   *crstate;
-	TupleTableSlot		   *slot;
-	Plan				   *outerPlan;
-	List				   *nodesReduceTo;
-	List				   *nodesReduceFrom;
-	ListCell			   *lc;
-	ReduceEntry				entry;
-	int						i;
-	HASHCTL					hctl;
-	Oid						rdc_oid;
+	ClusterReduceState *crstate;
+	Plan			   *outerPlan;
 
 	Assert(outerPlan(node) != NULL);
 	Assert(innerPlan(node) == NULL);
 	Assert((eflags & (EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)) == 0);
-
-	nodesReduceTo = node->reduce_oids;
 
 	/*
 	 * create state structure
@@ -52,55 +109,17 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate->closed_remote = NIL;
 	crstate->eof_underlying = false;
 	crstate->eof_network = false;
-	crstate->tgt_nodes = nodesReduceTo;
 
 	ExecInitResultTupleSlot(estate, &crstate->ps);
 	ExecAssignExprContext(estate, &crstate->ps);
 	ExecAssignResultTypeFromTL(&crstate->ps);
 
-	/*
-	 * This time don't connect Reduce subprocess.
-	 */
-	if (!(eflags & (EXEC_FLAG_EXPLAIN_ONLY | EXEC_FLAG_IN_SUBPLAN)))
-	{
-		crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(&(node->plan)), NULL);
-		if (IsRdcPortError(crstate->port))
-			ereport(ERROR,
-					(errmsg("fail to connect self reduce subprocess"),
-					 errdetail("%s", RdcError(crstate->port))));
-		RdcFlags(crstate->port) = RDC_FLAG_VALID;
-
-		nodesReduceFrom = GetReduceGroup();
-		crstate->nrdcs = list_length(nodesReduceFrom);
-		crstate->neofs = 0;
-
-		hctl.keysize = sizeof(Oid);
-		hctl.entrysize = sizeof(ReduceEntryData);
-		hctl.hcxt = CurrentMemoryContext;
-		crstate->rdc_htab = hash_create("reduce group",
-										32,
-										&hctl,	/* magic number here FIXME */
-										HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
-
-		crstate->rdc_elts = (ReduceEntry *) palloc0(sizeof(ReduceEntry) * crstate->nrdcs);
-		i = 0;
-		foreach (lc, nodesReduceFrom)
-		{
-			rdc_oid = lfirst_oid(lc);
-			entry = hash_search(crstate->rdc_htab, &rdc_oid, HASH_ENTER, NULL);
-			entry->re_eof = false;
-			entry->re_slot = NULL;
-			entry->re_store = NULL;
-			crstate->rdc_elts[i] = entry;
-			i++;
-		}
-	}
-
 	/* Need ClusterReduce to merge sort */
-	if (list_member_oid((const List *) nodesReduceTo, PGXCNodeOid))
+	if (list_member_oid(PlanGetTargetNodes(node), PGXCNodeOid))
 	{
 		if (node->numCols > 0)
 		{
+			int i;
 			crstate->nkeys = node->numCols;
 			crstate->sortkeys = palloc0(sizeof(SortSupportData) * node->numCols);
 			for (i = 0; i < node->numCols; i++)
@@ -123,23 +142,15 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 
 				PrepareSortSupportFromOrderingOp(node->sortOperators[i], sortKey);
 			}
-
-			if (!(eflags & EXEC_FLAG_EXPLAIN_ONLY))
-			{
-				for (i = 0; i < crstate->nrdcs; i++)
-				{
-					entry = crstate->rdc_elts[i];
-					slot = crstate->ps.ps_ResultTupleSlot;
-					if (entry->re_key != PGXCNodeOid)
-						entry->re_slot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor);
-					entry->re_store = tuplestore_begin_heap(true, false, work_mem);
-				}
-				crstate->binheap = binaryheap_allocate(crstate->nrdcs, cmr_heap_compare_slots, crstate);
-			}
-			crstate->initialized = false;
 		}
 	} else
 		crstate->eof_network = true;
+
+	/*
+	 * This time don't connect Reduce subprocess.
+	 */
+	if (!(eflags & (EXEC_FLAG_EXPLAIN_ONLY | EXEC_FLAG_IN_SUBPLAN)))
+		ExecInitClusterReduceStateExtra(crstate);
 
 	outerPlan = outerPlan(node);
 	outerPlanState(crstate) = ExecInitNode(outerPlan, estate, eflags);
@@ -159,16 +170,16 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 static TupleTableSlot *
 GetSlotFromOuterNode(ClusterReduceState *node)
 {
-	TupleTableSlot	   *slot;
-	ExprContext		   *econtext;
-	RdcPort			   *port;
-	ExprDoneCond		done;
-	bool				isNull;
-	Oid					oid;
-	TupleTableSlot	   *outerslot;
-	PlanState		   *outerNode;
-	bool				outerValid;
-	List			   *destOids = NIL;
+	TupleTableSlot *slot;
+	ExprContext	   *econtext;
+	RdcPort		   *port;
+	ExprDoneCond	done;
+	bool			isNull;
+	Oid				oid;
+	TupleTableSlot *outerslot;
+	PlanState	   *outerNode;
+	bool			outerValid;
+	List		   *destOids = NIL;
 
 	Assert(node && node->port);
 	port = node->port;
@@ -221,7 +232,7 @@ GetSlotFromOuterNode(ClusterReduceState *node)
 		} else
 		{
 			/* Here we send eof to remote plan nodes */
-			SendEofToRemote(port, node->tgt_nodes);
+			SendEofToRemote(port, PlanStateGetTargetNodes(node));
 
 			node->eof_underlying = true;
 		}
@@ -233,11 +244,11 @@ GetSlotFromOuterNode(ClusterReduceState *node)
 TupleTableSlot *
 ExecClusterReduce(ClusterReduceState *node)
 {
-	TupleTableSlot	   *slot;
-	RdcPort			   *port;
-	ReduceEntry			entry;
-	bool				found;
-	Oid					eof_oid;
+	TupleTableSlot *slot;
+	RdcPort		   *port;
+	ReduceEntry		entry;
+	bool			found;
+	Oid				eof_oid;
 
 	/* ClusterReduce need to sort by keys */
 	if (node->nkeys > 0)
@@ -401,7 +412,7 @@ ExecClusterMergeReduce(ClusterReduceState *node)
 		/* iniialize remote slot */
 		for (i = 0; i < node->nrdcs; i++)
 		{
-			entry = node->rdc_elts[i];
+			entry = node->rdc_entrys[i];
 			if (entry->re_key == PGXCNodeOid)
 				continue;
 			entry->re_slot = GetSlotFromSpecialRemote(node, entry);
@@ -489,7 +500,7 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 	 */
 	if (node->port && !RdcSendCLOSE(node->port))
 	{
-		List *dest_nodes = (RdcSendEOF(node->port) ? NIL : node->tgt_nodes);
+		List *dest_nodes = (RdcSendEOF(node->port) ? NIL : PlanStateGetTargetNodes(node));
 		SendPlanCloseToSelfReduce(node->port, dest_nodes);
 	}
 	rdc_freeport(node->port);
@@ -498,16 +509,16 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 	node->eof_underlying = false;
 	list_free(node->closed_remote);
 	node->closed_remote = NIL;
-	if (node->rdc_elts)
+	if (node->rdc_entrys)
 	{
 		int i;
 		for (i = 0; i < node->nrdcs; i++)
 		{
-			if (node->rdc_elts[i]->re_store)
-				tuplestore_end(node->rdc_elts[i]->re_store);
-			node->rdc_elts[i]->re_store = NULL;
+			if (node->rdc_entrys[i]->re_store)
+				tuplestore_end(node->rdc_entrys[i]->re_store);
+			node->rdc_entrys[i]->re_store = NULL;
 		}
-		pfree(node->rdc_elts);
+		pfree(node->rdc_entrys);
 	}
 	if (node->rdc_htab)
 		hash_destroy(node->rdc_htab);
@@ -533,14 +544,7 @@ ExecConnectReduceWalker(PlanState *node, EState *estate)
 	{
 		ClusterReduceState *crstate = (ClusterReduceState *) node;
 		if (crstate->port == NULL)
-		{
-			crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(crstate->ps.plan), NULL);
-			if (IsRdcPortError(crstate->port))
-				ereport(ERROR,
-						(errmsg("fail to connect self reduce subprocess"),
-						 errdetail("%s", RdcError(crstate->port))));
-			RdcFlags(crstate->port) = RDC_FLAG_VALID;
-		}
+			ExecInitClusterReduceStateExtra(crstate);
 	}
 
 	return planstate_tree_walker(node, ExecConnectReduceWalker, estate);

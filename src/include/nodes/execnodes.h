@@ -2157,9 +2157,8 @@ typedef struct ClusterReduceState
 	bool			started;
 	int				nrdcs;			/* number of reduce group */
 	int				neofs;			/* number of EOF messages */
-	List		   *tgt_nodes;		/* nodes will be reduced to */
 	HTAB		   *rdc_htab;
-	ReduceEntry	   *rdc_elts;		/* array of length nrdcs */
+	ReduceEntry	   *rdc_entrys;		/* array of length nrdcs */
 
 	/* used for merge reduce as below */
 	int				nkeys;

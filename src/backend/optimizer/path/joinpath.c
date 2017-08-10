@@ -894,13 +894,13 @@ sort_inner_and_outer(PlannerInfo *root,
 #ifdef ADB
 		if(inner_cluster_path && outer_cluster_path)
 		{
-			if (outerkeys)
+			if (outerkeys && IsA(outer_cluster_path, ClusterReducePath))
 				outer_cluster_path = create_cluster_reduce_path(root,
 																outer_cluster_path,
 																outer_cluster_path->reduce_info_list,
 																outerrel,
 																outerkeys);
-			if (innerkeys)
+			if (innerkeys && IsA(inner_cluster_path, ClusterReducePath))
 				inner_cluster_path = create_cluster_reduce_path(root,
 																inner_cluster_path,
 																inner_cluster_path->reduce_info_list,

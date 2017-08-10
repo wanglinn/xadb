@@ -69,7 +69,7 @@ plan_freeport(PlanPort *pln_port)
 		elog(LOG,
 			 "free port of" PLAN_PORT_PRINT_FORMAT,
 			 PlanID(pln_port));
-		PlanPortStats(pln_port);
+		/*PlanPortStats(pln_port);*/
 		rdc_freeport(pln_port->work_port);
 		rdcstore_end(pln_port->rdcstore);
 		pfree(pln_port->msg_buf.data);
