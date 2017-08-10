@@ -330,9 +330,9 @@ execWaitEVSet(WaitEVSet set, int timeout)
 		set->pollfds[nfds].fd = wee->wait_sock;
 		set->pollfds[nfds].events = 0;
 		set->pollfds[nfds].revents = 0;
-		if (WaitRead(WaitEvents(wee)))
+		if (WEEWaitRead(wee))
 			set->pollfds[nfds].events |= POLLIN;
-		if (WaitWrite(WaitEvents(wee)))
+		if (WEEWaitWrite(wee))
 			set->pollfds[nfds].events |= POLLOUT;
 		wee->pfd = &(set->pollfds[nfds]);
 	}
@@ -366,9 +366,9 @@ _re_poll:
 		wee = &(set->events[i]);
 		if (wee->wait_sock > max_sock)
 			max_sock = wee->wait_sock;
-		if (WaitRead(WaitEvents(wee)))
+		if (WEEWaitRead(wee))
 			FD_SET(wee->wait_sock, &(set->rmask));
-		if (WaitWrite(WaitEvents(wee)))
+		if (WEEWaitWrite(wee))
 			FD_SET(wee->wait_sock, &(set->wmask));
 		FD_SET(wee->wait_sock, &(set->emask));
 	}

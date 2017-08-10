@@ -242,6 +242,7 @@ rdc_wait_timed(int forRead, int forWrite, RdcPort *port, int timeout)
 {
 	int			nready;
 	EventType	wait_events = WAIT_NONE;
+	WaitEventElt *wee = NULL;
 
 	if (RdcWaitSet == NULL)
 	{
@@ -258,12 +259,27 @@ rdc_wait_timed(int forRead, int forWrite, RdcPort *port, int timeout)
 		wait_events |= WT_SOCK_WRITEABLE;
 	addWaitEventBySock(RdcWaitSet, RdcSocket(port), wait_events);
 	nready = execWaitEVSet(RdcWaitSet, timeout);
-	if (nready < 0 || WEEHasError(nextWaitEventElt(RdcWaitSet)))
+	wee = nextWaitEventElt(RdcWaitSet);
+	if (nready < 0)
 	{
 		rdc_puterror(port,
 					 "something wrong while waiting for read/write "
-					 "event on socket of" RDC_PORT_PRINT_FORMAT,
+					 "event on socket of" RDC_PORT_PRINT_FORMAT ": %m",
 					 RDC_PORT_PRINT_VALUE(port));
+		return EOF;
+	} else if (WEEHasError(wee))
+	{
+		char *err_msg = "null";
+#if defined(WAIT_USE_POLL)
+		err_msg = (WEERetEvent(wee) & POLLERR) ? "POLLERR" :
+				  (WEERetEvent(wee) & POLLHUP) ? "POLLHUP":
+				  "POLLNVAL";
+#endif
+		rdc_puterror(port,
+					 "something wrong while waiting for read/write "
+					 "event on socket of" RDC_PORT_PRINT_FORMAT ": %s",
+					 RDC_PORT_PRINT_VALUE(port), err_msg);
+
 		return EOF;
 	}
 

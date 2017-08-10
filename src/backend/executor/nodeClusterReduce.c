@@ -46,7 +46,7 @@ ExecInitClusterReduceStateExtra(ClusterReduceState *crstate)
 	crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(plan), NULL);
 	if (IsRdcPortError(crstate->port))
 		ereport(ERROR,
-				(errmsg("fail to connect self reduce subprocess"),
+				(errmsg("[PLAN %d] fail to connect self reduce subprocess", PlanNodeID(plan)),
 				 errdetail("%s", RdcError(crstate->port))));
 	RdcFlags(crstate->port) = RDC_FLAG_VALID;
 
@@ -327,12 +327,7 @@ GetSlotFromSpecialRemote(ClusterReduceState *node, ReduceEntry entry)
 	if (!tuplestore_ateof(cur_store))
 	{
 		if (tuplestore_gettupleslot(cur_store, true, true, cur_slot))
-		{
-#ifdef DEBUG_ADB
-			elog(LOG, "got slot of %u from store", cur_oid);
-#endif
 			return cur_slot;
-		}
 	}
 
 	/*
@@ -374,9 +369,6 @@ GetSlotFromSpecialRemote(ClusterReduceState *node, ReduceEntry entry)
 			if (slot_oid == cur_oid)
 				return outerslot;
 
-#ifdef DEBUG_ADB
-			elog(LOG, "put slot from %u into store", slot_oid);
-#endif
 			found = false;
 			othr_entry = hash_search(node->rdc_htab, &slot_oid, HASH_FIND, &found);
 			Assert(found && !othr_entry->re_eof);
