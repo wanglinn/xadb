@@ -18,8 +18,6 @@
 #include "reduce/rdc_msg.h"
 #include "utils/memutils.h"		/* for MemoryContext */
 
-static StringInfo rdc_buf = NULL;
-
 static int  HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port);
 static void HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes);
 static void HandleReadFromReduce(RdcPort *port, List **pln_nodes);
@@ -29,11 +27,11 @@ static void HandleWriteToPlan(PlanPort *pln_port);
 static void SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen);
 static void SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists);
 static void SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id);
-static int  SendPlanDataToRdc(StringInfo msg, RdcPortId planid);
-static int  SendPlanEofToRdc(StringInfo msg, RdcPortId planid);
-static int  SendPlanCloseToRdc(StringInfo msg, RdcPortId planid);
+static int  SendPlanDataToRdc(StringInfo msg, PlanPort *pln_port);
+static int  SendPlanEofToRdc(StringInfo msg, PlanPort *pln_port);
+static int  SendPlanCloseToRdc(StringInfo msg, PlanPort *pln_port);
 static int  BroadcastDataToRdc(StringInfo msg,
-							   RdcPortId planid,
+							   PlanPort *pln_port,
 							   char msg_type,
 							   const char *msg_data,
 							   int msg_len,
@@ -174,7 +172,7 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 		{
 			case MSG_P2R_DATA:
 				{
-					if (SendPlanDataToRdc(msg, RdcPeerID(work_port)))
+					if (SendPlanDataToRdc(msg, pln_port))
 					{
 						/*
 						 * flush to other reduce would block,
@@ -192,7 +190,7 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 						 RDC_PORT_PRINT_VALUE(work_port));
 
 					/* msg contains the target nodes(number and RdcPortIds) */
-					if (SendPlanEofToRdc(msg, RdcPeerID(work_port)))
+					if (SendPlanEofToRdc(msg, pln_port))
 					{
 						/*
 						 * flush to other reduce would block,
@@ -223,7 +221,7 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 					quit = true;	/* break while */
 					res = EOF;
 
-					(void) SendPlanCloseToRdc(msg, RdcPeerID(work_port));
+					(void) SendPlanCloseToRdc(msg, pln_port);
 				}
 				break;
 			case MSG_ERROR:
@@ -771,7 +769,7 @@ SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id)
  * return 1 if some data unsent.
  */
 static int
-SendPlanDataToRdc(StringInfo msg, RdcPortId planid)
+SendPlanDataToRdc(StringInfo msg, PlanPort *pln_port)
 {
 	int			datalen;
 	const char *data;
@@ -782,7 +780,7 @@ SendPlanDataToRdc(StringInfo msg, RdcPortId planid)
 	datalen = rdc_getmsgint(msg, sizeof(datalen));
 	data = rdc_getmsgbytes(msg, datalen);
 
-	return BroadcastDataToRdc(msg, planid, MSG_R2R_DATA, data, datalen, false);
+	return BroadcastDataToRdc(msg, pln_port, MSG_R2R_DATA, data, datalen, false);
 }
 
 /*
@@ -794,9 +792,9 @@ SendPlanDataToRdc(StringInfo msg, RdcPortId planid)
  * return 1 if some data unsent.
  */
 static int
-SendPlanEofToRdc(StringInfo msg, RdcPortId planid)
+SendPlanEofToRdc(StringInfo msg, PlanPort *pln_port)
 {
-	return BroadcastDataToRdc(msg, planid, MSG_EOF, NULL, 0, false);
+	return BroadcastDataToRdc(msg, pln_port, MSG_EOF, NULL, 0, false);
 }
 
 /*
@@ -808,9 +806,9 @@ SendPlanEofToRdc(StringInfo msg, RdcPortId planid)
  * return 1 if some data unsent.
  */
 static int
-SendPlanCloseToRdc(StringInfo msg, RdcPortId planid)
+SendPlanCloseToRdc(StringInfo msg, PlanPort *pln_port)
 {
-	return BroadcastDataToRdc(msg, planid, MSG_PLAN_CLOSE, NULL, 0, false);
+	return BroadcastDataToRdc(msg, pln_port, MSG_PLAN_CLOSE, NULL, 0, false);
 }
 
 /*
@@ -823,7 +821,7 @@ SendPlanCloseToRdc(StringInfo msg, RdcPortId planid)
  */
 static int
 BroadcastDataToRdc(StringInfo msg,
-				   RdcPortId planid,
+				   PlanPort *pln_port,
 				   char msg_type,
 				   const char *msg_data,
 				   int msg_len,
@@ -835,16 +833,13 @@ BroadcastDataToRdc(StringInfo msg,
 	int				ret;
 	int				res = 0;
 	const char	   *log_str;
+	RdcPortId		planid;
+	StringInfo		rdc_buf;
 
-	AssertArg(msg);
+	AssertArg(msg && pln_port);
+	planid = PlanID(pln_port);
+	rdc_buf = PlanMsgBuf(pln_port);
 
-	if (rdc_buf == NULL)
-	{
-		MemoryContext oldcontext;
-		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-		rdc_buf = makeStringInfo();
-		(void) MemoryContextSwitchTo(oldcontext);
-	}
 	resetStringInfo(rdc_buf);
 
 	/* makeup packet to broadcast */
