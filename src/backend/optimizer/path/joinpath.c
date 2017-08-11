@@ -1885,7 +1885,7 @@ select_mergejoin_clauses(PlannerInfo *root,
 
 #ifdef ADB
 
-static Path* get_cheapest_no_param_by_rel_path(List *pathlist, RelOptInfo *rel)
+static Path* get_cheapest_no_param_path(List *pathlist)
 {
 	Path *result;
 	Path *path;
@@ -1895,7 +1895,7 @@ static Path* get_cheapest_no_param_by_rel_path(List *pathlist, RelOptInfo *rel)
 	foreach(lc, pathlist)
 	{
 		path = lfirst(lc);
-		if(PATH_PARAM_BY_REL(path, rel))
+		if(bms_is_empty(PATH_REQ_OUTER(path)) == false)
 			continue;
 		if (result == NULL ||
 			result->total_cost > path->total_cost)
@@ -2051,7 +2051,7 @@ static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
 			{
 				Path *path;
 				ReduceInfo *rinfo;
-				path = get_cheapest_no_param_by_rel_path(innerrel->cluster_pathlist, outerrel);
+				path = get_cheapest_no_param_path(innerrel->cluster_pathlist);
 				if(path == NULL)
 				{
 					/* have no path */
