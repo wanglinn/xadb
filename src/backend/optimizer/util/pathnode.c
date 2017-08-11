@@ -3435,17 +3435,42 @@ create_cluster_reduce_path(PlannerInfo *root,
 
 		return (Path *) crp;
 	}
-	else
+
+	/*
+	 *			ClusterMergeReducePath
+	 *					/
+	 *				sortpath
+	 *				/
+	 *			subpath
+	 */
+	if (IsReduceInfoListCoordinator(rinfo_list))
 	{
-		crp->path.pathkeys = NIL;
+		crp->subpath = (Path *) create_sort_path(root,
+												 rel,
+												 sub_path,
+												 pathkeys,
+												 -1.0);
+		crp->path.pathkeys = pathkeys;
 		cost_cluster_reduce(crp);
 
-		return (Path *) create_sort_path(root,
-										 rel,
-										 (Path *) crp,
-										 pathkeys,
-										 -1.0);
+		return (Path *) crp;
 	}
+
+	/*
+	 *				sortpath
+	 *					/
+	 *			ClusterReducePath
+	 *				/
+	 *			subpath
+	 */
+	crp->path.pathkeys = NIL;
+	cost_cluster_reduce(crp);
+
+	return (Path *) create_sort_path(root,
+									 rel,
+									 (Path *) crp,
+									 pathkeys,
+									 -1.0);
 }
 
 static void copy_path_info(Path *dest, const Path *src)
