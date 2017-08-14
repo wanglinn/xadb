@@ -4198,6 +4198,10 @@ create_grouping_paths(PlannerInfo *root,
 			/* This was checked before setting try_parallel_aggregation */
 			Assert(parse->hasAggs || parse->groupClause);
 
+			/* create reduce path */
+			groupExprs = get_sortgrouplist_exprs(parse->groupClause,
+									parse->targetList);
+
 			foreach(lc, input_rel->cluster_pathlist)
 			{
 				Path *path = lfirst(lc);
@@ -4298,6 +4302,70 @@ create_grouping_paths(PlannerInfo *root,
 												   dNumGroups);
 					}
 					add_cluster_path(grouped_rel, path);
+				}
+
+				/*
+				 * Create path :
+				 * cluster gather  gather data from datanode
+				 *  group/agg          group group->pathkey
+				 *	 sort          sort by group->pathkey
+				 *		reduce     redistribute by group key
+				 */
+				if (!only_once)
+				{
+					ListCell	*cell;
+					ReduceInfo *rinfo;
+					List *reduce_info_list = NIL;
+					List *exclude_exec = NIL;
+					path = lfirst(lc);
+
+					reduce_info_list = get_reduce_info_list(path);
+					if (NIL == reduce_info_list)
+						continue;
+
+					/* some type table don't need to reduce */
+					foreach(cell, reduce_info_list)
+					{
+						rinfo = lfirst(cell);
+						/* union exclude_exec list */
+						exclude_exec = list_union_oid(rinfo->exclude_exec, exclude_exec);
+					}
+					foreach(cell, groupExprs)
+					{
+						Expr* expr = lfirst(cell);
+
+						rinfo = MakeHashReduceInfo(rinfo->storage_nodes, exclude_exec, expr);
+						path = create_cluster_reduce_path(root,
+												  path,
+												  list_make1(rinfo),
+												  grouped_rel,
+												  root->group_pathkeys);
+						if(parse->hasAggs)
+						{
+							path = (Path *)
+									 create_agg_path(root,
+													 grouped_rel,
+													 path,
+													 target,
+													 parse->groupClause ? AGG_SORTED : AGG_PLAIN,
+													 AGGSPLIT_SIMPLE,
+													 parse->groupClause,
+													 (List *) parse->havingQual,
+													 &agg_final_costs,
+													 dNumPartialGroups);
+						}else
+						{
+							path = (Path *)
+									 create_group_path(root,
+													   grouped_rel,
+													   path,
+													   target,
+													   parse->groupClause,
+													   (List *) parse->havingQual,
+													   dNumPartialGroups);
+						}
+						add_cluster_path(grouped_rel, path);
+					}
 				}
 			}
 		}
@@ -4423,9 +4491,6 @@ create_grouping_paths(PlannerInfo *root,
 											(List *) parse->havingQual,
 											&agg_partial_costs,
 											dNumPartialGroups);
-						/* build gather path */
-						if(root->parent_root == NULL)
-							path = (Path*)create_cluster_gather_path(path, grouped_rel);
 
 						add_cluster_path(grouped_rel, path);
 					}
