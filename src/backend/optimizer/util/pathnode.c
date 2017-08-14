@@ -3537,7 +3537,8 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 					exec_info->size += size;
 				}
 				list_free(list);
-			}else if(IsRelationDistributedByValue(loc))
+			}else if(IsRelationDistributedByValue(loc) ||
+				loc->locatorType == LOCATOR_TYPE_USER_DEFINED)
 			{
 				Assert(list_length(path->reduce_info_list) == 1);
 				ReduceInfo *reduceInfo = linitial(path->reduce_info_list);
