@@ -17,6 +17,8 @@
 #include "reduce/rdc_comm.h"
 #include "reduce/rdc_msg.h"
 
+extern void AtEOXact_Reduce(void);
+
 extern void EndSelfReduce(int code, Datum arg);
 
 extern RdcPort *ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id,

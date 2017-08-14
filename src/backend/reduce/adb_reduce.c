@@ -23,6 +23,7 @@
 #include "miscadmin.h"
 #include "access/htup.h"
 #include "access/htup_details.h"
+#include "pgxc/pgxc.h"
 #include "postmaster/fork_process.h"
 #include "postmaster/syslogger.h"
 #include "reduce/adb_reduce.h"
@@ -49,11 +50,40 @@ static List		   *GroupReduceList = NIL;
 #define RDC_BACKEND_HOLD	0
 #define RDC_REDUCE_HOLD		1
 
+static void ResetSelfReduce(void);
 static void InitCommunicationChannel(void);
 static void CloseBackendPort(void);
 static void CloseReducePort(void);
 static int  GetReduceListenPort(void);
 static void AdbReduceLauncherMain(int rid);
+
+static void
+ResetSelfReduce(void)
+{
+	rdc_freeport(SelfReducePort);
+	SelfReducePort = NULL;
+	SelfReduceListenPort = 0;
+	SelfReduceID = InvalidOid;
+	list_free(GroupReduceList);
+	GroupReduceList = NIL;
+	cancel_before_shmem_exit(EndSelfReduce, 0);
+}
+
+void
+AtEOXact_Reduce(void)
+{
+	if (SelfReducePort && (IS_PGXC_COORDINATOR || !IsConnFromCoord()))
+	{
+		StringInfo msg = RdcMsgBuf(SelfReducePort);
+
+		resetStringInfo(msg);
+		rdc_beginmessage(msg, MSG_BACKEND_CLOSE);
+		rdc_endmessage(SelfReducePort, msg);
+		(void) rdc_flush(SelfReducePort);
+
+		ResetSelfReduce();
+	}
+}
 
 void
 EndSelfReduce(int code, Datum arg)
@@ -72,13 +102,7 @@ EndSelfReduce(int code, Datum arg)
 		}
 		SelfReducePID = 0;
  	}
-	rdc_freeport(SelfReducePort);
-	SelfReducePort = NULL;
-	SelfReduceListenPort = 0;
-	SelfReduceID = InvalidOid;
-	list_free(GroupReduceList);
-	GroupReduceList = NIL;
-	cancel_before_shmem_exit(EndSelfReduce, 0);
+	ResetSelfReduce();
 }
 
 static void

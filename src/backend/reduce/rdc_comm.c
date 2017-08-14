@@ -107,7 +107,7 @@ _re_recv:
 		return false;
 	else
 	/* receive close message request */
-	if (rc > 0 && c == MSG_RDC_CLOSE)
+	if (rc > 0 && c == MSG_BACKEND_CLOSE)
 		return false;
 	else
 	if (rc < 0)

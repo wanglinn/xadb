@@ -13,6 +13,7 @@
  */
 #include "rdc_globals.h"
 
+#include "rdc_exit.h"
 #include "rdc_handler.h"
 #include "rdc_plan.h"
 #include "reduce/rdc_msg.h"
@@ -496,6 +497,9 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 						SendPlanCloseToPlan(pln_port, RdcPeerID(rdc_port));
 					}
 				}
+				break;
+			case MSG_RDC_CLOSE:
+				rdc_exit(0);
 				break;
 			case MSG_ERROR:
 				break;

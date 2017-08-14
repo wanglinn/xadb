@@ -40,7 +40,6 @@ rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id, RdcPortPID p
 	rdc_sendStringInfo(buf, extra);
 	rdc_endmessage(port, buf);
 
-
 	return rdc_flush(port);
 }
 

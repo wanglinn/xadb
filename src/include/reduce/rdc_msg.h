@@ -27,6 +27,7 @@ extern RdcPortId		MyReduceId;
 #define MSG_EOF				'e'
 #define MSG_PLAN_CLOSE		'C'
 #define MSG_RDC_CLOSE		'c'
+#define MSG_BACKEND_CLOSE	MSG_RDC_CLOSE
 #define MSG_START_RQT		'S'
 #define MSG_START_RSP		's'
 #define MSG_GROUP_RQT		'G'

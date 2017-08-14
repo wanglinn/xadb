@@ -719,6 +719,33 @@ SetReduceSignals(void)
 }
 
 static void
+NotifyOtherReduceClose(int code, Datum arg)
+{
+	RdcNode	   *rnode;
+	RdcPort	   *rport;
+	int			rnum, i;
+	StringInfo	msg;
+
+	rnum = MyRdcOpts->rdc_num;
+	for (i = 0; i < rnum; i++)
+	{
+		rnode = &(MyRdcOpts->rdc_nodes[i]);
+		rport = rnode->port;
+		if (!rport || RdcNodeID(rnode) == MyReduceId)
+			continue;
+		msg = RdcMsgBuf(rport);
+
+		resetStringInfo(msg);
+		rdc_beginmessage(msg, MSG_RDC_CLOSE);
+		rdc_endmessage(rport, msg);
+		(void) rdc_flush(rport);
+
+		rdc_freeport(rport);
+		rnode->port = NULL;
+	}
+}
+
+static void
 WaitForReduceGroupReady(void)
 {
 	bool		quit = false;
@@ -756,6 +783,8 @@ WaitForReduceGroupReady(void)
 				(errmsg("fail to send setup group response"),
 				 errdetail("%s", RdcError(port))));
 #endif
+
+	on_rdc_exit(NotifyOtherReduceClose, 0);
 }
 
 static bool

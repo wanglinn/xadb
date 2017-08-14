@@ -76,6 +76,7 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/xc_maintenance_mode.h"
 #include "postmaster/autovacuum.h"
+#include "reduce/adb_reduce.h"
 #endif
 
 /*
@@ -2695,6 +2696,7 @@ CommitTransaction(void)
 
 #ifdef ADB
 	AtEOXact_Local(true);
+	AtEOXact_Reduce();
 
 	/*
 	 * XXX We now close the main and auxilliary transaction (if any) on the
@@ -3271,7 +3273,7 @@ AbortTransaction(void)
 
 #ifdef ADB
 	AtEOXact_Local(false);
-
+	AtEOXact_Reduce();
 	AtEOXact_Remote();
 #endif
 }
