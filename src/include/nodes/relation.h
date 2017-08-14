@@ -1551,21 +1551,6 @@ typedef struct LimitPath
 
 #ifdef ADB
 
-typedef struct ClusterPath
-{
-	Path		path;
-	Path	   *subpath;		/* path representing input source */
-	List	   *rnodes;			/* remote nodes */
-} ClusterPath;
-
-/*
- * ClusterFetchPath use
- */
-typedef struct ClusterScanPath
-{
-	ClusterPath cluster_path;
-} ClusterScanPath;
-
 /*
  * ClusterGather gather remote query result
  */

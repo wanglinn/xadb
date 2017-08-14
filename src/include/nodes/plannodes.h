@@ -290,6 +290,10 @@ typedef struct Scan
 {
 	Plan		plan;
 	Index		scanrelid;		/* relid is index into the range table */
+#ifdef ADB
+	/* node(s) Oid, used in datanode restore Scan plan */
+	List	   *execute_nodes;
+#endif /* ADB */
 } Scan;
 
 /* ----------------
@@ -858,12 +862,6 @@ typedef enum ClusterGatherType
 	CLUSTER_GATHER_DATANODE = 2,
 	CLUSTER_GATHER_ALL = CLUSTER_GATHER_COORD | CLUSTER_GATHER_DATANODE
 }ClusterGatherType;
-
-typedef struct ClusterScan
-{
-	Plan		plan;
-	List	   *rnodes;			/* remote node oids */
-}ClusterScan;
 
 typedef struct ClusterGather
 {

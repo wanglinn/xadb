@@ -55,7 +55,6 @@
  *   LockRowsState
  *   LimitState
  *   RemoteQueryState
- *   ClusterScanState
  *   ClusterGatherState
  *   ClusterMergeGatherState
  *   ClusterGetCopyDataState
@@ -305,6 +304,9 @@ END_NODE(BitmapOr)
 BEGIN_NODE(Scan)
 	NODE_BASE2(Plan,plan)
 	NODE_SCALAR(Index,scanrelid)
+#ifdef ADB
+	NODE_NODE(List,execute_nodes)
+#endif
 END_NODE(Scan)
 #endif /* NO_NODE_Scan */
 
@@ -693,21 +695,6 @@ BEGIN_NODE(DropGroupStmt)
 	NODE_STRING(group_name)
 END_NODE(DropGroupStmt)
 #endif /* NO_NODE_DropGroupStmt */
-
-#ifndef NO_NODE_ClusterPath
-BEGIN_NODE(ClusterPath)
-	NODE_BASE2(Path,path)
-	NODE_NODE(Path,subpath)
-	NODE_NODE(List,rnodes)
-END_NODE(ClusterPath)
-#endif /* NO_NODE_ClusterPath */
-
-#ifndef NO_NODE_ClusterScan
-BEGIN_NODE(ClusterScan)
-	NODE_BASE2(Plan,plan)
-	NODE_NODE(List,rnodes)
-END_NODE(ClusterScan)
-#endif /* NO_NODE_ClusterScan */
 
 #ifndef NO_NODE_ClusterGather
 BEGIN_NODE(ClusterGather)
@@ -1775,12 +1762,6 @@ BEGIN_NODE(RemoteQueryPath)
 	NODE_SCALAR(bool,rqhas_unshippable_tlist)
 END_NODE(RemoteQueryPath)
 #endif /* NO_NODE_RemoteQueryPath */
-
-#ifndef NO_NODE_ClusterScanPath
-BEGIN_NODE(ClusterScanPath)
-	NODE_BASE2(ClusterPath,cluster_path)
-END_NODE(ClusterScanPath)
-#endif /* NO_NODE_ClusterScanPath */
 
 #ifndef NO_NODE_ClusterGatherPath
 BEGIN_NODE(ClusterGatherPath)

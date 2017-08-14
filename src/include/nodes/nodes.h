@@ -97,8 +97,6 @@ typedef enum NodeTag
 	T_DropNodeStmt,
 	T_CreateGroupStmt,
 	T_DropGroupStmt,
-	T_ClusterPath,
-	T_ClusterScan,
 	T_ClusterGather,
 	T_ClusterMergeGather,
 	T_ClusterGetCopyData,
@@ -150,7 +148,6 @@ typedef enum NodeTag
 	T_LimitState,
 #ifdef ADB
 	T_RemoteQueryState,
-	T_ClusterScanState,
 	T_ClusterGatherState,
 	T_ClusterMergeGatherState,
 	T_ClusterGetCopyDataState,
@@ -300,7 +297,6 @@ typedef enum NodeTag
 	T_LimitPath,
 #ifdef ADB
 	T_RemoteQueryPath,
-	T_ClusterScanPath,
 	T_ClusterGatherPath,
 	T_ClusterMergeGatherPath,
 	T_ClusterReducePath,
@@ -686,6 +682,7 @@ extern Oid load_oid_proc(struct StringInfoData *buf);
 extern Oid load_oid_collation(struct StringInfoData *buf);
 extern Oid load_oid_type(struct StringInfoData *buf);
 extern Oid load_namespace(struct StringInfoData *buf);
+extern Oid load_namespace_extend(struct StringInfoData *buf, bool missok);
 extern char * load_node_string(struct StringInfoData *buf, bool need_dup);
 extern struct Bitmapset* load_Bitmapset(struct StringInfoData *buf);
 extern void save_oid_operator(struct StringInfoData *buf, Oid op);

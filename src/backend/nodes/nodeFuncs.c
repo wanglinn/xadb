@@ -3852,7 +3852,6 @@ bool have_cluster_plan_walker(struct Plan *plan, void *notUse)
 		return false;
 	switch(nodeTag(plan))
 	{
-	case T_ClusterScan:
 	case T_ClusterGather:
 	case T_ClusterMergeGather:
 	case T_ClusterGetCopyData:
@@ -4070,9 +4069,6 @@ bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
 	case T_RemoteQueryPath:
 		WALK_CHILD_PATH(RemoteQueryPath, leftpath);
 		WALK_CHILD_PATH(RemoteQueryPath, rightpath);
-		break;
-	case T_ClusterScanPath:
-		WALK_CHILD_PATH(ClusterPath, subpath);
 		break;
 	case T_ClusterGatherPath:
 		WALK_CHILD_PATH(ClusterGatherPath, subpath);

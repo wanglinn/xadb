@@ -948,9 +948,6 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_ClusterMergeGather:
 			pname = sname = "Cluster Merge Gather";
 			break;
-		case T_ClusterScan:
-			pname = sname = "Cluster Scan";
-			break;
 		case T_ClusterGetCopyData:
 			pname = sname = "Cluster Get Copy Data";
 			break;
@@ -1362,6 +1359,10 @@ ExplainNode(PlanState *planstate, List *ancestors,
 				show_instrumentation_count("Rows Removed by Filter", 1,
 										   planstate, es);
 			break;
+#ifdef ADB
+			if(es->verbose)
+				ExplainRemoteList(((Scan*)plan)->execute_nodes, es);
+#endif /* ADB */
 		case T_IndexOnlyScan:
 			show_scan_qual(((IndexOnlyScan *) plan)->indexqual,
 						   "Index Cond", planstate, ancestors, es);
@@ -1377,10 +1378,18 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			if (es->analyze)
 				ExplainPropertyLong("Heap Fetches",
 				   ((IndexOnlyScanState *) planstate)->ioss_HeapFetches, es);
+#ifdef ADB
+			if(es->verbose)
+				ExplainRemoteList(((Scan*)plan)->execute_nodes, es);
+#endif /* ADB */
 			break;
 		case T_BitmapIndexScan:
 			show_scan_qual(((BitmapIndexScan *) plan)->indexqualorig,
 						   "Index Cond", planstate, ancestors, es);
+#ifdef ADB
+			if(es->verbose)
+				ExplainRemoteList(((Scan*)plan)->execute_nodes, es);
+#endif /* ADB */
 			break;
 #ifdef ADB
 		case T_RemoteQuery:
@@ -1416,6 +1425,10 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
 										   planstate, es);
+#ifdef ADB
+			if(es->verbose && IsA(plan, SeqScan))
+				ExplainRemoteList(((Scan*)plan)->execute_nodes, es);
+#endif /* ADB */
 			break;
 		case T_Gather:
 			{
@@ -1477,6 +1490,10 @@ ExplainNode(PlanState *planstate, List *ancestors,
 					show_instrumentation_count("Rows Removed by Filter", 1,
 											   planstate, es);
 			}
+#ifdef ADB
+			if(es->verbose)
+				ExplainRemoteList(((Scan*)plan)->execute_nodes, es);
+#endif /* ADB */
 			break;
 		case T_ForeignScan:
 			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
@@ -1582,10 +1599,6 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			show_hash_info((HashState *) planstate, es);
 			break;
 #ifdef ADB
-		case T_ClusterScan:
-			if(es->verbose)
-				ExplainRemoteList(((ClusterScan*)plan)->rnodes, es);
-			break;
 		case T_ClusterGather:
 			if(es->verbose)
 				ExplainRemoteList(((ClusterGather*)plan)->rnodes, es);
@@ -1948,8 +1961,7 @@ show_plan_tlist(PlanState *planstate, List *ancestors, ExplainState *es)
 	if (IsA(plan, RecursiveUnion))
 		return;
 #ifdef ADB
-	if (IsA(plan, ClusterScan) ||
-		IsA(plan, ClusterGather) ||
+	if (IsA(plan, ClusterGather) ||
 		IsA(plan, ClusterMergeGather) ||
 		IsA(plan, ClusterReduce))
 		return;

@@ -121,7 +121,6 @@
 #include "executor/nodeClusterGather.h"
 #include "executor/nodeClusterMergeGather.h"
 #include "executor/nodeClusterReduce.h"
-#include "executor/nodeClusterScan.h"
 #include "executor/nodeGetCopyData.h"
 #endif
 
@@ -358,11 +357,6 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 									(ClusterMergeGather*)node, estate, eflags);
 			break;
 
-		case T_ClusterScan:
-			result = (PlanState *) ExecInitClusterScan((ClusterScan *) node,
-												estate, eflags);
-			break;
-
 		case T_ClusterGetCopyData:
 			result = (PlanState *) ExecInitClusterGetCopyData((ClusterGetCopyData*)node,
 												estate, eflags);
@@ -582,10 +576,6 @@ ExecProcNode(PlanState *node)
 
 		case T_ClusterMergeGatherState:
 			result = ExecClusterMergeGather((ClusterMergeGatherState*) node);
-			break;
-
-		case T_ClusterScanState:
-			result = ExecClusterScan((ClusterScanState *) node);
 			break;
 
 		case T_ClusterGetCopyDataState:
@@ -860,10 +850,6 @@ ExecEndNode(PlanState *node)
 
 		case T_ClusterMergeGatherState:
 			ExecEndClusterMergeGather((ClusterMergeGatherState*) node);
-			break;
-
-		case T_ClusterScanState:
-			ExecEndClusterScan((ClusterScanState *) node);
 			break;
 
 		case T_ClusterGetCopyDataState:

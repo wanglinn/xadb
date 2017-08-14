@@ -11,14 +11,6 @@
 #undef NO_STRUCT_TupleHashEntryData
 #undef NO_STRUCT_TupleHashTableData
 #undef NO_STRUCT_EPQState
-#undef NO_STRUCT_LockInfoData
-#undef NO_STRUCT_AutoVacOpts
-#undef NO_STRUCT_StdRdOptions
-#undef NO_STRUCT_ViewOptions
-#undef NO_STRUCT_ParamExternData
-#undef NO_STRUCT_ParamListInfoData
-#undef NO_STRUCT_SemiAntiJoinContext
-#undef NO_STRUCT_ReduceInfo
 #undef NO_STRUCT_ExtensibleNodeMethods
 #undef NO_STRUCT_CustomPathMethods
 #undef NO_STRUCT_CustomScanMethods
@@ -29,3 +21,11 @@
 #undef NO_STRUCT_MGRStopAgent
 #undef NO_STRUCT_RelationLocInfo
 #undef NO_STRUCT_LockRelId
+#undef NO_STRUCT_LockInfoData
+#undef NO_STRUCT_AutoVacOpts
+#undef NO_STRUCT_StdRdOptions
+#undef NO_STRUCT_ViewOptions
+#undef NO_STRUCT_ParamExternData
+#undef NO_STRUCT_ParamListInfoData
+#undef NO_STRUCT_ReduceInfo
+#undef NO_STRUCT_SemiAntiJoinContext

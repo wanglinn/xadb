@@ -258,13 +258,11 @@ typedef struct ExecNodeInfo
 	uint32 part_count;	/* partial table count */
 }ExecNodeInfo;
 
-extern bool is_cluster_path(Path *path);
 extern bool have_cluster_gather_path(Path *path, void *context);
 extern bool have_remote_query_path(Path *path, void *context);
 extern ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 			, RelOptInfo *rel, Path *sub_path, List *pathkeys);
 extern ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel);
-extern ClusterScanPath *create_cluster_scan_path(Path *sub_path, List *rnodes, RelOptInfo *rel);
 extern Path *create_cluster_reduce_path(PlannerInfo *root,
 			Path *sub_path,
 			List *rinfo_list,

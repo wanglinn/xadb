@@ -2,6 +2,7 @@
 
 #include "access/xact.h"
 
+#include "catalog/pgxc_node.h"
 #include "executor/execdesc.h"
 #include "executor/executor.h"
 #include "pgxc/pgxc.h"
@@ -49,6 +50,8 @@ static QueryDesc *create_cluster_query_desc(StringInfo buf, DestReceiver *r);
 static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt, ParamListInfo param);
 static bool SerializePlanHook(StringInfo buf, Node *node, void *context);
 static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context);
+static void SerializeRelationOid(StringInfo buf, Oid relid);
+static Oid RestoreRelationOid(StringInfo buf, bool missok);
 static void send_rdc_listend_port(int port);
 static void wait_rdc_group_message(void);
 static bool get_rdc_listen_port_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
@@ -385,27 +388,31 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 		Relation rel = heap_open(rte->relid, NoLock);
 		LOCKMODE locked_mode = GetLocalLockedRelationOidMode(rte->relid);
 		Assert(locked_mode != NoLock);
-		/* save is temp table ? */
-		appendStringInfoChar(buf, RelationUsesLocalBuffers(rel) ? '\1':'\0');
-		/* save namespace */
-		save_namespace(buf, RelationGetNamespace(rel));
-		/* save relation name */
-		save_node_string(buf, RelationGetRelationName(rel));
+		/* save node Oids */
+		if(RelationGetLocInfo(rel))
+		{
+			List *oids = PGXCNodeGetNodeOidList(RelationGetLocInfo(rel)->nodeList, PGXC_NODE_DATANODE);
+			saveNode(buf, (Node*)oids);
+			list_free(oids);
+		}else
+		{
+			List *oids = list_make1_oid(PGXCNodeOid);
+			saveNode(buf, (Node*)oids);
+			list_free(oids);
+		}
+		/* save relation Oid */
+		SerializeRelationOid(buf, RelationGetRelid(rel));
 		heap_close(rel, NoLock);
 		appendBinaryStringInfo(buf, (char*)&locked_mode, sizeof(locked_mode));
 	}else if(IsA(node, IndexScan) ||
 			 IsA(node, IndexOnlyScan) ||
 			 IsA(node, BitmapIndexScan))
 	{
-		Relation rel;
 		Oid indexid;
 		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(IndexOnlyScan, indexid), "");
 		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(BitmapIndexScan, indexid), "");
 		indexid = ((IndexScan*)node)->indexid;
-		rel = relation_open(indexid, NoLock);
-		save_namespace(buf, RelationGetNamespace(rel));
-		save_node_string(buf, RelationGetRelationName(rel));
-		heap_close(rel, NoLock);
+		SerializeRelationOid(buf, indexid);
 	}
 	return true;
 }
@@ -420,22 +427,18 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 		if(rte->rtekind == RTE_RELATION)
 		{
 			/* get relation oid */
-			char *rel_name;
-			Oid nsp_oid;
+			List *oids;
 			LOCKMODE lock_mode;
+			bool missok;
 
-			++(buf->cursor);	/* skip is temp table */
-			nsp_oid = load_namespace(buf);
-			rel_name = load_node_string(buf, false);
+			/* load nodes */
+			oids = (List*)loadNode(buf);
+			Assert(oids && IsA(oids, OidList));
+			missok = !list_member_oid(oids, PGXCNodeOid);
 
-			rte->relid = get_relname_relid(rel_name, nsp_oid);
-			if(!OidIsValid(rte->relid))
-			{
-				ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_TABLE),
-					 errmsg("relation \"%s.%s\" does not exist",
-							get_namespace_name(nsp_oid), rel_name)));
-			}
+			/* load reation Oid */
+			rte->relid = RestoreRelationOid(buf, missok);
+
 			/* we must lock relation now */
 			pq_copymsgbytes(buf, (char*)&lock_mode, sizeof(lock_mode));
 			LockRelationOid(rte->relid, lock_mode);
@@ -445,21 +448,12 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 			 IsA(node, BitmapIndexScan))
 	{
 		IndexScan *scan = (IndexScan*)node;
-		char *rel_name;
-		Oid nsp_oid;
+		bool missok;
 		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(IndexOnlyScan, indexid), "");
 		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(BitmapIndexScan, indexid), "");
 
-		nsp_oid = load_namespace(buf);
-		rel_name = load_node_string(buf, false);
-		scan->indexid = get_relname_relid(rel_name, nsp_oid);
-		if(!OidIsValid(scan->indexid))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_OBJECT),
-					 errmsg("index \"%s.%s\" does not exist",
-							get_namespace_name(nsp_oid), rel_name)));
-		}
+		missok = !list_member_oid(scan->scan.execute_nodes, PGXCNodeOid);
+		scan->indexid = RestoreRelationOid(buf, missok);
 	}else if(IsA(node, Var)
 		&& !IS_SPECIAL_VARNO(((Var*)node)->varno)
 		&& ((Var*)node)->varattno > 0)
@@ -485,9 +479,59 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 					,errmsg("column \"%s\" type is diffent", NameStr(attr->attname))));
 			}
 		}
+	}else if(IsA(node, ForeignScan) ||
+			 IsA(node, CustomScan))
+	{
+		Result *result = palloc(sizeof(*result));
+		memcpy(result, node, sizeof(Plan));
+		NodeSetTag(result, T_Result);
+		result->resconstantqual = (Node*)list_make1(makeBoolConst(false, false));
+		node = (Node*)result;
+	}
+
+	if (IsA(node, SeqScan) ||
+		IsA(node, IndexScan) ||
+		IsA(node, IndexOnlyScan) ||
+		IsA(node, BitmapIndexScan) ||
+		IsA(node, TidScan))
+	{
+		/* not run in this nod, make a result */
+		Scan *scan = (Scan*)node;
+		if(!list_member_oid(scan->execute_nodes, PGXCNodeOid))
+		{
+			Result *result = palloc(sizeof(*result));
+			memcpy(result, node, sizeof(Plan));
+			NodeSetTag(result, T_Result);
+			result->resconstantqual = (Node*)list_make1(makeBoolConst(false, false));
+			node = (Node*)result;
+		}
 	}
 
 	return node;
+}
+
+static void SerializeRelationOid(StringInfo buf, Oid relid)
+{
+	Relation rel;
+	rel = relation_open(relid, NoLock);
+	save_namespace(buf, RelationGetNamespace(rel));
+	save_node_string(buf, RelationGetRelationName(rel));
+	relation_close(rel, NoLock);
+}
+
+static Oid RestoreRelationOid(StringInfo buf, bool missok)
+{
+	Oid oid = load_namespace_extend(buf, missok);
+	char *rel_name = load_node_string(buf, true);
+	if(OidIsValid(oid) && rel_name[0])
+		oid = get_relname_relid(rel_name, oid);
+	else
+		oid = InvalidOid;
+	if(!OidIsValid(oid) && !missok)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				errmsg("relation \"%s\" not exists", rel_name)));
+	return oid;
 }
 
 static void send_rdc_listend_port(int port)

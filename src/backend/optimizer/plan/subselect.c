@@ -2762,7 +2762,6 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 		case T_SetOp:
 		case T_Group:
 #ifdef ADB
-		case T_ClusterScan:
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
 		case T_ClusterGetCopyData:

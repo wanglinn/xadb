@@ -624,6 +624,11 @@ Bitmapset* load_Bitmapset(StringInfo buf)
 
 Oid load_namespace(StringInfo buf)
 {
+	return load_namespace_extend(buf, false);
+}
+
+Oid load_namespace_extend(struct StringInfoData *buf, bool missok)
+{
 	Oid oid;
 	if(LOAD_BOOL())
 	{
@@ -631,7 +636,7 @@ Oid load_namespace(StringInfo buf)
 	}else
 	{
 		const char *nsp_name = load_node_string(buf, false);
-		oid = LookupExplicitNamespace(nsp_name, false);
+		oid = LookupExplicitNamespace(nsp_name, missok);
 	}
 	return oid;
 }

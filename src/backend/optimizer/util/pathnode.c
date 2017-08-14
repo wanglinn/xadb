@@ -3316,19 +3316,6 @@ reparameterize_path(PlannerInfo *root, Path *path,
 #ifdef ADB
 
 static void copy_path_info(Path *dest, const Path *src);
-bool is_cluster_path(Path *path)
-{
-	AssertArg(path);
-	switch(nodeTag(path))
-	{
-	case T_ClusterScanPath:
-	case T_ClusterGatherPath:
-		return true;
-	default:
-		break;
-	}
-	return false;
-}
 
 bool have_cluster_gather_path(Path *path, void *context)
 {
@@ -3388,20 +3375,6 @@ ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel)
 
 	path->subpath = sub_path;
 	cost_cluster_gather(path, NULL, NULL, &sub_path->rows);
-
-	return path;
-}
-
-ClusterScanPath *create_cluster_scan_path(Path *sub_path, List *rnodes, RelOptInfo *rel)
-{
-	ClusterScanPath *path = makeNode(ClusterScanPath);
-	copy_path_info((Path*)path, sub_path);
-	path->cluster_path.path.parent = rel;
-
-	path->cluster_path.path.pathtype = T_ClusterScan;
-
-	path->cluster_path.rnodes = rnodes;
-	path->cluster_path.subpath = sub_path;
 
 	return path;
 }

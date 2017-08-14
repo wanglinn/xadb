@@ -286,9 +286,9 @@ static ModifyTable *make_modifytable(PlannerInfo *root,
 static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 							ClusterMergeGatherPath *path, int flags);
 static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags);
-static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath *path, int flags);
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
 static bool find_cluster_reduce_expr(Path *path, List **pplist);
+static void set_scan_execute_oids(Scan *scan, Path *path, PlannerInfo *root);
 #endif /* ADB */
 
 /*
@@ -501,10 +501,6 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 			plan = (Plan*) create_cluster_merge_gather_plan(root
 								, (ClusterMergeGatherPath*) best_path, flags);
 			break;
-		case T_ClusterScan:
-			plan = (Plan*) create_cluster_scan_plan(root
-						, (ClusterScanPath*) best_path, flags);
-			break;
 		case T_ClusterReduce:
 			plan = create_cluster_reduce_plan(root,
 								(ClusterReducePath*)best_path,
@@ -625,6 +621,9 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 												best_path,
 												tlist,
 												scan_clauses);
+#ifdef ADB
+			set_scan_execute_oids((Scan*)plan, best_path, root);
+#endif /* ADB */
 			break;
 
 		case T_SampleScan:
@@ -640,6 +639,9 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 												  tlist,
 												  scan_clauses,
 												  false);
+#ifdef ADB
+			set_scan_execute_oids((Scan*)plan, best_path, root);
+#endif /* ADB */
 			break;
 
 		case T_IndexOnlyScan:
@@ -648,6 +650,9 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 												  tlist,
 												  scan_clauses,
 												  true);
+#ifdef ADB
+			set_scan_execute_oids((Scan*)plan, best_path, root);
+#endif /* ADB */
 			break;
 
 		case T_BitmapHeapScan:
@@ -662,6 +667,9 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 												(TidPath *) best_path,
 												tlist,
 												scan_clauses);
+#ifdef ADB
+			set_scan_execute_oids((Scan*)plan, best_path, root);
+#endif /* ADB */
 			break;
 
 		case T_SubqueryScan:
@@ -1508,22 +1516,6 @@ create_projection_plan(PlannerInfo *root, ProjectionPath *best_path)
 		plan->plan_width = best_path->path.pathtarget->width;
 		/* ... but be careful not to munge subplan's parallel-aware flag */
 	}
-#ifdef ADB
-	else if(IsA(subplan, ClusterScan)
-			&& (is_projection_capable_plan(outerPlan(subplan))
-				|| tlist_same_exprs(tlist, subplan->targetlist)))
-	{
-		plan = subplan;
-		subplan = outerPlan(subplan);
-
-		plan->targetlist = subplan->targetlist = tlist;
-
-		plan->startup_cost = subplan->startup_cost = best_path->path.startup_cost;
-		plan->total_cost = subplan->total_cost = best_path->path.total_cost;
-		plan->plan_rows = subplan->plan_rows = best_path->path.rows;
-		plan->plan_width = subplan->plan_width = best_path->path.pathtarget->width;
-	}
-#endif /* ADB */
 	else
 	{
 		/* We need a Result node */
@@ -2876,6 +2868,9 @@ create_bitmap_subplan(PlannerInfo *root, Path *bitmapqual,
 			clamp_row_est(ipath->indexselectivity * ipath->path.parent->tuples);
 		plan->plan_width = 0;	/* meaningless */
 		plan->parallel_aware = false;
+#ifdef ADB
+		set_scan_execute_oids((Scan*)plan, bitmapqual, root);
+#endif /* ADB */
 		*qual = get_actual_clauses(ipath->indexclauses);
 		*indexqual = get_actual_clauses(ipath->indexquals);
 		foreach(l, ipath->indexinfo->indpred)
@@ -6280,7 +6275,6 @@ is_projection_capable_path(Path *path)
 		case T_MergeAppend:
 		case T_RecursiveUnion:
 #ifdef ADB
-		case T_ClusterScan:
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
 		case T_ClusterGetCopyData:
@@ -6323,7 +6317,6 @@ is_projection_capable_plan(Plan *plan)
 		case T_MergeAppend:
 		case T_RecursiveUnion:
 #ifdef ADB
-		case T_ClusterScan:
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
 		case T_ClusterGetCopyData:
@@ -6439,23 +6432,6 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 	}
 
 	copy_generic_path_info(&plan->plan, (Path*)path);
-
-	return plan;
-}
-
-static ClusterScan *create_cluster_scan_plan(PlannerInfo *root, ClusterScanPath *path, int flags)
-{
-	ClusterScan *plan;
-	Plan *subplan;
-
-	subplan = create_plan_recurse(root, path->cluster_path.subpath, flags);
-
-	plan = makeNode(ClusterScan);
-	plan->plan.targetlist = subplan->targetlist;
-	outerPlan(plan) = subplan;
-	plan->rnodes = copyObject(path->cluster_path.rnodes);
-
-	copy_generic_path_info((Plan*)plan, (Path*)path);
 
 	return plan;
 }
@@ -6584,7 +6560,6 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 	case T_ResultPath:
 	case T_MaterialPath:
 	case T_ProjectionPath:
-	case T_ClusterScanPath:
 	case T_ClusterReducePath:
 	case T_Path:
 	case T_IndexPath:
@@ -6751,6 +6726,29 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 	Assert(path->reduce_is_valid);
 	*pplist = path->reduce_info_list;
 	return false;
+}
+
+static void set_scan_execute_oids(Scan *scan, Path *path, PlannerInfo *root)
+{
+	List *execute_on;
+	AssertArg(scan && path && path->parent && root);
+
+	if(root->glob->clusterPlanOK == false)
+		return;
+
+	execute_on = NIL;
+	if(path->reduce_is_valid)
+	{
+		ReduceInfo *rinfo;
+		Assert(list_length(path->reduce_info_list) == 1);
+		rinfo = linitial(path->reduce_info_list);
+		scan->execute_nodes = list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec);
+	}else
+	{
+		/* should be coordinator only */
+		Assert(path->parent->loc_info == NULL);
+		scan->execute_nodes = list_make1_oid(PGXCNodeOid);
+	}
 }
 
 #endif /* ADB */

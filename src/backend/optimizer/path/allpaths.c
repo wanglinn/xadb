@@ -672,7 +672,6 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 #ifdef ADB
 	if(root->glob->clusterPlanOK && rel->loc_info)
 	{
-		ClusterScanPath *cscan;
 		Path *path;
 		ListCell *lc;
 		List *reduce_info_list;
@@ -757,8 +756,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			path->reduce_is_valid = true;
 
 			cost_div(path, list_length(loc_info->nodeList));
-			cscan = create_cluster_scan_path(path, rnodes, rel);
-			add_cluster_path(rel, (Path*)cscan);
+			add_cluster_path(rel, path);
 		}
 		rel->pathlist = NIL;
 	}

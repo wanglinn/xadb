@@ -2103,13 +2103,6 @@ typedef struct LimitState
 
 #ifdef ADB
 
-typedef struct ClusterScanState
-{
-	PlanState	ps;
-	ExprState   *expr;
-	bool		run_node;			/* run at this node? */
-}ClusterScanState;
-
 typedef struct ClusterGatherState
 {
 	PlanState	ps;
