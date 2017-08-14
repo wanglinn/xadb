@@ -3617,6 +3617,7 @@ create_grouping_paths(PlannerInfo *root,
 	bool		try_parallel_aggregation;
 #ifdef ADB
 	bool		try_cluster_aggregation;
+	List		*groupExprs = NIL;
 #endif /* ADB */
 
 	ListCell   *lc;
@@ -4140,6 +4141,13 @@ create_grouping_paths(PlannerInfo *root,
 		}
 	}
 
+	/* Give a helpful error if we failed to find any implementation */
+	if (grouped_rel->pathlist == NIL)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("could not implement GROUP BY"),
+				 errdetail("Some of the datatypes only support hashing, while others only support sorting.")));
+
 #ifdef ADB
 	if(has_cluster_hazard((Node*)target->exprs)
 		|| has_cluster_hazard(parse->havingQual)
@@ -4366,17 +4374,66 @@ create_grouping_paths(PlannerInfo *root,
 										 &agg_final_costs,
 										 dNumGroups);
 				add_cluster_path(grouped_rel, path);
+
+				/*
+				 * Create path :
+				 * cluster gather  gather data from datanode
+				 *	 aggregate     hash key is all group keys
+				 *		reduce     redistribute by group key
+				 */
+				groupExprs = get_sortgrouplist_exprs(parse->groupClause,
+												parse->targetList);
+				foreach(lc, input_rel->cluster_pathlist)
+				{
+					Path *path = lfirst(lc);
+					ListCell	*cell;
+					ReduceInfo *rinfo;
+					List *reduce_info_list = NIL;
+					List *exclude_exec = NIL;
+
+					reduce_info_list = get_reduce_info_list(path);
+					if (NIL == reduce_info_list)
+						continue;
+
+					/* some type table don't need to reduce */
+					foreach(cell, reduce_info_list)
+					{
+						rinfo = lfirst(cell);
+						/* union exclude_exec list */
+						exclude_exec = list_union_oid(rinfo->exclude_exec, exclude_exec);
+					}
+					foreach(cell, groupExprs)
+					{
+						Expr* expr = lfirst(cell);
+
+						rinfo = MakeHashReduceInfo(rinfo->storage_nodes, exclude_exec, expr);
+						path = create_cluster_reduce_path(root,
+												  path,
+												  list_make1(rinfo),
+												  grouped_rel,
+												  NIL);
+						path = (Path*)
+							create_agg_path(root,
+											grouped_rel,
+											path,
+											target,
+											AGG_HASHED,
+											AGGSPLIT_SIMPLE,
+											parse->groupClause,
+											(List *) parse->havingQual,
+											&agg_partial_costs,
+											dNumPartialGroups);
+						/* build gather path */
+						if(root->parent_root == NULL)
+							path = (Path*)create_cluster_gather_path(path, grouped_rel);
+
+						add_cluster_path(grouped_rel, path);
+					}
+				}
 			}
 		}
 	}
 #endif /* ADB */
-
-	/* Give a helpful error if we failed to find any implementation */
-	if (grouped_rel->pathlist == NIL)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("could not implement GROUP BY"),
-				 errdetail("Some of the datatypes only support hashing, while others only support sorting.")));
 
 	/*
 	 * If there is an FDW that's responsible for all baserels of the query,
