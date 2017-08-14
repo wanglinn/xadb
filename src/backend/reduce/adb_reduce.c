@@ -126,8 +126,9 @@ StartSelfReduceLauncher(RdcPortId rid)
 			CloseReducePort();
 			old_context = MemoryContextSwitchTo(TopMemoryContext);
 			SelfReducePort = rdc_newport(backend_reduce_fds[RDC_BACKEND_HOLD],
-											TYPE_REDUCE, SelfReduceID,
-											TYPE_BACKEND, InvalidPortId);
+										 TYPE_REDUCE, SelfReduceID,
+										 TYPE_BACKEND, InvalidPortId,
+										 MyProcPid, NULL);
 			if (GroupReduceList != NIL)
 				list_free(GroupReduceList);
 			GroupReduceList = NIL;
@@ -144,14 +145,16 @@ StartSelfReduceLauncher(RdcPortId rid)
 }
 
 RdcPort *
-ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id, RdcExtra self_extra)
+ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id,
+				  RdcPortPID self_pid, RdcExtra self_extra)
 {
 	Assert(SelfReducePID != 0);
 	Assert(SelfReduceListenPort != 0);
 	Assert(SelfReduceID != InvalidOid);
 	return rdc_connect("127.0.0.1", SelfReduceListenPort,
 					   TYPE_REDUCE, SelfReduceID,
-					   self_type, self_id, self_extra);
+					   self_type, self_id,
+					   self_pid, self_extra);
 }
 
 /*

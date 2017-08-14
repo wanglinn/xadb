@@ -251,14 +251,16 @@ ParseReduceOptions(int argc, char *const argv[])
 				MyBossSock = atoi(optarg);
 				MyRdcOpts->boss_watch = rdc_newport(MyBossSock,
 													  TYPE_BACKEND, InvalidPortId,
-													  TYPE_REDUCE, MyReduceId);
+													  TYPE_REDUCE, MyReduceId,
+													  MyProcPid, NULL);
 				rdc_set_noblock(MyRdcOpts->boss_watch);
 				break;
 			case 'L':
 				MyLogSock = atoi(optarg);
 				MyRdcOpts->log_watch = rdc_newport(MyLogSock,
 												   TYPE_BACKEND, InvalidPortId,
-												   TYPE_REDUCE, MyReduceId);
+												   TYPE_REDUCE, MyReduceId,
+												   MyProcPid, NULL);
 				break;
 			case 'E':
 				extra_options = pstrdup(optarg);
@@ -460,8 +462,8 @@ ReduceListen(void)
 	}
 	MyListenSock = fd;
 
-	elog(LOG, "[REDUCE " PORTID_FORMAT "] listen on {%s:%d}",
-		MyReduceId, listen_host, MyListenPort);
+	elog(LOG, "[REDUCE " PORTID_FORMAT "] listen on {%d@%s:%d}",
+		MyReduceId, MyProcPid, listen_host, MyListenPort);
 
 	/* OK */
 	return ;
@@ -679,7 +681,8 @@ ReduceGroupHook(SIGNAL_ARGS)
 		rdc_num = sizeof(portnum)/sizeof(portnum[0]);
 		port = rdc_newport(PGINVALID_SOCKET,
 						   InvalidPortType, InvalidPortId,
-						   TYPE_REDUCE, MyReduceId);
+						   TYPE_REDUCE, MyReduceId,
+						   MyProcPid, NULL);
 		MyRdcOpts->boss_watch = port;
 		initStringInfo(&buf);
 		rdc_beginmessage(&buf, MSG_GROUP_RQT);
@@ -951,11 +954,11 @@ EndSetupReduceGroup(void)
 				{
 					for (;;)
 					{
-						acpt_port = rdc_accept(WEEGetSock(wee));
+						acpt_port = rdc_accept(WEEGetSock(wee),
+											   TYPE_REDUCE, MyReduceId,
+											   MyProcPid, NULL);
 						if (acpt_port == NULL)
 							break;
-						RdcSelfType(acpt_port) = TYPE_REDUCE;
-						RdcSelfID(acpt_port) = MyReduceId;
 						RdcHook(acpt_port) = AcceptReduceHook;
 						acp_nodes = lappend(acp_nodes, acpt_port);
 					}
@@ -1175,11 +1178,11 @@ ReduceLoopRun(void)
 					for (;;)
 					{
 						RdcPort		*port = NULL;
-						port = rdc_accept(WEEGetSock(wee));
+						port = rdc_accept(WEEGetSock(wee),
+										  TYPE_REDUCE, MyReduceId,
+										  MyProcPid, NULL);
 						if (port == NULL)
 							break;
-						RdcSelfType(port) = TYPE_REDUCE;
-						RdcSelfID(port) = MyReduceId;
 						acp_nodes = lappend(acp_nodes, port);
 					}
 				}

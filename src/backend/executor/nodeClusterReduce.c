@@ -43,7 +43,7 @@ ExecInitClusterReduceStateExtra(ClusterReduceState *crstate)
 	AssertArg(crstate->port == NULL);
 	plan = (ClusterReduce *) crstate->ps.plan;
 
-	crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(plan), NULL);
+	crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(plan), MyProcPid, NULL);
 	if (IsRdcPortError(crstate->port))
 		ereport(ERROR,
 				(errmsg("[PLAN %d] fail to connect self reduce subprocess", PlanNodeID(plan)),

@@ -97,6 +97,22 @@ typedef enum
 #define PortTypeIsValid(typ)	((typ) == TYPE_PLAN || \
 								 (typ) == TYPE_REDUCE)
 
+typedef int RdcPortPID;
+
+#define InvalidPortPID			-1
+
+typedef struct RdcPortAttr
+{
+	RdcPortType			rpa_type;		/* identity type */
+	RdcPortId			rpa_id;			/* identity id */
+	RdcPortPID			rpa_pid;		/* process id */
+#ifdef DEBUG_ADB
+	char			   *rpa_host;		/* host string */
+	char			   *rpa_port;		/* port string */
+#endif
+	StringInfoData		rpa_extra;		/* extra data */
+} RdcPortAttr;
+
 struct RdcMask
 {
 	RdcPortId			rdc_rpid;
@@ -122,23 +138,13 @@ struct RdcPort
 	bool				noblock;		/* is the socket in non-blocking mode? */
 	bool				positive;		/* true means connect, false means be connected */
 	RdcEndStatusType	end_status;		/* see RdcEndStatusType above */
-	RdcPortType			peer_type;		/* the identity type of the peer side */
-	RdcPortId			peer_id;		/* the identity id of the peer side */
-	StringInfoData		peer_extra;		/* the extra data of the peer side */
-	RdcPortType			self_type;		/* local identity type */
-	RdcPortId			self_id;		/* local identity id */
-	StringInfoData		self_extra;		/* local extra data */
+	RdcPortAttr			peer_attr;		/* the attribute of the peer side */
+	RdcPortAttr			self_attr;		/* the attribute of myself */
 	int					version;		/* version num */
 #if !defined(RDC_FRONTEND)
 	time_t				create_time;	/* at now used for client */
 	uint64				recv_num;		/* at now used for client */
 	uint64				send_num;		/* at now used for client */
-#endif
-#ifdef DEBUG_ADB
-	char			   *peer_host;		/* remote host string */
-	char			   *peer_port;		/* remote port string */
-	char			   *self_host;		/* local host string */
-	char			   *self_port;		/* local port string */
 #endif
 
 	struct sockaddr		laddr;			/* local address */
@@ -162,12 +168,13 @@ struct RdcPort
 };
 
 #ifdef DEBUG_ADB
-#define RdcPeerHost(port)			(((RdcPort *) (port))->peer_host)
-#define RdcPeerPort(port)			(((RdcPort *) (port))->peer_port)
-#define RdcSelfHost(port)			(((RdcPort *) (port))->self_host)
-#define RdcSelfPort(port)			(((RdcPort *) (port))->self_port)
-#define RDC_PORT_PRINT_FORMAT		" [%s %ld] {%s:%s}"
-#define RDC_PORT_PRINT_VALUE(port)	RdcPeerTypeStr(port), RdcPeerID(port), RdcPeerHost(port), RdcPeerPort(port)
+#define RdcPeerHost(port)			(((RdcPort *) (port))->peer_attr.rpa_host)
+#define RdcPeerPort(port)			(((RdcPort *) (port))->peer_attr.rpa_port)
+#define RdcSelfHost(port)			(((RdcPort *) (port))->self_attr.rpa_host)
+#define RdcSelfPort(port)			(((RdcPort *) (port))->self_attr.rpa_port)
+#define RDC_PORT_PRINT_FORMAT		" [%s %ld] {%d@%s:%s}"
+#define RDC_PORT_PRINT_VALUE(port)	RdcPeerTypeStr(port), RdcPeerID(port), \
+									RdcPeerPID(port), RdcPeerHost(port), RdcPeerPort(port)
 #else
 #define RDC_PORT_PRINT_FORMAT		" [%s %ld]"
 #define RDC_PORT_PRINT_VALUE(port)	RdcPeerTypeStr(port), RdcPeerID(port)
@@ -175,12 +182,14 @@ struct RdcPort
 #define RdcNext(port)				(((RdcPort *) (port))->next)
 #define RdcVersion(port)			(((RdcPort *) (port))->version)
 #define RdcSocket(port)				(((RdcPort *) (port))->sock)
-#define RdcPeerType(port)			(((RdcPort *) (port))->peer_type)
-#define RdcPeerID(port)				(((RdcPort *) (port))->peer_id)
-#define RdcPeerExtra(port)			&(((RdcPort *) (port))->peer_extra)
-#define RdcSelfType(port)			(((RdcPort *) (port))->self_type)
-#define RdcSelfID(port)				(((RdcPort *) (port))->self_id)
-#define RdcSelfExtra(port)			&(((RdcPort *) (port))->self_extra)
+#define RdcPeerType(port)			(((RdcPort *) (port))->peer_attr.rpa_type)
+#define RdcPeerID(port)				(((RdcPort *) (port))->peer_attr.rpa_id)
+#define RdcPeerPID(port)			(((RdcPort *) (port))->peer_attr.rpa_pid)
+#define RdcPeerExtra(port)			&(((RdcPort *) (port))->peer_attr.rpa_extra)
+#define RdcSelfType(port)			(((RdcPort *) (port))->self_attr.rpa_type)
+#define RdcSelfID(port)				(((RdcPort *) (port))->self_attr.rpa_id)
+#define RdcSelfPID(port)			(((RdcPort *) (port))->self_attr.rpa_pid)
+#define RdcSelfExtra(port)			&(((RdcPort *) (port))->self_attr.rpa_extra)
 #define RdcStatus(port)				(((RdcPort *) (port))->status)
 #define RdcFlags(port)				(((RdcPort *) (port))->flags)
 #define RdcPositive(port)			(((RdcPort *) (port))->positive)
@@ -230,13 +239,17 @@ extern void RdcPortStats(RdcPort *port);
 extern const char *rdc_type2string(RdcPortType type);
 extern RdcPort *rdc_newport(pgsocket sock,
 							RdcPortType peer_type, RdcPortId peer_id,
-							RdcPortType self_type, RdcPortId self_id);
+							RdcPortType self_type, RdcPortId self_id,
+							RdcPortPID self_pid, RdcExtra self_extra);
 extern void rdc_freeport(RdcPort *port);
 extern void rdc_resetport(RdcPort *port);
 extern RdcPort *rdc_connect(const char *host, uint32 port,
 							RdcPortType peer_type, RdcPortId peer_id,
-							RdcPortType self_type, RdcPortId self_id, RdcExtra self_extra);
-extern RdcPort *rdc_accept(pgsocket sock);
+							RdcPortType self_type, RdcPortId self_id,
+							RdcPortPID self_pid, RdcExtra self_extra);
+extern RdcPort *rdc_accept(pgsocket sock,
+							RdcPortType self_type, RdcPortId self_id,
+							RdcPortPID self_pid, RdcExtra self_extra);
 extern RdcNode *rdc_parse_group(RdcPort *port, int *rdc_num, RdcConnHook hook);
 extern RdcPollingStatusType rdc_connect_poll(RdcPort *port);
 extern int rdc_puterror(RdcPort *port, const char *fmt, ...) pg_attribute_printf(2, 3);

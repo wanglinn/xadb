@@ -51,7 +51,8 @@ static WaitEVSet RdcWaitSet = NULL;
 static int rdc_wait_timed(int forRead, int forWrite, RdcPort *port, int timeout);
 static RdcPort *rdc_connect_start(const char *host, uint32 port,
 					RdcPortType peer_type, RdcPortId peer_id,
-					RdcPortType self_type, RdcPortId self_id, RdcExtra self_extra);
+					RdcPortType self_type, RdcPortId self_id,
+					RdcPortPID self_pid, RdcExtra self_extra);
 static int rdc_connect_complete(RdcPort *port);
 static ssize_t rdc_secure_read(RdcPort *port, void *ptr, size_t len, int flags);
 static int rdc_flush_buffer(RdcPort *port, StringInfo buf, bool block);
@@ -145,37 +146,28 @@ RdcPortStats(RdcPort *port)
 RdcPort *
 rdc_newport(pgsocket sock,
 			RdcPortType peer_type, RdcPortId peer_id,
-			RdcPortType self_type, RdcPortId self_id)
+			RdcPortType self_type, RdcPortId self_id,
+			RdcPortPID self_pid, RdcExtra self_extra)
 {
 	RdcPort		   *rdc_port = NULL;
 
 	rdc_port = (RdcPort *) palloc0(sizeof(*rdc_port));
-	rdc_port->next = NULL;
-	rdc_port->sock = sock;
-	rdc_port->noblock = false;
-	rdc_port->positive = false;
-	rdc_port->peer_type = peer_type;
-	rdc_port->peer_id = peer_id;
-	rdc_port->self_type = self_type;
-	rdc_port->self_id = self_id;
-	rdc_port->version = 0;
-	rdc_port->wait_events = WAIT_NONE;
-	rdc_port->flags = RDC_FLAG_NONE;
-	rdc_port->end_status = RDC_END_NONE;
+	RdcSocket(rdc_port) = sock;
+	RdcPeerType(rdc_port) = peer_type;
+	RdcPeerID(rdc_port) = peer_id;
+	RdcPeerPID(rdc_port) = -1;
+	RdcSelfType(rdc_port) = self_type;
+	RdcSelfID(rdc_port) = self_id;
+	RdcSelfPID(rdc_port) = self_pid;
 #if !defined(RDC_FRONTEND)
 	rdc_port->create_time = time(NULL);
-	rdc_port->recv_num = 0;
-	rdc_port->send_num = 0;
 #endif
 #ifdef DEBUG_ADB
-	rdc_port->peer_host = NULL;
-	rdc_port->peer_port = NULL;
-	rdc_port->self_host = NULL;
-	rdc_port->self_port = NULL;
-#endif
-	rdc_port->addrs = NULL;
-	rdc_port->addr_cur = NULL;
-	rdc_port->hook = NULL;
+	RdcPeerHost(rdc_port) = NULL;
+	RdcPeerPort(rdc_port) = NULL;
+	RdcSelfHost(rdc_port) = NULL;
+	RdcSelfPort(rdc_port) = NULL;
+ #endif
 	initStringInfoExtend(RdcMsgBuf(rdc_port), RDC_MSG_SIZE);
 	initStringInfoExtend(RdcPeerExtra(rdc_port), RDC_EXTRA_SIZE);
 	initStringInfoExtend(RdcSelfExtra(rdc_port), RDC_EXTRA_SIZE);
@@ -183,6 +175,8 @@ rdc_newport(pgsocket sock,
 	initStringInfoExtend(RdcOutBuf(rdc_port), RDC_BUFFER_SIZE);
 	initStringInfoExtend(RdcOutBuf2(rdc_port), RDC_BUFFER_SIZE);
 	initStringInfoExtend(RdcErrBuf(rdc_port), RDC_ERROR_SIZE);
+
+	appendStringInfoStringInfo(RdcSelfExtra(rdc_port), self_extra);
 
 	return rdc_port;
 }
@@ -207,8 +201,8 @@ rdc_freeport(RdcPort *port)
 			freeaddrinfo(port->addrs);
 			port->addrs = port->addr_cur = NULL;
 		}
-		pfree(port->self_extra.data);
-		pfree(port->peer_extra.data);
+		pfree(port->self_attr.rpa_extra.data);
+		pfree(port->peer_attr.rpa_extra.data);
 		pfree(port->msg_buf.data);
 		pfree(port->in_buf.data);
 		pfree(port->out_buf.data);
@@ -288,8 +282,9 @@ rdc_wait_timed(int forRead, int forWrite, RdcPort *port, int timeout)
 
 static RdcPort *
 rdc_connect_start(const char *host, uint32 port,
-				RdcPortType peer_type, RdcPortId peer_id,
-				RdcPortType self_type, RdcPortId self_id, RdcExtra self_extra)
+				  RdcPortType peer_type, RdcPortId peer_id,
+				  RdcPortType self_type, RdcPortId self_id,
+				  RdcPortPID self_pid, RdcExtra self_extra)
 {
 	RdcPort			   *rdc_port = NULL;
 	int					ret;
@@ -298,9 +293,8 @@ rdc_connect_start(const char *host, uint32 port,
 
 	rdc_port = rdc_newport(PGINVALID_SOCKET,
 						   peer_type, peer_id,
-						   self_type, self_id);
-
-	appendStringInfoStringInfo(RdcSelfExtra(rdc_port), self_extra);
+						   self_type, self_id,
+						   self_pid, self_extra);
 
 	snprintf(portstr, sizeof(portstr), "%u", port);
 
@@ -378,13 +372,15 @@ rdc_connect_complete(RdcPort *port)
 RdcPort *
 rdc_connect(const char *host, uint32 port,
 			RdcPortType peer_type, RdcPortId peer_id,
-			RdcPortType self_type, RdcPortId self_id, RdcExtra self_extra)
+			RdcPortType self_type, RdcPortId self_id,
+			RdcPortPID self_pid, RdcExtra self_extra)
 {
 	RdcPort *rdc_port = NULL;
 
 	rdc_port = rdc_connect_start(host, port,
 								 peer_type, peer_id,
-								 self_type, self_id, self_extra);
+								 self_type, self_id,
+								 self_pid, self_extra);
 	if (!IsRdcPortError(rdc_port))
 		(void) rdc_connect_complete(rdc_port);
 
@@ -628,7 +624,8 @@ keep_going: 					/* We will come back to here until there is
 
 		case RDC_CONNECTION_MADE:
 			{
-				if (rdc_send_startup_rqt(port, RdcSelfType(port), RdcSelfID(port), RdcSelfExtra(port)))
+				if (rdc_send_startup_rqt(port, RdcSelfType(port), RdcSelfID(port),
+										 RdcSelfPID(port), RdcSelfExtra(port)))
 				{
 					drop_connection(port, true);
 					rdc_puterror(port, "could not send startup packet: %m");
@@ -690,7 +687,7 @@ keep_going: 					/* We will come back to here until there is
 
 		case RDC_CONNECTION_SENDING_RESPONSE:
 			{
-				if (rdc_send_startup_rsp(port, RdcPeerType(port), RdcPeerID(port)))
+				if (rdc_send_startup_rsp(port, RdcPeerType(port), RdcPeerID(port), MyProcPid))
 				{
 					drop_connection(port, true);
 					rdc_puterror(port, "could not send startup response: %m");
@@ -740,7 +737,9 @@ error_return:
  * otherwise ereport error.
  */
 RdcPort *
-rdc_accept(pgsocket sock)
+rdc_accept(pgsocket sock,
+		   RdcPortType self_type, RdcPortId self_id,
+		   RdcPortPID self_pid, RdcExtra self_extra)
 {
 	RdcPort	   *port = NULL;
 	socklen_t	addrlen;
@@ -748,8 +747,7 @@ rdc_accept(pgsocket sock)
 	port = rdc_newport(PGINVALID_SOCKET,
 					   /* the identity of peer will be set by Startup Packet */
 					   InvalidPortType, InvalidPortId,
-					   /* the locl identity will be set by caller if needed */
-					   InvalidPortType, InvalidPortId);
+					   self_type, self_id, self_pid, self_extra);
 	addrlen = sizeof(port->raddr);
 _re_accept:
 	RdcSocket(port) = accept(sock, &port->raddr, &addrlen);
@@ -910,7 +908,8 @@ rdc_parse_group(RdcPort *port, int *rdc_num, RdcConnHook hook)
 		{
 			rdc_port = rdc_newport(PGINVALID_SOCKET,
 								   TYPE_REDUCE, rpid,
-								   TYPE_REDUCE, MyReduceId);
+								   TYPE_REDUCE, MyReduceId,
+								   MyProcPid, NULL);
 
 			MemSet(&hint, 0, sizeof(hint));
 			hint.ai_socktype = SOCK_STREAM;
@@ -1646,6 +1645,7 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver)
 	size_t		len;
 	RdcPortType	rqt_type = InvalidPortType;
 	RdcPortId	rqt_id = InvalidPortId;
+	RdcPortPID	rqt_pid = InvalidPortPID;
 	int			rqt_ver;
 	StringInfo	msg;
 	int			sv_cursor;
@@ -1718,6 +1718,12 @@ internal_recv_startup_rqt(RdcPort *port, int expected_ver)
 	len = sizeof(rqt_id);
 	rqt_id = rdc_getmsgRdcPortID(msg);
 	RdcPeerID(port) = rqt_id;
+	length -= len;
+
+	/* check request pid */
+	len = sizeof(rqt_pid);
+	rqt_pid = rdc_getmsgint(msg, len);
+	RdcPeerPID(port) = rqt_pid;
 	length -= len;
 
 	/* check request extra */
@@ -1839,6 +1845,7 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 	{
 		RdcPortType	rsp_type = InvalidPortType;
 		RdcPortId	rsp_id = InvalidPortId;
+		RdcPortPID	rsp_pid = InvalidPortPID;
 		int			rsp_ver;
 
 		rsp_ver = rdc_getmsgint(msg, sizeof(rsp_ver));
@@ -1870,6 +1877,8 @@ internal_recv_startup_rsp(RdcPort *port, RdcPortType expected_type, RdcPortId ex
 						 expected_id, rsp_id);
 			return RDC_POLLING_FAILED;
 		}
+		rsp_pid = rdc_getmsgint(msg, sizeof(rsp_pid));
+		RdcPeerPID(port) = rsp_pid;
 		rdc_getmsgend(msg);
 
 #ifdef DEBUG_ADB
