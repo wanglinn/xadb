@@ -234,7 +234,15 @@ struct RdcPort
 
 #define PortTypeIDIsValid(port)		(PlanTypeIDIsValid(port) || ReduceTypeIDIsValid(port))
 
-extern bool BossIsLeave(void);
+typedef enum
+{
+	BOSS_IS_WORKING,		/* Boss process is working properly */
+	BOSS_IS_SHUTDOWN,		/* Boss process is shutdown */
+	BOSS_WANT_QUIT,			/* Boss process want to quit */
+	BOSS_IN_TROUBLE			/* Boss process is in trouble */
+} BossStatus;
+
+extern BossStatus BossNowStatus(void);
 extern void RdcPortStats(RdcPort *port);
 extern const char *rdc_type2string(RdcPortType type);
 extern RdcPort *rdc_newport(pgsocket sock,

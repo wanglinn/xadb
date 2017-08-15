@@ -58,6 +58,9 @@ HandlePlanIO(List **pln_nodes)
 		next = lnext(cell);
 		Assert(pln_port);
 
+		if (!PlanPortIsValid(pln_port))
+			continue;
+
 		if (PlanPortIsValid(pln_port))
 		{
 			HandleReadFromPlan(pln_port);
@@ -97,17 +100,14 @@ HandleReduceIO(List **pln_nodes)
 	{
 		rdc_node = &(rdc_nodes[i]);
 		rdc_port = rdc_node->port;
-		if (RdcNodeID(rdc_node) == MyReduceId ||
-			rdc_port == NULL)
+
+		if (!PortIsValid(rdc_port))
 			continue;
 
-		if (PortIsValid(rdc_port))
-		{
-			if (RdcWaitRead(rdc_port))
-				HandleReadFromReduce(rdc_port, pln_nodes);
-			if (RdcWaitWrite(rdc_port))
-				HandleWriteToReduce(rdc_port);
-		}
+		if (RdcWaitRead(rdc_port))
+			HandleReadFromReduce(rdc_port, pln_nodes);
+		if (RdcWaitWrite(rdc_port))
+			HandleWriteToReduce(rdc_port);
 
 		if (!PortIsValid(rdc_port))
 		{
@@ -205,7 +205,7 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 			case MSG_PLAN_CLOSE:
 				{
 					elog(LOG,
-						 "recv CLOSE message from" RDC_PORT_PRINT_FORMAT,
+						 "recv PLAN CLOSE message from" RDC_PORT_PRINT_FORMAT,
 						 RDC_PORT_PRINT_VALUE(work_port));
 
 					/*
@@ -499,7 +499,26 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 				}
 				break;
 			case MSG_RDC_CLOSE:
-				rdc_exit(0);
+				{
+					rdc_getmsgend(msg);
+					elog(LOG,
+						 "recv REDUCE CLOSE message from" RDC_PORT_PRINT_FORMAT,
+						 RDC_PORT_PRINT_VALUE(rdc_port));
+
+					/*
+					 * mark the RdcPort of Reduce CLOSED and we will never
+					 * send/recv any data.
+					 */
+					RdcWaitEvents(rdc_port) &= ~WT_SOCK_READABLE;
+					RdcWaitEvents(rdc_port) &= ~WT_SOCK_WRITEABLE;
+					RdcFlags(rdc_port) = RDC_FLAG_CLOSED;
+
+					/*
+					 * notify other Reduce to quit by sending CLOSE
+					 * message.
+					 */
+					BroadcastRdcClose();
+				}
 				break;
 			case MSG_ERROR:
 				break;
@@ -856,7 +875,7 @@ BroadcastDataToRdc(StringInfo msg,
 			Assert(!msg_data && !msg_len);
 			break;
 		case MSG_PLAN_CLOSE:
-			log_str = "CLOSE message";
+			log_str = "PLAN CLOSE message";
 			Assert(!msg_data && !msg_len);
 			break;
 		case MSG_R2R_DATA:
@@ -898,7 +917,7 @@ BroadcastDataToRdc(StringInfo msg,
 		else
 		{
 			ret = rdc_try_flush(rdc_port);
-			/* touble will be checked */
+			/* trouble will be checked */
 			CHECK_FOR_INTERRUPTS();
 			if (ret != 0)
 			{
@@ -912,6 +931,43 @@ BroadcastDataToRdc(StringInfo msg,
 	rdc_getmsgend(msg);
 
 	return res;
+}
+
+void
+BroadcastRdcClose(void)
+{
+	int			i;
+	int			rdc_num = MyRdcOpts->rdc_num;
+	RdcNode	   *rdc_nodes = MyRdcOpts->rdc_nodes;
+	RdcNode	   *rdc_node = NULL;
+	RdcPort	   *rdc_port = NULL;
+	StringInfoData msg;
+
+	initStringInfo(&msg);
+	rdc_beginmessage(&msg, MSG_RDC_CLOSE);
+	rdc_sendlength(&msg);
+
+	for (i = 0; i < rdc_num; i++)
+	{
+		rdc_node = &(rdc_nodes[i]);
+		rdc_port = rdc_node->port;
+
+		if (!PortIsValid(rdc_port) ||
+			RdcSendCLOSE(rdc_port))
+			continue;
+
+		rdc_putmessage(rdc_port, msg.data, msg.len);
+		(void) rdc_flush(rdc_port);
+		/* no need to check trouble? */
+
+		elog(LOG,
+			 "send REDUCE CLOSE message to" RDC_PORT_PRINT_FORMAT,
+			 RDC_PORT_PRINT_VALUE(rdc_port));
+
+		RdcEndStatus(rdc_port) |= RDC_END_CLOSE;
+	}
+	pfree(msg.data);
+	msg.data = NULL;
 }
 
 /*

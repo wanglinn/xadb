@@ -90,25 +90,28 @@ rdc_type2string(RdcPortType type)
 	return "UNKNOWN";
 }
 
-bool
-BossIsLeave(void)
+BossStatus
+BossNowStatus(void)
 {
 	char		c;
 	ssize_t		rc;
 
-	/* Always return true if MyBossSock is not set */
+	/*
+	 * Always return BOSS_IS_WORKING if MyBossSock
+	 * is not set
+	 */
 	if (MyBossSock == PGINVALID_SOCKET)
-		return true;
+		return BOSS_IS_WORKING;
 
 _re_recv:
 	rc = recv(MyBossSock, &c, 1, MSG_PEEK);
 	/* the peer has performed an orderly shutdown */
 	if (rc == 0)
-		return false;
+		return BOSS_IS_SHUTDOWN;
 	else
-	/* receive close message request */
+	/* receive CLOSE message request */
 	if (rc > 0 && c == MSG_BACKEND_CLOSE)
-		return false;
+		return BOSS_WANT_QUIT;
 	else
 	if (rc < 0)
 	{
@@ -117,10 +120,10 @@ _re_recv:
 
 		if (errno != EAGAIN &&
 			errno != EWOULDBLOCK)
-			return false;
+			return BOSS_IN_TROUBLE;
 	}
 
-	return true;
+	return BOSS_IS_WORKING;
 }
 
 void
@@ -1084,7 +1087,7 @@ _retry_recv:
 		{
 			wee = nextWaitEventElt(RdcWaitSet);
 			if (WEEHasError(wee) ||
-				(WEECanRead(wee) && !BossIsLeave()))
+				(WEECanRead(wee) && BossNowStatus() != BOSS_IS_WORKING))
 				ereport(ERROR,
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
 					 errmsg("terminating connection due to unexpected backend exit")));

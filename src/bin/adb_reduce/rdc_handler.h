@@ -18,5 +18,6 @@
 
 extern void HandlePlanIO(List **pln_nodes);
 extern void HandleReduceIO(List **pln_nodes);
+extern void BroadcastRdcClose(void);
 
 #endif	/* RDC_HANDLE_H */

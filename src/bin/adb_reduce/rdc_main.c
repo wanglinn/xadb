@@ -52,7 +52,7 @@ static void StartSetupReduceGroup(RdcPort *port);
 static void EndSetupReduceGroup(void);
 static void HandleAcceptConn(List **acp_nodes, List **pln_nodes);
 static void PrePrepareAcceptNodes(WaitEVSet set, List *acp_nodes);
-static void PrePrepareRdcNodes(WaitEVSet set, RdcNode *rdc_nodes, int rdc_num);
+static bool PrePrepareRdcNodes(WaitEVSet set, RdcNode *rdc_nodes, int rdc_num);
 static void PrePreparePlanNodes(WaitEVSet set, List *pln_nodes);
 static int  ReduceLoopRun(void);
 
@@ -719,33 +719,6 @@ SetReduceSignals(void)
 }
 
 static void
-NotifyOtherReduceClose(int code, Datum arg)
-{
-	RdcNode	   *rnode;
-	RdcPort	   *rport;
-	int			rnum, i;
-	StringInfo	msg;
-
-	rnum = MyRdcOpts->rdc_num;
-	for (i = 0; i < rnum; i++)
-	{
-		rnode = &(MyRdcOpts->rdc_nodes[i]);
-		rport = rnode->port;
-		if (!rport || RdcNodeID(rnode) == MyReduceId)
-			continue;
-		msg = RdcMsgBuf(rport);
-
-		resetStringInfo(msg);
-		rdc_beginmessage(msg, MSG_RDC_CLOSE);
-		rdc_endmessage(rport, msg);
-		(void) rdc_flush(rport);
-
-		rdc_freeport(rport);
-		rnode->port = NULL;
-	}
-}
-
-static void
 WaitForReduceGroupReady(void)
 {
 	bool		quit = false;
@@ -783,8 +756,6 @@ WaitForReduceGroupReady(void)
 				(errmsg("fail to send setup group response"),
 				 errdetail("%s", RdcError(port))));
 #endif
-
-	on_rdc_exit(NotifyOtherReduceClose, 0);
 }
 
 static bool
@@ -997,7 +968,7 @@ EndSetupReduceGroup(void)
 				{
 					wee = nextWaitEventElt(&set);
 					if (WEEHasError(wee) ||
-						(WEECanRead(wee) && !BossIsLeave()))
+						(WEECanRead(wee) && BossNowStatus() != BOSS_IS_WORKING))
 						break;
 				}
 				/* check reduce group */
@@ -1071,23 +1042,25 @@ PrePrepareAcceptNodes(WaitEVSet set, List *acp_nodes)
 					   GetRdcPortWaitEvents);
 }
 
-static void
+static bool
 PrePrepareRdcNodes(WaitEVSet set, RdcNode *rdc_nodes, int rdc_num)
 {
 	RdcNode	   *rdc_node;
 	int			rdc_idx;
+	bool		quit = true;
 
 	for (rdc_idx = 0; rdc_idx < rdc_num; rdc_idx++)
 	{
 		rdc_node = &(rdc_nodes[rdc_idx]);
-		if (RdcNodeID(rdc_node) == MyReduceId ||
-			rdc_node->port == NULL ||
-			!PortIsValid(rdc_node->port))
+		if (!PortIsValid(rdc_node->port))
 			continue;
+		quit = false;
 		addWaitEventByArg(set, rdc_node->port,
 						  GetRdcPortSocket,
 						  GetRdcPortWaitEvents);
 	}
+
+	return quit;
 }
 
 static void
@@ -1178,7 +1151,8 @@ ReduceLoopRun(void)
 			addWaitEventBySock(&set, MyListenSock, WT_SOCK_READABLE);
 			addWaitEventBySock(&set, MyBossSock, WT_SOCK_READABLE);
 			PrePrepareAcceptNodes(&set, acp_nodes);
-			PrePrepareRdcNodes(&set, rdc_nodes, rdc_num);
+			if (PrePrepareRdcNodes(&set, rdc_nodes, rdc_num))
+				break;
 			PrePreparePlanNodes(&set, *pln_nodes);
 
 			SetRdcPsStatus(" idle");
@@ -1219,9 +1193,20 @@ ReduceLoopRun(void)
 				if (MyBossSock != PGINVALID_SOCKET)
 				{
 					wee = nextWaitEventElt(&set);
-					if (WEEHasError(wee) ||
-						(WEECanRead(wee) && !BossIsLeave()))
-						break;
+					if (WEECanRead(wee) || WEEHasError(wee))
+					{
+						BossStatus status = BossNowStatus();
+						if (status != BOSS_IS_WORKING)
+						{
+							/*
+							 * got boss CLOSE message, notify other reduce
+							 * to quit and never receive response, just quit.
+							 */
+							if (status == BOSS_WANT_QUIT)
+								BroadcastRdcClose();
+							break;
+						}
+					}
 				}
 
 				HandleAcceptConn(&acp_nodes, pln_nodes);
