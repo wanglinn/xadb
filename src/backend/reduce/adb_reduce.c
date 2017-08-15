@@ -100,6 +100,7 @@ EndSelfReduce(int code, Datum arg)
 					(errmsg("fail to terminate adb reduce subprocess")));
 			}
 		}
+		elog(LOG, "[proc %d] kill SIGTERM to [proc %d]", MyProcPid, SelfReducePID);
 		SelfReducePID = 0;
  	}
 	ResetSelfReduce();

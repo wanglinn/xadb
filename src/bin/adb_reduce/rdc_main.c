@@ -462,8 +462,9 @@ ReduceListen(void)
 	}
 	MyListenSock = fd;
 
-	elog(LOG, "[REDUCE " PORTID_FORMAT "] listen on {%d@%s:%d}",
-		MyReduceId, MyProcPid, listen_host, MyListenPort);
+	elog(LOG,
+		 "[REDUCE " PORTID_FORMAT " PROC %d BOSS %d] listen on {%s:%d}",
+		 MyReduceId, MyProcPid, MyBossPid, listen_host, MyListenPort);
 
 	/* OK */
 	return ;
