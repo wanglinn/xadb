@@ -1260,7 +1260,10 @@ Datum mgr_start_gtm_master(PG_FUNCTION_ARGS)
 	char *nodename;
 
 	if (PG_ARGISNULL(0))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(GTM_TYPE_GTM_MASTER);
+		return mgr_typenode_cmd_run_backend_result(GTM_TYPE_GTM_MASTER, AGT_CMD_GTM_START_MASTER_BACKEND, nodenamelist, TAKEPLAPARM_N,fcinfo);
+	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(0);
@@ -1316,7 +1319,10 @@ Datum mgr_start_gtm_slave(PG_FUNCTION_ARGS)
 	char *nodename;
 
 	if (PG_ARGISNULL(0))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(GTM_TYPE_GTM_SLAVE);
+		return mgr_typenode_cmd_run_backend_result(GTM_TYPE_GTM_SLAVE, AGT_CMD_GTM_START_SLAVE_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(0);
@@ -1334,7 +1340,10 @@ Datum mgr_start_gtm_extra(PG_FUNCTION_ARGS)
 	char *nodename;
 
 	if (PG_ARGISNULL(0))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(GTM_TYPE_GTM_EXTRA);
+		return mgr_typenode_cmd_run_backend_result(GTM_TYPE_GTM_EXTRA, AGT_CMD_GTM_START_SLAVE_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(0);
@@ -1352,7 +1361,10 @@ Datum mgr_start_cn_master(PG_FUNCTION_ARGS)
 	List *nodenamelist = NIL;
 
 	if (PG_ARGISNULL(0))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_MASTER);
+		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+	}
 	else
 		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
 
@@ -1368,7 +1380,10 @@ Datum mgr_start_dn_master(PG_FUNCTION_ARGS)
 	List *nodenamelist = NIL;
 
 	if (PG_ARGISNULL(0))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_MASTER);
+		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+	}
 	else
 		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
 
@@ -1421,7 +1436,10 @@ Datum mgr_start_dn_slave(PG_FUNCTION_ARGS)
 	List *nodenamelist = NIL;
 
 	if (PG_ARGISNULL(0))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_SLAVE);
+		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+	}
 	else
 		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
 
@@ -1437,14 +1455,17 @@ Datum mgr_start_dn_extra(PG_FUNCTION_ARGS)
 	List *nodenamelist = NIL;
 
 	if (PG_ARGISNULL(0))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_EXTRA);
+		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_EXTRA, AGT_CMD_DN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+	}
 	else
 		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
 
 	return mgr_runmode_cndn(CNDN_TYPE_DATANODE_EXTRA, AGT_CMD_DN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
 }
 
-void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmdRst, Relation noderel, HeapTuple aimtuple, char *shutdown_mode)
+void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmdRst, Relation noderel, HeapTuple aimtuple, const char *shutdown_mode)
 {
 	Form_mgr_node mgr_node;
 	Form_mgr_node mgr_node_gtm;
@@ -1464,6 +1485,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	char *mastername;
 	char *nodetypestr;
 	char nodetype;
+	char cmdtype_s = -1;
 	int32 cndnport;
 	int masterport;
 	Oid hostOid;
@@ -1504,7 +1526,9 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	if(AGT_CMD_CNDN_CNDN_INIT != cmdtype && AGT_CMD_GTM_INIT != cmdtype && AGT_CMD_GTM_SLAVE_INIT != cmdtype 
 		&& AGT_CMD_CLEAN_NODE != cmdtype && AGT_CMD_GTM_STOP_MASTER != cmdtype && AGT_CMD_GTM_STOP_SLAVE != cmdtype 
 		&& AGT_CMD_CN_STOP != cmdtype && AGT_CMD_DN_STOP != cmdtype && !mgr_node->nodeinited
-		&& AGT_CMD_DN_RESTART != cmdtype)
+		&& AGT_CMD_DN_RESTART != cmdtype 
+		&& AGT_CMD_GTM_STOP_MASTER_BACKEND != cmdtype && AGT_CMD_GTM_STOP_SLAVE_BACKEND != cmdtype 
+		&& AGT_CMD_CN_STOP_BACKEND != cmdtype && AGT_CMD_DN_STOP_BACKEND != cmdtype)
 	{
 		appendStringInfo(&(getAgentCmdRst->description), "%s \"%s\" has not been initialized", nodetypestr, cndnname);
 		getAgentCmdRst->ret = false;
@@ -1531,22 +1555,29 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	switch(cmdtype)
 	{
 		case AGT_CMD_GTM_START_MASTER:
+		case AGT_CMD_GTM_START_MASTER_BACKEND:
 		case AGT_CMD_GTM_START_SLAVE:
+		case AGT_CMD_GTM_START_SLAVE_BACKEND:
 			cmdmode = "start";
 			break;
 		case AGT_CMD_GTM_STOP_MASTER:
+		case AGT_CMD_GTM_STOP_MASTER_BACKEND:
 		case AGT_CMD_GTM_STOP_SLAVE:
+		case AGT_CMD_GTM_STOP_SLAVE_BACKEND:
 			cmdmode = "stop";
 			break;
 		case AGT_CMD_CN_START:
+		case AGT_CMD_CN_START_BACKEND:
 			cmdmode = "start";
 			zmode = "coordinator";
 			break;
 		case AGT_CMD_CN_STOP:
+		case AGT_CMD_CN_STOP_BACKEND:
 			cmdmode = "stop";
 			zmode = "coordinator";
 			break;
 		case AGT_CMD_DN_START:
+		case AGT_CMD_DN_START_BACKEND:
 			cmdmode = "start";
 			zmode = "datanode";
 			break;
@@ -1559,6 +1590,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			zmode = "coordinator";
 			break;
 		case AGT_CMD_DN_STOP:
+		case AGT_CMD_DN_STOP_BACKEND:
 			cmdmode = "stop";
 			zmode = "datanode";
 			break;
@@ -1708,13 +1740,37 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	{
 		appendStringInfo(&infosendmsg, "rm -rf %s; mkdir -p %s; chmod 0700 %s", cndnPath, cndnPath, cndnPath);
 	}
-	else
+	else if (AGT_CMD_GTM_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTM_START_SLAVE_BACKEND == cmdtype)
+	{
+		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
+		appendStringInfo(&infosendmsg, " %s -D %s -o -i -w -c -W -l %s/logfile", cmdmode, cndnPath, cndnPath);
+	}
+	else if (AGT_CMD_GTM_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTM_STOP_SLAVE_BACKEND == cmdtype)
+	{
+		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
+		appendStringInfo(&infosendmsg, " %s -D %s -m %s -o -i -w -c -W", cmdmode, cndnPath, shutdown_mode);
+	}
+	else if(AGT_CMD_CN_STOP_BACKEND == cmdtype || AGT_CMD_DN_STOP_BACKEND == cmdtype)
+	{
+		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
+		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
+			appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c -W", zmode, shutdown_mode);
+	}
+	else if (AGT_CMD_CN_START_BACKEND == cmdtype || AGT_CMD_DN_START_BACKEND == cmdtype)
+	{
+		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
+		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
+		appendStringInfo(&infosendmsg, " -Z %s -o -i -w -c -W -l %s/logfile", zmode, cndnPath);
+	}
+	else /*dn,cn start*/
 	{
 		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
 		appendStringInfo(&infosendmsg, " -Z %s -o -i -w -c -l %s/logfile", zmode, cndnPath);
 	}
-
-	execok= mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
+	if (-1 != cmdtype_s)
+		execok= mgr_ma_send_cmd(cmdtype_s, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
+	else
+		execok= mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
 
 	if (AGT_CMD_GTM_SLAVE_INIT == cmdtype)
 	{
@@ -1822,7 +1878,10 @@ Datum mgr_stop_gtm_master(PG_FUNCTION_ARGS)
 
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(GTM_TYPE_GTM_MASTER);
+		return mgr_typenode_cmd_run_backend_result(GTM_TYPE_GTM_MASTER, AGT_CMD_GTM_STOP_MASTER_BACKEND, nodenamelist, stop_mode, fcinfo);
+	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(1);
@@ -1883,7 +1942,10 @@ Datum mgr_stop_gtm_slave(PG_FUNCTION_ARGS)
 
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(GTM_TYPE_GTM_SLAVE);
+		return mgr_typenode_cmd_run_backend_result(GTM_TYPE_GTM_SLAVE, AGT_CMD_GTM_STOP_SLAVE_BACKEND, nodenamelist, stop_mode, fcinfo);
+	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(1);
@@ -1901,7 +1963,10 @@ Datum mgr_stop_gtm_extra(PG_FUNCTION_ARGS)
 
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(GTM_TYPE_GTM_EXTRA);
+		return mgr_typenode_cmd_run_backend_result(GTM_TYPE_GTM_EXTRA, AGT_CMD_GTM_STOP_SLAVE_BACKEND, nodenamelist, stop_mode, fcinfo);
+	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(1);
@@ -1921,7 +1986,10 @@ Datum mgr_stop_cn_master(PG_FUNCTION_ARGS)
 
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_MASTER);
+		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
+	}
 	else
 		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
 
@@ -1939,7 +2007,10 @@ Datum mgr_stop_dn_master(PG_FUNCTION_ARGS)
 
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_MASTER);
+		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
+	}
 	else
 		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
 
@@ -1992,7 +2063,10 @@ Datum mgr_stop_dn_slave(PG_FUNCTION_ARGS)
 
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_SLAVE);
+		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
+	}
 	else
 		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
 
@@ -2010,7 +2084,10 @@ Datum mgr_stop_dn_extra(PG_FUNCTION_ARGS)
 
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
+	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_EXTRA);
+		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_EXTRA, AGT_CMD_DN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
+	}
 	else
 		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
 
