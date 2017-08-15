@@ -56,7 +56,9 @@
 #include "utils/syscache.h"
 #ifdef ADB
 #include "catalog/pg_namespace.h"
+#include "catalog/pgxc_node.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/pgxcnode.h"
 #include "optimizer/pgxcplan.h"
 #include "optimizer/reduceinfo.h"
 #include "utils/fmgroids.h"
@@ -6096,6 +6098,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 	ReduceInfo *reduce_info;
 	RelationLocInfo *loc_info;
 	List *reduce_list;
+	List *storage_nodes;
 
 	if (rel_id < root->simple_rel_array_size &&
 		root->simple_rel_array[rel_id] != NULL)
@@ -6118,6 +6121,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 	if(loc_info == NULL)
 		return NULL;
 
+	storage_nodes = PGXCNodeGetNodeOidList(loc_info->nodeList, PGXC_NODE_DATANODE);
 	reduce_list = get_reduce_info_list(path);
 	if(IsRelationReplicated(loc_info))
 	{
@@ -6125,7 +6129,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 		{
 			List *to_nodes;
 			reduce_info = linitial(reduce_list);
-			to_nodes = SortOidList(list_copy(loc_info->nodeList));
+			to_nodes = SortOidList(storage_nodes);
 			if(equal(to_nodes, reduce_info->storage_nodes))
 			{
 				list_free(to_nodes);
@@ -6134,7 +6138,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 			ereport(ERROR, (errmsg("not support diffent replicate table yet!")));
 		}else
 		{
-			reduce_info = MakeReplicateReduceInfo(loc_info->nodeList);
+			reduce_info = MakeReplicateReduceInfo(storage_nodes);
 			path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 		}
 	}
@@ -6156,13 +6160,13 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 		if(loc_info->locatorType == LOCATOR_TYPE_HASH)
 		{
 			expr = list_nth(path->pathtarget->exprs, loc_info->partAttrNum - 1);
-			reduce_info = MakeHashReduceInfo(loc_info->nodeList,
+			reduce_info = MakeHashReduceInfo(storage_nodes,
 											 NIL,
 											 expr);
 		}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
 		{
 			expr = list_nth(path->pathtarget->exprs, loc_info->partAttrNum - 1);
-			reduce_info = MakeModuloReduceInfo(loc_info->nodeList,
+			reduce_info = MakeModuloReduceInfo(storage_nodes,
 											   NIL,
 											   expr);
 		}else if(loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
@@ -6174,7 +6178,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 				expr = list_nth(path->pathtarget->exprs, lfirst_int(lc)-1);
 				params = lappend(params, expr);
 			}
-			reduce_info = MakeCustomReduceInfo(loc_info->nodeList,
+			reduce_info = MakeCustomReduceInfo(storage_nodes,
 											   NIL,
 											   params,
 											   loc_info->funcid,
