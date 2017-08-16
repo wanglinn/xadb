@@ -68,8 +68,10 @@ void exec_cluster_plan(const void *splan, int length)
 	StringInfoData msg;
 	ErrorContextCallback error_context_hook;
 	bool need_instrument;
-
 	bool has_reduce;
+
+	PG_TRY();
+	{
 
 	buf.data = (char*)splan;
 	buf.cursor = 0;
@@ -153,6 +155,12 @@ void exec_cluster_plan(const void *splan, int length)
 	/* Send Copy Done message */
 	pq_putemptymessage('c');
 	EndClusterTransaction();
+
+	} PG_CATCH();
+	{
+		UserAbortTransactionBlock();
+		PG_RE_THROW();
+	} PG_END_TRY();
 }
 
 static void restore_cluster_plan_info(StringInfo buf)
