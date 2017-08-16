@@ -4321,6 +4321,10 @@ create_grouping_paths(PlannerInfo *root,
 					List *exclude_exec = NIL;
 					path = lfirst(lc);
 
+					/* if path depends on other,can't make reduce plan */
+					if(!bms_is_empty(PATH_REQ_OUTER(path)))
+						continue;
+
 					reduce_info_list = get_reduce_info_list(path);
 					if (NIL == reduce_info_list)
 						continue;
@@ -4460,6 +4464,10 @@ create_grouping_paths(PlannerInfo *root,
 					ReduceInfo *rinfo;
 					List *reduce_info_list = NIL;
 					List *exclude_exec = NIL;
+
+					/* if path depends on other,can't make reduce plan */
+					if(!bms_is_empty(PATH_REQ_OUTER(path)))
+						continue;
 
 					reduce_info_list = get_reduce_info_list(path);
 					if (NIL == reduce_info_list)
