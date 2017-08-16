@@ -68,10 +68,16 @@ extern bool IsReduceInfoListCoordinator(List *list);
 #define IsReduceInfoInOneNode(r) (list_length(r->storage_nodes) - list_length(r->exclude_exec) == 1)
 extern bool IsReduceInfoListInOneNode(List *list);
 
-extern ReduceInfo *CopyReduceInfoExtend(const ReduceInfo *reduce, int mark);
+/* copy reduce info */
 #define CopyReduceInfo(r) CopyReduceInfoExtend(r, REDUCE_MARK_ALL)
+#define CopyReduceInfoList(l) CopyReduceInfoListExtend(l, mark)
+#define CopyReduceInfoListExtend(l, mark) ReduceInfoListConcatExtend(NIL, l, mark)
+#define ReduceInfoListConcat(dest, src) ReduceInfoListConcatExtend(dest, src, REDUCE_MARK_ALL)
+extern ReduceInfo *CopyReduceInfoExtend(const ReduceInfo *reduce, int mark);
+extern List *ReduceInfoListConcatExtend(List *dest, List *src, int mark);
+
+/* compare reduce info */
 extern bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark);
-extern bool IsReduceInfoStorageEqual(const ReduceInfo *left, const ReduceInfo *right);
 #define IsReduceInfoSame(l,r) CompReduceInfo(l, r, REDUCE_MARK_STORAGE|REDUCE_MARK_TYPE|REDUCE_MARK_EXPR)
 #define IsReduceInfoEqual(l,r) CompReduceInfo(l, r, REDUCE_MARK_ALL)
 

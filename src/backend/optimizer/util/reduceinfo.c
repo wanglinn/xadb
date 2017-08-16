@@ -328,6 +328,14 @@ ReduceInfo *CopyReduceInfoExtend(const ReduceInfo *reduce, int mark)
 	return rinfo;
 }
 
+List *ReduceInfoListConcatExtend(List *dest, List *src, int mark)
+{
+	ListCell *lc;
+	foreach(lc, src)
+		dest = lappend(dest, CopyReduceInfoExtend(lfirst(lc), mark));
+	return dest;
+}
+
 bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark)
 {
 	if(left == right)
@@ -359,33 +367,6 @@ bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark)
 		left->type != right->type)
 		return false;
 
-	return true;
-}
-
-bool IsReduceInfoStorageEqual(const ReduceInfo *left, const ReduceInfo *right)
-{
-	AssertArg(left->type == right->type);
-	AssertArg(left->storage_nodes != NIL && right->storage_nodes != NIL);
-	AssertArg(IsA(left->storage_nodes, OidList) && IsA(right->storage_nodes, OidList));
-
-	if(IsReduceInfoByValue(left))
-	{
-		return equal(left->storage_nodes, right->storage_nodes);
-	}else if(list_length(left->storage_nodes) != list_length(right->storage_nodes))
-	{
-		return false;
-	}else if(left->storage_nodes == right->storage_nodes)
-	{
-		return true;
-	}else
-	{
-		ListCell *lc;
-		foreach(lc, right->storage_nodes)
-		{
-			if(list_member_oid(left->storage_nodes, lfirst_oid(lc)) == false)
-				return false;
-		}
-	}
 	return true;
 }
 
