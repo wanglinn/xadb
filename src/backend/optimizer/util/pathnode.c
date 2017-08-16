@@ -247,6 +247,8 @@ set_cheapest(RelOptInfo *parent_rel)
 #ifdef ADB
 	ListCell *lc;
 	Path *path;
+	Path *cheapest_param_replicate;
+	Path *cheapest_param_coordinator;
 	List *reduce_list;
 #endif /* ADB */
 	Assert(IsA(parent_rel, RelOptInfo));
@@ -271,22 +273,43 @@ set_cheapest(RelOptInfo *parent_rel)
 	parent_rel->cheapest_cluster_unique_path = NULL;
 	Assert(parent_rel->cheapest_replicate_path == NULL);
 	Assert(parent_rel->cheapest_coordinator_path == NULL);
+	cheapest_param_replicate = cheapest_param_coordinator = NULL;
 	foreach(lc, parent_rel->cluster_pathlist)
 	{
 		path = lfirst(lc);
 		reduce_list = get_reduce_info_list(path);
 		if(IsReduceInfoListReplicated(reduce_list))
 		{
-			if (parent_rel->cheapest_replicate_path == NULL ||
-				parent_rel->cheapest_replicate_path->total_cost > path->total_cost)
-				parent_rel->cheapest_replicate_path = path;
+			if(PATH_REQ_OUTER(path))
+			{
+				if (cheapest_param_replicate == NULL ||
+					compare_path_costs(cheapest_param_replicate, path, TOTAL_COST) > 0)
+					cheapest_param_replicate = path;
+			}else
+			{
+				if (parent_rel->cheapest_replicate_path == NULL ||
+					compare_path_costs(parent_rel->cheapest_replicate_path, path, TOTAL_COST) > 0)
+					parent_rel->cheapest_replicate_path = path;
+			}
 		}else if(IsReduceInfoListCoordinator(reduce_list))
 		{
-			if (parent_rel->cheapest_coordinator_path == NULL ||
-				parent_rel->cheapest_coordinator_path->total_cost > path->total_cost)
-				parent_rel->cheapest_coordinator_path = path;
+			if(PATH_REQ_OUTER(path))
+			{
+				if (cheapest_param_coordinator == NULL ||
+					compare_path_costs(cheapest_param_coordinator, path, TOTAL_COST) > 0)
+					cheapest_param_coordinator = path;
+			}else
+			{
+				if (parent_rel->cheapest_coordinator_path == NULL ||
+					compare_path_costs(parent_rel->cheapest_coordinator_path, path, TOTAL_COST) > 0)
+					parent_rel->cheapest_coordinator_path = path;
+			}
 		}
 	}
+	if(parent_rel->cheapest_replicate_path == NULL)
+		parent_rel->cheapest_replicate_path = cheapest_param_replicate;
+	if(parent_rel->cheapest_coordinator_path == NULL)
+		parent_rel->cheapest_coordinator_path = cheapest_param_coordinator;
 #endif /* ADB */
 }
 
