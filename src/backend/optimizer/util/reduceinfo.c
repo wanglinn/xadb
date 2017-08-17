@@ -300,6 +300,80 @@ bool IsReduceInfoListInOneNode(List *list)
 	return false;
 }
 
+bool IsReduceInfoStorageSubset(const ReduceInfo *rinfo, List *oidlist)
+{
+	ListCell *lc;
+	foreach(lc, rinfo->storage_nodes)
+	{
+		if(list_member_oid(oidlist, lfirst_oid(lc)) == false)
+			return false;
+	}
+	return true;
+}
+
+bool IsReduceInfoExecuteSubset(const ReduceInfo *rinfo, List *oidlist)
+{
+	ListCell *lc;
+	foreach(lc, rinfo->storage_nodes)
+	{
+		if (list_member_oid(rinfo->exclude_exec, lfirst_oid(lc))== false &&
+			list_member_oid(oidlist, lfirst_oid(lc)) == false)
+			return false;
+	}
+	return true;
+}
+
+bool IsReduceInfoListExecuteSubset(List *reduce_info_list, List *oidlist)
+{
+	ListCell *lc;
+	List *execute_list = ReduceInfoListGetExecuteOidList(reduce_info_list);
+	bool result = true;
+	foreach(lc, execute_list)
+	{
+		if(list_member_oid(oidlist, lfirst_oid(lc)) == false)
+		{
+			result = false;
+			break;
+		}
+	}
+	list_free(execute_list);
+	return result;
+}
+
+List *ReduceInfoListGetExecuteOidList(const List *list)
+{
+	ReduceInfo *rinfo;
+	ListCell *lc;
+	List *oidList = NIL;
+	List *storage_list = NIL;
+	List *execute_list;
+	Assert(list != NIL);
+	foreach(lc, list)
+	{
+		rinfo = lfirst(lc);
+		if(storage_list == NIL)
+		{
+			storage_list = rinfo->storage_nodes;
+		}
+#ifdef USE_ASSERT_CHECKING
+		else
+		{
+			Assert(equal(storage_list, rinfo->storage_nodes));
+		}
+#endif /* USE_ASSERT_CHECKING */
+		oidList = list_concat_unique_oid(oidList, rinfo->exclude_exec);
+	}
+	execute_list = NIL;
+	foreach(lc, storage_list)
+	{
+		if(list_member_oid(oidList, lfirst_oid(lc)) == false)
+			execute_list = lappend_oid(execute_list, lfirst(lc));
+	}
+	list_free(oidList);
+
+	return execute_list;
+}
+
 ReduceInfo *CopyReduceInfoExtend(const ReduceInfo *reduce, int mark)
 {
 	ReduceInfo *rinfo;

@@ -68,6 +68,11 @@ extern bool IsReduceInfoListCoordinator(List *list);
 #define IsReduceInfoInOneNode(r) (list_length(r->storage_nodes) - list_length(r->exclude_exec) == 1)
 extern bool IsReduceInfoListInOneNode(List *list);
 
+extern bool IsReduceInfoStorageSubset(const ReduceInfo *rinfo, List *oidlist);
+extern bool IsReduceInfoExecuteSubset(const ReduceInfo *rinfo, List *oidlist);
+extern bool IsReduceInfoListExecuteSubset(List *reduce_info_list, List *oidlist);
+extern List *ReduceInfoListGetExecuteOidList(const List *list);
+
 /* copy reduce info */
 #define CopyReduceInfo(r) CopyReduceInfoExtend(r, REDUCE_MARK_ALL)
 #define CopyReduceInfoList(l) CopyReduceInfoListExtend(l, mark)
