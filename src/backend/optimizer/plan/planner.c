@@ -4210,7 +4210,12 @@ create_grouping_paths(PlannerInfo *root,
 				bool is_sorted = pathkeys_contained_in(root->group_pathkeys,
 														path->pathkeys);
 
-				if(path == cheapest_cluster_path || is_sorted)
+				only_once = CanOnceGroupingClusterPath(target, path);
+				if((path == cheapest_cluster_path ||
+					is_sorted) &&
+					(only_once ||
+					root->parent_root == NULL ||
+					bms_is_empty(PATH_REQ_OUTER(path))))
 				{
 					if(!is_sorted)
 						path = (Path*)create_sort_path(root,
@@ -4218,7 +4223,6 @@ create_grouping_paths(PlannerInfo *root,
 														path,
 														root->group_pathkeys,
 														-1.0);
-					only_once = CanOnceGroupingClusterPath(target, path);
 
 					if (parse->hasAggs)
 						path = (Path*)create_agg_path(root,
@@ -4410,7 +4414,10 @@ create_grouping_paths(PlannerInfo *root,
 			 */
 			if (only_once == false &&
 				(hashaggtablesize < work_mem * 1024L ||
-				 grouped_rel->cluster_pathlist == NIL))
+				 grouped_rel->cluster_pathlist == NIL) &&
+				 /* if path depends on others,can't make reduce plan */
+				 (root->parent_root == NULL ||
+				 bms_is_empty(PATH_REQ_OUTER(cheapest_cluster_path))))
 			{
 				Path *path = (Path*)
 							create_agg_path(root,
