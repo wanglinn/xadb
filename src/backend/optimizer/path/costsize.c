@@ -4944,6 +4944,8 @@ cost_cluster_reduce(ClusterReducePath *path)
 	Assert (path->path.reduce_is_valid &&
 			list_length(path->path.reduce_info_list) == 1);
 
+	src_width = subpath->pathtarget->width;
+
 	/* here we calculate the number of nodes reduce to */
 	reduce_to = linitial(path->path.reduce_info_list);
 	dst_nodes = reduce_to->storage_nodes;
@@ -4961,7 +4963,22 @@ cost_cluster_reduce(ClusterReducePath *path)
 		IsReduceInfoListRound(reduce_from_list))
 		is_src_reduce_shard = true;
 	else
-		Assert(false);
+	{
+		/*
+		 * TODO: Why does this happen?
+		 *
+		 * An inaccurate cost estimate is made directly.
+		 */
+		src_rows = subpath->rows;
+		src_pages = page_size(src_rows, src_width);
+		reduce_startup_cost = reduce_conn_cost;
+		reduce_run_cost = src_pages * reduce_page_cost + reduce_startup_cost;
+		path->path.rows = subpath->rows;
+		path->path.startup_cost = subpath->startup_cost + reduce_startup_cost;
+		path->path.total_cost = subpath->total_cost + reduce_run_cost;
+		return;
+	}
+
 	src_nodes = ReduceInfoListGetExecuteOidList(reduce_from_list);
 	src_num = list_length(src_nodes);
 	src_startup_cost = subpath->startup_cost * src_num;
@@ -4970,7 +4987,6 @@ cost_cluster_reduce(ClusterReducePath *path)
 		src_rows = subpath->rows;
 	else
 		src_rows = subpath->rows * src_num;
-	src_width = subpath->pathtarget->width;
 	src_pages = page_size(src_rows, src_width);
 
 	/* here we calculate the union set of nodes make reduce */
