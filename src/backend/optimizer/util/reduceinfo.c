@@ -367,7 +367,7 @@ List *ReduceInfoListGetExecuteOidList(const List *list)
 	foreach(lc, storage_list)
 	{
 		if(list_member_oid(oidList, lfirst_oid(lc)) == false)
-			execute_list = lappend_oid(execute_list, lfirst(lc));
+			execute_list = lappend_oid(execute_list, lfirst_oid(lc));
 	}
 	list_free(oidList);
 

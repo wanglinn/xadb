@@ -3354,11 +3354,30 @@ static struct config_real ConfigureNamesReal[] =
 	{
 		{"reduce_setup_cost", PGC_USERSET, QUERY_TUNING_COST,
 			gettext_noop("Sets the planner's estime of the cost of "
-					"starting up reduce for cluster query."),
+						 "starting up reduce process for cluster query."),
 			NULL
 		},
 		&reduce_setup_cost,
 		DEFAULT_REDUCE_SETUP_COST, 0, DBL_MAX,
+		NULL, NULL, NULL
+	},
+	{
+		{"reduce_conn_cost", PGC_USERSET, QUERY_TUNING_COST,
+			gettext_noop("Sets the planner's estime of the cost of "
+						 "establishing a connection with self reduce process."),
+			NULL
+		},
+		&reduce_conn_cost,
+		DEFAULT_REDUCE_CONN_COST, 0, DBL_MAX,
+		NULL, NULL, NULL
+	},
+	{
+		{"reduce_page_cost", PGC_USERSET, QUERY_TUNING_COST,
+			gettext_noop("Sets the planner's estimate of the cost of reducing one page."),
+			NULL
+		},
+		&reduce_page_cost,
+		DEFAULT_REDUCE_PAGE_COST, 0, DBL_MAX,
 		NULL, NULL, NULL
 	},
 #endif /* ADB */

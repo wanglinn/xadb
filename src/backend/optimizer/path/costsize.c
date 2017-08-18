@@ -114,6 +114,8 @@ double		parallel_setup_cost = DEFAULT_PARALLEL_SETUP_COST;
 double		remote_tuple_cost = DEFAULT_REMOTE_TUPLE_COST;
 double		pgxc_remote_tuple_cost = DEFAULT_PGXC_REMOTE_TUPLE_COST;
 double		reduce_setup_cost = DEFAULT_REDUCE_SETUP_COST;
+double		reduce_conn_cost = DEFAULT_REDUCE_CONN_COST;
+double		reduce_page_cost = DEFAULT_REDUCE_PAGE_COST;
 #endif /* ADB */
 
 int			effective_cache_size = DEFAULT_EFFECTIVE_CACHE_SIZE;
@@ -4901,6 +4903,8 @@ void cost_cluster_gather(ClusterGatherPath *path, RelOptInfo *baserel, ParamPath
 
 	startup_cost = path->subpath->startup_cost;
 
+	/* TODO: need to add reduce setup cost */
+
 	run_cost = path->subpath->total_cost - path->subpath->startup_cost;
 
 	run_cost += remote_tuple_cost * path->path.rows;
@@ -4909,72 +4913,150 @@ void cost_cluster_gather(ClusterGatherPath *path, RelOptInfo *baserel, ParamPath
 	path->path.total_cost = (startup_cost + run_cost);
 }
 
-void cost_cluster_reduce(ClusterReducePath *path)
+void
+cost_cluster_reduce(ClusterReducePath *path)
 {
-	Path *subpath = path->subpath;
-	ReduceInfo *reduce_to;
-	ReduceInfo *reduce_from;
-	List *reduce_from_list;
+	Path		   *subpath = path->subpath;
+	ReduceInfo	   *reduce_to;
+	List		   *reduce_from_list;
+	List		   *intersection,
+				   *different;
+	List		   *src_nodes,
+				   *dst_nodes,
+				   *union_nodes;
+	int				src_num,
+					dst_num,
+					union_num;
+	int				src_width;
+	double			src_rows;
+	double			src_pages;
+	double			reduce_scale = 0.0;
+	Cost			src_startup_cost,
+					src_total_cost;
+	Cost			sort_startup_cost,
+					sort_run_cost;
+	Cost			reduce_startup_cost,
+					reduce_run_cost;
+	bool			is_src_reduce_coord = false;
+	bool			is_src_reduce_rep = false;
+	bool			is_src_reduce_shard = false;
 
-	path->path.startup_cost = subpath->startup_cost + reduce_setup_cost;
-	path->path.total_cost = subpath->total_cost + reduce_setup_cost;
-	path->path.rows = subpath->rows;
-	Assert(path->path.reduce_is_valid && list_length(path->path.reduce_info_list) == 1);
+	Assert (path->path.reduce_is_valid &&
+			list_length(path->path.reduce_info_list) == 1);
 
+	/* here we calculate the number of nodes reduce to */
 	reduce_to = linitial(path->path.reduce_info_list);
-	reduce_from_list = get_reduce_info_list(subpath);
+	dst_nodes = reduce_to->storage_nodes;
+	dst_num = list_length(dst_nodes);
 
-	if (IsReduceInfoReplicated(reduce_to) ||
-		IsReduceInfoCoordinator(reduce_to))
+	/* here we calculate the whole cluster source cost */
+	reduce_from_list = get_reduce_info_list(subpath);
+	if (IsReduceInfoListCoordinator(reduce_from_list))
+		is_src_reduce_coord = true;
+	else
+	if (IsReduceInfoListReplicated(reduce_from_list))
+		is_src_reduce_rep = true;
+	else
+	if (IsReduceInfoListByValue(reduce_from_list) ||
+		IsReduceInfoListRound(reduce_from_list))
+		is_src_reduce_shard = true;
+	else
+		Assert(false);
+	src_nodes = ReduceInfoListGetExecuteOidList(reduce_from_list);
+	src_num = list_length(src_nodes);
+	src_startup_cost = subpath->startup_cost * src_num;
+	src_total_cost = subpath->total_cost * src_num;
+	if (is_src_reduce_rep || is_src_reduce_coord)
+		src_rows = subpath->rows;
+	else
+		src_rows = subpath->rows * src_num;
+	src_width = subpath->pathtarget->width;
+	src_pages = page_size(src_rows, src_width);
+
+	/* here we calculate the union set of nodes make reduce */
+	union_nodes = list_union_oid(src_nodes, dst_nodes);
+	union_num = list_length(union_nodes);
+
+	intersection = different = NIL;
+	if (IsReduceInfoCoordinator(reduce_to))
 	{
-		if (IsReduceInfoListReplicated(reduce_from_list) ||
-			IsReduceInfoListCoordinator(reduce_from_list))
-		{
-			path->path.total_cost += path->path.rows * remote_tuple_cost;
-		}else if(reduce_from_list != NIL)
-		{
-			reduce_from = linitial(reduce_from_list);
-			if(reduce_from->storage_nodes != NIL)
-			{
-				path->path.rows *= list_length(reduce_from->storage_nodes);
-				path->path.total_cost += path->path.rows * remote_tuple_cost;
-			}
-		}
-	}else if(IsReduceInfoByValue(reduce_to))
+		reduce_scale = 1.0;
+	} else
+	if (IsReduceInfoReplicated(reduce_to))
 	{
-		if (IsReduceInfoListReplicated(reduce_from_list) ||
-			IsReduceInfoListCoordinator(reduce_from_list))
+		if (is_src_reduce_coord)
 		{
-			Assert(list_length(reduce_to->storage_nodes) > 0);
-			path->path.total_cost += path->path.rows * remote_tuple_cost;
-			path->path.rows /= list_length(reduce_to->storage_nodes);
-		}else
+			reduce_scale = 1.0 * dst_num;
+		} else
+		if (is_src_reduce_rep)
 		{
-			path->path.total_cost += path->path.rows * remote_tuple_cost;
+			different = list_difference_oid(dst_nodes, src_nodes);
+			reduce_scale = 1.0 * list_length(different);
+		} else
+		if (is_src_reduce_shard)
+		{
+			intersection = list_intersection_oid(dst_nodes, src_nodes);
+			different = list_difference_oid(dst_nodes, src_nodes);
+
+			reduce_scale = (((double) (src_num - 1) / src_num) * list_length(intersection)) +
+						   (1.0 * list_length(different));
 		}
-	}
+	} else
+	if (IsReduceInfoByValue(reduce_to) ||
+		IsReduceInfoRound(reduce_to))
+	{
+		if (is_src_reduce_coord ||is_src_reduce_rep)
+		{
+			reduce_scale = 1.0;
+		} else
+		if (is_src_reduce_shard)
+		{
+			intersection = list_intersection_oid(src_nodes, dst_nodes);
+			different = list_difference_oid(src_nodes, dst_nodes);
+
+			reduce_scale = ((double) list_length(different) / src_num) +
+						   ((double) list_length(intersection) / src_num) * ((double) (dst_num - 1) / dst_num);
+		}
+	} else
+		Assert(false);
+
+	list_free(intersection);
+	list_free(different);
+
+	/* here we calculate the whole cluster reduce cost */
+	reduce_startup_cost = union_num * reduce_conn_cost;
+	reduce_run_cost = src_pages * reduce_scale * reduce_page_cost +
+					  reduce_startup_cost;
 
 	/* Calculate the cost of sorting */
+	sort_startup_cost = sort_run_cost = 0.0;
 	if (path->path.pathkeys != NIL)
 	{
 		Cost		comparison_cost;
 		double		N;
 		double		logN;
-		int			num_nodes = list_length(reduce_to->storage_nodes);
 
-		N = (num_nodes < 2) ? 2.0 : (double) num_nodes;
+		N = (dst_num < 2) ? 2.0 : (double) dst_num;
 		logN = LOG2(N);
 
 		/* Assumed cost per tuple comparison */
 		comparison_cost = 2.0 * cpu_operator_cost;
 
 		/* Heap creation cost */
-		path->path.startup_cost += comparison_cost * logN;
-		path->path.total_cost += comparison_cost * logN;
+		sort_startup_cost = comparison_cost * N * logN;
 
 		/* Per-tuple heap maintenance cost */
-		path->path.total_cost += path->path.rows * comparison_cost * 2.0 * logN;
-	}
-}
+		sort_run_cost += src_rows * comparison_cost * 2.0 * logN;
 
+		sort_run_cost += cpu_operator_cost * src_rows;
+	}
+
+	/* here we calulate the average cost of ClusterReduce */
+	path->path.rows = src_rows / union_num;
+	path->path.startup_cost = (src_startup_cost + reduce_startup_cost + sort_startup_cost) / union_num;
+	path->path.total_cost = (src_total_cost + reduce_run_cost + sort_run_cost) / union_num;
+
+	list_free(src_nodes);
+	list_free(union_nodes);
+}
 #endif /* ADB */

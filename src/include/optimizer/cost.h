@@ -31,7 +31,9 @@
 #ifdef ADB
 #define DEFAULT_REMOTE_TUPLE_COST 0.3
 #define DEFAULT_PGXC_REMOTE_TUPLE_COST 0.9
-#define DEFAULT_REDUCE_SETUP_COST 1.0
+#define DEFAULT_REDUCE_SETUP_COST 1000.0
+#define DEFAULT_REDUCE_CONN_COST 1.0
+#define DEFAULT_REDUCE_PAGE_COST 3.0
 #endif /* ADB */
 
 #define DEFAULT_EFFECTIVE_CACHE_SIZE  524288	/* measured in pages */
@@ -60,6 +62,8 @@ extern PGDLLIMPORT double parallel_tuple_cost;
 extern PGDLLIMPORT double remote_tuple_cost;
 extern PGDLLIMPORT double pgxc_remote_tuple_cost;
 extern PGDLLIMPORT double reduce_setup_cost;
+extern PGDLLIMPORT double reduce_conn_cost;
+extern PGDLLIMPORT double reduce_page_cost;
 #endif /* ADB */
 extern PGDLLIMPORT double parallel_setup_cost;
 extern PGDLLIMPORT int effective_cache_size;
