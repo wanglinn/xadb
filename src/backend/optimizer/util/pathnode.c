@@ -3359,6 +3359,19 @@ bool have_cluster_gather_path(Path *path, void *context)
 	return path_tree_walker(path, have_cluster_gather_path, context);
 }
 
+bool have_cluster_reduce_path(Path *path, void *context)
+{
+	check_stack_depth();
+
+	if (path == NULL)
+		return false;
+
+	if (IsA(path, ClusterReducePath))
+		return true;
+
+	return path_tree_walker(path, have_cluster_reduce_path, context);
+}
+
 bool have_remote_query_path(Path *path, void *context)
 {
 	check_stack_depth();

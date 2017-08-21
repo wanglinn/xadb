@@ -259,6 +259,7 @@ typedef struct ExecNodeInfo
 }ExecNodeInfo;
 
 extern bool have_cluster_gather_path(Path *path, void *context);
+extern bool have_cluster_reduce_path(Path *path, void *context);
 extern bool have_remote_query_path(Path *path, void *context);
 extern ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 			, RelOptInfo *rel, Path *sub_path, List *pathkeys);
