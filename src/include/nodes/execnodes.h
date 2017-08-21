@@ -388,7 +388,8 @@ typedef struct EState
 	ResultRelInfo *es_result_relation_info;		/* currently active array elt */
 #ifdef ADB
 	struct PlanState	*es_result_remoterel;	/* currently active remote rel */
-	Bitmapset   *es_reduce_drived_set;			/* already be reduce-drived plan ID set */
+	Bitmapset  *es_reduce_drived_set;			/* already be reduce-drived plan ID set */
+	bool		es_reduce_plan_inited;			/* true if ClusterReduce plan has been initialized */
 #endif
 
 	/* Stuff used for firing triggers: */

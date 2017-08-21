@@ -164,6 +164,8 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 		crstate->reduceState = ExecInitExpr(node->reduce, &crstate->ps);
 	}
 
+	estate->es_reduce_plan_inited = true;
+
 	return crstate;
 }
 
@@ -593,6 +595,10 @@ void
 ExecEndAllReduceState(PlanState *node)
 {
 	if (!enable_cluster_plan || !IsUnderPostmaster)
+		return ;
+
+	/* just return if there is no ClusterReduce plan */
+	if (!node->state->es_reduce_plan_inited)
 		return ;
 
 	(void) EndReduceStateWalker(node, NULL);
