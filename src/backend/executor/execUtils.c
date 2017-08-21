@@ -109,6 +109,7 @@ CreateExecutorState(void)
 
 #ifdef ADB
 	estate->es_result_remoterel = NULL;
+	estate->es_reduce_drived_set = NULL;
 #endif
 
 	estate->es_trig_target_relations = NIL;

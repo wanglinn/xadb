@@ -552,7 +552,17 @@ ExecConnectReduce(PlanState *node)
 static bool
 EndReduceStateWalker(PlanState *node, void *context)
 {
+	EState	   *estate;
+	int			planid;
+	bool		res;
+
 	if (node == NULL)
+		return false;
+
+	estate = node->state;
+	planid = PlanNodeID(node->plan);
+
+	if (bms_is_member(planid, estate->es_reduce_drived_set))
 		return false;
 
 	if (IsA(node, ClusterReduceState))
@@ -560,19 +570,23 @@ EndReduceStateWalker(PlanState *node, void *context)
 		ClusterReduceState *crs = (ClusterReduceState *) node;
 		Assert(crs->port);
 
+		if (!crs->eof_network || !crs->eof_underlying)
+			elog(LOG, "Drive ClusterReduce(%d) to send EOF message", planid);
+
 		/*
 		 * Drive all ClusterReduce to send slot, discard slot
 		 * used for local.
 		 */
 		while (!crs->eof_network || !crs->eof_underlying)
-		{
 			(void) ExecProcNode(node);
-		}
 
-		return false;
-	}
+		res = false;
+	} else
+		res = planstate_tree_walker(node, EndReduceStateWalker, context);
 
-	return planstate_tree_walker(node, EndReduceStateWalker, context);
+	estate->es_reduce_drived_set = bms_add_member(estate->es_reduce_drived_set, planid);
+
+	return res;
 }
 
 void
@@ -581,8 +595,5 @@ ExecEndAllReduceState(PlanState *node)
 	if (!enable_cluster_plan || !IsUnderPostmaster)
 		return ;
 
-	elog(LOG,
-		 "[PLAN %d] Top-down drive cluster reduce to send EOF message",
-		 PlanNodeID(node->plan));
 	(void) EndReduceStateWalker(node, NULL);
 }
