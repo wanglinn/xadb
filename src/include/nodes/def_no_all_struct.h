@@ -28,4 +28,3 @@
 #define NO_STRUCT_ParamExternData
 #define NO_STRUCT_ParamListInfoData
 #define NO_STRUCT_ReduceInfo
-#define NO_STRUCT_SemiAntiJoinContext

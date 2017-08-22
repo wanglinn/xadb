@@ -1735,6 +1735,9 @@ BEGIN_NODE(ModifyTablePath)
 	NODE_NODE(List,rowMarks)
 	NODE_NODE(OnConflictExpr,onconflict)
 	NODE_SCALAR(int,epqParam)
+#ifdef ADB
+	NODE_SCALAR(bool,under_cluster)
+#endif
 END_NODE(ModifyTablePath)
 #endif /* NO_NODE_ModifyTablePath */
 

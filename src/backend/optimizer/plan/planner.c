@@ -2140,6 +2140,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				path->rows >= 5.0)
 			{
 				ResultPath *rp;
+				ModifyTablePath *modify;
 				/* first make ResultPath add "adb_node_oid()=PGXCNodeOid" to qual */
 				OpExpr *op = makeNode(OpExpr);
 				Assert(OidIsValid(PGXCNodeOid));
@@ -2178,7 +2179,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				path = reduce_to_relation_insert(root, parse->resultRelation, path);
 				Assert(path);
 
-				path = (Path *)
+				modify =
 					create_modifytable_path(root, final_rel,
 											parse->commandType,
 											parse->canSetTag,
@@ -2191,7 +2192,8 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 											rowMarks,
 											parse->onConflict,
 											SS_assign_special_param(root));
-				path = (Path*)create_cluster_gather_path(path, final_rel);
+				modify->under_cluster = true;
+				path = (Path*)create_cluster_gather_path((Path*)modify, final_rel);
 			}else
 #endif /* ADB */
 			path = (Path *)
@@ -2244,6 +2246,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				parse->withCheckOptions == NIL &&
 				(parse->onConflict == NULL || parse->onConflict->action == ONCONFLICT_NOTHING))
 			{
+				ModifyTablePath *modify;
 				if (parse->commandType == CMD_INSERT &&
 					!has_row_triggers(root, parse->resultRelation, CMD_INSERT))
 				{
@@ -2261,7 +2264,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 						path = reduce_path;
 					}
 				}
-				path = (Path *)
+				modify =
 					create_modifytable_path(root, final_rel,
 											parse->commandType,
 											parse->canSetTag,
@@ -2274,6 +2277,8 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 											NIL,	/* no row marks */
 											parse->onConflict,
 											SS_assign_special_param(root));
+				modify->under_cluster = true;
+				path = (Path*)modify;
 			}else
 			{
 				break;

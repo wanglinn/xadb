@@ -109,6 +109,7 @@ static void pgxc_dml_add_qual_to_query(Query *query, int param_num,
 static Param *pgxc_make_param(int param_num, Oid param_type);
 static void pgxc_add_param_as_tle(Query *query, int param_num, Oid param_type,
 									char *resname);
+
 /*
  * pgxc_separate_quals
  * Separate the quals into shippable and unshippable quals. Return the shippable
@@ -899,7 +900,8 @@ pgxc_make_modifytable(PlannerInfo *root, Plan *topplan, ModifyTablePath *mtp)
 	 * table plan on the top. We should send queries to the remote nodes only
 	 * when there is something to modify.
 	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+
+	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !mtp->under_cluster)
 		topplan = create_remotedml_plan(root, topplan, mt->operation, mtp);
 
 	return topplan;

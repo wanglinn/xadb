@@ -28,4 +28,3 @@
 #undef NO_STRUCT_ParamExternData
 #undef NO_STRUCT_ParamListInfoData
 #undef NO_STRUCT_ReduceInfo
-#undef NO_STRUCT_SemiAntiJoinContext
