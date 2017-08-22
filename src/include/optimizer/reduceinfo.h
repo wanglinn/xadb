@@ -32,17 +32,6 @@ typedef struct ReduceInfo
 	char		type;					/* REDUCE_TYPE_XXX */
 }ReduceInfo;
 
-typedef struct SemiAntiJoinContext
-{
-	RelOptInfo *outer_rel;
-	RelOptInfo *inner_rel;
-	Path *outer_path;
-	Path *inner_path;
-	List *outer_reduce_list;
-	List *inner_reduce_list;
-	List *restrict_list;
-} SemiAntiJoinContext;
-
 extern ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const Expr *param);
 extern ReduceInfo *MakeCustomReduceInfoByRel(const List *storage, const List *exclude,
 						const List *attnums, Oid funcid, Oid reloid, Index rel_index);
@@ -75,7 +64,7 @@ extern List *ReduceInfoListGetExecuteOidList(const List *list);
 
 /* copy reduce info */
 #define CopyReduceInfo(r) CopyReduceInfoExtend(r, REDUCE_MARK_ALL)
-#define CopyReduceInfoList(l) CopyReduceInfoListExtend(l, mark)
+#define CopyReduceInfoList(l) CopyReduceInfoListExtend(l, REDUCE_MARK_ALL)
 #define CopyReduceInfoListExtend(l, mark) ReduceInfoListConcatExtend(NIL, l, mark)
 #define ReduceInfoListConcat(dest, src) ReduceInfoListConcatExtend(dest, src, REDUCE_MARK_ALL)
 extern ReduceInfo *CopyReduceInfoExtend(const ReduceInfo *reduce, int mark);
@@ -101,8 +90,12 @@ extern bool IsReduceInfoCanInnerJoin(ReduceInfo *outer_rinfo,
 extern bool IsReduceInfoListCanLeftOrRightJoin(List *outer_reduce_list,
 											   List *inner_reduce_list,
 											   List *restrictlist);
-extern bool CanMakeSemiAntiClusterJoinPath(PlannerInfo *root, SemiAntiJoinContext *context);
 extern List *FindJoinEqualExprs(ReduceInfo *rinfo, List *restrictlist, RelOptInfo *inner_rel);
+extern bool reduce_info_list_can_join(List *outer_reduce_list,
+									  List *inner_reduce_list,
+									  List *restrictlist,
+									  JoinType jointype,
+									  List **new_reduce_list);
 
 extern bool CanOnceGroupingClusterPath(PathTarget *target, Path *path);
 extern bool CanOnceDistinctReduceInfoList(List *distinct, List *reduce_list);

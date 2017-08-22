@@ -403,15 +403,3 @@ BEGIN_STRUCT(ReduceInfo)
 END_STRUCT(ReduceInfo)
 #endif /* NO_STRUCT_ReduceInfo */
 #endif
-
-#ifndef NO_STRUCT_SemiAntiJoinContext
-BEGIN_STRUCT(SemiAntiJoinContext)
-	NODE_NODE(RelOptInfo,outer_rel)
-	NODE_NODE(RelOptInfo,inner_rel)
-	NODE_NODE(Path,outer_path)
-	NODE_NODE(Path,inner_path)
-	NODE_NODE(List,outer_reduce_list)
-	NODE_NODE(List,inner_reduce_list)
-	NODE_NODE(List,restrict_list)
-END_STRUCT(SemiAntiJoinContext)
-#endif /* NO_STRUCT_SemiAntiJoinContext */

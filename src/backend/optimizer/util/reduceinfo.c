@@ -351,16 +351,7 @@ List *ReduceInfoListGetExecuteOidList(const List *list)
 	foreach(lc, list)
 	{
 		rinfo = lfirst(lc);
-		if(storage_list == NIL)
-		{
-			storage_list = rinfo->storage_nodes;
-		}
-#ifdef USE_ASSERT_CHECKING
-		else
-		{
-			Assert(equal(storage_list, rinfo->storage_nodes));
-		}
-#endif /* USE_ASSERT_CHECKING */
+		storage_list = list_concat_unique_oid(storage_list, rinfo->storage_nodes);
 		oidList = list_concat_unique_oid(oidList, rinfo->exclude_exec);
 	}
 	execute_list = NIL;
@@ -726,112 +717,6 @@ IsReduceInfoListCanLeftOrRightJoin(List *outer_reduce_list,
 	return res;
 }
 
-bool CanMakeSemiAntiClusterJoinPath(PlannerInfo *root, SemiAntiJoinContext *context)
-{
-	RestrictInfo   *ri;
-	ReduceInfo	   *outer_reduce;
-	ReduceInfo	   *inner_reduce;
-	ListCell	   *ri_lc;
-	ListCell	   *outer_lc;
-	ListCell	   *inner_lc;
-	Expr		   *lexpr;
-	Expr		   *rexpr;
-	Path		   *outer_path = NULL;
-	Path		   *inner_path = NULL;
-	List		   *outer_nodes = NIL;
-	List		   *inner_nodes = NIL;
-	List		   *outer_reduce_list = NIL;
-	List		   *inner_reduce_list = NIL;
-
-	AssertArg(context);
-	outer_reduce_list = context->outer_reduce_list;
-	inner_reduce_list = context->inner_reduce_list;
-	outer_path = context->outer_path;
-	inner_path = context->inner_path;
-
-	foreach (outer_lc, outer_reduce_list)
-	{
-		outer_reduce = (ReduceInfo *) lfirst(outer_lc);
-		Assert(outer_reduce);
-		/* do not support semi/anti join if outer is replicatable */
-		if (IsReduceInfoReplicated(outer_reduce))
-			return false;
-		outer_nodes = list_difference_oid(outer_reduce->storage_nodes, outer_reduce->exclude_exec);
-
-		foreach (inner_lc, inner_reduce_list)
-		{
-			inner_reduce = (ReduceInfo *) lfirst(inner_lc);
-			Assert(inner_reduce);
-			if (IsReduceInfoReplicated(inner_reduce))
-			{
-				List *diff_nodes = NIL;
-				inner_nodes = list_difference_oid(inner_reduce->storage_nodes, inner_reduce->exclude_exec);
-				diff_nodes = list_difference_oid(outer_nodes, inner_nodes);
-				list_free(inner_nodes);
-				if (diff_nodes != NIL)
-				{
-					list_free(diff_nodes);
-					return false;
-				}
-				return true;
-			}
-
-			if (IsReduceInfoCoordinator(outer_reduce) &&
-				IsReduceInfoCoordinator(inner_reduce))
-				return true;
-
-			if (IsReduceInfoSame(outer_reduce, inner_reduce) &&
-				IsReduceInfoByValue(outer_reduce))
-			{
-				Expr *outer_param;
-				Expr *inner_param;
-
-				/* for now only support one param only */
-				if (list_length(outer_reduce->params) > 1)
-					continue;
-
-				outer_param = linitial(outer_reduce->params);
-				inner_param = linitial(inner_reduce->params);
-				foreach (ri_lc, context->restrict_list)
-				{
-					ri = lfirst(ri_lc);
-
-					/* only support X=X expression */
-					if (!is_opclause(ri->clause) ||
-						!op_is_equivalence(((OpExpr *)(ri->clause))->opno))
-						continue;
-
-					lexpr = (Expr*)get_leftop(ri->clause);
-					rexpr = (Expr*)get_rightop(ri->clause);
-
-					while(IsA(lexpr, RelabelType))
-						lexpr = ((RelabelType *) lexpr)->arg;
-					while(IsA(rexpr, RelabelType))
-						rexpr = ((RelabelType *) rexpr)->arg;
-
-					if ((equal(lexpr, inner_param) && equal(rexpr, outer_param)) ||
-						(equal(lexpr, outer_param) && equal(rexpr, inner_param)))
-						return true;
-				}
-			}
-		}
-	}
-
-	/* reduce to coordinator */
-	context->outer_path = create_cluster_reduce_path(root,
-													 outer_path,
-													 list_make1(MakeCoordinatorReduceInfo()),
-													 context->outer_rel,
-													 NIL);
-	context->inner_path = create_cluster_reduce_path(root,
-													 inner_path,
-													 list_make1(MakeCoordinatorReduceInfo()),
-													 context->inner_rel,
-													 NIL);
-
-	return true;
-}
-
 List *FindJoinEqualExprs(ReduceInfo *rinfo, List *restrictlist, RelOptInfo *inner_rel)
 {
 	ListCell *lc_restrict;
@@ -898,6 +783,152 @@ List *FindJoinEqualExprs(ReduceInfo *rinfo, List *restrictlist, RelOptInfo *inne
 	list_free(result);
 	return NIL;
 }
+
+/*
+ * when can join return new ReduceInfo list,
+ * else return NIL
+ */
+bool reduce_info_list_can_join(List *outer_reduce_list,
+							   List *inner_reduce_list,
+							   List *restrictlist,
+							   JoinType jointype,
+							   List **new_reduce_list)
+{
+	if(IsReduceInfoListCoordinator(outer_reduce_list))
+	{
+		/* coordinator always can join coordinator */
+		if (IsReduceInfoListCoordinator(inner_reduce_list))
+		{
+			if (new_reduce_list)
+				*new_reduce_list = list_make1(MakeCoordinatorReduceInfo());
+			return true;
+		}else
+		{
+			return false;
+		}
+	}else if(IsReduceInfoListReplicated(outer_reduce_list))
+	{
+		/* replicate can not join coordinator */
+		if(IsReduceInfoListCoordinator(inner_reduce_list))
+			return false;
+		if(IsReduceInfoListReplicated(inner_reduce_list))
+		{
+			if(CompReduceInfo(linitial(outer_reduce_list),
+							  linitial(inner_reduce_list),
+							  REDUCE_MARK_STORAGE) == true)
+			{
+				/* replicate alaways can join replicate if the storage equal */
+				if (new_reduce_list)
+					*new_reduce_list = list_make1(CopyReduceInfo(linitial(outer_reduce_list)));
+				return true;
+			}else
+			{
+				/* replicate storage not equal, for now can not join */
+				return false;
+			}
+		}
+	}else if(IsReduceInfoListRound(outer_reduce_list))
+	{
+		/* round can not join coordinator */
+		if(IsReduceInfoListCoordinator(inner_reduce_list))
+			return false;
+	}
+
+	switch(jointype)
+	{
+	case JOIN_INNER:
+	case JOIN_UNIQUE_INNER:
+	case JOIN_UNIQUE_OUTER:
+		if(IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
+		{
+			if (new_reduce_list)
+				*new_reduce_list = ReduceInfoListConcat(CopyReduceInfoList(outer_reduce_list), inner_reduce_list);
+			return true;
+		}
+		break;
+	case JOIN_LEFT:
+		if(IsReduceInfoListReplicated(inner_reduce_list))
+		{
+			ReduceInfo *rinfo = linitial(inner_reduce_list);
+			Assert(!IsReduceInfoListCoordinator(outer_reduce_list));
+			if (IsReduceInfoListExecuteSubset(outer_reduce_list, rinfo->storage_nodes))
+			{
+				if (new_reduce_list)
+					*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
+				return true;
+			}
+		}
+		/* TODO run on node */
+		break;
+	case JOIN_FULL:
+		if (IsReduceInfoListInOneNode(outer_reduce_list) &&
+			IsReduceInfoListInOneNode(inner_reduce_list))
+		{
+			if (new_reduce_list)
+			{
+				/* make a round reduce info */
+				ListCell *lc;
+				ReduceInfo *rinfo;
+				List *storage = NIL;
+				foreach(lc, outer_reduce_list)
+				{
+					rinfo = lfirst(lc);
+					storage = list_concat_unique_oid(storage, rinfo->storage_nodes);
+				}
+				foreach(lc, inner_reduce_list)
+				{
+					rinfo = lfirst(lc);
+					storage = list_concat_unique_oid(storage, rinfo->storage_nodes);
+				}
+				*new_reduce_list = list_make1(MakeRoundReduceInfo(storage));
+				list_free(storage);
+			}
+			return true;
+		}
+		break;
+	case JOIN_RIGHT:
+		if(IsReduceInfoListReplicated(outer_reduce_list))
+		{
+			ReduceInfo *rinfo = linitial(outer_reduce_list);
+			Assert(!IsReduceInfoListCoordinator(inner_reduce_list));
+			if(IsReduceInfoListExecuteSubset(inner_reduce_list, rinfo->storage_nodes))
+			{
+				if (new_reduce_list)
+					*new_reduce_list = CopyReduceInfoList(inner_reduce_list);
+				return true;
+			}
+		}
+		break;
+	case JOIN_SEMI:
+		if (IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
+		{
+			if (new_reduce_list)
+				*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
+			return true;
+		}else if(IsReduceInfoListReplicated(inner_reduce_list))
+		{
+			ReduceInfo *rinfo = linitial(inner_reduce_list);
+			if (IsReduceInfoListExecuteSubset(outer_reduce_list, rinfo->storage_nodes))
+			{
+				if (new_reduce_list)
+					*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
+				return true;
+			}
+		}
+		break;
+	case JOIN_ANTI:
+		if (IsReduceInfoListReplicated(inner_reduce_list))
+		{
+			if (new_reduce_list)
+				*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
+			return true;
+		}
+		break;
+	}
+
+	return false;
+}
+
 
 bool CanOnceGroupingClusterPath(PathTarget *target, Path *path)
 {

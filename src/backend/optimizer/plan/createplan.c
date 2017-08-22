@@ -6633,82 +6633,19 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 	case T_NestPath:
 		{
 			JoinPath *jpath = (JoinPath*)path;
-			List *outer_reduce_list = NIL;
-			List *inner_reduce_list = NIL;
-			ListCell *outer_lc,*inner_lc;
-			ReduceInfo *outer_reduce,*inner_reduce;
-			Bitmapset *bms_inner = NULL;
-			int i;
+			List *outer_reduce_list;
+			List *inner_reduce_list;
 			find_cluster_reduce_expr(jpath->outerjoinpath, &outer_reduce_list);
 			find_cluster_reduce_expr(jpath->innerjoinpath, &inner_reduce_list);
-			foreach(outer_lc, outer_reduce_list)
-			{
-				bool outer_saved;
-				outer_reduce = lfirst(outer_lc);
-				if(IsReduceInfoCoordinator(outer_reduce))
-				{
-					Assert(list_length(outer_reduce_list) == 1 &&
-						   list_length(inner_reduce_list) == 1 &&
-						   IsReduceInfoCoordinator((ReduceInfo*)linitial(inner_reduce_list)));
-					path->reduce_info_list = lappend(path->reduce_info_list, CopyReduceInfo(outer_reduce));
-					break;
-				}else if(IsReduceInfoReplicated(outer_reduce))
-				{
-					Assert(list_length(outer_reduce_list) == 1);
-					Assert(list_length(inner_reduce_list) >= 1);
-					inner_reduce = linitial(inner_reduce_list);
-					if (list_length(inner_reduce_list) == 1 &&
-						IsReduceInfoReplicated(inner_reduce))
-					{
-						path->reduce_info_list = lappend(path->reduce_info_list, CopyReduceInfo(outer_reduce));
-					}else if(jpath->jointype == JOIN_INNER &&
-							 IsReduceInfoByValue(inner_reduce))
-					{
-						path->reduce_info_list = lappend(path->reduce_info_list, CopyReduceInfo(inner_reduce));
-					}else
-					{
-						Assert(0);
-					}
-					break;
-				}
-
-				Assert(IsReduceInfoByValue(outer_reduce));
-				outer_saved = false;
-				for(i=0,inner_lc=list_head(inner_reduce_list);inner_lc!=NULL;inner_lc=lnext(inner_lc),++i)
-				{
-					bool hint;
-					if(bms_is_member(i,bms_inner))
-						continue;
-
-					inner_reduce = lfirst(inner_lc);
-					hint = false;
-					if (IsReduceInfoInOneNode(outer_reduce) &&
-						CompReduceInfo(outer_reduce, inner_reduce, REDUCE_MARK_STORAGE|REDUCE_MARK_EXCLUDE) == true)
-					{
-						hint = true;
-					}
-					else if(jpath->jointype == JOIN_INNER)
-					{
-						if(IsReduceInfoByValue(inner_reduce))
-							hint = true;
-					}
-					if(hint)
-					{
-						if(outer_saved == false)
-						{
-							path->reduce_info_list = lappend(path->reduce_info_list,
-															 CopyReduceInfo(outer_reduce));
-							outer_saved = true;
-						}
-						path->reduce_info_list = lappend(path->reduce_info_list,
-														 CopyReduceInfo(inner_reduce));
-						bms_inner = bms_add_member(bms_inner, i);
-					}
-				}
-			}
-			bms_free(bms_inner);
+			Assert(jpath->outerjoinpath->reduce_is_valid &&
+				   jpath->innerjoinpath->reduce_is_valid);
+			path->reduce_is_valid = reduce_info_list_can_join(outer_reduce_list,
+															  inner_reduce_list,
+															  jpath->joinrestrictinfo,
+															  jpath->jointype,
+															  &jpath->path.reduce_info_list);
+			Assert(path->reduce_is_valid);
 		}
-		path->reduce_is_valid = true;
 		break;
 	case T_GroupingSetsPath:
 	case T_AppendPath:

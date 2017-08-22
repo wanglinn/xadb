@@ -64,14 +64,58 @@ static List *select_mergejoin_clauses(PlannerInfo *root,
 						 JoinType jointype,
 						 bool *mergejoin_allowed);
 #ifdef ADB
-static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
-											 RelOptInfo *outerrel,
-											 RelOptInfo *innerrel,
-											 Path **outer_path,
-											 Path **inner_path,
-											 List *restrictlist,
-											 JoinType jointype,
-											 NodeTag method);
+#define PATH_PARAM_OUTER_REL(path, rel)	\
+	((path)->param_info && !bms_is_subset((path)->param_info->ppi_req_outer, (rel)->relids))
+static Path *find_cheapest_join_path(Path *outer_path,
+									RelOptInfo *outer_rel,
+									RelOptInfo *inner_rel,
+									List *restrictlist,
+									JoinType jointype,
+									NodeTag method,
+									bool must_no_param,
+									List **new_reduce_list);
+static void add_cluster_paths_to_joinrel(PlannerInfo *root,
+										 RelOptInfo *joinrel,
+										 RelOptInfo *outerrel,
+										 RelOptInfo *innerrel,
+										 JoinType jointype,
+										 JoinPathExtraData *extra);
+static bool try_nestloop_path_and_no_param(PlannerInfo *root,
+										   RelOptInfo *joinrel,
+										   Path *outer_path,
+										   Path *inner_path,
+										   List *pathkeys,
+										   JoinType jointype,
+										   List *new_reduce_list,
+										   JoinPathExtraData *extra,
+										   RelOptInfo *outer_rel,
+										   RelOptInfo *inner_rel,
+										   bool inner_need_unique);
+static bool try_hashjoin_path_and_no_param(PlannerInfo *root,
+										   RelOptInfo *joinrel,
+										   Path *outer_path,
+										   Path *inner_path,
+										   List *hashclauses,
+										   JoinType jointype,
+										   List *reduce_info_list,
+										   JoinPathExtraData *extra,
+										   RelOptInfo *outer_rel,
+										   RelOptInfo *inner_rel,
+										   bool inner_need_unique);
+static bool try_mergejoin_path_and_no_param(PlannerInfo *root,
+											RelOptInfo *joinrel,
+											Path *outer_path,
+											Path *inner_path,
+											List *pathkeys,
+											List *mergeclauses,
+											List *outersortkeys,
+											List *innersortkeys,
+											JoinType jointype,
+											List *reduce_info_list,
+											JoinPathExtraData *extra,
+											RelOptInfo *outer_rel,
+											RelOptInfo *inner_rel,
+											bool inner_need_unique);
 #endif /* ADB */
 
 /*
@@ -205,7 +249,6 @@ add_paths_to_joinrel(PlannerInfo *root,
 	if (mergejoin_allowed)
 		match_unsorted_outer(root, joinrel, outerrel, innerrel,
 							 jointype, &extra);
-
 #ifdef NOT_USED
 
 	/*
@@ -232,6 +275,10 @@ add_paths_to_joinrel(PlannerInfo *root,
 	if (enable_hashjoin || jointype == JOIN_FULL)
 		hash_inner_and_outer(root, joinrel, outerrel, innerrel,
 							 jointype, &extra);
+
+#ifdef ADB
+	add_cluster_paths_to_joinrel(root, joinrel, outerrel, innerrel, jointype, &extra);
+#endif /* ADB */
 
 	/*
 	 * 5. If inner and outer relations are foreign tables (or joins) belonging
@@ -305,7 +352,7 @@ try_nestloop_path(PlannerInfo *root,
 				  Path *inner_path,
 				  List *pathkeys,
 				  JoinType jointype,
-				  ADB_ONLY_ARG(bool is_cluster)
+				  ADB_ONLY_ARG(List *reduce_info_list)
 				  JoinPathExtraData *extra)
 {
 	Relids		required_outer;
@@ -366,10 +413,15 @@ try_nestloop_path(PlannerInfo *root,
 									  pathkeys,
 									  required_outer));
 #ifdef ADB
-		if(is_cluster)
+		if(reduce_info_list)
+		{
+			path->reduce_info_list = reduce_info_list;
+			path->reduce_is_valid = true;
 			add_cluster_path(joinrel, path);
-		else
+		}else
+		{
 			add_path(joinrel, path);
+		}
 #endif /* ADB */
 	}
 	else
@@ -450,7 +502,7 @@ try_mergejoin_path(PlannerInfo *root,
 				   List *outersortkeys,
 				   List *innersortkeys,
 				   JoinType jointype,
-				   ADB_ONLY_ARG(bool is_cluster)
+				   ADB_ONLY_ARG(List *reduce_info_list)
 				   JoinPathExtraData *extra)
 {
 	Relids		required_outer;
@@ -512,10 +564,15 @@ try_mergejoin_path(PlannerInfo *root,
 									   outersortkeys,
 									   innersortkeys));
 #ifdef ADB
-		if(is_cluster)
+		if(reduce_info_list)
+		{
+			path->reduce_info_list = reduce_info_list;
+			path->reduce_is_valid = true;
 			add_cluster_path(joinrel, path);
-		else
+		}else
+		{
 			add_path(joinrel, path);
+		}
 #endif /* ADB */
 	}
 	else
@@ -537,7 +594,7 @@ try_hashjoin_path(PlannerInfo *root,
 				  Path *inner_path,
 				  List *hashclauses,
 				  JoinType jointype,
-				  ADB_ONLY_ARG(bool is_clauster)
+				  ADB_ONLY_ARG(List *reduce_info_list)
 				  JoinPathExtraData *extra)
 {
 	Relids		required_outer;
@@ -586,10 +643,15 @@ try_hashjoin_path(PlannerInfo *root,
 									  required_outer,
 									  hashclauses));
 #ifdef ADB
-		if(is_clauster)
+		if(reduce_info_list)
+		{
+			path->reduce_info_list = reduce_info_list;
+			path->reduce_is_valid = true;
 			add_cluster_path(joinrel, path);
-		else
+		}else
+		{
 			add_path(joinrel, path);
+		}
 #endif /* ADB */
 	}
 	else
@@ -709,10 +771,6 @@ sort_inner_and_outer(PlannerInfo *root,
 	Path	   *inner_path;
 	List	   *all_pathkeys;
 	ListCell   *l;
-#ifdef ADB
-	Path	   *outer_cluster_path;
-	Path	   *inner_cluster_path;
-#endif /* ADB */
 
 	/*
 	 * We only consider the cheapest-total-cost input paths, since we are
@@ -739,35 +797,6 @@ sort_inner_and_outer(PlannerInfo *root,
 	if (PATH_PARAM_BY_REL(outer_path, innerrel) ||
 		PATH_PARAM_BY_REL(inner_path, outerrel))
 		return;
-#ifdef ADB
-	switch (jointype)
-	{
-		case JOIN_UNIQUE_OUTER:
-		case JOIN_UNIQUE_INNER:
-		case JOIN_INNER:
-		case JOIN_LEFT:
-		case JOIN_RIGHT:
-		case JOIN_SEMI:
-		case JOIN_ANTI:
-			if (make_cheapest_cluster_join_paths(root,
-												 outerrel,
-												 innerrel,
-												 &outer_cluster_path,
-												 &inner_cluster_path,
-												 extra->restrictlist,
-												 jointype,
-												 T_MergeJoin) == false)
-			{
-				outer_cluster_path = NULL;
-				inner_cluster_path = NULL;
-			}
-			break;
-		default:
-			outer_cluster_path = NULL;
-			inner_cluster_path = NULL;
-			break;
-	}
-#endif /* ADB */
 
 	/*
 	 * If unique-ification is requested, do it and then handle as a plain
@@ -779,15 +808,6 @@ sort_inner_and_outer(PlannerInfo *root,
 												 outer_path, extra->sjinfo);
 		Assert(outer_path);
 		jointype = JOIN_INNER;
-#ifdef ADB
-		if(outer_cluster_path)
-		{
-			outer_cluster_path = (Path*)
-							 create_cluster_unique_path(root, outerrel,
-												outer_cluster_path, extra->sjinfo);
-			Assert(outer_cluster_path);
-		}
-#endif /* ADB */
 	}
 	else if (jointype == JOIN_UNIQUE_INNER)
 	{
@@ -795,14 +815,6 @@ sort_inner_and_outer(PlannerInfo *root,
 												 inner_path, extra->sjinfo);
 		Assert(inner_path);
 		jointype = JOIN_INNER;
-#ifdef ADB
-		if(inner_cluster_path)
-		{
-			inner_cluster_path = (Path*) create_cluster_unique_path(root, innerrel,
-												inner_cluster_path, extra->sjinfo);
-			Assert(inner_cluster_path);
-		}
-#endif /* ADB */
 	}
 
 	/*
@@ -887,38 +899,8 @@ sort_inner_and_outer(PlannerInfo *root,
 						   outerkeys,
 						   innerkeys,
 						   jointype,
-#ifdef ADB
-						   false,
-#endif /* ADB */
+						   ADB_ONLY_ARG(NIL)
 						   extra);
-#ifdef ADB
-		if(inner_cluster_path && outer_cluster_path)
-		{
-			if (outerkeys && IsA(outer_cluster_path, ClusterReducePath))
-				outer_cluster_path = create_cluster_reduce_path(root,
-																outer_cluster_path,
-																outer_cluster_path->reduce_info_list,
-																outerrel,
-																outerkeys);
-			if (innerkeys && IsA(inner_cluster_path, ClusterReducePath))
-				inner_cluster_path = create_cluster_reduce_path(root,
-																inner_cluster_path,
-																inner_cluster_path->reduce_info_list,
-																innerrel,
-																innerkeys);
-			try_mergejoin_path(root,
-							   joinrel,
-							   outer_cluster_path,
-							   inner_cluster_path,
-							   merge_pathkeys,
-							   cur_mergeclauses,
-							   outerkeys,
-							   innerkeys,
-							   jointype,
-							   true,
-							   extra);
-		}
-#endif /* ADB */
 	}
 }
 
@@ -1088,7 +1070,7 @@ match_unsorted_outer(PlannerInfo *root,
 							  inner_cheapest_total,
 							  merge_pathkeys,
 							  jointype,
-							  ADB_ONLY_ARG(false)
+							  ADB_ONLY_ARG(NIL)
 							  extra);
 		}
 		else if (nestjoinOK)
@@ -1111,7 +1093,7 @@ match_unsorted_outer(PlannerInfo *root,
 								  innerpath,
 								  merge_pathkeys,
 								  jointype,
-								  ADB_ONLY_ARG(false)
+								  ADB_ONLY_ARG(NIL)
 								  extra);
 			}
 
@@ -1123,7 +1105,7 @@ match_unsorted_outer(PlannerInfo *root,
 								  matpath,
 								  merge_pathkeys,
 								  jointype,
-								  ADB_ONLY_ARG(false)
+								  ADB_ONLY_ARG(NIL)
 								  extra);
 		}
 
@@ -1180,7 +1162,7 @@ match_unsorted_outer(PlannerInfo *root,
 						   NIL,
 						   innersortkeys,
 						   jointype,
-						   ADB_ONLY_ARG(false)
+						   ADB_ONLY_ARG(NIL)
 						   extra);
 
 		/* Can't do anything else if inner path needs to be unique'd */
@@ -1277,7 +1259,7 @@ match_unsorted_outer(PlannerInfo *root,
 								   NIL,
 								   NIL,
 								   jointype,
-								   ADB_ONLY_ARG(false)
+								   ADB_ONLY_ARG(NIL)
 								   extra);
 				cheapest_total_inner = innerpath;
 			}
@@ -1321,7 +1303,7 @@ match_unsorted_outer(PlannerInfo *root,
 									   NIL,
 									   NIL,
 									   jointype,
-									   ADB_ONLY_ARG(false)
+									   ADB_ONLY_ARG(NIL)
 									   extra);
 				}
 				cheapest_startup_inner = innerpath;
@@ -1334,62 +1316,6 @@ match_unsorted_outer(PlannerInfo *root,
 				break;
 		}
 	}
-
-#ifdef ADB
-	if (jointype == JOIN_INNER ||
-		jointype == JOIN_LEFT ||
-		jointype == JOIN_RIGHT||
-		jointype == JOIN_SEMI ||
-		jointype == JOIN_ANTI)
-	{
-		Path *outer_cluster_path;
-		Path *inner_cluster_path;
-		List	   *merge_pathkeys;
-		if(make_cheapest_cluster_join_paths(root,
-										 outerrel,
-										 innerrel,
-										 &outer_cluster_path,
-										 &inner_cluster_path,
-										 extra->restrictlist,
-										 jointype,
-										 T_NestLoop))
-		{
-			if(save_jointype == JOIN_UNIQUE_OUTER)
-				outer_cluster_path = (Path*)
-									 create_cluster_unique_path(root,
-																outerrel,
-																outer_cluster_path,
-																extra->sjinfo);
-			else if(save_jointype == JOIN_UNIQUE_INNER)
-				inner_cluster_path = (Path*)
-									 create_cluster_unique_path(root,
-																innerrel,
-																inner_cluster_path,
-																extra->sjinfo);
-
-			/*
-			 * The result will have this sort order (even if it is implemented as
-			 * a nestloop, and even if some of the mergeclauses are implemented by
-			 * qpquals rather than as true mergeclauses):
-			 */
-			merge_pathkeys = build_join_pathkeys(root, joinrel, jointype,
-												 outer_cluster_path->pathkeys);
-			if (enable_material &&
-				!ExecMaterializesOutput(inner_cluster_path->pathtype))
-				inner_cluster_path = (Path*)
-					create_material_path(innerrel, inner_cluster_path);
-
-			try_nestloop_path(root,
-							  joinrel,
-							  outer_cluster_path,
-							  inner_cluster_path,
-							  merge_pathkeys,
-							  jointype,
-							  true,
-							  extra);
-		}
-	}
-#endif /* ADB */
 
 	/*
 	 * If the joinrel is parallel-safe and the join type supports nested
@@ -1570,7 +1496,7 @@ hash_inner_and_outer(PlannerInfo *root,
 							  cheapest_total_inner,
 							  hashclauses,
 							  jointype,
-							  ADB_ONLY_ARG(false)
+							  ADB_ONLY_ARG(NIL)
 							  extra);
 			/* no possibility of cheap startup here */
 		}
@@ -1587,7 +1513,7 @@ hash_inner_and_outer(PlannerInfo *root,
 							  cheapest_total_inner,
 							  hashclauses,
 							  jointype,
-							  ADB_ONLY_ARG(false)
+							  ADB_ONLY_ARG(NIL)
 							  extra);
 			if (cheapest_startup_outer != NULL &&
 				cheapest_startup_outer != cheapest_total_outer)
@@ -1597,7 +1523,7 @@ hash_inner_and_outer(PlannerInfo *root,
 								  cheapest_total_inner,
 								  hashclauses,
 								  jointype,
-								  ADB_ONLY_ARG(false)
+								  ADB_ONLY_ARG(NIL)
 								  extra);
 		}
 		else
@@ -1619,7 +1545,7 @@ hash_inner_and_outer(PlannerInfo *root,
 								  cheapest_total_inner,
 								  hashclauses,
 								  jointype,
-								  ADB_ONLY_ARG(false)
+								  ADB_ONLY_ARG(NIL)
 								  extra);
 
 			foreach(lc1, outerrel->cheapest_parameterized_paths)
@@ -1654,7 +1580,7 @@ hash_inner_and_outer(PlannerInfo *root,
 									  innerpath,
 									  hashclauses,
 									  jointype,
-									  ADB_ONLY_ARG(false)
+									  ADB_ONLY_ARG(NIL)
 									  extra);
 				}
 			}
@@ -1713,51 +1639,6 @@ hash_inner_and_outer(PlannerInfo *root,
 										  cheapest_safe_inner,
 										  hashclauses, jointype, extra);
 		}
-#ifdef ADB
-		/*
-		 * only support INNER JOIN yet
-		 */
-		if (jointype == JOIN_INNER ||
-			jointype == JOIN_LEFT ||
-			jointype == JOIN_RIGHT ||
-			jointype == JOIN_SEMI ||
-			jointype == JOIN_ANTI)
-		{
-			Path *outer_cluster_path;
-			Path *inner_cluster_path;
-			if(make_cheapest_cluster_join_paths(root,
-												outerrel,
-												innerrel,
-												&outer_cluster_path,
-												&inner_cluster_path,
-												hashclauses,
-												jointype,
-												T_HashJoin))
-			{
-				Assert(outer_cluster_path && inner_cluster_path);
-				if(save_jointype == JOIN_UNIQUE_OUTER)
-					outer_cluster_path = (Path*)
-										 create_cluster_unique_path(root,
-																	outerrel,
-																	outer_cluster_path,
-																	extra->sjinfo);
-				else if(save_jointype == JOIN_UNIQUE_INNER)
-					inner_cluster_path = (Path*)
-										 create_cluster_unique_path(root,
-																	innerrel,
-																	inner_cluster_path,
-																	extra->sjinfo);
-				try_hashjoin_path(root,
-								  joinrel,
-								  outer_cluster_path,
-								  inner_cluster_path,
-								  hashclauses,
-								  jointype,
-								  true,
-								  extra);
-			}
-		}
-#endif /* ADB */
 	}
 }
 
@@ -1884,7 +1765,6 @@ select_mergejoin_clauses(PlannerInfo *root,
 }
 
 #ifdef ADB
-
 static Path* get_cheapest_no_param_path(List *pathlist)
 {
 	Path *result;
@@ -1907,171 +1787,686 @@ static Path* get_cheapest_no_param_path(List *pathlist)
 	return result;
 }
 
-static bool make_cheapest_cluster_join_paths(PlannerInfo *root,
-											 RelOptInfo *outerrel,
-											 RelOptInfo *innerrel,
-											 Path **outer_path,
-											 Path **inner_path,
-											 List *restrictlist,
-											 JoinType jointype,
-											 NodeTag method)
+static Path* find_cheapest_join_path(Path *outer_path,
+									 RelOptInfo *outer_rel,
+									 RelOptInfo *inner_rel,
+									 List *restrictlist,
+									 JoinType jointype,
+									 NodeTag method,
+									 bool must_no_param,
+									 List **new_reduce_list)
 {
 	List *outer_reduce_list;
 	List *inner_reduce_list;
-	List *inner_reduce_list_list;
-	ListCell *outer_lc;
-	ListCell *inner_lc;
-	ListCell *inner_lc_list;
-	Path *outerClusterPath;
-	Path *innerClusterPath;
-	bool result;
+	ListCell *lc;
+	Path *inner_path;
+	Path *path;
+	Assert(method == T_NestLoop || method == T_MergeJoin || method == T_HashJoin);
+	if(PATH_PARAM_BY_REL(outer_path, inner_rel))
+		return NULL;
 
-	Assert(method == T_MergeJoin || method == T_HashJoin || method == T_NestLoop);
-
-	if (outerrel->cluster_pathlist == NIL
-		|| innerrel->cluster_pathlist == NIL)
-		return false;
-
-	inner_reduce_list_list = NIL;
-	foreach(inner_lc, innerrel->cluster_pathlist)
+	outer_reduce_list = get_reduce_info_list(outer_path);
+	inner_path = NULL;
+	foreach(lc, inner_rel->cluster_pathlist)
 	{
-		inner_reduce_list = get_reduce_info_list(lfirst(inner_lc));
-		inner_reduce_list_list = lappend(inner_reduce_list_list, inner_reduce_list);
-	}
-
-	result = false;
-	outer_reduce_list = NIL;
-	foreach(outer_lc, outerrel->cluster_pathlist)
-	{
-		outerClusterPath = lfirst(outer_lc);
-		outer_reduce_list = get_reduce_info_list(outerClusterPath);
-		if (outer_reduce_list == NIL ||
-			PATH_PARAM_BY_REL(outerClusterPath, innerrel))
+		path = lfirst(lc);
+		if ((must_no_param && PATH_PARAM_OUTER_REL(path,outer_rel)) ||
+			(method != T_NestLoop && PATH_PARAM_BY_REL(path, outer_rel)))
 			continue;
 
-		if (jointype == JOIN_INNER &&
-			IsReduceInfoListReplicated(outer_reduce_list))
-		{
-			*outer_path = outerClusterPath;
-			Assert(innerrel->cheapest_cluster_total_path != NULL);
-			*inner_path = innerrel->cheapest_cluster_total_path;
-			result = true;
-			goto make_finish_;
-		}
-
-		forboth(inner_lc, innerrel->cluster_pathlist, inner_lc_list, inner_reduce_list_list)
-		{
-			innerClusterPath = lfirst(inner_lc);
-			inner_reduce_list = lfirst(inner_lc_list);
-			if (inner_reduce_list == NULL)
-				continue;
-			if (method == T_MergeJoin &&
-				PATH_PARAM_BY_REL(innerClusterPath, outerrel))
-				continue;
-
-			if((jointype == JOIN_UNIQUE_OUTER ||
-				jointype == JOIN_UNIQUE_INNER ||
-				jointype == JOIN_INNER) &&
-				IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
-			{
-				*inner_path = innerClusterPath;
-				*outer_path = outerClusterPath;
-				result = true;
-				goto make_finish_;
-			}
-
-			if ((jointype == JOIN_LEFT ||
-				 jointype == JOIN_RIGHT) &&
-				 IsReduceInfoListCanLeftOrRightJoin(outer_reduce_list, inner_reduce_list, restrictlist))
-			{
-				*inner_path = create_cluster_reduce_path(root,
-														 innerClusterPath,
-														 list_make1(MakeCoordinatorReduceInfo()),
-														 innerrel,
-														 NIL);
-				*outer_path = create_cluster_reduce_path(root,
-														 outerClusterPath,
-														 list_make1(MakeCoordinatorReduceInfo()),
-														 outerrel,
-														 NIL);
-				result = true;
-				goto make_finish_;
-			}
-
-			if (jointype == JOIN_SEMI ||jointype == JOIN_ANTI)
-			{
-				SemiAntiJoinContext context;
-
-				context.outer_rel = outerrel;
-				context.inner_rel = innerrel;
-				context.outer_path = outerClusterPath;
-				context.inner_path = innerClusterPath;
-				context.outer_reduce_list = outer_reduce_list;
-				context.inner_reduce_list = inner_reduce_list;
-				context.restrict_list = restrictlist;
-				if (CanMakeSemiAntiClusterJoinPath(root, &context))
-				{
-					*outer_path = context.outer_path;
-					*inner_path = context.inner_path;
-					result = true;
-					goto make_finish_;
-				}
-			}
-		}
-		outer_reduce_list = NIL;
-	}
-
-	if (jointype == JOIN_LEFT ||
-		jointype == JOIN_RIGHT ||
-		jointype == JOIN_SEMI ||
-		jointype == JOIN_ANTI)
-	{
-		result = false;
-		goto make_finish_;
-	}
-
-	/* no we need a reduce path */
-	foreach(outer_lc, outerrel->cluster_pathlist)
-	{
-		List *exprList;
-		ListCell *lc_reduce;
-		ReduceInfo *outer_reduce;
-		outerClusterPath = lfirst(outer_lc);
-		outer_reduce_list = get_reduce_info_list(outerClusterPath);
-		if (outer_reduce_list == NIL ||
-			PATH_PARAM_BY_REL(outerClusterPath, innerrel) ||
-			IsReduceInfoListByValue(outer_reduce_list) == false)
+		if (inner_path != NULL &&
+			compare_path_costs(inner_path, path, TOTAL_COST) <= 0)
 			continue;
 
-		foreach(lc_reduce, outer_reduce_list)
-		{
-			outer_reduce = lfirst(lc_reduce);
-			exprList = FindJoinEqualExprs(outer_reduce, restrictlist, innerrel);
-			if(exprList)
-			{
-				Path *path;
-				ReduceInfo *rinfo;
-				path = get_cheapest_no_param_path(innerrel->cluster_pathlist);
-				if(path == NULL)
-				{
-					/* have no path */
-					break;
-				}
-				Assert(!PATH_PARAM_BY_REL(path, outerrel));
-				rinfo = MakeReduceInfoAs(outer_reduce, exprList);
-				path = create_cluster_reduce_path(root, path, list_make1(rinfo), innerrel, NIL);
-				*outer_path = outerClusterPath;
-				*inner_path = path;
-				result = true;
-				goto make_finish_;
-			}
-		}
+		inner_reduce_list = get_reduce_info_list(path);
+		if(reduce_info_list_can_join(outer_reduce_list,
+									 inner_reduce_list,
+									 restrictlist,
+									 jointype,
+									 NULL) == true)
+			inner_path = path;
 	}
 
-make_finish_:
-	list_free(inner_reduce_list_list);
-	return result;
+	if(inner_path && new_reduce_list)
+	{
+		inner_reduce_list = get_reduce_info_list(inner_path);
+		reduce_info_list_can_join(outer_reduce_list,
+								  inner_reduce_list,
+								  restrictlist,
+								  jointype,
+								  new_reduce_list);
+	}
+	return inner_path;
 }
 
+static void add_cluster_paths_to_joinrel(PlannerInfo *root,
+										 RelOptInfo *joinrel,
+										 RelOptInfo *outerrel,
+										 RelOptInfo *innerrel,
+										 JoinType jointype,
+										 JoinPathExtraData *extra)
+{
+	Path	   *outerpath;
+	Path	   *inner_cheapest_total;
+	List	   *new_reduce_list;
+	/*List	   *outer_reduce_list;
+	List	   *inner_reduce_list;*/
+	List	   *hashclauses;
+	ListCell   *lc1;
+	JoinType	save_jointype = jointype;
+	int			last_path_count;
+	bool		nestjoinOK;
+	bool		useallclauses;
 
+	if (outerrel->cluster_pathlist == NIL ||
+		innerrel->cluster_pathlist == NIL)
+		return;
+	last_path_count = list_length(joinrel->cluster_pathlist);
+
+	/*
+	 * Nestloop only supports inner, left, semi, and anti joins.  Also, if we
+	 * are doing a right or full mergejoin, we must use *all* the mergeclauses
+	 * as join clauses, else we will not have a valid plan.  (Although these
+	 * two flags are currently inverses, keep them separate for clarity and
+	 * possible future changes.)
+	 */
+	switch (jointype)
+	{
+		case JOIN_INNER:
+		case JOIN_LEFT:
+		case JOIN_SEMI:
+		case JOIN_ANTI:
+			nestjoinOK = true;
+			useallclauses = false;
+			break;
+		case JOIN_RIGHT:
+		case JOIN_FULL:
+			nestjoinOK = false;
+			useallclauses = true;
+			break;
+		case JOIN_UNIQUE_OUTER:
+		case JOIN_UNIQUE_INNER:
+			jointype = JOIN_INNER;
+			nestjoinOK = true;
+			useallclauses = false;
+			break;
+		default:
+			elog(ERROR, "unrecognized join type: %d",
+				 (int) jointype);
+			nestjoinOK = false; /* keep compiler quiet */
+			useallclauses = false;
+			break;
+	}
+
+	hashclauses = NIL;
+	if(enable_hashjoin && jointype != JOIN_FULL)
+	{
+		bool isouterjoin = IS_OUTER_JOIN(jointype);
+		foreach(lc1, extra->restrictlist)
+		{
+			RestrictInfo *restrictinfo = lfirst(lc1);
+			/*
+			 * If processing an outer join, only use its own join clauses for
+			 * hashing.  For inner joins we need not be so picky.
+			 */
+			if (isouterjoin && restrictinfo->is_pushed_down)
+				continue;
+
+			if (!restrictinfo->can_join ||
+				restrictinfo->hashjoinoperator == InvalidOid)
+				continue;			/* not hashjoinable */
+
+			/*
+			 * Check if clause has the form "outer op inner" or "inner op outer".
+			 */
+			if (!clause_sides_match_join(restrictinfo, outerrel, innerrel))
+				continue;			/* no good for these input relations */
+
+			hashclauses = lappend(hashclauses, restrictinfo);
+		}
+	}
+
+	foreach(lc1, outerrel->cluster_pathlist)
+	{
+		List	   *merge_pathkeys;
+		List	   *mergeclauses;
+		List	   *innersortkeys;
+		List	   *outer_reduce_list;
+		/*List	   *trialsortkeys;*/
+		/*Path	   *cheapest_startup_inner;
+		Path	   *cheapest_total_inner;
+		int			num_sortkeys;
+		int			sortkeycnt;*/
+		outerpath = (Path *) lfirst(lc1);
+
+		/*
+		 * We cannot use an outer path that is parameterized by the inner rel.
+		 */
+		if (PATH_PARAM_BY_REL(outerpath, innerrel))
+			continue;
+
+		/*
+		 * If we need to unique-ify the outer path, it's pointless to consider
+		 * any but the cheapest outer.  (XXX we don't consider parameterized
+		 * outers, nor inners, for unique-ified cases.  Should we?)
+		 */
+		if (save_jointype == JOIN_UNIQUE_OUTER)
+		{
+			outerpath = (Path *) create_cluster_unique_path(root, outerrel,
+													outerpath, extra->sjinfo);
+			Assert(outerpath);
+		}
+
+		inner_cheapest_total = find_cheapest_join_path(outerpath,
+													   outerrel,
+													   innerrel,
+													   extra->restrictlist,
+													   jointype,
+													   T_NestLoop,
+													   false,
+													   &new_reduce_list);
+		if(inner_cheapest_total == NULL)
+			continue;
+		outer_reduce_list = get_reduce_info_list(outerpath);
+
+		/*
+		 * The result will have this sort order (even if it is implemented as
+		 * a nestloop, and even if some of the mergeclauses are implemented by
+		 * qpquals rather than as true mergeclauses):
+		 */
+		merge_pathkeys = build_join_pathkeys(root, joinrel, jointype,
+											 outerpath->pathkeys);
+
+		if (save_jointype == JOIN_UNIQUE_INNER)
+		{
+			/*
+			 * Consider nestloop join, but only with the unique-ified cheapest
+			 * inner path
+			 */
+			try_nestloop_path_and_no_param(root,
+										   joinrel,
+										   outerpath,
+										   inner_cheapest_total,
+										   merge_pathkeys,
+										   jointype,
+										   new_reduce_list,
+										   extra,
+										   outerrel,
+										   innerrel,
+										   false);
+		}
+		else if (nestjoinOK)
+		{
+			/*
+			 * Consider nestloop joins using this outer path and various
+			 * available paths for the inner relation.  We consider the
+			 * cheapest-total paths for each available parameterization of the
+			 * inner relation, including the unparameterized case.
+			 */
+			ListCell   *lc2;
+
+			foreach(lc2, innerrel->cheapest_cluster_parameterized_paths)
+			{
+				List	   *tmp_reduce_list = NIL;
+				Path	   *innerpath = (Path *) lfirst(lc2);
+				if(reduce_info_list_can_join(outer_reduce_list,
+											 get_reduce_info_list(innerpath),
+											 extra->restrictlist,
+											 jointype,
+											 &tmp_reduce_list))
+				{
+					Assert(tmp_reduce_list != NIL);
+					try_nestloop_path(root,
+									  joinrel,
+									  outerpath,
+									  innerpath,
+									  merge_pathkeys,
+									  jointype,
+									  ADB_ONLY_ARG(tmp_reduce_list)
+									  extra);
+				}
+			}
+
+			/* Also consider materialized form of the cheapest inner path */
+			if (enable_material &&
+				!ExecMaterializesOutput(inner_cheapest_total->pathtype))
+			{
+				MaterialPath *matpath = create_material_path(innerrel, inner_cheapest_total);
+				try_nestloop_path(root,
+								  joinrel,
+								  outerpath,
+								  (Path*)matpath,
+								  merge_pathkeys,
+								  jointype,
+								  ADB_ONLY_ARG(new_reduce_list)
+								  extra);
+			}
+			try_nestloop_path_and_no_param(root,
+										   joinrel,
+										   outerpath,
+										   inner_cheapest_total,
+										   merge_pathkeys,
+										   jointype,
+										   new_reduce_list,
+										   extra,
+										   outerrel,
+										   innerrel,
+										   false);
+		}
+
+		if (hashclauses != NIL &&
+			(inner_cheapest_total = find_cheapest_join_path(outerpath,
+														   outerrel,
+														   innerrel,
+														   hashclauses,
+														   jointype,
+														   T_HashJoin,
+														   false,
+														   &new_reduce_list)) != NULL)
+		{
+			if(save_jointype == JOIN_UNIQUE_OUTER)
+				outerpath = (Path*) create_cluster_unique_path(root, outerrel, outerpath, extra->sjinfo);
+			try_hashjoin_path_and_no_param(root,
+										   joinrel,
+										   outerpath,
+										   inner_cheapest_total,
+										   hashclauses,
+										   jointype,
+										   new_reduce_list,
+										   extra,
+										   outerrel,
+										   innerrel,
+										   save_jointype == JOIN_UNIQUE_INNER);
+		}
+
+		/* Look for useful mergeclauses (if any) */
+		mergeclauses = find_mergeclauses_for_pathkeys(root,
+													  outerpath->pathkeys,
+													  true,
+													extra->mergeclause_list);
+
+		/*
+		 * Done with this outer path if no chance for a mergejoin.
+		 *
+		 * Special corner case: for "x FULL JOIN y ON true", there will be no
+		 * join clauses at all.  Ordinarily we'd generate a clauseless
+		 * nestloop path, but since mergejoin is our only join type that
+		 * supports FULL JOIN without any join clauses, it's necessary to
+		 * generate a clauseless mergejoin path instead.
+		 */
+		if (mergeclauses == NIL)
+		{
+			if (jointype == JOIN_FULL)
+				 /* okay to try for mergejoin */ ;
+			else
+				continue;
+		}
+		if (useallclauses && list_length(mergeclauses) != list_length(extra->mergeclause_list))
+			continue;
+
+		inner_cheapest_total = find_cheapest_join_path(outerpath,
+													   outerrel,
+													   innerrel,
+													   extra->mergeclause_list,
+													   jointype,
+													   T_MergeJoin,
+													   false,
+													   &new_reduce_list);
+		if(inner_cheapest_total == NULL)
+			continue;
+
+		/* Compute the required ordering of the inner path */
+		innersortkeys = make_inner_pathkeys_for_merge(root,
+													  mergeclauses,
+													  outerpath->pathkeys);
+
+		/*
+		 * Generate a mergejoin on the basis of sorting the cheapest inner.
+		 * Since a sort will be needed, only cheapest total cost matters. (But
+		 * try_mergejoin_path will do the right thing if inner_cheapest_total
+		 * is already correctly sorted.)
+		 */
+		try_mergejoin_path_and_no_param(root,
+										joinrel,
+										outerpath,
+										inner_cheapest_total,
+										merge_pathkeys,
+										mergeclauses,
+										NIL,
+										innersortkeys,
+										jointype,
+										new_reduce_list,
+										extra,
+										outerrel,
+										innerrel,
+										false);
+	}
+
+	if (last_path_count == list_length(joinrel->cluster_pathlist))
+	{
+		/* we need reduce data, we only reduce inner, not use NestLoop */
+		List *outer_reduce_list;
+		List *inner_path_list;
+		List *new_reduce_list_list;
+		ListCell *lc2;
+		ListCell *lc3;
+		ReduceInfo *rinfo;
+		List *exprList;
+		foreach(lc1, outerrel->cluster_pathlist)
+		{
+			outerpath = lfirst(lc1);
+			if (PATH_PARAM_BY_REL(outerpath, innerrel))
+				continue;
+			outer_reduce_list = get_reduce_info_list(outerpath);
+			if (outer_reduce_list == NIL)
+				continue;
+
+			/* try hash join */
+			if(hashclauses)
+			{
+				inner_path_list = NIL;
+				new_reduce_list_list = NIL;
+				inner_cheapest_total = get_cheapest_no_param_path(innerrel->cluster_pathlist);
+				if(IsReduceInfoListCoordinator(outer_reduce_list))
+				{
+					/* reduce to coordinator */
+					Assert(IsReduceInfoListCoordinator(get_reduce_info_list(inner_cheapest_total)));
+					inner_cheapest_total = create_cluster_reduce_path(root,
+																	  inner_cheapest_total,
+																	  list_make1(MakeCoordinatorReduceInfo()),
+																	  innerrel,
+																	  NIL);
+					inner_path_list = lappend(inner_path_list, inner_cheapest_total);
+					new_reduce_list_list = list_make1(list_make1(MakeCoordinatorReduceInfo()));
+				}else if(IsReduceInfoListReplicated(outer_reduce_list))
+				{
+					List *exec_list = ReduceInfoListGetExecuteOidList(outer_reduce_list);
+					inner_cheapest_total = create_cluster_reduce_path(root,
+																	  inner_cheapest_total,
+																	  list_make1(MakeReplicateReduceInfo(exec_list)),
+																	  innerrel,
+																	  NIL);
+					inner_path_list = lappend(inner_path_list, inner_cheapest_total);
+					new_reduce_list_list = list_make1(list_make1(MakeReplicateReduceInfo(exec_list)));
+					list_free(exec_list);
+				}else
+				{
+					switch(jointype)
+					{
+					case JOIN_INNER:
+					case JOIN_SEMI:
+						foreach(lc2, outer_reduce_list)
+						{
+							rinfo = lfirst(lc2);
+							if(!IsReduceInfoByValue(rinfo))
+								continue;
+							exprList = FindJoinEqualExprs(rinfo, hashclauses, innerrel);
+							if(exprList == NIL)
+								continue;
+							Assert(inner_cheapest_total != NULL);
+
+							/* make reduce path */
+							rinfo = MakeReduceInfoAs(rinfo, exprList);
+							inner_cheapest_total = create_cluster_reduce_path(root,
+																			  inner_cheapest_total,
+																			  list_make1(rinfo),
+																			  innerrel,
+																			  NIL);
+							inner_path_list = lappend(inner_path_list, inner_cheapest_total);
+
+							/* and save new reduce info */
+							new_reduce_list = CopyReduceInfoList(outer_reduce_list);
+							if(jointype != JOIN_SEMI)
+								new_reduce_list = lappend(new_reduce_list, CopyReduceInfo(rinfo));
+							new_reduce_list_list = lappend(new_reduce_list_list, new_reduce_list);
+							break;
+						}
+						break;
+					case JOIN_LEFT:
+					case JOIN_ANTI:
+						{
+							List *exec_list = ReduceInfoListGetExecuteOidList(outer_reduce_list);
+							inner_cheapest_total = create_cluster_reduce_path(root,
+																			  inner_cheapest_total,
+																			  list_make1(MakeReplicateReduceInfo(exec_list)),
+																			  innerrel,
+																			  NIL);
+							inner_path_list = lappend(inner_path_list, inner_cheapest_total);
+							new_reduce_list_list = list_make1(CopyReduceInfoList(outer_reduce_list));
+							list_free(exec_list);
+						}
+					case JOIN_FULL:
+					case JOIN_RIGHT:
+					default:
+						/* for not try */
+						break;
+					}
+				}
+
+				if(inner_path_list != NIL)
+				{
+					Path *path;
+					if(save_jointype == JOIN_UNIQUE_OUTER)
+						path = (Path*)create_cluster_unique_path(root,
+																 outerrel,
+																 outerpath,
+																 extra->sjinfo);
+					else
+						path = outerpath;
+
+					Assert(list_length(inner_path_list) == list_length(new_reduce_list_list));
+					forboth(lc2, inner_path_list, lc3, new_reduce_list_list)
+					{
+						if(save_jointype == JOIN_UNIQUE_INNER)
+							inner_cheapest_total = (Path*)create_cluster_unique_path(root,
+																					 innerrel,
+																					 inner_cheapest_total,
+																					 extra->sjinfo);
+						else
+							inner_cheapest_total = lfirst(lc2);
+						try_hashjoin_path(root,
+										  joinrel,
+										  path,
+										  inner_cheapest_total,
+										  hashclauses,
+										  jointype,
+										  lfirst(lc3),
+										  extra);
+					}
+					list_free(inner_path_list);
+					list_free(new_reduce_list_list);
+				}
+			}
+		}
+	}
+}
+
+/* return added no param path */
+static bool try_nestloop_path_and_no_param(PlannerInfo *root,
+										   RelOptInfo *joinrel,
+										   Path *outer_path,
+										   Path *inner_path,
+										   List *pathkeys,
+										   JoinType jointype,
+										   List *reduce_info_list,
+										   JoinPathExtraData *extra,
+										   RelOptInfo *outer_rel,
+										   RelOptInfo *inner_rel,
+										   bool inner_need_unique)
+{
+	if(inner_need_unique)
+		inner_path = (Path*) create_cluster_unique_path(root,
+														inner_rel,
+														inner_path,
+														extra->sjinfo);
+	try_nestloop_path(root,
+					  joinrel,
+					  outer_path,
+					  inner_path,
+					  pathkeys,
+					  jointype,
+					  ADB_ONLY_ARG(reduce_info_list)
+					  extra);
+
+	if (PATH_REQ_OUTER(outer_path) == NULL &&
+		PATH_PARAM_OUTER_REL(inner_path, outer_rel))
+	{
+		inner_path = find_cheapest_join_path(outer_path,
+											  outer_rel,
+											  inner_rel,
+											  extra->restrictlist,
+											  jointype,
+											  T_NestLoop,
+											  true,
+											  &reduce_info_list);
+		if(inner_path)
+		{
+			if(inner_need_unique)
+				inner_path = (Path*) create_cluster_unique_path(root,
+																inner_rel,
+																inner_path,
+																extra->sjinfo);
+			try_nestloop_path(root,
+							  joinrel,
+							  outer_path,
+							  inner_path,
+							  pathkeys,
+							  jointype,
+							  ADB_ONLY_ARG(reduce_info_list)
+							  extra);
+			return true;
+		}
+		return false;
+	}
+	return true;
+}
+
+/* return added no param path */
+static bool try_hashjoin_path_and_no_param(PlannerInfo *root,
+										   RelOptInfo *joinrel,
+										   Path *outer_path,
+										   Path *inner_path,
+										   List *hashclauses,
+										   JoinType jointype,
+										   List *reduce_info_list,
+										   JoinPathExtraData *extra,
+										   RelOptInfo *outer_rel,
+										   RelOptInfo *inner_rel,
+										   bool inner_need_unique)
+{
+	if(inner_need_unique)
+		inner_path = (Path*) create_cluster_unique_path(root,
+														inner_rel,
+														inner_path,
+														extra->sjinfo);
+	try_hashjoin_path(root,
+					  joinrel,
+					  outer_path,
+					  inner_path,
+					  hashclauses,
+					  jointype,
+					  ADB_ONLY_ARG(reduce_info_list)
+					  extra);
+
+	if (!PATH_REQ_OUTER(outer_path) &&
+		PATH_PARAM_OUTER_REL(inner_path, outer_rel))
+	{
+		inner_path = find_cheapest_join_path(outer_path,
+											 outer_rel,
+											 inner_rel,
+											 hashclauses,
+											 jointype,
+											 T_HashJoin,
+											 true,
+											 &reduce_info_list);
+		if(inner_path)
+		{
+			if(inner_need_unique)
+				inner_path = (Path*) create_cluster_unique_path(root,
+																inner_rel,
+																inner_path,
+																extra->sjinfo);
+			try_hashjoin_path(root,
+							  joinrel,
+							  outer_path,
+							  inner_path,
+							  hashclauses,
+							  jointype,
+							  ADB_ONLY_ARG(reduce_info_list)
+							  extra);
+			return true;
+		}
+		return false;
+	}
+	return true;
+}
+
+/* return added no param path */
+static bool try_mergejoin_path_and_no_param(PlannerInfo *root,
+											RelOptInfo *joinrel,
+											Path *outer_path,
+											Path *inner_path,
+											List *pathkeys,
+											List *mergeclauses,
+											List *outersortkeys,
+											List *innersortkeys,
+											JoinType jointype,
+											List *reduce_info_list,
+											JoinPathExtraData *extra,
+											RelOptInfo *outer_rel,
+											RelOptInfo *inner_rel,
+											bool inner_need_unique)
+{
+	if(inner_need_unique)
+		inner_path = (Path*) create_cluster_unique_path(root,
+														inner_rel,
+														inner_path,
+														extra->sjinfo);
+	try_mergejoin_path(root,
+					   joinrel,
+					   outer_path,
+					   inner_path,
+					   pathkeys,
+					   mergeclauses,
+					   outersortkeys,
+					   innersortkeys,
+					   jointype,
+					   ADB_ONLY_ARG(reduce_info_list)
+					   extra);
+
+	if (PATH_REQ_OUTER(outer_path) == NULL &&
+		PATH_PARAM_OUTER_REL(inner_path, outer_rel))
+	{
+		inner_path = find_cheapest_join_path(outer_path,
+											 outer_rel,
+											 inner_rel,
+											 extra->restrictlist,
+											 jointype,
+											 T_MergeJoin,
+											 true,
+											 &reduce_info_list);
+		if(inner_path)
+		{
+			if(inner_need_unique)
+				inner_path = (Path*) create_cluster_unique_path(root,
+																inner_rel,
+																inner_path,
+																extra->sjinfo);
+				try_mergejoin_path(root,
+								   joinrel,
+								   outer_path,
+								   inner_path,
+								   pathkeys,
+								   mergeclauses,
+								   outersortkeys,
+								   innersortkeys,
+								   jointype,
+								   ADB_ONLY_ARG(reduce_info_list)
+								   extra);
+			return true;
+		}
+		return false;
+	}
+	return true;
+}
 #endif /* ADB */
