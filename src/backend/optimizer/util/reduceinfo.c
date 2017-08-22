@@ -842,7 +842,13 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 		if(IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
 		{
 			if (new_reduce_list)
-				*new_reduce_list = ReduceInfoListConcat(CopyReduceInfoList(outer_reduce_list), inner_reduce_list);
+			{
+				*new_reduce_list = NIL;
+				if(!IsReduceInfoListReplicated(outer_reduce_list))
+					*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
+				if(!IsReduceInfoListReplicated(inner_reduce_list))
+					*new_reduce_list = ReduceInfoListConcat(*new_reduce_list, inner_reduce_list);
+			}
 			return true;
 		}
 		break;
