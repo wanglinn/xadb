@@ -182,6 +182,7 @@ void save_namespace(StringInfo buf, Oid nsp)
 		pq_sendbytes(buf, (char*)&nsp, sizeof(nsp));
 	}else
 	{
+		SAVE_BOOL(false);
 		/* search namespace*/
 		tup = SearchSysCache1(NAMESPACEOID, ObjectIdGetDatum(nsp));
 		if(!HeapTupleIsValid(tup))
