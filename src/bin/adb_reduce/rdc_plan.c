@@ -117,14 +117,14 @@ PlanPortStats(PlanPort *pln_port)
 }
 
 /*
- * LookUpPlanPort
+ * LookupPlanPort
  *
  * find a PlanPort with the plan id.
  *
  * returns NULL if not found
  */
 PlanPort *
-LookUpPlanPort(List *pln_nodes, RdcPortId pln_id)
+LookupPlanPort(List *pln_nodes, RdcPortId pln_id)
 {
 	ListCell	   *cell;
 	PlanPort	   *pln_port;
@@ -154,7 +154,7 @@ AddNewPlanPort(List **pln_nodes, RdcPort *new_port)
 	AssertArg(pln_nodes && new_port);
 	Assert(PlanTypeIDIsValid(new_port));
 
-	pln_port = LookUpPlanPort(*pln_nodes, RdcPeerID(new_port));
+	pln_port = LookupPlanPort(*pln_nodes, RdcPeerID(new_port));
 	if (pln_port == NULL)
 	{
 		pln_port = plan_newport(RdcPeerID(new_port));

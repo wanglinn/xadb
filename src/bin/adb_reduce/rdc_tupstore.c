@@ -1275,7 +1275,8 @@ rdcstore_gettuple(RSstate *state, StringInfo buf, bool *hasData)
  * is no more data.
  */
 int
-rdcstore_gettuple_multi(RSstate *state, StringInfo buf1, StringInfo buf2)
+rdcstore_gettuple_multi(RSstate *state, StringInfo buf1, StringInfo buf2,
+						RdcStoreGetTupleHook hook, void *hook_context)
 {
 	RSdata *rsData = NULL;
 	int		count = 0;
@@ -1293,6 +1294,10 @@ rdcstore_gettuple_multi(RSstate *state, StringInfo buf1, StringInfo buf2)
 		{
 			state->totalRead++;
 			count++;
+
+			if (hook && (*hook)(rsData->data, rsData->len, hook_context))
+				continue;
+
 			if (buf1->len + rsData->len <= buf1->maxlen)
 				appendBinaryStringInfo(buf1, rsData->data, rsData->len);
 			else

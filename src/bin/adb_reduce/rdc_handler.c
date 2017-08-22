@@ -25,8 +25,9 @@ static void HandleReadFromReduce(RdcPort *port, List **pln_nodes);
 static void HandleWriteToReduce(RdcPort *port);
 static void HandleReadFromPlan(PlanPort *pln_port);
 static void HandleWriteToPlan(PlanPort *pln_port);
-static void SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen);
-static void SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists);
+static bool WritePlanEndToPlanHook(const char *data, int datalen, void *context);
+static void SendPlanDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen);
+static void SendPlanEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists);
 static void SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id);
 static int  SendPlanDataToRdc(StringInfo msg, PlanPort *pln_port);
 static int  SendPlanEofToRdc(StringInfo msg, PlanPort *pln_port);
@@ -37,7 +38,7 @@ static int  BroadcastDataToRdc(StringInfo msg,
 							   const char *msg_data,
 							   int msg_len,
 							   bool flush);
-static RdcPort *LookUpReducePort(RdcPortId rpid);
+static RdcPort *LookupReducePort(RdcPortId rpid);
 
 /*
  * HandlePlanIO
@@ -368,7 +369,7 @@ HandleWriteToPlan(PlanPort *pln_port)
 				appendStringInfoStringInfo(buf, buf2);
 				resetStringInfo(buf2);
 
-				count = rdcstore_gettuple_multi(rdcstore, buf, buf2);
+				count = rdcstore_gettuple_multi(rdcstore, buf, buf2, WritePlanEndToPlanHook, pln_port);
 				Assert(count >= 0 && buf->len >= 0 && buf2->len >= 0);
 				pln_port->send_to_pln += count;
 
@@ -378,35 +379,39 @@ HandleWriteToPlan(PlanPort *pln_port)
 					RdcWaitEvents(work_port) &= ~WT_SOCK_WRITEABLE;
 					break;	/* break for */
 				}
-#ifdef NOT_USED
-				bool	hasData = false;
-
-				/* it is safe to reset output buffer */
-				resetStringInfo(buf);
-				Assert(rdcstore);
-
-				/* try to get one tuple from rdcstore */
-				rdcstore_gettuple(rdcstore, buf, &hasData);
-				/* break rdcstore is also empty */
-				if (!hasData)
-				{
-					RdcWaitEvents(work_port) &= ~WT_SOCK_WRITEABLE;
-					break;	/* break for */
-				} else
-				{
-					/*
-					 * OK to get tuple from rdcstore, so increase the
-					 * number of sending to PLAN.
-					 */
-					pln_port->send_to_pln++;
-				}
-#endif
 			}
 		}
 
 		work_port = RdcNext(work_port);
 	}
 }
+
+static bool
+WritePlanEndToPlanHook(const char *data, int datalen, void *context)
+{
+	bool is_plan_end = false;
+
+	Assert(data && context && data > 0);
+	if (data[0] == MSG_EOF || data[0] == MSG_PLAN_CLOSE)
+	{
+		PlanPort   *pln_port = (PlanPort *) context;
+		RdcPort	   *wrk_port;
+		StringInfo	buf2;
+
+		wrk_port = pln_port->work_port;
+		while (wrk_port)
+		{
+			buf2 = RdcOutBuf2(wrk_port);
+			appendBinaryStringInfo(buf2, data, datalen);
+			wrk_port = RdcNext(wrk_port);
+		}
+
+		is_plan_end = true;
+	}
+
+	return is_plan_end;
+}
+
 
 /*
  * HandleRdcMsg
@@ -460,7 +465,7 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 					/* plan node id */
 					planid = rdc_getmsgRdcPortID(msg);
 					/* find RdcPort of plan */
-					pln_port = LookUpPlanPort(*pln_nodes, planid);
+					pln_port = LookupPlanPort(*pln_nodes, planid);
 					if (pln_port == NULL)
 					{
 						pln_port = plan_newport(planid);
@@ -473,7 +478,7 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 						data = rdc_getmsgbytes(msg, datalen);
 						rdc_getmsgend(msg);
 						/* fill in data */
-						SendRdcDataToPlan(pln_port, RdcPeerID(rdc_port), data, datalen);
+						SendPlanDataToPlan(pln_port, RdcPeerID(rdc_port), data, datalen);
 					} else
 					/* EOF message */
 					if (msg_type == MSG_EOF)
@@ -484,7 +489,7 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 							 " from" RDC_PORT_PRINT_FORMAT,
 							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in EOF message */
-						SendRdcEofToPlan(pln_port, RdcPeerID(rdc_port), true);
+						SendPlanEofToPlan(pln_port, RdcPeerID(rdc_port), true);
 					} else
 					/* PLAN CLOSE message */
 					{
@@ -578,12 +583,12 @@ HandleWriteToReduce(RdcPort *rdc_port)
 }
 
 /*
- * SendRdcDataToPlan
+ * SendPlanDataToPlan
  *
  * send data to plan node
  */
 static void
-SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen)
+SendPlanDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen)
 {
 	RSstate			   *rdcstore = NULL;
 	StringInfo			buf;
@@ -633,12 +638,12 @@ SendRdcDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int da
 }
 
 /*
- * SendRdcEofToPlan
+ * SendPlanEofToPlan
  *
  * send EOF to plan node
  */
 static void
-SendRdcEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
+SendPlanEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 {
 	StringInfo		buf;
 	RSstate		   *rdcstore;
@@ -780,7 +785,7 @@ SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id)
 
 	rdcstore_puttuple(rdcstore, buf->data, buf->len);
 
-	SendRdcEofToPlan(pln_port, rdc_id, false);
+	SendPlanEofToPlan(pln_port, rdc_id, false);
 }
 
 /*
@@ -896,7 +901,7 @@ BroadcastDataToRdc(StringInfo msg,
 		rid = rdc_getmsgRdcPortID(msg);
 		if (rid == MyReduceId)
 			continue;
-		rdc_port = LookUpReducePort(rid);
+		rdc_port = LookupReducePort(rid);
 
 		/*
 		 * return if port is marked invalid
@@ -971,13 +976,13 @@ BroadcastRdcClose(void)
 }
 
 /*
- * LookUpReducePort
+ * LookupReducePort
  *
  * find a valid reduce port by RdcPortId.
  *
  */
 static RdcPort *
-LookUpReducePort(RdcPortId rpid)
+LookupReducePort(RdcPortId rpid)
 {
 	int			i;
 	int			rdc_num = MyRdcOpts->rdc_num;
