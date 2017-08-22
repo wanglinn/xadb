@@ -32,7 +32,9 @@ extern void EndSelfReduceGroup(void);
 
 extern List *GetReduceGroup(void);
 
-extern void SendPlanCloseToSelfReduce(RdcPort *port, List *dest_nodes);
+extern void SendRejectToRemote(RdcPort *port, List *dest_nodes);
+
+extern void SendCloseToRemote(RdcPort *port, List *dest_nodes);
 
 extern void SendEofToRemote(RdcPort *port, List *dest_nodes);
 

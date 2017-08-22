@@ -56,6 +56,7 @@ static void CloseBackendPort(void);
 static void CloseReducePort(void);
 static int  GetReduceListenPort(void);
 static void AdbReduceLauncherMain(int rid);
+static int  SendPlanMsgToRemote(RdcPort *port, char msg_type, List *dest_nodes);
 
 static void
 ResetSelfReduce(void)
@@ -333,14 +334,49 @@ GetReduceGroup(void)
 	return GroupReduceList;
 }
 
-void
-SendPlanCloseToSelfReduce(RdcPort *port, List *dest_nodes)
+static int
+SendPlanMsgToRemote(RdcPort *port, char msg_type, List *dest_nodes)
 {
-	StringInfo		msg;
-	ssize_t			rsz;
-	ListCell	   *lc;
-	int				num;
-	char			buf[1];
+	StringInfo	msg;
+	int			num;
+	ListCell   *lc;
+
+	Assert(port);
+	msg = RdcMsgBuf(port);
+
+	resetStringInfo(msg);
+	rdc_beginmessage(msg, msg_type);
+	num = list_length(dest_nodes);
+	rdc_sendint(msg, num, sizeof(num));
+	foreach (lc, dest_nodes)
+		rdc_sendRdcPortID(msg, lfirst_oid(lc));
+	rdc_endmessage(port, msg);
+
+	return rdc_flush(port);
+}
+
+void
+SendRejectToRemote(RdcPort *port, List *dest_nodes)
+{
+	AssertArg(dest_nodes);
+
+	if (SendPlanMsgToRemote(port, MSG_PLAN_REJECT, dest_nodes) == EOF)
+		ereport(ERROR,
+				(errmsg("fail to send REJECT message to remote"),
+				 errdetail("%s", RdcError(port))));
+
+	elog(LOG,
+		 "Backend send REJECT message of" PLAN_PORT_PRINT_FORMAT,
+		 RdcSelfID(port));
+
+	port->send_num++;
+}
+
+void
+SendCloseToRemote(RdcPort *port, List *dest_nodes)
+{
+	ssize_t	rsz;
+	char	buf[1];
 
 	if (!RdcSockIsValid(port))
 		return ;
@@ -357,17 +393,7 @@ SendPlanCloseToSelfReduce(RdcPort *port, List *dest_nodes)
 			return ;
 	}
 
-	msg = RdcMsgBuf(port);
-
-	resetStringInfo(msg);
-	rdc_beginmessage(msg, MSG_PLAN_CLOSE);
-	num = list_length(dest_nodes);
-	rdc_sendint(msg, num, sizeof(num));
-	foreach (lc, dest_nodes)
-		rdc_sendRdcPortID(msg, lfirst_oid(lc));
-	rdc_endmessage(port, msg);
-
-	if (rdc_flush(port) == EOF)
+	if (SendPlanMsgToRemote(port, MSG_PLAN_CLOSE, dest_nodes) == EOF)
 		ereport(ERROR,
 				(errmsg("fail to send CLOSE message to remote"),
 				 errdetail("%s", RdcError(port))));
@@ -383,24 +409,9 @@ SendPlanCloseToSelfReduce(RdcPort *port, List *dest_nodes)
 void
 SendEofToRemote(RdcPort *port, List *dest_nodes)
 {
-	StringInfo		msg;
-	ListCell	   *lc;
-	int				num;
-
-	AssertArg(port);
 	AssertArg(dest_nodes);
 
-	msg = RdcMsgBuf(port);
-
-	resetStringInfo(msg);
-	rdc_beginmessage(msg, MSG_EOF);
-	num = list_length(dest_nodes);
-	rdc_sendint(msg, num, sizeof(num));
-	foreach (lc, dest_nodes)
-		rdc_sendRdcPortID(msg, lfirst_oid(lc));
-	rdc_endmessage(port, msg);
-
-	if (rdc_flush(port) == EOF)
+	if (SendPlanMsgToRemote(port, MSG_EOF, dest_nodes) == EOF)
 		ereport(ERROR,
 				(errmsg("fail to send EOF message to remote"),
 				 errdetail("%s", RdcError(port))));
@@ -517,6 +528,7 @@ GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot,
 					*eof_oid = (Oid) rid;
 			}
 			break;
+		case MSG_PLAN_REJECT:
 		case MSG_PLAN_CLOSE:
 			{
 				rid = rdc_getmsgRdcPortID(msg);

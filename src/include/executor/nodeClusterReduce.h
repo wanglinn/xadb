@@ -4,8 +4,8 @@
 extern ClusterReduceState *ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags);
 extern TupleTableSlot *ExecClusterReduce(ClusterReduceState *node);
 extern void ExecEndClusterReduce(ClusterReduceState *node);
-extern void ExecEndAllReduceState(PlanState *node);
 extern void ExecConnectReduce(PlanState *node);
 extern void ExecReScanClusterReduce(ClusterReduceState *node);
+extern void TopDownDriveClusterReduce(PlanState *node);
 
 #endif /* NODE_CLUSTER_REDUCE_H */

@@ -1082,6 +1082,9 @@ PrePreparePlanNodes(WaitEVSet set, List *pln_nodes)
 			if (!PortIsValid(wrk_port))
 				continue;
 
+			if (PlanPortIsReject(pln_port))
+				RdcWaitEvents(wrk_port) &= ~WT_SOCK_WRITEABLE;
+
 			addWaitEventByArg(set, wrk_port,
 							  GetRdcPortSocket,
 							  GetRdcPortWaitEvents);

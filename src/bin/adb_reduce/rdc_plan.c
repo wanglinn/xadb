@@ -40,6 +40,7 @@ plan_newport(RdcPortId pln_id)
 	pln_port->work_port = NULL;
 	pln_port->work_num = 0;
 	pln_port->pln_id = pln_id;
+	pln_port->flags = PLAN_FLAG_VALID;
 	pln_port->create_time = time(NULL);
 	pln_port->recv_from_pln = 0;
 	pln_port->dscd_from_rdc = 0;

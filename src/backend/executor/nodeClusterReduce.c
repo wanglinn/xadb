@@ -21,11 +21,12 @@ extern bool enable_cluster_plan;
 
 static void ExecInitClusterReduceStateExtra(ClusterReduceState *crstate);
 static bool ExecConnectReduceWalker(PlanState *node, EState *estate);
-static bool EndReduceStateWalker(PlanState *node, void *context);
 static int32 cmr_heap_compare_slots(Datum a, Datum b, void *arg);
 static TupleTableSlot *GetSlotFromOuterNode(ClusterReduceState *node);
 static TupleTableSlot *GetSlotFromSpecialRemote(ClusterReduceState *node, ReduceEntry entry);
 static TupleTableSlot *ExecClusterMergeReduce(ClusterReduceState *node);
+static void DriveClusterReduce(ClusterReduceState *node);
+static bool DriveClusterReduceWalker(PlanState *node, void *context);
 
 static void
 ExecInitClusterReduceStateExtra(ClusterReduceState *crstate)
@@ -495,7 +496,7 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 	if (node->port && !RdcSendCLOSE(node->port))
 	{
 		List *dest_nodes = (RdcSendEOF(node->port) ? NIL : PlanStateGetTargetNodes(node));
-		SendPlanCloseToSelfReduce(node->port, dest_nodes);
+		SendCloseToRemote(node->port, dest_nodes);
 	}
 	rdc_freeport(node->port);
 	node->port = NULL;
@@ -551,8 +552,24 @@ ExecConnectReduce(PlanState *node)
 	ExecConnectReduceWalker(node, node->state);
 }
 
+static void
+DriveClusterReduce(ClusterReduceState *node)
+{
+	if (!RdcSendEOF(node->port) && !RdcSendCLOSE(node->port))
+	{
+		int i;
+		SendRejectToRemote(node->port, PlanStateGetTargetNodes(node));
+		for (i = 0; i < node->nrdcs; i++)
+			node->rdc_entrys[i]->re_eof = true;
+		node->eof_network = true;
+	}
+
+	while (!node->eof_underlying)
+		(void) GetSlotFromOuterNode(node);
+}
+
 static bool
-EndReduceStateWalker(PlanState *node, void *context)
+DriveClusterReduceWalker(PlanState *node, void *context)
 {
 	EState	   *estate;
 	int			planid;
@@ -579,12 +596,11 @@ EndReduceStateWalker(PlanState *node, void *context)
 		 * Drive all ClusterReduce to send slot, discard slot
 		 * used for local.
 		 */
-		while (!crs->eof_network || !crs->eof_underlying)
-			(void) ExecProcNode(node);
+		DriveClusterReduce(crs);
 
 		res = false;
 	} else
-		res = planstate_tree_walker(node, EndReduceStateWalker, context);
+		res = planstate_tree_walker(node, DriveClusterReduceWalker, context);
 
 	estate->es_reduce_drived_set = bms_add_member(estate->es_reduce_drived_set, planid);
 
@@ -592,7 +608,7 @@ EndReduceStateWalker(PlanState *node, void *context)
 }
 
 void
-ExecEndAllReduceState(PlanState *node)
+TopDownDriveClusterReduce(PlanState *node)
 {
 	if (!enable_cluster_plan || !IsUnderPostmaster)
 		return ;
@@ -601,5 +617,5 @@ ExecEndAllReduceState(PlanState *node)
 	if (!node->state->es_reduce_plan_inited)
 		return ;
 
-	(void) EndReduceStateWalker(node, NULL);
+	(void) DriveClusterReduceWalker(node, NULL);
 }

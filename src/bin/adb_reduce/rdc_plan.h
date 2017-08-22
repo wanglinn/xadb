@@ -4,6 +4,14 @@
 #include "rdc_tupstore.h"
 #include "reduce/rdc_comm.h"
 
+typedef enum
+{
+	PLAN_FLAG_NONE		=	0,
+	PLAN_FLAG_VALID		=	(1 << 1),
+	PLAN_FLAG_CLOSED	=	(1 << 2),
+	PLAN_FLAG_REJECT	=	(1 << 3),
+} PlanFlagType;
+
 struct PlanPort
 {
 	struct RdcPort	   *work_port;		/* linked-list for parallel worker of the same plan node */
@@ -13,6 +21,7 @@ struct PlanPort
 	StringInfoData		msg_buf;		/* used for make up message, to avoid malloc and free
 										   memory multiple times, call resetStringInfo before
 										   use it and never free until destory PlanPort. */
+	PlanFlagType		flags;
 	pg_time_t			create_time;	/* time when the PlanPort is created */
 	uint64				recv_from_pln;	/* number of slot received from plan node */
 	uint64				dscd_from_rdc;	/* number of slot discarded from other reduce */
@@ -26,8 +35,9 @@ struct PlanPort
 #define PlanID(pln_port)			(((PlanPort *) (pln_port))->pln_id)
 #define PlanWorkNum(pln_port)		(((PlanPort *) (pln_port))->work_num)
 #define PlanMsgBuf(pln_port)		&(((PlanPort *) (pln_port))->msg_buf)
-#define PlanPortIsValid(pln_port)	(PlanWorkNum(pln_port) >= 0)
-
+#define PlanFlags(pln_port)			(((PlanPort *) (pln_port))->flags)
+#define PlanPortIsValid(pln_port)	(PlanFlags(pln_port) & PLAN_FLAG_VALID)
+#define PlanPortIsReject(pln_port)	(PlanFlags(pln_port) & PLAN_FLAG_REJECT)
 
 #define PlanPortAddEvents(pln_port, events)			\
 	do {											\

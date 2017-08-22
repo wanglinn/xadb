@@ -35,6 +35,7 @@ extern RdcPortId		MyReduceId;
 #define MSG_P2R_DATA		'P'
 #define MSG_R2P_DATA		'p'
 #define MSG_R2R_DATA		'R'
+#define MSG_PLAN_REJECT		'r'
 
 extern int rdc_send_startup_rqt(RdcPort *port, RdcPortType type, RdcPortId id, RdcPortPID pid, RdcExtra extra);
 extern int rdc_send_startup_rsp(RdcPort *port, RdcPortType type, RdcPortId id, RdcPortPID pid);

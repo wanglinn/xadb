@@ -26,12 +26,15 @@ static void HandleWriteToReduce(RdcPort *port);
 static void HandleReadFromPlan(PlanPort *pln_port);
 static void HandleWriteToPlan(PlanPort *pln_port);
 static bool WritePlanEndToPlanHook(const char *data, int datalen, void *context);
+static void SendPlanMsgToPlan(PlanPort *pln_port, char msg_type, RdcPortId rdc_id, const char *data, int datalen);
 static void SendPlanDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen);
 static void SendPlanEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists);
 static void SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id);
+static void SendPlanRejectToPlan(PlanPort *pln_port, RdcPortId rdc_id);
 static int  SendPlanDataToRdc(StringInfo msg, PlanPort *pln_port);
 static int  SendPlanEofToRdc(StringInfo msg, PlanPort *pln_port);
 static int  SendPlanCloseToRdc(StringInfo msg, PlanPort *pln_port);
+static int  SendPlanRejectToRdc(StringInfo msg, PlanPort *pln_port);
 static int  BroadcastDataToRdc(StringInfo msg,
 							   PlanPort *pln_port,
 							   char msg_type,
@@ -210,7 +213,7 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 						 RDC_PORT_PRINT_VALUE(work_port));
 
 					/*
-					 * do not wait read events on socket of port as
+					 * do not wait read and write events on socket of port as
 					 * it would be "CLOSEd".
 					 */
 					RdcWaitEvents(work_port) &= ~WT_SOCK_READABLE;
@@ -219,11 +222,34 @@ HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port)
 					pln_port->work_num--;
 					/* this mark the PlanPort is invalid */
 					if (PlanWorkNum(pln_port) == 0)
-						PlanWorkNum(pln_port) = -1;
+						PlanFlags(pln_port) = PLAN_FLAG_CLOSED;
 					quit = true;	/* break while */
 					res = EOF;
 
 					(void) SendPlanCloseToRdc(msg, pln_port);
+				}
+				break;
+			case MSG_PLAN_REJECT:
+				{
+					elog(LOG,
+						 "recv PLAN REJECT message from" RDC_PORT_PRINT_FORMAT,
+						 RDC_PORT_PRINT_VALUE(work_port));
+
+					/*
+					 * do not wait write envents on socket of port as
+					 * it will reject.
+					 */
+					PlanFlags(pln_port) |= PLAN_FLAG_REJECT;
+
+					if (SendPlanRejectToRdc(msg, pln_port))
+					{
+						/*
+						 * flush to other reduce would block,
+						 * and we try to read from plan next time.
+						 */
+						res = 1;
+						quit = true;	/* break while */
+					}
 				}
 				break;
 			case MSG_ERROR:
@@ -290,7 +316,8 @@ HandleWriteToPlan(PlanPort *pln_port)
 	int				r;
 
 	AssertArg(pln_port);
-	if (!PlanPortIsValid(pln_port))
+	if (!PlanPortIsValid(pln_port) ||
+		PlanPortIsReject(pln_port))
 		return ;
 
 	SetRdcPsStatus(" writing to plan " PORTID_FORMAT, PlanID(pln_port));
@@ -456,6 +483,7 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 			case MSG_R2R_DATA:
 			case MSG_EOF:
 			case MSG_PLAN_CLOSE:
+			case MSG_PLAN_REJECT:
 				{
 					PlanPort	   *pln_port;
 					const char	   *data;
@@ -492,6 +520,7 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 						SendPlanEofToPlan(pln_port, RdcPeerID(rdc_port), true);
 					} else
 					/* PLAN CLOSE message */
+					if (msg_type == MSG_PLAN_CLOSE)
 					{
 						rdc_getmsgend(msg);
 						elog(LOG,
@@ -500,6 +529,16 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in PLAN CLOSE message */
 						SendPlanCloseToPlan(pln_port, RdcPeerID(rdc_port));
+					} else
+					/* PLAN REJECT message */
+					{
+						rdc_getmsgend(msg);
+						elog(LOG,
+							 "recv REJECT message of" PLAN_PORT_PRINT_FORMAT
+							 " from" RDC_PORT_PRINT_FORMAT,
+							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
+						/* fill in PLAN CLOSE message */
+						SendPlanRejectToPlan(pln_port, RdcPeerID(rdc_port));
 					}
 				}
 				break;
@@ -582,26 +621,20 @@ HandleWriteToReduce(RdcPort *rdc_port)
 		RdcWaitEvents(rdc_port) &= ~WT_SOCK_WRITEABLE;
 }
 
-/*
- * SendPlanDataToPlan
- *
- * send data to plan node
- */
 static void
-SendPlanDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen)
+SendPlanMsgToPlan(PlanPort *pln_port, char msg_type, RdcPortId rdc_id, const char *data, int datalen)
 {
-	RSstate			   *rdcstore = NULL;
-	StringInfo			buf;
+	RSstate	   *rdcstore;
+	StringInfo	msg;
 
-	AssertArg(pln_port);
-	AssertArg(data);
-	Assert(datalen > 0);
+	Assert(pln_port && pln_port->rdcstore);
 
 	/*
 	 * return if there is no worker of PlanPort.
 	 * discard this data.
 	 */
-	if (!PlanPortIsValid(pln_port))
+	if (!PlanPortIsValid(pln_port) ||
+		PlanPortIsReject(pln_port))
 	{
 		/*
 		 * PlanPort is invalid, the message will be discarded,
@@ -617,17 +650,20 @@ SendPlanDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int d
 	 */
 	pln_port->recv_from_rdc++;
 
-	Assert(pln_port->rdcstore);
 	rdcstore = pln_port->rdcstore;
-	buf = PlanMsgBuf(pln_port);
+	msg = PlanMsgBuf(pln_port);
 
-	resetStringInfo(buf);
-	rdc_beginmessage(buf, MSG_R2P_DATA);
-	rdc_sendRdcPortID(buf, rdc_id);
-	rdc_sendbytes(buf, data, datalen);
-	rdc_sendlength(buf);
+	resetStringInfo(msg);
+	rdc_beginmessage(msg, msg_type);
+	rdc_sendRdcPortID(msg, rdc_id);
+	if (data)
+	{
+		Assert(datalen > 0);
+		rdc_sendbytes(msg, data, datalen);
+	}
+	rdc_sendlength(msg);
 
-	rdcstore_puttuple(rdcstore, buf->data, buf->len);
+	rdcstore_puttuple(rdcstore, msg->data, msg->len);
 
 	/*
 	 * It may be not useful, because "port" of "pln_port" may be
@@ -638,6 +674,19 @@ SendPlanDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int d
 }
 
 /*
+ * SendPlanDataToPlan
+ *
+ * send data to plan node
+ */
+static void
+SendPlanDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen)
+{
+	Assert(data && datalen > 0);
+
+	SendPlanMsgToPlan(pln_port, MSG_R2P_DATA, rdc_id, data, datalen);
+}
+
+/*
  * SendPlanEofToPlan
  *
  * send EOF to plan node
@@ -645,32 +694,10 @@ SendPlanDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int d
 static void
 SendPlanEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 {
-	StringInfo		buf;
-	RSstate		   *rdcstore;
 	int				i;
 	bool			found;
 
-	AssertArg(pln_port);
-
-	/*
-	 * return if there is no worker of PlanPort.
-	 * discard this data.
-	 */
-	if (!PlanPortIsValid(pln_port))
-	{
-		/*
-		 * PlanPort is invalid, the message will be discarded,
-		 * so increase the number of discarding.
-		 */
-		pln_port->dscd_from_rdc++;
-		return ;
-	}
-
-	/*
-	 * the CLOSE message received from other reduce will be put in RdcStore,
-	 * so increase the number of receiving from reduce.
-	 */
-	pln_port->recv_from_rdc++;
+	Assert(pln_port);
 
 	found = false;
 	for (i = 0; i < pln_port->eof_num; i++)
@@ -693,52 +720,7 @@ SendPlanEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 	} else
 		pln_port->rdc_eofs[pln_port->eof_num++] = rdc_id;
 
-	Assert(pln_port->rdcstore);
-	rdcstore = pln_port->rdcstore;
-	buf = PlanMsgBuf(pln_port);
-
-	resetStringInfo(buf);
-	rdc_beginmessage(buf, MSG_EOF);
-	rdc_sendRdcPortID(buf, rdc_id);
-	rdc_sendlength(buf);
-
-	rdcstore_puttuple(rdcstore, buf->data, buf->len);
-
-	/*
-	 * It may be not useful, because "port" of "pln_port" may be
-	 * NULL until now. so try to add wait events for PlanPort again
-	 * see in HandleWriteToPlan.
-	 */
-	PlanPortAddEvents(pln_port, WT_SOCK_WRITEABLE);
-
-#if NOT_USED
-	/*
-	 * Here we have got all EOF message of PLAN node from all other
-	 * reduce, now we can make EOF message which will be sent to
-	 * PLAN node of self Backend.
-	 */
-	if (pln_port->eof_num == (pln_port->rdc_num - 1))
-	{
-		StringInfoData		buf;
-		RSstate			   *rdcstore;
-
-		Assert(pln_port->rdcstore);
-		rdcstore = pln_port->rdcstore;
-		buf = PlanMsgBuf(pln_port);
-
-		resetStringInfo(buf);
-		rdc_beginmessage(buf, MSG_EOF);
-		rdc_sendlength(buf);
-		rdcstore_puttuple(rdcstore, buf->data, buf->len);
-
-		/*
-		 * It may be not useful, because "port" of "pln_port" may be
-		 * NULL until now. so try to add wait events for PlanPort again
-		 * see in HandleWriteToPlan.
-		 */
-		PlanPortAddEvents(pln_port, WT_SOCK_WRITEABLE);
-	}
-#endif
+	SendPlanMsgToPlan(pln_port, MSG_EOF, rdc_id, NULL, 0);
 }
 
 /*
@@ -749,43 +731,15 @@ SendPlanEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 static void
 SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id)
 {
-	RSstate			   *rdcstore = NULL;
-	StringInfo			buf;
-
-	AssertArg(pln_port);
-
-	/*
-	 * return if there is no worker of PlanPort.
-	 * discard this data.
-	 */
-	if (!PlanPortIsValid(pln_port))
-	{
-		/*
-		 * PlanPort is invalid, the message will be discarded,
-		 * so increase the number of discarding.
-		 */
-		pln_port->dscd_from_rdc++;
-		return ;
-	}
-
-	/*
-	 * the CLOSE message received from other reduce will be put in RdcStore,
-	 * so increase the number of receiving from reduce.
-	 */
-	pln_port->recv_from_rdc++;
-
-	Assert(pln_port->rdcstore);
-	rdcstore = pln_port->rdcstore;
-	buf = PlanMsgBuf(pln_port);
-
-	resetStringInfo(buf);
-	rdc_beginmessage(buf, MSG_PLAN_CLOSE);
-	rdc_sendRdcPortID(buf, rdc_id);
-	rdc_sendlength(buf);
-
-	rdcstore_puttuple(rdcstore, buf->data, buf->len);
+	SendPlanMsgToPlan(pln_port, MSG_PLAN_CLOSE, rdc_id, NULL, 0);
 
 	SendPlanEofToPlan(pln_port, rdc_id, false);
+}
+
+static void
+SendPlanRejectToPlan(PlanPort *pln_port, RdcPortId rdc_id)
+{
+	SendPlanMsgToPlan(pln_port, MSG_PLAN_REJECT, rdc_id, NULL, 0);
 }
 
 /*
@@ -840,6 +794,20 @@ SendPlanCloseToRdc(StringInfo msg, PlanPort *pln_port)
 }
 
 /*
+ * SendPlanRejectToRdc
+ *
+ * send REJECT of plan node to other reduce.
+ *
+ * return 0 if flush OK.
+ * return 1 if some data unsent.
+ */
+static int
+SendPlanRejectToRdc(StringInfo msg, PlanPort *pln_port)
+{
+	return BroadcastDataToRdc(msg, pln_port, MSG_PLAN_REJECT, NULL, 0, false);
+}
+
+/*
  * BroadcastDataToRdc
  *
  * broadcast message of plan node to other reduce.
@@ -881,6 +849,10 @@ BroadcastDataToRdc(StringInfo msg,
 			break;
 		case MSG_PLAN_CLOSE:
 			log_str = "PLAN CLOSE message";
+			Assert(!msg_data && !msg_len);
+			break;
+		case MSG_PLAN_REJECT:
+			log_str = "PLAN REJECT message";
 			Assert(!msg_data && !msg_len);
 			break;
 		case MSG_R2R_DATA:

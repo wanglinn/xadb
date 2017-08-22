@@ -598,7 +598,7 @@ ExecProcNode(PlanState *node)
 
 #ifdef ADB
 	if (TupIsNull(result))
-		ExecEndAllReduceState(node);
+		TopDownDriveClusterReduce(node);
 #endif
 
 	return result;
