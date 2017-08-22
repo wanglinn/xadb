@@ -23,7 +23,7 @@
 static bool GetRelidsWalker(Var *var, Relids *relids);
 static Param *makeReduceParam(Oid type, int paramid, int parammod, Oid collid);
 static oidvector *makeOidVector(List *list);
-static ArrayRef* makeReduceArrayRef(List *oid_list, Expr *modulo);
+static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const);
 static Node* ReduceParam2ExprMutator(Node *node, List *params);
 static int CompareOid(const void *a, const void *b);
 
@@ -1024,7 +1024,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 									  list_make1(result),
 									  InvalidOid, InvalidOid,
 									  COERCE_EXPLICIT_CALL);
-		result = (Expr*) makeReduceArrayRef(reduce->storage_nodes, result);
+		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids));
 		break;
 	case REDUCE_TYPE_CUSTOM:
 		Assert(list_length(reduce->params) > 0 && reduce->expr != NULL);
@@ -1042,7 +1042,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 									  list_make1(result),
 									  InvalidOid, InvalidOid,
 									  COERCE_EXPLICIT_CALL);
-		result = (Expr*) makeReduceArrayRef(reduce->storage_nodes, result);
+		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids));
 		break;
 	case REDUCE_TYPE_MODULO:
 		Assert(list_length(reduce->params) == 1);
@@ -1059,7 +1059,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 									  list_make1(result),
 									  InvalidOid, InvalidOid,
 									  COERCE_EXPLICIT_CALL);
-		result = (Expr*) makeReduceArrayRef(reduce->storage_nodes, result);
+		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids));
 		break;
 	case REDUCE_TYPE_REPLICATED:
 	case REDUCE_TYPE_ROUND:
@@ -1152,26 +1152,73 @@ static oidvector *makeOidVector(List *list)
 /*
  * oid_list[modulo] expr
  */
-static ArrayRef* makeReduceArrayRef(List *oid_list, Expr *modulo)
+static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const)
 {
-	oidvector *vector = makeOidVector(oid_list);
-	ArrayRef *aref = makeNode(ArrayRef);
+	ArrayRef *aref;
+	CoalesceExpr *coalesce;
+	if(try_const)
+	{
+		Node *node = eval_const_expressions(NULL, (Node*)modulo);
+		if (IsA(node, Const))
+		{
+			Const *c = (Const*)node;
+			Oid node_oid;
+			if (c->constisnull)
+			{
+				/* when is null reduce to first node */
+				node_oid = linitial_oid(oid_list);
+			}else
+			{
+				int32 n;
+				Assert(c->consttype == INT4OID);
+				n = DatumGetInt32(c->constvalue);
+				Assert(n>=0 && n<list_length(oid_list));
+				node_oid = list_nth_oid(oid_list, n);
+				Assert(OidIsValid(node_oid));
+			}
+			return (Expr*)makeConst(OIDOID,
+									-1,
+									InvalidOid,
+									sizeof(Oid),
+									ObjectIdGetDatum(node_oid),
+									false,
+									true);
+		}
+	}
+
+	/* when "modulo" return NULL, then return 0 */
+	Assert(exprType((Node*)modulo) == INT4OID);
+	coalesce = makeNode(CoalesceExpr);
+	coalesce->coalescetype = INT4OID;
+	coalesce->coalescecollid = InvalidOid;
+	coalesce->args = list_make2(modulo,
+								makeConst(INT4OID,
+										  -1,
+										  InvalidOid,
+										  sizeof(int32),
+										  Int32GetDatum(0), /* when null, reduce to first node */
+										  false,
+										  true)
+								);
+	coalesce->location = -1;
+
+	aref = makeNode(ArrayRef);
 	aref->refarraytype = OIDARRAYOID;
 	aref->refelemtype = OIDOID;
 	aref->reftypmod = -1;
 	aref->refcollid = InvalidOid;
-	aref->refupperindexpr = list_make1(modulo);
+	aref->refupperindexpr = list_make1(coalesce);
 	aref->reflowerindexpr = NIL;
 	aref->refexpr = (Expr*)makeConst(OIDARRAYOID,
 									 -1,
 									 InvalidOid,
 									 -1,
-									 PointerGetDatum(vector),
+									 PointerGetDatum(makeOidVector(oid_list)),
 									 false,
 									 false);
 	aref->refassgnexpr = NULL;
 
-	return aref;
+	return (Expr*)aref;
 }
 
 static Node* ReduceParam2ExprMutator(Node *node, List *params)
