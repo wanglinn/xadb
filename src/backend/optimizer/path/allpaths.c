@@ -134,7 +134,9 @@ static void subquery_push_qual(Query *subquery,
 static void recurse_push_qual(Node *setOp, Query *topquery,
 				  RangeTblEntry *rte, Index rti, Node *qual);
 static void remove_unused_subquery_outputs(Query *subquery, RelOptInfo *rel);
-
+#ifdef ADB
+static bool set_path_reduce_info_worker(Path *path, List *reduce_info_list);
+#endif /* ADB */
 
 /*
  * make_one_rel
@@ -752,8 +754,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		{
 			path = lfirst(lc);
 
-			path->reduce_info_list = reduce_info_list;
-			path->reduce_is_valid = true;
+			set_path_reduce_info_worker(path, reduce_info_list);
 
 			cost_div(path, list_length(loc_info->nodeList));
 			add_cluster_path(rel, path);
@@ -3368,6 +3369,20 @@ remove_unused_subquery_outputs(Query *subquery, RelOptInfo *rel)
 										   exprCollation(texpr));
 	}
 }
+
+#ifdef ADB
+static bool set_path_reduce_info_worker(Path *path, List *reduce_info_list)
+{
+	if (path != NULL)
+	{
+		Assert(path->reduce_is_valid == false);
+		path->reduce_info_list = reduce_info_list;
+		path->reduce_is_valid = true;
+		return path_tree_walker(path, set_path_reduce_info_worker, reduce_info_list);
+	}
+	return false;
+}
+#endif /* ADB */
 
 /*****************************************************************************
  *			DEBUG SUPPORT
