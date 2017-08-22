@@ -882,7 +882,7 @@ pgxc_add_returning_list(RemoteQuery *rq, List *ret_list, int rel_index)
 }
 
 Plan *
-pgxc_make_modifytable(PlannerInfo *root, Plan *topplan)
+pgxc_make_modifytable(PlannerInfo *root, Plan *topplan, ModifyTablePath *mtp)
 {
 	ModifyTable *mt = (ModifyTable *)topplan;
 
@@ -900,7 +900,7 @@ pgxc_make_modifytable(PlannerInfo *root, Plan *topplan)
 	 * when there is something to modify.
 	 */
 	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-		topplan = create_remotedml_plan(root, topplan, mt->operation);
+		topplan = create_remotedml_plan(root, topplan, mt->operation, mtp);
 
 	return topplan;
 }
@@ -1358,10 +1358,11 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
  * operations.
  */
 Plan *
-create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp)
+create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTablePath *mtp)
 {
 	ModifyTable			*mt = (ModifyTable *)topplan;
 	ListCell			*rel;
+	ListCell			*lc_subpath;
 	int					relcount = -1;
 	RelationAccessType	accessType;
 
@@ -1388,7 +1389,7 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp)
 	/*
 	 * For every result relation, build a remote plan to execute remote DML.
 	 */
-	foreach(rel, mt->resultRelations)
+	forboth(rel, mt->resultRelations, lc_subpath, mtp->subpaths)
 	{
 		Index			resultRelationIndex = lfirst_int(rel);
 		RangeTblEntry	*res_rel;
@@ -1399,6 +1400,10 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp)
 		char			*relname;
 
 		relcount++;
+		if (IsA(lfirst(lc_subpath), ClusterReducePath) ||
+			IsA(lfirst(lc_subpath), ClusterGatherPath) ||
+			IsA(lfirst(lc_subpath), ClusterMergeGatherPath))
+			continue;
 
 		res_rel = rt_fetch(resultRelationIndex, root->parse->rtable);
 

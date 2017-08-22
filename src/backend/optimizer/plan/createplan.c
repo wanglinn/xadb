@@ -2280,7 +2280,7 @@ create_modifytable_plan(PlannerInfo *root, ModifyTablePath *best_path)
 
 	copy_generic_path_info(&plan->plan, &best_path->path);
 #ifdef ADB
-	plan = (ModifyTable*)pgxc_make_modifytable(root, (Plan*)plan);
+	plan = (ModifyTable*)pgxc_make_modifytable(root, (Plan*)plan, best_path);
 #endif /* ADB */
 
 	return plan;

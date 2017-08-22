@@ -119,7 +119,7 @@ extern void extract_query_dependencies(Node *query,
  */
 
 extern Plan *create_remotedml_plan(PlannerInfo *root, Plan *topplan,
-									CmdType cmdtyp);
+									CmdType cmdtyp, ModifyTablePath *mtp);
 extern Plan *create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan);
 extern Sort *make_sort_from_groupcols(List *groupcls, AttrNumber *grpColIdx, Plan *lefttree);
 extern Plan *create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path);
