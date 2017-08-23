@@ -173,6 +173,8 @@ static PathTarget *make_sort_input_target(PlannerInfo *root,
 static void separate_rowmarks(PlannerInfo *root);
 static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path);
 static bool is_remote_relation(PlannerInfo *root, Index relid);
+static Path * change_path_to_partial(PlannerInfo *root,Path *path,
+						List *groupExprs, RelOptInfo *grouped_rel);
 #endif
 
 
@@ -3626,6 +3628,8 @@ create_grouping_paths(PlannerInfo *root,
 	bool		try_parallel_aggregation;
 #ifdef ADB
 	bool		try_cluster_aggregation;
+	bool		must_once = false;
+	bool		no_partial = false;
 	List		*groupExprs = NIL;
 #endif /* ADB */
 
@@ -4162,8 +4166,7 @@ create_grouping_paths(PlannerInfo *root,
 		|| has_cluster_hazard(parse->havingQual)
 		|| input_rel->cluster_pathlist == NIL	/* Nothing to use as input for cluster aggregate. */
 		|| (!parse->hasAggs && parse->groupClause == NIL)
-		|| parse->groupingSets
-		|| (agg_costs->hasNonPartial || agg_costs->hasNonSerial))
+		|| parse->groupingSets)
 	{
 		try_cluster_aggregation = false;
 	}else
@@ -4176,228 +4179,398 @@ create_grouping_paths(PlannerInfo *root,
 		Path *cheapest_cluster_path = linitial(input_rel->cluster_pathlist);
 		bool only_once;
 
-		if(partial_grouping_target == NULL)
-			partial_grouping_target = make_partial_grouping_target(root, target);
+		if (agg_costs->hasNonPartial || agg_costs->hasNonSerial)
+			no_partial = true;
 
-		dNumPartialGroups = get_number_of_groups(root,
-												cheapest_cluster_path->rows,
-												NIL,
-												NIL);
-
-		MemSet(&agg_partial_costs, 0, sizeof(AggClauseCosts));
-		MemSet(&agg_final_costs, 0, sizeof(AggClauseCosts));
-		if (parse->hasAggs)
+		if (!no_partial)
 		{
-			/* partial phase */
-			get_agg_clause_costs(root, (Node *) partial_grouping_target->exprs,
-								 AGGSPLIT_INITIAL_SERIAL,
-								 &agg_partial_costs);
+			if(partial_grouping_target == NULL)
+				partial_grouping_target = make_partial_grouping_target(root, target);
 
-			/* final phase */
-			get_agg_clause_costs(root, (Node *) target->exprs,
-								 AGGSPLIT_FINAL_DESERIAL,
-								 &agg_final_costs);
-			get_agg_clause_costs(root, parse->havingQual,
-								 AGGSPLIT_FINAL_DESERIAL,
-								 &agg_final_costs);
+			dNumPartialGroups = get_number_of_groups(root,
+													cheapest_cluster_path->rows,
+													NIL,
+													NIL);
+
+			MemSet(&agg_partial_costs, 0, sizeof(AggClauseCosts));
+			MemSet(&agg_final_costs, 0, sizeof(AggClauseCosts));
+			if (parse->hasAggs)
+			{
+				/* partial phase */
+				get_agg_clause_costs(root, (Node *) partial_grouping_target->exprs,
+									 AGGSPLIT_INITIAL_SERIAL,
+									 &agg_partial_costs);
+
+				/* final phase */
+				get_agg_clause_costs(root, (Node *) target->exprs,
+									 AGGSPLIT_FINAL_DESERIAL,
+									 &agg_final_costs);
+				get_agg_clause_costs(root, parse->havingQual,
+									 AGGSPLIT_FINAL_DESERIAL,
+									 &agg_final_costs);
+			}
 		}
 
-		if (can_sort)
+		/* This was checked before setting try_parallel_aggregation */
+		Assert(parse->hasAggs || parse->groupClause);
+
+		/* create reduce path */
+		groupExprs = get_sortgrouplist_exprs(parse->groupClause,
+								parse->targetList);
+
+		/* create only_once sort path */
+		foreach(lc, input_rel->cluster_pathlist)
 		{
-			/* This was checked before setting try_parallel_aggregation */
-			Assert(parse->hasAggs || parse->groupClause);
+			Path *path = lfirst(lc);
 
-			/* create reduce path */
-			groupExprs = get_sortgrouplist_exprs(parse->groupClause,
-									parse->targetList);
-
-			foreach(lc, input_rel->cluster_pathlist)
+			only_once = CanOnceGroupingClusterPath(target, path);
+			/* only_once is false */
+			if (only_once)
 			{
-				Path *path = lfirst(lc);
-				bool is_sorted = pathkeys_contained_in(root->group_pathkeys,
-														path->pathkeys);
-
-				only_once = CanOnceGroupingClusterPath(target, path);
-				if((path == cheapest_cluster_path ||
-					is_sorted) &&
-					(only_once ||
-					root->parent_root == NULL ||
-					bms_is_empty(PATH_REQ_OUTER(path))))
+				/* create sort plan */
+				if (can_sort)
 				{
+					bool is_sorted = pathkeys_contained_in(root->group_pathkeys,
+														path->pathkeys);
 					if(!is_sorted)
 						path = (Path*)create_sort_path(root,
 														grouped_rel,
 														path,
 														root->group_pathkeys,
 														-1.0);
-
 					if (parse->hasAggs)
 						path = (Path*)create_agg_path(root,
 													grouped_rel,
 													path,
-								only_once ? target : partial_grouping_target,
+													target,
 								parse->groupClause ? AGG_SORTED : AGG_PLAIN,
-								only_once ? AGGSPLIT_SIMPLE : AGGSPLIT_INITIAL_SERIAL,
+													AGGSPLIT_SIMPLE,
 													parse->groupClause,
 													NIL,
-													&agg_partial_costs,
-													dNumPartialGroups);
+													agg_costs,
+													dNumGroups);
 					else
 						path = (Path*)create_group_path(root,
 													grouped_rel,
 													path,
-													partial_grouping_target,
+													target,
 													parse->groupClause,
 													NIL,
-													dNumPartialGroups);
+													dNumGroups);
 
-					if(only_once)
-					{
-						add_cluster_path(grouped_rel, path);
-						continue;
-					}
-
-					/* build gather path */
-					if(root->parent_root == NULL)
-					{
-						if(root->group_pathkeys)
-						{
-							path = (Path*)
-								create_cluster_merge_gather_path(root,
-																grouped_rel,
-																path,
-																path->pathkeys);
-						}else
-						{
-							path = (Path*)create_cluster_gather_path(path, grouped_rel);
-						}
-					}else
-					{
-						path = create_cluster_reduce_path(root,
-														  path,
-														  list_make1(MakeCoordinatorReduceInfo()),
-														  grouped_rel,
-														  path->pathkeys);
-						/* now we not have reduce merge path,so we sort again */
-					}
-
-					/* build final path */
-					if(root->group_pathkeys &&
-						!pathkeys_contained_in(root->group_pathkeys, path->pathkeys))
-					{
-						path = (Path*)
-								create_sort_path(root, grouped_rel, path,
-												root->group_pathkeys, -1.0);
-					}
-
-					if(parse->hasAggs)
-					{
-						path = (Path *)
-								 create_agg_path(root,
-												 grouped_rel,
-												 path,
-												 target,
-										 parse->groupClause ? AGG_SORTED : AGG_PLAIN,
-												 AGGSPLIT_FINAL_DESERIAL,
-												 parse->groupClause,
-												 (List *) parse->havingQual,
-												 &agg_final_costs,
-												 dNumGroups);
-					}else
-					{
-						path = (Path *)
-								 create_group_path(root,
-												   grouped_rel,
-												   path,
-												   target,
-												   parse->groupClause,
-												   (List *) parse->havingQual,
-												   dNumGroups);
-					}
 					add_cluster_path(grouped_rel, path);
-				}
+				}			
 
-				/*
-				 * Create path :
-				 * cluster gather  gather data from datanode
-				 *  group/agg          group group->pathkey
-				 *	 sort          sort by group->pathkey
-				 *		reduce     redistribute by group key
-				 */
-				if (!only_once)
-				{
-					ListCell	*cell;
-					ReduceInfo *rinfo;
-					List *reduce_info_list = NIL;
-					List *exclude_exec = NIL;
-					path = lfirst(lc);
-
-					/* if path depends on other,can't make reduce plan */
-					if(!bms_is_empty(PATH_REQ_OUTER(path)))
-						continue;
-
-					reduce_info_list = get_reduce_info_list(path);
-					if (NIL == reduce_info_list)
-						continue;
-
-					/* some type table don't need to reduce */
-					foreach(cell, reduce_info_list)
-					{
-						rinfo = lfirst(cell);
-						/* union exclude_exec list */
-						exclude_exec = list_union_oid(rinfo->exclude_exec, exclude_exec);
-					}
-					foreach(cell, groupExprs)
-					{
-						Expr* expr = lfirst(cell);
-
-						rinfo = MakeHashReduceInfo(rinfo->storage_nodes, exclude_exec, expr);
-						path = create_cluster_reduce_path(root,
-												  path,
-												  list_make1(rinfo),
-												  grouped_rel,
-												  root->group_pathkeys);
-						if(parse->hasAggs)
-						{
-							path = (Path *)
-									 create_agg_path(root,
-													 grouped_rel,
-													 path,
-													 target,
-													 parse->groupClause ? AGG_SORTED : AGG_PLAIN,
-													 AGGSPLIT_SIMPLE,
-													 parse->groupClause,
-													 (List *) parse->havingQual,
-													 &agg_final_costs,
-													 dNumPartialGroups);
-						}else
-						{
-							path = (Path *)
-									 create_group_path(root,
-													   grouped_rel,
-													   path,
-													   target,
-													   parse->groupClause,
-													   (List *) parse->havingQual,
-													   dNumPartialGroups);
-						}
-						add_cluster_path(grouped_rel, path);
-					}
-				}
 			}
 		}
-
-		if(can_hash)
+		/* create only_once hash plan */
+		if (can_hash)
 		{
 			bool only_once;
-			/* Checked above */
-			Assert(parse->hasAggs || parse->groupClause);
-
 			only_once = CanOnceGroupingClusterPath(target, cheapest_cluster_path);
 
-			if(only_once || grouped_rel->cluster_pathlist == NIL)
-			{
+			if(only_once)
 				add_cluster_path(grouped_rel, (Path*)
+							 create_agg_path(root,
+											 grouped_rel,
+											 cheapest_cluster_path,
+											 target,
+											 AGG_HASHED,
+											 AGGSPLIT_SIMPLE,
+											 parse->groupClause,
+											 NIL,
+											 agg_costs,
+											 dNumGroups));
+		}
+
+		/* check need to do */
+		if (NIL == grouped_rel->cluster_pathlist)
+		{
+			if (can_sort)
+			{
+				/* create none only_once path */
+				foreach(lc, input_rel->cluster_pathlist)
+				{
+					Path *path = lfirst(lc);
+					Path * sortPath = NULL;
+					bool is_sorted = pathkeys_contained_in(root->group_pathkeys,
+														path->pathkeys);
+					
+					must_once = false;
+					only_once = CanOnceGroupingClusterPath(target, path);
+					/* check need to do */
+					Assert(!only_once);
+
+					if(no_partial)
+						must_once = true;
+					/* try to change must_once to partial */
+					if (must_once && bms_is_empty(PATH_REQ_OUTER(path)))
+					{
+						Path *newPath = change_path_to_partial(root, path, groupExprs, grouped_rel);
+						if (NULL != newPath)
+						{
+							path = newPath;
+							only_once = true;
+							must_once = false;
+						}
+					}
+
+					sortPath = path;
+					if(!is_sorted)
+						sortPath = (Path*)create_sort_path(root,
+														grouped_rel,
+														sortPath,
+														root->group_pathkeys,
+														-1.0);
+
+					/* has changed must_once to partial */
+					if (only_once)
+					{
+						if (parse->hasAggs)
+							path = (Path*)create_agg_path(root,
+														grouped_rel,
+														sortPath,
+														target,
+									parse->groupClause ? AGG_SORTED : AGG_PLAIN,
+														AGGSPLIT_SIMPLE,
+														parse->groupClause,
+														NIL,
+														agg_costs,
+														dNumGroups);
+						else
+							path = (Path*)create_group_path(root,
+														grouped_rel,
+														sortPath,
+														target,
+														parse->groupClause,
+														NIL,
+														dNumGroups);
+						add_cluster_path(grouped_rel, path);
+					}
+					/* can't change to only once */
+					else
+					{
+						/* must_once is false */
+						if(!must_once &&
+							bms_is_empty(PATH_REQ_OUTER(path)))
+						{
+							/* create path sort->agg/group->gather/reduce to coordinator->agg/group */
+							if (parse->hasAggs)
+								path = (Path*)create_agg_path(root,
+															grouped_rel,
+															sortPath,
+															partial_grouping_target,
+										parse->groupClause ? AGG_SORTED : AGG_PLAIN,
+															AGGSPLIT_INITIAL_SERIAL,
+															parse->groupClause,
+															NIL,
+															&agg_partial_costs,
+															dNumPartialGroups);
+							else
+								path = (Path*)create_group_path(root,
+															grouped_rel,
+															sortPath,
+															partial_grouping_target,
+															parse->groupClause,
+															NIL,
+															dNumPartialGroups);
+
+							/* build gather path */
+							if(root->parent_root == NULL)
+							{
+								if(root->group_pathkeys)
+								{
+									Assert(NULL != path->pathkeys);
+									/* path has been sorted,used merge gather */
+									path = (Path*)
+										create_cluster_merge_gather_path(root,
+																		grouped_rel,
+																		path,
+																		path->pathkeys);
+								}else
+								{
+									path = (Path*)create_cluster_gather_path(path, grouped_rel);
+								}
+								
+							}else
+							{
+								path = create_cluster_reduce_path(root,
+																  path,
+																  list_make1(MakeCoordinatorReduceInfo()),
+																  grouped_rel,
+																  path->pathkeys);
+								/* now we not have reduce merge path,so we sort again */
+							}
+
+							Assert(pathkeys_contained_in(root->group_pathkeys, path->pathkeys));
+							/* build final path */
+							if(root->group_pathkeys &&
+								!pathkeys_contained_in(root->group_pathkeys, path->pathkeys))
+							{
+								/* This sort will execute on coordinator. */
+								path = (Path*)
+										create_sort_path(root, grouped_rel, path,
+														root->group_pathkeys, -1.0);
+							}
+
+							if(parse->hasAggs)
+							{
+								path = (Path *)
+										 create_agg_path(root,
+														 grouped_rel,
+														 path,
+														 target,
+												 parse->groupClause ? AGG_SORTED : AGG_PLAIN,
+														 AGGSPLIT_FINAL_DESERIAL,
+														 parse->groupClause,
+														 (List *) parse->havingQual,
+														 &agg_final_costs,
+														 dNumGroups);
+							}else
+							{
+								path = (Path *)
+										 create_group_path(root,
+														   grouped_rel,
+														   path,
+														   target,
+														   parse->groupClause,
+														   (List *) parse->havingQual,
+														   dNumGroups);
+							}
+							add_cluster_path(grouped_rel, path);
+						}
+						/* must_once is true */
+						else
+						{
+							/* create path sort->reduce to coordinato->agg/group */
+							if(bms_is_empty(PATH_REQ_OUTER(path)))
+							{
+								path = create_cluster_reduce_path(root,
+																  sortPath,
+																  list_make1(MakeCoordinatorReduceInfo()),
+																  grouped_rel,
+																  path->pathkeys);
+								if (parse->hasAggs)
+									path = (Path*)create_agg_path(root,
+																grouped_rel,
+																sortPath,
+																target,
+											parse->groupClause ? AGG_SORTED : AGG_PLAIN,
+																AGGSPLIT_SIMPLE,
+																parse->groupClause,
+																NIL,
+																agg_costs,
+																dNumGroups);
+								else
+									path = (Path*)create_group_path(root,
+																grouped_rel,
+																path,
+																target,
+																parse->groupClause,
+																NIL,
+																dNumGroups);
+
+								add_cluster_path(grouped_rel, path);
+							}
+						}
+
+						/*
+						 * Create path :
+						 * cluster gather  gather data from datanode
+						 *  group/agg          group group->pathkey
+						 *	 sort          sort by group->pathkey
+						 *		reduce     redistribute by group key
+						 */
+						{
+							ListCell	*cell;
+							ReduceInfo *rinfo;
+							List *reduce_info_list = NIL;
+							List *exclude_exec = NIL;
+							path = lfirst(lc);
+
+							/* if path depends on other,can't make reduce plan */
+							if(!bms_is_empty(PATH_REQ_OUTER(path)))
+								continue;
+
+							reduce_info_list = get_reduce_info_list(path);
+							if (NIL == reduce_info_list)
+								continue;
+
+							/* some type table don't need to reduce */
+							foreach(cell, reduce_info_list)
+							{
+								rinfo = lfirst(cell);
+								/* union exclude_exec list */
+								exclude_exec = list_union_oid(rinfo->exclude_exec, exclude_exec);
+							}
+							foreach(cell, groupExprs)
+							{
+								Expr* expr = lfirst(cell);
+
+								rinfo = MakeHashReduceInfo(rinfo->storage_nodes, exclude_exec, expr);
+								path = create_cluster_reduce_path(root,
+														  path,
+														  list_make1(rinfo),
+														  grouped_rel,
+														  root->group_pathkeys);
+								if(parse->hasAggs)
+								{
+									path = (Path *)
+											 create_agg_path(root,
+															 grouped_rel,
+															 path,
+															 target,
+															 parse->groupClause ? AGG_SORTED : AGG_PLAIN,
+															 AGGSPLIT_SIMPLE,
+															 parse->groupClause,
+															 (List *) parse->havingQual,
+															 agg_costs,
+															 dNumGroups);
+								}else
+								{
+									path = (Path *)
+											 create_group_path(root,
+															   grouped_rel,
+															   path,
+															   target,
+															   parse->groupClause,
+															   (List *) parse->havingQual,
+															   dNumGroups);
+								}
+								add_cluster_path(grouped_rel, path);
+							}
+						}
+					}					
+				}
+			}
+	
+			if (can_hash)
+			{
+				/* create none only_once path */
+				{
+					must_once = false;
+
+					only_once = CanOnceGroupingClusterPath(target, cheapest_cluster_path);
+					/* check need to do */
+					Assert(!only_once);
+					if(no_partial)
+						must_once = true;
+
+					/* try to change must_once to partial */
+					if (must_once && bms_is_empty(PATH_REQ_OUTER(cheapest_cluster_path)))
+					{
+						Path *newPath = change_path_to_partial(root, cheapest_cluster_path, groupExprs, grouped_rel);
+						if (NULL != newPath)
+						{
+							cheapest_cluster_path = newPath;
+							only_once = true;
+							must_once = false;
+						}
+					}
+
+					if (only_once)
+					{
+						add_cluster_path(grouped_rel, (Path*)
 								 create_agg_path(root,
 												 grouped_rel,
 												 cheapest_cluster_path,
@@ -4408,120 +4581,154 @@ create_grouping_paths(PlannerInfo *root,
 												 NIL,
 												 agg_costs,
 												 dNumGroups));
-			}
-
-			hashaggtablesize =
-				estimate_hashagg_tablesize(cheapest_cluster_path,
-										   &agg_partial_costs,
-										   dNumPartialGroups);
-
-			/*
-			 * Tentatively produce a partial HashAgg Path, depending on if it
-			 * looks as if the hash table will fit in work_mem.
-			 */
-			if (only_once == false &&
-				(hashaggtablesize < work_mem * 1024L ||
-				 grouped_rel->cluster_pathlist == NIL) &&
-				 /* if path depends on others,can't make reduce plan */
-				 (root->parent_root == NULL ||
-				 bms_is_empty(PATH_REQ_OUTER(cheapest_cluster_path))))
-			{
-				Path *path = (Path*)
-							create_agg_path(root,
-											grouped_rel,
-											cheapest_cluster_path,
-											partial_grouping_target,
-											AGG_HASHED,
-											AGGSPLIT_INITIAL_SERIAL,
-											parse->groupClause,
-											NIL,
-											&agg_partial_costs,
-											dNumPartialGroups);
-
-				if(root->parent_root == NULL)
-				{
-					path = (Path*)create_cluster_gather_path(path, grouped_rel);
-				}else
-				{
-					path = create_cluster_reduce_path(root,
-													  path,
-													  list_make1(MakeCoordinatorReduceInfo()),
-													  grouped_rel,
-													  NIL);
-				}
-
-				path = (Path*)
-						 create_agg_path(root,
-										 grouped_rel,
-										 path,
-										 target,
-										 AGG_HASHED,
-										 AGGSPLIT_FINAL_DESERIAL,
-										 parse->groupClause,
-										 (List *) parse->havingQual,
-										 &agg_final_costs,
-										 dNumGroups);
-				add_cluster_path(grouped_rel, path);
-
-				/*
-				 * Create path :
-				 * cluster gather  gather data from datanode
-				 *	 aggregate     hash key is all group keys
-				 *		reduce     redistribute by group key
-				 */
-				groupExprs = get_sortgrouplist_exprs(parse->groupClause,
-												parse->targetList);
-				foreach(lc, input_rel->cluster_pathlist)
-				{
-					Path *path = lfirst(lc);
-					ListCell	*cell;
-					ReduceInfo *rinfo;
-					List *reduce_info_list = NIL;
-					List *exclude_exec = NIL;
-
-					/* if path depends on other,can't make reduce plan */
-					if(!bms_is_empty(PATH_REQ_OUTER(path)))
-						continue;
-
-					reduce_info_list = get_reduce_info_list(path);
-					if (NIL == reduce_info_list)
-						continue;
-
-					/* some type table don't need to reduce */
-					foreach(cell, reduce_info_list)
-					{
-						rinfo = lfirst(cell);
-						/* union exclude_exec list */
-						exclude_exec = list_union_oid(rinfo->exclude_exec, exclude_exec);
 					}
-					foreach(cell, groupExprs)
+					else
 					{
-						Expr* expr = lfirst(cell);
+						/* must_once is false */
+						if (!must_once &&
+							/* if path depends on others,can't make reduce plan */
+							(root->parent_root == NULL ||
+							bms_is_empty(PATH_REQ_OUTER(cheapest_cluster_path))))
+						{
+							Path *path = NULL;
+							hashaggtablesize =
+							estimate_hashagg_tablesize(cheapest_cluster_path,
+													   &agg_partial_costs,
+													   dNumPartialGroups);
+							/*
+							 * Tentatively produce a partial HashAgg Path, depending on if it
+							 * looks as if the hash table will fit in work_mem.
+							 */
+							if (hashaggtablesize < work_mem * 1024L)
+							{
+								/* create path agg->gather/reduce to coordinator->agg */
+								path = (Path*)
+										create_agg_path(root,
+														grouped_rel,
+														cheapest_cluster_path,
+														partial_grouping_target,
+														AGG_HASHED,
+														AGGSPLIT_INITIAL_SERIAL,
+														parse->groupClause,
+														NIL,
+														&agg_partial_costs,
+														dNumPartialGroups);
+							}
 
-						rinfo = MakeHashReduceInfo(rinfo->storage_nodes, exclude_exec, expr);
-						path = create_cluster_reduce_path(root,
-												  path,
-												  list_make1(rinfo),
-												  grouped_rel,
-												  NIL);
-						path = (Path*)
-							create_agg_path(root,
-											grouped_rel,
-											path,
-											target,
-											AGG_HASHED,
-											AGGSPLIT_SIMPLE,
-											parse->groupClause,
-											(List *) parse->havingQual,
-											&agg_partial_costs,
-											dNumPartialGroups);
+							if(root->parent_root == NULL)
+							{
+								path = (Path*)create_cluster_gather_path(path, grouped_rel);
+							}else
+							{
+								path = create_cluster_reduce_path(root,
+																  path,
+																  list_make1(MakeCoordinatorReduceInfo()),
+																  grouped_rel,
+																  NIL);
+							}
 
-						add_cluster_path(grouped_rel, path);
+							path = (Path*)
+									 create_agg_path(root,
+													 grouped_rel,
+													 path,
+													 target,
+													 AGG_HASHED,
+													 AGGSPLIT_FINAL_DESERIAL,
+													 parse->groupClause,
+													 (List *) parse->havingQual,
+													 agg_costs,
+													 dNumGroups);
+							add_cluster_path(grouped_rel, path);
+						}
+						/* must_once is false */
+						else
+						{
+							/* create path reduce to coordinator->agg */
+
+							if(bms_is_empty(PATH_REQ_OUTER(cheapest_cluster_path)))
+							{
+								Path *path = (Path*)
+											create_cluster_reduce_path(root,
+																  cheapest_cluster_path,
+																  list_make1(MakeCoordinatorReduceInfo()),
+																  grouped_rel,
+																  NIL);
+
+								path = (Path*)
+										 create_agg_path(root,
+														 grouped_rel,
+														 path,
+														 target,
+														 AGG_HASHED,
+														 AGGSPLIT_FINAL_DESERIAL,
+														 parse->groupClause,
+														 (List *) parse->havingQual,
+														 &agg_final_costs,
+														 dNumGroups);
+
+								add_cluster_path(grouped_rel, path);
+							}
+
+						}
+
+						/*
+						 * Create path :
+						 * cluster gather  gather data from datanode
+						 *	 aggregate     hash key is all group keys
+						 *		reduce     redistribute by group key
+						 */
+						foreach(lc, input_rel->cluster_pathlist)
+						{
+							Path *path = lfirst(lc);
+							ListCell	*cell;
+							ReduceInfo *rinfo;
+							List *reduce_info_list = NIL;
+							List *exclude_exec = NIL;
+
+							/* if path depends on other,can't make reduce plan */
+							if(!bms_is_empty(PATH_REQ_OUTER(path)))
+								continue;
+
+							reduce_info_list = get_reduce_info_list(path);
+							if (NIL == reduce_info_list)
+								continue;
+
+							/* some type table don't need to reduce */
+							foreach(cell, reduce_info_list)
+							{
+								rinfo = lfirst(cell);
+								/* union exclude_exec list */
+								exclude_exec = list_union_oid(rinfo->exclude_exec, exclude_exec);
+							}
+							foreach(cell, groupExprs)
+							{
+								Expr* expr = lfirst(cell);
+
+								rinfo = MakeHashReduceInfo(rinfo->storage_nodes, exclude_exec, expr);
+								path = create_cluster_reduce_path(root,
+														  path,
+														  list_make1(rinfo),
+														  grouped_rel,
+														  NIL);
+								path = (Path*)
+									create_agg_path(root,
+													grouped_rel,
+													path,
+													target,
+													AGG_HASHED,
+													AGGSPLIT_SIMPLE,
+													parse->groupClause,
+													(List *) parse->havingQual,
+													agg_costs,
+													dNumGroups);
+								add_cluster_path(grouped_rel, path);
+							}
+						}
 					}
 				}
 			}
 		}
-	}
+}	
 #endif /* ADB */
 
 	/*
@@ -6235,6 +6442,43 @@ static bool is_remote_relation(PlannerInfo *root, Index relid)
 		relation_close(rel, NoLock);
 		return result;
 	}
+}
+
+static Path * change_path_to_partial(PlannerInfo *root, Path *path,
+							List *groupExprs, RelOptInfo *grouped_rel)
+{
+	List *reduce_info_list = get_reduce_info_list(path);
+	List *exclude_exec = NIL; /* node list which reduce don't run on */
+	ReduceInfo *rinfo = NULL;
+
+	if (NULL == root || NULL == path ||
+		NIL == groupExprs || NULL == grouped_rel)
+		return NULL;
+
+	if (NIL != reduce_info_list)
+	{
+		ListCell	*cell;
+		foreach(cell, reduce_info_list)
+		{
+			rinfo = lfirst(cell);
+			/* union exclude_exec list */
+			exclude_exec = list_union_oid(rinfo->exclude_exec, exclude_exec);
+		}
+
+		/* create reduce */
+		foreach(cell, groupExprs)
+		{
+			Expr* expr = lfirst(cell);
+			rinfo = MakeHashReduceInfo(rinfo->storage_nodes, exclude_exec, expr);
+			path = create_cluster_reduce_path(root,
+									  path,
+									  list_make1(rinfo),
+									  grouped_rel,
+									  NIL);
+			break;
+		}
+	}				
+	return path;
 }
 
 #endif /* ADB */
