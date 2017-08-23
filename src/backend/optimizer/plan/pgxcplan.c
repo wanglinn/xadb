@@ -1402,9 +1402,7 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 		char			*relname;
 
 		relcount++;
-		if (IsA(lfirst(lc_subpath), ClusterReducePath) ||
-			IsA(lfirst(lc_subpath), ClusterGatherPath) ||
-			IsA(lfirst(lc_subpath), ClusterMergeGatherPath))
+		if (have_cluster_path(lfirst(lc_subpath), NULL))
 			continue;
 
 		res_rel = rt_fetch(resultRelationIndex, root->parse->rtable);

@@ -1917,7 +1917,8 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			current_rel->partial_pathlist = NIL;
 		}
 #ifdef ADB
-		if(current_rel->cluster_pathlist &&
+		if (inheritance_update == false &&
+			current_rel->cluster_pathlist &&
 			!has_cluster_hazard((Node*)scanjoin_target->exprs))
 		{
 			foreach(lc, current_rel->cluster_pathlist)
@@ -2129,7 +2130,8 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 
 #ifdef ADB
 			/* try cluster insert plan */
-			if (root->glob->clusterPlanOK &&
+			if (inheritance_update == false &&
+				root->glob->clusterPlanOK &&
 				parse->commandType == CMD_INSERT &&
 				current_rel->cluster_pathlist == NIL &&
 				/* need this? safety add it */
