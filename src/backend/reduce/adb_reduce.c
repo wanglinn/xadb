@@ -535,7 +535,7 @@ GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot,
 				rdc_getmsgend(msg);
 
 				if (closed_remote)
-					*closed_remote = lappend_oid(*closed_remote, (Oid) rid);
+					*closed_remote = list_append_unique_oid(*closed_remote, (Oid) rid);
 			}
 			break;
 		default:

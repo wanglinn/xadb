@@ -555,10 +555,16 @@ ExecConnectReduce(PlanState *node)
 static void
 DriveClusterReduce(ClusterReduceState *node)
 {
-	if (!RdcSendEOF(node->port) && !RdcSendCLOSE(node->port))
+	if (!node->eof_network &&
+		!RdcSendEOF(node->port) &&
+		!RdcSendCLOSE(node->port))
 	{
 		int i;
-		SendRejectToRemote(node->port, PlanStateGetTargetNodes(node));
+
+		/* reject to get slot from remote, tell them */
+		if (list_member_oid(PlanStateGetTargetNodes(node), PGXCNodeOid))
+			SendRejectToRemote(node->port, PlanStateGetTargetNodes(node));
+
 		for (i = 0; i < node->nrdcs; i++)
 			node->rdc_entrys[i]->re_eof = true;
 		node->eof_network = true;

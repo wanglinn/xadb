@@ -931,8 +931,7 @@ BroadcastRdcClose(void)
 		rdc_node = &(rdc_nodes[i]);
 		rdc_port = rdc_node->port;
 
-		if (!PortIsValid(rdc_port) ||
-			RdcSendCLOSE(rdc_port))
+		if (!rdc_port || RdcSendCLOSE(rdc_port))
 			continue;
 
 		rdc_putmessage(rdc_port, msg.data, msg.len);
