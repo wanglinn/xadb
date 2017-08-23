@@ -340,19 +340,34 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 
 static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt, ParamListInfo param)
 {
+	ListCell *lc;
 	List *rte_list;
+	PlannedStmt *new_stmt;
 	Size size;
 
-	rte_list = stmt->rtable;
+	new_stmt = palloc(sizeof(*new_stmt));
+	memcpy(new_stmt, stmt, sizeof(*new_stmt));
+	new_stmt->rtable = NIL;
+
+	rte_list = NIL;
+	foreach(lc, stmt->rtable)
+	{
+		RangeTblEntry *rte = lfirst(lc);
+		if(rte->rtekind == RTE_RELATION &&
+			(rte->relkind == RELKIND_VIEW ||
+			 rte->relkind == RELKIND_FOREIGN_TABLE ||
+			 rte->relkind == RELKIND_MATVIEW)
+			)
+			rte->rtekind = RTE_REMOTE_DUMMY;
+		rte_list = lappend(rte_list, rte);
+	}
 	begin_mem_toc_insert(msg, REMOTE_KEY_RTE_LIST);
 	saveNodeAndHook(msg, (Node*)rte_list, SerializePlanHook, NULL);
 	end_mem_toc_insert(msg, REMOTE_KEY_RTE_LIST);
 
-	stmt->rtable = NIL;
 	begin_mem_toc_insert(msg, REMOTE_KEY_PLAN_STMT);
-	saveNodeAndHook(msg, (Node*)stmt, SerializePlanHook, NULL);
+	saveNodeAndHook(msg, (Node*)new_stmt, SerializePlanHook, NULL);
 	end_mem_toc_insert(msg, REMOTE_KEY_PLAN_STMT);
-	stmt->rtable = rte_list;
 
 	begin_mem_toc_insert(msg, REMOTE_KEY_PARAM);
 	SaveParamList(msg, param);
@@ -379,6 +394,9 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt, ParamListInfo p
 	begin_mem_toc_insert(msg, REMOTE_KEY_TRANSACTION_STATE);
 	SerializeClusterTransaction(msg);
 	end_mem_toc_insert(msg, REMOTE_KEY_TRANSACTION_STATE);
+
+	list_free(rte_list);
+	pfree(new_stmt);
 }
 
 /*
