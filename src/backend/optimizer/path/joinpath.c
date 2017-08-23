@@ -2170,7 +2170,7 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 				if(IsReduceInfoListCoordinator(outer_reduce_list))
 				{
 					/* reduce to coordinator */
-					Assert(IsReduceInfoListCoordinator(get_reduce_info_list(inner_cheapest_total)));
+					Assert(!IsReduceInfoListCoordinator(get_reduce_info_list(inner_cheapest_total)));
 					inner_cheapest_total = create_cluster_reduce_path(root,
 																	  inner_cheapest_total,
 																	  list_make1(MakeCoordinatorReduceInfo()),
