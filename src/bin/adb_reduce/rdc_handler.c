@@ -627,7 +627,7 @@ SendPlanMsgToPlan(PlanPort *pln_port, char msg_type, RdcPortId rdc_id, const cha
 	RSstate	   *rdcstore;
 	StringInfo	msg;
 
-	Assert(pln_port && pln_port->rdcstore);
+	Assert(pln_port);
 
 	/*
 	 * return if there is no worker of PlanPort.
@@ -649,6 +649,8 @@ SendPlanMsgToPlan(PlanPort *pln_port, char msg_type, RdcPortId rdc_id, const cha
 	 * so increase the number of receiving from reduce.
 	 */
 	pln_port->recv_from_rdc++;
+
+	Assert(pln_port->rdcstore);
 
 	rdcstore = pln_port->rdcstore;
 	msg = PlanMsgBuf(pln_port);
