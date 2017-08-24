@@ -4590,11 +4590,12 @@ create_grouping_paths(PlannerInfo *root,
 							(root->parent_root == NULL ||
 							bms_is_empty(PATH_REQ_OUTER(cheapest_cluster_path))))
 						{
-							Path *path = NULL;
+							Path *path = cheapest_cluster_path;
+							/* all data hash size partial agg and final agg must together */
 							hashaggtablesize =
-							estimate_hashagg_tablesize(cheapest_cluster_path,
-													   &agg_partial_costs,
-													   dNumPartialGroups);
+											estimate_hashagg_tablesize(cheapest_cluster_path,
+																	   agg_costs,
+																	   dNumGroups);
 							/*
 							 * Tentatively produce a partial HashAgg Path, depending on if it
 							 * looks as if the hash table will fit in work_mem.
@@ -4613,32 +4614,32 @@ create_grouping_paths(PlannerInfo *root,
 														NIL,
 														&agg_partial_costs,
 														dNumPartialGroups);
-							}
 
-							if(root->parent_root == NULL)
-							{
-								path = (Path*)create_cluster_gather_path(path, grouped_rel);
-							}else
-							{
-								path = create_cluster_reduce_path(root,
-																  path,
-																  list_make1(MakeCoordinatorReduceInfo()),
-																  grouped_rel,
-																  NIL);
-							}
+								if(root->parent_root == NULL)
+								{
+									path = (Path*)create_cluster_gather_path(path, grouped_rel);
+								}else
+								{
+									path = create_cluster_reduce_path(root,
+																	  path,
+																	  list_make1(MakeCoordinatorReduceInfo()),
+																	  grouped_rel,
+																	  NIL);
+								}
 
-							path = (Path*)
-									 create_agg_path(root,
-													 grouped_rel,
-													 path,
-													 target,
-													 AGG_HASHED,
-													 AGGSPLIT_FINAL_DESERIAL,
-													 parse->groupClause,
-													 (List *) parse->havingQual,
-													 agg_costs,
-													 dNumGroups);
-							add_cluster_path(grouped_rel, path);
+								path = (Path*)
+										 create_agg_path(root,
+														 grouped_rel,
+														 path,
+														 target,
+														 AGG_HASHED,
+														 AGGSPLIT_FINAL_DESERIAL,
+														 parse->groupClause,
+														 (List *) parse->havingQual,
+														 agg_costs,
+														 dNumGroups);
+								add_cluster_path(grouped_rel, path);
+							}
 						}
 						/* must_once is false */
 						else
