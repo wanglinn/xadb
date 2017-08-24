@@ -188,6 +188,87 @@ ReduceInfo *MakeReduceInfoAs(const ReduceInfo *reduce, List *params)
 	return rinfo;
 }
 
+ReduceInfo *ConvertReduceInfo(const ReduceInfo *reduce, const PathTarget *target, Index new_relid)
+{
+	ReduceInfo *new_reduce;
+
+	if (IsReduceInfoByValue(reduce))
+	{
+		List *attnos = ReduceInfoFindTarget(reduce, target);
+		if(attnos != NIL)
+		{
+			new_reduce = MakeReduceInfoAs(reduce, MakeVarList(attnos, new_relid, target));
+			list_free(attnos);
+		}else
+		{
+			List *exec_nodes = list_difference_oid(reduce->storage_nodes, reduce->exclude_exec);
+			new_reduce = MakeRoundReduceInfo(exec_nodes);
+		}
+	}else
+	{
+		new_reduce = CopyReduceInfo(reduce);
+	}
+
+	return new_reduce;
+}
+
+List *ConvertReduceInfoList(const List *reduce_list, const PathTarget *target, Index new_relid)
+{
+	const ListCell *lc;
+	ReduceInfo *new_reduce;
+	List *new_reduce_list = NIL;
+	List *round_reduce_list = NIL;
+
+	foreach(lc, reduce_list)
+	{
+		new_reduce = ConvertReduceInfo(lfirst(lc), target, new_relid);
+		if(IsReduceInfoRound(new_reduce))
+			round_reduce_list = lappend(round_reduce_list, new_reduce);
+		else
+			new_reduce_list = lappend(new_reduce_list, new_reduce);
+	}
+
+	if(new_reduce_list == NIL && round_reduce_list != NIL)
+	{
+		if(list_length(round_reduce_list) == 1)
+		{
+			new_reduce_list = round_reduce_list;
+			round_reduce_list = NIL;
+		}else
+		{
+			List *exec_node = ReduceInfoListGetExecuteOidList(round_reduce_list);
+			new_reduce = MakeRoundReduceInfo(exec_node);
+			new_reduce_list = list_make1(new_reduce);
+		}
+	}
+
+	FreeReduceInfoList(round_reduce_list);
+
+	return new_reduce_list;
+}
+
+void FreeReduceInfo(ReduceInfo *reduce)
+{
+	if(reduce)
+	{
+		list_free(reduce->storage_nodes);
+		list_free(reduce->exclude_exec);
+		list_free_deep(reduce->params);
+		if(reduce->expr)
+			pfree(reduce->expr);	/* not free all memory */
+		bms_free(reduce->relids);
+		pfree(reduce);
+	}
+}
+
+void FreeReduceInfoList(List *list)
+{
+	ListCell *lc;
+	foreach(lc, list)
+		FreeReduceInfo(lfirst(lc));
+	list_free(list);
+}
+
 List *SortOidList(List *list)
 {
 	Oid *oids;
@@ -326,8 +407,15 @@ bool IsReduceInfoExecuteSubset(const ReduceInfo *rinfo, List *oidlist)
 bool IsReduceInfoListExecuteSubset(List *reduce_info_list, List *oidlist)
 {
 	ListCell *lc;
-	List *execute_list = ReduceInfoListGetExecuteOidList(reduce_info_list);
-	bool result = true;
+	List *execute_list;
+	bool result;
+
+	/* further change replicate */
+	if(list_length(oidlist) == 1 && linitial_oid(oidlist) == InvalidOid)
+		return true;
+
+	execute_list = ReduceInfoListGetExecuteOidList(reduce_info_list);
+	result = true;
 	foreach(lc, execute_list)
 	{
 		if(list_member_oid(oidlist, lfirst_oid(lc)) == false)
@@ -463,10 +551,10 @@ bool ReduceInfoListIncludeExpr(List *reduceList, Expr *expr)
 /*
  * return found expr index(from 1) list
  */
-List* ReduceInfoFindTarget(ReduceInfo* reduce, PathTarget *target)
+List* ReduceInfoFindTarget(const ReduceInfo* reduce, const PathTarget *target)
 {
-	ListCell *lc_param;
-	ListCell *lc_target;
+	const ListCell *lc_param;
+	const ListCell *lc_target;
 	List *result = NIL;
 	AssertArg(target && reduce);
 	AssertArg(IsReduceInfoByValue(reduce));
@@ -492,9 +580,9 @@ List* ReduceInfoFindTarget(ReduceInfo* reduce, PathTarget *target)
 	return result;
 }
 
-extern List* MakeVarList(List *attnos, Index relid, PathTarget *target)
+extern List* MakeVarList(const List *attnos, Index relid, const PathTarget *target)
 {
-	Expr *expr;
+	const Expr *expr;
 	Var *var;
 	ListCell *lc;
 	List *result = NIL;

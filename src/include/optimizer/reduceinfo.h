@@ -41,6 +41,10 @@ extern ReduceInfo *MakeReplicateReduceInfo(const List *storage);
 extern ReduceInfo *MakeRoundReduceInfo(const List *storage);
 extern ReduceInfo *MakeCoordinatorReduceInfo(void);
 extern ReduceInfo *MakeReduceInfoAs(const ReduceInfo *reduce, List *params);
+extern ReduceInfo *ConvertReduceInfo(const ReduceInfo *reduce, const PathTarget *target, Index new_relid);
+extern List *ConvertReduceInfoList(const List *reduce_list, const PathTarget *target, Index new_relid);
+extern void FreeReduceInfo(ReduceInfo *reduce);
+extern void FreeReduceInfoList(List *list);
 extern List *SortOidList(List *list);
 
 #define IsReduceInfoByValue(r) ((r)->type == REDUCE_TYPE_HASH || \
@@ -78,8 +82,8 @@ extern bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int 
 extern int ReduceInfoIncludeExpr(ReduceInfo *reduce, Expr *expr);
 extern bool ReduceInfoListIncludeExpr(List *reduceList, Expr *expr);
 
-extern List* ReduceInfoFindTarget(ReduceInfo* reduce, PathTarget *target);
-extern List* MakeVarList(List *attnos, Index relid, PathTarget *target);
+extern List* ReduceInfoFindTarget(const ReduceInfo* reduce, const PathTarget *target);
+extern List* MakeVarList(const List *attnos, Index relid, const PathTarget *target);
 extern bool IsGroupingReduceExpr(PathTarget *target, ReduceInfo *info);
 extern bool IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
 									List *inner_reduce_list,
