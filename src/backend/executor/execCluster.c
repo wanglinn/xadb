@@ -287,6 +287,11 @@ ReducePlanWalker(Node *node, PlannedStmt *stmt)
 	{
 		SubPlan *subPlan = (SubPlan*)node;
 		return ReducePlanWalker(list_nth(stmt->subplans, subPlan->plan_id-1), stmt);
+	}else if(IsA(node, CteScan))
+	{
+		CteScan *cte = (CteScan*)node;
+		if(ReducePlanWalker(list_nth(stmt->subplans, cte->ctePlanId-1), stmt))
+			return true;
 	}
 
 	return node_tree_walker(node, ReducePlanWalker, stmt);
