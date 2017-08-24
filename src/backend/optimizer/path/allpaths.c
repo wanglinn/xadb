@@ -2459,6 +2459,24 @@ set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Generate appropriate path */
 	add_path(rel, create_ctescan_path(root, rel, required_outer));
+#ifdef ADB
+	if(root->glob->clusterPlanOK && bms_is_empty(required_outer))
+	{
+		PlannerInfo *subroot = list_nth(root->glob->subroots, plan_id - 1);
+		RelOptInfo *final_rel = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
+		if(final_rel->cheapest_cluster_total_path)
+		{
+			Path *path = create_ctescan_path(root, rel, NULL);
+			List *reduce_info_list = get_reduce_info_list(final_rel->cheapest_cluster_total_path);
+			cost_div(path, list_length(((ReduceInfo*)linitial(reduce_info_list))->storage_nodes));
+			path->reduce_info_list = ConvertReduceInfoList(reduce_info_list,
+														   subroot->upper_targets[UPPERREL_FINAL],
+														   rel->relid);
+			path->reduce_is_valid = true;
+			add_cluster_path(rel, path);
+		}
+	}
+#endif /* ADB */
 }
 
 /*

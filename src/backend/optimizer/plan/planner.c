@@ -175,6 +175,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 static bool is_remote_relation(PlannerInfo *root, Index relid);
 static Path * change_path_to_partial(PlannerInfo *root,Path *path,
 						List *groupExprs, RelOptInfo *grouped_rel);
+static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms);
 #endif
 
 
@@ -342,34 +343,54 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		PlannerInfo *subroot;
 		RelOptInfo *sub_final;
 		Path *path;
+		Bitmapset *cte_planids = NULL;
 		List *nodeOids = get_remote_nodes(NULL, best_path);
-		int sub_plan_id = 1;
+		int sub_plan_id;
+		Assert(glob->clusterPlanOK);
 
+		foreach(lc_subroot, root->glob->subroots)
+			cte_planids = find_cte_planid(lfirst(lc_subroot), cte_planids);
+		cte_planids = find_cte_planid(root, cte_planids);
+
+		sub_plan_id = 0;
 		forboth(lc_subroot, root->glob->subroots, lc_subplan, root->glob->subplans)
 		{
+			++sub_plan_id;
 			subroot = lfirst(lc_subroot);
 			sub_final = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
-			Assert(sub_final->cheapest_replicate_path != NULL);
-			path = sub_final->cheapest_replicate_path;
-			if(IsA(path, ClusterReducePath))
-			{
-				/* change replicate to all remote nodes */
-				ReduceInfo *rinfo;
-				Assert(path->reduce_is_valid &&
-					   IsReduceInfoListReplicated(path->reduce_info_list));
 
-				rinfo = linitial(path->reduce_info_list);
-				rinfo->storage_nodes = nodeOids;
+			if(bms_is_member(sub_plan_id, cte_planids))
+			{
+				/*
+				 * we clear cheapest replicate path
+				 * see function get_remote_nodes
+				 */
+				sub_final->cheapest_replicate_path = NULL;
+				Assert(sub_final->cheapest_cluster_total_path);
+				path = sub_final->cheapest_cluster_total_path;
+			}else
+			{
+				Assert(sub_final->cheapest_replicate_path != NULL);
+				path = sub_final->cheapest_replicate_path;
+				if(IsA(path, ClusterReducePath))
+				{
+					/* change replicate to all remote nodes */
+					ReduceInfo *rinfo;
+					Assert(path->reduce_is_valid &&
+						   IsReduceInfoListReplicated(path->reduce_info_list));
+
+					rinfo = linitial(path->reduce_info_list);
+					rinfo->storage_nodes = nodeOids;
+				}
+
+				if (bms_is_member(sub_plan_id, glob->rewindPlanIDs) &&
+					!ExecMaterializesOutput(path->pathtype))
+					path = (Path*)create_material_path(sub_final, path);
 			}
 
-			if (bms_is_member(sub_plan_id, glob->rewindPlanIDs) &&
-				!ExecMaterializesOutput(path->pathtype))
-				path = (Path*)create_material_path(sub_final, path);
-
 			lfirst(lc_subplan) = create_plan(subroot, path);
-			++sub_plan_id;
 		}
-
+		bms_free(cte_planids);
 	}
 #endif /* ADB */
 
@@ -6480,6 +6501,24 @@ static Path * change_path_to_partial(PlannerInfo *root, Path *path,
 		}
 	}				
 	return path;
+}
+
+static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms)
+{
+	ListCell *lc;
+	RelOptInfo *rel;
+
+	int i,count;
+	foreach(lc, root->cte_plan_ids)
+		bms = bms_add_member(bms, lfirst_int(lc));
+
+	for(i=1,count=root->simple_rel_array_size;i<count;++i)
+	{
+		rel = root->simple_rel_array[i];
+		if(rel->subroot)
+			bms = find_cte_planid(rel->subroot, bms);
+	}
+	return bms;
 }
 
 #endif /* ADB */

@@ -1241,6 +1241,14 @@ SS_process_ctes(PlannerInfo *root)
 		 * seems no reason to postpone doing that.
 		 */
 		final_rel = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
+#ifdef ADB
+		/* cluster plan we need replicate path */
+		if (root->glob->clusterPlanOK &&
+			final_rel->cheapest_cluster_total_path == NULL)
+		{
+			root->glob->clusterPlanOK = false;
+		}
+#endif /* ADB */
 		best_path = final_rel->cheapest_total_path;
 
 		plan = create_plan(subroot, best_path);
@@ -2232,6 +2240,21 @@ SS_charge_for_initplans(PlannerInfo *root, RelOptInfo *final_rel)
 	/* We needn't do set_cheapest() here, caller will do it */
 }
 
+#ifdef ADB
+static bool set_cluster_gather_init_plan_walker(Plan *plan, List *init_plans)
+{
+	if(plan == NULL)
+		return false;
+	if (IsA(plan, ClusterGather) ||
+		IsA(plan, ClusterMergeGather))
+	{
+		plan->initPlan = init_plans;
+		return true;
+	}
+	return plan_tree_walker(plan, set_cluster_gather_init_plan_walker, init_plans);
+}
+
+#endif /* ADB */
 /*
  * SS_attach_initplans - attach initplans to topmost plan node
  *
@@ -2248,14 +2271,34 @@ SS_attach_initplans(PlannerInfo *root, Plan *plan)
 {
 #ifdef ADB
 	/* we need send initPlan to remote */
-	if (IsA(plan, ClusterGather) ||
-		IsA(plan, ClusterMergeGather))
-		outerPlan(plan)->initPlan = root->init_plans;
-	else
+	if (!set_cluster_gather_init_plan_walker(plan, root->init_plans))
 #endif /* ADB */
 	plan->initPlan = root->init_plans;
 }
 
+#ifdef ADB
+static bool SS_finalize_plan_walker(Plan *plan, PlannerInfo *root)
+{
+	if (plan == NULL)
+		return false;
+
+	if (IsA(plan, ClusterGather) ||
+		IsA(plan, ClusterMergeGather))
+	{
+		(void)finalize_plan(root, outerPlan(plan), root->outer_params, NULL);
+		plan->allParam = bms_copy(outerPlan(plan)->allParam);
+		plan->extParam = bms_copy(outerPlan(plan)->extParam);
+		return true;
+	}
+	if(plan_tree_walker(plan, SS_finalize_plan_walker, root))
+	{
+		plan->allParam = bms_copy(outerPlan(plan)->allParam);
+		plan->extParam = bms_copy(outerPlan(plan)->extParam);
+		return true;
+	}
+	return false;
+}
+#endif
 /*
  * SS_finalize_plan - do final parameter processing for a completed Plan.
  *
@@ -2270,13 +2313,7 @@ SS_finalize_plan(PlannerInfo *root, Plan *plan)
 {
 	/* No setup needed, just recurse through plan tree. */
 #ifdef ADB
-	if (IsA(plan, ClusterGather) ||
-		IsA(plan, ClusterMergeGather))
-	{
-		(void)finalize_plan(root, outerPlan(plan), root->outer_params, NULL);
-		plan->allParam = bms_copy(outerPlan(plan)->allParam);
-		plan->extParam = bms_copy(outerPlan(plan)->extParam);
-	}else
+	if (!SS_finalize_plan_walker(plan, root))
 #endif /* ADB */
 	(void) finalize_plan(root, plan, root->outer_params, NULL);
 }

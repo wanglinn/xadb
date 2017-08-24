@@ -6453,14 +6453,15 @@ List* get_remote_nodes(PlannerInfo *root, Path *path)
 		{
 			PlannerInfo *subroot = lfirst(lc);
 			RelOptInfo *rel = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
-			/* for now we only can using cheapest_cluster_total_path */
 			if(rel->cheapest_replicate_path == NULL)
 			{
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						errmsg("only support replicate cluster subplan path")));
+				/* cte scan */
+				htab = get_path_execute_on(rel->cheapest_cluster_total_path, htab);
+			}else
+			{
+				/* subplan */
+				htab = get_path_execute_on(rel->cheapest_replicate_path, htab);
 			}
-			htab = get_path_execute_on(rel->cheapest_replicate_path, htab);
 		}
 	}
 
@@ -6596,37 +6597,10 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 		}
 		break;
 	case T_SubqueryScanPath:
-		{
-			ReduceInfo *rinfo;
-			ReduceInfo *newInfo;
-			ListCell *lc;
-			PathTarget *sub_target;
-
-			sub_target = path->parent->subroot->upper_targets[UPPERREL_FINAL];
-			foreach(lc, *pplist)
-			{
-				newInfo = NULL;
-				rinfo = lfirst(lc);
-				if(IsReduceInfoByValue(rinfo))
-				{
-					List *attnos = ReduceInfoFindTarget(rinfo, sub_target);
-					if(attnos != NIL)
-					{
-						newInfo = MakeReduceInfoAs(rinfo, MakeVarList(attnos, path->parent->relid, path->pathtarget));
-						list_free(attnos);
-					}
-				}else if(IsReduceInfoCoordinator(rinfo) ||
-						 IsReduceInfoReplicated(rinfo) ||
-						 IsReduceInfoRound(rinfo))
-				{
-					newInfo = rinfo;
-				}
-
-				if(newInfo)
-					path->reduce_info_list = lappend(path->reduce_info_list, newInfo);
-			}
-			path->reduce_is_valid = true;
-		}
+		path->reduce_info_list = ConvertReduceInfoList(*pplist,
+													   path->parent->subroot->upper_targets[UPPERREL_FINAL],
+													   path->parent->relid);
+		path->reduce_is_valid = true;
 		break;
 	case T_HashPath:
 	case T_MergePath:
