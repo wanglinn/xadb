@@ -628,7 +628,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errmsg("coordinator \"%s\" is not running normal", m_coordname)));
 	}
 	/* check the source coordinator the parameters in postgresql.conf */
-	if (!mgr_check_param_reload_postgresqlconf(CNDN_TYPE_COORDINATOR_MASTER, src_nodeinfo.nodehost, src_nodeinfo.nodeport, src_nodeinfo.nodeaddr, "wal_level", "hot_standby"))
+	if (!mgr_check_param_reload_postgresqlconf(CNDN_TYPE_COORDINATOR_MASTER, src_nodeinfo.nodehost, src_nodeinfo.nodeport, src_nodeinfo.nodeaddr, "wal_level", "replica"))
 	{
 		pfree_AppendNodeInfo(src_nodeinfo);
 		ereport(ERROR, (errmsg("the parameter \"wal_level\" in coordinator \"%s\" postgresql.conf is not \"hot_standby\"", m_coordname)));
@@ -760,7 +760,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	/* set all node's pg_hba.conf to allow the new coordiantor to connect */
 	ereport(NOTICE, (errmsg("add address of coordinator \"%s\" on all nodes pg_hba.conf in cluster", s_coordname)));
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
-	rel_scan = heap_beginscan(rel_node, SnapshotNow, 0, key);
+	rel_scan = heap_beginscan_catalog(rel_node, 0, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1197,7 +1197,7 @@ static bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, c
 		,F_CHAREQ
 		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
-	rel_scan = heap_beginscan(rel_node, SnapshotNow, 3, key);
+	rel_scan = heap_beginscan_catalog(rel_node, 3, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
