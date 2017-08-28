@@ -97,7 +97,20 @@ create_upper_paths_hook_type create_upper_paths_hook = NULL;
 	(enable_cluster_plan && (option & CURSOR_OPT_PARALLEL_OK) != 0 && \
 		IsUnderPostmaster && (parse_)->utilityStmt == NULL &&		\
 		!IsParallelWorker() && !has_cluster_hazard((Node*) (parse_)))
+
+typedef struct CreateDistinctPathsContext
+{
+	RelOptInfo *distinct_rel;
+	RelOptInfo *input_rel;
+	List	   *distinct_clause;
+	List	   *needed_pathkeys;
+	double		num_distinct_rows;
+	bool		can_sort;
+	bool		can_hash;
+}CreateDistinctPathsContext;
+
 #endif /* ADB */
+
 /* Passthrough data for standard_qp_callback */
 typedef struct
 {
@@ -176,6 +189,7 @@ static bool is_remote_relation(PlannerInfo *root, Index relid);
 static Path * change_path_to_partial(PlannerInfo *root,Path *path,
 						List *groupExprs, RelOptInfo *grouped_rel);
 static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms);
+static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *context);
 #endif
 
 
@@ -4981,6 +4995,9 @@ create_distinct_paths(PlannerInfo *root,
 	Path	   *path;
 	ListCell   *lc;
 	List	   *distinctExprs;
+#ifdef ADB
+	CreateDistinctPathsContext dcontext;
+#endif /* ADB */
 
 	/* For now, do all work in the (DISTINCT, NULL) upperrel */
 	distinct_rel = fetch_upper_rel(root, UPPERREL_DISTINCT, NULL);
@@ -5030,6 +5047,14 @@ create_distinct_paths(PlannerInfo *root,
 	if(distinctExprs == NIL && input_rel->cluster_pathlist != NIL)
 		distinctExprs = get_sortgrouplist_exprs(parse->distinctClause,
 												parse->targetList);
+	MemSet(&dcontext, 0, sizeof(dcontext));
+	dcontext.distinct_rel = distinct_rel;
+	dcontext.input_rel = input_rel;
+	dcontext.distinct_clause = parse->distinctClause;
+	/*dcontext.needed_pathkeys = NIL;*/
+	dcontext.num_distinct_rows = numDistinctRows;
+	/*dcontext.can_sort = grouping_is_sortable(parse->distinctClause);
+	dcontext.can_hash = grouping_is_hashable(parse->distinctClause);*/
 #endif /* ADB */
 
 	/*
@@ -5071,6 +5096,24 @@ create_distinct_paths(PlannerInfo *root,
 												  numDistinctRows));
 			}
 		}
+#ifdef ADB
+		dcontext.needed_pathkeys = needed_pathkeys;
+		dcontext.can_sort = true;
+		dcontext.can_hash = false;
+		foreach(lc, input_rel->cluster_pathlist)
+		{
+			Path	   *path = (Path*) lfirst(lc);
+			List	   *reduce_list = get_reduce_info_list(path);
+
+			if (IsReduceInfoListCoordinator(reduce_list) ||
+				IsReduceInfoListReplicated(reduce_list) ||
+				IsReduceInfoListInOneNode(reduce_list) ||
+				CanOnceDistinctReduceInfoList(distinctExprs, reduce_list))
+			{
+				create_cluster_distinct_path(root, path, &dcontext);
+			}
+		}
+#endif /* ADB */
 
 		/* For explicit-sort case, always use the more rigorous clause */
 		if (list_length(root->distinct_pathkeys) <
@@ -5097,29 +5140,21 @@ create_distinct_paths(PlannerInfo *root,
 										list_length(root->distinct_pathkeys),
 										  numDistinctRows));
 #ifdef ADB
-		foreach(lc, input_rel->cluster_pathlist)
+		if(needed_pathkeys != dcontext.needed_pathkeys)
 		{
-			Path	   *path = (Path*) lfirst(lc);
-			List	   *reduce_list = get_reduce_info_list(path);
-
-			if (IsReduceInfoListCoordinator(reduce_list) ||
-				IsReduceInfoListReplicated(reduce_list) ||
-				IsReduceInfoListInOneNode(reduce_list) ||
-				CanOnceDistinctReduceInfoList(distinctExprs, reduce_list))
+			dcontext.needed_pathkeys = needed_pathkeys;
+			foreach(lc, input_rel->cluster_pathlist)
 			{
-				if (!pathkeys_contained_in(root->distinct_pathkeys, path->pathkeys))
-					path = (Path*) create_sort_path(root,
-													distinct_rel,
-													path,
-													needed_pathkeys,
-													-1.0);
+				Path	   *path = (Path*) lfirst(lc);
+				List	   *reduce_list = get_reduce_info_list(path);
 
-				path = (Path*)create_upper_unique_path(root,
-													   distinct_rel,
-													   path,
-													   list_length(root->distinct_pathkeys),
-													   numDistinctRows);
-				add_cluster_path(distinct_rel, path);
+				if (IsReduceInfoListCoordinator(reduce_list) ||
+					IsReduceInfoListReplicated(reduce_list) ||
+					IsReduceInfoListInOneNode(reduce_list) ||
+					CanOnceDistinctReduceInfoList(distinctExprs, reduce_list))
+				{
+					create_cluster_distinct_path(root, path, &dcontext);
+				}
 			}
 		}
 #endif /* ADB */
@@ -5174,6 +5209,8 @@ create_distinct_paths(PlannerInfo *root,
 #ifdef ADB
 	if (grouping_is_hashable(parse->distinctClause))
 	{
+		dcontext.can_sort = false;
+		dcontext.can_hash = true;
 		foreach(lc, input_rel->cluster_pathlist)
 		{
 			Path	   *path = (Path*) lfirst(lc);
@@ -5184,67 +5221,7 @@ create_distinct_paths(PlannerInfo *root,
 				IsReduceInfoListInOneNode(reduce_list) ||
 				CanOnceDistinctReduceInfoList(distinctExprs, reduce_list))
 			{
-				path = (Path*)create_agg_path(root,
-											  distinct_rel,
-											  path,
-											  path->pathtarget,
-											  AGG_HASHED,
-											  AGGSPLIT_SIMPLE,
-											  parse->distinctClause,
-											  NIL,
-											  NULL,
-											  numDistinctRows);
-				add_cluster_path(distinct_rel, path);
-			}
-		}
-	}
-
-	if (distinct_rel->cluster_pathlist == NIL &&
-		input_rel->cluster_pathlist != NIL)
-	{
-		bool can_hash = grouping_is_hashable(parse->distinctClause);
-		bool can_sort = grouping_is_sortable(parse->distinctClause);
-		/* reduct to coordinator */
-		foreach(lc, input_rel->cluster_pathlist)
-		{
-			Path	   *path = (Path*) lfirst(lc);
-			Path	   *reduce = create_cluster_reduce_path(root,
-															path,
-															list_make1(MakeCoordinatorReduceInfo()),
-															input_rel,
-															NIL);
-
-			/* first create sort distinct */
-			if(can_sort)
-			{
-				path = (Path*)create_sort_path(root,
-											   distinct_rel,
-											   reduce,
-											   root->distinct_pathkeys,
-											   -1.0);
-				path = (Path*)create_upper_unique_path(root,
-													   distinct_rel,
-													   path,
-													   list_length(root->distinct_pathkeys),
-													   numDistinctRows);
-				add_cluster_path(distinct_rel, path);
-			}
-
-			if(can_hash)
-			{
-				/* create hash distinct */
-				path = (Path*)create_agg_path(root,
-											  distinct_rel,
-											  reduce,
-											  reduce->pathtarget,
-											  AGG_HASHED,
-											  AGGSPLIT_SIMPLE,
-											  parse->distinctClause,
-											  NIL,
-											  NULL,
-											  numDistinctRows);
-				add_cluster_path(distinct_rel, path);
-				/* need tow step hash distinct? */
+				create_cluster_distinct_path(root, path, &dcontext);
 			}
 		}
 	}
@@ -5256,6 +5233,62 @@ create_distinct_paths(PlannerInfo *root,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("could not implement DISTINCT"),
 				 errdetail("Some of the datatypes only support hashing, while others only support sorting.")));
+
+#ifdef ADB
+	if (distinct_rel->cluster_pathlist == NIL &&
+		input_rel->cluster_pathlist != NIL)
+	{
+		List *reduce_list;
+		List *storage_list;
+		List *exclude_list;
+		Assert(distinctExprs != NIL);
+
+		dcontext.can_hash = grouping_is_hashable(parse->distinctClause);
+		dcontext.can_sort = grouping_is_sortable(parse->distinctClause);
+		/* when can sort don't need set needed_pathkeys again */
+		Assert(dcontext.can_sort || dcontext.can_hash);
+
+		foreach(lc, input_rel->cluster_pathlist)
+		{
+			List	   *save_pathlist;
+			List	   *new_pathlist;
+			Path	   *path = (Path*) lfirst(lc);
+			reduce_list = get_reduce_info_list(path);
+
+			Assert(!IsReduceInfoListCoordinator(reduce_list) &&
+				   !IsReduceInfoListReplicated(reduce_list));
+
+			ReduceInfoListGetStorageAndExcludeOidList(reduce_list, &storage_list, &exclude_list);
+
+			/* echo node distinct first */
+			save_pathlist = distinct_rel->cluster_pathlist;
+			distinct_rel->cluster_pathlist = NIL;
+			create_cluster_distinct_path(root, path, &dcontext);
+			new_pathlist = distinct_rel->cluster_pathlist;
+			distinct_rel->cluster_pathlist = save_pathlist;
+
+			new_pathlist = lappend(new_pathlist, path);
+
+			/* reduce distincted and distinct again */
+			ReducePathListByExpr((Expr*)distinctExprs,
+								 root,
+								 input_rel,
+								 new_pathlist,
+								 storage_list,
+								 exclude_list,
+								 create_cluster_distinct_path,
+								 &dcontext,
+								 REDUCE_TYPE_HASH,
+								 REDUCE_TYPE_MODULO,
+								 REDUCE_TYPE_COORDINATOR,
+								 REDUCE_TYPE_NONE);
+
+			list_free(storage_list);
+			list_free(exclude_list);
+			list_free(new_pathlist);
+		}
+	}
+#endif /* ADB */
 
 	/*
 	 * If there is an FDW that's responsible for all baserels of the query,
@@ -6521,4 +6554,48 @@ static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms)
 	return bms;
 }
 
+static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *context)
+{
+	Path *path;
+	CreateDistinctPathsContext *dcontext = (CreateDistinctPathsContext*)context;
+	List *reduce_list = get_reduce_info_list(subpath);
+
+	if(dcontext->can_sort)
+	{
+		if(!pathkeys_contained_in(dcontext->needed_pathkeys, subpath->pathkeys))
+			path = (Path*)create_sort_path(root,
+										   dcontext->input_rel,
+										   subpath,
+										   dcontext->needed_pathkeys,
+										   -1.0);
+		else
+			path = subpath;
+		path = (Path*)create_upper_unique_path(root,
+											   dcontext->distinct_rel,
+											   path,
+											   list_length(dcontext->needed_pathkeys),
+											   dcontext->num_distinct_rows);
+		path->reduce_info_list = CopyReduceInfoList(reduce_list);
+		path->reduce_is_valid = true;
+		add_cluster_path(dcontext->distinct_rel, path);
+	}
+
+	if(dcontext->can_hash)
+	{
+		path = (Path*)create_agg_path(root,
+									  dcontext->distinct_rel,
+									  subpath,
+									  subpath->pathtarget,
+									  AGG_HASHED,
+									  AGGSPLIT_SIMPLE,
+									  dcontext->distinct_clause,
+									  NIL,
+									  NULL,
+									  dcontext->num_distinct_rows);
+		path->reduce_info_list = CopyReduceInfoList(reduce_list);
+		path->reduce_is_valid = true;
+		add_cluster_path(dcontext->distinct_rel, path);
+	}
+	return 0;
+}
 #endif /* ADB */
