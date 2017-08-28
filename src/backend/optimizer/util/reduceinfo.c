@@ -1,5 +1,8 @@
 #include "postgres.h"
 
+#include "access/htup_details.h"
+#include "catalog/namespace.h"
+#include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -9,12 +12,15 @@
 #include "optimizer/clauses.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/planmain.h"
+#include "parser/parser.h"
 #include "parser/parse_coerce.h"
+#include "parser/parse_oper.h"
 #include "pgxc/pgxc.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
+#include "utils/syscache.h"
 #include "utils/typcache.h"
 
 #include "optimizer/reduceinfo.h"
@@ -297,6 +303,368 @@ List *SortOidList(List *list)
 	return list;
 }
 
+static int ReducePathInternal(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path, List *storage, List *exclude,
+					   ReducePathCallback_function func, void *context,
+					   ReduceInfo *(*MakeFunc)(const List *storage, const List *exclude, const Expr *param))
+{
+	ListCell *lc;
+	ReduceInfo *new_reduce_info;
+	List *old_reduce_list;
+	Path *new_path;
+	int result;
+	if(PATH_REQ_OUTER(path))
+		return 0;
+
+	new_reduce_info = (*MakeFunc)(storage, exclude, expr);
+	old_reduce_list = get_reduce_info_list(path);
+	new_path = NULL;
+	foreach(lc, old_reduce_list)
+	{
+		if(IsReduceInfoEqual(new_reduce_info, lfirst(lc)))
+		{
+			new_path = path;
+			FreeReduceInfo(new_reduce_info);
+			new_reduce_info = NULL;
+			break;
+		}
+	}
+
+	if(new_path == NULL)
+	{
+		Assert(new_reduce_info != NULL);
+		new_path = create_cluster_reduce_path(root, path, list_make1(new_reduce_info), rel, NIL);
+	}
+
+	result = (*func)(root, new_path, context);
+	if(result < 0)
+		return result;
+
+	if(new_reduce_info != NULL && path->pathkeys != NIL)
+	{
+		new_path = create_cluster_reduce_path(root, path, list_make1(CopyReduceInfo(new_reduce_info)), rel, path->pathkeys);
+		result = (*func)(root, new_path, context);
+	}
+
+	return 0;
+}
+
+int HashPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+				   List *storage, List *exclude,
+				   ReducePathCallback_function func, void *context)
+{
+	int result;
+	AssertArg(expr && root && rel && path && storage && func);
+	if(IsA(expr, List))
+	{
+		ListCell *lc;
+		result = 0;
+		foreach(lc, (List*)expr)
+		{
+			if(!IsTypeDistributable(exprType(lfirst(lc))))
+				continue;
+			result = ReducePathInternal(lfirst(lc), root, rel, path, storage, exclude, func, context, MakeHashReduceInfo);
+			if(result < 0)
+				break;
+		}
+	}else if(IsTypeDistributable(exprType((Node*)expr)))
+	{
+		result = ReducePathInternal(expr, root, rel, path, storage, exclude, func, context, MakeHashReduceInfo);
+	}else
+	{
+		result = 0;
+	}
+	return 0;
+}
+
+int HashPathListByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+					   List *storage, List *exclude,
+					   ReducePathCallback_function func, void *context)
+{
+	ListCell *lc;
+	int result = 0;
+	foreach(lc, pathlist)
+	{
+		result = HashPathByExpr(expr, root, rel, lfirst(lc), storage, exclude, func, context);
+		if(result < 0)
+			break;
+	}
+	return result;
+}
+
+int ModuloPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+					 List *storage, List *exclude,
+					 ReducePathCallback_function func, void *context)
+{
+	int result;
+	if(IsA(expr, List))
+	{
+		ListCell *lc;
+		result = 0;
+		foreach(lc, (List*)expr)
+		{
+			if(!CanModuloType(exprType(lfirst(lc)), true))
+				continue;
+			result = ReducePathInternal(lfirst(lc), root, rel, path, storage, exclude, func, context, MakeModuloReduceInfo);
+			if(result < 0)
+				break;
+		}
+	}else if(CanModuloType(exprType((Node*)expr), true))
+	{
+		result = ReducePathInternal(expr, root, rel, path, storage, exclude, func, context, MakeModuloReduceInfo);
+	}else
+	{
+		result = 0;
+	}
+	return result;
+}
+
+int ModuloPathListByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+						 List *storage, List *exclude,
+						 ReducePathCallback_function func, void *context)
+{
+	ListCell *lc;
+	int result = 0;
+	foreach(lc, pathlist)
+	{
+		result = ModuloPathByExpr(expr, root, rel, lfirst(lc), storage, exclude, func, context);
+		if(result < 0)
+			break;
+	}
+	return result;
+}
+
+static ReduceInfo *MakeCoordinatorReduceInfo_private(const List *storage, const List *exclude, const Expr *param)
+{
+	return MakeCoordinatorReduceInfo();
+}
+int CoordinatorPath(PlannerInfo *root, RelOptInfo *rel, Path *path,
+					ReducePathCallback_function func, void *context)
+{
+	return ReducePathInternal(NULL, root, rel, path, NIL, NIL, func, context, MakeCoordinatorReduceInfo_private);
+}
+
+int CoordinatorPathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+						ReducePathCallback_function func, void *context)
+{
+	ListCell *lc;
+	int result = 0;
+	foreach(lc, pathlist)
+	{
+		result = CoordinatorPath(root, rel, lfirst(lc), func, context);
+		if(result < 0)
+			break;
+	}
+	return result;
+}
+
+static ReduceInfo *MakeReplicateReduceInfo_private(const List *storage, const List *exclude, const Expr *param)
+{
+	return MakeReplicateReduceInfo(storage);
+}
+int ReplicatePath(PlannerInfo *root, RelOptInfo *rel, Path *path, List *storage,
+						 ReducePathCallback_function func, void *context)
+{
+	return ReducePathInternal(NULL, root, rel, path, storage, NIL, func, context, MakeReplicateReduceInfo_private);
+}
+
+int ReplicatePathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist, List *storage,
+							  ReducePathCallback_function func, void *context)
+{
+	ListCell *lc;
+	int result = 0;
+	foreach(lc, pathlist)
+	{
+		result = ReplicatePath(root, rel, lfirst(lc), storage, func, context);
+		if(result < 0)
+			break;
+	}
+	return result;
+}
+
+/* last arg must REDUCE_TYPE_NONE */
+int ReducePathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+								List *storage, List *exclude,
+								ReducePathCallback_function func, void *context, ...)
+{
+	va_list args;
+	int result;
+
+	va_start(args, context);
+	result = ReducePathByExprVA(expr, root, rel, path, storage, exclude, func, context, args);
+	va_end(args);
+
+	return result;
+}
+
+int ReducePathListByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist, List *storage, List *exclude,
+						 ReducePathCallback_function func, void *context, ...)
+{
+	va_list args;
+	ListCell *lc;
+	int result = 0;
+
+	foreach(lc, pathlist)
+	{
+		va_start(args, context);
+		result = ReducePathByExprVA(expr, root, rel, lfirst(lc), storage, exclude, func, context, args);
+		va_end(args);
+		if(result < 0)
+			break;
+	}
+
+	return result;
+}
+
+int ReducePathByReduceInfo(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+						   ReducePathCallback_function func, void *context, ReduceInfo *reduce)
+{
+	return ReducePathByExpr(expr,
+							root,
+							rel,
+							path,
+							reduce->storage_nodes,
+							reduce->exclude_exec,
+							func,
+							context,
+							reduce->type,
+							REDUCE_TYPE_NONE);
+}
+
+int ReducePathListByReduceInfo(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+							   ReducePathCallback_function func, void *context, ReduceInfo *reduce)
+{
+	ListCell *lc;
+	int result = 0;
+
+	foreach(lc, pathlist)
+	{
+		result = ReducePathByExpr(expr,
+								  root,
+								  rel,
+								  lfirst(lc),
+								  reduce->storage_nodes,
+								  reduce->exclude_exec,
+								  func,
+								  context,
+								  reduce->type,
+								  REDUCE_TYPE_NONE);
+		if(result < 0)
+			break;
+	}
+
+	return result;
+}
+
+int ReducePathByReduceInfoList(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+							   ReducePathCallback_function func, void *context, List *reduce_list)
+{
+	ListCell *lc;
+	ReduceInfo *reduce;
+	int result = 0;
+
+	foreach(lc, reduce_list)
+	{
+		reduce = lfirst(lc);
+		result = ReducePathByExpr(expr,
+								  root,
+								  rel,
+								  path,
+								  reduce->storage_nodes,
+								  reduce->exclude_exec,
+								  func,
+								  context,
+								  reduce->type,
+								  REDUCE_TYPE_NONE);
+		if(result < 0)
+			break;
+	}
+
+	return result;
+}
+
+int ReducePathListByReduceInfoList(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+								   ReducePathCallback_function func, void *context, List *reduce_list)
+{
+	ListCell *lc_path;
+	ListCell *lc_reduce;
+	ReduceInfo *reduce;
+	int result = 0;
+
+	foreach(lc_path, pathlist)
+	{
+		foreach(lc_reduce, reduce_list)
+		{
+			reduce = lfirst(lc_reduce);
+			result = ReducePathByExpr(expr,
+									  root,
+									  rel,
+									  lfirst(lc_path),
+									  reduce->storage_nodes,
+									  reduce->exclude_exec,
+									  func,
+									  context,
+									  reduce->type,
+									  REDUCE_TYPE_NONE);
+			if(result < 0)
+				return result;
+		}
+	}
+
+	return result;
+}
+
+int ReducePathByExprVA(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+					   List *storage, List *exclude,
+					   ReducePathCallback_function func, void *context, va_list args)
+{
+	int result = 0;
+
+	for(;;)
+	{
+		int type = va_arg(args, int);
+		if(type == REDUCE_TYPE_HASH)
+			result = HashPathByExpr(expr, root,rel, path, storage, exclude, func, context);
+		else if(type == REDUCE_TYPE_MODULO)
+			result = ModuloPathByExpr(expr, root,rel, path, storage, exclude, func, context);
+		else if(type == REDUCE_TYPE_COORDINATOR)
+			result = CoordinatorPath(root, rel, path, func, context);
+		else if(type == REDUCE_TYPE_REPLICATED)
+			result = ReplicatePath(root, rel, path, storage, func, context);
+		else if(type == REDUCE_TYPE_NONE)
+			break;
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Unknown reduce type %d", type)));
+		if(result < 0)
+			break;
+	}
+
+	return result;
+
+}
+
+int ReducePathListByExprVA(Expr *expr,PlannerInfo *root, RelOptInfo *rel, List *pathlist, List *storage, List *exclude,
+								  ReducePathCallback_function func, void *context, va_list args)
+{
+	ListCell *lc;
+	int result = 0;
+
+	foreach(lc, pathlist)
+	{
+		va_list va;
+
+		va_copy(va, args);
+		result = ReducePathByExprVA(expr, root, rel, lfirst(lc), storage, exclude, func, context, va);
+		va_end(va);
+
+		if(result < 0)
+			break;
+	}
+
+	return result;
+}
+
 bool IsReduceInfoListByValue(List *list)
 {
 	ReduceInfo *rinfo;
@@ -430,27 +798,40 @@ bool IsReduceInfoListExecuteSubset(List *reduce_info_list, List *oidlist)
 
 List *ReduceInfoListGetExecuteOidList(const List *list)
 {
-	ReduceInfo *rinfo;
-	ListCell *lc;
-	List *oidList = NIL;
-	List *storage_list = NIL;
+	List *exclude_list;
+	List *storage_list;
 	List *execute_list;
 	Assert(list != NIL);
+
+	ReduceInfoListGetStorageAndExcludeOidList(list, &storage_list, &exclude_list);
+	execute_list = list_difference_oid(storage_list, exclude_list);
+	list_free(storage_list);
+	list_free(exclude_list);
+
+	return execute_list;
+}
+
+void ReduceInfoListGetStorageAndExcludeOidList(const List *list, List **storage, List **exclude)
+{
+	ReduceInfo *rinfo;
+	ListCell *lc;
+	List *storage_list = NIL;
+	List *exclude_list = NIL;
+
+	Assert(list && (storage || exclude));
 	foreach(lc, list)
 	{
 		rinfo = lfirst(lc);
-		storage_list = list_concat_unique_oid(storage_list, rinfo->storage_nodes);
-		oidList = list_concat_unique_oid(oidList, rinfo->exclude_exec);
+		if(storage)
+			storage_list = list_concat_unique_oid(storage_list, rinfo->storage_nodes);
+		if(exclude)
+			exclude_list = list_concat_unique_oid(exclude_list, rinfo->exclude_exec);
 	}
-	execute_list = NIL;
-	foreach(lc, storage_list)
-	{
-		if(list_member_oid(oidList, lfirst_oid(lc)) == false)
-			execute_list = lappend_oid(execute_list, lfirst_oid(lc));
-	}
-	list_free(oidList);
 
-	return execute_list;
+	if(storage)
+		*storage = storage_list;
+	if(exclude)
+		*exclude = exclude_list;
 }
 
 ReduceInfo *CopyReduceInfoExtend(const ReduceInfo *reduce, int mark)
@@ -1337,4 +1718,43 @@ static int CompareOid(const void *a, const void *b)
 	if (oa == ob)
 		return 0;
 	return (oa > ob) ? 1 : -1;
+}
+
+bool CanModuloType(Oid type, bool no_error)
+{
+	Operator	tup;
+	List	   *op;
+	Form_pg_operator opform;
+	bool		result;
+
+	op = SystemFuncName("%");
+	tup = oper(NULL, op, type, INT4OID, no_error, -1);
+	if(!HeapTupleIsValid(tup))
+	{
+		Assert(no_error == true);
+		result = false;
+	}else
+	{
+		opform = (Form_pg_operator) GETSTRUCT(tup);
+		/* Check it's not a shell */
+		if (!RegProcedureIsValid(opform->oprcode))
+		{
+			if (no_error == false)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_UNDEFINED_FUNCTION),
+						 errmsg("operator is only a shell: %s %s %s",
+								format_type_be(type),
+								NameListToString(op),
+								format_type_be(INT4OID))));
+			}
+			result = false;
+		}else
+		{
+			result = true;
+		}
+		ReleaseSysCache(tup);
+	}
+	list_free(op);
+	return result;
 }

@@ -1,6 +1,7 @@
 #ifndef REDUCEINFO_H
 #define REDUCEINFO_H
 
+#define REDUCE_TYPE_NONE		'\0'
 #define REDUCE_TYPE_HASH		'H'
 #define REDUCE_TYPE_CUSTOM		'C'
 #define REDUCE_TYPE_MODULO		'M'
@@ -32,6 +33,8 @@ typedef struct ReduceInfo
 	char		type;					/* REDUCE_TYPE_XXX */
 }ReduceInfo;
 
+typedef int(*ReducePathCallback_function)(PlannerInfo *root, Path *path, void *context);
+
 extern ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const Expr *param);
 extern ReduceInfo *MakeCustomReduceInfoByRel(const List *storage, const List *exclude,
 						const List *attnums, Oid funcid, Oid reloid, Index rel_index);
@@ -46,6 +49,56 @@ extern List *ConvertReduceInfoList(const List *reduce_list, const PathTarget *ta
 extern void FreeReduceInfo(ReduceInfo *reduce);
 extern void FreeReduceInfoList(List *list);
 extern List *SortOidList(List *list);
+extern bool CanModuloType(Oid type, bool no_error);
+
+
+extern int HashPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+						  List *storage, List *exclude,
+						  ReducePathCallback_function func, void *context);
+extern int HashPathListByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+							  List *storage, List *exclude,
+							  ReducePathCallback_function func, void *context);
+
+extern int ModuloPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+							List *storage, List *exclude,
+							ReducePathCallback_function func, void *context);
+extern int ModuloPathListByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+								List *storage, List *exclude,
+								ReducePathCallback_function func, void *context);
+
+extern int CoordinatorPath(PlannerInfo *root, RelOptInfo *rel, Path *path,
+						   ReducePathCallback_function func, void *context);
+extern int CoordinatorPathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+							   ReducePathCallback_function func, void *context);
+
+extern int ReplicatePath(PlannerInfo *root, RelOptInfo *rel, Path *path, List *storage,
+						 ReducePathCallback_function func, void *context);
+extern int ReplicatePathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist, List *storage,
+							  ReducePathCallback_function func, void *context);
+
+extern int ReducePathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+							List *storage, List *exclude,
+							ReducePathCallback_function func, void *context, ...);
+extern int ReducePathListByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+								List *storage, List *exclude,
+								ReducePathCallback_function func, void *context, ...);
+
+extern int ReducePathByReduceInfo(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+								  ReducePathCallback_function func, void *context, ReduceInfo *reduce);
+extern int ReducePathListByReduceInfo(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+									  ReducePathCallback_function func, void *context, ReduceInfo *reduce);
+extern int ReducePathByReduceInfoList(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+								  ReducePathCallback_function func, void *context, List *reduce_list);
+extern int ReducePathListByReduceInfoList(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+									  ReducePathCallback_function func, void *context, List *reduce_list);
+
+extern int ReducePathByExprVA(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+							  List *storage, List *exclude,
+							  ReducePathCallback_function func, void *context, va_list args);
+extern int ReducePathListByExprVA(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+								  List *storage, List *exclude,
+								  ReducePathCallback_function func, void *context, va_list args);
+
 
 #define IsReduceInfoByValue(r) ((r)->type == REDUCE_TYPE_HASH || \
 								(r)->type == REDUCE_TYPE_CUSTOM || \
@@ -65,6 +118,7 @@ extern bool IsReduceInfoStorageSubset(const ReduceInfo *rinfo, List *oidlist);
 extern bool IsReduceInfoExecuteSubset(const ReduceInfo *rinfo, List *oidlist);
 extern bool IsReduceInfoListExecuteSubset(List *reduce_info_list, List *oidlist);
 extern List *ReduceInfoListGetExecuteOidList(const List *list);
+extern void ReduceInfoListGetStorageAndExcludeOidList(const List *list, List **storage, List **exclude);
 
 /* copy reduce info */
 #define CopyReduceInfo(r) CopyReduceInfoExtend(r, REDUCE_MARK_ALL)
