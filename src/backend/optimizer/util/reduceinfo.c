@@ -569,6 +569,7 @@ List* ReduceInfoFindTarget(const ReduceInfo* reduce, const PathTarget *target)
 				result = lappend_int(result, i);
 				break;
 			}
+			++i;
 		}
 		if(lc_target == NULL)
 		{
