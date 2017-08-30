@@ -2330,8 +2330,11 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			{
 				if(parse->sortClause)
 				{
-					path = (Path*)create_cluster_merge_gather_path(root
-								, final_rel, path, root->sort_pathkeys);
+					Assert(pathkeys_contained_in(root->sort_pathkeys, path->pathkeys));
+					path = (Path*)create_cluster_merge_gather_path(root,
+																   final_rel,
+																   path,
+																   root->sort_pathkeys);
 				}else
 				{
 					path = (Path*)create_cluster_gather_path(path, final_rel);
@@ -2344,13 +2347,33 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 
 			if(limit_needed(parse))
 				path = (Path*) create_limit_path(root, final_rel, path,
-					parse->limitOffset,
-					parse->limitCount,
-					offset_est, count_est);
+												 parse->limitOffset,
+												 parse->limitCount,
+												 offset_est, count_est);
 
 			add_path(final_rel, path);
 		}else
 		{
+			if(limit_needed(parse))
+			{
+				List *pathkeys = NIL;
+				if(parse->sortClause)
+				{
+					Assert(pathkeys_contained_in(root->sort_pathkeys, path->pathkeys));
+					pathkeys = path->pathkeys;
+				}
+				path = create_cluster_reduce_path(root,
+												  path,
+												  list_make1(MakeCoordinatorReduceInfo()),
+												  final_rel,
+												  pathkeys);
+				path = (Path*) create_limit_path(root,
+												 final_rel,
+												 path,
+												 parse->limitOffset,
+												 parse->limitCount,
+												 offset_est, count_est);
+			}
 			add_cluster_path(final_rel, path);
 		}
 	}
