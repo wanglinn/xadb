@@ -46,6 +46,7 @@ extern void PgxcNodeGetOids(Oid **coOids, Oid **dnOids,
 							int *num_coords, int *num_dns,
 							bool update_preferred);
 extern NodeDefinition *PgxcNodeGetDefinition(Oid node);
+extern NodeDefinition *PgxcNodeGetAllDefinition(int *numCN, int *numDN);
 extern void PgxcNodeAlter(AlterNodeStmt *stmt);
 extern void PgxcNodeCreate(CreateNodeStmt *stmt);
 extern void PgxcNodeRemove(DropNodeStmt *stmt);

@@ -476,6 +476,34 @@ PgxcNodeGetDefinition(Oid node)
 	return NULL;
 }
 
+NodeDefinition *
+PgxcNodeGetAllDefinition(int *numCN, int *numDN)
+{
+	NodeDefinition *result;
+	char		   *ptr;
+	Size			sz;
+
+	LWLockAcquire(NodeTableLock, LW_SHARED);
+
+	if (numCN)
+		*numCN = *shmemNumCoords;
+	if (numDN)
+		*numDN = *shmemNumDataNodes;
+
+	sz = (*shmemNumCoords + *shmemNumDataNodes) * sizeof(NodeDefinition);
+	ptr = (char *) palloc(sz);
+	result = (NodeDefinition *) ptr;
+
+	sz = (*shmemNumCoords) * sizeof(NodeDefinition);
+	memcpy(ptr, (const void *) coDefs, sz);
+	ptr += sz;
+	sz = (*shmemNumDataNodes) * sizeof(NodeDefinition);
+	memcpy(ptr, dnDefs, sz);
+
+	LWLockRelease(NodeTableLock);
+
+	return result;
+}
 
 /*
  * PgxcNodeCreate
