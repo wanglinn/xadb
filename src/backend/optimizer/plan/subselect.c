@@ -2248,7 +2248,7 @@ static bool set_cluster_gather_init_plan_walker(Plan *plan, List *init_plans)
 	if (IsA(plan, ClusterGather) ||
 		IsA(plan, ClusterMergeGather))
 	{
-		plan->initPlan = init_plans;
+		outerPlan(plan)->initPlan = init_plans;
 		return true;
 	}
 	return plan_tree_walker(plan, set_cluster_gather_init_plan_walker, init_plans);

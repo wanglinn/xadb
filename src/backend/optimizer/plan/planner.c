@@ -4212,6 +4212,7 @@ create_grouping_paths(PlannerInfo *root,
 	if(try_cluster_aggregation)
 	{
 		Path *cheapest_cluster_path = linitial(input_rel->cluster_pathlist);
+		bool has_exec_param = expression_have_exec_param((Expr*)parse->havingQual);
 		bool only_once;
 
 		if (agg_costs->hasNonPartial || agg_costs->hasNonSerial)
@@ -4411,7 +4412,7 @@ create_grouping_paths(PlannerInfo *root,
 															dNumPartialGroups);
 
 							/* build gather path */
-							if(root->parent_root == NULL)
+							if(root->parent_root == NULL && has_exec_param == false)
 							{
 								if(root->group_pathkeys)
 								{
@@ -4650,7 +4651,7 @@ create_grouping_paths(PlannerInfo *root,
 														&agg_partial_costs,
 														dNumPartialGroups);
 
-								if(root->parent_root == NULL)
+								if(root->parent_root == NULL && has_exec_param == false)
 								{
 									path = (Path*)create_cluster_gather_path(path, grouped_rel);
 								}else
