@@ -3647,12 +3647,20 @@ struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab)
 
 static bool have_exec_param_walker(Node *node, void *context)
 {
+	if(node == NULL)
+		return false;
+
 	if(IsA(node, Param))
 	{
 		Param *param = (Param*)node;
 		return param->paramkind == PARAM_EXEC;
 	}
 	return expression_tree_walker(node, have_exec_param_walker, context);
+}
+
+bool expression_have_exec_param(Expr *expr)
+{
+	return have_exec_param_walker((Node*)expr, NULL);
 }
 
 bool restrict_list_have_exec_param(List *list)
