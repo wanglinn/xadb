@@ -511,12 +511,28 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 			}
 		}
 	}else if(IsA(node, ForeignScan) ||
-			 IsA(node, CustomScan))
+			 IsA(node, CustomScan) ||
+			 (IsA(node, Agg) &&
+			   ((Agg*)node)->aggsplit == AGGSPLIT_FINAL_DESERIAL &&
+			   ((Agg*)node)->numCols == 0)
+			)
 	{
 		Result *result = palloc(sizeof(*result));
 		memcpy(result, node, sizeof(Plan));
 		NodeSetTag(result, T_Result);
 		result->resconstantqual = (Node*)list_make1(makeBoolConst(false, false));
+		if(IsA(node, Agg))
+		{
+			/* Finalize Aggregate only run coordinator */
+			ListCell *lc;
+			foreach(lc, result->plan.targetlist)
+			{
+				TargetEntry *entry = lfirst(lc);
+				entry->expr = (Expr*)makeNullConst(exprType((Node*)entry->expr),
+												   exprTypmod((Node*)entry->expr),
+												   exprCollation((Node*)entry->expr));
+			}
+		}
 		node = (Node*)result;
 	}
 
