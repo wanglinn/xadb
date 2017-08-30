@@ -156,9 +156,10 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	outerPlan = outerPlan(node);
 	outerPlanState(crstate) = ExecInitNode(outerPlan, estate, eflags);
 
+	Assert(OidIsValid(PGXCNodeOid));
 	if(node->special_node == PGXCNodeOid)
 	{
-		Assert(OidIsValid(PGXCNodeOid) && node->special_reduce != NULL);
+		Assert(node->special_reduce != NULL);
 		crstate->reduceState = ExecInitExpr(node->special_reduce, &crstate->ps);
 	}else
 	{
