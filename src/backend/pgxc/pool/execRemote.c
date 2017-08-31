@@ -588,7 +588,7 @@ HandleCopyDataRow(RemoteQueryState *combiner, char *msg_body, size_t len)
 				 errmsg("Unexpected response from the Datanodes for 'd' message, "
 				 		"current request type %d", combiner->request_type)));
 	}
-	
+
 	/* count the row */
 	combiner->processed++;
 
@@ -1846,7 +1846,7 @@ pgxc_node_remote_prepare(const char *gid)
 		if (combiner)
 			pgxc_node_report_error(combiner);
 	}
-	
+
 	if (remoteXactState.status == RXACT_PREPARE_FAILED)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
@@ -2722,7 +2722,7 @@ reget_exec_nodes_by_en_expr(RemoteQueryState *planstate,
 	 */
 	Assert(!(exec_nodes->accesstype == RELATION_ACCESS_READ_FOR_UPDATE &&
 			IsRelationReplicated(rel_loc_info)));
-	
+
 	nelems = list_length(exec_nodes->en_expr);
 	en_expr_values = (Datum *)palloc0(sizeof(Datum) * nelems);
 	en_expr_nulls = (bool *)palloc0(sizeof(bool) * nelems);
@@ -4137,7 +4137,7 @@ ExecRemoteUtility(RemoteQuery *node)
 					/* Stop tracking and move last connection in place */
 					dn_conn_count--;
 					if (i < dn_conn_count)
-						pgxc_connections->datanode_handles[i] = 
+						pgxc_connections->datanode_handles[i] =
 							pgxc_connections->datanode_handles[dn_conn_count];
 				}
 			}
@@ -4156,7 +4156,7 @@ ExecRemoteUtility(RemoteQuery *node)
 			 * No matter any connection has crash down, we still need to deal with
 			 * other connections.
 			 */
-			pgxc_node_receive(co_conn_count, pgxc_connections->coord_handles, NULL); 
+			pgxc_node_receive(co_conn_count, pgxc_connections->coord_handles, NULL);
 			while (i < co_conn_count)
 			{
 				int res = handle_response(pgxc_connections->coord_handles[i], remotestate);
@@ -4330,7 +4330,7 @@ ExecCloseRemoteStatement(const char *stmt_name, List *nodelist)
 			}
 		}
 	}
-	
+
 	pgxc_node_report_error(combiner);
 
 	ValidateAndCloseCombiner(combiner);
@@ -5131,12 +5131,12 @@ pgxc_all_success_nodes(ExecNodes **d_nodes, ExecNodes **c_nodes, char **failedno
 	initStringInfo(&failednodes);
 
 	*d_nodes = get_success_nodes(connections->dn_conn_count,
-	                             connections->datanode_handles,
+								 connections->datanode_handles,
 								 PGXC_NODE_DATANODE,
 								 &failednodes);
 
 	*c_nodes = get_success_nodes(connections->co_conn_count,
-	                             connections->coord_handles,
+								 connections->coord_handles,
 								 PGXC_NODE_COORDINATOR,
 								 &failednodes);
 
@@ -5145,7 +5145,6 @@ pgxc_all_success_nodes(ExecNodes **d_nodes, ExecNodes **c_nodes, char **failedno
 	else
 		*failednodes_msg = failednodes.data;
 }
-
 
 /*
  * set_dbcleanup_callback:

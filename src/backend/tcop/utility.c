@@ -91,13 +91,19 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 
-static void ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes,
-					bool sentToRemote, bool force_autocommit,
-					RemoteQueryExecType exec_type, bool is_temp);
-static void ExecUtilityStmtOnNodes2(Node *stmt, const char *queryString,
-					ExecNodes *nodes, bool sentToRemote,
-					bool force_autocommit, RemoteQueryExecType exec_type,
-					bool is_temp);
+typedef struct RemoteUtilityContext
+{
+	bool				sentToRemote;
+	bool				force_autocommit;
+	bool				is_temp;
+	RemoteQueryExecType	exec_type;
+	const char		   *query;
+	ExecNodes		   *nodes;
+} RemoteUtilityContext;
+
+static void ExecRemoteUtilityStmt(RemoteUtilityContext *context);
+static void ExecRemoteUtilityStmt2(Node *stmt, RemoteUtilityContext *context);
+static void ExecCatchRemoteUtilityStmt(RemoteUtilityContext *context);
 static bool IsAlterTableStmtRedistribution(AlterTableStmt *atstmt);
 static RemoteQueryExecType ExecUtilityFindNodes(ObjectType objectType, Oid relid, bool *is_temp);
 static RemoteQueryExecType ExecUtilityFindNodesRelkind(Oid relid, bool *is_temp);
@@ -106,7 +112,6 @@ static RemoteQueryExecType GetNodesForRulesUtility(RangeVar *relation, bool *is_
 static void DropStmtPreTreatment(DropStmt *stmt, const char *queryString,
 					bool sentToRemote, bool *is_temp,
 					RemoteQueryExecType *exec_type);
-static void ExecUtilityWithMessage(const char *queryString, bool sentToRemote, bool is_temp);
 static bool IsStmtAllowedInLockedMode(Node *parsetree, const char *queryString);
 #endif
 
@@ -427,6 +432,14 @@ standard_ProcessUtility(Node *parsetree,
 	bool		isTopLevel = (context == PROCESS_UTILITY_TOPLEVEL);
 
 #ifdef ADB
+	RemoteUtilityContext utilityContext = {
+							sentToRemote,
+							false,
+							false,
+							EXEC_ON_ALL_NODES,
+							queryString,
+							NULL
+						};
 	/*
 	 * For more detail see comments in function pgxc_lock_for_backup.
 	 *
@@ -659,8 +672,7 @@ standard_ProcessUtility(Node *parsetree,
 			PreventTransactionChain(isTopLevel, "CREATE TABLESPACE");
 			CreateTableSpace((CreateTableSpaceStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-				ExecUtilityWithMessage(queryString, sentToRemote, false);
+			ExecCatchRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -673,9 +685,7 @@ standard_ProcessUtility(Node *parsetree,
 			PreventTransactionChain(isTopLevel, "DROP TABLESPACE");
 			DropTableSpace((DropTableSpaceStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
-
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -683,8 +693,8 @@ standard_ProcessUtility(Node *parsetree,
 			/* no event triggers for global objects */
 			AlterTableSpaceOptions((AlterTableSpaceOptionsStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_ALL_NODES, false);
+			utilityContext.force_autocommit = true;
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -732,8 +742,7 @@ standard_ProcessUtility(Node *parsetree,
 			/* no event triggers for global objects */
 			GrantRole((GrantRoleStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -745,10 +754,7 @@ standard_ProcessUtility(Node *parsetree,
 			PreventTransactionChain(isTopLevel, "CREATE DATABASE");
 			createdb((CreatedbStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-			{
-				ExecUtilityWithMessage(queryString, sentToRemote, false);
-			}
+			ExecCatchRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -756,17 +762,14 @@ standard_ProcessUtility(Node *parsetree,
 			/* no event triggers for global objects */
 			AlterDatabase((AlterDatabaseStmt *) parsetree, isTopLevel);
 #ifdef ADB
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-		{
 			/*
 			 * If this is not a SET TABLESPACE statement, just propogate the
 			 * cmd as usual.
 			 */
 			if (!IsSetTableSpace((AlterDatabaseStmt*) parsetree))
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 			else
-				ExecUtilityWithMessage(queryString, sentToRemote, false);
-		}
+				ExecCatchRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -774,8 +777,7 @@ standard_ProcessUtility(Node *parsetree,
 			/* no event triggers for global objects */
 			AlterDatabaseSet((AlterDatabaseSetStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -793,26 +795,30 @@ standard_ProcessUtility(Node *parsetree,
 				/* Clean connections before dropping a database on local node */
 				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 				{
-					char query[256];
+					RemoteUtilityContext rcontext;
+					char				*query;
+
 					DropDBCleanConnection(stmt->dbname);
-
 					/* Clean also remote Coordinators */
-					sprintf(query, "CLEAN CONNECTION TO ALL FOR DATABASE %s;", stmt->dbname);
+					query = psprintf("CLEAN CONNECTION TO ALL FOR DATABASE %s;", stmt->dbname);
 
-					ExecUtilityStmtOnNodes(query, NULL, sentToRemote, true, EXEC_ON_COORDS, false);
-
+					rcontext.sentToRemote = sentToRemote;
+					rcontext.force_autocommit = true;
+					rcontext.is_temp = false;
+					rcontext.exec_type = EXEC_ON_COORDS;
+					rcontext.query = query;
+					rcontext.nodes = NULL;
+					ExecRemoteUtilityStmt(&rcontext);
+					pfree(query);
 				}
 #endif
 
 #ifdef ADB
 				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
 					agtms_DropSequenceByDataBase(stmt->dbname);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			}
-#ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
-#endif
 			break;
 
 			/* Query-level asynchronous notification */
@@ -855,11 +861,11 @@ standard_ProcessUtility(Node *parsetree,
 				closeAllVfds(); /* probably not necessary... */
 				/* Allowed names are restricted if you're not superuser */
 				load_file(stmt->filename, !superuser());
-			}
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_DATANODES, false);
+				utilityContext.exec_type = EXEC_ON_DATANODES;
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
+			}
 			break;
 
 		case T_ClusterStmt:
@@ -868,8 +874,9 @@ standard_ProcessUtility(Node *parsetree,
 			/* forbidden in parallel mode due to CommandIsReadOnly */
 			cluster((ClusterStmt *) parsetree, isTopLevel);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_DATANODES, false);
+			utilityContext.force_autocommit = true;
+			utilityContext.exec_type = EXEC_ON_DATANODES;
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -885,8 +892,9 @@ standard_ProcessUtility(Node *parsetree,
 				 * We have to run the command on nodes before Coordinator because
 				 * vacuum() pops active snapshot and we can not send it to nodes
 				 */
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_DATANODES, false);
+				utilityContext.force_autocommit = true;
+				utilityContext.exec_type = EXEC_ON_DATANODES;
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif /* ADB */
 				/* forbidden in parallel mode due to CommandIsReadOnly */
 				ExecVacuum(stmt, isTopLevel);
@@ -952,8 +960,8 @@ standard_ProcessUtility(Node *parsetree,
 			 * For example, temporary tables are created on all Datanodes
 			 * and Coordinators.
 			 */
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_ALL_NODES, false);
+			utilityContext.force_autocommit = true;
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -961,8 +969,7 @@ standard_ProcessUtility(Node *parsetree,
 			/* no event triggers on event triggers */
 			CreateEventTrigger((CreateEventTrigStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -970,8 +977,7 @@ standard_ProcessUtility(Node *parsetree,
 			/* no event triggers on event triggers */
 			AlterEventTrigger((AlterEventTrigStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -982,8 +988,7 @@ standard_ProcessUtility(Node *parsetree,
 			/* no event triggers for global objects */
 			CreateRole((CreateRoleStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -991,8 +996,7 @@ standard_ProcessUtility(Node *parsetree,
 			/* no event triggers for global objects */
 			AlterRole((AlterRoleStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -1000,8 +1004,7 @@ standard_ProcessUtility(Node *parsetree,
 			/* no event triggers for global objects */
 			AlterRoleSet((AlterRoleSetStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -1009,8 +1012,7 @@ standard_ProcessUtility(Node *parsetree,
 			/* no event triggers for global objects */
 			DropRole((DropRoleStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -1018,8 +1020,7 @@ standard_ProcessUtility(Node *parsetree,
 			/* no event triggers for global objects */
 			ReassignOwnedObjects((ReassignOwnedStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -1033,8 +1034,7 @@ standard_ProcessUtility(Node *parsetree,
 			/* forbidden in parallel mode due to CommandIsReadOnly */
 			LockTableCommand((LockStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -1047,10 +1047,8 @@ standard_ProcessUtility(Node *parsetree,
 			 * inside a transaction block, hence it has no effect outside that, so use
 			 * it as a local one.
 			 */
-			if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && IsTransactionBlock())
-			{
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote,false, EXEC_ON_ALL_NODES, false);
-			}
+			if (IsTransactionBlock())
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -1070,8 +1068,9 @@ standard_ProcessUtility(Node *parsetree,
 			RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_WAIT |
 							  (RecoveryInProgress() ? 0 : CHECKPOINT_FORCE));
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_DATANODES, false);
+			utilityContext.force_autocommit = true;
+			utilityContext.exec_type = EXEC_ON_DATANODES;
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -1145,9 +1144,8 @@ standard_ProcessUtility(Node *parsetree,
 						break;
 				}
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote,
-										   stmt->kind == REINDEX_OBJECT_DATABASE, EXEC_ON_ALL_NODES, false);
+				utilityContext.force_autocommit = (stmt->kind == REINDEX_OBJECT_DATABASE);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			}
 			break;
@@ -1207,7 +1205,9 @@ standard_ProcessUtility(Node *parsetree,
 							}
 						}
 					}
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, remoteExecType, is_temp);
+					utilityContext.exec_type = remoteExecType;
+					utilityContext.is_temp = is_temp;
+					ExecRemoteUtilityStmt(&utilityContext);
 				}
 #endif
 				if (EventTriggerSupportsGrantObjectType(stmt->objtype))
@@ -1278,12 +1278,9 @@ standard_ProcessUtility(Node *parsetree,
 														 &is_temp);
 					}
 
-					ExecUtilityStmtOnNodes(queryString,
-										   NULL,
-										   sentToRemote,
-										   false,
-										   exec_type,
-										   is_temp);
+					utilityContext.exec_type = exec_type;
+					utilityContext.is_temp = is_temp;
+					ExecRemoteUtilityStmt(&utilityContext);
 				}
 #endif
 
@@ -1334,12 +1331,9 @@ standard_ProcessUtility(Node *parsetree,
 														 &is_temp);
 					}
 
-					ExecUtilityStmtOnNodes(queryString,
-										   NULL,
-										   sentToRemote,
-										   false,
-										   exec_type,
-										   is_temp);
+					utilityContext.exec_type = exec_type;
+					utilityContext.is_temp = is_temp;
+					ExecRemoteUtilityStmt(&utilityContext);
 					/* ADBQ TODO this at AGTM */
 				}
 #endif
@@ -1393,12 +1387,9 @@ standard_ProcessUtility(Node *parsetree,
 														 &is_temp);
 					}
 
-					ExecUtilityStmtOnNodes(queryString,
-										   NULL,
-										   sentToRemote,
-										   false,
-										   exec_type,
-										   is_temp);
+					utilityContext.exec_type = exec_type;
+					utilityContext.is_temp = is_temp;
+					ExecRemoteUtilityStmt(&utilityContext);
 
 					/* execute alter sequecne (set schema)	on agtm */
 					if (stmt->objectType == OBJECT_SEQUENCE)
@@ -1449,12 +1440,11 @@ standard_ProcessUtility(Node *parsetree,
 									   completionTag);
 				else
 					ExecAlterOwnerStmt(stmt);
-			}
-#ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
 
+#ifdef ADB
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
+			}
 			break;
 
 		case T_CommentStmt:
@@ -1477,7 +1467,9 @@ standard_ProcessUtility(Node *parsetree,
 				{
 					bool is_temp = false;
 					RemoteQueryExecType exec_type = GetNodesForCommentUtility(stmt, &is_temp);
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, exec_type, is_temp);
+					utilityContext.exec_type = exec_type;
+					utilityContext.is_temp = is_temp;
+					ExecRemoteUtilityStmt(&utilityContext);
 				}
 #endif
 				break;
@@ -1512,8 +1504,9 @@ standard_ProcessUtility(Node *parsetree,
 			Assert(IS_PGXC_COORDINATOR);
 			CleanConnection((CleanConnStmt *) parsetree);
 
-			if (IS_PGXC_COORDINATOR)
-				ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, true, EXEC_ON_COORDS, false);
+			utilityContext.force_autocommit = true;
+			utilityContext.exec_type = EXEC_ON_COORDS;
+			ExecRemoteUtilityStmt(&utilityContext);
 			break;
 #endif
 
@@ -1555,6 +1548,16 @@ ProcessUtilitySlow(Node *parsetree,
 	bool		commandCollected = false;
 	ObjectAddress address;
 	ObjectAddress secondaryObject = InvalidObjectAddress;
+#ifdef ADB
+	RemoteUtilityContext utilityContext = {
+							sentToRemote,
+							false,
+							false,
+							EXEC_ON_ALL_NODES,
+							queryString,
+							NULL
+						};
+#endif
 
 	/* All event trigger calls are done only when isCompleteQuery is true */
 	needCleanup = isCompleteQuery && EventTriggerBeginCompleteQuery();
@@ -1912,11 +1915,11 @@ ProcessUtilitySlow(Node *parsetree,
 								 (int) stmt->subtype);
 							break;
 					}
-				}
+
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+					ExecRemoteUtilityStmt(&utilityContext);
 #endif
+				}
 				break;
 
 				/*
@@ -1975,11 +1978,11 @@ ProcessUtilitySlow(Node *parsetree,
 								 (int) stmt->kind);
 							break;
 					}
-				}
+
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+					ExecRemoteUtilityStmt(&utilityContext);
 #endif
+				}
 				break;
 
 			case T_IndexStmt:	/* CREATE INDEX */
@@ -2054,10 +2057,13 @@ ProcessUtilitySlow(Node *parsetree,
 					EventTriggerAlterTableEnd();
 
 #ifdef ADB
-					if (IS_PGXC_COORDINATOR && !stmt->isconstraint && !IsConnFromCoord())
-						ExecUtilityStmtOnNodes2((Node*)stmt, queryString, NULL,
-												sentToRemote, stmt->concurrent,
-												exec_type, is_temp);
+					if (!stmt->isconstraint)
+					{
+						utilityContext.force_autocommit = stmt->concurrent;
+						utilityContext.exec_type = exec_type;
+						utilityContext.is_temp = is_temp;
+						ExecRemoteUtilityStmt2((Node*)stmt, &utilityContext);
+					}
 #endif
 				}
 				break;
@@ -2065,16 +2071,14 @@ ProcessUtilitySlow(Node *parsetree,
 			case T_CreateExtensionStmt:
 				address = CreateExtension((CreateExtensionStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_AlterExtensionStmt:
 				address = ExecAlterExtensionStmt((AlterExtensionStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2082,56 +2086,49 @@ ProcessUtilitySlow(Node *parsetree,
 				address = ExecAlterExtensionContentsStmt((AlterExtensionContentsStmt *) parsetree,
 														 &secondaryObject);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_CreateFdwStmt:
 				address = CreateForeignDataWrapper((CreateFdwStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_AlterFdwStmt:
 				address = AlterForeignDataWrapper((AlterFdwStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_CreateForeignServerStmt:
 				address = CreateForeignServer((CreateForeignServerStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_AlterForeignServerStmt:
 				address = AlterForeignServer((AlterForeignServerStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_CreateUserMappingStmt:
 				address = CreateUserMapping((CreateUserMappingStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-                     ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_AlterUserMappingStmt:
 				address = AlterUserMapping((AlterUserMappingStmt *) parsetree);
 #ifdef ADB
-			if (IS_PGXC_COORDINATOR)
-				 ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2140,8 +2137,7 @@ ProcessUtilitySlow(Node *parsetree,
 				/* no commands stashed for DROP */
 				commandCollected = true;
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					 ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2157,26 +2153,23 @@ ProcessUtilitySlow(Node *parsetree,
 
 					address = DefineCompositeType(stmt->typevar,
 												  stmt->coldeflist);
-				}
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+					ExecRemoteUtilityStmt(&utilityContext);
 #endif
+				}
 				break;
 
 			case T_CreateEnumStmt:		/* CREATE TYPE AS ENUM */
 				address = DefineEnum((CreateEnumStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_CreateRangeStmt:		/* CREATE TYPE AS RANGE */
 				address = DefineRange((CreateRangeStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2187,8 +2180,7 @@ ProcessUtilitySlow(Node *parsetree,
 				 * In this case force autocommit, this transaction cannot be launched
 				 * inside a transaction block.
 				 */
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2200,12 +2192,11 @@ ProcessUtilitySlow(Node *parsetree,
 				/* stashed internally */
 				commandCollected = true;
 				EventTriggerAlterTableEnd();
-
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
+				if (!ExecIsTempObjectIncluded())
 				{
-					if (!ExecIsTempObjectIncluded())
-						ExecUtilityStmtOnNodes2(parsetree, queryString, NULL, sentToRemote, false, EXEC_ON_COORDS, false);
+					utilityContext.exec_type = EXEC_ON_COORDS;
+					ExecRemoteUtilityStmt2(parsetree, &utilityContext);
 				}
 #endif
 				break;
@@ -2213,16 +2204,14 @@ ProcessUtilitySlow(Node *parsetree,
 			case T_CreateFunctionStmt:	/* CREATE FUNCTION */
 				address = CreateFunction((CreateFunctionStmt *) parsetree, queryString);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_AlterFunctionStmt:	/* ALTER FUNCTION */
 				address = AlterFunction((AlterFunctionStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2236,7 +2225,9 @@ ProcessUtilitySlow(Node *parsetree,
 
 					exec_type = GetNodesForRulesUtility(((RuleStmt *) parsetree)->relation,
 														&is_temp);
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, exec_type, is_temp);
+					utilityContext.exec_type = exec_type;
+					utilityContext.is_temp = is_temp;
+					ExecRemoteUtilityStmt(&utilityContext);
 				}
 #endif
 				break;
@@ -2257,7 +2248,8 @@ ProcessUtilitySlow(Node *parsetree,
 						if (is_temp)
 							PoolManagerSetCommand(POOL_CMD_TEMP, NULL);
 
-						ExecUtilityStmtOnNodes2((Node*)stmt, queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, is_temp);
+						utilityContext.is_temp = is_temp;
+						ExecRemoteUtilityStmt2((Node*)stmt, &utilityContext);
 					}
 				}
 #endif
@@ -2284,7 +2276,9 @@ ProcessUtilitySlow(Node *parsetree,
 														 relid,
 														 &is_temp);
 
-						ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, exec_type, is_temp);
+						utilityContext.exec_type = exec_type;
+						utilityContext.is_temp = is_temp;
+						ExecRemoteUtilityStmt(&utilityContext);
 					}
 				}
 #endif
@@ -2303,7 +2297,10 @@ ProcessUtilitySlow(Node *parsetree,
 						pgxc_send_matview_data(((CreateTableAsStmt *) parsetree)->into->rel,
 												queryString);
 					else
-						ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_COORDS, false);
+					{
+						utilityContext.exec_type = EXEC_ON_COORDS;
+						ExecRemoteUtilityStmt(&utilityContext);
+					}
 				}
 #endif /* ADB */
 				break;
@@ -2339,7 +2336,10 @@ ProcessUtilitySlow(Node *parsetree,
 					pgxc_send_matview_data(((RefreshMatViewStmt *)parsetree)->relation,
 											queryString);
 				else
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_COORDS, false);
+				{
+					utilityContext.exec_type = EXEC_ON_COORDS;
+					ExecRemoteUtilityStmt(&utilityContext);
+				}
 #endif /* ADB */
 				break;
 
@@ -2358,7 +2358,9 @@ ProcessUtilitySlow(Node *parsetree,
 													 RangeVarGetRelid(stmt->relation, NoLock, false),
 													 &is_temp);
 
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, exec_type, is_temp);
+					utilityContext.exec_type = exec_type;
+					utilityContext.is_temp = is_temp;
+					ExecRemoteUtilityStmt(&utilityContext);
 				}
 #endif
 				break;
@@ -2366,32 +2368,28 @@ ProcessUtilitySlow(Node *parsetree,
 			case T_CreatePLangStmt:
 				address = CreateProceduralLanguage((CreatePLangStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_CreateDomainStmt:
 				address = DefineDomain((CreateDomainStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_CreateConversionStmt:
 				address = CreateConversionCommand((CreateConversionStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_CreateCastStmt:
 				address = CreateCast((CreateCastStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2400,24 +2398,21 @@ ProcessUtilitySlow(Node *parsetree,
 				/* command is stashed in DefineOpClass */
 				commandCollected = true;
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_CreateOpFamilyStmt:
 				address = DefineOpFamily((CreateOpFamilyStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_CreateTransformStmt:
 				address = CreateTransform((CreateTransformStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2426,16 +2421,14 @@ ProcessUtilitySlow(Node *parsetree,
 				/* commands are stashed in AlterOpFamily */
 				commandCollected = true;
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
 			case T_AlterTSDictionaryStmt:
 				address = AlterTSDictionary((AlterTSDictionaryStmt *) parsetree);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2448,8 +2441,7 @@ ProcessUtilitySlow(Node *parsetree,
 				 */
 				commandCollected = true;
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2458,8 +2450,7 @@ ProcessUtilitySlow(Node *parsetree,
 				/* commands are stashed in AlterTableMoveAll */
 				commandCollected = true;
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2512,8 +2503,7 @@ ProcessUtilitySlow(Node *parsetree,
 				/* no commands stashed for DROP */
 				commandCollected = true;
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2522,8 +2512,7 @@ ProcessUtilitySlow(Node *parsetree,
 				EventTriggerCollectAlterDefPrivs((AlterDefaultPrivilegesStmt *) parsetree);
 				commandCollected = true;
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR)
-					ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, false);
+				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
@@ -2586,6 +2575,15 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 #endif
 {
 #ifdef ADB
+	RemoteUtilityContext utilityContext = {
+							sentToRemote,
+							false,
+							false,
+							EXEC_ON_ALL_NODES,
+							queryString,
+							NULL
+						};
+
 	HOLD_INTERRUPTS();
 #endif /* ADB */
 	switch (stmt->removeType)
@@ -2613,6 +2611,7 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 			{
 				RemoteQueryExecType	exec_type;
 				bool				is_temp = false;
+				RemoteUtilityContext utilityContext;
 
 				if (stmt->removeType == OBJECT_MATVIEW)
 					exec_type = EXEC_ON_COORDS;
@@ -2626,10 +2625,9 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 			RemoveRelations(stmt);
 #ifdef ADB
 				/* DROP is done depending on the object type and its temporary type */
-				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-					ExecUtilityStmtOnNodes2((Node*)stmt, queryString,
-											NULL, sentToRemote, false,
-											exec_type, is_temp);
+				utilityContext.is_temp = is_temp;
+				utilityContext.exec_type = exec_type;
+				ExecRemoteUtilityStmt2((Node*)stmt, &utilityContext);
 			}
 #endif
 
@@ -2646,10 +2644,9 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 #endif
 			RemoveObjects(stmt);
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
-					ExecUtilityStmtOnNodes(queryString, NULL,
-										   sentToRemote, false,
-										   exec_type, is_temp);
+				utilityContext.exec_type = exec_type;
+				utilityContext.is_temp = is_temp;
+				ExecRemoteUtilityStmt(&utilityContext);
 			}
 #endif
 			break;
@@ -2794,7 +2791,7 @@ IsStmtAllowedInLockedMode(Node *parsetree, const char *queryString)
 }
 
 /*
- * ExecUtilityWithMessage:
+ * ExecCatchRemoteUtilityStmt:
  * Execute the query on remote nodes in a transaction block.
  * If this fails on one of the nodes :
  * 		Add a context message containing the failed node names.
@@ -2802,11 +2799,11 @@ IsStmtAllowedInLockedMode(Node *parsetree, const char *queryString)
  * If all are successful, just return.
  */
 static void
-ExecUtilityWithMessage(const char *queryString, bool sentToRemote, bool is_temp)
+ExecCatchRemoteUtilityStmt(RemoteUtilityContext *context)
 {
 	PG_TRY();
 	{
-		ExecUtilityStmtOnNodes(queryString, NULL, sentToRemote, false, EXEC_ON_ALL_NODES, is_temp);
+		ExecRemoteUtilityStmt(context);
 	}
 	PG_CATCH();
 	{
@@ -2825,8 +2822,6 @@ ExecUtilityWithMessage(const char *queryString, bool sentToRemote, bool is_temp)
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
-
-
 }
 
 /*
@@ -2836,23 +2831,28 @@ ExecUtilityWithMessage(const char *queryString, bool sentToRemote, bool is_temp)
  * as it is taken in charge by the remote Coordinator.
  */
 static void
-ExecUtilityStmtOnNodes(const char *queryString, ExecNodes *nodes, bool sentToRemote,
-					   bool force_autocommit, RemoteQueryExecType exec_type, bool is_temp)
+ExecRemoteUtilityStmt(RemoteUtilityContext *context)
 {
-#ifdef ADB
-	return ExecUtilityStmtOnNodes2(NULL, queryString, nodes, sentToRemote
-		, force_autocommit, exec_type, is_temp);
+	return ExecRemoteUtilityStmt2(NULL, context);
 }
-static void ExecUtilityStmtOnNodes2(Node *stmt, const char *queryString, ExecNodes *nodes, bool sentToRemote,
-					   bool force_autocommit, RemoteQueryExecType exec_type, bool is_temp)
+
+static void
+ExecRemoteUtilityStmt2(Node *stmt, RemoteUtilityContext *context)
 {
-#endif /* ADB */
+	RemoteQuery *step;
+
+	Assert(context);
+
+	/* only master-coordinator can do this */
+	if (!IS_PGXC_COORDINATOR || IsConnFromCoord())
+		return ;
+
 	/* Return if query is launched on no nodes */
-	if (exec_type == EXEC_ON_NONE)
+	if (context->exec_type == EXEC_ON_NONE)
 		return;
 
 	/* Nothing to be done if this statement has been sent to the nodes */
-	if (sentToRemote)
+	if (context->sentToRemote)
 		return;
 
 	/* If no Datanodes defined, the query cannot be launched */
@@ -2863,27 +2863,24 @@ static void ExecUtilityStmtOnNodes2(Node *stmt, const char *queryString, ExecNod
 				 errhint("You need to define at least 1 Datanode with "
 						 "CREATE NODE.")));
 
-	if (!IsConnFromCoord())
-	{
-		RemoteQuery *step = makeNode(RemoteQuery);
+	step = makeNode(RemoteQuery);
 #ifdef ADB
-		/* ADBQ
-		if(stmt)
-		{
-			step->sql_node = makeStringInfo();
-			saveNode(step->sql_node, stmt);
-		}*/
+	/* ADBQ
+	if(stmt)
+	{
+		step->sql_node = makeStringInfo();
+		saveNode(step->sql_node, stmt);
+	}*/
 #endif /* ADB */
-		step->combine_type = COMBINE_TYPE_SAME;
-		step->exec_nodes = nodes;
-		step->sql_statement = pstrdup(queryString);
-		step->force_autocommit = force_autocommit;
-		step->exec_type = exec_type;
-		step->is_temp = is_temp;
-		ExecRemoteUtility(step);
-		pfree(step->sql_statement);
-		pfree(step);
-	}
+	step->combine_type = COMBINE_TYPE_SAME;
+	step->exec_nodes = context->nodes;
+	step->sql_statement = pstrdup(context->query);
+	step->force_autocommit = context->force_autocommit;
+	step->exec_type = context->exec_type;
+	step->is_temp = context->is_temp;
+	ExecRemoteUtility(step);
+	pfree(step->sql_statement);
+	pfree(step);
 }
 
 /*
