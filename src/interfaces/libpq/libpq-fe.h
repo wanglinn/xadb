@@ -407,6 +407,7 @@ extern PGresult *PQexecPrepared(PGconn *conn,
 /* Interface for multiple-result or asynchronous queries */
 extern int	PQsendQuery(PGconn *conn, const char *query);
 #ifdef ADB
+extern int PQsendQueryTree(PGconn *conn, const char *query, const char *query_tree, size_t tree_len);
 extern int PQsendPlan(PGconn *conn, const char *plan, int length);
 #endif /* ADB */
 extern int PQsendQueryParams(PGconn *conn,

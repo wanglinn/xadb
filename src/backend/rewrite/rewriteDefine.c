@@ -1025,27 +1025,27 @@ RenameRewriteRule(RangeVar *relation, const char *oldName,
 static void
 dropRemoteTable(const char *relname, bool is_temp)
 {
-  RemoteQuery	  *step;
-  StringInfoData   sql;
+	RemoteQuery	  *step;
+	StringInfoData   sql;
 
-  if (IS_PGXC_DATANODE || IsConnFromCoord())
-	  return ;
+	if (IS_PGXC_DATANODE || IsConnFromCoord())
+		return ;
 
-  initStringInfo(&sql);
-  appendStringInfo(&sql, "DROP%s TABLE IF EXISTS %s",
-	  is_temp ? " TEMP" : "",
-	  relname);
+	initStringInfo(&sql);
+	appendStringInfo(&sql, "DROP%s TABLE IF EXISTS %s",
+					 is_temp ? " TEMP" : "",
+					 relname);
 
-  step = makeNode(RemoteQuery);
-  step->combine_type = COMBINE_TYPE_SAME;
-  step->exec_nodes = NULL;
-  step->sql_statement = sql.data;
-  step->force_autocommit = false;
-  step->exec_type = EXEC_ON_DATANODES;
-  step->is_temp = is_temp;
-  ExecRemoteUtility(step);
-  pfree(sql.data);
-  pfree(step);
+	step = makeNode(RemoteQuery);
+	step->combine_type = COMBINE_TYPE_SAME;
+	step->exec_nodes = NULL;
+	step->sql_statement = sql.data;
+	step->force_autocommit = false;
+	step->exec_type = EXEC_ON_DATANODES;
+	step->is_temp = is_temp;
+	ExecRemoteUtility(step);
+	pfree(sql.data);
+	pfree(step);
 }
 #endif
 

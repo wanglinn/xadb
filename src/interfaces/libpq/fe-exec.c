@@ -1182,6 +1182,80 @@ PQsendQuery(PGconn *conn, const char *query)
 }
 
 #ifdef ADB
+/*
+ * PQsendQueryTree
+ *	 Submit a query may with binary query tree, but don't wait for it to finish
+ *
+ * Returns: 1 if successfully submitted
+ *			0 if error (conn->errorMessage is set)
+ */
+int
+PQsendQueryTree(PGconn *conn, const char *query, const char *query_tree, size_t tree_len)
+{
+	bool	send_tree = false;
+	char	msg_type = 'Q';
+
+	if (!PQsendQueryStart(conn))
+		return 0;
+
+	/* check the argument */
+	if (!query)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+						libpq_gettext("command string is a null pointer\n"));
+		return 0;
+	}
+
+	if (query_tree)
+	{
+		Assert(tree_len > 0);
+		send_tree = true;
+		msg_type = 'q';
+	}
+
+	/* construct the outgoing Query message */
+	if (pqPutMsgStart(msg_type, false, conn) < 0 ||
+		pqPuts(query, conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return 0;
+	}
+	if (send_tree &&
+		pqPutnchar(query_tree, tree_len, conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return 0;
+	}
+	if (pqPutMsgEnd(conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return 0;
+	}
+
+	/* remember we are using simple query protocol */
+	conn->queryclass = PGQUERY_SIMPLE;
+
+	/* and remember the query text too, if possible */
+	/* if insufficient memory, last_query just winds up NULL */
+	if (conn->last_query)
+		free(conn->last_query);
+	conn->last_query = strdup(query);
+
+	/*
+	 * Give the data a push.  In nonblock mode, don't complain if we're unable
+	 * to send it all; PQgetResult() will do any additional flushing needed.
+	 */
+	if (pqFlush(conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return 0;
+	}
+
+	/* OK, it's launched! */
+	conn->asyncStatus = PGASYNC_BUSY;
+	return 1;
+}
+
 int PQsendPlan(PGconn *conn, const char *plan, int length)
 {
 	if (!PQsendQueryStart(conn))
@@ -3069,7 +3143,7 @@ PQoidStatus(const PGresult *res)
 	static char buf[24];
 
 	size_t		len;
-#ifdef ADB  
+#ifdef ADB
 #else /* ADB */
 	if (!res || strncmp(res->cmdStatus, "INSERT ", 7) != 0)
 if (!res || !res->cmdStatus || strncmp(res->cmdStatus, "INSERT ", 7) != 0)
@@ -3097,7 +3171,7 @@ PQoidValue(const PGresult *res)
 	unsigned long result;
 
 	if (!res ||
-#ifndef ADB 
+#ifndef ADB
 		!res->cmdStatus ||
 #endif /* ADB */
 		strncmp(res->cmdStatus, "INSERT ", 7) != 0 ||

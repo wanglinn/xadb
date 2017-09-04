@@ -191,3 +191,4 @@ PQsendPlan                188
 PQisCopyOutState          189
 PQisCopyInState           190
 PQgetCopyDataBuffer       191
+PQsendQueryTree           192
