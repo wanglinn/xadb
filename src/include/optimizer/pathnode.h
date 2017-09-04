@@ -34,6 +34,7 @@ extern bool add_partial_path_precheck(RelOptInfo *parent_rel,
 						  Cost total_cost, List *pathkeys);
 #ifdef ADB
 extern void add_cluster_path(RelOptInfo *parent_rel, Path *new_path);
+extern void add_cluster_path_list(RelOptInfo *parent_rel, List *pathlist, bool free_list);
 #endif /* ADB */
 
 extern Path *create_seqscan_path(PlannerInfo *root, RelOptInfo *rel,

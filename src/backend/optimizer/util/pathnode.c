@@ -951,6 +951,15 @@ void add_cluster_path(RelOptInfo *parent_rel, Path *new_path)
 	AssertArg(parent_rel && new_path);
 	parent_rel->cluster_pathlist = lappend(parent_rel->cluster_pathlist, new_path);
 }
+
+void add_cluster_path_list(RelOptInfo *parent_rel, List *pathlist, bool free_list)
+{
+	ListCell *lc;
+	foreach(lc, pathlist)
+		add_cluster_path(parent_rel, lfirst(lc));
+	if(free_list)
+		list_free(pathlist);
+}
 #endif /* ADB */
 
 /*
