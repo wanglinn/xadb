@@ -6621,6 +6621,11 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 			Assert(path->reduce_is_valid);
 		}
 		break;
+	case T_ClusterGatherPath:
+	case T_ClusterMergeGatherPath:
+		path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+		path->reduce_is_valid = true;
+		break;
 	case T_GroupingSetsPath:
 	case T_AppendPath:
 	case T_MergeAppendPath:
