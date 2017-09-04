@@ -353,7 +353,11 @@ int HashPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 				   ReducePathCallback_function func, void *context)
 {
 	int result;
-	AssertArg(expr && root && rel && path && storage && func);
+	AssertArg(root && rel && path && storage && func);
+
+	if(expr == NULL)
+		return 0;
+
 	if(IsA(expr, List))
 	{
 		ListCell *lc;
@@ -396,6 +400,9 @@ int ModuloPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 					 ReducePathCallback_function func, void *context)
 {
 	int result;
+	if(expr == NULL)
+		return 0;
+
 	if(IsA(expr, List))
 	{
 		ListCell *lc;
