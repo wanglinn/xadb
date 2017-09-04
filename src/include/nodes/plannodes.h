@@ -737,6 +737,7 @@ typedef struct Agg
 	List	   *groupingSets;	/* grouping sets to use */
 	List	   *chain;			/* chained Agg/Sort nodes */
 #ifdef ADB
+	List	   *exec_nodes;		/* when not AGGSPLIT_INITIAL_SERIAL this is execute nodes */
 	bool		skip_trans; 	/* apply collection directly on the data received
 								 * from remote Datanodes
 								 */

@@ -1683,6 +1683,20 @@ create_agg_plan(PlannerInfo *root, AggPath *best_path)
 					subplan);
 
 	copy_generic_path_info(&plan->plan, (Path *) best_path);
+#ifdef ADB
+	if (IS_PGXC_COORDINATOR &&
+		best_path->aggsplit != AGGSPLIT_INITIAL_SERIAL &&
+		best_path->path.reduce_is_valid)
+	{
+		if(IsReduceInfoListCoordinator(best_path->path.reduce_info_list))
+		{
+			plan->exec_nodes = list_make1_oid(PGXCNodeOid);
+		}else
+		{
+			plan->exec_nodes = ReduceInfoListGetExecuteOidList(best_path->path.reduce_info_list);
+		}
+	}
+#endif /* ADB */
 
 	return plan;
 }

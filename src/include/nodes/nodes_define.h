@@ -494,6 +494,7 @@ BEGIN_NODE(Agg)
 	NODE_NODE(List,groupingSets)
 	NODE_NODE(List,chain)
 #ifdef ADB
+	NODE_NODE(List,exec_nodes)
 	NODE_SCALAR(bool,skip_trans)
 #endif
 END_NODE(Agg)

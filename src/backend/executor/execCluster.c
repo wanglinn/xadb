@@ -513,8 +513,8 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 	}else if(IsA(node, ForeignScan) ||
 			 IsA(node, CustomScan) ||
 			 (IsA(node, Agg) &&
-			   ((Agg*)node)->aggsplit == AGGSPLIT_FINAL_DESERIAL &&
-			   ((Agg*)node)->numCols == 0)
+			   ((Agg*)node)->aggsplit != AGGSPLIT_INITIAL_SERIAL &&
+			   list_member_oid(((Agg*)node)->exec_nodes, PGXCNodeOid) == false)
 			)
 	{
 		Result *result = palloc(sizeof(*result));
