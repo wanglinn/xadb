@@ -6565,14 +6565,15 @@ static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms)
 	ListCell *lc;
 	RelOptInfo *rel;
 
-	int i,count;
+	int count;
 	foreach(lc, root->cte_plan_ids)
 		bms = bms_add_member(bms, lfirst_int(lc));
 
-	for(i=1,count=root->simple_rel_array_size;i<count;++i)
+	for(count=root->simple_rel_array_size;count>0;)
 	{
-		rel = root->simple_rel_array[i];
-		if(rel->subroot)
+		--count;
+		rel = root->simple_rel_array[count];
+		if(rel && rel->subroot)
 			bms = find_cte_planid(rel->subroot, bms);
 	}
 	return bms;
