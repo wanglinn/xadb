@@ -436,6 +436,7 @@ SIMPLE_OUTPUT_DECLARE(bits32, "%08x")
 #undef NO_STRUCT_RelationLocInfo
 #undef NO_STRUCT_ReduceInfo
 #define NO_NODE_Path
+#define NO_NODE_EquivalenceClass
 #define NO_NODE_IndexOptInfo
 #include "nodes/struct_define.h"
 BEGIN_NODE(Path)
@@ -455,6 +456,20 @@ BEGIN_NODE(Path)
 	NODE_SCALAR(bool,reduce_is_valid)
 #endif
 END_NODE(Path)
+BEGIN_NODE(EquivalenceClass)
+	NODE_NODE(List,ec_opfamilies)
+	NODE_OID(collation,ec_collation)
+	NODE_NODE(List,ec_members)
+	NODE_OTHER_POINT(List,ec_sources)		/* don't print parent */
+	NODE_OTHER_POINT(List,ec_derives)
+	NODE_RELIDS(Relids,ec_relids)
+	NODE_SCALAR(bool,ec_has_const)
+	NODE_SCALAR(bool,ec_has_volatile)
+	NODE_SCALAR(bool,ec_below_outer_join)
+	NODE_SCALAR(bool,ec_broken)
+	NODE_SCALAR(Index,ec_sortref)
+	NODE_NODE(EquivalenceClass,ec_merged)
+END_NODE(EquivalenceClass)
 BEGIN_NODE(IndexOptInfo)
 	NODE_SCALAR(Oid,indexoid)
 	NODE_SCALAR(Oid,reltablespace)
@@ -491,6 +506,7 @@ END_NODE(IndexOptInfo)
 #include "nodes/nodes_define.h"
 #include "nodes/nodes_undef.h"
 #undef NO_NODE_Path
+#undef NO_NODE_EquivalenceClass
 #undef NO_NODE_IndexOptInfo
 
 static void printNode(const void *obj, StringInfo str, int space)
