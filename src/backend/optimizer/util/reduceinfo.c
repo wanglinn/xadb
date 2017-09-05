@@ -11,6 +11,7 @@
 #include "nodes/relation.h"
 #include "optimizer/clauses.h"
 #include "optimizer/pathnode.h"
+#include "optimizer/var.h"
 #include "optimizer/planmain.h"
 #include "parser/parser.h"
 #include "parser/parse_coerce.h"
@@ -26,7 +27,6 @@
 #include "optimizer/reduceinfo.h"
 
 #define MakeEmptyReduceInfo() palloc0(sizeof(ReduceInfo))
-static bool GetRelidsWalker(Var *var, Relids *relids);
 static Param *makeReduceParam(Oid type, int paramid, int parammod, Oid collid);
 static oidvector *makeOidVector(List *list);
 static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const);
@@ -55,7 +55,7 @@ ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const E
 	rinfo->storage_nodes = list_copy(storage);
 	rinfo->exclude_exec = list_copy(exclude);
 	rinfo->params = list_make1(copyObject(param));
-	GetRelidsWalker((Var*)param, &rinfo->relids);
+	rinfo->relids = pull_varnos((Node*)param);
 	rinfo->type = REDUCE_TYPE_HASH;
 
 	return rinfo;
@@ -130,7 +130,7 @@ ReduceInfo *MakeCustomReduceInfo(const List *storage, const List *exclude, List 
 
 	rinfo->storage_nodes = list_copy(storage);
 	rinfo->exclude_exec = list_copy(exclude);
-	GetRelidsWalker((Var*)(rinfo->params), &rinfo->relids);
+	rinfo->relids = pull_varnos((Node*)rinfo->params);
 	rinfo->type = REDUCE_TYPE_CUSTOM;
 
 	return rinfo;
@@ -146,7 +146,7 @@ ReduceInfo *MakeModuloReduceInfo(const List *storage, const List *exclude, const
 	rinfo->storage_nodes = list_copy(storage);
 	rinfo->exclude_exec = list_copy(exclude);
 	rinfo->params = list_make1(copyObject(param));
-	GetRelidsWalker((Var*)(rinfo->params), &rinfo->relids);
+	rinfo->relids = pull_varnos((Node*)(rinfo->params));
 	rinfo->type = REDUCE_TYPE_MODULO;
 
 	return rinfo;
@@ -1576,18 +1576,6 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	}
 
 	return result;
-}
-
-static bool GetRelidsWalker(Var *var, Relids *relids)
-{
-	if(var == NULL)
-		return false;
-	if(IsA(var, Var))
-	{
-		*relids = bms_add_member(*relids, var->varno);
-		return false;
-	}
-	return expression_tree_walker((Node*)var, GetRelidsWalker, relids);
 }
 
 static Param *makeReduceParam(Oid type, int paramid, int parammod, Oid collid)
