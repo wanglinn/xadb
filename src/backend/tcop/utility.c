@@ -2611,7 +2611,6 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 			{
 				RemoteQueryExecType	exec_type;
 				bool				is_temp = false;
-				RemoteUtilityContext utilityContext;
 
 				if (stmt->removeType == OBJECT_MATVIEW)
 					exec_type = EXEC_ON_COORDS;
