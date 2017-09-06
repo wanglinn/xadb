@@ -388,6 +388,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		cte_planids = find_cte_planid(root, cte_planids);
 
 		sub_plan_id = 0;
+		nodeOids = list_append_unique_oid(nodeOids, PGXCNodeOid);
 		forboth(lc_subroot, root->glob->subroots, lc_subplan, root->glob->subplans)
 		{
 			++sub_plan_id;
