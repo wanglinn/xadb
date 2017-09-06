@@ -521,6 +521,7 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 		memcpy(result, node, sizeof(Plan));
 		NodeSetTag(result, T_Result);
 		result->resconstantqual = (Node*)list_make1(makeBoolConst(false, false));
+		result->plan.qual = NIL;
 		if(IsA(node, Agg))
 		{
 			/* Finalize Aggregate only run coordinator */
