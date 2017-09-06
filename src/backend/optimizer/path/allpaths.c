@@ -760,6 +760,23 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			add_cluster_path(rel, path);
 		}
 		rel->pathlist = NIL;
+
+		/* If appropriate, consider parallel sequential scan */
+		if (rel->consider_parallel && required_outer == NULL)
+		{
+			create_plain_partial_paths(root, rel);
+			/* move pathlist to cluster_partial_pathlist */
+			foreach(lc, rel->partial_pathlist)
+			{
+				path = lfirst(lc);
+
+				set_path_reduce_info_worker(path, reduce_info_list);
+
+				cost_div(path, list_length(loc_info->nodeList));
+				add_cluster_partial_path(rel, path);
+			}
+			rel->partial_pathlist = NIL;
+		}
 	}
 	if (!create_plainrel_rqpath(root, rel, rte, required_outer))
 	{
@@ -2546,7 +2563,11 @@ generate_gather_paths(PlannerInfo *root, RelOptInfo *rel)
 
 	/* If there are no partial paths, there's nothing to do here. */
 	if (rel->partial_pathlist == NIL)
+#ifdef ADB
+		goto generate_cluster_gather_;
+#else
 		return;
+#endif /* ADB */
 
 	/*
 	 * The output of Gather is currently always unsorted, so there's only one
@@ -2564,6 +2585,27 @@ generate_gather_paths(PlannerInfo *root, RelOptInfo *rel)
 		create_gather_path(root, rel, cheapest_partial_path, rel->reltarget,
 						   NULL, NULL);
 	add_path(rel, simple_gather_path);
+
+#ifdef ADB
+generate_cluster_gather_:
+	if (rel->cluster_partial_pathlist)
+	{
+		ListCell *lc;
+		foreach(lc, rel->cluster_partial_pathlist)
+		{
+			cheapest_partial_path = lfirst(lc);
+			simple_gather_path = (Path*)
+								 create_gather_path(root,
+													rel,
+													cheapest_partial_path,
+													rel->reltarget,
+													NULL, NULL);
+			simple_gather_path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(cheapest_partial_path));
+			simple_gather_path->reduce_is_valid = true;
+			add_cluster_path(rel, simple_gather_path);
+		}
+	}
+#endif /* ADB */
 }
 
 /*

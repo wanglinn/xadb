@@ -960,6 +960,12 @@ void add_cluster_path_list(RelOptInfo *parent_rel, List *pathlist, bool free_lis
 	if(free_list)
 		list_free(pathlist);
 }
+
+void add_cluster_partial_path(RelOptInfo *parent_rel, Path *new_path)
+{
+	AssertArg(parent_rel && new_path);
+	parent_rel->cluster_partial_pathlist = lappend(parent_rel->cluster_partial_pathlist, new_path);
+}
 #endif /* ADB */
 
 /*
