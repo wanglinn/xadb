@@ -201,6 +201,12 @@ static void restore_cluster_plan_info(StringInfo buf)
 	msg.cursor = 0;
 	SetGlobalSnapshot(&msg);
 
+	ptr = mem_toc_lookup(buf, REMOTE_KEY_ACTIVE_SNAPSHOT, NULL);
+	if(ptr == NULL)
+		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)
+			, errmsg("Can not find active snapshot")));
+	PushActiveSnapshot(RestoreSnapshot(ptr));
+
 	/* ADBQ: need active snapshot? */
 }
 
@@ -391,6 +397,13 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt, ParamListInfo p
 	SerializeSnapshot(GetTransactionSnapshot(), &(msg->data[msg->len]));
 	msg->len += size;
 	end_mem_toc_insert(msg, REMOTE_KEY_TRANSACTION_SNAPSHOT);*/
+
+	begin_mem_toc_insert(msg, REMOTE_KEY_ACTIVE_SNAPSHOT);
+	size = EstimateSnapshotSpace(GetActiveSnapshot());
+	enlargeStringInfo(msg, size);
+	SerializeSnapshot(GetActiveSnapshot(), &(msg->data[msg->len]));
+	msg->len += size;
+	end_mem_toc_insert(msg, REMOTE_KEY_ACTIVE_SNAPSHOT);
 
 	begin_mem_toc_insert(msg, REMOTE_KEY_GLOBAL_SNAPSHOT);
 	pgxc_serialize_snapshot(msg, GetActiveSnapshot());
