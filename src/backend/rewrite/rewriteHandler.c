@@ -3874,6 +3874,22 @@ QueryRewriteCTAS(Query *parsetree)
 	stmt = (CreateTableAsStmt *) parsetree->utilityStmt;
 	relation = stmt->into->rel;
 
+	if (stmt->if_not_exists)
+	{
+		Oid			nspid;
+
+		nspid = RangeVarGetCreationNamespace(stmt->into->rel);
+
+		if (get_relname_relid(stmt->into->rel->relname, nspid))
+		{
+			ereport(NOTICE,
+					(errcode(ERRCODE_DUPLICATE_TABLE),
+					 errmsg("relation \"%s\" already exists, skipping",
+							stmt->into->rel->relname)));
+			return NIL;
+		}
+	}
+
 	/* Start building a CreateStmt for creating the target table */
 	create_stmt = makeNode(CreateStmt);
 	create_stmt->relation = relation;
