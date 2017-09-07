@@ -755,6 +755,15 @@ int ReducePathListByExprVA(Expr *expr,PlannerInfo *root, RelOptInfo *rel, List *
 	return result;
 }
 
+int ReducePathSave2List(PlannerInfo *root, Path *path, void *pplist)
+{
+	Assert(pplist);
+
+	*((List**)pplist) = lappend(*((List**)pplist), path);
+
+	return 0;
+}
+
 bool IsReduceInfoListByValue(List *list)
 {
 	ReduceInfo *rinfo;

@@ -112,6 +112,7 @@ extern int ReducePathListByExprVA(Expr *expr, PlannerInfo *root, RelOptInfo *rel
 								  List *storage, List *exclude,
 								  ReducePathCallback_function func, void *context, va_list args);
 
+extern int ReducePathSave2List(PlannerInfo *root, Path *path, void *pplist);
 
 #define IsReduceInfoByValue(r) ((r)->type == REDUCE_TYPE_HASH || \
 								(r)->type == REDUCE_TYPE_CUSTOM || \
