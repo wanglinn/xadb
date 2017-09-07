@@ -4017,6 +4017,9 @@ bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
 	case T_GatherPath:
 		WALK_CHILD_PATH(GatherPath, subpath);
 		break;
+	case T_GatherMergePath:
+		WALK_CHILD_PATH(GatherMergePath, subpath);
+		break;
 	case T_ProjectionPath:
 		WALK_CHILD_PATH(ProjectionPath, subpath);
 		break;
