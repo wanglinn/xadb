@@ -1987,8 +1987,24 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 
 				lfirst(lc) = create_projection_path(root,
 													current_rel,
+													subpath,
+													scanjoin_target);
+			}
+			if (!has_parallel_hazard((Node*)scanjoin_target->exprs, false))
+			{
+				foreach(lc, current_rel->cluster_partial_pathlist)
+				{
+					Path *subpath = lfirst(lc);
+					Assert(subpath->param_info == NULL);
+
+					lfirst(lc) = create_projection_path(root,
+														current_rel,
 														subpath,
 														scanjoin_target);
+				}
+			}else
+			{
+				current_rel->cluster_partial_pathlist = NIL;
 			}
 		}else
 		{
@@ -4434,7 +4450,77 @@ create_grouping_paths(PlannerInfo *root,
 		/* save paths */
 		add_cluster_path_list(grouped_rel, gcontext.new_paths_list, true);
 		gcontext.new_paths_list = NIL;
-}
+
+		/* partial grouping */
+		if (input_rel->cluster_partial_pathlist != NIL &&
+			grouped_rel->consider_parallel &&
+			no_partial == false)
+		{
+			Path *subpath;
+			List *new_path_list;
+			List *groupExprs;
+
+			gcontext.split = AGGSPLIT_INITIAL_SERIAL;
+			foreach(lc, input_rel->cluster_partial_pathlist)
+			{
+				subpath = lfirst(lc);
+				if(CanOnceGroupingClusterPath(target, subpath))
+					create_cluster_grouping_path(root, subpath, &gcontext);
+			}
+			if(gcontext.new_paths_list)
+			{
+				new_path_list = gcontext.new_paths_list;
+				gcontext.new_paths_list = NIL;
+				gcontext.split = AGGSPLIT_FINAL_DESERIAL;
+				ParallelGatherSubPathList(root, grouped_rel, new_path_list, create_cluster_grouping_path, &gcontext);
+				add_cluster_path_list(grouped_rel, gcontext.new_paths_list, true);
+				gcontext.new_paths_list = NIL;
+				list_free(new_path_list);
+			}else if((groupExprs = get_sortgrouplist_exprs(parse->groupClause, parse->targetList)) != NIL)
+			{
+				List *storage_list;
+
+				/* step 1: parallel agg first */
+				/* gcontext.split = AGGSPLIT_INITIAL_SERIAL; */
+				foreach(lc, input_rel->cluster_partial_pathlist)
+					create_cluster_grouping_path(root, lfirst(lc), &gcontext);
+				new_path_list = gcontext.new_paths_list;
+				gcontext.new_paths_list = NIL;
+
+				/* step 2: gather */
+				ParallelGatherSubPathList(root, grouped_rel, new_path_list, ReducePathSave2List, (void*)&gcontext.new_paths_list);
+				list_free(new_path_list);
+				new_path_list = gcontext.new_paths_list;
+				gcontext.new_paths_list = NIL;
+
+				/* step 3: reduce and final agg */
+				gcontext.split = AGGSPLIT_FINAL_DESERIAL;
+				foreach(lc, new_path_list)
+				{
+					subpath = lfirst(lc);
+					ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(subpath),
+															  &storage_list,
+															  NULL);
+					ReducePathByExpr((Expr*)groupExprs,
+									 root,
+									 grouped_rel,
+									 subpath,
+									 storage_list,
+									 NIL,
+									 create_cluster_grouping_path,
+									 &gcontext,
+									 REDUCE_TYPE_HASH,
+									 REDUCE_TYPE_MODULO,
+									 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
+									 REDUCE_TYPE_NONE);
+					list_free(storage_list);
+				}
+				list_free(new_path_list);
+				add_cluster_path_list(grouped_rel, gcontext.new_paths_list, true);
+				gcontext.new_paths_list = NIL;
+			}
+		}
+	}
 #endif /* ADB */
 
 	/*
