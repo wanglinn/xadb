@@ -464,6 +464,45 @@ int CoordinatorPathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
 	return result;
 }
 
+int ClusterGatherSubPath(PlannerInfo *root, RelOptInfo *rel, Path *path,
+					  ReducePathCallback_function func, void *context)
+{
+	Path *new_path;
+	int result;
+
+	new_path = (Path*)create_cluster_gather_path(path, rel);
+	new_path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+	new_path->reduce_is_valid = true;
+
+	result = (*func)(root, new_path, context);
+	if(result < 0)
+		return result;
+
+	if(path->pathkeys)
+	{
+		new_path = (Path*)create_cluster_merge_gather_path(root, rel, path, path->pathkeys);
+		new_path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+		new_path->reduce_is_valid = true;
+		result = (*func)(root, new_path, context);
+	}
+
+	return result;
+}
+
+int ClusterGatherSubPathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+						  ReducePathCallback_function func, void *context)
+{
+	ListCell *lc;
+	int result = 0;
+	foreach(lc, pathlist)
+	{
+		result = ClusterGatherSubPath(root, rel, lfirst(lc), func, context);
+		if(result < 0)
+			break;
+	}
+	return result;
+}
+
 static ReduceInfo *MakeReplicateReduceInfo_private(const List *storage, const List *exclude, const Expr *param)
 {
 	return MakeReplicateReduceInfo(storage);
@@ -637,6 +676,10 @@ int ReducePathByExprVA(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *pat
 			result = CoordinatorPath(root, rel, path, func, context);
 		else if(type == REDUCE_TYPE_REPLICATED)
 			result = ReplicatePath(root, rel, path, storage, func, context);
+		else if(type == REDUCE_TYPE_GATHER)
+			result = ClusterGatherSubPath(root, rel, path, func, context);
+		else if(type == REDUCE_TYPE_IGNORE)
+			continue;
 		else if(type == REDUCE_TYPE_NONE)
 			break;
 		else

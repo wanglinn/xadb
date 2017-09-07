@@ -8,6 +8,9 @@
 #define REDUCE_TYPE_REPLICATED	'R'
 #define REDUCE_TYPE_ROUND		'L'
 #define REDUCE_TYPE_COORDINATOR	'O'
+/* only using in ReducePathXXX functions */
+#define REDUCE_TYPE_IGNORE		'I'
+#define REDUCE_TYPE_GATHER		'G'
 
 #define REDUCE_MARK_STORAGE		0x0001
 #define REDUCE_MARK_EXCLUDE		0x0002
@@ -70,6 +73,11 @@ extern int CoordinatorPath(PlannerInfo *root, RelOptInfo *rel, Path *path,
 						   ReducePathCallback_function func, void *context);
 extern int CoordinatorPathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
 							   ReducePathCallback_function func, void *context);
+
+extern int ClusterGatherSubPath(PlannerInfo *root, RelOptInfo *rel, Path *path,
+								ReducePathCallback_function func, void *context);
+extern int ClusterGatherSubPathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+									ReducePathCallback_function func, void *context);
 
 extern int ReplicatePath(PlannerInfo *root, RelOptInfo *rel, Path *path, List *storage,
 						 ReducePathCallback_function func, void *context);
