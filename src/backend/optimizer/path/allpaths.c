@@ -2599,21 +2599,25 @@ generate_gather_paths(PlannerInfo *root, RelOptInfo *rel)
 	}
 #ifdef ADB
 generate_cluster_gather_:
-	if (rel->cluster_partial_pathlist)
+	foreach(lc, rel->cluster_partial_pathlist)
 	{
-		ListCell *lc;
-		foreach(lc, rel->cluster_partial_pathlist)
+		Path   *subpath = lfirst(lc);
+		Path   *path = (Path*)create_gather_path(root,
+												 rel,
+												 subpath,
+												 rel->reltarget,
+												 NULL, NULL);
+		path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(subpath));
+		path->reduce_is_valid = true;
+		add_cluster_path(rel, path);
+
+		if(subpath->pathkeys)
 		{
-			cheapest_partial_path = lfirst(lc);
-			simple_gather_path = (Path*)
-								 create_gather_path(root,
-													rel,
-													cheapest_partial_path,
-													rel->reltarget,
-													NULL, NULL);
-			simple_gather_path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(cheapest_partial_path));
-			simple_gather_path->reduce_is_valid = true;
-			add_cluster_path(rel, simple_gather_path);
+			path = (Path*)create_gather_merge_path(root, rel, subpath, rel->reltarget,
+												   subpath->pathkeys, NULL, NULL);
+			path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(subpath));
+			path->reduce_is_valid = true;
+			add_cluster_path(rel, path);
 		}
 	}
 #endif /* ADB */
