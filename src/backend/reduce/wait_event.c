@@ -390,6 +390,8 @@ _re_select:
  * nextWaitEventElt
  *
  * get iterator of WaitEVSet.
+ *
+ * return NULL if out of range.
  */
 WaitEventElt *
 nextWaitEventElt(WaitEVSet set)
@@ -397,6 +399,25 @@ nextWaitEventElt(WaitEVSet set)
 	AssertArg(set);
 	if (set->idxno < set->curno)
 		return &(set->events[set->idxno++]);
+
+	return NULL;
+}
+
+/*
+ * nthWaitEventElt
+ *
+ * get the "nth" WaitEventElt of WaitEVSet "set".
+ * the "nth" is begin with 0.
+ *
+ * return NULL if out of range.
+ */
+WaitEventElt *
+nthWaitEventElt(WaitEVSet set, int nth)
+{
+	AssertArg(set);
+
+	if (nth >= 0 && nth < set->curno)
+		return &(set->events[nth]);
 
 	return NULL;
 }

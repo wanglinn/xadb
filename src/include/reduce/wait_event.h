@@ -108,5 +108,6 @@ extern void addWaitEventByArray(WaitEVSet set, void **wait_args, int num,
 					uint32 (*GetWaitEvents)(void *));
 extern int  execWaitEVSet(WaitEVSet set, int timeout);
 extern WaitEventElt *nextWaitEventElt(WaitEVSet set);
+extern WaitEventElt *nthWaitEventElt(WaitEVSet set, int nth);
 
 #endif	/* RDC_WAIT_EVENT_H */
