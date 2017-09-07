@@ -85,6 +85,7 @@
 #include "commands/copy.h"
 #include "commands/trigger.h"
 #include "executor/execCluster.h"
+#include "intercomm/inter-node.h"
 #include "libpq/libpq-node.h"
 #include "nodes/nodes.h"
 #include "nodes/nodeFuncs.h"
@@ -4337,6 +4338,7 @@ PostgresMain(int argc, char *argv[],
 
 		start_xact_command();
 		InitMultinodeExecutor(false);
+		InitNodeExecutor(false);
 		finish_xact_command();
 
 		if (!IsConnFromCoord())
@@ -4523,6 +4525,7 @@ PostgresMain(int argc, char *argv[],
 			clear_all_handles(false);
 			release_handles();
 			PQNReleaseAllConnect();
+			ResetNodeExecutor();
 		}
 		if(need_reload_pooler)
 		{

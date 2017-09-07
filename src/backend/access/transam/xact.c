@@ -71,6 +71,7 @@
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "lib/stringinfo.h"
+#include "intercomm/inter-comm.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pause.h"
 #include "pgxc/pgxc.h"
@@ -205,9 +206,10 @@ typedef struct TransactionStateData
 	/* my GXID, or Invalid if none */
 	GlobalTransactionId transactionId;
 	bool				isLocalParameterUsed;		/* Check if a local parameter is active
-    											     * in transaction block (SET LOCAL, DEFERRED) */
+													 * in transaction block (SET LOCAL, DEFERRED) */
 	bool				agtm_begin;					/* mark agtm is begin or not in current xact */
 	XactPhase			xact_phase;					/* mark which phase the current xact in */
+	InterXactState		interXactState;				/* inter transaction state if TopTransaction */
 #else
 	TransactionId transactionId;	/* my XID, or Invalid if none */
 #endif
@@ -243,9 +245,9 @@ static TransactionStateData TopTransactionStateData = {
 #ifdef ADB
 	0,							/* global transaction id */
 	false,						/* isLocalParameterUsed */
-
 	false,						/* agtm begin? */
-	false,						/* implicit two-phase commit? */
+	XACT_PHASE_1,				/* implicit two-phase commit? */
+	NULL,						/* inter transaction state */
 #else
 	0,							/* transaction id */
 #endif
@@ -860,6 +862,17 @@ GetCurrentCommandId(bool used)
 }
 
 #ifdef ADB
+InterXactState
+GetTopInterXactState(void)
+{
+	TransactionState s = &TopTransactionStateData;
+
+	if (!s->interXactState)
+		s->interXactState = MakeTopInterXactState();
+
+	return s->interXactState;
+}
+
 CommandId
 GetCurrentCommandIdIfAny(void)
 {
@@ -2150,6 +2163,7 @@ StartTransaction(void)
 	s->isLocalParameterUsed = false;
 	s->agtm_begin = false;
 	s->xact_phase = XACT_PHASE_1;
+	s->interXactState = NULL;
 #endif
 
 	/*
@@ -2302,9 +2316,10 @@ CommitTransaction(void)
 	TransactionId latestXid;
 	bool		is_parallel_worker;
 #ifdef ADB
-	bool		isimplicit = !(s->blockState == TBLOCK_PREPARE);
-	int			nodecnt = 0;
-	Oid		   *nodeIds = NULL;
+	//InterXactState is = s->interXactState;
+	bool isimplicit = !(s->blockState == TBLOCK_PREPARE);
+	int nodecnt = 0;
+	Oid *nodeIds = NULL;
 #endif
 
 	is_parallel_worker = (s->blockState == TBLOCK_PARALLEL_INPROGRESS);
@@ -2322,6 +2337,41 @@ CommitTransaction(void)
 		elog(WARNING, "CommitTransaction while in %s state",
 			 TransStateAsString(s->state));
 	Assert(s->parent == NULL);
+
+#ifdef INTER_XACT
+	if (is)
+	{
+		MemoryContext old_context;
+
+		is->implicit = isimplicit;
+
+		if (EnforceTwoPhaseCommit && is->hastmp)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("cannot PREPARE a transaction that has operated on "
+							"temporary tables"),
+					 errdetail("Disabling enforce_two_phase_commit is recommended "
+							"to enforce COMMIT")));
+
+		if (!is->hastmp && is->need_xact_block)
+		{
+			old_context = MemoryContextSwitchTo(TopTransactionContext);
+			prepareGID = psprintf("T%u", GetTopTransactionId());
+			(void) MemoryContextSwitchTo(old_context);
+
+			InterXactSetGID(is, prepareGID);
+
+			PrepareTransaction();
+			s->blockState = TBLOCK_DEFAULT;
+
+			StartTransaction();
+			s = CurrentTransactionState;
+			SetXactPhase2(s);
+			s->interXactState = is;
+			TellRemoteXactLocalPrepared(true);
+		}
+	}
+#endif
 
 #ifdef ADB
 	/*
@@ -2475,6 +2525,9 @@ CommitTransaction(void)
 			PG_TRY();
 			{
 				FinishPreparedTransactionExt(savePrepareGID, true, false, false);
+#ifdef INTER_XACT
+				FinishPreparedTransactionExt(is->gid, true, false, false);
+#endif
 			} PG_CATCH();
 			{
 				SafeFreeSaveGID();
@@ -2486,6 +2539,9 @@ CommitTransaction(void)
 		} else
 		{
 			nodecnt = pgxcGetInvolvedRemoteNodes(&nodeIds);
+#ifdef INTER_XACT
+			nodeIds = InterXactBeginNodes(is, false, &nodecnt);
+#endif
 
 			/* Here is where we commit remote xact */
 			RemoteXactCommit(nodecnt, nodeIds);
@@ -2722,6 +2778,7 @@ PrepareTransaction(void)
 	GlobalTransaction gxact;
 	TimestampTz prepared_at;
 #ifdef ADB
+	//InterXactState is = s->interXactState;
 	bool isimplicit = !(s->blockState == TBLOCK_PREPARE);
 	int nodecnt = 0;
 	Oid	*nodeIds = NULL;
@@ -2850,6 +2907,9 @@ PrepareTransaction(void)
 	 * Get all involved remote nodes, also include local node.
 	 */
 	nodecnt = pgxcGetInvolvedNodes(true, &nodeIds);
+#ifdef INTER_XACT
+	nodeIds = InterXactBeginNodes(is, true, &nodecnt);
+#endif
 
 	gxact = MarkAsPreparing(xid, prepareGID, prepared_at,
 							GetUserId(), MyDatabaseId,
@@ -2987,6 +3047,11 @@ PrepareTransaction(void)
 	CurTransactionResourceOwner = NULL;
 	TopTransactionResourceOwner = NULL;
 
+#ifdef ADB
+	EndRemoteXactPrepare(gxact);
+	UnsetGlobalTransactionId();
+#endif
+
 	AtCommit_Memory();
 
 	s->transactionId = InvalidTransactionId;
@@ -2996,10 +3061,6 @@ PrepareTransaction(void)
 	s->childXids = NULL;
 	s->nChildXids = 0;
 	s->maxChildXids = 0;
-#ifdef ADB
-	EndRemoteXactPrepare(gxact);
-	UnsetGlobalTransactionId();
-#endif
 
 	XactTopTransactionId = InvalidTransactionId;
 	nParallelCurrentXids = 0;

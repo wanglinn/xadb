@@ -21,7 +21,6 @@
 #include "storage/sinval.h"
 #include "utils/datetime.h"
 
-
 /*
  * Xact isolation levels
  */
@@ -421,6 +420,7 @@ extern void AbortCurrentTransactionOnce(void);
 
 extern bool GetCurrentLocalParamStatus(void);
 extern void SetCurrentLocalParamStatus(bool status);
+extern struct InterXactStateData* GetTopInterXactState(void);
 extern CommandId GetCurrentCommandIdIfAny(void);
 extern void SetTopXactBeginAGTM(bool status);
 extern bool TopXactBeginAGTM(void);

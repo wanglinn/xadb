@@ -94,6 +94,7 @@
 #include "access/rxact_mgr.h"
 #include "agtm/agtm.h"
 #include "commands/dbcommands.h"
+#include "intercomm/inter-comm.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
@@ -290,7 +291,7 @@ TwoPhaseShmemInit(void)
 		size = MAXALIGN(size);
 		nodes_addrs = (char *) TwoPhaseState + size;
 #endif
-		
+
 		for (i = 0; i < max_prepared_xacts; i++)
 		{
 			/* insert into linked list */
@@ -746,7 +747,7 @@ GetPreparedTransactionList(GlobalTransaction *gxacts)
 		nodes_addrs = (char *) array + sizeof(GlobalTransactionData) * num;
 		gxact = array + i;
 		gxact->nodeIds = (Oid *) (nodes_addrs + i * NODES_SIZE);
-		
+
 		memcpy(gxact, TwoPhaseState->prepXacts[i],
 			sizeof(GlobalTransactionData));
 
@@ -1131,6 +1132,9 @@ EndRemoteXactPrepare(GlobalTransaction gxact)
 		/* Prepare on remote nodes */
 		if (gxact->node_cnt > 0)
 			PrePrepare_Remote(gxact->gid);
+#ifdef INTER_XACT
+		InterXactPrepare(gxact->gid, gxact->nodeIds, gxact->node_cnt);
+#endif
 
 		/* Prepare on AGTM */
 		agtm_PrepareTransaction(gxact->gid);
@@ -1760,7 +1764,9 @@ FinishPreparedTransactionExt(const char *gid,
 	{
 		if (!isRemoteInit)
 			init_RemoteXactStateByNodes(hdr->nnodes, nodeIds, true);
-
+#ifdef INTER_XACT
+		/* Comment on the code above */
+#endif
 		EndFinishPreparedRxact(gid,
 							   hdr->nnodes,
 							   nodeIds,

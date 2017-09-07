@@ -5,6 +5,7 @@
 #include "access/twophase.h"
 #include "agtm/agtm.h"
 #include "agtm/agtm_client.h"
+#include "intercomm/inter-comm.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 #include "storage/ipc.h"
@@ -26,6 +27,9 @@ RemoteXactCommit(int nnodes, Oid *nodeIds)
 
 	if (nnodes > 0)
 		PreCommit_Remote(NULL, false);
+#ifdef INTER_XACT
+	InterXactCommit(NULL, nodeIds, nnodes);
+#endif
 	agtm_CommitTransaction(NULL, false);
 }
 
@@ -39,6 +43,9 @@ RemoteXactAbort(int nnodes, Oid *nodeIds, bool normal)
 	{
 		if (nnodes > 0)
 			PreAbort_Remote(NULL, false);
+#ifdef INTER_XACT
+		InterXactAbort(NULL, nodeIds, nnodes);
+#endif
 		agtm_AbortTransaction(NULL, false);
 	} else
 	{
@@ -132,6 +139,9 @@ CommitPreparedRxact(const char *gid,
 		/* Commit prepared on remote nodes */
 		if (nnodes > 0)
 			PreCommit_Remote(gid, isMissingOK);
+#ifdef INTER_XACT
+		InterXactCommit(gid, nodeIds, nnodes);
+#endif
 
 		/* Commit prepared on AGTM */
 		agtm_CommitTransaction(gid, isMissingOK);
@@ -181,6 +191,9 @@ AbortPreparedRxact(const char *gid,
 		/* rollback prepared on remote nodes */
 		if (nnodes > 0)
 			PreAbort_Remote(gid, isMissingOK);
+#ifdef INTER_XACT
+		InterXactAbort(gid, nodeIds, nnodes);
+#endif
 
 		/* rollback prepared on AGTM */
 		agtm_AbortTransaction(gid, isMissingOK);

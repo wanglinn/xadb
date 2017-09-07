@@ -91,6 +91,8 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 
+#include "intercomm/inter-comm.h"
+
 typedef struct RemoteUtilityContext
 {
 	bool				sentToRemote;
@@ -1498,6 +1500,9 @@ standard_ProcessUtility(Node *parsetree,
 
 			if (!IsConnFromCoord())
 				ExecRemoteUtility((RemoteQuery *) parsetree);
+#ifdef INTER_XACT
+				ExecInterXactUtility((RemoteQuery *) parsetree, GetTopInterXactState());
+#endif
 			break;
 
 		case T_CleanConnStmt:
@@ -2878,6 +2883,9 @@ ExecRemoteUtilityStmt2(Node *stmt, RemoteUtilityContext *context)
 	step->exec_type = context->exec_type;
 	step->is_temp = context->is_temp;
 	ExecRemoteUtility(step);
+#ifdef INTER_XACT
+	(void) ExecInterXactUtility(step, GetTopInterXactState());
+#endif
 	pfree(step->sql_statement);
 	pfree(step);
 }
