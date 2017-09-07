@@ -4402,29 +4402,8 @@ create_grouping_paths(PlannerInfo *root,
 									 &gcontext,
 									 REDUCE_TYPE_HASH,
 									 REDUCE_TYPE_MODULO,
+									 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
 									 REDUCE_TYPE_NONE);
-					if(gcontext.can_gather)
-					{
-						path = (Path*)create_cluster_gather_path(lfirst(lc), grouped_rel);
-						create_cluster_grouping_path(root, path, &gcontext);
-
-						path = lfirst(lc);
-						if(path->pathkeys)
-						{
-							path = (Path*)create_cluster_merge_gather_path(root,
-																		   grouped_rel,
-																		   path,
-																		   path->pathkeys);
-							create_cluster_grouping_path(root, path, &gcontext);
-						}
-					}else
-					{
-						CoordinatorPath(root,
-										grouped_rel,
-										path,
-										create_cluster_grouping_path,
-										&gcontext);
-					}
 					list_free(storage_list);
 				}
 			}
@@ -4447,29 +4426,8 @@ create_grouping_paths(PlannerInfo *root,
 								 &gcontext,
 								 REDUCE_TYPE_HASH,
 								 REDUCE_TYPE_MODULO,
+								 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
 								 REDUCE_TYPE_NONE);
-				if(gcontext.can_gather)
-				{
-					path = (Path*)create_cluster_gather_path(lfirst(lc), grouped_rel);
-					create_cluster_grouping_path(root, path, &gcontext);
-
-					path = lfirst(lc);
-					if(path->pathkeys)
-					{
-						path = (Path*)create_cluster_merge_gather_path(root,
-																	   grouped_rel,
-																	   path,
-																	   path->pathkeys);
-						create_cluster_grouping_path(root, path, &gcontext);
-					}
-				}else
-				{
-					CoordinatorPath(root,
-									grouped_rel,
-									path,
-									create_cluster_grouping_path,
-									&gcontext);
-				}
 				list_free(storage_list);
 			}
 		}
