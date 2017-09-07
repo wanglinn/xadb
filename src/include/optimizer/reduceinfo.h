@@ -79,6 +79,11 @@ extern int ClusterGatherSubPath(PlannerInfo *root, RelOptInfo *rel, Path *path,
 extern int ClusterGatherSubPathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
 									ReducePathCallback_function func, void *context);
 
+extern int ParallelGatherSubPath(PlannerInfo *root, RelOptInfo *rel, Path *path,
+								ReducePathCallback_function func, void *context);
+extern int ParallelGatherSubPathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+									ReducePathCallback_function func, void *context);
+
 extern int ReplicatePath(PlannerInfo *root, RelOptInfo *rel, Path *path, List *storage,
 						 ReducePathCallback_function func, void *context);
 extern int ReplicatePathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist, List *storage,
