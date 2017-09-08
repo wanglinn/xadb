@@ -3489,6 +3489,11 @@ ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 
 	path->path.startup_cost = sub_path->startup_cost;
 	path->path.total_cost = sub_path->total_cost;
+	if(have_cluster_reduce_path(sub_path, NULL))
+	{
+		path->path.startup_cost += reduce_setup_cost;
+		path->path.total_cost += reduce_setup_cost;
+	}
 	return path;
 }
 
