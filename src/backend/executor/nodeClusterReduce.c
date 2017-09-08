@@ -22,8 +22,9 @@ extern bool enable_cluster_plan;
 static void ExecInitClusterReduceStateExtra(ClusterReduceState *crstate);
 static bool ExecConnectReduceWalker(PlanState *node, EState *estate);
 static int32 cmr_heap_compare_slots(Datum a, Datum b, void *arg);
-static TupleTableSlot *GetSlotFromOuterNode(ClusterReduceState *node);
-static TupleTableSlot *GetSlotFromSpecialRemote(ClusterReduceState *node, ReduceEntry entry);
+static TupleTableSlot *GetSlotFromOuter(ClusterReduceState *node);
+static TupleTableSlot *GetMergeSlotFromOuter(ClusterReduceState *node, ReduceEntry entry);
+static TupleTableSlot *GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry);
 static TupleTableSlot *ExecClusterMergeReduce(ClusterReduceState *node);
 static void DriveClusterReduce(ClusterReduceState *node);
 static bool DriveClusterReduceWalker(PlanState *node, void *context);
@@ -81,8 +82,7 @@ ExecInitClusterReduceStateExtra(ClusterReduceState *crstate)
 		for (i = 0; i < crstate->nrdcs; i++)
 		{
 			entry = crstate->rdc_entrys[i];
-			if (entry->re_key != PGXCNodeOid)
-				entry->re_slot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor);
+			entry->re_slot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor);
 			entry->re_store = tuplestore_begin_heap(true, false, work_mem);
 		}
 		crstate->binheap = binaryheap_allocate(crstate->nrdcs, cmr_heap_compare_slots, crstate);
@@ -172,7 +172,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 }
 
 static TupleTableSlot *
-GetSlotFromOuterNode(ClusterReduceState *node)
+GetSlotFromOuter(ClusterReduceState *node)
 {
 	TupleTableSlot *slot;
 	ExprContext	   *econtext;
@@ -271,7 +271,7 @@ ExecClusterReduce(ClusterReduceState *node)
 			/* fetch tuple from outer node */
 			if (!node->eof_underlying)
 			{
-				outerslot = GetSlotFromOuterNode(node);
+				outerslot = GetSlotFromOuter(node);
 				if (!TupIsNull(outerslot))
 					return outerslot;
 			}
@@ -307,7 +307,52 @@ ExecClusterReduce(ClusterReduceState *node)
 }
 
 static TupleTableSlot *
-GetSlotFromSpecialRemote(ClusterReduceState *node, ReduceEntry entry)
+GetMergeSlotFromOuter(ClusterReduceState *node, ReduceEntry entry)
+{
+	TupleTableSlot	   *outerslot;
+	TupleTableSlot	   *cur_slot;
+	Tuplestorestate	   *cur_store;
+	Oid					cur_oid;
+
+	Assert(node && node->port && entry);
+	Assert(entry->re_key == PGXCNodeOid);
+
+	cur_oid = entry->re_key;
+	cur_store = entry->re_store;
+	cur_slot = entry->re_slot;
+
+	/*
+	 * traversal scan local outer node, keep the slots belong to myself in
+	 * the Tuplestorestate and send out the slots that don't belong to myself.
+	 */
+	while (!node->eof_underlying)
+	{
+		outerslot = GetSlotFromOuter(node);
+		if (TupIsNull(outerslot))
+			break;
+		if (tuplestore_ateof(cur_store))
+			tuplestore_clear(cur_store);
+		tuplestore_puttupleslot(cur_store, outerslot);
+	}
+	Assert(node->eof_underlying);
+
+	/* record the EOF of local outer node */
+	entry->re_eof = true;
+
+	/*
+	 * try to get from its Tuplestorestate
+	 */
+	if (!tuplestore_ateof(cur_store))
+	{
+		if (tuplestore_gettupleslot(cur_store, true, true, cur_slot))
+			return cur_slot;
+	}
+
+	return ExecClearTuple(cur_slot);
+}
+
+static TupleTableSlot *
+GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry)
 {
 	TupleTableSlot	   *outerslot;
 	TupleTableSlot	   *cur_slot;
@@ -401,7 +446,7 @@ ExecClusterMergeReduce(ClusterReduceState *node)
 		found = false;
 		entry = hash_search(node->rdc_htab, &PGXCNodeOid, HASH_FIND, &found);
 		Assert(found && !entry->re_eof);
-		entry->re_slot = GetSlotFromOuterNode(node);
+		entry->re_slot = GetMergeSlotFromOuter(node, entry);
 		if (!TupIsNull(entry->re_slot))
 			binaryheap_add_unordered(node->binheap, PointerGetDatum(entry));
 
@@ -411,7 +456,7 @@ ExecClusterMergeReduce(ClusterReduceState *node)
 			entry = node->rdc_entrys[i];
 			if (entry->re_key == PGXCNodeOid)
 				continue;
-			entry->re_slot = GetSlotFromSpecialRemote(node, entry);
+			entry->re_slot = GetMergeSlotFromRemote(node, entry);
 			if (!TupIsNull(entry->re_slot))
 				binaryheap_add_unordered(node->binheap, PointerGetDatum(entry));
 		}
@@ -421,9 +466,9 @@ ExecClusterMergeReduce(ClusterReduceState *node)
 	{
 		entry = (ReduceEntry) DatumGetPointer(binaryheap_first(node->binheap));
 		if (entry->re_key == PGXCNodeOid)
-			entry->re_slot = GetSlotFromOuterNode(node);
+			entry->re_slot = GetMergeSlotFromOuter(node, entry);
 		else
-			entry->re_slot = GetSlotFromSpecialRemote(node, entry);
+			entry->re_slot = GetMergeSlotFromRemote(node, entry);
 
 		if (!TupIsNull(entry->re_slot))
 			binaryheap_replace_first(node->binheap, PointerGetDatum(entry));
@@ -572,7 +617,7 @@ DriveClusterReduce(ClusterReduceState *node)
 	}
 
 	while (!node->eof_underlying)
-		(void) GetSlotFromOuterNode(node);
+		(void) GetSlotFromOuter(node);
 }
 
 static bool
