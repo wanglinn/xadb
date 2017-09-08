@@ -4480,6 +4480,8 @@ create_grouping_paths(PlannerInfo *root,
 			{
 				List *storage_list;
 				groupExprs = get_sortgrouplist_exprs(parse->groupClause, parse->targetList);
+				subpath = linitial(input_rel->cluster_partial_pathlist);
+				gcontext.partial_groups = get_number_of_groups(root, subpath->rows, NULL, NULL);
 
 				/* step 1: parallel agg first */
 				/* gcontext.split = AGGSPLIT_INITIAL_SERIAL; */
@@ -6439,8 +6441,20 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 		target = gcontext->final_target;
 		costs = gcontext->agg_final_costs;
 		quals = gcontext->having_quals;
-		num_groups = gcontext->partial_groups;
+		num_groups = gcontext->final_groups;
 		break;
+	}
+
+	if (num_groups > 1.0 &&
+		gcontext->split != AGGSPLIT_INITIAL_SERIAL &&
+		IsReduceInfoListByValue(get_reduce_info_list(subpath)))
+	{
+		List * nodes;
+		ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(subpath), &nodes, NULL);
+		num_groups /= list_length(nodes);
+		if(num_groups < 1.0)
+			num_groups = 1.0;
+		list_free(nodes);
 	}
 
 	if(gcontext->can_sort)
