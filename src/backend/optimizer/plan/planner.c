@@ -4476,9 +4476,10 @@ create_grouping_paths(PlannerInfo *root,
 				add_cluster_path_list(grouped_rel, gcontext.new_paths_list, true);
 				gcontext.new_paths_list = NIL;
 				list_free(new_path_list);
-			}else if((groupExprs = get_sortgrouplist_exprs(parse->groupClause, parse->targetList)) != NIL)
+			}else
 			{
 				List *storage_list;
+				groupExprs = get_sortgrouplist_exprs(parse->groupClause, parse->targetList);
 
 				/* step 1: parallel agg first */
 				/* gcontext.split = AGGSPLIT_INITIAL_SERIAL; */
@@ -4509,8 +4510,8 @@ create_grouping_paths(PlannerInfo *root,
 									 NIL,
 									 create_cluster_grouping_path,
 									 &gcontext,
-									 REDUCE_TYPE_HASH,
-									 REDUCE_TYPE_MODULO,
+									 groupExprs ? REDUCE_TYPE_HASH : REDUCE_TYPE_IGNORE,
+									 groupExprs ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
 									 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
 									 REDUCE_TYPE_NONE);
 					list_free(storage_list);
