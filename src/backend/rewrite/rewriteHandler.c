@@ -38,16 +38,17 @@
 #include "utils/rel.h"
 
 #ifdef ADB
-#include "pgxc/locator.h"
-#include "pgxc/nodemgr.h"
-#include "pgxc/pgxc.h"
+#include "access/htup_details.h"
+#include "catalog/namespace.h"
 #include "nodes/nodes.h"
 #include "optimizer/planner.h"
 #include "optimizer/var.h"
+#include "pgxc/locator.h"
+#include "pgxc/nodemgr.h"
+#include "pgxc/pgxc.h"
 #include "tcop/tcopprot.h"
 #include "tcop/utility.h"
 #include "utils/syscache.h"
-#include "access/htup_details.h"
 #endif
 
 /* We use a list of these to detect recursion in RewriteQuery */
