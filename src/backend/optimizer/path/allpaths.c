@@ -3450,9 +3450,11 @@ static bool set_path_reduce_info_worker(Path *path, List *reduce_info_list)
 {
 	if (path != NULL)
 	{
-		Assert(path->reduce_is_valid == false);
-		path->reduce_info_list = reduce_info_list;
-		path->reduce_is_valid = true;
+		if(path->reduce_is_valid == false)
+		{
+			path->reduce_info_list = reduce_info_list;
+			path->reduce_is_valid = true;
+		}
 		return path_tree_walker(path, set_path_reduce_info_worker, reduce_info_list);
 	}
 	return false;
