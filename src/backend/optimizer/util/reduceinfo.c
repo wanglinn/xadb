@@ -507,10 +507,13 @@ int ParallelGatherSubPath(PlannerInfo *root, RelOptInfo *rel, Path *path,
 						  ReducePathCallback_function func, void *context)
 {
 	Path *new_path;
+	double rows;
 	int result;
 	Assert(path->parallel_workers > 0);
 
-	new_path = (Path*)create_gather_path(root, rel, path, path->pathtarget, PATH_REQ_OUTER(path), NULL);
+	rows = path->rows * path->parallel_workers;
+
+	new_path = (Path*)create_gather_path(root, rel, path, path->pathtarget, PATH_REQ_OUTER(path), &rows);
 	new_path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(path));
 	new_path->reduce_is_valid = true;
 
@@ -520,7 +523,7 @@ int ParallelGatherSubPath(PlannerInfo *root, RelOptInfo *rel, Path *path,
 
 	if(path->pathkeys)
 	{
-		new_path = (Path*)create_gather_merge_path(root, rel, path, path->pathtarget, path->pathkeys, PATH_REQ_OUTER(path), NULL);
+		new_path = (Path*)create_gather_merge_path(root, rel, path, path->pathtarget, path->pathkeys, PATH_REQ_OUTER(path), &rows);
 		new_path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(path));
 		new_path->reduce_is_valid = true;
 		result = (*func)(root, new_path, context);
