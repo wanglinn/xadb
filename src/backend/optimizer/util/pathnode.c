@@ -3498,6 +3498,7 @@ ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel)
 	copy_path_info((Path*)path, sub_path);
 	path->path.parent = rel;
 	path->path.pathtype = T_ClusterGather;
+	path->path.pathkeys = NIL;
 
 	path->subpath = sub_path;
 	cost_cluster_gather(path, NULL, NULL, &sub_path->rows);
