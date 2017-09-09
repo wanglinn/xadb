@@ -1195,7 +1195,19 @@ lreplace:;
 	}
 
 	if (canSetTag)
-		(estate->es_processed)++;
+#ifdef ADB
+	{
+		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+			estate->es_processed += resultRemoteRel->rqs_processed;
+		else
+#endif
+			(estate->es_processed)++;
+#ifdef ADB
+	}
+#endif
+
+
+
 
 	if(oldtuple!=0)
 		/* AFTER ROW UPDATE Triggers */
