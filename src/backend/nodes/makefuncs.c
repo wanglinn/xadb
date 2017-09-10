@@ -688,6 +688,12 @@ int32 execModuloValue(Datum datum, Oid typid, int right)
 	estate = CreateExecutorState();
 	old_context = MemoryContextSwitchTo(estate->es_query_cxt);
 
+	if(typid==BOOLOID)
+	{
+		datum = DirectFunctionCall1(bool_int4, datum);
+		typid = INT4OID;
+	}
+
 	get_typlenbyval(typid, &typlen, &boolValue);
 	left = makeConst(typid, -1, InvalidOid, typlen, datum, false, boolValue);
 	expr = makeModuloExpr((Expr*)left, right);
