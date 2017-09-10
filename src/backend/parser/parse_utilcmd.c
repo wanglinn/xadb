@@ -351,7 +351,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	 */
 	if (!stmt->distributeby && !stmt->inhRelations && cxt.fallback_dist_col)
 	{
-		stmt->distributeby = (DistributeBy *) palloc0(sizeof(DistributeBy));
+		stmt->distributeby = makeNode(DistributeBy);
 		stmt->distributeby->disttype = DISTTYPE_HASH;
 		stmt->distributeby->colname = cxt.fallback_dist_col;
 	}
