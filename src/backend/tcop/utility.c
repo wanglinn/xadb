@@ -434,6 +434,9 @@ standard_ProcessUtility(Node *parsetree,
 	bool		isTopLevel = (context == PROCESS_UTILITY_TOPLEVEL);
 
 #ifdef ADB
+
+	Relation	vacuum_rel = NULL;
+
 	RemoteUtilityContext utilityContext = {
 							sentToRemote,
 							false,
@@ -890,13 +893,24 @@ standard_ProcessUtility(Node *parsetree,
 				PreventCommandDuringRecovery((stmt->options & VACOPT_VACUUM) ?
 											 "VACUUM" : "ANALYZE");
 #ifdef ADB
-				/*
-				 * We have to run the command on nodes before Coordinator because
-				 * vacuum() pops active snapshot and we can not send it to nodes
-				 */
-				utilityContext.force_autocommit = true;
-				utilityContext.exec_type = EXEC_ON_DATANODES;
-				ExecRemoteUtilityStmt(&utilityContext);
+				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				{
+					vacuum_rel = heap_openrv_extended(stmt->relation, AccessShareLock, true);
+
+					if(RELKIND_MATVIEW!=vacuum_rel->rd_rel->relkind)
+					{
+						/*
+						 * We have to run the command on nodes before Coordinator because
+						 * vacuum() pops active snapshot and we can not send it to nodes
+						 */
+						utilityContext.force_autocommit = true;
+						utilityContext.exec_type = EXEC_ON_DATANODES;
+						ExecRemoteUtilityStmt(&utilityContext);
+					}
+
+					relation_close(vacuum_rel, AccessShareLock);
+				}
+
 #endif /* ADB */
 				/* forbidden in parallel mode due to CommandIsReadOnly */
 				ExecVacuum(stmt, isTopLevel);
