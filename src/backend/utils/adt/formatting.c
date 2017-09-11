@@ -638,7 +638,7 @@ typedef enum
 	DCH_XFF3,
 	DCH_XFF4,
 	DCH_XFF5,
-	DCH_XFF6,	
+	DCH_XFF6,
 	DCH_XFF7,
 	DCH_XFF8,
 	DCH_XFF9,
@@ -712,7 +712,7 @@ typedef enum
 	DCH_xff3,
 	DCH_xff4,
 	DCH_xff5,
-	DCH_xff6,	
+	DCH_xff6,
 	DCH_xff7,
 	DCH_xff8,
 	DCH_xff9,
@@ -1000,7 +1000,7 @@ static const int DCH_index[KeyWord_INDEX_SIZE] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, DCH_A_D, DCH_B_C, DCH_CC, DCH_DAY, -1,
-	DCH_FF1, -1, DCH_HH24, DCH_IDDD, DCH_J, -1, -1, DCH_MI, -1, -1,
+	DCH_FF1, -1, DCH_HH24, DCH_IDDD, DCH_J, -1, -1, DCH_MI, -1, DCH_OF,
 	DCH_P_M, DCH_Q, DCH_RM, DCH_SSSSS, DCH_TZ, DCH_US, -1, DCH_WW, DCH_XFF1, DCH_Y_YYY,
 	-1, -1, -1, -1, -1, -1, -1, DCH_a_d, DCH_b_c, DCH_cc,
 	DCH_day, -1, DCH_ff1, -1, DCH_hh24, DCH_iddd, DCH_j, -1, -1, DCH_mi,
@@ -1020,7 +1020,7 @@ static const int DCH_index[KeyWord_INDEX_SIZE] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, DCH_A_D, DCH_B_C, DCH_CC, DCH_DAY, -1,
-	DCH_FX, -1, DCH_HH24, DCH_IDDD, DCH_J, -1, -1, DCH_MI, -1, -1,
+	DCH_FX, -1, DCH_HH24, DCH_IDDD, DCH_J, -1, -1, DCH_MI, -1, DCH_OF,
 	DCH_P_M, DCH_Q, DCH_RM, DCH_SSSS, DCH_TZ, DCH_US, -1, DCH_WW, -1, DCH_Y_YYY,
 	-1, -1, -1, -1, -1, -1, -1, DCH_a_d, DCH_b_c, DCH_cc,
 	DCH_day, -1, DCH_fx, -1, DCH_hh24, DCH_iddd, DCH_j, -1, -1, DCH_mi,
@@ -6327,7 +6327,7 @@ ora_DCH_from_char(FormatNode *node, char *in, TmFromChar *out)
 				{
 					if ((n->key->id >= DCH_XFF1 && n->key->id <= DCH_XFF) ||
 						(n->key->id >= DCH_FF1 && n->key->id <= DCH_FF))
-					{	
+					{
 						int			ns = 0;		/* nanosecond */
 						int			max_precision = 0;
 
