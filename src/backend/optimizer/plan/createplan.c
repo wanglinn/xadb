@@ -288,6 +288,7 @@ static GatherMerge *create_gather_merge_plan(PlannerInfo *root,
 static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 							ClusterMergeGatherPath *path, int flags);
 static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags);
+static ClusterGatherType get_gather_type(List *reduce_info_list);
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
 static bool find_cluster_reduce_expr(Path *path, List **pplist);
 static void set_scan_execute_oids(Scan *scan, Path *path, PlannerInfo *root);
@@ -6481,9 +6482,18 @@ static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 	subplan = create_plan_recurse(root, path->subpath, flags);
 
 	plan = makeNode(ClusterMergeGather);
-	plan->plan.targetlist = subplan->targetlist;
+	if(IsA(subplan, ModifyTable))
+	{
+		ModifyTable *mt = (ModifyTable*)subplan;
+		if(mt->returningLists)
+			plan->plan.targetlist = linitial(mt->returningLists);
+	}else
+	{
+		plan->plan.targetlist = subplan->targetlist;
+	}
 	outerPlan(plan) = subplan;
 	plan->rnodes = get_remote_nodes(root, path->subpath);
+	plan->gatherType = get_gather_type(get_reduce_info_list(path->subpath));
 
 	copy_generic_path_info(&plan->plan, (Path*)path);
 
@@ -6503,7 +6513,6 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 {
 	ClusterGather *plan;
 	Plan *subplan;
-	List *reduce_info_list = get_reduce_info_list(path->subpath);
 
 	subplan = create_plan_recurse(root, path->subpath, flags);
 
@@ -6519,21 +6528,38 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 	}
 	outerPlan(plan) = subplan;
 	plan->rnodes = get_remote_nodes(root, path->subpath);
-	if(reduce_info_list == NIL)
-	{
-		plan->gatherType = CLUSTER_GATHER_ALL;
-	}else
-	{
-		ReduceInfo *info = linitial(reduce_info_list);
-		if(IsReduceInfoCoordinator(info))
-			plan->gatherType = CLUSTER_GATHER_COORD;
-		else
-			plan->gatherType = CLUSTER_GATHER_ALL;
-	}
+	plan->gatherType = get_gather_type(get_reduce_info_list(path->subpath));
 
 	copy_generic_path_info(&plan->plan, (Path*)path);
 
 	return plan;
+}
+
+static ClusterGatherType get_gather_type(List *reduce_info_list)
+{
+	if(reduce_info_list == NIL)
+	{
+		return CLUSTER_GATHER_ALL;
+	}else
+	{
+		ReduceInfo *info = linitial(reduce_info_list);
+		ListCell *lc;
+		bool have_coord;
+		if(IsReduceInfoCoordinator(info))
+			return CLUSTER_GATHER_COORD;
+
+		have_coord = false;
+		foreach(lc, reduce_info_list)
+		{
+			info = lfirst(lc);
+			if(list_member_oid(info->storage_nodes, PGXCNodeOid))
+			{
+				have_coord = true;
+				break;
+			}
+		}
+		return have_coord ? CLUSTER_GATHER_ALL:CLUSTER_GATHER_DATANODE;
+	}
 }
 
 /* return remote node's Oid */

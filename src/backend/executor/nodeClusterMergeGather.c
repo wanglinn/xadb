@@ -87,8 +87,10 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 TupleTableSlot *ExecClusterMergeGather(ClusterMergeGatherState *node)
 {
 	TupleTableSlot *result;
+	ClusterGatherType gatherType;
 	int32	i;
 
+re_get_:
 	if(node->initialized == false)
 	{
 		result = ExecProcNode(outerPlanState(node));
@@ -131,7 +133,17 @@ TupleTableSlot *ExecClusterMergeGather(ClusterMergeGatherState *node)
 		result = ExecClearTuple(node->ps.ps_ResultTupleSlot);
 	}else
 	{
+		gatherType = ((ClusterMergeGather*)node->ps.plan)->gatherType;
 		i = DatumGetInt32(binaryheap_first(node->binheap));
+		if(i == node->nremote)
+		{
+			if((gatherType & CLUSTER_GATHER_COORD) == 0)
+				goto re_get_;
+		}else
+		{
+			if((gatherType & CLUSTER_GATHER_DATANODE) == 0)
+				goto re_get_;
+		}
 		result = node->slots[i];
 	}
 

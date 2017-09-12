@@ -891,6 +891,7 @@ typedef struct ClusterMergeGather
 {
 	Plan		plan;
 	List	   *rnodes;			/* remote node oids */
+	ClusterGatherType gatherType;
 	/* remaining fields are just like the sort-key info in struct Sort */
 	int			numCols;		/* number of sort-key columns */
 	AttrNumber *sortColIdx;		/* their indexes in the target list */
