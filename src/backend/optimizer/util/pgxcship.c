@@ -213,8 +213,12 @@ pgxc_FQS_datanodes_for_rtr(Index varno, Shippability_context *sc_context)
 			 * because has_subclass can return true even if there aren't any
 			 * subclasses, but it's ok.
 			 */
+			/*
+			parent and children table use same distribution.
+
 			if (rte->inh && has_subclass(rte->relid))
 				return NULL;
+			*/
 
 			return pgxc_FQS_get_relation_nodes(rte, varno, query);
 		}
