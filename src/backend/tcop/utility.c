@@ -2549,6 +2549,9 @@ ProcessUtilitySlow(Node *parsetree,
 
 			case T_CreateAmStmt:
 				address = CreateAccessMethod((CreateAmStmt *) parsetree);
+#ifdef ADB
+				ExecRemoteUtilityStmt(&utilityContext);
+#endif
 				break;
 
 			default:
