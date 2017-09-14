@@ -893,7 +893,7 @@ standard_ProcessUtility(Node *parsetree,
 				PreventCommandDuringRecovery((stmt->options & VACOPT_VACUUM) ?
 											 "VACUUM" : "ANALYZE");
 #ifdef ADB
-				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && stmt->relation)
 				{
 					vacuum_rel = heap_openrv_extended(stmt->relation, AccessShareLock, true);
 
