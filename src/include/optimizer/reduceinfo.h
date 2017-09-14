@@ -105,6 +105,11 @@ extern int ReducePathByReduceInfoList(Expr *expr, PlannerInfo *root, RelOptInfo 
 extern int ReducePathListByReduceInfoList(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist,
 									  ReducePathCallback_function func, void *context, List *reduce_list);
 
+extern int ReducePathUsingReduceInfo(PlannerInfo *root, RelOptInfo *rel, Path *path,
+									 ReducePathCallback_function func, void *context, ReduceInfo *reduce);
+extern int ReducePathListUsingReduceInfo(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+										 ReducePathCallback_function func, void *context, ReduceInfo *reduce);
+
 extern int ReducePathByExprVA(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 							  List *storage, List *exclude,
 							  ReducePathCallback_function func, void *context, va_list args);
@@ -146,6 +151,9 @@ extern List *ReduceInfoListConcatExtend(List *dest, List *src, int mark);
 extern bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark);
 #define IsReduceInfoSame(l,r) CompReduceInfo(l, r, REDUCE_MARK_STORAGE|REDUCE_MARK_TYPE|REDUCE_MARK_EXPR)
 #define IsReduceInfoEqual(l,r) CompReduceInfo(l, r, REDUCE_MARK_ALL)
+
+extern bool ReduceInfoListMember(List *reduce_info_list, ReduceInfo *reduce_info);
+extern List* GetPathListReduceInfoList(List *pathlist);
 
 extern int ReduceInfoIncludeExpr(ReduceInfo *reduce, Expr *expr);
 extern bool ReduceInfoListIncludeExpr(List *reduceList, Expr *expr);

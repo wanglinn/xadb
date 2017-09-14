@@ -303,55 +303,11 @@ List *SortOidList(List *list)
 	return list;
 }
 
-static int ReducePathInternal(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path, List *storage, List *exclude,
-					   ReducePathCallback_function func, void *context,
-					   ReduceInfo *(*MakeFunc)(const List *storage, const List *exclude, const Expr *param))
-{
-	ListCell *lc;
-	ReduceInfo *new_reduce_info;
-	List *old_reduce_list;
-	Path *new_path;
-	int result;
-	if(PATH_REQ_OUTER(path))
-		return 0;
-
-	new_reduce_info = (*MakeFunc)(storage, exclude, expr);
-	old_reduce_list = get_reduce_info_list(path);
-	new_path = NULL;
-	foreach(lc, old_reduce_list)
-	{
-		if(IsReduceInfoEqual(new_reduce_info, lfirst(lc)))
-		{
-			new_path = path;
-			FreeReduceInfo(new_reduce_info);
-			new_reduce_info = NULL;
-			break;
-		}
-	}
-
-	if(new_path == NULL)
-	{
-		Assert(new_reduce_info != NULL);
-		new_path = create_cluster_reduce_path(root, path, list_make1(new_reduce_info), rel, NIL);
-	}
-
-	result = (*func)(root, new_path, context);
-	if(result < 0)
-		return result;
-
-	if(new_reduce_info != NULL && path->pathkeys != NIL)
-	{
-		new_path = create_cluster_reduce_path(root, path, list_make1(CopyReduceInfo(new_reduce_info)), rel, path->pathkeys);
-		result = (*func)(root, new_path, context);
-	}
-
-	return 0;
-}
-
 int HashPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 				   List *storage, List *exclude,
 				   ReducePathCallback_function func, void *context)
 {
+	ReduceInfo *reduce;
 	int result;
 	AssertArg(root && rel && path && storage && func);
 
@@ -366,13 +322,15 @@ int HashPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 		{
 			if(!IsTypeDistributable(exprType(lfirst(lc))))
 				continue;
-			result = ReducePathInternal(lfirst(lc), root, rel, path, storage, exclude, func, context, MakeHashReduceInfo);
+			reduce = MakeHashReduceInfo(storage, exclude, lfirst(lc));
+			result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
 			if(result < 0)
 				break;
 		}
 	}else if(IsTypeDistributable(exprType((Node*)expr)))
 	{
-		result = ReducePathInternal(expr, root, rel, path, storage, exclude, func, context, MakeHashReduceInfo);
+		reduce = MakeHashReduceInfo(storage, exclude, expr);
+		result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
 	}else
 	{
 		result = 0;
@@ -399,6 +357,7 @@ int ModuloPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 					 List *storage, List *exclude,
 					 ReducePathCallback_function func, void *context)
 {
+	ReduceInfo *reduce;
 	int result;
 	if(expr == NULL)
 		return 0;
@@ -411,13 +370,15 @@ int ModuloPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 		{
 			if(!CanModuloType(exprType(lfirst(lc)), true))
 				continue;
-			result = ReducePathInternal(lfirst(lc), root, rel, path, storage, exclude, func, context, MakeModuloReduceInfo);
+			reduce = MakeModuloReduceInfo(storage, exclude, lfirst(lc));
+			result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
 			if(result < 0)
 				break;
 		}
 	}else if(CanModuloType(exprType((Node*)expr), true))
 	{
-		result = ReducePathInternal(expr, root, rel, path, storage, exclude, func, context, MakeModuloReduceInfo);
+		reduce = MakeModuloReduceInfo(storage, exclude, expr);
+		result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
 	}else
 	{
 		result = 0;
@@ -440,14 +401,11 @@ int ModuloPathListByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *p
 	return result;
 }
 
-static ReduceInfo *MakeCoordinatorReduceInfo_private(const List *storage, const List *exclude, const Expr *param)
-{
-	return MakeCoordinatorReduceInfo();
-}
 int CoordinatorPath(PlannerInfo *root, RelOptInfo *rel, Path *path,
 					ReducePathCallback_function func, void *context)
 {
-	return ReducePathInternal(NULL, root, rel, path, NIL, NIL, func, context, MakeCoordinatorReduceInfo_private);
+	ReduceInfo *reduce = MakeCoordinatorReduceInfo();
+	return ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
 }
 
 int CoordinatorPathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
@@ -546,14 +504,11 @@ int ParallelGatherSubPathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist
 	return result;
 }
 
-static ReduceInfo *MakeReplicateReduceInfo_private(const List *storage, const List *exclude, const Expr *param)
-{
-	return MakeReplicateReduceInfo(storage);
-}
 int ReplicatePath(PlannerInfo *root, RelOptInfo *rel, Path *path, List *storage,
 						 ReducePathCallback_function func, void *context)
 {
-	return ReducePathInternal(NULL, root, rel, path, storage, NIL, func, context, MakeReplicateReduceInfo_private);
+	ReduceInfo *reduce = MakeReplicateReduceInfo(storage);
+	return ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
 }
 
 int ReplicatePathList(PlannerInfo *root, RelOptInfo *rel, List *pathlist, List *storage,
@@ -699,6 +654,54 @@ int ReducePathListByReduceInfoList(Expr *expr, PlannerInfo *root, RelOptInfo *re
 		}
 	}
 
+	return result;
+}
+
+int ReducePathUsingReduceInfo(PlannerInfo *root, RelOptInfo *rel, Path *path,
+							  ReducePathCallback_function func, void *context, ReduceInfo *reduce)
+{
+	ListCell *lc;
+	List *old_reduce_list;
+	Path *new_path;
+	int result;
+	if(PATH_REQ_OUTER(path))
+		return 0;
+
+	old_reduce_list = get_reduce_info_list(path);
+	new_path = NULL;
+	foreach(lc, old_reduce_list)
+	{
+		if(IsReduceInfoEqual(reduce, lfirst(lc)))
+		{
+			new_path = path;
+			break;
+		}
+	}
+	if(new_path == NULL)
+		new_path = create_cluster_reduce_path(root, path, list_make1(reduce), rel, NIL);
+	result = (*func)(root, new_path, context);
+	if(result < 0)
+		return result;
+
+	if(new_path != path && path->pathkeys != NIL)
+	{
+		new_path = create_cluster_reduce_path(root, path, list_make1(reduce), rel, path->pathkeys);
+		result = (*func)(root, new_path, context);
+	}
+	return result;
+}
+
+int ReducePathListUsingReduceInfo(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
+								  ReducePathCallback_function func, void *context, ReduceInfo *reduce)
+{
+	ListCell *lc;
+	int result = 0;
+	foreach(lc, pathlist)
+	{
+		result = ReducePathUsingReduceInfo(root, rel, lfirst(lc), func, context, reduce);
+		if(result < 0)
+			return result;
+	}
 	return result;
 }
 
@@ -1004,6 +1007,38 @@ bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark)
 		return false;
 
 	return true;
+}
+
+bool ReduceInfoListMember(List *reduce_info_list, ReduceInfo *reduce_info)
+{
+	ListCell *lc;
+	AssertArg(reduce_info);
+	foreach(lc, reduce_info_list)
+	{
+		if(IsReduceInfoEqual(lfirst(lc), reduce_info))
+			return true;
+	}
+	return false;
+}
+
+List* GetPathListReduceInfoList(List *pathlist)
+{
+	List *result;
+	List *reduce_list;
+	ListCell *lc;
+	ListCell *lc2;
+
+	result = NIL;
+	foreach(lc, pathlist)
+	{
+		reduce_list = get_reduce_info_list(lfirst(lc));
+		foreach(lc2, reduce_list)
+		{
+			if(ReduceInfoListMember(result, lfirst(lc2)) == false)
+				result = lappend(result, lfirst(lc2));
+		}
+	}
+	return result;
 }
 
 int ReduceInfoIncludeExpr(ReduceInfo *reduce, Expr *expr)
