@@ -3519,6 +3519,7 @@ create_cluster_reduce_path(PlannerInfo *root,
 						   List *pathkeys)
 {
 	ClusterReducePath *crp = NULL;
+	Assert(bms_is_empty(PATH_REQ_OUTER(sub_path)));
 
 	/* avoid nested generating ClusterReducePath */
 	while (IsA(sub_path, ClusterReducePath))

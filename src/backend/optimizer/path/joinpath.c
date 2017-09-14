@@ -2609,6 +2609,7 @@ static List *reduce_paths_for_join(PlannerInfo *root, RelOptInfo *rel, List *red
 				path = lfirst(lc2);
 				if (path == cheapest_total_path ||
 					path == cheapest_startup_path ||
+					PATH_REQ_OUTER(path) ||
 					path->pathkeys == NIL)
 					continue;
 				path = create_cluster_reduce_path(root, path, list_make1(rinfo), rel, path->pathkeys);
@@ -2645,6 +2646,7 @@ static List *coord_paths_for_join(PlannerInfo *root, RelOptInfo *rel)
 	{
 		path = lfirst(lc);
 		if (path->pathkeys == NULL ||
+			PATH_REQ_OUTER(path) ||
 			path == cheapest_total ||
 			path == cheapest_startup)
 			continue;
