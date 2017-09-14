@@ -2345,6 +2345,9 @@ static void add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 			}
 		}
 
+		if(jcontext->jointype == JOIN_UNIQUE_OUTER)
+			continue;
+
 		jcontext->try_match = CLUSTER_TRY_MERGE_JOIN;
 		if((inner_path=get_cheapest_join_path(jcontext, outer_path, TOTAL_COST, false, &new_reduce_list)) != NULL)
 		{
