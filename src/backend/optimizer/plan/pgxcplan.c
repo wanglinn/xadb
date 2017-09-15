@@ -1309,11 +1309,11 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 				{
 					TargetEntry	*tle = lfirst(elt);
 					Var *v;
-			
+
 					col_att++;
-			
+
 					v = (Var *)tle->expr;
-		
+
 					if (v->varno == resultRelationIndex &&
 						v->varattno == pkattno)
 					{
@@ -1421,7 +1421,7 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 		/* Get the plan that is supposed to supply source data to this plan */
 		sourceDataPlan = list_nth(mt->plans, relcount);
 
-		if(have_cluster_plan_walker(sourceDataPlan, NULL))
+		if(have_cluster_plan_walker(sourceDataPlan, root, NULL))
 			continue;
 
 		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
@@ -1866,7 +1866,7 @@ pgxc_process_grouping_targetlist(List *local_tlist, bool single_node_grouping)
 	if (single_node_grouping)
 	{
 		/* Check that all the aggregates in the targetlist are shippable */
-		List 		*aggs_n_vars = pull_var_clause((Node *)local_tlist, 
+		List 		*aggs_n_vars = pull_var_clause((Node *)local_tlist,
 													PVC_INCLUDE_AGGREGATES |
 													PVC_RECURSE_PLACEHOLDERS);
 		ListCell	*lcell;
@@ -2316,7 +2316,7 @@ get_fn_oid(char *fn_name, Oid *p_rettype)
 				p_rettype,		/* function return type - returned detail */
 				&retset,		/*  - returned detail*/
 				&nvargs,		/*  - returned detail*/
-				&vatype,		/*  - returned detail*/	
+				&vatype,		/*  - returned detail*/
 				&true_typeids,	/*  - returned detail */
 				NULL			/* arguemnt defaults returned*/
 				);
@@ -2753,7 +2753,7 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	List			*collected_rtable;
 	List			*junk_tlist = NIL;
 	ListCell		*cell;
-	TargetEntry     *currentTle ; 
+	TargetEntry     *currentTle ;
 	/* EXECUTE DIRECT statements have their RemoteQuery node already built when analyzing */
 	if (is_exec_direct)
 	{

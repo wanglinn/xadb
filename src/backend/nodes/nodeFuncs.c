@@ -3785,7 +3785,7 @@ planstate_tree_walker(PlanState *planstate,
 }
 
 #ifdef ADB
-bool plan_tree_walker(struct Plan *plan, bool (*walker)(), void *context)
+bool plan_tree_walker(struct Plan *plan, PlannerInfo *root, bool (*walker)(), void *context)
 {
 	ListCell *lc;
 	List *list;
@@ -3793,18 +3793,21 @@ bool plan_tree_walker(struct Plan *plan, bool (*walker)(), void *context)
 	/* initPlan-s */
 	foreach(lc, plan->initPlan)
 	{
-		if((*walker)(lfirst(lc), context))
+		SubPlan    *initsubplan = (SubPlan *) lfirst(lc);
+		Plan	   *initplan = planner_subplan_get_plan(root, initsubplan);
+
+		if((*walker)(initplan, root, context))
 			return true;
 	}
 
 	/* lefttree */
 	if (outerPlan(plan) &&
-		(*walker)(outerPlan(plan), context))
+		(*walker)(outerPlan(plan), root, context))
 		return true;
 
 	/* righttree */
 	if(innerPlan(plan) &&
-		(*walker)(innerPlan(plan), context))
+		(*walker)(innerPlan(plan), root, context))
 		return true;
 
 	/* special child plans */
@@ -3827,7 +3830,7 @@ bool plan_tree_walker(struct Plan *plan, bool (*walker)(), void *context)
 		list = ((BitmapOr*)plan)->bitmapplans;
 		break;
 	case T_SubqueryScan:
-		if((*walker)(((SubqueryScan*)plan)->subplan, context))
+		if((*walker)(((SubqueryScan*)plan)->subplan, root, context))
 			return true;
 		break;
 	case T_CustomScan:
@@ -3839,14 +3842,14 @@ bool plan_tree_walker(struct Plan *plan, bool (*walker)(), void *context)
 
 	foreach(lc, list)
 	{
-		if((*walker)(lfirst(lc), context))
+		if((*walker)(lfirst(lc), root, context))
 			return true;
 	}
 
 	return false;
 }
 
-bool have_cluster_plan_walker(struct Plan *plan, void *notUse)
+bool have_cluster_plan_walker(struct Plan *plan, PlannerInfo *root, void *notUse)
 {
 	if(plan == NULL)
 		return false;
@@ -3860,7 +3863,7 @@ bool have_cluster_plan_walker(struct Plan *plan, void *notUse)
 	default:
 		break;
 	}
-	return plan_tree_walker(plan, have_cluster_plan_walker, NULL);
+	return plan_tree_walker(plan, root, have_cluster_plan_walker, NULL);
 }
 
 #endif /* ADB */
