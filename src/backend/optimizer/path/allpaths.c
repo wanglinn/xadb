@@ -749,17 +749,17 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 		reduce_info_list = list_make1(rinfo);
 
-		/* move pathlist to cluster_pathlist */
-		foreach(lc, rel->pathlist)
+		/* move pathlist to cluster_pathlist and recost */
+		rel->cluster_pathlist = rel->pathlist;
+		rel->pathlist = NIL;
+		foreach(lc, rel->cluster_pathlist)
 		{
 			path = lfirst(lc);
 
 			set_path_reduce_info_worker(path, reduce_info_list);
 
 			cost_div(path, list_length(loc_info->nodeList));
-			add_cluster_path(rel, path);
 		}
-		rel->pathlist = NIL;
 
 		/* If appropriate, consider parallel sequential scan */
 		if (rel->consider_parallel && required_outer == NULL)
