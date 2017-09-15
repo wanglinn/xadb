@@ -3785,29 +3785,55 @@ planstate_tree_walker(PlanState *planstate,
 }
 
 #ifdef ADB
-bool plan_tree_walker(struct Plan *plan, PlannerInfo *root, bool (*walker)(), void *context)
+bool plan_tree_walker(struct Plan *plan, Node *GlobOrStmt, bool (*walker)(), void *context)
 {
 	ListCell *lc;
 	List *list;
 
-	/* initPlan-s */
-	foreach(lc, plan->initPlan)
-	{
-		SubPlan    *initsubplan = (SubPlan *) lfirst(lc);
-		Plan	   *initplan = planner_subplan_get_plan(root, initsubplan);
+	if(plan == NULL)
+		return false;
+	check_stack_depth();
 
-		if((*walker)(initplan, root, context))
-			return true;
+	/* initPlan-s */
+	if(GlobOrStmt && plan->initPlan)
+	{
+		Node *node;
+		List *subplans = NIL;
+		if(IsA(GlobOrStmt, PlannerGlobal))
+			subplans = ((PlannerGlobal*)GlobOrStmt)->subplans;
+		else if(IsA(GlobOrStmt, PlannedStmt))
+			subplans = ((PlannedStmt*)GlobOrStmt)->subplans;
+		else if(IsA(GlobOrStmt, PlannerInfo))
+			subplans = ((PlannerInfo*)GlobOrStmt)->glob->subplans;
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("unknown node type %d", nodeTag(GlobOrStmt))));
+
+		foreach(lc, plan->initPlan)
+		{
+			node = lfirst(lc);
+			if(IsA(node, SubPlan))
+			{
+				Plan	   *initplan = list_nth(subplans, ((SubPlan*)node)->plan_id-1);
+				if((*walker)(initplan, GlobOrStmt, context))
+					return true;
+			}/*else if(IsA(node, Param))
+			{
+			}else if(IsA(node, SubLink))
+			{
+			}*/
+		}
 	}
 
 	/* lefttree */
 	if (outerPlan(plan) &&
-		(*walker)(outerPlan(plan), root, context))
+		(*walker)(outerPlan(plan), GlobOrStmt, context))
 		return true;
 
 	/* righttree */
 	if(innerPlan(plan) &&
-		(*walker)(innerPlan(plan), root, context))
+		(*walker)(innerPlan(plan), GlobOrStmt, context))
 		return true;
 
 	/* special child plans */
@@ -3830,7 +3856,7 @@ bool plan_tree_walker(struct Plan *plan, PlannerInfo *root, bool (*walker)(), vo
 		list = ((BitmapOr*)plan)->bitmapplans;
 		break;
 	case T_SubqueryScan:
-		if((*walker)(((SubqueryScan*)plan)->subplan, root, context))
+		if((*walker)(((SubqueryScan*)plan)->subplan, GlobOrStmt, context))
 			return true;
 		break;
 	case T_CustomScan:
@@ -3842,14 +3868,14 @@ bool plan_tree_walker(struct Plan *plan, PlannerInfo *root, bool (*walker)(), vo
 
 	foreach(lc, list)
 	{
-		if((*walker)(lfirst(lc), root, context))
+		if((*walker)(lfirst(lc), GlobOrStmt, context))
 			return true;
 	}
 
 	return false;
 }
 
-bool have_cluster_plan_walker(struct Plan *plan, PlannerInfo *root, void *notUse)
+bool have_cluster_plan_walker(struct Plan *plan, Node *GlobOrStmt, void *notUse)
 {
 	if(plan == NULL)
 		return false;
@@ -3863,7 +3889,7 @@ bool have_cluster_plan_walker(struct Plan *plan, PlannerInfo *root, void *notUse
 	default:
 		break;
 	}
-	return plan_tree_walker(plan, root, have_cluster_plan_walker, NULL);
+	return plan_tree_walker(plan, GlobOrStmt, have_cluster_plan_walker, NULL);
 }
 
 #endif /* ADB */

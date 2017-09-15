@@ -1421,7 +1421,7 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 		/* Get the plan that is supposed to supply source data to this plan */
 		sourceDataPlan = list_nth(mt->plans, relcount);
 
-		if(have_cluster_plan_walker(sourceDataPlan, root, NULL))
+		if(have_cluster_plan_walker(sourceDataPlan, (Node*)(root->glob), NULL))
 			continue;
 
 		fstep = make_remotequery(NIL, NIL, resultRelationIndex);

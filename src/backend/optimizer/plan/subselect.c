@@ -2241,7 +2241,7 @@ SS_charge_for_initplans(PlannerInfo *root, RelOptInfo *final_rel)
 }
 
 #ifdef ADB
-static bool set_cluster_gather_init_plan_walker(Plan *plan, PlannerInfo *root, List *init_plans)
+static bool set_cluster_gather_init_plan_walker(Plan *plan, void *none, List *init_plans)
 {
 	if(plan == NULL)
 		return false;
@@ -2251,7 +2251,7 @@ static bool set_cluster_gather_init_plan_walker(Plan *plan, PlannerInfo *root, L
 		outerPlan(plan)->initPlan = init_plans;
 		return true;
 	}
-	return plan_tree_walker(plan, root, set_cluster_gather_init_plan_walker, init_plans);
+	return plan_tree_walker(plan, NULL, set_cluster_gather_init_plan_walker, init_plans);
 }
 
 #endif /* ADB */
@@ -2271,13 +2271,13 @@ SS_attach_initplans(PlannerInfo *root, Plan *plan)
 {
 #ifdef ADB
 	/* we need send initPlan to remote */
-	if (!set_cluster_gather_init_plan_walker(plan, root, root->init_plans))
+	if (!set_cluster_gather_init_plan_walker(plan, NULL, root->init_plans))
 #endif /* ADB */
 	plan->initPlan = root->init_plans;
 }
 
 #ifdef ADB
-static bool SS_finalize_plan_walker(Plan *plan, PlannerInfo *root)
+static bool SS_finalize_plan_walker(Plan *plan, void *none, PlannerInfo *root)
 {
 	if (plan == NULL)
 		return false;
@@ -2290,7 +2290,7 @@ static bool SS_finalize_plan_walker(Plan *plan, PlannerInfo *root)
 		plan->extParam = bms_copy(outerPlan(plan)->extParam);
 		return true;
 	}
-	if(plan_tree_walker(plan, root, SS_finalize_plan_walker, root))
+	if(plan_tree_walker(plan, NULL, SS_finalize_plan_walker, root))
 	{
 		plan->allParam = bms_copy(outerPlan(plan)->allParam);
 		plan->extParam = bms_copy(outerPlan(plan)->extParam);
@@ -2313,7 +2313,7 @@ SS_finalize_plan(PlannerInfo *root, Plan *plan)
 {
 	/* No setup needed, just recurse through plan tree. */
 #ifdef ADB
-	if (!SS_finalize_plan_walker(plan, root))
+	if (!SS_finalize_plan_walker(plan, NULL, root))
 #endif /* ADB */
 	(void) finalize_plan(root, plan, root->outer_params, NULL);
 }
