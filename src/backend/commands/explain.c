@@ -186,6 +186,8 @@ ExplainQuery(ExplainStmt *stmt, const char *queryString,
 			es->nodes = defGetBoolean(opt);
 		else if (strcmp(opt->defname, "num_nodes") == 0)
 			es->num_nodes = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "plan_id") == 0)
+			es->plan_id = defGetBoolean(opt);
 #endif /* ADB */
 
 		else if (strcmp(opt->defname, "timing") == 0)
@@ -1341,6 +1343,20 @@ ExplainNode(PlanState *planstate, List *ancestors,
 	/* in text format, first line ends here */
 	if (es->format == EXPLAIN_FORMAT_TEXT)
 		appendStringInfoChar(es->str, '\n');
+
+#ifdef ADB
+	if (es->plan_id)
+	{
+		if (es->format == EXPLAIN_FORMAT_TEXT)
+		{
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			appendStringInfo(es->str, "Plan id: %d\n", plan->plan_node_id);
+		} else
+		{
+			ExplainPropertyInteger("Plan id", plan->plan_node_id, es);
+		}
+	}
+#endif
 
 	/* target list */
 	if (es->verbose)

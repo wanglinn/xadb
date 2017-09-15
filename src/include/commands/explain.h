@@ -35,6 +35,7 @@ typedef struct ExplainState
 #ifdef ADB
 	bool		nodes;			/* print nodes in RemoteQuery node */
 	bool		num_nodes;		/* print number of nodes in RemoteQuery node */
+	bool		plan_id;		/* print plan node id */
 #endif /* ADB */
 	bool		timing;			/* print detailed node timing */
 	bool		summary;		/* print total planning and execution timing */
