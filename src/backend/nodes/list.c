@@ -911,6 +911,22 @@ list_intersection_oid(const List *list1, const List *list2)
 	check_list_invariants(result);
 	return result;
 }
+
+bool list_equal_ptr(const List *list1, const List *list2)
+{
+	const ListCell *lc1,*lc2;
+	if(list1 == list2)
+		return true;
+	if(list_length(list1) != list_length(list2))
+		return false;
+	forboth(lc1, list1, lc2, list2)
+	{
+		if(lfirst(lc1) != lfirst(lc2))
+			return false;
+	}
+	return true;
+}
+
 #endif
 
 /*
