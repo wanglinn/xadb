@@ -117,6 +117,9 @@ extern int ReducePathListByExprVA(Expr *expr, PlannerInfo *root, RelOptInfo *rel
 								  List *storage, List *exclude,
 								  ReducePathCallback_function func, void *context, va_list args);
 
+extern List *GetCheapestReducePathList(RelOptInfo *rel, List *pathlist, Path **cheapest_startup, Path **cheapest_total);
+
+
 extern int ReducePathSave2List(PlannerInfo *root, Path *path, void *pplist);
 
 #define IsReduceInfoByValue(r) ((r)->type == REDUCE_TYPE_HASH || \
@@ -149,8 +152,11 @@ extern List *ReduceInfoListConcatExtend(List *dest, List *src, int mark);
 
 /* compare reduce info */
 extern bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark);
+extern bool CompReduceInfoList(List *left, List *right, int mark);
 #define IsReduceInfoSame(l,r) CompReduceInfo(l, r, REDUCE_MARK_STORAGE|REDUCE_MARK_TYPE|REDUCE_MARK_EXPR)
+#define IsReduceInfoListSame(l,r) CompReduceInfoList(l, r, REDUCE_MARK_STORAGE|REDUCE_MARK_TYPE|REDUCE_MARK_EXPR)
 #define IsReduceInfoEqual(l,r) CompReduceInfo(l, r, REDUCE_MARK_ALL)
+#define IsReduceInfoListEqual(l,r) CompReduceInfoList(l, r, REDUCE_MARK_ALL)
 
 extern bool ReduceInfoListMember(List *reduce_info_list, ReduceInfo *reduce_info);
 extern List* GetPathListReduceInfoList(List *pathlist);

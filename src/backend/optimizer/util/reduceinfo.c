@@ -12,6 +12,7 @@
 #include "optimizer/clauses.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/var.h"
+#include "optimizer/paths.h"
 #include "optimizer/planmain.h"
 #include "parser/parser.h"
 #include "parser/parse_coerce.h"
@@ -761,6 +762,78 @@ int ReducePathListByExprVA(Expr *expr,PlannerInfo *root, RelOptInfo *rel, List *
 	return result;
 }
 
+List *GetCheapestReducePathList(RelOptInfo *rel, List *pathlist, Path **cheapest_startup, Path **cheapest_total)
+{
+	ListCell *lc;
+	ListCell *lck;
+	ListCell *lcs;
+	ListCell *lct;
+	List *result;
+	List *all_pathkeys = NIL;
+	List *startup_pathlist = NIL;
+	List *total_pathlist = NIL;
+	Path *startup = NULL;
+	Path *total = NULL;
+	Path *path;
+	PathKeysComparison keyscmp;
+	bool found;
+
+	foreach(lc, pathlist)
+	{
+		path = lfirst(lc);
+		/* not support replicate to other yet */
+		if (PATH_REQ_OUTER(path) ||
+			IsReduceInfoListReplicated(get_reduce_info_list(path)))
+			continue;
+
+		if (startup == NULL || compare_path_costs(path, startup, STARTUP_COST) < 0)
+			startup = path;
+		if (total == NULL || compare_path_costs(path, total, TOTAL_COST) < 0)
+			total = path;
+
+		if(path->pathkeys == NIL)
+			continue;
+
+		found = false;
+		forthree(lck, all_pathkeys, lcs, startup_pathlist, lct, total_pathlist)
+		{
+			keyscmp = compare_pathkeys(lfirst(lck), path->pathkeys);
+			if(keyscmp == PATHKEYS_EQUAL)
+			{
+				if(compare_path_costs(path, lfirst(lcs), STARTUP_COST) < 0)
+					lfirst(lcs) = path;
+				if(compare_path_costs(path, lfirst(lct), TOTAL_COST) < 0)
+					lfirst(lct) = path;
+				found = true;
+				break;
+			}
+		}
+		if(!found)
+		{
+			all_pathkeys = lappend(all_pathkeys, path->pathkeys);
+			startup_pathlist = lappend(startup_pathlist, path);
+			total_pathlist = lappend(total_pathlist, path);
+		}
+	}
+	list_free(all_pathkeys);
+
+	result = NIL;
+	forboth(lcs, startup_pathlist, lct, total_pathlist)
+	{
+		result = lappend(result, lfirst(lcs));
+		if(lfirst(lcs) != lfirst(lct))
+			result = lappend(result, lfirst(lct));
+	}
+	list_free(startup_pathlist);
+	list_free(total_pathlist);
+
+	if(cheapest_startup)
+		*cheapest_startup = startup;
+	if(cheapest_total)
+		*cheapest_total = total;
+	return result;
+}
+
 int ReducePathSave2List(PlannerInfo *root, Path *path, void *pplist)
 {
 	Assert(pplist);
@@ -1005,6 +1078,30 @@ bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark)
 	if ((mark & REDUCE_MARK_TYPE) &&
 		left->type != right->type)
 		return false;
+
+	return true;
+}
+
+bool CompReduceInfoList(List *left, List *right, int mark)
+{
+	ListCell *lc_left;
+	ListCell *lc_right;
+
+	if(left == right)
+		return true;
+	if(list_length(left) != list_length(right))
+		return false;
+
+	foreach(lc_left, left)
+	{
+		foreach(lc_right, right)
+		{
+			if(CompReduceInfo(lfirst(lc_left), lfirst(lc_right), mark))
+				break;
+		}
+		if(lc_right == NULL)
+			return false;
+	}
 
 	return true;
 }
