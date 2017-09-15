@@ -4982,6 +4982,13 @@ void cost_cluster_gather(ClusterGatherPath *path, RelOptInfo *baserel, ParamPath
 	path->path.total_cost = (startup_cost + run_cost);
 }
 
+static double
+cost_cluster_expr(Expr *expr, double tuples)
+{
+	/* TODO */
+	return 0.0;
+}
+
 void
 cost_cluster_reduce(ClusterReducePath *path)
 {
@@ -4997,7 +5004,7 @@ cost_cluster_reduce(ClusterReducePath *path)
 					dst_num,
 					union_num;
 	int				src_width;
-	double			src_rows;
+	double			src_rows, avg_rows;
 	double			src_pages;
 	double			reduce_scale = 0.0;
 	Cost			src_startup_cost,
@@ -5110,10 +5117,11 @@ cost_cluster_reduce(ClusterReducePath *path)
 
 	/* here we calculate the whole cluster reduce cost */
 	reduce_startup_cost = union_num * reduce_conn_cost;
-	reduce_run_cost = src_pages * reduce_scale * reduce_page_cost +
-					  reduce_startup_cost;
+	reduce_run_cost = src_pages * reduce_scale * reduce_page_cost + reduce_startup_cost;
+	reduce_run_cost += cost_cluster_expr(NULL, src_rows * reduce_scale);
 
 	/* Calculate the cost of sorting */
+	avg_rows = src_rows / dst_num;
 	sort_startup_cost = sort_run_cost = 0.0;
 	if (path->path.pathkeys != NIL)
 	{
@@ -5121,7 +5129,7 @@ cost_cluster_reduce(ClusterReducePath *path)
 		double		N;
 		double		logN;
 
-		N = (dst_num < 2) ? 2.0 : (double) dst_num;
+		N = (src_num < 2) ? 2.0 : (double) src_num;
 		logN = LOG2(N);
 
 		/* Assumed cost per tuple comparison */
@@ -5131,15 +5139,15 @@ cost_cluster_reduce(ClusterReducePath *path)
 		sort_startup_cost = comparison_cost * N * logN;
 
 		/* Per-tuple heap maintenance cost */
-		sort_run_cost += src_rows * comparison_cost * 2.0 * logN;
+		sort_run_cost += avg_rows * comparison_cost * 2.0 * logN;
 
-		sort_run_cost += cpu_operator_cost * src_rows;
+		sort_run_cost += cpu_operator_cost * avg_rows;
 	}
 
 	/* here we calulate the average cost of ClusterReduce */
-	path->path.rows = src_rows / union_num;
-	path->path.startup_cost = (src_startup_cost + reduce_startup_cost + sort_startup_cost) / union_num;
-	path->path.total_cost = (src_total_cost + reduce_run_cost + sort_run_cost) / union_num;
+	path->path.rows = avg_rows;
+	path->path.startup_cost = (src_startup_cost + reduce_startup_cost + sort_startup_cost * dst_num) / union_num;
+	path->path.total_cost = (src_total_cost + reduce_run_cost + sort_run_cost * dst_num) / union_num;
 
 	list_free(src_nodes);
 	list_free(union_nodes);
