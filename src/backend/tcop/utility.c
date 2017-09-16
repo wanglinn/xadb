@@ -1160,7 +1160,7 @@ standard_ProcessUtility(Node *parsetree,
 						break;
 				}
 #ifdef ADB
-				utilityContext.force_autocommit = (stmt->kind == REINDEX_OBJECT_DATABASE);
+				utilityContext.force_autocommit = (stmt->kind == REINDEX_OBJECT_DATABASE || stmt->kind == REINDEX_OBJECT_SCHEMA);
 				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			}
