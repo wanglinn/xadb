@@ -112,6 +112,8 @@ static bool pgxc_is_trigger_firable(Relation rel, Trigger *trigger,
 static bool pgxc_is_internal_trig_firable(Relation rel, Trigger *trigger);
 static void pgxc_check_distcol_update(HeapTuple tup1, HeapTuple tup2,
 						  TupleDesc tupdesc, RelationLocInfo *rel_locinfo);
+static HeapTuple pgxc_get_trigger_tuple(HeapTupleHeader tuphead);
+
 #endif
 
 /*
@@ -2292,6 +2294,42 @@ ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 	 */
 	Assert(HeapTupleIsValid(fdw_trigtuple) ^ ItemPointerIsValid(tupleid));
 #endif
+
+#ifdef ADB
+	bool exec_all_triggers;
+
+	/*
+	 * Fire triggers only at the node where we are supposed to fire them.
+	 * Note: the special requirement for BR triggers is that we should fire
+	 * them on coordinator even when we have shippable BR and a non-shippable AR
+	 * trigger. For details see the comments in the function definition.
+	 */
+	exec_all_triggers = pgxc_should_exec_br_trigger(relinfo->ri_RelationDesc,
+													TRIGGER_TYPE_DELETE);
+
+	/*
+	 * TODO: GetTupleForTrigger() acquires an exclusive row lock on the tuple.
+	 * So while the trigger function is being executed, no one else writes
+	 * into this row. For PGXC, we need to do similar thing by:
+	 * 1. Either explicitly LOCK the row and fetch the latest value by doing:
+	 *	  SELECT * FROM tab WHERE ctid = ctid_value FOR UPDATE
+	 * OR:
+	 * 2. Add FOR UPDATE in the SELECT statement in the subplan itself.
+	 */
+
+	if (IS_PGXC_COORDINATOR && RelationGetLocInfo(relinfo->ri_RelationDesc))
+	{
+		/* No OLD tuple means triggers are to be run on datanode */
+		if (!fdw_trigtuple)
+			return true;
+		trigtuple = pgxc_get_trigger_tuple(fdw_trigtuple->t_data);
+
+		if (trigtuple == NULL)
+			return false;
+	}
+	else /* On datanode, do the usual way */
+	{
+#endif
 	if (fdw_trigtuple == NULL)
 	{
 
@@ -2302,6 +2340,9 @@ ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 	}
 	else
 		trigtuple = fdw_trigtuple;
+#ifdef ADB
+	}
+#endif
 
 	LocTriggerData.type = T_TriggerData;
 	LocTriggerData.tg_event = TRIGGER_EVENT_DELETE |
@@ -2313,6 +2354,12 @@ ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 	for (i = 0; i < trigdesc->numtriggers; i++)
 	{
 		Trigger    *trigger = &trigdesc->triggers[i];
+
+#ifdef ADB
+		if (!pgxc_is_trigger_firable(relinfo->ri_RelationDesc, trigger,
+									exec_all_triggers))
+			continue;
+#endif
 
 		if (!TRIGGER_TYPE_MATCHES(trigger->tgtype,
 								  TRIGGER_TYPE_ROW,
@@ -2503,6 +2550,7 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	Bitmapset  *updatedCols;
 	LockTupleMode lockmode;
 #ifdef ADB
+	bool			exec_all_triggers;
 	RelationLocInfo	*rel_locinfo = RelationGetLocInfo(relinfo->ri_RelationDesc);
 #endif
 
@@ -2512,6 +2560,37 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 #ifndef ADB
 	/* See comments in ExecBRDeleteTriggers */
 	Assert(HeapTupleIsValid(fdw_trigtuple) ^ ItemPointerIsValid(tupleid));
+#endif
+
+#ifdef ADB
+	/*
+	 * Know whether we should fire triggers on this node. But since internal
+	 * triggers are an exception, we cannot bail out here.
+	 * Note: the special requirement for BR triggers is that we should fire
+	 * them on coordinator even when we have shippable BR and a non-shippable AR
+	 * trigger. For details see the comments in the function definition.
+	 */
+	exec_all_triggers = pgxc_should_exec_br_trigger(relinfo->ri_RelationDesc,
+													TRIGGER_TYPE_UPDATE);
+	/*
+	 * TODO: GetTupleForTrigger() acquires an exclusive row lock on the tuple.
+	 * So while the trigger function is being executed, no one else writes
+	 * into this row. For PGXC, we need to do similar thing by:
+	 * 1. Either explicitly LOCK the row and fetch the latest value by doing:
+	 *	  SELECT * FROM tab WHERE ctid = ctid_value FOR UPDATE
+	 * OR:
+	 * 2. Add FOR UPDATE in the SELECT statement in the subplan itself.
+	 */
+
+	if (IS_PGXC_COORDINATOR && RelationGetLocInfo(relinfo->ri_RelationDesc))
+	{
+		/* No OLD tuple means triggers are to be run on datanode */
+		if (!fdw_trigtuple)
+			return slot;
+		trigtuple = pgxc_get_trigger_tuple(fdw_trigtuple->t_data);
+	}
+	else /* On datanode, do the usual way */
+	{
 #endif
 	if (fdw_trigtuple == NULL)
 	{
@@ -2545,6 +2624,9 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 		slottuple = ExecMaterializeSlot(slot);
 		newtuple = slottuple;
 	}
+#ifdef ADB
+	}
+#endif
 
 
 	LocTriggerData.type = T_TriggerData;
@@ -2556,6 +2638,12 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	for (i = 0; i < trigdesc->numtriggers; i++)
 	{
 		Trigger    *trigger = &trigdesc->triggers[i];
+
+#ifdef ADB
+		if (!pgxc_is_trigger_firable(relinfo->ri_RelationDesc, trigger,
+										exec_all_triggers))
+			continue;
+#endif
 
 		if (!TRIGGER_TYPE_MATCHES(trigger->tgtype,
 								  TRIGGER_TYPE_ROW,
@@ -6140,6 +6228,40 @@ pgxc_is_internal_trig_firable(Relation rel, Trigger *trigger)
 	 * tables
 	 */
 	return !RelationGetLocInfo(rel);
+}
+
+/*
+ * Memo, K.Suzuki, Sep.2nd, 2013
+ *
+ * This function is called from ExecARDeleteTriggers(), ExecBRUpdateTriggers(),
+ * and ExecARUpdateTriggers(), as replacement of GetTupleForTrigger() where
+ * the lock mode for the tuple is specified, which this function does not
+ * take care of.
+ *
+ * Should we take care of it?
+ */
+/*
+ * Convenience function to form a heaptuple out of a heaptuple header.
+ * PGXCTO: Though this is a convenience function now, it would possibly serve the
+ * purpose of GetTupleForTrigger() when we fix the GetTupleForTrigger() related
+ * issue. If we don't end up in doing anything trigger specific, we will rename
+ * and move this function to somewhere else.
+ */
+static HeapTuple
+pgxc_get_trigger_tuple(HeapTupleHeader tuphead)
+{
+	HeapTupleData tuple;
+
+	if (!tuphead)
+		return NULL;
+
+	tuple.t_data = tuphead;
+	tuple.t_len = (tuphead ? HeapTupleHeaderGetDatumLength(tuphead) : 0);
+	ItemPointerSetInvalid(&tuple.t_self);
+	tuple.t_tableOid = InvalidOid;
+	tuple.t_xc_node_id = 0;
+
+	return heap_copytuple(&tuple);
 }
 
 /*
