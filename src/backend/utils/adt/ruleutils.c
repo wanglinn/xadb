@@ -6472,8 +6472,10 @@ get_utility_query_def(Query *query, deparse_context *context)
 							(errcode(ERRCODE_UNDEFINED_OBJECT),
 							 errmsg("type \"%u\" does not exist",
 								 typename->typeOid)));
-				appendStringInfo(buf, "%s %s", quote_identifier(coldef->colname),
-						typeTypeName(type));
+				appendStringInfo(buf, "%s %s",
+								 quote_identifier(coldef->colname),
+								 format_type_with_typemod(typename->typeOid,
+														  typename->typemod));
 				ReleaseSysCache(type);
 			}
 			else
