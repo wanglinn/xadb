@@ -4406,6 +4406,7 @@ create_grouping_paths(PlannerInfo *root,
 
 			if(!no_partial)
 			{
+				Path *cheapest_startup_path;
 				gcontext.split = AGGSPLIT_INITIAL_SERIAL;
 
 				/* datanode(s) agg first */
@@ -4413,10 +4414,12 @@ create_grouping_paths(PlannerInfo *root,
 					create_cluster_grouping_path(root,
 													   lfirst(lc),
 													   &gcontext);
-				pathlist = GetCheapestReducePathList(grouped_rel, gcontext.new_paths_list, NULL, &path);
+				pathlist = GetCheapestReducePathList(grouped_rel, gcontext.new_paths_list, &cheapest_startup_path, &path);
 				gcontext.new_paths_list = NIL;
-				if(list_member_ptr(pathlist, path))
+				if(list_member_ptr(pathlist, path) == false)
 					pathlist = lappend(pathlist, path);
+				if(list_member_ptr(pathlist, cheapest_startup_path) == false)
+					pathlist = lappend(pathlist, cheapest_startup_path);
 
 				gcontext.split = AGGSPLIT_FINAL_DESERIAL;
 				foreach(lc, pathlist)
