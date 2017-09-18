@@ -526,9 +526,9 @@ typedef struct RelOptInfo
 #ifdef ADB
 	List	   *cluster_pathlist;
 	List	   *cluster_partial_pathlist;	/* cluster partial Paths */
+	List	   *cluster_unique_pathlist;
 	struct Path *cheapest_cluster_startup_path;
 	struct Path *cheapest_cluster_total_path;
-	struct Path *cheapest_cluster_unique_path;
 	struct Path *cheapest_replicate_path;		/* reduce to replicate */
 	struct Path *cheapest_coordinator_path;		/* reduce to coordinator */
 	List	   *cheapest_cluster_parameterized_paths;

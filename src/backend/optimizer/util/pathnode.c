@@ -270,7 +270,7 @@ set_cheapest(RelOptInfo *parent_rel)
 										  &parent_rel->cheapest_cluster_startup_path,
 										  &parent_rel->cheapest_cluster_parameterized_paths);
 	}
-	parent_rel->cheapest_cluster_unique_path = NULL;
+	parent_rel->cluster_unique_pathlist = NIL;
 	Assert(parent_rel->cheapest_replicate_path == NULL);
 	Assert(parent_rel->cheapest_coordinator_path == NULL);
 	cheapest_param_replicate = cheapest_param_coordinator = NULL;
@@ -1747,6 +1747,14 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 UniquePath *create_cluster_unique_path(PlannerInfo *root, RelOptInfo *rel,
 				   Path *subpath, SpecialJoinInfo *sjinfo)
 {
+	UniquePath *path;
+	ListCell *lc;
+	foreach(lc, rel->cluster_unique_pathlist)
+	{
+		path = lfirst(lc);
+		if(path->subpath == subpath)
+			return path;
+	}
 	return create_unique_path_internal(root, rel, subpath, sjinfo, true);
 }
 static UniquePath *create_unique_path_internal(PlannerInfo *root, RelOptInfo *rel,
@@ -1827,9 +1835,7 @@ static UniquePath *create_unique_path_internal(PlannerInfo *root, RelOptInfo *re
 		pathnode->path.pathkeys = subpath->pathkeys;
 
 #ifdef ADB
-		if(is_cluster)
-			rel->cheapest_cluster_unique_path = (Path*) pathnode;
-		else
+		if(is_cluster == false)
 #endif /* ADB */
 		rel->cheapest_unique_path = (Path *) pathnode;
 
