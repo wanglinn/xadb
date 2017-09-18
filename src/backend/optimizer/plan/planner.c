@@ -4319,6 +4319,8 @@ create_grouping_paths(PlannerInfo *root,
 		Path *cheapest_cluster_path = input_rel->cheapest_cluster_total_path;
 
 		bool no_partial = (agg_costs->hasNonPartial || agg_costs->hasNonSerial);
+		bool tried_cluster_agg = false;
+		bool have_cluster_subpath = false;
 
 		MemSet(&gcontext, 0, sizeof(gcontext));
 		gcontext.grouped_rel = grouped_rel;
@@ -4376,20 +4378,34 @@ create_grouping_paths(PlannerInfo *root,
 		foreach(lc, input_rel->cluster_pathlist)
 		{
 			Path *path = lfirst(lc);
+			if(have_cluster_subpath == false)
+				have_cluster_subpath = IsReduceInfoListByValue(get_reduce_info_list(path)) ||
+										IsReduceInfoListRound(get_reduce_info_list(path));
 			if(CanOnceGroupingClusterPath(target, path))
+			{
 				create_cluster_grouping_path(root, path, &gcontext);
+				if(tried_cluster_agg == false)
+					tried_cluster_agg = IsReduceInfoListByValue(get_reduce_info_list(path));
+			}
 		}
 
 		/* check need to do */
-		if (NIL == gcontext.new_paths_list)
+		if (NIL == gcontext.new_paths_list ||
+			(tried_cluster_agg == false && have_cluster_subpath))
 		{
 			Path *path;
 			List *storage_list;
+			List *pathlist;
 			List *groupExprs = get_sortgrouplist_exprs(parse->groupClause, parse->targetList);
+
+			if(gcontext.new_paths_list != NIL)
+			{
+				add_cluster_path_list(grouped_rel, gcontext.new_paths_list, true);
+				gcontext.new_paths_list = NIL;
+			}
 
 			if(!no_partial)
 			{
-				List *pathlist;
 				gcontext.split = AGGSPLIT_INITIAL_SERIAL;
 
 				/* datanode(s) agg first */
@@ -4397,8 +4413,10 @@ create_grouping_paths(PlannerInfo *root,
 					create_cluster_grouping_path(root,
 													   lfirst(lc),
 													   &gcontext);
-				pathlist = gcontext.new_paths_list;
+				pathlist = GetCheapestReducePathList(grouped_rel, gcontext.new_paths_list, NULL, &path);
 				gcontext.new_paths_list = NIL;
+				if(list_member_ptr(pathlist, path))
+					pathlist = lappend(pathlist, path);
 
 				gcontext.split = AGGSPLIT_FINAL_DESERIAL;
 				foreach(lc, pathlist)
@@ -4425,7 +4443,10 @@ create_grouping_paths(PlannerInfo *root,
 			}
 
 			gcontext.split = AGGSPLIT_SIMPLE;
-			foreach(lc, input_rel->cluster_pathlist)
+			pathlist = GetCheapestReducePathList(input_rel, input_rel->cluster_pathlist, NULL, &path);
+			if(list_member_ptr(pathlist, path))
+				pathlist = lappend(pathlist, path);
+			foreach(lc, pathlist)
 			{
 				/* reduce to coordinator, by hash and modulo do once */
 				path = lfirst(lc);
