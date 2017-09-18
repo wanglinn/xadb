@@ -112,8 +112,15 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext,
 								  Path *outer_path,
 								  Path *inner_path,
 								  List *new_reduce_list);
+static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptInfo *outerrel,
+											   JoinType jointype, JoinPathExtraData *extra);
+static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptInfo *innerrel,
+											   JoinType jointype, JoinPathExtraData *extra);
 static List *reduce_paths_for_join(PlannerInfo *root, RelOptInfo *rel, List *reduce_list);
 static List *coord_paths_for_join(PlannerInfo *root, RelOptInfo *rel);
+static bool get_cluster_join_exprs(RelOptInfo *outerrel, RelOptInfo *innerrel,
+								   List **outer_exprs, List **inner_exprs,
+								   List *restrictlist);
 #endif /* ADB */
 
 /*
@@ -2038,96 +2045,17 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 		List *need_reduce_list;
 		List *inner_pathlist;
 		List *outer_pathlist;
-		List *exec_list;
-		ReduceInfo *rinfo;
-		List *exprList;
 
 		/* reduce inner paths */
 		all_outer_reduce = GetPathListReduceInfoList(outerrel->cluster_pathlist);
-		need_reduce_list = NIL;
-		foreach(lc1, all_outer_reduce)
-		{
-			rinfo = lfirst(lc1);
-			if (IsReduceInfoCoordinator(rinfo) ||
-				IsReduceInfoReplicated(rinfo))
-			{
-				if(ReduceInfoListMember(need_reduce_list, rinfo) == false)
-					need_reduce_list = lappend(need_reduce_list, rinfo);
-				continue;
-			}
-			switch(jointype)
-			{
-			case JOIN_INNER:
-			case JOIN_SEMI:
-				if (!IsReduceInfoByValue(rinfo) ||
-					(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, innerrel)) == NULL)
-					continue;
-				rinfo = MakeReduceInfoAs(rinfo, exprList);
-				if(ReduceInfoListMember(need_reduce_list, rinfo))
-					FreeReduceInfo(rinfo);
-				else
-					need_reduce_list = lappend(need_reduce_list, rinfo);
-				break;
-			case JOIN_LEFT:
-			case JOIN_ANTI:
-				exec_list = list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec);
-				rinfo = MakeReplicateReduceInfo(exec_list);
-				list_free(exec_list);
-				if(ReduceInfoListMember(need_reduce_list, rinfo))
-					FreeReduceInfo(rinfo);
-				else
-					need_reduce_list = lappend(need_reduce_list, rinfo);
-				break;
-			case JOIN_FULL:
-			case JOIN_RIGHT:
-			default:
-				break;
-			}
-		}
-
+		need_reduce_list = create_inner_reduce_info_for_join(all_outer_reduce, innerrel, jointype, extra);
 		inner_pathlist = reduce_paths_for_join(root, innerrel, need_reduce_list);
 		add_cluster_paths_to_joinrel_internal(&jcontext, outerrel->cluster_pathlist, inner_pathlist, nestjoinOK, false);
 		list_free(need_reduce_list);
 
 		/* reduce outer paths */
 		all_inner_reduce = GetPathListReduceInfoList(outerrel->cluster_pathlist);
-		need_reduce_list = NIL;
-		foreach(lc1, all_inner_reduce)
-		{
-			rinfo = lfirst(lc1);
-			if (IsReduceInfoCoordinator(rinfo) ||
-				IsReduceInfoReplicated(rinfo))
-			{
-				if(ReduceInfoListMember(need_reduce_list, rinfo) == false)
-					need_reduce_list = lappend(need_reduce_list, rinfo);
-				continue;
-			}
-			switch(jointype)
-			{
-			case JOIN_INNER:
-			case JOIN_SEMI:
-				if (!IsReduceInfoByValue(rinfo) ||
-					(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, outerrel)) == NULL)
-					continue;
-				rinfo = MakeReduceInfoAs(rinfo, exprList);
-				if(ReduceInfoListMember(need_reduce_list, rinfo))
-					FreeReduceInfo(rinfo);
-				else
-					need_reduce_list = lappend(need_reduce_list, rinfo);
-				break;
-			case JOIN_RIGHT:
-				exec_list = list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec);
-				rinfo = MakeReplicateReduceInfo(exec_list);
-				list_free(exec_list);
-				if(ReduceInfoListMember(need_reduce_list, rinfo))
-					FreeReduceInfo(rinfo);
-				else
-					need_reduce_list = lappend(need_reduce_list, rinfo);
-				break;
-			default:
-				break;
-			}
-		}
+		need_reduce_list = create_outer_reduce_info_for_join(all_inner_reduce, outerrel, jointype, extra);
 		outer_pathlist = reduce_paths_for_join(root, outerrel, need_reduce_list);
 		add_cluster_paths_to_joinrel_internal(&jcontext, outer_pathlist, innerrel->cluster_pathlist, nestjoinOK, false);
 		list_free(need_reduce_list);
@@ -2141,29 +2069,9 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 		all_outer_reduce != NIL &&
 		all_inner_reduce != NIL)
 	{
-		List *outer_exprs = NIL;
-		List *inner_exprs = NIL;
-		foreach(lc1, extra->restrictlist)
-		{
-			RestrictInfo *ri = lfirst(lc1);
-
-			/* only support X=X expression */
-			if (!is_opclause(ri->clause) ||
-				ri->left_relids == NULL ||
-				ri->right_relids == NULL ||
-				!op_is_equivalence(((OpExpr *)(ri->clause))->opno))
-				continue;
-
-			if(bms_is_subset(ri->left_relids, outerrel->relids) && bms_is_subset(ri->right_relids, innerrel->relids))
-			{
-				outer_exprs = lappend(outer_exprs, get_leftop(ri->clause));
-				inner_exprs = lappend(inner_exprs, get_rightop(ri->clause));
-			}else if(bms_is_subset(ri->left_relids, innerrel->relids) && bms_is_subset(ri->right_relids, outerrel->relids))
-			{
-				outer_exprs = lappend(outer_exprs, get_rightop(ri->clause));
-				inner_exprs = lappend(inner_exprs, get_leftop(ri->clause));
-			}
-		}
+		List *outer_exprs;
+		List *inner_exprs;
+		get_cluster_join_exprs(outerrel, innerrel, &outer_exprs, &inner_exprs, extra->restrictlist);
 		Assert(list_length(outer_exprs) == list_length(inner_exprs));
 		if(outer_exprs && inner_exprs)
 		{
@@ -2618,6 +2526,111 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 	}
 }
 
+static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptInfo *innerrel,
+											   JoinType jointype, JoinPathExtraData *extra)
+{
+	ListCell *lc;
+	ReduceInfo *rinfo;
+	List *exprList;
+	List *exec_list;
+	List *need_reduce_list = NIL;
+
+	foreach(lc, outer_reduce_list)
+	{
+		rinfo = lfirst(lc);
+		if (IsReduceInfoCoordinator(rinfo) ||
+			IsReduceInfoReplicated(rinfo))
+		{
+			if(ReduceInfoListMember(need_reduce_list, rinfo) == false)
+				need_reduce_list = lappend(need_reduce_list, rinfo);
+			continue;
+		}
+		switch(jointype)
+		{
+		case JOIN_INNER:
+		case JOIN_UNIQUE_INNER:
+		case JOIN_UNIQUE_OUTER:
+		case JOIN_SEMI:
+			if (!IsReduceInfoByValue(rinfo) ||
+				(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, innerrel)) == NULL)
+				continue;
+			rinfo = MakeReduceInfoAs(rinfo, exprList);
+			if(ReduceInfoListMember(need_reduce_list, rinfo))
+				FreeReduceInfo(rinfo);
+			else
+				need_reduce_list = lappend(need_reduce_list, rinfo);
+			break;
+		case JOIN_LEFT:
+		case JOIN_ANTI:
+			exec_list = list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec);
+			rinfo = MakeReplicateReduceInfo(exec_list);
+			list_free(exec_list);
+			if(ReduceInfoListMember(need_reduce_list, rinfo))
+				FreeReduceInfo(rinfo);
+			else
+				need_reduce_list = lappend(need_reduce_list, rinfo);
+			break;
+		case JOIN_FULL:
+		case JOIN_RIGHT:
+		default:
+			break;
+		}
+	}
+
+	return need_reduce_list;
+}
+
+static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptInfo *outerrel,
+											   JoinType jointype, JoinPathExtraData *extra)
+{
+	ListCell *lc;
+	ReduceInfo *rinfo;
+	List *exprList;
+	List *exec_list;
+	List *need_reduce_list = NIL;
+
+	foreach(lc, inner_reduce_list)
+	{
+		rinfo = lfirst(lc);
+		if (IsReduceInfoCoordinator(rinfo) ||
+			IsReduceInfoReplicated(rinfo))
+		{
+			if(ReduceInfoListMember(need_reduce_list, rinfo) == false)
+				need_reduce_list = lappend(need_reduce_list, rinfo);
+			continue;
+		}
+		switch(jointype)
+		{
+		case JOIN_INNER:
+		case JOIN_UNIQUE_INNER:
+		case JOIN_UNIQUE_OUTER:
+		case JOIN_SEMI:
+			if (!IsReduceInfoByValue(rinfo) ||
+				(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, outerrel)) == NULL)
+				continue;
+			rinfo = MakeReduceInfoAs(rinfo, exprList);
+			if(ReduceInfoListMember(need_reduce_list, rinfo))
+				FreeReduceInfo(rinfo);
+			else
+				need_reduce_list = lappend(need_reduce_list, rinfo);
+			break;
+		case JOIN_RIGHT:
+			exec_list = list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec);
+			rinfo = MakeReplicateReduceInfo(exec_list);
+			list_free(exec_list);
+			if(ReduceInfoListMember(need_reduce_list, rinfo))
+				FreeReduceInfo(rinfo);
+			else
+				need_reduce_list = lappend(need_reduce_list, rinfo);
+			break;
+		default:
+			break;
+		}
+	}
+
+	return need_reduce_list;
+}
+
 static List *reduce_paths_for_join(PlannerInfo *root, RelOptInfo *rel, List *reduce_list)
 {
 	ListCell *lc1;
@@ -2658,6 +2671,39 @@ static List *coord_paths_for_join(PlannerInfo *root, RelOptInfo *rel)
 	List *result = reduce_paths_for_join(root, rel, reduce_list);
 	list_free(reduce_list);
 	return result;
+}
+
+static bool get_cluster_join_exprs(RelOptInfo *outerrel, RelOptInfo *innerrel,
+								   List **outer_exprs, List **inner_exprs,
+								   List *restrictlist)
+{
+	ListCell *lc;
+	List *outer = NIL;
+	List *inner = NIL;
+	foreach(lc, restrictlist)
+	{
+		RestrictInfo *ri = lfirst(lc);
+
+		/* only support X=X expression */
+		if (!is_opclause(ri->clause) ||
+			ri->left_relids == NULL ||
+			ri->right_relids == NULL ||
+			!op_is_equivalence(((OpExpr *)(ri->clause))->opno))
+			continue;
+
+		if(bms_is_subset(ri->left_relids, outerrel->relids) && bms_is_subset(ri->right_relids, innerrel->relids))
+		{
+			outer = lappend(outer, get_leftop(ri->clause));
+			inner = lappend(inner, get_rightop(ri->clause));
+		}else if(bms_is_subset(ri->left_relids, innerrel->relids) && bms_is_subset(ri->right_relids, outerrel->relids))
+		{
+			outer = lappend(outer, get_rightop(ri->clause));
+			inner = lappend(inner, get_leftop(ri->clause));
+		}
+	}
+	*outer_exprs = outer;
+	*inner_exprs = inner;
+	return outer != NIL;
 }
 
 #endif /* ADB */
