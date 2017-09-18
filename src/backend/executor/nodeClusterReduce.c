@@ -27,6 +27,7 @@ static TupleTableSlot *GetMergeSlotFromOuter(ClusterReduceState *node, ReduceEnt
 static TupleTableSlot *GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry);
 static TupleTableSlot *ExecClusterMergeReduce(ClusterReduceState *node);
 static void DriveClusterReduce(ClusterReduceState *node);
+static bool DriveHashJoinState(HashJoinState *node, void *context);
 static bool DriveClusterReduceWalker(PlanState *node, void *context);
 
 static void
@@ -621,6 +622,87 @@ DriveClusterReduce(ClusterReduceState *node)
 }
 
 static bool
+DriveHashJoinState(HashJoinState *node, void *context)
+{
+	PlanState  *outerNode;
+	HashState  *hashNode;
+	ListCell   *lc;
+	bool		drive_outer_first;
+
+	Assert(node && IsA(node, HashJoinState));
+	hashNode = (HashState *) innerPlanState(node);
+	outerNode = outerPlanState(node);
+
+	/*
+	 * If the hash join type is one of JOIN_LEFT, JOIN_ANTI and JOIN_FULL,
+	 * HJ_FILL_OUTER(node) is true and the outer plan will be executed first,
+	 * see the 150 line in nodeHashJoin.c.
+	 */
+	drive_outer_first = false;
+	switch (node->js.jointype)
+	{
+		case JOIN_LEFT:
+		case JOIN_ANTI:
+		case JOIN_FULL:
+			drive_outer_first = true;
+			break;
+		default:
+			break;
+	}
+
+	/*
+	 * if the startup cost of outer plan is smaller than the hash plan,
+	 * the outer plan will be executed first, see the 151 line in node-
+	 * HashJoin.c.(According to the initial value, see in ExecInitHashJoin,
+	 * Other conditions must be valid).
+	 */
+	if (!drive_outer_first &&
+		outerNode->plan->startup_cost < hashNode->ps.plan->total_cost)
+		drive_outer_first = true;
+
+	/* initPlan-s */
+	foreach(lc, node->js.ps.initPlan)
+	{
+		SubPlanState *sps = (SubPlanState *) lfirst(lc);
+
+		Assert(IsA(sps, SubPlanState));
+		if (DriveClusterReduceWalker(sps->planstate, context))
+			return true;
+	}
+
+	/* lefttree and righttree */
+	if (drive_outer_first)
+	{
+		if (DriveClusterReduceWalker(outerPlanState(node), context))
+			return true;
+
+		if (DriveClusterReduceWalker(innerPlanState(node), context))
+			return true;
+	} else
+	{
+		if (DriveClusterReduceWalker(innerPlanState(node), context))
+			return true;
+
+		if (DriveClusterReduceWalker(outerPlanState(node), context))
+			return true;
+	}
+
+	/* special child plans, skip it */
+
+	/* subPlan-s */
+	foreach(lc, node->js.ps.subPlan)
+	{
+		SubPlanState *sps = (SubPlanState *) lfirst(lc);
+
+		Assert(IsA(sps, SubPlanState));
+		if (DriveClusterReduceWalker(sps->planstate, context))
+			return true;
+	}
+
+	return false;
+}
+
+static bool
 DriveClusterReduceWalker(PlanState *node, void *context)
 {
 	EState	   *estate;
@@ -636,6 +718,10 @@ DriveClusterReduceWalker(PlanState *node, void *context)
 	if (bms_is_member(planid, estate->es_reduce_drived_set))
 		return false;
 
+	if (IsA(node, HashJoinState))
+	{
+		res = DriveHashJoinState((HashJoinState *) node, context);
+	} else
 	if (IsA(node, ClusterReduceState))
 	{
 		ClusterReduceState *crs = (ClusterReduceState *) node;
