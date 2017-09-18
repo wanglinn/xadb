@@ -5072,6 +5072,22 @@ create_distinct_paths(PlannerInfo *root,
 								 REDUCE_TYPE_MODULO,
 								 REDUCE_TYPE_COORDINATOR,
 								 REDUCE_TYPE_NONE);
+			if(list_member_oid(storage_list, PGXCNodeOid) == false)
+			{
+				storage_list = SortOidList(lappend_oid(storage_list, PGXCNodeOid));
+				ReducePathListByExpr((Expr*)distinctExprs,
+									 root,
+									 input_rel,
+									 new_pathlist,
+									 storage_list,
+									 exclude_list,
+									 create_cluster_distinct_path,
+									 &dcontext,
+									 REDUCE_TYPE_HASH,
+									 REDUCE_TYPE_MODULO,
+									 REDUCE_TYPE_NONE);
+
+			}
 
 			list_free(storage_list);
 			list_free(exclude_list);
