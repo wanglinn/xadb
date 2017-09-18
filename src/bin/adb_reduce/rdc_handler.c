@@ -368,10 +368,8 @@ HandleWriteToPlan(PlanPort *pln_port)
 						break;		/* break while */
 
 					buf->cursor = buf->len = 0;
-#ifdef RDC_FRONTEND
 					ClientConnectionLostType = RdcPeerType(work_port);
 					ClientConnectionLostID = RdcPeerID(work_port);
-#endif
 					ClientConnectionLost = 1;
 					InterruptPending = 1;
 					CHECK_FOR_INTERRUPTS();		/* fail to send */

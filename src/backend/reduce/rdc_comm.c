@@ -1574,9 +1574,9 @@ rdc_flush_buffer(RdcPort *port, StringInfo buf, bool block)
 #if defined(RDC_FRONTEND)
 			ClientConnectionLostType = RdcPeerType(port);
 			ClientConnectionLostID = RdcPeerID(port);
-#endif
 			ClientConnectionLost = 1;
 			InterruptPending = 1;
+#endif
 			return EOF;
 		}
 
