@@ -664,6 +664,9 @@ typedef struct HashJoin
 {
 	Join		join;
 	List	   *hashclauses;
+#ifdef ADB
+	bool		cluster_hashtable_first;	/* build hash table first when cluster plan if true */
+#endif
 } HashJoin;
 
 /* ----------------

@@ -450,6 +450,9 @@ END_NODE(MergeJoin)
 BEGIN_NODE(HashJoin)
 	NODE_BASE2(Join,join)
 	NODE_NODE(List,hashclauses)
+#ifdef ADB
+	NODE_SCALAR(bool,cluster_hashtable_first)
+#endif
 END_NODE(HashJoin)
 #endif /* NO_NODE_HashJoin */
 

@@ -4124,6 +4124,14 @@ create_hashjoin_plan(PlannerInfo *root,
 							  outer_plan,
 							  (Plan *) hash_plan,
 							  best_path->jpath.jointype);
+#ifdef ADB
+	/*
+	 * To avoid deadlock of cluster HashJoin plan, it's best to build the
+	 * hash table first for the inner plan in a cluster plan perspective.
+	 */
+	if (best_path->jpath.path.reduce_is_valid)
+		join_plan->cluster_hashtable_first = true;
+#endif
 
 	copy_generic_path_info(&join_plan->join.plan, &best_path->jpath.path);
 

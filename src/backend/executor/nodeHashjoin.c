@@ -147,6 +147,13 @@ ExecHashJoin(HashJoinState *node)
 					/* no chance to not build the hash table */
 					node->hj_FirstOuterTupleSlot = NULL;
 				}
+#ifdef ADB
+				else if (((HashJoin *) node->js.ps.plan)->cluster_hashtable_first)
+				{
+					/* build hash table first if the cluster plan needs to */
+					node->hj_FirstOuterTupleSlot = NULL;
+				}
+#endif
 				else if (HJ_FILL_OUTER(node) ||
 						 (outerNode->plan->startup_cost < hashNode->ps.plan->total_cost &&
 						  !node->hj_OuterNotEmpty))
