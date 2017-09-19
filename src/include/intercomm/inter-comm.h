@@ -48,8 +48,8 @@ extern void TopInterXactTmpSet(bool hastmp);
 extern void ResetInterXactState(InterXactState state);
 extern void FreeInterXactState(InterXactState state);
 extern InterXactState MakeTopInterXactState(void);
-extern InterXactState MakeInterXactState(MemoryContext context, const List *oid_list);
-extern InterXactState MakeInterXactState2(InterXactState state, const List *oid_list);
+extern InterXactState MakeInterXactState(MemoryContext context, const List *node_list);
+extern InterXactState MakeInterXactState2(InterXactState state, const List *node_list);
 extern InterXactState ExecInterXactUtility(RemoteQuery *node, InterXactState state);
 extern void InterXactSetGID(InterXactState state, const char *gid);
 extern Oid *InterXactBeginNodes(InterXactState state, bool include_self, int *node_num);
@@ -62,9 +62,9 @@ extern void InterXactPrepare(const char *gid, Oid *nodes, int nnodes);
 extern void InterXactCommit(const char *gid, Oid *nodes, int nnodes);
 extern void InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool ignore_error);
 
-extern void RemoteXactCommit(int nnodes, Oid *nodeIds);
-extern void RemoteXactAbort(int nnodes, Oid *nodeIds, bool normal);
-extern void StartFinishPreparedRxact(const char *gid, int nnodes, Oid *nodeIds, bool isImplicit, bool isCommit);
-extern void EndFinishPreparedRxact(const char *gid, int nnodes, Oid *nodeIds, bool isMissingOK, bool isCommit);
+extern void RemoteXactCommit(int nnodes, Oid *nodes);
+extern void RemoteXactAbort(int nnodes, Oid *nodes, bool normal);
+extern void StartFinishPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool isImplicit, bool isCommit);
+extern void EndFinishPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool isMissingOK, bool isCommit);
 /* src/backend/intercomm/inter-query.c */
 #endif /* INTER_COMM_H */

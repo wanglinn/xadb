@@ -135,7 +135,7 @@ MakeTopInterXactState(void)
 }
 
 InterXactState
-MakeInterXactState(MemoryContext context, const List *oid_list)
+MakeInterXactState(MemoryContext context, const List *node_list)
 {
 	MemoryContext	old_context;
 	InterXactState	state;
@@ -152,13 +152,13 @@ MakeInterXactState(MemoryContext context, const List *oid_list)
 	state->implicit = false;
 	state->ignore_error = false;
 	state->need_xact_block = false;
-	if (oid_list)
+	if (node_list)
 	{
 		NodeMixHandle  *mix_handle;
 		int				mix_num;
 
-		mix_num = list_length(oid_list);
-		mix_handle = GetMixedHandles(oid_list, state);
+		mix_num = list_length(node_list);
+		mix_handle = GetMixedHandles(node_list, state);
 		Assert(mix_handle && list_length(mix_handle->handles) == mix_num);
 		/*
 		 * free previous "mix_handle" and keep the new one in state.
@@ -177,22 +177,22 @@ MakeInterXactState(MemoryContext context, const List *oid_list)
 }
 
 InterXactState
-MakeInterXactState2(InterXactState state, const List *oid_list)
+MakeInterXactState2(InterXactState state, const List *node_list)
 {
 	MemoryContext	old_context;
 	NodeMixHandle  *mix_handle;
 	int				mix_num;
 
 	if (state == NULL)
-		return MakeInterXactState(NULL, oid_list);
+		return MakeInterXactState(NULL, node_list);
 
-	if (!oid_list)
+	if (!node_list)
 		return state;
 
 	Assert(state->context);
 	old_context = MemoryContextSwitchTo(state->context);
-	mix_num = list_length(oid_list);
-	mix_handle = GetMixedHandles(oid_list, state);
+	mix_num = list_length(node_list);
+	mix_handle = GetMixedHandles(node_list, state);
 	Assert(mix_handle && list_length(mix_handle->handles) == mix_num);
 	/*
 	 * free previous "mix_handle" and keep the new one in state.
@@ -217,7 +217,7 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 	Snapshot		snapshot;
 	bool			force_autocommit;
 	bool			need_xact_block;
-	List		   *oid_list;
+	List		   *node_list;
 
 	Assert(node);
 	exec_direct_type = node->exec_direct_type;
@@ -247,27 +247,27 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 	switch (node->exec_type)
 	{
 		case EXEC_ON_DATANODES:
-			oid_list = GetAllDnOids(false);
+			node_list = GetAllDnNids(false);
 			break;
 		case EXEC_ON_COORDS:
-			oid_list = GetAllCnOids(false);
+			node_list = GetAllCnNids(false);
 			break;
 		case EXEC_ON_ALL_NODES:
-			oid_list = GetAllNodeOids(false);
+			node_list = GetAllNodeIds(false);
 			break;
 		case EXEC_ON_NONE:
 		default:
 			Assert(false);
 			break;
 	}
-	Assert(oid_list);
+	Assert(node_list);
 
 	/* Make up InterXactStateData */
-	state = MakeInterXactState2(state, oid_list);
+	state = MakeInterXactState2(state, node_list);
 	state->need_xact_block = need_xact_block;
 	state->hastmp = node->is_temp;
 	state->combine_type = node->combine_type;
-	pfree(oid_list);
+	pfree(node_list);
 
 	/* BEGIN */
 	InterXactBegin(state);
@@ -293,7 +293,7 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 	NodeMixHandle	   *all_handle;
 	NodeHandle		   *handle;
 	ListCell		   *cell;
-	List			   *oid_list;
+	List			   *node_list;
 	PGconn			   *conn;
 	Oid				   *res;
 
@@ -312,9 +312,9 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 		return NULL;
 	}
 
-	oid_list = NIL;
+	node_list = NIL;
 	if (include_self)
-		oid_list = lappend_oid(oid_list, PGXCNodeOid);
+		node_list = lappend_oid(node_list, PGXCNodeOid);
 	foreach (cell, all_handle->handles)
 	{
 		handle = (NodeHandle *) lfirst(cell);
@@ -324,7 +324,7 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 			case PQTRANS_IDLE:
 				break;
 			case PQTRANS_INTRANS:
-				oid_list = lappend_oid(oid_list, handle->node_oid);
+				node_list = lappend_oid(node_list, handle->node_id);
 				break;
 			default:
 				Assert(false);
@@ -332,8 +332,8 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 		}
 	}
 
-	res = OidListToArrary(NULL, oid_list, node_num);
-	list_free(oid_list);
+	res = OidListToArrary(NULL, node_list, node_num);
+	list_free(node_list);
 
 	return res;
 }
@@ -578,15 +578,15 @@ static void
 InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool ignore_error)
 {
 	InterXactState	state;
-	List		   *oid_list = NIL;
+	List		   *node_list = NIL;
 
-	oid_list = OidArraryToList(NULL, nodes, nnodes);
-	if (!oid_list)
+	node_list = OidArraryToList(NULL, nodes, nnodes);
+	if (!node_list)
 		return ;
 
-	oid_list = list_delete_oid(oid_list, PGXCNodeOid);
+	node_list = list_delete_oid(node_list, PGXCNodeOid);
 
-	state = MakeInterXactState(NULL, (const List *) oid_list);
+	state = MakeInterXactState(NULL, (const List *) node_list);
 	InterXactSetGID(state, gid);
 	state->ignore_error = ignore_error;
 	switch (tp_state)
@@ -605,7 +605,7 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 			break;
 	}
 	FreeInterXactState(state);
-	list_free(oid_list);
+	list_free(node_list);
 }
 
 static void
@@ -817,26 +817,26 @@ OidListToArrary(MemoryContext context, List *oid_list, int *noids)
 }
 
 /*-------------remote xact include inter xact and agtm xact-------------------*/
-static void CommitPreparedRxact(const char *gid, int nnodes, Oid *nodeIds, bool isMissingOK);
-static void AbortPreparedRxact(const char *gid, int nnodes, Oid *nodeIds, bool missing_ok);
+static void CommitPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool isMissingOK);
+static void AbortPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool missing_ok);
 
 void
-RemoteXactCommit(int nnodes, Oid *nodeIds)
+RemoteXactCommit(int nnodes, Oid *nodes)
 {
 	if (!IsCoordMaster())
 		return ;
 
-	InterXactCommit(NULL, nodeIds, nnodes);
+	InterXactCommit(NULL, nodes, nnodes);
 	agtm_CommitTransaction(NULL, false);
 }
 
 void
-RemoteXactAbort(int nnodes, Oid *nodeIds, bool normal)
+RemoteXactAbort(int nnodes, Oid *nodes, bool normal)
 {
 	if (!IsCoordMaster())
 		return ;
 
-	InterXactAbort(NULL, nodeIds, nnodes, !normal);
+	InterXactAbort(NULL, nodes, nnodes, !normal);
 	agtm_AbortTransaction(NULL, false, !normal);
 }
 
@@ -848,7 +848,7 @@ RemoteXactAbort(int nnodes, Oid *nodeIds, bool normal)
 void
 StartFinishPreparedRxact(const char *gid,
 						 int nnodes,
-						 Oid *nodeIds,
+						 Oid *nodes,
 						 bool isImplicit,
 						 bool isCommit)
 {
@@ -865,7 +865,7 @@ StartFinishPreparedRxact(const char *gid,
 	 */
 	if (!isCommit)
 	{
-		RecordRemoteXact(gid, nodeIds, nnodes, RX_ROLLBACK);
+		RecordRemoteXact(gid, nodes, nnodes, RX_ROLLBACK);
 		return ;
 	}
 
@@ -876,7 +876,7 @@ StartFinishPreparedRxact(const char *gid,
 	 * See EndRemoteXactPrepare.
 	 */
 	if (!isImplicit)
-		RecordRemoteXact(gid, nodeIds, nnodes, RX_COMMIT);
+		RecordRemoteXact(gid, nodes, nnodes, RX_COMMIT);
 }
 
 /*
@@ -887,7 +887,7 @@ StartFinishPreparedRxact(const char *gid,
 void
 EndFinishPreparedRxact(const char *gid,
 					   int nnodes,
-					   Oid *nodeIds,
+					   Oid *nodes,
 					   bool isMissingOK,
 					   bool isCommit)
 {
@@ -900,15 +900,15 @@ EndFinishPreparedRxact(const char *gid,
 	AssertArg(gid && gid[0]);
 
 	if (isCommit)
-		CommitPreparedRxact(gid, nnodes, nodeIds, isMissingOK);
+		CommitPreparedRxact(gid, nnodes, nodes, isMissingOK);
 	else
-		AbortPreparedRxact(gid, nnodes, nodeIds, isMissingOK);
+		AbortPreparedRxact(gid, nnodes, nodes, isMissingOK);
 }
 
 static void
 CommitPreparedRxact(const char *gid,
 					int nnodes,
-					Oid *nodeIds,
+					Oid *nodes,
 					bool isMissingOK)
 {
 	volatile bool fail_to_commit = false;
@@ -916,7 +916,7 @@ CommitPreparedRxact(const char *gid,
 	PG_TRY_HOLD();
 	{
 		/* Commit prepared on remote nodes */
-		InterXactCommit(gid, nodeIds, nnodes);
+		InterXactCommit(gid, nodes, nnodes);
 
 		/* Commit prepared on AGTM */
 		agtm_CommitTransaction(gid, isMissingOK);
@@ -958,13 +958,13 @@ CommitPreparedRxact(const char *gid,
 static void
 AbortPreparedRxact(const char *gid,
 				   int nnodes,
-				   Oid *nodeIds,
+				   Oid *nodes,
 				   bool isMissingOK)
 {
 	PG_TRY();
 	{
 		/* rollback prepared on remote nodes */
-		InterXactAbort(gid, nodeIds, nnodes, false);
+		InterXactAbort(gid, nodes, nnodes, false);
 
 		/* rollback prepared on AGTM */
 		agtm_AbortTransaction(gid, isMissingOK, false);

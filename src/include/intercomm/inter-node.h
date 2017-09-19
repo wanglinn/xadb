@@ -23,7 +23,7 @@ typedef enum
 
 typedef struct NodeHandle
 {
-	Oid					node_oid;
+	Oid					node_id;
 	NameData			node_name;
 	NodeType			node_type;
 	bool				node_primary;
@@ -43,20 +43,20 @@ typedef struct NodeMixHandle
 extern void ResetNodeExecutor(void);
 extern void ReleaseNodeExecutor(void);
 extern void InitNodeExecutor(bool force);
-extern NodeHandle *GetNodeHandle(Oid node_oid, bool attatch, void *context);
-extern NodeHandle *GetCnHandle(Oid node_oid, bool attatch, void *context);
-extern NodeHandle *GetDnHandle(Oid node_oid, bool attatch, void *context);
+extern NodeHandle *GetNodeHandle(Oid node_id, bool attatch, void *context);
+extern NodeHandle *GetCnHandle(Oid cn_id, bool attatch, void *context);
+extern NodeHandle *GetDnHandle(Oid dn_id, bool attatch, void *context);
 extern void HandleAttatchPGconn(NodeHandle *handle);
 extern void HandleDetachPGconn(NodeHandle *handle);
 extern void HandleReAttatchPGconn(NodeHandle *handle);
-extern NodeMixHandle *GetMixedHandles(const List *oid_list, void *context);
+extern NodeMixHandle *GetMixedHandles(const List *node_list, void *context);
 extern NodeMixHandle *GetAllHandles(void);
 extern NodeMixHandle *CopyMixhandle(NodeMixHandle *src);
 extern NodeMixHandle *ConcatMixHandle(NodeMixHandle *mix1, NodeMixHandle *mix2);
 extern void FreeMixHandle(NodeMixHandle *mix_handle);
 
-extern List *GetAllCnOids(bool include_self);
-extern List *GetAllDnOids(bool include_self);
-extern List *GetAllNodeOids(bool include_self);
+extern List *GetAllCnNids(bool include_self);
+extern List *GetAllDnNids(bool include_self);
+extern List *GetAllNodeIds(bool include_self);
 
 #endif /* INTER_NODE_H */

@@ -33,8 +33,8 @@ static bool handle_init = false;
 #define foreach_dn_handles(p)	\
 	for(p=DnHandles;p-DnHandles<NumDnHandles;p=&p[1])
 
-static void GetPGconnAttatchToHandle(List *oid_list, List *handle_list);
-static List *GetNodeOids(NodeType type, bool include_self);
+static void GetPGconnAttatchToHandle(List *node_list, List *handle_list);
+static List *GetNodeIds(NodeType type, bool include_self);
 
 void
 ResetNodeExecutor(void)
@@ -104,7 +104,7 @@ InitNodeExecutor(bool force)
 		nodedef = &(all_node_def[i]);
 		handle = &(AllHandles[i]);
 
-		handle->node_oid = nodedef->nodeoid;
+		handle->node_id = nodedef->nodeoid;
 		handle->node_type = (i < numCN ? TYPE_CN_NODE : TYPE_DN_NODE);
 		namecpy(&(handle->node_name), &(nodedef->nodename));
 		handle->node_primary = nodedef->nodeisprimary;
@@ -115,7 +115,7 @@ InitNodeExecutor(bool force)
 			pg_strcasecmp(PGXCNodeName, NameStr(handle->node_name)) == 0)
 		{
 			PGXCNodeId = i + 1;
-			PGXCNodeOid = handle->node_oid;
+			PGXCNodeOid = handle->node_id;
 		}
 	}
 	safe_pfree(all_node_def);
@@ -139,7 +139,7 @@ InitNodeExecutor(bool force)
 }
 
 NodeHandle *
-GetNodeHandle(Oid node_oid, bool attatch, void *context)
+GetNodeHandle(Oid node_id, bool attatch, void *context)
 {
 	NodeHandle *handle;
 
@@ -148,7 +148,7 @@ GetNodeHandle(Oid node_oid, bool attatch, void *context)
 
 	foreach_all_handles(handle)
 	{
-		if (handle->node_oid == node_oid)
+		if (handle->node_id == node_id)
 		{
 			if (attatch)
 				HandleAttatchPGconn(handle);
@@ -161,7 +161,7 @@ GetNodeHandle(Oid node_oid, bool attatch, void *context)
 }
 
 NodeHandle *
-GetCnHandle(Oid cn_oid, bool attatch, void *context)
+GetCnHandle(Oid cn_id, bool attatch, void *context)
 {
 	NodeHandle *handle;
 
@@ -170,7 +170,7 @@ GetCnHandle(Oid cn_oid, bool attatch, void *context)
 
 	foreach_cn_handles(handle)
 	{
-		if (handle->node_oid == cn_oid)
+		if (handle->node_id == cn_id)
 		{
 			if (attatch)
 				HandleAttatchPGconn(handle);
@@ -183,7 +183,7 @@ GetCnHandle(Oid cn_oid, bool attatch, void *context)
 }
 
 NodeHandle *
-GetDnHandle(Oid dn_oid, bool attatch, void *context)
+GetDnHandle(Oid dn_id, bool attatch, void *context)
 {
 	NodeHandle *handle;
 
@@ -192,7 +192,7 @@ GetDnHandle(Oid dn_oid, bool attatch, void *context)
 
 	foreach_dn_handles(handle)
 	{
-		if (handle->node_oid == dn_oid)
+		if (handle->node_id == dn_id)
 		{
 			if (attatch)
 				HandleAttatchPGconn(handle);
@@ -210,7 +210,7 @@ HandleAttatchPGconn(NodeHandle *handle)
 	if (handle &&
 		PQstatus(handle->node_conn) != CONNECTION_OK)
 	{
-		List *oid_list = list_make1_oid(handle->node_oid);
+		List *oid_list = list_make1_oid(handle->node_id);
 		List *handle_list = list_make1(handle);
 
 		/* detach old PGconn if exists */
@@ -245,18 +245,18 @@ HandleReAttatchPGconn(NodeHandle *handle)
 }
 
 static void
-GetPGconnAttatchToHandle(List *oid_list, List *handle_list)
+GetPGconnAttatchToHandle(List *node_list, List *handle_list)
 {
-	if (oid_list)
+	if (node_list)
 	{
 		List	   *conn_list = NIL;
 		ListCell   *lc_conn, *lc_handle;
 		NodeHandle *handle;
 
-		Assert(handle_list && list_length(oid_list) == list_length(handle_list));
+		Assert(handle_list && list_length(node_list) == list_length(handle_list));
 
-		conn_list = PQNGetConnUseOidList(oid_list);
-		Assert(list_length(conn_list) == list_length(oid_list));
+		conn_list = PQNGetConnUseOidList(node_list);
+		Assert(list_length(conn_list) == list_length(node_list));
 		forboth (lc_conn, conn_list, lc_handle, handle_list)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
@@ -273,24 +273,24 @@ GetPGconnAttatchToHandle(List *oid_list, List *handle_list)
 }
 
 NodeMixHandle *
-GetMixedHandles(const List *oid_list, void *context)
+GetMixedHandles(const List *node_list, void *context)
 {
-	ListCell	   *lc_oid;
-	List		   *oid_need;
+	ListCell	   *lc_id;
+	List		   *id_need;
 	List		   *handle_need;
 	NodeMixHandle  *mix_handle;
 	NodeHandle	   *handle;
-	Oid				node_oid;
+	Oid				node_id;
 
-	if (!oid_list || !handle_init)
+	if (!node_list || !handle_init)
 		return NULL;
 
 	mix_handle = (NodeMixHandle *) palloc0(sizeof(NodeMixHandle));
-	oid_need = handle_need = NIL;
-	foreach (lc_oid, oid_list)
+	id_need = handle_need = NIL;
+	foreach (lc_id, node_list)
 	{
-		node_oid = lfirst_oid(lc_oid);
-		handle = GetNodeHandle(node_oid, false, context);
+		node_id = lfirst_oid(lc_id);
+		handle = GetNodeHandle(node_id, false, context);
 		mix_handle->handles = lappend(mix_handle->handles, handle);
 		if (handle->node_primary)
 			mix_handle->pr_handle = handle;
@@ -299,12 +299,12 @@ GetMixedHandles(const List *oid_list, void *context)
 		{
 			/* detach old PGconn if exists */
 			HandleDetachPGconn(handle);
-			oid_need = lappend_oid(oid_need, node_oid);
+			id_need = lappend_oid(id_need, node_id);
 			handle_need = lappend(handle_need, handle);
 		}
 	}
-	GetPGconnAttatchToHandle(oid_need, handle_need);
-	list_free(oid_need);
+	GetPGconnAttatchToHandle(id_need, handle_need);
+	list_free(id_need);
 	list_free(handle_need);
 
 	return mix_handle;
@@ -313,7 +313,7 @@ GetMixedHandles(const List *oid_list, void *context)
 NodeMixHandle *
 GetAllHandles(void)
 {
-	List		   *oid_need;
+	List		   *id_need;
 	List		   *handle_need;
 	NodeMixHandle  *mix_handle;
 	NodeHandle	   *handle;
@@ -323,7 +323,7 @@ GetAllHandles(void)
 		return NULL;
 
 	mix_handle = (NodeMixHandle *) palloc0(sizeof(NodeMixHandle));
-	oid_need = handle_need = NIL;
+	id_need = handle_need = NIL;
 	foreach_all_handles(handle)
 	{
 		mix_handle->handles = lappend(mix_handle->handles, handle);
@@ -334,12 +334,12 @@ GetAllHandles(void)
 		{
 			/* detach old PGconn if exists */
 			HandleDetachPGconn(handle);
-			oid_need = lappend_oid(oid_need, handle->node_oid);
+			id_need = lappend_oid(id_need, handle->node_id);
 			handle_need = lappend(handle_need, handle);
 		}
 	}
-	GetPGconnAttatchToHandle(oid_need, handle_need);
-	list_free(oid_need);
+	GetPGconnAttatchToHandle(id_need, handle_need);
+	list_free(id_need);
 	list_free(handle_need);
 
 	return mix_handle;
@@ -393,25 +393,25 @@ FreeMixHandle(NodeMixHandle *mix_handle)
 }
 
 List *
-GetAllCnOids(bool include_self)
+GetAllCnNids(bool include_self)
 {
-	return GetNodeOids(TYPE_CN_NODE, include_self);
+	return GetNodeIds(TYPE_CN_NODE, include_self);
 }
 
 List *
-GetAllDnOids(bool include_self)
+GetAllDnNids(bool include_self)
 {
-	return GetNodeOids(TYPE_DN_NODE, include_self);
+	return GetNodeIds(TYPE_DN_NODE, include_self);
 }
 
 List *
-GetAllNodeOids(bool include_self)
+GetAllNodeIds(bool include_self)
 {
-	return GetNodeOids(TYPE_CN_NODE | TYPE_DN_NODE, include_self);
+	return GetNodeIds(TYPE_CN_NODE | TYPE_DN_NODE, include_self);
 }
 
 static List *
-GetNodeOids(NodeType type, bool include_self)
+GetNodeIds(NodeType type, bool include_self)
 {
 	List	   *result = NIL;
 	NodeHandle *handle;
@@ -420,10 +420,10 @@ GetNodeOids(NodeType type, bool include_self)
 	{
 		foreach_cn_handles(handle)
 		{
-			if (handle->node_oid == PGXCNodeOid && !include_self)
+			if (handle->node_id == PGXCNodeOid && !include_self)
 				continue;
 
-			result = lappend_oid(result, handle->node_oid);
+			result = lappend_oid(result, handle->node_id);
 		}
 	}
 
@@ -431,10 +431,10 @@ GetNodeOids(NodeType type, bool include_self)
 	{
 		foreach_dn_handles(handle)
 		{
-			if (handle->node_oid == PGXCNodeOid && !include_self)
+			if (handle->node_id == PGXCNodeOid && !include_self)
 				continue;
 
-			result = lappend_oid(result, handle->node_oid);
+			result = lappend_oid(result, handle->node_id);
 		}
 	}
 
