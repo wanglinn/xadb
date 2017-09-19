@@ -286,19 +286,10 @@ GetRoundRobinNodeId(Oid relid)
 bool
 IsTableDistOnPrimary(RelationLocInfo *rel_loc_info)
 {
-	ListCell *item;
-
-	if (!OidIsValid(primary_data_node) ||
-		rel_loc_info == NULL ||
-		list_length(rel_loc_info->nodeList) == 0)
+	if (!OidIsValid(primary_data_node) || !rel_loc_info)
 		return false;
 
-	foreach(item, rel_loc_info->nodeList)
-	{
-		if (PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE) == lfirst_int(item))
-			return true;
-	}
-	return false;
+	return list_member_oid(rel_loc_info->nodeids, primary_data_node);
 }
 
 
@@ -311,6 +302,7 @@ IsLocatorInfoEqual(RelationLocInfo *locInfo1,
 				   RelationLocInfo *locInfo2)
 {
 	List *nodeList1, *nodeList2;
+	ListCell *lc;
 	Assert(locInfo1 && locInfo2);
 
 	nodeList1 = locInfo1->nodeList;
@@ -329,9 +321,16 @@ IsLocatorInfoEqual(RelationLocInfo *locInfo1,
 		return false;
 
 	/* Same node list? */
-	if (list_difference_int(nodeList1, nodeList2) != NIL ||
-		list_difference_int(nodeList2, nodeList1) != NIL)
-		return false;
+	foreach (lc, nodeList1)
+	{
+		if (!list_member_int(nodeList2, lfirst_int(lc)))
+			return false;
+	}
+	foreach (lc, nodeList2)
+	{
+		if (!list_member_int(nodeList1, lfirst_int(lc)))
+			return false;
+	}
 
 	if (locInfo1->funcid != locInfo2->funcid)
 		return false;
@@ -1127,4 +1126,305 @@ pgxc_find_distcol_expr(Index varno,
 	}
 	/* Exhausted all quals, but no distribution column expression */
 	return NULL;
+}
+
+List *
+GetInvolvedNodes(RelationLocInfo *rel_loc,
+				 int nelems, Datum* dist_values,
+				 bool* dist_nulls, Oid* dist_types,
+				 RelationAccessType accessType)
+{
+	List	   *node_list = NIL;
+	int32		modulo;
+
+	if (rel_loc == NULL)
+		return NIL;
+
+	switch (rel_loc->locatorType)
+	{
+		case LOCATOR_TYPE_REPLICATED:
+			{
+				node_list = list_copy(rel_loc->nodeids);
+				if (accessType == RELATION_ACCESS_UPDATE ||
+					accessType == RELATION_ACCESS_INSERT)
+				{
+					node_list = list_copy(rel_loc->nodeids);
+				} else
+				if (accessType == RELATION_ACCESS_READ_FOR_UPDATE &&
+					IsTableDistOnPrimary(rel_loc))
+				{
+					Assert(OidIsValid(primary_data_node));
+					node_list = list_make1_oid(primary_data_node);
+				}
+			}
+			break;
+
+		case LOCATOR_TYPE_HASH:
+		case LOCATOR_TYPE_MODULO:
+			{
+				int nnodes;
+
+				Assert(rel_loc->nodeids);
+				nnodes = list_length(rel_loc->nodeids);
+				Assert(nnodes > 0);
+
+				if(dist_nulls[0])
+				{
+					if(accessType == RELATION_ACCESS_INSERT)
+						modulo = 0;	/* Insert NULL to first node*/
+					else
+					{
+						node_list = list_copy(rel_loc->nodeids);
+						break;
+					}
+				} else
+				{
+					if(rel_loc->locatorType == LOCATOR_TYPE_HASH)
+					{
+						int32 hashVal = execHashValue(dist_values[0], dist_types[0], InvalidOid);
+						modulo = execModuloValue(Int32GetDatum(hashVal), INT4OID, nnodes);
+					}else
+						modulo = execModuloValue(dist_values[0], dist_types[0], nnodes);
+				}
+				node_list = list_make1_oid(list_nth_oid(rel_loc->nodeids, modulo));
+			}
+			break;
+
+		case LOCATOR_TYPE_RROBIN:
+			{
+				/*
+				 * round robin, get next one in case of insert. If not insert, all
+				 * node needed
+				 */
+				if (accessType == RELATION_ACCESS_INSERT)
+					node_list = list_make1_oid(GetRoundRobinNodeId(rel_loc->relid));
+				else
+					node_list = list_copy(rel_loc->nodeids);
+			}
+			break;
+
+		case LOCATOR_TYPE_USER_DEFINED:
+			{
+				int 	i;
+				Datum 	result;
+				bool	allValuesNotNull = true;
+
+				Assert(nelems >= 1);
+				Assert(OidIsValid(rel_loc->funcid));
+				Assert(rel_loc->funcAttrNums);
+
+				for (i = 0; i < nelems; i++)
+				{
+					if(dist_nulls[i])
+					{
+						allValuesNotNull = false;
+						break;
+					}
+				}
+
+				/*
+				 * If the table is distributed by user-defined partition function,
+				 * we should get all parameters' value to evaluate the value to
+				 * reduce the Datanodes if possible.
+				 *
+				 * First, check whether values' type match function arguments or not,
+				 * if not, coerce them.
+				 */
+				if (allValuesNotNull)
+				{
+					CoerceUserDefinedFuncArgs(rel_loc->funcid,
+											  nelems,
+											  dist_values,
+											  dist_nulls,
+											  dist_types);
+					result = OidFunctionCallN(rel_loc->funcid,
+											  nelems,
+											  dist_values,
+											  dist_nulls);
+					modulo = execModuloValue(result,
+											 get_func_rettype(rel_loc->funcid),
+											 list_length(rel_loc->nodeids));
+					node_list = list_make1_oid(list_nth_oid(rel_loc->nodeids, modulo));
+				} else
+				{
+					if (accessType == RELATION_ACCESS_INSERT)
+						/* Insert NULL to first node*/
+						node_list = list_make1_oid(linitial_int(rel_loc->nodeids));
+					else
+						node_list = list_copy(rel_loc->nodeids);
+				}
+			}
+			break;
+
+			/* TODO case LOCATOR_TYPE_RANGE: */
+			/* TODO case LOCATOR_TYPE_CUSTOM: */
+		default:
+			ereport(ERROR,
+					(errmsg("locator type '%c' not support yet", rel_loc->locatorType)));
+			break;
+	}
+
+	return node_list;
+}
+
+List *
+GetInvolvedNodesByQuals(Oid reloid, Index varno, Node *quals, RelationAccessType relaccess)
+{
+	RelationLocInfo	   *rel_loc = GetRelationLocInfo(reloid);
+	Expr			   *distcol_expr;
+	Datum				distcol_value;
+	bool				distcol_isnull;
+	Oid					distcol_type;
+
+	if (!rel_loc)
+		return NIL;
+
+	/*
+	 * If the table distributed by user-defined partition function,
+	 * we should get all qualifiers of the distributed column from the quals,
+	 * then check if we can reduce the Datanodes by evaluating the value by
+	 * user-defined partition function.
+	 */
+	if (IsRelationDistributedByUserDefined(rel_loc))
+		return GetInvolvedNodesByMultQuals(rel_loc, varno, quals, relaccess);
+
+	/*
+	 * If the table distributed by value, check if we can reduce the Datanodes
+	 * by looking at the qualifiers for this relation
+	 */
+	distcol_expr = NULL;
+	if (IsRelationDistributedByValue(rel_loc))
+	{
+		Oid		disttype = get_atttype(reloid, rel_loc->partAttrNum);
+		int32	disttypmod = get_atttypmod(reloid, rel_loc->partAttrNum);
+		distcol_expr = pgxc_find_distcol_expr(varno, rel_loc->partAttrNum,
+													quals);
+		/*
+		 * If the type of expression used to find the Datanode, is not same as
+		 * the distribution column type, try casting it. This is same as what
+		 * will happen in case of inserting that type of expression value as the
+		 * distribution column value.
+		 */
+		if (distcol_expr)
+		{
+			distcol_expr = (Expr *)coerce_to_target_type(NULL,
+													(Node *)distcol_expr,
+													exprType((Node *)distcol_expr),
+													disttype, disttypmod,
+													COERCION_ASSIGNMENT,
+													COERCE_IMPLICIT_CAST, -1);
+			/*
+			 * PGXC_FQS_TODO: We should set the bound parameters here, but we don't have
+			 * PlannerInfo struct and we don't handle them right now.
+			 * Even if constant expression mutator changes the expression, it will
+			 * only simplify it, keeping the semantics same
+			 */
+			distcol_expr = (Expr *)eval_const_expressions(NULL, (Node *)distcol_expr);
+		}
+	}
+
+	if (distcol_expr && IsA(distcol_expr, Const))
+	{
+		Const *const_expr = (Const *)distcol_expr;
+		distcol_value = const_expr->constvalue;
+		distcol_isnull = const_expr->constisnull;
+		distcol_type = const_expr->consttype;
+	}
+	else
+	{
+		distcol_value = (Datum) 0;
+		distcol_isnull = true;
+		distcol_type = InvalidOid;
+	}
+
+	return GetInvolvedNodes(rel_loc, 1, &distcol_value,
+							&distcol_isnull, &distcol_type, relaccess);
+}
+
+List *
+GetInvolvedNodesByMultQuals(RelationLocInfo *rel_loc, Index varno, Node *quals, RelationAccessType relaccess)
+{
+	int			i;
+	int 		nargs;
+	Oid 		disttype;
+	int32 		disttypmod;
+	Expr	   *distcol_expr = NULL;
+	ListCell   *cell = NULL;
+	AttrNumber	attnum;
+	Datum	   *distcol_values;
+	bool	   *distcol_isnulls;
+	Oid		   *distcol_types;
+	Oid		   *argtypes = NULL;
+	int			nelems;
+	List	   *node_list;
+
+	if (!rel_loc)
+		return NIL;
+
+	Assert(IsRelationDistributedByUserDefined(rel_loc));
+	Assert(OidIsValid(rel_loc->relid));
+	Assert(OidIsValid(rel_loc->funcid));
+	Assert(rel_loc->funcAttrNums);
+
+	nargs = list_length(rel_loc->funcAttrNums);
+	distcol_values = (Datum *) palloc0(sizeof(Datum) * nargs);
+	distcol_isnulls = (bool *) palloc0(sizeof(bool) * nargs);
+	distcol_types = (Oid *) palloc0(sizeof(Oid) * nargs);
+	(void)get_func_signature(rel_loc->funcid, &argtypes, &nelems);
+	Assert(nelems == nargs);
+
+	i = 0;
+	foreach (cell, rel_loc->funcAttrNums)
+	{
+		attnum = lfirst_int(cell);
+		disttype = argtypes[i];
+		disttypmod = -1;
+		distcol_expr = pgxc_find_distcol_expr(varno, attnum, quals);
+
+		if (distcol_expr)
+		{
+			distcol_expr = (Expr *)coerce_to_target_type(NULL,
+												(Node *)distcol_expr,
+												exprType((Node *)distcol_expr),
+												disttype, disttypmod,
+												COERCION_ASSIGNMENT,
+												COERCE_IMPLICIT_CAST, -1);
+			/*
+			 * PGXC_FQS_TODO: We should set the bound parameters here, but we don't have
+			 * PlannerInfo struct and we don't handle them right now.
+			 * Even if constant expression mutator changes the expression, it will
+			 * only simplify it, keeping the semantics same
+			 */
+			distcol_expr = (Expr *)eval_const_expressions(NULL, (Node *)distcol_expr);
+		}
+
+		if (distcol_expr && IsA(distcol_expr, Const))
+		{
+			Const *const_expr = (Const *)distcol_expr;
+			distcol_values[i] = datumCopy(const_expr->constvalue,
+										  const_expr->constbyval,
+										  const_expr->constlen);
+			distcol_isnulls[i] = const_expr->constisnull;
+			distcol_types[i] = const_expr->consttype;
+		}
+		else
+		{
+			distcol_values[i] = (Datum) 0;
+			distcol_isnulls[i] = true;
+			distcol_types[i] = InvalidOid;
+		}
+
+		i++;
+	}
+
+	if (argtypes)
+		pfree(argtypes);
+
+	node_list = GetInvolvedNodes(rel_loc, nargs, distcol_values,
+								 distcol_isnulls, distcol_types, relaccess);
+	pfree(distcol_values);
+	pfree(distcol_isnulls);
+	pfree(distcol_types);
+
+	return node_list;
 }

@@ -179,4 +179,8 @@ extern void FreeExecNodes(ExecNodes **exec_nodes);
 extern List *GetAllDataNodes(void);
 extern List *GetAllCoordNodes(void);
 
+extern List *GetInvolvedNodes(RelationLocInfo *rel_loc, int nelems, Datum* dist_values, bool* dist_nulls,
+							  Oid* dist_types, RelationAccessType accessType);
+extern List *GetInvolvedNodesByQuals(Oid reloid, Index varno, Node *quals, RelationAccessType relaccess);
+extern List *GetInvolvedNodesByMultQuals(RelationLocInfo *rel_loc, Index varno, Node *quals, RelationAccessType relaccess);
 #endif   /* LOCATOR_H */
