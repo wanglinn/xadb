@@ -64,6 +64,7 @@ typedef struct RelationLocInfo
 	char		locatorType;			/* locator type, see above */
 	AttrNumber	partAttrNum;			/* Distribution column attribute */
 	List	   *nodeList;				/* Node indices where data is located */
+	List	   *nodeids;				/* Node ids where data is located */
 	ListCell   *roundRobinNode;			/* Index of the next node to use */
 	Oid			funcid;					/* Oid of user-defined distribution function */
 	List	   *funcAttrNums;			/* Attributes indices used for user-defined function  */

@@ -864,11 +864,16 @@ RelationBuildLocator(Relation rel)
 
 	relationLocInfo->partAttrNum = pgxc_class->pcattnum;
 	relationLocInfo->nodeList = NIL;
+	relationLocInfo->nodeids = NIL;
 
 	for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
+	{
 		relationLocInfo->nodeList = lappend_int(relationLocInfo->nodeList,
 												PGXCNodeGetNodeId(pgxc_class->nodeoids.values[j],
 																  PGXC_NODE_DATANODE));
+		relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
+											   pgxc_class->nodeoids.values[j]);
+	}
 
 	/*
 	 * If the locator type is round robin, we set a node to
@@ -963,6 +968,8 @@ CopyRelationLocInfo(RelationLocInfo *srcInfo)
 	destInfo->partAttrNum = srcInfo->partAttrNum;
 	if (srcInfo->nodeList)
 		destInfo->nodeList = list_copy(srcInfo->nodeList);
+	if (srcInfo->nodeids)
+		destInfo->nodeids = list_copy(srcInfo->nodeids);
 
 	destInfo->funcid = srcInfo->funcid;
 	if (srcInfo->funcAttrNums)
@@ -983,6 +990,7 @@ FreeRelationLocInfo(RelationLocInfo *relationLocInfo)
 	if (relationLocInfo)
 	{
 		list_free(relationLocInfo->nodeList);
+		list_free(relationLocInfo->nodeids);
 		list_free(relationLocInfo->funcAttrNums);
 		pfree(relationLocInfo);
 	}
