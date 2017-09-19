@@ -65,7 +65,7 @@ typedef struct RelationLocInfo
 	AttrNumber	partAttrNum;			/* Distribution column attribute */
 	List	   *nodeList;				/* Node indices where data is located */
 	List	   *nodeids;				/* Node ids where data is located */
-	ListCell   *roundRobinNode;			/* Index of the next node to use */
+	ListCell   *roundRobinNode;			/* the next node to use */
 	Oid			funcid;					/* Oid of user-defined distribution function */
 	List	   *funcAttrNums;			/* Attributes indices used for user-defined function  */
 } RelationLocInfo;
@@ -127,6 +127,7 @@ extern bool IsTableDistOnPrimary(RelationLocInfo *locInfo);
 extern bool IsLocatorInfoEqual(RelationLocInfo *locInfo1,
 							   RelationLocInfo *locInfo2);
 extern int GetRoundRobinNode(Oid relid);
+extern Oid GetRoundRobinNodeId(Oid relid);
 extern bool IsTypeDistributable(Oid colType);
 extern bool IsDistribColumn(Oid relid, AttrNumber attNum);
 

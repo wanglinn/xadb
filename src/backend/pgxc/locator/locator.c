@@ -248,20 +248,31 @@ IsTypeDistributable(Oid col_type)
 int
 GetRoundRobinNode(Oid relid)
 {
-	int			ret_node;
+	Oid next_node = GetRoundRobinNodeId(relid);
+
+	Assert(OidIsValid(next_node));
+
+	return PGXCNodeGetNodeId(next_node, PGXC_NODE_DATANODE);
+}
+
+Oid
+GetRoundRobinNodeId(Oid relid)
+{
+	Oid			ret_node;
 	Relation	rel = relation_open(relid, AccessShareLock);
 
-	Assert (rel->rd_locator_info->locatorType == LOCATOR_TYPE_REPLICATED ||
-			rel->rd_locator_info->locatorType == LOCATOR_TYPE_RROBIN);
+	Assert(rel->rd_locator_info);
+	Assert(rel->rd_locator_info->locatorType == LOCATOR_TYPE_REPLICATED ||
+		   rel->rd_locator_info->locatorType == LOCATOR_TYPE_RROBIN);
 
-	ret_node = lfirst_int(rel->rd_locator_info->roundRobinNode);
+	ret_node = lfirst_oid(rel->rd_locator_info->roundRobinNode);
 
 	/* Move round robin indicator to next node */
 	if (rel->rd_locator_info->roundRobinNode->next != NULL)
 		rel->rd_locator_info->roundRobinNode = rel->rd_locator_info->roundRobinNode->next;
 	else
 		/* reset to first one */
-		rel->rd_locator_info->roundRobinNode = rel->rd_locator_info->nodeList->head;
+		rel->rd_locator_info->roundRobinNode = rel->rd_locator_info->nodeids->head;
 
 	relation_close(rel, AccessShareLock);
 
@@ -880,22 +891,19 @@ RelationBuildLocator(Relation rel)
 	 * use next time. In addition, if it is replicated,
 	 * we choose a node to use for balancing reads.
 	 */
-	if (relationLocInfo->locatorType == LOCATOR_TYPE_RROBIN
-		|| relationLocInfo->locatorType == LOCATOR_TYPE_REPLICATED)
+	if (relationLocInfo->locatorType == LOCATOR_TYPE_RROBIN ||
+		relationLocInfo->locatorType == LOCATOR_TYPE_REPLICATED)
 	{
 		int offset;
 		/*
 		 * pick a random one to start with,
 		 * since each process will do this independently
 		 */
-		offset = abs(rand()) % list_length(relationLocInfo->nodeList);
+		offset = abs(rand()) % list_length(relationLocInfo->nodeids);
 
 		srand(time(NULL));
-		/* fix: Access to field 'head' results in a dereference of a
-		 * null pointer (loaded from field 'nodeList')
-		 */
-		AssertArg(relationLocInfo->nodeList);
-		relationLocInfo->roundRobinNode = relationLocInfo->nodeList->head; /* initialize */
+		Assert(relationLocInfo->nodeids);
+		relationLocInfo->roundRobinNode = relationLocInfo->nodeids->head; /* initialize */
 		for (j = 0; j < offset && relationLocInfo->roundRobinNode->next != NULL; j++)
 			relationLocInfo->roundRobinNode = relationLocInfo->roundRobinNode->next;
 	}
