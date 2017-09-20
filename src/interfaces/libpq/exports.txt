@@ -192,3 +192,6 @@ PQisCopyOutState          189
 PQisCopyInState           190
 PQgetCopyDataBuffer       191
 PQsendQueryTree           192
+PQsendClose               193
+PQsendQueryExtend         194
+PQsendQueryExtendBinary   195

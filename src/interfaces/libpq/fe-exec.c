@@ -1256,6 +1256,13 @@ PQsendQueryTree(PGconn *conn, const char *query, const char *query_tree, size_t 
 	return 1;
 }
 
+/*
+ * PQsendPlan
+ *	 Submit a binary plan, but don't wait for it to finish
+ *
+ * Returns: 1 if successfully submitted
+ *			0 if error (conn->errorMessage is set)
+ */
 int PQsendPlan(PGconn *conn, const char *plan, int length)
 {
 	if (!PQsendQueryStart(conn))
@@ -1300,6 +1307,342 @@ int PQsendPlan(PGconn *conn, const char *plan, int length)
 	/* OK, it's launched! */
 	conn->asyncStatus = PGASYNC_BUSY;
 	return 1;
+}
+
+/*
+ * PQsendClose
+ *	 Submit a Close statement(portal) message, but don't wait for it to finish
+ *
+ * Returns: 1 if successfully submitted
+ *			0 if error (conn->errorMessage is set)
+ */
+int
+PQsendClose(PGconn *conn, bool isStatement, const char *name)
+{
+	char c;
+	PQExpBufferData query;
+
+	if (!PQsendQueryStart(conn))
+		return 0;
+
+	/* check the argument */
+	if (!name)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+						libpq_gettext("name string is a null pointer\n"));
+		return 0;
+	}
+
+	c = isStatement ? 'S' : 'P';
+	/* construct the Describe Portal message */
+	if (pqPutMsgStart('C', false, conn) < 0 ||
+		pqPutc(c, conn) < 0 ||
+		pqPuts(name, conn) < 0 ||
+		pqPutMsgEnd(conn) < 0)
+		goto sendFailed;
+
+	/* construct the Sync message */
+	if (pqPutMsgStart('S', false, conn) < 0 ||
+		pqPutMsgEnd(conn) < 0)
+		goto sendFailed;
+
+	/* remember we are using extended query protocol */
+	conn->queryclass = PGQUERY_EXTENDED;
+
+	/* and remember the query text too, if possible */
+	/* if insufficient memory, last_query just winds up NULL */
+	if (conn->last_query)
+		free(conn->last_query);
+	initPQExpBuffer(&query);
+	appendPQExpBuffer(&query, "close %s '%s'", isStatement ? "statement" : "portal", name);
+	conn->last_query = strdup(query.data);
+	termPQExpBuffer(&query);
+
+	/*
+	 * Give the data a push.  In nonblock mode, don't complain if we're unable
+	 * to send it all; PQgetResult() will do any additional flushing needed.
+	 */
+	if (pqFlush(conn) < 0)
+		goto sendFailed;
+
+	/* OK, it's launched! */
+	conn->asyncStatus = PGASYNC_BUSY;
+	return 1;
+
+sendFailed:
+	pqHandleSendFailure(conn);
+	return 0;
+}
+
+/*
+ * PQsendQueryExtend
+ *	 Submit a query in extend protocol, but don't wait for it to finish
+ *
+ * Returns: 1 if successfully submitted
+ *			0 if error (conn->errorMessage is set)
+ */
+int
+PQsendQueryExtend(PGconn *conn,
+				  const char *command,				/* For Parse message */
+				  const char *stmtName,				/* For Parse, Bind, Describe Portal and Execute message */
+				  const char *portalName,			/* For Bind, Describe Portal and Execute message */
+				  bool sendDescribe,				/* Used to decide whether to send a Describe message */
+				  int fetchSize,					/* For Execute message, how many rows will be fetched */
+				  int nParams,						/* For Parse message, the number of input parameters */
+				  const Oid *paramTypes,			/* For Parse message, "nParams" of input paramter types */
+				  const char *const * paramValues,	/* For Bind message, "nParams" of input parameter values */
+				  const int *paramFormats,			/* For Bind message, "nParams" of input parameter formats */
+				  const int *paramLengths,			/* For Bind message, "nParams" of input parameter lengths */
+				  int nResultFormat,				/* For Bind message, the number of output parameter formats */
+				  const int *resultFormats)			/* For Bind message, "nResultFormat" of output parameter formats */
+{
+	PQExpBufferData paramBinaryBuf;
+	uint16			n16;
+	uint32			n32;
+	int				i;
+	int				res;
+
+	/* Construct binary parameters */
+	initPQExpBuffer(&paramBinaryBuf);
+	n16 = htons((uint16) nParams);
+	appendBinaryPQExpBuffer(&paramBinaryBuf, (const char *) &n16, 2);
+
+	for (i = 0; i < nParams; i++)
+	{
+		if (paramValues && paramValues[i])
+		{
+			int			nbytes;
+
+			if (paramFormats && paramFormats[i] != 0)
+			{
+				/* binary parameter */
+				if (paramLengths)
+					nbytes = paramLengths[i];
+				else
+				{
+					termPQExpBuffer(&paramBinaryBuf);
+					printfPQExpBuffer(&conn->errorMessage,
+									  libpq_gettext("length must be given for binary parameter\n"));
+					return 0;
+				}
+			}
+			else
+			{
+				/* text parameter, do not use paramLengths */
+				nbytes = strlen(paramValues[i]);
+			}
+
+			n32 =  htonl((uint32) nbytes);
+			appendBinaryPQExpBuffer(&paramBinaryBuf, (const char *) &n32, 4);
+			appendBinaryPQExpBuffer(&paramBinaryBuf, paramValues[i], nbytes);
+		}
+		else
+		{
+			/* take the param as NULL */
+			n32 = htonl(-1);
+			appendBinaryPQExpBuffer(&paramBinaryBuf, (const char *) &n32, 4);
+		}
+	}
+
+	res = PQsendQueryExtendBinary(conn,
+								   command,
+								   stmtName,
+								   portalName,
+								   sendDescribe,
+								   fetchSize,
+								   nParams,
+								   paramTypes,
+								   paramFormats,
+								   paramBinaryBuf.data,
+								   paramBinaryBuf.len,
+								   nResultFormat,
+								   resultFormats);
+
+	termPQExpBuffer(&paramBinaryBuf);
+
+	return res;
+}
+
+/*
+ * PQsendQueryExtendBinary
+ *   Submit a query in extend protocol, but don't wait for it to finish
+ *
+ * Returns: 1 if successfully submitted
+ *		  0 if error (conn->errorMessage is set)
+ */
+int
+PQsendQueryExtendBinary(PGconn *conn,
+						const char *command,			/* For Parse message */
+						const char *stmtName,			/* For Parse, Bind, Describe Portal and Execute message */
+						const char *portalName,			/* For Bind, Describe Portal and Execute message */
+						bool sendDescribe,				/* Used to decide whether to send a Describe message */
+						int fetchSize,					/* For Execute message, how many rows will be fetched */
+						int nParams,					/* For Parse message, the number of input parameters */
+						const Oid *paramTypes,			/* For Parse message, "nParams" of input paramter types */
+						const int *paramFormats,		/* For Bind message, "nParams" of input paramter formats */
+						const char *paramBinaryValue,	/* For Bind message, binary parameter values */
+						const int paramBinaryLength,	/* For Bind message, the length of paramBinaryValue */
+						int nResultFormat,				/* For Bind message, the number of output parameter formats */
+						const int *resultFormats)		/* For Bind message, "nResultFormat" of output parameter formats */
+{
+	int				i;
+	const char	   *portal_name;
+	const char	   *stmt_name;
+
+	if (!PQsendQueryStart(conn))
+		return 0;
+
+	/* check the arguments */
+	if (!command && !stmtName && !portalName)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+						libpq_gettext("query, statement name and portal name are all null pointer\n"));
+		return 0;
+	}
+	if (nParams < 0 || nParams > 65535)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+		libpq_gettext("number of parameters must be between 0 and 65535\n"));
+		return 0;
+	}
+
+	portal_name = portalName ? portalName : "";
+	stmt_name = stmtName ? stmtName : "";
+
+	/* This isn't gonna work on a 2.0 server */
+	if (PG_PROTOCOL_MAJOR(conn->pversion) < 3)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+		 libpq_gettext("function requires at least protocol version 3.0\n"));
+		return 0;
+	}
+
+	/*
+	 * We will send Parse (if needed), Bind, Describe Portal, Execute, Sync,
+	 * using specified statement name and the unnamed portal.
+	 */
+	if (command)
+	{
+		/* construct the Parse message */
+		if (pqPutMsgStart('P', false, conn) < 0 ||
+			pqPuts(stmt_name, conn) < 0 ||
+			pqPuts(command, conn) < 0)
+			goto sendFailed;
+		if (nParams > 0 && paramTypes)
+		{
+			if (pqPutInt(nParams, 2, conn) < 0)
+				goto sendFailed;
+			for (i = 0; i < nParams; i++)
+			{
+				if (pqPutInt(paramTypes[i], 4, conn) < 0)
+					goto sendFailed;
+			}
+		}
+		else
+		{
+			if (pqPutInt(0, 2, conn) < 0)
+				goto sendFailed;
+		}
+		if (pqPutMsgEnd(conn) < 0)
+			goto sendFailed;
+	}
+
+	/* Construct the Bind message */
+	if (pqPutMsgStart('B', false, conn) < 0 ||
+		pqPuts(portal_name, conn) < 0 ||
+		pqPuts(stmt_name, conn) < 0)
+		goto sendFailed;
+
+	/* Send parameter formats */
+	if (nParams > 0 && paramFormats)
+	{
+		if (pqPutInt(nParams, 2, conn) < 0)
+			goto sendFailed;
+		for (i = 0; i < nParams; i++)
+		{
+			if (pqPutInt(paramFormats[i], 2, conn) < 0)
+				goto sendFailed;
+		}
+	}
+	else
+	{
+		if (pqPutInt(0, 2, conn) < 0)
+			goto sendFailed;
+	}
+
+	/*
+	 * Send binary parameters, make sure it has already been
+	 * constructed like bind format, see PQsendQueryGuts.
+	 */
+	if (pqPutnchar(paramBinaryValue, paramBinaryLength, conn) < 0)
+		goto sendFailed;
+
+	/* Send result format */
+	if (nResultFormat > 0)
+	{
+		if (pqPutInt(nResultFormat, 2, conn) < 0)
+			goto sendFailed;
+		for (i = 0; i < nResultFormat; i++)
+		{
+			if (pqPutInt(resultFormats[i], 2, conn) < 0)
+				goto sendFailed;
+		}
+	} else
+	{
+		if (pqPutInt(0, 2, conn) < 0)
+			goto sendFailed;
+	}
+	if (pqPutMsgEnd(conn) < 0)
+		goto sendFailed;
+
+	/* construct the Describe Portal message */
+	if (sendDescribe)
+	{
+		if (pqPutMsgStart('D', false, conn) < 0 ||
+			pqPutc('P', conn) < 0 ||
+			pqPuts(portal_name, conn) < 0 ||
+			pqPutMsgEnd(conn) < 0)
+			goto sendFailed;
+	}
+
+	/* construct the Execute message */
+	if (pqPutMsgStart('E', false, conn) < 0 ||
+		pqPuts(portal_name, conn) < 0 ||
+		pqPutInt(fetchSize, 4, conn) < 0 ||
+		pqPutMsgEnd(conn) < 0)
+		goto sendFailed;
+
+	/* construct the Sync message */
+	if (pqPutMsgStart('S', false, conn) < 0 ||
+		pqPutMsgEnd(conn) < 0)
+		goto sendFailed;
+
+	/* remember we are using extended query protocol */
+	conn->queryclass = PGQUERY_EXTENDED;
+
+	/* and remember the query text too, if possible */
+	/* if insufficient memory, last_query just winds up NULL */
+	if (conn->last_query)
+		free(conn->last_query);
+	if (command)
+		conn->last_query = strdup(command);
+	else
+		conn->last_query = NULL;
+
+	/*
+	 * Give the data a push.  In nonblock mode, don't complain if we're unable
+	 * to send it all; PQgetResult() will do any additional flushing needed.
+	 */
+	if (pqFlush(conn) < 0)
+		goto sendFailed;
+
+	/* OK, it's launched! */
+	conn->asyncStatus = PGASYNC_BUSY;
+	return 1;
+
+sendFailed:
+	pqHandleSendFailure(conn);
+	return 0;
 }
 #endif /* ADB */
 

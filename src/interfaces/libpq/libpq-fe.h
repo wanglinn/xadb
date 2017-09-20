@@ -409,6 +409,33 @@ extern int	PQsendQuery(PGconn *conn, const char *query);
 #ifdef ADB
 extern int PQsendQueryTree(PGconn *conn, const char *query, const char *query_tree, size_t tree_len);
 extern int PQsendPlan(PGconn *conn, const char *plan, int length);
+extern int PQsendClose(PGconn *conn, bool isStatement, const char *name);
+extern int PQsendQueryExtend(PGconn *conn,
+							 const char *command,
+							 const char *stmtName,
+							 const char *portalName,
+							 bool sendDescribe,
+							 int fetchSize,
+							 int nParams,
+							 const Oid *paramTypes,
+							 const char *const * paramValues,
+							 const int *paramFormats,
+							 const int *paramLengths,
+							 int nResultFormat,
+							 const int *resultFormats);
+extern int PQsendQueryExtendBinary(PGconn *conn,
+							 const char *command,
+							 const char *stmtName,
+							 const char *portalName,
+							 bool sendDescribe,
+							 int fetchSize,
+							 int nParams,
+							 const Oid *paramTypes,
+							 const int *paramFormats,
+							 const char *paramBinaryValue,
+							 const int paramBinaryLength,
+							 int nResultFormat,
+							 const int *resultFormats);
 #endif /* ADB */
 extern int PQsendQueryParams(PGconn *conn,
 				  const char *command,
