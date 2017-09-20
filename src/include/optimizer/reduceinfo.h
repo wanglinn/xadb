@@ -107,6 +107,8 @@ extern int ReducePathListByReduceInfoList(Expr *expr, PlannerInfo *root, RelOptI
 
 extern int ReducePathUsingReduceInfo(PlannerInfo *root, RelOptInfo *rel, Path *path,
 									 ReducePathCallback_function func, void *context, ReduceInfo *reduce);
+extern int ReducePathUsingReduceInfoList(PlannerInfo *root, RelOptInfo *rel, Path *path,
+										 ReducePathCallback_function func, void *context, List *reduce_list);
 extern int ReducePathListUsingReduceInfo(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
 										 ReducePathCallback_function func, void *context, ReduceInfo *reduce);
 

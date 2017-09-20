@@ -692,6 +692,20 @@ int ReducePathUsingReduceInfo(PlannerInfo *root, RelOptInfo *rel, Path *path,
 	return result;
 }
 
+int ReducePathUsingReduceInfoList(PlannerInfo *root, RelOptInfo *rel, Path *path,
+								  ReducePathCallback_function func, void *context, List *reduce_list)
+{
+	ListCell *lc;
+	int result = 0;
+	foreach(lc, reduce_list)
+	{
+		result = ReducePathUsingReduceInfo(root, rel, path, func, context, lfirst(lc));
+		if(result < 0)
+			return result;
+	}
+	return result;
+}
+
 int ReducePathListUsingReduceInfo(PlannerInfo *root, RelOptInfo *rel, List *pathlist,
 								  ReducePathCallback_function func, void *context, ReduceInfo *reduce)
 {
@@ -1055,6 +1069,10 @@ bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark)
 	if(left == NULL || right == NULL)
 		return false;
 
+	if ((mark & REDUCE_MARK_TYPE) &&
+		left->type != right->type)
+		return false;
+
 	if ((mark & REDUCE_MARK_STORAGE) &&
 		equal(left->storage_nodes, right->storage_nodes) == false)
 		return false;
@@ -1073,10 +1091,6 @@ bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark)
 
 	if ((mark & REDUCE_MARK_RELIDS) &&
 		bms_equal(left->relids, right->relids) == false)
-		return false;
-
-	if ((mark & REDUCE_MARK_TYPE) &&
-		left->type != right->type)
 		return false;
 
 	return true;
