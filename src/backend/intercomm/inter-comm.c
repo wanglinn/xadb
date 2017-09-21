@@ -133,7 +133,7 @@ HandleRecvCommand(NodeHandle *handle)
 			if (WEECanRead(wee) && !PQconsumeInput(conn))
 			{
 				InterXactSaveError(state, "%s", PQerrorMessage(conn));
-				freeWaitEVSet(&set);
+				freeWaitEVSet(&set, false);
 				return false;
 			}
 		}
@@ -145,7 +145,7 @@ HandleRecvCommand(NodeHandle *handle)
 		PQclear(last_res);
 		last_res = res;
 	}
-	freeWaitEVSet(&set);
+	freeWaitEVSet(&set, false);
 
 	if (PQresultStatus(last_res) == PGRES_COMMAND_OK)
 		return true;

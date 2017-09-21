@@ -42,9 +42,13 @@
 
 #define SET_STEP			32
 
+static WaitEventElt *findWaitEvent(WaitEVSet set, pgsocket wait_sock);
 static void addWaitEventInternal(WaitEVSet set,
 								 pgsocket wait_sock,
 								 EventType wait_events,
+								 void *wait_arg);
+static void rmvWaitEventInternal(WaitEVSet set,
+								 pgsocket wait_sock,
 								 void *wait_arg);
 
 /*
@@ -141,7 +145,7 @@ resetWaitEVSet(WaitEVSet set)
  * previous content, if any, is cleared.
  */
 void
-freeWaitEVSet(WaitEVSet set)
+freeWaitEVSet(WaitEVSet set, bool selffree)
 {
 	if (set)
 	{
@@ -156,6 +160,9 @@ freeWaitEVSet(WaitEVSet set)
 		set->curno = 0;
 		set->idxno = 0;
 		set->maxno = 0;
+
+		if (selffree)
+			pfree(set);
 	}
 }
 
@@ -201,6 +208,26 @@ enlargeWaitEVSet(WaitEVSet set, int needed)
 	set->maxno = newno;
 }
 
+/*
+ * findWaitEvent
+ *
+ * lookup wait event from WaitEVSet by socket
+ */
+static WaitEventElt *
+findWaitEvent(WaitEVSet set, pgsocket wait_sock)
+{
+	WaitEventElt	   *wee;
+	int					i;
+
+	for (i = 0; i < set->curno; i++)
+	{
+		wee = &(set->events[i]);
+		if (wee->wait_sock == wait_sock)
+			return wee;
+	}
+
+	return NULL;
+}
 
 /*
  * addWaitEventInternal
@@ -218,11 +245,19 @@ addWaitEventInternal(WaitEVSet set,
 	{
 		WaitEventElt   *wee = NULL;
 
-		enlargeWaitEVSet(set, 1);
-		wee = &(set->events[set->curno++]);
-		MemSet(wee, 0, sizeof(*wee));
+		/*
+		 * to avoid waiting events on the same
+		 * socket in the same WaitEVSet.
+		 */
+		wee = findWaitEvent(set, wait_sock);
+		if (!wee)
+		{
+			enlargeWaitEVSet(set, 1);
+			wee = &(set->events[set->curno++]);
+			MemSet(wee, 0, sizeof(*wee));
+		}
 		wee->wait_sock = wait_sock;
-		wee->wait_events = wait_events;
+		wee->wait_events |= wait_events;
 		wee->wait_arg = wait_arg;
 #if defined(WAIT_USE_POLL)
 		wee->pfd = NULL;
@@ -309,6 +344,120 @@ addWaitEventByArray(WaitEVSet set, void **wait_args, int num,
 }
 
 /*
+ * rmvWaitEventInternal
+ *
+ * remove wait events for a socket with wait_arg argument from WaitEVSet.
+ */
+static void
+rmvWaitEventInternal(WaitEVSet set,
+					 pgsocket wait_sock,
+					 void *wait_arg)
+{
+	WaitEventElt   *curr_wee,
+				   *last_wee;
+	int 			i;
+
+	AssertArg(set);
+	if (wait_sock != PGINVALID_SOCKET || wait_arg != NULL)
+	{
+		for (i = 0; i < set->curno; i++)
+		{
+			curr_wee = &(set->events[i]);
+			if (curr_wee->wait_sock == wait_sock ||
+				(wait_arg && curr_wee->wait_arg == wait_arg))
+			{
+				if (set->curno - 1 > i)
+				{
+					last_wee = &(set->events[set->curno - 1]);
+					memcpy(curr_wee, last_wee, sizeof(*curr_wee));
+				}
+				set->curno--;
+				break;
+			}
+		}
+	}
+}
+
+/*
+ * rmvWaitEventBySock
+ *
+ * remove wait events for a socket from WaitEVSet.
+ */
+void
+rmvWaitEventBySock(WaitEVSet set, pgsocket sock)
+{
+	rmvWaitEventInternal(set, sock, NULL);
+}
+
+/*
+ * rmvWaitEventByArg
+ *
+ * remove wait events for a wait_arg argument from WaitEVSet.
+ */
+void
+rmvWaitEventByArg(WaitEVSet set, void *wait_arg)
+{
+	rmvWaitEventInternal(set, PGINVALID_SOCKET, wait_arg);
+}
+
+/*
+ * rmvWaitEventByList
+ *
+ * remove wait events for a list of wait_arg argument from WaitEVSet.
+ */
+void
+rmvWaitEventByList(WaitEVSet set, struct List *wait_list)
+{
+	ListCell *lc = NULL;
+
+	foreach (lc, wait_list)
+		rmvWaitEventByArg(set, lfirst(lc));
+}
+
+/*
+ * rmvWaitEventByArray
+ *
+ * remove wait events for a array of wait_arg argument from WaitEVSet.
+ */
+void
+rmvWaitEventByArray(WaitEVSet set, void **wait_args, int num)
+{
+	int i;
+
+	for(i = 0; i < num; i++)
+		rmvWaitEventByArg(set, wait_args[i]);
+}
+
+/*
+ * rmvWaitEventElt
+ *
+ * remove specified wait event from WaitEVSet.
+ */
+void
+rmvWaitEventElt(WaitEVSet set, WaitEventElt *wee)
+{
+	int i;
+	WaitEventElt	   *curr_wee,
+					   *last_wee;
+
+	AssertArg(set);
+	for (i = 0; i < set->curno; i++)
+	{
+		curr_wee = &(set->events[i]);
+		if (curr_wee == wee)
+		{
+			if (set->curno - 1 > i)
+			{
+				last_wee = &(set->events[set->curno - 1]);
+				memcpy(curr_wee, last_wee, sizeof(*curr_wee));
+			}
+			set->curno--;
+			break;
+		}
+	}
+}
+
+/*
  * execWaitEVSet
  *
  * execute I/O multiplexing to wait until some events occurred on
@@ -324,6 +473,10 @@ execWaitEVSet(WaitEVSet set, int timeout)
 	int					nfds = 0;
 
 	AssertArg(set);
+
+	/* reset the iterator of WaitEVSet */
+	set->idxno = 0;
+
 	for (nfds = 0; nfds < set->curno; nfds++)
 	{
 		wee = &(set->events[nfds]);
@@ -353,6 +506,10 @@ _re_poll:
 	pgsocket		max_sock = PGINVALID_SOCKET;
 
 	AssertArg(set);
+
+	/* reset the iterator of WaitEVSet */
+	set->idxno = 0;
+
 	if (timeout > 0)
 	{
 		tv.tv_sec = 0;

@@ -92,7 +92,7 @@ extern WaitEVSet makeWaitEVSetExtend(int num);
 extern void initWaitEVSet(WaitEVSet set);
 extern void initWaitEVSetExtend(WaitEVSet set, int num);
 extern void resetWaitEVSet(WaitEVSet set);
-extern void freeWaitEVSet(WaitEVSet set);
+extern void freeWaitEVSet(WaitEVSet set, bool selffree);
 extern void enlargeWaitEVSet(WaitEVSet set, int needed);
 extern void addWaitEventBySock(WaitEVSet set, pgsocket sock,
 					EventType wait_events);
@@ -106,6 +106,11 @@ extern void addWaitEventByList(WaitEVSet set, struct List *wait_list,
 extern void addWaitEventByArray(WaitEVSet set, void **wait_args, int num,
 					pgsocket (*GetWaitSocket)(void *),
 					uint32 (*GetWaitEvents)(void *));
+extern void rmvWaitEventBySock(WaitEVSet set, pgsocket sock);
+extern void rmvWaitEventByArg(WaitEVSet set, void *wait_arg);
+extern void rmvWaitEventByList(WaitEVSet set, struct List *wait_list);
+extern void rmvWaitEventByArray(WaitEVSet set, void **wait_args, int num);
+extern void rmvWaitEventElt(WaitEVSet set, WaitEventElt *wee);
 extern int  execWaitEVSet(WaitEVSet set, int timeout);
 extern WaitEventElt *nextWaitEventElt(WaitEVSet set);
 extern WaitEventElt *nthWaitEventElt(WaitEVSet set, int nth);

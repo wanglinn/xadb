@@ -448,7 +448,7 @@ InterXactGC(InterXactState state)
 		}
 	}
 
-	freeWaitEVSet(&set);
+	freeWaitEVSet(&set, false);
 }
 
 void

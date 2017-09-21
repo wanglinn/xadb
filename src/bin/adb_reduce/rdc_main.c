@@ -988,11 +988,11 @@ EndSetupReduceGroup(void)
 		}
 	} PG_CATCH();
 	{
-		freeWaitEVSet(&set);
+		freeWaitEVSet(&set, false);
 		PG_RE_THROW();
 	} PG_END_TRY();
 
-	freeWaitEVSet(&set);
+	freeWaitEVSet(&set, false);
 }
 
 static void
@@ -1220,11 +1220,11 @@ ReduceLoopRun(void)
 		}
 	} PG_CATCH();
 	{
-		freeWaitEVSet(&set);
+		freeWaitEVSet(&set, false);
 		PG_RE_THROW();
 	} PG_END_TRY();
 
-	freeWaitEVSet(&set);
+	freeWaitEVSet(&set, false);
 
 	return STATUS_OK;
 }
