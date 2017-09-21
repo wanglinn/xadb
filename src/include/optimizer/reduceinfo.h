@@ -191,5 +191,6 @@ extern bool CanOnceDistinctReduceInfo(List *distinct, ReduceInfo *reduce_info);
 
 extern Var *makeVarByRel(AttrNumber attno, Oid rel_oid, Index rel_index);
 extern Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce);
+extern bool EqualReduceExpr(Expr *left, Expr *right);
 
 #endif /* REDUCEINFO_H */

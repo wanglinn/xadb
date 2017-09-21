@@ -1082,8 +1082,19 @@ bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark)
 		return false;
 
 	if ((mark & REDUCE_MARK_PARAMS) &&
-		equal(left->params, right->params) == false)
-		return false;
+		left->params != right->params)
+	{
+		ListCell *lc1,*lc2;
+		if (left->params == NIL ||
+			left->params == NIL ||
+			list_length(left->params) != list_length(right->params))
+			return false;
+		forboth(lc1, left->params, lc2, right->params)
+		{
+			if(EqualReduceExpr(lfirst(lc1), lfirst(lc2)) == false)
+				return false;
+		}
+	}
 
 	if ((mark & REDUCE_MARK_EXPR) &&
 		equal(left->expr, right->expr) == false)
@@ -1350,15 +1361,10 @@ bool IsReduceInfoCanInnerJoin(ReduceInfo *outer_rinfo, ReduceInfo *inner_rinfo, 
 		left_expr = (Expr*)get_leftop(ri->clause);
 		right_expr = (Expr*)get_rightop(ri->clause);
 
-		while(IsA(left_expr, RelabelType))
-			left_expr = ((RelabelType *) left_expr)->arg;
-		while(IsA(right_expr, RelabelType))
-			right_expr = ((RelabelType *) right_expr)->arg;
-
-		if ((equal(left_expr, left_param) &&
-				equal(right_expr, right_param))
-			|| (equal(left_expr, right_param) &&
-				equal(right_expr, left_param)))
+		if ((EqualReduceExpr(left_expr, left_param) &&
+				EqualReduceExpr(right_expr, right_param))
+			|| (EqualReduceExpr(left_expr, right_param) &&
+				EqualReduceExpr(right_expr, left_param)))
 		{
 			return true;
 		}
@@ -1817,6 +1823,47 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	}
 
 	return result;
+}
+
+bool EqualReduceExpr(Expr *left, Expr *right)
+{
+	Expr *r;
+	if(left == right)
+		return true;
+	if(left == NULL || right == NULL)
+		return false;
+
+	for(;;)
+	{
+		r = right;
+		for(;;)
+		{
+			if(left == r)
+				return true;
+			if(left == NULL || r == NULL)
+				return false;
+			if(equal(left, r))
+				return true;
+			if(IsA(r, RelabelType))
+			{
+				r = ((RelabelType*)r)->arg;
+				continue;
+			}else
+			{
+				break;
+			}
+		}
+		if(IsA(left, RelabelType))
+		{
+			left = ((RelabelType*)left)->arg;
+			continue;
+		}else
+		{
+			break;
+		}
+	}
+
+	return false;
 }
 
 static Param *makeReduceParam(Oid type, int paramid, int parammod, Oid collid)
