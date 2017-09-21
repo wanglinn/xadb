@@ -2904,7 +2904,7 @@ get_exec_connections(RemoteQueryState *planstate,
 	if ((list_length(nodelist) == 0 && exec_type == EXEC_ON_ALL_NODES) ||
 		(list_length(coordlist) == 0 && exec_type == EXEC_ON_COORDS))
 	{
-		coordlist = GetAllCoordNodes();
+		coordlist = GetAllCoordNodeIdx();
 		co_conn_count = list_length(coordlist);
 	}
 	else
@@ -5106,6 +5106,7 @@ get_success_nodes(int node_count, PGXCNodeHandle **handles, char node_type, Stri
 			if (!success_nodes)
 				success_nodes = makeNode(ExecNodes);
 			success_nodes->nodeList = lappend_int(success_nodes->nodeList, nodenum);
+			success_nodes->nodeids = lappend_oid(success_nodes->nodeids, handle->nodeoid);
 		}
 		else
 		{
@@ -5649,8 +5650,8 @@ PgxcNodeSyncNextXid(void)
 	/* then sync other nodes of the cluster */
 	PG_TRY();
 	{
-		co_list = GetAllCoordNodes();
-		dn_list = GetAllDataNodes();
+		co_list = GetAllCoordNodeIdx();
+		dn_list = GetAllDataNodeIdx();
 		all_handles = get_handles(dn_list, co_list, false);
 		co_handles = all_handles->coord_handles;
 		dn_handles = all_handles->datanode_handles;

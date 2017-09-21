@@ -579,16 +579,15 @@ _outExecNodes(StringInfo str, const ExecNodes *node)
 {
 	WRITE_NODE_TYPE("EXEC_NODES");
 
+	WRITE_ENUM_FIELD(accesstype, RelationAccessType);
+	WRITE_CHAR_FIELD(baselocatortype);
+	WRITE_OID_FIELD(en_relid);
+	WRITE_OID_FIELD(en_funcid);
+	WRITE_NODE_FIELD(en_expr);
+	WRITE_NODE_FIELD(en_dist_vars);
 	WRITE_NODE_FIELD(primarynodelist);
 	WRITE_NODE_FIELD(nodeList);
-	WRITE_CHAR_FIELD(baselocatortype);
-#ifdef ADB
-	WRITE_OID_FIELD(en_funcid);
-#endif
-	WRITE_NODE_FIELD(en_expr);
-	WRITE_OID_FIELD(en_relid);
-	WRITE_ENUM_FIELD(accesstype, RelationAccessType);
-	WRITE_NODE_FIELD(en_dist_vars);
+	WRITE_NODE_FIELD(nodeids);
 }
 #endif
 

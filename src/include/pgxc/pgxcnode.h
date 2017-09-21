@@ -223,4 +223,7 @@ extern Datum pgxc_execute_on_nodes(int numnodes, Oid *nodelist, char *query);
 /* New GUC to store delay value of cancel delay dulation in millisecond */
 extern int pgxcnode_cancel_delay;
 
+extern List *GetAllDataNodeIds(void);
+extern List *GetAllCoordNodeIds(void);
+
 #endif /* PGXCNODE_H */

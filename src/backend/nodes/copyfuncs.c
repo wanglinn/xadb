@@ -4616,14 +4616,15 @@ _copyExecNodes(const ExecNodes *from)
 {
 	ExecNodes *newnode = makeNode(ExecNodes);
 
-	COPY_NODE_FIELD(primarynodelist);
-	COPY_NODE_FIELD(nodeList);
+	COPY_SCALAR_FIELD(accesstype);
 	COPY_SCALAR_FIELD(baselocatortype);
+	COPY_SCALAR_FIELD(en_relid);
 	COPY_SCALAR_FIELD(en_funcid);
 	COPY_NODE_FIELD(en_expr);
-	COPY_SCALAR_FIELD(en_relid);
-	COPY_SCALAR_FIELD(accesstype);
 	COPY_NODE_FIELD(en_dist_vars);
+	COPY_NODE_FIELD(primarynodelist);
+	COPY_NODE_FIELD(nodeList);
+	COPY_NODE_FIELD(nodeids);
 
 	return newnode;
 }

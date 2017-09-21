@@ -6532,9 +6532,9 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	 List *nodes_diff;
 	 bool same_dist_col;
 	 int i;
- 
+
 	 Assert(rloc && pkrloc);
- 
+
 	 /*
 	  * Whatever distribution type, the primary key rel's node list should
 	  * totally contain the node list of the foreign key rel, otherwise it
@@ -6551,14 +6551,14 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 			 errhint("because of different distribution of nodes")));
 		 return ;
 	 }
- 
+
 	 /*
 	  * It is a valid foreign key constraint if the primary key table is
 	  * replicated.
 	  */
 	 if (IsRelationReplicated(pkrloc))
 		 return ;
- 
+
 	 /*
 	  * Can not be in the same partition with primary key rel if distribution
 	  * type of any relation is round robin.
@@ -6573,7 +6573,7 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 			 errhint("because of round robin distribution type")));
 		 return ;
 	 }
- 
+
 	 /*
 	  * They must have the same distribution nodes if the primary key table
 	  * is not replicated.
@@ -6589,13 +6589,13 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 			 errhint("because of different distribution of nodes")));
 		 return ;
 	 }
- 
+
 	 /*
 	  * It is a valid constraint if table has only one node.
 	  */
 	 if (list_length(rloc->nodeList) == 1)
 		 return ;
- 
+
 	 /*
 	  * They must have the same distribution type if the primary key table is
 	  * not replicated.
@@ -6609,13 +6609,13 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 			 errhint("because of different types of distribution")));
 		 return ;
 	 }
- 
+
 	 /*
 	  * See pgxc_check_fk_shippability.
 	  */
 	 if (IsRelationDistributedByUserDefined(rloc))
 		 return ;
- 
+
 	 /*
 	  * They must have the same distribution columns if the primary key table
 	  * is not replicated.
@@ -6627,9 +6627,9 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 		 {
 			 if (constraintKey[i] == rloc->partAttrNum &&
 				 foreignKey[i] == pkrloc->partAttrNum)
-				 same_dist_col = true; 
+				 same_dist_col = true;
 		 }
-		 
+
 		 if (!same_dist_col)
 			 ereport(ERROR,
 				 (errcode(ERRCODE_INVALID_FOREIGN_KEY),
@@ -6637,7 +6637,7 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 					 "referenced in the primary key table", constraintName),
 				 errhint("because cannot make sure foreign key table has the "
 					 "same partition with the primary key table")));
- 
+
 		 if (foreignUpdateType == FKCONSTR_ACTION_SETNULL ||
 			 foreignUpdateType == FKCONSTR_ACTION_SETDEFAULT ||
 			 foreignDeleteType == FKCONSTR_ACTION_SETNULL ||
@@ -12115,7 +12115,9 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	newLocInfo = CopyRelationLocInfo(oldLocInfo);
 	/* The node list of this locator information will be rebuilt after command scan */
 	list_free(newLocInfo->nodeList);
-	newLocInfo->nodeList = NULL;
+	newLocInfo->nodeList = NIL;
+	list_free(newLocInfo->nodeids);
+	newLocInfo->nodeList = NIL;
 
 	/* Get the list to be modified */
 	new_num = get_pgxc_classnodes(RelationGetRelid(rel), &new_oid_array);
@@ -12181,9 +12183,12 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 
 	/* Build relation node list for new locator info */
 	for (i = 0; i < new_num; i++)
+	{
 		newLocInfo->nodeList = lappend_int(newLocInfo->nodeList,
 										   PGXCNodeGetNodeId(new_oid_array[i],
 															 PGXC_NODE_DATANODE));
+		newLocInfo->nodeids = lappend_oid(newLocInfo->nodeids,new_oid_array[i]);
+	}
 
 	/* Build the command tree for table redistribution */
 	PGXCRedistribCreateCommandList(redistribState, newLocInfo);
@@ -13227,7 +13232,7 @@ IsIndexUsingTempTable(Oid relid)
 
 		/* Release system cache BEFORE looking at the parent table */
 		ReleaseSysCache(tuple);
- 
+
 		res = IsTempTable(parent_id);
 	}
 	else

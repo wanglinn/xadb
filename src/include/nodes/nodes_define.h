@@ -622,14 +622,15 @@ END_NODE(PlanInvalItem)
 
 #ifndef NO_NODE_ExecNodes
 BEGIN_NODE(ExecNodes)
-	NODE_NODE(List,primarynodelist)
-	NODE_NODE(List,nodeList)
+	NODE_ENUM(RelationAccessType,accesstype)
 	NODE_SCALAR(char,baselocatortype)
+	NODE_SCALAR(Oid,en_relid)
 	NODE_OID(proc,en_funcid)
 	NODE_NODE(List,en_expr)
-	NODE_SCALAR(Oid,en_relid)
-	NODE_ENUM(RelationAccessType,accesstype)
 	NODE_NODE(List,en_dist_vars)
+	NODE_NODE(List,primarynodelist)
+	NODE_NODE(List,nodeList)
+	NODE_NODE(List,nodeids)
 END_NODE(ExecNodes)
 #endif /* NO_NODE_ExecNodes */
 

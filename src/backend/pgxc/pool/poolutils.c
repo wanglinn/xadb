@@ -264,7 +264,7 @@ CleanConnection(CleanConnStmt *stmt)
 	{
 		PoolManagerReconnect();
 	}
-	
+
 	/*
 	 * FORCE is activated,
 	 * Send a SIGTERM signal to all the processes and take a lock on Pooler
@@ -336,8 +336,8 @@ CleanConnection(CleanConnStmt *stmt)
 		dn_list = stmt_nodes;
 	else
 	{
-		co_list = GetAllCoordNodes();
-		dn_list = GetAllDataNodes();
+		co_list = GetAllCoordNodeIdx();
+		dn_list = GetAllDataNodeIdx();
 	}
 
 	/*
@@ -370,8 +370,8 @@ CleanConnection(CleanConnStmt *stmt)
 void
 DropDBCleanConnection(char *dbname)
 {
-	List	*co_list = GetAllCoordNodes();
-	List	*dn_list = GetAllDataNodes();
+	List	*co_list = GetAllCoordNodeIdx();
+	List	*dn_list = GetAllDataNodeIdx();
 
 	/* Check permissions for this database */
 	if (!pg_database_ownercheck(get_database_oid(dbname, true), GetUserId()))
@@ -381,7 +381,7 @@ DropDBCleanConnection(char *dbname)
 	{
 		PoolManagerReconnect();
 	}
-	
+
 	PoolManagerCleanConnection(dn_list, co_list, dbname, NULL);
 
 	/* Clean up memory */

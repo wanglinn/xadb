@@ -151,8 +151,10 @@ pgxc_redist_build_replicate_to_distrib(RedistribState *distribState,
 							RelationLocInfo *oldLocInfo,
 							RelationLocInfo *newLocInfo)
 {
-	List *removedNodes;
-	List *newNodes;
+	List *removedNodeIdx;
+	List *newNodeIdx;
+	List *removedNodeIds;
+	List *newNodeIds;
 
 	/* If a command list has already been built, nothing to do */
 	if (list_length(distribState->commands) != 0)
@@ -164,23 +166,26 @@ pgxc_redist_build_replicate_to_distrib(RedistribState *distribState,
 		return;
 
 	/* Get the list of nodes that are added to the relation */
-	removedNodes = list_difference_int(oldLocInfo->nodeList, newLocInfo->nodeList);
+	removedNodeIdx = list_difference_int(oldLocInfo->nodeList, newLocInfo->nodeList);
+	removedNodeIds = list_difference_oid(oldLocInfo->nodeids, newLocInfo->nodeids);
 
 	/* Get the list of nodes that are removed from relation */
-	newNodes = list_difference_int(newLocInfo->nodeList, oldLocInfo->nodeList);
+	newNodeIdx = list_difference_int(newLocInfo->nodeList, oldLocInfo->nodeList);
+	newNodeIds = list_difference_oid(newLocInfo->nodeids, oldLocInfo->nodeids);
 
 	/*
 	 * If some nodes are added, turn back to default, we need to fetch data
 	 * and then redistribute it properly.
 	 */
-	if (newNodes != NIL)
+	if (newNodeIdx != NIL)
 		return;
 
 	/* Nodes removed have to be truncated, so add a TRUNCATE commands to removed nodes */
-	if (removedNodes != NIL)
+	if (removedNodeIdx != NIL)
 	{
 		ExecNodes *execNodes = makeNode(ExecNodes);
-		execNodes->nodeList = removedNodes;
+		execNodes->nodeList = removedNodeIdx;
+		execNodes->nodeids = removedNodeIds;
 		/* Add TRUNCATE command */
 		distribState->commands = lappend(distribState->commands,
 					 makeRedistribCommand(DISTRIB_TRUNCATE, CATALOG_UPDATE_BEFORE, execNodes));
@@ -206,6 +211,7 @@ pgxc_redist_build_replicate_to_distrib(RedistribState *distribState,
 	{
 		ExecNodes *execNodes = makeNode(ExecNodes);
 		execNodes->nodeList = newLocInfo->nodeList;
+		execNodes->nodeids = newLocInfo->nodeids;
 		distribState->commands = lappend(distribState->commands,
 					 makeRedistribCommand(DISTRIB_DELETE_HASH, CATALOG_UPDATE_AFTER, execNodes));
 	}
@@ -213,6 +219,7 @@ pgxc_redist_build_replicate_to_distrib(RedistribState *distribState,
 	{
 		ExecNodes *execNodes = makeNode(ExecNodes);
 		execNodes->nodeList = newLocInfo->nodeList;
+		execNodes->nodeids = newLocInfo->nodeids;
 		distribState->commands = lappend(distribState->commands,
 					 makeRedistribCommand(DISTRIB_DELETE_MODULO, CATALOG_UPDATE_AFTER, execNodes));
 	}
@@ -235,8 +242,10 @@ pgxc_redist_build_replicate(RedistribState *distribState,
 							RelationLocInfo *oldLocInfo,
 							RelationLocInfo *newLocInfo)
 {
-	List *removedNodes;
-	List *newNodes;
+	List *removedNodeIdx;
+	List *newNodeIdx;
+	List *removedNodeIds;
+	List *newNodeIds;
 
 	/* If a command list has already been built, nothing to do */
 	if (list_length(distribState->commands) != 0)
@@ -248,16 +257,18 @@ pgxc_redist_build_replicate(RedistribState *distribState,
 		return;
 
 	/* Get the list of nodes that are added to the relation */
-	removedNodes = list_difference_int(oldLocInfo->nodeList, newLocInfo->nodeList);
+	removedNodeIdx = list_difference_int(oldLocInfo->nodeList, newLocInfo->nodeList);
+	removedNodeIds = list_difference_oid(oldLocInfo->nodeids, newLocInfo->nodeids);
 
 	/* Get the list of nodes that are removed from relation */
-	newNodes = list_difference_int(newLocInfo->nodeList, oldLocInfo->nodeList);
+	newNodeIdx = list_difference_int(newLocInfo->nodeList, oldLocInfo->nodeList);
+	newNodeIds = list_difference_oid(newLocInfo->nodeids, oldLocInfo->nodeids);
 
 	/*
 	 * If nodes have to be added, we need to fetch data for redistribution first.
 	 * So add a COPY TO command to fetch data.
 	 */
-	if (newNodes != NIL)
+	if (newNodeIdx != NIL)
 	{
 		/* Add COPY TO command */
 		distribState->commands = lappend(distribState->commands,
@@ -265,20 +276,22 @@ pgxc_redist_build_replicate(RedistribState *distribState,
 	}
 
 	/* Nodes removed have to be truncated, so add a TRUNCATE commands to removed nodes */
-	if (removedNodes != NIL)
+	if (removedNodeIdx != NIL)
 	{
 		ExecNodes *execNodes = makeNode(ExecNodes);
-		execNodes->nodeList = removedNodes;
+		execNodes->nodeList = removedNodeIdx;
+		execNodes->nodeids = removedNodeIds;
 		/* Add TRUNCATE command */
 		distribState->commands = lappend(distribState->commands,
 					 makeRedistribCommand(DISTRIB_TRUNCATE, CATALOG_UPDATE_BEFORE, execNodes));
 	}
 
 	/* If necessary, COPY the data obtained at first step to the new nodes. */
-	if (newNodes != NIL)
+	if (newNodeIdx != NIL)
 	{
 		ExecNodes *execNodes = makeNode(ExecNodes);
-		execNodes->nodeList = newNodes;
+		execNodes->nodeList = newNodeIdx;
+		execNodes->nodeids = newNodeIds;
 		/* Add COPY FROM command */
 		distribState->commands = lappend(distribState->commands,
 					 makeRedistribCommand(DISTRIB_COPY_FROM, CATALOG_UPDATE_AFTER, execNodes));
@@ -481,7 +494,9 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 	if (exec_nodes && exec_nodes->nodeList != NIL)
 	{
 		copyState->exec_nodes->nodeList = exec_nodes->nodeList;
+		copyState->exec_nodes->nodeids = exec_nodes->nodeids;
 		copyState->rel_loc->nodeList = exec_nodes->nodeList;
+		copyState->rel_loc->nodeids = exec_nodes->nodeids;
 	}
 
 	tupdesc = RelationGetDescr(rel);
@@ -585,6 +600,9 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 		/* Take a copy of the node lists so as not to interfere with locator info */
 		local_execnodes->primarynodelist = list_copy(local_execnodes->primarynodelist);
 		local_execnodes->nodeList = list_copy(local_execnodes->nodeList);
+		local_execnodes->nodeids = list_copy(local_execnodes->nodeids);
+		if (local_execnodes->primarynodelist)
+			local_execnodes->nodeids = lappend_oid(local_execnodes->nodeids, primary_data_node);
 
 		/* Process data to Datanodes */
 		DataNodeCopyIn(data,
@@ -756,6 +774,7 @@ distrib_delete_hash(RedistribState *distribState, ExecNodes *exec_nodes)
 
 		/* Here the query is launched to a unique node */
 		local_exec_nodes->nodeList = lappend_int(NIL, nodenum);
+		local_exec_nodes->nodeids = lappend_int(NIL, PGXCNodeGetNodeOid(nodenum, PGXC_NODE_DATANODE));
 
 		/* Get the hash type of relation */
 		hashtype = attr[locinfo->partAttrNum - 1]->atttypid;

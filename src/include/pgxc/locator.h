@@ -89,18 +89,19 @@ typedef struct RelationLocInfo
  */
 typedef struct ExecNodes
 {
-	NodeTag		type;
-	List		*primarynodelist;	/* Primary node list indexes */
-	List		*nodeList;			/* Node list indexes */
-	char		baselocatortype;	/* Locator type, see above */
-	Oid			en_funcid;			/* User-defined function OID */
-	List		*en_expr;			/* Expression to evaluate at execution time
-									 * if planner can not determine execution
-									 * nodes */
-	Oid		en_relid;				/* Relation to determine execution nodes */
-	RelationAccessType accesstype;	/* Access type to determine execution
-									 * nodes */
-	List	*en_dist_vars;			/* See above for details */
+	NodeTag			type;
+	RelationAccessType	accesstype;		/* Access type to determine execution
+										 * nodes */
+	char			baselocatortype;	/* Locator type, see above */
+	Oid				en_relid;			/* Relation to determine execution nodes */
+	Oid				en_funcid;			/* User-defined function OID */
+	List		   *en_expr;			/* Expression to evaluate at execution time
+										 * if planner can not determine execution
+										 * nodes */
+	List		   *en_dist_vars;		/* See above for details */
+	List		   *primarynodelist;	/* Primary node list indexes */
+	List		   *nodeList;			/* Node list indexes */
+	List		   *nodeids;			/* Node ids list */
 } ExecNodes;
 
 #define IsExecNodesReplicated(en)				IsLocatorReplicated((en)->baselocatortype)
@@ -122,11 +123,12 @@ extern char *GetRelationDistribColumn(RelationLocInfo *locInfo);
 extern List *GetRelationDistribColumnList(RelationLocInfo *locInfo);
 extern Oid GetRelationDistribFunc(Oid relid);
 extern char GetLocatorType(Oid relid);
-extern List *GetPreferredReplicationNode(List *relNodes);
+extern List *GetPreferredRepNodeIdx(List *relNodes);
+extern List *GetPreferredRepNodeIds(List *nodeids);
 extern bool IsTableDistOnPrimary(RelationLocInfo *locInfo);
 extern bool IsLocatorInfoEqual(RelationLocInfo *locInfo1,
 							   RelationLocInfo *locInfo2);
-extern int GetRoundRobinNode(Oid relid);
+extern int GetRoundRobinNodeIdx(Oid relid);
 extern Oid GetRoundRobinNodeId(Oid relid);
 extern bool IsTypeDistributable(Oid colType);
 extern bool IsDistribColumn(Oid relid, AttrNumber attNum);
@@ -176,8 +178,8 @@ extern List *GetReducePathExprNodes(Expr *expr);*/
 
 /* Global locator data */
 extern void FreeExecNodes(ExecNodes **exec_nodes);
-extern List *GetAllDataNodes(void);
-extern List *GetAllCoordNodes(void);
+extern List *GetAllDataNodeIdx(void);
+extern List *GetAllCoordNodeIdx(void);
 
 extern List *GetInvolvedNodes(RelationLocInfo *rel_loc, int nelems, Datum* dist_values, bool* dist_nulls,
 							  Oid* dist_types, RelationAccessType accessType);

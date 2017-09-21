@@ -745,8 +745,12 @@ create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 	 * many of them.
 	 */
 	if (IsExecNodesReplicated(result_node->exec_nodes))
+	{
 		result_node->exec_nodes->nodeList =
-						GetPreferredReplicationNode(result_node->exec_nodes->nodeList);
+						GetPreferredRepNodeIdx(result_node->exec_nodes->nodeList);
+		result_node->exec_nodes->nodeids =
+						GetPreferredRepNodeIds(result_node->exec_nodes->nodeids);
+	}
 
 	result_node->is_temp = best_path->rqhas_temp_rel;
 
@@ -1451,8 +1455,9 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 			fstep->exec_nodes = makeNode(ExecNodes);
 			fstep->exec_nodes->accesstype = accessType;
 			fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-			fstep->exec_nodes->primarynodelist = NULL;
+			fstep->exec_nodes->primarynodelist = NIL;
 			fstep->exec_nodes->nodeList = rel_loc_info->nodeList;
+			fstep->exec_nodes->nodeids = rel_loc_info->nodeids;
 			fstep->exec_nodes->en_funcid = rel_loc_info->funcid;
 		}
 		else
@@ -2609,7 +2614,10 @@ pgxc_is_all_replicated_table(Query *query)
 										  rel_access);
 
 		tmp_list = rel_exec_nodes->nodeList;
-		rel_exec_nodes->nodeList = GetPreferredReplicationNode(rel_exec_nodes->nodeList);
+		rel_exec_nodes->nodeList = GetPreferredRepNodeIdx(rel_exec_nodes->nodeList);
+		list_free(tmp_list);
+		tmp_list = rel_exec_nodes->nodeids;
+		rel_exec_nodes->nodeids = GetPreferredRepNodeIds(rel_exec_nodes->nodeids);
 		list_free(tmp_list);
 	}
 

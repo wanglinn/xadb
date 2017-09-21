@@ -2868,6 +2868,7 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 
 	/* Build Execute Node list, there is a unique node for the time being */
 	step->exec_nodes->nodeList = lappend_int(step->exec_nodes->nodeList, nodeIndex);
+	step->exec_nodes->nodeids = lappend_oid(step->exec_nodes->nodeids, nodeoid);
 
 	/* Associate newly-created RemoteQuery node to the returned Query result */
 	result->is_local = is_local;

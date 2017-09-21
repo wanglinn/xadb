@@ -130,7 +130,7 @@ HandleClusterPause(bool pause, bool initiator)
 	 * coordinators to respond back
 	 */
 
-	coord_handles = get_handles(NIL, GetAllCoordNodes(), true);
+	coord_handles = get_handles(NIL, GetAllCoordNodeIdx(), true);
 
 	for (conn = 0; conn < coord_handles->co_conn_count; conn++)
 	{
@@ -222,7 +222,7 @@ HandleClusterPause(bool pause, bool initiator)
 						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
 						 errmsg("%s", combiner->errorMessage.data)));
 		}
-		
+
 		CloseCombiner(combiner);
 
 	}
@@ -357,7 +357,7 @@ PGXCCleanClusterLock(int code, Datum arg)
 		return;
 	}
 
-	coord_handles = get_handles(NIL, GetAllCoordNodes(), true);
+	coord_handles = get_handles(NIL, GetAllCoordNodeIdx(), true);
 	/* Try best-effort to UNPAUSE other coordinators now */
 	for (conn = 0; conn < coord_handles->co_conn_count; conn++)
 	{
@@ -365,8 +365,8 @@ PGXCCleanClusterLock(int code, Datum arg)
 
 		/* No error checking here... */
 		(void)pgxc_node_send_query(handle, unpause_cluster_str);
-			
-		
+
+
 	}
 
 	/* Release locally too. We do not want a dangling value in cl_holder_pid! */
@@ -517,9 +517,9 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	nodestmt->options = lappend(nodestmt->options, makeDefElem("port", (Node *)makeInteger(node_port)));
 	nodestmt->options = lappend(nodestmt->options, makeDefElem("host", (Node *)makeString(node_host)));
 	nodestmt->options = lappend(nodestmt->options, makeDefElem("preferred", (Node *)makeInteger(node_preferred)));
-	
+
 	PgxcNodeAlter(nodestmt);
-	
+
 	PG_RETURN_BOOL(true);
 }
 

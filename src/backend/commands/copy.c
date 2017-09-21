@@ -699,7 +699,7 @@ CopyGetData(CopyState cstate, void *databuf, int minread, int maxread)
 		case COPY_BUFFER:
 			elog(ERROR, "COPY_BUFFER not allowed in this context");
 			break;
-#endif		
+#endif
 	}
 
 	return bytesread;
@@ -2119,7 +2119,10 @@ CopyTo(CopyState cstate)
 		 * containing such a table.
 		 */
 		if (IsLocatorReplicated(remoteCopyState->rel_loc->locatorType))
-			en->nodeList = GetPreferredReplicationNode(en->nodeList);
+		{
+			en->nodeList = GetPreferredRepNodeIdx(en->nodeList);
+			en->nodeids = GetPreferredRepNodeIds(en->nodeids);
+		}
 
 		/*
 		 * We don't know the value of the distribution column value, so need to
@@ -2834,7 +2837,7 @@ CopyFrom(CopyState cstate)
 		}
 #ifdef ADB
 		}
-#endif		
+#endif
 	}
 
 	/* Flush any remaining buffered tuples */
@@ -2851,7 +2854,7 @@ CopyFrom(CopyState cstate)
 
 	MemoryContextSwitchTo(oldcontext);
 
-#ifdef ADB	
+#ifdef ADB
 	/* Send COPY DONE to datanodes */
 	if (IS_PGXC_COORDINATOR && cstate->remoteCopyState->rel_loc)
 	{
@@ -3641,17 +3644,17 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
  {
 	 CopyStateData new_cstate = *cstate;
 	 int i;
- 
+
 	 new_cstate.fe_msgbuf = makeStringInfo();
- 
+
 	 for (i = 0; i < cstate->num_defaults; i++)
 	 {
 		 int attindex = cstate->defmap[i];
 		 Datum defvalue = values[attindex];
- 
+
 		 if (!cstate->binary)
 			 CopySendChar(&new_cstate, new_cstate.delim[0]);
- 
+
 		 /*
 		  * For using the values in their output form, it is not sufficient
 		  * to just call its output function. The format should match
@@ -3669,7 +3672,7 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 		 if (cstate->binary)
 		 {
 			 bytea		*outputbytes;
- 
+
 			 outputbytes = SendFunctionCall(&cstate->out_functions[attindex], defvalue);
 			 CopySendInt32(&new_cstate, VARSIZE(outputbytes) - VARHDRSZ);
 			 CopySendData(&new_cstate, VARDATA(outputbytes),
@@ -3678,7 +3681,7 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 		 else
 		 {
 			 char *string;
- 
+
 			 string = OutputFunctionCall(&cstate->out_functions[attindex], defvalue);
 			 if (cstate->csv_mode)
 				 CopyAttributeOutCSV(&new_cstate, string,
@@ -3688,7 +3691,7 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 				 CopyAttributeOutText(&new_cstate, string);
 		 }
 	 }
- 
+
 	 /* Append the generated default values to the user-supplied data-row */
 	 appendBinaryStringInfo(&cstate->line_buf, new_cstate.fe_msgbuf->data,
 											   new_cstate.fe_msgbuf->len);

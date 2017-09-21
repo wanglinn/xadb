@@ -996,7 +996,8 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 	/* We are copying the data from the materialized view */
 	copyState->is_from = false;
 	/* Materialized views are available on all the coordinators. */
-	copyState->exec_nodes->nodeList = GetAllCoordNodes();
+	copyState->exec_nodes->nodeList = GetAllCoordNodeIdx();
+	copyState->exec_nodes->nodeids = GetAllCoordNodeIds();
 	initStringInfo(&(copyState->query_buf));
 	appendStringInfoString(&(copyState->query_buf), query_string);
 	/* Begin redistribution on remote nodes */

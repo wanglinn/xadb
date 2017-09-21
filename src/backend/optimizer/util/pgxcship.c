@@ -431,7 +431,10 @@ pgxc_FQS_find_datanodes(Shippability_context *sc_context)
 
 		{
 			List *tmp_list = exec_nodes->nodeList;
-			exec_nodes->nodeList = GetPreferredReplicationNode(exec_nodes->nodeList);
+			exec_nodes->nodeList = GetPreferredRepNodeIdx(exec_nodes->nodeList);
+			list_free(tmp_list);
+			tmp_list = exec_nodes->nodeids;
+			exec_nodes->nodeids = GetPreferredRepNodeIdx(exec_nodes->nodeids);
 			list_free(tmp_list);
 		}
 		return exec_nodes;
@@ -564,9 +567,11 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 		Assert(tle);
 		/* We found the TargetEntry for the partition column */
 		list_free(rel_exec_nodes->primarynodelist);
-		rel_exec_nodes->primarynodelist = NULL;
+		rel_exec_nodes->primarynodelist = NIL;
 		list_free(rel_exec_nodes->nodeList);
-		rel_exec_nodes->nodeList = NULL;
+		list_free(rel_exec_nodes->nodeids);
+		rel_exec_nodes->nodeList = NIL;
+		rel_exec_nodes->nodeids = NIL;
 #ifdef ADB
 		rel_exec_nodes->en_funcid = rel_loc_info->funcid;
 		rel_exec_nodes->en_expr = list_make1(tle->expr);
@@ -604,9 +609,11 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 		}
 		list_free_deep(colname_list);
 		list_free(rel_exec_nodes->primarynodelist);
-		rel_exec_nodes->primarynodelist = NULL;
+		rel_exec_nodes->primarynodelist = NIL;
 		list_free(rel_exec_nodes->nodeList);
-		rel_exec_nodes->nodeList = NULL;
+		rel_exec_nodes->nodeList = NIL;
+		list_free(rel_exec_nodes->nodeids);
+		rel_exec_nodes->nodeids = NIL;
 		rel_exec_nodes->en_funcid = rel_loc_info->funcid;
 		rel_exec_nodes->en_expr = en_expr_list;
 		rel_exec_nodes->en_relid = rel_loc_info->relid;
@@ -1838,6 +1845,7 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 		 */
 		merged_en->nodeList = list_intersection_int(en1->nodeList,
 													en2->nodeList);
+		merged_en->nodeids = list_intersection_oid(en1->nodeids, en2->nodeids);
 		merged_en->baselocatortype = LOCATOR_TYPE_REPLICATED;
 		if (!merged_en->nodeList)
 			FreeExecNodes(&merged_en);
@@ -1864,6 +1872,7 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 		else
 		{
 			merged_en->nodeList = list_copy(en2->nodeList);
+			merged_en->nodeids = list_copy(en2->nodeids);
 			merged_en->baselocatortype = en2->baselocatortype;
 			merged_en->en_dist_vars = en2->en_dist_vars;
 #ifdef ADB
@@ -1894,6 +1903,7 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 		else
 		{
 			merged_en->nodeList = list_copy(en1->nodeList);
+			merged_en->nodeids = list_copy(en1->nodeids);
 			merged_en->baselocatortype = en1->baselocatortype;
 			merged_en->en_dist_vars = en1->en_dist_vars;
 #ifdef ADB
@@ -1917,6 +1927,7 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 			!list_difference_int(en2->nodeList, en1->nodeList))
 		{
 			merged_en->nodeList = list_copy(en1->nodeList);
+			merged_en->nodeids = list_copy(en1->nodeids);
 			if (en1->baselocatortype == en2->baselocatortype)
 			{
 				merged_en->baselocatortype = en1->baselocatortype;

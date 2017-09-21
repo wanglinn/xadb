@@ -97,50 +97,77 @@ int		num_preferred_data_nodes = 0;
 Oid		preferred_data_node[MAX_PREFERRED_NODES];
 
 /*
- * GetPreferredReplicationNode
+ * GetPreferredRepNodeIdx
  * Pick any Datanode from given list, however fetch a preferred node first.
  */
 List *
-GetPreferredReplicationNode(List *relNodes)
+GetPreferredRepNodeIdx(List *relNodes)
 {
-	ListCell	*item;
-	int			nodeid = -1;
+	int			i;
+	int			nodeidx;
 
 	if (list_length(relNodes) <= 0)
 		elog(ERROR, "a list of nodes should have at least one node");
 
-	foreach(item, relNodes)
+	for (i = 0; i < num_preferred_data_nodes; i++)
 	{
-		int cnt_nodes;
-		for (cnt_nodes = 0;
-				cnt_nodes < num_preferred_data_nodes && nodeid < 0;
-				cnt_nodes++)
-		{
-			if (PGXCNodeGetNodeId(preferred_data_node[cnt_nodes],
-								  PGXC_NODE_DATANODE) == lfirst_int(item))
-				nodeid = lfirst_int(item);
-		}
-		if (nodeid >= 0)
-			break;
+		nodeidx = PGXCNodeGetNodeId(preferred_data_node[i], PGXC_NODE_DATANODE);
+		if (list_member_int(relNodes, nodeidx))
+			return list_make1_int(nodeidx);
 	}
-	if (nodeid < 0)
-		return list_make1_int(linitial_int(relNodes));
 
-	return list_make1_int(nodeid);
+	return list_make1_int(linitial_int(relNodes));
 }
 
 /*
- * get_node_from_modulo - determine node based on modulo
+ * GetPreferredRepNodeIds
+ * Pick any Datanode from given list, however fetch a preferred node first.
+ */
+List *
+GetPreferredRepNodeIds(List *nodeids)
+{
+	int			i;
+	Oid			nodeid;
+
+	if (list_length(nodeids) <= 0)
+		elog(ERROR, "a list of nodes should have at least one node");
+
+	for (i = 0; i < num_preferred_data_nodes; i++)
+	{
+		nodeid = preferred_data_node[i];
+		if (list_member_oid(nodeids, nodeid))
+			return list_make1_oid(nodeid);
+	}
+
+	return list_make1_oid(linitial_oid(nodeids));
+}
+
+/*
+ * get_nodeidx_from_modulo - determine node based on modulo
  *
  * compute_modulo
  */
 static int
-get_node_from_modulo(int modulo, List *nodeList)
+get_nodeidx_from_modulo(int modulo, List *nodeList)
 {
 	if (nodeList == NIL || modulo >= list_length(nodeList) || modulo < 0)
 		ereport(ERROR, (errmsg("Modulo value out of range\n")));
 
 	return list_nth_int(nodeList, modulo);
+}
+
+/*
+ * get_nodeid_from_modulo - determine node based on modulo
+ *
+ * compute_modulo
+ */
+static Oid
+get_nodeid_from_modulo(int modulo, List *nodeids)
+{
+	if (nodeids == NIL || modulo >= list_length(nodeids) || modulo < 0)
+		ereport(ERROR, (errmsg("Modulo value out of range\n")));
+
+	return list_nth_oid(nodeids, modulo);
 }
 
 
@@ -240,13 +267,13 @@ IsTypeDistributable(Oid col_type)
 
 
 /*
- * GetRoundRobinNode
+ * GetRoundRobinNodeIdx
  * Update the round robin node for the relation.
  * PGXCTODO - may not want to bother with locking here, we could track
  * these in the session memory context instead...
  */
 int
-GetRoundRobinNode(Oid relid)
+GetRoundRobinNodeIdx(Oid relid)
 {
 	Oid next_node = GetRoundRobinNodeId(relid);
 
@@ -392,6 +419,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 			 * For write access set primary node (if exists).
 			 */
 			exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
+			exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
 			if (accessType == RELATION_ACCESS_UPDATE || accessType == RELATION_ACCESS_INSERT)
 			{
 				/* we need to write to all synchronously */
@@ -420,6 +448,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 				 * concurrently
 				 */
 				exec_nodes->nodeList = list_make1_int(PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE));
+				exec_nodes->nodeids = list_make1_oid(primary_data_node);
 			}
 			break;
 
@@ -435,6 +464,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 					}else
 					{
 						exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
+						exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
 						break;
 					}
 				}else
@@ -454,8 +484,9 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 												list_length(rel_loc_info->nodeList));
 					}
 				}
-				nodeIndex = get_node_from_modulo(modulo, rel_loc_info->nodeList);
+				nodeIndex = get_nodeidx_from_modulo(modulo, rel_loc_info->nodeList);
 				exec_nodes->nodeList = list_make1_int(nodeIndex);
+				exec_nodes->nodeids = list_make1_oid(get_nodeid_from_modulo(modulo, rel_loc_info->nodeids));
 			}
 			break;
 
@@ -465,9 +496,14 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 			 * node needed
 			 */
 			if (accessType == RELATION_ACCESS_INSERT)
-				exec_nodes->nodeList = list_make1_int(GetRoundRobinNode(rel_loc_info->relid));
-			else
+			{
+				exec_nodes->nodeList = list_make1_int(GetRoundRobinNodeIdx(rel_loc_info->relid));
+				exec_nodes->nodeids = list_make1_oid(GetRoundRobinNodeId(rel_loc_info->relid));
+			} else
+			{
 				exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
+				exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
+			}
 			break;
 
 		case LOCATOR_TYPE_USER_DEFINED:
@@ -513,15 +549,21 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 					modulo = execModuloValue(result,
 											 get_func_rettype(rel_loc_info->funcid),
 											 list_length(rel_loc_info->nodeList));
-					nodeIndex = get_node_from_modulo(modulo, rel_loc_info->nodeList);
+					nodeIndex = get_nodeidx_from_modulo(modulo, rel_loc_info->nodeList);
 					exec_nodes->nodeList = list_make1_int(nodeIndex);
+					exec_nodes->nodeids = list_make1_oid(get_nodeid_from_modulo(modulo, rel_loc_info->nodeids));
 				} else
 				{
 					if (accessType == RELATION_ACCESS_INSERT)
+					{
 						/* Insert NULL to first node*/
 						exec_nodes->nodeList = list_make1_int(linitial_int(rel_loc_info->nodeList));
-					else
+						exec_nodes->nodeids = list_make1_oid(linitial_oid(rel_loc_info->nodeids));
+					} else
+					{
 						exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
+						exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
+					}
 				}
 			}
 			break;
@@ -783,13 +825,13 @@ GetLocatorType(Oid relid)
 
 
 /*
- * GetAllDataNodes
+ * GetAllDataNodeIdx
  * Return a list of all Datanodes.
  * We assume all tables use all nodes in the prototype, so just return a list
  * from first one.
  */
 List *
-GetAllDataNodes(void)
+GetAllDataNodeIdx(void)
 {
 	int			i;
 	List	   *nodeList = NIL;
@@ -801,13 +843,13 @@ GetAllDataNodes(void)
 }
 
 /*
- * GetAllCoordNodes
+ * GetAllCoordNodeIdx
  * Return a list of all Coordinators
  * This is used to send DDL to all nodes and to clean up pooler connections.
  * Do not put in the list the local Coordinator where this function is launched.
  */
 List *
-GetAllCoordNodes(void)
+GetAllCoordNodeIdx(void)
 {
 	int			i;
 	List	   *nodeList = NIL;
@@ -825,7 +867,6 @@ GetAllCoordNodes(void)
 
 	return nodeList;
 }
-
 
 /*
  * RelationBuildLocator
@@ -1017,6 +1058,7 @@ FreeExecNodes(ExecNodes **exec_nodes)
 		return;
 	list_free(tmp_en->primarynodelist);
 	list_free(tmp_en->nodeList);
+	list_free(tmp_en->nodeids);
 	pfree(tmp_en);
 	*exec_nodes = NULL;
 }

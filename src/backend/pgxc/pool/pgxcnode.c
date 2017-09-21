@@ -2684,3 +2684,34 @@ is_data_node_ready(PGXCNodeHandle * conn)
 	/* never happen, but keep compiler quiet */
 	return false;
 }
+
+List *
+GetAllDataNodeIds(void)
+{
+	List		   *nodeids = NIL;
+	PGXCNodeHandle *handle;
+
+	foreach_dn_handle(handle)
+		nodeids = lappend_oid(nodeids, handle->nodeoid);
+
+	return nodeids;
+}
+
+List *
+GetAllCoordNodeIds(void)
+{
+	List		   *nodeids = NIL;
+	PGXCNodeHandle *handle;
+
+	foreach_coord_handle(handle)
+	{
+		/*
+		 * Do not put in list the Coordinator we are on,
+		 * it doesn't make sense to connect to the local Coordinator.
+		 */
+		if (handle->nodeoid != PGXCNodeOid)
+			nodeids = lappend_oid(nodeids, handle->nodeoid);
+	}
+
+	return nodeids;
+}
