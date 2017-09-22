@@ -2602,11 +2602,12 @@ generate_cluster_gather_:
 	foreach(lc, rel->cluster_partial_pathlist)
 	{
 		Path   *subpath = lfirst(lc);
+		double rows = subpath->rows * subpath->parallel_workers;
 		Path   *path = (Path*)create_gather_path(root,
 												 rel,
 												 subpath,
 												 rel->reltarget,
-												 NULL, NULL);
+												 NULL, &rows);
 		path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(subpath));
 		path->reduce_is_valid = true;
 		add_cluster_path(rel, path);
@@ -2614,7 +2615,7 @@ generate_cluster_gather_:
 		if(subpath->pathkeys)
 		{
 			path = (Path*)create_gather_merge_path(root, rel, subpath, rel->reltarget,
-												   subpath->pathkeys, NULL, NULL);
+												   subpath->pathkeys, NULL, &rows);
 			path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(subpath));
 			path->reduce_is_valid = true;
 			add_cluster_path(rel, path);
