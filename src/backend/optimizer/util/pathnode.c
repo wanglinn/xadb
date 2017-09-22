@@ -1173,8 +1173,122 @@ void add_cluster_path_list(RelOptInfo *parent_rel, List *pathlist, bool free_lis
 
 void add_cluster_partial_path(RelOptInfo *parent_rel, Path *new_path)
 {
+	bool		accept_new = true;		/* unless we find a superior old path */
+	ListCell   *insert_after = NULL;	/* where to insert new item */
+	ListCell   *p1;
+	ListCell   *p1_prev;
+	ListCell   *p1_next;
+	List	   *new_reduce_list;
+
+	/* Check for query cancel. */
 	AssertArg(parent_rel && new_path);
-	parent_rel->cluster_partial_pathlist = lappend(parent_rel->cluster_partial_pathlist, new_path);
+	CHECK_FOR_INTERRUPTS();
+
+	new_reduce_list = get_reduce_info_list(new_path);
+	Assert(new_reduce_list != NIL);
+
+	/*
+	 * As in add_path, throw out any paths which are dominated by the new
+	 * path, but throw out the new path if some existing path dominates it.
+	 */
+	p1_prev = NULL;
+	for (p1 = list_head(parent_rel->cluster_partial_pathlist); p1 != NULL;
+		 p1 = p1_next)
+	{
+		Path	   *old_path = (Path *) lfirst(p1);
+		bool		remove_old = false; /* unless new proves superior */
+		PathKeysComparison keyscmp;
+
+		p1_next = lnext(p1);
+
+		/* Unless pathkeys are incompable, keep just one of the two paths. */
+		if (IsReduceInfoListEqual(new_reduce_list, get_reduce_info_list(old_path)) &&
+			(keyscmp = compare_pathkeys(new_path->pathkeys, old_path->pathkeys))!= PATHKEYS_DIFFERENT)
+		{
+			if (new_path->total_cost > old_path->total_cost * STD_FUZZ_FACTOR)
+			{
+				/* New path costs more; keep it only if pathkeys are better. */
+				if (keyscmp != PATHKEYS_BETTER1)
+					accept_new = false;
+			}
+			else if (old_path->total_cost > new_path->total_cost
+					 * STD_FUZZ_FACTOR)
+			{
+				/* Old path costs more; keep it only if pathkeys are better. */
+				if (keyscmp != PATHKEYS_BETTER2)
+					remove_old = true;
+			}
+			else if (keyscmp == PATHKEYS_BETTER1)
+			{
+				/* Costs are about the same, new path has better pathkeys. */
+				remove_old = true;
+			}
+			else if (keyscmp == PATHKEYS_BETTER2)
+			{
+				/* Costs are about the same, old path has better pathkeys. */
+				accept_new = false;
+			}
+			else if (old_path->total_cost > new_path->total_cost * 1.0000000001)
+			{
+				/* Pathkeys are the same, and the old path costs more. */
+				remove_old = true;
+			}
+			else
+			{
+				/*
+				 * Pathkeys are the same, and new path isn't materially
+				 * cheaper.
+				 */
+				accept_new = false;
+			}
+		}
+
+		/*
+		 * Remove current element from cluster_partial_pathlist if dominated by new.
+		 */
+		if (remove_old)
+		{
+			parent_rel->cluster_partial_pathlist =
+				list_delete_cell(parent_rel->cluster_partial_pathlist, p1, p1_prev);
+			/* we should not see IndexPaths here, so always safe to delete */
+			Assert(!IsA(old_path, IndexPath));
+			pfree(old_path);
+			/* p1_prev does not advance */
+		}
+		else
+		{
+			/* new belongs after this old path if it has cost >= old's */
+			if (new_path->total_cost >= old_path->total_cost)
+				insert_after = p1;
+			/* p1_prev advances */
+			p1_prev = p1;
+		}
+
+		/*
+		 * If we found an old path that dominates new_path, we can quit
+		 * scanning the cluster_partial_pathlist; we will not add new_path, and we
+		 * assume new_path cannot dominate any later path.
+		 */
+		if (!accept_new)
+			break;
+	}
+
+	if (accept_new)
+	{
+		/* Accept the new path: insert it at proper place */
+		if (insert_after)
+			lappend_cell(parent_rel->cluster_partial_pathlist, insert_after, new_path);
+		else
+			parent_rel->cluster_partial_pathlist =
+				lcons(new_path, parent_rel->cluster_partial_pathlist);
+	}
+	else
+	{
+		/* we should not see IndexPaths here, so always safe to delete */
+		Assert(!IsA(new_path, IndexPath));
+		/* Reject and recycle the new path */
+		pfree(new_path);
+	}
 }
 #endif /* ADB */
 
