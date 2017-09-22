@@ -498,6 +498,64 @@ try_partial_nestloop_path(PlannerInfo *root,
 										  NULL));
 }
 
+#ifdef ADB
+static void
+try_cluster_partial_nestloop_path(PlannerInfo *root,
+								  RelOptInfo *joinrel,
+								  Path *outer_path,
+								  Path *inner_path,
+								  List *pathkeys,
+								  JoinType jointype,
+								  JoinPathExtraData *extra,
+								  List *reduce_info_list)
+{
+	JoinCostWorkspace workspace;
+	NestPath *nestloop;
+
+	/*
+	 * If the inner path is parameterized, the parameterization must be fully
+	 * satisfied by the proposed outer path.  Parameterized partial paths are
+	 * not supported.  The caller should already have verified that no
+	 * extra_lateral_rels are required here.
+	 */
+	Assert(bms_is_empty(joinrel->lateral_relids));
+	AssertArg(reduce_info_list != NIL);
+	if (inner_path->param_info != NULL)
+	{
+		Relids		inner_paramrels = inner_path->param_info->ppi_req_outer;
+
+		if (!bms_is_subset(inner_paramrels, outer_path->parent->relids))
+			return;
+	}
+
+	/*
+	 * Before creating a path, get a quick lower bound on what it is likely to
+	 * cost.  Bail out right away if it looks terrible.
+	 */
+	initial_cost_nestloop(root, &workspace, jointype,
+						  outer_path, inner_path,
+						  extra->sjinfo, &extra->semifactors);
+
+	/* Might be good enough to be worth trying, so let's try it. */
+	nestloop = create_nestloop_path(root,
+									joinrel,
+									jointype,
+									&workspace,
+									extra->sjinfo,
+									&extra->semifactors,
+									outer_path,
+									inner_path,
+									extra->restrictlist,
+									pathkeys,
+									reduce_info_list,
+									true,
+									NULL);
+	nestloop->path.reduce_info_list = reduce_info_list;
+	nestloop->path.reduce_is_valid = true;
+	add_cluster_partial_path(joinrel, (Path*)nestloop);
+}
+#endif /* ADB */
+
 /*
  * try_mergejoin_path
  *	  Consider a merge join path; if it appears useful, push it into
@@ -1562,6 +1620,11 @@ match_unsorted_outer(PlannerInfo *root,
 	 */
 	if (joinrel->consider_parallel && nestjoinOK &&
 		save_jointype != JOIN_UNIQUE_OUTER &&
+#ifdef ADB
+		/* from pg 10 */
+		save_jointype != JOIN_FULL &&
+		save_jointype != JOIN_RIGHT &&
+#endif /* ADB */
 		bms_is_empty(joinrel->lateral_relids))
 		consider_parallel_nestloop(root, joinrel, outerrel, innerrel,
 								   save_jointype, extra);
@@ -1637,6 +1700,66 @@ consider_parallel_nestloop(PlannerInfo *root,
 									  pathkeys, jointype, extra);
 		}
 	}
+#ifdef ADB
+	foreach(lc1, outerrel->cluster_partial_pathlist)
+	{
+		Path	   *outerpath = (Path *) lfirst(lc1);
+		List	   *outer_reduce_list = get_reduce_info_list(outerpath);
+		List	   *new_reduce_list;
+		List	   *pathkeys;
+		ListCell   *lc2;
+
+		/* Figure out what useful ordering any paths we create will have. */
+		pathkeys = build_join_pathkeys(root, joinrel, jointype,
+									   outerpath->pathkeys);
+
+		/*
+		 * Try the cheapest parameterized paths; only those which will produce
+		 * an unparameterized path when joined to this outerrel will survive
+		 * try_partial_nestloop_path.  The cheapest unparameterized path is
+		 * also in this list.
+		 */
+		foreach(lc2, innerrel->cheapest_cluster_parameterized_paths)
+		{
+			Path	   *innerpath = (Path *) lfirst(lc2);
+
+			if (!innerpath->parallel_safe ||
+				reduce_info_list_can_join(outer_reduce_list,
+										  get_reduce_info_list(innerpath),
+										  extra->restrictlist,
+										  jointype,
+										  &new_reduce_list) == false)
+				continue;
+
+			/*
+			 * If we're doing JOIN_UNIQUE_INNER, we can only use the inner's
+			 * cheapest_total_path, and we have to unique-ify it.  (We might
+			 * be able to relax this to allow other safe, unparameterized
+			 * inner paths, but right now create_unique_path is not on board
+			 * with that.)
+			 */
+			if (save_jointype == JOIN_UNIQUE_INNER)
+			{
+				if (innerpath != innerrel->cheapest_total_path)
+					continue;
+				innerpath = (Path *) create_unique_path(root, innerrel,
+														innerpath,
+														extra->sjinfo);
+				Assert(innerpath);
+			}
+
+			try_cluster_partial_nestloop_path(root, joinrel, outerpath, innerpath,
+											  pathkeys, jointype, extra, new_reduce_list);
+			if (enable_material &&
+				!ExecMaterializesOutput(innerpath->pathtype))
+			{
+				innerpath = (Path *) create_material_path(innerrel, innerpath);
+				try_cluster_partial_nestloop_path(root, joinrel, outerpath, innerpath,
+												  pathkeys, jointype, extra, new_reduce_list);
+			}
+		}
+	}
+#endif /* ADB */
 }
 
 /*
