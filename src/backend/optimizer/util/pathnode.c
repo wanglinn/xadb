@@ -58,6 +58,7 @@ static Path* get_cheapest_path(List *list, Path **cheapest_start,List **paramete
 #ifdef ADB
 static UniquePath *create_unique_path_internal(PlannerInfo *root, RelOptInfo *rel,
 				   Path *subpath, SpecialJoinInfo *sjinfo, bool is_cluster);
+static double* get_path_rows(RelOptInfo *joinrel, List *reduce_info_list, double *rows);
 #endif /* ADB */
 /*****************************************************************************
  *		MISC. PATH UTILITIES
@@ -2487,6 +2488,10 @@ create_nestloop_path(PlannerInfo *root,
 					 Path *inner_path,
 					 List *restrict_clauses,
 					 List *pathkeys,
+#ifdef ADB
+					 List *reduce_info_list,
+					 bool partial_path,
+#endif /* ADB */
 					 Relids required_outer)
 {
 	NestPath   *pathnode = makeNode(NestPath);
@@ -2532,6 +2537,13 @@ create_nestloop_path(PlannerInfo *root,
 	pathnode->path.parallel_aware = false;
 	pathnode->path.parallel_safe = joinrel->consider_parallel &&
 		outer_path->parallel_safe && inner_path->parallel_safe;
+#ifdef ADB
+	if(partial_path)
+	{
+		Assert(pathnode->path.parallel_safe);
+		pathnode->path.parallel_aware = true;
+	}
+#endif /* ADB */
 	/* This is a foolish way to estimate parallel_workers, but for now... */
 	pathnode->path.parallel_workers = outer_path->parallel_workers;
 	pathnode->path.pathkeys = pathkeys;
@@ -2540,7 +2552,19 @@ create_nestloop_path(PlannerInfo *root,
 	pathnode->innerjoinpath = inner_path;
 	pathnode->joinrestrictinfo = restrict_clauses;
 
+#ifdef ADB
+	if (reduce_info_list != NIL &&
+		pathnode->path.param_info == NULL)
+	{
+		double rows;
+		final_cost_nestloop(root, pathnode, workspace, sjinfo, get_path_rows(joinrel, reduce_info_list, &rows), semifactors);
+	}else
+	{
+		final_cost_nestloop(root, pathnode, workspace, sjinfo, NULL, semifactors);
+	}
+#else
 	final_cost_nestloop(root, pathnode, workspace, sjinfo, semifactors);
+#endif
 
 	return pathnode;
 }
@@ -2576,6 +2600,10 @@ create_mergejoin_path(PlannerInfo *root,
 					  List *pathkeys,
 					  Relids required_outer,
 					  List *mergeclauses,
+#ifdef ADB
+					  List *reduce_info_list,
+					  bool partial_path,
+#endif /* ADB */
 					  List *outersortkeys,
 					  List *innersortkeys)
 {
@@ -2595,6 +2623,13 @@ create_mergejoin_path(PlannerInfo *root,
 	pathnode->jpath.path.parallel_aware = false;
 	pathnode->jpath.path.parallel_safe = joinrel->consider_parallel &&
 		outer_path->parallel_safe && inner_path->parallel_safe;
+#ifdef ADB
+	if(partial_path)
+	{
+		Assert(pathnode->jpath.path.parallel_safe);
+		pathnode->jpath.path.parallel_aware = true;
+	}
+#endif /* ADB */
 	/* This is a foolish way to estimate parallel_workers, but for now... */
 	pathnode->jpath.path.parallel_workers = outer_path->parallel_workers;
 	pathnode->jpath.path.pathkeys = pathkeys;
@@ -2607,7 +2642,19 @@ create_mergejoin_path(PlannerInfo *root,
 	pathnode->innersortkeys = innersortkeys;
 	/* pathnode->materialize_inner will be set by final_cost_mergejoin */
 
+#ifdef ADB
+	if (reduce_info_list != NIL &&
+		pathnode->jpath.path.param_info == NULL)
+	{
+		double rows;
+		final_cost_mergejoin(root, pathnode, workspace, get_path_rows(joinrel, reduce_info_list, &rows), sjinfo);
+	}else
+	{
+		final_cost_mergejoin(root, pathnode, workspace, NULL, sjinfo);
+	}
+#else
 	final_cost_mergejoin(root, pathnode, workspace, sjinfo);
+#endif
 
 	return pathnode;
 }
@@ -2639,6 +2686,10 @@ create_hashjoin_path(PlannerInfo *root,
 					 Path *inner_path,
 					 List *restrict_clauses,
 					 Relids required_outer,
+#ifdef ADB
+					 List *reduce_info_list,
+					 bool partial_path,
+#endif
 					 List *hashclauses)
 {
 	HashPath   *pathnode = makeNode(HashPath);
@@ -2657,6 +2708,13 @@ create_hashjoin_path(PlannerInfo *root,
 	pathnode->jpath.path.parallel_aware = false;
 	pathnode->jpath.path.parallel_safe = joinrel->consider_parallel &&
 		outer_path->parallel_safe && inner_path->parallel_safe;
+#ifdef ADB
+	if(partial_path)
+	{
+		Assert(pathnode->jpath.path.parallel_safe);
+		pathnode->jpath.path.parallel_aware = true;
+	}
+#endif /* ADB */
 	/* This is a foolish way to estimate parallel_workers, but for now... */
 	pathnode->jpath.path.parallel_workers = outer_path->parallel_workers;
 
@@ -2679,7 +2737,19 @@ create_hashjoin_path(PlannerInfo *root,
 	pathnode->path_hashclauses = hashclauses;
 	/* final_cost_hashjoin will fill in pathnode->num_batches */
 
+#ifdef ADB
+	if (reduce_info_list != NIL &&
+		pathnode->jpath.path.param_info == NULL)
+	{
+		double rows;
+		final_cost_hashjoin(root, pathnode, workspace, sjinfo, get_path_rows(joinrel, reduce_info_list, &rows), semifactors);
+	}else
+	{
+		final_cost_hashjoin(root, pathnode, workspace, sjinfo, NULL, semifactors);
+	}
+#else
 	final_cost_hashjoin(root, pathnode, workspace, sjinfo, semifactors);
+#endif /* ADB */
 
 	return pathnode;
 }
@@ -4110,6 +4180,28 @@ bool path_tree_have_exec_param(Path *path, PlannerInfo *root)
 	}
 
 	return path_tree_walker(path, path_tree_have_exec_param, root);
+}
+
+static double* get_path_rows(RelOptInfo *joinrel, List *reduce_info_list, double *rows)
+{
+	List *storage;
+	AssertArg(reduce_info_list);
+	if(IsReduceInfoListReplicated(reduce_info_list))
+	{
+		*rows = joinrel->rows;
+	}else
+	{
+		ReduceInfoListGetStorageAndExcludeOidList(reduce_info_list, &storage, NULL);
+		if(storage)
+		{
+			*rows = joinrel->rows / list_length(storage);
+			list_free(storage);
+		}else
+		{
+			*rows = joinrel->rows;
+		}
+	}
+	return rows;
 }
 
 #endif /* ADB */

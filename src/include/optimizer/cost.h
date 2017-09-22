@@ -150,6 +150,9 @@ extern void initial_cost_nestloop(PlannerInfo *root,
 extern void final_cost_nestloop(PlannerInfo *root, NestPath *path,
 					JoinCostWorkspace *workspace,
 					SpecialJoinInfo *sjinfo,
+#ifdef ADB
+					double *rows,
+#endif /* ADB */
 					SemiAntiJoinFactors *semifactors);
 extern void initial_cost_mergejoin(PlannerInfo *root,
 					   JoinCostWorkspace *workspace,
@@ -160,6 +163,9 @@ extern void initial_cost_mergejoin(PlannerInfo *root,
 					   SpecialJoinInfo *sjinfo);
 extern void final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 					 JoinCostWorkspace *workspace,
+#ifdef ADB
+					 double *rows,
+#endif /* ADB */
 					 SpecialJoinInfo *sjinfo);
 extern void initial_cost_hashjoin(PlannerInfo *root,
 					  JoinCostWorkspace *workspace,
@@ -171,6 +177,9 @@ extern void initial_cost_hashjoin(PlannerInfo *root,
 extern void final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 					JoinCostWorkspace *workspace,
 					SpecialJoinInfo *sjinfo,
+#ifdef ADB
+					double *rows,
+#endif /* ADB */
 					SemiAntiJoinFactors *semifactors);
 extern void cost_gather(GatherPath *path, PlannerInfo *root,
 			RelOptInfo *baserel, ParamPathInfo *param_info, double *rows);

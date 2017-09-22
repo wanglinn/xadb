@@ -2066,6 +2066,9 @@ void
 final_cost_nestloop(PlannerInfo *root, NestPath *path,
 					JoinCostWorkspace *workspace,
 					SpecialJoinInfo *sjinfo,
+#ifdef ADB
+					double *rows,
+#endif /* ADB */
 					SemiAntiJoinFactors *semifactors)
 {
 	Path	   *outer_path = path->outerjoinpath;
@@ -2085,13 +2088,18 @@ final_cost_nestloop(PlannerInfo *root, NestPath *path,
 		inner_path_rows = 1;
 
 	/* Mark the path with the correct row estimate */
+#ifdef ADB
+	if (rows)
+		path->path.rows = *rows;
+	else
+#endif /* ADB */
 	if (path->path.param_info)
 		path->path.rows = path->path.param_info->ppi_rows;
 	else
 		path->path.rows = path->path.parent->rows;
 
 	/* For partial paths, scale row estimate. */
-	if (path->path.parallel_workers > 0)
+	if (path->path.parallel_aware && path->path.parallel_workers > 0)
 		path->path.rows /= get_parallel_divisor(&path->path);
 
 	/*
@@ -2479,6 +2487,9 @@ initial_cost_mergejoin(PlannerInfo *root, JoinCostWorkspace *workspace,
 void
 final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 					 JoinCostWorkspace *workspace,
+#ifdef ADB
+					 double *rows,
+#endif /* ADB */
 					 SpecialJoinInfo *sjinfo)
 {
 	Path	   *outer_path = path->jpath.outerjoinpath;
@@ -2507,13 +2518,18 @@ final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 		inner_path_rows = 1;
 
 	/* Mark the path with the correct row estimate */
+#ifdef ADB
+	if (rows)
+		path->jpath.path.rows = *rows;
+	else
+#endif /* ADB */
 	if (path->jpath.path.param_info)
 		path->jpath.path.rows = path->jpath.path.param_info->ppi_rows;
 	else
 		path->jpath.path.rows = path->jpath.path.parent->rows;
 
 	/* For partial paths, scale row estimate. */
-	if (path->jpath.path.parallel_workers > 0)
+	if (path->jpath.path.parallel_aware && path->jpath.path.parallel_workers > 0)
 		path->jpath.path.rows /= get_parallel_divisor(&path->jpath.path);
 
 	/*
@@ -2870,6 +2886,9 @@ void
 final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 					JoinCostWorkspace *workspace,
 					SpecialJoinInfo *sjinfo,
+#ifdef ADB
+					double *rows,
+#endif /* ADB */
 					SemiAntiJoinFactors *semifactors)
 {
 	Path	   *outer_path = path->jpath.outerjoinpath;
@@ -2890,13 +2909,18 @@ final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 	ListCell   *hcl;
 
 	/* Mark the path with the correct row estimate */
+#ifdef ADB
+	if (rows)
+		path->jpath.path.rows = *rows;
+	else
+#endif /* ADB */
 	if (path->jpath.path.param_info)
 		path->jpath.path.rows = path->jpath.path.param_info->ppi_rows;
 	else
 		path->jpath.path.rows = path->jpath.path.parent->rows;
 
 	/* For partial paths, scale row estimate. */
-	if (path->jpath.path.parallel_workers > 0)
+	if (path->jpath.path.parallel_aware && path->jpath.path.parallel_workers > 0)
 		path->jpath.path.rows /= get_parallel_divisor(&path->jpath.path);
 
 	/*

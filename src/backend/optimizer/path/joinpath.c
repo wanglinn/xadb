@@ -418,6 +418,8 @@ try_nestloop_path(PlannerInfo *root,
 									  inner_path,
 									  extra->restrictlist,
 									  pathkeys,
+									  ADB_ONLY_ARG(reduce_info_list)
+									  ADB_ONLY_ARG(false)
 									  required_outer));
 #ifdef ADB
 		if(reduce_info_list)
@@ -491,6 +493,8 @@ try_partial_nestloop_path(PlannerInfo *root,
 										  inner_path,
 										  extra->restrictlist,
 										  pathkeys,
+										  ADB_ONLY_ARG(NIL)
+										  ADB_ONLY_ARG(true)
 										  NULL));
 }
 
@@ -568,6 +572,8 @@ try_mergejoin_path(PlannerInfo *root,
 									   pathkeys,
 									   required_outer,
 									   mergeclauses,
+									   ADB_ONLY_ARG(reduce_info_list)
+									   ADB_ONLY_ARG(false)
 									   outersortkeys,
 									   innersortkeys));
 #ifdef ADB
@@ -648,6 +654,8 @@ try_hashjoin_path(PlannerInfo *root,
 									  inner_path,
 									  extra->restrictlist,
 									  required_outer,
+									  ADB_ONLY_ARG(reduce_info_list)
+									  ADB_ONLY_ARG(false)
 									  hashclauses));
 #ifdef ADB
 		if(reduce_info_list)
@@ -721,6 +729,8 @@ try_partial_hashjoin_path(PlannerInfo *root,
 										  inner_path,
 										  extra->restrictlist,
 										  NULL,
+										  ADB_ONLY_ARG(NIL)
+										  ADB_ONLY_ARG(true)
 										  hashclauses));
 }
 
