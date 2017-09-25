@@ -123,6 +123,7 @@ static List *coord_paths_for_join(PlannerInfo *root, RelOptInfo *rel);
 static bool get_cluster_join_exprs(RelOptInfo *outerrel, RelOptInfo *innerrel,
 								   List **outer_exprs, List **inner_exprs,
 								   List *restrictlist);
+static void try_partial_sort_path_for_join(PlannerInfo *root, RelOptInfo *rel, List *all_pathkeys);
 #endif /* ADB */
 
 /*
@@ -180,6 +181,16 @@ add_paths_to_joinrel(PlannerInfo *root,
 														  restrictlist,
 														  jointype,
 														  &mergejoin_allowed);
+#ifdef ADB
+	if(extra.mergeclause_list)
+	{
+		List *outerkeys = select_outer_pathkeys_for_merge(root, extra.mergeclause_list, joinrel);
+		List *mergeclauses = find_mergeclauses_for_pathkeys(root, outerkeys, true, extra.mergeclause_list);
+		List *innerkeys = make_inner_pathkeys_for_merge(root, mergeclauses, outerkeys);
+		try_partial_sort_path_for_join(root, outerrel, outerkeys);
+		try_partial_sort_path_for_join(root, innerrel, innerkeys);
+	}
+#endif /* ADB */
 
 	/*
 	 * If it's SEMI or ANTI join, compute correction factors for cost
@@ -3021,4 +3032,41 @@ static bool get_cluster_join_exprs(RelOptInfo *outerrel, RelOptInfo *innerrel,
 	return outer != NIL;
 }
 
+static void try_partial_sort_path_for_join(PlannerInfo *root, RelOptInfo *rel, List *all_pathkeys)
+{
+	Path *path;
+	double rows;
+	if(all_pathkeys == NIL)
+		return;
+
+	if (rel->partial_pathlist != NIL &&
+		get_cheapest_path_for_pathkeys(rel->pathlist, all_pathkeys, NULL, TOTAL_COST) == NULL &&
+		get_cheapest_path_for_pathkeys(rel->partial_pathlist, all_pathkeys, NULL, TOTAL_COST) == NULL &&
+		(path = get_cheapest_path_for_pathkeys(rel->partial_pathlist, NULL, NULL, TOTAL_COST)) != NULL)
+	{
+		path = (Path*)create_sort_path(root, rel, path, all_pathkeys, -1);
+		add_partial_path(rel, path);
+		Assert(IsA(path, SortPath));	/* make sure accept path */
+		rows = path->rows * path->parallel_workers;
+		path = (Path*)create_gather_merge_path(root, rel, path, rel->reltarget, all_pathkeys, NULL, &rows);
+		add_path(rel, path);
+	}
+
+	if (rel->cluster_partial_pathlist != NIL &&
+		get_cheapest_path_for_pathkeys(rel->cluster_pathlist, all_pathkeys, NULL, TOTAL_COST) == NULL &&
+		get_cheapest_path_for_pathkeys(rel->cluster_partial_pathlist, all_pathkeys, NULL, TOTAL_COST) == NULL &&
+		(path = get_cheapest_path_for_pathkeys(rel->cluster_partial_pathlist, NULL, NULL, TOTAL_COST)) != NULL)
+	{
+		List *reduce_list = get_reduce_info_list(path);
+		path = (Path*)create_sort_path(root, rel, path, all_pathkeys, -1);
+		add_cluster_partial_path(rel, path);
+		Assert(IsA(path, SortPath));	/* make sure accept path */
+		rows = path->rows * path->parallel_workers;
+		path = (Path*)create_gather_merge_path(root, rel, path, rel->reltarget, all_pathkeys, NULL, &rows);
+		/*path = (Path*)create_projection_path(root, rel, path, rel->reltarget);*/
+		path->reduce_info_list = reduce_list;
+		path->reduce_is_valid = true;
+		add_cluster_path(rel, path);
+	}
+}
 #endif /* ADB */
