@@ -3878,6 +3878,8 @@ bool have_remote_query_path(Path *path, void *context)
 ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 	, RelOptInfo *rel, Path *sub_path, List *pathkeys)
 {
+	List *reduce_list;
+	double comparison_cost;
 	ClusterMergeGatherPath *path = makeNode(ClusterMergeGatherPath);
 
 	path->path.pathtype = T_ClusterMergeGather;
@@ -3887,8 +3889,20 @@ ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 	path->path.pathkeys = pathkeys;
 	path->subpath = sub_path;
 
-	path->path.startup_cost = sub_path->startup_cost;
-	path->path.total_cost = sub_path->total_cost;
+	reduce_list = get_reduce_info_list(sub_path);
+	if(reduce_list && !IsReduceInfoListReplicated(reduce_list))
+	{
+		List *execute = ReduceInfoListGetExecuteOidList(reduce_list);
+		path->path.rows = sub_path->rows * list_length(execute);
+		list_free(execute);
+	}else
+	{
+		path->path.rows = sub_path->rows;
+	}
+	comparison_cost = 2.0 * cpu_tuple_cost * path->path.rows;
+
+	path->path.startup_cost = sub_path->startup_cost + comparison_cost;
+	path->path.total_cost = sub_path->total_cost + comparison_cost;
 	if(have_cluster_reduce_path(sub_path, NULL))
 	{
 		path->path.startup_cost += reduce_setup_cost;
@@ -3900,13 +3914,25 @@ ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel)
 {
 	ClusterGatherPath *path = makeNode(ClusterGatherPath);
+	List *reduce_list;
+	double rows;
 	copy_path_info((Path*)path, sub_path);
 	path->path.parent = rel;
 	path->path.pathtype = T_ClusterGather;
 	path->path.pathkeys = NIL;
 
 	path->subpath = sub_path;
-	cost_cluster_gather(path, NULL, NULL, &sub_path->rows);
+	reduce_list = get_reduce_info_list(sub_path);
+	if(reduce_list && !IsReduceInfoListReplicated(reduce_list))
+	{
+		List *execute = ReduceInfoListGetExecuteOidList(reduce_list);
+		rows = sub_path->rows * list_length(execute);
+		list_free(execute);
+	}else
+	{
+		rows = sub_path->rows;
+	}
+	cost_cluster_gather(path, NULL, NULL, &rows);
 
 	return path;
 }
