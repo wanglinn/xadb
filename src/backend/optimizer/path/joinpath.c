@@ -2430,6 +2430,7 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 			continue;
 
 		set_all_join_inner_path(jcontext, outer_path, inner_pathlist);
+		jcontext->merge_pathkeys = NIL;
 		if(jcontext->innerrel->cluster_pathlist == inner_pathlist)
 		{
 			jcontext->try_match = CLUSTER_TRY_NESTLOOP_JOIN;
