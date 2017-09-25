@@ -5854,7 +5854,7 @@ DESCR("mgr append coordiantor to coordinator");
 DATA(insert OID = 4898 (  mgr_append_activate_coord     PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_append_activate_coord _null_ _null_ _null_ ));
 DESCR("mgr append activate coordinator");
 
-DATA(insert OID = 4897 (  mgr_switchover_func       PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 2249 "23 2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_  _null_ mgr_switchover_func _null_ _null_ _null_ ));
+DATA(insert OID = 4897 (  mgr_switchover_func       PGNSP PGUID 12 10 400 0 0 f f f f t t s s 3 0 2249 "23 2275 23" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_switchover_func _null_ _null_ _null_ ));
 DESCR("mgr switchover");
 
 #endif
