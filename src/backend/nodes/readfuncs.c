@@ -35,6 +35,7 @@
 #include "nodes/readfuncs.h"
 #ifdef ADB
 #include "access/htup.h"
+#include "catalog/pg_type.h"
 #endif
 
 /*
@@ -2283,6 +2284,59 @@ _readExtensibleNode(void)
 	READ_DONE();
 }
 
+#ifdef ADB
+static ClusterReduce *
+_readClusterReduce(void)
+{
+	READ_LOCALS(ClusterReduce);
+
+	ReadCommonPlan(&local_node->plan);
+
+	READ_NODE_FIELD(reduce);
+	READ_NODE_FIELD(special_reduce);
+	READ_NODE_FIELD(reduce_oids);
+	READ_OID_FIELD(special_node);
+
+	READ_INT_FIELD(numCols);
+	READ_ATTRNUMBER_ARRAY(sortColIdx, local_node->numCols);
+	READ_OID_ARRAY(sortOperators, local_node->numCols);
+	READ_OID_ARRAY(collations, local_node->numCols);
+	READ_BOOL_ARRAY(nullsFirst, local_node->numCols);
+
+	READ_DONE();
+}
+
+static OidVectorLoopExpr *
+_readOidVectorLoopExpr(void)
+{
+	Oid *oids;
+	oidvector *vector;
+	int count;
+	READ_LOCALS(OidVectorLoopExpr);
+
+	READ_BOOL_FIELD(signalRowMode);
+
+	token = pg_strtok(&length);		/* skip :count */ \
+	token = pg_strtok(&length);		/* get field value */ \
+	count = atoi(token);
+
+	token = pg_strtok(&length);		/* skip :vector */
+	oids = readOidCols(count);
+	vector = palloc0(offsetof(oidvector, values) + count * sizeof(Oid));
+	vector->ndim = 1;
+	vector->dataoffset = 0;
+	vector->elemtype = OIDOID;
+	vector->dim1 = count;
+	vector->lbound1 = 0;
+	memcpy(vector->values, oids, sizeof(Oid)*count);
+	SET_VARSIZE(vector, sizeof(Oid) * count);
+	local_node->vector = PointerGetDatum(vector);
+	pfree(oids);
+
+	READ_DONE();
+}
+#endif /* ADB */
+
 /*
  * parseNodeString
  *
@@ -2515,6 +2569,12 @@ parseNodeString(void)
 		return_value = _readAlternativeSubPlan();
 	else if (MATCH("EXTENSIBLENODE", 14))
 		return_value = _readExtensibleNode();
+#ifdef ADB
+	else if (MATCH("CLUSTERREDUCE", 13))
+		return_value = _readClusterReduce();
+	else if (MATCH("OIDVECTORLOOPEXPR", 17))
+		return_value = _readOidVectorLoopExpr();
+#endif /* ADB */
 	else
 	{
 		elog(ERROR, "badly formatted node string \"%.32s\"...", token);

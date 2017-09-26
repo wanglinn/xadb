@@ -4653,6 +4653,37 @@ _copyPGXCSubCluster(const PGXCSubCluster *from)
 	return newnode;
 }
 
+static ClusterReduce *
+_copyClusterReduce(const ClusterReduce *from)
+{
+	ClusterReduce *newnode = makeNode(ClusterReduce);
+
+	CopyPlanFields(&from->plan, &newnode->plan);
+	COPY_NODE_FIELD(reduce);
+	COPY_NODE_FIELD(special_reduce);
+	COPY_NODE_FIELD(reduce_oids);
+	COPY_SCALAR_FIELD(special_node);
+
+	COPY_SCALAR_FIELD(numCols);
+	COPY_POINTER_FIELD(sortColIdx, from->numCols * sizeof(AttrNumber));
+	COPY_POINTER_FIELD(sortOperators, from->numCols * sizeof(Oid));
+	COPY_POINTER_FIELD(collations, from->numCols * sizeof(Oid));
+	COPY_POINTER_FIELD(nullsFirst, from->numCols * sizeof(bool));
+
+	return newnode;
+}
+
+static OidVectorLoopExpr *
+_copyOidVectorLoopExpr(const OidVectorLoopExpr *from)
+{
+	OidVectorLoopExpr *newnode = makeNode(OidVectorLoopExpr);
+
+	COPY_SCALAR_FIELD(signalRowMode);
+	newnode->vector = datumCopy(from->vector, false, -1);
+
+	return newnode;
+}
+
 /* ****************************************************************
  *					barrier.h copy functions
  * ****************************************************************
@@ -5663,6 +5694,12 @@ copyObject(const void *from)
 			break;
 		case T_PGXCSubCluster:
 			retval = _copyPGXCSubCluster(from);
+			break;
+		case T_ClusterReduce:
+			retval = _copyClusterReduce(from);
+			break;
+		case T_OidVectorLoopExpr:
+			retval = _copyOidVectorLoopExpr(from);
 			break;
 #endif /* ADB */
 

@@ -589,6 +589,54 @@ _outExecNodes(StringInfo str, const ExecNodes *node)
 	WRITE_NODE_FIELD(nodeList);
 	WRITE_NODE_FIELD(nodeids);
 }
+
+static void
+_outClusterReduce(StringInfo str, const ClusterReduce *node)
+{
+	int i;
+
+	WRITE_NODE_TYPE("CLUSTERREDUCE");
+
+	_outPlanInfo(str, &node->plan);
+	WRITE_NODE_FIELD(reduce);
+	WRITE_NODE_FIELD(special_reduce);
+	WRITE_NODE_FIELD(reduce_oids);
+	WRITE_OID_FIELD(special_node);
+
+	WRITE_INT_FIELD(numCols);
+	appendStringInfoString(str, " :sortColIdx");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %d", node->sortColIdx[i]);
+
+	appendStringInfoString(str, " :sortOperators");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %u", node->sortOperators[i]);
+
+	appendStringInfoString(str, " :collations");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %u", node->collations[i]);
+
+	appendStringInfoString(str, " :nullsFirst");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
+}
+
+static void
+_outOidVectorLoopExpr(StringInfo str, const OidVectorLoopExpr *node)
+{
+	oidvector *oids;
+	int i;
+	WRITE_NODE_TYPE("OIDVECTORLOOPEXPR");
+
+	WRITE_BOOL_FIELD(signalRowMode);
+	oids = (oidvector*)DatumGetPointer(node->vector);
+	appendStringInfo(str, " :count %d", oids->dim1);
+
+	appendStringInfoString(str, " :vector");
+	for(i=0;i<oids->dim1;++i)
+		appendStringInfo(str, " %u", oids->values[i]);
+}
+
 #endif
 
 static void
@@ -3455,6 +3503,12 @@ outNode(StringInfo str, const void *obj)
 #ifdef ADB
 			case T_RemoteQuery:
 				_outRemoteQuery(str, obj);
+				break;
+			case T_ClusterReduce:
+				_outClusterReduce(str, obj);
+				break;
+			case T_OidVectorLoopExpr:
+				_outOidVectorLoopExpr(str, obj);
 				break;
 #endif
 			case T_IndexScan:
