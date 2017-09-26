@@ -2312,7 +2312,7 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 		list_free(need_reduce_list);
 
 		/* reduce outer paths */
-		all_inner_reduce = GetPathListReduceInfoList(outerrel->cluster_pathlist);
+		all_inner_reduce = GetPathListReduceInfoList(innerrel->cluster_pathlist);
 		need_reduce_list = create_outer_reduce_info_for_join(all_inner_reduce, outerrel, jointype, extra);
 		outer_pathlist = reduce_paths_for_join(root, outerrel, need_reduce_list);
 		tried_join |= add_cluster_paths_to_joinrel_internal(&jcontext, outer_pathlist, innerrel->cluster_pathlist, nestjoinOK, false);
