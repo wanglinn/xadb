@@ -23,6 +23,7 @@
 #include "miscadmin.h"
 #include "access/htup.h"
 #include "access/htup_details.h"
+#include "access/parallel.h"
 #include "pgxc/pgxc.h"
 #include "postmaster/fork_process.h"
 #include "postmaster/syslogger.h"
@@ -89,7 +90,7 @@ AtEOXact_Reduce(void)
 void
 EndSelfReduce(int code, Datum arg)
 {
-	if (SelfReducePID != 0)
+	if (!IsParallelWorker() && SelfReducePID != 0)
 	{
 		int ret = kill(SelfReducePID, SIGTERM);
 		bool no_error = DatumGetBool(arg);
@@ -174,7 +175,7 @@ RdcPort *
 ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id,
 				  RdcPortPID self_pid, RdcExtra self_extra)
 {
-	Assert(SelfReducePID != 0);
+	Assert(IsParallelWorker() || SelfReducePID != 0);
 	Assert(SelfReduceListenPort != 0);
 	Assert(SelfReduceID != InvalidOid);
 	return rdc_connect("127.0.0.1", SelfReduceListenPort,
@@ -558,4 +559,47 @@ _eof_got:
 			(errmsg("fail to fetch slot from self reduce"),
 			 errdetail("%s", RdcError(port))));
 	return NULL;	/* keep compiler quiet */
+}
+
+Size EstimateReduceInfoSpace(void)
+{
+	return sizeof(SelfReduceID) +
+		   sizeof(SelfReduceListenPort) +
+		   sizeof(int) +
+		   sizeof(Oid)*list_length(GroupReduceList);
+}
+
+void SerializeReduceInfo(Size maxsize, char *ptr)
+{
+	ListCell *lc;
+	if(maxsize < sizeof(SelfReduceID) +
+				 sizeof(SelfReduceListenPort) +
+				 sizeof(int) +
+				 sizeof(Oid)*list_length(GroupReduceList))
+	{
+		elog(ERROR, "not enough space to serialize reduce info");
+	}
+	*(RdcPortId*)ptr = SelfReduceID;			ptr += sizeof(SelfReduceID);
+	*(int*)ptr = SelfReduceListenPort;			ptr += sizeof(SelfReduceListenPort);
+	*(int*)ptr = list_length(GroupReduceList);	ptr += sizeof(int);
+	foreach(lc, GroupReduceList)
+	{
+		*(Oid*)ptr = lfirst_oid(lc);
+		ptr += sizeof(Oid);
+	}
+}
+
+void RestoreReduceInfo(char *start_addr)
+{
+	int count;
+	SelfReduceID = *(RdcPortId*)start_addr;			start_addr += sizeof(SelfReduceID);
+	SelfReduceListenPort = *((int*)start_addr);		start_addr += sizeof(SelfReduceListenPort);
+
+	count = *(int*)start_addr;						start_addr += sizeof(int);
+	GroupReduceList = NIL;
+	for(;count>0;--count)
+	{
+		GroupReduceList = lappend_oid(GroupReduceList, *(Oid*)start_addr);
+		start_addr += sizeof(Oid);
+	}
 }

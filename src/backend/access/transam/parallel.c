@@ -36,6 +36,7 @@
 #include "utils/snapmgr.h"
 #ifdef ADB
 #include "pgxc/pgxcnode.h"
+#include "reduce/adb_reduce.h"
 #endif
 
 
@@ -64,6 +65,9 @@
 #define PARALLEL_KEY_ACTIVE_SNAPSHOT		UINT64CONST(0xFFFFFFFFFFFF0007)
 #define PARALLEL_KEY_TRANSACTION_STATE		UINT64CONST(0xFFFFFFFFFFFF0008)
 #define PARALLEL_KEY_EXTENSION_TRAMPOLINE	UINT64CONST(0xFFFFFFFFFFFF0009)
+#ifdef ADB
+#define PARALLEL_KEY_REDUCE_INFO			UINT64CONST(0xFFFFFFFFFFFF000A)
+#endif /* ADB */
 
 /* Fixed-size parallel state. */
 typedef struct FixedParallelState
@@ -209,6 +213,9 @@ InitializeParallelDSM(ParallelContext *pcxt)
 	Size		asnaplen = 0;
 	Size		tstatelen = 0;
 	Size		segsize = 0;
+#ifdef ADB
+	Size		reducelen = 0;
+#endif /* ADB */
 	int			i;
 	FixedParallelState *fps;
 	Snapshot	transaction_snapshot = GetTransactionSnapshot();
@@ -261,6 +268,12 @@ InitializeParallelDSM(ParallelContext *pcxt)
 								   + strlen(pcxt->function_name) + 2);
 			shm_toc_estimate_keys(&pcxt->estimator, 1);
 		}
+
+#ifdef ADB
+		reducelen = EstimateReduceInfoSpace();
+		shm_toc_estimate_chunk(&pcxt->estimator, reducelen);
+		shm_toc_estimate_keys(&pcxt->estimator, 1);
+#endif /* ADB */
 	}
 
 	/*
@@ -384,6 +397,13 @@ InitializeParallelDSM(ParallelContext *pcxt)
 			shm_toc_insert(pcxt->toc, PARALLEL_KEY_EXTENSION_TRAMPOLINE,
 						   extensionstate);
 		}
+#ifdef ADB
+		{
+			char *ptr = shm_toc_allocate(pcxt->toc, reducelen);
+			SerializeReduceInfo(reducelen, ptr);
+			shm_toc_insert(pcxt->toc, PARALLEL_KEY_REDUCE_INFO, ptr);
+		}
+#endif /* ADB */
 	}
 
 	/* Restore previous memory context. */
@@ -1049,6 +1069,8 @@ ParallelWorkerMain(Datum main_arg)
 	/* Initialize executor. This must be done inside a transaction block. */
 	InitMultinodeExecutor(false);
 	CommitTransactionCommand();
+
+	RestoreReduceInfo(shm_toc_lookup(toc, PARALLEL_KEY_REDUCE_INFO));
 #endif
 
 	/*

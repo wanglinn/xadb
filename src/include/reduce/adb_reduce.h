@@ -44,4 +44,8 @@ extern TupleTableSlot* GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot,
 										 Oid *slot_oid, Oid *eof_oid,
 										 List **closed_remote);
 
+extern Size EstimateReduceInfoSpace(void);
+extern void SerializeReduceInfo(Size maxsize, char *ptr);
+extern void RestoreReduceInfo(char *start_addr);
+
 #endif /* ADB_BROKER_H */
