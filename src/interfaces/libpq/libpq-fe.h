@@ -458,6 +458,9 @@ extern int PQsendQueryPrepared(PGconn *conn,
 extern int	PQsetSingleRowMode(PGconn *conn);
 extern PGresult *PQgetResult(PGconn *conn);
 /* Routines for managing an asynchronous query */
+#ifdef ADB
+extern int	PQisIdle(PGconn *conn);
+#endif
 extern int	PQisBusy(PGconn *conn);
 extern int	PQconsumeInput(PGconn *conn);
 

@@ -57,7 +57,7 @@ TupleTableSlot *ExecClusterGather(ClusterGatherState *node)
 	{
 		/* first try get remote data */
 		if(node->remotes != NIL
-			&& PQNListExecFinish(node->remotes, cg_pqexec_finish_hook, node, blocking))
+			&& PQNListExecFinish(node->remotes, NULL, cg_pqexec_finish_hook, node, blocking))
 		{
 			if((gatherType & CLUSTER_GATHER_DATANODE) == 0)
 			{
@@ -96,7 +96,7 @@ void ExecEndClusterGather(ClusterGatherState *node)
 	}
 	ExecEndNode(outerPlanState(node));
 	if(node->remotes != NIL)
-		PQNListExecFinish(node->remotes, PQNEFHNormal, NULL, true);
+		PQNListExecFinish(node->remotes, NULL, PQNEFHNormal, NULL, true);
 }
 
 void ExecReScanClusterGather(ClusterGatherState *node)

@@ -19,12 +19,14 @@ typedef enum PQNHookFuncType
 #define PQN_NODE_TYPE_MARK	0xC0000000
 
 typedef bool (*PQNExecFinishHook_function)(void *context, struct pg_conn *conn, PQNHookFuncType type,  ...);
+typedef struct pg_conn* (*GetPGconnHook)(void *arg);
 
 extern List *PQNGetConnUseOidList(List *oid_list);
 extern Oid PQNNodeGetNodeOid(int node_index);
 extern bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, const void *context, bool blocking);
-extern bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const void *context, bool blocking);
+extern bool PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook, PQNExecFinishHook_function hook, const void *context, bool blocking);
 extern bool PQNEFHNormal(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
+extern void PQNExecFinsh_trouble(struct pg_conn *conn);
 extern void PQNReleaseAllConnect(void);
 extern void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int elevel, bool free_result);
 extern const char *PQNConnectName(struct pg_conn *conn);

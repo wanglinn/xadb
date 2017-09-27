@@ -2148,6 +2148,23 @@ parseInput(PGconn *conn)
 }
 
 /*
+ * PQisIdle
+ *	 Return TRUE if PGASYNC_IDLE.
+ */
+int
+PQisIdle(PGconn *conn)
+{
+	if (!conn)
+		return FALSE;
+
+	/* Parse any available data, if our state permits. */
+	parseInput(conn);
+
+	/* PQgetResult will return immediately in all states except BUSY. */
+	return conn->asyncStatus == PGASYNC_IDLE;
+}
+
+/*
  * PQisBusy
  *	 Return TRUE if PQgetResult would block waiting for input.
  */
@@ -2891,25 +2908,33 @@ int PQgetCopyDataBuffer(PGconn *conn, const char **buffer, int async)
 
 int PQisCopyOutState(PGconn *conn)
 {
-	if(conn
-		&& conn->status == CONNECTION_OK
-		&& (conn->asyncStatus == PGASYNC_COPY_OUT
-		|| conn->asyncStatus == PGASYNC_COPY_BOTH))
-	{
+	if (!conn)
+		return FALSE;
+
+	/* Parse any available data, if our state permits. */
+	parseInput(conn);
+
+	if (conn->status == CONNECTION_OK &&
+		(conn->asyncStatus == PGASYNC_COPY_OUT ||
+		 conn->asyncStatus == PGASYNC_COPY_BOTH))
 		return TRUE;
-	}
+
 	return FALSE;
 }
 
 int PQisCopyInState(PGconn *conn)
 {
-	if(conn
-		&& conn->status == CONNECTION_OK
-		&& (conn->asyncStatus == PGASYNC_COPY_IN
-		|| conn->asyncStatus == PGASYNC_COPY_BOTH))
-	{
+	if (!conn)
+		return FALSE;
+
+	/* Parse any available data, if our state permits. */
+	parseInput(conn);
+
+	if (conn->status == CONNECTION_OK &&
+		(conn->asyncStatus == PGASYNC_COPY_IN ||
+		 conn->asyncStatus == PGASYNC_COPY_BOTH))
 		return TRUE;
-	}
+
 	return FALSE;
 }
 

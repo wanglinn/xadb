@@ -195,3 +195,4 @@ PQsendQueryTree           192
 PQsendClose               193
 PQsendQueryExtend         194
 PQsendQueryExtendBinary   195
+PQisIdle                  196

@@ -32,7 +32,6 @@ static void init_htab_oid_pgconn(void);
 static List* apply_for_node_use_oid(List *oid_list);
 static OidPGconn* insert_pgconn_to_htab(int index, char type, PGconn *conn);
 static List* pg_conn_attach_socket(int *fds, Size n);
-static void PQNExecFinsh_trouble(PGconn *conn);
 static bool PQNExecFinish(PGconn *conn, PQNExecFinishHook_function hook, const void *context);
 static int PQNIsConnecting(PGconn *conn);
 
@@ -127,7 +126,7 @@ static List* apply_for_node_use_oid(List *oid_list)
 		}
 
 		conns = pg_conn_attach_socket(fds, list_length(dn_list) + list_length(co_list));
-		PQNListExecFinish(conns, PQNEFHNormal, NULL, true);
+		PQNListExecFinish(conns, NULL, PQNEFHNormal, NULL, true);
 
 		foreach(lc,dn_list)
 		{
@@ -282,7 +281,9 @@ bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, con
 	return false;
 }
 
-bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const void *context, bool blocking)
+bool
+PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook,
+				  PQNExecFinishHook_function hook, const void *context, bool blocking)
 {
 	List *list;
 	ListCell *lc;
@@ -294,13 +295,23 @@ bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const v
 	if(conn_list == NIL)
 		return false;
 	else if(list_length(conn_list) == 1)
-		return PQNOneExecFinish(linitial(conn_list), hook, context, blocking);
+	{
+		if (get_pgconn_hook)
+			conn = (*get_pgconn_hook)(linitial(conn_list));
+		else
+			conn = linitial(conn_list);
+		return PQNOneExecFinish(conn, hook, context, blocking);
+	}
 
 	/* first try got data */
 	foreach(lc, conn_list)
 	{
-		conn = lfirst(lc);
+		if (get_pgconn_hook)
+			conn = (*get_pgconn_hook)(lfirst(lc));
+		else
+			conn = lfirst(lc);
 		if(PQNIsConnecting(conn) == 0 &&
+			!PQisIdle(conn) &&
 			(res = PQNExecFinish(conn, hook, context)) != false)
 			return res;
 	}
@@ -311,7 +322,10 @@ bool PQNListExecFinish(List *conn_list, PQNExecFinishHook_function hook, const v
 	list = NIL;
 	foreach(lc,conn_list)
 	{
-		conn = lfirst(lc);
+		if (get_pgconn_hook)
+			conn = (*get_pgconn_hook)(lfirst(lc));
+		else
+			conn = lfirst(lc);
 		if(PQNIsConnecting(conn) == 0
 			&& PQstatus(conn) != CONNECTION_BAD
 			&& PQtransactionStatus(conn) != PQTRANS_ACTIVE)
@@ -417,49 +431,51 @@ bool PQNEFHNormal(void *context, struct pg_conn *conn, PQNHookFuncType type,...)
 
 static bool PQNExecFinish(PGconn *conn, PQNExecFinishHook_function hook, const void *context)
 {
-	const char *buf;
-	PGresult *res;
-	int n;
-	bool hook_res;
+	PGresult   *res;
+	bool		hook_res;
 
 re_get_:
-	if(PQstatus(conn) == CONNECTION_BAD)
+	if (PQstatus(conn) == CONNECTION_BAD)
 	{
 		res = PQgetResult(conn);
 		hook_res = (*hook)((void*)context, conn, PQNHFT_RESULT, res);
 		PQclear(res);
-		if(hook_res)
-			return hook_res;
-	}else if(PQisCopyOutState(conn))
+		if (hook_res)
+			return true;
+	} else if(PQisCopyOutState(conn))
 	{
+		const char	   *buf;
+		int				n;
+
 		n = PQgetCopyDataBuffer(conn, &buf, true);
-		if(n > 0)
+		if (n > 0)
 		{
-			hook_res = (*hook)((void*)context, conn, PQNHFT_COPY_OUT_DATA, buf, n);
-			if(hook_res)
-				return hook_res;
+			if ((*hook)((void*)context, conn, PQNHFT_COPY_OUT_DATA, buf, n))
+				return true;
 			goto re_get_;
-		}else if(n < 0)
+		} else if (n < 0)
 		{
 			goto re_get_;
-		}else if(n == 0)
+		} else if (n == 0)
 		{
 			return false;
 		}
-	}else if(PQisCopyInState(conn))
+	} else if (PQisCopyInState(conn))
 	{
-		hook_res = (*hook)((void*)context, conn, PQNHFT_COPY_IN_ONLY);
-		if(hook_res)
-			return hook_res;
-		if(!PQisCopyInState(conn))
+		if ((*hook)((void*)context, conn, PQNHFT_COPY_IN_ONLY))
+			return true;
+		if (!PQisCopyInState(conn))
 			goto re_get_;
-	}else if(PQisBusy(conn) == false)
+	} else if (!PQisBusy(conn))
 	{
 		res = PQgetResult(conn);
 		hook_res = (*hook)((void*)context, conn, PQNHFT_RESULT, res);
 		PQclear(res);
-		if(hook_res)
-			return hook_res;
+		if (hook_res)
+			return true;
+		if (!PQisIdle(conn))
+			goto re_get_;
+
 	}
 	return false;
 }
@@ -504,7 +520,7 @@ static int PQNIsConnecting(PGconn *conn)
 	return 0;
 }
 
-static void PQNExecFinsh_trouble(PGconn *conn)
+void PQNExecFinsh_trouble(PGconn *conn)
 {
 	PGresult *res;
 	for(;;)
