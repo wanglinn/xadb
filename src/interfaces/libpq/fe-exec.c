@@ -2911,9 +2911,6 @@ int PQisCopyOutState(PGconn *conn)
 	if (!conn)
 		return FALSE;
 
-	/* Parse any available data, if our state permits. */
-	parseInput(conn);
-
 	if (conn->status == CONNECTION_OK &&
 		(conn->asyncStatus == PGASYNC_COPY_OUT ||
 		 conn->asyncStatus == PGASYNC_COPY_BOTH))
@@ -2926,9 +2923,6 @@ int PQisCopyInState(PGconn *conn)
 {
 	if (!conn)
 		return FALSE;
-
-	/* Parse any available data, if our state permits. */
-	parseInput(conn);
 
 	if (conn->status == CONNECTION_OK &&
 		(conn->asyncStatus == PGASYNC_COPY_IN ||

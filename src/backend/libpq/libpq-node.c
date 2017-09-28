@@ -442,41 +442,45 @@ re_get_:
 		PQclear(res);
 		if (hook_res)
 			return true;
-	} else if(PQisCopyOutState(conn))
-	{
-		const char	   *buf;
-		int				n;
-
-		n = PQgetCopyDataBuffer(conn, &buf, true);
-		if (n > 0)
-		{
-			if ((*hook)((void*)context, conn, PQNHFT_COPY_OUT_DATA, buf, n))
-				return true;
-			goto re_get_;
-		} else if (n < 0)
-		{
-			goto re_get_;
-		} else if (n == 0)
-		{
-			return false;
-		}
-	} else if (PQisCopyInState(conn))
-	{
-		if ((*hook)((void*)context, conn, PQNHFT_COPY_IN_ONLY))
-			return true;
-		if (!PQisCopyInState(conn))
-			goto re_get_;
 	} else if (!PQisBusy(conn))
 	{
-		res = PQgetResult(conn);
-		hook_res = (*hook)((void*)context, conn, PQNHFT_RESULT, res);
-		PQclear(res);
-		if (hook_res)
-			return true;
-		if (!PQisIdle(conn))
-			goto re_get_;
+		if (PQisCopyOutState(conn))
+		{
+			const char	   *buf;
+			int				n;
 
+			n = PQgetCopyDataBuffer(conn, &buf, true);
+			if (n > 0)
+			{
+				if ((*hook)((void*)context, conn, PQNHFT_COPY_OUT_DATA, buf, n))
+					return true;
+				goto re_get_;
+			} else if (n < 0)
+			{
+				goto re_get_;
+			} else if (n == 0)
+			{
+				return false;
+			}
+		} else if (PQisCopyInState(conn))
+		{
+			if ((*hook)((void*)context, conn, PQNHFT_COPY_IN_ONLY))
+				return true;
+			if (!PQisCopyInState(conn))
+				goto re_get_;
+		} else
+		{
+			res = PQgetResult(conn);
+			hook_res = (*hook)((void*)context, conn, PQNHFT_RESULT, res);
+			PQclear(res);
+			if (hook_res)
+				return true;
+			if (!PQisIdle(conn))
+				goto re_get_;
+
+		}
 	}
+
 	return false;
 }
 
