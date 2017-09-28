@@ -233,6 +233,7 @@ static void log_disconnections(int code, Datum arg);
 #ifdef ADB
 static List *segment_query_string(const char *query_string,
 								  List *parsetree_list);
+static CommandDest PortalSetCommandDest(Portal portal, CommandDest dest);
 #endif
 #ifdef AGTM
 #include "agtm.c"
@@ -1150,6 +1151,39 @@ segment_query_string(const char *query_string, List *parsetree_list)
 
 	return sql_list;
 }
+
+static CommandDest
+PortalSetCommandDest(Portal portal, CommandDest dest)
+{
+	if (!portal || !IsConnFromCoord())
+		return dest;
+
+	switch (portal->strategy)
+	{
+		case PORTAL_ONE_SELECT:
+		case PORTAL_ONE_RETURNING:
+		case PORTAL_ONE_MOD_WITH:
+		case PORTAL_UTIL_SELECT:
+			{
+				StringInfoData buf;
+
+				initStringInfo(&buf);
+				pq_sendbyte(&buf, 0);
+				pq_sendint(&buf, 0, 2);
+				pq_putmessage('H', buf.data, buf.len);
+				pq_flush();
+				pfree(buf.data);
+
+				return DestClusterOut;
+			}
+			break;
+		case PORTAL_MULTI_QUERY:
+		default:
+			break;
+	}
+
+	return dest;
+}
 #endif
 
 /*
@@ -1177,7 +1211,6 @@ exec_simple_query(const char *query_string)
 	bool		was_logged = false;
 	bool		isTopLevel;
 	char		msec_str[32];
-
 
 	/*
 	 * Report query to various monitoring facilities.
@@ -1306,6 +1339,8 @@ exec_simple_query(const char *query_string)
 		 */
 		if (!IsCoordMaster())
 			SetForceObtainXidFromAGTM(false);
+
+		dest = whereToSendOutput;
 #endif
 
 		/*
@@ -1445,6 +1480,9 @@ exec_simple_query(const char *query_string)
 		/*
 		 * Now we can create the destination receiver object.
 		 */
+#ifdef ADB
+		dest = PortalSetCommandDest(portal, dest);
+#endif
 		receiver = CreateDestReceiver(dest);
 		if (dest == DestRemote)
 			SetRemoteDestReceiverParams(receiver, portal);
@@ -1567,9 +1605,6 @@ static void
 exec_parse_message(const char *query_string,	/* string to execute */
 				   const char *stmt_name,		/* name for prepared stmt */
 				   Oid *paramTypes,		/* parameter types */
-#ifdef ADB
-				   char **paramTypeNames,	/* parameter type names */
-#endif
 				   int numParams)		/* number of parameters */
 {
 	MemoryContext unnamed_stmt_context = NULL;
@@ -1639,23 +1674,6 @@ exec_parse_message(const char *query_string,	/* string to execute */
 								  ALLOCSET_DEFAULT_SIZES);
 		oldcontext = MemoryContextSwitchTo(unnamed_stmt_context);
 	}
-
-#ifdef ADB
-	/*
-	 * if we have the parameter types passed, which happens only in case of
-	 * connection from Coordinators, fill paramTypes with their OIDs for
-	 * subsequent use. We have to do name to OID conversion, in a transaction
-	 * context.
-	 */
-	if (IsConnFromCoord() && paramTypeNames)
-	{
-		int cnt_param;
-		/* we don't expect type mod */
-		for (cnt_param = 0; cnt_param < numParams; cnt_param++)
-			parseTypeString(paramTypeNames[cnt_param], &paramTypes[cnt_param],
-							NULL, false);
-	}
-#endif /* ADB */
 
 	/*
 	 * Do basic parsing of the query or queries (this should be safe even if
@@ -4760,9 +4778,6 @@ PostgresMain(int argc, char *argv[],
 					const char *query_string;
 					int			numParams;
 					Oid		   *paramTypes = NULL;
-#ifdef ADB
-					char 	  **paramTypeNames = NULL;
-#endif
 
 					forbidden_in_wal_sender(firstchar);
 
@@ -4776,32 +4791,14 @@ PostgresMain(int argc, char *argv[],
 					{
 						int			i;
 
-#ifdef ADB
-						if (IsConnFromCoord())
-						{
-							paramTypes = (Oid *) palloc(numParams * sizeof(Oid));
-							paramTypeNames = (char **)palloc(numParams * sizeof(char *));
-							for (i = 0; i < numParams; i++)
-								paramTypeNames[i] = (char *)pq_getmsgstring(&input_message);
-						}
-						else
-						{
-#endif
 						paramTypes = (Oid *) palloc(numParams * sizeof(Oid));
 						for (i = 0; i < numParams; i++)
 							paramTypes[i] = pq_getmsgint(&input_message, 4);
-#ifdef ADB
-						}
-#endif
 					}
 					pq_getmsgend(&input_message);
-#ifdef ADB
-					exec_parse_message(query_string, stmt_name,
-									   paramTypes, paramTypeNames, numParams);
-#else
+
 					exec_parse_message(query_string, stmt_name,
 									   paramTypes, numParams);
-#endif
 				}
 				break;
 

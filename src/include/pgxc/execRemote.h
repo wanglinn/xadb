@@ -89,6 +89,7 @@ typedef RemoteDataRowData *RemoteDataRow;
 typedef struct RemoteQueryState
 {
 	ScanState	ss;						/* its first field is NodeTag */
+	List	   *handle_list;			/* participating node list */
 	int			node_count;				/* total count of participating nodes */
 	PGXCNodeHandle **connections;		/* Datanode connections being combined */
 	int			conn_count;				/* count of active connections */

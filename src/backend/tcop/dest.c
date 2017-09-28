@@ -41,6 +41,7 @@
 #include "utils/portal.h"
 #ifdef ADB
 #include "executor/clusterReceiver.h"
+#include "pgxc/pgxc.h"
 #endif /* ADB */
 
 /* ----------------
@@ -160,6 +161,9 @@ EndCommand(const char *commandTag, CommandDest dest)
 		case DestRemoteExecute:
 #ifdef ADB
 		case DestClusterOut:
+			if (IsConnFromCoord() && dest == DestClusterOut)
+				/* copy done */
+				pq_putemptymessage('c');
 #endif /* ADB */
 
 			/*

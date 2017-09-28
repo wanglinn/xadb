@@ -207,19 +207,6 @@ SendRowDescriptionMessage(TupleDesc typeinfo, List *targetlist, int16 *formats)
 
 		pq_sendstring(&buf, NameStr(attrs[i]->attname));
 
-#ifdef ADB
-		/*
-		 * Send the type name from a Postgres-XC backend node.
-		 * This preserves from OID inconsistencies as architecture is shared nothing.
-		 */
-		if (IsConnFromCoord())
-		{
-			char	   *typename;
-			typename = get_typename(atttypid);
-			pq_sendstring(&buf, typename);
-		}
-#endif
-
 		/* column ID info appears in protocol 3.0 and up */
 		if (proto >= 3)
 		{

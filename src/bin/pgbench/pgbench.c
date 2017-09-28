@@ -377,7 +377,7 @@ static const BuiltinScript builtin_script[] =
 #ifdef ADB
 	,
 	{
-		"adb_tpc_b_bid",		
+		"adb_tpc_b_bid",
 		"<builtin: adb>",
 		"\\set nbranches " CppAsString2(nbranches) " * :scale\n"
 		"\\set ntellers " CppAsString2(ntellers) " * :scale\n"
@@ -395,8 +395,8 @@ static const BuiltinScript builtin_script[] =
 		"END;\n"
 	},
 	{
-		"adb_simple_update_bid",		
-		"<builtin: adb_simple_update_bid>",	
+		"adb_simple_update_bid",
+		"<builtin: adb_simple_update_bid>",
 		"\\set nbranches " CppAsString2(nbranches) " * :scale\n"
 		"\\set ntellers " CppAsString2(ntellers) " * :scale\n"
 		"\\set naccounts " CppAsString2(naccounts) " * :scale\n"
@@ -409,8 +409,8 @@ static const BuiltinScript builtin_script[] =
 		"SELECT abalance FROM pgbench_accounts WHERE aid = :aid;\n"
 		"INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (:tid, :bid, :aid, :delta, CURRENT_TIMESTAMP);\n"
 		"END;\n"
-	}		
-#endif		
+	}
+#endif
 };
 
 
@@ -446,7 +446,7 @@ usage(void)
 		   "  -F, --fillfactor=NUM     set fill factor\n"
 #ifdef ADB
 		   "  -k           distribute each table by primary key\n"
-#endif		   
+#endif
 		"  -n, --no-vacuum          do not run VACUUM after initialization\n"
 	"  -q, --quiet              quiet logging (one message each 5 seconds)\n"
 		   "  -s, --scale=NUM          scaling factor\n"
@@ -2422,7 +2422,7 @@ init(bool is_no_vacuum)
 			1
 #ifdef ADB
 			, "distribute by hash (bid)"
-#endif			
+#endif
 		},
 		{
 			"pgbench_accounts",
@@ -2431,7 +2431,7 @@ init(bool is_no_vacuum)
 			1
 #ifdef ADB
 			, "distribute by hash (bid)"
-#endif			
+#endif
 		},
 		{
 			"pgbench_branches",
@@ -2440,7 +2440,7 @@ init(bool is_no_vacuum)
 			1
 #ifdef ADB
 			, "distribute by hash (bid)"
-#endif			
+#endif
 		}
 	};
 	static const char *const DDLINDEXes[] = {
@@ -2673,7 +2673,7 @@ init(bool is_no_vacuum)
 		}
 	}
 	else
-#endif	
+#endif
 	for (i = 0; i < lengthof(DDLINDEXes); i++)
 	{
 		char		buffer[256];
@@ -3595,7 +3595,7 @@ main(int argc, char **argv)
 			case 'k':
 				use_branch = true;
 				break;
-#endif				
+#endif
 			case 'h':
 				pghost = pg_strdup(optarg);
 				break;
@@ -3736,9 +3736,9 @@ main(int argc, char **argv)
 			case 'N':
 #ifdef ADB
 				if (use_branch)
-				process_builtin(findBuiltin("adb_simple_update_bid"), 1);				
+				process_builtin(findBuiltin("adb_simple_update_bid"), 1);
 				else
-#endif				
+#endif
 				process_builtin(findBuiltin("simple-update"), 1);
 				benchmarking_option_set = true;
 				internal_script_used = true;
@@ -3885,9 +3885,9 @@ main(int argc, char **argv)
 	{
 #ifdef ADB
 		if (use_branch)
-		process_builtin(findBuiltin("adb_tpc_b_bid"), 1);				
+		process_builtin(findBuiltin("adb_tpc_b_bid"), 1);
 		else
-#endif 	
+#endif
 		process_builtin(findBuiltin("tpcb-like"), 1);
 		benchmarking_option_set = true;
 		internal_script_used = true;

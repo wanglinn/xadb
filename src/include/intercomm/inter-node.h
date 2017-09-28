@@ -18,7 +18,6 @@ typedef enum
 {
 	TYPE_CN_NODE		= 1 << 0,	/* coordinator node */
 	TYPE_DN_NODE		= 1 << 1,	/* datanode node */
-	TYPE_AGTM_NODE		= 1 << 2,	/* agtm node */
 } NodeType;
 
 typedef struct NodeHandle
@@ -30,7 +29,8 @@ typedef struct NodeHandle
 
 	/* set by caller */
 	struct pg_conn	   *node_conn;
-	void			   *node_context;	/* it is set by caller for callback */
+	void			   *node_context;	/* InterXactState, it is set by caller for callback */
+	void			   *node_owner;		/* RemoteQueryState, it is set by caller for cache data */
 } NodeHandle;
 
 typedef struct NodeMixHandle
@@ -50,13 +50,13 @@ extern void HandleAttatchPGconn(NodeHandle *handle);
 extern void HandleDetachPGconn(NodeHandle *handle);
 extern void HandleReAttatchPGconn(NodeHandle *handle);
 extern NodeMixHandle *GetMixedHandles(const List *node_list, void *context);
-extern NodeMixHandle *GetAllHandles(void);
+extern NodeMixHandle *GetAllHandles(void *context);
 extern NodeMixHandle *CopyMixhandle(NodeMixHandle *src);
 extern NodeMixHandle *ConcatMixHandle(NodeMixHandle *mix1, NodeMixHandle *mix2);
 extern void FreeMixHandle(NodeMixHandle *mix_handle);
 
-extern List *GetAllCnNids(bool include_self);
-extern List *GetAllDnNids(bool include_self);
+extern List *GetAllCnIds(bool include_self);
+extern List *GetAllDnIds(bool include_self);
 extern List *GetAllNodeIds(bool include_self);
 
 #endif /* INTER_NODE_H */

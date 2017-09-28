@@ -34,11 +34,12 @@
 #include "utils/snapmgr.h"
 #include "utils/timestamp.h"
 #ifdef ADB
-#include "pgxc/pgxc.h"
-#include "nodes/nodes.h"
-#include "pgxc/nodemgr.h"
-#include "pgxc/execRemote.h"
 #include "catalog/pgxc_node.h"
+#include "intercomm/inter-comm.h"
+#include "nodes/nodes.h"
+#include "pgxc/execRemote.h"
+#include "pgxc/nodemgr.h"
+#include "pgxc/pgxc.h"
 #endif
 
 /*
@@ -498,26 +499,26 @@ SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
 
 		if (stmt_name)
 		{
-				strcpy(name, stmt_name);
+			strcpy(name, stmt_name);
+			/*
+			 * Append modifier. If resulting string is going to be truncated,
+			 * truncate better the base string, otherwise we may enter endless
+			 * loop
+			 */
+			if (n)
+			{
+				char modifier[NAMEDATALEN];
+				sprintf(modifier, "__%d", n);
 				/*
-				 * Append modifier. If resulting string is going to be truncated,
-				 * truncate better the base string, otherwise we may enter endless
-				 * loop
+				 * if position NAMEDATALEN - strlen(modifier) - 1 is beyond the
+				 * base string this is effectively noop, otherwise it truncates
+				 * the base string
 				 */
-				if (n)
-				{
-					char modifier[NAMEDATALEN];
-					sprintf(modifier, "__%d", n);
-					/*
-					 * if position NAMEDATALEN - strlen(modifier) - 1 is beyond the
-					 * base string this is effectively noop, otherwise it truncates
-					 * the base string
-					 */
-					name[NAMEDATALEN - strlen(modifier) - 1] = '\0';
-					strcat(name, modifier);
-				}
-				n++;
-				hash_search(datanode_queries, name, HASH_FIND, &exists);
+				name[NAMEDATALEN - strlen(modifier) - 1] = '\0';
+				strcat(name, modifier);
+			}
+			n++;
+			hash_search(datanode_queries, name, HASH_FIND, &exists);
 
 			/* If it already exists, that means this plan has just been revalidated. */
 			if (!exists)
@@ -526,7 +527,7 @@ SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
 												  name,
 												  HASH_ENTER,
 												  NULL);
-				entry->number_of_nodes = 0;
+				entry->node_num = 0;
 			}
 
 			remotequery->statement = pstrdup(name);
@@ -961,16 +962,7 @@ DropDatanodeStatement(const char *stmt_name)
 	entry = FetchDatanodeStatement(stmt_name, false);
 	if (entry)
 	{
-		int i;
-		List *nodelist = NIL;
-
-		/* make a List of integers from node numbers */
-		for (i = 0; i < entry->number_of_nodes; i++)
-			nodelist = lappend_int(nodelist, entry->dns_node_indices[i]);
-		entry->number_of_nodes = 0;
-
-		ExecCloseRemoteStatement(stmt_name, nodelist);
-
+		CloseRemoteStatement(stmt_name, entry->node_ids, entry->node_num);
 		hash_search(datanode_queries, entry->stmt_name, HASH_REMOVE, NULL);
 	}
 }
@@ -994,7 +986,7 @@ HaveActiveDatanodeStatements(void)
 	while ((entry = hash_seq_search(&seq)) != NULL)
 	{
 		/* Stop walking and return true */
-		if (entry->number_of_nodes > 0)
+		if (entry->node_num > 0)
 		{
 			hash_seq_term(&seq);
 			return true;
@@ -1011,7 +1003,7 @@ HaveActiveDatanodeStatements(void)
  * prepared on the node
  */
 bool
-ActivateDatanodeStatementOnNode(const char *stmt_name, int noid)
+ActivateDatanodeStatementOnNode(const char *stmt_name, Oid noid)
 {
 	DatanodeStatement *entry;
 	int i;
@@ -1020,12 +1012,12 @@ ActivateDatanodeStatementOnNode(const char *stmt_name, int noid)
 	entry = FetchDatanodeStatement(stmt_name, true);
 
 	/* see if statement already active on the node */
-	for (i = 0; i < entry->number_of_nodes; i++)
-		if (entry->dns_node_indices[i] == noid)
+	for (i = 0; i < entry->node_num; i++)
+		if (entry->node_ids[i] == noid)
 			return true;
 
 	/* statement is not active on the specified node append item to the list */
-	entry->dns_node_indices[entry->number_of_nodes++] = noid;
+	entry->node_ids[entry->node_num++] = noid;
 	return false;
 }
 #endif

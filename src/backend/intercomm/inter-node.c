@@ -1,5 +1,6 @@
 #include "postgres.h"
 
+#include "intercomm/inter-comm.h"
 #include "intercomm/inter-node.h"
 #include "nodes/pg_list.h"
 #include "libpq/libpq-fe.h"
@@ -17,21 +18,21 @@ static int NumCnConns = 0;
  * NodeHandle
  * it is determined by node table in the shared memory
  */
+volatile int NumCnHandles = 0;
+volatile int NumDnHandles = 0;
 static int NumMaxHandles = 0;
 static volatile int NumAllHandles = 0;
-static volatile int NumCnHandles = 0;
-static volatile int NumDnHandles = 0;
 static NodeHandle *AllHandles = NULL;
 static NodeHandle *CnHandles = NULL;
 static NodeHandle *DnHandles = NULL;
 static bool handle_init = false;
 
 #define foreach_all_handles(p)	\
-	for(p=AllHandles;p-AllHandles<NumAllHandles;p=&p[1])
+	for (p = AllHandles; p - AllHandles < NumAllHandles; p = &p[1])
 #define foreach_cn_handles(p)	\
-	for(p=CnHandles;p-CnHandles<NumCnHandles;p=&p[1])
+	for (p = CnHandles; p - CnHandles < NumCnHandles; p = &p[1])
 #define foreach_dn_handles(p)	\
-	for(p=DnHandles;p-DnHandles<NumDnHandles;p=&p[1])
+	for (p = DnHandles; p - DnHandles < NumDnHandles; p = &p[1])
 
 static void GetPGconnAttatchToHandle(List *node_list, List *handle_list);
 static List *GetNodeIds(NodeType type, bool include_self);
@@ -110,6 +111,7 @@ InitNodeExecutor(bool force)
 		handle->node_primary = nodedef->nodeisprimary;
 		handle->node_conn = NULL;
 		handle->node_context = NULL;
+		handle->node_owner = NULL;
 
 		if (handle->node_type == TYPE_CN_NODE &&
 			pg_strcasecmp(PGXCNodeName, NameStr(handle->node_name)) == 0)
@@ -228,8 +230,10 @@ HandleDetachPGconn(NodeHandle *handle)
 	if (handle && handle->node_conn)
 	{
 		//PQfinish(handle->node_conn);
+		HandleGC(handle);
 		handle->node_conn = NULL;
 		handle->node_context = NULL;
+		handle->node_owner = NULL;
 		if (handle->node_type == TYPE_CN_NODE)
 			NumCnConns--;
 		else
@@ -291,10 +295,10 @@ GetMixedHandles(const List *node_list, void *context)
 	{
 		node_id = lfirst_oid(lc_id);
 		handle = GetNodeHandle(node_id, false, context);
+		mix_handle->mix_types |= handle->node_type;
 		mix_handle->handles = lappend(mix_handle->handles, handle);
 		if (handle->node_primary)
 			mix_handle->pr_handle = handle;
-		mix_handle->mix_types |= handle->node_type;
 		if (PQstatus(handle->node_conn) != CONNECTION_OK)
 		{
 			/* detach old PGconn if exists */
@@ -311,7 +315,7 @@ GetMixedHandles(const List *node_list, void *context)
 }
 
 NodeMixHandle *
-GetAllHandles(void)
+GetAllHandles(void *context)
 {
 	List		   *id_need;
 	List		   *handle_need;
@@ -326,10 +330,11 @@ GetAllHandles(void)
 	id_need = handle_need = NIL;
 	foreach_all_handles(handle)
 	{
+		handle->node_context = context;
+		mix_handle->mix_types |= handle->node_type;
 		mix_handle->handles = lappend(mix_handle->handles, handle);
 		if (handle->node_primary)
 			mix_handle->pr_handle = handle;
-		mix_handle->mix_types |= handle->node_type;
 		if (PQstatus(handle->node_conn) != CONNECTION_OK)
 		{
 			/* detach old PGconn if exists */
@@ -393,13 +398,13 @@ FreeMixHandle(NodeMixHandle *mix_handle)
 }
 
 List *
-GetAllCnNids(bool include_self)
+GetAllCnIds(bool include_self)
 {
 	return GetNodeIds(TYPE_CN_NODE, include_self);
 }
 
 List *
-GetAllDnNids(bool include_self)
+GetAllDnIds(bool include_self)
 {
 	return GetNodeIds(TYPE_DN_NODE, include_self);
 }

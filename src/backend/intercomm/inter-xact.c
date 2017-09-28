@@ -32,19 +32,22 @@ static InterXactStateData TopInterXactStateData = {
 	false,						/* is the inter transaction implicit two-phase commit? */
 	false,						/* true if ignore any error(try best to finish)) */
 	false,						/* is the inter transaction start any transaction block? */
+	NIL,						/* list of nodes already start transaction */
 	NULL,						/* NodeMixHandle for the current query in the inter transaction block */
 	NULL						/* NodeMixHandle for the whole inter transaction block */
 };
 
-static void InterXactSaveHandleError(InterXactState state, NodeHandle *handle);
-static void InterXactGC(InterXactState state);
-static void InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool ignore_error);
+static void InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool missing_ok, bool ignore_error);
 static void InterXactPrepareInternal(InterXactState state);
 static void InterXactCommitInternal(InterXactState state);
 static void InterXactAbortInternal(InterXactState state);
-static List *OidArraryToList(MemoryContext context, Oid *oids, int noids);
-static Oid  *OidListToArrary(MemoryContext context, List *oid_list, int *noids);
 
+/*
+ * IsTwoPhaseCommitNeeded
+ *
+ * return true if current inter transaction need transaction block
+ * return false if not
+ */
 bool
 IsTwoPhaseCommitNeeded(void)
 {
@@ -61,6 +64,11 @@ IsTwoPhaseCommitNeeded(void)
 	return state->need_xact_block;
 }
 
+/*
+ * GetTopInterXactGID
+ *
+ * return prepared GID of top inter transaction
+ */
 const char *
 GetTopInterXactGID(void)
 {
@@ -69,20 +77,38 @@ GetTopInterXactGID(void)
 	return state->gid;
 }
 
+/*
+ * IsTopInterXactHastmp
+ *
+ * return true if top transaction has temporary obejects
+ * return false if not
+ */
 bool
 IsTopInterXactHastmp(void)
 {
 	InterXactState state = &TopInterXactStateData;
+
 	return state->hastmp;
 }
 
+/*
+ * TopInterXactTmpSet
+ *
+ * Mark top inter transaction whether it contains temporary objects
+ */
 void
 TopInterXactTmpSet(bool hastmp)
 {
 	InterXactState state = &TopInterXactStateData;
+
 	state->hastmp = hastmp;
 }
 
+/*
+ * ResetInterXactState
+ *
+ * release resources and reset to initial values
+ */
 void
 ResetInterXactState(InterXactState state)
 {
@@ -92,6 +118,7 @@ ResetInterXactState(InterXactState state)
 			resetStringInfo(state->error);
 		if (state->gid)
 			pfree(state->gid);
+		list_free(state->trans_nodes);
 		FreeMixHandle(state->mix_handle);
 		FreeMixHandle(state->all_handle);
 		state->block_state = IBLOCK_DEFAULT;
@@ -101,11 +128,17 @@ ResetInterXactState(InterXactState state)
 		state->implicit = false;
 		state->ignore_error = false;
 		state->need_xact_block = false;
+		state->trans_nodes = NIL;
 		state->mix_handle = NULL;
 		state->all_handle = NULL;
 	}
 }
 
+/*
+ * FreeInterXactState
+ *
+ * release resources of InterXactState
+ */
 void
 FreeInterXactState(InterXactState state)
 {
@@ -118,12 +151,18 @@ FreeInterXactState(InterXactState state)
 		}
 		if (state->gid)
 			pfree(state->gid);
+		list_free(state->trans_nodes);
 		FreeMixHandle(state->mix_handle);
 		FreeMixHandle(state->all_handle);
 		pfree(state);
 	}
 }
 
+/*
+ * MakeTopInterXactState
+ *
+ * return a clear top inter transaction state
+ */
 InterXactState
 MakeTopInterXactState(void)
 {
@@ -134,6 +173,11 @@ MakeTopInterXactState(void)
 	return state;
 }
 
+/*
+ * MakeInterXactState
+ *
+ * return a new inter transaction state
+ */
 InterXactState
 MakeInterXactState(MemoryContext context, const List *node_list)
 {
@@ -152,6 +196,7 @@ MakeInterXactState(MemoryContext context, const List *node_list)
 	state->implicit = false;
 	state->ignore_error = false;
 	state->need_xact_block = false;
+	state->trans_nodes = NIL;
 	if (node_list)
 	{
 		NodeMixHandle  *mix_handle;
@@ -176,6 +221,11 @@ MakeInterXactState(MemoryContext context, const List *node_list)
 	return state;
 }
 
+/*
+ * MakeInterXactState2
+ *
+ * return InterXactState which "mix_handle" is filled by oid_list
+ */
 InterXactState
 MakeInterXactState2(InterXactState state, const List *node_list)
 {
@@ -209,6 +259,11 @@ MakeInterXactState2(InterXactState state, const List *node_list)
 	return state;
 }
 
+/*
+ * ExecInterXactUtility
+ *
+ * execute remote utility by InterXactState.
+ */
 InterXactState
 ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 {
@@ -216,6 +271,7 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 	ExecNodes	   *exec_nodes;
 	Snapshot		snapshot;
 	bool			force_autocommit;
+	bool			read_only;
 	bool			need_xact_block;
 	List		   *node_list;
 
@@ -223,8 +279,12 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 	exec_direct_type = node->exec_direct_type;
 	exec_nodes = node->exec_nodes;
 	force_autocommit = node->force_autocommit;
+	read_only = node->read_only;
 
-	need_xact_block = !force_autocommit;
+	if (force_autocommit || read_only)
+		need_xact_block = false;
+	else
+		need_xact_block = true;
 	if (exec_direct_type == EXEC_DIRECT_UTILITY)
 	{
 		need_xact_block = false;
@@ -236,30 +296,7 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 					 errmsg("cannot run EXECUTE DIRECT with utility inside a transaction block")));
 	}
 
-	/* TODO: when exec_nodes is not null */
-	if (exec_nodes)
-	{
-		ExecRemoteUtility(node);
-		return NULL;
-	}
-
-	/* Get involved node oids */
-	switch (node->exec_type)
-	{
-		case EXEC_ON_DATANODES:
-			node_list = GetAllDnNids(false);
-			break;
-		case EXEC_ON_COORDS:
-			node_list = GetAllCnNids(false);
-			break;
-		case EXEC_ON_ALL_NODES:
-			node_list = GetAllNodeIds(false);
-			break;
-		case EXEC_ON_NONE:
-		default:
-			Assert(false);
-			break;
-	}
+	node_list = GetRemoteNodeList(NULL, exec_nodes, node->exec_type);
 	Assert(node_list);
 
 	/* Make up InterXactStateData */
@@ -269,16 +306,28 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 	state->combine_type = node->combine_type;
 	pfree(node_list);
 
-	/* BEGIN */
-	InterXactBegin(state);
+	PG_TRY();
+	{
+		/* BEGIN */
+		InterXactBegin(state);
 
-	/* Utility */
-	snapshot = GetActiveSnapshot();
-	InterXactQuery(state, snapshot, node->sql_statement, node->sql_node);
+		/* Utility */
+		snapshot = GetActiveSnapshot();
+		InterXactUtility(state, snapshot, node->sql_statement, node->sql_node);
+	} PG_CATCH();
+	{
+		InterXactGC(state);
+		PG_RE_THROW();
+	} PG_END_TRY();
 
 	return state;
 }
 
+/*
+ * InterXactSetGID
+ *
+ * set inter transaction state prepared GID
+ */
 void
 InterXactSetGID(InterXactState state, const char *gid)
 {
@@ -287,14 +336,27 @@ InterXactSetGID(InterXactState state, const char *gid)
 		state->gid = MemoryContextStrdup(state->context, gid);
 }
 
+void
+InterXactSaveBeginNodes(InterXactState state, Oid node)
+{
+	MemoryContext	old_context;
+
+	Assert(state);
+	old_context = MemoryContextSwitchTo(state->context);
+	state->trans_nodes = list_append_unique_oid(state->trans_nodes, node);
+	(void) MemoryContextSwitchTo(old_context);
+}
+
+/*
+ * InterXactBeginNodes
+ *
+ * return all node oids which has been begun transaction of "state"
+ */
 Oid *
 InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 {
 	NodeMixHandle	   *all_handle;
-	NodeHandle		   *handle;
-	ListCell		   *cell;
 	List			   *node_list;
-	PGconn			   *conn;
 	Oid				   *res;
 
 	if (!IsCoordMaster() || state == NULL)
@@ -304,7 +366,7 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 		return NULL;
 	}
 
-	all_handle = state->mix_handle;
+	all_handle = state->all_handle;
 	if (!all_handle)
 	{
 		if (node_num)
@@ -315,6 +377,7 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 	node_list = NIL;
 	if (include_self)
 		node_list = lappend_oid(node_list, PGXCNodeOid);
+#if 0
 	foreach (cell, all_handle->handles)
 	{
 		handle = (NodeHandle *) lfirst(cell);
@@ -328,9 +391,12 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 				break;
 			default:
 				Assert(false);
+				//HandleGC(handle);
 				break;
 		}
 	}
+#endif
+	node_list = list_concat_unique_oid(node_list, state->trans_nodes);
 
 	res = OidListToArrary(NULL, node_list, node_num);
 	list_free(node_list);
@@ -338,6 +404,11 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 	return res;
 }
 
+/*
+ * InterXactSaveError
+ *
+ * keep error message in "state"
+ */
 void
 InterXactSaveError(InterXactState state, const char *fmt, ...)
 {
@@ -357,7 +428,12 @@ InterXactSaveError(InterXactState state, const char *fmt, ...)
 	va_end(args);
 }
 
-static void
+/*
+ * InterXactSaveHandleError
+ *
+ * keep error message of "handle" in "state"
+ */
+void
 InterXactSaveHandleError(InterXactState state, NodeHandle *handle)
 {
 	Assert(state && handle);
@@ -366,6 +442,11 @@ InterXactSaveHandleError(InterXactState state, NodeHandle *handle)
 		NameStr(handle->node_name), PQerrorMessage(handle->node_conn));
 }
 
+/*
+ * InterXactSerializeSnapshot
+ *
+ * serialize snapshort for inter transaction state
+ */
 void
 InterXactSerializeSnapshot(StringInfo buf, Snapshot snapshot)
 {
@@ -407,59 +488,28 @@ InterXactSerializeSnapshot(StringInfo buf, Snapshot snapshot)
 
 /*
  * garbage collection of InterXactState
- *
- * a state machine for PGconn->asyncStatus
  */
-static void
+void
 InterXactGC(InterXactState state)
 {
 	NodeMixHandle	   *mix_handle;
 	NodeHandle		   *handle;
 	ListCell		   *lc_handle;
-	PGconn			   *conn;
-	WaitEVSetData		set;
-	WaitEventElt	   *wee;
-	PGresult		   *res;
 
 	Assert(state && state->mix_handle);
 	mix_handle = state->mix_handle;
-	initWaitEVSetExtend(&set, 1);
 	foreach (lc_handle, mix_handle->handles)
 	{
 		handle = (NodeHandle *) lfirst(lc_handle);
-		conn = handle->node_conn;
-
-		if (PQstatus(conn) == CONNECTION_BAD)
-			continue;
-
-		resetWaitEVSet(&set);
-		addWaitEventBySock(&set, PQsocket(conn), WT_SOCK_READABLE);
-		for (;;)
-		{
-			while (PQisBusy(conn))
-			{
-				(void) execWaitEVSet(&set, -1);
-				wee = nthWaitEventElt(&set, 0);
-
-				if (WEECanRead(wee))
-					(void) PQconsumeInput(conn);
-			}
-
-			res = PQgetResult(conn);
-			if (res == NULL)
-				break;
-
-			/*
-			 * not care about the result, we just want PGASYNC_IDLE of
-			 * the PGconn. before this, consumue them.
-			 */
-			PQclear(res);
-		}
+		HandleGC(handle);
 	}
-
-	freeWaitEVSet(&set, false);
 }
 
+/*
+ * InterXactBegin
+ *
+ * begin transaction of "state" and receive all response
+ */
 void
 InterXactBegin(InterXactState state)
 {
@@ -468,7 +518,6 @@ InterXactBegin(InterXactState state)
 	NodeMixHandle	   *mix_handle;
 	NodeHandle		   *handle;
 	ListCell		   *lc_handle;
-	List			   *involved_handles;
 	bool				already_begin;
 	bool				need_xact_block;
 
@@ -486,37 +535,27 @@ InterXactBegin(InterXactState state)
 		gxid = GetCurrentTransactionIdIfAny();
 	timestamp = GetCurrentTransactionStartTimestamp();
 
-	involved_handles = NIL;
 	foreach (lc_handle, mix_handle->handles)
 	{
 		handle = (NodeHandle *) lfirst(lc_handle);
-		if (!HandleSendBegin(handle, gxid, timestamp, need_xact_block, &already_begin))
-		{
-			state->block_state |= IBLOCK_ABORT;
-			InterXactSaveHandleError(state, handle);
-			break;
-		}
-		if (!already_begin && need_xact_block)
-			involved_handles = lappend(involved_handles, handle);
-	}
-
-	/* Not all nodes perform successfully */
-	if (state->block_state & IBLOCK_ABORT ||
-		!HandleFinishCommand(involved_handles))
-	{
-		list_free(involved_handles);
-		InterXactGC(state);
-		ereport(ERROR,
-				(errmsg("Could not begin transaction on involved nodes"),
-				 errdetail("%s", state->error->data)));
+		if (!HandleBegin(state, handle, gxid, timestamp, need_xact_block, &already_begin))
+			ereport(ERROR,
+					(errmsg("Could not begin transaction on \"%s\"",
+							NameStr(handle->node_name)),
+					 errdetail("%s", state->error->data)));
 	}
 
 	state->block_state |= IBLOCK_BEGIN;
 }
 
+/*
+ * InterXactUtility
+ *
+ * execute utility by InterXactState
+ */
 void
-InterXactQuery(InterXactState state, Snapshot snapshot,
-			   const char *query, StringInfo query_tree)
+InterXactUtility(InterXactState state, Snapshot snapshot,
+				 const char *utility, StringInfo utility_tree)
 {
 	NodeMixHandle	   *mix_handle;
 	NodeHandle		   *handle;
@@ -532,7 +571,7 @@ InterXactQuery(InterXactState state, Snapshot snapshot,
 	foreach (lc_handle, mix_handle->handles)
 	{
 		handle = (NodeHandle *) lfirst(lc_handle);
-		if (!HandleSendQueryTree(handle, snapshot, query, query_tree))
+		if (!HandleSendQueryTree(handle, InvalidCommandId, snapshot, utility, utility_tree))
 		{
 			state->block_state |= IBLOCK_ABORT;
 			InterXactSaveHandleError(state, handle);
@@ -543,7 +582,7 @@ InterXactQuery(InterXactState state, Snapshot snapshot,
 
 	/* Not all nodes perform successfully */
 	if (state->block_state & IBLOCK_ABORT ||
-		!HandleFinishCommand(involved_handles))
+		!HandleListFinishCommand(involved_handles, NULL_TAG))
 	{
 		list_free(involved_handles);
 		InterXactGC(state);
@@ -556,29 +595,47 @@ InterXactQuery(InterXactState state, Snapshot snapshot,
 	state->block_state |= IBLOCK_INPROGRESS;
 }
 
+/*
+ * InterXactPrepare
+ *
+ * prepare a transaction by InterXactState
+ */
 void
 InterXactPrepare(const char *gid, Oid *nodes, int nnodes)
 {
-	InterXactTwoPhase(gid, nodes, nnodes, TP_PREPARE, false);
+	InterXactTwoPhase(gid, nodes, nnodes, TP_PREPARE, false, false);
 }
 
+/*
+ * InterXactCommit
+ *
+ * commit a transaction by InterXactState
+ */
 void
-InterXactCommit(const char *gid, Oid *nodes, int nnodes)
+InterXactCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok)
 {
-	InterXactTwoPhase(gid, nodes, nnodes, TP_COMMIT, false);
+	InterXactTwoPhase(gid, nodes, nnodes, TP_COMMIT, missing_ok, false);
 }
 
+/*
+ * InterXactAbort
+ *
+ * rollback a transaction by InterXactState
+ */
 void
-InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool ignore_error)
+InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool ignore_error)
 {
-	InterXactTwoPhase(gid, nodes, nnodes, TP_ABORT, ignore_error);
+	InterXactTwoPhase(gid, nodes, nnodes, TP_ABORT, missing_ok, ignore_error);
 }
 
+/*
+ * InterXactTwoPhase
+ */
 static void
-InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool ignore_error)
+InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool missing_ok, bool ignore_error)
 {
 	InterXactState	state;
-	List		   *node_list = NIL;
+	List		   *node_list;
 
 	node_list = OidArraryToList(NULL, nodes, nnodes);
 	if (!node_list)
@@ -589,6 +646,7 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 	state = MakeInterXactState(NULL, (const List *) node_list);
 	InterXactSetGID(state, gid);
 	state->ignore_error = ignore_error;
+	state->missing_ok = missing_ok;
 	switch (tp_state)
 	{
 		case TP_PREPARE:
@@ -635,7 +693,7 @@ InterXactPrepareInternal(InterXactState state)
 		conn = handle->node_conn;
 		if (PQtransactionStatus(conn) != PQTRANS_INTRANS)
 			continue;
-		if (!HandleSendQueryTree(handle, NULL, prepare_cmd, NULL))
+		if (!HandleSendQueryTree(handle, InvalidCommandId, NULL, prepare_cmd, NULL))
 		{
 			error_occured = true;
 			/* ignore any error and continue */
@@ -651,7 +709,7 @@ InterXactPrepareInternal(InterXactState state)
 
 	/* Not all nodes perform successfully */
 	if (state->block_state & IBLOCK_ABORT ||
-		!HandleFinishCommand(involved_handles))
+		!HandleListFinishCommand(involved_handles, TRANS_PREPARE_TAG))
 	{
 		list_free(involved_handles);
 		InterXactGC(state);
@@ -673,6 +731,7 @@ InterXactCommitInternal(InterXactState state)
 	ListCell		   *lc_handle;
 	List			   *involved_handles;
 	const char		   *gid;
+	const char		   *cmdTag;
 	char			   *commit_cmd;
 	bool				error_occured;
 
@@ -683,15 +742,20 @@ InterXactCommitInternal(InterXactState state)
 		return ;
 
 	if (gid && gid[0])
+	{
 		commit_cmd = psprintf("COMMIT PREPARED%s '%s';", state->missing_ok ? " IF EXISTS" : "", gid);
-	else
+		cmdTag = TRANS_COMMIT_PREPARED_TAG;
+	} else
+	{
 		commit_cmd = psprintf("COMMIT TRANSACTION;");
+		cmdTag = TRANS_COMMIT_TAG;
+	}
 	involved_handles = NIL;
 	error_occured = false;
 	foreach (lc_handle, all_handle->handles)
 	{
 		handle = (NodeHandle *) lfirst(lc_handle);
-		if (!HandleSendQueryTree(handle, NULL, commit_cmd, NULL))
+		if (!HandleSendQueryTree(handle, InvalidCommandId, NULL, commit_cmd, NULL))
 		{
 			error_occured = true;
 			/* ignore any error and continue */
@@ -707,7 +771,7 @@ InterXactCommitInternal(InterXactState state)
 
 	/* Not all nodes perform successfully */
 	if (state->block_state & IBLOCK_ABORT ||
-		!HandleFinishCommand(involved_handles))
+		!HandleListFinishCommand(involved_handles, cmdTag))
 	{
 		list_free(involved_handles);
 		InterXactGC(state);
@@ -729,6 +793,7 @@ InterXactAbortInternal(InterXactState state)
 	ListCell		   *lc_handle;
 	List			   *involved_handles;
 	const char		   *gid;
+	const char		   *cmdTag;
 	char			   *abort_cmd;
 	bool				error_occured;
 
@@ -739,15 +804,20 @@ InterXactAbortInternal(InterXactState state)
 		return ;
 
 	if (gid && gid[0])
+	{
 		abort_cmd = psprintf("ROLLBACK PREPARED%s '%s';", state->missing_ok ? " IF EXISTS" : "", gid);
-	else
+		cmdTag = TRANS_ROLLBACK_PREPARED_TAG;
+	} else
+	{
 		abort_cmd = psprintf("ROLLBACK TRANSACTION;");
+		cmdTag = TRANS_ROLLBACK_TAG;
+	}
 	involved_handles = NIL;
 	error_occured = false;
 	foreach (lc_handle, all_handle->handles)
 	{
 		handle = (NodeHandle *) lfirst(lc_handle);
-		if (!HandleSendQueryTree(handle, NULL, abort_cmd, NULL))
+		if (!HandleSendQueryTree(handle, -1, NULL, abort_cmd, NULL))
 		{
 			error_occured = true;
 			/* ignore any error and continue */
@@ -763,57 +833,21 @@ InterXactAbortInternal(InterXactState state)
 
 	/* Not all nodes perform successfully */
 	if (state->block_state & IBLOCK_ABORT ||
-		!HandleFinishCommand(involved_handles))
+		!HandleListFinishCommand(involved_handles, cmdTag))
 	{
 		list_free(involved_handles);
 		InterXactGC(state);
-		ereport(ERROR,
-				(errmsg("Could not commit transaction on involved nodes"),
-				 errdetail("%s", state->error->data)));
+		/* ignore any error and continue */
+		if (!state->ignore_error)
+			ereport(ERROR,
+					(errmsg("Could not abort transaction on involved nodes"),
+					 errdetail("%s", state->error->data)));
+		return ;
 	}
 
 	list_free(involved_handles);
 	if (!error_occured)
 		state->block_state |= IBLOCK_ABORT_END;
-}
-
-static List *
-OidArraryToList(MemoryContext context, Oid *oids, int noids)
-{
-	MemoryContext	old_context = NULL;
-	List		   *l = NIL;
-	int				i;
-
-	context = context ? context : CurrentMemoryContext;
-	old_context = MemoryContextSwitchTo(context);
-	for (i = 0; i < noids; i++)
-		l = lappend_oid(l, oids[i]);
-	(void) MemoryContextSwitchTo(old_context);
-
-	return l;
-}
-
-static Oid *
-OidListToArrary(MemoryContext context, List *oid_list, int *noids)
-{
-	MemoryContext	old_context = NULL;
-	ListCell	   *lc = NULL;
-	Oid			   *oids = NULL;
-	int				i = 0;
-
-	if (oid_list)
-	{
-		context = context ? context : CurrentMemoryContext;
-		old_context = MemoryContextSwitchTo(context);
-		oids = (Oid *) palloc(list_length(oid_list) * sizeof(Oid));
-		foreach (lc, oid_list)
-			oids[i++] = lfirst_oid(lc);
-		if (noids)
-			*noids = i;
-		(void) MemoryContextSwitchTo(old_context);
-	}
-
-	return oids;
 }
 
 /*-------------remote xact include inter xact and agtm xact-------------------*/
@@ -826,7 +860,7 @@ RemoteXactCommit(int nnodes, Oid *nodes)
 	if (!IsCoordMaster())
 		return ;
 
-	InterXactCommit(NULL, nodes, nnodes);
+	InterXactCommit(NULL, nodes, nnodes, false);
 	agtm_CommitTransaction(NULL, false);
 }
 
@@ -836,7 +870,7 @@ RemoteXactAbort(int nnodes, Oid *nodes, bool normal)
 	if (!IsCoordMaster())
 		return ;
 
-	InterXactAbort(NULL, nodes, nnodes, !normal);
+	InterXactAbort(NULL, nodes, nnodes, false, !normal);
 	agtm_AbortTransaction(NULL, false, !normal);
 }
 
@@ -916,7 +950,7 @@ CommitPreparedRxact(const char *gid,
 	PG_TRY_HOLD();
 	{
 		/* Commit prepared on remote nodes */
-		InterXactCommit(gid, nodes, nnodes);
+		InterXactCommit(gid, nodes, nnodes, isMissingOK);
 
 		/* Commit prepared on AGTM */
 		agtm_CommitTransaction(gid, isMissingOK);
@@ -964,7 +998,7 @@ AbortPreparedRxact(const char *gid,
 	PG_TRY();
 	{
 		/* rollback prepared on remote nodes */
-		InterXactAbort(gid, nodes, nnodes, false);
+		InterXactAbort(gid, nodes, nnodes, isMissingOK, false);
 
 		/* rollback prepared on AGTM */
 		agtm_AbortTransaction(gid, isMissingOK, false);

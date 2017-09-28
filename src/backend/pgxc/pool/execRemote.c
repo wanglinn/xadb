@@ -3442,10 +3442,10 @@ RemoteQueryRecheck(RemoteQueryState *node, TupleTableSlot *slot)
 static TupleTableSlot *
 RemoteQueryNext(ScanState *scan_node)
 {
-	RemoteQueryState *node = (RemoteQueryState *)scan_node;
-	TupleTableSlot *scanslot = scan_node->ss_ScanTupleSlot;
-	RemoteQuery *rq = (RemoteQuery*) node->ss.ps.plan;
-	EState *estate = node->ss.ps.state;
+	RemoteQueryState   *node = (RemoteQueryState *)scan_node;
+	TupleTableSlot	   *scanslot = scan_node->ss_ScanTupleSlot;
+	RemoteQuery		   *rq = (RemoteQuery*) node->ss.ps.plan;
+	EState			   *estate = node->ss.ps.state;
 
 	/*
 	 * Initialize tuples processed to 0, to make sure we don't re-use the
@@ -3460,9 +3460,11 @@ RemoteQueryNext(ScanState *scan_node)
 	{
 		/* Fire BEFORE STATEMENT triggers just before the query execution */
 		pgxc_rq_fire_bstriggers(node);
-		do_query(node);
+		//do_query(node);
+		scanslot = StartRemoteQuery(node, scanslot);
 		node->query_Done = true;
-	}
+	} else
+		ExecClearTuple(scanslot);
 
 	if (node->update_cursor)
 	{
@@ -3473,7 +3475,38 @@ RemoteQueryNext(ScanState *scan_node)
 		pfree(node->update_cursor);
 		node->update_cursor = NULL;
 		pfree_pgxc_all_handles(all_dn_handles);
+	} else
+	if (TupIsNull(scanslot) && !node->eof_underlying)
+	{
+		Tuplestorestate	   *tuplestorestate = NULL;
+		bool				eof_tuplestore;
+
+		if(!node->tuplestorestate)
+		{
+			node->tuplestorestate = tuplestore_begin_heap(false, false, work_mem);
+			tuplestore_set_eflags(node->tuplestorestate, node->eflags);
+		}
+		tuplestorestate = node->tuplestorestate;
+		eof_tuplestore = tuplestore_ateof(tuplestorestate);
+
+		scanslot = FetchRemoteQuery(node, scanslot);
+		if (!TupIsNull(scanslot))
+		{
+			/* See comments a couple of lines above */
+			node->eof_underlying = false;
+
+			/*
+			 * Append a copy of the returned tuple to tuplestore.  NOTE: because
+			 * the tuplestore is certainly in EOF state, its read position will
+			 * move forward over the added tuple.  This is what we want.
+			 */
+			if (tuplestorestate)
+				tuplestore_puttupleslot(tuplestorestate, scanslot);
+		}
+		else
+			node->eof_underlying = true;
 	}
+#if 0
 	else if(node->tuplestorestate)
 	{
 		/*
@@ -3561,6 +3594,7 @@ RemoteQueryNext(ScanState *scan_node)
 		if (eof_tuplestore && node->eof_underlying)
 			ExecClearTuple(scanslot);
 	}
+#endif
 	else
 		ExecClearTuple(scanslot);
 
@@ -3724,6 +3758,8 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 
 	if (node->ss.ss_currentRelation)
 		ExecCloseScanRelation(node->ss.ss_currentRelation);
+
+	HandleListResetOwner(node->handle_list);
 
 	CloseCombiner(node);
 }

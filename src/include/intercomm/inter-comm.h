@@ -5,17 +5,97 @@
 #include "intercomm/inter-node.h"
 #include "nodes/bitmapset.h"
 #include "optimizer/pgxcplan.h"
+#include "pgxc/execRemote.h"
 #include "utils/snapshot.h"
 #include "libpq/libpq-node.h"
 
+#define NULL_TAG					""
+#define TRANS_BEGIN_TAG				"BEGIN"
+#define TRANS_START_TAG				"START TRANSACTION"
+#define TRANS_COMMIT_TAG			"COMMIT"
+#define TRANS_ROLLBACK_TAG			"ROLLBACK"
+#define TRANS_PREPARE_TAG			"PREPARE TRANSACTION"
+#define TRANS_COMMIT_PREPARED_TAG	"COMMIT PREPARED"
+#define TRANS_ROLLBACK_PREPARED_TAG	"ROLLBACK PREPARED"
+#define CLOSE_STMT_TAG				"CLOSE STATEMENT"
+#define CLOSE_PORTAL_TAG			"CLOSE PORTAL"
+
+typedef struct InterXactStateData *InterXactState;
+
 /* src/backend/intercomm/inter-comm.c */
-extern bool HandleFinishCommand(const List *handle_list);
+extern List *OidArraryToList(MemoryContext context, Oid *oids, int noids);
+extern Oid *OidListToArrary(MemoryContext context, List *oid_list, int *noids);
+extern void HandleGC(NodeHandle *handle);
+extern void HandleCache(NodeHandle *handle);
+extern bool HandleListFinishCommand(const List *handle_list, const char *commandTag);
+extern bool HandleFinishCommand(NodeHandle *handle, const char *commandTag);
 extern bool HandleFinishAsync(const List *handle_list);
-extern int HandleSendBegin(NodeHandle * handle, GlobalTransactionId xid, TimestampTz timestamp, bool need_xact_block, bool *alreay_begin);
+extern int HandleBegin(InterXactState state,
+					   NodeHandle *handle,
+					   GlobalTransactionId xid,
+					   TimestampTz timestamp,
+					   bool need_xact_block,
+					   bool *already_begin);
+extern int HandleSendCID(NodeHandle *handle, CommandId cid);
 extern int HandleSendGXID(NodeHandle *handle, GlobalTransactionId xid);
 extern int HandleSendTimestamp(NodeHandle *handle, TimestampTz timestamp);
 extern int HandleSendSnapshot(NodeHandle *handle, Snapshot snapshot);
-extern int HandleSendQueryTree(NodeHandle *handle, Snapshot snapshot, const char *query, StringInfo query_tree);
+extern int HandleSendQueryTree(NodeHandle *handle,
+							   CommandId cid,
+							   Snapshot snapshot,
+							   const char *query,
+							   StringInfo query_tree);
+extern int HandleSendQueryExtend(NodeHandle *handle,
+								 CommandId cid,
+								 Snapshot snapshot,
+								 const char *command,
+								 const char *stmtName,
+								 const char *portalName,
+								 bool sendDescribe,
+								 int fetchSize,
+								 int nParams,
+								 const Oid *paramTypes,
+								 const int *paramFormats,
+								 const char *paramBinaryValue,
+								 const int paramBinaryLength,
+								 int nResultFormat,
+								 const int *resultFormats);
+extern int HandleSendClose(NodeHandle *handle, bool isStatement, const char *name);
+extern int HandleClose(NodeHandle *handle, bool isStatement, const char *name);
+extern void HandleListClose(List *handle_list, bool isStatement, const char *name);
+extern void HandleResetOwner(NodeHandle *handle);
+extern void HandleListResetOwner(List *handle_list);
+
+#if 0
+typedef enum
+{
+	HOOK_RET_REMOVE,
+	HOOK_RET_CONTINUE,
+	HOOK_RET_BREAK,
+} HookReturnType;
+
+typedef enum {
+	HOOK_RES_NONE,
+	HOOK_RES_RESULT,
+	HOOK_RES_COPY_BUFFER,
+	HOOK_RES_COPY_OUT_END,
+	HOOK_RES_COPY_IN_END,
+	HOOK_RES_ERROR,
+} HookResultType;
+
+typedef struct HookResult
+{
+	HookResultType			res_type;
+	union {
+		struct pg_result   *res_value;
+		StringInfoData		str_value;
+	} value;
+} HookResult;
+
+typedef HookReturnType (*HandleFinishHook)(void *result, void *handle, void *context);
+extern void HandleFinishList(List *handle_list, HandleFinishHook hook, void *context);
+extern int HandleFinishOne(NodeHandle *handle, HandleFinishHook hook, void *context);
+#endif
 
 /* src/backend/intercomm/inter-xact.c */
 typedef struct InterXactStateData
@@ -30,14 +110,13 @@ typedef struct InterXactStateData
 	bool					implicit;
 	bool					ignore_error;
 	bool					need_xact_block;
+	List				   *trans_nodes;		/* list of nodes already start transaction */
 	struct NodeMixHandle   *mix_handle;			/* "mix_handle" is current NodeMixHandle depends
 												 * on oid list input, just for one query in the
 												 * transaction block */
 	struct NodeMixHandle   *all_handle;			/* "all_handle" include all the NodeHandle within
 												 * the transaction block, it is used to 2PC */
 } InterXactStateData;
-
-typedef InterXactStateData *InterXactState;
 
 #define IsAbortBlockState(state)	(((InterXactState) (state))->block_state & IBLOCK_ABORT)
 
@@ -52,19 +131,29 @@ extern InterXactState MakeInterXactState(MemoryContext context, const List *node
 extern InterXactState MakeInterXactState2(InterXactState state, const List *node_list);
 extern InterXactState ExecInterXactUtility(RemoteQuery *node, InterXactState state);
 extern void InterXactSetGID(InterXactState state, const char *gid);
+extern void InterXactSaveBeginNodes(InterXactState state, Oid node);
 extern Oid *InterXactBeginNodes(InterXactState state, bool include_self, int *node_num);
 extern void InterXactSaveError(InterXactState state, const char *fmt, ...)
 	pg_attribute_printf(2, 3);
+extern void InterXactSaveHandleError(InterXactState state, NodeHandle *handle);
 extern void InterXactSerializeSnapshot(StringInfo buf, Snapshot snapshot);
+extern void InterXactGC(InterXactState state);
 extern void InterXactBegin(InterXactState state);
-extern void InterXactQuery(InterXactState state, Snapshot snapshot, const char *query, StringInfo query_tree);
+extern void InterXactUtility(InterXactState state, Snapshot snapshot, const char *utility, StringInfo utility_tree);
 extern void InterXactPrepare(const char *gid, Oid *nodes, int nnodes);
-extern void InterXactCommit(const char *gid, Oid *nodes, int nnodes);
-extern void InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool ignore_error);
+extern void InterXactCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok);
+extern void InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool ignore_error);
 
 extern void RemoteXactCommit(int nnodes, Oid *nodes);
 extern void RemoteXactAbort(int nnodes, Oid *nodes, bool normal);
 extern void StartFinishPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool isImplicit, bool isCommit);
 extern void EndFinishPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool isMissingOK, bool isCommit);
+
 /* src/backend/intercomm/inter-query.c */
+extern List *GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQueryExecType exec_type);
+extern TupleTableSlot *StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot);
+extern TupleTableSlot *FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot);
+extern TupleTableSlot *HandleGetRemoteSlot(NodeHandle *handle, TupleTableSlot *slot, RemoteQueryState *node, bool blocking);
+extern void CloseRemoteStatement(const char *stmt_name, Oid *nodes, int nnodes);
+
 #endif /* INTER_COMM_H */

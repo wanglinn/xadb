@@ -40,6 +40,7 @@ extern TupleDesc restore_slot_head_message(const char *msg, int len);
 extern void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char msg_type);
 extern TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *slot);
 extern void serialize_processed_message(StringInfo buf, uint64 processed);
+extern void serialize_command_id(StringInfo buf, CommandId cid);
 
 #endif /* CLUSTER_RECEIVER_H */
 

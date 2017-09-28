@@ -67,6 +67,7 @@
 #ifdef ADB
 #include "agtm/agtm.h"
 #include "agtm/agtm_client.h"
+#include "executor/clusterReceiver.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "lib/stringinfo.h"
@@ -2348,6 +2349,9 @@ EndCommitRemoteXact(TransactionState state)
 			RemoteXactCommit(nodecnt, nodeIds);
 		}
 
+		if (state->interXactState)
+			state->interXactState->block_state |= IBLOCK_END;
+
 		state = CurrentTransactionState;
 	}
 
@@ -2995,6 +2999,9 @@ NormalAbortRemoteXact(TransactionState state)
 		/* Abort remote xact */
 		RemoteXactAbort(nodecnt, nodeIds, true);
 	}
+
+	if (state->interXactState)
+		state->interXactState->block_state |= IBLOCK_ABORT_END;
 }
 
 static void
@@ -3014,7 +3021,10 @@ UnexpectedAbortRemoteXact(TransactionState state)
 
 	nodeIds = InterXactBeginNodes(state->interXactState, false, &nodecnt);
 	/* Abort remote xact */
-	RemoteXactAbort(nodecnt, nodeIds, true);
+	RemoteXactAbort(nodecnt, nodeIds, false);
+
+	if (state->interXactState)
+		state->interXactState->block_state |= IBLOCK_ABORT_END;
 }
 #endif
 
@@ -6447,14 +6457,18 @@ ReportCommandIdChange(CommandId cid)
 	StringInfoData buf;
 
 	/* Send command Id change to Coordinator */
-#ifdef DEBUG_ADB
-	adb_ereport(LOG,
-		(errmsg("[ADB]Send Command(M)")));
-#endif
-	pq_beginmessage(&buf, 'M');
-	pq_sendint(&buf, cid, 4);
-	pq_endmessage(&buf);
+	initStringInfo(&buf);
+	pq_sendbyte(&buf, 0);
+	pq_sendint(&buf, 0, 2);
+	pq_putmessage('H', buf.data, buf.len);
+
+	resetStringInfo(&buf);
+	serialize_command_id(&buf, cid);
+	pq_putmessage('d', buf.data, buf.len);
+
+	pq_putemptymessage('c');
 	pq_flush();
+	pfree(buf.data);
 }
 
 /*
