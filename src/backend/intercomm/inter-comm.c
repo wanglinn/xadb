@@ -121,6 +121,12 @@ GenerateBeginQuery(void)
 	return begin_cmd->data;
 }
 
+/*
+ * HandleGC
+ *
+ * garbage collection for NodeHandle
+ *
+ */
 void
 HandleGC(NodeHandle *handle)
 {
@@ -128,28 +134,50 @@ HandleGC(NodeHandle *handle)
 		PQNExecFinsh_trouble(handle->node_conn);
 }
 
+/*
+ * HandleCache
+ *
+ * cache remote tuple for NodeHandle
+ *
+ */
 void
 HandleCache(NodeHandle *handle)
 {
-	RemoteQueryState   *node;
-	TupleTableSlot	   *slot;
-
 	if (!handle || !handle->node_owner)
 		return ;
 
-	node = (RemoteQueryState *) handle->node_owner;
-	if (!node->tuplestorestate)
+	if (IsA(handle->node_owner, RemoteQueryState))
 	{
-		node->tuplestorestate = tuplestore_begin_heap(false, false, work_mem);
-		tuplestore_set_eflags(node->tuplestorestate, node->eflags);
-	}
-	slot = node->ss.ss_ScanTupleSlot;
-	for (;;)
-	{
-		slot = HandleGetRemoteSlot(handle, slot, node, true);
-		if (TupIsNull(slot))
-			break;
-		tuplestore_puttupleslot(node->tuplestorestate, slot);
+		RemoteQueryState   *node;
+		TupleTableSlot	   *slot;
+		Tuplestorestate	   *tuplestorestate;
+
+		node = (RemoteQueryState *) handle->node_owner;
+
+		/*
+		 * just return if reach end of RemoteQueryState.
+		 */
+		if (node->eof_underlying)
+			return ;
+
+		tuplestorestate = node->tuplestorestate;
+		Assert(tuplestorestate);
+
+		/*
+		 * backward if at the end of tuplestore, so that we can fetch tuple
+		 * from tuplestore next time.
+		 */
+		if (tuplestore_ateof(tuplestorestate))
+			(void) tuplestore_advance(tuplestorestate, false);
+
+		slot = node->ss.ss_ScanTupleSlot;
+		for (;;)
+		{
+			slot = HandleGetRemoteSlot(handle, slot, node, true);
+			if (TupIsNull(slot))
+				break;
+			tuplestore_puttupleslot(node->tuplestorestate, slot);
+		}
 	}
 }
 
@@ -246,7 +274,7 @@ HandleSendCID(NodeHandle *handle, CommandId cid)
 	if (!PQsendQueryStart(conn))
 		return 0;
 
-	/* construct the global transaction xid message */
+	/* construct the global command id message */
 	if (pqPutMsgStart('M', true, conn) < 0 ||
 		pqPutInt((int) cid, sizeof(cid), conn) < 0 ||
 		pqPutMsgEnd(conn) < 0)
@@ -552,31 +580,6 @@ HandleListResetOwner(List * handle_list)
 }
 
 /*
- * HandleListFinishCommand
- *
- * receive all reponse of "handle_list"
- *
- * return false if any handle in trouble
- * return true if all success
- */
-bool
-HandleListFinishCommand(const List *handle_list, const char *commandTag)
-{
-	NodeHandle	   *handle;
-	ListCell	   *lc_handle;
-	bool			all_success = true;
-
-	foreach (lc_handle, handle_list)
-	{
-		handle = (NodeHandle *) lfirst(lc_handle);
-		Assert(handle->node_conn);
-		all_success &= HandleFinishCommand(handle, commandTag);
-	}
-
-	return all_success;
-}
-
-/*
  * HandleFinishCommand
  *
  * receive COMMAND response
@@ -604,6 +607,31 @@ HandleFinishCommand(NodeHandle *handle, const char *commandTag)
 	}
 
 	return result.command_ok;
+}
+
+/*
+ * HandleListFinishCommand
+ *
+ * receive all reponse of "handle_list"
+ *
+ * return false if any handle in trouble
+ * return true if all success
+ */
+bool
+HandleListFinishCommand(const List *handle_list, const char *commandTag)
+{
+	NodeHandle	   *handle;
+	ListCell	   *lc_handle;
+	bool			all_success = true;
+
+	foreach (lc_handle, handle_list)
+	{
+		handle = (NodeHandle *) lfirst(lc_handle);
+		Assert(handle->node_conn);
+		all_success &= HandleFinishCommand(handle, commandTag);
+	}
+
+	return all_success;
 }
 
 static bool

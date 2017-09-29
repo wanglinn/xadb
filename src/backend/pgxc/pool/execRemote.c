@@ -2659,11 +2659,21 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	/* Extract the eflags bits that are relevant for tuplestorestate */
 	remotestate->eflags = (eflags & (EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD));
 
-	/* We anyways have to support REWIND for ReScan */
-	remotestate->eflags |= EXEC_FLAG_REWIND;
+	/*
+	 * We anyways have to support REWIND for ReScan,
+	 * BACKWARD for cache tuples.
+	 */
+	remotestate->eflags |= (EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD);
+
+	/*
+	 * tuplestorestate of RemoteQueryState is for two purposes,
+	 * one is rescan (see ExecRemoteQueryReScan), the other is cache
+	 * (see HandleCache)
+	 */
+	remotestate->tuplestorestate = tuplestore_begin_heap(false, false, work_mem);
+	tuplestore_set_eflags(remotestate->tuplestorestate, remotestate->eflags);
 
 	remotestate->eof_underlying = false;
-	remotestate->tuplestorestate = NULL;
 
 	ExecInitResultTupleSlot(estate, &remotestate->ss.ps);
 	ExecInitScanTupleSlot(estate, &remotestate->ss);
@@ -3476,35 +3486,37 @@ RemoteQueryNext(ScanState *scan_node)
 		node->update_cursor = NULL;
 		pfree_pgxc_all_handles(all_dn_handles);
 	} else
-	if (TupIsNull(scanslot) && !node->eof_underlying)
+	if (TupIsNull(scanslot))
 	{
-		Tuplestorestate	   *tuplestorestate = NULL;
-		bool				eof_tuplestore;
+		Tuplestorestate *tuplestorestate = node->tuplestorestate;
 
-		if(!node->tuplestorestate)
+		Assert(tuplestorestate);
+		if (!tuplestore_ateof(tuplestorestate))
 		{
-			node->tuplestorestate = tuplestore_begin_heap(false, false, work_mem);
-			tuplestore_set_eflags(node->tuplestorestate, node->eflags);
+			if (tuplestore_gettupleslot(tuplestorestate, true, false, scanslot))
+				return scanslot;
+
+			if (node->eof_underlying)
+				ExecClearTuple(scanslot);
 		}
-		tuplestorestate = node->tuplestorestate;
-		eof_tuplestore = tuplestore_ateof(tuplestorestate);
 
-		scanslot = FetchRemoteQuery(node, scanslot);
-		if (!TupIsNull(scanslot))
+		if (!node->eof_underlying)
 		{
-			/* See comments a couple of lines above */
-			node->eof_underlying = false;
+			scanslot = FetchRemoteQuery(node, scanslot);
+			if (!TupIsNull(scanslot))
+			{
+				node->eof_underlying = false;
 
-			/*
-			 * Append a copy of the returned tuple to tuplestore.  NOTE: because
-			 * the tuplestore is certainly in EOF state, its read position will
-			 * move forward over the added tuple.  This is what we want.
-			 */
-			if (tuplestorestate)
+				/*
+				 * Append a copy of the returned tuple to tuplestore.  NOTE: because
+				 * the tuplestore is certainly in EOF state, its read position will
+				 * move forward over the added tuple.  This is what we want.
+				 */
 				tuplestore_puttupleslot(tuplestorestate, scanslot);
+			}
+			else
+				node->eof_underlying = true;
 		}
-		else
-			node->eof_underlying = true;
 	}
 #if 0
 	else if(node->tuplestorestate)

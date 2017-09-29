@@ -285,7 +285,6 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 {
 	ExecDirectType	exec_direct_type;
 	ExecNodes	   *exec_nodes;
-	Snapshot		snapshot;
 	bool			force_autocommit;
 	bool			read_only;
 	bool			need_xact_block;
@@ -324,12 +323,11 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 
 	PG_TRY();
 	{
-		/* BEGIN */
-		InterXactBegin(state);
-
 		/* Utility */
-		snapshot = GetActiveSnapshot();
-		InterXactUtility(state, snapshot, node->sql_statement, node->sql_node);
+		InterXactUtility(state,
+						 GetActiveSnapshot(),
+						 node->sql_statement,
+						 node->sql_node);
 	} PG_CATCH();
 	{
 		InterXactGC(state);
@@ -489,7 +487,9 @@ InterXactSerializeSnapshot(StringInfo buf, Snapshot snapshot)
 }
 
 /*
- * garbage collection of InterXactState
+ * InterXactGC
+ *
+ * garbage collection for InterXactState
  */
 void
 InterXactGC(InterXactState state)
@@ -508,18 +508,20 @@ InterXactGC(InterXactState state)
 }
 
 /*
- * InterXactBegin
+ * InterXactUtility
  *
- * begin transaction of "state" and receive all response
+ * execute utility by InterXactState
  */
 void
-InterXactBegin(InterXactState state)
+InterXactUtility(InterXactState state, Snapshot snapshot,
+				 const char *utility, StringInfo utility_tree)
 {
-	GlobalTransactionId	gxid;
+	GlobalTransactionId gxid;
 	TimestampTz			timestamp;
 	NodeMixHandle	   *mix_handle;
 	NodeHandle		   *handle;
 	ListCell		   *lc_handle;
+	List			   *involved_handles;
 	bool				already_begin;
 	bool				need_xact_block;
 
@@ -537,43 +539,12 @@ InterXactBegin(InterXactState state)
 		gxid = GetCurrentTransactionIdIfAny();
 	timestamp = GetCurrentTransactionStartTimestamp();
 
-	foreach (lc_handle, mix_handle->handles)
-	{
-		handle = (NodeHandle *) lfirst(lc_handle);
-		if (!HandleBegin(state, handle, gxid, timestamp, need_xact_block, &already_begin))
-			ereport(ERROR,
-					(errmsg("Could not begin transaction on \"%s\"",
-							NameStr(handle->node_name)),
-					 errdetail("%s", state->error->data)));
-	}
-
-	state->block_state |= IBLOCK_BEGIN;
-}
-
-/*
- * InterXactUtility
- *
- * execute utility by InterXactState
- */
-void
-InterXactUtility(InterXactState state, Snapshot snapshot,
-				 const char *utility, StringInfo utility_tree)
-{
-	NodeMixHandle	   *mix_handle;
-	NodeHandle		   *handle;
-	ListCell		   *lc_handle;
-	List			   *involved_handles;
-
-	Assert(state);
-	mix_handle = state->mix_handle;
-	if (!mix_handle)
-		return ;
-
 	involved_handles = NIL;
 	foreach (lc_handle, mix_handle->handles)
 	{
 		handle = (NodeHandle *) lfirst(lc_handle);
-		if (!HandleSendQueryTree(handle, InvalidCommandId, snapshot, utility, utility_tree))
+		if (!HandleBegin(state, handle, gxid, timestamp, need_xact_block, &already_begin) ||
+			!HandleSendQueryTree(handle, InvalidCommandId, snapshot, utility, utility_tree))
 		{
 			state->block_state |= IBLOCK_ABORT;
 			InterXactSaveHandleError(state, handle);
@@ -581,7 +552,6 @@ InterXactUtility(InterXactState state, Snapshot snapshot,
 		}
 		involved_handles = lappend(involved_handles, handle);
 	}
-
 	/* Not all nodes perform successfully */
 	if (state->block_state & IBLOCK_ABORT ||
 		!HandleListFinishCommand(involved_handles, NULL_TAG))
@@ -594,7 +564,7 @@ InterXactUtility(InterXactState state, Snapshot snapshot,
 	}
 
 	list_free(involved_handles);
-	state->block_state |= IBLOCK_INPROGRESS;
+	state->block_state |= (IBLOCK_BEGIN | IBLOCK_INPROGRESS);
 }
 
 /*
