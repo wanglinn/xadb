@@ -154,11 +154,13 @@ HandleCache(NodeHandle *handle)
 
 		node = (RemoteQueryState *) handle->node_owner;
 
+#if 0
 		/*
 		 * just return if reach end of RemoteQueryState.
 		 */
 		if (node->eof_underlying)
 			return ;
+#endif
 
 		tuplestorestate = node->tuplestorestate;
 		Assert(tuplestorestate);

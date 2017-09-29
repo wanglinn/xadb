@@ -227,7 +227,10 @@ StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 		state->need_xact_block = true;
 
 	/* save handle list for current RemoteQueryState */
-	node->handle_list = list_copy(state->mix_handle->handles);
+	if (node->cur_handles)
+		list_free(node->cur_handles);
+	node->cur_handles = list_copy(state->mix_handle->handles);
+	node->all_handles = list_concat_unique_ptr(node->all_handles, node->cur_handles);
 
 	return InterXactQuery(state, node, slot);
 }
@@ -421,7 +424,7 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 	if (!node || !slot)
 		return NULL;
 
-	handle_list = node->handle_list;
+	handle_list = node->cur_handles;
 	context.ps = &(node->ss.ps);
 	context.slot = slot;
 

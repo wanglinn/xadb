@@ -238,6 +238,8 @@ CreateResponseCombiner(int node_count, CombineType combine_type)
 
 	/* ResponseComber is a typedef for pointer to ResponseCombinerData */
 	combiner = makeNode(RemoteQueryState);
+	combiner->cur_handles = NIL;
+	combiner->all_handles = NIL;
 	combiner->node_count = node_count;
 	combiner->connections = NULL;
 	combiner->conn_count = 0;
@@ -961,6 +963,10 @@ CloseCombiner(RemoteQueryState *combiner)
 {
 	if (combiner)
 	{
+		list_free(combiner->cur_handles);
+		list_free(combiner->all_handles);
+		combiner->cur_handles = NIL;
+		combiner->all_handles = NIL;
 		if (combiner->connections)
 			pfree(combiner->connections);
 		if (combiner->tuple_desc)
@@ -3488,19 +3494,18 @@ RemoteQueryNext(ScanState *scan_node)
 	} else
 	if (TupIsNull(scanslot))
 	{
-		Tuplestorestate *tuplestorestate = node->tuplestorestate;
+		Tuplestorestate*tuplestorestate = node->tuplestorestate;
+		bool			eof_tuplestore;
 
 		Assert(tuplestorestate);
-		if (!tuplestore_ateof(tuplestorestate))
+		eof_tuplestore = tuplestore_ateof(tuplestorestate);
+		if (!eof_tuplestore)
 		{
-			if (tuplestore_gettupleslot(tuplestorestate, true, false, scanslot))
-				return scanslot;
-
-			if (node->eof_underlying)
-				ExecClearTuple(scanslot);
+			if (!tuplestore_gettupleslot(tuplestorestate, true, false, scanslot))
+				eof_tuplestore = true;
 		}
 
-		if (!node->eof_underlying)
+		if (eof_tuplestore)
 		{
 			scanslot = FetchRemoteQuery(node, scanslot);
 			if (!TupIsNull(scanslot))
@@ -3761,7 +3766,7 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 
 	/* Free the param types if they are newly allocated */
 	if (node->rqs_param_types &&
-	    node->rqs_param_types != ((RemoteQuery*)node->ss.ps.plan)->rq_param_types)
+		node->rqs_param_types != ((RemoteQuery*)node->ss.ps.plan)->rq_param_types)
 	{
 		pfree(node->rqs_param_types);
 		node->rqs_param_types = NULL;
@@ -3771,7 +3776,7 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 	if (node->ss.ss_currentRelation)
 		ExecCloseScanRelation(node->ss.ss_currentRelation);
 
-	HandleListResetOwner(node->handle_list);
+	HandleListResetOwner(node->all_handles);
 
 	CloseCombiner(node);
 }
