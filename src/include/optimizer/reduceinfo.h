@@ -44,6 +44,7 @@ extern ReduceInfo *MakeCustomReduceInfoByRel(const List *storage, const List *ex
 extern ReduceInfo *MakeCustomReduceInfo(const List *storage, const List *exclude, List *params, Oid funcid, Oid reloid);
 extern ReduceInfo *MakeModuloReduceInfo(const List *storage, const List *exclude, const Expr *param);
 extern ReduceInfo *MakeReplicateReduceInfo(const List *storage);
+extern ReduceInfo *MakeFinalReplicateReduceInfo(void);
 extern ReduceInfo *MakeRoundReduceInfo(const List *storage);
 extern ReduceInfo *MakeCoordinatorReduceInfo(void);
 extern ReduceInfo *MakeReduceInfoAs(const ReduceInfo *reduce, List *params);
@@ -129,6 +130,9 @@ extern int ReducePathSave2List(PlannerInfo *root, Path *path, void *pplist);
 								(r)->type == REDUCE_TYPE_MODULO)
 extern bool IsReduceInfoListByValue(List *list);
 #define IsReduceInfoReplicated(r)	((r)->type == REDUCE_TYPE_REPLICATED)
+#define IsReduceInfoFinalReplicated(r) (IsReduceInfoReplicated(r) &&			\
+										list_length(r->storage_nodes) == 1 &&	\
+										linitial_oid(r->storage_nodes) == InvalidOid)
 extern bool IsReduceInfoListReplicated(List *list);
 #define IsReduceInfoRound(r)		((r)->type == REDUCE_TYPE_ROUND)
 extern bool IsReduceInfoListRound(List *list);

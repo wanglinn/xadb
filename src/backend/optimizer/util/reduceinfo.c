@@ -165,6 +165,17 @@ ReduceInfo *MakeReplicateReduceInfo(const List *storage)
 	return rinfo;
 }
 
+ReduceInfo *MakeFinalReplicateReduceInfo(void)
+{
+	ReduceInfo *rinfo;
+
+	rinfo = MakeEmptyReduceInfo();
+	rinfo->storage_nodes = list_make1_oid(InvalidOid);
+	rinfo->type = REDUCE_TYPE_REPLICATED;
+
+	return rinfo;
+}
+
 ReduceInfo *MakeRoundReduceInfo(const List *storage)
 {
 	ReduceInfo *rinfo;
