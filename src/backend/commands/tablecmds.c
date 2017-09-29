@@ -103,6 +103,7 @@
 #include "catalog/pgxc_node.h"
 #include "commands/dbcommands.h"
 #include "commands/sequence.h"
+#include "intercomm/inter-comm.h"
 #include "optimizer/pgxcship.h"
 #include "optimizer/pgxcplan.h"
 #include "pgxc/pgxc.h"
@@ -1383,7 +1384,7 @@ ExecuteTruncate(TruncateStmt *stmt)
 		step->force_autocommit = false;
 		step->exec_type = EXEC_ON_ALL_NODES;
 		step->is_temp = is_temp;
-		ExecRemoteUtility(step);
+		(void) ExecInterXactUtility(step, GetTopInterXactState());
 		pfree(step->sql_statement);
 		pfree(step);
 	}

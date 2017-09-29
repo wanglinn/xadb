@@ -1,3 +1,19 @@
+/*-------------------------------------------------------------------------
+ *
+ * inter-comm.c
+ *	  Internode transaction routines
+ *
+ *
+ * Portions Copyright (c) 2016-2017, ADB Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1994, Regents of the University of California
+ *
+ *
+ * IDENTIFICATION
+ *	  src/backend/intercomm/inter-xact.c
+ *
+ *-------------------------------------------------------------------------
+ */
 #include "postgres.h"
 
 #include "access/rxact_mgr.h"
@@ -336,6 +352,11 @@ InterXactSetGID(InterXactState state, const char *gid)
 		state->gid = MemoryContextStrdup(state->context, gid);
 }
 
+/*
+ * InterXactSaveBeginNodes
+ *
+ * save nodes which start transaction
+ */
 void
 InterXactSaveBeginNodes(InterXactState state, Oid node)
 {
@@ -350,7 +371,7 @@ InterXactSaveBeginNodes(InterXactState state, Oid node)
 /*
  * InterXactBeginNodes
  *
- * return all node oids which has been begun transaction of "state"
+ * return all node oids which has been started transaction of "state"
  */
 Oid *
 InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
@@ -377,25 +398,6 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 	node_list = NIL;
 	if (include_self)
 		node_list = lappend_oid(node_list, PGXCNodeOid);
-#if 0
-	foreach (cell, all_handle->handles)
-	{
-		handle = (NodeHandle *) lfirst(cell);
-		conn = handle->node_conn;
-		switch (PQtransactionStatus(conn))
-		{
-			case PQTRANS_IDLE:
-				break;
-			case PQTRANS_INTRANS:
-				node_list = lappend_oid(node_list, handle->node_id);
-				break;
-			default:
-				Assert(false);
-				//HandleGC(handle);
-				break;
-		}
-	}
-#endif
 	node_list = list_concat_unique_oid(node_list, state->trans_nodes);
 
 	res = OidListToArrary(NULL, node_list, node_num);

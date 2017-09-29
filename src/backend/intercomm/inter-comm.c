@@ -1,3 +1,19 @@
+/*-------------------------------------------------------------------------
+ *
+ * inter-comm.c
+ *	  Internode communication routines by NodeHandle
+ *
+ *
+ * Portions Copyright (c) 2016-2017, ADB Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1994, Regents of the University of California
+ *
+ *
+ * IDENTIFICATION
+ *	  src/backend/intercomm/inter-comm.c
+ *
+ *-------------------------------------------------------------------------
+ */
 #include "postgres.h"
 #include "miscadmin.h"
 

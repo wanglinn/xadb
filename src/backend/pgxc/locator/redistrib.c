@@ -29,6 +29,9 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
+#ifdef ADB
+#include "intercomm/inter-comm.h"
+#endif
 
 #define IsCommandTypePreUpdate(x) (x == CATALOG_UPDATE_BEFORE || \
 								   x == CATALOG_UPDATE_BOTH)
@@ -939,7 +942,7 @@ distrib_execute_query(char *sql, bool is_temp, ExecNodes *exec_nodes)
 	/* Redistribution operations only concern Datanodes */
 	step->exec_type = EXEC_ON_DATANODES;
 	step->is_temp = is_temp;
-	ExecRemoteUtility(step);
+	(void) ExecInterXactUtility(step, GetTopInterXactState());
 	pfree(step->sql_statement);
 	pfree(step);
 

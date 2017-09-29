@@ -1,3 +1,18 @@
+/*-------------------------------------------------------------------------
+ *
+ * inter-comm.h
+ *
+ *	  Internode communication interface definition
+ *
+ *
+ * Portions Copyright (c) 2016-2017, ADB Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1994, Regents of the University of California
+ *
+ * src/include/intercomm/inter-comm.h
+ *
+ *-------------------------------------------------------------------------
+ */
 #ifndef INTER_COMM_H
 #define INTER_COMM_H
 

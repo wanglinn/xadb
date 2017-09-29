@@ -44,6 +44,7 @@
 #include "utils/tqual.h"
 
 #ifdef ADB
+#include "intercomm/inter-comm.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 
@@ -1043,7 +1044,7 @@ dropRemoteTable(const char *relname, bool is_temp)
 	step->force_autocommit = false;
 	step->exec_type = EXEC_ON_DATANODES;
 	step->is_temp = is_temp;
-	ExecRemoteUtility(step);
+	(void) ExecInterXactUtility(step, GetTopInterXactState());
 	pfree(sql.data);
 	pfree(step);
 }

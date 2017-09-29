@@ -1,3 +1,18 @@
+/*-------------------------------------------------------------------------
+ *
+ * inter-node.h
+ *
+ *	  Internode struct and routines definition
+ *
+ *
+ * Portions Copyright (c) 2016-2017, ADB Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1994, Regents of the University of California
+ *
+ * src/include/intercomm/inter-node.h
+ *
+ *-------------------------------------------------------------------------
+ */
 #ifndef INTER_NODE_H
 #define INTER_NODE_H
 

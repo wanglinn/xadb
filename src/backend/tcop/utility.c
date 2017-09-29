@@ -1519,9 +1519,7 @@ standard_ProcessUtility(Node *parsetree,
 			Assert(IS_PGXC_COORDINATOR);
 
 			if (!IsConnFromCoord())
-#ifdef ADB
-				ExecInterXactUtility((RemoteQuery *) parsetree, GetTopInterXactState());
-#endif
+				(void) ExecInterXactUtility((RemoteQuery *) parsetree, GetTopInterXactState());
 			break;
 
 		case T_CleanConnStmt:
