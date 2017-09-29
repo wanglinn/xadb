@@ -840,3 +840,42 @@ alias_relid_set(PlannerInfo *root, Relids relids)
 	}
 	return result;
 }
+
+#ifdef ADB
+typedef struct find_var_context
+{
+	Var *var;
+	int attno;
+	Index relid;
+}find_var_context;
+
+static bool find_var_walker(Node *node, find_var_context *context)
+{
+	if(node == NULL)
+		return false;
+
+	if(IsA(node, Var))
+	{
+		Var *var = (Var*)node;
+		if (var->varno == context->relid &&
+			var->varattno - FirstLowInvalidHeapAttributeNumber == context->attno)
+		{
+			context->var = var;
+			return true;
+		}
+		return false;
+	}
+	return expression_tree_walker(node, find_var_walker, context);
+}
+
+Var *find_var(Node *node, int attno, Index relid)
+{
+	find_var_context context;
+	context.var = NULL;
+	context.attno = attno;
+	context.relid = relid;
+	find_var_walker(node, &context);
+	return context.var;
+}
+
+#endif /* ADB */
