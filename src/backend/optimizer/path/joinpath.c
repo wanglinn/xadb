@@ -3101,6 +3101,7 @@ static bool get_cluster_join_exprs(RelOptInfo *outerrel, RelOptInfo *innerrel,
 
 static void try_partial_sort_path_for_join(PlannerInfo *root, RelOptInfo *rel, List *all_pathkeys)
 {
+#ifdef NOT_USED
 	Path *path;
 	double rows;
 	if(all_pathkeys == NIL)
@@ -3135,5 +3136,6 @@ static void try_partial_sort_path_for_join(PlannerInfo *root, RelOptInfo *rel, L
 		path->reduce_is_valid = true;
 		add_cluster_path(rel, path);
 	}
+#endif /* NOT_USED */
 }
 #endif /* ADB */
