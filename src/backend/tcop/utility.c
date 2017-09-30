@@ -105,7 +105,6 @@ typedef struct RemoteUtilityContext
 } RemoteUtilityContext;
 
 static void ExecRemoteUtilityStmt(RemoteUtilityContext *context);
-static void ExecCatchRemoteUtilityStmt(RemoteUtilityContext *context);
 static bool IsAlterTableStmtRedistribution(AlterTableStmt *atstmt);
 static RemoteQueryExecType ExecUtilityFindNodes(ObjectType objectType, Oid relid, bool *is_temp);
 static RemoteQueryExecType ExecUtilityFindNodesRelkind(Oid relid, bool *is_temp);
@@ -682,7 +681,7 @@ standard_ProcessUtility(Node *parsetree,
 			PreventTransactionChain(isTopLevel, "CREATE TABLESPACE");
 			CreateTableSpace((CreateTableSpaceStmt *) parsetree);
 #ifdef ADB
-			ExecCatchRemoteUtilityStmt(&utilityContext);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -764,7 +763,7 @@ standard_ProcessUtility(Node *parsetree,
 			PreventTransactionChain(isTopLevel, "CREATE DATABASE");
 			createdb((CreatedbStmt *) parsetree);
 #ifdef ADB
-			ExecCatchRemoteUtilityStmt(&utilityContext);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -772,14 +771,7 @@ standard_ProcessUtility(Node *parsetree,
 			/* no event triggers for global objects */
 			AlterDatabase((AlterDatabaseStmt *) parsetree, isTopLevel);
 #ifdef ADB
-			/*
-			 * If this is not a SET TABLESPACE statement, just propogate the
-			 * cmd as usual.
-			 */
-			if (!IsSetTableSpace((AlterDatabaseStmt*) parsetree))
-				ExecRemoteUtilityStmt(&utilityContext);
-			else
-				ExecCatchRemoteUtilityStmt(&utilityContext);
+			ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			break;
 
@@ -2818,40 +2810,6 @@ IsStmtAllowedInLockedMode(Node *parsetree, const char *queryString)
 			return DISALLOW;
 	}
 	return DISALLOW;
-}
-
-/*
- * ExecCatchRemoteUtilityStmt:
- * Execute the query on remote nodes in a transaction block.
- * If this fails on one of the nodes :
- * 		Add a context message containing the failed node names.
- *		Rethrow the error with the message about the failed nodes.
- * If all are successful, just return.
- */
-static void
-ExecCatchRemoteUtilityStmt(RemoteUtilityContext *context)
-{
-	PG_TRY();
-	{
-		ExecRemoteUtilityStmt(context);
-	}
-	PG_CATCH();
-	{
-
-		/*
-		 * Some nodes failed. Add context about what all nodes the query
-		 * failed
-		 */
-		ExecNodes *coord_success_nodes = NULL;
-		ExecNodes *data_success_nodes = NULL;
-		char *msg_failed_nodes;
-
-		pgxc_all_success_nodes(&data_success_nodes, &coord_success_nodes, &msg_failed_nodes);
-		if (msg_failed_nodes)
-			errcontext("%s", msg_failed_nodes);
-		PG_RE_THROW();
-	}
-	PG_END_TRY();
 }
 
 /*
