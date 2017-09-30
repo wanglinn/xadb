@@ -1752,35 +1752,8 @@ pgxc_node_send_query_extended(PGXCNodeHandle *handle, const char *query,
 	/* NULL query indicates already prepared statement */
 	if (query)
 	{
-#ifdef DEBUG_ADB
-		if (ADB_DEBUG)
-		{
-			StringInfoData buf;
-			initStringInfo(&buf);
-			appendStringInfo(&buf, "%s/*%d*/", query, MyProcPid);
-
-			adb_ereport(LOG,
-				(errmsg("[ADB]Send to [node] %s [sock] %d [query] %s",
-					NameStr(handle->name), handle->sock, query)));
-
-			MemSet(handle->last_query, 0, DEBUG_BUF_SIZE);
-			snprintf(handle->last_query, DEBUG_BUF_SIZE, "%s", query);
-
-			if (pgxc_node_send_parse(handle, statement, buf.data, num_params, param_types))
-			{
-				pfree(buf.data);
-				return EOF;
-			}
-			pfree(buf.data);
-		} else
-		{
-			if (pgxc_node_send_parse(handle, statement, query, num_params, param_types))
-				return EOF;
-		}
-#else
 		if (pgxc_node_send_parse(handle, statement, query, num_params, param_types))
 			return EOF;
-#endif /* DEBUG_ADB */
 	}
 	if (pgxc_node_send_bind(handle, portal, statement, paramlen, params))
 		return EOF;
@@ -1879,29 +1852,9 @@ int	pgxc_node_send_query_tree(PGXCNodeHandle * handle, const char *query, String
 	int			strLen;
 	int			msgLen;
 
-#ifdef DEBUG_ADB
-	StringInfoData buf;
-#endif
-
 	/* Invalid connection state, return error */
 	if (handle->state != DN_CONNECTION_STATE_IDLE)
 		return EOF;
-
-#ifdef DEBUG_ADB
-	initStringInfo(&buf);
-	if (ADB_DEBUG)
-	{
-		appendStringInfo(&buf, "%s/*%d*/", query, MyProcPid);
-		query = buf.data;
-
-		adb_ereport(LOG,
-			(errmsg("[ADB]Send to [node] %s [sock] %d [query] %s",
-				NameStr(handle->name), handle->sock, query)));
-
-		MemSet(handle->last_query, 0, DEBUG_BUF_SIZE);
-		snprintf(handle->last_query, DEBUG_BUF_SIZE, "%s", query);
-	}
-#endif
 
 	strLen = strlen(query) + 1;
 	/* size + strlen */
@@ -1939,10 +1892,6 @@ int	pgxc_node_send_query_tree(PGXCNodeHandle * handle, const char *query, String
 	}
 
 	handle->state = DN_CONNECTION_STATE_QUERY;
-
-#ifdef DEBUG_ADB
-	pfree(buf.data);
-#endif
 
  	return pgxc_node_flush(handle);
 }
@@ -2602,29 +2551,6 @@ PGXCNodeGetNodeIdFromName(char *node_name, char node_type)
 	return PGXCNodeGetNodeId(nodeoid, node_type);
 }
 
-#ifdef DEBUG_ADB
-static const char *
-DNConnectionStateAsString(DNConnectionState state)
-{
-	switch (state)
-	{
-		case DN_CONNECTION_STATE_IDLE:
-			return "DN_CONNECTION_STATE_IDLE";
-		case DN_CONNECTION_STATE_QUERY:
-			return "DN_CONNECTION_STATE_QUERY";
-		case DN_CONNECTION_STATE_ERROR_FATAL:
-			return "DN_CONNECTION_STATE_ERROR_FATAL";
-		case DN_CONNECTION_STATE_COPY_IN:
-			return "DN_CONNECTION_STATE_COPY_IN";
-		case DN_CONNECTION_STATE_COPY_OUT:
-			return "DN_CONNECTION_STATE_COPY_OUT";
-		default:
-			break;
-	}
-	return "UNKNOWN HANDLE STATE";
-}
-#endif
-
 /*
  * Has the Datanode sent Ready For Query
  */
@@ -2655,13 +2581,6 @@ is_data_node_ready(PGXCNodeHandle * conn)
 			return false;
 
 		msg_type = get_message(conn, &msg_len, &msg);
-#ifdef DEBUG_ADB
-		adb_ereport(LOG,
-			(errcode(ERRCODE_INTERNAL_ERROR),
-			 errmsg("[process] %d [handle] %s [sock] %d [state] %s [msg_type] %c",
-			 		MyProcPid, NameStr(conn->name), conn->sock,
-			 		DNConnectionStateAsString(conn->state),msg_type)));
-#endif
 		switch (msg_type)
 		{
 			case 's':			/* PortalSuspended */

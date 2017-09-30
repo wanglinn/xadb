@@ -286,12 +286,6 @@ parse_row_count(const char *message, size_t len, uint64 *rowcount)
 			*rowcount = *rowcount * 10 + message[pos] - '0';
 			digits++;
 		}
-#ifdef DEBUG_ADB
-		else if (message[pos] == '/' && message[pos + 1] == '*')
-		{
-			break;
-		}
-#endif
 		else
 		{
 			*rowcount = 0;
@@ -395,12 +389,6 @@ HandleCommandComplete(RemoteQueryState *combiner, char *msg_body, size_t len, PG
 {
 	int 			digits = 0;
 	bool			non_fqs_dml;
-
-#ifdef DEBUG_ADB
-	adb_ereport(LOG,
-		(errmsg("[ADB] From %s receive complete(C) message: %s",
-			NameStr(conn->name), msg_body)));
-#endif
 
 	/* Is this a DML query that is not FQSed ? */
 	non_fqs_dml = (combiner->ss.ps.plan &&
@@ -778,12 +766,6 @@ HandleError(const char *from, RemoteQueryState *combiner, char *msg_body, size_t
 		/* code, message and \0 */
 		offset += strlen(str) + 2;
 	}
-
-#ifdef DEBUG_ADB
-	adb_ereport(LOG,
-		(errmsg("[ADB] From %s receive error(E) message: %s",
-			from, message)));
-#endif
 
 	/*
 	 * We may have special handling for some errors, default handling is to
@@ -1292,24 +1274,6 @@ ResponseResultAsString(int result)
 	}
 	return "UNKNOWN RESPONSE RESULT";
 }
-
-#ifdef DEBUG_ADB
-static const char *
-DNConnectionStateAsString(DNConnectionState state)
-{
-	switch (state)
-	{
-		CASESTR(DN_CONNECTION_STATE_IDLE);
-		CASESTR(DN_CONNECTION_STATE_QUERY);
-		CASESTR(DN_CONNECTION_STATE_ERROR_FATAL);
-		CASESTR(DN_CONNECTION_STATE_COPY_IN);
-		CASESTR(DN_CONNECTION_STATE_COPY_OUT);
-		default:
-			break;
-	}
-	return "UNKNOWN HANDLE STATE";
-}
-#endif
 #undef CASESTR
 
 /*
@@ -1437,17 +1401,6 @@ handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner)
 
 		/* TODO handle other possible responses */
 		msg_type = get_message(conn, &msg_len, &msg);
-#ifdef DEBUG_ADB
-		adb_ereport(LOG,
-			(errcode(ERRCODE_INTERNAL_ERROR),
-			 errmsg("[process] %d [handle] %s [sock] %d [state] %s "
-			 		"[msg_type] %c [combiner] %p [request_type] %s",
-			 		MyProcPid, NameStr(conn->name), conn->sock,
-			 		DNConnectionStateAsString(conn->state),
-			 		msg_type, combiner, combiner ?
-			 		RequestTypeAsString(combiner->request_type) :
-			 		"UNKNOWN REQUEST TYPE")));
-#endif
 		switch (msg_type)
 		{
 			case '\0':			/* Not enough data in the buffer */
@@ -4514,8 +4467,8 @@ ExecIsTempObjectIncluded(void)
  */
 TupleTableSlot *
 ExecProcNodeDMLInXC(EState *estate,
-	                TupleTableSlot *sourceDataSlot,
-	                TupleTableSlot *newDataSlot)
+					TupleTableSlot *sourceDataSlot,
+					TupleTableSlot *newDataSlot)
 {
 	ResultRelInfo *resultRelInfo = estate->es_result_relation_info;
 	RemoteQueryState *resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
@@ -4546,7 +4499,7 @@ ExecProcNodeDMLInXC(EState *estate,
 	 * the DML to be executed in this step.
 	 */
 	SetDataRowForIntParams(resultRelInfo->ri_junkFilter,
-	                       sourceDataSlot, newDataSlot, resultRemoteRel);
+						   sourceDataSlot, newDataSlot, resultRemoteRel);
 
 	/*
 	 * do_query calls get_exec_connections to determine target nodes

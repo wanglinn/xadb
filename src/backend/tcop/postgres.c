@@ -1543,18 +1543,6 @@ exec_simple_query(const char *query_string)
 		 * command the client sent, regardless of rewriting. (But a command
 		 * aborted by error will not send an EndCommand report at all.)
 		 */
-#if defined(ADB) && defined(DEBUG_ADB)
-		if (ADB_DEBUG && !IsCoordMaster())
-		{
-			StringInfoData buf;
-
-			initStringInfo(&buf);
-			appendStringInfo(&buf, "%s/*node=%s pid=%d query=%s*/",
-				completionTag, PGXCNodeName, MyProcPid, query_sql);
-			EndCommand(buf.data, dest);
-			pfree(buf.data);
-		} else
-#endif
 		EndCommand(completionTag, dest);
 	}							/* end loop over parsetrees */
 
@@ -2470,18 +2458,6 @@ exec_execute_message(const char *portal_name, long max_rows)
 		}
 
 		/* Send appropriate CommandComplete to client */
-#if defined(ADB) && defined(DEBUG_ADB)
-		if (ADB_DEBUG && !IsCoordMaster())
-		{
-			StringInfoData buf;
-
-			initStringInfo(&buf);
-			appendStringInfo(&buf, "%s/*node=%s pid=%d query=%s*/",
-				completionTag, PGXCNodeName, MyProcPid, portal->sourceText);
-			EndCommand(buf.data, dest);
-			pfree(buf.data);
-		} else
-#endif
 		EndCommand(completionTag, dest);
 	}
 	else
