@@ -5927,7 +5927,7 @@ get_insert_query_def(Query *query, deparse_context *context)
 	 * In the case of "INSERT ... DEFAULT VALUES" analyzed in pgxc planner,
 	 * return the sql statement directly if the table has no default values.
 	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !query->targetList)
+	if (IsCoordMaster() && !query->targetList)
 	{
 		appendStringInfo(buf, "%s", query->sql_statement);
 		return;
@@ -5955,7 +5955,7 @@ get_insert_query_def(Query *query, deparse_context *context)
 	 * Note again that the insert query does not need select_rte
 	 * Hence we keep both select_rte and values_rte NULL.
 	 */
-	if (!(IS_PGXC_COORDINATOR && !IsConnFromCoord()))
+	if (!IsCoordMaster())
 	{
 #endif
 

@@ -955,7 +955,7 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 																  pinfo);
 #ifdef ADB
 				/* Check if the list of queries contains temporary objects */
-				if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				if (IsCoordMaster())
 				{
 					if (pgxc_query_contains_utility(querytree_sublist))
 						ereport(ERROR,

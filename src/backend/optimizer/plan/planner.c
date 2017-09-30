@@ -240,7 +240,7 @@ planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		 * A Coordinator receiving a query from another Coordinator
 		 * is not allowed to go into PGXC planner.
 		 */
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		if (IsCoordMaster())
 			result = pgxc_planner(parse, cursorOptions, boundParams);
 		else
 #endif
@@ -318,7 +318,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		!has_parallel_hazard((Node *) parse, true);
 
 #ifdef ADB
-	glob->clusterPlanOK = IS_PGXC_COORDINATOR && !IsConnFromCoord() && CLUSTER_PLAN_OK(cursorOptions, parse);
+	glob->clusterPlanOK = (IsCoordMaster() && CLUSTER_PLAN_OK(cursorOptions, parse));
 #endif /* ADB */
 
 	/*
@@ -2639,7 +2639,7 @@ separate_rowmarks(PlannerInfo *root)
 	List		*rml_1, *rml_2;
 	ListCell	*rm;
 
-	if (IS_PGXC_DATANODE || IsConnFromCoord() || root->rowMarks == NULL)
+	if (!IsCoordMaster() || root->rowMarks == NULL)
 		return;
 
 	rml_1 = NULL;

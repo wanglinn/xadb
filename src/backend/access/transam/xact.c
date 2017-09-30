@@ -831,7 +831,7 @@ GetCurrentCommandId(bool used)
 		isCommandIdReceived = false;
 		currentCommandId = GetReceivedCommandId();
 	}
-	else if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	else if (IsCoordMaster())
 	{
 		/*
 		 * If command id reported by remote node is greater that the current
@@ -967,8 +967,7 @@ SetCurrentTransactionStartTimestamp(TimestampTz timestamp)
 	 * Datanode or NoMaster-Coordinator get timestamp from Master-Co
 	 * ordinator.
 	 */
-	if ((IS_PGXC_COORDINATOR && !IsConnFromCoord() && !FirstSnapshotSet) ||
-		(IS_PGXC_DATANODE || IsConnFromCoord()))
+	if ((IsCoordMaster() && !FirstSnapshotSet) || !IsCoordMaster())
 	{
 		globalXactStartTimestamp = timestamp;
 		globalDeltaTimestmap = globalXactStartTimestamp - xactStartTimestamp;
@@ -2667,7 +2666,7 @@ CommitTransaction(void)
 	if (cluster_ex_lock_held)
 	{
 		elog(DEBUG2, "PAUSE CLUSTER still held at commit");
-		/*if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		/*if (IsCoordMaster())
 			RequestClusterPause(false, NULL);*/
 	}
 #endif
@@ -2736,7 +2735,7 @@ CommitTransaction(void)
 	 * For remote nodes, enforce the command ID sending flag to false to avoid
 	 * sending any command ID by default as now transaction is done.
 	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IsCoordMaster())
 		SetReceivedCommandId(FirstCommandId);
 	else
 		SetSendCommandId(false);
@@ -3073,7 +3072,7 @@ PrepareTransaction(void)
 
 	RESUME_INTERRUPTS();
 #ifdef ADB
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IsCoordMaster())
 		SetReceivedCommandId(FirstCommandId);
 	else
 		SetSendCommandId(false);
@@ -3397,7 +3396,7 @@ CleanupTransaction(void)
 	 * For remote nodes, enforce the command ID sending flag to false to avoid
 	 * sending any command ID by default as now transaction is done.
 	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IsCoordMaster())
 		SetReceivedCommandId(FirstCommandId);
 	else
 		SetSendCommandId(false);
@@ -4200,7 +4199,7 @@ BeginTransactionBlock(void)
 	 * from a Coordinator. This may not be always the case depending on the queries being
 	 * run and how command Ids are generated on remote nodes.
 	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IsCoordMaster())
 		SetSendCommandId(true);
 #endif
 }

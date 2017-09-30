@@ -349,9 +349,7 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 
 #ifdef ADB
 		/* The data for materialized view comes from the initialising coordinator */
-		if (IS_PGXC_COORDINATOR &&
-			stmt->relkind == OBJECT_MATVIEW &&
-			IsConnFromCoord())
+		if (stmt->relkind == OBJECT_MATVIEW && IsCoordCandidate())
 		{
 			/* We need ExecutorStart to build the tuple descriptor only */
 			ExecutorStart(queryDesc, EXEC_FLAG_EXPLAIN_ONLY);

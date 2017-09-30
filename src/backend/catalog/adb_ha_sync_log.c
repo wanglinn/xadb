@@ -43,11 +43,7 @@ static bool WalkerMultiQueryPortal(Portal portal);
 
 #define IsNormalDatabase()	(MyDatabaseId > TemplateDbOid)
 
-#define CanAdbHaSync() \
-	(enable_adb_ha_sync && \
-	IS_PGXC_COORDINATOR && \
-	!IsConnFromCoord() && \
-	IsNormalDatabase() )
+#define CanAdbHaSync()		(enable_adb_ha_sync && IsCoordMaster() && IsNormalDatabase())
 
 void
 AddAdbHaSyncLog(TimestampTz create_time,
@@ -105,7 +101,7 @@ AddAdbHaSyncLog(TimestampTz create_time,
 	values[Anum_adb_ha_sync_log_cmdid - 1] = CommandIdGetDatum(cmdid);
 	values[Anum_adb_ha_sync_log_create_time - 1] = TimestampTzGetDatum(create_time);
 	nulls[Anum_adb_ha_sync_log_finish_time - 1] = true;
-	values[Anum_adb_ha_sync_log_sql_gram - 1] = CharGetDatum(grammar);	
+	values[Anum_adb_ha_sync_log_sql_gram - 1] = CharGetDatum(grammar);
 	values[Anum_adb_ha_sync_log_sql_kind - 1] = CharGetDatum(sql_kind);
 
 	schemaname = get_current_schema();

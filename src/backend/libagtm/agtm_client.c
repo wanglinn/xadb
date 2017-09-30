@@ -331,7 +331,7 @@ void agtm_use_result_end(StringInfo buf)
 bool
 check_agtm_host(char **newval, void **extra, GucSource source)
 {
-	if (!(IS_PGXC_COORDINATOR && !IsConnFromCoord()))
+	if (!IsCoordMaster())
 		return true;
 
 	if (save_AGtmHost == NULL)
@@ -360,7 +360,7 @@ check_agtm_host(char **newval, void **extra, GucSource source)
 bool
 check_agtm_port(int *newval, void **extra, GucSource source)
 {
-	if (!(IS_PGXC_COORDINATOR && !IsConnFromCoord()))
+	if (!IsCoordMaster())
 		return true;
 
 	if (save_AGtmPort == 0)

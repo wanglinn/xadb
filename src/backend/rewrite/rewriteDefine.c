@@ -1028,7 +1028,7 @@ dropRemoteTable(const char *relname, bool is_temp)
 	RemoteQuery	  *step;
 	StringInfoData   sql;
 
-	if (IS_PGXC_DATANODE || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return ;
 
 	initStringInfo(&sql);

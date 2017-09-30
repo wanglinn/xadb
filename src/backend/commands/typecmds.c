@@ -1257,7 +1257,7 @@ AlterEnum(AlterEnumStmt *stmt, bool isTopLevel)
 	else
 #ifdef ADB
 		/* Allow this to be run inside transaction block on remote nodes */
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		if (IsCoordMaster())
 #endif
 		PreventTransactionChain(isTopLevel, "ALTER TYPE ... ADD");
 

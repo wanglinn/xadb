@@ -15,7 +15,7 @@
 #ifndef REMOTE_XACT_H
 #define REMOTE_XACT_H
 
-#define IsUnderRemoteXact()	(IS_PGXC_COORDINATOR && !IsConnFromCoord())
+#define IsUnderRemoteXact() IsCoordMaster()
 
 extern void RemoteXactCommit(int nnodes, Oid *nodeIds);
 extern void RemoteXactAbort(int nnodes, Oid *nodeIds, bool normal);

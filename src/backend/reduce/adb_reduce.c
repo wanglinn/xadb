@@ -74,7 +74,7 @@ ResetSelfReduce(void)
 void
 AtEOXact_Reduce(void)
 {
-	if (SelfReducePort && (IS_PGXC_COORDINATOR || !IsConnFromCoord()))
+	if (SelfReducePort && IsCoordMaster())
 	{
 		StringInfo msg = RdcMsgBuf(SelfReducePort);
 

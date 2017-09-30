@@ -1055,7 +1055,7 @@ RenameDatabase(const char *oldname, const char *newname)
 	CatalogUpdateIndexes(rel, newtup);
 
 #ifdef ADB
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IsCoordMaster())
 		agtm_RenameSeuqneceByDataBase(oldname, newname);
 #endif
 
@@ -1570,7 +1570,7 @@ AlterDatabase(AlterDatabaseStmt *stmt, bool isTopLevel)
 					  dtablespace->defname)));
 #ifdef ADB
 		/* ... but we allow it on remote nodes */
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		if (IsCoordMaster())
 #endif /*ADB*/
 
 /* prevent agtm check IsTransactionBlock(), user PGXC restrict, by lvcx */

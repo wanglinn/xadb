@@ -82,7 +82,7 @@ PerformCursorOpen(PlannedStmt *stmt, ParamListInfo params,
 	/*
 	 * Consume the command id of the command creating the cursor
 	 */
-	if (IS_PGXC_COORDINATOR&& !IsConnFromCoord())
+	if (IsCoordMaster())
 		GetCurrentCommandId(true);
 #else
 	portal = CreatePortal(cstmt->portalname, false, false);

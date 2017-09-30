@@ -11,7 +11,7 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
-#define IsUnderRemoteXact() (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+#define IsUnderRemoteXact() IsCoordMaster()
 typedef enum
 {
 	TP_PREPARE	= 1 << 1,

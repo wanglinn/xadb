@@ -895,7 +895,7 @@ pgxc_fill_matview_by_copy(DestReceiver *mv_dest, bool skipdata, int operation,
 	bool		*isnulls;
 	TupleTableSlot	*slot = MakeTupleTableSlot();
 
-	Assert(IS_PGXC_COORDINATOR && IsConnFromCoord());
+	Assert(IsCoordCandidate());
 
 	/*
 	 * We need to provide the Relation where to copy to BeginCopyFrom. The
@@ -983,7 +983,7 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 	 * This function should be called only from the coordinator where the
 	 * REFRESH MV command is fired.
 	 */
-	Assert (IS_PGXC_COORDINATOR && !IsConnFromCoord());
+	Assert (IsCoordMaster());
 	/*
 	 * The other coordinator will start accepting data through COPY protocol in
 	 * response to the DDL. So, start sending the data with COPY

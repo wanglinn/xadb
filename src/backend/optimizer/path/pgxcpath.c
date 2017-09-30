@@ -140,7 +140,7 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte,
 	 * the remote query path unless relation is local to coordinator or the
 	 * query is to entirely executed on coordinator.
 	 */
-	if (!IS_PGXC_COORDINATOR || IsConnFromCoord() || root->parse->is_local)
+	if (!IsCoordMaster() || root->parse->is_local)
 		return false;
 
 	quals = extract_actual_clauses(rel->baserestrictinfo, false);

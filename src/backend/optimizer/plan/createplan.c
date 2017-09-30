@@ -3760,7 +3760,7 @@ create_mergejoin_plan(PlannerInfo *root,
 		label_sort_with_costsize(root, sort, -1.0);
 		outer_plan = (Plan *) sort;
 #ifdef ADB
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		if (IsCoordMaster())
 			outer_plan = (Plan *) create_remotesort_plan(root, outer_plan);
 #endif
 		outerpathkeys = best_path->outersortkeys;
@@ -3776,7 +3776,7 @@ create_mergejoin_plan(PlannerInfo *root,
 		label_sort_with_costsize(root, sort, -1.0);
 		inner_plan = (Plan *) sort;
 #ifdef ADB
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		if (IsCoordMaster())
 		{
 			inner_plan = (Plan *) create_remotesort_plan(root, inner_plan);
 			/* If Sort node is not needed on top of RemoteQuery node, we

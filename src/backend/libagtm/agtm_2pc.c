@@ -55,7 +55,7 @@ static bool
 CheckAgtmConnection(void)
 {
 	bool		OK;
-	
+
 	OK = ConnectionAgtmUp();
 	if (!OK)
 	{
@@ -63,7 +63,7 @@ CheckAgtmConnection(void)
 			(errmsg("AGTMconn status CONNECTION_BAD, try to reconnect")));
 
 		/* try reconnect to agtm */
-		agtm_Reset();	
+		agtm_Reset();
 		OK = ConnectionAgtmUp();
 		if (!OK)
 			ereport(INFO, (errmsg("reconnect agtm error")));
@@ -75,7 +75,7 @@ static bool
 AcceptAgtmResult(const PGresult *result)
 {
 	bool		OK;
-	
+
 	if (!result)
 		OK = false;
 	else
@@ -89,7 +89,7 @@ AcceptAgtmResult(const PGresult *result)
 				/* Fine, do nothing */
 				OK = true;
 				break;
-				
+
 			case PGRES_BAD_RESPONSE:
 			case PGRES_NONFATAL_ERROR:
 			case PGRES_FATAL_ERROR:
@@ -108,8 +108,8 @@ AcceptAgtmResult(const PGresult *result)
 	{
 		ereport(WARNING,
 			(errmsg("[From AGTM] %s", PQresultErrorMessage(result))));
-		CheckAgtmConnection();			
-	}	
+		CheckAgtmConnection();
+	}
 	return OK;
 }
 
@@ -150,14 +150,14 @@ AgtmProcessResult(PGresult **results)
 				break;
 			default:
 				is_copy = false;
-				ereport(WARNING,(errmsg("unexpected PQresultStatus: %d", 
+				ereport(WARNING,(errmsg("unexpected PQresultStatus: %d",
 					result_status)));
 				break;
 		}
 
 		if (is_copy)
 		{
-			
+
 		}
 
 		next_result = PQgetResult(getAgtmConnection());
@@ -210,7 +210,7 @@ agtm_node_send_query(const char *query)
 	bool		OK = false;
 
 	agtm_conn = getAgtmConnection();
-	
+
 	if (NULL == agtm_conn)
 		ereport(ERROR,
 			(errmsg("Failt to get agtm connection(return NULL pointer)!"),
@@ -231,16 +231,16 @@ agtm_node_send_query(const char *query)
 void agtm_BeginTransaction(void)
 {
 	char * agtm_begin_cmd = NULL;
-	
+
 	if (!IsUnderAGTM())
 		return ;
 
-	if (!GetForceXidFromAGTM() && ((!IS_PGXC_COORDINATOR || IsConnFromCoord())))
+	if (!GetForceXidFromAGTM() && !IsCoordMaster())
 		return;
 
 	if (TopXactBeginAGTM())
 		return ;
- 
+
 	agtm_begin_cmd = agtm_generate_begin_command();
 
 	agtm_node_send_query(agtm_begin_cmd);
@@ -258,7 +258,7 @@ void agtm_PrepareTransaction(const char *prepared_gid)
 	if (prepared_gid == NULL || prepared_gid[0] == 0x00)
 		return ;
 
-	if (!IS_PGXC_COORDINATOR || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return ;
 
 	if (!TopXactBeginAGTM())
@@ -290,7 +290,7 @@ void agtm_CommitTransaction(const char *prepared_gid, bool missing_ok)
 	if (!IsUnderAGTM())
 		return ;
 
-	if (!GetForceXidFromAGTM() && ((!IS_PGXC_COORDINATOR || IsConnFromCoord())))
+	if (!GetForceXidFromAGTM() && !IsCoordMaster())
 		return ;
 
 	/*
@@ -344,7 +344,7 @@ void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok)
 	if (!IsUnderAGTM())
 		return;
 
-	if (!GetForceXidFromAGTM() && ((!IS_PGXC_COORDINATOR || IsConnFromCoord())))
+	if (!GetForceXidFromAGTM() && !IsCoordMaster())
 		return ;
 
 	/*

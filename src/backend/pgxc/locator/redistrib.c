@@ -73,7 +73,7 @@ PGXCRedistribTable(RedistribState *distribState, RedistribCatalog type)
 		return;
 
 	/* Nothing to do if on remote node */
-	if (IS_PGXC_DATANODE || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return;
 
 	/* Execute each command if necessary */
@@ -468,7 +468,7 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 	TupleDesc tupdesc;
 
 	/* Nothing to do if on remote node */
-	if (IS_PGXC_DATANODE || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return;
 
 	/* Fetch necessary data to prepare for the table data acquisition */
@@ -641,7 +641,7 @@ distrib_truncate(RedistribState *distribState, ExecNodes *exec_nodes)
 	Oid			relOid = distribState->relid;
 
 	/* Nothing to do if on remote node */
-	if (IS_PGXC_DATANODE || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return;
 
 	/* A sufficient lock level needs to be taken at a higher level */
@@ -688,7 +688,7 @@ distrib_reindex(RedistribState *distribState, ExecNodes *exec_nodes)
 	Oid			relOid = distribState->relid;
 
 	/* Nothing to do if on remote node */
-	if (IS_PGXC_DATANODE || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return;
 
 	/* A sufficient lock level needs to be taken at a higher level */
@@ -735,7 +735,7 @@ distrib_delete_hash(RedistribState *distribState, ExecNodes *exec_nodes)
 	ListCell   *item;
 
 	/* Nothing to do if on remote node */
-	if (IS_PGXC_DATANODE || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return;
 
 	/* A sufficient lock level needs to be taken at a higher level */

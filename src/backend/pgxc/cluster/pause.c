@@ -44,7 +44,7 @@ ProcessClusterPauseRequest(bool pause)
 {
 	char *action = pause? pause_cluster_str:unpause_cluster_str;
 
-	if (!IS_PGXC_COORDINATOR || !IsConnFromCoord())
+	if (!IsCoordCandidate())
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("The \"%s\" message is expected to "

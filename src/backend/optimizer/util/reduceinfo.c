@@ -1805,7 +1805,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 		}
 		break;
 	case REDUCE_TYPE_COORDINATOR:
-		Assert(IS_PGXC_COORDINATOR && !IsConnFromCoord());
+		Assert(IsCoordMaster());
 		result = (Expr*)makeConst(OIDOID,
 								  -1,
 								  InvalidOid,

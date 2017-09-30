@@ -46,7 +46,7 @@ agtm_GetGlobalTransactionId(bool isSubXact)
 	agtm_use_result_type(res, &buf, AGTM_GET_GXID_RESULT);
 	pq_copymsgbytes(&buf, (char*)&gxid, sizeof(TransactionId));
 
-	ereport(DEBUG1, 
+	ereport(DEBUG1,
 		(errmsg("get global xid: %d from agtm", gxid)));
 
 	agtm_use_result_end(&buf);
@@ -78,7 +78,7 @@ agtm_CreateSequence(const char * seqName, const char * database,
 	databaseSize = strlen(database);
 	schemaSize = strlen(schema);
 
-	agtm_send_message(AGTM_MSG_SEQUENCE_INIT, 
+	agtm_send_message(AGTM_MSG_SEQUENCE_INIT,
 					  "%d%d %p%d %d%d %p%d %d%d %p%d %p%d",
 					  nameSize, 4,
 					  seqName, nameSize,
@@ -136,7 +136,7 @@ agtm_AlterSequence(const char * seqName, const char * database,
 	res = agtm_get_result(AGTM_MSG_SEQUENCE_ALTER);
 	Assert(res);
 	agtm_use_result_type(res, &buf, AGTM_MSG_SEQUENCE_ALTER_RESULT);
-	
+
 	agtm_use_result_end(&buf);
 	pfree(strOption.data);
 	PQclear(res);
@@ -182,7 +182,7 @@ agtm_DropSequence(const char * seqName, const char * database, const char * sche
 		(errmsg("drop sequence on agtm :%s", seqName)));
 }
 
-void 
+void
 agtms_DropSequenceByDataBase(const char * database)
 {
 	int				dbNameSize;
@@ -213,7 +213,7 @@ void agtm_RenameSequence(const char * seqName, const char * database,
 	int	seqNameSize;
 	int	dbNameSize;
 	int	schemaNameSize;
-	int	newNameSize;	
+	int	newNameSize;
 
 	PGresult 		*res;
 	StringInfoData	buf;
@@ -281,7 +281,7 @@ agtm_RenameSeuqneceByDataBase(const char * oldDatabase,
 
 	ereport(DEBUG1,
 		(errmsg("alter sequence on agtm by database rename old name :%s, new name :%s ",
-				oldDatabase , newDatabase)));	
+				oldDatabase , newDatabase)));
 }
 
 Timestamp
@@ -407,7 +407,7 @@ get_cluster_nextXids(TransactionId **xidarray,	/* output */
 	Oid				node;
 
 	/* Only master-coordinator can do this */
-	if (IS_PGXC_DATANODE || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return ;
 
 	/* Get cluster nodes' oids */
@@ -528,7 +528,7 @@ sync_cluster_xid(PG_FUNCTION_ARGS)
 	NameData		nodename;
 	Oid				nodeoid;
 
-	if (IS_PGXC_DATANODE || IsConnFromCoord())
+	if (!IsCoordMaster())
 		PG_RETURN_NULL();
 
 	nodeoid = agtm_SyncClusterNextXid(&cxid, &axid);
@@ -593,7 +593,7 @@ show_cluster_xid(PG_FUNCTION_ARGS)
 	} ClusterNextXids;
 	ClusterNextXids *status = NULL;
 
-	if (IS_PGXC_DATANODE || IsConnFromCoord())
+	if (!IsCoordMaster())
 		PG_RETURN_NULL();
 
 	if (SRF_IS_FIRSTCALL())
@@ -660,7 +660,7 @@ show_cluster_xid(PG_FUNCTION_ARGS)
 	SRF_RETURN_DONE(funcctx);
 }
 
-static AGTM_Sequence 
+static AGTM_Sequence
 agtm_DealSequence(const char *seqname, const char * database,
 								const char * schema, AGTM_MessageType type, AGTM_ResultType rtype)
 {
@@ -682,7 +682,7 @@ agtm_DealSequence(const char *seqname, const char * database,
 	seqNameSize = strlen(seqname);
 	databaseSize = strlen(database);
 	schemaSize = strlen(schema);
-	agtm_send_message(type, 
+	agtm_send_message(type,
 					"%d%d %p%d %d%d %p%d %d%d %p%d",
 					seqNameSize, 4,
 					seqname, seqNameSize,
@@ -701,7 +701,7 @@ agtm_DealSequence(const char *seqname, const char * database,
 	return seq;
 }
 
-AGTM_Sequence 
+AGTM_Sequence
 agtm_GetSeqNextVal(const char *seqname, const char * database,	const char * schema)
 {
 	Assert(seqname != NULL && database != NULL && schema != NULL);
@@ -710,11 +710,11 @@ agtm_GetSeqNextVal(const char *seqname, const char * database,	const char * sche
 			, AGTM_SEQUENCE_GET_NEXT_RESULT);
 }
 
-AGTM_Sequence 
+AGTM_Sequence
 agtm_GetSeqCurrVal(const char *seqname, const char * database,	const char * schema)
 {
 	Assert(seqname != NULL && database != NULL && schema != NULL);
-	
+
 	return agtm_DealSequence(seqname, database, schema, AGTM_MSG_SEQUENCE_GET_CUR
 			, AGTM_MSG_SEQUENCE_GET_CUR_RESULT);
 }
@@ -723,7 +723,7 @@ AGTM_Sequence
 agtm_GetSeqLastVal(const char *seqname, const char * database,	const char * schema)
 {
 	Assert(seqname != NULL && database != NULL && schema != NULL);
-	
+
 	return agtm_DealSequence(seqname, database, schema, AGTM_MSG_SEQUENCE_GET_LAST
 			, AGTM_SEQUENCE_GET_LAST_RESULT);
 }

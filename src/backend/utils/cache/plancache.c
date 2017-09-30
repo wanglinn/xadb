@@ -1010,8 +1010,7 @@ BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
 	 * If this plansource belongs to a named prepared statement, store the stmt
 	 * name for the Datanode queries.
 	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord()
-		&& plansource->stmt_name)
+	if (IsCoordMaster() && plansource->stmt_name)
 	{
 		ListCell	*lc;
 		int 		n;

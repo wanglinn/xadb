@@ -846,7 +846,7 @@ pg_analyze_and_rewrite_for_gram(Node *parsetree, const char *query_string,
 	querytree_list = pg_rewrite_query(query);
 
 #ifdef ADB
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IsCoordMaster())
 	{
 		ListCell   *lc;
 
@@ -1272,9 +1272,8 @@ exec_simple_query(const char *query_string)
 		 * By default we do not want Datanodes or client Coordinators to contact GTM directly,
 		 * it should get this information passed down to it.
 		 */
-		if (IS_PGXC_DATANODE || IsConnFromCoord())
+		if (!IsCoordMaster())
 			SetForceObtainXidFromAGTM(false);
-
 #endif
 
 		/*
@@ -1475,7 +1474,7 @@ exec_simple_query(const char *query_string)
 		 * aborted by error will not send an EndCommand report at all.)
 		 */
 #if defined(ADB) && defined(DEBUG_ADB)
-		if (ADB_DEBUG && (!IS_PGXC_COORDINATOR || IsConnFromCoord()))
+		if (ADB_DEBUG && !IsCoordMaster())
 		{
 			StringInfoData buf;
 
@@ -1740,7 +1739,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 
 		querytree_list = pg_rewrite_query(query);
 #ifdef ADB
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		if (IsCoordMaster())
 		{
 			ListCell   *lc;
 
@@ -2422,7 +2421,7 @@ exec_execute_message(const char *portal_name, long max_rows)
 
 		/* Send appropriate CommandComplete to client */
 #if defined(ADB) && defined(DEBUG_ADB)
-		if (ADB_DEBUG && (!IS_PGXC_COORDINATOR || IsConnFromCoord()))
+		if (ADB_DEBUG && !IsCoordMaster())
 		{
 			StringInfoData buf;
 
@@ -4612,7 +4611,7 @@ PostgresMain(int argc, char *argv[],
 			 * when it was expected. However if any deferred trigger is supposed
 			 * to be fired at commit time we need to preserve the snapshot sent previously
 			 */
-			if ((IS_PGXC_DATANODE || IsConnFromCoord()) && !IsAnyAfterTriggerDeferred())
+			if (!IsCoordMaster() && !IsAnyAfterTriggerDeferred())
 				UnsetGlobalSnapshot();
 #endif
 			send_ready_for_query = false;
@@ -4938,8 +4937,7 @@ PostgresMain(int argc, char *argv[],
 
 					elog(LOG, "Received AGTM listen port: %d", listen_port);
 
-					if (IS_PGXC_DATANODE ||
-						(IS_PGXC_COORDINATOR && IsConnFromCoord()))
+					if (IS_PGXC_DATANODE || IsCoordCandidate())
 						agtm_SetPort(listen_port);
 					sprintf(cmd_msg, "%d", listen_port);
 					EndCommand(cmd_msg, whereToSendOutput);
@@ -5036,7 +5034,7 @@ PostgresMain(int argc, char *argv[],
 					/* Set the GXID got from Master-Coordinator */
 					GlobalTransactionId gxid = InvalidGlobalTransactionId;
 
-					Assert(IS_PGXC_DATANODE || IsConnFromCoord());
+					Assert(!IsCoordMaster());
 					gxid = (GlobalTransactionId) pq_getmsgint(&input_message, 4);
 					elog(DEBUG1, "Received new global xid %u", gxid);
 					SetGlobalTransactionId(gxid);
@@ -5046,7 +5044,7 @@ PostgresMain(int argc, char *argv[],
 
 			case 's':			/* global snapshot */
 				{
-					Assert(IS_PGXC_DATANODE || IsConnFromCoord());
+					Assert(!IsCoordMaster());
 					SetGlobalSnapshot(&input_message);
 				}
 				break;

@@ -1359,7 +1359,7 @@ ExecuteTruncate(TruncateStmt *stmt)
 	 * AFTER triggers are launched. This insures that the triggers are being fired
 	 * by correct events.
 	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IsCoordMaster())
 	{
 		bool is_temp = false;
 		RemoteQuery *step = makeNode(RemoteQuery);
@@ -2778,8 +2778,7 @@ RenameRelationInternal(Oid myrelid, const char *newrelname, bool is_internal)
 	}
 
 #ifdef ADB
-	if (IS_PGXC_COORDINATOR &&
-		!IsConnFromCoord() &&
+	if (IsCoordMaster() &&
 		(targetrelation->rd_rel->reltype == OBJECT_SEQUENCE ||
 		 targetrelation->rd_rel->relkind == RELKIND_SEQUENCE) &&
 		!IsTempSequence(myrelid)) /* It is possible to rename a sequence with ALTER TABLE */
@@ -3983,10 +3982,8 @@ ATRewriteTables(AlterTableStmt *parsetree, List **wqueue, LOCKMODE lockmode)
 
 #ifdef ADB
 		/* Forbid table rewrite operations with online data redistribution */
-		if (tab->rewrite &&
-			list_length(tab->subcmds[AT_PASS_DISTRIB]) > 0 &&
-			IS_PGXC_COORDINATOR &&
-			!IsConnFromCoord())
+		if (tab->rewrite && IsCoordMaster() &&
+			list_length(tab->subcmds[AT_PASS_DISTRIB]) > 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
 					 errmsg("Incompatible operation with data redistribution")));
@@ -12061,7 +12058,7 @@ static void
 ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 {
 	/* Do nothing in the case of a remote node */
-	if (IS_PGXC_DATANODE || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return;
 
 	switch (cmd->subtype)
@@ -12759,18 +12756,18 @@ AlterSeqNamespaces(Relation classRel, Relation rel,
 		AlterTypeNamespaceInternal(RelationGetForm(seqRel)->reltype,
 								   newNspOid, false, false, objsMoved);
 #ifdef ADB
-	   if(IS_PGXC_COORDINATOR && !IsConnFromCoord())
-	   {
-		   char * seqName = NULL;
-		   char * databaseName = NULL;
-		   char * schemaName = NULL;
-		   char * schemaNewName = NULL;
+		if(IsCoordMaster())
+		{
+			char * seqName = NULL;
+			char * databaseName = NULL;
+			char * schemaName = NULL;
+			char * schemaNewName = NULL;
 
-		   seqName = RelationGetRelationName(seqRel);
-		   databaseName = get_database_name(seqRel->rd_node.dbNode);
-		   schemaName = get_namespace_name(RelationGetNamespace(seqRel));
-		   schemaNewName = get_namespace_name(newNspOid);
-		   agtm_RenameSequence(seqName, databaseName, schemaName, schemaNewName, T_RENAME_SCHEMA);
+			seqName = RelationGetRelationName(seqRel);
+			databaseName = get_database_name(seqRel->rd_node.dbNode);
+			schemaName = get_namespace_name(RelationGetNamespace(seqRel));
+			schemaNewName = get_namespace_name(newNspOid);
+			agtm_RenameSequence(seqName, databaseName, schemaName, schemaNewName, T_RENAME_SCHEMA);
 	   }
 #endif
 		/* Now we can close it.  Keep the lock till end of transaction. */

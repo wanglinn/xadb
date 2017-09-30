@@ -869,7 +869,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 							rq = (RemoteQuery *)list_nth(splan->remote_plans, n);
 						n++;
 
-						if(rq != NULL && IS_PGXC_COORDINATOR && !IsConnFromCoord())
+						if(rq != NULL && IsCoordMaster())
 						{
 							/*
 							 * Set references of returning clause by adjusting
@@ -986,7 +986,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 
 #ifdef ADB
 				/* Adjust references of remote query nodes in ModifyTable node */
-				if(IS_PGXC_COORDINATOR && !IsConnFromCoord())
+				if(IsCoordMaster())
 				{
 					ListCell *elt;
 					RemoteQuery *rq;
@@ -2883,7 +2883,7 @@ pgxc_set_agg_references(PlannerInfo *root, Agg *aggplan)
 	if (!IsA(rqplan, RemoteQuery))
 		return;
 
-	Assert(IS_PGXC_COORDINATOR && !IsConnFromCoord());
+	Assert(IsCoordMaster());
 	/*
 	 * If there are not transition results expected from lower plans, nothing to
 	 * be done here.

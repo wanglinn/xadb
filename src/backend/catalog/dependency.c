@@ -429,9 +429,7 @@ doRename(const ObjectAddress *object, const char *oldname, const char *newname)
 			  * has also to be renamed on GTM.
 			  * An operation with GTM can just be done from a remote Coordinator.
 			  */
-			 if (relKind == RELKIND_SEQUENCE &&
-				 IS_PGXC_COORDINATOR &&
-				 !IsConnFromCoord() &&
+			 if (relKind == RELKIND_SEQUENCE && IsCoordMaster() &&
 				 !IsTempSequence(object->objectId))
 			 {
 				 Relation relseq = relation_open(object->objectId, AccessShareLock);
@@ -450,7 +448,7 @@ doRename(const ObjectAddress *object, const char *oldname, const char *newname)
 			 break;
 	}
 }
- 
+
 extern void performRenameSchema(const ObjectAddress *object,
 								   const char *oldname, const char *newname)
 {
@@ -462,7 +460,7 @@ extern void performRenameSchema(const ObjectAddress *object,
   	* Check the dependencies on this object
 	* And rename object dependent if necessary
 	*/
- 
+
 	depRel = heap_open(DependRelationId, RowExclusiveLock);
 
 	targetObjects = new_object_addresses();
@@ -480,7 +478,7 @@ extern void performRenameSchema(const ObjectAddress *object,
 		ObjectAddress *thisobj = targetObjects->refs + i;
 		doRename(thisobj, oldname, newname);
 	}
- 
+
 	/* And clean up */
 	free_object_addresses(targetObjects);
 
@@ -1257,9 +1255,9 @@ doDeletion(const ObjectAddress *object, int flags)
 				 * Do not do extra process if this session is connected to a remote
 				 * Coordinator.
 				 */
-				if (!(IS_PGXC_COORDINATOR && !IsConnFromCoord()))
+				if (!IsCoordMaster())
 					break;
-				
+
 				/*
 				 * This session is connected directly to application, so extra
 				 * process related to remote nodes and GTM is needed.

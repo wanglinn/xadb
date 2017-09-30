@@ -985,7 +985,7 @@ static struct config_bool ConfigureNamesBool[] =
 		&enable_gathermerge,
 		true,
 		NULL, NULL, NULL
-	}, 
+	},
 	{
 		{"geqo", PGC_USERSET, QUERY_TUNING_GEQO,
 			gettext_noop("Enables genetic query optimization."),
@@ -7919,7 +7919,7 @@ ExecSetVariableStmt(VariableSetStmt *stmt, bool isTopLevel)
 		case VAR_RESET_ALL:
 			ResetAllOptions();
 #ifdef ADB
-			if (IS_PGXC_DATANODE || IsConnFromCoord())
+			if (!IsCoordMaster())
 				ResetTempTableNamespace();
 #endif
 			break;
@@ -8017,21 +8017,19 @@ set_config_by_name(PG_FUNCTION_ARGS)
 	 * If command is local and we are not in a transaction block do NOT
 	 * send this query to backend nodes, it is just bypassed by the backend.
 	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord()
-		&& (!is_local || IsTransactionBlock()))
+	if (IsCoordMaster() && (!is_local || IsTransactionBlock()))
 	{
 		PoolCommandType poolcmdType = (is_local ? POOL_CMD_LOCAL_SET : POOL_CMD_GLOBAL_SET);
 		StringInfoData poolcmd;
 
 		initStringInfo(&poolcmd);
 		appendStringInfo(&poolcmd, "SET %s %s TO %s",
-		                            (is_local ? "LOCAL" : ""),
-		                            name,
-		                            (value ? value : "DEFAULT"));
+								   (is_local ? "LOCAL" : ""),
+								   name,
+								   (value ? value : "DEFAULT"));
 
 		if (PoolManagerSetCommand(poolcmdType, poolcmd.data) < 0)
 			elog(ERROR, "Postgres-XC: ERROR SET query");
-
 	}
 #endif
 

@@ -194,7 +194,7 @@ bool		PersistentConnections = false;
 extern int  pool_time_out;
 
 /* connect retry times */
-int 		RetryTimes = 3;	
+int 		RetryTimes = 3;
 
 /* receive sigquit signal */
 bool	signal_quit = false;
@@ -448,7 +448,7 @@ static void PoolerLoop(void)
 		if(!PostmasterIsAlive())
 			proc_exit(1);
 
-		/* receive signal_quit and all agents had destory.exit poolmgr */ 
+		/* receive signal_quit and all agents had destory.exit poolmgr */
 		if (signal_quit && 0 == agentCount)
 			proc_exit(1);
 
@@ -604,7 +604,7 @@ static void PoolerLoop(void)
 		{
 			for(;;)
 			{
-				new_socket = accept(server_fd, NULL, NULL);		
+				new_socket = accept(server_fd, NULL, NULL);
 
 				if(new_socket == PGINVALID_SOCKET)
 					break;
@@ -908,7 +908,7 @@ void
 PoolManagerLock(bool is_lock)
 {
 	/* add by jiangmj for execute direct on (coord2) select pgxc_pool_reload()*/
-	if(IS_PGXC_COORDINATOR && IsConnFromCoord())
+	if(IsCoordCandidate())
 	{
 		if (poolHandle == NULL)
 		{
@@ -1714,7 +1714,7 @@ send_agtm_port_:
 				if(slot->retry < RetryTimes)
 				{
 					ADBNodePool *node_pool;
-					node_pool = slot->parent;					
+					node_pool = slot->parent;
 					if (node_pool->connstr != NULL)
 					{
 						PQfinish(slot->conn);
@@ -1782,8 +1782,8 @@ send_agtm_port_:
 				slot->current_list != NULL_SLOT)
 			{
 				/*
-				 * when slot->slot_state == SLOT_STATE_LOCKED, slot->current_list may be null,  had dlist_delete; 
-				 * or from SLOT_STATE_END_AGTM_PORT to SLOT_STATE_LOCKED in function process_slot_event, 
+				 * when slot->slot_state == SLOT_STATE_LOCKED, slot->current_list may be null,  had dlist_delete;
+				 * or from SLOT_STATE_END_AGTM_PORT to SLOT_STATE_LOCKED in function process_slot_event,
 				 * slot->current_list is BUSY_SLOT is not null
 				 */
 				Assert(slot->current_list != NULL_SLOT);
@@ -3412,7 +3412,7 @@ static void close_idle_connection(void)
 {
 	time_t cur_time;
 	cur_time = time(NULL);
-	close_timeout_idle_slots(cur_time + pool_time_out);	
+	close_timeout_idle_slots(cur_time + pool_time_out);
 
 	/* to test idle slot, never run in common*/
 	if(false)

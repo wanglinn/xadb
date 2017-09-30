@@ -53,6 +53,9 @@ extern Datum xc_lockForBackupKey2;
 #define IsConnFromDatanode()    (remoteConnType == REMOTE_CONN_DATANODE)
 #define IsConnFromRxactMgr()    (remoteConnType == REMOTE_CONN_RXACTMGR)
 
+#define IsCoordMaster()			(IS_PGXC_COORDINATOR && !IsConnFromCoord())
+#define IsCoordCandidate()		(IS_PGXC_COORDINATOR && IsConnFromCoord())
+
 /* key pair to be used as object id while using advisory lock for backup */
 #define XC_LOCK_FOR_BACKUP_KEY_1	0xFFFF
 #define XC_LOCK_FOR_BACKUP_KEY_2	0xFFFF

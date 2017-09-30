@@ -4599,7 +4599,7 @@ ForgetTransactionNodes(void)
 	/*
 	 * make sure ForgetTransactionNodes will be done by coordinator
 	 */
-	if (!IS_PGXC_COORDINATOR || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return ;
 
 	list_free(XactReadNodes);
@@ -4648,7 +4648,7 @@ PreCommit_Remote(const char *gid, bool missing_ok)
 	/*
 	 * make sure PreCommit_Remote will be done by coordinator
 	 */
-	if (!IS_PGXC_COORDINATOR || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return ;
 
 	if (remoteXactState.status != RXACT_PREPARED &&
@@ -4704,7 +4704,7 @@ PreCommit_Remote(const char *gid, bool missing_ok)
 bool
 PreAbort_Remote(const char *gid, bool missing_ok)
 {
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IsCoordMaster())
 	{
 		cancel_query();
 		clear_all_data();
@@ -4745,7 +4745,7 @@ PrePrepare_Remote(const char *gid)
 	/*
 	 * make sure PrePrepare_Remote will be done by coordinator
 	 */
-	if (!IS_PGXC_COORDINATOR || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return ;
 
 	init_RemoteXactState(false);
@@ -4789,7 +4789,7 @@ pgxcGetInvolvedNodes(bool localNode, Oid **nodeIds)
 	ListCell		*lc = NULL;
 	PGXCNodeHandle	*conn = NULL;
 
-	if (!IS_PGXC_COORDINATOR || IsConnFromCoord())
+	if (!IsCoordMaster())
 	{
 		*nodeIds = NULL;
 		return 0;
@@ -4901,7 +4901,7 @@ AbnormalAbort_Remote(void)
 
 	elog(DEBUG1, "Abort remote transaction in phase 1");
 
-	if (!IS_PGXC_COORDINATOR || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return ;
 
 	clear_all_handles(true);
@@ -5641,7 +5641,7 @@ PgxcNodeSyncNextXid(void)
 	int						count = 0;
 
 	/* Only master-coordinator can do this */
-	if (IS_PGXC_DATANODE || IsConnFromCoord())
+	if (!IsCoordMaster())
 		return ;
 
 	/* first sync local nextXid with agtm */

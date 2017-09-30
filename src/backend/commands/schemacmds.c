@@ -291,7 +291,7 @@ RenameSchema(const char *oldname, const char *newname)
 	CatalogUpdateIndexes(rel, tup);
 
 #ifdef ADB
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IsCoordMaster())
 	{
 		ObjectAddress		object;
 		Oid 				namespaceId;

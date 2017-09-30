@@ -595,7 +595,7 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 		}
 	}
 	/* This is not necessary for a PGXC Coordinator, we just need one plan */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IsCoordMaster())
 		return result;
 #endif
 

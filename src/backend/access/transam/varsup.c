@@ -160,7 +160,7 @@ XLogRecordXidAssignment(TransactionId xid)
 void
 SetGlobalTransactionId(GlobalTransactionId gxid)
 {
-	Assert(IS_PGXC_DATANODE || IsConnFromCoord());
+	Assert(!IsCoordMaster());
 	GlobalXid = gxid;
 	GlobalXidSetFromCOOR = true;
 }
@@ -197,7 +197,7 @@ ObtainGlobalTransactionId(bool isSubXact)
 	/*
 	 * Master-Coordinator get xid from AGTM
 	 */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IsCoordMaster())
 	{
 		gxid = agtm_GetGlobalTransactionId(isSubXact);
 		return gxid;

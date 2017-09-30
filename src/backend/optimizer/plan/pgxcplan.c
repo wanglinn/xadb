@@ -905,7 +905,7 @@ pgxc_make_modifytable(PlannerInfo *root, Plan *topplan, ModifyTablePath *mtp)
 	 * when there is something to modify.
 	 */
 
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord() && !mtp->under_cluster)
+	if (IsCoordMaster() && !mtp->under_cluster)
 		topplan = create_remotedml_plan(root, topplan, mt->operation, mtp);
 
 	return topplan;
@@ -3024,19 +3024,18 @@ List *AddRemoteParseTree(List *stmts, const char *queryString, const Node *parse
 		return result;
 
 	/* Only a remote Coordinator is allowed to send a query to backend nodes */
-	if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+	if (IsCoordMaster())
 	{
 		RemoteQuery *step = makeNode(RemoteQuery);
 		step->combine_type = COMBINE_TYPE_SAME;
 		step->sql_statement = (char *) queryString;
 		step->exec_type = remoteExecType;
 		step->is_temp = is_temp;
-		/* ADBQ
 		if(parseTree)
 		{
 			step->sql_node = makeStringInfo();
 			saveNode(step->sql_node, parseTree);
-		}*/
+		}
 		result = lappend(result, step);
 	}
 

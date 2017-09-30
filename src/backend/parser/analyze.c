@@ -510,7 +510,7 @@ transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
 		 * The command id of the select in step (e), should be such that
 		 * it does not see the insert of step (c)
 		 */
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		if (IsCoordMaster())
 		{
 			foreach(tl, stmt->withClause->ctes)
 			{
@@ -737,7 +737,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 		 * the parent, set flag to send command ID communication to remote
 		 * nodes in order to maintain global data visibility.
 		 */
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		if (IsCoordMaster())
 		{
 			target_rte = rt_fetch(qry->resultRelation, pstate->p_rtable);
 			if (is_relation_child(target_rte, selectQuery->rtable))
@@ -2333,7 +2333,7 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 		 * The command id of the select in step (c), should be such that
 		 * it does not see the insert of step (b)
 		 */
-		if (IS_PGXC_COORDINATOR && !IsConnFromCoord())
+		if (IsCoordMaster())
 		{
 			foreach(tl, stmt->withClause->ctes)
 			{
