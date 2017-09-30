@@ -290,6 +290,7 @@ static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags);
 static ClusterGatherType get_gather_type(List *reduce_info_list);
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
+static Plan *create_reducescan_plan(PlannerInfo *root, ReduceScanPath *path, int flags);
 static bool find_cluster_reduce_expr(Path *path, List **pplist);
 static void set_scan_execute_oids(Scan *scan, Path *path, PlannerInfo *root);
 #endif /* ADB */
@@ -512,6 +513,9 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 			plan = create_cluster_reduce_plan(root,
 								(ClusterReducePath*)best_path,
 								flags);
+			break;
+		case T_ReduceScan:
+			plan = (Plan*) create_reducescan_plan(root, (ReduceScanPath*)best_path, flags);
 			break;
 #endif
 		default:
@@ -6672,6 +6676,104 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 	}
 
 	return (Plan*) plan;
+}
+
+static List *remove_exec_expr(List **pplist)
+{
+	ListCell *lc,*prev,*next;
+	List *result = NIL;
+	List *list = *pplist;
+	prev = NULL;
+
+	for(lc=list_head(list);lc!=NULL;lc=next)
+	{
+		next = lnext(lc);
+		if(expression_have_exec_param(lfirst(lc)))
+		{
+			result = lappend(result, lfirst(lc));
+			list = list_delete_cell(list, lc, prev);
+		}else
+		{
+			prev = lc;
+		}
+	}
+
+	*pplist = list;
+	return result;
+}
+static Plan *create_reducescan_plan(PlannerInfo *root, ReduceScanPath *path, int flags)
+{
+	Bitmapset *attnos;
+	List *tlist;
+	ReduceScan *rc;
+	Plan *subplan;
+	Index relid;
+	int x,resno;
+
+	subplan = create_plan_recurse(root, path->reducepath, flags & ~(EXEC_FLAG_REWIND|EXEC_FLAG_BACKWARD));
+	Assert(IsA(outerPlan(subplan), SeqScan));
+
+	rc = makeNode(ReduceScan);
+	rc->targetlist = build_path_tlist(root, &path->path);
+	outerPlan(rc) = subplan;
+
+	subplan = outerPlan(subplan);
+	if(IsA(subplan, SeqScan))
+	{
+		rc->qual = remove_exec_expr(&subplan->qual);
+	}
+
+	relid = path->path.parent->relid;
+	attnos = NULL;
+	pull_varattnos((Node*)rc->targetlist, relid, &attnos);
+	pull_varattnos((Node*)rc->qual, relid, &attnos);
+
+	tlist = NIL;
+	resno = 1;
+	while((x=bms_first_member(attnos)) >= 0)
+	{
+		TargetEntry *tle;
+		Var * var = find_var((Node*)rc->targetlist, x, relid);
+		if(var == NULL)
+			var = find_var((Node*)rc->qual, x, relid);
+		Assert(var != NULL);
+		tle = makeTargetEntry((Expr*)var, resno, NULL, false);
+		tlist = lappend(tlist, tle);
+		++resno;
+	}
+	/*pull_varattnos((Node*)rc->qual, relid, &attnos);
+	while((x=bms_first_member(attnos)) >= 0)
+	{
+		TargetEntry *tle;
+		ListCell *lc;
+		Var *var = find_var((Node*)rc->qual, x, relid);
+		Assert(var != NULL);
+
+		foreach(lc, rc->targetlist)
+		{
+			tle = lfirst(lc);
+			if(equal(tle->expr, var))
+				break;
+			tle = NULL;
+		}
+		if(tle == NULL)
+		{
+			tle = makeTargetEntry((Expr*)var,
+								  list_length(rc->targetlist),
+								  NULL,
+								  true);
+			rc->targetlist = lappend(rc->targetlist, tle);
+		}
+		var->varattno = tle->resno;
+	}*/
+	bms_free(attnos);
+
+	for(subplan=outerPlan(rc);subplan;subplan=outerPlan(subplan))
+	{
+		subplan->targetlist = tlist;
+	}
+	copy_generic_path_info(rc, &path->path);
+	return rc;
 }
 
 static bool find_cluster_reduce_expr(Path *path, List **pplist)

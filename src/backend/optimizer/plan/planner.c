@@ -211,6 +211,7 @@ static bool is_remote_relation(PlannerInfo *root, Index relid);
 static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms);
 static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *context);
 static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *context);
+static bool replace_replicate_reduce(Path *path, List *reduce_replicate);
 #endif
 
 
@@ -380,6 +381,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		Path *path;
 		Bitmapset *cte_planids = NULL;
 		List *nodeOids = get_remote_nodes(NULL, best_path);
+		List *reduce_list;
 		int sub_plan_id;
 		Assert(glob->clusterPlanOK);
 
@@ -389,6 +391,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 
 		sub_plan_id = 0;
 		nodeOids = list_append_unique_oid(nodeOids, PGXCNodeOid);
+		reduce_list = list_make1(MakeReplicateReduceInfo(nodeOids));
 		forboth(lc_subroot, root->glob->subroots, lc_subplan, root->glob->subplans)
 		{
 			++sub_plan_id;
@@ -408,16 +411,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 			{
 				Assert(sub_final->cheapest_replicate_path != NULL);
 				path = sub_final->cheapest_replicate_path;
-				if(IsA(path, ClusterReducePath))
-				{
-					/* change replicate to all remote nodes */
-					ReduceInfo *rinfo;
-					Assert(path->reduce_is_valid &&
-						   IsReduceInfoListReplicated(path->reduce_info_list));
-
-					rinfo = linitial(path->reduce_info_list);
-					rinfo->storage_nodes = nodeOids;
-				}
+				replace_replicate_reduce(path, reduce_list);
 
 				if (bms_is_member(sub_plan_id, glob->rewindPlanIDs) &&
 					!ExecMaterializesOutput(path->pathtype))
@@ -1980,15 +1974,23 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			current_rel->cluster_pathlist &&
 			!has_cluster_hazard((Node*)scanjoin_target->exprs))
 		{
+			Path *path;
 			foreach(lc, current_rel->cluster_pathlist)
 			{
 				Path *subpath = lfirst(lc);
 				Assert(subpath->param_info == NULL);
 
-				lfirst(lc) = create_projection_path(root,
-													current_rel,
-													subpath,
-													scanjoin_target);
+				path = apply_projection_to_path(root, current_rel, subpath, scanjoin_target);
+				if (path != subpath)
+				{
+					lfirst(lc) = path;
+					if (subpath == current_rel->cheapest_cluster_startup_path)
+						current_rel->cheapest_cluster_startup_path = path;
+					if (subpath == current_rel->cheapest_cluster_total_path)
+						current_rel->cheapest_cluster_total_path = path;
+					if (subpath == current_rel->cheapest_replicate_path)
+						current_rel->cheapest_replicate_path = path;
+				}
 			}
 			if (!has_parallel_hazard((Node*)scanjoin_target->exprs, false))
 			{
@@ -6553,4 +6555,19 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 
 	return 0;
 }
+
+static bool replace_replicate_reduce(Path *path, List *reduce_replicate)
+{
+	ReduceInfo *rinfo;
+	if(path == NULL)
+		return false;
+	if (list_length(path->reduce_info_list) == 1)
+	{
+		rinfo = linitial(path->reduce_info_list);
+		if(IsReduceInfoFinalReplicated(rinfo))
+			path->reduce_info_list = reduce_replicate;
+	}
+	return path_tree_walker(path, replace_replicate_reduce, reduce_replicate);
+}
+
 #endif /* ADB */

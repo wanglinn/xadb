@@ -4111,6 +4111,9 @@ bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
 	case T_ClusterReducePath:
 		WALK_CHILD_PATH(ClusterReducePath, subpath);
 		break;
+	case T_ReduceScanPath:
+		WALK_CHILD_PATH(ReduceScanPath, reducepath);
+		break;
 	default:
 		ereport(ERROR, (errmsg("unrecognized path type: %d",
 			 (int) nodeTag(path))));

@@ -496,6 +496,9 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 	 * Try to clean this up when we do querytree redesign...
 	 */
 	subquery = (Query *) copyObject(orig_subquery);
+#ifdef ADB
+	subquery->in_sub_plan = true;
+#endif /* ADB */
 
 	/*
 	 * If it's an EXISTS subplan, we might be able to simplify it.
@@ -566,23 +569,22 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 			Path *cheapest_replicate = NULL;
 			Path *path;
 			ListCell *lc;
-			ReduceInfo *rinfo = NULL;
+			List *reduce_info = NIL;
 
 			foreach(lc, final_rel->cluster_pathlist)
 			{
 				path = lfirst(lc);
-				if(path_tree_have_exec_param(path, subroot))
-					continue;
 				if(!IsReduceInfoListReplicated(get_reduce_info_list(path)))
 				{
-					if(rinfo == NULL)
+					if(reduce_info == NIL)
 					{
 						/* for now just reduce to InvalidOid, before create plan change it */
-						rinfo = MakeReplicateReduceInfo(list_make1_oid(InvalidOid));
+						reduce_info = list_make1(MakeFinalReplicateReduceInfo());
 					}
-					path = create_cluster_reduce_path(root, path, list_make1(rinfo), final_rel, NIL);
+					path = create_cluster_reduce_path(root, path, reduce_info, final_rel, NIL);
 				}
-				if(cheapest_replicate == NULL || cheapest_replicate->total_cost > path->total_cost)
+				if (cheapest_replicate == NULL ||
+					compare_path_costs(cheapest_replicate, path, TOTAL_COST) > 0)
 					cheapest_replicate = path;
 			}
 
@@ -2804,6 +2806,7 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 		case T_ClusterMergeGather:
 		case T_ClusterGetCopyData:
 		case T_ClusterReduce:
+		case T_ReduceScan:
 #endif /* ADB */
 			break;
 

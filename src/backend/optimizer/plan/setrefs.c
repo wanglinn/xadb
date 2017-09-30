@@ -666,6 +666,14 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 			break;
 
 #ifdef ADB
+		case T_ReduceScan:
+			{
+				indexed_tlist *subplan_itlist = build_tlist_index(outerPlan(plan)->targetlist);
+				plan->targetlist = (List*)fix_upper_expr(root, (Node*)plan->targetlist, subplan_itlist, OUTER_VAR, rtoffset);
+				plan->qual = (List*)fix_upper_expr(root, (Node*)plan->qual, subplan_itlist, OUTER_VAR, rtoffset);
+				pfree(subplan_itlist);
+			}
+			break;
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
 			set_dummy_tlist_references(plan, rtoffset);

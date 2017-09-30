@@ -61,6 +61,7 @@
 #include "executor/nodeClusterGather.h"
 #include "executor/nodeClusterMergeGather.h"
 #include "executor/nodeClusterReduce.h"
+#include "executor/nodeReduceScan.h"
 #endif
 
 
@@ -288,6 +289,12 @@ ExecReScan(PlanState *node)
 		case T_LimitState:
 			ExecReScanLimit((LimitState *) node);
 			break;
+
+#ifdef ADB
+		case T_ReduceScanState:
+			ExecReScanReduceScan((ReduceScanState *) node);
+			break;
+#endif /* ADB */
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));

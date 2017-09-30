@@ -920,6 +920,9 @@ typedef struct ClusterReduce
 	Oid		   *collations;		/* OIDs of collations */
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
 } ClusterReduce;
+
+typedef Plan ReduceScan;
+
 #endif /* ADB */
 
 /*

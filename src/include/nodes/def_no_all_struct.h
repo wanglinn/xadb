@@ -1,12 +1,4 @@
 #define NO_STRUCT_BaseStmt
-#define NO_STRUCT_LockRelId
-#define NO_STRUCT_LockInfoData
-#define NO_STRUCT_AutoVacOpts
-#define NO_STRUCT_StdRdOptions
-#define NO_STRUCT_ViewOptions
-#define NO_STRUCT_ParamExternData
-#define NO_STRUCT_ParamListInfoData
-#define NO_STRUCT_ReduceInfo
 #define NO_STRUCT_QualCost
 #define NO_STRUCT_AggClauseCosts
 #define NO_STRUCT_MergeScanSelCache
@@ -28,3 +20,11 @@
 #define NO_STRUCT_MGRMonitorAgent
 #define NO_STRUCT_MGRStopAgent
 #define NO_STRUCT_RelationLocInfo
+#define NO_STRUCT_LockRelId
+#define NO_STRUCT_LockInfoData
+#define NO_STRUCT_AutoVacOpts
+#define NO_STRUCT_StdRdOptions
+#define NO_STRUCT_ViewOptions
+#define NO_STRUCT_ParamExternData
+#define NO_STRUCT_ParamListInfoData
+#define NO_STRUCT_ReduceInfo

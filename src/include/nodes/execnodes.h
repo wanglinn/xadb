@@ -2190,6 +2190,13 @@ typedef struct ClusterReduceState
 	struct binaryheap  *binheap; 	/* binary heap of slot indices */
 	bool			initialized;/* are subplans started? */
 } ClusterReduceState;
+
+typedef struct ReduceScanState
+{
+	ScanState			ss;
+	int					eflags;
+	Tuplestorestate	   *buffer;
+} ReduceScanState;
 #endif /* ADB */
 
 #endif   /* EXECNODES_H */

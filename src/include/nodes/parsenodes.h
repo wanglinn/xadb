@@ -193,6 +193,7 @@ typedef struct Query
 									 * from its parent OR a WITH query that
 									 * updates a table in main query and inserts
 									 * a row to the same table in WITH query*/
+	bool		in_sub_plan;
 #endif
 } Query;
 

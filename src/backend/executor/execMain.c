@@ -63,6 +63,8 @@
 #include "commands/copy.h"
 #include "executor/execCluster.h"
 #include "executor/nodeClusterReduce.h"
+#include "executor/nodeReduceScan.h"
+#include "nodes/nodeFuncs.h"
 #include "pgxc/pgxc.h"
 #endif
 
@@ -100,6 +102,9 @@ static char *ExecBuildSlotValueDescription(Oid reloid,
 							  int maxfieldlen);
 static void EvalPlanQualStart(EPQState *epqstate, EState *parentestate,
 				  Plan *planTree);
+#ifdef ADB
+static bool ExecuteReduceScanOuter(ReduceScanState *node, void *none);
+#endif /* ADB */
 
 /*
  * Note that GetUpdatedColumns() also exists in commands/trigger.c.  There does
@@ -340,6 +345,9 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	/*
 	 * run plan
 	 */
+#ifdef ADB
+	ExecuteReduceScanOuter((ReduceScanState*)(queryDesc->planstate), NULL);
+#endif /* ADB */
 	if (!ScanDirectionIsNoMovement(direction))
 		ExecutePlan(estate,
 					queryDesc->planstate,
@@ -2956,3 +2964,17 @@ EvalPlanQualEnd(EPQState *epqstate)
 	epqstate->planstate = NULL;
 	epqstate->origslot = NULL;
 }
+
+#ifdef ADB
+static bool ExecuteReduceScanOuter(ReduceScanState *node, void *none)
+{
+	if(node == NULL)
+		return false;
+
+	if(IsA(node, ReduceScanState))
+	{
+		FetchReduceScanOuter(node);
+	}
+	return planstate_tree_walker((PlanState*)node, ExecuteReduceScanOuter, NULL);
+}
+#endif /* ADB */

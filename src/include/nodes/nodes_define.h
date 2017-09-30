@@ -60,6 +60,7 @@
  *   ClusterMergeGatherState
  *   ClusterGetCopyDataState
  *   ClusterReduceState
+ *   ReduceScanState
  *   ExprState
  *   GenericExprState
  *   WholeRowVarExprState
@@ -753,6 +754,10 @@ BEGIN_NODE(ClusterReduce)
 	NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
 END_NODE(ClusterReduce)
 #endif /* NO_NODE_ClusterReduce */
+
+#ifndef NO_NODE_ReduceScan
+NODE_SAME(ReduceScan, Plan)
+#endif /* NO_NODE_ReduceScan */
 
 #endif
 
@@ -1817,6 +1822,13 @@ BEGIN_NODE(ClusterReducePath)
 END_NODE(ClusterReducePath)
 #endif /* NO_NODE_ClusterReducePath */
 
+#ifndef NO_NODE_ReduceScanPath
+BEGIN_NODE(ReduceScanPath)
+	NODE_BASE2(Path,path)
+	NODE_NODE(Path,reducepath)
+END_NODE(ReduceScanPath)
+#endif /* NO_NODE_ReduceScanPath */
+
 #endif
 
 #ifndef NO_NODE_EquivalenceClass
@@ -2007,6 +2019,7 @@ BEGIN_NODE(Query)
 	NODE_STRING(sql_statement)
 	NODE_SCALAR(bool,is_local)
 	NODE_SCALAR(bool,has_to_save_cmd_id)
+	NODE_SCALAR(bool,in_sub_plan)
 #endif
 END_NODE(Query)
 #endif /* NO_NODE_Query */

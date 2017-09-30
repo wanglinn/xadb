@@ -749,10 +749,8 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 		reduce_info_list = list_make1(rinfo);
 
-		/* move pathlist to cluster_pathlist and recost */
-		rel->cluster_pathlist = rel->pathlist;
-		rel->pathlist = NIL;
-		foreach(lc, rel->cluster_pathlist)
+		/* recost pathlist */
+		foreach(lc, rel->pathlist)
 		{
 			path = lfirst(lc);
 
@@ -761,22 +759,52 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			cost_div(path, list_length(loc_info->nodeList));
 		}
 
-		/* If appropriate, consider parallel sequential scan */
-		if (rel->consider_parallel && required_outer == NULL)
+		if (root->parse->in_sub_plan &&
+			restrict_list_have_exec_param(rel->baserestrictinfo))
 		{
-			create_plain_partial_paths(root, rel);
-			/* move pathlist to cluster_partial_pathlist */
-			foreach(lc, rel->partial_pathlist)
+			List *replicate = list_make1(MakeFinalReplicateReduceInfo());
+
+			foreach(lc, rel->pathlist)
 			{
-				path = lfirst(lc);
-
-				set_path_reduce_info_worker(path, reduce_info_list);
-
-				cost_div(path, list_length(loc_info->nodeList));
-				add_cluster_partial_path(rel, path);
+				path = (Path*)try_reducescan_path(root, rel, lfirst(lc), replicate, NULL);
+				if(path)
+				{
+					/* just using lappend, don't need add_cluster_path(...) */
+					rel->cluster_pathlist = lappend(rel->cluster_pathlist, path);
+				}
 			}
-			rel->partial_pathlist = NIL;
+			if(rel->cluster_pathlist == NIL)
+			{
+				path = create_seqscan_path(root, rel, required_outer, 0);
+				set_path_reduce_info_worker(path, reduce_info_list);
+				cost_div(path, list_length(loc_info->nodeList));
+				path = (Path*)try_reducescan_path(root, rel, path, replicate, NULL);
+				Assert(path);
+				rel->cluster_pathlist = list_make1(path);
+			}
+		}else
+		{
+			/* move pathlist to cluster_pathlist */
+			rel->cluster_pathlist = rel->pathlist;
+
+			/* If appropriate, consider parallel sequential scan */
+			if (rel->consider_parallel && required_outer == NULL)
+			{
+				create_plain_partial_paths(root, rel);
+				/* move pathlist to cluster_partial_pathlist */
+				foreach(lc, rel->partial_pathlist)
+				{
+					path = lfirst(lc);
+
+					set_path_reduce_info_worker(path, reduce_info_list);
+
+					cost_div(path, list_length(loc_info->nodeList));
+					add_cluster_partial_path(rel, path);
+				}
+				rel->partial_pathlist = NIL;
+			}
 		}
+		rel->pathlist = NIL;
 	}
 	if (!create_plainrel_rqpath(root, rel, rte, required_outer))
 	{

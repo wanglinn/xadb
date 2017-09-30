@@ -4008,6 +4008,31 @@ create_cluster_reduce_path(PlannerInfo *root,
 									 -1.0);
 }
 
+ReduceScanPath *try_reducescan_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath, List *reduce_info, List *pathkeys)
+{
+	ReduceScanPath *rs;
+	Assert(path_tree_have_exec_param(subpath, root));
+	if(subpath->pathtype != T_SeqScan)
+		return NULL;
+
+	subpath = create_cluster_reduce_path(root, subpath, reduce_info, rel, pathkeys);
+
+	rs = makeNode(ReduceScanPath);
+	rs->reducepath = subpath;
+	rs->path.pathtype = T_ReduceScan;
+	rs->path.parent = rel;
+	rs->path.pathtarget = subpath->pathtarget;
+	rs->path.parallel_aware = subpath->parallel_aware;
+	rs->path.parallel_safe = subpath->parallel_safe;
+	rs->path.parallel_workers = subpath->parallel_workers;
+	cost_material(&rs->path, subpath->startup_cost, subpath->total_cost, subpath->rows, subpath->pathtarget->width);
+	rs->path.pathkeys = pathkeys;
+	rs->path.reduce_info_list = reduce_info;
+	rs->path.reduce_is_valid = true;
+
+	return rs;
+}
+
 static void copy_path_info(Path *dest, const Path *src)
 {
 	dest->pathtarget = src->pathtarget;
@@ -4197,8 +4222,12 @@ bool path_tree_have_exec_param(Path *path, PlannerInfo *root)
 	case T_Path:
 		return restrict_list_have_exec_param(path->parent->baserestrictinfo);
 	case T_IndexPath:
-		return restrict_list_have_exec_param(((IndexPath*)path)->indexclauses)
-			|| restrict_list_have_exec_param(((IndexPath*)path)->indexquals);
+		{
+			IndexPath *index = (IndexPath*)path;
+			return restrict_list_have_exec_param(index->indexclauses) ||
+				   restrict_list_have_exec_param(index->indexquals) ||
+				   restrict_list_have_exec_param(index->indexinfo->indrestrictinfo);
+		}
 	case T_SubqueryScanPath:
 		if(restrict_list_have_exec_param(path->parent->baserestrictinfo))
 			return true;

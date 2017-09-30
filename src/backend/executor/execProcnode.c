@@ -123,6 +123,7 @@
 #include "executor/nodeClusterMergeGather.h"
 #include "executor/nodeClusterReduce.h"
 #include "executor/nodeGetCopyData.h"
+#include "executor/nodeReduceScan.h"
 #endif
 
 
@@ -372,6 +373,10 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 			result = (PlanState *) ExecInitClusterReduce((ClusterReduce*)node,
 												estate, eflags);
 			break;
+
+		case T_ReduceScan:
+			result = (PlanState *) ExecInitReduceScan((ReduceScan*)node, estate, eflags);
+			break;
 #endif
 
 		default:
@@ -594,6 +599,10 @@ ExecProcNode(PlanState *node)
 
 		case T_ClusterReduceState:
 			result = ExecClusterReduce((ClusterReduceState *) node);
+			break;
+
+		case T_ReduceScanState:
+			result = ExecReduceScan((ReduceScanState *) node);
 			break;
 #endif
 
@@ -872,6 +881,10 @@ ExecEndNode(PlanState *node)
 
 		case T_ClusterReduceState:
 			ExecEndClusterReduce((ClusterReduceState*) node);
+			break;
+
+		case T_ReduceScanState:
+			ExecEndReduceScan((ReduceScanState*) node);
 			break;
 #endif
 

@@ -965,6 +965,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 					pname = sname = "Cluster Reduce";
 			}
 			break;
+		case T_ReduceScan:
+			pname = sname = "Reduce Scan";
+			break;
 #endif /*ADB*/
 		case T_ForeignScan:
 			sname = "Foreign Scan";
@@ -1672,6 +1675,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			}
 			show_cluster_reduce_keys((ClusterReduceState *) planstate,
 									 ancestors, es);
+			break;
+		case T_ReduceScan:
+			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
 			break;
 #endif /* ADB */
 		default:
