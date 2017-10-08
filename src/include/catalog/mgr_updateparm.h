@@ -16,7 +16,9 @@ CATALOG(mgr_updateparm,4801) BKI_WITHOUT_OIDS
 	NameData	updateparmnodename;			/* updateparm nodename */
 	char		updateparmnodetype;
 	NameData	updateparmkey;
-	NameData	updateparmvalue;
+#ifdef CATALOG_VARLEN
+	text	updateparmvalue;
+#endif
 	/* CATALOG_VARLEN */
 } FormData_mgr_updateparm;
 
