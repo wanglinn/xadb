@@ -221,10 +221,7 @@ MakeInterXactState(MemoryContext context, const List *node_list)
 		mix_num = list_length(node_list);
 		mix_handle = GetMixedHandles(node_list, state);
 		Assert(mix_handle && list_length(mix_handle->handles) == mix_num);
-		/*
-		 * free previous "mix_handle" and keep the new one in state.
-		 */
-		FreeMixHandle(state->mix_handle);
+
 		state->mix_handle = mix_handle;
 		/*
 		 * generate a new "all_handle"

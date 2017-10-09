@@ -1206,9 +1206,6 @@ lreplace:;
 	}
 #endif
 
-
-
-
 	if(oldtuple!=0)
 		/* AFTER ROW UPDATE Triggers */
 		ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldtuple, tuple,

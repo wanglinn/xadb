@@ -144,7 +144,10 @@ void
 HandleCache(NodeHandle *handle)
 {
 	if (!handle || !handle->node_owner)
+	{
+		HandleGC(handle);
 		return ;
+	}
 
 	if (IsA(handle->node_owner, RemoteQueryState))
 	{
@@ -196,6 +199,9 @@ HandleBegin(InterXactState state, NodeHandle *handle,
 			GlobalTransactionId xid, TimestampTz timestamp,
 			bool need_xact_block, bool *already_begin)
 {
+	/* cache or GC */
+	HandleCache(handle);
+
 	if (!HandleSendBegin(handle, xid, timestamp, need_xact_block, already_begin))
 		return 0;
 
@@ -432,6 +438,9 @@ HandleSendQueryTree(NodeHandle *handle,
 		tree_len = query_tree->len;
 	}
 
+	/* cache or GC */
+	HandleCache(handle);
+
 	return HandleSendCID(handle, cid) &&
 		   HandleSendSnapshot(handle, snapshot) &&
 		   PQsendQueryTree(handle->node_conn, query, tree_data, tree_len);
@@ -464,6 +473,9 @@ HandleSendQueryExtend(NodeHandle *handle,
 					  const int *resultFormats)
 {
 	Assert(handle);
+
+	/* cache or GC */
+	HandleCache(handle);
 
 	return HandleSendCID(handle, cid) &&
 		   HandleSendSnapshot(handle, snapshot) &&

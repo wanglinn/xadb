@@ -84,6 +84,7 @@
 #include "agtm/agtm_client.h"
 #include "commands/copy.h"
 #include "commands/trigger.h"
+#include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
 #include "intercomm/inter-node.h"
 #include "libpq/libpq-node.h"
@@ -2373,9 +2374,16 @@ exec_execute_message(const char *portal_name, long max_rows)
 	 * Create dest receiver in MessageContext (we don't want it in transaction
 	 * context, because that may get deleted if portal contains VACUUM).
 	 */
+#ifdef ADB
+	dest = PortalSetCommandDest(portal, dest);
+#endif
 	receiver = CreateDestReceiver(dest);
 	if (dest == DestRemoteExecute)
 		SetRemoteDestReceiverParams(receiver, portal);
+#ifdef ADB
+	if (dest == DestClusterOut)
+		(void) clusterRecvSetCheckEndMsg(receiver, false);
+#endif
 
 	/*
 	 * Ensure we are in a transaction command (this should normally be the
