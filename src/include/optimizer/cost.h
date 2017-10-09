@@ -184,6 +184,11 @@ extern void final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 extern void cost_gather(GatherPath *path, PlannerInfo *root,
 			RelOptInfo *baserel, ParamPathInfo *param_info, double *rows);
 extern void cost_subplan(PlannerInfo *root, SubPlan *subplan, Plan *plan);
+#ifdef ADB
+extern void cost_subplan_cluster(PlannerInfo *root, SubPlan *subplan, Path *path);
+extern void cost_qual_eval_cluster(QualCost *cost, List *quals, PlannerInfo *root);
+extern void cost_qual_eval_node_cluster(QualCost *cost, Node *qual, PlannerInfo *root);
+#endif /* ADB */
 extern void cost_qual_eval(QualCost *cost, List *quals, PlannerInfo *root);
 extern void cost_qual_eval_node(QualCost *cost, Node *qual, PlannerInfo *root);
 extern void compute_semi_anti_join_factors(PlannerInfo *root,

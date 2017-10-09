@@ -706,6 +706,10 @@ typedef struct SubPlan
 	/* Estimated execution costs: */
 	Cost		startup_cost;	/* one-time setup cost */
 	Cost		per_call_cost;	/* cost for each subplan evaluation */
+#ifdef ADB
+	Cost		cluster_startup_cost;
+	Cost		cluster_per_call_cost;
+#endif /* ADB */
 } SubPlan;
 
 /*

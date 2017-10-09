@@ -149,6 +149,9 @@ typedef struct
 {
 	PlannerInfo *root;
 	QualCost	total;
+#ifdef ADB
+	bool		is_cluster;
+#endif
 } cost_qual_eval_context;
 
 static List *extract_nonindex_conditions(List *qual_clauses, List *indexquals);
@@ -3189,6 +3192,84 @@ cost_subplan(PlannerInfo *root, SubPlan *subplan, Plan *plan)
 	subplan->per_call_cost = sp_cost.per_tuple;
 }
 
+#ifdef ADB
+void cost_subplan_cluster(PlannerInfo *root, SubPlan *subplan, Path *path)
+{
+	QualCost	sp_cost;
+
+	/* Figure any cost for evaluating the testexpr */
+	cost_qual_eval(&sp_cost,
+				   make_ands_implicit((Expr *) subplan->testexpr),
+				   root);
+
+	if (subplan->useHashTable)
+	{
+		/*
+		 * If we are using a hash table for the subquery outputs, then the
+		 * cost of evaluating the query is a one-time cost.  We charge one
+		 * cpu_operator_cost per tuple for the work of loading the hashtable,
+		 * too.
+		 */
+		sp_cost.startup += path->total_cost +
+			cpu_operator_cost * path->rows;
+
+		/*
+		 * The per-tuple costs include the cost of evaluating the lefthand
+		 * expressions, plus the cost of probing the hashtable.  We already
+		 * accounted for the lefthand expressions as part of the testexpr, and
+		 * will also have counted one cpu_operator_cost for each comparison
+		 * operator.  That is probably too low for the probing cost, but it's
+		 * hard to make a better estimate, so live with it for now.
+		 */
+	}
+	else
+	{
+		/*
+		 * Otherwise we will be rescanning the subplan output on each
+		 * evaluation.  We need to estimate how much of the output we will
+		 * actually need to scan.  NOTE: this logic should agree with the
+		 * tuple_fraction estimates used by make_subplan() in
+		 * plan/subselect.c.
+		 */
+		Cost		path_run_cost = path->total_cost - path->startup_cost;
+
+		if (subplan->subLinkType == EXISTS_SUBLINK)
+		{
+			/* we only need to fetch 1 tuple; clamp to avoid zero divide */
+			sp_cost.per_tuple += path_run_cost / clamp_row_est(path->rows);
+		}
+		else if (subplan->subLinkType == ALL_SUBLINK ||
+				 subplan->subLinkType == ANY_SUBLINK)
+		{
+			/* assume we need 50% of the tuples */
+			sp_cost.per_tuple += 0.50 * path_run_cost;
+			/* also charge a cpu_operator_cost per row examined */
+			sp_cost.per_tuple += 0.50 * path->rows * cpu_operator_cost;
+		}
+		else
+		{
+			/* assume we need all tuples */
+			sp_cost.per_tuple += path_run_cost;
+		}
+
+		/*
+		 * Also account for subplan's startup cost. If the subplan is
+		 * uncorrelated or undirect correlated, AND its topmost node is one
+		 * that materializes its output, assume that we'll only need to pay
+		 * its startup cost once; otherwise assume we pay the startup cost
+		 * every time.
+		 */
+		if (subplan->parParam == NIL &&
+			ExecMaterializesOutput(path->pathtype))
+			sp_cost.startup += path->startup_cost;
+		else
+			sp_cost.per_tuple += path->startup_cost;
+	}
+
+	subplan->cluster_startup_cost = sp_cost.startup;
+	subplan->cluster_per_call_cost = sp_cost.per_tuple;
+}
+#endif /* ADB */
 
 /*
  * cost_rescan
@@ -3330,6 +3411,42 @@ cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel)
 		rqpath->path.total_cost += disable_cost;
 	}
 }
+
+void cost_qual_eval_cluster(QualCost *cost, List *quals, PlannerInfo *root)
+{
+	cost_qual_eval_context context;
+	ListCell   *l;
+
+	context.root = root;
+	context.total.startup = 0;
+	context.total.per_tuple = 0;
+	context.is_cluster = true;
+
+	/* We don't charge any cost for the implicit ANDing at top level ... */
+
+	foreach(l, quals)
+	{
+		Node	   *qual = (Node *) lfirst(l);
+
+		cost_qual_eval_walker(qual, &context);
+	}
+
+	*cost = context.total;
+}
+void cost_qual_eval_node_cluster(QualCost *cost, Node *qual, PlannerInfo *root)
+{
+	cost_qual_eval_context context;
+
+	context.root = root;
+	context.total.startup = 0;
+	context.total.per_tuple = 0;
+	context.is_cluster = true;
+
+	cost_qual_eval_walker(qual, &context);
+
+	*cost = context.total;
+}
+
 #endif /* ADB */
 
 /*
@@ -3350,6 +3467,9 @@ cost_qual_eval(QualCost *cost, List *quals, PlannerInfo *root)
 	context.root = root;
 	context.total.startup = 0;
 	context.total.per_tuple = 0;
+#ifdef ADB
+	context.is_cluster = false;
+#endif /* ADB */
 
 	/* We don't charge any cost for the implicit ANDing at top level ... */
 
@@ -3375,6 +3495,9 @@ cost_qual_eval_node(QualCost *cost, Node *qual, PlannerInfo *root)
 	context.root = root;
 	context.total.startup = 0;
 	context.total.per_tuple = 0;
+#ifdef ADB
+	context.is_cluster = false;
+#endif /* ADB */
 
 	cost_qual_eval_walker(qual, &context);
 
@@ -3554,9 +3677,19 @@ cost_qual_eval_walker(Node *node, cost_qual_eval_context *context)
 		 */
 		SubPlan    *subplan = (SubPlan *) node;
 
+#ifdef ADB
+		if(context->is_cluster)
+		{
+			context->total.startup += subplan->cluster_startup_cost;
+			context->total.per_tuple += subplan->cluster_per_call_cost;
+		}else
+		{
+#endif /* ADB */
 		context->total.startup += subplan->startup_cost;
 		context->total.per_tuple += subplan->per_call_cost;
-
+#ifdef ADB
+		}
+#endif
 		/*
 		 * We don't want to recurse into the testexpr, because it was already
 		 * counted in the SubPlan node's costs.  So we're done.

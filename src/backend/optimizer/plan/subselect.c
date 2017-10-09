@@ -61,6 +61,9 @@ static Node *build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
 			  List *plan_params,
 			  SubLinkType subLinkType, int subLinkId,
 			  Node *testexpr, bool adjust_testexpr,
+#ifdef ADB
+			  Path *cluster_path,
+#endif /* ADB */
 			  bool unknownEqFalse);
 static List *generate_subquery_params(PlannerInfo *root, List *tlist,
 						 List **paramIds);
@@ -550,14 +553,6 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 	 * seems no reason to postpone doing that.
 	 */
 	final_rel = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
-	best_path = get_cheapest_fractional_path(final_rel, tuple_fraction);
-
-	plan = create_plan(subroot, best_path);
-
-	/* And convert to SubPlan or InitPlan format. */
-	result = build_subplan(root, plan, subroot, plan_params,
-						   subLinkType, subLinkId,
-						   testexpr, true, isTopQual);
 #ifdef ADB
 	/* check can cluster plan */
 	if(root->glob->clusterPlanOK)
@@ -596,6 +591,24 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 			root->glob->clusterPlanOK = false;
 		}
 	}
+#endif /* ADB */
+	best_path = get_cheapest_fractional_path(final_rel, tuple_fraction);
+
+	plan = create_plan(subroot, best_path);
+
+#ifdef ADB
+	result = build_subplan(root, plan, subroot, plan_params,
+						   subLinkType, subLinkId,
+						   testexpr, true, final_rel->cheapest_replicate_path, isTopQual);
+
+#else /* ADB */
+	/* And convert to SubPlan or InitPlan format. */
+	result = build_subplan(root, plan, subroot, plan_params,
+						   subLinkType, subLinkId,
+						   testexpr, true, isTopQual);
+#endif /* ADB */
+
+#ifdef ADB
 	/* This is not necessary for a PGXC Coordinator, we just need one plan */
 	if (IsCoordMaster())
 		return result;
@@ -626,6 +639,9 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 		if (subquery)
 		{
 			/* Generate Paths for the ANY subquery; we'll need all rows */
+#ifdef ADB
+			subquery->in_sub_plan = true;
+#endif /* ADB */
 			subroot = subquery_planner(root->glob, subquery,
 									   root,
 									   false, 0.0);
@@ -652,7 +668,11 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 													 plan_params,
 													 ANY_SUBLINK, 0,
 													 newtestexpr,
-													 false, true);
+													 false,
+#ifdef ADB
+													 final_rel->cheapest_replicate_path,
+#endif /* ADB */
+													 true);
 				/* Check we got what we expected */
 				Assert(IsA(hashplan, SubPlan));
 				Assert(hashplan->parParam == NIL);
@@ -682,6 +702,9 @@ build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
 			  List *plan_params,
 			  SubLinkType subLinkType, int subLinkId,
 			  Node *testexpr, bool adjust_testexpr,
+#ifdef ADB
+			  Path *cluster_path,
+#endif /* ADB */
 			  bool unknownEqFalse)
 {
 	Node	   *result;
@@ -934,6 +957,10 @@ build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
 
 	/* Lastly, fill in the cost estimates for use later */
 	cost_subplan(root, splan, plan);
+#ifdef ADB
+	if(cluster_path)
+		cost_subplan_cluster(root, splan, cluster_path);
+#endif /* ADB */
 
 	return result;
 }
