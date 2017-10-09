@@ -1361,6 +1361,8 @@ Datum mgr_start_cn_master(PG_FUNCTION_ARGS)
 {
 	List *nodenamelist = NIL;
 
+	mgr_check_job_in_updateparam("monitor_handle_coordinator");
+
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_MASTER);
@@ -1990,6 +1992,8 @@ Datum mgr_stop_cn_master(PG_FUNCTION_ARGS)
 {
 	List *nodenamelist = NIL;
 	char *stop_mode;
+
+	mgr_check_job_in_updateparam("monitor_handle_coordinator");
 
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
