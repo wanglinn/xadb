@@ -4454,7 +4454,7 @@ create_grouping_paths(PlannerInfo *root,
 
 			gcontext.split = AGGSPLIT_SIMPLE;
 			pathlist = GetCheapestReducePathList(input_rel, input_rel->cluster_pathlist, NULL, &path);
-			if(list_member_ptr(pathlist, path))
+			if(!list_member_ptr(pathlist, path))
 				pathlist = lappend(pathlist, path);
 			foreach(lc, pathlist)
 			{
