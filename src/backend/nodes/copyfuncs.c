@@ -2836,7 +2836,9 @@ _copyQuery(const Query *from)
 	COPY_NODE_FIELD(withCheckOptions);
 #ifdef ADB
 	COPY_STRING_FIELD(sql_statement);
+	COPY_SCALAR_FIELD(is_local);
 	COPY_SCALAR_FIELD(has_to_save_cmd_id);
+	COPY_SCALAR_FIELD(in_sub_plan);
 #endif
 	return newnode;
 }
