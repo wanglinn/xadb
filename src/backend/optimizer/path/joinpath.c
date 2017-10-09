@@ -406,6 +406,9 @@ try_nestloop_path(PlannerInfo *root,
 	 * The latter two steps are expensive enough to make this two-phase
 	 * methodology worthwhile.
 	 */
+#ifdef ADB
+	workspace.is_cluster = (reduce_info_list ? true:false);
+#endif /* ADB */
 	initial_cost_nestloop(root, &workspace, jointype,
 						  outer_path, inner_path,
 						  extra->sjinfo, &extra->semifactors);
@@ -486,6 +489,9 @@ try_partial_nestloop_path(PlannerInfo *root,
 	 * Before creating a path, get a quick lower bound on what it is likely to
 	 * cost.  Bail out right away if it looks terrible.
 	 */
+#ifdef ADB
+	workspace.is_cluster = false;
+#endif /* ADB */
 	initial_cost_nestloop(root, &workspace, jointype,
 						  outer_path, inner_path,
 						  extra->sjinfo, &extra->semifactors);
@@ -543,6 +549,7 @@ try_cluster_partial_nestloop_path(PlannerInfo *root,
 	 * Before creating a path, get a quick lower bound on what it is likely to
 	 * cost.  Bail out right away if it looks terrible.
 	 */
+	workspace.is_cluster = true;
 	initial_cost_nestloop(root, &workspace, jointype,
 						  outer_path, inner_path,
 						  extra->sjinfo, &extra->semifactors);
@@ -616,6 +623,9 @@ try_mergejoin_path(PlannerInfo *root,
 	/*
 	 * See comments in try_nestloop_path().
 	 */
+#ifdef ADB
+	workspace.is_cluster = (reduce_info_list ? true:false);
+#endif /* ADB */
 	initial_cost_mergejoin(root, &workspace, jointype, mergeclauses,
 						   outer_path, inner_path,
 						   outersortkeys, innersortkeys,
@@ -700,6 +710,9 @@ try_hashjoin_path(PlannerInfo *root,
 	 * See comments in try_nestloop_path().  Also note that hashjoin paths
 	 * never have any output pathkeys, per comments in create_hashjoin_path.
 	 */
+#ifdef ADB
+	workspace.is_cluster = (reduce_info_list ? true:false);
+#endif /* ADB */
 	initial_cost_hashjoin(root, &workspace, jointype, hashclauses,
 						  outer_path, inner_path,
 						  extra->sjinfo, &extra->semifactors);
@@ -780,6 +793,9 @@ try_partial_hashjoin_path(PlannerInfo *root,
 	 * Before creating a path, get a quick lower bound on what it is likely to
 	 * cost.  Bail out right away if it looks terrible.
 	 */
+#ifdef ADB
+	workspace.is_cluster = false;
+#endif /* ADB */
 	initial_cost_hashjoin(root, &workspace, jointype, hashclauses,
 						  outer_path, inner_path,
 						  extra->sjinfo, &extra->semifactors);

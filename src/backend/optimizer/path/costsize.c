@@ -694,6 +694,11 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
 	 * What we want here is cpu_tuple_cost plus the evaluation costs of any
 	 * qual clauses that we have to evaluate as qpquals.
 	 */
+#ifdef ADB
+	if(path->path.parent->loc_info)
+		cost_qual_eval_cluster(&qpqual_cost, qpquals, root);
+	else
+#endif /* ADB */
 	cost_qual_eval(&qpqual_cost, qpquals, root);
 
 	startup_cost += qpqual_cost.startup;
@@ -1230,6 +1235,11 @@ cost_tidscan(Path *path, PlannerInfo *root,
 	 * The TID qual expressions will be computed once, any other baserestrict
 	 * quals once per retrieved tuple.
 	 */
+#ifdef ADB
+	if(path->parent->loc_info)
+		cost_qual_eval_cluster(&tid_qual_cost, tidquals, root);
+	else
+#endif /* ADB */
 	cost_qual_eval(&tid_qual_cost, tidquals, root);
 
 	/* fetch estimated page cost for tablespace containing table */
@@ -2221,6 +2231,11 @@ final_cost_nestloop(PlannerInfo *root, NestPath *path,
 	}
 
 	/* CPU costs */
+#ifdef ADB
+	if(workspace->is_cluster)
+		cost_qual_eval_cluster(&restrict_qual_cost, path->joinrestrictinfo, root);
+	else
+#endif /* ADB */
 	cost_qual_eval(&restrict_qual_cost, path->joinrestrictinfo, root);
 	startup_cost += restrict_qual_cost.startup;
 	cpu_per_tuple = cpu_tuple_cost + restrict_qual_cost.per_tuple;
@@ -2547,8 +2562,19 @@ final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 	 * Compute cost of the mergequals and qpquals (other restriction clauses)
 	 * separately.
 	 */
+#ifdef ADB
+	if(workspace->is_cluster)
+	{
+		cost_qual_eval_cluster(&merge_qual_cost, mergeclauses, root);
+		cost_qual_eval_cluster(&qp_qual_cost, path->jpath.joinrestrictinfo, root);
+	}else
+	{
+#endif /* ADB */
 	cost_qual_eval(&merge_qual_cost, mergeclauses, root);
 	cost_qual_eval(&qp_qual_cost, path->jpath.joinrestrictinfo, root);
+#ifdef ADB
+	}
+#endif /* ADB */
 	qp_qual_cost.startup -= merge_qual_cost.startup;
 	qp_qual_cost.per_tuple -= merge_qual_cost.per_tuple;
 
@@ -3011,8 +3037,19 @@ final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 	 * Compute cost of the hashquals and qpquals (other restriction clauses)
 	 * separately.
 	 */
+#ifdef ADB
+	if(workspace->is_cluster)
+	{
+		cost_qual_eval_cluster(&hash_qual_cost, hashclauses, root);
+		cost_qual_eval_cluster(&qp_qual_cost, path->jpath.joinrestrictinfo, root);
+	}else
+	{
+#endif /* ADB */
 	cost_qual_eval(&hash_qual_cost, hashclauses, root);
 	cost_qual_eval(&qp_qual_cost, path->jpath.joinrestrictinfo, root);
+#ifdef ADB
+	}
+#endif /* ADB */
 	qp_qual_cost.startup -= hash_qual_cost.startup;
 	qp_qual_cost.per_tuple -= hash_qual_cost.per_tuple;
 
@@ -3198,9 +3235,9 @@ void cost_subplan_cluster(PlannerInfo *root, SubPlan *subplan, Path *path)
 	QualCost	sp_cost;
 
 	/* Figure any cost for evaluating the testexpr */
-	cost_qual_eval(&sp_cost,
-				   make_ands_implicit((Expr *) subplan->testexpr),
-				   root);
+	cost_qual_eval_cluster(&sp_cost,
+						   make_ands_implicit((Expr *) subplan->testexpr),
+						   root);
 
 	if (subplan->useHashTable)
 	{
@@ -3749,6 +3786,11 @@ get_restriction_qual_cost(PlannerInfo *root, RelOptInfo *baserel,
 	if (param_info)
 	{
 		/* Include costs of pushed-down clauses */
+#ifdef ADB
+		if(baserel->loc_info)
+			cost_qual_eval_cluster(qpqual_cost, param_info->ppi_clauses, root);
+		else
+#endif /* ADB */
 		cost_qual_eval(qpqual_cost, param_info->ppi_clauses, root);
 
 		qpqual_cost->startup += baserel->baserestrictcost.startup;
@@ -4058,6 +4100,11 @@ set_baserel_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 
 	rel->rows = clamp_row_est(nrows);
 
+#ifdef ADB
+	if(rel->loc_info)
+		cost_qual_eval_cluster(&rel->baserestrictcost, rel->baserestrictinfo, root);
+	else
+#endif /* ADB */
 	cost_qual_eval(&rel->baserestrictcost, rel->baserestrictinfo, root);
 
 	set_rel_width(root, rel);

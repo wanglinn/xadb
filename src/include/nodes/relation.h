@@ -2182,6 +2182,9 @@ typedef struct JoinCostWorkspace
 	/* private for cost_hashjoin code */
 	int			numbuckets;
 	int			numbatches;
+#ifdef ADB
+	bool		is_cluster;
+#endif /* ADB */
 } JoinCostWorkspace;
 
 #endif   /* RELATION_H */
