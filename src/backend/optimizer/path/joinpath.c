@@ -295,7 +295,8 @@ add_paths_to_joinrel(PlannerInfo *root,
 							 jointype, &extra);
 
 #ifdef ADB
-	add_cluster_paths_to_joinrel(root, joinrel, outerrel, innerrel, jointype, &extra);
+	if(!root->must_replicate)
+		add_cluster_paths_to_joinrel(root, joinrel, outerrel, innerrel, jointype, &extra);
 #endif /* ADB */
 
 	/*
@@ -528,6 +529,8 @@ try_cluster_partial_nestloop_path(PlannerInfo *root,
 {
 	JoinCostWorkspace workspace;
 	NestPath *nestloop;
+	if(root->must_replicate)
+		return;
 
 	/*
 	 * If the inner path is parameterized, the parameterization must be fully
@@ -1008,7 +1011,7 @@ sort_inner_and_outer(PlannerInfo *root,
 						   extra);
 	}
 #ifdef ADB
-	if(outerrel->cluster_pathlist && innerrel->cluster_pathlist)
+	if(!root->must_replicate && outerrel->cluster_pathlist && innerrel->cluster_pathlist)
 	{
 		List	   *new_reduce_list;
 		ClusterJoinContext jcontext;

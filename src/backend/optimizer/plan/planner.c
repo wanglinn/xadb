@@ -1842,6 +1842,11 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		qp_extra.groupClause =
 			parse->groupingSets ? llast(rollup_groupclauses) : parse->groupClause;
 
+#ifdef ADB
+		if (root->parse->in_sub_plan &&
+			expression_have_exec_param((Expr*)tlist))
+			root->must_replicate = true;
+#endif /* ADB */
 		/*
 		 * Generate the best unsorted and presorted paths for the scan/join
 		 * portion of this Query, ie the processing represented by the

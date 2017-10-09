@@ -304,6 +304,7 @@ typedef struct PlannerInfo
 #ifdef ADB
 	/* This field is used only when RemoteScan nodes are involved */
 	int 		rs_alias_index; /* used to build the alias reference */
+	bool		must_replicate;	/* must create replicate paths */
 
 	/*
 	 * In Postgres-XC Coordinators are supposed to skip the handling of 

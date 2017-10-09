@@ -246,6 +246,12 @@ query_planner(PlannerInfo *root, List *tlist,
 		if (brel->reloptkind == RELOPT_BASEREL ||
 			brel->reloptkind == RELOPT_OTHER_MEMBER_REL)
 			total_pages += (double) brel->pages;
+#ifdef ADB
+		if (root->must_replicate == false &&
+			root->parse->in_sub_plan &&
+			restrict_list_have_exec_param(brel->baserestrictinfo))
+			root->must_replicate = true;
+#endif /* ADB */
 	}
 	root->total_table_pages = total_pages;
 

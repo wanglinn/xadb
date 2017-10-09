@@ -759,7 +759,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			cost_div(path, list_length(loc_info->nodeList));
 		}
 
-		if (root->parse->in_sub_plan &&
+		if (root->must_replicate &&
 			restrict_list_have_exec_param(rel->baserestrictinfo))
 		{
 			List *replicate = list_make1(MakeFinalReplicateReduceInfo());
