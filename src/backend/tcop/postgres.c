@@ -4703,9 +4703,7 @@ PostgresMain(int argc, char *argv[],
 					query_string = pq_getmsgstring(&input_message);
 #ifdef ADB
 					if(input_message.cursor != input_message.len)
-						/* ADBQ
-						query_node = loadNode(&input_message);*/
-						query_node = NULL;
+						query_node = loadNode(&input_message);
 					else
 						query_node = NULL;
 #endif /* ADB */
