@@ -2555,6 +2555,16 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 			}
 			else if (nestjoinOK)
 			{
+				Path *unique_outer_path = NULL;
+				JoinType jointype = jcontext->jointype;
+				if(jointype == JOIN_UNIQUE_OUTER)
+				{
+					unique_outer_path = (Path*)create_cluster_unique_path(jcontext->root,
+																		  jcontext->outerrel,
+																		  outer_path,
+																		  jcontext->extra->sjinfo);
+					jointype = JOIN_INNER;
+				}
 				if(first_try)
 				{
 					ListCell   *lc2;
@@ -2573,10 +2583,10 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 							Assert(tmp_reduce_list != NIL);
 							try_nestloop_path(jcontext->root,
 											  jcontext->joinrel,
-											  outer_path,
+											  unique_outer_path ? unique_outer_path:outer_path,
 											  innerpath,
 											  jcontext->merge_pathkeys,
-											  jcontext->jointype,
+											  jointype,
 											  ADB_ONLY_ARG(tmp_reduce_list)
 											  jcontext->extra);
 						}
@@ -2590,10 +2600,10 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 					MaterialPath *matpath = create_material_path(jcontext->innerrel, inner_path);
 					try_nestloop_path(jcontext->root,
 									  jcontext->joinrel,
-									  outer_path,
+									  unique_outer_path ? unique_outer_path:outer_path,
 									  (Path*)matpath,
 									  jcontext->merge_pathkeys,
-									  jcontext->jointype,
+									  jointype,
 									  ADB_ONLY_ARG(new_reduce_list)
 									  jcontext->extra);
 				}
