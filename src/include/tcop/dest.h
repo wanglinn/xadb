@@ -143,5 +143,8 @@ extern void EndCommand(const char *commandTag, CommandDest dest);
 
 extern void NullCommand(CommandDest dest);
 extern void ReadyForQuery(CommandDest dest);
+#ifdef ADB
+extern void ReportProcessNumber(DestReceiver *receiver, uint64 nprocessed);
+#endif
 
 #endif   /* DEST_H */

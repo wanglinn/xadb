@@ -192,6 +192,10 @@ ProcessQuery(PlannedStmt *plan,
 	 */
 	ExecutorRun(queryDesc, ForwardScanDirection, 0L);
 
+#ifdef ADB
+	ReportProcessNumber(dest, queryDesc->estate->es_processed);
+#endif
+
 	/*
 	 * Build command completion status string, if caller wants one.
 	 */
@@ -875,6 +879,10 @@ PortalRun(Portal portal, long count, bool isTopLevel,
 				 * Since it's a forward fetch, say DONE iff atEnd is now true.
 				 */
 				result = portal->atEnd;
+#ifdef ADB
+				if (result)
+					ReportProcessNumber(dest, nprocessed);
+#endif
 				break;
 
 			case PORTAL_MULTI_QUERY:

@@ -50,7 +50,8 @@ static List *RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes
 static TupleTableSlot *InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slot);
 static bool HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node);
 static PGconn *HandleGetPGconn(void *handle);
-static bool HandleRemoteData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len);
+static void HandleProcessedMsg(RemoteQueryState *node, const char *buf, int len);
+static bool HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len);
 static bool RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 static TupleDesc CreateRemoteTupleDesc(MemoryContext context, const char *msg, int len);
 
@@ -474,8 +475,28 @@ HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *sl
 	return slot;
 }
 
+static void
+HandleProcessedMsg(RemoteQueryState *node, const char *buf, int len)
+{
+	uint64 processed;
+
+	Assert(node && buf);
+	Assert(buf[0] == CLUSTER_MSG_PROCESSED);
+	Assert(len == sizeof(processed) + 1);
+	memcpy(&processed, buf + 1, sizeof(processed));
+
+	if (node->combine_type == COMBINE_TYPE_SUM)
+		node->rqs_processed += processed;
+	else
+	if (node->combine_type == COMBINE_TYPE_SAME)
+	{
+		/* TODO: check processed number returned of each PGconn */
+		node->rqs_processed = processed;
+	}
+}
+
 static bool
-HandleRemoteData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len)
+HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len)
 {
 	RemoteQueryState   *node;
 	TupleTableSlot	   *slot;
@@ -500,40 +521,47 @@ HandleRemoteData(RemoteQueryContext *context, PGconn *conn, const char *buf, int
 	if (context->fetch_batch)
 		fetch_limit = REMOTE_FETCH_SIZE;
 
-	if (*buf == CLUSTER_MSG_TUPLE_DESC)
+	switch (buf[0])
 	{
-		if (node->description_count++ == 0)
-		{
-			TupleDesc desc = CreateRemoteTupleDesc(slot->tts_mcxt, buf, len);
-			ExecSetSlotDescriptor(slot, desc);
-			if (slot == scanSlot)
-				ExecSetSlotDescriptor(nextSlot, desc);
-		}
-	} else
-	{
-		ExecClearTuple(nextSlot);
-		tmpSlot = slot;
-		if (context->fetch_count > 0)
-			tmpSlot = nextSlot;
-		if(clusterRecvTuple(tmpSlot, buf, len, ps, conn))
-		{
-			context->fetch_count++;
-			if (tmpSlot == nextSlot)
+		case CLUSTER_MSG_TUPLE_DESC:
+			if (node->description_count++ == 0)
 			{
-				/*
-				 * backward if at the end of tuplestore, so that we can fetch tuple
-				 * from tuplestore next time.
-				 */
-				if (tuplestore_ateof(tuplestorestate))
-					(void) tuplestore_advance(tuplestorestate, false);
-
-				if (context->fetch_count > fetch_limit)
-					ret = true;
+				TupleDesc desc = CreateRemoteTupleDesc(slot->tts_mcxt, buf, len);
+				ExecSetSlotDescriptor(slot, desc);
+				if (slot == scanSlot)
+					ExecSetSlotDescriptor(nextSlot, desc);
 			}
+			break;
+		case CLUSTER_MSG_PROCESSED:
+			HandleProcessedMsg(node, buf, len);
+			break;
+		default:
+			{
+				ExecClearTuple(nextSlot);
+				tmpSlot = slot;
+				if (context->fetch_count > 0)
+					tmpSlot = nextSlot;
+				if(clusterRecvTuple(tmpSlot, buf, len, ps, conn))
+				{
+					context->fetch_count++;
+					if (tmpSlot == nextSlot)
+					{
+						/*
+						 * backward if at the end of tuplestore, so that we can fetch tuple
+						 * from tuplestore next time.
+						 */
+						if (tuplestore_ateof(tuplestorestate))
+							(void) tuplestore_advance(tuplestorestate, false);
 
-			if (!TupIsNull(tmpSlot))
-				tuplestore_puttupleslot(tuplestorestate, tmpSlot);
-		}
+						if (context->fetch_count > fetch_limit)
+							ret = true;
+					}
+
+					if (!TupIsNull(tmpSlot))
+						tuplestore_puttupleslot(tuplestorestate, tmpSlot);
+				}
+			}
+			break;
 	}
 
 	return ret;
@@ -557,7 +585,7 @@ RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type,
 				buf = va_arg(args, const char*);
 				len = va_arg(args, int);
 
-				if(HandleRemoteData(context, conn, buf, len))
+				if(HandleCopyOutData(context, conn, buf, len))
 				{
 					va_end(args);
 					return true;

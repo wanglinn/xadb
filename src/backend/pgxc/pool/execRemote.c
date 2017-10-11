@@ -3662,6 +3662,8 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 	if (node->tuplestorestate != NULL)
 		ExecClearTuple(node->ss.ss_ScanTupleSlot);
 
+	ExecClearTuple(node->nextSlot);
+
 	/*
 	 * Release tuplestore resources
 	 */

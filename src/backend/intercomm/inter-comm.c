@@ -149,6 +149,9 @@ HandleCache(NodeHandle *handle)
 		return ;
 	}
 
+	if (PQisIdle(handle->node_conn))
+		return ;
+
 	if (IsA(handle->node_owner, RemoteQueryState))
 	{
 		RemoteQueryState   *node;

@@ -278,3 +278,36 @@ ReadyForQuery(CommandDest dest)
 			break;
 	}
 }
+
+#ifdef ADB
+void
+ReportProcessNumber(DestReceiver *receiver, uint64 nprocessed)
+{
+	CommandDest		dest;
+	StringInfoData	buf;
+
+	if (IsCoordMaster() || !receiver)
+		return ;
+
+	initStringInfo(&buf);
+	dest = receiver->mydest;
+	if (dest != DestClusterOut)
+	{
+		pq_sendbyte(&buf, 0);
+		pq_sendint(&buf, 0, 2);
+		pq_putmessage('H', buf.data, buf.len);
+		resetStringInfo(&buf);
+	}
+
+	serialize_processed_message(&buf, nprocessed);
+	pq_putmessage('d', buf.data, buf.len);
+
+	if (dest != DestClusterOut)
+	{
+		pq_putemptymessage('c');
+		pq_flush();
+	}
+
+	pfree(buf.data);
+}
+#endif
