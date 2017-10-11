@@ -2619,10 +2619,9 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	remotestate->eflags = (eflags & (EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD));
 
 	/*
-	 * We anyways have to support REWIND for ReScan,
-	 * BACKWARD for cache tuples.
+	 * We anyways have to support BACKWARD for cache tuples.
 	 */
-	remotestate->eflags |= (EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD);
+	remotestate->eflags |= EXEC_FLAG_BACKWARD;
 
 	/*
 	 * tuplestorestate of RemoteQueryState is for two purposes,
@@ -2638,6 +2637,8 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	ExecInitScanTupleSlot(estate, &remotestate->ss);
 	scan_type = ExecTypeFromTL(node->base_tlist, false);
 	ExecAssignScanType(&remotestate->ss, scan_type);
+	remotestate->nextSlot = ExecInitExtraTupleSlot(estate);
+	ExecSetSlotDescriptor(remotestate->nextSlot, scan_type);
 
 	remotestate->ss.ps.ps_TupFromTlist = false;
 
@@ -3447,6 +3448,11 @@ RemoteQueryNext(ScanState *scan_node)
 	} else
 	if (TupIsNull(scanslot))
 	{
+		scanslot = FetchRemoteQuery(node, scanslot);
+		node->eof_underlying = TupIsNull(scanslot);
+	}
+#if 0
+	{
 		Tuplestorestate*tuplestorestate = node->tuplestorestate;
 		bool			eof_tuplestore;
 
@@ -3476,7 +3482,6 @@ RemoteQueryNext(ScanState *scan_node)
 				node->eof_underlying = true;
 		}
 	}
-#if 0
 	else if(node->tuplestorestate)
 	{
 		/*
@@ -3656,6 +3661,7 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 
 	if (node->tuplestorestate != NULL)
 		ExecClearTuple(node->ss.ss_ScanTupleSlot);
+
 	/*
 	 * Release tuplestore resources
 	 */

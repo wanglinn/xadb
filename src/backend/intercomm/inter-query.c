@@ -36,18 +36,23 @@
 #include "utils/lsyscache.h"
 #include "utils/snapmgr.h"
 
+#define REMOTE_FETCH_SIZE	64
+
 typedef struct RemoteQueryContext
 {
 	RemoteQueryState   *node;
 	TupleTableSlot	   *slot;
+	bool				fetch_batch;
+	uint64				fetch_count;
 } RemoteQueryContext;
 
 static List *RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes);
 static TupleTableSlot *InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slot);
 static bool HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node);
 static PGconn *HandleGetPGconn(void *handle);
+static bool HandleRemoteData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len);
 static bool RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
-static TupleDesc CreateRemoteTupleDesc(const char *msg, int len);
+static TupleDesc CreateRemoteTupleDesc(MemoryContext context, const char *msg, int len);
 
 static List *
 RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes)
@@ -262,8 +267,6 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slo
 
 	PG_TRY();
 	{
-		ExecClearTuple(slot);
-
 		if (pr_handle)
 		{
 			if (!HandleBegin(state, pr_handle, gxid, timestamp, need_xact_block, &already_begin) ||
@@ -277,8 +280,7 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slo
 			}
 
 			/* try to get the first no-null slot */
-			if (TupIsNull(slot))
-				slot = HandleGetRemoteSlot(pr_handle, slot, node, true);
+			slot = HandleFetchRemote(pr_handle, node, slot, true, false);
 		}
 
 		foreach (lc_handle, mix_handle->handles)
@@ -420,35 +422,121 @@ TupleTableSlot *
 FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 {
 	RemoteQueryContext	context;
+	Tuplestorestate	   *tuplestorestate = node->tuplestorestate;
+	bool				eof_tuplestore;
 	List			   *handle_list = NIL;
 
-	if (!node || !slot)
-		return NULL;
+	Assert(node && slot);
+	ExecClearTuple(slot);
 
-	handle_list = node->cur_handles;
-	context.node = node;
-	context.slot = slot;
+	tuplestorestate = node->tuplestorestate;
+	Assert(tuplestorestate);
 
-	PQNListExecFinish(handle_list, HandleGetPGconn, RemoteQueryFinishHook, &context, true);
+	eof_tuplestore = tuplestore_ateof(tuplestorestate);
+	if (!eof_tuplestore)
+	{
+		if (!tuplestore_gettupleslot(tuplestorestate, true, false, slot))
+			eof_tuplestore = true;
+	}
+
+	if (eof_tuplestore)
+	{
+		handle_list = node->cur_handles;
+		context.node = node;
+		context.slot = slot;
+		if (node->eflags & EXEC_FLAG_REWIND)
+			context.fetch_batch = true;
+		else
+			context.fetch_batch = false;
+		context.fetch_count = 0;
+
+		PQNListExecFinish(handle_list, HandleGetPGconn, RemoteQueryFinishHook, &context, true);
+	}
 
 	return slot;
 }
 
 TupleTableSlot *
-HandleGetRemoteSlot(NodeHandle *handle, TupleTableSlot *slot, RemoteQueryState *node, bool blocking)
+HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *slot, bool blocking, bool batch)
 {
 	RemoteQueryContext context;
 
-	if (!handle || !slot)
-		return NULL;
+	Assert(handle && node && slot);
+	ExecClearTuple(slot);
 
 	context.node = node;
 	context.slot = slot;
-	ExecClearTuple(slot);
+	context.fetch_batch = batch;
+	context.fetch_count = 0;
 
 	PQNOneExecFinish(handle->node_conn, RemoteQueryFinishHook, &context, blocking);
 
 	return slot;
+}
+
+static bool
+HandleRemoteData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len)
+{
+	RemoteQueryState   *node;
+	TupleTableSlot	   *slot;
+	TupleTableSlot	   *tmpSlot;
+	TupleTableSlot	   *scanSlot;
+	TupleTableSlot	   *nextSlot;
+	PlanState		   *ps;
+	Tuplestorestate	   *tuplestorestate;
+	bool				ret = false;
+	uint64				fetch_limit = 1;
+
+	Assert(context && buf);
+	node = context->node;
+	slot = context->slot;
+	ps = &(node->ss.ps);
+	Assert(node);
+	scanSlot = node->ss.ss_ScanTupleSlot;
+	nextSlot = node->nextSlot;
+	tuplestorestate = node->tuplestorestate;
+	Assert(tuplestorestate);
+
+	if (context->fetch_batch)
+		fetch_limit = REMOTE_FETCH_SIZE;
+
+	if (*buf == CLUSTER_MSG_TUPLE_DESC)
+	{
+		if (node->description_count++ == 0)
+		{
+			TupleDesc desc = CreateRemoteTupleDesc(slot->tts_mcxt, buf, len);
+			ExecSetSlotDescriptor(slot, desc);
+			if (slot == scanSlot)
+				ExecSetSlotDescriptor(nextSlot, desc);
+		}
+	} else
+	{
+		ExecClearTuple(nextSlot);
+		tmpSlot = slot;
+		if (context->fetch_count > 0)
+			tmpSlot = nextSlot;
+		if(clusterRecvTuple(tmpSlot, buf, len, ps, conn))
+		{
+			context->fetch_count++;
+			if (tmpSlot == nextSlot)
+			{
+				/*
+				 * backward if at the end of tuplestore, so that we can fetch tuple
+				 * from tuplestore next time.
+				 */
+				if (tuplestore_ateof(tuplestorestate))
+					(void) tuplestore_advance(tuplestorestate, false);
+
+				if (context->fetch_count > fetch_limit)
+					ret = true;
+			}
+
+			if (!TupIsNull(tmpSlot))
+				tuplestore_puttupleslot(tuplestorestate, tmpSlot);
+		}
+	}
+
+	return ret;
 }
 
 static bool
@@ -464,26 +552,12 @@ RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type,
 			{
 				int				len;
 				const char		*buf;
-				RemoteQueryState*node;
-				TupleTableSlot	*slot;
-				PlanState		*ps;
 
 				va_start(args, type);
 				buf = va_arg(args, const char*);
 				len = va_arg(args, int);
 
-				node = ((RemoteQueryContext*)context)->node;
-				slot = ((RemoteQueryContext*)context)->slot;
-				ps = &(node->ss.ps);
-				if (*buf == CLUSTER_MSG_TUPLE_DESC)
-				{
-					if (node->description_count++ == 0)
-					{
-						ExecSetSlotDescriptor(slot,
-									CreateRemoteTupleDesc(buf, len));
-					}
-				} else
-				if(clusterRecvTuple(slot, buf, len, ps, conn))
+				if(HandleRemoteData(context, conn, buf, len))
 				{
 					va_end(args);
 					return true;
@@ -517,7 +591,7 @@ RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type,
 }
 
 static TupleDesc
-CreateRemoteTupleDesc(const char *msg, int len)
+CreateRemoteTupleDesc(MemoryContext context, const char *msg, int len)
 {
 	StringInfoData	buf;
 	TupleDesc		desc;
@@ -526,8 +600,12 @@ CreateRemoteTupleDesc(const char *msg, int len)
 	char		   *attname;
 	int32			atttypmod;
 	int32			attndims;
+	MemoryContext	oldContext;
 
 	Assert(msg[0] == CLUSTER_MSG_TUPLE_DESC);
+
+	oldContext = MemoryContextSwitchTo(context);
+
 	natts = *(int *) &(msg[2]);
 	desc = CreateTemplateTupleDesc(natts, (bool) msg[1]);
 
@@ -549,6 +627,8 @@ CreateRemoteTupleDesc(const char *msg, int len)
 
 		TupleDescInitEntry(desc, (AttrNumber) i, attname, atttypid, atttypmod, attndims);
 	}
+
+	(void) MemoryContextSwitchTo(oldContext);
 
 	return desc;
 }

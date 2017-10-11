@@ -152,36 +152,16 @@ HandleCache(NodeHandle *handle)
 	if (IsA(handle->node_owner, RemoteQueryState))
 	{
 		RemoteQueryState   *node;
-		TupleTableSlot	   *slot;
-		Tuplestorestate	   *tuplestorestate;
+		TupleTableSlot	   *nextSlot;
 
 		node = (RemoteQueryState *) handle->node_owner;
 
-#if 0
-		/*
-		 * just return if reach end of RemoteQueryState.
-		 */
-		if (node->eof_underlying)
-			return ;
-#endif
-
-		tuplestorestate = node->tuplestorestate;
-		Assert(tuplestorestate);
-
-		/*
-		 * backward if at the end of tuplestore, so that we can fetch tuple
-		 * from tuplestore next time.
-		 */
-		if (tuplestore_ateof(tuplestorestate))
-			(void) tuplestore_advance(tuplestorestate, false);
-
-		slot = node->ss.ss_ScanTupleSlot;
+		nextSlot = node->nextSlot;
 		for (;;)
 		{
-			slot = HandleGetRemoteSlot(handle, slot, node, true);
-			if (TupIsNull(slot))
+			nextSlot = HandleFetchRemote(handle, node, nextSlot, true, true);
+			if (TupIsNull(nextSlot))
 				break;
-			tuplestore_puttupleslot(node->tuplestorestate, slot);
 		}
 	}
 }

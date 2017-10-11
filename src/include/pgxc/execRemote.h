@@ -91,6 +91,7 @@ typedef struct RemoteQueryState
 	ScanState	ss;						/* its first field is NodeTag */
 	List	   *cur_handles;			/* current participating nodes */
 	List	   *all_handles;			/* all participating nodes */
+	TupleTableSlot *nextSlot;			/* used to keep next scan slot */
 	int			node_count;				/* total count of participating nodes */
 	PGXCNodeHandle **connections;		/* Datanode connections being combined */
 	int			conn_count;				/* count of active connections */

@@ -167,7 +167,8 @@ extern void EndFinishPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool
 extern List *GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQueryExecType exec_type);
 extern TupleTableSlot *StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot);
 extern TupleTableSlot *FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot);
-extern TupleTableSlot *HandleGetRemoteSlot(NodeHandle *handle, TupleTableSlot *slot, RemoteQueryState *node, bool blocking);
+extern TupleTableSlot *HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *slot,
+										 bool blocking, bool batch);
 extern void CloseRemoteStatement(const char *stmt_name, Oid *nodes, int nnodes);
 
 #endif /* INTER_COMM_H */
