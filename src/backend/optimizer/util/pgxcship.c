@@ -434,7 +434,7 @@ pgxc_FQS_find_datanodes(Shippability_context *sc_context)
 			exec_nodes->nodeList = GetPreferredRepNodeIdx(exec_nodes->nodeList);
 			list_free(tmp_list);
 			tmp_list = exec_nodes->nodeids;
-			exec_nodes->nodeids = GetPreferredRepNodeIdx(exec_nodes->nodeids);
+			exec_nodes->nodeids = GetPreferredRepNodeIds(exec_nodes->nodeids);
 			list_free(tmp_list);
 		}
 		return exec_nodes;
