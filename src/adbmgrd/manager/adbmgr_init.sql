@@ -1110,7 +1110,9 @@ mgr_append_dnslave(cstring),
 mgr_append_dnextra(cstring),
 mgr_append_coordmaster(cstring),
 mgr_append_agtmslave(cstring),
-mgr_append_agtmextra(cstring)
+mgr_append_agtmextra(cstring),
+mgr_append_coord_to_coord(cstring,cstring),
+mgr_append_activate_coord(cstring)
 from public;
 
 -- monitor
@@ -1123,6 +1125,12 @@ mgr_monitor_nodetype_namelist(bigint, "any"),
 mgr_monitor_nodetype_all(bigint),
 mgr_monitor_ha()
 from public;
+
+--switchover
+revoke execute on function
+mgr_switchover_func(int, cstring, int)
+from public;
+
 
 revoke execute on function mgr_priv_manage(bigint,text[],text[]) from public;
 revoke execute on function mgr_list_acl_all()from public;
