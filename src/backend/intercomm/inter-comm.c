@@ -641,7 +641,6 @@ HandleFinishCommandHook(void *context, struct pg_conn *conn, PQNHookFuncType typ
 		case PQNHFT_ERROR:
 			return PQNEFHNormal(NULL, conn, type);
 		case PQNHFT_COPY_OUT_DATA:
-			Assert(false);
 			break;
 		case PQNHFT_COPY_IN_ONLY:
 			PQputCopyEnd(conn, NULL);

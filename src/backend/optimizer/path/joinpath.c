@@ -30,12 +30,6 @@
 #include "utils/lsyscache.h"
 #endif /* ADB */
 
-#ifdef ADB
-#define ADB_ONLY_ARG(v) v,
-#else
-#define ADB_ONLY_ARG(v)
-#endif /* ADB */
-
 /* Hook for plugins to get control in add_paths_to_joinrel() */
 set_join_pathlist_hook_type set_join_pathlist_hook = NULL;
 

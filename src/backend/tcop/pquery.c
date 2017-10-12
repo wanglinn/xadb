@@ -43,6 +43,7 @@ static void ProcessQuery(PlannedStmt *plan,
 			 const char *sourceText,
 			 ParamListInfo params,
 			 DestReceiver *dest,
+			 ADB_ONLY_ARG(uint64 *nprocessed)
 			 char *completionTag);
 static void FillPortalStore(Portal portal, bool isTopLevel);
 static uint64 RunFromStore(Portal portal, ScanDirection direction, uint64 count,
@@ -55,6 +56,7 @@ static void PortalRunUtility(Portal portal, Node *utilityStmt,
 static void PortalRunMulti(Portal portal,
 			   bool isTopLevel, bool setHoldSnapshot,
 			   DestReceiver *dest, DestReceiver *altdest,
+			   ADB_ONLY_ARG(uint64 *nprocessed)
 			   char *completionTag);
 static uint64 DoPortalRunFetch(Portal portal,
 				 FetchDirection fdirection,
@@ -169,6 +171,7 @@ ProcessQuery(PlannedStmt *plan,
 			 const char *sourceText,
 			 ParamListInfo params,
 			 DestReceiver *dest,
+			 ADB_ONLY_ARG(uint64 *nprocessed)
 			 char *completionTag)
 {
 	QueryDesc  *queryDesc;
@@ -191,10 +194,6 @@ ProcessQuery(PlannedStmt *plan,
 	 * Run the plan to completion.
 	 */
 	ExecutorRun(queryDesc, ForwardScanDirection, 0L);
-
-#ifdef ADB
-	ReportProcessNumber(dest, queryDesc->estate->es_processed);
-#endif
 
 	/*
 	 * Build command completion status string, if caller wants one.
@@ -234,6 +233,30 @@ ProcessQuery(PlannedStmt *plan,
 				break;
 		}
 	}
+
+#ifdef ADB
+	/*
+	 * Record the number of records processed.
+	 */
+	if (nprocessed)
+		*nprocessed = 0;
+
+	if (completionTag)
+	{
+		switch (queryDesc->operation)
+		{
+			case CMD_SELECT:
+			case CMD_INSERT:
+			case CMD_UPDATE:
+			case CMD_DELETE:
+				if (nprocessed)
+					*nprocessed = queryDesc->estate->es_processed;
+				break;
+			default:
+				break;
+		}
+	}
+#endif
 
 	/*
 	 * Now, we close down all the scans and free allocated resources.
@@ -781,7 +804,7 @@ PortalRun(Portal portal, long count, bool isTopLevel,
 		  char *completionTag)
 {
 	bool		result;
-	uint64		nprocessed;
+	uint64		nprocessed = 0;
 	ResourceOwner saveTopTransactionResourceOwner;
 	MemoryContext saveTopTransactionContext;
 	Portal		saveActivePortal;
@@ -879,15 +902,11 @@ PortalRun(Portal portal, long count, bool isTopLevel,
 				 * Since it's a forward fetch, say DONE iff atEnd is now true.
 				 */
 				result = portal->atEnd;
-#ifdef ADB
-				if (result)
-					ReportProcessNumber(dest, nprocessed);
-#endif
 				break;
 
 			case PORTAL_MULTI_QUERY:
 				PortalRunMulti(portal, isTopLevel, false,
-							   dest, altdest, completionTag);
+							   dest, altdest, ADB_ONLY_ARG(&nprocessed) completionTag);
 
 				/* Prevent portal's commands from being re-executed */
 				MarkPortalDone(portal);
@@ -902,6 +921,11 @@ PortalRun(Portal portal, long count, bool isTopLevel,
 				result = false; /* keep compiler quiet */
 				break;
 		}
+
+#ifdef ADB
+		if (result && nprocessed > 0)
+			ReportProcessNumber(dest, nprocessed);
+#endif
 	}
 	PG_CATCH();
 	{
@@ -1145,7 +1169,7 @@ FillPortalStore(Portal portal, bool isTopLevel)
 			 * portal's holdSnapshot to the snapshot used (or a copy of it).
 			 */
 			PortalRunMulti(portal, isTopLevel, true,
-						   treceiver, None_Receiver, completionTag);
+						   treceiver, None_Receiver, ADB_ONLY_ARG(NULL) completionTag);
 			break;
 
 		case PORTAL_UTIL_SELECT:
@@ -1326,6 +1350,7 @@ static void
 PortalRunMulti(Portal portal,
 			   bool isTopLevel, bool setHoldSnapshot,
 			   DestReceiver *dest, DestReceiver *altdest,
+			   ADB_ONLY_ARG(uint64 *nprocessed)
 			   char *completionTag)
 {
 	bool		active_snapshot_set = false;
@@ -1416,7 +1441,7 @@ PortalRunMulti(Portal portal,
 				ProcessQuery(pstmt,
 							 portal->sourceText,
 							 portal->portalParams,
-							 dest, completionTag);
+							 dest, ADB_ONLY_ARG(nprocessed) completionTag);
 #ifdef ADB
 				/* it's special for INSERT */
 				if (IS_PGXC_COORDINATOR &&
@@ -1431,7 +1456,7 @@ PortalRunMulti(Portal portal,
 				ProcessQuery(pstmt,
 							 portal->sourceText,
 							 portal->portalParams,
-							 altdest, NULL);
+							 altdest, ADB_ONLY_ARG(nprocessed) NULL);
 			}
 
 			if (log_executor_stats)

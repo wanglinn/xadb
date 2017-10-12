@@ -48,6 +48,12 @@
 #include "utils/elog.h"
 #include "utils/palloc.h"
 
+#ifdef ADB
+#define ADB_ONLY_ARG(v) v,
+#else
+#define ADB_ONLY_ARG(v)
+#endif /* ADB */
+
 /* ----------------------------------------------------------------
  *				Section 1:	variable-length datatypes (TOAST support)
  * ----------------------------------------------------------------
