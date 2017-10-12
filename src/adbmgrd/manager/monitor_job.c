@@ -560,7 +560,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 		,F_BOOLEQ
 		,BoolGetDatum(true));
 	relNode = heap_open(NodeRelationId, RowExclusiveLock);
-	relScan = heap_beginscan(relNode, SnapshotNow, 3, key);
+	relScan = heap_beginscan_catalog(relNode, 3, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
