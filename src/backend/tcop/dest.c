@@ -289,25 +289,36 @@ ReportProcessNumber(DestReceiver *receiver, uint64 nprocessed)
 	if (IsCoordMaster() || !receiver)
 		return ;
 
-	initStringInfo(&buf);
 	dest = receiver->mydest;
-	if (dest != DestClusterOut)
+	switch (dest)
 	{
-		pq_sendbyte(&buf, 0);
-		pq_sendint(&buf, 0, 2);
-		pq_putmessage('H', buf.data, buf.len);
-		resetStringInfo(&buf);
+		case DestRemote:
+		case DestRemoteExecute:
+		case DestClusterOut:
+			initStringInfo(&buf);
+			/* start copy oute */
+			if (dest != DestClusterOut)
+			{
+				pq_sendbyte(&buf, 0);
+				pq_sendint(&buf, 0, 2);
+				pq_putmessage('H', buf.data, buf.len);
+				resetStringInfo(&buf);
+			}
+
+			/* send processed number message */
+			serialize_processed_message(&buf, nprocessed);
+			pq_putmessage('d', buf.data, buf.len);
+
+			/* end copy out */
+			if (dest != DestClusterOut)
+			{
+				pq_putemptymessage('c');
+				pq_flush();
+			}
+			pfree(buf.data);
+			break;
+		default:
+			break;
 	}
-
-	serialize_processed_message(&buf, nprocessed);
-	pq_putmessage('d', buf.data, buf.len);
-
-	if (dest != DestClusterOut)
-	{
-		pq_putemptymessage('c');
-		pq_flush();
-	}
-
-	pfree(buf.data);
 }
 #endif
