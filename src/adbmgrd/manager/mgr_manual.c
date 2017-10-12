@@ -1672,7 +1672,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		,F_NAMEEQ
 		,NameGetDatum(&nodeNameData));
 	nodeRel = heap_open(NodeRelationId, RowExclusiveLock);
-	relScan = heap_beginscan(nodeRel, SnapshotNow, 3, key);
+	relScan = heap_beginscan_catalog(nodeRel, 3, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1792,7 +1792,7 @@ static void mgr_get_hba_replication_info(char *nodename, StringInfo infosendmsg)
 		,F_NAMEEQ
 		,NameGetDatum(&nodeNameData));
 	nodeRel = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan(nodeRel, SnapshotNow, 3, key);
+	relScan = heap_beginscan_catalog(nodeRel, 3, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
