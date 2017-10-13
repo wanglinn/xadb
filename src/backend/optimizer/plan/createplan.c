@@ -6678,102 +6678,100 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 	return (Plan*) plan;
 }
 
-static List *remove_exec_expr(List **pplist)
-{
-	ListCell *lc,*prev,*next;
-	List *result = NIL;
-	List *list = *pplist;
-	prev = NULL;
-
-	for(lc=list_head(list);lc!=NULL;lc=next)
-	{
-		next = lnext(lc);
-		if(expression_have_exec_param(lfirst(lc)))
-		{
-			result = lappend(result, lfirst(lc));
-			list = list_delete_cell(list, lc, prev);
-		}else
-		{
-			prev = lc;
-		}
-	}
-
-	*pplist = list;
-	return result;
-}
 static Plan *create_reducescan_plan(PlannerInfo *root, ReduceScanPath *path, int flags)
 {
+	ListCell   *lc;
 	Bitmapset *attnos;
 	List *tlist;
+	List *base_clauses;
+	List *clauses;
 	ReduceScan *rc;
 	Plan *subplan;
 	Index relid;
 	int x,resno;
 
+	base_clauses = list_difference_ptr(path->path.parent->baserestrictinfo, path->rescan_clauses);
+	path->path.parent->baserestrictinfo = base_clauses;
 	subplan = create_plan_recurse(root, path->reducepath, flags & ~(EXEC_FLAG_REWIND|EXEC_FLAG_BACKWARD));
 	Assert(IsA(outerPlan(subplan), SeqScan));
 
 	rc = makeNode(ReduceScan);
-	rc->targetlist = build_path_tlist(root, &path->path);
 	outerPlan(rc) = subplan;
-
-	subplan = outerPlan(subplan);
-	if(IsA(subplan, SeqScan))
-	{
-		rc->qual = remove_exec_expr(&subplan->qual);
-	}
+	rc->plan.targetlist = build_path_tlist(root, &path->path);
+	clauses = order_qual_clauses(root, path->rescan_clauses);
+	rc->plan.qual = extract_actual_clauses(clauses, false);
 
 	relid = path->path.parent->relid;
 	attnos = NULL;
-	pull_varattnos((Node*)rc->targetlist, relid, &attnos);
-	pull_varattnos((Node*)rc->qual, relid, &attnos);
+	pull_varattnos((Node*)rc->plan.targetlist, relid, &attnos);
+	pull_varattnos((Node*)rc->plan.qual, relid, &attnos);
 
 	tlist = NIL;
-	resno = 1;
 	while((x=bms_first_member(attnos)) >= 0)
 	{
-		TargetEntry *tle;
-		Var * var = find_var((Node*)rc->targetlist, x, relid);
+		Var * var = find_var((Node*)rc->plan.targetlist, x, relid);
 		if(var == NULL)
-			var = find_var((Node*)rc->qual, x, relid);
+			var = find_var((Node*)rc->plan.qual, x, relid);
 		Assert(var != NULL);
-		tle = makeTargetEntry((Expr*)var, resno, NULL, false);
-		tlist = lappend(tlist, tle);
-		++resno;
+		tlist = lappend(tlist, var);
 	}
-	/*pull_varattnos((Node*)rc->qual, relid, &attnos);
-	while((x=bms_first_member(attnos)) >= 0)
-	{
-		TargetEntry *tle;
-		ListCell *lc;
-		Var *var = find_var((Node*)rc->qual, x, relid);
-		Assert(var != NULL);
-
-		foreach(lc, rc->targetlist)
-		{
-			tle = lfirst(lc);
-			if(equal(tle->expr, var))
-				break;
-			tle = NULL;
-		}
-		if(tle == NULL)
-		{
-			tle = makeTargetEntry((Expr*)var,
-								  list_length(rc->targetlist),
-								  NULL,
-								  true);
-			rc->targetlist = lappend(rc->targetlist, tle);
-		}
-		var->varattno = tle->resno;
-	}*/
 	bms_free(attnos);
+
+	if (enable_hashscan)
+	{
+		RestrictInfo *ri;
+		OpExpr	   *clause;
+		Relids		relids = path->path.parent->relids;
+		foreach(lc, path->rescan_clauses)
+		{
+			ri = lfirst(lc);
+			clause = (OpExpr*)(ri->clause);
+			if (is_opclause((Expr*)clause) &&
+				op_hashjoinable(clause->opno, exprType(get_leftop((Expr*)clause))))
+			{
+				Relids left_relids = ri->left_relids;
+				Relids right_relids = ri->right_relids;
+
+				if(left_relids == NULL && bms_equal(right_relids, relids))
+				{
+					rc->param_hash_keys = lappend(rc->param_hash_keys, get_leftop((Expr*)clause));
+					rc->scan_hash_keys = lappend(rc->scan_hash_keys, get_rightop((Expr*)clause));
+				}else if(right_relids == NULL && bms_equal(left_relids, relids))
+				{
+					Oid oidop = get_commutator(clause->opno);
+					if (OidIsValid(oidop) &&
+						op_hashjoinable(oidop, exprType(get_rightop((Expr*)clause))))
+					{
+						rc->param_hash_keys = lappend(rc->param_hash_keys, get_rightop((Expr*)clause));
+						rc->scan_hash_keys = lappend(rc->scan_hash_keys, get_leftop((Expr*)clause));
+					}
+				}
+			}
+		}
+		foreach(lc, rc->scan_hash_keys)
+		{
+			clause = lfirst(lc);
+			if (list_member(tlist, clause) == false)
+				tlist = lappend(tlist, clause);
+		}
+	}
+
+	resno = 0;
+	foreach(lc, tlist)
+	{
+		++resno;
+		lfirst(lc) = makeTargetEntry(lfirst(lc),
+									 resno,
+									 NULL,
+									 false);
+	}
 
 	for(subplan=outerPlan(rc);subplan;subplan=outerPlan(subplan))
 	{
 		subplan->targetlist = tlist;
 	}
-	copy_generic_path_info(rc, &path->path);
-	return rc;
+	copy_generic_path_info(&rc->plan, &path->path);
+	return &rc->plan;
 }
 
 static bool find_cluster_reduce_expr(Path *path, List **pplist)

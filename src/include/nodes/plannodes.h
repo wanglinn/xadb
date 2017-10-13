@@ -921,7 +921,12 @@ typedef struct ClusterReduce
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
 } ClusterReduce;
 
-typedef Plan ReduceScan;
+typedef struct ReduceScan
+{
+	Plan		plan;
+	List	   *param_hash_keys;
+	List	   *scan_hash_keys;
+}ReduceScan;
 
 #endif /* ADB */
 

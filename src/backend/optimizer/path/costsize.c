@@ -143,6 +143,7 @@ bool		enable_remotejoin = true;
 bool		enable_remotegroup = true;
 bool		enable_remotesort = true;
 bool		enable_remotelimit = true;
+bool		enable_hashscan = true;
 #endif
 
 typedef struct

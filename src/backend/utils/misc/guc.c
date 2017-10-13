@@ -1225,6 +1225,15 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
+	{
+		{"enable_hashscan", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of hash ReduceScan plans."),
+			NULL
+		},
+		&enable_hashscan,
+		true,
+		NULL, NULL, NULL
+	},
 #endif
 	{
 		{"debug_print_rewritten", PGC_USERSET, LOGGING_WHAT,

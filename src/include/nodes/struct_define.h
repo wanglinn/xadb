@@ -163,6 +163,9 @@ BEGIN_STRUCT(JoinCostWorkspace)
 	NODE_SCALAR(double,inner_skip_rows)
 	NODE_SCALAR(int,numbuckets)
 	NODE_SCALAR(int,numbatches)
+#ifdef ADB
+	NODE_SCALAR(bool,is_cluster)
+#endif
 END_STRUCT(JoinCostWorkspace)
 #endif /* NO_STRUCT_JoinCostWorkspace */
 

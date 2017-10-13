@@ -2971,10 +2971,11 @@ static bool ExecuteReduceScanOuter(ReduceScanState *node, void *none)
 	if(node == NULL)
 		return false;
 
+	planstate_tree_walker((PlanState*)node, ExecuteReduceScanOuter, NULL);
+
 	if(IsA(node, ReduceScanState))
-	{
 		FetchReduceScanOuter(node);
-	}
-	return planstate_tree_walker((PlanState*)node, ExecuteReduceScanOuter, NULL);
+
+	return false;
 }
 #endif /* ADB */

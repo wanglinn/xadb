@@ -89,6 +89,7 @@ extern bool enable_remotejoin;
 extern bool enable_remotegroup;
 extern bool enable_remotesort;
 extern bool enable_remotelimit;
+extern bool enable_hashscan;
 #endif
 
 extern double clamp_row_est(double nrows);

@@ -2194,8 +2194,16 @@ typedef struct ClusterReduceState
 typedef struct ReduceScanState
 {
 	ScanState			ss;
-	int					eflags;
-	Tuplestorestate	   *buffer;
+	Tuplestorestate	   *buffer_nulls;
+	struct BufFile	  **hash_files;
+	struct BufFile	   *cur_hash_file;
+	List			   *param_hash_exprs;
+	List			   *scan_hash_exprs;
+	FmgrInfo		   *param_hash_funs;
+	FmgrInfo		   *scan_hash_funs;
+	int					nbuckets;
+	int					ncols_hash;
+	uint32				cur_hashvalue;
 } ReduceScanState;
 #endif /* ADB */
 

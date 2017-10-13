@@ -291,7 +291,9 @@ extern Path *create_cluster_reduce_path(PlannerInfo *root,
 			List *rinfo_list,
 			RelOptInfo *rel,
 			List *pathkeys);
-extern ReduceScanPath *try_reducescan_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath, List *reduce_list, List *pathkeys);
+extern ReduceScanPath *try_reducescan_path(PlannerInfo *root, RelOptInfo *rel,
+										   Path *subpath, List *reduce_list, List *pathkeys,
+										   List *clauses);
 extern bool get_modify_insert_nodes_walker(Path *path, List **rnodes);
 extern struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab);
 extern bool expression_have_exec_param(Expr *expr);

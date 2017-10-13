@@ -678,6 +678,9 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		ListCell *lc;
 		List *reduce_info_list;
 		ReduceInfo *rinfo;
+		List *save_clauses;
+		List *exec_param_clauses;
+		List *base_clauses;
 		RelationLocInfo *loc_info = rel->loc_info;
 		List *rnodes = PGXCNodeGetNodeOidList(rel->loc_info->nodeList, PGXC_NODE_DATANODE);
 		if(IsRelationReplicated(loc_info))
@@ -739,6 +742,25 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			}
 		}
 
+		exec_param_clauses = NIL;
+		save_clauses = rel->baserestrictinfo;
+		if(root->must_replicate)
+		{
+			foreach(lc, save_clauses)
+			{
+				RestrictInfo *ri = lfirst(lc);
+				if(expression_have_exec_param(ri->clause))
+				{
+					exec_param_clauses = lappend(exec_param_clauses, ri);
+				}
+			}
+			if(exec_param_clauses)
+			{
+				base_clauses = list_difference_ptr(save_clauses, exec_param_clauses);
+				rel->baserestrictinfo = base_clauses;
+			}
+		}
+
 		add_path(rel, create_seqscan_path(root, rel, required_outer, 0));
 
 		/* Consider index scans */
@@ -759,14 +781,14 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			cost_div(path, list_length(loc_info->nodeList));
 		}
 
-		if (root->must_replicate &&
-			restrict_list_have_exec_param(rel->baserestrictinfo))
+		if (exec_param_clauses)
 		{
 			List *replicate = list_make1(MakeFinalReplicateReduceInfo());
 
 			foreach(lc, rel->pathlist)
 			{
-				path = (Path*)try_reducescan_path(root, rel, lfirst(lc), replicate, NULL);
+				path = lfirst(lc);
+				path = (Path*)try_reducescan_path(root, rel, lfirst(lc), replicate, path->pathkeys, exec_param_clauses);
 				if(path)
 				{
 					/* just using lappend, don't need add_cluster_path(...) */
@@ -778,10 +800,11 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 				path = create_seqscan_path(root, rel, required_outer, 0);
 				set_path_reduce_info_worker(path, reduce_info_list);
 				cost_div(path, list_length(loc_info->nodeList));
-				path = (Path*)try_reducescan_path(root, rel, path, replicate, NULL);
+				path = (Path*)try_reducescan_path(root, rel, path, replicate, NULL, exec_param_clauses);
 				Assert(path);
 				rel->cluster_pathlist = list_make1(path);
 			}
+			rel->baserestrictinfo = save_clauses;
 		}else
 		{
 			/* move pathlist to cluster_pathlist */

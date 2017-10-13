@@ -1596,6 +1596,7 @@ typedef struct ReduceScanPath
 {
 	Path		path;
 	Path	   *reducepath;
+	List	   *rescan_clauses;
 }ReduceScanPath;
 
 #endif /* ADB */

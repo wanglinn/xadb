@@ -756,7 +756,11 @@ END_NODE(ClusterReduce)
 #endif /* NO_NODE_ClusterReduce */
 
 #ifndef NO_NODE_ReduceScan
-NODE_SAME(ReduceScan, Plan)
+BEGIN_NODE(ReduceScan)
+	NODE_BASE2(Plan,plan)
+	NODE_NODE(List,param_hash_keys)
+	NODE_NODE(List,scan_hash_keys)
+END_NODE(ReduceScan)
 #endif /* NO_NODE_ReduceScan */
 
 #endif
@@ -995,6 +999,10 @@ BEGIN_NODE(SubPlan)
 	NODE_NODE(List,args)
 	NODE_SCALAR(Cost,startup_cost)
 	NODE_SCALAR(Cost,per_call_cost)
+#ifdef ADB
+	NODE_SCALAR(Cost,cluster_startup_cost)
+	NODE_SCALAR(Cost,cluster_per_call_cost)
+#endif
 END_NODE(SubPlan)
 #endif /* NO_NODE_SubPlan */
 
@@ -1826,6 +1834,7 @@ END_NODE(ClusterReducePath)
 BEGIN_NODE(ReduceScanPath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(Path,reducepath)
+	NODE_NODE(List,rescan_clauses)
 END_NODE(ReduceScanPath)
 #endif /* NO_NODE_ReduceScanPath */
 
