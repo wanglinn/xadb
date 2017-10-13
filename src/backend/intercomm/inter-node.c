@@ -20,6 +20,7 @@
 #include "intercomm/inter-node.h"
 #include "nodes/pg_list.h"
 #include "libpq/libpq-fe.h"
+#include "libpq/libpq-int.h"
 #include "libpq/libpq-node.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
@@ -262,6 +263,84 @@ HandleReAttatchPGconn(NodeHandle *handle)
 {
 	HandleDetachPGconn(handle);
 	HandleAttatchPGconn(handle);
+}
+
+CustomOption *
+HandleSetCustomOption(NodeHandle *handle, void *custom, PGcustumFuns *custom_funcs)
+{
+	if (handle)
+	{
+		CustomOption   *opt = (CustomOption *) palloc0(sizeof(CustomOption));
+		PGconn		   *conn = handle->node_conn;
+
+		opt->cumstom = conn->custom;
+		opt->cumstom_funcs = conn->funs;
+
+		conn->custom = custom;
+		conn->funs = custom_funcs;
+
+		return opt;
+	}
+
+	return NULL;
+}
+
+void
+HandleResetCustomOption(NodeHandle *handle, CustomOption *opt)
+{
+	if (handle)
+	{
+		PGconn *conn = handle->node_conn;
+
+		conn->custom = opt ? opt->cumstom : NULL;
+		conn->funs = opt ? opt->cumstom_funcs : NULL;
+	}
+}
+
+List *
+HandleListSetCustomOption(List *handle_list, PGcustumFuns *custom_funcs)
+{
+	ListCell	   *lc_handle;
+	NodeHandle	   *handle;
+	CustomOption   *opt;
+	List		   *opt_list;
+
+	opt_list = NIL;
+	foreach (lc_handle, handle_list)
+	{
+		handle = (NodeHandle *) lfirst(lc_handle);
+		opt = HandleSetCustomOption(handle, handle, custom_funcs);
+		opt_list = lappend(opt_list, opt);
+	}
+
+	return opt_list;
+}
+
+void
+HandleListResetCustomOption(List *handle_list, List *opt_list)
+{
+	ListCell	   *lc_handle;
+	ListCell	   *lc_opt;
+	NodeHandle	   *handle;
+	CustomOption   *opt;
+
+	if (opt_list == NIL)
+	{
+		foreach (lc_handle, handle_list)
+		{
+			handle = (NodeHandle *) lfirst(lc_handle);
+			HandleResetCustomOption(handle, NULL);
+		}
+	} else
+	{
+		Assert(list_length(handle_list) == list_length(opt_list));
+		forboth(lc_handle, handle_list, lc_opt, opt_list)
+		{
+			handle = (NodeHandle *) lfirst(lc_handle);
+			opt = (CustomOption *) lfirst(lc_opt);
+			HandleResetCustomOption(handle, opt);
+		}
+	}
 }
 
 static void

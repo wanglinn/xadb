@@ -21,7 +21,7 @@
 #define LIBPQ_INT_H
 
 /* agtm_client.c include libpq-int.h to use PQexecFinish,
- * that lead to error : "may not be included from frontend code" 
+ * that lead to error : "may not be included from frontend code"
  * so if 0 this code */
 #if 0
 /* We assume libpq-fe.h has already been included. */
@@ -303,6 +303,7 @@ typedef struct PGcustumFuns
 {
 	int (*getRowDesc)();
 	int (*getAnotherTuple)();
+	int (*getCompleteMsg)(PGconn *conn);
 	/* return -1 for unknown message, 0 for continue, 1 for error */
 	int (*getUnknownMsg)(PGconn *conn, char c, int msgLength);
 }PGcustumFuns;

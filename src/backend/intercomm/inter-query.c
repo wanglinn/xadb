@@ -30,6 +30,7 @@
 #include "libpq/libpq-int.h"
 #include "nodes/execnodes.h"
 #include "nodes/nodeFuncs.h"
+#include "optimizer/pgxcplan.h"
 #include "parser/parse_coerce.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxcnode.h"
@@ -50,10 +51,15 @@ static List *RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes
 static TupleTableSlot *InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slot);
 static bool HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node);
 static PGconn *HandleGetPGconn(void *handle);
-static void HandleProcessedMsg(RemoteQueryState *node, const char *buf, int len);
 static bool HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len);
 static bool RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 static TupleDesc CreateRemoteTupleDesc(MemoryContext context, const char *msg, int len);
+
+static int HandleRowDescriptionMsg(PGconn *conn, int msgLength);
+static int HandleQueryCompleteMsg(PGconn *conn);
+static int ExtractProcessedNumber(const char *buf, int len, uint64 *nprocessed);
+
+static PGcustumFuns QueryCustomFuncs = {HandleRowDescriptionMsg, NULL, HandleQueryCompleteMsg, NULL};
 
 static List *
 RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes)
@@ -372,8 +378,7 @@ HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node)
 		if (step->base_tlist != NULL ||
 			step->exec_nodes->accesstype == RELATION_ACCESS_READ ||
 			step->has_row_marks)
-			Assert(false);
-			/* TODO: check it. send_desc = true;*/
+			send_desc = true;
 
 		/* if prepared statement is referenced see if it is already exist */
 		if (step->statement)
@@ -427,6 +432,7 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 	Tuplestorestate	   *tuplestorestate = node->tuplestorestate;
 	bool				eof_tuplestore;
 	List			   *handle_list = NIL;
+	List			   *save_opt_list = NIL;
 
 	Assert(node && slot);
 	ExecClearTuple(slot);
@@ -452,7 +458,19 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 			context.fetch_batch = false;
 		context.fetch_count = 0;
 
-		PQNListExecFinish(handle_list, HandleGetPGconn, RemoteQueryFinishHook, &context, true);
+		save_opt_list = HandleListSetCustomOption(handle_list, &QueryCustomFuncs);
+		Assert(list_length(handle_list) == list_length(save_opt_list));
+		PG_TRY();
+		{
+			PQNListExecFinish(handle_list, HandleGetPGconn, RemoteQueryFinishHook, &context, true);
+			HandleListResetCustomOption(handle_list, save_opt_list);
+			list_free_deep(save_opt_list);
+		} PG_CATCH();
+		{
+			HandleListResetCustomOption(handle_list, save_opt_list);
+			list_free_deep(save_opt_list);
+			PG_RE_THROW();
+		} PG_END_TRY();
 	}
 
 	return slot;
@@ -461,9 +479,14 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 TupleTableSlot *
 HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *slot, bool blocking, bool batch)
 {
-	RemoteQueryContext context;
+	RemoteQueryContext	context;
+	PGconn			   *conn;
+	CustomOption	   *save_opt;
 
 	Assert(handle && node && slot);
+	Assert(handle->node_conn);
+	conn = handle->node_conn;
+
 	ExecClearTuple(slot);
 
 	context.node = node;
@@ -471,29 +494,21 @@ HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *sl
 	context.fetch_batch = batch;
 	context.fetch_count = 0;
 
-	PQNOneExecFinish(handle->node_conn, RemoteQueryFinishHook, &context, blocking);
+	save_opt = HandleSetCustomOption(handle, handle, &QueryCustomFuncs);
+	Assert(save_opt);
+	PG_TRY();
+	{
+		PQNOneExecFinish(handle->node_conn, RemoteQueryFinishHook, &context, blocking);
+		HandleResetCustomOption(handle, save_opt);
+		pfree(save_opt);
+	} PG_CATCH();
+	{
+		HandleResetCustomOption(handle, save_opt);
+		pfree(save_opt);
+		PG_RE_THROW();
+	} PG_END_TRY();
 
 	return slot;
-}
-
-static void
-HandleProcessedMsg(RemoteQueryState *node, const char *buf, int len)
-{
-	uint64 processed;
-
-	Assert(node && buf);
-	Assert(buf[0] == CLUSTER_MSG_PROCESSED);
-	Assert(len == sizeof(processed) + 1);
-	memcpy(&processed, buf + 1, sizeof(processed));
-
-	if (node->combine_type == COMBINE_TYPE_SUM)
-		node->rqs_processed += processed;
-	else
-	if (node->combine_type == COMBINE_TYPE_SAME)
-	{
-		/* TODO: check processed number returned of each PGconn */
-		node->rqs_processed = processed;
-	}
 }
 
 static bool
@@ -532,9 +547,6 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 				if (slot == scanSlot)
 					ExecSetSlotDescriptor(nextSlot, desc);
 			}
-			break;
-		case CLUSTER_MSG_PROCESSED:
-			HandleProcessedMsg(node, buf, len);
 			break;
 		default:
 			{
@@ -608,7 +620,12 @@ RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type,
 				{
 					status = PQresultStatus(res);
 					if(status == PGRES_FATAL_ERROR)
+					{
+						RemoteQueryState   *node;
+						node = ((RemoteQueryContext *) context)->node;
+						node->command_error_count++;
 						PQNReportResultError(res, conn, ERROR, true);
+					}
 					else if(status == PGRES_COPY_IN)
 						PQputCopyEnd(conn, NULL);
 				}
@@ -679,3 +696,114 @@ CloseRemoteStatement(const char *stmt_name, Oid *nodes, int nnodes)
 	HandleListClose(mix_handle->handles, true, stmt_name);
 }
 
+/*-------------------------------------------------------------------------------------
+ *
+ * Define custom functions for PGconn of Handle
+ *
+ *-------------------------------------------------------------------------------------*/
+
+/*
+ * HandleRowDescriptionMsg
+ *
+ * deal with 'T' message which contained in parseInput.
+ *
+ * row descriptions will be handled in COPY protocol.
+ * If we see 'T' message, just silently drop it. it will
+ * be handled in HandleCopyOutData.
+ */
+static int
+HandleRowDescriptionMsg(PGconn *conn, int msgLength)
+{
+	Assert(conn);
+	conn->inCursor += msgLength;
+	conn->inStart = conn->inCursor;
+	return 0;
+}
+
+/*
+ * HandleQueryCompleteMsg
+ *
+ * deal with 'C' message which contained in parseInput.
+ *
+ */
+static int
+HandleQueryCompleteMsg(PGconn *conn)
+{
+	NodeHandle		   *handle;
+	void			   *owner;
+
+	Assert(conn);
+	handle = (NodeHandle *) conn->custom;
+	owner = handle->node_owner;
+
+	if (!owner)
+		return 0;
+
+	if (IsA(owner, RemoteQueryState))
+	{
+		RemoteQueryState   *node = (RemoteQueryState *) owner;
+		RemoteQuery		   *step = (RemoteQuery *) node->ss.ps.plan;
+		bool				non_fqs_dml;
+
+		/* Is this a DML query that is not FQSed ? */
+		non_fqs_dml = (step  && step ->rq_params_internal);
+
+		/* Extract number of processed */
+		if (node->combine_type != COMBINE_TYPE_NONE)
+		{
+			uint64	nprocessed;
+			int		digits;
+
+			digits = ExtractProcessedNumber(conn->workBuffer.data, conn->workBuffer.len, &nprocessed);
+			if (digits > 0)
+			{
+				/* Replicated write, make sure they are the same */
+				if (node->combine_type == COMBINE_TYPE_SAME)
+				{
+					if (node->command_complete_count)
+					{
+						/* For FQS, check if there is a consistency issue with replicated table. */
+						if (nprocessed != node->rqs_processed && !non_fqs_dml)
+							ereport(ERROR,
+									(errcode(ERRCODE_DATA_CORRUPTED),
+									 errmsg("Write to replicated table returned"
+											" different results from the Datanodes")));
+					}
+					/* Always update the row count. We have initialized it to 0 */
+					node->rqs_processed = nprocessed;
+				}
+				else
+					node->rqs_processed += nprocessed;
+			}
+		}
+
+		/* If response checking is enable only then do further processing */
+		node->command_complete_count++;
+	}
+
+	return 0;
+}
+
+static int
+ExtractProcessedNumber(const char *buf, int len, uint64 *nprocessed)
+{
+	int			digits = 0;
+	const char *ptr = buf + len;
+
+	if (len <= 0)
+		return digits;
+
+	ptr--;	/* skip \0 */
+	while (ptr >= buf)
+	{
+		if (!isdigit(*ptr))
+			break;
+		digits++;
+		ptr--;
+	}
+
+	if (digits && nprocessed)
+		*nprocessed = strtoul(ptr, NULL, 10);
+
+	return digits;
+}

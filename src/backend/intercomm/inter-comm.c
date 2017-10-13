@@ -39,6 +39,9 @@ static int HandleSendBegin(NodeHandle *handle,
 						   GlobalTransactionId xid, TimestampTz timestamp,
 						   bool need_xact_block, bool *already_begin);
 static bool HandleFinishCommandHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
+static int HandleCommandCompleteMsg(PGconn *conn);
+
+static PGcustumFuns CommandCustomFuncs = {NULL, NULL, HandleCommandCompleteMsg, NULL};
 
 List *
 OidArraryToList(MemoryContext context, Oid *oids, int noids)
@@ -587,21 +590,34 @@ HandleListResetOwner(List * handle_list)
 bool
 HandleFinishCommand(NodeHandle *handle, const char *commandTag)
 {
-	CommandResult result;
+	CommandResult	result;
+	CustomOption   *save_opt;
 
-	Assert(handle);
+	Assert(handle && handle->node_conn);
+
 	result.command_ok = false;
 	result.completionTag[0] = '\0';
 
-	(void) PQNOneExecFinish(handle->node_conn, HandleFinishCommandHook, &result, true);
-
-	if (result.command_ok && commandTag && commandTag[0])
+	save_opt = HandleSetCustomOption(handle, &result, &CommandCustomFuncs);
+	PG_TRY();
 	{
-		/* TODO:
-		 * Check whether the completionTag of result match
-		 * the commandTag.
-		 */
-	}
+		(void) PQNOneExecFinish(handle->node_conn, HandleFinishCommandHook, NULL, true);
+		HandleResetCustomOption(handle, save_opt);
+		pfree(save_opt);
+		if (result.command_ok && commandTag && commandTag[0])
+		{
+			/*
+			 * Check whether the completionTag of result match
+			 * the commandTag.
+			 */
+			Assert (strcmp(result.completionTag, commandTag) == 0);
+		}
+	} PG_CATCH();
+	{
+		HandleResetCustomOption(handle, save_opt);
+		pfree(save_opt);
+		PG_RE_THROW();
+	} PG_END_TRY();
 
 	return result.command_ok;
 }
@@ -659,17 +675,37 @@ HandleFinishCommandHook(void *context, struct pg_conn *conn, PQNHookFuncType typ
 						PQNReportResultError(res, conn, ERROR, true);
 					else if(status == PGRES_COPY_IN)
 						PQputCopyEnd(conn, NULL);
-					else if (status == PGRES_COMMAND_OK)
-					{
-						CommandResult *result = (CommandResult *) context;
-
-						result->command_ok = true;
-						strcpy(result->completionTag, res->cmdStatus);
-					}
 				}
 				va_end(args);
 			}
 			break;
 	}
 	return false;
+}
+
+/*-------------------------------------------------------------------------------------
+ *
+ * Define custom functions for PGconn of Handle
+ *
+ *-------------------------------------------------------------------------------------*/
+
+/*
+ * HandleCommandCompleteMsg
+ *
+ * deal with 'C' message which contained in parseInput.
+ *
+ * return 0 if OK
+ */
+static int
+HandleCommandCompleteMsg(PGconn *conn)
+{
+	CommandResult *result;
+
+	Assert(conn);
+	result = (CommandResult *) (conn->custom);
+	result->command_ok = true;
+
+	StrNCpy(result->completionTag, conn->workBuffer.data, COMPLETION_TAG_BUFSIZE);
+
+	return 0;
 }

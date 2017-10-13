@@ -55,6 +55,12 @@ typedef struct NodeMixHandle
 	List			   *handles;	/* list of NodeHandle */
 } NodeMixHandle;
 
+typedef struct CustomOption
+{
+	void			   *cumstom;
+	const struct PGcustumFuns*cumstom_funcs;
+} CustomOption;
+
 extern void ResetNodeExecutor(void);
 extern void ReleaseNodeExecutor(void);
 extern void InitNodeExecutor(bool force);
@@ -64,6 +70,10 @@ extern NodeHandle *GetDnHandle(Oid dn_id, bool attatch, void *context);
 extern void HandleAttatchPGconn(NodeHandle *handle);
 extern void HandleDetachPGconn(NodeHandle *handle);
 extern void HandleReAttatchPGconn(NodeHandle *handle);
+extern CustomOption *HandleSetCustomOption(NodeHandle *handle, void *custom, struct PGcustumFuns *custom_funcs);
+extern void HandleResetCustomOption(NodeHandle *handle, CustomOption *opt);
+extern List *HandleListSetCustomOption(List *handle_list, struct PGcustumFuns *custom_funcs);
+extern void HandleListResetCustomOption(List *handle_list, List *opt_list);
 extern NodeMixHandle *GetMixedHandles(const List *node_list, void *context);
 extern NodeMixHandle *GetAllHandles(void *context);
 extern NodeMixHandle *CopyMixhandle(NodeMixHandle *src);

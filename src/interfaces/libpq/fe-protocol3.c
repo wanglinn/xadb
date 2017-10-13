@@ -214,6 +214,13 @@ pqParseInput3(PGconn *conn)
 						strlcpy(conn->result->cmdStatus, conn->workBuffer.data,
 								CMDSTATUS_LEN);
 					conn->asyncStatus = PGASYNC_READY;
+#ifdef ADB
+					if (conn->funs && conn->funs->getCompleteMsg)
+					{
+						if ((*conn->funs->getCompleteMsg)(conn))
+							return;
+					}
+#endif
 					break;
 				case 'E':		/* error return */
 					if (pqGetErrorNotice3(conn, true))

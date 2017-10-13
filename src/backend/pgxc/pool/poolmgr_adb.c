@@ -2851,7 +2851,7 @@ static void agent_acquire_conn_list(ADBNodePoolSlot **slots, const Oid *oids, co
 
 		if(slot->slot_state == SLOT_STATE_UNINIT)
 		{
-			static PGcustumFuns funs = {NULL, NULL, pq_custom_msg};
+			static PGcustumFuns funs = {NULL, NULL, NULL, pq_custom_msg};
 			Assert(slot->parent == node_pool);
 			if(node_pool->connstr == NULL)
 			{
