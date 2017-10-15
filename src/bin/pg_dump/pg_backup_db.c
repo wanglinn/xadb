@@ -66,10 +66,14 @@ _check_database_version(ArchiveHandle *AH)
 	 */
 	if (remoteversion >= 90000)
 	{
+#ifdef MGR_DUMP
+/*do nothing*/
+#else
 		res = ExecuteSqlQueryForSingleRow((Archive *) AH, "SELECT pg_catalog.pg_is_in_recovery()");
 
 		AH->public.isStandby = (strcmp(PQgetvalue(res, 0, 0), "t") == 0);
 		PQclear(res);
+#endif
 	}
 	else
 		AH->public.isStandby = false;

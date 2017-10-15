@@ -123,7 +123,6 @@ static SimpleOidList table_exclude_oids = {NULL, NULL};
 static SimpleStringList tabledata_exclude_patterns = {NULL, NULL};
 static SimpleOidList tabledata_exclude_oids = {NULL, NULL};
 
-
 char		g_opaque_type[10];	/* name for the opaque type */
 
 /* placeholders for the delimiters for comments */
@@ -134,6 +133,10 @@ static const CatalogId nilCatalogId = {0, 0};
 
 #ifdef ADB
 static int	include_nodes = 0;
+#endif
+
+#ifdef MGR_DUMP
+static int	adbmgr_table = 0;
 #endif
 
 static void help(const char *progname);
@@ -272,7 +275,10 @@ static void appendReloptionsArrayAH(PQExpBuffer buffer, const char *reloptions,
 						const char *prefix, Archive *fout);
 static char *get_synchronized_snapshot(Archive *fout);
 static void setupDumpWorker(Archive *AHX);
-
+#ifdef MGR_DUMP
+static void dumpAdbmgrTable(Archive *fout);
+static char *respacechr(char *str,char chr, char *strr);
+#endif
 
 int
 main(int argc, char **argv)
@@ -358,6 +364,9 @@ main(int argc, char **argv)
 		{"no-unlogged-table-data", no_argument, &dopt.no_unlogged_table_data, 1},
 #ifdef ADB
 		{"include-nodes", no_argument, &include_nodes, 1},
+#endif
+#ifdef MGR_DUMP
+		{"mgr_table", no_argument, &adbmgr_table, 1},
 #endif
 
 		{NULL, 0, NULL, 0}
@@ -656,8 +665,19 @@ main(int argc, char **argv)
 	 * death.
 	 */
 	ConnectDatabase(fout, dopt.dbname, dopt.pghost, dopt.pgport, dopt.username, prompt_password);
+#ifdef MGR_DUMP
+	if (!adbmgr_table)
+#endif
 	setup_connection(fout, dumpencoding, dumpsnapshot, use_role);
 
+#ifdef MGR_DUMP
+	if (adbmgr_table)
+	{
+		dopt.dataOnly = false;
+		dumpAdbmgrTable(fout);
+		goto mgr_table_final;
+	}
+#endif
 	/*
 	 * Disable security label support if server version < v9.1.x (prevents
 	 * access to nonexistent pg_seclabel catalog)
@@ -825,7 +845,9 @@ main(int argc, char **argv)
 	/* Now the rearrangeable objects. */
 	for (i = 0; i < numObjs; i++)
 		dumpDumpableObject(fout, dobjs[i]);
-
+#ifdef MGR_DUMP
+mgr_table_final:
+#endif
 	/*
 	 * Set up options info to ensure we dump what we want.
 	 */
@@ -949,7 +971,9 @@ help(const char *progname)
 #ifdef ADB
 	printf(_("	--include-nodes 			 include TO NODE clause in the dumped CREATE TABLE commands\n"));
 #endif
-
+#ifdef MGR_DUMP
+	printf(_("  --mgr_table                  dump only ADBMGR host, node, param, hba table data\n"));
+#endif
 	printf(_("\nConnection options:\n"));
 	printf(_("  -d, --dbname=DBNAME      database to dump\n"));
 	printf(_("  -h, --host=HOSTNAME      database server host or socket directory\n"));
@@ -18118,3 +18142,243 @@ appendReloptionsArrayAH(PQExpBuffer buffer, const char *reloptions,
 	if (!res)
 		write_msg(NULL, "WARNING: could not parse reloptions array\n");
 }
+
+#ifdef MGR_DUMP
+
+/*
+* dump the adbmgr table: host, node, param, hba, job, item
+*/
+static void
+dumpAdbmgrTable(Archive *fout)
+{
+	PQExpBuffer dbQry = createPQExpBuffer();
+	PQExpBuffer delQry = createPQExpBuffer();
+	PQExpBuffer creaQry = createPQExpBuffer();
+	PQExpBuffer addstrdata = createPQExpBuffer();
+	PGconn *conn;
+	PGresult *res;
+	char *retstr;
+	int i = 0;
+
+	conn = GetConnection(fout);
+	if (g_verbose)
+		write_msg(NULL, "saving mgr_host,mgr_node definition\n");
+	/* Make sure we are in proper schema */
+	selectSourceSchema(fout, "pg_catalog");
+
+	/* Get the mgr_host table*/
+	appendPQExpBuffer(dbQry, "LIST HOST;");
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	Assert(PQnfields(res) == 7);
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		resetPQExpBuffer(addstrdata);
+		appendPQExpBuffer(addstrdata, "ADD HOST \"%s\" (user=\"%s\", port=%s, protocol=%s, agentport=%s, address=\"%s\", adbhome=\"%s\");",
+			PQgetvalue(res, i, 0),
+			PQgetvalue(res, i, 1),
+			PQgetvalue(res, i, 2),
+			PQgetvalue(res, i, 3),
+			PQgetvalue(res, i, 4),
+			PQgetvalue(res, i, 5),
+			PQgetvalue(res, i, 6));
+
+		ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"mgr_host",
+			"pg_catalog",
+			NULL, "",
+			false, "DEFAULT", SECTION_NONE,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+	}
+	PQclear(res);
+
+	/* Get the mgr_node table*/
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, "LIST NODE;");
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	Assert(PQnfields(res) == 9);
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		resetPQExpBuffer(addstrdata);
+		if (strlen(PQgetvalue(res, i, 5)))
+			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, sync_state=\"%s\",path=\"%s\");",
+				PQgetvalue(res, i, 2),
+				PQgetvalue(res, i, 0),
+				PQgetvalue(res, i, 1),
+				PQgetvalue(res, i, 4),
+				PQgetvalue(res, i, 5),
+				PQgetvalue(res, i, 6));
+		else
+			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\");",
+				PQgetvalue(res, i, 2),
+				PQgetvalue(res, i, 0),
+				PQgetvalue(res, i, 1),
+				PQgetvalue(res, i, 4),
+				PQgetvalue(res, i, 6));
+		ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"mgr_node",
+			"pg_catalog",
+			NULL, "",
+			false, "DEFAULT", SECTION_NONE,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+	}
+	PQclear(res);
+	
+	/* Get the mgr_updateparm table*/
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, "LIST PARAM;");	
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	Assert(PQnfields(res) == 4);
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		resetPQExpBuffer(addstrdata);
+		if (strcmp(PQgetvalue(res, i, 0), "*") == 0)
+			appendPQExpBuffer(addstrdata, "SET %s %s (\"%s\"=\"%s\");",
+				strcasecmp(PQgetvalue(res, i, 1), "datanode master|slave|extra") == 0 ? "datanode"
+					:(strcasecmp(PQgetvalue(res, i, 1), "gtm master|slave|extra") == 0 ? "gtm"
+					:PQgetvalue(res, i, 1)),
+				"all",
+				PQgetvalue(res, i, 2),
+				PQgetvalue(res, i, 3));
+		else
+			appendPQExpBuffer(addstrdata, "SET %s \"%s\" (\"%s\"=\"%s\");",
+				strcasecmp(PQgetvalue(res, i, 1), "datanode master|slave|extra") == 0 ? "datanode"
+					:(strcasecmp(PQgetvalue(res, i, 1), "gtm master|slave|extra") == 0 ? "gtm"
+					:PQgetvalue(res, i, 1)),
+				PQgetvalue(res, i, 0),
+				PQgetvalue(res, i, 2),
+				PQgetvalue(res, i, 3));
+		ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"mgr_updateparm",
+			"pg_catalog",
+			NULL, "",
+			false, "DEFAULT", SECTION_NONE,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+	}
+	PQclear(res);
+	
+	/* Get the mgr_hba table*/
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, "LIST HBA");	
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	Assert(PQnfields(res) == 2);
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		resetPQExpBuffer(addstrdata);
+		appendPQExpBuffer(addstrdata, "ADD HBA \"%s\" (\"%s\");",
+			PQgetvalue(res, i, 0),
+			PQgetvalue(res, i, 1));
+		ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"mgr_hba",
+			"pg_catalog",
+			NULL, "",
+			false, "DEFAULT", SECTION_DATA,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+	}
+	PQclear(res);
+	
+	/* Get the job table*/
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, "LIST JOB");	
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	Assert(PQnfields(res) == 7);
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		resetPQExpBuffer(addstrdata);
+		retstr = respacechr(PQgetvalue(res, i, 5), '\'', "''");
+		appendPQExpBuffer(addstrdata, "ADD JOB \"%s\" (nexttime=\"%s\", interval=%s, status=%s, command='%s', desc=\"%s\");",
+			PQgetvalue(res, i, 1),
+			PQgetvalue(res, i, 2),
+			PQgetvalue(res, i, 3),
+			strcasecmp(PQgetvalue(res, i, 4), "t")==0 ? "true":"false",
+			retstr == NULL ? "''" : retstr,
+			strcmp(PQgetvalue(res, i, 6), "") != 0 ? PQgetvalue(res, i, 6):" ");
+		pfree(retstr);
+		ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"monitor_job",
+			"pg_catalog",
+			NULL, "",
+			false, "DEFAULT", SECTION_DATA,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+	}
+	PQclear(res);
+
+	/* Get the item table*/
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, "LIST ITEM");	
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	Assert(PQnfields(res) == 3);
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		resetPQExpBuffer(addstrdata);
+		appendPQExpBuffer(addstrdata, "ADD ITEM \"%s\" (path=\"%s\", desc=\"%s\");",
+			PQgetvalue(res, i, 0),
+			PQgetvalue(res, i, 1),
+			strcmp(PQgetvalue(res, i, 2), "") != 0 ? PQgetvalue(res, i, 2):" ");
+		ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"monitor_item",
+			"pg_catalog",
+			NULL, "",
+			false, "DEFAULT", SECTION_DATA,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+	}
+	PQclear(res);
+
+	destroyPQExpBuffer(addstrdata);
+	destroyPQExpBuffer(dbQry);
+	destroyPQExpBuffer(delQry);
+	destroyPQExpBuffer(creaQry);
+
+}
+/*
+* given the source string str, replace the character chr by string strr
+*
+*/
+static char 
+*respacechr(char *str,char chr, char *strr)
+{
+	char *retstr;
+	char *p;
+	int i = 0;
+	int num = 0;
+	if (!str || !strr)
+		return NULL;
+
+	p = str;
+	while(*(p++))
+	{
+		if (chr == *p)
+			num++;
+	}
+	if (!num)
+		num = 1;
+	retstr = (char *)pg_malloc0(strlen(str) + 1 + strlen(strr)*(num-1));
+	p = str;
+	i = 0;
+	while(*p)
+	{
+		if (chr == *p)
+		{
+			strncpy(&retstr[i], strr, strlen(strr));
+			i = i + strlen(strr);
+		}
+		else
+			retstr[i++] = *p;
+		p++;
+	}
+
+	return retstr;
+}
+
+#endif
