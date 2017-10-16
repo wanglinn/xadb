@@ -1387,6 +1387,16 @@ create_unique_plan(PlannerInfo *root, UniquePath *best_path, int flags)
 								 NIL,
 								 best_path->path.rows,
 								 subplan);
+#ifdef ADB
+		if (best_path->path.reduce_info_list &&
+			best_path->path.reduce_is_valid)
+		{
+			((Agg*)plan)->exec_nodes = ReduceInfoListGetExecuteOidList(best_path->path.reduce_info_list);
+		}else
+		{
+			((Agg*)plan)->exec_nodes = list_make1_oid(PGXCNodeOid);
+		}
+#endif /* ADB */
 	}
 	else
 	{
@@ -6798,6 +6808,7 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 	case T_ClusterReducePath:
 	case T_Path:
 	case T_IndexPath:
+	case T_UniquePath:
 		path->reduce_info_list = *pplist;
 		path->reduce_is_valid = true;
 		break;
