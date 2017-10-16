@@ -1870,7 +1870,10 @@ UniquePath *create_cluster_unique_path(PlannerInfo *root, RelOptInfo *rel,
 		if(path->subpath == subpath)
 			return path;
 	}
-	return create_unique_path_internal(root, rel, subpath, sjinfo, true);
+	path = create_unique_path_internal(root, rel, subpath, sjinfo, true);
+	(void)get_reduce_info_list(&path->path);
+	rel->cluster_unique_pathlist = lappend(rel->cluster_unique_pathlist, path);
+	return path;
 }
 static UniquePath *create_unique_path_internal(PlannerInfo *root, RelOptInfo *rel,
 				   Path *subpath, SpecialJoinInfo *sjinfo, bool is_cluster)
