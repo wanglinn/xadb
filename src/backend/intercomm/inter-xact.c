@@ -309,7 +309,9 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 	}
 
 	node_list = GetRemoteNodeList(NULL, exec_nodes, node->exec_type);
-	Assert(node_list);
+	/* no need to do next */
+	if (!node_list)
+		return state;
 
 	/* Make up InterXactStateData */
 	state = MakeInterXactState2(state, node_list);
