@@ -6540,7 +6540,8 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 		gcontext->new_paths_list = lappend(gcontext->new_paths_list, path);
 	}
 
-	if(gcontext->can_hash)
+	if (gcontext->can_hash &&
+		estimate_hashagg_tablesize(subpath, costs, num_groups) < work_mem * 1024L)
 	{
 		path = (Path*)create_agg_path(root,
 									  gcontext->grouped_rel,
