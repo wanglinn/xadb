@@ -1251,7 +1251,7 @@ GetAttributeByNum(HeapTupleHeader tuple,
 	ItemPointerSetInvalid(&(tmptup.t_self));
 	tmptup.t_tableOid = InvalidOid;
 #ifdef ADB
-		tmptup.t_xc_node_id = 0;
+	tmptup.t_xc_node_id = 0;
 #endif
 	tmptup.t_data = tuple;
 
@@ -4259,7 +4259,7 @@ ExecEvalFieldStore(FieldStoreState *fstate,
 		tmptup.t_tableOid = InvalidOid;
 #ifdef ADB
 		tmptup.t_xc_node_id = 0;
-#endif		
+#endif
 		tmptup.t_data = tuphdr;
 
 		heap_deform_tuple(&tmptup, tupDesc, values, isnull);

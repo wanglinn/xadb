@@ -449,7 +449,7 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 	eof_tuplestore = tuplestore_ateof(tuplestorestate);
 	if (!eof_tuplestore)
 	{
-		if (!tuplestore_gettupleslot(tuplestorestate, true, false, slot))
+		if (!tuplestore_get_remotetupleslot(tuplestorestate, true, false, slot))
 			eof_tuplestore = true;
 	}
 
@@ -537,6 +537,7 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 					tmpSlot = nextSlot;
 				if(clusterRecvTuple(tmpSlot, buf, len, ps, conn))
 				{
+					tmpSlot->tts_xcnodeoid = ((NodeHandle *) conn->custom)->node_id;
 					context->fetch_count++;
 					if (tmpSlot == nextSlot)
 					{
@@ -552,7 +553,7 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 					}
 
 					if (!TupIsNull(tmpSlot))
-						tuplestore_puttupleslot(tuplestorestate, tmpSlot);
+						tuplestore_put_remotetupleslot(tuplestorestate, tmpSlot);
 				}
 			}
 			break;

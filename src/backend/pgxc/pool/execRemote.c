@@ -2621,14 +2621,14 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	/*
 	 * We anyways have to support BACKWARD for cache tuples.
 	 */
-	remotestate->eflags |= EXEC_FLAG_BACKWARD;
+	remotestate->eflags |= (EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD);
 
 	/*
 	 * tuplestorestate of RemoteQueryState is for two purposes,
 	 * one is rescan (see ExecRemoteQueryReScan), the other is cache
 	 * (see HandleCache)
 	 */
-	remotestate->tuplestorestate = tuplestore_begin_heap(false, false, work_mem);
+	remotestate->tuplestorestate = tuplestore_begin_remoteheap(false, false, work_mem);
 	tuplestore_set_eflags(remotestate->tuplestorestate, remotestate->eflags);
 
 	remotestate->eof_underlying = false;

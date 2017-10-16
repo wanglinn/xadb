@@ -1539,3 +1539,204 @@ readtup_heap(Tuplestorestate *state, unsigned int len)
 			   errmsg("could not read from tuplestore temporary file: %m")));
 	return (void *) tuple;
 }
+
+#ifdef ADB
+typedef struct RemoteMinimalTupleData
+{
+	MinimalTuple	minitup;
+	Oid				nodeid;
+} RemoteMiniTupData, *RemoteMiniTup;
+
+static RemoteMiniTup make_remote_minitup(MinimalTuple minitup, Oid nodeid);
+static void heap_free_remote_minimal_tuple(RemoteMiniTup remote_minitup);
+static void *copy_remotetup_heap(Tuplestorestate *state, void *tup);
+static void write_remotetup_heap(Tuplestorestate *state, void *tup);
+static void *read_remotetup_heap(Tuplestorestate *state, unsigned int len);
+
+Tuplestorestate *
+tuplestore_begin_remoteheap(bool randomAccess, bool interXact, int maxKBytes)
+{
+	Tuplestorestate *state;
+	int			eflags;
+
+	/*
+	 * This interpretation of the meaning of randomAccess is compatible with
+	 * the pre-8.3 behavior of tuplestores.
+	 */
+	eflags = randomAccess ?
+		(EXEC_FLAG_BACKWARD | EXEC_FLAG_REWIND) :
+		(EXEC_FLAG_REWIND);
+
+	state = tuplestore_begin_common(eflags, interXact, maxKBytes);
+
+	state->copytup = copy_remotetup_heap;
+	state->writetup = write_remotetup_heap;
+	state->readtup = read_remotetup_heap;
+
+	return state;
+}
+
+static RemoteMiniTup
+make_remote_minitup(MinimalTuple minitup, Oid nodeid)
+{
+	RemoteMiniTup remote_minitup;
+
+	remote_minitup = (RemoteMiniTup) palloc(sizeof(RemoteMiniTupData));
+	remote_minitup->minitup = minitup;
+	remote_minitup->nodeid = nodeid;
+
+	return remote_minitup;
+}
+
+static void
+heap_free_remote_minimal_tuple(RemoteMiniTup remote_minitup)
+{
+	pfree(remote_minitup);
+}
+
+/*
+ * tuplestore_put_remotetupleslot
+ *
+ * It is all similar to tuplestore_puttupleslot but append RemoteMiniTup
+ * contains remote node id to the tuplestore.
+ */
+void
+tuplestore_put_remotetupleslot(Tuplestorestate *state, TupleTableSlot *slot)
+{
+	RemoteMiniTup	remote_minitup;
+	MinimalTuple	minitup;
+	MemoryContext	oldcxt = MemoryContextSwitchTo(state->context);
+
+	/*
+	 * Form a MinimalTuple in working memory
+	 */
+	minitup = ExecCopySlotMinimalTuple(slot);
+	remote_minitup = make_remote_minitup(minitup, slot->tts_xcnodeoid);
+	USEMEM(state, GetMemoryChunkSpace(remote_minitup));
+
+	tuplestore_puttuple_common(state, (void *) remote_minitup);
+
+	MemoryContextSwitchTo(oldcxt);
+}
+
+/*
+ * tuplestore_get_remotetupleslot
+ *
+ * It is all similar to tuplestore_gettupleslot but slot contains its
+ * node id came from.
+ */
+bool
+tuplestore_get_remotetupleslot(Tuplestorestate *state, bool forward, bool copy, TupleTableSlot *slot)
+{
+	RemoteMiniTup	remote_minitup;
+	MinimalTuple	minitup;
+	bool			should_free;
+
+	remote_minitup = (RemoteMiniTup) tuplestore_gettuple(state, forward, &should_free);
+
+	if (remote_minitup)
+	{
+		if (copy && !should_free)
+		{
+			minitup = heap_copy_minimal_tuple(remote_minitup->minitup);
+			should_free = true;
+		}
+		ExecStoreMinimalTuple(remote_minitup->minitup, slot, should_free);
+		slot->tts_xcnodeoid = remote_minitup->nodeid;
+		return true;
+	}
+	else
+	{
+		ExecClearTuple(slot);
+		return false;
+	}
+}
+
+static void *
+copy_remotetup_heap(Tuplestorestate *state, void *tup)
+{
+	RemoteMiniTup	remote_minitup;
+	MinimalTuple	minitup;
+	HeapTuple		heaptup = (HeapTuple) tup;
+	//uint32			t_xc_node_id = heaptup->t_xc_node_id;
+	Oid				nodeid = InvalidOid;
+
+	/* TODO: get node id by node identifier */
+	minitup = minimal_tuple_from_heap_tuple(heaptup);
+	remote_minitup = make_remote_minitup(minitup, nodeid);
+	USEMEM(state, GetMemoryChunkSpace(remote_minitup));
+	return (void *) remote_minitup;
+}
+
+static void
+write_remotetup_heap(Tuplestorestate *state, void *tup)
+{
+	RemoteMiniTup	remote_minitup = (RemoteMiniTup) tup;
+	MinimalTuple	minitup = remote_minitup->minitup;
+	Oid				nodeid = remote_minitup->nodeid;
+
+	/* the part of the MinimalTuple we'll write: */
+	char	   *tupbody = (char *) minitup + MINIMAL_TUPLE_DATA_OFFSET;
+	unsigned int tupbodylen = minitup->t_len - MINIMAL_TUPLE_DATA_OFFSET;
+
+	/* total on-disk footprint: */
+	unsigned int tuplen = tupbodylen + sizeof(int) + sizeof(nodeid);
+
+	if (BufFileWrite(state->myfile, (void *) &tuplen,
+					 sizeof(tuplen)) != sizeof(tuplen))
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not write to tuplestore temporary file: %m")));
+	if (BufFileWrite(state->myfile, (void *) &nodeid,
+					 sizeof(nodeid)) != sizeof(nodeid))
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not write to tuplestore temporary file: %m")));
+	if (BufFileWrite(state->myfile, (void *) tupbody,
+					 tupbodylen) != (size_t) tupbodylen)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not write to tuplestore temporary file: %m")));
+	if (state->backward)		/* need trailing length word? */
+		if (BufFileWrite(state->myfile, (void *) &tuplen,
+						 sizeof(tuplen)) != sizeof(tuplen))
+			ereport(ERROR,
+					(errcode_for_file_access(),
+				errmsg("could not write to tuplestore temporary file: %m")));
+
+	FREEMEM(state, GetMemoryChunkSpace(remote_minitup));
+	heap_free_minimal_tuple(minitup);
+	heap_free_remote_minimal_tuple(remote_minitup);
+}
+
+static void *
+read_remotetup_heap(Tuplestorestate *state, unsigned int len)
+{
+	unsigned int	tupbodylen = len - sizeof(int) - sizeof(Oid);
+	unsigned int	tuplen = tupbodylen + MINIMAL_TUPLE_DATA_OFFSET;
+	MinimalTuple	minitup = (MinimalTuple) palloc(tuplen);
+	char		   *tupbody = (char *) minitup + MINIMAL_TUPLE_DATA_OFFSET;
+	RemoteMiniTup	remote_minitup = make_remote_minitup(minitup, InvalidOid);
+
+	USEMEM(state, GetMemoryChunkSpace(remote_minitup));
+	/* read in the tuple proper */
+	minitup->t_len = tuplen;
+	if (BufFileRead(state->myfile, (void *) &(remote_minitup->nodeid),
+					sizeof(remote_minitup->nodeid)) != sizeof(remote_minitup->nodeid))
+		ereport(ERROR,
+				(errcode_for_file_access(),
+			   errmsg("could not read from tuplestore temporary file: %m")));
+	if (BufFileRead(state->myfile, (void *) tupbody,
+					tupbodylen) != (size_t) tupbodylen)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+			   errmsg("could not read from tuplestore temporary file: %m")));
+	if (state->backward)		/* need trailing length word? */
+		if (BufFileRead(state->myfile, (void *) &tuplen,
+						sizeof(tuplen)) != sizeof(tuplen))
+			ereport(ERROR,
+					(errcode_for_file_access(),
+			   errmsg("could not read from tuplestore temporary file: %m")));
+	return (void *) remote_minitup;
+}
+#endif
