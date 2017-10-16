@@ -895,18 +895,21 @@ standard_ProcessUtility(Node *parsetree,
 				{
 					vacuum_rel = heap_openrv_extended(stmt->relation, AccessShareLock, true);
 
-					if(RELKIND_MATVIEW!=vacuum_rel->rd_rel->relkind)
+					if(vacuum_rel)
 					{
-						/*
-						 * We have to run the command on nodes before Coordinator because
-						 * vacuum() pops active snapshot and we can not send it to nodes
-						 */
-						utilityContext.force_autocommit = true;
-						utilityContext.exec_type = EXEC_ON_DATANODES;
-						ExecRemoteUtilityStmt(&utilityContext);
-					}
+						if (RELKIND_MATVIEW!=vacuum_rel->rd_rel->relkind)
+						{
+							/*
+							 * We have to run the command on nodes before Coordinator because
+							 * vacuum() pops active snapshot and we can not send it to nodes
+							 */
+							utilityContext.force_autocommit = true;
+							utilityContext.exec_type = EXEC_ON_DATANODES;
+							ExecRemoteUtilityStmt(&utilityContext);
+						}
 
-					relation_close(vacuum_rel, AccessShareLock);
+						relation_close(vacuum_rel, AccessShareLock);
+					}
 				}
 
 #endif /* ADB */
