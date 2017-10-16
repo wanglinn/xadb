@@ -1541,7 +1541,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	if(AGT_CMD_CNDN_CNDN_INIT != cmdtype && AGT_CMD_GTM_INIT != cmdtype && AGT_CMD_GTM_SLAVE_INIT != cmdtype 
 		&& AGT_CMD_CLEAN_NODE != cmdtype && AGT_CMD_GTM_STOP_MASTER != cmdtype && AGT_CMD_GTM_STOP_SLAVE != cmdtype 
 		&& AGT_CMD_CN_STOP != cmdtype && AGT_CMD_DN_STOP != cmdtype && !mgr_node->nodeinited
-		&& AGT_CMD_DN_RESTART != cmdtype && AGT_CMD_CN_RESTART != cmdtype
+		&& AGT_CMD_DN_RESTART != cmdtype && AGT_CMD_CN_RESTART != cmdtype && AGT_CMD_AGTM_RESTART != cmdtype
 		&& AGT_CMD_GTM_STOP_MASTER_BACKEND != cmdtype && AGT_CMD_GTM_STOP_SLAVE_BACKEND != cmdtype 
 		&& AGT_CMD_CN_STOP_BACKEND != cmdtype && AGT_CMD_DN_STOP_BACKEND != cmdtype)
 	{
@@ -8044,6 +8044,9 @@ void mgr_get_cmd_head_word(char cmdtype, char *str)
 			break;
 		case AGT_CMD_NODE_REWIND:
 			strcpy(str, "adb_rewind");
+			break;
+		case AGT_CMD_AGTM_REWIND:
+			strcpy(str, "pg_rewind");
 			break;
 		case AGT_CMD_CHECK_DIR_EXIST:
 			strcpy(str, "check directory");

@@ -416,10 +416,6 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	nodetype = PG_GETARG_INT32(0);
 	namestrcpy(&nodenamedata, PG_GETARG_CSTRING(1));
 
-	if (nodetype == GTM_TYPE_GTM_SLAVE || nodetype == GTM_TYPE_GTM_EXTRA)
-	{
-		ereport(ERROR, (errmsg("not support for gtm slave or extra rewind now")));
-	}
 	nodetypestr = mgr_nodetype_str(nodetype);
 	initStringInfo(&strinfo);
 	initStringInfo(&strinfo_sync);
@@ -529,7 +525,10 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 		appendStringInfo(&infosendmsg, " start -Z datanode -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
 	
 		ereport(NOTICE, (errmsg("pg_ctl %s", infosendmsg.data)));
-		res = mgr_ma_send_cmd(AGT_CMD_DN_START, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
+		if (GTM_TYPE_GTM_SLAVE == nodetype || GTM_TYPE_GTM_EXTRA == nodetype)
+			res = mgr_ma_send_cmd(AGT_CMD_GTM_START_SLAVE, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
+		else
+			res = mgr_ma_send_cmd(AGT_CMD_DN_START, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
 		if (!res)
 			ereport(WARNING, (errmsg("pg_ctl %s fail, %s", infosendmsg.data, strinfo.data)));
 	}

@@ -1109,7 +1109,7 @@ bool mgr_check_node_connect(char nodetype, Oid hostOid, int nodeport)
 
 bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 {
-	char cmdtype = AGT_CMD_NODE_REWIND;
+	char cmdtype;
 	char mastertype;
 	char portBuf[10];
 	char adbhome[MAXPGPATH];
@@ -1123,6 +1123,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	bool master_is_exist = false;
 	bool master_is_running = false;
 	bool isNull = false;
+	bool bGtmType = false;
 	int rest;
 	int iloop;
 	int agentPortM;
@@ -1151,6 +1152,17 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 		appendStringInfo(strinfo, "the nodetype is \"%d\", not for gtm rewind or datanode rewind", nodetype);
 		return false;
 	}
+	
+	if (GTM_TYPE_GTM_SLAVE == nodetype || GTM_TYPE_GTM_EXTRA == nodetype)
+	{
+		bGtmType = true;
+		cmdtype = AGT_CMD_AGTM_REWIND;
+	}
+	else
+	{
+		bGtmType = false;
+		cmdtype = AGT_CMD_NODE_REWIND;
+	}
 
 	Assert(nodename);
 
@@ -1174,7 +1186,10 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	/*restart the node then stop it with fast mode*/
 	initStringInfo(&(getAgentCmdRst.description));
 	ereport(NOTICE, (errmsg("pg_ctl restart %s \"%s\"", nodetypestr, nodename)));
-	mgr_runmode_cndn_get_result(AGT_CMD_DN_RESTART, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
+	if (bGtmType)
+		mgr_runmode_cndn_get_result(AGT_CMD_AGTM_RESTART, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
+	else
+		mgr_runmode_cndn_get_result(AGT_CMD_DN_RESTART, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
 	if(!getAgentCmdRst.ret)
 	{
 		heap_freetuple(tuple);
@@ -1194,7 +1209,10 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	iloop = iMax-3;
 	while(iloop-- >0)
 	{
-		rest = pingNode_user(hostAddr, portBuf, user);
+		if (bGtmType)
+			rest = pingNode_user(hostAddr, portBuf, AGTM_USER);
+		else
+			rest = pingNode_user(hostAddr, portBuf, user);
 		if (PQPING_OK == rest)
 			break;
 		pg_usleep(1000000L);
@@ -1210,10 +1228,13 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 		pfree(hostAddr);
 		return false;
 	}
-	
+
 	ereport(NOTICE, (errmsg("pg_ctl stop %s \"%s\" with fast mode", nodetypestr, nodename)));
 	resetStringInfo(&(getAgentCmdRst.description));
-	mgr_runmode_cndn_get_result(AGT_CMD_DN_STOP, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
+	if (bGtmType)
+		mgr_runmode_cndn_get_result(AGT_CMD_GTM_STOP_SLAVE, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
+	else
+		mgr_runmode_cndn_get_result(AGT_CMD_DN_STOP, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
 	if(!getAgentCmdRst.ret)
 	{
 		heap_freetuple(tuple);
@@ -1235,7 +1256,10 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	iloop = iMax-2;
 	while(iloop-- >0)
 	{
-		rest = pingNode_user(hostAddr, portBuf, user);
+		if (bGtmType)
+			rest = pingNode_user(hostAddr, portBuf, user);
+		else
+			rest = pingNode_user(hostAddr, portBuf, AGTM_USER);
 		if (PQPING_NO_RESPONSE == rest)
 			break;
 		pg_usleep(1000000L);
@@ -1295,7 +1319,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 			|| GTM_TYPE_GTM_EXTRA == mgr_node->nodetype)
 		{
 			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", AGTM_USER, slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
-			if (GTM_TYPE_GTM_EXTRA == nodetype || GTM_TYPE_GTM_SLAVE == nodetype)
+			if (bGtmType)
 				mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", AGTM_USER, slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
 		}
 		else
@@ -1375,16 +1399,16 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	agentPortM = mgr_host->hostagentport;
 	ReleaseSysCache(hostTupleM);
 
-	ereport(LOG, (errmsg("on datanode master \"%s\" execute \"checkpoint\"", nodename)));
-	ereport(NOTICE, (errmsg("on datanode master \"%s\" execute \"checkpoint\"", nodename)));
+	ereport(LOG, (errmsg("on %s master \"%s\" execute \"checkpoint\"", bGtmType ? "gtm":"datanode", nodename)));
+	ereport(NOTICE, (errmsg("on %s master \"%s\" execute \"checkpoint\"", bGtmType ? "gtm":"datanode", nodename)));
 	initStringInfo(&restmsg);
 	iloop = 10;
 	while(iloop-- > 0)
 	{
 		resetStringInfo(&restmsg);
-		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPortM, "checkpoint;select 1;"
+		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES_COMMAND, agentPortM, "checkpoint;"
 				, master_nodeinfo.nodeusername, master_nodeinfo.nodeaddr, master_nodeinfo.nodeport, DEFAULT_DB, &restmsg);
-		if (restmsg.len > 0 && strcmp(restmsg.data, "1") == 0)
+		if (restmsg.len > 0 && strcmp(restmsg.data, "CHECKPOINT") == 0)
 			break;
 		pg_usleep(1000000L);
 	}
@@ -1419,11 +1443,11 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 
 	if (!resA || !resB)
 	{
-		appendStringInfo(strinfo, "on datanode master \"%s\" pg_controldata get expect value fail", nodename);
+		appendStringInfo(strinfo, "on %s master \"%s\" pg_controldata get expect value fail", bGtmType?"gtm":"datanode", nodename);
 		ereport(WARNING, (errcode(ERRCODE_OBJECT_IN_USE)
-				,errmsg("on the datanode master \"%s\" execute \"pg_controldata %s\" to get the expect value fail"
-				, nodename, master_nodeinfo.nodepath)
-				,errhint("execute \"checkpoint\" on datanode master \"%s\", then execute  \"pg_controldata %s\" to check \"Minimum recovery ending location\" is \"0/0\" and \"Min recovery ending loc's timeline\" is \"0\" before execute the rewind command again", nodename, master_nodeinfo.nodepath)));
+				,errmsg("on the %s master \"%s\" execute \"pg_controldata %s\" to get the expect value fail"
+				, bGtmType?"gtm":"datanode", nodename, master_nodeinfo.nodepath)
+				,errhint("execute \"checkpoint\" on %s master \"%s\", then execute  \"pg_controldata %s\" to check \"Minimum recovery ending location\" is \"0/0\" and \"Min recovery ending loc's timeline\" is \"0\" before execute the rewind command again", bGtmType?"gtm":"datanode", nodename, master_nodeinfo.nodepath)));
 		pfree(restmsg.data);
 		pfree(infosendmsg.data);
 		pfree_AppendNodeInfo(master_nodeinfo);
@@ -1433,7 +1457,10 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	pg_usleep(3000000L);
 	/*node rewind*/
 	resetStringInfo(&infosendmsg);
-	appendStringInfo(&infosendmsg, " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres' -N %s", slave_nodeinfo.nodepath, master_nodeinfo.nodeaddr, master_nodeinfo.nodeport, slave_nodeinfo.nodeusername, nodename);
+	if (bGtmType)
+		appendStringInfo(&infosendmsg, " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres'", slave_nodeinfo.nodepath, master_nodeinfo.nodeaddr, master_nodeinfo.nodeport, AGTM_USER);
+	else
+		appendStringInfo(&infosendmsg, " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres' -N %s", slave_nodeinfo.nodepath, master_nodeinfo.nodeaddr, master_nodeinfo.nodeport, slave_nodeinfo.nodeusername, nodename);
 
 	res = mgr_ma_send_cmd_get_original_result(cmdtype, infosendmsg.data, slave_nodeinfo.nodehost, strinfo, true);
 	pfree(restmsg.data);
