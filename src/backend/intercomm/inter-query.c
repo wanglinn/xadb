@@ -59,7 +59,14 @@ static int HandleRowDescriptionMsg(PGconn *conn, int msgLength);
 static int HandleQueryCompleteMsg(PGconn *conn);
 static int ExtractProcessedNumber(const char *buf, int len, uint64 *nprocessed);
 
-static PGcustumFuns QueryCustomFuncs = {HandleRowDescriptionMsg, NULL, HandleQueryCompleteMsg, NULL};
+static PGcustumFuns QueryCustomFuncs = {
+	HandleRowDescriptionMsg,
+	NULL,
+	HandleQueryCompleteMsg,
+	NULL
+};
+
+PGcustumFuns *InterQueryCustomFuncs = &QueryCustomFuncs;
 
 static List *
 RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes)
@@ -432,7 +439,6 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 	Tuplestorestate	   *tuplestorestate = node->tuplestorestate;
 	bool				eof_tuplestore;
 	List			   *handle_list = NIL;
-	List			   *save_opt_list = NIL;
 
 	Assert(node && slot);
 	ExecClearTuple(slot);
@@ -458,19 +464,7 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 			context.fetch_batch = false;
 		context.fetch_count = 0;
 
-		save_opt_list = HandleListSetCustomOption(handle_list, &QueryCustomFuncs);
-		Assert(list_length(handle_list) == list_length(save_opt_list));
-		PG_TRY();
-		{
-			PQNListExecFinish(handle_list, HandleGetPGconn, RemoteQueryFinishHook, &context, true);
-			HandleListResetCustomOption(handle_list, save_opt_list);
-			list_free_deep(save_opt_list);
-		} PG_CATCH();
-		{
-			HandleListResetCustomOption(handle_list, save_opt_list);
-			list_free_deep(save_opt_list);
-			PG_RE_THROW();
-		} PG_END_TRY();
+		PQNListExecFinish(handle_list, HandleGetPGconn, RemoteQueryFinishHook, &context, true);
 	}
 
 	return slot;
@@ -481,7 +475,6 @@ HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *sl
 {
 	RemoteQueryContext	context;
 	PGconn			   *conn;
-	CustomOption	   *save_opt;
 
 	Assert(handle && node && slot);
 	Assert(handle->node_conn);
@@ -494,19 +487,7 @@ HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *sl
 	context.fetch_batch = batch;
 	context.fetch_count = 0;
 
-	save_opt = HandleSetCustomOption(handle, handle, &QueryCustomFuncs);
-	Assert(save_opt);
-	PG_TRY();
-	{
-		PQNOneExecFinish(handle->node_conn, RemoteQueryFinishHook, &context, blocking);
-		HandleResetCustomOption(handle, save_opt);
-		pfree(save_opt);
-	} PG_CATCH();
-	{
-		HandleResetCustomOption(handle, save_opt);
-		pfree(save_opt);
-		PG_RE_THROW();
-	} PG_END_TRY();
+	PQNOneExecFinish(handle->node_conn, RemoteQueryFinishHook, &context, blocking);
 
 	return slot;
 }
@@ -774,6 +755,9 @@ HandleQueryCompleteMsg(PGconn *conn)
 				}
 				else
 					node->rqs_processed += nprocessed;
+			} else
+			{
+				/* what to do by this case? */
 			}
 		}
 

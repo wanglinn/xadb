@@ -266,79 +266,39 @@ HandleReAttatchPGconn(NodeHandle *handle)
 }
 
 CustomOption *
-HandleSetCustomOption(NodeHandle *handle, void *custom, PGcustumFuns *custom_funcs)
+PGconnSetCustomOption(PGconn *conn, void *custom, PGcustumFuns *custom_funcs)
 {
-	if (handle)
+	CustomOption   *opt = NULL;
+	if (conn)
 	{
-		CustomOption   *opt = (CustomOption *) palloc0(sizeof(CustomOption));
-		PGconn		   *conn = handle->node_conn;
-
-		opt->cumstom = conn->custom;
-		opt->cumstom_funcs = conn->funs;
+		if (conn->funs)
+		{
+			opt = (CustomOption *) palloc0(sizeof(CustomOption));
+			opt->cumstom = conn->custom;
+			opt->cumstom_funcs = conn->funs;
+		}
 
 		conn->custom = custom;
 		conn->funs = custom_funcs;
-
-		return opt;
 	}
 
-	return NULL;
+	return opt;
 }
 
 void
-HandleResetCustomOption(NodeHandle *handle, CustomOption *opt)
+PGconnResetCustomOption(PGconn *conn, CustomOption *opt)
 {
-	if (handle)
+	if (conn)
 	{
-		PGconn *conn = handle->node_conn;
-
-		conn->custom = opt ? opt->cumstom : NULL;
-		conn->funs = opt ? opt->cumstom_funcs : NULL;
-	}
-}
-
-List *
-HandleListSetCustomOption(List *handle_list, PGcustumFuns *custom_funcs)
-{
-	ListCell	   *lc_handle;
-	NodeHandle	   *handle;
-	CustomOption   *opt;
-	List		   *opt_list;
-
-	opt_list = NIL;
-	foreach (lc_handle, handle_list)
-	{
-		handle = (NodeHandle *) lfirst(lc_handle);
-		opt = HandleSetCustomOption(handle, handle, custom_funcs);
-		opt_list = lappend(opt_list, opt);
-	}
-
-	return opt_list;
-}
-
-void
-HandleListResetCustomOption(List *handle_list, List *opt_list)
-{
-	ListCell	   *lc_handle;
-	ListCell	   *lc_opt;
-	NodeHandle	   *handle;
-	CustomOption   *opt;
-
-	if (opt_list == NIL)
-	{
-		foreach (lc_handle, handle_list)
+		if (opt)
 		{
-			handle = (NodeHandle *) lfirst(lc_handle);
-			HandleResetCustomOption(handle, NULL);
-		}
-	} else
-	{
-		Assert(list_length(handle_list) == list_length(opt_list));
-		forboth(lc_handle, handle_list, lc_opt, opt_list)
+			conn->custom = opt->cumstom;
+			conn->funs = opt->cumstom_funcs;
+			pfree(opt);
+		} else
 		{
-			handle = (NodeHandle *) lfirst(lc_handle);
-			opt = (CustomOption *) lfirst(lc_opt);
-			HandleResetCustomOption(handle, opt);
+			conn->custom = NULL;
+			conn->funs = NULL;
 		}
 	}
 }
@@ -361,6 +321,8 @@ GetPGconnAttatchToHandle(List *node_list, List *handle_list)
 			handle = (NodeHandle *) lfirst(lc_handle);
 			Assert(PQstatus(handle->node_conn) != CONNECTION_OK);
 			handle->node_conn = (PGconn *) lfirst(lc_conn);
+			handle->node_conn->custom = handle;
+			handle->node_conn->funs = InterQueryCustomFuncs;
 			if (handle->node_type == TYPE_CN_NODE)
 				NumCnConns++;
 			else

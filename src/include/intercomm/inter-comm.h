@@ -164,6 +164,7 @@ extern void StartFinishPreparedRxact(const char *gid, int nnodes, Oid *nodes, bo
 extern void EndFinishPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool isMissingOK, bool isCommit);
 
 /* src/backend/intercomm/inter-query.c */
+extern struct PGcustumFuns *InterQueryCustomFuncs;
 extern List *GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQueryExecType exec_type);
 extern TupleTableSlot *StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot);
 extern TupleTableSlot *FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot);

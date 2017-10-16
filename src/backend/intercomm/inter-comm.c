@@ -41,7 +41,12 @@ static int HandleSendBegin(NodeHandle *handle,
 static bool HandleFinishCommandHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 static int HandleCommandCompleteMsg(PGconn *conn);
 
-static PGcustumFuns CommandCustomFuncs = {NULL, NULL, HandleCommandCompleteMsg, NULL};
+static PGcustumFuns CommandCustomFuncs = {
+	NULL,
+	NULL,
+	HandleCommandCompleteMsg,
+	NULL
+};
 
 List *
 OidArraryToList(MemoryContext context, Oid *oids, int noids)
@@ -598,12 +603,11 @@ HandleFinishCommand(NodeHandle *handle, const char *commandTag)
 	result.command_ok = false;
 	result.completionTag[0] = '\0';
 
-	save_opt = HandleSetCustomOption(handle, &result, &CommandCustomFuncs);
+	save_opt = PGconnSetCustomOption(handle->node_conn, &result, &CommandCustomFuncs);
 	PG_TRY();
 	{
 		(void) PQNOneExecFinish(handle->node_conn, HandleFinishCommandHook, NULL, true);
-		HandleResetCustomOption(handle, save_opt);
-		pfree(save_opt);
+		PGconnResetCustomOption(handle->node_conn, save_opt);
 		if (result.command_ok && commandTag && commandTag[0])
 		{
 			/*
@@ -614,8 +618,7 @@ HandleFinishCommand(NodeHandle *handle, const char *commandTag)
 		}
 	} PG_CATCH();
 	{
-		HandleResetCustomOption(handle, save_opt);
-		pfree(save_opt);
+		PGconnResetCustomOption(handle->node_conn, save_opt);
 		PG_RE_THROW();
 	} PG_END_TRY();
 
