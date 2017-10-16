@@ -4243,6 +4243,21 @@ bool path_tree_have_exec_param(Path *path, PlannerInfo *root)
 	return path_tree_walker(path, path_tree_have_exec_param, root);
 }
 
+bool expression_have_reduce_plan(Expr *expr, PlannerGlobal *glob)
+{
+	if(expr == NULL)
+		return false;
+	if(IsA(expr, SubPlan))
+	{
+		SubPlan *subplan = (SubPlan*)expr;
+		PlannerInfo *sub_root = list_nth(glob->subroots, subplan->plan_id - 1);
+		RelOptInfo *final_rel = fetch_upper_rel(sub_root, UPPERREL_FINAL, NULL);
+		/* ADBQ: do we need walke path's expression ? */
+		return have_cluster_reduce_path(final_rel->cheapest_replicate_path, glob);
+	}
+	return expression_tree_walker(expr, expression_have_reduce_plan, glob);
+}
+
 static double* get_path_rows(RelOptInfo *joinrel, List *reduce_info_list, double *rows)
 {
 	List *storage;
