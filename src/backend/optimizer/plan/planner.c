@@ -4342,7 +4342,8 @@ create_grouping_paths(PlannerInfo *root,
 		gcontext.can_sort = can_sort;
 		gcontext.can_hash = can_hash;
 		gcontext.can_gather = (root->parent_root == NULL &&
-							   !expression_have_exec_param((Expr*)parse->havingQual));
+							   !expression_have_exec_param((Expr*)parse->havingQual) &&
+							   !expression_have_reduce_plan((Expr*)parse->havingQual, root->glob));
 
 		if (!no_partial)
 		{
