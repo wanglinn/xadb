@@ -4517,6 +4517,7 @@ PostgresMain(int argc, char *argv[],
 		xact_started = false;
 #ifdef ADB
 		SetXactErrorAborted(false);
+		ResetNodeExecutor();
 		PQNReleaseAllConnect();
 #endif
 
@@ -4557,8 +4558,8 @@ PostgresMain(int argc, char *argv[],
 		{
 			clear_all_handles(false);
 			release_handles();
-			PQNReleaseAllConnect();
 			ResetNodeExecutor();
+			PQNReleaseAllConnect();
 		}
 		if(need_reload_pooler)
 		{
