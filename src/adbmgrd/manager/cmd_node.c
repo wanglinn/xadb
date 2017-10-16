@@ -8043,7 +8043,7 @@ void mgr_get_cmd_head_word(char cmdtype, char *str)
 			strcpy(str, "show parameter");
 			break;
 		case AGT_CMD_NODE_REWIND:
-			strcpy(str, "pg_rewind");
+			strcpy(str, "adb_rewind");
 			break;
 		case AGT_CMD_CHECK_DIR_EXIST:
 			strcpy(str, "check directory");

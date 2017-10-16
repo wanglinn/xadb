@@ -183,7 +183,7 @@ void do_agent_command(StringInfo buf)
 		cmd_ping_node(buf);
 		break;
 	case AGT_CMD_NODE_REWIND:
-		cmd_node_init(cmd_type, buf, "pg_rewind", PG_REWIND_VERSION);
+		cmd_node_init(cmd_type, buf, "adb_rewind", PG_REWIND_VERSION);
 		break;
 	default:
 		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)

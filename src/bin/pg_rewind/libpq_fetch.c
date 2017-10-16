@@ -90,6 +90,12 @@ libpqConnect(const char *connstr)
 	if (PQresultStatus(res) != PGRES_COMMAND_OK)
 		pg_fatal("could not set up connection context: %s",
 				 PQresultErrorMessage(res));
+#ifdef ADB
+	res = PQexec(conn, "SET xc_maintenance_mode = on;");
+	if (PQresultStatus(res) != PGRES_COMMAND_OK)
+		pg_fatal("could not set up connection context: %s",
+				PQresultErrorMessage(res));
+#endif
 	PQclear(res);
 }
 
