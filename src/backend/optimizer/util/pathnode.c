@@ -4261,6 +4261,15 @@ bool expression_have_reduce_plan(Expr *expr, PlannerGlobal *glob)
 	return expression_tree_walker((Node*)expr, expression_have_reduce_plan, glob);
 }
 
+bool expression_have_subplan(Expr *expr, void *none)
+{
+	if(expr == NULL)
+		return false;
+	if(IsA(expr, SubPlan))
+		return true;
+	return expression_tree_walker((Node*)expr, expression_have_subplan, NULL);
+}
+
 static double* get_path_rows(RelOptInfo *joinrel, List *reduce_info_list, double *rows)
 {
 	List *storage;
