@@ -207,6 +207,7 @@ static PathTarget *make_sort_input_target(PlannerInfo *root,
 #ifdef ADB
 static void separate_rowmarks(PlannerInfo *root);
 static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path);
+static void set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify, Index relid);
 static bool is_remote_relation(PlannerInfo *root, Index relid);
 static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms);
 static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *context);
@@ -2276,6 +2277,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 											rowMarks,
 											parse->onConflict,
 											SS_assign_special_param(root));
+				set_modifytable_path_reduceinfo(root, modify, parse->resultRelation);
 				modify->under_cluster = true;
 				path = (Path*)create_cluster_gather_path((Path*)modify, final_rel);
 			}else
@@ -2361,6 +2363,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 											NIL,	/* no row marks */
 											parse->onConflict,
 											SS_assign_special_param(root));
+				set_modifytable_path_reduceinfo(root, modify, parse->resultRelation);
 				modify->under_cluster = true;
 				path = (Path*)modify;
 			}else
@@ -6377,6 +6380,47 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 	}
 
 	return path;
+}
+
+static void set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify, Index relid)
+{
+	RelationLocInfo *loc_info;
+	RangeTblEntry *rte;
+	ReduceInfo *rinfo;
+	bool need_free_loc = false;
+
+	rte = planner_rt_fetch(relid, root);
+
+	if (relid < root->simple_rel_array_size &&
+		root->simple_rel_array[relid] != NULL)
+	{
+		loc_info = root->simple_rel_array[relid]->loc_info;
+	}else
+	{
+		Relation rel;
+		Assert(rte->rtekind == RTE_RELATION);
+		rel = relation_open(rte->relid, NoLock);
+
+		if(rel->rd_locator_info)
+		{
+			loc_info = CopyRelationLocInfo(rel->rd_locator_info);
+			need_free_loc = true;
+		}else
+		{
+			loc_info = NULL;
+		}
+		relation_close(rel, NoLock);
+	}
+
+	if(loc_info)
+		rinfo = MakeReduceInfoFromLocInfo(loc_info, NIL, rte->relid, relid);
+	else
+		rinfo = MakeCoordinatorReduceInfo();
+
+	modify->path.reduce_info_list = list_make1(rinfo);
+	modify->path.reduce_is_valid = true;
+	if(need_free_loc)
+		FreeRelationLocInfo(loc_info);
 }
 
 static bool is_remote_relation(PlannerInfo *root, Index relid)
