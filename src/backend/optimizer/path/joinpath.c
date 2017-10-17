@@ -3110,6 +3110,7 @@ static bool get_cluster_join_exprs(RelOptInfo *outerrel, RelOptInfo *innerrel,
 		if (!is_opclause(ri->clause) ||
 			ri->left_relids == NULL ||
 			ri->right_relids == NULL ||
+			expression_have_subplan(ri->clause, NULL) ||
 			!op_is_equivalence(((OpExpr *)(ri->clause))->opno))
 			continue;
 
