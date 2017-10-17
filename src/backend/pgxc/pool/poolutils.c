@@ -124,7 +124,7 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 		PoolManagerLock(false);
 #ifdef ADB
 		/* Sync cluster nextXid with AGTM */
-		PgxcNodeSyncNextXid();
+		//PgxcNodeSyncNextXid();
 #endif
 		PG_RETURN_BOOL(true);
 	}
@@ -139,7 +139,7 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 		PoolManagerLock(false);
 #ifdef ADB
 		/* Sync cluster nextXid with AGTM */
-		PgxcNodeSyncNextXid();
+		//PgxcNodeSyncNextXid();
 #endif
 		PG_RETURN_BOOL(false);
 	}
@@ -166,7 +166,7 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 
 #ifdef ADB
 	/* Sync cluster nextXid with AGTM */
-	PgxcNodeSyncNextXid();
+	//PgxcNodeSyncNextXid();
 #endif
 
 	PG_RETURN_BOOL(true);
