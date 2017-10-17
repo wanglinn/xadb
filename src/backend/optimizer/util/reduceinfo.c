@@ -4,6 +4,7 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
+#include "catalog/pgxc_node.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/pg_list.h"
@@ -18,6 +19,7 @@
 #include "parser/parse_coerce.h"
 #include "parser/parse_oper.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/pgxcnode.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
@@ -196,6 +198,47 @@ ReduceInfo *MakeCoordinatorReduceInfo(void)
 	rinfo->storage_nodes = list_make1_oid(PGXCNodeOid);
 	rinfo->type = REDUCE_TYPE_COORDINATOR;
 
+	return rinfo;
+}
+
+ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const List *exclude, Oid reloid, Index relid)
+{
+	ReduceInfo *rinfo;
+	List *rnodes = PGXCNodeGetNodeOidList(loc_info->nodeList, PGXC_NODE_DATANODE);
+	if(IsRelationReplicated(loc_info))
+	{
+		rinfo = MakeReplicateReduceInfo(rnodes);
+	}else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
+	{
+		rinfo = MakeRoundReduceInfo(rnodes);
+	}else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
+	{
+		rinfo = MakeRoundReduceInfo(rnodes);
+	}else
+	{
+		if(loc_info->locatorType == LOCATOR_TYPE_HASH)
+		{
+			Var *var = makeVarByRel(loc_info->partAttrNum, reloid, relid);
+			rinfo = MakeHashReduceInfo(rnodes, exclude, (Expr*)var);
+		}else if(loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
+		{
+			rinfo = MakeCustomReduceInfoByRel(rnodes,
+											  exclude,
+											  loc_info->funcAttrNums,
+											  loc_info->funcid,
+											  reloid,
+											  relid);
+		}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
+		{
+			Var *var = makeVarByRel(loc_info->partAttrNum, reloid, relid);
+			rinfo = MakeModuloReduceInfo(rnodes, exclude, (Expr*)var);
+		}else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("unknown locator type %d", loc_info->locatorType)));
+		}
+	}
 	return rinfo;
 }
 
