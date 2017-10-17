@@ -435,7 +435,7 @@ ConcatMixHandle(NodeMixHandle *mix1, NodeMixHandle *mix2)
 
 	if (mix1->pr_handle == NULL)
 		mix1->pr_handle = mix2->pr_handle;
-	else
+	else if (mix2->pr_handle != NULL)
 		Assert(mix1->pr_handle == mix2->pr_handle);
 
 	mix1->mix_types |= mix2->mix_types;

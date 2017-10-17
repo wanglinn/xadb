@@ -283,6 +283,11 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slo
 	{
 		if (pr_handle)
 		{
+			Tuplestorestate	   *tuplestorestate = node->tuplestorestate;
+			bool				eof_tuplestore;
+
+			Assert(tuplestorestate);
+
 			if (!HandleBegin(state, pr_handle, gxid, timestamp, need_xact_block, &already_begin) ||
 				!HandleStartRemoteQuery(pr_handle, node))
 			{
@@ -293,8 +298,20 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slo
 						 errmsg("%s", state->error->data)));
 			}
 
+			/*
+			 * Here we must check eof of the tuplestore, otherwise
+			 * the first tuple slot of the primary handle will be
+			 * got once again from the tuplestore.
+			 */
+			eof_tuplestore = tuplestore_ateof(tuplestorestate);
+			if (!eof_tuplestore)
+			{
+				if (!tuplestore_get_remotetupleslot(tuplestorestate, true, false, slot))
+					eof_tuplestore = true;
+			}
 			/* try to get the first no-null slot */
-			slot = HandleFetchRemote(pr_handle, node, slot, true, false);
+			if (eof_tuplestore)
+				slot = HandleFetchRemote(pr_handle, node, slot, true, false);
 		}
 
 		foreach (lc_handle, mix_handle->handles)
@@ -436,7 +453,7 @@ TupleTableSlot *
 FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 {
 	RemoteQueryContext	context;
-	Tuplestorestate	   *tuplestorestate = node->tuplestorestate;
+	Tuplestorestate	   *tuplestorestate;
 	bool				eof_tuplestore;
 	List			   *handle_list = NIL;
 

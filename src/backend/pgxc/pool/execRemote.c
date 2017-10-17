@@ -3452,36 +3452,6 @@ RemoteQueryNext(ScanState *scan_node)
 		node->eof_underlying = TupIsNull(scanslot);
 	}
 #if 0
-	{
-		Tuplestorestate*tuplestorestate = node->tuplestorestate;
-		bool			eof_tuplestore;
-
-		Assert(tuplestorestate);
-		eof_tuplestore = tuplestore_ateof(tuplestorestate);
-		if (!eof_tuplestore)
-		{
-			if (!tuplestore_gettupleslot(tuplestorestate, true, false, scanslot))
-				eof_tuplestore = true;
-		}
-
-		if (eof_tuplestore)
-		{
-			scanslot = FetchRemoteQuery(node, scanslot);
-			if (!TupIsNull(scanslot))
-			{
-				node->eof_underlying = false;
-
-				/*
-				 * Append a copy of the returned tuple to tuplestore.  NOTE: because
-				 * the tuplestore is certainly in EOF state, its read position will
-				 * move forward over the added tuple.  This is what we want.
-				 */
-				tuplestore_puttupleslot(tuplestorestate, scanslot);
-			}
-			else
-				node->eof_underlying = true;
-		}
-	}
 	else if(node->tuplestorestate)
 	{
 		/*
@@ -3569,9 +3539,9 @@ RemoteQueryNext(ScanState *scan_node)
 		if (eof_tuplestore && node->eof_underlying)
 			ExecClearTuple(scanslot);
 	}
-#endif
 	else
 		ExecClearTuple(scanslot);
+#endif
 
 	/* report error if any */
 	pgxc_node_report_error(node);
