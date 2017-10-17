@@ -681,20 +681,11 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		List *save_clauses;
 		List *exec_param_clauses;
 		List *base_clauses;
+		List *exclude = NIL;
 		RelationLocInfo *loc_info = rel->loc_info;
-		List *rnodes = PGXCNodeGetNodeOidList(rel->loc_info->nodeList, PGXC_NODE_DATANODE);
-		if(IsRelationReplicated(loc_info))
+		if(IsLocatorDistributedByValue(loc_info->locatorType))
 		{
-			rinfo = MakeReplicateReduceInfo(rnodes);
-		}else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
-		{
-			rinfo = MakeRoundReduceInfo(rnodes);
-		}else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
-		{
-			rinfo = MakeRoundReduceInfo(rnodes);
-		}else
-		{
-			List *exclude;
+			List *rnodes = PGXCNodeGetNodeOidList(rel->loc_info->nodeList, PGXC_NODE_DATANODE);
 			List *quals = extract_actual_clauses(rel->baserestrictinfo, false);
 			ExecNodes *nodes =  GetRelationNodesByQuals(rte->relid, rel->relid,
 															(Node *)quals,
@@ -704,43 +695,12 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 				List *exec_nodes = PGXCNodeGetNodeOidList(nodes->nodeList, PGXC_NODE_DATANODE);
 				exclude = list_difference_oid(rnodes, exec_nodes);
 				list_free(exec_nodes);
-			}else
-			{
-				exclude = NIL;
 			}
 			FreeExecNodes(&nodes);
-
-			if(loc_info->locatorType == LOCATOR_TYPE_HASH)
-			{
-				Var *var = makeVarByRel(loc_info->partAttrNum,
-										rte->relid,
-										rel->relid);
-				rinfo = MakeHashReduceInfo(rnodes,
-										   exclude,
-										   (Expr*)var);
-			}else if(loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
-			{
-				rinfo = MakeCustomReduceInfoByRel(rnodes,
-												  exclude,
-												  loc_info->funcAttrNums,
-												  loc_info->funcid,
-												  rte->relid,
-												  rel->relid);
-			}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
-			{
-				Var *var = makeVarByRel(loc_info->partAttrNum,
-										rte->relid,
-										rel->relid);
-				rinfo = MakeModuloReduceInfo(rnodes,
-											 exclude,
-											 (Expr*)var);
-			}else
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						errmsg("unknown locator type %d", loc_info->locatorType)));
-			}
+			list_free(rnodes);
 		}
+		rinfo = MakeReduceInfoFromLocInfo(loc_info, exclude, rte->relid, rel->relid);
+		list_free(exclude);
 
 		exec_param_clauses = NIL;
 		save_clauses = rel->baserestrictinfo;
