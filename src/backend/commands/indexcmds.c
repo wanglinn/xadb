@@ -42,11 +42,6 @@
 #include "parser/parse_coerce.h"
 #include "parser/parse_func.h"
 #include "parser/parse_oper.h"
-#ifdef ADB
-#include "optimizer/pgxcship.h"
-#include "parser/parse_utilcmd.h"
-#include "pgxc/pgxc.h"
-#endif
 #include "storage/lmgr.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
@@ -60,6 +55,12 @@
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 
+#ifdef ADB
+#include "intercomm/inter-comm.h"
+#include "optimizer/pgxcship.h"
+#include "parser/parse_utilcmd.h"
+#include "pgxc/pgxc.h"
+#endif
 
 /* non-export function prototypes */
 static void CheckPredicate(Expr *predicate);
@@ -579,7 +580,7 @@ DefineIndex(Oid relationId,
 		if (IS_PGXC_COORDINATOR)
 		{
 			List *indexAttrs = NIL;
-	
+
 			/* Prepare call for shippability evaluation */
 			for (i = 0; i < indexInfo->ii_NumIndexAttrs; i++)
 			{
@@ -590,7 +591,7 @@ DefineIndex(Oid relationId,
 				if (indexInfo->ii_KeyAttrNumbers[i] > 0)
 					indexAttrs = lappend_int(indexAttrs, indexInfo->ii_KeyAttrNumbers[i]);
 			}
-	
+
 			/* Finalize check */
 			if (!pgxc_check_index_shippability(GetRelationLocInfo(relationId),
 											   stmt->primary,
@@ -1788,6 +1789,13 @@ ReindexIndex(RangeVar *indexRelation, int options)
 	persistence = irel->rd_rel->relpersistence;
 	index_close(irel, NoLock);
 
+#ifdef ADB
+	/*
+	 * Tell TopInterXactStateData we have operated on temporary objects.
+	 */
+	TopInterXactTmpSet(persistence == RELPERSISTENCE_TEMP);
+#endif
+
 	reindex_index(indOid, false, persistence, options);
 
 	return indOid;
@@ -1872,6 +1880,13 @@ ReindexTable(RangeVar *relation, int options)
 		ereport(NOTICE,
 				(errmsg("table \"%s\" has no indexes",
 						relation->relname)));
+
+#ifdef ADB
+	/*
+	 * Tell TopInterXactStateData we have operated on temporary objects.
+	 */
+	TopInterXactTmpSet(IsTempTable(heapOid));
+#endif
 
 	return heapOid;
 }

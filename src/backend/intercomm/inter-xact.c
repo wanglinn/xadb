@@ -115,9 +115,10 @@ IsTopInterXactHastmp(void)
 void
 TopInterXactTmpSet(bool hastmp)
 {
-	InterXactState state = &TopInterXactStateData;
+	InterXactState state = GetTopInterXactState();
 
-	state->hastmp = hastmp;
+	if (hastmp)
+		state->hastmp = true;
 }
 
 /*
@@ -316,7 +317,8 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 	/* Make up InterXactStateData */
 	state = MakeInterXactState2(state, node_list);
 	state->need_xact_block = need_xact_block;
-	state->hastmp = node->is_temp;
+	if (node->is_temp)
+		state->hastmp = true;
 	state->combine_type = node->combine_type;
 	pfree(node_list);
 
