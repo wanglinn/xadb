@@ -2283,18 +2283,24 @@ StartCommitRemoteXact(TransactionState state)
 	{
 		MemoryContext old_context;
 
-		is->implicit = isimplicit;
-
-		if (EnforceTwoPhaseCommit && is->hastmp)
-			ereport(ERROR,
+		if (IsOnCommitActions() || is->hastmp)
+		{
+			/*
+			 * treat these situation as temporary object,
+			 * so that we will not do implicit 2PC commit.
+			 */
+			if (!EnforceTwoPhaseCommit || isimplicit)
+				is->hastmp = true;
+			else
+				ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("cannot PREPARE a transaction that has operated on "
-							"temporary tables"),
-					 errdetail("Disabling enforce_two_phase_commit is recommended "
-							"to enforce COMMIT")));
+					 errmsg("cannot PREPARE a transaction that has operated on temporary tables"),
+					 errdetail("Disabling enforce_two_phase_commit is recommended to enforce COMMIT")));
+		}
 
 		if (!is->hastmp && is->need_xact_block)
 		{
+			is->implicit = true;
 			old_context = MemoryContextSwitchTo(TopTransactionContext);
 			prepareGID = psprintf("T%u", GetTopTransactionId());
 			(void) MemoryContextSwitchTo(old_context);
