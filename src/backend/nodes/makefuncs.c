@@ -629,6 +629,19 @@ Expr *makeHashExpr(Expr *expr)
 	TypeCacheEntry *typeCache;
 	Oid typoid = exprType((Node*)expr);
 	Oid collid = exprCollation((Node*)expr);
+	if(type_is_enum(typoid))
+	{
+		/* convert to Name */
+		expr = (Expr*)coerce_to_target_type(NULL,
+											(Node*)expr,
+											typoid,
+											NAMEOID,
+											-1,
+											COERCION_EXPLICIT,
+											COERCE_IMPLICIT_CAST,
+											-1);
+		typoid = NAMEOID;
+	}
 	typeCache = lookup_type_cache(typoid, TYPECACHE_HASH_PROC);
 
 	if(!OidIsValid(typeCache->hash_proc))
@@ -649,6 +662,12 @@ int32 execHashValue(Datum datum, Oid typid, Oid collid)
 {
 	TypeCacheEntry *typeCache;
 	Datum result;
+	if(type_is_enum(typid))
+	{
+		/* convert to CString, it like Name */
+		datum = DirectFunctionCall1(enum_out, datum);
+		typid = NAMEOID;
+	}
 	typeCache = lookup_type_cache(typid, TYPECACHE_HASH_PROC_FINFO);
 	if(!OidIsValid(typeCache->hash_proc_finfo.fn_oid))
 	{
