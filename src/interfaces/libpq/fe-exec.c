@@ -1389,7 +1389,7 @@ PQsendQueryExtend(PGconn *conn,
 				  bool sendDescribe,				/* Used to decide whether to send a Describe message */
 				  int fetchSize,					/* For Execute message, how many rows will be fetched */
 				  int nParams,						/* For Parse message, the number of input parameters */
-				  const Oid *paramTypes,			/* For Parse message, "nParams" of input paramter types */
+				  const char **paramTypeNames,		/* For Parse message, "nParams" of input paramter type names */
 				  const char *const * paramValues,	/* For Bind message, "nParams" of input parameter values */
 				  const int *paramFormats,			/* For Bind message, "nParams" of input parameter formats */
 				  const int *paramLengths,			/* For Bind message, "nParams" of input parameter lengths */
@@ -1451,7 +1451,7 @@ PQsendQueryExtend(PGconn *conn,
 								   sendDescribe,
 								   fetchSize,
 								   nParams,
-								   paramTypes,
+								   paramTypeNames,
 								   paramFormats,
 								   paramBinaryBuf.data,
 								   paramBinaryBuf.len,
@@ -1478,7 +1478,7 @@ PQsendQueryExtendBinary(PGconn *conn,
 						bool sendDescribe,				/* Used to decide whether to send a Describe message */
 						int fetchSize,					/* For Execute message, how many rows will be fetched */
 						int nParams,					/* For Parse message, the number of input parameters */
-						const Oid *paramTypes,			/* For Parse message, "nParams" of input paramter types */
+						const char **paramTypeNames,	/* For Parse message, "nParams" of input paramter type names */
 						const int *paramFormats,		/* For Bind message, "nParams" of input paramter formats */
 						const char *paramBinaryValue,	/* For Bind message, binary parameter values */
 						const int paramBinaryLength,	/* For Bind message, the length of paramBinaryValue */
@@ -1528,13 +1528,13 @@ PQsendQueryExtendBinary(PGconn *conn,
 			pqPuts(stmt_name, conn) < 0 ||
 			pqPuts(command, conn) < 0)
 			goto sendFailed;
-		if (nParams > 0 && paramTypes)
+		if (nParams > 0 && paramTypeNames)
 		{
 			if (pqPutInt(nParams, 2, conn) < 0)
 				goto sendFailed;
 			for (i = 0; i < nParams; i++)
 			{
-				if (pqPutInt(paramTypes[i], 4, conn) < 0)
+				if (pqPuts(paramTypeNames[i], conn) < 0)
 					goto sendFailed;
 			}
 		}

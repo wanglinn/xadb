@@ -1594,6 +1594,7 @@ static void
 exec_parse_message(const char *query_string,	/* string to execute */
 				   const char *stmt_name,		/* name for prepared stmt */
 				   Oid *paramTypes,		/* parameter types */
+				   ADB_ONLY_ARG(const char **paramTypeNames)
 				   int numParams)		/* number of parameters */
 {
 	MemoryContext unnamed_stmt_context = NULL;
@@ -1663,6 +1664,22 @@ exec_parse_message(const char *query_string,	/* string to execute */
 								  ALLOCSET_DEFAULT_SIZES);
 		oldcontext = MemoryContextSwitchTo(unnamed_stmt_context);
 	}
+#ifdef ADB
+	/*
+	 * if we have the parameter types passed, which happens only in case of
+	 * connection from Coordinators, fill paramTypes with their OIDs for
+	 * subsequent use. We have to do name to OID conversion, in a transaction
+	 * context.
+	 */
+	if (IsConnFromCoord() && paramTypeNames)
+	{
+		int i;
+		Assert(paramTypes);
+		/* we don't expect type mod */
+		for (i = 0; i < numParams; i++)
+			parseTypeString(paramTypeNames[i], &paramTypes[i], NULL, false);
+	}
+#endif
 
 	/*
 	 * Do basic parsing of the query or queries (this should be safe even if
@@ -4763,6 +4780,9 @@ PostgresMain(int argc, char *argv[],
 					const char *query_string;
 					int			numParams;
 					Oid		   *paramTypes = NULL;
+#ifdef ADB
+					const char**paramTypeNames = NULL;
+#endif
 
 					forbidden_in_wal_sender(firstchar);
 
@@ -4777,13 +4797,24 @@ PostgresMain(int argc, char *argv[],
 						int			i;
 
 						paramTypes = (Oid *) palloc(numParams * sizeof(Oid));
+#ifdef ADB
+						if (IsConnFromCoord())
+						{
+							paramTypeNames = (const char **) palloc(numParams * sizeof(const char *));
+							for (i = 0; i < numParams; i++)
+							{
+								paramTypeNames[i] = pq_getmsgstring(&input_message);
+								paramTypes[i] = InvalidOid;
+							}
+						} else
+#endif
 						for (i = 0; i < numParams; i++)
 							paramTypes[i] = pq_getmsgint(&input_message, 4);
 					}
 					pq_getmsgend(&input_message);
 
 					exec_parse_message(query_string, stmt_name,
-									   paramTypes, numParams);
+									   paramTypes, ADB_ONLY_ARG(paramTypeNames) numParams);
 				}
 				break;
 

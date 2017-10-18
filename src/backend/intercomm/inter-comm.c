@@ -20,6 +20,7 @@
 #include "access/xact.h"
 #include "intercomm/inter-comm.h"
 #include "libpq/libpq-int.h"
+#include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
@@ -463,26 +464,40 @@ HandleSendQueryExtend(NodeHandle *handle,
 					  int nResultFormat,
 					  const int *resultFormats)
 {
+	const char **paramTypeNames = NULL;
+	int i, ret;
+
 	Assert(handle);
 
 	/* cache or GC */
 	HandleCache(handle);
 
-	return HandleSendCID(handle, cid) &&
-		   HandleSendSnapshot(handle, snapshot) &&
-		   PQsendQueryExtendBinary(handle->node_conn,
-		   						   command,
-		   						   stmtName,
-		   						   portalName,
-		   						   sendDescribe,
-		   						   fetchSize,
-		   						   nParams,
-		   						   paramTypes,
-		   						   paramFormats,
-		   						   paramBinaryValue,
-		   						   paramBinaryLength,
-		   						   nResultFormat,
-		   						   resultFormats);
+	paramTypeNames = (const char **) palloc0(nParams * sizeof(const char *));
+	for (i = 0; i < nParams; i++)
+		paramTypeNames[i] = (const char *) format_type_be_qualified(paramTypes[i]);
+
+	ret = HandleSendCID(handle, cid) &&
+		  HandleSendSnapshot(handle, snapshot) &&
+		  PQsendQueryExtendBinary(handle->node_conn,
+		  						  command,
+		  						  stmtName,
+		  						  portalName,
+		  						  sendDescribe,
+		  						  fetchSize,
+		  						  nParams,
+		  						  paramTypeNames,
+		  						  paramFormats,
+		  						  paramBinaryValue,
+		  						  paramBinaryLength,
+		  						  nResultFormat,
+		  						  resultFormats);
+
+	/* free resources */
+	for (i = 0; i < nParams; i++)
+		pfree((void *) paramTypeNames[i]);
+	safe_pfree(paramTypeNames);
+
+	return ret;
 }
 
 /*
