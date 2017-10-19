@@ -40,8 +40,12 @@ typedef struct InterXactStateData *InterXactState;
 /* src/backend/intercomm/inter-comm.c */
 extern List *OidArraryToList(MemoryContext context, Oid *oids, int noids);
 extern Oid *OidListToArrary(MemoryContext context, List *oid_list, int *noids);
+extern void ClusterSyncXid(void);
+extern char *HandleGetError(NodeHandle *handle, bool copy);
 extern void HandleGC(NodeHandle *handle);
+extern void HandleListGC(List *handle_list);
 extern void HandleCache(NodeHandle *handle);
+extern void HandleListCache(List *handle_list);
 extern bool HandleListFinishCommand(const List *handle_list, const char *commandTag);
 extern bool HandleFinishCommand(NodeHandle *handle, const char *commandTag);
 extern bool HandleFinishAsync(const List *handle_list);

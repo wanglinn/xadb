@@ -496,16 +496,10 @@ void
 InterXactGC(InterXactState state)
 {
 	NodeMixHandle	   *mix_handle;
-	NodeHandle		   *handle;
-	ListCell		   *lc_handle;
 
 	Assert(state && state->mix_handle);
 	mix_handle = state->mix_handle;
-	foreach (lc_handle, mix_handle->handles)
-	{
-		handle = (NodeHandle *) lfirst(lc_handle);
-		HandleGC(handle);
-	}
+	HandleListGC(mix_handle->handles);
 }
 
 /*

@@ -20,12 +20,13 @@
 #include "access/xact.h"
 #include "intercomm/inter-comm.h"
 #include "libpq/libpq-int.h"
+#include "pgxc/pgxc.h"
+#include "reduce/wait_event.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 #include "utils/timestamp.h"
-#include "reduce/wait_event.h"
 
 typedef struct CommandResult
 {
@@ -89,6 +90,62 @@ OidListToArrary(MemoryContext context, List *oid_list, int *noids)
 }
 
 /*
+ * ClusterSyncXid
+ *
+ * we want to make the whole cluster node to synchronize
+ * the next xid with AGTM.
+ */
+void
+ClusterSyncXid(void)
+{
+	NodeMixHandle	   *mix_handle;
+	NodeHandle		   *handle;
+	ListCell		   *lc_handle;
+	List			   *node_list;
+	List			   *involved_handles;
+	const char		   *query = "select * from sync_local_xid()";
+
+	/* only master coordinator can do this */
+	if (!IsCoordMaster())
+		return ;
+
+	node_list = GetAllNodeIds(false);
+	mix_handle = GetMixedHandles(node_list, NULL);
+	Assert(node_list && mix_handle);
+	list_free(node_list);
+
+	involved_handles = NIL;
+	PG_TRY();
+	{
+		foreach (lc_handle, mix_handle->handles)
+		{
+			handle = (NodeHandle *) lfirst(lc_handle);
+			if (!HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot, query, NULL))
+				ereport(WARNING,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Fail to send query: \"%s\"", query),
+						 errnode(NameStr(handle->node_name)),
+						 errhint("Error: %s", HandleGetError(handle, false))));
+			else
+				involved_handles = lappend(involved_handles, handle);
+		}
+
+		if (!HandleListFinishCommand(involved_handles, NULL_TAG))
+			ereport(WARNING,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Fail to synchronize the whole cluster next xid."),
+					 errhint("You are better to select sync_local_xid() manually.")));
+	} PG_CATCH();
+	{
+		list_free(involved_handles);
+		HandleListGC(mix_handle->handles);
+		PG_RE_THROW();
+	} PG_END_TRY();
+	list_free(involved_handles);
+	HandleListGC(mix_handle->handles);
+}
+
+/*
  * Construct a BEGIN TRANSACTION command after taking into account the
  * current options. The returned string is not palloced and is valid only until
  * the next call to the function.
@@ -131,6 +188,26 @@ GenerateBeginQuery(void)
 }
 
 /*
+ * HandleGetError
+ *
+ * get error message of NodeHandle.
+ *
+ */
+char *
+HandleGetError(NodeHandle *handle, bool copy)
+{
+	char *errmsg = "";
+
+	if (handle && handle->node_conn)
+		errmsg = PQerrorMessage(handle->node_conn);
+
+	if (copy)
+		errmsg = pstrdup(errmsg);
+
+	return errmsg;
+}
+
+/*
  * HandleGC
  *
  * garbage collection for NodeHandle
@@ -141,6 +218,25 @@ HandleGC(NodeHandle *handle)
 {
 	if (handle)
 		PQNExecFinsh_trouble(handle->node_conn);
+}
+
+/*
+ * HandleListGC
+ *
+ * garbage collection for NodeHandle List
+ *
+ */
+void
+HandleListGC(List *handle_list)
+{
+	NodeHandle	   *handle;
+	ListCell	   *lc_handle;
+
+	foreach (lc_handle, handle_list)
+	{
+		handle = (NodeHandle *) lfirst(lc_handle);
+		HandleGC(handle);
+	}
 }
 
 /*
@@ -175,6 +271,25 @@ HandleCache(NodeHandle *handle)
 			if (TupIsNull(nextSlot))
 				break;
 		}
+	}
+}
+
+/*
+ * HandleListCache
+ *
+ * cache remote tuple for NodeHandle List
+ *
+ */
+void
+HandleListCache(List *handle_list)
+{
+	NodeHandle	   *handle;
+	ListCell	   *lc_handle;
+
+	foreach (lc_handle, handle_list)
+	{
+		handle = (NodeHandle *) lfirst(lc_handle);
+		HandleCache(handle);
 	}
 }
 

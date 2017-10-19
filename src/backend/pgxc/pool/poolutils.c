@@ -17,11 +17,6 @@
 #include "miscadmin.h"
 #include "libpq/pqsignal.h"
 
-#ifdef ADB
-#include "access/rxact_mgr.h"
-#include "catalog/namespace.h"
-#include "pgxc/execRemote.h"
-#endif /* ADB */
 #include "pgxc/pgxc.h"
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
@@ -38,6 +33,13 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
+
+#ifdef ADB
+#include "access/rxact_mgr.h"
+#include "catalog/namespace.h"
+#include "intercomm/inter-comm.h"
+#include "pgxc/execRemote.h"
+#endif /* ADB */
 
 volatile bool need_reload_pooler = false;
 
@@ -124,7 +126,7 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 		PoolManagerLock(false);
 #ifdef ADB
 		/* Sync cluster nextXid with AGTM */
-		//PgxcNodeSyncNextXid();
+		ClusterSyncXid();
 #endif
 		PG_RETURN_BOOL(true);
 	}
@@ -139,7 +141,7 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 		PoolManagerLock(false);
 #ifdef ADB
 		/* Sync cluster nextXid with AGTM */
-		//PgxcNodeSyncNextXid();
+		ClusterSyncXid();
 #endif
 		PG_RETURN_BOOL(false);
 	}
@@ -159,6 +161,8 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 	/* Reinitialize session, while old pooler connection is active */
 	InitMultinodeExecutor(true);
 
+	InitNodeExecutor(true);
+
 	/* And reconnect to pool manager */
 	PoolManagerReconnect();
 
@@ -166,7 +170,7 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 
 #ifdef ADB
 	/* Sync cluster nextXid with AGTM */
-	//PgxcNodeSyncNextXid();
+	ClusterSyncXid();
 #endif
 
 	PG_RETURN_BOOL(true);
