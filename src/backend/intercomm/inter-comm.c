@@ -789,6 +789,7 @@ HandleFinishCommandHook(void *context, struct pg_conn *conn, PQNHookFuncType typ
 	{
 		case PQNHFT_ERROR:
 			return PQNEFHNormal(NULL, conn, type);
+		case PQNHFT_ASYNC_STATUS:
 		case PQNHFT_COPY_OUT_DATA:
 			break;
 		case PQNHFT_COPY_IN_ONLY:
@@ -811,6 +812,8 @@ HandleFinishCommandHook(void *context, struct pg_conn *conn, PQNHookFuncType typ
 				}
 				va_end(args);
 			}
+			break;
+		default:
 			break;
 	}
 	return false;

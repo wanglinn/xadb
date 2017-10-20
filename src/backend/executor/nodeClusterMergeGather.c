@@ -284,6 +284,8 @@ bool cmg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType
 			va_end(args);
 		}
 		break;
+	default:
+		break;
 	}
 	return false;
 }

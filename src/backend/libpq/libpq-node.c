@@ -444,6 +444,9 @@ re_get_:
 			return true;
 	} else if (!PQisBusy(conn))
 	{
+		if ((*hook)((void*)context, conn, PQNHFT_ASYNC_STATUS))
+			return true;
+
 		if (PQisCopyOutState(conn))
 		{
 			const char	   *buf;

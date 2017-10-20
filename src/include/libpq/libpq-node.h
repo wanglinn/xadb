@@ -7,6 +7,7 @@ struct pg_conn;
 typedef enum PQNHookFuncType
 {
 	PQNHFT_ERROR = 1,		/* system error, see errno */
+	PQNHFT_ASYNC_STATUS,	/* asynchronous status */
 	PQNHFT_COPY_OUT_DATA,	/* got copy out data */
 	PQNHFT_COPY_IN_ONLY,	/* copy in only */
 	PQNHFT_RESULT			/* got PQresult */
