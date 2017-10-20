@@ -2276,6 +2276,9 @@ StartCommitRemoteXact(TransactionState state)
 	InterXactState	is;
 	bool			isimplicit;
 
+	if (!IsCoordMaster())
+		return state;
+
 	Assert(state);
 	is = state->interXactState;
 	isimplicit = !(state->blockState == TBLOCK_PREPARE);
@@ -2333,33 +2336,33 @@ EndCommitRemoteXact(TransactionState state)
 		return state;
 	}
 
-	if (IsCoordMaster())
+	if (!IsCoordMaster())
+		return state;
+
+	if (IsXactInPhaseTwo(state))
 	{
-		if (IsXactInPhaseTwo(state))
-		{
-			const char *gid;
-			Assert(state->interXactState);
-			gid = state->interXactState->gid;
-			Assert(gid);
-			PreventTransactionChain(true, "COMMIT IMPLICIT PREPARED");
-			FinishPreparedTransactionExt(gid, true, false);
-			SetXactPhaseOne(state);
-		} else
-		{
-			Oid *nodeIds;
-			int  nodecnt;
+		const char *gid;
+		Assert(state->interXactState);
+		gid = state->interXactState->gid;
+		Assert(gid);
+		PreventTransactionChain(true, "COMMIT IMPLICIT PREPARED");
+		FinishPreparedTransactionExt(gid, true, false);
+		SetXactPhaseOne(state);
+	} else
+	{
+		Oid *nodeIds;
+		int  nodecnt;
 
-			nodeIds = InterXactBeginNodes(state->interXactState, false, &nodecnt);
+		nodeIds = InterXactBeginNodes(state->interXactState, false, &nodecnt);
 
-			/* Here is where we commit remote xact */
-			RemoteXactCommit(nodecnt, nodeIds);
-		}
-
-		if (state->interXactState)
-			state->interXactState->block_state |= IBLOCK_END;
-
-		state = CurrentTransactionState;
+		/* Here is where we commit remote xact */
+		RemoteXactCommit(nodecnt, nodeIds);
 	}
+
+	if (state->interXactState)
+		state->interXactState->block_state |= IBLOCK_END;
+
+	state = CurrentTransactionState;
 
 	return state;
 }
