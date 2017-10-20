@@ -150,6 +150,7 @@ typedef enum NodeTag
 	T_LockRowsState,
 	T_LimitState,
 #ifdef ADB
+	T_RemoteCopyState,
 	T_RemoteQueryState,
 	T_ClusterGatherState,
 	T_ClusterMergeGatherState,

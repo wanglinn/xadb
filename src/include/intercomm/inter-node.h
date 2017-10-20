@@ -70,6 +70,7 @@ extern NodeHandle *GetDnHandle(Oid dn_id, bool attatch, void *context);
 extern void HandleAttatchPGconn(NodeHandle *handle);
 extern void HandleDetachPGconn(NodeHandle *handle);
 extern void HandleReAttatchPGconn(NodeHandle *handle);
+extern struct pg_conn *HandleGetPGconn(void *handle);
 extern CustomOption *PGconnSetCustomOption(struct pg_conn *conn, void *custom, struct PGcustumFuns *custom_funcs);
 extern void PGconnResetCustomOption(struct pg_conn *conn, CustomOption *opt);
 extern NodeMixHandle *GetMixedHandles(const List *node_list, void *context);

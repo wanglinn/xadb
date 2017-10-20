@@ -265,6 +265,15 @@ HandleReAttatchPGconn(NodeHandle *handle)
 	HandleAttatchPGconn(handle);
 }
 
+PGconn *
+HandleGetPGconn(void *handle)
+{
+	if (handle)
+		return ((NodeHandle *) handle)->node_conn;
+
+	return NULL;
+}
+
 CustomOption *
 PGconnSetCustomOption(PGconn *conn, void *custom, PGcustumFuns *custom_funcs)
 {
@@ -352,6 +361,9 @@ GetMixedHandles(const List *node_list, void *context)
 	{
 		node_id = lfirst_oid(lc_id);
 		handle = GetNodeHandle(node_id, false, context);
+		if (!handle)
+			ereport(ERROR,
+				   (errmsg("Invalid node id %u", node_id)));
 		mix_handle->mix_types |= handle->node_type;
 		mix_handle->handles = lappend(mix_handle->handles, handle);
 		if (handle->node_primary)

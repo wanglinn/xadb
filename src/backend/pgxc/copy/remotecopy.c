@@ -34,9 +34,9 @@ static void RemoteCopy_QuoteStr(StringInfo query_buf, char *value);
  * as it is the case of a system relation.
  */
 void
-RemoteCopy_GetRelationLoc(RemoteCopyData *state,
+RemoteCopy_GetRelationLoc(RemoteCopyState *state,
 						  Relation rel,
-                          List *attnums)
+						  List *attnums)
 {
 	ExecNodes  *exec_nodes = NULL;
 
@@ -107,7 +107,7 @@ RemoteCopy_GetRelationLoc(RemoteCopyData *state,
  * Build a COPY query for remote management
  */
 void
-RemoteCopy_BuildStatement(RemoteCopyData *state,
+RemoteCopy_BuildStatement(RemoteCopyState *state,
 						  Relation rel,
 						  RemoteCopyOptions *options,
 						  List *attnamelist,
@@ -318,7 +318,7 @@ FreeRemoteCopyOptions(RemoteCopyOptions *options)
  * Free remote COPY state data structure
  */
 void
-FreeRemoteCopyData(RemoteCopyData *state)
+FreeRemoteCopyData(RemoteCopyState *state)
 {
 	/* Leave if nothing */
 	if (state == NULL)

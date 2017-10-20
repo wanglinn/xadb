@@ -18,11 +18,12 @@
 
 #include "datatype/timestamp.h"
 #include "intercomm/inter-node.h"
+#include "libpq/libpq-node.h"
 #include "nodes/bitmapset.h"
 #include "optimizer/pgxcplan.h"
 #include "pgxc/execRemote.h"
+#include "pgxc/remotecopy.h"
 #include "utils/snapshot.h"
-#include "libpq/libpq-node.h"
 
 #define NULL_TAG					""
 #define TRANS_BEGIN_TAG				"BEGIN"
@@ -48,7 +49,6 @@ extern void HandleCache(NodeHandle *handle);
 extern void HandleListCache(List *handle_list);
 extern bool HandleListFinishCommand(const List *handle_list, const char *commandTag);
 extern bool HandleFinishCommand(NodeHandle *handle, const char *commandTag);
-extern bool HandleFinishAsync(const List *handle_list);
 extern int HandleBegin(InterXactState state,
 					   NodeHandle *handle,
 					   GlobalTransactionId xid,
@@ -175,5 +175,9 @@ extern TupleTableSlot *FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *
 extern TupleTableSlot *HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *slot,
 										 bool blocking, bool batch);
 extern void CloseRemoteStatement(const char *stmt_name, Oid *nodes, int nnodes);
+
+/* src/backend/intercomm/inter-copy.c */
+extern void StartRemoteCopy(RemoteCopyState *node);
+extern uint64 FinishRemoteCopyOut(RemoteCopyState *node);
 
 #endif /* INTER_COMM_H */

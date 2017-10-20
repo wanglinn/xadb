@@ -972,7 +972,7 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 {
 	Oid				matviewOid;
 	Relation		matviewRel;
-	RemoteCopyData	*copyState;
+	RemoteCopyState*copyState;
 	TupleDesc 		tupdesc;
 	HeapScanDesc 	scandesc;
 	HeapTuple		tuple;
@@ -990,8 +990,8 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 	 * protocol to the other coordinators.
 	 */
 
-	/* Prepare the RemoteCopyData for the COPYing data to the other coordinators */
-	copyState = (RemoteCopyData *) palloc0(sizeof(RemoteCopyData));
+	/* Prepare the RemoteCopyState for the COPYing data to the other coordinators */
+	copyState = (RemoteCopyState *) palloc0(sizeof(RemoteCopyState));
 	copyState->exec_nodes = makeNode(ExecNodes);
 	/* We are copying the data from the materialized view */
 	copyState->is_from = false;

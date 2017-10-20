@@ -50,7 +50,6 @@ typedef struct RemoteQueryContext
 static List *RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes);
 static TupleTableSlot *InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slot);
 static bool HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node);
-static PGconn *HandleGetPGconn(void *handle);
 static bool HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len);
 static bool RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 static TupleDesc CreateRemoteTupleDesc(MemoryContext context, const char *msg, int len);
@@ -274,8 +273,8 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slo
 
 	if (need_xact_block)
 	{
-		gxid = GetCurrentTransactionId();
 		agtm_BeginTransaction();
+		gxid = GetCurrentTransactionId();
 	} else
 		gxid = GetCurrentTransactionIdIfAny();
 
@@ -440,15 +439,6 @@ HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node)
 	return true;
 }
 
-static PGconn *
-HandleGetPGconn(void *handle)
-{
-	if (handle)
-		return ((NodeHandle *) handle)->node_conn;
-
-	return NULL;
-}
-
 TupleTableSlot *
 FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 {
@@ -588,6 +578,8 @@ RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type,
 	{
 		case PQNHFT_ERROR:
 			return PQNEFHNormal(NULL, conn, type);
+		case PQNHFT_ASYNC_STATUS:
+			break;
 		case PQNHFT_COPY_OUT_DATA:
 			{
 				int				len;
@@ -630,6 +622,8 @@ RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type,
 				}
 				va_end(args);
 			}
+			break;
+		default:
 			break;
 	}
 	return false;

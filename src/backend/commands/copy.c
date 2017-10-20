@@ -51,6 +51,7 @@
 #ifdef ADB
 #include "catalog/pg_trigger.h"
 #include "catalog/pgxc_node.h"
+#include "intercomm/inter-comm.h"
 #include "optimizer/pgxcship.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/execRemote.h"
@@ -215,7 +216,7 @@ typedef struct CopyStateData
 	int			raw_buf_len;	/* total # of bytes stored */
 #ifdef ADB
 	/* Remote COPY state data */
-	RemoteCopyData *remoteCopyState;
+	RemoteCopyState *remoteCopyState;
 #endif
 } CopyStateData;
 
@@ -879,8 +880,9 @@ DoCopy(const CopyStmt *stmt, const char *queryString, uint64 *processed)
 
 #ifdef ADB
 		/* In case COPY is used on a temporary table, never use 2PC for implicit commits */
-		if (rel->rd_rel->relpersistence == RELPERSISTENCE_TEMP)
-			ExecSetTempObjectIncluded();
+		if (IsCoordMaster() &&
+			rel->rd_rel->relpersistence == RELPERSISTENCE_TEMP)
+			TopInterXactTmpSet(true);
 #endif
 
 		tupDesc = RelationGetDescr(rel);
@@ -1451,7 +1453,7 @@ BeginCopy(bool is_from,
 		/* Get copy statement and execution node information */
 		if (IS_PGXC_COORDINATOR)
 		{
-			RemoteCopyData *remoteCopyState = (RemoteCopyData *) palloc0(sizeof(RemoteCopyData));
+			RemoteCopyState *remoteCopyState = (RemoteCopyState *) palloc0(sizeof(RemoteCopyState));
 			List *attnums = CopyGetAttnums(tupDesc, cstate->rel, attnamelist);
 
 			/* Setup correct COPY FROM/TO flag */
@@ -1979,7 +1981,7 @@ CopyTo(CopyState cstate)
 	/* Send COPY command to datanode */
 	if (IS_PGXC_COORDINATOR &&
 		cstate->remoteCopyState && cstate->remoteCopyState->rel_loc)
-		pgxc_node_copybegin(cstate->remoteCopyState, PGXC_NODE_DATANODE);
+		StartRemoteCopy(cstate->remoteCopyState);
 #endif
 
 	if (cstate->rel)
@@ -2088,7 +2090,17 @@ CopyTo(CopyState cstate)
 		cstate->remoteCopyState &&
 		cstate->remoteCopyState->rel_loc)
 	{
-		RemoteCopyData *remoteCopyState = cstate->remoteCopyState;
+		RemoteCopyState *node = cstate->remoteCopyState;
+
+		node->tuple_desc = tupDesc;
+		node->copy_file = cstate->copy_file;
+		if (cstate->copy_dest == COPY_FILE)
+			node->remoteCopyType = REMOTE_COPY_FILE;
+		else
+			node->remoteCopyType = REMOTE_COPY_STDOUT;
+
+		processed = FinishRemoteCopyOut(node);
+#if 0
 		RemoteCopyType remoteCopyType;
 		ExecNodes *en;
 
@@ -2134,6 +2146,7 @@ CopyTo(CopyState cstate)
 									cstate->copy_file,
 									NULL,
 									remoteCopyType);
+#endif
 	}
 	else
 	{
@@ -2589,15 +2602,15 @@ CopyFrom(CopyState cstate)
 	if (IS_PGXC_COORDINATOR &&
 		cstate->remoteCopyState && cstate->remoteCopyState->rel_loc)
 	{
-		RemoteCopyData *remoteCopyState = cstate->remoteCopyState;
+		RemoteCopyState *remoteCopyState = cstate->remoteCopyState;
 
 		/* Send COPY command to datanode */
-		pgxc_node_copybegin(remoteCopyState, PGXC_NODE_DATANODE);
+		StartRemoteCopy(remoteCopyState);
 
 		/* In case of binary COPY FROM, send the header */
 		if (cstate->binary)
 		{
-			RemoteCopyData	   *remoteCopyState = cstate->remoteCopyState;
+			RemoteCopyState	   *remoteCopyState = cstate->remoteCopyState;
 			int32				tmp;
 
 			/* Empty buffer info and send header to all the backends involved in COPY */
@@ -2674,7 +2687,7 @@ CopyFrom(CopyState cstate)
 			ListCell *lc;
 			AttrNumber attnum;
 			int nelems, idx;
-			RemoteCopyData *remoteCopyState = cstate->remoteCopyState;
+			RemoteCopyState *remoteCopyState = cstate->remoteCopyState;
 			RelationLocInfo *rel_loc_info = remoteCopyState->rel_loc;
 			bool	need_free = false;
 			ExecNodes *nodes = NULL;
@@ -2858,7 +2871,7 @@ CopyFrom(CopyState cstate)
 	/* Send COPY DONE to datanodes */
 	if (IS_PGXC_COORDINATOR && cstate->remoteCopyState->rel_loc)
 	{
-		RemoteCopyData *remoteCopyState = cstate->remoteCopyState;
+		RemoteCopyState *remoteCopyState = cstate->remoteCopyState;
 		bool replicated = (remoteCopyState->rel_loc->locatorType
 						   == LOCATOR_TYPE_REPLICATED);
 		pgxcNodeCopyFinish(
@@ -5083,18 +5096,4 @@ GetRemoteCopyOptions(CopyState cstate)
 
 	return res;
 }
-
-/* Convenience wrapper around DataNodeCopyBegin() */
-extern void
-pgxc_node_copybegin(RemoteCopyData *remoteCopyState, char node_type)
-{
-	remoteCopyState->connections = pgxcNodeCopyBegin(remoteCopyState->query_buf.data,
-												 remoteCopyState->exec_nodes->nodeList,
-												 GetActiveSnapshot(), node_type);
-	if (!remoteCopyState->connections)
-		ereport(ERROR,
-				(errcode(ERRCODE_CONNECTION_EXCEPTION),
-				 errmsg("Failed to initialize Datanodes for COPY")));
-}
-
 #endif

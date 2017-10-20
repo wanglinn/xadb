@@ -401,7 +401,7 @@ distrib_copy_to(RedistribState *distribState)
 	Oid			relOid = distribState->relid;
 	Relation	rel;
 	RemoteCopyOptions *options;
-	RemoteCopyData *copyState;
+	RemoteCopyState *copyState;
 	Tuplestorestate *store; /* Storage of redistributed data */
 
 	/* Fetch necessary data to prepare for the table data acquisition */
@@ -412,7 +412,7 @@ distrib_copy_to(RedistribState *distribState)
 	options->rco_delim[0] = COPYOPS_DELIMITER;
 	options->rco_delim[1] = '\0';
 
-	copyState = (RemoteCopyData *) palloc0(sizeof(RemoteCopyData));
+	copyState = (RemoteCopyState *) palloc0(sizeof(RemoteCopyState));
 	copyState->is_from = false;
 
 	/* A sufficient lock level needs to be taken at a higher level */
@@ -466,7 +466,7 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 	Tuplestorestate *store = distribState->store;
 	Relation	rel;
 	RemoteCopyOptions *options;
-	RemoteCopyData *copyState;
+	RemoteCopyState *copyState;
 	bool replicated, contains_tuple = true;
 	TupleDesc tupdesc;
 
@@ -481,7 +481,7 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 	options->rco_delim[0] = COPYOPS_DELIMITER;
 	options->rco_delim[1] = '\0';
 
-	copyState = (RemoteCopyData *) palloc0(sizeof(RemoteCopyData));
+	copyState = (RemoteCopyState *) palloc0(sizeof(RemoteCopyState));
 	copyState->is_from = true;
 
 	/* A sufficient lock level needs to be taken at a higher level */
