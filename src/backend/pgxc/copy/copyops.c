@@ -430,23 +430,25 @@ CopyOps_RawDataToArrayField(TupleDesc tupdesc, char *message, int len)
  * CopyOps_BuildOneRowTo
  * Build one row message to be sent to remote nodes through COPY protocol
  */
-char *
-CopyOps_BuildOneRowTo(TupleDesc tupdesc, Datum *values, bool *nulls, int *len)
+void
+CopyOps_BuildOneRowTo(TupleDesc tupdesc, Datum *values, bool *nulls, StringInfo buf)
 {
-	bool		need_delim = false;
-	char	   *res;
-	int			i;
-	FmgrInfo   *out_functions;
-	Form_pg_attribute *attr = tupdesc->attrs;
-	StringInfo	buf;
+	Form_pg_attribute  *attr;
+	FmgrInfo		   *out_functions;
+	bool				need_delim = false;
+	int					i;
+	Oid					out_func_oid;
+	bool				isvarlena;
+	char			   *attr_str;
+
+	Assert(tupdesc && buf);
+	attr = tupdesc->attrs;
+	resetStringInfo(buf);
 
 	/* Get info about the columns we need to process. */
 	out_functions = (FmgrInfo *) palloc(tupdesc->natts * sizeof(FmgrInfo));
 	for (i = 0; i < tupdesc->natts; i++)
 	{
-		Oid			out_func_oid;
-		bool		isvarlena;
-
 		/* Do not need any information for dropped attributes */
 		if (attr[i]->attisdropped)
 			continue;
@@ -457,14 +459,8 @@ CopyOps_BuildOneRowTo(TupleDesc tupdesc, Datum *values, bool *nulls, int *len)
 		fmgr_info(out_func_oid, &out_functions[i]);
 	}
 
-	/* Initialize output buffer */
-	buf = makeStringInfo();
-
 	for (i = 0; i < tupdesc->natts; i++)
 	{
-		Datum		value = values[i];
-		bool		isnull = nulls[i];
-
 		/* Do not need any information for dropped attributes */
 		if (attr[i]->attisdropped)
 			continue;
@@ -473,26 +469,22 @@ CopyOps_BuildOneRowTo(TupleDesc tupdesc, Datum *values, bool *nulls, int *len)
 			appendStringInfoCharMacro(buf, COPYOPS_DELIMITER);
 		need_delim = true;
 
-		if (isnull)
+		if (nulls[i])
 		{
 			/* Null print value to client */
 			appendBinaryStringInfo(buf, "\\N", strlen("\\N"));
 		}
 		else
 		{
-			char *string;
-			string = OutputFunctionCall(&out_functions[i],
-										value);
-			attribute_out_text(buf, string);
-			pfree(string);
+			attr_str = OutputFunctionCall(&out_functions[i],
+										values[i]);
+			attribute_out_text(buf, attr_str);
+			pfree(attr_str);
 		}
 	}
 
+	appendStringInfoChar(buf, '\n');
+
 	/* Record length of message */
-	*len = buf->len;
-	res = pstrdup(buf->data);
 	pfree(out_functions);
-	pfree(buf->data);
-	pfree(buf);
-	return res;
 }

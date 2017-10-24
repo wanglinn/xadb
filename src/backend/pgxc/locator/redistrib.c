@@ -427,21 +427,16 @@ distrib_copy_to(RedistribState *distribState)
 					RelationGetRelationName(rel))));
 
 	/* Begin the COPY process */
-	copyState->connections = pgxcNodeCopyBegin(copyState->query_buf.data,
-											   copyState->exec_nodes->nodeList,
-											   GetActiveSnapshot(),
-											   PGXC_NODE_DATANODE);
+	StartRemoteCopy(copyState);
 
 	/* Create tuplestore storage */
 	store = tuplestore_begin_heap(true, false, work_mem);
 
 	/* Then get rows and copy them to the tuplestore used for redistribution */
-	DataNodeCopyOut(copyState->exec_nodes,
-					copyState->connections,
-					RelationGetDescr(rel),	/* Need also to set up the tuple descriptor */
-					NULL,
-					store,					/* Tuplestore used for redistribution */
-					REMOTE_COPY_TUPLESTORE);
+	copyState->tuplestorestate = store;
+	copyState->tuple_desc = RelationGetDescr(rel);
+	copyState->remoteCopyType = REMOTE_COPY_TUPLESTORE;
+	DoRemoteCopyTo(copyState);
 
 	/* Do necessary clean-up */
 	FreeRemoteCopyOptions(options);
@@ -462,13 +457,23 @@ distrib_copy_to(RedistribState *distribState)
 static void
 distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 {
-	Oid relOid = distribState->relid;
-	Tuplestorestate *store = distribState->store;
-	Relation	rel;
-	RemoteCopyOptions *options;
-	RemoteCopyState *copyState;
-	bool replicated, contains_tuple = true;
-	TupleDesc tupdesc;
+	Oid					relOid = distribState->relid;
+	Tuplestorestate	   *store = distribState->store;
+	Relation			rel;
+	RemoteCopyOptions  *options;
+	RemoteCopyState	   *copyState;
+	bool				contains_tuple = true;
+	TupleDesc			tupdesc;
+	Form_pg_attribute  *attr;
+	TupleTableSlot	   *slot;
+	Datum			   *dist_col_values;
+	bool			   *dist_col_is_nulls;
+	Oid 			   *dist_col_types;
+	int 				nelems;
+	AttrNumber			attnum;
+	bool				need_free;
+	List			   *nodes;
+	StringInfoData		line_buf;
 
 	/* Nothing to do if on remote node */
 	if (!IsCoordMaster())
@@ -503,6 +508,11 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 	}
 
 	tupdesc = RelationGetDescr(rel);
+	attr = tupdesc->attrs;
+	/* Build table slot for this relation */
+	slot = MakeSingleTupleTableSlot(tupdesc);
+	/* initinalize line buffer for each slot */
+	initStringInfo(&line_buf);
 
 	/* Inform client of operation being done */
 	ereport(DEBUG1,
@@ -511,120 +521,91 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 					RelationGetRelationName(rel))));
 
 	/* Begin redistribution on remote nodes */
-	copyState->connections = pgxcNodeCopyBegin(copyState->query_buf.data,
-											   copyState->exec_nodes->nodeList,
-											   GetActiveSnapshot(),
-											   PGXC_NODE_DATANODE);
+	StartRemoteCopy(copyState);
 
 	/* Transform each tuple stored into a COPY message and send it to remote nodes */
 	while (contains_tuple)
 	{
-		char *data;
-		int len;
-		Form_pg_attribute *attr = tupdesc->attrs;
-		Datum	dist_col_value = (Datum) 0;
-		bool	dist_col_is_null = true;
-		Oid		dist_col_type = UNKNOWNOID;
-		TupleTableSlot *slot;
-		ExecNodes   *local_execnodes;
-
-		/* Build table slot for this relation */
-		slot = MakeSingleTupleTableSlot(tupdesc);
+		ExecClearTuple(slot);
 
 		/* Get tuple slot from the tuplestore */
 		contains_tuple = tuplestore_gettupleslot(store, true, false, slot);
 		if (!contains_tuple)
-		{
-			ExecDropSingleTupleTableSlot(slot);
 			break;
-		}
 
 		/* Make sure the tuple is fully deconstructed */
 		slot_getallattrs(slot);
 
-		/* Find value of distribution column if necessary */
-		if (copyState->idx_dist_by_col >= 0)
-		{
-			dist_col_value = slot->tts_values[copyState->idx_dist_by_col];
-			dist_col_is_null =  slot->tts_isnull[copyState->idx_dist_by_col];
-			dist_col_type = attr[copyState->idx_dist_by_col]->atttypid;
-		}
-
 		/* Build message to be sent to Datanodes */
-		data = CopyOps_BuildOneRowTo(tupdesc, slot->tts_values, slot->tts_isnull, &len);
+		CopyOps_BuildOneRowTo(tupdesc, slot->tts_values, slot->tts_isnull, &line_buf);
 
 		/* Build relation node list */
-#ifdef ADB
-		do {
-			Datum*	dist_col_values;
-			bool*	dist_col_is_nulls;
-			Oid*	dist_col_types;
-			int 	nelems, idx;
-			AttrNumber attnum;
-			ListCell *lc;
+		if (IsRelationDistributedByValue(copyState->rel_loc))
+		{
+			nelems = 1;
+			need_free = false;
+			attnum = copyState->rel_loc->partAttrNum;
+			dist_col_values = &slot->tts_values[attnum - 1];
+			dist_col_is_nulls = &slot->tts_isnull[attnum - 1];
+			dist_col_types = &attr[attnum - 1]->atttypid;
+		} else
+		if (IsRelationDistributedByUserDefined(copyState->rel_loc))
+		{
+			ListCell   *lc = NULL;
+			int			idx = 0;
 
-			if (IsRelationDistributedByUserDefined(copyState->rel_loc))
+			Assert(OidIsValid(copyState->rel_loc->funcid));
+			Assert(copyState->rel_loc->funcAttrNums);
+			nelems = list_length(copyState->rel_loc->funcAttrNums);
+			dist_col_values = (Datum *) palloc0(sizeof(Datum) * nelems);
+			dist_col_is_nulls = (bool *) palloc0(sizeof(bool) * nelems);
+			dist_col_types = (Oid *) palloc0(sizeof(Oid) * nelems);
+			need_free = true;
+			foreach (lc, copyState->rel_loc->funcAttrNums)
 			{
-				nelems = list_length(copyState->rel_loc->funcAttrNums);
-				dist_col_values = (Datum *)palloc0(sizeof(Datum) * nelems);
-				dist_col_is_nulls = (bool *)palloc0(sizeof(bool) * nelems);
-				dist_col_types = (Oid *)palloc0(sizeof(Oid) * nelems);
-				idx = 0;
-				foreach (lc, copyState->rel_loc->funcAttrNums)
-				{
-					attnum = (AttrNumber)lfirst_int(lc);
-					dist_col_values[idx] = slot->tts_values[attnum - 1];
-					dist_col_is_nulls[idx] = slot->tts_isnull[attnum - 1];
-					dist_col_types[idx] = attr[attnum - 1]->atttypid;
-					idx ++;
-				}
-			} else
-			{
-				nelems = 1;
-				dist_col_values = &dist_col_value;
-				dist_col_is_nulls = &dist_col_is_null;
-				dist_col_types = &dist_col_type;
+				attnum = (AttrNumber) lfirst_int(lc);
+				dist_col_values[idx] = slot->tts_values[attnum - 1];
+				dist_col_is_nulls[idx] = slot->tts_isnull[attnum - 1];
+				dist_col_types[idx] = attr[attnum - 1]->atttypid;
+				idx++;
 			}
+		} else
+		{
+			Datum	dist_col_value = (Datum) 0;
+			bool	dist_col_is_null = true;
+			Oid		dist_col_type = UNKNOWNOID;
 
-			local_execnodes = GetRelationNodes(copyState->rel_loc,
-											   nelems,
-											   dist_col_values,
-											   dist_col_is_nulls,
-											   dist_col_types,
-											   RELATION_ACCESS_INSERT);
-		} while(0);
-#else
-		local_execnodes = GetRelationNodes(copyState->rel_loc,
-										   dist_col_value,
-										   dist_col_is_null,
-										   dist_col_type,
-										   RELATION_ACCESS_INSERT);
-#endif
-		/* Take a copy of the node lists so as not to interfere with locator info */
-		local_execnodes->primarynodelist = list_copy(local_execnodes->primarynodelist);
-		local_execnodes->nodeList = list_copy(local_execnodes->nodeList);
-		local_execnodes->nodeids = list_copy(local_execnodes->nodeids);
-		if (local_execnodes->primarynodelist)
-			local_execnodes->nodeids = lappend_oid(local_execnodes->nodeids, primary_data_node);
+			nelems = 1;
+			need_free = false;
+			dist_col_values = &dist_col_value;
+			dist_col_is_nulls = &dist_col_is_null;
+			dist_col_types = &dist_col_type;
+		}
+
+		nodes = GetInvolvedNodes(copyState->rel_loc, nelems,
+								 dist_col_values,
+								 dist_col_is_nulls,
+								 dist_col_types,
+								 RELATION_ACCESS_INSERT);
+		if (need_free)
+		{
+			pfree(dist_col_values);
+			pfree(dist_col_is_nulls);
+			pfree(dist_col_types);
+		}
 
 		/* Process data to Datanodes */
-		DataNodeCopyIn(data,
-					   len,
-					   local_execnodes,
-					   copyState->connections);
+		DoRemoteCopyFrom(copyState, &line_buf, nodes);
 
 		/* Clean up */
-		pfree(data);
-		FreeExecNodes(&local_execnodes);
-		ExecClearTuple(slot);
-		ExecDropSingleTupleTableSlot(slot);
+		list_free(nodes);
 	}
 
+	pfree(line_buf.data);
+	ExecDropSingleTupleTableSlot(slot);
+
 	/* Finish the redistribution process */
-	replicated = copyState->rel_loc->locatorType == LOCATOR_TYPE_REPLICATED;
-	pgxcNodeCopyFinish(copyState->connections,
-					   replicated ? PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE) : -1,
-					   replicated ? COMBINE_TYPE_SAME : COMBINE_TYPE_SUM, PGXC_NODE_DATANODE);
+	EndRemoteCopy(copyState);
 
 	/* Lock is maintained until transaction commits */
 	relation_close(rel, NoLock);

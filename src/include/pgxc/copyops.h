@@ -22,6 +22,6 @@
 #define COPYOPS_DELIMITER	'\t'
 
 extern char **CopyOps_RawDataToArrayField(TupleDesc tupdesc, char *message, int len);
-extern char *CopyOps_BuildOneRowTo(TupleDesc tupdesc, Datum *values, bool *nulls, int *len);
+extern void CopyOps_BuildOneRowTo(TupleDesc tupdesc, Datum *values, bool *nulls, struct StringInfoData *buf);
 
 #endif

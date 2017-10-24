@@ -44,6 +44,7 @@
 #include "catalog/pgxc_node.h"
 #include "commands/copy.h"
 #include "commands/createas.h"
+#include "intercomm/inter-comm.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/remotecopy.h"
@@ -976,8 +977,9 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 	TupleDesc 		tupdesc;
 	HeapScanDesc 	scandesc;
 	HeapTuple		tuple;
-	Datum			*values;
-	bool			*nulls;
+	Datum		   *values;
+	bool		   *nulls;
+	StringInfoData	line_buf;
 
 	/*
 	 * This function should be called only from the coordinator where the
@@ -1001,12 +1003,7 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 	initStringInfo(&(copyState->query_buf));
 	appendStringInfoString(&(copyState->query_buf), query_string);
 	/* Begin redistribution on remote nodes */
-	copyState->connections = pgxcNodeCopyBegin(copyState->query_buf.data,
-											   copyState->exec_nodes->nodeList,
-											   GetActiveSnapshot(),
-											   PGXC_NODE_COORDINATOR);
-	if (copyState->connections == NULL)
-		return;
+	StartRemoteCopy(copyState);
 
 	/*
 	 * Open the relation for reading.
@@ -1019,29 +1016,23 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 	tupdesc = RelationGetDescr(matviewRel);
 	values = (Datum *) palloc(tupdesc->natts * sizeof(Datum));
 	nulls = (bool *) palloc(tupdesc->natts * sizeof(bool));
-	scandesc = heap_beginscan(matviewRel, SnapshotAny, 0, NULL);
 
+	initStringInfo(&line_buf);
+	scandesc = heap_beginscan(matviewRel, SnapshotAny, 0, NULL);
 	/* Send each tuple to the other coordinators in COPY format */
 	while ((tuple = heap_getnext(scandesc, ForwardScanDirection)) != NULL)
 	{
-		char *data;
-		int len;
-
 		CHECK_FOR_INTERRUPTS();
 		/* Deconstruct the tuple to get the values for the attributes */
 		heap_deform_tuple(tuple, tupdesc, values, nulls);
 
 		/* Format and send the data */
-		data = CopyOps_BuildOneRowTo(tupdesc, values, nulls, &len);
+		CopyOps_BuildOneRowTo(tupdesc, values, nulls, &line_buf);
 
-		DataNodeCopyIn(data,
-					   len,
-					   copyState->exec_nodes,
-					   copyState->connections);
-		pfree(data);
+		DoRemoteCopyFrom(copyState, &line_buf, copyState->exec_nodes->nodeids);
 	}
-
 	heap_endscan(scandesc);
+	pfree(line_buf.data);
 	pfree(values);
 	pfree(nulls);
 
@@ -1049,7 +1040,7 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 	 * Finish the redistribution process. There is no primary node for
 	 * Materialized view and it's replicated on all the coordinators
 	 */
-	pgxcNodeCopyFinish(copyState->connections, -1, COMBINE_TYPE_SAME, PGXC_NODE_COORDINATOR);
+	EndRemoteCopy(copyState);
 
 	/* Lock is maintained until transaction commits */
 	relation_close(matviewRel, NoLock);

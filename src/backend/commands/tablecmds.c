@@ -12115,7 +12115,7 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	list_free(newLocInfo->nodeList);
 	newLocInfo->nodeList = NIL;
 	list_free(newLocInfo->nodeids);
-	newLocInfo->nodeList = NIL;
+	newLocInfo->nodeids = NIL;
 
 	/* Get the list to be modified */
 	new_num = get_pgxc_classnodes(RelationGetRelid(rel), &new_oid_array);
@@ -12185,7 +12185,7 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 		newLocInfo->nodeList = lappend_int(newLocInfo->nodeList,
 										   PGXCNodeGetNodeId(new_oid_array[i],
 															 PGXC_NODE_DATANODE));
-		newLocInfo->nodeids = lappend_oid(newLocInfo->nodeids,new_oid_array[i]);
+		newLocInfo->nodeids = lappend_oid(newLocInfo->nodeids, new_oid_array[i]);
 	}
 
 	/* Build the command tree for table redistribution */

@@ -2100,53 +2100,6 @@ CopyTo(CopyState cstate)
 			node->remoteCopyType = REMOTE_COPY_STDOUT;
 
 		processed = DoRemoteCopyTo(node);
-#if 0
-		RemoteCopyType remoteCopyType;
-		ExecNodes *en;
-
-		/* Set up remote COPY to correct operation */
-		if (cstate->copy_dest == COPY_FILE)
-			remoteCopyType = REMOTE_COPY_FILE;
-		else
-			remoteCopyType = REMOTE_COPY_STDOUT;
-
-		{
-			Datum value = (Datum)0;
-			bool null = true;
-			Oid type = UNKNOWNOID;
-			en = GetRelationNodes(remoteCopyState->rel_loc, 1,
-								  &value, &null, &type,
-								  RELATION_ACCESS_READ);
-		}
-
-		/*
-		 * In case of a read from a replicated table GetRelationNodes
-		 * returns all nodes and expects that the planner can choose
-		 * one depending on the rest of the join tree
-		 * Here we should choose the preferred node in the list and
-		 * that should suffice.
-		 * If we do not do so system crashes on
-		 * COPY replicated_table (a, b) TO stdout;
-		 * and this makes pg_dump fail for any database
-		 * containing such a table.
-		 */
-		if (IsLocatorReplicated(remoteCopyState->rel_loc->locatorType))
-		{
-			en->nodeList = GetPreferredRepNodeIdx(en->nodeList);
-			en->nodeids = GetPreferredRepNodeIds(en->nodeids);
-		}
-
-		/*
-		 * We don't know the value of the distribution column value, so need to
-		 * read from all nodes. Hence indicate that the value is NULL.
-		 */
-		processed = DataNodeCopyOut(en,
-									remoteCopyState->connections,
-									NULL,
-									cstate->copy_file,
-									NULL,
-									remoteCopyType);
-#endif
 	}
 	else
 	{
@@ -2742,6 +2695,7 @@ CopyFrom(CopyState cstate)
 
 			appendStringInfoChar(&cstate->line_buf, '\n');
 			DoRemoteCopyFrom(remoteCopyState, &cstate->line_buf, nodes);
+			list_free(nodes);
 			processed++;
 		}
 		else
