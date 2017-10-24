@@ -2,6 +2,7 @@
 #include "postgres.h"
 #include "miscadmin.h"
 
+#include "access/tuptypeconvert.h"
 #include "executor/executor.h"
 #include "executor/nodeClusterReduce.h"
 #include "lib/binaryheap.h"
@@ -169,6 +170,13 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 
 	estate->es_reduce_plan_inited = true;
 
+	crstate->convert = create_type_convert(crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor, true, true);
+	if(crstate->convert)
+	{
+		crstate->convert_slot = ExecAllocTableSlot(&estate->es_tupleTable);
+		ExecSetSlotDescriptor(crstate->convert_slot, crstate->convert->out_desc);
+	}
+
 	return crstate;
 }
 
@@ -226,9 +234,21 @@ GetSlotFromOuter(ClusterReduceState *node)
 			}
 
 			/* Here we truly send tuple to remote plan nodes */
-			SendSlotToRemote(port, destOids, outerslot);
-			list_free(destOids);
-			destOids = NIL;
+			if(destOids != NIL)
+			{
+				if(node->convert)
+				{
+					do_type_convert_slot_out(node->convert,
+											 outerslot,
+											 node->convert_slot);
+					SendSlotToRemote(port, destOids, node->convert_slot);
+				}else
+				{
+					SendSlotToRemote(port, destOids, outerslot);
+				}
+				list_free(destOids);
+				destOids = NIL;
+			}
 
 			if (outerValid)
 				return outerslot;
@@ -286,7 +306,16 @@ ExecClusterReduce(ClusterReduceState *node)
 					rdc_set_block(port);
 				else
 					(void) rdc_try_read_some(port);
-				outerslot = GetSlotFromRemote(port, slot, NULL, &eof_oid, &node->closed_remote);
+
+				if(node->convert)
+				{
+					GetSlotFromRemote(port, node->convert_slot, NULL, &eof_oid, &node->closed_remote);
+					outerslot = do_type_convert_slot_in(node->convert, node->convert_slot, slot);
+				}else
+				{
+					outerslot = GetSlotFromRemote(port, slot, NULL, &eof_oid, &node->closed_remote);
+				}
+
 				if (OidIsValid(eof_oid))
 				{
 					found = false;
@@ -397,7 +426,16 @@ GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry)
 			rdc_set_block(port);
 		else
 			(void) rdc_try_read_some(port);
-		outerslot = GetSlotFromRemote(port, cur_slot, &slot_oid, &eof_oid, &(node->closed_remote));
+
+		if(node->convert)
+		{
+			GetSlotFromRemote(port, node->convert_slot, &slot_oid, &eof_oid, &(node->closed_remote));
+			outerslot = do_type_convert_slot_in(node->convert, node->convert_slot, cur_slot);
+		}else
+		{
+			outerslot = GetSlotFromRemote(port, cur_slot, &slot_oid, &eof_oid, &(node->closed_remote));
+		}
+
 		if (OidIsValid(eof_oid))
 		{
 			node->neofs++;

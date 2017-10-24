@@ -2185,6 +2185,8 @@ typedef struct ClusterReduceState
 	int				neofs;			/* number of EOF messages */
 	HTAB		   *rdc_htab;
 	ReduceEntry	   *rdc_entrys;		/* array of length nrdcs */
+	struct TupleTypeConvert *convert;
+	TupleTableSlot *convert_slot;
 
 	/* used for merge reduce as below */
 	int				nkeys;
