@@ -44,6 +44,8 @@ static NodeHandle *CnHandles = NULL;
 static NodeHandle *DnHandles = NULL;
 static bool handle_init = false;
 
+NodeHandle *PrHandle = NULL;
+
 #define foreach_all_handles(p)	\
 	for (p = AllHandles; p - AllHandles < NumAllHandles; p = &p[1])
 #define foreach_cn_handles(p)	\
@@ -129,6 +131,8 @@ InitNodeExecutor(bool force)
 		handle->node_conn = NULL;
 		handle->node_context = NULL;
 		handle->node_owner = NULL;
+		if (handle->node_primary)
+			PrHandle = handle;
 
 		if (handle->node_type == TYPE_CN_NODE &&
 			pg_strcasecmp(PGXCNodeName, NameStr(handle->node_name)) == 0)

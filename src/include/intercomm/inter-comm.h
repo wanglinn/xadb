@@ -178,6 +178,9 @@ extern void CloseRemoteStatement(const char *stmt_name, Oid *nodes, int nnodes);
 
 /* src/backend/intercomm/inter-copy.c */
 extern void StartRemoteCopy(RemoteCopyState *node);
-extern uint64 FinishRemoteCopyOut(RemoteCopyState *node);
+extern void EndRemoteCopy(RemoteCopyState *node);
+extern void SendCopyFromHeader(RemoteCopyState *node, const StringInfo header);
+extern void DoRemoteCopyFrom(RemoteCopyState *node, const StringInfo line_buf, const List *node_list);
+extern uint64 DoRemoteCopyTo(RemoteCopyState *node);
 
 #endif /* INTER_COMM_H */

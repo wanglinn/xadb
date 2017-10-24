@@ -2099,7 +2099,7 @@ CopyTo(CopyState cstate)
 		else
 			node->remoteCopyType = REMOTE_COPY_STDOUT;
 
-		processed = FinishRemoteCopyOut(node);
+		processed = DoRemoteCopyTo(node);
 #if 0
 		RemoteCopyType remoteCopyType;
 		ExecNodes *en;
@@ -2425,6 +2425,9 @@ CopyFrom(CopyState cstate)
 	ExprContext *econtext;
 	TupleTableSlot *myslot;
 	MemoryContext oldcontext = CurrentMemoryContext;
+#ifdef ADB
+	RemoteCopyState *remoteCopyState = cstate->remoteCopyState;
+#endif
 
 	ErrorContextCallback errcallback;
 	CommandId	mycid = GetCurrentCommandId(true);
@@ -2599,18 +2602,14 @@ CopyFrom(CopyState cstate)
 
 #ifdef ADB
 	/* Send COPY command to datanode */
-	if (IS_PGXC_COORDINATOR &&
-		cstate->remoteCopyState && cstate->remoteCopyState->rel_loc)
+	if (IS_PGXC_COORDINATOR && remoteCopyState && remoteCopyState->rel_loc)
 	{
-		RemoteCopyState *remoteCopyState = cstate->remoteCopyState;
-
 		/* Send COPY command to datanode */
 		StartRemoteCopy(remoteCopyState);
 
 		/* In case of binary COPY FROM, send the header */
 		if (cstate->binary)
 		{
-			RemoteCopyState	   *remoteCopyState = cstate->remoteCopyState;
 			int32				tmp;
 
 			/* Empty buffer info and send header to all the backends involved in COPY */
@@ -2618,21 +2617,18 @@ CopyFrom(CopyState cstate)
 
 			enlargeStringInfo(&cstate->line_buf, 19);
 			appendBinaryStringInfo(&cstate->line_buf, BinarySignature, 11);
-			tmp = 0;
 
+			tmp = 0;
 			if (cstate->oids)
 				tmp |= (1 << 16);
 			tmp = htonl(tmp);
-
-			appendBinaryStringInfo(&cstate->line_buf, (char *) &tmp, 4);
-			tmp = 0;
-			tmp = htonl(tmp);
 			appendBinaryStringInfo(&cstate->line_buf, (char *) &tmp, 4);
 
-			if (DataNodeCopyInBinaryForAll(cstate->line_buf.data, 19, remoteCopyState->connections))
-					ereport(ERROR,
-							(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
-							 errmsg("invalid COPY file header (COPY SEND)")));
+			tmp = htonl(0);
+			appendBinaryStringInfo(&cstate->line_buf, (char *) &tmp, 4);
+			appendStringInfoChar(&cstate->line_buf, '\n');
+
+			SendCopyFromHeader(remoteCopyState, &cstate->line_buf);
 		}
 	}
 #endif
@@ -2678,44 +2674,42 @@ CopyFrom(CopyState cstate)
 		 * Send the data row as-is to the Datanodes. If default values
 		 * are to be inserted, append them onto the data row.
 		 */
-		if (IS_PGXC_COORDINATOR && cstate->remoteCopyState->rel_loc)
+		if (IS_PGXC_COORDINATOR && remoteCopyState && remoteCopyState->rel_loc)
 		{
-			Form_pg_attribute *attr = tupDesc->attrs;
-			Datum*	dist_col_values;
-			bool*	dist_col_is_nulls;
-			Oid*	dist_col_types;
-			ListCell *lc;
-			AttrNumber attnum;
-			int nelems, idx;
-			RemoteCopyState *remoteCopyState = cstate->remoteCopyState;
-			RelationLocInfo *rel_loc_info = remoteCopyState->rel_loc;
-			bool	need_free = false;
-			ExecNodes *nodes = NULL;
+			RelationLocInfo		   *rel_loc_info = remoteCopyState->rel_loc;
+			Form_pg_attribute	   *attr = tupDesc->attrs;
+			List				   *nodes;
+			Datum				   *dist_col_values;
+			bool				   *dist_col_is_nulls;
+			Oid					   *dist_col_types;
+			int						nelems;
+			AttrNumber				attnum;
+			bool					need_free;
 
-			if (remoteCopyState->idx_dist_by_col >= 0)
+			if (IsRelationDistributedByValue(rel_loc_info))
 			{
-				Datum dist_col_value = values[remoteCopyState->idx_dist_by_col];
-				bool dist_col_is_null =  nulls[remoteCopyState->idx_dist_by_col];
-				Oid dist_col_type = attr[remoteCopyState->idx_dist_by_col]->atttypid;
 				nelems = 1;
-				dist_col_values = &dist_col_value;
-				dist_col_is_nulls = &dist_col_is_null;
-				dist_col_types = &dist_col_type;
+				need_free = false;
+				attnum = rel_loc_info->partAttrNum;
+				dist_col_values = &values[attnum - 1];
+				dist_col_is_nulls = &nulls[attnum - 1];
+				dist_col_types = &attr[attnum - 1]->atttypid;
 			} else
 			if (IsRelationDistributedByUserDefined(rel_loc_info))
 			{
+				ListCell   *lc = NULL;
+				int			idx = 0;
+
 				Assert(OidIsValid(rel_loc_info->funcid));
 				Assert(rel_loc_info->funcAttrNums);
 				nelems = list_length(rel_loc_info->funcAttrNums);
-				dist_col_values = (Datum *)palloc0(sizeof(Datum) * nelems);
-				dist_col_is_nulls = (bool *)palloc0(sizeof(bool) * nelems);
-				dist_col_types = (Oid *)palloc0(sizeof(Oid) * nelems);
+				dist_col_values = (Datum *) palloc0(sizeof(Datum) * nelems);
+				dist_col_is_nulls = (bool *) palloc0(sizeof(bool) * nelems);
+				dist_col_types = (Oid *) palloc0(sizeof(Oid) * nelems);
 				need_free = true;
-
-				idx = 0;
 				foreach (lc, rel_loc_info->funcAttrNums)
 				{
-					attnum = (AttrNumber)lfirst_int(lc);
+					attnum = (AttrNumber) lfirst_int(lc);
 					dist_col_values[idx] = values[attnum - 1];
 					dist_col_is_nulls[idx] = nulls[attnum - 1];
 					dist_col_types[idx] = attr[attnum - 1]->atttypid;
@@ -2723,17 +2717,18 @@ CopyFrom(CopyState cstate)
 				}
 			} else
 			{
-				Datum dist_col_value = (Datum) 0;
-				bool dist_col_is_null = true;
-				Oid dist_col_type = UNKNOWNOID;
+				Datum	dist_col_value = (Datum) 0;
+				bool	dist_col_is_null = true;
+				Oid		dist_col_type = UNKNOWNOID;
+
 				nelems = 1;
+				need_free = false;
 				dist_col_values = &dist_col_value;
 				dist_col_is_nulls = &dist_col_is_null;
 				dist_col_types = &dist_col_type;
 			}
 
-			nodes = GetRelationNodes(remoteCopyState->rel_loc,
-									 nelems,
+			nodes = GetInvolvedNodes(rel_loc_info, nelems,
 									 dist_col_values,
 									 dist_col_is_nulls,
 									 dist_col_types,
@@ -2745,13 +2740,8 @@ CopyFrom(CopyState cstate)
 				pfree(dist_col_types);
 			}
 
-			if (DataNodeCopyIn(cstate->line_buf.data,
-						   cstate->line_buf.len,
-						   nodes,
-						   remoteCopyState->connections))
-				ereport(ERROR,
-						(errcode(ERRCODE_CONNECTION_EXCEPTION),
-						 errmsg("Copy failed on a Datanode")));
+			appendStringInfoChar(&cstate->line_buf, '\n');
+			DoRemoteCopyFrom(remoteCopyState, &cstate->line_buf, nodes);
 			processed++;
 		}
 		else
@@ -2869,15 +2859,10 @@ CopyFrom(CopyState cstate)
 
 #ifdef ADB
 	/* Send COPY DONE to datanodes */
-	if (IS_PGXC_COORDINATOR && cstate->remoteCopyState->rel_loc)
+	if (IS_PGXC_COORDINATOR && remoteCopyState->rel_loc)
 	{
-		RemoteCopyState *remoteCopyState = cstate->remoteCopyState;
-		bool replicated = (remoteCopyState->rel_loc->locatorType
-						   == LOCATOR_TYPE_REPLICATED);
-		pgxcNodeCopyFinish(
-				remoteCopyState->connections,
-				replicated ? PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE) : -1,
-				replicated ? COMBINE_TYPE_SAME : COMBINE_TYPE_SUM, PGXC_NODE_DATANODE);
+		//bool replicated = (remoteCopyState->rel_loc->locatorType == LOCATOR_TYPE_REPLICATED);
+		EndRemoteCopy(remoteCopyState);
 	}
 #endif
 

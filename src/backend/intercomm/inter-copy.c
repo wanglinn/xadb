@@ -37,6 +37,7 @@ typedef struct RemoteCopyContext
 	TupleTableSlot	   *slot;
 } RemoteCopyContext;
 
+static NodeHandle*LookupNodeHandle(List *handle_list, Oid node_id);
 static void HandleCopyOutRow(RemoteCopyState *node, char *buf, int len);
 static int HandleStartRemoteCopy(NodeHandle *handle, CommandId cmid, Snapshot snap, const char *copy_query);
 static bool HandleRecvCopyOK(NodeHandle *handle);
@@ -44,6 +45,11 @@ static bool StartCopyOKHook(void *context, struct pg_conn *conn, PQNHookFuncType
 static void FetchRemoteCopyRow(RemoteCopyState *node, StringInfo row);
 static bool FetchCopyRowHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 
+/*
+ * StartRemoteCopy
+ *
+ * Send begin and copy query to involved nodes.
+ */
 void
 StartRemoteCopy(RemoteCopyState *node)
 {
@@ -71,11 +77,13 @@ StartRemoteCopy(RemoteCopyState *node)
 	if (!copy_query || !list_length(node_list))
 		return ;
 
+	/* Must use the command ID to mark COPY FROM tuples */
 	cmid = GetCurrentCommandId(is_from);
 	snap = GetActiveSnapshot();
 	timestamp = GetCurrentTransactionStartTimestamp();
 	state = MakeInterXactState2(GetTopInterXactState(), node_list);
-	state->need_xact_block = true;
+	/* It is no need to send BEGIN when COPY TO */
+	state->need_xact_block = is_from;
 	mix_handle = state->mix_handle;
 
 	agtm_BeginTransaction();
@@ -88,13 +96,15 @@ StartRemoteCopy(RemoteCopyState *node)
 			handle = (NodeHandle *) lfirst(lc_handle);
 			already_begin = false;
 
-			if (!HandleBegin(state, handle, gxid, timestamp, true, &already_begin) ||
+			if (!HandleBegin(state, handle, gxid, timestamp, is_from, &already_begin) ||
 				!HandleStartRemoteCopy(handle, cmid, snap, copy_query))
 			{
 				state->block_state |= IBLOCK_ABORT;
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
-						errmsg("%s", HandleGetError(handle, false))));
+						 errmsg("Fail to start remote COPY %s", is_from ? "FROM" : "TO"),
+						 errnode(NameStr(handle->node_name)),
+						 errhint("%s", HandleGetError(handle, false))));
 			}
 		}
 	} PG_CATCH();
@@ -106,13 +116,141 @@ StartRemoteCopy(RemoteCopyState *node)
 	node->copy_handles = mix_handle->handles;
 }
 
-uint64
-FinishRemoteCopyOut(RemoteCopyState *node)
-{
-	StringInfoData	row = {NULL, 0, 0, 0};
+/*
+ * EndRemoteCopy
+ *
+ * Send copy end message to involved handles.
+ */
+void
+EndRemoteCopy(RemoteCopyState *node)
+{
+	NodeHandle	   *handle;
+	ListCell	   *lc_handle;
 
-	if (!node)
-		return 0L;
+	Assert(node);
+	PG_TRY();
+	{
+		if (PrHandle && list_member_ptr(node->copy_handles, PrHandle))
+		{
+			if (PQputCopyEnd(PrHandle->node_conn, NULL) <= 0 ||
+				!HandleFinishCommand(PrHandle, NULL))
+				ereport(ERROR,
+						(errmsg("Fail to end COPY %s", node->is_from ? "FROM" : "TO"),
+						 errnode(NameStr(PrHandle->node_name)),
+						 errhint("%s", HandleGetError(PrHandle, false))));
+		}
+
+		foreach (lc_handle, node->copy_handles)
+		{
+			handle = (NodeHandle *) lfirst(lc_handle);
+			/* Primary handle has been copy end already, see above */
+			if (PrHandle && handle == PrHandle)
+				continue;
+			if (PQputCopyEnd(handle->node_conn, NULL) <= 0 ||
+				!HandleFinishCommand(handle, NULL))
+				ereport(ERROR,
+						(errmsg("Fail to end COPY %s", node->is_from ? "FROM" : "TO"),
+						 errnode(NameStr(PrHandle->node_name)),
+						 errhint("%s", HandleGetError(handle, false))));
+		}
+	} PG_CATCH();
+	{
+		HandleListGC(node->copy_handles);
+		PG_RE_THROW();
+	} PG_END_TRY();
+}
+
+/*
+ * SendCopyFromHeader
+ *
+ * Send PG_HEADER for a COPY FROM in binary mode to all involved nodes.
+ */
+void
+SendCopyFromHeader(RemoteCopyState *node, const StringInfo header)
+{
+	ListCell	   *lc_handle;
+	NodeHandle	   *handle;
+
+	Assert(node && header);
+	PG_TRY();
+	{
+		foreach (lc_handle, node->copy_handles)
+		{
+			handle = (NodeHandle *) lfirst(lc_handle);
+			if (PQputCopyData(handle->node_conn, header->data, header->len) <= 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
+						 errmsg("Fail to send COPY FROM header in binary mode."),
+						 errnode(NameStr(handle->node_name)),
+						 errhint("%s", HandleGetError(handle, false))));
+		}
+	} PG_CATCH();
+	{
+		HandleListGC(node->copy_handles);
+		PG_RE_THROW();
+	} PG_END_TRY();
+}
+
+/*
+ * DoRemoteCopyFrom
+ *
+ * Send copy line buffer for a COPY FROM to the node list.
+ */
+void
+DoRemoteCopyFrom(RemoteCopyState *node, const StringInfo line_buf, const List *node_list)
+{
+	NodeHandle	   *handle;
+	ListCell	   *lc_node;
+	Oid				node_id;
+
+	Assert(node && line_buf);
+	PG_TRY();
+	{
+		/* Primary handle should be sent first */
+		if (PrHandle && list_member_oid(node_list, PrHandle->node_id))
+		{
+			Assert(list_member_ptr(node->copy_handles, PrHandle));
+			if (PQputCopyData(PrHandle->node_conn, line_buf->data, line_buf->len) <= 0)
+				ereport(ERROR,
+						(errmsg("Fail to send to COPY FROM data."),
+						 errnode(NameStr(PrHandle->node_name)),
+						 errhint("%s", HandleGetError(PrHandle, false))));
+		}
+
+		foreach (lc_node, node_list)
+		{
+			node_id = lfirst_oid(lc_node);
+			/* Primary handle has been sent already, see above */
+			if (PrHandle && node_id == PrHandle->node_id)
+				continue;
+			handle = LookupNodeHandle(node->copy_handles, node_id);
+			Assert(handle);
+			if (PQputCopyData(handle->node_conn, line_buf->data, line_buf->len) <= 0)
+				ereport(ERROR,
+						(errmsg("Fail to send to COPY FROM data."),
+						 errnode(NameStr(handle->node_name)),
+						 errhint("%s", HandleGetError(handle, false))));
+		}
+	} PG_CATCH();
+	{
+		HandleListGC(node->copy_handles);
+		PG_RE_THROW();
+	} PG_END_TRY();
+}
+
+/*
+ * DoRemoteCopyTo
+ *
+ * Fetch each copy out row and handle them
+ *
+ * return the count of copy row
+ */
+uint64
+DoRemoteCopyTo(RemoteCopyState *node)
+{
+	StringInfoData row = {NULL, 0, 0, 0};
+
+	Assert(node);
 
 	node->processed = 0;
 	for (;;)
@@ -127,6 +265,11 @@ FinishRemoteCopyOut(RemoteCopyState *node)
 	return node->processed;
 }
 
+/*
+ * HandleCopyOutRow
+ *
+ * handle the row buffer to the specified destination.
+ */
 static void
 HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 {
@@ -134,6 +277,7 @@ HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 	switch (node->remoteCopyType)
 	{
 		case REMOTE_COPY_FILE:
+			Assert(node->copy_file);
 			/* Write data directly to file */
 			fwrite(buf, 1, len, node->copy_file);
 			break;
@@ -143,31 +287,30 @@ HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 			break;
 		case REMOTE_COPY_TUPLESTORE:
 			{
-				Datum  *values;
-				bool   *nulls;
-				TupleDesc   tupdesc = node->tuple_desc;
-				int i, dropped;
-				Form_pg_attribute *attr = tupdesc->attrs;
-				FmgrInfo *in_functions;
-				Oid *typioparams;
-				char **fields;
+				TupleDesc			tupdesc = node->tuple_desc;
+				Form_pg_attribute  *attr = tupdesc->attrs;
+				Datum			   *values;
+				bool			   *nulls;
+				Oid				   *typioparams;
+				FmgrInfo		   *in_functions;
+				char			  **fields;
+				int					i, dropped;
 
 				values = (Datum *) palloc(tupdesc->natts * sizeof(Datum));
-				nulls = (bool *) palloc(tupdesc->natts * sizeof(bool));
+				nulls = (bool *) palloc0(tupdesc->natts * sizeof(bool));
 				in_functions = (FmgrInfo *) palloc(tupdesc->natts * sizeof(FmgrInfo));
 				typioparams = (Oid *) palloc(tupdesc->natts * sizeof(Oid));
 
 				/* Calculate the Oids of input functions */
 				for (i = 0; i < tupdesc->natts; i++)
 				{
-					Oid         in_func_oid;
+					Oid in_func_oid;
 
 					/* Do not need any information for dropped attributes */
 					if (attr[i]->attisdropped)
 						continue;
 
-					getTypeInputInfo(attr[i]->atttypid,
-									 &in_func_oid, &typioparams[i]);
+					getTypeInputInfo(attr[i]->atttypid, &in_func_oid, &typioparams[i]);
 					fmgr_info(in_func_oid, &in_functions[i]);
 				}
 
@@ -181,7 +324,7 @@ HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 				dropped = 0;
 				for (i = 0; i < tupdesc->natts; i++)
 				{
-					char	*string = fields[i - dropped];
+					char *string = fields[i - dropped];
 					/* Do not need any information for dropped attributes */
 					if (attr[i]->attisdropped)
 					{
@@ -198,8 +341,6 @@ HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 					/* Setup value with NULL flag if necessary */
 					if (string == NULL)
 						nulls[i] = true;
-					else
-						nulls[i] = false;
 				}
 
 				/* Then insert the values into tuplestore */
@@ -224,6 +365,14 @@ HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 	}
 }
 
+/*
+ * HandleStartRemoteCopy
+ *
+ * Send copy query to remote and wait for receiving response.
+ *
+ * return 0 if any trouble.
+ * return 1 if OK.
+ */
 static int
 HandleStartRemoteCopy(NodeHandle *handle, CommandId cmid, Snapshot snap, const char *copy_query)
 {
@@ -234,6 +383,12 @@ HandleStartRemoteCopy(NodeHandle *handle, CommandId cmid, Snapshot snap, const c
 	return 1;
 }
 
+/*
+ * HandleRecvCopyOK
+ *
+ * Wait for receive COPY response
+ *
+ */
 static bool
 HandleRecvCopyOK(NodeHandle *handle)
 {
@@ -290,6 +445,12 @@ StartCopyOKHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
 	return false;
 }
 
+/*
+ * FetchRemoteCopyRow
+ *
+ * Fetch any copy row from remote handles. keep them save
+ * in StringInfo row.
+ */
 static void
 FetchRemoteCopyRow(RemoteCopyState *node, StringInfo row)
 {
@@ -343,7 +504,7 @@ FetchCopyRowHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
 					status = PQresultStatus(res);
 					if(status == PGRES_FATAL_ERROR)
 						PQNReportResultError(res, conn, ERROR, true);
-						else if(status == PGRES_COPY_IN)
+					else if(status == PGRES_COPY_IN)
 						PQputCopyEnd(conn, NULL);
 				}
 				va_end(args);
@@ -354,4 +515,31 @@ FetchCopyRowHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
 	}
 
 	return false;
+}
+
+/*
+ * LookupNodeHandle
+ *
+ * Find hanlde from handle list by node ID.
+ *
+ * return NULL if not found
+ * return handle if found
+ */
+static NodeHandle*
+LookupNodeHandle(List *handle_list, Oid node_id)
+{
+	ListCell	   *lc_handle;
+	NodeHandle	   *handle;
+
+	if (!OidIsValid(node_id))
+		return NULL;
+
+	foreach (lc_handle, handle_list)
+	{
+		handle = (NodeHandle *) lfirst(lc_handle);
+		if (handle->node_id == node_id)
+			return handle;
+	}
+
+	return NULL;
 }

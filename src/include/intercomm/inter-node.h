@@ -61,6 +61,8 @@ typedef struct CustomOption
 	const struct PGcustumFuns*cumstom_funcs;
 } CustomOption;
 
+extern NodeHandle *PrHandle;
+
 extern void ResetNodeExecutor(void);
 extern void ReleaseNodeExecutor(void);
 extern void InitNodeExecutor(bool force);
