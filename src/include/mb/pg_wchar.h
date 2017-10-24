@@ -479,6 +479,10 @@ extern int	SetClientEncoding(int encoding);
 extern void InitializeClientEncoding(void);
 extern int	pg_get_client_encoding(void);
 extern const char *pg_get_client_encoding_name(void);
+#ifdef ADB
+extern int push_client_encoding(int encoding);
+extern int pop_client_encoding(void);
+#endif /* ADB */
 
 extern void SetDatabaseEncoding(int encoding);
 extern int	GetDatabaseEncoding(void);
