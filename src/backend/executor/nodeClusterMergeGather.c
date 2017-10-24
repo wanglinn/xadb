@@ -16,10 +16,11 @@ typedef struct CMGHookContext
 {
 	PlanState *ps;
 	TupleTableSlot *slot;
+	ClusterRecvState *state;
 }CMGHookContext;
 
 static int cmg_heap_compare_slots(Datum a, Datum b, void *arg);
-static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot, PlanState *ps);
+static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot, ClusterMergeGatherState *ps);
 static bool cmg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 
 ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, EState *estate, int eflags)
@@ -81,6 +82,8 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 
 	ps->initialized = false;
 
+	ps->recv_state = createClusterRecvState((PlanState*)ps);
+
 	return ps;
 }
 
@@ -104,7 +107,7 @@ re_get_:
 		}
 		for(i=0;i<node->nremote;++i)
 		{
-			result = cmg_get_remote_slot(node->conns[i], node->slots[i], &node->ps);
+			result = cmg_get_remote_slot(node->conns[i], node->slots[i], node);
 			if(!TupIsNull(result))
 				binaryheap_add_unordered(node->binheap, Int32GetDatum(i));
 		}
@@ -115,7 +118,7 @@ re_get_:
 		i = DatumGetInt32(binaryheap_first(node->binheap));
 		if(i < node->nremote)
 		{
-			result = cmg_get_remote_slot(node->conns[i], node->slots[i], &node->ps);
+			result = cmg_get_remote_slot(node->conns[i], node->slots[i], node);
 		}else
 		{
 			Assert(i == node->nremote);
@@ -179,6 +182,7 @@ void ExecEndClusterMergeGather(ClusterMergeGatherState *node)
 		PQNListExecFinish(list, NULL, PQNEFHNormal, NULL, true);
 		list_free(list);
 	}
+	freeClusterRecvState(node->recv_state);
 }
 
 void ExecReScanClusterMergeGather(ClusterMergeGatherState *node)
@@ -225,11 +229,12 @@ cmg_heap_compare_slots(Datum a, Datum b, void *arg)
 	return 0;
 }
 
-static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot, PlanState *ps)
+static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot, ClusterMergeGatherState *ps)
 {
 	CMGHookContext context;
-	context.ps = ps;
+	context.ps = &ps->ps;
 	context.slot = slot;
+	context.state = ps->recv_state;
 	ExecClearTuple(slot);
 	PQNOneExecFinish(conn, cmg_pqexec_finish_hook, &context, true);
 	return slot;
@@ -239,6 +244,7 @@ bool cmg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType
 {
 	va_list args;
 	const char *buf;
+	CMGHookContext *cmcontext;
 	int len;
 
 	switch(type)
@@ -246,11 +252,12 @@ bool cmg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType
 	case PQNHFT_ERROR:
 		return PQNEFHNormal(NULL, conn, type);
 	case PQNHFT_COPY_OUT_DATA:
+		cmcontext = context;
 		va_start(args, type);
 		buf = va_arg(args, const char*);
 		len = va_arg(args, int);
-		if(clusterRecvTuple(((CMGHookContext*)context)->slot, buf, len,
-							((CMGHookContext*)context)->ps, conn))
+		cmcontext->state->base_slot = cmcontext->slot;
+		if(clusterRecvTupleEx(cmcontext->state, buf, len, conn))
 		{
 			va_end(args);
 			return true;

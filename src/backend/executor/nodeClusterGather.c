@@ -41,6 +41,8 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 	if((flags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
 		gatherstate->remotes = PQNGetConnUseOidList(node->rnodes);
 
+	gatherstate->recv_state = createClusterRecvState((PlanState*)gatherstate);
+
 	return gatherstate;
 }
 
@@ -105,7 +107,7 @@ void ExecReScanClusterGather(ClusterGatherState *node)
 
 static bool cg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
 {
-	PlanState *ps;
+	ClusterGatherState *cgs;
 	va_list args;
 	switch(type)
 	{
@@ -118,8 +120,15 @@ static bool cg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFu
 			va_start(args, type);
 			buf = va_arg(args, const char*);
 			len = va_arg(args, int);
-			ps = context;
-			if(clusterRecvTuple(ps->ps_ResultTupleSlot, buf, len, ps, conn))
+			cgs = context;
+			if(cgs->recv_state)
+			{
+				if(clusterRecvTupleEx(cgs->recv_state, buf, len, conn))
+				{
+					va_end(args);
+					return true;
+				}
+			}else if(clusterRecvTuple(cgs->ps.ps_ResultTupleSlot, buf, len, &cgs->ps, conn))
 			{
 				va_end(args);
 				return true;

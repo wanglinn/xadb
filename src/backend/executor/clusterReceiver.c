@@ -3,8 +3,10 @@
 
 #include "access/htup_details.h"
 #include "access/tupdesc.h"
+#include "access/tuptypeconvert.h"
 #include "nodes/execnodes.h"
 #include "executor/clusterReceiver.h"
+#include "executor/executor.h"
 #include "executor/tuptable.h"
 #include "libpq/libpq.h"
 #include "libpq/libpq-node.h"
@@ -12,20 +14,17 @@
 #include "nodes/nodeFuncs.h"
 #include "storage/ipc.h"
 #include "tcop/dest.h"
+#include "utils/memutils.h"
 
 #include <time.h>
-
-#define CLUSTER_MSG_TUPLE_DESC	'T'
-#define CLUSTER_MSG_TUPLE_DATA	'D'
-#define CLUSTER_MSG_INSTRUMENT	'I'
-#define CLUSTER_MSG_PROCESSED	'P'
-#define CLUSTER_MSG_RDC_PORT	'p'
 
 typedef struct ClusterPlanReceiver
 {
 	DestReceiver pub;
 	StringInfoData buf;
 	time_t lastCheckTime;	/* last check client message time */
+	TupleTableSlot *convert_slot;
+	TupleTypeConvert *convert;
 	bool check_end_msg;
 }ClusterPlanReceiver;
 
@@ -78,45 +77,11 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 {
 	if(*msg == CLUSTER_MSG_TUPLE_DATA)
 	{
-		uint32 t_len = offsetof(MinimalTupleData, t_infomask2) - 1 + len;
-		MinimalTuple tup = palloc(t_len);
-		MemSet(tup, 0, offsetof(MinimalTupleData, t_infomask2) - offsetof(MinimalTupleData, t_len));
-		tup->t_len = t_len;
-		memcpy(&tup->t_infomask2, msg + 1, len-1);
-		ExecStoreMinimalTuple(tup, slot, true);
+		restore_slot_message(msg+1, len-1, slot);
 		return true;
 	}else if(*msg == CLUSTER_MSG_TUPLE_DESC)
 	{
-		TupleDesc desc = slot->tts_tupleDescriptor;
-		StringInfoData buf;
-		int i;
-		Oid oid;
-		if(desc->tdhasoid != (bool)msg[1])
-		{
-			ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED),
-				errmsg("diffent TupleDesc of has Oid"),
-				errdetail("local is %d, remote is %d", desc->tdhasoid, msg[1])));
-		}
-		i = *(int*)(&msg[2]);
-		if(i != desc->natts)
-		{
-			ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED),
-				errmsg("diffent TupleDesc of number attribute"),
-				errdetail("local is %d, remote is %d", desc->natts, i)));
-		}
-		buf.data = (char*)msg;
-		buf.maxlen = buf.len = len;
-		buf.cursor = 6;
-		for(i=0;i<desc->natts;++i)
-		{
-			oid = load_oid_type(&buf);
-			if(oid != desc->attrs[i]->atttypid)
-			{
-				ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED),
-					errmsg("diffent TupleDesc of attribute[%d]", i),
-					errdetail("local is %u, remote is %u", desc->attrs[i]->atttypid, oid)));
-			}
-		}
+		compare_slot_head_message(msg+1, len-1, slot->tts_tupleDescriptor);
 		return false;
 	}else if(*msg == CLUSTER_MSG_INSTRUMENT)
 	{
@@ -140,6 +105,74 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 	return false; /* keep compiler quiet */
 }
 
+bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struct pg_conn *conn)
+{
+	switch(*msg)
+	{
+	case CLUSTER_MSG_TUPLE_DATA:
+		restore_slot_message(msg+1, len-1, state->base_slot);
+		return true;
+	case CLUSTER_MSG_TUPLE_DESC:
+		compare_slot_head_message(msg+1, len-1, state->base_slot->tts_tupleDescriptor);
+		break;
+	case CLUSTER_MSG_INSTRUMENT:
+		if(state->ps != NULL)
+			restore_instrument_message(state->ps, msg+1, len-1, conn);
+		break;
+	case CLUSTER_MSG_PROCESSED:
+		if(state->ps != NULL)
+		{
+			uint64 processed;
+			memcpy(&processed, msg+1, sizeof(processed));
+			state->ps->state->es_processed += processed;
+		}
+		break;
+	case CLUSTER_MSG_CONVERT_DESC:
+		if(state->convert_slot)
+		{
+			compare_slot_head_message(msg+1, len-1, state->convert_slot->tts_tupleDescriptor);
+		}else
+		{
+			TupleDesc desc;
+			MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state->base_slot));
+
+			desc = restore_slot_head_message(msg+1, len-1);
+			if(state->ps)
+			{
+				state->convert_slot = ExecInitExtraTupleSlot(state->ps->state);
+				ExecSetSlotDescriptor(state->convert_slot, desc);
+			}else
+			{
+				state->convert_slot = MakeSingleTupleTableSlot(desc);
+				state->convert_slot_is_signal = true;
+			}
+			state->convert = create_type_convert(state->base_slot->tts_tupleDescriptor,
+												 false,
+												 true);
+
+			MemoryContextSwitchTo(oldcontext);
+		}
+		break;
+	case CLUSTER_MSG_CONVERT_TUPLE:
+		if(state->convert)
+		{
+			restore_slot_message(msg+1, len-1, state->convert_slot);
+			do_type_convert_slot_in(state->convert, state->convert_slot, state->base_slot);
+			return true;
+		}else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("con not parse convert tuple")));
+		}
+		break;
+	default:
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+			errmsg("unknown cluster message type %d", msg[0])));
+	}
+	return false;
+}
+
 static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self)
 {
 	ClusterPlanReceiver * r = (ClusterPlanReceiver*)self;
@@ -147,7 +180,14 @@ static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self)
 	bool need_more_slot;
 
 	resetStringInfo(&r->buf);
-	serialize_slot_message(&r->buf, slot);
+	if(r->convert)
+	{
+		do_type_convert_slot_out(r->convert, slot, r->convert_slot);
+		serialize_slot_message(&r->buf, r->convert_slot, CLUSTER_MSG_CONVERT_TUPLE);
+	}else
+	{
+		serialize_slot_message(&r->buf, slot, CLUSTER_MSG_TUPLE_DATA);
+	}
 	pq_putmessage('d', r->buf.data, r->buf.len);
 	pq_flush();
 
@@ -213,11 +253,27 @@ static void cluster_receive_startup(DestReceiver *self, int operation, TupleDesc
 	/* send tuple desc */
 	serialize_slot_head_message(&r->buf, typeinfo);
 	pq_putmessage('d', r->buf.data, r->buf.len);
+
+	/* need convert ? */
+	r->convert = create_type_convert(typeinfo, true, false);
+	if(r->convert)
+	{
+		r->convert_slot = MakeSingleTupleTableSlot(r->convert->out_desc);
+		resetStringInfo(&r->buf);
+		serialize_slot_convert_head(&r->buf, r->convert->out_desc);
+		pq_putmessage('d', r->buf.data, r->buf.len);
+	}
+
 	pq_flush();
 }
 
 static void cluster_receive_shutdown(DestReceiver *self)
 {
+	ClusterPlanReceiver * r = (ClusterPlanReceiver*)self;
+	if(r->convert_slot)
+		ExecDropSingleTupleTableSlot(r->convert_slot);
+	if(r->convert)
+		free_type_convert(r->convert);
 }
 
 static void cluster_receive_destroy(DestReceiver *self)
@@ -242,6 +298,37 @@ DestReceiver *createClusterReceiver(void)
 	/* self->lastCheckTime = 0; */
 
 	return &self->pub;
+}
+
+ClusterRecvState *createClusterRecvState(PlanState *ps)
+{
+	ClusterRecvState *state;
+	TupleTableSlot *slot = ps->ps_ResultTupleSlot;
+
+	state = palloc0(sizeof(*state));
+	state->base_slot = slot;
+	state->ps = ps;
+
+	state->convert = create_type_convert(slot->tts_tupleDescriptor, false, true);
+	if(state->convert != NULL)
+	{
+		state->convert_slot = ExecInitExtraTupleSlot(ps->state);
+		ExecSetSlotDescriptor(state->convert_slot, state->convert->out_desc);
+	}
+
+	return state;
+}
+
+void freeClusterRecvState(ClusterRecvState *state)
+{
+	if(state)
+	{
+		if(state->convert_slot_is_signal && state->convert_slot)
+			ExecDropSingleTupleTableSlot(state->convert_slot);
+		if(state->convert)
+			free_type_convert(state->convert);
+		pfree(state);
+	}
 }
 
 bool clusterRecvSetCheckEndMsg(DestReceiver *r, bool check)
@@ -269,27 +356,116 @@ void serialize_processed_message(StringInfo buf, uint64 processed)
 	appendBinaryStringInfo(buf, (char*)&processed, sizeof(processed));
 }
 
-void serialize_slot_head_message(StringInfo buf, TupleDesc desc)
+void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
 {
 	int i;
 	AssertArg(buf && desc);
 
-	appendStringInfoChar(buf, CLUSTER_MSG_TUPLE_DESC);
+	appendStringInfoChar(buf, msg_type);
 	appendStringInfoChar(buf, desc->tdhasoid);
 	appendBinaryStringInfo(buf, (char*)&(desc->natts), sizeof(desc->natts));
 	for(i=0;i<desc->natts;++i)
 		save_oid_type(buf, desc->attrs[i]->atttypid);
 }
 
-void serialize_slot_message(StringInfo buf, TupleTableSlot *slot)
+void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
+{
+	StringInfoData buf;
+	int i;
+	Oid oid;
+
+	if(len < (sizeof(bool) + sizeof(int)))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("invalid message length")));
+	}
+
+	if(desc->tdhasoid != (bool)msg[0])
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				errmsg("diffent TupleDesc of has Oid"),
+				errdetail("local is %d, remote is %d", desc->tdhasoid, msg[0])));
+	}
+
+	memcpy(&i, msg+1, sizeof(i));
+	if(i!=desc->natts)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED),
+				errmsg("diffent TupleDesc of number attribute"),
+				errdetail("local is %d, remote is %d", desc->natts, i)));
+	}
+
+	buf.data = (char*)msg;
+	buf.maxlen = buf.len = len;
+	buf.cursor = (sizeof(bool)+sizeof(int));
+	for(i=0;i<desc->natts;++i)
+	{
+		oid = load_oid_type(&buf);
+		if(oid != desc->attrs[i]->atttypid)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					errmsg("diffent TupleDesc of attribute[%d]", i),
+					errdetail("local is %u, remote is %u", desc->attrs[i]->atttypid, oid)));
+		}
+	}
+}
+
+TupleDesc restore_slot_head_message(const char *msg, int len)
+{
+	TupleDesc desc;
+	StringInfoData buf;
+	int i;
+	Oid oid;
+
+	if(len < (sizeof(bool) + sizeof(int)))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("invalid message length")));
+	}
+
+	memcpy(&i, msg+1, sizeof(i));
+
+	desc = CreateTemplateTupleDesc(i, msg[0]);
+
+	buf.data = (char*)msg;
+	buf.maxlen = buf.len = len;
+	buf.cursor = (sizeof(bool)+sizeof(int));
+	for(i=0;i<desc->natts;++i)
+	{
+		oid = load_oid_type(&buf);
+		TupleDescInitEntry(desc,
+						   i,
+						   NULL,
+						   oid,
+						   -1,
+						   0);
+	}
+	return desc;
+}
+
+void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char msg_type)
 {
 	MinimalTuple tup;
 	AssertArg(buf && !TupIsNull(slot));
 
 	tup = ExecFetchSlotMinimalTuple(slot);
-	appendStringInfoChar(buf, CLUSTER_MSG_TUPLE_DATA);
+	appendStringInfoChar(buf, msg_type);
 	appendBinaryStringInfo(buf, (char*)&(tup->t_infomask2),
 						   tup->t_len - offsetof(MinimalTupleData, t_infomask2));
+}
+
+TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *slot)
+{
+	uint32 t_len = offsetof(MinimalTupleData, t_infomask2) + len;
+	MinimalTuple tup = palloc(t_len);
+	MemSet(tup, 0, offsetof(MinimalTupleData, t_infomask2));
+	tup->t_len = t_len;
+	memcpy(&tup->t_infomask2, msg, len);
+	return ExecStoreMinimalTuple(tup, slot, true);
 }
 
 static bool serialize_instrument_walker(PlanState *ps, StringInfo buf)

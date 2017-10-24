@@ -2138,6 +2138,7 @@ typedef struct ClusterGatherState
 {
 	PlanState	ps;
 	List	   *remotes;
+	struct ClusterRecvState *recv_state;
 	bool		local_end;	/* local plan is end of tup */
 }ClusterGatherState;
 
@@ -2150,6 +2151,7 @@ typedef struct ClusterMergeGatherState
 	TupleTableSlot **slots;		/* array of length nremote */
 	struct binaryheap *binheap;	/* binary heap of slot indices */
 	struct pg_conn **conns;		/* remote connections */
+	struct ClusterRecvState *recv_state;
 	bool			initialized;
 	bool			local_end;	/* local plan is end of tup */
 }ClusterMergeGatherState;
