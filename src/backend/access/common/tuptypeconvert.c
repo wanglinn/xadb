@@ -73,9 +73,10 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 
 	Assert(src->tts_tupleDescriptor->natts == dest->tts_tupleDescriptor->natts);
 	Assert(src->tts_tupleDescriptor->natts == convert->base_desc->natts);
-	Assert(!TupIsNull(src));
 
 	ExecClearTuple(dest);
+	if(TupIsNull(src))
+		return dest;
 	slot_getallattrs(src);
 
 	push_client_encoding(GetDatabaseEncoding());
@@ -119,9 +120,10 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 
 	Assert(src->tts_tupleDescriptor->natts == dest->tts_tupleDescriptor->natts);
 	Assert(src->tts_tupleDescriptor->natts == convert->base_desc->natts);
-	Assert(!TupIsNull(src));
 
 	ExecClearTuple(dest);
+	if(TupIsNull(src))
+		return dest;
 	slot_getallattrs(src);
 
 	i=0;
