@@ -1787,9 +1787,9 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 					pfree(typestr);
 				}
 				mgr_get_nodeinfo_byname_type(nodename, nodetype, false, &slave_is_exist, &slave_is_running, &node_info);
-				if (AGT_CMD_GTM_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTM_START_SLAVE_BACKEND == cmdtype)
+				if (AGT_CMD_GTM_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTM_STOP_SLAVE_BACKEND == cmdtype)
 					appendStringInfo(&infosendmsg, " stop -D %s -m %s -o -i -w -c -t 3", node_info.nodepath, shutdown_mode);
-				else if (AGT_CMD_CN_START_BACKEND == cmdtype)
+				else if (AGT_CMD_CN_STOP_BACKEND == cmdtype)
 					appendStringInfo(&infosendmsg, " stop -D %s -Z coordinator -m %s -o -i -w -c -t 3", node_info.nodepath, shutdown_mode);
 				else
 					appendStringInfo(&infosendmsg, " stop -D %s -Z datanode -m %s -o -i -w -c -t 3", node_info.nodepath, shutdown_mode);
