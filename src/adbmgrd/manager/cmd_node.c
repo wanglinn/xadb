@@ -55,6 +55,7 @@
 #define SPACE           ' '
 
 bool with_data_checksums = false;
+Oid specHostOid = 0;
 
 static struct enum_sync_state sync_state_tab[] =
 {
@@ -5914,9 +5915,29 @@ Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
 	bool force = false;
 	bool nodetypechange = false;
 	Datum datum;
+	Relation relNode;
+	HeapTuple tuple;
+	Form_mgr_node mgr_node;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+	
+	relNode = heap_open(NodeRelationId, AccessShareLock);
+	tuple = mgr_get_tuple_node_from_name_type(relNode, nodename, CNDN_TYPE_DATANODE_MASTER);
+	if(!HeapTupleIsValid(tuple))
+	{
+		specHostOid = 0;
+		heap_close(relNode, AccessShareLock);
+		ereport(WARNING, (errmsg("datanode master \"%s\" is not exist incluster", nodename)));
+	}
+	else
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		specHostOid = mgr_node->nodehost;
+		heap_freetuple(tuple);
+		heap_close(relNode, AccessShareLock);
+	}
 
 	if(force_get)
 		force = true;
@@ -10632,6 +10653,8 @@ void mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 {
 	Oid coordhostoid;
 	int32 coordport;
+	int iloop = 0;
+	int max = 3;
 	char *coordhost;
 	char coordport_buf[10];
 	char *connect_user;
@@ -10648,27 +10671,61 @@ void mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 	Form_mgr_node mgr_node;
 	bool isNull;
 	bool breload = false;
+	bool bgetAddress = true;
 
-	/*get active coordinator to connect*/
-	if (!mgr_get_active_node(&nodename, CNDN_TYPE_COORDINATOR_MASTER))
-		ereport(ERROR, (errmsg("can not get active coordinator in cluster")));
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
-	tuple = mgr_get_tuple_node_from_name_type(rel_node, nodename.data, CNDN_TYPE_COORDINATOR_MASTER);
-	if(!(HeapTupleIsValid(tuple)))
-	{
-		ereport(ERROR, (errmsg("coordinator \"%s\" does not exist", nodename.data)
-			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
-			, errcode(ERRCODE_UNDEFINED_OBJECT)));
-	}
-	mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-	coordhostoid = mgr_node->nodehost;
-	coordport = mgr_node->nodeport;
-	coordhost = get_hostaddress_from_hostoid(coordhostoid);
-	connect_user = get_hostuser_from_hostoid(coordhostoid);
-	*cnoid = HeapTupleGetOid(tuple);
 
-	/*get the adbmanager ip*/
-	mgr_get_self_address(coordhost, coordport, &self_address);
+	for (iloop = 0; iloop < max; iloop++)
+	{
+		/*get active coordinator to connect*/
+		if (!mgr_get_active_node(&nodename, CNDN_TYPE_COORDINATOR_MASTER, specHostOid))
+		{
+			if (iloop == max-1)
+			{
+				heap_close(rel_node, AccessShareLock);
+				ereport(ERROR, (errmsg("can not get active coordinator in cluster %d", iloop)));
+			}
+			else
+			{
+				ereport(WARNING, (errmsg("can not get active coordinator in cluster %d", iloop)));
+			}
+		}
+		else
+		{
+			tuple = mgr_get_tuple_node_from_name_type(rel_node, nodename.data, CNDN_TYPE_COORDINATOR_MASTER);
+			if(!(HeapTupleIsValid(tuple)))
+			{
+				heap_close(rel_node, AccessShareLock);
+				ereport(ERROR, (errmsg("coordinator \"%s\" does not exist", nodename.data)
+					, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
+					, errcode(ERRCODE_UNDEFINED_OBJECT)));
+			}
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			coordhostoid = mgr_node->nodehost;
+			coordport = mgr_node->nodeport;
+			coordhost = get_hostaddress_from_hostoid(coordhostoid);
+			connect_user = get_hostuser_from_hostoid(coordhostoid);
+			*cnoid = HeapTupleGetOid(tuple);
+
+			/*get the adbmanager ip*/
+			memset(self_address.data, 0, NAMEDATALEN);
+			bgetAddress = mgr_get_self_address(coordhost, coordport, &self_address);
+			if (bgetAddress)
+				break;
+			else
+			{
+				heap_freetuple(tuple);
+				pfree(coordhost);
+				pfree(connect_user);
+			}
+		}
+	}
+	
+	if (!bgetAddress)
+	{
+		heap_close(rel_node, AccessShareLock);
+		ereport(ERROR, (errmsg("on ADB Manager get local address fail, so cannot do \"FAILOVER\" command")));
+	}
 
 	/*set adbmanager ip to the coordinator if need*/
 	datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel_node), &isNull);
@@ -11033,7 +11090,7 @@ static bool mgr_extension_pg_stat_statements(char cmdtype, char *extension_name)
 	return true;
 }
 
-void mgr_get_self_address(char *server_address, int server_port, Name self_address)
+bool mgr_get_self_address(char *server_address, int server_port, Name self_address)
 {
 		int sock;
 		int nRet;
@@ -11047,7 +11104,8 @@ void mgr_get_self_address(char *server_address, int server_port, Name self_addre
 		sock = socket(PF_INET, SOCK_STREAM, 0);
 		if (sock == -1)
 		{
-			ereport(ERROR, (errmsg("on ADB Manager create sock fail")));
+			ereport(WARNING, (errmsg("on ADB Manager create sock fail")));
+			return false;
 		}
 
 		serv_addr.sin_family = AF_INET;
@@ -11056,18 +11114,21 @@ void mgr_get_self_address(char *server_address, int server_port, Name self_addre
 
 		if (connect(sock,(struct sockaddr*)&serv_addr,sizeof(serv_addr)) == -1)
 		{
-			ereport(ERROR, (errmsg("on ADB Manager sock connect \"%s\" \"%d\" fail", server_address, server_port)));
+			ereport(WARNING, (errmsg("on ADB Manager sock connect \"%s\" \"%d\" fail", server_address, server_port)));
+			return false;
 		}
 
 		addr_len = sizeof(struct sockaddr_in);
 		nRet = getsockname(sock,(struct sockaddr*)&addr,&addr_len);
 		if(nRet == -1)
 		{
-			ereport(ERROR, (errmsg("on ADB Manager sock connect \"%s\" \"%d\" to getsockname fail", server_address, server_port)));
+			ereport(WARNING, (errmsg("on ADB Manager sock connect \"%s\" \"%d\" to getsockname fail", server_address, server_port)));
+			return false;
 		}
 		namestrcpy(self_address, inet_ntoa(addr.sin_addr));
 		close(sock);
-
+		
+		return true;
 }
 
 /*
@@ -12084,6 +12145,7 @@ static bool get_local_ip(Name local_ip)
 	Datum agent_host_ip;
 	int32 port;
 	bool isNull;
+	bool rest = true;
 	ManagerAgent *ma;
 	Relation rel;
 	HeapScanDesc rel_scan;
@@ -12121,11 +12183,12 @@ static bool get_local_ip(Name local_ip)
 			, errmsg("column hostaddr is null")));
 	}
 	port = mgr_host->hostagentport;
-	mgr_get_self_address(TextDatumGetCString(agent_host_ip), port, local_ip);
+	rest = mgr_get_self_address(TextDatumGetCString(agent_host_ip), port, local_ip);
 
 	heap_endscan(rel_scan);
 	heap_close(rel, AccessShareLock);
-	return true;
+
+	return rest;
 }
 /*
 	if node_name is NULL

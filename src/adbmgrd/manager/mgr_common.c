@@ -849,7 +849,7 @@ void mgr_recv_sql_stringvalues_msg(ManagerAgent	*ma, StringInfo resultstrdata)
 /*
 * get active coordinator node name
 */
-bool mgr_get_active_node(Name nodename, char nodetype)
+bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid)
 {
 	
 	ScanKeyData key[3];
@@ -858,6 +858,7 @@ bool mgr_get_active_node(Name nodename, char nodetype)
 	HeapScanDesc relScan;
 	HeapTuple tuple;
 	int res = -1;
+	int iloop = 0;
 	char *hostAddr;
 	char *userName;
 	char portBuf[10];
@@ -880,27 +881,38 @@ bool mgr_get_active_node(Name nodename, char nodetype)
 				,BoolGetDatum(true));	
 	relNode = heap_open(NodeRelationId, AccessShareLock);
 	relScan = heap_beginscan_catalog(relNode, 3, key);
-	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+	for (iloop = 0; iloop < 2; iloop++)
 	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		/* check node status */
-		hostAddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		userName = get_hostuser_from_hostoid(mgr_node->nodehost);
-		memset(portBuf, 0, 10);
-		sprintf(portBuf, "%d", mgr_node->nodeport);
-		if (GTM_TYPE_GTM_MASTER == nodetype || GTM_TYPE_GTM_SLAVE == nodetype 
-			|| GTM_TYPE_GTM_EXTRA == nodetype)
-			res = pingNode_user(hostAddr, portBuf, AGTM_USER);
-		else
-			res = pingNode_user(hostAddr, portBuf, userName);
-		pfree(hostAddr);
-		pfree(userName);
-		if (res == 0)
+		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{
-			bresult = true;
-			namestrcpy(nodename, NameStr(mgr_node->nodename));
-			break;
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgr_node);
+			if ((iloop == 0) && (lowPriorityOid == mgr_node->nodehost))
+				continue;
+			else
+			{
+				if ((iloop == 1) && (lowPriorityOid != mgr_node->nodehost))
+					continue;
+			}
+			/* check node status */
+			hostAddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+			userName = get_hostuser_from_hostoid(mgr_node->nodehost);
+			memset(portBuf, 0, 10);
+			sprintf(portBuf, "%d", mgr_node->nodeport);
+			if (GTM_TYPE_GTM_MASTER == nodetype || GTM_TYPE_GTM_SLAVE == nodetype 
+				|| GTM_TYPE_GTM_EXTRA == nodetype)
+				res = pingNode_user(hostAddr, portBuf, AGTM_USER);
+			else
+				res = pingNode_user(hostAddr, portBuf, userName);
+			pfree(hostAddr);
+			pfree(userName);
+			if (res == 0)
+			{
+				bresult = true;
+				namestrcpy(nodename, NameStr(mgr_node->nodename));
+				iloop = 2;
+				break;
+			}
 		}
 	}
 	

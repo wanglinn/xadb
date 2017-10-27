@@ -257,7 +257,7 @@ extern void mgr_recv_sql_stringvalues_msg(ManagerAgent	*ma, StringInfo resultstr
 char *get_hostaddress_from_hostoid(Oid hostOid);
 char *get_hostname_from_hostoid(Oid hostOid);
 char *get_hostuser_from_hostoid(Oid hostOid);
-bool mgr_get_active_node(Name nodename, char nodetype);
+bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid);
 
 /* get msg from agent */
 bool mgr_recv_msg(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst);
@@ -387,7 +387,7 @@ extern HeapTuple build_common_command_tuple_for_monitor(const Name name
                                                         ,const char *description
                                                         ,const Name hostaddr
                                                         ,const int port);
-extern void mgr_get_self_address(char *server_address, int server_port, Name self_address);
+extern bool mgr_get_self_address(char *server_address, int server_port, Name self_address);
 
 extern Datum monitor_handle_coordinator(PG_FUNCTION_ARGS);
 extern int get_agentPort_from_hostoid(Oid hostOid);
