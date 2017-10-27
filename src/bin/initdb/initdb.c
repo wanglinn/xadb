@@ -517,6 +517,11 @@ readfile(const char *path)
 	rewind(infile);
 	n = 0;
 	while (fgets(buffer, maxlength + 1, infile) != NULL && n < nlines)
+#ifdef ADB
+		if(strncmp(buffer, "--ADBONLY", 9) == 0)
+			result[n++] = pg_strdup(buffer+9);
+		else
+#endif /* ADB */
 		result[n++] = pg_strdup(buffer);
 
 	fclose(infile);
@@ -3138,7 +3143,11 @@ setup_data_file_paths(void)
 #else /* INITAGTM */
 	set_input(&conf_file, "postgresql.conf.sample");
 #endif /* INITMGR */
+#ifdef ADB
 	set_input(&conversion_file, "conversion_create.sql");
+#else
+	set_input(&conversion_file, "conversion_create_normal.sql");
+#endif
 	set_input(&dictionary_file, "snowball_create.sql");
 	set_input(&info_schema_file, "information_schema.sql");
 #ifdef ADB

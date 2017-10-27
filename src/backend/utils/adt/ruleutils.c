@@ -69,6 +69,7 @@
 #include "utils/xml.h"
 #ifdef ADB
 #include "access/reloptions.h"
+#include "catalog/adb_proc.h"
 #include "nodes/execnodes.h"
 #include "optimizer/pgxcplan.h"
 #include "parser/parse_type.h"
@@ -2152,6 +2153,32 @@ pg_get_functiondef(PG_FUNCTION_ARGS)
 		case PROPARALLEL_UNSAFE:
 			break;
 	}
+
+#ifdef ADB
+	{
+		HeapTuple adb_proc_tup = SearchSysCache1(ADBPROCID, ObjectIdGetDatum(funcid));
+		char cluster_safe;
+		if(HeapTupleIsValid(adb_proc_tup))
+		{
+			cluster_safe = ((Form_adb_proc)GETSTRUCT(adb_proc_tup))->proclustersafe;
+			ReleaseSysCache(adb_proc_tup);
+		}else
+		{
+			cluster_safe = PROC_CLUSTER_SAFE;
+		}
+		switch(cluster_safe)
+		{
+			case PROC_CLUSTER_SAFE:
+				appendStringInfoString(&buf, " CLUSTER SAFE");
+				break;
+			case PROC_CLUSTER_RESTRICTED:
+				appendStringInfoString(&buf, " CLUSTER RESTRICTED");
+				break;
+			case PROC_CLUSTER_UNSAFE:
+				break;
+		}
+	}
+#endif /* ADB */
 
 	if (proc->proisstrict)
 		appendStringInfoString(&buf, " STRICT");

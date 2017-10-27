@@ -43,6 +43,7 @@ SET search_path TO information_schema;
 CREATE FUNCTION _pg_expandarray(IN anyarray, OUT x anyelement, OUT n int)
     RETURNS SETOF RECORD
     LANGUAGE sql STRICT IMMUTABLE
+--ADBONLY CLUSTER SAFE
     AS 'select $1[s], s - pg_catalog.array_lower($1,1) + 1
         from pg_catalog.generate_series(pg_catalog.array_lower($1,1),
                                         pg_catalog.array_upper($1,1),
@@ -50,6 +51,7 @@ CREATE FUNCTION _pg_expandarray(IN anyarray, OUT x anyelement, OUT n int)
 
 CREATE FUNCTION _pg_keysequal(smallint[], smallint[]) RETURNS boolean
     LANGUAGE sql IMMUTABLE  -- intentionally not STRICT, to allow inlining
+--ADBONLY CLUSTER SAFE
     AS 'select $1 operator(pg_catalog.<@) $2 and $2 operator(pg_catalog.<@) $1';
 
 /* Given an index's OID and an underlying-table column number, return the
@@ -67,6 +69,7 @@ CREATE FUNCTION _pg_truetypid(pg_attribute, pg_type) RETURNS oid
     LANGUAGE sql
     IMMUTABLE
     RETURNS NULL ON NULL INPUT
+--ADBONLY CLUSTER SAFE
     AS
 $$SELECT CASE WHEN $2.typtype = 'd' THEN $2.typbasetype ELSE $1.atttypid END$$;
 
@@ -74,6 +77,7 @@ CREATE FUNCTION _pg_truetypmod(pg_attribute, pg_type) RETURNS int4
     LANGUAGE sql
     IMMUTABLE
     RETURNS NULL ON NULL INPUT
+--ADBONLY CLUSTER SAFE
     AS
 $$SELECT CASE WHEN $2.typtype = 'd' THEN $2.typtypmod ELSE $1.atttypmod END$$;
 
@@ -83,6 +87,7 @@ CREATE FUNCTION _pg_char_max_length(typid oid, typmod int4) RETURNS integer
     LANGUAGE sql
     IMMUTABLE
     RETURNS NULL ON NULL INPUT
+--ADBONLY CLUSTER SAFE
     AS
 $$SELECT
   CASE WHEN $2 = -1 /* default typmod */
@@ -98,6 +103,7 @@ CREATE FUNCTION _pg_char_octet_length(typid oid, typmod int4) RETURNS integer
     LANGUAGE sql
     IMMUTABLE
     RETURNS NULL ON NULL INPUT
+--ADBONLY CLUSTER SAFE
     AS
 $$SELECT
   CASE WHEN $1 IN (25, 1042, 1043) /* text, char, varchar */
@@ -113,6 +119,7 @@ CREATE FUNCTION _pg_numeric_precision(typid oid, typmod int4) RETURNS integer
     LANGUAGE sql
     IMMUTABLE
     RETURNS NULL ON NULL INPUT
+--ADBONLY CLUSTER SAFE
     AS
 $$SELECT
   CASE $1
@@ -133,6 +140,7 @@ CREATE FUNCTION _pg_numeric_precision_radix(typid oid, typmod int4) RETURNS inte
     LANGUAGE sql
     IMMUTABLE
     RETURNS NULL ON NULL INPUT
+--ADBONLY CLUSTER SAFE
     AS
 $$SELECT
   CASE WHEN $1 IN (21, 23, 20, 700, 701) THEN 2
@@ -144,6 +152,7 @@ CREATE FUNCTION _pg_numeric_scale(typid oid, typmod int4) RETURNS integer
     LANGUAGE sql
     IMMUTABLE
     RETURNS NULL ON NULL INPUT
+--ADBONLY CLUSTER SAFE
     AS
 $$SELECT
   CASE WHEN $1 IN (21, 23, 20) THEN 0
@@ -159,6 +168,7 @@ CREATE FUNCTION _pg_datetime_precision(typid oid, typmod int4) RETURNS integer
     LANGUAGE sql
     IMMUTABLE
     RETURNS NULL ON NULL INPUT
+--ADBONLY CLUSTER SAFE
     AS
 $$SELECT
   CASE WHEN $1 IN (1082) /* date */
@@ -174,6 +184,7 @@ CREATE FUNCTION _pg_interval_type(typid oid, mod int4) RETURNS text
     LANGUAGE sql
     IMMUTABLE
     RETURNS NULL ON NULL INPUT
+--ADBONLY CLUSTER SAFE
     AS
 $$SELECT
   CASE WHEN $1 IN (1186) /* interval */

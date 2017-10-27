@@ -13,6 +13,7 @@ top_builddir = ../../../../..
 include $(top_builddir)/src/Makefile.global
 
 SQLSCRIPT = conversion_create.sql
+SQLSCRIPT_normal = conversion_create_normal.sql
 
 SUBDIRS = \
 	ascii_and_mic cyrillic_and_mic euc_cn_and_mic euc_jp_and_sjis \
@@ -160,9 +161,29 @@ CONVERSIONS = \
 		euc_jis_2004_to_shift_jis_2004 EUC_JIS_2004 SHIFT_JIS_2004 euc_jis_2004_to_shift_jis_2004 euc2004_sjis2004 \
 		shift_jis_2004_to_euc_jis_2004 SHIFT_JIS_2004 EUC_JIS_2004 shift_jis_2004_to_euc_jis_2004 euc2004_sjis2004
 
-all: $(SQLSCRIPT)
+all: $(SQLSCRIPT) $(SQLSCRIPT_normal)
 
 $(SQLSCRIPT): Makefile
+	@set -e; \
+	set $(CONVERSIONS) ; \
+	while [ "$$#" -gt 0 ] ; \
+	do \
+		name=$$1;shift; \
+		se=$$1;shift; \
+		de=$$1; shift; \
+		func=$$1; shift; \
+		obj=$$1; shift; \
+		echo "-- $$se --> $$de"; \
+		echo "CREATE OR REPLACE FUNCTION $$func (INTEGER, INTEGER, CSTRING, INTERNAL, INTEGER) RETURNS VOID AS '$$"libdir"/$$obj', '$$func' LANGUAGE C STRICT PARALLEL SAFE CLUSTER SAFE;"; \
+	        echo "COMMENT ON FUNCTION $$func(INTEGER, INTEGER, CSTRING, INTERNAL, INTEGER) IS 'internal conversion function for $$se to $$de';"; \
+		echo "DROP CONVERSION pg_catalog.$$name;"; \
+		echo "CREATE DEFAULT CONVERSION pg_catalog.$$name FOR '$$se' TO '$$de' FROM $$func;"; \
+	        echo "COMMENT ON CONVERSION pg_catalog.$$name IS 'conversion for $$se to $$de';"; \
+		echo; \
+	done > $@
+
+
+$(SQLSCRIPT_normal): Makefile
 	@set -e; \
 	set $(CONVERSIONS) ; \
 	while [ "$$#" -gt 0 ] ; \
@@ -181,8 +202,9 @@ $(SQLSCRIPT): Makefile
 		echo; \
 	done > $@
 
-install: $(SQLSCRIPT) installdirs
+install: $(SQLSCRIPT) $(SQLSCRIPT_normal) installdirs
 	$(INSTALL_DATA) $(SQLSCRIPT) '$(DESTDIR)$(datadir)'
+	$(INSTALL_DATA) $(SQLSCRIPT_normal) '$(DESTDIR)$(datadir)'
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(datadir)' '$(DESTDIR)$(pkglibdir)'

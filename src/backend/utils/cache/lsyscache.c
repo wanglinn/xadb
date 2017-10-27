@@ -46,6 +46,7 @@
 #include "utils/syscache.h"
 #include "utils/typcache.h"
 #ifdef ADB
+#include "catalog/adb_proc.h"
 #include "catalog/namespace.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
@@ -1603,6 +1604,26 @@ func_parallel(Oid funcid)
 	ReleaseSysCache(tp);
 	return result;
 }
+
+#ifdef ADB
+char func_cluster(Oid funcid)
+{
+	HeapTuple	tup;
+	char		result;
+
+	tup = SearchSysCache1(ADBPROCID, ObjectIdGetDatum(funcid));
+	if (HeapTupleIsValid(tup))
+	{
+		result = ((Form_adb_proc) GETSTRUCT(tup))->proclustersafe;
+		ReleaseSysCache(tup);
+	}else
+	{
+		result = PROC_CLUSTER_SAFE;
+	}
+
+	return result;
+}
+#endif /* ADB */
 
 /*
  * get_func_leakproof

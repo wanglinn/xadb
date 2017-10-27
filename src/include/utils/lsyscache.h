@@ -96,6 +96,9 @@ extern bool get_func_retset(Oid funcid);
 extern bool func_strict(Oid funcid);
 extern char func_volatile(Oid funcid);
 extern char func_parallel(Oid funcid);
+#ifdef ADB
+extern char func_cluster(Oid funcid);
+#endif /* ADB */
 extern bool get_func_leakproof(Oid funcid);
 extern float4 get_func_cost(Oid funcid);
 extern float4 get_func_rows(Oid funcid);

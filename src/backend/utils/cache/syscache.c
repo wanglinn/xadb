@@ -72,6 +72,7 @@
 #include "utils/catcache.h"
 #include "utils/syscache.h"
 #ifdef ADB
+#include "catalog/adb_proc.h"
 #include "catalog/ora_cast.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
@@ -662,6 +663,18 @@ static const struct cachedesc cacheinfo[] = {
 			Anum_ora_cast_castsource,
 			Anum_ora_cast_casttarget,
 			Anum_ora_cast_castcontext,
+			0
+		},
+		256
+	},
+	{
+		AdbProcRelationId,			/* ADBPROCID */
+		AdbProcOwnerIndexId,
+		1,
+		{
+			Anum_adb_proc_proowner,
+			0,
+			0,
 			0
 		},
 		256

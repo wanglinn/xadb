@@ -7359,6 +7359,10 @@ common_func_opt_item:
 				{
 					$$ = makeDefElem("parallel", (Node *)makeString($2));
 				}
+			| CLUSTER ColId
+				{
+					$$ = makeDefElem("cluster", (Node *)makeString($2));
+				}
 		;
 
 createfunc_opt_item:

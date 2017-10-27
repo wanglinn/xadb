@@ -43,7 +43,7 @@ POSTGRES_BKI_SRCS = \
 	pg_default_acl.h pg_init_privs.h pg_seclabel.h pg_shseclabel.h \
 	pg_collation.h pg_range.h pg_transform.h \
 	pgxc_class.h pgxc_node.h pgxc_group.h \
-	ora_cast.h \
+	ora_cast.h adb_proc.h \
 	toasting.h indexing.h
 
 $(POSTGRES_BKI_SRCS): % : $(top_srcdir)/src/include/catalog/%

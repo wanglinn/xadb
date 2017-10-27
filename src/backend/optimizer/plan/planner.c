@@ -96,7 +96,7 @@ create_upper_paths_hook_type create_upper_paths_hook = NULL;
 #define CLUSTER_PLAN_OK(option, parse_)								\
 	(enable_cluster_plan && (option & CURSOR_OPT_PARALLEL_OK) != 0 && \
 		IsUnderPostmaster && (parse_)->utilityStmt == NULL &&		\
-		!IsParallelWorker() && !has_cluster_hazard((Node*) (parse_)))
+		!IsParallelWorker() && !has_cluster_hazard((Node*) (parse_), false))
 
 typedef struct CreateDistinctPathsContext
 {
@@ -1978,7 +1978,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 #ifdef ADB
 		if (inheritance_update == false &&
 			current_rel->cluster_pathlist &&
-			!has_cluster_hazard((Node*)scanjoin_target->exprs))
+			!has_cluster_hazard((Node*)scanjoin_target->exprs, false))
 		{
 			Path *path;
 			foreach(lc, current_rel->cluster_pathlist)
@@ -4311,8 +4311,8 @@ create_grouping_paths(PlannerInfo *root,
 				 errdetail("Some of the datatypes only support hashing, while others only support sorting.")));
 
 #ifdef ADB
-	if(has_cluster_hazard((Node*)target->exprs)
-		|| has_cluster_hazard(parse->havingQual)
+	if(has_cluster_hazard((Node*)target->exprs, false)
+		|| has_cluster_hazard(parse->havingQual, false)
 		|| input_rel->cluster_pathlist == NIL	/* Nothing to use as input for cluster aggregate. */
 		|| (!parse->hasAggs && parse->groupClause == NIL)
 		|| parse->groupingSets)

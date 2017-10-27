@@ -51,7 +51,9 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
-
+#ifdef ADB
+#include "catalog/adb_proc.h"
+#endif /* ADB */
 
 typedef struct
 {
@@ -106,6 +108,7 @@ static bool contain_volatile_functions_not_nextval_walker(Node *node, void *cont
 #ifdef ADB
 static bool contain_rownum_walker(Node *node, void *context);
 static bool contain_volatile_functions_walker_without_check_RownumExpr(Node *node, void *context);
+static bool has_cluster_hazard_walker(Node *node, has_parallel_hazard_arg *context);
 #endif
 static bool has_parallel_hazard_walker(Node *node,
 						   has_parallel_hazard_arg *context);
@@ -1235,10 +1238,69 @@ contain_volatile_functions_walker_without_check_RownumExpr(Node *node, void *con
 								  context);
 }
 
-bool has_cluster_hazard(Node *node)
+static bool
+has_cluster_hazard_checker(Oid func_id, void *context)
 {
-	/* ADBQ: TODO add code */
-	return false;
+	char		proclustersafe = func_cluster(func_id);
+
+	if (((has_parallel_hazard_arg *) context)->allow_restricted)
+		return (proclustersafe == PROC_CLUSTER_UNSAFE);
+	else
+		return (proclustersafe != PROC_CLUSTER_SAFE);
+}
+
+static bool has_cluster_hazard_walker(Node *node, has_parallel_hazard_arg *context)
+{
+
+	if (node == NULL)
+		return false;
+
+	/* Check for hazardous functions in node itself */
+	if (check_functions_in_node(node, has_cluster_hazard_checker,
+								context))
+		return true;
+
+	/*
+	 * As a notational convenience for callers, look through RestrictInfo.
+	 */
+	else if (IsA(node, RestrictInfo))
+	{
+		RestrictInfo *rinfo = (RestrictInfo *) node;
+
+		return has_cluster_hazard_walker((Node *) rinfo->clause, context);
+	}
+
+	/*
+	 * When we're first invoked on a completely unplanned tree, we must
+	 * recurse into subqueries so to as to locate parallel-unsafe constructs
+	 * anywhere in the tree.
+	 */
+	else if (IsA(node, Query))
+	{
+		Query	   *query = (Query *) node;
+
+		/* SELECT FOR UPDATE/SHARE must be treated as unsafe */
+		if (query->rowMarks != NULL)
+			return true;
+
+		/* Recurse into subselects */
+		return query_tree_walker(query,
+								 has_cluster_hazard_walker,
+								 context, 0);
+	}
+
+	/* Recurse to check arguments */
+	return expression_tree_walker(node,
+								  has_cluster_hazard_walker,
+								  context);
+}
+
+bool has_cluster_hazard(Node *node, bool allow_restricted)
+{
+	has_parallel_hazard_arg context;
+
+	context.allow_restricted = allow_restricted;
+	return has_cluster_hazard_walker(node, &context);
 }
 
 #endif
