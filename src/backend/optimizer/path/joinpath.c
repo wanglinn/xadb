@@ -2276,8 +2276,19 @@ static void set_all_join_inner_path(ClusterJoinContext *jcontext, Path *outer_pa
 
 	foreach(lc, inner_pathlist)
 	{
+		Path *inner_path = lfirst(lc);
+		List *inner_reduce_list;
+		if (inner_path->reduce_is_valid == false &&
+			inner_pathlist == jcontext->innerrel->pathlist)
+		{
+			inner_path->reduce_info_list = inner_reduce_list = list_make1(MakeCoordinatorReduceInfo());
+			inner_path->reduce_is_valid = true;
+		}else
+		{
+			inner_reduce_list = get_reduce_info_list(inner_path);
+		}
 		if(reduce_info_list_can_join(outer_reduce_list,
-									 get_reduce_info_list(lfirst(lc)),
+									 inner_reduce_list,
 									 restrictlist,
 									 jointype,
 									 NULL))
@@ -2306,8 +2317,9 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 	bool		useallclauses;
 	bool		tried_join;
 
-	if (outerrel->cluster_pathlist == NIL ||
-		innerrel->cluster_pathlist == NIL)
+	if ((outerrel->cluster_pathlist == NIL && innerrel->cluster_pathlist == NIL) ||
+		(outerrel->cluster_pathlist == NIL && have_remote_query_path((Path*)outerrel->pathlist, NULL)) ||
+		(innerrel->cluster_pathlist == NIL && have_remote_query_path((Path*)innerrel->pathlist, NULL)))
 		return;
 
 	MemSet(&jcontext, 0, sizeof(jcontext));
@@ -2381,7 +2393,11 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 		}
 	}
 
-	tried_join = add_cluster_paths_to_joinrel_internal(&jcontext, outerrel->cluster_pathlist, innerrel->cluster_pathlist, nestjoinOK, true);
+	tried_join = add_cluster_paths_to_joinrel_internal(&jcontext,
+													   outerrel->cluster_pathlist == NIL ? outerrel->pathlist:outerrel->cluster_pathlist,
+													   innerrel->cluster_pathlist == NIL ? innerrel->pathlist:innerrel->cluster_pathlist,
+													   nestjoinOK,
+													   true);
 
 	all_outer_reduce = all_inner_reduce = NIL;
 	if (tried_join == false)
@@ -2391,17 +2407,37 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 		List *outer_pathlist;
 
 		/* reduce inner paths */
-		all_outer_reduce = GetPathListReduceInfoList(outerrel->cluster_pathlist);
+		if(outerrel->cluster_pathlist == NIL)
+			all_outer_reduce = list_make1(MakeCoordinatorReduceInfo());
+		else
+			all_outer_reduce = GetPathListReduceInfoList(outerrel->cluster_pathlist);
 		need_reduce_list = create_inner_reduce_info_for_join(all_outer_reduce, innerrel, jointype, extra);
-		inner_pathlist = reduce_paths_for_join(root, innerrel, innerrel->cluster_pathlist, need_reduce_list);
-		tried_join = add_cluster_paths_to_joinrel_internal(&jcontext, outerrel->cluster_pathlist, inner_pathlist, nestjoinOK, false);
+		inner_pathlist = reduce_paths_for_join(root,
+											   innerrel,
+											   innerrel->cluster_pathlist == NIL ? innerrel->pathlist:innerrel->cluster_pathlist,
+											   need_reduce_list);
+		tried_join = add_cluster_paths_to_joinrel_internal(&jcontext,
+														   outerrel->cluster_pathlist == NIL ? outerrel->pathlist:outerrel->cluster_pathlist,
+														   inner_pathlist,
+														   nestjoinOK,
+														   false);
 		list_free(need_reduce_list);
 
 		/* reduce outer paths */
-		all_inner_reduce = GetPathListReduceInfoList(innerrel->cluster_pathlist);
+		if(innerrel->cluster_pathlist == NIL)
+			all_inner_reduce = list_make1(MakeCoordinatorReduceInfo());
+		else
+			all_inner_reduce = GetPathListReduceInfoList(innerrel->cluster_pathlist);
 		need_reduce_list = create_outer_reduce_info_for_join(all_inner_reduce, outerrel, jointype, extra);
-		outer_pathlist = reduce_paths_for_join(root, outerrel, outerrel->cluster_pathlist, need_reduce_list);
-		tried_join |= add_cluster_paths_to_joinrel_internal(&jcontext, outer_pathlist, innerrel->cluster_pathlist, nestjoinOK, false);
+		outer_pathlist = reduce_paths_for_join(root,
+											   outerrel,
+											   outerrel->cluster_pathlist == NIL ? outerrel->pathlist:outerrel->cluster_pathlist,
+											   need_reduce_list);
+		tried_join |= add_cluster_paths_to_joinrel_internal(&jcontext,
+															outer_pathlist,
+															innerrel->cluster_pathlist == NIL ? innerrel->pathlist:innerrel->cluster_pathlist,
+															nestjoinOK,
+															false);
 		list_free(need_reduce_list);
 		need_reduce_list = NIL;
 
@@ -2431,10 +2467,16 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 				List *reduce_outer_pathlist;
 				List *reduce_inner_pathlist;
 				Path *path;
-				reduce_outer_pathlist = GetCheapestReducePathList(outerrel, outerrel->cluster_pathlist, NULL, &path);
+				reduce_outer_pathlist = GetCheapestReducePathList(outerrel,
+																  outerrel->cluster_pathlist == NIL ? outerrel->pathlist:outerrel->cluster_pathlist,
+																  NULL,
+																  &path);
 				if(list_member_ptr(reduce_outer_pathlist, path) == false)
 					reduce_outer_pathlist = lappend(reduce_outer_pathlist, path);
-				reduce_inner_pathlist = GetCheapestReducePathList(innerrel, innerrel->cluster_pathlist, NULL, &path);
+				reduce_inner_pathlist = GetCheapestReducePathList(innerrel,
+																  innerrel->cluster_pathlist == NIL ? innerrel->pathlist:innerrel->cluster_pathlist,
+																  NULL,
+																  &path);
 				if(list_member_ptr(reduce_inner_pathlist, path) == false)
 					reduce_inner_pathlist = lappend(reduce_inner_pathlist, path);
 re_reduce_join_:
@@ -2480,8 +2522,8 @@ re_reduce_join_:
 
 	if (tried_join == false && list_length(joinrel->cluster_pathlist) == 0)
 	{
-		List *outer_pathlist = coord_paths_for_join(root, outerrel);
-		List *inner_pathlist = coord_paths_for_join(root, innerrel);
+		List *outer_pathlist = outerrel->cluster_pathlist == NIL ? outerrel->pathlist:coord_paths_for_join(root, outerrel);
+		List *inner_pathlist = innerrel->cluster_pathlist == NIL ? innerrel->pathlist:coord_paths_for_join(root, innerrel);
 
 		add_cluster_paths_to_joinrel_internal(&jcontext, outer_pathlist, inner_pathlist, nestjoinOK, false);
 
@@ -2515,9 +2557,17 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 		if (PATH_PARAM_BY_REL(outer_path, jcontext->innerrel))
 			continue;
 
+		if (outer_path->reduce_is_valid == false &&
+			outer_pathlist == jcontext->outerrel->pathlist)
+		{
+			outer_path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+			outer_path->reduce_is_valid = true;
+		}
+
 		set_all_join_inner_path(jcontext, outer_path, inner_pathlist);
 		jcontext->merge_pathkeys = NIL;
-		if(jcontext->innerrel->cluster_pathlist == inner_pathlist)
+		if (jcontext->innerrel->cluster_pathlist == inner_pathlist ||
+			jcontext->innerrel->pathlist == inner_pathlist)
 		{
 			jcontext->try_match = CLUSTER_TRY_NESTLOOP_JOIN;
 			inner_path = get_cheapest_join_path(jcontext,
