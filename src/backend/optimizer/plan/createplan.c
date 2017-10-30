@@ -6634,7 +6634,7 @@ List* get_remote_nodes(PlannerInfo *root, Path *path)
 	}
 	hash_destroy(htab);
 
-	return list;
+	return list_delete_oid(list, PGXCNodeOid);
 }
 
 List *get_reduce_info_list(Path *path)
