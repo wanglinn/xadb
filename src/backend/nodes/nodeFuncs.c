@@ -4114,6 +4114,16 @@ bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
 	case T_ReduceScanPath:
 		WALK_CHILD_PATH(ReduceScanPath, reducepath);
 		break;
+	case T_List:
+		{
+			ListCell *lc;
+			foreach(lc, (List*)path)
+			{
+				if((*walker)(lfirst(lc), context))
+					return true;
+			}
+		}
+		break;
 	default:
 		ereport(ERROR, (errmsg("unrecognized path type: %d",
 			 (int) nodeTag(path))));
