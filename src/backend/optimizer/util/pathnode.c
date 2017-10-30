@@ -36,6 +36,7 @@
 #include "optimizer/reduceinfo.h"
 #include "optimizer/restrictinfo.h"
 #include "pgxc/pgxcnode.h"
+#include "pgxc/pgxc.h"
 #endif
 
 typedef enum
@@ -4131,9 +4132,8 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 			}
 		}else
 		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("not support local table yet!")));
+			ExecNodeInfo *exec_info = get_exec_node_info(htab, PGXCNodeOid);
+			++(exec_info->part_count);
 		}
 		return false;
 	default:
