@@ -720,6 +720,24 @@ _equalInferenceElem(const InferenceElem *a, const InferenceElem *b)
 }
 
 #ifdef ADB
+static bool _equalColumRefJoin(const ColumnRefJoin *a, const ColumnRefJoin *b)
+{
+	COMPARE_SCALAR_FIELD(var);
+
+	return true;
+}
+
+static bool _equalPriorExpr(const PriorExpr *a, const PriorExpr *b)
+{
+	COMPARE_SCALAR_FIELD(expr);
+
+	return true;
+}
+
+static bool _equalRownumExpr(const RownumExpr *a, const RownumExpr *b)
+{
+	return true;
+}
 
 static bool _equalLevelExpr(const LevelExpr *a, const LevelExpr *b)
 {
@@ -3020,6 +3038,15 @@ equal(const void *a, const void *b)
 			retval = _equalInferenceElem(a, b);
 			break;
 #ifdef ADB
+		case T_ColumnRefJoin:
+			retval = _equalColumRefJoin(a, b);
+			break;
+		case T_PriorExpr:
+			retval = _equalPriorExpr(a, b);
+			break;
+		case T_RownumExpr:
+			retval = _equalRownumExpr(a, b);
+			break;
 		case T_LevelExpr:
 			retval = _equalLevelExpr(a, b);
 			break;

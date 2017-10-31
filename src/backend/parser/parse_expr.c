@@ -469,7 +469,11 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 				result = (Node *) expr;
 				break;
 			}
-
+#ifdef ADB
+		case T_RownumExpr:
+			result = (Node *) expr;
+			break;
+#endif /* ADB */
 		default:
 			/* should not reach here */
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));

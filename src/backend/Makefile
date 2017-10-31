@@ -133,6 +133,9 @@ postgres.o: $(OBJS)
 parser/gram.h: parser/gram.y
 	$(MAKE) -C parser gram.h
 
+parser/ora_gram.h: parser/ora_gram.y
+	$(MAKE) -C parser ora_gram.h
+
 storage/lmgr/lwlocknames.h: storage/lmgr/generate-lwlocknames.pl storage/lmgr/lwlocknames.txt
 	$(MAKE) -C storage/lmgr lwlocknames.h
 
@@ -169,6 +172,11 @@ submake-schemapg:
 generated-headers: $(top_builddir)/src/include/parser/gram.h $(top_builddir)/src/include/catalog/schemapg.h $(top_builddir)/src/include/storage/lwlocknames.h $(top_builddir)/src/include/utils/errcodes.h $(top_builddir)/src/include/utils/fmgroids.h $(top_builddir)/src/include/utils/probes.h
 
 $(top_builddir)/src/include/parser/gram.h: parser/gram.h
+	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
+	  cd '$(dir $@)' && rm -f $(notdir $@) && \
+	  $(LN_S) "$$prereqdir/$(notdir $<)" .
+
+$(top_builddir)/src/include/parser/ora_gram.h: parser/ora_gram.h
 	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
 	  cd '$(dir $@)' && rm -f $(notdir $@) && \
 	  $(LN_S) "$$prereqdir/$(notdir $<)" .

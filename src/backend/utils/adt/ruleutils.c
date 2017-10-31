@@ -8932,6 +8932,9 @@ get_rule_expr(Node *node, deparse_context *context,
 				}
 			}
 			break;
+		case T_RownumExpr:
+			appendStringInfoString(buf, ".row");
+			break;
 #endif /* ADB */
 
 		default:

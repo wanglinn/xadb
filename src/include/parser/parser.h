@@ -42,6 +42,9 @@ extern List *ora_raw_parser(const char *str);
 /* Utility functions exported by gram.y (perhaps these should be elsewhere) */
 extern List *SystemFuncName(char *name);
 extern TypeName *SystemTypeName(char *name);
+#ifdef ADB
+extern TypeName *SystemTypeNameLocation(char *name, int location);
+#endif /* ADB */
 
 /* move from gram.y */
 extern Node *makeColumnRef(char *colname, List *indirection,
@@ -85,6 +88,7 @@ extern Node *makeXmlExpr(XmlExprOp op, char *name, List *named_args,
 extern List *mergeTableFuncParameters(List *func_args, List *columns);
 extern TypeName *TableFuncTypeName(List *columns);
 extern RangeVar *makeRangeVarFromAnyName(List *names, int position, core_yyscan_t yyscanner);
+extern Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 extern ResTarget* make_star_target(int location);
 extern void SplitColQualList(List *qualList,
 							 List **constraintList, CollateClause **collClause,

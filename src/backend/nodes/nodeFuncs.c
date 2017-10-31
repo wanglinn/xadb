@@ -254,6 +254,14 @@ exprType(const Node *expr)
 		case T_PlaceHolderVar:
 			type = exprType((Node *) ((const PlaceHolderVar *) expr)->phexpr);
 			break;
+#ifdef ADB
+		case T_RownumExpr:
+			type = INT8OID;
+			break;
+		case T_ColumnRefJoin:
+			type = exprType((Node*)(((ColumnRefJoin*)expr)->var));
+			break;
+#endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
 			type = InvalidOid;	/* keep compiler quiet */
@@ -488,6 +496,8 @@ exprTypmod(const Node *expr)
 		case T_PlaceHolderVar:
 			return exprTypmod((Node *) ((const PlaceHolderVar *) expr)->phexpr);
 #ifdef ADB
+		case T_RownumExpr:
+			return -1;
 		case T_ColumnRefJoin:
 			return exprTypmod((Node*)(((ColumnRefJoin*)expr)->var));
 #endif /* ADB */
@@ -928,6 +938,9 @@ exprCollation(const Node *expr)
 			coll = exprCollation((Node *) ((const PlaceHolderVar *) expr)->phexpr);
 			break;
 #ifdef ADB
+		case T_RownumExpr:
+			coll = InvalidOid;
+			break;
 		case T_ColumnRefJoin:
 			coll = exprCollation((Node*)(((ColumnRefJoin*)expr)->var));
 			break;
@@ -1128,6 +1141,9 @@ exprSetCollation(Node *expr, Oid collation)
 			Assert(!OidIsValid(collation));		/* result is always boolean */
 			break;
 #ifdef ADB
+		case T_RownumExpr:
+			Assert(!OidIsValid(collation));
+			break;
 		case T_ColumnRefJoin:
 			exprSetCollation((Node*)(((ColumnRefJoin*)expr)->var), collation);
 			break;
@@ -1554,6 +1570,12 @@ exprLocation(const Node *expr)
 			loc = exprLocation((Node *) ((const InferenceElem *) expr)->expr);
 			break;
 #ifdef ADB
+		case T_ColumnRefJoin:
+			loc = ((const ColumnRefJoin*) expr)->location;
+			break;
+		case T_RownumExpr:
+			loc = ((const RownumExpr*) expr)->location;
+			break;
 		case T_LevelExpr:
 			loc = ((const LevelExpr*)expr)->location;
 			break;
@@ -1883,6 +1905,7 @@ expression_tree_walker(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 #ifdef ADB
+		case T_RownumExpr:
 		case T_LevelExpr:
 		case T_OidVectorLoopExpr:
 #endif /* ADB */
@@ -2472,6 +2495,7 @@ expression_tree_mutator(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 #ifdef ADB
+		case T_RownumExpr:
 		case T_LevelExpr:
 #endif /* ADB */
 		case T_RangeTblRef:
@@ -3277,6 +3301,7 @@ raw_expression_tree_walker(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 #ifdef ADB
+		case T_RownumExpr:
 		case T_LevelExpr:
 #endif /* ADB */
 		case T_Integer:
@@ -3499,6 +3524,10 @@ raw_expression_tree_walker(Node *node,
 #ifdef ADB
 		case T_ColumnRefJoin:
 			if(walker(((ColumnRefJoin*)node)->column, context))
+				return true;
+			break;
+		case T_PriorExpr:
+			if(walker(((PriorExpr*)node)->expr, context))
 				return true;
 			break;
 #endif /* ADB */

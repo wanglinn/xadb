@@ -54,6 +54,7 @@ extern int current_grammar;
 
 extern List *pg_parse_query(const char *query_string);
 #ifdef ADB
+extern List *ora_parse_query(const char *query_string);
 extern List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram);
 extern List *pg_analyze_and_rewrite_for_gram(Node *parsetree, const char *query_string,
 						Oid *paramTypes, int numParams, ParseGrammar grammar);

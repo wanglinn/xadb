@@ -1963,6 +1963,16 @@ static LevelExpr* _copyLevelExpr(const LevelExpr *from)
 	return newnode;
 }
 
+static PriorExpr* _copyPriorExpr(const PriorExpr *from)
+{
+	PriorExpr *newnode = makeNode(PriorExpr);
+
+	COPY_LOCATION_FIELD(location);
+	COPY_SCALAR_FIELD(expr);
+
+	return newnode;
+}
+
 #endif /* ADB */
 
 /*
@@ -2421,6 +2431,15 @@ _copyColumnRef(const ColumnRef *from)
 }
 
 #ifdef ADB
+static RownumExpr* _copyRownumExpr(const RownumExpr *from)
+{
+	RownumExpr *newnode = makeNode(RownumExpr);
+
+	COPY_LOCATION_FIELD(location);
+
+	return newnode;
+}
+
 static ColumnRefJoin *
 _copyColumnRefJoin(const ColumnRefJoin *from)
 {
@@ -5116,11 +5135,6 @@ copyObject(const void *from)
 		case T_InferenceElem:
 			retval = _copyInferenceElem(from);
 			break;
-#ifdef ADB
-		case T_LevelExpr:
-			retval = _copyLevelExpr(from);
-			break;
-#endif
 		case T_TargetEntry:
 			retval = _copyTargetEntry(from);
 			break;
@@ -5555,11 +5569,6 @@ copyObject(const void *from)
 		case T_ColumnRef:
 			retval = _copyColumnRef(from);
 			break;
-#ifdef ADB
-		case T_ColumnRefJoin:
-			retval = _copyColumnRefJoin(from);
-			break;
-#endif
 		case T_ParamRef:
 			retval = _copyParamRef(from);
 			break;
@@ -5682,6 +5691,18 @@ copyObject(const void *from)
 			retval = _copyForeignKeyCacheInfo(from);
 			break;
 #ifdef ADB
+		case T_RownumExpr:
+			retval = _copyRownumExpr(from);
+			break;
+		case T_ColumnRefJoin:
+			retval = _copyColumnRefJoin(from);
+			break;
+		case T_LevelExpr:
+			retval = _copyLevelExpr(from);
+			break;
+		case T_PriorExpr:
+			retval = _copyPriorExpr(from);
+			break;
 		case T_ExecDirectStmt:
 			retval = _copyExecDirectStmt(from);
 			break;

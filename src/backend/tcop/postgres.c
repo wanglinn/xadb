@@ -737,9 +737,8 @@ List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram)
 	{
 	case PARSE_GRAM_POSTGRES:
 		return pg_parse_query(query_string);
-	/*ADBQ, function ora_parse_query undefine*/
-	//case PARSE_GRAM_ORACLE:
-	//	return ora_parse_query(query_string);
+	case PARSE_GRAM_ORACLE:
+		return ora_parse_query(query_string);
 	default:
 		ereport(ERROR, (errmsg("Unknown grammar %d", grammer)
 				, errcode(ERRCODE_INTERNAL_ERROR)
@@ -796,6 +795,39 @@ pg_parse_query(const char *query_string)
 	return raw_parsetree_list;
 }
 
+#ifdef ADB
+List *ora_parse_query(const char *query_string)
+{
+	List	   *raw_parsetree_list;
+
+	TRACE_POSTGRESQL_QUERY_PARSE_START(query_string);
+
+	if (log_parser_stats)
+		ResetUsage();
+
+	raw_parsetree_list = ora_raw_parser(query_string);
+
+	if (log_parser_stats)
+		ShowUsage("PARSER STATISTICS");
+
+#ifdef COPY_PARSE_PLAN_TREES
+	/* Optional debugging check: pass raw parsetrees through copyObject() */
+	{
+		List	   *new_list = (List *) copyObject(raw_parsetree_list);
+
+		/* This checks both copyObject() and the equal() routines... */
+		if (!equal(new_list, raw_parsetree_list))
+			elog(WARNING, "copyObject() failed to produce an equal raw parse tree");
+		else
+			raw_parsetree_list = new_list;
+	}
+#endif
+
+	TRACE_POSTGRESQL_QUERY_PARSE_DONE(query_string);
+
+	return raw_parsetree_list;
+}
+#endif /* ADB */
 
 /*
  * Given a raw parsetree (gram.y output), and optionally information about

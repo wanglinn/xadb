@@ -79,6 +79,9 @@ static bool IndexSupportsBackwardScan(Oid indexid);
 void
 ExecReScan(PlanState *node)
 {
+#ifdef ADB
+	node->rownum = 0L;
+#endif /* ADB */
 	/* If collecting timing stats, update them */
 	if (node->instrument)
 		InstrEndLoop(node->instrument);
@@ -324,6 +327,9 @@ ExecReScan(PlanState *node)
 void
 ExecMarkPos(PlanState *node)
 {
+#ifdef ADB
+	node->rownum_marked = node->rownum;
+#endif /* ADB */
 	switch (nodeTag(node))
 	{
 		case T_IndexScanState:
@@ -373,6 +379,9 @@ ExecMarkPos(PlanState *node)
 void
 ExecRestrPos(PlanState *node)
 {
+#ifdef ADB
+	node->rownum = node->rownum_marked;
+#endif /* ADB */
 	switch (nodeTag(node))
 	{
 		case T_IndexScanState:

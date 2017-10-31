@@ -1259,6 +1259,9 @@ static bool has_cluster_hazard_walker(Node *node, has_parallel_hazard_arg *conte
 	if (check_functions_in_node(node, has_cluster_hazard_checker,
 								context))
 		return true;
+	/* oracle rownum can not */
+	else if (IsA(node, RownumExpr))
+		return true;
 
 	/*
 	 * As a notational convenience for callers, look through RestrictInfo.

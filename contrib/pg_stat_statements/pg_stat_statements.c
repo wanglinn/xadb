@@ -2852,6 +2852,14 @@ JumbleExpr(pgssJumbleState *jstate, Node *node)
 				JumbleExpr(jstate, (Node *) tsc->repeatable);
 			}
 			break;
+#ifdef ADB
+		case T_RownumExpr:
+			RecordConstLocation(jstate, ((RownumExpr*)node)->location);
+			break;
+		case T_ColumnRefJoin:
+			JumbleExpr(jstate, (Node*)(((ColumnRefJoin*)node)->var));
+			break;
+#endif /* ADB */
 		default:
 			/* Only a warning, since we can stumble along anyway */
 			elog(WARNING, "unrecognized node type: %d",

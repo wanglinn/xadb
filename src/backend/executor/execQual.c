@@ -185,6 +185,8 @@ static Datum ExecEvalGroupingFuncExpr(GroupingFuncExprState *gstate,
 						 ExprContext *econtext,
 						 bool *isNull, ExprDoneCond *isDone);
 #ifdef ADB
+static Datum ExecEvalRownum(ExprState *exprstate,  ExprContext *econtext,
+							bool *isNull, ExprDoneCond *isDone);
 static Datum ExecEvalOidVectorLoopExpr(OidVectorLoopExprState *vstate,
 						ExprContext *econtext,
 						bool *isNull, ExprDoneCond *isDone);
@@ -5222,6 +5224,16 @@ ExecInitExpr(Expr *node, PlanState *parent)
 				/* Don't fall through to the "common" code below */
 				return (ExprState *) outlist;
 			}
+#ifdef ADB
+		case T_RownumExpr:
+			{
+				RownumExprState *rstate = makeNode(RownumExprState);
+				state = &(rstate->xprstate);
+				state->evalfunc = ExecEvalRownum;
+				rstate->parent = parent;
+			}
+			break;
+#endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(node));
@@ -5685,6 +5697,19 @@ ExecProject(ProjectionInfo *projInfo, ExprDoneCond *isDone)
 }
 
 #ifdef ADB
+
+static Datum ExecEvalRownum(ExprState *exprstate,  ExprContext *econtext,
+							bool *isNull, ExprDoneCond *isDone)
+{
+	RownumExprState *rstate = (RownumExprState*)exprstate;
+	Assert(rstate && IsA(rstate, RownumExprState));
+	if(isDone)
+		*isDone = ExprSingleResult;
+	*isNull = false;
+	Assert(rstate->parent && rstate->parent->rownum > 0);
+	return Int64GetDatum(rstate->parent->rownum);
+}
+
 static Datum ExecEvalOidVectorLoopExpr(OidVectorLoopExprState* vstate,
 									   ExprContext *econtext,
 									   bool *isNull,

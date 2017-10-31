@@ -40,11 +40,11 @@ OBJS_COMMON = config_info.o controldata_utils.o exec.o keywords.o \
 	pg_lzcompress.o pgfnames.o psprintf.o relpath.o rmtree.o \
 	string.o username.o wait_error.o
 
-OBJS_FRONTEND = $(OBJS_COMMON) fe_memutils.o restricted_token.o
+OBJS_FRONTEND = $(OBJS_COMMON) fe_memutils.o restricted_token.o ora_keywords.o
 
 OBJS_PG_FRONTEND = $(OBJS_FRONTEND:%.o=%_pg.o)
 
-OBJS_SRV = $(OBJS_COMMON:%.o=%_srv.o)
+OBJS_SRV = $(OBJS_COMMON:%.o=%_srv.o) ora_keywords_srv.o
 
 OBJS_AGTM = $(OBJS_COMMON:%.o=%_agtm.o)
 
@@ -118,15 +118,19 @@ submake-errcodes:
 # Note that gram.h isn't required for the frontend version of keywords.o.
 $(top_builddir)/src/include/parser/gram.h: $(top_srcdir)/src/backend/parser/gram.y
 	$(MAKE) -C $(top_builddir)/src/backend $(top_builddir)/src/include/parser/gram.h
+$(top_builddir)/src/include/parser/ora_gram.h: $(top_srcdir)/src/backend/parser/ora_gram.y
+	$(MAKE) -C $(top_builddir)/src/backend $(top_builddir)/src/include/parser/ora_gram.h
 $(top_builddir)/src/agtm/include/parser/gram.h: $(top_srcdir)/src/agtm/parser/gram.y
 	$(MAKE) -C $(top_builddir)/src/agtm $@
 $(top_builddir)/src/adbmgrd/include/parser/gram.h: $(top_srcdir)/src/adbmgrd/parser/gram.y
 	$(MAKE) -C $(top_builddir)/src/adbmgrd $@
 
-keywords.o: $(top_srcdir)/src/include/parser/kwlist.h
+keywords.o: $(top_srcdir)/src/include/parser/kwlist.h $(top_builddir)/src/include/parser/ora_gram.h
 keywords_srv.o: $(top_builddir)/src/include/parser/gram.h $(top_srcdir)/src/include/parser/kwlist.h
 keywords_agtm.o: $(top_builddir)/src/agtm/include/parser/gram.h $(top_srcdir)/src/agtm/include/parser/kwlist.h
 keywords_mgr.o: $(top_builddir)/src/adbmgrd/include/parser/gram.h $(top_srcdir)/src/adbmgrd/include/parser/kwlist.h
+
+ora_keywords.o: $(top_srcdir)/src/include/parser/ora_kwlist.h $(top_builddir)/src/include/parser/ora_gram.h
 
 clean distclean maintainer-clean:
 	rm -f libpgcommon.a libpgcommon_srv.a $(OBJS_FRONTEND) $(OBJS_SRV)

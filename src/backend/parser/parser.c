@@ -32,6 +32,7 @@
 #include "catalog/heap.h" /* SystemAttributeByName */
 #include "lib/stringinfo.h"
 #include "miscadmin.h" /* check_stack_depth */
+#include "parser/ora_gramparse.h"
 #include "parser/parse_target.h"
 #endif
 
@@ -112,6 +113,33 @@ raw_parser(const char *str)
 
 	return yyextra.parsetree;
 }
+
+#ifdef ADB
+List* ora_raw_parser(const char *str)
+{
+	core_yyscan_t yyscanner;
+	ora_yy_extra_type yyextra;
+	int yyresult;
+
+	/* initialize the flex scanner */
+	yyscanner = scanner_init(str, &yyextra.core_yy_extra,
+							 OraScanKeywords, OraNumScanKeywords);
+
+	/* initialize the bison parser */
+	ora_parser_init(&yyextra);
+
+	/* Parse! */
+	yyresult = ora_yyparse(yyscanner);
+
+	/* Clean up (release memory) */
+	scanner_finish(yyscanner);
+
+	if (yyresult)				/* error */
+		return NIL;
+
+	return yyextra.parsetree;
+}
+#endif
 
 /*
  * Intermediate filter between parser and core lexer (core_yylex in scan.l).
@@ -910,8 +938,7 @@ static Node* mutator_connect_by_expr(Node *node, ConnectByParseState *context)
 		context->mutator_kind = MCBEK_CLAUSE;
 		return node;
 	}
-	/*ADBQ, undefine function node_tree_walker*/
-	//return node_tree_mutator(node, mutator_connect_by_expr, context);
+	return node_tree_mutator(node, mutator_connect_by_expr, context);
 
 mutator_connect_by_expr_error_:
 	ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
@@ -1246,6 +1273,16 @@ SystemTypeName(char *name)
 											   makeString(name)));
 }
 
+#ifdef ADB
+TypeName *SystemTypeNameLocation(char *name, int location)
+{
+	TypeName *typ = makeTypeNameFromNameList(list_make2(makeString("pg_catalog"),
+											   makeString(name)));
+	typ->location = location;
+	return typ;
+}
+#endif /* ADB */
+
 /* doNegate()
  * Handle negation of a numeric constant.
  *
@@ -1467,6 +1504,66 @@ makeRangeVarFromAnyName(List *names, int position, core_yyscan_t yyscanner)
 	r->location = position;
 
 	return r;
+}
+
+/*----------
+ * Recursive view transformation
+ *
+ * Convert
+ *
+ *     CREATE RECURSIVE VIEW relname (aliases) AS query
+ *
+ * to
+ *
+ *     CREATE VIEW relname (aliases) AS
+ *         WITH RECURSIVE relname (aliases) AS (query)
+ *         SELECT aliases FROM relname
+ *
+ * Actually, just the WITH ... part, which is then inserted into the original
+ * view definition as the query.
+ * ----------
+ */
+Node *
+makeRecursiveViewSelect(char *relname, List *aliases, Node *query)
+{
+	SelectStmt *s = makeNode(SelectStmt);
+	WithClause *w = makeNode(WithClause);
+	CommonTableExpr *cte = makeNode(CommonTableExpr);
+	List	   *tl = NIL;
+	ListCell   *lc;
+
+	/* create common table expression */
+	cte->ctename = relname;
+	cte->aliascolnames = aliases;
+	cte->ctequery = query;
+	cte->location = -1;
+
+	/* create WITH clause and attach CTE */
+	w->recursive = true;
+	w->ctes = list_make1(cte);
+	w->location = -1;
+
+	/* create target list for the new SELECT from the alias list of the
+	 * recursive view specification */
+	foreach (lc, aliases)
+	{
+		ResTarget *rt = makeNode(ResTarget);
+
+		rt->name = NULL;
+		rt->indirection = NIL;
+		rt->val = makeColumnRef(strVal(lfirst(lc)), NIL, -1, 0);
+		rt->location = -1;
+
+		tl = lappend(tl, rt);
+	}
+
+	/* create new SELECT combining WITH clause, target list, and fake FROM
+	 * clause */
+	s->withClause = w;
+	s->targetList = tl;
+	s->fromClause = list_make1(makeRangeVar(NULL, relname, -1));
+
+	return (Node *) s;
 }
 
 ResTarget* make_star_target(int location)

@@ -425,6 +425,10 @@ ExecProcNode(PlanState *node)
 	if (node->chgParam != NULL) /* something changed */
 		ExecReScan(node);		/* let ReScan handle this */
 
+#ifdef ADB
+	++(node->rownum);
+#endif /* ADB */
+
 	if (node->instrument)
 		InstrStartNode(node->instrument);
 
