@@ -1063,31 +1063,42 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 	{
 		Node *new_lexpr = transformExprRecurse(pstate, lexpr);
 		Node *new_rexpr = transformExprRecurse(pstate, rexpr);
-		volatile ParseGrammar save_gram = pstate->p_grammar;
 
-		PG_TRY();
+		if(new_lexpr && new_rexpr)
 		{
-			if (exprType(new_lexpr) == RIDOID && IsA(new_rexpr, Const))
+			volatile ParseGrammar save_gram = pstate->p_grammar;
+
+			PG_TRY();
 			{
-				pstate->p_grammar = PARSE_GRAM_POSTGRES;
-				new_rexpr = transformExprRecurse(pstate, rexpr);
-			}else if (exprType(new_rexpr) == RIDOID && IsA(new_lexpr, Const))
+				if (exprType(new_lexpr) == RIDOID && IsA(new_rexpr, Const))
+				{
+					pstate->p_grammar = PARSE_GRAM_POSTGRES;
+					new_rexpr = transformExprRecurse(pstate, rexpr);
+				}else if (exprType(new_rexpr) == RIDOID && IsA(new_lexpr, Const))
+				{
+					pstate->p_grammar = PARSE_GRAM_POSTGRES;
+					new_lexpr = transformExprRecurse(pstate, lexpr);
+				}
+			}PG_CATCH();
 			{
-				pstate->p_grammar = PARSE_GRAM_POSTGRES;
-				new_lexpr = transformExprRecurse(pstate, lexpr);
-			}
-		}PG_CATCH();
-		{
+				pstate->p_grammar = save_gram;
+				PG_RE_THROW();
+			}PG_END_TRY();
 			pstate->p_grammar = save_gram;
-			PG_RE_THROW();
-		}PG_END_TRY();
-		pstate->p_grammar = save_gram;
 
-		result = transformOraAExprOp(pstate,
-									 a->name,
-									 new_lexpr,
-									 new_rexpr,
-									 a->location);
+			result = transformOraAExprOp(pstate,
+										 a->name,
+										 new_lexpr,
+										 new_rexpr,
+										 a->location);
+		}else
+		{
+			result = (Node *) make_op(pstate,
+									  a->name,
+									  new_lexpr,
+									  new_rexpr,
+									  a->location);
+		}
 	}
 #endif /* ADB */
 	else
