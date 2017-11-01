@@ -30,15 +30,14 @@ CREATE VIEW adbmgr.updateparm AS
 SELECT
 	updateparmnodename		AS	nodename,
 	CASE updateparmnodetype
-		WHEN 'c' THEN 'coordinator'::text
+		WHEN 'c' THEN 'coordinator master'::text
 		WHEN 'd' THEN 'datanode master'::text
 		WHEN 'b' THEN 'datanode slave'::text
-		WHEN 'n' THEN 'datanode extra'::text
 		WHEN 'g' THEN 'gtm master'::text
 		WHEN 'p' THEN 'gtm slave'::text
-		WHEN 'e' THEN 'gtm extra'::text
-		WHEN 'G' THEN 'gtm master|slave|extra'::text
-		WHEN 'D' THEN 'datanode master|slave|extra'::text
+		WHEN 'G' THEN 'gtm master|slave'::text
+		WHEN 'C' THEN 'coordinator master|slave'::text
+		WHEN 'D' THEN 'datanode master|slave'::text
 	END AS nodetype,
 	updateparmkey			AS	key,
 	updateparmvalue			AS	value
@@ -53,11 +52,10 @@ CREATE VIEW adbmgr.node AS
       WHEN 'g' THEN 'gtm master'::text
       WHEN 'p' THEN 'gtm slave'::text
       WHEN 'e' THEN 'gtm extra'::text
-      WHEN 'c' THEN 'coordinator'::text
+      WHEN 'c' THEN 'coordinator master'::text
       WHEN 's' THEN 'coordinator slave'::text
       WHEN 'd' THEN 'datanode master'::text
       WHEN 'b' THEN 'datanode slave'::text
-      WHEN 'n' THEN 'datanode extra'::text
     END AS type,
     node_alise.nodename AS mastername,
     mgrnode.nodeport    AS  port,
@@ -67,15 +65,14 @@ CREATE VIEW adbmgr.node AS
     mgrnode.nodeincluster AS incluster
   FROM pg_catalog.mgr_node AS mgrnode LEFT JOIN pg_catalog.mgr_host ON mgrnode.nodehost = pg_catalog.mgr_host.oid
 		LEFT JOIN pg_catalog.mgr_node AS node_alise ON node_alise.oid = mgrnode.nodemasternameoid) AS node_tb 
-		order by 1, (case type 
+		order by (case type 
 			when 'gtm master' then 0 
 			when 'gtm slave' then 1 
-			when 'gtm extra' then 1 
-			when 'coordinator' then 3 
-			when 'datanode master' then 4 
-			when 'datanode slave' then 5 
-			when 'datanode extra' then 5 
-			End) ASC, sync_state DESC;
+			when 'coordinator master' then 2
+			when 'coordinator slave' then 2
+			when 'datanode master' then 3 
+			when 'datanode slave' then 4 
+			End) ASC, mastername ASC, sync_state DESC;
 
 CREATE VIEW adbmgr.job AS
   SELECT
@@ -104,8 +101,8 @@ CREATE VIEW adbmgr.monitor_all AS
 			(case nodetype 
 				when 'gtm master' then 0 
 				when 'gtm slave' then 1 
-				when 'gtm extra' then 2 
-				when 'coordinator' then 3 
+				when 'coordinator master' then 2
+				when 'coordinator slave' then 2
 				when 'datanode master' then 4 
 				when 'datanode slave' then 5 
 				when 'datanode extra' then 6 
@@ -125,13 +122,9 @@ CREATE VIEW adbmgr.initall AS
 	UNION ALL
 	SELECT 'start gtm slave' AS "operation type", * FROM mgr_start_gtm_slave(NULL)
 	UNION ALL
-	SELECT 'init gtm extra' AS "operation type",* FROM mgr_init_gtm_extra()
-	UNION ALL
-	SELECT 'start gtm extra' AS "operation type", * FROM mgr_start_gtm_extra(NULL)
-	UNION ALL
 	SELECT 'init coordinator' AS "operation type",* FROM mgr_init_cn_master(NULL)
 	UNION ALL
-	SELECT 'start coordinator' AS "operation type", * FROM mgr_start_cn_master(NULL)
+	SELECT 'start coordinator master' AS "operation type", * FROM mgr_start_cn_master(NULL)
 	UNION ALL
 	SELECT 'init datanode master' AS "operation type", * FROM mgr_init_dn_master(NULL)
 	UNION ALL
@@ -141,37 +134,25 @@ CREATE VIEW adbmgr.initall AS
 	UNION ALL
 	SELECT 'start datanode slave' AS "operation type", * FROM mgr_start_dn_slave(NULL)
 	UNION ALL
-	SELECT 'init datanode extra' AS "operation type", * FROM mgr_init_dn_extra_all()
-	UNION ALL
-	SELECT 'start datanode extra' AS "operation type", * FROM mgr_start_dn_extra(NULL)
-	UNION ALL
 	SELECT 'config coordinator' AS "operation type", * FROM mgr_configure_nodes_all(NULL);
 
 --start gtm all
 CREATE VIEW adbmgr.start_gtm_all AS
 	SELECT 'start gtm master' AS "operation type", * FROM mgr_start_gtm_master(NULL)
 	UNION all
-	SELECT 'start gtm slave' AS "operation type", * FROM mgr_start_gtm_slave(NULL)
-	UNION all
-	SELECT 'start gtm extra' AS "operation type", * FROM mgr_start_gtm_extra(NULL);
+	SELECT 'start gtm slave' AS "operation type", * FROM mgr_start_gtm_slave(NULL);
 --stop gtm all
 CREATE VIEW adbmgr.stop_gtm_all AS
-	SELECT 'stop gtm extra' AS "operation type", * FROM mgr_stop_gtm_extra('smart', NULL)
-	UNION all
 	SELECT 'stop gtm slave' AS "operation type", * FROM mgr_stop_gtm_slave('smart', NULL)
 	UNION all
 	SELECT 'stop gtm master' AS "operation type", * FROM mgr_stop_gtm_master('smart', NULL);
 --stop gtm all -m f
 CREATE VIEW adbmgr.stop_gtm_all_f AS
-	SELECT 'stop gtm extra' AS "operation type", * FROM mgr_stop_gtm_extra('fast', NULL)
-	UNION all
 	SELECT 'stop gtm slave' AS "operation type", * FROM mgr_stop_gtm_slave('fast', NULL)
 	UNION all
 	SELECT 'stop gtm master' AS "operation type", * FROM mgr_stop_gtm_master('fast', NULL);
 --stop gtm all -m i
 CREATE VIEW adbmgr.stop_gtm_all_i AS
-	SELECT 'stop gtm extra' AS "operation type", * FROM mgr_stop_gtm_extra('immediate', NULL)
-	UNION all
 	SELECT 'stop gtm slave' AS "operation type", * FROM mgr_stop_gtm_slave('immediate', NULL)
 	UNION all
 	SELECT 'stop gtm master' AS "operation type", * FROM mgr_stop_gtm_master('immediate', NULL);
@@ -179,94 +160,71 @@ CREATE VIEW adbmgr.stop_gtm_all_i AS
 CREATE VIEW adbmgr.initdatanodeall AS
     SELECT 'init datanode master' AS "operation type",* FROM mgr_init_dn_master(NULL)
     UNION all
-    SELECT 'init datanode slave' AS "operation type", * FROM mgr_init_dn_slave_all()
-    UNION all
-    SELECT 'init datanode extra' AS "operation type", * FROM mgr_init_dn_extra_all();
+    SELECT 'init datanode slave' AS "operation type", * FROM mgr_init_dn_slave_all();
+
 --start datanode all
 CREATE VIEW adbmgr.start_datanode_all AS
     SELECT 'start datanode master' AS "operation type", * FROM mgr_start_dn_master(NULL)
     UNION all
-    SELECT 'start datanode slave' AS "operation type", * FROM mgr_start_dn_slave(NULL)
-    UNION all
-    SELECT 'start datanode extra' AS "operation type", * FROM mgr_start_dn_extra(NULL);
+    SELECT 'start datanode slave' AS "operation type", * FROM mgr_start_dn_slave(NULL);
+
 --start all
 CREATE VIEW adbmgr.startall AS
     SELECT 'start gtm master' AS "operation type", * FROM mgr_start_gtm_master(NULL)
     UNION all
     SELECT 'start gtm slave' AS "operation type", * FROM mgr_start_gtm_slave(NULL)
     UNION all
-    SELECT 'start gtm extra' AS "operation type", * FROM mgr_start_gtm_extra(NULL)
-    UNION all
-    SELECT 'start coordinator' AS "operation type", * FROM mgr_start_cn_master(NULL)
+    SELECT 'start coordinator master' AS "operation type", * FROM mgr_start_cn_master(NULL)
     UNION all
     SELECT 'start datanode master' AS "operation type", * FROM mgr_start_dn_master(NULL)
     UNION all
-    SELECT 'start datanode slave' AS "operation type", * FROM mgr_start_dn_slave(NULL)
-    UNION all
-    SELECT 'start datanode extra' AS "operation type", * FROM mgr_start_dn_extra(NULL);
+    SELECT 'start datanode slave' AS "operation type", * FROM mgr_start_dn_slave(NULL);
+
 --stop datanode all
 CREATE VIEW adbmgr.stop_datanode_all AS
-    SELECT 'stop datanode extra' AS "operation type", * FROM mgr_stop_dn_extra('smart', NULL)
-    UNION all
     SELECT 'stop datanode slave' AS "operation type", * FROM mgr_stop_dn_slave('smart', NULL)
     UNION all
     SELECT 'stop datanode master' AS "operation type", * FROM mgr_stop_dn_master('smart', NULL);
 
 CREATE VIEW adbmgr.stop_datanode_all_f AS
-    SELECT 'stop datanode extra' AS "operation type", * FROM mgr_stop_dn_extra('fast', NULL)
-    UNION all
     SELECT 'stop datanode slave' AS "operation type", * FROM mgr_stop_dn_slave('fast', NULL)
     UNION all
     SELECT 'stop datanode master' AS "operation type", * FROM mgr_stop_dn_master('fast', NULL);
 
 CREATE VIEW adbmgr.stop_datanode_all_i AS
-    SELECT 'stop datanode extra' AS "operation type", * FROM mgr_stop_dn_extra('immediate', NULL)
-    UNION all
     SELECT 'stop datanode slave' AS "operation type", * FROM mgr_stop_dn_slave('immediate', NULL)
     UNION all
     SELECT 'stop datanode master' AS "operation type", * FROM mgr_stop_dn_master('immediate', NULL);
 
 --stop all
 CREATE VIEW adbmgr.stopall AS
-    SELECT 'stop datanode extra' AS "operation type", * FROM mgr_stop_dn_extra('smart', NULL)
-    UNION all
     SELECT 'stop datanode slave' AS "operation type", * FROM mgr_stop_dn_slave('smart', NULL)
     UNION all
     SELECT 'stop datanode master' AS "operation type", * FROM mgr_stop_dn_master('smart', NULL)
     UNION all
     SELECT 'stop coordinator' AS "operation type", * FROM mgr_stop_cn_master('smart', NULL)
     UNION all
-    SELECT 'stop gtm extra' AS "operation type", * FROM mgr_stop_gtm_extra('smart', NULL)
-    UNION all
     SELECT 'stop gtm slave' AS "operation type", * FROM mgr_stop_gtm_slave('smart', NULL)
     UNION all
     SELECT 'stop gtm master' AS "operation type", * FROM mgr_stop_gtm_master('smart', NULL);
 
 CREATE VIEW adbmgr.stopall_f AS
-    SELECT 'stop datanode extra' AS "operation type", * FROM mgr_stop_dn_extra('fast', NULL)
-    UNION all
     SELECT 'stop datanode slave' AS "operation type", * FROM mgr_stop_dn_slave('fast', NULL)
     UNION all
     SELECT 'stop datanode master' AS "operation type", * FROM mgr_stop_dn_master('fast', NULL)
     UNION all
-    SELECT 'stop coordinator' AS "operation type", * FROM mgr_stop_cn_master('fast', NULL)
-    UNION all
-    SELECT 'stop gtm extra' AS "operation type", * FROM mgr_stop_gtm_extra('fast', NULL)
+    SELECT 'stop coordinator master' AS "operation type", * FROM mgr_stop_cn_master('fast', NULL)
     UNION all
     SELECT 'stop gtm slave' AS "operation type", * FROM mgr_stop_gtm_slave('fast', NULL)
     UNION all
     SELECT 'stop gtm master' AS "operation type", * FROM mgr_stop_gtm_master('fast', NULL);
 
 CREATE VIEW adbmgr.stopall_i AS
-    SELECT 'stop datanode extra' AS "operation type", * FROM mgr_stop_dn_extra('immediate', NULL)
-    UNION all
     SELECT 'stop datanode slave' AS "operation type", * FROM mgr_stop_dn_slave('immediate', NULL)
     UNION all
     SELECT 'stop datanode master' AS "operation type", * FROM mgr_stop_dn_master('immediate', NULL)
     UNION all
-    SELECT 'stop coordinator' AS "operation type", * FROM mgr_stop_cn_master('immediate', NULL)
-    UNION all
-    SELECT 'stop gtm extra' AS "operation type", * FROM mgr_stop_gtm_extra('immediate', NULL)
+    SELECT 'stop coordinator master' AS "operation type", * FROM mgr_stop_cn_master('immediate', NULL)
     UNION all
     SELECT 'stop gtm slave' AS "operation type", * FROM mgr_stop_gtm_slave('immediate', NULL)
     UNION all
@@ -490,11 +448,9 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_all_nodename_in_spec_host(hostname tex
 		case nodetype
 		when 'g' then 'gtm master'
 		when 'p' then 'gtm slave'
-		when 'e' then 'gtm extra'
 		when 'c' then 'coordinator'
 		when 'd' then 'datanode master'
 		when 'b' then 'datanode slave'
-		when 'n' then 'datanode extra'
 		end as nodetype,
 		nodesync
     from mgr_node
@@ -1098,7 +1054,7 @@ revoke execute on function mgr_clean_all() from public;
 revoke execute on function mgr_clean_node("any") from public;
 revoke execute on function monitor_delete_data_interval_days(int) from public;
 -- failover
-revoke execute on function mgr_failover_gtm(cstring, cstring, bool), mgr_failover_one_dn(cstring, cstring, bool) from public;
+revoke execute on function mgr_failover_gtm(cstring, bool), mgr_failover_one_dn(cstring, bool) from public;
 
 -- show
 revoke execute on function mgr_show_var_param( "any") from public;
@@ -1107,10 +1063,8 @@ revoke execute on function mgr_show_var_param( "any") from public;
 revoke execute on function
 mgr_append_dnmaster(cstring),
 mgr_append_dnslave(cstring),
-mgr_append_dnextra(cstring),
 mgr_append_coordmaster(cstring),
 mgr_append_agtmslave(cstring),
-mgr_append_agtmextra(cstring),
 mgr_append_coord_to_coord(cstring,cstring),
 mgr_append_activate_coord(cstring)
 from public;
@@ -1146,29 +1100,27 @@ mgr_start_agent_all(cstring),
 mgr_start_agent_hostnamelist(cstring,text[]),
 mgr_start_gtm_master("any"),
 mgr_start_gtm_slave("any"),
-mgr_start_gtm_extra("any"),
 mgr_start_cn_master("any"),
 mgr_start_dn_master("any"),
-mgr_start_dn_slave("any"),
-mgr_start_dn_extra("any")
+mgr_start_dn_slave("any")
 from public;
 
 --add
 revoke execute on function
 mgr_add_host_func(boolean,cstring,"any"),
-mgr_add_node_func(boolean,"char",cstring,"any")
+mgr_add_node_func(boolean,"char",cstring,cstring,"any")
 from public;
 
 --drop
 revoke execute on function
 mgr_drop_host_func(boolean,"any"),
-mgr_drop_node_func(boolean,"char","any")
+mgr_drop_node_func("char","any")
 from public;
 
 --alter
 revoke execute on function
 mgr_alter_host_func(boolean, cstring, "any"),
-mgr_alter_node_func(boolean, "char", cstring, "any")
+mgr_alter_node_func("char", cstring, "any")
 from public;
 
 --set
@@ -1194,11 +1146,9 @@ mgr_stop_agent_all(),
 mgr_stop_agent_hostnamelist(text[]),
 mgr_stop_gtm_master("any"),
 mgr_stop_gtm_slave("any"),
-mgr_stop_gtm_extra("any"),
 mgr_stop_cn_master("any"),
 mgr_stop_dn_master("any"),
-mgr_stop_dn_slave("any"),
-mgr_stop_dn_extra("any")
+mgr_stop_dn_slave("any")
 from public;
 
 --flush host

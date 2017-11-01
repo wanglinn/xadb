@@ -3887,7 +3887,6 @@ END_NODE(MGRAlterHost)
 
 #ifndef NO_NODE_MGRAddNode
 BEGIN_NODE(MGRAddNode)
-	NODE_SCALAR(bool,if_not_exists)
 	NODE_SCALAR(char,nodetype)
 	NODE_STRING(name)
 	NODE_NODE(List,options)
@@ -3896,7 +3895,6 @@ END_NODE(MGRAddNode)
 
 #ifndef NO_NODE_MGRAlterNode
 BEGIN_NODE(MGRAlterNode)
-	NODE_SCALAR(bool,if_not_exists)
 	NODE_SCALAR(char,nodetype)
 	NODE_STRING(name)
 	NODE_NODE(List,options)
@@ -3905,9 +3903,8 @@ END_NODE(MGRAlterNode)
 
 #ifndef NO_NODE_MGRDropNode
 BEGIN_NODE(MGRDropNode)
-	NODE_SCALAR(bool,if_exists)
 	NODE_SCALAR(char,nodetype)
-	NODE_NODE(List,names)
+	NODE_STRING(name)
 END_NODE(MGRDropNode)
 #endif /* NO_NODE_MGRDropNode */
 

@@ -139,14 +139,7 @@ extern Datum mgr_stop_gtm_master(PG_FUNCTION_ARGS);
 extern Datum mgr_init_gtm_slave(PG_FUNCTION_ARGS);
 extern Datum mgr_start_gtm_slave(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_gtm_slave(PG_FUNCTION_ARGS);
-extern Datum mgr_init_gtm_extra(PG_FUNCTION_ARGS);
-extern Datum mgr_start_gtm_extra(PG_FUNCTION_ARGS);
-extern Datum mgr_stop_gtm_extra(PG_FUNCTION_ARGS);
 extern Datum mgr_failover_gtm(PG_FUNCTION_ARGS);
-extern Datum mgr_init_dn_extra_all(PG_FUNCTION_ARGS);
-extern Datum mgr_start_dn_extra(PG_FUNCTION_ARGS);
-extern Datum mgr_stop_dn_extra(PG_FUNCTION_ARGS);
- extern Datum mgr_stop_dn_extra_all(PG_FUNCTION_ARGS);
 extern Datum mgr_failover_one_dn(PG_FUNCTION_ARGS);
 extern void mgr_add_node(MGRAddNode *node, ParamListInfo params, DestReceiver *dest);
 extern void mgr_alter_node(MGRAlterNode *node, ParamListInfo params, DestReceiver *dest);
@@ -183,10 +176,8 @@ extern Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS);
 
 extern Datum mgr_append_dnmaster(PG_FUNCTION_ARGS);
 extern Datum mgr_append_dnslave(PG_FUNCTION_ARGS);
-extern Datum mgr_append_dnextra(PG_FUNCTION_ARGS);
 extern Datum mgr_append_coordmaster(PG_FUNCTION_ARGS);
 extern Datum mgr_append_agtmslave(PG_FUNCTION_ARGS);
-extern Datum mgr_append_agtmextra(PG_FUNCTION_ARGS);
 
 extern Datum mgr_list_acl_all(PG_FUNCTION_ARGS);
 extern Datum mgr_priv_manage(PG_FUNCTION_ARGS);
@@ -223,18 +214,18 @@ extern Datum mgr_start_one_dn_master(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_one_dn_master(PG_FUNCTION_ARGS);
 extern char *mgr_get_slavename(Oid tupleOid, char nodetype);
 extern void mgr_rename_recovery_to_conf(char cmdtype, Oid hostOid, char* cndnpath, GetAgentCmdRst *getAgentCmdRst);
-extern HeapTuple mgr_get_tuple_node_from_name_type(Relation rel, char *nodename, char nodetype);
+extern HeapTuple mgr_get_tuple_node_from_name_type(Relation rel, char *nodename);
 extern char *mgr_nodetype_str(char nodetype);
 extern Datum mgr_clean_all(PG_FUNCTION_ARGS);
 extern Datum mgr_clean_node(PG_FUNCTION_ARGS);
-extern int mgr_check_node_exist_incluster(Name nodename, char nodetype, bool bincluster);
+extern bool mgr_check_node_exist_incluster(Name nodename, bool bincluster);
 extern List* mgr_get_nodetype_namelist(char nodetype);
 extern Datum mgr_remove_node_func(PG_FUNCTION_ARGS);
 extern void mgr_remove_node(MgrRemoveNode *node, ParamListInfo params, DestReceiver *dest);
 extern Datum mgr_monitor_ha(PG_FUNCTION_ARGS);
 extern void get_nodeinfo_byname(char *node_name, char node_type, bool *is_exist, bool *is_running, AppendNodeInfo *nodeinfo);
 extern void pfree_AppendNodeInfo(AppendNodeInfo nodeinfo);
-extern void mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid);
+extern bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid);
 extern void mgr_unlock_cluster(PGconn **pg_conn);
 extern void mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam);
 extern bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname, GetAgentCmdRst *getAgentCmdRst, PGconn **pg_conn, Oid cnoid);
@@ -376,7 +367,7 @@ extern bool mgr_try_max_pingnode(char *host, char *port, char *user, const int m
 extern char mgr_get_master_type(char nodetype);
 extern void mgr_get_nodeinfo_byname_type(char *node_name, char node_type, bool bincluster, bool *is_exist, bool *is_running, AppendNodeInfo *nodeinfo);
 extern void get_nodeinfo_byname(char *node_name, char node_type, bool *is_exist, bool *is_running, AppendNodeInfo *nodeinfo);
-extern void get_nodeinfo(char node_type, bool *is_exist, bool *is_running, AppendNodeInfo *nodeinfo);
+extern void get_nodeinfo(char *nodename, char node_type, bool *is_exist, bool *is_running, AppendNodeInfo *nodeinfo);
 extern void mgr_add_hbaconf(char nodetype, char *dnusername, char *dnaddr);
 extern void mgr_check_dir_exist_and_priv(Oid hostoid, char *dir);
 extern void mgr_pgbasebackup(char nodetype, AppendNodeInfo *appendnodeinfo, AppendNodeInfo *parentnodeinfo);
@@ -392,5 +383,11 @@ extern bool mgr_get_self_address(char *server_address, int server_port, Name sel
 extern Datum monitor_handle_coordinator(PG_FUNCTION_ARGS);
 extern int get_agentPort_from_hostoid(Oid hostOid);
 extern bool mgr_check_job_in_updateparam(const char *subjobstr);
+extern char *get_nodepath_from_tupleoid(Oid tupleOid);
+extern bool mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int SYNC_STATE_SYNC, Oid excludeOid, Name slaveNodeName);
+extern bool mgr_get_slave_node(Relation relNode, Oid masterTupleOid, int syncType, Oid excludeOid, Name slaveNodeName);
+extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
+extern void mgr_add_hbaconf_by_masteroid(Oid mastertupleoid, char *dbname, char *user, char *address);
+extern char *mgr_get_agtm_name(void);
 
 #endif /* MGR_CMDS_H */

@@ -425,6 +425,8 @@ Datum mgr_alter_host_func(PG_FUNCTION_ARGS)
 	bool got[Natts_mgr_host];
 	Form_mgr_node mgr_node;
 	TupleDesc host_dsc;
+	HeapScanDesc relScan;
+	ScanKeyData key[1];
 	List *options = (List *)PG_GETARG_POINTER(2);
 	bool if_not_exists = PG_GETARG_BOOL(0);
 	char *name_str = PG_GETARG_CSTRING(1);
@@ -552,18 +554,23 @@ Datum mgr_alter_host_func(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 					 ,errmsg("\"%s\" has been used, cannot be changed", NameStr(name))));
 		}
-		rel_node = heap_open(NodeRelationId, RowExclusiveLock);
-		checktuple = mgr_get_tuple_node_from_name_type(rel_node, "gtm", GTM_TYPE_GTM_MASTER);
+		rel_node = heap_open(NodeRelationId, AccessShareLock);
+		ScanKeyInit(&key[0]
+			,Anum_mgr_node_nodeincluster
+			,BTEqualStrategyNumber
+			,F_BOOLEQ
+			,BoolGetDatum(true));
+		relScan = heap_beginscan_catalog(rel_node, 1, key);
+		checktuple = heap_getnext(relScan, ForwardScanDirection);
 		if (HeapTupleIsValid(checktuple))
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(checktuple);
 			Assert(mgr_node);
-			if (mgr_node->nodeincluster && got[Anum_mgr_host_hostaddr-1])
+			if (got[Anum_mgr_host_hostaddr-1])
 				ereport(WARNING, (errcode(ERRCODE_OBJECT_IN_USE)
 					 ,errmsg("the cluster has been initialized, after command \"alter host\" to modify address, need using the command \"flush host\" to flush address information of all nodes")));
-			heap_freetuple(checktuple);
 		}
-		heap_close(rel_node, RowExclusiveLock);
+		heap_close(rel_node, AccessShareLock);
 	}
 
 	new_tuple = heap_modify_tuple(tuple, host_dsc, datum,isnull, got);
@@ -1886,20 +1893,17 @@ bool get_node_type_str(int node_type, Name node_type_str)
         case GTM_TYPE_GTM_SLAVE:
 			strcpy(NameStr(*node_type_str), "gtm slave");
 			break;
-        case GTM_TYPE_GTM_EXTRA:
-			strcpy(NameStr(*node_type_str), "gtm extra");
-			break;
         case CNDN_TYPE_COORDINATOR_MASTER:
-			strcpy(NameStr(*node_type_str), "coordinator");
+			strcpy(NameStr(*node_type_str), "coordinator master");
+			break;
+        case CNDN_TYPE_COORDINATOR_SLAVE:
+			strcpy(NameStr(*node_type_str), "coordinator slave");
 			break;
         case CNDN_TYPE_DATANODE_MASTER:
 			strcpy(NameStr(*node_type_str), "datanode master");
 			break;
         case CNDN_TYPE_DATANODE_SLAVE:
 			strcpy(NameStr(*node_type_str), "datanode slave");
-			break;
-        case CNDN_TYPE_DATANODE_EXTRA:
-			strcpy(NameStr(*node_type_str), "datanode extra");
 			break;
         default:
 			strcpy(NameStr(*node_type_str), "unknown type");

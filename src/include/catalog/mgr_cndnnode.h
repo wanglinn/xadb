@@ -61,6 +61,7 @@ typedef FormData_mgr_node *Form_mgr_node;
 #define GTM_TYPE_GTM_EXTRA			'e'
 
 /*CNDN_TYPE_DATANODE include : datanode master,slave ,extra*/
+#define CNDN_TYPE_COORDINATOR		'C'
 #define CNDN_TYPE_DATANODE		'D'
 #define CNDN_TYPE_GTM			'G'
 
