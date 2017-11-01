@@ -143,6 +143,16 @@ Datum rowid_make(uint32 node_id, ItemPointer const tid)
 	return PointerGetDatum(rowid);
 }
 
+/* save ctid to tid and return xc_node_id */
+uint32 rowid_get_data(Datum arg, ItemPointer tid)
+{
+	OraRowID *rowid = (OraRowID*)DatumGetPointer(arg);
+
+	ItemPointerSet(tid, rowid->block, rowid->offset);
+
+	return rowid->node_id;
+}
+
 static int rowid_compare(const OraRowID *l, const OraRowID *r)
 {
 	AssertArg(l && r);

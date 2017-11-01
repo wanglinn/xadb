@@ -38,8 +38,12 @@
 #include "utils/xml.h"
 
 #ifdef ADB
+#include "access/sysattr.h"
+#include "optimizer/clauses.h"
 #include "oraschema/oracoerce.h"
+#include "parser/parser.h"
 #include "tcop/tcopprot.h"
+#include "utils/fmgroids.h"
 #endif
 
 /* GUC parameters */
@@ -1054,27 +1058,96 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 										((RowExpr *) rexpr)->args,
 										a->location);
 	}
+#ifdef ADB
+	else if(IsOracleParseGram(pstate))
+	{
+		Node *new_lexpr = transformExprRecurse(pstate, lexpr);
+		Node *new_rexpr = transformExprRecurse(pstate, rexpr);
+		volatile ParseGrammar save_gram = pstate->p_grammar;
+
+		PG_TRY();
+		{
+			if (exprType(new_lexpr) == RIDOID && IsA(new_rexpr, Const))
+			{
+				pstate->p_grammar = PARSE_GRAM_POSTGRES;
+				new_rexpr = transformExprRecurse(pstate, rexpr);
+			}else if (exprType(new_rexpr) == RIDOID && IsA(new_lexpr, Const))
+			{
+				pstate->p_grammar = PARSE_GRAM_POSTGRES;
+				new_lexpr = transformExprRecurse(pstate, lexpr);
+			}
+		}PG_CATCH();
+		{
+			pstate->p_grammar = save_gram;
+			PG_RE_THROW();
+		}PG_END_TRY();
+		pstate->p_grammar = save_gram;
+
+		result = transformOraAExprOp(pstate,
+									 a->name,
+									 new_lexpr,
+									 new_rexpr,
+									 a->location);
+	}
+#endif /* ADB */
 	else
 	{
 		/* Ordinary scalar operator */
 		lexpr = transformExprRecurse(pstate, lexpr);
 		rexpr = transformExprRecurse(pstate, rexpr);
 
-#ifdef ADB
-		if (IsOracleParseGram(pstate) && lexpr && rexpr)
-			result = transformOraAExprOp(pstate,
-										 a->name,
-										 lexpr,
-										 rexpr,
-										 a->location);
-		else
-#endif
 		result = (Node *) make_op(pstate,
 								  a->name,
 								  lexpr,
 								  rexpr,
 								  a->location);
 	}
+
+#ifdef ADB
+	if (pstate->p_expr_kind == EXPR_KIND_WHERE &&
+		result && IsA(result, OpExpr) &&
+		((OpExpr*)result)->opfuncid == F_ROWID_EQ)
+	{
+		lexpr = get_leftop((Expr*)result);
+		rexpr = get_rightop((Expr*)result);
+		if ((IsA(lexpr, Var) && ((Var*)lexpr)->varattno == ADB_RowIdAttributeNumber &&
+			 IsA(rexpr, Const) /*&& ((Const*)rexpr)->consttype == RIDOID*/) ||
+			(IsA(rexpr, Var) && ((Var*)rexpr)->varattno == ADB_RowIdAttributeNumber &&
+			 IsA(lexpr, Const) /*&& ((Const*)lexpr)->consttype == RIDOID*/))
+		{
+			/* rowid=const OR const=rowid */
+			List *args;
+			uint32 xc_node_id;
+			Index varno;
+			Index level;
+			ItemPointer ctid = palloc(sizeof(ItemPointerData));
+			if(IsA(lexpr, Const))
+			{
+				xc_node_id = rowid_get_data(((Const*)lexpr)->constvalue, ctid);
+				varno = ((Var*)rexpr)->varno;
+				level = ((Var*)rexpr)->varlevelsup;
+			}else
+			{
+				xc_node_id = rowid_get_data(((Const*)rexpr)->constvalue, ctid);
+				varno = ((Var*)lexpr)->varno;
+				level = ((Var*)lexpr)->varlevelsup;
+			}
+
+			/* make xc_node_id=const AND ctid=const */
+			args = list_make2(make_op(pstate,
+									  SystemFuncName((char*)"="),
+									  (Node*)makeVar(varno, XC_NodeIdAttributeNumber, INT4OID, -1, InvalidOid, level),
+									  (Node*)makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(xc_node_id), false, true),
+									  -1),
+							  make_op(pstate,
+									  SystemFuncName((char*)"="),
+									  (Node*)makeVar(varno, SelfItemPointerAttributeNumber, TIDOID, -1, InvalidOid, level),
+									  (Node*)makeConst(TIDOID, -1, InvalidOid, sizeof(*ctid), PointerGetDatum(ctid), false, false),
+									  -1));
+			result = (Node*) makeBoolExpr(AND_EXPR, args, -1);
+		}
+	}
+#endif /* ADB */
 
 	return result;
 }
