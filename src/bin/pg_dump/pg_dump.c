@@ -18202,9 +18202,10 @@ dumpAdbmgrTable(Archive *fout)
 	{
 		resetPQExpBuffer(addstrdata);
 		if (strlen(PQgetvalue(res, i, 5)))
-			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, sync_state=\"%s\",path=\"%s\");",
+			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" FOR \"%s\" (host=\"%s\", port=%s, sync_state=\"%s\",path=\"%s\");",
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 0),
+				PQgetvalue(res, i, 3),
 				PQgetvalue(res, i, 1),
 				PQgetvalue(res, i, 4),
 				PQgetvalue(res, i, 5),
