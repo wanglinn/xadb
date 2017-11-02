@@ -181,7 +181,7 @@ static void check_jobitem_name_isvaild(List *node_name_list);
 %type <chr>		node_type cluster_type
 
 %token<keyword>	ADD_P DEPLOY DROP ALTER LIST CREATE ACL CLUSTER
-%token<keyword>	IF_P EXISTS NOT
+%token<keyword>	IF_P EXISTS NOT FOR
 %token<keyword>	FALSE_P TRUE_P
 %token<keyword>	HOST MONITOR PARAM HBA HA
 %token<keyword>	INIT GTM MASTER SLAVE ALL NODE COORDINATOR DATANODE
@@ -509,11 +509,11 @@ AppendNodeStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_agtmslave", args));
 			$$ = (Node*)stmt;
 		}
-		|APPEND COORDINATOR Ident TO Ident
+		|APPEND COORDINATOR Ident FOR Ident
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
-			List *args = list_make1(makeStringConst($3, -1));
-			args = lappend(args, makeStringConst($5, -1));
+			List *args = list_make1(makeStringConst($5, -1));
+			args = lappend(args, makeStringConst($3, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_coord_to_coord", args));
 			$$ = (Node*)stmt;
@@ -1692,13 +1692,13 @@ AddNodeStmt:
 			node->options = $5;
 			$$ = (Node*)node;
 		}
-	| ADD_P GTM MASTER Ident TO SLAVE Ident opt_general_options
+	| ADD_P GTM SLAVE Ident FOR Ident opt_general_options
 		{
 			MGRAddNode *node = makeNode(MGRAddNode);
 			node->nodetype = GTM_TYPE_GTM_SLAVE; 
-			node->mastername = $4;
-			node->name = $7;
-			node->options = $8;
+			node->mastername = $6;
+			node->name = $4;
+			node->options = $7;
 			$$ = (Node*)node;
 		}
 	| ADD_P COORDINATOR MASTER Ident opt_general_options
@@ -1710,13 +1710,13 @@ AddNodeStmt:
 			node->options = $5;
 			$$ = (Node*)node;
 		}
-	| ADD_P COORDINATOR MASTER Ident TO SLAVE Ident opt_general_options
+	| ADD_P COORDINATOR SLAVE Ident FOR Ident opt_general_options
 		{
 			MGRAddNode *node = makeNode(MGRAddNode);
 			node->nodetype = CNDN_TYPE_COORDINATOR_SLAVE;
-			node->mastername = $4;
-			node->name = $7;
-			node->options = $8;
+			node->mastername = $6;
+			node->name = $4;
+			node->options = $7;
 			$$ = (Node*)node;
 		}
 	| ADD_P DATANODE MASTER Ident opt_general_options
@@ -1728,13 +1728,13 @@ AddNodeStmt:
 			node->options = $5;
 			$$ = (Node*)node;
 		}
-	| ADD_P DATANODE MASTER Ident TO SLAVE Ident opt_general_options
+	| ADD_P DATANODE SLAVE Ident FOR Ident opt_general_options
 		{
 			MGRAddNode *node = makeNode(MGRAddNode);
 			node->nodetype = CNDN_TYPE_DATANODE_SLAVE;
-			node->mastername = $4;
-			node->name = $7;
-			node->options = $8;
+			node->mastername = $6;
+			node->name = $4;
+			node->options = $7;
 			$$ = (Node*)node;
 		}
 	;
@@ -2658,6 +2658,7 @@ unreserved_keyword:
 	| FAILOVER
 	| FAST
 	| FLUSH
+	| FOR
 	| FROM
 	| GET_AGTM_NODE_TOPOLOGY
 	| GET_ALARM_INFO_ASC
