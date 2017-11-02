@@ -294,6 +294,7 @@ GetMixedHandles(const List *oid_list, void *context)
 		mix_handle->handles = lappend(mix_handle->handles, handle);
 		if (handle->node_primary)
 			mix_handle->pr_handle = handle;
+		mix_handle->mix_types |= handle->node_type;
 		if (PQstatus(handle->node_conn) != CONNECTION_OK)
 		{
 			/* detach old PGconn if exists */
@@ -328,6 +329,7 @@ GetAllHandles(void)
 		mix_handle->handles = lappend(mix_handle->handles, handle);
 		if (handle->node_primary)
 			mix_handle->pr_handle = handle;
+		mix_handle->mix_types |= handle->node_type;
 		if (PQstatus(handle->node_conn) != CONNECTION_OK)
 		{
 			/* detach old PGconn if exists */
@@ -351,6 +353,7 @@ CopyMixhandle(NodeMixHandle *src)
 	if (src)
 	{
 		dst = (NodeMixHandle *) palloc0(sizeof(NodeMixHandle));
+		dst->mix_types = src->mix_types;
 		dst->pr_handle = src->pr_handle;
 		dst->handles = list_copy(src->handles);
 	}
@@ -373,6 +376,7 @@ ConcatMixHandle(NodeMixHandle *mix1, NodeMixHandle *mix2)
 	else
 		Assert(mix1->pr_handle == mix2->pr_handle);
 
+	mix1->mix_types |= mix2->mix_types;
 	mix1->handles = list_concat_unique(mix1->handles, mix2->handles);
 
 	return mix1;
@@ -436,129 +440,3 @@ GetNodeOids(NodeType type, bool include_self)
 
 	return result;
 }
-
-#if NOT_USED
-NodeMixHandle *
-GetMixedHandles(List *cnlist, List *dnlist)
-{
-	NodeMixHandle  *mix_handle;
-	NodeHandle	   *handle;
-	List		   *conn_need = NIL;
-	List		   *handle_need = NIL;
-	ListCell	   *lc = NULL;
-	Oid				node_oid;
-	int				i;
-
-	/* no node need to get handle */
-	if (!cnlist && !dnlist)
-		return NULL;
-
-	if (!handle_init)
-		return NULL;
-
-	mix_handle = (NodeMixHandle *) palloc0(sizeof(NodeMixHandle));
-	if ((mix_handle->cn_count = list_length(cnlist)) > 0)
-		mix_handle->cn_handles = (NodeHandle **)
-					palloc0(sizeof(NodeHandle *) * mix_handle->cn_count);
-	if ((mix_handle->dn_count = list_length(dnlist)) > 0)
-		mix_handle->dn_handles = (NodeHandle **)
-					palloc0(sizeof(NodeHandle *) * mix_handle->dn_count);
-
-	for (lc = list_head(cnlist), i = 0; lc != NULL; lc = lnext(lc), i++)
-	{
-		node_oid = lfirst_oid(lc);
-		handle = GetCnHandle(node_oid, false);
-		if (!handle)
-			ereport(ERROR,
-					(errmsg("is this node(%u) a coordinator?", node_oid)));
-		mix_handle->cn_handles[i] = handle;
-		if (PQstatus(handle->node_conn) != CONNECTION_OK)
-		{
-			/* detach old PGconn if exists */
-			HandleDetachPGconn(handle);
-			conn_need = lappend_oid(conn_need, node_oid);
-			handle_need = lappend(handle_need, handle);
-		}
-	}
-
-	for (lc = list_head(dnlist), i = 0; lc != NULL; lc = lnext(lc), i++)
-	{
-		node_oid = lfirst_oid(lc);
-		handle = GetDnHandle(node_oid, false);
-		if (!handle)
-			ereport(ERROR,
-					(errmsg("is this node(%u) a datanode?", node_oid)));
-		mix_handle->dn_handles[i] = handle;
-		if (handle->node_primary)
-			mix_handle->pr_handle = handle;
-		if (PQstatus(handle->node_conn) != CONNECTION_OK)
-		{
-			/* detach old PGconn if exists */
-			HandleDetachPGconn(handle);
-			conn_need = lappend_oid(conn_need, node_oid);
-			handle_need = lappend(handle_need, handle);
-		}
-	}
-
-	GetPGconnAttatchToHandle(conn_need, handle_need);
-	list_free(conn_need);
-	list_free(handle_need);
-
-	return mix_handle;
-}
-
-NodeMixHandle *
-GetAllHandles(void)
-{
-	NodeMixHandle  *mix_handle;
-	NodeHandle	   *handle;
-	List		   *conn_need = NIL;
-	List		   *handle_need = NIL;
-	int				i;
-
-	if (!handle_init)
-		return NULL;
-
-	mix_handle = (NodeMixHandle *) palloc0(sizeof(NodeMixHandle));
-	if ((mix_handle->cn_count = NumCnHandles) > 0)
-		mix_handle->cn_handles = (NodeHandle **)
-					palloc0(sizeof(NodeHandle *) * mix_handle->cn_count);
-	if ((mix_handle->dn_count = NumDnHandles) > 0)
-		mix_handle->dn_handles = (NodeHandle **)
-					palloc0(sizeof(NodeHandle *) * mix_handle->dn_count);
-
-	for (i = 0; i < NumCnHandles; i++)
-	{
-		handle = &(CnHandles[i]);
-		mix_handle->cn_handles[i] = handle;
-		if (PQstatus(handle->node_conn) != CONNECTION_OK)
-		{
-			/* detach old PGconn if exists */
-			HandleDetachPGconn(handle);
-			conn_need = lappend_oid(conn_need, handle->node_oid);
-			handle_need = lappend(handle_need, handle);
-		}
-	}
-
-	for (i = 0; i < NumDnHandles; i++)
-	{
-		handle = &(DnHandles[i]);
-		mix_handle->dn_handles[i] = handle;
-		if (handle->node_primary)
-			mix_handle->pr_handle = handle;
-		if (PQstatus(handle->node_conn) != CONNECTION_OK)
-		{
-			/* detach old PGconn if exists */
-			HandleDetachPGconn(handle);
-			conn_need = lappend_oid(conn_need, handle->node_oid);
-			handle_need = lappend(handle_need, handle);
-		}
-	}
-
-	GetPGconnAttatchToHandle(conn_need, handle_need);
-	list_free(conn_need);
-	list_free(handle_need);
-
-	return mix_handle;
-}
-#endif

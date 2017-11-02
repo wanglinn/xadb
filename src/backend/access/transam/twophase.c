@@ -90,7 +90,6 @@
 #include "utils/timestamp.h"
 
 #ifdef ADB
-#include "access/remote_xact.h"
 #include "access/rxact_mgr.h"
 #include "agtm/agtm.h"
 #include "commands/dbcommands.h"
@@ -1100,7 +1099,7 @@ save_state_data(const void *data, uint32 len)
 void
 StartRemoteXactPrepare(GlobalTransaction gxact)
 {
-	if (!IsUnderRemoteXact())
+	if (!IsCoordMaster())
 		return ;
 
 	if (IsConnFromRxactMgr())
@@ -1121,7 +1120,7 @@ StartRemoteXactPrepare(GlobalTransaction gxact)
 void
 EndRemoteXactPrepare(GlobalTransaction gxact)
 {
-	if (!IsUnderRemoteXact())
+	if (!IsCoordMaster())
 		return ;
 
 	if (IsConnFromRxactMgr())
@@ -1130,11 +1129,7 @@ EndRemoteXactPrepare(GlobalTransaction gxact)
 	PG_TRY();
 	{
 		/* Prepare on remote nodes */
-		if (gxact->node_cnt > 0)
-			PrePrepare_Remote(gxact->gid);
-#ifdef INTER_XACT
 		InterXactPrepare(gxact->gid, gxact->nodeIds, gxact->node_cnt);
-#endif
 
 		/* Prepare on AGTM */
 		agtm_PrepareTransaction(gxact->gid);
@@ -1546,21 +1541,11 @@ void
 FinishPreparedTransaction(const char *gid, bool isCommit)
 #if defined(ADB) || defined(AGTM)
 {
-	FinishPreparedTransactionExt(gid,
-								 isCommit,
-#ifdef ADB
-								 true,
-#endif
-								 false);
+	FinishPreparedTransactionExt(gid, isCommit, false);
 }
 
 void
-FinishPreparedTransactionExt(const char *gid,
-							 bool isCommit,
-#ifdef ADB
-							 bool isRemoteInit,
-#endif
-							 bool isMissingOK)
+FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 #endif
 {
 	GlobalTransaction gxact;
@@ -1578,7 +1563,7 @@ FinishPreparedTransactionExt(const char *gid,
 	int			ndelrels;
 	SharedInvalidationMessage *invalmsgs;
 #ifdef ADB
-	Oid			*nodeIds;
+	Oid		   *nodeIds;
 #endif
 	int			i;
 
@@ -1591,6 +1576,7 @@ FinishPreparedTransactionExt(const char *gid,
 #else
 	gxact = LockGXact(gid, GetUserId());
 #endif
+
 #ifdef ADB
 	/*
 	 * LockGXact returns NULL if this node does not contain given two-phase
@@ -1604,7 +1590,7 @@ FinishPreparedTransactionExt(const char *gid,
 	 */
 	if (gxact == NULL && xc_maintenance_mode)
 		return ;
-#endif /*ADB*/
+#endif
 
 #if defined(ADB) || defined(AGTM)
 	/*
@@ -1617,7 +1603,7 @@ FinishPreparedTransactionExt(const char *gid,
 	 * pointer (loaded from variable 'gxact')
 	 */
 	Assert(gxact);
-#endif /*ADB AGTM*/
+#endif
 
 	proc = &ProcGlobal->allProcs[gxact->pgprocno];
 	pgxact = &ProcGlobal->allPgXact[gxact->pgprocno];
@@ -1761,18 +1747,11 @@ FinishPreparedTransactionExt(const char *gid,
 	 * to do remote commit.
 	 */
 	if (!IsConnFromRxactMgr())
-	{
-		if (!isRemoteInit)
-			init_RemoteXactStateByNodes(hdr->nnodes, nodeIds, true);
-#ifdef INTER_XACT
-		/* Comment on the code above */
-#endif
 		EndFinishPreparedRxact(gid,
 							   hdr->nnodes,
 							   nodeIds,
 							   isMissingOK,
 							   isCommit);
-	}
 #endif
 
 	pfree(buf);

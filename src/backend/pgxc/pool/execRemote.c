@@ -54,7 +54,9 @@
 #include "utils/ps_status.h"
 #include "utils/snapmgr.h"
 #include "utils/tuplesort.h"
-
+#ifdef ADB
+#include "intercomm/inter-comm.h"
+#endif
 
 /* Enforce the use of two-phase commit when temporary objects are used */
 bool EnforceTwoPhaseCommit = true;
@@ -3081,6 +3083,7 @@ do_query(RemoteQueryState *node)
 	PGXCNodeHandle		**cohandles = NULL;
 	int					 num_dnhandles = 0;
 	int					 num_cohandles = 0;
+	InterXactState		 state = GetTopInterXactState();
 
 	/*
 	 * A Postgres-XC node cannot run transactions while in recovery as
@@ -3096,7 +3099,10 @@ do_query(RemoteQueryState *node)
 	 * remote join is reduced
 	 */
 	if (step->is_temp)
+	{
 		ExecSetTempObjectIncluded();
+		state->hastmp = true;
+	}
 
 	/*
 	 * Consider a test case

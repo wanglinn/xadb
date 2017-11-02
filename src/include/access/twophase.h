@@ -64,12 +64,7 @@ extern void CheckPointTwoPhase(XLogRecPtr redo_horizon);
 
 extern void FinishPreparedTransaction(const char *gid, bool isCommit);
 #if defined(ADB) || defined(AGTM)
-extern void FinishPreparedTransactionExt(const char *gid,
-										 bool isCommit,
-#ifdef ADB
-										 bool isRemoteInit,
-#endif
-										 bool isMissingOK);
+extern void FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK);
 #endif /* ADB */
 
 #endif   /* TWOPHASE_H */

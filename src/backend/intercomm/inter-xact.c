@@ -1,17 +1,19 @@
 #include "postgres.h"
 
 #include "access/rxact_mgr.h"
+#include "access/twophase.h"
 #include "access/xact.h"
 #include "agtm/agtm.h"
+#include "agtm/agtm_client.h"
 #include "datatype/timestamp.h"
 #include "intercomm/inter-comm.h"
 #include "libpq/libpq-fe.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
+#include "storage/ipc.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
-#define IsUnderRemoteXact() IsCoordMaster()
 typedef enum
 {
 	TP_PREPARE	= 1 << 1,
@@ -20,21 +22,23 @@ typedef enum
 } TwoPhaseState;
 
 static InterXactStateData TopInterXactStateData = {
-	NULL,
-	NULL,
-	IBLOCK_DEFAULT,
-	NULL,
-	false,
-	false,
-	false,
-	false,
-	NULL,
-	NULL
+	NULL,						/* current MemoryContext */
+	NULL,						/* error stringinfo */
+	IBLOCK_DEFAULT,				/* inter transaction block state */
+	COMBINE_TYPE_NONE,			/* inter transaction block combine type */
+	NULL,						/* two-phase GID */
+	false,						/* is GID missing ok in the second phase of two-phase commit? */
+	false,						/* is there any temporary object in the inter transaction? */
+	false,						/* is the inter transaction implicit two-phase commit? */
+	false,						/* true if ignore any error(try best to finish)) */
+	false,						/* is the inter transaction start any transaction block? */
+	NULL,						/* NodeMixHandle for the current query in the inter transaction block */
+	NULL						/* NodeMixHandle for the whole inter transaction block */
 };
 
 static void InterXactSaveHandleError(InterXactState state, NodeHandle *handle);
 static void InterXactGC(InterXactState state);
-static void InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state);
+static void InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool ignore_error);
 static void InterXactPrepareInternal(InterXactState state);
 static void InterXactCommitInternal(InterXactState state);
 static void InterXactAbortInternal(InterXactState state);
@@ -95,6 +99,7 @@ ResetInterXactState(InterXactState state)
 		state->missing_ok = false;
 		state->hastmp = false;
 		state->implicit = false;
+		state->ignore_error = false;
 		state->need_xact_block = false;
 		state->mix_handle = NULL;
 		state->all_handle = NULL;
@@ -145,6 +150,7 @@ MakeInterXactState(MemoryContext context, const List *oid_list)
 	state->missing_ok = false;
 	state->hastmp = false;
 	state->implicit = false;
+	state->ignore_error = false;
 	state->need_xact_block = false;
 	if (oid_list)
 	{
@@ -218,13 +224,6 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 	exec_nodes = node->exec_nodes;
 	force_autocommit = node->force_autocommit;
 
-	/* TODO: when exec_nodes is not null */
-	if (exec_nodes)
-	{
-		ExecRemoteUtility(node);
-		return NULL;
-	}
-
 	need_xact_block = !force_autocommit;
 	if (exec_direct_type == EXEC_DIRECT_UTILITY)
 	{
@@ -235,6 +234,13 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 			ereport(ERROR,
 					(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
 					 errmsg("cannot run EXECUTE DIRECT with utility inside a transaction block")));
+	}
+
+	/* TODO: when exec_nodes is not null */
+	if (exec_nodes)
+	{
+		ExecRemoteUtility(node);
+		return NULL;
 	}
 
 	/* Get involved node oids */
@@ -259,6 +265,8 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 	/* Make up InterXactStateData */
 	state = MakeInterXactState2(state, oid_list);
 	state->need_xact_block = need_xact_block;
+	state->hastmp = node->is_temp;
+	state->combine_type = node->combine_type;
 	pfree(oid_list);
 
 	/* BEGIN */
@@ -275,7 +283,8 @@ void
 InterXactSetGID(InterXactState state, const char *gid)
 {
 	Assert(state);
-	state->gid = MemoryContextStrdup(state->context, gid);
+	if (gid)
+		state->gid = MemoryContextStrdup(state->context, gid);
 }
 
 Oid *
@@ -288,7 +297,7 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 	PGconn			   *conn;
 	Oid				   *res;
 
-	if (!IsUnderRemoteXact() || state == NULL)
+	if (!IsCoordMaster() || state == NULL)
 	{
 		if (node_num)
 			*node_num = 0;
@@ -550,23 +559,23 @@ InterXactQuery(InterXactState state, Snapshot snapshot,
 void
 InterXactPrepare(const char *gid, Oid *nodes, int nnodes)
 {
-	InterXactTwoPhase(gid, nodes, nnodes, TP_PREPARE);
+	InterXactTwoPhase(gid, nodes, nnodes, TP_PREPARE, false);
 }
 
 void
 InterXactCommit(const char *gid, Oid *nodes, int nnodes)
 {
-	InterXactTwoPhase(gid, nodes, nnodes, TP_COMMIT);
+	InterXactTwoPhase(gid, nodes, nnodes, TP_COMMIT, false);
 }
 
 void
-InterXactAbort(const char *gid, Oid *nodes, int nnodes)
+InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool ignore_error)
 {
-	InterXactTwoPhase(gid, nodes, nnodes, TP_ABORT);
+	InterXactTwoPhase(gid, nodes, nnodes, TP_ABORT, ignore_error);
 }
 
 static void
-InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state)
+InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool ignore_error)
 {
 	InterXactState	state;
 	List		   *oid_list = NIL;
@@ -579,6 +588,7 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 
 	state = MakeInterXactState(NULL, (const List *) oid_list);
 	InterXactSetGID(state, gid);
+	state->ignore_error = ignore_error;
 	switch (tp_state)
 	{
 		case TP_PREPARE:
@@ -608,6 +618,7 @@ InterXactPrepareInternal(InterXactState state)
 	PGconn			   *conn;
 	const char		   *gid;
 	char			   *prepare_cmd;
+	bool				error_occured;
 
 	Assert(state);
 	all_handle = state->all_handle;
@@ -615,8 +626,9 @@ InterXactPrepareInternal(InterXactState state)
 	if (!all_handle || !gid || !gid[0])
 		return ;
 
-	prepare_cmd = psprintf("PREPARE TRANSACTION '%s'", gid);
+	prepare_cmd = psprintf("PREPARE TRANSACTION '%s';", gid);
 	involved_handles = NIL;
+	error_occured = false;
 	foreach (lc_handle, all_handle->handles)
 	{
 		handle = (NodeHandle *) lfirst(lc_handle);
@@ -625,6 +637,10 @@ InterXactPrepareInternal(InterXactState state)
 			continue;
 		if (!HandleSendQueryTree(handle, NULL, prepare_cmd, NULL))
 		{
+			error_occured = true;
+			/* ignore any error and continue */
+			if (state->ignore_error)
+				continue;
 			state->block_state |= IBLOCK_ABORT;
 			InterXactSaveHandleError(state, handle);
 			break;
@@ -645,7 +661,8 @@ InterXactPrepareInternal(InterXactState state)
 	}
 
 	list_free(involved_handles);
-	state->block_state |= IBLOCK_PREPARE;
+	if (!error_occured)
+		state->block_state |= IBLOCK_PREPARE;
 }
 
 static void
@@ -657,6 +674,7 @@ InterXactCommitInternal(InterXactState state)
 	List			   *involved_handles;
 	const char		   *gid;
 	char			   *commit_cmd;
+	bool				error_occured;
 
 	Assert(state);
 	all_handle = state->all_handle;
@@ -669,11 +687,16 @@ InterXactCommitInternal(InterXactState state)
 	else
 		commit_cmd = psprintf("COMMIT TRANSACTION;");
 	involved_handles = NIL;
+	error_occured = false;
 	foreach (lc_handle, all_handle->handles)
 	{
 		handle = (NodeHandle *) lfirst(lc_handle);
 		if (!HandleSendQueryTree(handle, NULL, commit_cmd, NULL))
 		{
+			error_occured = true;
+			/* ignore any error and continue */
+			if (state->ignore_error)
+				continue;
 			state->block_state |= IBLOCK_ABORT;
 			InterXactSaveHandleError(state, handle);
 			break;
@@ -694,7 +717,8 @@ InterXactCommitInternal(InterXactState state)
 	}
 
 	list_free(involved_handles);
-	state->block_state |= IBLOCK_END;
+	if (!error_occured)
+		state->block_state |= IBLOCK_END;
 }
 
 static void
@@ -706,6 +730,7 @@ InterXactAbortInternal(InterXactState state)
 	List			   *involved_handles;
 	const char		   *gid;
 	char			   *abort_cmd;
+	bool				error_occured;
 
 	Assert(state);
 	all_handle = state->all_handle;
@@ -718,11 +743,16 @@ InterXactAbortInternal(InterXactState state)
 	else
 		abort_cmd = psprintf("ROLLBACK TRANSACTION;");
 	involved_handles = NIL;
+	error_occured = false;
 	foreach (lc_handle, all_handle->handles)
 	{
 		handle = (NodeHandle *) lfirst(lc_handle);
 		if (!HandleSendQueryTree(handle, NULL, abort_cmd, NULL))
 		{
+			error_occured = true;
+			/* ignore any error and continue */
+			if (state->ignore_error)
+				continue;
 			state->block_state |= IBLOCK_ABORT;
 			InterXactSaveHandleError(state, handle);
 			break;
@@ -743,7 +773,8 @@ InterXactAbortInternal(InterXactState state)
 	}
 
 	list_free(involved_handles);
-	state->block_state |= IBLOCK_ABORT_END;
+	if (!error_occured)
+		state->block_state |= IBLOCK_ABORT_END;
 }
 
 static List *
@@ -783,4 +814,166 @@ OidListToArrary(MemoryContext context, List *oid_list, int *noids)
 	}
 
 	return oids;
+}
+
+/*-------------remote xact include inter xact and agtm xact-------------------*/
+static void CommitPreparedRxact(const char *gid, int nnodes, Oid *nodeIds, bool isMissingOK);
+static void AbortPreparedRxact(const char *gid, int nnodes, Oid *nodeIds, bool missing_ok);
+
+void
+RemoteXactCommit(int nnodes, Oid *nodeIds)
+{
+	if (!IsCoordMaster())
+		return ;
+
+	InterXactCommit(NULL, nodeIds, nnodes);
+	agtm_CommitTransaction(NULL, false);
+}
+
+void
+RemoteXactAbort(int nnodes, Oid *nodeIds, bool normal)
+{
+	if (!IsCoordMaster())
+		return ;
+
+	InterXactAbort(NULL, nodeIds, nnodes, !normal);
+	agtm_AbortTransaction(NULL, false, !normal);
+}
+
+/*
+ * StartFinishPreparedRxact
+ *
+ * It is used to record log in remote xact manager.
+ */
+void
+StartFinishPreparedRxact(const char *gid,
+						 int nnodes,
+						 Oid *nodeIds,
+						 bool isImplicit,
+						 bool isCommit)
+{
+	if (!IsCoordMaster())
+		return ;
+
+	if (IsConnFromRxactMgr())
+		return ;
+
+	AssertArg(gid && gid[0]);
+
+	/*
+	 * Record rollback prepared transaction log
+	 */
+	if (!isCommit)
+	{
+		RecordRemoteXact(gid, nodeIds, nnodes, RX_ROLLBACK);
+		return ;
+	}
+
+	/*
+	 * Remote xact manager has already recorded log
+	 * if it is implicit commit prepared transaction.
+	 *
+	 * See EndRemoteXactPrepare.
+	 */
+	if (!isImplicit)
+		RecordRemoteXact(gid, nodeIds, nnodes, RX_COMMIT);
+}
+
+/*
+ * EndFinishPreparedRxact
+ *
+ * Here we trully commit/rollback prepare remote xact.
+ */
+void
+EndFinishPreparedRxact(const char *gid,
+					   int nnodes,
+					   Oid *nodeIds,
+					   bool isMissingOK,
+					   bool isCommit)
+{
+	if (!IsCoordMaster())
+		return ;
+
+	if (IsConnFromRxactMgr())
+		return ;
+
+	AssertArg(gid && gid[0]);
+
+	if (isCommit)
+		CommitPreparedRxact(gid, nnodes, nodeIds, isMissingOK);
+	else
+		AbortPreparedRxact(gid, nnodes, nodeIds, isMissingOK);
+}
+
+static void
+CommitPreparedRxact(const char *gid,
+					int nnodes,
+					Oid *nodeIds,
+					bool isMissingOK)
+{
+	volatile bool fail_to_commit = false;
+
+	PG_TRY_HOLD();
+	{
+		/* Commit prepared on remote nodes */
+		InterXactCommit(gid, nodeIds, nnodes);
+
+		/* Commit prepared on AGTM */
+		agtm_CommitTransaction(gid, isMissingOK);
+	} PG_CATCH_HOLD();
+	{
+		AtAbort_Twophase();
+		/* Record failed log */
+		RecordRemoteXactFailed(gid, RX_COMMIT);
+		/* Discard error data */
+		errdump();
+		fail_to_commit = true;
+	} PG_END_TRY_HOLD();
+
+	/* Return if success */
+	if (!fail_to_commit)
+	{
+		/* Record success log */
+		RecordRemoteXactSuccess(gid, RX_COMMIT);
+		return ;
+	}
+
+	PG_TRY();
+	{
+		/* Fail to commit then wait for rxact to finish it */
+		RxactWaitGID(gid);
+	} PG_CATCH();
+	{
+		/*
+		 * Fail again and exit current process
+		 *
+		 * ADBQ:
+		 *		Does it cause crash of other processes?
+		 *		Are there some resources not be released?
+		 */
+		proc_exit(1);
+	} PG_END_TRY();
+}
+
+static void
+AbortPreparedRxact(const char *gid,
+				   int nnodes,
+				   Oid *nodeIds,
+				   bool isMissingOK)
+{
+	PG_TRY();
+	{
+		/* rollback prepared on remote nodes */
+		InterXactAbort(gid, nodeIds, nnodes, false);
+
+		/* rollback prepared on AGTM */
+		agtm_AbortTransaction(gid, isMissingOK, false);
+	} PG_CATCH();
+	{
+		/* Record FAILED log */
+		RecordRemoteXactFailed(gid, RX_ROLLBACK);
+		PG_RE_THROW();
+	} PG_END_TRY();
+
+	RecordRemoteXactSuccess(gid, RX_ROLLBACK);
 }

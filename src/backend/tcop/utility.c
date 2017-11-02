@@ -560,12 +560,14 @@ standard_ProcessUtility(Node *parsetree,
 					case TRANS_STMT_COMMIT_PREPARED:
 						PreventTransactionChain(isTopLevel, "COMMIT PREPARED");
 						PreventCommandDuringRecovery("COMMIT PREPARED");
-#if defined(ADB)
+#if defined(ADB) || defined(AGTM)
+#ifdef ADB
 						SetCurrentXactPhase2();
-						FinishPreparedTransactionExt(stmt->gid, true, false, stmt->missing_ok);
-						SetCurrentXactPhase1();
-#elif defined(AGTM)
+#endif
 						FinishPreparedTransactionExt(stmt->gid, true, stmt->missing_ok);
+#ifdef ADB
+						SetCurrentXactPhase1();
+#endif
 #else
 						FinishPreparedTransaction(stmt->gid, true);
 #endif
@@ -574,12 +576,14 @@ standard_ProcessUtility(Node *parsetree,
 					case TRANS_STMT_ROLLBACK_PREPARED:
 						PreventTransactionChain(isTopLevel, "ROLLBACK PREPARED");
 						PreventCommandDuringRecovery("ROLLBACK PREPARED");
-#if defined(ADB)
+#if defined(ADB) || defined(AGTM)
+#ifdef ADB
 						SetCurrentXactPhase2();
-						FinishPreparedTransactionExt(stmt->gid, false, false, stmt->missing_ok);
-						SetCurrentXactPhase1();
-#elif defined(AGTM)
+#endif
 						FinishPreparedTransactionExt(stmt->gid, false, stmt->missing_ok);
+#ifdef ADB
+						SetCurrentXactPhase1();
+#endif
 #else
 						FinishPreparedTransaction(stmt->gid, false);
 #endif
@@ -1515,8 +1519,8 @@ standard_ProcessUtility(Node *parsetree,
 			Assert(IS_PGXC_COORDINATOR);
 
 			if (!IsConnFromCoord())
-				ExecRemoteUtility((RemoteQuery *) parsetree);
-#ifdef INTER_XACT
+//				ExecRemoteUtility((RemoteQuery *) parsetree);
+#if defined(ADB) && defined(INTER_XACT)
 				ExecInterXactUtility((RemoteQuery *) parsetree, GetTopInterXactState());
 #endif
 			break;
@@ -2898,10 +2902,7 @@ ExecRemoteUtilityStmt(RemoteUtilityContext *context)
 	step->force_autocommit = context->force_autocommit;
 	step->exec_type = context->exec_type;
 	step->is_temp = context->is_temp;
-	ExecRemoteUtility(step);
-#ifdef INTER_XACT
 	(void) ExecInterXactUtility(step, GetTopInterXactState());
-#endif
 	pfree(step->sql_statement);
 	pfree(step);
 }

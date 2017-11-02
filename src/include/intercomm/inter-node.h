@@ -16,8 +16,9 @@ typedef enum
 
 typedef enum
 {
-	TYPE_CN_NODE	=	1,
-	TYPE_DN_NODE	=	2,
+	TYPE_CN_NODE		= 1 << 0,	/* coordinator node */
+	TYPE_DN_NODE		= 1 << 1,	/* datanode node */
+	TYPE_AGTM_NODE		= 1 << 2,	/* agtm node */
 } NodeType;
 
 typedef struct NodeHandle
@@ -34,20 +35,10 @@ typedef struct NodeHandle
 
 typedef struct NodeMixHandle
 {
-	NodeHandle	   *pr_handle;	/* primary NodeHandle */
-	List		   *handles;	/* list of NodeHandle */
+	NodeType			mix_types;	/* current mixed NodeType(s) */
+	NodeHandle		   *pr_handle;	/* primary NodeHandle */
+	List			   *handles;	/* list of NodeHandle */
 } NodeMixHandle;
-
-#if NOT_USED
-typedef struct NodeMixHandle
-{
-	int				cn_count;
-	int				dn_count;
-	NodeHandle	  **cn_handles;
-	NodeHandle	  **dn_handles;
-	NodeHandle	   *pr_handle;
-} NodeMixHandle;
-#endif
 
 extern void ResetNodeExecutor(void);
 extern void ReleaseNodeExecutor(void);
@@ -59,9 +50,6 @@ extern void HandleAttatchPGconn(NodeHandle *handle);
 extern void HandleDetachPGconn(NodeHandle *handle);
 extern void HandleReAttatchPGconn(NodeHandle *handle);
 extern NodeMixHandle *GetMixedHandles(const List *oid_list, void *context);
-#if NOT_USED
-extern NodeMixHandle *GetMixedHandles(List *cnlist, List *dnlist);
-#endif
 extern NodeMixHandle *GetAllHandles(void);
 extern NodeMixHandle *CopyMixhandle(NodeMixHandle *src);
 extern NodeMixHandle *ConcatMixHandle(NodeMixHandle *mix1, NodeMixHandle *mix2);

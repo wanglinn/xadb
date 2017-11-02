@@ -23,10 +23,12 @@ typedef struct InterXactStateData
 	MemoryContext			context;
 	StringInfo				error;
 	IBlockState				block_state;		/* IBlockState of inter transaction */
+	CombineType				combine_type;
 	char				   *gid;
 	bool					missing_ok;
 	bool					hastmp;
 	bool					implicit;
+	bool					ignore_error;
 	bool					need_xact_block;
 	struct NodeMixHandle   *mix_handle;			/* "mix_handle" is current NodeMixHandle depends
 												 * on oid list input, just for one query in the
@@ -37,7 +39,7 @@ typedef struct InterXactStateData
 
 typedef InterXactStateData *InterXactState;
 
-#define IsAbortBlockState(state)	(((InterXactState) (state))->block_state == IBLOCK_ABORT)
+#define IsAbortBlockState(state)	(((InterXactState) (state))->block_state & IBLOCK_ABORT)
 
 extern bool IsTwoPhaseCommitNeeded(void);
 extern const char *GetTopInterXactGID(void);
@@ -58,6 +60,11 @@ extern void InterXactBegin(InterXactState state);
 extern void InterXactQuery(InterXactState state, Snapshot snapshot, const char *query, StringInfo query_tree);
 extern void InterXactPrepare(const char *gid, Oid *nodes, int nnodes);
 extern void InterXactCommit(const char *gid, Oid *nodes, int nnodes);
-extern void InterXactAbort(const char *gid, Oid *nodes, int nnodes);
+extern void InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool ignore_error);
 
+extern void RemoteXactCommit(int nnodes, Oid *nodeIds);
+extern void RemoteXactAbort(int nnodes, Oid *nodeIds, bool normal);
+extern void StartFinishPreparedRxact(const char *gid, int nnodes, Oid *nodeIds, bool isImplicit, bool isCommit);
+extern void EndFinishPreparedRxact(const char *gid, int nnodes, Oid *nodeIds, bool isMissingOK, bool isCommit);
+/* src/backend/intercomm/inter-query.c */
 #endif /* INTER_COMM_H */

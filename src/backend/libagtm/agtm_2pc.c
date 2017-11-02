@@ -337,7 +337,7 @@ void agtm_CommitTransaction(const char *prepared_gid, bool missing_ok)
 	SetTopXactBeginAGTM(false);
 }
 
-void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok)
+void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok, bool ignore_error)
 {
 	StringInfoData abort_cmd;
 
@@ -383,7 +383,10 @@ void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok)
 			agtm_Close();
 			SetTopXactBeginAGTM(false);
 		}
-		PG_RE_THROW();
+		if (ignore_error)
+			errdump();
+		else
+			PG_RE_THROW();
 	} PG_END_TRY();
 
 	pfree(abort_cmd.data);

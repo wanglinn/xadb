@@ -28,7 +28,7 @@
 							  IsUnderPostmaster &&						\
 							  IsNormalDatabase() &&						\
 							  IsNormalProcessingMode())
-							  
+
 /* Type of sequence name used when dropping it */
 typedef enum AGTM_SequenceKeyType
 {
@@ -160,7 +160,7 @@ extern void agtm_CommitTransaction(const char *prepared_gid, bool missing_ok);
 /*
  * rollback transacton on AGTM
  */
-extern void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok);
+extern void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok, bool ignore_error);
 
 /*
  * create/drop/alter sequence on agtm
@@ -187,7 +187,7 @@ extern void agtm_Schema(const char *dmlSchema);
  */
 extern void agtm_User(const char *dmlUser);
 
-/* 
+/*
  * process command
  */
 void ProcessAGtmCommand(StringInfo input_message, CommandDest dest);

@@ -43,15 +43,18 @@ extern uint32 PGXCNodeIdentifier;
 extern Datum xc_lockForBackupKey1;
 extern Datum xc_lockForBackupKey2;
 
-#define IS_PGXC_COORDINATOR isPGXCCoordinator
-#define IS_PGXC_DATANODE isPGXCDataNode
-#define REMOTE_CONN_TYPE remoteConnType
-#define IS_ADBLOADER isADBLoader
+#define IS_PGXC_COORDINATOR		isPGXCCoordinator
+#define IS_PGXC_DATANODE		isPGXCDataNode
+#define REMOTE_CONN_TYPE		remoteConnType
+#define IS_ADBLOADER			isADBLoader
 
-#define IsConnFromApp()         (remoteConnType == REMOTE_CONN_APP)
-#define IsConnFromCoord()       (remoteConnType == REMOTE_CONN_COORD)
-#define IsConnFromDatanode()    (remoteConnType == REMOTE_CONN_DATANODE)
-#define IsConnFromRxactMgr()    (remoteConnType == REMOTE_CONN_RXACTMGR)
+#define IsConnFromApp()			(remoteConnType == REMOTE_CONN_APP)
+#define IsConnFromCoord()		(remoteConnType == REMOTE_CONN_COORD)
+#define IsConnFromDatanode()	(remoteConnType == REMOTE_CONN_DATANODE)
+#define IsConnFromRxactMgr()	(remoteConnType == REMOTE_CONN_RXACTMGR)
+
+#define IsCoordMaster()			(IS_PGXC_COORDINATOR && !IsConnFromCoord())
+#define IsCoordCandidate()		(IS_PGXC_COORDINATOR && IsConnFromCoord())
 
 #define IsCoordMaster()			(IS_PGXC_COORDINATOR && !IsConnFromCoord())
 #define IsCoordCandidate()		(IS_PGXC_COORDINATOR && IsConnFromCoord())
