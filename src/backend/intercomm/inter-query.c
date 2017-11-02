@@ -38,7 +38,7 @@
 
 typedef struct RemoteQueryContext
 {
-	PlanState		   *ps;
+	RemoteQueryState   *node;
 	TupleTableSlot	   *slot;
 } RemoteQueryContext;
 
@@ -47,6 +47,7 @@ static TupleTableSlot *InterXactQuery(InterXactState state, RemoteQueryState *no
 static bool HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node);
 static PGconn *HandleGetPGconn(void *handle);
 static bool RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
+static TupleDesc CreateRemoteTupleDesc(const char *msg, int len);
 
 static List *
 RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes)
@@ -425,7 +426,7 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 		return NULL;
 
 	handle_list = node->cur_handles;
-	context.ps = &(node->ss.ps);
+	context.node = node;
 	context.slot = slot;
 
 	PQNListExecFinish(handle_list, HandleGetPGconn, RemoteQueryFinishHook, &context, true);
@@ -441,7 +442,7 @@ HandleGetRemoteSlot(NodeHandle *handle, TupleTableSlot *slot, RemoteQueryState *
 	if (!handle || !slot)
 		return NULL;
 
-	context.ps = &(node->ss.ps);
+	context.node = node;
 	context.slot = slot;
 	ExecClearTuple(slot);
 
@@ -461,13 +462,28 @@ RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type,
 			return PQNEFHNormal(NULL, conn, type);
 		case PQNHFT_COPY_OUT_DATA:
 			{
-				int			len;
-				const char *buf;
+				int				len;
+				const char		*buf;
+				RemoteQueryState*node;
+				TupleTableSlot	*slot;
+				PlanState		*ps;
+
 				va_start(args, type);
 				buf = va_arg(args, const char*);
 				len = va_arg(args, int);
-				if(clusterRecvTuple(((RemoteQueryContext*)context)->slot, buf, len,
-									((RemoteQueryContext*)context)->ps, conn))
+
+				node = ((RemoteQueryContext*)context)->node;
+				slot = ((RemoteQueryContext*)context)->slot;
+				ps = &(node->ss.ps);
+				if (*buf == CLUSTER_MSG_TUPLE_DESC)
+				{
+					if (node->description_count++ == 0)
+					{
+						ExecSetSlotDescriptor(slot,
+									CreateRemoteTupleDesc(buf, len));
+					}
+				} else
+				if(clusterRecvTuple(slot, buf, len, ps, conn))
 				{
 					va_end(args);
 					return true;
@@ -498,6 +514,43 @@ RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type,
 			break;
 	}
 	return false;
+}
+
+static TupleDesc
+CreateRemoteTupleDesc(const char *msg, int len)
+{
+	StringInfoData	buf;
+	TupleDesc		desc;
+	int				i, natts;
+	Oid				atttypid;
+	char		   *attname;
+	int32			atttypmod;
+	int32			attndims;
+
+	Assert(msg[0] == CLUSTER_MSG_TUPLE_DESC);
+	natts = *(int *) &(msg[2]);
+	desc = CreateTemplateTupleDesc(natts, (bool) msg[1]);
+
+	buf.data = (char *) msg;
+	buf.len = buf.maxlen = len;
+	buf.cursor = 6;
+	for (i = 1; i <= natts; i++)
+	{
+		/* attname */
+		attname = load_node_string(&buf, false);
+		/* atttypmod */
+		atttypmod = *(int32 *)(buf.data + buf.cursor);
+		buf.cursor += sizeof(atttypmod);
+		/* attndims */
+		attndims = *(int32 *)(buf.data + buf.cursor);
+		buf.cursor += sizeof(attndims);
+		/* atttypid */
+		atttypid = load_oid_type(&buf);
+
+		TupleDescInitEntry(desc, (AttrNumber) i, attname, atttypid, atttypmod, attndims);
+	}
+
+	return desc;
 }
 
 void

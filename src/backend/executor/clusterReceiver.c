@@ -372,13 +372,29 @@ void serialize_command_id(StringInfo buf, CommandId cid)
 void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
 {
 	int i;
+	char *attname;
+	int32 atttypmod;
+	int32 attndims;
+
 	AssertArg(buf && desc);
 
 	appendStringInfoChar(buf, msg_type);
 	appendStringInfoChar(buf, desc->tdhasoid);
 	appendBinaryStringInfo(buf, (char*)&(desc->natts), sizeof(desc->natts));
 	for(i=0;i<desc->natts;++i)
+	{
+		/* attname */
+		attname = NameStr(desc->attrs[i]->attname);
+		save_node_string(buf, attname);
+		/* atttypmod */
+		atttypmod = desc->attrs[i]->atttypmod;
+		appendBinaryStringInfo(buf, (const char *) &atttypmod, sizeof(atttypmod));
+		/* attndims */
+		attndims = desc->attrs[i]->attndims;
+		appendBinaryStringInfo(buf, (const char *) &attndims, sizeof(attndims));
+		/* save oid type */
 		save_oid_type(buf, desc->attrs[i]->atttypid);
+	}
 }
 
 void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
@@ -415,6 +431,13 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 	buf.cursor = (sizeof(bool)+sizeof(int));
 	for(i=0;i<desc->natts;++i)
 	{
+		/* attname ignore */
+		(void) load_node_string(&buf, false);
+		/* atttypmod ignore */
+		buf.cursor += sizeof(int32);
+		/* attndims */
+		buf.cursor += sizeof(int32);
+		/* load oid type */
 		oid = load_oid_type(&buf);
 		if(oid != desc->attrs[i]->atttypid)
 		{
@@ -432,6 +455,9 @@ TupleDesc restore_slot_head_message(const char *msg, int len)
 	StringInfoData buf;
 	int i;
 	Oid oid;
+	const char *attributeName;
+	int32 typmod;
+	int attdim;
 
 	if(len < (sizeof(bool) + sizeof(int)))
 	{
@@ -449,13 +475,20 @@ TupleDesc restore_slot_head_message(const char *msg, int len)
 	buf.cursor = (sizeof(bool)+sizeof(int));
 	for(i=0;i<desc->natts;++i)
 	{
+		/* attname ignore */
+		attributeName = load_node_string(&buf, false);
+		/* atttypmod ignore */
+		pq_copymsgbytes(&buf, (char *) &typmod, sizeof(typmod));
+		/* attndims */
+		pq_copymsgbytes(&buf, (char *) &attdim, sizeof(attdim));
+		/* load oid type */
 		oid = load_oid_type(&buf);
 		TupleDescInitEntry(desc,
 						   i,
-						   NULL,
+						   attributeName,
 						   oid,
-						   -1,
-						   0);
+						   typmod,
+						   attdim);
 	}
 	return desc;
 }

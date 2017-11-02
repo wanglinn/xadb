@@ -10,6 +10,7 @@
 #define CLUSTER_MSG_INSTRUMENT		'I'
 #define CLUSTER_MSG_PROCESSED		'P'
 #define CLUSTER_MSG_RDC_PORT		'p'
+#define CLUSTER_MSG_COMMAND_ID		'M'
 
 struct pg_conn;
 
