@@ -3,6 +3,7 @@
 
 #include "access/htup_details.h"
 #include "access/tupdesc.h"
+#include "access/tuptoaster.h"
 #include "access/tuptypeconvert.h"
 #include "access/xact.h"
 #include "nodes/execnodes.h"
@@ -496,12 +497,79 @@ TupleDesc restore_slot_head_message(const char *msg, int len)
 void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char msg_type)
 {
 	MinimalTuple tup;
+	TupleDesc desc;
+	int i;
+	bool have_external;
+	bool need_free_tup;
 	AssertArg(buf && !TupIsNull(slot));
 
-	tup = ExecFetchSlotMinimalTuple(slot);
+	slot_getallattrs(slot);
+	have_external = false;
+	desc = slot->tts_tupleDescriptor;
+	for(i=desc->natts;(--i)>=0;)
+	{
+		Form_pg_attribute attr=desc->attrs[i];
+		if (slot->tts_isnull[i] == false &&
+			attr->attlen == -1 &&
+			attr->attbyval == false &&
+			VARATT_IS_EXTERNAL(DatumGetPointer(slot->tts_values[i])))
+		{
+			/* bytea */
+			have_external = true;
+			break;
+		}
+	}
+
+	if(have_external)
+	{
+		MemoryContext old_context = MemoryContextSwitchTo(slot->tts_mcxt);
+		Datum *values = palloc(sizeof(Datum) * desc->natts);
+		for(i=desc->natts;(--i)>=0;)
+		{
+			Form_pg_attribute attr = desc->attrs[i];
+			if (slot->tts_isnull[i] == false &&
+				attr->attlen == -1 &&
+				attr->attbyval == false &&
+				VARATT_IS_EXTERNAL(DatumGetPointer(slot->tts_values[i])))
+			{
+				values[i] = PointerGetDatum(heap_tuple_fetch_attr((struct varlena *)DatumGetPointer(slot->tts_values[i])));
+#ifdef NOT_USED
+				/* try compress it */
+				if(!VARATT_IS_COMPRESSED(DatumGetPointer(values[i])))
+				{
+					Datum tmp = toast_compress_datum(values[i]);
+					if(tmp)
+					{
+						pfree(DatumGetPointer(values[i]));
+						values[i] = tmp;
+					}
+				}
+#endif /* NOT_USED */
+			}else
+			{
+				values[i] = slot->tts_values[i];
+			}
+		}
+		tup = heap_form_minimal_tuple(desc, values, slot->tts_isnull);
+		for(i=desc->natts;(--i)>=0;)
+		{
+			if(values[i] != slot->tts_values[i])
+				pfree(DatumGetPointer(values[i]));
+		}
+		pfree(values);
+		MemoryContextSwitchTo(old_context);
+		need_free_tup = true;
+	}else
+	{
+		tup = ExecFetchSlotMinimalTuple(slot);
+		need_free_tup = false;
+	}
+
 	appendStringInfoChar(buf, msg_type);
 	appendBinaryStringInfo(buf, (char*)&(tup->t_infomask2),
 						   tup->t_len - offsetof(MinimalTupleData, t_infomask2));
+	if(need_free_tup)
+		pfree(tup);
 }
 
 TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *slot)
