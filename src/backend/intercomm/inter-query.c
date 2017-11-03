@@ -617,8 +617,6 @@ RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type,
 	{
 		case PQNHFT_ERROR:
 			return PQNEFHNormal(NULL, conn, type);
-		case PQNHFT_ASYNC_STATUS:
-			break;
 		case PQNHFT_COPY_OUT_DATA:
 			{
 				int				len;

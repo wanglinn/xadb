@@ -40,8 +40,7 @@ typedef struct RemoteCopyContext
 static NodeHandle*LookupNodeHandle(List *handle_list, Oid node_id);
 static void HandleCopyOutRow(RemoteCopyState *node, char *buf, int len);
 static int HandleStartRemoteCopy(NodeHandle *handle, CommandId cmid, Snapshot snap, const char *copy_query);
-static bool HandleRecvCopyOK(NodeHandle *handle);
-static bool StartCopyOKHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
+static bool HandleRecvCopyResult(NodeHandle *handle);
 static void FetchRemoteCopyRow(RemoteCopyState *node, StringInfo row);
 static bool FetchCopyRowHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 
@@ -377,72 +376,41 @@ static int
 HandleStartRemoteCopy(NodeHandle *handle, CommandId cmid, Snapshot snap, const char *copy_query)
 {
 	if (!HandleSendQueryTree(handle, cmid, snap, copy_query, NULL) ||
-		!HandleRecvCopyOK(handle))
+		!HandleRecvCopyResult(handle))
 		return 0;
 
 	return 1;
 }
 
 /*
- * HandleRecvCopyOK
+ * HandleRecvCopyResult
  *
- * Wait for receive COPY response
+ * Wait for receiving correct COPY response synchronously
  *
+ * return true if OK
+ * return false if trouble
  */
 static bool
-HandleRecvCopyOK(NodeHandle *handle)
+HandleRecvCopyResult(NodeHandle *handle)
 {
 	bool copy_start_ok = false;
+	PGresult *res = NULL;
 
 	Assert(handle && handle->node_conn);
-
-	(void) PQNOneExecFinish(handle->node_conn, StartCopyOKHook, &copy_start_ok, true);
-
-	return copy_start_ok;
-}
-
-static bool
-StartCopyOKHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
-{
-	va_list args;
-	switch(type)
+	res = PQgetResult(handle->node_conn);
+	switch (PQresultStatus(res))
 	{
-		case PQNHFT_ERROR:
-			return PQNEFHNormal(NULL, conn, type);
-		case PQNHFT_ASYNC_STATUS:
-			if (conn->asyncStatus == PGASYNC_COPY_IN ||
-				conn->asyncStatus == PGASYNC_COPY_OUT ||
-				conn->asyncStatus == PGASYNC_COPY_BOTH)
-			{
-				*(bool *) context = true;
-				return true;
-			}
-			break;
-		case PQNHFT_COPY_OUT_DATA:
-		case PQNHFT_COPY_IN_ONLY:
-			break;
-		case PQNHFT_RESULT:
-			{
-				PGresult	   *res;
-				ExecStatusType	status;
-
-				va_start(args, type);
-				res = va_arg(args, PGresult*);
-				if(res)
-				{
-					status = PQresultStatus(res);
-					if(status == PGRES_FATAL_ERROR)
-						PQNReportResultError(res, conn, ERROR, true);
-					else if(status == PGRES_COPY_IN)
-						PQputCopyEnd(conn, NULL);
-				}
-				va_end(args);
-			}
+		case PGRES_COPY_OUT:
+		case PGRES_COPY_IN:
+		case PGRES_COPY_BOTH:
+			copy_start_ok = true;
 			break;
 		default:
 			break;
 	}
-	return false;
+	PQclear(res);
+
+	return copy_start_ok;
 }
 
 /*
@@ -475,8 +443,6 @@ FetchCopyRowHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
 	{
 		case PQNHFT_ERROR:
 			return PQNEFHNormal(NULL, conn, type);
-		case PQNHFT_ASYNC_STATUS:
-			break;
 		case PQNHFT_COPY_OUT_DATA:
 			{
 				StringInfo	row = (StringInfo) context;
