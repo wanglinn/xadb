@@ -15,6 +15,7 @@
 #include "optimizer/var.h"
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
+#include "optimizer/tlist.h"
 #include "parser/parser.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_oper.h"
@@ -1778,6 +1779,45 @@ bool CanOnceDistinctReduceInfo(List *distinct, ReduceInfo *reduce_info)
 	}
 
 	return true;
+}
+
+bool CanOnceWindowAggClusterPath(WindowClause *wclause, List *tlist, Path *path)
+{
+	List *reduce_list;
+	ListCell *lc;
+	Expr *expr;
+
+	reduce_list = get_reduce_info_list(path);
+	Assert(reduce_list != NIL);
+	if (IsReduceInfoListCoordinator(reduce_list) ||
+		IsReduceInfoListInOneNode(reduce_list))
+		return true;
+	if (IsReduceInfoListByValue(reduce_list) == false ||
+		wclause->partitionClause == NIL)
+		return false;
+
+	foreach(lc, wclause->partitionClause)
+	{
+		expr = (Expr*)get_sortgroupclause_expr(lfirst(lc), tlist);
+		while(IsA(expr, RelabelType))
+			expr = ((RelabelType *) expr)->arg;
+		if(ReduceInfoListIncludeExpr(reduce_list, expr))
+			return true;
+	}
+
+	return false;
+}
+
+bool HaveOnceWindowAggClusterPath(List *wclauses, List *tlist, Path *path)
+{
+	ListCell *lc;
+	foreach(lc, wclauses)
+	{
+		if(CanOnceWindowAggClusterPath(lfirst(lc), tlist, path))
+			return true;
+	}
+
+	return false;
 }
 
 Var *makeVarByRel(AttrNumber attno, Oid rel_oid, Index rel_index)

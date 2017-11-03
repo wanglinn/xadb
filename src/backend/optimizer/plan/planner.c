@@ -131,6 +131,17 @@ typedef struct CreateGrupingPathsContext
 	bool			can_gather;
 }CreateGrupingPathsContext;
 
+typedef struct CreateWindowAggPathContext
+{
+	RelOptInfo	   *window_rel;
+	PathTarget	   *window_target;
+	List		   *tlist;
+	WindowFuncLists *wflists;
+	WindowClause   *wclause;
+	List		   *window_pathkeys;
+	Path		   *new_path;
+}CreateWindowAggPathContext;
+
 #endif /* ADB */
 
 /* Passthrough data for standard_qp_callback */
@@ -213,6 +224,18 @@ static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms);
 static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *context);
 static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *context);
 static bool replace_replicate_reduce(Path *path, List *reduce_replicate);
+static void create_cluster_window_path(PlannerInfo *root,
+									   RelOptInfo *window_rel,
+									   Path *path,
+									   PathTarget *input_target,
+									   PathTarget *output_target,
+									   List *tlist,
+									   WindowFuncLists *wflists,
+									   List *activeWindows);
+static int create_cluster_window_internal(PlannerInfo *root, Path *path, void *context);
+static PathTarget* update_window_target(PathTarget *input_target,
+										WindowFuncLists *wflists,
+										WindowClause *wc);
 #endif
 
 
@@ -4658,6 +4681,24 @@ create_window_paths(PlannerInfo *root,
 								   wflists,
 								   activeWindows);
 	}
+#ifdef ADB
+	foreach(lc, input_rel->cluster_pathlist)
+	{
+		Path	   *path = (Path *) lfirst(lc);
+
+		if (path == input_rel->cheapest_cluster_total_path ||
+			pathkeys_contained_in(root->window_pathkeys, path->pathkeys) ||
+			HaveOnceWindowAggClusterPath(activeWindows, tlist, path))
+			create_cluster_window_path(root,
+									   window_rel,
+									   path,
+									   input_target,
+									   output_target,
+									   tlist,
+									   wflists,
+									   activeWindows);
+	}
+#endif /* ADB */
 
 	/*
 	 * If there is an FDW that's responsible for all baserels of the query,
@@ -4741,6 +4782,9 @@ create_one_window_path(PlannerInfo *root,
 
 		if (lnext(l))
 		{
+#ifdef ADB
+			window_target = update_window_target(window_target, wflists, wc);
+#else
 			/*
 			 * Add the current WindowFuncs to the output target for this
 			 * intermediate WindowAggPath.  We must copy window_target to
@@ -4760,6 +4804,7 @@ create_one_window_path(PlannerInfo *root,
 				add_column_to_pathtarget(window_target, (Expr *) wfunc, 0);
 				window_target->width += get_typavgwidth(wfunc->wintype, -1);
 			}
+#endif /* ADB */
 		}
 		else
 		{
@@ -4776,6 +4821,253 @@ create_one_window_path(PlannerInfo *root,
 
 	add_path(window_rel, path);
 }
+
+#ifdef ADB
+static void create_cluster_window_path(PlannerInfo *root,
+									   RelOptInfo *window_rel,
+									   Path *path,
+									   PathTarget *input_target,
+									   PathTarget *output_target,
+									   List *tlist,
+									   WindowFuncLists *wflists,
+									   List *activeWindows)
+{
+	WindowClause *wc;
+	ListCell   *lc;
+	List	   *coord_list = NIL;
+	List	   *partition_list = NIL;
+	List	   *storage;
+	List	   *exclude;
+
+	CreateWindowAggPathContext context;
+
+	context.window_rel = window_rel;
+	context.window_target = input_target;
+	context.tlist = tlist;
+	context.wflists = wflists;
+
+
+	foreach(lc, activeWindows)
+	{
+		wc = lfirst(lc);
+		if(PATH_REQ_OUTER(path))
+		{
+			coord_list = lappend(coord_list, wc);
+		}else if(CanOnceWindowAggClusterPath(wc, tlist, path))
+		{
+			context.window_pathkeys = make_pathkeys_for_window(root, wc, tlist);
+			context.new_path = NULL;
+			context.wclause = wc;
+			if (lnext(lc) ||
+				coord_list ||
+				partition_list)
+				context.window_target = update_window_target(context.window_target, wflists, wc);
+			else
+				context.window_target = output_target;
+
+			create_cluster_window_internal(root, path, &context);
+
+			Assert(context.new_path != NULL);
+			path = context.new_path;
+		}else if(wc->partitionClause)
+		{
+			partition_list = lappend(partition_list, wc);
+		}else
+		{
+			coord_list = lappend(coord_list, wc);
+		}
+	}
+
+	if (partition_list == NIL &&
+		coord_list == NIL)
+	{
+		add_cluster_path(window_rel, path);
+		return;
+	}
+
+	ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(path),
+											  &storage,
+											  &exclude);
+
+	if(partition_list)
+	{
+		ListCell *lc2;
+		Path *modulo_path;
+		Path *hash_path;
+		PathTarget *saved_target;
+
+		hash_path = modulo_path = path;
+
+		foreach(lc, partition_list)
+		{
+			bool generate_hash = false;
+			bool generate_modulo = false;
+			wc = lfirst(lc);
+
+			context.window_pathkeys = make_pathkeys_for_window(root, wc, tlist);
+			context.wclause = wc;
+			saved_target = context.window_target;
+			if(coord_list || lnext(lc))
+				context.window_target = update_window_target(saved_target, wflists, wc);
+			else
+				context.window_target = output_target;
+
+			foreach(lc2, wc->partitionClause)
+			{
+				Expr *expr = (Expr*)get_sortgroupclause_expr(lfirst(lc2), tlist);
+				Oid oid = exprType((Node*)expr);
+
+				if(generate_modulo == false && modulo_path && CanModuloType(oid, true))
+				{
+					context.new_path = NULL;
+					ModuloPathByExpr(expr, root, window_rel, modulo_path, storage, exclude, create_cluster_window_internal, &context);
+					if(context.new_path)
+					{
+						modulo_path = context.new_path;
+						generate_modulo = true;
+					}
+				}
+				if(generate_hash==false && hash_path && IsTypeDistributable(oid))
+				{
+					context.new_path = NULL;
+					HashPathByExpr(expr, root, window_rel, hash_path, storage, exclude, create_cluster_window_internal, &context);
+					if(context.new_path)
+					{
+						hash_path = context.new_path;
+						generate_hash = true;
+					}
+				}
+				if(generate_modulo && generate_hash)
+					break;
+			}
+			if(generate_modulo == false && generate_hash == false)
+			{
+				context.window_target = saved_target;
+				for(;lc!=NULL;lc=lnext(lc))
+					coord_list = lappend(coord_list, lfirst(lc));
+				break;
+			}else if(generate_modulo == false)
+			{
+				modulo_path = NULL;
+			}else if(generate_hash == false)
+			{
+				hash_path = NULL;
+			}
+		}
+
+		if(hash_path && modulo_path)
+		{
+			if(coord_list == NIL)
+			{
+				add_cluster_path(window_rel, hash_path);
+				if(hash_path != modulo_path)
+					add_cluster_path(window_rel, modulo_path);
+				return;
+			}else if(hash_path != modulo_path)
+			{
+				if(compare_path_costs(hash_path, modulo_path, TOTAL_COST) > 0)
+					path = modulo_path;
+				else
+					path = hash_path;
+			}else
+			{
+				path = hash_path;
+			}
+		}else if(hash_path)
+		{
+			path = hash_path;
+		}else
+		{
+			Assert(modulo_path);
+			path = modulo_path;
+		}
+	}
+
+	if(coord_list)
+	{
+		if(root->parent_root == NULL)
+			path = (Path*)create_cluster_gather_path(path, window_rel);
+		else
+			path = create_cluster_reduce_path(root, path, list_make1(MakeCoordinatorReduceInfo()), window_rel, NIL);
+
+		foreach(lc, coord_list)
+		{
+			wc = lfirst(lc);
+
+			context.window_pathkeys = make_pathkeys_for_window(root, wc, tlist);
+			context.wclause = wc;
+			context.new_path = NULL;
+			if(lnext(lc))
+				context.window_target = update_window_target(context.window_target, wflists, wc);
+			else
+				context.window_target = output_target;
+			create_cluster_window_internal(root, path, &context);
+			Assert(context.new_path);
+			path = context.new_path;
+		}
+	}
+
+	add_cluster_path(window_rel, path);
+}
+
+static PathTarget* update_window_target(PathTarget *input_target,
+										WindowFuncLists *wflists,
+										WindowClause *wc)
+{
+	/*
+	 * Add the current WindowFuncs to the output target for this
+	 * intermediate WindowAggPath.  We must copy window_target to
+	 * avoid changing the previous path's target.
+	 *
+	 * Note: a WindowFunc adds nothing to the target's eval costs; but
+	 * we do need to account for the increase in tlist width.
+	 */
+	ListCell   *lc2;
+
+	PathTarget* window_target = copy_pathtarget(input_target);
+	foreach(lc2, wflists->windowFuncs[wc->winref])
+	{
+		WindowFunc *wfunc = (WindowFunc *) lfirst(lc2);
+
+		Assert(IsA(wfunc, WindowFunc));
+		add_column_to_pathtarget(window_target, (Expr *) wfunc, 0);
+		window_target->width += get_typavgwidth(wfunc->wintype, -1);
+	}
+
+	return window_target;
+}
+
+static int create_cluster_window_internal(PlannerInfo *root, Path *path, void *context)
+{
+	CreateWindowAggPathContext *wcontext = (CreateWindowAggPathContext*)context;
+
+	if(!pathkeys_contained_in(wcontext->window_pathkeys, path->pathkeys))
+	{
+		path = (Path*)create_sort_path(root,
+									   wcontext->window_rel,
+									   path,
+									   wcontext->window_pathkeys,
+									   -1.0);
+	}
+
+	path = (Path*)create_windowagg_path(root,
+										wcontext->window_rel,
+										path,
+										wcontext->window_target,
+										wcontext->wflists->windowFuncs[wcontext->wclause->winref],
+										wcontext->wclause,
+										wcontext->window_pathkeys);
+
+	if (wcontext->new_path == NULL ||
+		compare_path_costs(wcontext->new_path, path, TOTAL_COST) > 0)
+		wcontext->new_path = path;
+	else
+		pfree(path);
+
+	return 0;
+}
+
+#endif /* ADB */
 
 /*
  * create_distinct_paths

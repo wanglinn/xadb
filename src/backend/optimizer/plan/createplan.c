@@ -6809,6 +6809,7 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 	case T_Path:
 	case T_IndexPath:
 	case T_UniquePath:
+	case T_WindowAggPath:
 		path->reduce_info_list = *pplist;
 		path->reduce_is_valid = true;
 		break;

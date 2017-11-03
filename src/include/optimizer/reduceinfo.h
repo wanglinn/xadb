@@ -194,6 +194,8 @@ extern bool reduce_info_list_can_join(List *outer_reduce_list,
 extern bool CanOnceGroupingClusterPath(PathTarget *target, Path *path);
 extern bool CanOnceDistinctReduceInfoList(List *distinct, List *reduce_list);
 extern bool CanOnceDistinctReduceInfo(List *distinct, ReduceInfo *reduce_info);
+extern bool CanOnceWindowAggClusterPath(WindowClause *wclause, List *tlist, Path *path);
+extern bool HaveOnceWindowAggClusterPath(List *wclauses, List *tlist, Path *path);
 
 extern Var *makeVarByRel(AttrNumber attno, Oid rel_oid, Index rel_index);
 extern Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce);
