@@ -20,7 +20,7 @@ typedef struct ClusterRecvState
 	TupleTableSlot *convert_slot;
 	struct TupleTypeConvert *convert;
 	PlanState *ps;
-	bool convert_slot_is_signal;
+	bool convert_slot_is_single;
 }ClusterRecvState;
 
 extern DestReceiver *createClusterReceiver(void);

@@ -32,7 +32,6 @@
 #include "tcop/pquery.h"
 #include "utils/snapshot.h"
 
-
 /* GUC parameters */
 extern bool EnforceTwoPhaseCommit;
 extern bool RequirePKeyForRepTab;
@@ -92,6 +91,8 @@ typedef struct RemoteQueryState
 	List	   *cur_handles;			/* current participating nodes */
 	List	   *all_handles;			/* all participating nodes */
 	TupleTableSlot *nextSlot;			/* used to keep next scan slot */
+	TupleTableSlot *convertSlot;		/* used to convert scan slot if needed */
+	struct ClusterRecvState *recvState;		/* used to convert scan slot if needed */
 	int			node_count;				/* total count of participating nodes */
 	PGXCNodeHandle **connections;		/* Datanode connections being combined */
 	int			conn_count;				/* count of active connections */

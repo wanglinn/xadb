@@ -151,7 +151,7 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 			}else
 			{
 				state->convert_slot = MakeSingleTupleTableSlot(desc);
-				state->convert_slot_is_signal = true;
+				state->convert_slot_is_single = true;
 			}
 			state->convert = create_type_convert(state->base_slot->tts_tupleDescriptor,
 												 false,
@@ -330,7 +330,7 @@ void freeClusterRecvState(ClusterRecvState *state)
 {
 	if(state)
 	{
-		if(state->convert_slot_is_signal && state->convert_slot)
+		if(state->convert_slot_is_single && state->convert_slot)
 			ExecDropSingleTupleTableSlot(state->convert_slot);
 		if(state->convert)
 			free_type_convert(state->convert);

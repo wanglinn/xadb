@@ -150,7 +150,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 		crstate->eof_network = true;
 
 	/*
-	 * This time don't connect Reduce subprocess.
+	 * Do not connect Reduce subprocess at this time.
 	 */
 	if (!(eflags & (EXEC_FLAG_EXPLAIN_ONLY | EXEC_FLAG_IN_SUBPLAN)))
 		ExecInitClusterReduceStateExtra(crstate);

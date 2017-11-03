@@ -18,6 +18,7 @@
 
 #include "access/heapam.h"
 #include "access/relscan.h"
+#include "access/tuptypeconvert.h"
 #include "access/xact.h"
 #include "access/xlog.h"
 #include "agtm/agtm.h"
@@ -504,7 +505,7 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 {
 	RemoteQueryState   *node;
 	TupleTableSlot	   *slot;
-	TupleTableSlot	   *tmpSlot;
+	TupleTableSlot	   *baseSlot;
 	TupleTableSlot	   *scanSlot;
 	TupleTableSlot	   *nextSlot;
 	PlanState		   *ps;
@@ -527,26 +528,64 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 
 	switch (buf[0])
 	{
+		/*
+		 * Tuple description of scan slot of RemoteQueryState may be not set
+		 * correctly when ExecInitRemoteQuery, such as, select count(1) from x.
+		 *
+		 * so, we are care about tuple description message from other node and
+		 * reset it at right time. nextSlot is the same.
+		 */
 		case CLUSTER_MSG_TUPLE_DESC:
 			if (node->description_count++ == 0)
 			{
 				TupleDesc desc = CreateRemoteTupleDesc(slot->tts_mcxt, buf, len);
 				ExecSetSlotDescriptor(slot, desc);
 				if (slot == scanSlot)
+				{
 					ExecSetSlotDescriptor(nextSlot, desc);
+
+					/* construct cluster receive state */
+					Assert(node->recvState && !node->recvState->convert);
+					node->recvState->convert = create_type_convert(slot->tts_tupleDescriptor, false, true);
+					if (node->recvState->convert)
+					{
+						node->recvState->convert_slot = node->convertSlot;
+						/*
+						 * Make a copy of descriptor of convert to avoid
+						 * function ReleaseTupleDesc release twice.
+						 */
+						ExecSetSlotDescriptor(node->convertSlot,
+											  CreateTupleDescCopy(node->recvState->convert->out_desc));
+					}
+				}
+			} else
+			{
+				/* TODO: check tuple desc of other datanodes returned */
 			}
 			break;
+		case CLUSTER_MSG_CONVERT_DESC:
+			{
+				Assert(node->recvState);
+				if (!node->recvState->convert || !node->recvState->convert_slot)
+					ereport(ERROR,
+							(errmsg("It is not sane when we got convert tuple description "
+									"but convert was not set.")));
+			}
 		default:
 			{
+				Assert(node->recvState);
 				ExecClearTuple(nextSlot);
-				tmpSlot = slot;
+
+				node->recvState->base_slot = slot;
 				if (context->fetch_count > 0)
-					tmpSlot = nextSlot;
-				if(clusterRecvTuple(tmpSlot, buf, len, ps, conn))
+					node->recvState->base_slot = nextSlot;
+
+				baseSlot = node->recvState->base_slot;
+				if(clusterRecvTupleEx(node->recvState, buf, len, conn))
 				{
-					tmpSlot->tts_xcnodeoid = ((NodeHandle *) conn->custom)->node_id;
+					baseSlot->tts_xcnodeoid = ((NodeHandle *) conn->custom)->node_id;
 					context->fetch_count++;
-					if (tmpSlot == nextSlot)
+					if (baseSlot == nextSlot)
 					{
 						/*
 						 * backward if at the end of tuplestore, so that we can fetch tuple
@@ -559,8 +598,8 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 							ret = true;
 					}
 
-					if (!TupIsNull(tmpSlot))
-						tuplestore_put_remotetupleslot(tuplestorestate, tmpSlot);
+					if (!TupIsNull(baseSlot))
+						tuplestore_put_remotetupleslot(tuplestorestate, baseSlot);
 				}
 			}
 			break;

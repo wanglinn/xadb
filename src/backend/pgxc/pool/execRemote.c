@@ -55,6 +55,7 @@
 #include "utils/snapmgr.h"
 #include "utils/tuplesort.h"
 #ifdef ADB
+#include "executor/clusterReceiver.h"
 #include "intercomm/inter-comm.h"
 #endif
 
@@ -2639,6 +2640,15 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	ExecAssignScanType(&remotestate->ss, scan_type);
 	remotestate->nextSlot = ExecInitExtraTupleSlot(estate);
 	ExecSetSlotDescriptor(remotestate->nextSlot, scan_type);
+	remotestate->convertSlot = ExecInitExtraTupleSlot(estate);
+	ExecSetSlotDescriptor(remotestate->convertSlot, scan_type);
+
+	/*
+	 * convert will be set while the tuple description
+	 * is set correctly.
+	 */
+	remotestate->recvState = (ClusterRecvState *) palloc0(sizeof(ClusterRecvState));
+	remotestate->recvState->ps = &remotestate->ss.ps;
 
 	remotestate->ss.ps.ps_TupFromTlist = false;
 
@@ -3633,6 +3643,8 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 		ExecClearTuple(node->ss.ss_ScanTupleSlot);
 
 	ExecClearTuple(node->nextSlot);
+
+	freeClusterRecvState(node->recvState);
 
 	/*
 	 * Release tuplestore resources
