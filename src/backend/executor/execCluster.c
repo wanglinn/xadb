@@ -44,6 +44,12 @@
 #define REMOTE_KEY_HAS_REDUCE				0xFFFFFF0A
 #define REMOTE_KEY_REDUCE_GROUP				0xFFFFFF0B
 
+typedef struct SerializePlanContext
+{
+	bool transaction_read_only;		/* is read only plan */
+	bool have_temp;					/* have temporary object */
+}SerializePlanContext;
+
 static void restore_cluster_plan_info(StringInfo buf);
 static QueryDesc *create_cluster_query_desc(StringInfo buf, DestReceiver *r);
 
@@ -354,11 +360,15 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt, ParamListInfo p
 	ListCell *lc;
 	List *rte_list;
 	PlannedStmt *new_stmt;
+	SerializePlanContext context;
 	Size size;
 
 	new_stmt = palloc(sizeof(*new_stmt));
 	memcpy(new_stmt, stmt, sizeof(*new_stmt));
 	new_stmt->rtable = NIL;
+
+	context.have_temp = false;
+	context.transaction_read_only = true;
 
 	rte_list = NIL;
 	foreach(lc, stmt->rtable)
@@ -373,11 +383,11 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt, ParamListInfo p
 		rte_list = lappend(rte_list, rte);
 	}
 	begin_mem_toc_insert(msg, REMOTE_KEY_RTE_LIST);
-	saveNodeAndHook(msg, (Node*)rte_list, SerializePlanHook, NULL);
+	saveNodeAndHook(msg, (Node*)rte_list, SerializePlanHook, &context);
 	end_mem_toc_insert(msg, REMOTE_KEY_RTE_LIST);
 
 	begin_mem_toc_insert(msg, REMOTE_KEY_PLAN_STMT);
-	saveNodeAndHook(msg, (Node*)new_stmt, SerializePlanHook, NULL);
+	saveNodeAndHook(msg, (Node*)new_stmt, SerializePlanHook, &context);
 	end_mem_toc_insert(msg, REMOTE_KEY_PLAN_STMT);
 
 	begin_mem_toc_insert(msg, REMOTE_KEY_PARAM);
@@ -438,6 +448,9 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 			List *oids = PGXCNodeGetNodeOidList(RelationGetLocInfo(rel)->nodeList, PGXC_NODE_DATANODE);
 			saveNode(buf, (Node*)oids);
 			list_free(oids);
+
+			if(RelationUsesLocalBuffers(rel))
+				((SerializePlanContext*)context)->have_temp = true;
 		}else
 		{
 			List *oids = list_make1_oid(PGXCNodeOid);
@@ -457,6 +470,9 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(BitmapIndexScan, indexid), "");
 		indexid = ((IndexScan*)node)->indexid;
 		SerializeRelationOid(buf, indexid);
+	}else if(IsA(node, ModifyTable))
+	{
+		((SerializePlanContext*)context)->transaction_read_only = false;
 	}
 	return true;
 }
@@ -765,7 +781,7 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, bool has_reduce, bool 
 	RdcMask		   *rdc_masks = NULL;
 	ErrorContextCallback error_context_hook;
 
-	error_context_hook.arg = NULL;
+	error_context_hook.arg = (void*)(Size)PGXCNodeOid;
 	error_context_hook.callback = ExecClusterErrorHook;
 	error_context_hook.previous = error_context_stack;
 	error_context_stack = &error_context_hook;
