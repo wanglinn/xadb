@@ -20,17 +20,6 @@
 
 typedef enum
 {
-	IBLOCK_DEFAULT		= 0,		/* default state */
-	IBLOCK_BEGIN		= 1 << 0,	/* starting inter transaction block OK */
-	IBLOCK_INPROGRESS	= 1 << 1,	/* live inter transaction */
-	IBLOCK_PREPARE		= 1 << 2,	/* live inter transaction, PREPARE OK */
-	IBLOCK_END			= 1 << 3,	/* COMMIT/COMMIT PREPARED OK */
-	IBLOCK_ABORT_END	= 1 << 4,	/* ROLLBACK/ROLLBACK PREPARED OK */
-	IBLOCK_ABORT		= 1 << 5,	/* failed inter transaction, awaiting ROLLBACK  */
-} IBlockState;
-
-typedef enum
-{
 	TYPE_CN_NODE		= 1 << 0,	/* coordinator node */
 	TYPE_DN_NODE		= 1 << 1,	/* datanode node */
 } NodeType;

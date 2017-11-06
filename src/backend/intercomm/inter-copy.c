@@ -98,12 +98,11 @@ StartRemoteCopy(RemoteCopyState *node)
 			if (!HandleBegin(state, handle, gxid, timestamp, is_from, &already_begin) ||
 				!HandleStartRemoteCopy(handle, cmid, snap, copy_query))
 			{
-				state->block_state |= IBLOCK_ABORT;
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Fail to start remote COPY %s", is_from ? "FROM" : "TO"),
 						 errnode(NameStr(handle->node_name)),
-						 errhint("%s", HandleGetError(handle, false))));
+						 errdetail("%s", HandleGetError(handle, false))));
 			}
 		}
 	} PG_CATCH();
@@ -136,7 +135,7 @@ EndRemoteCopy(RemoteCopyState *node)
 				ereport(ERROR,
 						(errmsg("Fail to end COPY %s", node->is_from ? "FROM" : "TO"),
 						 errnode(NameStr(PrHandle->node_name)),
-						 errhint("%s", HandleGetError(PrHandle, false))));
+						 errdetail("%s", HandleGetError(PrHandle, false))));
 		}
 
 		foreach (lc_handle, node->copy_handles)
@@ -150,7 +149,7 @@ EndRemoteCopy(RemoteCopyState *node)
 				ereport(ERROR,
 						(errmsg("Fail to end COPY %s", node->is_from ? "FROM" : "TO"),
 						 errnode(NameStr(PrHandle->node_name)),
-						 errhint("%s", HandleGetError(handle, false))));
+						 errdetail("%s", HandleGetError(handle, false))));
 		}
 	} PG_CATCH();
 	{
@@ -181,7 +180,7 @@ SendCopyFromHeader(RemoteCopyState *node, const StringInfo header)
 						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
 						 errmsg("Fail to send COPY FROM header in binary mode."),
 						 errnode(NameStr(handle->node_name)),
-						 errhint("%s", HandleGetError(handle, false))));
+						 errdetail("%s", HandleGetError(handle, false))));
 		}
 	} PG_CATCH();
 	{

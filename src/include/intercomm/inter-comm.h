@@ -85,43 +85,11 @@ extern void HandleListClose(List *handle_list, bool isStatement, const char *nam
 extern void HandleResetOwner(NodeHandle *handle);
 extern void HandleListResetOwner(List *handle_list);
 
-#if 0
-typedef enum
-{
-	HOOK_RET_REMOVE,
-	HOOK_RET_CONTINUE,
-	HOOK_RET_BREAK,
-} HookReturnType;
-
-typedef enum {
-	HOOK_RES_NONE,
-	HOOK_RES_RESULT,
-	HOOK_RES_COPY_BUFFER,
-	HOOK_RES_COPY_OUT_END,
-	HOOK_RES_COPY_IN_END,
-	HOOK_RES_ERROR,
-} HookResultType;
-
-typedef struct HookResult
-{
-	HookResultType			res_type;
-	union {
-		struct pg_result   *res_value;
-		StringInfoData		str_value;
-	} value;
-} HookResult;
-
-typedef HookReturnType (*HandleFinishHook)(void *result, void *handle, void *context);
-extern void HandleFinishList(List *handle_list, HandleFinishHook hook, void *context);
-extern int HandleFinishOne(NodeHandle *handle, HandleFinishHook hook, void *context);
-#endif
-
 /* src/backend/intercomm/inter-xact.c */
 typedef struct InterXactStateData
 {
 	MemoryContext			context;
 	StringInfo				error;
-	IBlockState				block_state;		/* IBlockState of inter transaction */
 	CombineType				combine_type;
 	char				   *gid;
 	bool					missing_ok;
@@ -136,8 +104,6 @@ typedef struct InterXactStateData
 	struct NodeMixHandle   *all_handle;			/* "all_handle" include all the NodeHandle within
 												 * the transaction block, it is used to 2PC */
 } InterXactStateData;
-
-#define IsAbortBlockState(state)	(((InterXactState) (state))->block_state & IBLOCK_ABORT)
 
 extern List *GetPGconnAttatchTopInterXact(const List *node_list);
 extern List *GetPGconnFromHandleList(List *handle_list);

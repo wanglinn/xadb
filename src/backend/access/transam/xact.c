@@ -2317,7 +2317,6 @@ StartCommitRemoteXact(TransactionState state)
 			state = CurrentTransactionState;
 			state->xact_phase = XACT_PHASE_TWO;
 			state->interXactState = is;
-			is->block_state |= IBLOCK_PREPARE;
 			TellRemoteXactLocalPrepared(true);
 		}
 	}
@@ -2358,9 +2357,6 @@ EndCommitRemoteXact(TransactionState state)
 		/* Here is where we commit remote xact */
 		RemoteXactCommit(nodecnt, nodeIds);
 	}
-
-	if (state->interXactState)
-		state->interXactState->block_state |= IBLOCK_END;
 
 	state = CurrentTransactionState;
 
@@ -3008,9 +3004,6 @@ NormalAbortRemoteXact(TransactionState state)
 		/* Abort remote xact */
 		RemoteXactAbort(nodecnt, nodeIds, true);
 	}
-
-	if (state->interXactState)
-		state->interXactState->block_state |= IBLOCK_ABORT_END;
 }
 
 static void
@@ -3031,9 +3024,6 @@ UnexpectedAbortRemoteXact(TransactionState state)
 	nodeIds = InterXactBeginNodes(state->interXactState, false, &nodecnt);
 	/* Abort remote xact */
 	RemoteXactAbort(nodecnt, nodeIds, false);
-
-	if (state->interXactState)
-		state->interXactState->block_state |= IBLOCK_ABORT_END;
 }
 #endif
 
