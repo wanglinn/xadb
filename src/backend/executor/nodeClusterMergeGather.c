@@ -6,6 +6,7 @@
 #include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
 #include "executor/executor.h"
+#include "intercomm/inter-comm.h"
 #include "lib/binaryheap.h"
 #include "libpq/libpq-node.h"
 #include "libpq/libpq-fe.h"
@@ -73,7 +74,7 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 	if((eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
 	{
 		ListCell *lc;
-		List *list = PQNGetConnUseOidList(node->rnodes);
+		List *list = GetPGconnAttatchTopInterXact(node->rnodes);
 		Assert(list_length(list) == nremote);
 		for(i=0,lc=list_head(list);lc!=NULL;lc=lnext(lc),++i)
 			ps->conns[i] = lfirst(lc);

@@ -11,6 +11,7 @@
 #include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
 #include "executor/nodeClusterGather.h"
+#include "intercomm/inter-comm.h"
 #include "libpq/libpq-fe.h"
 #include "libpq/libpq-node.h"
 #include "miscadmin.h"
@@ -39,7 +40,7 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 	outerPlanState(gatherstate) = ExecStartClusterPlan(outerPlan(node)
 		, estate, flags, node->rnodes);
 	if((flags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
-		gatherstate->remotes = PQNGetConnUseOidList(node->rnodes);
+		gatherstate->remotes = GetPGconnAttatchTopInterXact(node->rnodes);
 
 	gatherstate->recv_state = createClusterRecvState((PlanState*)gatherstate);
 

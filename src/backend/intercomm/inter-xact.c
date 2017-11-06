@@ -59,6 +59,47 @@ static void InterXactCommitInternal(InterXactState state);
 static void InterXactAbortInternal(InterXactState state);
 
 /*
+ * GetPGconnAttatchTopInterXact
+ *
+ * Get all involved PGconn by node_list and attatch them
+ * to the top inter transaction state.
+ *
+ * return a list of PGconn
+ */
+List *
+GetPGconnAttatchTopInterXact(const List *node_list)
+{
+	InterXactState	state = GetTopInterXactState();
+
+	state = MakeInterXactState2(state, node_list);
+
+	return GetPGconnFromHandleList(state->mix_handle->handles);
+}
+
+/*
+ * GetPGconnFromHandleList
+ *
+ * Get list of PGconn by NodeHandle list.
+ *
+ * return a list of PGconn
+ */
+List *
+GetPGconnFromHandleList(List *handle_list)
+{
+	NodeHandle	   *handle;
+	ListCell	   *lc_handle;
+	List		   *conn_list = NIL;
+
+	foreach (lc_handle, handle_list)
+	{
+		handle = (NodeHandle *) lfirst(lc_handle);
+		conn_list = lappend(conn_list, handle->node_conn);
+	}
+
+	return conn_list;
+}
+
+/*
  * IsTwoPhaseCommitNeeded
  *
  * return true if current inter transaction need transaction block
@@ -224,6 +265,7 @@ MakeInterXactState(MemoryContext context, const List *node_list)
 		Assert(mix_handle && list_length(mix_handle->handles) == mix_num);
 
 		state->mix_handle = mix_handle;
+
 		/*
 		 * generate a new "all_handle"
 		 */
@@ -253,18 +295,49 @@ MakeInterXactState2(InterXactState state, const List *node_list)
 	if (!node_list)
 		return state;
 
+	/*
+	 * Check current "mix_handle" of InterXactState is just for
+	 * the "node_list". if so, just return the "state" directly.
+	 */
+	if (state->mix_handle &&
+		list_length(state->mix_handle->handles) == list_length(node_list))
+	{
+		NodeHandle *handle;
+		ListCell   *lc_handle;
+		bool		equal = true;
+
+		foreach (lc_handle, state->mix_handle->handles)
+		{
+			handle = (NodeHandle *) lfirst(lc_handle);
+			if (!list_member_oid(node_list, handle->node_id))
+			{
+				equal = false;
+				break;
+			}
+		}
+
+		if (equal)
+			return state;
+	}
+
+	/*
+	 * It is necessary to construct current mix handle for
+	 * the "node_list".
+	 */
 	Assert(state->context);
 	old_context = MemoryContextSwitchTo(state->context);
 	mix_num = list_length(node_list);
 	mix_handle = GetMixedHandles(node_list, state);
 	Assert(mix_handle && list_length(mix_handle->handles) == mix_num);
+
 	/*
-	 * free previous "mix_handle" and keep the new one in state.
+	 * free previous "mix_handle" and keep the new one in "state".
 	 */
 	FreeMixHandle(state->mix_handle);
 	state->mix_handle = mix_handle;
+
 	/*
-	 * generate a new "all_handle"
+	 * generate a new "all_handle" every time.
 	 */
 	state->all_handle = ConcatMixHandle(state->all_handle, mix_handle);
 
@@ -561,6 +634,56 @@ InterXactUtility(InterXactState state, Snapshot snapshot,
 	list_free(involved_handles);
 	state->block_state |= (IBLOCK_BEGIN | IBLOCK_INPROGRESS);
 }
+
+/*
+ * InterXactBegin
+ *
+ * Begin transaction by InterXactState and node_list
+ */
+void
+InterXactBegin(InterXactState state, const List *node_list)
+{
+	GlobalTransactionId gxid;
+	TimestampTz			timestamp;
+	InterXactState		new_state;
+	NodeMixHandle	   *mix_handle;
+	NodeHandle		   *handle;
+	ListCell		   *lc_handle;
+	bool				already_begin;
+	bool				need_xact_block;
+
+	new_state = MakeInterXactState2(state, node_list);
+	if (!new_state || !new_state->mix_handle)
+		return ;
+	mix_handle = new_state->mix_handle;
+	need_xact_block = state->need_xact_block;
+
+	PG_TRY();
+	{
+		if (need_xact_block)
+		{
+			agtm_BeginTransaction();
+			gxid = GetCurrentTransactionId();
+		} else
+			gxid = GetCurrentTransactionIdIfAny();
+		timestamp = GetCurrentTransactionStartTimestamp();
+
+		foreach (lc_handle, mix_handle->handles)
+		{
+			handle = (NodeHandle *) lfirst(lc_handle);
+			if (!HandleBegin(state, handle, gxid, timestamp, need_xact_block, &already_begin))
+				ereport(ERROR,
+						(errmsg("Fail to begin transaction"),
+						 errnode(NameStr(handle->node_name)),
+						 errhint("%s:", HandleGetError(handle, false))));
+		}
+	} PG_CATCH();
+	{
+		InterXactGC(new_state);
+		PG_RE_THROW();
+	} PG_END_TRY();
+}
+
 
 /*
  * InterXactPrepare

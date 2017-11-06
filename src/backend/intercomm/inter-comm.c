@@ -76,6 +76,7 @@ OidListToArrary(MemoryContext context, List *oid_list, int *noids)
 
 	if (oid_list)
 	{
+		Assert(IsA(oid_list, OidList));
 		context = context ? context : CurrentMemoryContext;
 		old_context = MemoryContextSwitchTo(context);
 		oids = (Oid *) palloc(list_length(oid_list) * sizeof(Oid));

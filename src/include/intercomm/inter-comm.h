@@ -139,6 +139,8 @@ typedef struct InterXactStateData
 
 #define IsAbortBlockState(state)	(((InterXactState) (state))->block_state & IBLOCK_ABORT)
 
+extern List *GetPGconnAttatchTopInterXact(const List *node_list);
+extern List *GetPGconnFromHandleList(List *handle_list);
 extern bool IsTwoPhaseCommitNeeded(void);
 extern const char *GetTopInterXactGID(void);
 extern bool IsTopInterXactHastmp(void);
@@ -158,6 +160,7 @@ extern void InterXactSaveHandleError(InterXactState state, NodeHandle *handle);
 extern void InterXactSerializeSnapshot(StringInfo buf, Snapshot snapshot);
 extern void InterXactGC(InterXactState state);
 extern void InterXactUtility(InterXactState state, Snapshot snapshot, const char *utility, StringInfo utility_tree);
+extern void InterXactBegin(InterXactState state, const List *node_list);
 extern void InterXactPrepare(const char *gid, Oid *nodes, int nnodes);
 extern void InterXactCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok);
 extern void InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool ignore_error);

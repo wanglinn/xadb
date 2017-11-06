@@ -5607,44 +5607,24 @@ EndParallelWorkerTransaction(void)
 #ifdef ADB
 void SerializeClusterTransaction(struct StringInfoData *buf)
 {
-	appendBinaryStringInfo(buf, (char*)&XactIsoLevel, sizeof(XactIsoLevel));
-	appendBinaryStringInfo(buf, (char*)&XactDeferrable, sizeof(XactDeferrable));
-	appendBinaryStringInfo(buf, (char*)&XactTopTransactionId, sizeof(XactTopTransactionId));
-	appendBinaryStringInfo(buf, (char*)&CurrentTransactionState->transactionId
-							, sizeof(CurrentTransactionState->transactionId));
-	appendBinaryStringInfo(buf, (char*)&currentCommandId, sizeof(currentCommandId));
-
-	appendBinaryStringInfo(buf, (char*)&globalXactStartTimestamp, sizeof(globalXactStartTimestamp));
-	appendBinaryStringInfo(buf, (char*)&globalDeltaTimestmap, sizeof(globalDeltaTimestmap));
-	appendBinaryStringInfo(buf, (char*)&xactStartTimestamp, sizeof(xactStartTimestamp));
+	CommandId cid = GetCurrentCommandId(false);
+	appendBinaryStringInfo(buf, (char*)&cid, sizeof(cid));
 }
 
 void StartClusterTransaction(char *tstatespace)
 {
-#define LOAD_VALUE(v) memcpy(&(v), tstatespace, sizeof(v));tstatespace+=sizeof(v)
+	CommandId cid;
 
-	StartTransaction();
-
-	LOAD_VALUE(XactIsoLevel);
-	LOAD_VALUE(XactDeferrable);
-	LOAD_VALUE(XactTopTransactionId);
-	LOAD_VALUE(CurrentTransactionState->transactionId);
-	LOAD_VALUE(currentCommandId);
-
-	LOAD_VALUE(globalXactStartTimestamp);
-	LOAD_VALUE(globalDeltaTimestmap);
-	LOAD_VALUE(xactStartTimestamp);
-
-#undef LOAD_VALUE
-	CurrentTransactionState->blockState = TBLOCK_INPROGRESS;
+	StartTransactionCommand();
+	memcpy(&cid, tstatespace, sizeof(cid));
+	tstatespace += sizeof(cid);
+	SaveReceivedCommandId(cid);
 }
 
 void EndClusterTransaction(void)
 {
-	CommitTransaction();
-	CurrentTransactionState->blockState = TBLOCK_DEFAULT;
+	CommitTransactionCommand();
 }
-
 #endif /* ADB */
 
 /*

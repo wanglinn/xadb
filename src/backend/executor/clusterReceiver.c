@@ -174,6 +174,14 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 					errmsg("con not parse convert tuple")));
 		}
 		break;
+	case CLUSTER_MSG_COMMAND_ID:
+		{
+			CommandId cid;
+			memcpy(&cid, msg+1, sizeof(cid));
+			if (cid > GetReceivedCommandId())
+				SetReceivedCommandId(cid);
+		}
+		break;
 	default:
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
 			errmsg("unknown cluster message type %d", msg[0])));
