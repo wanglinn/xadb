@@ -1437,5 +1437,42 @@ ExecStoreDataRowTuple(char *msg, size_t len, Oid msgnode_oid, TupleTableSlot *sl
 
 	return slot;
 }
-#endif
 
+/* --------------------------------
+ *		ExecCopySlotRemoteMinimalTuple
+ *			Obtain a copy of a remote slot's minimal physical tuple.
+ *			The copy is palloc'd in the current memory context.
+ *			The slot itself is undisturbed.
+ * --------------------------------
+ */
+MinimalTuple
+ExecCopyRemoteSlotMinimalTuple(TupleTableSlot *slot)
+{
+	/*
+	 * sanity checks
+	 */
+	Assert(slot != NULL);
+	Assert(!slot->tts_isempty);
+
+	/*
+	 * If we have a physical tuple then just copy it.  Prefer to copy
+	 * tts_mintuple since that's a tad cheaper.
+	 */
+	if (slot->tts_mintuple)
+		return heap_copy_remote_minimal_tuple(slot->tts_mintuple);
+	if (slot->tts_tuple)
+		return remote_minimal_tuple_from_heap_tuple(slot->tts_tuple);
+	/*
+	 * Ensure values are extracted from data row to the Datum array
+	 */
+	if (slot->tts_dataRow)
+		slot_getallattrs(slot);
+	/*
+	 * Otherwise we need to build a tuple from the Datum array.
+	 */
+	return heap_form_remote_minimal_tuple(slot->tts_tupleDescriptor,
+										  slot->tts_values,
+										  slot->tts_isnull,
+										  slot->tts_xcnodeoid);
+}
+#endif

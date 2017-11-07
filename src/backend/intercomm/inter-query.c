@@ -51,6 +51,8 @@ typedef struct RemoteQueryContext
 static List *RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes);
 static TupleTableSlot *InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slot);
 static bool HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node);
+static TupleTableSlot *RestoreRemoteSlot(const char *buf, int len, TupleTableSlot *slot, Oid node_id);
+static bool StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *slot);
 static bool HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len);
 static bool RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 static TupleDesc CreateRemoteTupleDesc(MemoryContext context, const char *msg, int len);
@@ -500,6 +502,58 @@ HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *sl
 	return slot;
 }
 
+static TupleTableSlot *
+RestoreRemoteSlot(const char *buf, int len, TupleTableSlot *slot, Oid node_id)
+{
+	uint32 t_len = offsetof(MinimalTupleData, t_infomask2) + len;
+	MinimalTuple tup = palloc(t_len + sizeof(node_id));
+	MemSet(tup, 0, offsetof(MinimalTupleData, t_infomask2));
+	tup->t_len = t_len;
+	memcpy(&tup->t_infomask2, buf, len);
+	MiniTupSetRemoteNode(tup, node_id);
+
+	return ExecStoreMinimalTuple(tup, slot, true);
+}
+
+static bool
+StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *slot)
+{
+	Tuplestorestate	   *tuplestorestate;
+	RemoteQueryState   *node;
+	TupleTableSlot	   *nextSlot;
+	uint64				fetch_limit = 1;
+	bool				ret = false;
+
+	Assert(!TupIsNull(slot));
+	Assert(context);
+	node = context->node;
+	Assert(node);
+	nextSlot = node->nextSlot;
+	tuplestorestate = node->tuplestorestate;
+	Assert(tuplestorestate);
+
+	if (context->fetch_batch)
+		fetch_limit = REMOTE_FETCH_SIZE;
+
+	context->fetch_count++;
+	if (slot == nextSlot)
+	{
+		/*
+		 * backward if at the end of tuplestore, so that we can fetch tuple
+		 * from tuplestore next time.
+		 */
+		if (tuplestore_ateof(tuplestorestate))
+			(void) tuplestore_advance(tuplestorestate, false);
+
+		if (context->fetch_count >= fetch_limit)
+			ret = true;
+	}
+
+	tuplestore_put_remotetupleslot(tuplestorestate, slot);
+
+	return ret;
+}
+
 static bool
 HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len)
 {
@@ -509,22 +563,17 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 	TupleTableSlot	   *scanSlot;
 	TupleTableSlot	   *nextSlot;
 	PlanState		   *ps;
-	Tuplestorestate	   *tuplestorestate;
+	NodeHandle		   *handle;
 	bool				ret = false;
-	uint64				fetch_limit = 1;
 
 	Assert(context && buf);
 	node = context->node;
 	slot = context->slot;
 	ps = &(node->ss.ps);
-	Assert(node);
+	Assert(node && node->recvState);
 	scanSlot = node->ss.ss_ScanTupleSlot;
 	nextSlot = node->nextSlot;
-	tuplestorestate = node->tuplestorestate;
-	Assert(tuplestorestate);
-
-	if (context->fetch_batch)
-		fetch_limit = REMOTE_FETCH_SIZE;
+	handle = (NodeHandle *) (conn->custom);
 
 	switch (buf[0])
 	{
@@ -533,7 +582,7 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 		 * correctly when ExecInitRemoteQuery, such as, select count(1) from x.
 		 *
 		 * so, we are care about tuple description message from other node and
-		 * reset it at right time. nextSlot is the same.
+		 * reset it at right time. nextSlot and convertSlot are the same.
 		 */
 		case CLUSTER_MSG_TUPLE_DESC:
 			if (node->description_count++ == 0)
@@ -560,48 +609,60 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 				}
 			} else
 			{
-				/* TODO: check tuple desc of other datanodes returned */
+				compare_slot_head_message(buf + 1, len - 1, slot->tts_tupleDescriptor);
 			}
 			break;
 		case CLUSTER_MSG_CONVERT_DESC:
 			{
-				Assert(node->recvState);
 				if (!node->recvState->convert || !node->recvState->convert_slot)
 					ereport(ERROR,
 							(errmsg("It is not sane when we got convert tuple description "
 									"but convert was not set.")));
+				compare_slot_head_message(buf + 1, len - 1,
+										  node->recvState->convert_slot->tts_tupleDescriptor);
 			}
-		default:
+			break;
+		case CLUSTER_MSG_TUPLE_DATA:
 			{
-				Assert(node->recvState);
 				ExecClearTuple(nextSlot);
-
-				node->recvState->base_slot = slot;
+				baseSlot = slot;
 				if (context->fetch_count > 0)
-					node->recvState->base_slot = nextSlot;
+					baseSlot = nextSlot;
 
-				baseSlot = node->recvState->base_slot;
-				if(clusterRecvTupleEx(node->recvState, buf, len, conn))
+				(void) RestoreRemoteSlot(buf + 1, len - 1, baseSlot, handle->node_id);
+
+				if (!TupIsNull(baseSlot))
 				{
-					baseSlot->tts_xcnodeoid = ((NodeHandle *) conn->custom)->node_id;
-					context->fetch_count++;
-					if (baseSlot == nextSlot)
-					{
-						/*
-						 * backward if at the end of tuplestore, so that we can fetch tuple
-						 * from tuplestore next time.
-						 */
-						if (tuplestore_ateof(tuplestorestate))
-							(void) tuplestore_advance(tuplestorestate, false);
-
-						if (context->fetch_count > fetch_limit)
-							ret = true;
-					}
-
-					if (!TupIsNull(baseSlot))
-						tuplestore_put_remotetupleslot(tuplestorestate, baseSlot);
+					baseSlot->tts_xcnodeoid = handle->node_id;
+					ret = StoreRemoteSlot(context, baseSlot);
 				}
 			}
+			break;
+		case CLUSTER_MSG_CONVERT_TUPLE:
+			{
+				if (!node->recvState->convert || !node->recvState->convert_slot)
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Can not parse convert tuple as convert was not set")));
+
+				ExecClearTuple(nextSlot);
+				ExecClearTuple(node->recvState->convert_slot);
+				baseSlot = slot;
+				if (context->fetch_count > 0)
+					baseSlot = nextSlot;
+				restore_slot_message(buf + 1, len - 1, node->recvState->convert_slot);
+				do_type_convert_slot_in(node->recvState->convert, node->recvState->convert_slot, baseSlot);
+
+				if (!TupIsNull(baseSlot))
+				{
+					baseSlot->tts_xcnodeoid = handle->node_id;
+					ret = StoreRemoteSlot(context, baseSlot);
+				}
+			}
+			break;
+		default:
+			ret = clusterRecvTuple(slot, buf, len, ps, conn);
+			Assert(!ret);
 			break;
 	}
 

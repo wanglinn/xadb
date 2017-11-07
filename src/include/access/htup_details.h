@@ -624,6 +624,13 @@ do { \
 #define MINIMAL_TUPLE_DATA_OFFSET \
 	offsetof(MinimalTupleData, t_infomask2)
 
+#ifdef ADB
+#define MiniTupGetRemoteNode(minitup) \
+	*(Oid *) ((char *) (minitup) + ((MinimalTuple) (minitup))->t_len)
+#define MiniTupSetRemoteNode(minitup, nodeid) \
+	MiniTupGetRemoteNode(minitup) = nodeid
+#endif
+
 struct MinimalTupleData
 {
 	uint32		t_len;			/* actual length of minimal tuple */
@@ -814,5 +821,14 @@ extern void heap_free_minimal_tuple(MinimalTuple mtup);
 extern MinimalTuple heap_copy_minimal_tuple(MinimalTuple mtup);
 extern HeapTuple heap_tuple_from_minimal_tuple(MinimalTuple mtup);
 extern MinimalTuple minimal_tuple_from_heap_tuple(HeapTuple htup);
+
+#ifdef ADB
+extern MinimalTuple heap_form_remote_minimal_tuple(TupleDesc tupleDescriptor,
+				Datum *values,
+				bool *isnull,
+				Oid node_id);
+extern MinimalTuple heap_copy_remote_minimal_tuple(MinimalTuple remote_mtup);
+extern MinimalTuple remote_minimal_tuple_from_heap_tuple(HeapTuple htup);
+#endif
 
 #endif   /* HTUP_DETAILS_H */

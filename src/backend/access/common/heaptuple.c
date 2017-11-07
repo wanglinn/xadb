@@ -66,6 +66,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "funcapi.h"
+
+static void slot_deform_datarow(TupleTableSlot *slot);
 #endif
 
 
@@ -1093,93 +1095,6 @@ slot_deform_tuple(TupleTableSlot *slot, int natts)
 	slot->tts_slow = slow;
 }
 
-#ifdef ADB
-/*
- * slot_deform_datarow
- * 		Extract data from the DataRow message into Datum/isnull arrays.
- * 		We always extract all atributes, as specified in tts_tupleDescriptor,
- * 		because there is no easy way to find random attribute in the DataRow.
- */
-static void
-slot_deform_datarow(TupleTableSlot *slot)
-{
-	int attnum;
-	int i;
-	int 		col_count;
-	char	   *cur = slot->tts_dataRow;
-	StringInfo  buffer;
-	uint16		n16;
-	uint32		n32;
-	MemoryContext oldcontext;
-
-	if (slot->tts_tupleDescriptor == NULL || slot->tts_dataRow == NULL)
-		return;
-
-	attnum = slot->tts_tupleDescriptor->natts;
-
-	/* fastpath: exit if values already extracted */
-	if (slot->tts_nvalid == attnum)
-		return;
-
-	Assert(slot->tts_dataRow);
-
-	memcpy(&n16, cur, 2);
-	cur += 2;
-	col_count = ntohs(n16);
-
-	if (col_count != attnum)
-		ereport(ERROR,
-				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("Tuple does not match the descriptor")));
-
-	/*
-	 * Ensure info about input functions is available as long as slot lives
-	 * as well as deformed values
-	 */
-	oldcontext = MemoryContextSwitchTo(slot->tts_mcxt);
-
-	if (slot->tts_attinmeta == NULL)
-		slot->tts_attinmeta = TupleDescGetAttInMetadata(slot->tts_tupleDescriptor);
-
-	buffer = makeStringInfo();
-	for (i = 0; i < attnum; i++)
-	{
-		int len;
-
-		/* get size */
-		memcpy(&n32, cur, 4);
-		cur += 4;
-		len = ntohl(n32);
-
-		/* get data */
-		if (len == -1)
-		{
-			slot->tts_values[i] = (Datum) 0;
-			slot->tts_isnull[i] = true;
-		}
-		else
-		{
-			appendBinaryStringInfo(buffer, cur, len);
-			cur += len;
-
-			slot->tts_values[i] = InputFunctionCall(slot->tts_attinmeta->attinfuncs + i,
-													buffer->data,
-													slot->tts_attinmeta->attioparams[i],
-													slot->tts_attinmeta->atttypmods[i]);
-			slot->tts_isnull[i] = false;
-
-			resetStringInfo(buffer);
-		}
-	}
-	pfree(buffer->data);
-	pfree(buffer);
-
-	slot->tts_nvalid = attnum;
-
-	MemoryContextSwitchTo(oldcontext);
-}
-#endif
-
 /*
  * slot_getattr
  *		This function fetches an attribute of the slot's current tuple.
@@ -1624,3 +1539,217 @@ minimal_tuple_from_heap_tuple(HeapTuple htup)
 	result->t_len = len;
 	return result;
 }
+
+#ifdef ADB
+/*
+ * slot_deform_datarow
+ * 		Extract data from the DataRow message into Datum/isnull arrays.
+ * 		We always extract all atributes, as specified in tts_tupleDescriptor,
+ * 		because there is no easy way to find random attribute in the DataRow.
+ */
+static void
+slot_deform_datarow(TupleTableSlot *slot)
+{
+	int attnum;
+	int i;
+	int 		col_count;
+	char	   *cur = slot->tts_dataRow;
+	StringInfo  buffer;
+	uint16		n16;
+	uint32		n32;
+	MemoryContext oldcontext;
+
+	if (slot->tts_tupleDescriptor == NULL || slot->tts_dataRow == NULL)
+		return;
+
+	attnum = slot->tts_tupleDescriptor->natts;
+
+	/* fastpath: exit if values already extracted */
+	if (slot->tts_nvalid == attnum)
+		return;
+
+	Assert(slot->tts_dataRow);
+
+	memcpy(&n16, cur, 2);
+	cur += 2;
+	col_count = ntohs(n16);
+
+	if (col_count != attnum)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				 errmsg("Tuple does not match the descriptor")));
+
+	/*
+	 * Ensure info about input functions is available as long as slot lives
+	 * as well as deformed values
+	 */
+	oldcontext = MemoryContextSwitchTo(slot->tts_mcxt);
+
+	if (slot->tts_attinmeta == NULL)
+		slot->tts_attinmeta = TupleDescGetAttInMetadata(slot->tts_tupleDescriptor);
+
+	buffer = makeStringInfo();
+	for (i = 0; i < attnum; i++)
+	{
+		int len;
+
+		/* get size */
+		memcpy(&n32, cur, 4);
+		cur += 4;
+		len = ntohl(n32);
+
+		/* get data */
+		if (len == -1)
+		{
+			slot->tts_values[i] = (Datum) 0;
+			slot->tts_isnull[i] = true;
+		}
+		else
+		{
+			appendBinaryStringInfo(buffer, cur, len);
+			cur += len;
+
+			slot->tts_values[i] = InputFunctionCall(slot->tts_attinmeta->attinfuncs + i,
+													buffer->data,
+													slot->tts_attinmeta->attioparams[i],
+													slot->tts_attinmeta->atttypmods[i]);
+			slot->tts_isnull[i] = false;
+
+			resetStringInfo(buffer);
+		}
+	}
+	pfree(buffer->data);
+	pfree(buffer);
+
+	slot->tts_nvalid = attnum;
+
+	MemoryContextSwitchTo(oldcontext);
+}
+
+/*
+ * heap_form_remote_minimal_tuple
+ *		construct a MinimalTuple from the given values[] and isnull[] arrays,
+ *		which are of the length indicated by tupleDescriptor->natts
+ *
+ * This is exactly like heap_form_minimal_tuple() except that the MinimalTuple
+ * contains remote node id.
+ *
+ * The result is allocated in the current memory context.
+ */
+MinimalTuple
+heap_form_remote_minimal_tuple(TupleDesc tupleDescriptor,
+							   Datum *values,
+							   bool *isnull,
+							   Oid node_id)
+{
+	MinimalTuple tuple;			/* return tuple */
+	Size		len,
+				data_len;
+	int			hoff;
+	bool		hasnull = false;
+	int			numberOfAttributes = tupleDescriptor->natts;
+	int			i;
+
+	if (numberOfAttributes > MaxTupleAttributeNumber)
+		ereport(ERROR,
+				(errcode(ERRCODE_TOO_MANY_COLUMNS),
+				 errmsg("number of columns (%d) exceeds limit (%d)",
+						numberOfAttributes, MaxTupleAttributeNumber)));
+
+	/*
+	 * Check for nulls
+	 */
+	for (i = 0; i < numberOfAttributes; i++)
+	{
+		if (isnull[i])
+		{
+			hasnull = true;
+			break;
+		}
+	}
+
+	/*
+	 * Determine total space needed
+	 */
+	len = SizeofMinimalTupleHeader;
+
+	if (hasnull)
+		len += BITMAPLEN(numberOfAttributes);
+
+	if (tupleDescriptor->tdhasoid)
+		len += sizeof(Oid);
+
+	hoff = len = MAXALIGN(len); /* align user data safely */
+
+	data_len = heap_compute_data_size(tupleDescriptor, values, isnull);
+
+	len += data_len;
+
+	/*
+	 * Allocate and zero the space needed.
+	 */
+	tuple = (MinimalTuple) palloc0(len + sizeof(node_id));
+
+	/*
+	 * And fill in the information.
+	 */
+	tuple->t_len = len;
+	HeapTupleHeaderSetNatts(tuple, numberOfAttributes);
+	tuple->t_hoff = hoff + MINIMAL_TUPLE_OFFSET;
+
+	if (tupleDescriptor->tdhasoid)		/* else leave infomask = 0 */
+		tuple->t_infomask = HEAP_HASOID;
+
+	heap_fill_tuple(tupleDescriptor,
+					values,
+					isnull,
+					(char *) tuple + hoff,
+					data_len,
+					&tuple->t_infomask,
+					(hasnull ? tuple->t_bits : NULL));
+
+	MiniTupSetRemoteNode(tuple, node_id);
+
+	return tuple;
+}
+
+/*
+ * heap_copy_remote_minimal_tuple
+ *		copy a MinimalTuple and remote node id appended.
+ *
+ * The result is allocated in the current memory context.
+ */
+MinimalTuple
+heap_copy_remote_minimal_tuple(MinimalTuple remote_mtup)
+{
+	MinimalTuple result;
+
+	result = (MinimalTuple) palloc(remote_mtup->t_len + sizeof(Oid));
+	memcpy(result, remote_mtup, remote_mtup->t_len + sizeof(Oid));
+	return result;
+}
+
+/*
+ * remote_minimal_tuple_from_heap_tuple
+ *		create a remote MinimalTuple by copying from a HeapTuple
+ *
+ * The result is allocated in the current memory context.
+ */
+MinimalTuple
+remote_minimal_tuple_from_heap_tuple(HeapTuple htup)
+{
+	MinimalTuple	result;
+	uint32			len;
+	Oid				node_id = InvalidOid;
+	/* TODO: Get node id by t_xc_node_id of HeapTuple */
+
+	Assert(htup->t_len > MINIMAL_TUPLE_OFFSET);
+	len = htup->t_len - MINIMAL_TUPLE_OFFSET;
+	result = (MinimalTuple) palloc(len + sizeof(node_id));
+	memcpy(result, (char *) htup->t_data + MINIMAL_TUPLE_OFFSET, len);
+	result->t_len = len;
+	MiniTupSetRemoteNode(result, node_id);
+
+	return result;
+}
+#endif

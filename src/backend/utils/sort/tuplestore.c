@@ -1542,12 +1542,6 @@ readtup_heap(Tuplestorestate *state, unsigned int len)
 
 #ifdef ADB
 
-#define MiniTupGetRemoteNode(minitup) \
-	*(Oid *) ((char *) (minitup) + ((MinimalTuple) (minitup))->t_len)
-#define MiniTupSetRemoteNode(minitup, nodeid) \
-	MiniTupGetRemoteNode(minitup) = nodeid;
-
-static MinimalTuple make_remote_minitup(MinimalTuple minitup, Oid nodeid);
 static void *copy_remotetup_heap(Tuplestorestate *state, void *tup);
 static void write_remotetup_heap(Tuplestorestate *state, void *tup);
 static void *read_remotetup_heap(Tuplestorestate *state, unsigned int len);
@@ -1575,35 +1569,25 @@ tuplestore_begin_remoteheap(bool randomAccess, bool interXact, int maxKBytes)
 	return state;
 }
 
-static MinimalTuple
-make_remote_minitup(MinimalTuple minitup, Oid nodeid)
-{
-	minitup = (MinimalTuple) repalloc(minitup, minitup->t_len + sizeof(Oid));
-	MiniTupSetRemoteNode(minitup, nodeid);
-
-	return minitup;
-}
-
 /*
  * tuplestore_put_remotetupleslot
  *
- * It is all similar to tuplestore_puttupleslot but append RemoteMiniTup
+ * It is all similar to tuplestore_puttupleslot but append remote MinimalTuple
  * contains remote node id to the tuplestore.
  */
 void
-tuplestore_put_remotetupleslot(Tuplestorestate *state, TupleTableSlot *slot)
+tuplestore_put_remotetupleslot(Tuplestorestate *state, TupleTableSlot *remoteSlot)
 {
-	MinimalTuple	minitup;
+	MinimalTuple	remote_minituple;
 	MemoryContext	oldcxt = MemoryContextSwitchTo(state->context);
 
 	/*
 	 * Form a MinimalTuple in working memory
 	 */
-	minitup = ExecCopySlotMinimalTuple(slot);
-	minitup = make_remote_minitup(minitup, slot->tts_xcnodeoid);
-	USEMEM(state, GetMemoryChunkSpace(minitup));
+	remote_minituple = ExecCopyRemoteSlotMinimalTuple(remoteSlot);
+	USEMEM(state, GetMemoryChunkSpace(remote_minituple));
 
-	tuplestore_puttuple_common(state, (void *) minitup);
+	tuplestore_puttuple_common(state, (void *) remote_minituple);
 
 	MemoryContextSwitchTo(oldcxt);
 }
@@ -1645,16 +1629,11 @@ tuplestore_get_remotetupleslot(Tuplestorestate *state, bool forward, bool copy, 
 static void *
 copy_remotetup_heap(Tuplestorestate *state, void *tup)
 {
-	MinimalTuple	minitup;
-	HeapTuple		heaptup = (HeapTuple) tup;
-	//uint32			t_xc_node_id = heaptup->t_xc_node_id;
-	Oid				nodeid = InvalidOid;
+	MinimalTuple tuple;
 
-	/* TODO: get node id by node identifier */
-	minitup = minimal_tuple_from_heap_tuple(heaptup);
-	minitup = make_remote_minitup(minitup, nodeid);
-	USEMEM(state, GetMemoryChunkSpace(minitup));
-	return (void *) minitup;
+	tuple = remote_minimal_tuple_from_heap_tuple((HeapTuple) tup);
+	USEMEM(state, GetMemoryChunkSpace(tuple));
+	return (void *) tuple;
 }
 
 static void

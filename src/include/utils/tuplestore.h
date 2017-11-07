@@ -88,7 +88,7 @@ extern void tuplestore_end(Tuplestorestate *state);
 
 #ifdef ADB
 extern Tuplestorestate *tuplestore_begin_remoteheap(bool randomAccess, bool interXact, int maxKBytes);
-extern void tuplestore_put_remotetupleslot(Tuplestorestate *state, TupleTableSlot *slot);
+extern void tuplestore_put_remotetupleslot(Tuplestorestate *state, TupleTableSlot *remoteSlot);
 extern bool tuplestore_get_remotetupleslot(Tuplestorestate *state, bool forward, bool copy, TupleTableSlot *slot);
 #endif
 
