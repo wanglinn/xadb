@@ -5,6 +5,9 @@
 #include "catalog/pg_type.h"
 #include "fmgr.h"
 #include "mb/pg_wchar.h"
+#include "utils/array.h"
+#include "utils/builtins.h"
+#include "utils/datum.h"
 #include "utils/lsyscache.h"
 
 typedef struct ConvertIO
@@ -12,10 +15,10 @@ typedef struct ConvertIO
 	FmgrInfo	in_func;
 	FmgrInfo	out_func;
 	Oid			io_param;
+	bool		bin_type;
 }ConvertIO;
 
-#define type_need_convert(oid) (oid >= FirstNormalObjectId)
-
+static bool type_need_convert(Oid typeoid, bool *binary);
 static TupleDesc create_convert_desc_if_need(TupleDesc indesc);
 
 TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool need_in)
@@ -40,20 +43,38 @@ TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool n
 
 	for(i=0;i<base_desc->natts;++i)
 	{
+		bool use_binary;
 		attr = base_desc->attrs[i];
-		if(type_need_convert(attr->atttypid))
+		if(type_need_convert(attr->atttypid, &use_binary))
 		{
 			io = palloc0(sizeof(*io));
+			io->bin_type = use_binary;
 			if(need_in)
 			{
-				getTypeBinaryInputInfo(attr->atttypid, &func, &io->io_param);
+				if(use_binary)
+					getTypeBinaryInputInfo(attr->atttypid, &func, &io->io_param);
+				else
+					getTypeInputInfo(attr->atttypid, &func, &io->io_param);
 				fmgr_info(func, &io->in_func);
+				if (io->in_func.fn_addr == anyarray_recv ||
+					io->in_func.fn_addr == array_recv)
+				{
+					io->in_func.fn_addr = array_recv_str_type;
+				}
 			}
 			if(need_out)
 			{
 				bool is_varian;
-				getTypeBinaryOutputInfo(attr->atttypid, &func, &is_varian);
+				if(use_binary)
+					getTypeBinaryOutputInfo(attr->atttypid, &func, &is_varian);
+				else
+					getTypeOutputInfo(attr->atttypid, &func, &is_varian);
 				fmgr_info(func, &io->out_func);
+				if (io->out_func.fn_addr == anyarray_send ||
+					io->out_func.fn_addr == array_send)
+				{
+					io->out_func.fn_addr = array_send_str_type;
+				}
 			}
 		}else
 		{
@@ -71,6 +92,7 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 	ConvertIO *io;
 	StringInfoData buf;
 
+	Assert(list_length(convert->io_state) == src->tts_tupleDescriptor->natts);
 	Assert(src->tts_tupleDescriptor->natts == dest->tts_tupleDescriptor->natts);
 	Assert(src->tts_tupleDescriptor->natts == convert->base_desc->natts);
 
@@ -90,15 +112,19 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 			if(io == NULL)
 			{
 				dest->tts_values[i] = src->tts_values[i];
-				/* dest->tts_isnull[i] = src->tts_isnull[i]; */
 			}else if(!src->tts_isnull[i])
 			{
-				bytea *p = DatumGetByteaP(src->tts_values[i]);
-				buf.data = VARDATA_ANY(p);
-				buf.len = buf.maxlen = VARSIZE_ANY_EXHDR(p);
-				buf.cursor = 0;
-				dest->tts_values[i] = ReceiveFunctionCall(&io->in_func, &buf, io->io_param, -1);
-				/* dest->tts_isnull[i] = false; */
+				if(io->bin_type)
+				{
+					bytea *p = DatumGetByteaP(src->tts_values[i]);
+					buf.data = VARDATA_ANY(p);
+					buf.len = buf.maxlen = VARSIZE_ANY_EXHDR(p);
+					buf.cursor = 0;
+					dest->tts_values[i] = ReceiveFunctionCall(&io->in_func, &buf, io->io_param, -1);
+				}else
+				{
+					dest->tts_values[i] = InputFunctionCall(&io->in_func, DatumGetPointer(src->tts_values[i]), io->io_param, -1);
+				}
 			}
 			++i;
 		}
@@ -118,6 +144,7 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 	ConvertIO *io;
 	int i;
 
+	Assert(list_length(convert->io_state) == src->tts_tupleDescriptor->natts);
 	Assert(src->tts_tupleDescriptor->natts == dest->tts_tupleDescriptor->natts);
 	Assert(src->tts_tupleDescriptor->natts == convert->base_desc->natts);
 
@@ -137,8 +164,15 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 			/* dest->tts_isnull[i] = src->tts_isnull[i]; */
 		}else if(!src->tts_isnull[i])
 		{
-			bytea *p = SendFunctionCall(&io->out_func, src->tts_values[i]);
-			dest->tts_values[i] = PointerGetDatum(p);
+			if(io->bin_type)
+			{
+				bytea *p = SendFunctionCall(&io->out_func, src->tts_values[i]);
+				dest->tts_values[i] = PointerGetDatum(p);
+			}else
+			{
+				char *str = OutputFunctionCall(&io->out_func, src->tts_values[i]);
+				dest->tts_values[i] = PointerGetDatum(str);
+			}
 		}
 		++i;
 	}
@@ -155,7 +189,7 @@ static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 
 	for(i=0;i<indesc->natts;++i)
 	{
-		if(indesc->attrs[i]->atttypid >= FirstNormalObjectId)
+		if (type_need_convert(indesc->attrs[i]->atttypid, NULL))
 			break;
 	}
 	if(i>=indesc->natts)
@@ -164,12 +198,13 @@ static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 	outdesc = CreateTemplateTupleDesc(indesc->natts, false);
 	for(i=0;i<indesc->natts;++i)
 	{
+		bool use_binary;
 		attr = indesc->attrs[i];
 		Assert(attr->attisdropped == false);
 
 		type = attr->atttypid;
-		if(type_need_convert(attr->atttypid))
-			type = BYTEAOID;
+		if(type_need_convert(attr->atttypid, &use_binary))
+			type = use_binary ? BYTEAOID:UNKNOWNOID;
 		else
 			type = attr->atttypid;
 
@@ -181,6 +216,39 @@ static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 						   0);
 	}
 	return outdesc;
+}
+
+static bool type_need_convert(Oid typeoid, bool *binary)
+{
+	char type;
+
+	type = get_typtype(typeoid);
+	if (type == TYPTYPE_PSEUDO)
+	{
+		if(binary)
+		{
+			if (typeoid == ANYARRAYOID ||
+				getBaseType(typeoid) == ANYARRAYOID)
+				*binary = true;
+			else
+				*binary = false;
+		}
+		return true;
+	}else if(type == TYPTYPE_ENUM)
+	{
+		if (binary)
+			*binary = true;
+		return true;
+	}else if(typeoid < FirstNormalObjectId ||
+			 getBaseType(typeoid) < FirstNormalObjectId)
+	{
+		if(binary)
+			*binary = false;
+		return false;
+	}
+	if (binary)
+		*binary = false;
+	return true;
 }
 
 void free_type_convert(TupleTypeConvert *convert)
