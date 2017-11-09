@@ -2698,13 +2698,15 @@ static void save_slot_error(ADBNodePoolSlot *slot)
 static bool get_slot_result(ADBNodePoolSlot *slot)
 {
 	PGresult * volatile result;
+	ExecStatusType status;
 	AssertArg(slot && slot->conn);
 
 reget_slot_result_:
 	result = PQgetResult(slot->conn);
 	if(result == NULL)
 		return false;	/* have no other result */
-	if(PGRES_FATAL_ERROR == PQresultStatus(result))
+	status = PQresultStatus(result);
+	if(PGRES_FATAL_ERROR == status)
 	{
 		if(slot->last_error == NULL)
 		{
@@ -2719,6 +2721,14 @@ reget_slot_result_:
 			}PG_END_TRY();
 		}
 		slot->slot_state = SLOT_STATE_ERROR;
+	}else if(PGRES_COPY_OUT == status)
+	{
+		const char *buf;
+		PQgetCopyDataBuffer(slot->conn, &buf, false);
+	}else if(PGRES_COPY_BOTH == status ||
+			 PGRES_COPY_IN == status)
+	{
+		PQputCopyEnd(slot->conn, NULL);
 	}
 	PQclear(result);
 	if(PQisBusy(slot->conn))
