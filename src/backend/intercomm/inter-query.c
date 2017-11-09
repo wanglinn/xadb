@@ -52,7 +52,7 @@ static List *RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes
 static TupleTableSlot *InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slot);
 static bool HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node);
 static TupleTableSlot *RestoreRemoteSlot(const char *buf, int len, TupleTableSlot *slot, Oid node_id);
-static bool StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *slot);
+static bool StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *iterslot, TupleTableSlot *dstslot);
 static bool HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len);
 static bool RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 static TupleDesc CreateRemoteTupleDesc(MemoryContext context, const char *msg, int len);
@@ -516,28 +516,35 @@ RestoreRemoteSlot(const char *buf, int len, TupleTableSlot *slot, Oid node_id)
 }
 
 static bool
-StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *slot)
+StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *iterslot, TupleTableSlot *dstslot)
 {
 	Tuplestorestate	   *tuplestorestate;
 	RemoteQueryState   *node;
-	TupleTableSlot	   *nextSlot;
 	uint64				fetch_limit = 1;
 	bool				ret = false;
 
-	Assert(!TupIsNull(slot));
+	if (TupIsNull(iterslot))
+	{
+		ExecClearTuple(dstslot);
+		return false;
+	}
+
 	Assert(context);
 	node = context->node;
 	Assert(node);
-	nextSlot = node->nextSlot;
 	tuplestorestate = node->tuplestorestate;
 	Assert(tuplestorestate);
 
-	if (context->fetch_batch)
-		fetch_limit = REMOTE_FETCH_SIZE;
-
 	context->fetch_count++;
-	if (slot == nextSlot)
+	if (context->fetch_count == 1)
 	{
+		dstslot = ExecCopySlot(dstslot, iterslot);
+		dstslot->tts_xcnodeoid = iterslot->tts_xcnodeoid;
+	} else
+	{
+		if (context->fetch_batch)
+			fetch_limit = REMOTE_FETCH_SIZE;
+
 		/*
 		 * backward if at the end of tuplestore, so that we can fetch tuple
 		 * from tuplestore next time.
@@ -549,7 +556,7 @@ StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *slot)
 			ret = true;
 	}
 
-	tuplestore_put_remotetupleslot(tuplestorestate, slot);
+	tuplestore_put_remotetupleslot(tuplestorestate, iterslot);
 
 	return ret;
 }
@@ -559,7 +566,6 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 {
 	RemoteQueryState   *node;
 	TupleTableSlot	   *slot;
-	TupleTableSlot	   *baseSlot;
 	TupleTableSlot	   *scanSlot;
 	TupleTableSlot	   *nextSlot;
 	PlanState		   *ps;
@@ -624,18 +630,9 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 			break;
 		case CLUSTER_MSG_TUPLE_DATA:
 			{
-				ExecClearTuple(nextSlot);
-				baseSlot = slot;
-				if (context->fetch_count > 0)
-					baseSlot = nextSlot;
-
-				(void) RestoreRemoteSlot(buf + 1, len - 1, baseSlot, handle->node_id);
-
-				if (!TupIsNull(baseSlot))
-				{
-					baseSlot->tts_xcnodeoid = handle->node_id;
-					ret = StoreRemoteSlot(context, baseSlot);
-				}
+				(void) RestoreRemoteSlot(buf + 1, len - 1, nextSlot, handle->node_id);
+				nextSlot->tts_xcnodeoid = handle->node_id;
+				ret = StoreRemoteSlot(context, nextSlot, slot);
 			}
 			break;
 		case CLUSTER_MSG_CONVERT_TUPLE:
@@ -645,19 +642,10 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 							(errcode(ERRCODE_INTERNAL_ERROR),
 							 errmsg("Can not parse convert tuple as convert was not set")));
 
-				ExecClearTuple(nextSlot);
-				ExecClearTuple(node->recvState->convert_slot);
-				baseSlot = slot;
-				if (context->fetch_count > 0)
-					baseSlot = nextSlot;
 				restore_slot_message(buf + 1, len - 1, node->recvState->convert_slot);
-				do_type_convert_slot_in(node->recvState->convert, node->recvState->convert_slot, baseSlot);
-
-				if (!TupIsNull(baseSlot))
-				{
-					baseSlot->tts_xcnodeoid = handle->node_id;
-					ret = StoreRemoteSlot(context, baseSlot);
-				}
+				do_type_convert_slot_in(node->recvState->convert, node->recvState->convert_slot, nextSlot);
+				nextSlot->tts_xcnodeoid = handle->node_id;
+				ret = StoreRemoteSlot(context, nextSlot, slot);
 			}
 			break;
 		default:
