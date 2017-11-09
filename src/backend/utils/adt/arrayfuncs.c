@@ -157,6 +157,10 @@ static int width_bucket_array_variable(Datum operand,
 							ArrayType *thresholds,
 							Oid collation,
 							TypeCacheEntry *typentry);
+#ifdef ADB
+static Datum adb_array_send(PG_FUNCTION_ARGS, bool bin_type_oid);
+static Datum adb_array_recv(PG_FUNCTION_ARGS, bool bin_type_oid);
+#endif /* ADB */
 
 
 /*
@@ -1290,6 +1294,16 @@ array_out(PG_FUNCTION_ARGS)
 Datum
 array_recv(PG_FUNCTION_ARGS)
 {
+#ifdef ADB
+	return adb_array_recv(fcinfo, true);
+}
+Datum array_recv_str_type(PG_FUNCTION_ARGS)
+{
+	return adb_array_recv(fcinfo, false);
+}
+static Datum adb_array_recv(PG_FUNCTION_ARGS, bool bin_type_oid)
+{
+#endif /* ADB */
 	StringInfo	buf = (StringInfo) PG_GETARG_POINTER(0);
 	Oid			spec_element_type = PG_GETARG_OID(1);	/* type of an array
 														 * element */
@@ -1331,6 +1345,11 @@ array_recv(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_INVALID_BINARY_REPRESENTATION),
 				 errmsg("invalid array flags")));
 
+#ifdef ADB
+	if(bin_type_oid == false)
+		spec_element_type = element_type = load_oid_type(buf);
+	else
+#endif /* ADB */
 	element_type = pq_getmsgint(buf, sizeof(Oid));
 	if (element_type != spec_element_type)
 	{
@@ -1570,6 +1589,16 @@ ReadArrayBinary(StringInfo buf,
 Datum
 array_send(PG_FUNCTION_ARGS)
 {
+#ifdef ADB
+	return adb_array_send(fcinfo, true);
+}
+Datum array_send_str_type(PG_FUNCTION_ARGS)
+{
+	return adb_array_send(fcinfo, false);
+}
+static Datum adb_array_send(PG_FUNCTION_ARGS, bool bin_type_oid)
+{
+#endif /* ADB */
 	AnyArrayType *v = PG_GETARG_ANY_ARRAY(0);
 	Oid			element_type = AARR_ELEMTYPE(v);
 	int			typlen;
@@ -1628,6 +1657,11 @@ array_send(PG_FUNCTION_ARGS)
 	/* Send the array header information */
 	pq_sendint(&buf, ndim, 4);
 	pq_sendint(&buf, AARR_HASNULL(v) ? 1 : 0, 4);
+#ifdef ADB
+	if(bin_type_oid == false)
+		save_oid_type(&buf, element_type);
+	else
+#endif /* ADB */
 	pq_sendint(&buf, element_type, sizeof(Oid));
 	for (i = 0; i < ndim; i++)
 	{

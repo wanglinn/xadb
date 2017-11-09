@@ -332,6 +332,10 @@ extern Datum array_in(PG_FUNCTION_ARGS);
 extern Datum array_out(PG_FUNCTION_ARGS);
 extern Datum array_recv(PG_FUNCTION_ARGS);
 extern Datum array_send(PG_FUNCTION_ARGS);
+#ifdef ADB
+extern Datum array_recv_str_type(PG_FUNCTION_ARGS);
+extern Datum array_send_str_type(PG_FUNCTION_ARGS);
+#endif /* ADB */
 extern Datum array_eq(PG_FUNCTION_ARGS);
 extern Datum array_ne(PG_FUNCTION_ARGS);
 extern Datum array_lt(PG_FUNCTION_ARGS);
