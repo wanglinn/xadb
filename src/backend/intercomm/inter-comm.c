@@ -18,6 +18,7 @@
 #include "miscadmin.h"
 
 #include "access/xact.h"
+#include "catalog/pg_type.h"
 #include "intercomm/inter-comm.h"
 #include "libpq/libpq-int.h"
 #include "pgxc/pgxc.h"
@@ -591,7 +592,17 @@ HandleSendQueryExtend(NodeHandle *handle,
 
 	paramTypeNames = (const char **) palloc0(nParams * sizeof(const char *));
 	for (i = 0; i < nParams; i++)
-		paramTypeNames[i] = (const char *) format_type_be_qualified(paramTypes[i]);
+	{
+		/*
+		 * Parameters with no types are simply ignored.
+		 *
+		 * note: see the function pgxc_node_send_parse.
+		 */
+		if (OidIsValid(paramTypes[i]))
+			paramTypeNames[i] = (const char *) format_type_be_qualified(paramTypes[i]);
+		else
+			paramTypeNames[i] = (const char *) format_type_be_qualified(INT4OID);
+	}
 
 	ret = HandleSendCID(handle, cid) &&
 		  HandleSendSnapshot(handle, snapshot) &&
