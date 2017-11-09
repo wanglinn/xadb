@@ -689,12 +689,6 @@ analyze_rel_coordinator(Relation onerel, bool inh, int attr_cnt,
 							values[j] = datumCopy(values[j], elmbyval, elmlen);
 					}
 
-					/*
-					 * Free statarray if it's a detoasted copy.
-					 */
-					if ((Pointer) arry != DatumGetPointer(value))
-						pfree(arry);
-
 					stats->numvalues[k] = nvalues;
 					stats->stavalues[k] = values;
 					/* store details about values data type */
@@ -702,6 +696,12 @@ analyze_rel_coordinator(Relation onerel, bool inh, int attr_cnt,
 					stats->statyplen[k] = elmlen;
 					stats->statypalign[k] = elmalign;
 					stats->statypbyval[k] = elmbyval;
+
+					/*
+					 * Free statarray if it's a detoasted copy.
+					 */
+					if ((Pointer) arry != DatumGetPointer(value))
+						pfree(arry);
 				}
 			}
 		}
