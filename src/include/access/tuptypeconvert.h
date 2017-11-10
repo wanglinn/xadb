@@ -14,8 +14,8 @@ typedef struct TupleTypeConvert
 
 extern TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool need_in);
 
-extern TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlot *src, TupleTableSlot *dest);
-extern TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSlot *src, TupleTableSlot *dest);
+extern TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlot *src, TupleTableSlot *dest, bool need_copy);
+extern TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSlot *src, TupleTableSlot *dest, bool need_copy);
 
 extern void free_type_convert(TupleTypeConvert *convert);
 

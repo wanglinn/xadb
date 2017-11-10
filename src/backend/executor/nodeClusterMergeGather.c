@@ -83,7 +83,7 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 
 	ps->initialized = false;
 
-	ps->recv_state = createClusterRecvState((PlanState*)ps);
+	ps->recv_state = createClusterRecvState((PlanState*)ps, true);
 
 	return ps;
 }

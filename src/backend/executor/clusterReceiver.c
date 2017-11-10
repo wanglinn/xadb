@@ -165,7 +165,7 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 		if(state->convert)
 		{
 			restore_slot_message(msg+1, len-1, state->convert_slot);
-			do_type_convert_slot_in(state->convert, state->convert_slot, state->base_slot);
+			do_type_convert_slot_in(state->convert, state->convert_slot, state->base_slot, state->slot_need_copy_datum);
 			return true;
 		}else
 		{
@@ -198,7 +198,7 @@ static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self)
 	resetStringInfo(&r->buf);
 	if(r->convert)
 	{
-		do_type_convert_slot_out(r->convert, slot, r->convert_slot);
+		do_type_convert_slot_out(r->convert, slot, r->convert_slot, false);
 		serialize_slot_message(&r->buf, r->convert_slot, CLUSTER_MSG_CONVERT_TUPLE);
 	}else
 	{
@@ -316,7 +316,7 @@ DestReceiver *createClusterReceiver(void)
 	return &self->pub;
 }
 
-ClusterRecvState *createClusterRecvState(PlanState *ps)
+ClusterRecvState *createClusterRecvState(PlanState *ps, bool need_copy)
 {
 	ClusterRecvState *state;
 	TupleTableSlot *slot = ps->ps_ResultTupleSlot;
@@ -329,6 +329,7 @@ ClusterRecvState *createClusterRecvState(PlanState *ps)
 	if(state->convert != NULL)
 	{
 		state->convert_slot = ExecInitExtraTupleSlot(ps->state);
+		state->slot_need_copy_datum = need_copy;
 		ExecSetSlotDescriptor(state->convert_slot, state->convert->out_desc);
 	}
 

@@ -240,7 +240,8 @@ GetSlotFromOuter(ClusterReduceState *node)
 				{
 					do_type_convert_slot_out(node->convert,
 											 outerslot,
-											 node->convert_slot);
+											 node->convert_slot,
+											 false);
 					SendSlotToRemote(port, destOids, node->convert_slot);
 				}else
 				{
@@ -310,7 +311,7 @@ ExecClusterReduce(ClusterReduceState *node)
 				if(node->convert)
 				{
 					GetSlotFromRemote(port, node->convert_slot, NULL, &eof_oid, &node->closed_remote);
-					outerslot = do_type_convert_slot_in(node->convert, node->convert_slot, slot);
+					outerslot = do_type_convert_slot_in(node->convert, node->convert_slot, slot, false);
 				}else
 				{
 					outerslot = GetSlotFromRemote(port, slot, NULL, &eof_oid, &node->closed_remote);
@@ -430,7 +431,7 @@ GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry)
 		if(node->convert)
 		{
 			GetSlotFromRemote(port, node->convert_slot, &slot_oid, &eof_oid, &(node->closed_remote));
-			outerslot = do_type_convert_slot_in(node->convert, node->convert_slot, cur_slot);
+			outerslot = do_type_convert_slot_in(node->convert, node->convert_slot, cur_slot, false);
 		}else
 		{
 			outerslot = GetSlotFromRemote(port, cur_slot, &slot_oid, &eof_oid, &(node->closed_remote));

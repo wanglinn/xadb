@@ -85,7 +85,7 @@ TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool n
 	return convert;
 }
 
-TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlot *src, TupleTableSlot *dest)
+TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlot *src, TupleTableSlot *dest, bool need_copy)
 {
 	int i;
 	ListCell *lc;
@@ -108,22 +108,29 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 		memcpy(dest->tts_isnull, src->tts_isnull, sizeof(src->tts_isnull[0]) * src->tts_tupleDescriptor->natts);
 		foreach(lc, convert->io_state)
 		{
-			io = lfirst(lc);
-			if(io == NULL)
+			if(!src->tts_isnull[i])
 			{
-				dest->tts_values[i] = src->tts_values[i];
-			}else if(!src->tts_isnull[i])
-			{
-				if(io->bin_type)
+				io = lfirst(lc);
+				if(io == NULL)
 				{
-					bytea *p = DatumGetByteaP(src->tts_values[i]);
-					buf.data = VARDATA_ANY(p);
-					buf.len = buf.maxlen = VARSIZE_ANY_EXHDR(p);
-					buf.cursor = 0;
-					dest->tts_values[i] = ReceiveFunctionCall(&io->in_func, &buf, io->io_param, -1);
+					Form_pg_attribute attr = src->tts_tupleDescriptor->attrs[i];
+					if (need_copy && !attr->attbyval)
+						dest->tts_values[i] = datumCopy(src->tts_values[i], false, attr->attlen);
+					else
+						dest->tts_values[i] = src->tts_values[i];
 				}else
 				{
-					dest->tts_values[i] = InputFunctionCall(&io->in_func, DatumGetPointer(src->tts_values[i]), io->io_param, -1);
+					if(io->bin_type)
+					{
+						bytea *p = DatumGetByteaP(src->tts_values[i]);
+						buf.data = VARDATA_ANY(p);
+						buf.len = buf.maxlen = VARSIZE_ANY_EXHDR(p);
+						buf.cursor = 0;
+						dest->tts_values[i] = ReceiveFunctionCall(&io->in_func, &buf, io->io_param, -1);
+					}else
+					{
+						dest->tts_values[i] = InputFunctionCall(&io->in_func, DatumGetPointer(src->tts_values[i]), io->io_param, -1);
+					}
 				}
 			}
 			++i;
@@ -138,7 +145,7 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 	return ExecStoreVirtualTuple(dest);
 }
 
-TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSlot *src, TupleTableSlot *dest)
+TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSlot *src, TupleTableSlot *dest, bool need_copy)
 {
 	ListCell *lc;
 	ConvertIO *io;
@@ -157,21 +164,27 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 	memcpy(dest->tts_isnull, src->tts_isnull, sizeof(src->tts_isnull[0]) * src->tts_tupleDescriptor->natts);
 	foreach(lc, convert->io_state)
 	{
-		io = lfirst(lc);
-		if(io == NULL)
+		if (!src->tts_isnull[i])
 		{
-			dest->tts_values[i] = src->tts_values[i];
-			/* dest->tts_isnull[i] = src->tts_isnull[i]; */
-		}else if(!src->tts_isnull[i])
-		{
-			if(io->bin_type)
+			io = lfirst(lc);
+			if(io == NULL)
 			{
-				bytea *p = SendFunctionCall(&io->out_func, src->tts_values[i]);
-				dest->tts_values[i] = PointerGetDatum(p);
-			}else
+				Form_pg_attribute attr = src->tts_tupleDescriptor->attrs[i];
+				if (need_copy && !attr->attbyval)
+					dest->tts_values[i] = datumCopy(src->tts_values[i], false, attr->attlen);
+				else
+					dest->tts_values[i] = src->tts_values[i];
+			}else if(!src->tts_isnull[i])
 			{
-				char *str = OutputFunctionCall(&io->out_func, src->tts_values[i]);
-				dest->tts_values[i] = PointerGetDatum(str);
+				if(io->bin_type)
+				{
+					bytea *p = SendFunctionCall(&io->out_func, src->tts_values[i]);
+					dest->tts_values[i] = PointerGetDatum(p);
+				}else
+				{
+					char *str = OutputFunctionCall(&io->out_func, src->tts_values[i]);
+					dest->tts_values[i] = PointerGetDatum(str);
+				}
 			}
 		}
 		++i;

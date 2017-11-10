@@ -643,7 +643,10 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 							 errmsg("Can not parse convert tuple as convert was not set")));
 
 				restore_slot_message(buf + 1, len - 1, node->recvState->convert_slot);
-				do_type_convert_slot_in(node->recvState->convert, node->recvState->convert_slot, nextSlot);
+				do_type_convert_slot_in(node->recvState->convert,
+										node->recvState->convert_slot,
+										nextSlot,
+										node->recvState->slot_need_copy_datum);
 				nextSlot->tts_xcnodeoid = handle->node_id;
 				ret = StoreRemoteSlot(context, nextSlot, slot);
 			}

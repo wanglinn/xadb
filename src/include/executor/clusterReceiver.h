@@ -21,10 +21,11 @@ typedef struct ClusterRecvState
 	struct TupleTypeConvert *convert;
 	PlanState *ps;
 	bool convert_slot_is_single;
+	bool slot_need_copy_datum;
 }ClusterRecvState;
 
 extern DestReceiver *createClusterReceiver(void);
-extern ClusterRecvState *createClusterRecvState(PlanState *ps);
+extern ClusterRecvState *createClusterRecvState(PlanState *ps, bool need_copy);
 extern void freeClusterRecvState(ClusterRecvState *state);
 extern bool clusterRecvSetCheckEndMsg(DestReceiver *r, bool check);
 extern bool clusterRecvRdcListenPort(struct pg_conn *conn, const char *msg, int len, int *port);
