@@ -86,6 +86,7 @@
 #include "commands/dbcommands.h"
 #include "commands/sequence.h"
 #include "commands/tablecmds.h"
+#include "intercomm/inter-comm.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 #endif
@@ -1305,7 +1306,7 @@ doDeletion(const ObjectAddress *object, int flags)
 						 * objects cannot be prepared.
 						 */
 						if (IsTempTable(object->objectId))
-							ExecSetTempObjectIncluded();
+							TopInterXactTmpSet(true);
 						break;
 
 					default:

@@ -56,6 +56,7 @@
 #include "parser/parse_type.h"
 #include "parser/parse_utilcmd.h"
 #ifdef ADB
+#include "intercomm/inter-comm.h"
 #include "optimizer/pgxcship.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
@@ -807,7 +808,7 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 	 * can be used for transactions involving temporary objects.
 	 */
 	if (IsTempTable(RelationGetRelid(relation)))
-		ExecSetTempObjectIncluded();
+		TopInterXactTmpSet(true);
 
 	/*
 	 * Block the creation of tables using views in their LIKE clause.

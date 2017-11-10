@@ -35,6 +35,7 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #ifdef ADB
+#include "intercomm/inter-comm.h"
 #include "pgxc/execRemote.h"
 #endif
 
@@ -579,7 +580,7 @@ DefineView(ViewStmt *stmt, const char *queryString)
 #ifdef ADB
 	/* In case view is temporary, be sure not to use 2PC on such relations */
 	if (view->relpersistence == RELPERSISTENCE_TEMP)
-		ExecSetTempObjectIncluded();
+		TopInterXactTmpSet(true);
 #endif
 
 	/*

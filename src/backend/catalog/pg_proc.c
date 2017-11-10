@@ -40,6 +40,7 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #ifdef ADB
+#include "intercomm/inter-comm.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 #endif
@@ -963,7 +964,7 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 								errmsg("In XC, SQL functions cannot contain utility statements")));
 
 					if (pgxc_query_contains_temp_tables(querytree_sublist))
-						ExecSetTempObjectIncluded();
+						TopInterXactTmpSet(true);
 				}
 #endif
 
