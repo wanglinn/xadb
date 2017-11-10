@@ -220,6 +220,7 @@ static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 
 static bool type_need_convert(Oid typeoid, bool *binary)
 {
+	Oid base_oid;
 	char type;
 
 	type = get_typtype(typeoid);
@@ -239,8 +240,19 @@ static bool type_need_convert(Oid typeoid, bool *binary)
 		if (binary)
 			*binary = true;
 		return true;
+	}
+
+	base_oid = getBaseType(typeoid);
+	if (typeoid == REGCLASSOID ||
+		base_oid == REGCLASSOID ||
+		typeoid == REGPROCOID ||
+		base_oid == REGPROCOID)
+	{
+		if(binary)
+			*binary = false;
+		return true;
 	}else if(typeoid < FirstNormalObjectId ||
-			 getBaseType(typeoid) < FirstNormalObjectId)
+			 base_oid < FirstNormalObjectId)
 	{
 		if(binary)
 			*binary = false;
