@@ -467,6 +467,23 @@ DefineView(ViewStmt *stmt, const char *queryString)
 	 * If the user specified the WITH CHECK OPTION, add it to the list of
 	 * reloptions.
 	 */
+#ifdef ADB
+	/* stmt mabe from parsed coordinator */
+	{
+		DefElem *def = NULL;
+		if (stmt->withCheckOption == LOCAL_CHECK_OPTION)
+			def = makeDefElem("check_option", (Node *) makeString("local"));
+		else if (stmt->withCheckOption == CASCADED_CHECK_OPTION)
+			def = makeDefElem("check_option", (Node *) makeString("cascaded"));
+		if (def)
+		{
+			if (list_member(stmt->options, def))
+				pfree(def);
+			else
+				stmt->options = lappend(stmt->options, def);
+		}
+	}
+#else /* ADB */
 	if (stmt->withCheckOption == LOCAL_CHECK_OPTION)
 		stmt->options = lappend(stmt->options,
 								makeDefElem("check_option",
@@ -475,6 +492,7 @@ DefineView(ViewStmt *stmt, const char *queryString)
 		stmt->options = lappend(stmt->options,
 								makeDefElem("check_option",
 											(Node *) makeString("cascaded")));
+#endif /* ADB */
 
 	/*
 	 * Check that the view is auto-updatable if WITH CHECK OPTION was
