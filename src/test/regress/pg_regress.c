@@ -954,11 +954,17 @@ setup_connection_information(void)
 					  " type = 'coordinator', PORT = %d);",
 					  (char *)get_node_name(ADB_COORD_2),
 					  get_port_number(ADB_COORD_2));
+	psql_command_node("postgres", ADB_COORD_1, "ALTER NODE %s WITH (PORT = %d);",
+					  (char*)get_node_name(ADB_COORD_1),
+					  get_port_number(ADB_COORD_1));
 	/* Remote Coordinator on Coordinator 2 */
 	psql_command_node("postgres", ADB_COORD_2, "CREATE NODE %s WITH (HOST = 'localhost',"
 					  " type = 'coordinator', PORT = %d);",
 					  (char *)get_node_name(ADB_COORD_1),
 					  get_port_number(ADB_COORD_1));
+	psql_command_node("postgres", ADB_COORD_2, "ALTER NODE %s WITH (PORT = %d);",
+					  (char *)get_node_name(ADB_COORD_2),
+					  get_port_number(ADB_COORD_2));
 
 	/* Then reload the connection data */
 	psql_command_node("postgres", ADB_COORD_1, "SELECT pgxc_pool_reload();");
