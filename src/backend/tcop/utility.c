@@ -2861,6 +2861,8 @@ ExecRemoteUtilityStmt(RemoteUtilityContext *context)
 	step->exec_type = context->exec_type;
 	step->is_temp = context->is_temp;
 	(void) ExecInterXactUtility(step, GetTopInterXactState());
+	if (step->sql_node)
+		pfree(step->sql_node->data);
 	pfree(step->sql_statement);
 	pfree(step);
 }
