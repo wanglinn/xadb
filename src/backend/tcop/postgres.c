@@ -4482,25 +4482,30 @@ PostgresMain(int argc, char *argv[],
 		debug_query_string = NULL;
 
 #ifdef ADB
-		/*
-		 * Tell xact.c we are in a fatal transaction.
-		 */
+		/* Mark transaction abort with error */
 		SetXactErrorAborted(true);
-		if (IsCurrentXactInPhase2())
-		{
-			/*
-			 * clear variables which are used to the Remote Xact in phase 2,
-			 * Because we pop it to Remote Xact Manager.
-			 */
-			AtEOXact_Remote();
-		}
+
+		/* Disconnect with rxact manager process */
 		DisconnectRemoteXact();
+
+		/*
+		 * Make sure the old NodeHandle will never keep anything about the
+		 * last SQL.
+		 */
+		ResetNodeExecutor();
+
+		/* Make sure the old PGconn will dump the trash data */
+		PQNReleaseAllConnect();
 #endif
 
 		/*
 		 * Abort the current transaction in order to recover.
 		 */
 		AbortCurrentTransaction();
+
+#ifdef ADB
+		SetXactErrorAborted(false);
+#endif
 
 		if (am_walsender)
 			WalSndErrorCleanup();
@@ -4532,11 +4537,6 @@ PostgresMain(int argc, char *argv[],
 
 		/* We don't have a transaction command open anymore */
 		xact_started = false;
-#ifdef ADB
-		SetXactErrorAborted(false);
-		ResetNodeExecutor();
-		PQNReleaseAllConnect();
-#endif
 
 		/*
 		 * If an error occurred while we were reading a message from the
@@ -4573,11 +4573,16 @@ PostgresMain(int argc, char *argv[],
 #ifdef ADB
 		if (!IsTransactionState())
 		{
-			clear_all_handles(false);
-			release_handles();
+			/*
+			 * Make sure the old NodeHandle will never keep anything about the
+			 * last SQL.
+			 */
 			ResetNodeExecutor();
+
+			/* Make sure the old PGconn will dump the trash data */
 			PQNReleaseAllConnect();
 		}
+
 		if(need_reload_pooler)
 		{
 			need_reload_pooler = false;
