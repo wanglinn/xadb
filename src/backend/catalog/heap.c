@@ -82,6 +82,7 @@
 #include "catalog/pgxc_node.h"
 #include "commands/dbcommands.h"
 #include "nodes/makefuncs.h"
+#include "optimizer/reduceinfo.h"
 #include "parser/parse_func.h"
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
@@ -1097,7 +1098,7 @@ GetUserDefinedFuncArgVars(Oid relid,
 					{
 						invalid_col = true;
 						break;
-					}					
+					}
 				}
 				break;
 			case 4:
@@ -1152,7 +1153,7 @@ GetUserDefinedFuncArgVars(Oid relid,
 								descriptor->attrs[local_attnum - 1]->atttypmod,
 								descriptor->attrs[local_attnum - 1]->attcollation,
 								0);
-			local_var->location = cref->location;										
+			local_var->location = cref->location;
 			func_var_args = lappend(func_var_args, local_var);
 		}
 	}
@@ -1295,7 +1296,7 @@ GetUserDefinedDistribution(Oid relid,
 
 	/*
 	 * Step 1:
-	 * 
+	 *
 	 * Parse each ColumnRef argument of the function, get a var consists of
 	 * attnum, atttypid, atttypmod and attcollation.
 	 */
@@ -1303,14 +1304,14 @@ GetUserDefinedDistribution(Oid relid,
 
 	/*
 	 * Step 2:
-	 * 
+	 *
 	 * Analyze and get distribute function infomation.
 	 */
 	fnoid = lookup_distribute_function(distributeby->funcname, funcargs);
 
 	/*
 	 * Step 3:
-	 * 
+	 *
 	 * Get column information of distribute function
 	 */
 	nargs = list_length(funcargs);
@@ -1336,58 +1337,57 @@ GetUserDefinedDistribution(Oid relid,
 */
 void
 AddRelationDistribution(Oid relid,
-			   DistributeBy *distributeby,
-			   PGXCSubCluster *subcluster,
-			   List 		*parentOids,
-			   TupleDesc	descriptor)
+						DistributeBy *distributeby,
+						PGXCSubCluster *subcluster,
+						List 		*parentOids,
+						TupleDesc	descriptor)
 {
-   char locatortype    = '\0';
-   int hashalgorithm   = 0;
-   int hashbuckets	   = 0;
-   AttrNumber attnum   = 0;
-   ObjectAddress myself, referenced;
-   int numnodes;
-   Oid *nodeoids;
-   Oid funcid = InvalidOid;
-   int numatts = 0;
-   int16 *attnums = NULL;
+	char locatortype    = '\0';
+	int hashalgorithm   = 0;
+	int hashbuckets	   = 0;
+	AttrNumber attnum   = 0;
+	ObjectAddress myself, referenced;
+	int numnodes;
+	Oid *nodeoids;
+	Oid funcid = InvalidOid;
+	int numatts = 0;
+	int16 *attnums = NULL;
 
-   /* Obtain details of nodes and classify them */
-   nodeoids = GetRelationDistributionNodes(subcluster, &numnodes);
+	/* Obtain details of nodes and classify them */
+	nodeoids = GetRelationDistributionNodes(subcluster, &numnodes);
 
-   /* Obtain details of distribution information */
-   GetRelationDistributionItems(relid,
-							distributeby,
-							descriptor,
-							&locatortype,
-							&hashalgorithm,
-							&hashbuckets,
-							&attnum,
-							&funcid,
-							&numatts,
-							&attnums
-							);
+	/* Obtain details of distribution information */
+	GetRelationDistributionItems(relid,
+								 distributeby,
+								 descriptor,
+								 &locatortype,
+								 &hashalgorithm,
+								 &hashbuckets,
+								 &attnum,
+								 &funcid,
+								 &numatts,
+								 &attnums);
 
-   /* Now OK to insert data in catalog */
-   PgxcClassCreate(relid, locatortype, attnum, hashalgorithm,
-				   hashbuckets, numnodes, nodeoids, funcid, numatts, attnums);
+	/* Now OK to insert data in catalog */
+	PgxcClassCreate(relid, locatortype, attnum, hashalgorithm,
+					hashbuckets, numnodes, nodeoids, funcid, numatts, attnums);
 
-   /* Make dependency entries */
-   myself.classId = PgxcClassRelationId;
-   myself.objectId = relid;
-   myself.objectSubId = 0;
+	/* Make dependency entries */
+	myself.classId = PgxcClassRelationId;
+	myself.objectId = relid;
+	myself.objectSubId = 0;
 
-   /* Dependency on relation */
-   referenced.classId = RelationRelationId;
-   referenced.objectId = relid;
-   referenced.objectSubId = 0;
-   recordDependencyOn(&myself, &referenced, DEPENDENCY_INTERNAL);
+	/* Dependency on relation */
+	referenced.classId = RelationRelationId;
+	referenced.objectId = relid;
+	referenced.objectSubId = 0;
+	recordDependencyOn(&myself, &referenced, DEPENDENCY_INTERNAL);
 
-   /*
-	* Dependency on function while distribute
-	* by user-defined function
-	*/
-   CreatePgxcClassFuncDepend(locatortype, relid, funcid);
+	/*
+	 * Dependency on function while distribute
+	 * by user-defined function
+	 */
+	CreatePgxcClassFuncDepend(locatortype, relid, funcid);
 }
 
 /*
@@ -1402,16 +1402,16 @@ AddPgxcRelationDependFunction(Oid relid,
 							 List *parentOids,
 							 TupleDesc descriptor)
 {
-   char locatortype    = '\0';
-   int hashalgorithm   = 0;
-   int hashbuckets	   = 0;
-   AttrNumber attnum   = 0;
-   Oid funcid		   = InvalidOid;
-   int numatts		   = 0;
-   int16 *attnums	   = NULL;
+	char locatortype    = '\0';
+	int hashalgorithm   = 0;
+	int hashbuckets	   = 0;
+	AttrNumber attnum   = 0;
+	Oid funcid		   = InvalidOid;
+	int numatts		   = 0;
+	int16 *attnums	   = NULL;
 
-   /* Obtain details of distribution information */
-   GetRelationDistributionItems(relid,
+	/* Obtain details of distribution information */
+	GetRelationDistributionItems(relid,
 								distributeby,
 								descriptor,
 								&locatortype,
@@ -1422,11 +1422,11 @@ AddPgxcRelationDependFunction(Oid relid,
 								&numatts,
 								&attnums);
 
-   /*
-	* Dependency on function while distribute
-	* by user-defined function
-	*/
-   CreatePgxcClassFuncDepend(locatortype, relid, funcid);
+	/*
+	 * Dependency on function while distribute
+	 * by user-defined function
+	 */
+	CreatePgxcClassFuncDepend(locatortype, relid, funcid);
 }
 
 /*
@@ -1447,141 +1447,141 @@ GetRelationDistributionItems(Oid relid,
 							int *numatts,
 							int16 **attnums)
 {
-   int local_hashalgorithm = 0;
-   int local_hashbuckets = 0;
-   char local_locatortype = '\0';
-   AttrNumber local_attnum = 0;
+	int local_hashalgorithm = 0;
+	int local_hashbuckets = 0;
+	char local_locatortype = '\0';
+	AttrNumber local_attnum = 0;
 
-   if (!distributeby && distribute_by_replication_default)
-	   local_locatortype = LOCATOR_TYPE_REPLICATED;
-   else
+	if (!distributeby && distribute_by_replication_default)
+		local_locatortype = LOCATOR_TYPE_REPLICATED;
+	else if (!distributeby)
+	{
+		/*
+		 * If no distribution was specified, and we have not chosen
+		 * one based on primary key or foreign key, use first column with
+		 * a supported data type.
+		 */
+		Form_pg_attribute attr;
+		int i;
 
-   if (!distributeby)
-   {
-	   /*
-		* If no distribution was specified, and we have not chosen
-		* one based on primary key or foreign key, use first column with
-		* a supported data type.
-		*/
-	   Form_pg_attribute attr;
-	   int i;
+		local_locatortype = LOCATOR_TYPE_HASH;
 
-	   local_locatortype = LOCATOR_TYPE_HASH;
+		for (i = 0; i < descriptor->natts; i++)
+		{
+			attr = descriptor->attrs[i];
+			if (IsTypeDistributable(attr->atttypid))
+			{
+				/* distribute on this column */
+				local_attnum = i + 1;
+				break;
+			}
+		}
 
-	   for (i = 0; i < descriptor->natts; i++)
-	   {
-		   attr = descriptor->attrs[i];
-		   if (IsTypeDistributable(attr->atttypid))
-		   {
-			   /* distribute on this column */
-			   local_attnum = i + 1;
-			   break;
-		   }
-	   }
+		/* If we did not find a usable type, fall back to round robin */
+		if (local_attnum == 0)
+			local_locatortype = LOCATOR_TYPE_RROBIN;
+	}
+	else
+	{
+		/*
+		 * User specified distribution type
+		 */
+		switch (distributeby->disttype)
+		{
+			case DISTTYPE_HASH:
+				/*
+				 * Validate user-specified hash column.
+				 * System columns cannot be used.
+				 */
+				local_attnum = get_attnum(relid, distributeby->colname);
+				if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+							 errmsg("Invalid distribution column specified")));
+				}
 
-	   /* If we did not find a usable type, fall back to round robin */
-	   if (local_attnum == 0)
-		   local_locatortype = LOCATOR_TYPE_RROBIN;
-   }
-   else
-   {
-	   /*
-		* User specified distribution type
-		*/
-	   switch (distributeby->disttype)
-	   {
-		   case DISTTYPE_HASH:
-			   /*
-				* Validate user-specified hash column.
-				* System columns cannot be used.
-				*/
-			   local_attnum = get_attnum(relid, distributeby->colname);
-			   if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
-			   {
-				   ereport(ERROR,
-					   (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						errmsg("Invalid distribution column specified")));
-			   }
+				if (!IsTypeDistributable(descriptor->attrs[local_attnum - 1]->atttypid))
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+							 errmsg("Column %s is not a hash distributable data type",
+							 distributeby->colname)));
+				}
+				local_locatortype = LOCATOR_TYPE_HASH;
+				break;
 
-			   if (!IsTypeDistributable(descriptor->attrs[local_attnum - 1]->atttypid))
-			   {
-				   ereport(ERROR,
-					   (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-						errmsg("Column %s is not a hash distributable data type",
-						   distributeby->colname)));
-			   }
-			   local_locatortype = LOCATOR_TYPE_HASH;
-			   break;
+			case DISTTYPE_MODULO:
+				{
+					Oid disttypid;
 
-		   case DISTTYPE_MODULO:
-			   /*
-				* Validate user specified modulo column.
-				* System columns cannot be used.
-				*/
-			   local_attnum = get_attnum(relid, distributeby->colname);
-			   if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
-			   {
-				   ereport(ERROR,
-					   (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						errmsg("Invalid distribution column specified")));
-			   }
+					/*
+					 * Validate user specified modulo column.
+					 * System columns cannot be used.
+					 */
+					local_attnum = get_attnum(relid, distributeby->colname);
+					if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+								 errmsg("Invalid distribution column specified")));
+					}
 
-			   if (!IsTypeDistributable(descriptor->attrs[local_attnum - 1]->atttypid))
-			   {
-				   ereport(ERROR,
-					   (errcode(ERRCODE_WRONG_OBJECT_TYPE),
-						errmsg("Column %s is not modulo distributable data type",
-						   distributeby->colname)));
-			   }
-			   local_locatortype = LOCATOR_TYPE_MODULO;
-			   break;
+					disttypid = descriptor->attrs[local_attnum - 1]->atttypid;
+					if (!IsTypeDistributable(disttypid) || !CanModuloType(disttypid, true))
+						ereport(ERROR,
+								(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+								 errmsg("Column \"%s\" is not modulo distributable data type",
+								 distributeby->colname)));
+					local_locatortype = LOCATOR_TYPE_MODULO;
+				}
+				break;
 
-		   case DISTTYPE_REPLICATION:
-			   local_locatortype = LOCATOR_TYPE_REPLICATED;
-			   break;
+			case DISTTYPE_REPLICATION:
+				local_locatortype = LOCATOR_TYPE_REPLICATED;
+				break;
 
-		   case DISTTYPE_ROUNDROBIN:
-			   local_locatortype = LOCATOR_TYPE_RROBIN;
-			   break;
+			case DISTTYPE_ROUNDROBIN:
+				local_locatortype = LOCATOR_TYPE_RROBIN;
+				break;
 
-		   case DISTTYPE_USER_DEFINED:
-			   {
-				   local_locatortype = LOCATOR_TYPE_USER_DEFINED;
-				   if (funcid || numatts || attnums)
-					   GetUserDefinedDistribution(relid,
-												  distributeby,
-												  descriptor,
-												  funcid,
-												  numatts,
-												  attnums);
-			   }
-			   break;
+			case DISTTYPE_USER_DEFINED:
+				{
+					local_locatortype = LOCATOR_TYPE_USER_DEFINED;
+					if (funcid || numatts || attnums)
+						GetUserDefinedDistribution(relid,
+												   distributeby,
+												   descriptor,
+												   funcid,
+												   numatts,
+												   attnums);
+				}
+				break;
 
-		   default:
-			   ereport(ERROR,
-				   (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-					errmsg("Invalid distribution type")));
-	   }
-   }
+			default:
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						 errmsg("Invalid distribution type")));
+		}
+	}
 
-   /* Use default hash values */
-   if (local_locatortype == LOCATOR_TYPE_HASH)
-   {
-	   local_hashalgorithm = 1;
-	   local_hashbuckets = HASH_SIZE;
-   }
+	/* Use default hash values */
+	if (local_locatortype == LOCATOR_TYPE_HASH)
+	{
+		local_hashalgorithm = 1;
+		local_hashbuckets = HASH_SIZE;
+	}
 
-   /* Save results */
-   if (attnum)
-	   *attnum = local_attnum;
-   if (hashalgorithm)
-	   *hashalgorithm = local_hashalgorithm;
-   if (hashbuckets)
-	   *hashbuckets = local_hashbuckets;
-   if (locatortype)
-	   *locatortype = local_locatortype;
+	/* Save results */
+	if (attnum)
+		*attnum = local_attnum;
+	if (hashalgorithm)
+		*hashalgorithm = local_hashalgorithm;
+	if (hashbuckets)
+		*hashbuckets = local_hashbuckets;
+	if (locatortype)
+		*locatortype = local_locatortype;
 }
-
 
 /*
 * BuildRelationDistributionNodes
@@ -1590,64 +1590,61 @@ GetRelationDistributionItems(Oid relid,
 Oid *
 BuildRelationDistributionNodes(List *nodes, int *numnodes)
 {
-   Oid *nodeoids;
-   ListCell *item;
-   *numnodes = 0;
+	Oid *nodeoids;
+	ListCell *item;
+	*numnodes = 0;
 
-   /* Allocate once enough space for OID array */	 
-   nodeoids = (Oid *) palloc0(list_length(nodes) * sizeof(Oid));
+	/* Allocate once enough space for OID array */
+	nodeoids = (Oid *) palloc0(list_length(nodes) * sizeof(Oid));
 
-   /* Do process for each node name */
-   foreach(item, nodes)
-   {
-	   char   *node_name = strVal(lfirst(item));
-	   Oid	   noid = get_pgxc_nodeoid(node_name);
+	/* Do process for each node name */
+	foreach(item, nodes)
+	{
+		char   *node_name = strVal(lfirst(item));
+		Oid		noid = get_pgxc_nodeoid(node_name);
 
-	   /* Check existence of node */
-	   if (!OidIsValid(noid))
-		   ereport(ERROR,
-				   (errcode(ERRCODE_DUPLICATE_OBJECT),
-					errmsg("PGXC Node %s: object not defined",
-						   node_name)));
+		/* Check existence of node */
+		if (!OidIsValid(noid))
+			ereport(ERROR,
+					(errcode(ERRCODE_DUPLICATE_OBJECT),
+					 errmsg("PGXC Node %s: object not defined", node_name)));
 
-	   if (get_pgxc_nodetype(noid) != PGXC_NODE_DATANODE)
-		   ereport(ERROR,
-				   (errcode(ERRCODE_SYNTAX_ERROR),
-					errmsg("PGXC node %s: not a Datanode",
-						   node_name)));
+		if (get_pgxc_nodetype(noid) != PGXC_NODE_DATANODE)
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("PGXC node %s: not a Datanode", node_name)));
 
-	   /* Can be added if necessary */
-	   if (*numnodes != 0)
-	   {
-		   bool    is_listed = false;
-		   int	   i;
+		/* Can be added if necessary */
+		if (*numnodes != 0)
+		{
+			bool    is_listed = false;
+			int	   i;
 
-		   /* Id Oid already listed? */
-		   for (i = 0; i < *numnodes; i++)
-		   {
-			   if (nodeoids[i] == noid)
-			   {
-				   is_listed = true;
-				   break;
-			   }
-		   }
+			/* Id Oid already listed? */
+			for (i = 0; i < *numnodes; i++)
+			{
+				if (nodeoids[i] == noid)
+				{
+					is_listed = true;
+					break;
+				}
+			}
 
-		   if (!is_listed)
-		   {
-			   (*numnodes)++;
-			   nodeoids[*numnodes - 1] = noid;
-		   }
-	   }
-	   else
-	   {
-		   (*numnodes)++;
-		   nodeoids[*numnodes - 1] = noid;
-	   }
-   }
+			if (!is_listed)
+			{
+				(*numnodes)++;
+				nodeoids[*numnodes - 1] = noid;
+			}
+		}
+		else
+		{
+			(*numnodes)++;
+			nodeoids[*numnodes - 1] = noid;
+		}
+	}
 
-   return nodeoids;
+	return nodeoids;
 }
-
 
 /*
 * GetRelationDistributionNodes
@@ -1657,64 +1654,63 @@ BuildRelationDistributionNodes(List *nodes, int *numnodes)
 Oid *
 GetRelationDistributionNodes(PGXCSubCluster *subcluster, int *numnodes)
 {
-   ListCell *lc;
-   Oid *nodes = NULL;
+	ListCell *lc;
+	Oid *nodes = NULL;
 
-   *numnodes = 0;
+	*numnodes = 0;
 
-   if (!subcluster)
-   {
-	   int i;
-	   /*
-		* If no subcluster is defined, all the Datanodes are associated to the
-		* table. So obtain list of node Oids currenly known to the session.
-		* There could be a difference between the content of pgxc_node catalog
-		* table and current session, because someone may change nodes and not
-		* yet update session data.
-		*/
-	   *numnodes = NumDataNodes;
+	if (!subcluster)
+	{
+		int i;
+		/*
+		 * If no subcluster is defined, all the Datanodes are associated to the
+		 * table. So obtain list of node Oids currenly known to the session.
+		 * There could be a difference between the content of pgxc_node catalog
+		 * table and current session, because someone may change nodes and not
+		 * yet update session data.
+		 */
+		*numnodes = NumDataNodes;
 
-	   /* No nodes found ?? */
-	   if (*numnodes == 0)
-		   ereport(ERROR,
-				   (errcode(ERRCODE_UNDEFINED_OBJECT),
-					errmsg("No Datanode defined in cluster")));
+		/* No nodes found ?? */
+		if (*numnodes == 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("No Datanode defined in cluster")));
 
-	   nodes = (Oid *) palloc(NumDataNodes * sizeof(Oid));
-	   for (i = 0; i < NumDataNodes; i++)
-		   nodes[i] = PGXCNodeGetNodeOid(i, PGXC_NODE_DATANODE);
-   }
+		nodes = (Oid *) palloc(NumDataNodes * sizeof(Oid));
+		for (i = 0; i < NumDataNodes; i++)
+			nodes[i] = PGXCNodeGetNodeOid(i, PGXC_NODE_DATANODE);
+	}
 
-   /* Build list of nodes from given group */
-   if (!nodes && subcluster->clustertype == SUBCLUSTER_GROUP)
-   {
-	   Assert(list_length(subcluster->members) == 1);
+	/* Build list of nodes from given group */
+	if (!nodes && subcluster->clustertype == SUBCLUSTER_GROUP)
+	{
+		Assert(list_length(subcluster->members) == 1);
 
-	   foreach(lc, subcluster->members)
-	   {
-		   const char  *group_name = strVal(lfirst(lc));
-		   Oid	   group_oid = get_pgxc_groupoid(group_name);
+		foreach(lc, subcluster->members)
+		{
+			const char  *group_name = strVal(lfirst(lc));
+			Oid	   group_oid = get_pgxc_groupoid(group_name);
 
-		   if (!OidIsValid(group_oid))
-			   ereport(ERROR,
-					   (errcode(ERRCODE_UNDEFINED_OBJECT),
-						errmsg("PGXC Group %s: group not defined",
-							   group_name)));
+			if (!OidIsValid(group_oid))
+				ereport(ERROR,
+						(errcode(ERRCODE_UNDEFINED_OBJECT),
+						 errmsg("PGXC Group %s: group not defined", group_name)));
 
-		   *numnodes = get_pgxc_groupmembers(group_oid, &nodes);
-	   }
-   }
-   else if (!nodes)
-   {
-	   /*
-		* This is the case of a list of nodes names.
-		* Here the result is a sorted array of node Oids
-		*/
-	   nodes = BuildRelationDistributionNodes(subcluster->members, numnodes);
-   }
+			*numnodes = get_pgxc_groupmembers(group_oid, &nodes);
+		}
+	}
+	else if (!nodes)
+	{
+		/*
+		 * This is the case of a list of nodes names.
+		 * Here the result is a sorted array of node Oids
+		 */
+		nodes = BuildRelationDistributionNodes(subcluster->members, numnodes);
+	}
 
-   /* Return a sorted array of node OIDs */
-   return SortRelationDistributionNodes(nodes, *numnodes);
+	/* Return a sorted array of node OIDs */
+	return SortRelationDistributionNodes(nodes, *numnodes);
 }
 
 /*
@@ -1724,10 +1720,9 @@ GetRelationDistributionNodes(PGXCSubCluster *subcluster, int *numnodes)
 Oid *
 SortRelationDistributionNodes(Oid *nodeoids, int numnodes)
 {
-   qsort(nodeoids, numnodes, sizeof(Oid), cmp_nodes);
-   return nodeoids;
+	qsort(nodeoids, numnodes, sizeof(Oid), cmp_nodes);
+	return nodeoids;
 }
-
 #endif
 
 /* --------------------------------
