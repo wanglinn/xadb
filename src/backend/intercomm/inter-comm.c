@@ -111,7 +111,7 @@ ClusterSyncXid(void)
 	if (!IsCoordMaster())
 		return ;
 
-	node_list = GetAllNodeIds(false);
+	node_list = GetAllNodeIDL(false);
 	mix_handle = GetMixedHandles(node_list, NULL);
 	Assert(node_list && mix_handle);
 	list_free(node_list);

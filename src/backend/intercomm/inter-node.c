@@ -35,10 +35,10 @@ static int NumCnConns = 0;
  * NodeHandle
  * it is determined by node table in the shared memory
  */
-volatile int NumCnHandles = 0;
-volatile int NumDnHandles = 0;
-static int NumMaxHandles = 0;
-static volatile int NumAllHandles = 0;
+volatile int NumCnNodes = 0;
+volatile int NumDnNodes = 0;
+static int NumMaxNodes = 0;
+static volatile int NumAllNodes = 0;
 static NodeHandle *AllHandles = NULL;
 static NodeHandle *CnHandles = NULL;
 static NodeHandle *DnHandles = NULL;
@@ -47,14 +47,15 @@ static bool handle_init = false;
 NodeHandle *PrHandle = NULL;
 
 #define foreach_all_handles(p)	\
-	for (p = AllHandles; p - AllHandles < NumAllHandles; p = &p[1])
+	for (p = AllHandles; p - AllHandles < NumAllNodes; p = &p[1])
 #define foreach_cn_handles(p)	\
-	for (p = CnHandles; p - CnHandles < NumCnHandles; p = &p[1])
+	for (p = CnHandles; p - CnHandles < NumCnNodes; p = &p[1])
 #define foreach_dn_handles(p)	\
-	for (p = DnHandles; p - DnHandles < NumDnHandles; p = &p[1])
+	for (p = DnHandles; p - DnHandles < NumDnNodes; p = &p[1])
 
 static void GetPGconnAttatchToHandle(List *node_list, List *handle_list);
-static List *GetNodeIds(NodeType type, bool include_self);
+static List *GetNodeIDList(NodeType type, bool include_self);
+static Oid *GetNodeIDArray(NodeType type, bool include_self, int *node_num);
 
 void
 ResetNodeExecutor(void)
@@ -70,10 +71,10 @@ ReleaseNodeExecutor(void)
 {
 	if (AllHandles)
 	{
-		Assert(NumMaxHandles > 0);
+		Assert(NumMaxNodes > 0);
 		ResetNodeExecutor();
 	}
-	NumAllHandles = NumCnHandles = NumDnHandles = 0;
+	NumAllNodes = NumCnNodes = NumDnNodes = 0;
 	CnHandles = DnHandles = NULL;
 	handle_init = false;
 }
@@ -104,16 +105,16 @@ InitNodeExecutor(bool force)
 	if (AllHandles == NULL)
 	{
 		AllHandles = (NodeHandle *) MemoryContextAlloc(TopMemoryContext, sz);
-		NumMaxHandles = numALL;
-	} else if (numALL > NumMaxHandles)
+		NumMaxNodes = numALL;
+	} else if (numALL > NumMaxNodes)
 	{
-		Assert(NumMaxHandles > 0);
+		Assert(NumMaxNodes > 0);
 		AllHandles = (NodeHandle *) repalloc(AllHandles, sz);
-		NumMaxHandles = numALL;
+		NumMaxNodes = numALL;
 	} else {
 		/* keep compiler quiet */
 	}
-	sz = NumMaxHandles * sizeof(NodeHandle);
+	sz = NumMaxNodes * sizeof(NodeHandle);
 	MemSet(AllHandles, 0, sz);
 
 	NumCnConns = 0;
@@ -143,9 +144,9 @@ InitNodeExecutor(bool force)
 	}
 	safe_pfree(all_node_def);
 
-	NumAllHandles = numALL;
-	NumCnHandles = numCN;
-	NumDnHandles = numDN;
+	NumAllNodes = numALL;
+	NumCnNodes = numCN;
+	NumDnNodes = numDN;
 	CnHandles = (numCN > 0 ? AllHandles : NULL);
 	DnHandles = (numDN > 0 ? &AllHandles[numCN] : NULL);
 
@@ -471,25 +472,25 @@ FreeMixHandle(NodeMixHandle *mix_handle)
 }
 
 List *
-GetAllCnIds(bool include_self)
+GetAllCnIDL(bool include_self)
 {
-	return GetNodeIds(TYPE_CN_NODE, include_self);
+	return GetNodeIDList(TYPE_CN_NODE, include_self);
 }
 
 List *
-GetAllDnIds(bool include_self)
+GetAllDnIDL(bool include_self)
 {
-	return GetNodeIds(TYPE_DN_NODE, include_self);
+	return GetNodeIDList(TYPE_DN_NODE, include_self);
 }
 
 List *
-GetAllNodeIds(bool include_self)
+GetAllNodeIDL(bool include_self)
 {
-	return GetNodeIds(TYPE_CN_NODE | TYPE_DN_NODE, include_self);
+	return GetNodeIDList(TYPE_CN_NODE | TYPE_DN_NODE, include_self);
 }
 
 static List *
-GetNodeIds(NodeType type, bool include_self)
+GetNodeIDList(NodeType type, bool include_self)
 {
 	List	   *result = NIL;
 	NodeHandle *handle;
@@ -515,6 +516,73 @@ GetNodeIds(NodeType type, bool include_self)
 			result = lappend_oid(result, handle->node_id);
 		}
 	}
+
+	return result;
+}
+
+
+Oid *
+GetAllCnIDA(bool include_self, int *cn_num)
+{
+	return GetNodeIDArray(TYPE_CN_NODE, include_self, cn_num);
+}
+
+Oid *
+GetAllDnIDA(bool include_self, int *dn_num)
+{
+	return GetNodeIDArray(TYPE_DN_NODE, include_self, dn_num);
+}
+
+Oid *
+GetAllNodeIDA(bool include_self, int *node_num)
+{
+	return GetNodeIDArray(TYPE_CN_NODE | TYPE_DN_NODE, include_self, node_num);
+}
+
+static Oid *
+GetNodeIDArray(NodeType type, bool include_self, int *node_num)
+{
+	NodeHandle *handle;
+	Oid		   *result;
+	int			num = 0;
+
+	if (type & TYPE_CN_NODE)
+		num += NumCnNodes;
+	if (type & TYPE_DN_NODE)
+		num += NumDnNodes;
+	if (num == 0)
+	{
+		if (node_num)
+			*node_num = 0;
+		return NULL;
+	}
+
+	result = (Oid *) palloc(num * sizeof(Oid));
+	num = 0;
+	if (type & TYPE_CN_NODE)
+	{
+		foreach_cn_handles(handle)
+		{
+			if (handle->node_id == PGXCNodeOid && !include_self)
+				continue;
+
+			result[num++] = handle->node_id;
+		}
+	}
+
+	if (type & TYPE_DN_NODE)
+	{
+		foreach_dn_handles(handle)
+		{
+			if (handle->node_id == PGXCNodeOid && !include_self)
+				continue;
+
+			result[num++] = handle->node_id;
+		}
+	}
+
+	if (node_num)
+		*node_num = num;
 
 	return result;
 }

@@ -70,8 +70,12 @@ extern NodeMixHandle *CopyMixhandle(NodeMixHandle *src);
 extern NodeMixHandle *ConcatMixHandle(NodeMixHandle *mix1, NodeMixHandle *mix2);
 extern void FreeMixHandle(NodeMixHandle *mix_handle);
 
-extern List *GetAllCnIds(bool include_self);
-extern List *GetAllDnIds(bool include_self);
-extern List *GetAllNodeIds(bool include_self);
+extern List *GetAllCnIDL(bool include_self);
+extern List *GetAllDnIDL(bool include_self);
+extern List *GetAllNodeIDL(bool include_self);
+
+extern Oid *GetAllCnIDA(bool include_self, int *cn_num);
+extern Oid *GetAllDnIDA(bool include_self, int *dn_num);
+extern Oid *GetAllNodeIDA(bool include_self, int *node_num);
 
 #endif /* INTER_NODE_H */

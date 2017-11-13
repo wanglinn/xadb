@@ -197,13 +197,13 @@ GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQuer
 		switch (exec_type)
 		{
 			case EXEC_ON_COORDS:
-				node_list = GetAllCnIds(false);
+				node_list = GetAllCnIDL(false);
 				break;
 			case EXEC_ON_DATANODES:
-				node_list = GetAllDnIds(false);
+				node_list = GetAllDnIDL(false);
 				break;
 			case EXEC_ON_ALL_NODES:
-				node_list = GetAllNodeIds(false);
+				node_list = GetAllNodeIDL(false);
 				break;
 			default:
 				Assert(false);

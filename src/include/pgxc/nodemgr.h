@@ -26,8 +26,8 @@ extern int 	MaxCoords;
 /* Global number of nodes */
 extern volatile int NumDataNodes;
 extern volatile int NumCoords;
-extern volatile int NumCnHandles;
-extern volatile int NumDnHandles;
+extern volatile int NumCnNodes;
+extern volatile int NumDnNodes;
 /* Node definition */
 typedef struct
 {

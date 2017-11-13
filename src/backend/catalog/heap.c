@@ -998,22 +998,21 @@ cmp_nodes(const void *p1, const void *p2)
 	return 1;
 }
 
-
 static List *
 GetUserDefinedFuncArgVars(Oid relid,
 						  DistributeBy *distributeby,
 						  TupleDesc descriptor)
 {
-	List	*funcargs = NIL;
-	List	*func_var_args = NIL;
-	ListCell	*cell = NULL;
-	ColumnRef	*cref = NULL;
-	char	*cref_nspname = NULL;
-	char	*cref_relname = NULL;
-	char	*cref_colname = NULL;
-	AttrNumber local_attnum = 0;
-	Var		*local_var = NULL;
-	bool	invalid_col = false;
+	List	   *funcargs = NIL;
+	List	   *func_var_args = NIL;
+	ListCell   *cell = NULL;
+	ColumnRef  *cref = NULL;
+	char	   *cref_nspname = NULL;
+	char	   *cref_relname = NULL;
+	char	   *cref_colname = NULL;
+	AttrNumber	local_attnum = 0;
+	Var		   *local_var = NULL;
+	bool		invalid_col = false;
 
 	Assert(OidIsValid(relid));
 	Assert(distributeby && descriptor);
@@ -1141,10 +1140,9 @@ GetUserDefinedFuncArgVars(Oid relid,
 		if (invalid_col)
 		{
 			ereport(ERROR,
-				(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-				errmsg("Invalid distribution column specified: %s",
-				NameListToString(cref->fields)),
-				errhint("Only column(s) of the relation can be specified")));
+					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+					 errmsg("Invalid distribution column specified: %s", NameListToString(cref->fields)),
+					 errhint("Only column(s) of the relation can be specified")));
 		} else
 		{
 			local_var = makeVar(1,
@@ -1183,24 +1181,24 @@ IsReturnTypeDistributable(Oid retype)
 static Oid
 lookup_distribute_function(List *funcname, List *funcargs)
 {
-	ListCell 		*l;
-	ListCell 		*nextl;
+	ListCell 	   *l;
+	ListCell 	   *nextl;
 	Oid				actual_arg_types[FUNC_MAX_ARGS] = {0};
-	Oid				*declared_arg_types;
-	List			*argdefaults;
+	Oid			   *declared_arg_types;
+	List		   *argdefaults;
 	Oid				rettype;
 	bool			retset;
 	int				nvargs;
 	int 			nargs;
-	FuncDetailCode 	fdresult;
+	FuncDetailCode	fdresult;
 	Oid				funcid;
 	Oid				vatype;
 
 	if (list_length(funcargs) > FUNC_MAX_ARGS)
 		ereport(ERROR,
 				(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
-				errmsg("cannot pass more than %d argument to a function: %s",
-				FUNC_MAX_ARGS, NameListToString(funcname))));
+				 errmsg("cannot pass more than %d argument to a function: %s",
+				 FUNC_MAX_ARGS, NameListToString(funcname))));
 
 	/*
 	 * Extract arg type info in preparation for function lookup.
@@ -1249,28 +1247,28 @@ lookup_distribute_function(List *funcname, List *funcargs)
 			return funcid;
 		else
 			ereport(ERROR,
-				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-				errmsg("Return type of user-defined partition function "
-				"must be an integer")));
+					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					 errmsg("Return type of user-defined partition function "
+					 		"must be an integer")));
 	} else
 	if (fdresult == FUNCDETAIL_MULTIPLE)
 	{
 		ereport(ERROR,
-			(errcode(ERRCODE_AMBIGUOUS_FUNCTION),
-			errmsg("function %s is not unique",
-				func_signature_string(funcname, nargs, NIL, actual_arg_types)),
-				errhint("Could not choose a best candidate function. "
-				"You might need to add explicit type casts.")));
+				(errcode(ERRCODE_AMBIGUOUS_FUNCTION),
+				 errmsg("function %s is not unique",
+				 		func_signature_string(funcname, nargs, NIL, actual_arg_types)),
+				 errhint("Could not choose a best candidate function. "
+				 		 "You might need to add explicit type casts.")));
 	} else
 	if (fdresult == FUNCDETAIL_NOTFOUND ||
 		fdresult == FUNCDETAIL_COERCION)
 	{
 		ereport(ERROR,
-			(errcode(ERRCODE_UNDEFINED_FUNCTION),
-			errmsg("function %s does not exist",
-				func_signature_string(funcname, nargs, NIL, actual_arg_types)),
-			errhint("No function matches the given name and argument types. "
-					"You might need to add explicit type casts.")));
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("function %s does not exist",
+				 		func_signature_string(funcname, nargs, NIL, actual_arg_types)),
+				 errhint("No function matches the given name and argument types. "
+				 		"You might need to add explicit type casts.")));
 	}
 
 	return InvalidOid;
@@ -1342,16 +1340,16 @@ AddRelationDistribution(Oid relid,
 						List 		*parentOids,
 						TupleDesc	descriptor)
 {
-	char locatortype    = '\0';
-	int hashalgorithm   = 0;
-	int hashbuckets	   = 0;
-	AttrNumber attnum   = 0;
-	ObjectAddress myself, referenced;
-	int numnodes;
-	Oid *nodeoids;
-	Oid funcid = InvalidOid;
-	int numatts = 0;
-	int16 *attnums = NULL;
+	char			locatortype = '\0';
+	int				hashalgorithm = 0;
+	int				hashbuckets = 0;
+	AttrNumber		attnum = 0;
+	ObjectAddress	myself, referenced;
+	int				numnodes;
+	Oid			   *nodeoids;
+	Oid				funcid = InvalidOid;
+	int				numatts = 0;
+	int16		   *attnums = NULL;
 
 	/* Obtain details of nodes and classify them */
 	nodeoids = GetRelationDistributionNodes(subcluster, &numnodes);
@@ -1654,11 +1652,11 @@ BuildRelationDistributionNodes(List *nodes, int *numnodes)
 Oid *
 GetRelationDistributionNodes(PGXCSubCluster *subcluster, int *numnodes)
 {
-	ListCell *lc;
-	Oid *nodes = NULL;
+	ListCell   *lc;
+	Oid		   *nodes = NULL;
 
+	Assert(numnodes);
 	*numnodes = 0;
-
 	if (!subcluster)
 	{
 		int i;
