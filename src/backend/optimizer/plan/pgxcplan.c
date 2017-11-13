@@ -1345,6 +1345,18 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 						(List *)query_to_deparse->jointree->quals);
 	}
 
+	if(root->parse->onConflict)
+	{
+		OnConflictExpr *on_conflict = root->parse->onConflict;
+		if(on_conflict->action != ONCONFLICT_NOTHING)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					errmsg("not support ON CONFLICT DO UPDATE")));
+		}
+		query_to_deparse->onConflict = on_conflict;
+	}
+
 	if (indexed_col_numbers != NULL)
 		pfree(indexed_col_numbers);
 
