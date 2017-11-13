@@ -627,6 +627,7 @@ ac_includes_default="\
 
 ac_subst_vars='LTLIBOBJS
 vpath_build
+ADB_VERSION_NUM
 PG_VERSION_NUM
 PROVE
 OSX
@@ -2746,12 +2747,12 @@ if test "${with_extra_version+set}" = set; then :
       as_fn_error $? "argument required for --with-extra-version option" "$LINENO" 5
       ;;
     *)
-      PG_VERSION="$PACKAGE_VERSION ADB $ADB_VERSION$withval"
+      PG_VERSION="$PACKAGE_VERSION $withval"
       ;;
   esac
 
 else
-  PG_VERSION="$PACKAGE_VERSION ADB $ADB_VERSION"
+  PG_VERSION="$PACKAGE_VERSION"
 fi
 
 
@@ -15905,7 +15906,7 @@ fi
 
 
 cat >>confdefs.h <<_ACEOF
-#define PG_VERSION_STR "PostgreSQL $PG_VERSION on $host, compiled by $cc_string, `expr $ac_cv_sizeof_void_p \* 8`-bit"
+#define PG_VERSION_STR "PostgreSQL $PG_VERSION ADB $ADB_VERSION on $host, compiled by $cc_string, `expr $ac_cv_sizeof_void_p \* 8`-bit"
 _ACEOF
 
 
@@ -15919,6 +15920,15 @@ cat >>confdefs.h <<_ACEOF
 #define PG_VERSION_NUM $PG_VERSION_NUM
 _ACEOF
 
+
+
+ADB_VERSION_NUM="`echo "$ADB_VERSION" | sed 's/[A-Za-z].*$//' |
+tr '.' '        ' |
+$AWK '{printf "%d%02d%02d", $1, $2, (NF >= 3) ? $3 : 0}'`"
+
+cat >>confdefs.h <<_ACEOF
+#define ADB_VERSION_NUM $ADB_VERSION_NUM
+_ACEOF
 
 
 

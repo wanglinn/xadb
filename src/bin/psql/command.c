@@ -2049,7 +2049,7 @@ connection_warnings(bool in_startup)
 		/* For version match, only print psql banner on startup. */
 		else if (in_startup)
 #ifdef ADB
-			printf("%s (ADB 3.0 based on PG %s)\n", pset.progname, PG_VERSION);
+			printf("%s (%s based on PG %s)\n", pset.progname, ADB_VERSION, PG_VERSION);
 #else
 			printf("%s (%s)\n", pset.progname, PG_VERSION);
 #endif
