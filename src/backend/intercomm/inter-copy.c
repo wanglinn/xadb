@@ -123,32 +123,34 @@ void
 EndRemoteCopy(RemoteCopyState *node)
 {
 	NodeHandle	   *handle;
+	NodeHandle	   *prhandle;
 	ListCell	   *lc_handle;
 
 	Assert(node);
 	PG_TRY();
 	{
-		if (PrHandle && list_member_ptr(node->copy_handles, PrHandle))
+		prhandle = GetPrHandle();
+		if (prhandle && list_member_ptr(node->copy_handles, prhandle))
 		{
-			if (PQputCopyEnd(PrHandle->node_conn, NULL) <= 0 ||
-				!HandleFinishCommand(PrHandle, NULL))
+			if (PQputCopyEnd(prhandle->node_conn, NULL) <= 0 ||
+				!HandleFinishCommand(prhandle, NULL))
 				ereport(ERROR,
 						(errmsg("Fail to end COPY %s", node->is_from ? "FROM" : "TO"),
-						 errnode(NameStr(PrHandle->node_name)),
-						 errdetail("%s", HandleGetError(PrHandle, false))));
+						 errnode(NameStr(prhandle->node_name)),
+						 errdetail("%s", HandleGetError(prhandle, false))));
 		}
 
 		foreach (lc_handle, node->copy_handles)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
 			/* Primary handle has been copy end already, see above */
-			if (PrHandle && handle == PrHandle)
+			if (prhandle && handle == prhandle)
 				continue;
 			if (PQputCopyEnd(handle->node_conn, NULL) <= 0 ||
 				!HandleFinishCommand(handle, NULL))
 				ereport(ERROR,
 						(errmsg("Fail to end COPY %s", node->is_from ? "FROM" : "TO"),
-						 errnode(NameStr(PrHandle->node_name)),
+						 errnode(NameStr(prhandle->node_name)),
 						 errdetail("%s", HandleGetError(handle, false))));
 		}
 	} PG_CATCH();
@@ -198,28 +200,30 @@ void
 DoRemoteCopyFrom(RemoteCopyState *node, const StringInfo line_buf, const List *node_list)
 {
 	NodeHandle	   *handle;
+	NodeHandle	   *prhandle;
 	ListCell	   *lc_node;
 	Oid				node_id;
 
 	Assert(node && line_buf);
 	PG_TRY();
 	{
+		prhandle = GetPrHandle();
 		/* Primary handle should be sent first */
-		if (PrHandle && list_member_oid(node_list, PrHandle->node_id))
+		if (prhandle && list_member_oid(node_list, prhandle->node_id))
 		{
-			Assert(list_member_ptr(node->copy_handles, PrHandle));
-			if (PQputCopyData(PrHandle->node_conn, line_buf->data, line_buf->len) <= 0)
+			Assert(list_member_ptr(node->copy_handles, prhandle));
+			if (PQputCopyData(prhandle->node_conn, line_buf->data, line_buf->len) <= 0)
 				ereport(ERROR,
 						(errmsg("Fail to send to COPY FROM data."),
-						 errnode(NameStr(PrHandle->node_name)),
-						 errhint("%s", HandleGetError(PrHandle, false))));
+						 errnode(NameStr(prhandle->node_name)),
+						 errhint("%s", HandleGetError(prhandle, false))));
 		}
 
 		foreach (lc_node, node_list)
 		{
 			node_id = lfirst_oid(lc_node);
 			/* Primary handle has been sent already, see above */
-			if (PrHandle && node_id == PrHandle->node_id)
+			if (prhandle && node_id == prhandle->node_id)
 				continue;
 			handle = LookupNodeHandle(node->copy_handles, node_id);
 			Assert(handle);

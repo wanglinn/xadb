@@ -44,7 +44,7 @@ static NodeHandle *CnHandles = NULL;
 static NodeHandle *DnHandles = NULL;
 static bool handle_init = false;
 
-NodeHandle *PrHandle = NULL;
+static NodeHandle *PrHandle = NULL;
 
 #define foreach_all_handles(p)	\
 	for (p = AllHandles; p - AllHandles < NumAllNodes; p = &p[1])
@@ -586,4 +586,28 @@ GetNodeIDArray(NodeType type, bool include_self, int *node_num)
 		*node_num = num;
 
 	return result;
+}
+
+NodeHandle *
+GetPrHandle(void)
+{
+	return PrHandle;
+}
+
+Oid
+GetPrNodeID(void)
+{
+	if (PrHandle)
+		return PrHandle->node_id;
+
+	return InvalidOid;
+}
+
+bool
+IsPrNode(Oid node_id)
+{
+	if (PrHandle && OidIsValid(PrHandle->node_id))
+		return node_id == PrHandle->node_id;
+
+	return false;
 }

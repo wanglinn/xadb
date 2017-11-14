@@ -50,8 +50,6 @@ typedef struct CustomOption
 	const struct PGcustumFuns*cumstom_funcs;
 } CustomOption;
 
-extern NodeHandle *PrHandle;
-
 extern void ResetNodeExecutor(void);
 extern void ReleaseNodeExecutor(void);
 extern void InitNodeExecutor(bool force);
@@ -77,5 +75,9 @@ extern List *GetAllNodeIDL(bool include_self);
 extern Oid *GetAllCnIDA(bool include_self, int *cn_num);
 extern Oid *GetAllDnIDA(bool include_self, int *dn_num);
 extern Oid *GetAllNodeIDA(bool include_self, int *node_num);
+
+extern NodeHandle *GetPrHandle(void);
+extern Oid GetPrNodeID(void);
+extern bool IsPrNode(Oid node_id);
 
 #endif /* INTER_NODE_H */
