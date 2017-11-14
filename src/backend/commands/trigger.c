@@ -2431,6 +2431,18 @@ ExecIRDeleteTriggers(EState *estate, ResultRelInfo *relinfo,
 	TriggerData LocTriggerData;
 	HeapTuple	rettuple;
 	int			i;
+#ifdef ADB
+	bool		exec_all_triggers;
+	/*
+	 * Know whether we should fire triggers on this node. But since internal
+	 * triggers are an exception, we cannot bail out here.
+	 */
+	exec_all_triggers = pgxc_should_exec_triggers(relinfo->ri_RelationDesc,
+								  TRIGGER_TYPE_DELETE,
+								  TRIGGER_TYPE_ROW,
+								  TRIGGER_TYPE_INSTEAD);
+#endif
+
 
 	LocTriggerData.type = T_TriggerData;
 	LocTriggerData.tg_event = TRIGGER_EVENT_DELETE |
@@ -2442,6 +2454,12 @@ ExecIRDeleteTriggers(EState *estate, ResultRelInfo *relinfo,
 	for (i = 0; i < trigdesc->numtriggers; i++)
 	{
 		Trigger    *trigger = &trigdesc->triggers[i];
+
+#ifdef ADB
+		if (!pgxc_is_trigger_firable(relinfo->ri_RelationDesc, trigger,
+									 exec_all_triggers))
+			continue;
+#endif
 
 		if (!TRIGGER_TYPE_MATCHES(trigger->tgtype,
 								  TRIGGER_TYPE_ROW,
@@ -2475,6 +2493,15 @@ ExecBSUpdateTriggers(EState *estate, ResultRelInfo *relinfo)
 	int			i;
 	TriggerData LocTriggerData;
 	Bitmapset  *updatedCols;
+
+#ifdef ADB
+	/* Know whether we should fire these type of triggers on this node */
+	if (!pgxc_should_exec_triggers(relinfo->ri_RelationDesc,
+								  TRIGGER_TYPE_UPDATE,
+								  TRIGGER_TYPE_STATEMENT,
+								  TRIGGER_TYPE_BEFORE))
+		return;
+#endif
 
 	trigdesc = relinfo->ri_TrigDesc;
 
@@ -2745,7 +2772,17 @@ ExecIRUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
 	TriggerData LocTriggerData;
 	HeapTuple	oldtuple;
 	int			i;
-
+#ifdef ADB
+	bool		exec_all_triggers;
+	/*
+	 * Know whether we should fire triggers on this node. But since internal
+	 * triggers are an exception, we cannot bail out here.
+	 */
+	exec_all_triggers = pgxc_should_exec_triggers(relinfo->ri_RelationDesc,
+								  TRIGGER_TYPE_UPDATE,
+								  TRIGGER_TYPE_ROW,
+								  TRIGGER_TYPE_INSTEAD);
+#endif
 
 	LocTriggerData.type = T_TriggerData;
 	LocTriggerData.tg_event = TRIGGER_EVENT_UPDATE |
@@ -2755,6 +2792,12 @@ ExecIRUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
 	for (i = 0; i < trigdesc->numtriggers; i++)
 	{
 		Trigger    *trigger = &trigdesc->triggers[i];
+
+#ifdef ADB
+		if (!pgxc_is_trigger_firable(relinfo->ri_RelationDesc, trigger,
+									 exec_all_triggers))
+			continue;
+#endif
 
 		if (!TRIGGER_TYPE_MATCHES(trigger->tgtype,
 								  TRIGGER_TYPE_ROW,
@@ -2806,6 +2849,15 @@ ExecBSTruncateTriggers(EState *estate, ResultRelInfo *relinfo)
 	TriggerDesc *trigdesc;
 	int			i;
 	TriggerData LocTriggerData;
+
+#ifdef ADB
+	/* Know whether we should fire these type of triggers on this node */
+	if (!pgxc_should_exec_triggers(relinfo->ri_RelationDesc,
+								  TRIGGER_TYPE_TRUNCATE,
+								  TRIGGER_TYPE_STATEMENT,
+								  TRIGGER_TYPE_BEFORE))
+		return;
+#endif
 
 	trigdesc = relinfo->ri_TrigDesc;
 
@@ -5523,8 +5575,6 @@ pg_trigger_depth(PG_FUNCTION_ARGS)
 }
 
 #ifdef ADB
-
-
 /*
  * Allocate a new row store entry in the row store array.
  */
