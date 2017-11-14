@@ -81,6 +81,7 @@
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
 #include "commands/dbcommands.h"
+#include "intercomm/inter-node.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/reduceinfo.h"
 #include "parser/parse_func.h"
@@ -1588,8 +1589,10 @@ GetRelationDistributionItems(Oid relid,
 Oid *
 BuildRelationDistributionNodes(List *nodes, int *numnodes)
 {
-	Oid *nodeoids;
-	ListCell *item;
+	Oid		   *nodeoids;
+	ListCell   *item;
+
+	Assert(numnodes);
 	*numnodes = 0;
 
 	/* Allocate once enough space for OID array */
@@ -1605,18 +1608,18 @@ BuildRelationDistributionNodes(List *nodes, int *numnodes)
 		if (!OidIsValid(noid))
 			ereport(ERROR,
 					(errcode(ERRCODE_DUPLICATE_OBJECT),
-					 errmsg("PGXC Node %s: object not defined", node_name)));
+					 errmsg("PGXC Node \"%s\": object not defined", node_name)));
 
 		if (get_pgxc_nodetype(noid) != PGXC_NODE_DATANODE)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("PGXC node %s: not a Datanode", node_name)));
+					 errmsg("PGXC node \"%s\": not a Datanode", node_name)));
 
 		/* Can be added if necessary */
 		if (*numnodes != 0)
 		{
-			bool    is_listed = false;
-			int	   i;
+			bool	is_listed = false;
+			int		i;
 
 			/* Id Oid already listed? */
 			for (i = 0; i < *numnodes; i++)
@@ -1659,25 +1662,13 @@ GetRelationDistributionNodes(PGXCSubCluster *subcluster, int *numnodes)
 	*numnodes = 0;
 	if (!subcluster)
 	{
-		int i;
-		/*
-		 * If no subcluster is defined, all the Datanodes are associated to the
-		 * table. So obtain list of node Oids currenly known to the session.
-		 * There could be a difference between the content of pgxc_node catalog
-		 * table and current session, because someone may change nodes and not
-		 * yet update session data.
-		 */
-		*numnodes = NumDataNodes;
+		nodes = GetAllDnIDA(false, numnodes);
 
 		/* No nodes found ?? */
 		if (*numnodes == 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
 					 errmsg("No Datanode defined in cluster")));
-
-		nodes = (Oid *) palloc(NumDataNodes * sizeof(Oid));
-		for (i = 0; i < NumDataNodes; i++)
-			nodes[i] = PGXCNodeGetNodeOid(i, PGXC_NODE_DATANODE);
 	}
 
 	/* Build list of nodes from given group */

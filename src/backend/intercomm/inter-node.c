@@ -76,6 +76,7 @@ ReleaseNodeExecutor(void)
 	}
 	NumAllNodes = NumCnNodes = NumDnNodes = 0;
 	CnHandles = DnHandles = NULL;
+	PrHandle = NULL;
 	handle_init = false;
 }
 
