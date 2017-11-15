@@ -216,6 +216,7 @@ struct RdcPort
 #define PortIsValid(port)			((port) != NULL && RdcFlags(port) == RDC_FLAG_VALID)
 #define PortMustClosed(port)		((port) != NULL && RdcFlags(port) == RDC_FLAG_CLOSED)
 
+#define PortForUndefine(port)		(RdcPeerType(port) == TYPE_UNDEFINE)
 #define PortForBackend(port)		(RdcPeerType(port) == TYPE_BACKEND)
 #define PortForPlan(port)			(RdcPeerType(port) == TYPE_PLAN)
 #define PortForReduce(port)			(RdcPeerType(port) == TYPE_REDUCE)

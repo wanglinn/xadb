@@ -1021,6 +1021,10 @@ HandleAcceptConn(List **acp_nodes, List **pln_nodes)
 			continue ;
 		}
 
+		/* Undefined port type */
+		if (PortForUndefine(port))
+			continue ;
+
 		/*
 		 * Connection came from other Reduce will be rejected,
 		 * Bad connection will be done the same.

@@ -1133,6 +1133,10 @@ rdc_recv(RdcPort *port)
 			buf->len = buf->cursor = 0;
 	}
 
+	/* double enlarge the buffer if it is full */
+	if (buf->maxlen == buf->len)
+		enlargeStringInfo(buf, buf->maxlen - 1);
+
 	/* Can fill buffer from buf->len and upwards */
 	for (;;)
 	{
@@ -1170,7 +1174,7 @@ rdc_recv(RdcPort *port)
 			 * better to expect the ultimate caller to do that.
 			 */
 			rdc_puterror(port,
-						 "the peer of" RDC_PORT_PRINT_FORMAT "has performed an orderly shutdown",
+						 "the peer of" RDC_PORT_PRINT_FORMAT " has performed an orderly shutdown",
 						 RDC_PORT_PRINT_VALUE(port));
 			return EOF;
 		}
