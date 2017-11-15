@@ -192,7 +192,9 @@ GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQuer
 		{
 			node_list = list_copy(exec_nodes->nodeids);
 		}
-	} else
+	}
+	/* get node list by exec_type */
+	if (list_length(node_list) == 0)
 	{
 		switch (exec_type)
 		{

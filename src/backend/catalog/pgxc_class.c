@@ -219,7 +219,7 @@ PgxcClassAlter(Oid pcrelid,
 			CreatePgxcClassFuncDepend(pclocatortype, pcrelid, pcfuncid);
 		} else
 		{
-			new_record_nulls[Anum_pgxc_class_pcfuncid - 1] = true;
+			new_record[Anum_pgxc_class_pcfuncid - 1] = ObjectIdGetDatum(InvalidOid);
 		}
 	}
 
