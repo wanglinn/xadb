@@ -402,12 +402,6 @@ extern void ExitParallelMode(void);
 extern bool IsInParallelMode(void);
 
 #ifdef ADB
-extern void RegisterTransactionNodes(int count, void **connections, bool write);
-extern void ForgetTransactionNodes(void);
-extern void RegisterTransactionLocalNode(bool write);
-extern bool IsTransactionLocalNode(bool write);
-extern void ForgetTransactionLocalNode(void);
-extern bool IsXidImplicit(const char *xid);
 extern void SaveReceivedCommandId(CommandId cid);
 extern void SetReceivedCommandId(CommandId cid);
 extern CommandId GetReceivedCommandId(void);

@@ -1467,7 +1467,6 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 			fstep->exec_nodes = makeNode(ExecNodes);
 			fstep->exec_nodes->accesstype = accessType;
 			fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-			fstep->exec_nodes->primarynodelist = NIL;
 			fstep->exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
 			fstep->exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
 			fstep->exec_nodes->en_funcid = rel_loc_info->funcid;

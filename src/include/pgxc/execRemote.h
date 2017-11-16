@@ -146,35 +146,13 @@ typedef struct RemoteQueryState
 
 typedef void (*xact_callback) (bool isCommit, void *args);
 
-/* Multinode Executor */
-extern void PGXCNodeBegin(void);
-extern void PGXCNodeSetBeginQuery(char *query_string);
-extern void	PGXCNodeCommit(bool bReleaseHandles);
-extern int	PGXCNodeRollback(void);
-extern bool	PGXCNodePrepare(char *gid);
-extern bool	PGXCNodeRollbackPrepared(char *gid);
-extern void PGXCNodeCommitPrepared(char *gid);
-
-/* Copy command just involves Datanodes */
-extern PGXCNodeHandle** pgxcNodeCopyBegin(const char *query, List *nodelist,
-											Snapshot snapshot, char node_type);
-extern int DataNodeCopyIn(char *data_row, int len, ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections);
-extern uint64 DataNodeCopyOut(ExecNodes *exec_nodes, PGXCNodeHandle** copy_connections, TupleDesc tupleDesc,
-							  FILE* copy_file, Tuplestorestate *store, RemoteCopyType remoteCopyType);
-extern void pgxcNodeCopyFinish(PGXCNodeHandle** copy_connections, int primary_dn_index,
-								CombineType combine_type, char node_type);
-extern bool DataNodeCopyEnd(PGXCNodeHandle *handle, bool is_error);
-extern int DataNodeCopyInBinaryForAll(char *msg_buf, int len, PGXCNodeHandle** copy_connections);
-
 extern int ExecCountSlotsRemoteQuery(RemoteQuery *node);
 extern RemoteQueryState *ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags);
 extern TupleTableSlot* ExecRemoteQuery(RemoteQueryState *step);
 extern void ExecEndRemoteQuery(RemoteQueryState *step);
-extern void ExecRemoteUtility(RemoteQuery *node);
 
 extern int handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner);
 extern void HandleCmdComplete(CmdType commandType, CombineTag *combine, const char *msg_body, size_t len);
-extern bool FetchTuple(RemoteQueryState *combiner, TupleTableSlot *slot);
 extern void BufferConnection(PGXCNodeHandle *conn);
 
 extern void ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt);
@@ -182,30 +160,13 @@ extern void ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt)
 extern void SetDataRowForExtParams(ParamListInfo params, RemoteQueryState *rq_state);
 
 extern void ExecCloseRemoteStatement(const char *stmt_name, List *nodelist);
-extern void PreCommit_Remote(const char *gid, bool missing_ok);
-extern void PrePrepare_Remote(const char *gid);
-extern bool	PreAbort_Remote(const char *gid, bool missing_ok);
-extern void AtEOXact_Remote(void);
-extern bool IsTwoPhaseCommitRequired(bool localWrite);
 
 /* Flags related to temporary objects included in query */
-extern void ExecSetTempObjectIncluded(void);
-extern bool ExecIsTempObjectIncluded(void);
-extern TupleTableSlot * ExecProcNodeDMLInXC(EState *estate,
-                        TupleTableSlot *sourceDataSlot, TupleTableSlot *newDataSlot);
+extern TupleTableSlot * ExecProcNodeDMLInXC(EState *estate, TupleTableSlot *sourceDataSlot, TupleTableSlot *newDataSlot);
 
-extern void pgxc_all_success_nodes(ExecNodes **d_nodes, ExecNodes **c_nodes, char **failednodes_msg);
 extern void AtEOXact_DBCleanup(bool isCommit);
 
 extern void set_dbcleanup_callback(xact_callback function, void *paraminfo, int paraminfo_size);
-extern void do_query(RemoteQueryState *node);
-
-extern void init_RemoteXactStateByNodes(int node_cnt, Oid *nodeIds, bool isPrepared);
-extern void TellRemoteXactLocalPrepared(bool status);
-extern int pgxcGetInvolvedRemoteNodes(Oid **nodeIds);
-extern int pgxcGetInvolvedNodes(bool localNode, Oid **nodeIds);
-extern void AbnormalAbort_Remote(void);
-extern void PgxcNodeSyncNextXid(void);
 
 extern RemoteQueryState *CreateResponseCombiner(int node_count, CombineType combine_type);
 extern void CloseCombiner(RemoteQueryState *combiner);

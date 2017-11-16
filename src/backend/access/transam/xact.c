@@ -326,14 +326,6 @@ static TimestampTz globalDeltaTimestmap;
  */
 static char *prepareGID;
 
-#ifdef ADB
-/* Is current xact read local node */
-static bool XactReadLocalNode;
-
-/* Is current xact write local node */
-static bool XactWriteLocalNode;
-#endif
-
 /*
  * Some commands want to force synchronous commit.
  */
@@ -2317,7 +2309,6 @@ StartCommitRemoteXact(TransactionState state)
 			state = CurrentTransactionState;
 			state->xact_phase = XACT_PHASE_TWO;
 			state->interXactState = is;
-			TellRemoteXactLocalPrepared(true);
 		}
 	}
 
@@ -2622,7 +2613,6 @@ CommitTransaction(void)
 #ifdef ADB
 	UnsetGlobalTransactionId();
 	s->isLocalParameterUsed = false;
-	ForgetTransactionLocalNode();
 
 	/*
 	 * Set the command ID of Coordinator to be sent to the remote nodes
@@ -2646,14 +2636,6 @@ CommitTransaction(void)
 
 #ifdef ADB
 	AtEOXact_Reduce();
-
-	/*
-	 * XXX We now close the main and auxilliary transaction (if any) on the
-	 * GTM. We do this after resuming interrupts to ensure that we don't end
-	 * blocking forever on the communication channel. But we need to see if
-	 * this is safe in all cases (TODO)
-	 */
-	AtEOXact_Remote();
 #endif
 }
 
@@ -3212,10 +3194,6 @@ AbortTransaction(void)
 		pgstat_report_xact_timestamp(0);
 	}
 
-#ifdef ADB
-	ForgetTransactionLocalNode();
-#endif
-
 	/*
 	 * State remains TRANS_ABORT until CleanupTransaction().
 	 */
@@ -3223,7 +3201,6 @@ AbortTransaction(void)
 
 #ifdef ADB
 	AtEOXact_Reduce();
-	AtEOXact_Remote();
 #endif
 }
 
@@ -6336,53 +6313,6 @@ xact_redo(XLogReaderState *record)
 }
 
 #ifdef ADB
-/*
- * Remember that the local node has done some write activity
- */
-void
-RegisterTransactionLocalNode(bool write)
-{
-	XactWriteLocalNode = write;
-	XactReadLocalNode = !write;
-}
-
-/*
- * Forget about the local node's involvement in the transaction
- */
-void
-ForgetTransactionLocalNode(void)
-{
-	XactReadLocalNode = XactWriteLocalNode = false;
-}
-
-/*
- * Check if the local node is involved in the transaction
- */
-bool
-IsTransactionLocalNode(bool write)
-{
-	if (write && XactWriteLocalNode)
-		return true;
-	else if (!write && XactReadLocalNode)
-		return true;
-	else
-		return false;
-}
-
-/*
- * Check if the given xid is form implicit 2PC
- */
-bool
-IsXidImplicit(const char *xid)
-{
-#define implicit2PC_head "_$XC$"
-	const size_t implicit2PC_head_len = strlen(implicit2PC_head);
-
-	if (strncmp(xid, implicit2PC_head, implicit2PC_head_len))
-		return false;
-	return true;
-}
-
 /*
  * SaveReceivedCommandId
  * Save a received command ID from another node for future use.

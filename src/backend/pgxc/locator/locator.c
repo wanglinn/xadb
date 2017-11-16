@@ -423,21 +423,6 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 			if (accessType == RELATION_ACCESS_UPDATE || accessType == RELATION_ACCESS_INSERT)
 			{
 				/* we need to write to all synchronously */
-
-				/*
-				 * Write to primary node first, to reduce chance of a deadlock
-				 * on replicated tables. If -1, do not use primary copy.
-				 */
-				if (IsTableDistOnPrimary(rel_loc_info)
-						&& exec_nodes->nodeList
-						&& list_length(exec_nodes->nodeList) > 1) /* make sure more than 1 */
-				{
-					exec_nodes->primarynodelist = list_make1_int(PGXCNodeGetNodeId(primary_data_node,
-																	PGXC_NODE_DATANODE));
-					exec_nodes->nodeList = list_delete_int(exec_nodes->nodeList,
-															PGXCNodeGetNodeId(primary_data_node,
-															PGXC_NODE_DATANODE));
-				}
 			}
 			else if (accessType == RELATION_ACCESS_READ_FOR_UPDATE &&
 					IsTableDistOnPrimary(rel_loc_info))
@@ -1056,7 +1041,6 @@ FreeExecNodes(ExecNodes **exec_nodes)
 	/* Nothing to do */
 	if (!tmp_en)
 		return;
-	list_free(tmp_en->primarynodelist);
 	list_free(tmp_en->nodeList);
 	list_free(tmp_en->nodeids);
 	pfree(tmp_en);

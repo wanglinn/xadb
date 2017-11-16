@@ -40,6 +40,7 @@
 #include "utils/xml.h"
 #ifdef ADB
 #include "catalog/pgxc_node.h"
+#include "intercomm/inter-node.h"
 #include "optimizer/pgxcplan.h"
 #include "pgxc/pgxcnode.h"
 #endif
@@ -3667,21 +3668,32 @@ ExplainSeparatePlans(ExplainState *es)
 static void
 ExplainExecNodes(ExecNodes *en, ExplainState *es)
 {
-	int primary_node_count = en ? list_length(en->primarynodelist) : 0;
-	int node_count = en ? list_length(en->nodeList) : 0;
+	int pr_node_cnt;
+	int node_cnt;
 
 	if (!es->num_nodes)
-		return;
+		return ;
+
+	pr_node_cnt = node_cnt = 0;
+	if (en)
+	{
+		node_cnt = list_length(en->nodeids);
+		if (HasPrNode(en->nodeids))
+		{
+			pr_node_cnt = 1;
+			node_cnt--;
+		}
+	}
 
 	if (es->format == EXPLAIN_FORMAT_TEXT)
 	{
-		appendStringInfo(es->str, " (primary node count=%d, node count=%d)",
-						 primary_node_count, node_count);
-	}
-	else
+		appendStringInfo(es->str,
+						 " (primary node count=%d, node count=%d)",
+						 pr_node_cnt, node_cnt);
+	} else
 	{
-		ExplainPropertyInteger("Primary node count", primary_node_count, es);
-		ExplainPropertyInteger("Node count", node_count, es);
+		ExplainPropertyInteger("Primary node count", pr_node_cnt, es);
+		ExplainPropertyInteger("Node count", node_cnt, es);
 	}
 }
 
@@ -3719,34 +3731,26 @@ ExplainRemoteQuery(RemoteQuery *plan, PlanState *planstate, List *ancestors, Exp
 	/* add names of the nodes if they exist */
 	if (en && es->nodes)
 	{
-		StringInfo node_names = makeStringInfo();
-		ListCell *lcell;
-		char	*sep;
-		int		node_no;
-		if (en->primarynodelist)
+		if (HasPrNode(en->nodeids))
+			ExplainPropertyText("Primary node/s", GetPrNodeName(), es);
+
+		if (en->nodeids)
 		{
+			StringInfoData node_names;
+			ListCell   *lc;
+			char	   *sep;
+			Oid			node_id;
+
 			sep = "";
-			foreach(lcell, en->primarynodelist)
+			initStringInfo(&node_names);
+			foreach(lc, en->nodeids)
 			{
-				node_no = lfirst_int(lcell);
-				appendStringInfo(node_names, "%s%s", sep,
-									get_pgxc_nodename(PGXCNodeGetNodeOid(node_no, PGXC_NODE_DATANODE)));
+				node_id = lfirst_oid(lc);
+				appendStringInfo(&node_names, "%s%s", sep, GetNodeName(node_id));
 				sep = ", ";
 			}
-			ExplainPropertyText("Primary node/s", node_names->data, es);
-		}
-		if (en->nodeList)
-		{
-			resetStringInfo(node_names);
-			sep = "";
-			foreach(lcell, en->nodeList)
-			{
-				node_no = lfirst_int(lcell);
-				appendStringInfo(node_names, "%s%s", sep,
-									get_pgxc_nodename(PGXCNodeGetNodeOid(node_no, PGXC_NODE_DATANODE)));
-				sep = ", ";
-			}
-			ExplainPropertyText("Node/s", node_names->data, es);
+			ExplainPropertyText("Node/s", node_names.data, es);
+			pfree(node_names.data);
 		}
 	}
 

@@ -585,7 +585,6 @@ _outExecNodes(StringInfo str, const ExecNodes *node)
 	WRITE_OID_FIELD(en_funcid);
 	WRITE_NODE_FIELD(en_expr);
 	WRITE_NODE_FIELD(en_dist_vars);
-	WRITE_NODE_FIELD(primarynodelist);
 	WRITE_NODE_FIELD(nodeList);
 	WRITE_NODE_FIELD(nodeids);
 }

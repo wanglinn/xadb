@@ -76,8 +76,11 @@ extern Oid *GetAllCnIDA(bool include_self, int *cn_num);
 extern Oid *GetAllDnIDA(bool include_self, int *dn_num);
 extern Oid *GetAllNodeIDA(bool include_self, int *node_num);
 
+extern const char *GetNodeName(const Oid node_id);
+extern const char *GetPrNodeName(void);
 extern NodeHandle *GetPrHandle(void);
 extern Oid GetPrNodeID(void);
 extern bool IsPrNode(Oid node_id);
+extern bool HasPrNode(const List *node_list);
 
 #endif /* INTER_NODE_H */

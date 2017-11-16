@@ -99,7 +99,6 @@ typedef struct ExecNodes
 										 * if planner can not determine execution
 										 * nodes */
 	List		   *en_dist_vars;		/* See above for details */
-	List		   *primarynodelist;	/* Primary node list indexes */
 	List		   *nodeList;			/* Node list indexes */
 	List		   *nodeids;			/* Node ids list */
 } ExecNodes;

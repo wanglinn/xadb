@@ -999,7 +999,7 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 	copyState->is_from = false;
 	/* Materialized views are available on all the coordinators. */
 	copyState->exec_nodes->nodeList = GetAllCoordNodeIdx();
-	copyState->exec_nodes->nodeids = GetAllCoordNodeIds();
+	copyState->exec_nodes->nodeids = GetAllCnIDL(false);
 	initStringInfo(&(copyState->query_buf));
 	appendStringInfoString(&(copyState->query_buf), query_string);
 	/* Begin redistribution on remote nodes */

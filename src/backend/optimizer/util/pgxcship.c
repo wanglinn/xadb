@@ -21,9 +21,6 @@
 #include "catalog/pg_inherits_fn.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_proc.h"
-#ifdef ADB
-#include "catalog/pg_trigger.h"
-#endif
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
 #include "commands/trigger.h"
@@ -41,10 +38,10 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #ifdef ADB
+#include "catalog/pg_trigger.h"
+#include "intercomm/inter-node.h"
 #include "nodes/pg_list.h"
-#endif
 
-#ifdef ADB
 extern bool enable_stable_func_shipping;
 #endif
 /*
@@ -566,8 +563,6 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 
 		Assert(tle);
 		/* We found the TargetEntry for the partition column */
-		list_free(rel_exec_nodes->primarynodelist);
-		rel_exec_nodes->primarynodelist = NIL;
 		list_free(rel_exec_nodes->nodeList);
 		list_free(rel_exec_nodes->nodeids);
 		rel_exec_nodes->nodeList = NIL;
@@ -608,8 +603,6 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 				en_expr_list = lappend(en_expr_list, NULL);
 		}
 		list_free_deep(colname_list);
-		list_free(rel_exec_nodes->primarynodelist);
-		rel_exec_nodes->primarynodelist = NIL;
 		list_free(rel_exec_nodes->nodeList);
 		rel_exec_nodes->nodeList = NIL;
 		list_free(rel_exec_nodes->nodeids);
@@ -1826,7 +1819,7 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 
 	/* Following cases are not handled in this routine */
 	/* PGXC_FQS_TODO how should we handle table usage type? */
-	if (en1->primarynodelist || en2->primarynodelist ||
+	if (HasPrNode(en1->nodeids) || HasPrNode(en2->nodeids) ||
 		en1->en_expr || en2->en_expr ||
 		OidIsValid(en1->en_relid) || OidIsValid(en2->en_relid) ||
 		en1->accesstype != RELATION_ACCESS_READ || en2->accesstype != RELATION_ACCESS_READ)

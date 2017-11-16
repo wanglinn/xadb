@@ -588,6 +588,32 @@ GetNodeIDArray(NodeType type, bool include_self, int *node_num)
 	return result;
 }
 
+const char *
+GetNodeName(const Oid node_id)
+{
+	NodeHandle *handle;
+
+	if (!handle_init)
+		return NULL;
+
+	foreach_all_handles(handle)
+	{
+		if (handle->node_id == node_id)
+			return (const char *) NameStr(handle->node_name);
+	}
+
+	return NULL;
+}
+
+const char *
+GetPrNodeName(void)
+{
+	if (PrHandle)
+		return (const char *) NameStr(PrHandle->node_name);
+
+	return NULL;
+}
+
 NodeHandle *
 GetPrHandle(void)
 {
@@ -610,4 +636,13 @@ IsPrNode(Oid node_id)
 		return node_id == PrHandle->node_id;
 
 	return false;
+}
+
+bool
+HasPrNode(const List *node_list)
+{
+	if (!PrHandle || !OidIsValid(PrHandle->node_id))
+		return false;
+
+	return list_member_oid(node_list, PrHandle->node_id);
 }

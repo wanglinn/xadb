@@ -138,7 +138,7 @@ extern void InitMultinodeExecutor(bool is_force);
 
 /* Open/close connection routines (invoked from Pool Manager) */
 extern char *PGXCNodeConnStr(char *host, int port, char *dbname, char *user,
-	                         char *pgoptions, char *remote_type);
+							 char *pgoptions, char *remote_type);
 extern NODE_CONNECTION *PGXCNodeConnect(char *connstr);
 extern int PGXCNodeSendSetQuery(NODE_CONNECTION *conn, const char *sql_command);
 extern void PGXCNodeClose(NODE_CONNECTION * conn);
@@ -157,18 +157,7 @@ extern int PGXCNodeGetNodeIdFromName(char *node_name, char node_type);
 extern PGXCNodeAllHandles *get_handles(List *datanodelist, List *coordlist, bool is_query_coord_only);
 extern void pfree_pgxc_all_handles(PGXCNodeAllHandles *handles);
 
-extern void release_handles(void);
-
 extern bool is_data_node_ready(PGXCNodeHandle * conn);
-extern void release_handles2(bool force_close);
-extern void cancel_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
-								int num_cohandles, PGXCNodeHandle **cohandles);
-extern void clear_some_handles(int num_dnhandles, PGXCNodeHandle **dnhandles,
-								int num_cohandles, PGXCNodeHandle **cohandles);
-extern void clear_all_handles(bool error);
-
-extern void cancel_query(void);
-extern void clear_all_data(void);
 
 extern int get_transaction_nodes(PGXCNodeHandle ** connections,
 								  char client_conn_type,
@@ -222,8 +211,5 @@ extern Datum pgxc_execute_on_nodes(int numnodes, Oid *nodelist, char *query);
 
 /* New GUC to store delay value of cancel delay dulation in millisecond */
 extern int pgxcnode_cancel_delay;
-
-extern List *GetAllDataNodeIds(void);
-extern List *GetAllCoordNodeIds(void);
 
 #endif /* PGXCNODE_H */
