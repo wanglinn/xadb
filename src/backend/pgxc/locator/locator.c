@@ -1291,7 +1291,7 @@ GetInvolvedNodes(RelationLocInfo *rel_loc,
 				{
 					if (accessType == RELATION_ACCESS_INSERT)
 						/* Insert NULL to first node*/
-						node_list = list_make1_oid(linitial_int(rel_loc->nodeids));
+						node_list = list_make1_oid(linitial_oid(rel_loc->nodeids));
 					else
 						node_list = list_copy(rel_loc->nodeids);
 				}

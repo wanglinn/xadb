@@ -213,16 +213,16 @@ pgxc_redist_build_replicate_to_distrib(RedistribState *distribState,
 	if (newLocInfo->locatorType == LOCATOR_TYPE_HASH)
 	{
 		ExecNodes *execNodes = makeNode(ExecNodes);
-		execNodes->nodeList = newLocInfo->nodeList;
-		execNodes->nodeids = newLocInfo->nodeids;
+		execNodes->nodeList = list_copy(newLocInfo->nodeList);
+		execNodes->nodeids = list_copy(newLocInfo->nodeids);
 		distribState->commands = lappend(distribState->commands,
 					 makeRedistribCommand(DISTRIB_DELETE_HASH, CATALOG_UPDATE_AFTER, execNodes));
 	}
 	else if (newLocInfo->locatorType == LOCATOR_TYPE_MODULO)
 	{
 		ExecNodes *execNodes = makeNode(ExecNodes);
-		execNodes->nodeList = newLocInfo->nodeList;
-		execNodes->nodeids = newLocInfo->nodeids;
+		execNodes->nodeList = list_copy(newLocInfo->nodeList);
+		execNodes->nodeids = list_copy(newLocInfo->nodeids);
 		distribState->commands = lappend(distribState->commands,
 					 makeRedistribCommand(DISTRIB_DELETE_MODULO, CATALOG_UPDATE_AFTER, execNodes));
 	}
@@ -501,10 +501,10 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 	 */
 	if (exec_nodes && exec_nodes->nodeList != NIL)
 	{
-		copyState->exec_nodes->nodeList = exec_nodes->nodeList;
-		copyState->exec_nodes->nodeids = exec_nodes->nodeids;
-		copyState->rel_loc->nodeList = exec_nodes->nodeList;
-		copyState->rel_loc->nodeids = exec_nodes->nodeids;
+		copyState->exec_nodes->nodeList = list_copy(exec_nodes->nodeList);
+		copyState->exec_nodes->nodeids = list_copy(exec_nodes->nodeids);
+		copyState->rel_loc->nodeList = list_copy(exec_nodes->nodeList);
+		copyState->rel_loc->nodeids = list_copy(exec_nodes->nodeids);
 	}
 
 	tupdesc = RelationGetDescr(rel);
@@ -758,7 +758,7 @@ distrib_delete_hash(RedistribState *distribState, ExecNodes *exec_nodes)
 
 		/* Here the query is launched to a unique node */
 		local_exec_nodes->nodeList = lappend_int(NIL, nodenum);
-		local_exec_nodes->nodeids = lappend_int(NIL, PGXCNodeGetNodeOid(nodenum, PGXC_NODE_DATANODE));
+		local_exec_nodes->nodeids = lappend_oid(NIL, PGXCNodeGetNodeOid(nodenum, PGXC_NODE_DATANODE));
 
 		/* Get the hash type of relation */
 		hashtype = attr[locinfo->partAttrNum - 1]->atttypid;
