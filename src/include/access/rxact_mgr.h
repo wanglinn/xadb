@@ -10,6 +10,7 @@ typedef enum RemoteXactType
 	RX_PREPARE = 1
 	,RX_COMMIT
 	,RX_ROLLBACK
+	,RX_AUTO		/* test local transaction */
 }RemoteXactType;
 
 typedef struct RxactTransactionInfo
@@ -20,6 +21,7 @@ typedef struct RxactTransactionInfo
 	int count_nodes;		/* count of remote nodes */
 	Oid db_oid;				/* transaction database Oid */
 	RemoteXactType type;	/* remote 2pc type */
+	TransactionId auto_tid;	/* when type is RX_AUTO */
 	bool failed;			/* backend do it failed ? */
 }RxactTransactionInfo;
 
@@ -29,6 +31,7 @@ extern void RecordRemoteXact(const char *gid, Oid *node_oids, int count, RemoteX
 extern void RecordRemoteXactSuccess(const char *gid, RemoteXactType type);
 extern void RecordRemoteXactFailed(const char *gid, RemoteXactType type);
 extern void RecordRemoteXactChange(const char *gid, RemoteXactType type);
+extern void RecordRemoteXactAuto(const char *gid, TransactionId tid);
 extern void RemoteXactReloadNode(void);
 extern void DisconnectRemoteXact(void);
 /* return list of RxactTransactionInfo */

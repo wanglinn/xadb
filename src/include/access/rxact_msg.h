@@ -9,12 +9,13 @@
 #define RXACT_MSG_FAILED		0x40
 #define RXACT_MSG_CHANGE		0x50
 #define RXACT_MSG_CHECKPOINT	0x60
+#define RXACT_MSG_AUTO			0x70
 /* send to client */
-#define RXACT_MSG_OK			0x70
-#define RXACT_MSG_ERROR			0x80
-#define RXACT_MSG_NODE_INFO		0x90
-#define RXACT_MSG_UPDATE_NODE	0xA0
-#define RXACT_MSG_RUNNING		0xB0
-#define RXACT_MSG_WAIT_GID		0xC0
+#define RXACT_MSG_OK			0x01
+#define RXACT_MSG_ERROR			0x02
+#define RXACT_MSG_NODE_INFO		0x03
+#define RXACT_MSG_UPDATE_NODE	0x04
+#define RXACT_MSG_RUNNING		0x05
+#define RXACT_MSG_WAIT_GID		0x06
 
 #endif /* RXACT_MSG_H_ */
