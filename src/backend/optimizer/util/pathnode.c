@@ -4136,6 +4136,31 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 			++(exec_info->part_count);
 		}
 		return false;
+	case T_ModifyTablePath:
+		{
+			ExecNodeInfo *exec_info;
+			List *reduce_list = get_reduce_info_list(path);
+			if(IsReduceInfoListCoordinator(reduce_list))
+			{
+				exec_info = get_exec_node_info(htab, PGXCNodeOid);
+				++(exec_info->part_count);
+			}else
+			{
+				ListCell *lc;
+				List *exec_list = ReduceInfoListGetExecuteOidList(get_reduce_info_list(path));
+				bool is_replicate = IsReduceInfoReplicated(reduce_list);
+				foreach(lc, exec_list)
+				{
+					exec_info = get_exec_node_info(htab, lfirst_oid(lc));
+					if(is_replicate)
+						++(exec_info->rep_count);
+					else
+						++(exec_info->part_count);
+				}
+				list_free(exec_list);
+			}
+		}
+		break;
 	default:
 		break;
 	}
