@@ -1822,7 +1822,6 @@ static void rxact_2pc_result(NodeConn *conn)
 	conn->doing_gid[0] = '\0';
 	if(status != PGRES_COMMAND_OK)
 	{
-		conn->doing_gid[0] = '\0';
 		ereport(RXACT_LOG_LEVEL,
 			(errmsg("gid '%s' from %u %s:%s"
 				, gid
@@ -1839,7 +1838,6 @@ static void rxact_2pc_result(NodeConn *conn)
 	rinfo = hash_search(htab_rxid, gid, HASH_FIND, NULL);
 	Assert(rinfo != NULL && rinfo->failed == true);
 	Assert(conn->oids.node_oid == AGTM_OID || conn->oids.db_oid == rinfo->db_oid);
-	conn->doing_gid[0] = '\0';
 
 	finish = true;
 	for(i=0;i<rinfo->count_nodes;++i)

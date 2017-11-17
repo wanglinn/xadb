@@ -53,6 +53,8 @@ static const char* remote_type_string(RemoteXactType type)
 		return "rollback";
 	case RX_COMMIT:
 		return "commit";
+	case RX_AUTO:
+		return "auto";
 	}
 	return "UNKNOWN";
 }
