@@ -2353,11 +2353,11 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		{
 			if (parse->rowMarks == NIL &&
 				parse->withCheckOptions == NIL &&
-				(parse->onConflict == NULL || parse->onConflict->action == ONCONFLICT_NOTHING))
+				(parse->onConflict == NULL || parse->onConflict->action == ONCONFLICT_NOTHING) &&
+				!has_row_triggers(root, parse->resultRelation, parse->commandType))
 			{
 				ModifyTablePath *modify;
-				if (parse->commandType == CMD_INSERT &&
-					!has_row_triggers(root, parse->resultRelation, CMD_INSERT))
+				if (parse->commandType == CMD_INSERT)
 				{
 					Path *reduce_path = reduce_to_relation_insert(root, parse->resultRelation, path);
 					if(reduce_path == NULL)
