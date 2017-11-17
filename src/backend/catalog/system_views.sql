@@ -844,6 +844,16 @@ CREATE VIEW pg_replication_origin_status AS
 
 REVOKE ALL ON pg_replication_origin_status FROM public;
 
+CREATE OR REPLACE VIEW dual ("DUMMY") AS
+	SELECT
+		'X'::varchar2(1);
+
+CREATE RULE insert_dual AS ON insert TO dual DO INSTEAD NOTHING;
+CREATE RULE update_dual AS ON update TO dual DO INSTEAD NOTHING;
+CREATE RULE delete_dual AS ON delete TO dual DO INSTEAD NOTHING;
+
+REVOKE ALL on dual FROM public;
+
 --
 -- We have a few function definitions in here, too.
 -- At some point there might be enough to justify breaking them out into
