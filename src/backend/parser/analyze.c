@@ -534,10 +534,7 @@ transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
 								  interpretInhOption(stmt->relation->inhOpt),
 										 true,
 										 ACL_DELETE);
-#ifdef ADB
-	if(pstate->p_grammar == PARSE_GRAM_ORACLE)
-		addRTEtoQuery(pstate, rt_fetch(qry->resultRelation, pstate->p_rtable), false, true, true);
-#endif /* ADB */
+
 	/* grab the namespace item made by setTargetTable */
 	nsitem = (ParseNamespaceItem *) llast(pstate->p_namespace);
 
@@ -669,6 +666,11 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 		targetPerms |= ACL_UPDATE;
 	qry->resultRelation = setTargetTable(pstate, stmt->relation,
 										 false, false, targetPerms);
+
+#ifdef ADB
+	if(pstate->p_grammar == PARSE_GRAM_ORACLE)
+		addRTEtoQuery(pstate, rt_fetch(qry->resultRelation, pstate->p_rtable), false, true, true);
+#endif /* ADB */
 
 	/* Validate stmt->cols list, or build default list if no list given */
 	icolumns = checkInsertTargets(pstate, stmt->cols, &attrnos);
