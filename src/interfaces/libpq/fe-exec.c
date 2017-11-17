@@ -1486,6 +1486,7 @@ PQsendQueryExtendBinary(PGconn *conn,
 						const int *resultFormats)		/* For Bind message, "nResultFormat" of output parameter formats */
 {
 	int				i;
+	int				flush_result;
 	const char	   *portal_name;
 	const char	   *stmt_name;
 
@@ -1629,11 +1630,17 @@ PQsendQueryExtendBinary(PGconn *conn,
 	else
 		conn->last_query = NULL;
 
-	/*
-	 * Give the data a push.  In nonblock mode, don't complain if we're unable
-	 * to send it all; PQgetResult() will do any additional flushing needed.
-	 */
-	if (pqFlush(conn) < 0)
+	/* make sure all data is flushed */
+	while ((flush_result = pqFlush(conn)) > 0)
+	{
+		if (pqWait(FALSE, TRUE, conn))
+		{
+			flush_result = -1;
+			break;
+		}
+	}
+
+	if (flush_result)
 		goto sendFailed;
 
 	/* OK, it's launched! */
