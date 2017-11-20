@@ -6398,6 +6398,7 @@ is_projection_capable_path(Path *path)
 		case T_MergeAppend:
 		case T_RecursiveUnion:
 #ifdef ADB
+		case T_RemoteQuery:
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
 		case T_ClusterGetCopyData:
