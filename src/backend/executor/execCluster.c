@@ -36,7 +36,7 @@
 #define REMOTE_KEY_TRANSACTION_STATE		0xFFFFFF01
 #define REMOTE_KEY_GLOBAL_SNAPSHOT			0xFFFFFF02
 #define REMOTE_KEY_ACTIVE_SNAPSHOT			0xFFFFFF03
-#define REMOTE_KEY_COMBO_CID				0xFFFFFF04
+/*#define REMOTE_KEY_COMBO_CID				0xFFFFFF04*/
 #define REMOTE_KEY_PLAN_STMT				0xFFFFFF05
 #define REMOTE_KEY_PARAM					0xFFFFFF06
 #define REMOTE_KEY_NODE_OID					0xFFFFFF07
@@ -174,24 +174,11 @@ static void restore_cluster_plan_info(StringInfo buf)
 			,errmsg("Can not find transaction state")));
 	StartClusterTransaction(ptr);
 
-	ptr = mem_toc_lookup(buf, REMOTE_KEY_COMBO_CID, NULL);
-	if(ptr == NULL)
-		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)
-			, errmsg("Can not find CID")));
-	RestoreComboCIDState(ptr);
-
 	ptr = mem_toc_lookup(buf, REMOTE_KEY_NODE_OID, NULL);
 	if(ptr == NULL)
 		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)
 			, errmsg("Can not find Node Oid")));
 	memcpy(&PGXCNodeOid, ptr, sizeof(PGXCNodeOid));
-
-	/*ptr = mem_toc_lookup(buf, REMOTE_KEY_TRANSACTION_SNAPSHOT, NULL);
-	if(ptr == NULL)
-		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)
-			, errmsg("Can not find transaction snapshot")));*/
-	/* ADBQ: RestoreSnapshot restore lsn, we need change it ? */
-	/*RestoreTransactionSnapshot(RestoreSnapshot(ptr), NULL);*/
 
 	msg.data = mem_toc_lookup(buf, REMOTE_KEY_GLOBAL_SNAPSHOT, &msg.len);
 	if(msg.data == NULL)
@@ -394,20 +381,6 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 	begin_mem_toc_insert(msg, REMOTE_KEY_PARAM);
 	SaveParamList(msg, param);
 	end_mem_toc_insert(msg, REMOTE_KEY_PARAM);
-
-	begin_mem_toc_insert(msg, REMOTE_KEY_COMBO_CID);
-	size = EstimateComboCIDStateSpace();
-	enlargeStringInfo(msg, size);
-	SerializeComboCIDState(size, &(msg->data[msg->len]));
-	msg->len += size;
-	end_mem_toc_insert(msg, REMOTE_KEY_COMBO_CID);
-
-	/*begin_mem_toc_insert(msg, REMOTE_KEY_TRANSACTION_SNAPSHOT);
-	size = EstimateSnapshotSpace(GetTransactionSnapshot());
-	enlargeStringInfo(msg, size);
-	SerializeSnapshot(GetTransactionSnapshot(), &(msg->data[msg->len]));
-	msg->len += size;
-	end_mem_toc_insert(msg, REMOTE_KEY_TRANSACTION_SNAPSHOT);*/
 
 	begin_mem_toc_insert(msg, REMOTE_KEY_ACTIVE_SNAPSHOT);
 	size = EstimateSnapshotSpace(GetActiveSnapshot());
