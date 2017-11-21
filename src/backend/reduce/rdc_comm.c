@@ -1058,6 +1058,7 @@ rdc_secure_read(RdcPort *port, void *ptr, size_t len, int flags)
 {
 	ssize_t		n;
 	int			nready;
+	int			save_errno;
 	WaitEventElt *wee = NULL;
 
 	if (RdcWaitSet == NULL)
@@ -1070,6 +1071,8 @@ rdc_secure_read(RdcPort *port, void *ptr, size_t len, int flags)
 
 _retry_recv:
 	n = recv(RdcSocket(port), ptr, len, flags);
+	/* keep save the errno, it maybe changed by other actions */
+	save_errno = errno;
 
 	/* In blocking mode, wait until the socket is ready */
 	if (n < 0 && !port->noblock && (errno == EWOULDBLOCK || errno == EAGAIN))
@@ -1101,6 +1104,9 @@ _retry_recv:
 	 * interrupts from being processed.
 	 */
 	CHECK_FOR_INTERRUPTS();
+
+	/* it is the real errno */
+	errno = save_errno;
 
 	return n;
 }
