@@ -27,6 +27,7 @@ static TupleTableSlot *GetSlotFromOuter(ClusterReduceState *node);
 static TupleTableSlot *GetMergeSlotFromOuter(ClusterReduceState *node, ReduceEntry entry);
 static TupleTableSlot *GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry);
 static TupleTableSlot *ExecClusterMergeReduce(ClusterReduceState *node);
+static void WaitForServerFIN(RdcPort *port);
 static void DriveClusterReduce(ClusterReduceState *node);
 static bool DriveHashJoinState(HashJoinState *node, void *context);
 static bool DriveClusterReduceWalker(PlanState *node, void *context);
@@ -566,6 +567,38 @@ cmr_heap_compare_slots(Datum a, Datum b, void *arg)
 	return 0;
 }
 
+/*
+ * WaitForServerFIN
+ *
+ * wait for FIN of self reduce.
+ *
+ * Notes:
+ *	  This is to make sure socket "close" after the peer's(self reduce) "close".
+ *	  make sure the data sent by client was received by self reduce.
+ */
+static void
+WaitForServerFIN(RdcPort *port)
+{
+	if (port)
+	{
+		ssize_t	rsz;
+		char	buf[1024];
+		int		sock = RdcSocket(port);
+
+		(void) shutdown(sock, SHUT_WR);
+
+		/* in blocking mode */
+		pg_set_block(sock);
+		for (;;)
+		{
+			rsz = recv(sock, buf, sizeof(buf), 0);
+			/* the peer has performed an orderly shutdown */
+			if (rsz <= 0)
+				return ;
+		}
+	}
+}
+
 void ExecEndClusterReduce(ClusterReduceState *node)
 {
 	/*
@@ -584,6 +617,7 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 		List *dest_nodes = (RdcSendEOF(node->port) ? NIL : PlanStateGetTargetNodes(node));
 		SendCloseToRemote(node->port, dest_nodes);
 	}
+	WaitForServerFIN(node->port);
 	rdc_freeport(node->port);
 	node->port = NULL;
 	node->eof_network = false;
