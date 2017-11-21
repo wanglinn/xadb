@@ -190,7 +190,7 @@ CREATE TABLE hash_txt_heap (
 CREATE TABLE hash_f8_heap (
 	seqno		int4,
 	random 		float8
-);
+) DISTRIBUTE BY REPLICATION;
 
 -- don't include the hash_ovfl_heap stuff in the distribution
 -- the data set is too large for what it's worth
@@ -239,7 +239,7 @@ CREATE TABLE testjsonb (
 CREATE TABLE IF NOT EXISTS test_tsvector(
 	t text,
 	a tsvector
-);
+) distribute by replication;
 
 CREATE TABLE IF NOT EXISTS test_tsvector(
 	t text
@@ -267,5 +267,5 @@ CREATE TABLE IF NOT EXISTS as_select1 AS SELECT * FROM pg_class WHERE relkind = 
 DROP TABLE as_select1;
 
 -- check that the oid column is added before the primary key is checked
-CREATE TABLE oid_pk (f1 INT, PRIMARY KEY(oid)) WITH OIDS;
+CREATE TABLE oid_pk (f1 INT, PRIMARY KEY(oid)) WITH OIDS distribute by replication;
 DROP TABLE oid_pk;

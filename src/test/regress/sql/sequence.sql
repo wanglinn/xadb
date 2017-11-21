@@ -9,7 +9,7 @@ INSERT INTO serialTest VALUES ('bar');
 INSERT INTO serialTest VALUES ('force', 100);
 INSERT INTO serialTest VALUES ('wrong', NULL);
 
-SELECT * FROM serialTest;
+SELECT * FROM serialTest ORDER BY f1, f2;
 
 -- test smallserial / bigserial
 CREATE TABLE serialTest2 (f1 text, f2 serial, f3 smallserial, f4 serial2,
@@ -90,7 +90,7 @@ DROP SEQUENCE foo_seq_new;
 -- renaming serial sequences
 ALTER TABLE serialtest_f2_seq RENAME TO serialtest_f2_foo;
 INSERT INTO serialTest VALUES ('more');
-SELECT * FROM serialTest;
+SELECT * FROM serialTest ORDER BY f1, f2;
 
 --
 -- Check dependencies of serial and ordinary sequences

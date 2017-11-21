@@ -146,7 +146,7 @@ CREATE SCHEMA audit_tbls authorization regress_evt_user;
 CREATE TEMP TABLE a_temp_tbl ();
 SET SESSION AUTHORIZATION regress_evt_user;
 
-CREATE TABLE schema_one.table_one(a int);
+CREATE TABLE schema_one.table_one(a int) distribute by replication;
 CREATE TABLE schema_one."table two"(a int);
 CREATE TABLE schema_one.table_three(a int);
 CREATE TABLE audit_tbls.schema_one_table_two(the_value text);

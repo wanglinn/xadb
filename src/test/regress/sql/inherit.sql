@@ -1,10 +1,10 @@
 --
 -- Test inheritance features
 --
-CREATE TABLE a (aa TEXT);
-CREATE TABLE b (bb TEXT) INHERITS (a);
-CREATE TABLE c (cc TEXT) INHERITS (a);
-CREATE TABLE d (dd TEXT) INHERITS (b,c,a);
+CREATE TABLE a (aa TEXT) distribute by replication;
+CREATE TABLE b (bb TEXT) INHERITS (a) distribute by replication;
+CREATE TABLE c (cc TEXT) INHERITS (a) distribute by replication;
+CREATE TABLE d (dd TEXT) INHERITS (b,c,a) distribute by replication;
 
 INSERT INTO a(aa) VALUES('aaa');
 INSERT INTO a(aa) VALUES('aaaa');
@@ -34,14 +34,15 @@ INSERT INTO d(aa) VALUES('dddddd');
 INSERT INTO d(aa) VALUES('ddddddd');
 INSERT INTO d(aa) VALUES('dddddddd');
 
-SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
-SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
-SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
-SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
-SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
-SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
-SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
-SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
+--ADB集群，在coordinator上查询不到结果，需要去datanode上才能查询到结果
+SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
+SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
+SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
+SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
+SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
+SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
+SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
+SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
 
 UPDATE a SET aa='zzzz' WHERE aa='aaaa';
 UPDATE ONLY a SET aa='zzzzz' WHERE aa='aaaaa';
@@ -49,49 +50,49 @@ UPDATE b SET aa='zzz' WHERE aa='aaa';
 UPDATE ONLY b SET aa='zzz' WHERE aa='aaa';
 UPDATE a SET aa='zzzzzz' WHERE aa LIKE 'aaa%';
 
-SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
-SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
-SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
-SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
-SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
-SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
-SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
-SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
+SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
+SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
+SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
+SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
+SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
+SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
+SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
 
 UPDATE b SET aa='new';
 
-SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
-SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
-SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
-SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
-SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
-SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
-SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
-SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
+SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
+SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
+SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
+SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
+SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
+SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
+SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
 
 UPDATE a SET aa='new';
 
 DELETE FROM ONLY c WHERE aa='new';
 
-SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
-SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
-SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
-SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
-SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
-SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
-SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
-SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
+SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
+SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
+SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
+SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
+SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
+SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
+SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
 
 DELETE FROM a;
 
-SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid;
-SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid;
-SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid;
-SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid;
-SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid;
-SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid;
-SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid;
-SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid;
+SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
+SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
+SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
+SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
+SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid ORDER BY relname, a.aa;
+SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid ORDER BY relname, b.aa;
+SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid ORDER BY relname, c.aa;
+SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid ORDER BY relname, d.aa;
 
 -- Confirm PRIMARY KEY adds NOT NULL constraint to child table
 CREATE TEMP TABLE z (b TEXT, PRIMARY KEY(aa, b)) inherits (a);
@@ -341,7 +342,7 @@ DROP TABLE test_constraints;
 CREATE TABLE test_ex_constraints (
     c circle,
     EXCLUDE USING gist (c WITH &&)
-);
+) distribute by replication;
 CREATE TABLE test_ex_constraints_inh () INHERITS (test_ex_constraints);
 \d+ test_ex_constraints
 ALTER TABLE test_ex_constraints DROP CONSTRAINT test_ex_constraints_c_excl;
@@ -423,13 +424,13 @@ analyze patest2;
 
 explain (costs off)
 select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
-select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
+select * from patest0 join (select f1 from int4_tbl where f1 >= 0 order by f1 limit 1) ss on id = f1;
 
 drop index patest2i;
 
 explain (costs off)
 select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
-select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1;
+select * from patest0 join (select f1 from int4_tbl where f1 >= 0 order by f1 limit 1) ss on id = f1;
 
 drop table patest0 cascade;
 

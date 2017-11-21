@@ -73,21 +73,21 @@ SET ROLE regress_testrol2;
 
 --  ALTER ROLE
 BEGIN;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ALTER ROLE CURRENT_USER WITH REPLICATION;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ALTER ROLE "current_user" WITH REPLICATION;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ALTER ROLE SESSION_USER WITH REPLICATION;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ALTER ROLE "session_user" WITH REPLICATION;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ALTER USER "Public" WITH REPLICATION;
 ALTER USER "None" WITH REPLICATION;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ALTER USER regress_testrol1 WITH NOREPLICATION;
 ALTER USER regress_testrol2 WITH NOREPLICATION;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ROLLBACK;
 
 ALTER ROLE USER WITH LOGIN; -- error
@@ -102,21 +102,21 @@ ALTER ROLE nonexistent WITH NOREPLICATION; -- error
 
 --  ALTER USER
 BEGIN;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ALTER USER CURRENT_USER WITH REPLICATION;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ALTER USER "current_user" WITH REPLICATION;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ALTER USER SESSION_USER WITH REPLICATION;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ALTER USER "session_user" WITH REPLICATION;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ALTER USER "Public" WITH REPLICATION;
 ALTER USER "None" WITH REPLICATION;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ALTER USER regress_testrol1 WITH NOREPLICATION;
 ALTER USER regress_testrol2 WITH NOREPLICATION;
-SELECT * FROM chkrolattr();
+SELECT * FROM chkrolattr() order by 1, 2;
 ROLLBACK;
 
 ALTER USER USER WITH LOGIN; -- error

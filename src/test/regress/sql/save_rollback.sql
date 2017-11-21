@@ -1,0 +1,11 @@
+set grammar to oracle;
+create table tt(id int,name varchar(10));
+insert into tt(id,name) values(1, 'mike');
+insert into tt(id,name) values(2, 'Jack');
+delete  from tt where id =2;
+savepoint tep;
+insert into tt(id,name) values(2, 'Jack');
+select * from tt;
+rollback to savepoint tep;
+select * from tt;
+drop table tt;

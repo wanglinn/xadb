@@ -5,9 +5,9 @@ CREATE TABLE test_replica_identity (
        nonkey text,
        CONSTRAINT test_replica_identity_unique_defer UNIQUE (keya, keyb) DEFERRABLE,
        CONSTRAINT test_replica_identity_unique_nondefer UNIQUE (keya, keyb)
-) WITH OIDS;
+) WITH OIDS distribute by replication;
 
-CREATE TABLE test_replica_identity_othertable (id serial primary key);
+CREATE TABLE test_replica_identity_othertable (id serial primary key) distribute by replication;
 
 CREATE INDEX test_replica_identity_keyab ON test_replica_identity (keya, keyb);
 CREATE UNIQUE INDEX test_replica_identity_keyab_key ON test_replica_identity (keya, keyb);

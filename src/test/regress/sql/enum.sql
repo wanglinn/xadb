@@ -120,13 +120,13 @@ ORDER BY enumsortorder;
 --
 -- Basic table creation, row selection
 --
-CREATE TABLE enumtest (col rainbow);
+CREATE TABLE enumtest (col rainbow) distribute by replication;
 INSERT INTO enumtest values ('red'), ('orange'), ('yellow'), ('green');
 COPY enumtest FROM stdin;
 blue
 purple
 \.
-SELECT * FROM enumtest;
+SELECT * FROM enumtest ORDER BY col;
 
 --
 -- Operators, no index

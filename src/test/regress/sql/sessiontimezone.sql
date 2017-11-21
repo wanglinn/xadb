@@ -1,0 +1,10 @@
+set grammar to oracle;
+set datestyle='ISO,YMD';
+set timezone=8;
+select to_char(sessiontimezone,'hh24:mi:ss') from dual;
+set timezone=0;
+select to_char(sessiontimezone,'hh24:mi:ss') from dual;
+set timezone=-8;
+select to_char(sessiontimezone,'hh24:mi:ss') from dual;
+set timezone=4.5;
+select to_char(sessiontimezone,'hh24:mi:ss') from dual;

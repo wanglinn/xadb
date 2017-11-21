@@ -1,0 +1,49 @@
+set grammar to oracle;
+select nls_lower('AB CDe') from dual;
+ nls_lower 
+-----------
+ ab cde
+(1 row)
+
+select nls_lower('\?!@#$%^&*()SA') from dual;
+   nls_lower    
+----------------
+ \?!@#$%^&*()sa
+(1 row)
+
+select nls_lower('AA\?!@#$%^&*()AA') from dual;
+    nls_lower     
+------------------
+ aa\?!@#$%^&*()aa
+(1 row)
+
+select nls_lower('\?!@#sS$%^&*()sC') from dual;
+    nls_lower     
+------------------
+ \?!@#ss$%^&*()sc
+(1 row)
+
+select nls_lower('Test你TEst好TeST') from dual;
+    nls_lower     
+------------------
+ test你test好test
+(1 row)
+
+select nls_lower('1234SOU') from dual;
+ nls_lower 
+-----------
+ 1234sou
+(1 row)
+
+select nls_lower(to_char('SUV')) from dual;
+ nls_lower 
+-----------
+ suv
+(1 row)
+
+select nls_lower(to_number('NaN')) from dual;
+ nls_lower 
+-----------
+ nan
+(1 row)
+

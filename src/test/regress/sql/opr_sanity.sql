@@ -102,7 +102,7 @@ FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.proname = p2.proname AND
     p1.pronargs = p2.pronargs AND
-    p1.proargtypes = p2.proargtypes;
+    p1.proargtypes = p2.proargtypes order by p1.proname,p1.oid,p2.oid;
 
 -- Considering only built-in procs (prolang = 12), look for multiple uses
 -- of the same internal function (ie, matching prosrc fields).  It's OK to
@@ -125,7 +125,7 @@ WHERE p1.oid < p2.oid AND
      p1.proisstrict != p2.proisstrict OR
      p1.proretset != p2.proretset OR
      p1.provolatile != p2.provolatile OR
-     p1.pronargs != p2.pronargs);
+     p1.pronargs != p2.pronargs) order by p1.proname,p1.oid,p2.oid;
 
 -- Look for uses of different type OIDs in the argument/result type fields
 -- for different aliases of the same built-in function.

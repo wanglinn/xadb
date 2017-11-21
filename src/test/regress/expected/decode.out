@@ -1,0 +1,158 @@
+set grammar to oracle;
+set datestyle='ISO,YMD';
+select decode(to_char(45),'3','9','45','3') from dual;
+ case 
+------
+ 3
+(1 row)
+
+select decode(1.5*3,3.0,4,4.5,4.5) from dual;
+ case 
+------
+  4.5
+(1 row)
+
+select decode(3,4,4,3,6) from dual;
+ case 
+------
+    6
+(1 row)
+
+select decode('a','a','b','a') from dual;
+ case 
+------
+ b
+(1 row)
+
+select decode('你好','你好','b','a') from dual;
+ case 
+------
+ b
+(1 row)
+
+select decode(to_number('2'),2,3,'2',4) from dual;
+ case 
+------
+    3
+(1 row)
+
+select decode(to_number('2.4'),2.3,4,'2.4',4) from dual;
+ case 
+------
+    4
+(1 row)
+
+select decode(4,to_char('a'),4,'b',5) from dual;
+ case 
+------
+     
+(1 row)
+
+select decode(to_char('5'),to_char('5'),to_char('6'),to_char('6'),to_char('7')) from dual;
+ case 
+------
+ 6
+(1 row)
+
+select decode(3,exp(2),4,5) from dual;
+ case 
+------
+    5
+(1 row)
+
+select decode(exp(2),7,4,5) from dual;
+ case 
+------
+    5
+(1 row)
+
+select decode('3',tanh(3),4,5) from dual;
+ case 
+------
+    5
+(1 row)
+
+select decode('3',3,4,5) from dual;
+ case 
+------
+    4
+(1 row)
+
+select decode(3,'3',4,5) from dual;
+ case 
+------
+    4
+(1 row)
+
+select decode('3',3.0,4,5) from dual;
+ case 
+------
+    4
+(1 row)
+
+select decode('a','a','2',1,3) from dual;
+ case 
+------
+ 2
+(1 row)
+
+select decode(to_date('2007-1-1','yyyy-mm-dd'),to_date('2007-1-1','yyyy-mm-dd'),1,0) from dual;
+ case 
+------
+    1
+(1 row)
+
+select decode(to_number('NaN'),'NaN',4,5) from dual;
+ case 
+------
+    4
+(1 row)
+
+select decode(exp(2),tanh(2),'4',exp(2),3) from dual;
+ case 
+------
+ 3
+(1 row)
+
+select decode(to_date('2007-1-1','yyyy-mm-dd'),'2007-1-1',1,0) from dual;
+ case 
+------
+    0
+(1 row)
+
+select decode(to_date('2007-1-1','yyyy-mm-dd'),to_date('2007-1-1','yyyy-mm-dd'),1,0) from dual;
+ case 
+------
+    1
+(1 row)
+
+select decode(3,null,4,5) from dual;
+ case 
+------
+    5
+(1 row)
+
+select decode(3,'',4,5) from dual;
+ case 
+------
+    5
+(1 row)
+
+select decode(null,null,4,5) from dual;
+ case 
+------
+    4
+(1 row)
+
+select decode(null,3,4,5) from dual;
+ case 
+------
+    5
+(1 row)
+
+select decode(3,0,1,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,33,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,33,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,33,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,33,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,33,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3) from dual;
+ case 
+------
+    3
+(1 row)
+

@@ -1,0 +1,123 @@
+set grammar to oracle;
+select to_number(89.987,'99.999') from dual;
+ to_number 
+-----------
+    89.987
+(1 row)
+
+select to_number(89.987,'99.9999') from dual;
+ to_number 
+-----------
+    89.987
+(1 row)
+
+select to_number(89.987,'99.000') from dual;
+ to_number 
+-----------
+    89.987
+(1 row)
+
+select to_number(889.987,'099.000') from dual;
+ to_number 
+-----------
+   889.987
+(1 row)
+
+select to_number(889.987,'000.000') from dual;
+ to_number 
+-----------
+   889.987
+(1 row)
+
+select to_number(-889.987,'000.000') from dual;
+ to_number 
+-----------
+  -889.987
+(1 row)
+
+select to_number(-889.987,'900.000') from dual;
+ to_number 
+-----------
+  -889.987
+(1 row)
+
+select to_number(-889.987,'-999.99') from dual;
+ to_number 
+-----------
+    889.98
+(1 row)
+
+select to_number(-0,'9') from dual;
+ to_number 
+-----------
+         0
+(1 row)
+
+select to_number(-78.87) from dual;
+ to_number 
+-----------
+    -78.87
+(1 row)
+
+select to_number('889.987','000.000') from dual;
+ to_number 
+-----------
+   889.987
+(1 row)
+
+select to_number('-889.987','9999.999') from dual;
+ to_number 
+-----------
+  -889.987
+(1 row)
+
+select to_number('-889.987','-999.999') from dual;
+ to_number 
+-----------
+   889.987
+(1 row)
+
+select to_number('889.987') from dual;
+ to_number 
+-----------
+   889.987
+(1 row)
+
+SELECT TO_NUMBER('$12,123.23','$999,999.99') FROM DUAL;
+ to_number 
+-----------
+   1223.23
+(1 row)
+
+SELECT TO_NUMBER('nan') FROM DUAL;
+ to_number 
+-----------
+       NaN
+(1 row)
+
+SELECT TO_NUMBER(123.28,09999.99) FROM DUAL;
+ to_number 
+-----------
+    123.28
+(1 row)
+
+SELECT TO_NUMBER(-123.28,999.99) FROM DUAL;
+ to_number 
+-----------
+   -123.28
+(1 row)
+
+SELECT TO_NUMBER((5+3.14*4)/5,'999.99999') FROM DUAL; 
+ to_number 
+-----------
+   3.51200
+(1 row)
+
+select to_number(30, 'xxx') from dual;
+ERROR:  invalid input syntax for type numeric: " "
+select to_number('889.987','') from dual;
+ to_number 
+-----------
+          
+(1 row)
+
