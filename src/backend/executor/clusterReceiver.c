@@ -589,7 +589,7 @@ void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char msg_type)
 TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *slot)
 {
 	uint32 t_len = offsetof(MinimalTupleData, t_infomask2) + len;
-	MinimalTuple tup = palloc(t_len);
+	MinimalTuple tup = MemoryContextAlloc(slot->tts_mcxt, t_len);
 	MemSet(tup, 0, offsetof(MinimalTupleData, t_infomask2));
 	tup->t_len = t_len;
 	memcpy(&tup->t_infomask2, msg, len);

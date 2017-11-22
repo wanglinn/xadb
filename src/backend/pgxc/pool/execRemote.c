@@ -1489,7 +1489,7 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 		ExecClearTuple(node->ss.ss_ScanTupleSlot);
 
 	ExecClearTuple(node->nextSlot);
-
+	ExecClearTuple(node->convertSlot);
 	freeClusterRecvState(node->recvState);
 
 	/*

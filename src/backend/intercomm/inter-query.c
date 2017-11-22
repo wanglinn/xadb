@@ -508,7 +508,7 @@ static TupleTableSlot *
 RestoreRemoteSlot(const char *buf, int len, TupleTableSlot *slot, Oid node_id)
 {
 	uint32 t_len = offsetof(MinimalTupleData, t_infomask2) + len;
-	MinimalTuple tup = palloc(t_len + sizeof(node_id));
+	MinimalTuple tup = MemoryContextAlloc(slot->tts_mcxt, t_len + sizeof(node_id));
 	MemSet(tup, 0, offsetof(MinimalTupleData, t_infomask2));
 	tup->t_len = t_len;
 	memcpy(&tup->t_infomask2, buf, len);
