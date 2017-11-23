@@ -220,7 +220,7 @@ void
 HandleGC(NodeHandle *handle)
 {
 	if (handle)
-		PQNExecFinsh_trouble(handle->node_conn);
+		PQNExecFinish_trouble(handle->node_conn);
 }
 
 /*

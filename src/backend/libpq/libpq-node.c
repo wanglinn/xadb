@@ -214,6 +214,30 @@ bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, con
 	AssertArg(conn && hook);
 
 	connecting_status = PQNIsConnecting(conn);
+	if(connecting_status == 0)
+	{
+		while(PQflush(conn) > 0)
+		{
+			pfd.fd = PQsocket(conn);
+			pfd.events = POLLOUT;
+			poll_res = poll(&pfd, 1, blocking ? -1:0);
+			if(poll_res == 0)
+			{
+				/* timeout */
+				return false;
+			}else if(poll_res < 0)
+			{
+				if(errno == EINTR)
+				{
+					CHECK_FOR_INTERRUPTS();
+					continue;
+				}
+				if((*hook)((void*)context, NULL, PQNHFT_ERROR))
+					return true;
+			}
+		}
+	}
+
 	while(connecting_status != 0)
 	{
 		pfd.fd = PQsocket(conn);
@@ -249,8 +273,7 @@ bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, con
 
 	if(PQNExecFinish(conn, hook, context))
 		return true;
-	if(blocking == false
-		|| PQstatus(conn) == CONNECTION_BAD
+	if(PQstatus(conn) == CONNECTION_BAD
 		|| (PQisCopyInState(conn) && ! PQisCopyOutState(conn)))
 		return false;
 
@@ -262,15 +285,20 @@ bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, con
 			|| PQtransactionStatus(conn) != PQTRANS_ACTIVE)
 			break;
 
-		poll_res = poll(&pfd, 1, -1);
-		CHECK_FOR_INTERRUPTS();
+		poll_res = poll(&pfd, 1, blocking ? -1:0);
 		if(poll_res < 0)
 		{
 			if(errno == EINTR)
+			{
+				CHECK_FOR_INTERRUPTS();
 				continue;
+			}
 			if((*hook)((void*)context, NULL, PQNHFT_ERROR))
 				return true;
 			continue;
+		}else if(poll_res == 0)
+		{
+			return false;
 		}
 		Assert(poll_res > 0);
 		PQconsumeInput(conn);
@@ -316,9 +344,6 @@ PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook,
 			return res;
 	}
 
-	if(blocking == false)
-		return false;
-
 	list = NIL;
 	foreach(lc,conn_list)
 	{
@@ -339,10 +364,21 @@ PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook,
 	pfds = palloc(sizeof(pfds[0]) * list_length(list));
 	while(list != NIL)
 	{
+		int fres;
 		for(i=0,lc=list_head(list);lc!=NULL;)
 		{
 			conn = lfirst(lc);
-			if((n=PQNIsConnecting(conn)) != 0)
+			if((fres = PQflush(conn)) != 0)
+			{
+				if(fres > 0)
+				{
+					pfds[i].events = POLLOUT;
+				}else
+				{
+					lc = lnext(lc);
+					list = list_delete_ptr(list, conn);
+				}
+			}else if((n=PQNIsConnecting(conn)) != 0)
 			{
 				if(n > 0)
 					pfds[i].events = POLLOUT;
@@ -363,15 +399,21 @@ PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook,
 		}
 
 re_poll_:
-		n = poll(pfds, list_length(list), -1);
-		CHECK_FOR_INTERRUPTS();
+		n = poll(pfds, list_length(list), blocking ? -1:0);
 		if(n < 0)
 		{
 			if(errno == EINTR)
+			{
+				CHECK_FOR_INTERRUPTS();
 				goto re_poll_;
+			}
 			res = (*hook)((void*)context, NULL, PQNHFT_ERROR);
 			if(res)
 				break;
+		}else if(n == 0)
+		{
+			/* timeout */
+			return false;
 		}
 
 		/* first consume all socket data */
@@ -383,6 +425,9 @@ re_poll_:
 				if(PQNIsConnecting(conn))
 				{
 					PQconnectPoll(conn);
+				}else if(pfds[i].revents & POLLOUT)
+				{
+					PQflush(conn);
 				}else
 				{
 					PQconsumeInput(conn);
@@ -393,8 +438,7 @@ re_poll_:
 		/* second analyze socket data one by one */
 		for(i=0,lc=list_head(list);lc!=NULL;++i)
 		{
-			if(pfds[i].revents == 0
-				|| PQNIsConnecting(lfirst(lc)))
+			if ((pfds[i].revents & POLLIN) == 0)
 			{
 				lc = lnext(lc);
 				continue;
@@ -524,7 +568,7 @@ static int PQNIsConnecting(PGconn *conn)
 	return 0;
 }
 
-void PQNExecFinsh_trouble(PGconn *conn)
+void PQNExecFinish_trouble(PGconn *conn)
 {
 	PGresult *res;
 	for(;;)
@@ -556,7 +600,7 @@ void PQNReleaseAllConnect(void)
 	hash_seq_init(&seq_status, htab_oid_pgconn);
 	while((op = hash_seq_search(&seq_status)) != NULL)
 	{
-		PQNExecFinsh_trouble(op->conn);
+		PQNExecFinish_trouble(op->conn);
 		PQdetach(op->conn);
 		op->conn = NULL;
 	}
