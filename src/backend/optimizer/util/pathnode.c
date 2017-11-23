@@ -3817,7 +3817,7 @@ reparameterize_path(PlannerInfo *root, Path *path,
 
 #ifdef ADB
 
-static void copy_path_info(Path *dest, const Path *src);
+static void copy_path_info(Path *dest, const Path *src, bool copy_parallel);
 
 bool have_cluster_gather_path(Path *path, void *context)
 {
@@ -3920,7 +3920,7 @@ ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel)
 	ClusterGatherPath *path = makeNode(ClusterGatherPath);
 	List *reduce_list;
 	double rows;
-	copy_path_info((Path*)path, sub_path);
+	copy_path_info((Path*)path, sub_path, false);
 	path->path.parent = rel;
 	path->path.pathtype = T_ClusterGather;
 	path->path.pathkeys = NIL;
@@ -3956,7 +3956,7 @@ create_cluster_reduce_path(PlannerInfo *root,
 		sub_path = ((ClusterReducePath *) sub_path)->subpath;
 
 	crp = makeNode(ClusterReducePath);
-	copy_path_info(&crp->path, sub_path);
+	copy_path_info(&crp->path, sub_path, false);
 	crp->path.parent = rel;
 	crp->subpath = sub_path;
 	crp->path.pathtype = T_ClusterReduce;
@@ -4040,15 +4040,18 @@ ReduceScanPath *try_reducescan_path(PlannerInfo *root, RelOptInfo *rel, Path *su
 	return rs;
 }
 
-static void copy_path_info(Path *dest, const Path *src)
+static void copy_path_info(Path *dest, const Path *src, bool copy_parallel)
 {
 	dest->pathtarget = src->pathtarget;
 
 	dest->param_info = src->param_info;
 
-	dest->parallel_aware = src->parallel_aware;
-	dest->parallel_safe = src->parallel_safe;
-	dest->parallel_workers = src->parallel_workers;
+	if(copy_parallel)
+	{
+		dest->parallel_aware = src->parallel_aware;
+		dest->parallel_safe = src->parallel_safe;
+		dest->parallel_workers = src->parallel_workers;
+	}
 
 	dest->rows = src->rows;
 	dest->startup_cost = src->startup_cost;
