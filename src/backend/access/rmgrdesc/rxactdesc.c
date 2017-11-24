@@ -6,6 +6,7 @@
 static const char* remote_type_string(RemoteXactType type);
 static void desc_do(StringInfo buf, const char *rec);
 static void desc_result(StringInfo buf, const char *rec);
+static void desc_auto(StringInfo buf, const char *rec);
 
 void rxact_desc(StringInfo buf, XLogReaderState *record)
 {
@@ -19,8 +20,10 @@ void rxact_desc(StringInfo buf, XLogReaderState *record)
 		break;
 	case RXACT_MSG_SUCCESS:
 	case RXACT_MSG_FAILED:
-	case RXACT_MSG_CHANGE:
 		desc_result(buf, rec);
+		break;
+	case RXACT_MSG_AUTO:
+		desc_auto(buf, rec);
 		break;
 	default:
 		appendStringInfo(buf, "UNKNOWN");
@@ -37,8 +40,8 @@ const char *rxact_identify(uint8 info)
 		return "SUCCESS";
 	case RXACT_MSG_FAILED:
 		return "FAILE";
-	case RXACT_MSG_CHANGE:
-		return "CHANGE";
+	case RXACT_MSG_AUTO:
+		return "AUTO";
 	}
 	return NULL;
 }
@@ -113,4 +116,9 @@ static void desc_result(StringInfo buf, const char *rec)
 	type = (RemoteXactType)(*rec++);
 
 	appendStringInfo(buf, "%s '%s'", remote_type_string(type), rec);
+}
+
+static void desc_auto(StringInfo buf, const char *rec)
+{
+	appendStringInfo(buf, "'%s'; Transaction %u", rec+sizeof(TransactionId), *(TransactionId*)rec);
 }

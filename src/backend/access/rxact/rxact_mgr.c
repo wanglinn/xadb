@@ -160,7 +160,6 @@ static void rxact_agent_simple_msg(RxactAgent *agent, char msg_type);
 static void rxact_agent_connect(RxactAgent *agent, StringInfo msg);
 static void rxact_agent_do(RxactAgent *agent, StringInfo msg);
 static void rxact_agent_mark(RxactAgent *agent, StringInfo msg, bool success);
-static void rxact_agent_change(RxactAgent *agent, StringInfo msg);
 static void rxact_agent_checkpoint(RxactAgent *agent, StringInfo msg);
 static void rxact_gent_auto_txid(RxactAgent *agent, StringInfo msg);
 static void rxact_agent_node_info(RxactAgent *agent, StringInfo msg, bool is_update);
@@ -178,7 +177,6 @@ static void rxact_insert_database(Oid db_oid, const char *dbname, const char *ow
 static void
 rxact_insert_gid(const char *gid, const Oid *oids, int count, RemoteXactType type, Oid db_oid, bool is_redo);
 static void rxact_mark_gid(const char *gid, RemoteXactType type, bool success, bool is_redo);
-static void rxact_change_gid(const char *gid, RemoteXactType type, bool is_redo);
 static void rxact_auto_gid(const char *gid, TransactionId txid, bool is_redo);
 static void rxact_insert_node_info(Oid oid, short port, const char *addr, bool is_redo);
 
@@ -1100,9 +1098,6 @@ rxact_agent_input(RxactAgent *agent)
 		case RXACT_MSG_FAILED:
 			rxact_agent_mark(agent, &s, false);
 			break;
-		case RXACT_MSG_CHANGE:
-			rxact_agent_change(agent, &s);
-			break;
 		case RXACT_MSG_CHECKPOINT:
 			rxact_agent_checkpoint(agent, &s);
 			break;
@@ -1274,24 +1269,6 @@ static void rxact_agent_mark(RxactAgent *agent, StringInfo msg, bool success)
 	ereport(RXACT_LOG_LEVEL, (errmsg("backend mark '%s' %s %s"
 		, gid, RemoteXactType2String(type), success ? "success":"failed")));
 	agent->last_gid[0] = '\0';
-	rxact_agent_simple_msg(agent, RXACT_MSG_OK);
-}
-
-static void rxact_agent_change(RxactAgent *agent, StringInfo msg)
-{
-	const char *gid;
-	RemoteXactType type;
-	AssertArg(agent && msg);
-
-	type = (RemoteXactType)rxact_get_int(msg);
-	if(type != RX_COMMIT && type != RX_ROLLBACK)
-	{
-		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)
-			, errmsg("invalid rxact type '%d'", (int)type)));
-	}
-	gid = rxact_get_string(msg);
-	rxact_change_gid(gid, type, false);
-	ereport(RXACT_LOG_LEVEL, (errmsg("backend change '%s' to %s", gid, RemoteXactType2String(type))));
 	rxact_agent_simple_msg(agent, RXACT_MSG_OK);
 }
 
@@ -1609,14 +1586,7 @@ static void rxact_mark_gid(const char *gid, RemoteXactType type, bool success, b
 	rinfo = hash_search(htab_rxid, gid, HASH_FIND, &found);
 	if(found)
 	{
-		if(rinfo->type == RX_AUTO)
-		{
-			if (!is_redo)
-				rinfo->type = TransactionIdDidCommit(rinfo->auto_tid) ? RX_COMMIT:RX_ROLLBACK;
-		}else
-		{
-			Assert(rinfo->type == type);
-		}
+		Assert(rinfo->type == RX_AUTO || rinfo->type == type);
 		if(success)
 		{
 			pfree(rinfo->remote_nodes);
@@ -1624,47 +1594,15 @@ static void rxact_mark_gid(const char *gid, RemoteXactType type, bool success, b
 		}else
 		{
 			rinfo->failed = true;
+			/* end of redo while change all RX_AUTO(function RxactMarkAutoTransaction) */
+			if (!is_redo && rinfo->type == RX_AUTO)
+				rinfo->type = TransactionIdDidCommit(rinfo->auto_tid) ? RX_COMMIT:RX_ROLLBACK;
 			/*rxact_has_filed_gid = true;*/
 		}
 	}else
 	{
 		if(!is_redo)
 			ereport(ERROR, (errmsg("gid '%s' not exists", gid)));
-	}
-}
-
-static void rxact_change_gid(const char *gid, RemoteXactType type, bool is_redo)
-{
-	RxactTransactionInfo *rinfo;
-	bool found;
-	if(gid == NULL || gid[0] == '\0')
-		ereport(ERROR, (errmsg("invalid gid")));
-	if(type != RX_COMMIT && type != RX_ROLLBACK)
-		ereport(ERROR, (errmsg("invalid rxact type '%d'", (int)type)));
-
-	rinfo = hash_search(htab_rxid, gid, HASH_FIND, &found);
-	if(!found)
-	{
-		if(!is_redo)
-			ereport(ERROR, (errmsg("gid '%s' not exists", gid)));
-		return; /* for redo */
-	}
-	if(rinfo->type == type)
-	{
-		if(!is_redo)
-			ereport(WARNING
-				, (errmsg("change rxact \"%s\" same type '%d'", gid, type)));
-	}else
-	{
-		if(!is_redo)
-		{
-			/* save to log file */
-			resetStringInfo(&rxlf_xlog_buf);
-			appendStringInfoChar(&rxlf_xlog_buf, (char)type);
-			appendStringInfoString(&rxlf_xlog_buf, gid);
-			rxact_xlog_insert(rxlf_xlog_buf.data, rxlf_xlog_buf.len+1, RXACT_MSG_CHANGE, true);
-		}
-		rinfo->type = type;
 	}
 }
 
@@ -1693,7 +1631,6 @@ static void rxact_auto_gid(const char *gid, TransactionId txid, bool is_redo)
 		{
 			/* save to log file */
 			resetStringInfo(&rxlf_xlog_buf);
-			appendStringInfoChar(&rxlf_xlog_buf, RX_AUTO);
 			appendBinaryStringInfo(&rxlf_xlog_buf, (const char*)&txid, sizeof(txid));
 			appendStringInfoString(&rxlf_xlog_buf, gid);
 			rxact_xlog_insert(rxlf_xlog_buf.data, rxlf_xlog_buf.len+1, RXACT_MSG_AUTO, true);
@@ -2128,11 +2065,6 @@ void rxact_redo(XLogReaderState *record)
 		gid = pq_getmsgstring(&buf);
 		rxact_mark_gid(gid, type, true, true);
 		break;
-	case RXACT_MSG_CHANGE:
-		type = (RemoteXactType)pq_getmsgbyte(&buf);
-		gid = pq_getmsgstring(&buf);
-		rxact_change_gid(gid, type, true);
-		break;
 	case RXACT_MSG_AUTO:
 		pq_copymsgbytes(&buf, (char*)&txid, sizeof(txid));
 		gid = pq_getmsgstring(&buf);
@@ -2209,35 +2141,6 @@ void RecordRemoteXactSuccess(const char *gid, RemoteXactType type)
 void RecordRemoteXactFailed(const char *gid, RemoteXactType type)
 {
 	record_rxact_status(gid, type, false);
-}
-
-void RecordRemoteXactChange(const char *gid, RemoteXactType type)
-{
-	StringInfoData buf;
-	AssertArg(gid);
-	if(gid[0] == '\0')
-	{
-		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
-			, errmsg("invalid gid")));
-	}
-	if(type != RX_COMMIT && type != RX_ROLLBACK)
-	{
-		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
-			, errmsg("invalid remote xact type '%d'", (int)type)));
-	}
-
-	ereport(DEBUG1, (errmsg("[ADB]Record change rxact %s to %s", gid, RemoteXactType2String(type))));
-
-	if(rxact_client_fd == PGINVALID_SOCKET)
-		rxact_connect();
-
-	rxact_begin_msg(&buf, RXACT_MSG_CHANGE);
-	rxact_put_int(&buf, (int)type);
-	rxact_put_string(&buf, gid);
-	send_msg_to_rxact(&buf);
-
-	recv_msg_from_rxact(&buf);
-	pfree(buf.data);
 }
 
 void RecordRemoteXactAuto(const char *gid, TransactionId tid)

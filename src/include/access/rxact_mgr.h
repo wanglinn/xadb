@@ -30,7 +30,6 @@ extern void RemoteXactMgrMain(void) __attribute__((noreturn));
 extern void RecordRemoteXact(const char *gid, Oid *node_oids, int count, RemoteXactType type);
 extern void RecordRemoteXactSuccess(const char *gid, RemoteXactType type);
 extern void RecordRemoteXactFailed(const char *gid, RemoteXactType type);
-extern void RecordRemoteXactChange(const char *gid, RemoteXactType type);
 extern void RecordRemoteXactAuto(const char *gid, TransactionId tid);
 extern void RemoteXactReloadNode(void);
 extern void DisconnectRemoteXact(void);
