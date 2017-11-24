@@ -350,7 +350,10 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	 * If the user did not specify any distribution clause and there is no
 	 * inherits clause, try and use PK or unique index
 	 */
-	if (!stmt->distributeby && !stmt->inhRelations && cxt.fallback_dist_col)
+	if (!stmt->distributeby &&
+		!stmt->inhRelations &&
+		stmt->relation->relpersistence != RELPERSISTENCE_TEMP &&
+		cxt.fallback_dist_col)
 	{
 		stmt->distributeby = makeNode(DistributeBy);
 		stmt->distributeby->disttype = DISTTYPE_HASH;
