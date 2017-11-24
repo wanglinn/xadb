@@ -40,8 +40,9 @@ extern GlobalTransaction MarkAsPreparing(TransactionId xid, const char *gid,
 				TimestampTz prepared_at,
 				Oid owner, Oid databaseid,
 				int nodecnt, Oid *nodeIds, bool isimplicit);
-extern void StartRemoteXactPrepare(GlobalTransaction gxact);
-extern void EndRemoteXactPrepare(GlobalTransaction gxact);
+extern void StartRemoteXactPrepare(const char *gid, Oid *nodes, int count);
+extern void EndRemoteXactPrepare(TransactionId xid, GlobalTransaction gxact);
+extern void EndRemoteXactPrepareExt(TransactionId xid, const char *gid, Oid *nodes, int count, bool implicit);
 #else
 extern GlobalTransaction MarkAsPreparing(TransactionId xid, const char *gid,
 				TimestampTz prepared_at,

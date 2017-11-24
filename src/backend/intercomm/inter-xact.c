@@ -17,6 +17,7 @@
 #include "postgres.h"
 
 #include "access/rxact_mgr.h"
+#include "access/transam.h"
 #include "access/twophase.h"
 #include "access/xact.h"
 #include "agtm/agtm.h"
@@ -47,7 +48,9 @@ static InterXactStateData TopInterXactStateData = {
 	false,						/* is the inter transaction implicit two-phase commit? */
 	false,						/* true if ignore any error(try best to finish)) */
 	false,						/* is the inter transaction start any transaction block? */
-	NIL,						/* list of nodes already start transaction */
+	NULL,						/* array of remote nodes already start transaction */
+	0,							/* count of remote nodes already start transaction */
+	0,							/* max count of remote nodes already malloc */
 	NULL,						/* NodeMixHandle for the current query in the inter transaction block */
 	NULL						/* NodeMixHandle for the whole inter transaction block */
 };
@@ -175,7 +178,8 @@ ResetInterXactState(InterXactState state)
 			resetStringInfo(state->error);
 		if (state->gid)
 			pfree(state->gid);
-		list_free(state->trans_nodes);
+		if (state->trans_nodes)
+			MemSet(state->trans_nodes, 0, sizeof(Oid) * state->trans_max);
 		FreeMixHandle(state->mix_handle);
 		FreeMixHandle(state->all_handle);
 		state->gid = NULL;
@@ -184,7 +188,7 @@ ResetInterXactState(InterXactState state)
 		state->implicit = false;
 		state->ignore_error = false;
 		state->need_xact_block = false;
-		state->trans_nodes = NIL;
+		state->trans_count = 0;
 		state->mix_handle = NULL;
 		state->all_handle = NULL;
 	}
@@ -207,7 +211,8 @@ FreeInterXactState(InterXactState state)
 		}
 		if (state->gid)
 			pfree(state->gid);
-		list_free(state->trans_nodes);
+		if (state->trans_nodes)
+			pfree(state->trans_nodes);
 		FreeMixHandle(state->mix_handle);
 		FreeMixHandle(state->all_handle);
 		pfree(state);
@@ -251,7 +256,9 @@ MakeInterXactState(MemoryContext context, const List *node_list)
 	state->implicit = false;
 	state->ignore_error = false;
 	state->need_xact_block = false;
-	state->trans_nodes = NIL;
+	state->trans_nodes = NULL;
+	state->trans_count = 0;
+	state->trans_max = 0;
 	if (node_list)
 	{
 		NodeMixHandle  *mix_handle;
@@ -415,6 +422,25 @@ InterXactSetGID(InterXactState state, const char *gid)
 }
 
 /*
+ * InterXactSetXID
+ *
+ * set inter transaction state prepared GID by transaction ID
+ */
+void
+InterXactSetXID(InterXactState state, TransactionId xid)
+{
+	Assert(state);
+
+	if (TransactionIdIsValid(xid))
+	{
+		MemoryContext old_context;
+		old_context = MemoryContextSwitchTo(state->context);
+		state->gid = psprintf("T%u", xid);
+		(void) MemoryContextSwitchTo(old_context);
+	}
+}
+
+/*
  * InterXactSaveBeginNodes
  *
  * save nodes which start transaction
@@ -423,24 +449,46 @@ void
 InterXactSaveBeginNodes(InterXactState state, Oid node)
 {
 	MemoryContext	old_context;
+	int				i, new_max;
 
 	Assert(state);
+	for (i = 0; i < state->trans_count; i++)
+	{
+		/* return if already exists */
+		if (state->trans_nodes[i] == node)
+			return ;
+	}
+	/* a new node will be saved */
 	old_context = MemoryContextSwitchTo(state->context);
-	state->trans_nodes = list_append_unique_oid(state->trans_nodes, node);
+	if (state->trans_max == 0)
+	{
+		Assert(state->trans_count == 0);
+		new_max = 16;
+		state->trans_nodes = (Oid *) palloc(sizeof(Oid) * new_max);
+		state->trans_max = new_max;
+	} else
+	if (state->trans_count >= state->trans_max)
+	{
+		new_max = state->trans_max + 16;
+		state->trans_nodes = (Oid *) repalloc(state->trans_nodes, sizeof(Oid) * new_max);
+		state->trans_max = new_max;
+	}
+	state->trans_nodes[state->trans_count++] = node;
+	Assert(state->trans_count <= state->trans_max);
 	(void) MemoryContextSwitchTo(old_context);
 }
 
 /*
  * InterXactBeginNodes
  *
- * return all node oids which has been started transaction of "state"
+ * return all node oids of "state" which has been started transaction
  */
 Oid *
 InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 {
 	NodeMixHandle	   *all_handle;
-	List			   *node_list;
 	Oid				   *res;
+	int					node_cnt;
 
 	if (!IsCoordMaster() || state == NULL)
 	{
@@ -457,13 +505,20 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 		return NULL;
 	}
 
-	node_list = NIL;
 	if (include_self)
-		node_list = lappend_oid(node_list, PGXCNodeOid);
-	node_list = list_concat_unique_oid(node_list, state->trans_nodes);
+	{
+		node_cnt = state->trans_count + 1;
+		res = palloc(sizeof(Oid) * node_cnt);
+		memcpy(res, state->trans_nodes, sizeof(Oid) * state->trans_count);
+		res[state->trans_count] = PGXCNodeOid;
+	} else
+	{
+		node_cnt = state->trans_count;
+		res = state->trans_nodes;
+	}
 
-	res = OidListToArrary(NULL, node_list, node_num);
-	list_free(node_list);
+	if (node_num)
+		*node_num = node_cnt;
 
 	return res;
 }
@@ -987,7 +1042,11 @@ CommitPreparedRxact(const char *gid,
 	} PG_CATCH_HOLD();
 	{
 		AtAbort_Twophase();
-		/* Record failed log */
+#if 0
+		/* disconnect with rxact */
+		DisconnectRemoteXact();
+#endif
+		/* record failed log */
 		RecordRemoteXactFailed(gid, RX_COMMIT);
 		/* Discard error data */
 		errdump();
@@ -1034,7 +1093,11 @@ AbortPreparedRxact(const char *gid,
 		agtm_AbortTransaction(gid, isMissingOK, false);
 	} PG_CATCH();
 	{
-		/* Record FAILED log */
+#if 0
+		/* disconnect with rxact */
+		DisconnectRemoteXact();
+#endif
+		/* record failed log */
 		RecordRemoteXactFailed(gid, RX_ROLLBACK);
 		PG_RE_THROW();
 	} PG_END_TRY();

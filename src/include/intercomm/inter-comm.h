@@ -97,7 +97,9 @@ typedef struct InterXactStateData
 	bool					implicit;
 	bool					ignore_error;
 	bool					need_xact_block;
-	List				   *trans_nodes;		/* list of nodes already start transaction */
+	Oid					   *trans_nodes;		/* array of remote nodes already start transaction */
+	int						trans_count;		/* remote nodes count */
+	int						trans_max;			/* current max malloc count of nodes */
 	struct NodeMixHandle   *mix_handle;			/* "mix_handle" is current NodeMixHandle depends
 												 * on oid list input, just for one query in the
 												 * transaction block */
@@ -118,6 +120,7 @@ extern InterXactState MakeInterXactState(MemoryContext context, const List *node
 extern InterXactState MakeInterXactState2(InterXactState state, const List *node_list);
 extern InterXactState ExecInterXactUtility(RemoteQuery *node, InterXactState state);
 extern void InterXactSetGID(InterXactState state, const char *gid);
+extern void InterXactSetXID(InterXactState state, TransactionId xid);
 extern void InterXactSaveBeginNodes(InterXactState state, Oid node);
 extern Oid *InterXactBeginNodes(InterXactState state, bool include_self, int *node_num);
 extern void InterXactSaveError(InterXactState state, const char *fmt, ...)

@@ -1097,7 +1097,7 @@ save_state_data(const void *data, uint32 len)
  * Tell remote xact manager to record log of the transaction.
  */
 void
-StartRemoteXactPrepare(GlobalTransaction gxact)
+StartRemoteXactPrepare(const char *gid, Oid *nodes, int count)
 {
 	if (!IsCoordMaster())
 		return ;
@@ -1106,7 +1106,7 @@ StartRemoteXactPrepare(GlobalTransaction gxact)
 		return ;
 
 	/* Record PREPARE log */
-	RecordRemoteXact(gxact->gid, gxact->nodeIds, gxact->node_cnt, RX_PREPARE);
+	RecordRemoteXact(gid, nodes, count, RX_PREPARE);
 }
 
 /*
@@ -1118,7 +1118,16 @@ StartRemoteXactPrepare(GlobalTransaction gxact)
  * It means we tell remote xact manager we step into the second phase.
  */
 void
-EndRemoteXactPrepare(GlobalTransaction gxact)
+EndRemoteXactPrepare(TransactionId xid, GlobalTransaction gxact)
+{
+	EndRemoteXactPrepareExt(xid, gxact->gid, gxact->nodeIds, gxact->node_cnt, gxact->isimplicit);
+}
+
+/*
+ * Finish preparing xact extend
+ */
+void
+EndRemoteXactPrepareExt(TransactionId xid, const char *gid, Oid *nodes, int count, bool implicit)
 {
 	if (!IsCoordMaster())
 		return ;
@@ -1129,21 +1138,21 @@ EndRemoteXactPrepare(GlobalTransaction gxact)
 	PG_TRY();
 	{
 		/* Prepare on remote nodes */
-		InterXactPrepare(gxact->gid, gxact->nodeIds, gxact->node_cnt);
+		InterXactPrepare(gid, nodes, count);
 
 		/* Prepare on AGTM */
-		agtm_PrepareTransaction(gxact->gid);
+		agtm_PrepareTransaction(gid);
 	} PG_CATCH();
 	{
 		/* Record FAILED log */
-		RecordRemoteXactFailed(gxact->gid, RX_PREPARE);
+		RecordRemoteXactFailed(gid, RX_PREPARE);
 		PG_RE_THROW();
 	} PG_END_TRY();
 
-	if (gxact->isimplicit)
-		RecordRemoteXactChange(gxact->gid, RX_COMMIT);
+	if (implicit)
+		RecordRemoteXactAuto(gid, xid);
 	else
-		RecordRemoteXactSuccess(gxact->gid, RX_PREPARE);
+		RecordRemoteXactSuccess(gid, RX_PREPARE);
 }
 #endif
 
@@ -1743,15 +1752,14 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 #ifdef ADB
 	/*
 	 * After local node commit successfully, then we do remote commit.
-	 * If connection is from remote xact manager, it is not necessary
-	 * to do remote commit.
+	 * It is not necessary to do this if connection is from remote xact
+	 * manager.
 	 */
-	if (!IsConnFromRxactMgr())
-		EndFinishPreparedRxact(gid,
-							   hdr->nnodes,
-							   nodeIds,
-							   isMissingOK,
-							   isCommit);
+	EndFinishPreparedRxact(gid,
+						   hdr->nnodes,
+						   nodeIds,
+						   isMissingOK,
+						   isCommit);
 #endif
 
 	pfree(buf);

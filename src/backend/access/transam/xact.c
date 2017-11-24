@@ -406,8 +406,8 @@ static const char *TransStateAsString(TransState state);
 static void PrepareTransaction(void);
 
 #ifdef ADB
-static TransactionState StartCommitRemoteXact(TransactionState state);
-static TransactionState EndCommitRemoteXact(TransactionState state);
+static void StartCommitRemoteXact(TransactionState state);
+static void EndCommitRemoteXact(TransactionState state);
 static void NormalAbortRemoteXact(TransactionState state);
 static void UnexpectedAbortRemoteXact(TransactionState state);
 #endif
@@ -2262,96 +2262,73 @@ StartTransaction(void)
 }
 
 #ifdef ADB
-static TransactionState
+static void
 StartCommitRemoteXact(TransactionState state)
 {
 	InterXactState	is;
 	bool			isimplicit;
 
 	if (!IsCoordMaster())
-		return state;
+		return ;
+
+	Assert(state);
+	isimplicit = !(state->blockState == TBLOCK_PREPARE);
+
+	/*
+	 * Here we truely do remote prepare transaction. so if it is explicit
+	 * two-phase transaction, it has already been done by PrepareTransaction.
+	 */
+	if (!isimplicit)
+		return ;
+
+	is = state->interXactState;
+	if (is && is->need_xact_block)
+	{
+		Oid	   *nodes;
+		int		count;
+		TransactionId xid = GetTopTransactionId();
+
+		is->implicit = true;
+		InterXactSetXID(is, xid);
+
+		nodes = InterXactBeginNodes(is, false, &count);
+		StartRemoteXactPrepare(is->gid, nodes, count);
+		EndRemoteXactPrepareExt(xid, is->gid, nodes, count, true);
+		SetXactPhaseTwo(state);
+	}
+}
+
+static void
+EndCommitRemoteXact(TransactionState state)
+{
+	InterXactState	is;
+	Oid			   *nodeIds;
+	int				nodecnt;
 
 	Assert(state);
 	is = state->interXactState;
-	isimplicit = !(state->blockState == TBLOCK_PREPARE);
-	if (is)
-	{
-		MemoryContext old_context;
-
-		if (IsOnCommitActions() || is->hastmp)
-		{
-			/*
-			 * treat these situation as temporary object,
-			 * so that we will not do implicit 2PC commit.
-			 */
-			if (!EnforceTwoPhaseCommit || isimplicit)
-				is->hastmp = true;
-			else
-				ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("cannot PREPARE a transaction that has operated on temporary tables"),
-					 errdetail("Disabling enforce_two_phase_commit is recommended to enforce COMMIT")));
-		}
-
-		if (!is->hastmp && is->need_xact_block)
-		{
-			is->implicit = true;
-			old_context = MemoryContextSwitchTo(TopTransactionContext);
-			prepareGID = psprintf("T%u", GetTopTransactionId());
-			(void) MemoryContextSwitchTo(old_context);
-
-			InterXactSetGID(is, prepareGID);
-
-			PrepareTransaction();
-			state->blockState = TBLOCK_DEFAULT;
-
-			StartTransaction();
-			state = CurrentTransactionState;
-			state->xact_phase = XACT_PHASE_TWO;
-			state->interXactState = is;
-		}
-	}
-
-	return state;
-}
-
-static TransactionState
-EndCommitRemoteXact(TransactionState state)
-{
-	Assert(state);
 
 	if (IS_PGXC_DATANODE && GetForceXidFromAGTM())
 	{
 		agtm_CommitTransaction(NULL, true);
-		return state;
+		return ;
 	}
 
 	if (!IsCoordMaster())
-		return state;
+		return ;
 
+	/* Here is where we commit remote xact */
+	nodeIds = InterXactBeginNodes(is, false, &nodecnt);
 	if (IsXactInPhaseTwo(state))
 	{
-		const char *gid;
-		Assert(state->interXactState);
-		gid = state->interXactState->gid;
-		Assert(gid);
+		Assert(is);
 		PreventTransactionChain(true, "COMMIT IMPLICIT PREPARED");
-		FinishPreparedTransactionExt(gid, true, false);
+		EndFinishPreparedRxact(is->gid, nodecnt, nodeIds, false, true);
 		SetXactPhaseOne(state);
 	} else
 	{
-		Oid *nodeIds;
-		int  nodecnt;
-
-		nodeIds = InterXactBeginNodes(state->interXactState, false, &nodecnt);
-
-		/* Here is where we commit remote xact */
 		RemoteXactCommit(nodecnt, nodeIds);
 	}
-
-	state = CurrentTransactionState;
-
-	return state;
 }
 #endif
 
@@ -2384,7 +2361,7 @@ CommitTransaction(void)
 	Assert(s->parent == NULL);
 
 #if defined(ADB)
-	s = StartCommitRemoteXact(s);
+	StartCommitRemoteXact(s);
 #endif
 
 	/*
@@ -2448,10 +2425,6 @@ CommitTransaction(void)
 	 * holding the notify-insertion lock.
 	 */
 	PreCommit_Notify();
-
-#ifdef ADB
-	s = EndCommitRemoteXact(s);
-#endif
 
 	/* Prevent cancel/die interrupt while cleaning up */
 	HOLD_INTERRUPTS();
@@ -2636,6 +2609,9 @@ CommitTransaction(void)
 
 #ifdef ADB
 	AtEOXact_Reduce();
+
+	s->blockState = TBLOCK_DEFAULT;
+	EndCommitRemoteXact(s);
 #endif
 }
 
@@ -2787,7 +2763,7 @@ PrepareTransaction(void)
 							GetUserId(), MyDatabaseId,
 							nodecnt, nodeIds, isimplicit);
 
-	StartRemoteXactPrepare(gxact);
+	StartRemoteXactPrepare(prepareGID, nodeIds, nodecnt);
 
 	/*
 	 * set the current transaction state information appropriately during
@@ -2920,7 +2896,7 @@ PrepareTransaction(void)
 	TopTransactionResourceOwner = NULL;
 
 #ifdef ADB
-	EndRemoteXactPrepare(gxact);
+	EndRemoteXactPrepare(xid, gxact);
 	UnsetGlobalTransactionId();
 #endif
 
