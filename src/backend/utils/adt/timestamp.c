@@ -70,7 +70,11 @@ typedef struct
 static TimeOffset time2t(const int hour, const int min, const int sec, const fsec_t fsec);
 static Timestamp dt2local(Timestamp dt, int timezone);
 static void AdjustTimestampForTypmod(Timestamp *time, int32 typmod);
+#ifdef ADB
+static void AdjustIntervalForTypmod(Interval *interval, int32 typmod, int ora_extra);
+#else
 static void AdjustIntervalForTypmod(Interval *interval, int32 typmod);
+#endif
 static TimestampTz timestamp2timestamptz(Timestamp timestamp);
 #ifdef ADB
 static int try_decode_time_internal(char *str, struct pg_tm *tm, fsec_t *fsec, int *tzp);
@@ -984,6 +988,10 @@ interval_in(PG_FUNCTION_ARGS)
 	Oid			typelem = PG_GETARG_OID(1);
 #endif
 	int32		typmod = PG_GETARG_INT32(2);
+#ifdef ADB
+	/* Just for oracle grammar */
+	int32		ora_extra = PG_GETARG_INT32_0_IF_NULL(3);
+#endif
 	Interval   *result;
 	fsec_t		fsec;
 	struct pg_tm tt,
@@ -1049,7 +1057,11 @@ interval_in(PG_FUNCTION_ARGS)
 				 dtype, str);
 	}
 
+#ifdef ADB
+	AdjustIntervalForTypmod(result, typmod, ora_extra);
+#else
 	AdjustIntervalForTypmod(result, typmod);
+#endif
 
 	PG_RETURN_INTERVAL_P(result);
 }
@@ -1100,7 +1112,11 @@ interval_recv(PG_FUNCTION_ARGS)
 	interval->day = pq_getmsgint(buf, sizeof(interval->day));
 	interval->month = pq_getmsgint(buf, sizeof(interval->month));
 
+#ifdef ADB
+	AdjustIntervalForTypmod(interval, typmod, 0);
+#else
 	AdjustIntervalForTypmod(interval, typmod);
+#endif
 
 	PG_RETURN_INTERVAL_P(interval);
 }
@@ -1419,7 +1435,11 @@ interval_scale(PG_FUNCTION_ARGS)
 	result = palloc(sizeof(Interval));
 	*result = *interval;
 
+#ifdef ADB
+	AdjustIntervalForTypmod(result, typmod, 0);
+#else
 	AdjustIntervalForTypmod(result, typmod);
+#endif
 
 	PG_RETURN_INTERVAL_P(result);
 }
@@ -1429,7 +1449,11 @@ interval_scale(PG_FUNCTION_ARGS)
  *	range and sub-second precision.
  */
 static void
+#ifdef ADB
+AdjustIntervalForTypmod(Interval *interval, int32 typmod, int ora_extra)
+#else
 AdjustIntervalForTypmod(Interval *interval, int32 typmod)
+#endif
 {
 #ifdef HAVE_INT64_TIMESTAMP
 	static const int64 IntervalScales[MAX_INTERVAL_PRECISION + 1] = {
@@ -1461,6 +1485,14 @@ AdjustIntervalForTypmod(Interval *interval, int32 typmod)
 		100000,
 		1000000
 	};
+#endif
+
+#ifdef ADB
+	/*
+	 * ora_extra: 0 means PG grammar, otherwise means oracle grammar.
+	 */
+	if (ora_extra == 0)
+	{
 #endif
 
 	/*
@@ -1635,6 +1667,32 @@ AdjustIntervalForTypmod(Interval *interval, int32 typmod)
 #endif
 		}
 	}
+#ifdef ADB
+	} else
+	{
+		switch (ora_extra)
+		{
+			case ORA_ROUND_NONE:
+				break;
+			case ORA_ROUND_MONTH:
+				{
+					interval->day += (interval->time + USECS_PER_DAY/2)/USECS_PER_DAY;
+					interval->month += (interval->day + DAYS_PER_MONTH/2)/DAYS_PER_MONTH;
+					interval->day = 0;
+					interval->time = 0;
+				}
+				break;
+			case ORA_ROUND_DAY:
+				{
+					interval->day += (interval->time + USECS_PER_DAY/2)/USECS_PER_DAY;
+					interval->time = 0;
+				}
+				break;
+			default:
+				break;
+		}
+	}
+#endif
 }
 
 /*
@@ -5742,7 +5800,7 @@ int try_decode_date(const char *str, struct pg_tm *tm)
 		tm->tm_year = digit_val4(str[0], str[1], str[2], str[3]);
 		tm->tm_mon = digit_val2(str[5], str[6]);
 		tm->tm_mday = digit_val2(str[8], str[9]);
-		
+
 		if (tm->tm_year <= 0 || (tm->tm_mon < 1 || tm->tm_mon > MONTHS_PER_YEAR) || (tm->tm_mday < 1 || tm->tm_mday > 31) )
 			return 0;
 		/*
@@ -5752,7 +5810,7 @@ int try_decode_date(const char *str, struct pg_tm *tm)
 		 */
 		if (tm->tm_mday > day_tab[isleap(tm->tm_year)][tm->tm_mon - 1] )
 			return 0;
-			
+
 		return 10;
 	}
 	return 0;
