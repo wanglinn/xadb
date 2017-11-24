@@ -236,6 +236,7 @@ static int create_cluster_window_internal(PlannerInfo *root, Path *path, void *c
 static PathTarget* update_window_target(PathTarget *input_target,
 										WindowFuncLists *wflists,
 										WindowClause *wc);
+static bool rti_is_base_rel(PlannerInfo *root, Index rti);
 #endif
 
 
@@ -2354,6 +2355,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			if (parse->rowMarks == NIL &&
 				parse->withCheckOptions == NIL &&
 				(parse->onConflict == NULL || parse->onConflict->action == ONCONFLICT_NOTHING) &&
+				rti_is_base_rel(root, parse->resultRelation) &&
 				!has_row_triggers(root, parse->resultRelation, parse->commandType))
 			{
 				ModifyTablePath *modify;
@@ -6911,6 +6913,13 @@ static bool replace_replicate_reduce(Path *path, List *reduce_replicate)
 			path->reduce_info_list = reduce_replicate;
 	}
 	return path_tree_walker(path, replace_replicate_reduce, reduce_replicate);
+}
+
+static bool rti_is_base_rel(PlannerInfo *root, Index rti)
+{
+	RangeTblEntry *rte = planner_rt_fetch(rti, root);
+	return rte->rtekind == RTE_RELATION &&
+		   rte->relkind == RELKIND_RELATION;
 }
 
 #endif /* ADB */

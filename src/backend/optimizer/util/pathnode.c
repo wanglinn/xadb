@@ -4067,10 +4067,8 @@ static ExecNodeInfo* get_exec_node_info(HTAB *htab, Oid nodeOid)
 	info = hash_search(htab, &nodeOid, HASH_ENTER, &found);
 	if(found == false)
 	{
+		MemSet(info, 0, sizeof(*info));
 		info->nodeOid = nodeOid;
-		info->rep_count = 0;
-		info->part_count = 0;
-		info->size = 0.0;
 	}
 	return info;
 }
@@ -4142,6 +4140,7 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 	case T_ModifyTablePath:
 		{
 			ExecNodeInfo *exec_info;
+			ModifyTablePath *mtpath = (ModifyTablePath*)path;
 			List *reduce_list = get_reduce_info_list(path);
 			if(IsReduceInfoListCoordinator(reduce_list))
 			{
@@ -4151,14 +4150,13 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 			{
 				ListCell *lc;
 				List *exec_list = ReduceInfoListGetExecuteOidList(get_reduce_info_list(path));
-				bool is_replicate = IsReduceInfoReplicated(reduce_list);
 				foreach(lc, exec_list)
 				{
 					exec_info = get_exec_node_info(htab, lfirst_oid(lc));
-					if(is_replicate)
-						++(exec_info->rep_count);
+					if (mtpath->operation == CMD_INSERT)
+						++(exec_info->insert_count);
 					else
-						++(exec_info->part_count);
+						++(exec_info->update_count);
 				}
 				list_free(exec_list);
 			}
@@ -4169,35 +4167,6 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 	}
 
 	return path_tree_walker(path, get_path_execute_on_walker, htab);
-}
-
-bool get_modify_insert_nodes_walker(Path *path, List **rnodes)
-{
-	if(path == NULL)
-		return false;
-	if(IsA(path, ModifyTablePath) && ((ModifyTablePath*)path)->operation == CMD_INSERT)
-	{
-		ModifyTablePath *mtp = (ModifyTablePath*)path;
-		ListCell *lc;
-		foreach(lc, mtp->subpaths)
-		{
-			Path *subpath = lfirst(lc);
-			if(IsA(subpath, ClusterReducePath))
-			{
-				ReduceInfo *rinfo;
-				List *reduce_info_list = get_reduce_info_list(subpath);
-				Assert(list_length(reduce_info_list) == 1);
-				rinfo = linitial(reduce_info_list);
-				if(!IsReduceInfoCoordinator(rinfo))
-				{
-					*rnodes = list_concat_unique_oid(*rnodes, rinfo->storage_nodes);
-				}
-			}
-			path_tree_walker(subpath, get_modify_insert_nodes_walker, (void*)rnodes);
-		}
-		return false;
-	}
-	return path_tree_walker(path, get_modify_insert_nodes_walker, (void*)rnodes);
 }
 
 struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab)

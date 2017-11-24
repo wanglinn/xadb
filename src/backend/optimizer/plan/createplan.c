@@ -6618,24 +6618,31 @@ List* get_remote_nodes(PlannerInfo *root, Path *path)
 	hash_seq_init(&seq_status, htab);
 	while((info = hash_seq_search(&seq_status)) != NULL)
 	{
-		if(info->part_count > 0)
+		if (info->part_count > 0 ||
+			info->update_count > 0 ||
+			info->insert_count > 0)
 			list = lappend_oid(list, info->nodeOid);
 	}
-	get_modify_insert_nodes_walker(path, &list);
+	list = list_delete_oid(list, PGXCNodeOid);
 	if(list == NIL)
 	{
+		ExecNodeInfo *best = NULL;
 		hash_seq_init(&seq_status, htab);
 		while((info = hash_seq_search(&seq_status)) != NULL)
 		{
+			if(info->nodeOid == PGXCNodeOid)
+				continue;
 			Assert(info->rep_count > 0);
-			list = lappend_oid(list, info->nodeOid);
-			hash_seq_term(&seq_status);
-			break;
+			if (best == NULL ||
+				best->rep_count < info->rep_count)
+				best = info;
 		}
+		Assert(best);
+		list = lappend_oid(list, best->nodeOid);
 	}
 	hash_destroy(htab);
 
-	return list_delete_oid(list, PGXCNodeOid);
+	return list;
 }
 
 List *get_reduce_info_list(Path *path)

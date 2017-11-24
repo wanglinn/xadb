@@ -277,6 +277,8 @@ typedef struct ExecNodeInfo
 	uint32 rep_count;	/* replicate table count */
 	double size;		/* rows*width with replicate table */
 	uint32 part_count;	/* partial table count */
+	uint32 update_count;	/* update and delete table count */
+	uint32 insert_count;	/* insert table count */
 }ExecNodeInfo;
 
 extern bool have_cluster_gather_path(Path *path, void *context);
@@ -294,7 +296,6 @@ extern Path *create_cluster_reduce_path(PlannerInfo *root,
 extern ReduceScanPath *try_reducescan_path(PlannerInfo *root, RelOptInfo *rel,
 										   Path *subpath, List *reduce_list, List *pathkeys,
 										   List *clauses);
-extern bool get_modify_insert_nodes_walker(Path *path, List **rnodes);
 extern struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab);
 extern bool expression_have_exec_param(Expr *expr);
 extern bool restrict_list_have_exec_param(List *list);
