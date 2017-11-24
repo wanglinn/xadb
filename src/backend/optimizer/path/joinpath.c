@@ -2521,8 +2521,10 @@ re_reduce_join_:
 
 		add_cluster_paths_to_joinrel_internal(&jcontext, outer_pathlist, inner_pathlist, nestjoinOK, false);
 
-		list_free(outer_pathlist);
-		list_free(inner_pathlist);
+		if(outer_pathlist != outerrel->pathlist)
+			list_free(outer_pathlist);
+		if(inner_pathlist != innerrel->pathlist)
+			list_free(inner_pathlist);
 	}
 }
 
