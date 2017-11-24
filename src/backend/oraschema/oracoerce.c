@@ -104,7 +104,7 @@ static void TryOraOperatorCoercion(ParseState *pstate,	/* in */
 								   List *opname,		/* in */
 								   Node *lexpr,			/* in */
 								   Node *rexpr,			/* in */
-								   CoerceDrct drct,		/* in */ 
+								   CoerceDrct drct,		/* in */
 								   Node **ret_lexpr,	/* out */
 								   Node **ret_rexpr		/* out */
 								   );
@@ -415,9 +415,9 @@ transformNvlArgs(ParseState *pstate, List *args)
 	larg = (Node *)linitial(args);
 	rarg = (Node *)lsecond(args);
 	if (exprType(larg) == UNKNOWNOID)
-	   larg = coerce_to_common_type(pstate, larg, TEXTOID, "NVL");
+		larg = coerce_to_common_type(pstate, larg, TEXTOID, "NVL");
 	if (exprType(rarg) == UNKNOWNOID)
-	   rarg = coerce_to_common_type(pstate, rarg, TEXTOID, "NVL");
+		rarg = coerce_to_common_type(pstate, rarg, TEXTOID, "NVL");
 	ltypid = exprType(larg);
 	rtypid = exprType(rarg);
 	ltypmod = exprTypmod(larg);
@@ -426,34 +426,34 @@ transformNvlArgs(ParseState *pstate, List *args)
 
 	if (ltypid == rtypid)
 	{
-	   if (ltypmod == rtypmod)
-		   return list_make2(larg, rarg);
+		if (ltypmod == rtypmod)
+			return list_make2(larg, rarg);
 
-	   cnode = coerce_to_target_type(pstate,
-									 larg,
-									 ltypid,
-									 ltypid,
-									 typmod,
-									 COERCION_IMPLICIT,
-									 COERCE_IMPLICIT_CAST,
-									 -1);
-	   if (!cnode)
-		   cnode = larg;
-	   result = lappend(result, cnode);
+		cnode = coerce_to_target_type(pstate,
+									  larg,
+									  ltypid,
+									  ltypid,
+									  typmod,
+									  COERCION_IMPLICIT,
+									  COERCE_IMPLICIT_CAST,
+									  -1);
+		if (!cnode)
+			cnode = larg;
+		result = lappend(result, cnode);
 
-	   cnode = coerce_to_target_type(pstate,
-									 rarg,
-									 rtypid,
-									 ltypid,
-									 typmod,
-									 COERCION_IMPLICIT,
-									 COERCE_IMPLICIT_CAST,
-									 -1);
-	   if (!cnode)
-		   cnode = rarg;
-	   result = lappend(result, cnode);
+		cnode = coerce_to_target_type(pstate,
+									  rarg,
+									  rtypid,
+									  ltypid,
+									  typmod,
+									  COERCION_IMPLICIT,
+									  COERCE_IMPLICIT_CAST,
+									  -1);
+		if (!cnode)
+			cnode = rarg;
+		result = lappend(result, cnode);
 
-	   return result;
+		return result;
 	}
 
 	/*
@@ -466,26 +466,26 @@ transformNvlArgs(ParseState *pstate, List *args)
 	* to that data type, and returns that data type
 	*/
 	if (TypeCategory(ltypid) == TYPCATEGORY_STRING ||
-	    OraTypePerferred(ltypid, rtypid) > 0)
+		OraTypePerferred(ltypid, rtypid) > 0)
 	{
-	   if (can_coerce_type(1, &rtypid, &ltypid, COERCION_IMPLICIT))
-	   {
-		   cnode = coerce_to_target_type(pstate,
-										 rarg,
-										 rtypid,
-										 ltypid,
-										 ltypmod,
-										 COERCION_IMPLICIT,
-										 COERCE_IMPLICIT_CAST,
-										 -1);
-		   if (!cnode)
-			   cnode = rarg;
-		   result = lappend(result, larg);
-		   result = lappend(result, cnode);
+		if (can_coerce_type(1, &rtypid, &ltypid, COERCION_IMPLICIT))
+		{
+			cnode = coerce_to_target_type(pstate,
+										  rarg,
+										  rtypid,
+										  ltypid,
+										  ltypmod,
+										  COERCION_IMPLICIT,
+										  COERCE_IMPLICIT_CAST,
+										  -1);
+			if (!cnode)
+				cnode = rarg;
+			result = lappend(result, larg);
+			result = lappend(result, cnode);
 
-		   return result;
-	   }
-	   return list_make2(larg, rarg);
+			return result;
+		}
+		return list_make2(larg, rarg);
 	}
 
 	/*
@@ -493,24 +493,24 @@ transformNvlArgs(ParseState *pstate, List *args)
 	*/
 	if (OraTypePerferred(ltypid, rtypid) < 0)
 	{
-	   if (can_coerce_type(1, &ltypid, &rtypid, COERCION_IMPLICIT))
-	   {
-		   cnode = coerce_to_target_type(pstate,
-										 larg,
-										 ltypid,
-										 rtypid,
-										 rtypmod,
-										 COERCION_IMPLICIT,
-										 COERCE_IMPLICIT_CAST,
-										 -1);
-		   if (!cnode)
-			   cnode = larg;
-		   result = lappend(result, cnode);
-		   result = lappend(result, rarg);
+		if (can_coerce_type(1, &ltypid, &rtypid, COERCION_IMPLICIT))
+		{
+			cnode = coerce_to_target_type(pstate,
+										  larg,
+										  ltypid,
+										  rtypid,
+										  rtypmod,
+										  COERCION_IMPLICIT,
+										  COERCE_IMPLICIT_CAST,
+										  -1);
+			if (!cnode)
+				cnode = larg;
+			result = lappend(result, cnode);
+			result = lappend(result, rarg);
 
-		   return result;
-	   }
-	   return list_make2(larg, rarg);
+			return result;
+		}
+		return list_make2(larg, rarg);
 	}
 
 	/*
@@ -519,20 +519,20 @@ transformNvlArgs(ParseState *pstate, List *args)
 	*/
 	if (can_coerce_type(1, &ltypid, &rtypid, COERCION_IMPLICIT))
 	{
-	   cnode = coerce_to_target_type(pstate,
-									 larg,
-									 ltypid,
-									 rtypid,
-									 rtypmod,
-									 COERCION_IMPLICIT,
-									 COERCE_IMPLICIT_CAST,
-									 -1);
-	   if (!cnode)
-		   cnode = larg;
-	   result = lappend(result, cnode);
-	   result = lappend(result, rarg);
+		cnode = coerce_to_target_type(pstate,
+									  larg,
+									  ltypid,
+									  rtypid,
+									  rtypmod,
+									  COERCION_IMPLICIT,
+									  COERCE_IMPLICIT_CAST,
+									  -1);
+		if (!cnode)
+			cnode = larg;
+		result = lappend(result, cnode);
+		result = lappend(result, rarg);
 
-	   return result;
+		return result;
 	}
 
 	/*
@@ -541,20 +541,20 @@ transformNvlArgs(ParseState *pstate, List *args)
 	*/
 	if (can_coerce_type(1, &rtypid, &ltypid, COERCION_EXPLICIT))
 	{
-	   cnode = coerce_to_target_type(pstate,
-									 rarg,
-									 rtypid,
-									 ltypid,
-									 ltypmod,
-									 COERCION_EXPLICIT,
-									 COERCE_EXPLICIT_CALL,
-									 -1);
-	   if (!cnode)
-		   cnode = rarg;
-	   result = lappend(result, larg);
-	   result = lappend(result, cnode);
+		cnode = coerce_to_target_type(pstate,
+									  rarg,
+									  rtypid,
+									  ltypid,
+									  ltypmod,
+									  COERCION_EXPLICIT,
+									  COERCE_EXPLICIT_CALL,
+									  -1);
+		if (!cnode)
+			cnode = rarg;
+		result = lappend(result, larg);
+		result = lappend(result, cnode);
 
-	   return result;
+		return result;
 	}
 
 	return list_make2(larg, rarg);
@@ -563,108 +563,108 @@ transformNvlArgs(ParseState *pstate, List *args)
 List *
 transformNvl2Args(ParseState *pstate, List *args)
 {
-   List *result = NIL;
-   void *arg1 = NULL,
-		*arg2 = NULL,
-		*arg3 = NULL;
+	List *result = NIL;
+	void *arg1 = NULL,
+		 *arg2 = NULL,
+		 *arg3 = NULL;
 
-   Assert(pstate && args);
-   Assert(list_length(args) == 3);
+	Assert(pstate && args);
+	Assert(list_length(args) == 3);
 
-   arg1 = linitial(args);
-   arg2 = lsecond(args);
-   arg3 = lthird(args);
+	arg1 = linitial(args);
+	arg2 = lsecond(args);
+	arg3 = lthird(args);
 
-   if (exprType(arg2) == UNKNOWNOID)
-	   arg2 = coerce_to_common_type(pstate, (Node *)arg2, TEXTOID, "NVL2");
-   if (exprType(arg3) == UNKNOWNOID)
-	   arg3 = coerce_to_common_type(pstate, (Node *)arg3, TEXTOID, "NVL2");
+	if (exprType(arg2) == UNKNOWNOID)
+		arg2 = coerce_to_common_type(pstate, (Node *)arg2, TEXTOID, "NVL2");
+	if (exprType(arg3) == UNKNOWNOID)
+		arg3 = coerce_to_common_type(pstate, (Node *)arg3, TEXTOID, "NVL2");
 
-   result = lcons(arg1, transformNvlArgs(pstate, list_make2(arg2, arg3)));
+	result = lcons(arg1, transformNvlArgs(pstate, list_make2(arg2, arg3)));
 
-   return result;
+	return result;
 }
 
 Node *
 transformOraAExprOp(ParseState * pstate,
-				   List *opname,
-				   Node *lexpr,
-				   Node *rexpr,
-				   int location)
+					List *opname,
+					Node *lexpr,
+					Node *rexpr,
+					int location)
 {
-   volatile bool   err = false;
-   Node 		   *result = NULL;
-   OraCoercionContext oldContext;
+	volatile bool   err = false;
+	Node 		   *result = NULL;
+	OraCoercionContext oldContext;
 
-   Assert(pstate);
-   Assert(lexpr && rexpr);
-   Assert(IsOracleParseGram(pstate));
+	Assert(pstate);
+	Assert(lexpr && rexpr);
+	Assert(IsOracleParseGram(pstate));
 
-   oldContext = OraCoercionContextSwitchTo(ORA_COERCE_NOUSE);
-   PG_TRY_HOLD();
-   {
-	   result = (Node *) make_op(pstate,
-								 opname,
-								 lexpr,
-								 rexpr,
-								 location);
-   } PG_CATCH_HOLD();
-   {
-	   /*
-		* Here we make an error: e1
-		* but never throw it, remeber to dump or
-		* throw it before returning.
-		*/
-	   err = true;
-   } PG_END_TRY_HOLD();
-
-   if (!err)
-   {
-	   (void) OraCoercionContextSwitchTo(oldContext);
-	   return result;
-   }
-
-   PG_TRY();
-   {
-	   if (IsA(lexpr, CaseTestExpr))
-		   TryOraOperatorCoercion(pstate,
+	oldContext = OraCoercionContextSwitchTo(ORA_COERCE_NOUSE);
+	PG_TRY_HOLD();
+	{
+		result = (Node *) make_op(pstate,
 								  opname,
 								  lexpr,
 								  rexpr,
-								  ORA_COERCE_L2R,
-								  &lexpr,
-								  &rexpr);
-	   else
-		   TryOraOperatorCoercion(pstate,
+								  location);
+	} PG_CATCH_HOLD();
+	{
+		/*
+		 * Here we make an error: e1
+		 * but never throw it, remeber to dump or
+		 * throw it before returning.
+		 */
+		err = true;
+	} PG_END_TRY_HOLD();
+
+	if (!err)
+	{
+		(void) OraCoercionContextSwitchTo(oldContext);
+		return result;
+	}
+
+	PG_TRY();
+	{
+		if (IsA(lexpr, CaseTestExpr))
+			TryOraOperatorCoercion(pstate,
+								   opname,
+								   lexpr,
+								   rexpr,
+								   ORA_COERCE_L2R,
+								   &lexpr,
+								   &rexpr);
+		else
+			TryOraOperatorCoercion(pstate,
+								   opname,
+								   lexpr,
+								   rexpr,
+								   ORA_COERCE_S2S,
+								   &lexpr,
+								   &rexpr);
+
+		result = (Node *) make_op(pstate,
 								  opname,
 								  lexpr,
 								  rexpr,
-								  ORA_COERCE_S2S,
-								  &lexpr,
-								  &rexpr);
+								  location);
+	} PG_CATCH();
+	{
+		(void) OraCoercionContextSwitchTo(oldContext);
 
-	   result = (Node *) make_op(pstate,
-								 opname,
-								 lexpr,
-								 rexpr,
-								 location);
-   } PG_CATCH();
-   {
-	   (void) OraCoercionContextSwitchTo(oldContext);
+		/*
+		 * Here we make an error: e2
+		 * dump error data "e2" then throw "e1"
+		 */
+		errdump();
+		PG_RE_THROW();
+	} PG_END_TRY();
 
-	   /*
-		* Here we make an error: e2
-		* dump error data "e2" then throw "e1"
-		*/
-	   errdump();
-	   PG_RE_THROW();
-   } PG_END_TRY();
+	/*
+	 * dump error data e1, see above
+	 */
+	errdump();
+	(void) OraCoercionContextSwitchTo(oldContext);
 
-   /*
-	* dump error data e1, see above
-	*/
-   errdump();
-   (void) OraCoercionContextSwitchTo(oldContext);
-
-   return result;
+	return result;
 }

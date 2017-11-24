@@ -1845,6 +1845,14 @@ DATA(insert OID = 3405 (  "<="	   PGNSP PGUID b f f 336 336 16 3406 3404 rowid_l
 DESCR("less than or equal");
 DATA(insert OID = 3406 (  ">="	   PGNSP PGUID b f f 336 336 16 3405 3403 rowid_ge scalargtsel scalargtjoinsel ));
 DESCR("greater than or equal");
+
+DATA(insert OID = 3407 (  "+"	   ORANSP PGUID b f f 3997 1186 3997 3408 0 ora_date_pl_interval - - ));
+DESCR("add");
+DATA(insert OID = 3408 (  "+"	   ORANSP PGUID b f f 1186 3997 3997 3407 0 interval_pl_ora_date - - ));
+DESCR("add");
+DATA(insert OID = 3409 (  "-"	   ORANSP PGUID b f f 3997 1186 3997 0 0 ora_date_mi_interval - - ));
+DESCR("subtract");
+
 #endif
 
 #endif   /* PG_OPERATOR_H */
