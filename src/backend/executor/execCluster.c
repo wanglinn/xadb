@@ -475,7 +475,10 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 
 			/* we must lock relation now */
 			pq_copymsgbytes(buf, (char*)&lock_mode, sizeof(lock_mode));
-			LockRelationOid(rte->relid, lock_mode);
+			if(OidIsValid(rte->relid))
+				LockRelationOid(rte->relid, lock_mode);
+			else
+				rte->rtekind = RTE_REMOTE_DUMMY;
 		}
 	}else if(IsA(node, IndexScan) ||
 			 IsA(node, IndexOnlyScan) ||

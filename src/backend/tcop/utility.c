@@ -897,7 +897,8 @@ standard_ProcessUtility(Node *parsetree,
 
 					if(vacuum_rel)
 					{
-						if (RELKIND_MATVIEW!=vacuum_rel->rd_rel->relkind)
+						if (RELKIND_MATVIEW!=RelationGetForm(vacuum_rel)->relkind &&
+							RelationGetLocInfo(vacuum_rel))
 						{
 							/*
 							 * We have to run the command on nodes before Coordinator because
@@ -1181,6 +1182,7 @@ standard_ProcessUtility(Node *parsetree,
 				{
 					RemoteQueryExecType	remoteExecType = EXEC_ON_ALL_NODES;
 					bool				is_temp = false;
+					bool				is_temp2;
 
 					/* Launch GRANT on Coordinator if object is a sequence */
 					if ((stmt->objtype == ACL_OBJECT_RELATION &&
@@ -1204,17 +1206,19 @@ standard_ProcessUtility(Node *parsetree,
 							if (!OidIsValid(relid))
 								continue;
 
-							remoteExecType = ExecUtilityFindNodesRelkind(relid, &is_temp);
+							remoteExecType = ExecUtilityFindNodesRelkind(relid, &is_temp2);
 
 							/* Check if object node type corresponds to the first one */
 							if (first)
 							{
 								type_local = remoteExecType;
+								is_temp = is_temp2;
 								first = false;
 							}
 							else
 							{
-								if (type_local != remoteExecType)
+								if (type_local != remoteExecType ||
+									is_temp != is_temp2)
 									ereport(ERROR,
 											(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 											 errmsg("PGXC does not support GRANT on multiple object types"),
@@ -1222,9 +1226,12 @@ standard_ProcessUtility(Node *parsetree,
 							}
 						}
 					}
-					utilityContext.exec_type = remoteExecType;
-					utilityContext.is_temp = is_temp;
-					ExecRemoteUtilityStmt(&utilityContext);
+					if(!is_temp)
+					{
+						utilityContext.exec_type = remoteExecType;
+						utilityContext.is_temp = is_temp;
+						ExecRemoteUtilityStmt(&utilityContext);
+					}
 				}
 #endif
 				if (EventTriggerSupportsGrantObjectType(stmt->objtype))
@@ -1295,9 +1302,12 @@ standard_ProcessUtility(Node *parsetree,
 														 &is_temp);
 					}
 
-					utilityContext.exec_type = exec_type;
-					utilityContext.is_temp = is_temp;
-					ExecRemoteUtilityStmt(&utilityContext);
+					if(!is_temp)
+					{
+						utilityContext.exec_type = exec_type;
+						utilityContext.is_temp = is_temp;
+						ExecRemoteUtilityStmt(&utilityContext);
+					}
 				}
 #endif
 
@@ -1348,9 +1358,12 @@ standard_ProcessUtility(Node *parsetree,
 														 &is_temp);
 					}
 
-					utilityContext.exec_type = exec_type;
-					utilityContext.is_temp = is_temp;
-					ExecRemoteUtilityStmt(&utilityContext);
+					if(!is_temp)
+					{
+						utilityContext.exec_type = exec_type;
+						utilityContext.is_temp = is_temp;
+						ExecRemoteUtilityStmt(&utilityContext);
+					}
 					/* ADBQ TODO this at AGTM */
 				}
 #endif
@@ -1404,9 +1417,12 @@ standard_ProcessUtility(Node *parsetree,
 														 &is_temp);
 					}
 
-					utilityContext.exec_type = exec_type;
-					utilityContext.is_temp = is_temp;
-					ExecRemoteUtilityStmt(&utilityContext);
+					if(!is_temp)
+					{
+						utilityContext.exec_type = exec_type;
+						utilityContext.is_temp = is_temp;
+						ExecRemoteUtilityStmt(&utilityContext);
+					}
 
 					/* execute alter sequecne (set schema)	on agtm */
 					if (stmt->objectType == OBJECT_SEQUENCE)
@@ -1484,9 +1500,12 @@ standard_ProcessUtility(Node *parsetree,
 				{
 					bool is_temp = false;
 					RemoteQueryExecType exec_type = GetNodesForCommentUtility(stmt, &is_temp);
-					utilityContext.exec_type = exec_type;
-					utilityContext.is_temp = is_temp;
-					ExecRemoteUtilityStmt(&utilityContext);
+					if(!is_temp)
+					{
+						utilityContext.exec_type = exec_type;
+						utilityContext.is_temp = is_temp;
+						ExecRemoteUtilityStmt(&utilityContext);
+					}
 				}
 #endif
 				break;
@@ -1624,7 +1643,7 @@ ProcessUtilitySlow(Node *parsetree,
 					{
 						/*
 						 * Scan the list of objects.
-						 * Temporary tables are created on Datanodes only.
+						 * Temporary tables are created on coordinator only.
 						 * Non-temporary objects are created on all nodes.
 						 * In case temporary and non-temporary objects are mized return an error.
 						 */
@@ -1638,6 +1657,11 @@ ProcessUtilitySlow(Node *parsetree,
 							{
 								CreateStmt *stmt_loc = (CreateStmt *) stmt;
 								bool is_object_temp = stmt_loc->relation->relpersistence == RELPERSISTENCE_TEMP;
+
+								if (is_object_temp && stmt_loc->distributeby)
+									ereport(ERROR,
+											(errcode(ERRCODE_SYNTAX_ERROR),
+											 errmsg("temporary table not support distribute by")));
 
 								if (is_first)
 								{
@@ -1677,7 +1701,7 @@ ProcessUtilitySlow(Node *parsetree,
 					 * Add a RemoteQuery node for a query at top level on a remote
 					 * Coordinator, if not already done so
 					 */
-					if (!sentToRemote)
+					if (!sentToRemote && !is_temp)
 						stmts = AddRemoteParseTree(stmts, queryString, parsetree, EXEC_ON_ALL_NODES, is_temp);
 #endif
 
@@ -1690,11 +1714,6 @@ ProcessUtilitySlow(Node *parsetree,
 						{
 							Datum		toast_options;
 							static char *validnsps[] = HEAP_RELOPT_NAMESPACES;
-#ifdef ADB
-							/* Set temporary object object flag in pooler */
-							if (is_temp)
-								PoolManagerSetCommand(POOL_CMD_TEMP, NULL);
-#endif
 
 							/* Create the table itself */
 							address = DefineRelation((CreateStmt *) stmt,
@@ -1814,11 +1833,14 @@ ProcessUtilitySlow(Node *parsetree,
 								 * pgxc_node, the RemoteQuery added for the AlterTableStmt
 								 * should only be done on coordinators.
 								 */
-								if (atstmt->relkind == OBJECT_TABLE &&
-									IsAlterTableStmtRedistribution(atstmt))
-									exec_type = EXEC_ON_COORDS;
+								if (!is_temp)
+								{
+									if (atstmt->relkind == OBJECT_TABLE &&
+										IsAlterTableStmtRedistribution(atstmt))
+										exec_type = EXEC_ON_COORDS;
 
-								stmts = AddRemoteParseTree(stmts, queryString, parsetree, exec_type, is_temp);
+									stmts = AddRemoteParseTree(stmts, queryString, parsetree, exec_type, is_temp);
+								}
 							}
 						}
 #endif
@@ -2075,7 +2097,7 @@ ProcessUtilitySlow(Node *parsetree,
 					EventTriggerAlterTableEnd();
 
 #ifdef ADB
-					if (!stmt->isconstraint)
+					if (!stmt->isconstraint && !is_temp)
 					{
 						utilityContext.force_autocommit = stmt->concurrent;
 						utilityContext.exec_type = exec_type;
@@ -2245,9 +2267,12 @@ ProcessUtilitySlow(Node *parsetree,
 
 					exec_type = GetNodesForRulesUtility(((RuleStmt *) parsetree)->relation,
 														&is_temp);
-					utilityContext.exec_type = exec_type;
-					utilityContext.is_temp = is_temp;
-					ExecRemoteUtilityStmt(&utilityContext);
+					if (!is_temp)
+					{
+						utilityContext.exec_type = exec_type;
+						utilityContext.is_temp = is_temp;
+						ExecRemoteUtilityStmt(&utilityContext);
+					}
 				}
 #endif
 				break;
@@ -2260,15 +2285,10 @@ ProcessUtilitySlow(Node *parsetree,
 					CreateSeqStmt *stmt = (CreateSeqStmt *) parsetree;
 
 					/* In case this query is related to a SERIAL execution, just bypass */
-					if (!stmt->is_serial)
+					if (!stmt->is_serial &&
+						stmt->sequence->relpersistence != RELPERSISTENCE_TEMP)
 					{
-						bool is_temp = stmt->sequence->relpersistence == RELPERSISTENCE_TEMP;
-
-						/* Set temporary object flag in pooler */
-						if (is_temp)
-							PoolManagerSetCommand(POOL_CMD_TEMP, NULL);
-
-						utilityContext.is_temp = is_temp;
+						utilityContext.is_temp = false;
 						utilityContext.stmt = (Node *) parsetree;
 						ExecRemoteUtilityStmt(&utilityContext);
 					}
@@ -2297,9 +2317,12 @@ ProcessUtilitySlow(Node *parsetree,
 														 relid,
 														 &is_temp);
 
-						utilityContext.exec_type = exec_type;
-						utilityContext.is_temp = is_temp;
-						ExecRemoteUtilityStmt(&utilityContext);
+						if (!is_temp)
+						{
+							utilityContext.exec_type = exec_type;
+							utilityContext.is_temp = is_temp;
+							ExecRemoteUtilityStmt(&utilityContext);
+						}
 					}
 				}
 #endif
@@ -2378,10 +2401,12 @@ ProcessUtilitySlow(Node *parsetree,
 					exec_type = ExecUtilityFindNodes(OBJECT_TABLE,
 													 RangeVarGetRelid(stmt->relation, NoLock, false),
 													 &is_temp);
-
-					utilityContext.exec_type = exec_type;
-					utilityContext.is_temp = is_temp;
-					ExecRemoteUtilityStmt(&utilityContext);
+					if(!is_temp)
+					{
+						utilityContext.exec_type = exec_type;
+						utilityContext.is_temp = is_temp;
+						ExecRemoteUtilityStmt(&utilityContext);
+					}
 				}
 #endif
 				break;
@@ -2648,11 +2673,14 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 #endif
 			RemoveRelations(stmt);
 #ifdef ADB
-				/* DROP is done depending on the object type and its temporary type */
-				utilityContext.is_temp = is_temp;
-				utilityContext.exec_type = exec_type;
-				utilityContext.stmt = (Node *) stmt;
-				ExecRemoteUtilityStmt(&utilityContext);
+				/* DROP is done depending on the object type */
+				if(!is_temp)
+				{
+					utilityContext.is_temp = is_temp;
+					utilityContext.exec_type = exec_type;
+					utilityContext.stmt = (Node *) stmt;
+					ExecRemoteUtilityStmt(&utilityContext);
+				}
 			}
 #endif
 
@@ -2669,9 +2697,12 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 #endif
 			RemoveObjects(stmt);
 #ifdef ADB
-				utilityContext.exec_type = exec_type;
-				utilityContext.is_temp = is_temp;
-				ExecRemoteUtilityStmt(&utilityContext);
+				if (!is_temp)
+				{
+					utilityContext.exec_type = exec_type;
+					utilityContext.is_temp = is_temp;
+					ExecRemoteUtilityStmt(&utilityContext);
+				}
 			}
 #endif
 			break;

@@ -736,7 +736,8 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	 *	  should not try to find out the node list itself.
 	 */
 	if ((IS_PGXC_COORDINATOR || (isRestoreMode && stmt->distributeby != NULL))
-		&& relkind == RELKIND_RELATION)
+		&& relkind == RELKIND_RELATION
+		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
 	{
 		AddRelationDistribution(relationId,
 								stmt->distributeby,
@@ -751,7 +752,8 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	 * funtion which the relation distributed by.
 	 */
 	if ((IS_PGXC_DATANODE || (isRestoreMode && stmt->distributeby != NULL))
-		&& relkind == RELKIND_RELATION)
+		&& relkind == RELKIND_RELATION
+		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
 	{
 		AddPgxcRelationDependFunction(relationId,
 									  stmt->distributeby,
