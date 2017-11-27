@@ -139,15 +139,14 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
  * parse errors.  It is needed by PL/pgsql.
  */
 %token <str>	IDENT FCONST SCONST BCONST XCONST Op
-
 %token <ival>	ICONST PARAM
+%token			TYPECAST DOT_DOT COLON_EQUALS EQUALS_GREATER
+%token			LESS_EQUALS GREATER_EQUALS NOT_EQUALS
 
 %type <ielem>	index_elem
 
 %type <distby>	OptDistributeByInternal
 
-%token			TYPECAST DOT_DOT COLON_EQUALS
-%token			NULLS_FIRST NULLS_LAST
 
 %type <list>	stmtblock stmtmulti opt_column_list columnList alter_table_cmds
 				pgxcnodes pgxcnode_list OptRoleList
@@ -317,12 +316,13 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	
 	ELSE END_P ESCAPE EXCLUSIVE EXISTS EXPLAIN EXTRACT
 	ENABLE_P EXCLUDE EVENT EXTENSION EXCLUDING ENCRYPTED
-	FALSE_P FILE_P FLOAT_P FOR FROM FOREIGN FULL
+	FALSE_P FILE_P FIRST_P FLOAT_P FOR FROM FOREIGN FULL
 	GLOBAL GRANT GREATEST GROUP_P HAVING
 	HOUR_P
 	IDENTIFIED IF_P IMMEDIATE IN_P INCREMENT INDEX INITIAL_P INSERT INHERIT INITIALLY 
 	INHERITS INCLUDING INDEXES INNER_P
 	IDENTITY_P INTEGER INTERSECT INTO INTERVAL INT_P IS ISOLATION
+	LAST_P
 	JOIN
 	KEY
 	LEADING LEAST LEFT LEVEL LIMIT LIKE LOCAL LOCALTIMESTAMP LOCK_P LOG_P LONG_P
@@ -331,7 +331,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	NAMES NCHAR NCLOB NEXT NEXTVAL NOAUDIT NOCOMPRESS NOT NOWAIT NULL_P NULLIF NUMBER_P 
 	NUMERIC NVARCHAR2 NO
 	/* PGXC add NODE token */
-	NODE
+	NODE NULLS_P
 	OF OFF OFFLINE OFFSET ON ONLINE ONLY OPERATOR OPTION OR ORDER OUTER_P
 	OWNER OIDS OPTIONS OWNED
 	PCTFREE PRECISION PRESERVE PRIOR PRIVILEGES PUBLIC PURGE
@@ -356,7 +356,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 /*
  * same specific token
  */
-%token	ORACLE_JOIN_OP CONNECT_BY
+%token	ORACLE_JOIN_OP CONNECT_BY NULLS_LA
 
 /* Precedence: lowest to highest */
 %right	RETURN_P RETURNING PRIMARY
@@ -371,7 +371,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 %left		AND
 %right		NOT
 %right		'='
-%nonassoc	'<' '>'
+%nonassoc	'<' '>' LESS_EQUALS GREATER_EQUALS NOT_EQUALS
 %nonassoc	LIKE //ILIKE SIMILAR
 %nonassoc	ESCAPE
 //%nonassoc	OVERLAPS
@@ -1841,8 +1841,8 @@ opt_class:	any_name								{ $$ = $1; }
 			| /*EMPTY*/								{ $$ = NIL; }
 		;
 
-opt_nulls_order: NULLS_FIRST				{ $$ = SORTBY_NULLS_FIRST; }
-			| NULLS_LAST					{ $$ = SORTBY_NULLS_LAST; }
+opt_nulls_order: NULLS_P FIRST_P				{ $$ = SORTBY_NULLS_FIRST; }
+			| NULLS_P LAST_P					{ $$ = SORTBY_NULLS_LAST; }
 			| /*EMPTY*/						{ $$ = SORTBY_NULLS_DEFAULT; }
 		;
 
@@ -2028,6 +2028,12 @@ a_expr:	c_expr
 		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, ">", $1, $3, @2); }
 	| a_expr '=' a_expr
 		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "=", $1, $3, @2); }
+	| a_expr LESS_EQUALS a_expr
+		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "<=", $1, $3, @2); }
+	| a_expr GREATER_EQUALS a_expr
+		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, ">=", $1, $3, @2); }
+	| a_expr NOT_EQUALS a_expr
+		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "<>", $1, $3, @2); }
 
 	| a_expr qual_Op a_expr				%prec Op
 		{
@@ -2325,6 +2331,12 @@ b_expr: c_expr
 		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, ">", $1, $3, @2); }
 	| b_expr '=' b_expr
 		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "=", $1, $3, @2); }
+	| b_expr LESS_EQUALS b_expr
+		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "<=", $1, $3, @2); }
+	| b_expr GREATER_EQUALS b_expr
+		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, ">=", $1, $3, @2); }
+	| b_expr NOT_EQUALS b_expr
+		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "<>", $1, $3, @2); }
 	| b_expr qual_Op b_expr				%prec Op
 		{
 			char *nspname = NULL;
@@ -4028,6 +4040,9 @@ MathOp: '+'									{ $$ = "+"; }
 	| '<'									{ $$ = "<"; }
 	| '>'									{ $$ = ">"; }
 	| '='									{ $$ = "="; }
+	| LESS_EQUALS							{ $$ = "<="; }
+	| GREATER_EQUALS						{ $$ = ">="; }
+	| NOT_EQUALS							{ $$ = "<>"; }
 	;
 
 multiple_set_clause:
@@ -5761,6 +5776,7 @@ unreserved_keyword:
 	| EVENT
 	| EXTENSION
 	| EXCLUSIVE
+	| FIRST_P
 	| GLOBAL
 	| IDENTITY_P
 	| IF_P
@@ -5771,6 +5787,7 @@ unreserved_keyword:
 	| INHERITS
 	| ISOLATION
 	| KEY
+	| LAST_P
 	| LIMIT
 	| LOCAL
 	| LOG_P
