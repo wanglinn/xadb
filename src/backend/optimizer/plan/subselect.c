@@ -2321,8 +2321,27 @@ static bool SS_finalize_plan_walker(Plan *plan, void *none, PlannerInfo *root)
 	}
 	if(plan_tree_walker(plan, NULL, SS_finalize_plan_walker, root))
 	{
-		plan->allParam = bms_copy(outerPlan(plan)->allParam);
-		plan->extParam = bms_copy(outerPlan(plan)->extParam);
+		if(IsA(plan, ModifyTable))
+		{
+			ListCell *lc;
+			Plan *subplan;
+			plan->allParam = plan->extParam = NULL;
+			foreach(lc, ((ModifyTable*)plan)->plans)
+			{
+				subplan = lfirst(lc);
+				plan->allParam = bms_add_members(plan->allParam, subplan->allParam);
+				plan->extParam = bms_add_members(plan->extParam, subplan->extParam);
+			}
+		}else if(outerPlan(plan))
+		{
+			plan->allParam = bms_copy(outerPlan(plan)->allParam);
+			plan->extParam = bms_copy(outerPlan(plan)->extParam);
+		}else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Internal error for plan '%d'", nodeTag(plan))));
+		}
 		return true;
 	}
 	return false;
