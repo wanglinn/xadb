@@ -2654,12 +2654,15 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 									  jcontext->extra);
 				}
 
-				try_cluster_join_path(jcontext, outer_path, inner_path, new_reduce_list);
-				if (PATH_REQ_OUTER(outer_path) == NULL &&
-					PATH_PARAM_OUTER_REL(inner_path, jcontext->outerrel) &&
-					(inner_path=get_cheapest_join_path(jcontext, outer_path, TOTAL_COST, true, &new_reduce_list)) != NULL)
+				if(have_cluster_reduce_path(inner_path, NULL) == false)
 				{
 					try_cluster_join_path(jcontext, outer_path, inner_path, new_reduce_list);
+					if (PATH_REQ_OUTER(outer_path) == NULL &&
+						PATH_PARAM_OUTER_REL(inner_path, jcontext->outerrel) &&
+						(inner_path=get_cheapest_join_path(jcontext, outer_path, TOTAL_COST, true, &new_reduce_list)) != NULL)
+					{
+						try_cluster_join_path(jcontext, outer_path, inner_path, new_reduce_list);
+					}
 				}
 			}
 		}
