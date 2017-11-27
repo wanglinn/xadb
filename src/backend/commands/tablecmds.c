@@ -6993,7 +6993,9 @@ ATAddForeignKeyConstraint(AlteredTableInfo *tab, Relation rel,
 
 #ifdef ADB
 	/* Check the shippability of this foreign key */
-	if (IS_PGXC_COORDINATOR)
+	if (IS_PGXC_COORDINATOR &&
+		RelationGetLocInfo(pkrel) &&
+		RelationGetLocInfo(rel))
 	{
 		List *childRefs = NIL, *parentRefs = NIL;
 
@@ -7004,8 +7006,8 @@ ATAddForeignKeyConstraint(AlteredTableInfo *tab, Relation rel,
 			parentRefs = lappend_int(parentRefs, pkattnum[i]);
 
 		/* Now check shippability for this foreign key */
-		if (!pgxc_check_fk_shippability(GetRelationLocInfo(RelationGetRelid(pkrel)),
-										GetRelationLocInfo(RelationGetRelid(rel)),
+		if (!pgxc_check_fk_shippability(RelationGetLocInfo(pkrel),
+										RelationGetLocInfo(rel),
 										parentRefs,
 										childRefs))
 			ereport(ERROR,
