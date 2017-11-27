@@ -2243,6 +2243,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				current_rel->cluster_pathlist == NIL &&
 				/* need this? safety add it */
 				root->parent_root == NULL &&
+				rti_is_base_rel(root, parse->resultRelation) &&
 				!has_row_triggers(root, parse->resultRelation, CMD_INSERT) &&
 				!have_remote_query_path(path, NULL) &&
 				is_remote_relation(root, parse->resultRelation) &&
