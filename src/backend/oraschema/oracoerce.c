@@ -67,13 +67,6 @@ typedef enum OraOperKind
 #define IsArithmeticOperator(opname)	(GetOraOperationKind((opname)) == ORA_OPER_ARITHMETIC)
 #define IsPatternOperator(opname)		(GetOraOperationKind((opname)) == ORA_OPER_PATTERN)
 
-#define OraDefaultCoercion(src, dst, needtrunc)		\
-	GetOraCoercionFunctionOid((src), (dst), ORA_COERCE_DEFAULT, (needtrunc))
-#define OraFunctionCoercion(src, dst, needtrunc)	\
-	GetOraCoercionFunctionOid((src), (dst), ORA_COERCE_COMMON_FUNCTION, (needtrunc))
-#define OraOperatorCoercion(src, dst, needtrunc)	\
-	GetOraCoercionFunctionOid((src), (dst), ORA_COERCE_OPERATOR, (needtrunc))
-
 static const OraPrecedence OraPrecedenceMap[] =
 {
 	ORA_PRECEDENCE(TIMESTAMPTZOID, LV_DATETIME_INTERVAL)
@@ -95,8 +88,10 @@ static const int NumOraPrecedenceMap = lengthof(OraPrecedenceMap);
 
 static OraCoercionContext CurrentCoercionContext = ORA_COERCE_DEFAULT;
 
-static Oid GetOraCoercionFunctionOid(Oid srctype, Oid targettype,
-									 char context, bool needtrunc);
+static Oid GetOraCoercionFuncID(Oid srctype,
+								Oid targettype,
+								char context,
+								bool needtrunc);
 static OraOperKind GetOraOperationKind(List *opname);
 static int GetOraPrecedence(Oid typoid);
 static int OraTypePerferred(Oid typoid1, Oid typoid2);
@@ -108,7 +103,8 @@ static void TryOraOperatorCoercion(ParseState *pstate,	/* in */
 								   Node **ret_lexpr,	/* out */
 								   Node **ret_rexpr		/* out */
 								   );
-
+static Oid OraFunctionCoercion(Oid srctype, Oid targettype, bool needtrunc);
+static Oid OraOperatorCoercion(Oid srctype, Oid targettype, bool needtrunc);
 
 OraCoercionContext
 OraCoercionContextSwitchTo(OraCoercionContext context)
@@ -136,8 +132,10 @@ IsOraFunctionCoercionContext(void)
 }
 
 static Oid
-GetOraCoercionFunctionOid(Oid srctype, Oid targettype,
-						  char context, bool needtrunc)
+GetOraCoercionFuncID(Oid srctype,
+					 Oid targettype,
+					 char context,
+					 bool needtrunc)
 {
 	HeapTuple		tuple;
 	Form_ora_cast	castForm;
@@ -171,23 +169,35 @@ OraFindCoercionFunction(Oid srctype, Oid targettype)
 		case ORA_COERCE_NOUSE:
 			return InvalidOid;
 		case ORA_COERCE_COMMON_FUNCTION:
-			castFunc = OraFunctionCoercion(srctype, targettype, true);
+			castFunc = GetOraCoercionFuncID(srctype,
+											targettype,
+											ORA_COERCE_COMMON_FUNCTION,
+											true);
 			break;
 		case ORA_COERCE_SPECIAL_FUNCTION:
-			castFunc = OraFunctionCoercion(srctype, targettype, false);
+			castFunc = GetOraCoercionFuncID(srctype,
+											targettype,
+											ORA_COERCE_COMMON_FUNCTION,
+											false);
 			break;
 		case ORA_COERCE_OPERATOR:
-			castFunc = OraOperatorCoercion(srctype, targettype, false);
+			castFunc = GetOraCoercionFuncID(srctype,
+											targettype,
+											ORA_COERCE_OPERATOR,
+											false);
 			break;
 		case ORA_COERCE_DEFAULT:
-			return OraDefaultCoercion(srctype, targettype, false);
+			break;
 		default:
 			Assert(0);
 			break;
 	}
 
 	if (!OidIsValid(castFunc))
-		return OraDefaultCoercion(srctype, targettype, false);
+		castFunc = GetOraCoercionFuncID(srctype,
+										targettype,
+										ORA_COERCE_DEFAULT,
+										false);
 
 	return castFunc;
 }
@@ -667,4 +677,38 @@ transformOraAExprOp(ParseState * pstate,
 	(void) OraCoercionContextSwitchTo(oldContext);
 
 	return result;
+}
+
+static Oid
+OraFunctionCoercion(Oid srctype, Oid targettype, bool needtrunc)
+{
+	Oid castFunc;
+
+	castFunc = GetOraCoercionFuncID(srctype,
+									targettype,
+									ORA_COERCE_COMMON_FUNCTION,
+									needtrunc);
+	if (!OidIsValid(castFunc))
+		castFunc = GetOraCoercionFuncID(srctype,
+										targettype,
+										ORA_COERCE_DEFAULT,
+										needtrunc);
+	return castFunc;
+}
+
+static Oid
+OraOperatorCoercion(Oid srctype, Oid targettype, bool needtrunc)
+{
+	Oid castFunc;
+
+	castFunc = GetOraCoercionFuncID(srctype,
+									targettype,
+									ORA_COERCE_OPERATOR,
+									needtrunc);
+	if (!OidIsValid(castFunc))
+		castFunc = GetOraCoercionFuncID(srctype,
+										targettype,
+										ORA_COERCE_DEFAULT,
+										needtrunc);
+	return castFunc;
 }
