@@ -6834,17 +6834,34 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 		return false;
 	}
 
+	if ((IsA(path, ResultPath) &&
+		  ((ResultPath*)path)->subpath == NULL) ||
+		IsA(path, ForeignPath))
+	{
+		path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+		path->reduce_is_valid = true;
+		return false;
+	}
+
 	path_tree_walker(path, find_cluster_reduce_expr, (void*)pplist);
 
 	switch(nodeTag(path))
 	{
+	case T_Path:
+		if (path->pathtype == T_FunctionScan ||
+			path->pathtype == T_ValuesScan)
+		{
+			path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+			path->reduce_is_valid = true;
+			break;
+		}
+		/* do not add break */
 	case T_LimitPath:
 	case T_SortPath:
 	case T_ResultPath:
 	case T_MaterialPath:
 	case T_ProjectionPath:
 	case T_ClusterReducePath:
-	case T_Path:
 	case T_IndexPath:
 	case T_UniquePath:
 	case T_WindowAggPath:
