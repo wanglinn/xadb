@@ -835,11 +835,23 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 			Relation	resultRelation;
 
 			resultRelationOid = getrelid(resultRelationIndex, rangeTable);
+#ifdef ADB
+			if(IsConnFromCoord() && !OidIsValid(resultRelationOid))
+			{
+				/* same time ModifyTable target in coordinator only */
+				MemSet(resultRelInfo, 0, sizeof(*resultRelInfo));
+				/* resultRelInfo->type = T_Invalid; */
+			}else
+			{
+#endif /* ADB */
 			resultRelation = heap_open(resultRelationOid, RowExclusiveLock);
 			InitResultRelInfo(resultRelInfo,
 							  resultRelation,
 							  resultRelationIndex,
 							  estate->es_instrument);
+#ifdef ADB
+			}
+#endif /* ADB */
 			resultRelInfo++;
 		}
 		estate->es_result_relations = resultRelInfos;
@@ -1505,6 +1517,13 @@ ExecEndPlan(PlanState *planstate, EState *estate)
 	resultRelInfo = estate->es_result_relations;
 	for (i = estate->es_num_result_relations; i > 0; i--)
 	{
+#ifdef ADB
+		if(nodeTag(resultRelInfo) == T_Invalid)
+		{
+			resultRelInfo++;
+			continue;
+		}
+#endif /* ADB */
 		/* Close indices and then the relation itself */
 		ExecCloseIndices(resultRelInfo);
 		heap_close(resultRelInfo->ri_RelationDesc, NoLock);
