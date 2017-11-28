@@ -387,6 +387,10 @@ CopyScanFields(const Scan *from, Scan *newnode)
 {
 	CopyPlanFields((const Plan *) from, (Plan *) newnode);
 
+#ifdef ADB
+	COPY_NODE_FIELD(execute_nodes);
+#endif /* ADB */
+
 	COPY_SCALAR_FIELD(scanrelid);
 }
 
@@ -830,6 +834,9 @@ _copyHashJoin(const HashJoin *from)
 	 * copy remainder of node
 	 */
 	COPY_NODE_FIELD(hashclauses);
+#ifdef ADB
+	COPY_SCALAR_FIELD(cluster_hashtable_first);
+#endif /* ADB */
 
 	return newnode;
 }
@@ -870,6 +877,9 @@ _copySort(const Sort *from)
 	COPY_POINTER_FIELD(sortOperators, from->numCols * sizeof(Oid));
 	COPY_POINTER_FIELD(collations, from->numCols * sizeof(Oid));
 	COPY_POINTER_FIELD(nullsFirst, from->numCols * sizeof(bool));
+#ifdef ADB
+	COPY_SCALAR_FIELD(srt_start_merge);
+#endif /* ADB */
 
 	return newnode;
 }
@@ -915,6 +925,7 @@ _copyAgg(const Agg *from)
 	COPY_NODE_FIELD(groupingSets);
 	COPY_NODE_FIELD(chain);
 #ifdef ADB
+	COPY_NODE_FIELD(exec_nodes);
 	COPY_SCALAR_FIELD(skip_trans);
 #endif
 	return newnode;
@@ -4673,6 +4684,35 @@ _copyPGXCSubCluster(const PGXCSubCluster *from)
 	return newnode;
 }
 
+static ClusterGather *
+_copyClusterGather(const ClusterGather *from)
+{
+	ClusterGather *newnode = makeNode(ClusterGather);
+
+	CopyPlanFields(&from->plan, &newnode->plan);
+	COPY_NODE_FIELD(rnodes);
+	COPY_SCALAR_FIELD(gatherType);
+
+	return newnode;
+}
+
+static ClusterMergeGather *
+_copyClusterMergeGather(const ClusterMergeGather *from)
+{
+	ClusterMergeGather *newnode = makeNode(ClusterMergeGather);
+
+	CopyPlanFields(&from->plan, &newnode->plan);
+	COPY_NODE_FIELD(rnodes);
+	COPY_SCALAR_FIELD(gatherType);
+	COPY_SCALAR_FIELD(numCols);
+	COPY_POINTER_FIELD(sortColIdx, from->numCols * sizeof(AttrNumber));
+	COPY_POINTER_FIELD(sortOperators, from->numCols * sizeof(Oid));
+	COPY_POINTER_FIELD(collations, from->numCols * sizeof(Oid));
+	COPY_POINTER_FIELD(nullsFirst, from->numCols * sizeof(bool));
+
+	return newnode;
+}
+
 static ClusterReduce *
 _copyClusterReduce(const ClusterReduce *from)
 {
@@ -5716,6 +5756,12 @@ copyObject(const void *from)
 			break;
 		case T_PGXCSubCluster:
 			retval = _copyPGXCSubCluster(from);
+			break;
+		case T_ClusterGather:
+			retval = _copyClusterGather(from);
+			break;
+		case T_ClusterMergeGather:
+			retval = _copyClusterMergeGather(from);
 			break;
 		case T_ClusterReduce:
 			retval = _copyClusterReduce(from);
