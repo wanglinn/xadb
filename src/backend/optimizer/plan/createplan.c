@@ -289,6 +289,7 @@ static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 							ClusterMergeGatherPath *path, int flags);
 static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags);
 static ClusterGatherType get_gather_type(List *reduce_info_list);
+static bool replace_reduce_replicate_nodes(Path *path, List *nodes);
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
 static Plan *create_reducescan_plan(PlannerInfo *root, ReduceScanPath *path, int flags);
 static bool find_cluster_reduce_expr(Path *path, List **pplist);
@@ -6502,9 +6503,13 @@ static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 	ClusterMergeGather *plan;
 	Plan *subplan;
 
+	plan = makeNode(ClusterMergeGather);
+	plan->rnodes = get_remote_nodes(root, path->subpath);
+	replace_reduce_replicate_nodes(path->subpath, plan->rnodes);
+	plan->gatherType = get_gather_type(get_reduce_info_list(path->subpath));
+
 	subplan = create_plan_recurse(root, path->subpath, flags);
 
-	plan = makeNode(ClusterMergeGather);
 	if(IsA(subplan, ModifyTable))
 	{
 		ModifyTable *mt = (ModifyTable*)subplan;
@@ -6515,8 +6520,6 @@ static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 		plan->plan.targetlist = subplan->targetlist;
 	}
 	outerPlan(plan) = subplan;
-	plan->rnodes = get_remote_nodes(root, path->subpath);
-	plan->gatherType = get_gather_type(get_reduce_info_list(path->subpath));
 
 	copy_generic_path_info(&plan->plan, (Path*)path);
 
@@ -6537,9 +6540,13 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 	ClusterGather *plan;
 	Plan *subplan;
 
+	plan = makeNode(ClusterGather);
+	plan->rnodes = get_remote_nodes(root, path->subpath);
+	replace_reduce_replicate_nodes(path->subpath, plan->rnodes);
+	plan->gatherType = get_gather_type(get_reduce_info_list(path->subpath));
+
 	subplan = create_plan_recurse(root, path->subpath, flags);
 
-	plan = makeNode(ClusterGather);
 	if(IsA(subplan, ModifyTable))
 	{
 		ModifyTable *mt = (ModifyTable*)subplan;
@@ -6550,8 +6557,6 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 		plan->plan.targetlist = subplan->targetlist;
 	}
 	outerPlan(plan) = subplan;
-	plan->rnodes = get_remote_nodes(root, path->subpath);
-	plan->gatherType = get_gather_type(get_reduce_info_list(path->subpath));
 
 	copy_generic_path_info(&plan->plan, (Path*)path);
 
@@ -6583,6 +6588,31 @@ static ClusterGatherType get_gather_type(List *reduce_info_list)
 		}
 		return have_coord ? CLUSTER_GATHER_ALL:CLUSTER_GATHER_DATANODE;
 	}
+}
+
+static bool replace_reduce_replicate_nodes(Path *path, List *nodes)
+{
+	if(path == NULL)
+		return false;
+	if (IsA(path, ClusterReducePath) &&
+		IsReduceInfoListReplicated(path->reduce_info_list))
+	{
+		ReduceInfo *rinfo;
+		Assert(list_length(path->reduce_info_list) == 1);
+		rinfo = linitial(path->reduce_info_list);
+		if(!equal(rinfo->storage_nodes, nodes))
+		{
+			ReduceInfo *new_info = MakeReplicateReduceInfo(nodes);
+			if (list_member_oid(rinfo->storage_nodes, PGXCNodeOid) &&
+				!list_member_oid(new_info->storage_nodes, PGXCNodeOid))
+			{
+				/* maybe path in subplan */
+				new_info->storage_nodes = SortOidList(lappend_oid(new_info->storage_nodes, PGXCNodeOid));
+			}
+			path->reduce_info_list = list_make1(new_info);
+		}
+	}
+	return path_tree_walker(path, replace_reduce_replicate_nodes, nodes);
 }
 
 /* return remote node's Oid */
@@ -6642,7 +6672,7 @@ List* get_remote_nodes(PlannerInfo *root, Path *path)
 	}
 	hash_destroy(htab);
 
-	return list;
+	return SortOidList(list);
 }
 
 List *get_reduce_info_list(Path *path)
