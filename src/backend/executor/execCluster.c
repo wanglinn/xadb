@@ -410,6 +410,20 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 {
 	AssertArg(buf && node);
+	if (IsA(node, ValuesScan) ||
+		IsA(node, FunctionScan) ||
+		IsA(node, ForeignScan))
+	{
+		/* always run at coordinator */
+		Result result_plan;
+		memcpy(&result_plan, node, sizeof(Plan));
+		result_plan.resconstantqual = (Node*)list_make1(makeBoolConst(false, false));
+		result_plan.plan.lefttree = NULL;
+		result_plan.plan.type = T_Result;
+		saveNodeAndHook(buf, (Node*)&result_plan, SerializePlanHook, context);
+		return true;
+	}
+
 	saveNodeAndHook(buf, node, SerializePlanHook, context);
 	if(IsA(node, RangeTblEntry)
 		&& ((RangeTblEntry*)node)->rtekind == RTE_RELATION)
@@ -518,8 +532,7 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 					,errmsg("column \"%s\" type is diffent", NameStr(attr->attname))));
 			}
 		}
-	}else if(IsA(node, ForeignScan) ||
-			 IsA(node, CustomScan) ||
+	}else if(IsA(node, CustomScan) ||
 			 (IsA(node, Agg) &&
 			   ((Agg*)node)->aggsplit != AGGSPLIT_INITIAL_SERIAL &&
 			   list_member_oid(((Agg*)node)->exec_nodes, PGXCNodeOid) == false)
