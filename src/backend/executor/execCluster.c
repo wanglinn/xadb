@@ -138,16 +138,16 @@ void exec_cluster_plan(const void *splan, int length)
 		InstrumentEndLoop_walker(query_desc->planstate, NULL);
 
 	/* send processed message */
-	resetStringInfo(&buf);
-	serialize_processed_message(&buf, query_desc->estate->es_processed);
-	pq_putmessage('d', buf.data, buf.len);
+	resetStringInfo(&msg);
+	serialize_processed_message(&msg, query_desc->estate->es_processed);
+	pq_putmessage('d', msg.data, msg.len);
 
 	/* send Instrumentation info */
 	if(need_instrument)
 	{
-		resetStringInfo(&buf);
-		serialize_instrument_message(query_desc->planstate, &buf);
-		pq_putmessage('d', buf.data, buf.len);
+		resetStringInfo(&msg);
+		serialize_instrument_message(query_desc->planstate, &msg);
+		pq_putmessage('d', msg.data, msg.len);
 	}
 
 	/* and clean up */
@@ -156,7 +156,7 @@ void exec_cluster_plan(const void *splan, int length)
 	error_context_stack = error_context_hook.previous;
 	PGXCNodeOid = (Oid)(Size)(error_context_hook.arg);
 
-	pfree(buf.data);
+	pfree(msg.data);
 
 	/* Send Copy Done message */
 	pq_putemptymessage('c');
@@ -307,6 +307,8 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 	stmt = palloc(sizeof(*stmt));
 	memcpy(stmt, estate->es_plannedstmt, sizeof(*stmt));
 	stmt->planTree = plan;
+	/* make sure remote send tuple(s) */
+	stmt->commandType = CMD_SELECT;
 
 	initStringInfo(&msg);
 	SerializePlanInfo(&msg, stmt, estate->es_param_list_info, &context);
