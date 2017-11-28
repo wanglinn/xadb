@@ -2465,13 +2465,13 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 																  outerrel->cluster_pathlist == NIL ? outerrel->pathlist:outerrel->cluster_pathlist,
 																  NULL,
 																  &path);
-				if(list_member_ptr(reduce_outer_pathlist, path) == false)
+				if(path && list_member_ptr(reduce_outer_pathlist, path) == false)
 					reduce_outer_pathlist = lappend(reduce_outer_pathlist, path);
 				reduce_inner_pathlist = GetCheapestReducePathList(innerrel,
 																  innerrel->cluster_pathlist == NIL ? innerrel->pathlist:innerrel->cluster_pathlist,
 																  NULL,
 																  &path);
-				if(list_member_ptr(reduce_inner_pathlist, path) == false)
+				if(path && list_member_ptr(reduce_inner_pathlist, path) == false)
 					reduce_inner_pathlist = lappend(reduce_inner_pathlist, path);
 re_reduce_join_:
 				ReducePathListByExpr((Expr*)outer_exprs,
@@ -3118,8 +3118,9 @@ static List *reduce_paths_for_join(PlannerInfo *root, RelOptInfo *rel, List *pat
 
 	foreach(lc1, reduce_list)
 	{
-		ReducePathUsingReduceInfo(root, rel, cheapest_startup_path, ReducePathSave2List, (void*)&result, lfirst(lc1));
-		if(cheapest_total_path != cheapest_startup_path)
+		if (cheapest_startup_path)
+			ReducePathUsingReduceInfo(root, rel, cheapest_startup_path, ReducePathSave2List, (void*)&result, lfirst(lc1));
+		if (cheapest_total_path && cheapest_total_path != cheapest_startup_path)
 			ReducePathUsingReduceInfo(root, rel, cheapest_total_path, ReducePathSave2List, (void*)&result, lfirst(lc1));
 	}
 	foreach(lc1, pathlist)
