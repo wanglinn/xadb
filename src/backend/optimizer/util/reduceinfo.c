@@ -1761,7 +1761,7 @@ bool CanOnceDistinctReduceInfo(List *distinct, ReduceInfo *reduce_info)
 	ListCell *lc_param;
 
 	if(IsReduceInfoByValue(reduce_info) == false)
-		false;
+		return false;
 
 	Assert(reduce_info->params);
 	foreach(lc_param, reduce_info->params)
