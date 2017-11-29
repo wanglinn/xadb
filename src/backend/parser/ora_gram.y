@@ -43,7 +43,7 @@
  * bother with fixing @$ like this when the nonterminal's parse location
  * is actually referenced in some rule.)
  */
- 
+
 /* ConstraintAttributeSpec yields an integer bitmask of these flags: */
 #define CAS_NOT_DEFERRABLE			0x01
 #define CAS_DEFERRABLE				0x02
@@ -157,7 +157,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 %type <list>	ExclusionConstraintList ExclusionConstraintElem
 %type <list>	/* generic_option_list*/ alter_generic_option_list
 
-%type <str>		ExistingIndex 
+%type <str>		ExistingIndex
 %type <str>		generic_option_name
 %type <str>		OptDistributeType
 %type <node>	generic_option_arg
@@ -193,7 +193,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	SignedIconst sub_type
 
 %type <ival> ConstraintAttributeElem ConstraintAttributeSpec
-	
+
 %type <ival>	key_actions key_delete key_match key_update key_action
 				for_locking_strength
 				opt_nulls_order opt_column opt_set_data TableLikeOptionList
@@ -226,7 +226,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	name_list
 	OptTableElementList opt_distinct opt_for_locking_clause
 	opt_indirection opt_interval opt_name_list opt_sort_clause
-	OptWith OptTypedTableElementList 
+	OptWith OptTypedTableElementList
 	opt_type_mod opt_type_modifiers opt_definition opt_collate opt_class opt_select_limit
 	opt_reloptions OptInherit
 	qual_Op qual_all_Op qualified_name_list
@@ -240,7 +240,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 
 %type <node>
 	AexprConst a_expr AlterTableStmt alter_column_default AlterObjectSchemaStmt
-	alter_using 
+	alter_using
 	b_expr
 	common_table_expr columnDef columnref CreateStmt ctext_expr columnElem
 	ColConstraint ColConstraintElem ConstraintAttr CreateRoleStmt
@@ -286,7 +286,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 
 %type <target>	insert_column_item single_set_clause set_target target_item
 
-%type <typnam>	Bit Character ConstDatetime ConstInterval ConstTypename 
+%type <typnam>	Bit Character ConstDatetime ConstInterval ConstTypename
 				Numeric SimpleTypename Typename func_type
 
 %type <value>	NumericOnly
@@ -301,25 +301,25 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	ANY AS ASC AUDIT AUTHORIZATION ACTION ALWAYS
 	ADMIN
 	BEGIN_P BETWEEN BFILE BIGINT BINARY_FLOAT BINARY_DOUBLE BLOB BOOLEAN_P BOTH BY BYTE_P
-	CASCADE CASE CAST CATALOG_P CHAR_P CHARACTERISTICS CHECK CLUSTER COLUMN COMMIT COMMENT 
+	CASCADE CASE CAST CATALOG_P CHAR_P CHARACTERISTICS CHECK CLUSTER COLUMN COMMIT COMMENT
 	COLLATION CONVERSION_P CONNECTION
 	COMMITTED COMPRESS COLLATE CONNECT CONSTRAINT CYCLE NOCYCLE
-	CONSTRAINTS CLOB COALESCE CONTENT_P CONTINUE_P CREATE CROSS CURRENT_DATE 
+	CONSTRAINTS CLOB COALESCE CONTENT_P CONTINUE_P CREATE CROSS CURRENT_DATE
 	CURRENT_P CURRENT_TIMESTAMP CURRVAL CURSOR CONCURRENTLY CONFIGURATION
 	CACHE NOCACHE COMMENTS
-	DATE_P DAY_P DBTIMEZONE_P DEC DECIMAL_P DEFAULT DEFERRABLE DELETE_P DESC DISTINCT 
+	DATE_P DAY_P DBTIMEZONE_P DEC DECIMAL_P DEFAULT DEFERRABLE DELETE_P DESC DISTINCT
 	DO DOCUMENT_P DOUBLE_P DROP DEFERRED DATA_P DEFAULTS
-	
+
 	/* PGXC_BEGIN */
 	DISABLE_P DISTRIBUTE PREPARE PREPARED DOMAIN_P DICTIONARY
 	/* PGXC_END */
-	
+
 	ELSE END_P ESCAPE EXCLUSIVE EXISTS EXPLAIN EXTRACT
 	ENABLE_P EXCLUDE EVENT EXTENSION EXCLUDING ENCRYPTED
 	FALSE_P FILE_P FIRST_P FLOAT_P FOR FROM FOREIGN FULL
 	GLOBAL GRANT GREATEST GROUP_P HAVING
 	HOUR_P
-	IDENTIFIED IF_P IMMEDIATE IN_P INCREMENT INDEX INITIAL_P INSERT INHERIT INITIALLY 
+	IDENTIFIED IF_P IMMEDIATE IN_P INCREMENT INDEX INITIAL_P INSERT INHERIT INITIALLY
 	INHERITS INCLUDING INDEXES INNER_P
 	IDENTITY_P INTEGER INTERSECT INTO INTERVAL INT_P IS ISOLATION
 	LAST_P
@@ -328,7 +328,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	LEADING LEAST LEFT LEVEL LIMIT LIKE LOCAL LOCALTIMESTAMP LOCK_P LOG_P LONG_P
 	MATERIALIZED MAXEXTENTS MINUS MINUTE_P MLSLABEL MODE MODIFY MONTH_P
 	MATCH MAXVALUE NOMAXVALUE  MINVALUE NOMINVALUE
-	NAMES NCHAR NCLOB NEXT NEXTVAL NOAUDIT NOCOMPRESS NOT NOWAIT NULL_P NULLIF NUMBER_P 
+	NAMES NCHAR NCLOB NEXT NEXTVAL NOAUDIT NOCOMPRESS NOT NOWAIT NULL_P NULLIF NUMBER_P
 	NUMERIC NVARCHAR2 NO
 	/* PGXC add NODE token */
 	NODE NULLS_P
@@ -342,7 +342,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	SCHEMA SECOND_P SELECT SERIALIZABLE SESSION SESSIONTIMEZONE SET SHARE SHOW SIZE SEARCH
 	SMALLINT SIMPLE SETOF STATISTICS SAVEPOINT SEQUENCE SYSID SOME
 	SNAPSHOT START STORAGE SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
-	TABLE TEMP TEMPLATE TEMPORARY THEN TIME TIMESTAMP TO TRAILING 
+	TABLE TEMP TEMPLATE TEMPORARY THEN TIME TIMESTAMP TO TRAILING
 	TRANSACTION TREAT TRIM TRUNCATE TRIGGER TRUE_P TABLESPACE
 	TYPE_P TEXT_P
 	UID UNCOMMITTED UNION UNIQUE UPDATE USER USING UNLOGGED
@@ -794,7 +794,7 @@ RenameStmt: ALTER INDEX qualified_name RENAME TO name
 					n->newname = $10;
 					n->missing_ok = true;
 					$$ = (Node *)n;
-				}	
+				}
 		;
 
 /*****************************************************************************
@@ -1000,7 +1000,7 @@ alter_table_cmd:
 					def->collClause = (CollateClause *) $5;
 					def->raw_default = $6;
 					$$ = (Node *)n;
-				}	
+				}
 			/* ALTER FOREIGN TABLE <name> ALTER [COLUMN] <colname> OPTIONS */
 			| ALTER opt_column ColId alter_generic_options
 				{
@@ -1382,7 +1382,7 @@ OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType
 					$$ = n;
 				}
 		;
-		
+
 OptSubCluster: OptSubClusterInternal				{ $$ = $1; }
 			| /* EMPTY */							{ $$ = NULL; }
 		;
@@ -1646,8 +1646,8 @@ CreateSeqStmt:
 				}
 		;
 
-		
-		
+
+
 OptSeqOptList: SeqOptList							{ $$ = $1; }
 			| /*EMPTY*/								{ $$ = NIL; }
 		;
@@ -1663,7 +1663,7 @@ SeqOptElem: CACHE NumericOnly
 			| NOCACHE
 				{
 					$$ = makeDefElem("cache", (Node *)makeInteger(20));
-				}	
+				}
 			| CYCLE
 				{
 					$$ = makeDefElem("cycle", (Node *)makeInteger(TRUE));
@@ -1725,7 +1725,7 @@ SeqOptElem: CACHE NumericOnly
 opt_with:	WITH									{}
 			| /*EMPTY*/								{}
 		;
-		
+
 opt_by:		BY				{}
 			| /* empty */	{}
 	  ;
@@ -1768,11 +1768,11 @@ IndexStmt:	CREATE opt_unique INDEX opt_concurrently opt_index_name
 					$$ = (Node *)n;
 				}
 		;
-		
+
 opt_unique:
 			UNIQUE									{ $$ = TRUE; }
 			| /*EMPTY*/								{ $$ = FALSE; }
-		;	
+		;
 opt_concurrently:
 			CONCURRENTLY							{ $$ = TRUE; }
 			| /*EMPTY*/								{ $$ = FALSE; }
@@ -1791,7 +1791,7 @@ access_method:
 
 index_params:	index_elem							{ $$ = list_make1($1); }
 			| index_params ',' index_elem			{ $$ = lappend($1, $3); }
-			
+
 /*
  * Index attributes can be either simple column references, or arbitrary
  * expressions in parens.  For backwards-compatibility reasons, we allow
@@ -1831,7 +1831,7 @@ index_elem:	ColId opt_collate opt_class opt_asc_desc opt_nulls_order
 					$$->nulls_ordering = $7;
 				}
 		;
-		
+
 opt_collate: COLLATE any_name						{ $$ = $2; }
 			| /*EMPTY*/								{ $$ = NIL; }
 		;
@@ -2043,7 +2043,7 @@ a_expr:	c_expr
 			DeconstructQualifiedName($2, &nspname, &objname);
 			if (objname &&
 				strncmp(objname, "||", strlen(objname)) == 0)
-			{	
+			{
 				FuncCall *n = makeNode(FuncCall);
 				n->funcname = SystemFuncName("concat");
 				n->args = list_make2($1, $3);
@@ -2141,16 +2141,20 @@ a_expr:	c_expr
 		}
 	| a_expr NOT IN_P select_with_parens
 		{
+			/* generate NOT (foo = ANY (subquery)) */
+			/* Make an = ANY node */
 			SubLink *n = makeNode(SubLink);
 			n->subselect = $4;
 			n->subLinkType = ANY_SUBLINK;
 			n->testexpr = $1;
-			n->operName = list_make1(makeString("="));
-			n->location = @3;
-			$$ = (Node*)makeSimpleA_Expr(AEXPR_IN, "<>", $1, (Node*)n, @2);
+			n->operName = NIL;
+			n->location = @2;
+			/* Stick a NOT on top; must have same parse location */
+			$$ = makeNotExpr((Node *) n, @2);
 		}
 	| a_expr NOT IN_P '(' expr_list ')'
 		{
+			/* generate scalar NOT IN expression */
 			$$ = (Node *) makeSimpleA_Expr(AEXPR_IN, "<>", $1, (Node*)$5, @2);
 		}
 	| a_expr subquery_Op sub_type select_with_parens	%prec Op
@@ -2345,7 +2349,7 @@ b_expr: c_expr
 			DeconstructQualifiedName($2, &nspname, &objname);
 			if (objname &&
 				strncmp(objname, "||", strlen(objname)) == 0)
-			{	
+			{
 				FuncCall *n = makeNode(FuncCall);
 				n->funcname = SystemFuncName("concat");
 				n->args = list_make2($1, $3);
@@ -2552,12 +2556,12 @@ columnDef: ColId Typename create_generic_options ColQualList
 					$$ = (Node *)n;
 		}
 	;
-	
+
 ColQualList:
 			ColQualList ColConstraint				{ $$ = lappend($1, $2); }
 			| /*EMPTY*/								{ $$ = NIL; }
 		;
-		
+
 ColConstraint:
 			CONSTRAINT name ColConstraintElem
 				{
@@ -2582,7 +2586,7 @@ ColConstraint:
 					n->location = @1;
 					$$ = (Node *) n;
 				}
-		;	
+		;
 
 any_name_list: any_name						{ $$ = list_make1($1); }
 			| any_name_list ',' any_name	{ $$ = lappend($1,$3); }
@@ -2668,7 +2672,7 @@ ColConstraintElem:
 					n->initially_valid  = true;
 					$$ = (Node *)n;
 				}
-		;	
+		;
 opt_definition:
 			WITH definition							{ $$ = $2; }
 			| /*EMPTY*/								{ $$ = NIL; }
@@ -2685,12 +2689,12 @@ def_elem:	ColLabel
 					$$ = makeDefElem($1, NULL);
 				}
 		;
-	
-		
+
+
 OptConsTableSpace:   USING INDEX TABLESPACE name	{ $$ = $4; }
 			| /*EMPTY*/								{ $$ = NULL; }
 		;
-		
+
 opt_no_inherit:	NO INHERIT							{  $$ = TRUE; }
 			| /* EMPTY */							{  $$ = FALSE; }
 		;
@@ -2709,7 +2713,7 @@ columnElem: ColId
 					$$ = (Node *) makeString($1);
 				}
 		;
-		
+
 key_match:  MATCH FULL
 			{
 				$$ = FKCONSTR_MATCH_FULL;
@@ -2731,7 +2735,7 @@ key_match:  MATCH FULL
 				$$ = FKCONSTR_MATCH_SIMPLE;
 			}
 		;
-		
+
 /*
  * We combine the update and delete actions into one value temporarily
  * for simplicity of parsing, and then break them down again in the
@@ -2764,7 +2768,7 @@ key_action:
 			| SET NULL_P				{ $$ = FKCONSTR_ACTION_SETNULL; }
 			| SET DEFAULT				{ $$ = FKCONSTR_ACTION_SETDEFAULT; }
 		;
-		
+
 ConstraintAttr:
 			DEFERRABLE
 				{
@@ -2828,8 +2832,8 @@ ConstInterval:
 	;
 
 ConstDatetime:
-	  DATE_P				
-	  	{ 
+	  DATE_P
+	  	{
 	  		$$ = OracleTypeNameLocation("date", @1);
 	  	}
 	| TIMESTAMP opt_type_mod
@@ -3189,7 +3193,7 @@ DropStmt:
     		n->concurrent = true;
     		$$ = (Node *)n;
     	}
-		;	
+		;
 	;
 
 drop_type:	TABLE									{ $$ = OBJECT_TABLE; }
@@ -3364,7 +3368,7 @@ func_expr:	func_name '(' ')'
 				char *objname = NULL;
 
 				DeconstructQualifiedName($1, &nspname, &objname);
-				if (strcasecmp(objname, "decode") == 0 && 
+				if (strcasecmp(objname, "decode") == 0 &&
 					(nspname == NULL ||
 					strcasecmp(nspname, "oracle") == 0))
 				{
@@ -3388,7 +3392,7 @@ func_expr:	func_name '(' ')'
 					$$ = (Node *)n;
 				}
 			}
-		| func_name '(' func_arg_list sort_clause ')' 
+		| func_name '(' func_arg_list sort_clause ')'
 			{
 				FuncCall *n = makeNode(FuncCall);
 				n->funcname = $1;
@@ -3401,7 +3405,7 @@ func_expr:	func_name '(' ')'
 				n->location = @1;
 				$$ = (Node *)n;
 			}
-		| func_name '(' ALL func_arg_list opt_sort_clause ')' 
+		| func_name '(' ALL func_arg_list opt_sort_clause ')'
 			{
 				FuncCall *n = makeNode(FuncCall);
 				n->funcname = $1;
@@ -3418,7 +3422,7 @@ func_expr:	func_name '(' ')'
 				n->location = @1;
 				$$ = (Node *)n;
 			}
-		| func_name '(' DISTINCT func_arg_list opt_sort_clause ')' 
+		| func_name '(' DISTINCT func_arg_list opt_sort_clause ')'
 			{
 				FuncCall *n = makeNode(FuncCall);
 				n->funcname = $1;
@@ -3680,7 +3684,7 @@ func_expr:	func_name '(' ')'
 
 				$$ = (Node *)fc;
 			}
-		| SESSIONTIMEZONE 
+		| SESSIONTIMEZONE
 			{
 				FuncCall *fc;
 
@@ -3964,7 +3968,7 @@ iso_level:	READ UNCOMMITTED						{ $$ = "read uncommitted"; }
 joined_table: '(' joined_table ')'			{ $$ = $2; }
 			| table_ref CROSS JOIN table_ref
 				{
-					/* CROSS JOIN is same as unqualified 
+					/* CROSS JOIN is same as unqualified
 					join */
 					JoinExpr *n = makeNode(JoinExpr);
 					n->jointype = JOIN_INNER;
@@ -3982,7 +3986,7 @@ joined_table: '(' joined_table ')'			{ $$ = $2; }
 					n->isNatural = FALSE;
 					n->larg = $1;
 					n->rarg = $4;
-					n->quals = $6; 
+					n->quals = $6;
 					$$ = n;
 				} */
 			| table_ref join_type JOIN table_ref join_qual
@@ -4963,7 +4967,7 @@ connect_by_clause:
 TableElement:
 	  columnDef							{ $$ = $1; }
 	| TableLikeClause					{ $$ = $1; }
-	| TableConstraint					{ $$ = $1; }	  
+	| TableConstraint					{ $$ = $1; }
 	;
 
 TableLikeClause:
@@ -5247,7 +5251,7 @@ VariableShowStmt:
 		{
 			VariableShowStmt *n = makeNode(VariableShowStmt);
 			n->name = $2;
-			$$ = (Node *) n; 
+			$$ = (Node *) n;
 		}
          | SHOW TIME ZONE
                  {
@@ -5274,17 +5278,17 @@ VariableShowStmt:
                          $$ = (Node *) n;
                  }
 	;
-	
+
 /*****************************************************************************
  *
  *	QUERY:
  *		CREATE [ OR REPLACE ] [ TEMP ] VIEW <viewname> '('target-list ')'
- *			AS <query> 
+ *			AS <query>
  *
  *****************************************************************************/
 
-ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list 
-				AS SelectStmt 
+ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list
+				AS SelectStmt
 				{
 					ViewStmt *n = makeNode(ViewStmt);
 					n->grammar = PARSE_GRAM_ORACLE;
@@ -5297,7 +5301,7 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list
 					$$ = (Node *) n;
 				}
 		| CREATE OR REPLACE OptTemp VIEW qualified_name opt_column_list opt_reloptions
-				AS SelectStmt 
+				AS SelectStmt
 				{
 					ViewStmt *n = makeNode(ViewStmt);
 					n->grammar = PARSE_GRAM_ORACLE;
@@ -5309,7 +5313,7 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list
 					n->options = $8;
 					$$ = (Node *) n;
 				}
-		| CREATE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')' 
+		| CREATE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')'
 				AS SelectStmt
 				{
 					ViewStmt *n = makeNode(ViewStmt);
@@ -5322,7 +5326,7 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list
 					/* n->options = $9;*/
 					$$ = (Node *) n;
 				}
-		| CREATE OR REPLACE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')' 
+		| CREATE OR REPLACE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')'
 				AS SelectStmt
 				{
 					ViewStmt *n = makeNode(ViewStmt);
