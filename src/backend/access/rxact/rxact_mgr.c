@@ -6,6 +6,7 @@
 #include "access/rxact_comm.h"
 #include "access/rxact_mgr.h"
 #include "access/rxact_msg.h"
+#include "access/xact.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pgxc_node.h"
@@ -127,6 +128,7 @@ static volatile unsigned int agentCount = 0;
 /*static volatile bool rxact_has_filed_gid = false;*/
 
 static volatile pgsocket rxact_client_fd = PGINVALID_SOCKET;
+static bool sended_db_info = false;
 
 /*
  * Flag to mark SIGHUP. Whenever the main loop comes around it
@@ -199,6 +201,7 @@ static void recv_msg_from_rxact(StringInfo buf);
 static bool wait_socket(pgsocket sock, bool wait_send, bool block);
 static void recv_socket(pgsocket sock, StringInfo buf, int max_recv);
 static void connect_rxact(void);
+static void rxact_begin_db_info(StringInfo buf, Oid dboid);
 
 static void
 CreateRxactAgent(pgsocket agent_fd)
@@ -2094,8 +2097,8 @@ void CheckPointRxact(int flags)
 	if(!IS_PGXC_COORDINATOR || !IsUnderPostmaster || (flags & CHECKPOINT_END_OF_RECOVERY))
 		return;
 
-	if(rxact_client_fd == PGINVALID_SOCKET)
-		connect_rxact();
+	connect_rxact();
+	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
 	rxact_begin_msg(&buf, RXACT_MSG_CHECKPOINT);
 	rxact_put_int(&buf, flags);
@@ -2115,8 +2118,8 @@ void RecordRemoteXact(const char *gid, Oid *nodes, int count, RemoteXactType typ
 
 	ereport(DEBUG1, (errmsg("[ADB]Record %s rxact %s", RemoteXactType2String(type), gid)));
 
-	if(rxact_client_fd == PGINVALID_SOCKET)
-		connect_rxact();
+	connect_rxact();
+	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
 	rxact_begin_msg(&buf, RXACT_MSG_DO);
 	rxact_put_int(&buf, (int)type);
@@ -2155,8 +2158,8 @@ void RecordRemoteXactAuto(const char *gid, TransactionId tid)
 
 	ereport(DEBUG1, (errmsg("[ADB]Record rxact %s to auto", gid)));
 
-	if(rxact_client_fd == PGINVALID_SOCKET)
-		rxact_connect();
+	connect_rxact();
+	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
 	rxact_begin_msg(&buf, RXACT_MSG_AUTO);
 	rxact_put_int(&buf, (int)tid);			StaticAssertStmt(sizeof(tid) == sizeof(int),"");
@@ -2172,11 +2175,12 @@ static void record_rxact_status(const char *gid, RemoteXactType type, bool succe
 	StringInfoData buf;
 	AssertArg(gid && gid[0] && RXACT_TYPE_IS_VALID(type));
 
-	elog(DEBUG1, "[ADB]Record %s rxact %s %s",
-		RemoteXactType2String(type), gid, success ? "SUCCESS" : "FAILED");
+	ereport(DEBUG1,
+			(errmsg("[ADB]Record %s rxact %s %s",
+					RemoteXactType2String(type), gid, success ? "SUCCESS" : "FAILED")));
 
-	if(rxact_client_fd == PGINVALID_SOCKET)
-		connect_rxact();
+	connect_rxact();
+	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
 	rxact_begin_msg(&buf, success ? RXACT_MSG_SUCCESS : RXACT_MSG_FAILED);
 	rxact_put_int(&buf, (int)type);
@@ -2225,8 +2229,7 @@ re_send_:
 		}
 	}PG_CATCH();
 	{
-		closesocket(rxact_client_fd);
-		rxact_client_fd = PGINVALID_SOCKET;
+		DisconnectRemoteXact();
 		PG_RE_THROW();
 	}PG_END_TRY();
 	RESUME_CANCEL_INTERRUPTS();
@@ -2259,8 +2262,7 @@ re_recv_msg_:
 
 	}PG_CATCH();
 	{
-		closesocket(rxact_client_fd);
-		rxact_client_fd = PGINVALID_SOCKET;
+		DisconnectRemoteXact();
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -2380,25 +2382,66 @@ re_poll_:
 
 static void connect_rxact(void)
 {
-	HeapTuple tuple;
-	Form_pg_database form_db;
-	Form_pg_authid form_authid;
 	StringInfoData buf;
-	Oid owner;
+	bool need_send_db_info = false;
 
-	if(rxact_client_fd != PGINVALID_SOCKET)
-		return;
-
-	rxact_begin_msg(&buf, RXACT_MSG_CONNECT);
-
-	/* put Database OID and name */
-	rxact_put_int(&buf, MyDatabaseId);
-	if(OidIsValid(MyDatabaseId))
+	if(rxact_client_fd == PGINVALID_SOCKET)
 	{
-		tuple = SearchSysCache1(DATABASEOID, ObjectIdGetDatum(MyDatabaseId));
+		rxact_client_fd = rxact_connect();
+		if(rxact_client_fd == PGINVALID_SOCKET)
+		{
+			ereport(ERROR, (errcode_for_socket_access()
+				, errmsg("Can not connect to RXACT manager:%m")));
+		}
+		need_send_db_info = true;
+		sended_db_info = false;
+	}
+
+	buf.data = NULL;
+	if (need_send_db_info)
+	{
+		if (IsTransactionState() &&
+			OidIsValid(MyDatabaseId))
+		{
+			rxact_begin_db_info(&buf, MyDatabaseId);
+			sended_db_info = true;
+		}else
+		{
+			rxact_begin_db_info(&buf, InvalidOid);
+			sended_db_info = false;
+		}
+	}else if(sended_db_info == false &&
+			 IsTransactionState() &&
+			 OidIsValid(MyDatabaseId))
+	{
+		rxact_begin_db_info(&buf, MyDatabaseId);
+		sended_db_info = true;
+	}
+
+	if(buf.data)
+	{
+		send_msg_to_rxact(&buf);
+		recv_msg_from_rxact(&buf);
+		pfree(buf.data);
+	}
+}
+
+static void rxact_begin_db_info(StringInfo buf, Oid dboid)
+{
+	rxact_begin_msg(buf, RXACT_MSG_CONNECT);
+	rxact_put_int(buf, dboid);
+
+	if(OidIsValid(dboid))
+	{
+		HeapTuple tuple;
+		Form_pg_database form_db;
+		Form_pg_authid form_authid;
+		Oid owner;
+		/* put database name */
+		tuple = SearchSysCache1(DATABASEOID, ObjectIdGetDatum(dboid));
 		Assert(HeapTupleIsValid(tuple));
 		form_db = (Form_pg_database)GETSTRUCT(tuple);
-		rxact_put_string(&buf, NameStr(form_db->datname));
+		rxact_put_string(buf, NameStr(form_db->datname));
 		owner = form_db->datdba;
 		ReleaseSysCache(tuple);
 
@@ -2406,20 +2449,9 @@ static void connect_rxact(void)
 		tuple = SearchSysCache1(AUTHOID, ObjectIdGetDatum(owner));
 		Assert(HeapTupleIsValid(tuple));
 		form_authid = (Form_pg_authid)GETSTRUCT(tuple);
-		rxact_put_string(&buf, NameStr(form_authid->rolname));
+		rxact_put_string(buf, NameStr(form_authid->rolname));
 		ReleaseSysCache(tuple);
 	}
-
-	/* connect and send message */
-	rxact_client_fd = rxact_connect();
-	if(rxact_client_fd == PGINVALID_SOCKET)
-	{
-		ereport(ERROR, (errcode_for_socket_access()
-			, errmsg("Can not connect to RXACT manager:%m")));
-	}
-	send_msg_to_rxact(&buf);
-	recv_msg_from_rxact(&buf);
-	pfree(buf.data);
 }
 
 void RemoteXactReloadNode(void)
@@ -2431,8 +2463,8 @@ void RemoteXactReloadNode(void)
 	StringInfoData buf;
 	int count,offset;
 
-	if(rxact_client_fd == PGINVALID_SOCKET)
-		connect_rxact();
+	connect_rxact();
+	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
 	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
 	scan = heap_beginscan(rel, SnapshotSelf, 0, NULL);
@@ -2464,8 +2496,8 @@ List *RxactGetRunningList(void)
 	RxactTransactionInfo *info;
 	StringInfoData buf;
 
-	if(rxact_client_fd == PGINVALID_SOCKET)
-		connect_rxact();
+	connect_rxact();
+	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
 	rxact_begin_msg(&buf, RXACT_MSG_RUNNING);
 	send_msg_to_rxact(&buf);
@@ -2519,6 +2551,7 @@ void DisconnectRemoteXact(void)
 	{
 		closesocket(rxact_client_fd);
 		rxact_client_fd = PGINVALID_SOCKET;
+		sended_db_info = false;
 	}
 }
 
@@ -2531,8 +2564,8 @@ void RxactWaitGID(const char *gid)
 	if(strlen(gid) >= NAMEDATALEN)
 		ereport(ERROR, (errmsg("argument \"%s\" too long", gid)));
 
-	if(rxact_client_fd == PGINVALID_SOCKET)
-		connect_rxact();
+	connect_rxact();
+	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
 	rxact_begin_msg(&buf, RXACT_MSG_WAIT_GID);
 	rxact_put_string(&buf, gid);
