@@ -237,8 +237,6 @@ StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 
 	state = GetTopInterXactState();
 	step = (RemoteQuery *) node->ss.ps.plan;
-	if (step->is_temp)
-		state->hastmp = true;
 
 	node_list = GetRemoteNodeList(node, step->exec_nodes, step->exec_type);
 	state = MakeInterXactState2(state, node_list);

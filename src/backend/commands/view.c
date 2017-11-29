@@ -577,12 +577,6 @@ DefineView(ViewStmt *stmt, const char *queryString)
 						view->relname)));
 	}
 
-#ifdef ADB
-	/* In case view is temporary, be sure not to use 2PC on such relations */
-	if (view->relpersistence == RELPERSISTENCE_TEMP)
-		TopInterXactTmpSet(true);
-#endif
-
 	/*
 	 * Create the view relation
 	 *

@@ -44,7 +44,6 @@ static InterXactStateData TopInterXactStateData = {
 	COMBINE_TYPE_NONE,			/* inter transaction block combine type */
 	NULL,						/* two-phase GID */
 	false,						/* is GID missing ok in the second phase of two-phase commit? */
-	false,						/* is there any temporary object in the inter transaction? */
 	false,						/* is the inter transaction implicit two-phase commit? */
 	false,						/* true if ignore any error(try best to finish)) */
 	false,						/* is the inter transaction start any transaction block? */
@@ -112,14 +111,6 @@ IsTwoPhaseCommitNeeded(void)
 {
 	InterXactState state = &TopInterXactStateData;
 
-	if (state->hastmp)
-	{
-		elog(DEBUG1,
-			 "Transaction accessed temporary objects - two-phase commit will not be "
-			 "used, as that can lead to data inconsistencies in case of failures");
-		return false;
-	}
-
 	return state->need_xact_block;
 }
 
@@ -134,34 +125,6 @@ GetTopInterXactGID(void)
 	InterXactState state = &TopInterXactStateData;
 
 	return state->gid;
-}
-
-/*
- * IsTopInterXactHastmp
- *
- * return true if top transaction has temporary obejects
- * return false if not
- */
-bool
-IsTopInterXactHastmp(void)
-{
-	InterXactState state = &TopInterXactStateData;
-
-	return state->hastmp;
-}
-
-/*
- * TopInterXactTmpSet
- *
- * Mark top inter transaction whether it contains temporary objects
- */
-void
-TopInterXactTmpSet(bool hastmp)
-{
-	InterXactState state = GetTopInterXactState();
-
-	if (hastmp)
-		state->hastmp = true;
 }
 
 /*
@@ -184,7 +147,6 @@ ResetInterXactState(InterXactState state)
 		FreeMixHandle(state->all_handle);
 		state->gid = NULL;
 		state->missing_ok = false;
-		state->hastmp = false;
 		state->implicit = false;
 		state->ignore_error = false;
 		state->need_xact_block = false;
@@ -252,7 +214,6 @@ MakeInterXactState(MemoryContext context, const List *node_list)
 	state->context = context;
 	state->gid = NULL;
 	state->missing_ok = false;
-	state->hastmp = false;
 	state->implicit = false;
 	state->ignore_error = false;
 	state->need_xact_block = false;
@@ -394,8 +355,6 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 	/* Make up InterXactStateData */
 	state = MakeInterXactState2(state, node_list);
 	state->need_xact_block = need_xact_block;
-	if (node->is_temp)
-		state->hastmp = true;
 	state->combine_type = node->combine_type;
 	pfree(node_list);
 

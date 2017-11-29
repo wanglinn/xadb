@@ -806,14 +806,6 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 	cancel_parser_errposition_callback(&pcbstate);
 #ifdef ADB
 	/*
-	 * Check if relation is temporary and assign correct flag.
-	 * This will override transaction direct commit as no 2PC
-	 * can be used for transactions involving temporary objects.
-	 */
-	if (IsTempTable(RelationGetRelid(relation)))
-		TopInterXactTmpSet(true);
-
-	/*
 	 * Block the creation of tables using views in their LIKE clause.
 	 * Views are not created on Datanodes, so this will result in an error
 	 * PGXCTODO: In order to fix this problem, it will be necessary to

@@ -1789,13 +1789,6 @@ ReindexIndex(RangeVar *indexRelation, int options)
 	persistence = irel->rd_rel->relpersistence;
 	index_close(irel, NoLock);
 
-#ifdef ADB
-	/*
-	 * Tell TopInterXactStateData we have operated on temporary objects.
-	 */
-	TopInterXactTmpSet(persistence == RELPERSISTENCE_TEMP);
-#endif
-
 	reindex_index(indOid, false, persistence, options);
 
 	return indOid;
@@ -1880,13 +1873,6 @@ ReindexTable(RangeVar *relation, int options)
 		ereport(NOTICE,
 				(errmsg("table \"%s\" has no indexes",
 						relation->relname)));
-
-#ifdef ADB
-	/*
-	 * Tell TopInterXactStateData we have operated on temporary objects.
-	 */
-	TopInterXactTmpSet(IsTempTable(heapOid));
-#endif
 
 	return heapOid;
 }

@@ -93,7 +93,6 @@ typedef struct InterXactStateData
 	CombineType				combine_type;
 	char				   *gid;
 	bool					missing_ok;
-	bool					hastmp;
 	bool					implicit;
 	bool					ignore_error;
 	bool					need_xact_block;
@@ -111,8 +110,6 @@ extern List *GetPGconnAttatchTopInterXact(const List *node_list);
 extern List *GetPGconnFromHandleList(List *handle_list);
 extern bool IsTwoPhaseCommitNeeded(void);
 extern const char *GetTopInterXactGID(void);
-extern bool IsTopInterXactHastmp(void);
-extern void TopInterXactTmpSet(bool hastmp);
 extern void ResetInterXactState(InterXactState state);
 extern void FreeInterXactState(InterXactState state);
 extern InterXactState MakeTopInterXactState(void);

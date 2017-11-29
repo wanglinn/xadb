@@ -878,13 +878,6 @@ DoCopy(const CopyStmt *stmt, const char *queryString, uint64 *processed)
 		rte->requiredPerms = required_access;
 		range_table = list_make1(rte);
 
-#ifdef ADB
-		/* In case COPY is used on a temporary table, never use 2PC for implicit commits */
-		if (IsCoordMaster() &&
-			rel->rd_rel->relpersistence == RELPERSISTENCE_TEMP)
-			TopInterXactTmpSet(true);
-#endif
-
 		tupDesc = RelationGetDescr(rel);
 		attnums = CopyGetAttnums(tupDesc, rel, stmt->attlist);
 		foreach(cur, attnums)

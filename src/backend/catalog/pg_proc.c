@@ -962,9 +962,6 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								errmsg("In XC, SQL functions cannot contain utility statements")));
-
-					if (pgxc_query_contains_temp_tables(querytree_sublist))
-						TopInterXactTmpSet(true);
 				}
 #endif
 

@@ -2234,7 +2234,6 @@ ProcessUtilitySlow(Node *parsetree,
 				commandCollected = true;
 				EventTriggerAlterTableEnd();
 #ifdef ADB
-				if (!IsTopInterXactHastmp())
 				{
 					utilityContext.exec_type = EXEC_ON_COORDS;
 					utilityContext.stmt = (Node *) parsetree;

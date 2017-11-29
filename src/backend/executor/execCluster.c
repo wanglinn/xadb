@@ -777,8 +777,6 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 	Assert(rnodes);
 	/* try to start transaction */
 	state = GetTopInterXactState();
-	if (context->have_temp)
-		state->hastmp = true;
 	if (!context->transaction_read_only)
 		state->need_xact_block = true;
 	InterXactBegin(state, rnodes);
