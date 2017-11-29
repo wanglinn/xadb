@@ -6504,7 +6504,7 @@ static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 	Plan *subplan;
 
 	plan = makeNode(ClusterMergeGather);
-	plan->rnodes = get_remote_nodes(root, path->subpath);
+	plan->rnodes = get_remote_nodes(root, path->subpath, true);
 	replace_reduce_replicate_nodes(path->subpath, plan->rnodes);
 	plan->gatherType = get_gather_type(get_reduce_info_list(path->subpath));
 
@@ -6541,7 +6541,7 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 	Plan *subplan;
 
 	plan = makeNode(ClusterGather);
-	plan->rnodes = get_remote_nodes(root, path->subpath);
+	plan->rnodes = get_remote_nodes(root, path->subpath, true);
 	replace_reduce_replicate_nodes(path->subpath, plan->rnodes);
 	plan->gatherType = get_gather_type(get_reduce_info_list(path->subpath));
 
@@ -6616,16 +6616,16 @@ static bool replace_reduce_replicate_nodes(Path *path, List *nodes)
 }
 
 /* return remote node's Oid */
-List* get_remote_nodes(PlannerInfo *root, Path *path)
+List* get_remote_nodes(PlannerInfo *root, Path *path, bool include_subroot)
 {
 	List *list;
 	HTAB *htab;
 	ExecNodeInfo *info;
 	HASH_SEQ_STATUS seq_status;
-	AssertArg(path);
+	AssertArg(root && path);
 
-	htab = get_path_execute_on(path, NULL);
-	if(root)
+	htab = get_path_execute_on(path, NULL, root);
+	if(include_subroot)
 	{
 		ListCell *lc;
 		foreach(lc, root->glob->subroots)
@@ -6635,11 +6635,11 @@ List* get_remote_nodes(PlannerInfo *root, Path *path)
 			if(rel->cheapest_replicate_path == NULL)
 			{
 				/* cte scan */
-				htab = get_path_execute_on(rel->cheapest_cluster_total_path, htab);
+				htab = get_path_execute_on(rel->cheapest_cluster_total_path, htab, subroot);
 			}else
 			{
 				/* subplan */
-				htab = get_path_execute_on(rel->cheapest_replicate_path, htab);
+				htab = get_path_execute_on(rel->cheapest_replicate_path, htab, subroot);
 			}
 		}
 	}

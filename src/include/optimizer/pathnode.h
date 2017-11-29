@@ -296,7 +296,7 @@ extern Path *create_cluster_reduce_path(PlannerInfo *root,
 extern ReduceScanPath *try_reducescan_path(PlannerInfo *root, RelOptInfo *rel,
 										   Path *subpath, List *reduce_list, List *pathkeys,
 										   List *clauses);
-extern struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab);
+extern struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab, PlannerInfo *root);
 extern bool expression_have_exec_param(Expr *expr);
 extern bool restrict_list_have_exec_param(List *list);
 extern bool path_tree_have_exec_param(Path *path, PlannerInfo *root);

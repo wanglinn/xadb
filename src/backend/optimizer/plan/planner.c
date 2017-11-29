@@ -405,7 +405,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		RelOptInfo *sub_final;
 		Path *path;
 		Bitmapset *cte_planids = NULL;
-		List *nodeOids = get_remote_nodes(NULL, best_path);
+		List *nodeOids = get_remote_nodes(root, best_path, false);
 		List *reduce_list;
 		int sub_plan_id;
 		Assert(glob->clusterPlanOK);

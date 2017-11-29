@@ -37,6 +37,12 @@
 #include "optimizer/restrictinfo.h"
 #include "pgxc/pgxcnode.h"
 #include "pgxc/pgxc.h"
+
+typedef struct PathExecuteOnContext
+{
+	HTAB *htab;
+	PlannerInfo *root;
+}PathExecuteOnContext;
 #endif
 
 typedef enum
@@ -4060,6 +4066,40 @@ static void copy_path_info(Path *dest, const Path *src, bool copy_parallel)
 	dest->pathkeys = src->pathkeys;
 }
 
+/* code from set_cte_pathlist(...) */
+static PlannerInfo* get_cte_path_subroot(Path *path, PlannerInfo *root)
+{
+	PlannerInfo *cteroot;
+	RangeTblEntry *rte;
+	ListCell *lc;
+	Index levelsup;
+	int ndx,plan_id;
+	rte = planner_rt_fetch(path->parent->relid, root);
+	Assert(rte);
+
+	levelsup = rte->ctelevelsup;
+	cteroot = root;
+	while (levelsup-- > 0)
+	{
+		cteroot = cteroot->parent_root;
+		Assert(cteroot);
+	}
+
+	ndx = 0;
+	foreach(lc, cteroot->parse->cteList)
+	{
+		CommonTableExpr *cte = lfirst(lc);
+		if (strcmp(cte->ctename, rte->ctename) == 0)
+			break;
+		++ndx;
+	}
+	Assert(lc != NULL && ndx < list_length(cteroot->cte_plan_ids));
+	plan_id = list_nth_int(cteroot->cte_plan_ids, ndx);
+	Assert(plan_id > 0);
+
+	return list_nth(root->glob->subroots, plan_id - 1);
+}
+
 static ExecNodeInfo* get_exec_node_info(HTAB *htab, Oid nodeOid)
 {
 	ExecNodeInfo *info;
@@ -4073,7 +4113,7 @@ static ExecNodeInfo* get_exec_node_info(HTAB *htab, Oid nodeOid)
 	return info;
 }
 
-static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
+static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context)
 {
 	RelationLocInfo *loc;
 	if(path == NULL)
@@ -4081,6 +4121,18 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 	switch(nodeTag(path))
 	{
 	case T_Path:
+		if(path->pathtype == T_CteScan)
+		{
+			PathExecuteOnContext cte_context;
+			RelOptInfo *final_rel;
+			cte_context.root = get_cte_path_subroot(path, context->root);
+			Assert(cte_context.root);
+			cte_context.htab = context->htab;
+			final_rel = fetch_upper_rel(cte_context.root, UPPERREL_FINAL, NULL);
+			Assert(final_rel->cheapest_cluster_total_path != NULL);
+			get_path_execute_on_walker(final_rel->cheapest_cluster_total_path, &cte_context);
+			break;
+		}
 		if(path->pathtype != T_SeqScan)
 			return false;
 		/* don't add "break;" here */
@@ -4100,7 +4152,7 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 				List *list = PGXCNodeGetNodeOidList(loc->nodeList, PGXC_NODE_DATANODE);
 				foreach(lc, list)
 				{
-					exec_info = get_exec_node_info(htab, lfirst_oid(lc));
+					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
 					++(exec_info->rep_count);
 					exec_info->size += size;
 				}
@@ -4114,7 +4166,7 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 				{
 					if(list_member_oid(reduceInfo->exclude_exec, lfirst_oid(lc)))
 						continue;
-					exec_info = get_exec_node_info(htab, lfirst_oid(lc));
+					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
 					++(exec_info->part_count);
 				}
 			}else if(loc->locatorType == LOCATOR_TYPE_RROBIN)
@@ -4122,7 +4174,7 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 				List *list = PGXCNodeGetNodeOidList(loc->nodeList, PGXC_NODE_DATANODE);
 				foreach(lc, list)
 				{
-					exec_info = get_exec_node_info(htab, lfirst_oid(lc));
+					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
 					++(exec_info->part_count);
 				}
 			}else
@@ -4133,7 +4185,7 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 			}
 		}else
 		{
-			ExecNodeInfo *exec_info = get_exec_node_info(htab, PGXCNodeOid);
+			ExecNodeInfo *exec_info = get_exec_node_info(context->htab, PGXCNodeOid);
 			++(exec_info->part_count);
 		}
 		return false;
@@ -4144,7 +4196,7 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 			List *reduce_list = get_reduce_info_list(path);
 			if(IsReduceInfoListCoordinator(reduce_list))
 			{
-				exec_info = get_exec_node_info(htab, PGXCNodeOid);
+				exec_info = get_exec_node_info(context->htab, PGXCNodeOid);
 				++(exec_info->part_count);
 			}else
 			{
@@ -4152,7 +4204,7 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 				List *exec_list = ReduceInfoListGetExecuteOidList(get_reduce_info_list(path));
 				foreach(lc, exec_list)
 				{
-					exec_info = get_exec_node_info(htab, lfirst_oid(lc));
+					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
 					if (mtpath->operation == CMD_INSERT)
 						++(exec_info->insert_count);
 					else
@@ -4166,11 +4218,12 @@ static bool get_path_execute_on_walker(Path *path, struct HTAB *htab)
 		break;
 	}
 
-	return path_tree_walker(path, get_path_execute_on_walker, htab);
+	return path_tree_walker(path, get_path_execute_on_walker, context);
 }
 
-struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab)
+struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab, PlannerInfo *root)
 {
+	PathExecuteOnContext context;
 	if(htab == NULL)
 	{
 		HASHCTL hctl;
@@ -4178,10 +4231,14 @@ struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab)
 		hctl.keysize = sizeof(Oid);
 		hctl.entrysize = sizeof(ExecNodeInfo);
 		hctl.hcxt = CurrentMemoryContext;
-		htab = hash_create("hash execute node info", 128, &hctl, HASH_ELEM|HASH_CONTEXT);
+		context.htab = hash_create("hash execute node info", 128, &hctl, HASH_ELEM|HASH_CONTEXT);
+	}else
+	{
+		context.htab = htab;
 	}
-	get_path_execute_on_walker(path, htab);
-	return htab;
+	context.root = root;
+	get_path_execute_on_walker(path, &context);
+	return context.htab;
 }
 
 static bool have_exec_param_walker(Node *node, void *context)
