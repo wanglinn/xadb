@@ -33,7 +33,7 @@
 #include "optimizer/planmain.h"
 #endif /* ADB */
 
-#define IS_OID_BUILTIN(oid_) (oid_ < FirstNormalObjectId)
+#define IS_OID_BUILTIN(oid_) (oid_ < FirstBootstrapObjectId)
 
 /* not support Node */
 #define NO_NODE_PlannerInfo
