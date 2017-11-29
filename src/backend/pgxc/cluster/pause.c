@@ -29,6 +29,8 @@
 #include "access/htup_details.h"
 #include "utils/rel.h"
 #include "catalog/indexing.h"
+#include "intercomm/inter-node.h"
+#include "intercomm/inter-comm.h"
 
 /* globals */
 bool cluster_lock_held;
@@ -96,9 +98,10 @@ ProcessClusterPauseRequest(bool pause)
 static void
 HandleClusterPause(bool pause, bool initiator)
 {
-	PGXCNodeAllHandles *coord_handles;
-	int conn;
-	int response;
+	NodeHandle *handle;
+	List *node_list;
+	ListCell *lc_handle;
+	NodeMixHandle *mix_handle;
 	char *action = pause? pause_cluster_str:unpause_cluster_str;
 
 	elog(DEBUG2, "Preparing coordinators for \"%s\"", action);
@@ -136,104 +139,46 @@ HandleClusterPause(bool pause, bool initiator)
 	 * asyncronous request, update the local ClusterLock and then wait for the remote
 	 * coordinators to respond back
 	 */
+	node_list = GetAllCnIDL(false);
+	mix_handle = GetMixedHandles(node_list, NULL);
+	Assert(node_list && mix_handle);
+	list_free(node_list);
 
-	coord_handles = get_handles(NIL, GetAllCoordNodeIdx(), true);
-
-	for (conn = 0; conn < coord_handles->co_conn_count; conn++)
-	{
-		PGXCNodeHandle *handle = coord_handles->coord_handles[conn];
-
-		if (pgxc_node_send_query(handle, pause ? pause_cluster_str : unpause_cluster_str) != 0)
-			ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Failed to send \"%s\" request to some coordinator nodes",action)));
-	}
-
-	/*
-	 * Disable/Enable local queries. We need to release the SHARED mode first
-	 *
-	 * TODO: Start a timer to cancel the request in case of a timeout
-	 */
-	ReleaseClusterLock(pause? false:true);
-	AcquireClusterLock(pause? true:false);
-
-	if (pause)
-		cluster_ex_lock_held = true;
-	else
-		cluster_ex_lock_held = false;
-
-
-	elog(DEBUG2, "%s queries at the driving coordinator", pause? "Paused":"Resumed");
-
-	/*
-	 * Local queries are paused/enabled. Check status of the remote coordinators
-	 * now. We need a TRY/CATCH block here, so that if one of the coordinator
-	 * fails for some reason, we can try best-effort to salvage the situation
-	 * at others
-	 *
-	 * We hope that errors in the earlier loop generally do not occur (out of
-	 * memory and improper handles..) or we can have a similar TRY/CATCH block
-	 * there too
-	 *
-	 * To repeat: All the salvaging is best effort really...
-	 */
 	PG_TRY();
 	{
-		RemoteQueryState 	*combiner;
-		combiner = CreateResponseCombiner(coord_handles->co_conn_count, COMBINE_TYPE_NONE);
-		for (conn = 0; conn < coord_handles->co_conn_count; conn++)
+		foreach (lc_handle, mix_handle->handles)
 		{
-			PGXCNodeHandle *handle;
-
-			handle = coord_handles->coord_handles[conn];
-
-			while (true)
+			handle = (NodeHandle *) lfirst(lc_handle);
+			if (!HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot
+				, pause ? pause_cluster_str : unpause_cluster_str, NULL) 
+				|| !HandleFinishCommand(handle, NULL_TAG))
 			{
-				if (pgxc_node_receive(1, &handle, NULL))
-					ereport(ERROR,
-							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg("Failed to receive a response from the remote coordinator node")));
-
-				response = handle_response(handle, combiner);
-				if (response == RESPONSE_EOF)
-					continue;
-				else if (response == RESPONSE_COMPLETE)
-					break;
-				else if (response == RESPONSE_TUPDESC)
-					continue;
-				else if (response == RESPONSE_DATAROW)
-					continue;
- 				else
-					ereport(ERROR,
-							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg("\"%s\" command failed "
-									"with error %s", action, handle->error)));
-			}
-			/* throw away message */
-			if (combiner->currentRow.msg)
-			{
-				pfree(combiner->currentRow.msg);
-				combiner->currentRow.msg = NULL;
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Fail to send query: \"%s\"", pause ? pause_cluster_str : unpause_cluster_str),
+						 errnode(NameStr(handle->node_name)),
+						 errdetail("%s", HandleGetError(handle, false))));
 			}
 		}
 
- 		if (!combiner->errorMessage.data)
-		{
-			char *code = combiner->errorCode;
-			if (combiner->errorDetail != NULL)
-				ereport(ERROR,
-						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						 errmsg("%s", combiner->errorMessage.data), errdetail("%s", combiner->errorDetail) ));
-			else
-				ereport(ERROR,
-						(errcode(MAKE_SQLSTATE(code[0], code[1], code[2], code[3], code[4])),
-						 errmsg("%s", combiner->errorMessage.data)));
-		}
+		HandleListGC(mix_handle->handles);
 
-		CloseCombiner(combiner);
+		/*
+		 * Disable/Enable local queries. We need to release the SHARED mode first
+		 *
+		 * TODO: Start a timer to cancel the request in case of a timeout
+		 */
+		ReleaseClusterLock(pause? false:true);
+		AcquireClusterLock(pause? true:false);
 
-	}
-	PG_CATCH();
+		if (pause)
+			cluster_ex_lock_held = true;
+		else
+			cluster_ex_lock_held = false;
+
+
+		elog(DEBUG2, "%s queries at the driving coordinator", pause? "Paused":"Resumed");
+	} PG_CATCH();
 	{
 		/*
 		 * If "SELECT PG_PAUSE_CLUSTER()", issue "SELECT PG_UNPAUSE_CLUSTER()" on the reachable nodes. For failure
@@ -250,25 +195,29 @@ HandleClusterPause(bool pause, bool initiator)
 				 (errmsg("\"%s\" command failed on one or more coordinator nodes."
 						" Trying to \"%s\" reachable nodes now", pause_cluster_str, unpause_cluster_str)));
 
-		for (conn = 0; conn < coord_handles->co_conn_count && pause; conn++)
+		foreach (lc_handle, mix_handle->handles)
 		{
-			PGXCNodeHandle *handle = coord_handles->coord_handles[conn];
-
-			(void) pgxc_node_send_query(handle, unpause_cluster_str);
-
-			/*
-			 * The incoming data should hopefully be discarded as part of
-			 * cleanup..
-			 */
+			handle = (NodeHandle *) lfirst(lc_handle);
+			if (!HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot
+				, unpause_cluster_str, NULL) 
+				|| !HandleFinishCommand(handle, NULL_TAG))
+			{
+					ereport(WARNING,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Fail to send query: \"%s\"", unpause_cluster_str),
+						 errnode(NameStr(handle->node_name)),
+						 errdetail("%s", HandleGetError(handle, false))));
+			}
 		}
 
 		/* cleanup locally.. */
 		ReleaseClusterLock(true);
 		AcquireClusterLock(false);
 		cluster_ex_lock_held = false;
+	
+		HandleListGC(mix_handle->handles);
 		PG_RE_THROW();
-	}
-	PG_END_TRY();
+	} PG_END_TRY();
 
 	elog(DEBUG2, "Successfully completed \"%s\" command on "
 				 "all coordinator nodes", action);

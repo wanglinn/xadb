@@ -943,6 +943,7 @@ StartAdbMntWorker(void)
 
 		case 0:
 			/* in postmaster child ... */
+			InitPostmasterChild();
 			/* Close the postmaster's sockets */
 			ClosePostmasterPorts(false);
 
