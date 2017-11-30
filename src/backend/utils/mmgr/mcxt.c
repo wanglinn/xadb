@@ -1065,6 +1065,43 @@ repalloc(void *pointer, Size size)
 	return ret;
 }
 
+void *repalloc_no_oom(void *pointer, Size size)
+{
+	MemoryContext context;
+	void	   *ret;
+
+	if (!AllocSizeIsValid(size))
+		return NULL;
+
+	/*
+	 * Try to detect bogus pointers handed to us, poorly though we can.
+	 * Presumably, a pointer that isn't MAXALIGNED isn't pointing at an
+	 * allocated chunk.
+	 */
+	Assert(pointer != NULL);
+	Assert(pointer == (void *) MAXALIGN(pointer));
+
+	/*
+	 * OK, it's probably safe to look at the chunk header.
+	 */
+	context = ((StandardChunkHeader *)
+			   ((char *) pointer - STANDARDCHUNKHEADERSIZE))->context;
+
+	AssertArg(MemoryContextIsValid(context));
+	AssertNotInCriticalSection(context);
+
+	/* isReset must be false already */
+	Assert(!context->isReset);
+
+	ret = (*context->methods->realloc) (context, pointer, size);
+	if (ret == NULL)
+		return NULL;
+
+	VALGRIND_MEMPOOL_CHANGE(context, pointer, ret, size);
+
+	return ret;
+}
+
 /*
  * MemoryContextAllocHuge
  *		Allocate (possibly-expansive) space within the specified context.

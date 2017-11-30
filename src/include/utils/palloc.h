@@ -78,6 +78,7 @@ extern void *palloc(Size size);
 extern void *palloc0(Size size);
 extern void *palloc_extended(Size size, int flags);
 extern void *repalloc(void *pointer, Size size);
+extern void *repalloc_no_oom(void *pointer, Size size);
 extern void pfree(void *pointer);
 
 #ifdef ADB
