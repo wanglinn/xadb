@@ -1106,7 +1106,7 @@ StartRemoteXactPrepare(const char *gid, Oid *nodes, int count)
 		return ;
 
 	/* Record PREPARE log */
-	RecordRemoteXact(gid, nodes, count, RX_PREPARE);
+	RecordRemoteXact(gid, nodes, count, RX_PREPARE, false);
 }
 
 /*
@@ -1145,14 +1145,15 @@ EndRemoteXactPrepareExt(TransactionId xid, const char *gid, Oid *nodes, int coun
 	} PG_CATCH();
 	{
 		/* Record FAILED log */
-		RecordRemoteXactFailed(gid, RX_PREPARE);
+		if(RecordRemoteXactFailed(gid, RX_PREPARE, true) == false)
+			DisconnectRemoteXact();
 		PG_RE_THROW();
 	} PG_END_TRY();
 
 	if (implicit)
-		RecordRemoteXactAuto(gid, xid);
+		RecordRemoteXactAuto(gid, xid, false);
 	else
-		RecordRemoteXactSuccess(gid, RX_PREPARE);
+		RecordRemoteXactSuccess(gid, RX_PREPARE, false);
 }
 #endif
 

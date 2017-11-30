@@ -195,13 +195,13 @@ static void rxact_xlog_insert(char *data, int len, uint8 info, bool flush);
 static const char* RemoteXactType2String(RemoteXactType type);
 
 /* interface for client */
-static void record_rxact_status(const char *gid, RemoteXactType type, bool success);
-static void send_msg_to_rxact(StringInfo buf);
-static void recv_msg_from_rxact(StringInfo buf);
+static bool record_rxact_status(const char *gid, RemoteXactType type, bool success, bool no_error);
+static bool send_msg_to_rxact(StringInfo buf, bool no_error);
+static bool recv_msg_from_rxact(StringInfo buf, bool no_error);
 static bool wait_socket(pgsocket sock, bool wait_send, bool block);
-static void recv_socket(pgsocket sock, StringInfo buf, int max_recv);
-static void connect_rxact(void);
-static void rxact_begin_db_info(StringInfo buf, Oid dboid);
+static bool recv_socket(pgsocket sock, StringInfo buf, int max_recv, bool no_error);
+static bool connect_rxact(bool no_error);
+static bool rxact_begin_db_info(StringInfo buf, Oid dboid, bool no_error);
 
 static void
 CreateRxactAgent(pgsocket agent_fd)
@@ -915,7 +915,7 @@ static void rxact_agent_end_msg(RxactAgent *agent, StringInfo msg)
 			need_try = true;
 			resetStringInfo(&(agent->out_buf));
 		}
-		rxact_put_finsh(msg);
+		rxact_put_finsh(msg, false);
 		appendBinaryStringInfo(&(agent->out_buf), msg->data, msg->len);
 		if(need_try)
 			rxact_agent_output(agent);
@@ -982,12 +982,7 @@ rxact_agent_recv_data(RxactAgent *agent)
 				errmsg("too many data from backend for remote xact manager")));
 			return false;
 		}
-		PG_TRY_HOLD();
-		{
-			enlargeStringInfo(buf, buf->maxlen + 1024);
-		}PG_CATCH_HOLD();
-		{
-		}PG_END_TRY_HOLD();
+		enlargeStringInfo(buf, buf->maxlen + 1024);
 		if(buf->len >= buf->maxlen)
 			return false;
 	}
@@ -1154,8 +1149,8 @@ static void agent_error_hook(void *arg)
 	{
 		StringInfoData msg;
 		agent->in_error = true;
-		rxact_begin_msg(&msg, RXACT_MSG_ERROR);
-		rxact_put_string(&msg, err->message ? err->message : "miss error message");
+		rxact_begin_msg(&msg, RXACT_MSG_ERROR, false);
+		rxact_put_string(&msg, err->message ? err->message : "miss error message", false);
 		rxact_agent_end_msg(arg, &msg);
 	}
 }
@@ -1363,26 +1358,26 @@ static void rxact_agent_get_running(RxactAgent *agent)
 	Oid oid;
 
 	hash_seq_init(&seq_status, htab_rxid);
-	rxact_begin_msg(&buf, RXACT_MSG_RUNNING);
+	rxact_begin_msg(&buf, RXACT_MSG_RUNNING, false);
 	oid = InvalidOid;
 	while((info = hash_seq_search(&seq_status)) != NULL)
 	{
-		rxact_put_string(&buf, info->gid);
-		rxact_put_int(&buf, info->count_nodes);
+		rxact_put_string(&buf, info->gid, false);
+		rxact_put_int(&buf, info->count_nodes, false);
 		Assert(info->remote_nodes[info->count_nodes-1] == AGTM_OID);
 		if(info->count_nodes > 1)
 		{
 			StaticAssertStmt(sizeof(oid) == sizeof(info->remote_nodes[0]), "change oid type");
 			rxact_put_bytes(&buf, info->remote_nodes
-				, sizeof(info->remote_nodes[0]) * (info->count_nodes-1));
+				, sizeof(info->remote_nodes[0]) * (info->count_nodes-1), false);
 		}
-		rxact_put_bytes(&buf, &oid, sizeof(oid));
+		rxact_put_bytes(&buf, &oid, sizeof(oid), false);
 		rxact_put_bytes(&buf, info->remote_success
-			, sizeof(info->remote_success[0]) * info->count_nodes);
+			, sizeof(info->remote_success[0]) * info->count_nodes, false);
 		StaticAssertStmt(sizeof(info->db_oid) == sizeof(int), "change code off get");
-		rxact_put_int(&buf, info->db_oid);
-		rxact_put_int(&buf, info->type);
-		rxact_put_short(&buf, info->failed);
+		rxact_put_int(&buf, info->db_oid, false);
+		rxact_put_int(&buf, info->type, false);
+		rxact_put_short(&buf, info->failed, false);
 	}
 	rxact_agent_end_msg(agent, &buf);
 }
@@ -1425,14 +1420,14 @@ static bool query_remote_oid(RxactAgent *agent, Oid *oid, int count)
 	if(i>=count)
 		return false; /* all known */
 
-	rxact_begin_msg(&buf, RXACT_MSG_NODE_INFO);
+	rxact_begin_msg(&buf, RXACT_MSG_NODE_INFO, false);
 	unknown_offset = buf.len;
-	rxact_put_int(&buf, 0);
+	rxact_put_int(&buf, 0, false);
 	for(unknown_count=i=0;i<count;++i)
 	{
 		if(hash_search(htab_remote_node, &oid[i], HASH_FIND, NULL) == NULL)
 		{
-			rxact_put_int(&buf, (int)(oid[i]));
+			rxact_put_int(&buf, (int)(oid[i]), false);
 			unknown_count++;
 		}
 	}
@@ -1519,14 +1514,20 @@ rxact_insert_gid(const char *gid, const Oid *oids, int count, RemoteXactType typ
 	RxactTransactionInfo *rinfo;
 	bool found;
 	AssertArg(gid && gid[0] && count >= 0);
-	if(!RXACT_TYPE_IS_VALID(type))
+	if (type == RX_AUTO)
+	{
+		if(!is_redo)
+			ereport(ERROR, (errmsg("Can not record auto transaction")));
+	}else if (!RXACT_TYPE_IS_VALID(type))
+	{
 		ereport(ERROR, (errmsg("Unknown remote xact type %d", type)));
+	}
 
 	rinfo = hash_search(htab_rxid, gid, HASH_ENTER, &found);
 	if(found)
 	{
 		if(is_redo)
-			return;
+			return;		/* ADBQ:need change exist info ? */
 		ereport(ERROR, (errmsg("gid '%s' exists", gid)));
 	}
 
@@ -2097,20 +2098,20 @@ void CheckPointRxact(int flags)
 	if(!IS_PGXC_COORDINATOR || !IsUnderPostmaster || (flags & CHECKPOINT_END_OF_RECOVERY))
 		return;
 
-	connect_rxact();
+	connect_rxact(false);
 	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
-	rxact_begin_msg(&buf, RXACT_MSG_CHECKPOINT);
-	rxact_put_int(&buf, flags);
-	send_msg_to_rxact(&buf);
+	rxact_begin_msg(&buf, RXACT_MSG_CHECKPOINT, false);
+	rxact_put_int(&buf, flags, false);
+	send_msg_to_rxact(&buf, false);
 
-	recv_msg_from_rxact(&buf);
+	recv_msg_from_rxact(&buf, false);
 	pfree(buf.data);
 }
 
 /* ---------------------- interface for xact client --------------------------*/
 
-void RecordRemoteXact(const char *gid, Oid *nodes, int count, RemoteXactType type)
+bool RecordRemoteXact(const char *gid, Oid *nodes, int count, RemoteXactType type, bool no_error)
 {
 	StringInfoData buf;
 	AssertArg(gid && gid[0] && count >= 0);
@@ -2118,59 +2119,80 @@ void RecordRemoteXact(const char *gid, Oid *nodes, int count, RemoteXactType typ
 
 	ereport(DEBUG1, (errmsg("[ADB]Record %s rxact %s", RemoteXactType2String(type), gid)));
 
-	connect_rxact();
+	if(connect_rxact(no_error) == false)
+		return false;
 	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
-	rxact_begin_msg(&buf, RXACT_MSG_DO);
-	rxact_put_int(&buf, (int)type);
-	rxact_put_int(&buf, count);
+	buf.data = NULL;
+	if (rxact_begin_msg(&buf, RXACT_MSG_DO, no_error) == false ||
+		rxact_put_int(&buf, (int)type, no_error) == false ||
+		rxact_put_int(&buf, count, no_error) == false)
+		goto record_gid_failed_;
 	if(count > 0)
 	{
 		AssertArg(nodes);
-		rxact_put_bytes(&buf, nodes, sizeof(nodes[0]) * count);
+		if (rxact_put_bytes(&buf, nodes, sizeof(nodes[0]) * count, no_error) == false)
+			goto record_gid_failed_;
 	}
-	rxact_put_string(&buf, gid);
-	send_msg_to_rxact(&buf);
+	if (rxact_put_string(&buf, gid, no_error) == false)
+		goto record_gid_failed_;
 
-	recv_msg_from_rxact(&buf);
+	if (send_msg_to_rxact(&buf, no_error) == false ||
+		recv_msg_from_rxact(&buf, no_error) == false)
+	{
+		DisconnectRemoteXact();
+		goto record_gid_failed_;
+	}
 	pfree(buf.data);
+	return true;
+
+record_gid_failed_:
+	if(buf.data)
+		pfree(buf.data);
+	return false;
 }
 
-void RecordRemoteXactSuccess(const char *gid, RemoteXactType type)
+bool RecordRemoteXactSuccess(const char *gid, RemoteXactType type, bool no_error)
 {
-	record_rxact_status(gid, type, true);
+	return record_rxact_status(gid, type, true, no_error);
 }
 
-void RecordRemoteXactFailed(const char *gid, RemoteXactType type)
+bool RecordRemoteXactFailed(const char *gid, RemoteXactType type, bool no_error)
 {
-	record_rxact_status(gid, type, false);
+	return record_rxact_status(gid, type, false, no_error);
 }
 
-void RecordRemoteXactAuto(const char *gid, TransactionId tid)
+bool RecordRemoteXactAuto(const char *gid, TransactionId tid, bool no_error)
 {
 	StringInfoData buf;
-	AssertArg(gid);
-	if(gid[0] == '\0')
-	{
-		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
-			, errmsg("invalid gid")));
-	}
+	AssertArg(gid && gid[0]);
 
 	ereport(DEBUG1, (errmsg("[ADB]Record rxact %s to auto", gid)));
 
-	connect_rxact();
+	if(connect_rxact(no_error) == false)
+		return false;
 	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
-	rxact_begin_msg(&buf, RXACT_MSG_AUTO);
-	rxact_put_int(&buf, (int)tid);			StaticAssertStmt(sizeof(tid) == sizeof(int),"");
-	rxact_put_string(&buf, gid);
-	send_msg_to_rxact(&buf);
+	buf.data = NULL;
 
-	recv_msg_from_rxact(&buf);
+	StaticAssertStmt(sizeof(tid) == sizeof(int),"");
+	if (rxact_begin_msg(&buf, RXACT_MSG_AUTO, no_error) == false ||
+		rxact_put_int(&buf, (int)tid, no_error) == false ||
+		rxact_put_string(&buf, gid, no_error) == false ||
+		send_msg_to_rxact(&buf, no_error) == false ||
+		recv_msg_from_rxact(&buf, no_error) == false)
+	{
+		if(buf.data)
+			pfree(buf.data);
+		DisconnectRemoteXact();
+		return false;
+	}
+
 	pfree(buf.data);
+	return true;
 }
 
-static void record_rxact_status(const char *gid, RemoteXactType type, bool success)
+static bool record_rxact_status(const char *gid, RemoteXactType type, bool success, bool no_error)
 {
 	StringInfoData buf;
 	AssertArg(gid && gid[0] && RXACT_TYPE_IS_VALID(type));
@@ -2179,64 +2201,81 @@ static void record_rxact_status(const char *gid, RemoteXactType type, bool succe
 			(errmsg("[ADB]Record %s rxact %s %s",
 					RemoteXactType2String(type), gid, success ? "SUCCESS" : "FAILED")));
 
-	connect_rxact();
+	if(connect_rxact(no_error) == false)
+		return false;
 	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
-	rxact_begin_msg(&buf, success ? RXACT_MSG_SUCCESS : RXACT_MSG_FAILED);
-	rxact_put_int(&buf, (int)type);
-	rxact_put_string(&buf, gid);
-	send_msg_to_rxact(&buf);
+	buf.data = NULL;
+	if (rxact_begin_msg(&buf, success ? RXACT_MSG_SUCCESS : RXACT_MSG_FAILED, no_error) == false ||
+		rxact_put_int(&buf, (int)type, no_error) == false ||
+		rxact_put_string(&buf, gid, no_error) == false ||
+		send_msg_to_rxact(&buf, no_error) == false ||
+		recv_msg_from_rxact(&buf, no_error) == false)
+	{
+		if(buf.data)
+			pfree(buf.data);
+		DisconnectRemoteXact();
+		return false;
+	}
 
-	recv_msg_from_rxact(&buf);
 	pfree(buf.data);
+	return true;
 }
 
-static void send_msg_to_rxact(StringInfo buf)
+static bool send_msg_to_rxact(StringInfo buf, bool no_error)
 {
 	ssize_t send_res;
 	AssertArg(buf);
 
 	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
-	rxact_put_finsh(buf);
+	if(rxact_put_finsh(buf, no_error) == false)
+		return false;
 	Assert(buf->len >= 5);
 
 	HOLD_CANCEL_INTERRUPTS();
-	PG_TRY();
-	{
+
 re_send_:
-		Assert(buf->len > buf->cursor);
-		send_res = send(rxact_client_fd
-			, buf->data + buf->cursor
-			, buf->len - buf->cursor, 0);
-		CHECK_FOR_INTERRUPTS();
-		if(send_res == 0)
-		{
-			ereport(ERROR, (errcode_for_socket_access()
-				, errmsg("Send message to RXACT manager close by remote")));
-		}else if(send_res < 0)
-		{
-			if(IS_ERR_INTR())
-				goto re_send_;
-			ereport(ERROR, (errcode_for_socket_access()
-				, errmsg("Can not send message to RXACT manager:%m")));
-		}
-		buf->cursor += send_res;
-		if(buf->len > buf->cursor)
-		{
-			wait_socket((pgsocket)rxact_client_fd, true, true);
-			goto re_send_;
-		}
-	}PG_CATCH();
+	Assert(buf->len > buf->cursor);
+	send_res = send(rxact_client_fd,
+					buf->data + buf->cursor,
+					buf->len - buf->cursor, 0);
+	CHECK_FOR_INTERRUPTS();
+	if(send_res == 0)
 	{
-		DisconnectRemoteXact();
-		PG_RE_THROW();
-	}PG_END_TRY();
+		if(no_error)
+			goto send_msg_failed_;
+		ereport(ERROR,
+				(errcode_for_socket_access(),
+				 errmsg("Send message to RXACT manager close by remote")));
+	}else if(send_res < 0)
+	{
+		if(IS_ERR_INTR())
+			goto re_send_;
+		if(no_error)
+			goto send_msg_failed_;
+		ereport(ERROR,
+				(errcode_for_socket_access(),
+				 errmsg("Can not send message to RXACT manager:%m")));
+	}
+	buf->cursor += send_res;
+	if(buf->len > buf->cursor)
+	{
+		wait_socket((pgsocket)rxact_client_fd, true, true);
+		goto re_send_;
+	}
+
 	RESUME_CANCEL_INTERRUPTS();
 	Assert(buf->cursor == buf->len);
+	return true;
+
+send_msg_failed_:
+	RESUME_CANCEL_INTERRUPTS();
+	DisconnectRemoteXact();
+	return false;
 }
 
-static void recv_msg_from_rxact(StringInfo buf)
+static bool recv_msg_from_rxact(StringInfo buf, bool no_error)
 {
 	int len;
 	uint8 msg_type;
@@ -2246,25 +2285,22 @@ re_recv_msg_:
 	Assert(rxact_client_fd != PGINVALID_SOCKET);
 	resetStringInfo(buf);
 
-	PG_TRY();
+	/* get message head */
+	while(buf->len < 5)
 	{
-		while(buf->len < 5)
-		{
-			wait_socket(rxact_client_fd, false, true);
-			recv_socket(rxact_client_fd, buf, 5-buf->len);
-		}
-		len = *(int*)(buf->data);
-		while(buf->len < len)
-		{
-			wait_socket(rxact_client_fd, false, true);
-			recv_socket(rxact_client_fd, buf, len-buf->len);
-		}
+		wait_socket(rxact_client_fd, false, true);
+		if(recv_socket(rxact_client_fd, buf, 5-buf->len, no_error) == false)
+			goto recv_msg_failed_;
+	}
 
-	}PG_CATCH();
+	/* get full message data */
+	len = *(int*)(buf->data);
+	while(buf->len < len)
 	{
-		DisconnectRemoteXact();
-		PG_RE_THROW();
-	}PG_END_TRY();
+		wait_socket(rxact_client_fd, false, true);
+		if(recv_socket(rxact_client_fd, buf, len-buf->len, no_error) == false)
+			goto recv_msg_failed_;
+	}
 
 	/* parse message */
 	buf->cursor += 5;	/* 5 is sizeof(length) and message type */
@@ -2272,7 +2308,7 @@ re_recv_msg_:
 	if(msg_type == RXACT_MSG_OK)
 	{
 		rxact_get_msg_end(buf);
-		return;
+		return true;
 	}else if(msg_type == RXACT_MSG_NODE_INFO)
 	{
 		/* RXACT manager need known node(s) info */
@@ -2281,67 +2317,91 @@ re_recv_msg_:
 		HeapTuple tuple;
 		int i,n;
 
-		PG_TRY();
+		n = rxact_get_int(buf);
+		oids = palloc_extended(n*sizeof(Oid), MCXT_ALLOC_NO_OOM);
+		if(oids == NULL)
+			goto recv_msg_failed_;
+
+		rxact_copy_bytes(buf, oids, n*sizeof(Oid));
+		rxact_get_msg_end(buf);
+
+		if (rxact_reset_msg(buf, RXACT_MSG_NODE_INFO, no_error) == false ||
+			rxact_put_int(buf, n, no_error) == false)
+			goto recv_msg_failed_;
+
+		for(i=0;i<n;++i)
 		{
-			n = rxact_get_int(buf);
-			oids = palloc(n*sizeof(Oid));
-			rxact_copy_bytes(buf, oids, n*sizeof(Oid));
-			rxact_get_msg_end(buf);
-
-			rxact_reset_msg(buf, RXACT_MSG_NODE_INFO);
-			rxact_put_int(buf, n);
-
-			for(i=0;i<n;++i)
+			tuple = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(oids[i]));
+			if(!HeapTupleIsValid(tuple))
 			{
-				tuple = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(oids[i]));
-				if(!HeapTupleIsValid(tuple))
-					ereport(ERROR, (errmsg("Node %u not exists", oids[i])));
-				xc_node = (Form_pgxc_node)GETSTRUCT(tuple);
-				rxact_put_int(buf, oids[i]);
-				rxact_put_short(buf, (short)(xc_node->node_port));
-				rxact_put_string(buf, NameStr(xc_node->node_host));
-				ReleaseSysCache(tuple);
+				if(no_error)
+					goto recv_msg_failed_;
+				ereport(ERROR, (errmsg("Node %u not exists", oids[i])));
 			}
-		}PG_CATCH();
-		{
-			DisconnectRemoteXact();
-			PG_RE_THROW();
-		}PG_END_TRY();
+			xc_node = (Form_pgxc_node)GETSTRUCT(tuple);
+			if (rxact_put_int(buf, oids[i], no_error) == false ||
+				rxact_put_short(buf, (short)(xc_node->node_port), no_error) == false ||
+				rxact_put_string(buf, NameStr(xc_node->node_host), no_error) == false)
+			{
+				ReleaseSysCache(tuple);
+				goto recv_msg_failed_;
+			}
+			ReleaseSysCache(tuple);
+		}
+
 		pfree(oids);
 
-		send_msg_to_rxact(buf);
+		if(send_msg_to_rxact(buf, no_error) == false)
+			goto recv_msg_failed_;
 		goto re_recv_msg_;
 	}else if(msg_type == RXACT_MSG_ERROR)
 	{
+		if(no_error)
+			return false;
 		ereport(ERROR, (errmsg("error message from RXACT manager:%s", rxact_get_string(buf))));
 	}else if(msg_type != RXACT_MSG_RUNNING)
 	{
+		if(no_error)
+			goto recv_msg_failed_;
 		ereport(ERROR, (errmsg("Unknown message type %d from RXACT manager", msg_type)));
 	}
+	return true;
+
+recv_msg_failed_:
+	DisconnectRemoteXact();
+	return false;
 }
 
-static void recv_socket(pgsocket sock, StringInfo buf, int max_recv)
+static bool recv_socket(pgsocket sock, StringInfo buf, int max_recv, bool no_error)
 {
 	ssize_t recv_res;
 	AssertArg(sock != PGINVALID_SOCKET && buf && max_recv > 0);
 
-	enlargeStringInfo(buf, max_recv);
+	if(rxact_enlarge_msg(buf, max_recv, no_error) == false)
+		return false;
 
 re_recv_:
 	CHECK_FOR_INTERRUPTS();
 	recv_res = recv(sock, buf->data + buf->len, max_recv, 0);
 	if(recv_res == 0)
 	{
-		ereport(ERROR, (errcode_for_socket_access()
-			, errmsg("Recv message from RXACT manager close by remote")));
+		if(no_error)
+			return false;
+		ereport(ERROR,
+				(errcode_for_socket_access(),
+				 errmsg("Recv message from RXACT manager close by remote")));
 	}else if(recv_res < 0)
 	{
 		if(IS_ERR_INTR())
 			goto re_recv_;
-		ereport(ERROR, (errcode_for_socket_access()
-			, errmsg("Can recv message from RXACT manager:%m")));
+		if(no_error)
+			return false;
+		ereport(ERROR,
+				(errcode_for_socket_access(),
+				 errmsg("Can recv message from RXACT manager:%m")));
 	}
 	buf->len += recv_res;
+	return true;
 }
 
 static bool wait_socket(pgsocket sock, bool wait_send, bool block)
@@ -2374,13 +2434,14 @@ re_poll_:
 	{
 		if(IS_ERR_INTR())
 			goto re_poll_;
-		ereport(WARNING, (errcode_for_socket_access()
-			, errmsg("wait socket failed:%m")));
+		ereport(WARNING,
+				(errcode_for_socket_access(),
+				 errmsg("wait socket failed:%m")));
 	}
 	return ret == 0 ? false:true;
 }
 
-static void connect_rxact(void)
+static bool connect_rxact(bool no_error)
 {
 	StringInfoData buf;
 	bool need_send_db_info = false;
@@ -2390,6 +2451,8 @@ static void connect_rxact(void)
 		rxact_client_fd = rxact_connect();
 		if(rxact_client_fd == PGINVALID_SOCKET)
 		{
+			if(no_error)
+				return false;
 			ereport(ERROR, (errcode_for_socket_access()
 				, errmsg("Can not connect to RXACT manager:%m")));
 		}
@@ -2403,33 +2466,45 @@ static void connect_rxact(void)
 		if (IsTransactionState() &&
 			OidIsValid(MyDatabaseId))
 		{
-			rxact_begin_db_info(&buf, MyDatabaseId);
+			if(rxact_begin_db_info(&buf, MyDatabaseId, no_error) == false)
+				goto connection_failed_;
 			sended_db_info = true;
 		}else
 		{
-			rxact_begin_db_info(&buf, InvalidOid);
+			if(rxact_begin_db_info(&buf, InvalidOid, no_error) == false)
+				goto connection_failed_;
 			sended_db_info = false;
 		}
 	}else if(sended_db_info == false &&
 			 IsTransactionState() &&
 			 OidIsValid(MyDatabaseId))
 	{
-		rxact_begin_db_info(&buf, MyDatabaseId);
+		if(rxact_begin_db_info(&buf, MyDatabaseId, no_error) == false)
+			goto connection_failed_;
 		sended_db_info = true;
 	}
 
 	if(buf.data)
 	{
-		send_msg_to_rxact(&buf);
-		recv_msg_from_rxact(&buf);
+		if (send_msg_to_rxact(&buf, no_error) == false ||
+			recv_msg_from_rxact(&buf, no_error) == false)
+			goto connection_failed_;
 		pfree(buf.data);
 	}
+	return true;
+
+connection_failed_:
+	if(buf.data)
+		pfree(buf.data);
+	DisconnectRemoteXact();
+	return false;
 }
 
-static void rxact_begin_db_info(StringInfo buf, Oid dboid)
+static bool rxact_begin_db_info(StringInfo buf, Oid dboid, bool no_error)
 {
-	rxact_begin_msg(buf, RXACT_MSG_CONNECT);
-	rxact_put_int(buf, dboid);
+	if (rxact_begin_msg(buf, RXACT_MSG_CONNECT, no_error) == false ||
+		rxact_put_int(buf, dboid, no_error) == false)
+		return false;
 
 	if(OidIsValid(dboid))
 	{
@@ -2441,7 +2516,11 @@ static void rxact_begin_db_info(StringInfo buf, Oid dboid)
 		tuple = SearchSysCache1(DATABASEOID, ObjectIdGetDatum(dboid));
 		Assert(HeapTupleIsValid(tuple));
 		form_db = (Form_pg_database)GETSTRUCT(tuple);
-		rxact_put_string(buf, NameStr(form_db->datname));
+		if (rxact_put_string(buf, NameStr(form_db->datname), no_error) == false)
+		{
+			ReleaseSysCache(tuple);
+			return false;
+		}
 		owner = form_db->datdba;
 		ReleaseSysCache(tuple);
 
@@ -2449,9 +2528,14 @@ static void rxact_begin_db_info(StringInfo buf, Oid dboid)
 		tuple = SearchSysCache1(AUTHOID, ObjectIdGetDatum(owner));
 		Assert(HeapTupleIsValid(tuple));
 		form_authid = (Form_pg_authid)GETSTRUCT(tuple);
-		rxact_put_string(buf, NameStr(form_authid->rolname));
+		if (rxact_put_string(buf, NameStr(form_authid->rolname), no_error) == false)
+		{
+			ReleaseSysCache(tuple);
+			return false;
+		}
 		ReleaseSysCache(tuple);
 	}
+	return true;
 }
 
 void RemoteXactReloadNode(void)
@@ -2463,30 +2547,30 @@ void RemoteXactReloadNode(void)
 	StringInfoData buf;
 	int count,offset;
 
-	connect_rxact();
+	connect_rxact(false);
 	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
 	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
 	scan = heap_beginscan(rel, SnapshotSelf, 0, NULL);
 
-	rxact_begin_msg(&buf, RXACT_MSG_UPDATE_NODE);
+	rxact_begin_msg(&buf, RXACT_MSG_UPDATE_NODE, false);
 	offset = buf.len;
-	rxact_put_int(&buf, 0);
+	rxact_put_int(&buf, 0, false);
 	count = 0;
 	while((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		xc_node = (Form_pgxc_node)GETSTRUCT(tuple);
-		rxact_put_int(&buf, (int)HeapTupleGetOid(tuple));
-		rxact_put_short(&buf, (short)(xc_node->node_port));
-		rxact_put_string(&buf, NameStr(xc_node->node_host));
+		rxact_put_int(&buf, (int)HeapTupleGetOid(tuple), false);
+		rxact_put_short(&buf, (short)(xc_node->node_port), false);
+		rxact_put_string(&buf, NameStr(xc_node->node_host), false);
 		++count;
 	}
 	heap_endscan(scan);
 	heap_close(rel, AccessShareLock);
 	memcpy(buf.data + offset, &count, 4);
-	send_msg_to_rxact(&buf);
+	send_msg_to_rxact(&buf, false);
 
-	recv_msg_from_rxact(&buf);
+	recv_msg_from_rxact(&buf, false);
 	pfree(buf.data);
 }
 
@@ -2496,13 +2580,13 @@ List *RxactGetRunningList(void)
 	RxactTransactionInfo *info;
 	StringInfoData buf;
 
-	connect_rxact();
+	connect_rxact(false);
 	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
-	rxact_begin_msg(&buf, RXACT_MSG_RUNNING);
-	send_msg_to_rxact(&buf);
+	rxact_begin_msg(&buf, RXACT_MSG_RUNNING, false);
+	send_msg_to_rxact(&buf, false);
 
-	recv_msg_from_rxact(&buf);
+	recv_msg_from_rxact(&buf, false);
 
 	list = NIL;
 	while(buf.len > buf.cursor)
@@ -2555,24 +2639,36 @@ void DisconnectRemoteXact(void)
 	}
 }
 
-void RxactWaitGID(const char *gid)
+bool RxactWaitGID(const char *gid, bool no_error)
 {
 	StringInfoData buf;
 
 	if(gid == NULL || gid[0] == '\0')
-		return;
+		return false;
 	if(strlen(gid) >= NAMEDATALEN)
+	{
+		if(no_error)
+			return false;
 		ereport(ERROR, (errmsg("argument \"%s\" too long", gid)));
+	}
 
-	connect_rxact();
+	if (connect_rxact(no_error) == false)
+		return false;
 	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
-	rxact_begin_msg(&buf, RXACT_MSG_WAIT_GID);
-	rxact_put_string(&buf, gid);
-	send_msg_to_rxact(&buf);
+	buf.data = NULL;
+	if (rxact_begin_msg(&buf, RXACT_MSG_WAIT_GID, no_error) == false ||
+		rxact_put_string(&buf, gid, no_error) == false ||
+		send_msg_to_rxact(&buf, no_error) == false ||
+		recv_msg_from_rxact(&buf, no_error) == false)
+	{
+		if(buf.data)
+			pfree(buf.data);
+		return false;
+	}
 
-	recv_msg_from_rxact(&buf);
 	pfree(buf.data);
+	return true;
 }
 
 static void RxactHupHandler(SIGNAL_ARGS)

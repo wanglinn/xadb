@@ -10,13 +10,15 @@ extern pgsocket	rxact_listen(void);
 extern pgsocket	rxact_connect(void);
 extern const char* rxact_get_sock_path(void);
 
-extern void rxact_begin_msg(StringInfo msg, char type);
-extern void rxact_reset_msg(StringInfo msg, char type);
-extern void rxact_put_short(StringInfo msg, short n);
-extern void rxact_put_int(StringInfo msg, int n);
-extern void rxact_put_bytes(StringInfo msg, const void *s, int len);
-extern void rxact_put_string(StringInfo msg, const char *s);
-extern void rxact_put_finsh(StringInfo msg);
+extern bool rxact_enlarge_msg(StringInfo str, int needed, bool no_error);
+
+extern bool rxact_begin_msg(StringInfo msg, char type, bool no_error);
+extern bool rxact_reset_msg(StringInfo msg, char type, bool no_error);
+extern bool rxact_put_short(StringInfo msg, short n, bool no_error);
+extern bool rxact_put_int(StringInfo msg, int n, bool no_error);
+extern bool rxact_put_bytes(StringInfo msg, const void *s, int len, bool no_error);
+extern bool rxact_put_string(StringInfo msg, const char *s, bool no_error);
+extern bool rxact_put_finsh(StringInfo msg, bool no_error);
 
 extern short rxact_get_short(StringInfo msg);
 extern int rxact_get_int(StringInfo msg);

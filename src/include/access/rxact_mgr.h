@@ -27,17 +27,17 @@ typedef struct RxactTransactionInfo
 
 extern void RemoteXactMgrMain(void) __attribute__((noreturn));
 
-extern void RecordRemoteXact(const char *gid, Oid *node_oids, int count, RemoteXactType type);
-extern void RecordRemoteXactSuccess(const char *gid, RemoteXactType type);
-extern void RecordRemoteXactFailed(const char *gid, RemoteXactType type);
-extern void RecordRemoteXactAuto(const char *gid, TransactionId tid);
+extern bool RecordRemoteXact(const char *gid, Oid *node_oids, int count, RemoteXactType type, bool no_error);
+extern bool RecordRemoteXactSuccess(const char *gid, RemoteXactType type, bool no_error);
+extern bool RecordRemoteXactFailed(const char *gid, RemoteXactType type, bool no_error);
+extern bool RecordRemoteXactAuto(const char *gid, TransactionId tid, bool no_error);
 extern void RemoteXactReloadNode(void);
 extern void DisconnectRemoteXact(void);
 /* return list of RxactTransactionInfo */
 extern List *RxactGetRunningList(void);
 extern void FreeRxactTransactionInfo(RxactTransactionInfo *rinfo);
 extern void FreeRxactTransactionInfoList(List *list);
-extern void RxactWaitGID(const char *gid);
+extern bool RxactWaitGID(const char *gid, bool no_error);
 
 /* xlog interfaces */
 extern void rxact_redo(XLogReaderState *record);

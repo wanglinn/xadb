@@ -41,6 +41,8 @@ static const char rxact_sock_path[] = {".s.PGRXACT"};
 static void RxactStreamDoUnlink(int code, Datum arg);
 #endif
 
+#define RXACT_DEFAULT_BUFER_SIZE	64
+
 /*
  * Open server socket on specified port to accept connection from sessions
  */
@@ -146,54 +148,64 @@ const char* rxact_get_sock_path(void)
 	return rxact_sock_path;
 }
 
-void rxact_begin_msg(StringInfo msg, char type)
+bool rxact_begin_msg(StringInfo msg, char type, bool no_error)
 {
 	AssertArg(msg && type);
-	initStringInfo(msg);
-	rxact_reset_msg(msg, type);
+	msg->data = palloc_extended(RXACT_DEFAULT_BUFER_SIZE, no_error ? MCXT_ALLOC_NO_OOM:0);
+	if(msg->data == NULL)
+		return false;
+	msg->maxlen = RXACT_DEFAULT_BUFER_SIZE;
+	return rxact_reset_msg(msg, type, no_error);
 }
 
-void rxact_reset_msg(StringInfo msg, char type)
+bool rxact_reset_msg(StringInfo msg, char type, bool no_error)
 {
 	AssertArg(msg && msg->data && type);
 	resetStringInfo(msg);
-	enlargeStringInfo(msg, 5);
+	if (rxact_enlarge_msg(msg, 5, no_error) == false)
+		return false;
 	msg->len = 5;
 	msg->data[4] = type;
+	return true;
 }
 
-void rxact_put_short(StringInfo msg, short n)
+bool rxact_put_short(StringInfo msg, short n, bool no_error)
 {
 	AssertArg(msg);
-	appendBinaryStringInfo(msg, (char*)&n, 2);
+	return rxact_put_bytes(msg, (char*)&n, 2, no_error);
 }
 
-void rxact_put_int(StringInfo msg, int n)
+bool rxact_put_int(StringInfo msg, int n, bool no_error)
 {
 	AssertArg(msg);
-	appendBinaryStringInfo(msg, (char*)&n, 4);
+	return rxact_put_bytes(msg, (char*)&n, 4, no_error);
 }
 
-void rxact_put_bytes(StringInfo msg, const void *s, int len)
+bool rxact_put_bytes(StringInfo msg, const void *s, int len, bool no_error)
 {
 	AssertArg(msg && s && len>0);
-	appendBinaryStringInfo(msg, s, len);
+	if(rxact_enlarge_msg(msg, msg->len + len, no_error) == false)
+		return false;
+	memcpy(msg->data + msg->len, s, len);
+	msg->len += len;
+	return true;
 }
 
-void rxact_put_string(StringInfo msg, const char *s)
+bool rxact_put_string(StringInfo msg, const char *s, bool no_error)
 {
 	int len;
 	AssertArg(msg && s);
 
 	len = strlen(s);
-	appendBinaryStringInfo(msg, s, len+1);
+	return rxact_put_bytes(msg, s, len+1, no_error);
 }
 
-void rxact_put_finsh(StringInfo msg)
+bool rxact_put_finsh(StringInfo msg, bool no_error)
 {
 	AssertArg(msg && msg->data && msg->len >= 5);
 
 	memcpy(msg->data, &(msg->len), 4);
+	return true;
 }
 
 short rxact_get_short(StringInfo msg)
@@ -261,6 +273,47 @@ void rxact_get_msg_end(StringInfo msg)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("invalid message format")));
+}
+
+bool rxact_enlarge_msg(StringInfo str, int needed, bool no_error)
+{
+	char	   *new_addr;
+	int			newlen;
+
+	AssertArg(str && str->data);
+	Assert(str->data == (char*)MAXALIGN(str->data));
+
+	/*
+	 * Guard against out-of-range "needed" values.  Without this, we can get
+	 * an overflow or infinite loop in the following.
+	 */
+	if (needed < 0)
+	{
+		if(no_error)
+			return false;
+		elog(ERROR, "invalid string enlargement request size: %d", needed);
+	}
+
+	needed += str->len + 1;		/* total space required now */
+
+	/* Because of the above test, we now have needed <= MaxAllocSize */
+
+	if (needed <= str->maxlen)
+		return true;					/* got enough space already */
+
+	newlen = str->maxlen + RXACT_DEFAULT_BUFER_SIZE;
+	while(needed > newlen)
+		newlen += RXACT_DEFAULT_BUFER_SIZE;
+
+	if(no_error)
+		new_addr = repalloc_no_oom(str->data, newlen);
+	else
+		new_addr = repalloc(str->data, newlen);
+	if(new_addr == NULL)
+		return false;
+	str->data = new_addr;
+	str->maxlen = newlen;
+	return true;
 }
 
 /* ---------------------------rlog--------------------------------- */
@@ -568,6 +621,9 @@ Datum rxact_get_running(PG_FUNCTION_ARGS)
 		case RX_ROLLBACK:
 			values[2] = CharGetDatum('r');
 			break;
+		case RX_AUTO:
+			values[2] = CharGetDatum('a');
+			break;
 		default:
 			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
 				errmsg("unknown transaction state '%d'", info->type)));
@@ -595,7 +651,7 @@ Datum rxact_wait_gid(PG_FUNCTION_ARGS)
 	text *arg = PG_GETARG_TEXT_P(0);
 	char *gid = text_to_cstring(arg);
 
-	RxactWaitGID(gid);
+	RxactWaitGID(gid, false);
 	pfree(gid);
 
 	PG_RETURN_VOID();

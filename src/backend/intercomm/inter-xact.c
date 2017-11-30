@@ -943,7 +943,7 @@ StartFinishPreparedRxact(const char *gid,
 	 */
 	if (!isCommit)
 	{
-		RecordRemoteXact(gid, nodes, nnodes, RX_ROLLBACK);
+		RecordRemoteXact(gid, nodes, nnodes, RX_ROLLBACK, false);
 		return ;
 	}
 
@@ -954,7 +954,7 @@ StartFinishPreparedRxact(const char *gid,
 	 * See EndRemoteXactPrepare.
 	 */
 	if (!isImplicit)
-		RecordRemoteXact(gid, nodes, nnodes, RX_COMMIT);
+		RecordRemoteXact(gid, nodes, nnodes, RX_COMMIT, false);
 }
 
 /*
@@ -1001,12 +1001,10 @@ CommitPreparedRxact(const char *gid,
 	} PG_CATCH_HOLD();
 	{
 		AtAbort_Twophase();
-#if 0
-		/* disconnect with rxact */
-		DisconnectRemoteXact();
-#endif
+
 		/* record failed log */
-		RecordRemoteXactFailed(gid, RX_COMMIT);
+		if (RecordRemoteXactFailed(gid, RX_COMMIT, true) == false)
+			DisconnectRemoteXact();
 		/* Discard error data */
 		errdump();
 		fail_to_commit = true;
@@ -1016,25 +1014,21 @@ CommitPreparedRxact(const char *gid,
 	if (!fail_to_commit)
 	{
 		/* Record success log */
-		RecordRemoteXactSuccess(gid, RX_COMMIT);
-		return ;
+		if (RecordRemoteXactSuccess(gid, RX_COMMIT, true) == false)
+			fail_to_commit = true;
 	}
-
-	PG_TRY();
+	if(fail_to_commit)
 	{
-		/* Fail to commit then wait for rxact to finish it */
-		RxactWaitGID(gid);
-	} PG_CATCH();
-	{
-		/*
-		 * Fail again and exit current process
-		 *
-		 * ADBQ:
-		 *		Does it cause crash of other processes?
-		 *		Are there some resources not be released?
-		 */
-		proc_exit(1);
-	} PG_END_TRY();
+		time_t end_time = time(NULL) + 5;	/* wait 5 seconds */
+		for(;;)
+		{
+			pg_usleep(1000*100);	/* sleep 0.1 second */
+			if (RxactWaitGID(gid, true))
+				return;
+			if (time(NULL) > end_time)
+				proc_exit(EXIT_FAILURE);
+		}
+	}
 }
 
 static void
@@ -1052,14 +1046,11 @@ AbortPreparedRxact(const char *gid,
 		agtm_AbortTransaction(gid, isMissingOK, false);
 	} PG_CATCH();
 	{
-#if 0
-		/* disconnect with rxact */
-		DisconnectRemoteXact();
-#endif
 		/* record failed log */
-		RecordRemoteXactFailed(gid, RX_ROLLBACK);
+		if (RecordRemoteXactFailed(gid, RX_ROLLBACK, true) == false)
+			DisconnectRemoteXact();
 		PG_RE_THROW();
 	} PG_END_TRY();
 
-	RecordRemoteXactSuccess(gid, RX_ROLLBACK);
+	RecordRemoteXactSuccess(gid, RX_ROLLBACK, false);
 }
