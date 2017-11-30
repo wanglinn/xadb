@@ -2234,6 +2234,11 @@ ProcessUtilitySlow(Node *parsetree,
 				commandCollected = true;
 				EventTriggerAlterTableEnd();
 #ifdef ADB
+				/*
+				 * temporary view is only defined locally, if not,
+				 * defined on all coordinators.
+				 */
+				if (((ViewStmt *) parsetree)->view->relpersistence != RELPERSISTENCE_TEMP)
 				{
 					utilityContext.exec_type = EXEC_ON_COORDS;
 					utilityContext.stmt = (Node *) parsetree;
