@@ -2,6 +2,7 @@
 
 #include "access/htup_details.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_namespace.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
@@ -1922,6 +1923,33 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	}
 
 	return result;
+}
+
+/* make (adb_node_oid() = nodeoid) expr */
+Expr *CreateNodeOidEqualOid(Oid nodeoid)
+{
+	OpExpr *op = makeNode(OpExpr);
+	op->args = list_make2(makeFuncExpr(F_ADB_NODE_OID,
+									   OIDOID,
+									   NIL,
+									   InvalidOid,
+									   InvalidOid,
+									   COERCE_EXPLICIT_CALL),
+						  makeConst(OIDOID,
+									-1,
+									InvalidOid,
+									sizeof(Oid),
+									ObjectIdGetDatum(nodeoid),
+									false,
+									true));
+	op->opno = get_operid("=", OIDOID, OIDOID, PG_CATALOG_NAMESPACE);
+	Assert(OidIsValid(op->opno));
+	op->opfuncid = F_OIDEQ;
+	op->opresulttype = BOOLOID;
+	op->opretset = false;
+	op->opcollid = op->inputcollid = InvalidOid;
+	op->location = -1;
+	return (Expr*)op;
 }
 
 bool EqualReduceExpr(Expr *left, Expr *right)

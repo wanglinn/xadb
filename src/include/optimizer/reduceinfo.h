@@ -199,6 +199,7 @@ extern bool HaveOnceWindowAggClusterPath(List *wclauses, List *tlist, Path *path
 
 extern Var *makeVarByRel(AttrNumber attno, Oid rel_oid, Index rel_index);
 extern Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce);
+extern Expr *CreateNodeOidEqualOid(Oid nodeoid);
 extern bool EqualReduceExpr(Expr *left, Expr *right);
 
 #endif /* REDUCEINFO_H */
