@@ -644,6 +644,9 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 												   best_path,
 												   tlist,
 												   scan_clauses);
+#ifdef ADB
+			set_scan_execute_oids((Scan*)plan, best_path, root);
+#endif /* ADB */
 			break;
 
 		case T_IndexScan:
@@ -6865,19 +6868,30 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 		return false;
 	}
 
+	switch(path->pathtype)
+	{
+	/* run at coordinator only */
+	case T_FunctionScan:
+	case T_ValuesScan:
+	case T_SampleScan:
+	case T_ForeignScan:
+	/* when run here, this path not create by cluster, so run at coordinator only */
+	case T_SeqScan:
+	case T_TidScan:
+	case T_IndexScan:
+	case T_IndexOnlyScan:
+		*pplist = path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+		path->reduce_is_valid = true;
+		return false;
+	default:
+		break;
+	}
+
 	path_tree_walker(path, find_cluster_reduce_expr, (void*)pplist);
 
 	switch(nodeTag(path))
 	{
 	case T_Path:
-		if (path->pathtype == T_FunctionScan ||
-			path->pathtype == T_ValuesScan)
-		{
-			path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
-			path->reduce_is_valid = true;
-			break;
-		}
-		/* do not add break */
 	case T_LimitPath:
 	case T_SortPath:
 	case T_ResultPath:
