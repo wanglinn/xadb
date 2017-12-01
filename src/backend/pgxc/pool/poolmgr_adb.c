@@ -3353,6 +3353,7 @@ static void on_exit_pooler(int code, Datum arg)
 static bool pool_exec_set_query(PGconn *conn, const char *query, StringInfo errMsg)
 {
 	PGresult *result;
+	ExecStatusType status;
 	bool res;
 
 	AssertArg(query);
@@ -3370,15 +3371,37 @@ static bool pool_exec_set_query(PGconn *conn, const char *query, StringInfo errM
 		result = PQgetResult(conn);
 		if(result == NULL)
 			break;
-		if(PQresultStatus(result) == PGRES_FATAL_ERROR)
+		status = PQresultStatus(result);
+		if(status != PGRES_COMMAND_OK)
 		{
-			res = false;
 			if(errMsg)
 			{
 				if(errMsg->data == NULL)
 					initStringInfo(errMsg);
-				appendStringInfoString(errMsg, PQresultErrorMessage(result));
+				if(status == PGRES_FATAL_ERROR)
+				{
+					if(res)	/* first error */
+						appendStringInfoString(errMsg, PQresultErrorMessage(result));
+				}else
+				{
+					if(res)	/* first error */
+						appendStringInfo(errMsg,
+										 "execute \"%s\" expect %s, but return %s\n",
+										 query,
+										 PQresStatus(PGRES_COMMAND_OK),
+										 PQresStatus(status));
+					if (status == PGRES_COPY_BOTH ||
+						status == PGRES_COPY_IN)
+					{
+						PQputCopyEnd(conn, NULL);
+					}else if(status == PGRES_COPY_OUT)
+					{
+						const char *buf;
+						PQgetCopyDataBuffer(conn, &buf, true);
+					}
+				}
 			}
+			res = false;
 		}
 		PQclear(result);
 	}
