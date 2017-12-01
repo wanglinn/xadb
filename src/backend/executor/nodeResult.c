@@ -147,6 +147,13 @@ ExecResult(ResultState *node)
 			node->rs_done = true;
 		}
 
+#ifdef ADB
+		if (node->ps.qual == NIL ||
+			ExecQual(node->ps.qual, econtext, false))
+		{
+			if(node->ps.ps_ProjInfo)
+			{
+#endif /* ADB */
 		/*
 		 * form the result tuple using ExecProject(), and return it --- unless
 		 * the projection produces an empty set, in which case we must loop
@@ -159,6 +166,10 @@ ExecResult(ResultState *node)
 			node->ps.ps_TupFromTlist = (isDone == ExprMultipleResult);
 			return resultSlot;
 		}
+#ifdef ADB
+			}	/* (if node->ps.ps_ProjInfo) */
+		} /* if(qual) */
+#endif /* ADB */
 	}
 
 	return NULL;
