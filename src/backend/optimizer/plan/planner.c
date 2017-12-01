@@ -2251,33 +2251,17 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			{
 				ResultPath *rp;
 				ModifyTablePath *modify;
-				/* first make ResultPath add "adb_node_oid()=PGXCNodeOid" to qual */
-				OpExpr *op = makeNode(OpExpr);
+				Expr *node_oid_eq;
 				Assert(OidIsValid(PGXCNodeOid));
-				op->args = list_make2(makeFuncExpr(F_ADB_NODE_OID,
-												   OIDOID,
-												   NIL,
-												   InvalidOid,
-												   InvalidOid,
-												   COERCE_EXPLICIT_CALL),
-									  makeConst(OIDOID,
-												-1,
-												InvalidOid,
-												sizeof(Oid),
-												ObjectIdGetDatum(PGXCNodeOid),
-												false,
-												true));
-				op->opno = get_operid("=", OIDOID, OIDOID, PG_CATALOG_NAMESPACE);
-				Assert(OidIsValid(op->opno));
-				op->opfuncid = F_OIDEQ;
-				op->opresulttype = BOOLOID;
-				op->opretset = false;
-				op->opcollid = op->inputcollid = InvalidOid;
-				op->location = -1;
+				node_oid_eq = CreateNodeOidEqualOid(PGXCNodeOid);
 				if(IsA(path, ResultPath))
+				{
 					rp = (ResultPath*)path;
-				else
-					rp = create_result_path(root, current_rel, path->pathtarget, list_make1(op));
+					rp->quals = lcons(node_oid_eq, rp->quals);
+				}else
+				{
+					rp = create_result_path(root, current_rel, path->pathtarget, list_make1(node_oid_eq));
+				}
 				memcpy(rp, path, sizeof(Path));
 				NodeSetTag(rp, T_ResultPath);
 				rp->path.pathtype = T_Result;
