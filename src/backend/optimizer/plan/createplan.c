@@ -6515,7 +6515,8 @@ static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 	plan->gatherType = get_gather_type(reduce_list);
 
 	subplan = create_plan_recurse(root, path->subpath, flags);
-	subplan = create_filter_if_replicate(subplan, reduce_list);
+	if(list_length(plan->rnodes) > 1)
+		subplan = create_filter_if_replicate(subplan, reduce_list);
 
 	if(IsA(subplan, ModifyTable))
 	{
@@ -6556,7 +6557,8 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 
 
 	subplan = create_plan_recurse(root, path->subpath, flags);
-	subplan = create_filter_if_replicate(subplan, reduce_list);
+	if(list_length(plan->rnodes) > 1)
+		subplan = create_filter_if_replicate(subplan, reduce_list);
 
 	if(IsA(subplan, ModifyTable))
 	{
