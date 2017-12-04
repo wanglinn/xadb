@@ -1128,6 +1128,9 @@ standard_ProcessUtility(Node *parsetree,
 		case T_ReindexStmt:
 			{
 				ReindexStmt *stmt = (ReindexStmt *) parsetree;
+#ifdef ADB
+				bool send_to_remote = true;
+#endif /* ADB */
 
 				/* we choose to allow this during "read only" transactions */
 				PreventCommandDuringRecovery("REINDEX");
@@ -1162,8 +1165,19 @@ standard_ProcessUtility(Node *parsetree,
 						break;
 				}
 #ifdef ADB
-				utilityContext.force_autocommit = (stmt->kind == REINDEX_OBJECT_DATABASE || stmt->kind == REINDEX_OBJECT_SCHEMA);
-				ExecRemoteUtilityStmt(&utilityContext);
+				if (stmt->kind == REINDEX_OBJECT_INDEX ||
+					stmt->kind == REINDEX_OBJECT_TABLE)
+				{
+					Relation rel = relation_openrv(stmt->relation, NoLock);
+					if (RelationUsesLocalBuffers(rel))
+						send_to_remote = false;
+					relation_close(rel, NoLock);
+				}
+				if(send_to_remote)
+				{
+					utilityContext.force_autocommit = (stmt->kind == REINDEX_OBJECT_DATABASE || stmt->kind == REINDEX_OBJECT_SCHEMA);
+					ExecRemoteUtilityStmt(&utilityContext);
+				}
 #endif
 			}
 			break;
