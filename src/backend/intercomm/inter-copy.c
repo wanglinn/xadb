@@ -260,8 +260,8 @@ DoRemoteCopyTo(RemoteCopyState *node)
 		FetchRemoteCopyRow(node, &row);
 		if (!row.data)
 			break;
-		node->processed++;
 		HandleCopyOutRow(node, row.data, row.len);
+		node->processed++;
 	}
 
 	return node->processed;
@@ -291,30 +291,15 @@ HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 			{
 				TupleDesc			tupdesc = node->tuple_desc;
 				Form_pg_attribute  *attr = tupdesc->attrs;
-				Datum			   *values;
-				bool			   *nulls;
-				Oid				   *typioparams;
-				FmgrInfo		   *in_functions;
+				Oid				   *typioparams = node->copy_extra->typioparams;
+				FmgrInfo		   *in_functions = node->copy_extra->inflinfos;
+				Datum			   *values = node->copy_extra->values;
+				bool			   *nulls = node->copy_extra->nulls;
+				char			   *field;
 				char			  **fields;
 				int					i, dropped;
 
-				values = (Datum *) palloc(tupdesc->natts * sizeof(Datum));
-				nulls = (bool *) palloc0(tupdesc->natts * sizeof(bool));
-				in_functions = (FmgrInfo *) palloc(tupdesc->natts * sizeof(FmgrInfo));
-				typioparams = (Oid *) palloc(tupdesc->natts * sizeof(Oid));
-
-				/* Calculate the Oids of input functions */
-				for (i = 0; i < tupdesc->natts; i++)
-				{
-					Oid in_func_oid;
-
-					/* Do not need any information for dropped attributes */
-					if (attr[i]->attisdropped)
-						continue;
-
-					getTypeInputInfo(attr[i]->atttypid, &in_func_oid, &typioparams[i]);
-					fmgr_info(in_func_oid, &in_functions[i]);
-				}
+				Assert(typioparams && in_functions && values && nulls);
 
 				/*
 				 * Convert message into an array of fields.
@@ -326,7 +311,8 @@ HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 				dropped = 0;
 				for (i = 0; i < tupdesc->natts; i++)
 				{
-					char *string = fields[i - dropped];
+					nulls[i] = false;
+					field = fields[i - dropped];
 					/* Do not need any information for dropped attributes */
 					if (attr[i]->attisdropped)
 					{
@@ -337,11 +323,11 @@ HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 
 					/* Find value */
 					values[i] = InputFunctionCall(&in_functions[i],
-												  string,
+												  field,
 												  typioparams[i],
 												  attr[i]->atttypmod);
 					/* Setup value with NULL flag if necessary */
-					if (string == NULL)
+					if (field == NULL)
 						nulls[i] = true;
 				}
 
@@ -355,10 +341,6 @@ HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 				if (*fields)
 					pfree(*fields);
 				pfree(fields);
-				pfree(values);
-				pfree(nulls);
-				pfree(in_functions);
-				pfree(typioparams);
 			}
 			break;
 		case REMOTE_COPY_NONE:

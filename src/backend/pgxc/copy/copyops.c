@@ -263,8 +263,8 @@ CopyOps_RawDataToArrayField(TupleDesc tupdesc, char *message, int len)
 	for (;;)
 	{
 		char	   *start_ptr;
-        char	   *end_ptr;
-        int			input_len;
+		char	   *end_ptr;
+		int			input_len;
 		bool		found_delim = false;
 		bool		saw_non_ascii = false;
 

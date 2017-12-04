@@ -403,6 +403,7 @@ distrib_copy_to(RedistribState *distribState)
 	RemoteCopyOptions *options;
 	RemoteCopyState *copyState;
 	Tuplestorestate *store; /* Storage of redistributed data */
+	TupleDesc		tupdesc;
 
 	/* Fetch necessary data to prepare for the table data acquisition */
 	options = makeRemoteCopyOptions();
@@ -417,8 +418,9 @@ distrib_copy_to(RedistribState *distribState)
 
 	/* A sufficient lock level needs to be taken at a higher level */
 	rel = relation_open(relOid, NoLock);
-	RemoteCopy_GetRelationLoc(copyState, rel, NIL);
-	RemoteCopy_BuildStatement(copyState, rel, options, NIL, NIL);
+	tupdesc = RelationGetDescr(rel);
+	RemoteCopyGetRelationLoc(copyState, rel, NIL);
+	RemoteCopyBuildStatement(copyState, rel, options, NIL, NIL);
 
 	/* Inform client of operation being done */
 	ereport(DEBUG1,
@@ -434,8 +436,9 @@ distrib_copy_to(RedistribState *distribState)
 
 	/* Then get rows and copy them to the tuplestore used for redistribution */
 	copyState->tuplestorestate = store;
-	copyState->tuple_desc = RelationGetDescr(rel);
+	copyState->tuple_desc = tupdesc;
 	copyState->remoteCopyType = REMOTE_COPY_TUPLESTORE;
+	RemoteCopyBuildExtra(copyState, tupdesc);
 	DoRemoteCopyTo(copyState);
 
 	/* Do necessary clean-up */
@@ -491,8 +494,8 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 
 	/* A sufficient lock level needs to be taken at a higher level */
 	rel = relation_open(relOid, NoLock);
-	RemoteCopy_GetRelationLoc(copyState, rel, NIL);
-	RemoteCopy_BuildStatement(copyState, rel, options, NIL, NIL);
+	RemoteCopyGetRelationLoc(copyState, rel, NIL);
+	RemoteCopyBuildStatement(copyState, rel, options, NIL, NIL);
 
 	/*
 	 * When building COPY FROM command in redistribution list,

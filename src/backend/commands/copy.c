@@ -216,7 +216,7 @@ typedef struct CopyStateData
 	int			raw_buf_len;	/* total # of bytes stored */
 #ifdef ADB
 	/* Remote COPY state data */
-	RemoteCopyState *remoteCopyState;
+	RemoteCopyState *rcstate;
 #endif
 } CopyStateData;
 
@@ -1446,25 +1446,25 @@ BeginCopy(bool is_from,
 		/* Get copy statement and execution node information */
 		if (IS_PGXC_COORDINATOR)
 		{
-			RemoteCopyState *remoteCopyState = (RemoteCopyState *) palloc0(sizeof(RemoteCopyState));
+			RemoteCopyState *rcstate = (RemoteCopyState *) palloc0(sizeof(RemoteCopyState));
 			List *attnums = CopyGetAttnums(tupDesc, cstate->rel, attnamelist);
 
 			/* Setup correct COPY FROM/TO flag */
-			remoteCopyState->is_from = is_from;
+			rcstate->is_from = is_from;
 
 			/* Get execution node list */
-			RemoteCopy_GetRelationLoc(remoteCopyState,
-									  cstate->rel,
-									  attnums);
+			RemoteCopyGetRelationLoc(rcstate,
+									 cstate->rel,
+									 attnums);
 			/* Build remote query */
-			RemoteCopy_BuildStatement(remoteCopyState,
-									  cstate->rel,
-									  GetRemoteCopyOptions(cstate),
-									  attnamelist,
-									  attnums);
+			RemoteCopyBuildStatement(rcstate,
+									 cstate->rel,
+									 GetRemoteCopyOptions(cstate),
+									 attnamelist,
+									 attnums);
 
 			/* Then assign built structure */
-			cstate->remoteCopyState = remoteCopyState;
+			cstate->rcstate = rcstate;
 		}
 #endif
 	}
@@ -1973,8 +1973,8 @@ CopyTo(CopyState cstate)
 #ifdef ADB
 	/* Send COPY command to datanode */
 	if (IS_PGXC_COORDINATOR &&
-		cstate->remoteCopyState && cstate->remoteCopyState->rel_loc)
-		StartRemoteCopy(cstate->remoteCopyState);
+		cstate->rcstate && cstate->rcstate->rel_loc)
+		StartRemoteCopy(cstate->rcstate);
 #endif
 
 	if (cstate->rel)
@@ -2080,10 +2080,10 @@ CopyTo(CopyState cstate)
 
 #ifdef ADB
 	if (IS_PGXC_COORDINATOR &&
-		cstate->remoteCopyState &&
-		cstate->remoteCopyState->rel_loc)
+		cstate->rcstate &&
+		cstate->rcstate->rel_loc)
 	{
-		RemoteCopyState *node = cstate->remoteCopyState;
+		RemoteCopyState *node = cstate->rcstate;
 
 		node->tuple_desc = tupDesc;
 		node->copy_file = cstate->copy_file;
@@ -2372,7 +2372,7 @@ CopyFrom(CopyState cstate)
 	TupleTableSlot *myslot;
 	MemoryContext oldcontext = CurrentMemoryContext;
 #ifdef ADB
-	RemoteCopyState *remoteCopyState = cstate->remoteCopyState;
+	RemoteCopyState *rcstate = cstate->rcstate;
 #endif
 
 	ErrorContextCallback errcallback;
@@ -2548,10 +2548,10 @@ CopyFrom(CopyState cstate)
 
 #ifdef ADB
 	/* Send COPY command to datanode */
-	if (IS_PGXC_COORDINATOR && remoteCopyState && remoteCopyState->rel_loc)
+	if (IS_PGXC_COORDINATOR && rcstate && rcstate->rel_loc)
 	{
 		/* Send COPY command to datanode */
-		StartRemoteCopy(remoteCopyState);
+		StartRemoteCopy(rcstate);
 
 		/* In case of binary COPY FROM, send the header */
 		if (cstate->binary)
@@ -2574,7 +2574,7 @@ CopyFrom(CopyState cstate)
 			appendBinaryStringInfo(&cstate->line_buf, (char *) &tmp, 4);
 			appendStringInfoChar(&cstate->line_buf, '\n');
 
-			SendCopyFromHeader(remoteCopyState, &cstate->line_buf);
+			SendCopyFromHeader(rcstate, &cstate->line_buf);
 		}
 	}
 #endif
@@ -2620,9 +2620,9 @@ CopyFrom(CopyState cstate)
 		 * Send the data row as-is to the Datanodes. If default values
 		 * are to be inserted, append them onto the data row.
 		 */
-		if (IS_PGXC_COORDINATOR && remoteCopyState && remoteCopyState->rel_loc)
+		if (IS_PGXC_COORDINATOR && rcstate && rcstate->rel_loc)
 		{
-			RelationLocInfo		   *rel_loc_info = remoteCopyState->rel_loc;
+			RelationLocInfo		   *rel_loc_info = rcstate->rel_loc;
 			Form_pg_attribute	   *attr = tupDesc->attrs;
 			List				   *nodes;
 			Datum				   *dist_col_values;
@@ -2687,7 +2687,7 @@ CopyFrom(CopyState cstate)
 			}
 
 			appendStringInfoChar(&cstate->line_buf, '\n');
-			DoRemoteCopyFrom(remoteCopyState, &cstate->line_buf, nodes);
+			DoRemoteCopyFrom(rcstate, &cstate->line_buf, nodes);
 			list_free(nodes);
 			processed++;
 		}
@@ -2806,10 +2806,10 @@ CopyFrom(CopyState cstate)
 
 #ifdef ADB
 	/* Send COPY DONE to datanodes */
-	if (IS_PGXC_COORDINATOR && remoteCopyState->rel_loc)
+	if (IS_PGXC_COORDINATOR && rcstate->rel_loc)
 	{
-		//bool replicated = (remoteCopyState->rel_loc->locatorType == LOCATOR_TYPE_REPLICATED);
-		EndRemoteCopy(remoteCopyState);
+		//bool replicated = (rcstate->rel_loc->locatorType == LOCATOR_TYPE_REPLICATED);
+		EndRemoteCopy(rcstate);
 	}
 #endif
 
@@ -3568,79 +3568,79 @@ NextCopyFrom(CopyState cstate, ExprContext *econtext,
 }
 
 #ifdef ADB
- /*
-  * append_defvals:
-  * Append default values in output form onto the data-row.
-  * 1. scans the default values with the help of defmap,
-  * 2. converts each default value into its output form,
-  * 3. then appends it into cstate->defval_buf buffer.
-  * This buffer would later be appended into the final data row that is sent to
-  * the Datanodes.
-  * So for e.g., for a table :
-  * tab (id1 int, v varchar, id2 default nextval('tab_id2_seq'::regclass), id3 )
-  * with the user-supplied data  : "2 | abcd",
-  * and the COPY command such as:
-  * copy tab (id1, v) FROM '/tmp/a.txt' (delimiter '|');
-  * Here, cstate->defval_buf will be populated with something like : "| 1"
-  * and the final data row will be : "2 | abcd | 1"
-  */
- static void
- append_defvals(Datum *values, CopyState cstate)
- {
-	 CopyStateData new_cstate = *cstate;
-	 int i;
+/*
+ * append_defvals:
+ * Append default values in output form onto the data-row.
+ * 1. scans the default values with the help of defmap,
+ * 2. converts each default value into its output form,
+ * 3. then appends it into cstate->defval_buf buffer.
+ * This buffer would later be appended into the final data row that is sent to
+ * the Datanodes.
+ * So for e.g., for a table :
+ * tab (id1 int, v varchar, id2 default nextval('tab_id2_seq'::regclass), id3 )
+ * with the user-supplied data  : "2 | abcd",
+ * and the COPY command such as:
+ * copy tab (id1, v) FROM '/tmp/a.txt' (delimiter '|');
+ * Here, cstate->defval_buf will be populated with something like : "| 1"
+ * and the final data row will be : "2 | abcd | 1"
+ */
+static void
+append_defvals(Datum *values, CopyState cstate)
+{
+	CopyStateData new_cstate = *cstate;
+	int i;
 
-	 new_cstate.fe_msgbuf = makeStringInfo();
+	new_cstate.fe_msgbuf = makeStringInfo();
 
-	 for (i = 0; i < cstate->num_defaults; i++)
-	 {
-		 int attindex = cstate->defmap[i];
-		 Datum defvalue = values[attindex];
+	for (i = 0; i < cstate->num_defaults; i++)
+	{
+		int attindex = cstate->defmap[i];
+		Datum defvalue = values[attindex];
 
-		 if (!cstate->binary)
-			 CopySendChar(&new_cstate, new_cstate.delim[0]);
+		if (!cstate->binary)
+			CopySendChar(&new_cstate, new_cstate.delim[0]);
 
-		 /*
-		  * For using the values in their output form, it is not sufficient
-		  * to just call its output function. The format should match
-		  * that of COPY because after all we are going to send this value as
-		  * an input data row to the Datanode using COPY FROM syntax. So we call
-		  * exactly those functions that are used to output the values in case
-		  * of COPY TO. For instace, CopyAttributeOutText() takes care of
-		  * escaping, CopySendInt32 take care of byte ordering, etc. All these
-		  * functions use cstate->fe_msgbuf to copy the data. But this field
-		  * already has the input data row. So, we need to use a separate
-		  * temporary cstate for this purpose. All the COPY options remain the
-		  * same, so new cstate will have all the fields copied from the original
-		  * cstate, except fe_msgbuf.
-		  */
-		 if (cstate->binary)
-		 {
-			 bytea		*outputbytes;
+		/*
+		 * For using the values in their output form, it is not sufficient
+		 * to just call its output function. The format should match
+		 * that of COPY because after all we are going to send this value as
+		 * an input data row to the Datanode using COPY FROM syntax. So we call
+		 * exactly those functions that are used to output the values in case
+		 * of COPY TO. For instace, CopyAttributeOutText() takes care of
+		 * escaping, CopySendInt32 take care of byte ordering, etc. All these
+		 * functions use cstate->fe_msgbuf to copy the data. But this field
+		 * already has the input data row. So, we need to use a separate
+		 * temporary cstate for this purpose. All the COPY options remain the
+		 * same, so new cstate will have all the fields copied from the original
+		 * cstate, except fe_msgbuf.
+		 */
+		if (cstate->binary)
+		{
+			bytea		*outputbytes;
 
-			 outputbytes = SendFunctionCall(&cstate->out_functions[attindex], defvalue);
-			 CopySendInt32(&new_cstate, VARSIZE(outputbytes) - VARHDRSZ);
-			 CopySendData(&new_cstate, VARDATA(outputbytes),
-						  VARSIZE(outputbytes) - VARHDRSZ);
-		 }
-		 else
-		 {
-			 char *string;
+			outputbytes = SendFunctionCall(&cstate->out_functions[attindex], defvalue);
+			CopySendInt32(&new_cstate, VARSIZE(outputbytes) - VARHDRSZ);
+			CopySendData(&new_cstate, VARDATA(outputbytes),
+						 VARSIZE(outputbytes) - VARHDRSZ);
+		}
+		else
+		{
+			char *string;
 
-			 string = OutputFunctionCall(&cstate->out_functions[attindex], defvalue);
-			 if (cstate->csv_mode)
-				 CopyAttributeOutCSV(&new_cstate, string,
-									 false /* don't force quote */,
-									 false /* there's at least one user-supplied attribute */ );
-			 else
-				 CopyAttributeOutText(&new_cstate, string);
-		 }
-	 }
+			string = OutputFunctionCall(&cstate->out_functions[attindex], defvalue);
+			if (cstate->csv_mode)
+				CopyAttributeOutCSV(&new_cstate, string,
+									false /* don't force quote */,
+									false /* there's at least one user-supplied attribute */ );
+			else
+				CopyAttributeOutText(&new_cstate, string);
+		}
+	}
 
-	 /* Append the generated default values to the user-supplied data-row */
-	 appendBinaryStringInfo(&cstate->line_buf, new_cstate.fe_msgbuf->data,
-											   new_cstate.fe_msgbuf->len);
- }
+	/* Append the generated default values to the user-supplied data-row */
+	appendBinaryStringInfo(&cstate->line_buf, new_cstate.fe_msgbuf->data,
+											  new_cstate.fe_msgbuf->len);
+}
 #endif
 
 /*
@@ -3651,8 +3651,8 @@ EndCopyFrom(CopyState cstate)
 {
 #ifdef ADB
 	/* For PGXC related COPY, free remote COPY state */
-	if (IS_PGXC_COORDINATOR && cstate->remoteCopyState)
-		FreeRemoteCopyData(cstate->remoteCopyState);
+	if (IS_PGXC_COORDINATOR && cstate->rcstate)
+		FreeRemoteCopyState(cstate->rcstate);
 #endif
 	/* No COPY FROM related resources except memory. */
 

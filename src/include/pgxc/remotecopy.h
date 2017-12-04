@@ -19,6 +19,14 @@
 #include "nodes/parsenodes.h"
 #include "pgxc/pgxcnode.h"
 
+typedef struct RemoteCopyExtra
+{
+	FmgrInfo		   *inflinfos;
+	Oid				   *typioparams;
+	Datum			   *values;
+	bool			   *nulls;
+} RemoteCopyExtra;
+
 /*
  * This contains the set of data necessary for remote COPY control.
  */
@@ -48,11 +56,11 @@ typedef struct RemoteCopyState {
 
 	TupleDesc			tuple_desc;
 	RemoteCopyType		remoteCopyType;		/* Type of remote COPY operation */
+	RemoteCopyExtra	   *copy_extra;			/* valid if remoteCopyType is REMOTE_COPY_TUPLESTORE
+											   see RemoteCopyBuildExtra. */
 	FILE			   *copy_file;			/* used if remoteCopyType == REMOTE_COPY_FILE */
 	uint64				processed;			/* count of data rows when running CopyOut */
 	Tuplestorestate	   *tuplestorestate;
-
-	PGXCNodeHandle	  **connections;	/* Involved Datanode connections */
 } RemoteCopyState;
 
 /*
@@ -74,15 +82,17 @@ typedef struct RemoteCopyOptions {
 	List	   *rco_force_notnull;	/* list of column names */
 } RemoteCopyOptions;
 
-extern void RemoteCopy_BuildStatement(RemoteCopyState *state,
-									  Relation rel,
-									  RemoteCopyOptions *options,
-									  List *attnamelist,
-									  List *attnums);
-extern void RemoteCopy_GetRelationLoc(RemoteCopyState *state,
-									  Relation rel,
-									  List *attnums);
+extern void RemoteCopyBuildExtra(RemoteCopyState *rcstate, TupleDesc tupdesc);
+extern void RemoteCopyBuildStatement(RemoteCopyState *state,
+									 Relation rel,
+									 RemoteCopyOptions *options,
+									 List *attnamelist,
+									 List *attnums);
+extern void RemoteCopyGetRelationLoc(RemoteCopyState *state,
+									 Relation rel,
+									 List *attnums);
 extern RemoteCopyOptions *makeRemoteCopyOptions(void);
-extern void FreeRemoteCopyData(RemoteCopyState *state);
+extern void FreeRemoteCopyExtra(RemoteCopyExtra *extra);
+extern void FreeRemoteCopyState(RemoteCopyState *state);
 extern void FreeRemoteCopyOptions(RemoteCopyOptions *options);
 #endif

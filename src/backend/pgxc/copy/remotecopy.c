@@ -25,18 +25,62 @@
 #include "utils/rel.h"
 #include "utils/lsyscache.h"
 
-static void RemoteCopy_QuoteStr(StringInfo query_buf, char *value);
+static void RemoteCopyQuoteStr(StringInfo query_buf, char *value);
+
+void
+RemoteCopyBuildExtra(RemoteCopyState *rcstate, TupleDesc tupdesc)
+{
+	RemoteCopyExtra		   *extra;
+	Form_pg_attribute	   *attrs;
+	Oid						infuncoid;
+	int						natts, i;
+
+	Assert(rcstate && tupdesc);
+	Assert(rcstate->remoteCopyType == REMOTE_COPY_TUPLESTORE);
+	extra = rcstate->copy_extra;
+	FreeRemoteCopyExtra(extra);
+	attrs = tupdesc->attrs;
+	natts = tupdesc->natts;
+
+	extra = (RemoteCopyExtra *) palloc0(sizeof(RemoteCopyExtra) +
+			natts * sizeof(FmgrInfo) +
+			natts * sizeof(Oid) +
+			natts * sizeof(Datum) +
+			natts * sizeof(bool));
+	extra->inflinfos = (FmgrInfo *) ((char *) extra + sizeof(RemoteCopyExtra));
+	extra->typioparams = (Oid *) ((char *) extra->inflinfos + natts * sizeof(FmgrInfo));
+	extra->values = (Datum *) ((char *) extra->typioparams + natts * sizeof(Oid));
+	extra->nulls = (bool *) ((char *) extra->values + natts * sizeof(Datum));
+
+	for (i = 0; i < natts; i++)
+	{
+		/* Do not need any information for dropped attributes */
+		if (attrs[i]->attisdropped)
+			continue;
+
+		getTypeInputInfo(attrs[i]->atttypid, &infuncoid, &extra->typioparams[i]);
+		fmgr_info(infuncoid, &extra->inflinfos[i]);
+	}
+	rcstate->copy_extra = extra;
+}
+
+void
+FreeRemoteCopyExtra(RemoteCopyExtra *extra)
+{
+	if (extra)
+		pfree(extra);
+}
 
 /*
- * RemoteCopy_GetRelationLoc
+ * RemoteCopyGetRelationLoc
  * Get relation node list based on COPY data involved. An empty list is
  * returned to caller if relation involved has no locator information
  * as it is the case of a system relation.
  */
 void
-RemoteCopy_GetRelationLoc(RemoteCopyState *state,
-						  Relation rel,
-						  List *attnums)
+RemoteCopyGetRelationLoc(RemoteCopyState *state,
+						 Relation rel,
+						 List *attnums)
 {
 	ExecNodes  *exec_nodes = NULL;
 
@@ -103,15 +147,15 @@ RemoteCopy_GetRelationLoc(RemoteCopyState *state,
 }
 
 /*
- * RemoteCopy_BuildStatement
+ * RemoteCopyBuildStatement
  * Build a COPY query for remote management
  */
 void
-RemoteCopy_BuildStatement(RemoteCopyState *state,
-						  Relation rel,
-						  RemoteCopyOptions *options,
-						  List *attnamelist,
-						  List *attnums)
+RemoteCopyBuildStatement(RemoteCopyState *state,
+						 Relation rel,
+						 RemoteCopyOptions *options,
+						 List *attnamelist,
+						 List *attnums)
 {
 	int			attnum;
 	TupleDesc	tupDesc = RelationGetDescr(rel);
@@ -198,7 +242,7 @@ RemoteCopy_BuildStatement(RemoteCopyState *state,
 			|| (options->rco_csv_mode && options->rco_delim[0] != ','))
 		{
 			appendStringInfoString(&state->query_buf, " DELIMITER AS ");
-			RemoteCopy_QuoteStr(&state->query_buf, options->rco_delim);
+			RemoteCopyQuoteStr(&state->query_buf, options->rco_delim);
 		}
 	}
 
@@ -208,7 +252,7 @@ RemoteCopy_BuildStatement(RemoteCopyState *state,
 			|| (options->rco_csv_mode && strcmp(options->rco_null_print, "")))
 		{
 			appendStringInfoString(&state->query_buf, " NULL AS ");
-			RemoteCopy_QuoteStr(&state->query_buf, options->rco_null_print);
+			RemoteCopyQuoteStr(&state->query_buf, options->rco_null_print);
 		}
 	}
 
@@ -222,13 +266,13 @@ RemoteCopy_BuildStatement(RemoteCopyState *state,
 	if (options->rco_quote && options->rco_quote[0] != '"')
 	{
 		appendStringInfoString(&state->query_buf, " QUOTE AS ");
-		RemoteCopy_QuoteStr(&state->query_buf, options->rco_quote);
+		RemoteCopyQuoteStr(&state->query_buf, options->rco_quote);
 	}
 
 	if (options->rco_escape && options->rco_quote && options->rco_escape[0] != options->rco_quote[0])
 	{
 		appendStringInfoString(&state->query_buf, " ESCAPE AS ");
-		RemoteCopy_QuoteStr(&state->query_buf, options->rco_escape);
+		RemoteCopyQuoteStr(&state->query_buf, options->rco_escape);
 	}
 
 	if (options->rco_force_quote)
@@ -314,20 +358,19 @@ FreeRemoteCopyOptions(RemoteCopyOptions *options)
 
 
 /*
- * FreeRemoteCopyData
+ * FreeRemoteCopyState
  * Free remote COPY state data structure
  */
 void
-FreeRemoteCopyData(RemoteCopyState *state)
+FreeRemoteCopyState(RemoteCopyState *state)
 {
 	/* Leave if nothing */
 	if (state == NULL)
 		return;
 
-	if (state->connections)
-		pfree(state->connections);
 	if (state->query_buf.data)
 		pfree(state->query_buf.data);
+	FreeRemoteCopyExtra(state->copy_extra);
 	FreeRelationLocInfo(state->rel_loc);
 	pfree(state);
 }
@@ -338,7 +381,7 @@ FreeRemoteCopyData(RemoteCopyState *state)
 		appendBinaryStringInfo(query_buf, start, current - start)
 
 /*
- * RemoteCopy_QuoteStr
+ * RemoteCopyQuoteStr
  * Append quoted value to the query buffer. Value is escaped if needed
  * When rewriting query to be sent down to nodes we should escape special
  * characters, that may present in the value. The characters are backslash(\)
@@ -348,7 +391,7 @@ FreeRemoteCopyData(RemoteCopyState *state)
  * We use E'...' syntax for literals containing backslashes.
  */
 static void
-RemoteCopy_QuoteStr(StringInfo query_buf, char *value)
+RemoteCopyQuoteStr(StringInfo query_buf, char *value)
 {
 	char   *start = value;
 	char   *current = value;
