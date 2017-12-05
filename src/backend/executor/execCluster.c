@@ -53,6 +53,15 @@ typedef struct ClusterPlanContext
 	bool start_self_reduce;			/* does this cluster plan need start self-reduce? */
 }ClusterPlanContext;
 
+typedef struct ClusterErrorHookContext
+{
+	ErrorContextCallback	callback;
+	Oid						saved_node_oid;
+	bool					saved_enable_cluster_plan;
+}ClusterErrorHookContext;
+
+extern bool enable_cluster_plan;
+
 static void restore_cluster_plan_info(StringInfo buf);
 static QueryDesc *create_cluster_query_desc(StringInfo buf, DestReceiver *r);
 
@@ -67,7 +76,11 @@ static bool get_rdc_listen_port_hook(void *context, struct pg_conn *conn, PQNHoo
 static void StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt);
 static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context);
 static bool InstrumentEndLoop_walker(PlanState *ps, void *);
-static void ExecClusterErrorHook(void *arg);
+
+static void ExecClusterErrorHookMaster(void *arg);
+static void ExecClusterErrorHookNode(void *arg);
+static void SetupClusterErrorHook(ClusterErrorHookContext *context);
+static void RestoreClusterHook(ClusterErrorHookContext *context);
 
 void exec_cluster_plan(const void *splan, int length)
 {
@@ -75,7 +88,7 @@ void exec_cluster_plan(const void *splan, int length)
 	DestReceiver *receiver;
 	StringInfoData buf;
 	StringInfoData msg;
-	ErrorContextCallback error_context_hook;
+	ClusterErrorHookContext error_context_hook;
 	bool need_instrument;
 	bool has_reduce;
 
@@ -83,10 +96,8 @@ void exec_cluster_plan(const void *splan, int length)
 	buf.cursor = 0;
 	buf.len = buf.maxlen = length;
 
-	error_context_hook.arg = (void*)(Size)PGXCNodeOid;
-	error_context_hook.callback = ExecClusterErrorHook;
-	error_context_hook.previous = error_context_stack;
-	error_context_stack = &error_context_hook;
+	SetupClusterErrorHook(&error_context_hook);
+	enable_cluster_plan = true;
 
 	restore_cluster_plan_info(&buf);
 	receiver = CreateDestReceiver(DestClusterOut);
@@ -153,8 +164,7 @@ void exec_cluster_plan(const void *splan, int length)
 	/* and clean up */
 	ExecutorEnd(query_desc);
 	FreeQueryDesc(query_desc);
-	error_context_stack = error_context_hook.previous;
-	PGXCNodeOid = (Oid)(Size)(error_context_hook.arg);
+	RestoreClusterHook(&error_context_hook);
 
 	pfree(msg.data);
 
@@ -782,8 +792,8 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 	InterXactBegin(state, rnodes);
 	Assert(state->mix_handle);
 
-	error_context_hook.arg = (void*)(Size)PGXCNodeOid;
-	error_context_hook.callback = ExecClusterErrorHook;
+	error_context_hook.arg = NULL;
+	error_context_hook.callback = ExecClusterErrorHookMaster;
 	error_context_hook.previous = error_context_stack;
 	error_context_stack = &error_context_hook;
 
@@ -914,14 +924,43 @@ static bool InstrumentEndLoop_walker(PlanState *ps, void *context)
 	return planstate_tree_walker(ps, InstrumentEndLoop_walker, NULL);
 }
 
-static void ExecClusterErrorHook(void *arg)
+static void ExecClusterErrorHookMaster(void *arg)
 {
 	const ErrorData *err_data;
 
 	if ((err_data = err_current_data()) != NULL &&
 		err_data->elevel >= ERROR)
 	{
-		PGXCNodeOid = (Oid)(Size)(arg);
 		EndSelfReduce(0, 0);
 	}
+}
+
+static void ExecClusterErrorHookNode(void *arg)
+{
+	const ErrorData *err_data;
+
+	if ((err_data = err_current_data()) != NULL &&
+		err_data->elevel >= ERROR)
+	{
+		RestoreClusterHook(arg);
+	}
+}
+
+static void SetupClusterErrorHook(ClusterErrorHookContext *context)
+{
+	AssertArg(context);
+
+	context->saved_node_oid = PGXCNodeOid;
+	context->saved_enable_cluster_plan = enable_cluster_plan;
+	context->callback.arg = context;
+	context->callback.callback = ExecClusterErrorHookNode;
+	context->callback.previous = error_context_stack;
+	error_context_stack = &context->callback;
+}
+
+static void RestoreClusterHook(ClusterErrorHookContext *context)
+{
+	PGXCNodeOid = context->saved_node_oid;
+	enable_cluster_plan = context->saved_enable_cluster_plan;
+	error_context_stack = context->callback.previous;
 }
