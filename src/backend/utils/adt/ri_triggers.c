@@ -274,7 +274,8 @@ RI_FKey_check(TriggerData *trigdata)
 	 * Referential integrity is not supported on Coordinator as it has no data, so
 	 * we just come out of the function without actually performing any integrity checks.
 	 */
-	if (IS_PGXC_COORDINATOR)
+	if (IS_PGXC_COORDINATOR &&
+		RelationGetLocInfo(trigdata->tg_relation) != NULL)
 		return PointerGetDatum(NULL);
 #endif
 
