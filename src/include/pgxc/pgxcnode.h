@@ -154,9 +154,6 @@ extern const char *PGXCNodeOidGetName(Oid nodeoid);
 extern const char *PGXCNodeIdGetName(int nodeid, char node_type);
 extern int PGXCNodeGetNodeIdFromName(char *node_name, char node_type);
 
-extern PGXCNodeAllHandles *get_handles(List *datanodelist, List *coordlist, bool is_query_coord_only);
-extern void pfree_pgxc_all_handles(PGXCNodeAllHandles *handles);
-
 extern bool is_data_node_ready(PGXCNodeHandle * conn);
 
 extern int get_transaction_nodes(PGXCNodeHandle ** connections,

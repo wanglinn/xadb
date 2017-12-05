@@ -33,26 +33,7 @@
 #include "utils/snapshot.h"
 
 /* GUC parameters */
-extern bool EnforceTwoPhaseCommit;
 extern bool RequirePKeyForRepTab;
-
-/* Outputs of handle_response() */
-#define RESPONSE_EOF			EOF
-#define RESPONSE_COMPLETE		0
-#define RESPONSE_SUSPENDED		1
-#define RESPONSE_TUPDESC		2
-#define RESPONSE_DATAROW		3
-#define RESPONSE_COPY			4
-#define RESPONSE_BARRIER_OK		5
-
-typedef enum
-{
-	REQUEST_TYPE_NOT_DEFINED,	/* not determined yet */
-	REQUEST_TYPE_COMMAND,		/* OK or row count response */
-	REQUEST_TYPE_QUERY,			/* Row description response */
-	REQUEST_TYPE_COPY_IN,		/* Copy In response */
-	REQUEST_TYPE_COPY_OUT		/* Copy Out response */
-}	RequestType;
 
 /*
  * Type of requests associated to a remote COPY OUT
@@ -93,27 +74,13 @@ typedef struct RemoteQueryState
 	TupleTableSlot *nextSlot;			/* used to keep next scan slot */
 	TupleTableSlot *convertSlot;		/* used to convert scan slot if needed */
 	struct ClusterRecvState *recvState;		/* used to convert scan slot if needed */
-	int			node_count;				/* total count of participating nodes */
-	PGXCNodeHandle **connections;		/* Datanode connections being combined */
-	int			conn_count;				/* count of active connections */
-	int			current_conn;			/* used to balance load when reading from connections */
 	CombineType combine_type;			/* see CombineType enum */
 	int			command_complete_count; /* count of received CommandComplete messages */
 	int			command_error_count;	/* count of received Error messages */
-	RequestType request_type;			/* see RequestType enum */
 	TupleDesc	tuple_desc;				/* tuple descriptor to be referenced by emitted tuples */
 	int			description_count;		/* count of received RowDescription messages */
-	int			copy_in_count;			/* count of received CopyIn messages */
-	int			copy_out_count;			/* count of received CopyOut messages */
-	char		errorCode[5];			/* error code to send back to client */
-	StringInfoData errorMessage;			/* error message to send back to client */
-	char	   *errorDetail;			/* error detail to send back to client */
-	char	   *errorNodeName;			/* error node name to send back to client */
 	bool		query_Done;				/* query has been sent down to Datanodes */
 	RemoteDataRowData currentRow;		/* next data ro to be wrapped into a tuple */
-	/* TODO use a tuplestore as a rowbuffer */
-	List 	   *rowBuffer;				/* buffer where rows are stored when connection
-										 * should be cleaned for reuse by other RemoteQuery */
 	/*
 	 * To handle special case - if this RemoteQuery is feeding sorted data to
 	 * Sort plan and if the connection fetching data from the Datanode
@@ -151,15 +118,11 @@ extern RemoteQueryState *ExecInitRemoteQuery(RemoteQuery *node, EState *estate, 
 extern TupleTableSlot* ExecRemoteQuery(RemoteQueryState *step);
 extern void ExecEndRemoteQuery(RemoteQueryState *step);
 
-extern int handle_response(PGXCNodeHandle * conn, RemoteQueryState *combiner);
 extern void HandleCmdComplete(CmdType commandType, CombineTag *combine, const char *msg_body, size_t len);
-extern void BufferConnection(PGXCNodeHandle *conn);
 
 extern void ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt);
 
 extern void SetDataRowForExtParams(ParamListInfo params, RemoteQueryState *rq_state);
-
-extern void ExecCloseRemoteStatement(const char *stmt_name, List *nodelist);
 
 /* Flags related to temporary objects included in query */
 extern TupleTableSlot * ExecProcNodeDMLInXC(EState *estate, TupleTableSlot *sourceDataSlot, TupleTableSlot *newDataSlot);
@@ -168,6 +131,6 @@ extern void AtEOXact_DBCleanup(bool isCommit);
 
 extern void set_dbcleanup_callback(xact_callback function, void *paraminfo, int paraminfo_size);
 
-extern RemoteQueryState *CreateResponseCombiner(int node_count, CombineType combine_type);
-extern void CloseCombiner(RemoteQueryState *combiner);
+extern RemoteQueryState *CreateRemoteQueryState(int node_count, CombineType combine_type);
+extern void CloseRemoteQueryState(RemoteQueryState *combiner);
 #endif

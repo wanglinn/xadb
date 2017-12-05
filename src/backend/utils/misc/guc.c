@@ -1932,17 +1932,6 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"enforce_two_phase_commit", PGC_SUSET, XC_HOUSEKEEPING_OPTIONS,
-			gettext_noop("Enforce the use of two-phase commit on transactions that"
-					"made use of temporary objects"),
-			NULL
-		},
-		&EnforceTwoPhaseCommit,
-		true,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"require_replicated_table_pkey", PGC_USERSET, XC_HOUSEKEEPING_OPTIONS,
 			gettext_noop("When set, non-FQS UPDATEs & DELETEs to replicated tables without"
 					" primary key or a unique key are prohibited"),

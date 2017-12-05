@@ -232,9 +232,6 @@ StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 	if (RecoveryInProgress())
 		elog(ERROR, "cannot run transaction to remote nodes during recovery");
 
-	if (node->conn_count == 0)
-		node->connections = NULL;
-
 	state = GetTopInterXactState();
 	step = (RemoteQuery *) node->ss.ps.plan;
 
