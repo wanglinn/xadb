@@ -1328,7 +1328,13 @@ create_unique_plan(PlannerInfo *root, UniquePath *best_path, int flags)
 			!tlist_same_exprs(newtlist, subplan->targetlist))
 			subplan = inject_projection_plan(subplan, newtlist);
 		else
+		{
 			subplan->targetlist = newtlist;
+#ifdef ADB
+			if (IsA(subplan, ClusterReduce))
+				outerPlan(subplan)->targetlist = newtlist;
+#endif /* ADB */
+		}
 	}
 
 	/*
