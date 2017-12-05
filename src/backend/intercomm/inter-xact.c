@@ -567,16 +567,49 @@ InterXactSerializeSnapshot(StringInfo buf, Snapshot snapshot)
 /*
  * InterXactGC
  *
- * garbage collection for InterXactState
+ * garbage collection for current handles of InterXactState
  */
 void
 InterXactGC(InterXactState state)
 {
 	NodeMixHandle	   *mix_handle;
 
-	Assert(state && state->mix_handle);
+	Assert(state);
 	mix_handle = state->mix_handle;
-	HandleListGC(mix_handle->handles);
+	if (mix_handle)
+		HandleListGC(mix_handle->handles);
+}
+
+/*
+ * InterXactCacheCurrent
+ *
+ * Cache or GC for current handles of InterXactState
+ */
+void
+InterXactCacheCurrent(InterXactState state)
+{
+	NodeMixHandle	   *mix_handle;
+
+	Assert(state);
+	mix_handle = state->mix_handle;
+	if (mix_handle)
+		HandleListCache(mix_handle->handles);
+}
+
+/*
+ * InterXactCacheAll
+ *
+ * Cache or GC for all handles of InterXactState
+ */
+void
+InterXactCacheAll(InterXactState state)
+{
+	NodeMixHandle	   *all_handle;
+
+	Assert(state);
+	all_handle = state->all_handle;
+	if (all_handle)
+		HandleListCache(all_handle->handles);
 }
 
 /*

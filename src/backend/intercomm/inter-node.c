@@ -42,9 +42,8 @@ static volatile int NumAllNodes = 0;
 static NodeHandle *AllHandles = NULL;
 static NodeHandle *CnHandles = NULL;
 static NodeHandle *DnHandles = NULL;
-static bool handle_init = false;
-
 static NodeHandle *PrHandle = NULL;
+static bool handle_init = false;
 
 #define foreach_all_handles(p)	\
 	for (p = AllHandles; p - AllHandles < NumAllNodes; p = &p[1])

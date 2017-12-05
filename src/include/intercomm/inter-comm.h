@@ -125,6 +125,8 @@ extern void InterXactSaveError(InterXactState state, const char *fmt, ...)
 extern void InterXactSaveHandleError(InterXactState state, NodeHandle *handle);
 extern void InterXactSerializeSnapshot(StringInfo buf, Snapshot snapshot);
 extern void InterXactGC(InterXactState state);
+extern void InterXactCacheCurrent(InterXactState state);
+extern void InterXactCacheAll(InterXactState state);
 extern void InterXactUtility(InterXactState state, Snapshot snapshot, const char *utility, StringInfo utility_tree);
 extern void InterXactBegin(InterXactState state, const List *node_list);
 extern void InterXactPrepare(const char *gid, Oid *nodes, int nnodes);

@@ -32,6 +32,7 @@
 #include "libpq/libpq-int.h"
 #ifdef ADB
 #include "pgxc/pause.h"
+#include "intercomm/inter-comm.h"
 #endif
 
 #define START_POOL_ALLOC	512
@@ -844,6 +845,8 @@ PoolManagerSetCommand(PoolCommandType command_type, const char *set_command)
 
 	if (poolHandle)
 	{
+		InterXactCacheAll(GetTopInterXactState());
+
 		pq_beginmessage(&buf, PM_MSG_SET_COMMAND);
 
 		/*
