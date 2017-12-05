@@ -2254,9 +2254,16 @@ ProcessUtilitySlow(Node *parsetree,
 				 */
 				if (((ViewStmt *) parsetree)->view->relpersistence != RELPERSISTENCE_TEMP)
 				{
-					utilityContext.exec_type = EXEC_ON_COORDS;
-					utilityContext.stmt = (Node *) parsetree;
-					ExecRemoteUtilityStmt(&utilityContext);
+					/* sometimes force be a temporary view, we need test again */
+					Relation rel = heap_open(address.objectId, NoLock);
+					bool need_remote = RelationUsesLocalBuffers(rel) ? false:true;
+					heap_close(rel, NoLock);
+					if(need_remote)
+					{
+						utilityContext.exec_type = EXEC_ON_COORDS;
+						utilityContext.stmt = (Node *) parsetree;
+						ExecRemoteUtilityStmt(&utilityContext);
+					}
 				}
 #endif
 				break;
