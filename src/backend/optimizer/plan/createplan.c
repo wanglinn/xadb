@@ -335,9 +335,17 @@ create_plan(PlannerInfo *root, Path *best_path)
 	 * nodes don't have a tlist matching the querytree targetlist.
 	 */
 #ifdef ADB
+	/* test is not:
+	 *   ModifyTable
+	 *   ClusterGather|ClusterMergeGather -> ModifyTable
+	 *   ClusterGather|ClusterMergeGather -> Reslut -> ModifyTable
+	 */
 	if (!IsA(plan, ModifyTable) &&
-		!(IsA(plan, ClusterGather) && IsA(outerPlan(plan), ModifyTable)) &&
-		!(IsA(plan, ClusterMergeGather) && IsA(outerPlan(plan), ModifyTable)))
+		!((IsA(plan, ClusterGather) || IsA(plan, ClusterMergeGather)) &&
+		  (IsA(outerPlan(plan), ModifyTable) ||
+		   (IsA(outerPlan(plan), Result) &&
+		    outerPlan(outerPlan(plan)) &&
+			IsA(outerPlan(outerPlan(plan)), ModifyTable)))))
 #else
 	if (!IsA(plan, ModifyTable))
 #endif /* ADB */
