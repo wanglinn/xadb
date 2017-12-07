@@ -21,7 +21,7 @@ ADB documentation
 
   <refsynopsisdiv>
 <synopsis>
-CLEAN GTM { MASTER | SLAVE | EXTRA } <replaceable class="parameter">node_name</replaceable>
+CLEAN GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
   <refsect1>
@@ -44,8 +44,8 @@ CLEAN GTM { MASTER | SLAVE | EXTRA } <replaceable class="parameter">node_name</r
           </para>
         </listitem>
       </varlistentry>
-		</variablelist>
-	</refsect1>
+    </variablelist>
+  </refsect1>
 
   <refsect1>
   <title>Examples</title>

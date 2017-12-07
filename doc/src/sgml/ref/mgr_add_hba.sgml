@@ -20,7 +20,7 @@ ADB documentation
   </indexterm>
 
   <refsynopsisdiv>
-	<synopsis>
+  <synopsis>
 ADD HBA { ALL | coord_name } ( "hba_value" [, ...] )
 
 <phrase>where hba_value must be the following:</phrase>

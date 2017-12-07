@@ -1,28 +1,27 @@
 <!--
-doc/src/sgml/ref/mgr_start_datanode.sgml
+doc/src/sgml/ref/mgr_promote_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STARTDATANODE">
+<refentry id="MGR-PROMOTEGTM">
   <refmeta>
-    <refentrytitle>START DATANODE</refentrytitle>
+    <refentrytitle>PROMOTE GTM</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>START DATANODE</refname>
-    <refpurpose>start the datanode node type on the ADB cluster</refpurpose>
+    <refname>PROMOTE GTM</refname>
+    <refpurpose>promote gtm slave to master</refpurpose>
   </refnamediv>
 
-  <indexterm zone="mgr-startdatanode">
-    <primary>START DATANODE</primary>
+  <indexterm zone="mgr-promotegtm">
+    <primary>PROMOTE GTM</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-START DATANODE ALL
-START DATANODE { MASTER | SLAVE } { ALL | <replaceable class="parameter">node_name</replaceable> [, ...] }
+PROMOTE GTM { MASTER | SLAVE } { <replaceable class="parameter">node_name</replaceable> }
 </synopsis>
   </refsynopsisdiv>
 
@@ -30,7 +29,7 @@ START DATANODE { MASTER | SLAVE } { ALL | <replaceable class="parameter">node_na
     <title>Description</title>
 
     <para>
-<command>START DATANODE</command> start the datanode node type on the ADB cluster.
+<command>PROMOTE GTM</command> promote gtm slave to master.
 </para>
   </refsect1>
   <refsect1>
@@ -53,15 +52,15 @@ START DATANODE { MASTER | SLAVE } { ALL | <replaceable class="parameter">node_na
     <title>Examples</title>
 
     <para>
-Start all datanode master:
-      <programlisting>START DATANODE MASTER ALL;</programlisting>
+Promote gtm slave datanode1 to master:
+      <programlisting>PROMOTE GTM SLAVE gtm1;</programlisting>
     </para>
   </refsect1>
       <refsect1>
     <title>See Also</title>
 
     <simplelist type="inline">
-      <member><xref linkend="mgr-stopdatanode"></member>
+      <member><xref linkend="mgr-adbmgrpromote"></member><member><xref linkend="mgr-promotedatanode"></member>
     </simplelist>
   </refsect1>
 

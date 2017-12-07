@@ -30,14 +30,14 @@ INIT ALL
 
     <para>
 <command>INIT ALL</command> initialize and start the ADB cluster,but the cluster must have node of gtm, coordinator, datanode master.
-    </para>	
+    </para>
   </refsect1>
 
   <refsect1>
     <title>Examples</title>
 
     <para>
-	  Initialize and start the ADB cluster:
+    Initialize and start the ADB cluster:
 <programlisting>
 init all;
 </programlisting>

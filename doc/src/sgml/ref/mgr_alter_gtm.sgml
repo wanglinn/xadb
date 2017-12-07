@@ -21,7 +21,7 @@ ADB documentation
 
   <refsynopsisdiv>
     <synopsis>
-ALTER GTM { MASTER | SLAVE | EXTRA } <replaceable class="parameter">node_name</replaceable> ( option )
+ALTER GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable> ( option )
 
 <phrase>where <replaceable class="parameter">option</replaceable> can be one of:</phrase>
 
@@ -87,7 +87,7 @@ ALTER GTM { MASTER | SLAVE | EXTRA } <replaceable class="parameter">node_name</r
           </para>
         </listitem>
       </varlistentry>
-	</variablelist>
+  </variablelist>
   </refsect1>
 
 
@@ -107,7 +107,7 @@ alter gtm slave gtm_name1(port = 5445);
 
     <simplelist type="inline">
       <member><xref linkend="mgr-alterdatanode"></member>
-	  <member><xref linkend="mgr-altercoordinator"></member>
+    <member><xref linkend="mgr-altercoordinator"></member>
     </simplelist>
   </refsect1>
 

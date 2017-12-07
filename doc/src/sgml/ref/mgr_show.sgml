@@ -26,14 +26,14 @@ ADB documentation
   </refsynopsisdiv>
 
   <refsect1>
-    <title>Description</title>	
+    <title>Description</title>
     <para>
       Show the value of the specifed parameter which is belong to the view of pg_settings,in addition it support fuzzy query.
     </para>
   </refsect1>
 
   <refsect1>
-    <title>Examples</title>	
+    <title>Examples</title>
     <para>
       Fuzzy query parameters with the sync:
 <programlisting>

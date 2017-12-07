@@ -1,28 +1,27 @@
 <!--
-doc/src/sgml/ref/mgr_start_datanode.sgml
+doc/src/sgml/ref/mgr_adbmgr_promote.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STARTDATANODE">
+<refentry id="MGR-ADBMGRPROMOTE">
   <refmeta>
-    <refentrytitle>START DATANODE</refentrytitle>
+    <refentrytitle>ADBMGR PROMOTE</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>START DATANODE</refname>
-    <refpurpose>start the datanode node type on the ADB cluster</refpurpose>
+    <refname>ADBMGR PROMOTE</refname>
+    <refpurpose>make slave as master type and delete the old master information in node table and param table</refpurpose>
   </refnamediv>
 
-  <indexterm zone="mgr-startdatanode">
-    <primary>START DATANODE</primary>
+  <indexterm zone="mgr-adbmgrpromote">
+    <primary>ADBMGR PROMOTE</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-START DATANODE ALL
-START DATANODE { MASTER | SLAVE } { ALL | <replaceable class="parameter">node_name</replaceable> [, ...] }
+ADBMGR PROMOTE { GTM | DATANODE } SLAVE <replaceable class="parameter">node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
 
@@ -30,7 +29,7 @@ START DATANODE { MASTER | SLAVE } { ALL | <replaceable class="parameter">node_na
     <title>Description</title>
 
     <para>
-<command>START DATANODE</command> start the datanode node type on the ADB cluster.
+<command>ADBMGR PROMOTE</command> make slave as master type and delete the old master information in node table and param table.
 </para>
   </refsect1>
   <refsect1>
@@ -53,15 +52,15 @@ START DATANODE { MASTER | SLAVE } { ALL | <replaceable class="parameter">node_na
     <title>Examples</title>
 
     <para>
-Start all datanode master:
-      <programlisting>START DATANODE MASTER ALL;</programlisting>
+Update datanode slave datanode1 in the node table and param table:
+      <programlisting>ADBMGR PROMOTE DATANODE SLAVE datanode1;</programlisting>
     </para>
   </refsect1>
       <refsect1>
     <title>See Also</title>
 
     <simplelist type="inline">
-      <member><xref linkend="mgr-stopdatanode"></member>
+      <member><xref linkend="mgr-promotedatanode"></member><member><xref linkend="mgr-promotegtm"></member>
     </simplelist>
   </refsect1>
 

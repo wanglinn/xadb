@@ -1,28 +1,27 @@
 <!--
-doc/src/sgml/ref/mgr_start_datanode.sgml
+doc/src/sgml/ref/mgr_rewind_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STARTDATANODE">
+<refentry id="MGR-REWINDDATANODE">
   <refmeta>
-    <refentrytitle>START DATANODE</refentrytitle>
+    <refentrytitle>REWIND DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>START DATANODE</refname>
-    <refpurpose>start the datanode node type on the ADB cluster</refpurpose>
+    <refname>REWIND DATANODE</refname>
+    <refpurpose>rewind datanode slave</refpurpose>
   </refnamediv>
 
-  <indexterm zone="mgr-startdatanode">
-    <primary>START DATANODE</primary>
+  <indexterm zone="mgr-rewinddatanode">
+    <primary>REWIND DATANODE</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-START DATANODE ALL
-START DATANODE { MASTER | SLAVE } { ALL | <replaceable class="parameter">node_name</replaceable> [, ...] }
+REWIND DATANODE SLAVE { <replaceable class="parameter">node_name</replaceable> }
 </synopsis>
   </refsynopsisdiv>
 
@@ -30,7 +29,7 @@ START DATANODE { MASTER | SLAVE } { ALL | <replaceable class="parameter">node_na
     <title>Description</title>
 
     <para>
-<command>START DATANODE</command> start the datanode node type on the ADB cluster.
+<command>REWIND DATANODE</command> rewind datanode slave.
 </para>
   </refsect1>
   <refsect1>
@@ -53,15 +52,15 @@ START DATANODE { MASTER | SLAVE } { ALL | <replaceable class="parameter">node_na
     <title>Examples</title>
 
     <para>
-Start all datanode master:
-      <programlisting>START DATANODE MASTER ALL;</programlisting>
+Rewind datanode slave datanode1:
+      <programlisting>REWIND DATANODE SLAVE datanode1;</programlisting>
     </para>
   </refsect1>
       <refsect1>
     <title>See Also</title>
 
     <simplelist type="inline">
-      <member><xref linkend="mgr-stopdatanode"></member>
+      <member><xref linkend="mgr-appenddatanode"></member>
     </simplelist>
   </refsect1>
 

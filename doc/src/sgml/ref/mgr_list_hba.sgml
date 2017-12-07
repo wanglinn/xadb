@@ -20,7 +20,7 @@ ADB documentation
   </indexterm>
 
   <refsynopsisdiv>
-	<synopsis>
+  <synopsis>
 LIST HBA [ coord_name [, ...] ]
 </synopsis>
 </refsynopsisdiv>

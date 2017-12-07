@@ -21,7 +21,8 @@ ADB documentation
 
   <refsynopsisdiv>
     <synopsis>
-ADD DATANODE { MASTER | SLAVE | EXTRA } [ IF NOT EXISTS ] <replaceable class="parameter">node_name</replaceable> ( <replaceable class="parameter">option</replaceable> )
+ADD DATANODE MASTER <replaceable class="parameter">master_name</replaceable> ( <replaceable class="parameter">option</replaceable> )
+ADD DATANODE SLAVE <replaceable class="parameter">slave_name</replaceable> FOR <replaceable class="parameter">master_name</replaceable> ( <replaceable class="parameter">option</replaceable> )
 
 <phrase>where <replaceable class="parameter">option</replaceable> must be the following:</phrase>
 
@@ -36,7 +37,7 @@ ADD DATANODE { MASTER | SLAVE | EXTRA } [ IF NOT EXISTS ] <replaceable class="pa
     <title>Description</title>
 
     <para>
-<command>ADD DATANODE</command> add one row datanode information in the node table.
+<command>ADD DATANODE</command> add one row datanode information in the node table. The slave's name must be different from master's.
     </para>
   </refsect1>
 
@@ -46,11 +47,22 @@ ADD DATANODE { MASTER | SLAVE | EXTRA } [ IF NOT EXISTS ] <replaceable class="pa
     <variablelist>
       <varlistentry>
         <term>
-          <replaceable class="parameter">node_name</replaceable>
+          <replaceable class="parameter">master_name</replaceable>
         </term>
         <listitem>
           <para>
-    Node name, corresponds to the name column in the node table.
+    Node name, the datanode master name in the node table.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">slave_name</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Node name, the datanode slave name in the node table.
           </para>
         </listitem>
       </varlistentry>
@@ -95,7 +107,7 @@ ADD DATANODE { MASTER | SLAVE | EXTRA } [ IF NOT EXISTS ] <replaceable class="pa
     Your data directory.
           </para>
         </listitem>
-      </varlistentry>  
+      </varlistentry>
     </variablelist>
   </refsect1>
 
@@ -103,7 +115,7 @@ ADD DATANODE { MASTER | SLAVE | EXTRA } [ IF NOT EXISTS ] <replaceable class="pa
   <refsect1>
     <title>Examples</title>
     <para>
-Add datandoe master (name is "datanode_name1") in the node table:
+Add datandoe master datanode_name1 in the node table:
       <programlisting>
 ADD DATANODE MASTER datanode_name1(HOST=localhost2, PORT=15535, PATH='/opt/ADB/db1');
 </programlisting>

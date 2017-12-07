@@ -21,14 +21,14 @@ ADB documentation
 
   <refsynopsisdiv>
 <synopsis>
-REMOVE GTM { SLAVE | EXTRA } <replaceable class="parameter">node_name</replaceable>
+REMOVE GTM SLAVE <replaceable class="parameter">node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
   <refsect1>
     <title>Description</title>
     <para>
     <command>REMOVE GTM</command> remove the given type gtm out of the cluster. If the type of gtm is running, it needs to be stopped first. The command just remove the type of gtm out of cluster, not delete the parameters information in param table. If you want to drop the type of gtm and its parameters, use "DROP GTM" to delete it.
-		It does not support "REMOVE GTM MASTER" now.
+    It does not support "REMOVE GTM MASTER" now.
     </para>
   </refsect1>
 
@@ -45,8 +45,8 @@ REMOVE GTM { SLAVE | EXTRA } <replaceable class="parameter">node_name</replaceab
           </para>
         </listitem>
       </varlistentry>
-		</variablelist>
-	</refsect1>
+    </variablelist>
+  </refsect1>
 
   <refsect1>
   <title>Examples</title>

@@ -21,8 +21,8 @@ ADB documentation
 
   <refsynopsisdiv>
     <synopsis>
-LIST NODE COORDINATOR
-LIST NODE DATANODE [ MASTER | SLAVE | EXTRA ]
+LIST NODE COORDINATOR [ MASTER | SLAVE ]
+LIST NODE DATANODE [ MASTER | SLAVE ]
 LIST NODE  [ ( <replaceable class="parameter">option</replaceable> ) ] [ <replaceable class="parameter">node_name</replaceable> [, ...] ]
 
 <phrase>where <replaceable class="parameter">option</replaceable> can be one of:</phrase>
@@ -59,7 +59,7 @@ LIST NODE  [ ( <replaceable class="parameter">option</replaceable> ) ] [ <replac
     <term><literal>HOST</literal></term>
     <listitem>
      <para>
-    	Your host name for install ADB cluster.
+      Your host name for install ADB cluster.
      </para>
     </listitem>
   </varlistentry>
@@ -130,7 +130,7 @@ LIST NODE  [ ( <replaceable class="parameter">option</replaceable> ) ] [ <replac
       Node name, corresponds to the name column in the node table.
       </para>
     </listitem>
-  </varlistentry>	
+  </varlistentry>
     </variablelist>
   </refsect1>
   <refsect1>
@@ -140,9 +140,9 @@ LIST NODE  [ ( <replaceable class="parameter">option</replaceable> ) ] [ <replac
 <programlisting>
 LIST NODE;
 </programlisting>
-	</para>
-	<para>
-	 List  the content of datanode_name1:
+  </para>
+  <para>
+   List  the content of datanode_name1:
 <programlisting>
 LIST NODE datanode_name1;
 </programlisting>

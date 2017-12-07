@@ -276,4 +276,111 @@
 
  </reference>
 
+<reference id="reference-manage">
+  <title>ADB Server manage</title>
+
+  <partintro>
+   <para>
+    This part contains reference information for ADB servers manage and
+    support utilities.
+   </para>
+  </partintro>
+
+   &mgrAdbmgrPromote;
+   &mgrAddCoordinator;
+   &mgrAddDatanode;
+   &mgrAddGtm;
+   &mgrAddHba;
+   &mgrAddHost;
+   &mgrAlterCoordinator;
+   &mgrAlterDatanode;
+   &mgrAlterGtm;
+   &mgrAlterHost;
+   &mgrAlterUser;
+   &mgrAppendActivateCoordinator
+   &mgrAppendCoordinator;
+   &mgrAppendCoordinatorTo
+   &mgrAppendDatanode;
+   &mgrAppendGtm;
+   &mgrCheckoutDnSatus;
+   &mgrCleanAll;
+   &mgrCleanCoordinator;
+   &mgrCleanDatanode;
+   &mgrCleanGtm;
+   &mgrConfigDatanode
+   &mgrCreateUser;
+   &mgrDeploy;
+   &mgrDropCoordinator;
+   &mgrDropDatanode;
+   &mgrDropGtm;
+   &mgrDropHba;
+   &mgrDropHost;
+   &mgrDropUser;
+   &mgrFailoverDatanode;
+   &mgrFailoverGtm;
+   &mgrFlushHost;
+   &mgrGrant;
+   &mgrInitAll;
+   &mgrListAcl;
+   &mgrListHba;
+   &mgrListHost;
+   &mgrListNode;
+   &mgrListParam;
+   &mgrMonitorAgent;
+   &mgrMonitorAll;
+   &mgrMonitorCoordinator;
+   &mgrMonitorDatanode;
+   &mgrMonitorGtm;
+   &mgrMonitorHa;
+   &mgrPromoteDatanode;
+   &mgrPromoteGtm;
+   &mgrRemoveCoordinator;
+   &mgrRemoveDatanode;
+   &mgrRemoveGtm;
+   &mgrResetCoordinator;
+   &mgrResetDatanode;
+   &mgrResetGtm;
+   &mgrRevoke;
+   &mgrRewindDatanode;
+   &mgrRewindGtm;
+   &mgrSetCoordinator;
+   &mgrSetDatanode;
+   &mgrSetGtm;
+   &mgrSetClusterInit;
+   &mgrShow;
+   &mgrStartAgent;
+   &mgrStartAll;
+   &mgrStartCoordinator;
+   &mgrStartDatanode;
+   &mgrStartGtm;
+   &mgrStopAgent;
+   &mgrStopAll;
+   &mgrStopCoordinator;
+   &mgrStopDatanode;
+   &mgrStopGtm;
+   &mgrSwitchoverDatanode
+   &mgrSwitchoverGtm
+</reference>
+
+<reference id="reference-monitor">
+  <title>ADB Server monitor</title>
+
+  <partintro>
+   <para>
+    This part contains reference information for ADB servers monitor and
+    support utilities.
+   </para>
+  </partintro>
+  
+   &monitorAddJob;
+   &monitorAddJobItem;
+   &monitorAlterJobItem;
+   &monitorAlterJob;
+   &monitorCleanData;
+   &monitorDropJobItem;
+   &monitorDropJob;
+   &monitorListJobItem;
+   &monitorListJob;
+</reference>
+
 </part>

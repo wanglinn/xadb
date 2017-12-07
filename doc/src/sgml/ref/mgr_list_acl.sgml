@@ -30,14 +30,14 @@ LIST ACL
 
     <para>
 <command>INIT ALL</command> show the user name and its permissions
-    </para>	
+    </para>
   </refsect1>
 
   <refsect1>
     <title>Examples</title>
 
     <para>
-	  Show all user name and its permissions:
+    Show all user name and its permissions:
 <programlisting>
 LIST ACL;
 </programlisting>
