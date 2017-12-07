@@ -533,7 +533,13 @@ StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *iterslot, TupleTabl
 	Assert(tuplestorestate);
 
 	context->fetch_count++;
-	if (context->fetch_count == 1)
+	/*
+	 * We copy the first iterslot to the dstslot and it will be returned to caller.
+	 *
+	 * If the dstslot is just the iterslot, it means the caller no need to obtain
+	 * the slot until now, it should be cached in the Tuplestorestate. see HandleCache.
+	 */
+	if (context->fetch_count == 1 && dstslot != iterslot)
 	{
 		dstslot = ExecCopySlot(dstslot, iterslot);
 		dstslot->tts_xcnodeoid = iterslot->tts_xcnodeoid;
