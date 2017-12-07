@@ -15,7 +15,7 @@ CATALOG(mgr_node,4813)
 	NameData	nodename;		/* node name */
 	Oid			nodehost;		/* node hostoid from host*/
 	char		nodetype;		/* node type */
-	NameData		nodesync;		/* node sync for slave/extra */
+	NameData		nodesync;		/* node sync for slave */
 	int32		nodeport;		/* node port */
 	bool		nodeinited;		/* is initialized */
 	Oid			nodemasternameoid;	/* 0 stands for the node is not slave*/
@@ -51,16 +51,11 @@ typedef FormData_mgr_node *Form_mgr_node;
 #define CNDN_TYPE_COORDINATOR_SLAVE			's'
 #define CNDN_TYPE_DATANODE_MASTER			'd'
 #define CNDN_TYPE_DATANODE_SLAVE			'b'
-#define CNDN_TYPE_DATANODE_EXTRA			'n'
-
-/*no nodetype has this type '\0'*/
-#define CNDN_TYPE_NONE_TYPE '\0'
 
 #define GTM_TYPE_GTM_MASTER			'g'
 #define GTM_TYPE_GTM_SLAVE			'p'
-#define GTM_TYPE_GTM_EXTRA			'e'
 
-/*CNDN_TYPE_DATANODE include : datanode master,slave ,extra*/
+/*CNDN_TYPE_DATANODE include : datanode master,slave*/
 #define CNDN_TYPE_COORDINATOR		'C'
 #define CNDN_TYPE_DATANODE		'D'
 #define CNDN_TYPE_GTM			'G'

@@ -328,7 +328,7 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 				}
 				do
 				{
-					if (CNDN_TYPE_NONE_TYPE == mastertype)
+					if (nodetype == mastertype)
 					{
 						namestrcpy(&sync_state_name, "");
 						break;
@@ -352,7 +352,7 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 						/*check the master of node has sync, if it has not ,set this as sync node*/
 						if (!hasSyncNode)
 						{
-							ereport(NOTICE, (errmsg("the master of this node has no synchronous slave or extra node, make this node as synchronous node")));
+							ereport(NOTICE, (errmsg("the master of this node has no synchronous slave node, make this node as synchronous node")));
 							namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_SYNC].name);
 						}
 						else
@@ -870,7 +870,7 @@ Datum mgr_drop_node_func(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 				 ,errmsg("%s \"%s\" has been initialized in the cluster, cannot be dropped", mgr_nodetype_str(nodetype), nodename)));
 	}
-	/*check the node has been used by its slave or extra*/
+	/*check the node has been used by its slave*/
 	if (CNDN_TYPE_DATANODE_MASTER == mgr_node->nodetype|| GTM_TYPE_GTM_MASTER == mgr_node->nodetype
 		|| CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype)
 	{
@@ -879,7 +879,7 @@ Datum mgr_drop_node_func(PG_FUNCTION_ARGS)
 			heap_freetuple(tuple);
 			heap_close(rel, RowExclusiveLock);
 			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
-					 ,errmsg("%s \"%s\" has been used by slave or extra, cannot be dropped", mgr_nodetype_str(nodetype), nodename)));
+					 ,errmsg("%s \"%s\" has been used by slave, cannot be dropped", mgr_nodetype_str(nodetype), nodename)));
 		}
 	}
 	namestrcpy(&syncData, NameStr(mgr_node->nodesync));
@@ -2213,7 +2213,7 @@ Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS)
 		mgr_node = (Form_mgr_node)GETSTRUCT(tup);
 		Assert(mgr_node);
 
-		/* if node type is datanode master ,datanode slave ,datanode extra. */
+		/* if node type is datanode master ,datanode slave. */
 		if (mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER || mgr_node->nodetype == CNDN_TYPE_DATANODE_SLAVE)
 		{
 			host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
@@ -2326,7 +2326,7 @@ Datum mgr_monitor_gtm_all(PG_FUNCTION_ARGS)
 		mgr_node = (Form_mgr_node)GETSTRUCT(tup);
 		Assert(mgr_node);
 
-		/* if node type is gtm master ,gtm slave ,gtm extra. */
+		/* if node type is gtm master ,gtm slave. */
 		if (mgr_node->nodetype == GTM_TYPE_GTM_MASTER || mgr_node->nodetype == GTM_TYPE_GTM_SLAVE)
 		{
 			host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
@@ -2391,7 +2391,7 @@ Datum mgr_monitor_gtm_all(PG_FUNCTION_ARGS)
 }
 
 /*
- * monitor nodetype(datanode master/slave/extra|coordinator|gtm master/slave/extra) namelist ...
+ * monitor nodetype(datanode master/slave|coordinator|gtm master/slave) namelist ...
  */
 Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 {
@@ -3014,7 +3014,7 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 			pfree(getAgentCmdRst.description.data);
 			pfree(infosendmsg.data);
 			heap_close(rel, AccessShareLock);
-			ereport(ERROR, (errmsg("datanode master \"%s\" has no sync slave or extra node, can not append this node as potential node", NameStr(nodename))));
+			ereport(ERROR, (errmsg("datanode master \"%s\" has no sync slave node, can not append this node as potential node", NameStr(nodename))));
 		}
 		heap_close(rel, AccessShareLock);
 		mgr_get_parent_appendnodeinfo(appendnodeinfo.nodemasteroid, &parentnodeinfo);
@@ -5160,6 +5160,8 @@ Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
 		, getAgentCmdRst.description.data);
 	ereport(LOG, (errmsg("the command for failover:\nresult is: %s\ndescription is: %s\n", getAgentCmdRst.ret == true ? "true" : "false", getAgentCmdRst.description.data)));
 	pfree(getAgentCmdRst.description.data);
+	heap_close(relNode, RowExclusiveLock);
+
 	return HeapTupleGetDatum(tup_result);
 }
 
@@ -5628,7 +5630,7 @@ void mgr_add_parameters_recoveryconf(char nodetype, char *slavename, Oid tupleoi
 
 /*
 * the parameters which need refresh for pg_hba.conf
-* gtm : include all gtm master/slave ip and all coordinators ip and datanode masters/slave/extra ip
+* gtm : include all gtm master/slave ip and all coordinators ip and datanode masters/slave ip
 *        replication include slave ip
 * coordinator: include all coordinators ip
 * datanode: include all coordinators ip, replication include slave ip
@@ -6266,7 +6268,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 			ereport(WARNING, (errmsg("refresh recovery.conf of agtm slave \"%s\" fail", NameStr(mgr_nodetmp->nodename))));
 			appendStringInfo(&recorderr, "refresh recovery.conf of agtm slave \"%s\" fail\n", NameStr(mgr_nodetmp->nodename));
 		}
-		/*restart gtm extra*/
+		/*restart gtm slave*/
 		ereport(LOG, (errmsg("agtm_ctl restart gtm slave \"%s\"", NameStr(mgr_nodetmp->nodename))));
 		resetStringInfo(&(getAgentCmdRst->description));
 		mgr_runmode_cndn_get_result(AGT_CMD_AGTM_RESTART, getAgentCmdRst, noderel, tuple, SHUTDOWN_F);
@@ -6289,8 +6291,8 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 }
 
 /*
-* datanode slave/extra failover, some work need to do.
-* cmd: failover datanode slave/extra dn1
+* datanode slave failover, some work need to do.
+* cmd: failover datanode slave dn1
 * 1.stop immediate old datanode master
 * 2.promote datanode slave to datanode master
 * 3.wait the new master accept connect
@@ -6298,7 +6300,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 * 5. refresh synchronous_standby_names for new master
 * 6.refresh node systbl: delete old master tuple and change slave type to master type
 * 7.update param systbl
-* 8.change the datanode  extra dn1's recovery.conf and restart it
+* 8.change the datanode  slave dn1's recovery.conf and restart it
 *
 */
 static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnname, int cndnport,char *hostaddress, Relation noderel, GetAgentCmdRst *getAgentCmdRst, HeapTuple aimtuple, char *cndnPath, char aimtuplenodetype, PGconn **pg_conn, Oid cnoid)
@@ -6557,7 +6559,7 @@ char *mgr_nodetype_str(char nodetype)
 			/*never come here*/
 			ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 				, errmsg("node is not recognized")
-				, errhint("option type is gtm or coordinator or datanode master/slave/extra")));
+				, errhint("option type is gtm or coordinator or datanode master/slave")));
 			break;
 	}
 	retstr = pstrdup(nodestring);
@@ -6582,7 +6584,7 @@ Datum mgr_clean_all(PG_FUNCTION_ARGS)
 			,errmsg("%s \"%s\" still running, please stop it before clean all", restypedata.data, resnamedata.data)
 			,errhint("try \"monitor all\" for more information")));
 
-	/*clean gtm master/slave/extra, clean coordinator, clean datanode master/slave/extra*/
+	/*clean gtm master/slave, clean coordinator, clean datanode master/slave*/
 	return mgr_prepare_clean_all(fcinfo);
 }
 /*
@@ -6764,7 +6766,7 @@ static Datum mgr_prepare_clean_all(PG_FUNCTION_ARGS)
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
 
-/*check the oid has been used by slave or extra*/
+/*check the oid has been used by slave*/
 static bool mgr_node_has_slave(Relation rel, Oid mastertupleoid)
 {
 	ScanKeyData key[1];
@@ -7363,7 +7365,7 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 
 
 	initStringInfo(&infosendmsg);
-	/*if nodetype is slave or extra, need modfify its postgresql.conf for port*/
+	/*if nodetype is slave, need modfify its postgresql.conf for port*/
 	if (GTM_TYPE_GTM_SLAVE == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype)
 	{
 		resetStringInfo(&infosendmsg);
@@ -7379,7 +7381,7 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 		resetStringInfo(&infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
 		mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
-		/*modify its slave/extra recovery.conf and datanodes coordinators postgresql.conf*/
+		/*modify its slave recovery.conf and datanodes coordinators postgresql.conf*/
 		ScanKeyInit(&key[0]
 					,Anum_mgr_node_nodeincluster
 					,BTEqualStrategyNumber
@@ -7719,7 +7721,7 @@ static bool mgr_modify_coord_pgxc_node(Relation rel_node, StringInfo infostrdata
 * 3. add new address in pg_hba.conf of all nodes and reload it
 * 4. refresh agtm_host of postgresql.conf in all coordinators and datanodes
 * 5. refresh all pgxc_node of all coordinators
-* 6. refresh recovery.conf of all slave and extra, then restart
+* 6. refresh recovery.conf of all slave, then restart
 */
 void mgr_flushhost(MGRFlushHost *node, ParamListInfo params, DestReceiver *dest)
 {
@@ -7812,7 +7814,7 @@ Datum mgr_flush_host(PG_FUNCTION_ARGS)
 	}
 	heap_endscan(rel_scan);
 
-	/*refresh recovery.conf of all slave and extra, then restart*/
+	/*refresh recovery.conf of all slave, then restart*/
 	ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodeincluster
 				,BTEqualStrategyNumber
@@ -10715,7 +10717,7 @@ void mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid exclude
 	heap_close(rel, AccessShareLock);
 }
 
-/*monitor ha, get the diff between master and slave, extra*/
+/*monitor ha, get the diff between master and slave*/
 Datum mgr_monitor_ha(PG_FUNCTION_ARGS)
 {
 	InitNodeInfo *info;

@@ -906,8 +906,7 @@ bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid)
 			userName = get_hostuser_from_hostoid(mgr_node->nodehost);
 			memset(portBuf, 0, 10);
 			sprintf(portBuf, "%d", mgr_node->nodeport);
-			if (GTM_TYPE_GTM_MASTER == nodetype || GTM_TYPE_GTM_SLAVE == nodetype 
-				|| GTM_TYPE_GTM_EXTRA == nodetype)
+			if (GTM_TYPE_GTM_MASTER == nodetype || GTM_TYPE_GTM_SLAVE == nodetype)
 				res = pingNode_user(hostAddr, portBuf, AGTM_USER);
 			else
 				res = pingNode_user(hostAddr, portBuf, userName);
@@ -1172,7 +1171,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 		return false;
 	}
 	
-	if (GTM_TYPE_GTM_SLAVE == nodetype || GTM_TYPE_GTM_EXTRA == nodetype)
+	if (GTM_TYPE_GTM_SLAVE == nodetype)
 	{
 		bGtmType = true;
 		cmdtype = AGT_CMD_AGTM_REWIND;

@@ -87,7 +87,7 @@ const char *const GucContext_Parmnames[] =
 	 /* PGC_INTERNAL */ "internal",
 	 /* PGC_POSTMASTER */ "postmaster",
 	 /* PGC_SIGHUP */ "sighup",
-         /* PGC_SU_BACKEND */ "super_backend",
+	/* PGC_SU_BACKEND */ "superuser-backend",
 	 /* PGC_BACKEND */ "backend",
 	 /* PGC_SUSET */ "superuser",
 	 /* PGC_USERSET */ "user"
@@ -550,7 +550,7 @@ static void mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 			ereport(NOTICE, (errcode(ERRCODE_CANT_CHANGE_RUNTIME_PARAM)
 				, errmsg("parameter \"%s\" cannot be changed", key->data)));
 	}
-	else if (strcasecmp(gucconntent, GucContext_Parmnames[PGC_BACKEND]) == 0)
+	else if (strcasecmp(gucconntent, GucContext_Parmnames[PGC_BACKEND]) == 0 || strcasecmp(gucconntent, GucContext_Parmnames[PGC_SU_BACKEND]) == 0)
 	{
 		*effectparmstatus = PGC_BACKEND;
 		if (bneednotice)
@@ -821,7 +821,7 @@ void mgr_add_parm(char *nodename, char nodetype, StringInfo infosendparamsg)
 	else if (CNDN_TYPE_DATANODE_MASTER == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype)
 		allnodetype = CNDN_TYPE_DATANODE;
 	else
-		allnodetype = CNDN_TYPE_COORDINATOR_MASTER;
+		allnodetype = CNDN_TYPE_COORDINATOR;
 	/*first: add the parameter which the nodename is '*' with allnodetype*/
 	namestrcpy(&nodenamedata, MACRO_STAND_FOR_ALL_NODENAME);
 	namestrcpy(&nodenamedatacheck, nodename);
@@ -1276,7 +1276,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 			else if (CNDN_TYPE_DATANODE_MASTER == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype)
 				allnodetype = CNDN_TYPE_DATANODE;
 			else
-				allnodetype = CNDN_TYPE_COORDINATOR_MASTER;
+				allnodetype = CNDN_TYPE_COORDINATOR;
 			namestrcpy(&nodenametmp, MACRO_STAND_FOR_ALL_NODENAME);
 			bneedinsert = false;
 			ScanKeyInit(&scankey[0],

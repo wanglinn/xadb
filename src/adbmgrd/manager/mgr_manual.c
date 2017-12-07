@@ -284,7 +284,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 }
 
 /*
-* promote the datanode slave|extra or gtm slave|extra to master
+* promote the datanode slave or gtm slave to master
 *
 */
 
@@ -596,7 +596,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 		appendStringInfo(&infosendmsg, " start -Z datanode -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
 	
 		ereport(NOTICE, (errmsg("pg_ctl %s", infosendmsg.data)));
-		if (GTM_TYPE_GTM_SLAVE == nodetype || GTM_TYPE_GTM_EXTRA == nodetype)
+		if (GTM_TYPE_GTM_SLAVE == nodetype)
 			res = mgr_ma_send_cmd(AGT_CMD_GTM_START_SLAVE, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
 		else
 			res = mgr_ma_send_cmd(AGT_CMD_DN_START, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
@@ -1338,8 +1338,8 @@ static bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, c
 
 
 /*
-* datanode switchover, command format: switchover datanode slave|extra datanode_name [force]
-* gtm switchover, command format: switchover gtm slave|extra datanode_name [force]
+* datanode switchover, command format: switchover datanode slave datanode_name [force]
+* gtm switchover, command format: switchover gtm slave datanode_name [force]
 */
 
 Datum mgr_switchover_func(PG_FUNCTION_ARGS)
@@ -1417,7 +1417,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		bgtmKind = false;
 		masterType = CNDN_TYPE_DATANODE_MASTER;
 		namestrcpy(&masterTypeStrData, "datanode master");
-		namestrcpy(&nodeTypeStrData, nodeType == CNDN_TYPE_DATANODE_SLAVE ? "datanode slave":"datanode extra");
+		namestrcpy(&nodeTypeStrData, "datanode slave");
 	}
 	else
 	{
@@ -1843,7 +1843,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		ereport(LOG, (errmsg("rollback start:")));
 		ereport(NOTICE, (errmsg("rollback start:")));
 
-		ereport(WARNING, (errmsg("exchange the node type for %s \"%s\" and %s \"%s\" in node table fail, exchange them manual, include: nodetype, sync_state, mastername !!! use \"monitor all\", \"monitor ha\" to check nodes status; make the other datanode slave or datanode extra \"%s\" as new slave or extra for new %s: refresh its recovery.conf and its mastername in node table !!!", masterTypeStrData.data, nodeMasterNameData.data, nodeTypeStrData.data, nodeNameData.data, nodeNameData.data, masterTypeStrData.data)));
+		ereport(WARNING, (errmsg("exchange the node type for %s \"%s\" and %s \"%s\" in node table fail, exchange them manual, include: nodetype, sync_state, mastername !!! use \"monitor all\", \"monitor ha\" to check nodes status; make the other datanode slave \"%s\" as new slave for new %s: refresh its recovery.conf and its mastername in node table !!!", masterTypeStrData.data, nodeMasterNameData.data, nodeTypeStrData.data, nodeNameData.data, nodeNameData.data, masterTypeStrData.data)));
 		
 		pfree(strerr.data);
 		pfree(infosendmsg.data);
@@ -2324,7 +2324,7 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 	mgr_append_pgconf_paras_str_int("agtm_port", cndnport, &infosendmsg);
 
 
-	/*refresh datanode master/slave/extra reload agtm_port, agtm_host*/
+	/*refresh datanode master/slave reload agtm_port, agtm_host*/
 	ScanKeyInit(&key[0],
 		Anum_mgr_node_nodeincluster
 		,BTEqualStrategyNumber
