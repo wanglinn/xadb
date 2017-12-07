@@ -43,16 +43,16 @@
 typedef struct RemoteQueryContext
 {
 	RemoteQueryState   *node;
-	TupleTableSlot	   *slot;
+	TupleTableSlot	   *dest_slot;
 	bool				fetch_batch;
 	uint64				fetch_count;
 } RemoteQueryContext;
 
 static List *RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes);
-static TupleTableSlot *InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slot);
+static TupleTableSlot *InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *destslot);
 static bool HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node);
 static TupleTableSlot *RestoreRemoteSlot(const char *buf, int len, TupleTableSlot *slot, Oid node_id);
-static bool StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *iterslot, TupleTableSlot *dstslot);
+static bool StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *iterslot, TupleTableSlot *destslot);
 static bool HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len);
 static bool RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 static TupleDesc CreateRemoteTupleDesc(MemoryContext context, const char *msg, int len);
@@ -217,7 +217,7 @@ GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQuer
 }
 
 TupleTableSlot *
-StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
+StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot)
 {
 	RemoteQuery	   *step;
 	List		   *node_list;
@@ -251,11 +251,11 @@ StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 	node->cur_handles = list_copy(state->mix_handle->handles);
 	node->all_handles = list_concat_unique_ptr(node->all_handles, node->cur_handles);
 
-	return InterXactQuery(state, node, slot);
+	return InterXactQuery(state, node, destslot);
 }
 
 static TupleTableSlot *
-InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slot)
+InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *destslot)
 {
 	NodeMixHandle	   *mix_handle;
 	NodeHandle		   *handle;
@@ -305,12 +305,12 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slo
 			eof_tuplestore = tuplestore_ateof(tuplestorestate);
 			if (!eof_tuplestore)
 			{
-				if (!tuplestore_get_remotetupleslot(tuplestorestate, true, false, slot))
+				if (!tuplestore_get_remotetupleslot(tuplestorestate, true, false, destslot))
 					eof_tuplestore = true;
 			}
 			/* try to get the first no-null slot */
 			if (eof_tuplestore)
-				slot = HandleFetchRemote(pr_handle, node, slot, true, false);
+				destslot = HandleFetchRemote(pr_handle, node, destslot, true, false);
 		}
 
 		foreach (lc_handle, mix_handle->handles)
@@ -335,7 +335,7 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *slo
 		PG_RE_THROW();
 	} PG_END_TRY();
 
-	return slot;
+	return destslot;
 }
 
 static bool
@@ -440,15 +440,15 @@ HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node)
 }
 
 TupleTableSlot *
-FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
+FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot)
 {
 	RemoteQueryContext	context;
 	Tuplestorestate	   *tuplestorestate;
 	bool				eof_tuplestore;
 	List			   *handle_list = NIL;
 
-	Assert(node && slot);
-	ExecClearTuple(slot);
+	Assert(node && destslot);
+	ExecClearTuple(destslot);
 
 	tuplestorestate = node->tuplestorestate;
 	Assert(tuplestorestate);
@@ -456,7 +456,7 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 	eof_tuplestore = tuplestore_ateof(tuplestorestate);
 	if (!eof_tuplestore)
 	{
-		if (!tuplestore_get_remotetupleslot(tuplestorestate, true, false, slot))
+		if (!tuplestore_get_remotetupleslot(tuplestorestate, true, false, destslot))
 			eof_tuplestore = true;
 	}
 
@@ -464,7 +464,7 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 	{
 		handle_list = node->cur_handles;
 		context.node = node;
-		context.slot = slot;
+		context.dest_slot = destslot;
 		if (node->eflags & EXEC_FLAG_REWIND)
 			context.fetch_batch = true;
 		else
@@ -474,29 +474,29 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot)
 		PQNListExecFinish(handle_list, HandleGetPGconn, RemoteQueryFinishHook, &context, true);
 	}
 
-	return slot;
+	return destslot;
 }
 
 TupleTableSlot *
-HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *slot, bool blocking, bool batch)
+HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *destslot, bool blocking, bool batch)
 {
 	RemoteQueryContext	context;
 	PGconn			   *conn;
 
-	Assert(handle && node && slot);
+	Assert(handle && node && destslot);
 	Assert(handle->node_conn);
 	conn = handle->node_conn;
 
-	ExecClearTuple(slot);
+	ExecClearTuple(destslot);
 
 	context.node = node;
-	context.slot = slot;
+	context.dest_slot = destslot;
 	context.fetch_batch = batch;
 	context.fetch_count = 0;
 
 	PQNOneExecFinish(handle->node_conn, RemoteQueryFinishHook, &context, blocking);
 
-	return slot;
+	return destslot;
 }
 
 static TupleTableSlot *
@@ -513,7 +513,7 @@ RestoreRemoteSlot(const char *buf, int len, TupleTableSlot *slot, Oid node_id)
 }
 
 static bool
-StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *iterslot, TupleTableSlot *dstslot)
+StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *iterslot, TupleTableSlot *destslot)
 {
 	Tuplestorestate	   *tuplestorestate;
 	RemoteQueryState   *node;
@@ -522,7 +522,7 @@ StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *iterslot, TupleTabl
 
 	if (TupIsNull(iterslot))
 	{
-		ExecClearTuple(dstslot);
+		ExecClearTuple(destslot);
 		return false;
 	}
 
@@ -534,15 +534,15 @@ StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *iterslot, TupleTabl
 
 	context->fetch_count++;
 	/*
-	 * We copy the first iterslot to the dstslot and it will be returned to caller.
+	 * We copy the first iterslot to the destslot and it will be returned to caller.
 	 *
-	 * If the dstslot is just the iterslot, it means the caller no need to obtain
+	 * If the destslot is just the iterslot, it means the caller no need to obtain
 	 * the slot until now, it should be cached in the Tuplestorestate. see HandleCache.
 	 */
-	if (context->fetch_count == 1 && dstslot != iterslot)
+	if (context->fetch_count == 1 && destslot != iterslot)
 	{
-		dstslot = ExecCopySlot(dstslot, iterslot);
-		dstslot->tts_xcnodeoid = iterslot->tts_xcnodeoid;
+		destslot = ExecCopySlot(destslot, iterslot);
+		destslot->tts_xcnodeoid = iterslot->tts_xcnodeoid;
 	} else
 	{
 		if (context->fetch_batch)
@@ -568,20 +568,20 @@ static bool
 HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len)
 {
 	RemoteQueryState   *node;
-	TupleTableSlot	   *slot;
+	TupleTableSlot	   *destSlot;
 	TupleTableSlot	   *scanSlot;
-	TupleTableSlot	   *nextSlot;
+	TupleTableSlot	   *iterSlot;
 	PlanState		   *ps;
 	NodeHandle		   *handle;
 	bool				ret = false;
 
 	Assert(context && buf);
 	node = context->node;
-	slot = context->slot;
+	destSlot = context->dest_slot;
 	ps = &(node->ss.ps);
 	Assert(node && node->recvState);
 	scanSlot = node->ss.ss_ScanTupleSlot;
-	nextSlot = node->nextSlot;
+	iterSlot = node->iterSlot;
 	handle = (NodeHandle *) (conn->custom);
 
 	switch (buf[0])
@@ -591,20 +591,20 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 		 * correctly when ExecInitRemoteQuery, such as, select count(1) from x.
 		 *
 		 * so, we are care about tuple description message from other node and
-		 * reset it at right time. nextSlot and convertSlot are the same.
+		 * reset it at right time. iterSlot and convertSlot are the same.
 		 */
 		case CLUSTER_MSG_TUPLE_DESC:
 			if (node->description_count++ == 0)
 			{
-				TupleDesc desc = CreateRemoteTupleDesc(slot->tts_mcxt, buf, len);
-				ExecSetSlotDescriptor(slot, desc);
-				if (slot == scanSlot)
+				TupleDesc desc = CreateRemoteTupleDesc(destSlot->tts_mcxt, buf, len);
+				ExecSetSlotDescriptor(destSlot, desc);
+				if (destSlot == scanSlot)
 				{
-					ExecSetSlotDescriptor(nextSlot, desc);
+					ExecSetSlotDescriptor(iterSlot, desc);
 
 					/* construct cluster receive state */
 					Assert(node->recvState && !node->recvState->convert);
-					node->recvState->convert = create_type_convert(slot->tts_tupleDescriptor, false, true);
+					node->recvState->convert = create_type_convert(destSlot->tts_tupleDescriptor, false, true);
 					if (node->recvState->convert)
 					{
 						node->recvState->convert_slot = node->convertSlot;
@@ -618,7 +618,7 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 				}
 			} else
 			{
-				compare_slot_head_message(buf + 1, len - 1, slot->tts_tupleDescriptor);
+				compare_slot_head_message(buf + 1, len - 1, destSlot->tts_tupleDescriptor);
 			}
 			break;
 		case CLUSTER_MSG_CONVERT_DESC:
@@ -633,9 +633,9 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 			break;
 		case CLUSTER_MSG_TUPLE_DATA:
 			{
-				(void) RestoreRemoteSlot(buf + 1, len - 1, nextSlot, handle->node_id);
-				nextSlot->tts_xcnodeoid = handle->node_id;
-				ret = StoreRemoteSlot(context, nextSlot, slot);
+				(void) RestoreRemoteSlot(buf + 1, len - 1, iterSlot, handle->node_id);
+				iterSlot->tts_xcnodeoid = handle->node_id;
+				ret = StoreRemoteSlot(context, iterSlot, destSlot);
 			}
 			break;
 		case CLUSTER_MSG_CONVERT_TUPLE:
@@ -648,14 +648,14 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 				restore_slot_message(buf + 1, len - 1, node->recvState->convert_slot);
 				do_type_convert_slot_in(node->recvState->convert,
 										node->recvState->convert_slot,
-										nextSlot,
+										iterSlot,
 										node->recvState->slot_need_copy_datum);
-				nextSlot->tts_xcnodeoid = handle->node_id;
-				ret = StoreRemoteSlot(context, nextSlot, slot);
+				iterSlot->tts_xcnodeoid = handle->node_id;
+				ret = StoreRemoteSlot(context, iterSlot, destSlot);
 			}
 			break;
 		default:
-			ret = clusterRecvTuple(slot, buf, len, ps, conn);
+			ret = clusterRecvTuple(destSlot, buf, len, ps, conn);
 			Assert(!ret);
 			break;
 	}

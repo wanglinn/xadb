@@ -141,9 +141,9 @@ extern void EndFinishPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool
 /* src/backend/intercomm/inter-query.c */
 extern struct PGcustumFuns *InterQueryCustomFuncs;
 extern List *GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQueryExecType exec_type);
-extern TupleTableSlot *StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot);
-extern TupleTableSlot *FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *slot);
-extern TupleTableSlot *HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *slot,
+extern TupleTableSlot *StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot);
+extern TupleTableSlot *FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot);
+extern TupleTableSlot *HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *destslot,
 										 bool blocking, bool batch);
 extern void CloseRemoteStatement(const char *stmt_name, Oid *nodes, int nnodes);
 

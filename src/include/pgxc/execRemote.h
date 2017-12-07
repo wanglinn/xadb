@@ -71,7 +71,7 @@ typedef struct RemoteQueryState
 	ScanState	ss;						/* its first field is NodeTag */
 	List	   *cur_handles;			/* current participating nodes */
 	List	   *all_handles;			/* all participating nodes */
-	TupleTableSlot *nextSlot;			/* used to keep next scan slot */
+	TupleTableSlot *iterSlot;			/* used to keep slot as an iterator, see HandleCopyOutData */
 	TupleTableSlot *convertSlot;		/* used to convert scan slot if needed */
 	struct ClusterRecvState *recvState;		/* used to convert scan slot if needed */
 	CombineType combine_type;			/* see CombineType enum */

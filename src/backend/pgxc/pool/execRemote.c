@@ -329,8 +329,8 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	ExecInitScanTupleSlot(estate, &rqstate->ss);
 	scan_type = ExecTypeFromTL(node->base_tlist, false);
 	ExecAssignScanType(&rqstate->ss, scan_type);
-	rqstate->nextSlot = ExecInitExtraTupleSlot(estate);
-	ExecSetSlotDescriptor(rqstate->nextSlot, scan_type);
+	rqstate->iterSlot = ExecInitExtraTupleSlot(estate);
+	ExecSetSlotDescriptor(rqstate->iterSlot, scan_type);
 	rqstate->convertSlot = ExecInitExtraTupleSlot(estate);
 	ExecSetSlotDescriptor(rqstate->convertSlot, scan_type);
 
@@ -551,7 +551,7 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 	if (node->tuplestorestate != NULL)
 		ExecClearTuple(node->ss.ss_ScanTupleSlot);
 
-	ExecClearTuple(node->nextSlot);
+	ExecClearTuple(node->iterSlot);
 	ExecClearTuple(node->convertSlot);
 	freeClusterRecvState(node->recvState);
 

@@ -263,15 +263,15 @@ HandleCache(NodeHandle *handle)
 	if (IsA(handle->node_owner, RemoteQueryState))
 	{
 		RemoteQueryState   *node;
-		TupleTableSlot	   *nextSlot;
+		TupleTableSlot	   *iterSlot;
 
 		node = (RemoteQueryState *) handle->node_owner;
 
-		nextSlot = node->nextSlot;
+		iterSlot = node->iterSlot;
 		for (;;)
 		{
-			nextSlot = HandleFetchRemote(handle, node, nextSlot, true, true);
-			if (TupIsNull(nextSlot))
+			iterSlot = HandleFetchRemote(handle, node, iterSlot, true, true);
+			if (TupIsNull(iterSlot))
 				break;
 		}
 	}
