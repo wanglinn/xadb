@@ -485,6 +485,11 @@ standard_ExecutorEnd(QueryDesc *queryDesc)
 	UnregisterSnapshot(estate->es_snapshot);
 	UnregisterSnapshot(estate->es_crosscheck_snapshot);
 
+#ifdef ADB
+	/* do away with our reduce cleanup */
+	UnregisterReduceCleanup();
+#endif
+
 	/*
 	 * Must switch out of context before destroying it
 	 */
@@ -861,7 +866,7 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 #ifdef ADB
 		estate->es_result_remoterel = NULL;
 #endif
-		
+
 	}
 	else
 	{
@@ -873,7 +878,7 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 		estate->es_result_relation_info = NULL;
 #ifdef ADB
 		estate->es_result_remoterel = NULL;
-#endif		
+#endif
 	}
 
 	/*

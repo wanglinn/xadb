@@ -2180,7 +2180,8 @@ typedef struct ClusterReduceState
 	List		   *closed_remote;	/* list of remote reduce which tell MSG_PLAN_CLOSE */
 	bool			eof_underlying; /* reached end of underlying plan? */
 	bool			eof_network;	/* reached end of network? */
-	bool			started;
+	bool			started;		/* set true while ExecClusterReduce */
+	bool			ended;			/* set true while ExecEndClusterReduce */
 	int				nrdcs;			/* number of reduce group */
 	int				neofs;			/* number of EOF messages */
 	HTAB		   *rdc_htab;

@@ -86,6 +86,7 @@
 #include "commands/trigger.h"
 #include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
+#include "executor/nodeClusterReduce.h"
 #include "intercomm/inter-node.h"
 #include "libpq/libpq-node.h"
 #include "nodes/nodes.h"
@@ -4482,6 +4483,11 @@ PostgresMain(int argc, char *argv[],
 		debug_query_string = NULL;
 
 #ifdef ADB
+		/*
+		 * Make sure all ClusterReduceState will disconnect with self reduce.
+		 */
+		ReduceCleanup();
+
 		/* Mark transaction abort with error */
 		SetXactErrorAborted(true);
 

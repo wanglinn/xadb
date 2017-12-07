@@ -14,6 +14,8 @@
 
 extern bool enable_cluster_plan;
 
+static List *reduce_cleanup = NIL;
+
 #define PlanGetTargetNodes(plan)	\
 	((ClusterReduce *) (plan))->reduce_oids
 
@@ -28,9 +30,38 @@ static TupleTableSlot *GetMergeSlotFromOuter(ClusterReduceState *node, ReduceEnt
 static TupleTableSlot *GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry);
 static TupleTableSlot *ExecClusterMergeReduce(ClusterReduceState *node);
 static void WaitForServerFIN(RdcPort *port);
+static void DisConnectSelfReduce(ClusterReduceState *node);
 static void DriveClusterReduce(ClusterReduceState *node);
 static bool DriveHashJoinState(HashJoinState *node, void *context);
 static bool DriveClusterReduceWalker(PlanState *node, void *context);
+
+void
+RegisterReduceCleanup(void *crstate)
+{
+	reduce_cleanup = lappend(reduce_cleanup, crstate);
+}
+
+void
+UnregisterReduceCleanup(void)
+{
+	list_free(reduce_cleanup);
+	reduce_cleanup = NIL;
+}
+
+void
+ReduceCleanup(void)
+{
+	ClusterReduceState	   *node;
+	ListCell			   *lc;
+
+	foreach (lc, reduce_cleanup)
+	{
+		node = (ClusterReduceState *) lfirst(lc);
+		DisConnectSelfReduce(node);
+	}
+
+	UnregisterReduceCleanup();
+}
 
 static void
 ExecInitClusterReduceStateExtra(ClusterReduceState *crstate)
@@ -113,6 +144,8 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate->closed_remote = NIL;
 	crstate->eof_underlying = false;
 	crstate->eof_network = false;
+	crstate->started = false;
+	crstate->ended = false;
 
 	ExecInitResultTupleSlot(estate, &crstate->ps);
 	ExecAssignExprContext(estate, &crstate->ps);
@@ -177,6 +210,8 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 		crstate->convert_slot = ExecAllocTableSlot(&estate->es_tupleTable);
 		ExecSetSlotDescriptor(crstate->convert_slot, crstate->convert->out_desc);
 	}
+
+	RegisterReduceCleanup(crstate);
 
 	return crstate;
 }
@@ -599,8 +634,12 @@ WaitForServerFIN(RdcPort *port)
 	}
 }
 
-void ExecEndClusterReduce(ClusterReduceState *node)
+static void
+DisConnectSelfReduce(ClusterReduceState *node)
 {
+	if (node->ended)
+		return ;
+
 	/*
 	 * if either of these(node->eof_underlying and node->eof_network)
 	 * is false, it means local backend doesn't fetch all tuple (include
@@ -619,6 +658,13 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 	}
 	WaitForServerFIN(node->port);
 	rdc_freeport(node->port);
+
+	node->ended = true;
+}
+
+void ExecEndClusterReduce(ClusterReduceState *node)
+{
+	DisConnectSelfReduce(node);
 	node->port = NULL;
 	node->eof_network = false;
 	node->eof_underlying = false;
@@ -634,9 +680,13 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 			node->rdc_entrys[i]->re_store = NULL;
 		}
 		pfree(node->rdc_entrys);
+		node->rdc_entrys = NULL;
 	}
 	if (node->rdc_htab)
+	{
 		hash_destroy(node->rdc_htab);
+		node->rdc_htab = NULL;
+	}
 
 	ExecEndNode(outerPlanState(node));
 }
