@@ -4490,7 +4490,14 @@ PostgresMain(int argc, char *argv[],
 
 		/* Mark transaction abort with error */
 		SetXactErrorAborted(true);
+#endif
 
+		/*
+		 * Abort the current transaction in order to recover.
+		 */
+		AbortCurrentTransaction();
+
+#ifdef ADB
 		/* Disconnect with rxact manager process */
 		DisconnectRemoteXact();
 
@@ -4502,14 +4509,8 @@ PostgresMain(int argc, char *argv[],
 
 		/* Make sure the old PGconn will dump the trash data */
 		PQNReleaseAllConnect();
-#endif
 
-		/*
-		 * Abort the current transaction in order to recover.
-		 */
-		AbortCurrentTransaction();
-
-#ifdef ADB
+		/* reset xact error abort */
 		SetXactErrorAborted(false);
 #endif
 

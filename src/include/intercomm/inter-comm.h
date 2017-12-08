@@ -94,7 +94,6 @@ typedef struct InterXactStateData
 	char				   *gid;
 	bool					missing_ok;
 	bool					implicit;
-	bool					ignore_error;
 	bool					need_xact_block;
 	Oid					   *trans_nodes;		/* array of remote nodes already start transaction */
 	int						trans_count;		/* remote nodes count */

@@ -254,8 +254,6 @@ HandleDetachPGconn(NodeHandle *handle)
 		//PQfinish(handle->node_conn);
 		HandleGC(handle);
 		handle->node_conn = NULL;
-		handle->node_context = NULL;
-		handle->node_owner = NULL;
 		if (handle->node_type == TYPE_CN_NODE)
 			NumCnConns--;
 		else
@@ -459,6 +457,47 @@ ConcatMixHandle(NodeMixHandle *mix1, NodeMixHandle *mix2)
 	mix1->handles = list_concat_unique(mix1->handles, mix2->handles);
 
 	return mix1;
+}
+
+List *
+GetHandleList(MemoryContext mem_context, const Oid *nodes, int nnodes,
+			  bool include_self, bool attatch, void *context)
+{
+	MemoryContext	old_context;
+	NodeHandle	   *handle;
+	List		   *handle_list = NIL;
+	List		   *id_need = NIL;
+	List		   *handle_need = NIL;
+	int				i;
+
+	if (nnodes <= 0)
+		return NIL;
+
+	mem_context = mem_context ? mem_context : CurrentMemoryContext;
+	old_context = MemoryContextSwitchTo(mem_context);
+	for (i = 0; i < nnodes; i++)
+	{
+		if (!include_self && nodes[i] == PGXCNodeOid)
+			continue;
+		handle = GetNodeHandle(nodes[i], false, context);
+		if (handle)
+		{
+			handle_list = lappend(handle_list, handle);
+			if (attatch && PQstatus(handle->node_conn) != CONNECTION_OK)
+			{
+				/* detach old PGconn if exists */
+				HandleDetachPGconn(handle);
+				id_need = lappend_oid(id_need, nodes[i]);
+				handle_need = lappend(handle_need, handle);
+			}
+		}
+	}
+	GetPGconnAttatchToHandle(id_need, handle_need);
+	list_free(id_need);
+	list_free(handle_need);
+	(void) MemoryContextSwitchTo(old_context);
+
+	return handle_list;
 }
 
 void

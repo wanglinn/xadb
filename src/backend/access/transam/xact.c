@@ -2630,7 +2630,6 @@ PrepareTransaction(void)
 	TimestampTz prepared_at;
 #ifdef ADB
 	InterXactState is = s->interXactState;
-	bool isimplicit = !(s->blockState == TBLOCK_PREPARE);
 	int nodecnt = 0;
 	Oid	*nodeIds = NULL;
 #endif
@@ -2714,11 +2713,7 @@ PrepareTransaction(void)
 	 * cases, such as a temp table created and dropped all within the
 	 * transaction.  That seems to require much more bookkeeping though.
 	 */
-#ifdef ADB
-	if (MyXactAccessedTempRel && !isimplicit)
-#else
 	if (MyXactAccessedTempRel)
-#endif
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("cannot PREPARE a transaction that has operated on temporary tables")));
@@ -2761,7 +2756,7 @@ PrepareTransaction(void)
 
 	gxact = MarkAsPreparing(xid, prepareGID, prepared_at,
 							GetUserId(), MyDatabaseId,
-							nodecnt, nodeIds, isimplicit);
+							nodecnt, nodeIds, false);
 
 	StartRemoteXactPrepare(prepareGID, nodeIds, nodecnt);
 

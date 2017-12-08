@@ -1116,6 +1116,9 @@ StartRemoteXactPrepare(const char *gid, Oid *nodes, int count)
  * xact will COMMIT or SUCCESS PREPARE after all nodes truly prepare.
  *
  * It means we tell remote xact manager we step into the second phase.
+ *
+ * Notes:
+ *	   It is just for explicit 2PC transaction.
  */
 void
 EndRemoteXactPrepare(TransactionId xid, GlobalTransaction gxact)
