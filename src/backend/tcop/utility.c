@@ -877,9 +877,18 @@ standard_ProcessUtility(Node *parsetree,
 			/* forbidden in parallel mode due to CommandIsReadOnly */
 			cluster((ClusterStmt *) parsetree, isTopLevel);
 #ifdef ADB
-			utilityContext.force_autocommit = true;
-			utilityContext.exec_type = EXEC_ON_DATANODES;
-			ExecRemoteUtilityStmt(&utilityContext);
+			if (IsCoordMaster())
+			{
+				Relation rel = relation_openrv(((ClusterStmt*)parsetree)->relation, NoLock);
+				bool need_remote = RelationGetLocInfo(rel) != NULL;
+				relation_close(rel, NoLock);
+				if(need_remote)
+				{
+					utilityContext.force_autocommit = true;
+					utilityContext.exec_type = EXEC_ON_DATANODES;
+					ExecRemoteUtilityStmt(&utilityContext);
+				}
+			}
 #endif
 			break;
 
