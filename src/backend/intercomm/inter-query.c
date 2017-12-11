@@ -445,6 +445,8 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot)
 	RemoteQueryContext	context;
 	Tuplestorestate	   *tuplestorestate;
 	bool				eof_tuplestore;
+	ListCell		   *lc_handle;
+	NodeHandle		   *handle;
 	List			   *handle_list = NIL;
 
 	Assert(node && destslot);
@@ -471,6 +473,16 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot)
 			context.fetch_batch = false;
 		context.fetch_count = 0;
 
+		/* check sanity for the owner of the current handles */
+		foreach (lc_handle, handle_list)
+		{
+			handle = (NodeHandle *) lfirst(lc_handle);
+			/* if the owner is not "node" now, cache it */
+			if (handle->node_owner && handle->node_owner != node)
+				HandleCache(handle);
+			handle->node_owner = node;
+		}
+
 		PQNListExecFinish(handle_list, HandleGetPGconn, RemoteQueryFinishHook, &context, true);
 	}
 
@@ -484,6 +496,7 @@ HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *de
 	PGconn			   *conn;
 
 	Assert(handle && node && destslot);
+	Assert(handle->node_owner && handle->node_owner == node);
 	Assert(handle->node_conn);
 	conn = handle->node_conn;
 
