@@ -2756,7 +2756,7 @@ PrepareTransaction(void)
 
 	gxact = MarkAsPreparing(xid, prepareGID, prepared_at,
 							GetUserId(), MyDatabaseId,
-							nodecnt, nodeIds, false);
+							nodecnt, nodeIds);
 
 	StartRemoteXactPrepare(prepareGID, nodeIds, nodecnt);
 
@@ -2939,6 +2939,12 @@ NormalAbortRemoteXact(TransactionState state)
 	/* we are now in phase 2 */
 	if (IsXactInPhaseTwo(state))
 	{
+		/*
+		 * It is not possible that we do rollback prepared
+		 * transaction here.
+		 */
+		Assert(false);
+#if 0
 		const char *gid;
 		Assert(state->interXactState);
 		gid = state->interXactState->gid;
@@ -2946,6 +2952,7 @@ NormalAbortRemoteXact(TransactionState state)
 		PreventTransactionChain(true, "ROLLBACK IMPLICIT PREPARED");
 		FinishPreparedTransactionExt(gid, false, false);
 		SetXactPhaseOne(state);
+#endif
 	}
 	/* we are now in phase 1 */
 	else

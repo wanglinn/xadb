@@ -3064,7 +3064,7 @@ DESCR("view system lock information");
 DATA(insert OID = 2561 (  pg_blocking_pids PGNSP PGUID 12 1 0 0 0 f f f f t f v s 1 0 1007 "23" _null_ _null_ _null_ _null_ _null_ pg_blocking_pids _null_ _null_ _null_ ));
 DESCR("get array of PIDs of sessions blocking specified backend PID");
 #ifdef ADB
-DATA(insert OID = 3371 (  pg_prepared_xact PGNSP PGUID 12 1 1000 0 0 f f f f t t v s 0 0 2249 "" "{28,25,1184,26,26,16,30}" "{o,o,o,o,o,o,o}" "{transaction,gid,prepared,ownerid,dbid,implicit,rnodes}" _null_ _null_ pg_prepared_xact _null_ _null_ _null_ ));
+DATA(insert OID = 3371 (  pg_prepared_xact PGNSP PGUID 12 1 1000 0 0 f f f f t t v s 0 0 2249 "" "{28,25,1184,26,26,30}" "{o,o,o,o,o,o}" "{transaction,gid,prepared,ownerid,dbid,rnodes}" _null_ _null_ pg_prepared_xact _null_ _null_ _null_ ));
 #else
 DATA(insert OID = 1065 (  pg_prepared_xact PGNSP PGUID 12 1 1000 0 0 f f f f t t v s 0 0 2249 "" "{28,25,1184,26,26}" "{o,o,o,o,o}" "{transaction,gid,prepared,ownerid,dbid}" _null_ _null_ pg_prepared_xact _null_ _null_ _null_ ));
 #endif

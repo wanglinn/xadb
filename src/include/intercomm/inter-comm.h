@@ -134,7 +134,7 @@ extern void InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool missing
 
 extern void RemoteXactCommit(int nnodes, Oid *nodes);
 extern void RemoteXactAbort(int nnodes, Oid *nodes, bool normal);
-extern void StartFinishPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool isImplicit, bool isCommit);
+extern void StartFinishPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool isCommit);
 extern void EndFinishPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool isMissingOK, bool isCommit);
 
 /* src/backend/intercomm/inter-query.c */

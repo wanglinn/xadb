@@ -892,7 +892,6 @@ void
 StartFinishPreparedRxact(const char *gid,
 						 int nnodes,
 						 Oid *nodes,
-						 bool isImplicit,
 						 bool isCommit)
 {
 	if (!IsCoordMaster())
@@ -904,22 +903,12 @@ StartFinishPreparedRxact(const char *gid,
 	AssertArg(gid && gid[0]);
 
 	/*
-	 * Record rollback prepared transaction log
+	 * Record commit/rollback prepared transaction log
 	 */
-	if (!isCommit)
-	{
-		RecordRemoteXact(gid, nodes, nnodes, RX_ROLLBACK, false);
-		return ;
-	}
-
-	/*
-	 * Remote xact manager has already recorded log
-	 * if it is implicit commit prepared transaction.
-	 *
-	 * See EndRemoteXactPrepare.
-	 */
-	if (!isImplicit)
+	if (isCommit)
 		RecordRemoteXact(gid, nodes, nnodes, RX_COMMIT, false);
+	else
+		RecordRemoteXact(gid, nodes, nnodes, RX_ROLLBACK, false);
 }
 
 /*

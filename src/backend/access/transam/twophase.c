@@ -170,7 +170,6 @@ typedef struct GlobalTransactionData
 	bool		ondisk;			/* TRUE if prepare state file is on disk */
 	char		gid[GIDSIZE];	/* The GID assigned to the prepared xact */
 #ifdef ADB
-	bool		isimplicit;		/* TRUE if current xact is implicit 2PC */
 	int			node_cnt;		/* Number of involved nodes */
 	Oid		   *nodeIds;		/* Oid of involved nodes */
 #endif
@@ -404,7 +403,7 @@ GlobalTransaction
 MarkAsPreparing(TransactionId xid, const char *gid,
 				TimestampTz prepared_at,
 				Oid owner, Oid databaseid,
-				int nodecnt, Oid *nodeIds, bool isimplicit)
+				int nodecnt, Oid *nodeIds)
 #else
 MarkAsPreparing(TransactionId xid, const char *gid,
 				TimestampTz prepared_at, Oid owner, Oid databaseid)
@@ -499,7 +498,6 @@ MarkAsPreparing(TransactionId xid, const char *gid,
 	gxact->ondisk = false;
 	strcpy(gxact->gid, gid);
 #ifdef ADB
-	gxact->isimplicit = isimplicit;
 	gxact->node_cnt = nodecnt;
 	if (gxact->node_cnt > 0)
 	{
@@ -805,7 +803,7 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 		/* build tupdesc for result tuples */
 		/* this had better match pg_prepared_xacts view in system_views.sql */
 #ifdef ADB
-		tupdesc = CreateTemplateTupleDesc(7, false);
+		tupdesc = CreateTemplateTupleDesc(6, false);
 #else
 		tupdesc = CreateTemplateTupleDesc(5, false);
 #endif
@@ -820,9 +818,7 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "dbid",
 						   OIDOID, -1, 0);
 #ifdef ADB
-		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "implicit",
-						   BOOLOID, -1, 0);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 7, "rnodes",
+		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "rnodes",
 						   OIDVECTOROID, -1, 0);
 #endif
 
@@ -850,8 +846,8 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 		PGPROC	   *proc = &ProcGlobal->allProcs[gxact->pgprocno];
 		PGXACT	   *pgxact = &ProcGlobal->allPgXact[gxact->pgprocno];
 #ifdef ADB
-		Datum		values[7];
-		bool		nulls[7];
+		Datum		values[6];
+		bool		nulls[6];
 #else
 		Datum		values[5];
 		bool		nulls[5];
@@ -877,14 +873,13 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 		values[3] = ObjectIdGetDatum(gxact->owner);
 		values[4] = ObjectIdGetDatum(proc->databaseId);
 #ifdef ADB
-		values[5] = BoolGetDatum(gxact->isimplicit);
 		if (gxact->node_cnt <= 0)
 		{
-			nulls[6] = true;
+			nulls[5] = true;
 		} else
 		{
 			nodes = buildoidvector(gxact->nodeIds, gxact->node_cnt);
-			values[6] = PointerGetDatum(nodes);
+			values[5] = PointerGetDatum(nodes);
 		}
 #endif
 
@@ -1020,7 +1015,6 @@ typedef struct TwoPhaseFileHeader
 	int32		ninvalmsgs;		/* number of cache invalidation messages */
 #ifdef ADB
 	int32		nnodes;			/* number of nodes involved in current xact */
-	bool		isimplicit;		/* true if current xact is implicit 2PC */
 #endif
 	bool		initfileinval;	/* does relcache init file need invalidation? */
 	uint16		gidlen;			/* length of the GID - GID follows the header */
@@ -1123,7 +1117,7 @@ StartRemoteXactPrepare(const char *gid, Oid *nodes, int count)
 void
 EndRemoteXactPrepare(TransactionId xid, GlobalTransaction gxact)
 {
-	EndRemoteXactPrepareExt(xid, gxact->gid, gxact->nodeIds, gxact->node_cnt, gxact->isimplicit);
+	EndRemoteXactPrepareExt(xid, gxact->gid, gxact->nodeIds, gxact->node_cnt, false);
 }
 
 /*
@@ -1205,7 +1199,6 @@ StartPrepare(GlobalTransaction gxact)
 	hdr.gidlen = strlen(gxact->gid) + 1;		/* Include '\0' */
 #ifdef ADB
 	hdr.nnodes = gxact->node_cnt;
-	hdr.isimplicit = gxact->isimplicit;
 #endif
 
 	save_state_data(&hdr, sizeof(TwoPhaseFileHeader));
@@ -1658,7 +1651,6 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 	StartFinishPreparedRxact(gid,
 							 hdr->nnodes,
 							 nodeIds,
-							 hdr->isimplicit,
 							 isCommit);
 #endif
 
@@ -2300,7 +2292,7 @@ RecoverPreparedTransactions(void)
 			gxact = MarkAsPreparing(xid, gid,
 									hdr->prepared_at,
 									hdr->owner, hdr->database,
-									hdr->nnodes, nodeIds, hdr->isimplicit);
+									hdr->nnodes, nodeIds);
 #else
 			gxact = MarkAsPreparing(xid, gid,
 									hdr->prepared_at,
