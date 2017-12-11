@@ -2297,7 +2297,9 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 											 subpath->pathkeys,
 							make_tlist_from_pathtarget(subpath->pathtarget));
 
-		if (need_limit || subquery->sortClause)
+		if ((need_limit || subquery->sortClause) &&
+			!IsReduceInfoListReplicated(get_reduce_info_list(subpath)) &&
+			!IsReduceInfoListInOneNode(get_reduce_info_list(subpath)))
 		{
 			subpath = create_cluster_reduce_path(root,
 												 subpath,

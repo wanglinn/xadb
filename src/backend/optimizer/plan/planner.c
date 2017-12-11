@@ -2316,6 +2316,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 	foreach(lc, current_rel->cluster_pathlist)
 	{
 		Path *path = lfirst(lc);
+		List *reduce_info_list = get_reduce_info_list(path);
 		bool have_gather;
 
 		if (parse->rowMarks)
@@ -2326,12 +2327,14 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		have_gather = have_cluster_gather_path(path, NULL);
 		if(!have_gather && limit_needed(parse))
 		{
-			if(parse->limitOffset == NULL)
+			if (IsReduceInfoListReplicated(reduce_info_list) ||
+				IsReduceInfoListInOneNode(reduce_info_list))
 			{
 				path = (Path*) create_limit_path(root, final_rel, path,
-					NULL /* parse->limitOffset is NULL */,
-					parse->limitCount,
-					offset_est, count_est);
+												 parse->limitOffset,
+												 parse->limitCount,
+												 offset_est,
+												 count_est);
 			}
 		}
 
@@ -2376,6 +2379,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				set_modifytable_path_reduceinfo(root, modify, parse->resultRelation);
 				modify->under_cluster = true;
 				path = (Path*)modify;
+				reduce_info_list = get_reduce_info_list(path);
 			}else
 			{
 				break;
@@ -2386,7 +2390,9 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		{
 			if(!have_gather)
 			{
-				if(parse->sortClause)
+				if (parse->sortClause &&
+					!IsReduceInfoListInOneNode(reduce_info_list) &&
+					!IsReduceInfoListReplicated(reduce_info_list))
 				{
 					Assert(pathkeys_contained_in(root->sort_pathkeys, path->pathkeys));
 					path = (Path*)create_cluster_merge_gather_path(root,
@@ -2403,7 +2409,9 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				path = (Path*)create_sort_path(root, final_rel, path, root->sort_pathkeys, -1.0);
 			}
 
-			if(limit_needed(parse))
+			if (limit_needed(parse) &&
+				!IsReduceInfoListReplicated(reduce_info_list) &&
+				!IsReduceInfoListInOneNode(reduce_info_list))
 				path = (Path*) create_limit_path(root, final_rel, path,
 												 parse->limitOffset,
 												 parse->limitCount,
@@ -2412,7 +2420,9 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			add_path(final_rel, path);
 		}else
 		{
-			if(limit_needed(parse))
+			if (limit_needed(parse) &&
+				!IsReduceInfoListReplicated(reduce_info_list) &&
+				!IsReduceInfoListInOneNode(reduce_info_list))
 			{
 				List *pathkeys = NIL;
 				if(parse->sortClause)
