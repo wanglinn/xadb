@@ -45,8 +45,8 @@ extern void ClusterSyncXid(void);
 extern char *HandleGetError(NodeHandle *handle, bool copy);
 extern void HandleGC(NodeHandle *handle);
 extern void HandleListGC(List *handle_list);
-extern void HandleCache(NodeHandle *handle);
-extern void HandleListCache(List *handle_list);
+extern void HandleCacheOrGC(NodeHandle *handle);
+extern void HandleListCacheOrGC(List *handle_list);
 extern bool HandleListFinishCommand(const List *handle_list, const char *commandTag);
 extern bool HandleFinishCommand(NodeHandle *handle, const char *commandTag);
 extern int HandleBegin(InterXactState state,

@@ -318,7 +318,7 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	/*
 	 * tuplestorestate of RemoteQueryState is for two purposes,
 	 * one is rescan (see ExecRemoteQueryReScan), the other is cache
-	 * (see HandleCache)
+	 * (see HandleCacheOrGC)
 	 */
 	rqstate->tuplestorestate = tuplestore_begin_remoteheap(false, false, work_mem);
 	tuplestore_set_eflags(rqstate->tuplestorestate, rqstate->eflags);

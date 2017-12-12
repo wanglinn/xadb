@@ -354,8 +354,8 @@ HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node)
 	 * it is best to cache data from the handle and make it clean for the
 	 * new owner.
 	 */
-	if (handle->node_owner && handle->node_owner != node)
-		HandleCache(handle);
+	if (!handle->node_owner || handle->node_owner != node)
+		HandleCacheOrGC(handle);
 	handle->node_owner = node;
 
 	/*
@@ -478,8 +478,8 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
 			/* if the owner is not "node" now, cache it */
-			if (handle->node_owner && handle->node_owner != node)
-				HandleCache(handle);
+			if (!handle->node_owner || handle->node_owner != node)
+				HandleCacheOrGC(handle);
 			handle->node_owner = node;
 		}
 
@@ -550,7 +550,7 @@ StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *iterslot, TupleTabl
 	 * We copy the first iterslot to the destslot and it will be returned to caller.
 	 *
 	 * If the destslot is just the iterslot, it means the caller no need to obtain
-	 * the slot until now, it should be cached in the Tuplestorestate. see HandleCache.
+	 * the slot until now, it should be cached in the Tuplestorestate. see HandleCacheOrGC.
 	 */
 	if (context->fetch_count == 1 && destslot != iterslot)
 	{

@@ -588,7 +588,7 @@ InterXactCacheCurrent(InterXactState state)
 	Assert(state);
 	mix_handle = state->mix_handle;
 	if (mix_handle)
-		HandleListCache(mix_handle->handles);
+		HandleListCacheOrGC(mix_handle->handles);
 }
 
 /*
@@ -604,7 +604,7 @@ InterXactCacheAll(InterXactState state)
 	Assert(state);
 	all_handle = state->all_handle;
 	if (all_handle)
-		HandleListCache(all_handle->handles);
+		HandleListCacheOrGC(all_handle->handles);
 }
 
 /*

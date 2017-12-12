@@ -243,13 +243,13 @@ HandleListGC(List *handle_list)
 }
 
 /*
- * HandleCache
+ * HandleCacheOrGC
  *
  * cache remote tuple for NodeHandle
  *
  */
 void
-HandleCache(NodeHandle *handle)
+HandleCacheOrGC(NodeHandle *handle)
 {
 	if (!handle || !handle->node_owner)
 	{
@@ -278,13 +278,13 @@ HandleCache(NodeHandle *handle)
 }
 
 /*
- * HandleListCache
+ * HandleListCacheOrGC
  *
  * cache remote tuple for NodeHandle List
  *
  */
 void
-HandleListCache(List *handle_list)
+HandleListCacheOrGC(List *handle_list)
 {
 	NodeHandle	   *handle;
 	ListCell	   *lc_handle;
@@ -292,7 +292,7 @@ HandleListCache(List *handle_list)
 	foreach (lc_handle, handle_list)
 	{
 		handle = (NodeHandle *) lfirst(lc_handle);
-		HandleCache(handle);
+		HandleCacheOrGC(handle);
 	}
 }
 
@@ -310,7 +310,7 @@ HandleBegin(InterXactState state, NodeHandle *handle,
 			bool need_xact_block, bool *already_begin)
 {
 	/* cache or GC */
-	HandleCache(handle);
+	HandleCacheOrGC(handle);
 
 	if (!HandleSendBegin(handle, xid, timestamp, need_xact_block, already_begin))
 		return 0;
@@ -549,7 +549,7 @@ HandleSendQueryTree(NodeHandle *handle,
 	}
 
 	/* cache or GC */
-	HandleCache(handle);
+	HandleCacheOrGC(handle);
 
 	return HandleSendCID(handle, cid) &&
 		   HandleSendSnapshot(handle, snapshot) &&
@@ -588,7 +588,7 @@ HandleSendQueryExtend(NodeHandle *handle,
 	Assert(handle);
 
 	/* cache or GC */
-	HandleCache(handle);
+	HandleCacheOrGC(handle);
 
 	paramTypeNames = (const char **) palloc0(nParams * sizeof(const char *));
 	for (i = 0; i < nParams; i++)
