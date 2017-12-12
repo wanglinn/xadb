@@ -620,7 +620,8 @@ ExecProcNode(PlanState *node)
 		InstrStopNode(node->instrument, TupIsNull(result) ? 0.0 : 1.0);
 
 #ifdef ADB
-	if (TupIsNull(result))
+	if (TupIsNull(result) ||
+		(IsA(node, AggState) && ((AggState *) node)->agg_done))
 		TopDownDriveClusterReduce(node);
 #endif
 
