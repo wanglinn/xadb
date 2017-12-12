@@ -243,8 +243,7 @@ CreateRxactAgent(pgsocket agent_fd)
 static void
 RxactMgrQuickdie(SIGNAL_ARGS)
 {
-	PG_SETMASK(&BlockSig);
-	exit(2);
+	exit(0);
 }
 
 static void RxactMarkAutoTransaction(void)
@@ -516,7 +515,7 @@ static void RemoteXactBaseInit(void)
 	 * Properly accept or ignore signals the postmaster might send us
 	 */
 	pqsignal(SIGINT, SIG_IGN);
-	pqsignal(SIGTERM, die);
+	pqsignal(SIGTERM, RxactMgrQuickdie);
 	pqsignal(SIGQUIT, RxactMgrQuickdie);
 	pqsignal(SIGHUP, RxactHupHandler);
 	/* TODO other signal handlers */
@@ -842,10 +841,20 @@ static void RxactSaveLog(bool flush)
 static void
 on_exit_rxact_mgr(int code, Datum arg)
 {
-	closesocket(rxact_server_fd);
-	rxact_server_fd = PGINVALID_SOCKET;
-	RxactSaveLog(true);
-	DestroyRemoteConnHashTab();
+	if(rxact_server_fd != PGINVALID_SOCKET)
+	{
+		closesocket(rxact_server_fd);
+		rxact_server_fd = PGINVALID_SOCKET;
+	}
+	if (htab_rxid != NULL &&
+		htab_db_node != NULL &&
+		htab_remote_node != NULL &&
+		rxlf_db_node != -1 &&
+		rxlf_remote_node != -1)
+	{
+		RxactSaveLog(true);
+		DestroyRemoteConnHashTab();
+	}
 	if(rxlf_db_node != -1)
 	{
 		FileClose(rxlf_db_node);
@@ -1584,7 +1593,7 @@ static void rxact_mark_gid(const char *gid, RemoteXactType type, bool success, b
 		resetStringInfo(&rxlf_xlog_buf);
 		appendStringInfoChar(&rxlf_xlog_buf, (char)type);
 		appendStringInfoString(&rxlf_xlog_buf, gid);
-		rxact_xlog_insert(rxlf_xlog_buf.data, rxlf_xlog_buf.len+1, RXACT_MSG_SUCCESS, false);
+		rxact_xlog_insert(rxlf_xlog_buf.data, rxlf_xlog_buf.len+1, RXACT_MSG_SUCCESS, true);
 	}
 
 	rinfo = hash_search(htab_rxid, gid, HASH_FIND, &found);
