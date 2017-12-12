@@ -90,6 +90,9 @@ static Plan *create_join_plan(PlannerInfo *root, JoinPath *best_path);
 static Plan *create_append_plan(PlannerInfo *root, AppendPath *best_path);
 static Plan *create_merge_append_plan(PlannerInfo *root, MergeAppendPath *best_path);
 static Result *create_result_plan(PlannerInfo *root, ResultPath *best_path);
+#ifdef ADB
+static Result *create_filter_plan(PlannerInfo *root, FilterPath *best_path);
+#endif /* ADB */
 static Material *create_material_plan(PlannerInfo *root, MaterialPath *best_path,
 					 int flags);
 static Plan *create_unique_plan(PlannerInfo *root, UniquePath *best_path,
@@ -424,6 +427,13 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 				plan = (Plan *) create_minmaxagg_plan(root,
 												(MinMaxAggPath *) best_path);
 			}
+#ifdef ADB
+			else if (IsA(best_path, FilterPath))
+			{
+				plan = (Plan*)create_filter_plan(root,
+												 (FilterPath*)best_path);
+			}
+#endif /* ADB */
 			else
 			{
 				Assert(IsA(best_path, ResultPath));
@@ -1225,6 +1235,30 @@ create_result_plan(PlannerInfo *root, ResultPath *best_path)
 
 	return plan;
 }
+
+#ifdef ADB
+static Result *create_filter_plan(PlannerInfo *root, FilterPath *best_path)
+{
+	Result	   *plan;
+	List	   *tlist;
+	List	   *quals;
+
+	tlist = build_path_tlist(root, &best_path->path);
+
+	/* best_path->quals is just bare clauses */
+	quals = order_qual_clauses(root, best_path->quals);
+
+	plan = make_result(tlist, NULL, NULL);
+	plan->plan.qual = quals;
+
+	copy_generic_path_info(&plan->plan, (Path *) best_path);
+
+	if(best_path->subpath)
+		outerPlan(plan) = create_plan_recurse(root, best_path->subpath, 0);
+
+	return plan;
+}
+#endif /* ADB */
 
 /*
  * create_material_plan

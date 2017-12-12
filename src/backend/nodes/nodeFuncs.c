@@ -4064,6 +4064,7 @@ bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
 		CHECK_LIST_PATH(MergeAppendPath, subpaths);
 		break;
 	case T_ResultPath:
+	case T_FilterPath:
 		WALK_CHILD_PATH(ResultPath, subpath);
 		break;
 	case T_MaterialPath:

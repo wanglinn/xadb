@@ -1599,6 +1599,8 @@ typedef struct ReduceScanPath
 	List	   *rescan_clauses;
 }ReduceScanPath;
 
+typedef ResultPath FilterPath;
+
 #endif /* ADB */
 
 /*

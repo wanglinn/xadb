@@ -55,6 +55,7 @@
  *   SetOpState
  *   LockRowsState
  *   LimitState
+ *   RemoteCopyState
  *   RemoteQueryState
  *   ClusterGatherState
  *   ClusterMergeGatherState
@@ -1836,6 +1837,10 @@ BEGIN_NODE(ReduceScanPath)
 	NODE_NODE(List,rescan_clauses)
 END_NODE(ReduceScanPath)
 #endif /* NO_NODE_ReduceScanPath */
+
+#ifndef NO_NODE_FilterPath
+NODE_SAME(FilterPath, ResultPath)
+#endif /* NO_NODE_FilterPath */
 
 #endif
 
@@ -3888,6 +3893,7 @@ END_NODE(MGRAlterHost)
 #ifndef NO_NODE_MGRAddNode
 BEGIN_NODE(MGRAddNode)
 	NODE_SCALAR(char,nodetype)
+	NODE_STRING(mastername)
 	NODE_STRING(name)
 	NODE_NODE(List,options)
 END_NODE(MGRAddNode)

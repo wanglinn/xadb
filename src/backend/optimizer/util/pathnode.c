@@ -1815,6 +1815,64 @@ create_result_path(PlannerInfo *root, RelOptInfo *rel,
 	return pathnode;
 }
 
+#ifdef ADB
+FilterPath *create_filter_path(PlannerInfo *root, RelOptInfo *rel,
+				   PathTarget *target, List *quals)
+{
+	ResultPath *filter = create_result_path(root, rel, target, quals);
+	filter->path.type = T_FilterPath;
+	return filter;
+}
+
+Path *replicate_to_one_node(PlannerInfo *root, RelOptInfo *rel, Path *path, List *target_oids)
+{
+	FilterPath *filter;
+	ListCell *lc;
+	List *source_oids;
+	List *reduce_list = get_reduce_info_list(path);
+	Oid target = InvalidOid;
+
+	Assert(reduce_list && IsReduceInfoListReplicated(reduce_list));
+	source_oids = ReduceInfoListGetExecuteOidList(reduce_list);
+	if(list_length(source_oids) == 1)
+		return path;
+
+	foreach(lc, source_oids)
+	{
+		if (list_member_oid(target_oids, lfirst_oid(lc)))
+		{
+			target = lfirst_oid(lc);
+			break;
+		}
+	}
+	if(target == InvalidOid)
+	{
+		source_oids = SortOidList(source_oids);
+		target = linitial_oid(source_oids);
+	}
+	if(target == InvalidOid)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Can not found valid OID for target")));
+	}
+	list_free(source_oids);
+
+	filter = create_filter_path(root,
+								rel,
+								path->pathtarget,
+								list_make1(CreateNodeOidEqualOid(target)));
+	filter->subpath = path;
+
+	source_oids = list_make1_oid(target);
+	filter->path.reduce_info_list = list_make1(MakeReplicateReduceInfo(source_oids));
+	list_free(source_oids);
+	filter->path.reduce_is_valid = true;
+
+	return (Path*)filter;
+}
+#endif /* ADB */
+
 /*
  * create_material_path
  *	  Creates a path corresponding to a Material plan, returning the

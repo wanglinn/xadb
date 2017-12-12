@@ -307,6 +307,7 @@ typedef enum NodeTag
 	T_ClusterMergeGatherPath,
 	T_ClusterReducePath,
 	T_ReduceScanPath,
+	T_FilterPath,
 #endif
 	/* these aren't subclasses of Path: */
 	T_EquivalenceClass,
