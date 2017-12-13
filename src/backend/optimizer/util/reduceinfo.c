@@ -2010,13 +2010,19 @@ static oidvector *makeOidVector(List *list)
 	oidvector *oids;
 	ListCell *lc;
 	Size i;
+	int length;
+	int size;
 
 	Assert(list != NIL && IsA(list, OidList));
-	oids = palloc0(offsetof(oidvector, values) + list_length(list) * sizeof(Oid));
+
+	length = list_length(list);
+	size = offsetof(oidvector, values) + (length) * sizeof(Oid);
+
+	oids = palloc0(size);
 	oids->ndim = 1;
 	oids->dataoffset = 0;
 	oids->elemtype = OIDOID;
-	oids->dim1 = list_length(list);
+	oids->dim1 = length;
 	oids->lbound1 = 0;
 	i = 0;
 	foreach(lc, list)
@@ -2024,7 +2030,7 @@ static oidvector *makeOidVector(List *list)
 		oids->values[i] = lfirst_oid(lc);
 		++i;
 	}
-	SET_VARSIZE(oids, sizeof(Oid)*list_length(list));
+	SET_VARSIZE(oids, size);
 
 	return oids;
 }
