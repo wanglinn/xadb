@@ -2340,13 +2340,29 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 
 		if (parse->commandType != CMD_SELECT && !inheritance_update)
 		{
-			if (parse->rowMarks == NIL &&
-				parse->withCheckOptions == NIL &&
-				(parse->onConflict == NULL || parse->onConflict->action == ONCONFLICT_NOTHING) &&
-				rti_is_base_rel(root, parse->resultRelation) &&
-				!has_row_triggers(root, parse->resultRelation, parse->commandType))
+			ModifyTablePath *modify;
+			if (parse->withCheckOptions ||
+				rti_is_base_rel(root, parse->resultRelation) == false ||
+				has_row_triggers(root, parse->resultRelation, parse->commandType))
+				break;
+
+			if (is_remote_relation(root, parse->resultRelation) == false)
 			{
-				ModifyTablePath *modify;
+				if(root->parent_root == NULL)
+				{
+					path = (Path*)create_cluster_gather_path(path, final_rel);
+					have_gather = true;
+				}else
+				{
+					path = (Path*)create_cluster_reduce_path(root,
+															 path,
+															 list_make1(MakeCoordinatorReduceInfo()),
+															 final_rel,
+															 NIL);
+				}
+			}else if (parse->rowMarks == NIL &&
+					  (parse->onConflict == NULL || parse->onConflict->action == ONCONFLICT_NOTHING))
+			{
 				if (parse->commandType == CMD_INSERT)
 				{
 					Path *reduce_path = reduce_to_relation_insert(root, parse->resultRelation, path);
@@ -2363,27 +2379,27 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 						path = reduce_path;
 					}
 				}
-				modify =
-					create_modifytable_path(root, final_rel,
-											parse->commandType,
-											parse->canSetTag,
-											parse->resultRelation,
-											list_make1_int(parse->resultRelation),
-											list_make1(path),
-											list_make1(root),
-											NIL,	/* no check options */
-											parse->returningList ? list_make1(parse->returningList) : NIL,
-											NIL,	/* no row marks */
-											parse->onConflict,
-											SS_assign_special_param(root));
-				set_modifytable_path_reduceinfo(root, modify, parse->resultRelation);
-				modify->under_cluster = true;
-				path = (Path*)modify;
-				reduce_info_list = get_reduce_info_list(path);
 			}else
 			{
 				break;
 			}
+			modify =
+				create_modifytable_path(root, final_rel,
+										parse->commandType,
+										parse->canSetTag,
+										parse->resultRelation,
+										list_make1_int(parse->resultRelation),
+										list_make1(path),
+										list_make1(root),
+										NIL,	/* no check options */
+										parse->returningList ? list_make1(parse->returningList) : NIL,
+										NIL,	/* no row marks */
+										parse->onConflict,
+										SS_assign_special_param(root));
+			set_modifytable_path_reduceinfo(root, modify, parse->resultRelation);
+			modify->under_cluster = true;
+			path = (Path*)modify;
+			reduce_info_list = get_reduce_info_list(path);
 		}
 
 		if(root->parent_root == NULL)
