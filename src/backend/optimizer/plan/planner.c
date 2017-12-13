@@ -6600,26 +6600,31 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 	reduce_list = get_reduce_info_list(path);
 	if(IsRelationReplicated(loc_info))
 	{
+		storage_nodes = SortOidList(storage_nodes);
 		if (IsReduceInfoListReplicated(reduce_list))
 		{
-			List *to_nodes;
-			reduce_info = linitial(reduce_list);
-			to_nodes = SortOidList(storage_nodes);
-			if(equal(to_nodes, reduce_info->storage_nodes))
+			List *src_nodes = NIL;
+			ReduceInfoListGetStorageAndExcludeOidList(reduce_list, &src_nodes, NULL);
+			src_nodes = SortOidList(src_nodes);
+			if(equal(src_nodes, storage_nodes))
 			{
-				list_free(to_nodes);
+				list_free(src_nodes);
 				return path;
 			}
-			ereport(ERROR, (errmsg("not support diffent replicate table yet!")));
-		}else
-		{
-			reduce_info = MakeReplicateReduceInfo(storage_nodes);
-			path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
+			list_free(src_nodes);
+			path = replicate_to_one_node(root, path->parent, path, storage_nodes);
 		}
+		reduce_info = MakeReplicateReduceInfo(storage_nodes);
+		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 	}
 	else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
 	{
-		ereport(ERROR, (errmsg("not support robin yet!")));
+		if (IsReduceInfoListReplicated(reduce_list))
+		{
+			path = replicate_to_one_node(root, path->parent, path, storage_nodes);
+		}
+		reduce_info = MakeRoundReduceInfo(storage_nodes);
+		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 	}else if(loc_info->locatorType == LOCATOR_TYPE_HASH ||
 			 loc_info->locatorType == LOCATOR_TYPE_MODULO ||
 			 loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
@@ -6627,9 +6632,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 		Expr *expr;
 		if (IsReduceInfoListReplicated(reduce_list))
 		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("not support replicate to distribute yet!")));
+			path = replicate_to_one_node(root, path->parent, path, storage_nodes);
 		}
 		reduce_info = NULL;
 		if(loc_info->locatorType == LOCATOR_TYPE_HASH)
