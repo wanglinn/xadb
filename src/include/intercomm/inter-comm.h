@@ -89,8 +89,6 @@ extern void HandleListResetOwner(List *handle_list);
 typedef struct InterXactStateData
 {
 	MemoryContext			context;
-	StringInfo				error;
-	CombineType				combine_type;
 	char				   *gid;
 	bool					missing_ok;
 	bool					implicit;
@@ -107,7 +105,6 @@ typedef struct InterXactStateData
 
 extern List *GetPGconnAttatchTopInterXact(const List *node_list);
 extern List *GetPGconnFromHandleList(List *handle_list);
-extern bool IsTwoPhaseCommitNeeded(void);
 extern const char *GetTopInterXactGID(void);
 extern void ResetInterXactState(InterXactState state);
 extern void FreeInterXactState(InterXactState state);
@@ -119,9 +116,6 @@ extern void InterXactSetGID(InterXactState state, const char *gid);
 extern void InterXactSetXID(InterXactState state, TransactionId xid);
 extern void InterXactSaveBeginNodes(InterXactState state, Oid node);
 extern Oid *InterXactBeginNodes(InterXactState state, bool include_self, int *node_num);
-extern void InterXactSaveError(InterXactState state, const char *fmt, ...)
-	pg_attribute_printf(2, 3);
-extern void InterXactSaveHandleError(InterXactState state, NodeHandle *handle);
 extern void InterXactSerializeSnapshot(StringInfo buf, Snapshot snapshot);
 extern void InterXactGC(InterXactState state);
 extern void InterXactCacheCurrent(InterXactState state);

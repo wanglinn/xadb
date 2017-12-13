@@ -40,8 +40,6 @@ typedef enum
 
 static InterXactStateData TopInterXactStateData = {
 	NULL,						/* current MemoryContext */
-	NULL,						/* error stringinfo */
-	COMBINE_TYPE_NONE,			/* inter transaction block combine type */
 	NULL,						/* two-phase GID */
 	false,						/* is GID missing ok in the second phase of two-phase commit? */
 	false,						/* is the inter transaction implicit two-phase commit? */
@@ -98,20 +96,6 @@ GetPGconnFromHandleList(List *handle_list)
 }
 
 /*
- * IsTwoPhaseCommitNeeded
- *
- * return true if current inter transaction need transaction block
- * return false if not
- */
-bool
-IsTwoPhaseCommitNeeded(void)
-{
-	InterXactState state = &TopInterXactStateData;
-
-	return state->need_xact_block;
-}
-
-/*
  * GetTopInterXactGID
  *
  * return prepared GID of top inter transaction
@@ -134,8 +118,6 @@ ResetInterXactState(InterXactState state)
 {
 	if (state)
 	{
-		if (state->error)
-			resetStringInfo(state->error);
 		if (state->gid)
 			pfree(state->gid);
 		if (state->trans_nodes)
@@ -162,11 +144,6 @@ FreeInterXactState(InterXactState state)
 {
 	if (state)
 	{
-		if (state->error)
-		{
-			pfree(state->error->data);
-			pfree(state->error);
-		}
 		if (state->gid)
 			pfree(state->gid);
 		if (state->trans_nodes)
@@ -350,7 +327,6 @@ ExecInterXactUtility(RemoteQuery *node, InterXactState state)
 	/* Make up InterXactStateData */
 	state = MakeInterXactState2(state, node_list);
 	state->need_xact_block = need_xact_block;
-	state->combine_type = node->combine_type;
 	pfree(node_list);
 
 	/* Utility */
@@ -475,44 +451,6 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 		*node_num = node_cnt;
 
 	return res;
-}
-
-/*
- * InterXactSaveError
- *
- * keep error message in "state"
- */
-void
-InterXactSaveError(InterXactState state, const char *fmt, ...)
-{
-	va_list		args;
-
-	Assert(state);
-	if (!state->error)
-	{
-		MemoryContext old_context;
-
-		old_context = MemoryContextSwitchTo(state->context);
-		state->error = makeStringInfo();
-		(void) MemoryContextSwitchTo(old_context);
-	}
-	va_start(args, fmt);
-	appendStringInfoVA(state->error, fmt, args);
-	va_end(args);
-}
-
-/*
- * InterXactSaveHandleError
- *
- * keep error message of "handle" in "state"
- */
-void
-InterXactSaveHandleError(InterXactState state, NodeHandle *handle)
-{
-	Assert(state && handle);
-
-	InterXactSaveError(state, "error from \"%s\": %s",
-		NameStr(handle->node_name), PQerrorMessage(handle->node_conn));
 }
 
 /*
