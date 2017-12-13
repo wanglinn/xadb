@@ -68,7 +68,7 @@ extern NodeMixHandle *CopyMixhandle(NodeMixHandle *src);
 extern NodeMixHandle *ConcatMixHandle(NodeMixHandle *mix1, NodeMixHandle *mix2);
 extern List *GetHandleList(MemoryContext mem_context, const Oid *nodes, int nnodes,
 						   bool include_self, bool attatch, void *context);
-extern void FreeMixHandle(NodeMixHandle *mix_handle);
+extern void FreeMixHandle(NodeMixHandle *cur_handle);
 
 extern List *GetAllCnIDL(bool include_self);
 extern List *GetAllDnIDL(bool include_self);

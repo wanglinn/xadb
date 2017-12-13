@@ -786,11 +786,11 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 
 	Assert(rnodes);
 	/* try to start transaction */
-	state = GetTopInterXactState();
+	state = GetCurrentInterXactState();
 	if (!context->transaction_read_only)
 		state->need_xact_block = true;
 	InterXactBegin(state, rnodes);
-	Assert(state->mix_handle);
+	Assert(state->cur_handle);
 
 	error_context_hook.arg = NULL;
 	error_context_hook.callback = ExecClusterErrorHookMaster;
@@ -811,7 +811,7 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 		}
 	}
 
-	list_conn = GetPGconnFromHandleList(state->mix_handle->handles);
+	list_conn = GetPGconnFromHandleList(state->cur_handle->handles);
 	/*foreach(lc, list_conn)*/
 	Assert(list_length(list_conn) == list_length(rnodes));
 	save_len = msg->len;

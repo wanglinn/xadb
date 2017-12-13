@@ -351,14 +351,14 @@ GetMixedHandles(const List *node_list, void *context)
 	ListCell	   *lc_id;
 	List		   *id_need;
 	List		   *handle_need;
-	NodeMixHandle  *mix_handle;
+	NodeMixHandle  *cur_handle;
 	NodeHandle	   *handle;
 	Oid				node_id;
 
 	if (!node_list || !handle_init)
 		return NULL;
 
-	mix_handle = (NodeMixHandle *) palloc0(sizeof(NodeMixHandle));
+	cur_handle = (NodeMixHandle *) palloc0(sizeof(NodeMixHandle));
 	id_need = handle_need = NIL;
 	foreach (lc_id, node_list)
 	{
@@ -367,10 +367,10 @@ GetMixedHandles(const List *node_list, void *context)
 		if (!handle)
 			ereport(ERROR,
 				   (errmsg("Invalid node id %u", node_id)));
-		mix_handle->mix_types |= handle->node_type;
-		mix_handle->handles = lappend(mix_handle->handles, handle);
+		cur_handle->mix_types |= handle->node_type;
+		cur_handle->handles = lappend(cur_handle->handles, handle);
 		if (handle->node_primary)
-			mix_handle->pr_handle = handle;
+			cur_handle->pr_handle = handle;
 		if (PQstatus(handle->node_conn) != CONNECTION_OK)
 		{
 			/* detach old PGconn if exists */
@@ -383,7 +383,7 @@ GetMixedHandles(const List *node_list, void *context)
 	list_free(id_need);
 	list_free(handle_need);
 
-	return mix_handle;
+	return cur_handle;
 }
 
 NodeMixHandle *
@@ -391,22 +391,22 @@ GetAllHandles(void *context)
 {
 	List		   *id_need;
 	List		   *handle_need;
-	NodeMixHandle  *mix_handle;
+	NodeMixHandle  *cur_handle;
 	NodeHandle	   *handle;
 
 	/* do not initialized */
 	if (!handle_init)
 		return NULL;
 
-	mix_handle = (NodeMixHandle *) palloc0(sizeof(NodeMixHandle));
+	cur_handle = (NodeMixHandle *) palloc0(sizeof(NodeMixHandle));
 	id_need = handle_need = NIL;
 	foreach_all_handles(handle)
 	{
 		handle->node_context = context;
-		mix_handle->mix_types |= handle->node_type;
-		mix_handle->handles = lappend(mix_handle->handles, handle);
+		cur_handle->mix_types |= handle->node_type;
+		cur_handle->handles = lappend(cur_handle->handles, handle);
 		if (handle->node_primary)
-			mix_handle->pr_handle = handle;
+			cur_handle->pr_handle = handle;
 		if (PQstatus(handle->node_conn) != CONNECTION_OK)
 		{
 			/* detach old PGconn if exists */
@@ -419,7 +419,7 @@ GetAllHandles(void *context)
 	list_free(id_need);
 	list_free(handle_need);
 
-	return mix_handle;
+	return cur_handle;
 }
 
 NodeMixHandle *
@@ -501,12 +501,12 @@ GetHandleList(MemoryContext mem_context, const Oid *nodes, int nnodes,
 }
 
 void
-FreeMixHandle(NodeMixHandle *mix_handle)
+FreeMixHandle(NodeMixHandle *cur_handle)
 {
-	if (mix_handle)
+	if (cur_handle)
 	{
-		list_free(mix_handle->handles);
-		pfree(mix_handle);
+		list_free(cur_handle->handles);
+		pfree(cur_handle);
 	}
 }
 

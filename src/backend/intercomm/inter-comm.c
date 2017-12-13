@@ -100,7 +100,7 @@ OidListToArrary(MemoryContext context, List *oid_list, int *noids)
 void
 ClusterSyncXid(void)
 {
-	NodeMixHandle	   *mix_handle;
+	NodeMixHandle	   *cur_handle;
 	NodeHandle		   *handle;
 	ListCell		   *lc_handle;
 	List			   *node_list;
@@ -112,14 +112,14 @@ ClusterSyncXid(void)
 		return ;
 
 	node_list = GetAllNodeIDL(false);
-	mix_handle = GetMixedHandles(node_list, NULL);
-	Assert(node_list && mix_handle);
+	cur_handle = GetMixedHandles(node_list, NULL);
+	Assert(node_list && cur_handle);
 	list_free(node_list);
 
 	PG_TRY();
 	{
 		error_occured = false;
-		foreach (lc_handle, mix_handle->handles)
+		foreach (lc_handle, cur_handle->handles)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
 			if (!HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot, query, NULL) ||
@@ -140,10 +140,10 @@ ClusterSyncXid(void)
 					 errmsg("Fail to synchronize the whole cluster next xid."),
 					 errhint("You are better to select sync_local_xid() manually.")));
 
-		HandleListGC(mix_handle->handles);
+		HandleListGC(cur_handle->handles);
 	} PG_CATCH();
 	{
-		HandleListGC(mix_handle->handles);
+		HandleListGC(cur_handle->handles);
 		PG_RE_THROW();
 	} PG_END_TRY();
 }

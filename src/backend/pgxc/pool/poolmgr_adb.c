@@ -845,7 +845,7 @@ PoolManagerSetCommand(PoolCommandType command_type, const char *set_command)
 
 	if (poolHandle)
 	{
-		InterXactCacheAll(GetTopInterXactState());
+		InterXactCacheAll(GetCurrentInterXactState());
 
 		pq_beginmessage(&buf, PM_MSG_SET_COMMAND);
 

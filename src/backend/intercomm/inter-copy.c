@@ -53,7 +53,7 @@ void
 StartRemoteCopy(RemoteCopyState *node)
 {
 	InterXactState		state;
-	NodeMixHandle	   *mix_handle;
+	NodeMixHandle	   *cur_handle;
 	NodeHandle		   *handle;
 	ListCell		   *lc_handle;
 	const char		   *copy_query;
@@ -80,17 +80,17 @@ StartRemoteCopy(RemoteCopyState *node)
 	cmid = GetCurrentCommandId(is_from);
 	snap = GetActiveSnapshot();
 	timestamp = GetCurrentTransactionStartTimestamp();
-	state = MakeInterXactState2(GetTopInterXactState(), node_list);
+	state = MakeInterXactState2(GetCurrentInterXactState(), node_list);
 	/* It is no need to send BEGIN when COPY TO */
 	state->need_xact_block = is_from;
-	mix_handle = state->mix_handle;
+	cur_handle = state->cur_handle;
 
 	agtm_BeginTransaction();
 	gxid = GetCurrentTransactionId();
 
 	PG_TRY();
 	{
-		foreach (lc_handle, mix_handle->handles)
+		foreach (lc_handle, cur_handle->handles)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
 			already_begin = false;
@@ -111,7 +111,7 @@ StartRemoteCopy(RemoteCopyState *node)
 		PG_RE_THROW();
 	} PG_END_TRY();
 
-	node->copy_handles = mix_handle->handles;
+	node->copy_handles = cur_handle->handles;
 }
 
 /*

@@ -926,7 +926,7 @@ distrib_execute_query(char *sql, bool is_temp, ExecNodes *exec_nodes)
 	/* Redistribution operations only concern Datanodes */
 	step->exec_type = EXEC_ON_DATANODES;
 	step->is_temp = is_temp;
-	(void) ExecInterXactUtility(step, GetTopInterXactState());
+	(void) ExecInterXactUtility(step, GetCurrentInterXactState());
 	pfree(step->sql_statement);
 	pfree(step);
 

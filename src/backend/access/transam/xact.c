@@ -850,12 +850,19 @@ GetCurrentCommandId(bool used)
 
 #ifdef ADB
 InterXactState
-GetTopInterXactState(void)
+GetCurrentInterXactState(void)
 {
-	TransactionState s = &TopTransactionStateData;
+	TransactionState s = CurrentTransactionState;
 
 	if (!s->interXactState)
-		s->interXactState = MakeTopInterXactState();
+	{
+		/* sub transaction */
+		if (s->parent)
+			s->interXactState = MakeNewInterXactState();
+		/* top transaction */
+		else
+			s->interXactState = MakeTopInterXactState();
+	}
 
 	return s->interXactState;
 }
@@ -5408,6 +5415,10 @@ PopTransaction(void)
 	/* Free the old child structure */
 	if (s->name)
 		pfree(s->name);
+#ifdef ADB
+	if (s->interXactState)
+		FreeInterXactState(s->interXactState);
+#endif
 	pfree(s);
 }
 

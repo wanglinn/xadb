@@ -1556,7 +1556,7 @@ standard_ProcessUtility(Node *parsetree,
 			Assert(IS_PGXC_COORDINATOR);
 
 			if (!IsConnFromCoord())
-				(void) ExecInterXactUtility((RemoteQuery *) parsetree, GetTopInterXactState());
+				(void) ExecInterXactUtility((RemoteQuery *) parsetree, GetCurrentInterXactState());
 			break;
 
 		case T_CleanConnStmt:
@@ -2925,7 +2925,7 @@ ExecRemoteUtilityStmt(RemoteUtilityContext *context)
 	step->force_autocommit = context->force_autocommit;
 	step->exec_type = context->exec_type;
 	step->is_temp = context->is_temp;
-	(void) ExecInterXactUtility(step, GetTopInterXactState());
+	(void) ExecInterXactUtility(step, GetCurrentInterXactState());
 	if (step->sql_node)
 		pfree(step->sql_node->data);
 	pfree(step->sql_statement);

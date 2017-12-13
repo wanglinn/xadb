@@ -1044,7 +1044,7 @@ dropRemoteTable(const char *relname, bool is_temp)
 	step->force_autocommit = false;
 	step->exec_type = EXEC_ON_DATANODES;
 	step->is_temp = is_temp;
-	(void) ExecInterXactUtility(step, GetTopInterXactState());
+	(void) ExecInterXactUtility(step, GetCurrentInterXactState());
 	pfree(sql.data);
 	pfree(step);
 }

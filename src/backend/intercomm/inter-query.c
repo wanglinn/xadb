@@ -232,7 +232,7 @@ StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot)
 	if (RecoveryInProgress())
 		elog(ERROR, "cannot run transaction to remote nodes during recovery");
 
-	state = GetTopInterXactState();
+	state = GetCurrentInterXactState();
 	step = (RemoteQuery *) node->ss.ps.plan;
 
 	node_list = GetRemoteNodeList(node, step->exec_nodes, step->exec_type);
@@ -248,7 +248,7 @@ StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot)
 	/* save handle list for current RemoteQueryState */
 	if (node->cur_handles)
 		list_free(node->cur_handles);
-	node->cur_handles = list_copy(state->mix_handle->handles);
+	node->cur_handles = list_copy(state->cur_handle->handles);
 	node->all_handles = list_concat_unique_ptr(node->all_handles, node->cur_handles);
 
 	return InterXactQuery(state, node, destslot);
@@ -257,7 +257,7 @@ StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot)
 static TupleTableSlot *
 InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *destslot)
 {
-	NodeMixHandle	   *mix_handle;
+	NodeMixHandle	   *cur_handle;
 	NodeHandle		   *handle;
 	NodeHandle		   *pr_handle;
 	ListCell		   *lc_handle;
@@ -267,9 +267,9 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *des
 	TimestampTz			timestamp = GetCurrentTransactionStartTimestamp();
 
 	Assert(state && node);
-	mix_handle = state->mix_handle;
+	cur_handle = state->cur_handle;
 	need_xact_block = state->need_xact_block;
-	pr_handle = mix_handle->pr_handle;
+	pr_handle = cur_handle->pr_handle;
 
 	if (need_xact_block)
 	{
@@ -313,7 +313,7 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *des
 				destslot = HandleFetchRemote(pr_handle, node, destslot, true, false);
 		}
 
-		foreach (lc_handle, mix_handle->handles)
+		foreach (lc_handle, cur_handle->handles)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
 			if (handle == pr_handle)
@@ -780,7 +780,7 @@ CreateRemoteTupleDesc(MemoryContext context, const char *msg, int len)
 void
 CloseRemoteStatement(const char *stmt_name, Oid *nodes, int nnodes)
 {
-	NodeMixHandle  *mix_handle;
+	NodeMixHandle  *cur_handle;
 	List		   *oid_list;
 
 	if (!stmt_name)
@@ -789,9 +789,9 @@ CloseRemoteStatement(const char *stmt_name, Oid *nodes, int nnodes)
 	if (!oid_list)
 		return ;
 
-	mix_handle = GetMixedHandles(oid_list, NULL);
-	Assert(mix_handle);
-	HandleListClose(mix_handle->handles, true, stmt_name);
+	cur_handle = GetMixedHandles(oid_list, NULL);
+	Assert(cur_handle);
+	HandleListClose(cur_handle->handles, true, stmt_name);
 }
 
 /*-------------------------------------------------------------------------------------

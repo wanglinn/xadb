@@ -96,18 +96,17 @@ typedef struct InterXactStateData
 	Oid					   *trans_nodes;		/* array of remote nodes already start transaction */
 	int						trans_count;		/* remote nodes count */
 	int						trans_max;			/* current max malloc count of nodes */
-	struct NodeMixHandle   *mix_handle;			/* "mix_handle" is current NodeMixHandle depends
+	struct NodeMixHandle   *cur_handle;			/* "cur_handle" is current NodeMixHandle depends
 												 * on oid list input, just for one query in the
 												 * transaction block */
 	struct NodeMixHandle   *all_handle;			/* "all_handle" include all the NodeHandle within
 												 * the transaction block, it is used to 2PC */
 } InterXactStateData;
 
-extern List *GetPGconnAttatchTopInterXact(const List *node_list);
+extern List *GetPGconnAttatchCurrentInterXact(const List *node_list);
 extern List *GetPGconnFromHandleList(List *handle_list);
-extern const char *GetTopInterXactGID(void);
-extern void ResetInterXactState(InterXactState state);
 extern void FreeInterXactState(InterXactState state);
+extern InterXactState MakeNewInterXactState(void);
 extern InterXactState MakeTopInterXactState(void);
 extern InterXactState MakeInterXactState(MemoryContext context, const List *node_list);
 extern InterXactState MakeInterXactState2(InterXactState state, const List *node_list);

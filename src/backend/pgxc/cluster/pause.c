@@ -101,7 +101,7 @@ HandleClusterPause(bool pause, bool initiator)
 	NodeHandle *handle;
 	List *node_list;
 	ListCell *lc_handle;
-	NodeMixHandle *mix_handle;
+	NodeMixHandle *cur_handle;
 	char *action = pause? pause_cluster_str:unpause_cluster_str;
 
 	elog(DEBUG2, "Preparing coordinators for \"%s\"", action);
@@ -140,17 +140,17 @@ HandleClusterPause(bool pause, bool initiator)
 	 * coordinators to respond back
 	 */
 	node_list = GetAllCnIDL(false);
-	mix_handle = GetMixedHandles(node_list, NULL);
-	Assert(node_list && mix_handle);
+	cur_handle = GetMixedHandles(node_list, NULL);
+	Assert(node_list && cur_handle);
 	list_free(node_list);
 
 	PG_TRY();
 	{
-		foreach (lc_handle, mix_handle->handles)
+		foreach (lc_handle, cur_handle->handles)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
 			if (!HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot
-				, pause ? pause_cluster_str : unpause_cluster_str, NULL) 
+				, pause ? pause_cluster_str : unpause_cluster_str, NULL)
 				|| !HandleFinishCommand(handle, NULL_TAG))
 			{
 				ereport(ERROR,
@@ -161,7 +161,7 @@ HandleClusterPause(bool pause, bool initiator)
 			}
 		}
 
-		HandleListGC(mix_handle->handles);
+		HandleListGC(cur_handle->handles);
 
 		/*
 		 * Disable/Enable local queries. We need to release the SHARED mode first
@@ -195,11 +195,11 @@ HandleClusterPause(bool pause, bool initiator)
 				 (errmsg("\"%s\" command failed on one or more coordinator nodes."
 						" Trying to \"%s\" reachable nodes now", pause_cluster_str, unpause_cluster_str)));
 
-		foreach (lc_handle, mix_handle->handles)
+		foreach (lc_handle, cur_handle->handles)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
 			if (!HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot
-				, unpause_cluster_str, NULL) 
+				, unpause_cluster_str, NULL)
 				|| !HandleFinishCommand(handle, NULL_TAG))
 			{
 					ereport(WARNING,
@@ -214,8 +214,8 @@ HandleClusterPause(bool pause, bool initiator)
 		ReleaseClusterLock(true);
 		AcquireClusterLock(false);
 		cluster_ex_lock_held = false;
-	
-		HandleListGC(mix_handle->handles);
+
+		HandleListGC(cur_handle->handles);
 		PG_RE_THROW();
 	} PG_END_TRY();
 
@@ -300,7 +300,7 @@ PGXCCleanClusterLock(int code, Datum arg)
 	NodeHandle *handle;
 	List *node_list;
 	ListCell *lc_handle;
-	NodeMixHandle *mix_handle;
+	NodeMixHandle *cur_handle;
 
 	cluster_lock_held = false;
 
@@ -316,19 +316,19 @@ PGXCCleanClusterLock(int code, Datum arg)
 	}
 
 	node_list = GetAllCnIDL(false);
-	mix_handle = GetMixedHandles(node_list, NULL);
-	Assert(node_list && mix_handle);
+	cur_handle = GetMixedHandles(node_list, NULL);
+	Assert(node_list && cur_handle);
 	list_free(node_list);
 
 	/* Try best-effort to UNPAUSE other coordinators now */
-	foreach (lc_handle, mix_handle->handles)
+	foreach (lc_handle, cur_handle->handles)
 	{
 		handle = (NodeHandle *) lfirst(lc_handle);
 		/* No error checking here... */
 		(void)HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot, unpause_cluster_str, NULL);
 	}
 
-	HandleListGC(mix_handle->handles);
+	HandleListGC(cur_handle->handles);
 
 	/* Release locally too. We do not want a dangling value in cl_holder_pid! */
 	ReleaseClusterLock(true);

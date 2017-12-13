@@ -40,7 +40,7 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 	outerPlanState(gatherstate) = ExecStartClusterPlan(outerPlan(node)
 		, estate, flags, node->rnodes);
 	if((flags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
-		gatherstate->remotes = GetPGconnAttatchTopInterXact(node->rnodes);
+		gatherstate->remotes = GetPGconnAttatchCurrentInterXact(node->rnodes);
 
 	gatherstate->recv_state = createClusterRecvState((PlanState*)gatherstate, false);
 

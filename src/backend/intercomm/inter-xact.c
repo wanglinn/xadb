@@ -51,11 +51,12 @@ static InterXactStateData TopInterXactStateData = {
 	NULL						/* NodeMixHandle for the whole inter transaction block */
 };
 
+static void ResetInterXactState(InterXactState state);
 static void InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool missing_ok);
 static void InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, bool ignore_error);
 
 /*
- * GetPGconnAttatchTopInterXact
+ * GetPGconnAttatchCurrentInterXact
  *
  * Get all involved PGconn by node_list and attatch them
  * to the top inter transaction state.
@@ -63,13 +64,13 @@ static void InterXactTwoPhaseInternal(List *handle_list, char *command, const ch
  * return a list of PGconn
  */
 List *
-GetPGconnAttatchTopInterXact(const List *node_list)
+GetPGconnAttatchCurrentInterXact(const List *node_list)
 {
-	InterXactState	state = GetTopInterXactState();
+	InterXactState	state = GetCurrentInterXactState();
 
 	state = MakeInterXactState2(state, node_list);
 
-	return GetPGconnFromHandleList(state->mix_handle->handles);
+	return GetPGconnFromHandleList(state->cur_handle->handles);
 }
 
 /*
@@ -96,24 +97,11 @@ GetPGconnFromHandleList(List *handle_list)
 }
 
 /*
- * GetTopInterXactGID
- *
- * return prepared GID of top inter transaction
- */
-const char *
-GetTopInterXactGID(void)
-{
-	InterXactState state = &TopInterXactStateData;
-
-	return state->gid;
-}
-
-/*
  * ResetInterXactState
  *
  * release resources and reset to initial values
  */
-void
+static void
 ResetInterXactState(InterXactState state)
 {
 	if (state)
@@ -122,14 +110,14 @@ ResetInterXactState(InterXactState state)
 			pfree(state->gid);
 		if (state->trans_nodes)
 			MemSet(state->trans_nodes, 0, sizeof(Oid) * state->trans_max);
-		FreeMixHandle(state->mix_handle);
+		FreeMixHandle(state->cur_handle);
 		FreeMixHandle(state->all_handle);
 		state->gid = NULL;
 		state->missing_ok = false;
 		state->implicit = false;
 		state->need_xact_block = false;
 		state->trans_count = 0;
-		state->mix_handle = NULL;
+		state->cur_handle = NULL;
 		state->all_handle = NULL;
 	}
 }
@@ -148,10 +136,21 @@ FreeInterXactState(InterXactState state)
 			pfree(state->gid);
 		if (state->trans_nodes)
 			pfree(state->trans_nodes);
-		FreeMixHandle(state->mix_handle);
+		FreeMixHandle(state->cur_handle);
 		FreeMixHandle(state->all_handle);
-		pfree(state);
+		if (state != &TopInterXactStateData)
+			pfree(state);
 	}
+}
+
+InterXactState
+MakeNewInterXactState(void)
+{
+	InterXactState state = (InterXactState)
+		MemoryContextAllocZero(TopMemoryContext, sizeof(InterXactStateData));
+	state->context = TopMemoryContext;
+
+	return state;
 }
 
 /*
@@ -194,19 +193,19 @@ MakeInterXactState(MemoryContext context, const List *node_list)
 	state->trans_max = 0;
 	if (node_list)
 	{
-		NodeMixHandle  *mix_handle;
+		NodeMixHandle  *cur_handle;
 		int				mix_num;
 
 		mix_num = list_length(node_list);
-		mix_handle = GetMixedHandles(node_list, state);
-		Assert(mix_handle && list_length(mix_handle->handles) == mix_num);
+		cur_handle = GetMixedHandles(node_list, state);
+		Assert(cur_handle && list_length(cur_handle->handles) == mix_num);
 
-		state->mix_handle = mix_handle;
+		state->cur_handle = cur_handle;
 
 		/*
 		 * generate a new "all_handle"
 		 */
-		state->all_handle = ConcatMixHandle(state->all_handle, mix_handle);
+		state->all_handle = ConcatMixHandle(state->all_handle, cur_handle);
 	}
 
 	(void) MemoryContextSwitchTo(old_context);
@@ -217,13 +216,13 @@ MakeInterXactState(MemoryContext context, const List *node_list)
 /*
  * MakeInterXactState2
  *
- * return InterXactState which "mix_handle" is filled by oid_list
+ * return InterXactState which "cur_handle" is filled by oid_list
  */
 InterXactState
 MakeInterXactState2(InterXactState state, const List *node_list)
 {
 	MemoryContext	old_context;
-	NodeMixHandle  *mix_handle;
+	NodeMixHandle  *cur_handle;
 	int				mix_num;
 
 	if (state == NULL)
@@ -233,17 +232,17 @@ MakeInterXactState2(InterXactState state, const List *node_list)
 		return state;
 
 	/*
-	 * Check current "mix_handle" of InterXactState is just for
+	 * Check current "cur_handle" of InterXactState is just for
 	 * the "node_list". if so, just return the "state" directly.
 	 */
-	if (state->mix_handle &&
-		list_length(state->mix_handle->handles) == list_length(node_list))
+	if (state->cur_handle &&
+		list_length(state->cur_handle->handles) == list_length(node_list))
 	{
 		NodeHandle *handle;
 		ListCell   *lc_handle;
 		bool		equal = true;
 
-		foreach (lc_handle, state->mix_handle->handles)
+		foreach (lc_handle, state->cur_handle->handles)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
 			if (!list_member_oid(node_list, handle->node_id))
@@ -264,19 +263,19 @@ MakeInterXactState2(InterXactState state, const List *node_list)
 	Assert(state->context);
 	old_context = MemoryContextSwitchTo(state->context);
 	mix_num = list_length(node_list);
-	mix_handle = GetMixedHandles(node_list, state);
-	Assert(mix_handle && list_length(mix_handle->handles) == mix_num);
+	cur_handle = GetMixedHandles(node_list, state);
+	Assert(cur_handle && list_length(cur_handle->handles) == mix_num);
 
 	/*
-	 * free previous "mix_handle" and keep the new one in "state".
+	 * free previous "cur_handle" and keep the new one in "state".
 	 */
-	FreeMixHandle(state->mix_handle);
-	state->mix_handle = mix_handle;
+	FreeMixHandle(state->cur_handle);
+	state->cur_handle = cur_handle;
 
 	/*
 	 * generate a new "all_handle" every time.
 	 */
-	state->all_handle = ConcatMixHandle(state->all_handle, mix_handle);
+	state->all_handle = ConcatMixHandle(state->all_handle, cur_handle);
 
 	(void) MemoryContextSwitchTo(old_context);
 
@@ -505,12 +504,12 @@ InterXactSerializeSnapshot(StringInfo buf, Snapshot snapshot)
 void
 InterXactGC(InterXactState state)
 {
-	NodeMixHandle	   *mix_handle;
+	NodeMixHandle	   *cur_handle;
 
 	Assert(state);
-	mix_handle = state->mix_handle;
-	if (mix_handle)
-		HandleListGC(mix_handle->handles);
+	cur_handle = state->cur_handle;
+	if (cur_handle)
+		HandleListGC(cur_handle->handles);
 }
 
 /*
@@ -521,12 +520,12 @@ InterXactGC(InterXactState state)
 void
 InterXactCacheCurrent(InterXactState state)
 {
-	NodeMixHandle	   *mix_handle;
+	NodeMixHandle	   *cur_handle;
 
 	Assert(state);
-	mix_handle = state->mix_handle;
-	if (mix_handle)
-		HandleListCacheOrGC(mix_handle->handles);
+	cur_handle = state->cur_handle;
+	if (cur_handle)
+		HandleListCacheOrGC(cur_handle->handles);
 }
 
 /*
@@ -556,15 +555,15 @@ InterXactUtility(InterXactState state, Snapshot snapshot,
 {
 	GlobalTransactionId gxid;
 	TimestampTz			timestamp;
-	NodeMixHandle	   *mix_handle;
+	NodeMixHandle	   *cur_handle;
 	NodeHandle		   *handle;
 	ListCell		   *lc_handle;
 	bool				already_begin;
 	bool				need_xact_block;
 
 	Assert(state);
-	mix_handle = state->mix_handle;
-	if (!mix_handle)
+	cur_handle = state->cur_handle;
+	if (!cur_handle)
 		return ;
 
 	PG_TRY();
@@ -578,7 +577,7 @@ InterXactUtility(InterXactState state, Snapshot snapshot,
 			gxid = GetCurrentTransactionIdIfAny();
 		timestamp = GetCurrentTransactionStartTimestamp();
 
-		foreach (lc_handle, mix_handle->handles)
+		foreach (lc_handle, cur_handle->handles)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
 			if (!HandleBegin(state, handle, gxid, timestamp, need_xact_block, &already_begin) ||
@@ -609,16 +608,16 @@ InterXactBegin(InterXactState state, const List *node_list)
 	GlobalTransactionId gxid;
 	TimestampTz			timestamp;
 	InterXactState		new_state;
-	NodeMixHandle	   *mix_handle;
+	NodeMixHandle	   *cur_handle;
 	NodeHandle		   *handle;
 	ListCell		   *lc_handle;
 	bool				already_begin;
 	bool				need_xact_block;
 
 	new_state = MakeInterXactState2(state, node_list);
-	if (!new_state || !new_state->mix_handle)
+	if (!new_state || !new_state->cur_handle)
 		return ;
-	mix_handle = new_state->mix_handle;
+	cur_handle = new_state->cur_handle;
 	need_xact_block = state->need_xact_block;
 
 	PG_TRY();
@@ -631,7 +630,7 @@ InterXactBegin(InterXactState state, const List *node_list)
 			gxid = GetCurrentTransactionIdIfAny();
 		timestamp = GetCurrentTransactionStartTimestamp();
 
-		foreach (lc_handle, mix_handle->handles)
+		foreach (lc_handle, cur_handle->handles)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
 			if (!HandleBegin(state, handle, gxid, timestamp, need_xact_block, &already_begin))
