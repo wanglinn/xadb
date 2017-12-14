@@ -879,9 +879,15 @@ standard_ProcessUtility(Node *parsetree,
 #ifdef ADB
 			if (IsCoordMaster())
 			{
-				Relation rel = relation_openrv(((ClusterStmt*)parsetree)->relation, NoLock);
-				bool need_remote = RelationGetLocInfo(rel) != NULL;
-				relation_close(rel, NoLock);
+				ClusterStmt *stmt = (ClusterStmt *) parsetree;
+				bool need_remote = true;
+
+				if (stmt->relation)
+				{
+					Relation rel = relation_openrv(stmt->relation, NoLock);
+					need_remote = (RelationGetLocInfo(rel) != NULL);
+					relation_close(rel, NoLock);
+				}
 				if(need_remote)
 				{
 					utilityContext.force_autocommit = true;
