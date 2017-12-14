@@ -16,6 +16,7 @@
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/plannodes.h"
+#include "parser/parsetree.h"
 #include "storage/lmgr.h"
 #include "storage/mem_toc.h"
 #include "tcop/dest.h"
@@ -254,6 +255,24 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	}
 	pfree(base_rels);
 
+	/* modify RowMarks */
+	foreach(lc, stmt->rowMarks)
+	{
+		PlanRowMark *rc = (PlanRowMark *) lfirst(lc);
+		Oid			relid;
+
+		/* ignore "parent" rowmarks; they are irrelevant at runtime */
+		if (rc->isParent)
+			continue;
+
+		/* get relation's OID (will produce InvalidOid if subquery) */
+		relid = getrelid(rc->rti, rte_list);
+
+		/* let function InitPlan ignore this */
+		if (!OidIsValid(relid))
+			rc->isParent = true;
+	}
+
 	buf.data = mem_toc_lookup(info, REMOTE_KEY_PARAM, &buf.len);
 	if(buf.data)
 	{
@@ -377,10 +396,16 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 		if(rte->rtekind == RTE_RELATION &&
 			(rte->relkind == RELKIND_VIEW ||
 			 rte->relkind == RELKIND_FOREIGN_TABLE ||
-			 rte->relkind == RELKIND_MATVIEW)
-			)
-			rte->rtekind = RTE_REMOTE_DUMMY;
-		rte_list = lappend(rte_list, rte);
+			 rte->relkind == RELKIND_MATVIEW))
+		{
+			RangeTblEntry *new_rte = palloc(sizeof(*rte));
+			memcpy(new_rte, rte, sizeof(*rte));
+			new_rte->rtekind = RTE_REMOTE_DUMMY;
+			rte_list = lappend(rte_list, new_rte);
+		}else
+		{
+			rte_list = lappend(rte_list, rte);
+		}
 	}
 	begin_mem_toc_insert(msg, REMOTE_KEY_RTE_LIST);
 	saveNodeAndHook(msg, (Node*)rte_list, SerializePlanHook, context);
@@ -409,6 +434,12 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 	SerializeClusterTransaction(msg);
 	end_mem_toc_insert(msg, REMOTE_KEY_TRANSACTION_STATE);
 
+	foreach(lc, rte_list)
+	{
+		/* pfree we palloced memory */
+		if (list_member_ptr(stmt->rtable, lfirst(lc)) == false)
+			pfree(lfirst(lc));
+	}
 	list_free(rte_list);
 	pfree(new_stmt);
 }
