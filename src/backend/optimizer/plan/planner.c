@@ -6777,6 +6777,7 @@ static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *
 
 	if(dcontext->can_sort)
 	{
+		Assert(pathkeys_contained_in(root->distinct_pathkeys, dcontext->needed_pathkeys));
 		if(!pathkeys_contained_in(dcontext->needed_pathkeys, subpath->pathkeys))
 			path = (Path*)create_sort_path(root,
 										   dcontext->input_rel,
@@ -6788,7 +6789,7 @@ static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *
 		path = (Path*)create_upper_unique_path(root,
 											   dcontext->distinct_rel,
 											   path,
-											   list_length(dcontext->needed_pathkeys),
+											   list_length(root->distinct_pathkeys),
 											   dcontext->num_distinct_rows);
 		path->reduce_info_list = CopyReduceInfoList(reduce_list);
 		path->reduce_is_valid = true;
