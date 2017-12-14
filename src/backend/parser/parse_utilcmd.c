@@ -158,7 +158,7 @@ static void setSchemaName(char *context_schema, char **stmt_schema_name);
  *	  - thomas 1997-12-02
  */
 List *
-transformCreateStmt(CreateStmt *stmt, const char *queryString)
+transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG(Node **transform_stmt))
 {
 	ParseState *pstate;
 	CreateStmtContext cxt;
@@ -175,6 +175,14 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	 * overkill, but easy.)
 	 */
 	stmt = (CreateStmt *) copyObject(stmt);
+
+#ifdef ADB
+	/*
+	 * We keep the transformed statment and the caller may use it.
+	 */
+	if (transform_stmt)
+		*transform_stmt = (Node *) stmt;
+#endif
 
 	/* Set up pstate */
 	pstate = make_parsestate(NULL);

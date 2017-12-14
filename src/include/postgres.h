@@ -50,8 +50,10 @@
 
 #ifdef ADB
 #define ADB_ONLY_ARG(v) v,
+#define ADB_ONLY_COMMA_ARG(v) , v
 #else
 #define ADB_ONLY_ARG(v)
+#define ADB_ONLY_COMMA_ARG(v)
 #endif /* ADB */
 
 /* ----------------------------------------------------------------
