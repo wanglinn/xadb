@@ -287,7 +287,7 @@ bool		restart_after_crash = true;
 char	   *output_config_variable = NULL;
 
 #ifdef ADB
-bool		log_parse_query = false;
+bool		adb_log_query = false;
 #endif
 
 /* PIDs of special child processes; 0 when not running */
@@ -1458,7 +1458,7 @@ PostmasterMain(int argc, char *argv[])
 	 * K.Suzuki memo, Sep.2nd, 2013.
 	 * PG 9.3 added a call to StartOneBackgroundWorker().  THis should be
 	 * called after XC checks if it is coordinator.
-	 * Although pooler is a kind of background worker, so far it is 
+	 * Although pooler is a kind of background worker, so far it is
 	 * handled separately.
 	 *
 	 * We may need to clean this up later.
@@ -5885,7 +5885,7 @@ RegisterBackgroundWorker(BackgroundWorker *worker)
 	if (numworkers == 0)
 #if defined(ADBMGRD)
 		maxworkers = MAX_BACKENDS -
-			(MaxConnections + adbmonitor_max_workers + 1 + 
+			(MaxConnections + adbmonitor_max_workers + 1 +
 			 autovacuum_max_workers + 1);
 #else
 		maxworkers = MAX_BACKENDS -

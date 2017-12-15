@@ -272,6 +272,7 @@ static void drop_unnamed_stmt(void);
 static void SigHupHandler(SIGNAL_ARGS);
 static void log_disconnections(int code, Datum arg);
 #ifdef ADB
+static int check_adb_log_duration(char * msec_str, bool was_logged);
 static List *segment_query_string(const char *query_string,
 								  List *parsetree_list);
 #endif
@@ -1113,6 +1114,18 @@ pg_plan_queries(List *querytrees, int cursorOptions, ParamListInfo boundParams)
 }
 
 #ifdef ADB
+static int
+check_adb_log_duration(char * msec_str, bool was_logged)
+{
+	int ret;
+
+	ret = check_log_duration(msec_str, was_logged);
+	if (adb_log_query)
+		ret = 3;
+
+	return ret;
+}
+
 static List *
 segment_query_string(const char *query_string, List *parsetree_list)
 {
@@ -1600,7 +1613,6 @@ exec_parse_message(const char *query_string,	/* string to execute */
 	CachedPlanSource *psrc;
 #ifdef ADB
 	ParseGrammar grammar;
-	int			loglv = DEBUG2;
 #endif
 	bool		is_named;
 	bool		save_log_statement_stats = log_statement_stats;
@@ -1618,20 +1630,10 @@ exec_parse_message(const char *query_string,	/* string to execute */
 	if (save_log_statement_stats)
 		ResetUsage();
 
-#ifdef ADB
-	if (IS_PGXC_COORDINATOR && log_parse_query)
-		loglv = LOG;
-	ereport(loglv,
-			(errmsg("<adb_parse> %s: %s",
-					*stmt_name ? stmt_name : "<unnamed>",
-					query_string),
-			errhidestmt(true)));
-#else
 	ereport(DEBUG2,
 			(errmsg("parse %s: %s",
 					*stmt_name ? stmt_name : "<unnamed>",
 					query_string)));
-#endif
 
 	/*
 	 * Start up a transaction command so we can run parse analysis etc. (Note
@@ -2312,18 +2314,6 @@ exec_bind_message(StringInfo input_message)
 					 errhidestmt(true),
 					 errdetail_params(params)));
 			break;
-#ifdef ADB
-		case 3:
-			ereport(LOG,
-					(errmsg("<adb_parse> duration: %s ms  bind %s%s%s",
-							msec_str,
-							*stmt_name ? stmt_name : "<unnamed>",
-							*portal_name ? "/" : "",
-							*portal_name ? portal_name : ""),
-					 errhidestmt(true),
-					 errdetail_params(params)));
-			break;
-#endif
 	}
 
 	if (save_log_statement_stats)
@@ -2546,7 +2536,11 @@ exec_execute_message(const char *portal_name, long max_rows)
 	/*
 	 * Emit duration logging if appropriate.
 	 */
+#ifdef ADB
+	switch (check_adb_log_duration(msec_str, was_logged))
+#else
 	switch (check_log_duration(msec_str, was_logged))
+#endif
 	{
 		case 1:
 			ereport(LOG,
@@ -2567,6 +2561,25 @@ exec_execute_message(const char *portal_name, long max_rows)
 					 errhidestmt(true),
 					 errdetail_params(portalParams)));
 			break;
+#ifdef ADB
+		case 3:
+			ereport(LOG,
+					(errmsg("duration: %s ms  grammar: %s %s %s%s%s: %s",
+							msec_str,
+							IsOracleGram(portal->grammar) ?
+							_("oracle") :
+							_("postgres"),
+							execute_is_fetch ?
+							_("execute fetch from") :
+							_("execute"),
+							prepStmtName,
+							*portal_name ? "/" : "",
+							*portal_name ? portal_name : "",
+							sourceText),
+					 errhidestmt(true),
+					 errdetail_params(portalParams)));
+			break;
+#endif
 	}
 
 	if (save_log_statement_stats)
@@ -2622,11 +2635,7 @@ check_log_statement(List *stmt_list)
 int
 check_log_duration(char *msec_str, bool was_logged)
 {
-#ifdef ADB
-	if (log_parse_query || log_duration || log_min_duration_statement >= 0)
-#else
 	if (log_duration || log_min_duration_statement >= 0)
-#endif
 	{
 		long		secs;
 		int			usecs;
@@ -2644,12 +2653,9 @@ check_log_duration(char *msec_str, bool was_logged)
 		msecs = usecs / 1000;
 
 #ifdef ADB
-		if (log_parse_query)
-		{
+		if (adb_log_query)
 			snprintf(msec_str, 32, "%ld.%03d",
 					 secs * 1000 + msecs, usecs % 1000);
-			return 3;
-		}
 #endif
 
 		/*
@@ -2664,6 +2670,9 @@ check_log_duration(char *msec_str, bool was_logged)
 
 		if (exceeded || log_duration)
 		{
+#ifdef ADB
+			if (!adb_log_query)
+#endif
 			snprintf(msec_str, 32, "%ld.%03d",
 					 secs * 1000 + msecs, usecs % 1000);
 			if (exceeded && !was_logged)

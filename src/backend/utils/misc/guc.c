@@ -1771,11 +1771,11 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"log_parse_query", PGC_USERSET, LOGGING_WHAT,
-			gettext_noop("Logs query if execute a Parse protocol message."),
+		{"adb_log_query", PGC_USERSET, LOGGING_WHAT,
+			gettext_noop("Log query just for ADB."),
 			NULL
 		},
-		&log_parse_query,
+		&adb_log_query,
 		false,
 		NULL, NULL, NULL
 	},

@@ -31,7 +31,7 @@ extern char *bonjour_name;
 extern bool restart_after_crash;
 
 #ifdef ADB
-extern bool log_parse_query;
+extern bool adb_log_query;
 #endif
 
 #ifdef WIN32
