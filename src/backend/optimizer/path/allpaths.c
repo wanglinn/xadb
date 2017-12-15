@@ -748,7 +748,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			foreach(lc, rel->pathlist)
 			{
 				path = lfirst(lc);
-				path = (Path*)try_reducescan_path(root, rel, lfirst(lc), replicate, path->pathkeys, exec_param_clauses);
+				path = (Path*)try_reducescan_path(root, rel, path->pathtarget, lfirst(lc), replicate, path->pathkeys, exec_param_clauses);
 				if(path)
 				{
 					/* just using lappend, don't need add_cluster_path(...) */
@@ -760,7 +760,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 				path = create_seqscan_path(root, rel, required_outer, 0);
 				set_path_reduce_info_worker(path, reduce_info_list);
 				cost_div(path, list_length(loc_info->nodeList));
-				path = (Path*)try_reducescan_path(root, rel, path, replicate, NULL, exec_param_clauses);
+				path = (Path*)try_reducescan_path(root, rel, path->pathtarget, path, replicate, NULL, exec_param_clauses);
 				Assert(path);
 				rel->cluster_pathlist = list_make1(path);
 			}

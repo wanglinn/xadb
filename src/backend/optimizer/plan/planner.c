@@ -2005,10 +2005,36 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			!has_cluster_hazard((Node*)scanjoin_target->exprs, false))
 		{
 			Path *path;
+			List *reduce_info = NULL;
+			List *new_pathlist = NIL;
+			bool try_reduce = root->must_replicate && expression_have_exec_param((Expr*)scanjoin_target->exprs);
+			if(try_reduce)
+				reduce_info = list_make1(MakeFinalReplicateReduceInfo());
+
 			foreach(lc, current_rel->cluster_pathlist)
 			{
 				Path *subpath = lfirst(lc);
 				Assert(subpath->param_info == NULL);
+
+				if (try_reduce)
+				{
+					if(!IsA(subpath, ReduceScanPath))
+					{
+						subpath = (Path*)try_reducescan_path(root,
+															 current_rel,
+															 scanjoin_target,
+															 subpath,
+															 reduce_info,
+															 subpath->pathkeys,
+															 NIL);
+					}
+					if(subpath)
+					{
+						Assert(is_projection_capable_path(subpath));
+						new_pathlist = lappend(new_pathlist, subpath);
+					}
+					continue;
+				}
 
 				path = apply_projection_to_path(root, current_rel, subpath, scanjoin_target);
 				if (path != subpath)
@@ -2020,6 +2046,28 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 						current_rel->cheapest_cluster_total_path = path;
 					if (subpath == current_rel->cheapest_replicate_path)
 						current_rel->cheapest_replicate_path = path;
+				}
+			}
+			if(try_reduce)
+			{
+				list_free(current_rel->cluster_pathlist);
+				list_free(current_rel->cheapest_cluster_parameterized_paths);
+				current_rel->cheapest_cluster_startup_path =
+					current_rel->cheapest_cluster_total_path =
+					current_rel->cheapest_replicate_path = NULL;
+				current_rel->cheapest_cluster_parameterized_paths = NIL;
+				if(new_pathlist)
+				{
+					current_rel->cluster_pathlist = new_pathlist;
+					set_cheapest(current_rel);
+				}else
+				{
+					current_rel->cluster_pathlist = NIL;
+					if(current_rel->cluster_partial_pathlist)
+					{
+						list_free(current_rel->cluster_partial_pathlist);
+						current_rel->cluster_partial_pathlist = NIL;
+					}
 				}
 			}
 			if (!has_parallel_hazard((Node*)scanjoin_target->exprs, false))
@@ -2034,8 +2082,9 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 														subpath,
 														scanjoin_target);
 				}
-			}else
+			}else if (current_rel->cluster_partial_pathlist)
 			{
+				list_free(current_rel->cluster_partial_pathlist);
 				current_rel->cluster_partial_pathlist = NIL;
 			}
 		}else
