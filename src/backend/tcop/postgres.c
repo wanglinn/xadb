@@ -2635,28 +2635,21 @@ check_log_statement(List *stmt_list)
 int
 check_log_duration(char *msec_str, bool was_logged)
 {
+#ifdef ADB
+	long		secs;
+	int			usecs;
+	int			msecs;
+
+	TimestampDifference(GetCurrentStatementStartTimestamp(),
+						GetCurrentGlobalTimestamp(),
+						&secs, &usecs);
+
+	msecs = usecs / 1000;
+	snprintf(msec_str, 32, "%ld.%03d", secs * 1000 + msecs, usecs % 1000);
+
 	if (log_duration || log_min_duration_statement >= 0)
 	{
-		long		secs;
-		int			usecs;
-		int			msecs;
 		bool		exceeded;
-#ifdef ADB
-		TimestampDifference(GetCurrentStatementStartTimestamp(),
-							GetCurrentGlobalTimestamp(),
-							&secs, &usecs);
-#else
-		TimestampDifference(GetCurrentStatementStartTimestamp(),
-							GetCurrentTimestamp(),
-							&secs, &usecs);
-#endif
-		msecs = usecs / 1000;
-
-#ifdef ADB
-		if (adb_log_query)
-			snprintf(msec_str, 32, "%ld.%03d",
-					 secs * 1000 + msecs, usecs % 1000);
-#endif
 
 		/*
 		 * This odd-looking test for log_min_duration_statement being exceeded
@@ -2670,9 +2663,40 @@ check_log_duration(char *msec_str, bool was_logged)
 
 		if (exceeded || log_duration)
 		{
-#ifdef ADB
-			if (!adb_log_query)
-#endif
+			if (exceeded && !was_logged)
+				return 2;
+			else
+				return 1;
+		}
+	}
+
+	return 0;
+#else
+	if (log_duration || log_min_duration_statement >= 0)
+	{
+		long		secs;
+		int			usecs;
+		int			msecs;
+		bool		exceeded;
+
+		TimestampDifference(GetCurrentStatementStartTimestamp(),
+							GetCurrentTimestamp(),
+							&secs, &usecs);
+
+		msecs = usecs / 1000;
+
+		/*
+		 * This odd-looking test for log_min_duration_statement being exceeded
+		 * is designed to avoid integer overflow with very long durations:
+		 * don't compute secs * 1000 until we've verified it will fit in int.
+		 */
+		exceeded = (log_min_duration_statement == 0 ||
+					(log_min_duration_statement > 0 &&
+					 (secs > log_min_duration_statement / 1000 ||
+					  secs * 1000 + msecs >= log_min_duration_statement)));
+
+		if (exceeded || log_duration)
+		{
 			snprintf(msec_str, 32, "%ld.%03d",
 					 secs * 1000 + msecs, usecs % 1000);
 			if (exceeded && !was_logged)
@@ -2683,6 +2707,7 @@ check_log_duration(char *msec_str, bool was_logged)
 	}
 
 	return 0;
+#endif
 }
 
 /*
