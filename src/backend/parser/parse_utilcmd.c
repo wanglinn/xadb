@@ -121,7 +121,8 @@ static void transformColumnDefinition(CreateStmtContext *cxt,
 static void transformTableConstraint(CreateStmtContext *cxt,
 						 Constraint *constraint);
 static void transformTableLikeClause(CreateStmtContext *cxt,
-						 TableLikeClause *table_like_clause);
+						 TableLikeClause *table_like_clause
+						 ADB_ONLY_COMMA_ARG(bool *temp_found));
 static void transformOfType(CreateStmtContext *cxt,
 				TypeName *ofTypename);
 static IndexStmt *generateClonedIndexStmt(CreateStmtContext *cxt,
@@ -169,20 +170,15 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	Oid			existing_relid;
 	ParseCallbackState pcbstate;
 	bool		like_found = false;
+#ifdef ADB
+	bool		temp_found = false;
+#endif
 
 	/*
 	 * We must not scribble on the passed-in CreateStmt, so copy it.  (This is
 	 * overkill, but easy.)
 	 */
 	stmt = (CreateStmt *) copyObject(stmt);
-
-#ifdef ADB
-	/*
-	 * We keep the transformed statment and the caller may use it.
-	 */
-	if (transform_stmt)
-		*transform_stmt = (Node *) stmt;
-#endif
 
 	/* Set up pstate */
 	pstate = make_parsestate(NULL);
@@ -296,7 +292,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 
 			case T_TableLikeClause:
 				like_found = true;
-				transformTableLikeClause(&cxt, (TableLikeClause *) element);
+				transformTableLikeClause(&cxt, (TableLikeClause *) element ADB_ONLY_COMMA_ARG(&temp_found));
 				break;
 
 			default:
@@ -354,6 +350,13 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	result = list_concat(result, cxt.alist);
 	result = list_concat(result, save_alist);
 #ifdef ADB
+	/*
+	 * We save the transformed statement when we find the
+	 * TableLikeClause accesses temporary objects.
+	 */
+	if (like_found && temp_found && transform_stmt)
+		*transform_stmt = (Node *) stmt;
+
 	/*
 	 * If the user did not specify any distribution clause and there is no
 	 * inherits clause, try and use PK or unique index
@@ -779,7 +782,7 @@ transformTableConstraint(CreateStmtContext *cxt, Constraint *constraint)
  * <srctable>.
  */
 static void
-transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_clause)
+transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_clause ADB_ONLY_COMMA_ARG(bool *temp_found))
 {
 	AttrNumber	parent_attno;
 	Relation	relation;
@@ -828,6 +831,9 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("Postgres-XC does not support VIEW in LIKE clauses"),
 				 errdetail("The feature is not currently supported")));
+
+	if (RelationUsesLocalBuffers(relation) && temp_found)
+		*temp_found = true;
 #endif
 	/*
 	 * Check for privileges

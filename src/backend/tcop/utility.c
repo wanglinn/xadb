@@ -1662,7 +1662,7 @@ ProcessUtilitySlow(Node *parsetree,
 					ListCell   *l;
 #ifdef ADB
 					bool		is_temp = false;
-					Node	   *transformed_stmt;
+					Node	   *transformed_stmt = NULL;
 #endif
 
 					/* Run parse analysis ... */
@@ -1732,7 +1732,12 @@ ProcessUtilitySlow(Node *parsetree,
 					 * Coordinator, if not already done so
 					 */
 					if (!sentToRemote && !is_temp)
-						stmts = AddRemoteParseTree(stmts, queryString, transformed_stmt, EXEC_ON_ALL_NODES, is_temp);
+					{
+						if (transformed_stmt)
+							stmts = AddRemoteParseTree(stmts, queryString, transformed_stmt, EXEC_ON_ALL_NODES, is_temp);
+						else
+							stmts = AddRemoteParseTree(stmts, queryString, parsetree, EXEC_ON_ALL_NODES, is_temp);
+					}
 #endif
 
 					/* ... and do it */
