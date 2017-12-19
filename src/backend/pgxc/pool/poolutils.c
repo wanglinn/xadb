@@ -434,6 +434,8 @@ HandlePoolerReload(void)
 		/* Reinitialize session, while old pooler connection is active */
 		InitMultinodeExecutor(true);
 
+		InitNodeExecutor(true);
+
 		/* And reconnect to pool manager */
 		PoolManagerReconnect();
 	}PG_CATCH();
@@ -443,9 +445,9 @@ HandlePoolerReload(void)
 	}PG_END_TRY();
 
 	/* Send a message back to client regarding session being reloaded */
-    ereport(WARNING,
-            (errcode(ERRCODE_OPERATOR_INTERVENTION),
-             errmsg("session has been reloaded due to a cluster configuration modification"),
+	ereport(WARNING,
+			(errcode(ERRCODE_OPERATOR_INTERVENTION),
+			 errmsg("session has been reloaded due to a cluster configuration modification"),
 			 errdetail("Temporary and prepared objects hold by session have been"
 					   " dropped and current transaction has been aborted.")));
 

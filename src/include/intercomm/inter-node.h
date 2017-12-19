@@ -51,7 +51,6 @@ typedef struct CustomOption
 } CustomOption;
 
 extern void ResetNodeExecutor(void);
-extern void ReleaseNodeExecutor(void);
 extern void InitNodeExecutor(bool force);
 extern NodeHandle *GetNodeHandle(Oid node_id, bool attatch, void *context);
 extern NodeHandle *GetCnHandle(Oid cn_id, bool attatch, void *context);

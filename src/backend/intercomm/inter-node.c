@@ -24,6 +24,7 @@
 #include "libpq/libpq-node.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
+#include "storage/ipc.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 
@@ -52,6 +53,7 @@ static bool handle_init = false;
 #define foreach_dn_handles(p)	\
 	for (p = DnHandles; p - DnHandles < NumDnNodes; p = &p[1])
 
+static void ReleaseNodeExecutor(int code, Datum arg);
 static void GetPGconnAttatchToHandle(List *node_list, List *handle_list);
 static List *GetNodeIDList(NodeType type, bool include_self);
 static Oid *GetNodeIDArray(NodeType type, bool include_self, int *node_num);
@@ -65,8 +67,8 @@ ResetNodeExecutor(void)
 		HandleDetachPGconn(handle);
 }
 
-void
-ReleaseNodeExecutor(void)
+static void
+ReleaseNodeExecutor(int code, Datum arg)
 {
 	if (AllHandles)
 	{
@@ -90,7 +92,7 @@ InitNodeExecutor(bool force)
 	int				i;
 
 	if (force)
-		ReleaseNodeExecutor();
+		ReleaseNodeExecutor(0, 0);
 
 	/* already initialized */
 	if (handle_init)
@@ -160,6 +162,8 @@ InitNodeExecutor(bool force)
 				 errmsg("Coordinator cannot identify itself")));
 
 	handle_init = true;
+
+	on_proc_exit(ReleaseNodeExecutor, 0);
 }
 
 NodeHandle *

@@ -35,6 +35,7 @@
 #include "utils/resowner.h"
 #include "utils/snapmgr.h"
 #ifdef ADB
+#include "intercomm/inter-node.h"
 #include "pgxc/pgxcnode.h"
 #include "reduce/adb_reduce.h"
 #endif
@@ -1068,6 +1069,7 @@ ParallelWorkerMain(Datum main_arg)
 	StartTransactionCommand();
 	/* Initialize executor. This must be done inside a transaction block. */
 	InitMultinodeExecutor(false);
+	InitNodeExecutor(false);
 	CommitTransactionCommand();
 
 	RestoreReduceInfo(shm_toc_lookup(toc, PARALLEL_KEY_REDUCE_INFO));
