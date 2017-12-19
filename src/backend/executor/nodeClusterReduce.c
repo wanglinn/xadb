@@ -23,6 +23,7 @@ static List *reduce_cleanup = NIL;
 	PlanGetTargetNodes(((ClusterReduceState *) (state))->ps.plan)
 
 static void ExecInitClusterReduceStateExtra(ClusterReduceState *crstate);
+static void PrepareForReScanClusterReduce(ClusterReduceState *node);
 static bool ExecConnectReduceWalker(PlanState *node, EState *estate);
 static int32 cmr_heap_compare_slots(Datum a, Datum b, void *arg);
 static TupleTableSlot *GetSlotFromOuter(ClusterReduceState *node);
@@ -132,7 +133,6 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 
 	Assert(outerPlan(node) != NULL);
 	Assert(innerPlan(node) == NULL);
-	Assert((eflags & (EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)) == 0);
 
 	/*
 	 * create state structure
@@ -140,16 +140,40 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate = makeNode(ClusterReduceState);
 	crstate->ps.plan = (Plan*)node;
 	crstate->ps.state = estate;
+
+	/*
+	 * We must have a tuplestore buffering the subplan output to do backward
+	 * scan or mark/restore.  We also prefer to materialize the subplan output
+	 * if we might be called on to rewind and replay it many times. However,
+	 * if none of these cases apply, we can skip storing the data.
+	 */
+	crstate->eflags = (eflags & (EXEC_FLAG_REWIND |
+								 EXEC_FLAG_BACKWARD |
+								 EXEC_FLAG_MARK));
+
+	/*
+	 * Tuplestore's interpretation of the flag bits is subtly different from
+	 * the general executor meaning: it doesn't think BACKWARD necessarily
+	 * means "backwards all the way to start".  If told to support BACKWARD we
+	 * must include REWIND in the tuplestore eflags, else tuplestore_trim
+	 * might throw away too much.
+	 */
+	if (eflags & EXEC_FLAG_BACKWARD)
+		crstate->eflags |= EXEC_FLAG_REWIND;
+
 	crstate->port = NULL;
 	crstate->closed_remote = NIL;
 	crstate->eof_underlying = false;
 	crstate->eof_network = false;
 	crstate->started = false;
 	crstate->ended = false;
+	crstate->tuplestorestate = NULL;
 
 	ExecInitResultTupleSlot(estate, &crstate->ps);
 	ExecAssignExprContext(estate, &crstate->ps);
 	ExecAssignResultTypeFromTL(&crstate->ps);
+
+	Assert(OidIsValid(PGXCNodeOid));
 
 	/* Need ClusterReduce to merge sort */
 	if (list_member_oid(PlanGetTargetNodes(node), PGXCNodeOid))
@@ -189,10 +213,17 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	if (!(eflags & (EXEC_FLAG_EXPLAIN_ONLY | EXEC_FLAG_IN_SUBPLAN)))
 		ExecInitClusterReduceStateExtra(crstate);
 
+	/*
+	 * initialize child nodes
+	 *
+	 * We shield the child node from the need to support REWIND, BACKWARD, or
+	 * MARK/RESTORE.
+	 */
+	eflags &= ~(EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK);
+
 	outerPlan = outerPlan(node);
 	outerPlanState(crstate) = ExecInitNode(outerPlan, estate, eflags);
 
-	Assert(OidIsValid(PGXCNodeOid));
 	if(node->special_node == PGXCNodeOid)
 	{
 		Assert(node->special_reduce != NULL);
@@ -311,60 +342,138 @@ ExecClusterReduce(ClusterReduceState *node)
 	ReduceEntry		entry;
 	bool			found;
 	Oid				eof_oid;
-
-	/* ClusterReduce need to sort by keys */
-	if (node->nkeys > 0)
-		return ExecClusterMergeReduce(node);
+	EState		   *estate;
+	Tuplestorestate*tuplestorestate;
+	ScanDirection	dir;
+	bool			forward;
+	bool			eof_tuplestore;
 
 	port = node->port;
+	estate = node->ps.state;
+	dir = estate->es_direction;
+	forward = ScanDirectionIsForward(dir);
+	tuplestorestate = node->tuplestorestate;
 	node->started = true;
 	Assert(port);
 
-	slot = node->ps.ps_ResultTupleSlot;
+	/*
+	 * If first time through, and we need a tuplestore, initialize it.
+	 */
+	if (tuplestorestate == NULL && node->eflags != 0)
 	{
-		TupleTableSlot *outerslot;
-
-		while (!node->eof_underlying || !node->eof_network)
+		tuplestorestate = tuplestore_begin_heap(true, false, work_mem);
+		tuplestore_set_eflags(tuplestorestate, node->eflags);
+		if (node->eflags & EXEC_FLAG_MARK)
 		{
-			/* fetch tuple from outer node */
-			if (!node->eof_underlying)
-			{
-				outerslot = GetSlotFromOuter(node);
-				if (!TupIsNull(outerslot))
-					return outerslot;
-			}
+			/*
+			 * Allocate a second read pointer to serve as the mark. We know it
+			 * must have index 1, so needn't store that.
+			 */
+			int ptrno	PG_USED_FOR_ASSERTS_ONLY;
 
-			/* fetch tuple from network */
-			if (!node->eof_network)
-			{
-				ExecClearTuple(slot);
-				eof_oid = InvalidOid;
-				if (node->eof_underlying)
-					rdc_set_block(port);
-				else
-					(void) rdc_try_read_some(port);
+			ptrno = tuplestore_alloc_read_pointer(tuplestorestate,
+												  node->eflags);
+			Assert(ptrno == 1);
+		}
+		node->tuplestorestate = tuplestorestate;
+	}
 
-				if(node->convert)
+	/*
+	 * If we are not at the end of the tuplestore, or are going backwards, try
+	 * to fetch a tuple from tuplestore.
+	 */
+	eof_tuplestore = (tuplestorestate == NULL) ||
+		tuplestore_ateof(tuplestorestate);
+
+	if (!forward && eof_tuplestore)
+	{
+		if (!node->eof_underlying)
+		{
+			/*
+			 * When reversing direction at tuplestore EOF, the first
+			 * gettupleslot call will fetch the last-added tuple; but we want
+			 * to return the one before that, if possible. So do an extra
+			 * fetch.
+			 */
+			if (!tuplestore_advance(tuplestorestate, forward))
+				return NULL;	/* the tuplestore must be empty */
+		}
+		eof_tuplestore = false;
+	}
+
+	slot = node->ps.ps_ResultTupleSlot;
+	if (!eof_tuplestore)
+	{
+		if (tuplestore_gettupleslot(tuplestorestate, forward, false, slot))
+			return slot;
+		if (forward)
+			eof_tuplestore = true;
+	}
+
+	if (eof_tuplestore)
+	{
+		TupleTableSlot *outerslot = NULL;
+
+		/* ClusterReduce need to sort keys */
+		if (node->nkeys > 0)
+			outerslot = ExecClusterMergeReduce(node);
+		else
+		{
+			while (!node->eof_underlying || !node->eof_network)
+			{
+				/* fetch tuple from outer node */
+				if (!node->eof_underlying)
 				{
-					GetSlotFromRemote(port, node->convert_slot, NULL, &eof_oid, &node->closed_remote);
-					outerslot = do_type_convert_slot_in(node->convert, node->convert_slot, slot, false);
-				}else
-				{
-					outerslot = GetSlotFromRemote(port, slot, NULL, &eof_oid, &node->closed_remote);
+					outerslot = GetSlotFromOuter(node);
+					if (!TupIsNull(outerslot))
+						break;
 				}
 
-				if (OidIsValid(eof_oid))
+				/* fetch tuple from network */
+				if (!node->eof_network)
 				{
-					found = false;
-					entry = hash_search(node->rdc_htab, &eof_oid, HASH_FIND, &found);
-					Assert(found && !entry->re_eof);
-					entry->re_eof = true;
-					node->neofs++;
-					node->eof_network = (node->neofs == node->nrdcs - 1);
-				} else if (!TupIsNull(outerslot))
-					return outerslot;
+					ExecClearTuple(slot);
+					eof_oid = InvalidOid;
+					if (node->eof_underlying)
+						rdc_set_block(port);
+					else
+						(void) rdc_try_read_some(port);
+
+					if(node->convert)
+					{
+						GetSlotFromRemote(port, node->convert_slot, NULL, &eof_oid, &node->closed_remote);
+						outerslot = do_type_convert_slot_in(node->convert, node->convert_slot, slot, false);
+					}else
+					{
+						outerslot = GetSlotFromRemote(port, slot, NULL, &eof_oid, &node->closed_remote);
+					}
+
+					if (OidIsValid(eof_oid))
+					{
+						found = false;
+						entry = hash_search(node->rdc_htab, &eof_oid, HASH_FIND, &found);
+						Assert(found && !entry->re_eof);
+						entry->re_eof = true;
+						node->neofs++;
+						node->eof_network = (node->neofs == node->nrdcs - 1);
+					} else if (!TupIsNull(outerslot))
+						break;
+				}
 			}
 		}
+
+		/*
+		 * Append a copy of the returned tuple to tuplestore.  NOTE: because
+		 * the tuplestore is certainly in EOF state, its read position will
+		 * move forward over the added tuple.  This is what we want.
+		 */
+		if (!TupIsNull(outerslot) && tuplestorestate)
+			tuplestore_puttupleslot(tuplestorestate, outerslot);
+
+		/*
+		 * We can just return the subplan's returned tuple, without copying.
+		 */
+		return outerslot;
 	}
 
 	/*
@@ -666,17 +775,22 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 {
 	DisConnectSelfReduce(node);
 	node->port = NULL;
-	node->eof_network = false;
-	node->eof_underlying = false;
 	list_free(node->closed_remote);
 	node->closed_remote = NIL;
 	if (node->rdc_entrys)
 	{
-		int i;
+		TupleTableSlot	   *re_slot;
+		Tuplestorestate	   *re_store;
+		int					i;
 		for (i = 0; i < node->nrdcs; i++)
 		{
-			if (node->rdc_entrys[i]->re_store)
-				tuplestore_end(node->rdc_entrys[i]->re_store);
+			re_slot = node->rdc_entrys[i]->re_slot;
+			re_store = node->rdc_entrys[i]->re_store;
+			if (re_slot)
+				ExecDropSingleTupleTableSlot(re_slot);
+			if (re_store)
+				tuplestore_end(re_store);
+			node->rdc_entrys[i]->re_slot = NULL;
 			node->rdc_entrys[i]->re_store = NULL;
 		}
 		pfree(node->rdc_entrys);
@@ -688,15 +802,159 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 		node->rdc_htab = NULL;
 	}
 
+	/*
+	 * Release tuplestore resources
+	 */
+	if (node->tuplestorestate != NULL)
+		tuplestore_end(node->tuplestorestate);
+	node->tuplestorestate = NULL;
+
 	ExecEndNode(outerPlanState(node));
 }
 
-void ExecReScanClusterReduce(ClusterReduceState *node)
+/* ----------------------------------------------------------------
+ *		ExecClusterReduceMarkPos
+ *
+ *		Calls tuplestore to save the current position in the stored file.
+ * ----------------------------------------------------------------
+ */
+void
+ExecClusterReduceMarkPos(ClusterReduceState *node)
 {
-	if(node->started)
+	Assert(node->eflags & EXEC_FLAG_MARK);
+
+	/*
+	 * if we haven't materialized yet, just return.
+	 */
+	if (!node->tuplestorestate)
+		return;
+
+	/*
+	 * copy the active read pointer to the mark.
+	 */
+	tuplestore_copy_read_pointer(node->tuplestorestate, 0, 1);
+
+	/*
+	 * since we may have advanced the mark, try to truncate the tuplestore.
+	 */
+	tuplestore_trim(node->tuplestorestate);
+}
+
+/* ----------------------------------------------------------------
+ *		ExeClusterReduceRestrPos
+ *
+ *		Calls tuplestore to restore the last saved file position.
+ * ----------------------------------------------------------------
+ */
+void
+ExecClusterReduceRestrPos(ClusterReduceState *node)
+{
+	Assert(node->eflags & EXEC_FLAG_MARK);
+
+	/*
+	 * if we haven't materialized yet, just return.
+	 */
+	if (!node->tuplestorestate)
+		return;
+
+	/*
+	 * copy the mark to the active read pointer.
+	 */
+	tuplestore_copy_read_pointer(node->tuplestorestate, 1, 0);
+}
+
+void
+ExecReScanClusterReduce(ClusterReduceState *node)
+{
+	PlanState  *outerPlan = outerPlanState(node);
+
+	/* Just return if not start ExecClusterReduce */
+	if (!node->started)
+		return;
+
+	ExecClearTuple(node->ps.ps_ResultTupleSlot);
+
+	if (node->eflags != 0)
 	{
-		ereport(ERROR, (errmsg("rescan cluster reduce no support")));
+		/*
+		 * If we haven't materialized yet, just return. If outerplan's
+		 * chgParam is not NULL then it will be re-scanned by ExecProcNode,
+		 * else no reason to re-scan it at all.
+		 */
+		if (!node->tuplestorestate)
+			return;
+
+		/*
+		 * If subnode is to be rescanned then we forget previous stored
+		 * results; we have to re-read the subplan and re-store.  Also, if we
+		 * told tuplestore it needn't support rescan, we lose and must
+		 * re-read.  (This last should not happen in common cases; else our
+		 * caller lied by not passing EXEC_FLAG_REWIND to us.)
+		 *
+		 * Otherwise we can just rewind and rescan the stored output. The
+		 * state of the subnode does not change.
+		 */
+		if (outerPlan->chgParam != NULL ||
+			(node->eflags & EXEC_FLAG_REWIND) == 0)
+		{
+			tuplestore_end(node->tuplestorestate);
+			node->tuplestorestate = NULL;
+			if (outerPlan->chgParam == NULL)
+				ExecReScan(outerPlan);
+			node->eof_underlying = false;
+
+			PrepareForReScanClusterReduce(node);
+		}
+		else
+			tuplestore_rescan(node->tuplestorestate);
 	}
+	else
+	{
+		/* In this case we are just passing on the subquery's output */
+
+		/*
+		 * if chgParam of subnode is not null then plan will be re-scanned by
+		 * first ExecProcNode.
+		 */
+		if (outerPlan->chgParam == NULL)
+			ExecReScan(outerPlan);
+		node->eof_underlying = false;
+
+		PrepareForReScanClusterReduce(node);
+	}
+}
+
+static void
+PrepareForReScanClusterReduce(ClusterReduceState *node)
+{
+	if (node->rdc_entrys)
+	{
+		TupleTableSlot	   *re_slot;
+		Tuplestorestate	   *re_store;
+		int					i;
+
+		for (i = 0; i < node->nrdcs; i++)
+		{
+			re_slot = node->rdc_entrys[i]->re_slot;
+			re_store = node->rdc_entrys[i]->re_store;
+			if (re_slot)
+				ExecClearTuple(re_slot);
+			if (re_store)
+				tuplestore_clear(re_store);
+			node->rdc_entrys[i]->re_eof = false;
+		}
+	}
+
+	if (node->nkeys > 0)
+	{
+		binaryheap_reset(node->binheap);
+		node->initialized = false;
+	}
+
+	list_free(node->closed_remote);
+
+	node->eof_network = false;
+	node->neofs = 0;
 }
 
 static bool

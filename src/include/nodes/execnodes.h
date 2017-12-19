@@ -2189,6 +2189,9 @@ typedef struct ClusterReduceState
 	struct TupleTypeConvert *convert;
 	TupleTableSlot *convert_slot;
 
+	int				eflags;			/* capability flags to pass to tuplestore */
+	Tuplestorestate*tuplestorestate;
+
 	/* used for merge reduce as below */
 	int				nkeys;
 	SortSupport 	sortkeys;	/* array of length nkeys */

@@ -356,6 +356,12 @@ ExecMarkPos(PlanState *node)
 			ExecResultMarkPos((ResultState *) node);
 			break;
 
+#ifdef ADB
+		case T_ClusterReduce:
+			ExecClusterReduceMarkPos((ClusterReduceState *) node);
+			break;
+#endif
+
 		default:
 			/* don't make hard error unless caller asks to restore... */
 			elog(DEBUG2, "unrecognized node type: %d", (int) nodeTag(node));
@@ -407,6 +413,12 @@ ExecRestrPos(PlanState *node)
 		case T_ResultState:
 			ExecResultRestrPos((ResultState *) node);
 			break;
+
+#ifdef ADB
+		case T_ClusterReduce:
+			ExecClusterReduceRestrPos((ClusterReduceState *) node);
+			break;
+#endif
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
