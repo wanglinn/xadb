@@ -1317,7 +1317,7 @@ int PQsendPlan(PGconn *conn, const char *plan, int length)
  *			0 if error (conn->errorMessage is set)
  */
 int
-PQsendClose(PGconn *conn, bool isStatement, const char *name)
+PQsendClose(PGconn *conn, int isStatement, const char *name)
 {
 	char c;
 	PQExpBufferData query;
@@ -1386,7 +1386,7 @@ PQsendQueryExtend(PGconn *conn,
 				  const char *command,				/* For Parse message */
 				  const char *stmtName,				/* For Parse, Bind, Describe Portal and Execute message */
 				  const char *portalName,			/* For Bind, Describe Portal and Execute message */
-				  bool sendDescribe,				/* Used to decide whether to send a Describe message */
+				  int sendDescribe,				/* Used to decide whether to send a Describe message */
 				  int fetchSize,					/* For Execute message, how many rows will be fetched */
 				  int nParams,						/* For Parse message, the number of input parameters */
 				  const char **paramTypeNames,		/* For Parse message, "nParams" of input paramter type names */
@@ -1445,18 +1445,18 @@ PQsendQueryExtend(PGconn *conn,
 	}
 
 	res = PQsendQueryExtendBinary(conn,
-								   command,
-								   stmtName,
-								   portalName,
-								   sendDescribe,
-								   fetchSize,
-								   nParams,
-								   paramTypeNames,
-								   paramFormats,
-								   paramBinaryBuf.data,
-								   paramBinaryBuf.len,
-								   nResultFormat,
-								   resultFormats);
+								  command,
+								  stmtName,
+								  portalName,
+								  sendDescribe,
+								  fetchSize,
+								  nParams,
+								  paramTypeNames,
+								  paramFormats,
+								  paramBinaryBuf.data,
+								  paramBinaryBuf.len,
+								  nResultFormat,
+								  resultFormats);
 
 	termPQExpBuffer(&paramBinaryBuf);
 
@@ -1475,7 +1475,7 @@ PQsendQueryExtendBinary(PGconn *conn,
 						const char *command,			/* For Parse message */
 						const char *stmtName,			/* For Parse, Bind, Describe Portal and Execute message */
 						const char *portalName,			/* For Bind, Describe Portal and Execute message */
-						bool sendDescribe,				/* Used to decide whether to send a Describe message */
+						int sendDescribe,				/* Used to decide whether to send a Describe message */
 						int fetchSize,					/* For Execute message, how many rows will be fetched */
 						int nParams,					/* For Parse message, the number of input parameters */
 						const char **paramTypeNames,	/* For Parse message, "nParams" of input paramter type names */

@@ -269,12 +269,12 @@ extern PGconn *PQsetdbLogin(const char *pghost, const char *pgport,
 extern void PQfinish(PGconn *conn);
 
 #ifdef ADB
-extern PGconn *PQattach(pgsocket sock, void *custom, int close_sock_on_end, int pgversion);
+extern PGconn *PQattach(int sock, void *custom, int close_sock_on_end, int pgversion);
 /* async interface
  * use PQconnectPoll finish connection
  * start status is PGRES_POLLING_READING
  */
-extern PGconn *PQbeginAttach(pgsocket sock, void *custom, int close_sock_on_end, int pgversion);
+extern PGconn *PQbeginAttach(int sock, void *custom, int close_sock_on_end, int pgversion);
 extern void PQdetach(PGconn *conn);
 #endif /* ADB */
 
@@ -409,12 +409,12 @@ extern int	PQsendQuery(PGconn *conn, const char *query);
 #ifdef ADB
 extern int PQsendQueryTree(PGconn *conn, const char *query, const char *query_tree, size_t tree_len);
 extern int PQsendPlan(PGconn *conn, const char *plan, int length);
-extern int PQsendClose(PGconn *conn, bool isStatement, const char *name);
+extern int PQsendClose(PGconn *conn, int isStatement, const char *name);
 extern int PQsendQueryExtend(PGconn *conn,
 							 const char *command,
 							 const char *stmtName,
 							 const char *portalName,
-							 bool sendDescribe,
+							 int sendDescribe,
 							 int fetchSize,
 							 int nParams,
 							 const char **paramTypeNames,
@@ -427,7 +427,7 @@ extern int PQsendQueryExtendBinary(PGconn *conn,
 							 const char *command,
 							 const char *stmtName,
 							 const char *portalName,
-							 bool sendDescribe,
+							 int sendDescribe,
 							 int fetchSize,
 							 int nParams,
 							 const char **paramTypeNames,
