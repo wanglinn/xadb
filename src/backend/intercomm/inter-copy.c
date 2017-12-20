@@ -107,7 +107,7 @@ StartRemoteCopy(RemoteCopyState *node)
 		}
 	} PG_CATCH();
 	{
-		InterXactGC(state);
+		InterXactGCCurrent(state);
 		PG_RE_THROW();
 	} PG_END_TRY();
 

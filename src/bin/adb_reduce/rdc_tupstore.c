@@ -1217,11 +1217,12 @@ void
 rdcstore_puttuple(RSstate *state, char *data, int len)
 {
 	void	*tuple = NULL;
+	MemoryContext oldcxt;
 
 	Assert(NULL != state && NULL != data && len > 0);
 
 	PUT_FILE_INFO(state);
-	MemoryContext oldcxt = MemoryContextSwitchTo(state->context);
+	oldcxt = MemoryContextSwitchTo(state->context);
 	/*
 	 * Copy the tuple.  (Must do this even in WRITEFILE case.  Note that
 	 * COPYTUP includes USEMEM, so we needn't do that here.)

@@ -488,12 +488,10 @@ GetMergeSlotFromOuter(ClusterReduceState *node, ReduceEntry entry)
 	TupleTableSlot	   *outerslot;
 	TupleTableSlot	   *cur_slot;
 	Tuplestorestate	   *cur_store;
-	Oid					cur_oid;
 
 	Assert(node && node->port && entry);
 	Assert(entry->re_key == PGXCNodeOid);
 
-	cur_oid = entry->re_key;
 	cur_store = entry->re_store;
 	cur_slot = entry->re_slot;
 

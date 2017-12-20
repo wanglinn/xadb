@@ -331,7 +331,7 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *des
 		}
 	} PG_CATCH();
 	{
-		InterXactGC(state);
+		InterXactGCCurrent(state);
 		PG_RE_THROW();
 	} PG_END_TRY();
 
@@ -493,12 +493,10 @@ TupleTableSlot *
 HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *destslot, bool blocking, bool batch)
 {
 	RemoteQueryContext	context;
-	PGconn			   *conn;
 
 	Assert(handle && node && destslot);
 	Assert(handle->node_owner && handle->node_owner == node);
 	Assert(handle->node_conn);
-	conn = handle->node_conn;
 
 	ExecClearTuple(destslot);
 

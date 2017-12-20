@@ -497,19 +497,38 @@ InterXactSerializeSnapshot(StringInfo buf, Snapshot snapshot)
 }
 
 /*
- * InterXactGC
+ * InterXactGCCurrent
  *
  * garbage collection for current handles of InterXactState
  */
 void
-InterXactGC(InterXactState state)
+InterXactGCCurrent(InterXactState state)
 {
-	NodeMixHandle	   *cur_handle;
+	if (state)
+	{
+		NodeMixHandle	   *cur_handle;
 
-	Assert(state);
-	cur_handle = state->cur_handle;
-	if (cur_handle)
-		HandleListGC(cur_handle->handles);
+		cur_handle = state->cur_handle;
+		if (cur_handle)
+			HandleListGC(cur_handle->handles);
+	}
+}
+
+/*
+ * InterXactGCAll
+ *
+ * garbage collection for all handles of InterXactState
+ */
+void
+InterXactGCAll(InterXactState state)
+{
+	if (state)
+	{
+		NodeMixHandle	   *all_handle;
+		all_handle = state->all_handle;
+		if (all_handle)
+			HandleListGC(all_handle->handles);
+	}
 }
 
 /*
@@ -520,12 +539,14 @@ InterXactGC(InterXactState state)
 void
 InterXactCacheCurrent(InterXactState state)
 {
-	NodeMixHandle	   *cur_handle;
+	if (state)
+	{
+		NodeMixHandle	   *cur_handle;
 
-	Assert(state);
-	cur_handle = state->cur_handle;
-	if (cur_handle)
-		HandleListCacheOrGC(cur_handle->handles);
+		cur_handle = state->cur_handle;
+		if (cur_handle)
+			HandleListCacheOrGC(cur_handle->handles);
+	}
 }
 
 /*
@@ -536,12 +557,14 @@ InterXactCacheCurrent(InterXactState state)
 void
 InterXactCacheAll(InterXactState state)
 {
-	NodeMixHandle	   *all_handle;
+	if (state)
+	{
+		NodeMixHandle	   *all_handle;
 
-	Assert(state);
-	all_handle = state->all_handle;
-	if (all_handle)
-		HandleListCacheOrGC(all_handle->handles);
+		all_handle = state->all_handle;
+		if (all_handle)
+			HandleListCacheOrGC(all_handle->handles);
+	}
 }
 
 /*
@@ -592,7 +615,7 @@ InterXactUtility(InterXactState state, Snapshot snapshot,
 		}
 	} PG_CATCH();
 	{
-		InterXactGC(state);
+		InterXactGCCurrent(state);
 		PG_RE_THROW();
 	} PG_END_TRY();
 }
@@ -641,7 +664,7 @@ InterXactBegin(InterXactState state, const List *node_list)
 		}
 	} PG_CATCH();
 	{
-		InterXactGC(new_state);
+		InterXactGCCurrent(new_state);
 		PG_RE_THROW();
 	} PG_END_TRY();
 }
@@ -773,15 +796,10 @@ InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_
 {
 	NodeHandle	   *handle;
 	ListCell	   *lc_handle;
-	PGconn		   *conn;
 
 	foreach (lc_handle, handle_list)
 	{
 		handle = (NodeHandle *) lfirst(lc_handle);
-		conn = handle->node_conn;
-		/* TODO: check invalid PQ transaction status  */
-		/*if (PQtransactionStatus(conn) != PQTRANS_INTRANS)
-			continue;*/
 		if (!HandleSendQueryTree(handle, InvalidCommandId, NULL, command, NULL) ||
 			!HandleFinishCommand(handle, command_tag))
 		{

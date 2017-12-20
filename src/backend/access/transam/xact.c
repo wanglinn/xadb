@@ -2988,6 +2988,8 @@ UnexpectedAbortRemoteXact(TransactionState state)
 	if (!IsCoordMaster())
 		return ;
 
+	InterXactGCAll(state->interXactState);
+
 	nodeIds = InterXactBeginNodes(state->interXactState, false, &nodecnt);
 	/* Abort remote xact */
 	RemoteXactAbort(nodecnt, nodeIds, false);
