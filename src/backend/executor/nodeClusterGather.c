@@ -100,6 +100,7 @@ void ExecEndClusterGather(ClusterGatherState *node)
 	ExecEndNode(outerPlanState(node));
 	if(node->remotes != NIL)
 		PQNListExecFinish(node->remotes, NULL, PQNEFHNormal, NULL, true);
+	freeClusterRecvState(node->recv_state);
 }
 
 void ExecReScanClusterGather(ClusterGatherState *node)
