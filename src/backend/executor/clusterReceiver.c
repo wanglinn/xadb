@@ -466,38 +466,38 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 
 TupleDesc restore_slot_head_message(const char *msg, int len)
 {
-	TupleDesc desc;
 	StringInfoData buf;
+	buf.cursor = 0;
+	buf.len = buf.maxlen = len;
+	buf.data = (char*)msg;
+	return restore_slot_head_message_str(&buf);
+}
+
+TupleDesc restore_slot_head_message_str(StringInfo buf)
+{
+	TupleDesc desc;
 	int i;
 	Oid oid;
 	const char *attributeName;
 	int32 typmod;
 	int attdim;
+	bool hasoid;
 
-	if(len < (sizeof(bool) + sizeof(int)))
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_INTERNAL_ERROR),
-				errmsg("invalid message length")));
-	}
+	hasoid = (bool)pq_getmsgbyte(buf);
+	pq_copymsgbytes(buf, (char*)&i, sizeof(i));
 
-	memcpy(&i, msg+1, sizeof(i));
+	desc = CreateTemplateTupleDesc(i, hasoid);
 
-	desc = CreateTemplateTupleDesc(i, msg[0]);
-
-	buf.data = (char*)msg;
-	buf.maxlen = buf.len = len;
-	buf.cursor = (sizeof(bool)+sizeof(int));
-	for(i=0;i<desc->natts;++i)
+	for(i=1;i<=desc->natts;++i)
 	{
 		/* attname ignore */
-		attributeName = load_node_string(&buf, false);
+		attributeName = load_node_string(buf, false);
 		/* atttypmod ignore */
-		pq_copymsgbytes(&buf, (char *) &typmod, sizeof(typmod));
+		pq_copymsgbytes(buf, (char *) &typmod, sizeof(typmod));
 		/* attndims */
-		pq_copymsgbytes(&buf, (char *) &attdim, sizeof(attdim));
+		pq_copymsgbytes(buf, (char *) &attdim, sizeof(attdim));
 		/* load oid type */
-		oid = load_oid_type(&buf);
+		oid = load_oid_type(buf);
 		TupleDescInitEntry(desc,
 						   i,
 						   attributeName,

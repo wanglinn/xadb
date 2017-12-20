@@ -1,6 +1,7 @@
 #ifndef CLUSTER_RECEIVER_H
 #define CLUSTER_RECEIVER_H
 
+#include "nodes/execnodes.h"
 #include "tcop/dest.h"
 
 #define CLUSTER_MSG_TUPLE_DESC		'T'
@@ -39,6 +40,7 @@ extern void serialize_instrument_message(PlanState *ps, StringInfo buf);
 extern void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type);
 extern void compare_slot_head_message(const char *msg, int len, TupleDesc desc);
 extern TupleDesc restore_slot_head_message(const char *msg, int len);
+extern TupleDesc restore_slot_head_message_str(StringInfo buf);
 extern void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char msg_type);
 extern TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *slot);
 extern void serialize_processed_message(StringInfo buf, uint64 processed);
