@@ -596,7 +596,12 @@ ExecCopySlotTuple(TupleTableSlot *slot)
 	if (TTS_HAS_PHYSICAL_TUPLE(slot))
 		return heap_copytuple(slot->tts_tuple);
 	if (slot->tts_mintuple)
-		return heap_tuple_from_minimal_tuple(slot->tts_mintuple);
+	{
+		HeapTuple result = heap_tuple_from_minimal_tuple(slot->tts_mintuple);
+		HeapTupleHeaderSetTypeId(result->t_data, slot->tts_tupleDescriptor->tdtypeid);
+		HeapTupleHeaderSetTypMod(result->t_data, slot->tts_tupleDescriptor->tdtypmod);
+		return result;
+	}
 #ifdef ADB
 	/*
 	 * Ensure values are extracted from data row to the Datum array
