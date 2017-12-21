@@ -427,7 +427,7 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 	end_mem_toc_insert(msg, REMOTE_KEY_ACTIVE_SNAPSHOT);
 
 	begin_mem_toc_insert(msg, REMOTE_KEY_GLOBAL_SNAPSHOT);
-	pgxc_serialize_snapshot(msg, GetActiveSnapshot());
+	InterXactSerializeSnapshot(msg, GetActiveSnapshot());
 	end_mem_toc_insert(msg, REMOTE_KEY_GLOBAL_SNAPSHOT);
 
 	begin_mem_toc_insert(msg, REMOTE_KEY_TRANSACTION_STATE);

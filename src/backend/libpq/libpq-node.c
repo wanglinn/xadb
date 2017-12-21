@@ -1,6 +1,7 @@
 #include "postgres.h"
 
 #include "catalog/pgxc_node.h"
+#include "intercomm/inter-node.h"
 #include "libpq/libpq-fe.h"
 #include "libpq/pqcomm.h"
 #include "miscadmin.h"
@@ -689,7 +690,7 @@ const char *PQNConnectName(struct pg_conn *conn)
 			if(op->conn == conn)
 			{
 				hash_seq_term(&status);
-				return PGXCNodeOidGetName(op->oid);
+				return GetNodeName(op->oid);
 			}
 		}
 	}

@@ -139,70 +139,13 @@ extern void InitMultinodeExecutor(bool is_force);
 /* Open/close connection routines (invoked from Pool Manager) */
 extern char *PGXCNodeConnStr(char *host, int port, char *dbname, char *user,
 							 char *pgoptions, char *remote_type);
-extern NODE_CONNECTION *PGXCNodeConnect(char *connstr);
 extern int PGXCNodeSendSetQuery(NODE_CONNECTION *conn, const char *sql_command);
-extern void PGXCNodeClose(NODE_CONNECTION * conn);
-extern int PGXCNodeConnected(NODE_CONNECTION * conn);
-extern int PGXCNodeConnClean(NODE_CONNECTION * conn);
 extern void PGXCNodeCleanAndRelease(int code, Datum arg);
 
 /* Look at information cached in node handles */
 extern int PGXCNodeGetNodeId(Oid nodeoid, char node_type);
 extern Oid PGXCNodeGetNodeOid(int nodeid, char node_type);
 extern List *PGXCNodeGetNodeOidList(List *list, char node_type);
-extern const char *PGXCNodeOidGetName(Oid nodeoid);
-extern const char *PGXCNodeIdGetName(int nodeid, char node_type);
-extern int PGXCNodeGetNodeIdFromName(char *node_name, char node_type);
-
-extern bool is_data_node_ready(PGXCNodeHandle * conn);
-
-extern int get_transaction_nodes(PGXCNodeHandle ** connections,
-								  char client_conn_type,
-								  PGXCNode_HandleRequested type_requested);
-extern char* collect_pgxcnode_names(char *nodestring, int conn_count, PGXCNodeHandle ** connections, char client_conn_type);
-extern char* collect_localnode_name(char *nodestring);
-extern int	get_active_nodes(PGXCNodeHandle ** connections);
-
-extern int	ensure_in_buffer_capacity(size_t bytes_needed, PGXCNodeHandle * handle);
-extern int	ensure_out_buffer_capacity(size_t bytes_needed, PGXCNodeHandle * handle);
-
-extern int	pgxc_node_send_query(PGXCNodeHandle * handle, const char *query);
-struct StringInfoData;
-extern int	pgxc_node_send_query_tree(PGXCNodeHandle * handle, const char *query, struct StringInfoData *tree_data);
-extern int	pgxc_node_send_describe(PGXCNodeHandle * handle, bool is_statement,
-						const char *name);
-extern int	pgxc_node_send_execute(PGXCNodeHandle * handle, const char *portal, int fetch);
-extern int	pgxc_node_send_close(PGXCNodeHandle * handle, bool is_statement,
-					 const char *name);
-extern int	pgxc_node_send_sync(PGXCNodeHandle * handle);
-extern int	pgxc_node_send_bind(PGXCNodeHandle * handle, const char *portal,
-								const char *statement, int paramlen, char *params);
-extern int	pgxc_node_send_parse(PGXCNodeHandle * handle, const char* statement,
-								 const char *query, short num_params, Oid *param_types);
-extern int	pgxc_node_send_flush(PGXCNodeHandle * handle);
-extern int	pgxc_node_send_query_extended(PGXCNodeHandle *handle, const char *query,
-							  const char *statement, const char *portal,
-							  int num_params, Oid *param_types,
-							  int paramlen, char *params,
-							  bool send_describe, int fetch_size);
-extern int	pgxc_node_send_gxid(PGXCNodeHandle *handle, GlobalTransactionId gxid);
-extern int	pgxc_node_send_cmd_id(PGXCNodeHandle *handle, CommandId cid);
-extern int	pgxc_node_send_snapshot(PGXCNodeHandle *handle, Snapshot snapshot);
-extern void pgxc_serialize_snapshot(StringInfo buf, Snapshot snapshot);
-extern int  pgxc_node_send_timestamp(PGXCNodeHandle *handle, TimestampTz timestamp);
-extern bool	pgxc_node_receive(const int conn_count,
-				  PGXCNodeHandle ** connections, struct timeval * timeout);
-extern int	pgxc_node_read_data(PGXCNodeHandle * conn, bool close_if_error);
-extern int	pgxc_node_is_data_enqueued(PGXCNodeHandle *conn);
-
-extern int	send_some(PGXCNodeHandle * handle, int len);
-extern int	pgxc_node_flush(PGXCNodeHandle *handle);
-extern void	pgxc_node_flush_read(PGXCNodeHandle *handle);
-
-extern char get_message(PGXCNodeHandle *conn, int *len, char **msg);
-
-extern void add_error_message(PGXCNodeHandle * handle, const char *fmt, ...)
-__attribute__((format(PG_PRINTF_ATTRIBUTE, 2, 3)));
 
 extern Datum pgxc_execute_on_nodes(int numnodes, Oid *nodelist, char *query);
 
