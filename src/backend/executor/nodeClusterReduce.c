@@ -237,10 +237,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 
 	crstate->convert = create_type_convert(crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor, true, true);
 	if(crstate->convert)
-	{
-		crstate->convert_slot = ExecAllocTableSlot(&estate->es_tupleTable);
-		ExecSetSlotDescriptor(crstate->convert_slot, crstate->convert->out_desc);
-	}
+		crstate->convert_slot = MakeSingleTupleTableSlot(crstate->convert->out_desc);
 
 	RegisterReduceCleanup(crstate);
 
@@ -806,6 +803,13 @@ void ExecEndClusterReduce(ClusterReduceState *node)
 	if (node->tuplestorestate != NULL)
 		tuplestore_end(node->tuplestorestate);
 	node->tuplestorestate = NULL;
+
+	/* release convert */
+	if(node->convert)
+	{
+		ExecDropSingleTupleTableSlot(node->convert_slot);
+		free_type_convert(node->convert);
+	}
 
 	ExecEndNode(outerPlanState(node));
 }
