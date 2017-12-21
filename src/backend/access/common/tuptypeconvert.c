@@ -347,7 +347,6 @@ static Datum convert_record_recv(PG_FUNCTION_ARGS)
 {
 	TupleDesc tupdesc;
 	RecordConvert *my_extra;
-	HeapTuple tuple;
 	StringInfo buf;
 
 	buf = (StringInfo)PG_GETARG_POINTER(0);
@@ -387,14 +386,12 @@ static Datum convert_record_recv(PG_FUNCTION_ARGS)
 	{
 		restore_slot_message(buf->data + buf->cursor, buf->len - buf->cursor, my_extra->slot_temp);
 		do_type_convert_slot_in(my_extra->convert, my_extra->slot_temp, my_extra->slot_base, false);
-		tuple = ExecFetchSlotTuple(my_extra->slot_base);
 	}else
 	{
 		restore_slot_message(buf->data + buf->cursor, buf->len - buf->cursor, my_extra->slot_base);
-		tuple = ExecFetchSlotTuple(my_extra->slot_base);
 	}
 
-	PG_RETURN_HEAPTUPLEHEADER(tuple->t_data);
+	PG_RETURN_DATUM(ExecFetchSlotTupleDatum(my_extra->slot_base));
 }
 
 static Datum convert_record_send(PG_FUNCTION_ARGS)
