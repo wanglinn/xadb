@@ -56,6 +56,7 @@ TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool n
 
 	convert = palloc(sizeof(*convert));
 	convert->base_desc = base_desc;
+	PinTupleDesc(base_desc);
 	convert->out_desc = out_desc;
 	convert->io_state = NIL;
 
@@ -324,6 +325,7 @@ void free_type_convert(TupleTypeConvert *convert)
 		list_free(convert->io_state);
 		if(convert->out_desc)
 			FreeTupleDesc(convert->out_desc);
+		ReleaseTupleDesc(convert->base_desc);
 		pfree(convert);
 	}
 }
