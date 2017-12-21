@@ -220,7 +220,10 @@ void
 HandleGC(NodeHandle *handle)
 {
 	if (handle)
+	{
+		handle->node_owner = NULL;
 		PQNExecFinish_trouble(handle->node_conn);
+	}
 }
 
 /*
@@ -701,10 +704,7 @@ HandleListClose(List *handle_list, bool isStatement, const char *name)
 void
 HandleResetOwner(NodeHandle * handle)
 {
-	if (handle) {
-		HandleGC(handle);
-		handle->node_owner = NULL;
-	}
+	return HandleGC(handle);
 }
 
 /*
@@ -716,15 +716,7 @@ HandleResetOwner(NodeHandle * handle)
 void
 HandleListResetOwner(List * handle_list)
 {
-	ListCell   *lc_handle;
-	NodeHandle *handle;
-
-	foreach (lc_handle, handle_list)
-	{
-		handle = (NodeHandle *) lfirst(lc_handle);
-		HandleGC(handle);
-		handle->node_owner = NULL;
-	}
+	return HandleListGC(handle_list);
 }
 
 /*
