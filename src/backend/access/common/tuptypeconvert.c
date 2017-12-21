@@ -1,25 +1,43 @@
 #include "postgres.h"
 
+#include "access/htup_details.h"
 #include "access/transam.h"
 #include "access/tuptypeconvert.h"
 #include "catalog/pg_type.h"
+#include "executor/clusterReceiver.h"
 #include "fmgr.h"
+#include "funcapi.h"
+#include "libpq/pqformat.h"
 #include "mb/pg_wchar.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
 #include "utils/lsyscache.h"
+#include "utils/typcache.h"
 
 typedef struct ConvertIO
 {
 	FmgrInfo	in_func;
 	FmgrInfo	out_func;
+	Oid			base_type;
 	Oid			io_param;
 	bool		bin_type;
 }ConvertIO;
 
+typedef struct RecordConvert
+{
+	TupleTypeConvert *convert;
+	TupleTableSlot *slot_base;
+	TupleTableSlot *slot_temp;
+}RecordConvert;
+
 static bool type_need_convert(Oid typeoid, bool *binary);
 static TupleDesc create_convert_desc_if_need(TupleDesc indesc);
+static void free_record_convert(RecordConvert *rc);
+
+static Datum convert_record_recv(PG_FUNCTION_ARGS);
+static Datum convert_record_send(PG_FUNCTION_ARGS);
+static RecordConvert* set_record_convert_tuple_desc(RecordConvert *rc, TupleDesc desc, MemoryContext context, bool is_send);
 
 TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool need_in)
 {
@@ -49,6 +67,7 @@ TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool n
 		{
 			io = palloc0(sizeof(*io));
 			io->bin_type = use_binary;
+			io->base_type = getBaseType(attr->atttypid);
 			if(need_in)
 			{
 				if(use_binary)
@@ -60,6 +79,10 @@ TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool n
 					io->in_func.fn_addr == array_recv)
 				{
 					io->in_func.fn_addr = array_recv_str_type;
+				}else if(io->in_func.fn_addr == record_recv)
+				{
+					Assert(io->base_type == RECORDOID);
+					io->in_func.fn_addr = convert_record_recv;
 				}
 			}
 			if(need_out)
@@ -74,6 +97,9 @@ TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool n
 					io->out_func.fn_addr == array_send)
 				{
 					io->out_func.fn_addr = array_send_str_type;
+				}else if(io->out_func.fn_addr == record_send)
+				{
+					io->out_func.fn_addr = convert_record_send;
 				}
 			}
 		}else
@@ -242,7 +268,8 @@ static bool type_need_convert(Oid typeoid, bool *binary)
 		if(binary)
 		{
 			if (typeoid == ANYARRAYOID ||
-				getBaseType(typeoid) == ANYARRAYOID)
+				(base_oid = getBaseType(typeoid)) == ANYARRAYOID ||
+				base_oid == RECORDOID)
 				*binary = true;
 			else
 				*binary = false;
@@ -283,12 +310,172 @@ void free_type_convert(TupleTypeConvert *convert)
 	{
 		foreach(lc,convert->io_state)
 		{
-			if(lfirst(lc))
-				pfree(lfirst(lc));
+			ConvertIO *io = lfirst(lc);
+			if(io)
+			{
+				if(io->base_type == RECORDOID)
+				{
+					free_record_convert(io->in_func.fn_extra);
+					free_record_convert(io->out_func.fn_extra);
+				}
+				pfree(io);
+			}
 		}
 		list_free(convert->io_state);
 		if(convert->out_desc)
 			FreeTupleDesc(convert->out_desc);
 		pfree(convert);
 	}
+}
+
+static void free_record_convert(RecordConvert *rc)
+{
+	if(rc)
+	{
+		if(rc->slot_temp)
+			ExecDropSingleTupleTableSlot(rc->slot_temp);
+		if(rc->slot_base)
+			ExecDropSingleTupleTableSlot(rc->slot_base);
+		free_type_convert(rc->convert);
+		pfree(rc);
+	}
+}
+
+static Datum convert_record_recv(PG_FUNCTION_ARGS)
+{
+	TupleDesc tupdesc;
+	RecordConvert *my_extra;
+	HeapTuple tuple;
+	StringInfo buf;
+
+	buf = (StringInfo)PG_GETARG_POINTER(0);
+
+	if(pq_getmsgbyte(buf) != CLUSTER_MSG_TUPLE_DESC)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_BINARY_REPRESENTATION),
+				 errmsg("invalid cluster record data")));
+	}
+
+	tupdesc = restore_slot_head_message_str(buf);
+
+	my_extra = (RecordConvert *) fcinfo->flinfo->fn_extra;
+	if (my_extra == NULL ||
+		!equalTupleDescs(my_extra->slot_base->tts_tupleDescriptor, tupdesc))
+	{
+		TupleDesc desc;
+		BlessTupleDesc(tupdesc);
+		desc = lookup_rowtype_tupdesc(tupdesc->tdtypeid, tupdesc->tdtypmod);
+		my_extra = fcinfo->flinfo->fn_extra
+				 = set_record_convert_tuple_desc(my_extra,
+												 desc,
+												 fcinfo->flinfo->fn_mcxt,
+												 false);
+		ReleaseTupleDesc(desc);
+	}
+	FreeTupleDesc(tupdesc);
+
+	if(pq_getmsgbyte(buf) != (my_extra->convert ? CLUSTER_MSG_CONVERT_TUPLE:CLUSTER_MSG_TUPLE_DATA))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_BINARY_REPRESENTATION),
+				 errmsg("invalid cluster record data")));
+	}
+	if(my_extra->convert)
+	{
+		restore_slot_message(buf->data + buf->cursor, buf->len - buf->cursor, my_extra->slot_temp);
+		do_type_convert_slot_in(my_extra->convert, my_extra->slot_temp, my_extra->slot_base, false);
+		tuple = ExecFetchSlotTuple(my_extra->slot_base);
+	}else
+	{
+		restore_slot_message(buf->data + buf->cursor, buf->len - buf->cursor, my_extra->slot_base);
+		tuple = ExecFetchSlotTuple(my_extra->slot_base);
+	}
+
+	PG_RETURN_HEAPTUPLEHEADER(tuple->t_data);
+}
+
+static Datum convert_record_send(PG_FUNCTION_ARGS)
+{
+	HeapTupleHeader		record;
+	TupleDesc			tupdesc;
+	HeapTupleData		tuple;
+	RecordConvert	   *my_extra;
+	Oid					tupType;
+	int32				tupTypmod;
+	StringInfoData		buf;
+
+	record = PG_GETARG_HEAPTUPLEHEADER(0);
+	tupType = HeapTupleHeaderGetTypeId(record);
+	tupTypmod = HeapTupleHeaderGetTypMod(record);
+	tupdesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
+
+	my_extra = fcinfo->flinfo->fn_extra
+			 = set_record_convert_tuple_desc(fcinfo->flinfo->fn_extra,
+											 tupdesc,
+											 fcinfo->flinfo->fn_mcxt,
+											 true);
+
+	/* Build a temporary HeapTuple control structure */
+	tuple.t_len = HeapTupleHeaderGetDatumLength(record);
+	ItemPointerSetInvalid(&(tuple.t_self));
+	tuple.t_tableOid = InvalidOid;
+	tuple.t_xc_node_id = 0;
+	tuple.t_data = record;
+
+	ExecStoreTuple(&tuple, my_extra->slot_base, InvalidBuffer, false);
+
+	pq_begintypsend(&buf);
+	serialize_slot_head_message(&buf, tupdesc);
+	if(my_extra->convert)
+	{
+		do_type_convert_slot_out(my_extra->convert, my_extra->slot_base, my_extra->slot_temp, false);
+		serialize_slot_message(&buf, my_extra->slot_temp, CLUSTER_MSG_CONVERT_TUPLE);
+	}else
+	{
+		serialize_slot_message(&buf, my_extra->slot_base, CLUSTER_MSG_TUPLE_DATA);
+	}
+
+	ReleaseTupleDesc(tupdesc);
+
+	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
+}
+
+static RecordConvert* set_record_convert_tuple_desc(RecordConvert *rc, TupleDesc desc, MemoryContext context, bool is_send)
+{
+	if (rc == NULL ||
+		!equalTupleDescs(rc->slot_base->tts_tupleDescriptor, desc))
+	{
+		MemoryContext old_context = MemoryContextSwitchTo(context);
+		if(rc == NULL)
+		{
+			rc = palloc(sizeof(*rc));
+			rc->slot_base = MakeSingleTupleTableSlot(desc);
+			rc->slot_temp = NULL;
+		}else
+		{
+			if(rc->slot_temp)
+			{
+				ExecDropSingleTupleTableSlot(rc->slot_temp);
+				rc->slot_temp = NULL;
+			}
+			free_type_convert(rc->convert);
+			ExecSetSlotDescriptor(rc->slot_base, desc);
+		}
+
+		if(is_send)
+			rc->convert = create_type_convert(desc, true, false);
+		else
+			rc->convert = create_type_convert(desc, false, true);
+
+		if (rc->convert)
+		{
+			if(rc->slot_temp == NULL)
+				rc->slot_temp = MakeSingleTupleTableSlot(rc->convert->out_desc);
+			else
+				ExecSetSlotDescriptor(rc->slot_temp, rc->convert->out_desc);
+		}
+		MemoryContextSwitchTo(old_context);
+	}
+	return rc;
 }
