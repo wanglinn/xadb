@@ -1517,6 +1517,7 @@ heap_tuple_from_minimal_tuple(MinimalTuple mtup)
 	result->t_data = (HeapTupleHeader) ((char *) result + HEAPTUPLESIZE);
 	memcpy((char *) result->t_data + MINIMAL_TUPLE_OFFSET, mtup, mtup->t_len);
 	memset(result->t_data, 0, offsetof(HeapTupleHeaderData, t_infomask2));
+	HeapTupleHeaderSetDatumLength(result->t_data, len);
 	return result;
 }
 
