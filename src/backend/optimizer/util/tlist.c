@@ -318,6 +318,24 @@ get_sortgroupref_tle(Index sortref, List *targetList)
 	return NULL;				/* keep compiler quiet */
 }
 
+#ifdef ADB
+TargetEntry *
+try_get_sortgroupref_tle(Index sortref, List *targetList)
+{
+	ListCell   *l;
+
+	foreach(l, targetList)
+	{
+		TargetEntry *tle = (TargetEntry *) lfirst(l);
+
+		if (tle->ressortgroupref == sortref)
+			return tle;
+	}
+
+	return NULL;				/* keep compiler quiet */
+}
+#endif
+
 /*
  * get_sortgroupclause_tle
  *		Find the targetlist entry matching the given SortGroupClause

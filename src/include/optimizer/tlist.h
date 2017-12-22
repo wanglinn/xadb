@@ -34,6 +34,10 @@ extern bool tlist_same_collations(List *tlist, List *colCollations, bool junkOK)
 
 extern TargetEntry *get_sortgroupref_tle(Index sortref,
 					 List *targetList);
+#ifdef ADB
+extern TargetEntry *try_get_sortgroupref_tle(Index sortref,
+					 List *targetList);
+#endif
 extern TargetEntry *get_sortgroupclause_tle(SortGroupClause *sgClause,
 						List *targetList);
 extern Node *get_sortgroupclause_expr(SortGroupClause *sgClause,

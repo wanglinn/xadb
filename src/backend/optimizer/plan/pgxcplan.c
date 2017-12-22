@@ -1322,11 +1322,11 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 				{
 					TargetEntry	*tle = lfirst(elt);
 					Var *v;
-			
+
 					col_att++;
-			
+
 					v = (Var *)tle->expr;
-		
+
 					if (v->varno == resultRelationIndex &&
 						v->varattno == pkattno)
 					{
@@ -1588,7 +1588,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * for Agg.
 	 * anything else is not handled right now.
 	 */
-	temp_plan = local_plan->lefttree;
+	temp_plan = copyObject(local_plan->lefttree);
 	remote_scan = NULL;
 	sort_plan = NULL;
 	if (temp_plan && IsA(temp_plan, Sort))
@@ -1788,7 +1788,7 @@ pgxc_locate_grouping_columns(PlannerInfo *root, List *tlist,
 	foreach(gl, root->parse->groupClause)
 	{
 		SortGroupClause *grpcl = (SortGroupClause *) lfirst(gl);
-		TargetEntry *te = get_sortgroupclause_tle(grpcl, tlist);
+		TargetEntry *te = try_get_sortgroupref_tle(grpcl->tleSortGroupRef, tlist);
 		if (!te)
 			return false;
 		groupColIdx[keyno++] = te->resno;
@@ -2729,7 +2729,7 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 
 #ifdef ADB
 		exec_nodes = NULL;
-	
+
 		if(enable_pushdown_art)
 			exec_nodes = pgxc_is_all_replicated_table(query);
 		/*
@@ -2828,7 +2828,7 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	List			*collected_rtable;
 	List			*junk_tlist = NIL;
 	ListCell		*cell;
-	TargetEntry     *currentTle ; 
+	TargetEntry     *currentTle ;
 	/* EXECUTE DIRECT statements have their RemoteQuery node already built when analyzing */
 	if (is_exec_direct)
 	{
