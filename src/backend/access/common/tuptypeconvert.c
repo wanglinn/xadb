@@ -763,7 +763,7 @@ static Datum convert_array_recv(PG_FUNCTION_ARGS)
 	CopyArrayEls(retval,
 				 dataPtr, nullsPtr, nitems,
 				 ac->base_typlen, ac->base_typbyval, ac->base_typalign,
-				 true);
+				 ac->need_convert);
 
 	pfree(dataPtr);
 	pfree(nullsPtr);
