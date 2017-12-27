@@ -2427,6 +2427,13 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 					{
 						path = reduce_path;
 					}
+				}else if (have_cluster_reduce_path(path, NULL))
+				{
+					/*
+					   when subpath include reduce, maybe update or delete wrong rows
+					   because ctid column maybe not from modify node
+					 */
+					continue;
 				}
 			}else
 			{
