@@ -2,6 +2,7 @@
 
 #include "access/htup_details.h"
 #include "access/transam.h"
+#include "access/tuptoaster.h"
 #include "access/tuptypeconvert.h"
 #include "catalog/pg_type.h"
 #include "executor/clusterReceiver.h"
@@ -10,18 +11,20 @@
 #include "libpq/pqformat.h"
 #include "mb/pg_wchar.h"
 #include "utils/array.h"
+#include "utils/arrayaccess.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
 #include "utils/lsyscache.h"
+#include "utils/fmgroids.h"
 #include "utils/typcache.h"
 
 typedef struct ConvertIO
 {
 	FmgrInfo	in_func;
 	FmgrInfo	out_func;
-	Oid			base_type;
 	Oid			io_param;
 	bool		bin_type;
+	bool		should_free;	/* when is true, in_func or/and out_func.fn_expr is point to free function, arg is FmgrInfo::fn_extra */
 }ConvertIO;
 
 typedef struct RecordConvert
@@ -31,22 +34,46 @@ typedef struct RecordConvert
 	TupleTableSlot *slot_temp;
 }RecordConvert;
 
-static bool type_need_convert(Oid typeoid, bool *binary);
+typedef struct ArrayConvert
+{
+	ConvertIO io;
+	Oid last_type;
+	int16 base_typlen;
+	int16 convert_typlen;
+	bool base_typbyval;
+	bool convert_typbyval;
+	char base_typalign;
+	bool need_convert;
+}ArrayConvert;
+
+typedef void (*clean_function)(void *ptr);
+
 static TupleDesc create_convert_desc_if_need(TupleDesc indesc);
 static void free_record_convert(RecordConvert *rc);
+
+static bool setup_convert_io(ConvertIO *io, Oid typid, bool need_out, bool need_in);
+static void clean_convert_io(ConvertIO *io);
+
+static void append_stringinfo_datum(StringInfo buf, Datum datum, int16 typlen, bool typbyval);
+static Datum load_stringinfo_datum(StringInfo buf, int16 typlen, bool typbyval);
+static Datum load_stringinfo_datum_io(StringInfo buf, ConvertIO *io);
 
 static Datum convert_record_recv(PG_FUNCTION_ARGS);
 static Datum convert_record_send(PG_FUNCTION_ARGS);
 static RecordConvert* set_record_convert_tuple_desc(RecordConvert *rc, TupleDesc desc, MemoryContext context, bool is_send);
+
+static Datum convert_array_recv(PG_FUNCTION_ARGS);
+static Datum convert_array_send(PG_FUNCTION_ARGS);
+static ArrayConvert* set_array_convert(ArrayConvert *ac, Oid element_type, MemoryContext context, bool is_send);
+static void free_array_convert(ArrayConvert *ac);
 
 TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool need_in)
 {
 	TupleTypeConvert *convert;
 	TupleDesc out_desc;
 	Form_pg_attribute attr;
-	ConvertIO *io;
+	ConvertIO *io,tmp_io;
 	int i;
-	Oid func;
 	AssertArg(need_out || need_in);
 
 	out_desc = create_convert_desc_if_need(base_desc);
@@ -62,47 +89,11 @@ TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool n
 
 	for(i=0;i<base_desc->natts;++i)
 	{
-		bool use_binary;
 		attr = base_desc->attrs[i];
-		if(type_need_convert(attr->atttypid, &use_binary))
+		if (setup_convert_io(&tmp_io, attr->atttypid, need_out, need_in))
 		{
-			io = palloc0(sizeof(*io));
-			io->bin_type = use_binary;
-			io->base_type = getBaseType(attr->atttypid);
-			if(need_in)
-			{
-				if(use_binary)
-					getTypeBinaryInputInfo(attr->atttypid, &func, &io->io_param);
-				else
-					getTypeInputInfo(attr->atttypid, &func, &io->io_param);
-				fmgr_info(func, &io->in_func);
-				if (io->in_func.fn_addr == anyarray_recv ||
-					io->in_func.fn_addr == array_recv)
-				{
-					io->in_func.fn_addr = array_recv_str_type;
-				}else if(io->in_func.fn_addr == record_recv)
-				{
-					Assert(io->base_type == RECORDOID);
-					io->in_func.fn_addr = convert_record_recv;
-				}
-			}
-			if(need_out)
-			{
-				bool is_varian;
-				if(use_binary)
-					getTypeBinaryOutputInfo(attr->atttypid, &func, &is_varian);
-				else
-					getTypeOutputInfo(attr->atttypid, &func, &is_varian);
-				fmgr_info(func, &io->out_func);
-				if (io->out_func.fn_addr == anyarray_send ||
-					io->out_func.fn_addr == array_send)
-				{
-					io->out_func.fn_addr = array_send_str_type;
-				}else if(io->out_func.fn_addr == record_send)
-				{
-					io->out_func.fn_addr = convert_record_send;
-				}
-			}
+			io = palloc(sizeof(*io));
+			memcpy(io, &tmp_io, sizeof(*io));
 		}else
 		{
 			io = NULL;
@@ -220,16 +211,85 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 	return ExecStoreVirtualTuple(dest);
 }
 
+Datum do_datum_convert_in(StringInfo buf, Oid typid)
+{
+	Datum datum;
+	ConvertIO io;
+	
+	if (setup_convert_io(&io, typid, false, true))
+	{
+		push_client_encoding(GetDatabaseEncoding());
+		PG_TRY();
+		{
+			datum  = load_stringinfo_datum_io(buf, &io);
+		}PG_CATCH();
+		{
+			pop_client_encoding();
+			PG_RE_THROW();
+		}PG_END_TRY();
+		pop_client_encoding();
+		clean_convert_io(&io);
+	}else
+	{
+		int16 typlen;
+		bool byval;
+		get_typlenbyval(typid, &typlen, &byval);
+		datum = load_stringinfo_datum(buf, typlen, byval);
+	}
+
+	return datum;
+}
+
+void do_datum_convert_out(StringInfo buf, Oid typid, Datum datum)
+{
+	Datum new_datum;
+	ConvertIO io;
+	int16 typlen;
+	bool byval;
+
+	if (setup_convert_io(&io, typid, true, false))
+	{
+		byval = false;
+		push_client_encoding(GetDatabaseEncoding());
+		PG_TRY();
+		{
+			if(io.bin_type)
+			{
+				new_datum = PointerGetDatum(SendFunctionCall(&io.out_func, datum));
+				typlen = -1;
+			}else
+			{
+				new_datum = PointerGetDatum(OutputFunctionCall(&io.out_func, datum));
+				typlen = -2;
+			}
+		}PG_CATCH();
+		{
+			pop_client_encoding();
+			PG_RE_THROW();
+		}PG_END_TRY();
+		pop_client_encoding();
+		clean_convert_io(&io);
+	}else
+	{
+		new_datum = datum;
+		get_typlenbyval(typid, &typlen, &byval);
+	}
+
+	append_stringinfo_datum(buf, new_datum, typlen, byval);
+}
+
+
 static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 {
 	TupleDesc outdesc;
 	Form_pg_attribute attr;
+	ConvertIO io;
 	int i;
 	Oid type;
 
 	for(i=0;i<indesc->natts;++i)
 	{
-		if (type_need_convert(indesc->attrs[i]->atttypid, NULL))
+		if (setup_convert_io(NULL, indesc->attrs[i]->atttypid, false, false))
 			break;
 	}
 	if(i>=indesc->natts)
@@ -238,13 +298,12 @@ static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 	outdesc = CreateTemplateTupleDesc(indesc->natts, false);
 	for(i=0;i<indesc->natts;++i)
 	{
-		bool use_binary;
 		attr = indesc->attrs[i];
 		Assert(attr->attisdropped == false);
 
 		type = attr->atttypid;
-		if(type_need_convert(attr->atttypid, &use_binary))
-			type = use_binary ? BYTEAOID:UNKNOWNOID;
+		if (setup_convert_io(&io, attr->atttypid, true, true))
+			type = io.bin_type ? BYTEAOID:UNKNOWNOID;
 		else
 			type = attr->atttypid;
 
@@ -258,50 +317,170 @@ static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 	return outdesc;
 }
 
-static bool type_need_convert(Oid typeoid, bool *binary)
+/* return true if need convert */
+static bool setup_convert_io(ConvertIO *io, Oid typid, bool need_out, bool need_in)
 {
-	Oid base_oid;
-	char type;
+	Size i;
+	Oid func;
+	Oid io_param;
+	static const struct
+	{
+		Oid			base_func;		/* base input function object ID */
+		Oid			recv_oid;		/* convert recv function OID */
+		Oid			send_oid;		/* convert send function OID */
+		bool		is_binary;		/* is binary type for send and recv function */
+		PGFunction	recv_func;		/* convert recv function */
+		PGFunction	send_func;		/* convert send function */
+		clean_function clean;	/* clean function if need */
+	}func_map[] = 
+	{
+		 {F_ENUM_IN, F_ENUM_IN, F_ENUM_OUT, false, NULL, NULL, NULL}
+		,{F_REGCLASSIN, F_REGCLASSIN, F_REGCLASSOUT, false, NULL, NULL, NULL}
+		,{F_REGPROCIN, F_REGPROCIN, F_REGPROCOUT, false, NULL, NULL, NULL}
+		,{F_ARRAY_IN, InvalidOid, InvalidOid, true, convert_array_recv, convert_array_send, (clean_function)free_array_convert}
+		,{F_ANYARRAY_IN, InvalidOid, InvalidOid, true, convert_array_recv, convert_array_send, (clean_function)free_array_convert}
+		,{F_RECORD_IN, InvalidOid, InvalidOid, true, convert_record_recv, convert_record_send, (clean_function)free_record_convert}
+	};
 
-	type = get_typtype(typeoid);
-	if (type == TYPTYPE_PSEUDO)
+	getTypeInputInfo(typid, &func, &io_param);
+	for(i=0;i<lengthof(func_map);++i)
 	{
-		if(binary)
+		if(func_map[i].base_func == func)
 		{
-			if (typeoid == ANYARRAYOID ||
-				(base_oid = getBaseType(typeoid)) == ANYARRAYOID ||
-				base_oid == RECORDOID)
-				*binary = true;
-			else
-				*binary = false;
+			if(io)
+			{
+				MemSet(io, 0, sizeof(*io));
+				io->bin_type = func_map[i].is_binary;
+				io->should_free = func_map[i].clean ? true:false;
+				io->io_param = io_param;
+				if(need_in)
+				{
+					if(OidIsValid(func_map[i].recv_oid))
+					{
+						fmgr_info(func_map[i].recv_oid, &io->in_func);
+					}else
+					{
+						io->in_func.fn_addr = func_map[i].recv_func;
+						io->in_func.fn_nargs = 3;
+						fmgr_info_set_expr((fmNodePtr)func_map[i].clean, &io->in_func);
+						io->in_func.fn_mcxt = CurrentMemoryContext;
+						io->in_func.fn_strict = true;
+					}
+				}
+				if(need_out)
+				{
+					if(OidIsValid(func_map[i].send_oid))
+					{
+						fmgr_info(func_map[i].send_oid, &io->out_func);
+					}else
+					{
+						io->out_func.fn_addr = func_map[i].send_func;
+						io->out_func.fn_nargs = 1;
+						fmgr_info_set_expr((fmNodePtr)func_map[i].clean, &io->out_func);
+						io->out_func.fn_mcxt = CurrentMemoryContext;
+						io->out_func.fn_strict = true;
+					}
+				}
+			}
+			return true;
 		}
-		return true;
-	}else if(type == TYPTYPE_ENUM)
-	{
-		if (binary)
-			*binary = true;
-		return true;
 	}
 
-	base_oid = getBaseType(typeoid);
-	if (typeoid == REGCLASSOID ||
-		base_oid == REGCLASSOID ||
-		typeoid == REGPROCOID ||
-		base_oid == REGPROCOID)
+	if (get_typtype(typid) != TYPTYPE_PSEUDO &&
+		(typid < FirstNormalObjectId ||
+		 getBaseType(typid) < FirstNormalObjectId))
 	{
-		if(binary)
-			*binary = false;
-		return true;
-	}else if(typeoid < FirstNormalObjectId ||
-			 base_oid < FirstNormalObjectId)
-	{
-		if(binary)
-			*binary = false;
 		return false;
 	}
-	if (binary)
-		*binary = false;
-	return true;
+
+	if(io)
+	{
+		MemSet(io, 0, sizeof(*io));
+		io->io_param = io_param;
+		/* called MemSet 0, don't need this code
+		io->bin_type = false;
+		io->should_free = false; */
+		if(need_in)
+			fmgr_info(func, &io->in_func);
+		if(need_out)
+		{
+			bool isvarlena;
+			getTypeOutputInfo(typid, &func, &isvarlena);
+			fmgr_info(func, &io->out_func);
+		}
+	}
+	return false;
+}
+
+static void clean_convert_io(ConvertIO *io)
+{
+	if(io && io->should_free)
+	{
+		clean_function func = (clean_function)io->in_func.fn_expr;
+		if(func)
+			(*func)(io->in_func.fn_extra);
+		func = ((clean_function)io->out_func.fn_expr);
+		if(func)
+			(*func)(io->out_func.fn_extra);
+	}
+}
+
+static void append_stringinfo_datum(StringInfo buf, Datum datum, int16 typlen, bool typbyval)
+{
+	if (typbyval)
+	{
+		Assert(typlen > 0);
+		enlargeStringInfo(buf, sizeof(typlen));
+		store_att_byval(buf->data+buf->len, datum, typlen);
+		buf->len += typlen;
+	}else if(typlen == -1)
+	{
+		/* varlena */
+		struct varlena *p;
+		if(VARATT_IS_EXTERNAL(DatumGetPointer(datum)))
+			p = heap_tuple_fetch_attr((struct varlena *)DatumGetPointer(datum));
+		else
+			p = (struct varlena *)DatumGetPointer(datum);
+		appendBinaryStringInfo(buf, (char*)p, VARSIZE_ANY(p));
+	}else if(typlen == -2)
+	{
+		/* CString */
+		char *str = DatumGetCString(datum);
+		appendBinaryStringInfo(buf, str, strlen(str)+1);
+	}else
+	{
+		Assert(typlen > 0);
+		appendBinaryStringInfo(buf, DatumGetPointer(datum), typlen);
+	}
+
+}
+
+static Datum load_stringinfo_datum(StringInfo buf, int16 typlen, bool typbyval)
+{
+	Datum datum;
+	char *ptr = buf->data + buf->cursor;
+	datum = fetch_att(ptr, typbyval, typlen);
+	buf->cursor = att_addlength_pointer(buf->cursor, typlen, ptr);
+	return datum;
+}
+
+static Datum load_stringinfo_datum_io(StringInfo buf, ConvertIO *io)
+{
+	Datum datum;
+	if(io->bin_type)
+	{
+		StringInfoData tmp;
+		tmp.data = buf->data+buf->cursor;
+		tmp.cursor = VARDATA_ANY(tmp.data) - tmp.data;
+		tmp.len = tmp.maxlen = VARSIZE_ANY(tmp.data);
+		datum = ReceiveFunctionCall(&io->in_func, &tmp, io->io_param, -1);
+		buf->cursor += tmp.maxlen;
+	}else
+	{
+		datum = InputFunctionCall(&io->in_func, buf->data+buf->cursor, io->io_param, -1);
+		buf->cursor += strlen(buf->data) + 1;
+	}
+	return datum;
 }
 
 void free_type_convert(TupleTypeConvert *convert)
@@ -314,11 +493,7 @@ void free_type_convert(TupleTypeConvert *convert)
 			ConvertIO *io = lfirst(lc);
 			if(io)
 			{
-				if(io->base_type == RECORDOID)
-				{
-					free_record_convert(io->in_func.fn_extra);
-					free_record_convert(io->out_func.fn_extra);
-				}
+				clean_convert_io(io);
 				pfree(io);
 			}
 		}
@@ -477,4 +652,238 @@ static RecordConvert* set_record_convert_tuple_desc(RecordConvert *rc, TupleDesc
 		MemoryContextSwitchTo(old_context);
 	}
 	return rc;
+}
+
+/* like array_recv, but we convert array item if need */
+static Datum convert_array_recv(PG_FUNCTION_ARGS)
+{
+	ArrayConvert *ac;
+	StringInfo	buf = (StringInfo) PG_GETARG_POINTER(0);
+	ArrayType  *retval;
+	Datum	   *dataPtr;
+	bool	   *nullsPtr;
+	Oid			element_type = PG_GETARG_OID(1);		/* type of an array
+														 * element */
+	/*int32		typmod = PG_GETARG_INT32(2);*/			/* typmod for array elements */
+	int			i,
+				nitems;
+	int			ndim,
+				has_null,
+				dim[MAXDIM],
+				lBound[MAXDIM];
+	int32		nbytes;
+	int32		dataoffset;
+
+	/* Get the array header information */
+	ndim = pq_getmsgint(buf, 4);
+	if (ndim < 0)				/* we do allow zero-dimension arrays */
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_BINARY_REPRESENTATION),
+				 errmsg("invalid number of dimensions: %d", ndim)));
+	if (ndim > MAXDIM)
+		ereport(ERROR,
+				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+				 errmsg("number of array dimensions (%d) exceeds the maximum allowed (%d)",
+						ndim, MAXDIM)));
+
+	element_type = load_oid_type(buf);
+
+	for (i = 0; i < ndim; i++)
+	{
+		dim[i] = pq_getmsgint(buf, 4);
+		lBound[i] = pq_getmsgint(buf, 4);
+
+		/*
+		 * Check overflow of upper bound. (ArrayNItems() below checks that
+		 * dim[i] >= 0)
+		 */
+		if (dim[i] != 0)
+		{
+			int			ub = lBound[i] + dim[i] - 1;
+
+			if (lBound[i] > ub)
+				ereport(ERROR,
+						(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+						 errmsg("integer out of range")));
+		}
+	}
+
+	/* This checks for overflow of array dimensions */
+	nitems = ArrayGetNItems(ndim, dim);
+
+	ac = fcinfo->flinfo->fn_extra
+		= set_array_convert(fcinfo->flinfo->fn_extra, element_type, fcinfo->flinfo->fn_mcxt, false);
+
+	if (nitems == 0)
+	{
+		/* Return empty array ... but not till we've validated element_type */
+		PG_RETURN_ARRAYTYPE_P(construct_empty_array(element_type));
+	}
+
+
+	dataPtr = palloc0(nitems * sizeof(Datum));
+	nullsPtr = palloc(nitems * sizeof(bool));
+	has_null = false;
+	nbytes = 0;
+	for(i=0;i<nitems;++i)
+	{
+		bool is_null = pq_getmsgbyte(buf);
+		if (is_null)
+		{
+			nullsPtr[i] = has_null = true;
+		}else
+		{
+			nullsPtr[i] = false;
+			if(ac->need_convert)
+				dataPtr[i] = load_stringinfo_datum_io(buf, &ac->io);
+			else
+				dataPtr[i] = load_stringinfo_datum(buf, ac->base_typlen, ac->base_typbyval);
+			nbytes = att_addlength_datum(nbytes, ac->base_typlen, dataPtr[i]);
+			nbytes = att_align_nominal(nbytes, ac->base_typalign);
+		}
+	}
+
+	if (has_null)
+	{
+		dataoffset = ARR_OVERHEAD_WITHNULLS(ndim, nitems);
+		nbytes += dataoffset;
+	}else
+	{
+		dataoffset = 0;			/* marker for no null bitmap */
+		nbytes += ARR_OVERHEAD_NONULLS(ndim);
+	}
+	retval = (ArrayType *) palloc0(nbytes);
+	SET_VARSIZE(retval, nbytes);
+	retval->ndim = ndim;
+	retval->dataoffset = dataoffset;
+	retval->elemtype = element_type;
+	memcpy(ARR_DIMS(retval), dim, ndim * sizeof(int));
+	memcpy(ARR_LBOUND(retval), lBound, ndim * sizeof(int));
+
+	CopyArrayEls(retval,
+				 dataPtr, nullsPtr, nitems,
+				 ac->base_typlen, ac->base_typbyval, ac->base_typalign,
+				 true);
+
+	pfree(dataPtr);
+	pfree(nullsPtr);
+
+	PG_RETURN_ARRAYTYPE_P(retval);
+}
+
+/* like array_send, but we convert array item if need */
+static Datum convert_array_send(PG_FUNCTION_ARGS)
+{
+	StringInfoData buf;
+	ArrayConvert *ac;
+	AnyArrayType *v = PG_GETARG_ANY_ARRAY(0);
+	Oid			element_type = AARR_ELEMTYPE(v);
+	array_iter	iter;
+	int			nitems,
+				i;
+	int			ndim,
+			   *dim,
+			   *lb;
+
+	ac = fcinfo->flinfo->fn_extra 
+		= set_array_convert(fcinfo->flinfo->fn_extra, element_type, fcinfo->flinfo->fn_mcxt, true);
+
+	ndim = AARR_NDIM(v);
+	dim = AARR_DIMS(v);
+	lb = AARR_LBOUND(v);
+	nitems = ArrayGetNItems(ndim, dim);
+
+	pq_begintypsend(&buf);
+
+	/* Send the array header information */
+	pq_sendint(&buf, ndim, 4);
+	save_oid_type(&buf, element_type);
+	for (i = 0; i < ndim; i++)
+	{
+		pq_sendint(&buf, dim[i], 4);
+		pq_sendint(&buf, lb[i], 4);
+	}
+
+	/* Send the array elements using the element's own sendproc */
+	array_iter_setup(&iter, v);
+
+	for (i = 0; i < nitems; i++)
+	{
+		Datum		itemvalue;
+		Datum		new_val;
+		bool		isnull;
+
+		/* Get source element, checking for NULL */
+		itemvalue = array_iter_next(&iter, &isnull, i,
+									ac->base_typlen, ac->base_typbyval, ac->base_typalign);
+
+		if (isnull)
+		{
+			appendStringInfoCharMacro(&buf, (char)true);
+		}else
+		{
+			appendStringInfoCharMacro(&buf, (char)false);
+			if(ac->need_convert)
+			{
+				if(ac->io.bin_type)
+					new_val = PointerGetDatum(SendFunctionCall(&ac->io.out_func, itemvalue));
+				else
+					new_val = PointerGetDatum(OutputFunctionCall(&ac->io.out_func, itemvalue));
+			}else
+			{
+				new_val = itemvalue;
+			}
+			append_stringinfo_datum(&buf, new_val, ac->convert_typlen, ac->convert_typbyval);
+			if(new_val != itemvalue)
+				pfree(DatumGetPointer(new_val));
+		}
+	}
+
+	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
+}
+
+static ArrayConvert* set_array_convert(ArrayConvert *ac, Oid element_type, MemoryContext context, bool is_send)
+{
+	if(ac == NULL)
+	{
+		ac = MemoryContextAllocZero(context, sizeof(*ac));
+		ac->last_type = ~element_type;
+	}
+
+	if(ac->last_type != element_type)
+	{
+		MemoryContext old_context;
+
+		clean_convert_io(&ac->io);
+		MemSet(ac, 0, sizeof(*ac));
+		ac->last_type = element_type;
+		get_typlenbyvalalign(element_type, &ac->base_typlen, &ac->base_typbyval, &ac->base_typalign);
+
+		old_context = MemoryContextSwitchTo(context);
+		if (is_send)
+			ac->need_convert = setup_convert_io(&ac->io, element_type, true, false);
+		else
+			ac->need_convert = setup_convert_io(&ac->io, element_type, false, true);
+		if(ac->need_convert)
+		{
+			ac->convert_typbyval = false;
+			ac->convert_typlen = ac->io.bin_type ? -1:-2;
+		}else
+		{
+			ac->convert_typbyval = ac->base_typbyval;
+			ac->convert_typlen = ac->base_typlen;
+		}
+		MemoryContextSwitchTo(old_context);
+	}
+
+	return ac;
+}
+
+static void free_array_convert(ArrayConvert *ac)
+{
+	if(ac)
+	{
+		clean_convert_io(&ac->io);
+		pfree(ac);
+	}
 }
