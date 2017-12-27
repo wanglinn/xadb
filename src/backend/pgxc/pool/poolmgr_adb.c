@@ -211,6 +211,7 @@ static MemoryContext PoolerMemoryContext;
 
 /* PoolAgents */
 static volatile Size	agentCount;
+static Size max_agent_count;
 static PoolAgent **poolAgents;
 
 static PoolHandle *poolHandle = NULL;
@@ -397,7 +398,8 @@ PoolManagerInit()
 	/* Allocate pooler structures in the Pooler context */
 	MemoryContextSwitchTo(PoolerMemoryContext);
 
-	poolAgents = (PoolAgent **) palloc(MaxConnections * sizeof(PoolAgent *));
+	max_agent_count = MaxConnections << 1; /* MaxConnections * 2 */
+	poolAgents = (PoolAgent **) palloc(max_agent_count * sizeof(PoolAgent *));
 	agentCount = 0;
 
 	create_htab_database();
@@ -408,7 +410,7 @@ PoolManagerInit()
 
 static void PoolerLoop(void)
 {
-	MemoryContext context;
+	MemoryContext volatile context;
 	volatile Size poll_max;
 	Size i,count,poll_count;
 	struct pollfd * volatile poll_fd;
@@ -431,9 +433,14 @@ static void PoolerLoop(void)
 	if(server_fd == PGINVALID_SOCKET)
 	{
 		ereport(PANIC, (errcode_for_socket_access(),
-			errmsg("Can not listen unix socket on %s", pool_get_sock_path())));
+			errmsg("Can not listen pool manager unix socket on %s", pool_get_sock_path())));
 	}
-	pg_set_noblock(server_fd);
+	if(!pg_set_noblock(server_fd))
+	{
+		ereport(PANIC,
+				(errcode_for_socket_access(),
+				 errmsg("could not set pool manager listen socket to nonblocking mode: %m")));
+	}
 
 	poll_max = START_POOL_ALLOC;
 	poll_fd = palloc(START_POOL_ALLOC * sizeof(struct pollfd));
@@ -634,7 +641,11 @@ static void PoolerLoop(void)
 
 		if(poll_fd[0].revents & POLLIN)
 		{
-			for(;;)
+			/*
+			   when agentCount==max_agent_count some agent should closed,
+			   we need process agent message, accept new socket next time
+			 */
+			while(agentCount<max_agent_count)
 			{
 				new_socket = accept(server_fd, NULL, NULL);
 
@@ -741,7 +752,7 @@ static void agent_create(volatile pgsocket new_fd)
 	MemoryContext volatile context = NULL;
 
 	AssertArg(new_fd != PGINVALID_SOCKET);
-	Assert(agentCount < MaxConnections);
+	Assert(agentCount < max_agent_count);
 
 	PG_TRY();
 	{
@@ -3429,7 +3440,13 @@ static List* pool_get_nodeid_list(StringInfo buf)
 
 static void on_exit_pooler(int code, Datum arg)
 {
-	closesocket(server_fd);
+	if(server_fd != PGINVALID_SOCKET)
+	{
+		pgsocket new_fd;
+		while ((new_fd = accept(server_fd, NULL, NULL)) != PGINVALID_SOCKET)
+			closesocket(new_fd);
+		closesocket(server_fd);
+	}
 	while(agentCount)
 		agent_destroy(poolAgents[--agentCount]);
 	/* destroy agents and MemoryContext*/
