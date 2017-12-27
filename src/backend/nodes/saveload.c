@@ -7,6 +7,7 @@
 
 #include "access/htup_details.h"
 #include "access/transam.h"
+#include "access/tuptypeconvert.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_namespace.h"
@@ -308,44 +309,6 @@ void save_oid_operator(StringInfo buf, Oid op)
 	}
 }
 
-static void save_datum(StringInfo buf, Oid typid, Datum datum)
-{
-	int16 typlen;
-	bool byval;
-
-	get_typlenbyval(typid, &typlen, &byval);
-	pq_sendint(buf, typlen, sizeof(typlen));
-
-	if(typlen > 0)
-	{
-		if(byval)
-		{
-			pq_sendbytes(buf, (char*)&datum, SIZEOF_DATUM);
-		}else
-		{
-			pq_sendbytes(buf, DatumGetPointer(datum), typlen);
-		}
-	}else if(typlen == -2)
-	{
-		/* a null-terminated C string */
-		int len = strlen(DatumGetCString(datum));
-		++len;
-		pq_sendbytes(buf, DatumGetCString(datum), len);
-	}else if(typlen == -1)
-	{
-		bytea *data;
-		Oid typSend;
-		bool typIsVarlena;
-		getTypeBinaryOutputInfo(typid, &typSend, &typIsVarlena);
-		data = OidSendFunctionCall(typSend, datum);
-		appendBinaryStringInfo(buf, (char*)data, VARSIZE(data));
-		pfree(data);
-	}else
-	{
-		ereport(ERROR, (errmsg("unknown type length %d", typlen)));
-	}
-}
-
 static void save_ParamExternData(StringInfo buf, const ParamExternData *node)
 {
 	AssertArg(node);
@@ -357,7 +320,7 @@ static void save_ParamExternData(StringInfo buf, const ParamExternData *node)
 	}else
 	{
 		SAVE_IS_NOT_NULL();
-		save_datum(buf, node->ptype, node->value);
+		do_datum_convert_out(buf, node->ptype, node->value);
 	}
 }
 
@@ -429,7 +392,7 @@ BEGIN_NODE(Const)
 	}else
 	{
 		SAVE_IS_NOT_NULL();
-		save_datum(buf, node->consttype, node->constvalue);
+		do_datum_convert_out(buf, node->consttype, node->constvalue);
 	}
 	NODE_SCALAR(bool,constbyval)
 	NODE_SCALAR(int,location)
@@ -437,7 +400,7 @@ END_NODE(Const)
 
 BEGIN_NODE(OidVectorLoopExpr)
 	NODE_SCALAR(bool, signalRowMode)
-	save_datum(buf, OIDVECTOROID, node->vector);
+	do_datum_convert_out(buf, OIDVECTOROID, node->vector);
 END_NODE(OidVectorLoopExpr)
 
 BEGIN_NODE(A_Const)
@@ -822,58 +785,6 @@ Oid load_oid_operator(StringInfo buf)
 	return oid;
 }
 
-static Datum load_datum(StringInfo buf, Oid typid)
-{
-	Datum datum;
-	int16 typlen,typlen2;
-	bool byval;
-
-	get_typlenbyval(typid, &typlen, &byval);
-	typlen2 = (int16)pq_getmsgint(buf, sizeof(typlen2));
-	if(typlen2 != typlen)
-	{
-		ereport(ERROR, (errmsg("local type %s length %d not equal load length"
-			, format_type_be(typid), typlen)));
-	}
-
-	if(typlen > 0)
-	{
-		if(byval)
-		{
-			Assert(typlen <= SIZEOF_DATUM);
-			pq_copymsgbytes(buf, (char*)&datum, SIZEOF_DATUM);
-		}else
-		{
-			datum = PointerGetDatum(palloc(typlen));
-			pq_copymsgbytes(buf, DatumGetPointer(datum), typlen);
-		}
-	}else if(typlen == -2)
-	{
-		/* a null-terminated C string */
-		char *str = buf->data + buf->cursor;
-		int len = strlen(str);
-		str = pnstrdup(str, len);
-		buf->cursor += len+1;
-		datum = CStringGetDatum(str);
-	}else if(typlen == -1)
-	{
-		Oid typReceive;
-		Oid typIOParam;
-		StringInfoData data;
-		data.data = buf->data+buf->cursor;
-		data.maxlen = data.len = VARSIZE(data.data);
-		data.cursor = VARHDRSZ;
-		getTypeBinaryInputInfo(typid, &typReceive, &typIOParam);
-		datum = OidReceiveFunctionCall(typReceive, &data, typIOParam, -1);
-		buf->cursor += data.cursor;
-	}else
-	{
-		ereport(ERROR, (errmsg("unknown type length %d", typlen)));
-	}
-
-	return datum;
-}
-
 static ParamExternData* load_ParamExternData(StringInfo buf, ParamExternData *node)
 {
 	AssertArg(node);
@@ -886,7 +797,7 @@ static ParamExternData* load_ParamExternData(StringInfo buf, ParamExternData *no
 	}else
 	{
 		node->isnull = false;
-		node->value = load_datum(buf, node->ptype);
+		node->value = do_datum_convert_in(buf, node->ptype);
 	}
 	return node;
 }
@@ -965,7 +876,7 @@ BEGIN_NODE(Const)
 	}else
 	{
 		node->constisnull = false;
-		node->constvalue = load_datum(buf, node->consttype);
+		node->constvalue = do_datum_convert_in(buf, node->consttype);
 	}
 	NODE_SCALAR(bool,constbyval)
 	NODE_SCALAR(int,location)
@@ -973,7 +884,7 @@ END_NODE(Const)
 
 BEGIN_NODE(OidVectorLoopExpr)
 	NODE_SCALAR(bool, signalRowMode)
-	node->vector = load_datum(buf, OIDVECTOROID);
+	node->vector = do_datum_convert_in(buf, OIDVECTOROID);
 END_NODE(OidVectorLoopExpr)
 
 BEGIN_NODE(A_Const)
