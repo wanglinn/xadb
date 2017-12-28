@@ -2434,6 +2434,31 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 					   because ctid column maybe not from modify node
 					 */
 					continue;
+				}else if (have_special_path_args(path, T_MergePath, T_HashPath, T_NestPath, T_Invalid))
+				{
+					/*
+					   when update or delete replication table and subpath have join
+					   maybe have some
+					 */
+					Index relid = parse->resultRelation;
+					if (relid < root->simple_rel_array_size &&
+						root->simple_rel_array[relid] != NULL)
+					{
+						if (root->simple_rel_array[relid]->loc_info &&
+							IsRelationReplicated(root->simple_rel_array[relid]->loc_info))
+							continue;
+					}else
+					{
+						RangeTblEntry *rte = planner_rt_fetch(relid, root);
+						Relation rel;
+						bool replicated;
+						Assert(rte->rtekind == RTE_RELATION);
+						rel = relation_open(rte->relid, NoLock);
+						replicated = (rel->rd_locator_info != NULL && IsRelationReplicated(rel->rd_locator_info));
+						relation_close(rel, NoLock);
+						if(replicated)
+							continue;
+					}
 				}
 			}else
 			{
