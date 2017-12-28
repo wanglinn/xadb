@@ -396,7 +396,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	best_path = get_cheapest_fractional_path(final_rel, tuple_fraction);
 #ifdef ADB
 	if (glob->subplans != NIL &&
-		have_cluster_gather_path(best_path, NULL))
+		have_cluster_gather_path(best_path))
 	{
 		/* we need change subplan */
 		ListCell *lc_subroot;
@@ -2294,7 +2294,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				root->parent_root == NULL &&
 				rti_is_base_rel(root, parse->resultRelation) &&
 				!has_row_triggers(root, parse->resultRelation, CMD_INSERT) &&
-				!have_remote_query_path(path, NULL) &&
+				!have_remote_query_path(path) &&
 				is_remote_relation(root, parse->resultRelation) &&
 				path->rows >= 5.0)
 			{
@@ -2373,7 +2373,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			break;
 		}
 
-		have_gather = have_cluster_gather_path(path, NULL);
+		have_gather = have_cluster_gather_path(path);
 		if(!have_gather && limit_needed(parse))
 		{
 			if (IsReduceInfoListReplicated(reduce_info_list) ||
@@ -2427,7 +2427,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 					{
 						path = reduce_path;
 					}
-				}else if (have_cluster_reduce_path(path, NULL))
+				}else if (have_cluster_reduce_path(path))
 				{
 					/*
 					   when subpath include reduce, maybe update or delete wrong rows

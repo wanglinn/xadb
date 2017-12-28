@@ -286,10 +286,12 @@ typedef struct ExecNodeInfo
 	uint32 insert_count;	/* insert table count */
 }ExecNodeInfo;
 
-extern bool have_cluster_gather_path(Path *path, void *context);
-extern bool have_cluster_reduce_path(Path *path, void *context);
-extern bool have_cluster_path(Path *path, void *context);
-extern bool have_remote_query_path(Path *path, void *context);
+bool have_special_path_args(Path *path, NodeTag tag, ...);
+#define have_cluster_gather_path(path) have_special_path_args(path, T_ClusterGatherPath, T_ClusterMergeGatherPath, T_Invalid)
+#define have_cluster_reduce_path(path) have_special_path_args(path, T_ClusterReducePath, T_Invalid)
+#define have_cluster_path(path) have_special_path_args(path, T_ClusterReducePath, T_ClusterGatherPath, T_ClusterMergeGatherPath, T_Invalid)
+#define have_remote_query_path(path) have_special_path_args(path, T_RemoteQueryPath, T_Invalid)
+
 extern ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 			, RelOptInfo *rel, Path *sub_path, List *pathkeys);
 extern ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel);

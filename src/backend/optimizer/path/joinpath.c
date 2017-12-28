@@ -2312,8 +2312,8 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 	bool		tried_join;
 
 	if ((outerrel->cluster_pathlist == NIL && innerrel->cluster_pathlist == NIL) ||
-		(outerrel->cluster_pathlist == NIL && have_remote_query_path((Path*)outerrel->pathlist, NULL)) ||
-		(innerrel->cluster_pathlist == NIL && have_remote_query_path((Path*)innerrel->pathlist, NULL)))
+		(outerrel->cluster_pathlist == NIL && have_remote_query_path((Path*)outerrel->pathlist)) ||
+		(innerrel->cluster_pathlist == NIL && have_remote_query_path((Path*)innerrel->pathlist)))
 		return;
 
 	MemSet(&jcontext, 0, sizeof(jcontext));
@@ -2654,7 +2654,7 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 									  jcontext->extra);
 				}
 
-				if(have_cluster_reduce_path(inner_path, NULL) == false)
+				if(have_cluster_reduce_path(inner_path) == false)
 				{
 					try_cluster_join_path(jcontext, outer_path, inner_path, new_reduce_list);
 					if (PATH_REQ_OUTER(outer_path) == NULL &&

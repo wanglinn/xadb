@@ -5176,7 +5176,7 @@ void cost_cluster_gather(ClusterGatherPath *path, RelOptInfo *baserel, ParamPath
 
 	startup_cost = path->subpath->startup_cost;
 
-	if (have_cluster_reduce_path((Path *) path, NULL))
+	if (have_cluster_reduce_path((Path *) path))
 		startup_cost += reduce_setup_cost;
 
 	run_cost = path->subpath->total_cost - path->subpath->startup_cost;

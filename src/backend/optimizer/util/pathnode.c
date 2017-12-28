@@ -3883,64 +3883,34 @@ reparameterize_path(PlannerInfo *root, Path *path,
 
 static void copy_path_info(Path *dest, const Path *src, bool copy_parallel);
 
-bool have_cluster_gather_path(Path *path, void *context)
+static bool have_special_path_bms(Path *path, Bitmapset *path_tags)
 {
-	check_stack_depth();
-
 	if(path == NULL)
-	{
 		return false;
-	}else if(IsA(path, ClusterGatherPath)
-		|| IsA(path, ClusterMergeGatherPath))
-	{
-		return true;
-	}else if(IsA(path, SubqueryScanPath))
-	{
-		return false;
-	}
 
-	return path_tree_walker(path, have_cluster_gather_path, context);
+	if(bms_is_member((int)nodeTag(path), path_tags))
+		return true;
+
+	check_stack_depth();
+	return path_tree_walker(path, have_special_path_bms, path_tags);
 }
 
-bool have_cluster_reduce_path(Path *path, void *context)
+bool have_special_path_args(Path *path, NodeTag tag, ...)
 {
-	check_stack_depth();
+	Bitmapset *bms = bms_make_singleton(tag);
+	va_list args;
+	NodeTag t;
+	bool res;
 
-	if (path == NULL)
-		return false;
+	va_start(args, tag);
+	while((t=va_arg(args, NodeTag)) != T_Invalid)
+		bms = bms_add_member(bms, t);
+	va_end(args);
 
-	if (IsA(path, ClusterReducePath))
-		return true;
+	res = have_special_path_bms(path, bms);
+	bms_free(bms);
 
-	return path_tree_walker(path, have_cluster_reduce_path, context);
-}
-
-bool have_cluster_path(Path *path, void *context)
-{
-	check_stack_depth();
-
-	if (path == NULL)
-		return false;
-
-	if (IsA(path, ClusterReducePath) ||
-		IsA(path, ClusterGatherPath) ||
-		IsA(path, ClusterMergeGatherPath))
-		return true;
-
-	return path_tree_walker(path, have_cluster_path, context);
-}
-
-bool have_remote_query_path(Path *path, void *context)
-{
-	check_stack_depth();
-	if(path == NULL)
-	{
-		return false;
-	}else if(IsA(path, RemoteQueryPath))
-	{
-		return true;
-	}
-	return path_tree_walker(path, have_remote_query_path, NULL);
+	return res;
 }
 
 ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
@@ -3971,7 +3941,7 @@ ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
 
 	path->path.startup_cost = sub_path->startup_cost + comparison_cost;
 	path->path.total_cost = sub_path->total_cost + comparison_cost;
-	if(have_cluster_reduce_path(sub_path, NULL))
+	if(have_cluster_reduce_path(sub_path))
 	{
 		path->path.startup_cost += reduce_setup_cost;
 		path->path.total_cost += reduce_setup_cost;
@@ -4370,7 +4340,7 @@ bool expression_have_reduce_plan(Expr *expr, PlannerGlobal *glob)
 		PlannerInfo *sub_root = list_nth(glob->subroots, subplan->plan_id - 1);
 		RelOptInfo *final_rel = fetch_upper_rel(sub_root, UPPERREL_FINAL, NULL);
 		/* ADBQ: do we need walke path's expression ? */
-		return have_cluster_reduce_path(final_rel->cheapest_replicate_path, glob);
+		return have_cluster_reduce_path(final_rel->cheapest_replicate_path);
 	}
 	return expression_tree_walker((Node*)expr, expression_have_reduce_plan, glob);
 }

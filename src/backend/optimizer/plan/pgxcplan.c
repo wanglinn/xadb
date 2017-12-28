@@ -1418,7 +1418,7 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 		char			*relname;
 
 		relcount++;
-		if (have_cluster_path(lfirst(lc_subpath), NULL))
+		if (have_cluster_path(lfirst(lc_subpath)))
 			continue;
 
 		res_rel = rt_fetch(resultRelationIndex, root->parse->rtable);
