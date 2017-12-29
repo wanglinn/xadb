@@ -511,6 +511,12 @@ NODE_SPECIAL_MEB(ArrayRef)
 	refcollid NODE_OID(collation,refcollid)
 END_SPECIAL_MEB(ArrayRef)
 
+NODE_SPECIAL_MEB(ArrayExpr)
+	array_typeid NODE_OID(type,array_typeid)
+	array_collid NODE_OID(collation,array_collid)
+	element_typeid NODE_OID(type,element_typeid)
+END_SPECIAL_MEB(ArrayExpr)
+
 NODE_SPECIAL_MEB(Param)
 	NODE_OID(type,paramtype)
 	NODE_OID(collation,paramcollid)
@@ -547,6 +553,35 @@ NODE_SPECIAL_MEB(TupleHashTableData)
 	in_hash_funcs NODE_OTHER_POINT(FmgrInfo, in_hash_funcs)
 	cur_eq_funcs NODE_OTHER_POINT(FmgrInfo, cur_eq_funcs)
 END_SPECIAL_MEB(TupleHashTableData)
+
+NODE_SPECIAL_MEB(IndexScan)
+	indexid NODE_OID(class,indexid)
+END_SPECIAL_MEB(IndexScan)
+
+NODE_SPECIAL_MEB(IndexOnlyScan)
+	indexid NODE_OID(class,indexid)
+END_SPECIAL_MEB(IndexOnlyScan)
+
+NODE_SPECIAL_MEB(BitmapIndexScan)
+	indexid NODE_OID(class,indexid)
+END_SPECIAL_MEB(BitmapIndexScan)
+
+NODE_SPECIAL_MEB(Hash)
+	skewTable NODE_OID(class,skewTable)
+END_SPECIAL_MEB(Hash)
+
+NODE_SPECIAL_MEB(Param)
+	paramtype NODE_OID(type,paramtype)
+	paramcollid NODE_OID(collation,paramcollid)
+END_SPECIAL_MEB(Param)
+
+NODE_SPECIAL_MEB(XmlExpr)
+	type NODE_OID(type,type)
+END_SPECIAL_MEB(Param)
+
+NODE_SPECIAL_MEB(TargetEntry)
+	resorigtbl NODE_OID(class,resorigtbl)
+END_SPECIAL_MEB(TargetEntry)
 
 NODE_SPECIAL_MEB(ClusterMergeGather)
 	sortColIdx NODE_SCALAR_POINT(AttrNumber,sortColIdx,NODE_ARG_->numCols)

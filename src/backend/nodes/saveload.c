@@ -9,6 +9,7 @@
 #include "access/transam.h"
 #include "access/tuptypeconvert.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_class.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_operator.h"
@@ -306,6 +307,28 @@ void save_oid_operator(StringInfo buf, Oid op)
 
 		save_oid_type(buf, operform->oprleft);
 		save_oid_type(buf, operform->oprright);
+
+		ReleaseSysCache(opertup);
+	}
+}
+
+void save_oid_class(StringInfo buf, Oid oid_rel)
+{
+	HeapTuple classtup;
+	Form_pg_class classform;
+	if(IS_OID_BUILTIN(oid_rel))
+	{
+		SAVE_BOOL(true);
+		pq_sendbytes(buf, (char*)&oid_rel, sizeof(oid_rel));
+	}else
+	{
+		classtup = SearchSysCache1(RELOID, ObjectIdGetDatum(oid_rel));
+		if (!HeapTupleIsValid(classtup))
+			elog(ERROR, "could not open relation with OID %u", oid_rel);
+		classform = (Form_pg_class) GETSTRUCT(classtup);
+		save_namespace(buf, classform->relnamespace);
+		save_node_string(buf, NameStr(classform->relname));
+		ReleaseSysCache(classtup);
 	}
 }
 
@@ -782,6 +805,25 @@ Oid load_oid_operator(StringInfo buf)
 		ReleaseSysCache(tup);
 	}
 
+	return oid;
+}
+
+Oid load_oid_class(StringInfo buf)
+{
+	const char *relname;
+	Oid nsp;
+	Oid oid;
+	if(LOAD_BOOL())
+	{
+		pq_copymsgbytes(buf, (char*)&oid, sizeof(oid));
+	}else
+	{
+		nsp = load_namespace(buf);
+		relname = load_node_string(buf, false);
+		oid = get_relname_relid(relname, nsp);
+		if (!OidIsValid(oid))
+			elog(ERROR, "relation \"%s\" not exists in schema %u", relname, nsp);
+	}
 	return oid;
 }
 
