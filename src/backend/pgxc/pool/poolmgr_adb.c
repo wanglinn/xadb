@@ -194,7 +194,8 @@ int			PoolRemoteCmdTimeout = 0;
 bool		PersistentConnections = false;
 
 /* pool time out */
-extern int  pool_time_out;
+extern int pool_time_out;
+extern int pool_release_to_idle_timeout;
 
 /* connect retry times */
 int 		RetryTimes = 3;	
@@ -216,9 +217,12 @@ static PoolHandle *poolHandle = NULL;
 
 static int	is_pool_locked = false;
 static pgsocket server_fd = PGINVALID_SOCKET;
+static volatile sig_atomic_t got_SIGHUP = false;
 
 /* Signal handlers */
+
 static void pooler_quickdie(SIGNAL_ARGS);
+static void pooler_sighup(SIGNAL_ARGS);
 static void PoolerLoop(void) __attribute__((noreturn));
 
 static void agent_handle_input(PoolAgent * agent, StringInfo s);
@@ -252,7 +256,8 @@ static void release_slot(ADBNodePoolSlot *slot, bool force_close);
 static void idle_slot(ADBNodePoolSlot *slot, bool reset);
 static void destroy_node_pool(ADBNodePool *node_pool, bool bfree);
 static bool node_pool_in_using(ADBNodePool *node_pool);
-static time_t close_timeout_idle_slots(time_t timeout);
+static time_t close_timeout_idle_slots(time_t cur_time);
+static time_t idle_timeout_released_slots(time_t cur_time);
 static bool pool_exec_set_query(PGconn *conn, const char *query, StringInfo errMsg);
 static int pool_wait_pq(PGconn *conn);
 static int pq_custom_msg(PGconn *conn, char id, int msgLength);
@@ -373,7 +378,8 @@ PoolManagerInit()
 	pqsignal(SIGINT, StatementCancelHandler);
 	pqsignal(SIGTERM, die);
 	pqsignal(SIGQUIT, pooler_quickdie);
-	pqsignal(SIGHUP, SIG_IGN);
+//	pqsignal(SIGQUIT, SIG_IGN);
+	pqsignal(SIGHUP, pooler_sighup);
 	/* TODO other signal handlers */
 
 	/* We allow SIGQUIT (quickdie) at all times */
@@ -416,7 +422,7 @@ static void PoolerLoop(void)
 	dlist_iter iter;
 	HASH_SEQ_STATUS hseq1,hseq2;
 	sigjmp_buf	local_sigjmp_buf;
-	time_t next_close_idle_time, cur_time;
+	time_t next_close_idle_time, next_idle_released_time, cur_time;
 	StringInfoData input_msg;
 	int rval;
 	pgsocket new_socket;
@@ -447,6 +453,7 @@ static void PoolerLoop(void)
 	on_proc_exit(on_exit_pooler, (Datum)0);
 	cur_time = time(NULL);
 	next_close_idle_time = cur_time + pool_time_out;
+	next_idle_released_time = cur_time + pool_release_to_idle_timeout;
 
 	if(sigsetjmp(local_sigjmp_buf, 1) != 0)
 	{
@@ -468,6 +475,14 @@ static void PoolerLoop(void)
 		/* receive signal_quit and all agents had destory.exit poolmgr */ 
 		if (signal_quit && 0 == agentCount)
 			proc_exit(1);
+		
+		if (got_SIGHUP)
+		{
+			got_SIGHUP = false;
+			ProcessConfigFile(PGC_SIGHUP);
+			next_close_idle_time = cur_time;
+			next_idle_released_time = cur_time;
+		}
 
 		for(i=agentCount;i--;)
 			agent_check_waiting_slot(poolAgents[i]);
@@ -638,13 +653,16 @@ static void PoolerLoop(void)
 				}
 			}
 		}
+
 		cur_time = time(NULL);
 		/* close timeout idle slot(s) */
 		if(cur_time >= next_close_idle_time)
-		{
-			next_close_idle_time = close_timeout_idle_slots(cur_time - pool_time_out)
-				+ pool_time_out;
-		}
+			next_close_idle_time = close_timeout_idle_slots(cur_time);
+
+		/* idle timeout released slot(s) */
+		if (pool_release_to_idle_timeout > 0 &&
+			cur_time >= next_idle_released_time)
+			next_idle_released_time = idle_timeout_released_slots(cur_time);
 	}
 }
 
@@ -1282,6 +1300,11 @@ static void pooler_quickdie(SIGNAL_ARGS)
 	PG_SETMASK(&BlockSig);
 	exit(2);
 #endif
+}
+
+static void pooler_sighup(SIGNAL_ARGS)
+{
+	got_SIGHUP = true;
 }
 
 bool IsPoolHandle(void)
@@ -2262,10 +2285,18 @@ static void release_slot(ADBNodePoolSlot *slot, bool force_close)
 		destroy_slot(slot, false);
 	}else if(check_slot_status(slot) != false)
 	{
-		slot->slot_state = SLOT_STATE_RELEASED;
-		Assert(slot->current_list == NULL_SLOT);
-		dlist_push_head(&slot->parent->released_slot, &slot->dnode);
-		slot->current_list = RELEASED_SLOT;
+		if (pool_release_to_idle_timeout == 0)
+		{
+			/* idle slot immediate */
+			idle_slot(slot, true);
+		}else
+		{
+			slot->slot_state = SLOT_STATE_RELEASED;
+			Assert(slot->current_list == NULL_SLOT);
+			dlist_push_head(&slot->parent->released_slot, &slot->dnode);
+			slot->current_list = RELEASED_SLOT;
+			slot->released_time = time(NULL);
+		}
 	}
 
 	check_all_slot_list();
@@ -2315,6 +2346,8 @@ static void idle_slot(ADBNodePoolSlot *slot, bool reset)
 		Assert(slot->current_list == NULL_SLOT);
 		dlist_push_head(&slot->parent->idle_slot, &slot->dnode);
 		slot->current_list = IDLE_SLOT;
+		slot->slot_state = SLOT_STATE_IDLE;
+		slot->owner = NULL;
 	}
 
 	check_all_slot_list();
@@ -2397,10 +2430,10 @@ static bool node_pool_in_using(ADBNodePool *node_pool)
 }
 
 /*
- * close idle slots when slot->released_time <= timeout
- * return earliest idle slot
+ * close idle slots when slot->released_time <= cur_time - pool_time_out
+ * return best next call time
  */
-static time_t close_timeout_idle_slots(time_t timeout)
+static time_t close_timeout_idle_slots(time_t cur_time)
 {
 	HASH_SEQ_STATUS hash_database_stats;
 	HASH_SEQ_STATUS hash_nodepool_status;
@@ -2408,7 +2441,8 @@ static time_t close_timeout_idle_slots(time_t timeout)
 	ADBNodePool *node_pool;
 	ADBNodePoolSlot *slot;
 	dlist_mutable_iter miter;
-	time_t earliest_time = time(NULL);
+	time_t earliest_time = cur_time;
+	time_t need_close_time = cur_time - pool_time_out;
 
 	hash_seq_init(&hash_database_stats, htab_database);
 	while((db_pool = hash_seq_search(&hash_database_stats)) != NULL)
@@ -2420,10 +2454,7 @@ static time_t close_timeout_idle_slots(time_t timeout)
 			{
 				slot = dlist_container(ADBNodePoolSlot, dnode, miter.cur);
 				Assert(slot->slot_state == SLOT_STATE_IDLE);
-				if(slot->owner != NULL)
-				{
-					continue;
-				}else if(slot->released_time <= timeout)
+				if(slot->released_time <= need_close_time)
 				{
 					Assert(slot->current_list != NULL_SLOT);
 					dlist_delete(miter.cur);
@@ -2436,7 +2467,48 @@ static time_t close_timeout_idle_slots(time_t timeout)
 			}
 		}
 	}
-	return earliest_time;
+	return earliest_time + pool_time_out;
+}
+
+/*
+ * idle slots when slot->released_time <= cur_time - pool_release_to_idle_timeout
+ * return best next call time
+ */
+static time_t idle_timeout_released_slots(time_t cur_time)
+{
+	HASH_SEQ_STATUS hash_database_stats;
+	HASH_SEQ_STATUS hash_nodepool_status;
+	DatabasePool *db_pool;
+	ADBNodePool *node_pool;
+	ADBNodePoolSlot *slot;
+	dlist_mutable_iter miter;
+	time_t need_idle_time = cur_time - pool_release_to_idle_timeout;
+	time_t earliest_time = cur_time;
+
+	hash_seq_init(&hash_database_stats, htab_database);
+	while((db_pool = hash_seq_search(&hash_database_stats)) != NULL)
+	{
+		hash_seq_init(&hash_nodepool_status, db_pool->htab_nodes);
+		while((node_pool = hash_seq_search(&hash_nodepool_status)) != NULL)
+		{
+			dlist_foreach_modify(miter, &node_pool->released_slot)
+			{
+				slot = dlist_container(ADBNodePoolSlot, dnode, miter.cur);
+				AssertState(slot->slot_state == SLOT_STATE_RELEASED);
+				AssertState(slot->current_list == RELEASED_SLOT);
+				if (slot->released_time <= need_idle_time)
+				{
+					dlist_delete(miter.cur);
+					slot->current_list = NULL_SLOT;
+					idle_slot(slot, true);
+				}else if(slot->released_time < earliest_time)
+				{
+					earliest_time = slot->released_time;
+				}
+			}
+		}
+	}
+	return earliest_time+pool_release_to_idle_timeout;
 }
 
 /* find pool, if not exist create a new */
