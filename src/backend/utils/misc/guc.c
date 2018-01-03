@@ -520,6 +520,7 @@ char	   *adb_ha_param_delimiter;
 char	   *AGtmHost;
 int			AGtmPort;
 int			pool_time_out;
+int			pool_release_to_idle_timeout;
 bool		enable_adb_ha_sync;
 bool		enable_adb_ha_sync_select;
 bool 		debug_enable_satisfy_mvcc;
@@ -2995,13 +2996,23 @@ static struct config_int ConfigureNamesInt[] =
 
 #ifdef ADB
 	{
-		{"pool_time_out", PGC_BACKEND, CLIENT_CONN_OTHER,
+		{"pool_time_out", PGC_SIGHUP, CLIENT_CONN_OTHER,
 			gettext_noop("close connection from poolmgr to datanode idle process max time(s)"),
 			gettext_noop("A value of 0 uses the system default."),
 			GUC_UNIT_S
 		},
 		&pool_time_out,
 		60, 1, INT_MAX,
+		NULL, NULL, NULL
+	},
+	{
+		{"pool_release_to_idle_timeout", PGC_SIGHUP, CLIENT_CONN_OTHER,
+			gettext_noop("set idle connection from poolmgr to datanode when released from backend max time(s)"),
+			gettext_noop("-1 for never, 0 for immediate, other for second(s)"),
+			GUC_UNIT_S
+		},
+		&pool_release_to_idle_timeout,
+		-1, -1, INT_MAX,
 		NULL, NULL, NULL
 	},
 #endif
