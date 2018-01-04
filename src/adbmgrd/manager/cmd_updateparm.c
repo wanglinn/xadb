@@ -857,6 +857,9 @@ void mgr_add_parm(char *nodename, char nodetype, StringInfo infosendparamsg)
 			ReleaseSysCache(checktuple);
 		}
 		parmkey = NameStr(mgr_updateparm->updateparmkey);
+		if (strcasecmp(parmkey, "agtm_port") == 0 || strcasecmp(parmkey, "agtm_host") == 0)
+			continue;
+
 		kValue = mgr_get_value_in_updateparm(rel_updateparm, tuple);
 		namestrcpylocal(&parmvalue, kValue);
 		pfree(kValue);
