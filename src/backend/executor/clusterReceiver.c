@@ -580,19 +580,19 @@ void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char msg_type)
 	}
 
 	appendStringInfoChar(buf, msg_type);
-	appendBinaryStringInfo(buf, (char*)&(tup->t_infomask2),
-						   tup->t_len - offsetof(MinimalTupleData, t_infomask2));
+	appendBinaryStringInfo(buf, (char*)tup, tup->t_len);
 	if(need_free_tup)
 		pfree(tup);
 }
 
 TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *slot)
 {
-	uint32 t_len = offsetof(MinimalTupleData, t_infomask2) + len;
-	MinimalTuple tup = MemoryContextAlloc(slot->tts_mcxt, t_len);
-	MemSet(tup, 0, offsetof(MinimalTupleData, t_infomask2));
-	tup->t_len = t_len;
-	memcpy(&tup->t_infomask2, msg, len);
+	MinimalTuple tup;
+	uint32 t_len = *(uint32*)msg;
+	if(t_len > len)
+		ereport(ERROR, (errmsg("invalid tuple message length")));
+	tup = MemoryContextAlloc(slot->tts_mcxt, t_len);
+	memcpy(tup, msg, t_len);
 	return ExecStoreMinimalTuple(tup, slot, true);
 }
 
