@@ -513,11 +513,12 @@ HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *de
 static TupleTableSlot *
 RestoreRemoteSlot(const char *buf, int len, TupleTableSlot *slot, Oid node_id)
 {
-	uint32 t_len = offsetof(MinimalTupleData, t_infomask2) + len;
-	MinimalTuple tup = MemoryContextAlloc(slot->tts_mcxt, t_len + sizeof(node_id));
-	MemSet(tup, 0, offsetof(MinimalTupleData, t_infomask2));
-	tup->t_len = t_len;
-	memcpy(&tup->t_infomask2, buf, len);
+	MinimalTuple tup;
+	uint32 t_len = *(uint32*)buf;
+	if(t_len > len)
+		ereport(ERROR, (errmsg("invalid tuple message length")));
+	tup = MemoryContextAlloc(slot->tts_mcxt, t_len + sizeof(node_id));
+	memcpy(tup, buf, t_len);
 	MiniTupSetRemoteNode(tup, node_id);
 
 	return ExecStoreMinimalTuple(tup, slot, true);
