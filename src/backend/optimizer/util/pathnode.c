@@ -956,7 +956,6 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 #ifdef ADB
 void add_cluster_path(RelOptInfo *parent_rel, Path *new_path)
 {
-	AssertArg(parent_rel && new_path);
 	bool		accept_new = true;		/* unless we find a superior old path */
 	ListCell   *insert_after = NULL;	/* where to insert new item */
 	List	   *new_path_pathkeys;
@@ -964,6 +963,7 @@ void add_cluster_path(RelOptInfo *parent_rel, Path *new_path)
 	ListCell   *p1_prev;
 	ListCell   *p1_next;
 	List *new_reduce_list;
+	AssertArg(parent_rel && new_path);
 
 	/*
 	 * This is a convenient place to check for query cancel --- no part of the
@@ -4190,8 +4190,9 @@ static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context
 			}else if(IsRelationDistributedByValue(loc) ||
 				loc->locatorType == LOCATOR_TYPE_USER_DEFINED)
 			{
+				ReduceInfo *reduceInfo;
 				Assert(list_length(path->reduce_info_list) == 1);
-				ReduceInfo *reduceInfo = linitial(path->reduce_info_list);
+				reduceInfo = linitial(path->reduce_info_list);
 				foreach(lc, reduceInfo->storage_nodes)
 				{
 					if(list_member_oid(reduceInfo->exclude_exec, lfirst_oid(lc)))
