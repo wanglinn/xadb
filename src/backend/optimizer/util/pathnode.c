@@ -4244,6 +4244,13 @@ static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context
 			}
 		}
 		break;
+	case T_SubqueryScanPath:
+		{
+			PathExecuteOnContext subroot_context;
+			subroot_context.htab = context->htab;
+			subroot_context.root = path->parent->subroot;
+			return path_tree_walker(path, get_path_execute_on_walker, &subroot_context);
+		}
 	default:
 		break;
 	}
