@@ -430,7 +430,7 @@ static void append_stringinfo_datum(StringInfo buf, Datum datum, int16 typlen, b
 	if (typbyval)
 	{
 		Assert(typlen > 0);
-		enlargeStringInfo(buf, sizeof(typlen));
+		enlargeStringInfo(buf, typlen);
 		store_att_byval(buf->data+buf->len, datum, typlen);
 		buf->len += typlen;
 	}else if(typlen == -1)
