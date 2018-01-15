@@ -24,6 +24,7 @@
 #include "access/htup.h"
 #include "access/htup_details.h"
 #include "access/parallel.h"
+#include "executor/clusterReceiver.h"
 #include "pgxc/pgxc.h"
 #include "postmaster/fork_process.h"
 #include "postmaster/syslogger.h"
@@ -434,6 +435,7 @@ SendSlotToRemote(RdcPort *port, List *dest_nodes, TupleTableSlot *slot)
 	MinimalTuple	tup;
 	char		   *tupbody;
 	unsigned int	tupbodylen;
+	bool			need_free_tuple;
 
 	AssertArg(port);
 	if (!dest_nodes)
@@ -441,7 +443,7 @@ SendSlotToRemote(RdcPort *port, List *dest_nodes, TupleTableSlot *slot)
 
 	AssertArg(slot);
 
-	tup = ExecFetchSlotMinimalTuple(slot);
+	tup = fetch_slot_message(slot, &need_free_tuple);
 	/* the part of the MinimalTuple we'll write: */
 	tupbody = (char *) tup + MINIMAL_TUPLE_DATA_OFFSET;
 	tupbodylen = tup->t_len - MINIMAL_TUPLE_DATA_OFFSET;
@@ -461,6 +463,9 @@ SendSlotToRemote(RdcPort *port, List *dest_nodes, TupleTableSlot *slot)
 		ereport(ERROR,
 				(errmsg("fail to send tuple to remote"),
 				 errdetail("%s", RdcError(port))));
+
+	if (need_free_tuple)
+		pfree(tup);
 
 	port->send_num++;
 }

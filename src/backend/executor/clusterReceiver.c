@@ -508,14 +508,13 @@ TupleDesc restore_slot_head_message_str(StringInfo buf)
 	return desc;
 }
 
-void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char msg_type)
+MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup)
 {
 	MinimalTuple tup;
 	TupleDesc desc;
 	int i;
 	bool have_external;
-	bool need_free_tup;
-	AssertArg(buf && !TupIsNull(slot));
+	AssertArg(!TupIsNull(slot));
 
 	slot_getallattrs(slot);
 	have_external = false;
@@ -572,12 +571,22 @@ void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char msg_type)
 		}
 		pfree(values);
 		MemoryContextSwitchTo(old_context);
-		need_free_tup = true;
+		*need_free_tup = true;
 	}else
 	{
 		tup = ExecFetchSlotMinimalTuple(slot);
-		need_free_tup = false;
+		*need_free_tup = false;
 	}
+	return tup;
+}
+
+void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char msg_type)
+{
+	MinimalTuple tup;
+	bool need_free_tup;
+	AssertArg(buf && !TupIsNull(slot));
+
+	tup = fetch_slot_message(slot, &need_free_tup);
 
 	appendStringInfoChar(buf, msg_type);
 	appendBinaryStringInfo(buf, (char*)tup, tup->t_len);

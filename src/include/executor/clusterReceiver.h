@@ -42,6 +42,7 @@ extern void compare_slot_head_message(const char *msg, int len, TupleDesc desc);
 extern TupleDesc restore_slot_head_message(const char *msg, int len);
 extern TupleDesc restore_slot_head_message_str(StringInfo buf);
 extern void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char msg_type);
+extern MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup);
 extern TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *slot);
 extern void serialize_processed_message(StringInfo buf, uint64 processed);
 extern void serialize_command_id(StringInfo buf, CommandId cid);
