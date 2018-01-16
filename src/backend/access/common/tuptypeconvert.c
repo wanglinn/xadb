@@ -459,8 +459,51 @@ static Datum load_stringinfo_datum(StringInfo buf, int16 typlen, bool typbyval)
 {
 	Datum datum;
 	char *ptr = buf->data + buf->cursor;
-	datum = fetch_att(ptr, typbyval, typlen);
-	buf->cursor = att_addlength_pointer(buf->cursor, typlen, ptr);
+	if(typbyval || typlen>0)
+	{
+		Assert(typlen > 0);
+		if (buf->cursor + typlen > buf->len)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					errmsg("insufficient data left in message")));
+		}
+		if(typbyval)
+		{
+			datum = fetch_att(ptr, typbyval, typlen);
+		}else
+		{
+			datum = PointerGetDatum(palloc(typlen));
+			memcpy(DatumGetPointer(datum), ptr, typlen);
+		}
+		buf->cursor += typlen;
+	}else if(typlen == -2)
+	{
+		/* CString */
+		int len = strlen(ptr) + 1;
+		if(buf->cursor + len > buf->len)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					errmsg("insufficient data left in message")));
+		}
+		datum = PointerGetDatum(ptr);
+		buf->cursor += len;
+	}else
+	{
+		/* varlna */
+		int len = VARSIZE_ANY(ptr);
+		Assert(typlen == -1);
+		if(buf->cursor + len > buf->len)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					errmsg("insufficient data left in message")));
+		}
+		datum = PointerGetDatum(palloc(len));
+		memcpy(DatumGetPointer(datum), ptr, len);
+		buf->cursor += len;
+	}
 	return datum;
 }
 
