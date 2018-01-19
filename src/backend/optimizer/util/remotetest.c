@@ -52,8 +52,9 @@ static Expr* makeInt4Const(int32 val);
 static Expr* makeNotNullTest(Expr *expr, bool isrow);
 static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node);
 static Node* mutator_equal_expr(Node *node, ModifyContext *context);
-static void init_context_expr_if_need(ModifyContext *context, Const *c);
+static void init_context_expr_if_need(ModifyContext *context);
 static Const* get_var_equal_const(List *args, Oid opno, Index relid, AttrNumber attno, Var **var);
+static Const* is_const_able_expr(Expr *expr);
 
 /* return remote oid list */
 List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel)
@@ -130,6 +131,9 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel)
 		if (!contain_mutable_functions(pred))
 			safe_constraints = lappend(safe_constraints, pred);
 	}
+	/* append TABLE.XC_NODE_ID is not null */
+	safe_constraints = lappend(safe_constraints,
+							   makeNotNullTest(makeVarByRel(XC_NodeIdAttributeNumber, loc_info->relid, rel->relid), false));
 
 	new_clauses = NIL;
 	if (context.partition_expr)
@@ -350,6 +354,7 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 {
 	Var *var;
 	Const *c;
+	Expr *convert;
 
 	if (node == NULL)
 		return NULL;
@@ -359,13 +364,36 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 	{
 		OpExpr *op = (OpExpr*)node;
 		c = get_var_equal_const(op->args, op->opno, context->relid, context->varattno, &var);
-		if (c && c->consttype == var->vartype)
+		if (c == NULL)
+			goto next_mutator_equal_expr_;
+		convert = (Expr*) coerce_to_target_type(NULL,
+												(Node*)c,
+												exprType((Node*)c),
+												var->vartype,
+												var->vartypmod,
+												COERCION_EXPLICIT,
+												COERCE_IMPLICIT_CAST,
+												-1);
+
+		if (convert != NULL)
 		{
 			Const *c2;
-			init_context_expr_if_need(context, c);
+			init_context_expr_if_need(context);
 
-			context->const_expr->constvalue = c->constvalue;
-			context->const_expr->constisnull = c->constisnull;
+			if ((void*)convert == (void*)c)
+			{
+				context->const_expr->constvalue = c->constvalue;
+				context->const_expr->constisnull = c->constisnull;
+			}else
+			{
+				MemoryContext old_context = MemoryContextSwitchTo(context->expr_context->ecxt_per_tuple_memory);
+				ExprState *expr_state = ExecInitExpr(convert, NULL);
+				context->const_expr->constvalue = ExecEvalExpr(expr_state,
+															   context->expr_context,
+															   &context->const_expr->constisnull,
+															   NULL);
+				MemoryContextSwitchTo(old_context);
+			}
 			c2 = (Const*)makeInt4Const(0);
 			MemoryContextReset(context->expr_context->ecxt_per_tuple_memory);
 			c2->constvalue = ExecEvalExprSwitchContext(context->right_state,
@@ -384,9 +412,26 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 		if (c && c->constisnull == false &&
 			type_is_array(c->consttype))
 		{
+			convert = NULL;
 			arrayval = DatumGetArrayTypeP(c->constvalue);
-			if(ARR_ELEMTYPE(arrayval) == var->vartype)
+			if (ARR_ELEMTYPE(arrayval) != var->vartype &&
+				can_coerce_type(1, &ARR_ELEMTYPE(arrayval), &var->vartype, COERCION_EXPLICIT))
 			{
+				c = makeNullConst(ARR_ELEMTYPE(arrayval), -1, InvalidOid);
+				convert = (Expr*) coerce_to_target_type(NULL,
+														(Node*)c,
+														ARR_ELEMTYPE(arrayval),
+														var->vartype,
+														var->vartypmod,
+														COERCION_EXPLICIT,
+														COERCE_IMPLICIT_CAST,
+														-1);
+			}
+
+			if (ARR_ELEMTYPE(arrayval) == var->vartype ||
+				convert != NULL)
+			{
+				ExprState *convert_state = NULL;
 				Datum	   *values;
 				Datum	   *new_values;
 				bool	   *nulls;
@@ -406,13 +451,27 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 								  &nulls,
 								  &num_elems);
 
-				init_context_expr_if_need(context, NULL);
+				init_context_expr_if_need(context);
 				new_values = palloc(sizeof(Datum)*num_elems);
+				if (convert)
+					convert_state = ExecInitExpr(convert, NULL);
 				for (i=0;i<num_elems;++i)
 				{
 					MemoryContextReset(context->expr_context->ecxt_per_tuple_memory);
-					context->const_expr->constvalue = values[i];
-					context->const_expr->constisnull = nulls[i];
+					if (convert_state)
+					{
+						/* c is new Const, not ScalarArrayOpExpr's arg */
+						c->constvalue = values[i];
+						c->constisnull = nulls[i];
+						context->const_expr->constvalue = ExecEvalExprSwitchContext(convert_state,
+																					context->expr_context,
+																					&context->const_expr->constisnull,
+																					NULL);
+					}else
+					{
+						context->const_expr->constvalue = values[i];
+						context->const_expr->constisnull = nulls[i];
+					}
 					new_values[i] = ExecEvalExprSwitchContext(context->right_state,
 															  context->expr_context,
 															  &elmbyval,	/* Interim use */
@@ -423,11 +482,17 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 				node = (Node*)makeInt4ArrayIn(context->partition_expr, new_values, num_elems);
 				context->hint = true;
 				pfree(new_values);
+				if (convert_state)
+				{
+					pfree(convert_state);
+					pfree(convert);
+				}
 				return node;
 			}
 		}
 	}
 
+next_mutator_equal_expr_:
 	return expression_tree_mutator(node, mutator_equal_expr, context);
 }
 
@@ -435,6 +500,7 @@ static Const* get_var_equal_const(List *args, Oid opno, Index relid, AttrNumber 
 {
 	Expr *l;
 	Expr *r;
+	Const *c;
 	Oid type_oid;
 
 	if (list_length(args)!=2)
@@ -450,40 +516,48 @@ static Const* get_var_equal_const(List *args, Oid opno, Index relid, AttrNumber 
 		if (IsA(l, Var) &&
 			((Var*)l)->varno == relid &&
 			((Var*)l)->varattno == attno &&
-			IsA(r, Const))
+			(c=is_const_able_expr(r)) != NULL)
 		{
 			*var = (Var*)l;
-			return (Const*)r;
+			return c;
 		}else if (IsA(r, Var) &&
 			((Var*)r)->varno == relid &&
 			((Var*)r)->varattno == attno &&
-			IsA(l, Const))
+			(c=is_const_able_expr(l)) != NULL)
 		{
 			*var = (Var*)r;
-			return (Const*)l;
+			return c;
 		}
 	}
 
 	return NULL;
 }
 
-static void init_context_expr_if_need(ModifyContext *context, Const *c)
+static Const* is_const_able_expr(Expr *expr)
+{
+	for(;;)
+	{
+		if (IsA(expr, RelabelType))
+			expr = ((RelabelType*)expr)->arg;
+		else if (IsA(expr, CollateExpr))
+			expr = ((CollateExpr*)expr)->arg;
+		else
+			break;
+	}
+
+	return IsA(expr, Const) ? (Const*)expr:NULL;
+}
+
+static void init_context_expr_if_need(ModifyContext *context)
 {
 	if (context->const_expr == NULL)
 	{
-		if(c != NULL)
-		{
-			context->const_expr = palloc(sizeof(Const));
-			memcpy(context->const_expr, c, sizeof(Const));
-		}else
-		{
-			c = context->const_expr = makeNode(Const);
-			get_atttypetypmodcoll(context->loc_info->relid,
-								  context->varattno,
-								  &c->consttype,
-								  &c->consttypmod,
-								  &c->constcollid);
-		}
+		Const *c = context->const_expr = makeNode(Const);
+		get_atttypetypmodcoll(context->loc_info->relid,
+								context->varattno,
+								&c->consttype,
+								&c->consttypmod,
+								&c->constcollid);
 		context->const_expr->location = -1;
 
 		context->right_expr = makePartitionExpr(context->loc_info, (Node*)context->const_expr);
