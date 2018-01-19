@@ -516,12 +516,24 @@ static Datum load_stringinfo_datum_io(StringInfo buf, ConvertIO *io)
 		tmp.data = buf->data+buf->cursor;
 		tmp.cursor = VARDATA_ANY(tmp.data) - tmp.data;
 		tmp.len = tmp.maxlen = VARSIZE_ANY(tmp.data);
+		if (tmp.len + buf->cursor > buf->len)
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					errmsg("insufficient data left in message")));
+
 		datum = ReceiveFunctionCall(&io->in_func, &tmp, io->io_param, -1);
 		buf->cursor += tmp.maxlen;
 	}else
 	{
-		datum = InputFunctionCall(&io->in_func, buf->data+buf->cursor, io->io_param, -1);
-		buf->cursor += strlen(buf->data) + 1;
+		char *ptr = buf->data+buf->cursor;
+		int len = strlen(ptr) + 1;
+		if (len + buf->cursor > buf->len)
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					errmsg("insufficient data left in message")));
+
+		datum = InputFunctionCall(&io->in_func, ptr, io->io_param, -1);
+		buf->cursor += len;
 	}
 	return datum;
 }
