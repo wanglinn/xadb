@@ -12,15 +12,18 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "catalog/pgxc_node.h"
 #include "commands/tablecmds.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/cost.h"
 #include "optimizer/paths.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/pgxcship.h"
+#include "optimizer/plancat.h"
 #include "optimizer/restrictinfo.h"
 #include "parser/parsetree.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/pgxcnode.h"
 #include "optimizer/pgxcplan.h"
 #include "tcop/tcopprot.h"
 
@@ -131,7 +134,8 @@ extern bool
 create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte,
 						Relids required_outer)
 {
-	List			*quals;
+	ListCell		*lc;
+	List			*rnodes;
 	ExecNodes		*exec_nodes;
 	ParamPathInfo	*param_info;
 
@@ -140,15 +144,23 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte,
 	 * the remote query path unless relation is local to coordinator or the
 	 * query is to entirely executed on coordinator.
 	 */
-	if (!IsCoordMaster() || root->parse->is_local)
+	if (!IsCoordMaster() || root->parse->is_local || rel->loc_info == NULL)
 		return false;
 
-	quals = extract_actual_clauses(rel->baserestrictinfo, false);
-	exec_nodes = GetRelationNodesByQuals(rte->relid, rel->relid,
-														(Node *)quals,
-														RELATION_ACCESS_READ);
-	if (!exec_nodes)
+	rnodes = relation_remote_by_constraints(root, rel);
+	if (rnodes == NIL)
 		return false;
+	exec_nodes = makeNode(ExecNodes);
+	exec_nodes->accesstype = RELATION_ACCESS_READ;
+	exec_nodes->baselocatortype = rel->loc_info->locatorType;
+	exec_nodes->en_relid = rte->relid;
+	exec_nodes->en_funcid = rel->loc_info->funcid;
+	exec_nodes->nodeids = rnodes;
+	foreach(lc, rnodes)
+	{
+		exec_nodes->nodeList = lappend_int(exec_nodes->nodeList,
+										   PGXCNodeGetNodeId(lfirst_oid(lc), PGXC_NODE_DATANODE));
+	}
 
 	if (IsExecNodesDistributedByValue(exec_nodes))
 	{

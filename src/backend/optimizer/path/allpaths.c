@@ -341,6 +341,13 @@ set_rel_size(PlannerInfo *root, RelOptInfo *rel,
 		/* It's an "append relation", process accordingly */
 		set_append_rel_size(root, rel, rti, rte);
 	}
+#ifdef ADB
+	else if (rel->loc_info &&
+		relation_remote_by_constraints(root, rel) == NIL)
+	{
+		set_dummy_rel_pathlist(rel);
+	}
+#endif /* ADB */
 	else
 	{
 		switch (rel->rtekind)
@@ -683,20 +690,19 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		List *base_clauses;
 		List *exclude = NIL;
 		RelationLocInfo *loc_info = rel->loc_info;
-		if(IsLocatorDistributedByValue(loc_info->locatorType))
+		if (IsLocatorDistributedByValue(loc_info->locatorType) ||
+			loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
 		{
-			List *rnodes = PGXCNodeGetNodeOidList(rel->loc_info->nodeList, PGXC_NODE_DATANODE);
-			List *quals = extract_actual_clauses(rel->baserestrictinfo, false);
-			ExecNodes *nodes =  GetRelationNodesByQuals(rte->relid, rel->relid,
-															(Node *)quals,
-															RELATION_ACCESS_READ);
-			if(equal(nodes->nodeList, loc_info->nodeList) == false)
+			List *rnodes;
+			List *exec_nodes = relation_remote_by_constraints(root, rel);
+			if (exec_nodes == NIL)
 			{
-				List *exec_nodes = PGXCNodeGetNodeOidList(nodes->nodeList, PGXC_NODE_DATANODE);
-				exclude = list_difference_oid(rnodes, exec_nodes);
-				list_free(exec_nodes);
+				set_dummy_rel_pathlist(rel);
+				return;
 			}
-			FreeExecNodes(&nodes);
+			rnodes = PGXCNodeGetNodeOidList(rel->loc_info->nodeList, PGXC_NODE_DATANODE);
+			exclude = list_difference_oid(rnodes, exec_nodes);
+			list_free(exec_nodes);
 			list_free(rnodes);
 		}
 		rinfo = MakeReduceInfoFromLocInfo(loc_info, exclude, rte->relid, rel->relid);
