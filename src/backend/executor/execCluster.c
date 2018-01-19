@@ -290,7 +290,7 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	else
 		es_instrument = 0;
 	return CreateQueryDesc(stmt,
-						   "<claster query>",
+						   "<cluster query>",
 						   GetTransactionSnapshot()/*GetActiveSnapshot()*/, InvalidSnapshot,
 						   r, paramLI, es_instrument);
 }

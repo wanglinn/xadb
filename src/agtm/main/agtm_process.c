@@ -33,7 +33,7 @@ ProcessAGtmCommand(StringInfo input_message, CommandDest dest)
 	msg_name = gtm_util_message_name(mtype);
 	set_ps_display(msg_name, true);
 	BeginCommand(msg_name, dest);
-	ereport(DEBUG1, 
+	ereport(DEBUG1,
 		(errmsg("[ pid=%d] Process Command mtype = %s (%d).",
 		MyProcPid, msg_name, (int)mtype)));
 
@@ -68,23 +68,23 @@ ProcessAGtmCommand(StringInfo input_message, CommandDest dest)
 		case AGTM_MSG_SYNC_XID:
 			output = ProcessSyncXID(input_message, &buf);
 			break;
-			
+
 		case AGTM_MSG_SEQUENCE_INIT:
 			output = ProcessSequenceInit(input_message, &buf);
 			break;
-			
+
 		case AGTM_MSG_SEQUENCE_ALTER:
 			output = ProcessSequenceAlter(input_message, &buf);
 			break;
-			
+
 		case AGTM_MSG_SEQUENCE_DROP:
 			output = ProcessSequenceDrop(input_message, &buf);
 			break;
-			
+
 		case AGTM_MSG_SEQUENCE_DROP_BYDB:
 			output = ProcessSequenceDropByDatabase(input_message, &buf);
 			break;
-			
+
 		case AGTM_MSG_SEQUENCE_RENAME:
 			output = ProcessSequenceRename(input_message, &buf);
 			break;
@@ -137,7 +137,6 @@ ProcessAGtmCommand(StringInfo input_message, CommandDest dest)
 
 	if(output != NULL)
 	{
-		Portal portal;
 		TupleTableSlot *slot;
 		static int16 format = 1;
 
@@ -152,25 +151,11 @@ ProcessAGtmCommand(StringInfo input_message, CommandDest dest)
 		ExecStoreVirtualTuple(slot);
 
 		receiver = CreateDestReceiver(dest);
-		portal = NULL;
-		if(dest == DestRemote)
-		{
-			portal = CreatePortal("", true, true);
-			/* Don't display the portal in pg_cursors */
-			portal->visible = false;
-			PortalDefineQuery(portal, NULL, "", msg_name, NIL, NULL);
-			PortalStart(portal, NULL, 0, InvalidSnapshot);
-			portal->tupDesc = slot->tts_tupleDescriptor;
-			PortalSetResultFormat(portal, 1, &format);
-			SetRemoteDestReceiverParams(receiver, portal);
-		}
-		(*receiver->rStartup)(receiver, CMD_UTILITY, slot->tts_tupleDescriptor);
+		if (dest == DestRemote)
+			StartupRemoteDestReceiver(receiver, slot->tts_tupleDescriptor, &format);
 		(*receiver->receiveSlot)(slot, receiver);
 		(*receiver->rShutdown)(receiver);
 		(*receiver->rDestroy)(receiver);
-
-		if(portal)
-			PortalDrop(portal, false);
 	}
 
 	EndCommand(msg_name, dest);

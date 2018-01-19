@@ -248,6 +248,25 @@ SendRowDescriptionMessage(TupleDesc typeinfo, List *targetlist, int16 *formats)
 	pq_endmessage(&buf);
 }
 
+#ifdef AGTM
+static void
+printtup_prepare_info_ext(DR_printtup *myState, TupleDesc typeinfo,
+						  int numAttrs, int16 *formats);
+
+void
+StartupRemoteDestReceiver(DestReceiver *self, TupleDesc typeinfo, int16 *formats)
+{
+	DR_printtup *myState = (DR_printtup *) self;
+	int numAttrs = typeinfo->natts;
+
+	myState->tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
+												"printtup",
+												ALLOCSET_DEFAULT_SIZES);
+
+	return printtup_prepare_info_ext(myState, typeinfo, numAttrs, formats);
+}
+#endif
+
 /*
  * Get the lookup info that printtup() needs
  */
@@ -255,6 +274,14 @@ static void
 printtup_prepare_info(DR_printtup *myState, TupleDesc typeinfo, int numAttrs)
 {
 	int16	   *formats = myState->portal->formats;
+#ifdef AGTM
+	return printtup_prepare_info_ext(myState, typeinfo, numAttrs, formats);
+}
+
+static void
+printtup_prepare_info_ext(DR_printtup *myState, TupleDesc typeinfo, int numAttrs, int16 *formats)
+{
+#endif
 	int			i;
 
 	/* get rid of any old data */

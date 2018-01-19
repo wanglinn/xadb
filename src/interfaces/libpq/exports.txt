@@ -196,3 +196,4 @@ PQsendClose               193
 PQsendQueryExtend         194
 PQsendQueryExtendBinary   195
 PQisIdle                  196
+pqResultStrdup            197
