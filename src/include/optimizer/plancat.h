@@ -39,8 +39,12 @@ extern bool relation_excluded_by_constraints(PlannerInfo *root,
 								 RelOptInfo *rel, RangeTblEntry *rte);
 
 extern List *get_relation_constraints(PlannerInfo *root,
-						 Oid relationObjectId, RelOptInfo *rel,
-						 bool include_notnull);
+									  Oid relationObjectId, RelOptInfo *rel,
+									  bool include_notnull);
+extern List *get_relation_constraints_base(PlannerInfo *root,
+										   Oid relationObjectId, Index varno,
+										   bool include_notnull);
+
 
 extern List *build_physical_tlist(PlannerInfo *root, RelOptInfo *rel);
 
@@ -63,8 +67,9 @@ extern bool has_row_triggers(PlannerInfo *root, Index rti, CmdType event);
 
 #ifdef ADB
 /* src/backend/optimizer/util/remotetest.c */
-
-extern List *relation_remote_by_constraints(struct PlannerInfo *root, struct RelOptInfo *rel);
+struct RelationLocInfo;
+extern List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel);
+extern List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, struct RelationLocInfo *loc_info, Index varno);
 #endif /* ADB */
 
 #endif   /* PLANCAT_H */

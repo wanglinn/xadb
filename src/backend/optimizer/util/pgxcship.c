@@ -30,6 +30,7 @@
 #include "optimizer/clauses.h"
 #include "optimizer/pgxcplan.h"
 #include "optimizer/pgxcship.h"
+#include "optimizer/plancat.h"
 #include "optimizer/tlist.h"
 #include "parser/parsetree.h"
 #include "parser/parse_coerce.h"
@@ -462,6 +463,7 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	ExecNodes	*rel_exec_nodes;
 	RelationAccessType rel_access = RELATION_ACCESS_READ;
 	RelationLocInfo *rel_loc_info;
+	List *rnodes;
 
 	Assert(rte == rt_fetch(varno, (query->rtable)));
 
@@ -501,11 +503,17 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	 * tables in the query and we apply node reduction here, we may fail to ship
 	 * the entire join. We should apply node reduction transitively.
 	 */
-	if (list_length(query->rtable) == 1)
+	if (rel_access == RELATION_ACCESS_READ &&
+		list_length(query->rtable) == 1 &&
+		query->jointree->quals != NULL &&
+		(rnodes = relation_remote_by_constraints_base(NULL, query->jointree->quals, rel_loc_info, 1)) != NIL)
+	{
+		rel_exec_nodes = MakeExecNodesByOids(rel_loc_info, rnodes, RELATION_ACCESS_READ);
+	}else if (list_length(query->rtable) == 1)
+	{
 		rel_exec_nodes = GetRelationNodesByQuals(rte->relid, varno,
 												 query->jointree->quals, rel_access);
-	else
-#ifdef ADB
+	}else
 	{
 		Datum value = (Datum)0;
 		bool null = true;
@@ -517,10 +525,6 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 										  &type,
 										  rel_access);
 	}
-#else
-		rel_exec_nodes = GetRelationNodes(rel_loc_info, (Datum) 0,
-										  true, InvalidOid, rel_access);
-#endif
 	if (!rel_exec_nodes)
 		return NULL;
 

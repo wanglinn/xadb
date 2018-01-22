@@ -369,6 +369,28 @@ IsLocatorInfoEqual(RelationLocInfo *locInfo1,
 	return true;
 }
 
+ExecNodes *MakeExecNodesByOids(RelationLocInfo *loc_info, List *oids, RelationAccessType accesstype)
+{
+	ListCell *lc;
+	ExecNodes *exec_nodes;
+	if (oids == NIL)
+		return NULL;
+
+	exec_nodes = makeNode(ExecNodes);
+	exec_nodes->accesstype = accesstype;
+	exec_nodes->baselocatortype = loc_info->locatorType;
+	exec_nodes->en_relid = loc_info->relid;
+	exec_nodes->en_funcid = loc_info->funcid;
+	exec_nodes->nodeids = oids;
+	foreach(lc, oids)
+	{
+		exec_nodes->nodeList = lappend_int(exec_nodes->nodeList,
+										   PGXCNodeGetNodeId(lfirst_oid(lc), PGXC_NODE_DATANODE));
+	}
+
+	return exec_nodes;
+}
+
 /*
  * GetRelationNodes
  *

@@ -1162,8 +1162,13 @@ get_relation_constraints(PlannerInfo *root,
 						 Oid relationObjectId, RelOptInfo *rel,
 						 bool include_notnull)
 {
+	return get_relation_constraints_base(root, relationObjectId, rel->relid, include_notnull);
+}
+List *get_relation_constraints_base(PlannerInfo *root,
+									Oid relationObjectId, Index varno,
+									bool include_notnull)
+{
 	List	   *result = NIL;
-	Index		varno = rel->relid;
 	Relation	relation;
 	TupleConstr *constr;
 

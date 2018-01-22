@@ -51,6 +51,7 @@ static Expr* makeInt4ArrayIn(Expr *l, Datum *values, int count);
 static Expr* makeInt4Const(int32 val);
 static Expr* makeNotNullTest(Expr *expr, bool isrow);
 static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node);
+static List* make_new_qual_list(ModifyContext *context, Node *quals, bool need_eval_const);
 static Node* mutator_equal_expr(Node *node, ModifyContext *context);
 static void init_context_expr_if_need(ModifyContext *context);
 static Const* get_var_equal_const(List *args, Oid opno, Index relid, AttrNumber attno, Var **var);
@@ -59,11 +60,18 @@ static Const* is_const_able_expr(Expr *expr);
 /* return remote oid list */
 List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel)
 {
+	return relation_remote_by_constraints_base(root,
+											   (Node*)rel->baserestrictinfo,
+											   rel->loc_info,
+											   rel->relid);
+}
+
+List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, RelationLocInfo *loc_info, Index varno)
+{
 	MemoryContext main_mctx;
 	MemoryContext temp_mctx;
 	MemoryContext old_mctx;
 	ModifyContext context;
-	RelationLocInfo *loc_info;
 	List		   *result;
 	List		   *constraint_pred;
 	List		   *safe_constraints;
@@ -74,10 +82,10 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel)
 	int				i;
 
 	MemSet(&context, 0, sizeof(context));
-	AssertArg(rel->loc_info != NULL);
-	loc_info = context.loc_info = rel->loc_info;
+	AssertArg(loc_info != NULL);
+	context.loc_info = loc_info;
 
-	if(rel->baserestrictinfo == NIL)
+	if(quals == NULL)
 	{
 		if(loc_info->locatorType == LOCATOR_TYPE_REPLICATED)
 			return list_make1_oid(linitial_oid(loc_info->nodeids));
@@ -98,31 +106,31 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel)
 									  ALLOCSET_DEFAULT_MAXSIZE);
 	old_mctx = MemoryContextSwitchTo(main_mctx);
 
-	context.relid = rel->relid;
+	context.relid = varno;
 	null_test_list = NIL;
 	if (loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
 	{
 		if(list_length(loc_info->funcAttrNums) == 1)
 		{
 			context.varattno = linitial_int(loc_info->funcAttrNums);
-			context.partition_expr = makePartitionExpr(loc_info, (Node*)makeVarByRel(context.varattno, loc_info->relid, rel->relid));
+			context.partition_expr = makePartitionExpr(loc_info, (Node*)makeVarByRel(context.varattno, loc_info->relid, varno));
 		}
 		if (func_strict(loc_info->funcid))
 		{
 			foreach(lc, loc_info->funcAttrNums)
 			{
 				null_test_list = lappend(null_test_list,
-										 makeNotNullTest((Expr*)makeVarByRel(lfirst_int(lc), loc_info->relid, rel->relid), false));
+										 makeNotNullTest((Expr*)makeVarByRel(lfirst_int(lc), loc_info->relid, varno), false));
 			}
 		}
 	}else if(IsLocatorDistributedByValue(loc_info->locatorType))
 	{
 		context.varattno = loc_info->partAttrNum;
-		context.partition_expr = makePartitionExpr(loc_info, (Node*)makeVarByRel(loc_info->partAttrNum, loc_info->relid, rel->relid));
-		null_test_list = list_make1(makeNotNullTest((Expr*)makeVarByRel(context.varattno, loc_info->relid, rel->relid), false));
+		context.partition_expr = makePartitionExpr(loc_info, (Node*)makeVarByRel(loc_info->partAttrNum, loc_info->relid, varno));
+		null_test_list = list_make1(makeNotNullTest((Expr*)makeVarByRel(context.varattno, loc_info->relid, varno), false));
 	}
 
-	constraint_pred = get_relation_constraints(root, loc_info->relid, rel, true);
+	constraint_pred = get_relation_constraints_base(root, loc_info->relid, varno, true);
 	safe_constraints = NIL;
 	foreach(lc, constraint_pred)
 	{
@@ -133,27 +141,9 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel)
 	}
 	/* append TABLE.XC_NODE_ID is not null */
 	safe_constraints = lappend(safe_constraints,
-							   makeNotNullTest(makeVarByRel(XC_NodeIdAttributeNumber, loc_info->relid, rel->relid), false));
+							   makeNotNullTest((Expr*)makeVarByRel(XC_NodeIdAttributeNumber, loc_info->relid, varno), false));
 
-	new_clauses = NIL;
-	if (context.partition_expr)
-	{
-		foreach(lc, rel->baserestrictinfo)
-		{
-			Node *clause;
-			RestrictInfo *r = lfirst(lc);
-
-			new_clauses = lappend(new_clauses, r->clause);
-
-			context.hint = false;
-			clause = mutator_equal_expr((Node*)r->clause, &context);
-			if(context.hint)
-				new_clauses = lappend(new_clauses, clause);
-		}
-	}else
-	{
-		new_clauses = rel->baserestrictinfo;
-	}
+	new_clauses = make_new_qual_list(&context, quals, root == NULL);
 
 	i=0;
 	result = NIL;
@@ -166,7 +156,7 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel)
 		temp_constraints = list_copy(safe_constraints);
 
 		/* make TABLE.XC_NODE_ID=id */
-		expr = makeInt4EQ((Expr*)makeVarByRel(XC_NodeIdAttributeNumber, loc_info->relid, rel->relid),
+		expr = makeInt4EQ((Expr*)makeVarByRel(XC_NodeIdAttributeNumber, loc_info->relid, varno),
 						  makeInt4Const(get_pgxc_node_id(node_oid)));
 		temp_constraints = lappend(temp_constraints, expr);
 
@@ -346,6 +336,50 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 	return (Expr*)coalesce;
 }
 
+static List* make_new_qual_list(ModifyContext *context, Node *quals, bool need_eval_const)
+{
+	List *result;
+	ListCell *lc;
+	Node *clause;
+
+	result = NIL;
+	if (IsA(quals, List))
+	{
+		foreach(lc, (List*)quals)
+		{
+			clause = lfirst(lc);
+			if (IsA(clause, RestrictInfo))
+				clause = (Node*)((RestrictInfo*)clause)->clause;
+			if (need_eval_const)
+				clause = eval_const_expressions(NULL, clause);
+			result = lappend(result, clause);
+
+			if(context->partition_expr)
+			{
+				context->hint = false;
+				clause = mutator_equal_expr(clause, context);
+				if(context->hint)
+					result = lappend(result, clause);
+			}
+		}
+	}else
+	{
+		clause = IsA(quals, RestrictInfo) ? (Node*)((RestrictInfo*)quals)->clause : quals;
+		if (need_eval_const)
+			clause = eval_const_expressions(NULL, clause);
+		result = list_make1(clause);
+
+		if(context->partition_expr)
+		{
+			context->hint = false;
+			clause = mutator_equal_expr(clause, context);
+			if(context->hint)
+				result = lappend(result, clause);
+		}
+	}
+
+	return result;
+}
 /*
  * let column=val to (like) hash(column)%remote_count = hash(value)%remote_count to hash(column)%remote_count = new_value
  *   column [not] in (v1,v2) to hash(column)%remote [not] in (new_v1,new_v2)

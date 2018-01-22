@@ -142,7 +142,7 @@ extern ExecNodes *GetRelationNodesByQuals(Oid reloid,
 										  Index varno,
 										  Node *quals,
 										  RelationAccessType relaccess);
-
+extern ExecNodes *MakeExecNodesByOids(RelationLocInfo *loc_info, List *oids, RelationAccessType accesstype);
 extern ExecNodes *GetRelationNodesByMultQuals(RelationLocInfo *rel_loc_info,
 											  Oid reloid,
 											  Index varno,
@@ -153,27 +153,6 @@ extern void CoerceUserDefinedFuncArgs(Oid funcid,
 									  Datum *values,
 									  bool *nulls,
 									  Oid *types);
-/*struct ExprState;
-extern struct ExprState *ExecInitRelationExecNode(RelationLocInfo *loc,
-										   RelationAccessType relaccess,
-										   Index rel_index);
-extern struct ExprState *ExecInitRelationExecNodeOid(RelationLocInfo *loc,
-										   RelationAccessType relaccess,
-										   Index rel_index);
-extern Expr *MakeReducePathExpr(RelationLocInfo *loc,
-									   RelationAccessType relaccess,
-									   Index rel_index);
-extern Expr *ReducePathExpr2PlanExpr(Expr *expr);
-extern Expr *MakeReduce2CoordinatorExpr(void);
-extern bool IsReduce2Coordinator(Expr *expr);
-extern Expr *MakeReduceReplicateExpr(List *oids);
-extern bool IsReduceReplicateExpr(Expr *expr);
-extern List *ReduceReplicateExprGetList(Expr *expr);
-extern Expr *CreateReduceValExprAs(Expr *expr, Index newRelid, List *newAttnos);
-extern bool IsReduceExprByValue(Expr *expr);
-extern Index PullReducePathExprAttnos(Expr *expr, Bitmapset **varattnos);
-extern List *GetReducePathExprAttnoList(Expr *expr, Index *relid);
-extern List *GetReducePathExprNodes(Expr *expr);*/
 
 /* Global locator data */
 extern void FreeExecNodes(ExecNodes **exec_nodes);

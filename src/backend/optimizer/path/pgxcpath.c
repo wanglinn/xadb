@@ -134,7 +134,6 @@ extern bool
 create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte,
 						Relids required_outer)
 {
-	ListCell		*lc;
 	List			*rnodes;
 	ExecNodes		*exec_nodes;
 	ParamPathInfo	*param_info;
@@ -150,17 +149,7 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte,
 	rnodes = relation_remote_by_constraints(root, rel);
 	if (rnodes == NIL)
 		return false;
-	exec_nodes = makeNode(ExecNodes);
-	exec_nodes->accesstype = RELATION_ACCESS_READ;
-	exec_nodes->baselocatortype = rel->loc_info->locatorType;
-	exec_nodes->en_relid = rte->relid;
-	exec_nodes->en_funcid = rel->loc_info->funcid;
-	exec_nodes->nodeids = rnodes;
-	foreach(lc, rnodes)
-	{
-		exec_nodes->nodeList = lappend_int(exec_nodes->nodeList,
-										   PGXCNodeGetNodeId(lfirst_oid(lc), PGXC_NODE_DATANODE));
-	}
+	exec_nodes = MakeExecNodesByOids(rel->loc_info, rnodes, RELATION_ACCESS_READ);
 
 	if (IsExecNodesDistributedByValue(exec_nodes))
 	{

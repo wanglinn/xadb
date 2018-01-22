@@ -343,6 +343,7 @@ set_rel_size(PlannerInfo *root, RelOptInfo *rel,
 	}
 #ifdef ADB
 	else if (rel->loc_info &&
+		rel->baserestrictinfo != NIL &&
 		relation_remote_by_constraints(root, rel) == NIL)
 	{
 		set_dummy_rel_pathlist(rel);
