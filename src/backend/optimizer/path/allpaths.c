@@ -2503,14 +2503,23 @@ set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		RelOptInfo *final_rel = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
 		if(final_rel->cheapest_cluster_total_path)
 		{
-			Path *path = create_ctescan_path(root, rel, NULL);
-			List *reduce_info_list = get_reduce_info_list(final_rel->cheapest_cluster_total_path);
-			cost_div(path, list_length(((ReduceInfo*)linitial(reduce_info_list))->storage_nodes));
-			path->reduce_info_list = ConvertReduceInfoList(reduce_info_list,
+			Path *cheapest_path = final_rel->cheapest_cluster_total_path;
+			Path *cluster_path = create_ctescan_path(root, rel, NULL);
+			Path *normal_path = linitial(rel->pathlist);
+			List *reduce_info_list = get_reduce_info_list(cheapest_path);
+
+			/* we need have diffent cost for cluster path and not cluster path */
+			normal_path->startup_cost = cteplan->startup_cost;
+			normal_path->total_cost = cteplan->total_cost;
+			cluster_path->startup_cost = cheapest_path->startup_cost;
+			cluster_path->total_cost = cheapest_path->total_cost;
+			cluster_path->rows = cheapest_path->rows;
+
+			cluster_path->reduce_info_list = ConvertReduceInfoList(reduce_info_list,
 														   subroot->upper_targets[UPPERREL_FINAL],
 														   rel->relid);
-			path->reduce_is_valid = true;
-			add_cluster_path(rel, path);
+			cluster_path->reduce_is_valid = true;
+			add_cluster_path(rel, cluster_path);
 		}
 	}
 #endif /* ADB */
