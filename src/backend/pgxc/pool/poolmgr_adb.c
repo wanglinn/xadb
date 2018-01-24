@@ -1069,7 +1069,7 @@ agent_destroy(PoolAgent *agent)
 	{
 		slot = linitial(agent->list_wait);
 		agent->list_wait = list_delete_first(agent->list_wait);
-		if(slot != NULL)
+		if(slot != NULL && slot->owner != NULL)
 		{
 			Assert(slot->owner == agent);
 
