@@ -1742,7 +1742,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 				foreach(lc, childrel->cluster_pathlist)
 				{
 					Path *subpath = lfirst(lc);
-					if(PATH_REQ_OUTER(path))
+					if(PATH_REQ_OUTER(subpath))
 						continue;
 					if(IsReduceInfoListCoordinator(get_reduce_info_list(subpath)))
 					{
