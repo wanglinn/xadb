@@ -115,7 +115,7 @@ agtm_Connect(void)
 		PG_RE_THROW();
 	}PG_END_TRY();
 
-	ereport(LOG,
+	ereport(DEBUG1,
 		(errmsg("Connect to AGTM(host=%s port=%d dbname=%s user=%s) successfully.",
 		AGtmHost, AGtmPort, AGTM_DBNAME, AGTM_USER)));
 }

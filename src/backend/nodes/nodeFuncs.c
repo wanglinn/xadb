@@ -3814,6 +3814,148 @@ planstate_tree_walker(PlanState *planstate,
 }
 
 #ifdef ADB
+static bool
+planstate_exec_walk_hashjoin(HashJoinState *node,
+							 bool (*walker) (),
+							 void *context)
+{
+	PlanState  *outerNode;
+	HashState  *hashNode;
+	bool		drive_outer_first;
+
+	Assert(node && IsA(node, HashJoinState));
+	hashNode = (HashState *) innerPlanState(node);
+	outerNode = outerPlanState(node);
+
+	/*
+	 * If the hash join type is one of JOIN_LEFT, JOIN_ANTI and JOIN_FULL,
+	 * HJ_FILL_OUTER(node) is true and the outer plan will be executed first,
+	 * see the 150 line in nodeHashJoin.c.
+	 */
+	drive_outer_first = false;
+	switch (node->js.jointype)
+	{
+		case JOIN_LEFT:
+		case JOIN_ANTI:
+		case JOIN_FULL:
+			drive_outer_first = true;
+			break;
+		default:
+			break;
+	}
+
+	/*
+	 * if the startup cost of outer plan is smaller than the hash plan,
+	 * the outer plan will be executed first, see the 151 line in node-
+	 * HashJoin.c.(According to the initial value, see in ExecInitHashJoin,
+	 * Other conditions must be valid).
+	 */
+	if (!drive_outer_first &&
+		outerNode->plan->startup_cost < hashNode->ps.plan->total_cost)
+		drive_outer_first = true;
+
+	/* lefttree and righttree */
+	if (drive_outer_first)
+	{
+		if (walker(outerPlanState(node), context))
+			return true;
+
+		if (walker(innerPlanState(node), context))
+			return true;
+	} else
+	{
+		if (walker(innerPlanState(node), context))
+			return true;
+
+		if (walker(outerPlanState(node), context))
+			return true;
+	}
+
+	/* special child plans, skip it */
+
+	return false;
+}
+
+bool
+planstate_tree_exec_walker(PlanState *planstate,
+						   bool (*walker) (),
+						   void *context)
+{
+	Plan	   *plan = planstate->plan;
+	ListCell   *lc;
+
+	switch (nodeTag(plan))
+	{
+		case T_HashJoin:
+			if (planstate_exec_walk_hashjoin((HashJoinState *)planstate,
+											 walker,
+											 context))
+				return true;
+			break;
+		case T_ModifyTable:
+			if (planstate_walk_members(((ModifyTable *) plan)->plans,
+								  ((ModifyTableState *) planstate)->mt_plans,
+									   walker, context))
+				return true;
+			break;
+		case T_Append:
+			if (planstate_walk_members(((Append *) plan)->appendplans,
+									((AppendState *) planstate)->appendplans,
+									   walker, context))
+				return true;
+			break;
+		case T_MergeAppend:
+			if (planstate_walk_members(((MergeAppend *) plan)->mergeplans,
+								((MergeAppendState *) planstate)->mergeplans,
+									   walker, context))
+				return true;
+			break;
+		case T_BitmapAnd:
+			if (planstate_walk_members(((BitmapAnd *) plan)->bitmapplans,
+								 ((BitmapAndState *) planstate)->bitmapplans,
+									   walker, context))
+				return true;
+			break;
+		case T_BitmapOr:
+			if (planstate_walk_members(((BitmapOr *) plan)->bitmapplans,
+								  ((BitmapOrState *) planstate)->bitmapplans,
+									   walker, context))
+				return true;
+			break;
+		case T_SubqueryScan:
+			if (walker(((SubqueryScanState *) planstate)->subplan, context))
+				return true;
+			break;
+		case T_CustomScan:
+			foreach(lc, ((CustomScanState *) planstate)->custom_ps)
+			{
+				if (walker((PlanState *) lfirst(lc), context))
+					return true;
+			}
+			break;
+		case T_CteScan:
+			if (walker(((CteScanState *) planstate)->cteplanstate, context))
+				return true;
+			break;
+		default:
+			if (outerPlanState(planstate) && walker(outerPlanState(planstate), context))
+				return true;
+			if (innerPlanState(planstate) && walker(innerPlanState(planstate), context))
+				return true;
+			break;
+	}
+
+	/* subPlan-s */
+	if (planstate_walk_subplans(planstate->subPlan, walker, context))
+		return true;
+
+	/* initPlan-s */
+	if (planstate_walk_subplans(planstate->initPlan, walker, context))
+		return true;
+
+	return false;
+}
+
 bool plan_tree_walker(struct Plan *plan, Node *GlobOrStmt, bool (*walker)(), void *context)
 {
 	ListCell *lc;

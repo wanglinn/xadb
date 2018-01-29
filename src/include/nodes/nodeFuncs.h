@@ -79,6 +79,9 @@ extern bool planstate_tree_walker(struct PlanState *planstate, bool (*walker) ()
 											  void *context);
 
 #ifdef ADB
+extern bool planstate_tree_exec_walker(struct PlanState *planstate, bool (*walker) (),
+											  void *context);
+
 /* not support PlannerInfo and RelOptInfo */
 extern bool node_tree_walker(Node *node, bool (*walker)(), void *context);
 

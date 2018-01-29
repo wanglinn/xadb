@@ -5,6 +5,8 @@
 #include "access/tuptypeconvert.h"
 #include "executor/executor.h"
 #include "executor/nodeClusterReduce.h"
+#include "executor/nodeCtescan.h"
+#include "executor/tuptable.h"
 #include "lib/binaryheap.h"
 #include "nodes/execnodes.h"
 #include "nodes/nodeFuncs.h"
@@ -32,9 +34,10 @@ static TupleTableSlot *GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEn
 static TupleTableSlot *ExecClusterMergeReduce(ClusterReduceState *node);
 static void WaitForServerFIN(RdcPort *port);
 static void DisConnectSelfReduce(ClusterReduceState *node);
-static void DriveClusterReduce(ClusterReduceState *node);
-static bool DriveHashJoinState(HashJoinState *node, void *context);
-static bool DriveClusterReduceWalker(PlanState *node, void *context);
+static bool DriveClusterReduceState(ClusterReduceState *node);
+static bool DriveCteScanState(CteScanState *node);
+static bool DriveClusterReduceWalker(PlanState *node);
+static bool IsThereClusterReduce(PlanState *node);
 
 void
 RegisterReduceCleanup(void *crstate)
@@ -982,9 +985,10 @@ ExecConnectReduce(PlanState *node)
 	ExecConnectReduceWalker(node, node->state);
 }
 
-static void
-DriveClusterReduce(ClusterReduceState *node)
+static bool
+DriveClusterReduceState(ClusterReduceState *node)
 {
+	Assert(node && IsA(node, ClusterReduceState));
 	if (!node->eof_network &&
 		!RdcSendEOF(node->port) &&
 		!RdcSendCLOSE(node->port))
@@ -1002,83 +1006,54 @@ DriveClusterReduce(ClusterReduceState *node)
 
 	while (!node->eof_underlying)
 		(void) GetSlotFromOuter(node);
+
+	return false;
 }
 
 static bool
-DriveHashJoinState(HashJoinState *node, void *context)
+DriveCteScanState(CteScanState *node)
 {
-	PlanState  *outerNode;
-	HashState  *hashNode;
-	ListCell   *lc;
-	bool		drive_outer_first;
+	TupleTableSlot *slot = NULL;
+	ListCell	   *lc = NULL;
+	SubPlanState   *sps = NULL;
 
-	Assert(node && IsA(node, HashJoinState));
-	hashNode = (HashState *) innerPlanState(node);
-	outerNode = outerPlanState(node);
+	Assert(node && IsA(node, CteScanState));
+
+	if (!IsThereClusterReduce((PlanState *) node))
+		return false;
 
 	/*
-	 * If the hash join type is one of JOIN_LEFT, JOIN_ANTI and JOIN_FULL,
-	 * HJ_FILL_OUTER(node) is true and the outer plan will be executed first,
-	 * see the 150 line in nodeHashJoin.c.
+	 * Here we do ExecCteScan instead of just driving ClusterReduce,
+	 * because other plan node may need the results of the CteScan.
 	 */
-	drive_outer_first = false;
-	switch (node->js.jointype)
+	for (;;)
 	{
-		case JOIN_LEFT:
-		case JOIN_ANTI:
-		case JOIN_FULL:
-			drive_outer_first = true;
-			break;
-		default:
+		slot = ExecCteScan((CteScanState *) node);
+		if (TupIsNull(slot))
 			break;
 	}
 
 	/*
-	 * if the startup cost of outer plan is smaller than the hash plan,
-	 * the outer plan will be executed first, see the 151 line in node-
-	 * HashJoin.c.(According to the initial value, see in ExecInitHashJoin,
-	 * Other conditions must be valid).
+	 * Do not forget to drive subPlan-s.
 	 */
-	if (!drive_outer_first &&
-		outerNode->plan->startup_cost < hashNode->ps.plan->total_cost)
-		drive_outer_first = true;
-
-	/* initPlan-s */
-	foreach(lc, node->js.ps.initPlan)
+	foreach (lc, node->ss.ps.subPlan)
 	{
-		SubPlanState *sps = (SubPlanState *) lfirst(lc);
+		sps = (SubPlanState *) lfirst(lc);
 
 		Assert(IsA(sps, SubPlanState));
-		if (DriveClusterReduceWalker(sps->planstate, context))
+		if (DriveClusterReduceWalker(sps->planstate))
 			return true;
 	}
 
-	/* lefttree and righttree */
-	if (drive_outer_first)
+	/*
+	 * Do not forget to drive initPlan-s.
+	 */
+	foreach (lc, node->ss.ps.initPlan)
 	{
-		if (DriveClusterReduceWalker(outerPlanState(node), context))
-			return true;
-
-		if (DriveClusterReduceWalker(innerPlanState(node), context))
-			return true;
-	} else
-	{
-		if (DriveClusterReduceWalker(innerPlanState(node), context))
-			return true;
-
-		if (DriveClusterReduceWalker(outerPlanState(node), context))
-			return true;
-	}
-
-	/* special child plans, skip it */
-
-	/* subPlan-s */
-	foreach(lc, node->js.ps.subPlan)
-	{
-		SubPlanState *sps = (SubPlanState *) lfirst(lc);
+		sps = (SubPlanState *) lfirst(lc);
 
 		Assert(IsA(sps, SubPlanState));
-		if (DriveClusterReduceWalker(sps->planstate, context))
+		if (DriveClusterReduceWalker(sps->planstate))
 			return true;
 	}
 
@@ -1086,7 +1061,7 @@ DriveHashJoinState(HashJoinState *node, void *context)
 }
 
 static bool
-DriveClusterReduceWalker(PlanState *node, void *context)
+DriveClusterReduceWalker(PlanState *node)
 {
 	EState	   *estate;
 	int			planid;
@@ -1101,10 +1076,6 @@ DriveClusterReduceWalker(PlanState *node, void *context)
 	if (bms_is_member(planid, estate->es_reduce_drived_set))
 		return false;
 
-	if (IsA(node, HashJoinState))
-	{
-		res = DriveHashJoinState((HashJoinState *) node, context);
-	} else
 	if (IsA(node, ClusterReduceState))
 	{
 		ClusterReduceState *crs = (ClusterReduceState *) node;
@@ -1117,15 +1088,35 @@ DriveClusterReduceWalker(PlanState *node, void *context)
 		 * Drive all ClusterReduce to send slot, discard slot
 		 * used for local.
 		 */
-		DriveClusterReduce(crs);
-
-		res = false;
+		res = DriveClusterReduceState(crs);
 	} else
-		res = planstate_tree_walker(node, DriveClusterReduceWalker, context);
+	if (IsA(node, CteScanState))
+	{
+		res = DriveCteScanState((CteScanState *) node);
+	} else
+	{
+		res = planstate_tree_exec_walker(node, DriveClusterReduceWalker, NULL);
+	}
 
 	estate->es_reduce_drived_set = bms_add_member(estate->es_reduce_drived_set, planid);
 
 	return res;
+}
+
+static bool
+IsThereClusterReduce(PlanState *node)
+{
+	if (node == NULL)
+		return false;
+
+	if (IsA(node, ClusterReduceState))
+		return true;
+
+	if (IsA(node, CteScanState) &&
+		IsThereClusterReduce(((CteScanState *) node)->cteplanstate))
+		return true;
+
+	return planstate_tree_walker(node, IsThereClusterReduce, NULL);
 }
 
 void
@@ -1138,5 +1129,5 @@ TopDownDriveClusterReduce(PlanState *node)
 	if (!node->state->es_reduce_plan_inited)
 		return ;
 
-	(void) DriveClusterReduceWalker(node, NULL);
+	(void) DriveClusterReduceWalker(node);
 }
