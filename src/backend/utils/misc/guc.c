@@ -1952,6 +1952,16 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
+
+	{
+		{"enable_pushdown_art", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("push down query to one datanode if all table are replicated."),
+			NULL
+		},
+		&enable_pushdown_art,
+		false,
+		NULL, NULL, NULL
+	},
 #endif
 
 #ifdef DEBUG_ADB

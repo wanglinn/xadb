@@ -63,14 +63,14 @@ CREATE VIEW adbmgr.node AS
     mgrnode.nodeinited  AS  initialized,
     mgrnode.nodeincluster AS incluster
   FROM pg_catalog.mgr_node AS mgrnode LEFT JOIN pg_catalog.mgr_host ON mgrnode.nodehost = pg_catalog.mgr_host.oid
-		LEFT JOIN pg_catalog.mgr_node AS node_alise ON node_alise.oid = mgrnode.nodemasternameoid) AS node_tb 
-		order by (case type 
-			when 'gtm master' then 0 
-			when 'gtm slave' then 1 
+		LEFT JOIN pg_catalog.mgr_node AS node_alise ON node_alise.oid = mgrnode.nodemasternameoid) AS node_tb
+		order by (case type
+			when 'gtm master' then 0
+			when 'gtm slave' then 1
 			when 'coordinator master' then 2
 			when 'coordinator slave' then 2
-			when 'datanode master' then 3 
-			when 'datanode slave' then 4 
+			when 'datanode master' then 3
+			when 'datanode slave' then 4
 			End) ASC, mastername ASC, sync_state DESC;
 
 CREATE VIEW adbmgr.job AS
@@ -91,18 +91,18 @@ CREATE VIEW adbmgr.jobitem AS
     jobitem_desc AS description
   FROM pg_catalog.monitor_jobitem order by 1;
 
-CREATE VIEW adbmgr.ha as 
+CREATE VIEW adbmgr.ha as
 	SELECT * FROM mgr_monitor_ha() order by 2 asc, 1 desc;
 
 --monitor all
 CREATE VIEW adbmgr.monitor_all AS
         select * from mgr_monitor_all() order by 1,
-			(case nodetype 
-				when 'gtm master' then 0 
-				when 'gtm slave' then 1 
+			(case nodetype
+				when 'gtm master' then 0
+				when 'gtm slave' then 1
 				when 'coordinator master' then 2
 				when 'coordinator slave' then 3
-				when 'datanode master' then 4 
+				when 'datanode master' then 4
 				when 'datanode slave' then 5
 			End) ASC;
 
@@ -230,8 +230,8 @@ CREATE VIEW adbmgr.stopall_i AS
 
 -- for ADB monitor host page: get all host various parameters.
 CREATE VIEW adbmgr.get_all_host_parm AS
-    select 
-        mgh.hostname AS hostName, 
+    select
+        mgh.hostname AS hostName,
         mgh.hostaddr AS ip,
         nh.mh_cpu_core_available AS cpu,
         round(c.mc_cpu_usage::numeric, 1) AS cpuRate,
@@ -242,45 +242,45 @@ CREATE VIEW adbmgr.get_all_host_parm AS
         mtc.mt_emergency_threshold AS cpu_threshold,
         mtm.mt_emergency_threshold AS mem_threshold,
         mtd.mt_emergency_threshold AS disk_threshold
-    from 
+    from
         mgr_host mgh,
-        
+
         (
             select * from (
                             select *, (ROW_NUMBER()OVER(PARTITION BY T.hostname ORDER BY T.mc_timestamptz desc)) as rm
                             from monitor_cpu t
                            ) tt where tt.rm = 1
         ) c,
-        
+
         (
             select * from (
                             select *,(ROW_NUMBER()OVER(PARTITION BY T.hostname ORDER BY T.mm_timestamptz desc)) as rm
                             from monitor_mem t
                            ) tt where tt.rm =1
         ) m,
-        
+
         (
             select * from (
                             select *, (ROW_NUMBER()OVER(PARTITION BY T.hostname ORDER BY T.md_timestamptz desc)) as rm
                             from monitor_disk t
                            ) tt where tt.rm = 1
         ) d,
-        
+
         (
             select * from (
                             select *, (ROW_NUMBER()OVER(PARTITION BY T.hostname ORDER BY T.mh_current_time desc)) as rm
                             from monitor_host t
                            ) tt where tt.rm = 1
         ) nh,
-        
+
         (
             select * from monitor_host_threshold where mt_type = 1
         ) mtc,
-        
+
         (
             select * from monitor_host_threshold where mt_type = 2
         ) mtm,
-        
+
         (
             select * from monitor_host_threshold where mt_type = 3
         )mtd
@@ -308,35 +308,35 @@ CREATE VIEW adbmgr.get_spec_host_parm AS
        round(mn.mn_sent/1024.0,1) as netoutps,
        mh.mh_seconds_since_boot as runtime
     from mgr_host mgh,
-    
+
         (
             select * from (
                             select *, (ROW_NUMBER()OVER(PARTITION BY t.hostname ORDER BY t.mh_current_time desc)) as rm
                             from monitor_host t
                            ) tt where tt.rm = 1
         ) mh,
-        
+
         (
             select * from (
                             select *,(ROW_NUMBER()OVER(PARTITION BY t.hostname ORDER BY t.mc_timestamptz desc)) as rm
                             from monitor_cpu t
                            ) tt where tt.rm = 1
         ) mc,
-        
+
         (
             select * from (
                             select *,(ROW_NUMBER()OVER(PARTITION BY t.hostname ORDER BY t.mm_timestamptz desc)) as rm
                             from monitor_mem t
                            ) tt where tt.rm =1
         ) mm,
-        
+
         (
             select * from (
                             select *, (ROW_NUMBER()OVER(PARTITION BY t.hostname ORDER BY t.md_timestamptz desc)) as rm
                             from monitor_disk t
                            ) tt where tt.rm = 1
         ) md,
-        
+
         (
             select * from (
                             select *, (ROW_NUMBER()OVER(PARTITION BY t.hostname ORDER BY t.mn_timestamptz desc)) as rm
@@ -351,7 +351,7 @@ CREATE VIEW adbmgr.get_spec_host_parm AS
 
 -- for ADB monitor host page: get cpu, memory, i/o and net info for specific time period.
 CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage(hostname text, i int)
-    RETURNS table 
+    RETURNS table
     (
         recordtimes timestamptz,
         cpuuseds numeric,
@@ -361,9 +361,9 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage(hostname text, i in
         netinps numeric,
         netoutps numeric
     )
-    AS 
+    AS
     $$
-    
+
     select c.mc_timestamptz as recordtimes,
            round(c.mc_cpu_usage::numeric, 1) as cpuuseds,
            round(m.mm_usage::numeric, 1) as memuseds,
@@ -377,11 +377,11 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage(hostname text, i in
                        left join monitor_host h on(c.hostname = h.hostname and c.mc_timestamptz = h.mh_current_time)
                        left join mgr_host   mgr on(c.hostname = mgr.hostname),
 
-                       (select mh.hostname, mh.mh_current_time 
-                        from monitor_host mh 
-                        order by mh.mh_current_time desc 
+                       (select mh.hostname, mh.mh_current_time
+                        from monitor_host mh
+                        order by mh.mh_current_time desc
                         limit 1) as temp
-    where c.mc_timestamptz  >  temp.mh_current_time - case $2 
+    where c.mc_timestamptz  >  temp.mh_current_time - case $2
                                                       when 0 then interval '1 hour'
                                                       when 1 then interval '1 day'
                                                       when 2 then interval '7 day'
@@ -394,7 +394,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage(hostname text, i in
 
 -- for ADB monitor host page: get cpu, memory, i/o and net info for specific time period.
 CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage_by_time_period(hostname text, starttime timestamptz, endtime timestamptz)
-    RETURNS table 
+    RETURNS table
     (
         recordtimes timestamptz,
         cpuuseds numeric,
@@ -404,7 +404,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage_by_time_period(host
         netinps numeric,
         netoutps numeric
     )
-    AS 
+    AS
     $$
 
     select c.mc_timestamptz as recordtimes,
@@ -420,9 +420,9 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage_by_time_period(host
                        left join monitor_host h on(c.hostname = h.hostname and c.mc_timestamptz = h.mh_current_time)
                        left join mgr_host   mgr on(c.hostname = mgr.hostname),
 
-                       (select mh.hostname, mh.mh_current_time 
-                        from monitor_host mh 
-                        order by mh.mh_current_time desc 
+                       (select mh.hostname, mh.mh_current_time
+                        from monitor_host mh
+                        order by mh.mh_current_time desc
                         limit 1) as temp
     where c.mc_timestamptz  between $2 and $3
             and mgr.hostname = $1;
@@ -439,7 +439,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_all_nodename_in_spec_host(hostname tex
 		nodetype text,
 		nodesync name
 	)
-    AS 
+    AS
     $$
     select
 	nodename,
@@ -459,49 +459,49 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_all_nodename_in_spec_host(hostname tex
     RETURNS NULL ON NULL INPUT;
 
 --make view for 12 hours data for  tps, qps, connectnum, dbsize, indexsize
-CREATE VIEW adbmgr.monitor_12hours_tpsqps_v AS 
-select time, tps,qps from (SELECT monitor_databasetps_time::timestamptz(0) as time, sum(monitor_databasetps_tps) AS tps , 
-  sum(monitor_databasetps_qps) AS qps  , row_number() over (PARTITION BY 1) FROM (SELECT 
+CREATE VIEW adbmgr.monitor_12hours_tpsqps_v AS
+select time, tps,qps from (SELECT monitor_databasetps_time::timestamptz(0) as time, sum(monitor_databasetps_tps) AS tps ,
+  sum(monitor_databasetps_qps) AS qps  , row_number() over (PARTITION BY 1) FROM (SELECT
 	distinct(monitor_databasetps_dbname),  monitor_databasetps_time, monitor_databasetps_tps,
-	monitor_databasetps_qps, monitor_databasetps_runtime FROM monitor_databasetps WHERE 
-	monitor_databasetps_time > (SELECT now() - interval '12 hour' ) ORDER BY 2 ASC)AS a  GROUP BY 
+	monitor_databasetps_qps, monitor_databasetps_runtime FROM monitor_databasetps WHERE
+	monitor_databasetps_time > (SELECT now() - interval '12 hour' ) ORDER BY 2 ASC)AS a  GROUP BY
 	monitor_databasetps_time) AS a;
 
-CREATE VIEW adbmgr.monitor_12hours_connect_dbsize_indexsize_v AS 
+CREATE VIEW adbmgr.monitor_12hours_connect_dbsize_indexsize_v AS
 select time, connectnum, dbsize, indexsize from (SELECT  monitor_databaseitem_time::timestamptz(0) as time, sum(
-	monitor_databaseitem_connectnum) AS connectnum, 
+	monitor_databaseitem_connectnum) AS connectnum,
 	(sum(monitor_databaseitem_dbsize)/1024.0)::numeric(18,2) AS dbsize , (sum(monitor_databaseitem_indexsize)/1024.0)::
-	numeric(18,2) AS indexsize, row_number() over (PARTITION BY 1) FROM (SELECT 
-	distinct(monitor_databaseitem_dbname),  monitor_databaseitem_time, monitor_databaseitem_connectnum, 
+	numeric(18,2) AS indexsize, row_number() over (PARTITION BY 1) FROM (SELECT
+	distinct(monitor_databaseitem_dbname),  monitor_databaseitem_time, monitor_databaseitem_connectnum,
 	monitor_databaseitem_dbsize, monitor_databaseitem_indexsize FROM monitor_databaseitem WHERE monitor_databaseitem_time
 	> (SELECT now() - interval '12 hour' ) ORDER BY 2 ASC) AS b  GROUP BY monitor_databaseitem_time ) AS b;
-		
+
 --get first page first line values
 CREATE VIEW adbmgr.monitor_cluster_firstline_v
 AS
-	SELECT * from 
-	(SELECT monitor_databasetps_time::timestamptz(0) AS time, sum(monitor_databasetps_tps) AS tps , sum(monitor_databasetps_qps) AS qps, 
+	SELECT * from
+	(SELECT monitor_databasetps_time::timestamptz(0) AS time, sum(monitor_databasetps_tps) AS tps , sum(monitor_databasetps_qps) AS qps,
 		sum(monitor_databaseitem_connectnum) AS connectnum , (sum(monitor_databaseitem_dbsize)/1024.0)::numeric(18,2) AS dbsize, (sum(monitor_databaseitem_indexsize)/1024.0)::numeric(18,2) AS indexsize, max(monitor_databasetps_runtime) as runtime
-	FROM 
+	FROM
 		(SELECT  tps.monitor_databasetps_time, tps.monitor_databasetps_tps,  tps.monitor_databasetps_qps, tps.monitor_databasetps_runtime,
 					b.monitor_databaseitem_connectnum , b.monitor_databaseitem_dbsize, b.monitor_databaseitem_indexsize
-				FROM (SELECT * ,(ROW_NUMBER()OVER(PARTITION BY monitor_databasetps_dbname ORDER BY 
-									monitor_databasetps_time desc ))AS tc  
+				FROM (SELECT * ,(ROW_NUMBER()OVER(PARTITION BY monitor_databasetps_dbname ORDER BY
+									monitor_databasetps_time desc ))AS tc
 							FROM monitor_databasetps
 							)AS tps
-			JOIN 
+			JOIN
 			(SELECT monitor_databaseitem_dbname,
 					monitor_databaseitem_connectnum,  monitor_databaseitem_dbsize, monitor_databaseitem_indexsize
-			 FROM (SELECT * ,(ROW_NUMBER()OVER(PARTITION BY monitor_databaseitem_dbname ORDER BY 
+			 FROM (SELECT * ,(ROW_NUMBER()OVER(PARTITION BY monitor_databaseitem_dbname ORDER BY
 									monitor_databaseitem_time desc ))AS tc  FROM monitor_databaseitem)AS item  WHERE item.tc =1
 			) AS b
-			on tps.monitor_databasetps_dbname = b.monitor_databaseitem_dbname 
+			on tps.monitor_databasetps_dbname = b.monitor_databaseitem_dbname
 			WHERE   tps.tc =1
-		) AS c 
+		) AS c
 		GROUP BY  monitor_databasetps_time
 		ORDER BY monitor_databasetps_time DESC LIMIT 1
 	) AS d
-	join 
+	join
 	( SELECT (sum(md_total/1024.0/1024)/1024)::numeric(18,2) AS md_total FROM (SELECT  hostname,md_timestamptz, md_total, (ROW_NUMBER()OVER(PARTITION BY hostname  ORDER BY  md_timestamptz desc ))AS tc   from monitor_disk) AS d WHERE tc =1
 	) AS e
 	on 1=1;
@@ -515,12 +515,12 @@ CREATE OR REPLACE FUNCTION pg_catalog.monitor_databasetps_func(in text, in times
 		tps int,
 		qps int
 	)
-	AS 
+	AS
 		$$
 	SELECT monitor_databasetps_time::timestamptz(0) AS recordtime,
 				monitor_databasetps_tps   AS tps,
 				monitor_databasetps_qps   AS qps
-	FROM 
+	FROM
 				monitor_databasetps
 	WHERE monitor_databasetps_dbname = $1 and monitor_databasetps_time >= $2 and monitor_databasetps_time <= $2 + case $3
 				when 0 then interval '1 hour'
@@ -544,9 +544,9 @@ CREATE OR REPLACE FUNCTION pg_catalog.monitor_databasetps_func_by_time_period(db
 	SELECT monitor_databasetps_time::timestamptz(0) AS recordtime,
 				monitor_databasetps_tps   AS tps,
 				monitor_databasetps_qps   AS qps
-	FROM 
+	FROM
 				monitor_databasetps
-	WHERE monitor_databasetps_dbname = $1 and 
+	WHERE monitor_databasetps_dbname = $1 and
 		  monitor_databasetps_time between $2 and $3
 	ORDER BY 1;
 	$$
@@ -556,7 +556,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.monitor_databasetps_func_by_time_period(db
 
 --to show all database tps, qps, runtime at current_time
  CREATE VIEW adbmgr.monitor_all_dbname_tps_qps_runtime_v
- AS 
+ AS
  SELECT distinct(monitor_databasetps_dbname) as databasename, monitor_databasetps_tps as tps, monitor_databasetps_qps as qps, monitor_databasetps_runtime as runtime FROM monitor_databasetps WHERE monitor_databasetps_time=(SELECT max(monitor_databasetps_time) FROM monitor_databasetps) ORDER BY 1 ASC;
 --show cluster summary at current_time
 CREATE VIEW adbmgr.monitor_cluster_summary_v
@@ -599,7 +599,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.monitor_databasesummary_func(in name)
 		preparenum		int,
 		unusedindexnum	int
 	)
-	AS 
+	AS
 		$$
 	SELECT (monitor_databaseitem_dbsize/1024.0)::numeric(18,2) AS dbsize,
 			 monitor_databaseitem_archivemode AS archivemode,
@@ -614,7 +614,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.monitor_databasesummary_func(in name)
 			 monitor_databaseitem_idletransnum  AS idletransum,
 			 monitor_databaseitem_preparenum    AS  preparenum,
 			 monitor_databaseitem_unusedindexnum  AS unusedindexnum
-	from (SELECT * from monitor_databaseitem where monitor_databaseitem_time=(SELECT 
+	from (SELECT * from monitor_databaseitem where monitor_databaseitem_time=(SELECT
 		MAX(monitor_databaseitem_time) from monitor_databaseitem) and monitor_databaseitem_dbname = $1) AS a
 	$$
 		LANGUAGE SQL
@@ -623,17 +623,17 @@ CREATE OR REPLACE FUNCTION pg_catalog.monitor_databasesummary_func(in name)
 
 CREATE OR REPLACE FUNCTION pg_catalog.monitor_slowlog_count_func(in name, in timestamptz, in timestamptz)
 		RETURNS bigint
-	AS 
+	AS
 		$$
 	SELECT count(*)
-	FROM 
+	FROM
 				monitor_slowlog
 	WHERE slowlogdbname = $1 and slowlogtime >= $2 and slowlogtime < $3;
 	$$
 		LANGUAGE SQL
 	IMMUTABLE
 	RETURNS NULL ON NULL INPUT;
-	
+
 CREATE OR REPLACE FUNCTION pg_catalog.monitor_slowlog_func_page(in name, in timestamptz, in timestamptz, in int, in int)
 		RETURNS TABLE
 		(
@@ -643,21 +643,21 @@ CREATE OR REPLACE FUNCTION pg_catalog.monitor_slowlog_func_page(in name, in time
 			totalnum int,
 			queryplan text
 		)
-	AS 
+	AS
 		$$
 	SELECT slowlogquery AS query,
 				slowloguser   AS dbuser,
 				slowlogsingletime AS singletime,
 				slowlogtotalnum   AS totalnum,
 				slowlogqueryplan  AS queryplan
-	FROM 
+	FROM
 				monitor_slowlog
 	WHERE slowlogdbname = $1 and slowlogtime >= $2 and slowlogtime < $3 order by slowlogtime desc limit $4 offset $5;
 	$$
 		LANGUAGE SQL
 	IMMUTABLE
 	RETURNS NULL ON NULL INPUT;
---for cluster warning, monitor_dbthreshold systbl, see "typedef enum DbthresholdObject" 
+--for cluster warning, monitor_dbthreshold systbl, see "typedef enum DbthresholdObject"
 --  in monitor_dbthreshold.c
 --heaphitrate
 insert into pg_catalog.monitor_host_threshold values(11, 0, 98, 95, 90);
@@ -698,8 +698,8 @@ CREATE VIEW adbmgr.get_datanode_node_topology AS
                                     select case f.nodetype
                                            when 'd' then '"master"'
                                            when 'b' then '"slave"'
-                                           end 
-                                           || ':' || '{' || '"node_name"' || ':' || '"' || f.nodename || '"' || ',' 
+                                           end
+                                           || ':' || '{' || '"node_name"' || ':' || '"' || f.nodename || '"' || ','
                                                          || '"node_port"' || ':' ||        f.nodeport        || ','
                                                          || '"node_ip"'   || ':' || '"' || f.hostaddr || '"' || ','
                                                          || '"sync_state"'|| ':' || '"' || f.nodesync || '"' ||
@@ -707,27 +707,27 @@ CREATE VIEW adbmgr.get_datanode_node_topology AS
                                     from(
                                             select n.nodename,n.oid,n.nodetype,n.nodesync,n.nodeport,n.nodemasternameoid, h.hostaddr
                                             from mgr_node n, mgr_host h
-                                            where n.nodemasternameoid = '0' and 
-                                                  n.nodename = x.nodename  and 
+                                            where n.nodemasternameoid = '0' and
+                                                  n.nodename = x.nodename  and
                                                   n.nodetype = 'd' and
                                                   h.oid = n.nodehost and
                                                   n.nodeincluster = true and
                                                   n.nodeinited = true
-                                            
+
                                             union all
-                                            
+
                                             select t2.nodename,t2.oid,t2.nodetype,t2.nodesync,t2.nodeport,t2.nodemasternameoid,t2.hostaddr
                                             from (
                                                     select n.nodename,n.oid,n.nodetype,n.nodeport,n.nodemasternameoid,h.hostaddr
                                                     from mgr_node n,mgr_host h
-                                                    where n.nodemasternameoid = '0' and 
-                                                          n.nodename = x.nodename and 
+                                                    where n.nodemasternameoid = '0' and
+                                                          n.nodename = x.nodename and
                                                           n.nodetype = 'd' and
                                                           h.oid = n.nodehost and
                                                           n.nodeincluster = true and
                                                           n.nodeinited = true
                                                 ) t1
-                                                left join 
+                                                left join
                                                 (
                                                     select n.nodename,n.oid,n.nodetype,n.nodesync,n.nodeport,n.nodemasternameoid,h.hostaddr
                                                     from mgr_node n,mgr_host h
@@ -741,7 +741,7 @@ CREATE VIEW adbmgr.get_datanode_node_topology AS
                         ) from (select nodename from mgr_node where nodetype = 'd') x
         ) r;
 
--- for ADB monitor the topology in home page : get coordinator node topology 
+-- for ADB monitor the topology in home page : get coordinator node topology
 CREATE VIEW adbmgr.get_coordinator_node_topology AS
     select n.nodename AS node_name,
         n.nodeport AS node_port,
@@ -752,7 +752,7 @@ CREATE VIEW adbmgr.get_coordinator_node_topology AS
         n.nodehost = h.oid and
         n.nodetype = 'c';
 
--- for ADB monitor the topology in home page : get agtm node topology 
+-- for ADB monitor the topology in home page : get agtm node topology
 CREATE VIEW adbmgr.get_agtm_node_topology AS
     select '{'|| ARRAY_TO_STRING || '}' as agtm_result
     from(
@@ -761,8 +761,8 @@ CREATE VIEW adbmgr.get_agtm_node_topology AS
                                     select case f.nodetype
                                         when 'g' then '"master"'
                                         when 'p' then '"slave"'
-                                        end 
-                                        || ':' || '{' || '"node_name"' || ':' || '"' || f.nodename || '"' || ',' 
+                                        end
+                                        || ':' || '{' || '"node_name"' || ':' || '"' || f.nodename || '"' || ','
                                                       || '"node_port"' || ':' ||        f.nodeport        || ','
                                                       || '"node_ip"'   || ':' || '"' || f.hostaddr || '"' || ','
                                                       || '"sync_state"'|| ':' || '"' || f.nodesync || '"' ||
@@ -828,10 +828,10 @@ as $$
                   END
                   || ':' || row_to_json as row_string
            from (
-           
+
                    select row_to_json(t)
                    from (
-                           select 
+                           select
                                mt_warning_threshold AS "warning",
                                mt_critical_threshold AS "critical",
                                mt_emergency_threshold AS "emergency"
@@ -848,18 +848,18 @@ RETURNS NULL ON NULL INPUT;
 --get the threshlod for all type
 CREATE VIEW adbmgr.get_threshold_all_type AS
 select mt_type as type, mt_direction as direction, mt_warning_threshold as warning, mt_critical_threshold as critical, mt_emergency_threshold as emergency
-  from pg_catalog.monitor_host_threshold 
-	where mt_type in (1,2,3,4,5,6) 
+  from pg_catalog.monitor_host_threshold
+	where mt_type in (1,2,3,4,5,6)
 	   order by 1 asc;
 
 --get the threshlod for all type
 CREATE VIEW adbmgr.get_db_threshold_all_type
-as 
- select tt1.mt_type as type, tt1.mt_direction as direction, tt1.mt_warning_threshold as node_warning, tt1.mt_critical_threshold as node_critical, 
-			  tt1.mt_emergency_threshold as node_emergency,tt2.mt_warning_threshold as cluster_warning, 
-				tt2.mt_critical_threshold as cluster_critical, tt2.mt_emergency_threshold as cluster_emergency 
-from (select * from pg_catalog.monitor_host_threshold where mt_type in (11,12,13,14,15,16,17))as tt1  
-   join  (select * from pg_catalog.monitor_host_threshold where mt_type in (21,22,23,24,25,26,27)) tt2 on tt1.mt_type +10 =tt2.mt_type 
+as
+ select tt1.mt_type as type, tt1.mt_direction as direction, tt1.mt_warning_threshold as node_warning, tt1.mt_critical_threshold as node_critical,
+			  tt1.mt_emergency_threshold as node_emergency,tt2.mt_warning_threshold as cluster_warning,
+				tt2.mt_critical_threshold as cluster_critical, tt2.mt_emergency_threshold as cluster_emergency
+from (select * from pg_catalog.monitor_host_threshold where mt_type in (11,12,13,14,15,16,17))as tt1
+   join  (select * from pg_catalog.monitor_host_threshold where mt_type in (21,22,23,24,25,26,27)) tt2 on tt1.mt_type +10 =tt2.mt_type
 	 order by 1 asc;
 
 -- get all alarm info (host and DB)
@@ -976,17 +976,17 @@ VOLATILE
 RETURNS NULL ON NULL INPUT;
 
 --insert into monitor_user, as default value: 1: ordinary users, 2: db manager
-insert into monitor_user values('adbmonitor', 2, '2016-01-01','2050-01-01', '12345678901', 
+insert into monitor_user values('adbmonitor', 2, '2016-01-01','2050-01-01', '12345678901',
 'userdba@asiainfo.com', '亚信', '数据库', '数据库研发工程师', 'ISMvKXpXpadDiUoOSoAfww==','系统管理员');
 --check user name/password
 CREATE OR REPLACE  FUNCTION  pg_catalog.monitor_checkuser_func(in Name, in Name)
 RETURNS oid AS $$
   select oid from pg_catalog.monitor_user where username=$1 and userpassword=$2;
 $$  LANGUAGE sql IMMUTABLE STRICT;
-	
+
 --show user info
  create or replace function pg_catalog.monitor_getuserinfo_func(in int)
-returns TABLE 
+returns TABLE
 	(
 		username			Name,				/*the user name*/
 		usertype			int,
@@ -1014,7 +1014,7 @@ returns int
 as
 $$
     update pg_catalog.monitor_user set username=$2, usertel=$3, useremail=$4, usertitle=$5, usercompany=$6, userdesc=$7 where oid=$1 returning 0;
- 
+
 $$
 LANGUAGE SQL
 VOLATILE
@@ -1251,6 +1251,7 @@ INSERT INTO adbmgr.parm VALUES ('*', 'enable_indexscan', 'on', 'user', 'bool', N
 INSERT INTO adbmgr.parm VALUES ('*', 'enable_material', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'enable_mergejoin', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'enable_nestloop', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('#', 'enable_pushdown_art', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'enable_seqscan', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'enable_sort', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'enable_tidscan', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);

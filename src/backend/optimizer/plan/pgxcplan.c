@@ -2679,6 +2679,9 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 
 	exec_nodes = NULL;
 
+	if (enable_pushdown_art)
+		exec_nodes = pgxc_is_all_replicated_table(query);
+
 	/*
 	 * If the query can not be or need not be shipped to the Datanodes, don't
 	 * create any plan here. standard_planner() will take care of it.
