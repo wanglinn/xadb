@@ -8,7 +8,7 @@
 #include "executor/nodeReduceScan.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
-#include "storage/buffile.h"
+#include "utils/hashstore.h"
 #include "utils/memutils.h"
 #include "utils/typcache.h"
 
@@ -62,6 +62,7 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 		ListCell *lc;
 		int i;
 		int nbatches;
+		int nbuckets;
 		int nskew_mcvs;
 		Assert(list_length(node->param_hash_keys) == list_length(node->scan_hash_keys));
 
@@ -69,10 +70,10 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 		ExecChooseHashTableSize(outer_plan->plan_rows,
 								outer_plan->plan_width,
 								false,
-								&rcs->nbuckets,
+								&nbuckets,
 								&nbatches,
 								&nskew_mcvs);
-		rcs->hash_files = palloc0(rcs->nbuckets * sizeof(rcs->hash_files[0]));
+		rcs->buffer_hash = hashstore_begin_heap(false, nbuckets);
 		rcs->param_hash_exprs = (List*)ExecInitExpr((Expr*)node->param_hash_keys, (PlanState*)rcs);
 		rcs->scan_hash_exprs = (List*)ExecInitExpr((Expr*)node->scan_hash_keys, (PlanState*)rcs);
 		rcs->param_hash_funs = palloc(sizeof(rcs->param_hash_funs[0]) * rcs->ncols_hash);
@@ -164,18 +165,13 @@ void FetchReduceScanOuter(ReduceScanState *node)
 
 void ExecEndReduceScan(ReduceScanState *node)
 {
-	int i;
 	if(node->buffer_nulls)
 	{
 		tuplestore_end(node->buffer_nulls);
 		node->buffer_nulls = NULL;
 	}
-	for(i=0;i<node->nbuckets;++i)
-	{
-		BufFile *file = node->hash_files[i];
-		if(file)
-			BufFileClose(file);
-	}
+	hashstore_end(node->buffer_hash);
+	node->buffer_hash = NULL;
 	ExecEndNode(outerPlanState(node));
 }
 
@@ -193,81 +189,40 @@ void ExecReScanReduceScan(ReduceScanState *node)
 {
 	if(node->buffer_nulls)
 		tuplestore_rescan(node->buffer_nulls);
-	node->cur_hashvalue = 0;
+	if (node->cur_reader != INVALID_HASHSTORE_READER)
+	{
+		hashstore_end_read(node->buffer_hash, node->cur_reader);
+		node->cur_reader = INVALID_HASHSTORE_READER;
+	}
+
 	if(node->param_hash_exprs)
 	{
 		ExprContext *econtext = node->ss.ps.ps_ExprContext;
-		node->cur_hashvalue = ExecReduceScanGetHashValue(econtext,
-														 node->param_hash_exprs,
-														 node->param_hash_funs);
+		uint32 hashvalue = ExecReduceScanGetHashValue(econtext,
+													  node->param_hash_exprs,
+													  node->param_hash_funs);
+		if (hashvalue != 0)
+			node->cur_reader= hashstore_begin_read(node->buffer_hash, hashvalue);
+		else
+			tuplestore_rescan(node->buffer_nulls);
 	}
-	node->cur_hash_file = NULL;
 }
 
 static TupleTableSlot* ReduceScanNext(ReduceScanState *node)
 {
 	TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
-	if(node->cur_hashvalue)
+	CHECK_FOR_INTERRUPTS();
+	if(node->cur_reader != INVALID_HASHSTORE_READER)
 	{
-		size_t nread;
-		MinimalTuple tuple;
-		uint32 header[2];
-
-		if(node->cur_hash_file == NULL)
+		slot = hashstore_next_slot(node->buffer_hash, slot, node->cur_reader, false);
+		if (TupIsNull(slot))
 		{
-			node->cur_hash_file = node->hash_files[node->cur_hashvalue % node->nbuckets];
-
-			if(node->cur_hash_file == NULL)
-			{
-				ExecClearTuple(slot);
-				return NULL;
-			}
-
-			if(BufFileSeek(node->cur_hash_file, 0, 0L, SEEK_SET) != 0)
-				ereport(ERROR,
-						(errcode_for_file_access(),
-						 errmsg("could not seek in reduce-scan temporary file: %m")));
+			hashstore_end_read(node->buffer_hash, node->cur_reader);
+			node->cur_reader = INVALID_HASHSTORE_READER;
 		}
-
-		for(;;)
-		{
-			CHECK_FOR_INTERRUPTS();
-			nread = BufFileRead(node->cur_hash_file, header, sizeof(header));
-			if(nread == 0)
-			{
-				ExecClearTuple(slot);
-				return NULL;
-			}else if(nread != sizeof(header))
-			{
-				ereport(ERROR,
-						(errcode_for_file_access(),
-						 errmsg("could not read from reduce-scan temporary file: %m")));
-			}
-			if(header[0] != node->cur_hashvalue)
-			{
-				if(BufFileSeek(node->cur_hash_file, 0, header[1]-sizeof(uint32), SEEK_CUR) != 0)
-					ereport(ERROR,
-							(errcode_for_file_access(),
-							errmsg("could not seek in reduce-scan temporary file: %m")));
-				continue;
-			}else
-			{
-				tuple = palloc(header[1]);
-				tuple->t_len = header[1];
-				nread = BufFileRead(node->cur_hash_file,
-									((char*)tuple)+sizeof(uint32),
-									header[1] - sizeof(uint32));
-				if(nread != header[1] - sizeof(uint32))
-					ereport(ERROR,
-							(errcode_for_file_access(),
-							 errmsg("could not read from reduce-scan temporary file: %m")));
-				ExecStoreMinimalTuple(tuple, slot, true);
-				return slot;
-			}
-		}
+		return slot;
 	}else
 	{
-		CHECK_FOR_INTERRUPTS();
 		if(tuplestore_gettupleslot(node->buffer_nulls, true, true, slot))
 			return slot;
 		ExecClearTuple(slot);
@@ -315,27 +270,7 @@ static void ExecReduceScanSaveTuple(ReduceScanState *node, TupleTableSlot *slot,
 {
 	if(hashvalue)
 	{
-		BufFile	*file;
-		BufFile	**ppbuf;
-		size_t		written;
-		MinimalTuple tuple = ExecFetchSlotMinimalTuple(slot);
-
-		ppbuf = &(node->hash_files[hashvalue % node->nbuckets]);
-		if(*ppbuf == NULL)
-			*ppbuf = BufFileCreateTemp(false);
-		file = *ppbuf;
-
-		written = BufFileWrite(file, (void *) &hashvalue, sizeof(uint32));
-		if (written != sizeof(uint32))
-			ereport(ERROR,
-					(errcode_for_file_access(),
-					 errmsg("could not write to reduce-scan temporary file: %m")));
-
-		written = BufFileWrite(file, (void *) tuple, tuple->t_len);
-		if (written != tuple->t_len)
-			ereport(ERROR,
-					(errcode_for_file_access(),
-					 errmsg("could not write to reduce-scan temporary file: %m")));
+		hashstore_put_tupleslot(node->buffer_hash, slot, hashvalue);
 	}else
 	{
 		tuplestore_puttupleslot(node->buffer_nulls, slot);

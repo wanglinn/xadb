@@ -2203,15 +2203,14 @@ typedef struct ReduceScanState
 {
 	ScanState			ss;
 	Tuplestorestate	   *buffer_nulls;
-	struct BufFile	  **hash_files;
-	struct BufFile	   *cur_hash_file;
+	struct Hashstorestate *buffer_hash;
 	List			   *param_hash_exprs;
 	List			   *scan_hash_exprs;
 	FmgrInfo		   *param_hash_funs;
 	FmgrInfo		   *scan_hash_funs;
 	int					nbuckets;
 	int					ncols_hash;
-	uint32				cur_hashvalue;
+	int					cur_reader;		/* for read hashstore */
 } ReduceScanState;
 #endif /* ADB */
 
