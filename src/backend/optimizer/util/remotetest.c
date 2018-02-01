@@ -29,6 +29,7 @@
 #include "parser/parse_coerce.h"
 #include "pgxc/locator.h"
 #include "utils/array.h"
+#include "utils/datum.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
@@ -422,11 +423,15 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 			{
 				MemoryContext old_context = MemoryContextSwitchTo(context->expr_context->ecxt_per_tuple_memory);
 				ExprState *expr_state = ExecInitExpr(convert, NULL);
-				context->const_expr->constvalue = ExecEvalExpr(expr_state,
-															   context->expr_context,
-															   &context->const_expr->constisnull,
-															   NULL);
+				c2 = context->const_expr;
+				c2->constvalue = ExecEvalExpr(expr_state,
+											  context->expr_context,
+											  &c2->constisnull,
+											  NULL);
 				MemoryContextSwitchTo(old_context);
+
+				if (c2->constisnull == false && c2->constbyval == false)
+					c2->constvalue = datumCopy(c2->constvalue, c2->constbyval, c2->constlen);
 			}
 			c2 = (Const*)makeInt4Const(0);
 			MemoryContextReset(context->expr_context->ecxt_per_tuple_memory);
@@ -592,6 +597,7 @@ static void init_context_expr_if_need(ModifyContext *context)
 								&c->consttype,
 								&c->consttypmod,
 								&c->constcollid);
+		c->constlen = get_typlen(c->consttype);
 		context->const_expr->location = -1;
 
 		context->right_expr = makePartitionExpr(context->loc_info, (Node*)context->const_expr);
