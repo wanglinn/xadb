@@ -8139,6 +8139,11 @@ get_rule_expr(Node *node, deparse_context *context,
 				 * reconstruct the original SQL, just reference the subplan
 				 * that appears elsewhere in EXPLAIN's result.
 				 */
+#ifdef ADB
+				if (subplan->useHashStore)
+					appendStringInfo(buf, "(hash stored %s)", subplan->plan_name);
+				else
+#endif /* ADB */
 				if (subplan->useHashTable)
 					appendStringInfo(buf, "(hashed %s)", subplan->plan_name);
 				else

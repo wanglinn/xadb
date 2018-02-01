@@ -294,6 +294,7 @@ void save_oid_operator(StringInfo buf, Oid op)
 		pq_sendbytes(buf, (char*)&op, sizeof(op));
 	}else
 	{
+		SAVE_BOOL(false);
 		opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(op));
 		if (!HeapTupleIsValid(opertup))
 			elog(ERROR, "cache lookup failed for operator %u", op);
@@ -322,6 +323,7 @@ void save_oid_class(StringInfo buf, Oid oid_rel)
 		pq_sendbytes(buf, (char*)&oid_rel, sizeof(oid_rel));
 	}else
 	{
+		SAVE_BOOL(false);
 		classtup = SearchSysCache1(RELOID, ObjectIdGetDatum(oid_rel));
 		if (!HeapTupleIsValid(classtup))
 			elog(ERROR, "could not open relation with OID %u", oid_rel);

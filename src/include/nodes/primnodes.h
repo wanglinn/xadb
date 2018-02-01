@@ -694,6 +694,10 @@ typedef struct SubPlan
 	/* Information about execution strategy: */
 	bool		useHashTable;	/* TRUE to store subselect output in a hash
 								 * table (implies we are doing "IN") */
+#ifdef ADB
+	bool		useHashStore;	/* TRUE to store subselect output in a hash
+								 * store (implies we are doing "IN"), also set useHashTable to TRUE */
+#endif /* ADB */
 	bool		unknownEqFalse; /* TRUE if it's okay to return FALSE when the
 								 * spec result is UNKNOWN; this allows much
 								 * simpler handling of null values */

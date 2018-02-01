@@ -320,6 +320,7 @@ END_SPECIAL_MEB(PathTarget)
 
 NODE_SPECIAL_MEB(Hash)
 	skewColType NODE_OID(type,skewColType)
+	skewTable NODE_OID(class,skewTable)
 END_SPECIAL_MEB(Hash)
 
 NODE_SPECIAL_MEB(ForeignKeyCacheInfo)
@@ -517,11 +518,6 @@ NODE_SPECIAL_MEB(ArrayExpr)
 	element_typeid NODE_OID(type,element_typeid)
 END_SPECIAL_MEB(ArrayExpr)
 
-NODE_SPECIAL_MEB(Param)
-	NODE_OID(type,paramtype)
-	NODE_OID(collation,paramcollid)
-END_SPECIAL_MEB(Param)
-
 NODE_SPECIAL_MEB(SubPlan)
 	firstColType NODE_OID(type,firstColType)
 	firstColCollation NODE_OID(collation,firstColCollation)
@@ -566,10 +562,6 @@ NODE_SPECIAL_MEB(BitmapIndexScan)
 	indexid NODE_OID(class,indexid)
 END_SPECIAL_MEB(BitmapIndexScan)
 
-NODE_SPECIAL_MEB(Hash)
-	skewTable NODE_OID(class,skewTable)
-END_SPECIAL_MEB(Hash)
-
 NODE_SPECIAL_MEB(Param)
 	paramtype NODE_OID(type,paramtype)
 	paramcollid NODE_OID(collation,paramcollid)
@@ -577,7 +569,7 @@ END_SPECIAL_MEB(Param)
 
 NODE_SPECIAL_MEB(XmlExpr)
 	type NODE_OID(type,type)
-END_SPECIAL_MEB(Param)
+END_SPECIAL_MEB(XmlExpr)
 
 NODE_SPECIAL_MEB(TargetEntry)
 	resorigtbl NODE_OID(class,resorigtbl)

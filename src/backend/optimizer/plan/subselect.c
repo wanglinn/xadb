@@ -894,10 +894,16 @@ build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
 		 */
 		if (subLinkType == ANY_SUBLINK &&
 			splan->parParam == NIL &&
-			subplan_is_hashable(plan) &&
 			testexpr_is_hashable(splan->testexpr))
-			splan->useHashTable = true;
-
+		{
+			bool can_hash_table = subplan_is_hashable(plan);
+#ifdef ADB
+			if (enable_hashscan && !can_hash_table)
+				splan->useHashTable = splan->useHashStore = true;
+			else
+#endif /* ADB */
+			splan->useHashTable = can_hash_table;
+		}
 		/*
 		 * Otherwise, we have the option to tack a Material node onto the top
 		 * of the subplan, to reduce the cost of reading it repeatedly.  This
