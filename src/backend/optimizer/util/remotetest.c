@@ -597,7 +597,7 @@ static void init_context_expr_if_need(ModifyContext *context)
 								&c->consttype,
 								&c->consttypmod,
 								&c->constcollid);
-		c->constlen = get_typlen(c->consttype);
+		get_typlenbyval(c->consttype, &c->constlen, &c->constbyval);
 		context->const_expr->location = -1;
 
 		context->right_expr = makePartitionExpr(context->loc_info, (Node*)context->const_expr);
