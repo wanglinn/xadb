@@ -549,7 +549,11 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 		Assert(mgr_node);
 		oldport = mgr_node->nodeport;
 		hostoid = mgr_node->nodehost;
-		masterTupleOid = mgr_node->nodemasternameoid;
+		if (GTM_TYPE_GTM_MASTER == mgr_node->nodetype || CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype
+			|| CNDN_TYPE_DATANODE_MASTER == mgr_node->nodetype)
+			masterTupleOid = selftupleoid;
+		else
+			masterTupleOid = mgr_node->nodemasternameoid;
 		bnodeInCluster = mgr_node->nodeincluster;
 		nodeSyncType = strcmp(NameStr(mgr_node->nodesync), sync_state_tab[SYNC_STATE_SYNC].name) == 0 ? SYNC_STATE_SYNC 
 			: (strcmp(NameStr(mgr_node->nodesync), sync_state_tab[SYNC_STATE_POTENTIAL].name) == 0 ? SYNC_STATE_POTENTIAL : SYNC_STATE_ASYNC);
@@ -7362,8 +7366,10 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 	ScanKeyData key[1];
 	HeapScanDesc rel_scan;
 	HeapTuple tuple =NULL;
+	Oid nodetupleoid;
 
-
+	Assert(HeapTupleIsValid(nodetuple));
+	nodetupleoid = HeapTupleGetOid(nodetuple);
 	initStringInfo(&infosendmsg);
 	/*if nodetype is slave, need modfify its postgresql.conf for port*/
 	if (GTM_TYPE_GTM_SLAVE == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype)
@@ -7413,7 +7419,7 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 			{
 				if (CNDN_TYPE_DATANODE_SLAVE == mgr_node->nodetype)
 				{
-					if (strcmp(nodename, NameStr(mgr_node->nodename)) == 0)
+					if (nodetupleoid == mgr_node->nodemasternameoid)
 						mgr_modify_port_recoveryconf(rel_node, tuple, newport);
 				}
 			}
