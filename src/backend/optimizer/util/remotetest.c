@@ -592,12 +592,14 @@ static void init_context_expr_if_need(ModifyContext *context)
 	if (context->const_expr == NULL)
 	{
 		Const *c = context->const_expr = makeNode(Const);
+		int16 typlen;
 		get_atttypetypmodcoll(context->loc_info->relid,
 								context->varattno,
 								&c->consttype,
 								&c->consttypmod,
 								&c->constcollid);
-		get_typlenbyval(c->consttype, &c->constlen, &c->constbyval);
+		get_typlenbyval(c->consttype, &typlen, &c->constbyval);
+		c->constlen = typlen;
 		context->const_expr->location = -1;
 
 		context->right_expr = makePartitionExpr(context->loc_info, (Node*)context->const_expr);
