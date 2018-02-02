@@ -378,7 +378,7 @@ int HashPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 		foreach(lc, (List*)expr)
 		{
 			if (!IsTypeDistributable(exprType(lfirst(lc))) ||
-				expression_have_subplan(lfirst(lc), NULL))
+				expression_have_subplan(lfirst(lc)))
 				continue;
 			reduce = MakeHashReduceInfo(storage, exclude, lfirst(lc));
 			result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
@@ -386,7 +386,7 @@ int HashPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 				break;
 		}
 	}else if(IsTypeDistributable(exprType((Node*)expr)) &&
-			 expression_have_subplan(expr, NULL) == false)
+			 expression_have_subplan(expr) == false)
 	{
 		reduce = MakeHashReduceInfo(storage, exclude, expr);
 		result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
@@ -428,7 +428,7 @@ int ModuloPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 		foreach(lc, (List*)expr)
 		{
 			if (!CanModuloType(exprType(lfirst(lc)), true) ||
-				expression_have_subplan(lfirst(lc), NULL))
+				expression_have_subplan(lfirst(lc)))
 				continue;
 			reduce = MakeModuloReduceInfo(storage, exclude, lfirst(lc));
 			result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
@@ -436,7 +436,7 @@ int ModuloPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 				break;
 		}
 	}else if(CanModuloType(exprType((Node*)expr), true) &&
-			 expression_have_subplan(expr, NULL) == false)
+			 expression_have_subplan(expr) == false)
 	{
 		reduce = MakeModuloReduceInfo(storage, exclude, expr);
 		result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
@@ -1523,7 +1523,7 @@ List *FindJoinEqualExprs(ReduceInfo *rinfo, List *restrictlist, RelOptInfo *inne
 
 		/* only support X=X expression */
 		if (!is_opclause(ri->clause) ||
-			expression_have_subplan(ri->clause, NULL) ||
+			expression_have_subplan(ri->clause) ||
 			!op_is_equivalence(((OpExpr *)(ri->clause))->opno))
 			continue;
 

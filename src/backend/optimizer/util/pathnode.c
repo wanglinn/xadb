@@ -4279,37 +4279,6 @@ struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab, PlannerInfo *roo
 	return context.htab;
 }
 
-static bool have_exec_param_walker(Node *node, void *context)
-{
-	if(node == NULL)
-		return false;
-
-	if(IsA(node, Param))
-	{
-		Param *param = (Param*)node;
-		return param->paramkind == PARAM_EXEC;
-	}
-	return expression_tree_walker(node, have_exec_param_walker, context);
-}
-
-bool expression_have_exec_param(Expr *expr)
-{
-	return have_exec_param_walker((Node*)expr, NULL);
-}
-
-bool restrict_list_have_exec_param(List *list)
-{
-	RestrictInfo *ri;
-	ListCell *lc;
-	foreach(lc, list)
-	{
-		ri = lfirst(lc);
-		if(have_exec_param_walker((Node*)ri->clause, NULL))
-			return true;
-	}
-	return false;
-}
-
 bool path_tree_have_exec_param(Path *path, PlannerInfo *root)
 {
 	if(path == NULL)
@@ -4353,13 +4322,71 @@ bool expression_have_reduce_plan(Expr *expr, PlannerGlobal *glob)
 	return expression_tree_walker((Node*)expr, expression_have_reduce_plan, glob);
 }
 
-bool expression_have_subplan(Expr *expr, void *none)
+typedef struct ExprHaveNodeContext
 {
-	if(expr == NULL)
+	Bitmapset *bms_nodes;
+	bool test_exec_param;
+}ExprHaveNodeContext;
+
+static bool expr_have_node_walker(Expr *expr, ExprHaveNodeContext *context)
+{
+	check_stack_depth();
+
+	if (expr == NULL)
 		return false;
-	if(IsA(expr, SubPlan))
+
+	if (context->test_exec_param &&
+		IsA(expr, Param) &&
+		((Param*)expr)->paramkind == PARAM_EXEC)
 		return true;
-	return expression_tree_walker((Node*)expr, expression_have_subplan, NULL);
+
+	if (bms_is_member(nodeTag(expr), context->bms_nodes))
+		return true;
+
+	if (IsA(expr, RestrictInfo))
+		return expr_have_node_walker(((RestrictInfo*)expr)->clause, context);
+
+	return expression_tree_walker((Node*)expr, expr_have_node_walker, context);
+}
+
+static bool expr_have_node_internal(Expr *expr, bool exec_param, va_list va)
+{
+	ExprHaveNodeContext context;
+	NodeTag type;
+	bool result;
+	context.test_exec_param = exec_param;
+	context.bms_nodes = NULL;
+
+	while ((type = va_arg(va, NodeTag)) != T_Invalid)
+		context.bms_nodes = bms_add_member(context.bms_nodes, type);
+
+	if (exec_param == false &&
+		context.bms_nodes == NULL)
+		return false;
+
+	result = expr_have_node_walker(expr, &context);
+
+	bms_free(context.bms_nodes);
+	return result;
+}
+
+bool expr_have_node(Expr *expr, ...)
+{
+	va_list va;
+	bool result;
+	va_start(va, expr);
+	result =  expr_have_node_internal(expr, false, va);
+	va_end(va);
+	return result;
+}
+bool expr_have_exec_param_and_node(Expr *expr, ...)
+{
+	va_list va;
+	bool result;
+	va_start(va, expr);
+	result =  expr_have_node_internal(expr, true, va);
+	va_end(va);
+	return result;
 }
 
 static double* get_path_rows(RelOptInfo *joinrel, List *reduce_info_list, double *rows)
