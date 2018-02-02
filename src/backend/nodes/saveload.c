@@ -323,13 +323,21 @@ void save_oid_class(StringInfo buf, Oid oid_rel)
 		pq_sendbytes(buf, (char*)&oid_rel, sizeof(oid_rel));
 	}else
 	{
-		SAVE_BOOL(false);
 		classtup = SearchSysCache1(RELOID, ObjectIdGetDatum(oid_rel));
 		if (!HeapTupleIsValid(classtup))
 			elog(ERROR, "could not open relation with OID %u", oid_rel);
 		classform = (Form_pg_class) GETSTRUCT(classtup);
-		save_namespace(buf, classform->relnamespace);
-		save_node_string(buf, NameStr(classform->relname));
+		if (classform->relpersistence == RELPERSISTENCE_TEMP)
+		{
+			/* temporary table only in coordinator, so we save it as Invalid */
+			SAVE_BOOL(true);
+			pq_sendint(buf, InvalidOid, sizeof(Oid));
+		}else
+		{
+			SAVE_BOOL(false);
+			save_namespace(buf, classform->relnamespace);
+			save_node_string(buf, NameStr(classform->relname));
+		}
 		ReleaseSysCache(classtup);
 	}
 }
