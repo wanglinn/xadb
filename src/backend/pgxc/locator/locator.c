@@ -379,7 +379,7 @@ ExecNodes *MakeExecNodesByOids(RelationLocInfo *loc_info, List *oids, RelationAc
 	exec_nodes = makeNode(ExecNodes);
 	exec_nodes->accesstype = accesstype;
 	exec_nodes->baselocatortype = loc_info->locatorType;
-	exec_nodes->en_relid = loc_info->relid;
+	//exec_nodes->en_relid = loc_info->relid;
 	exec_nodes->en_funcid = loc_info->funcid;
 	exec_nodes->nodeids = oids;
 	foreach(lc, oids)

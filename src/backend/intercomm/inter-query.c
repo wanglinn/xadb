@@ -186,6 +186,21 @@ GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQuer
 			Assert(!(exec_nodes->accesstype == RELATION_ACCESS_READ_FOR_UPDATE &&
 					IsRelationReplicated(rel_loc)));
 
+			/*
+			 * what the hell!!! Copy these code from old PGXC but i don't understand.
+			 *
+			 * Special handling for ROUND ROBIN distributed tables. The target
+			 * node must be determined at the execution time
+			 */
+			if (!rel_loc->locatorType == LOCATOR_TYPE_RROBIN && node_list)
+			{
+				if (exec_type == EXEC_ON_DATANODES || exec_type == EXEC_ON_ALL_NODES)
+				{
+					list_free(node_list);
+					node_list = list_copy(exec_nodes->nodeids);
+				}
+			}
+
 			FreeRelationLocInfo(rel_loc);
 		}
 		else
