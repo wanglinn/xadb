@@ -386,7 +386,8 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage(hostname text, i in
                                                       when 1 then interval '1 day'
                                                       when 2 then interval '7 day'
                                                       end and
-          mgr.hostname = $1;
+          mgr.hostname = $1
+	order by 1;
     $$
     LANGUAGE SQL
     IMMUTABLE
@@ -425,7 +426,8 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage_by_time_period(host
                         order by mh.mh_current_time desc
                         limit 1) as temp
     where c.mc_timestamptz  between $2 and $3
-            and mgr.hostname = $1;
+            and mgr.hostname = $1
+	order by 1;
     $$
     LANGUAGE SQL
     IMMUTABLE
@@ -1157,7 +1159,7 @@ alter table pg_catalog.monitor_job add primary key (name);
 --get the content "INSERT INTO adbmgr.parm VALUES..."
 --create table parm(id1 char,name text,setting text,context text,vartype text,unit text, min_val text,max_val text,enumvals text[]) distribute by replication;
 --insert into parm select '*', name, setting, context, vartype, unit, min_val, max_val, enumvals from pg_settings order by 2;
---update parm set id1='#' where name in ('agtm_host','agtm_port','debug_enable_satisfy_mvcc','debug_print_grammar','distribute_by_replication_default','enable_cluster_plan','enable_fast_query_shipping','enable_hashscan','enable_remotegroup','enable_remotejoin','enable_remotelimit','enable_remotesort','enable_stable_func_shipping','grammar','max_coordinators','max_datanodes','max_pool_size','min_pool_size','nls_date_format','nls_timestamp_format','nls_timestamp_tz_format','persistent_datanode_connections','pgxc_enable_remote_query','pgxc_node_name','pgxc_remote_tuple_cost','pgxcnode_cancel_delay','pool_remote_cmd_timeout','pool_time_out','pool_time_out','reduce_conn_cost','reduce_page_cost','reduce_setup_cost','remote_tuple_cost','remotetype','require_replicated_table_pkey','xc_enable_node_tcp_log','xc_maintenance_mode');
+--update parm set id1='#' where name in ('agtm_host','agtm_port','debug_enable_satisfy_mvcc','debug_print_grammar','distribute_by_replication_default','enable_cluster_plan','enable_fast_query_shipping','enable_hashscan','enable_remotegroup','enable_remotejoin','enable_remotelimit','enable_remotesort','enable_stable_func_shipping','grammar','max_coordinators','max_datanodes','max_pool_size','min_pool_size','nls_date_format','nls_timestamp_format','nls_timestamp_tz_format','persistent_datanode_connections','pgxc_enable_remote_query','pgxc_node_name','pgxc_remote_tuple_cost','pgxcnode_cancel_delay','pool_remote_cmd_timeout','pool_time_out','pool_time_out','reduce_conn_cost','reduce_page_cost','reduce_setup_cost','remote_tuple_cost','remotetype','require_replicated_table_pkey','xc_enable_node_tcp_log','xc_maintenance_mode', 'pool_release_to_idle_timeout');
 --update parm set setting='minimal' where name = 'wal_level';
 --update parm set setting='localhost' where name = 'agtm_host';
 --update parm set unit='8kB' where name = 'wal_buffers';
@@ -1458,6 +1460,7 @@ INSERT INTO adbmgr.parm VALUES ('#', 'pgxc_enable_remote_query', 'on', 'user', '
 INSERT INTO adbmgr.parm VALUES ('#', 'pgxc_node_name', 'cn1', 'postmaster', 'string', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'pgxc_remote_tuple_cost', '0.9', 'user', 'real', NULL, '0', '1.79769e+308', NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'pgxcnode_cancel_delay', '10', 'user', 'integer', 'ms', '0', '2147483647', NULL);
+INSERT INTO adbmgr.parm VALUES ('#', 'pool_release_to_idle_timeout', '-1', 'sighup', 'integer', 's', '-1', '2147483647', NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'pool_remote_cmd_timeout', '10', 'postmaster', 'integer', 'ms', '0', '2147483647', NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'pool_time_out', '60', 'backend', 'integer', 's', '1', '2147483647', NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'reduce_conn_cost', '1', 'user', 'real', NULL, '0', '1.79769e+308', NULL);
