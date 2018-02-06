@@ -61,6 +61,11 @@ static void buildSubPlanHash(SubPlanState *node, ExprContext *econtext);
 static bool findPartialMatch(TupleHashTable hashtable, TupleTableSlot *slot,
 				 FmgrInfo *eqfunctions);
 #ifdef ADB
+static List *list_subplan_status = NIL;	/* for clean hash store */
+static ExecutorEnd_hook_type old_executor_end_hook = NULL;
+static bool hooked_executor_end = false;
+static void clean_subplan_hashstore(QueryDesc *queryDesc);
+
 static void buildSubPlanHashstore(SubPlanState *node, ExprContext *econtext);
 static bool findHashstoreMatch(SubPlanState *node, TupleTableSlot *slot);
 static uint32 ExecSubPlanGetHashValue(SubPlanState *node, TupleTableSlot *slot, FmgrInfo *fmgr);
@@ -948,6 +953,19 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 													slot,
 													NULL);
 	}
+#ifdef ADB
+	if (subplan->useHashStore)
+	{
+		if (!hooked_executor_end)
+		{
+			old_executor_end_hook = ExecutorEnd_hook;
+			ExecutorEnd_hook = clean_subplan_hashstore;
+			hooked_executor_end = true;
+		}
+
+		list_subplan_status = lappend(list_subplan_status, sstate);
+	}
+#endif /* ADB */
 
 	return sstate;
 }
@@ -1411,4 +1429,32 @@ static bool findHashstoreMatch(SubPlanState *node, TupleTableSlot *slot)
 
 	return hint;
 }
+
+static void clean_subplan_hashstore(QueryDesc *queryDesc)
+{
+	SubPlanState *sstate;
+	ListCell *lc;
+
+	/* restore hook */
+	ExecutorEnd_hook = old_executor_end_hook;
+	hooked_executor_end = false;
+
+	foreach(lc ,list_subplan_status)
+	{
+		sstate = lfirst(lc);
+		if (sstate->hashstore)
+		{
+			hashstore_end(sstate->hashstore);
+			sstate->hashstore = NULL;
+		}
+	}
+	list_free(list_subplan_status);
+	list_subplan_status = NIL;
+
+	if (ExecutorEnd_hook)
+		(*ExecutorEnd_hook) (queryDesc);
+	else
+		standard_ExecutorEnd(queryDesc);
+}
+
 #endif /* ADB */

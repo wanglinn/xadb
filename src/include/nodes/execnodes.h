@@ -807,7 +807,6 @@ typedef struct SubPlanState
 	FmgrInfo   *cur_eq_funcs;	/* equality functions for LHS vs. table */
 #ifdef ADB
 	struct Hashstorestate *hashstore;
-	Tuplestorestate *nullsstore;
 #endif /* ADB */
 } SubPlanState;
 
