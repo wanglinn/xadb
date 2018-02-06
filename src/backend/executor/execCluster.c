@@ -166,6 +166,7 @@ void exec_cluster_plan(const void *splan, int length)
 	ExecutorEnd(query_desc);
 	FreeQueryDesc(query_desc);
 	RestoreClusterHook(&error_context_hook);
+	PopActiveSnapshot();
 
 	pfree(msg.data);
 
