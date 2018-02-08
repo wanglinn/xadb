@@ -15,6 +15,7 @@
 #include "utils/hsearch.h"
 
 extern bool enable_cluster_plan;
+extern bool print_reduce_debug_log;
 
 static List *reduce_cleanup = NIL;
 
@@ -1082,7 +1083,8 @@ DriveClusterReduceWalker(PlanState *node)
 		Assert(crs->port);
 
 		if (!crs->eof_network || !crs->eof_underlying)
-			elog(LOG, "Drive ClusterReduce(%d) to send EOF message", planid);
+			adb_elog(print_reduce_debug_log, LOG,
+				"Drive ClusterReduce(%d) to send EOF message", planid);
 
 		/*
 		 * Drive all ClusterReduce to send slot, discard slot

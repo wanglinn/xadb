@@ -283,8 +283,29 @@ extern int errnode(const char *node);
 	elog_finish
 #endif   /* HAVE__VA_ARGS */
 
+/* adb_elog */
+#if defined(ADB) || defined(ADBMGRD)
+#ifdef HAVE__VA_ARGS
+#define adb_elog(condition, elevel, ...)		\
+	do { \
+		const bool condition_ = (condition); \
+		if (condition_) \
+			ereport(elevel, (errmsg(__VA_ARGS__))); \
+	} while (0)
+#else							/* !HAVE__VA_ARGS */
+#define adb_elog \
+	elog_start(__FILE__, __LINE__, PG_FUNCNAME_MACRO), \
+	adb_elog_finish
+#endif							/* !HAVE__VA_ARGS */
+#else							/* defined(ADB) || defined(ADBMGRD) */
+#define adb_elog(condition, elevel, ...)
+#endif							/* defined(ADB) || defined(ADBMGRD) */
+
 extern void elog_start(const char *filename, int lineno, const char *funcname);
 extern void elog_finish(int elevel, const char *fmt,...) pg_attribute_printf(2, 3);
+#ifdef ADB
+extern void adb_elog_finish(bool condition, int elevel, const char *fmt,...) pg_attribute_printf(3, 4);
+#endif
 
 
 /* Support for constructing error strings separately from ereport() calls */

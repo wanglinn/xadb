@@ -581,7 +581,7 @@ errfinish(int dummy,...)
  *		{
  *			...				-- does not call PG_RE_THROW
  *		} PG_ENT_TRY();
- * 
+ *
  * Case as above, increase the error data stack size(++errordata_stack_depth),
  * but never deal with it. At last, the error data stack will explode.
  *
@@ -597,7 +597,7 @@ void errdump(void)
 	 * to report an error.
 	 */
 	oldcontext = MemoryContextSwitchTo(ErrorContext);
-	
+
 	/* Now free up subsidiary data attached to stack entry, and release it */
 	if (edata->message)
 		pfree(edata->message);
@@ -1479,6 +1479,43 @@ elog_finish(int elevel, const char *fmt,...)
 	errfinish(0);
 }
 
+#ifdef ADB
+void adb_elog_finish(bool condition, int elevel, const char *fmt,...)
+{
+	ErrorData  *edata = &errordata[errordata_stack_depth];
+	MemoryContext oldcontext;
+
+	if (!condition)
+		return ;
+
+	CHECK_STACK_DEPTH();
+
+	/*
+	 * Do errstart() to see if we actually want to report the message.
+	 */
+	errordata_stack_depth--;
+	errno = edata->saved_errno;
+	if (!errstart(elevel, edata->filename, edata->lineno, edata->funcname, NULL))
+		return;					/* nothing to do */
+
+	/*
+	 * Format error message just like errmsg_internal().
+	 */
+	recursion_depth++;
+	oldcontext = MemoryContextSwitchTo(edata->assoc_context);
+
+	edata->message_id = fmt;
+	EVALUATE_MESSAGE(edata->domain, message, false, false);
+
+	MemoryContextSwitchTo(oldcontext);
+	recursion_depth--;
+
+	/*
+	 * And let errfinish() finish up.
+	 */
+	errfinish(0);
+}
+#endif
 
 /*
  * Functions to allow construction of error message strings separately from

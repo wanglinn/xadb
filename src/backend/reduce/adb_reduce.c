@@ -36,6 +36,7 @@
 #include "utils/memutils.h"
 
 extern bool redirection_done;
+extern bool print_reduce_debug_log;
 
 #ifndef WIN32
 static int backend_reduce_fds[2] = {-1, -1};
@@ -104,7 +105,8 @@ EndSelfReduce(int code, Datum arg)
 					(errmsg("fail to terminate adb reduce subprocess")));
 			}
 		}
-		elog(LOG, "[proc %d] kill SIGTERM to [proc %d]", MyProcPid, SelfReducePID);
+		adb_elog(print_reduce_debug_log, LOG,
+			"[proc %d] kill SIGTERM to [proc %d]", MyProcPid, SelfReducePID);
 		SelfReducePID = 0;
  	}
 	ResetSelfReduce();
@@ -312,11 +314,13 @@ AdbReduceLauncherMain(char *exec_path, int rid)
 						   "work_mem=%d "
 						   "log_min_messages=%d "
 						   "log_destination=%d "
-						   "redirection_done=%d\"",
+						   "redirection_done=%d "
+						   "print_reduce_debug_log=%d\"",
 						   work_mem,
 						   log_min_messages,
 						   Log_destination,
-						   redirection_done);
+						   redirection_done,
+						   print_reduce_debug_log);
 
 	(void) execl("/bin/sh", "/bin/sh", "-c", cmd.data, (char *) NULL);
 
@@ -389,7 +393,7 @@ SendRejectToRemote(RdcPort *port, List *dest_nodes)
 				(errmsg("fail to send REJECT message to remote"),
 				 errdetail("%s", RdcError(port))));
 
-	elog(LOG,
+	adb_elog(print_reduce_debug_log, LOG,
 		 "Backend send REJECT message of" PLAN_PORT_PRINT_FORMAT,
 		 RdcSelfID(port));
 
@@ -422,7 +426,7 @@ SendCloseToRemote(RdcPort *port, List *dest_nodes)
 				(errmsg("fail to send CLOSE message to remote"),
 				 errdetail("%s", RdcError(port))));
 
-	 elog(LOG,
+	 adb_elog(print_reduce_debug_log, LOG,
 		  "Backend send CLOSE message of" PLAN_PORT_PRINT_FORMAT,
 		  RdcSelfID(port));
 
@@ -440,7 +444,7 @@ SendEofToRemote(RdcPort *port, List *dest_nodes)
 				(errmsg("fail to send EOF message to remote"),
 				 errdetail("%s", RdcError(port))));
 
-	elog(LOG,
+	adb_elog(print_reduce_debug_log, LOG,
 		 "Backend send EOF message of" PLAN_PORT_PRINT_FORMAT,
 		 RdcSelfID(port));
 

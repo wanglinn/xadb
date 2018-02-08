@@ -40,6 +40,7 @@ typedef struct ReduceOptionsData
 	int			Log_error_verbosity;
 	int			Log_destination;
 	bool		redirection_done;
+	bool		print_reduce_debug_log;
 
 	RdcPort	   *boss_watch;				/* for interprocess communication with boss */
 	RdcPort	   *log_watch;				/* for log record */

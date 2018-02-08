@@ -207,6 +207,8 @@ ParseExtraOptions(char *extra_options)
 			MyRdcOpts->Log_destination = atoi(pval);
 		else if (strcmp(pname, "redirection_done") == 0)
 			MyRdcOpts->redirection_done = (bool) atoi(pval);
+		else if (strcmp(pname, "print_reduce_debug_log") == 0)
+			MyRdcOpts->print_reduce_debug_log = (bool) atoi(pval);
 		else
 			elog(ERROR, "invalid extra option \"%s\"", pname);
 	}
@@ -895,8 +897,7 @@ EndSetupReduceGroup(void)
 			/* all Reduce are ready */
 			if (IsReduceGroupReady())
 			{
-				ereport(LOG,
-						(errmsg("reduce group network is OK")));
+				elog(LOG, "reduce group network is OK");
 				break;
 			}
 

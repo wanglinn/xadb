@@ -30,6 +30,8 @@
 #else
 #include "postgres.h"
 #include "miscadmin.h"
+
+extern bool print_reduce_debug_log;
 #endif
 
 #include "reduce/rdc_comm.h"
@@ -132,7 +134,7 @@ RdcPortStats(RdcPort *port)
 #if !defined(RDC_FRONTEND)
 	if (port)
 	{
-		elog(LOG,
+		adb_elog(print_reduce_debug_log, LOG,
 			 "[%s " PORTID_FORMAT"] -> [%s " PORTID_FORMAT "] statistics:"
 			 "time to live " INT64_FORMAT
 			 " seconds, send " UINT64_FORMAT

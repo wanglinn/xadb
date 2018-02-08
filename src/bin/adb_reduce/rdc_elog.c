@@ -2408,6 +2408,9 @@ elog_start(const char *filename, int lineno, const char *funcname)
 {
 	ErrorData  *edata;
 
+	if (!MyRdcOpts->print_reduce_debug_log)
+		return ;
+
 	/* Make sure that memory context initialization has finished */
 	if (ErrorContext == NULL)
 	{
@@ -2483,6 +2486,44 @@ elog_finish(int elevel, const char *fmt,...)
 	errfinish(0);
 }
 
+#ifdef ADB
+void
+adb_elog_finish(bool condition, int elevel, const char *fmt,...)
+{
+	ErrorData  *edata = &errordata[errordata_stack_depth];
+	MemoryContext oldcontext;
+
+	if (!condition)
+		return ;
+
+	CHECK_STACK_DEPTH();
+
+	/*
+	 * Do errstart() to see if we actually want to report the message.
+	 */
+	errordata_stack_depth--;
+	errno = edata->saved_errno;
+	if (!errstart(elevel, edata->filename, edata->lineno, edata->funcname, NULL))
+		return;					/* nothing to do */
+
+	/*
+	 * Format error message just like errmsg_internal().
+	 */
+	recursion_depth++;
+	oldcontext = MemoryContextSwitchTo(edata->assoc_context);
+
+	edata->message_id = fmt;
+	EVALUATE_MESSAGE(edata->domain, message, false, false);
+
+	MemoryContextSwitchTo(oldcontext);
+	recursion_depth--;
+
+	/*
+	 * And let errfinish() finish up.
+	 */
+	errfinish(0);
+}
+#endif
 
 static void
 write_console(const char *line, int len)
@@ -2624,6 +2665,9 @@ write_stderr(const char *fmt,...)
 static bool
 is_log_level_output(int elevel, int log_min_level)
 {
+	if (!MyRdcOpts->print_reduce_debug_log)
+		return false;
+
 	if (elevel == LOG || elevel == LOG_SERVER_ONLY)
 	{
 		if (log_min_level == LOG || log_min_level <= ERROR)

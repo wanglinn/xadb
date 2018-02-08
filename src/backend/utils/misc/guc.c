@@ -528,6 +528,7 @@ bool		enable_stable_func_shipping;
 bool		enable_pushdown_art;
 bool		enable_zero_year;
 bool		distribute_by_replication_default;
+bool		print_reduce_debug_log = false;
 extern bool enable_node_tcp_log;
 #endif
 #ifdef DEBUG_ADB
@@ -1208,6 +1209,16 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 #ifdef ADB
+	{
+		{"print_reduce_debug_log", PGC_USERSET, LOGGING_WHAT,
+			gettext_noop("Logs something about adb reduce."),
+			NULL
+		},
+		&print_reduce_debug_log,
+		false,
+		NULL, NULL, NULL
+	},
+
 	{
 		{"debug_print_grammar", PGC_USERSET, LOGGING_WHAT,
 			gettext_noop("Logs each query's grammar tree."),
