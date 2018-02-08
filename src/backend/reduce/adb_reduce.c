@@ -25,6 +25,7 @@
 #include "access/htup_details.h"
 #include "access/parallel.h"
 #include "executor/clusterReceiver.h"
+#include "libpq/pqsignal.h"
 #include "pgxc/pgxc.h"
 #include "postmaster/fork_process.h"
 #include "postmaster/syslogger.h"
@@ -57,7 +58,7 @@ static void InitCommunicationChannel(void);
 static void CloseBackendPort(void);
 static void CloseReducePort(void);
 static int  GetReduceListenPort(void);
-static void AdbReduceLauncherMain(int rid);
+static void AdbReduceLauncherMain(char *exec_path, int rid);
 static int  SendPlanMsgToRemote(RdcPort *port, char msg_type, List *dest_nodes);
 
 static void
@@ -128,6 +129,27 @@ int
 StartSelfReduceLauncher(RdcPortId rid)
 {
 	MemoryContext	old_context;
+	int				ret;
+	char			exec_path[MAXPGPATH] = {0};
+
+	pqsignal(SIGCHLD, SIG_DFL);
+	if ((ret = find_other_exec(my_exec_path, "adb_reduce",
+							   "adb_reduce based on (PG " PG_VERSION ")\n",
+							   exec_path)) < 0)
+	{
+		if (ret == -1)
+			ereport(ERROR,
+					(errmsg("The program \"adb_reduce\" was not found in the "
+							"same directory as \"%s\".\n"
+							"Please check your installation.",
+							my_exec_path)));
+		else
+			ereport(ERROR,
+					(errmsg("The program \"adb_reduce\" was found by \"%s\" "
+							"but was not the expected version.\n"
+							"Please check your installation.",
+							my_exec_path)));
+	}
 
 	pqsignal(SIGCHLD, SigChldHandler);
 	EndSelfReduce(0, 0);
@@ -147,7 +169,7 @@ StartSelfReduceLauncher(RdcPortId rid)
 			/* Lose the backend's on-exit routines */
 			on_exit_reset();
 			CloseBackendPort();
-			AdbReduceLauncherMain(rid);
+			AdbReduceLauncherMain(exec_path, rid);
 			break;
 
 		default:
@@ -270,7 +292,7 @@ GetReduceListenPort(void)
 }
 
 static void
-AdbReduceLauncherMain(int rid)
+AdbReduceLauncherMain(char *exec_path, int rid)
 {
 	StringInfoData	cmd;
 	int				fd = 3;
@@ -283,8 +305,8 @@ AdbReduceLauncherMain(int rid)
 	}
 
 	initStringInfo(&cmd);
-	appendStringInfo(&cmd, "exec \"adb_reduce\" -n %d -W %d",
-		rid, backend_reduce_fds[RDC_REDUCE_HOLD]);
+	appendStringInfo(&cmd, "exec \"%s\" -n %d -W %d",
+		exec_path, rid, backend_reduce_fds[RDC_REDUCE_HOLD]);
 
 	appendStringInfo(&cmd, " -E \""
 						   "work_mem=%d "

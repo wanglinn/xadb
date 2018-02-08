@@ -743,6 +743,22 @@ get_rdc_listen_port_hook(void *context, struct pg_conn *conn, PQNHookFuncType ty
 			}
 			va_end(args);
 			break;
+		case PQNHFT_RESULT:
+			{
+				PGresult	   *res;
+				ExecStatusType	status;
+
+				va_start(args, type);
+				res = va_arg(args, PGresult*);
+				if(res)
+				{
+					status = PQresultStatus(res);
+					if(status == PGRES_FATAL_ERROR)
+						PQNReportResultError(res, conn, ERROR, true);
+				}
+				va_end(args);
+			}
+			break;
 		default:
 			ereport(ERROR, (errmsg("unexpected PQNHookFuncType %d", type)));
 			break;
