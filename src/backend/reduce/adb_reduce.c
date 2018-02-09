@@ -59,7 +59,9 @@ static void InitCommunicationChannel(void);
 static void CloseBackendPort(void);
 static void CloseReducePort(void);
 static int  GetReduceListenPort(void);
+#ifndef WIN32
 static void AdbReduceLauncherMain(char *exec_path, int rid);
+#endif
 static int  SendPlanMsgToRemote(RdcPort *port, char msg_type, List *dest_nodes);
 
 static void
@@ -134,24 +136,33 @@ StartSelfReduceLauncher(RdcPortId rid)
 	int				ret;
 	char			exec_path[MAXPGPATH] = {0};
 
-	pqsignal(SIGCHLD, SIG_DFL);
-	if ((ret = find_other_exec(my_exec_path, "adb_reduce",
-							   "adb_reduce based on (PG " PG_VERSION ")\n",
-							   exec_path)) < 0)
+	sigaddset(&BlockSig, SIGCHLD);
+	PG_SETMASK(&BlockSig);
+	PG_TRY();
 	{
-		if (ret == -1)
-			ereport(ERROR,
-					(errmsg("The program \"adb_reduce\" was not found in the "
-							"same directory as \"%s\".\n"
-							"Please check your installation.",
-							my_exec_path)));
-		else
-			ereport(ERROR,
-					(errmsg("The program \"adb_reduce\" was found by \"%s\" "
-							"but was not the expected version.\n"
-							"Please check your installation.",
-							my_exec_path)));
-	}
+		if ((ret = find_other_exec(my_exec_path, "adb_reduce",
+								   "adb_reduce based on (PG " PG_VERSION ")\n",
+								   exec_path)) < 0)
+		{
+			if (ret == -1)
+				ereport(ERROR,
+						(errmsg("The program \"adb_reduce\" was not found in the "
+								"same directory as \"%s\".\n"
+								"Please check your installation.",
+								my_exec_path)));
+			else
+				ereport(ERROR,
+						(errmsg("The program \"adb_reduce\" was found by \"%s\" "
+								"but was not the expected version.\n"
+								"Please check your installation.",
+								my_exec_path)));
+		}
+	} PG_CATCH();
+	{
+		PG_SETMASK(&UnBlockSig);
+		PG_RE_THROW();
+	} PG_END_TRY();
+	PG_SETMASK(&UnBlockSig);
 
 	pqsignal(SIGCHLD, SigChldHandler);
 	EndSelfReduce(0, 0);
@@ -160,6 +171,7 @@ StartSelfReduceLauncher(RdcPortId rid)
 
 	SelfReduceID = rid;
 	Assert(OidIsValid(rid));
+#ifndef WIN32
 	switch ((SelfReducePID = fork_process()))
 	{
 		case -1:
@@ -191,6 +203,9 @@ StartSelfReduceLauncher(RdcPortId rid)
 
 			return GetReduceListenPort();
 	}
+#else
+#error "Does not support fork adb_reduce on WIN32 platforms"
+#endif
 
 	/* shouldn't get here */
 	return 0;
@@ -293,6 +308,7 @@ GetReduceListenPort(void)
 	return port;
 }
 
+#ifndef WIN32
 static void
 AdbReduceLauncherMain(char *exec_path, int rid)
 {
@@ -324,9 +340,10 @@ AdbReduceLauncherMain(char *exec_path, int rid)
 
 	(void) execl("/bin/sh", "/bin/sh", "-c", cmd.data, (char *) NULL);
 
-	ereport(ERROR,
-			(errmsg("fail to start adb_reduce: %m")));
+	fprintf(stderr, "fail to start adb_reduce: %m");
+	exit(EXIT_FAILURE);
 }
+#endif
 
 void
 StartSelfReduceGroup(RdcMask *rdc_masks, int num)
