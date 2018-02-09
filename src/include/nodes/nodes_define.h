@@ -62,6 +62,7 @@
  *   ClusterGetCopyDataState
  *   ClusterReduceState
  *   ReduceScanState
+ *   EmptyResultState
  *   ExprState
  *   GenericExprState
  *   WholeRowVarExprState
@@ -762,6 +763,13 @@ BEGIN_NODE(ReduceScan)
 	NODE_NODE(List,scan_hash_keys)
 END_NODE(ReduceScan)
 #endif /* NO_NODE_ReduceScan */
+
+#ifndef NO_NODE_EmptyResult
+BEGIN_NODE(EmptyResult)
+	NODE_BASE2(Plan,plan)
+	NODE_ENUM(NodeTag,typeFrom)
+END_NODE(EmptyResult)
+#endif /* NO_NODE_EmptyResult */
 
 #endif
 
@@ -3615,7 +3623,7 @@ BEGIN_NODE(RangeTblEntry)
 #ifdef ADB
 	NODE_STRING(relname)
 #endif
-	NODE_SCALAR(Oid,relid)
+	NODE_OID(class, relid)
 	NODE_SCALAR(char,relkind)
 	NODE_NODE(TableSampleClause,tablesample)
 	NODE_NODE(Query,subquery)

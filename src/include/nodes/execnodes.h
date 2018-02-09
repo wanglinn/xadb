@@ -2215,6 +2215,13 @@ typedef struct ReduceScanState
 	int					ncols_hash;
 	int					cur_reader;		/* for read hashstore */
 } ReduceScanState;
+
+typedef struct EmptyResultState
+{
+	PlanState			ps;
+	Node			   *special;
+}EmptyResultState;
+
 #endif /* ADB */
 
 #endif   /* EXECNODES_H */

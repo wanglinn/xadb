@@ -122,6 +122,7 @@
 #include "executor/nodeClusterGather.h"
 #include "executor/nodeClusterMergeGather.h"
 #include "executor/nodeClusterReduce.h"
+#include "executor/nodeEmptyResult.h"
 #include "executor/nodeGetCopyData.h"
 #include "executor/nodeReduceScan.h"
 #endif
@@ -377,6 +378,10 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 		case T_ReduceScan:
 			result = (PlanState *) ExecInitReduceScan((ReduceScan*)node, estate, eflags);
 			break;
+
+		case T_EmptyResult:
+			result = (PlanState *) ExecInitEmptyResult((EmptyResult*)node, estate, eflags);
+			break;
 #endif
 
 		default:
@@ -608,6 +613,10 @@ ExecProcNode(PlanState *node)
 		case T_ReduceScanState:
 			result = ExecReduceScan((ReduceScanState *) node);
 			break;
+
+		case T_EmptyResultState:
+			result = ExecEmptyResult((EmptyResultState *) node);
+			break;
 #endif
 
 		default:
@@ -673,6 +682,12 @@ MultiExecProcNode(PlanState *node)
 		case T_BitmapOrState:
 			result = MultiExecBitmapOr((BitmapOrState *) node);
 			break;
+
+#ifdef ADB
+		case T_EmptyResultState:
+			result = MultiExecEmptyResult((EmptyResultState *) node);
+			break;
+#endif /* ADB */
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
@@ -890,6 +905,10 @@ ExecEndNode(PlanState *node)
 
 		case T_ReduceScanState:
 			ExecEndReduceScan((ReduceScanState*) node);
+			break;
+
+		case T_EmptyResultState:
+			ExecEndEmptyResult((EmptyResultState *) node);
 			break;
 #endif
 

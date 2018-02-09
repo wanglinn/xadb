@@ -600,6 +600,10 @@ NODE_SPECIAL_MEB(OidVectorLoopExpr)
 	vector NODE_DATUM(Datum, vector, OIDVECTOROID, false)
 END_SPECIAL_MEB(OidVectorLoopExpr)
 
+NODE_SPECIAL_MEB(RangeTblEntry)
+	relid NODE_OID(class, relid)
+END_SPECIAL_MEB(RangeTblEntry)
+
 /*******************************************************************/
 
 /* ENUM_IF_DEFINED(type_name, macro_name [, ...]) */

@@ -3,6 +3,7 @@
 #include "access/xact.h"
 
 #include "catalog/pgxc_node.h"
+#include "executor/nodeEmptyResult.h"
 #include "executor/execdesc.h"
 #include "executor/executor.h"
 #include "intercomm/inter-comm.h"
@@ -77,6 +78,7 @@ static bool get_rdc_listen_port_hook(void *context, struct pg_conn *conn, PQNHoo
 static void StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt);
 static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context);
 static bool InstrumentEndLoop_walker(PlanState *ps, void *);
+static bool RelationIsCoordOnly(Oid relid);
 
 static void ExecClusterErrorHookMaster(void *arg);
 static void ExecClusterErrorHookNode(void *arg);
@@ -402,6 +404,7 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 			RangeTblEntry *new_rte = palloc(sizeof(*rte));
 			memcpy(new_rte, rte, sizeof(*rte));
 			new_rte->rtekind = RTE_REMOTE_DUMMY;
+			new_rte->relid = InvalidOid;
 			rte_list = lappend(rte_list, new_rte);
 		}else
 		{
@@ -445,67 +448,108 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 	pfree(new_stmt);
 }
 
-/*
- * save RangeTblEntry::relid to string
- * save IndexScan::indexid to string
- */
 static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 {
 	AssertArg(buf && node);
-	if (IsA(node, ValuesScan) ||
-		IsA(node, FunctionScan) ||
-		IsA(node, ForeignScan))
+
+#define SAVE_NODE_INVALID_OID(type_, member_)							\
+	do{																	\
+		type_ tmp_;														\
+		memcpy(&tmp_, node, sizeof(type_));								\
+		tmp_.member_ = InvalidOid;										\
+		saveNodeAndHook(buf, (Node*)&tmp_, SerializePlanHook, context);	\
+	}while(0)
+#define IS_RELOID_COORD_ONLY(type_, member_)							\
+		OidIsValid(((type_*)node)->member_)	&&							\
+		RelationIsCoordOnly(((type_*)node)->member_)
+
+	switch(nodeTag(node))
 	{
-		/* always run at coordinator */
-		Result result_plan;
-		memcpy(&result_plan, node, sizeof(Plan));
-		result_plan.resconstantqual = (Node*)list_make1(makeBoolConst(false, false));
-		result_plan.plan.lefttree = NULL;
-		result_plan.plan.type = T_Result;
-		saveNodeAndHook(buf, (Node*)&result_plan, SerializePlanHook, context);
+	case T_ValuesScan:
+	case T_FunctionScan:
+	case T_ForeignScan:
+		{
+			/* always run at coordinator */
+			Plan *empty = MakeEmptyResultPlan((Plan*)node);
+			saveNodeAndHook(buf, (Node*)empty, SerializePlanHook, context);
+			pfree(empty);
+			return true;
+		}
+	case T_RangeTblEntry:
+		if(((RangeTblEntry*)node)->rtekind == RTE_RELATION)
+		{
+			RangeTblEntry *rte = (RangeTblEntry*)node;
+			Relation rel = heap_open(rte->relid, NoLock);
+			LOCKMODE locked_mode = GetLocalLockedRelationOidMode(rte->relid);
+			RangeTblEntry tmp;
+			Assert(locked_mode != NoLock);
+
+			memcpy(&tmp, rte, sizeof(RangeTblEntry));
+			tmp.relid = InvalidOid;
+			saveNodeAndHook(buf, (Node*)&tmp, SerializePlanHook, context);
+
+			/* save node Oids */
+			if(RelationGetLocInfo(rel))
+			{
+				List *oids = PGXCNodeGetNodeOidList(RelationGetLocInfo(rel)->nodeList, PGXC_NODE_DATANODE);
+				saveNode(buf, (Node*)oids);
+				list_free(oids);
+
+				if(RelationUsesLocalBuffers(rel))
+					((ClusterPlanContext*)context)->have_temp = true;
+			}else
+			{
+				List *oids = list_make1_oid(PGXCNodeOid);
+				saveNode(buf, (Node*)oids);
+				list_free(oids);
+			}
+			/* save relation Oid */
+			SerializeRelationOid(buf, RelationGetRelid(rel));
+			heap_close(rel, NoLock);
+			appendBinaryStringInfo(buf, (char*)&locked_mode, sizeof(locked_mode));
+			return true;
+		}
+		break;
+	case T_TargetEntry:
+		if (IS_RELOID_COORD_ONLY(TargetEntry, resorigtbl))
+		{
+			SAVE_NODE_INVALID_OID(TargetEntry, resorigtbl);
+			return true;
+		}
+		break;
+	case T_Hash:
+		if (IS_RELOID_COORD_ONLY(Hash, skewTable))
+		{
+			SAVE_NODE_INVALID_OID(Hash, skewTable);
+			return true;
+		}
+		break;
+	case T_IndexScan:
+		SAVE_NODE_INVALID_OID(IndexScan, indexid);
+		SerializeRelationOid(buf, ((IndexScan*)node)->indexid);
 		return true;
+	case T_IndexOnlyScan:
+		SAVE_NODE_INVALID_OID(IndexOnlyScan, indexid);
+		SerializeRelationOid(buf, ((IndexOnlyScan*)node)->indexid);
+		return true;
+	case T_BitmapIndexScan:
+		SAVE_NODE_INVALID_OID(BitmapIndexScan, indexid);
+		SerializeRelationOid(buf, ((BitmapIndexScan*)node)->indexid);
+		return true;
+	case T_ModifyTable:
+		((ClusterPlanContext*)context)->transaction_read_only = false;
+		break;
+	case T_CustomScan:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Cluster plan not support CustomScan yet!")));
+		break;	/* keep compiler quiet */
+	default:
+		break;
 	}
 
 	saveNodeAndHook(buf, node, SerializePlanHook, context);
-	if(IsA(node, RangeTblEntry)
-		&& ((RangeTblEntry*)node)->rtekind == RTE_RELATION)
-	{
-		RangeTblEntry *rte = (RangeTblEntry*)node;
-		Relation rel = heap_open(rte->relid, NoLock);
-		LOCKMODE locked_mode = GetLocalLockedRelationOidMode(rte->relid);
-		Assert(locked_mode != NoLock);
-		/* save node Oids */
-		if(RelationGetLocInfo(rel))
-		{
-			List *oids = PGXCNodeGetNodeOidList(RelationGetLocInfo(rel)->nodeList, PGXC_NODE_DATANODE);
-			saveNode(buf, (Node*)oids);
-			list_free(oids);
 
-			if(RelationUsesLocalBuffers(rel))
-				((ClusterPlanContext*)context)->have_temp = true;
-		}else
-		{
-			List *oids = list_make1_oid(PGXCNodeOid);
-			saveNode(buf, (Node*)oids);
-			list_free(oids);
-		}
-		/* save relation Oid */
-		SerializeRelationOid(buf, RelationGetRelid(rel));
-		heap_close(rel, NoLock);
-		appendBinaryStringInfo(buf, (char*)&locked_mode, sizeof(locked_mode));
-	}else if(IsA(node, IndexScan) ||
-			 IsA(node, IndexOnlyScan) ||
-			 IsA(node, BitmapIndexScan))
-	{
-		Oid indexid;
-		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(IndexOnlyScan, indexid), "");
-		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(BitmapIndexScan, indexid), "");
-		indexid = ((IndexScan*)node)->indexid;
-		SerializeRelationOid(buf, indexid);
-	}else if(IsA(node, ModifyTable))
-	{
-		((ClusterPlanContext*)context)->transaction_read_only = false;
-	}
 	return true;
 }
 
@@ -513,109 +557,99 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 {
 	Node *node = loadNodeAndHookWithTag(buf, LoadPlanHook, context, tag);
 	Assert(node != NULL);
-	if(IsA(node, RangeTblEntry))
+
+#define LOAD_SCAN_REL_INFO(type_, member_)												\
+	do{																					\
+		bool missing_ok = !list_member_oid(((Scan*)node)->execute_nodes, PGXCNodeOid);	\
+		((type_*)node)->member_ = RestoreRelationOid(buf, missing_ok); /* eat buffer */	\
+		if (missing_ok)																	\
+			node = (Node*)MakeEmptyResultPlan((Plan*)node);								\
+	}while(0)
+
+	switch(nodeTag(node))
 	{
-		RangeTblEntry *rte = (RangeTblEntry*)node;
-		if(rte->rtekind == RTE_RELATION)
+	case T_RangeTblEntry:
 		{
-			/* get relation oid */
-			List *oids;
-			LOCKMODE lock_mode;
-			bool missok;
-
-			/* load nodes */
-			oids = (List*)loadNode(buf);
-			Assert(oids && IsA(oids, OidList));
-			missok = !list_member_oid(oids, PGXCNodeOid);
-
-			/* load reation Oid */
-			rte->relid = RestoreRelationOid(buf, missok);
-
-			/* we must lock relation now */
-			pq_copymsgbytes(buf, (char*)&lock_mode, sizeof(lock_mode));
-			if(OidIsValid(rte->relid))
-				LockRelationOid(rte->relid, lock_mode);
-			else
-				rte->rtekind = RTE_REMOTE_DUMMY;
-		}
-	}else if(IsA(node, IndexScan) ||
-			 IsA(node, IndexOnlyScan) ||
-			 IsA(node, BitmapIndexScan))
-	{
-		IndexScan *scan = (IndexScan*)node;
-		bool missok;
-		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(IndexOnlyScan, indexid), "");
-		StaticAssertExpr(offsetof(IndexScan, indexid) == offsetof(BitmapIndexScan, indexid), "");
-
-		missok = !list_member_oid(scan->scan.execute_nodes, PGXCNodeOid);
-		scan->indexid = RestoreRelationOid(buf, missok);
-	}else if(IsA(node, Var)
-		&& !IS_SPECIAL_VARNO(((Var*)node)->varno)
-		&& ((Var*)node)->varattno > 0)
-	{
-		/* check column attribute */
-		Form_pg_attribute attr;
-		Var *var = (Var*)node;
-		Relation rel = ((Relation*)context)[var->varno-1];
-		if(rel != NULL)
-		{
-			if(var->varattno > RelationGetNumberOfAttributes(rel))
+			RangeTblEntry *rte = (RangeTblEntry*)node;
+			if(rte->rtekind == RTE_RELATION)
 			{
-				ereport(ERROR, (errcode(ERRCODE_INVALID_COLUMN_REFERENCE)
-					,err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel))
-					,errmsg("invalid column index %d", var->varattno)));
-			}
-			attr = RelationGetDescr(rel)->attrs[var->varattno-1];
-			if(var->vartype != attr->atttypid)
-			{
-				ereport(ERROR, (errcode(ERRCODE_INVALID_COLUMN_DEFINITION)
-					,err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel))
-					,err_generic_string(PG_DIAG_COLUMN_NAME, NameStr(attr->attname))
-					,errmsg("column \"%s\" type is diffent", NameStr(attr->attname))));
+				/* get relation oid */
+				List *oids;
+				LOCKMODE lock_mode;
+				bool missok;
+
+				/* load nodes */
+				oids = (List*)loadNode(buf);
+				Assert(oids && IsA(oids, OidList));
+				missok = !list_member_oid(oids, PGXCNodeOid);
+
+				/* load reation Oid */
+				rte->relid = RestoreRelationOid(buf, missok);
+				if (missok)
+					rte->relid = InvalidOid;
+
+				/* we must lock relation now */
+				pq_copymsgbytes(buf, (char*)&lock_mode, sizeof(lock_mode));
+				if(OidIsValid(rte->relid))
+					LockRelationOid(rte->relid, lock_mode);
+				else
+					rte->rtekind = RTE_REMOTE_DUMMY;
 			}
 		}
-	}else if(IsA(node, CustomScan) ||
-			 (IsA(node, Agg) &&
-			   ((Agg*)node)->aggsplit != AGGSPLIT_INITIAL_SERIAL &&
-			   list_member_oid(((Agg*)node)->exec_nodes, PGXCNodeOid) == false)
-			)
-	{
-		Result *result = palloc(sizeof(*result));
-		memcpy(result, node, sizeof(Plan));
-		NodeSetTag(result, T_Result);
-		result->resconstantqual = (Node*)list_make1(makeBoolConst(false, false));
-		result->plan.qual = NIL;
-		if(IsA(node, Agg))
+		break;
+	case T_CustomScan:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Cluster plan not support CustomScan yet!")));
+		break;	/* keep compiler quiet */
+	case T_Agg:
+		if (((Agg*)node)->aggsplit != AGGSPLIT_INITIAL_SERIAL &&
+			list_member_oid(((Agg*)node)->exec_nodes, PGXCNodeOid) == false)
+			node = (Node*)MakeEmptyResultPlan((Plan*)node);
+		break;
+	case T_SeqScan:
+	case T_TidScan:
+		if (!list_member_oid(((Scan*)node)->execute_nodes, PGXCNodeOid))
+			node = (Node*)MakeEmptyResultPlan((Plan*)node);
+		break;
+	case T_IndexScan:
+		LOAD_SCAN_REL_INFO(IndexScan, indexid);
+		break;
+	case T_IndexOnlyScan:
+		LOAD_SCAN_REL_INFO(IndexOnlyScan, indexid);
+		break;
+	case T_BitmapIndexScan:
+		LOAD_SCAN_REL_INFO(BitmapIndexScan, indexid);
+		break;
+	case T_Var:
+		if (!IS_SPECIAL_VARNO(((Var*)node)->varno)
+			&& ((Var*)node)->varattno > 0)
 		{
-			/* Finalize Aggregate only run coordinator */
-			ListCell *lc;
-			foreach(lc, result->plan.targetlist)
+			/* check column attribute */
+			Form_pg_attribute attr;
+			Var *var = (Var*)node;
+			Relation rel = ((Relation*)context)[var->varno-1];
+			if(rel != NULL)
 			{
-				TargetEntry *entry = lfirst(lc);
-				entry->expr = (Expr*)makeNullConst(exprType((Node*)entry->expr),
-												   exprTypmod((Node*)entry->expr),
-												   exprCollation((Node*)entry->expr));
+				if(var->varattno > RelationGetNumberOfAttributes(rel))
+				{
+					ereport(ERROR, (errcode(ERRCODE_INVALID_COLUMN_REFERENCE)
+						,err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel))
+						,errmsg("invalid column index %d", var->varattno)));
+				}
+				attr = RelationGetDescr(rel)->attrs[var->varattno-1];
+				if(var->vartype != attr->atttypid)
+				{
+					ereport(ERROR, (errcode(ERRCODE_INVALID_COLUMN_DEFINITION)
+						,err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel))
+						,err_generic_string(PG_DIAG_COLUMN_NAME, NameStr(attr->attname))
+						,errmsg("column \"%s\" type is diffent", NameStr(attr->attname))));
+				}
 			}
 		}
-		node = (Node*)result;
-	}
-
-	if (IsA(node, SeqScan) ||
-		IsA(node, IndexScan) ||
-		IsA(node, IndexOnlyScan) ||
-		IsA(node, BitmapIndexScan) ||
-		IsA(node, TidScan))
-	{
-		/* not run in this nod, make a result */
-		Scan *scan = (Scan*)node;
-		if(!list_member_oid(scan->execute_nodes, PGXCNodeOid))
-		{
-			Result *result = palloc(sizeof(*result));
-			memcpy(result, node, sizeof(Plan));
-			NodeSetTag(result, T_Result);
-			result->resconstantqual = (Node*)list_make1(makeBoolConst(false, false));
-			node = (Node*)result;
-		}
+		break;
+	default:
+		break;
 	}
 
 	return node;
@@ -1011,4 +1045,19 @@ static void RestoreClusterHook(ClusterErrorHookContext *context)
 	PGXCNodeOid = context->saved_node_oid;
 	enable_cluster_plan = context->saved_enable_cluster_plan;
 	error_context_stack = context->callback.previous;
+}
+
+static bool RelationIsCoordOnly(Oid relid)
+{
+	Relation rel = heap_open(relid, NoLock);
+	Form_pg_class form = RelationGetForm(rel);
+	bool result = false;
+	if (form->relkind == RELKIND_VIEW ||
+		form->relkind == RELKIND_FOREIGN_TABLE ||
+		form->relkind == RELKIND_MATVIEW ||
+		form->relpersistence == RELPERSISTENCE_TEMP)
+		result = true;
+
+	heap_close(rel, NoLock);
+	return result;
 }

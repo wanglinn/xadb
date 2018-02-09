@@ -103,6 +103,7 @@ typedef enum NodeTag
 	T_ClusterGetCopyData,
 	T_ClusterReduce,
 	T_ReduceScan,
+	T_EmptyResult,
 #endif
 
 	/*
@@ -157,6 +158,7 @@ typedef enum NodeTag
 	T_ClusterGetCopyDataState,
 	T_ClusterReduceState,
 	T_ReduceScanState,
+	T_EmptyResultState,
 #endif
 
 	/*

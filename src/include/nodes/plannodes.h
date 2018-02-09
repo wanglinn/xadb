@@ -928,6 +928,12 @@ typedef struct ReduceScan
 	List	   *scan_hash_keys;
 }ReduceScan;
 
+typedef struct EmptyResult
+{
+	Plan		plan;
+	NodeTag		typeFrom;
+}EmptyResult;
+
 #endif /* ADB */
 
 /*

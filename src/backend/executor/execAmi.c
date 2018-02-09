@@ -61,6 +61,7 @@
 #include "executor/nodeClusterGather.h"
 #include "executor/nodeClusterMergeGather.h"
 #include "executor/nodeClusterReduce.h"
+#include "executor/nodeEmptyResult.h"
 #include "executor/nodeReduceScan.h"
 #endif
 
@@ -235,6 +236,10 @@ ExecReScan(PlanState *node)
 		case T_ClusterReduceState:
 			ExecReScanClusterReduce((ClusterReduceState *)node);
 			break;
+
+		case T_EmptyResultState:
+			ExecReScanEmptyResult((EmptyResultState *) node);
+			break;
 #endif
 
 		case T_CustomScanState:
@@ -357,8 +362,12 @@ ExecMarkPos(PlanState *node)
 			break;
 
 #ifdef ADB
-		case T_ClusterReduce:
+		case T_ClusterReduceState:
 			ExecClusterReduceMarkPos((ClusterReduceState *) node);
+			break;
+
+		case T_EmptyResultState:
+			ExecEmptyResultMarkPos((EmptyResultState *) node);
 			break;
 #endif
 
@@ -415,8 +424,12 @@ ExecRestrPos(PlanState *node)
 			break;
 
 #ifdef ADB
-		case T_ClusterReduce:
+		case T_ClusterReduceState:
 			ExecClusterReduceRestrPos((ClusterReduceState *) node);
+			break;
+
+		case T_EmptyResultState:
+			ExecEmptyResult((EmptyResultState *) node);
 			break;
 #endif
 
