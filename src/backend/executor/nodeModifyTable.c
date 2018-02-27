@@ -1876,6 +1876,15 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 
 		subplan = (Plan *) lfirst(l);
 #ifdef ADB
+		if (resultRelInfo->ri_RelationDesc == NULL)
+		{
+			/* when resultRelInfo->ri_RelationDesc is NULL, not run at this node */
+			estate->es_result_relation_info = resultRelInfo;
+			mtstate->mt_plans[i] = ExecInitNode(subplan, estate, eflags);
+			resultRelInfo++;
+			i++;
+			continue;
+		}
 		if (node->remote_plans)
 			remoteplan = list_nth(node->remote_plans, i);
 #endif
@@ -2000,6 +2009,13 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 			List	   *rlist = (List *) lfirst(l);
 			List	   *rliststate;
 
+#ifdef ADB
+			if (resultRelInfo->ri_RelationDesc == NULL)
+			{
+				resultRelInfo++;
+				continue;
+			}
+#endif /* ADB */
 			rliststate = (List *) ExecInitExpr((Expr *) rlist, &mtstate->ps);
 			resultRelInfo->ri_projectReturning =
 				ExecBuildProjectionInfo(rliststate, econtext, slot,
@@ -2156,6 +2172,13 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 			{
 				JunkFilter *j;
 
+#ifdef ADB
+				if (resultRelInfo->ri_RelationDesc == NULL)
+				{
+					resultRelInfo++;
+					continue;
+				}
+#endif /* ADB */
 				subplan = mtstate->mt_plans[i]->plan;
 				if (operation == CMD_INSERT || operation == CMD_UPDATE)
 					ExecCheckPlanOutput(resultRelInfo->ri_RelationDesc,
@@ -2215,6 +2238,9 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 		else
 		{
 			if (operation == CMD_INSERT)
+#ifdef ADB
+				if (mtstate->resultRelInfo->ri_RelationDesc != NULL)
+#endif /* ADB */
 				ExecCheckPlanOutput(mtstate->resultRelInfo->ri_RelationDesc,
 									subplan->targetlist);
 		}
