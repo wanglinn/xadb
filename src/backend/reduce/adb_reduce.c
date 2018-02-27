@@ -314,8 +314,11 @@ AdbReduceLauncherMain(char *exec_path, int rid)
 {
 	StringInfoData	cmd;
 	int				fd = 3;
+	const char	   *rid_ptr = NULL,		/* -n */
+				   *wfd_ptr = NULL,		/* -W */
+				   *ext_ptr = NULL;		/* -E */
 
-	/* close already opened fd */
+	/* close already opened fd as much as possible */
 	while (fd < backend_reduce_fds[RDC_REDUCE_HOLD])
 	{
 		close(fd);
@@ -323,24 +326,29 @@ AdbReduceLauncherMain(char *exec_path, int rid)
 	}
 
 	initStringInfo(&cmd);
-	appendStringInfo(&cmd, "exec \"%s\" -n %d -W %d",
-		exec_path, rid, backend_reduce_fds[RDC_REDUCE_HOLD]);
-
-	appendStringInfo(&cmd, " -E \""
-						   "work_mem=%d "
+	rid_ptr = cmd.data;
+	appendStringInfo(&cmd, "%d", rid);
+	appendStringInfoChar(&cmd, '\0');
+	wfd_ptr = cmd.data + cmd.len;
+	appendStringInfo(&cmd, "%d", backend_reduce_fds[RDC_REDUCE_HOLD]);
+	appendStringInfoChar(&cmd, '\0');
+	ext_ptr = cmd.data + cmd.len;
+	appendStringInfo(&cmd, "work_mem=%d "
 						   "log_min_messages=%d "
 						   "log_destination=%d "
 						   "redirection_done=%d "
-						   "print_reduce_debug_log=%d\"",
+						   "print_reduce_debug_log=%d",
 						   work_mem,
 						   log_min_messages,
 						   Log_destination,
 						   redirection_done,
 						   print_reduce_debug_log);
+	(void) execl(exec_path, exec_path, "-n", rid_ptr,
+									   "-W", wfd_ptr,
+									   "-E", ext_ptr,
+									   (char *) NULL);
 
-	(void) execl("/bin/sh", "/bin/sh", "-c", cmd.data, (char *) NULL);
-
-	fprintf(stderr, "fail to start adb_reduce: %m");
+	fprintf(stderr, "fail to start adb_reduce: %m\n");
 	exit(EXIT_FAILURE);
 }
 #endif
