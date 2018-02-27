@@ -4654,7 +4654,6 @@ _copyExecNodes(const ExecNodes *from)
 	COPY_SCALAR_FIELD(en_funcid);
 	COPY_NODE_FIELD(en_expr);
 	COPY_NODE_FIELD(en_dist_vars);
-	COPY_NODE_FIELD(nodeList);
 	COPY_NODE_FIELD(nodeids);
 
 	return newnode;

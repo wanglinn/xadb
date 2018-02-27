@@ -99,17 +99,11 @@ RemoteCopyGetRelationLoc(RemoteCopyState *state,
 		 *
 		 */
 		exec_nodes = makeNode(ExecNodes);
-		if (!state->is_from &&
-			IsRelationReplicated(state->rel_loc))
-		{
-			exec_nodes->nodeList = GetPreferredRepNodeIdx(state->rel_loc->nodeList);
+		if (!state->is_from && IsRelationReplicated(state->rel_loc))
 			exec_nodes->nodeids = GetPreferredRepNodeIds(state->rel_loc->nodeids);
-		} else
-		{
+		else
 			/* All nodes necessary */
-			exec_nodes->nodeList = list_concat(exec_nodes->nodeList, state->rel_loc->nodeList);
 			exec_nodes->nodeids = list_concat(exec_nodes->nodeids, state->rel_loc->nodeids);
-		}
 	}
 
 	state->idx_dist_by_col = -1;

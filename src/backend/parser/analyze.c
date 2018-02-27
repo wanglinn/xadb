@@ -2730,7 +2730,6 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	ListCell	*raw_parsetree_item;
 	char		*nodename;
 	Oid			nodeoid;
-	int			nodeIndex;
 	char		nodetype;
 
 	/* Support not available on Datanodes */
@@ -2759,10 +2758,9 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 
 	/* Get node type and index */
 	nodetype = get_pgxc_nodetype(nodeoid);
-	nodeIndex = PGXCNodeGetNodeId(nodeoid, get_pgxc_nodetype(nodeoid));
 
 	/* Check if node is requested is the self-node or not */
-	if (nodetype == PGXC_NODE_COORDINATOR && nodeIndex == PGXCNodeId - 1)
+	if (nodetype == PGXC_NODE_COORDINATOR && nodeoid == PGXCNodeOid)
 		is_local = true;
 
 	/* Transform the query into a raw parse list */
@@ -2869,7 +2867,6 @@ transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
 	}
 
 	/* Build Execute Node list, there is a unique node for the time being */
-	step->exec_nodes->nodeList = lappend_int(step->exec_nodes->nodeList, nodeIndex);
 	step->exec_nodes->nodeids = lappend_oid(step->exec_nodes->nodeids, nodeoid);
 
 	/* Associate newly-created RemoteQuery node to the returned Query result */

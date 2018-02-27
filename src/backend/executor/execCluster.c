@@ -491,9 +491,8 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 			/* save node Oids */
 			if(RelationGetLocInfo(rel))
 			{
-				List *oids = PGXCNodeGetNodeOidList(RelationGetLocInfo(rel)->nodeList, PGXC_NODE_DATANODE);
+				List *oids = RelationGetLocInfo(rel)->nodeids;
 				saveNode(buf, (Node*)oids);
-				list_free(oids);
 
 				if(RelationUsesLocalBuffers(rel))
 					((ClusterPlanContext*)context)->have_temp = true;

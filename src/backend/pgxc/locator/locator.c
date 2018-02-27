@@ -97,29 +97,6 @@ int		num_preferred_data_nodes = 0;
 Oid		preferred_data_node[MAX_PREFERRED_NODES];
 
 /*
- * GetPreferredRepNodeIdx
- * Pick any Datanode from given list, however fetch a preferred node first.
- */
-List *
-GetPreferredRepNodeIdx(List *relNodes)
-{
-	int			i;
-	int			nodeidx;
-
-	if (list_length(relNodes) <= 0)
-		elog(ERROR, "a list of nodes should have at least one node");
-
-	for (i = 0; i < num_preferred_data_nodes; i++)
-	{
-		nodeidx = PGXCNodeGetNodeId(preferred_data_node[i], PGXC_NODE_DATANODE);
-		if (list_member_int(relNodes, nodeidx))
-			return list_make1_int(nodeidx);
-	}
-
-	return list_make1_int(linitial_int(relNodes));
-}
-
-/*
  * GetPreferredRepNodeIds
  * Pick any Datanode from given list, however fetch a preferred node first.
  */
@@ -140,20 +117,6 @@ GetPreferredRepNodeIds(List *nodeids)
 	}
 
 	return list_make1_oid(linitial_oid(nodeids));
-}
-
-/*
- * get_nodeidx_from_modulo - determine node based on modulo
- *
- * compute_modulo
- */
-static int
-get_nodeidx_from_modulo(int modulo, List *nodeList)
-{
-	if (nodeList == NIL || modulo >= list_length(nodeList) || modulo < 0)
-		ereport(ERROR, (errmsg("Modulo value out of range\n")));
-
-	return list_nth_int(nodeList, modulo);
 }
 
 /*
@@ -265,23 +228,6 @@ IsTypeDistributable(Oid col_type)
 	return OidIsValid(typeCache->hash_proc);
 }
 
-
-/*
- * GetRoundRobinNodeIdx
- * Update the round robin node for the relation.
- * PGXCTODO - may not want to bother with locking here, we could track
- * these in the session memory context instead...
- */
-int
-GetRoundRobinNodeIdx(Oid relid)
-{
-	Oid next_node = GetRoundRobinNodeId(relid);
-
-	Assert(OidIsValid(next_node));
-
-	return PGXCNodeGetNodeId(next_node, PGXC_NODE_DATANODE);
-}
-
 Oid
 GetRoundRobinNodeId(Oid relid)
 {
@@ -328,12 +274,11 @@ bool
 IsLocatorInfoEqual(RelationLocInfo *locInfo1,
 				   RelationLocInfo *locInfo2)
 {
-	List *nodeList1, *nodeList2;
-	ListCell *lc;
+	List *nodeids1, *nodeids2;
 	Assert(locInfo1 && locInfo2);
 
-	nodeList1 = locInfo1->nodeList;
-	nodeList2 = locInfo2->nodeList;
+	nodeids1 = locInfo1->nodeids;
+	nodeids2 = locInfo2->nodeids;
 
 	/* Same relation? */
 	if (locInfo1->relid != locInfo2->relid)
@@ -348,16 +293,8 @@ IsLocatorInfoEqual(RelationLocInfo *locInfo1,
 		return false;
 
 	/* Same node list? */
-	foreach (lc, nodeList1)
-	{
-		if (!list_member_int(nodeList2, lfirst_int(lc)))
-			return false;
-	}
-	foreach (lc, nodeList2)
-	{
-		if (!list_member_int(nodeList1, lfirst_int(lc)))
-			return false;
-	}
+	if (!list_equal_oid_without_order(nodeids1, nodeids2))
+		return false;
 
 	if (locInfo1->funcid != locInfo2->funcid)
 		return false;
@@ -383,10 +320,7 @@ ExecNodes *MakeExecNodesByOids(RelationLocInfo *loc_info, List *oids, RelationAc
 	exec_nodes->en_funcid = loc_info->funcid;
 	exec_nodes->nodeids = oids;
 	foreach(lc, oids)
-	{
-		exec_nodes->nodeList = lappend_int(exec_nodes->nodeList,
-										   PGXCNodeGetNodeId(lfirst_oid(lc), PGXC_NODE_DATANODE));
-	}
+		exec_nodes->nodeids = list_append_unique_oid(exec_nodes->nodeids, lfirst_oid(lc));
 
 	return exec_nodes;
 }
@@ -417,9 +351,8 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 				 Oid* dist_col_types,
 				 RelationAccessType accessType)
 {
-	ExecNodes	*exec_nodes;
-	int32 modulo;
-	int nodeIndex;
+	ExecNodes  *exec_nodes;
+	int			modulo;
 
 	if (rel_loc_info == NULL)
 		return NULL;
@@ -440,7 +373,6 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 			 * deadlock.
 			 * For write access set primary node (if exists).
 			 */
-			exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
 			exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
 			if (accessType == RELATION_ACCESS_UPDATE || accessType == RELATION_ACCESS_INSERT)
 			{
@@ -454,7 +386,6 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 				 * avoid distributed deadlock if updating the same row
 				 * concurrently
 				 */
-				exec_nodes->nodeList = list_make1_int(PGXCNodeGetNodeId(primary_data_node, PGXC_NODE_DATANODE));
 				exec_nodes->nodeids = list_make1_oid(primary_data_node);
 			}
 			break;
@@ -470,7 +401,6 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 						modulo = 0;
 					}else
 					{
-						exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
 						exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
 						break;
 					}
@@ -483,16 +413,14 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 											  InvalidOid);
 						modulo = execModuloValue(Int32GetDatum(hashVal),
 												 INT4OID,
-												 list_length(rel_loc_info->nodeList));
+												 list_length(rel_loc_info->nodeids));
 					}else
 					{
 						modulo = execModuloValue(dist_col_values[0],
 												dist_col_types[0],
-												list_length(rel_loc_info->nodeList));
+												list_length(rel_loc_info->nodeids));
 					}
 				}
-				nodeIndex = get_nodeidx_from_modulo(modulo, rel_loc_info->nodeList);
-				exec_nodes->nodeList = list_make1_int(nodeIndex);
 				exec_nodes->nodeids = list_make1_oid(get_nodeid_from_modulo(modulo, rel_loc_info->nodeids));
 			}
 			break;
@@ -503,14 +431,9 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 			 * node needed
 			 */
 			if (accessType == RELATION_ACCESS_INSERT)
-			{
-				exec_nodes->nodeList = list_make1_int(GetRoundRobinNodeIdx(rel_loc_info->relid));
 				exec_nodes->nodeids = list_make1_oid(GetRoundRobinNodeId(rel_loc_info->relid));
-			} else
-			{
-				exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
+			else
 				exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
-			}
 			break;
 
 		case LOCATOR_TYPE_USER_DEFINED:
@@ -555,22 +478,15 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 											  dist_col_nulls);
 					modulo = execModuloValue(result,
 											 get_func_rettype(rel_loc_info->funcid),
-											 list_length(rel_loc_info->nodeList));
-					nodeIndex = get_nodeidx_from_modulo(modulo, rel_loc_info->nodeList);
-					exec_nodes->nodeList = list_make1_int(nodeIndex);
+											 list_length(rel_loc_info->nodeids));
 					exec_nodes->nodeids = list_make1_oid(get_nodeid_from_modulo(modulo, rel_loc_info->nodeids));
 				} else
 				{
 					if (accessType == RELATION_ACCESS_INSERT)
-					{
 						/* Insert NULL to first node*/
-						exec_nodes->nodeList = list_make1_int(linitial_int(rel_loc_info->nodeList));
 						exec_nodes->nodeids = list_make1_oid(linitial_oid(rel_loc_info->nodeids));
-					} else
-					{
-						exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
+					else
 						exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
-					}
 				}
 			}
 			break;
@@ -921,17 +837,11 @@ RelationBuildLocator(Relation rel)
 	relationLocInfo->locatorType = pgxc_class->pclocatortype;
 
 	relationLocInfo->partAttrNum = pgxc_class->pcattnum;
-	relationLocInfo->nodeList = NIL;
 	relationLocInfo->nodeids = NIL;
 
 	for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
-	{
-		relationLocInfo->nodeList = lappend_int(relationLocInfo->nodeList,
-												PGXCNodeGetNodeId(pgxc_class->nodeoids.values[j],
-																  PGXC_NODE_DATANODE));
 		relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
 											   pgxc_class->nodeoids.values[j]);
-	}
 
 	/*
 	 * If the locator type is round robin, we set a node to
@@ -1021,14 +931,9 @@ CopyRelationLocInfo(RelationLocInfo *srcInfo)
 	destInfo->relid = srcInfo->relid;
 	destInfo->locatorType = srcInfo->locatorType;
 	destInfo->partAttrNum = srcInfo->partAttrNum;
-	if (srcInfo->nodeList)
-		destInfo->nodeList = list_copy(srcInfo->nodeList);
-	if (srcInfo->nodeids)
-		destInfo->nodeids = list_copy(srcInfo->nodeids);
-
+	destInfo->nodeids = list_copy(srcInfo->nodeids);
 	destInfo->funcid = srcInfo->funcid;
-	if (srcInfo->funcAttrNums)
-		destInfo->funcAttrNums = list_copy(srcInfo->funcAttrNums);
+	destInfo->funcAttrNums = list_copy(srcInfo->funcAttrNums);
 
 	/* Note: for roundrobin, we use the relcache entry */
 	return destInfo;
@@ -1044,7 +949,6 @@ FreeRelationLocInfo(RelationLocInfo *relationLocInfo)
 {
 	if (relationLocInfo)
 	{
-		list_free(relationLocInfo->nodeList);
 		list_free(relationLocInfo->nodeids);
 		list_free(relationLocInfo->funcAttrNums);
 		pfree(relationLocInfo);
@@ -1063,7 +967,6 @@ FreeExecNodes(ExecNodes **exec_nodes)
 	/* Nothing to do */
 	if (!tmp_en)
 		return;
-	list_free(tmp_en->nodeList);
 	list_free(tmp_en->nodeids);
 	pfree(tmp_en);
 	*exec_nodes = NULL;

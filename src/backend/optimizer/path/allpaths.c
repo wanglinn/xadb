@@ -694,17 +694,14 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		if (IsLocatorDistributedByValue(loc_info->locatorType) ||
 			loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
 		{
-			List *rnodes;
 			List *exec_nodes = relation_remote_by_constraints(root, rel);
 			if (exec_nodes == NIL)
 			{
 				set_dummy_rel_pathlist(rel);
 				return;
 			}
-			rnodes = PGXCNodeGetNodeOidList(rel->loc_info->nodeList, PGXC_NODE_DATANODE);
-			exclude = list_difference_oid(rnodes, exec_nodes);
+			exclude = list_difference_oid(rel->loc_info->nodeids, exec_nodes);
 			list_free(exec_nodes);
-			list_free(rnodes);
 		}
 		rinfo = MakeReduceInfoFromLocInfo(loc_info, exclude, rte->relid, rel->relid);
 		list_free(exclude);
@@ -745,7 +742,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 			set_path_reduce_info_worker(path, reduce_info_list);
 
-			cost_div(path, list_length(loc_info->nodeList));
+			cost_div(path, list_length(loc_info->nodeids));
 		}
 
 		if (exec_param_clauses)
@@ -766,7 +763,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			{
 				path = create_seqscan_path(root, rel, required_outer, 0);
 				set_path_reduce_info_worker(path, reduce_info_list);
-				cost_div(path, list_length(loc_info->nodeList));
+				cost_div(path, list_length(loc_info->nodeids));
 				path = (Path*)try_reducescan_path(root, rel, path->pathtarget, path, replicate, NULL, exec_param_clauses);
 				Assert(path);
 				rel->cluster_pathlist = list_make1(path);
@@ -788,7 +785,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 					set_path_reduce_info_worker(path, reduce_info_list);
 
-					cost_div(path, list_length(loc_info->nodeList));
+					cost_div(path, list_length(loc_info->nodeids));
 					add_cluster_partial_path(rel, path);
 				}
 				rel->partial_pathlist = NIL;

@@ -413,7 +413,7 @@ pgxc_FQS_find_datanodes(Shippability_context *sc_context)
 	exec_nodes = pgxc_FQS_find_datanodes_recurse((Node *)query->jointree,
 													sc_context);
 	/* If we found the datanodes to ship, use them */
-	if (exec_nodes && exec_nodes->nodeList)
+	if (exec_nodes && exec_nodes->nodeids)
 	{
 		/*
 		 * If this is the highest level query in the query tree and
@@ -424,15 +424,12 @@ pgxc_FQS_find_datanodes(Shippability_context *sc_context)
 		 */
 		if (IsExecNodesReplicated(exec_nodes) &&
 			(exec_nodes->accesstype == RELATION_ACCESS_READ_FOR_UPDATE ||
-			              exec_nodes->accesstype == RELATION_ACCESS_READ) &&
-			sc_context->sc_query_level == 0)
+			 exec_nodes->accesstype == RELATION_ACCESS_READ) &&
+			 sc_context->sc_query_level == 0)
 
 		{
-			List *tmp_list = exec_nodes->nodeList;
-			exec_nodes->nodeList = GetPreferredRepNodeIdx(exec_nodes->nodeList);
-			list_free(tmp_list);
-			tmp_list = exec_nodes->nodeids;
-			exec_nodes->nodeids = GetPreferredRepNodeIds(exec_nodes->nodeids);
+			List *tmp_list = exec_nodes->nodeids;
+			exec_nodes->nodeids = GetPreferredRepNodeIds(tmp_list);
 			list_free(tmp_list);
 		}
 		return exec_nodes;
@@ -567,9 +564,7 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 
 		Assert(tle);
 		/* We found the TargetEntry for the partition column */
-		list_free(rel_exec_nodes->nodeList);
 		list_free(rel_exec_nodes->nodeids);
-		rel_exec_nodes->nodeList = NIL;
 		rel_exec_nodes->nodeids = NIL;
 #ifdef ADB
 		rel_exec_nodes->en_funcid = rel_loc_info->funcid;
@@ -607,8 +602,6 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 				en_expr_list = lappend(en_expr_list, NULL);
 		}
 		list_free_deep(colname_list);
-		list_free(rel_exec_nodes->nodeList);
-		rel_exec_nodes->nodeList = NIL;
 		list_free(rel_exec_nodes->nodeids);
 		rel_exec_nodes->nodeids = NIL;
 		rel_exec_nodes->en_funcid = rel_loc_info->funcid;
@@ -1440,7 +1433,7 @@ pgxc_is_query_shippable(Query *query, int query_level)
 		 * If query has result replicated across nodes, it's as good as having a
 		 * single node.
 		 */
-		if (list_length(exec_nodes->nodeList) != 1 &&
+		if (list_length(exec_nodes->nodeids) != 1 &&
 			!IsExecNodesReplicated(exec_nodes))
 			canShip = false;
 
@@ -1844,11 +1837,9 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 		 * the two relations, other rtables have to be checked on
 		 * this restricted list.
 		 */
-		merged_en->nodeList = list_intersection_int(en1->nodeList,
-													en2->nodeList);
 		merged_en->nodeids = list_intersection_oid(en1->nodeids, en2->nodeids);
 		merged_en->baselocatortype = LOCATOR_TYPE_REPLICATED;
-		if (!merged_en->nodeList)
+		if (!merged_en->nodeids)
 			FreeExecNodes(&merged_en);
 		return merged_en;
 	}
@@ -1856,23 +1847,24 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 	if (IsExecNodesReplicated(en1) &&
 		IsExecNodesColumnDistributed(en2))
 	{
-		List	*diff_nodelist = NULL;
+		List *diff_nodeids = NIL;
 		/*
 		 * Replicated/distributed join case.
 		 * Node list of distributed table has to be included
 		 * in node list of replicated table.
 		 */
-		diff_nodelist = list_difference_int(en2->nodeList, en1->nodeList);
+		diff_nodeids = list_difference_oid(en2->nodeids, en1->nodeids);
 		/*
 		 * If the difference list is not empty, this means that node list of
 		 * distributed table is not completely mapped by node list of replicated
 		 * table, so go through standard planner.
 		 */
-		if (diff_nodelist)
-			FreeExecNodes(&merged_en);
-		else
+		if (diff_nodeids)
 		{
-			merged_en->nodeList = list_copy(en2->nodeList);
+			list_free(diff_nodeids);
+			FreeExecNodes(&merged_en);
+		} else
+		{
 			merged_en->nodeids = list_copy(en2->nodeids);
 			merged_en->baselocatortype = en2->baselocatortype;
 			merged_en->en_dist_vars = en2->en_dist_vars;
@@ -1886,24 +1878,25 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 	if (IsExecNodesColumnDistributed(en1) &&
 		IsExecNodesReplicated(en2))
 	{
-		List *diff_nodelist = NULL;
+		List *diff_nodeids = NIL;
 		/*
 		 * Distributed/replicated join case.
 		 * Node list of distributed table has to be included
 		 * in node list of replicated table.
 		 */
-		diff_nodelist = list_difference_int(en1->nodeList, en2->nodeList);
+		diff_nodeids = list_difference_oid(en1->nodeids, en2->nodeids);
 
 		/*
 		 * If the difference list is not empty, this means that node list of
 		 * distributed table is not completely mapped by node list of replicated
 			 * table, so go through standard planner.
 		 */
-		if (diff_nodelist)
-			FreeExecNodes(&merged_en);
-		else
+		if (diff_nodeids)
 		{
-			merged_en->nodeList = list_copy(en1->nodeList);
+			list_free(diff_nodeids);
+			FreeExecNodes(&merged_en);
+		} else
+		{
 			merged_en->nodeids = list_copy(en1->nodeids);
 			merged_en->baselocatortype = en1->baselocatortype;
 			merged_en->en_dist_vars = en1->en_dist_vars;
@@ -1924,10 +1917,8 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 		 * node list. The caller is expected to fully decide whether to merge
 		 * the nodes or not.
 		 */
-		if (!list_difference_int(en1->nodeList, en2->nodeList) &&
-			!list_difference_int(en2->nodeList, en1->nodeList))
+		if (list_equal_oid_without_order(en1->nodeids, en2->nodeids))
 		{
-			merged_en->nodeList = list_copy(en1->nodeList);
 			merged_en->nodeids = list_copy(en1->nodeids);
 			if (en1->baselocatortype == en2->baselocatortype)
 			{
@@ -2002,7 +1993,7 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 	 * Check if relation is distributed on a single node, in this case
 	 * the constraint can be shipped in all the cases.
 	 */
-	if (list_length(relLocInfo->nodeList) == 1)
+	if (list_length(relLocInfo->nodeids) == 1)
 		return result;
 
 	/*
@@ -2240,8 +2231,8 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 			 * Parent and child need to have their data located exactly
 			 * on the same list of nodes.
 			 */
-			if (list_difference_int(childLocInfo->nodeList, parentLocInfo->nodeList) ||
-				list_difference_int(parentLocInfo->nodeList, childLocInfo->nodeList))
+			if (list_difference_oid(childLocInfo->nodeids, parentLocInfo->nodeids) ||
+				list_difference_oid(parentLocInfo->nodeids, childLocInfo->nodeids))
 			{
 				result = false;
 				break;
@@ -2515,14 +2506,13 @@ pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en,
 	 */
 	if (jointype == JOIN_LEFT && inner_unshippable_tlist)
 		return NULL;
-	if (jointype == JOIN_FULL && (inner_unshippable_tlist ||
-									outer_unshippable_tlist))
+	if (jointype == JOIN_FULL &&
+		(inner_unshippable_tlist || outer_unshippable_tlist))
 		return NULL;
 
 	/* If both sides are replicated or have single node each, we ship any kind of JOIN */
 	if ((IsExecNodesReplicated(inner_en) && IsExecNodesReplicated(outer_en)) ||
-		 (list_length(inner_en->nodeList) == 1 &&
-			list_length(outer_en->nodeList) == 1))
+		(list_length(inner_en->nodeids) == 1 && list_length(outer_en->nodeids) == 1))
 		merge_nodes = true;
 
 	/* If both sides are distributed, ... */

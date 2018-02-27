@@ -631,7 +631,6 @@ BEGIN_NODE(ExecNodes)
 	NODE_OID(proc,en_funcid)
 	NODE_NODE(List,en_expr)
 	NODE_NODE(List,en_dist_vars)
-	NODE_NODE(List,nodeList)
 	NODE_NODE(List,nodeids)
 END_NODE(ExecNodes)
 #endif /* NO_NODE_ExecNodes */

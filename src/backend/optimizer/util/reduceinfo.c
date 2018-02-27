@@ -206,7 +206,7 @@ ReduceInfo *MakeCoordinatorReduceInfo(void)
 ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const List *exclude, Oid reloid, Index relid)
 {
 	ReduceInfo *rinfo;
-	List *rnodes = PGXCNodeGetNodeOidList(loc_info->nodeList, PGXC_NODE_DATANODE);
+	List *rnodes = loc_info->nodeids;
 	if(IsRelationReplicated(loc_info))
 	{
 		rinfo = MakeReplicateReduceInfo(rnodes);

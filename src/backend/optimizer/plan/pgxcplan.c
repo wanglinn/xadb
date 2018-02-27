@@ -746,8 +746,6 @@ create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 	 */
 	if (IsExecNodesReplicated(result_node->exec_nodes))
 	{
-		result_node->exec_nodes->nodeList =
-						GetPreferredRepNodeIdx(result_node->exec_nodes->nodeList);
 		result_node->exec_nodes->nodeids =
 						GetPreferredRepNodeIds(result_node->exec_nodes->nodeids);
 	}
@@ -1467,7 +1465,6 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 			fstep->exec_nodes = makeNode(ExecNodes);
 			fstep->exec_nodes->accesstype = accessType;
 			fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-			fstep->exec_nodes->nodeList = list_copy(rel_loc_info->nodeList);
 			fstep->exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
 			fstep->exec_nodes->en_funcid = rel_loc_info->funcid;
 		}
@@ -1652,7 +1649,7 @@ create_remotegrouping_plan(PlannerInfo *root, Plan *local_plan)
 	 * only a single datanode.
 	 */
 	if (pgxc_query_has_distcolgrouping(query, remote_scan->exec_nodes) &&
-		list_length(remote_scan->exec_nodes->nodeList) == 1)
+		list_length(remote_scan->exec_nodes->nodeids) == 1)
 		single_node_grouping = true;
 	else
 		single_node_grouping = false;
@@ -2624,11 +2621,8 @@ pgxc_is_all_replicated_table(Query *query)
 										  &type,
 										  rel_access);
 
-		tmp_list = rel_exec_nodes->nodeList;
-		rel_exec_nodes->nodeList = GetPreferredRepNodeIdx(rel_exec_nodes->nodeList);
-		list_free(tmp_list);
 		tmp_list = rel_exec_nodes->nodeids;
-		rel_exec_nodes->nodeids = GetPreferredRepNodeIds(rel_exec_nodes->nodeids);
+		rel_exec_nodes->nodeids = GetPreferredRepNodeIds(tmp_list);
 		list_free(tmp_list);
 	}
 
@@ -3277,7 +3271,7 @@ create_remotesort_plan(PlannerInfo *root, Plan *local_plan)
 	 * don't need the covering Sort plan. No sorting required at the
 	 * coordinator.
 	 */
-	if (list_length(remote_scan->exec_nodes->nodeList) == 1)
+	if (list_length(remote_scan->exec_nodes->nodeids) == 1)
 		result_plan = (Plan *)remote_scan;
 	else
 	{
@@ -3377,7 +3371,7 @@ create_remotelimit_plan(PlannerInfo *root, Plan *local_plan)
 
 	/* Calculate the LIMIT and OFFSET values to be sent to the Datanodes */
 	if (remote_scan->exec_nodes &&
-		list_length(remote_scan->exec_nodes->nodeList) == 1)
+		list_length(remote_scan->exec_nodes->nodeids) == 1)
 	{
 		/*
 		 * If there is only a single node involved in execution of the RemoteQuery

@@ -927,6 +927,34 @@ bool list_equal_ptr(const List *list1, const List *list2)
 	return true;
 }
 
+bool
+list_equal_oid_without_order(const List *list1, const List *list2)
+{
+	const ListCell *cell;
+
+	Assert(IsOidList(list1));
+	Assert(IsOidList(list2));
+
+	if (list1 == list2)
+		return true;
+
+	if (list1 == NIL || list2 == NIL)
+		return false;
+
+	foreach(cell, list1)
+	{
+		if (!list_member_oid(list2, lfirst_oid(cell)))
+			return false;
+	}
+
+	foreach (cell, list2)
+	{
+		if (!list_member_oid(list1, lfirst_oid(cell)))
+			return false;
+	}
+
+	return true;
+}
 #endif
 
 /*

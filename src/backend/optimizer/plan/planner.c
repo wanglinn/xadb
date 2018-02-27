@@ -6694,7 +6694,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 	if(loc_info == NULL)
 		return NULL;
 
-	storage_nodes = PGXCNodeGetNodeOidList(loc_info->nodeList, PGXC_NODE_DATANODE);
+	storage_nodes = list_copy(loc_info->nodeids);
 	reduce_list = get_reduce_info_list(path);
 	if(IsRelationReplicated(loc_info))
 	{

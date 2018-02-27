@@ -6540,10 +6540,10 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	  * totally contain the node list of the foreign key rel, otherwise it
 	  * is an invalid constraint.
 	  */
-	 nodes_diff = list_difference_int(rloc->nodeList, pkrloc->nodeList);
+	 nodes_diff = list_difference_oid(rloc->nodeids, pkrloc->nodeids);
 	 if (nodes_diff != NIL)
 	 {
-		 pfree(nodes_diff);
+		 list_free(nodes_diff);
 		 ereport(ERROR,
 			 (errcode(ERRCODE_INVALID_FOREIGN_KEY),
 			 errmsg("Cannot create foreign key \"%s\" which cannot be "
@@ -6578,10 +6578,10 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	  * They must have the same distribution nodes if the primary key table
 	  * is not replicated.
 	  */
-	 nodes_diff = list_difference_int(pkrloc->nodeList, rloc->nodeList);
+	 nodes_diff = list_difference_oid(pkrloc->nodeids, rloc->nodeids);
 	 if (nodes_diff != NIL)
 	 {
-		 pfree(nodes_diff);
+		 list_free(nodes_diff);
 		 ereport(ERROR,
 			 (errcode(ERRCODE_INVALID_FOREIGN_KEY),
 			 errmsg("Cannot create foreign key \"%s\" which cannot be "
@@ -6593,7 +6593,7 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	 /*
 	  * It is a valid constraint if table has only one node.
 	  */
-	 if (list_length(rloc->nodeList) == 1)
+	 if (list_length(rloc->nodeids) == 1)
 		 return ;
 
 	 /*
@@ -12116,8 +12116,6 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	 */
 	newLocInfo = CopyRelationLocInfo(oldLocInfo);
 	/* The node list of this locator information will be rebuilt after command scan */
-	list_free(newLocInfo->nodeList);
-	newLocInfo->nodeList = NIL;
 	list_free(newLocInfo->nodeids);
 	newLocInfo->nodeids = NIL;
 
@@ -12185,12 +12183,7 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 
 	/* Build relation node list for new locator info */
 	for (i = 0; i < new_num; i++)
-	{
-		newLocInfo->nodeList = lappend_int(newLocInfo->nodeList,
-										   PGXCNodeGetNodeId(new_oid_array[i],
-															 PGXC_NODE_DATANODE));
 		newLocInfo->nodeids = lappend_oid(newLocInfo->nodeids, new_oid_array[i]);
-	}
 
 	/* Build the command tree for table redistribution */
 	PGXCRedistribCreateCommandList(redistribState, newLocInfo);

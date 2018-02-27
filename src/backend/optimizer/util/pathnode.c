@@ -4179,14 +4179,12 @@ static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context
 			if(IsRelationReplicated(loc))
 			{
 				double size = path->rows * path->pathtarget->width;
-				List *list = PGXCNodeGetNodeOidList(loc->nodeList, PGXC_NODE_DATANODE);
-				foreach(lc, list)
+				foreach(lc, loc->nodeids)
 				{
 					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
 					++(exec_info->rep_count);
 					exec_info->size += size;
 				}
-				list_free(list);
 			}else if(IsRelationDistributedByValue(loc) ||
 				loc->locatorType == LOCATOR_TYPE_USER_DEFINED)
 			{
@@ -4202,8 +4200,7 @@ static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context
 				}
 			}else if(loc->locatorType == LOCATOR_TYPE_RROBIN)
 			{
-				List *list = PGXCNodeGetNodeOidList(loc->nodeList, PGXC_NODE_DATANODE);
-				foreach(lc, list)
+				foreach(lc, loc->nodeids)
 				{
 					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
 					++(exec_info->part_count);

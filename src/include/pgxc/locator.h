@@ -63,7 +63,6 @@ typedef struct RelationLocInfo
 	Oid			relid;					/* OID of relation */
 	char		locatorType;			/* locator type, see above */
 	AttrNumber	partAttrNum;			/* Distribution column attribute */
-	List	   *nodeList;				/* Node indices where data is located */
 	List	   *nodeids;				/* Node ids where data is located */
 	ListCell   *roundRobinNode;			/* the next node to use */
 	Oid			funcid;					/* Oid of user-defined distribution function */
@@ -99,7 +98,6 @@ typedef struct ExecNodes
 										 * if planner can not determine execution
 										 * nodes */
 	List		   *en_dist_vars;		/* See above for details */
-	List		   *nodeList;			/* Node list indexes */
 	List		   *nodeids;			/* Node ids list */
 } ExecNodes;
 
@@ -122,12 +120,10 @@ extern char *GetRelationDistribColumn(RelationLocInfo *locInfo);
 extern List *GetRelationDistribColumnList(RelationLocInfo *locInfo);
 extern Oid GetRelationDistribFunc(Oid relid);
 extern char GetLocatorType(Oid relid);
-extern List *GetPreferredRepNodeIdx(List *relNodes);
 extern List *GetPreferredRepNodeIds(List *nodeids);
 extern bool IsTableDistOnPrimary(RelationLocInfo *locInfo);
 extern bool IsLocatorInfoEqual(RelationLocInfo *locInfo1,
 							   RelationLocInfo *locInfo2);
-extern int GetRoundRobinNodeIdx(Oid relid);
 extern Oid GetRoundRobinNodeId(Oid relid);
 extern bool IsTypeDistributable(Oid colType);
 extern bool IsDistribColumn(Oid relid, AttrNumber attNum);
