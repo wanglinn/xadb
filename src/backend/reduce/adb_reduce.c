@@ -45,6 +45,8 @@ static int backend_reduce_fds[2] = {-1, -1};
 static HANDLE	BackendHandle;
 #endif	/* WIN32 */
 
+static char			my_reduce_path[MAXPGPATH] = {0};
+
 static RdcPortId	SelfReduceID = InvalidOid;
 static pid_t		SelfReducePID = 0;
 static int			SelfReduceListenPort = 0;
@@ -133,36 +135,40 @@ int
 StartSelfReduceLauncher(RdcPortId rid)
 {
 	MemoryContext	old_context;
-	int				ret;
-	char			exec_path[MAXPGPATH] = {0};
 
-	sigaddset(&BlockSig, SIGCHLD);
-	PG_SETMASK(&BlockSig);
-	PG_TRY();
+	if (my_reduce_path[0] == '\0')
 	{
-		if ((ret = find_other_exec(my_exec_path, "adb_reduce",
-								   "adb_reduce based on (PG " PG_VERSION ")\n",
-								   exec_path)) < 0)
+		int ret;
+
+		sigaddset(&BlockSig, SIGCHLD);
+		PG_SETMASK(&BlockSig);
+		PG_TRY();
 		{
-			if (ret == -1)
-				ereport(ERROR,
-						(errmsg("The program \"adb_reduce\" was not found in the "
-								"same directory as \"%s\".\n"
-								"Please check your installation.",
-								my_exec_path)));
-			else
-				ereport(ERROR,
-						(errmsg("The program \"adb_reduce\" was found by \"%s\" "
-								"but was not the expected version.\n"
-								"Please check your installation.",
-								my_exec_path)));
-		}
-	} PG_CATCH();
-	{
+			if ((ret = find_other_exec(my_exec_path, "adb_reduce",
+									   "adb_reduce based on (PG " PG_VERSION ")\n",
+									   my_reduce_path)) < 0)
+			{
+				if (ret == -1)
+					ereport(ERROR,
+							(errmsg("The program \"adb_reduce\" was not found in the "
+									"same directory as \"%s\".\n"
+									"Please check your installation.",
+									my_exec_path)));
+				else
+					ereport(ERROR,
+							(errmsg("The program \"adb_reduce\" was found by \"%s\" "
+									"but was not the expected version.\n"
+									"Please check your installation.",
+									my_exec_path)));
+			}
+		} PG_CATCH();
+		{
+			my_reduce_path[0] = '\0';
+			PG_SETMASK(&UnBlockSig);
+			PG_RE_THROW();
+		} PG_END_TRY();
 		PG_SETMASK(&UnBlockSig);
-		PG_RE_THROW();
-	} PG_END_TRY();
-	PG_SETMASK(&UnBlockSig);
+	}
 
 	pqsignal(SIGCHLD, SigChldHandler);
 	EndSelfReduce(0, 0);
@@ -183,7 +189,7 @@ StartSelfReduceLauncher(RdcPortId rid)
 			/* Lose the backend's on-exit routines */
 			on_exit_reset();
 			CloseBackendPort();
-			AdbReduceLauncherMain(exec_path, rid);
+			AdbReduceLauncherMain(my_reduce_path, rid);
 			break;
 
 		default:
