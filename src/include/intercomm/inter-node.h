@@ -84,4 +84,8 @@ extern Oid GetPrNodeID(void);
 extern bool IsPrNode(Oid node_id);
 extern bool HasPrNode(const List *node_list);
 
+extern Size EstimateNodeInfoSpace(void);
+extern void SerializeNodeInfo(Size maxsize, char *ptr);
+extern void RestoreNodeInfo(char *start_addr);
+
 #endif /* INTER_NODE_H */

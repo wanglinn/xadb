@@ -688,3 +688,29 @@ HasPrNode(const List *node_list)
 
 	return list_member_oid(node_list, PrHandle->node_id);
 }
+
+Size
+EstimateNodeInfoSpace(void)
+{
+	return sizeof(PGXCNodeOid) +
+		   sizeof(PGXCNodeIdentifier);
+}
+
+void
+SerializeNodeInfo(Size maxsize, char *ptr)
+{
+	if (maxsize < sizeof(PGXCNodeOid) +
+				  sizeof(PGXCNodeIdentifier))
+		elog(ERROR, "not enough space to serialize node info");
+
+	*(Oid *) ptr = PGXCNodeOid;				ptr += sizeof(PGXCNodeOid);
+	*(uint32 *) ptr = PGXCNodeIdentifier;
+
+}
+
+void
+RestoreNodeInfo(char *ptr)
+{
+	PGXCNodeOid = *(Oid *) ptr;				ptr += sizeof(PGXCNodeOid);
+	PGXCNodeIdentifier = *(uint32 *) ptr;
+}

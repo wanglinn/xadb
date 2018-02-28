@@ -68,6 +68,7 @@
 #define PARALLEL_KEY_EXTENSION_TRAMPOLINE	UINT64CONST(0xFFFFFFFFFFFF0009)
 #ifdef ADB
 #define PARALLEL_KEY_REDUCE_INFO			UINT64CONST(0xFFFFFFFFFFFF000A)
+#define PARALLEL_KEY_NODE_INFO				UINT64CONST(0xFFFFFFFFFFFF000B)
 #endif /* ADB */
 
 /* Fixed-size parallel state. */
@@ -216,6 +217,7 @@ InitializeParallelDSM(ParallelContext *pcxt)
 	Size		segsize = 0;
 #ifdef ADB
 	Size		reducelen = 0;
+	Size		nodeinfolen = 0;
 #endif /* ADB */
 	int			i;
 	FixedParallelState *fps;
@@ -271,8 +273,14 @@ InitializeParallelDSM(ParallelContext *pcxt)
 		}
 
 #ifdef ADB
+		/* Estimate how much we'll need for reduce process. */
 		reducelen = EstimateReduceInfoSpace();
 		shm_toc_estimate_chunk(&pcxt->estimator, reducelen);
+		shm_toc_estimate_keys(&pcxt->estimator, 1);
+
+		/* Estimate how much we'll need for node info */
+		nodeinfolen = EstimateNodeInfoSpace();
+		shm_toc_estimate_chunk(&pcxt->estimator, nodeinfolen);
 		shm_toc_estimate_keys(&pcxt->estimator, 1);
 #endif /* ADB */
 	}
@@ -403,6 +411,10 @@ InitializeParallelDSM(ParallelContext *pcxt)
 			char *ptr = shm_toc_allocate(pcxt->toc, reducelen);
 			SerializeReduceInfo(reducelen, ptr);
 			shm_toc_insert(pcxt->toc, PARALLEL_KEY_REDUCE_INFO, ptr);
+
+			ptr = shm_toc_allocate(pcxt->toc, nodeinfolen);
+			SerializeNodeInfo(nodeinfolen, ptr);
+			shm_toc_insert(pcxt->toc, PARALLEL_KEY_NODE_INFO, ptr);
 		}
 #endif /* ADB */
 	}
@@ -1073,6 +1085,7 @@ ParallelWorkerMain(Datum main_arg)
 	CommitTransactionCommand();
 
 	RestoreReduceInfo(shm_toc_lookup(toc, PARALLEL_KEY_REDUCE_INFO));
+	RestoreNodeInfo(shm_toc_lookup(toc, PARALLEL_KEY_NODE_INFO));
 #endif
 
 	/*
