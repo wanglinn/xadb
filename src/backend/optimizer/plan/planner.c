@@ -1579,6 +1579,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 	int64		offset_est = 0;
 	int64		count_est = 0;
 	double		limit_tuples = -1.0;
+	bool		planner_need_limit;
 	bool		have_postponed_srfs = false;
 	double		tlist_rows;
 	PathTarget *final_target;
@@ -2221,6 +2222,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 	 * Generate paths for the final_rel.  Insert all surviving paths, with
 	 * LockRows, Limit, and/or ModifyTable steps added if needed.
 	 */
+	planner_need_limit = limit_needed(parse);
 	foreach(lc, current_rel->pathlist)
 	{
 		Path	   *path = (Path *) lfirst(lc);
@@ -2242,7 +2244,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		/*
 		 * If there is a LIMIT/OFFSET clause, add the LIMIT node.
 		 */
-		if (limit_needed(parse))
+		if (planner_need_limit)
 		{
 			path = (Path *) create_limit_path(root, final_rel, path,
 											  parse->limitOffset,
@@ -2367,6 +2369,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		Path *path = lfirst(lc);
 		List *reduce_info_list = get_reduce_info_list(path);
 		bool have_gather;
+		bool created_limit = false;
 
 		if (parse->rowMarks)
 		{
@@ -2374,17 +2377,24 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		}
 
 		have_gather = have_cluster_gather_path(path);
-		if(!have_gather && limit_needed(parse))
+		/* create limit path if we can */
+		if (planner_need_limit &&				/* need limit */
+			parse->sortClause == NULL &&		/* have no order by */
+			parse->commandType == CMD_SELECT &&	/* not a modify sql */
+			!have_gather &&						/* limit at datanode */
+			parse->limitOffset == NULL)			/* must have no offset */
 		{
+			path = (Path*) create_limit_path(root, final_rel, path,
+												parse->limitOffset,
+												parse->limitCount,
+												offset_est,
+												count_est);
+			/*
+			 * when data is replicated or
+			 * only from one node, don't need create limit again */
 			if (IsReduceInfoListReplicated(reduce_info_list) ||
 				IsReduceInfoListInOneNode(reduce_info_list))
-			{
-				path = (Path*) create_limit_path(root, final_rel, path,
-												 parse->limitOffset,
-												 parse->limitCount,
-												 offset_est,
-												 count_est);
-			}
+				created_limit = true;
 		}
 
 		if (parse->commandType != CMD_SELECT && !inheritance_update)
@@ -2412,6 +2422,12 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			}else if (parse->rowMarks == NIL &&
 					  (parse->onConflict == NULL || parse->onConflict->action == ONCONFLICT_NOTHING))
 			{
+				/* not support update a replicate table when "on conflict do ..." */
+				if (parse->onConflict != NULL &&
+					parse->onConflict->action != ONCONFLICT_NONE &&
+					IsRelationReplicated(root->simple_rel_array[parse->resultRelation]->loc_info))
+					break;
+
 				if (parse->commandType == CMD_INSERT)
 				{
 					Path *reduce_path = reduce_to_relation_insert(root, parse->resultRelation, path);
@@ -2506,9 +2522,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				path = (Path*)create_sort_path(root, final_rel, path, root->sort_pathkeys, -1.0);
 			}
 
-			if (limit_needed(parse) &&
-				!IsReduceInfoListReplicated(reduce_info_list) &&
-				!IsReduceInfoListInOneNode(reduce_info_list))
+			if (planner_need_limit && !created_limit)
 				path = (Path*) create_limit_path(root, final_rel, path,
 												 parse->limitOffset,
 												 parse->limitCount,
@@ -2517,9 +2531,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			add_path(final_rel, path);
 		}else
 		{
-			if (limit_needed(parse) &&
-				!IsReduceInfoListReplicated(reduce_info_list) &&
-				!IsReduceInfoListInOneNode(reduce_info_list))
+			if (planner_need_limit && !created_limit)
 			{
 				List *pathkeys = NIL;
 				if(parse->sortClause)
