@@ -575,7 +575,7 @@ GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry)
 		if(node->convert)
 		{
 			GetSlotFromRemote(port, node->convert_slot, &slot_oid, &eof_oid, &(node->closed_remote));
-			outerslot = do_type_convert_slot_in(node->convert, node->convert_slot, cur_slot, false);
+			outerslot = do_type_convert_slot_in(node->convert, node->convert_slot, cur_slot, true);
 		}else
 		{
 			outerslot = GetSlotFromRemote(port, cur_slot, &slot_oid, &eof_oid, &(node->closed_remote));
