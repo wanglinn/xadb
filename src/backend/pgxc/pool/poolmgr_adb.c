@@ -100,6 +100,39 @@ typedef enum SlotCurrentList
 #define COPY_PARAMS_MAGIC(dest_, src_)		((dest_) = (src_))
 #define EQUAL_PARAMS_MAGIC(l_, r_)			((l_) == (r_))
 
+#if	0
+#include <execinfo.h>
+#define SET_SLOT_OWNER(slot_, owner_)									\
+	do{																	\
+		void *addrs[5];													\
+		char addr_str[lengthof(addrs)*((SIZEOF_VOID_P*2)+1)]={'\0'};	\
+		int n_ = backtrace(addrs, lengthof(addrs));						\
+		while(n_--)														\
+			sprintf(&addr_str[strlen(addr_str)],						\
+					"%p%c", addrs[n_], n_ ? ',':'\0');					\
+		printf("slot %p owner from %p set to %p:%d:%s\n",				\
+			   slot_, slot_->owner, owner_, __LINE__,addr_str);			\
+		fflush(stdout);													\
+		slot_->owner = owner_;											\
+	}while(0)
+#define SET_SLOT_LIST(slot_, list_)										\
+	do{																	\
+		void *addrs[5];													\
+		char addr_str[lengthof(addrs)*((SIZEOF_VOID_P*2)+1)]={'\0'};	\
+		int n_ = backtrace(addrs, lengthof(addrs));						\
+		while(n_--)														\
+			sprintf(&addr_str[strlen(addr_str)],						\
+					"%p%c", addrs[n_], n_ ? ',':'\0');					\
+		printf("slot %p list from %d set to %d:%d:%s\n",				\
+			   slot_, slot_->current_list, list_, __LINE__,addr_str);	\
+		fflush(stdout);													\
+		slot_->current_list = list_;									\
+	}while(0)
+#else
+#define SET_SLOT_OWNER(slot_, owner_)	(slot_->owner = owner_)
+#define SET_SLOT_LIST(slot_, list_)		(slot_->current_list = list_)
+#endif
+
 /* Connection pool entry */
 typedef struct ADBNodePoolSlot
 {
@@ -464,7 +497,7 @@ static void PoolerLoop(void)
 		/* receive signal_quit and all agents had destory.exit poolmgr */
 		if (signal_quit && 0 == agentCount)
 			proc_exit(1);
-		
+
 		if (got_SIGHUP)
 		{
 			got_SIGHUP = false;
@@ -1059,7 +1092,7 @@ agent_destroy(PoolAgent *agent)
 				Assert(slot->last_user_pid == agent->pid);
 				Assert(slot->current_list != NULL_SLOT);
 				dlist_delete(miter.cur);
-				slot->current_list = NULL_SLOT;
+				SET_SLOT_LIST(slot, NULL_SLOT);
 				idle_slot(slot, true);
 			}
 		}
@@ -1082,7 +1115,7 @@ agent_destroy(PoolAgent *agent)
 			{
 				Assert(slot->current_list != NULL_SLOT);
 				dlist_delete(&slot->dnode);
-				slot->current_list = NULL_SLOT;
+				SET_SLOT_LIST(slot, NULL_SLOT);
 			}
 
 			idle_slot(slot, true);
@@ -1665,9 +1698,12 @@ send_session_params_:
 					slot->slot_state = SLOT_STATE_QUERY_PARAMS_SESSION;
 					COPY_PARAMS_MAGIC(slot->session_magic, agent->session_magic);
 					Assert(slot->current_list != NULL_SLOT);
-					dlist_delete(&slot->dnode);
-					dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
-					slot->current_list = BUSY_SLOT;
+					if (slot->current_list != BUSY_SLOT)
+					{
+						dlist_delete(&slot->dnode);
+						dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
+						SET_SLOT_LIST(slot, BUSY_SLOT);
+					}
 					break;
 				}
 				goto send_local_params_;
@@ -1684,9 +1720,12 @@ send_session_params_:
 					}
 					slot->slot_state = SLOT_STATE_QUERY_RESET_ALL;
 					Assert(slot->current_list != NULL_SLOT);
-					dlist_delete(&slot->dnode);
-					dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
-					slot->current_list = BUSY_SLOT;
+					if (slot->current_list != BUSY_SLOT)
+					{
+						dlist_delete(&slot->dnode);
+						dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
+						SET_SLOT_LIST(slot, BUSY_SLOT);
+					}
 				}else if(!EQUAL_PARAMS_MAGIC(slot->session_magic, agent->session_magic))
 				{
 					goto send_session_params_;
@@ -1714,9 +1753,12 @@ send_local_params_:
 					slot->slot_state = SLOT_STATE_QUERY_PARAMS_LOCAL;
 					COPY_PARAMS_MAGIC(slot->local_magic, agent->session_magic);
 					Assert(slot->current_list != NULL_SLOT);
-					dlist_delete(&slot->dnode);
-					dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
-					slot->current_list = BUSY_SLOT;
+					if (slot->current_list != BUSY_SLOT)
+					{
+						dlist_delete(&slot->dnode);
+						dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
+						SET_SLOT_LIST(slot, BUSY_SLOT);
+					}
 					break;
 				}
 				goto send_agtm_port_;
@@ -1733,9 +1775,12 @@ send_agtm_port_:
 					slot->last_agtm_port = agent->agtm_port;
 					slot->slot_state = SLOT_STATE_QUERY_AGTM_PORT;
 					Assert(slot->current_list != NULL_SLOT);
-					dlist_delete(&slot->dnode);
-					dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
-					slot->current_list = BUSY_SLOT;
+					if (slot->current_list != BUSY_SLOT)
+					{
+						dlist_delete(&slot->dnode);
+						dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
+						SET_SLOT_LIST(slot, BUSY_SLOT);
+					}
 				}else
 				{
 					slot->slot_state = SLOT_STATE_LOCKED;
@@ -1768,7 +1813,7 @@ send_agtm_port_:
 							{
 								dlist_delete(&slot->dnode);
 								dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
-								slot->current_list = BUSY_SLOT;
+								SET_SLOT_LIST(slot, BUSY_SLOT);
 							}
 						}
 						slot->retry++;
@@ -1794,12 +1839,13 @@ send_agtm_port_:
 				ereport(ERROR, (errmsg("reconnect three thimes , %s", PQerrorMessage(slot->conn))));
 			}
 			else if(slot->slot_state != SLOT_STATE_LOCKED)
+			{
 				all_ready = false;
-			else
+			}else if(slot->slot_state == SLOT_STATE_LOCKED)
 			{
 				Assert(slot->current_list != NULL_SLOT);
 				dlist_delete(&slot->dnode);
-				slot->current_list = NULL_SLOT;
+				SET_SLOT_LIST(slot, NULL_SLOT);
 			}
 		}
 	}PG_CATCH();
@@ -1823,7 +1869,7 @@ send_agtm_port_:
 				 */
 				Assert(slot->current_list != NULL_SLOT);
 				dlist_delete(&slot->dnode);
-				slot->current_list = NULL_SLOT;
+				SET_SLOT_LIST(slot, NULL_SLOT);
 			}
 			idle_slot(slot, true);
 		}
@@ -2248,7 +2294,7 @@ static void destroy_slot(ADBNodePoolSlot *slot, bool send_cancel)
 		PQfinish(slot->conn);
 		slot->conn = NULL;
 	}
-	slot->owner = NULL;
+	SET_SLOT_OWNER(slot, NULL);
 	slot->last_user_pid = 0;
 	slot->last_agtm_port = 0;
 	slot->slot_state = SLOT_STATE_UNINIT;
@@ -2260,7 +2306,7 @@ static void destroy_slot(ADBNodePoolSlot *slot, bool send_cancel)
 	Assert(slot->conn == NULL && slot->slot_state == SLOT_STATE_UNINIT);
 	Assert(slot->current_list == NULL_SLOT);
 	dlist_push_head(&slot->parent->uninit_slot, &slot->dnode);
-	slot->current_list = UNINIT_SLOT;
+	SET_SLOT_LIST(slot, UNINIT_SLOT);
 
 	check_all_slot_list();
 }
@@ -2282,7 +2328,7 @@ static void release_slot(ADBNodePoolSlot *slot, bool force_close)
 			slot->slot_state = SLOT_STATE_RELEASED;
 			Assert(slot->current_list == NULL_SLOT);
 			dlist_push_head(&slot->parent->released_slot, &slot->dnode);
-			slot->current_list = RELEASED_SLOT;
+			SET_SLOT_LIST(slot, RELEASED_SLOT);
 			slot->released_time = time(NULL);
 		}
 	}
@@ -2293,7 +2339,7 @@ static void release_slot(ADBNodePoolSlot *slot, bool force_close)
 static void idle_slot(ADBNodePoolSlot *slot, bool reset)
 {
 	AssertArg(slot);
-	slot->owner = NULL;
+	SET_SLOT_OWNER(slot, NULL);
 	slot->last_user_pid = 0;
 	slot->released_time = time(NULL);
 
@@ -2326,16 +2372,15 @@ static void idle_slot(ADBNodePoolSlot *slot, bool reset)
 		slot->slot_state = SLOT_STATE_QUERY_RESET_ALL;
 		Assert(slot->current_list == NULL_SLOT);
 		dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
-		slot->current_list = BUSY_SLOT;
+		SET_SLOT_LIST(slot, BUSY_SLOT);
 	}
 	else
 	{
 		slot->last_agtm_port = 0;
 		Assert(slot->current_list == NULL_SLOT);
 		dlist_push_head(&slot->parent->idle_slot, &slot->dnode);
-		slot->current_list = IDLE_SLOT;
+		SET_SLOT_LIST(slot, IDLE_SLOT);
 		slot->slot_state = SLOT_STATE_IDLE;
-		slot->owner = NULL;
 	}
 
 	check_all_slot_list();
@@ -2446,7 +2491,7 @@ static time_t close_timeout_idle_slots(time_t cur_time)
 				{
 					Assert(slot->current_list != NULL_SLOT);
 					dlist_delete(miter.cur);
-					slot->current_list = NULL_SLOT;
+					SET_SLOT_LIST(slot, NULL_SLOT);
 					destroy_slot(slot, false);
 				}else if(earliest_time > slot->released_time)
 				{
@@ -2487,7 +2532,7 @@ static time_t idle_timeout_released_slots(time_t cur_time)
 				if (slot->released_time <= need_idle_time)
 				{
 					dlist_delete(miter.cur);
-					slot->current_list = NULL_SLOT;
+					SET_SLOT_LIST(slot, NULL_SLOT);
 					idle_slot(slot, true);
 				}else if(slot->released_time < earliest_time)
 				{
@@ -2701,7 +2746,7 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 			{
 				Assert(slot->current_list != NULL_SLOT);
 				dlist_delete(&slot->dnode);
-				slot->current_list = NULL_SLOT;
+				SET_SLOT_LIST(slot, NULL_SLOT);
 				destroy_slot(slot, false);
 			}
 		break;
@@ -2717,7 +2762,7 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 				{
 					Assert(slot->current_list != NULL_SLOT);
 					dlist_delete(&slot->dnode);
-					slot->current_list = NULL_SLOT;
+					SET_SLOT_LIST(slot, NULL_SLOT);
 					destroy_slot(slot, false);
 				}
 				break;
@@ -2751,7 +2796,7 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 					Assert(slot->current_list != NULL_SLOT);
 					dlist_delete(&slot->dnode);
 					dlist_push_head(&slot->parent->idle_slot, &slot->dnode);
-					slot->current_list = IDLE_SLOT;
+					SET_SLOT_LIST(slot, IDLE_SLOT);
 				}
 			}
 		}
@@ -2934,7 +2979,7 @@ static void agent_acquire_conn_list(ADBNodePoolSlot **slots, const Oid *oids, co
 			INIT_SLOT_PARAMS_MAGIC(slot, session_magic);
 			INIT_SLOT_PARAMS_MAGIC(slot, local_magic);
 			dlist_push_head(&node_pool->uninit_slot, &slot->dnode);
-			slot->current_list = UNINIT_SLOT;
+			SET_SLOT_LIST(slot, UNINIT_SLOT);
 			ereport(DEBUG1,
 					(errmsg("[pool] Alloc new slot, slot state SLOT_STATE_UNINIT")));
 		}
@@ -2970,14 +3015,13 @@ static void agent_acquire_conn_list(ADBNodePoolSlot **slots, const Oid *oids, co
 			ereport(DEBUG1,
 					(errmsg("[pool] begin connect, connstr : %s,backend pid :%d slot state SLOT_STATE_CONNECTING",
 					node_pool->connstr, agent->pid)));
-			Assert(slot->current_list != NULL_SLOT);
-			dlist_delete(&slot->dnode);
-			dlist_push_head(&(node_pool->busy_slot), &(slot->dnode));
-			slot->current_list = BUSY_SLOT;
 		}
-		slot->owner = agent;
-		ereport(DEBUG1,
-					(errmsg("connect string : %s", node_pool->connstr)));
+
+		SET_SLOT_OWNER(slot, agent);
+		Assert(slot->current_list != NULL_SLOT);
+		dlist_delete(&slot->dnode);
+		dlist_push_head(&(node_pool->busy_slot), &(slot->dnode));
+		SET_SLOT_LIST(slot, BUSY_SLOT);
 	}
 }
 
@@ -3007,7 +3051,7 @@ static void agent_acquire_connections(PoolAgent *agent, const List *datanodelist
 			{
 				Assert(slot->current_list != NULL_SLOT);
 				dlist_delete(&slot->dnode);
-				slot->current_list = NULL_SLOT;
+				SET_SLOT_LIST(slot, NULL_SLOT);
 				idle_slot(slot, true);
 			}
 		}
@@ -3566,7 +3610,7 @@ static void check_idle_slot(void)
 				Assert(slot->slot_state == SLOT_STATE_IDLE);
 				Assert(slot->current_list != NULL_SLOT);
 				dlist_delete(miter.cur);
-				slot->current_list = NULL_SLOT;
+				SET_SLOT_LIST(slot, NULL_SLOT);
 				destroy_slot(slot, false);
 			}
 		}
@@ -3586,4 +3630,3 @@ Datum pool_close_idle_conn(PG_FUNCTION_ARGS)
 	pfree(buf.data);
 	PG_RETURN_BOOL(true);
 }
-
