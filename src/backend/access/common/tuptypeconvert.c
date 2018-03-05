@@ -17,6 +17,8 @@
 #include "utils/lsyscache.h"
 #include "utils/fmgroids.h"
 #include "utils/typcache.h"
+#include "utils/rangetypes.h"
+#include "miscadmin.h"
 
 typedef struct ConvertIO
 {
@@ -46,6 +48,19 @@ typedef struct ArrayConvert
 	bool need_convert;
 }ArrayConvert;
 
+typedef struct RangeConvert
+{
+	TypeCacheEntry *typcache;
+	ConvertIO io;
+	Oid last_type;
+	int16 base_typlen;
+	int16 convert_typlen;
+	bool base_typbyval;
+	bool convert_typbyval;
+	char base_typalign;
+	bool need_convert;
+}RangeConvert;
+
 typedef void (*clean_function)(void *ptr);
 
 static TupleDesc create_convert_desc_if_need(TupleDesc indesc);
@@ -66,6 +81,12 @@ static Datum convert_array_recv(PG_FUNCTION_ARGS);
 static Datum convert_array_send(PG_FUNCTION_ARGS);
 static ArrayConvert* set_array_convert(ArrayConvert *ac, Oid element_type, MemoryContext context, bool is_send);
 static void free_array_convert(ArrayConvert *ac);
+
+static Datum convert_range_send(PG_FUNCTION_ARGS);
+static Datum convert_range_recv(PG_FUNCTION_ARGS);
+static RangeConvert *
+get_convert_range_io_data(RangeConvert *ac, Oid rngtypid, MemoryContext context, bool is_send);
+static void free_range_convert(RangeConvert *ac);
 
 TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool need_in)
 {
@@ -340,6 +361,8 @@ static bool setup_convert_io(ConvertIO *io, Oid typid, bool need_out, bool need_
 		,{F_ARRAY_IN, InvalidOid, InvalidOid, true, convert_array_recv, convert_array_send, (clean_function)free_array_convert}
 		,{F_ANYARRAY_IN, InvalidOid, InvalidOid, true, convert_array_recv, convert_array_send, (clean_function)free_array_convert}
 		,{F_RECORD_IN, InvalidOid, InvalidOid, true, convert_record_recv, convert_record_send, (clean_function)free_record_convert}
+		,{F_RANGE_IN, InvalidOid, InvalidOid, true, convert_range_recv, convert_range_send, (clean_function)free_range_convert}
+		,{F_ANYRANGE_IN, InvalidOid, InvalidOid, true, convert_range_recv, convert_range_send, (clean_function)free_range_convert}
 	};
 
 	getTypeInputInfo(typid, &func, &io_param);
@@ -935,6 +958,198 @@ static ArrayConvert* set_array_convert(ArrayConvert *ac, Oid element_type, Memor
 }
 
 static void free_array_convert(ArrayConvert *ac)
+{
+	if(ac)
+	{
+		clean_convert_io(&ac->io);
+		pfree(ac);
+	}
+}
+
+
+/* like range_send, but we convert range item if need */
+static Datum convert_range_send(PG_FUNCTION_ARGS)
+{
+	RangeType  *range = PG_GETARG_RANGE(0);
+	StringInfo	buf = makeStringInfo();
+	RangeBound	lower;
+	RangeBound	upper;
+	RangeConvert	*ac;
+	Oid rngtypoid;
+	bool		empty;
+	char		flags;
+
+	check_stack_depth();		/* recurses when subtype is a range type */
+	rngtypoid = RangeTypeGetOid(range);
+	ac = get_convert_range_io_data(fcinfo->flinfo->fn_extra, rngtypoid, fcinfo->flinfo->fn_mcxt, true);
+
+	/* deserialize */
+	range_deserialize(ac->typcache, range, &lower, &upper, &empty);
+	flags = range_get_flags(range);
+	/* construct output */
+	pq_begintypsend(buf);
+	pq_sendbyte(buf, flags);
+	save_oid_type(buf, rngtypoid);
+
+	if (RANGE_HAS_LBOUND(flags))
+	{
+		Datum bound;
+
+		if(ac->need_convert)
+		{
+			if(ac->io.bin_type)
+				bound = PointerGetDatum(SendFunctionCall(&ac->io.out_func, lower.val));
+			else
+				bound = PointerGetDatum(OutputFunctionCall(&ac->io.out_func, lower.val));
+			append_stringinfo_datum(buf, bound, ac->convert_typlen, ac->convert_typbyval);
+			pfree(DatumGetPointer(bound));
+		}else
+			append_stringinfo_datum(buf, lower.val, ac->base_typlen, ac->base_typbyval);
+	}
+
+	if (RANGE_HAS_UBOUND(flags))
+	{
+		Datum bound;
+
+		if(ac->need_convert)
+		{
+			if(ac->io.bin_type)
+				bound = PointerGetDatum(SendFunctionCall(&ac->io.out_func, upper.val));
+			else
+				bound = PointerGetDatum(OutputFunctionCall(&ac->io.out_func, upper.val));
+			append_stringinfo_datum(buf, bound, ac->convert_typlen, ac->convert_typbyval);
+			pfree(DatumGetPointer(bound));
+		}else
+			append_stringinfo_datum(buf, upper.val, ac->base_typlen, ac->base_typbyval);
+	}
+
+	PG_RETURN_BYTEA_P(pq_endtypsend(buf));
+}
+
+/* like range_recv, but we convert range item if need */
+Datum
+convert_range_recv(PG_FUNCTION_ARGS)
+{
+	StringInfo	buf = (StringInfo) PG_GETARG_POINTER(0);
+	RangeType	*range;
+	RangeBound	lower;
+	RangeBound	upper;
+	RangeConvert	*ac;
+	Oid		rngtypoid;
+	char		flags;
+
+	check_stack_depth();		/* recurses when subtype is a range type */
+
+	/* receive the flags... */
+	flags = (unsigned char) pq_getmsgbyte(buf);
+	rngtypoid = load_oid_type(buf);
+	if (PG_GETARG_OID(1) != ANYRANGEOID && PG_GETARG_OID(1) != rngtypoid)
+		elog(ERROR, "input paramete of type %s is different from the type %s which from receive data message", format_type_be(PG_GETARG_OID(1)), format_type_be(rngtypoid));
+
+	ac = get_convert_range_io_data(fcinfo->flinfo->fn_extra, rngtypoid, fcinfo->flinfo->fn_mcxt, false);
+
+	/*
+	 * Mask out any unsupported flags, particularly RANGE_xB_NULL which would
+	 * confuse following tests.  Note that range_serialize will take care of
+	 * cleaning up any inconsistencies in the remaining flags.
+	 */
+	flags &= (RANGE_EMPTY |
+			  RANGE_LB_INC |
+			  RANGE_LB_INF |
+			  RANGE_UB_INC |
+			  RANGE_UB_INF);
+
+	/* receive the bounds ... */
+	if (RANGE_HAS_LBOUND(flags))
+	{
+		if(ac->need_convert)
+		{
+			lower.val = load_stringinfo_datum_io(buf, &ac->io);
+		}
+		else
+			lower.val = load_stringinfo_datum(buf, ac->base_typlen, ac->base_typbyval);
+
+	}
+	else
+		lower.val = (Datum) 0;
+
+	if (RANGE_HAS_UBOUND(flags))
+	{
+		if(ac->need_convert)
+		{
+			upper.val = load_stringinfo_datum_io(buf, &ac->io);
+		}
+		else
+			upper.val = load_stringinfo_datum(buf, ac->base_typlen, ac->base_typbyval);
+	}
+	else
+		upper.val = (Datum) 0;
+
+	pq_getmsgend(buf);
+
+	/* finish constructing RangeBound representation */
+	lower.infinite = (flags & RANGE_LB_INF) != 0;
+	lower.inclusive = (flags & RANGE_LB_INC) != 0;
+	lower.lower = true;
+	upper.infinite = (flags & RANGE_UB_INF) != 0;
+	upper.inclusive = (flags & RANGE_UB_INC) != 0;
+	upper.lower = false;
+
+	/* serialize and canonicalize */
+	range = make_range(ac->typcache, &lower, &upper, flags & RANGE_EMPTY);
+
+	PG_RETURN_RANGE(range);
+}
+
+/*
+ * get_convert_range_io_data: get range convert information needed for range type I/O
+ *
+ */
+static RangeConvert *
+get_convert_range_io_data(RangeConvert *ac, Oid rngtypid, MemoryContext context, bool is_send)
+{
+
+	if(ac == NULL)
+	{
+		ac = MemoryContextAllocZero(context, sizeof(*ac));
+		ac->last_type = ~rngtypid;
+	}
+
+	if (ac->last_type != rngtypid)
+	{
+		Oid rngelemtypeoid;
+		MemoryContext old_context;
+
+		clean_convert_io(&ac->io);
+		MemSet(ac, 0, sizeof(*ac));
+		ac->typcache = lookup_type_cache(rngtypid, TYPECACHE_RANGE_INFO);
+		if (ac->typcache->rngelemtype == NULL)
+			elog(ERROR, "type %s is not a range type", format_type_be(rngtypid));
+		rngelemtypeoid = ac->typcache->rngelemtype->type_id;
+
+		old_context = MemoryContextSwitchTo(context);
+
+		if (is_send)
+			ac->need_convert = setup_convert_io(&ac->io, rngelemtypeoid, true, false);
+		else
+			ac->need_convert = setup_convert_io(&ac->io, rngelemtypeoid, false, true);
+
+		if(ac->need_convert)
+		{
+			ac->convert_typbyval = false;
+			ac->convert_typlen = ac->io.bin_type ? -1:-2;
+		}else
+		{
+			get_typlenbyvalalign(rngelemtypeoid, &ac->base_typlen, &ac->base_typbyval, &ac->base_typalign);
+		}
+
+		MemoryContextSwitchTo(old_context);
+	}
+
+	return ac;
+}
+
+static void free_range_convert(RangeConvert *ac)
 {
 	if(ac)
 	{
