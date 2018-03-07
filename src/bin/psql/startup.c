@@ -772,7 +772,7 @@ static void
 showVersion(void)
 {
 #ifdef ADB
-	puts("(ADB 3.0 based on PostgreSQL) " PG_VERSION);
+	puts("psql (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
 #else
 	puts("psql (PostgreSQL) " PG_VERSION);
 #endif
