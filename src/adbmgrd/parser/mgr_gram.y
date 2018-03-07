@@ -492,15 +492,6 @@ AppendNodeStmt:
 			with_data_checksums = true;
 			$$ = (Node*)stmt;
 		}
-		| APPEND COORDINATOR MASTER Ident TO SLAVE Ident
-		{
-			SelectStmt *stmt = makeNode(SelectStmt);
-			List *args = list_make1(makeStringConst($4, -1));
-			args = lappend(args, makeStringConst($7, -1));
-			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_coordslave", args));
-			$$ = (Node*)stmt;
-		}
 		| APPEND GTM SLAVE Ident
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
@@ -1710,15 +1701,6 @@ AddNodeStmt:
 			node->options = $5;
 			$$ = (Node*)node;
 		}
-	| ADD_P COORDINATOR SLAVE Ident FOR Ident opt_general_options
-		{
-			MGRAddNode *node = makeNode(MGRAddNode);
-			node->nodetype = CNDN_TYPE_COORDINATOR_SLAVE;
-			node->mastername = $6;
-			node->name = $4;
-			node->options = $7;
-			$$ = (Node*)node;
-		}
 	| ADD_P DATANODE MASTER Ident opt_general_options
 		{
 			MGRAddNode *node = makeNode(MGRAddNode);
@@ -2202,7 +2184,6 @@ opt_dn_inner_type:
 	;
 opt_cn_inner_type:
 	 MASTER { $$ = CNDN_TYPE_COORDINATOR_MASTER; }
-	|SLAVE { $$ = CNDN_TYPE_COORDINATOR_SLAVE; }
 	;
 opt_slave_inner_type:
 		GTM SLAVE { $$ = GTM_TYPE_GTM_SLAVE; }
@@ -2536,11 +2517,11 @@ RemoveNodeStmt:
 			node->names = $4;
 			$$ = (Node*)node;
 		}
-	|	REMOVE COORDINATOR ObjList
+	|	REMOVE COORDINATOR MASTER ObjList
 		{
 			MgrRemoveNode *node = makeNode(MgrRemoveNode);
 			node->nodetype = CNDN_TYPE_COORDINATOR_MASTER;
-			node->names = $3;
+			node->names = $4;
 			$$ = (Node*)node;
 		}	
 	;

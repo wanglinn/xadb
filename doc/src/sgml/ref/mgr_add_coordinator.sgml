@@ -22,8 +22,6 @@ ADB documentation
   <refsynopsisdiv>
     <synopsis>
 ADD COORDINATOR MASTER <replaceable class="parameter">master_name</replaceable> ( <replaceable class="parameter">option</replaceable> )
-ADD COORDINATOR SLAVE <replaceable class="parameter">slave_name</replaceable> FOR <replaceable class="parameter">master_name </replaceable> ( <replaceable class="parameter">option</replaceable> )
-
 <phrase>where <replaceable class="parameter">option</replaceable> must be the following:</phrase>
 
     HOST = <replaceable class="parameter">IP_address</replaceable>,
