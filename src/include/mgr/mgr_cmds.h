@@ -384,7 +384,7 @@ extern Datum monitor_handle_coordinator(PG_FUNCTION_ARGS);
 extern int get_agentPort_from_hostoid(Oid hostOid);
 extern bool mgr_check_job_in_updateparam(const char *subjobstr);
 extern char *get_nodepath_from_tupleoid(Oid tupleOid);
-extern bool mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int SYNC_STATE_SYNC, Oid excludeOid, Name slaveNodeName);
+extern int mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int SYNC_STATE_SYNC, Oid excludeOid, Name slaveNodeName);
 extern bool mgr_get_slave_node(Relation relNode, Oid masterTupleOid, int syncType, Oid excludeOid, Name slaveNodeName);
 extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 extern void mgr_add_hbaconf_by_masteroid(Oid mastertupleoid, char *dbname, char *user, char *address);

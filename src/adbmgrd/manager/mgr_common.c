@@ -2099,13 +2099,12 @@ char *get_nodepath_from_tupleoid(Oid tupleOid)
 *  get slave node for given sync state, which is running normal
 */
 
-bool mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int SYNC_STATE_SYNC, Oid excludeOid, Name slaveNodeName)
+int mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int SYNC_STATE_SYNC, Oid excludeOid, Name slaveNodeName)
 {
 	ScanKeyData key[4];
 	HeapTuple tuple;
 	HeapScanDesc relScan;
-	bool bget = false;
-	bool res = false;
+	int res = PQPING_NO_RESPONSE;
 	char *address;
 	char *user;
 	Form_mgr_node mgr_node;
@@ -2153,9 +2152,8 @@ bool mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int SYNC_ST
 		pfree(address);
 		pfree(user);
 		
-		if (!res)
+		if (res == PQPING_OK)
 		{
-			bget = true;
 			namestrcpy(slaveNodeName, NameStr(mgr_node->nodename));
 			break;
 		}
@@ -2163,7 +2161,7 @@ bool mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int SYNC_ST
 
 	heap_endscan(relScan);
 
-	return bget;
+	return res;
 }
 
 

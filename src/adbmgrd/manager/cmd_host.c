@@ -610,7 +610,7 @@ Datum mgr_deploy_all(PG_FUNCTION_ARGS)
 		if (!mgr_check_cluster_stop(&resnamedata, &restypedata))
 			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 				,errmsg("%s \"%s\" still running, please stop it before deploy", restypedata.data, resnamedata.data)
-				,errhint("try \"monitor all\" for more information")));
+				,errhint("try \"monitor all;\" for more information")));
 
 		/*check the agent all stop*/
 		if ((ret = SPI_connect()) < 0)
@@ -625,7 +625,7 @@ Datum mgr_deploy_all(PG_FUNCTION_ARGS)
 			SPI_finish();
 			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 				,errmsg("on host \"%s\" the agent still running, please stop it before deploy", resnamedata.data)
-				,errhint("try \"monitor agent all\" for more information")));
+				,errhint("try \"monitor agent all;\" for more information")));
 		}
 		SPI_freetuptable(SPI_tuptable);
 		SPI_finish();
@@ -743,7 +743,7 @@ Datum mgr_deploy_hostnamelist(PG_FUNCTION_ARGS)
 			if(!res)
 				ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 					,errmsg("stop agent and all of nodes on \"%s\" before deploy", strVal(hostname))
-					,errhint("try \"monitor all\" for more information")));
+					,errhint("try \"monitor all;\" for more information")));
 		}
 
 		funcctx = SRF_FIRSTCALL_INIT();

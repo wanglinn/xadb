@@ -396,14 +396,14 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 		{
 			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 					,errmsg("on host \"%s\" the path \"%s\" has already been used in node table", hostname.data, pathstr)
-					,errhint("try \"list node\" for more information")));
+					,errhint("try \"list node;\" for more information")));
 		}
 
 		if (mgr_check_node_port(rel, hostoid, port))
 		{
 			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 					,errmsg("on host \"%s\" the port \"%d\" has already been used in node table", hostname.data, port)
-					,errhint("try \"list node\" for more information")));
+					,errhint("try \"list node;\" for more information")));
 		}
 
 		/* default values for user do not set sync in add slave */
@@ -740,7 +740,7 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 		{
 			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 					,errmsg("on host \"%s\" the port \"%d\" has already been used in node table", get_hostname_from_hostoid(hostoid), newport)
-					,errhint("try \"list node\" for more information")));
+					,errhint("try \"list node;\" for more information")));
 		}
 		/*check this tuple initd or not, if it has inited and in cluster, check whether it can be alter*/
 		if(bnodeInCluster)
@@ -5080,7 +5080,7 @@ Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
 	char *nodename;
 	bool force_get;
 	bool force = false;
-	bool res;
+	int pingres = PQPING_NO_RESPONSE;
 	Oid masterTupleOid;
 	HeapTuple masterTuple;
 	HeapTuple slaveTuple;
@@ -5126,24 +5126,37 @@ Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
 		masterTupleOid = HeapTupleGetOid(masterTuple);
 		heap_freetuple(masterTuple);
 		/* check the datanode master has sync slave node */
-		res = mgr_get_normal_slave_node(relNode, masterTupleOid, SYNC_STATE_SYNC, InvalidOid, &slaveNodeName);
+		pingres = mgr_get_normal_slave_node(relNode, masterTupleOid, SYNC_STATE_SYNC, InvalidOid, &slaveNodeName);
 		if (!force)
 		{
-			if (!res)
+			if (pingres == PQPING_OK)
+			{} /*do nothing */
+			else if (pingres == AGENT_DOWN)
 				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-					,errmsg("datanode master \"%s\" does not have synchronous slave node", nodename)
+					,errmsg("some agents could not be connected and cannot find any running normal synchronous slave node for datanode master \"%s\"", nodename)
+					,errhint("try \"monitor agent all;\" to check agents status")));
+			else
+				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+					,errmsg("datanode master \"%s\" does not have running normal synchronous slave node", nodename)
 					,errhint("if the master has one normal asynchronous slave node and you want to promote it to master, execute \"FAILOVER DATANODE %s\" to force promote the slave node to master", nodename)));
 		}
 		else
 		{
-			if (!res)
+			if (pingres != PQPING_OK)
 			{
-				res = mgr_get_normal_slave_node(relNode, masterTupleOid, SYNC_STATE_POTENTIAL, InvalidOid, &slaveNodeName);
-				if (!res)
-					res = mgr_get_normal_slave_node(relNode, masterTupleOid, SYNC_STATE_ASYNC, InvalidOid, &slaveNodeName);
-				if (!res)
-					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-						,errmsg("datanode master \"%s\" does not have one normal slave node", nodename)));
+				pingres = mgr_get_normal_slave_node(relNode, masterTupleOid, SYNC_STATE_POTENTIAL, InvalidOid, &slaveNodeName);
+				if (pingres != PQPING_OK)
+					pingres = mgr_get_normal_slave_node(relNode, masterTupleOid, SYNC_STATE_ASYNC, InvalidOid, &slaveNodeName);
+				if (pingres != PQPING_OK)
+				{
+					if (pingres == AGENT_DOWN)
+						ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+							,errmsg("some agents could not be connected and cannot find any running normal slave node for datanode master \"%s\"", nodename)
+							,errhint("try \"monitor agent all;\" to check agents status")));
+					else
+						ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+							,errmsg("datanode master \"%s\" does not have one normal slave node", nodename)));
+				}
 			}
 		}
 
@@ -5794,7 +5807,7 @@ Datum mgr_failover_gtm(PG_FUNCTION_ARGS)
 	char *nodename;
 	bool force_get;
 	bool force = false;
-	bool res;
+	int pingres = PQPING_NO_RESPONSE;
 	Oid masterTupleOid;
 	HeapTuple masterTuple;
 	HeapTuple slaveTuple;
@@ -5840,22 +5853,34 @@ Datum mgr_failover_gtm(PG_FUNCTION_ARGS)
 		masterTupleOid = HeapTupleGetOid(masterTuple);
 		heap_freetuple(masterTuple);
 		/* check the gtm master has sync slave node */
-		res = mgr_get_normal_slave_node(relNode, masterTupleOid, SYNC_STATE_SYNC, InvalidOid, &slaveNodeName);
+		pingres = mgr_get_normal_slave_node(relNode, masterTupleOid, SYNC_STATE_SYNC, InvalidOid, &slaveNodeName);
 		if (!force)
 		{
-			if (!res)
+			if (pingres == PQPING_OK)
+			{} /*do nothing */
+			else if (pingres == AGENT_DOWN)
 				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-					,errmsg("gtm master \"%s\" does not have synchronous slave node", nodename)
+					,errmsg("some agents could not be connected and cannot find any running normal synchronous slave node for gtm master \"%s\"", nodename)
+					,errhint("try \"monitor agent all;\" to check agents status")));
+			else
+				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+					,errmsg("gtm master \"%s\" does not have running normal synchronous slave node", nodename)
 					,errhint("if the master has one normal asynchronous slave node and you want to promote it to master, execute \"FAILOVER GTM %s\" to force promote the slave node to master", nodename)));
 		}
 		else
 		{
-			if (!res)
+			if (pingres != PQPING_OK)
 			{
-				res = mgr_get_normal_slave_node(relNode, masterTupleOid, SYNC_STATE_POTENTIAL, InvalidOid, &slaveNodeName);
-				if (!res)
-					res = mgr_get_normal_slave_node(relNode, masterTupleOid, SYNC_STATE_ASYNC, InvalidOid, &slaveNodeName);
-				if (!res)
+				pingres = mgr_get_normal_slave_node(relNode, masterTupleOid, SYNC_STATE_POTENTIAL, InvalidOid, &slaveNodeName);
+				if (pingres != PQPING_OK)
+					pingres = mgr_get_normal_slave_node(relNode, masterTupleOid, SYNC_STATE_ASYNC, InvalidOid, &slaveNodeName);
+				if (pingres == PQPING_OK)
+				{} /*do nothing */
+				else if (pingres == AGENT_DOWN)
+					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+						,errmsg("some agents could not be connected and cannot find any running normal slave node for gtm master \"%s\"", nodename)
+						,errhint("try \"monitor agent all;\" to check agents status")));
+				else
 					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 						,errmsg("gtm master \"%s\" does not have one running normal slave node", nodename)));
 			}
@@ -5917,7 +5942,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 	bool isNull;
 	bool reload_host = false;
 	bool reload_port = false;
-	bool rest;
+	bool rest = false;
 	bool hasOtherSlave = true;
 	char *cndnPathtmp;
 	NameData cndnname;
@@ -5934,6 +5959,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 	int maxtry = 15;
 	int try = 0;
 	int nrow = 0;
+	int pingres = PQPING_NO_RESPONSE;
 
 	initStringInfo(&infosendmsg);
 	initStringInfo(&recorderr);
@@ -6146,10 +6172,11 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 	}
 	else
 	{
-		rest = mgr_get_normal_slave_node(noderel, nodemasternameoid, SYNC_STATE_ASYNC, newGtmMasterTupleOid, &slaveNodeName);
-		if (!rest)
+		pingres = mgr_get_normal_slave_node(noderel, nodemasternameoid, SYNC_STATE_ASYNC, newGtmMasterTupleOid, &slaveNodeName);
+		rest = false;
+		if (pingres != PQPING_OK)
 			rest = mgr_get_slave_node(noderel, nodemasternameoid, SYNC_STATE_ASYNC, newGtmMasterTupleOid, &slaveNodeName);
-		if (rest)
+		if (pingres == PQPING_OK || rest)
 		{
 			appendStringInfo(&infosendsyncmsg, "%s", slaveNodeName.data);
 		}
@@ -6323,7 +6350,7 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 	Datum datumPath;
 	bool isNull;
 	bool getrefresh = false;
-	bool rest;
+	bool rest = false;
 	bool hasOtherSlave = true;
 	char *cndnPathtmp;
 	char *address;
@@ -6331,6 +6358,7 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 	char coordport_buf[10];
 	int maxtry = 15;
 	int try;
+	int pingres = PQPING_NO_RESPONSE;
 	ScanKeyData key[2];
 	NameData sync_state_name;
 	NameData slaveNodeName;
@@ -6380,10 +6408,11 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 	}
 	else
 	{
-		rest = mgr_get_normal_slave_node(noderel, nodemasternameoid, SYNC_STATE_ASYNC, newmastertupleoid, &slaveNodeName);
-		if (!rest)
+		pingres = mgr_get_normal_slave_node(noderel, nodemasternameoid, SYNC_STATE_ASYNC, newmastertupleoid, &slaveNodeName);
+		rest = false;
+		if (pingres != PQPING_OK)
 			rest = mgr_get_slave_node(noderel, nodemasternameoid, SYNC_STATE_ASYNC, newmastertupleoid, &slaveNodeName);
-		if (rest)
+		if (pingres == PQPING_OK || rest)
 		{
 			appendStringInfo(&infosendsyncmsg, "%s", slaveNodeName.data);
 		}
@@ -6586,7 +6615,7 @@ Datum mgr_clean_all(PG_FUNCTION_ARGS)
 	if (!mgr_check_cluster_stop(&resnamedata, &restypedata))
 		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 			,errmsg("%s \"%s\" still running, please stop it before clean all", restypedata.data, resnamedata.data)
-			,errhint("try \"monitor all\" for more information")));
+			,errhint("try \"monitor all;\" for more information")));
 
 	/*clean gtm master/slave, clean coordinator, clean datanode master/slave*/
 	return mgr_prepare_clean_all(fcinfo);
