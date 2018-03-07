@@ -529,7 +529,6 @@ bool		enable_pushdown_art;
 bool		enable_zero_year;
 bool		distribute_by_replication_default;
 bool		print_reduce_debug_log = false;
-extern bool enable_node_tcp_log;
 #endif
 #ifdef DEBUG_ADB
 bool		ADB_DEBUG;
@@ -1893,15 +1892,6 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 #endif
-	{
-		{"xc_enable_node_tcp_log", PGC_USERSET, LOGGING,
-			gettext_noop("Save node TCP data to log file"),
-			NULL
-		},
-		&enable_node_tcp_log,
-		false,
-		NULL, NULL, NULL
-	},
 	{
 		{"persistent_datanode_connections", PGC_BACKEND, DEVELOPER_OPTIONS,
 			gettext_noop("Session never releases acquired connections."),

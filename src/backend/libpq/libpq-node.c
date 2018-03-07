@@ -31,7 +31,6 @@ static HTAB *htab_oid_pgconn = NULL;
 
 static void init_htab_oid_pgconn(void);
 static List* apply_for_node_use_oid(List *oid_list);
-static OidPGconn* insert_pgconn_to_htab(int index, char type, PGconn *conn);
 static List* pg_conn_attach_socket(int *fds, Size n);
 static bool PQNExecFinish(PGconn *conn, PQNExecFinishHook_function hook, const void *context);
 static int PQNIsConnecting(PGconn *conn);
@@ -82,42 +81,28 @@ static void init_htab_oid_pgconn(void)
  */
 static List* apply_for_node_use_oid(List *oid_list)
 {
-	List *co_list = NIL;
-	List *dn_list = NIL;
+	List * volatile need_list = NIL;
 	List *result = NIL;
 	ListCell *lc, *lc2;
 	OidPGconn *op;
-	int id;
 
 	foreach(lc, oid_list)
 	{
 		if((op=hash_search(htab_oid_pgconn, &(lfirst_oid(lc)), HASH_FIND, NULL)) != NULL)
 		{
 			result = lappend(result, op->conn);
-			continue;
 		}else
 		{
 			result = lappend(result, NULL);
-		}
-
-		if((id = PGXCNodeGetNodeId(lfirst_oid(lc), PGXC_NODE_DATANODE)) != -1)
-		{
-			dn_list = lappend_int(dn_list, id);
-		}else if((id = PGXCNodeGetNodeId(lfirst_oid(lc), PGXC_NODE_COORDINATOR)) != -1)
-		{
-			co_list = lappend_int(co_list, id);
-		}else
-		{
-			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
-				(errmsg("Can not found node for oid '%u'", lfirst_oid(lc)))));
+			need_list = lappend_oid(need_list, lfirst_oid(lc));
 		}
 	}
 	Assert(list_length(result) == list_length(oid_list));
 
-	if(co_list != NIL || dn_list != NIL)
+	if (need_list != NIL)
 	{
-		List *conns;
-		int *fds = PoolManagerGetConnections(dn_list, co_list);
+		List * volatile conn_list = NIL;
+		pgsocket * volatile fds = PoolManagerGetConnectionsOid(need_list);
 		if(fds == NULL)
 		{
 			/* this error message copy from pgxcnode.c */
@@ -126,24 +111,41 @@ static List* apply_for_node_use_oid(List *oid_list)
 					 errmsg("Failed to get pooled connections")));
 		}
 
-		conns = pg_conn_attach_socket(fds, list_length(dn_list) + list_length(co_list));
-		PQNListExecFinish(conns, NULL, PQNEFHNormal, NULL, true);
-
-		foreach(lc,dn_list)
+		PG_TRY();
 		{
-			insert_pgconn_to_htab(lfirst_int(lc), PGXC_NODE_DATANODE, linitial(conns));
-			conns = list_delete_first(conns);
-		}
-		list_free(dn_list);
+			conn_list = pg_conn_attach_socket(fds, list_length(need_list));
+			Assert(list_length(conn_list) == list_length(need_list));
+			/* at here don't need fds */
+			pfree(fds);
+			fds = NULL;
 
-		foreach(lc, co_list)
+			PQNListExecFinish(conn_list, NULL, PQNEFHNormal, NULL, true);
+
+			foreach(lc, need_list)
+			{
+				op = hash_search(htab_oid_pgconn, &lfirst_oid(lc), HASH_ENTER, NULL);
+				op->conn = linitial(conn_list);
+				op->type = '\0';
+				conn_list = list_delete_first(conn_list);
+			}
+		}PG_CATCH();
 		{
-			insert_pgconn_to_htab(lfirst_int(lc), PGXC_NODE_COORDINATOR, linitial(conns));
-			conns = list_delete_first(conns);
-		}
-		list_free(co_list);
-
-		Assert(conns == NIL);
+			if(fds)
+			{
+				int count = list_length(need_list);
+				while (count-- > 0)
+					closesocket(fds[count]);
+			}else
+			{
+				while(conn_list != NIL)
+				{
+					PQfinish(linitial(conn_list));
+					conn_list = list_delete_first(conn_list);
+				}
+			}
+			PG_RE_THROW();
+		}PG_END_TRY();
+		list_free(need_list);
 	}else
 	{
 		Assert(list_member_ptr(result, NULL) == false);
@@ -164,46 +166,36 @@ static List* apply_for_node_use_oid(List *oid_list)
 	return result;
 }
 
-static OidPGconn* insert_pgconn_to_htab(int index, char type, PGconn *conn)
-{
-	OidPGconn *op;
-	Oid oid;
-	bool found;
-	AssertArg(index >= 0 && conn != NULL);
-
-	oid = PGXCNodeGetNodeOid(index, type);
-	Assert(OidIsValid(oid));
-	op = hash_search(htab_oid_pgconn, &oid, HASH_ENTER, &found);
-	Assert(found == false && op->oid == oid);
-	op->conn = conn;
-	op->type = type;
-
-	return op;
-}
-
 static List* pg_conn_attach_socket(int *fds, Size n)
 {
 	Size i;
-	List *list = NIL;
+	List * volatile list = NIL;
 
-	for(i=0;i<n;++i)
+	PG_TRY();
 	{
-		PGconn *conn = PQbeginAttach(fds[i], NULL, true, PG_PROTOCOL_LATEST);
-		if(conn == NULL)
+		for(i=0;i<n;++i)
 		{
-			ListCell *lc;
-			foreach(lc, list)
+			PGconn *conn = PQbeginAttach(fds[i], NULL, true, PG_PROTOCOL_LATEST);
+			if(conn == NULL)
 			{
-				PQNOneExecFinish(lfirst(lc), PQNEFHNormal, NULL, true);
-				PQdetach(lfirst(lc));
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("Out of memory")));
+			}else
+			{
+				list = lappend(list, conn);
 			}
-			ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY),
-				errmsg("Out of memory")));
-		}else
-		{
-			list = lappend(list, conn);
 		}
-	}
+	}PG_CATCH();
+	{
+		while(list != NIL)
+		{
+			PQNExecFinish_trouble(linitial(list));
+			list = list_delete_first(list);
+		}
+		PG_RE_THROW();
+	}PG_END_TRY();
+
 	return list;
 }
 

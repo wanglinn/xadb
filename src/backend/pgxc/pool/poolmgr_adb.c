@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <time.h>
 #include "access/hash.h"
+#include "access/htup_details.h"
 #include "access/xact.h"
 #include "agtm/agtm_client.h"
 #include "catalog/pgxc_node.h"
@@ -15,8 +16,6 @@
 #include "lib/stringinfo.h"
 #include "miscadmin.h"
 #include "nodes/nodes.h"
-#include "pgxc/locator.h"
-#include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/poolutils.h"
@@ -27,19 +26,14 @@
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
-#include "utils/resowner.h"
+#include "utils/syscache.h"
 #include "libpq/libpq-fe.h"
 #include "libpq/libpq-int.h"
-#ifdef ADB
 #include "pgxc/pause.h"
 #include "intercomm/inter-comm.h"
-#endif
 
 #define START_POOL_ALLOC	512
 #define STEP_POLL_ALLOC		8
-
-/* debug macros */
-#define ADB_DEBUG_POOL 1
 
 #define PM_MSG_ABORT_TRANSACTIONS	'a'
 #define PM_MSG_SEND_LOCAL_COMMAND	'b'
@@ -47,10 +41,7 @@
 #define PM_MSG_DISCONNECT			'd'
 #define PM_MSG_CLEAN_CONNECT		'f'
 #define PM_MSG_GET_CONNECT			'g'
-#define PM_MSG_CANCEL_QUERY			'h'
 #define PM_MSG_LOCK					'o'
-#define PM_MSG_RELOAD_CONNECT		'p'
-#define PM_MSG_CHECK_CONNECT		'q'
 #define PM_MSG_RELEASE_CONNECT		'r'
 #define PM_MSG_SET_COMMAND			's'
 #define PM_MSG_CLOSE_CONNECT		'C'
@@ -155,10 +146,16 @@ typedef struct ADBNodePoolSlot
 	SlotCurrentList		current_list;
 } ADBNodePoolSlot;
 
+typedef struct HostInfo
+{
+	char	   *hostname;
+	uint16		port;
+}HostInfo;
+
 /* Pool of connections to specified pgxc node */
 typedef struct ADBNodePool
 {
-	Oid			nodeoid;	/* Node Oid related to this pool */
+	HostInfo	hostinfo;	/* Node Oid related to this pool */
 	dlist_head	uninit_slot;
 	dlist_head	released_slot;
 	dlist_head	idle_slot;
@@ -183,6 +180,12 @@ typedef struct DatabasePool
 										 * Coordinator or DataNode */
 } DatabasePool;
 
+typedef struct ConnectedInfo
+{
+	HostInfo			info;
+	ADBNodePoolSlot	   *slot;
+}ConnectedInfo;
+
 /*
  * Agent of client session (Pool Manager side)
  * Acts as a session manager, grouping connections together
@@ -193,12 +196,7 @@ typedef struct PoolAgent
 	/* communication channel */
 	PoolPort		port;
 	DatabasePool   *db_pool;
-	Size			num_dn_connections;
-	Size			num_coord_connections;
-	ADBNodePoolSlot **dn_connections; /* one for each Datanode */
-	ADBNodePoolSlot **coord_connections; /* one for each Coordinator */
-	Oid			   *datanode_oids;
-	Oid			   *coord_oids;
+	HTAB		   *connected_node;	/* ConnectedInfo */
 	char		   *session_params;
 	char		   *local_params;
 	uint32			session_magic;	/* magic number for session_params */
@@ -264,9 +262,8 @@ static void agent_error_hook(void *arg);
 static void agent_check_waiting_slot(PoolAgent *agent);
 static bool agent_recv_data(PoolAgent *agent);
 static bool agent_has_completion_msg(PoolAgent *agent, StringInfo msg, int *msg_type);
-static char * build_node_conn_str(Oid node, DatabasePool *dbPool);
 static int *abort_pids(int *count, int pid, const char *database, const char *user_name);
-static int clean_connection(List *node_discard, const char *database, const char *user_name);
+static int clean_connection(StringInfo msg);
 static bool check_slot_status(ADBNodePoolSlot *slot);
 
 static void agent_create(volatile pgsocket new_fd);
@@ -275,13 +272,9 @@ static void agent_idle_connections(PoolAgent *agent, bool force_destroy);
 static void process_slot_event(ADBNodePoolSlot *slot);
 static void save_slot_error(ADBNodePoolSlot *slot);
 static bool get_slot_result(ADBNodePoolSlot *slot);
-static void agent_acquire_connections(PoolAgent *agent, const List *datanodelist, const List *coordlist);
-static void agent_acquire_conn_list(ADBNodePoolSlot **slots, const Oid *oids, const List *node_list, PoolAgent *agent);
-static void cancel_query_on_connections(PoolAgent *agent, Size count, ADBNodePoolSlot **slots, const List *nodelist);
-static void reload_database_pools(PoolAgent *agent);
-static int node_info_check(PoolAgent *agent);
+static void agent_acquire_connections(PoolAgent *agent, StringInfo msg);
 static int agent_session_command(PoolAgent *agent, const char *set_command, PoolCommandType command_type, StringInfo errMsg);
-static int send_local_commands(PoolAgent *agent, List *datanodelist, List *coordlist);
+static int send_local_commands(PoolAgent *agent, StringInfo msg);
 
 static void destroy_slot(ADBNodePoolSlot *slot, bool send_cancel);
 static void release_slot(ADBNodePoolSlot *slot, bool force_close);
@@ -298,11 +291,11 @@ static void check_idle_slot(void);
 
 /* for hash DatabasePool */
 static HTAB *htab_database;
-#ifdef ADB_DEBUG_POOL
-static List* list_database;
-#endif /* ADB_DEBUG_POOL */
+static uint32 hash_any_v(const void *key, int keysize, ...);
 static uint32 hash_database_info(const void *key, Size keysize);
 static int match_database_info(const void *key1, const void *key2, Size keysize);
+static uint32 hash_host_info(const void *key, Size keysize);
+static int match_host_info(const void *key1, const void *key2, Size keysize);
 static void create_htab_database(void);
 static void destroy_htab_database(void);
 static DatabasePool *get_database_pool(const char *database, const char *user_name, const char *pgoptions);
@@ -313,10 +306,27 @@ static void pool_sendstring(StringInfo buf, const char *str);
 static const char *pool_getstring(StringInfo buf);
 static void pool_sendint(StringInfo buf, int ival);
 static int pool_getint(StringInfo buf);
-static void pool_sendint_array(StringInfo buf, int count, const int *arr);
-static void pool_send_nodeid_list(StringInfo buf, const List *list);
-static List* pool_get_nodeid_list(StringInfo buf);
 static void on_exit_pooler(int code, Datum arg);
+/*
+ * usage:
+ *  HostInfo info;
+ *  foreach_recv_hostinfo(info, msg)
+ *  {
+ *     same code
+ *  }end_recv_hostinfo(&info, msg)
+ */
+#define foreach_recv_hostinfo(host_, buf_)							\
+		{															\
+			int count_ = pool_getint(buf_);							\
+			while(count_-- > 0)										\
+			{														\
+				(host_).hostname = (char*) pool_getstring(buf_);	\
+				(host_).port = (uint16) pool_getint(buf_);
+#define end_recv_hostinfo(host_, buf_)								\
+			}														\
+		}
+static void send_host_info(StringInfo buf, List *oidlist);
+static List* recv_host_info(StringInfo buf, bool dup_str);
 
 /* check slot state */
 #if 0
@@ -413,7 +423,7 @@ PoolManagerInit()
 	/* Allocate pooler structures in the Pooler context */
 	MemoryContextSwitchTo(PoolerMemoryContext);
 
-	max_agent_count = MaxConnections << 1; /* MaxConnections * 2 */
+	max_agent_count = (MaxConnections << 1) + max_worker_processes;
 	poolAgents = (PoolAgent **) palloc(max_agent_count * sizeof(PoolAgent *));
 	agentCount = 0;
 
@@ -771,6 +781,8 @@ static void agent_create(volatile pgsocket new_fd)
 
 	PG_TRY();
 	{
+		HASHCTL ctl;
+
 		/* Allocate MemoryContext */
 		context = AllocSetContextCreate(PoolerMemoryContext,
 								"PoolAgent",
@@ -782,6 +794,18 @@ static void agent_create(volatile pgsocket new_fd)
 		agent->mctx = context;
 		INIT_PARAMS_MAGIC(agent, session_magic);
 		INIT_PARAMS_MAGIC(agent, local_magic);
+
+		MemSet(&ctl, 0, sizeof(ctl));
+		ctl.keysize = sizeof(HostInfo);
+		ctl.entrysize = sizeof(ConnectedInfo);
+		ctl.hash = hash_host_info;
+		ctl.match = match_host_info;
+		ctl.hcxt = context;
+		agent->connected_node = hash_create("agent connected slot",
+											1024,
+											&ctl,
+											HASH_ELEM|HASH_FUNCTION|HASH_COMPARE|HASH_CONTEXT);
+
 	}PG_CATCH();
 	{
 		closesocket(new_fd);
@@ -1000,11 +1024,7 @@ agent_init(PoolAgent *agent, const char *database, const char *user_name,
            const char *pgoptions)
 {
 	MemoryContext oldcontext;
-	int num_coord,num_datanode;
-	volatile bool has_error;
 
-	num_coord = 0;
-	num_datanode = 0;
 	AssertArg(agent);
 	if(database == NULL || user_name == NULL)
 		return false;
@@ -1017,30 +1037,12 @@ agent_init(PoolAgent *agent, const char *database, const char *user_name,
 
 	oldcontext = MemoryContextSwitchTo(agent->mctx);
 
-	has_error = false;
-	PG_TRY_HOLD();
-	{
-		/* Get needed info and allocate memory */
-		PgxcNodeGetOids(&(agent->coord_oids), &(agent->datanode_oids)
-				, &num_coord, &num_datanode, false);
-
-		agent->coord_connections = (ADBNodePoolSlot **)
-				palloc0(num_coord * sizeof(ADBNodePoolSlot *));
-		agent->dn_connections = (ADBNodePoolSlot **)
-				palloc0(num_datanode * sizeof(ADBNodePoolSlot *));
-		/* get database */
-		agent->db_pool = get_database_pool(database, user_name, pgoptions);
-
-		agent->num_coord_connections = num_coord;
-		agent->num_dn_connections = num_datanode;
-	}PG_CATCH_HOLD();
-	{
-		has_error = true;
-		errdump();
-	}PG_END_TRY_HOLD();
+	/* get database */
+	agent->db_pool = get_database_pool(database, user_name, pgoptions);
 
 	MemoryContextSwitchTo(oldcontext);
-	return has_error == false ? true:false;
+
+	return true;
 }
 
 /*
@@ -1142,19 +1144,60 @@ PoolManagerDisconnect(void)
 	}
 }
 
+static void send_host_info(StringInfo buf, List *oidlist)
+{
+	ListCell *lc;
+	HeapTuple		tuple;
+	Form_pgxc_node	nodeForm;
+
+	pool_sendint(buf, list_length(oidlist));
+
+	foreach(lc, oidlist)
+	{
+		tuple = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(lfirst_oid(lc)));
+		if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for node %u", lfirst_oid(lc));
+
+		nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
+		pool_sendstring(buf, NameStr(nodeForm->node_host));
+		pool_sendint(buf, nodeForm->node_port);
+
+		ReleaseSysCache(tuple);
+	}
+}
+
+static List* recv_host_info(StringInfo buf, bool dup_str)
+{
+	List *list = NIL;
+	HostInfo *info;
+	int count;
+
+	count = pool_getint(buf);
+	while (count-- > 0)
+	{
+		info = palloc(sizeof(*info));
+		info->hostname = (char*)pool_getstring(buf);
+		info->port = (uint16)pool_getint(buf);
+		if (dup_str)
+			info->hostname = pstrdup(info->hostname);
+		list = lappend(list, info);
+	}
+
+	return list;
+}
 
 /*
  * Get pooled connections
  */
-int *
-PoolManagerGetConnections(List *datanodelist, List *coordlist)
+pgsocket *
+PoolManagerGetConnectionsOid(List *oidlist)
 {
-	StringInfoData buf;
 	pgsocket *fds;
+	StringInfoData buf;
 	int val;
 
 	Assert(poolHandle != NULL);
-	if(datanodelist == NIL && coordlist == NIL)
+	if(oidlist == NIL)
 		return NULL;
 
 	pq_beginmessage(&buf, PM_MSG_GET_CONNECT);
@@ -1165,18 +1208,14 @@ PoolManagerGetConnections(List *datanodelist, List *coordlist)
 		ereport(ERROR, (errmsg("Invalid agtm listen port %d", val)));
 	pool_sendint(&buf, val);
 
-	/* datanode count and oid(s) */
-	pool_send_nodeid_list(&buf, datanodelist);
-
-	/* coord count and oid(s) */
-	pool_send_nodeid_list(&buf, coordlist);
+	send_host_info(&buf, oidlist);
 
 	/* send message */
 	pool_putmessage(&poolHandle->port, (char)(buf.cursor), buf.data, buf.len);
 	pool_flush(&poolHandle->port);
 
 	/* Receive response */
-	val = list_length(datanodelist) + list_length(coordlist);
+	val = list_length(oidlist);
 	/* we reuse buf.data, here palloc maybe failed */
 	Assert(buf.maxlen >= sizeof(pgsocket)*val);
 	fds = (int*)(buf.data);
@@ -1217,26 +1256,16 @@ PoolManagerAbortTransactions(char *dbname, char *username, int **proc_pids)
 /*
  * Clean up Pooled connections
  */
-void
-PoolManagerCleanConnection(List *datanodelist, List *coordlist, char *dbname, char *username)
+
+void PoolManagerCleanConnectionOid(List *oidlist, const char *dbname, const char *username)
 {
 	StringInfoData buf;
-	ListCell *lc;
-	int ival;
+	if (oidlist == NIL)
+		return;
 
 	pq_beginmessage(&buf, PM_MSG_CLEAN_CONNECT);
 
-	/* list datanode(s) */
-	ival = list_length(datanodelist);
-	pq_sendbytes(&buf, (char*)&ival, sizeof(ival));
-	foreach(lc, datanodelist)
-		pq_sendbytes(&buf, (char*)&(lfirst_int(lc)), sizeof(lfirst_int(lc)));
-
-	/* list coord(s) */
-	ival = list_length(coordlist);
-	pq_sendbytes(&buf, (char*)&ival, sizeof(ival));
-	foreach(lc, coordlist)
-		pq_sendbytes(&buf, (char*)&(lfirst_int(lc)), sizeof(lfirst_int(lc)));
+	send_host_info(&buf, oidlist);
 
 	/* send database string */
 	pool_sendstring(&buf, dbname);
@@ -1251,41 +1280,8 @@ PoolManagerCleanConnection(List *datanodelist, List *coordlist, char *dbname, ch
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Clean connections not completed")));
-}
 
-
-/*
- * Check connection information consistency cached in pooler with catalog information
- */
-bool
-PoolManagerCheckConnectionInfo(void)
-{
-	int res;
-
-	Assert(poolHandle);
-	PgxcNodeListAndCount();
-	pool_putmessage(&poolHandle->port, PM_MSG_CHECK_CONNECT, NULL, 0);
-	pool_flush(&poolHandle->port);
-
-	res = pool_recvres(&poolHandle->port);
-
-	if (res == POOL_CHECK_SUCCESS)
-		return true;
-
-	return false;
-}
-
-
-/*
- * Reload connection data in pooler and drop all the existing connections of pooler
- */
-void
-PoolManagerReloadConnectionInfo(void)
-{
-	Assert(poolHandle);
-	PgxcNodeListAndCount();
-	pool_putmessage(&poolHandle->port, PM_MSG_RELOAD_CONNECT, NULL, 0);
-	pool_flush(&poolHandle->port);
+	pfree(buf.data);
 }
 
 void PoolManagerReleaseConnections(bool force_close)
@@ -1295,27 +1291,6 @@ void PoolManagerReleaseConnections(bool force_close)
 		, force_close ? PM_MSG_CLOSE_CONNECT:PM_MSG_RELEASE_CONNECT
 		, NULL, 0);
 	pool_flush(&(poolHandle->port));
-}
-
-void PoolManagerCancelQuery(int dn_count, int* dn_list, int co_count, int* co_list)
-{
-	StringInfoData buf;
-	if (poolHandle == NULL)
-		return;
-
-	if (dn_count == 0 && co_count == 0)
-		return;
-
-	if (dn_count != 0 && dn_list == NULL)
-		return;
-
-	if (co_count != 0 && co_list == NULL)
-		return;
-
-	pq_beginmessage(&buf, PM_MSG_CANCEL_QUERY);
-	pool_sendint_array(&buf, dn_count, dn_list);
-	pool_sendint_array(&buf, co_count, co_list);
-	pool_end_flush_msg(&(poolHandle->port), &buf);
 }
 
 static void pooler_quickdie(SIGNAL_ARGS)
@@ -1336,34 +1311,6 @@ static void pooler_sighup(SIGNAL_ARGS)
 bool IsPoolHandle(void)
 {
 	return poolHandle != NULL;
-}
-
-
-/*
- * Given node identifier, dbname and user name build connection string.
- * Get node connection details from the shared memory node table
- */
-static char * build_node_conn_str(Oid node, DatabasePool *dbPool)
-{
-	NodeDefinition *nodeDef;
-	char 		   *connstr;
-
-	nodeDef = PgxcNodeGetDefinition(node);
-	if (nodeDef == NULL)
-	{
-		/* No such definition, node is dropped? */
-		return NULL;
-	}
-
-	connstr = PGXCNodeConnStr(NameStr(nodeDef->nodehost),
-							  nodeDef->nodeport,
-							  dbPool->db_info.database,
-							  dbPool->db_info.user_name,
-							  dbPool->db_info.pgoptions,
-							  IS_PGXC_COORDINATOR ? "coordinator" : "datanode");
-	pfree(nodeDef);
-
-	return connstr;
 }
 
 /*
@@ -1421,11 +1368,8 @@ static void agent_handle_input(PoolAgent * agent, StringInfo s)
 	const char *database;
 	const char *user_name;
 	const char *pgoptions;
-	List		*nodelist;
-	List		*coordlist;
-	List		*datanodelist;
 	int			*pids;
-	int			i,len,res;
+	int			len,res;
 	int qtype;
 
 	/* try recv data */
@@ -1472,12 +1416,8 @@ static void agent_handle_input(PoolAgent * agent, StringInfo s)
 				pfree(pids);
 			break;
 		case PM_MSG_SEND_LOCAL_COMMAND:
-			datanodelist = pool_get_nodeid_list(s);
-			coordlist = pool_get_nodeid_list(s);
-			res = send_local_commands(agent, datanodelist, coordlist);
+			res = send_local_commands(agent, s);
 			pool_sendres(&agent->port, res);
-			list_free(datanodelist);
-			list_free(coordlist);
 			break;
 		case PM_MSG_CONNECT:
 			err_calback.arg = NULL; /* do not send error if have */
@@ -1497,74 +1437,19 @@ static void agent_handle_input(PoolAgent * agent, StringInfo s)
 			pq_getmsgend(s);
 			goto end_agent_input_;
 		case PM_MSG_CLEAN_CONNECT:
-			{
-				ADBNodePoolSlot *slot;
-				int idx;
-				pq_copymsgbytes(s, (char*)&len, sizeof(len));
-				nodelist = NIL;
-				for(i=0;i<len;++i)
-				{
-					pq_copymsgbytes(s, (char*)&idx, sizeof(idx));
-					if((Size)idx > agent->num_dn_connections)
-						ereport(ERROR, (errmsg("invalid index for clean connection from backend")));
-					if(agent->dn_connections == NULL || agent->dn_connections[idx] == NULL)
-						continue;
-					slot = agent->dn_connections[idx];
-					Assert(slot->parent);
-					nodelist = lappend_oid(nodelist, slot->parent->nodeoid);
-				}
-
-				pq_copymsgbytes(s, (char*)&len, sizeof(len));
-				for(i=0;i<len;++i)
-				{
-					pq_copymsgbytes(s, (char*)&idx, sizeof(idx));
-					if((Size)idx > agent->num_coord_connections)
-						ereport(ERROR, (errmsg("invalid index for clean connection from backend")));
-					if(agent->coord_connections == NULL || agent->coord_connections[idx] == NULL)
-						continue;
-					slot = agent->coord_connections[idx];
-					Assert(slot->parent);
-					nodelist = lappend_oid(nodelist, slot->parent->nodeoid);
-				}
-				database = pool_getstring(s);
-				user_name = pool_getstring(s);
-				res = clean_connection(nodelist, database, user_name);
-				list_free(nodelist);
-				pool_sendres(&agent->port, res);
-			}
+			res = clean_connection(s);
+			pool_sendres(&agent->port, res);
 			break;
 		case PM_MSG_GET_CONNECT:
 			{
 				agent->agtm_port = pool_getint(s);
-				datanodelist = pool_get_nodeid_list(s);
-				coordlist = pool_get_nodeid_list(s);
-				agent_acquire_connections(agent, datanodelist, coordlist);
+				agent_acquire_connections(agent, s);
 				AssertState(agent->list_wait != NIL);
-				list_free(coordlist);
-				list_free(datanodelist);
 			}
-			break;
-		case PM_MSG_CANCEL_QUERY:
-			err_calback.arg = NULL; /* do not send error if have */
-			datanodelist = pool_get_nodeid_list(s);
-			coordlist = pool_get_nodeid_list(s);
-
-			cancel_query_on_connections(agent, agent->num_dn_connections, agent->dn_connections, datanodelist);
-			cancel_query_on_connections(agent, agent->num_coord_connections, agent->coord_connections, coordlist);
-			list_free(datanodelist);
-			list_free(coordlist);
 			break;
 		case PM_MSG_LOCK:		/* Lock/unlock pooler */
 			err_calback.arg = NULL; /* do not send error if have */
 			is_pool_locked = pq_getmsgbyte(s);
-			break;
-		case PM_MSG_RELOAD_CONNECT:
-			err_calback.arg = NULL; /* do not send error if have */
-			reload_database_pools(agent);
-			break;
-		case PM_MSG_CHECK_CONNECT:
-			res = node_info_check(agent);
-			pool_sendres(&agent->port, res);
 			break;
 		case PM_MSG_RELEASE_CONNECT:
 		case PM_MSG_CLOSE_CONNECT:
@@ -1880,8 +1765,7 @@ send_agtm_port_:
 	{
 		static int *pfds = NULL;
 		static Size max_fd = 0;
-		Size i,count,index;
-		Oid oid;
+		Size count,index;
 		PG_TRY();
 		{
 			if(max_fd == 0)
@@ -1900,35 +1784,11 @@ send_agtm_port_:
 			foreach(lc, agent->list_wait)
 			{
 				slot = lfirst(lc);
-				Assert(slot->slot_state == SLOT_STATE_LOCKED
-					&& slot->owner == agent);
+				Assert(slot->slot_state == SLOT_STATE_LOCKED &&
+					   slot->owner == agent);
 				slot->last_user_pid = agent->pid;
 				pfds[index] = PQsocket(slot->conn);
 				Assert(pfds[index] != PGINVALID_SOCKET);
-
-				oid = slot->parent->nodeoid;
-
-				count = agent->num_coord_connections;
-				for(i=0;i<count;++i)
-				{
-					if(agent->coord_oids[i] == oid)
-					{
-						agent->coord_connections[i] = slot;
-						goto next_save_;
-					}
-				}
-
-				count = agent->num_dn_connections;
-				for(i=0;i<count;++i)
-				{
-					if(agent->datanode_oids[i] == oid)
-					{
-						agent->dn_connections[i] = slot;
-						goto next_save_;
-					}
-				}
-next_save_:
-				Assert(i<count);
 				++index;
 			}
 
@@ -1936,34 +1796,18 @@ next_save_:
 				ereport(ERROR, (errmsg("can not send fds to backend")));
 		}PG_CATCH();
 		{
+			ConnectedInfo *info;
 			agent = volAgent;
 			while(agent->list_wait != NIL)
 			{
 				slot = linitial(agent->list_wait);
 				agent->list_wait = list_delete_first(agent->list_wait);
-				oid = slot->parent->nodeoid;
-
-				count = agent->num_coord_connections;
-				for(i=0;i<count;++i)
-				{
-					if(agent->coord_oids[i] == oid)
-					{
-						agent->coord_connections[i] = NULL;
-						goto re_find_;
-					}
-				}
-				count = agent->num_dn_connections;
-				for(i=0;i<count;++i)
-				{
-					if(agent->datanode_oids[i] == oid)
-					{
-						agent->dn_connections[i] = NULL;
-						goto re_find_;
-					}
-				}
-re_find_:
-				Assert(i<count);
-		//		dlist_delete(&slot->dnode);
+				info = hash_search(agent->connected_node,
+								   &slot->parent->hostinfo,
+								   HASH_FIND,
+								   NULL);
+				Assert(info);
+				pfree(info->info.hostname);
 				release_slot(slot, false);
 			}
 			PG_RE_THROW();
@@ -2085,16 +1929,22 @@ static bool agent_has_completion_msg(PoolAgent *agent, StringInfo msg, int *msg_
 	return true;
 }
 
-static int clean_connection(List *node_discard, const char *database, const char *user_name)
+static int clean_connection(StringInfo msg)
 {
 	DatabasePool *db_pool;
 	ADBNodePool *nodes_pool;
+	List *list;
 	ListCell *lc;
+	const char *database;
+	const char *user_name;
 	HASH_SEQ_STATUS hash_db_status;
 	int res;
 
-	AssertArg(database);
-	if(htab_database == NULL || node_discard == NIL)
+	list = recv_host_info(msg, false);
+	database = pool_getstring(msg);
+	user_name = pool_getstring(msg);
+
+	if(htab_database == NULL || list == NIL)
 		return CLEAN_CONNECTION_COMPLETED;
 
 	res = CLEAN_CONNECTION_COMPLETED;
@@ -2103,16 +1953,16 @@ retry_clean_connection_:
 	hash_seq_init(&hash_db_status, htab_database);
 	while((db_pool = hash_seq_search(&hash_db_status)) != NULL)
 	{
-		if(db_pool->db_info.database && database &&
-						strcmp(db_pool->db_info.database, database) != 0)
+		if (db_pool->db_info.database && database &&
+			strcmp(db_pool->db_info.database, database) != 0)
 			continue;
-		if(db_pool->db_info.user_name && user_name &&
-						strcmp(db_pool->db_info.user_name, user_name) != 0)
+		if (db_pool->db_info.user_name && user_name &&
+			strcmp(db_pool->db_info.user_name, user_name) != 0)
 			continue;
 
-		foreach(lc, node_discard)
+		foreach(lc, list)
 		{
-			nodes_pool = hash_search(db_pool->htab_nodes, &(lfirst_oid(lc)), HASH_FIND, NULL);
+			nodes_pool = hash_search(db_pool->htab_nodes, lfirst(lc), HASH_FIND, NULL);
 			if(nodes_pool == NULL)
 				continue;
 
@@ -2136,6 +1986,7 @@ retry_clean_connection_:
 	}
 
 	is_pool_locked = false;
+	list_free_deep(list);
 	return res;
 }
 
@@ -2198,68 +2049,29 @@ end_check_slot_status_:
  * send transaction local commands if any, set the begin sent status in any case
  */
 static int
-send_local_commands(PoolAgent *agent, List *datanodelist, List *coordlist)
+send_local_commands(PoolAgent *agent, StringInfo msg)
 {
+	ConnectedInfo *info;
+	HostInfo	key;
 	int			tmp;
 	int			res;
-	ListCell		*nodelist_item;
 	ADBNodePoolSlot	*slot;
 
 	Assert(agent);
+	if (agent->local_params == NULL)
+		return 0;
 
 	res = 0;
-
-	if (datanodelist != NULL)
+	foreach_recv_hostinfo(key, msg)
 	{
-		res = list_length(datanodelist);
-		if (res > 0 && agent->dn_connections == NULL)
-			return 0;
-
-		foreach(nodelist_item, datanodelist)
+		info = hash_search(agent->connected_node, &key, HASH_FIND, NULL);
+		if (info != NULL)
 		{
-			int	node = lfirst_int(nodelist_item);
-
-			if(node < 0 || node >= agent->num_dn_connections)
-				continue;
-
-			slot = agent->dn_connections[node];
-
-			if (slot == NULL)
-				continue;
-
-			if (agent->local_params != NULL)
-			{
-				tmp = PGXCNodeSendSetQuery((NODE_CONNECTION*)(slot->conn), agent->local_params);
-				res = res + tmp;
-			}
+			slot = info->slot;
+			tmp = PGXCNodeSendSetQuery((NODE_CONNECTION*)(slot->conn), agent->local_params);
+			res += tmp;
 		}
-	}
-
-	if (coordlist != NULL)
-	{
-		res = list_length(coordlist);
-		if (res > 0 && agent->coord_connections == NULL)
-			return 0;
-
-		foreach(nodelist_item, coordlist)
-		{
-			int	node = lfirst_int(nodelist_item);
-
-			if(node < 0 || node >= agent->num_coord_connections)
-				continue;
-
-			slot = agent->coord_connections[node];
-
-			if (slot == NULL)
-				continue;
-
-			if (agent->local_params != NULL)
-			{
-				tmp = PGXCNodeSendSetQuery((NODE_CONNECTION*)(slot->conn), agent->local_params);
-				res = res + tmp;
-			}
-		}
-	}
+	}end_recv_hostinfo(key, msg)
 
 	if (res < 0)
 		return -res;
@@ -2419,38 +2231,36 @@ static void destroy_node_pool(ADBNodePool *node_pool, bool bfree)
 	{
 		Assert(node_pool->parent);
 		if(node_pool->connstr)
+		{
 			pfree(node_pool->connstr);
-		hash_search(node_pool->parent->htab_nodes, &node_pool->nodeoid, HASH_REMOVE, NULL);
-	}else
-	{
-		for(i=0;i<lengthof(dheads);++i)
-			dlist_init(dheads[i]);
+			node_pool->connstr = NULL;
+		}
+		hash_search(node_pool->parent->htab_nodes, &node_pool->hostinfo, HASH_REMOVE, NULL);
 	}
 }
 
 static bool node_pool_in_using(ADBNodePool *node_pool)
 {
-	Size i,j;
+	Size i;
 	PoolAgent *agent;
 	ListCell *lc;
 	ADBNodePoolSlot *slot;
+	ConnectedInfo *info;
+	HASH_SEQ_STATUS hseq;
 	AssertArg(node_pool);
 
 	for(i=0;i<agentCount;++i)
 	{
 		agent = poolAgents[i];
 		Assert(agent);
-		for(j=0;j<agent->num_dn_connections;++j)
+		hash_seq_init(&hseq, agent->connected_node);
+		while ((info=hash_seq_search(&hseq)) != NULL)
 		{
-			if(agent->dn_connections[j]
-				&& agent->dn_connections[j]->parent == node_pool)
+			if (info->slot->parent == node_pool)
+			{
+				hash_seq_term(&hseq);
 				return true;
-		}
-		for(j=0;j<agent->num_coord_connections;++j)
-		{
-			if(agent->coord_connections[j]
-				&& agent->coord_connections[j]->parent == node_pool)
-				return true;
+			}
 		}
 		foreach(lc, agent->list_wait)
 		{
@@ -2574,12 +2384,15 @@ static DatabasePool *get_database_pool(const char *database, const char *user_na
 			tmp_pool.db_info.pgoptions = pstrdup(pgoptions);
 
 			memset(&hctl, 0, sizeof(hctl));
-			hctl.keysize = sizeof(Oid);
+			hctl.keysize = sizeof(HostInfo);
 			hctl.entrysize = sizeof(ADBNodePool);
-			hctl.hash = oid_hash;
+			hctl.hash = hash_host_info;
+			hctl.match = match_host_info;
 			hctl.hcxt = TopMemoryContext;
-			tmp_pool.htab_nodes = hash_create("hash ADBNodePool", 97, &hctl
-				, HASH_ELEM | HASH_CONTEXT | HASH_FUNCTION);
+			tmp_pool.htab_nodes = hash_create("hash ADBNodePool",
+											  1024,
+											  &hctl,
+											  HASH_ELEM | HASH_CONTEXT | HASH_FUNCTION | HASH_COMPARE);
 			(void)MemoryContextSwitchTo(old_context);
 		}PG_CATCH();
 		{
@@ -2611,9 +2424,6 @@ static void destroy_database_pool(DatabasePool *db_pool, bool bfree)
 	if(bfree)
 	{
 		hash_search(htab_database, &info, HASH_REMOVE, NULL);
-#ifdef ADB_DEBUG_POOL
-		list_database = list_delete_ptr(list_database, db_pool);
-#endif /* ADB_DEBUG_POOL */
 	}
 	if(info.pgoptions)
 		pfree(info.pgoptions);
@@ -2626,41 +2436,30 @@ static void destroy_database_pool(DatabasePool *db_pool, bool bfree)
 static void agent_release_connections(PoolAgent *agent, bool force_destroy)
 {
 	ADBNodePoolSlot *slot;
-	Size i;
+	ConnectedInfo *info;
+	HASH_SEQ_STATUS hseq;
 	AssertArg(agent);
-#ifdef ADB
+
 	if (!force_destroy && cluster_ex_lock_held)
 	{
 		elog(LOG, "Not releasing connection with cluster lock");
 		return;
 	}
-#endif
 
-	for(i=0;i<agent->num_dn_connections;++i)
+	hash_seq_init(&hseq, agent->connected_node);
+	while ((info=hash_seq_search(&hseq)) != NULL)
 	{
-		Assert(agent->dn_connections);
-		slot = agent->dn_connections[i];
-		if(slot)
-		{
-			Assert(slot->slot_state == SLOT_STATE_LOCKED
-				&& slot->owner == agent
-				&& slot->last_user_pid == agent->pid);
-			release_slot(slot, force_destroy);
-			agent->dn_connections[i] = NULL;
-		}
-	}
-	for(i=0;i<agent->num_coord_connections;++i)
-	{
-		Assert(agent->coord_connections);
-		slot = agent->coord_connections[i];
-		if(slot)
-		{
-			Assert(slot->slot_state == SLOT_STATE_LOCKED
-				&& slot->owner == agent
-				&& slot->last_user_pid == agent->pid);
-			release_slot(slot, force_destroy);
-			agent->coord_connections[i] = NULL;
-		}
+		slot = info->slot;
+		if (list_member_ptr(agent->list_wait, slot))
+			continue;
+		Assert(slot->slot_state == SLOT_STATE_LOCKED
+			&& slot->owner == agent
+			&& slot->last_user_pid == agent->pid);
+
+		hash_search(agent->connected_node, &info->info, HASH_REMOVE, NULL);
+		pfree(info->info.hostname);
+		info->info.hostname = NULL;
+		release_slot(slot, force_destroy);
 	}
 }
 
@@ -2668,35 +2467,22 @@ static void agent_release_connections(PoolAgent *agent, bool force_destroy)
 static void agent_idle_connections(PoolAgent *agent, bool force_destroy)
 {
 	ADBNodePoolSlot *slot;
-	Size i;
+	ConnectedInfo *info;
+	HASH_SEQ_STATUS hseq;
+
 	AssertArg(agent);
-	for(i=0;i<agent->num_dn_connections;++i)
+	hash_seq_init(&hseq, agent->connected_node);
+	while ((info=hash_seq_search(&hseq)) != NULL)
 	{
-		Assert(agent->dn_connections);
-		slot = agent->dn_connections[i];
-		if(slot)
+		slot = info->slot;
+		if((slot->slot_state == SLOT_STATE_RELEASED || slot->slot_state == SLOT_STATE_LOCKED)
+			&& slot->last_user_pid == agent->pid)
 		{
-			if((slot->slot_state == SLOT_STATE_RELEASED || slot->slot_state == SLOT_STATE_LOCKED)
-				&& slot->last_user_pid == agent->pid)
-			{
-				idle_slot(slot, true);
-			}
-			agent->dn_connections[i] = NULL;
+			idle_slot(slot, true);
 		}
-	}
-	for(i=0;i<agent->num_coord_connections;++i)
-	{
-		Assert(agent->coord_connections);
-		slot = agent->coord_connections[i];
-		if(slot)
-		{
-			if((slot->slot_state == SLOT_STATE_RELEASED || slot->slot_state == SLOT_STATE_LOCKED)
-				&& slot->last_user_pid == agent->pid)
-			{
-				idle_slot(slot, true);
-			}
-			agent->coord_connections[i] = NULL;
-		}
+		hash_search(agent->connected_node, &info->info, HASH_REMOVE, NULL);
+		pfree(info->info.hostname);
+		info->info.hostname = NULL;
 	}
 }
 
@@ -2865,181 +2651,182 @@ reget_slot_result_:
 	goto reget_slot_result_;
 }
 
-static void agent_acquire_conn_list(ADBNodePoolSlot **slots, const Oid *oids, const List *node_list, PoolAgent *agent)
+static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 {
-	ListCell *lc;
 	ADBNodePoolSlot *slot,*tmp_slot;
 	ADBNodePool *node_pool;
-	MemoryContext oldcontex;
+	MemoryContext old_context;
+	ConnectedInfo *connected_info;
+	HostInfo info;
 	dlist_iter iter;
-	int index;
-	bool found;
-
-	AssertArg(slots && oids && agent && agent->db_pool);
-
-	oldcontex = CurrentMemoryContext;
-	foreach(lc,node_list)
-	{
-		index = lfirst_int(lc);
-		if(slots[index] != NULL)
-		{
-			ereport(ERROR, (errmsg("double get node connect for oid %u", oids[index])));
-		}
-
-		node_pool = hash_search(agent->db_pool->htab_nodes, oids+index, HASH_ENTER, &found);
-		if(!found)
-		{
-			HTAB * volatile htab = agent->db_pool->htab_nodes;
-			const Oid * volatile poid = oids+index;
-			node_pool->parent = agent->db_pool;
-			PG_TRY();
-			{
-				char *str = build_node_conn_str(node_pool->nodeoid, node_pool->parent);
-				node_pool->connstr =MemoryContextStrdup(TopMemoryContext, str);
-				pfree(str);
-			}PG_CATCH();
-			{
-				hash_search(htab, poid, HASH_REMOVE, &found);
-				PG_RE_THROW();
-			}PG_END_TRY();
-			node_pool->last_idle = 0;
-			dlist_init(&node_pool->uninit_slot);
-			dlist_init(&node_pool->released_slot);
-			dlist_init(&node_pool->idle_slot);
-			dlist_init(&node_pool->busy_slot);
-		}
-		Assert(node_pool->nodeoid == oids[index]);
-
-		/*
-		 * we append NULL value to list_wait first
-		 */
-		MemoryContextSwitchTo(agent->mctx);
-		agent->list_wait = lappend(agent->list_wait, NULL);
-		MemoryContextSwitchTo(oldcontex);
-
-		/* first find released by this agent */
-		slot = NULL;
-		dlist_foreach(iter, &node_pool->released_slot)
-		{
-			tmp_slot = dlist_container(ADBNodePoolSlot, dnode, iter.cur);
-			AssertState(tmp_slot->slot_state == SLOT_STATE_RELEASED);
-			if(tmp_slot->last_user_pid == agent->pid)
-			{
-				AssertState(tmp_slot->owner == agent);
-				slot = tmp_slot;
-				ereport(DEBUG1,
-					(errmsg("[pool] get slot from released_slot, backend pid : %d,",
-					agent->pid)));
-				break;
-			}
-		}
-
-		/* second find idle slot */
-		if(slot == NULL)
-		{
-			dlist_foreach(iter, &node_pool->idle_slot)
-			{
-				tmp_slot = dlist_container(ADBNodePoolSlot, dnode, iter.cur);
-				AssertState(tmp_slot->slot_state == SLOT_STATE_IDLE);
-				if(tmp_slot->owner == NULL)
-				{
-					slot = tmp_slot;
-					ereport(DEBUG1,
-					(errmsg("[pool] get slot from idle_slot, backend pid : %d,",
-					agent->pid)));
-					break;
-				}
-			}
-		}
-
-		/* not found, we use a uninit slot */
-		if(slot == NULL)
-		{
-			dlist_foreach(iter, &node_pool->uninit_slot)
-			{
-				tmp_slot = dlist_container(ADBNodePoolSlot, dnode, iter.cur);
-				AssertState(tmp_slot->slot_state == SLOT_STATE_UNINIT);
-				if(tmp_slot->owner == NULL)
-				{
-					slot = tmp_slot;
-					ereport(DEBUG1,
-					(errmsg("[pool] get slot from uninit_slot, slot state : %d, backend pid : %d,",
-					slot->slot_state, agent->pid)));
-					break;
-				}
-			}
-		}
-
-		/* not got any slot, we alloc a new slot */
-		if(slot == NULL)
-		{
-			slot = MemoryContextAllocZero(PoolerMemoryContext, sizeof(*slot));
-			slot->parent = node_pool;
-			slot->slot_state = SLOT_STATE_UNINIT;
-			INIT_SLOT_PARAMS_MAGIC(slot, session_magic);
-			INIT_SLOT_PARAMS_MAGIC(slot, local_magic);
-			dlist_push_head(&node_pool->uninit_slot, &slot->dnode);
-			SET_SLOT_LIST(slot, UNINIT_SLOT);
-			ereport(DEBUG1,
-					(errmsg("[pool] Alloc new slot, slot state SLOT_STATE_UNINIT")));
-		}
-
-		/* save slot into agent waiting list */
-		Assert(slot != NULL);
-		llast(agent->list_wait) = slot;
-
-		if(slot->slot_state == SLOT_STATE_UNINIT)
-		{
-			static PGcustumFuns funs = {NULL, NULL, NULL, pq_custom_msg};
-			Assert(slot->parent == node_pool);
-			if(node_pool->connstr == NULL)
-			{
-				char *str = build_node_conn_str(node_pool->nodeoid, node_pool->parent);
-				node_pool->connstr =MemoryContextStrdup(TopMemoryContext, str);
-			}
-			slot->conn = PQconnectStart(node_pool->connstr);
-			if(slot->conn == NULL)
-			{
-				ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY)
-					,errmsg("out of memory")));
-			}else if(PQstatus(slot->conn) == CONNECTION_BAD)
-			{
-				ereport(ERROR,
-					(errmsg("%s", PQerrorMessage(slot->conn))));
-			}
-			slot->slot_state = SLOT_STATE_CONNECTING;
-			slot->poll_state = PGRES_POLLING_WRITING;
-			slot->conn->funs = &funs;
-			slot->retry = 0;
-			ereport(DEBUG1,
-					(errmsg("[pool] begin connect, connstr : %s,backend pid :%d slot state SLOT_STATE_CONNECTING",
-					node_pool->connstr, agent->pid)));
-		}
-
-		SET_SLOT_OWNER(slot, agent);
-		Assert(slot->current_list != NULL_SLOT);
-		dlist_delete(&slot->dnode);
-		dlist_push_head(&(node_pool->busy_slot), &(slot->dnode));
-		SET_SLOT_LIST(slot, BUSY_SLOT);
-	}
-}
-
-static void agent_acquire_connections(PoolAgent *agent, const List *datanodelist, const List *coordlist)
-{
+	int count;
 	AssertArg(agent);
 
-	/* Check if pooler can accept those requests */
-	if (list_length(datanodelist) > agent->num_dn_connections ||
-			list_length(coordlist) > agent->num_coord_connections)
-	{
-		ereport(ERROR, (errmsg("invalid connection id form backend %d", agent->pid)));
-	}
-
+	count = pool_getint(msg);
 	PG_TRY();
 	{
-		agent_acquire_conn_list(agent->dn_connections, agent->datanode_oids, datanodelist, agent);
-		agent_acquire_conn_list(agent->coord_connections, agent->coord_oids, coordlist, agent);
+		bool found;
+		if (agent->db_pool == NULL)
+			ereport(ERROR, (errmsg("no database info")));
+
+		while(count-- > 0)
+		{
+			info.hostname = (char*)pool_getstring(msg);
+			info.port = (uint16)pool_getint(msg);
+			if (hash_search(agent->connected_node, &info, HASH_FIND, NULL) != NULL)
+				ereport(ERROR, (errmsg("double get node connect for %s:%d", info.hostname, info.port)));
+
+			node_pool = hash_search(agent->db_pool->htab_nodes, &info, HASH_ENTER, &found);
+			if (!found)
+			{
+				PG_TRY();
+				{
+					node_pool->parent = agent->db_pool;
+					old_context = MemoryContextSwitchTo(TopMemoryContext);
+					node_pool->hostinfo.hostname = pstrdup(info.hostname);
+					node_pool->hostinfo.port = info.port;
+					node_pool->connstr = PGXCNodeConnStr(info.hostname,
+														 info.port,
+														 node_pool->parent->db_info.database,
+														 node_pool->parent->db_info.user_name,
+														 node_pool->parent->db_info.pgoptions,
+														 "coordinator");
+					MemoryContextSwitchTo(old_context);
+				}PG_CATCH();
+				{
+					node_pool = hash_search(agent->db_pool->htab_nodes, &info, HASH_REMOVE, NULL);
+					if (node_pool)
+					{
+						if (node_pool->connstr)
+							pfree(node_pool->connstr);
+						if (node_pool->hostinfo.hostname != info.hostname)
+							pfree(node_pool->hostinfo.hostname);
+					}
+					PG_RE_THROW();
+				}PG_END_TRY();
+				node_pool->last_idle = 0;
+				dlist_init(&node_pool->uninit_slot);
+				dlist_init(&node_pool->released_slot);
+				dlist_init(&node_pool->idle_slot);
+				dlist_init(&node_pool->busy_slot);
+			}
+			Assert(match_host_info(&info, &node_pool->hostinfo, sizeof(info)) == 0);
+
+			/*
+			* we append NULL value to list_wait first
+			*/
+			old_context = MemoryContextSwitchTo(agent->mctx);
+			agent->list_wait = lappend(agent->list_wait, NULL);
+			MemoryContextSwitchTo(old_context);
+
+			/* first find released by this agent */
+			slot = NULL;
+			dlist_foreach(iter, &node_pool->released_slot)
+			{
+				tmp_slot = dlist_container(ADBNodePoolSlot, dnode, iter.cur);
+				AssertState(tmp_slot->slot_state == SLOT_STATE_RELEASED);
+				if(tmp_slot->last_user_pid == agent->pid)
+				{
+					AssertState(tmp_slot->owner == agent);
+					slot = tmp_slot;
+					ereport(DEBUG1,
+						(errmsg("[pool] get slot from released_slot, backend pid : %d,",
+						agent->pid)));
+					break;
+				}
+			}
+
+			/* second find idle slot */
+			if(slot == NULL)
+			{
+				dlist_foreach(iter, &node_pool->idle_slot)
+				{
+					tmp_slot = dlist_container(ADBNodePoolSlot, dnode, iter.cur);
+					AssertState(tmp_slot->slot_state == SLOT_STATE_IDLE);
+					if(tmp_slot->owner == NULL)
+					{
+						slot = tmp_slot;
+						ereport(DEBUG1,
+						(errmsg("[pool] get slot from idle_slot, backend pid : %d,",
+						agent->pid)));
+						break;
+					}
+				}
+			}
+
+			/* not found, we use a uninit slot */
+			if(slot == NULL)
+			{
+				dlist_foreach(iter, &node_pool->uninit_slot)
+				{
+					tmp_slot = dlist_container(ADBNodePoolSlot, dnode, iter.cur);
+					AssertState(tmp_slot->slot_state == SLOT_STATE_UNINIT);
+					if(tmp_slot->owner == NULL)
+					{
+						slot = tmp_slot;
+						ereport(DEBUG1,
+						(errmsg("[pool] get slot from uninit_slot, slot state : %d, backend pid : %d,",
+						slot->slot_state, agent->pid)));
+						break;
+					}
+				}
+			}
+
+			/* not got any slot, we alloc a new slot */
+			if(slot == NULL)
+			{
+				slot = MemoryContextAllocZero(PoolerMemoryContext, sizeof(*slot));
+				slot->parent = node_pool;
+				slot->slot_state = SLOT_STATE_UNINIT;
+				INIT_SLOT_PARAMS_MAGIC(slot, session_magic);
+				INIT_SLOT_PARAMS_MAGIC(slot, local_magic);
+				dlist_push_head(&node_pool->uninit_slot, &slot->dnode);
+				SET_SLOT_LIST(slot, UNINIT_SLOT);
+				ereport(DEBUG1,
+						(errmsg("[pool] Alloc new slot, slot state SLOT_STATE_UNINIT")));
+			}
+
+			/* save slot into agent waiting list */
+			Assert(slot != NULL);
+			llast(agent->list_wait) = slot;
+
+			if(slot->slot_state == SLOT_STATE_UNINIT)
+			{
+				static PGcustumFuns funs = {NULL, NULL, NULL, pq_custom_msg};
+				Assert(node_pool->connstr != NULL);
+				slot->conn = PQconnectStart(node_pool->connstr);
+				if(slot->conn == NULL)
+				{
+					ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY)
+						,errmsg("out of memory")));
+				}else if(PQstatus(slot->conn) == CONNECTION_BAD)
+				{
+					ereport(ERROR,
+						(errmsg("%s", PQerrorMessage(slot->conn))));
+				}
+				slot->slot_state = SLOT_STATE_CONNECTING;
+				slot->poll_state = PGRES_POLLING_WRITING;
+				slot->conn->funs = &funs;
+				slot->retry = 0;
+				ereport(DEBUG1,
+						(errmsg("[pool] begin connect, connstr : %s,backend pid :%d slot state SLOT_STATE_CONNECTING",
+						node_pool->connstr, agent->pid)));
+			}
+
+			SET_SLOT_OWNER(slot, agent);
+			Assert(slot->current_list != NULL_SLOT);
+			dlist_delete(&slot->dnode);
+			dlist_push_head(&(node_pool->busy_slot), &(slot->dnode));
+			SET_SLOT_LIST(slot, BUSY_SLOT);
+
+			connected_info = hash_search(agent->connected_node,
+										 &info,
+										 HASH_ENTER,
+										 NULL);
+			connected_info->slot = slot;
+			connected_info->info.hostname = MemoryContextStrdup(agent->mctx, connected_info->info.hostname);
+		}
 	}PG_CATCH();
 	{
 		ListCell *lc;
@@ -3061,193 +2848,20 @@ static void agent_acquire_connections(PoolAgent *agent, const List *datanodelist
 	}PG_END_TRY();
 }
 
-static void cancel_query_on_connections(PoolAgent *agent, Size count, ADBNodePoolSlot **slots, const List *nodelist)
-{
-	const ListCell *lc;
-	ADBNodePoolSlot *slot;
-	Size node_idx;
-
-	if(agent == NULL || slots == NULL || nodelist == NIL)
-		return;
-
-	foreach(lc, nodelist)
-	{
-		node_idx = (Size)lfirst_int(lc);
-
-		if(node_idx > count)
-			continue;
-		slot = agent->dn_connections[node_idx];
-		if(slot == NULL)
-			continue;
-		/* need an error ? */
-		if(slot->last_user_pid != agent->pid || slot->slot_state != SLOT_STATE_LOCKED)
-			continue;
-
-		if(!PQrequestCancel(slot->conn))
-		{
-			ereport(WARNING, (errmsg("cancel query remote query failed:%s", PQerrorMessage(slot->conn))));
-		}
-	}
-}
-
-/*
- * Rebuild information of database pools
- */
-static void reload_database_pools(PoolAgent *agent)
-{
-	HASH_SEQ_STATUS hash_database_status;
-	HASH_SEQ_STATUS hash_nodepool_status;
-	DatabasePool *db_pool;
-	ADBNodePool *node_pool;
-	char *connstr;
-
-	/*
-	 * Release node connections if any held. It is not guaranteed client session
-	 * does the same so don't ever try to return them to pool and reuse
-	 */
-	agent_release_connections(agent, false);
-
-	/* realloc */
-	PFREE_SAFE(agent->datanode_oids);
-	PFREE_SAFE(agent->dn_connections);
-	PFREE_SAFE(agent->coord_oids);
-	PFREE_SAFE(agent->coord_connections);
-	{
-		int num_datanode,num_coord;
-		MemoryContext old_context = MemoryContextSwitchTo(agent->mctx);
-		PgxcNodeGetOids(&agent->coord_oids, &agent->datanode_oids,
-			&num_coord, &num_datanode, false);
-		agent->num_coord_connections = num_coord;
-		agent->num_dn_connections = num_datanode;
-		agent->coord_connections = (ADBNodePoolSlot**)
-			palloc0(agent->num_coord_connections * sizeof(ADBNodePoolSlot*));
-		agent->dn_connections = (ADBNodePoolSlot**)
-			palloc0(agent->num_dn_connections * sizeof(ADBNodePoolSlot*));
-		(void)MemoryContextSwitchTo(old_context);
-	}
-
-	/*
-	 * Scan the list and destroy any altered pool. They will be recreated
-	 * upon subsequent connection acquisition.
-	 */
-	hash_seq_init(&hash_database_status, htab_database);
-	while((db_pool = hash_seq_search(&hash_database_status)) != NULL)
-	{
-recheck_node_pool_:
-		hash_seq_init(&hash_nodepool_status, db_pool->htab_nodes);
-		while((node_pool = hash_seq_search(&hash_nodepool_status)) != NULL)
-		{
-			connstr = build_node_conn_str(node_pool->nodeoid, db_pool);
-			/* Node has been removed or altered */
-			if((connstr == NULL ||
-						/* connstr not null but node_pool->connstr is null,
-						destory node_pool first,then create new when agent_acquire_conn_list */
-						node_pool->connstr == NULL ||
-						strcmp(connstr, node_pool->connstr) != 0) &&
-						/* and node pool not in using */
-						node_pool_in_using(node_pool) == false)
-			{
-				PFREE_SAFE(connstr);
-				destroy_node_pool(node_pool, true);
-				hash_seq_term(&hash_nodepool_status);
-				goto recheck_node_pool_;
-			}
-			PFREE_SAFE(connstr);
-		}
-	}
-}
-
-/*
- * Check connection info consistency with system catalogs
- */
-static int node_info_check(PoolAgent *agent)
-{
-	HASH_SEQ_STATUS hash_database_status;
-	HASH_SEQ_STATUS hash_nodepool_status;
-	DatabasePool *db_pool;
-	ADBNodePool *node_pool;
-	List		 *checked_oids;
-	Oid			 *coOids;
-	Oid			 *dnOids;
-	char		 *connstr;
-	int			numCo;
-	int			numDn;
-	int res;
-
-	/*
-	 * First check if agent's node information matches to current content of the
-	 * shared memory table.
-	 */
-	PgxcNodeGetOids(&coOids, &dnOids, &numCo, &numDn, false);
-
-	res = POOL_CHECK_SUCCESS;
-	if (agent->num_coord_connections != (Size)numCo ||
-			agent->num_dn_connections != (Size)numDn ||
-			memcmp(agent->coord_oids, coOids, numCo * sizeof(Oid)) ||
-			memcmp(agent->datanode_oids, dnOids, numDn * sizeof(Oid)))
-	{
-		res = POOL_CHECK_FAILED;
-	}
-	pfree(coOids);
-	pfree(dnOids);
-	if(res != POOL_CHECK_SUCCESS)
-		return res;
-
-	hash_seq_init(&hash_database_status, htab_database);
-	while((db_pool = hash_seq_search(&hash_database_status)) != NULL)
-	{
-		checked_oids = NIL;
-		hash_seq_init(&hash_nodepool_status, db_pool->htab_nodes);
-		while((node_pool = hash_seq_search(&hash_nodepool_status)) != NULL)
-		{
-			if(list_member_oid(checked_oids, node_pool->nodeoid))
-				continue;
-
-			connstr = build_node_conn_str(node_pool->nodeoid, db_pool);
-			if (connstr == NULL)
-			{
-				res = POOL_CHECK_FAILED;
-				list_free(checked_oids);
-				goto node_info_check_end_;
-			}
-			else
-			{
-				if (node_pool->connstr && strcmp(connstr, node_pool->connstr) != 0)
-				{
-					pfree(node_pool->connstr);
-					node_pool->connstr = NULL;
-				}
-			}
-			PFREE_SAFE(connstr);
-			checked_oids = lappend_oid(checked_oids, node_pool->nodeoid);
-		}
-		list_free(checked_oids);
-	}
-node_info_check_end_:
-	/* after pgxc_pool_reload,some idle conn may be connet to error datanode */
-	if (res == POOL_CHECK_SUCCESS)
-		close_idle_connection();
-	return res;
-}
-
 static int agent_session_command(PoolAgent *agent, const char *set_command, PoolCommandType command_type, StringInfo errMsg)
 {
 	char **ppstr;
-	Size i;
+	ConnectedInfo *info;
+	HASH_SEQ_STATUS hseq;
 	int res;
 	AssertArg(agent);
 	if(command_type == POOL_CMD_TEMP)
 	{
 		agent->is_temp = true;
-		for(i=0;i<agent->num_coord_connections;++i)
+		hash_seq_init(&hseq, agent->connected_node);
+		while ((info=hash_seq_search(&hseq)) != NULL)
 		{
-			if(agent->coord_connections[i])
-				agent->coord_connections[i]->has_temp = true;
-		}
-		for(i=0;i<agent->num_dn_connections;++i)
-		{
-			if(agent->dn_connections[i])
-				agent->dn_connections[i]->has_temp = true;
+			info->slot->has_temp = true;
 		}
 		return 0;
 	}else if(set_command == NULL)
@@ -3290,30 +2904,43 @@ static int agent_session_command(PoolAgent *agent, const char *set_command, Pool
 	 * session.
 	 */
 	res = 0;
-	for(i=0;i<agent->num_dn_connections;++i)
+	hash_seq_init(&hseq, agent->connected_node);
+	while((info=hash_seq_search(&hseq)) != NULL)
 	{
-		if(agent->dn_connections[i] && agent->dn_connections[i]->conn
-			&& pool_exec_set_query(agent->dn_connections[i]->conn, set_command, errMsg) == false)
-			res = 1;
-	}
-	for (i = 0; i < agent->num_coord_connections; i++)
-	{
-		if (agent->coord_connections[i] && agent->coord_connections[i]->conn
-			&& pool_exec_set_query(agent->coord_connections[i]->conn, set_command, errMsg) == false)
+		if (pool_exec_set_query(info->slot->conn, set_command, errMsg) == false)
 			res = 1;
 	}
 	return res;
 }
 
+static uint32 hash_any_v(const void *key, int keysize, ...)
+{
+	uint32 h;
+	va_list args;
+
+	h = DatumGetUInt32(hash_any((const unsigned char *)key, keysize));
+
+	va_start(args, keysize);
+	while((key=va_arg(args, void*)) != NULL)
+	{
+		keysize = va_arg(args, int);
+		h = (h << 1) | (h & 0x80000000 ? 1:0);
+		h ^= DatumGetUInt32(hash_any((const unsigned char *)key, keysize));
+	}
+	va_end(args);
+
+	return h;
+}
+
 static uint32 hash_database_info(const void *key, Size keysize)
 {
 	const DatabaseInfo *info = key;
-	Datum datums[3];
 	AssertArg(info != NULL && keysize == sizeof(*info));
-	datums[0] = hash_any((const unsigned char*)info->database, strlen(info->database));
-	datums[1] = hash_any((const unsigned char*)info->user_name, strlen(info->user_name));
-	datums[2] = hash_any((const unsigned char*)info->pgoptions, strlen(info->pgoptions));
-	return DatumGetUInt32(hash_any((const unsigned char*)datums, sizeof(datums)));
+
+	return hash_any_v(info->database, strlen(info->database),
+					  info->user_name, strlen(info->user_name),
+					  info->pgoptions, strlen(info->pgoptions),
+					  NULL);
 }
 
 static int match_database_info(const void *key1, const void *key2, Size keysize)
@@ -3344,6 +2971,37 @@ static int match_database_info(const void *key1, const void *key2, Size keysize)
 	return 0;
 }
 
+static uint32 hash_host_info(const void *key, Size keysize)
+{
+	const HostInfo *info = key;
+	Assert(info != NULL && keysize == sizeof(*info));
+
+	return hash_any_v(info->hostname, strlen(info->hostname),
+					  &info->port, sizeof(info->port),
+					  NULL);
+}
+
+static int match_host_info(const void *key1, const void *key2, Size keysize)
+{
+	const HostInfo *l = key1;
+	const HostInfo *r = key2;
+	int rval;
+
+	if (l == r)
+		return 0;
+
+	if (l->hostname != r->hostname &&
+		(rval=strcmp(l->hostname, r->hostname)) != 0)
+		return rval;
+
+	if (l->port < r->port)
+		return -1;
+	else if (l->port > r->port)
+		return 1;
+
+	return 0;
+}
+
 static void create_htab_database(void)
 {
 	HASHCTL hctl;
@@ -3356,9 +3014,6 @@ static void create_htab_database(void)
 	hctl.hcxt = TopMemoryContext;
 	htab_database = hash_create("hash DatabasePool", 97, &hctl
 			, HASH_ELEM|HASH_FUNCTION|HASH_COMPARE|HASH_CONTEXT);
-#ifdef ADB_DEBUG_POOL
-	list_database = NIL;
-#endif /* ADB_DEBUG_POOL */
 }
 
 static void destroy_htab_database(void)
@@ -3380,11 +3035,6 @@ static void destroy_htab_database(void)
 	}
 	hash_destroy(htab_database);
 	htab_database = NULL;
-
-#ifdef ADB_DEBUG_POOL
-	list_free(list_database);
-	list_database = NIL;
-#endif /* ADB_DEBUG_POOL */
 }
 
 /*---------------------------------------------------------------------------*/
@@ -3437,36 +3087,6 @@ static int pool_getint(StringInfo buf)
 	int ival;
 	pq_copymsgbytes(buf, (char*)&ival, 4);
 	return ival;
-}
-
-static void pool_sendint_array(StringInfo buf, int count, const int *arr)
-{
-	int i;
-	AssertArg(count >= 0);
-	pq_sendbytes(buf, (char*)&count, 4);
-	for(i=0;i<count;++i)
-		pq_sendbytes(buf, (char*)&(arr[i]), 4);
-}
-
-static void pool_send_nodeid_list(StringInfo buf, const List *list)
-{
-	const ListCell *lc;
-	pool_sendint(buf, list_length(list));
-	foreach(lc, list)
-		pool_sendint(buf, lfirst_int(lc));
-}
-
-static List* pool_get_nodeid_list(StringInfo buf)
-{
-	List *list = NIL;
-	int int_val,count;
-	pq_copymsgbytes(buf, (char*)&count, sizeof(count));
-	for(;count>0;--count)
-	{
-		pq_copymsgbytes(buf, (char*)&int_val, sizeof(int_val));
-		list = lappend_int(list, int_val);
-	}
-	return list;
 }
 
 static void on_exit_pooler(int code, Datum arg)

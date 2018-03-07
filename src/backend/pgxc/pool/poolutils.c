@@ -24,7 +24,9 @@
 #include "pgxc/nodemgr.h"
 #include "pgxc/poolutils.h"
 #include "pgxc/pgxcnode.h"
+#include "access/htup_details.h"
 #include "access/xact.h"
+#include "catalog/pgxc_node.h"
 #include "commands/dbcommands.h"
 #include "commands/prepare.h"
 #include "storage/procarray.h"
@@ -33,6 +35,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
+#include "utils/syscache.h"
 
 #ifdef ADB
 #include "access/rxact_mgr.h"
@@ -42,28 +45,7 @@
 #endif /* ADB */
 
 volatile bool need_reload_pooler = false;
-
-/*
- * pgxc_pool_check
- *
- * Check if Pooler information in catalog is consistent
- * with information cached.
- */
-Datum
-pgxc_pool_check(PG_FUNCTION_ARGS)
-{
-	if (!superuser())
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 (errmsg("must be superuser to manage pooler"))));
-
-	/* A Datanode has no pooler active, so do not bother about that */
-	if (IS_PGXC_DATANODE)
-		PG_RETURN_BOOL(true);
-
-	/* Simply check with pooler */
-	PG_RETURN_BOOL(PoolManagerCheckConnectionInfo());
-}
+static List* get_all_xcnode_oid(void);
 
 /*
  * pgxc_pool_reload
@@ -112,9 +94,7 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 	if (IS_PGXC_DATANODE)
 		PG_RETURN_BOOL(true);
 
-#ifdef ADB
 	RemoteXactReloadNode();
-#endif
 
 	/* Take a lock on pooler to forbid any action during reload */
 	PoolManagerLock(true);
@@ -222,8 +202,6 @@ void
 CleanConnection(CleanConnStmt *stmt)
 {
 	ListCell   *nodelist_item;
-	List	   *co_list = NIL;
-	List	   *dn_list = NIL;
 	List	   *stmt_nodes = NIL;
 	char	   *dbname = stmt->dbname;
 	char	   *username = stmt->username;
@@ -318,29 +296,31 @@ CleanConnection(CleanConnStmt *stmt)
 
 	foreach(nodelist_item, stmt->nodes)
 	{
-		char *node_name = strVal(lfirst(nodelist_item));
-		Oid nodeoid = get_pgxc_nodeoid(node_name);
-
-		if (!OidIsValid(nodeoid))
+		Value *value = lfirst(nodelist_item);
+		Form_pgxc_node xcnode;
+		HeapTuple tuple = SearchSysCache1(PGXCNODENAME, PointerGetDatum(strVal(value)));
+		if (!HeapTupleIsValid(tuple))
+		{
 			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-							 errmsg("PGXC Node %s: object not defined",
-									node_name)));
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("Node \"%s\" not exist", strVal(value))));
+		}
 
-		stmt_nodes = lappend_int(stmt_nodes,
-								 PGXCNodeGetNodeId(nodeoid, get_pgxc_nodetype(nodeoid)));
+		xcnode = (Form_pgxc_node)GETSTRUCT(tuple);
+		if ((is_coord && xcnode->node_type != PGXC_NODE_COORDINATOR) ||
+			(!is_coord && xcnode->node_type != PGXC_NODE_DATANODE))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("%s node \"%s\" not exist", is_coord ? "coordinator":"datanode", strVal(value))));
+		}
+
+		stmt_nodes = lappend_oid(stmt_nodes, HeapTupleGetOid(tuple));
+		ReleaseSysCache(tuple);
 	}
 
-	/* Build lists to be sent to Pooler Manager */
-	if (stmt->nodes && is_coord)
-		co_list = stmt_nodes;
-	else if (stmt->nodes && !is_coord)
-		dn_list = stmt_nodes;
-	else
-	{
-		co_list = GetAllCoordNodeIdx();
-		dn_list = GetAllDataNodeIdx();
-	}
+	if (stmt->nodes == NIL)
+		stmt_nodes = get_all_xcnode_oid();
 
 	/*
 	 * If force is launched, send a signal to all the processes
@@ -354,13 +334,10 @@ CleanConnection(CleanConnStmt *stmt)
 	 */
 
 	/* Finish by contacting Pooler Manager */
-	PoolManagerCleanConnection(dn_list, co_list, dbname, username);
+	PoolManagerCleanConnectionOid(stmt_nodes, dbname, username);
 
 	/* Clean up memory */
-	if (co_list)
-		list_free(co_list);
-	if (dn_list)
-		list_free(dn_list);
+	list_free(stmt_nodes);
 }
 
 /*
@@ -372,8 +349,7 @@ CleanConnection(CleanConnStmt *stmt)
 void
 DropDBCleanConnection(char *dbname)
 {
-	List	*co_list = GetAllCoordNodeIdx();
-	List	*dn_list = GetAllDataNodeIdx();
+	List	*list;
 
 	/* Check permissions for this database */
 	if (!pg_database_ownercheck(get_database_oid(dbname, true), GetUserId()))
@@ -384,13 +360,11 @@ DropDBCleanConnection(char *dbname)
 		PoolManagerReconnect();
 	}
 
-	PoolManagerCleanConnection(dn_list, co_list, dbname, NULL);
+	list = get_all_xcnode_oid();
+	PoolManagerCleanConnectionOid(list, dbname, NULL);
 
 	/* Clean up memory */
-	if (co_list)
-		list_free(co_list);
-	if (dn_list)
-		list_free(dn_list);
+	list_free(list);
 }
 
 /*
@@ -455,4 +429,22 @@ HandlePoolerReload(void)
 	ResourceOwnerDelete(reload_ro);
 
 	MemoryContextSwitchTo(old_context);
+}
+
+static List* get_all_xcnode_oid(void)
+{
+	HeapTuple tuple;
+	Relation rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	HeapScanDesc scan = heap_beginscan_catalog(rel, 0, NULL);
+	List *list = NIL;
+
+	while ((tuple=heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		list = lappend_oid(list, HeapTupleGetOid(tuple));
+	}
+
+	heap_endscan(scan);
+	heap_close(rel, AccessShareLock);
+
+	return list;
 }

@@ -104,10 +104,8 @@ static volatile int NumAllNodeHandle;
 /* Cancel Delay Duration -> set by GUC */
 int			pgxcnode_cancel_delay = 10;
 
-bool		enable_node_tcp_log;
 extern int	MyProcPid;
 
-static void pgxc_node_init(PGXCNodeHandle *handle, pgsocket sock);
 static void pgxc_node_free(PGXCNodeHandle *handle, bool freebuf);
 static void pgxc_node_all_free(void);
 static PGXCNodeHandle *pgxc_get_node_handle(int nodeid, char node_type);
@@ -336,34 +334,6 @@ pgxc_node_all_free(void)
 	NumAllNodeHandle = NumCoords = NumDataNodes = 0;
 	pfree(all_node_handles);
 	all_node_handles = co_handles = dn_handles = NULL;
-}
-
-/*
- * Create and initialise internal structure to communicate to
- * Datanode via supplied socket descriptor.
- * Structure stores state info and I/O buffers
- */
-static void
-pgxc_node_init(PGXCNodeHandle *handle, pgsocket sock)
-{
-	handle->sock = sock;
-	handle->transaction_status = 'I';
-	handle->state = DN_CONNECTION_STATE_IDLE;
-	handle->combiner = NULL;
-#ifdef DN_CONNECTION_DEBUG
-	handle->have_row_desc = false;
-#endif
-	handle->error = NULL;
-	handle->outEnd = 0;
-	handle->inStart = 0;
-	handle->inEnd = 0;
-	handle->inCursor = 0;
-	if(enable_node_tcp_log)
-	{
-		char file_name[20];
-		sprintf(file_name, "%06d-%06d.bin", MyProcPid, sock);
-		handle->file_data = AllocateFile(file_name, "wb");
-	}
 }
 
 /*

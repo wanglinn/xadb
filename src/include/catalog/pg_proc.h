@@ -5158,8 +5158,6 @@ DATA(insert OID = 4031 (  spg_text_leaf_consistent	PGNSP PGUID 12 1 0 0 0 f f f 
 DESCR("SP-GiST support for radix tree over text");
 
 #ifdef ADB
-DATA(insert OID = 3359 ( pgxc_pool_check	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_pool_check _null_ _null_ _null_ ));
-DESCR("check connection information consistency in pooler");
 DATA(insert OID = 3360 ( pgxc_pool_reload	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_pool_reload _null_ _null_ _null_ ));
 DESCR("reload connection information in pooler and reload server sessions");
 DATA(insert OID = 3361 ( pgxc_node_str		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 19 "" _null_ _null_ _null_ _null_ _null_ pgxc_node_str _null_ _null_ _null_ ));

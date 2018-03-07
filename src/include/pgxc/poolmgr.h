@@ -122,29 +122,22 @@ extern void PoolManagerReconnect(void);
 extern int PoolManagerSetCommand(PoolCommandType command_type, const char *set_command);
 
 /* Get pooled connections */
-extern int *PoolManagerGetConnections(List *datanodelist, List *coordlist);
+extern pgsocket *PoolManagerGetConnectionsOid(List *oidlist);
 
 /* Clean pool connections */
-extern void PoolManagerCleanConnection(List *datanodelist, List *coordlist, char *dbname, char *username);
+extern void PoolManagerCleanConnectionOid(List *oidlist, const char *dbname, const char *username);
 
 /* Check consistency of connection information cached in pooler with catalogs */
-extern bool PoolManagerCheckConnectionInfo(void);
+#define PoolManagerCheckConnectionInfo()	true
 
 /* Reload connection data in pooler and drop all the existing connections of pooler */
-extern void PoolManagerReloadConnectionInfo(void);
+#define PoolManagerReloadConnectionInfo()	((void)0)
 
 /* Send Abort signal to transactions being run */
 extern int	PoolManagerAbortTransactions(char *dbname, char *username, int **proc_pids);
 
 /* Return connections back to the pool, for both Coordinator and Datanode connections */
-#ifdef ADB
 extern void PoolManagerReleaseConnections(bool force_close);
-#else
-extern void PoolManagerReleaseConnections(void);
-#endif
-
-/* Cancel a running query on Datanodes as well as on other Coordinators */
-extern void PoolManagerCancelQuery(int dn_count, int* dn_list, int co_count, int* co_list);
 
 /* Lock/unlock pool manager */
 extern void PoolManagerLock(bool is_lock);
