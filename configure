@@ -2713,6 +2713,16 @@ ac_configure="$SHELL $ac_aux_dir/configure"  # Please don't use this var.
 configure_args=$ac_configure_args
 
 
+if ( test "$srcdir" -ef . ) >/dev/null 2>&1 || test "`cd $srcdir && /bin/pwd`" = "`/bin/pwd`"; then
+  abs_srcdir=`cd $srcdir && /bin/pwd`
+  abs_pdir=`cd $srcdir/.. && /bin/pwd`
+  as_fn_error $? "ADB can not build in sorce code directory, please configure in other directory.
+for example:
+  mkdir '$abs_pdir/build'
+  cd '$abs_pdir/build'
+  '$abs_srcdir/configure'" "$LINENO" 5
+fi
+
 ADB_VERSION='3.1devel'
 GIT_SHA1=`(cd $srcdir && git log -1 --pretty='format:%h' --no-color) 2>/dev/null`
 if test x"$GIT_SHA1" != x; then
