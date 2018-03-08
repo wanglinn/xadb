@@ -44,7 +44,7 @@
 #include "commands/tablespace.h"
 #include "miscadmin.h"
 #ifdef ADB
-#include "pgxc/barrier.h"
+#include "pgxc/cluster_barrier.h"
 #endif
 #include "pgstat.h"
 #include "postmaster/bgwriter.h"
@@ -5440,7 +5440,7 @@ recoveryStopsBefore(XLogReaderState *record)
 #ifdef ADB
 	bool		stopsAtThisBarrier = false;
 	char		*recordBarrierId = NULL;
-#endif	
+#endif
 
 	/* Check if we should stop as soon as reaching consistency */
 	if (recoveryTarget == RECOVERY_TARGET_IMMEDIATE && reachedConsistency)
@@ -5507,7 +5507,7 @@ recoveryStopsBefore(XLogReaderState *record)
 	}
 	else if (XLogRecGetRmid(record) == RM_BARRIER_ID)
 	{
-		if (xact_info == XLOG_BARRIER_CREATE)
+		if (xact_info == XLOG_CLUSTER_BARRIER_CREATE)
 		{
 			recordBarrierId = (char *) XLogRecGetData(record);
 			ereport(DEBUG2,
@@ -5539,7 +5539,7 @@ recoveryStopsBefore(XLogReaderState *record)
 	{
 		stopsHere = false;
 		if ((XLogRecGetRmid(record) == RM_BARRIER_ID) &&
-			(xact_info == XLOG_BARRIER_CREATE))
+			(xact_info == XLOG_CLUSTER_BARRIER_CREATE))
 		{
 			ereport(DEBUG2,
 				(errmsg("checking if barrier record matches the target "
@@ -8770,7 +8770,7 @@ CheckPointGuts(XLogRecPtr checkPointRedo, int flags)
 	CheckPointTwoPhase(checkPointRedo);
 #ifdef ADB
 	CheckPointRxact(flags);
-#endif /* ADB */	
+#endif /* ADB */
 }
 
 /*

@@ -35,6 +35,7 @@
 #define TRANS_ROLLBACK_PREPARED_TAG	"ROLLBACK PREPARED"
 #define CLOSE_STMT_TAG				"CLOSE STATEMENT"
 #define CLOSE_PORTAL_TAG			"CLOSE PORTAL"
+#define CLUSTER_BARRIER_TAG			"CLUSTER BARRIER"
 
 typedef struct InterXactStateData *InterXactState;
 
@@ -80,6 +81,8 @@ extern int HandleSendQueryExtend(NodeHandle *handle,
 								 int nResultFormat,
 								 const int *resultFormats);
 extern int HandleSendClose(NodeHandle *handle, bool isStatement, const char *name);
+extern int HandleSendClusterBarrier(NodeHandle *handle, char cmd_type, const char *barrierID);
+extern int HandleClusterBarrier(NodeHandle *handle, char cmd_type, const char *barrierID);
 extern int HandleClose(NodeHandle *handle, bool isStatement, const char *name);
 extern void HandleListClose(List *handle_list, bool isStatement, const char *name);
 extern void HandleResetOwner(NodeHandle *handle);

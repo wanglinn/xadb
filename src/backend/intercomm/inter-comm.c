@@ -646,6 +646,45 @@ HandleSendClose(NodeHandle *handle, bool isStatement, const char *name)
 	return PQsendClose(handle->node_conn, isStatement, name);
 }
 
+int
+HandleSendClusterBarrier(NodeHandle *handle, char cmd_type, const char *barrierID)
+{
+	PGconn *conn;
+
+	Assert(handle && handle->node_conn);
+	conn = handle->node_conn;
+
+	if (!PQsendQueryStart(conn))
+		return 0;
+
+	/* construct the global command id message */
+	if (pqPutMsgStart('b', true, conn) < 0 ||
+		pqPutc(cmd_type, conn) < 0 ||
+		pqPutnchar(barrierID, strlen(barrierID) + 1, conn) < 0 ||
+		pqPutMsgEnd(conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return 0;
+	}
+
+	conn->asyncStatus = PGASYNC_BUSY;
+
+	return 1;
+}
+
+int
+HandleClusterBarrier(NodeHandle *handle, char cmd_type, const char *barrierID)
+{
+	if (!HandleSendClusterBarrier(handle, cmd_type, barrierID) ||
+		!HandleFinishCommand(handle, CLUSTER_BARRIER_TAG))
+	{
+		HandleGC(handle);
+		return 0;
+	}
+
+	return 1;
+}
+
 /*
  * HandleClose
  *

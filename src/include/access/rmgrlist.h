@@ -48,6 +48,6 @@ PG_RMGR(RM_REPLORIGIN_ID, "ReplicationOrigin", replorigin_redo, replorigin_desc,
 PG_RMGR(RM_GENERIC_ID, "Generic", generic_redo, generic_desc, generic_identify, NULL, NULL)
 PG_RMGR(RM_LOGICALMSG_ID, "LogicalMessage", logicalmsg_redo, logicalmsg_desc, logicalmsg_identify, NULL, NULL)
 #ifdef ADB
-PG_RMGR(RM_BARRIER_ID, "Barrier", barrier_redo, barrier_desc, NULL, NULL, NULL)
+PG_RMGR(RM_BARRIER_ID, "ClusterBarrier", cluster_barrier_redo, cluster_barrier_desc, cluster_barrier_identify, NULL, NULL)
 PG_RMGR(RM_RXACT_MGR_ID, "Rxact", rxact_redo, rxact_desc, rxact_identify, rxact_xlog_startup, rxact_xlog_cleanup)
 #endif /* ADB */

@@ -77,7 +77,7 @@
 #include "catalog/index.h"
 #include "nodes/nodes.h"
 #include "optimizer/pgxcplan.h"
-#include "pgxc/barrier.h"
+#include "pgxc/cluster_barrier.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/groupmgr.h"
 #include "pgxc/locator.h"
@@ -1108,11 +1108,9 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 #ifdef ADB
-#if 0
 		case T_BarrierStmt:
-			RequestBarrier(((BarrierStmt *) parsetree)->id, completionTag);
+			ExecCreateClusterBarrier(((BarrierStmt *) parsetree)->id, completionTag);
 			break;
-#endif
 
 		/*
 		 * Node DDL is an operation local to Coordinator.

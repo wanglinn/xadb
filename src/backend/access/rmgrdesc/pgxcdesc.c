@@ -15,19 +15,38 @@
 
 #include "postgres.h"
 
-#include "pgxc/barrier.h"
+#include "pgxc/cluster_barrier.h"
+
 void
-barrier_redo(XLogReaderState *record)
+cluster_barrier_redo(XLogReaderState *record)
 {
 	/* Nothing to do */
 	return;
 }
 
 void
-barrier_desc(StringInfo buf, XLogReaderState *record)
+cluster_barrier_desc(StringInfo buf, XLogReaderState *record)
 {
 	char	   *rec = XLogRecGetData(record);
 	uint8		xl_info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
-	Assert(xl_info == XLOG_BARRIER_CREATE);
-	appendStringInfo(buf, "BARRIER %s", rec);
+
+	Assert(xl_info == XLOG_CLUSTER_BARRIER_CREATE);
+	appendStringInfo(buf, "CLUSTER BARRIER \"%s\"", rec);
+}
+
+const char*
+cluster_barrier_identify(uint8 info)
+{
+	const char *id = NULL;
+
+	switch (info & ~XLR_INFO_MASK)
+	{
+		case XLOG_CLUSTER_BARRIER_CREATE:
+			id = "CREATE";
+			break;
+		default:
+			break;
+	}
+
+	return id;
 }

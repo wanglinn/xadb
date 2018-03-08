@@ -94,6 +94,7 @@
 #include "nodes/parsenodes.h"
 #include "optimizer/pgxcplan.h"
 #include "parser/parse_type.h"
+#include "pgxc/cluster_barrier.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pause.h"
 #include "pgxc/pgxc.h"
@@ -5116,6 +5117,21 @@ PostgresMain(int argc, char *argv[],
 					SetCurrentTransactionStartTimestamp(timestamp);
 				}
 				break;
+
+			case 'b':			/* CLUSTER BARRIER */
+				{
+					const char *barrierID;
+					char		cmd_type;
+
+					cmd_type = (char) pq_getmsgbyte(&input_message);
+					barrierID = pq_getmsgstring(&input_message);
+					pq_getmsgend(&input_message);
+
+					InterCreateClusterBarrier(cmd_type, barrierID, whereToSendOutput);
+					send_ready_for_query = true;
+				}
+				break;
+
 			case 'p':			/* planstmt */
 				exec_cluster_plan(input_message.data + input_message.cursor, input_message.len - input_message.cursor);
 				send_ready_for_query = true;

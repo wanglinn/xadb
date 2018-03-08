@@ -33,7 +33,7 @@
 #include "utils/relmapper.h"
 #ifdef ADB
 #include "access/rxact_mgr.h"
-#include "pgxc/barrier.h"
+#include "pgxc/cluster_barrier.h"
 #endif /* ADB */
 
 #define PG_RMGR(symname,name,redo,desc,identify,startup,cleanup) \
