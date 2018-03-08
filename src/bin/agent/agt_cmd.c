@@ -32,7 +32,7 @@
 #define INITDB_VERSION "initdb (PostgreSQL) " PG_VERSION "\n"
 #define PG_BASEBACKUP_VERSION "pg_basebackup (PostgreSQL) " PG_VERSION "\n"
 #define PG_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
-#define PSQL_VERSION "(ADB 3.0 based on PostgreSQL) " PG_VERSION "\n"
+#define PSQL_VERSION "psql (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
 #define PG_DUMPALL_VERSION "pg_dumpall (PostgreSQL) " PG_VERSION "\n"
 #define PG_REWIND_VERSION "pg_rewind (PostgreSQL) " PG_VERSION "\n"
 
