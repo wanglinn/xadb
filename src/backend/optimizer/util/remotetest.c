@@ -87,12 +87,7 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 	context.loc_info = loc_info;
 
 	if(quals == NULL)
-	{
-		if(loc_info->locatorType == LOCATOR_TYPE_REPLICATED)
-			return list_make1_oid(linitial_oid(loc_info->nodeids));
-		else
-			return list_copy(loc_info->nodeids);
-	}
+		return list_copy(loc_info->nodeids);
 
 	/* create memory context */
 	main_mctx = AllocSetContextCreate(CurrentMemoryContext,
@@ -182,13 +177,6 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 			/* MemoryContextSwitchTo(...) */
 		}
 		++i;
-	}
-
-	if (loc_info->locatorType == LOCATOR_TYPE_REPLICATED)
-	{
-		lc = list_head(result);
-		while(lnext(lc))
-			list_delete_cell(result, lnext(lc), lc);
 	}
 
 	MemoryContextSwitchTo(old_mctx);
