@@ -2314,3 +2314,93 @@ char *mgr_get_agtm_name(void)
 
 	return nodename;
 }
+
+
+/*
+* check the slave node streaming replication status
+*/
+
+bool mgr_check_slave_replicate_status(const Oid masterTupleOid, const char nodetype, const char *slaveName)
+{
+	HeapTuple hostTuple;
+	HeapTuple masterTuple;
+	Form_mgr_node mgr_mnode;
+	Form_mgr_host mgr_mhost;
+	Relation nodeRel;
+	Datum addrDatum;
+	Oid masterHostOid;
+	int32 masterPort;
+	int32 masterAgentPort;
+	bool isNull = true;
+	bool res = false;
+	NameData masterAddr;
+	NameData masterUser;
+	StringInfoData sqlstrdata;
+	StringInfoData resultstrdata;
+
+	masterTuple = SearchSysCache1(NODENODEOID, masterTupleOid);
+	if(!HeapTupleIsValid(masterTuple))
+	{
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+			, errmsg("oid \"%u\" of datanode master does not exist", masterTupleOid)));
+	}
+	mgr_mnode = (Form_mgr_node)GETSTRUCT(masterTuple);
+	Assert(mgr_mnode);
+	masterHostOid = mgr_mnode->nodehost;
+	masterPort = mgr_mnode->nodeport;
+	ReleaseSysCache(masterTuple);
+
+
+	hostTuple = SearchSysCache1(HOSTHOSTOID, masterHostOid);
+	if(!(HeapTupleIsValid(hostTuple)))
+	{
+		ereport(ERROR, (errmsg("host oid \"%u\" not exist", masterHostOid)
+			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
+			, errcode(ERRCODE_UNDEFINED_OBJECT)));
+	}
+	mgr_mhost = (Form_mgr_host)GETSTRUCT(hostTuple);
+	Assert(mgr_mhost);
+	nodeRel = heap_open(HostRelationId, AccessShareLock);
+	addrDatum = heap_getattr(hostTuple, Anum_mgr_host_hostaddr, RelationGetDescr(nodeRel), &isNull);
+	heap_close(nodeRel, AccessShareLock);
+	if (isNull)
+	{
+		ReleaseSysCache(hostTuple);
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_nohost")
+			, errmsg("column address is null")));
+	}
+	namestrcpy(&masterAddr, TextDatumGetCString(addrDatum));
+	masterAgentPort = mgr_mhost->hostagentport;
+	namestrcpy(&masterUser, NameStr(mgr_mhost->hostuser));
+	ReleaseSysCache(hostTuple);
+
+	initStringInfo(&sqlstrdata);
+	initStringInfo(&resultstrdata);
+	appendStringInfo(&sqlstrdata, "select count(*) from pg_stat_replication where application_name = '%s'", slaveName);
+	PG_TRY();
+	{
+		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES
+								,masterAgentPort
+								,sqlstrdata.data
+								,(GTM_TYPE_GTM_SLAVE == nodetype)? AGTM_USER:NameStr(masterUser)
+								,NameStr(masterAddr)
+								,masterPort
+								,DEFAULT_DB
+								,&resultstrdata);
+		if (resultstrdata.len == 0 || strcmp(resultstrdata.data, "1") != 0)
+			res = false;
+		else
+			res = true;
+	}
+	PG_CATCH();
+	{
+		pfree(sqlstrdata.data);
+		pfree(resultstrdata.data);
+	}PG_END_TRY();
+
+	pfree(sqlstrdata.data);
+	pfree(resultstrdata.data);
+
+	return res;
+}

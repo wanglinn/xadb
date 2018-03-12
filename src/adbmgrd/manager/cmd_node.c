@@ -747,10 +747,18 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 		{
 			if(got[Anum_mgr_node_nodesync-1] == true)
 			{
+				/* check the slave node streaming replicate normal */
+				if (SYNC_STATE_SYNC == new_sync)
+				{
+					if (!mgr_check_slave_replicate_status(masterTupleOid, nodetype, NameStr(name)))
+						ereport(ERROR, (errmsg("the streaming replication of %s \"%s\" is not normal", mgr_nodetype_str(nodetype), NameStr(name))));
+				}
+
 				initStringInfo(&infoSyncStr);
 				initStringInfo(&infosendmsg);
 				initStringInfo(&(getAgentCmdRst.description));
 				initStringInfo(&infoSyncStrTmp);
+
 				mgr_get_master_sync_string(masterTupleOid, true, selftupleoid, &infoSyncStr);
 				if (0 == infoSyncStr.len)
 				{
