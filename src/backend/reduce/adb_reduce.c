@@ -145,7 +145,11 @@ StartSelfReduceLauncher(RdcPortId rid)
 		PG_TRY();
 		{
 			if ((ret = find_other_exec(my_exec_path, "adb_reduce",
-									   "adb_reduce based on (PG " PG_VERSION ")\n",
+#ifdef ADB
+									   "adb_reduce (" ADB_VERSION " based on PostgreSQL) " PG_VERSION"\n",
+#else
+									"adb_reduce based on (PG " PG_VERSION ")\n",
+#endif
 									   my_reduce_path)) < 0)
 			{
 				if (ret == -1)

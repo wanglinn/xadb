@@ -44,7 +44,11 @@ handle_help_version_opts(int argc, char *argv[],
 		}
 		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
+#ifdef ADB
+			printf("%s (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n", fixed_progname);
+#else
 			printf("%s (PostgreSQL) " PG_VERSION "\n", fixed_progname);
+#endif
 			exit(0);
 		}
 	}

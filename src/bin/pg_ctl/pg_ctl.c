@@ -855,11 +855,15 @@ do_init(void)
 
 	if (exec_path == NULL)
 #ifdef MGR_CTL
-		exec_path = find_other_exec_or_die(argv0, "initmgr", "initmgr (PostgreSQL) " PG_VERSION "\n");
+		exec_path = find_other_exec_or_die(argv0, "initmgr", "initmgr (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n");
 #elif defined(AGTM_CTL)
-		exec_path = find_other_exec_or_die(argv0, "initagtm", "initagtm (PostgreSQL) " PG_VERSION "\n");
+		exec_path = find_other_exec_or_die(argv0, "initagtm", "initagtm (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n");
 #else
+	#ifdef ADB
+		exec_path = find_other_exec_or_die(argv0, "initdb", "initdb (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n");
+	#else
 		exec_path = find_other_exec_or_die(argv0, "initdb", "initdb (PostgreSQL) " PG_VERSION "\n");
+	#endif
 #endif
 
 	if (pgdata_opt == NULL)
@@ -2207,9 +2211,15 @@ main(int argc, char **argv)
 		else if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
 #ifdef MGR_CTL
-			puts("mgr_ctl (PostgreSQL) " PG_VERSION);
+			puts("mgr_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+#elif AGTM_CTL
+			puts("agtm_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
 #else
+	#ifdef ADB
+			puts("pg_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+	#else
 			puts("pg_ctl (PostgreSQL) " PG_VERSION);
+	#endif
 #endif
 			exit(0);
 		}

@@ -127,7 +127,11 @@ main(int argc, char **argv)
 		}
 		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
+#ifdef ADB
+			puts("adb_rewind (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+#else
 			puts("pg_rewind (PostgreSQL) " PG_VERSION);
+#endif
 			exit(0);
 		}
 	}
@@ -718,7 +722,11 @@ syncTargetDirectory(const char *argv0)
 
 	/* locate initdb binary */
 	if ((ret = find_other_exec(argv0, "initdb",
-							   "initdb (PostgreSQL) " PG_VERSION "\n",
+#ifdef ADB
+							   "initdb (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n",
+#else
+							"initdb (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n",
+#endif
 							   exec_path)) < 0)
 	{
 		char		full_path[MAXPGPATH];

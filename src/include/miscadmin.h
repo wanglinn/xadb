@@ -25,8 +25,11 @@
 
 #include "pgtime.h"				/* for pg_time_t */
 
-
-#define PG_BACKEND_VERSIONSTR "postgres (PostgreSQL) " PG_VERSION "\n"
+#if defined(ADB) || defined(INITAGTM) || defined(INITMGR) || defined(MGR_CTL) || defined(AGTM_CTL)
+	#define PG_BACKEND_VERSIONSTR "postgres (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+#else
+	#define PG_BACKEND_VERSIONSTR "postgres (PostgreSQL) " PG_VERSION "\n"
+#endif
 
 #define InvalidPid				(-1)
 

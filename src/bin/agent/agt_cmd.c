@@ -27,15 +27,26 @@
 
 #define BUFFER_SIZE 4096
 
-#define GTM_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
-#define INITGTM_VERSION "initagtm (PostgreSQL) " PG_VERSION "\n"
-#define INITDB_VERSION "initdb (PostgreSQL) " PG_VERSION "\n"
-#define PG_BASEBACKUP_VERSION "pg_basebackup (PostgreSQL) " PG_VERSION "\n"
-#define PG_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
-#define PSQL_VERSION "psql (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
-#define PG_DUMPALL_VERSION "pg_dumpall (PostgreSQL) " PG_VERSION "\n"
-#define PG_REWIND_VERSION "pg_rewind (PostgreSQL) " PG_VERSION "\n"
-
+#if defined(ADB) || defined(ADBMGRD)
+	#define GTM_CTL_VERSION "agtm_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define INITGTM_VERSION "initagtm (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define INITDB_VERSION "initdb (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define PG_BASEBACKUP_VERSION "pg_basebackup (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define PG_CTL_VERSION "pg_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define PSQL_VERSION "psql (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define PG_DUMPALL_VERSION "pg_dumpall (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define PG_REWIND_VERSION "pg_rewind (PostgreSQL) " PG_VERSION "\n"
+	#define ADB_REWIND_VERSION "adb_rewind (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+#else
+	#define GTM_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
+	#define INITGTM_VERSION "initagtm (PostgreSQL) " PG_VERSION "\n"
+	#define INITDB_VERSION "initdb (PostgreSQL) " PG_VERSION "\n"
+	#define PG_BASEBACKUP_VERSION "pg_basebackup (PostgreSQL) " PG_VERSION "\n"
+	#define PG_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
+	#define PG_DUMPALL_VERSION "pg_dumpall (PostgreSQL) " PG_VERSION "\n"
+	#define PG_REWIND_VERSION "pg_rewind (PostgreSQL) " PG_VERSION "\n"
+	#define ADB_REWIND_VERSION "pg_rewind (PostgreSQL) " PG_VERSION "\n"
+#endif
 static void myUsleep(long microsec);
 static bool parse_ping_node_msg(const StringInfo msg, Name host, Name port, Name user, char *file_path);
 static int exec_ping_node(const char *host, const char *port, const char *user, const char *file_path, StringInfo err_msg);
@@ -183,7 +194,7 @@ void do_agent_command(StringInfo buf)
 		cmd_ping_node(buf);
 		break;
 	case AGT_CMD_NODE_REWIND:
-		cmd_node_init(cmd_type, buf, "adb_rewind", PG_REWIND_VERSION);
+		cmd_node_init(cmd_type, buf, "adb_rewind", ADB_REWIND_VERSION);
 	case AGT_CMD_AGTM_REWIND:
 		cmd_node_init(cmd_type, buf, "pg_rewind", PG_REWIND_VERSION);
 		break;

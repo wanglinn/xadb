@@ -2810,7 +2810,11 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 				help();
 				exit(0);
 			case 'V':
+#ifdef ADB
+				puts("pg_regress (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+#else
 				puts("pg_regress (PostgreSQL) " PG_VERSION);
+#endif
 				exit(0);
 			case 1:
 

@@ -149,7 +149,11 @@ main(int argc, char *const argv[])
 		}
 		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
+#ifdef ADB
+			printf("ecpg (" ADB_VERSION " based on PostgreSQL %s) %d.%d.%d\n", PG_VERSION,
+#else
 			printf("ecpg (PostgreSQL %s) %d.%d.%d\n", PG_VERSION,
+#endif
 				   MAJOR_VERSION, MINOR_VERSION, PATCHLEVEL);
 			exit(0);
 		}

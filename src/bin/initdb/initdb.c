@@ -3644,11 +3644,15 @@ main(int argc, char *argv[])
 		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
 #ifdef INITMGR
-			puts("initmgr (PostgreSQL) " PG_VERSION);
+			puts("initmgr (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
 #elif defined(INITAGTM)
-			puts("initagtm (PostgreSQL) " PG_VERSION);
+			puts("initagtm (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
 #else
+	#ifdef ADB
+			puts("initdb (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+	#else
 			puts("initdb (PostgreSQL) " PG_VERSION);
+	#endif
 #endif
 			exit(0);
 		}

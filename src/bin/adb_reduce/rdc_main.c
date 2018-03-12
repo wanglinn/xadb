@@ -268,7 +268,11 @@ ParseReduceOptions(int argc, char *const argv[])
 				extra_options = pstrdup(optarg);
 				break;
 			case 'V':
+#ifdef ADB
+				fprintf(stdout, "%s (%s based on PostgreSQL) %s\n", progname, ADB_VERSION, PG_VERSION);
+#else
 				fprintf(stdout, "%s based on (PG " PG_VERSION ")\n", progname);
+#endif
 				exit(EXIT_SUCCESS);
 			case '?':
 				Usage(true);

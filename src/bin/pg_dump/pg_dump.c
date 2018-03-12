@@ -401,7 +401,13 @@ main(int argc, char **argv)
 		}
 		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
+#ifdef ADB
+			puts("pg_dump (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+#elif MGR_DUMP
+			puts("mgr_dump (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+#else
 			puts("pg_dump (PostgreSQL) " PG_VERSION);
+#endif
 			exit_nicely(0);
 		}
 	}

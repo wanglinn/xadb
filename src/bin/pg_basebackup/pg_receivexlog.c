@@ -401,7 +401,11 @@ main(int argc, char **argv)
 		else if (strcmp(argv[1], "-V") == 0 ||
 				 strcmp(argv[1], "--version") == 0)
 		{
+#ifdef ADB
+			puts("pg_receivexlog (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+#else
 			puts("pg_receivexlog (PostgreSQL) " PG_VERSION);
+#endif
 			exit(0);
 		}
 	}

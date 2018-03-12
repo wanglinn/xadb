@@ -197,7 +197,11 @@ get_configdata(const char *my_exec_path, size_t *configdata_len)
 	i++;
 
 	configdata[i].name = pstrdup("VERSION");
+#ifdef ADB
+	configdata[i].setting = pstrdup(ADB_VERSION " based on PostgreSQL " PG_VERSION);
+#else
 	configdata[i].setting = pstrdup("PostgreSQL " PG_VERSION);
+#endif
 	i++;
 
 	Assert(i == *configdata_len);
