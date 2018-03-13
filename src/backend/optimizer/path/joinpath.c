@@ -2678,12 +2678,14 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 			{
 				try_cluster_join_path(jcontext, outer_path, inner_path, new_reduce_list);
 			}
+			tried = true;
 		}
 
 		if(jcontext->jointype == JOIN_UNIQUE_OUTER)
 			continue;
 
 		jcontext->try_match = CLUSTER_TRY_MERGE_JOIN;
+		jcontext->merge_clauses = NULL;
 		if((inner_path=get_cheapest_join_path(jcontext, outer_path, TOTAL_COST, false, &new_reduce_list)) != NULL)
 		{
 			if(jcontext->merge_pathkeys == NIL)
@@ -2697,6 +2699,25 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 																	 true,
 																	 jcontext->extra->mergeclause_list);
 			try_cluster_join_path(jcontext, outer_path, inner_path, new_reduce_list);
+		}
+
+		if (nestjoinOK &&
+			jcontext->hashclauses == NIL &&
+			jcontext->merge_clauses == NIL)
+		{
+			jcontext->try_match = CLUSTER_TRY_NESTLOOP_JOIN;
+			inner_path=get_cheapest_join_path(jcontext, outer_path, TOTAL_COST, false, &new_reduce_list);
+			if (inner_path != NULL)
+			{
+				try_cluster_join_path(jcontext, outer_path, inner_path, new_reduce_list);
+				if (PATH_REQ_OUTER(outer_path) == NULL &&
+					PATH_REQ_OUTER(inner_path) != NULL &&
+					(inner_path=get_cheapest_join_path(jcontext, outer_path, TOTAL_COST, true, &new_reduce_list)) != NULL)
+				{
+					try_cluster_join_path(jcontext, outer_path, inner_path, new_reduce_list);
+				}
+				tried = true;
+			}
 		}
 	}
 	return tried;
