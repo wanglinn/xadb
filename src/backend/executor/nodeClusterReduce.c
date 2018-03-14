@@ -34,7 +34,7 @@ static TupleTableSlot *GetMergeSlotFromOuter(ClusterReduceState *node, ReduceEnt
 static TupleTableSlot *GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry);
 static TupleTableSlot *ExecClusterMergeReduce(ClusterReduceState *node);
 static void WaitForServerFIN(RdcPort *port);
-static void DisConnectSelfReduce(ClusterReduceState *node);
+static void DisConnectSelfReduce(ClusterReduceState *node, bool noerror);
 static bool DriveClusterReduceState(ClusterReduceState *node);
 static bool DriveCteScanState(CteScanState *node);
 static bool DriveClusterReduceWalker(PlanState *node);
@@ -62,7 +62,7 @@ ReduceCleanup(void)
 	foreach (lc, reduce_cleanup)
 	{
 		node = (ClusterReduceState *) lfirst(lc);
-		DisConnectSelfReduce(node);
+		DisConnectSelfReduce(node, true);
 	}
 
 	UnregisterReduceCleanup();
@@ -743,7 +743,7 @@ WaitForServerFIN(RdcPort *port)
 }
 
 static void
-DisConnectSelfReduce(ClusterReduceState *node)
+DisConnectSelfReduce(ClusterReduceState *node, bool noerror)
 {
 	if (node->ended)
 		return ;
@@ -762,7 +762,7 @@ DisConnectSelfReduce(ClusterReduceState *node)
 	if (node->port && !RdcSendCLOSE(node->port))
 	{
 		List *dest_nodes = (RdcSendEOF(node->port) ? NIL : PlanStateGetTargetNodes(node));
-		SendCloseToRemote(node->port, dest_nodes);
+		SendCloseToRemote(node->port, dest_nodes, noerror);
 	}
 	WaitForServerFIN(node->port);
 	rdc_freeport(node->port);
@@ -772,7 +772,7 @@ DisConnectSelfReduce(ClusterReduceState *node)
 
 void ExecEndClusterReduce(ClusterReduceState *node)
 {
-	DisConnectSelfReduce(node);
+	DisConnectSelfReduce(node, false);
 	node->port = NULL;
 	list_free(node->closed_remote);
 	node->closed_remote = NIL;

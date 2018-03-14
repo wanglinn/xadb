@@ -135,15 +135,15 @@ RdcPortStats(RdcPort *port)
 	if (port)
 	{
 		adb_elog(print_reduce_debug_log, LOG,
-			 "[%s " PORTID_FORMAT"] -> [%s " PORTID_FORMAT "] statistics:"
-			 "time to live " INT64_FORMAT
-			 " seconds, send " UINT64_FORMAT
-			 ", recv " UINT64_FORMAT,
-			 RdcSelfTypeStr(port), RdcSelfID(port),
-			 RdcPeerTypeStr(port), RdcPeerID(port),
-			 time(NULL) - port->create_time,
-			 port->send_num,
-			 port->recv_num);
+			"[%s " PORTID_FORMAT"] -> [%s " PORTID_FORMAT "] statistics:"
+			"time to live " INT64_FORMAT
+			" seconds, send " UINT64_FORMAT
+			", recv " UINT64_FORMAT,
+			RdcSelfTypeStr(port), RdcSelfID(port),
+			RdcPeerTypeStr(port), RdcPeerID(port),
+			time(NULL) - port->create_time,
+			port->send_num,
+			port->recv_num);
 	}
 #endif
 }
