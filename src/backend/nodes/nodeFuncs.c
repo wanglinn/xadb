@@ -25,6 +25,16 @@
 #include "utils/lsyscache.h"
 
 
+#ifdef ADB
+typedef bool (*WalkerFunc) ();
+
+typedef struct QualWalkContext {
+	WalkerFunc		walker_func;
+	void		   *walker_context;
+	ExprContext	   *econtext;
+} QualWalkContext;
+#endif
+
 static bool expression_returns_set_walker(Node *node, void *context);
 static int	leftmostLoc(int loc1, int loc2);
 static bool fix_opfuncids_walker(Node *node, void *context);
@@ -3876,13 +3886,53 @@ planstate_exec_walk_hashjoin(HashJoinState *node,
 	return false;
 }
 
+static bool
+planstate_exec_walk_param(Node *expr, void *context)
+{
+	if (IsA(expr, Param))
+	{
+		QualWalkContext *qual_walk_context = (QualWalkContext *) context;
+		Param *expression = (Param *) expr;
+		int thisParamId = expression->paramid;
+		ParamExecData  *prm = &(qual_walk_context->econtext->ecxt_param_exec_vals[thisParamId]);
+
+		if (prm->execPlan)
+		{
+			SubPlanState *node = (SubPlanState *) (prm->execPlan);
+			if (qual_walk_context->walker_func(node->planstate, qual_walk_context->walker_context))
+				return true;
+		}
+	}
+
+	return false;
+}
+
+static void
+planstate_exec_walk_qual(List *qual, QualWalkContext *context)
+{
+	ListCell	   *lc;
+
+	foreach (lc, qual)
+	{
+		ExprState  *clause = (ExprState *) lfirst(lc);
+		Expr	   *expr = clause->expr;
+
+		(void) expression_tree_walker((Node *) expr,
+									  planstate_exec_walk_param,
+									  (void *) context);
+	}
+}
+
 bool
 planstate_tree_exec_walker(PlanState *planstate,
 						   bool (*walker) (),
 						   void *context)
 {
-	Plan	   *plan = planstate->plan;
-	ListCell   *lc;
+	Plan		   *plan = planstate->plan;
+	ExprContext	   *econtext = planstate->ps_ExprContext;
+	List		   *qual = planstate->qual;
+	ListCell	   *lc;
+	QualWalkContext qual_walk_context;
 
 	switch (nodeTag(plan))
 	{
@@ -3944,6 +3994,12 @@ planstate_tree_exec_walker(PlanState *planstate,
 				return true;
 			break;
 	}
+
+	/* qual-s */
+	qual_walk_context.walker_func = walker;
+	qual_walk_context.walker_context = context;
+	qual_walk_context.econtext = econtext;
+	planstate_exec_walk_qual(qual, &qual_walk_context);
 
 	/* subPlan-s */
 	if (planstate_walk_subplans(planstate->subPlan, walker, context))
