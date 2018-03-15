@@ -1089,7 +1089,10 @@ PrePreparePlanNodes(WaitEVSet set, List *pln_nodes)
 		while (wrk_port != NULL)
 		{
 			if (!PortIsValid(wrk_port))
+			{
+				wrk_port = RdcNext(wrk_port);
 				continue;
+			}
 
 			if (PlanPortIsReject(pln_port))
 				RdcWaitEvents(wrk_port) &= ~WT_SOCK_WRITEABLE;
