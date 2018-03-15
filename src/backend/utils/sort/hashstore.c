@@ -22,12 +22,12 @@
 
 #define READER_SIZE_STEP	4
 #define HASH_VALUE_OFFSET	(MINIMAL_TUPLE_DATA_OFFSET - sizeof(uint32))
+
 /*
- * we don't need LP_XXX, we use it to "is it toast"
- * HASH_LP_SIGNAL must be LP_NORMAL
+ * when space is not enough for save tuple in one PAGE, we set MultiData mark
  */
-#define HASH_LP_SIGNAL		LP_NORMAL		/* no more data */
-#define HASH_LP_MUTILE		LP_REDIRECT		/* need read next block */
+#define ItemIdMarkMultiData	ItemIdMarkDead
+#define ItemIdIsMultiData	ItemIdIsDead
 
 typedef struct HashBucketHead
 {
@@ -345,9 +345,8 @@ static void hashstore_put_data(Hashstorestate *state, HashStoreBufferDesc *desc,
 	while (len > 0)
 	{
 		page = HashStoreBufferIdGetPage(state, desc->buf_id);
-		free_size = PageGetHeapFreeSpace(page);
-		Assert(free_size > sizeof(ItemIdData));
-		free_size -= sizeof(ItemIdData);
+		free_size = PageGetFreeSpace(page);
+		Assert(free_size > 0);
 		offset = PageAddItemExtended(page, (Item)data, Min(free_size, len), InvalidOffsetNumber, 0);
 		if(offset == InvalidOffsetNumber)
 			ereport(ERROR, (errmsg("failed to add tuple to hash store page")));
@@ -358,9 +357,7 @@ static void hashstore_put_data(Hashstorestate *state, HashStoreBufferDesc *desc,
 
 		itemid = PageGetItemId(page, offset);
 		Assert(ItemIdIsNormal(itemid));
-		/* we don't need LP_XXX */
-		itemid->lp_flags = HASH_LP_MUTILE;
-		/* ItemIdGetFlags(itemid) = HASH_LP_MUTILE; */
+		ItemIdMarkMultiData(itemid);
 
 		data += free_size;
 		len -= free_size;
@@ -385,10 +382,9 @@ static void hashstore_get_data(Hashstorestate *state, HashReader *reader, String
 		appendBinaryStringInfo(buf, PageGetItem(page, item), ItemIdGetLength(item));
 		++reader->cur_offset;
 
-		if (ItemIdGetFlags(item) == HASH_LP_SIGNAL)
+		if (!ItemIdIsMultiData(item))
 			break;
 
-		Assert(ItemIdGetFlags(item) == HASH_LP_MUTILE);
 		Assert(reader->cur_offset > reader->max_offset);
 		if (reader->next_block == InvalidBlockNumber)
 		{
