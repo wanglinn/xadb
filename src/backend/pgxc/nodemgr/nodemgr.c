@@ -19,6 +19,7 @@
 #include "access/hash.h"
 #include "access/heapam.h"
 #include "access/htup_details.h"
+#include "access/xact.h"
 #include "catalog/catalog.h"
 #include "catalog/indexing.h"
 #include "catalog/pgxc_node.h"
@@ -32,9 +33,6 @@
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
-#ifdef ADB
-#include "access/xact.h"
-#endif
 
 /*
  * How many times should we try to find a unique indetifier
@@ -631,21 +629,21 @@ void
 PgxcNodeAlter(AlterNodeStmt *stmt)
 {
 	const char *node_name = stmt->node_name;
-	char	   *node_host;
-	char		node_type, node_type_old;
-	int			node_port;
-	bool		is_preferred;
-	bool		is_primary;
-	bool		was_primary;
+	char	   *node_host_old, *node_host_new = NULL;
+	int			node_port_old, node_port_new;
+	char		node_type_old, node_type_new;
+	bool		is_primary, was_primary;
+	bool		is_preferred = false;
 	bool		primary_off = false;
 	Oid			new_primary = InvalidOid;
 	HeapTuple	oldtup, newtup;
-	Oid			nodeOid = get_pgxc_nodeoid(node_name);
+	Oid			node_oid;
 	Relation	rel;
 	Datum		new_record[Natts_pgxc_node];
 	bool		new_record_nulls[Natts_pgxc_node];
 	bool		new_record_repl[Natts_pgxc_node];
 	uint32		node_id;
+	Form_pgxc_node node_form;
 
 	/* Only a DB administrator can alter cluster nodes */
 	if (!superuser())
@@ -656,34 +654,46 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	/* Look at the node tuple, and take exclusive lock on it */
 	rel = heap_open(PgxcNodeRelationId, RowExclusiveLock);
 
-	/* Check that node exists */
-	if (!OidIsValid(nodeOid))
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_OBJECT),
-				 errmsg("PGXC Node %s: object not defined",
-						node_name)));
-
 	/* Open new tuple, checks are performed on it and new values */
-	oldtup = SearchSysCacheCopy1(PGXCNODEOID, ObjectIdGetDatum(nodeOid));
+	oldtup = SearchSysCache1(PGXCNODENAME, PointerGetDatum(node_name));
 	if (!HeapTupleIsValid(oldtup))
-		elog(ERROR, "cache lookup failed for object %u", nodeOid);
+		elog(ERROR, "cache lookup failed for PGXC node \"%s\"", node_name);
 
-	/*
-	 * check_options performs some internal checks on option values
-	 * so set up values.
-	 */
-	node_host = get_pgxc_nodehost(nodeOid);
-	node_port = get_pgxc_nodeport(nodeOid);
-	is_preferred = is_pgxc_nodepreferred(nodeOid);
-	is_primary = was_primary = is_pgxc_nodeprimary(nodeOid);
-	node_type = get_pgxc_nodetype(nodeOid);
-	node_type_old = node_type;
-	node_id = get_pgxc_node_id(nodeOid);
+	node_oid = HeapTupleGetOid(oldtup);
+	Assert(OidIsValid(node_oid));
+	node_form = (Form_pgxc_node) GETSTRUCT(oldtup);
+	node_host_old = pstrdup(NameStr(node_form->node_host));
+	node_port_old = node_port_new = node_form->node_port;
+	node_type_old = node_type_new = node_form->node_type;
+	was_primary = is_primary = node_form->nodeis_primary;
+	is_preferred = node_form->nodeis_preferred;
+	node_id = node_form->node_id;
 
 	/* Filter options */
-	check_node_options(node_name, stmt->options, &node_host,
-				&node_port, &node_type,
-				&is_primary, &is_preferred);
+	check_node_options(node_name, stmt->options,
+					   &node_host_new,
+					   &node_port_new,
+					   &node_type_new,
+					   &is_primary,
+					   &is_preferred);
+
+	if (node_host_new != NULL)
+	{
+		if (pg_strcasecmp(node_host_old, node_host_new) != 0)
+			PreventInterTransactionChain(node_oid, "ALTER NODE HOST");
+	} else
+	{
+		node_host_new = node_host_old;
+	}
+	if (node_port_old != node_port_new)
+		PreventInterTransactionChain(node_oid, "ALTER NODE PORT");
+	if (node_type_old != node_type_new)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("PGXC node \"%s\": cannot alter from \"%s\" to \"%s\"",
+				 		node_name,
+				 		node_type_old == PGXC_NODE_COORDINATOR ? "Coordinator" : "Datanode",
+				 		node_type_new == PGXC_NODE_COORDINATOR ? "Coordinator" : "Datanode")));
 
 	/*
 	 * Two nodes cannot be primary at the same time. If the primary
@@ -692,7 +702,7 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	 */
 	if (is_primary &&
 		OidIsValid(primary_data_node) &&
-		nodeOid != primary_data_node)
+		node_oid != primary_data_node)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("PGXC node %s: two nodes cannot be primary",
@@ -704,35 +714,21 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	 */
 	if (was_primary && !is_primary &&
 		OidIsValid(primary_data_node) &&
-		nodeOid == primary_data_node)
+		node_oid == primary_data_node)
 		primary_off = true;
 	else if (is_primary)
-		new_primary = nodeOid;
-
-	/* Check type dependency */
-	if (node_type_old == PGXC_NODE_COORDINATOR &&
-		node_type == PGXC_NODE_DATANODE)
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("PGXC node %s: cannot alter Coordinator to Datanode",
-						node_name)));
-	else if (node_type_old == PGXC_NODE_DATANODE &&
-			 node_type == PGXC_NODE_COORDINATOR)
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("PGXC node %s: cannot alter Datanode to Coordinator",
-						node_name)));
+		new_primary = node_oid;
 
 	/* Update values for catalog entry */
 	MemSet(new_record, 0, sizeof(new_record));
 	MemSet(new_record_nulls, false, sizeof(new_record_nulls));
 	MemSet(new_record_repl, false, sizeof(new_record_repl));
-	new_record[Anum_pgxc_node_port - 1] = Int32GetDatum(node_port);
+	new_record[Anum_pgxc_node_port - 1] = Int32GetDatum(node_port_new);
 	new_record_repl[Anum_pgxc_node_port - 1] = true;
 	new_record[Anum_pgxc_node_host - 1] =
-		DirectFunctionCall1(namein, CStringGetDatum(node_host));
+		DirectFunctionCall1(namein, CStringGetDatum(node_host_new));
 	new_record_repl[Anum_pgxc_node_host - 1] = true;
-	new_record[Anum_pgxc_node_type - 1] = CharGetDatum(node_type);
+	new_record[Anum_pgxc_node_type - 1] = CharGetDatum(node_type_new);
 	new_record_repl[Anum_pgxc_node_type - 1] = true;
 	new_record[Anum_pgxc_node_is_primary - 1] = BoolGetDatum(is_primary);
 	new_record_repl[Anum_pgxc_node_is_primary - 1] = true;
@@ -756,6 +752,9 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	/* Update primary datanode if needed */
 	if (OidIsValid(new_primary))
 		primary_data_node = new_primary;
+
+	ReleaseSysCache(oldtup);
+
 	/* Release lock at Commit */
 	heap_close(rel, NoLock);
 }
@@ -793,6 +792,8 @@ PgxcNodeRemove(DropNodeStmt *stmt)
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("PGXC Node %s: cannot drop local node",
 						node_name)));
+
+	PreventInterTransactionChain(noid, "DROP NODE");
 
 	/* PGXCTODO:
 	 * Is there any group which has this node as member

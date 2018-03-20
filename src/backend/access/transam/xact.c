@@ -849,6 +849,31 @@ GetCurrentCommandId(bool used)
 }
 
 #ifdef ADB
+void
+PreventInterTransactionChain(const Oid node_id, const char *stmt_type)
+{
+	TransactionState	s;
+	InterXactState		is;
+	int					i;
+
+	for (s = CurrentTransactionState; s != NULL; s = s->parent)
+	{
+		if (s->interXactState)
+		{
+			is = s->interXactState;
+			for (i = 0; i < is->trans_count; i++)
+			{
+				if (node_id == is->trans_nodes[i])
+					ereport(ERROR,
+						(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
+					/* translator: %s represents an SQL statement name */
+						 errmsg("%s cannot run inside an inter transaction block",
+						 		stmt_type)));
+			}
+		}
+	}
+}
+
 InterXactState
 GetCurrentInterXactState(void)
 {

@@ -18,6 +18,7 @@
 
 #include "access/heapam.h"
 #include "access/htup_details.h"
+#include "access/xact.h"
 #include "catalog/catalog.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_type.h"
@@ -129,6 +130,9 @@ PgxcGroupRemove(DropGroupStmt *stmt)
 	HeapTuple	tup;
 	const char *group_name = stmt->group_name;
 	Oid			group_oid = get_pgxc_groupoid(group_name);
+	Form_pgxc_group group_form;
+	oidvector	   *group_members;
+	int				i;
 
 	/* Only a DB administrator can remove cluster node groups */
 	if (!superuser())
@@ -149,6 +153,11 @@ PgxcGroupRemove(DropGroupStmt *stmt)
 
 	if (!HeapTupleIsValid(tup)) /* should not happen */
 		elog(ERROR, "PGXC Group %s: group not defined", group_name);
+
+	group_form = (Form_pgxc_group) GETSTRUCT(tup);
+	group_members = &(group_form->group_members);
+	for (i = 0; i < group_members->dim1; i++)
+		PreventInterTransactionChain(group_members->values[i], "DROP GROUP");
 
 	simple_heap_delete(relation, &tup->t_self);
 
