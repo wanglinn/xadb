@@ -7033,13 +7033,11 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 
 static void set_scan_execute_oids(Scan *scan, Path *path, PlannerInfo *root)
 {
-	List *execute_on;
 	AssertArg(scan && path && path->parent && root);
 
 	if(root->glob->clusterPlanOK == false)
 		return;
 
-	execute_on = NIL;
 	if(path->reduce_is_valid)
 	{
 		ReduceInfo *rinfo;

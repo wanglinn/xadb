@@ -475,6 +475,7 @@ Node *makeConnectByStmt(SelectStmt *stmt, Node *start, Node *connect_by,
 	CommonTableExpr *common_table;
 	RangeVar *range;
 	ConnectByParseState pstate;
+	JoinExpr *join;
 	AssertArg(stmt && connect_by && yyscanner);
 	memset(&pstate, 0, sizeof(pstate));
 
@@ -561,7 +562,7 @@ Node *makeConnectByStmt(SelectStmt *stmt, Node *start, Node *connect_by,
 	union_all_right->targetList = make_target_list_right(&pstate);
 
 	/* make join */
-	JoinExpr *join = makeNode(JoinExpr);
+	join = makeNode(JoinExpr);
 	join->jointype = JOIN_INNER;
 	join->larg = linitial(stmt->fromClause);
 	join->rarg = (Node*)makeRangeVar(NULL, pstrdup(common_table->ctename), -1);

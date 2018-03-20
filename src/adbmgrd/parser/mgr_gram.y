@@ -138,14 +138,14 @@ static void check_jobitem_name_isvaild(List *node_name_list);
  * parse errors.  It is needed by PL/pgsql.
  */
 %token <str>	IDENT FCONST SCONST BCONST XCONST Op
-%token <ival>	ICONST 
+%token <ival>	ICONST
 %token			TYPECAST DOT_DOT COLON_EQUALS
 
 %type <list>	stmtblock stmtmulti
 %type <node>	stmt
 %type <node>	AddHostStmt DropHostStmt ListHostStmt AlterHostStmt
 				ListParmStmt StartAgentStmt AddNodeStmt StopAgentStmt
-				DropNodeStmt AlterNodeStmt ListNodeStmt InitNodeStmt 
+				DropNodeStmt AlterNodeStmt ListNodeStmt InitNodeStmt
 				VariableSetStmt StartNodeMasterStmt StopNodeMasterStmt
 				MonitorStmt FailoverStmt /* ConfigAllStmt */ DeploryStmt
 				Gethostparm ListMonitor Gettopologyparm Update_host_config_value
@@ -562,7 +562,7 @@ Get_alarm_info:
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("get_alarm_info_count", args));
 			$$ = (Node*)stmt;
-		} 
+		}
 		|RESOLVE_ALARM '(' SignedIconst ',' Ident ',' Ident ')'
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
@@ -808,7 +808,7 @@ VariableSetStmt:
 					$$ = (Node *) n;
 				}
 			;
-			
+
 set_rest: set_rest_more { $$ = $1; };
 
 set_rest_more:
@@ -866,7 +866,7 @@ opt_boolean_or_string:
 			 */
 			| NonReservedWord_or_Sconst				{ $$ = $1; }
 			;
-			
+
 NonReservedWord_or_Sconst:
 			NonReservedWord							{ $$ = $1; }
 			| SConst								{ $$ = $1; }
@@ -876,8 +876,8 @@ RoleId:		NonReservedWord							{ $$ = $1; };
 
 NonReservedWord:	IDENT							{ $$ = $1; }
 			| unreserved_keyword					{ $$ = pstrdup($1); }
-			;			
-			
+			;
+
 NumericOnly:
 			FCONST								{ $$ = makeFloat($1); }
 			| '-' FCONST
@@ -915,7 +915,7 @@ opt_general_options:
 set_parm_general_options:
 	  general_options	{ $$ = $1; }
 	;
-	
+
 general_options: '(' general_option_list ')'
 		{
 			$$ = $2;
@@ -942,7 +942,7 @@ general_option_item:
 
 	;
 /*conntype database role addr auth_method*/
-	
+
 general_option_arg:
 	  Ident								{ $$ = (Node*)makeString($1); }
 	| SConst							{ $$ = (Node*)makeString($1); }
@@ -977,7 +977,7 @@ ObjList:
 		{
 			$$ = list_make1(makeString($1));
 		}
-	;	
+	;
 
 ListHostStmt:
 	  LIST HOST
@@ -1479,7 +1479,7 @@ ListParmStmt:
 					stmt->whereClause =
 						(Node *)(Node *)makeAndExpr(
 							(Node *) makeSimpleA_Expr(AEXPR_OP, "~",
-									make_ColumnRef("nodetype"), 
+									make_ColumnRef("nodetype"),
 									makeStringConst(pstrdup("gtm"), -1), -1),
 							(Node *) makeSimpleA_Expr(AEXPR_OP, "~~",
 									make_ColumnRef("key"),
@@ -1627,7 +1627,7 @@ CleanAllStmt:
 AddHbaStmt:
 	ADD_P HBA set_ident '(' NodeConstList ')'
 	{
-		SelectStmt *stmt = makeNode(SelectStmt);	
+		SelectStmt *stmt = makeNode(SelectStmt);
 		List *args = lappend($5, makeStringConst($3,@3));
 		stmt->targetList = list_make1(make_star_target(-1));
 		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_add_hba", args));
@@ -1636,10 +1636,10 @@ AddHbaStmt:
 	;
 
 DropHbaStmt:
-	DROP HBA set_ident HbaParaList 
+	DROP HBA set_ident HbaParaList
 	{
-		SelectStmt *stmt = makeNode(SelectStmt);	
-		List *args = lappend($4, makeStringConst($3,@3));		
+		SelectStmt *stmt = makeNode(SelectStmt);
+		List *args = lappend($4, makeStringConst($3,@3));
 		stmt->targetList = list_make1(make_star_target(-1));
 		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_drop_hba", args));
 		$$ = (Node*)stmt;
@@ -1647,7 +1647,7 @@ DropHbaStmt:
 	;
 
 ListHbaStmt:
-	LIST HBA 
+	LIST HBA
 	{
 		SelectStmt *stmt = makeNode(SelectStmt);
 		stmt->targetList = list_make1(make_star_target(-1));
@@ -1667,10 +1667,10 @@ HbaParaList:
 	'(' NodeConstList ')' 	{$$ = $2;}
 	| /*empty*/             {$$ = NIL;}
 	;
-	
+
 /*hba end*/
 
-/* gtm/coordinator/datanode 
+/* gtm/coordinator/datanode
 */
 
 AddNodeStmt:
@@ -1686,7 +1686,7 @@ AddNodeStmt:
 	| ADD_P GTM SLAVE Ident FOR Ident opt_general_options
 		{
 			MGRAddNode *node = makeNode(MGRAddNode);
-			node->nodetype = GTM_TYPE_GTM_SLAVE; 
+			node->nodetype = GTM_TYPE_GTM_SLAVE;
 			node->mastername = $6;
 			node->name = $4;
 			node->options = $7;
@@ -1983,9 +1983,10 @@ StartNodeMasterStmt:
 		}
 	|	START ALL
 		{
+			SelectStmt *stmt;
 			mgr_check_job_in_updateparam("monitor_handle_coordinator");
 
-			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("startall"), -1));
 			$$ = (Node*)stmt;
@@ -2099,9 +2100,11 @@ StopNodeMasterStmt:
 		}
 	|	STOP ALL opt_stop_mode
 		{
+			SelectStmt *stmt;
+
 			mgr_check_job_in_updateparam("monitor_handle_coordinator");
 
-			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			if (strcmp($3, SHUTDOWN_S) == 0)
 				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stopall"), -1));
@@ -2523,7 +2526,7 @@ RemoveNodeStmt:
 			node->nodetype = CNDN_TYPE_COORDINATOR_MASTER;
 			node->names = $4;
 			$$ = (Node*)node;
-		}	
+		}
 	;
 
 FailoverManualStmt:
@@ -2805,7 +2808,7 @@ static List* make_start_agent_args(List *options)
 	char *password = NULL;
 	ListCell *lc;
 	DefElem *def;
-	
+
 	/* for(lc=list_head(options);lc;lc=lnext(lc)) */
 	foreach(lc,options)
 	{
@@ -2820,7 +2823,7 @@ static List* make_start_agent_args(List *options)
 				,errhint("option is password.")));
 		}
 	}
-	
+
 	if(password == NULL)
 		result = list_make1(makeNullAConst(-1));
 	else
@@ -2881,7 +2884,7 @@ static Node* make_whereClause_for_coord(char* node_type_str, List* node_name_lis
 									make_ColumnRef("key"),
 									makeStringConst(pstrdup(like_expr), -1), -1),
 			-1);
-				
+
 	return  (Node *)whereClause;
 }
 
@@ -2900,13 +2903,13 @@ static Node* make_whereClause_for_gtm(char* node_type_str, List* node_name_list,
 							(Node *) makeSimpleA_Expr(AEXPR_IN, "=", make_ColumnRef("nodename"), (Node*)node_name_list, -1),
 							(Node *) makeSimpleA_Expr(AEXPR_OP, "=", make_ColumnRef("nodetype"), makeStringConst(pstrdup(node_type_str), -1), -1),
 							-1),
-					-1),		
+					-1),
 			(Node *)makeSimpleA_Expr(AEXPR_OP, "~~",
 										make_ColumnRef("key"),
 										makeStringConst(pstrdup(like_expr), -1), -1),
 			-1);
-								
-		return  (Node *)whereClause;						
+
+		return  (Node *)whereClause;
 
 }
 

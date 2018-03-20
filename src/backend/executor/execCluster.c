@@ -840,8 +840,8 @@ StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt)
 		if (PQputCopyData(conn, msg.data, msg.len) <= 0 ||
 			PQflush(conn))
 		{
-			pfree(msg.data);
 			const char *node_name = PQNConnectName(conn);
+			pfree(msg.data);
 			ereport(ERROR,
 					(errcode(ERRCODE_CONNECTION_FAILURE),
 					 errmsg("%s", PQerrorMessage(conn)),
@@ -917,8 +917,8 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 		conn = lfirst(lc);
 		if(PQsendPlan(conn, msg->data, msg->len) == false)
 		{
-			safe_pfree(rdc_masks);
 			const char *node_name = PQNConnectName(conn);
+			safe_pfree(rdc_masks);
 			ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE),
 				errmsg("%s", PQerrorMessage(conn)),
 				node_name ? errnode(node_name) : 0));

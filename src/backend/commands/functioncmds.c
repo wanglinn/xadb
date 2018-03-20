@@ -1166,6 +1166,7 @@ CreateFunction(CreateFunctionStmt *stmt, const char *queryString)
 						   prorows);
 #ifdef ADB
 	{
+		HeapTuple tup;
 		Relation rel;
 		Datum values[Natts_adb_proc];
 		bool isnull[Natts_adb_proc];
@@ -1175,7 +1176,6 @@ CreateFunction(CreateFunctionStmt *stmt, const char *queryString)
 			values[i] = (Datum)0;
 			isnull[i] = true;
 		}
-		HeapTuple tup;
 		values[Anum_adb_proc_proowner-1] = addr.objectId;
 		isnull[Anum_adb_proc_proowner-1] = false;
 		values[Anum_adb_proc_proclustersafe-1] = cluster;
