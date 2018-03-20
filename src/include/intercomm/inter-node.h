@@ -30,6 +30,11 @@ typedef struct NodeHandle
 	NameData			node_name;
 	NodeType			node_type;
 	bool				node_primary;
+	bool				node_preferred;
+
+	/* used for hash table */
+	bool				isvalid;		/* Used to mark whether or not it is valid in the hash table */
+	uint32				hashvalue;		/* The hash value is obtained by calculating the node_id  */
 
 	/* set by caller */
 	struct pg_conn	   *node_conn;
@@ -50,23 +55,21 @@ typedef struct CustomOption
 	const struct PGcustumFuns*cumstom_funcs;
 } CustomOption;
 
+extern Oid SelfNodeID;
+
 extern void ResetNodeExecutor(void);
-extern void InitNodeExecutor(bool force);
+extern void InitializeNodeExecutor(void);
+extern void AtStart_NodeExecutor(void);
 extern NodeHandle *GetNodeHandle(Oid node_id, bool attatch, void *context);
-extern NodeHandle *GetCnHandle(Oid cn_id, bool attatch, void *context);
-extern NodeHandle *GetDnHandle(Oid dn_id, bool attatch, void *context);
-extern void HandleAttatchPGconn(NodeHandle *handle);
-extern void HandleDetachPGconn(NodeHandle *handle);
-extern void HandleReAttatchPGconn(NodeHandle *handle);
+extern List *GetNodeHandleList(const Oid *nodes, int nnodes,
+						   bool include_self, bool noerror,
+						   bool attatch, void *context);
 extern struct pg_conn *HandleGetPGconn(void *handle);
 extern CustomOption *PGconnSetCustomOption(struct pg_conn *conn, void *custom, struct PGcustumFuns *custom_funcs);
 extern void PGconnResetCustomOption(struct pg_conn *conn, CustomOption *opt);
 extern NodeMixHandle *GetMixedHandles(const List *node_list, void *context);
-extern NodeMixHandle *GetAllHandles(void *context);
 extern NodeMixHandle *CopyMixhandle(NodeMixHandle *src);
 extern NodeMixHandle *ConcatMixHandle(NodeMixHandle *mix1, NodeMixHandle *mix2);
-extern List *GetHandleList(MemoryContext mem_context, const Oid *nodes, int nnodes,
-						   bool include_self, bool attatch, void *context);
 extern void FreeMixHandle(NodeMixHandle *cur_handle);
 
 extern List *GetAllCnIDL(bool include_self);
@@ -78,11 +81,11 @@ extern Oid *GetAllDnIDA(bool include_self, int *dn_num);
 extern Oid *GetAllNodeIDA(bool include_self, int *node_num);
 
 extern const char *GetNodeName(const Oid node_id);
-extern const char *GetPrNodeName(void);
-extern NodeHandle *GetPrHandle(void);
-extern Oid GetPrNodeID(void);
-extern bool IsPrNode(Oid node_id);
-extern bool HasPrNode(const List *node_list);
+extern const char *GetPrimaryNodeName(void);
+extern NodeHandle *GetPrimaryNodeHandle(void);
+extern Oid GetPrimaryNodeID(void);
+extern bool IsPrimaryNode(Oid node_id);
+extern bool HasPrimaryNode(const List *node_list);
 
 extern Size EstimateNodeInfoSpace(void);
 extern void SerializeNodeInfo(Size maxsize, char *ptr);

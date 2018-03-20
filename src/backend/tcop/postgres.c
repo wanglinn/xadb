@@ -4390,7 +4390,6 @@ PostgresMain(int argc, char *argv[],
 
 		start_xact_command();
 		InitMultinodeExecutor(false);
-		InitNodeExecutor(false);
 		finish_xact_command();
 
 		if (!IsConnFromCoord())

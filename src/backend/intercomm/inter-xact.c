@@ -704,7 +704,7 @@ InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool no
 		InterXactTwoPhase(gid, nodes, nnodes, TP_ABORT, missing_ok);
 	else
 	{
-		List *handle_list = GetHandleList(NULL, nodes, nnodes, false, false, NULL);
+		List *handle_list = GetNodeHandleList(nodes, nnodes, false, true, false, NULL);
 		char *command;
 		const char *command_tag;
 
@@ -734,7 +734,7 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 	char		   *command = NULL;
 	const char	   *command_tag;
 
-	handle_list = GetHandleList(NULL, nodes, nnodes, false, true, NULL);
+	handle_list = GetNodeHandleList(nodes, nnodes, false, false, true, NULL);
 	if (!handle_list)
 		return ;
 

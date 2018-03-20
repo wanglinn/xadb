@@ -1081,7 +1081,6 @@ ParallelWorkerMain(Datum main_arg)
 	StartTransactionCommand();
 	/* Initialize executor. This must be done inside a transaction block. */
 	InitMultinodeExecutor(false);
-	InitNodeExecutor(false);
 	CommitTransactionCommand();
 
 	RestoreReduceInfo(shm_toc_lookup(toc, PARALLEL_KEY_REDUCE_INFO));

@@ -161,8 +161,6 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 	/* Reinitialize session, while old pooler connection is active */
 	InitMultinodeExecutor(true);
 
-	InitNodeExecutor(true);
-
 	/* And reconnect to pool manager */
 	PoolManagerReconnect();
 
@@ -433,8 +431,6 @@ HandlePoolerReload(void)
 	{
 		/* Reinitialize session, while old pooler connection is active */
 		InitMultinodeExecutor(true);
-
-		InitNodeExecutor(true);
 
 		/* And reconnect to pool manager */
 		PoolManagerReconnect();

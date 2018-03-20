@@ -129,7 +129,7 @@ EndRemoteCopy(RemoteCopyState *node)
 	Assert(node);
 	PG_TRY();
 	{
-		prhandle = GetPrHandle();
+		prhandle = GetPrimaryNodeHandle();
 		if (prhandle && list_member_ptr(node->copy_handles, prhandle))
 		{
 			if (PQputCopyEnd(prhandle->node_conn, NULL) <= 0 ||
@@ -207,7 +207,7 @@ DoRemoteCopyFrom(RemoteCopyState *node, const StringInfo line_buf, const List *n
 	Assert(node && line_buf);
 	PG_TRY();
 	{
-		prhandle = GetPrHandle();
+		prhandle = GetPrimaryNodeHandle();
 		/* Primary handle should be sent first */
 		if (prhandle && list_member_oid(node_list, prhandle->node_id))
 		{

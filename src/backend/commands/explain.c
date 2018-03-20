@@ -3678,7 +3678,7 @@ ExplainExecNodes(ExecNodes *en, ExplainState *es)
 	if (en)
 	{
 		node_cnt = list_length(en->nodeids);
-		if (HasPrNode(en->nodeids))
+		if (HasPrimaryNode(en->nodeids))
 		{
 			pr_node_cnt = 1;
 			node_cnt--;
@@ -3731,8 +3731,8 @@ ExplainRemoteQuery(RemoteQuery *plan, PlanState *planstate, List *ancestors, Exp
 	/* add names of the nodes if they exist */
 	if (en && es->nodes)
 	{
-		if (HasPrNode(en->nodeids))
-			ExplainPropertyText("Primary node/s", GetPrNodeName(), es);
+		if (HasPrimaryNode(en->nodeids))
+			ExplainPropertyText("Primary node/s", GetPrimaryNodeName(), es);
 
 		if (en->nodeids)
 		{

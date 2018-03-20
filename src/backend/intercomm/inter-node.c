@@ -15,7 +15,14 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "miscadmin.h"
 
+#include "access/htup.h"
+#include "access/htup_details.h"
+#include "access/xact.h"
+#include "utils/inval.h"
+#include "catalog/indexing.h"
+#include "catalog/pgxc_node.h"
 #include "intercomm/inter-comm.h"
 #include "intercomm/inter-node.h"
 #include "nodes/pg_list.h"
@@ -27,212 +34,357 @@
 #include "storage/ipc.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
+#include "utils/syscache.h"
 
-/* number of PGconn held */
-static int NumDnConns = 0;
-static int NumCnConns = 0;
+/* Myself node id */
+Oid SelfNodeID = InvalidOid;
 
-/*
- * NodeHandle
- * it is determined by node table in the shared memory
- */
-volatile int NumCnNodes = 0;
-volatile int NumDnNodes = 0;
-static int NumMaxNodes = 0;
-static volatile int NumAllNodes = 0;
-static NodeHandle *AllHandles = NULL;
-static NodeHandle *CnHandles = NULL;
-static NodeHandle *DnHandles = NULL;
-static NodeHandle *PrHandle = NULL;
-static bool handle_init = false;
+/* The primary NodeHandle */
+static NodeHandle *PrimaryHandle = NULL;
 
-#define foreach_all_handles(p)	\
-	for (p = AllHandles; p - AllHandles < NumAllNodes; p = &p[1])
-#define foreach_cn_handles(p)	\
-	for (p = CnHandles; p - CnHandles < NumCnNodes; p = &p[1])
-#define foreach_dn_handles(p)	\
-	for (p = DnHandles; p - DnHandles < NumDnNodes; p = &p[1])
+/* The NodeHandle cache hashtable */
+static HTAB *NodeHandleCacheHash = NULL;
 
-static void ReleaseNodeExecutor(int code, Datum arg);
+/* The flag will be set true when catch shared invalid message */
+static bool NeedToRebuild = false;
+
+static void BuildNodeHandleCacheHash(void);
+static void CleanNodeHandleCacheHash(void);
+static void RebuildNodeHandleCacheHash(void);
+static void InvalidateNodeHandleCacheCallBack(Datum arg, int cacheid, uint32 hashvalue);
+static NodeHandle *MakeNodeHandleEntry(Oid node_id, Name node_name,
+									   NodeType node_type,
+									   bool node_primary,
+									   bool node_preferred);
+static NodeHandle *MakeNodeHandleEntryByTuple(HeapTuple htup);
+static void HandleAttatchPGconn(NodeHandle *handle);
+static void HandleDetachPGconn(NodeHandle *handle);
 static void GetPGconnAttatchToHandle(List *node_list, List *handle_list);
 static List *GetNodeIDList(NodeType type, bool include_self);
 static Oid *GetNodeIDArray(NodeType type, bool include_self, int *node_num);
 
+/*
+ * ResetNodeExecutor
+ *
+ * Detach PGconn of each NodeHandle in NodeHandleCacheHash.
+ */
 void
 ResetNodeExecutor(void)
 {
-	NodeHandle  *handle;
+	if (NodeHandleCacheHash != NULL)
+	{
+		HASH_SEQ_STATUS	status;
+		NodeHandle	   *handle;
 
-	foreach_all_handles(handle)
-		HandleDetachPGconn(handle);
+		hash_seq_init(&status, NodeHandleCacheHash);
+		while ((handle = (NodeHandle *) hash_seq_search(&status)) != NULL)
+			HandleDetachPGconn(handle);
+	}
+}
+
+/*
+ * InitializeNodeExecutor
+ *
+ * Build NodeHandle cache hashtable and register callback function of
+ * syscache PGXCNODEOID.
+ */
+void
+InitializeNodeExecutor(void)
+{
+	if (IsCnNode() && !IsBootstrapProcessingMode() && IsUnderPostmaster)
+	{
+		BuildNodeHandleCacheHash();
+
+		/* Arrange to flush cache on pgxc_node changes */
+		CacheRegisterSyscacheCallback(PGXCNODEOID,
+									  InvalidateNodeHandleCacheCallBack,
+									  (Datum) 0);
+	}
+}
+
+/*
+ * AtStart_NodeExecutor
+ *
+ * Rebuild NodeHandle cache hashtable if necessary. It must be called
+ * after CurrentTransactionState set state to TRANS_INPROGRESS as
+ * we will search pgxc_node syscache.
+ */
+void
+AtStart_NodeExecutor(void)
+{
+	RebuildNodeHandleCacheHash();
+}
+
+/*
+ * BuildNodeHandleCacheHash
+ *
+ * Scan pgxc_node catalog and build NodeHandle cache hashtable.
+ */
+static void
+BuildNodeHandleCacheHash(void)
+{
+	Relation	rel;
+	SysScanDesc scan;
+	HeapTuple	tuple;
+
+	Assert(IsCnNode());
+	Assert(IsTransactionState());
+
+	if (NodeHandleCacheHash == NULL)
+	{
+		HASHCTL		ctl;
+
+		MemSet(&ctl, 0, sizeof(ctl));
+		ctl.keysize = sizeof(Oid);
+		ctl.entrysize = sizeof(NodeHandle);
+		ctl.hcxt = TopMemoryContext;
+		NodeHandleCacheHash = hash_create("NodeHandle cache hash", 256,
+									 	  &ctl, HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+	}
+
+	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	scan = systable_beginscan(rel, PgxcNodeOidIndexId, true,
+							  NULL, 0, NULL);
+	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
+		(void) MakeNodeHandleEntryByTuple(tuple);
+	systable_endscan(scan);
+	heap_close(rel, AccessShareLock);
+
+	Assert(OidIsValid(SelfNodeID));
+}
+
+/*
+ * CleanNodeHandleCacheHash
+ *
+ * Remove invalid entry of NodeHandle cache hashtable
+ * and reset PrimaryHandle if necessary.
+ */
+static void
+CleanNodeHandleCacheHash(void)
+{
+	if (NodeHandleCacheHash != NULL)
+	{
+		HASH_SEQ_STATUS	status;
+		NodeHandle	   *handle;
+
+		hash_seq_init(&status, NodeHandleCacheHash);
+		while ((handle = (NodeHandle *) hash_seq_search(&status)) != NULL)
+		{
+			if (!handle->isvalid)
+			{
+				if (hash_search(NodeHandleCacheHash,
+								(void *) &(handle->node_id),
+								HASH_REMOVE, NULL) == NULL)
+					elog(ERROR, "hash table corrupted");
+
+				if (handle == PrimaryHandle)
+					PrimaryHandle = NULL;
+			}
+		}
+	}
+}
+
+/*
+ * RebuildNodeHandleCacheHash
+ *
+ * Rebuild NodeHandle cache hashtable if necessary.
+ */
+static void
+RebuildNodeHandleCacheHash(void)
+{
+	if (NeedToRebuild && IsCnNode() && IsTransactionState())
+	{
+		BuildNodeHandleCacheHash();
+		CleanNodeHandleCacheHash();
+		NeedToRebuild = false;
+	}
 }
 
 static void
-ReleaseNodeExecutor(int code, Datum arg)
+InvalidateNodeHandleEntry(uint32 hashvalue)
 {
-	if (AllHandles)
+	HASH_SEQ_STATUS	status;
+	NodeHandle	   *handle;
+
+	Assert(NodeHandleCacheHash != NULL);
+	hash_seq_init(&status, NodeHandleCacheHash);
+	while ((handle = (NodeHandle *) hash_seq_search(&status)) != NULL)
 	{
-		Assert(NumMaxNodes > 0);
-		ResetNodeExecutor();
+		if (handle->hashvalue == hashvalue)
+		{
+			handle->isvalid = false;
+
+			if (handle == PrimaryHandle)
+				PrimaryHandle = NULL;
+		}
 	}
-	NumAllNodes = NumCnNodes = NumDnNodes = 0;
-	CnHandles = DnHandles = NULL;
-	PrHandle = NULL;
-	handle_init = false;
 }
 
-void
-InitNodeExecutor(bool force)
+/*
+ * Callback for pgxc_node inval events
+ */
+static void
+InvalidateNodeHandleCacheCallBack(Datum arg, int cacheid, uint32 hashvalue)
 {
-	NodeDefinition *all_node_def;
-	NodeDefinition *nodedef;
-	NodeHandle	   *handle;
-	Size			sz;
-	int				numCN, numDN, numALL;
-	int				i;
+	NeedToRebuild = true;
+	InvalidateNodeHandleEntry(hashvalue);
+}
 
-	if (force)
-		ReleaseNodeExecutor(0, 0);
+static NodeHandle *
+MakeNodeHandleEntry(Oid node_id, Name node_name, NodeType node_type,
+					bool node_primary, bool node_preferred)
+{
+	NodeHandle *handle = NULL;
+	bool		found = false;
 
-	/* already initialized */
-	if (handle_init)
-		return ;
-
-	/* Update node table in the shared memory */
-	PgxcNodeListAndCount();
-
-	all_node_def = PgxcNodeGetAllDefinition(&numCN, &numDN);
-	numALL = numCN + numDN;
-	sz = numALL * sizeof(NodeHandle);
-	if (AllHandles == NULL)
+	Assert(NodeHandleCacheHash != NULL);
+	handle = (NodeHandle *) hash_search(NodeHandleCacheHash,
+										(void *) &node_id,
+										HASH_ENTER, &found);
+	namecpy(&(handle->node_name), node_name);
+	handle->node_type = node_type;
+	handle->node_primary = node_primary;
+	handle->node_preferred = node_preferred;
+	handle->isvalid = true;
+	if (!found)
 	{
-		AllHandles = (NodeHandle *) MemoryContextAlloc(TopMemoryContext, sz);
-		NumMaxNodes = numALL;
-	} else if (numALL > NumMaxNodes)
-	{
-		Assert(NumMaxNodes > 0);
-		AllHandles = (NodeHandle *) repalloc(AllHandles, sz);
-		NumMaxNodes = numALL;
-	} else {
-		/* keep compiler quiet */
-	}
-	sz = NumMaxNodes * sizeof(NodeHandle);
-	MemSet(AllHandles, 0, sz);
-
-	NumCnConns = 0;
-	NumDnConns = 0;
-	PGXCNodeId = 0;
-	for (i = 0; i < numALL; i++)
-	{
-		nodedef = &(all_node_def[i]);
-		handle = &(AllHandles[i]);
-
-		handle->node_id = nodedef->nodeoid;
-		handle->node_type = (i < numCN ? TYPE_CN_NODE : TYPE_DN_NODE);
-		namecpy(&(handle->node_name), &(nodedef->nodename));
-		handle->node_primary = nodedef->nodeisprimary;
+		handle->hashvalue = GetSysCacheHashValue1(PGXCNODEOID,
+												  ObjectIdGetDatum(node_id));
 		handle->node_conn = NULL;
 		handle->node_context = NULL;
 		handle->node_owner = NULL;
-		if (handle->node_primary)
-			PrHandle = handle;
-
-		if (handle->node_type == TYPE_CN_NODE &&
-			pg_strcasecmp(PGXCNodeName, NameStr(handle->node_name)) == 0)
-		{
-			PGXCNodeId = i + 1;
-			PGXCNodeOid = handle->node_id;
-		}
 	}
-	safe_pfree(all_node_def);
 
-	NumAllNodes = numALL;
-	NumCnNodes = numCN;
-	NumDnNodes = numDN;
-	CnHandles = (numCN > 0 ? AllHandles : NULL);
-	DnHandles = (numDN > 0 ? &AllHandles[numCN] : NULL);
+	if (node_primary)
+		PrimaryHandle = handle;
 
-	/*
-	 * No node-self?
-	 * PGXCTODO: Change error code
-	 */
-	if (PGXCNodeId == 0)
-		ereport(ERROR,
-				(errcode(ERRCODE_DATA_EXCEPTION),
-				 errmsg("Coordinator cannot identify itself")));
+	if (pg_strcasecmp(PGXCNodeName, NameStr(*node_name)) == 0)
+		SelfNodeID = PGXCNodeOid = node_id;
 
-	handle_init = true;
+	return handle;
+}
 
-	on_proc_exit(ReleaseNodeExecutor, 0);
+static NodeHandle *
+MakeNodeHandleEntryByTuple(HeapTuple htup)
+{
+	Form_pgxc_node	tuple;
+	NodeType		node_type;
+	Oid				node_id;
+	NodeHandle	   *handle;
+
+	if (!htup)
+		return NULL;
+
+	node_id = HeapTupleGetOid(htup);
+	handle = (NodeHandle *) hash_search(NodeHandleCacheHash,
+										(const void *) &node_id,
+										HASH_FIND,
+										NULL);
+	/* return if handle exists and is valid */
+	if (handle && handle->isvalid)
+		return handle;
+
+	tuple = (Form_pgxc_node) GETSTRUCT(htup);
+	switch (tuple->node_type)
+	{
+		case PGXC_NODE_COORDINATOR:
+			node_type = TYPE_CN_NODE;
+			break;
+		case PGXC_NODE_DATANODE:
+			node_type = TYPE_DN_NODE;
+			break;
+		default:
+			Assert(false);
+			break;
+	}
+
+	return MakeNodeHandleEntry(node_id,
+							   &(tuple->node_name),
+							   node_type,
+							   tuple->nodeis_primary,
+							   tuple->nodeis_preferred);
 }
 
 NodeHandle *
 GetNodeHandle(Oid node_id, bool attatch, void *context)
 {
-	NodeHandle *handle;
+	NodeHandle *handle = NULL;
+	HeapTuple	tuple = NULL;
 
-	if (!handle_init)
-		return NULL;
+	Assert(IsCnNode());
+	Assert(NodeHandleCacheHash != NULL);
 
-	foreach_all_handles(handle)
+	RebuildNodeHandleCacheHash();
+
+	/* Try to find out from the hash table */
+	handle = (NodeHandle *) hash_search(NodeHandleCacheHash,
+										(const void *) &node_id,
+										HASH_FIND,
+										NULL);
+
+	/* Try to find out from system cache */
+	if (handle == NULL && IsTransactionState())
 	{
-		if (handle->node_id == node_id)
-		{
-			if (attatch)
-				HandleAttatchPGconn(handle);
-			handle->node_context = context;
-			return handle;
-		}
+		tuple = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(node_id));
+		handle = MakeNodeHandleEntryByTuple(tuple);
 	}
 
-	return NULL;
+	if (handle != NULL)
+	{
+		if (attatch)
+			HandleAttatchPGconn(handle);
+		handle->node_context = context;
+	}
+
+	return handle;
 }
 
-NodeHandle *
-GetCnHandle(Oid cn_id, bool attatch, void *context)
+List *
+GetNodeHandleList(const Oid *nodes, int nnodes,
+				  bool include_self, bool noerror,
+				  bool attatch, void *context)
 {
-	NodeHandle *handle;
+	NodeHandle	   *handle;
+	List		   *handle_list = NIL;
+	List		   *id_need = NIL;
+	List		   *handle_need = NIL;
+	int				i;
 
-	if (!handle_init)
-		return NULL;
+	if (nnodes <= 0)
+		return NIL;
 
-	foreach_cn_handles(handle)
+	RebuildNodeHandleCacheHash();
+
+	Assert(OidIsValid(SelfNodeID));
+	for (i = 0; i < nnodes; i++)
 	{
-		if (handle->node_id == cn_id)
+		if (!include_self && nodes[i] == SelfNodeID)
+			continue;
+		handle = GetNodeHandle(nodes[i], false, context);
+		if (!handle)
 		{
-			if (attatch)
-				HandleAttatchPGconn(handle);
-			handle->node_context = context;
-			return handle;
+			if (noerror)
+				continue;
+
+			elog(ERROR, "Invalid node \"%u\"", nodes[i]);
+		}
+		handle_list = lappend(handle_list, handle);
+		if (attatch && PQstatus(handle->node_conn) != CONNECTION_OK)
+		{
+			/* detach old PGconn if exists */
+			HandleDetachPGconn(handle);
+			id_need = lappend_oid(id_need, nodes[i]);
+			handle_need = lappend(handle_need, handle);
 		}
 	}
+	GetPGconnAttatchToHandle(id_need, handle_need);
+	list_free(id_need);
+	list_free(handle_need);
 
-	return NULL;
+	return handle_list;
 }
 
-NodeHandle *
-GetDnHandle(Oid dn_id, bool attatch, void *context)
-{
-	NodeHandle *handle;
-
-	if (!handle_init)
-		return NULL;
-
-	foreach_dn_handles(handle)
-	{
-		if (handle->node_id == dn_id)
-		{
-			if (attatch)
-				HandleAttatchPGconn(handle);
-			handle->node_context = context;
-			return handle;
-		}
-	}
-
-	return NULL;
-}
-
-void
+static void
 HandleAttatchPGconn(NodeHandle *handle)
 {
 	if (handle &&
@@ -250,26 +402,15 @@ HandleAttatchPGconn(NodeHandle *handle)
 	}
 }
 
-void
+static void
 HandleDetachPGconn(NodeHandle *handle)
 {
 	if (handle && handle->node_conn)
 	{
-		//PQfinish(handle->node_conn);
 		HandleGC(handle);
 		handle->node_conn = NULL;
-		if (handle->node_type == TYPE_CN_NODE)
-			NumCnConns--;
-		else
-			NumDnConns--;
+		handle->node_context = NULL;
 	}
-}
-
-void
-HandleReAttatchPGconn(NodeHandle *handle)
-{
-	HandleDetachPGconn(handle);
-	HandleAttatchPGconn(handle);
 }
 
 PGconn *
@@ -339,10 +480,6 @@ GetPGconnAttatchToHandle(List *node_list, List *handle_list)
 			handle->node_conn = (PGconn *) lfirst(lc_conn);
 			handle->node_conn->custom = handle;
 			handle->node_conn->funs = InterQueryCustomFuncs;
-			if (handle->node_type == TYPE_CN_NODE)
-				NumCnConns++;
-			else
-				NumDnConns++;
 		}
 		list_free(conn_list);
 		conn_list = NIL;
@@ -359,7 +496,7 @@ GetMixedHandles(const List *node_list, void *context)
 	NodeHandle	   *handle;
 	Oid				node_id;
 
-	if (!node_list || !handle_init)
+	if (!node_list)
 		return NULL;
 
 	cur_handle = (NodeMixHandle *) palloc0(sizeof(NodeMixHandle));
@@ -369,8 +506,7 @@ GetMixedHandles(const List *node_list, void *context)
 		node_id = lfirst_oid(lc_id);
 		handle = GetNodeHandle(node_id, false, context);
 		if (!handle)
-			ereport(ERROR,
-				   (errmsg("Invalid node id %u", node_id)));
+			elog(ERROR, "Invalid node \"%u\"", node_id);
 		cur_handle->mix_types |= handle->node_type;
 		cur_handle->handles = lappend(cur_handle->handles, handle);
 		if (handle->node_primary)
@@ -380,42 +516,6 @@ GetMixedHandles(const List *node_list, void *context)
 			/* detach old PGconn if exists */
 			HandleDetachPGconn(handle);
 			id_need = lappend_oid(id_need, node_id);
-			handle_need = lappend(handle_need, handle);
-		}
-	}
-	GetPGconnAttatchToHandle(id_need, handle_need);
-	list_free(id_need);
-	list_free(handle_need);
-
-	return cur_handle;
-}
-
-NodeMixHandle *
-GetAllHandles(void *context)
-{
-	List		   *id_need;
-	List		   *handle_need;
-	NodeMixHandle  *cur_handle;
-	NodeHandle	   *handle;
-
-	/* do not initialized */
-	if (!handle_init)
-		return NULL;
-
-	cur_handle = (NodeMixHandle *) palloc0(sizeof(NodeMixHandle));
-	id_need = handle_need = NIL;
-	foreach_all_handles(handle)
-	{
-		handle->node_context = context;
-		cur_handle->mix_types |= handle->node_type;
-		cur_handle->handles = lappend(cur_handle->handles, handle);
-		if (handle->node_primary)
-			cur_handle->pr_handle = handle;
-		if (PQstatus(handle->node_conn) != CONNECTION_OK)
-		{
-			/* detach old PGconn if exists */
-			HandleDetachPGconn(handle);
-			id_need = lappend_oid(id_need, handle->node_id);
 			handle_need = lappend(handle_need, handle);
 		}
 	}
@@ -463,47 +563,6 @@ ConcatMixHandle(NodeMixHandle *mix1, NodeMixHandle *mix2)
 	return mix1;
 }
 
-List *
-GetHandleList(MemoryContext mem_context, const Oid *nodes, int nnodes,
-			  bool include_self, bool attatch, void *context)
-{
-	MemoryContext	old_context;
-	NodeHandle	   *handle;
-	List		   *handle_list = NIL;
-	List		   *id_need = NIL;
-	List		   *handle_need = NIL;
-	int				i;
-
-	if (nnodes <= 0)
-		return NIL;
-
-	mem_context = mem_context ? mem_context : CurrentMemoryContext;
-	old_context = MemoryContextSwitchTo(mem_context);
-	for (i = 0; i < nnodes; i++)
-	{
-		if (!include_self && nodes[i] == PGXCNodeOid)
-			continue;
-		handle = GetNodeHandle(nodes[i], false, context);
-		if (handle)
-		{
-			handle_list = lappend(handle_list, handle);
-			if (attatch && PQstatus(handle->node_conn) != CONNECTION_OK)
-			{
-				/* detach old PGconn if exists */
-				HandleDetachPGconn(handle);
-				id_need = lappend_oid(id_need, nodes[i]);
-				handle_need = lappend(handle_need, handle);
-			}
-		}
-	}
-	GetPGconnAttatchToHandle(id_need, handle_need);
-	list_free(id_need);
-	list_free(handle_need);
-	(void) MemoryContextSwitchTo(old_context);
-
-	return handle_list;
-}
-
 void
 FreeMixHandle(NodeMixHandle *cur_handle)
 {
@@ -535,34 +594,29 @@ GetAllNodeIDL(bool include_self)
 static List *
 GetNodeIDList(NodeType type, bool include_self)
 {
-	List	   *result = NIL;
-	NodeHandle *handle;
+	List		   *result = NIL;
+	NodeHandle	   *handle;
+	HASH_SEQ_STATUS	status;
 
-	if (type & TYPE_CN_NODE)
+	Assert(IsCnNode());
+	Assert(NodeHandleCacheHash != NULL);
+
+	RebuildNodeHandleCacheHash();
+
+	Assert(OidIsValid(SelfNodeID));
+
+	hash_seq_init(&status, NodeHandleCacheHash);
+	while ((handle = (NodeHandle *) hash_seq_search(&status)) != NULL)
 	{
-		foreach_cn_handles(handle)
-		{
-			if (handle->node_id == PGXCNodeOid && !include_self)
-				continue;
+		if (handle->node_id == SelfNodeID && !include_self)
+			continue;
 
+		if (handle->node_type & type)
 			result = lappend_oid(result, handle->node_id);
-		}
-	}
-
-	if (type & TYPE_DN_NODE)
-	{
-		foreach_dn_handles(handle)
-		{
-			if (handle->node_id == PGXCNodeOid && !include_self)
-				continue;
-
-			result = lappend_oid(result, handle->node_id);
-		}
 	}
 
 	return result;
 }
-
 
 Oid *
 GetAllCnIDA(bool include_self, int *cn_num)
@@ -585,108 +639,76 @@ GetAllNodeIDA(bool include_self, int *node_num)
 static Oid *
 GetNodeIDArray(NodeType type, bool include_self, int *node_num)
 {
-	NodeHandle *handle;
-	Oid		   *result;
-	int			num = 0;
+	List *nodeid_list = GetNodeIDList(type, include_self);
+	Oid *nodes = NULL;
 
-	if (type & TYPE_CN_NODE)
-		num += NumCnNodes;
-	if (type & TYPE_DN_NODE)
-		num += NumDnNodes;
-	if (num == 0)
-	{
-		if (node_num)
-			*node_num = 0;
-		return NULL;
-	}
+	nodes = OidListToArrary(NULL, nodeid_list, node_num);
+	list_free(nodeid_list);
 
-	result = (Oid *) palloc(num * sizeof(Oid));
-	num = 0;
-	if (type & TYPE_CN_NODE)
-	{
-		foreach_cn_handles(handle)
-		{
-			if (handle->node_id == PGXCNodeOid && !include_self)
-				continue;
-
-			result[num++] = handle->node_id;
-		}
-	}
-
-	if (type & TYPE_DN_NODE)
-	{
-		foreach_dn_handles(handle)
-		{
-			if (handle->node_id == PGXCNodeOid && !include_self)
-				continue;
-
-			result[num++] = handle->node_id;
-		}
-	}
-
-	if (node_num)
-		*node_num = num;
-
-	return result;
+	return nodes;
 }
 
 const char *
 GetNodeName(const Oid node_id)
 {
-	NodeHandle *handle;
+	NodeHandle *handle = GetNodeHandle(node_id, false, NULL);
 
-	if (!handle_init)
-		return NULL;
-
-	foreach_all_handles(handle)
-	{
-		if (handle->node_id == node_id)
-			return (const char *) NameStr(handle->node_name);
-	}
+	if (handle)
+		return (const char *) NameStr(handle->node_name);
 
 	return NULL;
 }
 
 const char *
-GetPrNodeName(void)
+GetPrimaryNodeName(void)
 {
-	if (PrHandle)
-		return (const char *) NameStr(PrHandle->node_name);
+	NodeHandle *handle = GetPrimaryNodeHandle();
+
+	if (handle)
+		return (const char *) NameStr(handle->node_name);
 
 	return NULL;
 }
 
 NodeHandle *
-GetPrHandle(void)
+GetPrimaryNodeHandle(void)
 {
-	return PrHandle;
+	RebuildNodeHandleCacheHash();
+
+	return PrimaryHandle;
 }
 
 Oid
-GetPrNodeID(void)
+GetPrimaryNodeID(void)
 {
-	if (PrHandle)
-		return PrHandle->node_id;
+	NodeHandle *handle = GetPrimaryNodeHandle();
+
+	if (handle)
+		return handle->node_id;
 
 	return InvalidOid;
 }
 
 bool
-IsPrNode(Oid node_id)
+IsPrimaryNode(Oid node_id)
 {
-	if (PrHandle && OidIsValid(PrHandle->node_id))
-		return node_id == PrHandle->node_id;
+	Oid pr_node_id = GetPrimaryNodeID();
+
+	if (OidIsValid(pr_node_id))
+		return node_id == pr_node_id;
 
 	return false;
 }
 
 bool
-HasPrNode(const List *node_list)
+HasPrimaryNode(const List *node_list)
 {
-	if (!PrHandle || !OidIsValid(PrHandle->node_id))
+	Oid pr_node_id = GetPrimaryNodeID();
+
+	if (!OidIsValid(pr_node_id))
 		return false;
 
-	return list_member_oid(node_list, PrHandle->node_id);
+	return list_member_oid(node_list, pr_node_id);
 }
 
 Size

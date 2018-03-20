@@ -2290,6 +2290,13 @@ StartTransaction(void)
 	 */
 	s->state = TRANS_INPROGRESS;
 
+#ifdef ADB
+	/*
+	 * initialize node executor for new transaction if necessary
+	 */
+	AtStart_NodeExecutor();
+#endif
+
 	ShowTransactionState("StartTransaction");
 }
 

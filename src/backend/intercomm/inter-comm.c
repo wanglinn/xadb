@@ -112,8 +112,10 @@ ClusterSyncXid(void)
 		return ;
 
 	node_list = GetAllNodeIDL(false);
+	if (node_list == NIL || list_length(node_list) < 1)
+		return ;
 	cur_handle = GetMixedHandles(node_list, NULL);
-	Assert(node_list && cur_handle);
+	Assert(list_length(node_list) == list_length(cur_handle->handles));
 	list_free(node_list);
 
 	PG_TRY();
