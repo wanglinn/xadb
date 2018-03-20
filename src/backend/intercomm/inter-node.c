@@ -711,6 +711,27 @@ HasPrimaryNode(const List *node_list)
 	return list_member_oid(node_list, pr_node_id);
 }
 
+List *
+GetPreferredRepNodes(const List *src_nodes)
+{
+	NodeHandle *handle;
+	ListCell   *lc;
+	Oid			node_id;
+
+	if (src_nodes == NIL || list_length(src_nodes) <= 0)
+		return NIL;
+
+	foreach (lc, src_nodes)
+	{
+		node_id = lfirst_oid(lc);
+		handle = GetNodeHandle(node_id, false, NULL);
+		if (handle->node_preferred)
+			return list_make1_oid(node_id);
+	}
+
+	return list_make1_oid(linitial_oid(src_nodes));
+}
+
 Size
 EstimateNodeInfoSpace(void)
 {

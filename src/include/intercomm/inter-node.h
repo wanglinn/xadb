@@ -87,6 +87,8 @@ extern Oid GetPrimaryNodeID(void);
 extern bool IsPrimaryNode(Oid node_id);
 extern bool HasPrimaryNode(const List *node_list);
 
+extern List *GetPreferredRepNodes(const List *src_nodes);
+
 extern Size EstimateNodeInfoSpace(void);
 extern void SerializeNodeInfo(Size maxsize, char *ptr);
 extern void RestoreNodeInfo(char *start_addr);
