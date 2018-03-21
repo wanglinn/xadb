@@ -524,6 +524,10 @@ extern LockAcquireResult LockAcquire(const LOCKTAG *locktag,
 			LOCKMODE lockmode,
 			bool sessionLock,
 			bool dontWait);
+#ifdef ADB
+extern bool LockIncrementIfExists(const LOCKTAG *locktag, LOCKMODE lockmode, bool sessionLock);
+extern LOCKMODE LockGetLocalLockedMode(const LOCKTAG *locktag);
+#endif
 extern LockAcquireResult LockAcquireExtended(const LOCKTAG *locktag,
 					LOCKMODE lockmode,
 					bool sessionLock,

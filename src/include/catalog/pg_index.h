@@ -19,7 +19,11 @@
 #ifndef PG_INDEX_H
 #define PG_INDEX_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_index definition.  cpp turns this into
@@ -71,6 +75,7 @@ typedef FormData_pg_index *Form_pg_index;
  * ----------------
  */
 #define Natts_pg_index					19
+DECLARE_NATTS(Natts_pg_index);
 #define Anum_pg_index_indexrelid		1
 #define Anum_pg_index_indrelid			2
 #define Anum_pg_index_indnatts			3

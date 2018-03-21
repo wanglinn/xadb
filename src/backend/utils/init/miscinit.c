@@ -36,6 +36,9 @@
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#if defined(ADBMGRD)
+#include "postmaster/adbmonitor.h"
+#endif
 #include "postmaster/autovacuum.h"
 #include "postmaster/postmaster.h"
 #include "storage/fd.h"
@@ -582,7 +585,14 @@ InitializeSessionUserIdStandalone(void)
 	 * This function should only be called in single-user mode, in autovacuum
 	 * workers, and in background workers.
 	 */
+#if defined(ADBMGRD)
+	AssertState(!IsUnderPostmaster ||
+				IsAutoVacuumWorkerProcess() ||
+				IsAnyAdbMonitorProcess() ||
+				IsBackgroundWorker);
+#else
 	AssertState(!IsUnderPostmaster || IsAutoVacuumWorkerProcess() || IsBackgroundWorker);
+#endif
 
 	/* call only once */
 	AssertState(!OidIsValid(AuthenticatedUserId));
@@ -1521,3 +1531,11 @@ pg_bindtextdomain(const char *domain)
 	}
 #endif
 }
+
+#ifdef ADB
+void
+PGXC_init_lock_files(void)
+{
+	lock_files = NIL;
+}
+#endif

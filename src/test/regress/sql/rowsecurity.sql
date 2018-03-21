@@ -58,7 +58,7 @@ INSERT INTO uaccount VALUES
 CREATE TABLE category (
     cid        int primary key,
     cname      text
-);
+) distribute by replication;
 GRANT ALL ON category TO public;
 INSERT INTO category VALUES
     (11, 'novel'),
@@ -72,7 +72,7 @@ CREATE TABLE document (
     dlevel      int not null,
     dauthor     name,
     dtitle      text
-);
+) distribute by replication;
 GRANT ALL ON document TO public;
 INSERT INTO document VALUES
     ( 1, 11, 1, 'regress_rls_bob', 'my first novel'),

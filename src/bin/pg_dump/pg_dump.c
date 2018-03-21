@@ -122,7 +122,6 @@ static SimpleOidList table_exclude_oids = {NULL, NULL};
 static SimpleStringList tabledata_exclude_patterns = {NULL, NULL};
 static SimpleOidList tabledata_exclude_oids = {NULL, NULL};
 
-
 char		g_opaque_type[10];	/* name for the opaque type */
 
 /* placeholders for the delimiters for comments */
@@ -130,6 +129,14 @@ char		g_comment_start[10];
 char		g_comment_end[10];
 
 static const CatalogId nilCatalogId = {0, 0};
+
+#ifdef ADB
+static int	include_nodes = 0;
+#endif
+
+#ifdef MGR_DUMP
+static int	adbmgr_table = 0;
+#endif
 
 static void help(const char *progname);
 static void setup_connection(Archive *AH,
@@ -269,7 +276,10 @@ static void appendReloptionsArrayAH(PQExpBuffer buffer, const char *reloptions,
 						const char *prefix, Archive *fout);
 static char *get_synchronized_snapshot(Archive *fout);
 static void setupDumpWorker(Archive *AHX);
-
+#ifdef MGR_DUMP
+static void dumpAdbmgrTable(Archive *fout);
+static char *respacechr(char *str,char chr, char *strr);
+#endif
 
 int
 main(int argc, char **argv)
@@ -357,6 +367,12 @@ main(int argc, char **argv)
 		{"no-unlogged-table-data", no_argument, &dopt.no_unlogged_table_data, 1},
 		{"no-subscriptions", no_argument, &dopt.no_subscriptions, 1},
 		{"no-sync", no_argument, NULL, 7},
+#ifdef ADB
+		{"include-nodes", no_argument, &include_nodes, 1},
+#endif
+#ifdef MGR_DUMP
+		{"mgr_table", no_argument, &adbmgr_table, 1},
+#endif
 
 		{NULL, 0, NULL, 0}
 	};
@@ -666,8 +682,19 @@ main(int argc, char **argv)
 	 * death.
 	 */
 	ConnectDatabase(fout, dopt.dbname, dopt.pghost, dopt.pgport, dopt.username, prompt_password);
+#ifdef MGR_DUMP
+	if (!adbmgr_table)
+#endif
 	setup_connection(fout, dumpencoding, dumpsnapshot, use_role);
 
+#ifdef MGR_DUMP
+	if (adbmgr_table)
+	{
+		dopt.dataOnly = false;
+		dumpAdbmgrTable(fout);
+		goto mgr_table_final;
+	}
+#endif
 	/*
 	 * Disable security label support if server version < v9.1.x (prevents
 	 * access to nonexistent pg_seclabel catalog)
@@ -839,7 +866,9 @@ main(int argc, char **argv)
 	/* Now the rearrangeable objects. */
 	for (i = 0; i < numObjs; i++)
 		dumpDumpableObject(fout, dobjs[i]);
-
+#ifdef MGR_DUMP
+mgr_table_final:
+#endif
 	/*
 	 * Set up options info to ensure we dump what we want.
 	 */
@@ -968,6 +997,12 @@ help(const char *progname)
 			 "                               use SET SESSION AUTHORIZATION commands instead of\n"
 			 "                               ALTER OWNER commands to set ownership\n"));
 
+#ifdef ADB
+	printf(_("	--include-nodes 			 include TO NODE clause in the dumped CREATE TABLE commands\n"));
+#endif
+#ifdef MGR_DUMP
+	printf(_("  --mgr_table                  dump only ADBMGR host, node, param, hba table data\n"));
+#endif
 	printf(_("\nConnection options:\n"));
 	printf(_("  -d, --dbname=DBNAME      database to dump\n"));
 	printf(_("  -h, --host=HOSTNAME      database server host or socket directory\n"));
@@ -5527,6 +5562,11 @@ getTables(Archive *fout, int *numTables)
 	int			i_relreplident;
 	int			i_owning_tab;
 	int			i_owning_col;
+#ifdef ADB
+	int 		i_pgxclocatortype;
+	int 		i_pgxcattnum;
+	int 		i_pgxc_node_names;
+#endif
 	int			i_reltablespace;
 	int			i_reloptions;
 	int			i_checkoption;
@@ -5626,6 +5666,11 @@ getTables(Archive *fout, int *numTables)
 						  "d.refobjid AS owning_tab, "
 						  "d.refobjsubid AS owning_col, "
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
+#ifdef ADB
+						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
+						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+						  "(SELECT '\"' || string_agg(node_name,'\",\"') || '\"' AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
+#endif
 						  "array_remove(array_remove(c.reloptions,'check_option=local'),'check_option=cascaded') AS reloptions, "
 						  "CASE WHEN 'check_option=local' = ANY (c.reloptions) THEN 'LOCAL'::text "
 						  "WHEN 'check_option=cascaded' = ANY (c.reloptions) THEN 'CASCADED'::text ELSE NULL END AS checkoption, "
@@ -5712,6 +5757,12 @@ getTables(Archive *fout, int *numTables)
 						  "d.refobjid AS owning_tab, "
 						  "d.refobjsubid AS owning_col, "
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
+#ifdef ADB
+						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
+						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+						  "(SELECT '\"' || string_agg(node_name,'\",\"') || '\"' AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
+#endif
+
 						  "array_remove(array_remove(c.reloptions,'check_option=local'),'check_option=cascaded') AS reloptions, "
 						  "CASE WHEN 'check_option=local' = ANY (c.reloptions) THEN 'LOCAL'::text "
 						  "WHEN 'check_option=cascaded' = ANY (c.reloptions) THEN 'CASCADED'::text ELSE NULL END AS checkoption, "
@@ -5761,6 +5812,11 @@ getTables(Archive *fout, int *numTables)
 						  "d.refobjid AS owning_tab, "
 						  "d.refobjsubid AS owning_col, "
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
+#ifdef ADB
+						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
+						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+						  "(SELECT '\"' || string_agg(node_name,'\",\"') || '\"' AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
+#endif
 						  "array_remove(array_remove(c.reloptions,'check_option=local'),'check_option=cascaded') AS reloptions, "
 						  "CASE WHEN 'check_option=local' = ANY (c.reloptions) THEN 'LOCAL'::text "
 						  "WHEN 'check_option=cascaded' = ANY (c.reloptions) THEN 'CASCADED'::text ELSE NULL END AS checkoption, "
@@ -5810,6 +5866,15 @@ getTables(Archive *fout, int *numTables)
 						  "d.refobjid AS owning_tab, "
 						  "d.refobjsubid AS owning_col, "
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
+
+#ifdef ADB
+						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
+						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+						  "(SELECT '\"' || string_agg(node_name,'\",\"') || '\"' AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
+#endif
+
+
+
 						  "array_remove(array_remove(c.reloptions,'check_option=local'),'check_option=cascaded') AS reloptions, "
 						  "CASE WHEN 'check_option=local' = ANY (c.reloptions) THEN 'LOCAL'::text "
 						  "WHEN 'check_option=cascaded' = ANY (c.reloptions) THEN 'CASCADED'::text ELSE NULL END AS checkoption, "
@@ -6108,6 +6173,12 @@ getTables(Archive *fout, int *numTables)
 	i_relpages = PQfnumber(res, "relpages");
 	i_owning_tab = PQfnumber(res, "owning_tab");
 	i_owning_col = PQfnumber(res, "owning_col");
+#ifdef ADB
+	i_pgxclocatortype = PQfnumber(res, "pgxclocatortype");
+	i_pgxcattnum = PQfnumber(res, "pgxcattnum");
+	i_pgxc_node_names = PQfnumber(res, "pgxc_node_names");
+#endif
+
 	i_reltablespace = PQfnumber(res, "reltablespace");
 	i_reloptions = PQfnumber(res, "reloptions");
 	i_checkoption = PQfnumber(res, "checkoption");
@@ -6180,6 +6251,23 @@ getTables(Archive *fout, int *numTables)
 			tblinfo[i].owning_tab = atooid(PQgetvalue(res, i, i_owning_tab));
 			tblinfo[i].owning_col = atoi(PQgetvalue(res, i, i_owning_col));
 		}
+#ifdef ADB
+		/* Not all the tables have pgxc locator Data */
+		if (PQgetisnull(res, i, i_pgxclocatortype))
+		{
+			tblinfo[i].pgxclocatortype = 'E';
+			tblinfo[i].pgxcattnum = 0;
+		}
+		else
+		{
+			tblinfo[i].pgxclocatortype = *(PQgetvalue(res, i, i_pgxclocatortype));
+			tblinfo[i].pgxcattnum = atoi(PQgetvalue(res, i, i_pgxcattnum));
+		}
+		tblinfo[i].pgxc_node_names = pg_strdup(PQgetvalue(res, i, i_pgxc_node_names));
+#endif
+
+
+
 		tblinfo[i].reltablespace = pg_strdup(PQgetvalue(res, i, i_reltablespace));
 		tblinfo[i].reloptions = pg_strdup(PQgetvalue(res, i, i_reloptions));
 		if (i_checkoption == -1 || PQgetisnull(res, i, i_checkoption))
@@ -15404,6 +15492,43 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 			appendPQExpBufferChar(q, ')');
 		}
 
+
+#ifdef ADB
+		/* Add the grammar extension linked to ADB depending on data got from pgxc_class */
+		if (tbinfo->pgxclocatortype != 'E')
+		{
+			/* N: DISTRIBUTE BY ROUNDROBIN */
+			if (tbinfo->pgxclocatortype == 'N')
+			{
+				appendPQExpBuffer(q, "\nDISTRIBUTE BY ROUNDROBIN");
+			}
+			/* R: DISTRIBUTE BY REPLICATED */
+			else if (tbinfo->pgxclocatortype == 'R')
+			{
+				appendPQExpBuffer(q, "\nDISTRIBUTE BY REPLICATION");
+			}
+			/* H: DISTRIBUTE BY HASH  */
+			else if (tbinfo->pgxclocatortype == 'H')
+			{
+				int hashkey = tbinfo->pgxcattnum;
+				appendPQExpBuffer(q, "\nDISTRIBUTE BY HASH (%s)",
+					fmtId(tbinfo->attnames[hashkey - 1]));
+			}
+			else if (tbinfo->pgxclocatortype == 'M')
+			{
+				int hashkey = tbinfo->pgxcattnum;
+				appendPQExpBuffer(q, "\nDISTRIBUTE BY MODULO (%s)",
+				fmtId(tbinfo->attnames[hashkey - 1]));
+			}
+		}
+		if (include_nodes &&
+			tbinfo->pgxc_node_names != NULL &&
+			tbinfo->pgxc_node_names[0] != '\0')
+		{
+			appendPQExpBuffer(q, "\nTO NODE (%s)", tbinfo->pgxc_node_names);
+		}
+#endif
+
 		/* Dump generic options if any */
 		if (ftoptions && ftoptions[0])
 			appendPQExpBuffer(q, "\nOPTIONS (\n    %s\n)", ftoptions);
@@ -15853,6 +15978,10 @@ getAttrName(int attrnum, TableInfo *tblInfo)
 			return "cmax";
 		case TableOidAttributeNumber:
 			return "tableoid";
+#ifdef ADB
+		case XC_NodeIdAttributeNumber:
+			return "xc_node_id";
+#endif
 	}
 	exit_horribly(NULL, "invalid column number %d for table \"%s\"\n",
 				  attrnum, tblInfo->dobj.name);
@@ -16613,6 +16742,36 @@ dumpSequenceData(Archive *fout, TableDataInfo *tdinfo)
 
 	last = PQgetvalue(res, 0, 0);
 	called = (strcmp(PQgetvalue(res, 0, 1), "t") == 0);
+
+#ifdef ADB
+	/*
+	 * In Postgres-XC it is possible that the current value of a
+	 * sequence cached on each node is different as several sessions
+	 * might use the sequence on different nodes. So what we do here
+	 * to get a consistent dump is to get the next value of sequence.
+	 * This insures that sequence value is unique as nextval is directly
+	 * obtained from GTM.
+	 */
+	resetPQExpBuffer(query);
+	appendPQExpBuffer(query, "SELECT pg_catalog.nextval(");
+	appendStringLiteralAH(query, fmtId(tbinfo->dobj.name), fout);
+	appendPQExpBuffer(query, ");\n");
+	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
+
+	if (PQntuples(res) != 1)
+	{
+		write_msg(NULL, ngettext("query to get nextval of sequence \"%s\" "
+									 "returned %d rows (expected 1)\n",
+										"query to get nextval of sequence \"%s\" "
+									 "returned %d rows (expected 1)\n",
+									 PQntuples(res)),
+					  tbinfo->dobj.name, PQntuples(res));
+		exit_nicely(1);
+	}
+
+	last = PQgetvalue(res, 0, 0);
+#endif
+
 
 	resetPQExpBuffer(query);
 	appendPQExpBufferStr(query, "SELECT pg_catalog.setval(");
@@ -17869,3 +18028,244 @@ appendReloptionsArrayAH(PQExpBuffer buffer, const char *reloptions,
 	if (!res)
 		write_msg(NULL, "WARNING: could not parse reloptions array\n");
 }
+
+#ifdef MGR_DUMP
+
+/*
+* dump the adbmgr table: host, node, param, hba, job, item
+*/
+static void
+dumpAdbmgrTable(Archive *fout)
+{
+	PQExpBuffer dbQry = createPQExpBuffer();
+	PQExpBuffer delQry = createPQExpBuffer();
+	PQExpBuffer creaQry = createPQExpBuffer();
+	PQExpBuffer addstrdata = createPQExpBuffer();
+	PGconn *conn;
+	PGresult *res;
+	char *retstr;
+	int i = 0;
+
+	conn = GetConnection(fout);
+	if (g_verbose)
+		write_msg(NULL, "saving mgr_host,mgr_node definition\n");
+	/* Make sure we are in proper schema */
+	selectSourceSchema(fout, "pg_catalog");
+
+	/* Get the mgr_host table*/
+	appendPQExpBuffer(dbQry, "LIST HOST;");
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	Assert(PQnfields(res) == 7);
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		resetPQExpBuffer(addstrdata);
+		appendPQExpBuffer(addstrdata, "ADD HOST \"%s\" (user=\"%s\", port=%s, protocol=%s, agentport=%s, address=\"%s\", adbhome=\"%s\");",
+			PQgetvalue(res, i, 0),
+			PQgetvalue(res, i, 1),
+			PQgetvalue(res, i, 2),
+			PQgetvalue(res, i, 3),
+			PQgetvalue(res, i, 4),
+			PQgetvalue(res, i, 5),
+			PQgetvalue(res, i, 6));
+
+		ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"mgr_host",
+			"pg_catalog",
+			NULL, "",
+			false, "DEFAULT", SECTION_NONE,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+	}
+	PQclear(res);
+
+	/* Get the mgr_node table*/
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, "LIST NODE;");
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	Assert(PQnfields(res) == 9);
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		resetPQExpBuffer(addstrdata);
+		if (strlen(PQgetvalue(res, i, 5)))
+			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" FOR \"%s\" (host=\"%s\", port=%s, sync_state=\"%s\",path=\"%s\");",
+				PQgetvalue(res, i, 2),
+				PQgetvalue(res, i, 0),
+				PQgetvalue(res, i, 3),
+				PQgetvalue(res, i, 1),
+				PQgetvalue(res, i, 4),
+				PQgetvalue(res, i, 5),
+				PQgetvalue(res, i, 6));
+		else
+			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\");",
+				PQgetvalue(res, i, 2),
+				PQgetvalue(res, i, 0),
+				PQgetvalue(res, i, 1),
+				PQgetvalue(res, i, 4),
+				PQgetvalue(res, i, 6));
+		ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"mgr_node",
+			"pg_catalog",
+			NULL, "",
+			false, "DEFAULT", SECTION_NONE,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+	}
+	PQclear(res);
+
+	/* Get the mgr_updateparm table*/
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, "LIST PARAM;");
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	Assert(PQnfields(res) == 4);
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		resetPQExpBuffer(addstrdata);
+		if (strcmp(PQgetvalue(res, i, 0), "*") == 0)
+			appendPQExpBuffer(addstrdata, "SET %s %s (\"%s\"=\"%s\");",
+				strcasecmp(PQgetvalue(res, i, 1), "datanode master|slave|extra") == 0 ? "datanode"
+					:(strcasecmp(PQgetvalue(res, i, 1), "gtm master|slave|extra") == 0 ? "gtm"
+					:PQgetvalue(res, i, 1)),
+				"all",
+				PQgetvalue(res, i, 2),
+				PQgetvalue(res, i, 3));
+		else
+			appendPQExpBuffer(addstrdata, "SET %s \"%s\" (\"%s\"=\"%s\");",
+				strcasecmp(PQgetvalue(res, i, 1), "datanode master|slave|extra") == 0 ? "datanode"
+					:(strcasecmp(PQgetvalue(res, i, 1), "gtm master|slave|extra") == 0 ? "gtm"
+					:PQgetvalue(res, i, 1)),
+				PQgetvalue(res, i, 0),
+				PQgetvalue(res, i, 2),
+				PQgetvalue(res, i, 3));
+		ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"mgr_updateparm",
+			"pg_catalog",
+			NULL, "",
+			false, "DEFAULT", SECTION_NONE,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+	}
+	PQclear(res);
+
+	/* Get the mgr_hba table*/
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, "LIST HBA");
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	Assert(PQnfields(res) == 2);
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		resetPQExpBuffer(addstrdata);
+		appendPQExpBuffer(addstrdata, "ADD HBA \"%s\" (\"%s\");",
+			PQgetvalue(res, i, 0),
+			PQgetvalue(res, i, 1));
+		ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"mgr_hba",
+			"pg_catalog",
+			NULL, "",
+			false, "DEFAULT", SECTION_DATA,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+	}
+	PQclear(res);
+
+	/* Get the job table*/
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, "LIST JOB");
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	Assert(PQnfields(res) == 7);
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		resetPQExpBuffer(addstrdata);
+		retstr = respacechr(PQgetvalue(res, i, 5), '\'', "''");
+		appendPQExpBuffer(addstrdata, "ADD JOB \"%s\" (nexttime=\"%s\", interval=%s, status=%s, command='%s', desc=\"%s\");",
+			PQgetvalue(res, i, 1),
+			PQgetvalue(res, i, 2),
+			PQgetvalue(res, i, 3),
+			strcasecmp(PQgetvalue(res, i, 4), "t")==0 ? "true":"false",
+			retstr == NULL ? "''" : retstr,
+			strcmp(PQgetvalue(res, i, 6), "") != 0 ? PQgetvalue(res, i, 6):" ");
+		pfree(retstr);
+		ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"monitor_job",
+			"pg_catalog",
+			NULL, "",
+			false, "DEFAULT", SECTION_DATA,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+	}
+	PQclear(res);
+
+	/* Get the item table*/
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, "LIST ITEM");
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	Assert(PQnfields(res) == 3);
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		resetPQExpBuffer(addstrdata);
+		appendPQExpBuffer(addstrdata, "ADD ITEM \"%s\" (path=\"%s\", desc=\"%s\");",
+			PQgetvalue(res, i, 0),
+			PQgetvalue(res, i, 1),
+			strcmp(PQgetvalue(res, i, 2), "") != 0 ? PQgetvalue(res, i, 2):" ");
+		ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"monitor_item",
+			"pg_catalog",
+			NULL, "",
+			false, "DEFAULT", SECTION_DATA,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+	}
+	PQclear(res);
+
+	destroyPQExpBuffer(addstrdata);
+	destroyPQExpBuffer(dbQry);
+	destroyPQExpBuffer(delQry);
+	destroyPQExpBuffer(creaQry);
+
+}
+/*
+* given the source string str, replace the character chr by string strr
+*
+*/
+static char
+*respacechr(char *str,char chr, char *strr)
+{
+	char *retstr;
+	char *p;
+	int i = 0;
+	int num = 0;
+	if (!str || !strr)
+		return NULL;
+
+	p = str;
+	while(*(p++))
+	{
+		if (chr == *p)
+			num++;
+	}
+	if (!num)
+		num = 1;
+	retstr = (char *)pg_malloc0(strlen(str) + 1 + strlen(strr)*(num-1));
+	p = str;
+	i = 0;
+	while(*p)
+	{
+		if (chr == *p)
+		{
+			strncpy(&retstr[i], strr, strlen(strr));
+			i = i + strlen(strr);
+		}
+		else
+			retstr[i++] = *p;
+		p++;
+	}
+
+	return retstr;
+}
+
+#endif

@@ -19,7 +19,11 @@
 #ifndef PG_TYPE_H
 #define PG_TYPE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_type definition.  cpp turns this into
@@ -237,6 +241,7 @@ typedef FormData_pg_type *Form_pg_type;
  * ----------------
  */
 #define Natts_pg_type					30
+DECLARE_NATTS(Natts_pg_type);
 #define Anum_pg_type_typname			1
 #define Anum_pg_type_typnamespace		2
 #define Anum_pg_type_typowner			3
@@ -351,6 +356,14 @@ DATA(insert OID = 75 (	pg_attribute	PGNSP PGUID -1 f c C f t \054 1249 0 0 recor
 DATA(insert OID = 81 (	pg_proc			PGNSP PGUID -1 f c C f t \054 1255 0 0 record_in record_out record_recv record_send - - - d x f 0 -1 0 0 _null_ _null_ _null_ ));
 DATA(insert OID = 83 (	pg_class		PGNSP PGUID -1 f c C f t \054 1259 0 0 record_in record_out record_recv record_send - - - d x f 0 -1 0 0 _null_ _null_ _null_ ));
 
+#ifdef ADB
+DATA(insert OID = 336 (	rid				PGNSP PGUID 10 f b U f t \054 0 0 337 rowid_in rowid_out rowid_recv rowid_send - - - s p f 0 -1 0 0 _null_ _null_ _null_ ));
+DESCR("physical location of tuple, like oracle's rowid");
+#define RIDOID		336
+DATA(insert OID = 337 ( _rid			PGNSP PGUID -1 f b A f t \054 0 336 0 array_in array_out array_recv array_send - - array_typanalyze i x f 0 -1 0 0 _null_ _null_ _null_ ));
+#define RIDARRAYOID	337
+#endif /* ADB */
+
 /* OIDS 100 - 199 */
 DATA(insert OID = 114 ( json		   PGNSP PGUID -1 f b U f t \054 0 0 199 json_in json_out json_recv json_send - - - i x f 0 -1 0 0 _null_ _null_ _null_ ));
 #define JSONOID 114
@@ -457,6 +470,7 @@ DESCR("XX:XX:XX:XX:XX:XX:XX:XX, MAC address");
 
 /* OIDS 1000 - 1099 */
 DATA(insert OID = 1000 (  _bool		 PGNSP PGUID -1 f b A f t \054 0	16 0 array_in array_out array_recv array_send - - array_typanalyze i x f 0 -1 0 0 _null_ _null_ _null_ ));
+#define BOOLARRAYOID 1000
 DATA(insert OID = 1001 (  _bytea	 PGNSP PGUID -1 f b A f t \054 0	17 0 array_in array_out array_recv array_send - - array_typanalyze i x f 0 -1 0 0 _null_ _null_ _null_ ));
 DATA(insert OID = 1002 (  _char		 PGNSP PGUID -1 f b A f t \054 0	18 0 array_in array_out array_recv array_send - - array_typanalyze i x f 0 -1 0 0 _null_ _null_ _null_ ));
 DATA(insert OID = 1003 (  _name		 PGNSP PGUID -1 f b A f t \054 0	19 0 array_in array_out array_recv array_send - - array_typanalyze i x f 0 -1 0 0 _null_ _null_ _null_ ));
@@ -713,6 +727,35 @@ DATA(insert OID = 3310 ( tsm_handler	PGNSP PGUID  4 t p P f t \054 0 0 0 tsm_han
 DATA(insert OID = 3831 ( anyrange		PGNSP PGUID  -1 f p P f t \054 0 0 0 anyrange_in anyrange_out - - - - - d x f 0 -1 0 0 _null_ _null_ _null_ ));
 #define ANYRANGEOID		3831
 
+#ifdef ADB
+/* oracle.date */
+DATA(insert OID = 9009 ( date		ORANSP PGUID 8 FLOAT8PASSBYVAL d D f t \054 0	0 3998 domain_in ora_date_out domain_recv timestamptz_send - - - d p f 1184 6 0 0 _null_ _null_ _null_ ));
+DESCR("oracle's date");
+#define ORADATEOID		9009
+
+/* oracle.date array */
+DATA(insert OID = 3998 ( _date		ORANSP PGUID -1 f b A f t \054 0 9009 0 array_in array_out array_recv array_send - - array_typanalyze i x f 0 -1 0 0 _null_ _null_ _null_ ));
+#define ORADATEARRAYOID		3998
+
+/* varchar2 */
+DATA(insert OID = 4001 ( varchar2	PGNSP PGUID -1 f b S f t \054 0 0 4002 varchar2in varchar2out varchar2recv varcharsend varchartypmodin varchartypmodout - i x f 0 -1 0 100 _null_ _null_ _null_ ));
+DESCR("oracle varchar2(length)");
+#define VARCHAR2OID		4001
+
+/* varchar2 array */
+DATA(insert OID = 4002 ( _varchar2	PGNSP PGUID -1 f b A f t \054 0 4001 0 array_in array_out array_recv array_send varchartypmodin varchartypmodout array_typanalyze i x f 0 -1 0 100 _null_ _null_ _null_ ));
+#define VARCHAR2ARRAYOID	4002
+
+/* nvarchar2 */
+DATA(insert OID = 4003 ( nvarchar2	PGNSP PGUID -1 f b S f t \054 0 0 4004 nvarchar2in nvarchar2out nvarchar2recv varcharsend varchartypmodin varchartypmodout - i x f 0 -1 0 100 _null_ _null_ _null_ ));
+DESCR("oracle nvarchar2(length)");
+#define NVARCHAR2OID	4003
+
+/* nvarchar2 array */
+DATA(insert OID = 4004 ( _nvarchar2	PGNSP PGUID -1 f b A f t \054 0 4003 0 array_in array_out array_recv array_send varchartypmodin varchartypmodout array_typanalyze i x f 0 -1 0 100 _null_ _null_ _null_ ));
+#define NVARCHAR2ARRAYOID	4004
+
+#endif
 
 /*
  * macros

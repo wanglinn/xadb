@@ -17,6 +17,31 @@
  * myProcLocks lists.  They can be distinguished from regular backend PGPROCs
  * at need by checking for pid == 0.
  *
+ #ifdef ADB
+ * Vanilla PostgreSQL assumes maximum TransactinIds in any snapshot is
+ * arrayP->maxProcs.  It does not apply to XC because XC's snapshot
+ * should include XIDs running in other node, which may come at any
+ * time.   This means that needed size of xip varies from time to time.
+ *
+ * This must be handled properly in all the functions in this module.
+ *
+ * The member max_xcnt was added as SnapshotData member to indicate the
+ * real size of xip array.
+ * 
+ * Here, the following assumption is made for SnapshotData struct throughout
+ * this module.
+ *
+ * 1. xip member physical size is indicated by max_xcnt member.
+ * 2. If max_xcnt == 0, it means that xip members is NULL, and vise versa.
+ * 3. xip (and subxip) are allocated usign malloc() or realloc() directly.
+ *
+ * For Postgres-XC, there is some special handling for ANALYZE.
+ * An XID for a local ANALYZE command will never involve other nodes.
+ * Also, ANALYZE may run for a long time, affecting snapshot xmin values
+ * on other nodes unnecessarily.  We want to exclude the XID
+ * in global snapshots, but include it in local ones. As a result,
+ * these are tracked in shared memory separately.
+#endif
  * During hot standby, we also keep a list of XIDs representing transactions
  * that are known to be running in the master (or more precisely, were running
  * as of the current point in the WAL stream).  This list is kept in the
@@ -60,6 +85,14 @@
 #include "utils/builtins.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
+#ifdef ADB
+#include "agtm/agtm.h"
+#include "pgxc/nodemgr.h"
+#include "pgxc/pgxc.h"
+#include "postmaster/autovacuum.h"
+#include "storage/ipc.h"
+#include "utils/tqual.h"
+#endif
 
 
 /* Our shared memory area */
@@ -353,6 +386,9 @@ ProcArrayRemove(PGPROC *proc, TransactionId latestXid)
 	}
 	else
 	{
+#ifdef ADB
+		if (IS_PGXC_DATANODE || !IsConnFromCoord())
+#endif
 		/* Shouldn't be trying to remove a live transaction here */
 		Assert(!TransactionIdIsValid(allPgXact[proc->pgprocno].xid));
 	}
@@ -404,7 +440,17 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 		 * else is taking a snapshot.  See discussion in
 		 * src/backend/access/transam/README.
 		 */
+#ifdef ADB
+		/*
+		 * Remove this assertion. We have seen this failing because a ROLLBACK
+		 * statement may get canceled by a Coordinator, leading to recursive
+		 * abort of a transaction. This must be a PostgreSQL issue, highlighted
+		 * by XC. See thread on hackers with subject "Canceling ROLLBACK
+		 * statement"
+		 */
+#else
 		Assert(TransactionIdIsValid(allPgXact[proc->pgprocno].xid));
+#endif
 
 		/*
 		 * If we can immediately acquire ProcArrayLock, we clear our own XID
@@ -624,6 +670,50 @@ ProcArrayClearTransaction(PGPROC *proc)
 	pgxact->nxids = 0;
 	pgxact->overflowed = false;
 }
+
+#ifdef ADB
+/*
+ * ReloadConnInfoOnBackends -- reload connection information for all the backends
+ */
+void
+ReloadConnInfoOnBackends(void)
+{
+	ProcArrayStruct *arrayP = procArray;
+	int			index;
+	pid_t		pid = 0;
+
+	/* tell all backends to reload except this one who already reloaded */
+	LWLockAcquire(ProcArrayLock, LW_EXCLUSIVE);
+
+	for (index = 0; index < arrayP->numProcs; index++)
+	{
+		int			pgprocno = arrayP->pgprocnos[index];
+		volatile PGPROC *proc = &allProcs[pgprocno];
+		volatile PGXACT *pgxact = &allPgXact[pgprocno];
+		VirtualTransactionId vxid;
+		GET_VXID_FROM_PGPROC(vxid, *proc);
+
+		if (proc == MyProc)
+			continue;			/* do not do that on myself */
+		if (proc->isPooler)
+			continue;			/* Pooler cannot do that */
+		if (proc->pid == 0)
+			continue;			/* useless on prepared xacts */
+		if (!OidIsValid(proc->databaseId))
+			continue;			/* ignore backends not connected to a database */
+		if (pgxact->vacuumFlags & PROC_IN_VACUUM)
+			continue;			/* ignore vacuum processes */
+
+		pid = proc->pid;
+		/*
+		 * Send the reload signal if backend still exists
+		 */
+		(void) SendProcSignal(pid, PROCSIG_PGXCPOOL_RELOAD, vxid.backendId);
+	}
+
+	LWLockRelease(ProcArrayLock);
+}
+#endif
 
 /*
  * ProcArrayInitRecovery -- initialize recovery xid mgmt environment
@@ -1321,6 +1411,11 @@ GetOldestXmin(Relation rel, int flags)
 	volatile TransactionId replication_slot_xmin = InvalidTransactionId;
 	volatile TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
 
+#ifdef ADB
+	if (TransactionIdIsValid(RecentGlobalXmin))
+		return RecentGlobalXmin;
+#endif
+
 	/*
 	 * If we're not computing a relation specific limit, or if a shared
 	 * relation has been passed in, backends in all databases have to be
@@ -1517,6 +1612,10 @@ GetSnapshotData(Snapshot snapshot)
 	bool		suboverflowed = false;
 	volatile TransactionId replication_slot_xmin = InvalidTransactionId;
 	volatile TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
+#ifdef ADB
+	bool		is_under_agtm;
+	bool		hint;
+#endif /* ADB */
 
 	Assert(snapshot != NULL);
 
@@ -1537,20 +1636,65 @@ GetSnapshotData(Snapshot snapshot)
 		 * First call for this snapshot. Snapshot is same size whether or not
 		 * we are in recovery, see later comments.
 		 */
+#ifdef ADB
+		snapshot->max_xcnt = 0;
+		EnlargeSnapshotXip(snapshot, GetMaxSnapshotXidCount());
+#else /* ADB */
 		snapshot->xip = (TransactionId *)
 			malloc(GetMaxSnapshotXidCount() * sizeof(TransactionId));
 		if (snapshot->xip == NULL)
 			ereport(ERROR,
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 					 errmsg("out of memory")));
+#endif /* ADB */
 		Assert(snapshot->subxip == NULL);
 		snapshot->subxip = (TransactionId *)
 			malloc(GetMaxSnapshotSubxidCount() * sizeof(TransactionId));
 		if (snapshot->subxip == NULL)
+#ifdef ADB
+		{
+			free(snapshot->xip);
+			snapshot->xip = NULL;
+			snapshot->max_xcnt = 0;
 			ereport(ERROR,
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 					 errmsg("out of memory")));
+		}
+#else
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("out of memory")));
+#endif /* ADB */
 	}
+
+#ifdef ADB
+	/*
+	 * Obtain a global snapshot for a Postgres-XC session
+	 */
+	is_under_agtm = IsUnderAGTM();
+	if (IsUnderAGTM() && !IsCatalogSnapshot(snapshot))
+	{
+		Snapshot snap PG_USED_FOR_ASSERTS_ONLY;
+		snap = GetGlobalSnapshot(snapshot);
+		Assert(snap == snapshot);
+		Assert(snap->xcnt <= snap->max_xcnt);
+		subcount = snapshot->subxcnt;
+		count = snapshot->xcnt;
+		suboverflowed = snapshot->suboverflowed;
+#if 0
+		LWLockAcquire(ProcArrayLock, LW_SHARED);
+		if (!TransactionIdIsValid(MyPgXact->xmin))
+			MyPgXact->xmin = TransactionXmin = snapshot->xmin;
+		LWLockRelease(ProcArrayLock);
+
+		if (!TransactionIdIsNormal(RecentGlobalXmin))
+			RecentGlobalXmin = FirstNormalTransactionId;
+		RecentXmin = snapshot->xmin;
+
+		return snapshot;
+#endif
+	}
+#endif /* ADB */
 
 	/*
 	 * It is sufficient to get shared lock on ProcArrayLock, even if we are
@@ -1564,6 +1708,14 @@ GetSnapshotData(Snapshot snapshot)
 	TransactionIdAdvance(xmax);
 
 	/* initialize xmin calculation with xmax */
+#ifdef ADB
+	if(is_under_agtm)
+	{
+		if(TransactionIdPrecedes(xmax, snapshot->xmax))
+			xmax = snapshot->xmax;
+		globalxmin = xmin = snapshot->xmin;
+	}else
+#endif /* ADB */
 	globalxmin = xmin = xmax;
 
 	snapshot->takenDuringRecovery = RecoveryInProgress();
@@ -1624,6 +1776,27 @@ GetSnapshotData(Snapshot snapshot)
 			if (pgxact == MyPgXact)
 				continue;
 
+#ifdef ADB
+			if(is_under_agtm)
+			{
+				int i;
+				hint = false;
+				for(i=0;i<count;++i)
+				{
+					if(snapshot->xip[i] == xid)
+					{
+						hint = true;
+						break;
+					}
+				}
+				if(hint == false)
+				{
+					EnlargeSnapshotXip(snapshot, count+1);
+					snapshot->xip[count++] = xid;
+				}
+			}else
+#endif /* ADB */
+
 			/* Add XID to snapshot. */
 			snapshot->xip[count++] = xid;
 
@@ -1654,10 +1827,47 @@ GetSnapshotData(Snapshot snapshot)
 					{
 						volatile PGPROC *proc = &allProcs[pgprocno];
 
+#ifdef ADB
+						if(is_under_agtm)
+						{
+							int i,j;
+							for(i=0;i<nxids;++i)
+							{
+								hint = false;
+								for(j=0;j<subcount;++j)
+								{
+									if(snapshot->subxip[j] == proc->subxids.xids[i])
+									{
+										hint = true;
+										break;
+									}
+								}
+								if(hint == false)
+								{
+									if(subcount == GetMaxSnapshotSubxidCount())
+									{
+										suboverflowed = true;
+										break;
+									}
+									snapshot->subxip[subcount++] = proc->subxids.xids[i];
+								}
+							}
+						}else if(nxids + subcount > GetMaxSnapshotSubxidCount())
+						{
+							suboverflowed = true;
+						}else
+						{
+							memcpy(snapshot->subxip + subcount,
+								   (void *) proc->subxids.xids,
+								   nxids * sizeof(TransactionId));
+							subcount += nxids;
+						}
+#else /* ADB */
 						memcpy(snapshot->subxip + subcount,
 							   (void *) proc->subxids.xids,
 							   nxids * sizeof(TransactionId));
 						subcount += nxids;
+#endif /* ADB */
 					}
 				}
 			}
@@ -2917,6 +3127,14 @@ CountOtherDBBackends(Oid databaseId, int *nbackends, int *nprepared)
 				continue;
 			if (proc == MyProc)
 				continue;
+#ifdef ADB
+			/*
+			 * PGXC pooler just refers to XC-specific catalogs,
+			 * it does not create any consistency issues.
+			 */
+			if (proc->isPooler)
+				continue;
+#endif
 
 			found = true;
 
@@ -3448,6 +3666,25 @@ static void
 KnownAssignedXidsAdd(TransactionId from_xid, TransactionId to_xid,
 					 bool exclusive_lock)
 {
+#ifdef ADB
+	/*
+	 * Postgres-XC Version 1.0.x supports log shipping replication but not hot standby
+	 * because hot standby needs to provide consistent database views for all the
+	 * datanode, which is not available yet.
+	 *
+	 * On the other hand, in the slave, current KnownAssignedXids ignores latter half
+	 * of XLOG_XACT_ASSIGNMENT wal record and registers all the possible XIDs found
+	 * at the first half of the wal record.   Some of them can be missing and such missing
+	 * Xids remain in the buffer, causing overflow and the slave stops.
+	 *
+	 * It will need various change in the code, while the hot standby does not work correctly.
+	 *
+	 * For short term solution for Version 1.0.x, it was determined to disable whole hot
+	 * hot staydby.
+	 *
+	 * Hot standby correction will be done in next major release.
+	 */
+#else
 	/* use volatile pointer to prevent code rearrangement */
 	volatile ProcArrayStruct *pArray = procArray;
 	TransactionId next_xid;
@@ -3552,6 +3789,7 @@ KnownAssignedXidsAdd(TransactionId from_xid, TransactionId to_xid,
 		pArray->headKnownAssignedXids = head;
 		SpinLockRelease(&pArray->known_assigned_xids_lck);
 	}
+#endif
 }
 
 /*
@@ -3721,6 +3959,25 @@ KnownAssignedXidsRemoveTree(TransactionId xid, int nsubxids,
 static void
 KnownAssignedXidsRemovePreceding(TransactionId removeXid)
 {
+#ifdef ADB
+	/*
+	 * Postgres-XC Version 1.0.x supports log shipping replication but not hot standby
+	 * because hot standby needs to provide consistent database views for all the
+	 * datanode, which is not available yet.
+	 *
+	 * On the other hand, in the slave, current KnownAssignedXids ignores latter half
+	 * of XLOG_XACT_ASSIGNMENT wal record and registers all the possible XIDs found
+	 * at the first half of the wal record.   Some of them can be missing and such missing
+	 * Xids remain in the buffer, causing overflow and the slave stops.
+	 *
+	 * It will need various change in the code, while the hot standby does not work correctly.
+	 *
+	 * For short term solution for Version 1.0.x, it was determined to disable whole hot
+	 * hot staydby.
+	 *
+	 * Hot standby correction will be done in next major release.
+	 */
+#else
 	/* use volatile pointer to prevent code rearrangement */
 	volatile ProcArrayStruct *pArray = procArray;
 	int			count = 0;
@@ -3786,6 +4043,7 @@ KnownAssignedXidsRemovePreceding(TransactionId removeXid)
 
 	/* Opportunistically compress the array */
 	KnownAssignedXidsCompress(false);
+#endif
 }
 
 /*
@@ -3815,6 +4073,26 @@ static int
 KnownAssignedXidsGetAndSetXmin(TransactionId *xarray, TransactionId *xmin,
 							   TransactionId xmax)
 {
+#ifdef ADB
+	/*
+	 * Postgres-XC Version 1.0.x supports log shipping replication but not hot standby
+	 * because hot standby needs to provide consistent database views for all the
+	 * datanode, which is not available yet.
+	 *
+	 * On the other hand, in the slave, current KnownAssignedXids ignores latter half
+	 * of XLOG_XACT_ASSIGNMENT wal record and registers all the possible XIDs found
+	 * at the first half of the wal record.   Some of them can be missing and such missing
+	 * Xids remain in the buffer, causing overflow and the slave stops.
+	 *
+	 * It will need various change in the code, while the hot standby does not work correctly.
+	 *
+	 * For short term solution for Version 1.0.x, it was determined to disable whole hot
+	 * hot staydby.
+	 *
+	 * Hot standby correction will be done in next major release.
+	 */
+	return 0;
+#else
 	int			count = 0;
 	int			head,
 				tail;
@@ -3863,6 +4141,7 @@ KnownAssignedXidsGetAndSetXmin(TransactionId *xarray, TransactionId *xmin,
 	}
 
 	return count;
+#endif
 }
 
 /*
@@ -3872,6 +4151,26 @@ KnownAssignedXidsGetAndSetXmin(TransactionId *xarray, TransactionId *xmin,
 static TransactionId
 KnownAssignedXidsGetOldestXmin(void)
 {
+#ifdef ADB
+	/*
+	 * Postgres-XC Version 1.0.x supports log shipping replication but not hot standby
+	 * because hot standby needs to provide consistent database views for all the
+	 * datanode, which is not available yet.
+	 *
+	 * On the other hand, in the slave, current KnownAssignedXids ignores latter half
+	 * of XLOG_XACT_ASSIGNMENT wal record and registers all the possible XIDs found
+	 * at the first half of the wal record.	 Some of them can be missing and such missing
+	 * Xids remain in the buffer, causing overflow and the slave stops.
+	 *
+	 * It will need various change in the code, while the hot standby does not work correctly.
+	 *
+	 * For short term solution for Version 1.0.x, it was determined to disable whole hot
+	 * hot staydby.
+	 *
+	 * Hot standby correction will be done in next major release.
+	 */
+	return InvalidTransactionId;
+#else
 	int			head,
 				tail;
 	int			i;
@@ -3892,6 +4191,7 @@ KnownAssignedXidsGetOldestXmin(void)
 	}
 
 	return InvalidTransactionId;
+#endif
 }
 
 /*
@@ -3957,3 +4257,85 @@ KnownAssignedXidsReset(void)
 
 	LWLockRelease(ProcArrayLock);
 }
+
+#if defined(ADB) || defined(AGTM)
+/*
+ * ProcAssignedXids
+ *		Process WAL log of assigned xids.
+ *
+ * Note:
+ *		Make sure nextXid is beyond any XID mentioned in the record.
+ * We don't expect anyone else to modify nextXid, hence we don't need to
+ * hold a lock while checking this. We still acquire the lock to modify
+ * it, though.
+ */
+void
+ProcAssignedXids(int nxids, TransactionId *xids)
+{
+	TransactionId	max_xid;
+	int				i;
+
+	Assert(nxids > 0);
+
+	max_xid = xids[0];
+	Assert(TransactionIdIsValid(max_xid));
+	for (i = 1; i < nxids; i++)
+	{
+		Assert(TransactionIdIsValid(xids[i]));
+		if (TransactionIdPrecedes(max_xid, xids[i]))
+			max_xid = xids[i];
+	}
+
+	if (TransactionIdFollowsOrEquals(max_xid,
+									 ShmemVariableCache->nextXid))
+	{
+		LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+		ShmemVariableCache->nextXid = max_xid;
+		TransactionIdAdvance(ShmemVariableCache->nextXid);
+		LWLockRelease(XidGenLock);
+	}
+}
+
+/*
+ * ProcUnassignedXids
+ *		Process WAL log of unassigned xids.
+ *
+ * Note:
+ *		Remove any XID mentioned in the record from KnownAssignedXids
+ *	to avoid "too many KnownAssignedXids", see KnownAssignedXidsAdd.
+ */
+void
+ProcUnassignedXids(int nxids, TransactionId *xids)
+{
+	LWLockAcquire(ProcArrayLock, LW_EXCLUSIVE);
+
+	KnownAssignedXidsRemoveTree(InvalidTransactionId, nxids, xids);
+
+	LWLockRelease(ProcArrayLock);
+}
+#endif
+
+#ifdef ADB
+#define SNAPSHOT_ENLARGE_STEP 32
+void EnlargeSnapshotXip(Snapshot snapshot, uint32 need_size)
+{
+	void *p;
+	uint32 new_size;
+	AssertArg(snapshot);
+	if(need_size < snapshot->max_xcnt)
+		return;
+
+	new_size = need_size - (need_size % SNAPSHOT_ENLARGE_STEP) + SNAPSHOT_ENLARGE_STEP;
+	Assert(new_size >= need_size);
+
+	p = realloc(snapshot->xip, new_size * sizeof(snapshot->xip[0]));
+	if(p == NULL)
+	{
+		ereport(ERROR,
+			(errcode(ERRCODE_OUT_OF_MEMORY),
+			 errmsg("out of memory")));
+	}
+	snapshot->xip = p;
+	snapshot->max_xcnt = new_size;
+}
+#endif /* ADB */

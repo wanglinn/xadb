@@ -5,6 +5,8 @@
  *
  * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  *
  * IDENTIFICATION
@@ -76,8 +78,26 @@
 #include "utils/rel.h"
 #include "utils/catcache.h"
 #include "utils/syscache.h"
-
-
+#ifdef ADB
+#include "catalog/adb_proc.h"
+#include "catalog/ora_cast.h"
+#include "catalog/pgxc_class.h"
+#include "catalog/pgxc_node.h"
+#include "catalog/pgxc_group.h"
+#endif /* ADB */
+#ifdef ADBMGRD
+#include "catalog/mgr_host.h"
+#include "catalog/mgr_parm.h"
+#include "catalog/mgr_updateparm.h"
+#include "catalog/mgr_cndnnode.h"
+#include "catalog/monitor_databasetps.h"
+#include "catalog/monitor_databaseitem.h"
+#include "catalog/monitor_slowlog.h"
+#include "catalog/monitor_job.h"
+#endif /* ADBMGRD */
+#ifdef AGTM
+#include "catalog/agtm_sequence.h"
+#endif
 /*---------------------------------------------------------------------------
 
 	Adding system caches:
@@ -584,6 +604,98 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		32
 	},
+#ifdef ADB
+	{PgxcClassRelationId,	/* PGXCCLASSRELID */
+		PgxcClassPgxcRelIdIndexId,
+		1,
+		{
+			Anum_pgxc_class_pcrelid,
+			0,
+			0,
+			0
+		},
+		1024
+	},
+	{PgxcGroupRelationId,	/* PGXCGROUPNAME */
+		PgxcGroupGroupNameIndexId,
+		1,
+		{
+			Anum_pgxc_group_name,
+			0,
+			0,
+			0
+		},
+		256
+	},
+	{PgxcGroupRelationId,	/* PGXCGROUPOID */
+		PgxcGroupOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		256
+	},
+	{PgxcNodeRelationId,	/* PGXCNODENAME */
+		PgxcNodeNodeNameIndexId,
+		1,
+		{
+			Anum_pgxc_node_name,
+			0,
+			0,
+			0
+		},
+		256
+	},
+	{PgxcNodeRelationId,	/* PGXCNODEOID */
+		PgxcNodeOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		256
+	},
+	{PgxcNodeRelationId,	/* PGXCNODEIDENTIFIER */
+		PgxcNodeNodeIdIndexId,
+		1,
+		{
+			Anum_pgxc_node_id,
+			0,
+			0,
+			0
+		},
+		256
+	},
+	{
+		OraCastRelationId,			/* ORACASTSOURCETARGET */
+		OraCastSourceTargetIndexId,
+		3,
+		{
+			Anum_ora_cast_castsource,
+			Anum_ora_cast_casttarget,
+			Anum_ora_cast_castcontext,
+			0
+		},
+		256
+	},
+	{
+		AdbProcRelationId,			/* ADBPROCID */
+		AdbProcOwnerIndexId,
+		1,
+		{
+			Anum_adb_proc_proowner,
+			0,
+			0,
+			0
+		},
+		256
+	},
+#endif
 	{ProcedureRelationId,		/* PROCNAMEARGSNSP */
 		ProcedureNameArgsNspIndexId,
 		3,
@@ -969,6 +1081,98 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		2
 	}
+#ifdef ADBMGRD
+	,{HostRelationId,		/* HOSTHOSTNAME */
+		HostHostnameIndexId,
+		1,
+		{
+			Anum_mgr_host_hostname,
+			0,
+			0,
+			0
+		},
+		32
+	}
+	,{HostRelationId,		/* HOSTHOSTOID */
+		HostOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		32
+	}
+	,{ParmRelationId,		/* PARMPARMNODE */
+		ParmTypeNameIndexId,
+		2,
+		{
+			Anum_mgr_parm_type,
+			Anum_mgr_parm_name,
+			0,
+			0
+		},
+		32
+	}
+	,{NodeRelationId,		/* NODENAMEOID */
+		NodeOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		32
+	}
+	,{UpdateparmRelationId,		/* MGRUPDATAPARMNODENAMENODETYPEKEY */
+		MgrUpdataparmNodenameNodetypeKeyIndexId,
+		3,
+		{
+			Anum_mgr_updateparm_nodename,
+			Anum_mgr_updateparm_nodetype,
+			Anum_mgr_updateparm_key,
+			0
+		},
+		32
+	}
+	,{MjobRelationId,		/* MONITORJOBOID */
+		MonitorJobOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		32
+	}
+#endif /* ADBMGRD */
+#ifdef AGTM
+	,{AgtmSequenceRelationId,		/* AGTMSEQUENCEOID */
+		AgtmSequenceOidIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		32
+	}
+  ,{AgtmSequenceRelationId,		/* AGTMSEQUENCEFIELDS */
+		AgtmSequenceFieldsIndexId,
+		3,
+		{
+			Anum_agtm_sequence_database,
+			Anum_agtm_sequence_schema,
+			Anum_agtm_sequence_sequence,
+			0
+		},
+		32
+	}
+#endif
 };
 
 static CatCache *SysCache[SysCacheSize];

@@ -1556,3 +1556,160 @@ readtup_heap(Tuplestorestate *state, unsigned int len)
 					 errmsg("could not read from tuplestore temporary file: %m")));
 	return (void *) tuple;
 }
+
+#ifdef ADB
+
+static void *copy_remotetup_heap(Tuplestorestate *state, void *tup);
+static void write_remotetup_heap(Tuplestorestate *state, void *tup);
+static void *read_remotetup_heap(Tuplestorestate *state, unsigned int len);
+
+Tuplestorestate *
+tuplestore_begin_remoteheap(bool randomAccess, bool interXact, int maxKBytes)
+{
+	Tuplestorestate *state;
+	int			eflags;
+
+	/*
+	 * This interpretation of the meaning of randomAccess is compatible with
+	 * the pre-8.3 behavior of tuplestores.
+	 */
+	eflags = randomAccess ?
+		(EXEC_FLAG_BACKWARD | EXEC_FLAG_REWIND) :
+		(EXEC_FLAG_REWIND);
+
+	state = tuplestore_begin_common(eflags, interXact, maxKBytes);
+
+	state->copytup = copy_remotetup_heap;
+	state->writetup = write_remotetup_heap;
+	state->readtup = read_remotetup_heap;
+
+	return state;
+}
+
+/*
+ * tuplestore_put_remotetupleslot
+ *
+ * It is all similar to tuplestore_puttupleslot but append remote MinimalTuple
+ * contains remote node id to the tuplestore.
+ */
+void
+tuplestore_put_remotetupleslot(Tuplestorestate *state, TupleTableSlot *remoteSlot)
+{
+	MinimalTuple	remote_minituple;
+	MemoryContext	oldcxt = MemoryContextSwitchTo(state->context);
+
+	/*
+	 * Form a MinimalTuple in working memory
+	 */
+	remote_minituple = ExecCopyRemoteSlotMinimalTuple(remoteSlot);
+	USEMEM(state, GetMemoryChunkSpace(remote_minituple));
+
+	tuplestore_puttuple_common(state, (void *) remote_minituple);
+
+	MemoryContextSwitchTo(oldcxt);
+}
+
+/*
+ * tuplestore_get_remotetupleslot
+ *
+ * It is all similar to tuplestore_gettupleslot but slot contains its
+ * node id came from.
+ */
+bool
+tuplestore_get_remotetupleslot(Tuplestorestate *state, bool forward, bool copy, TupleTableSlot *slot)
+{
+	MinimalTuple	tuple;
+	bool			should_free;
+	Oid				nodeid;
+
+	tuple = (MinimalTuple) tuplestore_gettuple(state, forward, &should_free);
+
+	if (tuple)
+	{
+		nodeid = MiniTupGetRemoteNode(tuple);
+		if (copy && !should_free)
+		{
+			tuple = heap_copy_minimal_tuple(tuple);
+			should_free = true;
+		}
+		ExecStoreMinimalTuple(tuple, slot, should_free);
+		slot->tts_xcnodeoid = nodeid;
+		return true;
+	}
+	else
+	{
+		ExecClearTuple(slot);
+		return false;
+	}
+}
+
+static void *
+copy_remotetup_heap(Tuplestorestate *state, void *tup)
+{
+	MinimalTuple tuple;
+
+	tuple = remote_minimal_tuple_from_heap_tuple((HeapTuple) tup);
+	USEMEM(state, GetMemoryChunkSpace(tuple));
+	return (void *) tuple;
+}
+
+static void
+write_remotetup_heap(Tuplestorestate *state, void *tup)
+{
+	MinimalTuple	minitup = (MinimalTuple) tup;
+	Oid				nodeid = MiniTupGetRemoteNode(minitup);
+
+	/* the part of the MinimalTuple we'll write: */
+	char	   *tupbody = (char *) minitup + MINIMAL_TUPLE_DATA_OFFSET;
+	unsigned int tupbodylen = minitup->t_len - MINIMAL_TUPLE_DATA_OFFSET + sizeof(nodeid);
+
+	/* total on-disk footprint: */
+	unsigned int tuplen = tupbodylen + sizeof(int);
+
+	if (BufFileWrite(state->myfile, (void *) &tuplen,
+					 sizeof(tuplen)) != sizeof(tuplen))
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not write to tuplestore temporary file: %m")));
+	if (BufFileWrite(state->myfile, (void *) tupbody,
+					 tupbodylen) != (size_t) tupbodylen)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not write to tuplestore temporary file: %m")));
+	if (state->backward)		/* need trailing length word? */
+		if (BufFileWrite(state->myfile, (void *) &tuplen,
+						 sizeof(tuplen)) != sizeof(tuplen))
+			ereport(ERROR,
+					(errcode_for_file_access(),
+				errmsg("could not write to tuplestore temporary file: %m")));
+
+	FREEMEM(state, GetMemoryChunkSpace(minitup));
+	heap_free_minimal_tuple(minitup);
+}
+
+static void *
+read_remotetup_heap(Tuplestorestate *state, unsigned int len)
+{
+	/* include nodeid */
+	unsigned int	tupbodylen = len - sizeof(int);
+	unsigned int	tuplen = tupbodylen + MINIMAL_TUPLE_DATA_OFFSET;
+	MinimalTuple	minitup = (MinimalTuple) palloc(tuplen);
+	char		   *tupbody = (char *) minitup + MINIMAL_TUPLE_DATA_OFFSET;
+
+	USEMEM(state, GetMemoryChunkSpace(minitup));
+	/* read in the tuple proper */
+	minitup->t_len = tuplen - sizeof(Oid);
+	if (BufFileRead(state->myfile, (void *) tupbody,
+					tupbodylen) != (size_t) tupbodylen)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+			   errmsg("could not read from tuplestore temporary file: %m")));
+	if (state->backward)		/* need trailing length word? */
+		if (BufFileRead(state->myfile, (void *) &tuplen,
+						sizeof(tuplen)) != sizeof(tuplen))
+			ereport(ERROR,
+					(errcode_for_file_access(),
+			   errmsg("could not read from tuplestore temporary file: %m")));
+	return (void *) minitup;
+}
+#endif

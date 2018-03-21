@@ -233,6 +233,9 @@ typedef enum
 extern bool log_duration;
 extern bool Debug_print_plan;
 extern bool Debug_print_parse;
+#ifdef ADB
+extern bool Debug_print_grammar;
+#endif
 extern bool Debug_print_rewritten;
 extern bool Debug_pretty_print;
 
@@ -431,5 +434,10 @@ extern void assign_search_path(const char *newval, void *extra);
 /* in access/transam/xlog.c */
 extern bool check_wal_buffers(int *newval, void **extra, GucSource source);
 extern void assign_xlog_sync_method(int new_sync_method, void *extra);
+
+#ifdef ADB
+extern bool check_agtm_host(char **newval, void **extra, GucSource source);
+extern bool check_agtm_port(int *newval, void **extra, GucSource source);
+#endif
 
 #endif							/* GUC_H */

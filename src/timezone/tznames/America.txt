@@ -252,3 +252,7 @@ UYT    -10800    # Uruguay Time (obsolete)
 VET    America/Caracas  # Venezuela Time (obsolete)
 WGST    -7200 D  # Western Greenland Summer Time (obsolete)
 WGT    -10800    # West Greenland Time (obsolete)
+YDT    -28800 D  # Yukon Summer Time
+                 #     (Canada/Whitehorse)
+YST    -32400    # Yukon Standard Time
+                 #     (Canada/Whitehorse)

@@ -22,7 +22,11 @@
 #ifndef PG_RANGE_H
 #define PG_RANGE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_range definition.  cpp turns this into
@@ -53,6 +57,7 @@ typedef FormData_pg_range *Form_pg_range;
  * ----------------
  */
 #define Natts_pg_range					6
+DECLARE_NATTS(Natts_pg_range);
 #define Anum_pg_range_rngtypid			1
 #define Anum_pg_range_rngsubtype		2
 #define Anum_pg_range_rngcollation		3

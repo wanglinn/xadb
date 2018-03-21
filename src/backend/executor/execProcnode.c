@@ -115,6 +115,14 @@
 #include "executor/nodeWorktablescan.h"
 #include "nodes/nodeFuncs.h"
 #include "miscadmin.h"
+#ifdef ADB
+#include "pgxc/execRemote.h"
+#include "executor/nodeClusterGather.h"
+#include "executor/nodeClusterMergeGather.h"
+#include "executor/nodeClusterReduce.h"
+#include "executor/nodeEmptyResult.h"
+#include "executor/nodeReduceScan.h"
+#endif
 
 
 static TupleTableSlot *ExecProcNodeFirst(PlanState *node);
@@ -364,6 +372,36 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 												 estate, eflags);
 			break;
 
+#ifdef ADB
+		case T_RemoteQuery:
+			result = (PlanState *) ExecInitRemoteQuery((RemoteQuery *) node,
+												estate, eflags);
+			break;
+
+		case T_ClusterGather:
+			result = (PlanState *) ExecInitClusterGather((ClusterGather *) node,
+												estate, eflags);
+			break;
+
+		case T_ClusterMergeGather:
+			result = (PlanState *) ExecInitClusterMergeGather(
+									(ClusterMergeGather*)node, estate, eflags);
+			break;
+
+		case T_ClusterReduce:
+			result = (PlanState *) ExecInitClusterReduce((ClusterReduce*)node,
+												estate, eflags);
+			break;
+
+		case T_ReduceScan:
+			result = (PlanState *) ExecInitReduceScan((ReduceScan*)node, estate, eflags);
+			break;
+
+		case T_EmptyResult:
+			result = (PlanState *) ExecInitEmptyResult((EmptyResult*)node, estate, eflags);
+			break;
+#endif
+
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
 			result = NULL;		/* keep compiler quiet */
@@ -497,6 +535,12 @@ MultiExecProcNode(PlanState *node)
 		case T_BitmapOrState:
 			result = MultiExecBitmapOr((BitmapOrState *) node);
 			break;
+
+#ifdef ADB
+		case T_EmptyResultState:
+			result = MultiExecEmptyResult((EmptyResultState *) node);
+			break;
+#endif /* ADB */
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
@@ -710,6 +754,27 @@ ExecEndNode(PlanState *node)
 		case T_LimitState:
 			ExecEndLimit((LimitState *) node);
 			break;
+#ifdef ADB
+		case T_RemoteQueryState:
+			ExecEndRemoteQuery((RemoteQueryState *) node);
+			break;
+
+		case T_ClusterGatherState:
+			ExecEndClusterGather((ClusterGatherState *) node);
+			break;
+
+		case T_ClusterMergeGatherState:
+			ExecEndClusterMergeGather((ClusterMergeGatherState*) node);
+			break;
+
+		case T_ReduceScanState:
+			ExecEndReduceScan((ReduceScanState*) node);
+			break;
+
+		case T_EmptyResultState:
+			ExecEndEmptyResult((EmptyResultState *) node);
+			break;
+#endif
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));

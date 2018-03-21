@@ -17,7 +17,12 @@
 #ifndef PG_PUBLICATION_REL_H
 #define PG_PUBLICATION_REL_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
+
 
 /* ----------------
  *		pg_publication_rel definition.  cpp turns this into
@@ -46,6 +51,7 @@ typedef FormData_pg_publication_rel *Form_pg_publication_rel;
  */
 
 #define Natts_pg_publication_rel				2
+DECLARE_NATTS(Natts_pg_publication_rel);
 #define Anum_pg_publication_rel_prpubid			1
 #define Anum_pg_publication_rel_prrelid			2
 

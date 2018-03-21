@@ -627,6 +627,7 @@ ac_includes_default="\
 
 ac_subst_vars='LTLIBOBJS
 vpath_build
+ADB_VERSION_NUM
 PG_VERSION_NUM
 PROVE
 FOP
@@ -759,6 +760,7 @@ build_vendor
 build_cpu
 build
 PG_MAJORVERSION
+ADB_VERSION
 configure_args
 target_alias
 host_alias
@@ -2729,6 +2731,28 @@ ac_configure="$SHELL $ac_aux_dir/configure"  # Please don't use this var.
 configure_args=$ac_configure_args
 
 
+if ( test "$srcdir" -ef . ) >/dev/null 2>&1 || test "`cd $srcdir && /bin/pwd`" = "`/bin/pwd`"; then
+  abs_srcdir=`cd $srcdir && /bin/pwd`
+  abs_pdir=`cd $srcdir/.. && /bin/pwd`
+  as_fn_error $? "ADB can not build in sorce code directory, please configure in other directory.
+for example:
+  mkdir '$abs_pdir/build'
+  cd '$abs_pdir/build'
+  '$abs_srcdir/configure'" "$LINENO" 5
+fi
+
+ADB_VERSION='3.1devel'
+GIT_SHA1=`(cd $srcdir && git log -1 --pretty='format:%h' --no-color) 2>/dev/null`
+if test x"$GIT_SHA1" != x; then
+  ADB_VERSION="$ADB_VERSION $GIT_SHA1"
+fi
+
+
+cat >>confdefs.h <<_ACEOF
+#define ADB_VERSION "$ADB_VERSION"
+_ACEOF
+
+
 PG_MAJORVERSION=`expr "$PACKAGE_VERSION" : '\([0-9][0-9]*\)'`
 
 
@@ -4492,6 +4516,9 @@ else
     CFLAGS="-O"
   fi
 fi
+
+# for ADB set "-DADB" by default
+CFLAGS="$CFLAGS -DADB"
 
 # CFLAGS we determined above will be added back at the end
 user_CFLAGS=$CFLAGS
@@ -16759,7 +16786,7 @@ fi
 
 
 cat >>confdefs.h <<_ACEOF
-#define PG_VERSION_STR "PostgreSQL $PG_VERSION on $host, compiled by $cc_string, `expr $ac_cv_sizeof_void_p \* 8`-bit"
+#define PG_VERSION_STR "PostgreSQL $PG_VERSION ADB $ADB_VERSION on $host, compiled by $cc_string, `expr $ac_cv_sizeof_void_p \* 8`-bit"
 _ACEOF
 
 
@@ -16773,6 +16800,15 @@ cat >>confdefs.h <<_ACEOF
 #define PG_VERSION_NUM $PG_VERSION_NUM
 _ACEOF
 
+
+
+ADB_VERSION_NUM="`echo "$ADB_VERSION" | sed 's/[A-Za-z].*$//' |
+tr '.' '        ' |
+$AWK '{printf "%d%02d%02d", $1, $2, (NF >= 3) ? $3 : 0}'`"
+
+cat >>confdefs.h <<_ACEOF
+#define ADB_VERSION_NUM $ADB_VERSION_NUM
+_ACEOF
 
 
 
@@ -16810,7 +16846,7 @@ fi
 ac_config_files="$ac_config_files GNUmakefile src/Makefile.global"
 
 
-ac_config_links="$ac_config_links src/backend/port/dynloader.c:src/backend/port/dynloader/${template}.c src/backend/port/pg_sema.c:${SEMA_IMPLEMENTATION} src/backend/port/pg_shmem.c:${SHMEM_IMPLEMENTATION} src/include/dynloader.h:src/backend/port/dynloader/${template}.h src/include/pg_config_os.h:src/include/port/${template}.h src/Makefile.port:src/makefiles/Makefile.${template}"
+ac_config_links="$ac_config_links src/backend/port/dynloader.c:src/backend/port/dynloader/${template}.c src/backend/port/pg_sema.c:${SEMA_IMPLEMENTATION} src/backend/port/pg_shmem.c:${SHMEM_IMPLEMENTATION} src/include/dynloader.h:src/backend/port/dynloader/${template}.h src/include/pg_config_os.h:src/include/port/${template}.h src/Makefile.port:src/makefiles/Makefile.${template} src/bin/agent/get_uptime.c:src/bin/agent/uptime_${template}.c"
 
 
 if test "$PORTNAME" = "win32"; then
@@ -17537,6 +17573,7 @@ do
     "src/include/dynloader.h") CONFIG_LINKS="$CONFIG_LINKS src/include/dynloader.h:src/backend/port/dynloader/${template}.h" ;;
     "src/include/pg_config_os.h") CONFIG_LINKS="$CONFIG_LINKS src/include/pg_config_os.h:src/include/port/${template}.h" ;;
     "src/Makefile.port") CONFIG_LINKS="$CONFIG_LINKS src/Makefile.port:src/makefiles/Makefile.${template}" ;;
+    "src/bin/agent/get_uptime.c") CONFIG_LINKS="$CONFIG_LINKS src/bin/agent/get_uptime.c:src/bin/agent/uptime_${template}.c" ;;
     "check_win32_symlinks") CONFIG_COMMANDS="$CONFIG_COMMANDS check_win32_symlinks" ;;
     "src/include/pg_config.h") CONFIG_HEADERS="$CONFIG_HEADERS src/include/pg_config.h" ;;
     "src/include/pg_config_ext.h") CONFIG_HEADERS="$CONFIG_HEADERS src/include/pg_config_ext.h" ;;

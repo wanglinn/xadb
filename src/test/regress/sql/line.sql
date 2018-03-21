@@ -26,16 +26,16 @@ INSERT INTO LINE_TBL VALUES ('[1,2,3, 4');
 INSERT INTO LINE_TBL VALUES ('[(,2),(3,4)]');
 INSERT INTO LINE_TBL VALUES ('[(1,2),(3,4)');
 
-select * from LINE_TBL;
+select * from LINE_TBL order by s[0], s[1], s[2];
 
 
 -- functions and operators
 
-SELECT * FROM LINE_TBL WHERE (s <-> line '[(1,2),(3,4)]') < 10;
+SELECT * FROM LINE_TBL WHERE (s <-> line '[(1,2),(3,4)]') < 10 order by s[0], s[1], s[2];
 
-SELECT * FROM LINE_TBL WHERE (point '(0.1,0.1)' <-> s) < 1;
+SELECT * FROM LINE_TBL WHERE (point '(0.1,0.1)' <-> s) < 1 order by s[0], s[1], s[2];
 
-SELECT * FROM LINE_TBL WHERE (lseg '[(0.1,0.1),(0.2,0.2)]' <-> s) < 1;
+SELECT * FROM LINE_TBL WHERE (lseg '[(0.1,0.1),(0.2,0.2)]' <-> s) < 1 order by s[0], s[1], s[2];
 
 SELECT line '[(1,1),(2,1)]' <-> line '[(-1,-1),(-2,-1)]';
 SELECT lseg '[(1,1),(2,1)]' <-> line '[(-1,-1),(-2,-1)]';

@@ -704,7 +704,7 @@ RESET maintenance_work_mem;
 --
 -- Test functional index
 --
-CREATE TABLE func_index_heap (f1 text, f2 text);
+CREATE TABLE func_index_heap (f1 text, f2 text) DISTRIBUTE BY REPLICATION;
 CREATE UNIQUE INDEX func_index_index on func_index_heap (textcat(f1,f2));
 
 INSERT INTO func_index_heap VALUES('ABC','DEF');
@@ -720,7 +720,7 @@ INSERT INTO func_index_heap VALUES('QWERTY');
 -- Same test, expressional index
 --
 DROP TABLE func_index_heap;
-CREATE TABLE func_index_heap (f1 text, f2 text);
+CREATE TABLE func_index_heap (f1 text, f2 text) DISTRIBUTE BY REPLICATION;
 CREATE UNIQUE INDEX func_index_index on func_index_heap ((f1 || f2) text_ops);
 
 INSERT INTO func_index_heap VALUES('ABC','DEF');

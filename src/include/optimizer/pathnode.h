@@ -32,6 +32,11 @@ extern bool add_path_precheck(RelOptInfo *parent_rel,
 extern void add_partial_path(RelOptInfo *parent_rel, Path *new_path);
 extern bool add_partial_path_precheck(RelOptInfo *parent_rel,
 						  Cost total_cost, List *pathkeys);
+#ifdef ADB
+extern void add_cluster_path(RelOptInfo *parent_rel, Path *new_path);
+extern void add_cluster_path_list(RelOptInfo *parent_rel, List *pathlist, bool free_list);
+extern void add_cluster_partial_path(RelOptInfo *parent_rel, Path *new_path);
+#endif /* ADB */
 
 extern Path *create_seqscan_path(PlannerInfo *root, RelOptInfo *rel,
 					Relids required_outer, int parallel_workers);
@@ -74,9 +79,18 @@ extern MergeAppendPath *create_merge_append_path(PlannerInfo *root,
 						 List *partitioned_rels);
 extern ResultPath *create_result_path(PlannerInfo *root, RelOptInfo *rel,
 				   PathTarget *target, List *resconstantqual);
+#ifdef ADB
+extern FilterPath *create_filter_path(PlannerInfo *root, RelOptInfo *rel,
+				   PathTarget *target, List *quals);
+extern Path *replicate_to_one_node(PlannerInfo *root, RelOptInfo *rel, Path *path, List *target_oids);
+#endif /* ADB */
 extern MaterialPath *create_material_path(RelOptInfo *rel, Path *subpath);
 extern UniquePath *create_unique_path(PlannerInfo *root, RelOptInfo *rel,
 				   Path *subpath, SpecialJoinInfo *sjinfo);
+#ifdef ADB
+extern UniquePath *create_cluster_unique_path(PlannerInfo *root, RelOptInfo *rel,
+				   Path *subpath, SpecialJoinInfo *sjinfo);
+#endif /* ADB */
 extern GatherPath *create_gather_path(PlannerInfo *root,
 				   RelOptInfo *rel, Path *subpath, PathTarget *target,
 				   Relids required_outer, double *rows);
@@ -124,6 +138,10 @@ extern NestPath *create_nestloop_path(PlannerInfo *root,
 					 Path *inner_path,
 					 List *restrict_clauses,
 					 List *pathkeys,
+#ifdef ADB
+					 List *reduce_info_list,
+					 bool partial_path,
+#endif /* ADB */
 					 Relids required_outer);
 
 extern MergePath *create_mergejoin_path(PlannerInfo *root,
@@ -137,6 +155,10 @@ extern MergePath *create_mergejoin_path(PlannerInfo *root,
 					  List *pathkeys,
 					  Relids required_outer,
 					  List *mergeclauses,
+#ifdef ADB
+					 List *reduce_info_list,
+					 bool partial_path,
+#endif /* ADB */
 					  List *outersortkeys,
 					  List *innersortkeys);
 
@@ -149,6 +171,10 @@ extern HashPath *create_hashjoin_path(PlannerInfo *root,
 					 Path *inner_path,
 					 List *restrict_clauses,
 					 Relids required_outer,
+#ifdef ADB
+					 List *reduce_info_list,
+					 bool partial_path,
+#endif /* ADB */
 					 List *hashclauses);
 
 extern ProjectionPath *create_projection_path(PlannerInfo *root,
@@ -248,6 +274,57 @@ extern LimitPath *create_limit_path(PlannerInfo *root, RelOptInfo *rel,
 extern Path *reparameterize_path(PlannerInfo *root, Path *path,
 					Relids required_outer,
 					double loop_count);
+#ifdef ADB
+
+#define REMOTE_EXECUTE_ON_ANY			1		/* any datanode */
+#define REMOTE_EXECUTE_ON_DATANODE		(1<<1)	/* have datanode */
+#define REMOTE_EXECUTE_ON_COORD			(1<<2)	/* have coordinator */
+#define REMOTE_EXECUTE_ON_LOCAL			(1<<3)	/* have local coordinator */
+#define REMOTE_EXECUTE_ON_MUST_LOCAL	(1<<4)	/* must run at local coordinator */
+
+/* get_path_execute_on flags */
+#define GPEO_IGNORE_SUBQUERY		1
+#define GPEO_IGNORE_ANY_OTHER		(1<<1)
+
+struct ReduceExprInfo;
+struct HTAB;
+typedef struct ExecNodeInfo
+{
+	Oid nodeOid;
+	uint32 rep_count;	/* replicate table count */
+	double size;		/* rows*width with replicate table */
+	uint32 part_count;	/* partial table count */
+	uint32 update_count;	/* update and delete table count */
+	uint32 insert_count;	/* insert table count */
+}ExecNodeInfo;
+
+bool have_special_path_args(Path *path, NodeTag tag, ...);
+#define have_cluster_gather_path(path) have_special_path_args(path, T_ClusterGatherPath, T_ClusterMergeGatherPath, T_Invalid)
+#define have_cluster_reduce_path(path) have_special_path_args(path, T_ClusterReducePath, T_Invalid)
+#define have_cluster_path(path) have_special_path_args(path, T_ClusterReducePath, T_ClusterGatherPath, T_ClusterMergeGatherPath, T_Invalid)
+#define have_remote_query_path(path) have_special_path_args(path, T_RemoteQueryPath, T_Invalid)
+
+extern ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
+			, RelOptInfo *rel, Path *sub_path, List *pathkeys);
+extern ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel);
+extern Path *create_cluster_reduce_path(PlannerInfo *root,
+			Path *sub_path,
+			List *rinfo_list,
+			RelOptInfo *rel,
+			List *pathkeys);
+extern ReduceScanPath *try_reducescan_path(PlannerInfo *root, RelOptInfo *rel, PathTarget *target,
+										   Path *subpath, List *reduce_list, List *pathkeys,
+										   List *clauses);
+extern struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab, PlannerInfo *root);
+extern bool path_tree_have_exec_param(Path *path, PlannerInfo *root);
+extern bool expression_have_reduce_plan(Expr *expr, PlannerGlobal *glob);
+extern bool expr_have_node(Expr *expr, ...);
+extern bool expr_have_exec_param_and_node(Expr *expr, ...);
+#define expression_have_exec_param(expr) expr_have_exec_param_and_node(expr, T_Invalid)
+#define restrict_list_have_exec_param(list) expr_have_exec_param_and_node((Expr*)(list), T_Invalid)
+#define expression_have_subplan(expr) expr_have_node(expr, T_SubPlan, T_Invalid)
+
+#endif /* ADB */
 
 /*
  * prototypes for relnode.c

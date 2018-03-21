@@ -1,0 +1,226 @@
+set grammar to oracle;
+--rownum
+create table aa(id int,name varchar(20));
+insert into aa values(1,'345');
+insert into aa values(2,'345abc');
+insert into aa values(3,'');
+insert into aa values(4,'abc');
+insert into aa values(5,'mike');
+insert into aa values(6,null);
+--多次执行下面语句，10次,观察结果是否相同
+select name,rownum from (select * from aa order by id) where rownum < 4;
+  name  | rownum 
+--------+--------
+ 345    |      1
+ 345abc |      2
+        |      3
+(3 rows)
+
+select name,rownum from (select * from aa order by id) where rownum < 4;
+  name  | rownum 
+--------+--------
+ 345    |      1
+ 345abc |      2
+        |      3
+(3 rows)
+
+select name,rownum from (select * from aa order by id) where rownum < 4;
+  name  | rownum 
+--------+--------
+ 345    |      1
+ 345abc |      2
+        |      3
+(3 rows)
+
+select name,rownum from (select * from aa order by id) where rownum < 4;
+  name  | rownum 
+--------+--------
+ 345    |      1
+ 345abc |      2
+        |      3
+(3 rows)
+
+select name,rownum from (select * from aa order by id) where rownum < 4;
+  name  | rownum 
+--------+--------
+ 345    |      1
+ 345abc |      2
+        |      3
+(3 rows)
+
+select name,rownum from (select * from aa order by id) where rownum < 4;
+  name  | rownum 
+--------+--------
+ 345    |      1
+ 345abc |      2
+        |      3
+(3 rows)
+
+select name,rownum from (select * from aa order by id) where rownum < 4;
+  name  | rownum 
+--------+--------
+ 345    |      1
+ 345abc |      2
+        |      3
+(3 rows)
+
+select name,rownum from (select * from aa order by id) where rownum != 4;
+  name  | rownum 
+--------+--------
+ 345    |      1
+ 345abc |      2
+        |      3
+(3 rows)
+
+select name,rownum from (select * from aa order by id) where rownum != 4;
+  name  | rownum 
+--------+--------
+ 345    |      1
+ 345abc |      2
+        |      3
+(3 rows)
+
+select name,rownum from (select * from aa order by id) where rownum != 4;
+  name  | rownum 
+--------+--------
+ 345    |      1
+ 345abc |      2
+        |      3
+(3 rows)
+
+select name,rownum from (select * from aa order by id) where rownum between 1 and 3;
+  name  | rownum 
+--------+--------
+ 345    |      1
+ 345abc |      2
+        |      3
+(3 rows)
+
+select name,rownum from (select * from aa order by id) where rownum > 0;
+  name  | rownum 
+--------+--------
+ 345    |      1
+ 345abc |      2
+        |      3
+ abc    |      4
+ mike   |      5
+        |      6
+(6 rows)
+
+select * from(select id,name,rownum page from (select * from aa order by id)where rownum<10) where page between 2 and 3;
+ id |  name  | page 
+----+--------+------
+  2 | 345abc |    2
+  3 |        |    3
+(2 rows)
+
+drop table aa;
+--rowid	rowid的比较运算、聚合函数、order by
+create table aa(id int,name varchar(20));
+insert into aa values(1,'345');
+insert into aa values(2,'345');
+insert into aa values(3,'');
+insert into aa values(4,'abc');
+insert into aa values(5,'abc');
+insert into aa values(6,null);
+insert into aa values(7,'');
+insert into aa values(8,'mike');
+insert into aa values(9,'abc');
+select name,rowid from aa order by name;
+ name |        rowid         
+------+----------------------
+ 345  | q7+e3g==AAAAAA==AQA=
+ 345  | q7+e3g==AAAAAA==AgA=
+ abc  | RrAAFQ==AAAAAA==AgA=
+ abc  | q7+e3g==AAAAAA==AwA=
+ abc  | q7+e3g==AAAAAA==BgA=
+ mike | q7+e3g==AAAAAA==BQA=
+      | RrAAFQ==AAAAAA==AQA=
+      | q7+e3g==AAAAAA==BAA=
+      | RrAAFQ==AAAAAA==AwA=
+(9 rows)
+
+select * from aa where rowid='FbpC+g==AAAAAA==AQA=';
+ id | name 
+----+------
+(0 rows)
+
+--like：
+select * from aa where rowid like 'FbpC+g==AAAAAA==AQA=';
+ id | name 
+----+------
+(0 rows)
+
+select * from aa where rowid in(select rowid from aa) order by id;
+ id | name 
+----+------
+  1 | 345
+  2 | 345
+  3 | 
+  4 | abc
+  5 | abc
+  6 | 
+  7 | 
+  8 | mike
+  9 | abc
+(9 rows)
+
+--根据rowid排序不支持：
+select name,rowid from aa order by rowid;
+ERROR:  could not identify an ordering operator for type rid
+LINE 1: select name,rowid from aa order by rowid;
+                                           ^
+HINT:  Use an explicit ordering operator or modify the query.
+--子查询结果集的rowid
+select name,rowid from (select * from aa) ;
+ERROR:  column "rowid" does not exist
+LINE 1: select name,rowid from (select * from aa) ;
+                    ^
+--查找重复数据,聚合函数rowid类型
+select max(rowid) from aa group by name;
+         max          
+----------------------
+ RrAAFQ==AAAAAA==AwA=
+ q7+e3g==AAAAAA==BQA=
+ RrAAFQ==AAAAAA==AgA=
+ q7+e3g==AAAAAA==AgA=
+(4 rows)
+
+select * from aa where rowid not in(select max(rowid) from aa group by name) order by id;
+ id | name 
+----+------
+  1 | 345
+  3 | 
+  5 | abc
+  6 | 
+  9 | abc
+(5 rows)
+
+drop table aa;
+--设置rowid类型的列
+create table tt(id int,name varchar(20),rrid rid);
+ERROR:  syntax error at or near "rid"
+LINE 1: create table tt(id int,name varchar(20),rrid rid);
+                                                     ^
+insert into tt values(1,'345',null);
+ERROR:  relation "tt" does not exist
+LINE 1: insert into tt values(1,'345',null);
+                    ^
+insert into tt values(2,'ab',null);
+ERROR:  relation "tt" does not exist
+LINE 1: insert into tt values(2,'ab',null);
+                    ^
+insert into tt values(3,'',null);
+ERROR:  relation "tt" does not exist
+LINE 1: insert into tt values(3,'',null);
+                    ^
+update tt set rrid=rowid where id=1;
+ERROR:  relation "tt" does not exist
+LINE 1: update tt set rrid=rowid where id=1;
+               ^
+select * from tt;
+ERROR:  relation "tt" does not exist
+LINE 1: select * from tt;
+                      ^
+drop table tt;
+ERROR:  table "tt" does not exist

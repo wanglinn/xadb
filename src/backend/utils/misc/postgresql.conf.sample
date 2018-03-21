@@ -637,6 +637,77 @@
 #exit_on_error = off			# terminate session on any error?
 #restart_after_crash = on		# reinitialize after backend crash?
 
+#------------------------------------------------------------------------------
+# DATA NODES AND CONNECTION POOLING
+#------------------------------------------------------------------------------
+
+#min_pool_size = 1			# Initial pool size
+					# (change requires restart)
+#max_pool_size = 100			# Maximum pool size
+					# (change requires restart)
+#pool_remote_cmd_timeout = 10		# timeout for pool manager send message to nodes, default 10 seconds
+#persistent_datanode_connections = off	# Set persistent connection mode for pooler
+					# if set at on, connections taken for session
+					# are not put back to pool
+#max_coordinators = 16			# Maximum number of Coordinators
+					# that can be defined in cluster
+					# (change requires restart)
+#max_datanodes = 16			# Maximum number of Datanodes
+					# that can be defined in cluster
+					# (change requires restart)
+
+#------------------------------------------------------------------------------
+# GTM CONNECTION
+#------------------------------------------------------------------------------
+
+#gtm_host = 'localhost'			# Host name or address of GTM
+					# (change requires restart)
+#gtm_port = 6666			# Port of GTM
+					# (change requires restart)
+#pgxc_node_name = ''			# Coordinator or Datanode name
+					# (change requires restart)
+
+#gtm_backup_barrier = off		# Specify to backup gtm restart point for each barrier.
+
+##------------------------------------------------------------------------------
+# OTHER PG-XC OPTIONS
+#------------------------------------------------------------------------------
+#enforce_two_phase_commit = on		# Enforce the usage of two-phase commit on transactions
+					# where temporary objects are used or ON COMMIT actions
+					# are pending.
+					# Usage of commit instead of two-phase commit may break
+					# data consistency so use at your own risk.
+
+# - Postgres-XC specific Planner Method Configuration
+
+#enable_fast_query_shipping = on
+#enable_remotejoin = on
+#enable_remotegroup = on
+#enable_remotelimit = on
+#enable_remotesort = on
+
+##------------------------------------------------------------------------------
+# ADB OPTIONS
+##------------------------------------------------------------------------------
+#enable_adb_ha_sync = off			# Enable record each commit sql for HA synchronization
+#enable_adb_ha_sync_select = off	# Disable record SELECT SQL
+#adb_ha_param_delimiter = '$&#$'	# Delimiter for recording execute sql
+#enable_pushdown_art = off			# push down query to one datanode if all table are replicated.
+#enable_stable_func_shipping = off	# Enable stable function shipping.
+#pool_time_out = 60                 # close connection from poolmgr to datanode idle process max time
+#log_parse_query = off				# Enable record parse sql
+#enable_zero_year = false			# Thing it is effective if year is zero
+#distribute_by_replication_default = false	# Set distribute by replication default.
+#print_reduce_debug_log = false     # Print debug log of adb reduce
+
+#------------------------------------------------------------------------------
+# ADB MONITOR PARAMETERS
+#------------------------------------------------------------------------------
+
+#adbmonitor = on					# Enable adb monitor subprocess?
+#adbmonitor_max_workers = 10		# max number of adb monitor workers subprocesses
+									# (change requires restart)
+#adbmonitor_naptime = 1min			# time between adb monitor runs
 
 #------------------------------------------------------------------------------
 # CONFIG FILE INCLUDES

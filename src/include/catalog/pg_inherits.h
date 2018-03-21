@@ -19,7 +19,11 @@
 #ifndef PG_INHERITS_H
 #define PG_INHERITS_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_inherits definition.  cpp turns this into
@@ -47,6 +51,7 @@ typedef FormData_pg_inherits *Form_pg_inherits;
  * ----------------
  */
 #define Natts_pg_inherits				3
+DECLARE_NATTS(Natts_pg_inherits);
 #define Anum_pg_inherits_inhrelid		1
 #define Anum_pg_inherits_inhparent		2
 #define Anum_pg_inherits_inhseqno		3

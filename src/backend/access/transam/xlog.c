@@ -32,6 +32,9 @@
 #include "access/tuptoaster.h"
 #include "access/twophase.h"
 #include "access/xact.h"
+#ifdef ADB
+#include "access/rxact_mgr.h"
+#endif
 #include "access/xlog_internal.h"
 #include "access/xloginsert.h"
 #include "access/xlogreader.h"
@@ -41,6 +44,9 @@
 #include "catalog/pg_database.h"
 #include "commands/tablespace.h"
 #include "miscadmin.h"
+#ifdef ADB
+#include "pgxc/cluster_barrier.h"
+#endif
 #include "pgstat.h"
 #include "port/atomics.h"
 #include "postmaster/bgwriter.h"
@@ -262,6 +268,10 @@ static bool recoveryTargetInclusive = true;
 static RecoveryTargetAction recoveryTargetAction = RECOVERY_TARGET_ACTION_PAUSE;
 static TransactionId recoveryTargetXid;
 static TimestampTz recoveryTargetTime;
+#ifdef ADB
+static char *recoveryTargetBarrierId;
+#endif
+
 static char *recoveryTargetName;
 static XLogRecPtr recoveryTargetLSN;
 static int	recovery_min_apply_delay = 0;
@@ -5277,6 +5287,13 @@ readRecoveryCommandFile(void)
 					(errmsg_internal("recovery_target_time = '%s'",
 									 timestamptz_to_str(recoveryTargetTime))));
 		}
+#ifdef ADB
+		else if (strcmp(item->name, "recovery_target_barrier") == 0)
+		{
+			recoveryTarget = RECOVERY_TARGET_BARRIER;
+			recoveryTargetBarrierId = pstrdup(item->value);
+		}
+#endif
 		else if (strcmp(item->name, "recovery_target_name") == 0)
 		{
 			recoveryTarget = RECOVERY_TARGET_NAME;
@@ -5622,6 +5639,10 @@ recoveryStopsBefore(XLogReaderState *record)
 	bool		isCommit;
 	TimestampTz recordXtime = 0;
 	TransactionId recordXid;
+#ifdef ADB
+	bool		stopsAtThisBarrier = false;
+	char		*recordBarrierId = NULL;
+#endif
 
 	/* Check if we should stop as soon as reaching consistency */
 	if (recoveryTarget == RECOVERY_TARGET_IMMEDIATE && reachedConsistency)
@@ -5655,11 +5676,20 @@ recoveryStopsBefore(XLogReaderState *record)
 	}
 
 	/* Otherwise we only consider stopping before COMMIT or ABORT records. */
+#ifdef ADB
+	if (XLogRecGetRmid(record) != RM_XACT_ID &&
+		XLogRecGetRmid(record) != RM_BARRIER_ID)
+#else
 	if (XLogRecGetRmid(record) != RM_XACT_ID)
+#endif
 		return false;
 
 	xact_info = XLogRecGetInfo(record) & XLOG_XACT_OPMASK;
 
+#ifdef ADB
+	if (XLogRecGetRmid(record) == RM_XACT_ID)
+	{
+#endif
 	if (xact_info == XLOG_XACT_COMMIT)
 	{
 		isCommit = true;
@@ -5692,6 +5722,20 @@ recoveryStopsBefore(XLogReaderState *record)
 						 &parsed);
 		recordXid = parsed.twophase_xid;
 	}
+#ifdef ADB
+	}
+	else if (XLogRecGetRmid(record) == RM_BARRIER_ID)
+	{
+		if (xact_info == XLOG_CLUSTER_BARRIER_CREATE)
+		{
+			recordBarrierId = (char *) XLogRecGetData(record);
+			ereport(DEBUG2,
+					(errmsg("processing barrier xlog record for %s", recordBarrierId)));
+		}
+		/* fix: The left operand of '==' is a garbage value @ line:4703 */
+		recordXid = InvalidTransactionId;
+	}
+#endif
 	else
 		return false;
 
@@ -5708,6 +5752,22 @@ recoveryStopsBefore(XLogReaderState *record)
 		 */
 		stopsHere = (recordXid == recoveryTargetXid);
 	}
+
+#ifdef ADB
+	if (recoveryTarget == RECOVERY_TARGET_BARRIER)
+	{
+		stopsHere = false;
+		if ((XLogRecGetRmid(record) == RM_BARRIER_ID) &&
+			(xact_info == XLOG_CLUSTER_BARRIER_CREATE))
+		{
+			ereport(DEBUG2,
+				(errmsg("checking if barrier record matches the target "
+								"barrier")));
+			if (strcmp(recoveryTargetBarrierId, recordBarrierId) == 0)
+				stopsAtThisBarrier = true;
+		}
+	}
+#endif
 
 	if (recoveryTarget == RECOVERY_TARGET_TIME &&
 		getRecordTimestamp(record, &recordXtime))
@@ -5746,6 +5806,17 @@ recoveryStopsBefore(XLogReaderState *record)
 							timestamptz_to_str(recoveryStopTime))));
 		}
 	}
+#ifdef ADB
+	else if (stopsAtThisBarrier)
+	{
+		recoveryStopTime = recordXtime;
+		ereport(LOG,
+			(errmsg("recovery stopping at barrier %s, time %s",
+				recoveryTargetBarrierId,
+				timestamptz_to_str(recoveryStopTime))));
+		return true;
+	}
+#endif
 
 	return stopsHere;
 }
@@ -6322,6 +6393,12 @@ StartupXLOG(void)
 			ereport(LOG,
 					(errmsg("starting point-in-time recovery to %s",
 							timestamptz_to_str(recoveryTargetTime))));
+#ifdef ADB
+		else if (recoveryTarget == RECOVERY_TARGET_BARRIER)
+			ereport(LOG,
+					(errmsg("starting point-in-time recovery to barrier %s",
+							(recoveryTargetBarrierId))));
+#endif
 		else if (recoveryTarget == RECOVERY_TARGET_NAME)
 			ereport(LOG,
 					(errmsg("starting point-in-time recovery to \"%s\"",
@@ -8319,6 +8396,14 @@ GetNextXidAndEpoch(TransactionId *xid, uint32 *epoch)
 	*epoch = ckptXidEpoch;
 }
 
+#ifdef ADB
+Datum
+current_xid(PG_FUNCTION_ARGS)
+{
+	return TransactionIdGetDatum(ReadNewTransactionId());
+}
+#endif
+
 /*
  * This must be called ONCE during postmaster or standalone-backend shutdown
  */
@@ -9022,6 +9107,9 @@ CheckPointGuts(XLogRecPtr checkPointRedo, int flags)
 	CheckPointReplicationOrigin();
 	/* We deliberately delay 2PC checkpointing as long as possible */
 	CheckPointTwoPhase(checkPointRedo);
+#ifdef ADB
+	CheckPointRxact(flags);
+#endif /* ADB */
 }
 
 /*

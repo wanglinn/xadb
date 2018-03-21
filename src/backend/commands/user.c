@@ -1056,12 +1056,19 @@ DropRole(DropRoleStmt *stmt)
 		/* Check for pg_shdepend entries depending on this role */
 		if (checkSharedDependencies(AuthIdRelationId, roleid,
 									&detail, &detail_log))
+#ifdef ADBMGRD
+			ereport(ERROR,
+					(errcode(ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST),
+					errmsg("role \"%s\" cannot be dropped because some objects depend on it", role),
+					errdetail("All privileges need to be revoked first.")));
+#else
 			ereport(ERROR,
 					(errcode(ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST),
 					 errmsg("role \"%s\" cannot be dropped because some objects depend on it",
 							role),
 					 errdetail_internal("%s", detail),
 					 errdetail_log("%s", detail_log)));
+#endif
 
 		/*
 		 * Remove the role from the pg_authid table

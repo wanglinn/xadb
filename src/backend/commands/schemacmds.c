@@ -34,6 +34,12 @@
 #include "utils/builtins.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+#ifdef ADB
+#include "agtm/agtm.h"
+#include "catalog/pg_depend.h"
+#include "optimizer/pgxcplan.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 static void AlterSchemaOwner_internal(HeapTuple tup, Relation rel, Oid newOwnerId);
@@ -49,7 +55,7 @@ static void AlterSchemaOwner_internal(HeapTuple tup, Relation rel, Oid newOwnerI
  */
 Oid
 CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString,
-					int stmt_location, int stmt_len)
+					int stmt_location, int stmt_len ADB_ONLY_COMMA_ARG(bool sentToRemote))
 {
 	const char *schemaName = stmt->schemaname;
 	Oid			namespaceId;
@@ -170,6 +176,16 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString,
 	 */
 	parsetree_list = transformCreateSchemaStmt(stmt);
 
+#ifdef ADB
+	/*
+	 * Add a RemoteQuery node for a query at top level on a remote Coordinator,
+	 * if not done already.
+	 */
+	if (!sentToRemote)
+		parsetree_list = AddRemoteQueryNode(parsetree_list, queryString,
+											EXEC_ON_ALL_NODES, false);
+#endif
+
 	/*
 	 * Execute each command contained in the CREATE SCHEMA.  Since the grammar
 	 * allows only utility commands in CREATE SCHEMA, there is no need to pass
@@ -196,6 +212,9 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString,
 					   NULL,
 					   NULL,
 					   None_Receiver,
+#ifdef ADB
+					   true,
+#endif /* ADB */
 					   NULL);
 
 		/* make sure later steps can see the object created here */
@@ -283,6 +302,25 @@ RenameSchema(const char *oldname, const char *newname)
 	/* rename */
 	namestrcpy(&(((Form_pg_namespace) GETSTRUCT(tup))->nspname), newname);
 	CatalogTupleUpdate(rel, &tup->t_self, tup);
+
+#ifdef ADB
+	if (IsCoordMaster())
+	{
+		ObjectAddress		object;
+		Oid 				namespaceId;
+		/* Check object dependency and see if there is a sequence. If yes rename it */
+		namespaceId = GetSysCacheOid(NAMESPACENAME,
+									 CStringGetDatum(oldname),
+									 0, 0, 0);
+		/* Create the object that will be checked for the dependencies */
+		object.classId = NamespaceRelationId;
+		object.objectId = namespaceId;
+		object.objectSubId = 0;
+
+		/* Rename all the objects depending on this schema */
+		performRenameSchema(&object, oldname, newname);
+	}
+#endif /* END ADB */
 
 	InvokeObjectPostAlterHook(NamespaceRelationId, HeapTupleGetOid(tup), 0);
 

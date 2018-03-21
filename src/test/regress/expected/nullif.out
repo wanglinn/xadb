@@ -1,0 +1,73 @@
+set grammar to oracle;
+select nullif(1,2) from dual;
+ nullif 
+--------
+      1
+(1 row)
+
+select nullif(1,1) from dual;
+ nullif 
+--------
+       
+(1 row)
+
+select nullif(1,1.1) from dual;
+ nullif 
+--------
+      1
+(1 row)
+
+select nullif('1','1') from dual;
+ nullif 
+--------
+ 
+(1 row)
+
+select nullif(to_char('a'),to_char('b')) from dual;
+ nullif 
+--------
+ a
+(1 row)
+
+select nullif(exp(1),exp(2)) from dual;
+      nullif      
+------------------
+ 2.71828182845905
+(1 row)
+
+select nullif('a','') from dual;
+ nullif 
+--------
+ a
+(1 row)
+
+select nullif('','') from dual;
+ nullif 
+--------
+ 
+(1 row)
+
+select nullif('a',null) from dual;
+ nullif 
+--------
+ a
+(1 row)
+
+select nullif(null,'a') from dual;
+ nullif 
+--------
+ 
+(1 row)
+
+select nullif(to_char('你好'),'你好') from dual;
+ nullif 
+--------
+ 
+(1 row)
+
+select nullif(12,to_number(12)) from dual;
+ nullif 
+--------
+       
+(1 row)
+

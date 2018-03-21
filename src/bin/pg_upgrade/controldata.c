@@ -156,7 +156,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.cat_ver = str2uint(p);
 		}
@@ -166,7 +169,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			tli = str2uint(p);
 			got_tli = true;
@@ -177,7 +183,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			logid = str2uint(p);
 			got_log_id = true;
@@ -188,7 +197,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			segno = str2uint(p);
 			got_log_seg = true;
@@ -199,7 +211,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.chkpnt_nxtepoch = str2uint(p);
 
@@ -218,7 +233,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove '/' or ':' char */
 			cluster->controldata.chkpnt_nxtxid = str2uint(p);
 			got_xid = true;
@@ -229,7 +247,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.chkpnt_nxtoid = str2uint(p);
 			got_oid = true;
@@ -240,7 +261,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.chkpnt_nxtmulti = str2uint(p);
 			got_multi = true;
@@ -251,7 +275,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.chkpnt_oldstMulti = str2uint(p);
 			got_oldestmulti = true;
@@ -262,7 +289,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.chkpnt_nxtmxoff = str2uint(p);
 			got_mxoff = true;
@@ -302,7 +332,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.align = str2uint(p);
 			got_align = true;
@@ -313,7 +346,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.blocksz = str2uint(p);
 			got_blocksz = true;
@@ -324,7 +360,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.largesz = str2uint(p);
 			got_largesz = true;
@@ -335,7 +374,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.walsz = str2uint(p);
 			got_walsz = true;
@@ -346,7 +388,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.walseg = str2uint(p);
 			got_walseg = true;
@@ -357,7 +402,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.ident = str2uint(p);
 			got_ident = true;
@@ -368,7 +416,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.index = str2uint(p);
 			got_index = true;
@@ -379,7 +430,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.toast = str2uint(p);
 			got_toast = true;
@@ -390,7 +444,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.large_object = str2uint(p);
 			got_large_object = true;
@@ -401,7 +458,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			cluster->controldata.date_is_int = strstr(p, "64-bit integers") != NULL;
 			got_date_is_int = true;
@@ -412,7 +472,10 @@ get_control_data(ClusterInfo *cluster, bool live_check)
 
 			if (p == NULL || strlen(p) <= 1)
 				pg_fatal("%d: controldata retrieval problem\n", __LINE__);
-
+#ifdef ADB
+			/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+			AssertArg(p);
+#endif
 			p++;				/* remove ':' char */
 			/* used later for contrib check */
 			cluster->controldata.data_checksum_version = str2uint(p);

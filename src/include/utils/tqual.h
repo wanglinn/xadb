@@ -27,6 +27,10 @@ extern PGDLLIMPORT SnapshotData CatalogSnapshotData;
 #define SnapshotSelf		(&SnapshotSelfData)
 #define SnapshotAny			(&SnapshotAnyData)
 
+#ifdef ADB
+#define IsCatalogSnapshot(snapshot)	((snapshot) == &CatalogSnapshotData)
+#endif
+
 /* This macro encodes the knowledge of which snapshots are MVCC-safe */
 #define IsMVCCSnapshot(snapshot)  \
 	((snapshot)->satisfies == HeapTupleSatisfiesMVCC || \

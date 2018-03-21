@@ -30,6 +30,11 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
+#ifdef ADB
+#include "oraschema/oracoerce.h"
+#include "pgxc/pgxc.h"
+#include "tcop/tcopprot.h"
+#endif
 
 
 static Node *coerce_type_typmod(Node *node,
@@ -113,7 +118,10 @@ coerce_to_target_type(ParseState *pstate, Node *expr, Oid exprtype,
 								cformat, location,
 								(cformat != COERCE_IMPLICIT_CAST),
 								(result != expr && !IsA(result, Const)));
-
+#ifdef ADB
+	/* Do not need to do that on local Coordinator */
+	if (IsConnFromCoord())
+#endif
 	if (expr != origexpr)
 	{
 		/* Reinstall top CollateExpr */
@@ -222,7 +230,13 @@ coerce_type(ParseState *pstate, Node *node,
 			return node;
 		}
 	}
+#ifdef ADB
+	if ((inputTypeId == UNKNOWNOID ||
+		(IsOracleParseGram(pstate) && inputTypeId == TEXTOID &&
+		TypeCategory(targetTypeId) == TYPCATEGORY_STRING)) && IsA(node, Const))
+#else
 	if (inputTypeId == UNKNOWNOID && IsA(node, Const))
+#endif
 	{
 		/*
 		 * Input is a string constant with previously undetermined type. Apply
@@ -248,6 +262,9 @@ coerce_type(ParseState *pstate, Node *node,
 		int32		inputTypeMod;
 		Type		baseType;
 		ParseCallbackState pcbstate;
+#ifdef ADB
+		char	   *string;
+#endif
 
 		/*
 		 * If the target type is a domain, we want to call its base type's
@@ -301,9 +318,21 @@ coerce_type(ParseState *pstate, Node *node,
 		 * as CSTRING.
 		 */
 		if (!con->constisnull)
+#ifdef ADB
+		{
+			if (IsOracleParseGram(pstate) && inputTypeId == TEXTOID)
+				string = TextDatumGetCString(con->constvalue);
+			else
+				string = DatumGetCString(con->constvalue);
+			newcon->constvalue = stringTypeDatum(baseType,
+												 string,
+												 inputTypeMod);
+		}
+#else
 			newcon->constvalue = stringTypeDatum(baseType,
 												 DatumGetCString(con->constvalue),
 												 inputTypeMod);
+#endif
 		else
 			newcon->constvalue = stringTypeDatum(baseType,
 												 NULL,
@@ -398,6 +427,10 @@ coerce_type(ParseState *pstate, Node *node,
 	}
 	pathtype = find_coercion_pathway(targetTypeId, inputTypeId, ccontext,
 									 &funcId);
+#ifdef ADB
+	if (pathtype == COERCION_PATH_ORA_FUNC)
+		cformat = COERCE_EXPLICIT_CALL;
+#endif
 	if (pathtype != COERCION_PATH_NONE)
 	{
 		if (pathtype != COERCION_PATH_RELABELTYPE)
@@ -833,7 +866,12 @@ build_coercion_expression(Node *node,
 		ReleaseSysCache(tp);
 	}
 
+#ifdef ADB
+	if (pathtype == COERCION_PATH_FUNC ||
+		pathtype == COERCION_PATH_ORA_FUNC)
+#else
 	if (pathtype == COERCION_PATH_FUNC)
+#endif
 	{
 		/* We build an ordinary FuncExpr with special arguments */
 		FuncExpr   *fexpr;
@@ -2294,6 +2332,26 @@ find_coercion_pathway(Oid targetTypeId, Oid sourceTypeId,
 				result = COERCION_PATH_COERCEVIAIO;
 		}
 	}
+
+#ifdef ADB
+	/*
+	 * If current grammar is oracle grammar and we still haven't found a
+	 * possibilty to the last, check out coeicion function explicitly by
+	 * oracle coerce function map.
+	 */
+	if (result == COERCION_PATH_NONE &&
+		IsOraFunctionCoercionContext())
+	{
+		if (TypeCategory(targetTypeId) == TYPCATEGORY_STRING)
+			result = COERCION_PATH_COERCEVIAIO;
+		else
+		{
+			*funcid = OraFindCoercionFunction(sourceTypeId, targetTypeId);
+			if (*funcid != InvalidOid)
+				result = COERCION_PATH_ORA_FUNC;
+		}
+	}
+#endif
 
 	return result;
 }

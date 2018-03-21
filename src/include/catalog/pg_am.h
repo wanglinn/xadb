@@ -22,7 +22,11 @@
 #ifndef PG_AM_H
 #define PG_AM_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_am definition.  cpp turns this into
@@ -50,6 +54,7 @@ typedef FormData_pg_am *Form_pg_am;
  * ----------------
  */
 #define Natts_pg_am						3
+DECLARE_NATTS(Natts_pg_am);
 #define Anum_pg_am_amname				1
 #define Anum_pg_am_amhandler			2
 #define Anum_pg_am_amtype				3

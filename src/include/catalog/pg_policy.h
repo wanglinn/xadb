@@ -9,7 +9,11 @@
 #ifndef PG_POLICY_H
 #define PG_POLICY_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_policy definition. cpp turns this into
@@ -44,6 +48,7 @@ typedef FormData_pg_policy *Form_pg_policy;
  * ----------------
  */
 #define Natts_pg_policy					7
+DECLARE_NATTS(Natts_pg_policy);
 #define Anum_pg_policy_polname			1
 #define Anum_pg_policy_polrelid			2
 #define Anum_pg_policy_polcmd			3

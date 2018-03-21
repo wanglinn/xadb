@@ -77,6 +77,10 @@
 #include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
+#ifdef ADB
+#include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 /* In this module, access gettext() via err_gettext() */
@@ -565,6 +569,64 @@ errfinish(int dummy,...)
 	CHECK_FOR_INTERRUPTS();
 }
 
+#if defined(ADB) || defined(ADBMGRD) || defined(AGTM)
+/*
+ * errdump --- dump the latest ErrorData from error data stack.
+ *
+ * eg.
+ *		PG_TRY();
+ *		{
+ *			...				-- make an error
+ *		} PG_CATCH();
+ *		{
+ *			...				-- does not call PG_RE_THROW
+ *		} PG_ENT_TRY();
+ *
+ * Case as above, increase the error data stack size(++errordata_stack_depth),
+ * but never deal with it. At last, the error data stack will explode.
+ *
+ * errdump() called by caller, will dump the latest error.
+ */
+void errdump(void)
+{
+	ErrorData  *edata = &errordata[errordata_stack_depth];
+	MemoryContext oldcontext;
+
+	/*
+	 * Do processing in ErrorContext, which we hope has enough reserved space
+	 * to report an error.
+	 */
+	oldcontext = MemoryContextSwitchTo(ErrorContext);
+
+	/* Now free up subsidiary data attached to stack entry, and release it */
+	if (edata->message)
+		pfree(edata->message);
+	if (edata->detail)
+		pfree(edata->detail);
+	if (edata->detail_log)
+		pfree(edata->detail_log);
+	if (edata->hint)
+		pfree(edata->hint);
+	if (edata->context)
+		pfree(edata->context);
+	if (edata->schema_name)
+		pfree(edata->schema_name);
+	if (edata->table_name)
+		pfree(edata->table_name);
+	if (edata->column_name)
+		pfree(edata->column_name);
+	if (edata->datatype_name)
+		pfree(edata->datatype_name);
+	if (edata->constraint_name)
+		pfree(edata->constraint_name);
+	if (edata->internalquery)
+		pfree(edata->internalquery);
+
+	errordata_stack_depth--;
+	/* Exit error-handling context */
+	MemoryContextSwitchTo(oldcontext);
+}
+#endif
 
 /*
  * errcode --- add SQLSTATE error code to the current error
@@ -1000,6 +1062,14 @@ errhint(const char *fmt,...)
 	return 0;					/* return value does not matter */
 }
 
+#ifdef ADB
+const ErrorData* err_current_data(void)
+{
+	if(errordata_stack_depth < 0 || errordata_stack_depth >= ERRORDATA_STACK_SIZE)
+		return NULL;
+	return &errordata[errordata_stack_depth];
+}
+#endif /* ADB */
 
 /*
  * errcontext_msg --- add a context error message text to the current error
@@ -1281,6 +1351,37 @@ getinternalerrposition(void)
 	return edata->internalpos;
 }
 
+#if defined(ADB) || defined(ADBMGRD) || defined(AGTM)
+void
+geterrmsg(StringInfo buf)
+{
+    ErrorData  *edata = &errordata[errordata_stack_depth];
+
+    /* we don't bother incrementing recursion_depth */
+	CHECK_STACK_DEPTH();
+
+    if (edata->message)
+		appendStringInfo(buf, "%s", edata->message);
+	if (edata->detail)
+		appendStringInfo(buf, "\n%s", edata->detail);
+	if (edata->hint)
+		appendStringInfo(buf, "\n%s", edata->hint);
+}
+#endif
+
+#ifdef ADB
+int errnode(const char *node)
+{
+	ErrorData  *edata = &errordata[errordata_stack_depth];
+
+	/* we don't bother incrementing recursion_depth */
+	CHECK_STACK_DEPTH();
+
+	edata->node_name = MemoryContextStrdup(ErrorContext, node);
+
+	return 0;					/* return value does not matter */
+}
+#endif /* ADB */
 
 /*
  * elog_start --- startup for old-style API
@@ -1378,6 +1479,43 @@ elog_finish(int elevel, const char *fmt,...)
 	errfinish(0);
 }
 
+#ifdef ADB
+void adb_elog_finish(bool condition, int elevel, const char *fmt,...)
+{
+	ErrorData  *edata = &errordata[errordata_stack_depth];
+	MemoryContext oldcontext;
+
+	if (!condition)
+		return ;
+
+	CHECK_STACK_DEPTH();
+
+	/*
+	 * Do errstart() to see if we actually want to report the message.
+	 */
+	errordata_stack_depth--;
+	errno = edata->saved_errno;
+	if (!errstart(elevel, edata->filename, edata->lineno, edata->funcname, NULL))
+		return;					/* nothing to do */
+
+	/*
+	 * Format error message just like errmsg_internal().
+	 */
+	recursion_depth++;
+	oldcontext = MemoryContextSwitchTo(edata->assoc_context);
+
+	edata->message_id = fmt;
+	EVALUATE_MESSAGE(edata->domain, message, false, false);
+
+	MemoryContextSwitchTo(oldcontext);
+	recursion_depth--;
+
+	/*
+	 * And let errfinish() finish up.
+	 */
+	errfinish(0);
+}
+#endif
 
 /*
  * Functions to allow construction of error message strings separately from
@@ -1534,6 +1672,10 @@ CopyErrorData(void)
 		newedata->constraint_name = pstrdup(newedata->constraint_name);
 	if (newedata->internalquery)
 		newedata->internalquery = pstrdup(newedata->internalquery);
+#ifdef ADB
+	if(newedata->node_name)
+		newedata->node_name = pstrdup(newedata->node_name);
+#endif /* ADB */
 
 	/* Use the calling context for string allocation */
 	newedata->assoc_context = CurrentMemoryContext;
@@ -1572,6 +1714,10 @@ FreeErrorData(ErrorData *edata)
 		pfree(edata->constraint_name);
 	if (edata->internalquery)
 		pfree(edata->internalquery);
+#ifdef ADB
+	if(edata->node_name)
+		pfree(edata->node_name);
+#endif /* ADB */
 	pfree(edata);
 }
 
@@ -1650,6 +1796,10 @@ ThrowErrorData(ErrorData *edata)
 	newedata->internalpos = edata->internalpos;
 	if (edata->internalquery)
 		newedata->internalquery = pstrdup(edata->internalquery);
+#ifdef ADB
+	if(newedata->node_name)
+		newedata->node_name = pstrdup(newedata->node_name);
+#endif /* ADB */
 
 	MemoryContextSwitchTo(oldcontext);
 	recursion_depth--;
@@ -2943,6 +3093,13 @@ send_message_to_server_log(ErrorData *edata)
 				appendStringInfo(&buf, _("LOCATION:  %s:%d\n"),
 								 edata->filename, edata->lineno);
 			}
+#ifdef ADB
+			if(edata->node_name)
+			{
+				log_line_prefix(&buf, edata);
+				appendStringInfo(&buf, _("NODE:  %s\n"), edata->node_name);
+			}
+#endif /* ADB */
 		}
 	}
 
@@ -3272,6 +3429,14 @@ send_message_to_frontend(ErrorData *edata)
 			pq_sendbyte(&msgbuf, PG_DIAG_SOURCE_FUNCTION);
 			err_sendstring(&msgbuf, edata->funcname);
 		}
+
+#ifdef ADB
+		if (edata->node_name)
+		{
+			pq_sendbyte(&msgbuf, PG_DIAG_NODE_NAME);
+			err_sendstring(&msgbuf, edata->node_name);
+		}
+#endif /* ADB */
 
 		pq_sendbyte(&msgbuf, '\0'); /* terminator */
 	}

@@ -286,8 +286,12 @@ CustomizableCleanupPriorWALFiles(void)
 		else
 			fprintf(stderr, "%s: could not open archive location \"%s\": %s\n",
 					progname, archiveLocation, strerror(errno));
-
+#ifdef ADB
+		/* fix: Null pointer passed as an argument to a 'nonnull' parameter */
+		if (xldir && closedir(xldir))
+#else
 		if (closedir(xldir))
+#endif
 			fprintf(stderr, "%s: could not close archive location \"%s\": %s\n",
 					progname, archiveLocation, strerror(errno));
 

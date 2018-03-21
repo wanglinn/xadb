@@ -19,7 +19,11 @@
 #ifndef PG_LANGUAGE_H
 #define PG_LANGUAGE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_language definition.  cpp turns this into
@@ -55,6 +59,7 @@ typedef FormData_pg_language *Form_pg_language;
  * ----------------
  */
 #define Natts_pg_language				8
+DECLARE_NATTS(Natts_pg_language);
 #define Anum_pg_language_lanname		1
 #define Anum_pg_language_lanowner		2
 #define Anum_pg_language_lanispl		3

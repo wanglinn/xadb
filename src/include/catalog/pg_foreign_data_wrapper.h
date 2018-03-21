@@ -19,7 +19,11 @@
 #ifndef PG_FOREIGN_DATA_WRAPPER_H
 #define PG_FOREIGN_DATA_WRAPPER_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_foreign_data_wrapper definition.  cpp turns this into
@@ -54,6 +58,7 @@ typedef FormData_pg_foreign_data_wrapper *Form_pg_foreign_data_wrapper;
  */
 
 #define Natts_pg_foreign_data_wrapper				6
+DECLARE_NATTS(Natts_pg_foreign_data_wrapper);
 #define Anum_pg_foreign_data_wrapper_fdwname		1
 #define Anum_pg_foreign_data_wrapper_fdwowner		2
 #define Anum_pg_foreign_data_wrapper_fdwhandler		3

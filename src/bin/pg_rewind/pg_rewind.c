@@ -45,6 +45,10 @@ static ControlFileData ControlFile_source;
 
 const char *progname;
 
+#ifdef ADB
+const char *nodename;
+#endif
+
 /* Configuration options */
 char	   *datadir_target = NULL;
 char	   *datadir_source = NULL;
@@ -67,6 +71,9 @@ usage(const char *progname)
 	printf(_("  -D, --target-pgdata=DIRECTORY  existing data directory to modify\n"));
 	printf(_("      --source-pgdata=DIRECTORY  source data directory to synchronize with\n"));
 	printf(_("      --source-server=CONNSTR    source server to synchronize with\n"));
+#ifdef ADB
+	printf(_("  -N, --nodename=NODE            set current node's name for ADB\n"));
+#endif
 	printf(_("  -n, --dry-run                  stop before modifying anything\n"));
 	printf(_("  -P, --progress                 write progress messages\n"));
 	printf(_("      --debug                    write a lot of debug messages\n"));
@@ -84,6 +91,9 @@ main(int argc, char **argv)
 		{"target-pgdata", required_argument, NULL, 'D'},
 		{"source-pgdata", required_argument, NULL, 1},
 		{"source-server", required_argument, NULL, 2},
+#ifdef ADB
+		{"nodename", required_argument, NULL, 'N'},
+#endif
 		{"version", no_argument, NULL, 'V'},
 		{"dry-run", no_argument, NULL, 'n'},
 		{"progress", no_argument, NULL, 'P'},
@@ -122,7 +132,11 @@ main(int argc, char **argv)
 		}
 	}
 
+#ifdef ADB
+	while ((c = getopt_long(argc, argv, "D:N:nP", long_options, &option_index)) != -1)
+#else
 	while ((c = getopt_long(argc, argv, "D:nP", long_options, &option_index)) != -1)
+#endif
 	{
 		switch (c)
 		{
@@ -133,6 +147,17 @@ main(int argc, char **argv)
 			case 'P':
 				showprogress = true;
 				break;
+
+#ifdef ADB
+			case 'N':
+				nodename = pg_strdup(optarg);
+				if (strlen(nodename) > NAMEDATALEN)
+				{
+					fprintf(stderr, _("Invalid node name \"%s\""), nodename);
+					exit(1);
+				}
+				break;
+#endif
 
 			case 'n':
 				dry_run = true;
@@ -154,6 +179,15 @@ main(int argc, char **argv)
 				break;
 		}
 	}
+
+#ifdef ADB
+	if (nodename == NULL)
+	{
+		fprintf(stderr, _("%s: need a valid node name\n"), progname);
+		fprintf(stderr, _("Try \"%s --help\" for more information.\n"), progname);
+		exit(1);
+	}
+#endif
 
 	if (datadir_source == NULL && connstr_source == NULL)
 	{

@@ -38,6 +38,14 @@ extern int32 get_relation_data_width(Oid relid, int32 *attr_widths);
 extern bool relation_excluded_by_constraints(PlannerInfo *root,
 								 RelOptInfo *rel, RangeTblEntry *rte);
 
+extern List *get_relation_constraints(PlannerInfo *root,
+									  Oid relationObjectId, RelOptInfo *rel,
+									  bool include_notnull);
+extern List *get_relation_constraints_base(PlannerInfo *root,
+										   Oid relationObjectId, Index varno,
+										   bool include_notnull);
+
+
 extern List *build_physical_tlist(PlannerInfo *root, RelOptInfo *rel);
 
 extern bool has_unique_index(RelOptInfo *rel, AttrNumber attno);
@@ -56,5 +64,12 @@ extern Selectivity join_selectivity(PlannerInfo *root,
 				 SpecialJoinInfo *sjinfo);
 
 extern bool has_row_triggers(PlannerInfo *root, Index rti, CmdType event);
+
+#ifdef ADB
+/* src/backend/optimizer/util/remotetest.c */
+struct RelationLocInfo;
+extern List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel);
+extern List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, struct RelationLocInfo *loc_info, Index varno);
+#endif /* ADB */
 
 #endif							/* PLANCAT_H */

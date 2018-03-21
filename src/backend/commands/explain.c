@@ -38,7 +38,12 @@
 #include "utils/tuplesort.h"
 #include "utils/typcache.h"
 #include "utils/xml.h"
-
+#ifdef ADB
+#include "catalog/pgxc_node.h"
+#include "intercomm/inter-node.h"
+#include "optimizer/pgxcplan.h"
+#include "pgxc/pgxcnode.h"
+#endif
 
 /* Hook for plugins to get control in ExplainOneQuery() */
 ExplainOneQuery_hook_type ExplainOneQuery_hook = NULL;
@@ -82,6 +87,12 @@ static void show_sort_keys(SortState *sortstate, List *ancestors,
 			   ExplainState *es);
 static void show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 					   ExplainState *es);
+#ifdef ADB
+static void show_merge_gather_keys(ClusterMergeGatherState *mgstate, List *ancestors,
+					   ExplainState *es);
+static void show_cluster_reduce_keys(ClusterReduceState *crstate, List *ancestors,
+					   ExplainState *es);
+#endif /* ADB */
 static void show_agg_keys(AggState *astate, List *ancestors,
 			  ExplainState *es);
 static void show_grouping_sets(PlanState *planstate, Agg *agg,
@@ -114,8 +125,11 @@ static void ExplainIndexScanDetails(Oid indexid, ScanDirection indexorderdir,
 static void ExplainScanTarget(Scan *plan, ExplainState *es);
 static void ExplainModifyTarget(ModifyTable *plan, ExplainState *es);
 static void ExplainTargetRel(Plan *plan, Index rti, ExplainState *es);
+#ifdef ADB
+#else
 static void show_modifytable_info(ModifyTableState *mtstate, List *ancestors,
 					  ExplainState *es);
+#endif
 static void ExplainMemberNodes(List *plans, PlanState **planstates,
 				   List *ancestors, ExplainState *es);
 static void ExplainSubPlans(List *plans, List *ancestors,
@@ -130,6 +144,12 @@ static void ExplainCloseGroup(const char *objtype, const char *labelname,
 				  bool labeled, ExplainState *es);
 static void ExplainDummyGroup(const char *objtype, const char *labelname,
 				  ExplainState *es);
+#ifdef ADB
+static void ExplainExecNodes(ExecNodes *en, ExplainState *es);
+static void ExplainRemoteList(List *rnode, ExplainState *es);
+static void ExplainRemoteQuery(RemoteQuery *plan, PlanState *planstate,
+								List *ancestors, ExplainState *es);
+#endif
 static void ExplainXMLTag(const char *tagname, int flags, ExplainState *es);
 static void ExplainJSONLineEnding(ExplainState *es);
 static void ExplainYAMLLineStarting(ExplainState *es);
@@ -166,6 +186,15 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt, const char *queryString,
 			es->costs = defGetBoolean(opt);
 		else if (strcmp(opt->defname, "buffers") == 0)
 			es->buffers = defGetBoolean(opt);
+#ifdef ADB
+		else if (strcmp(opt->defname, "nodes") == 0)
+			es->nodes = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "num_nodes") == 0)
+			es->num_nodes = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "plan_id") == 0)
+			es->plan_id = defGetBoolean(opt);
+#endif /* ADB */
+
 		else if (strcmp(opt->defname, "timing") == 0)
 		{
 			timing_set = true;
@@ -288,6 +317,9 @@ NewExplainState(void)
 
 	/* Set default options (most fields can be left as zeroes). */
 	es->costs = true;
+#ifdef ADB
+	es->nodes = true;
+#endif
 	/* Prepare output buffer. */
 	es->str = makeStringInfo();
 
@@ -964,6 +996,29 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_WorkTableScan:
 			pname = sname = "WorkTable Scan";
 			break;
+#ifdef ADB
+		case T_RemoteQuery:
+			pname = sname = "Data Node Scan";
+			break;
+		case T_ClusterGather:
+			pname = sname = "Cluster Gather";
+			break;
+		case T_ClusterMergeGather:
+			pname = sname = "Cluster Merge Gather";
+			break;
+		case T_ClusterReduce:
+			{
+				ClusterReduce *cr = (ClusterReduce *) plan;
+				if (cr->numCols > 0)
+					pname = sname = "Cluster Merge Reduce";
+				else
+					pname = sname = "Cluster Reduce";
+			}
+			break;
+		case T_ReduceScan:
+			pname = sname = "Reduce Scan";
+			break;
+#endif /*ADB*/
 		case T_ForeignScan:
 			sname = "Foreign Scan";
 			switch (((ForeignScan *) plan)->operation)
@@ -1147,6 +1202,14 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			if (((Scan *) plan)->scanrelid > 0)
 				ExplainScanTarget((Scan *) plan, es);
 			break;
+#ifdef ADB
+		case T_RemoteQuery:
+			/* Emit node execution list */
+			ExplainExecNodes(((RemoteQuery *)plan)->exec_nodes, es);
+			ExplainScanTarget((Scan *) plan, es);
+			break;
+#endif /*ADB*/
+
 		case T_IndexScan:
 			{
 				IndexScan  *indexscan = (IndexScan *) plan;
@@ -1339,6 +1402,20 @@ ExplainNode(PlanState *planstate, List *ancestors,
 	if (es->format == EXPLAIN_FORMAT_TEXT)
 		appendStringInfoChar(es->str, '\n');
 
+#ifdef ADB
+	if (es->plan_id)
+	{
+		if (es->format == EXPLAIN_FORMAT_TEXT)
+		{
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			appendStringInfo(es->str, "Plan id: %d\n", plan->plan_node_id);
+		} else
+		{
+			ExplainPropertyInteger("Plan id", plan->plan_node_id, es);
+		}
+	}
+#endif
+
 	/* target list */
 	if (es->verbose)
 		show_plan_tlist(planstate, ancestors, es);
@@ -1376,6 +1453,10 @@ ExplainNode(PlanState *planstate, List *ancestors,
 				show_instrumentation_count("Rows Removed by Filter", 1,
 										   planstate, es);
 			break;
+#ifdef ADB
+			if(es->verbose)
+				ExplainRemoteList(((Scan*)plan)->execute_nodes, es);
+#endif /* ADB */
 		case T_IndexOnlyScan:
 			show_scan_qual(((IndexOnlyScan *) plan)->indexqual,
 						   "Index Cond", planstate, ancestors, es);
@@ -1391,11 +1472,27 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			if (es->analyze)
 				ExplainPropertyLong("Heap Fetches",
 									((IndexOnlyScanState *) planstate)->ioss_HeapFetches, es);
+#ifdef ADB
+			if(es->verbose)
+				ExplainRemoteList(((Scan*)plan)->execute_nodes, es);
+#endif /* ADB */
 			break;
 		case T_BitmapIndexScan:
 			show_scan_qual(((BitmapIndexScan *) plan)->indexqualorig,
 						   "Index Cond", planstate, ancestors, es);
+#ifdef ADB
+			if(es->verbose)
+				ExplainRemoteList(((Scan*)plan)->execute_nodes, es);
+#endif /* ADB */
 			break;
+#ifdef ADB
+		case T_RemoteQuery:
+			/* Remote query */
+			ExplainRemoteQuery((RemoteQuery *)plan, planstate, ancestors, es);
+			show_scan_qual(plan->qual, "Coordinator quals", planstate, ancestors, es);
+			break;
+#endif
+
 		case T_BitmapHeapScan:
 			show_scan_qual(((BitmapHeapScan *) plan)->bitmapqualorig,
 						   "Recheck Cond", planstate, ancestors, es);
@@ -1423,6 +1520,10 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
 										   planstate, es);
+#ifdef ADB
+			if(es->verbose && IsA(plan, SeqScan))
+				ExplainRemoteList(((Scan*)plan)->execute_nodes, es);
+#endif /* ADB */
 			break;
 		case T_Gather:
 			{
@@ -1518,6 +1619,10 @@ ExplainNode(PlanState *planstate, List *ancestors,
 					show_instrumentation_count("Rows Removed by Filter", 1,
 											   planstate, es);
 			}
+#ifdef ADB
+			if(es->verbose)
+				ExplainRemoteList(((Scan*)plan)->execute_nodes, es);
+#endif /* ADB */
 			break;
 		case T_ForeignScan:
 			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
@@ -1606,12 +1711,62 @@ ExplainNode(PlanState *planstate, List *ancestors,
 										   planstate, es);
 			break;
 		case T_ModifyTable:
+#ifdef ADB
+			{
+				/* Remote query planning on DMLs */
+				ModifyTable *mt = (ModifyTable *)plan;
+				ListCell *elt;
+				foreach(elt, mt->remote_plans)
+					ExplainRemoteQuery((RemoteQuery *) lfirst(elt), planstate, ancestors, es);
+			}
+#else
 			show_modifytable_info(castNode(ModifyTableState, planstate), ancestors,
 								  es);
+#endif
 			break;
 		case T_Hash:
 			show_hash_info(castNode(HashState, planstate), es);
 			break;
+#ifdef ADB
+		case T_ClusterGather:
+			if(es->verbose)
+				ExplainRemoteList(((ClusterGather*)plan)->rnodes, es);
+			break;
+		case T_ClusterMergeGather:
+			if(es->verbose)
+				ExplainRemoteList(((ClusterMergeGather*)plan)->rnodes, es);
+			show_merge_gather_keys((ClusterMergeGatherState*)planstate, ancestors, es);
+			break;
+		case T_ClusterReduce:
+			if(es->verbose)
+			{
+				ClusterReduce *reducePlan = (ClusterReduce*)plan;
+				List *context = set_deparse_context_planstate(es->deparse_cxt,
+															  (Node*)planstate,
+															  ancestors);
+				char *expr = deparse_expression((Node*)reducePlan->reduce,
+												context,
+												list_length(es->rtable) > 1,
+												false);
+				ExplainPropertyText("Reduce", expr, es);
+				if(OidIsValid(reducePlan->special_node))
+				{
+					char *label = psprintf("%u Reduce", reducePlan->special_node);
+					pfree(expr);
+					expr = deparse_expression((Node*)reducePlan->special_reduce,
+											  context,
+											  list_length(es->rtable) > 1,
+											  false);
+					ExplainPropertyText(label, expr, es);
+				}
+			}
+			show_cluster_reduce_keys((ClusterReduceState *) planstate,
+									 ancestors, es);
+			break;
+		case T_ReduceScan:
+			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
+			break;
+#endif /* ADB */
 		default:
 			break;
 	}
@@ -1686,6 +1841,139 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		if (opened_group)
 			ExplainCloseGroup("Workers", "Workers", false, es);
 	}
+#ifdef ADB
+	if(es->analyze && es->verbose && planstate->list_cluster_instrument != NIL)
+	{
+		ListCell *lc;
+		ClusterInstrumentation *ci;
+		int		i;
+		bool	opened_group;
+
+		foreach(lc, planstate->list_cluster_instrument)
+		{
+			double		nloops;
+			double		startup_sec;
+			double		total_sec;
+			double		rows;
+			ci = lfirst(lc);
+
+			if(es->format == EXPLAIN_FORMAT_TEXT)
+			{
+				appendStringInfoSpaces(es->str, es->indent * 2);
+				appendStringInfo(es->str, "Node %u:", ci->nodeOid);
+			}else
+			{
+				ExplainOpenGroup("Node", "Node", false, es);
+				ExplainPropertyInteger("Oid", ci->nodeOid, es);
+			}
+			nloops = ci->instrument[0].nloops;
+			if(nloops <= 0)
+			{
+				if(es->format == EXPLAIN_FORMAT_TEXT)
+				{
+					appendStringInfoString(es->str, " (never executed)");
+					appendStringInfoChar(es->str, '\n');
+				}else
+				{
+					ExplainCloseGroup("Node", "Node", false, es);
+				}
+				continue;
+			}
+
+			startup_sec = 1000.0 * ci->instrument[0].startup / nloops;
+			total_sec = 1000.0 * ci->instrument[0].total / nloops;
+			rows = ci->instrument[0].ntuples / nloops;
+
+			if(es->format == EXPLAIN_FORMAT_TEXT)
+			{
+				if(es->timing)
+					appendStringInfo(es->str,
+									" (actual time=%.3f..%.3f rows=%.0f loops=%.0f)",
+										startup_sec, total_sec, rows, nloops);
+				else
+					appendStringInfo(es->str,
+									 " (actual rows=%.0f loops=%.0f)",
+									 rows, nloops);
+				appendStringInfoChar(es->str, '\n');
+			}else
+			{
+				if(es->timing)
+				{
+					ExplainPropertyFloat("Actual Startup Time", startup_sec, 3, es);
+					ExplainPropertyFloat("Actual Total Time", total_sec, 3, es);
+				}
+				ExplainPropertyFloat("Actual Rows", rows, 0, es);
+				ExplainPropertyFloat("Actual Loops", nloops, 0, es);
+			}
+
+			if (es->buffers)
+			{
+				es->indent++;
+				show_buffer_usage(es, &ci->instrument[0].bufusage);
+				es->indent--;
+			}
+			opened_group = false;
+			es->indent++;
+			for(i=1;i<=ci->num_workers;++i)
+			{
+				Instrumentation *instrument = &(ci->instrument[i]);
+				nloops = instrument->nloops;
+
+				if (nloops <= 0)
+					continue;
+				startup_sec = 1000.0 * instrument->startup / nloops;
+				total_sec = 1000.0 * instrument->total / nloops;
+				rows = instrument->ntuples / nloops;
+
+				if (es->format == EXPLAIN_FORMAT_TEXT)
+				{
+					appendStringInfoSpaces(es->str, es->indent * 2);
+					appendStringInfo(es->str, "Worker %d: ", i-1);
+					if (es->timing)
+						appendStringInfo(es->str,
+								 "actual time=%.3f..%.3f rows=%.0f loops=%.0f\n",
+										 startup_sec, total_sec, rows, nloops);
+					else
+						appendStringInfo(es->str,
+										 "actual rows=%.0f loops=%.0f\n",
+										 rows, nloops);
+					if (es->buffers)
+					{
+						es->indent++;
+						show_buffer_usage(es, &instrument->bufusage);
+						es->indent--;
+					}
+				}
+				else
+				{
+					if (!opened_group)
+					{
+						ExplainOpenGroup("Workers", "Workers", false, es);
+						opened_group = true;
+					}
+					ExplainOpenGroup("Worker", NULL, true, es);
+					ExplainPropertyInteger("Worker Number", i-1, es);
+
+					if (es->timing)
+					{
+						ExplainPropertyFloat("Actual Startup Time", startup_sec, 3, es);
+						ExplainPropertyFloat("Actual Total Time", total_sec, 3, es);
+					}
+					ExplainPropertyFloat("Actual Rows", rows, 0, es);
+					ExplainPropertyFloat("Actual Loops", nloops, 0, es);
+
+					if (es->buffers)
+						show_buffer_usage(es, &instrument->bufusage);
+
+					ExplainCloseGroup("Worker", NULL, true, es);
+				}
+			}
+			es->indent--;
+		}
+
+		ExplainCloseGroup("Node", "Node", false, es);
+	}
+#endif /* ADB */
 
 	/* Get ready to display the child plans */
 	haschildren = planstate->initPlan ||
@@ -1804,6 +2092,12 @@ show_plan_tlist(PlanState *planstate, List *ancestors, ExplainState *es)
 		return;
 	if (IsA(plan, RecursiveUnion))
 		return;
+#ifdef ADB
+	if (IsA(plan, ClusterGather) ||
+		IsA(plan, ClusterMergeGather) ||
+		IsA(plan, ClusterReduce))
+		return;
+#endif /* ADB */
 
 	/*
 	 * Likewise for ForeignScan that executes a direct INSERT/UPDATE/DELETE
@@ -1941,6 +2235,33 @@ show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 						 plan->nullsFirst,
 						 ancestors, es);
 }
+
+#ifdef ADB
+static void show_merge_gather_keys(ClusterMergeGatherState *mgstate, List *ancestors,
+					   ExplainState *es)
+{
+	ClusterMergeGather *plan = (ClusterMergeGather*) mgstate->ps.plan;
+
+	show_sort_group_keys((PlanState *)mgstate, "Sort Key",
+						 plan->numCols, plan->sortColIdx,
+						 plan->sortOperators, plan->collations,
+						 plan->nullsFirst,
+						 ancestors, es);
+}
+
+static void
+show_cluster_reduce_keys(ClusterReduceState *crstate, List *ancestors,
+					   ExplainState *es)
+{
+	ClusterReduce *plan = (ClusterReduce *) crstate->ps.plan;
+
+	show_sort_group_keys((PlanState *) crstate, "Sort Key",
+						 plan->numCols, plan->sortColIdx,
+						 plan->sortOperators, plan->collations,
+						 plan->nullsFirst,
+						 ancestors, es);
+}
+#endif /* ADB */
 
 /*
  * Show the grouping keys for an Agg node.
@@ -2719,6 +3040,14 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
 			objectname = rte->ctename;
 			objecttag = "CTE Name";
 			break;
+#ifdef ADB
+		case T_RemoteQuery:
+			/* get the object name from RTE itself */
+			Assert(rte->rtekind == RTE_REMOTE_DUMMY);
+			objectname = rte->relname;
+			objecttag = "RemoteQuery name";
+			break;
+#endif /* ADB */
 		default:
 			break;
 	}
@@ -2752,6 +3081,8 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
  * target(s).  Second, give FDWs a chance to display extra info about foreign
  * targets.  Third, show information about ON CONFLICT.
  */
+#ifdef ADB
+#else
 static void
 show_modifytable_info(ModifyTableState *mtstate, List *ancestors,
 					  ExplainState *es)
@@ -2902,6 +3233,7 @@ show_modifytable_info(ModifyTableState *mtstate, List *ancestors,
 	if (labeltargets)
 		ExplainCloseGroup("Target Tables", "Target Tables", false, es);
 }
+#endif
 
 /*
  * Explain the constituent plans of a ModifyTable, Append, MergeAppend,
@@ -3435,6 +3767,109 @@ ExplainSeparatePlans(ExplainState *es)
 			break;
 	}
 }
+
+#ifdef ADB
+/*
+ * Emit execution node list number.
+ */
+static void
+ExplainExecNodes(ExecNodes *en, ExplainState *es)
+{
+	int pr_node_cnt;
+	int node_cnt;
+
+	if (!es->num_nodes)
+		return ;
+
+	pr_node_cnt = node_cnt = 0;
+	if (en)
+	{
+		node_cnt = list_length(en->nodeids);
+		if (HasPrNode(en->nodeids))
+		{
+			pr_node_cnt = 1;
+			node_cnt--;
+		}
+	}
+
+	if (es->format == EXPLAIN_FORMAT_TEXT)
+	{
+		appendStringInfo(es->str,
+						 " (primary node count=%d, node count=%d)",
+						 pr_node_cnt, node_cnt);
+	} else
+	{
+		ExplainPropertyInteger("Primary node count", pr_node_cnt, es);
+		ExplainPropertyInteger("Node count", node_cnt, es);
+	}
+}
+
+static void ExplainRemoteList(List *rnode, ExplainState *es)
+{
+	ListCell *lc;
+	if (es->format == EXPLAIN_FORMAT_TEXT)
+	{
+		const char *tmp = " ";
+		appendStringInfoSpaces(es->str, es->indent * 2);
+		appendStringInfoString(es->str, "Remote node:");
+		foreach(lc, rnode)
+		{
+			appendStringInfoString(es->str, tmp);
+			appendStringInfo(es->str, "%d", lfirst_int(lc));
+			tmp = ",";
+		}
+		appendStringInfoChar(es->str, '\n');
+	}else
+	{
+		List *list = NIL;
+		foreach(lc, rnode)
+			list = lappend(list, psprintf("%d", lfirst_int(lc)));
+		ExplainPropertyList("Remote node", list, es);
+		list_free_deep(list);
+	}
+}
+/*
+ * Emit remote query planning details
+ */
+static void
+ExplainRemoteQuery(RemoteQuery *plan, PlanState *planstate, List *ancestors, ExplainState *es)
+{
+	ExecNodes	*en = plan->exec_nodes;
+	/* add names of the nodes if they exist */
+	if (en && es->nodes)
+	{
+		if (HasPrNode(en->nodeids))
+			ExplainPropertyText("Primary node/s", GetPrNodeName(), es);
+
+		if (en->nodeids)
+		{
+			StringInfoData node_names;
+			ListCell   *lc;
+			char	   *sep;
+			Oid			node_id;
+
+			sep = "";
+			initStringInfo(&node_names);
+			foreach(lc, en->nodeids)
+			{
+				node_id = lfirst_oid(lc);
+				appendStringInfo(&node_names, "%s%s", sep, GetNodeName(node_id));
+				sep = ", ";
+			}
+			ExplainPropertyText("Node/s", node_names.data, es);
+			pfree(node_names.data);
+		}
+	}
+
+	if (en && en->en_expr)
+		show_expression((Node *)en->en_expr, "Node expr", planstate, ancestors,
+						es->verbose, es);
+
+	/* Remote query statement */
+	if (es->verbose)
+		ExplainPropertyText("Remote query", plan->sql_statement, es);
+}
+#endif /*ADB*/
 
 /*
  * Emit opening or closing XML tag.

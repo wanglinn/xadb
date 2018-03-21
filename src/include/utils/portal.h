@@ -187,6 +187,10 @@ typedef struct PortalData
 	bool		atEnd;
 	uint64		portalPos;
 
+#ifdef ADB
+	ParseGrammar grammar;
+#endif	
+
 	/* Presentation data, primarily used by the pg_cursors system view */
 	TimestampTz creation_time;	/* time at which this portal was defined */
 	bool		visible;		/* include this portal in pg_cursors? */
@@ -218,7 +222,11 @@ extern void AtSubAbort_Portals(SubTransactionId mySubid,
 				   ResourceOwner myXactOwner,
 				   ResourceOwner parentXactOwner);
 extern void AtSubCleanup_Portals(SubTransactionId mySubid);
+#ifdef ADB
+extern Portal CreatePortal(const char *name, bool allowDup, bool dupSilent, ParseGrammar grammar);
+#else
 extern Portal CreatePortal(const char *name, bool allowDup, bool dupSilent);
+#endif
 extern Portal CreateNewPortal(void);
 extern void PinPortal(Portal portal);
 extern void UnpinPortal(Portal portal);

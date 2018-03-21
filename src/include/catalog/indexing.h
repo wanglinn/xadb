@@ -7,6 +7,8 @@
  *
  * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * src/include/catalog/indexing.h
  *
@@ -15,8 +17,12 @@
 #ifndef INDEXING_H
 #define INDEXING_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "access/htup.h"
 #include "utils/relcache.h"
+#endif /* BUILD_BKI */
 
 /*
  * The state object used by CatalogOpenIndexes and friends is actually the
@@ -45,9 +51,11 @@ extern void CatalogTupleDelete(Relation heapRel, ItemPointer tid);
  * These macros are just to keep the C compiler from spitting up on the
  * upcoming commands for genbki.pl.
  */
+#ifndef BUILD_BKI
 #define DECLARE_INDEX(name,oid,decl) extern int no_such_variable
 #define DECLARE_UNIQUE_INDEX(name,oid,decl) extern int no_such_variable
 #define BUILD_INDICES
+#endif /* BUILD_BKI */
 
 
 /*
@@ -298,6 +306,35 @@ DECLARE_UNIQUE_INDEX(pg_user_mapping_oid_index, 174, on pg_user_mapping using bt
 DECLARE_UNIQUE_INDEX(pg_user_mapping_user_server_index, 175, on pg_user_mapping using btree(umuser oid_ops, umserver oid_ops));
 #define UserMappingUserServerIndexId	175
 
+#ifdef ADB
+DECLARE_UNIQUE_INDEX(pgxc_class_pcrelid_index, 9021, on pgxc_class using btree(pcrelid oid_ops));
+#define PgxcClassPgxcRelIdIndexId 	9021
+
+DECLARE_UNIQUE_INDEX(pgxc_node_oid_index, 9010, on pgxc_node using btree(oid oid_ops));
+#define PgxcNodeOidIndexId			9010
+
+DECLARE_UNIQUE_INDEX(pgxc_node_name_index, 9011, on pgxc_node using btree(node_name name_ops));
+#define PgxcNodeNodeNameIndexId 	9011
+
+DECLARE_UNIQUE_INDEX(pgxc_group_name_index, 9012, on pgxc_group using btree(group_name name_ops));
+#define PgxcGroupGroupNameIndexId 	9012
+
+DECLARE_UNIQUE_INDEX(pgxc_group_oid, 9013, on pgxc_group using btree(oid oid_ops));
+#define PgxcGroupOidIndexId			9013
+
+DECLARE_UNIQUE_INDEX(pgxc_node_id_index, 9022, on pgxc_node using btree(node_id int4_ops));
+#define PgxcNodeNodeIdIndexId 	9022
+
+DECLARE_UNIQUE_INDEX(ora_cast_oid_index, 9016, on ora_cast using btree(oid oid_ops));
+#define OraCastOidIndexId	9016
+DECLARE_UNIQUE_INDEX(ora_cast_source_target_index, 9017, on ora_cast using btree(castsource oid_ops, casttarget oid_ops, castcontext char_ops));
+#define OraCastSourceTargetIndexId  9017
+
+DECLARE_UNIQUE_INDEX(adb_proc_owner_index, 9019, on adb_proc using btree(proowner oid_ops));
+#define AdbProcOwnerIndexId	9019
+
+#endif
+
 DECLARE_UNIQUE_INDEX(pg_foreign_table_relid_index, 3119, on pg_foreign_table using btree(ftrelid oid_ops));
 #define ForeignTableRelidIndexId 3119
 
@@ -358,6 +395,69 @@ DECLARE_UNIQUE_INDEX(pg_subscription_subname_index, 6115, on pg_subscription usi
 
 DECLARE_UNIQUE_INDEX(pg_subscription_rel_srrelid_srsubid_index, 6117, on pg_subscription_rel using btree(srrelid oid_ops, srsubid oid_ops));
 #define SubscriptionRelSrrelidSrsubidIndexId 6117
+
+#ifdef ADBMGRD
+DECLARE_UNIQUE_INDEX(mgr_host_oid_index, 4909, on mgr_host using btree(oid oid_ops));
+#define HostOidIndexId 4909
+
+DECLARE_UNIQUE_INDEX(mgr_host_hostname_index, 4910, on mgr_host using btree(hostname name_ops));
+#define HostHostnameIndexId					4910
+
+DECLARE_UNIQUE_INDEX(mgr_parm_typename_index, 4951, on mgr_parm using btree(parmtype char_ops,parmname name_ops));
+#define ParmTypeNameIndexId 4951
+
+DECLARE_UNIQUE_INDEX(mgr_node_oid_index, 4949, on mgr_node using btree(oid oid_ops));
+#define NodeOidIndexId 4949
+
+DECLARE_UNIQUE_INDEX(mgr_hba_oid_index, 4971, on mgr_hba using btree(oid oid_ops));
+#define HbaOidIndexId 4971
+
+DECLARE_UNIQUE_INDEX(monitor_cpu_oid_index, 4956, on monitor_cpu using btree(oid oid_ops));
+#define MonitorCpuOidIndexId 4956
+
+DECLARE_UNIQUE_INDEX(monitor_mem_oid_index, 4957, on monitor_mem using btree(oid oid_ops));
+#define MonitorMemOidIndexId 4957
+
+DECLARE_UNIQUE_INDEX(monitor_disk_oid_index, 4958, on monitor_disk using btree(oid oid_ops));
+#define MonitorDiskOidIndexId 4958
+
+DECLARE_UNIQUE_INDEX(monitor_net_oid_index, 4959, on monitor_net using btree(oid oid_ops));
+#define MonitorNetOidIndexId 4959
+
+DECLARE_UNIQUE_INDEX(monitor_host_oid_index, 4960, on monitor_host using btree(oid oid_ops));
+#define MonitorHostOidIndexId 4960
+
+DECLARE_UNIQUE_INDEX(monitor_varparm_oid_index, 4961, on monitor_varparm using btree(oid oid_ops));
+#define MonitorVarparmOidIndexId 4961
+
+DECLARE_UNIQUE_INDEX(monitor_alarm_oid_index, 4970, on monitor_alarm using btree(oid oid_ops));
+#define MonitorAlarmOidIndexId 4970
+
+DECLARE_UNIQUE_INDEX(monitor_resolve_oid_index, 5022, on monitor_resolve using btree(oid oid_ops));
+#define MonitorResolveOidIndexId 5022
+
+DECLARE_UNIQUE_INDEX(monitor_user_oid_index, 4955, on monitor_user using btree(oid oid_ops));
+#define MonitorUserOidIndexId 4955
+
+DECLARE_UNIQUE_INDEX(mgr_updataparm_nodename_nodetype_key_index, 4972, on mgr_updateparm using btree(updateparmnodename name_ops, updateparmnodetype char_ops, updateparmkey name_ops));
+#define MgrUpdataparmNodenameNodetypeKeyIndexId 4972
+
+DECLARE_UNIQUE_INDEX(monitor_job_oid_index, 4919, on monitor_job using btree(oid oid_ops));
+#define MonitorJobOidIndexId 4919
+
+DECLARE_UNIQUE_INDEX(monitor_jobitem_name_index, 4930, on monitor_jobitem using btree(jobitem_itemname name_ops));
+#define MonitorJobitemItemnameIndexId 4930
+
+#endif /* ADBMGRD */
+
+#ifdef AGTM
+DECLARE_UNIQUE_INDEX(agtm_sequence_oid_index, 4998, on agtm_sequence using btree(oid oid_ops));
+#define AgtmSequenceOidIndexId 4998
+
+DECLARE_UNIQUE_INDEX(agtm_sequence_fields_index, 4999, on agtm_sequence using btree(database name_ops,schema name_ops,sequence name_ops));
+#define AgtmSequenceFieldsIndexId 4999
+
+#endif
 
 /* last step of initialization script: build the indexes declared above */
 BUILD_INDICES

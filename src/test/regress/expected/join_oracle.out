@@ -1,0 +1,163 @@
+set grammar to oracle;
+--内连接查询
+create table tt(id number,job varchar(10));
+insert into tt values(1,'IT');
+insert into tt values(2,'doctor');
+insert into tt values(3,'teacher');
+create table aa(id number,avgm number);
+insert into aa values(1,10000);
+insert into aa values(2,5000);
+select tt.job,aa.avgm from tt, aa where tt.id=aa.id;
+  job   | avgm  
+--------+-------
+ IT     | 10000
+ doctor |  5000
+(2 rows)
+
+select job,avgm from tt inner join aa on tt.id=aa.id;
+  job   | avgm  
+--------+-------
+ IT     | 10000
+ doctor |  5000
+(2 rows)
+
+select job,avgm from tt t inner join aa a on t.id=a.id;
+  job   | avgm  
+--------+-------
+ IT     | 10000
+ doctor |  5000
+(2 rows)
+
+drop table tt;
+drop table aa;
+--外连接查询	左连接/右连接
+create table tt(id number,job varchar(10));
+insert into tt values(1,'IT');
+insert into tt values(2,'doctor');
+insert into tt values(3,'teacher');
+insert into tt values(6,'');
+create table aa(id number,avgm number);
+insert into aa values(1.00,10000);
+insert into aa values(2,5000);
+insert into aa values(4,9000);
+insert into aa values(5,null);
+select job,avgm from tt t left join aa a on t.id=a.id order by a.id;
+   job   | avgm  
+---------+-------
+ IT      | 10000
+ doctor  |  5000
+ teacher |      
+         |      
+(4 rows)
+
+select job,avgm from tt t right join aa a on t.id=a.id;
+  job   | avgm  
+--------+-------
+ IT     | 10000
+ doctor |  5000
+        |  9000
+        |      
+(4 rows)
+
+select job,avgm from tt t right join aa a on t.id=a.id order by a.id;
+  job   | avgm  
+--------+-------
+ IT     | 10000
+ doctor |  5000
+        |  9000
+        |      
+(4 rows)
+
+select * from tt t left join aa a on t.id=a.id order by t.id;
+ id |   job   |  id  | avgm  
+----+---------+------+-------
+  1 | IT      | 1.00 | 10000
+  2 | doctor  |    2 |  5000
+  3 | teacher |      |      
+  6 |         |      |      
+(4 rows)
+
+select * from tt t left join aa a on t.id=a.id order by t.job;
+ id |   job   |  id  | avgm  
+----+---------+------+-------
+  1 | IT      | 1.00 | 10000
+  2 | doctor  |    2 |  5000
+  3 | teacher |      |      
+  6 |         |      |      
+(4 rows)
+
+drop table tt;
+drop table aa;
+--符合条件连接查询	ANY、ALL、some
+create table tt(id number,job varchar(10));
+insert into tt values(1,'IT');
+insert into tt values(2,'doctor');
+insert into tt values(3,'teacher');
+insert into tt values(6,'');
+create table aa(id number,avgm number);
+insert into aa values(1.00,10000);
+insert into aa values(2,5000);
+insert into aa values(4,9000);
+insert into aa values(5,null);
+select * from tt where id> ANY(select id from aa) order by id;
+ id |   job   
+----+---------
+  2 | doctor
+  3 | teacher
+  6 | 
+(3 rows)
+
+select * from tt where id> some(select id from aa) order by id;
+ id |   job   
+----+---------
+  2 | doctor
+  3 | teacher
+  6 | 
+(3 rows)
+
+select * from tt where id> All(select id from aa) order by id;
+ id | job 
+----+-----
+  6 | 
+(1 row)
+
+drop table aa;
+drop table tt;
+--EXISTS结果取决于是否会返回行，与行的内容无关
+create table tt(id number,job varchar(10));
+insert into tt values(1,'IT');
+insert into tt values(2,'doctor');
+insert into tt values(3,'teacher');
+insert into tt values(6,'');
+create table aa(id number,avgm number);
+insert into aa values(1.00,10000);
+insert into aa values(2,5000);
+insert into aa values(4,9000);
+insert into aa values(5,null);
+select * from tt where exists(select avgm from aa where id=5) order by id;
+ id |   job   
+----+---------
+  1 | IT
+  2 | doctor
+  3 | teacher
+  6 | 
+(4 rows)
+
+select * from tt where exists(select 1 from aa where aa.id = tt.id) order by id;
+ id |  job   
+----+--------
+  1 | IT
+  2 | doctor
+(2 rows)
+
+select * from tt where not exists(select 1 from aa where aa.id=6) order by id;
+ id |   job   
+----+---------
+  1 | IT
+  2 | doctor
+  3 | teacher
+  6 | 
+(4 rows)
+
+drop table tt;
+drop table aa;

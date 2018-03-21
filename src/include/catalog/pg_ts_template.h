@@ -21,7 +21,11 @@
 #ifndef PG_TS_TEMPLATE_H
 #define PG_TS_TEMPLATE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_ts_template definition.  cpp turns this into
@@ -45,6 +49,7 @@ typedef FormData_pg_ts_template *Form_pg_ts_template;
  * ----------------
  */
 #define Natts_pg_ts_template				4
+DECLARE_NATTS(Natts_pg_ts_template);
 #define Anum_pg_ts_template_tmplname		1
 #define Anum_pg_ts_template_tmplnamespace	2
 #define Anum_pg_ts_template_tmplinit		3

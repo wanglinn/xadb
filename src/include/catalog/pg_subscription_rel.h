@@ -12,9 +12,13 @@
 #ifndef PG_SUBSCRIPTION_REL_H
 #define PG_SUBSCRIPTION_REL_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "access/xlogdefs.h"
 #include "catalog/genbki.h"
 #include "nodes/pg_list.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_subscription_rel definition. cpp turns this into
@@ -42,6 +46,7 @@ typedef FormData_pg_subscription_rel *Form_pg_subscription_rel;
  * ----------------
  */
 #define Natts_pg_subscription_rel				4
+DECLARE_NATTS(Natts_pg_subscription_rel);
 #define Anum_pg_subscription_rel_srsubid		1
 #define Anum_pg_subscription_rel_srrelid		2
 #define Anum_pg_subscription_rel_srsubstate		3

@@ -33,6 +33,15 @@ typedef struct
 	TimestampTz prepare_time;	/* the time when the stmt was prepared */
 } PreparedStatement;
 
+#ifdef ADB
+typedef struct
+{
+	/* dynahash.c requires key to be first field */
+	char		stmt_name[NAMEDATALEN];
+	int			node_num;		/* number of nodes where statement is active */
+	Oid 		node_ids[0];	/* node ids where statement is active */
+} DatanodeStatement;
+#endif
 
 /* Utility statements PREPARE, EXECUTE, DEALLOCATE, EXPLAIN EXECUTE */
 extern void PrepareQuery(PrepareStmt *stmt, const char *queryString,
@@ -56,5 +65,14 @@ extern TupleDesc FetchPreparedStatementResultDesc(PreparedStatement *stmt);
 extern List *FetchPreparedStatementTargetList(PreparedStatement *stmt);
 
 extern void DropAllPreparedStatements(void);
+
+#ifdef ADB
+extern DatanodeStatement *FetchDatanodeStatement(const char *stmt_name, bool throwError);
+extern bool ActivateDatanodeStatementOnNode(const char *stmt_name, Oid noid);
+extern bool HaveActiveDatanodeStatements(void);
+extern void DropDatanodeStatement(const char *stmt_name);
+extern int SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
+						Oid *param_types, int n);
+#endif
 
 #endif							/* PREPARE_H */

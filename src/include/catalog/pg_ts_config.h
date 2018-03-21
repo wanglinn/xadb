@@ -21,7 +21,11 @@
 #ifndef PG_TS_CONFIG_H
 #define PG_TS_CONFIG_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_ts_config definition.  cpp turns this into
@@ -45,6 +49,7 @@ typedef FormData_pg_ts_config *Form_pg_ts_config;
  * ----------------
  */
 #define Natts_pg_ts_config				4
+DECLARE_NATTS(Natts_pg_ts_config);
 #define Anum_pg_ts_config_cfgname		1
 #define Anum_pg_ts_config_cfgnamespace	2
 #define Anum_pg_ts_config_cfgowner		3

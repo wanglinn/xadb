@@ -29,6 +29,21 @@
 #include "utils/lsyscache.h"
 #include "utils/selfuncs.h"
 
+#ifdef ADB
+#include "catalog/pgxc_node.h"
+#include "commands/tablecmds.h"
+#include "libpq/libpq-node.h"
+#include "optimizer/reduceinfo.h"
+#include "optimizer/restrictinfo.h"
+#include "pgxc/pgxcnode.h"
+#include "pgxc/pgxc.h"
+
+typedef struct PathExecuteOnContext
+{
+	HTAB *htab;
+	PlannerInfo *root;
+}PathExecuteOnContext;
+#endif
 
 typedef enum
 {
@@ -46,8 +61,12 @@ typedef enum
 #define STD_FUZZ_FACTOR 1.01
 
 static List *translate_sub_tlist(List *tlist, int relid);
-
-
+static Path* get_cheapest_path(List *list, Path **cheapest_start,List **parameterizeds);
+#ifdef ADB
+static UniquePath *create_unique_path_internal(PlannerInfo *root, RelOptInfo *rel,
+				   Path *subpath, SpecialJoinInfo *sjinfo, bool is_cluster);
+static double* get_path_rows(RelOptInfo *joinrel, List *reduce_info_list, double *rows);
+#endif /* ADB */
 /*****************************************************************************
  *		MISC. PATH UTILITIES
  *****************************************************************************/
@@ -233,21 +252,87 @@ compare_path_costs_fuzzily(Path *path1, Path *path2, double fuzz_factor)
 void
 set_cheapest(RelOptInfo *parent_rel)
 {
+#ifdef ADB
+	ListCell *lc;
+	Path *path;
+	Path *cheapest_param_replicate;
+	Path *cheapest_param_coordinator;
+	List *reduce_list;
+#endif /* ADB */
+	Assert(IsA(parent_rel, RelOptInfo));
+
+	if (parent_rel->pathlist == NIL)
+		elog(ERROR, "could not devise a query plan for the given query");
+
+	parent_rel->cheapest_total_path =
+					get_cheapest_path(parent_rel->pathlist,
+									  &parent_rel->cheapest_startup_path,
+									  &parent_rel->cheapest_parameterized_paths);
+
+	parent_rel->cheapest_unique_path = NULL;	/* computed only if needed */
+#ifdef ADB
+	if(parent_rel->cluster_pathlist)
+	{
+		parent_rel->cheapest_cluster_total_path =
+						get_cheapest_path(parent_rel->cluster_pathlist,
+										  &parent_rel->cheapest_cluster_startup_path,
+										  &parent_rel->cheapest_cluster_parameterized_paths);
+	}
+	parent_rel->cluster_unique_pathlist = NIL;
+	Assert(parent_rel->cheapest_replicate_path == NULL);
+	Assert(parent_rel->cheapest_coordinator_path == NULL);
+	cheapest_param_replicate = cheapest_param_coordinator = NULL;
+	foreach(lc, parent_rel->cluster_pathlist)
+	{
+		path = lfirst(lc);
+		reduce_list = get_reduce_info_list(path);
+		if(IsReduceInfoListReplicated(reduce_list))
+		{
+			if(PATH_REQ_OUTER(path))
+			{
+				if (cheapest_param_replicate == NULL ||
+					compare_path_costs(cheapest_param_replicate, path, TOTAL_COST) > 0)
+					cheapest_param_replicate = path;
+			}else
+			{
+				if (parent_rel->cheapest_replicate_path == NULL ||
+					compare_path_costs(parent_rel->cheapest_replicate_path, path, TOTAL_COST) > 0)
+					parent_rel->cheapest_replicate_path = path;
+			}
+		}else if(IsReduceInfoListCoordinator(reduce_list))
+		{
+			if(PATH_REQ_OUTER(path))
+			{
+				if (cheapest_param_coordinator == NULL ||
+					compare_path_costs(cheapest_param_coordinator, path, TOTAL_COST) > 0)
+					cheapest_param_coordinator = path;
+			}else
+			{
+				if (parent_rel->cheapest_coordinator_path == NULL ||
+					compare_path_costs(parent_rel->cheapest_coordinator_path, path, TOTAL_COST) > 0)
+					parent_rel->cheapest_coordinator_path = path;
+			}
+		}
+	}
+	if(parent_rel->cheapest_replicate_path == NULL)
+		parent_rel->cheapest_replicate_path = cheapest_param_replicate;
+	if(parent_rel->cheapest_coordinator_path == NULL)
+		parent_rel->cheapest_coordinator_path = cheapest_param_coordinator;
+#endif /* ADB */
+}
+
+static Path* get_cheapest_path(List *list, Path **cheapest_start, List **parameterizeds)
+{
 	Path	   *cheapest_startup_path;
 	Path	   *cheapest_total_path;
 	Path	   *best_param_path;
 	List	   *parameterized_paths;
 	ListCell   *p;
 
-	Assert(IsA(parent_rel, RelOptInfo));
-
-	if (parent_rel->pathlist == NIL)
-		elog(ERROR, "could not devise a query plan for the given query");
-
 	cheapest_startup_path = cheapest_total_path = best_param_path = NULL;
 	parameterized_paths = NIL;
 
-	foreach(p, parent_rel->pathlist)
+	foreach(p, list)
 	{
 		Path	   *path = (Path *) lfirst(p);
 		int			cmp;
@@ -344,10 +429,11 @@ set_cheapest(RelOptInfo *parent_rel)
 		cheapest_total_path = best_param_path;
 	Assert(cheapest_total_path != NULL);
 
-	parent_rel->cheapest_startup_path = cheapest_startup_path;
-	parent_rel->cheapest_total_path = cheapest_total_path;
-	parent_rel->cheapest_unique_path = NULL;	/* computed only if needed */
-	parent_rel->cheapest_parameterized_paths = parameterized_paths;
+	if(cheapest_start)
+		*cheapest_start = cheapest_startup_path;
+	if(parameterizeds)
+		*parameterizeds = parameterized_paths;
+	return cheapest_total_path;
 }
 
 /*
@@ -825,6 +911,8 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 		{
 			parent_rel->partial_pathlist =
 				list_delete_cell(parent_rel->partial_pathlist, p1, p1_prev);
+			/* we should not see IndexPaths here, so always safe to delete */
+			Assert(!IsA(old_path, IndexPath));
 			pfree(old_path);
 			/* p1_prev does not advance */
 		}
@@ -857,10 +945,357 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 	}
 	else
 	{
+		/* we should not see IndexPaths here, so always safe to delete */
+		Assert(!IsA(new_path, IndexPath));
 		/* Reject and recycle the new path */
 		pfree(new_path);
 	}
 }
+
+#ifdef ADB
+void add_cluster_path(RelOptInfo *parent_rel, Path *new_path)
+{
+	bool		accept_new = true;		/* unless we find a superior old path */
+	ListCell   *insert_after = NULL;	/* where to insert new item */
+	List	   *new_path_pathkeys;
+	ListCell   *p1;
+	ListCell   *p1_prev;
+	ListCell   *p1_next;
+	List *new_reduce_list;
+	AssertArg(parent_rel && new_path);
+
+	/*
+	 * This is a convenient place to check for query cancel --- no part of the
+	 * planner goes very long without calling add_path().
+	 */
+	CHECK_FOR_INTERRUPTS();
+
+	/* Pretend parameterized paths have no pathkeys, per comment above */
+	new_path_pathkeys = new_path->param_info ? NIL : new_path->pathkeys;
+	new_reduce_list = get_reduce_info_list(new_path);
+	Assert(new_reduce_list != NIL);
+
+	/*
+	 * Loop to check proposed new path against old paths.  Note it is possible
+	 * for more than one old path to be tossed out because new_path dominates
+	 * it.
+	 *
+	 * We can't use foreach here because the loop body may delete the current
+	 * list cell.
+	 */
+	p1_prev = NULL;
+	for (p1 = list_head(parent_rel->cluster_pathlist); p1 != NULL; p1 = p1_next)
+	{
+		Path	   *old_path = (Path *) lfirst(p1);
+		bool		remove_old = false; /* unless new proves superior */
+		PathCostComparison costcmp;
+		PathKeysComparison keyscmp;
+		BMS_Comparison outercmp;
+
+		p1_next = lnext(p1);
+
+		/*
+		 * If the two paths compare differently for startup and total cost,
+		 * then we want to keep both, and we can skip comparing pathkeys and
+		 * required_outer rels.  If they compare the same, proceed with the
+		 * other comparisons.  Row count is checked last.  (We make the tests
+		 * in this order because the cost comparison is most likely to turn
+		 * out "different", and the pathkeys comparison next most likely.  As
+		 * explained above, row count very seldom makes a difference, so even
+		 * though it's cheap to compare there's not much point in checking it
+		 * earlier.)
+		 */
+		if (IsReduceInfoListEqual(new_reduce_list, get_reduce_info_list(old_path)) &&
+			(costcmp=compare_path_costs_fuzzily(new_path, old_path, STD_FUZZ_FACTOR)) != COSTS_DIFFERENT)
+		{
+			/* Similarly check to see if either dominates on pathkeys */
+			List	   *old_path_pathkeys;
+
+			old_path_pathkeys = old_path->param_info ? NIL : old_path->pathkeys;
+			keyscmp = compare_pathkeys(new_path_pathkeys,
+									   old_path_pathkeys);
+			if (keyscmp != PATHKEYS_DIFFERENT)
+			{
+				switch (costcmp)
+				{
+					case COSTS_EQUAL:
+						outercmp = bms_subset_compare(PATH_REQ_OUTER(new_path),
+												   PATH_REQ_OUTER(old_path));
+						if (keyscmp == PATHKEYS_BETTER1)
+						{
+							if ((outercmp == BMS_EQUAL ||
+								 outercmp == BMS_SUBSET1) &&
+								new_path->rows <= old_path->rows &&
+								new_path->parallel_safe >= old_path->parallel_safe)
+								remove_old = true;		/* new dominates old */
+						}
+						else if (keyscmp == PATHKEYS_BETTER2)
+						{
+							if ((outercmp == BMS_EQUAL ||
+								 outercmp == BMS_SUBSET2) &&
+								new_path->rows >= old_path->rows &&
+								new_path->parallel_safe <= old_path->parallel_safe)
+								accept_new = false;		/* old dominates new */
+						}
+						else	/* keyscmp == PATHKEYS_EQUAL */
+						{
+							if (outercmp == BMS_EQUAL)
+							{
+								/*
+								 * Same pathkeys and outer rels, and fuzzily
+								 * the same cost, so keep just one; to decide
+								 * which, first check parallel-safety, then
+								 * rows, then do a fuzzy cost comparison with
+								 * very small fuzz limit.  (We used to do an
+								 * exact cost comparison, but that results in
+								 * annoying platform-specific plan variations
+								 * due to roundoff in the cost estimates.)	If
+								 * things are still tied, arbitrarily keep
+								 * only the old path.  Notice that we will
+								 * keep only the old path even if the
+								 * less-fuzzy comparison decides the startup
+								 * and total costs compare differently.
+								 */
+								if (new_path->parallel_safe >
+									old_path->parallel_safe)
+									remove_old = true;	/* new dominates old */
+								else if (new_path->parallel_safe <
+										 old_path->parallel_safe)
+									accept_new = false; /* old dominates new */
+								else if (new_path->rows < old_path->rows)
+									remove_old = true;	/* new dominates old */
+								else if (new_path->rows > old_path->rows)
+									accept_new = false; /* old dominates new */
+								else if (compare_path_costs_fuzzily(new_path,
+																	old_path,
+											  1.0000000001) == COSTS_BETTER1)
+									remove_old = true;	/* new dominates old */
+								else
+									accept_new = false; /* old equals or
+														 * dominates new */
+							}
+							else if (outercmp == BMS_SUBSET1 &&
+									 new_path->rows <= old_path->rows &&
+									 new_path->parallel_safe >= old_path->parallel_safe)
+								remove_old = true;		/* new dominates old */
+							else if (outercmp == BMS_SUBSET2 &&
+									 new_path->rows >= old_path->rows &&
+									 new_path->parallel_safe <= old_path->parallel_safe)
+								accept_new = false;		/* old dominates new */
+							/* else different parameterizations, keep both */
+						}
+						break;
+					case COSTS_BETTER1:
+						if (keyscmp != PATHKEYS_BETTER2)
+						{
+							outercmp = bms_subset_compare(PATH_REQ_OUTER(new_path),
+												   PATH_REQ_OUTER(old_path));
+							if ((outercmp == BMS_EQUAL ||
+								 outercmp == BMS_SUBSET1) &&
+								new_path->rows <= old_path->rows &&
+								new_path->parallel_safe >= old_path->parallel_safe)
+								remove_old = true;		/* new dominates old */
+						}
+						break;
+					case COSTS_BETTER2:
+						if (keyscmp != PATHKEYS_BETTER1)
+						{
+							outercmp = bms_subset_compare(PATH_REQ_OUTER(new_path),
+												   PATH_REQ_OUTER(old_path));
+							if ((outercmp == BMS_EQUAL ||
+								 outercmp == BMS_SUBSET2) &&
+								new_path->rows >= old_path->rows &&
+								new_path->parallel_safe <= old_path->parallel_safe)
+								accept_new = false;		/* old dominates new */
+						}
+						break;
+					case COSTS_DIFFERENT:
+
+						/*
+						 * can't get here, but keep this case to keep compiler
+						 * quiet
+						 */
+						break;
+				}
+			}
+		}
+
+		/*
+		 * Remove current element from pathlist if dominated by new.
+		 */
+		if (remove_old)
+		{
+			parent_rel->cluster_pathlist = list_delete_cell(parent_rel->cluster_pathlist,
+													p1, p1_prev);
+
+			/*
+			 * Delete the data pointed-to by the deleted cell, if possible
+			 */
+			if (!IsA(old_path, IndexPath))
+				pfree(old_path);
+			/* p1_prev does not advance */
+		}
+		else
+		{
+			/* new belongs after this old path if it has cost >= old's */
+			if (new_path->total_cost >= old_path->total_cost)
+				insert_after = p1;
+			/* p1_prev advances */
+			p1_prev = p1;
+		}
+
+		/*
+		 * If we found an old path that dominates new_path, we can quit
+		 * scanning the pathlist; we will not add new_path, and we assume
+		 * new_path cannot dominate any other elements of the pathlist.
+		 */
+		if (!accept_new)
+			break;
+	}
+
+	if (accept_new)
+	{
+		/* Accept the new path: insert it at proper place in pathlist */
+		if (insert_after)
+			lappend_cell(parent_rel->cluster_pathlist, insert_after, new_path);
+		else
+			parent_rel->cluster_pathlist = lcons(new_path, parent_rel->cluster_pathlist);
+	}
+	else
+	{
+		/* Reject and recycle the new path */
+		if (!IsA(new_path, IndexPath))
+			pfree(new_path);
+	}
+}
+
+void add_cluster_path_list(RelOptInfo *parent_rel, List *pathlist, bool free_list)
+{
+	ListCell *lc;
+	foreach(lc, pathlist)
+		add_cluster_path(parent_rel, lfirst(lc));
+	if(free_list)
+		list_free(pathlist);
+}
+
+void add_cluster_partial_path(RelOptInfo *parent_rel, Path *new_path)
+{
+	bool		accept_new = true;		/* unless we find a superior old path */
+	ListCell   *insert_after = NULL;	/* where to insert new item */
+	ListCell   *p1;
+	ListCell   *p1_prev;
+	ListCell   *p1_next;
+	List	   *new_reduce_list;
+
+	/* Check for query cancel. */
+	AssertArg(parent_rel && new_path);
+	CHECK_FOR_INTERRUPTS();
+
+	new_reduce_list = get_reduce_info_list(new_path);
+	Assert(new_reduce_list != NIL);
+
+	/*
+	 * As in add_path, throw out any paths which are dominated by the new
+	 * path, but throw out the new path if some existing path dominates it.
+	 */
+	p1_prev = NULL;
+	for (p1 = list_head(parent_rel->cluster_partial_pathlist); p1 != NULL;
+		 p1 = p1_next)
+	{
+		Path	   *old_path = (Path *) lfirst(p1);
+		bool		remove_old = false; /* unless new proves superior */
+		PathKeysComparison keyscmp;
+
+		p1_next = lnext(p1);
+
+		/* Unless pathkeys are incompable, keep just one of the two paths. */
+		if (IsReduceInfoListEqual(new_reduce_list, get_reduce_info_list(old_path)) &&
+			(keyscmp = compare_pathkeys(new_path->pathkeys, old_path->pathkeys))!= PATHKEYS_DIFFERENT)
+		{
+			if (new_path->total_cost > old_path->total_cost * STD_FUZZ_FACTOR)
+			{
+				/* New path costs more; keep it only if pathkeys are better. */
+				if (keyscmp != PATHKEYS_BETTER1)
+					accept_new = false;
+			}
+			else if (old_path->total_cost > new_path->total_cost
+					 * STD_FUZZ_FACTOR)
+			{
+				/* Old path costs more; keep it only if pathkeys are better. */
+				if (keyscmp != PATHKEYS_BETTER2)
+					remove_old = true;
+			}
+			else if (keyscmp == PATHKEYS_BETTER1)
+			{
+				/* Costs are about the same, new path has better pathkeys. */
+				remove_old = true;
+			}
+			else if (keyscmp == PATHKEYS_BETTER2)
+			{
+				/* Costs are about the same, old path has better pathkeys. */
+				accept_new = false;
+			}
+			else if (old_path->total_cost > new_path->total_cost * 1.0000000001)
+			{
+				/* Pathkeys are the same, and the old path costs more. */
+				remove_old = true;
+			}
+			else
+			{
+				/*
+				 * Pathkeys are the same, and new path isn't materially
+				 * cheaper.
+				 */
+				accept_new = false;
+			}
+		}
+
+		/*
+		 * Remove current element from cluster_partial_pathlist if dominated by new.
+		 */
+		if (remove_old)
+		{
+			parent_rel->cluster_partial_pathlist =
+				list_delete_cell(parent_rel->cluster_partial_pathlist, p1, p1_prev);
+			/* we should not see IndexPaths here, so always safe to delete */
+			Assert(!IsA(old_path, IndexPath));
+			pfree(old_path);
+			/* p1_prev does not advance */
+		}
+		else
+		{
+			/* new belongs after this old path if it has cost >= old's */
+			if (new_path->total_cost >= old_path->total_cost)
+				insert_after = p1;
+			/* p1_prev advances */
+			p1_prev = p1;
+		}
+
+		/*
+		 * If we found an old path that dominates new_path, we can quit
+		 * scanning the cluster_partial_pathlist; we will not add new_path, and we
+		 * assume new_path cannot dominate any later path.
+		 */
+		if (!accept_new)
+			break;
+	}
+
+	if (accept_new)
+	{
+		/* Accept the new path: insert it at proper place */
+		if (insert_after)
+			lappend_cell(parent_rel->cluster_partial_pathlist, insert_after, new_path);
+		else
+			parent_rel->cluster_partial_pathlist =
+				lcons(new_path, parent_rel->cluster_partial_pathlist);
+	}
+	else
+	{
+		/* Reject and recycle the new path */
+		pfree(new_path);
+	}
+}
+#endif /* ADB */
 
 /*
  * add_partial_path_precheck
@@ -963,7 +1398,10 @@ Path *
 create_samplescan_path(PlannerInfo *root, RelOptInfo *rel, Relids required_outer)
 {
 	Path	   *pathnode = makeNode(Path);
-
+#ifdef ADB
+	if(rel->loc_info)
+		ereport(ERROR, (errmsg("cluster table not support TABLESAMPLE yet!")));
+#endif /* ADB */
 	pathnode->pathtype = T_SampleScan;
 	pathnode->parent = rel;
 	pathnode->pathtarget = rel->reltarget;
@@ -1379,6 +1817,64 @@ create_result_path(PlannerInfo *root, RelOptInfo *rel,
 	return pathnode;
 }
 
+#ifdef ADB
+FilterPath *create_filter_path(PlannerInfo *root, RelOptInfo *rel,
+				   PathTarget *target, List *quals)
+{
+	ResultPath *filter = create_result_path(root, rel, target, quals);
+	filter->path.type = T_FilterPath;
+	return filter;
+}
+
+Path *replicate_to_one_node(PlannerInfo *root, RelOptInfo *rel, Path *path, List *target_oids)
+{
+	FilterPath *filter;
+	ListCell *lc;
+	List *source_oids;
+	List *reduce_list = get_reduce_info_list(path);
+	Oid target = InvalidOid;
+
+	Assert(reduce_list && IsReduceInfoListReplicated(reduce_list));
+	source_oids = ReduceInfoListGetExecuteOidList(reduce_list);
+	if(list_length(source_oids) == 1)
+		return path;
+
+	foreach(lc, source_oids)
+	{
+		if (list_member_oid(target_oids, lfirst_oid(lc)))
+		{
+			target = lfirst_oid(lc);
+			break;
+		}
+	}
+	if(target == InvalidOid)
+	{
+		source_oids = SortOidList(source_oids);
+		target = linitial_oid(source_oids);
+	}
+	if(target == InvalidOid)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Can not found valid OID for target")));
+	}
+	list_free(source_oids);
+
+	filter = create_filter_path(root,
+								rel,
+								path->pathtarget,
+								list_make1(CreateNodeOidEqualOid(target)));
+	filter->subpath = path;
+
+	source_oids = list_make1_oid(target);
+	filter->path.reduce_info_list = list_make1(MakeReplicateReduceInfo(source_oids));
+	list_free(source_oids);
+	filter->path.reduce_is_valid = true;
+
+	return (Path*)filter;
+}
+#endif /* ADB */
+
 /*
  * create_material_path
  *	  Creates a path corresponding to a Material plan, returning the
@@ -1427,6 +1923,30 @@ UniquePath *
 create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 				   SpecialJoinInfo *sjinfo)
 {
+#ifdef ADB
+	return create_unique_path_internal(root, rel, subpath, sjinfo, false);
+}
+UniquePath *create_cluster_unique_path(PlannerInfo *root, RelOptInfo *rel,
+				   Path *subpath, SpecialJoinInfo *sjinfo)
+{
+	UniquePath *path;
+	ListCell *lc;
+	foreach(lc, rel->cluster_unique_pathlist)
+	{
+		path = lfirst(lc);
+		if(path->subpath == subpath)
+			return path;
+	}
+	path = create_unique_path_internal(root, rel, subpath, sjinfo, true);
+	(void)get_reduce_info_list(&path->path);
+	rel->cluster_unique_pathlist = lappend(rel->cluster_unique_pathlist, path);
+	return path;
+}
+static UniquePath *create_unique_path_internal(PlannerInfo *root, RelOptInfo *rel,
+				   Path *subpath, SpecialJoinInfo *sjinfo, bool is_cluster)
+{
+#endif /* ADB */
+
 	UniquePath *pathnode;
 	Path		sort_path;		/* dummy for result of cost_sort */
 	Path		agg_path;		/* dummy for result of cost_agg */
@@ -1434,13 +1954,20 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 	int			numCols;
 
 	/* Caller made a mistake if subpath isn't cheapest_total ... */
+#ifdef ADB
+	Assert(is_cluster ? true:(subpath == rel->cheapest_total_path));
+#else
 	Assert(subpath == rel->cheapest_total_path);
+#endif /* ADB */
 	Assert(subpath->parent == rel);
 	/* ... or if SpecialJoinInfo is the wrong one */
 	Assert(sjinfo->jointype == JOIN_SEMI);
 	Assert(bms_equal(rel->relids, sjinfo->syn_righthand));
 
 	/* If result already cached, return it */
+#ifdef ADB
+	if (is_cluster == false)
+#endif /* ADB */
 	if (rel->cheapest_unique_path)
 		return (UniquePath *) rel->cheapest_unique_path;
 
@@ -1492,6 +2019,9 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 		pathnode->path.total_cost = subpath->total_cost;
 		pathnode->path.pathkeys = subpath->pathkeys;
 
+#ifdef ADB
+		if(is_cluster == false)
+#endif /* ADB */
 		rel->cheapest_unique_path = (Path *) pathnode;
 
 		MemoryContextSwitchTo(oldcontext);
@@ -1530,6 +2060,9 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 				pathnode->path.total_cost = subpath->total_cost;
 				pathnode->path.pathkeys = subpath->pathkeys;
 
+#ifdef ADB
+				if(is_cluster == false)
+#endif /* ADB */
 				rel->cheapest_unique_path = (Path *) pathnode;
 
 				MemoryContextSwitchTo(oldcontext);
@@ -1622,6 +2155,9 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 		pathnode->path.total_cost = sort_path.total_cost;
 	}
 
+#ifdef ADB
+	if(is_cluster == false)
+#endif /* ADB */
 	rel->cheapest_unique_path = (Path *) pathnode;
 
 	MemoryContextSwitchTo(oldcontext);
@@ -2032,8 +2568,14 @@ calc_non_nestloop_required_outer(Path *outer_path, Path *inner_path)
 	Relids		required_outer;
 
 	/* neither path can require rels from the other */
+#ifdef ADB
+	if (bms_overlap(outer_paramrels, inner_path->parent->relids) ||
+		bms_overlap(inner_paramrels, outer_path->parent->relids))
+		return NULL;
+#else
 	Assert(!bms_overlap(outer_paramrels, inner_path->parent->relids));
 	Assert(!bms_overlap(inner_paramrels, outer_path->parent->relids));
+#endif
 	/* form the union ... */
 	required_outer = bms_union(outer_paramrels, inner_paramrels);
 	/* we do not need an explicit test for empty; bms_union gets it right */
@@ -2067,6 +2609,10 @@ create_nestloop_path(PlannerInfo *root,
 					 Path *inner_path,
 					 List *restrict_clauses,
 					 List *pathkeys,
+#ifdef ADB
+					 List *reduce_info_list,
+					 bool partial_path,
+#endif /* ADB */
 					 Relids required_outer)
 {
 	NestPath   *pathnode = makeNode(NestPath);
@@ -2112,6 +2658,13 @@ create_nestloop_path(PlannerInfo *root,
 	pathnode->path.parallel_aware = false;
 	pathnode->path.parallel_safe = joinrel->consider_parallel &&
 		outer_path->parallel_safe && inner_path->parallel_safe;
+#ifdef ADB
+	if(partial_path)
+	{
+		Assert(pathnode->path.parallel_safe);
+		pathnode->path.parallel_aware = true;
+	}
+#endif /* ADB */
 	/* This is a foolish way to estimate parallel_workers, but for now... */
 	pathnode->path.parallel_workers = outer_path->parallel_workers;
 	pathnode->path.pathkeys = pathkeys;
@@ -2121,7 +2674,19 @@ create_nestloop_path(PlannerInfo *root,
 	pathnode->innerjoinpath = inner_path;
 	pathnode->joinrestrictinfo = restrict_clauses;
 
+#ifdef ADB
+	if (reduce_info_list != NIL &&
+		pathnode->path.param_info == NULL)
+	{
+		double rows;
+		final_cost_nestloop(root, pathnode, workspace, get_path_rows(joinrel, reduce_info_list, &rows), extra);
+	}else
+	{
+		final_cost_nestloop(root, pathnode, workspace, NULL, extra);
+	}
+#else
 	final_cost_nestloop(root, pathnode, workspace, extra);
+#endif
 
 	return pathnode;
 }
@@ -2157,6 +2722,10 @@ create_mergejoin_path(PlannerInfo *root,
 					  List *pathkeys,
 					  Relids required_outer,
 					  List *mergeclauses,
+#ifdef ADB
+					  List *reduce_info_list,
+					  bool partial_path,
+#endif /* ADB */
 					  List *outersortkeys,
 					  List *innersortkeys)
 {
@@ -2176,6 +2745,13 @@ create_mergejoin_path(PlannerInfo *root,
 	pathnode->jpath.path.parallel_aware = false;
 	pathnode->jpath.path.parallel_safe = joinrel->consider_parallel &&
 		outer_path->parallel_safe && inner_path->parallel_safe;
+#ifdef ADB
+	if(partial_path)
+	{
+		Assert(pathnode->jpath.path.parallel_safe);
+		pathnode->jpath.path.parallel_aware = true;
+	}
+#endif /* ADB */
 	/* This is a foolish way to estimate parallel_workers, but for now... */
 	pathnode->jpath.path.parallel_workers = outer_path->parallel_workers;
 	pathnode->jpath.path.pathkeys = pathkeys;
@@ -2190,7 +2766,19 @@ create_mergejoin_path(PlannerInfo *root,
 	/* pathnode->skip_mark_restore will be set by final_cost_mergejoin */
 	/* pathnode->materialize_inner will be set by final_cost_mergejoin */
 
+#ifdef ADB
+	if (reduce_info_list != NIL &&
+		pathnode->jpath.path.param_info == NULL)
+	{
+		double rows;
+		final_cost_mergejoin(root, pathnode, workspace, get_path_rows(joinrel, reduce_info_list, &rows), extra);
+	}else
+	{
+		final_cost_mergejoin(root, pathnode, workspace, NULL, extra);
+	}
+#else
 	final_cost_mergejoin(root, pathnode, workspace, extra);
+#endif
 
 	return pathnode;
 }
@@ -2220,6 +2808,10 @@ create_hashjoin_path(PlannerInfo *root,
 					 Path *inner_path,
 					 List *restrict_clauses,
 					 Relids required_outer,
+#ifdef ADB
+					 List *reduce_info_list,
+					 bool partial_path,
+#endif
 					 List *hashclauses)
 {
 	HashPath   *pathnode = makeNode(HashPath);
@@ -2238,6 +2830,13 @@ create_hashjoin_path(PlannerInfo *root,
 	pathnode->jpath.path.parallel_aware = false;
 	pathnode->jpath.path.parallel_safe = joinrel->consider_parallel &&
 		outer_path->parallel_safe && inner_path->parallel_safe;
+#ifdef ADB
+	if(partial_path)
+	{
+		Assert(pathnode->jpath.path.parallel_safe);
+		pathnode->jpath.path.parallel_aware = true;
+	}
+#endif /* ADB */
 	/* This is a foolish way to estimate parallel_workers, but for now... */
 	pathnode->jpath.path.parallel_workers = outer_path->parallel_workers;
 
@@ -2261,7 +2860,19 @@ create_hashjoin_path(PlannerInfo *root,
 	pathnode->path_hashclauses = hashclauses;
 	/* final_cost_hashjoin will fill in pathnode->num_batches */
 
+#ifdef ADB
+	if (reduce_info_list != NIL &&
+		pathnode->jpath.path.param_info == NULL)
+	{
+		double rows;
+		final_cost_hashjoin(root, pathnode, workspace, get_path_rows(joinrel, reduce_info_list, &rows), extra);
+	}else
+	{
+		final_cost_hashjoin(root, pathnode, workspace, NULL, extra);
+	}
+#else
 	final_cost_hashjoin(root, pathnode, workspace, extra);
+#endif /* ADB */
 
 	return pathnode;
 }
@@ -3428,3 +4039,534 @@ reparameterize_path(PlannerInfo *root, Path *path,
 	}
 	return NULL;
 }
+
+#ifdef ADB
+
+static void copy_path_info(Path *dest, const Path *src, bool copy_parallel);
+
+static bool have_special_path_bms(Path *path, Bitmapset *path_tags)
+{
+	if(path == NULL)
+		return false;
+
+	if(bms_is_member((int)nodeTag(path), path_tags))
+		return true;
+
+	check_stack_depth();
+	return path_tree_walker(path, have_special_path_bms, path_tags);
+}
+
+bool have_special_path_args(Path *path, NodeTag tag, ...)
+{
+	Bitmapset *bms = bms_make_singleton(tag);
+	va_list args;
+	NodeTag t;
+	bool res;
+
+	va_start(args, tag);
+	while((t=va_arg(args, NodeTag)) != T_Invalid)
+		bms = bms_add_member(bms, t);
+	va_end(args);
+
+	res = have_special_path_bms(path, bms);
+	bms_free(bms);
+
+	return res;
+}
+
+ClusterMergeGatherPath *create_cluster_merge_gather_path(PlannerInfo *root
+	, RelOptInfo *rel, Path *sub_path, List *pathkeys)
+{
+	List *reduce_list;
+	double comparison_cost;
+	ClusterMergeGatherPath *path = makeNode(ClusterMergeGatherPath);
+
+	path->path.pathtype = T_ClusterMergeGather;
+	path->path.parent = rel;
+	path->path.pathtarget = rel->reltarget;
+
+	path->path.pathkeys = pathkeys;
+	path->subpath = sub_path;
+
+	reduce_list = get_reduce_info_list(sub_path);
+	if(reduce_list && !IsReduceInfoListReplicated(reduce_list))
+	{
+		List *execute = ReduceInfoListGetExecuteOidList(reduce_list);
+		path->path.rows = sub_path->rows * list_length(execute);
+		list_free(execute);
+	}else
+	{
+		path->path.rows = sub_path->rows;
+	}
+	comparison_cost = 2.0 * cpu_tuple_cost * path->path.rows;
+
+	path->path.startup_cost = sub_path->startup_cost + comparison_cost;
+	path->path.total_cost = sub_path->total_cost + comparison_cost;
+	if(have_cluster_reduce_path(sub_path))
+	{
+		path->path.startup_cost += reduce_setup_cost;
+		path->path.total_cost += reduce_setup_cost;
+	}
+	return path;
+}
+
+ClusterGatherPath *create_cluster_gather_path(Path *sub_path, RelOptInfo *rel)
+{
+	ClusterGatherPath *path = makeNode(ClusterGatherPath);
+	List *reduce_list;
+	double rows;
+	copy_path_info((Path*)path, sub_path, false);
+	path->path.parent = rel;
+	path->path.pathtype = T_ClusterGather;
+	path->path.pathkeys = NIL;
+
+	path->subpath = sub_path;
+	reduce_list = get_reduce_info_list(sub_path);
+	if(reduce_list && !IsReduceInfoListReplicated(reduce_list))
+	{
+		List *execute = ReduceInfoListGetExecuteOidList(reduce_list);
+		rows = sub_path->rows * list_length(execute);
+		list_free(execute);
+	}else
+	{
+		rows = sub_path->rows;
+	}
+	cost_cluster_gather(path, NULL, NULL, &rows);
+
+	return path;
+}
+
+Path *
+create_cluster_reduce_path(PlannerInfo *root,
+						   Path *sub_path,
+						   List *rinfo_list,
+						   RelOptInfo *rel,
+						   List *pathkeys)
+{
+	ClusterReducePath *crp = NULL;
+	Assert(bms_is_empty(PATH_REQ_OUTER(sub_path)));
+
+	/* avoid nested generating ClusterReducePath */
+	while (IsA(sub_path, ClusterReducePath))
+		sub_path = ((ClusterReducePath *) sub_path)->subpath;
+
+	crp = makeNode(ClusterReducePath);
+	copy_path_info(&crp->path, sub_path, false);
+	crp->path.parent = rel;
+	crp->subpath = sub_path;
+	crp->path.pathtype = T_ClusterReduce;
+	crp->path.reduce_info_list = rinfo_list;
+	crp->path.reduce_is_valid = true;
+	crp->path.parallel_safe = sub_path->parallel_safe;
+	crp->path.parallel_aware = sub_path->parallel_aware;
+	crp->path.parallel_workers = sub_path->parallel_workers;
+
+	/* ClusterReducePath or "ClusterMergeReducePath" */
+	if (pathkeys_contained_in(pathkeys, sub_path->pathkeys))
+	{
+		crp->path.pathkeys = pathkeys;
+		cost_cluster_reduce(crp);
+
+		return (Path *) crp;
+	}
+
+	/*
+	 *			ClusterMergeReducePath
+	 *					/
+	 *				sortpath
+	 *				/
+	 *			subpath
+	 */
+	if (IsReduceInfoListCoordinator(rinfo_list))
+	{
+		crp->subpath = (Path *) create_sort_path(root,
+												 rel,
+												 sub_path,
+												 pathkeys,
+												 -1.0);
+		crp->path.pathkeys = pathkeys;
+		cost_cluster_reduce(crp);
+
+		return (Path *) crp;
+	}
+
+	/*
+	 *				sortpath
+	 *					/
+	 *			ClusterReducePath
+	 *				/
+	 *			subpath
+	 */
+	crp->path.pathkeys = NIL;
+	cost_cluster_reduce(crp);
+
+	return (Path *) create_sort_path(root,
+									 rel,
+									 (Path *) crp,
+									 pathkeys,
+									 -1.0);
+}
+
+ReduceScanPath *try_reducescan_path(PlannerInfo *root, RelOptInfo *rel, PathTarget *target,
+									Path *subpath, List *reduce_info,
+									List *pathkeys, List *clauses)
+{
+	ReduceScanPath *rs;
+	Assert(restrict_list_have_exec_param(clauses) ||
+		   expression_have_exec_param((Expr*)target->exprs));
+	if (subpath->pathtype != T_SeqScan ||
+		PATH_REQ_OUTER(subpath))
+		return NULL;
+
+	subpath = create_cluster_reduce_path(root, subpath, reduce_info, rel, pathkeys);
+
+	rs = makeNode(ReduceScanPath);
+	rs->reducepath = subpath;
+	rs->path.pathtype = T_ReduceScan;
+	rs->path.parent = rel;
+	rs->path.pathtarget = target;
+	rs->path.parallel_aware = subpath->parallel_aware;
+	rs->path.parallel_safe = subpath->parallel_safe;
+	rs->path.parallel_workers = subpath->parallel_workers;
+	cost_material(&rs->path, subpath->startup_cost, subpath->total_cost, subpath->rows, subpath->pathtarget->width);
+	rs->path.pathkeys = pathkeys;
+	rs->rescan_clauses = clauses;
+	rs->path.reduce_info_list = reduce_info;
+	rs->path.reduce_is_valid = true;
+
+	return rs;
+}
+
+static void copy_path_info(Path *dest, const Path *src, bool copy_parallel)
+{
+	dest->pathtarget = src->pathtarget;
+
+	dest->param_info = src->param_info;
+
+	if(copy_parallel)
+	{
+		dest->parallel_aware = src->parallel_aware;
+		dest->parallel_safe = src->parallel_safe;
+		dest->parallel_workers = src->parallel_workers;
+	}
+
+	dest->rows = src->rows;
+	dest->startup_cost = src->startup_cost;
+	dest->total_cost = src->total_cost;
+
+	dest->pathkeys = src->pathkeys;
+}
+
+/* code from set_cte_pathlist(...) */
+static PlannerInfo* get_cte_path_subroot(Path *path, PlannerInfo *root)
+{
+	PlannerInfo *cteroot;
+	RangeTblEntry *rte;
+	ListCell *lc;
+	Index levelsup;
+	int ndx,plan_id;
+	rte = planner_rt_fetch(path->parent->relid, root);
+	Assert(rte);
+
+	levelsup = rte->ctelevelsup;
+	cteroot = root;
+	while (levelsup-- > 0)
+	{
+		cteroot = cteroot->parent_root;
+		Assert(cteroot);
+	}
+
+	ndx = 0;
+	foreach(lc, cteroot->parse->cteList)
+	{
+		CommonTableExpr *cte = lfirst(lc);
+		if (strcmp(cte->ctename, rte->ctename) == 0)
+			break;
+		++ndx;
+	}
+	Assert(lc != NULL && ndx < list_length(cteroot->cte_plan_ids));
+	plan_id = list_nth_int(cteroot->cte_plan_ids, ndx);
+	Assert(plan_id > 0);
+
+	return list_nth(root->glob->subroots, plan_id - 1);
+}
+
+static ExecNodeInfo* get_exec_node_info(HTAB *htab, Oid nodeOid)
+{
+	ExecNodeInfo *info;
+	bool found;
+	info = hash_search(htab, &nodeOid, HASH_ENTER, &found);
+	if(found == false)
+	{
+		MemSet(info, 0, sizeof(*info));
+		info->nodeOid = nodeOid;
+	}
+	return info;
+}
+
+static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context)
+{
+	RelationLocInfo *loc;
+	if(path == NULL)
+		return false;
+	switch(nodeTag(path))
+	{
+	case T_Path:
+		if(path->pathtype == T_CteScan)
+		{
+			PathExecuteOnContext cte_context;
+			RelOptInfo *final_rel;
+			cte_context.root = get_cte_path_subroot(path, context->root);
+			Assert(cte_context.root);
+			cte_context.htab = context->htab;
+			final_rel = fetch_upper_rel(cte_context.root, UPPERREL_FINAL, NULL);
+			Assert(final_rel->cheapest_cluster_total_path != NULL);
+			get_path_execute_on_walker(final_rel->cheapest_cluster_total_path, &cte_context);
+			break;
+		}
+		if(path->pathtype != T_SeqScan)
+			return false;
+		/* don't add "break;" here */
+	case T_IndexPath:
+	case T_TidPath:
+		Assert((path->parent->reloptkind == RELOPT_BASEREL ||
+				path->parent->reloptkind == RELOPT_OTHER_MEMBER_REL) &&
+			   path->parent->rtekind == RTE_RELATION);
+		loc = path->parent->loc_info;
+		if(loc != NULL)
+		{
+			ExecNodeInfo *exec_info;
+			ListCell *lc;
+			if(IsRelationReplicated(loc))
+			{
+				double size = path->rows * path->pathtarget->width;
+				foreach(lc, loc->nodeids)
+				{
+					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
+					++(exec_info->rep_count);
+					exec_info->size += size;
+				}
+			}else if(IsRelationDistributedByValue(loc) ||
+				loc->locatorType == LOCATOR_TYPE_USER_DEFINED)
+			{
+				ReduceInfo *reduceInfo;
+				Assert(list_length(path->reduce_info_list) == 1);
+				reduceInfo = linitial(path->reduce_info_list);
+				foreach(lc, reduceInfo->storage_nodes)
+				{
+					if(list_member_oid(reduceInfo->exclude_exec, lfirst_oid(lc)))
+						continue;
+					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
+					++(exec_info->part_count);
+				}
+			}else if(loc->locatorType == LOCATOR_TYPE_RROBIN)
+			{
+				foreach(lc, loc->nodeids)
+				{
+					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
+					++(exec_info->part_count);
+				}
+			}else
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						errmsg("unknown locator type %d", loc->locatorType)));
+			}
+		}else
+		{
+			ExecNodeInfo *exec_info = get_exec_node_info(context->htab, PGXCNodeOid);
+			++(exec_info->part_count);
+		}
+		return false;
+	case T_ModifyTablePath:
+		{
+			ExecNodeInfo *exec_info;
+			ModifyTablePath *mtpath = (ModifyTablePath*)path;
+			List *reduce_list = get_reduce_info_list(path);
+			if(IsReduceInfoListCoordinator(reduce_list))
+			{
+				exec_info = get_exec_node_info(context->htab, PGXCNodeOid);
+				++(exec_info->part_count);
+			}else
+			{
+				ListCell *lc;
+				List *exec_list = ReduceInfoListGetExecuteOidList(get_reduce_info_list(path));
+				foreach(lc, exec_list)
+				{
+					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
+					if (mtpath->operation == CMD_INSERT)
+						++(exec_info->insert_count);
+					else
+						++(exec_info->update_count);
+				}
+				list_free(exec_list);
+			}
+		}
+		break;
+	case T_SubqueryScanPath:
+		{
+			PathExecuteOnContext subroot_context;
+			subroot_context.htab = context->htab;
+			subroot_context.root = path->parent->subroot;
+			return path_tree_walker(path, get_path_execute_on_walker, &subroot_context);
+		}
+	default:
+		break;
+	}
+
+	return path_tree_walker(path, get_path_execute_on_walker, context);
+}
+
+struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab, PlannerInfo *root)
+{
+	PathExecuteOnContext context;
+	if(htab == NULL)
+	{
+		HASHCTL hctl;
+		MemSet(&hctl, 0, sizeof(hctl));
+		hctl.keysize = sizeof(Oid);
+		hctl.entrysize = sizeof(ExecNodeInfo);
+		hctl.hcxt = CurrentMemoryContext;
+		context.htab = hash_create("hash execute node info", 128, &hctl, HASH_ELEM|HASH_CONTEXT);
+	}else
+	{
+		context.htab = htab;
+	}
+	context.root = root;
+	get_path_execute_on_walker(path, &context);
+	return context.htab;
+}
+
+bool path_tree_have_exec_param(Path *path, PlannerInfo *root)
+{
+	if(path == NULL)
+		return false;
+
+	switch(nodeTag(path))
+	{
+	case T_Path:
+		return restrict_list_have_exec_param(path->parent->baserestrictinfo);
+	case T_IndexPath:
+		{
+			IndexPath *index = (IndexPath*)path;
+			return restrict_list_have_exec_param(index->indexclauses) ||
+				   restrict_list_have_exec_param(index->indexquals) ||
+				   restrict_list_have_exec_param(index->indexinfo->indrestrictinfo);
+		}
+	case T_SubqueryScanPath:
+		if(restrict_list_have_exec_param(path->parent->baserestrictinfo))
+			return true;
+		return path_tree_have_exec_param(((SubqueryScanPath*)path)->subpath,
+										 path->parent->subroot);
+	default:
+		break;
+	}
+
+	return path_tree_walker(path, path_tree_have_exec_param, root);
+}
+
+bool expression_have_reduce_plan(Expr *expr, PlannerGlobal *glob)
+{
+	if(expr == NULL)
+		return false;
+	if(IsA(expr, SubPlan))
+	{
+		SubPlan *subplan = (SubPlan*)expr;
+		PlannerInfo *sub_root = list_nth(glob->subroots, subplan->plan_id - 1);
+		RelOptInfo *final_rel = fetch_upper_rel(sub_root, UPPERREL_FINAL, NULL);
+		/* ADBQ: do we need walke path's expression ? */
+		return have_cluster_reduce_path(final_rel->cheapest_replicate_path);
+	}
+	return expression_tree_walker((Node*)expr, expression_have_reduce_plan, glob);
+}
+
+typedef struct ExprHaveNodeContext
+{
+	Bitmapset *bms_nodes;
+	bool test_exec_param;
+}ExprHaveNodeContext;
+
+static bool expr_have_node_walker(Expr *expr, ExprHaveNodeContext *context)
+{
+	check_stack_depth();
+
+	if (expr == NULL)
+		return false;
+
+	if (context->test_exec_param &&
+		IsA(expr, Param) &&
+		((Param*)expr)->paramkind == PARAM_EXEC)
+		return true;
+
+	if (bms_is_member(nodeTag(expr), context->bms_nodes))
+		return true;
+
+	if (IsA(expr, RestrictInfo))
+		return expr_have_node_walker(((RestrictInfo*)expr)->clause, context);
+
+	return expression_tree_walker((Node*)expr, expr_have_node_walker, context);
+}
+
+static bool expr_have_node_internal(Expr *expr, bool exec_param, va_list va)
+{
+	ExprHaveNodeContext context;
+	NodeTag type;
+	bool result;
+	context.test_exec_param = exec_param;
+	context.bms_nodes = NULL;
+
+	while ((type = va_arg(va, NodeTag)) != T_Invalid)
+		context.bms_nodes = bms_add_member(context.bms_nodes, type);
+
+	if (exec_param == false &&
+		context.bms_nodes == NULL)
+		return false;
+
+	result = expr_have_node_walker(expr, &context);
+
+	bms_free(context.bms_nodes);
+	return result;
+}
+
+bool expr_have_node(Expr *expr, ...)
+{
+	va_list va;
+	bool result;
+	va_start(va, expr);
+	result =  expr_have_node_internal(expr, false, va);
+	va_end(va);
+	return result;
+}
+bool expr_have_exec_param_and_node(Expr *expr, ...)
+{
+	va_list va;
+	bool result;
+	va_start(va, expr);
+	result =  expr_have_node_internal(expr, true, va);
+	va_end(va);
+	return result;
+}
+
+static double* get_path_rows(RelOptInfo *joinrel, List *reduce_info_list, double *rows)
+{
+	List *storage;
+	AssertArg(reduce_info_list);
+	if(IsReduceInfoListReplicated(reduce_info_list))
+	{
+		*rows = joinrel->rows;
+	}else
+	{
+		ReduceInfoListGetStorageAndExcludeOidList(reduce_info_list, &storage, NULL);
+		if(storage)
+		{
+			*rows = joinrel->rows / list_length(storage);
+			list_free(storage);
+		}else
+		{
+			*rows = joinrel->rows;
+		}
+	}
+	return rows;
+}
+
+#endif /* ADB */

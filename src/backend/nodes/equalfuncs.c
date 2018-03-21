@@ -32,7 +32,9 @@
 #include "nodes/extensible.h"
 #include "nodes/relation.h"
 #include "utils/datum.h"
-
+#ifdef ADBMGRD
+#include "parser/mgr_node.h"
+#endif
 
 /*
  * Macros to simplify comparison of different kinds of fields.  Use these
@@ -212,6 +214,10 @@ _equalAggref(const Aggref *a, const Aggref *b)
 {
 	COMPARE_SCALAR_FIELD(aggfnoid);
 	COMPARE_SCALAR_FIELD(aggtype);
+#ifdef ADB
+COMPARE_SCALAR_FIELD(aggtrantype);
+COMPARE_SCALAR_FIELD(agghas_collectfn);
+#endif /* ADB */
 	COMPARE_SCALAR_FIELD(aggcollid);
 	COMPARE_SCALAR_FIELD(inputcollid);
 	/* ignore aggtranstype since it might not be set yet */
@@ -554,7 +560,9 @@ _equalCaseExpr(const CaseExpr *a, const CaseExpr *b)
 	COMPARE_NODE_FIELD(args);
 	COMPARE_NODE_FIELD(defresult);
 	COMPARE_LOCATION_FIELD(location);
-
+#ifdef ADB
+	COMPARE_SCALAR_FIELD(isdecode);
+#endif
 	return true;
 }
 
@@ -751,6 +759,33 @@ _equalInferenceElem(const InferenceElem *a, const InferenceElem *b)
 
 	return true;
 }
+
+#ifdef ADB
+static bool _equalColumRefJoin(const ColumnRefJoin *a, const ColumnRefJoin *b)
+{
+	COMPARE_SCALAR_FIELD(var);
+
+	return true;
+}
+
+static bool _equalPriorExpr(const PriorExpr *a, const PriorExpr *b)
+{
+	COMPARE_SCALAR_FIELD(expr);
+
+	return true;
+}
+
+static bool _equalRownumExpr(const RownumExpr *a, const RownumExpr *b)
+{
+	return true;
+}
+
+static bool _equalLevelExpr(const LevelExpr *a, const LevelExpr *b)
+{
+	return true;
+}
+
+#endif /* ADB */
 
 static bool
 _equalTargetEntry(const TargetEntry *a, const TargetEntry *b)
@@ -989,6 +1024,9 @@ _equalQuery(const Query *a, const Query *b)
 	COMPARE_NODE_FIELD(withCheckOptions);
 	COMPARE_LOCATION_FIELD(stmt_location);
 	COMPARE_LOCATION_FIELD(stmt_len);
+#ifdef ADB
+	COMPARE_SCALAR_FIELD(has_to_save_cmd_id);
+#endif
 
 	return true;
 }
@@ -1085,6 +1123,9 @@ _equalSetOperationStmt(const SetOperationStmt *a, const SetOperationStmt *b)
 static bool
 _equalAlterTableStmt(const AlterTableStmt *a, const AlterTableStmt *b)
 {
+#ifdef ADB
+	COMPARE_SCALAR_FIELD(grammar);
+#endif /* ADB */
 	COMPARE_NODE_FIELD(relation);
 	COMPARE_NODE_FIELD(cmds);
 	COMPARE_SCALAR_FIELD(relkind);
@@ -1228,6 +1269,9 @@ _equalCopyStmt(const CopyStmt *a, const CopyStmt *b)
 static bool
 _equalCreateStmt(const CreateStmt *a, const CreateStmt *b)
 {
+#ifdef ADB
+	COMPARE_SCALAR_FIELD(grammar);
+#endif /* ADB */
 	COMPARE_NODE_FIELD(relation);
 	COMPARE_NODE_FIELD(tableElts);
 	COMPARE_NODE_FIELD(inhRelations);
@@ -1239,7 +1283,10 @@ _equalCreateStmt(const CreateStmt *a, const CreateStmt *b)
 	COMPARE_SCALAR_FIELD(oncommit);
 	COMPARE_STRING_FIELD(tablespacename);
 	COMPARE_SCALAR_FIELD(if_not_exists);
-
+#ifdef ADB
+	COMPARE_NODE_FIELD(distributeby);
+	COMPARE_NODE_FIELD(subcluster);
+#endif
 	return true;
 }
 
@@ -1322,6 +1369,9 @@ _equalFetchStmt(const FetchStmt *a, const FetchStmt *b)
 static bool
 _equalIndexStmt(const IndexStmt *a, const IndexStmt *b)
 {
+#ifdef ADB
+	COMPARE_SCALAR_FIELD(grammar);
+#endif /* ADB */
 	COMPARE_STRING_FIELD(idxname);
 	COMPARE_NODE_FIELD(relation);
 	COMPARE_STRING_FIELD(accessMethod);
@@ -1498,6 +1548,9 @@ _equalUnlistenStmt(const UnlistenStmt *a, const UnlistenStmt *b)
 static bool
 _equalTransactionStmt(const TransactionStmt *a, const TransactionStmt *b)
 {
+#if defined(ADB) || defined(AGTM)
+	COMPARE_SCALAR_FIELD(missing_ok);
+#endif
 	COMPARE_SCALAR_FIELD(kind);
 	COMPARE_NODE_FIELD(options);
 	COMPARE_STRING_FIELD(gid);
@@ -1548,6 +1601,9 @@ _equalAlterEnumStmt(const AlterEnumStmt *a, const AlterEnumStmt *b)
 static bool
 _equalViewStmt(const ViewStmt *a, const ViewStmt *b)
 {
+#ifdef ADB
+	COMPARE_SCALAR_FIELD(grammar);
+#endif
 	COMPARE_NODE_FIELD(view);
 	COMPARE_NODE_FIELD(aliases);
 	COMPARE_NODE_FIELD(query);
@@ -1681,6 +1737,9 @@ _equalExplainStmt(const ExplainStmt *a, const ExplainStmt *b)
 static bool
 _equalCreateTableAsStmt(const CreateTableAsStmt *a, const CreateTableAsStmt *b)
 {
+#ifdef ADB
+	COMPARE_SCALAR_FIELD(grammar);
+#endif /* ADB */
 	COMPARE_NODE_FIELD(query);
 	COMPARE_NODE_FIELD(into);
 	COMPARE_SCALAR_FIELD(relkind);
@@ -2954,6 +3013,119 @@ _equalValue(const Value *a, const Value *b)
 	return true;
 }
 
+#ifdef ADB
+/*
+ * stuff from barrier.h
+ */
+
+static bool
+_equalBarrierStmt(const BarrierStmt *a, const BarrierStmt *b)
+{
+	COMPARE_STRING_FIELD(id);
+	return true;
+}
+
+/*
+ * stuff from nodemgr.h
+ */
+
+static bool
+_equalAlterNodeStmt(const AlterNodeStmt *a, const AlterNodeStmt *b)
+{
+	COMPARE_STRING_FIELD(node_name);
+	COMPARE_NODE_FIELD(options);
+	return true;
+}
+
+static bool
+_equalCreateNodeStmt(const CreateNodeStmt *a, const CreateNodeStmt *b)
+{
+	COMPARE_STRING_FIELD(node_name);
+	COMPARE_NODE_FIELD(options);
+	return true;
+}
+
+static bool
+_equalDropNodeStmt(const DropNodeStmt *a, const DropNodeStmt *b)
+{
+	COMPARE_STRING_FIELD(node_name);
+	return true;
+}
+
+/*
+ * stuff from groupmgr.h
+ */
+
+static bool
+_equalCreateGroupStmt(const CreateGroupStmt *a, const CreateGroupStmt *b)
+{
+	COMPARE_STRING_FIELD(group_name);
+	COMPARE_NODE_FIELD(nodes);
+	return true;
+}
+
+static bool
+_equalDropGroupStmt(const DropGroupStmt *a, const DropGroupStmt *b)
+{
+	COMPARE_STRING_FIELD(group_name);
+	return true;
+}
+
+/*
+ * stuff from poolutils.h
+ */
+static bool
+_equalCleanConnStmt(const CleanConnStmt *a, const CleanConnStmt *b)
+{
+	COMPARE_NODE_FIELD(nodes);
+	COMPARE_STRING_FIELD(dbname);
+	COMPARE_STRING_FIELD(username);
+	COMPARE_SCALAR_FIELD(is_coord);
+	COMPARE_SCALAR_FIELD(is_force);
+	return true;
+}
+
+static bool
+_equalOidVectorLoopExpr(const OidVectorLoopExpr *a, const OidVectorLoopExpr *b)
+{
+	COMPARE_SCALAR_FIELD(signalRowMode);
+	return datumIsEqual(a->vector, b->vector, false, -1);
+}
+
+#endif
+
+#ifdef ADBMGRD
+/*
+ * stuff from mgr_node.h
+ */
+
+ static bool
+_equalMGRAddHost(const MGRAddHost *a, const MGRAddHost *b)
+{
+	COMPARE_SCALAR_FIELD(if_not_exists);
+	COMPARE_STRING_FIELD(name);
+	COMPARE_NODE_FIELD(options);
+	return true;
+}
+
+static bool
+_equalMGRDropHost(const MGRDropHost *a, const MGRDropHost *b)
+{
+	COMPARE_SCALAR_FIELD(if_exists);
+	COMPARE_NODE_FIELD(hosts);
+	return true;
+}
+
+static bool
+_equalMGRAlterHost(const MGRAlterHost *a, const MGRAlterHost *b)
+{
+	COMPARE_SCALAR_FIELD(if_not_exists);
+	COMPARE_STRING_FIELD(name);
+	COMPARE_NODE_FIELD(options);
+	return true;
+}
+#endif
+
 /*
  * equal
  *	  returns whether two nodes are equal
@@ -3121,6 +3293,20 @@ equal(const void *a, const void *b)
 		case T_InferenceElem:
 			retval = _equalInferenceElem(a, b);
 			break;
+#ifdef ADB
+		case T_ColumnRefJoin:
+			retval = _equalColumRefJoin(a, b);
+			break;
+		case T_PriorExpr:
+			retval = _equalPriorExpr(a, b);
+			break;
+		case T_RownumExpr:
+			retval = _equalRownumExpr(a, b);
+			break;
+		case T_LevelExpr:
+			retval = _equalLevelExpr(a, b);
+			break;
+#endif /* ABD */
 		case T_TargetEntry:
 			retval = _equalTargetEntry(a, b);
 			break;
@@ -3480,6 +3666,32 @@ equal(const void *a, const void *b)
 		case T_CheckPointStmt:
 			retval = true;
 			break;
+#ifdef ADB
+		case T_BarrierStmt:
+			retval = _equalBarrierStmt(a, b);
+			break;
+		case T_AlterNodeStmt:
+			retval = _equalAlterNodeStmt(a, b);
+			break;
+		case T_CreateNodeStmt:
+			retval = _equalCreateNodeStmt(a, b);
+			break;
+		case T_DropNodeStmt:
+			retval = _equalDropNodeStmt(a, b);
+			break;
+		case T_CreateGroupStmt:
+			retval = _equalCreateGroupStmt(a, b);
+			break;
+		case T_DropGroupStmt:
+			retval = _equalDropGroupStmt(a, b);
+			break;
+		case T_CleanConnStmt:
+			retval = _equalCleanConnStmt(a, b);
+			break;
+		case T_OidVectorLoopExpr:
+			retval = _equalOidVectorLoopExpr(a, b);
+			break;
+#endif
 		case T_CreateSchemaStmt:
 			retval = _equalCreateSchemaStmt(a, b);
 			break;
@@ -3676,6 +3888,17 @@ equal(const void *a, const void *b)
 			retval = _equalPartitionCmd(a, b);
 			break;
 
+#ifdef ADBMGRD
+		case T_MGRAddHost:
+			retval = _equalMGRAddHost(a, b);
+			break;
+		case T_MGRDropHost:
+			retval = _equalMGRDropHost(a, b);
+			break;
+		case T_MGRAlterHost:
+			retval = _equalMGRAlterHost(a, b);
+			break;
+#endif
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(a));

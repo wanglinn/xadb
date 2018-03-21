@@ -45,7 +45,11 @@
 #include "utils/fmgroids.h"
 #include "utils/rel.h"
 #include "utils/tqual.h"
-
+#ifdef ADB
+#include "catalog/pgxc_node.h"
+#include "catalog/pgxc_group.h"
+#include "pgxc/pgxc.h"
+#endif
 
 /*
  * IsSystemRelation
@@ -162,7 +166,15 @@ IsToastClass(Form_pg_class reltuple)
 bool
 IsSystemNamespace(Oid namespaceId)
 {
+#ifdef ADB
+	return (namespaceId == PG_CATALOG_NAMESPACE ||
+			namespaceId == PG_ORACLE_NAMESPACE);
+#elif defined(ADBMGRD)
+	return (namespaceId == PG_CATALOG_NAMESPACE ||
+			namespaceId == PG_MANAGER_NAMESPACE);
+#else
 	return namespaceId == PG_CATALOG_NAMESPACE;
+#endif
 }
 
 /*
@@ -228,6 +240,10 @@ IsSharedRelation(Oid relationId)
 		relationId == SharedDependRelationId ||
 		relationId == SharedSecLabelRelationId ||
 		relationId == TableSpaceRelationId ||
+#ifdef ADB
+		relationId == PgxcGroupRelationId ||
+		relationId == PgxcNodeRelationId ||
+#endif
 		relationId == DbRoleSettingRelationId ||
 		relationId == ReplicationOriginRelationId ||
 		relationId == SubscriptionRelationId)
@@ -246,6 +262,13 @@ IsSharedRelation(Oid relationId)
 		relationId == SharedSecLabelObjectIndexId ||
 		relationId == TablespaceOidIndexId ||
 		relationId == TablespaceNameIndexId ||
+#ifdef ADB
+		relationId == PgxcNodeNodeNameIndexId ||
+		relationId == PgxcNodeNodeIdIndexId ||
+		relationId == PgxcNodeOidIndexId ||
+		relationId == PgxcGroupGroupNameIndexId ||
+		relationId == PgxcGroupOidIndexId ||
+#endif
 		relationId == DbRoleSettingDatidRolidIndexId ||
 		relationId == ReplicationOriginIdentIndex ||
 		relationId == ReplicationOriginNameIndex ||

@@ -40,6 +40,9 @@
 #include "access/xact.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#if defined(ADBMGRD)
+#include "postmaster/adbmonitor.h"
+#endif
 #include "postmaster/autovacuum.h"
 #include "replication/slot.h"
 #include "replication/syncrep.h"
@@ -54,6 +57,9 @@
 #include "storage/spin.h"
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
+#ifdef ADB
+#include "pgxc/poolmgr.h"
+#endif
 
 
 /* GUC variables */
@@ -179,6 +185,9 @@ InitProcGlobal(void)
 	ProcGlobal->spins_per_delay = DEFAULT_SPINS_PER_DELAY;
 	ProcGlobal->freeProcs = NULL;
 	ProcGlobal->autovacFreeProcs = NULL;
+#if defined(ADBMGRD)
+	ProcGlobal->adbmntFreeProcs = NULL;
+#endif
 	ProcGlobal->bgworkerFreeProcs = NULL;
 	ProcGlobal->startupProc = NULL;
 	ProcGlobal->startupProcPid = 0;
@@ -252,6 +261,16 @@ InitProcGlobal(void)
 			ProcGlobal->autovacFreeProcs = &procs[i];
 			procs[i].procgloballist = &ProcGlobal->autovacFreeProcs;
 		}
+#if defined(ADBMGRD)
+		else if (i < MaxConnections + autovacuum_max_workers + 1 +
+					 adbmonitor_max_workers + 1)
+		{
+			/* PGPROC for adb monitor launcher/worker, add to adbmntFreeProcs list */
+			procs[i].links.next = (SHM_QUEUE *) ProcGlobal->adbmntFreeProcs;
+			ProcGlobal->adbmntFreeProcs = &procs[i];
+			procs[i].procgloballist = &ProcGlobal->adbmntFreeProcs;
+		}
+#endif
 		else if (i < MaxBackends)
 		{
 			/* PGPROC for bgworker, add to bgworkerFreeProcs list */
@@ -301,6 +320,10 @@ InitProcess(void)
 	/* Decide which list should supply our PGPROC. */
 	if (IsAnyAutoVacuumProcess())
 		procgloballist = &ProcGlobal->autovacFreeProcs;
+#if defined(ADBMGRD)
+	else if (IsAnyAdbMonitorProcess())
+		procgloballist = &ProcGlobal->adbmntFreeProcs;
+#endif
 	else if (IsBackgroundWorker)
 		procgloballist = &ProcGlobal->bgworkerFreeProcs;
 	else
@@ -318,7 +341,6 @@ InitProcess(void)
 	set_spins_per_delay(ProcGlobal->spins_per_delay);
 
 	MyProc = *procgloballist;
-
 	if (MyProc != NULL)
 	{
 		*procgloballist = (PGPROC *) MyProc->links.next;
@@ -351,7 +373,13 @@ InitProcess(void)
 	 * cleaning up.  (XXX autovac launcher currently doesn't participate in
 	 * this; it probably should.)
 	 */
+#if defined(ADBMGRD)
+	if (IsUnderPostmaster &&
+		!IsAutoVacuumLauncherProcess() &&
+		!IsAdbMonitorLauncherProcess())
+#else
 	if (IsUnderPostmaster && !IsAutoVacuumLauncherProcess())
+#endif
 		MarkPostmasterChildActive();
 
 	/*
@@ -371,6 +399,9 @@ InitProcess(void)
 	MyProc->databaseId = InvalidOid;
 	MyProc->roleId = InvalidOid;
 	MyProc->isBackgroundWorker = IsBackgroundWorker;
+#ifdef ADB
+	MyProc->isPooler = IsPGXCPoolerProcess();
+#endif
 	MyPgXact->delayChkpt = false;
 	MyPgXact->vacuumFlags = 0;
 	/* NB -- autovac launcher intentionally does not set IS_AUTOVACUUM */
@@ -543,6 +574,9 @@ InitAuxiliaryProcess(void)
 	MyProc->backendId = InvalidBackendId;
 	MyProc->databaseId = InvalidOid;
 	MyProc->roleId = InvalidOid;
+#ifdef ADB
+	MyProc->isPooler = IsPGXCPoolerProcess();
+#endif
 	MyProc->isBackgroundWorker = IsBackgroundWorker;
 	MyPgXact->delayChkpt = false;
 	MyPgXact->vacuumFlags = 0;
@@ -887,12 +921,23 @@ ProcKill(int code, Datum arg)
 	 * way, so tell the postmaster we've cleaned up acceptably well. (XXX
 	 * autovac launcher should be included here someday)
 	 */
+#if defined(ADBMGRD)
+	if (IsUnderPostmaster &&
+		!IsAutoVacuumLauncherProcess() &&
+		!IsAdbMonitorLauncherProcess())
+#else
 	if (IsUnderPostmaster && !IsAutoVacuumLauncherProcess())
+#endif
 		MarkPostmasterChildInactive();
 
 	/* wake autovac launcher if needed -- see comments in FreeWorkerInfo */
 	if (AutovacuumLauncherPid != 0)
 		kill(AutovacuumLauncherPid, SIGUSR2);
+#if defined(ADBMGRD)
+	/* wake adb monitor launcher if needed -- see comments in FreeWorkerInfo */
+	if (AdbMonitorLauncherPid != 0)
+		kill(AdbMonitorLauncherPid, SIGUSR2);
+#endif
 }
 
 /*

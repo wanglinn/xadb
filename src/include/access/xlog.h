@@ -85,6 +85,10 @@ typedef enum
 	RECOVERY_TARGET_NAME,
 	RECOVERY_TARGET_LSN,
 	RECOVERY_TARGET_IMMEDIATE
+#ifdef ADB
+	,
+	RECOVERY_TARGET_BARRIER
+#endif
 } RecoveryTargetType;
 
 extern XLogRecPtr ProcLastRecPtr;

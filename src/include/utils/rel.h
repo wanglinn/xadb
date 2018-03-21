@@ -26,7 +26,9 @@
 #include "storage/relfilenode.h"
 #include "utils/relcache.h"
 #include "utils/reltrigger.h"
-
+#ifdef ADB
+#include "pgxc/locator.h"
+#endif
 
 /*
  * LockRelId and LockInfo really belong to lmgr.h, but it's more convenient
@@ -216,6 +218,9 @@ typedef struct RelationData
 
 	/* use "struct" here to avoid needing to include pgstat.h: */
 	struct PgStat_TableStatus *pgstat_info; /* statistics collection area */
+#ifdef ADB
+	RelationLocInfo *rd_locator_info;
+#endif
 } RelationData;
 
 
@@ -523,6 +528,21 @@ typedef struct ViewOptions
 #define RELATION_IS_LOCAL(relation) \
 	((relation)->rd_islocaltemp || \
 	 (relation)->rd_createSubid != InvalidSubTransactionId)
+
+#ifdef ADB
+/*
+ * RelationGetLocInfo
+ *		Return the location info of relation
+ */
+#define RelationGetLocInfo(relation) ((relation)->rd_locator_info)
+
+/*
+ * RelationGetLocatorType
+ *		Returns the rel's locator type.
+ */
+#define RelationGetLocatorType(relation) \
+	((relation)->rd_locator_info->locatorType)
+#endif
 
 /*
  * RELATION_IS_OTHER_TEMP

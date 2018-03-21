@@ -3,9 +3,13 @@
 -- test the views defined in CREATE_VIEWS
 --
 
-SELECT * FROM street;
+SELECT * FROM street ORDER BY name using ~<~, cname using ~<~,thepath::text using ~<~ ;
 
+<<<<<<< HEAD
 SELECT name, #thepath FROM iexit ORDER BY name COLLATE "C", 2;
+=======
+SELECT name, #thepath FROM iexit ORDER BY name using ~<~, 2;
+>>>>>>> e4e2e7774a... 3.1 patch
 
 SELECT * FROM toyemp WHERE name = 'sharon';
 

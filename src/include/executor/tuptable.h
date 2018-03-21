@@ -118,6 +118,16 @@ typedef struct TupleTableSlot
 	bool		tts_shouldFreeMin;	/* should pfree tts_mintuple? */
 	bool		tts_slow;		/* saved state for slot_deform_tuple */
 	HeapTuple	tts_tuple;		/* physical tuple, or NULL if virtual */
+#ifdef ADB
+	/*
+	 * PGXC extension to support tuples sent from remote Datanode.
+	 */
+	char	   *tts_dataRow;		/* Tuple data in DataRow format */
+	int			tts_dataLen;		/* Actual length of the data row */
+	bool		tts_shouldFreeRow;	/* should pfree tts_dataRow? */
+	struct AttInMetadata *tts_attinmeta;	/* store here info to extract values from the DataRow */
+	Oid			tts_xcnodeoid;		/* Oid of node from where the datarow is fetched */
+#endif
 	TupleDesc	tts_tupleDescriptor;	/* slot's tuple descriptor */
 	MemoryContext tts_mcxt;		/* slot itself is in this context */
 	Buffer		tts_buffer;		/* tuple's buffer, or InvalidBuffer */
@@ -169,5 +179,13 @@ extern Datum slot_getattr(TupleTableSlot *slot, int attnum, bool *isnull);
 extern void slot_getallattrs(TupleTableSlot *slot);
 extern void slot_getsomeattrs(TupleTableSlot *slot, int attnum);
 extern bool slot_attisnull(TupleTableSlot *slot, int attnum);
+
+#ifdef ADB
+extern TupleTableSlot *ExecStoreDataRowTuple(char *msg,
+			size_t len, Oid msgnode_oid,
+			TupleTableSlot *slot,
+			bool shouldFree);
+extern MinimalTuple ExecCopyRemoteSlotMinimalTuple(TupleTableSlot *slot);
+#endif
 
 #endif							/* TUPTABLE_H */

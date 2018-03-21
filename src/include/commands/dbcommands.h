@@ -31,4 +31,8 @@ extern char *get_database_name(Oid dbid);
 
 extern void check_encoding_locale_matches(int encoding, const char *collate, const char *ctype);
 
+#ifdef ADB
+extern bool IsSetTableSpace(AlterDatabaseStmt *stmt);
+#endif
+
 #endif							/* DBCOMMANDS_H */

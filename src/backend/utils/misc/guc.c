@@ -56,6 +56,9 @@
 #include "parser/parser.h"
 #include "parser/scansup.h"
 #include "pgstat.h"
+#if defined(ADBMGRD)
+#include "postmaster/adbmonitor.h"
+#endif /* ADBMGRD */
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgworker_internals.h"
 #include "postmaster/bgwriter.h"
@@ -90,6 +93,24 @@
 #include "utils/varlena.h"
 #include "utils/xml.h"
 
+#ifdef ADB
+#include "commands/tablecmds.h"
+#include "nodes/nodes.h"
+#include "optimizer/pgxcship.h"
+#include "pgxc/execRemote.h"
+#include "pgxc/locator.h"
+#include "pgxc/nodemgr.h"
+#include "pgxc/pgxc.h"
+#include "pgxc/pgxcnode.h"
+#include "pgxc/poolmgr.h"
+#include "pgxc/xc_maintenance_mode.h"
+#include "optimizer/pgxcplan.h"
+#endif
+#if defined(ADBMGRD)
+#include "postmaster/adbmonitor.h"
+#endif /* ADBMGRD */
+
+
 #ifndef PG_KRB_SRVTAB
 #define PG_KRB_SRVTAB ""
 #endif
@@ -108,6 +129,7 @@
  * serialization.
  */
 #define REALTYPE_PRECISION 17
+
 
 /* XXX these should appear in other modules' header files */
 extern bool Log_disconnections;
@@ -168,6 +190,9 @@ static bool check_bonjour(bool *newval, void **extra, GucSource source);
 static bool check_ssl(bool *newval, void **extra, GucSource source);
 static bool check_stage_log_stats(bool *newval, void **extra, GucSource source);
 static bool check_log_stats(bool *newval, void **extra, GucSource source);
+#ifdef ADB
+static bool check_pgxc_maintenance_mode(bool *newval, void **extra, GucSource source);
+#endif
 static bool check_canonical_path(char **newval, void **extra, GucSource source);
 static bool check_timezone_abbreviations(char **newval, void **extra, GucSource source);
 static void assign_timezone_abbreviations(const char *newval, void *extra);
@@ -195,6 +220,9 @@ static const char *show_log_file_mode(void);
 /* Private functions in guc-file.l that need to be called from guc.c */
 static ConfigVariable *ProcessConfigFileInternal(GucContext context,
 						  bool applySettings, int elevel);
+#if defined(ADBMGRD)
+static bool check_adbmonitor_max_workers(int *newval, void **extra, GucSource source);
+#endif
 
 
 /*
@@ -403,6 +431,37 @@ static const struct config_enum_entry force_parallel_mode_options[] = {
 	{NULL, 0, false}
 };
 
+#ifdef ADB
+/*
+ * Define remote connection types for PGXC
+ */
+static const struct config_enum_entry pgxc_conn_types[] = {
+	{"application", REMOTE_CONN_APP, false},
+	{"coordinator", REMOTE_CONN_COORD, false},
+	{"datanode", REMOTE_CONN_DATANODE, false},
+	{"rxactmgr", REMOTE_CONN_RXACTMGR, false},
+	{NULL, 0, false}
+};
+
+static const struct config_enum_entry parse_grammer_options[] = {
+	{"postgres", PARSE_GRAM_POSTGRES, false},
+	{"oracle", PARSE_GRAM_ORACLE, false},
+	{NULL, 0, false}
+};
+#endif /* ADB */
+
+#ifdef ADBMGRD
+static const struct config_enum_entry command_mode[] = {
+	{"sql", CMD_MODE_SQL, false},
+	{"manager",CMD_MODE_MGR, false},
+	{"manage",CMD_MODE_MGR, false},
+	{"mgr", CMD_MODE_MGR, false},
+	{NULL, 0, false}
+};
+
+extern int mgr_cmd_mode;
+#endif /* ADBMGRD */
+
 /*
  * password_encryption used to be a boolean, so accept all the likely
  * variants of "on", too. "off" used to store passwords in plaintext,
@@ -432,6 +491,10 @@ extern const struct config_enum_entry dynamic_shared_memory_options[];
 bool		log_duration = false;
 bool		Debug_print_plan = false;
 bool		Debug_print_parse = false;
+#ifdef ADB
+bool		Debug_print_grammar = false;
+bool		enable_cluster_plan = false;
+#endif
 bool		Debug_print_rewritten = false;
 bool		Debug_pretty_print = true;
 
@@ -471,6 +534,31 @@ char	   *application_name;
 int			tcp_keepalives_idle;
 int			tcp_keepalives_interval;
 int			tcp_keepalives_count;
+#ifdef ADB
+char	   *nls_date_format;
+char	   *nls_timestamp_format;
+char	   *nls_timestamp_tz_format;
+char	   *adb_ha_param_delimiter;
+char	   *AGtmHost;
+int			AGtmPort;
+int			pool_time_out;
+int			pool_release_to_idle_timeout;
+bool		enable_adb_ha_sync;
+bool		enable_adb_ha_sync_select;
+bool 		debug_enable_satisfy_mvcc;
+bool		enable_stable_func_shipping;
+bool		enable_pushdown_art;
+bool		enable_zero_year;
+bool		distribute_by_replication_default;
+bool		print_reduce_debug_log = false;
+extern bool enable_node_tcp_log;
+#endif
+#ifdef DEBUG_ADB
+bool		ADB_DEBUG;
+#endif
+#ifdef AGTM
+extern int agtm_listen_port;
+#endif /* AGTM */
 
 /*
  * SSL renegotiation was been removed in PostgreSQL 9.5, but we tolerate it
@@ -636,6 +724,10 @@ const char *const config_group_names[] =
 	gettext_noop("Statistics / Query and Index Statistics Collector"),
 	/* AUTOVACUUM */
 	gettext_noop("Autovacuum"),
+#if defined(ADBMGRD)
+	/* ADBMONITOR */
+	gettext_noop("Adb Monitor"),
+#endif
 	/* CLIENT_CONN */
 	gettext_noop("Client Connection Defaults"),
 	/* CLIENT_CONN_STATEMENT */
@@ -662,6 +754,16 @@ const char *const config_group_names[] =
 	gettext_noop("Customized Options"),
 	/* DEVELOPER_OPTIONS */
 	gettext_noop("Developer Options"),
+#ifdef ADB
+	/* DATA_NODES */
+	gettext_noop("Datanodes and Connection Pooling"),
+	/* GTM */
+	gettext_noop("GTM Connection"),
+	/* COORDINATORS */
+	gettext_noop("Coordinator Options"),
+	/* XC_HOUSEKEEPING_OPTIONS */
+	gettext_noop("XC Housekeeping Options"),
+#endif
 	/* help_config wants this array to be null-terminated */
 	NULL
 };
@@ -910,7 +1012,6 @@ static struct config_bool ConfigureNamesBool[] =
 		true,
 		NULL, NULL, NULL
 	},
-
 	{
 		{"geqo", PGC_USERSET, QUERY_TUNING_GEQO,
 			gettext_noop("Enables genetic query optimization."),
@@ -1131,6 +1232,45 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
+#ifdef ADB
+	{
+		{"print_reduce_debug_log", PGC_USERSET, LOGGING_WHAT,
+			gettext_noop("Logs something about adb reduce."),
+			NULL
+		},
+		&print_reduce_debug_log,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"debug_print_grammar", PGC_USERSET, LOGGING_WHAT,
+			gettext_noop("Logs each query's grammar tree."),
+			NULL
+		},
+		&Debug_print_grammar,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_cluster_plan", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Using cluster plan for quer."),
+			NULL
+		},
+		&enable_cluster_plan,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_hashscan", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of hash ReduceScan plans."),
+			NULL
+		},
+		&enable_hashscan,
+		true,
+		NULL, NULL, NULL
+	},
+#endif
 	{
 		{"debug_print_rewritten", PGC_USERSET, LOGGING_WHAT,
 			gettext_noop("Logs each query's rewritten parse tree."),
@@ -1260,6 +1400,18 @@ static struct config_bool ConfigureNamesBool[] =
 		true,
 		NULL, NULL, NULL
 	},
+
+#if defined(ADBMGRD)
+	{
+		{"adbmonitor", PGC_SIGHUP, ADBMONITOR,
+			gettext_noop("Starts the adb monitor subprocess."),
+			NULL
+		},
+		&adbmonitor_start_daemon,
+		true,
+		NULL, NULL, NULL
+	},
+#endif /* ADBMGRD */
 
 	{
 		{"trace_notify", PGC_USERSET, DEVELOPER_OPTIONS,
@@ -1666,6 +1818,176 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+#ifdef ADB
+	{
+		{"enable_remotejoin", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of remote join plans."),
+			NULL
+		},
+		&enable_remotejoin,
+		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_fast_query_shipping", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of fast query shipping to ship query directly to datanode."),
+			NULL
+		},
+		&enable_fast_query_shipping,
+		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"pgxc_enable_remote_query", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enable the planner's use of remote query"),
+			NULL
+		},
+		&pgxc_enable_remote_query,
+		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_remotegroup", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of remote group plans."),
+			NULL
+		},
+		&enable_remotegroup,
+		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_remotesort", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of remote sort plans."),
+			NULL
+		},
+		&enable_remotesort,
+		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_remotelimit", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of remote limit plans."),
+			NULL
+		},
+		&enable_remotelimit,
+		true,
+		NULL, NULL, NULL
+	},
+#if 0
+	{
+		{"gtm_backup_barrier", PGC_SUSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables coordinator to report barrier id to GTM for backup."),
+			NULL
+		},
+		&gtm_backup_barrier,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"xc_gtm_commit_sync_test", PGC_USERSET, STATS_MONITORING,
+			gettext_noop("Prints additional status info on GTM commit syncronization."),
+			NULL
+		},
+		&xc_gtm_commit_sync_test,
+		false,
+		NULL, NULL, NULL
+	},
+#endif
+	{
+		{"xc_enable_node_tcp_log", PGC_USERSET, LOGGING,
+			gettext_noop("Save node TCP data to log file"),
+			NULL
+		},
+		&enable_node_tcp_log,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"persistent_datanode_connections", PGC_BACKEND, DEVELOPER_OPTIONS,
+			gettext_noop("Session never releases acquired connections."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&PersistentConnections,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"xc_maintenance_mode", PGC_SUSET, XC_HOUSEKEEPING_OPTIONS,
+			gettext_noop("Turn on XC maintenance mode."),
+			gettext_noop("Can set ON by SET command by superuser.")
+		},
+		&xc_maintenance_mode,
+		false,
+		check_pgxc_maintenance_mode, NULL, NULL
+	},
+
+	{
+		{"distribute_by_replication_default", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Set distribute by replication default."),
+			NULL
+		},
+		&distribute_by_replication_default,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enable_stable_func_shipping", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables stable function shipping to ship query directly to datanode."),
+			NULL
+		},
+		&enable_stable_func_shipping,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"require_replicated_table_pkey", PGC_USERSET, XC_HOUSEKEEPING_OPTIONS,
+			gettext_noop("When set, non-FQS UPDATEs & DELETEs to replicated tables without"
+					" primary key or a unique key are prohibited"),
+			NULL
+		},
+		&RequirePKeyForRepTab,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"debug_enable_satisfy_mvcc", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Turn on HeapTupleSatisfiesMVCC always return true."),
+		 	gettext_noop("Can set ON by SET command by superuser.")
+		},
+		&debug_enable_satisfy_mvcc,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enable_pushdown_art", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("push down query to one datanode if all table are replicated."),
+			NULL
+		},
+		&enable_pushdown_art,
+		false,
+		NULL, NULL, NULL
+	},
+#endif
+
+#ifdef DEBUG_ADB
+	{
+		{"adb_debug", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("Emit ADB debugging output."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&ADB_DEBUG,
+		false,
+		NULL, NULL, NULL
+	},
+#endif
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL
@@ -1875,7 +2197,13 @@ static struct config_int ConfigureNamesInt[] =
 			NULL
 		},
 		&PostPortNumber,
+#ifdef ADBMGRD
+		6432, 1, 65535,
+#elif defined(AGTM)
+		7432, 1, 65535,
+#else
 		DEF_PGPORT, 1, 65535,
+#endif
 		NULL, NULL, NULL
 	},
 
@@ -2060,7 +2388,11 @@ static struct config_int ConfigureNamesInt[] =
 			NULL
 		},
 		&max_prepared_xacts,
+#ifdef ADB
+		10, 0, MAX_BACKENDS,
+#else
 		0, 0, MAX_BACKENDS,
+#endif
 		NULL, NULL, NULL
 	},
 
@@ -2643,6 +2975,19 @@ static struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 
+#if defined(ADBMGRD)
+	{
+		{"adbmonitor_naptime", PGC_SIGHUP, ADBMONITOR,
+			gettext_noop("Time to sleep between adb monitor launcher runs."),
+			NULL,
+			GUC_UNIT_S
+		},
+		&adbmonitor_naptime,
+		60, 1, INT_MAX / 1000,
+		NULL, NULL, NULL
+	},
+#endif
+
 	{
 		{"autovacuum_naptime", PGC_SIGHUP, AUTOVACUUM,
 			gettext_noop("Time to sleep between autovacuum runs."),
@@ -2702,6 +3047,42 @@ static struct config_int ConfigureNamesInt[] =
 		3, 1, MAX_BACKENDS,
 		check_autovacuum_max_workers, NULL, NULL
 	},
+
+#if defined(ADBMGRD)
+	{
+		/* see max_connections */
+		{"adbmonitor_max_workers", PGC_POSTMASTER, ADBMONITOR,
+			gettext_noop("Sets the max number of simultaneously running adb monitor worker processes."),
+			NULL
+		},
+		&adbmonitor_max_workers,
+		10, 1, MAX_BACKENDS,
+		check_adbmonitor_max_workers, NULL, NULL
+	},
+#endif /* ADBMGRD */
+
+#ifdef ADB
+	{
+		{"pool_time_out", PGC_SIGHUP, CLIENT_CONN_OTHER,
+			gettext_noop("close connection from poolmgr to datanode idle process max time(s)"),
+			gettext_noop("A value of 0 uses the system default."),
+			GUC_UNIT_S
+		},
+		&pool_time_out,
+		60, 1, INT_MAX,
+		NULL, NULL, NULL
+	},
+	{
+		{"pool_release_to_idle_timeout", PGC_SIGHUP, CLIENT_CONN_OTHER,
+			gettext_noop("set idle connection from poolmgr to datanode when released from backend max time(s)"),
+			gettext_noop("-1 for never, 0 for immediate, other for second(s)"),
+			GUC_UNIT_S
+		},
+		&pool_release_to_idle_timeout,
+		-1, -1, INT_MAX,
+		NULL, NULL, NULL
+	},
+#endif
 
 	{
 		{"max_parallel_workers_per_gather", PGC_USERSET, RESOURCES_ASYNCHRONOUS,
@@ -2885,6 +3266,107 @@ static struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 
+#ifdef ADB
+	{
+		{"pool_time_out", PGC_BACKEND, CLIENT_CONN_OTHER,
+			gettext_noop("close connection from poolmgr to datanode idle process max time(s)"),
+			gettext_noop("A value of 0 uses the system default."),
+			GUC_UNIT_S
+		},
+		&pool_time_out,
+		60, 1, INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"min_pool_size", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Initial pool size."),
+			gettext_noop("If number of active connections decreased below this value, "
+						 "new connections are established")
+		},
+		&MinPoolSize,
+		1, 1, 65535,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"max_pool_size", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Max pool size."),
+			gettext_noop("If number of active connections reaches this value, "
+						 "other connection requests will be refused")
+		},
+		&MaxPoolSize,
+		100, 1, 65535,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"agtm_port", PGC_SIGHUP, GTM,
+			gettext_noop("Port of GTM."),
+			NULL
+		},
+		&AGtmPort,
+		6666, 1, 65535,
+		check_agtm_port, NULL, NULL
+	},
+
+	{
+		{"max_datanodes", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Maximum number of Datanodes in the cluster."),
+			gettext_noop("It is not possible to create more Datanodes in the cluster than "
+						 "this maximum number.")
+		},
+		&MaxDataNodes,
+		16, 2, 65535,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"max_coordinators", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("Maximum number of Coordinators in the cluster."),
+			gettext_noop("It is not possible to create more Coordinators in the cluster than "
+						 "this maximum number.")
+		},
+		&MaxCoords,
+		16, 2, 65535,
+		NULL, NULL, NULL
+	},
+	{
+		{"pgxcnode_cancel_delay", PGC_USERSET, DATA_NODES,
+			gettext_noop("Cancel deay dulation at the coordinator."),
+			NULL,
+			GUC_UNIT_MS
+		},
+		&pgxcnode_cancel_delay,
+		10, 0, INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"pool_remote_cmd_timeout", PGC_POSTMASTER, DATA_NODES,
+			gettext_noop("timeout for pool manager send message to nodes."),
+			NULL,
+			GUC_UNIT_MS
+		},
+		&PoolRemoteCmdTimeout,
+		10, 0, INT_MAX,
+		NULL, NULL, NULL
+	},
+#endif /* ADB */
+
+#ifdef AGTM
+	{
+		{"agtm_port", PGC_INTERNAL, CONN_AUTH,
+			gettext_noop("Other coordinator/datanode backend connect port."),
+			NULL,
+			GUC_NO_RESET_ALL | GUC_REPORT
+		},
+		&agtm_listen_port,
+		0, 0, 65535,
+		NULL, NULL, NULL
+	},
+#endif /* AGTM */
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, 0, 0, 0, NULL, NULL, NULL
@@ -2954,6 +3436,57 @@ static struct config_real ConfigureNamesReal[] =
 		DEFAULT_PARALLEL_TUPLE_COST, 0, DBL_MAX,
 		NULL, NULL, NULL
 	},
+#ifdef ADB
+	{
+		{"remote_tuple_cost", PGC_USERSET, QUERY_TUNING_COST,
+			gettext_noop("Sets the planner's estimate of the cost of "
+				  "passing each tuple (row) from datanode to coord."),
+			NULL
+		},
+		&remote_tuple_cost,
+		DEFAULT_REMOTE_TUPLE_COST, 0, DBL_MAX,
+		NULL, NULL, NULL
+	},
+	{
+		{"pgxc_remote_tuple_cost", PGC_USERSET, QUERY_TUNING_COST,
+			gettext_noop("Sets the planner's estimate of the cost of "
+				  "passing each tuple (row) from datanode to coord."),
+			NULL
+		},
+		&pgxc_remote_tuple_cost,
+		DEFAULT_PGXC_REMOTE_TUPLE_COST, 0, DBL_MAX,
+		NULL, NULL, NULL
+	},
+	{
+		{"reduce_setup_cost", PGC_USERSET, QUERY_TUNING_COST,
+			gettext_noop("Sets the planner's estime of the cost of "
+						 "starting up reduce process for cluster query."),
+			NULL
+		},
+		&reduce_setup_cost,
+		DEFAULT_REDUCE_SETUP_COST, 0, DBL_MAX,
+		NULL, NULL, NULL
+	},
+	{
+		{"reduce_conn_cost", PGC_USERSET, QUERY_TUNING_COST,
+			gettext_noop("Sets the planner's estime of the cost of "
+						 "establishing a connection with self reduce process."),
+			NULL
+		},
+		&reduce_conn_cost,
+		DEFAULT_REDUCE_CONN_COST, 0, DBL_MAX,
+		NULL, NULL, NULL
+	},
+	{
+		{"reduce_page_cost", PGC_USERSET, QUERY_TUNING_COST,
+			gettext_noop("Sets the planner's estimate of the cost of reducing one page."),
+			NULL
+		},
+		&reduce_page_cost,
+		DEFAULT_REDUCE_PAGE_COST, 0, DBL_MAX,
+		NULL, NULL, NULL
+	},
+#endif /* ADB */
 	{
 		{"parallel_setup_cost", PGC_USERSET, QUERY_TUNING_COST,
 			gettext_noop("Sets the planner's estimate of the cost of "
@@ -3576,6 +4109,18 @@ static struct config_string ConfigureNamesString[] =
 		check_TSCurrentConfig, assign_TSCurrentConfig, NULL
 	},
 
+#ifdef ADB
+	{
+		{"agtm_host", PGC_SIGHUP, GTM,
+			gettext_noop("Host name or address of GTM"),
+			NULL
+		},
+		&AGtmHost,
+		"localhost",
+		check_agtm_host, NULL, NULL
+	},
+#endif
+
 	{
 		{"ssl_ciphers", PGC_SIGHUP, CONN_AUTH_SECURITY,
 			gettext_noop("Sets the list of allowed SSL ciphers."),
@@ -3649,6 +4194,62 @@ static struct config_string ConfigureNamesString[] =
 		"",
 		check_wal_consistency_checking, assign_wal_consistency_checking, NULL
 	},
+
+#ifdef ADB
+	{
+		{"agtm_host", PGC_SIGHUP, GTM,
+			gettext_noop("Host name or address of GTM"),
+			NULL
+		},
+		&AGtmHost,
+		"localhost",
+		check_agtm_host, NULL, NULL
+	},
+
+	{
+		{"pgxc_node_name", PGC_POSTMASTER, GTM,
+			gettext_noop("The Coordinator or Datanode name."),
+			NULL,
+			GUC_NO_RESET_ALL | GUC_IS_NAME | GUC_REPORT
+		},
+		&PGXCNodeName,
+		"",
+		NULL, NULL, NULL
+	},
+
+	{
+		{"nls_date_format", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Emulate oracle's date output behaviour."),
+			NULL,
+			GUC_REPORT | GUC_NOT_IN_SAMPLE
+		},
+		&nls_date_format,
+		"YYYY-MM-DD HH24:MI:SS",
+		NULL, NULL, NULL
+	},
+
+	{
+		{"nls_timestamp_format", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Emulate oracle's timestamp without time zone output behaviour."),
+			NULL,
+			GUC_REPORT | GUC_NOT_IN_SAMPLE
+		},
+		&nls_timestamp_format,
+		"YYYY-MM-DD HH24:MI:SS.US",
+		NULL, NULL, NULL
+	},
+
+	{
+		{"nls_timestamp_tz_format", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Emulate oracle's timestamp with time zone output behaviour."),
+			NULL,
+			GUC_REPORT | GUC_NOT_IN_SAMPLE
+		},
+		&nls_timestamp_tz_format,
+		"YYYY-MM-DD HH24:MI:SS.US TZ",
+		NULL, NULL, NULL
+	},
+#endif
 
 	/* End-of-list marker */
 	{
@@ -3917,6 +4518,41 @@ static struct config_enum ConfigureNamesEnum[] =
 		PASSWORD_TYPE_MD5, password_encryption_options,
 		NULL, NULL, NULL
 	},
+
+#ifdef ADB
+	{
+		{"remotetype", PGC_BACKEND, CONN_AUTH,
+			gettext_noop("Sets the type of Postgres-XC remote connection"),
+			NULL
+		},
+		&remoteConnType,
+		REMOTE_CONN_APP, pgxc_conn_types,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"grammar", PGC_USERSET, UNGROUPED,
+			gettext_noop("Set SQL grammar"),
+			NULL
+		},
+		&parse_grammar,
+		PARSE_GRAM_POSTGRES, parse_grammer_options,
+		NULL, NULL, NULL
+	},
+#endif /* ADB */
+
+#ifdef ADBMGRD
+	{
+		{"command_mode", PGC_SUSET, UNGROUPED,
+			gettext_noop("Set command mode"),
+			NULL,
+			GUC_REPORT | GUC_NO_RESET_ALL
+		},
+		&mgr_cmd_mode,
+		CMD_MODE_MGR, command_mode,
+		NULL, NULL, NULL
+	},
+#endif /* ADBMGRD */
 
 	/* End-of-list marker */
 	{
@@ -5927,6 +6563,15 @@ set_config_option(const char *name, const char *value,
 	bool		prohibitValueChange = false;
 	bool		makeDefault;
 
+#ifdef ADB
+	/*
+	 * Current GucContest value is needed to check if xc_maintenance_mode parameter
+	 * is specified in valid contests.   It is allowed only by SET command or
+	 * libpq connect parameters so that setting this ON is just temporary.
+	 */
+	currentGucContext = context;
+#endif
+
 	if (elevel == 0)
 	{
 		if (source == PGC_S_DEFAULT || source == PGC_S_FILE)
@@ -7406,6 +8051,10 @@ ExecSetVariableStmt(VariableSetStmt *stmt, bool isTopLevel)
 			break;
 		case VAR_RESET_ALL:
 			ResetAllOptions();
+#ifdef ADB
+			if (!IsCoordMaster())
+				ResetTempTableNamespace();
+#endif
 			break;
 	}
 }
@@ -7494,6 +8143,28 @@ set_config_by_name(PG_FUNCTION_ARGS)
 
 	/* get the new current value */
 	new_value = GetConfigOptionByName(name, NULL, false);
+
+#ifdef ADB
+	/*
+	 * Convert this to SET statement and pass it to pooler.
+	 * If command is local and we are not in a transaction block do NOT
+	 * send this query to backend nodes, it is just bypassed by the backend.
+	 */
+	if (IsCoordMaster() && (!is_local || IsTransactionBlock()))
+	{
+		PoolCommandType poolcmdType = (is_local ? POOL_CMD_LOCAL_SET : POOL_CMD_GLOBAL_SET);
+		StringInfoData poolcmd;
+
+		initStringInfo(&poolcmd);
+		appendStringInfo(&poolcmd, "SET %s %s TO %s",
+								   (is_local ? "LOCAL" : ""),
+								   name,
+								   (value ? value : "DEFAULT"));
+
+		if (PoolManagerSetCommand(poolcmdType, poolcmd.data) < 0)
+			elog(ERROR, "Postgres-XC: ERROR SET query");
+	}
+#endif
 
 	/* Convert return string to text */
 	PG_RETURN_TEXT_P(cstring_to_text(new_value));
@@ -10208,6 +10879,53 @@ check_log_stats(bool *newval, void **extra, GucSource source)
 	return true;
 }
 
+#ifdef ADB
+/*
+ * Only a warning is printed to log.
+ * Returning false will cause FATAL error and it will not be good.
+ */
+static bool
+check_pgxc_maintenance_mode(bool *newval, void **extra, GucSource source)
+{
+
+	switch(source)
+	{
+		case PGC_S_DYNAMIC_DEFAULT:
+		case PGC_S_ENV_VAR:
+		case PGC_S_ARGV:
+			GUC_check_errmsg("pgxc_maintenance_mode is not allowed here.");
+			return false;
+		case PGC_S_FILE:
+			switch (currentGucContext)
+			{
+				case PGC_SIGHUP:
+					elog(WARNING, "pgxc_maintenance_mode is not allowed in  postgresql.conf.  Set to default (false).");
+					*newval = false;
+					return true;
+				default:
+					GUC_check_errmsg("pgxc_maintenance_mode is not allowed in postgresql.conf.");
+					return false;
+			}
+			return false;	/* Should not come here */
+		case PGC_S_DATABASE:
+		case PGC_S_USER:
+		case PGC_S_DATABASE_USER:
+		case PGC_S_INTERACTIVE:
+		case PGC_S_TEST:
+			elog(WARNING, "pgxc_maintenance_mode is not allowed here.  Set to default (false).");
+			*newval = false;
+			return true;
+		case PGC_S_DEFAULT:
+		case PGC_S_CLIENT:
+		case PGC_S_SESSION:
+			return true;
+		default:
+			GUC_check_errmsg("Unknown source");
+			return false;
+	}
+}
+#endif
+
 static bool
 check_canonical_path(char **newval, void **extra, GucSource source)
 {
@@ -10351,8 +11069,13 @@ show_tcp_keepalives_count(void)
 static bool
 check_maxconnections(int *newval, void **extra, GucSource source)
 {
+#if defined(ADBMGRD)
+	if (*newval + autovacuum_max_workers + 1 +
+		adbmonitor_max_workers + 1 + max_worker_processes > MAX_BACKENDS)
+#else
 	if (*newval + autovacuum_max_workers + 1 +
 		max_worker_processes > MAX_BACKENDS)
+#endif
 		return false;
 	return true;
 }
@@ -10360,7 +11083,12 @@ check_maxconnections(int *newval, void **extra, GucSource source)
 static bool
 check_autovacuum_max_workers(int *newval, void **extra, GucSource source)
 {
+#if defined(ADBMGRD)
+	if (MaxConnections + *newval + 1 + max_worker_processes +
+		adbmonitor_max_workers + 1 > MAX_BACKENDS)
+#else
 	if (MaxConnections + *newval + 1 + max_worker_processes > MAX_BACKENDS)
+#endif
 		return false;
 	return true;
 }
@@ -10391,10 +11119,27 @@ check_autovacuum_work_mem(int *newval, void **extra, GucSource source)
 static bool
 check_max_worker_processes(int *newval, void **extra, GucSource source)
 {
+#if defined(ADBMGRD)
+	if (MaxConnections + autovacuum_max_workers + 1 +
+		adbmonitor_max_workers + 1 + *newval > MAX_BACKENDS)
+#else
 	if (MaxConnections + autovacuum_max_workers + 1 + *newval > MAX_BACKENDS)
+#endif
 		return false;
 	return true;
 }
+
+#if defined(ADBMGRD)
+static bool
+check_adbmonitor_max_workers(int *newval, void **extra, GucSource source)
+{
+	if (MaxConnections + *newval + 1 + max_worker_processes +
+		autovacuum_max_workers + 1 > MAX_BACKENDS)
+		return false;
+	return true;
+}
+#endif
+
 
 static bool
 check_effective_io_concurrency(int *newval, void **extra, GucSource source)

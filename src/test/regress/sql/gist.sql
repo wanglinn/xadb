@@ -51,7 +51,7 @@ explain (costs off)
 select p from gist_tbl where p <@ box(point(0,0), point(0.5, 0.5));
 
 -- execute the same
-select p from gist_tbl where p <@ box(point(0,0), point(0.5, 0.5));
+select p from gist_tbl where p <@ box(point(0,0), point(0.5, 0.5)) order by p[0],p[1];
 
 -- Also test an index-only knn-search
 explain (costs off)
@@ -95,7 +95,7 @@ explain (costs off)
 select b from gist_tbl where b <@ box(point(5,5), point(6,6));
 
 -- execute the same
-select b from gist_tbl where b <@ box(point(5,5), point(6,6));
+select b from gist_tbl where b <@ box(point(5,5), point(6,6)) order by p[0];
 
 drop index gist_tbl_box_index;
 
@@ -110,7 +110,7 @@ where p <@ box(point(5,5), point(6, 6));
 -- execute the same
 select b, p from gist_tbl
 where b <@ box(point(4.5, 4.5), point(5.5, 5.5))
-and p <@ box(point(5,5), point(6, 6));
+and p <@ box(point(5,5), point(6, 6)) order by p[0];
 
 drop index gist_tbl_multi_index;
 

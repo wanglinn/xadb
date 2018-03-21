@@ -21,7 +21,11 @@
 #ifndef PG_TS_DICT_H
 #define PG_TS_DICT_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_ts_dict definition.  cpp turns this into
@@ -49,6 +53,7 @@ typedef FormData_pg_ts_dict *Form_pg_ts_dict;
  * ----------------
  */
 #define Natts_pg_ts_dict				5
+DECLARE_NATTS(Natts_pg_ts_dict);
 #define Anum_pg_ts_dict_dictname		1
 #define Anum_pg_ts_dict_dictnamespace	2
 #define Anum_pg_ts_dict_dictowner		3

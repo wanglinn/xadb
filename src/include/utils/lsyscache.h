@@ -100,6 +100,7 @@ extern RegProcedure get_opcode(Oid opno);
 extern char *get_opname(Oid opno);
 extern Oid	get_op_rettype(Oid opno);
 extern void op_input_types(Oid opno, Oid *lefttype, Oid *righttype);
+extern bool op_is_equivalence(Oid opno);
 extern bool op_mergejoinable(Oid opno, Oid inputtype);
 extern bool op_hashjoinable(Oid opno, Oid inputtype);
 extern bool op_strict(Oid opno);
@@ -118,6 +119,9 @@ extern bool get_func_retset(Oid funcid);
 extern bool func_strict(Oid funcid);
 extern char func_volatile(Oid funcid);
 extern char func_parallel(Oid funcid);
+#ifdef ADB
+extern char func_cluster(Oid funcid);
+#endif /* ADB */
 extern bool get_func_leakproof(Oid funcid);
 extern float4 get_func_cost(Oid funcid);
 extern float4 get_func_rows(Oid funcid);
@@ -168,6 +172,10 @@ extern Oid	get_typcollation(Oid typid);
 extern bool type_is_collatable(Oid typid);
 extern Oid	getBaseType(Oid typid);
 extern Oid	getBaseTypeAndTypmod(Oid typid, int32 *typmod);
+#ifdef ADB
+extern Oid	get_pgxc_nodeoid(const char *nodename);
+extern char	get_pgxc_nodetype(Oid nodeid);
+#endif
 extern int32 get_typavgwidth(Oid typid, int32 typmod);
 extern int32 get_attavgwidth(Oid relid, AttrNumber attnum);
 extern bool get_attstatsslot(AttStatsSlot *sslot, HeapTuple statstuple,
@@ -182,5 +190,30 @@ extern Oid	get_range_subtype(Oid rangeOid);
 #define type_is_array_domain(typid)  (get_base_element_type(typid) != InvalidOid)
 
 #define TypeIsToastable(typid)	(get_typstorage(typid) != 'p')
+
+#ifdef ADB
+extern int get_relnatts(Oid relid);
+extern char *get_current_schema(void);
+extern Oid get_namespaceid(const char *nspname);
+extern Oid get_typ_namespace(Oid typid);
+extern Oid get_typname_typid(const char *typname, Oid typnamespace);
+extern Oid get_funcid(const char *funcname, oidvector *argtypes, Oid funcnsp);
+extern Oid get_opnamespace(Oid opno);
+extern Oid get_operid(const char *oprname, Oid oprleft, Oid oprright, Oid oprnsp);
+extern char *get_typename(Oid typid);
+extern char *get_pgxc_nodename(Oid nodeoid);
+extern char *get_pgxc_groupname(Oid groupid);
+extern Oid get_pgxc_nodeoid(const char *nodename);
+extern uint32 get_pgxc_node_id(Oid nodeid);
+extern char get_pgxc_nodetype(Oid nodeid);
+extern int get_pgxc_nodeport(Oid nodeid);
+extern char *get_pgxc_nodehost(Oid nodeid);
+extern void get_pgxc_nodeinfo(Oid nodeid, char **nodehost, int *nodeport);
+extern bool is_pgxc_nodepreferred(Oid nodeid);
+extern bool is_pgxc_nodeprimary(Oid nodeid);
+extern Oid get_pgxc_groupoid(const char *groupname);
+extern int get_pgxc_groupmembers(Oid groupid, Oid **members);
+extern int get_pgxc_classnodes(Oid tableid, Oid **nodes);
+#endif
 
 #endif							/* LSYSCACHE_H */

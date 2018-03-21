@@ -2415,6 +2415,11 @@ stringrule(char *result, const struct rule *const rp, const zic_t dstoff,
 	zic_t		tod = rp->r_tod;
 	int			compat = 0;
 
+#ifdef ADB
+	/* CCC:Access to field 'r_dycode' results in a dereference of a null pointer (loaded from variable 'rp') */
+	AssertArg(rp != NULL);
+#endif /* ADB */
+
 	if (rp->r_dycode == DC_DOM)
 	{
 		int			month,

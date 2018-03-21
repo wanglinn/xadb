@@ -66,6 +66,7 @@ SELECT * FROM inhg; /* Two records with three columns in order x=x, xx=text, y=y
 (2 rows)
 
 DROP TABLE inhg;
+<<<<<<< HEAD
 CREATE TABLE test_like_id_1 (a int GENERATED ALWAYS AS IDENTITY, b text);
 \d test_like_id_1
                      Table "public.test_like_id_1"
@@ -114,6 +115,9 @@ SELECT * FROM test_like_id_3;  -- identity was copied and applied
 
 DROP TABLE test_like_id_1, test_like_id_2, test_like_id_3;
 CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text); /* copies indexes */
+=======
+CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text) DISTRIBUTE BY REPLICATION; /* copies indexes */
+>>>>>>> e4e2e7774a... 3.1 patch
 INSERT INTO inhg VALUES (5, 10);
 INSERT INTO inhg VALUES (20, 10); -- should fail
 ERROR:  duplicate key value violates unique constraint "inhg_pkey"
@@ -122,10 +126,10 @@ DROP TABLE inhg;
 /* Multiple primary keys creation should fail */
 CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, PRIMARY KEY(x)); /* fails */
 ERROR:  multiple primary keys for table "inhg" are not allowed
-CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE);
+CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE) DISTRIBUTE BY REPLICATION;
 CREATE UNIQUE INDEX inhz_xx_idx on inhz (xx) WHERE xx <> 'test';
 /* Ok to create multiple unique indexes */
-CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES);
+CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES) DISTRIBUTE BY REPLICATION;
 INSERT INTO inhg (xx, yy, x) VALUES ('test', 5, 10);
 INSERT INTO inhg (xx, yy, x) VALUES ('test', 10, 15);
 INSERT INTO inhg (xx, yy, x) VALUES ('foo', 10, 15); -- should fail
@@ -156,6 +160,7 @@ CREATE TABLE ctlt4 (a text, c text);
 ALTER TABLE ctlt4 ALTER COLUMN c SET STORAGE EXTERNAL;
 CREATE TABLE ctlt12_storage (LIKE ctlt1 INCLUDING STORAGE, LIKE ctlt2 INCLUDING STORAGE);
 \d+ ctlt12_storage
+<<<<<<< HEAD
                              Table "public.ctlt12_storage"
  Column | Type | Collation | Nullable | Default | Storage  | Stats target | Description 
 --------+------+-----------+----------+---------+----------+--------------+-------------
@@ -171,6 +176,27 @@ CREATE TABLE ctlt12_comments (LIKE ctlt1 INCLUDING COMMENTS, LIKE ctlt2 INCLUDIN
  a      | text |           | not null |         | extended |              | A
  b      | text |           |          |         | extended |              | B
  c      | text |           |          |         | extended |              | C
+=======
+                   Table "public.ctlt12_storage"
+ Column | Type | Modifiers | Storage  | Stats target | Description 
+--------+------+-----------+----------+--------------+-------------
+ a      | text | not null  | main     |              | 
+ b      | text |           | extended |              | 
+ c      | text |           | external |              | 
+Distribute By: HASH(a)
+Location Nodes: ALL DATANODES
+
+CREATE TABLE ctlt12_comments (LIKE ctlt1 INCLUDING COMMENTS, LIKE ctlt2 INCLUDING COMMENTS);
+\d+ ctlt12_comments
+                  Table "public.ctlt12_comments"
+ Column | Type | Modifiers | Storage  | Stats target | Description 
+--------+------+-----------+----------+--------------+-------------
+ a      | text | not null  | extended |              | A
+ b      | text |           | extended |              | B
+ c      | text |           | extended |              | C
+Distribute By: HASH(a)
+Location Nodes: ALL DATANODES
+>>>>>>> e4e2e7774a... 3.1 patch
 
 CREATE TABLE ctlt1_inh (LIKE ctlt1 INCLUDING CONSTRAINTS INCLUDING COMMENTS) INHERITS (ctlt1);
 NOTICE:  merging column "a" with inherited definition
@@ -185,6 +211,8 @@ NOTICE:  merging constraint "ctlt1_a_check" with inherited definition
 Check constraints:
     "ctlt1_a_check" CHECK (length(a) > 2)
 Inherits: ctlt1
+Distribute By: HASH(a)
+Location Nodes: ALL DATANODES
 
 SELECT description FROM pg_description, pg_constraint c WHERE classoid = 'pg_constraint'::regclass AND objoid = c.oid AND c.conrelid = 'ctlt1_inh'::regclass;
  description 
@@ -206,6 +234,8 @@ Check constraints:
     "ctlt3_a_check" CHECK (length(a) < 5)
 Inherits: ctlt1,
           ctlt3
+Distribute By: HASH(a)
+Location Nodes: ALL DATANODES
 
 CREATE TABLE ctlt13_like (LIKE ctlt3 INCLUDING CONSTRAINTS INCLUDING COMMENTS INCLUDING STORAGE) INHERITS (ctlt1);
 NOTICE:  merging column "a" with inherited definition
@@ -220,6 +250,8 @@ Check constraints:
     "ctlt1_a_check" CHECK (length(a) > 2)
     "ctlt3_a_check" CHECK (length(a) < 5)
 Inherits: ctlt1
+Distribute By: HASH(a)
+Location Nodes: ALL DATANODES
 
 SELECT description FROM pg_description, pg_constraint c WHERE classoid = 'pg_constraint'::regclass AND objoid = c.oid AND c.conrelid = 'ctlt13_like'::regclass;
  description 
@@ -240,6 +272,8 @@ Indexes:
     "ctlt_all_expr_idx" btree ((a || b))
 Check constraints:
     "ctlt1_a_check" CHECK (length(a) > 2)
+Distribute By: HASH(a)
+Location Nodes: ALL DATANODES
 
 SELECT c.relname, objsubid, description FROM pg_description, pg_index i, pg_class c WHERE classoid = 'pg_class'::regclass AND objoid = i.indexrelid AND c.oid = i.indexrelid AND i.indrelid = 'ctlt_all'::regclass ORDER BY c.relname, objsubid;
     relname     | objsubid | description 
@@ -295,7 +329,7 @@ SELECT oid FROM like_test3;
 -----
 (0 rows)
 
-CREATE TABLE like_test4 (z INTEGER, PRIMARY KEY(oid), LIKE has_oid);
+CREATE TABLE like_test4 (z INTEGER, PRIMARY KEY(oid), LIKE has_oid) distribute by replication;
 SELECT oid FROM like_test4;
  oid 
 -----

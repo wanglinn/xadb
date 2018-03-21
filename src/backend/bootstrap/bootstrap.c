@@ -45,6 +45,11 @@
 #include "utils/rel.h"
 #include "utils/relmapper.h"
 #include "utils/tqual.h"
+#ifdef ADB
+#include "access/rxact_mgr.h"
+#include "nodes/nodes.h"
+#include "pgxc/poolmgr.h"
+#endif
 
 uint32		bootstrap_data_checksum_version = 0;	/* No checksum */
 
@@ -307,6 +312,15 @@ AuxiliaryProcessMain(int argc, char *argv[])
 
 		switch (MyAuxProcType)
 		{
+#ifdef ADB /* PGXC_COORD */
+			case PoolerProcess:
+				statmsg = "pooler process";
+				break;
+
+			case RemoteXactMgrProcess:
+				statmsg = "remote xact manager process";
+				break;
+#endif
 			case StartupProcess:
 				statmsg = "startup process";
 				break;
@@ -364,6 +378,12 @@ AuxiliaryProcessMain(int argc, char *argv[])
 	 */
 	if (IsUnderPostmaster)
 	{
+#ifdef ADB
+		/* Initialize pooler flag before creating PGPROC structure */
+		if (MyAuxProcType == PoolerProcess)
+			PGXCPoolerProcessIam();			
+#endif
+
 		/*
 		 * Create a PGPROC so we can use LWLocks.  In the EXEC_BACKEND case,
 		 * this was already done by SubPostmasterMain().
@@ -403,6 +423,16 @@ AuxiliaryProcessMain(int argc, char *argv[])
 
 	switch (MyAuxProcType)
 	{
+#ifdef ADB /* PGXC_COORD */
+		case PoolerProcess:
+			/* don't set signals, pool manager has its own agenda */
+			PoolManagerInit();
+			proc_exit(1);		/* should never return */
+
+		case RemoteXactMgrProcess:
+			RemoteXactMgrMain();
+			proc_exit(1);
+#endif
 		case CheckerProcess:
 			/* don't set signals, they're useless here */
 			CheckerModeMain();

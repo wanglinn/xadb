@@ -209,7 +209,11 @@ ltree_union(PG_FUNCTION_ARGS)
 			}
 		}
 	}
-
+#ifdef ADB
+	/* fix: Dereference of null pointer */
+	AssertArg(left);
+	AssertArg(right);
+#endif
 	isleqr = (left == right || ISEQ(left, right)) ? true : false;
 	*size = LTG_HDRSIZE + ((isalltrue) ? 0 : SIGLEN) + VARSIZE(left) + ((isleqr) ? 0 : VARSIZE(right));
 
@@ -308,7 +312,6 @@ ltree_picksplit(PG_FUNCTION_ARGS)
 
 	qsort((void *) &array[FirstOffsetNumber], maxoff - FirstOffsetNumber + 1,
 		  sizeof(RIX), treekey_cmp);
-
 	lu_l = lu_r = ru_l = ru_r = NULL;
 	for (j = FirstOffsetNumber; j <= maxoff; j = OffsetNumberNext(j))
 	{
@@ -382,7 +385,11 @@ ltree_picksplit(PG_FUNCTION_ARGS)
 			}
 		}
 	}
-
+#ifdef ADB
+	/* fix: Dereference of null pointer */
+	AssertArg(lu_r);
+	AssertArg(ru_r);
+#endif
 	lu_l = LTG_GETLNODE(GETENTRY(entryvec, array[FirstOffsetNumber].index));
 	isleqr = (lu_l == lu_r || ISEQ(lu_l, lu_r)) ? true : false;
 	size = LTG_HDRSIZE + ((lisat) ? 0 : SIGLEN) + VARSIZE(lu_l) + ((isleqr) ? 0 : VARSIZE(lu_r));

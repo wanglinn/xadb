@@ -36,6 +36,10 @@
 #include "miscadmin.h"
 #include "optimizer/clauses.h"
 #include "utils/array.h"
+#ifdef ADB
+#include "executor/nodeHash.h"
+#include "utils/hashstore.h"
+#endif
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 
@@ -49,6 +53,16 @@ static Datum ExecScanSubPlan(SubPlanState *node,
 static void buildSubPlanHash(SubPlanState *node, ExprContext *econtext);
 static bool findPartialMatch(TupleHashTable hashtable, TupleTableSlot *slot,
 				 FmgrInfo *eqfunctions);
+#ifdef ADB
+static List *list_subplan_status = NIL;	/* for clean hash store */
+static ExecutorEnd_hook_type old_executor_end_hook = NULL;
+static bool hooked_executor_end = false;
+static void clean_subplan_hashstore(QueryDesc *queryDesc);
+
+static void buildSubPlanHashstore(SubPlanState *node, ExprContext *econtext);
+static bool findHashstoreMatch(SubPlanState *node, TupleTableSlot *slot);
+static uint32 ExecSubPlanGetHashValue(SubPlanState *node, TupleTableSlot *slot, FmgrInfo *fmgr);
+#endif /* ADB */
 static bool slotAllNulls(TupleTableSlot *slot);
 static bool slotNoNulls(TupleTableSlot *slot);
 
@@ -104,6 +118,13 @@ ExecHashSubPlan(SubPlanState *node,
 	 * If first time through or we need to rescan the subplan, build the hash
 	 * table.
 	 */
+#ifdef ADB
+	if (subplan->useHashStore)
+	{
+		if(node->hashstore == NULL || planstate->chgParam != NULL)
+			buildSubPlanHashstore(node, econtext);
+	}else
+#endif /* ADB */
 	if (node->hashtable == NULL || planstate->chgParam != NULL)
 		buildSubPlanHash(node, econtext);
 
@@ -145,6 +166,14 @@ ExecHashSubPlan(SubPlanState *node,
 	 * make, unless there's a chance match of hash keys.
 	 */
 	if (slotNoNulls(slot))
+#ifdef ADB
+	{
+		if (subplan->useHashStore)
+		{
+			bool result = findHashstoreMatch(node, slot);
+			return BoolGetDatum(result);
+		}else
+#endif /* ADB */
 	{
 		if (node->havehashrows &&
 			FindTupleHashEntry(node->hashtable,
@@ -165,6 +194,9 @@ ExecHashSubPlan(SubPlanState *node,
 		ExecClearTuple(slot);
 		return BoolGetDatum(false);
 	}
+#ifdef ADB
+	}
+#endif
 
 	/*
 	 * When the LHS is partly or wholly NULL, we can never return TRUE. If we
@@ -895,6 +927,19 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 													sstate->planstate,
 													NULL);
 	}
+#ifdef ADB
+	if (subplan->useHashStore)
+	{
+		if (!hooked_executor_end)
+		{
+			old_executor_end_hook = ExecutorEnd_hook;
+			ExecutorEnd_hook = clean_subplan_hashstore;
+			hooked_executor_end = true;
+		}
+
+		list_subplan_status = lappend(list_subplan_status, sstate);
+	}
+#endif /* ADB */
 
 	return sstate;
 }
@@ -1207,3 +1252,182 @@ ExecAlternativeSubPlan(AlternativeSubPlanState *node,
 
 	return ExecSubPlan(activesp, econtext, isNull);
 }
+
+#ifdef ADB
+static void buildSubPlanHashstore(SubPlanState *node, ExprContext *econtext)
+{
+	SubPlan    *subplan = node->subplan;
+	PlanState  *planstate = node->planstate;
+	ExprContext *innerecontext = node->innerecontext;
+	MemoryContext oldcontext;
+	TupleTableSlot *slot;
+	int nbatches;
+	int nbuckets;
+	int nskew_mcvs;
+	uint32 hashvalue;
+	bool havehashrows;
+
+	Assert(subplan->subLinkType == ANY_SUBLINK);
+
+	if (node->hashstore)
+		hashstore_end(node->hashstore);
+	node->havenullrows = node->havehashrows = false;
+	MemoryContextReset(node->hashtablecxt);
+	oldcontext = MemoryContextSwitchTo(node->hashtablecxt);
+
+	ExecChooseHashTableSize(node->planstate->plan->plan_rows,
+							node->planstate->plan->plan_width,
+							false,
+							&nbuckets,
+							&nbatches,
+							&nskew_mcvs);
+	node->hashstore = hashstore_begin_heap(false, nbuckets);
+
+	/*
+	 * We are probably in a short-lived expression-evaluation context. Switch
+	 * to the per-query context for manipulating the child plan.
+	 */
+	MemoryContextSwitchTo(econtext->ecxt_per_query_memory);
+
+	/*
+	 * Reset subplan to start.
+	 */
+	ExecReScan(planstate);
+
+	/*
+	 * Scan the subplan and load the hash table(s).  Note that when there are
+	 * duplicate rows coming out of the sub-select, only one copy is stored.
+	 */
+	havehashrows = false;
+	for (slot = ExecProcNode(planstate);
+		 !TupIsNull(slot);
+		 slot = ExecProcNode(planstate))
+	{
+		int			col = 1;
+		ListCell   *plst;
+
+		/*
+		 * Load up the Params representing the raw sub-select outputs, then
+		 * form the projection tuple to store in the hashtable.
+		 */
+		foreach(plst, subplan->paramIds)
+		{
+			int			paramid = lfirst_int(plst);
+			ParamExecData *prmdata;
+
+			prmdata = &(innerecontext->ecxt_param_exec_vals[paramid]);
+			Assert(prmdata->execPlan == NULL);
+			prmdata->value = slot_getattr(slot, col,
+										  &(prmdata->isnull));
+			col++;
+		}
+		slot = ExecProject(node->projRight);
+
+		if (slotNoNulls(slot) || subplan->unknownEqFalse)
+		{
+			hashvalue = ExecSubPlanGetHashValue(node, slot, node->tab_hash_funcs);
+			hashstore_put_tupleslot(node->hashstore, slot, hashvalue);
+			havehashrows = true;
+		}
+
+		ResetExprContext(innerecontext);
+	}
+	node->havehashrows = havehashrows;
+
+	/*
+	 * Since the projected tuples are in the sub-query's context and not the
+	 * main context, we'd better clear the tuple slot before there's any
+	 * chance of a reset of the sub-query's context.  Else we will have the
+	 * potential for a double free attempt.  (XXX possibly no longer needed,
+	 * but can't hurt.)
+	 */
+	ExecClearTuple(node->projRight->pi_state.resultslot);
+
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static uint32 ExecSubPlanGetHashValue(SubPlanState *node, TupleTableSlot *slot, FmgrInfo *fmgr)
+{
+	SubPlan    *subplan = node->subplan;
+	AttrNumber *keyColIdx = node->keyColIdx;
+	int ncol = list_length(subplan->paramIds);
+	int i;
+	uint32 hashvalue = 0;
+
+	for (i=0;i<ncol;++i)
+	{
+		Datum datum;
+		AttrNumber att = keyColIdx[i];
+		bool isNull;
+
+		/* rotate hashvalue left 1 bit at each step */
+		hashvalue = (hashvalue << 1) | ((hashvalue & 0x80000000) ? 1 : 0);
+
+		datum = slot_getattr(slot, att, &isNull);
+
+		if (!isNull)			/* treat nulls as having hash key 0 */
+			hashvalue ^= DatumGetUInt32(FunctionCall1(&fmgr[i], datum));
+	}
+
+	return hashvalue;
+}
+
+static bool findHashstoreMatch(SubPlanState *node, TupleTableSlot *slot)
+{
+	SubPlan    *subplan = node->subplan;
+	TupleTableSlot *hash_slot = node->projRight->pi_state.resultslot;
+	Hashstorestate *hashstore = node->hashstore;
+	uint32 hashvalue = ExecSubPlanGetHashValue(node, slot, node->lhs_hash_funcs);
+	int reader = hashstore_begin_read(node->hashstore, hashvalue);
+	int ncol = list_length(subplan->paramIds);
+	bool hint = false;
+
+	for (;;)
+	{
+		hashstore_next_slot(hashstore, hash_slot, reader, false);
+		if (TupIsNull(hash_slot))
+			break;
+
+		if (!execTuplesUnequal(slot, hash_slot,
+							   ncol, node->keyColIdx,
+							   node->tab_eq_funcs,
+							   node->hashtempcxt))
+		{
+			hint = true;
+			break;
+		}
+	}
+
+	hashstore_end_read(hashstore, reader);
+
+	return hint;
+}
+
+static void clean_subplan_hashstore(QueryDesc *queryDesc)
+{
+	SubPlanState *sstate;
+	ListCell *lc;
+
+	/* restore hook */
+	ExecutorEnd_hook = old_executor_end_hook;
+	hooked_executor_end = false;
+
+	foreach(lc ,list_subplan_status)
+	{
+		sstate = lfirst(lc);
+		if (sstate->hashstore)
+		{
+			hashstore_end(sstate->hashstore);
+			sstate->hashstore = NULL;
+		}
+	}
+	list_free(list_subplan_status);
+	list_subplan_status = NIL;
+
+	if (ExecutorEnd_hook)
+		(*ExecutorEnd_hook) (queryDesc);
+	else
+		standard_ExecutorEnd(queryDesc);
+}
+
+#endif /* ADB */

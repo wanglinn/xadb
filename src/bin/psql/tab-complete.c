@@ -438,6 +438,7 @@ static const SchemaQuery Query_for_list_of_sequences = {
 	NULL
 };
 
+#ifndef ADB
 static const SchemaQuery Query_for_list_of_foreign_tables = {
 	/* catname */
 	"pg_catalog.pg_class c",
@@ -452,6 +453,7 @@ static const SchemaQuery Query_for_list_of_foreign_tables = {
 	/* qualresult */
 	NULL
 };
+#endif /* ADB */
 
 static const SchemaQuery Query_for_list_of_tables = {
 	/* catname */
@@ -938,6 +940,23 @@ static const SchemaQuery Query_for_list_of_statistics = {
 "   FROM pg_catalog.pg_prepared_statements "\
 "  WHERE substring(pg_catalog.quote_ident(name),1,%d)='%s'"
 
+#ifdef ADB
+#define Query_for_list_of_available_nodenames \
+" SELECT NODE_NAME "\
+"  FROM PGXC_NODE"
+#define Query_for_list_of_available_coordinators \
+" SELECT NODE_NAME "\
+"  FROM PGXC_NODE" \
+"   WHERE NODE_TYPE = 'C'"
+#define Query_for_list_of_available_datanodes \
+" SELECT NODE_NAME "\
+"  FROM PGXC_NODE" \
+"   WHERE NODE_TYPE = 'D'"
+#define Query_for_list_of_available_nodegroup_names \
+" SELECT GROUP_NAME "\
+"  FROM PGXC_GROUP"
+#endif /* ADB */
+
 #define Query_for_list_of_event_triggers \
 " SELECT pg_catalog.quote_ident(evtname) "\
 "   FROM pg_catalog.pg_event_trigger "\
@@ -1003,6 +1022,9 @@ typedef struct
 static const pgsql_thing_t words_after_create[] = {
 	{"ACCESS METHOD", NULL, NULL, THING_NO_ALTER},
 	{"AGGREGATE", NULL, &Query_for_list_of_aggregates},
+#ifdef ADB
+	{"BARRIER", NULL, NULL},	/* Comes barrier name next, so skip it */
+#endif
 	{"CAST", NULL, NULL},		/* Casts have complex structures for names, so
 								 * skip it */
 	{"COLLATION", "SELECT pg_catalog.quote_ident(collname) FROM pg_catalog.pg_collation WHERE collencoding IN (-1, pg_catalog.pg_char_to_encoding(pg_catalog.getdatabaseencoding())) AND substring(pg_catalog.quote_ident(collname),1,%d)='%s'"},
@@ -1019,6 +1041,10 @@ static const pgsql_thing_t words_after_create[] = {
 	{"DOMAIN", NULL, &Query_for_list_of_domains},
 	{"EVENT TRIGGER", NULL, NULL},
 	{"EXTENSION", Query_for_list_of_extensions},
+#ifndef ADB
+	{"FOREIGN DATA WRAPPER", NULL, NULL},
+	{"FOREIGN TABLE", NULL, NULL},
+#endif
 	{"FOREIGN DATA WRAPPER", NULL, NULL},
 	{"FOREIGN TABLE", NULL, NULL},
 	{"FUNCTION", NULL, &Query_for_list_of_functions},
@@ -1027,6 +1053,10 @@ static const pgsql_thing_t words_after_create[] = {
 	{"LANGUAGE", Query_for_list_of_languages},
 	{"LARGE OBJECT", NULL, NULL, THING_NO_CREATE | THING_NO_DROP},
 	{"MATERIALIZED VIEW", NULL, &Query_for_list_of_matviews},
+#ifdef ADB
+	{"NODE", Query_for_list_of_available_nodenames},
+	{"NODE GROUP", Query_for_list_of_available_nodegroup_names},
+#endif
 	{"OPERATOR", NULL, NULL},	/* Querying for this is probably not such a
 								 * good idea. */
 	{"OWNED", NULL, NULL, THING_NO_CREATE | THING_NO_ALTER},	/* for DROP OWNED BY ... */
@@ -1037,6 +1067,10 @@ static const pgsql_thing_t words_after_create[] = {
 	{"RULE", "SELECT pg_catalog.quote_ident(rulename) FROM pg_catalog.pg_rules WHERE substring(pg_catalog.quote_ident(rulename),1,%d)='%s'"},
 	{"SCHEMA", Query_for_list_of_schemas},
 	{"SEQUENCE", NULL, &Query_for_list_of_sequences},
+#ifndef ADB
+	/* PGXCTODO: This should be re-enabled once SERVER is supported */
+	{"SERVER", Query_for_list_of_servers},
+#endif
 	{"SERVER", Query_for_list_of_servers},
 	{"STATISTICS", NULL, &Query_for_list_of_statistics},
 	{"SUBSCRIPTION", Query_for_list_of_subscriptions},
@@ -1102,6 +1136,9 @@ void
 initialize_readline(void)
 {
 	rl_readline_name = (char *) pset.progname;
+#ifdef ADB
+	if(pset.is_manage == false)
+#endif
 	rl_attempted_completion_function = psql_completion;
 
 	rl_basic_word_break_characters = WORD_BREAKS;
@@ -1407,6 +1444,19 @@ psql_completion(const char *text, int start, int end)
 
 	/* Known command-starting keywords. */
 	static const char *const sql_commands[] = {
+#ifdef ADB
+		/*
+		 * Added "CLEAN" and "EXECUTE DIRECT"
+		 * Removed LISTEN, NOTIFY, RELEASE, SAVEPOINT and UNLISTEN
+		 */
+		"ABORT", "ALTER", "ANALYZE", "BEGIN", "CHECKPOINT", "CLEAN CONNECTION", "CLOSE", "CLUSTER",
+		"COMMENT", "COMMIT", "COPY", "CREATE", "DEALLOCATE", "DECLARE",
+		"DELETE FROM", "DISCARD", "DO", "DROP", "END", "EXECUTE", "EXECUTE DIRECT", "EXPLAIN", "FETCH",
+		"GRANT", "INSERT",			 "LOAD", "LOCK", "MOVE",		   "PREPARE",
+		"REASSIGN", "REINDEX",			  "RESET", "REVOKE", "ROLLBACK",
+					 "SECURITY LABEL", "SELECT", "SET", "SHOW", "START",
+		"TABLE", "TRUNCATE",			 "UPDATE", "VACUUM", "VALUES", "WITH",
+#else
 		"ABORT", "ALTER", "ANALYZE", "BEGIN", "CHECKPOINT", "CLOSE", "CLUSTER",
 		"COMMENT", "COMMIT", "COPY", "CREATE", "DEALLOCATE", "DECLARE",
 		"DELETE FROM", "DISCARD", "DO", "DROP", "END", "EXECUTE", "EXPLAIN",
@@ -1416,6 +1466,7 @@ psql_completion(const char *text, int start, int end)
 		"RESET", "REVOKE", "ROLLBACK",
 		"SAVEPOINT", "SECURITY LABEL", "SELECT", "SET", "SHOW", "START",
 		"TABLE", "TRUNCATE", "UNLISTEN", "UPDATE", "VACUUM", "VALUES", "WITH",
+#endif
 		NULL
 	};
 
@@ -1531,6 +1582,22 @@ psql_completion(const char *text, int start, int end)
 		else
 			COMPLETE_WITH_FUNCTION_ARG(prev2_wd);
 	}
+#ifdef ADB
+	/* ALTER NODE */
+	else if (Matches2("ALTER", "NODE"))
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_nodenames);
+	else if (Matches3("ALTER", "NODE", MatchAny))
+		COMPLETE_WITH_CONST("WITH");
+	else if (Matches4("ALTER", "NODE", MatchAny, "WITH"))
+		COMPLETE_WITH_CONST("(");
+	else if (Matches5("ALTER", "NODE", MatchAny, "WITH", MatchAny))
+	{
+		static const char *const list_NODEOPTIONS[] =
+		{"TYPE", "HOST", "PORT", "PRIMARY", "PREFERRED", NULL};
+
+		COMPLETE_WITH_LIST(list_NODEOPTIONS);
+	}
+#endif
 	/* ALTER PUBLICATION <name> */
 	else if (Matches3("ALTER", "PUBLICATION", MatchAny))
 		COMPLETE_WITH_LIST5("ADD TABLE", "DROP TABLE", "OWNER TO", "RENAME TO", "SET");
@@ -1765,9 +1832,11 @@ psql_completion(const char *text, int start, int end)
 	/* ALTER SEQUENCE <name> NO */
 	else if (Matches4("ALTER", "SEQUENCE", MatchAny, "NO"))
 		COMPLETE_WITH_LIST3("MINVALUE", "MAXVALUE", "CYCLE");
+#ifndef ADB
 	/* ALTER SERVER <name> */
 	else if (Matches3("ALTER", "SERVER", MatchAny))
 		COMPLETE_WITH_LIST4("VERSION", "OPTIONS", "OWNER TO", "RENAME TO");
+#endif/* RELEASE SAVEPOINT */
 	/* ALTER SERVER <name> VERSION <version> */
 	else if (Matches5("ALTER", "SERVER", MatchAny, "VERSION", MatchAny))
 		COMPLETE_WITH_CONST("OPTIONS");
@@ -2142,6 +2211,30 @@ psql_completion(const char *text, int start, int end)
 /* ROLLBACK */
 	else if (Matches1("ROLLBACK"))
 		COMPLETE_WITH_LIST4("WORK", "TRANSACTION", "TO SAVEPOINT", "PREPARED");
+#ifdef ADB
+	/* CLEAN CONNECTION */
+	else if (Matches2("CLEAN", "CONNECTION"))
+		COMPLETE_WITH_CONST("TO");
+	else if (Matches3("CLEAN", "CONNECTION", "TO"))
+	/* CLEAN CONNECTION TO */
+	{
+		static const char *const list_CLEANCONNECTIONOPT[] =
+			{"ALL", "COORDINATOR", "NODE", NULL};
+
+		COMPLETE_WITH_LIST(list_CLEANCONNECTIONOPT);
+	}
+	else if (Matches4("CLEAN", "CONNECTION", "TO", "ALL"))
+		COMPLETE_WITH_CONST("FORCE");
+	else if (Matches4("CLEAN", "CONNECTION", "TO", "COORDINATOR"))
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_coordinators);
+	else if (Matches4("CLEAN", "CONNECTION", "TO", "NODE"))
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_datanodes);
+	else if (Matches2("TO", "USER"))
+		COMPLETE_WITH_QUERY(Query_for_list_of_roles);
+	else if (Matches2("FOR", "DATABASE"))
+		COMPLETE_WITH_QUERY(Query_for_list_of_databases);
+#endif
+
 /* CLUSTER */
 	else if (Matches1("CLUSTER"))
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_tm, "UNION SELECT 'VERBOSE'");
@@ -2276,6 +2369,7 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH_QUERY(Query_for_list_of_available_extension_versions);
 	}
 
+#ifndef ADB
 	/* CREATE FOREIGN */
 	else if (Matches2("CREATE", "FOREIGN"))
 		COMPLETE_WITH_LIST2("DATA WRAPPER", "TABLE");
@@ -2283,6 +2377,7 @@ psql_completion(const char *text, int start, int end)
 	/* CREATE FOREIGN DATA WRAPPER */
 	else if (Matches5("CREATE", "FOREIGN", "DATA", "WRAPPER", MatchAny))
 		COMPLETE_WITH_LIST3("HANDLER", "VALIDATOR", "OPTIONS");
+#endif
 
 	/* CREATE INDEX --- is allowed inside CREATE SCHEMA, so use TailMatches */
 	/* First off we complete CREATE UNIQUE with "INDEX" */
@@ -2375,7 +2470,22 @@ psql_completion(const char *text, int start, int end)
 	/* Complete "CREATE POLICY <name> ON <table> USING (" */
 	else if (Matches6("CREATE", "POLICY", MatchAny, "ON", MatchAny, "USING"))
 		COMPLETE_WITH_CONST("(");
-
+#ifdef ADB
+	/* CREATE NODE */
+	else if (Matches3("CREATE", "NODE", MatchAny))
+		COMPLETE_WITH_CONST("WITH");
+	else if (Matches4("CREATE", "NODE", MatchAny, "WITH"))
+		COMPLETE_WITH_CONST("(");
+	else if (Matches5("CREATE", "NODE", MatchAny, "WITH", MatchAny))
+	{
+		static const char *const list_NODEOPT[] =
+		{"TYPE", "HOST", "PORT", "PRIMARY", "PREFERRED", NULL};
+		COMPLETE_WITH_LIST(list_NODEOPT);
+	}
+	/* CREATE NODEGROUP */
+	else if (Matches4("CREATE", "NODE", "GROUP", MatchAny))
+		COMPLETE_WITH_CONST("WITH");
+#endif
 	/*
 	 * CREATE POLICY <name> ON <table> AS PERMISSIVE|RESTRICTIVE FOR
 	 * ALL|SELECT|INSERT|UPDATE|DELETE
@@ -2457,9 +2567,11 @@ psql_completion(const char *text, int start, int end)
 			 TailMatches5("CREATE", "TEMP|TEMPORARY", "SEQUENCE", MatchAny, "NO"))
 		COMPLETE_WITH_LIST3("MINVALUE", "MAXVALUE", "CYCLE");
 
+#ifndef ADB
 /* CREATE SERVER <name> */
 	else if (Matches3("CREATE", "SERVER", MatchAny))
 		COMPLETE_WITH_LIST3("TYPE", "VERSION", "FOREIGN DATA WRAPPER");
+#endif
 
 /* CREATE STATISTICS <name> */
 	else if (Matches3("CREATE", "STATISTICS", MatchAny))
@@ -2685,8 +2797,10 @@ psql_completion(const char *text, int start, int end)
 			 (Matches4("DROP", "AGGREGATE|FUNCTION", MatchAny, MatchAny) &&
 			  ends_with(prev_wd, ')')) ||
 			 Matches4("DROP", "EVENT", "TRIGGER", MatchAny) ||
+#ifndef ADB
 			 Matches5("DROP", "FOREIGN", "DATA", "WRAPPER", MatchAny) ||
 			 Matches4("DROP", "FOREIGN", "TABLE", MatchAny) ||
+#endif
 			 Matches5("DROP", "TEXT", "SEARCH", "CONFIGURATION|DICTIONARY|PARSER|TEMPLATE", MatchAny))
 		COMPLETE_WITH_LIST2("CASCADE", "RESTRICT");
 
@@ -2695,8 +2809,10 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH_CONST("(");
 	else if (Matches4("DROP", "AGGREGATE|FUNCTION", MatchAny, "("))
 		COMPLETE_WITH_FUNCTION_ARG(prev2_wd);
+#ifndef ADB
 	else if (Matches2("DROP", "FOREIGN"))
 		COMPLETE_WITH_LIST2("DATA WRAPPER", "TABLE");
+#endif
 
 	/* DROP INDEX */
 	else if (Matches2("DROP", "INDEX"))
@@ -2771,6 +2887,19 @@ psql_completion(const char *text, int start, int end)
 	}
 	else if (Matches5("DROP", "RULE", MatchAny, "ON", MatchAny))
 		COMPLETE_WITH_LIST2("CASCADE", "RESTRICT");
+#ifdef ADB
+	/* DROP NODE */
+	else if (Matches2("DROP", "NODE"))
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_nodenames); /* Should test this code if complesion is not confused with DROP NODE GROUP */
+	/* DROP NODE GROUP */
+	else if (Matches3("DROP", "NODE", "GROUP"))
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_nodegroup_names);
+/* EXECUTE DIRECT */
+	else if (Matches2("EXECUTE", "DIRECT"))
+		COMPLETE_WITH_CONST("ON");
+	else if (Matches3("EXECUTE", "DIRECT", "ON"))
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_nodenames);
+#endif
 
 /* EXECUTE */
 	else if (Matches1("EXECUTE"))
@@ -2807,6 +2936,7 @@ psql_completion(const char *text, int start, int end)
 	else if (Matches3("FETCH|MOVE", MatchAny, MatchAny))
 		COMPLETE_WITH_LIST2("FROM", "IN");
 
+#ifndef ADB
 /* FOREIGN DATA WRAPPER */
 	/* applies in ALTER/DROP FDW and in CREATE SERVER */
 	else if (TailMatches3("FOREIGN", "DATA", "WRAPPER") &&
@@ -2825,6 +2955,7 @@ psql_completion(const char *text, int start, int end)
 /* FOREIGN SERVER */
 	else if (TailMatches2("FOREIGN", "SERVER"))
 		COMPLETE_WITH_QUERY(Query_for_list_of_servers);
+#endif
 
 /*
  * GRANT and REVOKE are allowed inside CREATE SCHEMA and
@@ -3073,9 +3204,11 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH_LIST3("MODE", "ROW EXCLUSIVE MODE",
 							"UPDATE EXCLUSIVE MODE");
 
+#ifndef ADB
 /* NOTIFY --- can be inside EXPLAIN, RULE, etc */
 	else if (TailMatches1("NOTIFY"))
 		COMPLETE_WITH_QUERY("SELECT pg_catalog.quote_ident(channel) FROM pg_catalog.pg_listening_channels() AS channel WHERE substring(pg_catalog.quote_ident(channel),1,%d)='%s'");
+#endif
 
 /* OPTIONS */
 	else if (TailMatches1("OPTIONS"))
@@ -3312,6 +3445,7 @@ psql_completion(const char *text, int start, int end)
 	else if (TailMatches4("UPDATE", MatchAny, "SET", MatchAny))
 		COMPLETE_WITH_CONST("=");
 
+#ifndef ADB
 /* USER MAPPING */
 	else if (Matches3("ALTER|CREATE|DROP", "USER", "MAPPING"))
 		COMPLETE_WITH_CONST("FOR");
@@ -3326,6 +3460,7 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH_CONST("SERVER");
 	else if (Matches7("CREATE|ALTER", "USER", "MAPPING", "FOR", MatchAny, "SERVER", MatchAny))
 		COMPLETE_WITH_CONST("OPTIONS");
+#endif
 
 /*
  * VACUUM [ FULL | FREEZE ] [ VERBOSE ] [ table ]
@@ -3447,8 +3582,10 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH_QUERY(Query_for_list_of_extensions);
 	else if (TailMatchesCS1("\\dm*"))
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_matviews, NULL);
+#ifndef ADB
 	else if (TailMatchesCS1("\\dE*"))
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_foreign_tables, NULL);
+#endif
 	else if (TailMatchesCS1("\\dy*"))
 		COMPLETE_WITH_QUERY(Query_for_list_of_event_triggers);
 

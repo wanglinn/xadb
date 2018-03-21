@@ -83,7 +83,7 @@ $$ LANGUAGE SQL;
 
 SELECT make_table();
 
-SELECT * FROM created_table;
+SELECT * FROM created_table order by q1, q2;
 
 -- Try EXPLAIN ANALYZE SELECT INTO, but hide the output since it won't
 -- be stable.

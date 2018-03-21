@@ -8,6 +8,8 @@
  *
  * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * src/include/utils/syscache.h
  *
@@ -73,6 +75,16 @@ enum SysCacheIdentifier
 	OPFAMILYAMNAMENSP,
 	OPFAMILYOID,
 	PARTRELID,
+#ifdef ADB
+	PGXCCLASSRELID,
+	PGXCGROUPNAME,
+	PGXCGROUPOID,
+	PGXCNODENAME,
+	PGXCNODEOID,
+	PGXCNODEIDENTIFIER,
+	ORACASTSOURCETARGET,
+	ADBPROCID,
+#endif
 	PROCNAMEARGSNSP,
 	PROCOID,
 	PUBLICATIONNAME,
@@ -108,8 +120,21 @@ enum SysCacheIdentifier
 	TYPEOID,
 	USERMAPPINGOID,
 	USERMAPPINGUSERSERVER
-
+#ifdef ADBMGRD
+	,HOSTHOSTNAME
+	,HOSTHOSTOID
+	,PARMTYPENAME
+	,NODENODEOID
+	,MGRUPDATAPARMNODENAMENODETYPEKEY
+	,MONITORJOBOID
+#define SysCacheSize (MONITORJOBOID + 1)
+#elif defined(AGTM)
+	,AGTMSEQUENCEOID
+	,AGTMSEQUENCEFIELDS
+#define SysCacheSize (AGTMSEQUENCEFIELDS+1)
+#else
 #define SysCacheSize (USERMAPPINGUSERSERVER + 1)
+#endif
 };
 
 extern void InitCatalogCache(void);

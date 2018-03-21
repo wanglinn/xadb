@@ -6,6 +6,7 @@
  *
  * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * src/include/nodes/nodes.h
  *
@@ -87,6 +88,25 @@ typedef enum NodeTag
 	T_NestLoopParam,
 	T_PlanRowMark,
 	T_PlanInvalItem,
+#ifdef ADB
+	/*
+	 * TAGS FOR PGXC NODES
+	 * (planner.h, locator.h, nodemgr.h, groupmgr.h)
+	 */
+	T_ExecNodes,
+	T_SimpleSort,
+	T_RemoteQuery,
+	T_AlterNodeStmt,
+	T_CreateNodeStmt,
+	T_DropNodeStmt,
+	T_CreateGroupStmt,
+	T_DropGroupStmt,
+	T_ClusterGather,
+	T_ClusterMergeGather,
+	T_ClusterReduce,
+	T_ReduceScan,
+	T_EmptyResult,
+#endif
 
 	/*
 	 * TAGS FOR PLAN STATE NODES (execnodes.h)
@@ -135,6 +155,15 @@ typedef enum NodeTag
 	T_SetOpState,
 	T_LockRowsState,
 	T_LimitState,
+#ifdef ADB
+	T_RemoteCopyState,
+	T_RemoteQueryState,
+	T_ClusterGatherState,
+	T_ClusterMergeGatherState,
+	T_ClusterReduceState,
+	T_ReduceScanState,
+	T_EmptyResultState,
+#endif
 
 	/*
 	 * TAGS FOR PRIMITIVE NODES (primnodes.h)
@@ -184,6 +213,11 @@ typedef enum NodeTag
 	T_SetToDefault,
 	T_CurrentOfExpr,
 	T_NextValueExpr,
+#ifdef ADB
+	T_RownumExpr,
+	T_LevelExpr,
+	T_OidVectorLoopExpr,
+#endif
 	T_InferenceElem,
 	T_TargetEntry,
 	T_RangeTblRef,
@@ -191,6 +225,10 @@ typedef enum NodeTag
 	T_FromExpr,
 	T_OnConflictExpr,
 	T_IntoClause,
+#ifdef ADB
+	T_DistributeBy,
+	T_PGXCSubCluster,
+#endif
 
 	/*
 	 * TAGS FOR EXPRESSION STATE NODES (execnodes.h)
@@ -208,6 +246,10 @@ typedef enum NodeTag
 	T_SubPlanState,
 	T_AlternativeSubPlanState,
 	T_DomainConstraintState,
+#ifdef ADB
+	T_RownumExprState,
+	T_OidVectorLoopExprState,
+#endif
 
 	/*
 	 * TAGS FOR PLANNER NODES (relation.h)
@@ -251,6 +293,14 @@ typedef enum NodeTag
 	T_LockRowsPath,
 	T_ModifyTablePath,
 	T_LimitPath,
+#ifdef ADB
+	T_RemoteQueryPath,
+	T_ClusterGatherPath,
+	T_ClusterMergeGatherPath,
+	T_ClusterReducePath,
+	T_ReduceScanPath,
+	T_FilterPath,
+#endif
 	/* these aren't subclasses of Path: */
 	T_EquivalenceClass,
 	T_EquivalenceMember,
@@ -389,6 +439,10 @@ typedef enum NodeTag
 	T_CreateUserMappingStmt,
 	T_AlterUserMappingStmt,
 	T_DropUserMappingStmt,
+#ifdef ADB
+	T_ExecDirectStmt,
+	T_CleanConnStmt,
+#endif
 	T_AlterTableSpaceOptionsStmt,
 	T_AlterTableMoveAllStmt,
 	T_SecLabelStmt,
@@ -413,12 +467,19 @@ typedef enum NodeTag
 	T_DropSubscriptionStmt,
 	T_CreateStatsStmt,
 	T_AlterCollationStmt,
+#ifdef ADB
+	T_BarrierStmt,
+#endif
 
 	/*
 	 * TAGS FOR PARSE TREE NODES (parsenodes.h)
 	 */
 	T_A_Expr,
 	T_ColumnRef,
+#ifdef ADB
+	T_ColumnRefJoin,
+	T_PriorExpr,
+#endif
 	T_ParamRef,
 	T_A_Const,
 	T_FuncCall,
@@ -498,6 +559,31 @@ typedef enum NodeTag
 	T_IndexAmRoutine,			/* in access/amapi.h */
 	T_TsmRoutine,				/* in access/tsmapi.h */
 	T_ForeignKeyCacheInfo		/* in utils/rel.h */
+#ifdef ADBMGRD
+	,T_MGR_NODE_START = 1000
+	,T_MGRAddHost = T_MGR_NODE_START
+	,T_MGRDropHost
+	,T_MGRAlterHost
+	,T_MGRAddNode
+	,T_MGRAlterNode
+	,T_MGRDropNode
+	,T_MGRUpdateparm
+	,T_MGRUpdateparmReset
+	,T_MGRStartAgent
+	,T_MGRFlushHost
+	,T_MonitorJobitemAdd
+	,T_MonitorJobitemAlter
+	,T_MonitorJobitemDrop
+	,T_MonitorJobAdd
+	,T_MonitorJobAlter
+	,T_MonitorJobDrop
+	,T_MgrExtensionAdd
+	,T_MgrExtensionDrop
+	,T_MgrRemoveNode
+	,T_MGRSetClusterInit
+	,T_MonitorDeleteData
+	,T_MGR_NODE_END
+#endif /* ADBMGRD */
 } NodeTag;
 
 /*
@@ -512,6 +598,10 @@ typedef struct Node
 } Node;
 
 #define nodeTag(nodeptr)		(((const Node*)(nodeptr))->type)
+
+#ifdef ADBMGRD
+#define IsMgrNode(nodeptr) (nodeTag(nodeptr) >= T_MGR_NODE_START && nodeTag(nodeptr) < T_MGR_NODE_END)
+#endif /* ADBMGRD */
 
 /*
  * newNode -
@@ -583,6 +673,50 @@ castNodeImpl(NodeTag type, void *ptr)
  *					  extern declarations follow
  * ----------------------------------------------------------------
  */
+
+/*
+ * nodes/outobject.c
+ */
+extern char *printObject(const void *obj);
+
+#ifdef ADB
+/* nodes/saveload.c */
+struct StringInfoData;
+struct Bitmapset;
+extern void saveNode(struct StringInfoData* buf, const Node *node);
+/*
+ * bool savehook(StringInfo buf, Node *not_null_node, void *context)
+ * return true if hook saved node
+ */
+extern void saveNodeAndHook(struct StringInfoData *buf, const Node *node
+							, bool (*hook)(), const void *context);
+extern Node* loadNode(struct StringInfoData* buf);
+/*
+ * Node* loadhook(StringInfo buf, NodeTag tag, void *context)
+ * return NULL if not load
+ */
+extern Node* loadNodeAndHook(struct StringInfoData* buf, void* (*hook)()
+							, const void *context);
+extern Node* loadNodeAndHookWithTag(struct StringInfoData *buf, void* (*hook)()
+							, const void *context, NodeTag tag);
+extern Oid load_oid_operator(struct StringInfoData *buf);
+extern Oid load_oid_proc(struct StringInfoData *buf);
+extern Oid load_oid_collation(struct StringInfoData *buf);
+extern Oid load_oid_type(struct StringInfoData *buf);
+extern Oid load_namespace(struct StringInfoData *buf);
+extern Oid load_namespace_extend(struct StringInfoData *buf, bool missok);
+extern Oid load_oid_class(struct StringInfoData *buf);
+extern char * load_node_string(struct StringInfoData *buf, bool need_dup);
+extern struct Bitmapset* load_Bitmapset(struct StringInfoData *buf);
+extern void save_oid_operator(struct StringInfoData *buf, Oid op);
+extern void save_oid_proc(struct StringInfoData *buf, Oid proc);
+extern void save_oid_collation(struct StringInfoData *buf, Oid collation);
+extern void save_oid_type(struct StringInfoData *buf, Oid typid);
+extern void save_namespace(struct StringInfoData *buf, Oid nsp);
+extern void save_oid_class(struct StringInfoData *buf, Oid oid_rel);
+extern void save_node_string(struct StringInfoData *buf, const char *str);
+extern void save_node_bitmapset(struct StringInfoData *buf, const struct Bitmapset *node);
+#endif /* ADB */
 
 /*
  * nodes/{outfuncs.c,print.c}

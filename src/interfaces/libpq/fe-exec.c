@@ -52,7 +52,10 @@ static bool static_std_strings = false;
 
 static PGEvent *dupEvents(PGEvent *events, int count);
 static bool pqAddTuple(PGresult *res, PGresAttValue *tup);
+/* function used by agtm_client.c, need extern */
+#if 0
 static bool PQsendQueryStart(PGconn *conn);
+#endif
 static int PQsendQueryGuts(PGconn *conn,
 				const char *command,
 				const char *stmtName,
@@ -65,7 +68,10 @@ static int PQsendQueryGuts(PGconn *conn,
 static void parseInput(PGconn *conn);
 static PGresult *getCopyResult(PGconn *conn, ExecStatusType copytype);
 static bool PQexecStart(PGconn *conn);
+/* function used by agtm_client.c, need extern */
+#if 0
 static PGresult *PQexecFinish(PGconn *conn);
+#endif
 static int PQsendDescribe(PGconn *conn, char desc_type,
 			   const char *desc_target);
 static int	check_field_number(const PGresult *res, int field_num);
@@ -1175,6 +1181,478 @@ PQsendQuery(PGconn *conn, const char *query)
 	return 1;
 }
 
+#ifdef ADB
+/*
+ * PQsendQueryTree
+ *	 Submit a query may with binary query tree, but don't wait for it to finish
+ *
+ * Returns: 1 if successfully submitted
+ *			0 if error (conn->errorMessage is set)
+ */
+int
+PQsendQueryTree(PGconn *conn, const char *query, const char *query_tree, size_t tree_len)
+{
+	bool	send_tree = false;
+	char	msg_type = 'Q';
+
+	if (!PQsendQueryStart(conn))
+		return 0;
+
+	/* check the argument */
+	if (!query)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+						libpq_gettext("command string is a null pointer\n"));
+		return 0;
+	}
+
+	if (query_tree)
+	{
+		Assert(tree_len > 0);
+		send_tree = true;
+		msg_type = 'q';
+	}
+
+	/* construct the outgoing Query message */
+	if (pqPutMsgStart(msg_type, false, conn) < 0 ||
+		pqPuts(query, conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return 0;
+	}
+	if (send_tree &&
+		pqPutnchar(query_tree, tree_len, conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return 0;
+	}
+	if (pqPutMsgEnd(conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return 0;
+	}
+
+	/* remember we are using simple query protocol */
+	conn->queryclass = PGQUERY_SIMPLE;
+
+	/* and remember the query text too, if possible */
+	/* if insufficient memory, last_query just winds up NULL */
+	if (conn->last_query)
+		free(conn->last_query);
+	conn->last_query = strdup(query);
+
+	/*
+	 * Give the data a push.  In nonblock mode, don't complain if we're unable
+	 * to send it all; PQgetResult() will do any additional flushing needed.
+	 */
+	if (pqFlush(conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return 0;
+	}
+
+	/* OK, it's launched! */
+	conn->asyncStatus = PGASYNC_BUSY;
+	return 1;
+}
+
+/*
+ * PQsendPlan
+ *	 Submit a binary plan, but don't wait for it to finish
+ *
+ * Returns: 1 if successfully submitted
+ *			0 if error (conn->errorMessage is set)
+ */
+int PQsendPlan(PGconn *conn, const char *plan, int length)
+{
+	if (!PQsendQueryStart(conn))
+		return 0;
+
+	/* check the argument */
+	if (!plan)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+						libpq_gettext("command string is a null pointer\n"));
+		return 0;
+	}
+
+	/* construct the outgoing Query message */
+	if (pqPutMsgStart('p', false, conn) < 0 ||
+		pqPutnchar(plan, length, conn) < 0 ||
+		pqPutMsgEnd(conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return 0;
+	}
+
+	/* remember we are using simple query protocol */
+	conn->queryclass = PGQUERY_SIMPLE;
+
+	/* and remember the query text too, if possible */
+	/* if insufficient memory, last_query just winds up NULL */
+	if (conn->last_query)
+		free(conn->last_query);
+	conn->last_query = strdup("<plan>");
+
+	/*
+	 * Give the data a push.  In nonblock mode, don't complain if we're unable
+	 * to send it all; PQgetResult() will do any additional flushing needed.
+	 */
+	if (pqFlush(conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return 0;
+	}
+
+	/* OK, it's launched! */
+	conn->asyncStatus = PGASYNC_BUSY;
+	return 1;
+}
+
+/*
+ * PQsendClose
+ *	 Submit a Close statement(portal) message, but don't wait for it to finish
+ *
+ * Returns: 1 if successfully submitted
+ *			0 if error (conn->errorMessage is set)
+ */
+int
+PQsendClose(PGconn *conn, int isStatement, const char *name)
+{
+	char c;
+	PQExpBufferData query;
+
+	if (!PQsendQueryStart(conn))
+		return 0;
+
+	/* check the argument */
+	if (!name)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+						libpq_gettext("name string is a null pointer\n"));
+		return 0;
+	}
+
+	c = isStatement ? 'S' : 'P';
+	/* construct the Describe Portal message */
+	if (pqPutMsgStart('C', false, conn) < 0 ||
+		pqPutc(c, conn) < 0 ||
+		pqPuts(name, conn) < 0 ||
+		pqPutMsgEnd(conn) < 0)
+		goto sendFailed;
+
+	/* construct the Sync message */
+	if (pqPutMsgStart('S', false, conn) < 0 ||
+		pqPutMsgEnd(conn) < 0)
+		goto sendFailed;
+
+	/* remember we are using extended query protocol */
+	conn->queryclass = PGQUERY_EXTENDED;
+
+	/* and remember the query text too, if possible */
+	/* if insufficient memory, last_query just winds up NULL */
+	if (conn->last_query)
+		free(conn->last_query);
+	initPQExpBuffer(&query);
+	appendPQExpBuffer(&query, "close %s '%s'", isStatement ? "statement" : "portal", name);
+	conn->last_query = strdup(query.data);
+	termPQExpBuffer(&query);
+
+	/*
+	 * Give the data a push.  In nonblock mode, don't complain if we're unable
+	 * to send it all; PQgetResult() will do any additional flushing needed.
+	 */
+	if (pqFlush(conn) < 0)
+		goto sendFailed;
+
+	/* OK, it's launched! */
+	conn->asyncStatus = PGASYNC_BUSY;
+	return 1;
+
+sendFailed:
+	pqHandleSendFailure(conn);
+	return 0;
+}
+
+/*
+ * PQsendQueryExtend
+ *	 Submit a query in extend protocol, but don't wait for it to finish
+ *
+ * Returns: 1 if successfully submitted
+ *			0 if error (conn->errorMessage is set)
+ */
+int
+PQsendQueryExtend(PGconn *conn,
+				  const char *command,				/* For Parse message */
+				  const char *stmtName,				/* For Parse, Bind, Describe Portal and Execute message */
+				  const char *portalName,			/* For Bind, Describe Portal and Execute message */
+				  int sendDescribe,				/* Used to decide whether to send a Describe message */
+				  int fetchSize,					/* For Execute message, how many rows will be fetched */
+				  int nParams,						/* For Parse message, the number of input parameters */
+				  const char **paramTypeNames,		/* For Parse message, "nParams" of input paramter type names */
+				  const char *const * paramValues,	/* For Bind message, "nParams" of input parameter values */
+				  const int *paramFormats,			/* For Bind message, "nParams" of input parameter formats */
+				  const int *paramLengths,			/* For Bind message, "nParams" of input parameter lengths */
+				  int nResultFormat,				/* For Bind message, the number of output parameter formats */
+				  const int *resultFormats)			/* For Bind message, "nResultFormat" of output parameter formats */
+{
+	PQExpBufferData paramBinaryBuf;
+	uint16			n16;
+	uint32			n32;
+	int				i;
+	int				res;
+
+	/* Construct binary parameters */
+	initPQExpBuffer(&paramBinaryBuf);
+	n16 = htons((uint16) nParams);
+	appendBinaryPQExpBuffer(&paramBinaryBuf, (const char *) &n16, 2);
+
+	for (i = 0; i < nParams; i++)
+	{
+		if (paramValues && paramValues[i])
+		{
+			int			nbytes;
+
+			if (paramFormats && paramFormats[i] != 0)
+			{
+				/* binary parameter */
+				if (paramLengths)
+					nbytes = paramLengths[i];
+				else
+				{
+					termPQExpBuffer(&paramBinaryBuf);
+					printfPQExpBuffer(&conn->errorMessage,
+									  libpq_gettext("length must be given for binary parameter\n"));
+					return 0;
+				}
+			}
+			else
+			{
+				/* text parameter, do not use paramLengths */
+				nbytes = strlen(paramValues[i]);
+			}
+
+			n32 =  htonl((uint32) nbytes);
+			appendBinaryPQExpBuffer(&paramBinaryBuf, (const char *) &n32, 4);
+			appendBinaryPQExpBuffer(&paramBinaryBuf, paramValues[i], nbytes);
+		}
+		else
+		{
+			/* take the param as NULL */
+			n32 = htonl(-1);
+			appendBinaryPQExpBuffer(&paramBinaryBuf, (const char *) &n32, 4);
+		}
+	}
+
+	res = PQsendQueryExtendBinary(conn,
+								  command,
+								  stmtName,
+								  portalName,
+								  sendDescribe,
+								  fetchSize,
+								  nParams,
+								  paramTypeNames,
+								  paramFormats,
+								  paramBinaryBuf.data,
+								  paramBinaryBuf.len,
+								  nResultFormat,
+								  resultFormats);
+
+	termPQExpBuffer(&paramBinaryBuf);
+
+	return res;
+}
+
+/*
+ * PQsendQueryExtendBinary
+ *   Submit a query in extend protocol, but don't wait for it to finish
+ *
+ * Returns: 1 if successfully submitted
+ *		  0 if error (conn->errorMessage is set)
+ */
+int
+PQsendQueryExtendBinary(PGconn *conn,
+						const char *command,			/* For Parse message */
+						const char *stmtName,			/* For Parse, Bind, Describe Portal and Execute message */
+						const char *portalName,			/* For Bind, Describe Portal and Execute message */
+						int sendDescribe,				/* Used to decide whether to send a Describe message */
+						int fetchSize,					/* For Execute message, how many rows will be fetched */
+						int nParams,					/* For Parse message, the number of input parameters */
+						const char **paramTypeNames,	/* For Parse message, "nParams" of input paramter type names */
+						const int *paramFormats,		/* For Bind message, "nParams" of input paramter formats */
+						const char *paramBinaryValue,	/* For Bind message, binary parameter values */
+						const int paramBinaryLength,	/* For Bind message, the length of paramBinaryValue */
+						int nResultFormat,				/* For Bind message, the number of output parameter formats */
+						const int *resultFormats)		/* For Bind message, "nResultFormat" of output parameter formats */
+{
+	int				i;
+	int				flush_result;
+	const char	   *portal_name;
+	const char	   *stmt_name;
+
+	if (!PQsendQueryStart(conn))
+		return 0;
+
+	/* check the arguments */
+	if (!command && !stmtName && !portalName)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+						libpq_gettext("query, statement name and portal name are all null pointer\n"));
+		return 0;
+	}
+	if (nParams < 0 || nParams > 65535)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+		libpq_gettext("number of parameters must be between 0 and 65535\n"));
+		return 0;
+	}
+
+	portal_name = portalName ? portalName : "";
+	stmt_name = stmtName ? stmtName : "";
+
+	/* This isn't gonna work on a 2.0 server */
+	if (PG_PROTOCOL_MAJOR(conn->pversion) < 3)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+		 libpq_gettext("function requires at least protocol version 3.0\n"));
+		return 0;
+	}
+
+	/*
+	 * We will send Parse (if needed), Bind, Describe Portal, Execute, Sync,
+	 * using specified statement name and the unnamed portal.
+	 */
+	if (command)
+	{
+		/* construct the Parse message */
+		if (pqPutMsgStart('P', false, conn) < 0 ||
+			pqPuts(stmt_name, conn) < 0 ||
+			pqPuts(command, conn) < 0)
+			goto sendFailed;
+		if (nParams > 0 && paramTypeNames)
+		{
+			if (pqPutInt(nParams, 2, conn) < 0)
+				goto sendFailed;
+			for (i = 0; i < nParams; i++)
+			{
+				if (pqPuts(paramTypeNames[i], conn) < 0)
+					goto sendFailed;
+			}
+		}
+		else
+		{
+			if (pqPutInt(0, 2, conn) < 0)
+				goto sendFailed;
+		}
+		if (pqPutMsgEnd(conn) < 0)
+			goto sendFailed;
+	}
+
+	/* Construct the Bind message */
+	if (pqPutMsgStart('B', false, conn) < 0 ||
+		pqPuts(portal_name, conn) < 0 ||
+		pqPuts(stmt_name, conn) < 0)
+		goto sendFailed;
+
+	/* Send parameter formats */
+	if (nParams > 0 && paramFormats)
+	{
+		if (pqPutInt(nParams, 2, conn) < 0)
+			goto sendFailed;
+		for (i = 0; i < nParams; i++)
+		{
+			if (pqPutInt(paramFormats[i], 2, conn) < 0)
+				goto sendFailed;
+		}
+	}
+	else
+	{
+		if (pqPutInt(0, 2, conn) < 0)
+			goto sendFailed;
+	}
+
+	/*
+	 * Send binary parameters, make sure it has already been
+	 * constructed like bind format, see PQsendQueryGuts.
+	 */
+	if (pqPutnchar(paramBinaryValue, paramBinaryLength, conn) < 0)
+		goto sendFailed;
+
+	/* Send result format */
+	if (nResultFormat > 0)
+	{
+		if (pqPutInt(nResultFormat, 2, conn) < 0)
+			goto sendFailed;
+		for (i = 0; i < nResultFormat; i++)
+		{
+			if (pqPutInt(resultFormats[i], 2, conn) < 0)
+				goto sendFailed;
+		}
+	} else
+	{
+		if (pqPutInt(0, 2, conn) < 0)
+			goto sendFailed;
+	}
+	if (pqPutMsgEnd(conn) < 0)
+		goto sendFailed;
+
+	/* construct the Describe Portal message */
+	if (sendDescribe)
+	{
+		if (pqPutMsgStart('D', false, conn) < 0 ||
+			pqPutc('P', conn) < 0 ||
+			pqPuts(portal_name, conn) < 0 ||
+			pqPutMsgEnd(conn) < 0)
+			goto sendFailed;
+	}
+
+	/* construct the Execute message */
+	if (pqPutMsgStart('E', false, conn) < 0 ||
+		pqPuts(portal_name, conn) < 0 ||
+		pqPutInt(fetchSize, 4, conn) < 0 ||
+		pqPutMsgEnd(conn) < 0)
+		goto sendFailed;
+
+	/* construct the Sync message */
+	if (pqPutMsgStart('S', false, conn) < 0 ||
+		pqPutMsgEnd(conn) < 0)
+		goto sendFailed;
+
+	/* remember we are using extended query protocol */
+	conn->queryclass = PGQUERY_EXTENDED;
+
+	/* and remember the query text too, if possible */
+	/* if insufficient memory, last_query just winds up NULL */
+	if (conn->last_query)
+		free(conn->last_query);
+	if (command)
+		conn->last_query = strdup(command);
+	else
+		conn->last_query = NULL;
+
+	/* make sure all data is flushed */
+	while ((flush_result = pqFlush(conn)) > 0)
+	{
+		if (pqWait(FALSE, TRUE, conn))
+		{
+			flush_result = -1;
+			break;
+		}
+	}
+
+	if (flush_result)
+		goto sendFailed;
+
+	/* OK, it's launched! */
+	conn->asyncStatus = PGASYNC_BUSY;
+	return 1;
+
+sendFailed:
+	pqHandleSendFailure(conn);
+	return 0;
+}
+#endif /* ADB */
+
 /*
  * PQsendQueryParams
  *		Like PQsendQuery, but use protocol 3.0 so we can pass parameters
@@ -1361,7 +1839,11 @@ PQsendQueryPrepared(PGconn *conn,
 /*
  * Common startup code for PQsendQuery and sibling routines
  */
+#ifdef ADB /* only used by agtm_client.c */
+bool
+#else
 static bool
+#endif /* ADB */
 PQsendQueryStart(PGconn *conn)
 {
 	if (!conn)
@@ -1670,6 +2152,23 @@ parseInput(PGconn *conn)
 		pqParseInput3(conn);
 	else
 		pqParseInput2(conn);
+}
+
+/*
+ * PQisIdle
+ *	 Return TRUE if PGASYNC_IDLE.
+ */
+int
+PQisIdle(PGconn *conn)
+{
+	if (!conn)
+		return FALSE;
+
+	/* Parse any available data, if our state permits. */
+	parseInput(conn);
+
+	/* PQgetResult will return immediately in all states except BUSY. */
+	return conn->asyncStatus == PGASYNC_IDLE;
 }
 
 /*
@@ -1998,7 +2497,11 @@ PQexecStart(PGconn *conn)
 /*
  * Common code for PQexec and sibling routines: wait for command result
  */
+#ifdef ADB	/* only used by agtm_client.c */
+PGresult *
+#else
 static PGresult *
+#endif /* ADB */
 PQexecFinish(PGconn *conn)
 {
 	PGresult   *result;
@@ -2391,6 +2894,52 @@ PQgetCopyData(PGconn *conn, char **buffer, int async)
 	else
 		return pqGetCopyData2(conn, buffer, async);
 }
+
+#ifdef ADB
+int PQgetCopyDataBuffer(PGconn *conn, const char **buffer, int async)
+{
+	if (!conn)
+		return -2;
+	if (conn->asyncStatus != PGASYNC_COPY_OUT &&
+		conn->asyncStatus != PGASYNC_COPY_BOTH)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+						  libpq_gettext("no COPY in progress\n"));
+		return -2;
+	}
+	if (PG_PROTOCOL_MAJOR(conn->pversion) >= 3)
+		return pqGetCopyData3Ex(conn, (char**)buffer, async, false);
+	else
+		return pqGetCopyData2Ex(conn, (char**)buffer, async, false);
+}
+
+int PQisCopyOutState(PGconn *conn)
+{
+	if (!conn)
+		return FALSE;
+
+	if (conn->status == CONNECTION_OK &&
+		(conn->asyncStatus == PGASYNC_COPY_OUT ||
+		 conn->asyncStatus == PGASYNC_COPY_BOTH))
+		return TRUE;
+
+	return FALSE;
+}
+
+int PQisCopyInState(PGconn *conn)
+{
+	if (!conn)
+		return FALSE;
+
+	if (conn->status == CONNECTION_OK &&
+		(conn->asyncStatus == PGASYNC_COPY_IN ||
+		 conn->asyncStatus == PGASYNC_COPY_BOTH))
+		return TRUE;
+
+	return FALSE;
+}
+
+#endif /* ADB */
 
 /*
  * PQgetline - gets a newline-terminated string from the backend.
@@ -2963,8 +3512,11 @@ PQoidStatus(const PGresult *res)
 	static char buf[24];
 
 	size_t		len;
-
+#ifdef ADB
+#else /* ADB */
 	if (!res || strncmp(res->cmdStatus, "INSERT ", 7) != 0)
+if (!res || !res->cmdStatus || strncmp(res->cmdStatus, "INSERT ", 7) != 0)
+#endif /* ADB */
 		return "";
 
 	len = strspn(res->cmdStatus + 7, "0123456789");
@@ -2988,6 +3540,9 @@ PQoidValue(const PGresult *res)
 	unsigned long result;
 
 	if (!res ||
+#ifndef ADB
+		!res->cmdStatus ||
+#endif /* ADB */
 		strncmp(res->cmdStatus, "INSERT ", 7) != 0 ||
 		res->cmdStatus[7] < '0' ||
 		res->cmdStatus[7] > '9')
@@ -3762,3 +4317,46 @@ PQunescapeBytea(const unsigned char *strtext, size_t *retbuflen)
 	*retbuflen = buflen;
 	return tmpbuf;
 }
+
+#ifdef ADB
+int pqSendAgtmListenPort(PGconn *conn, int port)
+{
+	if (!PQexecStart(conn) || !PQsendQueryStart(conn))
+		return -1;
+
+	/* send 'L' message */
+	if(pqPutMsgStart('L', false, conn) < 0
+		|| pqPutInt(port, sizeof(int), conn) < 0
+		|| pqPutMsgEnd(conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return -1;
+	}
+
+	/* remember we are using simple query protocol */
+	conn->queryclass = PGQUERY_SIMPLE;
+
+	/* and free last query text */
+	if (conn->last_query)
+	{
+		free(conn->last_query);
+		conn->last_query = NULL;
+	}
+
+	/*
+	 * Give the data a push.  In nonblock mode, don't complain if we're unable
+	 * to send it all; PQgetResult() will do any additional flushing needed.
+	 */
+	if (pqFlush(conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		return -1;
+	}
+
+	/* OK, it's launched! */
+	conn->asyncStatus = PGASYNC_BUSY;
+
+	return 0;
+}
+#endif
+

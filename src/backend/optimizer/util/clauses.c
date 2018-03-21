@@ -51,7 +51,9 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
-
+#ifdef ADB
+#include "catalog/adb_proc.h"
+#endif /* ADB */
 
 typedef struct
 {
@@ -106,6 +108,13 @@ static bool contain_volatile_functions_walker(Node *node, void *context);
 static bool contain_volatile_functions_not_nextval_walker(Node *node, void *context);
 static bool max_parallel_hazard_walker(Node *node,
 						   max_parallel_hazard_context *context);
+#ifdef ADB
+static bool contain_rownum_walker(Node *node, void *context);
+static bool contain_volatile_functions_walker_without_check_RownumExpr(Node *node, void *context);
+static bool has_cluster_hazard_walker(Node *node, has_parallel_hazard_arg *context);
+#endif
+static bool has_parallel_hazard_walker(Node *node,
+						   has_parallel_hazard_arg *context);
 static bool contain_nonstrict_functions_walker(Node *node, void *context);
 static bool contain_context_dependent_node(Node *clause);
 static bool contain_context_dependent_node_walker(Node *node, int *flags);
@@ -857,6 +866,21 @@ contain_subplans_walker(Node *node, void *context)
 	return expression_tree_walker(node, contain_subplans_walker, context);
 }
 
+#ifdef ADB
+bool contain_rownum(Node *clause)
+{
+	return contain_rownum_walker(clause, NULL);
+}
+
+static bool contain_rownum_walker(Node *node, void *context)
+{
+	if(node == NULL)
+		return false;
+	if(IsA(node, RownumExpr))
+		return true;
+	return expression_tree_walker(node, contain_rownum_walker, context);
+}
+#endif /* ADB */
 
 /*****************************************************************************
  *		Check clauses for mutable functions
@@ -1048,6 +1072,189 @@ contain_volatile_functions_not_nextval_walker(Node *node, void *context)
 								  context);
 }
 
+#ifdef ADB
+bool
+contain_volatile_functions_without_check_RownumExpr(Node *clause)
+{
+	return contain_volatile_functions_walker_without_check_RownumExpr(clause, NULL);
+}
+
+static bool
+contain_volatile_functions_walker_without_check_RownumExpr(Node *node, void *context)
+{
+	if (node == NULL)
+		return false;
+	if (IsA(node, FuncExpr))
+	{
+		FuncExpr   *expr = (FuncExpr *) node;
+
+		if (func_volatile(expr->funcid) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, OpExpr))
+	{
+		OpExpr	   *expr = (OpExpr *) node;
+
+		set_opfuncid(expr);
+		if (func_volatile(expr->opfuncid) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, DistinctExpr))
+	{
+		DistinctExpr *expr = (DistinctExpr *) node;
+
+		set_opfuncid((OpExpr *) expr);	/* rely on struct equivalence */
+		if (func_volatile(expr->opfuncid) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, NullIfExpr))
+	{
+		NullIfExpr *expr = (NullIfExpr *) node;
+
+		set_opfuncid((OpExpr *) expr);	/* rely on struct equivalence */
+		if (func_volatile(expr->opfuncid) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, ScalarArrayOpExpr))
+	{
+		ScalarArrayOpExpr *expr = (ScalarArrayOpExpr *) node;
+
+		set_sa_opfuncid(expr);
+		if (func_volatile(expr->opfuncid) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, CoerceViaIO))
+	{
+		CoerceViaIO *expr = (CoerceViaIO *) node;
+		Oid			iofunc;
+		Oid			typioparam;
+		bool		typisvarlena;
+
+		/* check the result type's input function */
+		getTypeInputInfo(expr->resulttype,
+						 &iofunc, &typioparam);
+		if (func_volatile(iofunc) == PROVOLATILE_VOLATILE)
+			return true;
+		/* check the input type's output function */
+		getTypeOutputInfo(exprType((Node *) expr->arg),
+						  &iofunc, &typisvarlena);
+		if (func_volatile(iofunc) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, ArrayCoerceExpr))
+	{
+		ArrayCoerceExpr *expr = (ArrayCoerceExpr *) node;
+
+		if (OidIsValid(expr->elemfuncid) &&
+			func_volatile(expr->elemfuncid) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, RowCompareExpr))
+	{
+		/* RowCompare probably can't have volatile ops, but check anyway */
+		RowCompareExpr *rcexpr = (RowCompareExpr *) node;
+		ListCell   *opid;
+
+		foreach(opid, rcexpr->opnos)
+		{
+			if (op_volatile(lfirst_oid(opid)) == PROVOLATILE_VOLATILE)
+				return true;
+		}
+		/* else fall through to check args */
+	}
+	/*
+	else if (IsA(node, RownumExpr))
+	{
+		return true;
+	}
+	*/
+	else if (IsA(node, Query))
+	{
+		/* Recurse into subselects */
+		return query_tree_walker((Query *) node,
+								 contain_volatile_functions_walker_without_check_RownumExpr,
+								 context, 0);
+	}
+	return expression_tree_walker(node, contain_volatile_functions_walker_without_check_RownumExpr,
+								  context);
+}
+
+static bool
+has_cluster_hazard_checker(Oid func_id, void *context)
+{
+	char		proclustersafe = func_cluster(func_id);
+
+	if (((has_parallel_hazard_arg *) context)->allow_restricted)
+		return (proclustersafe == PROC_CLUSTER_UNSAFE);
+	else
+		return (proclustersafe != PROC_CLUSTER_SAFE);
+}
+
+static bool has_cluster_hazard_walker(Node *node, has_parallel_hazard_arg *context)
+{
+
+	if (node == NULL)
+		return false;
+
+	/* Check for hazardous functions in node itself */
+	if (check_functions_in_node(node, has_cluster_hazard_checker,
+								context))
+		return true;
+	/* oracle rownum can not */
+	else if (IsA(node, RownumExpr))
+		return true;
+
+	/*
+	 * As a notational convenience for callers, look through RestrictInfo.
+	 */
+	else if (IsA(node, RestrictInfo))
+	{
+		RestrictInfo *rinfo = (RestrictInfo *) node;
+
+		return has_cluster_hazard_walker((Node *) rinfo->clause, context);
+	}
+
+	/*
+	 * When we're first invoked on a completely unplanned tree, we must
+	 * recurse into subqueries so to as to locate parallel-unsafe constructs
+	 * anywhere in the tree.
+	 */
+	else if (IsA(node, Query))
+	{
+		Query	   *query = (Query *) node;
+
+		/* SELECT FOR UPDATE/SHARE must be treated as unsafe */
+		if (query->rowMarks != NULL)
+			return true;
+
+		/* Recurse into subselects */
+		return query_tree_walker(query,
+								 has_cluster_hazard_walker,
+								 context, 0);
+	}
+
+	/* Recurse to check arguments */
+	return expression_tree_walker(node,
+								  has_cluster_hazard_walker,
+								  context);
+}
+
+bool has_cluster_hazard(Node *node, bool allow_restricted)
+{
+	has_parallel_hazard_arg context;
+
+	context.allow_restricted = allow_restricted;
+	return has_cluster_hazard_walker(node, &context);
+}
+
+#endif
 
 /*****************************************************************************
  *		Check queries for parallel unsafe and/or restricted constructs

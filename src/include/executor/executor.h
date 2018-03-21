@@ -63,7 +63,9 @@
 #define EXEC_FLAG_WITH_OIDS		0x0020	/* force OIDs in returned tuples */
 #define EXEC_FLAG_WITHOUT_OIDS	0x0040	/* force no OIDs in returned tuples */
 #define EXEC_FLAG_WITH_NO_DATA	0x0080	/* rel scannability doesn't matter */
-
+#ifdef ADB
+#define EXEC_FLAG_IN_SUBPLAN	0x0100	/* at subplan */
+#endif /* ADB */
 
 /* Hook for plugins to get control in ExecutorStart() */
 typedef void (*ExecutorStart_hook_type) (QueryDesc *queryDesc, int eflags);
@@ -108,6 +110,9 @@ extern bool execCurrentOf(CurrentOfExpr *cexpr,
 			  ExprContext *econtext,
 			  Oid table_oid,
 			  ItemPointer current_tid);
+#ifdef ADB
+ScanState *search_plan_tree(PlanState *node, Oid table_oid);
+#endif
 
 /*
  * prototypes from functions in execGrouping.c
@@ -240,12 +245,23 @@ extern bool ExecShutdownNode(PlanState *node);
  * ----------------------------------------------------------------
  */
 #ifndef FRONTEND
+extern void TopDownDriveClusterReduce(PlanState *node);
 static inline TupleTableSlot *
 ExecProcNode(PlanState *node)
 {
 	if (node->chgParam != NULL) /* something changed? */
 		ExecReScan(node);		/* let ReScan handle this */
 
+#ifdef ADB
+	++(node->rownum);
+	{
+		TupleTableSlot *result = node->ExecProcNode(node);
+		if (TupIsNull(result) ||
+			(IsA(node, AggState) && ((AggState *) node)->agg_done))
+			TopDownDriveClusterReduce(node);
+		return result;
+	}
+#endif /* ADB */
 	return node->ExecProcNode(node);
 }
 #endif

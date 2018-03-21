@@ -42,6 +42,15 @@
 #include "parser/parse_clause.h"
 #include "parser/parsetree.h"
 #include "utils/lsyscache.h"
+#ifdef ADB
+#include "catalog/pgxc_node.h"
+#include "nodes/pg_list.h"
+#include "pgxc/pgxcnode.h"
+#include "pgxc/pgxc.h"
+#include "optimizer/pathnode.h"
+#include "optimizer/pgxcplan.h"
+#include "optimizer/reduceinfo.h"
+#endif /* ADB */
 
 
 /*
@@ -82,6 +91,9 @@ static Plan *create_append_plan(PlannerInfo *root, AppendPath *best_path);
 static Plan *create_merge_append_plan(PlannerInfo *root, MergeAppendPath *best_path);
 static Result *create_result_plan(PlannerInfo *root, ResultPath *best_path);
 static ProjectSet *create_project_set_plan(PlannerInfo *root, ProjectSetPath *best_path);
+#ifdef ADB
+static Result *create_filter_plan(PlannerInfo *root, FilterPath *best_path);
+#endif /* ADB */
 static Material *create_material_plan(PlannerInfo *root, MaterialPath *best_path,
 					 int flags);
 static Plan *create_unique_plan(PlannerInfo *root, UniquePath *best_path,
@@ -251,9 +263,11 @@ static EquivalenceMember *find_ec_member_for_tle(EquivalenceClass *ec,
 					   TargetEntry *tle,
 					   Relids relids);
 static Sort *make_sort_from_pathkeys(Plan *lefttree, List *pathkeys);
+#ifndef ADB
 static Sort *make_sort_from_groupcols(List *groupcls,
 						 AttrNumber *grpColIdx,
 						 Plan *lefttree);
+#endif
 static Material *make_material(Plan *lefttree);
 static WindowAgg *make_windowagg(List *tlist, Index winref,
 			   int partNumCols, AttrNumber *partColIdx, Oid *partOperators,
@@ -283,6 +297,18 @@ static ModifyTable *make_modifytable(PlannerInfo *root,
 static GatherMerge *create_gather_merge_plan(PlannerInfo *root,
 						 GatherMergePath *best_path);
 
+#ifdef ADB
+static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
+							ClusterMergeGatherPath *path, int flags);
+static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags);
+static ClusterGatherType get_gather_type(List *reduce_info_list);
+static Plan* create_filter_if_replicate(Plan *subplan, List *reduce_list);
+static bool replace_reduce_replicate_nodes(Path *path, List *nodes);
+static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
+static Plan *create_reducescan_plan(PlannerInfo *root, ReduceScanPath *path, int flags);
+static bool find_cluster_reduce_expr(Path *path, List **pplist);
+static void set_scan_execute_oids(Scan *scan, Path *path, PlannerInfo *root);
+#endif /* ADB */
 
 /*
  * create_plan
@@ -321,7 +347,21 @@ create_plan(PlannerInfo *root, Path *best_path)
 	 * top-level tlist seen at execution time.  However, ModifyTable plan
 	 * nodes don't have a tlist matching the querytree targetlist.
 	 */
+#ifdef ADB
+	/* test is not:
+	 *   ModifyTable
+	 *   ClusterGather|ClusterMergeGather -> ModifyTable
+	 *   ClusterGather|ClusterMergeGather -> Reslut -> ModifyTable
+	 */
+	if (!IsA(plan, ModifyTable) &&
+		!((IsA(plan, ClusterGather) || IsA(plan, ClusterMergeGather)) &&
+		  (IsA(outerPlan(plan), ModifyTable) ||
+		   (IsA(outerPlan(plan), Result) &&
+		    outerPlan(outerPlan(plan)) &&
+			IsA(outerPlan(outerPlan(plan)), ModifyTable)))))
+#else
 	if (!IsA(plan, ModifyTable))
+#endif /* ADB */
 		apply_tlist_labeling(plan->targetlist, root->processed_tlist);
 
 	/*
@@ -399,6 +439,13 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 				plan = (Plan *) create_minmaxagg_plan(root,
 													  (MinMaxAggPath *) best_path);
 			}
+#ifdef ADB
+			else if (IsA(best_path, FilterPath))
+			{
+				plan = (Plan*)create_filter_plan(root,
+												 (FilterPath*)best_path);
+			}
+#endif /* ADB */
 			else
 			{
 				Assert(IsA(best_path, ResultPath));
@@ -485,6 +532,28 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 			plan = (Plan *) create_gather_merge_plan(root,
 													 (GatherMergePath *) best_path);
 			break;
+#ifdef ADB
+		case T_RemoteQuery:
+			plan = create_remotequery_plan(root,
+										   (RemoteQueryPath *) best_path);
+			break;
+		case T_ClusterGather:
+			plan = (Plan*) create_cluster_gather_plan(root
+						, (ClusterGatherPath*) best_path, flags);
+			break;
+		case T_ClusterMergeGather:
+			plan = (Plan*) create_cluster_merge_gather_plan(root
+								, (ClusterMergeGatherPath*) best_path, flags);
+			break;
+		case T_ClusterReduce:
+			plan = create_cluster_reduce_plan(root,
+								(ClusterReducePath*)best_path,
+								flags);
+			break;
+		case T_ReduceScan:
+			plan = (Plan*) create_reducescan_plan(root, (ReduceScanPath*)best_path, flags);
+			break;
+#endif
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) best_path->pathtype);
@@ -598,6 +667,9 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 												best_path,
 												tlist,
 												scan_clauses);
+#ifdef ADB
+			set_scan_execute_oids((Scan*)plan, best_path, root);
+#endif /* ADB */
 			break;
 
 		case T_SampleScan:
@@ -605,6 +677,9 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 												   best_path,
 												   tlist,
 												   scan_clauses);
+#ifdef ADB
+			set_scan_execute_oids((Scan*)plan, best_path, root);
+#endif /* ADB */
 			break;
 
 		case T_IndexScan:
@@ -613,6 +688,9 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 												  tlist,
 												  scan_clauses,
 												  false);
+#ifdef ADB
+			set_scan_execute_oids((Scan*)plan, best_path, root);
+#endif /* ADB */
 			break;
 
 		case T_IndexOnlyScan:
@@ -621,6 +699,9 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 												  tlist,
 												  scan_clauses,
 												  true);
+#ifdef ADB
+			set_scan_execute_oids((Scan*)plan, best_path, root);
+#endif /* ADB */
 			break;
 
 		case T_BitmapHeapScan:
@@ -635,6 +716,9 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 												(TidPath *) best_path,
 												tlist,
 												scan_clauses);
+#ifdef ADB
+			set_scan_execute_oids((Scan*)plan, best_path, root);
+#endif /* ADB */
 			break;
 
 		case T_SubqueryScan:
@@ -1187,8 +1271,37 @@ create_result_plan(PlannerInfo *root, ResultPath *best_path)
 
 	copy_generic_path_info(&plan->plan, (Path *) best_path);
 
+#ifdef ADB
+	if(best_path->subpath)
+		outerPlan(plan) = create_plan_recurse(root, best_path->subpath, 0);
+#endif /* ADB */
+
 	return plan;
 }
+
+#ifdef ADB
+static Result *create_filter_plan(PlannerInfo *root, FilterPath *best_path)
+{
+	Result	   *plan;
+	List	   *tlist;
+	List	   *quals;
+
+	tlist = build_path_tlist(root, &best_path->path);
+
+	/* best_path->quals is just bare clauses */
+	quals = order_qual_clauses(root, best_path->quals);
+
+	plan = make_result(tlist, NULL, NULL);
+	plan->plan.qual = quals;
+
+	copy_generic_path_info(&plan->plan, (Path *) best_path);
+
+	if(best_path->subpath)
+		outerPlan(plan) = create_plan_recurse(root, best_path->subpath, 0);
+
+	return plan;
+}
+#endif /* ADB */
 
 /*
  * create_project_set_plan
@@ -1326,7 +1439,13 @@ create_unique_plan(PlannerInfo *root, UniquePath *best_path, int flags)
 			subplan = inject_projection_plan(subplan, newtlist,
 											 best_path->path.parallel_safe);
 		else
+		{
 			subplan->targetlist = newtlist;
+#ifdef ADB
+			if (IsA(subplan, ClusterReduce))
+				outerPlan(subplan)->targetlist = newtlist;
+#endif /* ADB */
+		}
 	}
 
 	/*
@@ -1390,6 +1509,16 @@ create_unique_plan(PlannerInfo *root, UniquePath *best_path, int flags)
 								 NIL,
 								 best_path->path.rows,
 								 subplan);
+#ifdef ADB
+		if (best_path->path.reduce_info_list &&
+			best_path->path.reduce_is_valid)
+		{
+			((Agg*)plan)->exec_nodes = ReduceInfoListGetExecuteOidList(best_path->path.reduce_info_list);
+		}else
+		{
+			((Agg*)plan)->exec_nodes = list_make1_oid(PGXCNodeOid);
+		}
+#endif /* ADB */
 	}
 	else
 	{
@@ -1757,6 +1886,20 @@ create_agg_plan(PlannerInfo *root, AggPath *best_path)
 					subplan);
 
 	copy_generic_path_info(&plan->plan, (Path *) best_path);
+#ifdef ADB
+	if (IS_PGXC_COORDINATOR &&
+		best_path->aggsplit != AGGSPLIT_INITIAL_SERIAL &&
+		best_path->path.reduce_is_valid)
+	{
+		if(IsReduceInfoListCoordinator(best_path->path.reduce_info_list))
+		{
+			plan->exec_nodes = list_make1_oid(PGXCNodeOid);
+		}else
+		{
+			plan->exec_nodes = ReduceInfoListGetExecuteOidList(best_path->path.reduce_info_list);
+		}
+	}
+#endif /* ADB */
 
 	return plan;
 }
@@ -2366,6 +2509,9 @@ create_modifytable_plan(PlannerInfo *root, ModifyTablePath *best_path)
 							best_path->epqParam);
 
 	copy_generic_path_info(&plan->plan, &best_path->path);
+#ifdef ADB
+	plan = (ModifyTable*)pgxc_make_modifytable(root, (Plan*)plan, best_path);
+#endif /* ADB */
 
 	return plan;
 }
@@ -2957,6 +3103,9 @@ create_bitmap_subplan(PlannerInfo *root, Path *bitmapqual,
 		plan->plan_width = 0;	/* meaningless */
 		plan->parallel_aware = false;
 		plan->parallel_safe = ipath->path.parallel_safe;
+#ifdef ADB
+		set_scan_execute_oids((Scan*)plan, bitmapqual, root);
+#endif /* ADB */
 		*qual = get_actual_clauses(ipath->indexclauses);
 		*indexqual = get_actual_clauses(ipath->indexquals);
 		foreach(l, ipath->indexinfo->indpred)
@@ -3835,6 +3984,10 @@ create_mergejoin_plan(PlannerInfo *root,
 
 		label_sort_with_costsize(root, sort, -1.0);
 		outer_plan = (Plan *) sort;
+#ifdef ADB
+		if (IsCoordMaster())
+			outer_plan = (Plan *) create_remotesort_plan(root, outer_plan);
+#endif
 		outerpathkeys = best_path->outersortkeys;
 	}
 	else
@@ -3847,6 +4000,20 @@ create_mergejoin_plan(PlannerInfo *root,
 
 		label_sort_with_costsize(root, sort, -1.0);
 		inner_plan = (Plan *) sort;
+#ifdef ADB
+		if (IsCoordMaster())
+		{
+			inner_plan = (Plan *) create_remotesort_plan(root, inner_plan);
+			/* If Sort node is not needed on top of RemoteQuery node, we
+			 * will need to materialize the datanode result so that
+			 * mark/restore on the inner node can be handled.
+			 * We shouldn't be changing the members in path structure while
+			 * creating plan, but changing the one below isn't harmful.
+			 */
+			if (IsA(inner_plan, RemoteQuery))
+				best_path->materialize_inner = true;
+		}
+#endif
 		innerpathkeys = best_path->innersortkeys;
 	}
 	else
@@ -4178,6 +4345,14 @@ create_hashjoin_plan(PlannerInfo *root,
 							  (Plan *) hash_plan,
 							  best_path->jpath.jointype,
 							  best_path->jpath.inner_unique);
+#ifdef ADB
+	/*
+	 * To avoid deadlock of cluster HashJoin plan, it's best to build the
+	 * hash table first for the inner plan in a cluster plan perspective.
+	 */
+	if (best_path->jpath.path.reduce_is_valid)
+		join_plan->cluster_hashtable_first = true;
+#endif
 
 	copy_generic_path_info(&join_plan->join.plan, &best_path->jpath.path);
 
@@ -5900,7 +6075,11 @@ make_sort_from_sortclauses(List *sortcls, Plan *lefttree)
  * appropriate to the grouping node.  So, only the sort ordering info
  * is used from the SortGroupClause entries.
  */
+#ifdef ADB
+Sort *
+#else
 static Sort *
+#endif
 make_sort_from_groupcols(List *groupcls,
 						 AttrNumber *grpColIdx,
 						 Plan *lefttree)
@@ -6552,6 +6731,12 @@ is_projection_capable_path(Path *path)
 		case T_ModifyTable:
 		case T_MergeAppend:
 		case T_RecursiveUnion:
+#ifdef ADB
+		case T_RemoteQuery:
+		case T_ClusterGather:
+		case T_ClusterMergeGather:
+		case T_ClusterGetCopyData:
+#endif /* ADB */
 			return false;
 		case T_Append:
 
@@ -6598,6 +6783,11 @@ is_projection_capable_plan(Plan *plan)
 		case T_Append:
 		case T_MergeAppend:
 		case T_RecursiveUnion:
+#ifdef ADB
+		case T_ClusterGather:
+		case T_ClusterMergeGather:
+		case T_ClusterGetCopyData:
+#endif /* ADB */
 			return false;
 		case T_ProjectSet:
 
@@ -6613,3 +6803,554 @@ is_projection_capable_plan(Plan *plan)
 	}
 	return true;
 }
+
+#ifdef ADB
+/*
+ * Wrapper functions to expose some functions to PGXC planner. These functions
+ * are meant to be wrappers just calling the static function in this file. If
+ * you need to add more functionality, add it to the original function.
+ */
+List *
+pgxc_order_qual_clauses(PlannerInfo *root, List *clauses)
+{
+	return order_qual_clauses(root, clauses);
+}
+
+List *
+pgxc_build_path_tlist(PlannerInfo *root, Path *path)
+{
+	return build_path_tlist(root, path);
+}
+
+void
+pgxc_copy_path_costsize(Plan *dest, Path *src)
+{
+	copy_generic_path_info(dest, src);
+}
+
+Plan *
+pgxc_create_gating_plan(PlannerInfo *root, Path *path, Plan *plan, List *quals)
+{
+	if (quals)
+	{
+		List *gating_clauses = order_qual_clauses(root, quals);
+		gating_clauses = extract_actual_clauses(gating_clauses, true);
+		if(gating_clauses != NIL)
+			plan = create_gating_plan(root, path, plan, gating_clauses);
+	}
+
+	return plan;
+}
+
+extern Node *
+pgxc_replace_nestloop_params(PlannerInfo *root, Node *expr)
+{
+	return replace_nestloop_params(root, expr);
+}
+
+static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
+							ClusterMergeGatherPath *path, int flags)
+{
+	ClusterMergeGather *plan;
+	Plan *subplan;
+	List *reduce_list;
+
+	plan = makeNode(ClusterMergeGather);
+	plan->rnodes = get_remote_nodes(root, path->subpath, true);
+	replace_reduce_replicate_nodes(path->subpath, plan->rnodes);
+	reduce_list = get_reduce_info_list(path->subpath);
+	plan->gatherType = get_gather_type(reduce_list);
+
+	subplan = create_plan_recurse(root, path->subpath, flags);
+	if(list_length(plan->rnodes) > 1)
+		subplan = create_filter_if_replicate(subplan, reduce_list);
+
+	if(IsA(subplan, ModifyTable))
+	{
+		ModifyTable *mt = (ModifyTable*)subplan;
+		if(mt->returningLists)
+			plan->plan.targetlist = linitial(mt->returningLists);
+	}else
+	{
+		plan->plan.targetlist = subplan->targetlist;
+	}
+	outerPlan(plan) = subplan;
+
+	copy_generic_path_info(&plan->plan, (Path*)path);
+
+	prepare_sort_from_pathkeys(&plan->plan, path->path.pathkeys,
+				path->path.parent->relids,
+				NULL, true,
+				&plan->numCols,
+				&plan->sortColIdx,
+				&plan->sortOperators,
+				&plan->collations,
+				&plan->nullsFirst);
+
+	return plan;
+}
+
+static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags)
+{
+	ClusterGather *plan;
+	Plan *subplan;
+	List *reduce_list;
+
+	plan = makeNode(ClusterGather);
+	plan->rnodes = get_remote_nodes(root, path->subpath, true);
+	replace_reduce_replicate_nodes(path->subpath, plan->rnodes);
+	reduce_list = get_reduce_info_list(path->subpath);
+	plan->gatherType = get_gather_type(reduce_list);
+
+
+	subplan = create_plan_recurse(root, path->subpath, flags);
+	if(list_length(plan->rnodes) > 1)
+		subplan = create_filter_if_replicate(subplan, reduce_list);
+
+	if(IsA(subplan, ModifyTable))
+	{
+		ModifyTable *mt = (ModifyTable*)subplan;
+		if(mt->returningLists)
+			plan->plan.targetlist = linitial(mt->returningLists);
+	}else
+	{
+		plan->plan.targetlist = subplan->targetlist;
+	}
+	outerPlan(plan) = subplan;
+
+	copy_generic_path_info(&plan->plan, (Path*)path);
+
+	return plan;
+}
+
+static ClusterGatherType get_gather_type(List *reduce_info_list)
+{
+	if(reduce_info_list == NIL)
+	{
+		return CLUSTER_GATHER_ALL;
+	}else
+	{
+		ReduceInfo *info = linitial(reduce_info_list);
+		ListCell *lc;
+		bool have_coord;
+		if(IsReduceInfoCoordinator(info))
+			return CLUSTER_GATHER_COORD;
+
+		have_coord = false;
+		foreach(lc, reduce_info_list)
+		{
+			info = lfirst(lc);
+			if(list_member_oid(info->storage_nodes, PGXCNodeOid))
+			{
+				have_coord = true;
+				break;
+			}
+		}
+		return have_coord ? CLUSTER_GATHER_ALL:CLUSTER_GATHER_DATANODE;
+	}
+}
+
+static Plan* create_filter_if_replicate(Plan *subplan, List *reduce_list)
+{
+	if(IsReduceInfoListReplicated(reduce_list))
+	{
+		List *exec_list = ReduceInfoListGetExecuteOidList(reduce_list);
+		subplan = (Plan*)make_result(subplan->targetlist, NULL, subplan);
+		/* just using first node's oid */
+		subplan->qual = list_make1(CreateNodeOidEqualOid(linitial_oid(exec_list)));
+		copy_plan_costsize(subplan, outerPlan(subplan));
+		list_free(exec_list);
+	}
+	return subplan;
+}
+
+static bool replace_reduce_replicate_nodes(Path *path, List *nodes)
+{
+	if(path == NULL)
+		return false;
+	if (IsA(path, ClusterReducePath) &&
+		IsReduceInfoListReplicated(path->reduce_info_list))
+	{
+		ReduceInfo *rinfo;
+		Assert(list_length(path->reduce_info_list) == 1);
+		rinfo = linitial(path->reduce_info_list);
+		if(!equal(rinfo->storage_nodes, nodes))
+		{
+			ReduceInfo *new_info = MakeReplicateReduceInfo(nodes);
+			if (list_member_oid(rinfo->storage_nodes, PGXCNodeOid) &&
+				!list_member_oid(new_info->storage_nodes, PGXCNodeOid))
+			{
+				/* maybe path in subplan */
+				new_info->storage_nodes = SortOidList(lappend_oid(new_info->storage_nodes, PGXCNodeOid));
+			}
+			path->reduce_info_list = list_make1(new_info);
+		}
+	}
+	return path_tree_walker(path, replace_reduce_replicate_nodes, nodes);
+}
+
+/* return remote node's Oid */
+List* get_remote_nodes(PlannerInfo *root, Path *path, bool include_subroot)
+{
+	List *list;
+	HTAB *htab;
+	ExecNodeInfo *info;
+	HASH_SEQ_STATUS seq_status;
+	AssertArg(root && path);
+
+	htab = get_path_execute_on(path, NULL, root);
+	if(include_subroot)
+	{
+		ListCell *lc;
+		foreach(lc, root->glob->subroots)
+		{
+			PlannerInfo *subroot = lfirst(lc);
+			RelOptInfo *rel = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
+			if(rel->cheapest_replicate_path == NULL)
+			{
+				/* cte scan */
+				htab = get_path_execute_on(rel->cheapest_cluster_total_path, htab, subroot);
+			}else
+			{
+				/* subplan */
+				htab = get_path_execute_on(rel->cheapest_replicate_path, htab, subroot);
+			}
+		}
+	}
+
+	list = NIL;
+	hash_seq_init(&seq_status, htab);
+	while((info = hash_seq_search(&seq_status)) != NULL)
+	{
+		if (info->part_count > 0 ||
+			info->update_count > 0 ||
+			info->insert_count > 0)
+			list = lappend_oid(list, info->nodeOid);
+	}
+	list = list_delete_oid(list, PGXCNodeOid);
+	if(list == NIL)
+	{
+		ExecNodeInfo *best = NULL;
+		hash_seq_init(&seq_status, htab);
+		while((info = hash_seq_search(&seq_status)) != NULL)
+		{
+			if(info->nodeOid == PGXCNodeOid)
+				continue;
+			Assert(info->rep_count > 0);
+			if (best == NULL ||
+				best->rep_count < info->rep_count)
+				best = info;
+		}
+		Assert(best);
+		list = lappend_oid(list, best->nodeOid);
+	}
+	hash_destroy(htab);
+
+	return SortOidList(list);
+}
+
+List *get_reduce_info_list(Path *path)
+{
+	List *list = NIL;
+	find_cluster_reduce_expr(path, &list);
+	return list;
+}
+
+static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags)
+{
+	Plan *subplan;
+	ReduceInfo *to;
+	ClusterReduce *plan;
+	List *reduce_list;
+	ListCell *lc;
+	ReduceInfo *info;
+
+	Assert(list_length(path->path.reduce_info_list) == 1);
+	Assert(!IsA(path->subpath, ClusterReducePath));
+	to = linitial(path->path.reduce_info_list);
+	reduce_list = get_reduce_info_list(path->subpath);
+	foreach(lc, reduce_list)
+	{
+		info = lfirst(lc);
+		if(IsReduceInfoEqual(info, to))
+			return create_plan_recurse(root, path->subpath, flags);
+	}
+
+	plan = makeNode(ClusterReduce);
+	outerPlan(plan) = subplan = create_plan_recurse(root, path->subpath, flags);
+	plan->reduce = CreateExprUsingReduceInfo(to);
+	plan->reduce_oids = list_copy(to->storage_nodes);
+	copy_generic_path_info((Plan*)plan, (Path*)path);
+	plan->plan.targetlist = subplan->targetlist;
+
+	if (path->path.pathkeys != NIL)
+	{
+		(void) prepare_sort_from_pathkeys(&plan->plan,
+										  path->path.pathkeys,
+										  path->path.parent->relids,
+										  NULL,
+										  true,
+										  &plan->numCols,
+										  &plan->sortColIdx,
+										  &plan->sortOperators,
+										  &plan->collations,
+										  &plan->nullsFirst);
+	}
+
+	return (Plan*) plan;
+}
+
+static Plan *create_reducescan_plan(PlannerInfo *root, ReduceScanPath *path, int flags)
+{
+	ListCell   *lc;
+	Bitmapset *attnos;
+	List *tlist;
+	List *base_clauses;
+	List *clauses;
+	ReduceScan *rc;
+	Plan *subplan;
+	Index relid;
+	int x,resno;
+
+	base_clauses = list_difference_ptr(path->path.parent->baserestrictinfo, path->rescan_clauses);
+	path->path.parent->baserestrictinfo = base_clauses;
+	subplan = create_plan_recurse(root, path->reducepath, flags & ~(EXEC_FLAG_REWIND|EXEC_FLAG_BACKWARD));
+	Assert(IsA(outerPlan(subplan), SeqScan));
+
+	rc = makeNode(ReduceScan);
+	outerPlan(rc) = subplan;
+	rc->plan.targetlist = build_path_tlist(root, &path->path);
+	clauses = order_qual_clauses(root, path->rescan_clauses);
+	rc->plan.qual = extract_actual_clauses(clauses, false);
+
+	relid = path->path.parent->relid;
+	attnos = NULL;
+	pull_varattnos((Node*)rc->plan.targetlist, relid, &attnos);
+	pull_varattnos((Node*)rc->plan.qual, relid, &attnos);
+
+	tlist = NIL;
+	while((x=bms_first_member(attnos)) >= 0)
+	{
+		Var * var = find_var((Node*)rc->plan.targetlist, x, relid);
+		if(var == NULL)
+			var = find_var((Node*)rc->plan.qual, x, relid);
+		Assert(var != NULL);
+		tlist = lappend(tlist, var);
+	}
+	bms_free(attnos);
+
+	if (enable_hashscan)
+	{
+		RestrictInfo *ri;
+		OpExpr	   *clause;
+		Relids		relids = path->path.parent->relids;
+		foreach(lc, path->rescan_clauses)
+		{
+			ri = lfirst(lc);
+			clause = (OpExpr*)(ri->clause);
+			if (is_opclause((Expr*)clause) &&
+				op_hashjoinable(clause->opno, exprType(get_leftop((Expr*)clause))))
+			{
+				Relids left_relids = ri->left_relids;
+				Relids right_relids = ri->right_relids;
+
+				if(left_relids == NULL && bms_equal(right_relids, relids))
+				{
+					rc->param_hash_keys = lappend(rc->param_hash_keys, get_leftop((Expr*)clause));
+					rc->scan_hash_keys = lappend(rc->scan_hash_keys, get_rightop((Expr*)clause));
+				}else if(right_relids == NULL && bms_equal(left_relids, relids))
+				{
+					Oid oidop = get_commutator(clause->opno);
+					if (OidIsValid(oidop) &&
+						op_hashjoinable(oidop, exprType(get_rightop((Expr*)clause))))
+					{
+						rc->param_hash_keys = lappend(rc->param_hash_keys, get_rightop((Expr*)clause));
+						rc->scan_hash_keys = lappend(rc->scan_hash_keys, get_leftop((Expr*)clause));
+					}
+				}
+			}
+		}
+		foreach(lc, rc->scan_hash_keys)
+		{
+			clause = lfirst(lc);
+			if (list_member(tlist, clause) == false)
+				tlist = lappend(tlist, clause);
+		}
+	}
+
+	resno = 0;
+	foreach(lc, tlist)
+	{
+		++resno;
+		lfirst(lc) = makeTargetEntry(lfirst(lc),
+									 resno,
+									 NULL,
+									 false);
+	}
+
+	for(subplan=outerPlan(rc);subplan;subplan=outerPlan(subplan))
+	{
+		subplan->targetlist = tlist;
+	}
+	copy_generic_path_info(&rc->plan, &path->path);
+	return &rc->plan;
+}
+
+static bool find_cluster_reduce_expr(Path *path, List **pplist)
+{
+	ListCell *lc;
+	if(path == NULL)
+		return false;
+
+	if(path->reduce_is_valid)
+	{
+		*pplist = path->reduce_info_list;
+		return false;
+	}
+
+	if ((IsA(path, ResultPath) &&
+		  ((ResultPath*)path)->subpath == NULL) ||
+		IsA(path, ForeignPath))
+	{
+		path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+		path->reduce_is_valid = true;
+		return false;
+	}
+
+	switch(path->pathtype)
+	{
+	/* run at coordinator only */
+	case T_FunctionScan:
+	case T_ValuesScan:
+	case T_SampleScan:
+	case T_ForeignScan:
+	/* when run here, this path not create by cluster, so run at coordinator only */
+	case T_SeqScan:
+	case T_TidScan:
+	case T_IndexScan:
+	case T_IndexOnlyScan:
+		*pplist = path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+		path->reduce_is_valid = true;
+		return false;
+	default:
+		break;
+	}
+
+	path_tree_walker(path, find_cluster_reduce_expr, (void*)pplist);
+
+	switch(nodeTag(path))
+	{
+	case T_Path:
+	case T_LimitPath:
+	case T_SortPath:
+	case T_ResultPath:
+	case T_MaterialPath:
+	case T_ProjectionPath:
+	case T_ClusterReducePath:
+	case T_IndexPath:
+	case T_UniquePath:
+	case T_WindowAggPath:
+		path->reduce_info_list = *pplist;
+		path->reduce_is_valid = true;
+		break;
+	case T_GroupPath:
+	case T_AggPath:
+		{
+			ReduceInfo *rinfo;
+			bool copy;
+			foreach(lc, *pplist)
+			{
+				rinfo = lfirst(lc);
+				copy = false;
+				if(IsReduceInfoByValue(rinfo))
+				{
+					if (IsReduceInfoInOneNode(rinfo) ||
+						IsGroupingReduceExpr(path->pathtarget, rinfo))
+						copy = true;
+				}else if(IsReduceInfoReplicated(rinfo) ||
+						IsReduceInfoCoordinator(rinfo) ||
+						IsReduceInfoInOneNode(rinfo))
+				{
+					copy = true;
+				}
+				if(copy)
+				{
+					path->reduce_info_list = lappend(path->reduce_info_list,
+													 CopyReduceInfo(rinfo));
+				}
+			}
+			path->reduce_is_valid = true;
+		}
+		break;
+	case T_SubqueryScanPath:
+		path->reduce_info_list = ConvertReduceInfoList(*pplist,
+													   path->parent->subroot->upper_targets[UPPERREL_FINAL],
+													   path->parent->relid);
+		path->reduce_is_valid = true;
+		break;
+	case T_HashPath:
+	case T_MergePath:
+	case T_NestPath:
+		{
+			JoinPath *jpath = (JoinPath*)path;
+			List *outer_reduce_list;
+			List *inner_reduce_list;
+			find_cluster_reduce_expr(jpath->outerjoinpath, &outer_reduce_list);
+			find_cluster_reduce_expr(jpath->innerjoinpath, &inner_reduce_list);
+			Assert(jpath->outerjoinpath->reduce_is_valid &&
+				   jpath->innerjoinpath->reduce_is_valid);
+			path->reduce_is_valid = reduce_info_list_can_join(outer_reduce_list,
+															  inner_reduce_list,
+															  jpath->joinrestrictinfo,
+															  jpath->jointype,
+															  &jpath->path.reduce_info_list);
+			Assert(path->reduce_is_valid);
+		}
+		break;
+	case T_ClusterGatherPath:
+	case T_ClusterMergeGatherPath:
+		path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+		path->reduce_is_valid = true;
+		break;
+	case T_GroupingSetsPath:
+	case T_AppendPath:
+	case T_MergeAppendPath:
+	case T_BitmapOrPath:
+	case T_BitmapAndPath:
+	case T_CustomPath:		/* I don't how to find */
+	case T_ModifyTablePath:
+	default:
+		path->reduce_info_list = NIL;
+		path->reduce_is_valid = true;
+		break;
+	}
+
+	Assert(path->reduce_is_valid);
+	*pplist = path->reduce_info_list;
+	return false;
+}
+
+static void set_scan_execute_oids(Scan *scan, Path *path, PlannerInfo *root)
+{
+	List *execute_on;
+	AssertArg(scan && path && path->parent && root);
+
+	if(root->glob->clusterPlanOK == false)
+		return;
+
+	execute_on = NIL;
+	if(path->reduce_is_valid)
+	{
+		ReduceInfo *rinfo;
+		Assert(list_length(path->reduce_info_list) == 1);
+		rinfo = linitial(path->reduce_info_list);
+		scan->execute_nodes = list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec);
+	}else
+	{
+		/* should be coordinator only */
+		Assert(path->parent->loc_info == NULL);
+		scan->execute_nodes = list_make1_oid(PGXCNodeOid);
+	}
+}
+
+#endif /* ADB */

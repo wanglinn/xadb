@@ -819,6 +819,9 @@ GatherMergePath
 GatherMergeState
 GatherPath
 GatherState
+GatherMerge
+GatherMergePath
+GatherMergeState
 Gene
 GenericCosts
 GenericXLogState

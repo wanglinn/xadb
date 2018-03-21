@@ -96,7 +96,9 @@
 #include "utils/selfuncs.h"
 #include "utils/spccache.h"
 #include "utils/tuplesort.h"
-
+#ifdef ADB
+#include "optimizer/reduceinfo.h"
+#endif /* ABD */
 
 #define LOG2(x)  (log(x) / 0.693147180559945)
 
@@ -108,6 +110,13 @@ double		cpu_index_tuple_cost = DEFAULT_CPU_INDEX_TUPLE_COST;
 double		cpu_operator_cost = DEFAULT_CPU_OPERATOR_COST;
 double		parallel_tuple_cost = DEFAULT_PARALLEL_TUPLE_COST;
 double		parallel_setup_cost = DEFAULT_PARALLEL_SETUP_COST;
+#ifdef ADB
+double		remote_tuple_cost = DEFAULT_REMOTE_TUPLE_COST;
+double		pgxc_remote_tuple_cost = DEFAULT_PGXC_REMOTE_TUPLE_COST;
+double		reduce_setup_cost = DEFAULT_REDUCE_SETUP_COST;
+double		reduce_conn_cost = DEFAULT_REDUCE_CONN_COST;
+double		reduce_page_cost = DEFAULT_REDUCE_PAGE_COST;
+#endif /* ADB */
 
 int			effective_cache_size = DEFAULT_EFFECTIVE_CACHE_SIZE;
 
@@ -127,11 +136,23 @@ bool		enable_material = true;
 bool		enable_mergejoin = true;
 bool		enable_hashjoin = true;
 bool		enable_gathermerge = true;
+#ifdef ADB
+bool		enable_fast_query_shipping = true;
+bool		pgxc_enable_remote_query = true;
+bool		enable_remotejoin = true;
+bool		enable_remotegroup = true;
+bool		enable_remotesort = true;
+bool		enable_remotelimit = true;
+bool		enable_hashscan = true;
+#endif
 
 typedef struct
 {
 	PlannerInfo *root;
 	QualCost	total;
+#ifdef ADB
+	bool		is_cluster;
+#endif
 } cost_qual_eval_context;
 
 static List *extract_nonindex_conditions(List *qual_clauses, List *indexquals);
@@ -163,7 +184,9 @@ static void set_rel_width(PlannerInfo *root, RelOptInfo *rel);
 static double relation_byte_size(double tuples, int width);
 static double page_size(double tuples, int width);
 static double get_parallel_divisor(Path *path);
-
+static void cost_seqscan_internal(Path *path, PlannerInfo *root,
+							RelOptInfo *baserel, ParamPathInfo *param_info,
+							Cost tuple_cost);
 
 /*
  * clamp_row_est
@@ -196,6 +219,13 @@ clamp_row_est(double nrows)
 void
 cost_seqscan(Path *path, PlannerInfo *root,
 			 RelOptInfo *baserel, ParamPathInfo *param_info)
+{
+	cost_seqscan_internal(path, root, baserel, param_info, cpu_tuple_cost);
+}
+
+static void cost_seqscan_internal(Path *path, PlannerInfo *root,
+							RelOptInfo *baserel, ParamPathInfo *param_info,
+							Cost tuple_cost)
 {
 	Cost		startup_cost = 0;
 	Cost		cpu_run_cost;
@@ -231,7 +261,7 @@ cost_seqscan(Path *path, PlannerInfo *root,
 	get_restriction_qual_cost(root, baserel, param_info, &qpqual_cost);
 
 	startup_cost += qpqual_cost.startup;
-	cpu_per_tuple = cpu_tuple_cost + qpqual_cost.per_tuple;
+	cpu_per_tuple = tuple_cost + qpqual_cost.per_tuple;
 	cpu_run_cost = cpu_per_tuple * baserel->tuples;
 	/* tlist eval costs are paid per output row, not per tuple scanned */
 	startup_cost += path->pathtarget->cost.startup;
@@ -704,6 +734,11 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 	 * What we want here is cpu_tuple_cost plus the evaluation costs of any
 	 * qual clauses that we have to evaluate as qpquals.
 	 */
+#ifdef ADB
+	if(path->path.parent->loc_info)
+		cost_qual_eval_cluster(&qpqual_cost, qpquals, root);
+	else
+#endif /* ADB */
 	cost_qual_eval(&qpqual_cost, qpquals, root);
 
 	startup_cost += qpqual_cost.startup;
@@ -1229,6 +1264,11 @@ cost_tidscan(Path *path, PlannerInfo *root,
 	 * The TID qual expressions will be computed once, any other baserestrict
 	 * quals once per retrieved tuple.
 	 */
+#ifdef ADB
+	if(path->parent->loc_info)
+		cost_qual_eval_cluster(&tid_qual_cost, tidquals, root);
+	else
+#endif /* ADB */
 	cost_qual_eval(&tid_qual_cost, tidquals, root);
 
 	/* fetch estimated page cost for tablespace containing table */
@@ -2161,6 +2201,7 @@ initial_cost_nestloop(PlannerInfo *root, JoinCostWorkspace *workspace,
 void
 final_cost_nestloop(PlannerInfo *root, NestPath *path,
 					JoinCostWorkspace *workspace,
+					ADB_ONLY_ARG(double *rows)
 					JoinPathExtraData *extra)
 {
 	Path	   *outer_path = path->outerjoinpath;
@@ -2180,6 +2221,11 @@ final_cost_nestloop(PlannerInfo *root, NestPath *path,
 		inner_path_rows = 1;
 
 	/* Mark the path with the correct row estimate */
+#ifdef ADB
+	if (rows)
+		path->path.rows = *rows;
+	else
+#endif /* ADB */
 	if (path->path.param_info)
 		path->path.rows = path->path.param_info->ppi_rows;
 	else
@@ -2322,6 +2368,11 @@ final_cost_nestloop(PlannerInfo *root, NestPath *path,
 	}
 
 	/* CPU costs */
+#ifdef ADB
+	if(workspace->is_cluster)
+		cost_qual_eval_cluster(&restrict_qual_cost, path->joinrestrictinfo, root);
+	else
+#endif /* ADB */
 	cost_qual_eval(&restrict_qual_cost, path->joinrestrictinfo, root);
 	startup_cost += restrict_qual_cost.startup;
 	cpu_per_tuple = cpu_tuple_cost + restrict_qual_cost.per_tuple;
@@ -2598,6 +2649,7 @@ initial_cost_mergejoin(PlannerInfo *root, JoinCostWorkspace *workspace,
 void
 final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 					 JoinCostWorkspace *workspace,
+					 ADB_ONLY_ARG(double *rows)
 					 JoinPathExtraData *extra)
 {
 	Path	   *outer_path = path->jpath.outerjoinpath;
@@ -2626,6 +2678,11 @@ final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 		inner_path_rows = 1;
 
 	/* Mark the path with the correct row estimate */
+#ifdef ADB
+	if (rows)
+		path->jpath.path.rows = *rows;
+	else
+#endif /* ADB */
 	if (path->jpath.path.param_info)
 		path->jpath.path.rows = path->jpath.path.param_info->ppi_rows;
 	else
@@ -2652,8 +2709,19 @@ final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 	 * Compute cost of the mergequals and qpquals (other restriction clauses)
 	 * separately.
 	 */
+#ifdef ADB
+	if(workspace->is_cluster)
+	{
+		cost_qual_eval_cluster(&merge_qual_cost, mergeclauses, root);
+		cost_qual_eval_cluster(&qp_qual_cost, path->jpath.joinrestrictinfo, root);
+	}else
+	{
+#endif /* ADB */
 	cost_qual_eval(&merge_qual_cost, mergeclauses, root);
 	cost_qual_eval(&qp_qual_cost, path->jpath.joinrestrictinfo, root);
+#ifdef ADB
+	}
+#endif /* ADB */
 	qp_qual_cost.startup -= merge_qual_cost.startup;
 	qp_qual_cost.per_tuple -= merge_qual_cost.per_tuple;
 
@@ -3011,6 +3079,7 @@ initial_cost_hashjoin(PlannerInfo *root, JoinCostWorkspace *workspace,
 void
 final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 					JoinCostWorkspace *workspace,
+					ADB_ONLY_ARG(double *rows)
 					JoinPathExtraData *extra)
 {
 	Path	   *outer_path = path->jpath.outerjoinpath;
@@ -3031,6 +3100,11 @@ final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 	ListCell   *hcl;
 
 	/* Mark the path with the correct row estimate */
+#ifdef ADB
+	if (rows)
+		path->jpath.path.rows = *rows;
+	else
+#endif /* ADB */
 	if (path->jpath.path.param_info)
 		path->jpath.path.rows = path->jpath.path.param_info->ppi_rows;
 	else
@@ -3128,8 +3202,19 @@ final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 	 * Compute cost of the hashquals and qpquals (other restriction clauses)
 	 * separately.
 	 */
+#ifdef ADB
+	if(workspace->is_cluster)
+	{
+		cost_qual_eval_cluster(&hash_qual_cost, hashclauses, root);
+		cost_qual_eval_cluster(&qp_qual_cost, path->jpath.joinrestrictinfo, root);
+	}else
+	{
+#endif /* ADB */
 	cost_qual_eval(&hash_qual_cost, hashclauses, root);
 	cost_qual_eval(&qp_qual_cost, path->jpath.joinrestrictinfo, root);
+#ifdef ADB
+	}
+#endif /* ADB */
 	qp_qual_cost.startup -= hash_qual_cost.startup;
 	qp_qual_cost.per_tuple -= hash_qual_cost.per_tuple;
 
@@ -3312,6 +3397,84 @@ cost_subplan(PlannerInfo *root, SubPlan *subplan, Plan *plan)
 	subplan->per_call_cost = sp_cost.per_tuple;
 }
 
+#ifdef ADB
+void cost_subplan_cluster(PlannerInfo *root, SubPlan *subplan, Path *path)
+{
+	QualCost	sp_cost;
+
+	/* Figure any cost for evaluating the testexpr */
+	cost_qual_eval_cluster(&sp_cost,
+						   make_ands_implicit((Expr *) subplan->testexpr),
+						   root);
+
+	if (subplan->useHashTable)
+	{
+		/*
+		 * If we are using a hash table for the subquery outputs, then the
+		 * cost of evaluating the query is a one-time cost.  We charge one
+		 * cpu_operator_cost per tuple for the work of loading the hashtable,
+		 * too.
+		 */
+		sp_cost.startup += path->total_cost +
+			cpu_operator_cost * path->rows;
+
+		/*
+		 * The per-tuple costs include the cost of evaluating the lefthand
+		 * expressions, plus the cost of probing the hashtable.  We already
+		 * accounted for the lefthand expressions as part of the testexpr, and
+		 * will also have counted one cpu_operator_cost for each comparison
+		 * operator.  That is probably too low for the probing cost, but it's
+		 * hard to make a better estimate, so live with it for now.
+		 */
+	}
+	else
+	{
+		/*
+		 * Otherwise we will be rescanning the subplan output on each
+		 * evaluation.  We need to estimate how much of the output we will
+		 * actually need to scan.  NOTE: this logic should agree with the
+		 * tuple_fraction estimates used by make_subplan() in
+		 * plan/subselect.c.
+		 */
+		Cost		path_run_cost = path->total_cost - path->startup_cost;
+
+		if (subplan->subLinkType == EXISTS_SUBLINK)
+		{
+			/* we only need to fetch 1 tuple; clamp to avoid zero divide */
+			sp_cost.per_tuple += path_run_cost / clamp_row_est(path->rows);
+		}
+		else if (subplan->subLinkType == ALL_SUBLINK ||
+				 subplan->subLinkType == ANY_SUBLINK)
+		{
+			/* assume we need 50% of the tuples */
+			sp_cost.per_tuple += 0.50 * path_run_cost;
+			/* also charge a cpu_operator_cost per row examined */
+			sp_cost.per_tuple += 0.50 * path->rows * cpu_operator_cost;
+		}
+		else
+		{
+			/* assume we need all tuples */
+			sp_cost.per_tuple += path_run_cost;
+		}
+
+		/*
+		 * Also account for subplan's startup cost. If the subplan is
+		 * uncorrelated or undirect correlated, AND its topmost node is one
+		 * that materializes its output, assume that we'll only need to pay
+		 * its startup cost once; otherwise assume we pay the startup cost
+		 * every time.
+		 */
+		if (subplan->parParam == NIL &&
+			ExecMaterializesOutput(path->pathtype))
+			sp_cost.startup += path->startup_cost;
+		else
+			sp_cost.per_tuple += path->startup_cost;
+	}
+
+	subplan->cluster_startup_cost = sp_cost.startup;
+	subplan->cluster_per_call_cost = sp_cost.per_tuple;
+}
+#endif /* ADB */
 
 /*
  * cost_rescan
@@ -3424,6 +3587,72 @@ cost_rescan(PlannerInfo *root, Path *path,
 	}
 }
 
+#ifdef ADB
+/*
+ * cost_remotequery
+ * As of now the function just sets the costs to 0 to make this path the
+ * cheapest.
+ * PGXC_TODO: Ideally, we should estimate the costs of network transfer from
+ * datanodes and any datanode costs involved.
+ */
+void
+cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel)
+{
+	if(rel->reloptkind == RELOPT_BASEREL)
+	{
+		cost_seqscan_internal(&rqpath->path, root, rel,
+							  rqpath->path.param_info,
+							  pgxc_remote_tuple_cost);
+	}else
+	{
+		rqpath->path.startup_cost = parallel_setup_cost * 2;
+		rqpath->path.total_cost = rqpath->path.startup_cost +
+									rel->rows * pgxc_remote_tuple_cost;
+		rqpath->path.rows = rel->rows;
+	}
+	if(!pgxc_enable_remote_query)
+	{
+		rqpath->path.startup_cost += disable_cost;
+		rqpath->path.total_cost += disable_cost;
+	}
+}
+
+void cost_qual_eval_cluster(QualCost *cost, List *quals, PlannerInfo *root)
+{
+	cost_qual_eval_context context;
+	ListCell   *l;
+
+	context.root = root;
+	context.total.startup = 0;
+	context.total.per_tuple = 0;
+	context.is_cluster = true;
+
+	/* We don't charge any cost for the implicit ANDing at top level ... */
+
+	foreach(l, quals)
+	{
+		Node	   *qual = (Node *) lfirst(l);
+
+		cost_qual_eval_walker(qual, &context);
+	}
+
+	*cost = context.total;
+}
+void cost_qual_eval_node_cluster(QualCost *cost, Node *qual, PlannerInfo *root)
+{
+	cost_qual_eval_context context;
+
+	context.root = root;
+	context.total.startup = 0;
+	context.total.per_tuple = 0;
+	context.is_cluster = true;
+
+	cost_qual_eval_walker(qual, &context);
+
+	*cost = context.total;
+}
+
+#endif /* ADB */
 
 /*
  * cost_qual_eval
@@ -3443,6 +3672,9 @@ cost_qual_eval(QualCost *cost, List *quals, PlannerInfo *root)
 	context.root = root;
 	context.total.startup = 0;
 	context.total.per_tuple = 0;
+#ifdef ADB
+	context.is_cluster = false;
+#endif /* ADB */
 
 	/* We don't charge any cost for the implicit ANDing at top level ... */
 
@@ -3468,6 +3700,9 @@ cost_qual_eval_node(QualCost *cost, Node *qual, PlannerInfo *root)
 	context.root = root;
 	context.total.startup = 0;
 	context.total.per_tuple = 0;
+#ifdef ADB
+	context.is_cluster = false;
+#endif /* ADB */
 
 	cost_qual_eval_walker(qual, &context);
 
@@ -3656,9 +3891,19 @@ cost_qual_eval_walker(Node *node, cost_qual_eval_context *context)
 		 */
 		SubPlan    *subplan = (SubPlan *) node;
 
+#ifdef ADB
+		if(context->is_cluster)
+		{
+			context->total.startup += subplan->cluster_startup_cost;
+			context->total.per_tuple += subplan->cluster_per_call_cost;
+		}else
+		{
+#endif /* ADB */
 		context->total.startup += subplan->startup_cost;
 		context->total.per_tuple += subplan->per_call_cost;
-
+#ifdef ADB
+		}
+#endif
 		/*
 		 * We don't want to recurse into the testexpr, because it was already
 		 * counted in the SubPlan node's costs.  So we're done.
@@ -3718,6 +3963,11 @@ get_restriction_qual_cost(PlannerInfo *root, RelOptInfo *baserel,
 	if (param_info)
 	{
 		/* Include costs of pushed-down clauses */
+#ifdef ADB
+		if(baserel->loc_info)
+			cost_qual_eval_cluster(qpqual_cost, param_info->ppi_clauses, root);
+		else
+#endif /* ADB */
 		cost_qual_eval(qpqual_cost, param_info->ppi_clauses, root);
 
 		qpqual_cost->startup += baserel->baserestrictcost.startup;
@@ -4025,6 +4275,11 @@ set_baserel_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 
 	rel->rows = clamp_row_est(nrows);
 
+#ifdef ADB
+	if(rel->loc_info)
+		cost_qual_eval_cluster(&rel->baserestrictcost, rel->baserestrictinfo, root);
+	else
+#endif /* ADB */
 	cost_qual_eval(&rel->baserestrictcost, rel->baserestrictinfo, root);
 
 	set_rel_width(root, rel);
@@ -5158,3 +5413,210 @@ compute_bitmap_pages(PlannerInfo *root, RelOptInfo *baserel, Path *bitmapqual,
 
 	return pages_fetched;
 }
+#ifdef ADB
+void cost_div(Path *path, int n)
+{
+	if(n > 0)
+	{
+		path->rows /= n;
+		path->startup_cost /= n;
+		path->total_cost /= n;
+	}
+}
+void cost_cluster_gather(ClusterGatherPath *path, RelOptInfo *baserel, ParamPathInfo *param_info, double *rows)
+{
+	Cost		startup_cost = 0;
+	Cost		run_cost = 0;
+
+	/* Mark the path with the correct row estimate */
+	if (rows)
+		path->path.rows = *rows;
+	else if (param_info)
+		path->path.rows = param_info->ppi_rows;
+	else
+		path->path.rows = baserel->rows;
+
+	startup_cost = path->subpath->startup_cost;
+
+	if (have_cluster_reduce_path((Path *) path))
+		startup_cost += reduce_setup_cost;
+
+	run_cost = path->subpath->total_cost - path->subpath->startup_cost;
+
+	run_cost += remote_tuple_cost * path->path.rows;
+
+	path->path.startup_cost = startup_cost;
+	path->path.total_cost = (startup_cost + run_cost);
+}
+
+static double
+cost_cluster_expr(Expr *expr, double tuples)
+{
+	/* TODO */
+	return 0.0;
+}
+
+void
+cost_cluster_reduce(ClusterReducePath *path)
+{
+	Path		   *subpath = path->subpath;
+	ReduceInfo	   *reduce_to;
+	List		   *reduce_from_list;
+	List		   *intersection,
+				   *different;
+	List		   *src_nodes,
+				   *dst_nodes,
+				   *union_nodes;
+	int				src_num,
+					dst_num,
+					union_num;
+	int				src_width;
+	double			src_rows, avg_rows;
+	double			src_pages;
+	double			reduce_scale = 0.0;
+	Cost			src_startup_cost,
+					src_total_cost;
+	Cost			sort_startup_cost,
+					sort_run_cost;
+	Cost			reduce_startup_cost,
+					reduce_run_cost;
+	bool			is_src_reduce_coord = false;
+	bool			is_src_reduce_rep = false;
+	bool			is_src_reduce_shard = false;
+
+	Assert (path->path.reduce_is_valid &&
+			list_length(path->path.reduce_info_list) == 1);
+
+	src_width = subpath->pathtarget->width;
+
+	/* here we calculate the number of nodes reduce to */
+	reduce_to = linitial(path->path.reduce_info_list);
+	dst_nodes = reduce_to->storage_nodes;
+	dst_num = list_length(dst_nodes);
+
+	/* here we calculate the whole cluster source cost */
+	reduce_from_list = get_reduce_info_list(subpath);
+	if (IsReduceInfoListCoordinator(reduce_from_list))
+		is_src_reduce_coord = true;
+	else
+	if (IsReduceInfoListReplicated(reduce_from_list))
+		is_src_reduce_rep = true;
+	else
+	if (IsReduceInfoListByValue(reduce_from_list) ||
+		IsReduceInfoListRound(reduce_from_list))
+		is_src_reduce_shard = true;
+	else
+	{
+		/*
+		 * TODO: Why does this happen?
+		 *
+		 * An inaccurate cost estimate is made directly.
+		 */
+		src_rows = subpath->rows;
+		src_pages = page_size(src_rows, src_width);
+		reduce_startup_cost = reduce_conn_cost;
+		reduce_run_cost = src_pages * reduce_page_cost + reduce_startup_cost;
+		path->path.rows = subpath->rows;
+		path->path.startup_cost = subpath->startup_cost + reduce_startup_cost;
+		path->path.total_cost = subpath->total_cost + reduce_run_cost;
+		return;
+	}
+
+	src_nodes = ReduceInfoListGetExecuteOidList(reduce_from_list);
+	src_num = list_length(src_nodes);
+	src_startup_cost = subpath->startup_cost * src_num;
+	src_total_cost = subpath->total_cost * src_num;
+	if (is_src_reduce_rep || is_src_reduce_coord)
+		src_rows = subpath->rows;
+	else
+		src_rows = subpath->rows * src_num;
+	src_pages = page_size(src_rows, src_width);
+
+	/* here we calculate the union set of nodes make reduce */
+	union_nodes = list_union_oid(src_nodes, dst_nodes);
+	union_num = list_length(union_nodes);
+
+	intersection = different = NIL;
+	if (IsReduceInfoCoordinator(reduce_to))
+	{
+		reduce_scale = 1.0;
+	} else
+	if (IsReduceInfoReplicated(reduce_to))
+	{
+		if (is_src_reduce_coord)
+		{
+			reduce_scale = 1.0 * dst_num;
+		} else
+		if (is_src_reduce_rep)
+		{
+			different = list_difference_oid(dst_nodes, src_nodes);
+			reduce_scale = 1.0 * list_length(different);
+		} else
+		if (is_src_reduce_shard)
+		{
+			intersection = list_intersection_oid(dst_nodes, src_nodes);
+			different = list_difference_oid(dst_nodes, src_nodes);
+
+			reduce_scale = (((double) (src_num - 1) / src_num) * list_length(intersection)) +
+						   (1.0 * list_length(different));
+		}
+	} else
+	if (IsReduceInfoByValue(reduce_to) ||
+		IsReduceInfoRound(reduce_to))
+	{
+		if (is_src_reduce_coord ||is_src_reduce_rep)
+		{
+			reduce_scale = 1.0;
+		} else
+		if (is_src_reduce_shard)
+		{
+			intersection = list_intersection_oid(src_nodes, dst_nodes);
+			different = list_difference_oid(src_nodes, dst_nodes);
+
+			reduce_scale = ((double) list_length(different) / src_num) +
+						   ((double) list_length(intersection) / src_num) * ((double) (dst_num - 1) / dst_num);
+		}
+	} else
+		Assert(false);
+
+	list_free(intersection);
+	list_free(different);
+
+	/* here we calculate the whole cluster reduce cost */
+	reduce_startup_cost = union_num * reduce_conn_cost;
+	reduce_run_cost = src_pages * reduce_scale * reduce_page_cost + reduce_startup_cost;
+	reduce_run_cost += cost_cluster_expr(NULL, src_rows * reduce_scale);
+
+	/* Calculate the cost of sorting */
+	avg_rows = src_rows / dst_num;
+	sort_startup_cost = sort_run_cost = 0.0;
+	if (path->path.pathkeys != NIL)
+	{
+		Cost		comparison_cost;
+		double		N;
+		double		logN;
+
+		N = (src_num < 2) ? 2.0 : (double) src_num;
+		logN = LOG2(N);
+
+		/* Assumed cost per tuple comparison */
+		comparison_cost = 2.0 * cpu_operator_cost;
+
+		/* Heap creation cost */
+		sort_startup_cost = comparison_cost * N * logN;
+
+		/* Per-tuple heap maintenance cost */
+		sort_run_cost += avg_rows * comparison_cost * 2.0 * logN;
+
+		sort_run_cost += cpu_operator_cost * avg_rows;
+	}
+
+	/* here we calulate the average cost of ClusterReduce */
+	path->path.rows = avg_rows;
+	path->path.startup_cost = (src_startup_cost + reduce_startup_cost + sort_startup_cost * dst_num) / union_num;
+	path->path.total_cost = (src_total_cost + reduce_run_cost + sort_run_cost * dst_num) / union_num;
+
+	list_free(src_nodes);
+	list_free(union_nodes);
+}
+#endif /* ADB */

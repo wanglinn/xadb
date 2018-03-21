@@ -3255,8 +3255,11 @@ connection_warnings(bool in_startup)
 		}
 		/* For version match, only print psql banner on startup. */
 		else if (in_startup)
+#ifdef ADB
+			printf("%s (%s based on PG %s)\n", pset.progname, ADB_VERSION, PG_VERSION);
+#else
 			printf("%s (%s)\n", pset.progname, PG_VERSION);
-
+#endif
 		if (pset.sversion / 100 > client_ver / 100)
 			printf(_("WARNING: %s major version %s, server major version %s.\n"
 					 "         Some psql features might not work.\n"),
@@ -3350,6 +3353,24 @@ SyncVariables(void)
 
 	/* send stuff to it, too */
 	PQsetErrorVerbosity(pset.db, pset.verbosity);
+#ifdef ADB
+	/* is server ADB managerd? */
+	{
+		const char *cmd_mode = PQparameterStatus(pset.db, "command_mode");
+		if(cmd_mode != NULL
+			&& (strcmp(cmd_mode, "manager") == 0
+				|| strcmp(cmd_mode, "mgr") == 0
+				|| strcmp(cmd_mode, "manage") == 0
+				)
+			)
+		{
+			pset.is_manage = true;
+		}else
+		{
+			pset.is_manage = false;
+		}
+	}
+#endif /* ADB */
 	PQsetErrorContextVisibility(pset.db, pset.show_context);
 }
 

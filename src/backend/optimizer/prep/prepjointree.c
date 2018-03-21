@@ -35,6 +35,9 @@
 #include "parser/parse_relation.h"
 #include "parser/parsetree.h"
 #include "rewrite/rewriteManip.h"
+#ifdef ADB
+#include "access/sysattr.h"
+#endif
 
 
 typedef struct pullup_replace_vars_context
@@ -1126,6 +1129,10 @@ pull_up_simple_subquery(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte,
 				case RTE_NAMEDTUPLESTORE:
 					/* these can't contain any lateral references */
 					break;
+#ifdef ADB
+				case RTE_REMOTE_DUMMY:
+					break;
+#endif
 			}
 		}
 	}
@@ -1982,6 +1989,10 @@ replace_vars_in_jointree(Node *jtnode,
 						/* these shouldn't be marked LATERAL */
 						Assert(false);
 						break;
+#ifdef ADB
+					case RTE_REMOTE_DUMMY:
+						break;
+#endif
 				}
 			}
 		}
@@ -2120,6 +2131,13 @@ pullup_replace_vars_callback(Var *var,
 			rcon->rv_cache[InvalidAttrNumber] = copyObject(newnode);
 		}
 	}
+#ifdef ADB
+	else if (varattno == XC_NodeIdAttributeNumber)
+	{
+		/* We don't need to change the entry for xc_node_id */
+		newnode = NULL;
+	}
+#endif
 	else
 	{
 		/* Normal case referencing one targetlist element */

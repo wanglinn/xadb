@@ -84,6 +84,18 @@
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 
+#ifdef ADB
+#include "agtm/agtm.h"
+#include "catalog/pgxc_class.h"
+#include "catalog/pgxc_node.h"
+#include "catalog/pgxc_group.h"
+#include "commands/dbcommands.h"
+#include "commands/sequence.h"
+#include "commands/tablecmds.h"
+#include "intercomm/inter-comm.h"
+#include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
+#endif
 
 /*
  * Deletion processing requires additional state for each ObjectAddress that
@@ -166,6 +178,11 @@ static const Oid object_classes[] = {
 	ForeignDataWrapperRelationId,	/* OCLASS_FDW */
 	ForeignServerRelationId,	/* OCLASS_FOREIGN_SERVER */
 	UserMappingRelationId,		/* OCLASS_USER_MAPPING */
+#ifdef ADB
+	PgxcClassRelationId,		/* OCLASS_PGXC_CLASS */
+	PgxcNodeRelationId,			/* OCLASS_PGXC_NODE */
+	PgxcGroupRelationId,		/* OCLASS_PGXC_GROUP */
+#endif
 	DefaultAclRelationId,		/* OCLASS_DEFACL */
 	ExtensionRelationId,		/* OCLASS_EXTENSION */
 	EventTriggerRelationId,		/* OCLASS_EVENT_TRIGGER */
@@ -424,6 +441,85 @@ performMultipleDeletions(const ObjectAddresses *objects,
 
 	heap_close(depRel, RowExclusiveLock);
 }
+
+#ifdef ADB
+/*
+ * performRename: used to rename objects
+ * on AGTM depending on another object(s)
+ */
+static void
+doRename(const ObjectAddress *object, const char *oldname, const char *newname)
+{
+	switch (getObjectClass(object))
+	{
+		case OCLASS_CLASS:
+		{
+			 char		 relKind = get_rel_relkind(object->objectId);
+
+			 /*
+			  * If we are here, a schema is being renamed, a sequence depends on it.
+			  * as sequences' global name use the schema name, this sequence
+			  * has also to be renamed on GTM.
+			  * An operation with GTM can just be done from a remote Coordinator.
+			  */
+			 if (relKind == RELKIND_SEQUENCE && IsCoordMaster() &&
+				 !IsTempSequence(object->objectId))
+			 {
+				 Relation relseq = relation_open(object->objectId, AccessShareLock);
+
+				 char *seqName = RelationGetRelationName(relseq);
+				 char * databaseName = get_database_name(relseq->rd_node.dbNode);
+				 agtm_RenameSequence(seqName, databaseName, oldname, newname, T_RENAME_SCHEMA);
+
+				 if(databaseName)
+					 pfree(databaseName);
+				 relation_close(relseq, AccessShareLock);
+			 }
+	 	}
+		default:
+		 	/* Nothing to do, this object has not to be renamed, end of the story... */
+			 break;
+	}
+}
+
+extern void performRenameSchema(const ObjectAddress *object,
+								   const char *oldname, const char *newname)
+{
+	Relation	 depRel;
+	ObjectAddresses *targetObjects;
+	int i;
+
+   /*
+  	* Check the dependencies on this object
+	* And rename object dependent if necessary
+	*/
+
+	depRel = heap_open(DependRelationId, RowExclusiveLock);
+
+	targetObjects = new_object_addresses();
+
+	findDependentObjects(object,
+						 DEPFLAG_ORIGINAL,
+						 0, /* XXX seems like flags are only used while
+							   dropping objects */
+						 NULL, 	 /* empty stack */
+						 targetObjects,
+						 NULL,
+						 &depRel);
+
+	/* Check Objects one by one to see if some of them have to be renamed on GTM */
+	for (i = 0; i < targetObjects->numrefs; i++)
+	{
+		ObjectAddress *thisobj = targetObjects->refs + i;
+		doRename(thisobj, oldname, newname);
+	}
+
+	/* And clean up */
+	free_object_addresses(targetObjects);
+
+	heap_close(depRel, RowExclusiveLock);
+ }
+#endif /*END ADB*/
 
 /*
  * findDependentObjects - find all objects that depend on 'object'
@@ -1131,6 +1227,59 @@ doDeletion(const ObjectAddress *object, int flags)
 				 */
 				if (relKind == RELKIND_SEQUENCE)
 					DeleteSequenceTuple(object->objectId);
+#ifdef ADB
+				/*
+				 * Do not do extra process if this session is connected to a remote
+				 * Coordinator.
+				 */
+				if (!IsCoordMaster())
+					break;
+
+				/*
+				 * This session is connected directly to application, so extra
+				 * process related to remote nodes and GTM is needed.
+				 */
+				 switch (relKind)
+			 	{
+			 		case RELKIND_SEQUENCE:
+						/*
+						 * Drop the sequence on AGTM.
+						 * Sequence is dropped on AGTM by a remote Coordinator only
+						 * for a non temporary sequence.
+						 */
+						 if (!IsTempSequence(object->objectId))
+						 {
+						 	/*
+							 * The sequence has already been removed from Coordinator,
+							 * finish the stuff on AGTM too
+							 */
+							 Relation relseq;
+								 /*
+							 * A relation is opened to get the schema and database name as
+							 * such data is not available before when dropping a function.
+							 */
+							 relseq = relation_open(object->objectId, AccessShareLock);
+
+							/*
+							 * Sequence is not immediately removed on AGTM, but at the end
+							 * of the transaction block. In case this transaction fails,
+							 * all the data remains intact on AGTM.
+							 */
+							 register_sequence_cb(relseq, AGTM_SEQ_FULL_NAME, AGTM_DROP_SEQ);
+
+							 /* Then close the relation opened previously */
+							 relation_close(relseq, AccessShareLock);
+						 }
+						break;
+
+					case RELKIND_RELATION:
+					case RELKIND_VIEW:
+						break;
+
+					default:
+						break;
+				}
+#endif
 				break;
 			}
 
@@ -1247,6 +1396,17 @@ doDeletion(const ObjectAddress *object, int flags)
 			RemoveDefaultACLById(object->objectId);
 			break;
 
+#ifdef ADB
+		case OCLASS_PGXC_CLASS:
+			RemovePgxcClass(object->objectId);
+			break;
+
+		/*
+		 * OCLASS_PGXC_NODE, OCLASS_PGXC_GROUP intentionally not
+		 * handled here
+		 */
+#endif
+
 		case OCLASS_EXTENSION:
 			RemoveExtensionById(object->objectId);
 			break;
@@ -1278,6 +1438,10 @@ doDeletion(const ObjectAddress *object, int flags)
 		case OCLASS_DATABASE:
 		case OCLASS_TBLSPACE:
 		case OCLASS_SUBSCRIPTION:
+#ifdef ADB
+		case OCLASS_PGXC_NODE:
+		case OCLASS_PGXC_GROUP:
+#endif /* ADB */
 			elog(ERROR, "global objects cannot be deleted by doDeletion");
 			break;
 
@@ -2445,6 +2609,17 @@ getObjectClass(const ObjectAddress *object)
 		case EventTriggerRelationId:
 			return OCLASS_EVENT_TRIGGER;
 
+#ifdef ADB
+		case PgxcClassRelationId:
+			Assert(object->objectSubId == 0);
+			return OCLASS_PGXC_CLASS;
+
+		case PgxcNodeRelationId:
+			return OCLASS_PGXC_NODE;
+
+		case PgxcGroupRelationId:
+			return OCLASS_PGXC_GROUP;
+#endif
 		case PolicyRelationId:
 			return OCLASS_POLICY;
 

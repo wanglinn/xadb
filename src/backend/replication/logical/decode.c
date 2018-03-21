@@ -150,6 +150,10 @@ LogicalDecodingProcessRecord(LogicalDecodingContext *ctx, XLogReaderState *recor
 		case RM_COMMIT_TS_ID:
 		case RM_REPLORIGIN_ID:
 		case RM_GENERIC_ID:
+#ifdef ADB
+		case RM_BARRIER_ID:
+		case RM_RXACT_MGR_ID:
+#endif
 			/* just deal with xid, and done */
 			ReorderBufferProcessXid(ctx->reorder, XLogRecGetXid(record),
 									buf.origptr);
@@ -288,6 +292,14 @@ DecodeXactOp(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
 			 */
 			ReorderBufferProcessXid(reorder, XLogRecGetXid(r), buf->origptr);
 			break;
+#ifdef AGTM
+		case XLOG_XACT_XID_ASSIGNMENT:
+			/*
+			 * ADBQ
+			 * What to do? How to do?
+			 */
+			break;
+#endif
 		default:
 			elog(ERROR, "unexpected RM_XACT_ID record type: %u", info);
 	}

@@ -166,9 +166,18 @@ typedef enum ObjectClass
 	OCLASS_PUBLICATION_REL,		/* pg_publication_rel */
 	OCLASS_SUBSCRIPTION,		/* pg_subscription */
 	OCLASS_TRANSFORM			/* pg_transform */
+#ifdef ADB
+	,OCLASS_PGXC_CLASS			/* pgxc_class */
+	,OCLASS_PGXC_NODE			/* pgxc_node */
+	,OCLASS_PGXC_GROUP			/* pgxc_group */
+#endif
 } ObjectClass;
 
+#ifdef ADB
+#define LAST_OCLASS		OCLASS_PGXC_GROUP
+#else
 #define LAST_OCLASS		OCLASS_TRANSFORM
+#endif
 
 /* flag bits for performDeletion/performMultipleDeletions: */
 #define PERFORM_DELETION_INTERNAL			0x0001	/* internal action */
@@ -185,6 +194,11 @@ extern void performDeletion(const ObjectAddress *object,
 
 extern void performMultipleDeletions(const ObjectAddresses *objects,
 						 DropBehavior behavior, int flags);
+
+#ifdef ADB
+extern void performRenameSchema(const ObjectAddress *object,
+						   const char *oldname, const char *newname);
+#endif
 
 extern void recordDependencyOnExpr(const ObjectAddress *depender,
 					   Node *expr, List *rtable,

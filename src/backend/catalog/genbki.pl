@@ -90,6 +90,8 @@ my $BOOTSTRAP_SUPERUSERID =
   find_defined_symbol('pg_authid.h', 'BOOTSTRAP_SUPERUSERID');
 my $PG_CATALOG_NAMESPACE =
   find_defined_symbol('pg_namespace.h', 'PG_CATALOG_NAMESPACE');
+my $PG_ORACLE_NAMESPACE =
+  find_defined_symbol('pg_namespace.h', 'PG_ORACLE_NAMESPACE');
 
 # Read all the input header files into internal data structures
 my $catalogs = Catalog::Catalogs(@input_files);
@@ -174,6 +176,7 @@ foreach my $catname (@{ $catalogs->{names} })
 				# (It's intentional that this can apply to parts of a field).
 				$bki_values{$att} =~ s/\bPGUID\b/$BOOTSTRAP_SUPERUSERID/g;
 				$bki_values{$att} =~ s/\bPGNSP\b/$PG_CATALOG_NAMESPACE/g;
+				$bki_values{$att} =~ s/\bORANSP\b/$PG_ORACLE_NAMESPACE/g;
 
 				# Replace regproc columns' values with OIDs.
 				# If we don't have a unique value to substitute,
@@ -284,10 +287,21 @@ foreach my $catname (@{ $catalogs->{names} })
 					{ name => 'cmin',     type => 'cid' },
 					{ name => 'xmax',     type => 'xid' },
 					{ name => 'cmax',     type => 'cid' },
-					{ name => 'tableoid', type => 'oid' });
+					{ name => 'tableoid', type => 'oid' }
+# ADB_BEGIN
+					, { name => 'xc_node_id', type => 'int4' }
+					, { name => 'rowid', type => 'rid' }
+					, { name => 'infomask', type => 'int4' }
+# ADB_END
+					);
 				foreach my $attr (@SYS_ATTRS)
 				{
 					$attnum--;
+# ADB_BEGIN
+					# rowid is generated dynamically, so skip it.
+					my ($tmpkey, $tmpvalue) = %$attr;
+					next if $tmpvalue eq 'rowid';
+# ADB_END
 					my $row = emit_pgattr_row($table_name, $attr, 1);
 					$row->{attnum}        = $attnum;
 					$row->{attstattarget} = '0';

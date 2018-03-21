@@ -29,7 +29,11 @@
 #ifndef PG_SHDESCRIPTION_H
 #define PG_SHDESCRIPTION_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_shdescription definition.    cpp turns this into
@@ -60,6 +64,7 @@ typedef FormData_pg_shdescription * Form_pg_shdescription;
  * ----------------
  */
 #define Natts_pg_shdescription			3
+DECLARE_NATTS(Natts_pg_shdescription);
 #define Anum_pg_shdescription_objoid		1
 #define Anum_pg_shdescription_classoid	2
 #define Anum_pg_shdescription_description 3

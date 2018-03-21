@@ -122,6 +122,11 @@ struct PGPROC
 	 */
 	bool		recoveryConflictPending;
 
+#ifdef ADB
+	/* Postgres-XC flags */
+	bool		isPooler;		/* true if process is Postgres-XC pooler */
+#endif
+
 	/* Info about LWLock the process is currently waiting for, if any. */
 	bool		lwWaiting;		/* true if waiting for an LW lock */
 	uint8		lwWaitMode;		/* lwlock mode being waited for */
@@ -238,6 +243,10 @@ typedef struct PROC_HDR
 	PGPROC	   *freeProcs;
 	/* Head of list of autovacuum's free PGPROC structures */
 	PGPROC	   *autovacFreeProcs;
+#if defined(ADBMGRD)
+	/* Head of list of adb monitor's free PGPROC structures */
+	PGPROC	   *adbmntFreeProcs;
+#endif
 	/* Head of list of bgworker free PGPROC structures */
 	PGPROC	   *bgworkerFreeProcs;
 	/* First pgproc waiting for group XID clear */
@@ -270,7 +279,11 @@ extern PGPROC *PreparedXactProcs;
  * Startup process and WAL receiver also consume 2 slots, but WAL writer is
  * launched only after startup has exited, so we only need 4 slots.
  */
+#ifdef ADB
+#define NUM_AUXILIARY_PROCS		6	/* include pooler manager and rxact manager processes  */
+#else
 #define NUM_AUXILIARY_PROCS		4
+#endif
 
 /* configurable options */
 extern int	DeadlockTimeout;

@@ -33,6 +33,10 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif
+
 
 /*
  * PerformCursorOpen
@@ -94,7 +98,18 @@ PerformCursorOpen(DeclareCursorStmt *cstmt, ParamListInfo params,
 	/*
 	 * Create a portal and copy the plan and queryString into its memory.
 	 */
+
+#ifdef ADB
+	portal = CreatePortal(cstmt->portalname, false, false, PARSE_GRAM_POSTGRES);
+
+	/*
+	 * Consume the command id of the command creating the cursor
+	 */
+	if (IsCoordMaster())
+		GetCurrentCommandId(true);
+#else
 	portal = CreatePortal(cstmt->portalname, false, false);
+#endif
 
 	oldContext = MemoryContextSwitchTo(PortalGetHeapMemory(portal));
 

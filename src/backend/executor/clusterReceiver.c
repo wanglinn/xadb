@@ -1,0 +1,690 @@
+
+#include "postgres.h"
+
+#include "access/htup_details.h"
+#include "access/tupdesc.h"
+#include "access/tuptoaster.h"
+#include "access/tuptypeconvert.h"
+#include "access/xact.h"
+#include "nodes/execnodes.h"
+#include "executor/clusterReceiver.h"
+#include "executor/executor.h"
+#include "executor/tuptable.h"
+#include "libpq/libpq.h"
+#include "libpq/libpq-node.h"
+#include "libpq/pqformat.h"
+#include "nodes/nodeFuncs.h"
+#include "storage/ipc.h"
+#include "tcop/dest.h"
+#include "utils/memutils.h"
+
+#include <time.h>
+
+typedef struct ClusterPlanReceiver
+{
+	DestReceiver pub;
+	StringInfoData buf;
+	time_t lastCheckTime;	/* last check client message time */
+	TupleTableSlot *convert_slot;
+	TupleTypeConvert *convert;
+	bool check_end_msg;
+}ClusterPlanReceiver;
+
+typedef struct RestoreInstrumentContext
+{
+	StringInfoData buf;
+	Oid		nodeOid;
+	int		plan_id;
+}RestoreInstrumentContext;
+
+static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self);
+static void cluster_receive_startup(DestReceiver *self,int operation,TupleDesc typeinfo);
+static void cluster_receive_shutdown(DestReceiver *self);
+static void cluster_receive_destroy(DestReceiver *self);
+static bool serialize_instrument_walker(PlanState *ps, StringInfo buf);
+static void restore_instrument_message(PlanState *ps, const char *msg, int len, struct pg_conn *conn);
+static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *context);
+
+void serialize_rdc_listen_port_message(StringInfo buf, int port)
+{
+	initStringInfo(buf);
+	appendStringInfoChar(buf, CLUSTER_MSG_RDC_PORT);
+	appendBinaryStringInfo(buf, (char *) &port, sizeof(port));
+}
+
+bool clusterRecvRdcListenPort(struct pg_conn *conn, const char *msg, int len, int *port)
+{
+	const char *nodename;
+	if (*msg == CLUSTER_MSG_RDC_PORT)
+	{
+		Assert(len == sizeof(*port) + 1);
+		if (port)
+			memcpy(port, msg + 1, sizeof(*port));
+		return true;
+	}
+	nodename = PQNConnectName(conn);
+	ereport(ERROR,
+			(errcode(ERRCODE_INTERNAL_ERROR),
+			 errmsg("fail to get reduce listen port"),
+			 errdetail("unexpected cluster message type %d", msg[0]),
+			 nodename ? errnode(nodename) : 0));
+	return false;
+}
+
+/*
+ * return ture if got data
+ * false is other data
+ */
+bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState *ps, struct pg_conn *conn)
+{
+	if(*msg == CLUSTER_MSG_TUPLE_DATA)
+	{
+		restore_slot_message(msg+1, len-1, slot);
+		return true;
+	}else if(*msg == CLUSTER_MSG_TUPLE_DESC)
+	{
+		compare_slot_head_message(msg+1, len-1, slot->tts_tupleDescriptor);
+		return false;
+	}else if(*msg == CLUSTER_MSG_INSTRUMENT)
+	{
+		if(ps != NULL)
+			restore_instrument_message(ps, msg+1, len-1, conn);
+		return false;
+	}else if(*msg == CLUSTER_MSG_PROCESSED)
+	{
+		if(ps != NULL)
+		{
+			uint64 processed;
+			memcpy(&processed, msg+1, sizeof(processed));
+			ps->state->es_processed += processed;
+		}
+		return false;
+	}else if (*msg == CLUSTER_MSG_COMMAND_ID)
+	{
+		CommandId cid;
+		memcpy(&cid, msg+1, sizeof(cid));
+		if (cid > GetReceivedCommandId())
+			SetReceivedCommandId(cid);
+	}else
+	{
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+			errmsg("unknown cluster message type %d", msg[0])));
+	}
+	return false; /* keep compiler quiet */
+}
+
+bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struct pg_conn *conn)
+{
+	switch(*msg)
+	{
+	case CLUSTER_MSG_TUPLE_DATA:
+		restore_slot_message(msg+1, len-1, state->base_slot);
+		return true;
+	case CLUSTER_MSG_TUPLE_DESC:
+		compare_slot_head_message(msg+1, len-1, state->base_slot->tts_tupleDescriptor);
+		break;
+	case CLUSTER_MSG_INSTRUMENT:
+		if(state->ps != NULL)
+			restore_instrument_message(state->ps, msg+1, len-1, conn);
+		break;
+	case CLUSTER_MSG_PROCESSED:
+		if(state->ps != NULL)
+		{
+			uint64 processed;
+			memcpy(&processed, msg+1, sizeof(processed));
+			state->ps->state->es_processed += processed;
+		}
+		break;
+	case CLUSTER_MSG_CONVERT_DESC:
+		if(state->convert_slot)
+		{
+			compare_slot_head_message(msg+1, len-1, state->convert_slot->tts_tupleDescriptor);
+		}else
+		{
+			TupleDesc desc;
+			MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state->base_slot));
+
+			desc = restore_slot_head_message(msg+1, len-1);
+			if(state->ps)
+			{
+				state->convert_slot = ExecInitExtraTupleSlot(state->ps->state);
+				ExecSetSlotDescriptor(state->convert_slot, desc);
+			}else
+			{
+				state->convert_slot = MakeSingleTupleTableSlot(desc);
+				state->convert_slot_is_single = true;
+			}
+			state->convert = create_type_convert(state->base_slot->tts_tupleDescriptor,
+												 false,
+												 true);
+
+			MemoryContextSwitchTo(oldcontext);
+		}
+		break;
+	case CLUSTER_MSG_CONVERT_TUPLE:
+		if(state->convert)
+		{
+			restore_slot_message(msg+1, len-1, state->convert_slot);
+			do_type_convert_slot_in(state->convert, state->convert_slot, state->base_slot, state->slot_need_copy_datum);
+			return true;
+		}else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("con not parse convert tuple")));
+		}
+		break;
+	case CLUSTER_MSG_COMMAND_ID:
+		{
+			CommandId cid;
+			memcpy(&cid, msg+1, sizeof(cid));
+			if (cid > GetReceivedCommandId())
+				SetReceivedCommandId(cid);
+		}
+		break;
+	default:
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+			errmsg("unknown cluster message type %d", msg[0])));
+	}
+	return false;
+}
+
+static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self)
+{
+	ClusterPlanReceiver * r = (ClusterPlanReceiver*)self;
+	time_t time_now;
+	bool need_more_slot;
+
+	resetStringInfo(&r->buf);
+	if(r->convert)
+	{
+		do_type_convert_slot_out(r->convert, slot, r->convert_slot, false);
+		serialize_slot_message(&r->buf, r->convert_slot, CLUSTER_MSG_CONVERT_TUPLE);
+	}else
+	{
+		serialize_slot_message(&r->buf, slot, CLUSTER_MSG_TUPLE_DATA);
+	}
+	pq_putmessage('d', r->buf.data, r->buf.len);
+	pq_flush();
+
+	/* check client message */
+	need_more_slot = true;
+	if(r->check_end_msg && (time_now = time(NULL)) != r->lastCheckTime)
+	{
+		int n;
+		unsigned char first_char;
+		r->lastCheckTime = time_now;
+		pq_startmsgread();
+		n = pq_getbyte_if_available(&first_char);
+		if(n == 0)
+		{
+			/* no message from client */
+			pq_endmsgread();
+			need_more_slot = true;
+		}else if(n < 0)
+		{
+			/* eof, we don't need more slot */
+			pq_endmsgread();
+			need_more_slot = false;
+		}else
+		{
+			resetStringInfo(&r->buf);
+			if(pq_getmessage(&r->buf, 0))
+			{
+				ereport(COMMERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("unexpected EOF on coordinator connection")));
+				proc_exit(0);
+			}
+
+			if(first_char == 'c'
+				|| first_char == 'X')
+			{
+				/* copy end */
+				need_more_slot = false;
+			}else if(first_char == 'd')
+			{
+				/* message */
+				ereport(ERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						errmsg("not support copy data in yet")));
+			}else
+			{
+				ereport(FATAL,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("invalid coordinator message type \"%c\"",
+								first_char)));
+			}
+		}
+	}
+	return need_more_slot;
+}
+
+static void cluster_receive_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
+{
+	ClusterPlanReceiver * r = (ClusterPlanReceiver*)self;
+
+	initStringInfo(&r->buf);
+
+	/* send tuple desc */
+	serialize_slot_head_message(&r->buf, typeinfo);
+	pq_putmessage('d', r->buf.data, r->buf.len);
+
+	/* need convert ? */
+	r->convert = create_type_convert(typeinfo, true, false);
+	if(r->convert)
+	{
+		r->convert_slot = MakeSingleTupleTableSlot(r->convert->out_desc);
+		resetStringInfo(&r->buf);
+		serialize_slot_convert_head(&r->buf, r->convert->out_desc);
+		pq_putmessage('d', r->buf.data, r->buf.len);
+	}
+
+	pq_flush();
+}
+
+static void cluster_receive_shutdown(DestReceiver *self)
+{
+	ClusterPlanReceiver * r = (ClusterPlanReceiver*)self;
+	if(r->convert_slot)
+		ExecDropSingleTupleTableSlot(r->convert_slot);
+	if(r->convert)
+		free_type_convert(r->convert);
+}
+
+static void cluster_receive_destroy(DestReceiver *self)
+{
+	ClusterPlanReceiver * r = (ClusterPlanReceiver*)self;
+	if(r->buf.data)
+		pfree(r->buf.data);
+	pfree(r);
+}
+
+DestReceiver *createClusterReceiver(void)
+{
+	ClusterPlanReceiver *self;
+
+	self = palloc0(sizeof(*self));
+	self->pub.mydest = DestClusterOut;
+	self->pub.receiveSlot = cluster_receive_slot;
+	self->pub.rStartup = cluster_receive_startup;
+	self->pub.rShutdown = cluster_receive_shutdown;
+	self->pub.rDestroy = cluster_receive_destroy;
+	self->check_end_msg = true;
+	/* self->lastCheckTime = 0; */
+
+	return &self->pub;
+}
+
+ClusterRecvState *createClusterRecvState(PlanState *ps, bool need_copy)
+{
+	ClusterRecvState *state;
+	TupleTableSlot *slot = ps->ps_ResultTupleSlot;
+
+	state = palloc0(sizeof(*state));
+	state->base_slot = slot;
+	state->ps = ps;
+
+	state->convert = create_type_convert(slot->tts_tupleDescriptor, false, true);
+	if(state->convert != NULL)
+	{
+		state->convert_slot = ExecInitExtraTupleSlot(ps->state);
+		state->slot_need_copy_datum = need_copy;
+		ExecSetSlotDescriptor(state->convert_slot, state->convert->out_desc);
+	}
+
+	return state;
+}
+
+void freeClusterRecvState(ClusterRecvState *state)
+{
+	if(state)
+	{
+		if(state->convert_slot)
+		{
+			if(state->convert_slot_is_single)
+				ExecDropSingleTupleTableSlot(state->convert_slot);
+			else
+				state->convert_slot->tts_tupleDescriptor = NULL;
+		}
+		if(state->convert)
+			free_type_convert(state->convert);
+		pfree(state);
+	}
+}
+
+bool clusterRecvSetCheckEndMsg(DestReceiver *r, bool check)
+{
+	ClusterPlanReceiver *self;
+	bool old_check;
+	Assert(r->mydest == DestClusterOut);
+
+	self = (ClusterPlanReceiver*)r;
+	old_check = self->check_end_msg;
+	self->check_end_msg = check ? true:false;
+
+	return old_check;
+}
+
+void serialize_instrument_message(PlanState *ps, StringInfo buf)
+{
+	appendStringInfoChar(buf, CLUSTER_MSG_INSTRUMENT);
+	serialize_instrument_walker(ps, buf);
+}
+
+void serialize_processed_message(StringInfo buf, uint64 processed)
+{
+	appendStringInfoChar(buf, CLUSTER_MSG_PROCESSED);
+	appendBinaryStringInfo(buf, (char*)&processed, sizeof(processed));
+}
+
+void serialize_command_id(StringInfo buf, CommandId cid)
+{
+	appendStringInfoChar(buf, CLUSTER_MSG_COMMAND_ID);
+	appendBinaryStringInfo(buf, (char*)&cid, sizeof(cid));
+}
+
+void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
+{
+	int i;
+	char *attname;
+	int32 atttypmod;
+	int32 attndims;
+
+	AssertArg(buf && desc);
+
+	appendStringInfoChar(buf, msg_type);
+	appendStringInfoChar(buf, desc->tdhasoid);
+	appendBinaryStringInfo(buf, (char*)&(desc->natts), sizeof(desc->natts));
+	for(i=0;i<desc->natts;++i)
+	{
+		/* attname */
+		attname = NameStr(desc->attrs[i]->attname);
+		save_node_string(buf, attname);
+		/* atttypmod */
+		atttypmod = desc->attrs[i]->atttypmod;
+		appendBinaryStringInfo(buf, (const char *) &atttypmod, sizeof(atttypmod));
+		/* attndims */
+		attndims = desc->attrs[i]->attndims;
+		appendBinaryStringInfo(buf, (const char *) &attndims, sizeof(attndims));
+		/* save oid type */
+		save_oid_type(buf, desc->attrs[i]->atttypid);
+	}
+}
+
+void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
+{
+	StringInfoData buf;
+	int i;
+	Oid oid;
+
+	if(len < (sizeof(bool) + sizeof(int)))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("invalid message length")));
+	}
+
+	if(desc->tdhasoid != (bool)msg[0])
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				errmsg("diffent TupleDesc of has Oid"),
+				errdetail("local is %d, remote is %d", desc->tdhasoid, msg[0])));
+	}
+
+	memcpy(&i, msg+1, sizeof(i));
+	if(i!=desc->natts)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED),
+				errmsg("diffent TupleDesc of number attribute"),
+				errdetail("local is %d, remote is %d", desc->natts, i)));
+	}
+
+	buf.data = (char*)msg;
+	buf.maxlen = buf.len = len;
+	buf.cursor = (sizeof(bool)+sizeof(int));
+	for(i=0;i<desc->natts;++i)
+	{
+		/* attname ignore */
+		(void) load_node_string(&buf, false);
+		/* atttypmod ignore */
+		buf.cursor += sizeof(int32);
+		/* attndims */
+		buf.cursor += sizeof(int32);
+		/* load oid type */
+		oid = load_oid_type(&buf);
+		if(oid != desc->attrs[i]->atttypid)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					errmsg("diffent TupleDesc of attribute[%d]", i),
+					errdetail("local is %u, remote is %u", desc->attrs[i]->atttypid, oid)));
+		}
+	}
+}
+
+TupleDesc restore_slot_head_message(const char *msg, int len)
+{
+	StringInfoData buf;
+	buf.cursor = 0;
+	buf.len = buf.maxlen = len;
+	buf.data = (char*)msg;
+	return restore_slot_head_message_str(&buf);
+}
+
+TupleDesc restore_slot_head_message_str(StringInfo buf)
+{
+	TupleDesc desc;
+	int i;
+	Oid oid;
+	const char *attributeName;
+	int32 typmod;
+	int attdim;
+	bool hasoid;
+
+	hasoid = (bool)pq_getmsgbyte(buf);
+	pq_copymsgbytes(buf, (char*)&i, sizeof(i));
+
+	desc = CreateTemplateTupleDesc(i, hasoid);
+
+	for(i=1;i<=desc->natts;++i)
+	{
+		/* attname ignore */
+		attributeName = load_node_string(buf, false);
+		/* atttypmod ignore */
+		pq_copymsgbytes(buf, (char *) &typmod, sizeof(typmod));
+		/* attndims */
+		pq_copymsgbytes(buf, (char *) &attdim, sizeof(attdim));
+		/* load oid type */
+		oid = load_oid_type(buf);
+		TupleDescInitEntry(desc,
+						   i,
+						   attributeName,
+						   oid,
+						   typmod,
+						   attdim);
+	}
+	return desc;
+}
+
+MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup)
+{
+	MinimalTuple tup;
+	TupleDesc desc;
+	int i;
+	bool have_external;
+	AssertArg(!TupIsNull(slot));
+
+	slot_getallattrs(slot);
+	have_external = false;
+	desc = slot->tts_tupleDescriptor;
+	for(i=desc->natts;(--i)>=0;)
+	{
+		Form_pg_attribute attr=desc->attrs[i];
+		if (slot->tts_isnull[i] == false &&
+			attr->attlen == -1 &&
+			attr->attbyval == false &&
+			VARATT_IS_EXTERNAL(DatumGetPointer(slot->tts_values[i])))
+		{
+			/* bytea */
+			have_external = true;
+			break;
+		}
+	}
+
+	if(have_external)
+	{
+		MemoryContext old_context = MemoryContextSwitchTo(slot->tts_mcxt);
+		Datum *values = palloc(sizeof(Datum) * desc->natts);
+		for(i=desc->natts;(--i)>=0;)
+		{
+			Form_pg_attribute attr = desc->attrs[i];
+			if (slot->tts_isnull[i] == false &&
+				attr->attlen == -1 &&
+				attr->attbyval == false &&
+				VARATT_IS_EXTERNAL(DatumGetPointer(slot->tts_values[i])))
+			{
+				values[i] = PointerGetDatum(heap_tuple_fetch_attr((struct varlena *)DatumGetPointer(slot->tts_values[i])));
+#ifdef NOT_USED
+				/* try compress it */
+				if(!VARATT_IS_COMPRESSED(DatumGetPointer(values[i])))
+				{
+					Datum tmp = toast_compress_datum(values[i]);
+					if(tmp)
+					{
+						pfree(DatumGetPointer(values[i]));
+						values[i] = tmp;
+					}
+				}
+#endif /* NOT_USED */
+			}else
+			{
+				values[i] = slot->tts_values[i];
+			}
+		}
+		tup = heap_form_minimal_tuple(desc, values, slot->tts_isnull);
+		for(i=desc->natts;(--i)>=0;)
+		{
+			if(values[i] != slot->tts_values[i])
+				pfree(DatumGetPointer(values[i]));
+		}
+		pfree(values);
+		MemoryContextSwitchTo(old_context);
+		*need_free_tup = true;
+	}else
+	{
+		tup = ExecFetchSlotMinimalTuple(slot);
+		*need_free_tup = false;
+	}
+	return tup;
+}
+
+void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char msg_type)
+{
+	MinimalTuple tup;
+	bool need_free_tup;
+	AssertArg(buf && !TupIsNull(slot));
+
+	tup = fetch_slot_message(slot, &need_free_tup);
+
+	appendStringInfoChar(buf, msg_type);
+	appendBinaryStringInfo(buf, (char*)tup, tup->t_len);
+	if(need_free_tup)
+		pfree(tup);
+}
+
+TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *slot)
+{
+	MinimalTuple tup;
+	uint32 t_len = *(uint32*)msg;
+	if(t_len > len)
+		ereport(ERROR, (errmsg("invalid tuple message length")));
+	tup = MemoryContextAlloc(slot->tts_mcxt, t_len);
+	memcpy(tup, msg, t_len);
+	return ExecStoreMinimalTuple(tup, slot, true);
+}
+
+static bool serialize_instrument_walker(PlanState *ps, StringInfo buf)
+{
+	int num_worker;
+
+	if(ps == NULL)
+		return false;
+
+	/* plan ID */
+	appendBinaryStringInfo(buf,
+						   (char*)&(ps->plan->plan_node_id),
+						   sizeof(ps->plan->plan_node_id));
+
+	if(ps->worker_instrument && ps->worker_instrument->num_workers)
+	{
+		num_worker = ps->worker_instrument->num_workers;
+	}else
+	{
+		num_worker = 0;
+	}
+	/* worker instrument */
+	appendBinaryStringInfo(buf, (char*)&num_worker, sizeof(num_worker));
+
+	appendBinaryStringInfo(buf,
+						   (char*)ps->instrument,
+						   sizeof(*(ps->instrument)));
+	if(num_worker)
+		appendBinaryStringInfo(buf,
+							   (char*)(ps->worker_instrument->instrument),
+							   sizeof(Instrumentation) * num_worker);
+
+	return planstate_tree_walker(ps, serialize_instrument_walker, buf);
+}
+
+static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *context)
+{
+	if(ps == NULL)
+		return false;
+
+	if(context->plan_id == ps->plan->plan_node_id)
+	{
+		MemoryContext oldcontext;
+		ClusterInstrumentation *ci;
+		int n;
+
+		pq_copymsgbytes(&(context->buf), (char*)&n, sizeof(n));	/* count of worker */
+
+		oldcontext = MemoryContextSwitchTo(ps->state->es_query_cxt);
+		ci = palloc(sizeof(*ci) + sizeof(ci->instrument[0]) * n);
+		ci->num_workers = n;
+		ci->nodeOid = context->nodeOid;
+		ps->list_cluster_instrument = lappend(ps->list_cluster_instrument, ci);
+		MemoryContextSwitchTo(oldcontext);
+
+		pq_copymsgbytes(&(context->buf),
+						(char*)&(ci->instrument[0]),
+						sizeof(ci->instrument[0]) * (n+1));
+		return true;
+	}
+	return planstate_tree_walker(ps, restore_instrument_walker, context);
+}
+
+static void restore_instrument_message(PlanState *ps, const char *msg, int len, struct pg_conn *conn)
+{
+	RestoreInstrumentContext context;
+	context.buf.data = (char*)msg;
+	context.buf.cursor = 0;
+	context.buf.len = context.buf.maxlen = len;
+	if(conn)
+		context.nodeOid = PQNConnectOid(conn);
+
+	while(context.buf.cursor < context.buf.len)
+	{
+		if(context.buf.len-context.buf.cursor < sizeof(context.plan_id)+sizeof(Instrumentation))
+			ereport(ERROR,
+					(errmsg("invalid instrumentation message length"),
+					errcode(ERRCODE_INTERNAL_ERROR)));
+		pq_copymsgbytes(&context.buf, (char*)&(context.plan_id), sizeof(context.plan_id));
+		if(planstate_tree_walker(ps, restore_instrument_walker, &context) == false)
+		{
+			ereport(ERROR, (errmsg("plan node %d not found", context.plan_id)));
+		}
+	}
+}

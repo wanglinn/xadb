@@ -195,6 +195,10 @@ UYT    -10800    # Uruguay Time (obsolete)
 VET    America/Caracas  # Venezuela Time (obsolete)
 WGST    -7200 D  # Western Greenland Summer Time (obsolete)
 WGT    -10800    # West Greenland Time (obsolete)
+YDT    -28800 D  # Yukon Summer Time
+                 #     (Canada/Whitehorse)
+YST    -32400    # Yukon Standard Time
+                 #     (Canada/Whitehorse)
 
 #################### ANTARCTICA ####################
 
@@ -599,6 +603,9 @@ FJT     43200    # Fiji Time (obsolete)
 GALT   -21600    # Galapagos Time (obsolete)
 GAMT   -32400    # Gambier Time (obsolete)
 GILT    43200    # Gilbert Islands Time (obsolete)
+#ifdef ADB
+HDT    -32400 D  # Hawaiian-Aleutian Daylight Time
+##endif
 HST    -36000    # Hawaiian Standard Time
                  #     (Pacific/Honolulu)
                  #     (Pacific/Johnston)

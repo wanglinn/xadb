@@ -1,0 +1,73 @@
+set grammar to oracle;
+select soundex('moon') from dual;
+ soundex 
+---------
+ M500
+(1 row)
+
+select soundex('while') from dual;
+ soundex 
+---------
+ W400
+(1 row)
+
+select soundex('ask') from dual;
+ soundex 
+---------
+ A200
+(1 row)
+
+select soundex('basket') from dual;
+ soundex 
+---------
+ B230
+(1 row)
+
+select soundex('yow') from dual;
+ soundex 
+---------
+ Y000
+(1 row)
+
+select soundex('lll') from dual;
+ soundex 
+---------
+ L400
+(1 row)
+
+select soundex('dt') from dual;
+ soundex 
+---------
+ D300
+(1 row)
+
+select soundex('bcdlm') from dual;
+ soundex 
+---------
+ B234
+(1 row)
+
+select soundex(to_char('ask')) from dual;
+ soundex 
+---------
+ A200
+(1 row)
+
+select soundex('') from dual;
+ soundex 
+---------
+ 
+(1 row)
+
+select soundex('NaN') from dual;
+ soundex 
+---------
+ N500
+(1 row)
+
+select soundex(null) from dual;
+ soundex 
+---------
+ 
+(1 row)
+

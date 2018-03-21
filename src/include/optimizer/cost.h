@@ -28,6 +28,13 @@
 #define DEFAULT_CPU_OPERATOR_COST  0.0025
 #define DEFAULT_PARALLEL_TUPLE_COST 0.1
 #define DEFAULT_PARALLEL_SETUP_COST  1000.0
+#ifdef ADB
+#define DEFAULT_REMOTE_TUPLE_COST 0.3
+#define DEFAULT_PGXC_REMOTE_TUPLE_COST 0.9
+#define DEFAULT_REDUCE_SETUP_COST 1000.0
+#define DEFAULT_REDUCE_CONN_COST 1.0
+#define DEFAULT_REDUCE_PAGE_COST 3.0
+#endif /* ADB */
 
 #define DEFAULT_EFFECTIVE_CACHE_SIZE  524288	/* measured in pages */
 
@@ -51,6 +58,13 @@ extern PGDLLIMPORT double cpu_tuple_cost;
 extern PGDLLIMPORT double cpu_index_tuple_cost;
 extern PGDLLIMPORT double cpu_operator_cost;
 extern PGDLLIMPORT double parallel_tuple_cost;
+#ifdef ADB
+extern PGDLLIMPORT double remote_tuple_cost;
+extern PGDLLIMPORT double pgxc_remote_tuple_cost;
+extern PGDLLIMPORT double reduce_setup_cost;
+extern PGDLLIMPORT double reduce_conn_cost;
+extern PGDLLIMPORT double reduce_page_cost;
+#endif /* ADB */
 extern PGDLLIMPORT double parallel_setup_cost;
 extern PGDLLIMPORT int effective_cache_size;
 extern Cost disable_cost;
@@ -68,6 +82,15 @@ extern bool enable_mergejoin;
 extern bool enable_hashjoin;
 extern bool enable_gathermerge;
 extern int	constraint_exclusion;
+#ifdef ADB
+extern bool enable_fast_query_shipping;
+extern bool pgxc_enable_remote_query;
+extern bool enable_remotejoin;
+extern bool enable_remotegroup;
+extern bool enable_remotesort;
+extern bool enable_remotelimit;
+extern bool enable_hashscan;
+#endif
 
 extern double clamp_row_est(double nrows);
 extern double index_pages_fetched(double tuples_fetched, BlockNumber pages,
@@ -132,6 +155,7 @@ extern void initial_cost_nestloop(PlannerInfo *root,
 					  JoinPathExtraData *extra);
 extern void final_cost_nestloop(PlannerInfo *root, NestPath *path,
 					JoinCostWorkspace *workspace,
+					ADB_ONLY_ARG(double *rows)
 					JoinPathExtraData *extra);
 extern void initial_cost_mergejoin(PlannerInfo *root,
 					   JoinCostWorkspace *workspace,
@@ -142,6 +166,7 @@ extern void initial_cost_mergejoin(PlannerInfo *root,
 					   JoinPathExtraData *extra);
 extern void final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 					 JoinCostWorkspace *workspace,
+					 ADB_ONLY_ARG(double *rows)
 					 JoinPathExtraData *extra);
 extern void initial_cost_hashjoin(PlannerInfo *root,
 					  JoinCostWorkspace *workspace,
@@ -151,10 +176,16 @@ extern void initial_cost_hashjoin(PlannerInfo *root,
 					  JoinPathExtraData *extra);
 extern void final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 					JoinCostWorkspace *workspace,
+					ADB_ONLY_ARG(double *rows)
 					JoinPathExtraData *extra);
 extern void cost_gather(GatherPath *path, PlannerInfo *root,
 			RelOptInfo *baserel, ParamPathInfo *param_info, double *rows);
 extern void cost_subplan(PlannerInfo *root, SubPlan *subplan, Plan *plan);
+#ifdef ADB
+extern void cost_subplan_cluster(PlannerInfo *root, SubPlan *subplan, Path *path);
+extern void cost_qual_eval_cluster(QualCost *cost, List *quals, PlannerInfo *root);
+extern void cost_qual_eval_node_cluster(QualCost *cost, Node *qual, PlannerInfo *root);
+#endif /* ADB */
 extern void cost_qual_eval(QualCost *cost, List *quals, PlannerInfo *root);
 extern void cost_qual_eval_node(QualCost *cost, Node *qual, PlannerInfo *root);
 extern void compute_semi_anti_join_factors(PlannerInfo *root,
@@ -209,5 +240,11 @@ extern void cost_gather_merge(GatherMergePath *path, PlannerInfo *root,
 				  RelOptInfo *rel, ParamPathInfo *param_info,
 				  Cost input_startup_cost, Cost input_total_cost,
 				  double *rows);
+#ifdef ADB
+extern void cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel);
+extern void cost_div(Path *path, int n);
+extern void cost_cluster_gather(ClusterGatherPath *path, RelOptInfo *baserel, ParamPathInfo *param_info, double *rows);
+extern void cost_cluster_reduce(ClusterReducePath *path);
+#endif
 
 #endif							/* COST_H */

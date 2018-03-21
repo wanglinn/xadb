@@ -28,6 +28,10 @@
 #include "replication/origin.h"
 #include "storage/standby.h"
 #include "utils/relmapper.h"
+#ifdef ADB
+#include "access/rxact_mgr.h"
+#include "pgxc/cluster_barrier.h"
+#endif /* ADB */
 
 /* must be kept in sync with RmgrData definition in xlog_internal.h */
 #define PG_RMGR(symname,name,redo,desc,identify,startup,cleanup,mask) \

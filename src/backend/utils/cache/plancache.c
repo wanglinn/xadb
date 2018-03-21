@@ -69,7 +69,14 @@
 #include "utils/rls.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
+#ifdef ADB
+#include "commands/prepare.h"
+#include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
 
+
+static void drop_datanode_statements(Plan *plannode);
+#endif
 
 /*
  * We must skip "overhead" operations that involve database access when the
@@ -151,6 +158,9 @@ InitPlanCache(void)
 CachedPlanSource *
 CreateCachedPlan(RawStmt *raw_parse_tree,
 				 const char *query_string,
+#ifdef ADB
+				 const char *stmt_name,
+#endif
 				 const char *commandTag)
 {
 	CachedPlanSource *plansource;
@@ -189,6 +199,9 @@ CreateCachedPlan(RawStmt *raw_parse_tree,
 	plansource->fixed_result = false;
 	plansource->resultDesc = NULL;
 	plansource->context = source_context;
+#ifdef ADB
+	plansource->stmt_name = (stmt_name ? pstrdup(stmt_name) : NULL);
+#endif
 	plansource->query_list = NIL;
 	plansource->relationOids = NIL;
 	plansource->invalItems = NIL;
@@ -414,6 +427,9 @@ CompleteCachedPlan(CachedPlanSource *plansource,
 	plansource->parserSetupArg = parserSetupArg;
 	plansource->cursor_options = cursor_options;
 	plansource->fixed_result = fixed_result;
+#ifdef ADB
+	plansource->stmt_name = NULL;
+#endif
 	plansource->resultDesc = PlanCacheComputeResultDesc(querytree_list);
 
 	MemoryContextSwitchTo(oldcxt);
@@ -533,6 +549,25 @@ ReleaseGenericPlan(CachedPlanSource *plansource)
 	{
 		CachedPlan *plan = plansource->gplan;
 
+#ifdef ADB
+		/* Drop this plan on remote nodes */
+		if (plan)
+		{
+			ListCell *lc;
+
+			/* Close any active planned Datanode statements */
+			foreach (lc, plan->stmt_list)
+			{
+				Node *node = lfirst(lc);
+
+				if (IsA(node, PlannedStmt))
+				{
+					PlannedStmt *ps = (PlannedStmt *)node;
+					drop_datanode_statements(ps->planTree);
+				}
+			}
+		}
+#endif
 		Assert(plan->magic == CACHEDPLAN_MAGIC);
 		plansource->gplan = NULL;
 		ReleaseCachedPlan(plan, false);
@@ -962,6 +997,40 @@ BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
 	else
 		plan_context = CurrentMemoryContext;
 
+#ifdef ADB
+	/*
+	 * If this plansource belongs to a named prepared statement, store the stmt
+	 * name for the Datanode queries.
+	 */
+	if (IsCoordMaster() && plansource->stmt_name)
+	{
+		ListCell	*lc;
+		int 		n;
+
+		/*
+		 * Scan the plans and set the statement field for all found RemoteQuery
+		 * nodes so they use Datanode statements
+		 */
+		n = 0;
+		foreach(lc, plist)
+		{
+			Node *st;
+			PlannedStmt *ps;
+
+			st = (Node *) lfirst(lc);
+
+			if (IsA(st, PlannedStmt))
+			{
+				ps = (PlannedStmt *)st;
+
+				n = SetRemoteStatementName(ps->planTree, plansource->stmt_name,
+							plansource->num_params,
+							plansource->param_types, n);
+			}
+		}
+	}
+#endif
+
 	/*
 	 * Create and fill the CachedPlan struct within the new context.
 	 */
@@ -1240,6 +1309,29 @@ GetCachedPlan(CachedPlanSource *plansource, ParamListInfo boundParams,
 
 	return plan;
 }
+
+#ifdef ADB
+/*
+ * Find and release all Datanode statements referenced by the plan node and subnodes
+ */
+static void
+drop_datanode_statements(Plan *plannode)
+{
+	if (IsA(plannode, RemoteQuery))
+	{
+		RemoteQuery *step = (RemoteQuery *) plannode;
+
+		if (step->statement)
+			DropDatanodeStatement(step->statement);
+	}
+
+	if (innerPlan(plannode))
+		drop_datanode_statements(innerPlan(plannode));
+
+	if (outerPlan(plannode))
+		drop_datanode_statements(outerPlan(plannode));
+}
+#endif
 
 /*
  * ReleaseCachedPlan: release active use of a cached plan.

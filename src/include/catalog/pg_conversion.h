@@ -19,7 +19,11 @@
 #ifndef PG_CONVERSION_H
 #define PG_CONVERSION_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------------------------------------------------------
  *		pg_conversion definition.
@@ -61,6 +65,7 @@ typedef FormData_pg_conversion *Form_pg_conversion;
  */
 
 #define Natts_pg_conversion				7
+DECLARE_NATTS(Natts_pg_conversion);
 #define Anum_pg_conversion_conname		1
 #define Anum_pg_conversion_connamespace 2
 #define Anum_pg_conversion_conowner		3

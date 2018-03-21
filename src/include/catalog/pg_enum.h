@@ -21,8 +21,12 @@
 #ifndef PG_ENUM_H
 #define PG_ENUM_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
 #include "nodes/pg_list.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_enum definition.  cpp turns this into
@@ -50,6 +54,7 @@ typedef FormData_pg_enum *Form_pg_enum;
  * ----------------
  */
 #define Natts_pg_enum					3
+DECLARE_NATTS(Natts_pg_enum);
 #define Anum_pg_enum_enumtypid			1
 #define Anum_pg_enum_enumsortorder		2
 #define Anum_pg_enum_enumlabel			3

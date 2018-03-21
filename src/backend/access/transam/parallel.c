@@ -36,6 +36,11 @@
 #include "utils/memutils.h"
 #include "utils/resowner.h"
 #include "utils/snapmgr.h"
+#ifdef ADB
+#include "intercomm/inter-node.h"
+#include "pgxc/pgxcnode.h"
+#include "reduce/adb_reduce.h"
+#endif
 
 
 /*
@@ -63,6 +68,10 @@
 #define PARALLEL_KEY_ACTIVE_SNAPSHOT		UINT64CONST(0xFFFFFFFFFFFF0007)
 #define PARALLEL_KEY_TRANSACTION_STATE		UINT64CONST(0xFFFFFFFFFFFF0008)
 #define PARALLEL_KEY_ENTRYPOINT				UINT64CONST(0xFFFFFFFFFFFF0009)
+#ifdef ADB
+#define PARALLEL_KEY_REDUCE_INFO			UINT64CONST(0xFFFFFFFFFFFF000A)
+#define PARALLEL_KEY_NODE_INFO				UINT64CONST(0xFFFFFFFFFFFF000B)
+#endif /* ADB */
 
 /* Fixed-size parallel state. */
 typedef struct FixedParallelState
@@ -195,6 +204,10 @@ InitializeParallelDSM(ParallelContext *pcxt)
 	Size		asnaplen = 0;
 	Size		tstatelen = 0;
 	Size		segsize = 0;
+#ifdef ADB
+	Size		reducelen = 0;
+	Size		nodeinfolen = 0;
+#endif /* ADB */
 	int			i;
 	FixedParallelState *fps;
 	Snapshot	transaction_snapshot = GetTransactionSnapshot();
@@ -242,6 +255,18 @@ InitializeParallelDSM(ParallelContext *pcxt)
 		shm_toc_estimate_chunk(&pcxt->estimator, strlen(pcxt->library_name) +
 							   strlen(pcxt->function_name) + 2);
 		shm_toc_estimate_keys(&pcxt->estimator, 1);
+
+#ifdef ADB
+		/* Estimate how much we'll need for reduce process. */
+		reducelen = EstimateReduceInfoSpace();
+		shm_toc_estimate_chunk(&pcxt->estimator, reducelen);
+		shm_toc_estimate_keys(&pcxt->estimator, 1);
+
+		/* Estimate how much we'll need for node info */
+		nodeinfolen = EstimateNodeInfoSpace();
+		shm_toc_estimate_chunk(&pcxt->estimator, nodeinfolen);
+		shm_toc_estimate_keys(&pcxt->estimator, 1);
+#endif /* ADB */
 	}
 
 	/*
@@ -366,6 +391,17 @@ InitializeParallelDSM(ParallelContext *pcxt)
 		strcpy(entrypointstate, pcxt->library_name);
 		strcpy(entrypointstate + lnamelen + 1, pcxt->function_name);
 		shm_toc_insert(pcxt->toc, PARALLEL_KEY_ENTRYPOINT, entrypointstate);
+#ifdef ADB
+		{
+			char *ptr = shm_toc_allocate(pcxt->toc, reducelen);
+			SerializeReduceInfo(reducelen, ptr);
+			shm_toc_insert(pcxt->toc, PARALLEL_KEY_REDUCE_INFO, ptr);
+
+			ptr = shm_toc_allocate(pcxt->toc, nodeinfolen);
+			SerializeNodeInfo(nodeinfolen, ptr);
+			shm_toc_insert(pcxt->toc, PARALLEL_KEY_NODE_INFO, ptr);
+		}
+#endif /* ADB */
 	}
 
 	/* Restore previous memory context. */
@@ -1043,6 +1079,17 @@ ParallelWorkerMain(Datum main_arg)
 	/* Restore database connection. */
 	BackgroundWorkerInitializeConnectionByOid(fps->database_id,
 											  fps->authenticated_user_id);
+
+#ifdef ADB
+	StartTransactionCommand();
+	/* Initialize executor. This must be done inside a transaction block. */
+	InitMultinodeExecutor(false);
+	InitNodeExecutor(false);
+	CommitTransactionCommand();
+
+	RestoreReduceInfo(shm_toc_lookup(toc, PARALLEL_KEY_REDUCE_INFO, false));
+	RestoreNodeInfo(shm_toc_lookup(toc, PARALLEL_KEY_NODE_INFO, false));
+#endif
 
 	/*
 	 * Set the client encoding to the database encoding, since that is what

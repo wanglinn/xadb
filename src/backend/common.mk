@@ -8,6 +8,8 @@
 # this directory and SUBDIRS to subdirectories containing more things
 # to build.
 
+override CPPFLAGS := -I$(top_srcdir)/src/interfaces $(CPPFLAGS)
+
 ifdef PARTIAL_LINKING
 # old style: linking using SUBSYS.o
 subsysfilename = SUBSYS.o

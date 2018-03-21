@@ -15,7 +15,11 @@
 #ifndef PG_TRANSFORM_H
 #define PG_TRANSFORM_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_transform definition.  cpp turns this into
@@ -39,6 +43,7 @@ typedef FormData_pg_transform *Form_pg_transform;
  * ----------------
  */
 #define Natts_pg_transform			4
+DECLARE_NATTS(Natts_pg_transform);
 #define Anum_pg_transform_trftype	1
 #define Anum_pg_transform_trflang	2
 #define Anum_pg_transform_trffromsql	3

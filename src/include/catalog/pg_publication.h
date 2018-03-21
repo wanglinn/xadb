@@ -17,8 +17,12 @@
 #ifndef PG_PUBLICATION_H
 #define PG_PUBLICATION_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
 #include "catalog/objectaddress.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_publication definition.  cpp turns this into
@@ -64,6 +68,7 @@ typedef FormData_pg_publication *Form_pg_publication;
  */
 
 #define Natts_pg_publication				6
+DECLARE_NATTS(Natts_pg_publication);
 #define Anum_pg_publication_pubname			1
 #define Anum_pg_publication_pubowner		2
 #define Anum_pg_publication_puballtables	3

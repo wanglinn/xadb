@@ -127,9 +127,17 @@ make_canonical_pathkey(PlannerInfo *root,
 static bool
 pathkey_is_redundant(PathKey *new_pathkey, List *pathkeys)
 {
-	EquivalenceClass *new_ec = new_pathkey->pk_eclass;
+#ifdef ADB
+	/* fix: Dereference of null pointer */
+	EquivalenceClass *new_ec;
 	ListCell   *lc;
 
+	AssertArg(new_pathkey);
+	new_ec = new_pathkey->pk_eclass;
+#else
+	EquivalenceClass *new_ec = new_pathkey->pk_eclass;
+	ListCell   *lc;
+#endif
 	/* Check for EC containing a constant --- unconditionally redundant */
 	if (EC_MUST_BE_REDUNDANT(new_ec))
 		return true;
@@ -1322,7 +1330,6 @@ make_inner_pathkeys_for_merge(PlannerInfo *root,
 			oeclass = rinfo->right_ec;
 			ieclass = rinfo->left_ec;
 		}
-
 		/* outer eclass should match current or next pathkeys */
 		/* we check this carefully for debugging reasons */
 		if (oeclass != lastoeclass)
@@ -1335,7 +1342,12 @@ make_inner_pathkeys_for_merge(PlannerInfo *root,
 			if (oeclass != lastoeclass)
 				elog(ERROR, "outer pathkeys do not match mergeclause");
 		}
-
+#ifdef ADB
+		/* fix: Access to field 'pk_opfamily' results in a dereference of a
+		 * null pointer (loaded from variable 'opathkey')
+		 */
+		AssertArg(opathkey);
+#endif
 		/*
 		 * Often, we'll have same EC on both sides, in which case the outer
 		 * pathkey is also canonical for the inner side, and we can skip a

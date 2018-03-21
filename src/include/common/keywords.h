@@ -36,6 +36,10 @@ extern const ScanKeyword ScanKeywords[];
 extern const int NumScanKeywords;
 #endif
 
+#ifdef ADBMGRD
+extern PGDLLIMPORT const ScanKeyword ManagerKeywords[];
+extern PGDLLEXPORT const int NumManagerKeywords;
+#endif /* ADBMGRD */
 
 extern const ScanKeyword *ScanKeywordLookup(const char *text,
 				  const ScanKeyword *keywords,

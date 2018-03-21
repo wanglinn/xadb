@@ -766,6 +766,9 @@ execute_sql_string(const char *sql, const char *filename)
 							   NULL,
 							   NULL,
 							   dest,
+#ifdef ADB
+							   true,	/* this is created at remote node level */
+#endif /* ADB */
 							   NULL);
 			}
 
@@ -1441,8 +1444,13 @@ CreateExtensionInternal(char *extensionName,
 			csstmt->authrole = NULL;	/* will be created by current user */
 			csstmt->schemaElts = NIL;
 			csstmt->if_not_exists = false;
+#ifdef ADB
+			CreateSchemaCommand(csstmt, "(generated CREATE SCHEMA command)",
+								-1, -1, true);
+#else
 			CreateSchemaCommand(csstmt, "(generated CREATE SCHEMA command)",
 								-1, -1);
+#endif
 
 			/*
 			 * CreateSchemaCommand includes CommandCounterIncrement, so new

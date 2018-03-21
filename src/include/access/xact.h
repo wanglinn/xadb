@@ -21,7 +21,6 @@
 #include "storage/sinval.h"
 #include "utils/datetime.h"
 
-
 /*
  * Xact isolation levels
  */
@@ -136,6 +135,18 @@ typedef void (*SubXactCallback) (SubXactEvent event, SubTransactionId mySubid,
 #define XLOG_XACT_COMMIT_PREPARED	0x30
 #define XLOG_XACT_ABORT_PREPARED	0x40
 #define XLOG_XACT_ASSIGNMENT		0x50
+#if defined(ADB) || defined(AGTM)
+#define XLOG_XACT_XID_ASSIGNMENT	0x60
+
+typedef struct xl_xid_assignment
+{
+	bool			assign;			/* assign or unassign */
+	int				nxids;			/* number of assigned or unassigned XIDs */
+	TransactionId	xids[1];		/* assigned or unassigned XIDs */
+} xl_xid_assignment;
+
+#define MinSizeOfXidAssignment offsetof(xl_xid_assignment, xids)
+#endif
 /* free opcode 0x60 */
 /* free opcode 0x70 */
 
@@ -363,6 +374,12 @@ extern Size EstimateTransactionStateSpace(void);
 extern void SerializeTransactionState(Size maxsize, char *start_address);
 extern void StartParallelWorkerTransaction(char *tstatespace);
 extern void EndParallelWorkerTransaction(void);
+#ifdef ADB
+struct StringInfoData;
+extern void SerializeClusterTransaction(struct StringInfoData *buf);
+extern void StartClusterTransaction(char *tstatespace);
+extern void EndClusterTransaction(void);
+#endif /* ADB */
 extern bool IsTransactionBlock(void);
 extern bool IsTransactionOrTransactionBlock(void);
 extern char TransactionBlockStatusCode(void);
@@ -403,5 +420,30 @@ extern void ParseAbortRecord(uint8 info, xl_xact_abort *xlrec, xl_xact_parsed_ab
 extern void EnterParallelMode(void);
 extern void ExitParallelMode(void);
 extern bool IsInParallelMode(void);
+
+#ifdef ADB
+extern void SaveReceivedCommandId(CommandId cid);
+extern void SetReceivedCommandId(CommandId cid);
+extern CommandId GetReceivedCommandId(void);
+extern void ReportCommandIdChange(CommandId cid);
+extern bool IsSendCommandId(void);
+extern void SetSendCommandId(bool status);
+extern bool IsPGXCNodeXactReadOnly(void);
+extern bool IsPGXCNodeXactDatanodeDirect(void);
+extern void AbortCurrentTransactionOnce(void);
+
+extern bool GetCurrentLocalParamStatus(void);
+extern void SetCurrentLocalParamStatus(bool status);
+extern struct InterXactStateData* GetCurrentInterXactState(void);
+extern CommandId GetCurrentCommandIdIfAny(void);
+extern void SetTopXactBeginAGTM(bool status);
+extern bool TopXactBeginAGTM(void);
+extern void SetCurrentXactPhase1(void);
+extern void SetCurrentXactPhase2(void);
+extern bool IsCurrentXactInPhase2(void);
+extern void SetXactErrorAborted(bool flag);
+extern bool IsXactErrorAbort(void);
+extern void SetCurrentTransactionStartTimestamp(TimestampTz timestamp);
+#endif
 
 #endif							/* XACT_H */

@@ -85,7 +85,10 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
-
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#include "postmaster/autovacuum.h"
+#endif /* ADB */
 
 /*
  *		name of relcache init file(s), used to speed up backend startup
@@ -1345,6 +1348,17 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 	else
 		relation->rd_rsdesc = NULL;
 
+#ifdef ADB
+	if (IS_PGXC_COORDINATOR &&
+		relation->rd_id >= FirstNormalObjectId &&
+		!IsAutoVacuumWorkerProcess()
+#if defined(ADBMGRD)
+		&& !IsAnyAdbMonitorProcess()
+#endif
+		)
+		RelationBuildLocator(relation);
+#endif
+
 	/* foreign key data is not loaded till asked for */
 	relation->rd_fkeylist = NIL;
 	relation->rd_fkeyvalid = false;
@@ -2366,6 +2380,10 @@ RelationDestroyRelation(Relation relation, bool remember_tupdesc)
 		pfree(relation->rd_partcheck);
 	if (relation->rd_fdwroutine)
 		pfree(relation->rd_fdwroutine);
+#ifdef ADB
+	if (relation->rd_locator_info)
+		FreeRelationLocInfo(relation->rd_locator_info);
+#endif
 	pfree(relation);
 }
 
@@ -6117,8 +6135,14 @@ RelationCacheInitFileRemove(void)
 		if (strspn(de->d_name, "0123456789") == strlen(de->d_name))
 		{
 			/* Scan the tablespace dir for per-database dirs */
+#ifdef ADB
+			/* Postgres-XC tablespaces include node name in path */
+			snprintf(path, sizeof(path), "%s/%s/%s_%s",
+					 tblspcdir, de->d_name, TABLESPACE_VERSION_DIRECTORY, PGXCNodeName);
+#else
 			snprintf(path, sizeof(path), "%s/%s/%s",
 					 tblspcdir, de->d_name, TABLESPACE_VERSION_DIRECTORY);
+#endif
 			RelationCacheInitFileRemoveInDir(path);
 		}
 	}

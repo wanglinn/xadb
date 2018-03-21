@@ -36,5 +36,8 @@ extern bool contain_vars_of_level(Node *node, int levelsup);
 extern int	locate_var_of_level(Node *node, int levelsup);
 extern List *pull_var_clause(Node *node, int flags);
 extern Node *flatten_join_alias_vars(PlannerInfo *root, Node *node);
+#ifdef ADB
+extern Var *find_var(Node *node, int attno, Index relid);
+#endif /* ADB */
 
 #endif							/* VAR_H */

@@ -259,6 +259,14 @@ exprType(const Node *expr)
 		case T_PlaceHolderVar:
 			type = exprType((Node *) ((const PlaceHolderVar *) expr)->phexpr);
 			break;
+#ifdef ADB
+		case T_RownumExpr:
+			type = INT8OID;
+			break;
+		case T_ColumnRefJoin:
+			type = exprType((Node*)(((ColumnRefJoin*)expr)->var));
+			break;
+#endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
 			type = InvalidOid;	/* keep compiler quiet */
@@ -492,6 +500,12 @@ exprTypmod(const Node *expr)
 			return ((const SetToDefault *) expr)->typeMod;
 		case T_PlaceHolderVar:
 			return exprTypmod((Node *) ((const PlaceHolderVar *) expr)->phexpr);
+#ifdef ADB
+		case T_RownumExpr:
+			return -1;
+		case T_ColumnRefJoin:
+			return exprTypmod((Node*)(((ColumnRefJoin*)expr)->var));
+#endif /* ADB */
 		default:
 			break;
 	}
@@ -699,6 +713,10 @@ expression_returns_set_walker(Node *node, void *context)
 		return false;
 	if (IsA(node, WindowFunc))
 		return false;
+#ifdef ADB
+	if (IsA(node, OidVectorLoopExpr))
+		return ((OidVectorLoopExpr*)node)->signalRowMode ? false:true;
+#endif /* ADB */
 
 	return expression_tree_walker(node, expression_returns_set_walker,
 								  context);
@@ -903,6 +921,14 @@ exprCollation(const Node *expr)
 		case T_PlaceHolderVar:
 			coll = exprCollation((Node *) ((const PlaceHolderVar *) expr)->phexpr);
 			break;
+#ifdef ADB
+		case T_RownumExpr:
+			coll = InvalidOid;
+			break;
+		case T_ColumnRefJoin:
+			coll = exprCollation((Node*)(((ColumnRefJoin*)expr)->var));
+			break;
+#endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
 			coll = InvalidOid;	/* keep compiler quiet */
@@ -1104,6 +1130,14 @@ exprSetCollation(Node *expr, Oid collation)
 			Assert(!OidIsValid(collation)); /* result is always an integer
 											 * type */
 			break;
+#ifdef ADB
+		case T_RownumExpr:
+			Assert(!OidIsValid(collation));
+			break;
+		case T_ColumnRefJoin:
+			exprSetCollation((Node*)(((ColumnRefJoin*)expr)->var), collation);
+			break;
+#endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
 			break;
@@ -1544,6 +1578,17 @@ exprLocation(const Node *expr)
 		case T_PartitionRangeDatum:
 			loc = ((const PartitionRangeDatum *) expr)->location;
 			break;
+#ifdef ADB
+		case T_ColumnRefJoin:
+			loc = ((const ColumnRefJoin*) expr)->location;
+			break;
+		case T_RownumExpr:
+			loc = ((const RownumExpr*) expr)->location;
+			break;
+		case T_LevelExpr:
+			loc = ((const LevelExpr*)expr)->location;
+			break;
+#endif /* ADB */
 		default:
 			/* for any other node type it's just unknown... */
 			loc = -1;
@@ -1871,6 +1916,11 @@ expression_tree_walker(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 		case T_NextValueExpr:
+#ifdef ADB
+		case T_RownumExpr:
+		case T_LevelExpr:
+		case T_OidVectorLoopExpr:
+#endif /* ADB */
 		case T_RangeTblRef:
 		case T_SortGroupClause:
 			/* primitive node types with no expression subnodes */
@@ -2190,6 +2240,12 @@ expression_tree_walker(Node *node,
 			break;
 		case T_PlaceHolderInfo:
 			return walker(((PlaceHolderInfo *) node)->ph_var, context);
+#ifdef ADB
+		case T_ColumnRefJoin:
+			return walker(((ColumnRefJoin*)node)->column, context);
+		case T_PriorExpr:
+			return walker(((PriorExpr*)node)->expr, context);
+#endif /* ADB */
 		case T_RangeTblFunction:
 			return walker(((RangeTblFunction *) node)->funcexpr, context);
 		case T_TableSampleClause:
@@ -2335,6 +2391,11 @@ range_table_walker(List *rtable,
 				if (walker(rte->values_lists, context))
 					return true;
 				break;
+#ifdef ADB
+			case RTE_REMOTE_DUMMY:
+				elog(ERROR, "Invalid RTE found.");
+				break;
+#endif /* ADB */
 		}
 
 		if (walker(rte->securityQuals, context))
@@ -2467,6 +2528,10 @@ expression_tree_mutator(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 		case T_NextValueExpr:
+#ifdef ADB
+		case T_RownumExpr:
+		case T_LevelExpr:
+#endif /* ADB */
 		case T_RangeTblRef:
 		case T_SortGroupClause:
 			return (Node *) copyObject(node);
@@ -2737,6 +2802,9 @@ expression_tree_mutator(Node *node,
 				MUTATE(newnode->arg, caseexpr->arg, Expr *);
 				MUTATE(newnode->args, caseexpr->args, List *);
 				MUTATE(newnode->defresult, caseexpr->defresult, Expr *);
+#ifdef ADB
+				newnode->isdecode = caseexpr->isdecode;
+#endif
 				return (Node *) newnode;
 			}
 			break;
@@ -3035,6 +3103,38 @@ expression_tree_mutator(Node *node,
 				return (Node *) newnode;
 			}
 			break;
+#ifdef ADB
+		case T_ColumnRefJoin:
+			{
+				ColumnRefJoin *crj = (ColumnRefJoin*)node;
+				ColumnRefJoin *newnode;
+
+				FLATCOPY(newnode, crj, ColumnRefJoin);
+				MUTATE(newnode->column, crj->column, ColumnRef *);
+				return (Node*)newnode;
+			}
+			break;
+		case T_PriorExpr:
+			{
+				PriorExpr *pe = (PriorExpr*)node;
+				PriorExpr *newnode;
+
+				FLATCOPY(newnode, pe, PriorExpr);
+				MUTATE(newnode->expr, pe->expr, Node *);
+				return (Node*)newnode;
+			}
+			break;
+		case T_OidVectorLoopExpr:
+			{
+				OidVectorLoopExpr *v = (OidVectorLoopExpr*)node;
+				OidVectorLoopExpr *newnode;
+
+				FLATCOPY(newnode, v, OidVectorLoopExpr);
+				/* XXX we don't bother with datumCopy; should we? */
+
+				return (Node*)newnode;
+			}
+#endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(node));
@@ -3127,6 +3227,9 @@ range_table_mutator(List *rtable,
 				break;
 			case RTE_CTE:
 			case RTE_NAMEDTUPLESTORE:
+#ifdef ADB
+			case RTE_REMOTE_DUMMY:
+#endif /* ADB */
 				/* nothing to do */
 				break;
 			case RTE_SUBQUERY:
@@ -3250,6 +3353,10 @@ raw_expression_tree_walker(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 		case T_SQLValueFunction:
+#ifdef ADB
+		case T_RownumExpr:
+		case T_LevelExpr:
+#endif /* ADB */
 		case T_Integer:
 		case T_Float:
 		case T_String:
@@ -3466,6 +3573,16 @@ raw_expression_tree_walker(Node *node,
 		case T_ColumnRef:
 			/* we assume the fields contain nothing interesting */
 			break;
+#ifdef ADB
+		case T_ColumnRefJoin:
+			if(walker(((ColumnRefJoin*)node)->column, context))
+				return true;
+			break;
+		case T_PriorExpr:
+			if(walker(((PriorExpr*)node)->expr, context))
+				return true;
+			break;
+#endif /* ADB */
 		case T_FuncCall:
 			{
 				FuncCall   *fcall = (FuncCall *) node;
@@ -3774,6 +3891,258 @@ planstate_tree_walker(PlanState *planstate,
 	return false;
 }
 
+#ifdef ADB
+static bool
+planstate_exec_walk_hashjoin(HashJoinState *node,
+							 bool (*walker) (),
+							 void *context)
+{
+	PlanState  *outerNode;
+	HashState  *hashNode;
+	bool		drive_outer_first;
+
+	Assert(node && IsA(node, HashJoinState));
+	hashNode = (HashState *) innerPlanState(node);
+	outerNode = outerPlanState(node);
+
+	/*
+	 * If the hash join type is one of JOIN_LEFT, JOIN_ANTI and JOIN_FULL,
+	 * HJ_FILL_OUTER(node) is true and the outer plan will be executed first,
+	 * see the 150 line in nodeHashJoin.c.
+	 */
+	drive_outer_first = false;
+	switch (node->js.jointype)
+	{
+		case JOIN_LEFT:
+		case JOIN_ANTI:
+		case JOIN_FULL:
+			drive_outer_first = true;
+			break;
+		default:
+			break;
+	}
+
+	/*
+	 * if the startup cost of outer plan is smaller than the hash plan,
+	 * the outer plan will be executed first, see the 151 line in node-
+	 * HashJoin.c.(According to the initial value, see in ExecInitHashJoin,
+	 * Other conditions must be valid).
+	 */
+	if (!drive_outer_first &&
+		outerNode->plan->startup_cost < hashNode->ps.plan->total_cost)
+		drive_outer_first = true;
+
+	/* lefttree and righttree */
+	if (drive_outer_first)
+	{
+		if (walker(outerPlanState(node), context))
+			return true;
+
+		if (walker(innerPlanState(node), context))
+			return true;
+	} else
+	{
+		if (walker(innerPlanState(node), context))
+			return true;
+
+		if (walker(outerPlanState(node), context))
+			return true;
+	}
+
+	/* special child plans, skip it */
+
+	return false;
+}
+
+bool
+planstate_tree_exec_walker(PlanState *planstate,
+						   bool (*walker) (),
+						   void *context)
+{
+	Plan	   *plan = planstate->plan;
+	ListCell   *lc;
+
+	switch (nodeTag(plan))
+	{
+		case T_HashJoin:
+			if (planstate_exec_walk_hashjoin((HashJoinState *)planstate,
+											 walker,
+											 context))
+				return true;
+			break;
+		case T_ModifyTable:
+			if (planstate_walk_members(((ModifyTable *) plan)->plans,
+								  ((ModifyTableState *) planstate)->mt_plans,
+									   walker, context))
+				return true;
+			break;
+		case T_Append:
+			if (planstate_walk_members(((Append *) plan)->appendplans,
+									((AppendState *) planstate)->appendplans,
+									   walker, context))
+				return true;
+			break;
+		case T_MergeAppend:
+			if (planstate_walk_members(((MergeAppend *) plan)->mergeplans,
+								((MergeAppendState *) planstate)->mergeplans,
+									   walker, context))
+				return true;
+			break;
+		case T_BitmapAnd:
+			if (planstate_walk_members(((BitmapAnd *) plan)->bitmapplans,
+								 ((BitmapAndState *) planstate)->bitmapplans,
+									   walker, context))
+				return true;
+			break;
+		case T_BitmapOr:
+			if (planstate_walk_members(((BitmapOr *) plan)->bitmapplans,
+								  ((BitmapOrState *) planstate)->bitmapplans,
+									   walker, context))
+				return true;
+			break;
+		case T_SubqueryScan:
+			if (walker(((SubqueryScanState *) planstate)->subplan, context))
+				return true;
+			break;
+		case T_CustomScan:
+			foreach(lc, ((CustomScanState *) planstate)->custom_ps)
+			{
+				if (walker((PlanState *) lfirst(lc), context))
+					return true;
+			}
+			break;
+		case T_CteScan:
+			if (walker(((CteScanState *) planstate)->cteplanstate, context))
+				return true;
+			break;
+		default:
+			if (outerPlanState(planstate) && walker(outerPlanState(planstate), context))
+				return true;
+			if (innerPlanState(planstate) && walker(innerPlanState(planstate), context))
+				return true;
+			break;
+	}
+
+	/* subPlan-s */
+	if (planstate_walk_subplans(planstate->subPlan, walker, context))
+		return true;
+
+	/* initPlan-s */
+	if (planstate_walk_subplans(planstate->initPlan, walker, context))
+		return true;
+
+	return false;
+}
+
+bool plan_tree_walker(struct Plan *plan, Node *GlobOrStmt, bool (*walker)(), void *context)
+{
+	ListCell *lc;
+	List *list;
+
+	if(plan == NULL)
+		return false;
+	check_stack_depth();
+
+	/* initPlan-s */
+	if(GlobOrStmt && plan->initPlan)
+	{
+		Node *node;
+		List *subplans = NIL;
+		if(IsA(GlobOrStmt, PlannerGlobal))
+			subplans = ((PlannerGlobal*)GlobOrStmt)->subplans;
+		else if(IsA(GlobOrStmt, PlannedStmt))
+			subplans = ((PlannedStmt*)GlobOrStmt)->subplans;
+		else if(IsA(GlobOrStmt, PlannerInfo))
+			subplans = ((PlannerInfo*)GlobOrStmt)->glob->subplans;
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("unknown node type %d", nodeTag(GlobOrStmt))));
+
+		foreach(lc, plan->initPlan)
+		{
+			node = lfirst(lc);
+			if(IsA(node, SubPlan))
+			{
+				Plan	   *initplan = list_nth(subplans, ((SubPlan*)node)->plan_id-1);
+				if((*walker)(initplan, GlobOrStmt, context))
+					return true;
+			}/*else if(IsA(node, Param))
+			{
+			}else if(IsA(node, SubLink))
+			{
+			}*/
+		}
+	}
+
+	/* lefttree */
+	if (outerPlan(plan) &&
+		(*walker)(outerPlan(plan), GlobOrStmt, context))
+		return true;
+
+	/* righttree */
+	if(innerPlan(plan) &&
+		(*walker)(innerPlan(plan), GlobOrStmt, context))
+		return true;
+
+	/* special child plans */
+	list = NIL;
+	switch(nodeTag(plan))
+	{
+	case T_ModifyTable:
+		list = ((ModifyTable*)plan)->plans;
+		break;
+	case T_Append:
+		list = ((Append*)plan)->appendplans;
+		break;
+	case T_MergeAppend:
+		list = ((MergeAppend*)plan)->mergeplans;
+		break;
+	case T_BitmapAnd:
+		list = ((BitmapAnd*)plan)->bitmapplans;
+		break;
+	case T_BitmapOr:
+		list = ((BitmapOr*)plan)->bitmapplans;
+		break;
+	case T_SubqueryScan:
+		if((*walker)(((SubqueryScan*)plan)->subplan, GlobOrStmt, context))
+			return true;
+		break;
+	case T_CustomScan:
+		list = ((CustomScan*)plan)->custom_plans;
+		break;
+	default:
+		break;
+	}
+
+	foreach(lc, list)
+	{
+		if((*walker)(lfirst(lc), GlobOrStmt, context))
+			return true;
+	}
+
+	return false;
+}
+
+bool have_cluster_plan_walker(struct Plan *plan, Node *GlobOrStmt, void *notUse)
+{
+	if(plan == NULL)
+		return false;
+	switch(nodeTag(plan))
+	{
+	case T_ClusterGather:
+	case T_ClusterMergeGather:
+	case T_ClusterGetCopyData:
+	case T_ClusterReduce:
+		return true;
+	default:
+		break;
+	}
+	return plan_tree_walker(plan, GlobOrStmt, have_cluster_plan_walker, NULL);
+}
+
+#endif /* ADB */
+
 /*
  * Walk a list of SubPlans (or initPlans, which also use SubPlan nodes).
  */
@@ -3817,3 +4186,198 @@ planstate_walk_members(List *plans, PlanState **planstates,
 
 	return false;
 }
+
+#ifdef ADB
+bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar)
+{
+	ParseGrammar gram;
+	if(node == NULL)
+		return false;
+	switch(nodeTag(node))
+	{
+	case T_List:
+		{
+			ListCell *lc;
+			foreach(lc, (List*)node)
+			{
+				if(get_parse_node_grammar(lfirst(lc), grammar))
+					return true;
+			}
+		}
+		return false;
+	case T_IndexStmt:
+		gram = ((IndexStmt*)node)->grammar;
+		break;
+	case T_CreateStmt:
+		gram = ((CreateStmt*)node)->grammar;
+		break;
+	case T_CreateTableAsStmt:
+		gram = ((CreateTableAsStmt*)node)->grammar;
+		break;
+	case T_AlterTableStmt:
+		gram = ((AlterTableStmt*)node)->grammar;
+		break;
+	default:
+		return false;
+	}
+	if(grammar)
+		*grammar = gram;
+	return true;
+}
+
+bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
+{
+	check_stack_depth();
+	if(path == NULL)
+		return false;
+
+#define CHECK_LIST_PATH(type, meb)										\
+	do{																	\
+		ListCell *lc;													\
+		foreach(lc, ((type*)path)->meb)									\
+		{																\
+			if((*walker)(lfirst(lc), context))							\
+				return true;											\
+		}																\
+	}while(0)
+
+#define WALK_CHILD_PATH(type, meb)					\
+	if((*walker)(((type*)path)->meb, context))		\
+		return true
+
+	switch(nodeTag(path))
+	{
+	case T_Path:
+	case T_IndexPath:
+		break;
+	case T_BitmapHeapPath:
+		WALK_CHILD_PATH(BitmapHeapPath,bitmapqual);
+		break;
+	case T_BitmapAndPath:
+		CHECK_LIST_PATH(BitmapAndPath,bitmapquals);
+		break;
+	case T_BitmapOrPath:
+		CHECK_LIST_PATH(BitmapOrPath,bitmapquals);
+		break;
+	case T_TidPath:
+		break;
+	case T_SubqueryScanPath:
+		WALK_CHILD_PATH(SubqueryScanPath, subpath);
+		break;
+	case T_ForeignPath:
+		WALK_CHILD_PATH(ForeignPath, fdw_outerpath);
+		break;
+	case T_CustomPath:
+		CHECK_LIST_PATH(CustomPath, custom_paths);
+		break;
+	case T_NestPath:
+	case T_MergePath:
+	case T_HashPath:
+		WALK_CHILD_PATH(JoinPath, outerjoinpath);
+		WALK_CHILD_PATH(JoinPath, innerjoinpath);
+		break;
+	case T_AppendPath:
+		CHECK_LIST_PATH(AppendPath, subpaths);
+		break;
+	case T_MergeAppendPath:
+		CHECK_LIST_PATH(MergeAppendPath, subpaths);
+		break;
+	case T_ResultPath:
+	case T_FilterPath:
+		WALK_CHILD_PATH(ResultPath, subpath);
+		break;
+	case T_MaterialPath:
+		WALK_CHILD_PATH(MaterialPath, subpath);
+		break;
+	case T_UniquePath:
+		WALK_CHILD_PATH(UniquePath, subpath);
+		break;
+	case T_GatherPath:
+		WALK_CHILD_PATH(GatherPath, subpath);
+		break;
+	case T_GatherMergePath:
+		WALK_CHILD_PATH(GatherMergePath, subpath);
+		break;
+	case T_ProjectionPath:
+		WALK_CHILD_PATH(ProjectionPath, subpath);
+		break;
+	case T_SortPath:
+		WALK_CHILD_PATH(SortPath, subpath);
+		break;
+	case T_GroupPath:
+		WALK_CHILD_PATH(GroupPath, subpath);
+		break;
+	case T_UpperUniquePath:
+		WALK_CHILD_PATH(UpperUniquePath, subpath);
+		break;
+	case T_AggPath:
+		WALK_CHILD_PATH(AggPath, subpath);
+		break;
+	case T_GroupingSetsPath:
+		WALK_CHILD_PATH(GroupingSetsPath, subpath);
+		break;
+	case T_MinMaxAggPath:
+		{
+			ListCell *lc;
+			MinMaxAggInfo *info;
+			foreach(lc, ((MinMaxAggPath*)path)->mmaggregates)
+			{
+				info = lfirst(lc);
+				if((*walker)(info->path, context))
+					return true;
+			}
+		}
+		break;
+	case T_WindowAggPath:
+		WALK_CHILD_PATH(WindowAggPath, subpath);
+		break;
+	case T_SetOpPath:
+		WALK_CHILD_PATH(SetOpPath, subpath);
+		break;
+	case T_RecursiveUnionPath:
+		WALK_CHILD_PATH(RecursiveUnionPath, leftpath);
+		WALK_CHILD_PATH(RecursiveUnionPath, rightpath);
+		break;
+	case T_LockRowsPath:
+		WALK_CHILD_PATH(LockRowsPath, subpath);
+		break;
+	case T_ModifyTablePath:
+		CHECK_LIST_PATH(ModifyTablePath, subpaths);
+		break;
+	case T_LimitPath:
+		WALK_CHILD_PATH(LimitPath, subpath);
+		break;
+	case T_RemoteQueryPath:
+		WALK_CHILD_PATH(RemoteQueryPath, leftpath);
+		WALK_CHILD_PATH(RemoteQueryPath, rightpath);
+		break;
+	case T_ClusterGatherPath:
+		WALK_CHILD_PATH(ClusterGatherPath, subpath);
+		break;
+	case T_ClusterMergeGatherPath:
+		WALK_CHILD_PATH(ClusterMergeGatherPath, subpath);
+		break;
+	case T_ClusterReducePath:
+		WALK_CHILD_PATH(ClusterReducePath, subpath);
+		break;
+	case T_ReduceScanPath:
+		WALK_CHILD_PATH(ReduceScanPath, reducepath);
+		break;
+	case T_List:
+		{
+			ListCell *lc;
+			foreach(lc, (List*)path)
+			{
+				if((*walker)(lfirst(lc), context))
+					return true;
+			}
+		}
+		break;
+	default:
+		ereport(ERROR, (errmsg("unrecognized path type: %d",
+			 (int) nodeTag(path))));
+		break;
+	}
+	return false;
+}
+#endif /* ADB */

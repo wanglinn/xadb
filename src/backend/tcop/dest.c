@@ -40,7 +40,10 @@
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "utils/portal.h"
-
+#ifdef ADB
+#include "executor/clusterReceiver.h"
+#include "pgxc/pgxc.h"
+#endif /* ADB */
 
 /* ----------------
  *		dummy DestReceiver functions
@@ -143,6 +146,11 @@ CreateDestReceiver(CommandDest dest)
 
 		case DestTupleQueue:
 			return CreateTupleQueueDestReceiver(NULL);
+
+#ifdef ADB
+		case DestClusterOut:
+			return createClusterReceiver();//create_cluster_receiver();
+#endif /* ADB */
 	}
 
 	/* should never get here */
@@ -161,6 +169,12 @@ EndCommand(const char *commandTag, CommandDest dest)
 		case DestRemote:
 		case DestRemoteExecute:
 		case DestRemoteSimple:
+#ifdef ADB
+		case DestClusterOut:
+			if (IsConnFromCoord() && dest == DestClusterOut)
+				/* copy done */
+				pq_putemptymessage('c');
+#endif /* ADB */
 
 			/*
 			 * We assume the commandTag is plain ASCII and therefore requires
@@ -202,6 +216,9 @@ NullCommand(CommandDest dest)
 		case DestRemote:
 		case DestRemoteExecute:
 		case DestRemoteSimple:
+#ifdef ADB
+		case DestClusterOut:
+#endif /* ADB */
 
 			/*
 			 * tell the fe that we saw an empty query string.  In protocols
@@ -245,6 +262,9 @@ ReadyForQuery(CommandDest dest)
 		case DestRemote:
 		case DestRemoteExecute:
 		case DestRemoteSimple:
+#ifdef ADB
+		case DestClusterOut:
+#endif /* ADB */
 			if (PG_PROTOCOL_MAJOR(FrontendProtocol) >= 3)
 			{
 				StringInfoData buf;

@@ -1,0 +1,148 @@
+set grammar to oracle;
+--删除视图依赖的基表（oracle中可以删除依赖的table，view失效，重新创建talbe后，view重新有效，pg会不同）
+create table tt(tid int,name varchar(2),sal int);
+insert into tt values(1,'nn',3000);
+create view vv as select name,sal from tt;
+drop table tt;
+ERROR:  cannot drop table tt because other objects depend on it
+DETAIL:  view vv depends on table tt
+HINT:  Use DROP ... CASCADE to drop the dependent objects too.
+select * from vv;
+ name | sal  
+------+------
+ nn   | 3000
+(1 row)
+
+create table tt(tid int,name varchar(2),sal int);
+ERROR:  relation "tt" already exists
+insert into tt values(1,'nn',3000);
+select * from vv;
+ name | sal  
+------+------
+ nn   | 3000
+ nn   | 3000
+(2 rows)
+
+drop view vv;
+drop table tt;
+--参数replace
+create table tt(id int,name varchar(2));
+create view vv as select id from tt;
+create view vv as select id from tt;
+ERROR:  relation "vv" already exists
+create or replace view vv as select id from tt;
+drop view vv;
+drop table tt;
+--其他参数测试force、noforce、check option、read only
+create force view vv as select id from tt;
+ERROR:  syntax error at or near "force"
+LINE 1: create force view vv as select id from tt;
+               ^
+create table tt(id int,name varchar(2));
+insert into tt values(1,'1');
+select * from vv;
+ERROR:  relation "vv" does not exist
+LINE 1: select * from vv;
+                      ^
+drop view vv;
+ERROR:  view "vv" does not exist
+drop table tt;
+create noforce view vv as select id from tt;
+ERROR:  syntax error at or near "noforce"
+LINE 1: create noforce view vv as select id from tt;
+               ^
+create table tt(id int,name varchar(2));
+create view vv as select id from tt where id>5 with check option constraint ck_id;
+ERROR:  syntax error at or near "with"
+LINE 1: create view vv as select id from tt where id>5 with check op...
+                                                       ^
+insert into vv values(1);
+ERROR:  relation "vv" does not exist
+LINE 1: insert into vv values(1);
+                    ^
+insert into vv values(6);
+ERROR:  relation "vv" does not exist
+LINE 1: insert into vv values(6);
+                    ^
+select * from vv;
+ERROR:  relation "vv" does not exist
+LINE 1: select * from vv;
+                      ^
+select * from tt;
+ id | name 
+----+------
+(0 rows)
+
+drop view vv;
+ERROR:  view "vv" does not exist
+drop table tt;
+create table tt(id int,name varchar(2));
+create view vv as select id from tt where id>5 with read only  constraint ck_id ;
+ERROR:  syntax error at or near "with"
+LINE 1: create view vv as select id from tt where id>5 with read onl...
+                                                       ^
+insert into vv values(1);
+ERROR:  relation "vv" does not exist
+LINE 1: insert into vv values(1);
+                    ^
+drop view vv;
+ERROR:  view "vv" does not exist
+drop table tt;
+--基于多表创建视图
+create table tt(tid int primary key,name varchar(2));
+create table aa(aid int primary key,name varchar(5), tid int);
+create view vv(aid,an,tn) as select aa.aid, aa.name, tt.name from tt,aa where tt.tid=aa.tid;
+insert into tt values(1,'ss');
+insert into aa values(1,'a',1);
+insert into aa values(2,'b',1);
+delete from vv where an='b';
+ERROR:  cannot delete from view "vv"
+DETAIL:  Views that do not select from a single table or view are not automatically updatable.
+HINT:  To enable deleting from the view, provide an INSTEAD OF DELETE trigger or an unconditional ON DELETE DO INSTEAD rule.
+insert into vv(aid,an) values(3,'c');
+ERROR:  cannot insert into view "vv"
+DETAIL:  Views that do not select from a single table or view are not automatically updatable.
+HINT:  To enable inserting into the view, provide an INSTEAD OF INSERT trigger or an unconditional ON INSERT DO INSTEAD rule.
+select * from vv order by aid;
+ aid | an | tn 
+-----+----+----
+   1 | a  | ss
+   2 | b  | ss
+(2 rows)
+
+select * from aa;
+ aid | name | tid 
+-----+------+-----
+   1 | a    |   1
+   2 | b    |   1
+(2 rows)
+
+select * from tt;
+ tid | name 
+-----+------
+   1 | ss
+(1 row)
+
+delete from vv where tn=2;
+ERROR:  cannot delete from view "vv"
+DETAIL:  Views that do not select from a single table or view are not automatically updatable.
+HINT:  To enable deleting from the view, provide an INSTEAD OF DELETE trigger or an unconditional ON DELETE DO INSTEAD rule.
+select * from aa;
+ aid | name | tid 
+-----+------+-----
+   1 | a    |   1
+   2 | b    |   1
+(2 rows)
+
+drop view vv;
+drop table aa;
+drop table tt;
+--基于视图创建视图
+create table tt(tid int,name varchar(2),sal int);
+create view vv as select name,sal from tt;
+create view v2 as select * from vv where sal<1000;
+create view v3 as select * from v2 where sal>100;
+drop view v3;
+drop view v2;
+drop view vv;
+drop table tt;

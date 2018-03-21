@@ -22,7 +22,11 @@
 #ifndef PG_OPERATOR_H
 #define PG_OPERATOR_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_operator definition.  cpp turns this into
@@ -62,6 +66,7 @@ typedef FormData_pg_operator *Form_pg_operator;
  */
 
 #define Natts_pg_operator				14
+DECLARE_NATTS(Natts_pg_operator);
 #define Anum_pg_operator_oprname		1
 #define Anum_pg_operator_oprnamespace	2
 #define Anum_pg_operator_oprowner		3
@@ -1853,5 +1858,29 @@ DATA(insert OID = 3286 (  "-"	   PGNSP PGUID b f f 3802 23 3802 0 0 3303 - - ));
 DESCR("delete array element");
 DATA(insert OID = 3287 (  "#-"	   PGNSP PGUID b f f 3802 1009 3802 0 0 jsonb_delete_path - - ));
 DESCR("delete path");
+
+#ifdef ADB
+/* rowid operators */
+DATA(insert OID = 9001 (  "="	   PGNSP PGUID b t t 336 336 16 9001 9002 rowid_eq eqsel eqjoinsel ));
+DESCR("equal");
+DATA(insert OID = 9002 (  "<>"	   PGNSP PGUID b f f 336 336 16 9002 9001 rowid_ne neqsel neqjoinsel ));
+DESCR("not equal");
+DATA(insert OID = 9003 (  "<"	   PGNSP PGUID b f f 336 336 16 9004 9006 rowid_lt scalarltsel scalarltjoinsel ));
+DESCR("less than");
+DATA(insert OID = 9004 (  ">"	   PGNSP PGUID b f f 336 336 16 9003 9005 rowid_gt scalargtsel scalargtjoinsel ));
+DESCR("greater than");
+DATA(insert OID = 9005 (  "<="	   PGNSP PGUID b f f 336 336 16 9006 9004 rowid_le scalarltsel scalarltjoinsel ));
+DESCR("less than or equal");
+DATA(insert OID = 9006 (  ">="	   PGNSP PGUID b f f 336 336 16 9005 9003 rowid_ge scalargtsel scalargtjoinsel ));
+DESCR("greater than or equal");
+
+DATA(insert OID = 9007 (  "+"	   ORANSP PGUID b f f 9009 1186 9009 9008 0 ora_date_pl_interval - - ));
+DESCR("add");
+DATA(insert OID = 9008 (  "+"	   ORANSP PGUID b f f 1186 9009 9009 9007 0 interval_pl_ora_date - - ));
+DESCR("add");
+DATA(insert OID = 3409 (  "-"	   ORANSP PGUID b f f 9009 1186 9009 0 0 ora_date_mi_interval - - ));
+DESCR("subtract");
+
+#endif
 
 #endif							/* PG_OPERATOR_H */

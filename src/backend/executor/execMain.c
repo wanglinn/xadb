@@ -63,6 +63,14 @@
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
 #include "utils/tqual.h"
+#ifdef ADB
+#include "commands/copy.h"
+#include "executor/execCluster.h"
+#include "executor/nodeClusterReduce.h"
+#include "executor/nodeReduceScan.h"
+#include "nodes/nodeFuncs.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 /* Hooks for plugins to get control in ExecutorStart/Run/Finish/End */
@@ -105,6 +113,9 @@ static void EvalPlanQualStart(EPQState *epqstate, EState *parentestate,
 				  Plan *planTree);
 static void ExecPartitionCheck(ResultRelInfo *resultRelInfo,
 				   TupleTableSlot *slot, EState *estate);
+#ifdef ADB
+static bool ExecuteReduceScanOuter(ReduceScanState *node, void *none);
+#endif /* ADB */
 
 /*
  * Note that GetUpdatedColumns() also exists in commands/trigger.c.  There does
@@ -353,6 +364,9 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	/*
 	 * run plan
 	 */
+#ifdef ADB
+	ExecuteReduceScanOuter((ReduceScanState*)(queryDesc->planstate), NULL);
+#endif /* ADB */
 	if (!ScanDirectionIsNoMovement(direction))
 	{
 		if (execute_once && queryDesc->already_executed)
@@ -496,6 +510,11 @@ standard_ExecutorEnd(QueryDesc *queryDesc)
 	/* do away with our snapshots */
 	UnregisterSnapshot(estate->es_snapshot);
 	UnregisterSnapshot(estate->es_crosscheck_snapshot);
+
+#ifdef ADB
+	/* do away with our reduce cleanup */
+	UnregisterReduceCleanup();
+#endif
 
 	/*
 	 * Must switch out of context before destroying it
@@ -847,6 +866,15 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 			Relation	resultRelation;
 
 			resultRelationOid = getrelid(resultRelationIndex, rangeTable);
+#ifdef ADB
+			if(IsConnFromCoord() && !OidIsValid(resultRelationOid))
+			{
+				/* same time ModifyTable target in coordinator only */
+				MemSet(resultRelInfo, 0, sizeof(*resultRelInfo));
+				/* resultRelInfo->type = T_Invalid; */
+			}else
+			{
+#endif /* ADB */
 			resultRelation = heap_open(resultRelationOid, RowExclusiveLock);
 
 			InitResultRelInfo(resultRelInfo,
@@ -854,12 +882,18 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 							  resultRelationIndex,
 							  NULL,
 							  estate->es_instrument);
+#ifdef ADB
+			}
+#endif /* ADB */
 			resultRelInfo++;
 		}
 		estate->es_result_relations = resultRelInfos;
 		estate->es_num_result_relations = numResultRelations;
 		/* es_result_relation_info is NULL except when within ModifyTable */
 		estate->es_result_relation_info = NULL;
+#ifdef ADB
+		estate->es_result_remoterel = NULL;
+#endif
 
 		/*
 		 * In the partitioned result relation case, lock the non-leaf result
@@ -922,6 +956,9 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 		estate->es_result_relation_info = NULL;
 		estate->es_root_result_relations = NULL;
 		estate->es_num_root_result_relations = 0;
+#ifdef ADB
+		estate->es_result_remoterel = NULL;
+#endif
 	}
 
 	/*
@@ -1027,6 +1064,9 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 			& (EXEC_FLAG_EXPLAIN_ONLY | EXEC_FLAG_WITH_NO_DATA);
 		if (bms_is_member(i, plannedstmt->rewindPlanIDs))
 			sp_eflags |= EXEC_FLAG_REWIND;
+#ifdef ADB
+		sp_eflags |= EXEC_FLAG_IN_SUBPLAN;
+#endif /* ADB */
 
 		subplanstate = ExecInitNode(subplan, estate, sp_eflags);
 
@@ -1042,6 +1082,13 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 	 * processing tuples.
 	 */
 	planstate = ExecInitNode(plan, estate, eflags);
+#ifdef ADB
+	if((eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
+	{
+		foreach(l, estate->es_subplanstates)
+			ExecConnectReduce(lfirst(l));
+	}
+#endif /* ADB */
 
 	/*
 	 * Get the tuple descriptor describing the type of tuples to return.
@@ -1601,6 +1648,13 @@ ExecEndPlan(PlanState *planstate, EState *estate)
 	resultRelInfo = estate->es_result_relations;
 	for (i = estate->es_num_result_relations; i > 0; i--)
 	{
+#ifdef ADB
+		if(nodeTag(resultRelInfo) == T_Invalid)
+		{
+			resultRelInfo++;
+			continue;
+		}
+#endif /* ADB */
 		/* Close indices and then the relation itself */
 		ExecCloseIndices(resultRelInfo);
 		heap_close(resultRelInfo->ri_RelationDesc, NoLock);
@@ -2948,6 +3002,9 @@ EvalPlanQualFetchRowMarks(EPQState *epqstate)
 
 			/* build a temporary HeapTuple control structure */
 			tuple.t_len = HeapTupleHeaderGetDatumLength(td);
+#ifdef ADB
+			tuple.t_xc_node_id = 0;
+#endif
 			tuple.t_data = td;
 			/* relation might be a foreign table, if so provide tableoid */
 			tuple.t_tableOid = erm->relid;
@@ -3079,7 +3136,10 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 		estate->es_result_relations = resultRelInfos;
 		estate->es_num_result_relations = numResultRelations;
 	}
-	/* es_result_relation_info must NOT be copied */
+#ifdef ADB
+	/* XXX Check if this is OK */
+	estate->es_result_remoterel = parentestate->es_result_remoterel;
+#endif	/* es_result_relation_info must NOT be copied */
 	/* es_trig_target_relations must NOT be copied */
 	estate->es_rowMarks = parentestate->es_rowMarks;
 	estate->es_top_eflags = parentestate->es_top_eflags;
@@ -3455,3 +3515,17 @@ ExecBuildSlotPartitionKeyDescription(Relation rel,
 
 	return buf.data;
 }
+#ifdef ADB
+static bool ExecuteReduceScanOuter(ReduceScanState *node, void *none)
+{
+	if(node == NULL)
+		return false;
+
+	planstate_tree_walker((PlanState*)node, ExecuteReduceScanOuter, NULL);
+
+	if(IsA(node, ReduceScanState))
+		FetchReduceScanOuter(node);
+
+	return false;
+}
+#endif /* ADB */

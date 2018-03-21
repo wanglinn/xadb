@@ -1,0 +1,113 @@
+<!--
+doc/src/sgml/ref/mgr_alter_coordinator.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-ALTERCOORDINATOR">
+  <refmeta>
+    <refentrytitle>ALTER COORDINATOR</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>ALTER COORDINATOR</refname>
+    <refpurpose>alter the parameters of coordinator node in the cluster</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-altercoordinator">
+    <primary>ALTER COORDINATOR</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+ALTER COORDINATOR MASTER <replaceable class="parameter">node_name</replaceable> ( option )
+
+<phrase>where <replaceable class="parameter">option</replaceable> can be one of:</phrase>
+
+    HOST = <replaceable class="parameter">IP_address</replaceable>,
+    PORT = <replaceable class="parameter">port_number</replaceable>,
+    PATH = <replaceable class="parameter">pg_data</replaceable>,
+    SYNC_STATE = <replaceable class="parameter">sync_mode</replaceable>   
+</synopsis>
+  </refsynopsisdiv>
+  
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+<command>ALTER COORDINATOR</command> alter the parameters of coordinator's node table. The coordinator slave just used in different data center.
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Parameters</title>
+
+    <variablelist>
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">HOST</replaceable>
+        </term>
+        <listitem>
+          <para>
+            Host address only support IP address.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">PORT</replaceable>
+        </term>
+        <listitem>
+          <para>
+           Listen port number.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">PATH</replaceable>
+        </term>
+        <listitem>
+          <para>
+           The path of the node to store data.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">SYNC_STATE</replaceable>
+        </term>
+        <listitem>
+          <para>
+           The value of SYNC_STATE can be "sync", "async", "potential". If synchronous slave down ,and the potential slave will as the synchronous slave.
+          </para>
+        </listitem>
+      </varlistentry>
+  </variablelist>
+  </refsect1>
+
+  <refsect1>
+    <title>Examples</title>
+
+    <para>
+      Alter port of coordinator coord_name1:
+<programlisting>
+alter coordinator master coord_name1(port = 5445);
+</programlisting>
+    </para>
+  </refsect1>
+
+    <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-altergtm"></member>
+    <member><xref linkend="mgr-alterdatanode"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>

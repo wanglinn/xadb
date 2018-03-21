@@ -59,6 +59,14 @@
 #include "nodes/relation.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+#ifdef ADB
+#include "pgxc/execRemote.h"
+#include "executor/nodeClusterGather.h"
+#include "executor/nodeClusterMergeGather.h"
+#include "executor/nodeClusterReduce.h"
+#include "executor/nodeEmptyResult.h"
+#include "executor/nodeReduceScan.h"
+#endif
 
 
 static bool IndexSupportsBackwardScan(Oid indexid);
@@ -74,6 +82,9 @@ static bool IndexSupportsBackwardScan(Oid indexid);
 void
 ExecReScan(PlanState *node)
 {
+#ifdef ADB
+	node->rownum = 0L;
+#endif /* ADB */
 	/* If collecting timing stats, update them */
 	if (node->instrument)
 		InstrEndLoop(node->instrument);
@@ -223,6 +234,27 @@ ExecReScan(PlanState *node)
 		case T_ForeignScanState:
 			ExecReScanForeignScan((ForeignScanState *) node);
 			break;
+#ifdef ADB
+		case T_RemoteQueryState:
+			ExecRemoteQueryReScan((RemoteQueryState *) node, node->ps_ExprContext);
+			break;
+
+		case T_ClusterGatherState:
+			ExecReScanClusterGather((ClusterGatherState *)node);
+			break;
+
+		case T_ClusterMergeGatherState:
+			ExecReScanClusterMergeGather((ClusterMergeGatherState*)node);
+			break;
+
+		case T_ClusterReduceState:
+			ExecReScanClusterReduce((ClusterReduceState *)node);
+			break;
+
+		case T_EmptyResultState:
+			ExecReScanEmptyResult((EmptyResultState *) node);
+			break;
+#endif
 
 		case T_CustomScanState:
 			ExecReScanCustomScan((CustomScanState *) node);
@@ -280,6 +312,12 @@ ExecReScan(PlanState *node)
 			ExecReScanLimit((LimitState *) node);
 			break;
 
+#ifdef ADB
+		case T_ReduceScanState:
+			ExecReScanReduceScan((ReduceScanState *) node);
+			break;
+#endif /* ADB */
+
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
 			break;
@@ -308,6 +346,9 @@ ExecReScan(PlanState *node)
 void
 ExecMarkPos(PlanState *node)
 {
+#ifdef ADB
+	node->rownum_marked = node->rownum;
+#endif /* ADB */
 	switch (nodeTag(node))
 	{
 		case T_IndexScanState:
@@ -334,6 +375,16 @@ ExecMarkPos(PlanState *node)
 			ExecResultMarkPos((ResultState *) node);
 			break;
 
+#ifdef ADB
+		case T_ClusterReduceState:
+			ExecClusterReduceMarkPos((ClusterReduceState *) node);
+			break;
+
+		case T_EmptyResultState:
+			ExecEmptyResultMarkPos((EmptyResultState *) node);
+			break;
+#endif
+
 		default:
 			/* don't make hard error unless caller asks to restore... */
 			elog(DEBUG2, "unrecognized node type: %d", (int) nodeTag(node));
@@ -357,6 +408,9 @@ ExecMarkPos(PlanState *node)
 void
 ExecRestrPos(PlanState *node)
 {
+#ifdef ADB
+	node->rownum = node->rownum_marked;
+#endif /* ADB */
 	switch (nodeTag(node))
 	{
 		case T_IndexScanState:
@@ -382,6 +436,16 @@ ExecRestrPos(PlanState *node)
 		case T_ResultState:
 			ExecResultRestrPos((ResultState *) node);
 			break;
+
+#ifdef ADB
+		case T_ClusterReduceState:
+			ExecClusterReduceRestrPos((ClusterReduceState *) node);
+			break;
+
+		case T_EmptyResultState:
+			ExecEmptyResult((EmptyResultState *) node);
+			break;
+#endif
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));

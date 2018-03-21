@@ -132,8 +132,19 @@ ExecResult(PlanState *pstate)
 			node->rs_done = true;
 		}
 
+#ifdef ADB
+		if (node->ps.qual == NULL ||
+			ExecQual(node->ps.qual, econtext))
+		{
+			if(node->ps.ps_ProjInfo)
+			{
+#endif /* ADB */
 		/* form the result tuple using ExecProject(), and return it */
 		return ExecProject(node->ps.ps_ProjInfo);
+#ifdef ADB
+			}	/* (if node->ps.ps_ProjInfo) */
+		} /* if(qual) */
+#endif /* ADB */
 	}
 
 	return NULL;

@@ -21,7 +21,15 @@
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "utils/lsyscache.h"
-
+#ifdef ADB
+#include "executor/executor.h"
+#include "nodes/execnodes.h"
+#include "parser/parser.h"
+#include "parser/parse_coerce.h"
+#include "parser/parse_oper.h"
+#include "utils/builtins.h"
+#include "utils/typcache.h"
+#endif /* ADB */
 
 /*
  * makeA_Expr -
@@ -206,7 +214,12 @@ makeWholeRowVar(RangeTblEntry *rte,
 								 varlevelsup);
 			}
 			break;
-
+#ifdef ADB
+		case RTE_REMOTE_DUMMY:
+			result = NULL;
+			elog(ERROR, "Invalid RTE found");
+			break;
+#endif /* ADB */
 		default:
 
 			/*
@@ -611,3 +624,120 @@ makeGroupingSet(GroupingSetKind kind, List *content, int location)
 	n->location = location;
 	return n;
 }
+
+#ifdef ADB
+
+Expr *makeHashExpr(Expr *expr)
+{
+	TypeCacheEntry *typeCache;
+	Oid typoid = exprType((Node*)expr);
+	Oid collid = exprCollation((Node*)expr);
+	if(type_is_enum(typoid))
+	{
+		/* convert to Name */
+		expr = (Expr*)coerce_to_target_type(NULL,
+											(Node*)expr,
+											typoid,
+											NAMEOID,
+											-1,
+											COERCION_EXPLICIT,
+											COERCE_IMPLICIT_CAST,
+											-1);
+		typoid = NAMEOID;
+	}
+	typeCache = lookup_type_cache(typoid, TYPECACHE_HASH_PROC);
+
+	if(!OidIsValid(typeCache->hash_proc))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("could not identify a hash function for type %s",
+						format_type_be(typoid))));
+	}
+	return (Expr*)makeFuncExpr(typeCache->hash_proc,
+							   INT4OID,
+							   list_make1(expr),
+							   collid, collid,
+							   COERCE_EXPLICIT_CALL);
+}
+
+int32 execHashValue(Datum datum, Oid typid, Oid collid)
+{
+	TypeCacheEntry *typeCache;
+	Datum result;
+	if(type_is_enum(typid))
+	{
+		/* convert to CString, it like Name */
+		datum = DirectFunctionCall1(enum_out, datum);
+		typid = NAMEOID;
+	}
+	typeCache = lookup_type_cache(typid, TYPECACHE_HASH_PROC_FINFO);
+	if(!OidIsValid(typeCache->hash_proc_finfo.fn_oid))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("could not identify a hash function for type %s",
+						format_type_be(typid))));
+	}
+	Assert(get_func_rettype(typeCache->hash_proc_finfo.fn_oid) == INT4OID);
+
+	result = FunctionCall1Coll(&typeCache->hash_proc_finfo,
+							  collid,
+							  datum);
+	return DatumGetInt32(result);
+}
+
+/* (expr % right) */
+Expr *makeModuloExpr(Expr *expr, int right)
+{
+	Const *r = makeConst(INT4OID, -1, InvalidOid, sizeof(int32),
+						 Int32GetDatum(right), false, true);
+	return make_op(NULL, SystemFuncName("%"), (Node*)expr, (Node*)r, -1);
+}
+
+int32 execModuloValue(Datum datum, Oid typid, int right)
+{
+	MemoryContext old_context;
+	EState *estate;
+	Const *left;
+	Expr *expr;
+	ExprState *exprState;
+	Datum result;
+	int32 i32;
+	int16 typlen;
+	bool boolValue;
+
+	estate = CreateExecutorState();
+	old_context = MemoryContextSwitchTo(estate->es_query_cxt);
+
+	if(typid==BOOLOID)
+	{
+		datum = DirectFunctionCall1(bool_int4, datum);
+		typid = INT4OID;
+	}
+
+	get_typlenbyval(typid, &typlen, &boolValue);
+	left = makeConst(typid, -1, InvalidOid, typlen, datum, false, boolValue);
+	expr = makeModuloExpr((Expr*)left, right);
+	expr = (Expr*)coerce_to_target_type(NULL, (Node*)expr,
+										exprType((Node*)expr),
+										INT4OID,
+										-1,
+										COERCION_EXPLICIT,
+										COERCE_IMPLICIT_CAST,
+										-1);
+
+	exprState = ExecInitExpr(expr, NULL);
+	result = ExecEvalExpr(exprState, GetPerTupleExprContext(estate), &boolValue, NULL);
+	Assert(boolValue == false);
+
+	MemoryContextSwitchTo(old_context);
+	FreeExecutorState(estate);
+
+	i32 = DatumGetInt32(result);
+	if(i32 < 0)
+		i32 = -i32;
+	return i32;
+}
+
+#endif /* ADB */

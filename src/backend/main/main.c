@@ -374,6 +374,13 @@ help(const char *progname)
 	printf(_("  -r FILENAME        send stdout and stderr to given file\n"));
 	printf(_("  -x NUM             internal use\n"));
 
+#ifdef ADB
+	printf(_("\nNode options:\n"));
+	printf(_("  --coordinator      start as a Coordinator\n"));
+	printf(_("  --datanode         start as a Datanode\n"));
+	printf(_("  --restoremode      start to restore existing schema on the new node to be added\n"));
+#endif
+
 	printf(_("\nPlease read the documentation for the complete list of run-time\n"
 			 "configuration settings and how to set them on the command line or in\n"
 			 "the configuration file.\n\n"

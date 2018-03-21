@@ -29,6 +29,24 @@ AC_CONFIG_AUX_DIR(config)
 AC_PREFIX_DEFAULT(/usr/local/pgsql)
 AC_SUBST(configure_args, [$ac_configure_args])
 
+if ( test "$srcdir" -ef . ) >/dev/null 2>&1 || test "`cd $srcdir && /bin/pwd`" = "`/bin/pwd`"; then
+  abs_srcdir=`cd $srcdir && /bin/pwd`
+  abs_pdir=`cd $srcdir/.. && /bin/pwd`
+  AC_MSG_ERROR([ADB can not build in sorce code directory, please configure in other directory.
+for example:
+  mkdir '$abs_pdir/build'
+  cd '$abs_pdir/build'
+  '$abs_srcdir/configure'])
+fi
+
+[ADB_VERSION='3.1devel']
+GIT_SHA1=`(cd $srcdir && git log -1 --pretty='format:%h' --no-color) 2>/dev/null`
+if test x"$GIT_SHA1" != x; then
+  ADB_VERSION="$ADB_VERSION $GIT_SHA1"
+fi
+AC_SUBST(ADB_VERSION)
+AC_DEFINE_UNQUOTED(ADB_VERSION, "$ADB_VERSION", [ADB version as a string])
+
 [PG_MAJORVERSION=`expr "$PACKAGE_VERSION" : '\([0-9][0-9]*\)'`]
 AC_SUBST(PG_MAJORVERSION)
 AC_DEFINE_UNQUOTED(PG_MAJORVERSION, "$PG_MAJORVERSION", [PostgreSQL major version as a string])
@@ -433,6 +451,9 @@ else
     CFLAGS="-O"
   fi
 fi
+
+# for ADB set "-DADB" by default
+CFLAGS="$CFLAGS -DADB"
 
 # CFLAGS we determined above will be added back at the end
 user_CFLAGS=$CFLAGS
@@ -2198,7 +2219,7 @@ else
 fi
 
 AC_DEFINE_UNQUOTED(PG_VERSION_STR,
-                   ["PostgreSQL $PG_VERSION on $host, compiled by $cc_string, `expr $ac_cv_sizeof_void_p \* 8`-bit"],
+                   ["PostgreSQL $PG_VERSION ADB $ADB_VERSION on $host, compiled by $cc_string, `expr $ac_cv_sizeof_void_p \* 8`-bit"],
                    [A string containing the version number, platform, and C compiler])
 
 # Supply a numeric version string for use by 3rd party add-ons
@@ -2209,6 +2230,11 @@ $AWK '{printf "%d%02d%02d", $1, $2, (NF >= 3) ? $3 : 0}'`"]
 AC_DEFINE_UNQUOTED(PG_VERSION_NUM, $PG_VERSION_NUM, [PostgreSQL version as a number])
 AC_SUBST(PG_VERSION_NUM)
 
+[ADB_VERSION_NUM="`echo "$ADB_VERSION" | sed 's/[A-Za-z].*$//' |
+tr '.' '        ' |
+$AWK '{printf "%d%02d%02d", $1, $2, (NF >= 3) ? $3 : 0}'`"]
+AC_DEFINE_UNQUOTED(ADB_VERSION_NUM, $ADB_VERSION_NUM, [ADB version as a number])
+AC_SUBST(ADB_VERSION_NUM)
 
 # Begin output steps
 
@@ -2245,6 +2271,7 @@ AC_CONFIG_LINKS([
   src/include/dynloader.h:src/backend/port/dynloader/${template}.h
   src/include/pg_config_os.h:src/include/port/${template}.h
   src/Makefile.port:src/makefiles/Makefile.${template}
+  src/bin/agent/get_uptime.c:src/bin/agent/uptime_${template}.c
 ])
 
 if test "$PORTNAME" = "win32"; then

@@ -17,8 +17,8 @@ subdir = src/backend
 top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 
-SUBDIRS = access bootstrap catalog parser commands executor foreign lib libpq \
-	main nodes optimizer port postmaster regex replication rewrite \
+SUBDIRS = access bootstrap catalog parser commands executor foreign lib libagtm libpq \
+	main nodes optimizer oraschema pgxc port postmaster reduce regex replication rewrite \
 	statistics storage tcop tsearch utils $(top_builddir)/src/timezone
 
 include $(srcdir)/common.mk
@@ -43,7 +43,7 @@ OBJS = $(SUBDIROBJS) $(LOCALOBJS) $(top_builddir)/src/port/libpgport_srv.a \
 LIBS := $(filter-out -lpgport -lpgcommon, $(LIBS)) $(LDAP_LIBS_BE)
 
 # The backend doesn't need everything that's in LIBS, however
-LIBS := $(filter-out -lz -lreadline -ledit -ltermcap -lncurses -lcurses, $(LIBS))
+LIBS := $(filter-out -lz -lreadline -ledit -ltermcap -lncurses -lcurses, $(LIBS)) $(libpq)
 
 ifeq ($(with_systemd),yes)
 LIBS += -lsystemd
@@ -57,7 +57,7 @@ ifneq ($(PORTNAME), cygwin)
 ifneq ($(PORTNAME), win32)
 ifneq ($(PORTNAME), aix)
 
-postgres: $(OBJS)
+postgres: $(OBJS) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) $(call expand_subsys,$^) $(LIBS) $(ICU_LIBS) -o $@
 
 endif
@@ -66,7 +66,7 @@ endif
 
 ifeq ($(PORTNAME), cygwin)
 
-postgres: $(OBJS)
+postgres: $(OBJS) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) -Wl,--stack,$(WIN32_STACK_RLIMIT) -Wl,--export-all-symbols -Wl,--out-implib=libpostgres.a $(call expand_subsys,$^) $(LIBS) -o $@
 
 # There is no correct way to write a rule that generates two files.
@@ -82,7 +82,7 @@ endif # cygwin
 ifeq ($(PORTNAME), win32)
 LIBS += -lsecur32
 
-postgres: $(OBJS) $(WIN32RES)
+postgres: $(OBJS) $(WIN32RES) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) -Wl,--stack=$(WIN32_STACK_RLIMIT) -Wl,--export-all-symbols -Wl,--out-implib=libpostgres.a $(call expand_subsys,$(OBJS)) $(WIN32RES) $(LIBS) -o $@$(X)
 
 libpostgres.a: postgres ;
@@ -91,7 +91,7 @@ endif # win32
 
 ifeq ($(PORTNAME), aix)
 
-postgres: $(POSTGRES_IMP)
+postgres: $(POSTGRES_IMP) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(call expand_subsys,$(OBJS)) -Wl,-bE:$(top_builddir)/src/backend/$(POSTGRES_IMP) $(LIBS) -Wl,-brtllib -o $@
 
 $(POSTGRES_IMP): $(OBJS)
@@ -133,6 +133,9 @@ postgres.o: $(OBJS)
 parser/gram.h: parser/gram.y
 	$(MAKE) -C parser gram.h
 
+parser/ora_gram.h: parser/ora_gram.y
+	$(MAKE) -C parser ora_gram.h
+
 storage/lmgr/lwlocknames.h: storage/lmgr/generate-lwlocknames.pl storage/lmgr/lwlocknames.txt
 	$(MAKE) -C storage/lmgr lwlocknames.h
 
@@ -172,6 +175,11 @@ submake-schemapg:
 generated-headers: $(top_builddir)/src/include/parser/gram.h $(top_builddir)/src/include/catalog/schemapg.h $(top_builddir)/src/include/storage/lwlocknames.h $(top_builddir)/src/include/utils/errcodes.h $(top_builddir)/src/include/utils/fmgroids.h $(top_builddir)/src/include/utils/fmgrprotos.h $(top_builddir)/src/include/utils/probes.h
 
 $(top_builddir)/src/include/parser/gram.h: parser/gram.h
+	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
+	  cd '$(dir $@)' && rm -f $(notdir $@) && \
+	  $(LN_S) "$$prereqdir/$(notdir $<)" .
+
+$(top_builddir)/src/include/parser/ora_gram.h: parser/ora_gram.h
 	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
 	  cd '$(dir $@)' && rm -f $(notdir $@) && \
 	  $(LN_S) "$$prereqdir/$(notdir $<)" .
@@ -243,6 +251,7 @@ endif
 	$(INSTALL_DATA) $(srcdir)/libpq/pg_ident.conf.sample '$(DESTDIR)$(datadir)/pg_ident.conf.sample'
 	$(INSTALL_DATA) $(srcdir)/utils/misc/postgresql.conf.sample '$(DESTDIR)$(datadir)/postgresql.conf.sample'
 	$(INSTALL_DATA) $(srcdir)/access/transam/recovery.conf.sample '$(DESTDIR)$(datadir)/recovery.conf.sample'
+	$(INSTALL_DATA) $(top_builddir)/$(subdir)/oraschema/oracle_schema.sql '$(DESTDIR)$(datadir)/oracle_schema.sql'
 
 install-bin: postgres $(POSTGRES_IMP) installdirs
 	$(INSTALL_PROGRAM) postgres$(X) '$(DESTDIR)$(bindir)/postgres$(X)'
@@ -299,8 +308,9 @@ endif
 	$(MAKE) -C tsearch uninstall-data
 	rm -f '$(DESTDIR)$(datadir)/pg_hba.conf.sample' \
 	      '$(DESTDIR)$(datadir)/pg_ident.conf.sample' \
-	      '$(DESTDIR)$(datadir)/postgresql.conf.sample' \
-	      '$(DESTDIR)$(datadir)/recovery.conf.sample'
+          '$(DESTDIR)$(datadir)/postgresql.conf.sample' \
+	      '$(DESTDIR)$(datadir)/recovery.conf.sample' \
+		  '$(DESTDIR)$(datadir)/oracle_schema.sql'
 
 
 ##########################################################################

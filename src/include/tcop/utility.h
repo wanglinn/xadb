@@ -28,17 +28,17 @@ typedef void (*ProcessUtility_hook_type) (PlannedStmt *pstmt,
 										  const char *queryString, ProcessUtilityContext context,
 										  ParamListInfo params,
 										  QueryEnvironment *queryEnv,
-										  DestReceiver *dest, char *completionTag);
+										  DestReceiver *dest, ADB_ONLY_ARG(bool sentToRemote) char *completionTag);
 extern PGDLLIMPORT ProcessUtility_hook_type ProcessUtility_hook;
 
 extern void ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 			   ProcessUtilityContext context, ParamListInfo params,
 			   QueryEnvironment *queryEnv,
-			   DestReceiver *dest, char *completionTag);
+			   DestReceiver *dest, ADB_ONLY_ARG(bool sentToRemote) char *completionTag);
 extern void standard_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 						ProcessUtilityContext context, ParamListInfo params,
 						QueryEnvironment *queryEnv,
-						DestReceiver *dest, char *completionTag);
+						DestReceiver *dest, ADB_ONLY_ARG(bool sentToRemote) char *completionTag);
 
 extern bool UtilityReturnsTuples(Node *parsetree);
 
@@ -51,5 +51,18 @@ extern const char *CreateCommandTag(Node *parsetree);
 extern LogStmtLevel GetCommandLogLevel(Node *parsetree);
 
 extern bool CommandIsReadOnly(PlannedStmt *pstmt);
+
+#ifdef ADB
+extern bool pgxc_lock_for_utility_stmt(Node *parsetree);
+#endif
+
+#ifdef ADBMGRD
+/* in utility_mgr.c */
+extern const char *mgr_CreateCommandTag(Node *parsetree);
+extern void mgr_ProcessUtility(Node *parsetree, const char *queryString,
+									ProcessUtilityContext context, ParamListInfo params,
+									DestReceiver *dest,
+									char *completionTag);
+#endif /* ADBMGRD */
 
 #endif							/* UTILITY_H */

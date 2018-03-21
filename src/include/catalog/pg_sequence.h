@@ -1,7 +1,11 @@
 #ifndef PG_SEQUENCE_H
 #define PG_SEQUENCE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 #define SequenceRelationId	2224
 
@@ -20,6 +24,7 @@ CATALOG(pg_sequence,2224) BKI_WITHOUT_OIDS
 typedef FormData_pg_sequence *Form_pg_sequence;
 
 #define Natts_pg_sequence				8
+DECLARE_NATTS(Natts_pg_sequence);
 #define Anum_pg_sequence_seqrelid		1
 #define Anum_pg_sequence_seqtypid		2
 #define Anum_pg_sequence_seqstart		3

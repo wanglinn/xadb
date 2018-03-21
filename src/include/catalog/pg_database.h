@@ -19,7 +19,11 @@
 #ifndef PG_DATABASE_H
 #define PG_DATABASE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_database definition.  cpp turns this into
@@ -61,6 +65,7 @@ typedef FormData_pg_database *Form_pg_database;
  * ----------------
  */
 #define Natts_pg_database				13
+DECLARE_NATTS(Natts_pg_database);
 #define Anum_pg_database_datname		1
 #define Anum_pg_database_datdba			2
 #define Anum_pg_database_encoding		3

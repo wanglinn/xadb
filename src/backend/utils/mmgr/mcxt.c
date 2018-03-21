@@ -55,6 +55,10 @@ static void MemoryContextCallResetCallbacks(MemoryContext context);
 static void MemoryContextStatsInternal(MemoryContext context, int level,
 						   bool print, int max_children,
 						   MemoryContextCounters *totals);
+#ifdef ADB
+static void *current_memcontext(void);
+static void *allocTopCxt(size_t s);
+#endif
 
 /*
  * You should not do memory allocations within a critical section, because
@@ -988,6 +992,43 @@ repalloc(void *pointer, Size size)
 	return ret;
 }
 
+void *repalloc_no_oom(void *pointer, Size size)
+{
+	MemoryContext context;
+	void	   *ret;
+
+	if (!AllocSizeIsValid(size))
+		return NULL;
+
+	/*
+	 * Try to detect bogus pointers handed to us, poorly though we can.
+	 * Presumably, a pointer that isn't MAXALIGNED isn't pointing at an
+	 * allocated chunk.
+	 */
+	Assert(pointer != NULL);
+	Assert(pointer == (void *) MAXALIGN(pointer));
+
+	/*
+	 * OK, it's probably safe to look at the chunk header.
+	 */
+	context = ((StandardChunkHeader *)
+			   ((char *) pointer - STANDARDCHUNKHEADERSIZE))->context;
+
+	AssertArg(MemoryContextIsValid(context));
+	AssertNotInCriticalSection(context);
+
+	/* isReset must be false already */
+	Assert(!context->isReset);
+
+	ret = (*context->methods->realloc) (context, pointer, size);
+	if (ret == NULL)
+		return NULL;
+
+	VALGRIND_MEMPOOL_CHANGE(context, pointer, ret, size);
+
+	return ret;
+}
+
 /*
  * MemoryContextAllocHuge
  *		Allocate (possibly-expansive) space within the specified context.
@@ -1107,3 +1148,27 @@ pchomp(const char *in)
 		n--;
 	return pnstrdup(in, n);
 }
+
+#ifdef ADB
+#include "gen_alloc.h"
+
+static void *
+current_memcontext()
+{
+	return((void *)CurrentMemoryContext);
+}
+
+static void *
+allocTopCxt(size_t s)
+{
+	return MemoryContextAlloc(TopMemoryContext, (Size)s);
+}
+
+Gen_Alloc genAlloc_class = {(void *)MemoryContextAlloc,
+							(void *)MemoryContextAllocZero,
+							(void *)repalloc,
+							(void *)pfree,
+							(void *)current_memcontext,
+							(void *)allocTopCxt};
+
+#endif

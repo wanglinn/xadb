@@ -35,4 +35,12 @@ extern List *select_rtable_names_for_explain(List *rtable,
 extern char *generate_collation_name(Oid collid);
 extern char *get_range_partbound_string(List *bound_datums);
 
+#ifdef ADB
+extern List *deparse_context_for_plan(Node *plan, List *ancestors,
+									  List *rtable);
+
+extern void deparse_query(Query *query, StringInfo buf, List *parentnamespace,
+						  bool finalise_aggs, bool sortgroup_colno);
+#endif
+
 #endif							/* RULEUTILS_H */

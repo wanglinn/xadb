@@ -21,7 +21,11 @@
 #ifndef PG_TS_PARSER_H
 #define PG_TS_PARSER_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_ts_parser definition.  cpp turns this into
@@ -48,6 +52,7 @@ typedef FormData_pg_ts_parser *Form_pg_ts_parser;
  * ----------------
  */
 #define Natts_pg_ts_parser					7
+DECLARE_NATTS(Natts_pg_ts_parser);
 #define Anum_pg_ts_parser_prsname			1
 #define Anum_pg_ts_parser_prsnamespace		2
 #define Anum_pg_ts_parser_prsstart			3

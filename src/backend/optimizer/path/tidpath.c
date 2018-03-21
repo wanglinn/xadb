@@ -45,6 +45,12 @@
 #include "optimizer/paths.h"
 #include "optimizer/restrictinfo.h"
 
+#ifdef ADB
+#include "nodes/relation.h"
+#include "optimizer/cost.h"
+#include "optimizer/restrictinfo.h"
+#include "parser/parsetree.h"
+#endif /* ADB */
 
 static bool IsTidEqualClause(OpExpr *node, int varno);
 static bool IsTidEqualAnyClause(ScalarArrayOpExpr *node, int varno);
@@ -168,7 +174,10 @@ TidQualFromExpr(Node *expr, int varno)
 {
 	List	   *rlst = NIL;
 	ListCell   *l;
-
+#ifdef ADB
+	/* fix: Dereference of null pointer */
+	AssertArg(expr);
+#endif
 	if (is_opclause(expr))
 	{
 		/* base case: check for tideq opclause */
@@ -265,6 +274,8 @@ create_tidscan_paths(PlannerInfo *root, RelOptInfo *rel)
 	tidquals = TidQualFromBaseRestrictinfo(rel);
 
 	if (tidquals)
+	{
 		add_path(rel, (Path *) create_tidscan_path(root, rel, tidquals,
 												   required_outer));
+	}
 }

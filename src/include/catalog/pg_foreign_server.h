@@ -17,7 +17,11 @@
 #ifndef PG_FOREIGN_SERVER_H
 #define PG_FOREIGN_SERVER_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_foreign_server definition.  cpp turns this into
@@ -53,6 +57,7 @@ typedef FormData_pg_foreign_server *Form_pg_foreign_server;
  */
 
 #define Natts_pg_foreign_server					7
+DECLARE_NATTS(Natts_pg_foreign_server);
 #define Anum_pg_foreign_server_srvname			1
 #define Anum_pg_foreign_server_srvowner			2
 #define Anum_pg_foreign_server_srvfdw			3

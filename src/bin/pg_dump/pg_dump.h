@@ -296,6 +296,13 @@ typedef struct _tableInfo
 	bool		postponed_def;	/* matview must be postponed into post-data */
 	bool		ispartition;	/* is table a partition? */
 
+#ifdef ADB
+		/* PGXC table locator Data */
+		char		pgxclocatortype;	/* Type of PGXC table locator */
+		int 		pgxcattnum; 	/* Number of the attribute the table is partitioned with */
+		char		*pgxc_node_names;	/* List of node names where this table is distributed */
+#endif
+
 	/*
 	 * These fields are computed only if we decide the table is interesting
 	 * (it's either a table to dump, or a direct parent of a dumpable table).

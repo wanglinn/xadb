@@ -181,7 +181,15 @@ struct tzEntry;
 #define DTK_TZ_MINUTE	35
 #define DTK_ISOYEAR		36
 #define DTK_ISODOW		37
+#ifdef ADB
+#define DTK_TZ_ABBR		38
+#define DTK_TZ_REGION	39
 
+
+#define ORA_ROUND_NONE		1	/* round nothing */
+#define ORA_ROUND_MONTH		2	/* round day cascade of interval */
+#define ORA_ROUND_DAY		3	/* round time of interval */
+#endif
 
 /*
  * Bit mask definitions for time parsing.
@@ -317,6 +325,12 @@ extern int DetermineTimeZoneAbbrevOffsetTS(TimestampTz ts, const char *abbr,
 extern void EncodeDateOnly(struct pg_tm *tm, int style, char *str);
 extern void EncodeTimeOnly(struct pg_tm *tm, fsec_t fsec, bool print_tz, int tz, int style, char *str);
 extern void EncodeDateTime(struct pg_tm *tm, fsec_t fsec, bool print_tz, int tz, const char *tzn, int style, char *str);
+#ifdef ADB
+extern void EncodeDateTimeExtend(struct pg_tm * tm, fsec_t fsec,
+								 bool print_tz, int tz,
+								 const char *tzn, int style,
+								 char *str, bool is_ora_date);
+#endif
 extern void EncodeInterval(struct pg_tm *tm, fsec_t fsec, int style, char *str);
 extern void EncodeSpecialTimestamp(Timestamp dt, char *str);
 
@@ -337,5 +351,11 @@ extern bool CheckDateTokenTables(void);
 extern TimeZoneAbbrevTable *ConvertTimeZoneAbbrevs(struct tzEntry *abbrevs,
 					   int n);
 extern void InstallTimeZoneAbbrevs(TimeZoneAbbrevTable *tbl);
+
+#ifdef ADB
+extern int try_decode_date(const char *str, struct pg_tm *tm);
+extern int try_decode_time(const char *str, struct pg_tm *tm, fsec_t *fsec, int *tzp);
+extern int try_decode_date_time(const char *str, struct pg_tm *tm, fsec_t *fsec, int *tzp);
+#endif
 
 #endif							/* DATETIME_H */

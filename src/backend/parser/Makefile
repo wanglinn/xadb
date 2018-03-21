@@ -12,7 +12,7 @@ include $(top_builddir)/src/Makefile.global
 
 override CPPFLAGS := -I. -I$(srcdir) $(CPPFLAGS)
 
-OBJS= analyze.o gram.o scan.o parser.o \
+OBJS= analyze.o gram.o ora_gram.o scan.o parser.o \
       parse_agg.o parse_clause.o parse_coerce.o parse_collate.o parse_cte.o \
       parse_enr.o parse_expr.o parse_func.o parse_node.o parse_oper.o \
       parse_param.o parse_relation.o parse_target.o parse_type.o \
@@ -29,9 +29,11 @@ include $(top_srcdir)/src/backend/common.mk
 # gram.y=>gram.c.
 
 gram.h: gram.c ;
+ora_gram.h: ora_gram.c ;
 
 gram.c: BISONFLAGS += -d
 gram.c: BISON_CHECK_CMD = $(PERL) $(srcdir)/check_keywords.pl $< $(top_srcdir)/src/include/parser/kwlist.h
+ora_gram.c: BISONFLAGS += -d 
 
 
 scan.c: FLEXFLAGS = -CF -p -p
@@ -40,7 +42,7 @@ scan.c: FLEX_FIX_WARNING=yes
 
 
 # Force these dependencies to be known even without dependency info built:
-gram.o scan.o parser.o: gram.h
+gram.o ora_gram.o scan.o parser.o: gram.h
 
 
 # gram.c, gram.h, and scan.c are in the distribution tarball, so they

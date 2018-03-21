@@ -48,7 +48,9 @@
 #include "utils/syscache.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
-
+#ifdef ADB
+	#include "pgxc/pgxc.h"
+#endif
 
 /* GUC parameter */
 int			constraint_exclusion = CONSTRAINT_EXCLUSION_PARTITION;
@@ -62,9 +64,6 @@ static void get_relation_foreign_keys(PlannerInfo *root, RelOptInfo *rel,
 static bool infer_collation_opclass_match(InferenceElem *elem, Relation idxRel,
 							  List *idxExprs);
 static int32 get_rel_data_width(Relation rel, int32 *attr_widths);
-static List *get_relation_constraints(PlannerInfo *root,
-						 Oid relationObjectId, RelOptInfo *rel,
-						 bool include_notnull);
 static List *build_index_tlist(PlannerInfo *root, IndexOptInfo *index,
 				  Relation heapRelation);
 static List *get_relation_statistics(RelOptInfo *rel, Relation relation);
@@ -151,6 +150,11 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 		hasindex = false;
 	else
 		hasindex = relation->rd_rel->relhasindex;
+
+#ifdef ADB
+	if(relation->rd_locator_info)
+		rel->loc_info = CopyRelationLocInfo(relation->rd_locator_info);
+#endif /* ADB */
 
 	if (hasindex)
 	{
@@ -369,6 +373,16 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 			 */
 			if (info->indpred == NIL)
 			{
+#ifdef ADB
+				/*
+				 * If parent relation is distributed the local storage manager
+				 * does not have actual information about index size.
+				 * We have to get relation statistics instead.
+				 */
+				if (IS_PGXC_COORDINATOR && relation->rd_locator_info != NULL)
+					info->pages = indexRelation->rd_rel->relpages;
+				else
+#endif
 				info->pages = RelationGetNumberOfBlocks(indexRelation);
 				info->tuples = rel->tuples;
 			}
@@ -920,6 +934,18 @@ estimate_rel_size(Relation rel, int32 *attr_widths,
 		case RELKIND_INDEX:
 		case RELKIND_MATVIEW:
 		case RELKIND_TOASTVALUE:
+#ifdef ADB
+			if (IS_PGXC_COORDINATOR && rel->rd_locator_info != NULL)
+			{
+				/*
+				 * Remote table does not store rows locally, so storage manager
+				 * does not know how many pages are there, we rely on relation
+				 * statistics.
+				 */
+				curpages = rel->rd_rel->relpages;
+			}
+			else
+#endif
 			/* it has storage, ok to call the smgr */
 			curpages = RelationGetNumberOfBlocks(rel);
 
@@ -1140,13 +1166,18 @@ get_relation_data_width(Oid relid, int32 *attr_widths)
  * run, and in many cases it won't be invoked at all, so there seems no
  * point in caching the data in RelOptInfo.
  */
-static List *
+List *
 get_relation_constraints(PlannerInfo *root,
 						 Oid relationObjectId, RelOptInfo *rel,
 						 bool include_notnull)
 {
+	return get_relation_constraints_base(root, relationObjectId, rel->relid, include_notnull);
+}
+List *get_relation_constraints_base(PlannerInfo *root,
+									Oid relationObjectId, Index varno,
+									bool include_notnull)
+{
 	List	   *result = NIL;
-	Index		varno = rel->relid;
 	Relation	relation;
 	TupleConstr *constr;
 	List	   *pcqual;

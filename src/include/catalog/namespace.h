@@ -29,6 +29,9 @@ typedef struct _FuncCandidateList
 {
 	struct _FuncCandidateList *next;
 	int			pathpos;		/* for internal use of namespace lookup */
+#ifdef ADB
+	Oid			nspoid;			/* the function or operator's namespace OID */
+#endif
 	Oid			oid;			/* the function or operator's OID */
 	int			nargs;			/* number of arg types returned */
 	int			nvargs;			/* number of args to become variadic array */
@@ -135,9 +138,15 @@ extern void SetTempNamespaceState(Oid tempNamespaceId,
 extern void ResetTempTableNamespace(void);
 
 extern OverrideSearchPath *GetOverrideSearchPath(MemoryContext context);
+#ifdef ADB
+extern OverrideSearchPath *GetOverrideSearchPathExtend(MemoryContext context, bool recompute);
+#endif
 extern OverrideSearchPath *CopyOverrideSearchPath(OverrideSearchPath *path);
 extern bool OverrideSearchPathMatchesCurrent(OverrideSearchPath *path);
 extern void PushOverrideSearchPath(OverrideSearchPath *newpath);
+#ifdef ADB
+extern void PushOverrideSearchPathForGrammar(int grammar);
+#endif
 extern void PopOverrideSearchPath(void);
 
 extern Oid	get_collation_oid(List *collname, bool missing_ok);

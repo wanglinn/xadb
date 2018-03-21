@@ -1,0 +1,161 @@
+<!--
+doc/src/sgml/ref/mgr_list_node.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-LISTNODE">
+  <refmeta>
+    <refentrytitle>LIST NODE</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>LIST NODE</refname>
+    <refpurpose>show the content of node table</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-listnode">
+    <primary>LIST NODE</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+LIST NODE COORDINATOR [ MASTER | SLAVE ]
+LIST NODE DATANODE [ MASTER | SLAVE ]
+LIST NODE  [ ( <replaceable class="parameter">option</replaceable> ) ] [ <replaceable class="parameter">node_name</replaceable> [, ...] ]
+
+<phrase>where <replaceable class="parameter">option</replaceable> can be one of:</phrase>
+
+    NAME
+    HOST
+    TYPE
+    MASTERNAME
+    PORT
+    SYNC_STATE
+    PATH
+    INITIALIZED
+    INCLUSTER
+</synopsis>
+</refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+   <command>LIST NODE</command> show the content of the node table.
+    </para>
+  </refsect1>
+  <refsect1>
+    <title>Parameters</title>
+  <variablelist>
+  <varlistentry>
+    <term><literal>NAME</literal></term>
+    <listitem>
+     <para>
+      Node name.
+     </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>HOST</literal></term>
+    <listitem>
+     <para>
+      Your host name for install ADB cluster.
+     </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>TYPE</literal></term>
+    <listitem>
+     <para>
+      Node type.
+      </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>MASTERNAME</literal></term>
+    <listitem>
+     <para>
+      The name of master node, if the node is not slave or extra, master_name is null.
+      </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>PORT</literal></term>
+    <listitem>
+     <para>
+      The node listen port.
+      </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>SYNC_STATE</literal></term>
+    <listitem>
+     <para>
+      The value of SYNC_STATE can be "sync", "async", "potential". If synchronous slave down ,and the potential slave will as the synchronous slave.
+      </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>PATH</literal>
+    </term>
+    <listitem>
+     <para>
+      The data directory of node.
+      </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>INITIALIZED</literal>
+    </term>
+    <listitem>
+     <para>
+      The symbol of node to show the node is initialized or not.
+      </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>INCLUSTER</literal>
+    </term>
+    <listitem>
+     <para>
+      The symbol of node to show the node is in cluster or not.
+      </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><replaceable class="parameter">node_name</replaceable>
+    </term>
+    <listitem>
+     <para>
+      Node name, corresponds to the name column in the node table.
+      </para>
+    </listitem>
+  </varlistentry>
+    </variablelist>
+  </refsect1>
+  <refsect1>
+    <title>Examples</title>
+  <para>
+   List all content of the node table:
+<programlisting>
+LIST NODE;
+</programlisting>
+  </para>
+  <para>
+   List  the content of datanode_name1:
+<programlisting>
+LIST NODE datanode_name1;
+</programlisting>
+  </para>
+  </refsect1>
+      <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-adddatanode"></member>
+      <member><xref linkend="mgr-alterdatanode"></member>
+      <member><xref linkend="mgr-dropdatanode"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>

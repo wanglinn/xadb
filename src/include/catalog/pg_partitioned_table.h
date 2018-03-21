@@ -18,7 +18,11 @@
 #ifndef PG_PARTITIONED_TABLE_H
 #define PG_PARTITIONED_TABLE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_partitioned_table definition.  cpp turns this into
@@ -63,6 +67,7 @@ typedef FormData_pg_partitioned_table *Form_pg_partitioned_table;
  * ----------------
  */
 #define Natts_pg_partitioned_table				7
+DECLARE_NATTS(Natts_pg_partitioned_table);
 #define Anum_pg_partitioned_table_partrelid		1
 #define Anum_pg_partitioned_table_partstrat		2
 #define Anum_pg_partitioned_table_partnatts		3

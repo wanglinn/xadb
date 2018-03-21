@@ -300,7 +300,11 @@ static void pgss_ExecutorEnd(QueryDesc *queryDesc);
 static void pgss_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 					ProcessUtilityContext context, ParamListInfo params,
 					QueryEnvironment *queryEnv,
-					DestReceiver *dest, char *completionTag);
+					DestReceiver *dest,
+#ifdef ADB
+					bool sentToRemote,
+#endif
+					char *completionTag);
 static uint32 pgss_hash_fn(const void *key, Size keysize);
 static int	pgss_match_fn(const void *key1, const void *key2, Size keysize);
 static uint32 pgss_hash_string(const char *str, int len);
@@ -779,7 +783,11 @@ pgss_post_parse_analyze(ParseState *pstate, Query *query)
 
 	if (prev_post_parse_analyze_hook)
 		prev_post_parse_analyze_hook(pstate, query);
-
+#ifdef ADB
+	Assert(query);
+	if (query->queryId != 0)
+		return ;
+#endif
 	/* Assert we didn't do this already */
 	Assert(query->queryId == 0);
 
@@ -959,7 +967,11 @@ static void
 pgss_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 					ProcessUtilityContext context,
 					ParamListInfo params, QueryEnvironment *queryEnv,
-					DestReceiver *dest, char *completionTag)
+					DestReceiver *dest,
+#ifdef ADB
+					bool sentToRemote,
+#endif
+					char *completionTag)
 {
 	Node	   *parsetree = pstmt->utilityStmt;
 
@@ -997,11 +1009,19 @@ pgss_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 			if (prev_ProcessUtility)
 				prev_ProcessUtility(pstmt, queryString,
 									context, params, queryEnv,
-									dest, completionTag);
+									dest,
+#ifdef ADB
+									sentToRemote,
+#endif
+									completionTag);
 			else
 				standard_ProcessUtility(pstmt, queryString,
 										context, params, queryEnv,
-										dest, completionTag);
+										dest,
+#ifdef ADB
+										sentToRemote,
+#endif
+										completionTag);
 			nested_level--;
 		}
 		PG_CATCH();
@@ -1061,11 +1081,11 @@ pgss_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 		if (prev_ProcessUtility)
 			prev_ProcessUtility(pstmt, queryString,
 								context, params, queryEnv,
-								dest, completionTag);
+								dest, ADB_ONLY_ARG(sentToRemote) completionTag);
 		else
 			standard_ProcessUtility(pstmt, queryString,
 									context, params, queryEnv,
-									dest, completionTag);
+									dest, ADB_ONLY_ARG(sentToRemote) completionTag);
 	}
 }
 
@@ -2915,6 +2935,14 @@ JumbleExpr(pgssJumbleState *jstate, Node *node)
 				JumbleExpr(jstate, (Node *) tsc->repeatable);
 			}
 			break;
+#ifdef ADB
+		case T_RownumExpr:
+			RecordConstLocation(jstate, ((RownumExpr*)node)->location);
+			break;
+		case T_ColumnRefJoin:
+			JumbleExpr(jstate, (Node*)(((ColumnRefJoin*)node)->var));
+			break;
+#endif /* ADB */
 		default:
 			/* Only a warning, since we can stumble along anyway */
 			elog(WARNING, "unrecognized node type: %d",

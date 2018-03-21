@@ -518,6 +518,46 @@ list_member_oid(const List *list, Oid datum)
 	return false;
 }
 
+#ifdef ADB
+int
+list_member_int_idx(const List *list, int datum)
+{
+	const ListCell *cell;
+	int idx = -1;
+
+	Assert(IsIntegerList(list));
+	check_list_invariants(list);
+
+	foreach(cell, list)
+	{
+		idx++;
+		if (lfirst_int(cell) == datum)
+			return idx;
+	}
+
+	return -1;
+}
+
+int
+list_member_oid_idx(const List *list, Oid datum)
+{
+	const ListCell *cell;
+	int idx = -1;
+
+	Assert(IsOidList(list));
+	check_list_invariants(list);
+
+	foreach (cell, list)
+	{
+		idx++;
+		if (lfirst_oid(cell) == datum)
+			return idx;
+	}
+
+	return -1;
+}
+#endif
+
 /*
  * Delete 'cell' from 'list'; 'prev' is the previous element to 'cell'
  * in 'list', if any (i.e. prev == NULL iff list->head == cell)
@@ -844,6 +884,78 @@ list_intersection_int(const List *list1, const List *list2)
 	check_list_invariants(result);
 	return result;
 }
+
+#ifdef ADB
+/*
+ * As list_intersection but operates on lists of OIDs.
+ */
+List *
+list_intersection_oid(const List *list1, const List *list2)
+{
+	List	   *result;
+	const ListCell *cell;
+
+	if (list1 == NIL || list2 == NIL)
+		return NIL;
+
+	Assert(IsOidList(list1));
+	Assert(IsOidList(list2));
+
+	result = NIL;
+	foreach(cell, list1)
+	{
+		if (list_member_oid(list2, lfirst_oid(cell)))
+			result = lappend_oid(result, lfirst_oid(cell));
+	}
+
+	check_list_invariants(result);
+	return result;
+}
+
+bool list_equal_ptr(const List *list1, const List *list2)
+{
+	const ListCell *lc1,*lc2;
+	if(list1 == list2)
+		return true;
+	if(list_length(list1) != list_length(list2))
+		return false;
+	forboth(lc1, list1, lc2, list2)
+	{
+		if(lfirst(lc1) != lfirst(lc2))
+			return false;
+	}
+	return true;
+}
+
+bool
+list_equal_oid_without_order(const List *list1, const List *list2)
+{
+	const ListCell *cell;
+
+	Assert(IsOidList(list1));
+	Assert(IsOidList(list2));
+
+	if (list1 == list2)
+		return true;
+
+	if (list1 == NIL || list2 == NIL)
+		return false;
+
+	foreach(cell, list1)
+	{
+		if (!list_member_oid(list2, lfirst_oid(cell)))
+			return false;
+	}
+
+	foreach (cell, list2)
+	{
+		if (!list_member_oid(list1, lfirst_oid(cell)))
+			return false;
+	}
+
+	return true;
+}
+#endif
 
 /*
  * Return a list that contains all the cells in list1 that are not in

@@ -11,7 +11,11 @@
 #ifndef PG_SECLABEL_H
 #define PG_SECLABEL_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_seclabel definition.  cpp turns this into
@@ -37,6 +41,7 @@ CATALOG(pg_seclabel,3596) BKI_WITHOUT_OIDS
  * ----------------
  */
 #define Natts_pg_seclabel			5
+DECLARE_NATTS(Natts_pg_seclabel);
 #define Anum_pg_seclabel_objoid		1
 #define Anum_pg_seclabel_classoid	2
 #define Anum_pg_seclabel_objsubid	3

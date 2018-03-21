@@ -28,6 +28,12 @@
 
 #include "access/hash.h"
 #include "utils/builtins.h"
+#ifdef ADB
+#include "catalog/pg_type.h"
+#include "utils/date.h"
+#include "utils/nabstime.h"
+#include "utils/timestamp.h"
+#endif
 
 /*
  * Datatype-specific hash functions.
@@ -523,3 +529,87 @@ hash_uint32(uint32 k)
 	/* report the result */
 	return UInt32GetDatum(c);
 }
+
+#ifdef ADB
+#include "pgxc/locator.h"
+/*
+ * get_compute_hash_function
+ * Get hash function name depending on the hash type.
+ * For some cases of hash or modulo distribution, a function might
+ * be required or not.
+ */
+char *
+get_compute_hash_function(Oid type, char locator)
+{
+	switch (type)
+	{
+		case INT8OID:
+			if (locator == LOCATOR_TYPE_HASH)
+				return "hashint8";
+			return NULL;
+		case INT2OID:
+			if (locator == LOCATOR_TYPE_HASH)
+				return "hashint2";
+			return NULL;
+		case OIDOID:
+			if (locator == LOCATOR_TYPE_HASH)
+				return "hashoid";
+			return NULL;
+		case DATEOID:
+		case INT4OID:
+			if (locator == LOCATOR_TYPE_HASH)
+				return "hashint4";
+			return NULL;
+		case BOOLOID:
+			if (locator == LOCATOR_TYPE_HASH)
+				return "hashchar";
+			return NULL;
+		case CHAROID:
+			return "hashchar";
+		case NAMEOID:
+			return "hashname";
+		case INT2VECTOROID:
+			return "hashint2vector";
+
+		case VARCHAR2OID:
+		case NVARCHAR2OID:
+
+		case VARCHAROID:
+		case TEXTOID:
+			return "hashtext";
+		case OIDVECTOROID:
+			return "hashoidvector";
+		case FLOAT4OID:
+			return "hashfloat4";
+		case FLOAT8OID:
+			return "hashfloat8";
+		case RELTIMEOID:
+		case ABSTIMEOID:
+			if (locator == LOCATOR_TYPE_HASH)
+				return "hashint4";
+			return NULL;
+		case CASHOID:
+				return "hashint8";
+		case BPCHAROID:
+			return "hashbpchar";
+		case BYTEAOID:
+			return "hashvarlena";
+		case TIMEOID:
+			return "time_hash";
+		case TIMESTAMPOID:
+		case TIMESTAMPTZOID:
+			return "timestamp_hash";
+		case INTERVALOID:
+			return "interval_hash";
+		case TIMETZOID:
+			return "timetz_hash";
+		case NUMERICOID:
+			return "hash_numeric";
+		default:
+			ereport(ERROR,(errmsg("Unhandled datatype for modulo or hash distribution\n")));
+	}
+
+	/* Keep compiler quiet */
+	return NULL;
+}
+#endif

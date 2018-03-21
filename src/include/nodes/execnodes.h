@@ -29,6 +29,9 @@
 #include "utils/tuplesort.h"
 #include "nodes/tidbitmap.h"
 #include "storage/condition_variable.h"
+#ifdef ADB
+#include "reduce/rdc_comm.h"
+#endif
 
 
 /* ----------------
@@ -232,7 +235,7 @@ typedef struct ExprContext
  * Set-result status used when evaluating functions potentially returning a
  * set.
  */
-typedef enum
+typedef enum ExprDoneCond
 {
 	ExprSingleResult,			/* expression does not return a set */
 	ExprMultipleResult,			/* this result is an element of a set */
@@ -245,7 +248,7 @@ typedef enum
  * modes.  SFRM_Materialize_Random and SFRM_Materialize_Preferred are
  * auxiliary flags about SFRM_Materialize mode, rather than separate modes.
  */
-typedef enum
+typedef enum SetFunctionReturnMode
 {
 	SFRM_ValuePerCall = 0x01,	/* one value returned per call */
 	SFRM_Materialize = 0x02,	/* result set instantiated in Tuplestore */
@@ -334,6 +337,18 @@ typedef struct JunkFilter
 	AttrNumber *jf_cleanMap;
 	TupleTableSlot *jf_resultSlot;
 	AttrNumber	jf_junkAttNo;
+#ifdef ADB
+	/*
+	 * Similar to jf_junkAttNo that is used for ctid, we also need xc_node_id
+	 * and wholerow junk attribute numbers to be saved here. In XC, we need
+	 * multiple junk attributes at the same time, so just jf_junkAttNo is not
+	 * enough. In PG, jf_junkAttNo is used either for ctid or for wholerow,
+	 * it does not need both of them at the same time; ctid is used for physical
+	 * relations while wholerow is used for views.
+	 */
+	AttrNumber	jf_xc_node_id;
+	AttrNumber	jf_xc_wholerow;
+#endif
 } JunkFilter;
 
 /*
@@ -441,6 +456,11 @@ typedef struct EState
 	ResultRelInfo *es_result_relations; /* array of ResultRelInfos */
 	int			es_num_result_relations;	/* length of array */
 	ResultRelInfo *es_result_relation_info; /* currently active array elt */
+#ifdef ADB
+	struct PlanState	*es_result_remoterel;	/* currently active remote rel */
+	Bitmapset  *es_reduce_drived_set;			/* already be reduce-drived plan ID set */
+	bool		es_reduce_plan_inited;			/* true if ClusterReduce plan has been initialized */
+#endif
 
 	/*
 	 * Info about the target partitioned target table root(s) for
@@ -773,6 +793,9 @@ typedef struct SubPlanState
 	FmgrInfo   *tab_eq_funcs;	/* equality functions for table datatype(s) */
 	FmgrInfo   *lhs_hash_funcs; /* hash functions for lefthand datatype(s) */
 	FmgrInfo   *cur_eq_funcs;	/* equality functions for LHS vs. table */
+#ifdef ADB
+	struct Hashstorestate *hashstore;
+#endif /* ADB */
 } SubPlanState;
 
 /* ----------------
@@ -853,6 +876,9 @@ typedef struct PlanState
 
 	Instrumentation *instrument;	/* Optional runtime stats for this node */
 	WorkerInstrumentation *worker_instrument;	/* per-worker instrumentation */
+#ifdef ADB
+	List	   *list_cluster_instrument;
+#endif /* ADB */
 
 	/*
 	 * Common structural data for all Plan types.  These links to subsidiary
@@ -877,6 +903,12 @@ typedef struct PlanState
 	TupleTableSlot *ps_ResultTupleSlot; /* slot for my result tuples */
 	ExprContext *ps_ExprContext;	/* node's expression-evaluation context */
 	ProjectionInfo *ps_ProjInfo;	/* info for doing tuple projection */
+#ifdef ADB
+	int64		rownum;
+	int64		rownum_marked;
+#endif
+	bool		ps_TupFromTlist;/* state flag for processing set-valued
+								 * functions in targetlist */
 } PlanState;
 
 /* ----------------
@@ -956,6 +988,9 @@ typedef struct ModifyTableState
 	bool		canSetTag;		/* do we set the command tag/es_processed? */
 	bool		mt_done;		/* are we done? */
 	PlanState **mt_plans;		/* subplans (one per target rel) */
+#ifdef ADB
+	PlanState **mt_remoterels;	/* per-target remote query node */
+#endif
 	int			mt_nplans;		/* number of plans in the array */
 	int			mt_whichplan;	/* which one is being executed (0..n-1) */
 	ResultRelInfo *resultRelInfo;	/* per-subplan target relations */
@@ -1815,6 +1850,9 @@ typedef struct AggState
 	TupleTableSlot *evalslot;	/* slot for agg inputs */
 	ProjectionInfo *evalproj;	/* projection machinery */
 	TupleDesc	evaldesc;		/* descriptor of input tuples */
+#ifdef ADB
+	bool		skip_trans; 	/* skip the transition step for aggregates */
+#endif /* ADB */
 } AggState;
 
 /* ----------------
@@ -2015,7 +2053,7 @@ typedef struct LockRowsState
  * When lstate == LIMIT_INITIAL, offset/count/noCount haven't been set yet.
  * ----------------
  */
-typedef enum
+typedef enum LimitStateCond
 {
 	LIMIT_INITIAL,				/* initial state for LIMIT node */
 	LIMIT_RESCAN,				/* rescan after recomputing parameters */
@@ -2038,5 +2076,88 @@ typedef struct LimitState
 	int64		position;		/* 1-based index of last tuple returned */
 	TupleTableSlot *subSlot;	/* tuple last obtained from subplan */
 } LimitState;
+
+#ifdef ADB
+
+typedef struct ClusterGatherState
+{
+	PlanState	ps;
+	List	   *remotes;
+	struct ClusterRecvState *recv_state;
+	bool		local_end;	/* local plan is end of tup */
+}ClusterGatherState;
+
+typedef struct ClusterMergeGatherState
+{
+	PlanState		ps;
+	int				nremote;	/* number of PGconn for my inputs */
+	int				nkeys;		/* number of sork key */
+	SortSupport		sortkeys;	/* array of length nkeys */
+	TupleTableSlot **slots;		/* array of length nremote */
+	struct binaryheap *binheap;	/* binary heap of slot indices */
+	struct pg_conn **conns;		/* remote connections */
+	struct ClusterRecvState *recv_state;
+	bool			initialized;
+	bool			local_end;	/* local plan is end of tup */
+}ClusterMergeGatherState;
+
+typedef struct
+{
+	Oid					re_key;
+	TupleTableSlot	   *re_slot;
+	Tuplestorestate	   *re_store;
+	bool				re_eof;
+} ReduceEntryData;
+
+typedef ReduceEntryData *ReduceEntry;
+
+typedef struct ClusterReduceState
+{
+	PlanState		ps;
+	ExprState	   *reduceState;
+	RdcPort		   *port;			/* RdcPort for current ClusterReduce plan node */
+	List		   *closed_remote;	/* list of remote reduce which tell MSG_PLAN_CLOSE */
+	bool			eof_underlying; /* reached end of underlying plan? */
+	bool			eof_network;	/* reached end of network? */
+	bool			started;		/* set true while ExecClusterReduce */
+	bool			ended;			/* set true while ExecEndClusterReduce */
+	int				nrdcs;			/* number of reduce group */
+	int				neofs;			/* number of EOF messages */
+	HTAB		   *rdc_htab;
+	ReduceEntry	   *rdc_entrys;		/* array of length nrdcs */
+	struct TupleTypeConvert *convert;
+	TupleTableSlot *convert_slot;
+
+	int				eflags;			/* capability flags to pass to tuplestore */
+	Tuplestorestate*tuplestorestate;
+
+	/* used for merge reduce as below */
+	int				nkeys;
+	SortSupport 	sortkeys;	/* array of length nkeys */
+	struct binaryheap  *binheap; 	/* binary heap of slot indices */
+	bool			initialized;/* are subplans started? */
+} ClusterReduceState;
+
+typedef struct ReduceScanState
+{
+	ScanState			ss;
+	Tuplestorestate	   *buffer_nulls;
+	struct Hashstorestate *buffer_hash;
+	List			   *param_hash_exprs;
+	List			   *scan_hash_exprs;
+	FmgrInfo		   *param_hash_funs;
+	FmgrInfo		   *scan_hash_funs;
+	int					nbuckets;
+	int					ncols_hash;
+	int					cur_reader;		/* for read hashstore */
+} ReduceScanState;
+
+typedef struct EmptyResultState
+{
+	PlanState			ps;
+	Node			   *special;
+}EmptyResultState;
+
+#endif /* ADB */
 
 #endif							/* EXECNODES_H */

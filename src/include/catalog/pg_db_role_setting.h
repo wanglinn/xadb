@@ -21,9 +21,13 @@
 #ifndef PG_DB_ROLE_SETTING_H
 #define PG_DB_ROLE_SETTING_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "utils/guc.h"
 #include "utils/relcache.h"
 #include "utils/snapshot.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_db_role_setting definition.  cpp turns this into
@@ -49,6 +53,7 @@ typedef FormData_pg_db_role_setting * Form_pg_db_role_setting;
  * ----------------
  */
 #define Natts_pg_db_role_setting				3
+DECLARE_NATTS(Natts_pg_db_role_setting);
 #define Anum_pg_db_role_setting_setdatabase		1
 #define Anum_pg_db_role_setting_setrole			2
 #define Anum_pg_db_role_setting_setconfig		3

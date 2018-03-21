@@ -19,7 +19,11 @@
 #ifndef PG_STATISTIC_EXT_H
 #define PG_STATISTIC_EXT_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_statistic_ext definition.  cpp turns this into
@@ -65,6 +69,7 @@ typedef FormData_pg_statistic_ext *Form_pg_statistic_ext;
  * ----------------
  */
 #define Natts_pg_statistic_ext					8
+DECLARE_NATTS(Natts_pg_statistic_ext);
 #define Anum_pg_statistic_ext_stxrelid			1
 #define Anum_pg_statistic_ext_stxname			2
 #define Anum_pg_statistic_ext_stxnamespace		3

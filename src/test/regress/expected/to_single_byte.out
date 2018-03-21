@@ -1,0 +1,25 @@
+set grammar to oracle;
+select to_single_byte('２３０８８２１９７８１１２１４９１１') from dual;
+                     to_single_byte                     
+--------------------------------------------------------
+ ２３０８８２１９７８１１２１４９１１
+(1 row)
+
+select to_single_byte('你好') from dual;
+ to_single_byte 
+----------------
+ 你好
+(1 row)
+
+select to_single_byte('abc') from dual;
+ to_single_byte 
+----------------
+ abc
+(1 row)
+
+select to_single_byte('￥？？。，！—') from dual;
+    to_single_byte     
+-----------------------
+ ￥？？。，！—
+(1 row)
+

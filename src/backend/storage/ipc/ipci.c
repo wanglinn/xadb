@@ -46,7 +46,14 @@
 #include "storage/spin.h"
 #include "utils/backend_random.h"
 #include "utils/snapmgr.h"
-
+#ifdef ADB
+#include "pgxc/nodemgr.h"
+#include "pgxc/pause.h"
+#include "pgxc/pgxc.h"
+#endif
+#if defined(ADBMGRD)
+#include "postmaster/adbmonitor.h"
+#endif
 
 shmem_startup_hook_type shmem_startup_hook = NULL;
 
@@ -150,6 +157,16 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		size = add_size(size, SyncScanShmemSize());
 		size = add_size(size, AsyncShmemSize());
 		size = add_size(size, BackendRandomShmemSize());
+#ifdef ADB
+		if (IS_PGXC_COORDINATOR)
+			size = add_size(size, ClusterLockShmemSize());
+		size = add_size(size, NodeTablesShmemSize());
+#endif
+
+#if defined(ADBMGRD)
+		size = add_size(size, AdbMonitorShmemSize());
+#endif /* ADBMGRD */
+
 #ifdef EXEC_BACKEND
 		size = add_size(size, ShmemBackendArraySize());
 #endif
@@ -262,6 +279,11 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 	WalRcvShmemInit();
 	ApplyLauncherShmemInit();
 
+#ifdef ADB
+	if (IS_PGXC_COORDINATOR)
+		ClusterLockShmemInit();
+#endif
+
 	/*
 	 * Set up other modules that need some shared memory space
 	 */
@@ -270,6 +292,14 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 	SyncScanShmemInit();
 	AsyncShmemInit();
 	BackendRandomShmemInit();
+
+#ifdef ADB
+	NodeTablesShmemInit();
+#endif
+
+#if defined(ADBMGRD)
+	AdbMonitorShmemInit();
+#endif /* ADBMGRD */
 
 #ifdef EXEC_BACKEND
 

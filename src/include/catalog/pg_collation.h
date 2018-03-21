@@ -20,7 +20,11 @@
 #ifndef PG_COLLATION_H
 #define PG_COLLATION_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_collation definition.  cpp turns this into
@@ -56,6 +60,7 @@ typedef FormData_pg_collation *Form_pg_collation;
  * ----------------
  */
 #define Natts_pg_collation				8
+DECLARE_NATTS(Natts_pg_collation);
 #define Anum_pg_collation_collname		1
 #define Anum_pg_collation_collnamespace 2
 #define Anum_pg_collation_collowner		3

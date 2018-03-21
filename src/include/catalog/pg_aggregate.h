@@ -19,9 +19,13 @@
 #ifndef PG_AGGREGATE_H
 #define PG_AGGREGATE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
 #include "catalog/objectaddress.h"
 #include "nodes/pg_list.h"
+#endif /* BUILD_BKI */
 
 /* ----------------------------------------------------------------
  *		pg_aggregate definition.
@@ -92,6 +96,7 @@ typedef FormData_pg_aggregate *Form_pg_aggregate;
  */
 
 #define Natts_pg_aggregate					20
+DECLARE_NATTS(Natts_pg_aggregate);
 #define Anum_pg_aggregate_aggfnoid			1
 #define Anum_pg_aggregate_aggkind			2
 #define Anum_pg_aggregate_aggnumdirectargs	3
@@ -175,7 +180,10 @@ DATA(insert ( 2244	n 0 bpchar_larger	-				bpchar_larger		-	-	-				-				-				f f 
 DATA(insert ( 2797	n 0 tidlarger		-				tidlarger			-	-	-				-				-				f f 2800	27		0	0		0	_null_ _null_ ));
 DATA(insert ( 3526	n 0 enum_larger		-				enum_larger			-	-	-				-				-				f f 3519	3500	0	0		0	_null_ _null_ ));
 DATA(insert ( 3564	n 0 network_larger	-				network_larger		-	-	-				-				-				f f 1205	869		0	0		0	_null_ _null_ ));
-
+#ifdef ADB
+DATA(insert ( 3367	n 0 timestamptz_larger	-			timestamptz_larger	-	-	-				-				-				f f 1324	1184	0	0		0	_null_ _null_ ));
+DATA(insert ( 3369	n 0 rowid_larger	-				rowid_larger		-	-	-				-				-				f f 3404	336		0	0		0	_null_ _null_ ));
+#endif
 /* min */
 DATA(insert ( 2131	n 0 int8smaller		-				int8smaller			-	-	-				-				-				f f 412		20		0	0		0	_null_ _null_ ));
 DATA(insert ( 2132	n 0 int4smaller		-				int4smaller			-	-	-				-				-				f f 97		23		0	0		0	_null_ _null_ ));
@@ -198,6 +206,10 @@ DATA(insert ( 2245	n 0 bpchar_smaller	-				bpchar_smaller		-	-	-				-				-				f 
 DATA(insert ( 2798	n 0 tidsmaller		-				tidsmaller			-	-	-				-				-				f f 2799	27		0	0		0	_null_ _null_ ));
 DATA(insert ( 3527	n 0 enum_smaller	-				enum_smaller		-	-	-				-				-				f f 3518	3500	0	0		0	_null_ _null_ ));
 DATA(insert ( 3565	n 0 network_smaller -				network_smaller		-	-	-				-				-				f f 1203	869		0	0		0	_null_ _null_ ));
+#ifdef ADB
+DATA(insert ( 3368	n 0 timestamptz_smaller -			timestamptz_smaller -	-	-				-				-				f f 1322	1184	0	0		0	_null_ _null_ ));
+DATA(insert ( 3370	n 0 rowid_smaller	-				rowid_larger		-	-	-				-				-				f f 3403	336		0	0		0	_null_ _null_ ));
+#endif
 
 /* count */
 DATA(insert ( 2147	n 0 int8inc_any		-				int8pl	-	-	int8inc_any		int8dec_any		-				f f 0		20		0	20		0	"0" "0" ));

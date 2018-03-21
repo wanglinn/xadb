@@ -19,7 +19,11 @@
 #ifndef PG_TRIGGER_H
 #define PG_TRIGGER_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_trigger definition.  cpp turns this into
@@ -76,6 +80,7 @@ typedef FormData_pg_trigger *Form_pg_trigger;
  * ----------------
  */
 #define Natts_pg_trigger				17
+DECLARE_NATTS(Natts_pg_trigger);
 #define Anum_pg_trigger_tgrelid			1
 #define Anum_pg_trigger_tgname			2
 #define Anum_pg_trigger_tgfoid			3

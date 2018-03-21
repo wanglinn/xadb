@@ -1,0 +1,131 @@
+<!--
+doc/src/sgml/ref/mgr_add_gtm.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-ADDGTM">
+  <refmeta>
+    <refentrytitle>ADD GTM</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>ADD GTM</refname>
+    <refpurpose>add one row gtm information in the node table</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-addgtm">
+    <primary>ADD GTM</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+ADD GTM MASTER <replaceable class="parameter">master_name</replaceable> ( <replaceable class="parameter">option</replaceable> )
+ADD GTM SLAVE <replaceable class="parameter">slave_name</replaceable> FOR <replaceable class="parameter">master_name</replaceable> ( <replaceable class="parameter">option</replaceable> )
+
+<phrase>where <replaceable class="parameter">option</replaceable> must be the following:</phrase>
+
+    HOST = <replaceable class="parameter">IP_address</replaceable>,
+    PORT = <replaceable class="parameter">port_number</replaceable>,
+    SYNC_STATE = <replaceable class="parameter">sync_mode</replaceable>,
+    PATH = <replaceable class="parameter">pg_data</replaceable>
+</synopsis>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+<command>ADD GTM</command> add one row gtm information in the node table. The slave's name must be different from master's.
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Parameters</title>
+
+    <variablelist>
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">master_name</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Node name, the gtm master name in the node table.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">slave_name</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Node name, the gtm slave name in the node table.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">HOST</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Your host name for install ADB cluster.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">PORT</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Listen port of your host.
+          </para>
+        </listitem>
+      </varlistentry> 
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">SYNC_STATE</replaceable>
+        </term>
+        <listitem>
+          <para>
+    The value of SYNC_STATE can be "sync", "async", "potential". If synchronous slave down ,and the potential slave will as the synchronous slave.
+          </para>
+        </listitem>
+      </varlistentry> 
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">PATH</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Your data directory.
+          </para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+
+
+  <refsect1>
+    <title>Examples</title>
+    <para>
+Add gtm master (name is "gtm_name1") in the node table:
+      <programlisting>
+ADD GTM MASTER gtm_name1(HOST=localhost2, PORT=15533, PATH='/opt/ADB/gtm');
+</programlisting>
+    </para>
+  </refsect1>
+  <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-dropgtm"></member>
+    </simplelist>
+  </refsect1>
+</refentry>

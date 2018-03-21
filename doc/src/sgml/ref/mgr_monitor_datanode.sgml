@@ -1,0 +1,86 @@
+<!--
+doc/src/sgml/ref/mgr_monitor_datanode.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-MONITORDATANODE">
+  <refmeta>
+    <refentrytitle>MONITOR DATANODE</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>MONITOR DATANODE</refname>
+    <refpurpose>monitor the current state for datanode in the ADB cluster</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-monitordatanode">
+    <primary>MONITOR DATANODE</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+MONITOR DATANODE [ ALL ]
+MONITOR DATANODE { MASTER | SLAVE } [ ALL | <replaceable class="parameter">node_name</replaceable> [, ...] ]
+</synopsis>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+<command>MONITOR DATANODE</command> monitor the current state for datanode in the ADB cluster.
+    </para>
+    <para>
+Node has three operating conditions: running, not running and reject connection.
+    </para>
+
+    <para>
+    Running means is server is accepting connections.
+    </para>
+
+    <para>
+    Not running means is could not establish connection.
+    </para>
+
+    <para>
+    Reject connection means is server is alive but rejecting connections(e.g., recovery model or startup model).
+    </para>
+  </refsect1>
+  <refsect1>
+    <title>Parameters</title>
+
+    <variablelist>
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">node_name</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Node name, corresponds to the name column in the node table.
+          </para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+  <refsect1>
+    <title>Examples</title>
+
+    <para>
+Monitor the state for all datanode master:
+<programlisting>
+MONITOR DATANODE MASTER ALL;
+</programlisting>
+    </para>
+  </refsect1>
+      <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-startdatanode"></member>
+      <member><xref linkend="mgr-stopdatanode"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>

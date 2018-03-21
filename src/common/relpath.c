@@ -23,6 +23,22 @@
 #include "common/relpath.h"
 #include "storage/backendid.h"
 
+#if defined(ADB) && defined(FRONTEND)
+extern char *nodename;
+#define NODENAME	nodename
+#elif defined(ADB) && !defined(FRONTEND)
+#include "pgxc/pgxc.h"
+#define NODENAME	PGXCNodeName
+#endif
+
+#if defined(ADB)
+static char * GetNodeName(void)
+{
+	static char node[NAMEDATALEN + 2] = {0};
+	snprintf(node, NAMEDATALEN + 2, "_%s", NODENAME);
+	return node;
+}
+#endif
 
 /*
  * Lookup table of fork name by fork number.
@@ -121,8 +137,13 @@ GetDatabasePath(Oid dbNode, Oid spcNode)
 	else
 	{
 		/* All other tablespaces are accessed via symlinks */
+#if defined(ADB)
+		return psprintf("pg_tblspc/%u/%s%s/%u",
+						spcNode, TABLESPACE_VERSION_DIRECTORY, GetNodeName(), dbNode);
+#else
 		return psprintf("pg_tblspc/%u/%s/%u",
 						spcNode, TABLESPACE_VERSION_DIRECTORY, dbNode);
+#endif
 	}
 }
 
@@ -181,6 +202,19 @@ GetRelationPath(Oid dbNode, Oid spcNode, Oid relNode,
 		/* All other tablespaces are accessed via symlinks */
 		if (backendId == InvalidBackendId)
 		{
+#if defined(ADB)
+			if (forkNumber != MAIN_FORKNUM)
+				path = psprintf("pg_tblspc/%u/%s%s/%u/%u_%s",
+								spcNode, TABLESPACE_VERSION_DIRECTORY,
+								GetNodeName(),
+								dbNode, relNode,
+								forkNames[forkNumber]);
+			else
+				path = psprintf("pg_tblspc/%u/%s%s/%u/%u",
+								spcNode, TABLESPACE_VERSION_DIRECTORY,
+								GetNodeName(),
+								dbNode, relNode);
+#else
 			if (forkNumber != MAIN_FORKNUM)
 				path = psprintf("pg_tblspc/%u/%s/%u/%u_%s",
 								spcNode, TABLESPACE_VERSION_DIRECTORY,
@@ -190,9 +224,23 @@ GetRelationPath(Oid dbNode, Oid spcNode, Oid relNode,
 				path = psprintf("pg_tblspc/%u/%s/%u/%u",
 								spcNode, TABLESPACE_VERSION_DIRECTORY,
 								dbNode, relNode);
+#endif
 		}
 		else
 		{
+#if defined(ADB)
+			if (forkNumber != MAIN_FORKNUM)
+				path = psprintf("pg_tblspc/%u/%s%s/%u/t%d_%u_%s",
+								spcNode, TABLESPACE_VERSION_DIRECTORY,
+								GetNodeName(),
+								dbNode, backendId, relNode,
+								forkNames[forkNumber]);
+			else
+				path = psprintf("pg_tblspc/%u/%s%s/%u/t%d_%u",
+								spcNode, TABLESPACE_VERSION_DIRECTORY,
+								GetNodeName(),
+								dbNode, backendId, relNode);
+#else
 			if (forkNumber != MAIN_FORKNUM)
 				path = psprintf("pg_tblspc/%u/%s/%u/t%d_%u_%s",
 								spcNode, TABLESPACE_VERSION_DIRECTORY,
@@ -202,6 +250,7 @@ GetRelationPath(Oid dbNode, Oid spcNode, Oid relNode,
 				path = psprintf("pg_tblspc/%u/%s/%u/t%d_%u",
 								spcNode, TABLESPACE_VERSION_DIRECTORY,
 								dbNode, backendId, relNode);
+#endif
 		}
 	}
 	return path;

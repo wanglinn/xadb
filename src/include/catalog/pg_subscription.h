@@ -11,8 +11,12 @@
 #ifndef PG_SUBSCRIPTION_H
 #define PG_SUBSCRIPTION_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
 #include "nodes/pg_list.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_subscription definition. cpp turns this into
@@ -62,6 +66,7 @@ typedef FormData_pg_subscription *Form_pg_subscription;
  * ----------------
  */
 #define Natts_pg_subscription					8
+DECLARE_NATTS(Natts_pg_subscription);
 #define Anum_pg_subscription_subdbid			1
 #define Anum_pg_subscription_subname			2
 #define Anum_pg_subscription_subowner			3

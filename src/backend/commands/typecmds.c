@@ -71,7 +71,9 @@
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
-
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif
 
 /* result structure for get_rels_with_domain() */
 typedef struct

@@ -198,7 +198,14 @@ ExecScan(ScanState *node,
 				 * Form a projection tuple, store it in the result tuple slot
 				 * and return it.
 				 */
+#ifdef ADB
+				TupleTableSlot * resultSlot = ExecProject(projInfo);
+				/* Copy the xcnodeoid if underlying scanned slot has one */
+				resultSlot->tts_xcnodeoid = slot->tts_xcnodeoid;
+				return resultSlot;
+#else /* ADB */
 				return ExecProject(projInfo);
+#endif /* ADB */
 			}
 			else
 			{

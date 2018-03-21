@@ -268,4 +268,14 @@ extern bool RI_Initial_Check(Trigger *trigger,
 
 extern int	RI_FKey_trigger_type(Oid tgfoid);
 
+#ifdef ADB
+/* Postgres-XC related functions for triggers */
+extern bool IsAnyAfterTriggerDeferred(void);
+extern bool pgxc_trig_oldrow_reqd(Relation rel, CmdType commandType);
+extern int16 pgxc_get_trigevent(CmdType commandType);
+extern bool pgxc_should_exec_br_trigger(Relation rel, int16 trigevent);
+extern bool pgxc_should_exec_ar_trigger(Relation rel, CmdType commandType);
+extern bool pgxc_has_trigger_for_event(int16 tg_event, TriggerDesc *trigdesc);
+#endif
+
 #endif							/* TRIGGER_H */

@@ -1,0 +1,45 @@
+<!--
+doc/src/sgml/ref/mgr_show.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-SHOW">
+  <refmeta>
+    <refentrytitle>SHOW</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>SHOW</refname>
+    <refpurpose>show the valid parameters which is belong to the view of pg_settings</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-show">
+    <primary>SHOW</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+<command>SHOW</command> <replaceable class="parameter">node_name</replaceable> <replaceable class="parameter">parameter</replaceable>
+</synopsis>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Description</title>
+    <para>
+      Show the value of the specifed parameter which is belong to the view of pg_settings,in addition it support fuzzy query.
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Examples</title>
+    <para>
+      Fuzzy query parameters with the sync:
+<programlisting>
+show datanode_name1 sync;
+</programlisting>
+    </para>
+  </refsect1>
+
+</refentry>

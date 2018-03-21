@@ -74,6 +74,9 @@
 #include "utils/snapmgr.h"
 #include "utils/tqual.h"
 
+#ifdef ADB
+extern bool	debug_enable_satisfy_mvcc;
+#endif
 
 /* Static variables representing various special snapshot semantics */
 SnapshotData SnapshotSelfData = {HeapTupleSatisfiesSelf};
@@ -967,6 +970,11 @@ HeapTupleSatisfiesMVCC(HeapTuple htup, Snapshot snapshot,
 
 	Assert(ItemPointerIsValid(&htup->t_self));
 	Assert(htup->t_tableOid != InvalidOid);
+
+#ifdef ADB
+	if(debug_enable_satisfy_mvcc)
+		return true;
+#endif
 
 	if (!HeapTupleHeaderXminCommitted(tuple))
 	{

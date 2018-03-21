@@ -304,6 +304,9 @@ sepgsql_utility_command(PlannedStmt *pstmt,
 						ParamListInfo params,
 						QueryEnvironment *queryEnv,
 						DestReceiver *dest,
+#ifdef ADB
+						bool sentToRemote,
+#endif /* ADB */
 						char *completionTag)
 {
 	Node	   *parsetree = pstmt->utilityStmt;
@@ -367,11 +370,19 @@ sepgsql_utility_command(PlannedStmt *pstmt,
 		if (next_ProcessUtility_hook)
 			(*next_ProcessUtility_hook) (pstmt, queryString,
 										 context, params, queryEnv,
-										 dest, completionTag);
+										 dest,
+#ifdef ADB
+										 sentToRemote,
+#endif
+										 completionTag);
 		else
 			standard_ProcessUtility(pstmt, queryString,
 									context, params, queryEnv,
-									dest, completionTag);
+									dest,
+#ifdef ADB
+									sentToRemote,
+#endif
+									completionTag);
 	}
 	PG_CATCH();
 	{

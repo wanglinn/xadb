@@ -19,7 +19,11 @@
 #ifndef PG_NAMESPACE_H
 #define PG_NAMESPACE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------------------------------------------------------
  *		pg_namespace definition.
@@ -56,6 +60,7 @@ typedef FormData_pg_namespace *Form_pg_namespace;
  */
 
 #define Natts_pg_namespace				3
+DECLARE_NATTS(Natts_pg_namespace);
 #define Anum_pg_namespace_nspname		1
 #define Anum_pg_namespace_nspowner		2
 #define Anum_pg_namespace_nspacl		3
@@ -75,7 +80,16 @@ DESCR("reserved schema for TOAST tables");
 DATA(insert OID = 2200 ( "public" PGUID _null_ ));
 DESCR("standard public schema");
 #define PG_PUBLIC_NAMESPACE 2200
-
+#ifdef ADB
+DATA(insert OID = 6103 ( "oracle" PGUID _null_ ));
+DESCR("compatible oracle schema");
+#define PG_ORACLE_NAMESPACE 6103
+#endif
+#ifdef ADBMGRD
+DATA(insert OID = 6105 ( "adbmgr" PGUID _null_ ));
+DESCR("ADB manager schema");
+#define PG_MANAGER_NAMESPACE 6105
+#endif /* ADBMGRD */
 
 /*
  * prototypes for functions in pg_namespace.c

@@ -19,7 +19,11 @@
 #ifndef PG_EXTENSION_H
 #define PG_EXTENSION_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_extension definition.  cpp turns this into
@@ -56,6 +60,7 @@ typedef FormData_pg_extension *Form_pg_extension;
  */
 
 #define Natts_pg_extension					7
+DECLARE_NATTS(Natts_pg_extension);
 #define Anum_pg_extension_extname			1
 #define Anum_pg_extension_extowner			2
 #define Anum_pg_extension_extnamespace		3

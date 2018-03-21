@@ -3419,6 +3419,21 @@ getObjectDescription(const ObjectAddress *object)
 				break;
 			}
 
+#ifdef ADB
+		case OCLASS_PGXC_CLASS:
+			appendStringInfoString(&buffer, _("distributed "));
+			getRelationDescription(&buffer, object->objectId);
+			break;
+		case OCLASS_PGXC_NODE:
+			appendStringInfo(&buffer, _("node %s"),
+							 get_pgxc_nodename(object->objectId));
+			break;
+		case OCLASS_PGXC_GROUP:
+			appendStringInfo(&buffer, _("node group %s"),
+							 get_pgxc_groupname(object->objectId));
+			break;
+#endif
+
 			/*
 			 * There's intentionally no default: case here; we want the
 			 * compiler to warn if a new OCLASS hasn't been handled above.
@@ -3918,6 +3933,18 @@ getObjectTypeDescription(const ObjectAddress *object)
 		case OCLASS_TRANSFORM:
 			appendStringInfoString(&buffer, "transform");
 			break;
+
+#ifdef ADB
+		case OCLASS_PGXC_CLASS:
+			appendStringInfo(&buffer, "pgxc_class");
+			break;
+		case OCLASS_PGXC_NODE:
+			appendStringInfoString(&buffer, "node");
+			break;
+		case OCLASS_PGXC_GROUP:
+			appendStringInfoString(&buffer, "node group");
+			break;
+#endif
 
 			/*
 			 * There's intentionally no default: case here; we want the
@@ -4969,6 +4996,39 @@ getObjectIdentityParts(const ObjectAddress *object,
 				heap_close(transformDesc, AccessShareLock);
 			}
 			break;
+
+#ifdef ADB
+		case OCLASS_PGXC_CLASS:
+			/*
+			 * XXX PG10MERGE: ISTM that we don't record dependencies on
+			 * pgxc_class, pgxc_node and pgxc_group. So it's not clear if we
+			 * really need corresponding OCLASS_* either. We should check this
+			 * in more detail.
+			 */
+			break;
+		case OCLASS_PGXC_NODE:
+			{
+				char	   *nodename;
+
+				nodename = get_pgxc_nodename(object->objectId);
+				if (objname)
+					*objname = list_make1(nodename);
+				appendStringInfoString(&buffer,
+									   quote_identifier(nodename));
+				break;
+			}
+		case OCLASS_PGXC_GROUP:
+			{
+				char	   *groupname;
+
+				groupname = get_pgxc_groupname(object->objectId);
+				if (objname)
+					*objname = list_make1(groupname);
+				appendStringInfoString(&buffer,
+									   quote_identifier(groupname));
+				break;
+			}
+#endif
 
 			/*
 			 * There's intentionally no default: case here; we want the

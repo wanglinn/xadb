@@ -1,0 +1,51 @@
+<!--
+doc/src/sgml/ref/mgr_deploy.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-DEPLOY">
+  <refmeta>
+    <refentrytitle>DEPLOY</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>DEPLOY</refname>
+    <refpurpose>deploy ADB's binary files and other installation files to the specified host</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-deploy">
+    <primary>DEPLOY</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+DEPLOY { ALL | <replaceable class="parameter">host_name</replaceable> [, ...] } [ PASSWORD <replaceable class="parameter">passwd</replaceable> ]   
+</synopsis>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+<command>DEPLOY</command> deploy ADB's binary files and other installation files to the specified host.
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Examples</title>
+
+    <para>
+      Deploy files to all agent with user's password abc: 
+<programlisting>
+deploy all password abc; 
+</programlisting>
+Deploy files to the agent localhost1 without password: 
+<programlisting>
+deploy localhost1;
+</programlisting>
+    </para>
+  </refsect1>
+
+</refentry>

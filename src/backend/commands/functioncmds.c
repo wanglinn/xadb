@@ -66,6 +66,9 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
+#ifdef ADB
+#include "catalog/adb_proc.h"
+#endif /* ADB */
 
 /*
  *	 Examine the RETURNS clause of the CREATE FUNCTION statement
@@ -566,6 +569,28 @@ interpret_func_parallel(DefElem *defel)
 	}
 }
 
+#ifdef ADB
+static char
+interpret_func_cluster(DefElem *defel)
+{
+	char	   *str = strVal(defel->arg);
+
+	if (strcmp(str, "safe") == 0)
+		return PROPARALLEL_SAFE;
+	else if (strcmp(str, "unsafe") == 0)
+		return PROPARALLEL_UNSAFE;
+	else if (strcmp(str, "restricted") == 0)
+		return PROPARALLEL_RESTRICTED;
+	else
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("parameter \"cluster\" must be SAFE, RESTRICTED, or UNSAFE")));
+		return PROPARALLEL_UNSAFE;		/* keep compiler quiet */
+	}
+}
+#endif /* ADB */
+
 /*
  * Update a proconfig value according to a list of VariableSetStmt items.
  *
@@ -615,7 +640,11 @@ compute_attributes_sql_style(ParseState *pstate,
 							 ArrayType **proconfig,
 							 float4 *procost,
 							 float4 *prorows,
-							 char *parallel_p)
+							 char *parallel_p
+#ifdef ADB
+							 ,char *cluster_p
+#endif /* ADB */
+							 )
 {
 	ListCell   *option;
 	DefElem    *as_item = NULL;
@@ -630,6 +659,9 @@ compute_attributes_sql_style(ParseState *pstate,
 	DefElem    *cost_item = NULL;
 	DefElem    *rows_item = NULL;
 	DefElem    *parallel_item = NULL;
+#ifdef ADB
+	DefElem    *cluster_item = NULL;
+#endif /* ADB */
 
 	foreach(option, options)
 	{
@@ -671,6 +703,16 @@ compute_attributes_sql_style(ParseState *pstate,
 						 parser_errposition(pstate, defel->location)));
 			windowfunc_item = defel;
 		}
+#ifdef ADB
+		else if (strcmp(defel->defname, "cluster") == 0)
+		{
+			if (cluster_item)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+			cluster_item = defel;
+		}
+#endif /* ADB */
 		else if (compute_common_attribute(pstate,
 										  defel,
 										  &volatility_item,
@@ -744,6 +786,10 @@ compute_attributes_sql_style(ParseState *pstate,
 	}
 	if (parallel_item)
 		*parallel_p = interpret_func_parallel(parallel_item);
+#ifdef ADB
+	if (cluster_item)
+		*cluster_p = interpret_func_cluster(cluster_item);
+#endif /* ADB */
 }
 
 
@@ -892,6 +938,10 @@ CreateFunction(ParseState *pstate, CreateFunctionStmt *stmt)
 	Form_pg_language languageStruct;
 	List	   *as_clause;
 	char		parallel;
+#ifdef ADB
+	char		cluster = PROC_CLUSTER_UNSAFE;
+	ObjectAddress addr;
+#endif /* ADB */
 
 	/* Convert list of names to a name and namespace */
 	namespaceId = QualifiedNameGetCreationNamespace(stmt->funcname,
@@ -920,7 +970,11 @@ CreateFunction(ParseState *pstate, CreateFunctionStmt *stmt)
 								 &as_clause, &language, &transformDefElem,
 								 &isWindowFunc, &volatility,
 								 &isStrict, &security, &isLeakProof,
-								 &proconfig, &procost, &prorows, &parallel);
+								 &proconfig, &procost, &prorows, &parallel
+#ifdef ADB
+								 ,&cluster
+#endif /* ADB */
+								 );
 
 	/* Look up the language and validate permissions */
 	languageTuple = SearchSysCache1(LANGNAME, PointerGetDatum(language));
@@ -1080,7 +1134,11 @@ CreateFunction(ParseState *pstate, CreateFunctionStmt *stmt)
 	 * And now that we have all the parameters, and know we're permitted to do
 	 * so, go ahead and create the function.
 	 */
+#ifdef ADB
+	addr = ProcedureCreate(funcname,
+#else
 	return ProcedureCreate(funcname,
+#endif /* ADB */
 						   namespaceId,
 						   stmt->replace,
 						   returnsSet,
@@ -1106,6 +1164,43 @@ CreateFunction(ParseState *pstate, CreateFunctionStmt *stmt)
 						   PointerGetDatum(proconfig),
 						   procost,
 						   prorows);
+#ifdef ADB
+	{
+		Relation rel;
+		Datum values[Natts_adb_proc];
+		bool isnull[Natts_adb_proc];
+		int i;
+		for(i=0;i<Natts_adb_proc;++i)
+		{
+			values[i] = (Datum)0;
+			isnull[i] = true;
+		}
+		HeapTuple tup;
+		values[Anum_adb_proc_proowner-1] = addr.objectId;
+		isnull[Anum_adb_proc_proowner-1] = false;
+		values[Anum_adb_proc_proclustersafe-1] = cluster;
+		isnull[Anum_adb_proc_proclustersafe-1] = false;
+		rel = heap_open(AdbProcRelationId, RowExclusiveLock);
+		tup = SearchSysCache1(ADBPROCID, ObjectIdGetDatum(addr.objectId));
+		if(HeapTupleIsValid(tup))
+		{
+			HeapTuple old_tup = tup;
+			bool replace[Natts_adb_proc];
+			replace[Anum_adb_proc_proowner-1] = false;
+			replace[Anum_adb_proc_proclustersafe-1] = true;
+			tup = heap_modify_tuple(old_tup, RelationGetDescr(rel), values, isnull, replace);
+			CatalogTupleUpdate(rel, &tup->t_self, tup);
+			ReleaseSysCache(old_tup);
+		}else
+		{
+			tup = heap_form_tuple(RelationGetDescr(rel), values, isnull);
+			CatalogTupleInsert(rel, tup);
+		}
+		heap_close(rel, RowExclusiveLock);
+		heap_freetuple(tup);
+	}
+	return addr;
+#endif /* ADB */
 }
 
 /*
@@ -1155,6 +1250,19 @@ RemoveFunctionById(Oid funcOid)
 
 		heap_close(relation, RowExclusiveLock);
 	}
+#ifdef ADB
+	/* TODO drop adb_proc object */
+	relation = heap_open(AdbProcRelationId, RowExclusiveLock);
+
+	tup = SearchSysCache1(ADBPROCID, ObjectIdGetDatum(funcOid));
+	if(HeapTupleIsValid(tup))
+	{
+		simple_heap_delete(relation, &tup->t_self);
+		ReleaseSysCache(tup);
+	}
+
+	heap_close(relation, RowExclusiveLock);
+#endif /* ADB */
 }
 
 /*
@@ -1178,6 +1286,11 @@ AlterFunction(ParseState *pstate, AlterFunctionStmt *stmt)
 	DefElem    *cost_item = NULL;
 	DefElem    *rows_item = NULL;
 	DefElem    *parallel_item = NULL;
+#ifdef ADB
+	DefElem    *cluster_item = NULL;
+	Relation	adb_proc_rel;
+	char		cluster_safe;
+#endif /* ADB */
 	ObjectAddress address;
 
 	rel = heap_open(ProcedureRelationId, RowExclusiveLock);
@@ -1206,6 +1319,16 @@ AlterFunction(ParseState *pstate, AlterFunctionStmt *stmt)
 	{
 		DefElem    *defel = (DefElem *) lfirst(l);
 
+#ifdef ADB
+		if (strcmp(defel->defname, "cluster") == 0)
+			if(cluster_item)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						errmsg("conflicting or redundant options")));
+			else
+				cluster_item = defel;
+		else
+#endif /* ADB */
 		if (compute_common_attribute(pstate,
 									 defel,
 									 &volatility_item,
@@ -1218,6 +1341,13 @@ AlterFunction(ParseState *pstate, AlterFunctionStmt *stmt)
 									 &parallel_item) == false)
 			elog(ERROR, "option \"%s\" not recognized", defel->defname);
 	}
+#ifdef ADB
+	if(cluster_item)
+	{
+		cluster_safe = interpret_func_cluster(cluster_item);
+		adb_proc_rel = heap_open(AdbProcRelationId, RowExclusiveLock);
+	}
+#endif /* ADB */
 
 	if (volatility_item)
 		procForm->provolatile = interpret_func_volatility(volatility_item);
@@ -1292,6 +1422,42 @@ AlterFunction(ParseState *pstate, AlterFunctionStmt *stmt)
 
 	/* Do the update */
 	CatalogTupleUpdate(rel, &tup->t_self, tup);
+
+#ifdef ADB
+	if (cluster_item)
+	{
+		HeapTuple adb_tup;
+		Datum values[Natts_adb_proc];
+		bool isnull[Natts_adb_proc];
+		int i;
+		for(i=0;i<Natts_adb_proc;++i)
+			isnull[i] = true;
+
+		values[Anum_adb_proc_proowner-1] = ObjectIdGetDatum(funcOid);
+		isnull[Anum_adb_proc_proowner-1] = false;
+		values[Anum_adb_proc_proclustersafe-1] = CharGetDatum(cluster_safe);
+		isnull[Anum_adb_proc_proclustersafe-1] = false;
+		adb_tup = SearchSysCache1(ADBPROCID, ObjectIdGetDatum(funcOid));
+		if(HeapTupleIsValid(adb_tup))
+		{
+			HeapTuple old_tup = adb_tup;
+			bool repl[Natts_adb_proc];
+			for(i=0;i<Natts_adb_proc;++i)
+				repl[i] = false;
+			repl[Anum_adb_proc_proclustersafe-1] = true;
+			adb_tup = heap_modify_tuple(old_tup, RelationGetDescr(adb_proc_rel), values, isnull, repl);
+			ReleaseSysCache(old_tup);
+			CatalogTupleUpdate(adb_proc_rel, &adb_tup->t_self, adb_tup);
+		}else
+		{
+			adb_tup = heap_form_tuple(RelationGetDescr(adb_proc_rel), values, isnull);
+			CatalogTupleInsert(adb_proc_rel, adb_tup);
+		}
+
+		heap_freetuple(adb_tup);
+		heap_close(adb_proc_rel, NoLock);
+	}
+#endif /* ADB */
 
 	InvokeObjectPostAlterHook(ProcedureRelationId, funcOid, 0);
 

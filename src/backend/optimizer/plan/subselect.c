@@ -33,7 +33,10 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
-
+#ifdef ADB
+#include "optimizer/reduceinfo.h"
+#include "pgxc/pgxc.h"
+#endif
 
 typedef struct convert_testexpr_context
 {
@@ -58,6 +61,9 @@ static Node *build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
 			  List *plan_params,
 			  SubLinkType subLinkType, int subLinkId,
 			  Node *testexpr, bool adjust_testexpr,
+#ifdef ADB
+			  Path *cluster_path,
+#endif /* ADB */
 			  bool unknownEqFalse);
 static List *generate_subquery_params(PlannerInfo *root, List *tlist,
 						 List **paramIds);
@@ -492,6 +498,9 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 	 * Try to clean this up when we do querytree redesign...
 	 */
 	subquery = copyObject(orig_subquery);
+#ifdef ADB
+	subquery->in_sub_plan = true;
+#endif /* ADB */
 
 	/*
 	 * If it's an EXISTS subplan, we might be able to simplify it.
@@ -543,14 +552,66 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 	 * seems no reason to postpone doing that.
 	 */
 	final_rel = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
+#ifdef ADB
+	/* check can cluster plan */
+	if(root->glob->clusterPlanOK)
+	{
+		if (final_rel->cheapest_replicate_path == NULL ||
+			path_tree_have_exec_param(final_rel->cheapest_replicate_path, subroot))
+		{
+			/* make a new replicate path */
+			Path *cheapest_replicate = NULL;
+			Path *path;
+			ListCell *lc;
+			List *reduce_info = NIL;
+
+			foreach(lc, final_rel->cluster_pathlist)
+			{
+				path = lfirst(lc);
+				if(!IsReduceInfoListReplicated(get_reduce_info_list(path)))
+				{
+					if(reduce_info == NIL)
+					{
+						/* for now just reduce to InvalidOid, before create plan change it */
+						reduce_info = list_make1(MakeFinalReplicateReduceInfo());
+					}
+					path = create_cluster_reduce_path(root, path, reduce_info, final_rel, NIL);
+				}
+				if (cheapest_replicate == NULL ||
+					compare_path_costs(cheapest_replicate, path, TOTAL_COST) > 0)
+					cheapest_replicate = path;
+			}
+
+			final_rel->cheapest_replicate_path = cheapest_replicate;
+		}
+		if(final_rel->cheapest_replicate_path == NULL)
+		{
+			/* we have no replicate, can not execute cluster subplan */
+			root->glob->clusterPlanOK = false;
+		}
+	}
+#endif /* ADB */
 	best_path = get_cheapest_fractional_path(final_rel, tuple_fraction);
 
 	plan = create_plan(subroot, best_path);
 
+#ifdef ADB
+	result = build_subplan(root, plan, subroot, plan_params,
+						   subLinkType, subLinkId,
+						   testexpr, true, final_rel->cheapest_replicate_path, isTopQual);
+
+#else /* ADB */
 	/* And convert to SubPlan or InitPlan format. */
 	result = build_subplan(root, plan, subroot, plan_params,
 						   subLinkType, subLinkId,
 						   testexpr, true, isTopQual);
+#endif /* ADB */
+
+#ifdef ADB
+	/* This is not necessary for a PGXC Coordinator, we just need one plan */
+	if (IsCoordMaster())
+		return result;
+#endif
 
 	/*
 	 * If it's a correlated EXISTS with an unimportant targetlist, we might be
@@ -577,6 +638,9 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 		if (subquery)
 		{
 			/* Generate Paths for the ANY subquery; we'll need all rows */
+#ifdef ADB
+			subquery->in_sub_plan = true;
+#endif /* ADB */
 			subroot = subquery_planner(root->glob, subquery,
 									   root,
 									   false, 0.0);
@@ -604,7 +668,9 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 												  plan_params,
 												  ANY_SUBLINK, 0,
 												  newtestexpr,
-												  false, true));
+												  false,
+												  ADB_ONLY_ARG(final_rel->cheapest_replicate_path)
+												  true));
 				/* Check we got what we expected */
 				Assert(hashplan->parParam == NIL);
 				Assert(hashplan->useHashTable);
@@ -633,6 +699,9 @@ build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
 			  List *plan_params,
 			  SubLinkType subLinkType, int subLinkId,
 			  Node *testexpr, bool adjust_testexpr,
+#ifdef ADB
+			  Path *cluster_path,
+#endif /* ADB */
 			  bool unknownEqFalse)
 {
 	Node	   *result;
@@ -823,10 +892,16 @@ build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
 		 */
 		if (subLinkType == ANY_SUBLINK &&
 			splan->parParam == NIL &&
-			subplan_is_hashable(plan) &&
 			testexpr_is_hashable(splan->testexpr))
-			splan->useHashTable = true;
-
+		{
+			bool can_hash_table = subplan_is_hashable(plan);
+#ifdef ADB
+			if (enable_hashscan && !can_hash_table)
+				splan->useHashTable = splan->useHashStore = true;
+			else
+#endif /* ADB */
+			splan->useHashTable = can_hash_table;
+		}
 		/*
 		 * Otherwise, we have the option to tack a Material node onto the top
 		 * of the subplan, to reduce the cost of reading it repeatedly.  This
@@ -886,6 +961,10 @@ build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
 
 	/* Lastly, fill in the cost estimates for use later */
 	cost_subplan(root, splan, plan);
+#ifdef ADB
+	if(cluster_path)
+		cost_subplan_cluster(root, splan, cluster_path);
+#endif /* ADB */
 
 	return result;
 }
@@ -1195,6 +1274,14 @@ SS_process_ctes(PlannerInfo *root)
 		 * seems no reason to postpone doing that.
 		 */
 		final_rel = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
+#ifdef ADB
+		/* cluster plan we need replicate path */
+		if (root->glob->clusterPlanOK &&
+			final_rel->cheapest_cluster_total_path == NULL)
+		{
+			root->glob->clusterPlanOK = false;
+		}
+#endif /* ADB */
 		best_path = final_rel->cheapest_total_path;
 
 		plan = create_plan(subroot, best_path);
@@ -2187,6 +2274,21 @@ SS_charge_for_initplans(PlannerInfo *root, RelOptInfo *final_rel)
 	/* We needn't do set_cheapest() here, caller will do it */
 }
 
+#ifdef ADB
+static bool set_cluster_gather_init_plan_walker(Plan *plan, void *none, List *init_plans)
+{
+	if(plan == NULL)
+		return false;
+	if (IsA(plan, ClusterGather) ||
+		IsA(plan, ClusterMergeGather))
+	{
+		outerPlan(plan)->initPlan = init_plans;
+		return true;
+	}
+	return plan_tree_walker(plan, NULL, set_cluster_gather_init_plan_walker, init_plans);
+}
+
+#endif /* ADB */
 /*
  * SS_attach_initplans - attach initplans to topmost plan node
  *
@@ -2201,9 +2303,55 @@ SS_charge_for_initplans(PlannerInfo *root, RelOptInfo *final_rel)
 void
 SS_attach_initplans(PlannerInfo *root, Plan *plan)
 {
+#ifdef ADB
+	/* we need send initPlan to remote */
+	if (!set_cluster_gather_init_plan_walker(plan, NULL, root->init_plans))
+#endif /* ADB */
 	plan->initPlan = root->init_plans;
 }
 
+#ifdef ADB
+static bool SS_finalize_plan_walker(Plan *plan, void *none, PlannerInfo *root)
+{
+	if (plan == NULL)
+		return false;
+
+	if (IsA(plan, ClusterGather) ||
+		IsA(plan, ClusterMergeGather))
+	{
+		(void)finalize_plan(root, outerPlan(plan), root->outer_params, NULL);
+		plan->allParam = bms_copy(outerPlan(plan)->allParam);
+		plan->extParam = bms_copy(outerPlan(plan)->extParam);
+		return true;
+	}
+	if(plan_tree_walker(plan, NULL, SS_finalize_plan_walker, root))
+	{
+		if(IsA(plan, ModifyTable))
+		{
+			ListCell *lc;
+			Plan *subplan;
+			plan->allParam = plan->extParam = NULL;
+			foreach(lc, ((ModifyTable*)plan)->plans)
+			{
+				subplan = lfirst(lc);
+				plan->allParam = bms_add_members(plan->allParam, subplan->allParam);
+				plan->extParam = bms_add_members(plan->extParam, subplan->extParam);
+			}
+		}else if(outerPlan(plan))
+		{
+			plan->allParam = bms_copy(outerPlan(plan)->allParam);
+			plan->extParam = bms_copy(outerPlan(plan)->extParam);
+		}else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Internal error for plan '%d'", nodeTag(plan))));
+		}
+		return true;
+	}
+	return false;
+}
+#endif
 /*
  * SS_finalize_plan - do final parameter processing for a completed Plan.
  *
@@ -2217,6 +2365,9 @@ void
 SS_finalize_plan(PlannerInfo *root, Plan *plan)
 {
 	/* No setup needed, just recurse through plan tree. */
+#ifdef ADB
+	if (!SS_finalize_plan_walker(plan, NULL, root))
+#endif /* ADB */
 	(void) finalize_plan(root, plan, root->outer_params, NULL);
 }
 
@@ -2547,6 +2698,12 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 				}
 			}
 			break;
+#ifdef ADB
+		case T_RemoteQuery:
+			//PGXCTODO
+			context.paramids = bms_add_members(context.paramids, scan_params);
+			break;
+#endif
 
 		case T_Append:
 			{
@@ -2706,6 +2863,13 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 		case T_GatherMerge:
 		case T_SetOp:
 		case T_Group:
+#ifdef ADB
+		case T_ClusterGather:
+		case T_ClusterMergeGather:
+		case T_ClusterGetCopyData:
+		case T_ClusterReduce:
+		case T_ReduceScan:
+#endif /* ADB */
 			/* no node-type-specific fields need fixing */
 			break;
 

@@ -70,6 +70,9 @@
 #include <math.h>
 #include <float.h>
 #include <limits.h>
+#ifdef ADB
+#include <time.h>
+#endif
 
 /*
  * towlower() and friends should be in <wctype.h>, but some pre-C99 systems
@@ -95,6 +98,10 @@
 #include "utils/int8.h"
 #include "utils/numeric.h"
 #include "utils/pg_locale.h"
+
+#ifdef ADB
+#define RADIX			"."
+#endif
 
 /* ----------
  * Routines type
@@ -585,6 +592,18 @@ typedef enum
 	DCH_Day,
 	DCH_Dy,
 	DCH_D,
+#ifdef ADB
+	DCH_FF1,
+	DCH_FF2,
+	DCH_FF3,
+	DCH_FF4,
+	DCH_FF5,
+	DCH_FF6,
+	DCH_FF7,
+	DCH_FF8,
+	DCH_FF9,
+	DCH_FF,
+#endif
 	DCH_FX,						/* global suffix */
 	DCH_HH24,
 	DCH_HH12,
@@ -609,12 +628,30 @@ typedef enum
 	DCH_PM,
 	DCH_Q,
 	DCH_RM,
+#ifdef ADB
+	DCH_SSSSS,
+#endif
 	DCH_SSSS,
+#ifdef ADB
+	DCH_SCC,
+#endif
 	DCH_SS,
 	DCH_TZ,
 	DCH_US,
 	DCH_WW,
 	DCH_W,
+#ifdef ADB
+	DCH_XFF1,
+	DCH_XFF2,
+	DCH_XFF3,
+	DCH_XFF4,
+	DCH_XFF5,
+	DCH_XFF6,
+	DCH_XFF7,
+	DCH_XFF8,
+	DCH_XFF9,
+	DCH_XFF,
+#endif
 	DCH_Y_YYY,
 	DCH_YYYY,
 	DCH_YYY,
@@ -632,6 +669,18 @@ typedef enum
 	DCH_dd,
 	DCH_dy,
 	DCH_d,
+#ifdef ADB
+	DCH_ff1,
+	DCH_ff2,
+	DCH_ff3,
+	DCH_ff4,
+	DCH_ff5,
+	DCH_ff6,
+	DCH_ff7,
+	DCH_ff8,
+	DCH_ff9,
+	DCH_ff,
+#endif
 	DCH_fx,
 	DCH_hh24,
 	DCH_hh12,
@@ -653,12 +702,30 @@ typedef enum
 	DCH_pm,
 	DCH_q,
 	DCH_rm,
+#ifdef ADB
+	DCH_sssss,
+#endif
 	DCH_ssss,
+#ifdef ADB
+	DCH_scc,
+#endif
 	DCH_ss,
 	DCH_tz,
 	DCH_us,
 	DCH_ww,
 	DCH_w,
+#ifdef ADB
+	DCH_xff1,
+	DCH_xff2,
+	DCH_xff3,
+	DCH_xff4,
+	DCH_xff5,
+	DCH_xff6,
+	DCH_xff7,
+	DCH_xff8,
+	DCH_xff9,
+	DCH_xff,
+#endif
 	DCH_y_yyy,
 	DCH_yyyy,
 	DCH_yyy,
@@ -732,6 +799,18 @@ static const KeyWord DCH_keywords[] = {
 	{"Day", 3, DCH_Day, FALSE, FROM_CHAR_DATE_NONE},
 	{"Dy", 2, DCH_Dy, FALSE, FROM_CHAR_DATE_NONE},
 	{"D", 1, DCH_D, TRUE, FROM_CHAR_DATE_GREGORIAN},
+#ifdef ADB
+	{"FF1", 3, DCH_FF1, TRUE, FROM_CHAR_DATE_NONE},	/* F */
+	{"FF2", 3, DCH_FF2, TRUE, FROM_CHAR_DATE_NONE},
+	{"FF3", 3, DCH_FF3, TRUE, FROM_CHAR_DATE_NONE},
+	{"FF4", 3, DCH_FF4, TRUE, FROM_CHAR_DATE_NONE},
+	{"FF5", 3, DCH_FF5, TRUE, FROM_CHAR_DATE_NONE},
+	{"FF6", 3, DCH_FF6, TRUE, FROM_CHAR_DATE_NONE},
+	{"FF7", 3, DCH_FF7, TRUE, FROM_CHAR_DATE_NONE},
+	{"FF8", 3, DCH_FF8, TRUE, FROM_CHAR_DATE_NONE},
+	{"FF9", 3, DCH_FF9, TRUE, FROM_CHAR_DATE_NONE},
+	{"FF", 2, DCH_FF, TRUE, FROM_CHAR_DATE_NONE},
+#endif
 	{"FX", 2, DCH_FX, FALSE, FROM_CHAR_DATE_NONE},	/* F */
 	{"HH24", 4, DCH_HH24, TRUE, FROM_CHAR_DATE_NONE},	/* H */
 	{"HH12", 4, DCH_HH12, TRUE, FROM_CHAR_DATE_NONE},
@@ -756,12 +835,30 @@ static const KeyWord DCH_keywords[] = {
 	{"PM", 2, DCH_PM, FALSE, FROM_CHAR_DATE_NONE},
 	{"Q", 1, DCH_Q, TRUE, FROM_CHAR_DATE_NONE}, /* Q */
 	{"RM", 2, DCH_RM, FALSE, FROM_CHAR_DATE_GREGORIAN}, /* R */
+#ifdef ADB
+	{"SSSSS", 5, DCH_SSSSS, TRUE, FROM_CHAR_DATE_NONE},	/* S */
+#endif
 	{"SSSS", 4, DCH_SSSS, TRUE, FROM_CHAR_DATE_NONE},	/* S */
+#ifdef ADB
+	{"SCC", 3, DCH_SCC, TRUE, FROM_CHAR_DATE_NONE},
+#endif
 	{"SS", 2, DCH_SS, TRUE, FROM_CHAR_DATE_NONE},
 	{"TZ", 2, DCH_TZ, FALSE, FROM_CHAR_DATE_NONE},	/* T */
 	{"US", 2, DCH_US, TRUE, FROM_CHAR_DATE_NONE},	/* U */
 	{"WW", 2, DCH_WW, TRUE, FROM_CHAR_DATE_GREGORIAN},	/* W */
 	{"W", 1, DCH_W, TRUE, FROM_CHAR_DATE_GREGORIAN},
+#ifdef ADB
+	{"XFF1", 4, DCH_XFF1, FALSE, FROM_CHAR_DATE_NONE},	/* X */
+	{"XFF2", 4, DCH_XFF2, FALSE, FROM_CHAR_DATE_NONE},
+	{"XFF3", 4, DCH_XFF3, FALSE, FROM_CHAR_DATE_NONE},
+	{"XFF4", 4, DCH_XFF4, FALSE, FROM_CHAR_DATE_NONE},
+	{"XFF5", 4, DCH_XFF5, FALSE, FROM_CHAR_DATE_NONE},
+	{"XFF6", 4, DCH_XFF6, FALSE, FROM_CHAR_DATE_NONE},
+	{"XFF7", 4, DCH_XFF7, FALSE, FROM_CHAR_DATE_NONE},
+	{"XFF8", 4, DCH_XFF8, FALSE, FROM_CHAR_DATE_NONE},
+	{"XFF9", 4, DCH_XFF9, FALSE, FROM_CHAR_DATE_NONE},
+	{"XFF", 3, DCH_XFF, FALSE, FROM_CHAR_DATE_NONE},
+#endif
 	{"Y,YYY", 5, DCH_Y_YYY, TRUE, FROM_CHAR_DATE_GREGORIAN},	/* Y */
 	{"YYYY", 4, DCH_YYYY, TRUE, FROM_CHAR_DATE_GREGORIAN},
 	{"YYY", 3, DCH_YYY, TRUE, FROM_CHAR_DATE_GREGORIAN},
@@ -779,6 +876,18 @@ static const KeyWord DCH_keywords[] = {
 	{"dd", 2, DCH_DD, TRUE, FROM_CHAR_DATE_GREGORIAN},
 	{"dy", 2, DCH_dy, FALSE, FROM_CHAR_DATE_NONE},
 	{"d", 1, DCH_D, TRUE, FROM_CHAR_DATE_GREGORIAN},
+#ifdef ADB
+	{"ff1", 3, DCH_FF1, TRUE, FROM_CHAR_DATE_NONE},	/* f */
+	{"ff2", 3, DCH_FF2, TRUE, FROM_CHAR_DATE_NONE},
+	{"ff3", 3, DCH_FF3, TRUE, FROM_CHAR_DATE_NONE},
+	{"ff4", 3, DCH_FF4, TRUE, FROM_CHAR_DATE_NONE},
+	{"ff5", 3, DCH_FF5, TRUE, FROM_CHAR_DATE_NONE},
+	{"ff6", 3, DCH_FF6, TRUE, FROM_CHAR_DATE_NONE},
+	{"ff7", 3, DCH_FF7, TRUE, FROM_CHAR_DATE_NONE},
+	{"ff8", 3, DCH_FF8, TRUE, FROM_CHAR_DATE_NONE},
+	{"ff9", 3, DCH_FF9, TRUE, FROM_CHAR_DATE_NONE},
+	{"ff", 2, DCH_FF, TRUE, FROM_CHAR_DATE_NONE},
+#endif
 	{"fx", 2, DCH_FX, FALSE, FROM_CHAR_DATE_NONE},	/* f */
 	{"hh24", 4, DCH_HH24, TRUE, FROM_CHAR_DATE_NONE},	/* h */
 	{"hh12", 4, DCH_HH12, TRUE, FROM_CHAR_DATE_NONE},
@@ -800,12 +909,30 @@ static const KeyWord DCH_keywords[] = {
 	{"pm", 2, DCH_pm, FALSE, FROM_CHAR_DATE_NONE},
 	{"q", 1, DCH_Q, TRUE, FROM_CHAR_DATE_NONE}, /* q */
 	{"rm", 2, DCH_rm, FALSE, FROM_CHAR_DATE_GREGORIAN}, /* r */
+#ifdef ADB
+	{"sssss", 5, DCH_SSSSS, TRUE, FROM_CHAR_DATE_NONE}, /* s */
+#endif
 	{"ssss", 4, DCH_SSSS, TRUE, FROM_CHAR_DATE_NONE},	/* s */
+#ifdef ADB
+	{"scc", 3, DCH_SCC, TRUE, FROM_CHAR_DATE_NONE},
+#endif
 	{"ss", 2, DCH_SS, TRUE, FROM_CHAR_DATE_NONE},
 	{"tz", 2, DCH_tz, FALSE, FROM_CHAR_DATE_NONE},	/* t */
 	{"us", 2, DCH_US, TRUE, FROM_CHAR_DATE_NONE},	/* u */
 	{"ww", 2, DCH_WW, TRUE, FROM_CHAR_DATE_GREGORIAN},	/* w */
 	{"w", 1, DCH_W, TRUE, FROM_CHAR_DATE_GREGORIAN},
+#ifdef ADB
+	{"xff1", 4, DCH_XFF1, TRUE, FROM_CHAR_DATE_NONE},	/* x */
+	{"xff2", 4, DCH_XFF2, TRUE, FROM_CHAR_DATE_NONE},
+	{"xff3", 4, DCH_XFF3, TRUE, FROM_CHAR_DATE_NONE},
+	{"xff4", 4, DCH_XFF4, TRUE, FROM_CHAR_DATE_NONE},
+	{"xff5", 4, DCH_XFF5, TRUE, FROM_CHAR_DATE_NONE},
+	{"xff6", 4, DCH_XFF6, TRUE, FROM_CHAR_DATE_NONE},
+	{"xff7", 4, DCH_XFF7, TRUE, FROM_CHAR_DATE_NONE},
+	{"xff8", 4, DCH_XFF8, TRUE, FROM_CHAR_DATE_NONE},
+	{"xff9", 4, DCH_XFF9, TRUE, FROM_CHAR_DATE_NONE},
+	{"xff", 3, DCH_XFF, TRUE, FROM_CHAR_DATE_NONE},
+#endif
 	{"y,yyy", 5, DCH_Y_YYY, TRUE, FROM_CHAR_DATE_GREGORIAN},	/* y */
 	{"yyyy", 4, DCH_YYYY, TRUE, FROM_CHAR_DATE_GREGORIAN},
 	{"yyy", 3, DCH_YYY, TRUE, FROM_CHAR_DATE_GREGORIAN},
@@ -870,6 +997,27 @@ static const KeyWord NUM_keywords[] = {
  * KeyWords index for DATE-TIME version
  * ----------
  */
+#ifdef ADB
+static const int DCH_index[KeyWord_INDEX_SIZE] = {
+/*
+0	1	2	3	4	5	6	7	8	9
+*/
+	/*---- first 0..31 chars are skipped ----*/
+
+	-1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, DCH_A_D, DCH_B_C, DCH_CC, DCH_DAY, -1,
+	DCH_FF1, -1, DCH_HH24, DCH_IDDD, DCH_J, -1, -1, DCH_MI, -1, DCH_OF,
+	DCH_P_M, DCH_Q, DCH_RM, DCH_SSSSS, DCH_TZ, DCH_US, -1, DCH_WW, DCH_XFF1, DCH_Y_YYY,
+	-1, -1, -1, -1, -1, -1, -1, DCH_a_d, DCH_b_c, DCH_cc,
+	DCH_day, -1, DCH_ff1, -1, DCH_hh24, DCH_iddd, DCH_j, -1, -1, DCH_mi,
+	-1, -1, DCH_p_m, DCH_q, DCH_rm, DCH_sssss, DCH_tz, DCH_us, -1, DCH_ww,
+	DCH_xff1, DCH_y_yyy, -1, -1, -1, -1
+
+	/*---- chars over 126 are skipped ----*/
+};
+#else
 static const int DCH_index[KeyWord_INDEX_SIZE] = {
 /*
 0	1	2	3	4	5	6	7	8	9
@@ -889,7 +1037,7 @@ static const int DCH_index[KeyWord_INDEX_SIZE] = {
 
 	/*---- chars over 126 are skipped ----*/
 };
-
+#endif
 /* ----------
  * KeyWords index for NUMBER version
  * ----------
@@ -944,6 +1092,9 @@ typedef struct NUMProc
 			   *L_positive_sign,
 			   *decimal,
 			   *L_thousands_sep,
+#ifdef ADB
+			   *C_currency_symbol,
+#endif
 			   *L_currency_symbol;
 } NUMProc;
 
@@ -980,6 +1131,21 @@ static int	seq_search(char *name, const char *const *array, int type, int max, i
 static int	from_char_seq_search(int *dest, char **src, const char *const *array, int type, int max, FormatNode *node);
 static void do_to_timestamp(text *date_txt, text *fmt,
 				struct pg_tm *tm, fsec_t *fsec);
+#ifdef ADB
+static void do_to_timestamp_internal(text *date_txt, text *fmt,
+				struct pg_tm * tm, fsec_t *fsec,
+				void (*DCH_from_char_ptr)(FormatNode *, char *, TmFromChar *));
+static void ora_DCH_from_char(FormatNode *node, char *in, TmFromChar *out);
+static void ora_date_check(TmFromChar *out, const char * type);
+
+#define OraCheckYear(out)	ora_date_check((out), "y")
+#define OraCheckMonth(out)	ora_date_check((out), "M")
+#define OraCheckMDay(out)	ora_date_check((out), "dm")
+#define OraCheckYDay(out)	ora_date_check((out), "dy")
+#define OraCheckHour(out)	ora_date_check((out), "h")
+#define OraCheckMinute(out)	ora_date_check((out), "m")
+#define OraCheckSecond(out)	ora_date_check((out), "s")
+#endif
 static char *fill_str(char *str, int c, int max);
 static FormatNode *NUM_cache(int len, NUMDesc *Num, text *pars_str, bool *shouldFree);
 static char *int_to_roman(int number);
@@ -2495,6 +2661,154 @@ DCH_to_char(FormatNode *node, bool is_interval, TmToChar *in, char *out, Oid col
 					str_numth(s, s, S_TH_TYPE(n->suffix));
 				s += strlen(s);
 				break;
+#ifdef ADB
+			case DCH_XFF1:
+			case DCH_FF1:
+#ifdef HAVE_INT64_TIMESTAMP
+				sprintf(s, "%s%01d",
+					(n->key->id == DCH_XFF1) ? RADIX : "",
+					(int)(in->fsec / pow(10, 5)));
+#else
+				/* No rint() because we can't overflow and we might print US */
+				sprintf(s, "%s%01d",
+					(n->key->id == DCH_XFF1) ? RADIX : "",
+					(int)(in->fsec * pow(10, 1)));
+#endif
+				if (S_THth(n->suffix))
+					str_numth(s, s, S_TH_TYPE(n->suffix));
+				s += strlen(s);
+				break;
+			case DCH_XFF2:
+			case DCH_FF2:
+#ifdef HAVE_INT64_TIMESTAMP
+				sprintf(s, "%s%02d",
+					(n->key->id == DCH_XFF2) ? RADIX : "",
+					(int)(in->fsec / pow(10, 4)));
+#else
+				/* No rint() because we can't overflow and we might print US */
+				sprintf(s, "%s%02d",
+					(n->key->id == DCH_XFF2) ? RADIX : "",
+					(int)(in->fsec * pow(10, 2)));
+#endif
+				if (S_THth(n->suffix))
+					str_numth(s, s, S_TH_TYPE(n->suffix));
+				s += strlen(s);
+				break;
+			case DCH_XFF3:
+			case DCH_FF3:
+#ifdef HAVE_INT64_TIMESTAMP
+				sprintf(s, "%s%03d",
+					(n->key->id == DCH_XFF3) ? RADIX : "",
+					(int)(in->fsec / pow(10, 3)));
+#else
+				/* No rint() because we can't overflow and we might print US */
+				sprintf(s, "%s%03d",
+					(n->key->id == DCH_XFF3) ? RADIX : "",
+					(int)(in->fsec * pow(10, 3)));
+#endif
+				if (S_THth(n->suffix))
+					str_numth(s, s, S_TH_TYPE(n->suffix));
+				s += strlen(s);
+				break;
+			case DCH_XFF4:
+			case DCH_FF4:
+#ifdef HAVE_INT64_TIMESTAMP
+				sprintf(s, "%s%04d",
+					(n->key->id == DCH_XFF4) ? RADIX : "",
+					(int)(in->fsec / pow(10, 2)));
+#else
+				/* No rint() because we can't overflow and we might print US */
+				sprintf(s, "%s%04d",
+					(n->key->id == DCH_XFF4) ? RADIX : "",
+					(int)(in->fsec * pow(10, 4)));
+#endif
+				if (S_THth(n->suffix))
+					str_numth(s, s, S_TH_TYPE(n->suffix));
+				s += strlen(s);
+				break;
+			case DCH_XFF5:
+			case DCH_FF5:
+#ifdef HAVE_INT64_TIMESTAMP
+				sprintf(s, "%s%05d",
+					(n->key->id == DCH_XFF5) ? RADIX : "",
+					(int)(in->fsec / pow(10, 1)));
+#else
+				/* No rint() because we can't overflow and we might print US */
+				sprintf(s, "%s%05d",
+					(n->key->id == DCH_XFF5) ? RADIX : "",
+					(int)(in->fsec * pow(10, 5)));
+#endif
+				if (S_THth(n->suffix))
+					str_numth(s, s, S_TH_TYPE(n->suffix));
+				s += strlen(s);
+				break;
+			case DCH_XFF:
+			case DCH_FF:
+			case DCH_XFF6:
+			case DCH_FF6:
+#ifdef HAVE_INT64_TIMESTAMP
+				sprintf(s, "%s%06d",
+					(n->key->id == DCH_XFF6 || n->key->id == DCH_XFF) ? RADIX : "",
+					(int)in->fsec);
+#else
+				/* No rint() because we can't overflow and we might print US */
+				sprintf(s, "%s%06d",
+					(n->key->id == DCH_XFF6 || n->key->id == DCH_XFF) ? RADIX : "",
+					(int)(in->fsec * pow(10, 6)));
+#endif
+				if (S_THth(n->suffix))
+					str_numth(s, s, S_TH_TYPE(n->suffix));
+				s += strlen(s);
+				break;
+			case DCH_XFF7:
+			case DCH_FF7:
+#ifdef HAVE_INT64_TIMESTAMP
+				sprintf(s, "%s%07d",
+					(n->key->id == DCH_XFF7) ? RADIX : "",
+					(int)(in->fsec * pow(10, 1)));
+#else
+				/* No rint() because we can't overflow and we might print US */
+				sprintf(s, "%s%07d",
+					(n->key->id == DCH_XFF7) ? RADIX : "",
+					(int)(in->fsec * pow(10, 7)));
+#endif
+				if (S_THth(n->suffix))
+					str_numth(s, s, S_TH_TYPE(n->suffix));
+				s += strlen(s);
+				break;
+			case DCH_XFF8:
+			case DCH_FF8:
+#ifdef HAVE_INT64_TIMESTAMP
+				sprintf(s, "%s%08d",
+					(n->key->id == DCH_XFF8) ? RADIX : "",
+					(int)(in->fsec * pow(10, 2)));
+#else
+				/* No rint() because we can't overflow and we might print US */
+				sprintf(s, "%s%08d",
+					(n->key->id == DCH_XFF8) ? RADIX : "",
+					(int)(in->fsec * pow(10, 8)));
+#endif
+				if (S_THth(n->suffix))
+					str_numth(s, s, S_TH_TYPE(n->suffix));
+				s += strlen(s);
+				break;
+			case DCH_XFF9:
+			case DCH_FF9:
+#ifdef HAVE_INT64_TIMESTAMP
+				sprintf(s, "%s%09d",
+					(n->key->id == DCH_XFF9) ? RADIX : "",
+					(int)(in->fsec * pow(10, 3)));
+#else
+				/* No rint() because we can't overflow and we might print US */
+				sprintf(s, "%s%09d",
+					(n->key->id == DCH_XFF9) ? RADIX : "",
+					(int)(in->fsec * pow(10, 9)));
+#endif
+				if (S_THth(n->suffix))
+					str_numth(s, s, S_TH_TYPE(n->suffix));
+				s += strlen(s);
+				break;
+#endif /* ADB */
 			case DCH_MS:		/* millisecond */
 				sprintf(s, "%03d", (int) (in->fsec / INT64CONST(1000)));
 				if (S_THth(n->suffix))
@@ -2507,6 +2821,9 @@ DCH_to_char(FormatNode *node, bool is_interval, TmToChar *in, char *out, Oid col
 					str_numth(s, s, S_TH_TYPE(n->suffix));
 				s += strlen(s);
 				break;
+#ifdef ADB
+			case DCH_SSSSS:
+#endif
 			case DCH_SSSS:
 				sprintf(s, "%d", tm->tm_hour * SECS_PER_HOUR +
 						tm->tm_min * SECS_PER_MINUTE +
@@ -2854,6 +3171,9 @@ DCH_to_char(FormatNode *node, bool is_interval, TmToChar *in, char *out, Oid col
 					str_numth(s, s, S_TH_TYPE(n->suffix));
 				s += strlen(s);
 				break;
+#ifdef ADB
+			case DCH_SCC:
+#endif
 			case DCH_CC:
 				if (is_interval)	/* straight calculation */
 					i = tm->tm_year / 100;
@@ -3613,6 +3933,16 @@ to_date(PG_FUNCTION_ARGS)
 static void
 do_to_timestamp(text *date_txt, text *fmt,
 				struct pg_tm *tm, fsec_t *fsec)
+#ifdef ADB
+{
+	do_to_timestamp_internal(date_txt, fmt, tm, fsec, DCH_from_char);
+}
+
+static void
+do_to_timestamp_internal(text *date_txt, text *fmt,
+				struct pg_tm * tm, fsec_t *fsec,
+				void (*DCH_from_char_ptr)(FormatNode *, char *, TmFromChar *))
+#endif
 {
 	FormatNode *format;
 	TmFromChar	tmfc;
@@ -3665,7 +3995,11 @@ do_to_timestamp(text *date_txt, text *fmt,
 		/* dump_index(DCH_keywords, DCH_index); */
 #endif
 
+#ifdef ADB
+		(*DCH_from_char_ptr)(format, date_str, &tmfc);
+#else
 		DCH_from_char(format, date_str, &tmfc);
+#endif
 
 		pfree(fmt_str);
 		if (!incache)
@@ -4184,6 +4518,16 @@ NUM_prepare_locale(NUMProc *Np)
 		else
 			Np->L_thousands_sep = ".";
 
+#ifdef ADB
+		/*
+		 * ISO currency symbol
+		 */
+		if (lconv->int_curr_symbol && *lconv->int_curr_symbol)
+			Np->C_currency_symbol = lconv->int_curr_symbol;
+		else
+			Np->C_currency_symbol = " ";
+#endif
+
 		/*
 		 * Currency symbol
 		 */
@@ -4202,6 +4546,9 @@ NUM_prepare_locale(NUMProc *Np)
 		Np->decimal = ".";
 
 		Np->L_thousands_sep = ",";
+#ifdef ADB
+		Np->C_currency_symbol = " ";
+#endif
 		Np->L_currency_symbol = " ";
 	}
 }
@@ -4912,7 +5259,17 @@ NUM_processor(FormatNode *node, NUMDesc *Num, char *inout,
 						Np->inout_p += strlen(Np->L_thousands_sep) - 1;
 					}
 					break;
-
+#ifdef ADB
+				case NUM_C:
+					if (Np->is_to_char)
+					{
+						strcpy(Np->inout_p, Np->C_currency_symbol);
+						Np->inout_p += strlen(Np->inout_p) - 1;
+					}
+					else
+						Np->inout_p += strlen(Np->C_currency_symbol) - 1;
+					break;
+#endif
 				case NUM_L:
 					if (Np->is_to_char)
 					{
@@ -5692,3 +6049,549 @@ float8_to_char(PG_FUNCTION_ARGS)
 	NUM_TOCHAR_finish;
 	PG_RETURN_TEXT_P(result);
 }
+
+#ifdef ADB
+/* ---------------------
+ * ORA_TO_TIMESTAMP()
+ *
+ * Make Timestamp from date_str which is formatted at argument 'fmt'.
+ * Here we match some checks by oracle grammar.
+ * ---------------------
+ */
+Datum
+ora_to_timestamp(text *date_txt, text *fmt)
+{
+	Timestamp	result;
+	int			tz;
+	struct pg_tm tm;
+	fsec_t		fsec;
+
+	AssertArg(fmt);
+
+	do_to_timestamp_internal(date_txt, fmt, &tm, &fsec, ora_DCH_from_char);
+
+	tz = DetermineTimeZoneOffset(&tm, session_timezone);
+
+	if (tm2timestamp(&tm, fsec, &tz, &result) != 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				 errmsg("timestamp out of range")));
+
+	PG_RETURN_TIMESTAMP(result);
+}
+
+static void
+ora_DCH_from_char(FormatNode *node, char *in, TmFromChar *out)
+{
+	FormatNode *n;
+	char	   *s;
+	int 		len,
+				value;
+	bool		fx_mode = false;
+
+	for (n = node, s = in; n->type != NODE_TYPE_END && *s != '\0'; n++)
+	{
+		if (n->type != NODE_TYPE_ACTION)
+		{
+			/*
+			 * Separator, so consume one character from input string.  Notice
+			 * we don't insist that the consumed character match the format's
+			 * character.
+			 */
+			s++;
+			continue;
+		}
+
+		/* Ignore spaces before fields when not in FX (fixed width) mode */
+		if (!fx_mode && n->key->id != DCH_FX)
+		{
+			while (*s != '\0' && isspace((unsigned char) *s))
+				s++;
+		}
+
+		from_char_set_mode(out, n->key->date_mode);
+
+		switch (n->key->id)
+		{
+			case DCH_FX:
+				fx_mode = true;
+				break;
+			case DCH_A_M:
+			case DCH_P_M:
+			case DCH_a_m:
+			case DCH_p_m:
+				from_char_seq_search(&value, &s, ampm_strings_long,
+									 ALL_UPPER, n->key->len, n);
+				from_char_set_int(&out->pm, value % 2, n);
+				out->clock = CLOCK_12_HOUR;
+				break;
+			case DCH_AM:
+			case DCH_PM:
+			case DCH_am:
+			case DCH_pm:
+				from_char_seq_search(&value, &s, ampm_strings,
+									 ALL_UPPER, n->key->len, n);
+				from_char_set_int(&out->pm, value % 2, n);
+				out->clock = CLOCK_12_HOUR;
+				break;
+			case DCH_HH:
+			case DCH_HH12:
+				from_char_parse_int_len(&out->hh, &s, 2, n);
+				out->clock = CLOCK_12_HOUR;
+				SKIP_THth(s, n->suffix);
+				OraCheckHour(out);
+				break;
+			case DCH_HH24:
+				from_char_parse_int_len(&out->hh, &s, 2, n);
+				SKIP_THth(s, n->suffix);
+				OraCheckHour(out);
+				break;
+			case DCH_MI:
+				from_char_parse_int(&out->mi, &s, n);
+				SKIP_THth(s, n->suffix);
+				OraCheckMinute(out);
+				break;
+			case DCH_SS:
+				from_char_parse_int(&out->ss, &s, n);
+				SKIP_THth(s, n->suffix);
+				OraCheckSecond(out);
+				break;
+			case DCH_MS:		/* millisecond */
+				len = from_char_parse_int_len(&out->ms, &s, 3, n);
+
+				/*
+				 * 25 is 0.25 and 250 is 0.25 too; 025 is 0.025 and not 0.25
+				 */
+				out->ms *= len == 1 ? 100 :
+					len == 2 ? 10 : 1;
+
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_US:		/* microsecond */
+				len = from_char_parse_int_len(&out->us, &s, 6, n);
+
+				out->us *= len == 1 ? 100000 :
+					len == 2 ? 10000 :
+					len == 3 ? 1000 :
+					len == 4 ? 100 :
+					len == 5 ? 10 : 1;
+
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_SSSS:
+				from_char_parse_int(&out->ssss, &s, n);
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_tz:
+			case DCH_TZ:
+			case DCH_OF:
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("\"TZ\"/\"tz\"/\"OF\" format patterns are not supported in to_date")));
+			case DCH_A_D:
+			case DCH_B_C:
+			case DCH_a_d:
+			case DCH_b_c:
+				from_char_seq_search(&value, &s, adbc_strings_long,
+									 ALL_UPPER, n->key->len, n);
+				from_char_set_int(&out->bc, value % 2, n);
+				break;
+			case DCH_AD:
+			case DCH_BC:
+			case DCH_ad:
+			case DCH_bc:
+				from_char_seq_search(&value, &s, adbc_strings,
+									 ALL_UPPER, n->key->len, n);
+				from_char_set_int(&out->bc, value % 2, n);
+				break;
+			case DCH_MONTH:
+			case DCH_Month:
+			case DCH_month:
+				{
+					volatile bool err = false;
+					PG_TRY_HOLD();
+					{
+						from_char_seq_search(&value, &s, months_full, ONE_UPPER,
+									 MAX_MONTH_LEN, n);
+					} PG_CATCH_HOLD();
+					{
+						errdump();
+						err = true;
+					} PG_END_TRY_HOLD();
+
+					if (err)
+						from_char_seq_search(&value, &s, months, ONE_UPPER,
+											MAX_MON_LEN, n);
+
+					from_char_set_int(&out->mm, value + 1, n);
+					OraCheckMonth(out);
+				}
+				break;
+			case DCH_MON:
+			case DCH_Mon:
+			case DCH_mon:
+				from_char_seq_search(&value, &s, months, ONE_UPPER,
+									 MAX_MON_LEN, n);
+				/*
+				 * try to ignore the rest characters if we
+				 * get the short month
+				 */
+				{
+					const char *p = months_full[value] + 3;
+					size_t len = strlen(p);
+					if (strncmp(s, p, len) == 0)
+						s += len;
+				}
+				from_char_set_int(&out->mm, value + 1, n);
+				OraCheckMonth(out);
+				break;
+			case DCH_MM:
+				from_char_parse_int(&out->mm, &s, n);
+				SKIP_THth(s, n->suffix);
+				OraCheckMonth(out);
+				break;
+			case DCH_DAY:
+			case DCH_Day:
+			case DCH_day:
+				from_char_seq_search(&value, &s, days, ONE_UPPER,
+									 MAX_DAY_LEN, n);
+				from_char_set_int(&out->d, value, n);
+				out->d++;
+				break;
+			case DCH_DY:
+			case DCH_Dy:
+			case DCH_dy:
+				from_char_seq_search(&value, &s, days, ONE_UPPER,
+									 MAX_DY_LEN, n);
+				from_char_set_int(&out->d, value, n);
+				out->d++;
+				break;
+			case DCH_DDD:
+				from_char_parse_int(&out->ddd, &s, n);
+				SKIP_THth(s, n->suffix);
+				OraCheckYDay(out);
+				break;
+			case DCH_IDDD:
+				from_char_parse_int_len(&out->ddd, &s, 3, n);
+				SKIP_THth(s, n->suffix);
+				OraCheckYDay(out);
+				break;
+			case DCH_DD:
+				from_char_parse_int(&out->dd, &s, n);
+				SKIP_THth(s, n->suffix);
+				OraCheckMDay(out);
+				break;
+			case DCH_D:
+				from_char_parse_int(&out->d, &s, n);
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_ID:
+				from_char_parse_int_len(&out->d, &s, 1, n);
+				/* Shift numbering to match Gregorian where Sunday = 1 */
+				if (++out->d > 7)
+					out->d = 1;
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_WW:
+			case DCH_IW:
+				from_char_parse_int(&out->ww, &s, n);
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_Q:
+
+				/*
+				 * We ignore 'Q' when converting to date because it is unclear
+				 * which date in the quarter to use, and some people specify
+				 * both quarter and month, so if it was honored it might
+				 * conflict with the supplied month. That is also why we don't
+				 * throw an error.
+				 *
+				 * We still parse the source string for an integer, but it
+				 * isn't stored anywhere in 'out'.
+				 */
+				from_char_parse_int((int *) NULL, &s, n);
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_CC:
+				from_char_parse_int(&out->cc, &s, n);
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_Y_YYY:
+				{
+					int 		matched,
+								years,
+								millennia,
+								nch;
+
+					matched = sscanf(s, "%d,%03d%n", &millennia, &years, &nch);
+					if (matched < 2)
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_DATETIME_FORMAT),
+							  errmsg("invalid input string for \"Y,YYY\"")));
+					years += (millennia * 1000);
+					from_char_set_int(&out->year, years, n);
+					out->yysz = 4;
+					s += nch;
+					SKIP_THth(s, n->suffix);
+					OraCheckYear(out);
+				}
+				break;
+			case DCH_YYYY:
+			case DCH_IYYY:
+				from_char_parse_int(&out->year, &s, n);
+				out->yysz = 4;
+				SKIP_THth(s, n->suffix);
+				OraCheckYear(out);
+				break;
+			case DCH_YYY:
+			case DCH_IYY:
+				if (from_char_parse_int(&out->year, &s, n) < 4)
+					out->year = adjust_partial_year_to_2020(out->year);
+				out->yysz = 3;
+				SKIP_THth(s, n->suffix);
+				OraCheckYear(out);
+				break;
+			case DCH_YY:
+			case DCH_IY:
+				if (from_char_parse_int(&out->year, &s, n) < 4)
+					out->year = adjust_partial_year_to_2020(out->year);
+				out->yysz = 2;
+				SKIP_THth(s, n->suffix);
+				OraCheckYear(out);
+				break;
+			case DCH_Y:
+			case DCH_I:
+				if (from_char_parse_int(&out->year, &s, n) < 4)
+					out->year = adjust_partial_year_to_2020(out->year);
+				out->yysz = 1;
+				SKIP_THth(s, n->suffix);
+				OraCheckYear(out);
+				break;
+			case DCH_RM:
+				from_char_seq_search(&value, &s, rm_months_upper,
+									 ALL_UPPER, MAX_RM_LEN, n);
+				from_char_set_int(&out->mm, MONTHS_PER_YEAR - value, n);
+				OraCheckMonth(out);
+				break;
+			case DCH_rm:
+				from_char_seq_search(&value, &s, rm_months_lower,
+									 ALL_LOWER, MAX_RM_LEN, n);
+				from_char_set_int(&out->mm, MONTHS_PER_YEAR - value, n);
+				OraCheckMonth(out);
+				break;
+			case DCH_W:
+				from_char_parse_int(&out->w, &s, n);
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_J:
+				from_char_parse_int(&out->j, &s, n);
+				SKIP_THth(s, n->suffix);
+				break;
+			default:
+				{
+					if ((n->key->id >= DCH_XFF1 && n->key->id <= DCH_XFF) ||
+						(n->key->id >= DCH_FF1 && n->key->id <= DCH_FF))
+					{
+						int			ns = 0;		/* nanosecond */
+						int			max_precision = 0;
+
+						if (n->key->id >= DCH_XFF1 && n->key->id <= DCH_XFF)
+						{
+							/* skip radix characters */
+							if (!isdigit(*s))
+								s++;
+							if (n->key->id < DCH_XFF)
+								max_precision = n->key->id - DCH_XFF1 + 1;
+						} else
+						if (n->key->id >= DCH_FF1 && n->key->id <= DCH_FF)
+						{
+							if (n->key->id < DCH_FF)
+								max_precision = n->key->id - DCH_FF1 + 1;
+						}
+
+						len = from_char_parse_int_len(&ns, &s, 9, n);
+						if (max_precision > 0 && len > max_precision)
+							ereport(ERROR,
+									(errcode(ERRCODE_INVALID_DATETIME_FORMAT),
+									errmsg("the fractional seconds must be between 0 and 999999999")));
+						switch (len)
+						{
+							case 1:
+								out->us = ns * 100000;
+								break;
+							case 2:
+								out->us = ns * 10000;
+								break;
+							case 3:
+								out->us = ns * 1000;
+								break;
+							case 4:
+								out->us = ns * 100;
+								break;
+							case 5:
+								out->us = ns * 10;
+								break;
+							case 6:
+								out->us = ns;
+								break;
+							case 7:
+								elog(WARNING,
+									"TIMESTAMP(7) precision reduced to maximum allowed, 6");
+								out->us = ns / 10;
+								break;
+							case 8:
+								elog(WARNING,
+									"TIMESTAMP(8) precision reduced to maximum allowed, 6");
+								out->us = ns / 100;
+								break;
+							case 9:
+								elog(WARNING,
+									"TIMESTAMP(9) precision reduced to maximum allowed, 6");
+								out->us = ns / 1000;
+								break;
+							default:
+								ereport(ERROR,
+									(errcode(ERRCODE_INVALID_DATETIME_FORMAT),
+									errmsg("date format picture ends before converting entire input string")));
+								break;
+						}
+					}
+				}
+				break;
+		}
+	}
+
+	/*
+	 * It means format ends before input string.
+	 */
+	if (*s != '\0')
+		ereport(ERROR,
+			(errcode(ERRCODE_INVALID_DATETIME_FORMAT),
+			errmsg("Date format picture ends before converting entire input string")));
+
+	/*
+	 * Just like oracle, set default year and month,
+	 * Then we can check day, wday and yday.
+	 */
+	if (out->year == 0 || (out->mm == 0 && out->ddd == 0))
+	{
+		time_t now = time(NULL);
+		struct tm * tm = localtime(&now);
+
+		if (out->year == 0)
+			out->year = tm->tm_year + 1900;
+		if (out->mm == 0 && out->ddd == 0)
+			out->mm = tm->tm_mon + 1;
+	}
+
+	/*
+	 * Check day of month again.
+	 */
+	if (out->dd > 0)
+	{
+		static const int mdays[2][13]= {
+			{0,31,28,31,30,31,30,31,31,30,31,30,31},
+			{0,31,29,31,30,31,30,31,31,30,31,30,31}
+			};
+		int maxmday = mdays[isleap(out->year)][out->mm];
+		if (out->dd > maxmday)
+			ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				errmsg("the day must be between the first and the last day of the month")));
+	}
+
+	/* Check day of year again */
+	if (out->ddd > 0)
+	{
+		if (out->ddd > (isleap(out->year) ? 366 : 365))
+			ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				errmsg("day of year must be between 1 and 365 (366 for leap year)")));
+	}
+	/* Check day of week again (do nothing, see above) */
+}
+
+static void ora_date_check(TmFromChar *out, const char * type)
+{
+	AssertArg(out && type);
+
+	switch (type[0])
+	{
+		case 'y':
+			/* check year */
+			if (out->year == 0)
+				ereport(ERROR,
+					(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+					errmsg("not a valid year: \"%d\"", out->year)));
+			break;
+		case 'M':
+			/* check month */
+			if (out->mm	< 1 || out->mm > 12)
+				ereport(ERROR,
+					(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+					errmsg("not a valid month: \"%d\"", out->mm)));
+			break;
+		case 'd':
+			/* check day */
+			{
+				switch (type[1])
+				{
+					case 'm':
+						/* check day of month just to make sure it is positive */
+						if (out->dd < 1)
+							ereport(ERROR,
+								(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+								errmsg("not a valid day: \"%d\"", out->dd)));
+						break;
+					case 'y':
+						/* check day of year just to make sure it is positive */
+						if (out->ddd < 1)
+							ereport(ERROR,
+								(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+								errmsg("day of year must be between 1 and 365 (366 for leap year)")));
+						break;
+					default:
+						Assert(0);
+						break;
+				}
+			}
+			break;
+		case 'h':
+			/* check hour */
+			if (out->clock == CLOCK_12_HOUR)
+			{
+				if (out->hh < 1 || out->hh > HOURS_PER_DAY / 2)
+					ereport(ERROR,
+						(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+						errmsg("hour \"%d\" is invalid for the 12-hour clock",
+						out->hh),
+						errhint("Use the 24-hour clock, or give an hour between 1 and 12.")));
+			} else
+			{
+				if (out->hh < 0 || out->hh >= HOURS_PER_DAY)
+					ereport(ERROR,
+						(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+						errmsg("hour \"%d\" is invalid for the 24-hour clock",
+						out->hh)));
+			}
+			break;
+		case 'm':
+			/* check minute */
+			if (out->mi < 0 || out->mi > MINS_PER_HOUR)
+				ereport(ERROR,
+					(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+					errmsg("not a valid minute: \"%d\"", out->mi)));
+			break;
+		case 's':
+			/* check second */
+			if (out->ss < 0 || out->ss > SECS_PER_MINUTE)
+				ereport(ERROR,
+					(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+					errmsg("not a valid second: \"%d\"", out->ss)));
+			break;
+		default:
+			/* TODO: check  others */
+			break;
+	}
+}
+#endif

@@ -19,7 +19,11 @@
 #ifndef PG_ATTRIBUTE_H
 #define PG_ATTRIBUTE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_attribute definition.  cpp turns this into
@@ -192,6 +196,7 @@ typedef FormData_pg_attribute *Form_pg_attribute;
  */
 
 #define Natts_pg_attribute				22
+DECLARE_NATTS(Natts_pg_attribute);
 #define Anum_pg_attribute_attrelid		1
 #define Anum_pg_attribute_attname		2
 #define Anum_pg_attribute_atttypid		3

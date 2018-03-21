@@ -289,6 +289,14 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 				  WAIT_EVENT_SYNC_REP);
 	}
 
+#ifdef DEBUG_ADB
+	if (!SHMQueueIsDetached(&(MyProc->syncRepLinks)))
+		adb_ereport(LOG,
+			(errmsg("[ADB] It is impossible. [lsn] %X/%X [prev] %p [next] %p",
+				(uint32) (MyProc->waitLSN >> 32), (uint32) MyProc->waitLSN,
+				MyProc->syncRepLinks.prev, MyProc->syncRepLinks.next)));
+#endif
+
 	/*
 	 * WalSender has checked our LSN and has removed us from queue. Clean up
 	 * state and leave.  It's OK to reset these shared memory fields without
@@ -344,6 +352,13 @@ SyncRepQueueInsert(int mode)
 		SHMQueueInsertAfter(&(proc->syncRepLinks), &(MyProc->syncRepLinks));
 	else
 		SHMQueueInsertAfter(&(WalSndCtl->SyncRepQueue[mode]), &(MyProc->syncRepLinks));
+
+#ifdef DEBUG_ADB
+	adb_ereport(LOG,
+		(errmsg("[ADB] Insert [lsn] %X/%X [prev] %p [next] %p",
+			(uint32) (MyProc->waitLSN >> 32), (uint32) MyProc->waitLSN,
+			MyProc->syncRepLinks.prev, MyProc->syncRepLinks.next)));
+#endif
 }
 
 /*
@@ -1042,6 +1057,12 @@ SyncRepWakeQueue(bool all, int mode)
 		 */
 		thisproc->syncRepState = SYNC_REP_WAIT_COMPLETE;
 
+#ifdef DEBUG_ADB
+		adb_ereport(LOG,
+			(errmsg("[ADB] Delete [lsn] %X/%X [prev] %p [next] %p",
+				(uint32) (thisproc->waitLSN >> 32), (uint32) thisproc->waitLSN,
+				thisproc->syncRepLinks.prev, thisproc->syncRepLinks.next)));
+#endif
 		/*
 		 * Wake only when we have set state and removed from queue.
 		 */

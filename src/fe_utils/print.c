@@ -685,6 +685,11 @@ print_aligned_text(const printTableContent *cont, FILE *fout, bool is_pager)
 					nl_lines,
 					bytes_required;
 
+#ifdef ADB
+		/* fix:Division by zero */
+		Assert(col_count > 0);
+#endif
+
 		pg_wcssize((const unsigned char *) *ptr, strlen(*ptr), encoding,
 				   &width, &nl_lines, &bytes_required);
 
@@ -1342,6 +1347,10 @@ print_aligned_vertical(const printTableContent *cont,
 		if (!opt_tuples_only && cont->title)
 			fprintf(fout, "%s\n", cont->title);
 	}
+
+#ifdef ADB
+	Assert(cont->ncolumns > 0);
+#endif
 
 	/*
 	 * Choose target output width: \pset columns, or $COLUMNS, or ioctl
@@ -2276,6 +2285,10 @@ print_latex_text(const printTableContent *cont, FILE *fout)
 		}
 	}
 
+#ifdef ADB
+	Assert(cont->ncolumns > 0);
+#endif
+
 	/* print cells */
 	for (i = 0, ptr = cont->cells; *ptr; i++, ptr++)
 	{
@@ -2451,6 +2464,9 @@ print_latex_longtable_text(const printTableContent *cont, FILE *fout)
 		}
 	}
 
+#ifdef ADB
+	Assert(cont->ncolumns > 0);
+#endif
 	/* print cells */
 	for (i = 0, ptr = cont->cells; *ptr; i++, ptr++)
 	{
@@ -2638,6 +2654,10 @@ print_troff_ms_text(const printTableContent *cont, FILE *fout)
 			fputs("\n_\n", fout);
 		}
 	}
+
+#ifdef ADB
+	Assert(cont->ncolumns > 0);
+#endif
 
 	/* print cells */
 	for (i = 0, ptr = cont->cells; *ptr; i++, ptr++)

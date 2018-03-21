@@ -2,7 +2,7 @@
 -- TRIGGERS
 --
 
-create table pkeys (pkey1 int4 not null, pkey2 text not null);
+create table pkeys (pkey1 int4 not null, pkey2 text not null) distribute by roundrobin;
 create table fkeys (fkey1 int4, fkey2 text, fkey3 int);
 create table fkeys2 (fkey21 int4, fkey22 text, pkey23 int not null);
 
@@ -134,6 +134,7 @@ DROP TABLE fkeys2;
 create sequence ttdummy_seq increment 10 start 0 minvalue 0;
 
 create table tttest (
+    id          int4,
 	price_id	int4,
 	price_val	int4,
 	price_on	int4,
@@ -152,36 +153,36 @@ create trigger ttserial
 	execute procedure
 	autoinc (price_on, ttdummy_seq);
 
-insert into tttest values (1, 1, null);
-insert into tttest values (2, 2, null);
-insert into tttest values (3, 3, 0);
+insert into tttest values (1, 1, 1, null);
+insert into tttest values (2, 2, 2, null);
+insert into tttest values (3, 3, 3, 0);
 
-select * from tttest;
+select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
 delete from tttest where price_id = 2;
-select * from tttest;
+select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
 -- what do we see ?
 
 -- get current prices
-select * from tttest where price_off = 999999;
+select price_id, price_val, price_on, price_off from tttest where price_off = 999999 order by 1,2,3,4;
 
 -- change price for price_id == 3
 update tttest set price_val = 30 where price_id = 3;
-select * from tttest;
+select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
 
 -- now we want to change pric_id in ALL tuples
 -- this gets us not what we need
 update tttest set price_id = 5 where price_id = 3;
-select * from tttest;
+select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
 
 -- restore data as before last update:
 select set_ttdummy(0);
 delete from tttest where price_id = 5;
 update tttest set price_off = 999999 where price_val = 30;
-select * from tttest;
+select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
 
 -- and try change price_id now!
 update tttest set price_id = 5 where price_id = 3;
-select * from tttest;
+select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
 -- isn't it what we need ?
 
 select set_ttdummy(1);
@@ -193,11 +194,11 @@ update tttest set price_on = -1 where price_id = 1;
 -- try in this way
 select set_ttdummy(0);
 update tttest set price_on = -1 where price_id = 1;
-select * from tttest;
+select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
 -- isn't it what we need ?
 
 -- get price for price_id == 5 as it was @ "date" 35
-select * from tttest where price_on <= 35 and price_off > 35 and price_id = 5;
+select price_id, price_val, price_on, price_off from tttest where price_on <= 35 and price_off > 35 and price_id = 5 order by 1,2,3,4;
 
 drop table tttest;
 drop sequence ttdummy_seq;
@@ -208,7 +209,7 @@ drop sequence ttdummy_seq;
 
 CREATE TABLE log_table (tstamp timestamp default timeofday()::timestamp);
 
-CREATE TABLE main_table (a int unique, b int);
+CREATE TABLE main_table (a int unique, b int) distribute by replication;
 
 COPY main_table (a,b) FROM stdin;
 5	10
@@ -321,7 +322,7 @@ UPDATE main_table SET b = 10;
 -- Test case for bug with BEFORE trigger followed by AFTER trigger with WHEN
 --
 
-CREATE TABLE some_t (some_col boolean NOT NULL);
+CREATE TABLE some_t (some_col boolean NOT NULL) distribute by replication;
 CREATE FUNCTION dummy_update_func() RETURNS trigger AS $$
 BEGIN
   RAISE NOTICE 'dummy_update_func(%) called: action = %, old = %, new = %',
@@ -404,13 +405,13 @@ insert into trigtest default values;
 insert into trigtest2 values(1);
 insert into trigtest2 values(2);
 delete from trigtest where i=2;
-select * from trigtest2;
+select * from trigtest2 order by 1;
 alter table trigtest disable trigger all;
 delete from trigtest where i=1;
-select * from trigtest2;
+select * from trigtest2 order by 1;
 -- ensure we still insert, even when all triggers are disabled
 insert into trigtest default values;
-select *  from trigtest;
+select *  from trigtest order by 1;
 drop table trigtest2;
 drop table trigtest;
 
@@ -551,7 +552,7 @@ CREATE TABLE serializable_update_tab (
 	id int,
 	filler  text,
 	description text
-);
+) distribute by replication;
 
 CREATE TRIGGER serializable_update_trig BEFORE UPDATE ON serializable_update_tab
 	FOR EACH ROW EXECUTE PROCEDURE serializable_update_trig();
@@ -571,12 +572,12 @@ DROP TABLE serializable_update_tab;
 CREATE TABLE min_updates_test (
 	f1	text,
 	f2 int,
-	f3 int);
+	f3 int) distribute by roundrobin;
 
 CREATE TABLE min_updates_test_oids (
 	f1	text,
 	f2 int,
-	f3 int) WITH OIDS;
+	f3 int) WITH OIDS distribute by roundrobin;
 
 INSERT INTO min_updates_test VALUES ('a',1,2),('b','2',null);
 
@@ -606,9 +607,9 @@ UPDATE min_updates_test_oids SET f3 = 2 WHERE f3 is null;
 
 \set QUIET true
 
-SELECT * FROM min_updates_test;
+SELECT * FROM min_updates_test ORDER BY 1,2,3;
 
-SELECT * FROM min_updates_test_oids;
+SELECT * FROM min_updates_test_oids ORDER BY 1,2,3;
 
 DROP TABLE min_updates_test;
 
@@ -780,7 +781,7 @@ CREATE TABLE country_table (
     country_id        serial primary key,
     country_name    text unique not null,
     continent        text not null
-);
+) distribute by replication;
 
 INSERT INTO country_table (country_name, continent)
     VALUES ('Japan', 'Asia'),
@@ -959,7 +960,7 @@ UPDATE city_view v SET population = 599657
 
 \set QUIET true
 
-SELECT * FROM city_view;
+SELECT * FROM city_view order by 1;
 
 DROP TABLE city_table CASCADE;
 DROP TABLE country_table;
@@ -1135,7 +1136,7 @@ create temp table self_ref_trigger (
     parent int references self_ref_trigger,
     data text,
     nchildren int not null default 0
-);
+) distribute by replication;
 
 create function self_ref_trigger_ins_func()
   returns trigger language plpgsql as

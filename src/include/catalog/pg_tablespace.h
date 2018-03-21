@@ -19,7 +19,11 @@
 #ifndef PG_TABLESPACE_H
 #define PG_TABLESPACE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_tablespace definition.  cpp turns this into
@@ -52,6 +56,7 @@ typedef FormData_pg_tablespace *Form_pg_tablespace;
  */
 
 #define Natts_pg_tablespace				4
+DECLARE_NATTS(Natts_pg_tablespace);
 #define Anum_pg_tablespace_spcname		1
 #define Anum_pg_tablespace_spcowner		2
 #define Anum_pg_tablespace_spcacl		3

@@ -11,7 +11,11 @@
 #ifndef PG_SHSECLABEL_H
 #define PG_SHSECLABEL_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_shseclabel definition. cpp turns this into
@@ -39,6 +43,7 @@ typedef FormData_pg_shseclabel * Form_pg_shseclabel;
  * ----------------
  */
 #define Natts_pg_shseclabel				4
+DECLARE_NATTS(Natts_pg_shseclabel);
 #define Anum_pg_shseclabel_objoid		1
 #define Anum_pg_shseclabel_classoid		2
 #define Anum_pg_shseclabel_provider		3

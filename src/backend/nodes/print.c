@@ -70,15 +70,16 @@ pprint(const void *obj)
 void
 elog_node_display(int lev, const char *title, const void *obj, bool pretty)
 {
-	char	   *s;
-	char	   *f;
-
-	s = nodeToString(obj);
-	if (pretty)
-		f = pretty_format_node_dump(s);
-	else
+	char *f;
+	if(pretty)
+	{
+		f = printObject(obj);
+	}else
+	{
+		char * s = nodeToString(obj);
 		f = format_node_dump(s);
-	pfree(s);
+		pfree(s);
+	}
 	ereport(lev,
 			(errmsg_internal("%s:", title),
 			 errdetail_internal("%s", f)));
@@ -264,6 +265,9 @@ print_rt(const List *rtable)
 		switch (rte->rtekind)
 		{
 			case RTE_RELATION:
+#ifdef ADB
+			case RTE_REMOTE_DUMMY:
+#endif /* ADB */
 				printf("%d\t%s\t%u\t%c",
 					   i, rte->eref->aliasname, rte->relid, rte->relkind);
 				break;

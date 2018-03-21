@@ -23,6 +23,11 @@ extern void SetRemoteDestReceiverParams(DestReceiver *self, Portal portal);
 extern void SendRowDescriptionMessage(TupleDesc typeinfo, List *targetlist,
 						  int16 *formats);
 
+#ifdef AGTM
+extern void StartupRemoteDestReceiver(DestReceiver *self, TupleDesc typeinfo,
+						  int16 *formats);
+#endif
+
 extern void debugStartup(DestReceiver *self, int operation,
 			 TupleDesc typeinfo);
 extern bool debugtup(TupleTableSlot *slot, DestReceiver *self);

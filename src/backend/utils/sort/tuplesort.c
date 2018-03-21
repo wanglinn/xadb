@@ -134,6 +134,10 @@
 #include "executor/executor.h"
 #include "miscadmin.h"
 #include "pg_trace.h"
+#ifdef ADB
+#include "pgxc/execRemote.h"
+#include "catalog/pgxc_node.h"
+#endif
 #include "utils/datum.h"
 #include "utils/logtape.h"
 #include "utils/lsyscache.h"
@@ -149,6 +153,9 @@
 #define INDEX_SORT		1
 #define DATUM_SORT		2
 #define CLUSTER_SORT	3
+#ifdef ADB
+#define MERGE_SORT		4
+#endif
 
 /* GUC variables */
 #ifdef TRACE_SORT
@@ -285,6 +292,9 @@ struct Tuplesortstate
 	MemoryContext sortcontext;	/* memory context holding most sort data */
 	MemoryContext tuplecontext; /* sub-context of sortcontext for tuple data */
 	LogicalTapeSet *tapeset;	/* logtape.c object for tapes in a temp file */
+#ifdef ADB
+	Oid			current_xcnode;	/* node from where we are got last tuple */
+#endif /* ADB */
 
 	/*
 	 * These function pointers decouple the routines that must know what kind
@@ -521,6 +531,9 @@ struct Tuplesortstate
 #define COPYTUP(state,stup,tup) ((*(state)->copytup) (state, stup, tup))
 #define WRITETUP(state,tape,stup)	((*(state)->writetup) (state, tape, stup))
 #define READTUP(state,stup,tape,len) ((*(state)->readtup) (state, stup, tape, len))
+#ifdef ADB
+#define GETLEN(state,tape,eofOK) ((*(state)->getlen) (state, tape, eofOK))
+#endif
 #define LACKMEM(state)		((state)->availMem < 0 && !(state)->slabAllocatorUsed)
 #define USEMEM(state,amt)	((state)->availMem -= (amt))
 #define FREEMEM(state,amt)	((state)->availMem += (amt))
@@ -1354,6 +1367,40 @@ noalloc:
 	state->growmemtuples = false;
 	return false;
 }
+
+#ifdef ADB
+void
+tuplesort_puttupleslotontape(Tuplesortstate *state, TupleTableSlot *slot)
+{
+	SortTuple stup;
+
+	MemoryContext oldcontext = MemoryContextSwitchTo(state->sortcontext);
+
+	if (state->current_xcnode == 0)
+	{
+		state->current_xcnode = slot->tts_xcnodeoid;
+		inittapes(state);
+	}
+
+	if (state->current_xcnode != slot->tts_xcnodeoid)
+	{
+		state->currentRun++;
+		state->current_xcnode = slot->tts_xcnodeoid;
+		markrunend(state, state->tp_tapenum[state->destTape]);
+		state->tp_runs[state->destTape]++;
+		state->tp_dummy[state->destTape]--; /* per Alg D step D2 */
+		selectnewtape(state);
+	}
+
+	COPYTUP(state, &stup, slot);
+	/* Write the tuple to that node */
+	WRITETUP(state, state->tp_tapenum[state->destTape], &stup);
+
+	/* Got at-least one tuple, change the status to building runs */
+	state->status = TSS_BUILDRUNS;
+	MemoryContextSwitchTo(oldcontext);
+}
+#endif /* ADB */
 
 /*
  * Accept one tuple while collecting input data for sort.
@@ -2945,6 +2992,22 @@ mergereadnext(Tuplesortstate *state, int srcTape, SortTuple *stup)
 static void
 dumptuples(Tuplesortstate *state, bool alltuples)
 {
+#ifdef ADB
+	/*
+	 * If we are reading from the datanodes, we have already dumped all the
+	 * tuples onto tapes. There may not be any tuples in the heap. Close the
+	 * last run.
+	 */
+	if (state->current_xcnode && state->memtupcount <= 0)
+	{
+		markrunend(state, state->tp_tapenum[state->destTape]);
+		state->currentRun++;
+		state->tp_runs[state->destTape]++;
+		state->tp_dummy[state->destTape]--; /* per Alg D step D2 */
+		return;
+	}
+#endif /* ADB */
+
 	while (alltuples ||
 		   (LACKMEM(state) && state->memtupcount > 1) ||
 		   state->memtupcount >= state->memtupsize)
@@ -4022,6 +4085,10 @@ readtup_cluster(Tuplesortstate *state, SortTuple *stup,
 						 &tuple->t_self, sizeof(ItemPointerData));
 	/* We don't currently bother to reconstruct t_tableOid */
 	tuple->t_tableOid = InvalidOid;
+#ifdef ADB
+	tuple->t_xc_node_id = 0;
+#endif
+
 	/* Read in the tuple body */
 	LogicalTapeReadExact(state->tapeset, tapenum,
 						 tuple->t_data, tuple->t_len);

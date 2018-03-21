@@ -9,6 +9,7 @@
  *
  * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * src/include/nodes/primnodes.h
  *
@@ -113,6 +114,10 @@ typedef struct IntoClause
 	char	   *tableSpaceName; /* table space to use, or NULL */
 	Node	   *viewQuery;		/* materialized view's SELECT query */
 	bool		skipData;		/* true for WITH NO DATA */
+#ifdef ADB
+	struct DistributeBy *distributeby;  /* distribution to use, or NULL */
+	struct PGXCSubCluster *subcluster;  /* subcluster node members */
+#endif
 } IntoClause;
 
 
@@ -202,6 +207,10 @@ typedef struct Const
 								 * contains a pointer to the information. */
 	int			location;		/* token location, or -1 if unknown */
 } Const;
+
+#ifdef ADB
+#define IsNullConst(node)   (node && IsA(node, Const) && ((Const *)(node))->constisnull)
+#endif
 
 /*
  * Param
@@ -296,6 +305,10 @@ typedef struct Aggref
 	Oid			aggcollid;		/* OID of collation of result */
 	Oid			inputcollid;	/* OID of collation that function should use */
 	Oid			aggtranstype;	/* type Oid of aggregate's transition value */
+#ifdef ADB
+	Oid			aggtrantype;		/* type Oid of transition results */
+	bool			agghas_collectfn;	/* is collection function available */
+#endif /* ADB */
 	List	   *aggargtypes;	/* type Oids of direct and aggregated args */
 	List	   *aggdirectargs;	/* direct arguments, if an ordered-set agg */
 	List	   *args;			/* aggregated arguments and sort expressions */
@@ -697,6 +710,10 @@ typedef struct SubPlan
 	/* Information about execution strategy: */
 	bool		useHashTable;	/* TRUE to store subselect output in a hash
 								 * table (implies we are doing "IN") */
+#ifdef ADB
+	bool		useHashStore;	/* TRUE to store subselect output in a hash
+								 * store (implies we are doing "IN"), also set useHashTable to TRUE */
+#endif /* ADB */
 	bool		unknownEqFalse; /* TRUE if it's okay to return FALSE when the
 								 * spec result is UNKNOWN; this allows much
 								 * simpler handling of null values */
@@ -711,6 +728,10 @@ typedef struct SubPlan
 	/* Estimated execution costs: */
 	Cost		startup_cost;	/* one-time setup cost */
 	Cost		per_call_cost;	/* cost for each subplan evaluation */
+#ifdef ADB
+	Cost		cluster_startup_cost;
+	Cost		cluster_per_call_cost;
+#endif /* ADB */
 } SubPlan;
 
 /*
@@ -908,6 +929,9 @@ typedef struct CaseExpr
 	Expr	   *arg;			/* implicit equality comparison argument */
 	List	   *args;			/* the arguments (list of WHEN clauses) */
 	Expr	   *defresult;		/* the default result (ELSE clause) */
+#ifdef ADB
+	bool		isdecode;		/* mark if decode function by oracle gammar */
+#endif
 	int			location;		/* token location, or -1 if unknown */
 } CaseExpr;
 
@@ -1130,7 +1154,7 @@ typedef enum XmlExprOp
 	IS_DOCUMENT					/* xmlval IS DOCUMENT */
 } XmlExprOp;
 
-typedef enum
+typedef enum XmlOptionType
 {
 	XMLOPTION_DOCUMENT,
 	XMLOPTION_CONTENT
@@ -1498,5 +1522,59 @@ typedef struct OnConflictExpr
 	int			exclRelIndex;	/* RT index of 'excluded' relation */
 	List	   *exclRelTlist;	/* tlist of the EXCLUDED pseudo relation */
 } OnConflictExpr;
+
+#ifdef ADB
+/*----------
+ * DistributionType - how to distribute the data
+ *
+ *----------
+ */
+typedef enum DistributionType
+{
+	DISTTYPE_REPLICATION,		/* Replicated */
+	DISTTYPE_HASH,				/* Hash partitioned */
+	DISTTYPE_ROUNDROBIN,		/* Round Robin */
+	DISTTYPE_MODULO,			/* Modulo partitioned */
+	DISTTYPE_USER_DEFINED		/* User-defined function partitioned */
+} DistributionType;
+
+/*----------
+ * DistributeBy - represents a DISTRIBUTE BY clause in a CREATE TABLE statement
+ *
+ *----------
+ */
+typedef struct DistributeBy
+{
+	NodeTag		type;
+	DistributionType disttype;	/* Distribution type */
+	char	   	*colname;		/* Distribution column name */
+	List		*funcname;		/* User-defined distribute function name */
+	List		*funcargs;		/* User-defined distribute function arguments */
+} DistributeBy;
+
+/*----------
+ * SubClusterType - type of subcluster used
+ *
+ *----------
+ */
+typedef enum PGXCSubClusterType
+{
+	SUBCLUSTER_NONE,
+	SUBCLUSTER_NODE,
+	SUBCLUSTER_GROUP
+} PGXCSubClusterType;
+
+/*----------
+ * PGXCSubCluster - Subcluster on which a table can be created
+ *
+ *----------
+ */
+typedef struct PGXCSubCluster
+{
+	NodeTag				type;
+	PGXCSubClusterType	clustertype;	/* Subcluster type */
+	List				*members;		/* List of nodes or groups */
+} PGXCSubCluster;
+#endif /* ADB */
 
 #endif							/* PRIMNODES_H */

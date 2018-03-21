@@ -81,6 +81,11 @@ extern Tuplesortstate *tuplesort_begin_datum(Oid datumType,
 					  bool nullsFirstFlag,
 					  int workMem, bool randomAccess);
 
+#ifdef ADB
+extern void tuplesort_puttupleslotontape(Tuplesortstate *state,
+										 TupleTableSlot *slot);
+#endif
+
 extern void tuplesort_set_bound(Tuplesortstate *state, int64 bound);
 
 extern void tuplesort_puttupleslot(Tuplesortstate *state,

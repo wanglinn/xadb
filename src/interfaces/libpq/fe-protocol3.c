@@ -214,6 +214,13 @@ pqParseInput3(PGconn *conn)
 						strlcpy(conn->result->cmdStatus, conn->workBuffer.data,
 								CMDSTATUS_LEN);
 					conn->asyncStatus = PGASYNC_READY;
+#ifdef ADB
+					if (conn->funs && conn->funs->getCompleteMsg)
+					{
+						if ((*conn->funs->getCompleteMsg)(conn))
+							return;
+					}
+#endif
 					break;
 				case 'E':		/* error return */
 					if (pqGetErrorNotice3(conn, true))
@@ -290,6 +297,13 @@ pqParseInput3(PGconn *conn)
 					else if (conn->result == NULL ||
 							 conn->queryclass == PGQUERY_DESCRIBE)
 					{
+#ifdef ADB
+						if(conn->funs && conn->funs->getRowDesc)
+						{
+							if((*conn->funs->getRowDesc)(conn, msgLength))
+								return;
+						}else
+#endif /* ADB */
 						/* First 'T' in a query sequence */
 						if (getRowDescriptions(conn, msgLength))
 							return;
@@ -346,6 +360,13 @@ pqParseInput3(PGconn *conn)
 					if (conn->result != NULL &&
 						conn->result->resultStatus == PGRES_TUPLES_OK)
 					{
+#ifdef ADB
+						if(conn->funs && conn->funs->getAnotherTuple)
+						{
+							if((*conn->funs->getAnotherTuple)(conn, msgLength))
+								return;
+						}else
+#endif
 						/* Read another tuple of a normal query response */
 						if (getAnotherTuple(conn, msgLength))
 							return;
@@ -407,6 +428,19 @@ pqParseInput3(PGconn *conn)
 					 */
 					break;
 				default:
+#ifdef ADB
+					/* we use avail for temp */
+					if(conn->funs && conn->funs->getUnknownMsg)
+						avail = (*conn->funs->getUnknownMsg)(conn, id, msgLength);
+					else
+						avail = -1;
+					if(avail > 0)
+						return;
+					else if(avail == 0)
+						break;
+					else
+					{
+#endif
 					printfPQExpBuffer(&conn->errorMessage,
 									  libpq_gettext(
 													"unexpected response from server; first received character was \"%c\"\n"),
@@ -418,6 +452,9 @@ pqParseInput3(PGconn *conn)
 					/* Discard the unexpected message */
 					conn->inCursor += msgLength;
 					break;
+#ifdef ADB
+					}
+#endif
 			}					/* switch on protocol character */
 		}
 		/* Successfully consumed this message */
@@ -872,6 +909,7 @@ set_error_result:
  * Exit: returns 0 if successfully consumed message.
  *		 returns EOF if not enough data.
  */
+/*ADBQ, this function not same with ADB2.2*/
 int
 pqGetErrorNotice3(PGconn *conn, bool isError)
 {
@@ -1122,6 +1160,11 @@ pqBuildErrorMessage3(PQExpBuffer msg, const PGresult *res,
 								  valf, vall);
 			appendPQExpBufferChar(msg, '\n');
 		}
+#ifdef ADB
+		val = PQresultErrorField(res, PG_DIAG_NODE_NAME);
+		if(val)
+			appendPQExpBuffer(msg, libpq_gettext("NODE NAME:  %s\n"), val);
+#endif /* ADB */
 	}
 }
 
@@ -1640,6 +1683,12 @@ getCopyDataMessage(PGconn *conn)
 int
 pqGetCopyData3(PGconn *conn, char **buffer, int async)
 {
+#ifdef ADB
+	return pqGetCopyData3Ex(conn, buffer, async, true);
+}
+int pqGetCopyData3Ex(PGconn *conn, char **buffer, int async, bool alloc_buf)
+{
+#endif /* ADB */
 	int			msgLength;
 
 	for (;;)
@@ -1671,6 +1720,10 @@ pqGetCopyData3(PGconn *conn, char **buffer, int async)
 		msgLength -= 4;
 		if (msgLength > 0)
 		{
+#ifdef ADB
+			if(alloc_buf)
+			{
+#endif /* ADB */
 			*buffer = (char *) malloc(msgLength + 1);
 			if (*buffer == NULL)
 			{
@@ -1680,6 +1733,12 @@ pqGetCopyData3(PGconn *conn, char **buffer, int async)
 			}
 			memcpy(*buffer, &conn->inBuffer[conn->inCursor], msgLength);
 			(*buffer)[msgLength] = '\0';	/* Add terminating null */
+#ifdef ADB
+			}else
+			{
+				*buffer = &conn->inBuffer[conn->inCursor];
+			}
+#endif /* ADB */
 
 			/* Mark message consumed */
 			conn->inStart = conn->inCursor + msgLength;

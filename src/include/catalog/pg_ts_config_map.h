@@ -21,7 +21,11 @@
 #ifndef PG_TS_CONFIG_MAP_H
 #define PG_TS_CONFIG_MAP_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_ts_config_map definition.  cpp turns this into
@@ -45,6 +49,7 @@ typedef FormData_pg_ts_config_map *Form_pg_ts_config_map;
  * ----------------
  */
 #define Natts_pg_ts_config_map				4
+DECLARE_NATTS(Natts_pg_ts_config_map);
 #define Anum_pg_ts_config_map_mapcfg		1
 #define Anum_pg_ts_config_map_maptokentype	2
 #define Anum_pg_ts_config_map_mapseqno		3

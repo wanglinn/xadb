@@ -1,0 +1,76 @@
+<!--
+doc/src/sgml/ref/mgr_monitor_agent.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-MONITORAGENT">
+  <refmeta>
+    <refentrytitle>MONITOR AGENT</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>MONITOR AGENT</refname>
+    <refpurpose>monitor the agent process on the ADB host</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-monitoragent">
+    <primary>MONITOR AGENT</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+MONITOR AGENT [ ALL | <replaceable class="parameter">host_name</replaceable> [, ...] ]
+</synopsis>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+<command>MONITOR AGENT</command> monitor the agent process on the ADB host, ADB manager through the agent process to manage the ADB cluster.
+    </para>
+  </refsect1>
+  <refsect1>
+    <title>Parameters</title>
+
+    <variablelist>
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">host_name</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Host name, not support IP address.
+          </para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+  <refsect1>
+    <title>Examples</title>
+
+    <para>
+Monitor all agent process:
+      <programlisting>
+MONITOR AGENT ALL;
+</programlisting>
+    </para>
+    <para>
+Monitor agent process to host_name1,host_name1:
+      <programlisting>
+MONITOR AGENT host_name1, host_name1;
+</programlisting>
+    </para>
+  </refsect1>
+      <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-startagent"></member>
+      <member><xref linkend="mgr-stopagent"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>

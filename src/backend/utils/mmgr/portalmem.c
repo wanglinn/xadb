@@ -26,6 +26,13 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 #include "utils/timestamp.h"
+#ifdef ADB
+#include "access/hash.h"
+#include "catalog/pg_collation.h"
+#include "pgxc/pgxc.h"
+#include "utils/formatting.h"
+#include "utils/lsyscache.h"
+#endif
 
 /*
  * Estimate of the maximum number of open portals a user would have,
@@ -171,7 +178,11 @@ PortalGetPrimaryStmt(Portal portal)
  * dupSilent: if true, don't even emit a WARNING.
  */
 Portal
+#ifdef ADB
+CreatePortal(const char *name, bool allowDup, bool dupSilent, ParseGrammar grammar)
+#else
 CreatePortal(const char *name, bool allowDup, bool dupSilent)
+#endif
 {
 	Portal		portal;
 
@@ -219,6 +230,19 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 	/* put portal in table (sets portal->name) */
 	PortalHashTableInsert(portal, name);
 
+#ifdef ADB
+	if (PGXCNodeIdentifier == 0)
+	{
+		/*
+		 * It is not necessary to check whether the node_oid
+		 * is valid or not. Such as "single" mode postgres.
+		 */
+		Oid node_oid = get_pgxc_nodeoid(PGXCNodeName);
+		PGXCNodeIdentifier = get_pgxc_node_id(node_oid);
+	}
+	portal->grammar = grammar;	
+#endif
+
 	return portal;
 }
 
@@ -242,7 +266,11 @@ CreateNewPortal(void)
 			break;
 	}
 
+#ifdef ADB
+	return CreatePortal(portalname, false, false, PARSE_GRAM_POSTGRES);
+#else
 	return CreatePortal(portalname, false, false);
+#endif
 }
 
 /*

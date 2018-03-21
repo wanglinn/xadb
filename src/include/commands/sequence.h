@@ -21,6 +21,9 @@
 #include "parser/parse_node.h"
 #include "storage/relfilenode.h"
 
+#ifdef ADB
+#include "agtm/agtm.h"
+#endif
 
 typedef struct FormData_pg_sequence_data
 {
@@ -54,6 +57,19 @@ typedef struct xl_seq_rec
 extern int64 nextval_internal(Oid relid, bool check_permissions);
 extern Datum nextval(PG_FUNCTION_ARGS);
 extern List *sequence_options(Oid relid);
+
+#ifdef ADB
+typedef enum
+{
+	AGTM_CREATE_SEQ,
+	AGTM_DROP_SEQ
+} AGTM_SequenceDropType;
+
+extern bool IsTempSequence(Oid relid);
+extern char *GetGlobalSeqName(Relation seqrel, const char *new_seqname, const char *new_schemaname);
+extern void GetSequenceInfoByName(Relation seqrel, char ** dbname, char ** schemaName);
+extern void register_sequence_cb(Relation  rel, AGTM_SequenceKeyType key, AGTM_SequenceDropType type);
+#endif
 
 extern ObjectAddress DefineSequence(ParseState *pstate, CreateSeqStmt *stmt);
 extern ObjectAddress AlterSequence(ParseState *pstate, AlterSeqStmt *stmt);

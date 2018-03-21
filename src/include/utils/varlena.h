@@ -32,6 +32,11 @@ extern bool SplitIdentifierString(char *rawstring, char separator,
 extern bool SplitDirectoriesString(char *rawstring, char separator,
 					   List **namelist);
 extern text *replace_text_regexp(text *src_text, void *regexp,
-					text *replace_text, bool glob);
+					text *replace_text,
+#ifdef ADB
+					int start_position,
+					int match_occurence,
+#endif
+					bool glob);
 
 #endif

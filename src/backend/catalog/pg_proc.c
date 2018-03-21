@@ -40,6 +40,11 @@
 #include "utils/regproc.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+#ifdef ADB
+#include "intercomm/inter-comm.h"
+#include "pgxc/execRemote.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 typedef struct
@@ -931,11 +936,30 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 				RawStmt    *parsetree = lfirst_node(RawStmt, lc);
 				List	   *querytree_sublist;
 
+#ifdef ADB
+				/* Block CTAS in SQL functions */
+				if (IsA(parsetree, CreateTableAsStmt))
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							errmsg("In XC, SQL functions cannot contain utility statements")));
+#endif
+
 				querytree_sublist = pg_analyze_and_rewrite_params(parsetree,
 																  prosrc,
 																  (ParserSetupHook) sql_fn_parser_setup,
 																  pinfo,
 																  NULL);
+#ifdef ADB
+				/* Check if the list of queries contains temporary objects */
+				if (IsCoordMaster())
+				{
+					if (pgxc_query_contains_utility(querytree_sublist))
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								errmsg("In XC, SQL functions cannot contain utility statements")));
+				}
+#endif
+
 				querytree_list = list_concat(querytree_list,
 											 querytree_sublist);
 			}

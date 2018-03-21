@@ -43,6 +43,9 @@
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/timestamp.h"
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif
 
 
 /*
@@ -396,8 +399,13 @@ pg_tablespace_databases(PG_FUNCTION_ARGS)
 			if (tablespaceOid == DEFAULTTABLESPACE_OID)
 				fctx->location = psprintf("base");
 			else
+#ifdef ADB
+				fctx->location = psprintf("pg_tblspc/%u/%s_%s", tablespaceOid,
+										  TABLESPACE_VERSION_DIRECTORY, PGXCNodeName);
+#else
 				fctx->location = psprintf("pg_tblspc/%u/%s", tablespaceOid,
 										  TABLESPACE_VERSION_DIRECTORY);
+#endif
 
 			fctx->dirdesc = AllocateDir(fctx->location);
 

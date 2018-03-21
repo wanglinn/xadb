@@ -154,6 +154,9 @@ char	   *index_tablespace = NULL;
 								 * -s instead */
 #define ntellers	10
 #define naccounts	100000
+#ifdef ADB
+bool		use_branch = false;	/* use branch id in DDL and DML */
+#endif
 
 /*
  * The scale factor at/beyond which 32bit integers are incapable of storing
@@ -443,6 +446,43 @@ static const BuiltinScript builtin_script[] =
 		"\\set aid random(1, " CppAsString2(naccounts) " * :scale)\n"
 		"SELECT abalance FROM pgbench_accounts WHERE aid = :aid;\n"
 	}
+#ifdef ADB
+	,
+	{
+		"adb_tpc_b_bid",
+		"<builtin: adb>",
+		"\\set nbranches " CppAsString2(nbranches) " * :scale\n"
+		"\\set ntellers " CppAsString2(ntellers) " * :scale\n"
+		"\\set naccounts " CppAsString2(naccounts) " * :scale\n"
+		"\\setrandom aid 1 :naccounts\n"
+		"\\setrandom bid 1 :nbranches\n"
+		"\\setrandom tid 1 :ntellers\n"
+		"\\setrandom delta -5000 5000\n"
+		"BEGIN;\n"
+		"UPDATE pgbench_accounts SET abalance = abalance + :delta WHERE aid = :aid;\n"
+		"SELECT abalance FROM pgbench_accounts WHERE aid = :aid;\n"
+		"UPDATE pgbench_tellers SET tbalance = tbalance + :delta WHERE tid = :tid;\n"
+		"UPDATE pgbench_branches SET bbalance = bbalance + :delta WHERE bid = :bid;\n"
+		"INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (:tid, :bid, :aid, :delta, CURRENT_TIMESTAMP);\n"
+		"END;\n"
+	},
+	{
+		"adb_simple_update_bid",
+		"<builtin: adb_simple_update_bid>",
+		"\\set nbranches " CppAsString2(nbranches) " * :scale\n"
+		"\\set ntellers " CppAsString2(ntellers) " * :scale\n"
+		"\\set naccounts " CppAsString2(naccounts) " * :scale\n"
+		"\\setrandom aid 1 :naccounts\n"
+		"\\setrandom bid 1 :nbranches\n"
+		"\\setrandom tid 1 :ntellers\n"
+		"\\setrandom delta -5000 5000\n"
+		"BEGIN;\n"
+		"UPDATE pgbench_accounts SET abalance = abalance + :delta WHERE aid = :aid;\n"
+		"SELECT abalance FROM pgbench_accounts WHERE aid = :aid;\n"
+		"INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (:tid, :bid, :aid, :delta, CURRENT_TIMESTAMP);\n"
+		"END;\n"
+	}
+#endif
 };
 
 
@@ -476,6 +516,9 @@ usage(void)
 		   "\nInitialization options:\n"
 		   "  -i, --initialize         invokes initialization mode\n"
 		   "  -F, --fillfactor=NUM     set fill factor\n"
+#ifdef ADB
+		   "  -k                       distribute each table by primary key\n"
+#endif
 		   "  -n, --no-vacuum          do not run VACUUM after initialization\n"
 		   "  -q, --quiet              quiet logging (one message each 5 seconds)\n"
 		   "  -s, --scale=NUM          scaling factor\n"
@@ -497,6 +540,9 @@ usage(void)
 		   "  -C, --connect            establish new connection for each transaction\n"
 		   "  -D, --define=VARNAME=VALUE\n"
 		   "                           define variable for use by custom script\n"
+#ifdef ADB
+		   "  -k                       query with primary key that is used for distribution\n"
+#endif
 		   "  -j, --jobs=NUM           number of threads (default: 1)\n"
 		   "  -l, --log                write transaction times to log file\n"
 		   "  -L, --latency-limit=NUM  count transactions lasting more than NUM ms as late\n"
@@ -2596,6 +2642,9 @@ init(bool is_no_vacuum)
 		const char *smcols;		/* column decls if accountIDs are 32 bits */
 		const char *bigcols;	/* column decls if accountIDs are 64 bits */
 		int			declare_fillfactor;
+#ifdef ADB
+		char	   *distribute_by;
+#endif
 	};
 	static const struct ddlinfo DDLs[] = {
 		{
@@ -2603,24 +2652,36 @@ init(bool is_no_vacuum)
 			"tid int,bid int,aid    int,delta int,mtime timestamp,filler char(22)",
 			"tid int,bid int,aid bigint,delta int,mtime timestamp,filler char(22)",
 			0
+#ifdef ADB
+			, "distribute by hash (bid)"
+#endif
 		},
 		{
 			"pgbench_tellers",
 			"tid int not null,bid int,tbalance int,filler char(84)",
 			"tid int not null,bid int,tbalance int,filler char(84)",
 			1
+#ifdef ADB
+			, "distribute by hash (bid)"
+#endif
 		},
 		{
 			"pgbench_accounts",
 			"aid    int not null,bid int,abalance int,filler char(84)",
 			"aid bigint not null,bid int,abalance int,filler char(84)",
 			1
+#ifdef ADB
+			, "distribute by hash (bid)"
+#endif
 		},
 		{
 			"pgbench_branches",
 			"bid int not null,bbalance int,filler char(88)",
 			"bid int not null,bbalance int,filler char(88)",
 			1
+#ifdef ADB
+			, "distribute by hash (bid)"
+#endif
 		}
 	};
 	static const char *const DDLINDEXes[] = {
@@ -2635,6 +2696,14 @@ init(bool is_no_vacuum)
 		"alter table pgbench_history add foreign key (tid) references pgbench_tellers",
 		"alter table pgbench_history add foreign key (aid) references pgbench_accounts"
 	};
+
+#ifdef ADB
+	static char *DDLAFTERs_bid[] = {
+		"alter table pgbench_branches add primary key (bid)",
+		"alter table pgbench_tellers add primary key (tid)",
+		"alter table pgbench_accounts add primary key (aid)"
+	};
+#endif
 
 	PGconn	   *con;
 	PGresult   *res;
@@ -2681,6 +2750,14 @@ init(bool is_no_vacuum)
 
 		cols = (scale >= SCALE_32BIT_THRESHOLD) ? ddl->bigcols : ddl->smcols;
 
+#ifdef ADB
+		/* Add distribution columns if necessary */
+		if (use_branch)
+			snprintf(buffer, sizeof(buffer), "create%s table %s(%s)%s %s",
+					 unlogged_tables ? " unlogged" : "",
+					 ddl->table, cols, opts, ddl->distribute_by);
+		else
+#endif
 		snprintf(buffer, sizeof(buffer), "create%s table %s(%s)%s",
 				 unlogged_tables ? " unlogged" : "",
 				 ddl->table, cols, opts);
@@ -2807,6 +2884,37 @@ init(bool is_no_vacuum)
 	 * create indexes
 	 */
 	fprintf(stderr, "set primary keys...\n");
+
+#ifdef ADB
+	/*
+	 * If all the tables are distributed according to bid, create an index on it
+	 * instead.
+	 */
+	if (use_branch)
+	{
+		for (i = 0; i < lengthof(DDLAFTERs_bid); i++)
+		{
+			char		buffer[256];
+
+			strlcpy(buffer, DDLAFTERs_bid[i], sizeof(buffer));
+
+			if (index_tablespace != NULL)
+			{
+				char	   *escape_tablespace;
+
+				escape_tablespace = PQescapeIdentifier(con, index_tablespace,
+												   strlen(index_tablespace));
+				snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer),
+						 " using index tablespace %s", escape_tablespace);
+
+				PQfreemem(escape_tablespace);
+			}
+
+			executeStatement(con, buffer);
+		}
+	}
+	else
+#endif
 	for (i = 0; i < lengthof(DDLINDEXes); i++)
 	{
 		char		buffer[256];
@@ -3707,7 +3815,12 @@ main(int argc, char **argv)
 	state = (CState *) pg_malloc(sizeof(CState));
 	memset(state, 0, sizeof(CState));
 
+#ifdef ADB
+	while ((c = getopt_long(argc, argv, "ih:knvp:dqb:SNc:j:Crs:t:T:U:lf:D:F:M:P:R:L:", long_options, &optindex)) != -1)
+#else
 	while ((c = getopt_long(argc, argv, "ih:nvp:dqb:SNc:j:Crs:t:T:U:lf:D:F:M:P:R:L:", long_options, &optindex)) != -1)
+#endif
+
 	{
 		char	   *script;
 
@@ -3716,6 +3829,11 @@ main(int argc, char **argv)
 			case 'i':
 				is_init_mode++;
 				break;
+#ifdef ADB
+			case 'k':
+				use_branch = true;
+				break;
+#endif
 			case 'h':
 				pghost = pg_strdup(optarg);
 				break;
@@ -3854,6 +3972,11 @@ main(int argc, char **argv)
 				internal_script_used = true;
 				break;
 			case 'N':
+#ifdef ADB
+				if (use_branch)
+				process_builtin(findBuiltin("adb_simple_update_bid"), 1);
+				else
+#endif
 				process_builtin(findBuiltin("simple-update"), 1);
 				benchmarking_option_set = true;
 				internal_script_used = true;
@@ -3992,6 +4115,11 @@ main(int argc, char **argv)
 	/* set default script if none */
 	if (num_scripts == 0 && !is_init_mode)
 	{
+#ifdef ADB
+		if (use_branch)
+		process_builtin(findBuiltin("adb_tpc_b_bid"), 1);
+		else
+#endif
 		process_builtin(findBuiltin("tpcb-like"), 1);
 		benchmarking_option_set = true;
 		internal_script_used = true;

@@ -403,6 +403,14 @@ typedef uint32 SubTransactionId;
 #define InvalidSubTransactionId		((SubTransactionId) 0)
 #define TopSubTransactionId			((SubTransactionId) 1)
 
+#if defined(ADB) || defined(AGTM)
+typedef uint32 GlobalTransactionId;
+
+#define InvalidGlobalTransactionId		((GlobalTransactionId) 0)
+
+#define GlobalTransactionIdIsValid(xid)	((xid) != InvalidGlobalTransactionId)
+#endif
+
 /* MultiXactId must be equivalent to TransactionId, to fit in t_xmax */
 typedef TransactionId MultiXactId;
 
@@ -1119,6 +1127,11 @@ extern int	fdatasync(int fildes);
 #define NON_EXEC_STATIC
 #else
 #define NON_EXEC_STATIC static
+#endif
+
+#if defined(ADB) || defined(ADBMGRD)
+#define AGTM_DBNAME "postgres"
+#define AGTM_USER "postgres"
 #endif
 
 /* /port compatibility functions */

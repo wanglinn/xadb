@@ -84,7 +84,8 @@ SELECT sum2(q1,q2) FROM int8_tbl;
 -- this should work
 select ten, sum(distinct four) from onek a
 group by ten
-having exists (select 1 from onek b where sum(distinct a.four) = b.four);
+having exists (select 1 from onek b where sum(distinct a.four) = b.four) 
+order by ten;
 
 -- this should fail because subquery has an agg of its own in WHERE
 select ten, sum(distinct four) from onek a
@@ -281,7 +282,8 @@ explain (costs off)
   select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt
     from int4_tbl;
 select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt
-  from int4_tbl;
+from int4_tbl 
+order by f1;
 
 -- check some cases that were handled incorrectly in 8.3.0
 explain (costs off)

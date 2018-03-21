@@ -51,23 +51,35 @@ else
 OBJS_COMMON += sha2.o
 endif
 
-OBJS_FRONTEND = $(OBJS_COMMON) fe_memutils.o file_utils.o restricted_token.o
+OBJS_FRONTEND = $(OBJS_COMMON) fe_memutils.o file_utils.o restricted_token.o ora_keywords.o
 
-OBJS_SRV = $(OBJS_COMMON:%.o=%_srv.o)
+OBJS_PG_FRONTEND = $(OBJS_FRONTEND:%.o=%_pg.o)
 
-all: libpgcommon.a libpgcommon_srv.a
+OBJS_SRV = $(OBJS_COMMON:%.o=%_srv.o) ora_keywords_srv.o
+
+OBJS_AGTM = $(OBJS_COMMON:%.o=%_agtm.o)
+
+OBJS_MGR = $(OBJS_COMMON:%.o=%_mgr.o)
+
+all: libpgcommon.a libpgcommon_srv.a libpgcommon_agtm.a libpgcommon_mgr.a libpgcommon_pg.a
 
 # libpgcommon is needed by some contrib
 install: all installdirs
 	$(INSTALL_STLIB) libpgcommon.a '$(DESTDIR)$(libdir)/libpgcommon.a'
+	$(INSTALL_STLIB) libpgcommon_pg.a '$(DESTDIR)$(libdir)/libpgcommon_pg.a'
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(libdir)'
 
 uninstall:
 	rm -f '$(DESTDIR)$(libdir)/libpgcommon.a'
+	rm -f '$(DESTDIR)$(libdir)/libpgcommon_pg.a'
 
 libpgcommon.a: $(OBJS_FRONTEND)
+	rm -f $@
+	$(AR) $(AROPT) $@ $^
+
+libpgcommon_pg.a: $(OBJS_PG_FRONTEND)
 	rm -f $@
 	$(AR) $(AROPT) $@ $^
 
@@ -76,6 +88,14 @@ libpgcommon.a: $(OBJS_FRONTEND)
 #
 
 libpgcommon_srv.a: $(OBJS_SRV)
+	rm -f $@
+	$(AR) $(AROPT) $@ $^
+
+libpgcommon_agtm.a: $(OBJS_AGTM)
+	rm -f $@
+	$(AR) $(AROPT) $@ $^
+
+libpgcommon_mgr.a: $(OBJS_MGR)
 	rm -f $@
 	$(AR) $(AROPT) $@ $^
 
@@ -88,7 +108,16 @@ libpgcommon_srv.a: $(OBJS_SRV)
 %_srv.o: %.c %.o
 	$(CC) $(CFLAGS) $(subst -DFRONTEND ,, $(CPPFLAGS)) -c $< -o $@
 
-$(OBJS_SRV): | submake-errcodes
+%_agtm.o: %.c %.o
+	$(CC) -I$(top_builddir)/src/agtm/include -I$(top_srcdir)/src/agtm/include $(patsubst -DADB,, $(CFLAGS)) -DAGTM $(subst -DFRONTEND,, $(CPPFLAGS)) -c $< -o $@
+
+%_mgr.o: %.c %.o
+	$(CC) -I$(top_builddir)/src/adbmgrd/include -I$(top_srcdir)/src/adbmgrd/include $(patsubst -DADB,, $(CFLAGS)) -DADBMGRD $(subst -DFRONTEND,, $(CPPFLAGS)) -c $< -o $@
+
+%_pg.o: %.c %.o
+	$(CC) $(filter-out -DADB, $(CFLAGS)) $(CPPFLAGS) -c $< -o $@
+
+$(OBJS_SRV) $(OBJS_AGTM): | submake-errcodes
 
 .PHONY: submake-errcodes
 
@@ -100,9 +129,21 @@ submake-errcodes:
 # Note that gram.h isn't required for the frontend version of keywords.o.
 $(top_builddir)/src/include/parser/gram.h: $(top_srcdir)/src/backend/parser/gram.y
 	$(MAKE) -C $(top_builddir)/src/backend $(top_builddir)/src/include/parser/gram.h
+$(top_builddir)/src/include/parser/ora_gram.h: $(top_srcdir)/src/backend/parser/ora_gram.y
+	$(MAKE) -C $(top_builddir)/src/backend $(top_builddir)/src/include/parser/ora_gram.h
+$(top_builddir)/src/agtm/include/parser/gram.h: $(top_srcdir)/src/backend/parser/gram.y
+	$(MAKE) -C $(top_builddir)/src/agtm $@
+$(top_builddir)/src/adbmgrd/include/parser/gram.h: $(top_srcdir)/src/backend/parser/gram.y
+	$(MAKE) -C $(top_builddir)/src/adbmgrd $@
 
-keywords.o: $(top_srcdir)/src/include/parser/kwlist.h
+keywords.o: $(top_srcdir)/src/include/parser/kwlist.h $(top_builddir)/src/include/parser/ora_gram.h
 keywords_srv.o: $(top_builddir)/src/include/parser/gram.h $(top_srcdir)/src/include/parser/kwlist.h
+keywords_agtm.o: $(top_builddir)/src/agtm/include/parser/gram.h
+keywords_mgr.o: $(top_builddir)/src/adbmgrd/include/parser/gram.h
+
+ora_keywords.o: $(top_srcdir)/src/include/parser/ora_kwlist.h $(top_builddir)/src/include/parser/ora_gram.h
 
 clean distclean maintainer-clean:
 	rm -f libpgcommon.a libpgcommon_srv.a $(OBJS_FRONTEND) $(OBJS_SRV)
+	rm -f libpgcommon_agtm.a $(OBJS_AGTM) libpgcommon_mgr.a $(OBJS_MGR)
+	rm -f libpgcommon_pg.a $(OBJS_PG_FRONTEND)

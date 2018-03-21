@@ -107,5 +107,11 @@ extern ParamListInfo copyParamList(ParamListInfo from);
 extern Size EstimateParamListSpace(ParamListInfo paramLI);
 extern void SerializeParamList(ParamListInfo paramLI, char **start_address);
 extern ParamListInfo RestoreParamList(char **start_address);
+#ifdef ADB
+/* Functions found in src/backend/nodes/saveload.c */
+struct StringInfoData;
+extern void SaveParamList(struct StringInfoData *buf, ParamListInfo paramLI);
+extern ParamListInfo LoadParamList(struct StringInfoData *buf);
+#endif /* ADB */
 
 #endif							/* PARAMS_H */

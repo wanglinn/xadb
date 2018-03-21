@@ -31,6 +31,9 @@
 #include "nodes/relation.h"
 #include "utils/datum.h"
 #include "utils/rel.h"
+#ifdef ADB
+#include "optimizer/pgxcplan.h"
+#endif
 
 static void outChar(StringInfo str, char c);
 
@@ -383,6 +386,9 @@ _outModifyTable(StringInfo str, const ModifyTable *node)
 	WRITE_NODE_FIELD(onConflictWhere);
 	WRITE_UINT_FIELD(exclRelRTI);
 	WRITE_NODE_FIELD(exclRelTlist);
+#ifdef ADB
+	WRITE_NODE_FIELD(remote_plans);
+#endif
 }
 
 static void
@@ -553,6 +559,107 @@ _outIndexScan(StringInfo str, const IndexScan *node)
 	WRITE_NODE_FIELD(indexorderbyops);
 	WRITE_ENUM_FIELD(indexorderdir, ScanDirection);
 }
+
+#ifdef ADB
+static void
+_outRemoteQuery(StringInfo str, const RemoteQuery *node)
+{
+	int			i;
+
+	WRITE_NODE_TYPE("REMOTEQUERY");
+
+	_outScanInfo(str, (Scan *) node);
+
+	WRITE_ENUM_FIELD(exec_direct_type, ExecDirectType);
+	WRITE_STRING_FIELD(sql_statement);
+	WRITE_NODE_FIELD(exec_nodes);
+	WRITE_ENUM_FIELD(combine_type, CombineType);
+	WRITE_BOOL_FIELD(read_only);
+	WRITE_BOOL_FIELD(force_autocommit);
+	WRITE_STRING_FIELD(statement);
+	WRITE_STRING_FIELD(cursor);
+	WRITE_INT_FIELD(rq_num_params);
+
+	appendStringInfo(str, " :rq_param_types");
+	for (i = 0; i < node->rq_num_params; i++)
+		appendStringInfo(str, " %d", node->rq_param_types[i]);
+
+	WRITE_ENUM_FIELD(exec_type, RemoteQueryExecType);
+	WRITE_BOOL_FIELD(is_temp);
+	WRITE_BOOL_FIELD(has_row_marks);
+	WRITE_BOOL_FIELD(rq_finalise_aggs);
+	WRITE_BOOL_FIELD(rq_sortgroup_colno);
+	WRITE_NODE_FIELD(remote_query);
+	WRITE_NODE_FIELD(coord_var_tlist);
+	WRITE_NODE_FIELD(query_var_tlist);
+	WRITE_BOOL_FIELD(rq_save_command_id);
+	WRITE_BOOL_FIELD(rq_params_internal);
+	WRITE_BOOL_FIELD(rq_use_pk_for_rep_change);
+	WRITE_BOOL_FIELD(rq_max_param_num);
+}
+
+static void
+_outExecNodes(StringInfo str, const ExecNodes *node)
+{
+	WRITE_NODE_TYPE("EXEC_NODES");
+
+	WRITE_ENUM_FIELD(accesstype, RelationAccessType);
+	WRITE_CHAR_FIELD(baselocatortype);
+	WRITE_OID_FIELD(en_relid);
+	WRITE_OID_FIELD(en_funcid);
+	WRITE_NODE_FIELD(en_expr);
+	WRITE_NODE_FIELD(en_dist_vars);
+	WRITE_NODE_FIELD(nodeids);
+}
+
+static void
+_outClusterReduce(StringInfo str, const ClusterReduce *node)
+{
+	int i;
+
+	WRITE_NODE_TYPE("CLUSTERREDUCE");
+
+	_outPlanInfo(str, &node->plan);
+	WRITE_NODE_FIELD(reduce);
+	WRITE_NODE_FIELD(special_reduce);
+	WRITE_NODE_FIELD(reduce_oids);
+	WRITE_OID_FIELD(special_node);
+
+	WRITE_INT_FIELD(numCols);
+	appendStringInfoString(str, " :sortColIdx");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %d", node->sortColIdx[i]);
+
+	appendStringInfoString(str, " :sortOperators");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %u", node->sortOperators[i]);
+
+	appendStringInfoString(str, " :collations");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %u", node->collations[i]);
+
+	appendStringInfoString(str, " :nullsFirst");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
+}
+
+static void
+_outOidVectorLoopExpr(StringInfo str, const OidVectorLoopExpr *node)
+{
+	oidvector *oids;
+	int i;
+	WRITE_NODE_TYPE("OIDVECTORLOOPEXPR");
+
+	WRITE_BOOL_FIELD(signalRowMode);
+	oids = (oidvector*)DatumGetPointer(node->vector);
+	appendStringInfo(str, " :count %d", oids->dim1);
+
+	appendStringInfoString(str, " :vector");
+	for(i=0;i<oids->dim1;++i)
+		appendStringInfo(str, " %u", oids->values[i]);
+}
+
+#endif
 
 static void
 _outIndexOnlyScan(StringInfo str, const IndexOnlyScan *node)
@@ -1121,6 +1228,10 @@ _outAggref(StringInfo str, const Aggref *node)
 
 	WRITE_OID_FIELD(aggfnoid);
 	WRITE_OID_FIELD(aggtype);
+#ifdef ADB
+	WRITE_OID_FIELD(aggtrantype);
+	WRITE_BOOL_FIELD(agghas_collectfn);
+#endif /* ADB */
 	WRITE_OID_FIELD(aggcollid);
 	WRITE_OID_FIELD(inputcollid);
 	WRITE_OID_FIELD(aggtranstype);
@@ -1433,6 +1544,9 @@ _outCaseExpr(StringInfo str, const CaseExpr *node)
 	WRITE_NODE_FIELD(args);
 	WRITE_NODE_FIELD(defresult);
 	WRITE_LOCATION_FIELD(location);
+#ifdef ADB
+	WRITE_BOOL_FIELD(isdecode);
+#endif
 }
 
 static void
@@ -2233,6 +2347,10 @@ _outPlannerInfo(StringInfo str, const PlannerInfo *node)
 	WRITE_BOOL_FIELD(hasHavingQual);
 	WRITE_BOOL_FIELD(hasPseudoConstantQuals);
 	WRITE_BOOL_FIELD(hasRecursion);
+#ifdef ADB
+	WRITE_INT_FIELD(rs_alias_index);
+	WRITE_NODE_FIELD(xc_rowMarks);
+#endif
 	WRITE_INT_FIELD(wt_param_id);
 	WRITE_BITMAPSET_FIELD(curOuterRels);
 	WRITE_NODE_FIELD(curOuterParams);
@@ -3035,7 +3153,9 @@ _outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
 	WRITE_NODE_FIELD(alias);
 	WRITE_NODE_FIELD(eref);
 	WRITE_ENUM_FIELD(rtekind, RTEKind);
-
+#ifdef ADB
+	WRITE_STRING_FIELD(relname);
+#endif
 	switch (node->rtekind)
 	{
 		case RTE_RELATION:
@@ -3080,6 +3200,11 @@ _outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
 			WRITE_NODE_FIELD(coltypmods);
 			WRITE_NODE_FIELD(colcollations);
 			break;
+#ifdef ADB
+		case RTE_REMOTE_DUMMY:
+			/* Everything relevant already copied */
+			break;
+#endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized RTE kind: %d", (int) node->rtekind);
 			break;
@@ -3656,6 +3781,17 @@ outNode(StringInfo str, const void *obj)
 			case T_SampleScan:
 				_outSampleScan(str, obj);
 				break;
+#ifdef ADB
+			case T_RemoteQuery:
+				_outRemoteQuery(str, obj);
+				break;
+			case T_ClusterReduce:
+				_outClusterReduce(str, obj);
+				break;
+			case T_OidVectorLoopExpr:
+				_outOidVectorLoopExpr(str, obj);
+				break;
+#endif
 			case T_IndexScan:
 				_outIndexScan(str, obj);
 				break;
@@ -4229,6 +4365,11 @@ outNode(StringInfo str, const void *obj)
 			case T_PartitionRangeDatum:
 				_outPartitionRangeDatum(str, obj);
 				break;
+#ifdef ADB
+			case T_ExecNodes:
+				_outExecNodes(str, obj);
+				break;
+#endif
 
 			default:
 

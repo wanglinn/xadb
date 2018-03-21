@@ -56,11 +56,23 @@
 #include "utils/selfuncs.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
+#ifdef ADB
+#include "catalog/pg_namespace.h"
+#include "catalog/pgxc_node.h"
+#include "pgxc/pgxc.h"
+#include "pgxc/pgxcnode.h"
+#include "optimizer/pgxcplan.h"
+#include "optimizer/reduceinfo.h"
+#include "utils/fmgroids.h"
+#endif
 
 
 /* GUC parameters */
 double		cursor_tuple_fraction = DEFAULT_CURSOR_TUPLE_FRACTION;
 int			force_parallel_mode = FORCE_PARALLEL_OFF;
+#ifdef ADB
+extern bool enable_cluster_plan;
+#endif /* ADB */
 
 /* Hook for plugins to get control in planner() */
 planner_hook_type planner_hook = NULL;
@@ -83,6 +95,58 @@ create_upper_paths_hook_type create_upper_paths_hook = NULL;
 #define EXPRKIND_ARBITER_ELEM		10
 #define EXPRKIND_TABLEFUNC			11
 #define EXPRKIND_TABLEFUNC_LATERAL	12
+
+#ifdef ADB
+#define CLUSTER_PLAN_OK(option, parse_)								\
+	(enable_cluster_plan && (option & CURSOR_OPT_PARALLEL_OK) != 0 && \
+		IsUnderPostmaster && (parse_)->utilityStmt == NULL &&		\
+		!IsParallelWorker() && !has_cluster_hazard((Node*) (parse_), false))
+
+typedef struct CreateDistinctPathsContext
+{
+	RelOptInfo *distinct_rel;
+	RelOptInfo *input_rel;
+	List	   *distinct_clause;
+	List	   *needed_pathkeys;
+	double		num_distinct_rows;
+	bool		can_sort;
+	bool		can_hash;
+}CreateDistinctPathsContext;
+
+typedef struct CreateGrupingPathsContext
+{
+	RelOptInfo	   *grouped_rel;
+	RelOptInfo	   *input_rel;
+	PathTarget	   *partial_target;
+	PathTarget	   *final_target;
+	const AggClauseCosts *agg_partial_costs;
+	const AggClauseCosts *agg_final_costs;
+	const AggClauseCosts *agg_once_costs;
+	List		   *group_clause;
+	List		   *group_pathkeys;
+	List		   *having_quals;
+	List		   *new_paths_list;
+	double			final_groups;
+	double			partial_groups;
+	AggSplit		split;
+	bool			can_sort;
+	bool			can_hash;
+	bool			has_agg;
+	bool			can_gather;
+}CreateGrupingPathsContext;
+
+typedef struct CreateWindowAggPathContext
+{
+	RelOptInfo	   *window_rel;
+	PathTarget	   *window_target;
+	List		   *tlist;
+	WindowFuncLists *wflists;
+	WindowClause   *wclause;
+	List		   *window_pathkeys;
+	Path		   *new_path;
+}CreateWindowAggPathContext;
+
+#endif /* ADB */
 
 /* Passthrough data for standard_qp_callback */
 typedef struct
@@ -121,7 +185,6 @@ static void preprocess_rowmarks(PlannerInfo *root);
 static double preprocess_limit(PlannerInfo *root,
 				 double tuple_fraction,
 				 int64 *offset_est, int64 *count_est);
-static bool limit_needed(Query *parse);
 static void remove_useless_groupby_columns(PlannerInfo *root);
 static List *preprocess_groupclause(PlannerInfo *root, List *force);
 static List *extract_rollup_sets(List *groupingSets);
@@ -184,6 +247,29 @@ static PathTarget *make_sort_input_target(PlannerInfo *root,
 					   bool *have_postponed_srfs);
 static void adjust_paths_for_srfs(PlannerInfo *root, RelOptInfo *rel,
 					  List *targets, List *targets_contain_srfs);
+#ifdef ADB
+static void separate_rowmarks(PlannerInfo *root);
+static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path);
+static void set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify, Index relid);
+static bool is_remote_relation(PlannerInfo *root, Index relid);
+static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms);
+static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *context);
+static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *context);
+static bool replace_replicate_reduce(Path *path, List *reduce_replicate);
+static void create_cluster_window_path(PlannerInfo *root,
+									   RelOptInfo *window_rel,
+									   Path *path,
+									   PathTarget *input_target,
+									   PathTarget *output_target,
+									   List *tlist,
+									   WindowFuncLists *wflists,
+									   List *activeWindows);
+static int create_cluster_window_internal(PlannerInfo *root, Path *path, void *context);
+static PathTarget* update_window_target(PathTarget *input_target,
+										WindowFuncLists *wflists,
+										WindowClause *wc);
+static bool rti_is_base_rel(PlannerInfo *root, Index rti);
+#endif
 
 
 /*****************************************************************************
@@ -207,6 +293,15 @@ planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	if (planner_hook)
 		result = (*planner_hook) (parse, cursorOptions, boundParams);
 	else
+#ifdef ADB
+		/*
+		 * A Coordinator receiving a query from another Coordinator
+		 * is not allowed to go into PGXC planner.
+		 */
+		if (IsCoordMaster())
+			result = pgxc_planner(parse, cursorOptions, boundParams);
+		else
+#endif
 		result = standard_planner(parse, cursorOptions, boundParams);
 	return result;
 }
@@ -290,6 +385,10 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		glob->parallelModeOK = false;
 	}
 
+#ifdef ADB
+	glob->clusterPlanOK = (IsCoordMaster() && CLUSTER_PLAN_OK(cursorOptions, parse));
+#endif /* ADB */
+
 	/*
 	 * glob->parallelModeNeeded should tell us whether it's necessary to
 	 * impose the parallel mode restrictions, but we don't actually want to
@@ -337,6 +436,60 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	/* Select best Path and turn it into a Plan */
 	final_rel = fetch_upper_rel(root, UPPERREL_FINAL, NULL);
 	best_path = get_cheapest_fractional_path(final_rel, tuple_fraction);
+#ifdef ADB
+	if (glob->subplans != NIL &&
+		have_cluster_gather_path(best_path))
+	{
+		/* we need change subplan */
+		ListCell *lc_subroot;
+		ListCell *lc_subplan;
+		PlannerInfo *subroot;
+		RelOptInfo *sub_final;
+		Path *path;
+		Bitmapset *cte_planids = NULL;
+		List *nodeOids = get_remote_nodes(root, best_path, false);
+		List *reduce_list;
+		int sub_plan_id;
+		Assert(glob->clusterPlanOK);
+
+		foreach(lc_subroot, root->glob->subroots)
+			cte_planids = find_cte_planid(lfirst(lc_subroot), cte_planids);
+		cte_planids = find_cte_planid(root, cte_planids);
+
+		sub_plan_id = 0;
+		nodeOids = list_append_unique_oid(nodeOids, PGXCNodeOid);
+		reduce_list = list_make1(MakeReplicateReduceInfo(nodeOids));
+		forboth(lc_subroot, root->glob->subroots, lc_subplan, root->glob->subplans)
+		{
+			++sub_plan_id;
+			subroot = lfirst(lc_subroot);
+			sub_final = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
+
+			if(bms_is_member(sub_plan_id, cte_planids))
+			{
+				/*
+				 * we clear cheapest replicate path
+				 * see function get_remote_nodes
+				 */
+				sub_final->cheapest_replicate_path = NULL;
+				Assert(sub_final->cheapest_cluster_total_path);
+				path = sub_final->cheapest_cluster_total_path;
+			}else
+			{
+				Assert(sub_final->cheapest_replicate_path != NULL);
+				path = sub_final->cheapest_replicate_path;
+				replace_replicate_reduce(path, reduce_list);
+
+				if (bms_is_member(sub_plan_id, glob->rewindPlanIDs) &&
+					!ExecMaterializesOutput(path->pathtype))
+					path = (Path*)create_material_path(sub_final, path);
+			}
+
+			lfirst(lc_subplan) = create_plan(subroot, path);
+		}
+		bms_free(cte_planids);
+	}
+#endif /* ADB */
 
 	top_plan = create_plan(root, best_path);
 
@@ -515,6 +668,9 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	root->minmax_aggs = NIL;
 	root->qual_security_level = 0;
 	root->hasInheritedTarget = false;
+#ifdef ADB
+	root->rs_alias_index = 1;
+#endif
 	root->hasRecursion = hasRecursion;
 	if (hasRecursion)
 		root->wt_param_id = SS_assign_special_param(root);
@@ -591,6 +747,26 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	 * expand_inherited_tables to examine and modify).
 	 */
 	preprocess_rowmarks(root);
+
+#ifdef ADB
+	/*
+	 * In Coordinators we separate row marks in two groups
+	 * one comprises of row marks of types ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE
+	 * and the other contains the rest of the types of row marks
+	 * The former is handeled on Coordinator in such a way that
+	 * FOR UPDATE/SHARE gets added in the remote query, whereas
+	 * the later needs to be handeled the way pg does
+	 *
+	 * PGXCTODO : This is not a very efficient way of handling row marks
+	 * Consider this join query
+	 * select * from t1, t2 where t1.val = t2.val for update
+	 * It results in this query to be fired at the Datanodes
+	 * SELECT val, val2, ctid FROM ONLY t2 WHERE true FOR UPDATE OF t2
+	 * We are locking the complete table where as we should have locked
+	 * only the rows where t1.val = t2.val is met
+	 */
+	separate_rowmarks(root);
+#endif
 
 	/*
 	 * Expand any rangetable entries that are inheritance sets into "append
@@ -1462,6 +1638,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 	int64		offset_est = 0;
 	int64		count_est = 0;
 	double		limit_tuples = -1.0;
+	bool		planner_need_limit;
 	bool		have_postponed_srfs = false;
 	PathTarget *final_target;
 	List	   *final_targets;
@@ -1676,6 +1853,11 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 								? (gset_data->rollups ? ((RollupData *) linitial(gset_data->rollups))->groupClause : NIL)
 								: parse->groupClause);
 
+#ifdef ADB
+		if (root->parse->in_sub_plan &&
+			expression_have_exec_param((Expr*)tlist))
+			root->must_replicate = true;
+#endif /* ADB */
 		/*
 		 * Generate the best unsorted and presorted paths for the scan/join
 		 * portion of this Query, ie the processing represented by the
@@ -1845,6 +2027,99 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			 */
 			current_rel->partial_pathlist = NIL;
 		}
+#ifdef ADB
+		if (inheritance_update == false &&
+			current_rel->cluster_pathlist &&
+			!has_cluster_hazard((Node*)scanjoin_target->exprs, false))
+		{
+			Path *path;
+			List *reduce_info = NULL;
+			List *new_pathlist = NIL;
+			bool try_reduce = root->must_replicate && expression_have_exec_param((Expr*)scanjoin_target->exprs);
+			if(try_reduce)
+				reduce_info = list_make1(MakeFinalReplicateReduceInfo());
+
+			foreach(lc, current_rel->cluster_pathlist)
+			{
+				Path *subpath = lfirst(lc);
+				Assert(subpath->param_info == NULL);
+
+				if (try_reduce)
+				{
+					if(!IsA(subpath, ReduceScanPath))
+					{
+						subpath = (Path*)try_reducescan_path(root,
+															 current_rel,
+															 scanjoin_target,
+															 subpath,
+															 reduce_info,
+															 subpath->pathkeys,
+															 NIL);
+					}
+					if(subpath)
+					{
+						Assert(is_projection_capable_path(subpath));
+						new_pathlist = lappend(new_pathlist, subpath);
+					}
+					continue;
+				}
+
+				path = apply_projection_to_path(root, current_rel, subpath, scanjoin_target);
+				if (path != subpath)
+				{
+					lfirst(lc) = path;
+					if (subpath == current_rel->cheapest_cluster_startup_path)
+						current_rel->cheapest_cluster_startup_path = path;
+					if (subpath == current_rel->cheapest_cluster_total_path)
+						current_rel->cheapest_cluster_total_path = path;
+					if (subpath == current_rel->cheapest_replicate_path)
+						current_rel->cheapest_replicate_path = path;
+				}
+			}
+			if(try_reduce)
+			{
+				list_free(current_rel->cluster_pathlist);
+				list_free(current_rel->cheapest_cluster_parameterized_paths);
+				current_rel->cheapest_cluster_startup_path =
+					current_rel->cheapest_cluster_total_path =
+					current_rel->cheapest_replicate_path = NULL;
+				current_rel->cheapest_cluster_parameterized_paths = NIL;
+				if(new_pathlist)
+				{
+					current_rel->cluster_pathlist = new_pathlist;
+					set_cheapest(current_rel);
+				}else
+				{
+					current_rel->cluster_pathlist = NIL;
+					if(current_rel->cluster_partial_pathlist)
+					{
+						list_free(current_rel->cluster_partial_pathlist);
+						current_rel->cluster_partial_pathlist = NIL;
+					}
+				}
+			}
+			if (!has_parallel_hazard((Node*)scanjoin_target->exprs, false))
+			{
+				foreach(lc, current_rel->cluster_partial_pathlist)
+				{
+					Path *subpath = lfirst(lc);
+					Assert(subpath->param_info == NULL);
+
+					lfirst(lc) = create_projection_path(root,
+														current_rel,
+														subpath,
+														scanjoin_target);
+				}
+			}else if (current_rel->cluster_partial_pathlist)
+			{
+				list_free(current_rel->cluster_partial_pathlist);
+				current_rel->cluster_partial_pathlist = NIL;
+			}
+		}else
+		{
+			current_rel->cluster_pathlist = NIL;
+		}
+#endif /* ADB */
 
 		/* Now fix things up if scan/join target contains SRFs */
 		if (parse->hasTargetSRFs)
@@ -1963,6 +2238,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 	 * Generate paths for the final_rel.  Insert all surviving paths, with
 	 * LockRows, Limit, and/or ModifyTable steps added if needed.
 	 */
+	planner_need_limit = limit_needed(parse);
 	foreach(lc, current_rel->pathlist)
 	{
 		Path	   *path = (Path *) lfirst(lc);
@@ -1984,7 +2260,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		/*
 		 * If there is a LIMIT/OFFSET clause, add the LIMIT node.
 		 */
-		if (limit_needed(parse))
+		if (planner_need_limit)
 		{
 			path = (Path *) create_limit_path(root, final_rel, path,
 											  parse->limitOffset,
@@ -2026,6 +2302,62 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			else
 				rowMarks = root->rowMarks;
 
+#ifdef ADB
+			/* try cluster insert plan */
+			if (inheritance_update == false &&
+				root->glob->clusterPlanOK &&
+				parse->commandType == CMD_INSERT &&
+				current_rel->cluster_pathlist == NIL &&
+				/* need this? safety add it */
+				root->parent_root == NULL &&
+				rti_is_base_rel(root, parse->resultRelation) &&
+				!has_row_triggers(root, parse->resultRelation, CMD_INSERT) &&
+				!have_remote_query_path(path) &&
+				is_remote_relation(root, parse->resultRelation) &&
+				path->rows >= 5.0)
+			{
+				ResultPath *rp;
+				ModifyTablePath *modify;
+				Expr *node_oid_eq;
+				Assert(OidIsValid(PGXCNodeOid));
+				node_oid_eq = CreateNodeOidEqualOid(PGXCNodeOid);
+				if(IsA(path, ResultPath))
+				{
+					rp = (ResultPath*)path;
+					rp->quals = lcons(node_oid_eq, rp->quals);
+				}else
+				{
+					rp = create_result_path(root, current_rel, path->pathtarget, list_make1(node_oid_eq));
+				}
+				memcpy(rp, path, sizeof(Path));
+				NodeSetTag(rp, T_ResultPath);
+				rp->path.pathtype = T_Result;
+				if((Path*)rp != path)
+					rp->subpath = path;
+				path = (Path*)rp;
+
+				/* make reduce path */
+				path = reduce_to_relation_insert(root, parse->resultRelation, path);
+				Assert(path);
+
+				modify =
+					create_modifytable_path(root, final_rel,
+											parse->commandType,
+											parse->canSetTag,
+											parse->resultRelation,
+											list_make1_int(parse->resultRelation),
+											list_make1(path),
+											list_make1(root),
+											withCheckOptionLists,
+											returningLists,
+											rowMarks,
+											parse->onConflict,
+											SS_assign_special_param(root));
+				set_modifytable_path_reduceinfo(root, modify, parse->resultRelation);
+				modify->under_cluster = true;
+				path = (Path*)create_cluster_gather_path((Path*)modify, final_rel);
+			}else
+#endif /* ADB */
 			path = (Path *)
 				create_modifytable_path(root, final_rel,
 										parse->commandType,
@@ -2045,6 +2377,201 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		/* And shove it into final_rel */
 		add_path(final_rel, path);
 	}
+#ifdef ADB
+	/* make_subplan maybe change clusterPlanOK, check it again */
+	if(root->glob->clusterPlanOK == false)
+		current_rel->cluster_pathlist = NIL;
+	foreach(lc, current_rel->cluster_pathlist)
+	{
+		Path *path = lfirst(lc);
+		List *reduce_info_list = get_reduce_info_list(path);
+		bool have_gather;
+		bool created_limit = false;
+
+		if (parse->rowMarks)
+		{
+			break;
+		}
+
+		have_gather = have_cluster_gather_path(path);
+		/* create limit path if we can */
+		if (planner_need_limit &&				/* need limit */
+			parse->sortClause == NULL &&		/* have no order by */
+			parse->commandType == CMD_SELECT &&	/* not a modify sql */
+			!have_gather &&						/* limit at datanode */
+			parse->limitOffset == NULL)			/* must have no offset */
+		{
+			path = (Path*) create_limit_path(root, final_rel, path,
+												parse->limitOffset,
+												parse->limitCount,
+												offset_est,
+												count_est);
+			/*
+			 * when data is replicated or
+			 * only from one node, don't need create limit again */
+			if (IsReduceInfoListReplicated(reduce_info_list) ||
+				IsReduceInfoListInOneNode(reduce_info_list))
+				created_limit = true;
+		}
+
+		if (parse->commandType != CMD_SELECT && !inheritance_update)
+		{
+			ModifyTablePath *modify;
+			if (parse->withCheckOptions ||
+				rti_is_base_rel(root, parse->resultRelation) == false ||
+				has_row_triggers(root, parse->resultRelation, parse->commandType))
+				break;
+
+			if (is_remote_relation(root, parse->resultRelation) == false)
+			{
+				if(root->parent_root == NULL)
+				{
+					path = (Path*)create_cluster_gather_path(path, final_rel);
+					have_gather = true;
+				}else
+				{
+					path = (Path*)create_cluster_reduce_path(root,
+															 path,
+															 list_make1(MakeCoordinatorReduceInfo()),
+															 final_rel,
+															 NIL);
+				}
+			}else if (parse->rowMarks == NIL &&
+					  (parse->onConflict == NULL || parse->onConflict->action == ONCONFLICT_NOTHING))
+			{
+				/* not support update a replicate table when "on conflict do ..." */
+				if (parse->onConflict != NULL &&
+					parse->onConflict->action != ONCONFLICT_NONE &&
+					IsRelationReplicated(root->simple_rel_array[parse->resultRelation]->loc_info))
+					break;
+
+				if (parse->commandType == CMD_INSERT)
+				{
+					Path *reduce_path = reduce_to_relation_insert(root, parse->resultRelation, path);
+					if(reduce_path == NULL)
+					{
+						/* local table */
+						if(have_gather == false)
+						{
+							path = (Path*)create_cluster_gather_path(path, final_rel);
+							have_gather = true;
+						}
+					}else
+					{
+						path = reduce_path;
+					}
+				}else if (have_cluster_reduce_path(path))
+				{
+					/*
+					   when subpath include reduce, maybe update or delete wrong rows
+					   because ctid column maybe not from modify node
+					 */
+					continue;
+				}else if (have_special_path_args(path, T_MergePath, T_HashPath, T_NestPath, T_Invalid))
+				{
+					/*
+					   when update or delete replication table and subpath have join
+					   maybe have some
+					 */
+					Index relid = parse->resultRelation;
+					if (relid < root->simple_rel_array_size &&
+						root->simple_rel_array[relid] != NULL)
+					{
+						if (root->simple_rel_array[relid]->loc_info &&
+							IsRelationReplicated(root->simple_rel_array[relid]->loc_info))
+							continue;
+					}else
+					{
+						RangeTblEntry *rte = planner_rt_fetch(relid, root);
+						Relation rel;
+						bool replicated;
+						Assert(rte->rtekind == RTE_RELATION);
+						rel = relation_open(rte->relid, NoLock);
+						replicated = (rel->rd_locator_info != NULL && IsRelationReplicated(rel->rd_locator_info));
+						relation_close(rel, NoLock);
+						if(replicated)
+							continue;
+					}
+				}
+			}else
+			{
+				break;
+			}
+			modify =
+				create_modifytable_path(root, final_rel,
+										parse->commandType,
+										parse->canSetTag,
+										parse->resultRelation,
+										list_make1_int(parse->resultRelation),
+										list_make1(path),
+										list_make1(root),
+										NIL,	/* no check options */
+										parse->returningList ? list_make1(parse->returningList) : NIL,
+										NIL,	/* no row marks */
+										parse->onConflict,
+										SS_assign_special_param(root));
+			set_modifytable_path_reduceinfo(root, modify, parse->resultRelation);
+			modify->under_cluster = true;
+			path = (Path*)modify;
+			reduce_info_list = get_reduce_info_list(path);
+		}
+
+		if(root->parent_root == NULL)
+		{
+			if(!have_gather)
+			{
+				if (parse->sortClause &&
+					!IsReduceInfoListInOneNode(reduce_info_list) &&
+					!IsReduceInfoListReplicated(reduce_info_list))
+				{
+					Assert(pathkeys_contained_in(root->sort_pathkeys, path->pathkeys));
+					path = (Path*)create_cluster_merge_gather_path(root,
+																   final_rel,
+																   path,
+																   root->sort_pathkeys);
+				}else
+				{
+					path = (Path*)create_cluster_gather_path(path, final_rel);
+				}
+			}else if(parse->sortClause
+					&& !pathkeys_contained_in(path->pathkeys, root->sort_pathkeys))
+			{
+				path = (Path*)create_sort_path(root, final_rel, path, root->sort_pathkeys, -1.0);
+			}
+
+			if (planner_need_limit && !created_limit)
+				path = (Path*) create_limit_path(root, final_rel, path,
+												 parse->limitOffset,
+												 parse->limitCount,
+												 offset_est, count_est);
+
+			add_path(final_rel, path);
+		}else
+		{
+			if (planner_need_limit && !created_limit)
+			{
+				List *pathkeys = NIL;
+				if(parse->sortClause)
+				{
+					Assert(pathkeys_contained_in(root->sort_pathkeys, path->pathkeys));
+					pathkeys = path->pathkeys;
+				}
+				path = create_cluster_reduce_path(root,
+												  path,
+												  list_make1(MakeCoordinatorReduceInfo()),
+												  final_rel,
+												  pathkeys);
+				path = (Path*) create_limit_path(root,
+												 final_rel,
+												 path,
+												 parse->limitOffset,
+												 parse->limitCount,
+												 offset_est, count_est);
+			}
+			add_cluster_path(final_rel, path);
+		}
+	}
+#endif /* ADB */
 
 	/*
 	 * If there is an FDW that's responsible for all baserels of the query,
@@ -2421,6 +2948,43 @@ preprocess_rowmarks(PlannerInfo *root)
 	root->rowMarks = prowmarks;
 }
 
+#ifdef ADB
+/*
+ * separate_rowmarks - In XC Coordinators are supposed to skip handling
+ *                of type ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE.
+ *                In order to do that we simply remove such type
+ *                of row marks from the list. Instead they are saved
+ *                in another list that is then handeled to add
+ *                FOR UPDATE/SHARE in the remote query
+ *                in the function create_remotequery_plan
+ */
+static void
+separate_rowmarks(PlannerInfo *root)
+{
+	List		*rml_1, *rml_2;
+	ListCell	*rm;
+
+	if (!IsCoordMaster() || root->rowMarks == NULL)
+		return;
+
+	rml_1 = NULL;
+	rml_2 = NULL;
+
+	foreach(rm, root->rowMarks)
+	{
+		PlanRowMark *prm = (PlanRowMark *) lfirst(rm);
+
+		if (prm->markType == ROW_MARK_EXCLUSIVE || prm->markType == ROW_MARK_SHARE)
+			rml_1 = lappend(rml_1, prm);
+		else
+			rml_2 = lappend(rml_2, prm);
+	}
+	list_free(root->rowMarks);
+	root->rowMarks = rml_2;
+	root->xc_rowMarks = rml_1;
+}
+#endif
+
 /*
  * Select RowMarkType to use for a given table
  */
@@ -2675,7 +3239,7 @@ preprocess_limit(PlannerInfo *root, double tuple_fraction,
  * a key distinction: here we need hard constants in OFFSET/LIMIT, whereas
  * in preprocess_limit it's good enough to consider estimated values.
  */
-static bool
+bool
 limit_needed(Query *parse)
 {
 	Node	   *node;
@@ -3521,6 +4085,9 @@ create_grouping_paths(PlannerInfo *root,
 	bool		can_hash;
 	bool		can_sort;
 	bool		try_parallel_aggregation;
+#ifdef ADB
+	bool		try_cluster_aggregation;
+#endif /* ADB */
 
 	ListCell   *lc;
 
@@ -4102,6 +4669,258 @@ create_grouping_paths(PlannerInfo *root,
 				 errmsg("could not implement GROUP BY"),
 				 errdetail("Some of the datatypes only support hashing, while others only support sorting.")));
 
+#ifdef ADB
+	if(has_cluster_hazard((Node*)target->exprs, false)
+		|| has_cluster_hazard(parse->havingQual, false)
+		|| input_rel->cluster_pathlist == NIL	/* Nothing to use as input for cluster aggregate. */
+		|| (!parse->hasAggs && parse->groupClause == NIL)
+		|| parse->groupingSets)
+	{
+		try_cluster_aggregation = false;
+	}else
+	{
+		try_cluster_aggregation = true;
+	}
+
+	if(try_cluster_aggregation)
+	{
+		CreateGrupingPathsContext gcontext;
+		Path *cheapest_cluster_path = input_rel->cheapest_cluster_total_path;
+
+		bool no_partial = (agg_costs->hasNonPartial || agg_costs->hasNonSerial);
+		bool tried_cluster_agg = false;
+		bool have_cluster_subpath = false;
+
+		MemSet(&gcontext, 0, sizeof(gcontext));
+		gcontext.grouped_rel = grouped_rel;
+		gcontext.input_rel = input_rel;
+		gcontext.final_target = target;
+		gcontext.agg_once_costs = agg_costs;
+		gcontext.having_quals = (List*)parse->havingQual;
+		gcontext.final_groups = dNumGroups;
+		gcontext.group_pathkeys = root->group_pathkeys;
+		gcontext.group_clause = parse->groupClause;
+		gcontext.has_agg = parse->hasAggs;
+		gcontext.can_sort = can_sort;
+		gcontext.can_hash = can_hash;
+		gcontext.can_gather = (root->parent_root == NULL &&
+							   !expression_have_exec_param((Expr*)parse->havingQual) &&
+							   !expr_have_exec_param_and_node((Expr*)target->exprs, T_SubPlan, T_SubLink, T_Invalid) &&
+							   !expression_have_reduce_plan((Expr*)parse->havingQual, root->glob));
+
+		if (!no_partial)
+		{
+			if(partial_grouping_target == NULL)
+				partial_grouping_target = make_partial_grouping_target(root, target);
+
+			dNumPartialGroups = get_number_of_groups(root,
+													cheapest_cluster_path->rows,
+													NIL,
+													NIL);
+
+			MemSet(&agg_partial_costs, 0, sizeof(AggClauseCosts));
+			MemSet(&agg_final_costs, 0, sizeof(AggClauseCosts));
+			if (parse->hasAggs)
+			{
+				/* partial phase */
+				get_agg_clause_costs(root, (Node *) partial_grouping_target->exprs,
+									 AGGSPLIT_INITIAL_SERIAL,
+									 &agg_partial_costs);
+
+				/* final phase */
+				get_agg_clause_costs(root, (Node *) target->exprs,
+									 AGGSPLIT_FINAL_DESERIAL,
+									 &agg_final_costs);
+				get_agg_clause_costs(root, parse->havingQual,
+									 AGGSPLIT_FINAL_DESERIAL,
+									 &agg_final_costs);
+			}
+			gcontext.partial_target = partial_grouping_target;
+			gcontext.agg_partial_costs = &agg_partial_costs;
+			gcontext.agg_final_costs = &agg_final_costs;
+			gcontext.partial_groups = dNumPartialGroups;
+		}
+
+		/* This was checked before setting try_parallel_aggregation */
+		Assert(parse->hasAggs || parse->groupClause);
+
+		/* create only_once sort path */
+		gcontext.split = AGGSPLIT_SIMPLE;
+		foreach(lc, input_rel->cluster_pathlist)
+		{
+			Path *path = lfirst(lc);
+			if(have_cluster_subpath == false)
+				have_cluster_subpath = IsReduceInfoListByValue(get_reduce_info_list(path)) ||
+										IsReduceInfoListRound(get_reduce_info_list(path));
+			if(CanOnceGroupingClusterPath(target, path))
+			{
+				create_cluster_grouping_path(root, path, &gcontext);
+				if(tried_cluster_agg == false)
+					tried_cluster_agg = IsReduceInfoListByValue(get_reduce_info_list(path));
+			}
+		}
+
+		/* check need to do */
+		if (NIL == gcontext.new_paths_list ||
+			(tried_cluster_agg == false && have_cluster_subpath))
+		{
+			Path *path;
+			List *storage_list;
+			List *pathlist;
+			List *groupExprs = get_sortgrouplist_exprs(parse->groupClause, parse->targetList);
+
+			if(gcontext.new_paths_list != NIL)
+			{
+				add_cluster_path_list(grouped_rel, gcontext.new_paths_list, true);
+				gcontext.new_paths_list = NIL;
+			}
+
+			if(!no_partial)
+			{
+				Path *cheapest_startup_path;
+				gcontext.split = AGGSPLIT_INITIAL_SERIAL;
+
+				/* datanode(s) agg first */
+				foreach(lc, input_rel->cluster_pathlist)
+					create_cluster_grouping_path(root,
+													   lfirst(lc),
+													   &gcontext);
+				pathlist = GetCheapestReducePathList(grouped_rel, gcontext.new_paths_list, &cheapest_startup_path, &path);
+				gcontext.new_paths_list = NIL;
+				if(list_member_ptr(pathlist, path) == false)
+					pathlist = lappend(pathlist, path);
+				if(list_member_ptr(pathlist, cheapest_startup_path) == false)
+					pathlist = lappend(pathlist, cheapest_startup_path);
+
+				gcontext.split = AGGSPLIT_FINAL_DESERIAL;
+				foreach(lc, pathlist)
+				{
+					path = lfirst(lc);
+					ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(path),
+															  &storage_list,
+															  NULL);
+					/* reduce to coord, by hash and modulo and agg finial */
+					ReducePathByExpr((Expr*)groupExprs,
+									 root,
+									 grouped_rel,
+									 path,
+									 storage_list,
+									 NIL,
+									 create_cluster_grouping_path,
+									 &gcontext,
+									 REDUCE_TYPE_HASH,
+									 REDUCE_TYPE_MODULO,
+									 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
+									 REDUCE_TYPE_NONE);
+					list_free(storage_list);
+				}
+			}
+
+			gcontext.split = AGGSPLIT_SIMPLE;
+			pathlist = GetCheapestReducePathList(input_rel, input_rel->cluster_pathlist, NULL, &path);
+			if(!list_member_ptr(pathlist, path))
+				pathlist = lappend(pathlist, path);
+			foreach(lc, pathlist)
+			{
+				/* reduce to coordinator, by hash and modulo do once */
+				path = lfirst(lc);
+				ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(path),
+														  &storage_list,
+														  NULL);
+				ReducePathByExpr((Expr*)groupExprs,
+								 root,
+								 input_rel,
+								 path,
+								 storage_list,
+								 NIL,
+								 create_cluster_grouping_path,
+								 &gcontext,
+								 REDUCE_TYPE_HASH,
+								 REDUCE_TYPE_MODULO,
+								 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
+								 REDUCE_TYPE_NONE);
+				list_free(storage_list);
+			}
+		}
+		/* save paths */
+		add_cluster_path_list(grouped_rel, gcontext.new_paths_list, true);
+		gcontext.new_paths_list = NIL;
+
+		/* partial grouping */
+		if (input_rel->cluster_partial_pathlist != NIL &&
+			grouped_rel->consider_parallel &&
+			no_partial == false)
+		{
+			Path *subpath;
+			List *new_path_list;
+			List *groupExprs;
+
+			gcontext.split = AGGSPLIT_INITIAL_SERIAL;
+			foreach(lc, input_rel->cluster_partial_pathlist)
+			{
+				subpath = lfirst(lc);
+				if(CanOnceGroupingClusterPath(target, subpath))
+					create_cluster_grouping_path(root, subpath, &gcontext);
+			}
+			if(gcontext.new_paths_list)
+			{
+				new_path_list = gcontext.new_paths_list;
+				gcontext.new_paths_list = NIL;
+				gcontext.split = AGGSPLIT_FINAL_DESERIAL;
+				ParallelGatherSubPathList(root, grouped_rel, new_path_list, create_cluster_grouping_path, &gcontext);
+				add_cluster_path_list(grouped_rel, gcontext.new_paths_list, true);
+				gcontext.new_paths_list = NIL;
+				list_free(new_path_list);
+			}else
+			{
+				List *storage_list;
+				groupExprs = get_sortgrouplist_exprs(parse->groupClause, parse->targetList);
+				subpath = linitial(input_rel->cluster_partial_pathlist);
+				gcontext.partial_groups = get_number_of_groups(root, subpath->rows, NULL, NULL);
+
+				/* step 1: parallel agg first */
+				/* gcontext.split = AGGSPLIT_INITIAL_SERIAL; */
+				foreach(lc, input_rel->cluster_partial_pathlist)
+					create_cluster_grouping_path(root, lfirst(lc), &gcontext);
+				new_path_list = gcontext.new_paths_list;
+				gcontext.new_paths_list = NIL;
+
+				/* step 2: gather */
+				ParallelGatherSubPathList(root, grouped_rel, new_path_list, ReducePathSave2List, (void*)&gcontext.new_paths_list);
+				list_free(new_path_list);
+				new_path_list = gcontext.new_paths_list;
+				gcontext.new_paths_list = NIL;
+
+				/* step 3: reduce and final agg */
+				gcontext.split = AGGSPLIT_FINAL_DESERIAL;
+				foreach(lc, new_path_list)
+				{
+					subpath = lfirst(lc);
+					ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(subpath),
+															  &storage_list,
+															  NULL);
+					ReducePathByExpr((Expr*)groupExprs,
+									 root,
+									 grouped_rel,
+									 subpath,
+									 storage_list,
+									 NIL,
+									 create_cluster_grouping_path,
+									 &gcontext,
+									 groupExprs ? REDUCE_TYPE_HASH : REDUCE_TYPE_IGNORE,
+									 groupExprs ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
+									 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
+									 REDUCE_TYPE_NONE);
+					list_free(storage_list);
+				}
+				list_free(new_path_list);
+				add_cluster_path_list(grouped_rel, gcontext.new_paths_list, true);
+				gcontext.new_paths_list = NIL;
+			}
+		}
+	}
+#endif /* ADB */
+
 	/*
 	 * If there is an FDW that's responsible for all baserels of the query,
 	 * let it consider adding ForeignPaths.
@@ -4537,6 +5356,24 @@ create_window_paths(PlannerInfo *root,
 								   wflists,
 								   activeWindows);
 	}
+#ifdef ADB
+	foreach(lc, input_rel->cluster_pathlist)
+	{
+		Path	   *path = (Path *) lfirst(lc);
+
+		if (path == input_rel->cheapest_cluster_total_path ||
+			pathkeys_contained_in(root->window_pathkeys, path->pathkeys) ||
+			HaveOnceWindowAggClusterPath(activeWindows, tlist, path))
+			create_cluster_window_path(root,
+									   window_rel,
+									   path,
+									   input_target,
+									   output_target,
+									   tlist,
+									   wflists,
+									   activeWindows);
+	}
+#endif /* ADB */
 
 	/*
 	 * If there is an FDW that's responsible for all baserels of the query,
@@ -4620,6 +5457,9 @@ create_one_window_path(PlannerInfo *root,
 
 		if (lnext(l))
 		{
+#ifdef ADB
+			window_target = update_window_target(window_target, wflists, wc);
+#else
 			/*
 			 * Add the current WindowFuncs to the output target for this
 			 * intermediate WindowAggPath.  We must copy window_target to
@@ -4638,6 +5478,7 @@ create_one_window_path(PlannerInfo *root,
 				add_column_to_pathtarget(window_target, (Expr *) wfunc, 0);
 				window_target->width += get_typavgwidth(wfunc->wintype, -1);
 			}
+#endif /* ADB */
 		}
 		else
 		{
@@ -4654,6 +5495,253 @@ create_one_window_path(PlannerInfo *root,
 
 	add_path(window_rel, path);
 }
+
+#ifdef ADB
+static void create_cluster_window_path(PlannerInfo *root,
+									   RelOptInfo *window_rel,
+									   Path *path,
+									   PathTarget *input_target,
+									   PathTarget *output_target,
+									   List *tlist,
+									   WindowFuncLists *wflists,
+									   List *activeWindows)
+{
+	WindowClause *wc;
+	ListCell   *lc;
+	List	   *coord_list = NIL;
+	List	   *partition_list = NIL;
+	List	   *storage;
+	List	   *exclude;
+
+	CreateWindowAggPathContext context;
+
+	context.window_rel = window_rel;
+	context.window_target = input_target;
+	context.tlist = tlist;
+	context.wflists = wflists;
+
+
+	foreach(lc, activeWindows)
+	{
+		wc = lfirst(lc);
+		if(PATH_REQ_OUTER(path))
+		{
+			coord_list = lappend(coord_list, wc);
+		}else if(CanOnceWindowAggClusterPath(wc, tlist, path))
+		{
+			context.window_pathkeys = make_pathkeys_for_window(root, wc, tlist);
+			context.new_path = NULL;
+			context.wclause = wc;
+			if (lnext(lc) ||
+				coord_list ||
+				partition_list)
+				context.window_target = update_window_target(context.window_target, wflists, wc);
+			else
+				context.window_target = output_target;
+
+			create_cluster_window_internal(root, path, &context);
+
+			Assert(context.new_path != NULL);
+			path = context.new_path;
+		}else if(wc->partitionClause)
+		{
+			partition_list = lappend(partition_list, wc);
+		}else
+		{
+			coord_list = lappend(coord_list, wc);
+		}
+	}
+
+	if (partition_list == NIL &&
+		coord_list == NIL)
+	{
+		add_cluster_path(window_rel, path);
+		return;
+	}
+
+	ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(path),
+											  &storage,
+											  &exclude);
+
+	if(partition_list)
+	{
+		ListCell *lc2;
+		Path *modulo_path;
+		Path *hash_path;
+		PathTarget *saved_target;
+
+		hash_path = modulo_path = path;
+
+		foreach(lc, partition_list)
+		{
+			bool generate_hash = false;
+			bool generate_modulo = false;
+			wc = lfirst(lc);
+
+			context.window_pathkeys = make_pathkeys_for_window(root, wc, tlist);
+			context.wclause = wc;
+			saved_target = context.window_target;
+			if(coord_list || lnext(lc))
+				context.window_target = update_window_target(saved_target, wflists, wc);
+			else
+				context.window_target = output_target;
+
+			foreach(lc2, wc->partitionClause)
+			{
+				Expr *expr = (Expr*)get_sortgroupclause_expr(lfirst(lc2), tlist);
+				Oid oid = exprType((Node*)expr);
+
+				if(generate_modulo == false && modulo_path && CanModuloType(oid, true))
+				{
+					context.new_path = NULL;
+					ModuloPathByExpr(expr, root, window_rel, modulo_path, storage, exclude, create_cluster_window_internal, &context);
+					if(context.new_path)
+					{
+						modulo_path = context.new_path;
+						generate_modulo = true;
+					}
+				}
+				if(generate_hash==false && hash_path && IsTypeDistributable(oid))
+				{
+					context.new_path = NULL;
+					HashPathByExpr(expr, root, window_rel, hash_path, storage, exclude, create_cluster_window_internal, &context);
+					if(context.new_path)
+					{
+						hash_path = context.new_path;
+						generate_hash = true;
+					}
+				}
+				if(generate_modulo && generate_hash)
+					break;
+			}
+			if(generate_modulo == false && generate_hash == false)
+			{
+				context.window_target = saved_target;
+				for(;lc!=NULL;lc=lnext(lc))
+					coord_list = lappend(coord_list, lfirst(lc));
+				break;
+			}else if(generate_modulo == false)
+			{
+				modulo_path = NULL;
+			}else if(generate_hash == false)
+			{
+				hash_path = NULL;
+			}
+		}
+
+		if(hash_path && modulo_path)
+		{
+			if(coord_list == NIL)
+			{
+				add_cluster_path(window_rel, hash_path);
+				if(hash_path != modulo_path)
+					add_cluster_path(window_rel, modulo_path);
+				return;
+			}else if(hash_path != modulo_path)
+			{
+				if(compare_path_costs(hash_path, modulo_path, TOTAL_COST) > 0)
+					path = modulo_path;
+				else
+					path = hash_path;
+			}else
+			{
+				path = hash_path;
+			}
+		}else if(hash_path)
+		{
+			path = hash_path;
+		}else
+		{
+			Assert(modulo_path);
+			path = modulo_path;
+		}
+	}
+
+	if(coord_list)
+	{
+		if(root->parent_root == NULL)
+			path = (Path*)create_cluster_gather_path(path, window_rel);
+		else
+			path = create_cluster_reduce_path(root, path, list_make1(MakeCoordinatorReduceInfo()), window_rel, NIL);
+
+		foreach(lc, coord_list)
+		{
+			wc = lfirst(lc);
+
+			context.window_pathkeys = make_pathkeys_for_window(root, wc, tlist);
+			context.wclause = wc;
+			context.new_path = NULL;
+			if(lnext(lc))
+				context.window_target = update_window_target(context.window_target, wflists, wc);
+			else
+				context.window_target = output_target;
+			create_cluster_window_internal(root, path, &context);
+			Assert(context.new_path);
+			path = context.new_path;
+		}
+	}
+
+	add_cluster_path(window_rel, path);
+}
+
+static PathTarget* update_window_target(PathTarget *input_target,
+										WindowFuncLists *wflists,
+										WindowClause *wc)
+{
+	/*
+	 * Add the current WindowFuncs to the output target for this
+	 * intermediate WindowAggPath.  We must copy window_target to
+	 * avoid changing the previous path's target.
+	 *
+	 * Note: a WindowFunc adds nothing to the target's eval costs; but
+	 * we do need to account for the increase in tlist width.
+	 */
+	ListCell   *lc2;
+
+	PathTarget* window_target = copy_pathtarget(input_target);
+	foreach(lc2, wflists->windowFuncs[wc->winref])
+	{
+		WindowFunc *wfunc = (WindowFunc *) lfirst(lc2);
+
+		Assert(IsA(wfunc, WindowFunc));
+		add_column_to_pathtarget(window_target, (Expr *) wfunc, 0);
+		window_target->width += get_typavgwidth(wfunc->wintype, -1);
+	}
+
+	return window_target;
+}
+
+static int create_cluster_window_internal(PlannerInfo *root, Path *path, void *context)
+{
+	CreateWindowAggPathContext *wcontext = (CreateWindowAggPathContext*)context;
+
+	if(!pathkeys_contained_in(wcontext->window_pathkeys, path->pathkeys))
+	{
+		path = (Path*)create_sort_path(root,
+									   wcontext->window_rel,
+									   path,
+									   wcontext->window_pathkeys,
+									   -1.0);
+	}
+
+	path = (Path*)create_windowagg_path(root,
+										wcontext->window_rel,
+										path,
+										wcontext->window_target,
+										wcontext->wflists->windowFuncs[wcontext->wclause->winref],
+										wcontext->wclause,
+										wcontext->window_pathkeys);
+
+	if (wcontext->new_path == NULL ||
+		compare_path_costs(wcontext->new_path, path, TOTAL_COST) > 0)
+		wcontext->new_path = path;
+	else
+		pfree(path);
+
+	return 0;
+}
+
+#endif /* ADB */
 
 /*
  * create_distinct_paths
@@ -4676,6 +5764,10 @@ create_distinct_paths(PlannerInfo *root,
 	bool		allow_hash;
 	Path	   *path;
 	ListCell   *lc;
+	List	   *distinctExprs;
+#ifdef ADB
+	CreateDistinctPathsContext dcontext;
+#endif /* ADB */
 
 	/* For now, do all work in the (DISTINCT, NULL) upperrel */
 	distinct_rel = fetch_upper_rel(root, UPPERREL_DISTINCT, NULL);
@@ -4707,13 +5799,13 @@ create_distinct_paths(PlannerInfo *root,
 		 * already mostly unique).
 		 */
 		numDistinctRows = cheapest_input_path->rows;
+		distinctExprs = NIL;
 	}
 	else
 	{
 		/*
 		 * Otherwise, the UNIQUE filter has effects comparable to GROUP BY.
 		 */
-		List	   *distinctExprs;
 
 		distinctExprs = get_sortgrouplist_exprs(parse->distinctClause,
 												parse->targetList);
@@ -4721,6 +5813,19 @@ create_distinct_paths(PlannerInfo *root,
 											  cheapest_input_path->rows,
 											  NULL);
 	}
+#ifdef ADB
+	if(distinctExprs == NIL && input_rel->cluster_pathlist != NIL)
+		distinctExprs = get_sortgrouplist_exprs(parse->distinctClause,
+												parse->targetList);
+	MemSet(&dcontext, 0, sizeof(dcontext));
+	dcontext.distinct_rel = distinct_rel;
+	dcontext.input_rel = input_rel;
+	dcontext.distinct_clause = parse->distinctClause;
+	/*dcontext.needed_pathkeys = NIL;*/
+	dcontext.num_distinct_rows = numDistinctRows;
+	/*dcontext.can_sort = grouping_is_sortable(parse->distinctClause);
+	dcontext.can_hash = grouping_is_hashable(parse->distinctClause);*/
+#endif /* ADB */
 
 	/*
 	 * Consider sort-based implementations of DISTINCT, if possible.
@@ -4761,6 +5866,24 @@ create_distinct_paths(PlannerInfo *root,
 												  numDistinctRows));
 			}
 		}
+#ifdef ADB
+		dcontext.needed_pathkeys = needed_pathkeys;
+		dcontext.can_sort = true;
+		dcontext.can_hash = false;
+		foreach(lc, input_rel->cluster_pathlist)
+		{
+			Path	   *path = (Path*) lfirst(lc);
+			List	   *reduce_list = get_reduce_info_list(path);
+
+			if (IsReduceInfoListCoordinator(reduce_list) ||
+				IsReduceInfoListReplicated(reduce_list) ||
+				IsReduceInfoListInOneNode(reduce_list) ||
+				CanOnceDistinctReduceInfoList(distinctExprs, reduce_list))
+			{
+				create_cluster_distinct_path(root, path, &dcontext);
+			}
+		}
+#endif /* ADB */
 
 		/* For explicit-sort case, always use the more rigorous clause */
 		if (list_length(root->distinct_pathkeys) <
@@ -4786,6 +5909,25 @@ create_distinct_paths(PlannerInfo *root,
 										  path,
 										  list_length(root->distinct_pathkeys),
 										  numDistinctRows));
+#ifdef ADB
+		if(needed_pathkeys != dcontext.needed_pathkeys)
+		{
+			dcontext.needed_pathkeys = needed_pathkeys;
+			foreach(lc, input_rel->cluster_pathlist)
+			{
+				Path	   *path = (Path*) lfirst(lc);
+				List	   *reduce_list = get_reduce_info_list(path);
+
+				if (IsReduceInfoListCoordinator(reduce_list) ||
+					IsReduceInfoListReplicated(reduce_list) ||
+					IsReduceInfoListInOneNode(reduce_list) ||
+					CanOnceDistinctReduceInfoList(distinctExprs, reduce_list))
+				{
+					create_cluster_distinct_path(root, path, &dcontext);
+				}
+			}
+		}
+#endif /* ADB */
 	}
 
 	/*
@@ -4834,6 +5976,26 @@ create_distinct_paths(PlannerInfo *root,
 								 NULL,
 								 numDistinctRows));
 	}
+#ifdef ADB
+	if (grouping_is_hashable(parse->distinctClause))
+	{
+		dcontext.can_sort = false;
+		dcontext.can_hash = true;
+		foreach(lc, input_rel->cluster_pathlist)
+		{
+			Path	   *path = (Path*) lfirst(lc);
+			List	   *reduce_list = get_reduce_info_list(path);
+
+			if (IsReduceInfoListCoordinator(reduce_list) ||
+				IsReduceInfoListReplicated(reduce_list) ||
+				IsReduceInfoListInOneNode(reduce_list) ||
+				CanOnceDistinctReduceInfoList(distinctExprs, reduce_list))
+			{
+				create_cluster_distinct_path(root, path, &dcontext);
+			}
+		}
+	}
+#endif /* ADB */
 
 	/* Give a helpful error if we failed to find any implementation */
 	if (distinct_rel->pathlist == NIL)
@@ -4841,6 +6003,78 @@ create_distinct_paths(PlannerInfo *root,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("could not implement DISTINCT"),
 				 errdetail("Some of the datatypes only support hashing, while others only support sorting.")));
+
+#ifdef ADB
+	if (distinct_rel->cluster_pathlist == NIL &&
+		input_rel->cluster_pathlist != NIL)
+	{
+		List *reduce_list;
+		List *storage_list;
+		List *exclude_list;
+		Assert(distinctExprs != NIL);
+
+		dcontext.can_hash = grouping_is_hashable(parse->distinctClause);
+		dcontext.can_sort = grouping_is_sortable(parse->distinctClause);
+		/* when can sort don't need set needed_pathkeys again */
+		Assert(dcontext.can_sort || dcontext.can_hash);
+
+		foreach(lc, input_rel->cluster_pathlist)
+		{
+			List	   *save_pathlist;
+			List	   *new_pathlist;
+			Path	   *path = (Path*) lfirst(lc);
+			reduce_list = get_reduce_info_list(path);
+
+			Assert(!IsReduceInfoListCoordinator(reduce_list) &&
+				   !IsReduceInfoListReplicated(reduce_list));
+
+			ReduceInfoListGetStorageAndExcludeOidList(reduce_list, &storage_list, &exclude_list);
+
+			/* echo node distinct first */
+			save_pathlist = distinct_rel->cluster_pathlist;
+			distinct_rel->cluster_pathlist = NIL;
+			create_cluster_distinct_path(root, path, &dcontext);
+			new_pathlist = distinct_rel->cluster_pathlist;
+			distinct_rel->cluster_pathlist = save_pathlist;
+
+			new_pathlist = lappend(new_pathlist, path);
+
+			/* reduce distincted and distinct again */
+			ReducePathListByExpr((Expr*)distinctExprs,
+								 root,
+								 input_rel,
+								 new_pathlist,
+								 storage_list,
+								 exclude_list,
+								 create_cluster_distinct_path,
+								 &dcontext,
+								 REDUCE_TYPE_HASH,
+								 REDUCE_TYPE_MODULO,
+								 REDUCE_TYPE_COORDINATOR,
+								 REDUCE_TYPE_NONE);
+			if(list_member_oid(storage_list, PGXCNodeOid) == false)
+			{
+				storage_list = SortOidList(lappend_oid(storage_list, PGXCNodeOid));
+				ReducePathListByExpr((Expr*)distinctExprs,
+									 root,
+									 input_rel,
+									 new_pathlist,
+									 storage_list,
+									 exclude_list,
+									 create_cluster_distinct_path,
+									 &dcontext,
+									 REDUCE_TYPE_HASH,
+									 REDUCE_TYPE_MODULO,
+									 REDUCE_TYPE_NONE);
+
+			}
+
+			list_free(storage_list);
+			list_free(exclude_list);
+			list_free(new_pathlist);
+		}
+	}
+#endif /* ADB */
 
 	/*
 	 * If there is an FDW that's responsible for all baserels of the query,
@@ -4924,6 +6158,114 @@ create_ordered_paths(PlannerInfo *root,
 												 root->sort_pathkeys,
 												 limit_tuples);
 			}
+
+			/* Add projection step if needed */
+			if (path->pathtarget != target)
+				path = apply_projection_to_path(root, ordered_rel,
+												path, target);
+
+			add_path(ordered_rel, path);
+		}
+	}
+#ifdef ADB
+	foreach(lc, input_rel->cluster_pathlist)
+	{
+		Path	   *path = (Path *) lfirst(lc);
+		bool		is_sorted;
+
+		is_sorted = pathkeys_contained_in(root->sort_pathkeys,
+										  path->pathkeys);
+		if(!is_sorted)
+		{
+			/* An explicit sort here can take advantage of LIMIT */
+			path = (Path *) create_sort_path(root,
+											 ordered_rel,
+											 path,
+											 root->sort_pathkeys,
+											 limit_tuples);
+		}
+
+		/* Add projection step if needed */
+		if (path->pathtarget != target)
+			path = apply_projection_to_path(root, ordered_rel,
+											path, target);
+
+		add_cluster_path(ordered_rel, path);
+	}
+	foreach(lc, input_rel->cluster_partial_pathlist)
+	{
+		Path	   *path = (Path *) lfirst(lc);
+		double		total_groups = path->rows * path->parallel_workers;
+
+		if (!pathkeys_contained_in(root->sort_pathkeys, path->pathkeys))
+		{
+			/* An explicit sort here can take advantage of LIMIT */
+			path = (Path *) create_sort_path(root,
+											 ordered_rel,
+											 path,
+											 root->sort_pathkeys,
+											 limit_tuples);
+		}
+
+		path = (Path*)create_gather_merge_path(root,
+											   ordered_rel,
+											   path,
+											   target,
+											   root->sort_pathkeys,
+											   NULL,
+											   &total_groups);
+		path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(lfirst(lc)));
+		path->reduce_is_valid = true;
+
+		/* Add projection step if needed */
+		if (path->pathtarget != target)
+			path = apply_projection_to_path(root, ordered_rel,
+											path, target);
+
+		add_cluster_path(ordered_rel, path);
+	}
+#endif /* ADB */
+
+	/*
+	 * generate_gather_paths() will have already generated a simple Gather
+	 * path for the best parallel path, if any, and the loop above will have
+	 * considered sorting it.  Similarly, generate_gather_paths() will also
+	 * have generated order-preserving Gather Merge plans which can be used
+	 * without sorting if they happen to match the sort_pathkeys, and the loop
+	 * above will have handled those as well.  However, there's one more
+	 * possibility: it may make sense to sort the cheapest partial path
+	 * according to the required output order and then use Gather Merge.
+	 */
+	if (ordered_rel->consider_parallel && root->sort_pathkeys != NIL &&
+		input_rel->partial_pathlist != NIL)
+	{
+		Path	   *cheapest_partial_path;
+
+		cheapest_partial_path = linitial(input_rel->partial_pathlist);
+
+		/*
+		 * If cheapest partial path doesn't need a sort, this is redundant
+		 * with what's already been tried.
+		 */
+		if (!pathkeys_contained_in(root->sort_pathkeys,
+								   cheapest_partial_path->pathkeys))
+		{
+			Path	   *path;
+			double		total_groups;
+
+			path = (Path *) create_sort_path(root,
+											 ordered_rel,
+											 cheapest_partial_path,
+											 root->sort_pathkeys,
+											 limit_tuples);
+
+			total_groups = cheapest_partial_path->rows *
+				cheapest_partial_path->parallel_workers;
+			path = (Path *)
+				create_gather_merge_path(root, ordered_rel,
+										 path,
+										 target, root->sort_pathkeys, NULL,
+										 &total_groups);
 
 			/* Add projection step if needed */
 			if (path->pathtarget != target)
@@ -6086,3 +7428,358 @@ get_partitioned_child_rels(PlannerInfo *root, Index rti)
 
 	return result;
 }
+#ifdef ADB
+static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path)
+{
+	ReduceInfo *reduce_info;
+	RelationLocInfo *loc_info;
+	List *reduce_list;
+	List *storage_nodes;
+
+	if (rel_id < root->simple_rel_array_size &&
+		root->simple_rel_array[rel_id] != NULL)
+	{
+		loc_info = root->simple_rel_array[rel_id]->loc_info;
+	}else
+	{
+		RangeTblEntry *rte = planner_rt_fetch(rel_id, root);
+		Relation rel;
+		Assert(rte->rtekind == RTE_RELATION);
+		rel = relation_open(rte->relid, NoLock);
+
+		if(rel->rd_locator_info)
+			loc_info = CopyRelationLocInfo(rel->rd_locator_info);
+		else
+			loc_info = NULL;
+		relation_close(rel, NoLock);
+	}
+
+	if(loc_info == NULL)
+		return NULL;
+
+	storage_nodes = list_copy(loc_info->nodeids);
+	reduce_list = get_reduce_info_list(path);
+	if(IsRelationReplicated(loc_info))
+	{
+		storage_nodes = SortOidList(storage_nodes);
+		if (IsReduceInfoListReplicated(reduce_list))
+		{
+			List *src_nodes = NIL;
+			ReduceInfoListGetStorageAndExcludeOidList(reduce_list, &src_nodes, NULL);
+			src_nodes = SortOidList(src_nodes);
+			if(equal(src_nodes, storage_nodes))
+			{
+				list_free(src_nodes);
+				return path;
+			}
+			list_free(src_nodes);
+			path = replicate_to_one_node(root, path->parent, path, storage_nodes);
+		}
+		reduce_info = MakeReplicateReduceInfo(storage_nodes);
+		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
+	}
+	else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
+	{
+		if (IsReduceInfoListReplicated(reduce_list))
+		{
+			path = replicate_to_one_node(root, path->parent, path, storage_nodes);
+		}
+		reduce_info = MakeRoundReduceInfo(storage_nodes);
+		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
+	}else if(loc_info->locatorType == LOCATOR_TYPE_HASH ||
+			 loc_info->locatorType == LOCATOR_TYPE_MODULO ||
+			 loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
+	{
+		Expr *expr;
+		if (IsReduceInfoListReplicated(reduce_list))
+		{
+			path = replicate_to_one_node(root, path->parent, path, storage_nodes);
+		}
+		reduce_info = NULL;
+		if(loc_info->locatorType == LOCATOR_TYPE_HASH)
+		{
+			expr = list_nth(path->pathtarget->exprs, loc_info->partAttrNum - 1);
+			reduce_info = MakeHashReduceInfo(storage_nodes,
+											 NIL,
+											 expr);
+		}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
+		{
+			expr = list_nth(path->pathtarget->exprs, loc_info->partAttrNum - 1);
+			reduce_info = MakeModuloReduceInfo(storage_nodes,
+											   NIL,
+											   expr);
+		}else if(loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
+		{
+			ListCell *lc;
+			List *params = NIL;
+			foreach(lc, loc_info->funcAttrNums)
+			{
+				expr = list_nth(path->pathtarget->exprs, lfirst_int(lc)-1);
+				params = lappend(params, expr);
+			}
+			reduce_info = MakeCustomReduceInfo(storage_nodes,
+											   NIL,
+											   params,
+											   loc_info->funcid,
+											   planner_rt_fetch(rel_id, root)->relid);
+		}
+		Assert(reduce_info);
+		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
+	}else
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("unknown locator type %d", loc_info->locatorType)));
+	}
+
+	return path;
+}
+
+static void set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify, Index relid)
+{
+	RelationLocInfo *loc_info;
+	RangeTblEntry *rte;
+	ReduceInfo *rinfo;
+	bool need_free_loc = false;
+
+	rte = planner_rt_fetch(relid, root);
+
+	if (relid < root->simple_rel_array_size &&
+		root->simple_rel_array[relid] != NULL)
+	{
+		loc_info = root->simple_rel_array[relid]->loc_info;
+	}else
+	{
+		Relation rel;
+		Assert(rte->rtekind == RTE_RELATION);
+		rel = relation_open(rte->relid, NoLock);
+
+		if(rel->rd_locator_info)
+		{
+			loc_info = CopyRelationLocInfo(rel->rd_locator_info);
+			need_free_loc = true;
+		}else
+		{
+			loc_info = NULL;
+		}
+		relation_close(rel, NoLock);
+	}
+
+	if(loc_info)
+		rinfo = MakeReduceInfoFromLocInfo(loc_info, NIL, rte->relid, relid);
+	else
+		rinfo = MakeCoordinatorReduceInfo();
+
+	modify->path.reduce_info_list = list_make1(rinfo);
+	modify->path.reduce_is_valid = true;
+	if(need_free_loc)
+		FreeRelationLocInfo(loc_info);
+}
+
+static bool is_remote_relation(PlannerInfo *root, Index relid)
+{
+	if (relid < root->simple_rel_array_size &&
+		root->simple_rel_array[relid] != NULL)
+	{
+		return root->simple_rel_array[relid]->loc_info != NULL;
+	}else
+	{
+		RangeTblEntry *rte = planner_rt_fetch(relid, root);
+		Relation rel;
+		bool result;
+		Assert(rte->rtekind == RTE_RELATION);
+		rel = relation_open(rte->relid, NoLock);
+		result = rel->rd_locator_info != NULL;
+		relation_close(rel, NoLock);
+		return result;
+	}
+}
+
+static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms)
+{
+	ListCell *lc;
+	RelOptInfo *rel;
+
+	int count;
+	foreach(lc, root->cte_plan_ids)
+		bms = bms_add_member(bms, lfirst_int(lc));
+
+	for(count=root->simple_rel_array_size;count>0;)
+	{
+		--count;
+		rel = root->simple_rel_array[count];
+		if(rel && rel->subroot)
+			bms = find_cte_planid(rel->subroot, bms);
+	}
+	return bms;
+}
+
+static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *context)
+{
+	Path *path;
+	CreateDistinctPathsContext *dcontext = (CreateDistinctPathsContext*)context;
+	List *reduce_list = get_reduce_info_list(subpath);
+
+	if(dcontext->can_sort)
+	{
+		Assert(pathkeys_contained_in(root->distinct_pathkeys, dcontext->needed_pathkeys));
+		if(!pathkeys_contained_in(dcontext->needed_pathkeys, subpath->pathkeys))
+			path = (Path*)create_sort_path(root,
+										   dcontext->input_rel,
+										   subpath,
+										   dcontext->needed_pathkeys,
+										   -1.0);
+		else
+			path = subpath;
+		path = (Path*)create_upper_unique_path(root,
+											   dcontext->distinct_rel,
+											   path,
+											   list_length(root->distinct_pathkeys),
+											   dcontext->num_distinct_rows);
+		path->reduce_info_list = CopyReduceInfoList(reduce_list);
+		path->reduce_is_valid = true;
+		add_cluster_path(dcontext->distinct_rel, path);
+	}
+
+	if(dcontext->can_hash)
+	{
+		path = (Path*)create_agg_path(root,
+									  dcontext->distinct_rel,
+									  subpath,
+									  subpath->pathtarget,
+									  AGG_HASHED,
+									  AGGSPLIT_SIMPLE,
+									  dcontext->distinct_clause,
+									  NIL,
+									  NULL,
+									  dcontext->num_distinct_rows);
+		path->reduce_info_list = CopyReduceInfoList(reduce_list);
+		path->reduce_is_valid = true;
+		add_cluster_path(dcontext->distinct_rel, path);
+	}
+	return 0;
+}
+
+static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *context)
+{
+	Path *path;
+	PathTarget *target = NULL;
+	const AggClauseCosts *costs = NULL;
+	List *quals = NIL;
+	double num_groups = 0.0;
+	CreateGrupingPathsContext *gcontext = context;
+	Assert(gcontext->can_hash || gcontext->can_sort);
+
+	switch(gcontext->split)
+	{
+	case AGGSPLIT_SIMPLE:
+		target = gcontext->final_target;
+		costs = gcontext->agg_once_costs;
+		quals = gcontext->having_quals;
+		num_groups = gcontext->final_groups;
+		break;
+	case AGGSPLIT_INITIAL_SERIAL:
+		target = gcontext->partial_target;
+		costs = gcontext->agg_partial_costs;
+		num_groups = gcontext->partial_groups;
+		break;
+	case AGGSPLIT_FINAL_DESERIAL:
+		target = gcontext->final_target;
+		costs = gcontext->agg_final_costs;
+		quals = gcontext->having_quals;
+		num_groups = gcontext->final_groups;
+		break;
+	}
+
+	if (num_groups > 1.0 &&
+		gcontext->split != AGGSPLIT_INITIAL_SERIAL &&
+		IsReduceInfoListByValue(get_reduce_info_list(subpath)))
+	{
+		List * nodes;
+		ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(subpath), &nodes, NULL);
+		num_groups /= list_length(nodes);
+		if(num_groups < 1.0)
+			num_groups = 1.0;
+		list_free(nodes);
+	}
+
+	if(gcontext->can_sort)
+	{
+		if(!pathkeys_contained_in(gcontext->group_pathkeys, subpath->pathkeys))
+			path = (Path*)create_sort_path(root,
+										   gcontext->grouped_rel,
+										   subpath,
+										   gcontext->group_pathkeys,
+										   -1.0);
+		else
+			path = subpath;
+
+		if(gcontext->has_agg)
+			path = (Path*)create_agg_path(root,
+										  gcontext->grouped_rel,
+										  path,
+										  target,
+										  gcontext->group_clause ? AGG_SORTED : AGG_PLAIN,
+										  gcontext->split,
+										  gcontext->group_clause,
+										  quals,
+										  costs,
+										  num_groups);
+		else
+			path = (Path*)create_group_path(root,
+											gcontext->grouped_rel,
+											path,
+											target,
+											gcontext->group_clause,
+											quals,
+											num_groups);
+		path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(subpath));
+		Assert(path->reduce_info_list != NIL);
+		path->reduce_is_valid = true;
+		gcontext->new_paths_list = lappend(gcontext->new_paths_list, path);
+	}
+
+	if (gcontext->can_hash &&
+		estimate_hashagg_tablesize(subpath, costs, num_groups) < work_mem * 1024L)
+	{
+		path = (Path*)create_agg_path(root,
+									  gcontext->grouped_rel,
+									  subpath,
+									  target,
+									  AGG_HASHED,
+									  gcontext->split,
+									  gcontext->group_clause,
+									  quals,
+									  costs,
+									  num_groups);
+		path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(subpath));
+		Assert(path->reduce_info_list != NIL);
+		path->reduce_is_valid = true;
+		gcontext->new_paths_list = lappend(gcontext->new_paths_list, path);
+	}
+
+	return 0;
+}
+
+static bool replace_replicate_reduce(Path *path, List *reduce_replicate)
+{
+	ReduceInfo *rinfo;
+	if(path == NULL)
+		return false;
+	if (list_length(path->reduce_info_list) == 1)
+	{
+		rinfo = linitial(path->reduce_info_list);
+		if(IsReduceInfoFinalReplicated(rinfo))
+			path->reduce_info_list = reduce_replicate;
+	}
+	return path_tree_walker(path, replace_replicate_reduce, reduce_replicate);
+}
+
+static bool rti_is_base_rel(PlannerInfo *root, Index rti)
+{
+	RangeTblEntry *rte = planner_rt_fetch(rti, root);
+	return rte->rtekind == RTE_RELATION &&
+		   rte->relkind == RELKIND_RELATION;
+}
+
+#endif /* ADB */

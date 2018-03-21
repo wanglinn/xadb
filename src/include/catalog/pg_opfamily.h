@@ -19,7 +19,11 @@
 #ifndef PG_OPFAMILY_H
 #define PG_OPFAMILY_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_opfamily definition. cpp turns this into
@@ -48,6 +52,7 @@ typedef FormData_pg_opfamily *Form_pg_opfamily;
  * ----------------
  */
 #define Natts_pg_opfamily				4
+DECLARE_NATTS(Natts_pg_opfamily);
 #define Anum_pg_opfamily_opfmethod		1
 #define Anum_pg_opfamily_opfname		2
 #define Anum_pg_opfamily_opfnamespace	3

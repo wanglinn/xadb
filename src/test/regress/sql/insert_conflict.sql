@@ -1,7 +1,7 @@
 --
 -- insert...on conflict do unique index inference
 --
-create table insertconflicttest(key int4, fruit text);
+create table insertconflicttest(key int4, fruit text) distribute by replication;
 
 --
 -- Test unique index inference with operator class specifications and
@@ -265,7 +265,7 @@ drop table syscolconflicttest;
 -- Previous tests all managed to not test any expressions requiring
 -- planner preprocessing ...
 --
-create table insertconflict (a bigint, b bigint);
+create table insertconflict (a bigint, b bigint) distribute by replication;
 
 create unique index insertconflicti1 on insertconflict(coalesce(a, 0));
 
@@ -332,25 +332,25 @@ insert into capitals values ('Sacramento', 3.694E+5, 30, 'CA');
 insert into capitals values ('Madison', 1.913E+5, 845, 'WI');
 
 -- Tests proper for inheritance:
-select * from capitals;
+select * from capitals order by 1, 2;
 
 -- Succeeds:
 insert into cities values ('Las Vegas', 2.583E+5, 2174) on conflict do nothing;
 insert into capitals values ('Sacramento', 4664.E+5, 30, 'CA') on conflict (name) do update set population = excluded.population;
 -- Wrong "Sacramento", so do nothing:
 insert into capitals values ('Sacramento', 50, 2267, 'NE') on conflict (name) do nothing;
-select * from capitals;
+select * from capitals order by 1, 2;
 insert into cities values ('Las Vegas', 5.83E+5, 2001) on conflict (name) do update set population = excluded.population, altitude = excluded.altitude;
-select tableoid::regclass, * from cities;
+select tableoid::regclass, * from cities order by 1, 2;
 insert into capitals values ('Las Vegas', 5.83E+5, 2222, 'NV') on conflict (name) do update set population = excluded.population;
 -- Capitals will contain new capital, Las Vegas:
-select * from capitals;
+select * from capitals order by 1, 2;
 -- Cities contains two instances of "Las Vegas", since unique constraints don't
 -- work across inheritance:
-select tableoid::regclass, * from cities;
+select tableoid::regclass, * from cities order by 1, 2;
 -- This only affects "cities" version of "Las Vegas":
 insert into cities values ('Las Vegas', 5.86E+5, 2223) on conflict (name) do update set population = excluded.population, altitude = excluded.altitude;
-select tableoid::regclass, * from cities;
+select tableoid::regclass, * from cities order by 1, 2;
 
 -- clean up
 drop table capitals;
@@ -429,7 +429,7 @@ DROP TABLE dropcol;
 -- check handling of regular btree constraint along with gist constraint
 
 create table twoconstraints (f1 int unique, f2 box,
-                             exclude using gist(f2 with &&));
+                             exclude using gist(f2 with &&)) distribute by replication;
 insert into twoconstraints values(1, '((0,0),(1,1))');
 insert into twoconstraints values(1, '((2,2),(3,3))');  -- fail on f1
 insert into twoconstraints values(2, '((0,0),(1,2))');  -- fail on f2

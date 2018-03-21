@@ -40,6 +40,9 @@
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/syscache.h"
+#ifdef ADB
+#include "lib/ilist.h"
+#endif /* ADB */
 
 /*
  * When converting strings between different encodings, we assume that space
@@ -94,6 +97,17 @@ static const pg_enc2name *MessageEncoding = &pg_enc2name_tbl[PG_SQL_ASCII];
 static bool backend_startup_complete = false;
 static int	pending_client_encoding = PG_SQL_ASCII;
 
+#ifdef ADB
+typedef struct ClientEncodingInfo
+{
+	slist_node	node;
+	FmgrInfo *ToServerConvProc;
+	FmgrInfo *ToClientConvProc;
+	const pg_enc2name *ClientEncoding;
+}ClientEncodingInfo;
+
+static slist_head pushd_client_encoding = SLIST_STATIC_INIT(pushd_client_encoding);
+#endif /* ADB */
 
 /* Internal functions */
 static char *perform_default_encoding_conversion(const char *src,
@@ -1112,3 +1126,39 @@ pgwin32_message_to_UTF16(const char *str, int len, int *utf16len)
 }
 
 #endif
+
+#ifdef ADB
+int push_client_encoding(int encoding)
+{
+	ClientEncodingInfo *cei = MemoryContextAlloc(TopMemoryContext, sizeof(*cei));
+	int old_encoding = ClientEncoding->encoding;
+	cei->ClientEncoding = ClientEncoding;
+	cei->ToClientConvProc = ToClientConvProc;
+	cei->ToServerConvProc = ToServerConvProc;
+	if(SetClientEncoding(encoding) < 0)
+	{
+		pfree(cei);
+		return -1;
+	}
+	slist_push_head(&pushd_client_encoding, &cei->node);
+	return old_encoding;
+}
+
+int pop_client_encoding(void)
+{
+	ClientEncodingInfo *cei;
+	slist_node *node;
+	Assert(!slist_is_empty(&pushd_client_encoding));
+
+	node = slist_pop_head_node(&pushd_client_encoding);
+	cei = slist_container(ClientEncodingInfo, node, node);
+
+	ClientEncoding = cei->ClientEncoding;
+	ToClientConvProc = cei->ToClientConvProc;
+	ToServerConvProc = cei->ToServerConvProc;
+
+	pfree(cei);
+	return ClientEncoding->encoding;
+}
+
+#endif /* ADB */

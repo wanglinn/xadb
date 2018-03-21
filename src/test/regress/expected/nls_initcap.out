@@ -1,0 +1,55 @@
+set grammar to oracle;
+select nls_initcap('ab cde') from dual;
+ nls_initcap 
+-------------
+ Ab Cde
+(1 row)
+
+select nls_initcap('AAb  CDE') from dual;
+ nls_initcap 
+-------------
+ Aab  Cde
+(1 row)
+
+select nls_initcap('\?!@#$%^&*()sa') from dual;
+  nls_initcap   
+----------------
+ \?!@#$%^&*()Sa
+(1 row)
+
+select nls_initcap('AA\?!@#$%^&*()AA') from dual;
+   nls_initcap    
+------------------
+ Aa\?!@#$%^&*()Aa
+(1 row)
+
+select nls_initcap('\?!@#ss$%^&*()sC') from dual;
+   nls_initcap    
+------------------
+ \?!@#Ss$%^&*()Sc
+(1 row)
+
+select nls_initcap('test你test好test') from dual;
+   nls_initcap    
+------------------
+ Test你Test好Test
+(1 row)
+
+select nls_initcap('1234SOU') from dual;
+ nls_initcap 
+-------------
+ 1234sou
+(1 row)
+
+select nls_initcap(to_char('suv')) from dual;
+ nls_initcap 
+-------------
+ Suv
+(1 row)
+
+select nls_initcap(to_number('NaN')) from dual;
+ nls_initcap 
+-------------
+ Nan
+(1 row)
+

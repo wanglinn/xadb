@@ -25,7 +25,11 @@ fmgrprotos.h: fmgroids.h ;
 fmgroids.h: fmgrtab.c ;
 
 fmgrtab.c: Gen_fmgrtab.pl $(catalogdir)/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.h
-	$(PERL) -I $(catalogdir) $< $(top_srcdir)/src/include/catalog/pg_proc.h
+	rm -f pg_proc.h.c
+	$(LN_S) $(top_srcdir)/src/include/catalog/pg_proc.h pg_proc.h.c
+	$(CPP) -DBUILD_FMGRTAB -DCATALOG_VARLEN -DADB "-DDECLARE_NATTS(n)=_##n n" -o pg_proc.h pg_proc.h.c
+	$(PERL) -I $(catalogdir) $< pg_proc.h
+	rm -f pg_proc.h
 
 errcodes.h: $(top_srcdir)/src/backend/utils/errcodes.txt generate-errcodes.pl
 	$(PERL) $(srcdir)/generate-errcodes.pl $< > $@

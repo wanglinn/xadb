@@ -19,7 +19,11 @@
 #ifndef PG_LARGEOBJECT_METADATA_H
 #define PG_LARGEOBJECT_METADATA_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_largeobject_metadata definition. cpp turns this into
@@ -49,6 +53,7 @@ typedef FormData_pg_largeobject_metadata *Form_pg_largeobject_metadata;
  * ----------------
  */
 #define Natts_pg_largeobject_metadata			2
+DECLARE_NATTS(Natts_pg_largeobject_metadata);
 #define Anum_pg_largeobject_metadata_lomowner	1
 #define Anum_pg_largeobject_metadata_lomacl		2
 

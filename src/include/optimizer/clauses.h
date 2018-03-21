@@ -56,6 +56,9 @@ extern WindowFuncLists *find_window_functions(Node *clause, Index maxWinRef);
 extern double expression_returns_set_rows(Node *clause);
 
 extern bool contain_subplans(Node *clause);
+#ifdef ADB 
+extern bool contain_rownum(Node *clause);
+#endif /* ADB */
 
 extern bool contain_mutable_functions(Node *clause);
 extern bool contain_volatile_functions(Node *clause);
@@ -64,6 +67,11 @@ extern char max_parallel_hazard(Query *parse);
 extern bool is_parallel_safe(PlannerInfo *root, Node *node);
 extern bool contain_nonstrict_functions(Node *clause);
 extern bool contain_leaked_vars(Node *clause);
+
+#ifdef ADB
+extern bool contain_volatile_functions_without_check_RownumExpr(Node *clause);
+extern bool has_cluster_hazard(Node *node, bool allow_restricted);
+#endif
 
 extern Relids find_nonnullable_rels(Node *clause);
 extern List *find_nonnullable_vars(Node *clause);

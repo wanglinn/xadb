@@ -25,10 +25,19 @@
 #include "postgres.h"
 
 #include "access/sysattr.h"
+#ifdef ADB
+#include "catalog/pg_inherits.h"
+#include "catalog/pg_inherits_fn.h"
+#include "catalog/indexing.h"
+#include "utils/fmgroids.h"
+#include "utils/tqual.h"
+#endif
 #include "catalog/pg_type.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
+#include "optimizer/clauses.h"
+#include "optimizer/prep.h"
 #include "optimizer/var.h"
 #include "parser/analyze.h"
 #include "parser/parse_agg.h"
@@ -42,8 +51,34 @@
 #include "parser/parse_target.h"
 #include "parser/parsetree.h"
 #include "rewrite/rewriteManip.h"
-#include "utils/rel.h"
+#ifdef ADB
+#include "miscadmin.h"
+#include "pgxc/pgxc.h"
+#include "pgxc/pgxcnode.h"
+#include "utils/lsyscache.h"
+#include "optimizer/pgxcplan.h"
+#include "tcop/tcopprot.h"
+#include "nodes/nodes.h"
+#include "pgxc/poolmgr.h"
+#include "catalog/pgxc_node.h"
+#include "pgxc/xc_maintenance_mode.h"
+#include "access/xact.h"
+#endif
 
+#include "utils/rel.h"
+/* Added these header file to resolve conflicts, K.Suzuki */
+#include "access/genam.h"
+#include "access/heapam.h"
+#include "access/htup_details.h"
+#include "miscadmin.h"
+
+#ifdef ADB
+#include "catalog/namespace.h"
+#include "catalog/pg_operator.h"
+#include "parser/parser.h"
+#include "utils/syscache.h"
+#endif
+/* End of addition */
 
 /* Hook for plugins to get control at end of parse analysis */
 post_parse_analyze_hook_type post_parse_analyze_hook = NULL;
@@ -80,6 +115,20 @@ static void transformLockingClause(ParseState *pstate, Query *qry,
 static bool test_raw_expression_coverage(Node *node, void *context);
 #endif
 
+#ifdef ADB
+static Query *transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt);
+static bool IsExecDirectUtilityStmt(Node *node);
+static bool is_relation_child(RangeTblEntry *child_rte, List *rtable);
+static bool is_rel_child_of_rel(RangeTblEntry *child_rte, RangeTblEntry *parent_rte);
+static Node* transformFromAndWhere(ParseState *pstate, Node *quals);
+static void check_joinon_column_join(Node *node, ParseState *pstate);
+static void rewrite_rownum_query(Query *query);
+static bool rewrite_rownum_query_enum(Node *node, void *context);
+static bool const_get_int64(const Expr *expr, int64 *val);
+static Expr* make_int8_const(Datum value);
+static Oid get_operator_for_function(Oid funcid);
+#endif /* ADB */
+
 
 /*
  * parse_analyze
@@ -97,9 +146,25 @@ parse_analyze(RawStmt *parseTree, const char *sourceText,
 			  Oid *paramTypes, int numParams,
 			  QueryEnvironment *queryEnv)
 {
+#ifdef ADB
+	return parse_analyze_for_gram(parseTree, sourceText
+						,paramTypes, numParams, queryEnv, PARSE_GRAM_POSTGRES);
+}
+
+Query *
+parse_analyze_for_gram(RawStmt *parseTree, const char *sourceText,
+					   Oid *paramTypes, int numParams, QueryEnvironment *queryEnv, ParseGrammar grammar)
+{
 	ParseState *pstate = make_parsestate(NULL);
 	Query	   *query;
-
+	pstate->p_grammar = grammar;
+	PushOverrideSearchPathForGrammar(grammar);
+	PG_TRY();
+	{
+#else
+	ParseState *pstate = make_parsestate(NULL);
+	Query	   *query;
+#endif
 	Assert(sourceText != NULL); /* required as of 8.4 */
 
 	pstate->p_sourcetext = sourceText;
@@ -110,12 +175,22 @@ parse_analyze(RawStmt *parseTree, const char *sourceText,
 	pstate->p_queryEnv = queryEnv;
 
 	query = transformTopLevelStmt(pstate, parseTree);
-
+#ifdef ADB
+	check_joinon_column_join((Node*)(query->jointree), pstate);
+	rewrite_rownum_query_enum((Node*)query, NULL);
+#endif /* ADB */
 	if (post_parse_analyze_hook)
 		(*post_parse_analyze_hook) (pstate, query);
 
 	free_parsestate(pstate);
-
+#ifdef ADB
+	}PG_CATCH();
+	{
+		PopOverrideSearchPath();
+		PG_RE_THROW();
+	}PG_END_TRY();
+	PopOverrideSearchPath();
+#endif
 	return query;
 }
 
@@ -130,9 +205,23 @@ Query *
 parse_analyze_varparams(RawStmt *parseTree, const char *sourceText,
 						Oid **paramTypes, int *numParams)
 {
+#ifdef ADB
+	return parse_analyze_varparams_for_gram(parseTree, sourceText
+		,paramTypes, numParams, PARSE_GRAM_POSTGRES);
+}
+Query *parse_analyze_varparams_for_gram(RawStmt *parseTree, const char *sourceText,
+						Oid **paramTypes, int *numParams, ParseGrammar grammar)
+{
 	ParseState *pstate = make_parsestate(NULL);
 	Query	   *query;
-
+	pstate->p_grammar = grammar;
+	PushOverrideSearchPathForGrammar(grammar);
+	PG_TRY();
+	{
+#else /* ADB */
+	ParseState *pstate = make_parsestate(NULL);
+	Query	   *query;
+#endif /* ADB */
 	Assert(sourceText != NULL); /* required as of 8.4 */
 
 	pstate->p_sourcetext = sourceText;
@@ -148,7 +237,14 @@ parse_analyze_varparams(RawStmt *parseTree, const char *sourceText,
 		(*post_parse_analyze_hook) (pstate, query);
 
 	free_parsestate(pstate);
-
+#ifdef ADB
+	}PG_CATCH();
+	{
+		PopOverrideSearchPath();
+		PG_RE_THROW();
+	}PG_END_TRY();
+	PopOverrideSearchPath();
+#endif /* ADB */
 	return query;
 }
 
@@ -312,7 +408,12 @@ transformStmt(ParseState *pstate, Node *parseTree)
 			result = transformExplainStmt(pstate,
 										  (ExplainStmt *) parseTree);
 			break;
-
+#ifdef ADB
+		case T_ExecDirectStmt:
+			result = transformExecDirectStmt(pstate,
+											 (ExecDirectStmt *) parseTree);
+			break;
+#endif
 		case T_CreateTableAsStmt:
 			result = transformCreateTableAsStmt(pstate,
 												(CreateTableAsStmt *) parseTree);
@@ -370,7 +471,16 @@ analyze_requires_snapshot(RawStmt *parseTree)
 			/* yes, because we must analyze the contained statement */
 			result = true;
 			break;
+#ifdef ADB
+		case T_ExecDirectStmt:
 
+			/*
+			 * We will parse/analyze/plan inner query, which probably will
+			 * need a snapshot. Ensure it is set.
+			 */
+			result = true;
+			break;
+#endif
 		default:
 			/* other utility statements don't have any real parse analysis */
 			result = false;
@@ -390,12 +500,53 @@ transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
 	Query	   *qry = makeNode(Query);
 	ParseNamespaceItem *nsitem;
 	Node	   *qual;
-
+#ifdef ADB
+	ListCell   *tl;
+#endif
 	qry->commandType = CMD_DELETE;
 
 	/* process the WITH clause independently of all else */
 	if (stmt->withClause)
 	{
+#ifdef ADB
+		/*
+		 * For a WITH query that deletes from a parent table in the
+		 * main query & inserts a row in the child table in the WITH query
+		 * we need to use command ID communication to remote nodes in order
+		 * to maintain global data visibility.
+		 * For example
+		 * CREATE TEMP TABLE parent ( id int, val text ) DISTRIBUTE BY REPLICATION;
+		 * CREATE TEMP TABLE child ( ) INHERITS ( parent ) DISTRIBUTE BY REPLICATION;
+		 * INSERT INTO parent VALUES ( 42, 'old' );
+		 * INSERT INTO child VALUES ( 42, 'older' );
+		 * WITH wcte AS ( INSERT INTO child VALUES ( 42, 'new' ) RETURNING id AS newid )
+		 * DELETE FROM parent USING wcte WHERE id = newid;
+		 * The last query gets translated into the following multi-statement
+		 * transaction on the primary datanode
+		 * (a) SELECT id, ctid FROM ONLY parent WHERE true
+		 * (b) START TRANSACTION ISOLATION LEVEL read committed READ WRITE
+		 * (c) INSERT INTO child (id, val) VALUES ($1, $2) RETURNING id -- (42, 'new')
+		 * (d) DELETE FROM ONLY parent parent WHERE (parent.ctid = $1)
+		 * (e) SELECT id, ctid FROM ONLY child parent WHERE true
+		 * (f) DELETE FROM ONLY child parent WHERE (parent.ctid = $1)
+		 * (g) COMMIT TRANSACTION
+		 * The command id of the select in step (e), should be such that
+		 * it does not see the insert of step (c)
+		 */
+		if (IsCoordMaster())
+		{
+			foreach(tl, stmt->withClause->ctes)
+			{
+				CommonTableExpr *cte = (CommonTableExpr *) lfirst(tl);
+				if (IsA(cte->ctequery, InsertStmt))
+				{
+					qry->has_to_save_cmd_id = true;
+					SetSendCommandId(true);
+					break;
+				}
+			}
+		}
+#endif
 		qry->hasRecursive = stmt->withClause->recursive;
 		qry->cteList = transformWithClause(pstate, stmt->withClause);
 		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
@@ -542,6 +693,11 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	qry->resultRelation = setTargetTable(pstate, stmt->relation,
 										 false, false, targetPerms);
 
+#ifdef ADB
+	if(pstate->p_grammar == PARSE_GRAM_ORACLE)
+		addRTEtoQuery(pstate, rt_fetch(qry->resultRelation, pstate->p_rtable), false, true, true);
+#endif /* ADB */
+
 	/* Validate stmt->cols list, or build default list if no list given */
 	icolumns = checkInsertTargets(pstate, stmt->cols, &attrnos);
 	Assert(list_length(icolumns) == list_length(attrnos));
@@ -569,7 +725,9 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 		 */
 		ParseState *sub_pstate = make_parsestate(pstate);
 		Query	   *selectQuery;
-
+#ifdef ADB
+		RangeTblEntry	*target_rte;
+#endif
 		/*
 		 * Process the source SELECT.
 		 *
@@ -607,6 +765,22 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 											makeAlias("*SELECT*", NIL),
 											false,
 											false);
+#ifdef ADB
+		/*
+		 * For an INSERT SELECT involving INSERT on a child after scanning
+		 * the parent, set flag to send command ID communication to remote
+		 * nodes in order to maintain global data visibility.
+		 */
+		if (IsCoordMaster())
+		{
+			target_rte = rt_fetch(qry->resultRelation, pstate->p_rtable);
+			if (is_relation_child(target_rte, selectQuery->rtable))
+			{
+				qry->has_to_save_cmd_id = true;
+				SetSendCommandId(true);
+			}
+		}
+#endif
 		rtr = makeNode(RangeTblRef);
 		/* assume new rte is at end */
 		rtr->rtindex = list_length(pstate->p_rtable);
@@ -1209,7 +1383,13 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 
 	/* process the FROM clause */
 	transformFromClause(pstate, stmt->fromClause);
+#ifdef ADB
+	/* transform WHERE */
+	qual = transformWhereClause(pstate, stmt->whereClause,
+								EXPR_KIND_WHERE, "WHERE");
 
+	qual = transformFromAndWhere(pstate, qual);
+#endif /* ADB */
 	/* transform targetlist */
 	qry->targetList = transformTargetList(pstate, stmt->targetList,
 										  EXPR_KIND_SELECT_TARGET);
@@ -1217,10 +1397,11 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	/* mark column origins */
 	markTargetListOrigins(pstate, qry->targetList);
 
+#ifndef ADB
 	/* transform WHERE */
 	qual = transformWhereClause(pstate, stmt->whereClause,
 								EXPR_KIND_WHERE, "WHERE");
-
+#endif /* ndef ADB */
 	/* initial processing of HAVING clause is much like WHERE clause */
 	qry->havingQual = transformWhereClause(pstate, stmt->havingClause,
 										   EXPR_KIND_HAVING, "HAVING");
@@ -1451,7 +1632,12 @@ transformValuesClause(ParseState *pstate, SelectStmt *stmt)
 		coltypmods = lappend_int(coltypmods, coltypmod);
 		colcollations = lappend_oid(colcollations, colcoll);
 	}
-
+#ifdef ADB
+	/* fix: Array access (from variable 'colexprs') results in a null pointer
+	 * dereference
+	 */
+	AssertArg(colexprs);
+#endif
 	/*
 	 * Finally, rearrange the coerced expressions into row-organized lists.
 	 */
@@ -2201,13 +2387,50 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	Query	   *qry = makeNode(Query);
 	ParseNamespaceItem *nsitem;
 	Node	   *qual;
-
+#ifdef ADB
+	ListCell   *tl;
+#endif
 	qry->commandType = CMD_UPDATE;
 	pstate->p_is_insert = false;
 
 	/* process the WITH clause independently of all else */
 	if (stmt->withClause)
 	{
+#ifdef ADB
+		/*
+		 * For a WITH query that updates a table in the main query and
+		 * inserts a row in the same table in the WITH query set flag
+		 * to send command ID communication to remote nodes in order to
+		 * maintain global data visibility.
+		 * For example
+		 * CREATE TEMP TABLE tab (id int,val text) DISTRIBUTE BY REPLICATION;
+		 * INSERT INTO tab VALUES (1,'p1');
+		 * WITH wcte AS (INSERT INTO tab VALUES(42,'new') RETURNING id AS newid)
+		 * UPDATE tab SET id = id + newid FROM wcte;
+		 * The last query gets translated into the following multi-statement
+		 * transaction on the primary datanode
+		 * (a) START TRANSACTION ISOLATION LEVEL read committed READ WRITE
+		 * (b) INSERT INTO tab (id, val) VALUES ($1, $2) RETURNING id -- (42,'new)'
+		 * (c) SELECT id, val, ctid FROM ONLY tab WHERE true
+		 * (d) UPDATE ONLY tab tab SET id = $1 WHERE (tab.ctid = $3) -- (43,(0,1)]
+		 * (e) COMMIT TRANSACTION
+		 * The command id of the select in step (c), should be such that
+		 * it does not see the insert of step (b)
+		 */
+		if (IsCoordMaster())
+		{
+			foreach(tl, stmt->withClause->ctes)
+			{
+				CommonTableExpr *cte = (CommonTableExpr *) lfirst(tl);
+				if (IsA(cte->ctequery, InsertStmt))
+				{
+					qry->has_to_save_cmd_id = true;
+					SetSendCommandId(true);
+					break;
+				}
+			}
+		}
+#endif
 		qry->hasRecursive = stmt->withClause->recursive;
 		qry->cteList = transformWithClause(pstate, stmt->withClause);
 		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
@@ -2465,7 +2688,6 @@ transformDeclareCursorStmt(ParseState *pstate, DeclareCursorStmt *stmt)
 	return result;
 }
 
-
 /*
  * transformExplainStmt -
  *	transform an EXPLAIN Statement
@@ -2572,6 +2794,286 @@ transformCreateTableAsStmt(ParseState *pstate, CreateTableAsStmt *stmt)
 	return result;
 }
 
+#ifdef ADB
+/*
+ * transformExecDirectStmt -
+ *	transform an EXECUTE DIRECT Statement
+ *
+ * Handling is depends if we should execute on nodes or on Coordinator.
+ * To execute on nodes we return CMD_UTILITY query having one T_RemoteQuery node
+ * with the inner statement as a sql_command.
+ * If statement is to run on Coordinator we should parse inner statement and
+ * analyze resulting query tree.
+ */
+static Query *
+transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt)
+{
+	Query		*result = makeNode(Query);
+	char		*query = stmt->query;
+	List		*nodelist = stmt->node_names;
+	RemoteQuery	*step = makeNode(RemoteQuery);
+	bool		is_local = false;
+	List		*raw_parsetree_list;
+	char		*nodename;
+	Oid			nodeoid;
+	char		nodetype;
+
+	/* Support not available on Datanodes */
+	if (IS_PGXC_DATANODE)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("EXECUTE DIRECT cannot be executed on a Datanode")));
+
+	if (list_length(nodelist) > 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Support for EXECUTE DIRECT on multiple nodes is not available yet")));
+
+	Assert(list_length(nodelist) == 1);
+	Assert(IS_PGXC_COORDINATOR);
+
+	/* There is a single element here */
+	nodename = strVal(linitial(nodelist));
+	nodeoid = get_pgxc_nodeoid(nodename);
+
+	if (!OidIsValid(nodeoid))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("PGXC Node %s: object not defined",
+						nodename)));
+
+	/* Get node type and index */
+	nodetype = get_pgxc_nodetype(nodeoid);
+
+	/* Check if node is requested is the self-node or not */
+	if (nodetype == PGXC_NODE_COORDINATOR && nodeoid == PGXCNodeOid)
+		is_local = true;
+
+	/* Transform the query into a raw parse list */
+	raw_parsetree_list = pg_parse_query(query);
+
+	/* EXECUTE DIRECT can just be executed with a single query */
+	if (list_length(raw_parsetree_list) > 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("EXECUTE DIRECT cannot execute multiple queries")));
+
+	/*
+	 * Analyze the Raw parse tree
+	 * EXECUTE DIRECT is restricted to one-step usage
+	 */
+	result = parse_analyze(linitial(raw_parsetree_list), query, NULL, 0, pstate->p_queryEnv);
+
+	/* Needed by planner */
+	result->sql_statement = pstrdup(query);
+
+	/* Default list of parameters to set */
+	step->sql_statement = NULL;
+	step->exec_nodes = makeNode(ExecNodes);
+	step->combine_type = COMBINE_TYPE_NONE;
+	step->read_only = true;
+	step->force_autocommit = false;
+	step->cursor = NULL;
+
+	/* This is needed by executor */
+	step->sql_statement = pstrdup(query);
+	if (nodetype == PGXC_NODE_COORDINATOR)
+		step->exec_type = EXEC_ON_COORDS;
+	else
+		step->exec_type = EXEC_ON_DATANODES;
+
+	step->base_tlist = NIL;
+
+	/* Change the list of nodes that will be executed for the query and others */
+	step->force_autocommit = false;
+	step->combine_type = COMBINE_TYPE_SAME;
+	step->read_only = true;
+	step->exec_direct_type = EXEC_DIRECT_NONE;
+
+	/* Set up EXECUTE DIRECT flag */
+	if (is_local)
+	{
+		if (result->commandType == CMD_UTILITY)
+			step->exec_direct_type = EXEC_DIRECT_LOCAL_UTILITY;
+		else
+			step->exec_direct_type = EXEC_DIRECT_LOCAL;
+	}
+	else
+	{
+		switch(result->commandType)
+		{
+			case CMD_UTILITY:
+				step->exec_direct_type = EXEC_DIRECT_UTILITY;
+				break;
+			case CMD_SELECT:
+				step->exec_direct_type = EXEC_DIRECT_SELECT;
+				break;
+			case CMD_INSERT:
+				step->exec_direct_type = EXEC_DIRECT_INSERT;
+				break;
+			case CMD_UPDATE:
+				step->exec_direct_type = EXEC_DIRECT_UPDATE;
+				break;
+			case CMD_DELETE:
+				step->exec_direct_type = EXEC_DIRECT_DELETE;
+				break;
+			default:
+				Assert(0);
+		}
+	}
+
+	/*
+	 * Features not yet supported
+	 * DML can be launched without errors but this could compromise data
+	 * consistency, so block it.
+	 */
+	if (!xc_maintenance_mode && (step->exec_direct_type == EXEC_DIRECT_DELETE
+								 || step->exec_direct_type == EXEC_DIRECT_UPDATE
+								 || step->exec_direct_type == EXEC_DIRECT_INSERT))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("EXECUTE DIRECT cannot execute DML queries")));
+	else if (step->exec_direct_type == EXEC_DIRECT_UTILITY &&
+			 !IsExecDirectUtilityStmt(result->utilityStmt) && !xc_maintenance_mode)
+	{
+		/* In case this statement is an utility, check if it is authorized */
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("EXECUTE DIRECT cannot execute this utility query")));
+	}
+	else if (step->exec_direct_type == EXEC_DIRECT_LOCAL_UTILITY && !xc_maintenance_mode)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("EXECUTE DIRECT cannot execute locally this utility query")));
+	}
+
+	/* Build Execute Node list, there is a unique node for the time being */
+	step->exec_nodes->nodeids = lappend_oid(step->exec_nodes->nodeids, nodeoid);
+
+	/* Associate newly-created RemoteQuery node to the returned Query result */
+	result->is_local = is_local;
+	if (!is_local)
+		result->utilityStmt = (Node *) step;
+
+	return result;
+}
+
+/*
+ * Check if given node is authorized to go through EXECUTE DURECT
+ */
+static bool
+IsExecDirectUtilityStmt(Node *node)
+{
+	bool res = true;
+
+	if (!node)
+		return res;
+
+	switch(nodeTag(node))
+	{
+		/*
+		 * CREATE/DROP TABLESPACE are authorized to control
+		 * tablespace at single node level.
+		 */
+		case T_CreateTableSpaceStmt:
+		case T_DropTableSpaceStmt:
+			res = true;
+			break;
+		default:
+			res = false;
+			break;
+	}
+
+	return res;
+}
+
+/*
+ * Returns whether or not the rtable (and its subqueries)
+ * contain any relation who is the parent of
+ * the passed relation
+ */
+static bool
+is_relation_child(RangeTblEntry *child_rte, List *rtable)
+{
+	ListCell *item;
+
+	if (child_rte == NULL || rtable == NULL)
+		return false;
+
+	if (child_rte->rtekind != RTE_RELATION)
+		return false;
+
+	foreach(item, rtable)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(item);
+
+		if (rte->rtekind == RTE_RELATION)
+		{
+			if (is_rel_child_of_rel(child_rte, rte))
+				return true;
+		}
+		else if (rte->rtekind == RTE_SUBQUERY)
+		{
+			return is_relation_child(child_rte, rte->subquery->rtable);
+		}
+	}
+	return false;
+}
+
+/*
+ * Returns whether the passed RTEs have a parent child relationship
+ */
+static bool
+is_rel_child_of_rel(RangeTblEntry *child_rte, RangeTblEntry *parent_rte)
+{
+	Oid		parentOID;
+	bool		res;
+	Relation	relation;
+	SysScanDesc	scan;
+	ScanKeyData	key[1];
+	HeapTuple	inheritsTuple;
+	Oid		inhrelid;
+
+	/* Does parent RT entry allow inheritance? */
+	if (!parent_rte->inh)
+		return false;
+
+	/* Ignore any already-expanded UNION ALL nodes */
+	if (parent_rte->rtekind != RTE_RELATION)
+		return false;
+
+	/* Fast path for common case of childless table */
+	parentOID = parent_rte->relid;
+	if (!has_subclass(parentOID))
+		return false;
+
+	/* Assume we did not find any match */
+	res = false;
+
+	/* Scan pg_inherits and get all the subclass OIDs one by one. */
+	relation = heap_open(InheritsRelationId, AccessShareLock);
+	ScanKeyInit(&key[0], Anum_pg_inherits_inhparent, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(parentOID));
+	scan = systable_beginscan(relation, InheritsParentIndexId, true, NULL, 1, key);
+
+	while ((inheritsTuple = systable_getnext(scan)) != NULL)
+	{
+		inhrelid = ((Form_pg_inherits) GETSTRUCT(inheritsTuple))->inhrelid;
+
+		/* Did we find the Oid of the passed RTE in one of the children? */
+		if (child_rte->relid == inhrelid)
+		{
+			res = true;
+			break;
+		}
+	}
+
+	systable_endscan(scan);
+	heap_close(relation, AccessShareLock);
+	return res;
+}
+
+#endif
 
 /*
  * Produce a string representation of a LockClauseStrength value.
@@ -2908,3 +3410,938 @@ test_raw_expression_coverage(Node *node, void *context)
 }
 
 #endif							/* RAW_EXPRESSION_COVERAGE_TEST */
+
+#ifdef ADB
+typedef struct JoinExprInfo
+{
+	Node		*expr;		/* join clause */
+	JoinType	type;		/* */
+	Index		lrtindex;
+	Index		rrtindex;
+	int			location;	/* of ColumnRefJoin location, or -1 */
+}JoinExprInfo;
+
+typedef struct GetOraColumnJoinContext
+{
+	ParseState *pstate;
+	JoinExprInfo *info;
+}GetOraColumnJoinContext;
+
+typedef struct PullupRelForJoinContext
+{
+	Node *larg;
+	Node *rarg;
+}PullupRelForJoinContext;
+
+static bool have_ora_column_join(Node *node, void *context)
+{
+	if(node == NULL)
+	{
+		return false;
+	}else if(IsA(node, ColumnRefJoin))
+	{
+		return true;
+	}
+	return expression_tree_walker(node, have_ora_column_join, context);
+}
+
+static bool get_ora_column_join_walker(Node *node, GetOraColumnJoinContext *context)
+{
+	AssertArg(context && context->info && context->pstate);
+	if(node == NULL)
+	{
+		return false;
+	}else if(IsA(node, ColumnRefJoin))
+	{
+		ColumnRefJoin *crj = (ColumnRefJoin*)node;
+		JoinExprInfo *info = context->info;
+		Assert(crj->var != NULL && IsA(crj->var, Var));
+		if(info->rrtindex == 0)
+		{
+			Assert(info->type == JOIN_INNER);
+			info->type = JOIN_LEFT;
+			info->rrtindex = crj->var->varno;
+			info->location = crj->location;
+		}else if(info->rrtindex != crj->var->varno)
+		{
+			ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
+				,errmsg("a predicate may reference only one outer-joined table")
+				,parser_errposition(context->pstate, crj->location)));
+		}
+		return false;
+	}else if(IsA(node, Var))
+	{
+		Var *var = (Var*)node;
+		JoinExprInfo *info = context->info;
+		Assert(var->varno != 0);
+		if(info->lrtindex == var->varno
+			|| info->rrtindex == var->varno)
+		{
+			return false;
+		}
+
+		if(info->lrtindex == 0)
+		{
+			info->lrtindex = var->varno;
+		}else if(info->rrtindex == 0
+			&& info->type == JOIN_INNER)
+		{
+			info->rrtindex = var->varno;
+		}else if(info->rrtindex != var->varno
+			&& info->lrtindex != var->varno)
+		{
+			ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
+				,errmsg("a predicate may reference only one outer-joined table")
+				, parser_errposition(context->pstate, info->location)));
+		}
+		return false;
+	}
+	return expression_tree_walker(node, get_ora_column_join_walker, context);
+}
+
+static JoinExprInfo* get_ora_column_join(Node *expr, ParseState *pstate)
+{
+	GetOraColumnJoinContext context;
+	JoinExprInfo *jinfo = palloc(sizeof(JoinExprInfo));
+
+	jinfo->expr = expr;
+	jinfo->type = JOIN_INNER;
+	jinfo->rrtindex = jinfo->lrtindex = 0;
+	context.info = jinfo;
+	context.pstate = pstate;
+	(void)get_ora_column_join_walker(expr, &context);
+
+	return jinfo;
+}
+
+static Node* remove_column_join_expr(Node *node, void *context)
+{
+	if(node == NULL)
+		return NULL;
+	else if(IsA(node, ColumnRefJoin))
+		return (Node*)((ColumnRefJoin*)node)->var;
+	return expression_tree_mutator(node, remove_column_join_expr, context);
+}
+
+static bool combin_pullup_context(PullupRelForJoinContext *dest
+	, PullupRelForJoinContext *src)
+{
+	bool res = false;
+	if(src->larg != NULL)
+	{
+		Assert(dest->larg == NULL);
+		dest->larg = src->larg;
+		res = true;
+	}
+	if(src->rarg != NULL)
+	{
+		Assert(dest->rarg == NULL);
+		dest->rarg = src->rarg;
+		res = true;
+	}
+	return res;
+}
+
+static bool pullup_rel_for_join(Node *node, JoinExprInfo *jinfo
+	, ParseState *pstate, PullupRelForJoinContext *context)
+{
+	AssertArg(node && jinfo && jinfo->expr && pstate);
+	AssertArg(jinfo->lrtindex != 0 && jinfo->rrtindex != 0
+		&& jinfo->lrtindex != jinfo->rrtindex
+		&& (jinfo->type == JOIN_INNER || jinfo->type == JOIN_LEFT));
+
+	if(IsA(node, FromExpr))
+	{
+		ListCell *lc;
+		JoinExpr *join;
+		Node *item;
+		PullupRelForJoinContext my_context;
+		FromExpr *from = (FromExpr*)node;
+
+		for(lc=list_head(from->fromlist);lc;)
+		{
+			item = lfirst(lc);
+			Assert(item);
+			lc = lnext(lc);
+
+			my_context.larg = my_context.rarg = NULL;
+			if(pullup_rel_for_join(item, jinfo, pstate, &my_context))
+			{
+				Assert(context->larg == NULL && context->rarg == NULL);
+				return true;
+			}
+
+			if(combin_pullup_context(context, &my_context))
+			{
+				from->fromlist = list_delete_ptr(from->fromlist, item);
+				if(context->larg && context->rarg)
+					break;
+			}
+		}
+
+		/* return false when not found all */
+		if(context->larg == NULL || context->rarg == NULL)
+			return false;
+
+		/* now meke JoinExpr */
+		join = makeNode(JoinExpr);
+		join->jointype = jinfo->type;
+		join->larg = context->larg;
+		join->rarg = context->rarg;
+		join->quals = jinfo->expr;
+		from->fromlist = lappend(from->fromlist, join);
+		return true;
+	}else if(IsA(node, JoinExpr))
+	{
+		PullupRelForJoinContext my_context;
+		JoinExpr *join = (JoinExpr*)node;
+
+		my_context.larg = my_context.rarg = NULL;
+		if(pullup_rel_for_join(join->larg, jinfo, pstate, &my_context))
+		{
+			Assert(context->larg == NULL && context->rarg == NULL);
+			return true;
+		}
+		(void)combin_pullup_context(context, &my_context);
+
+		if(context->larg == NULL || context->rarg == NULL)
+		{
+			my_context.larg = my_context.rarg = NULL;
+			if(pullup_rel_for_join(join->rarg, jinfo, pstate, &my_context))
+			{
+				Assert(context->larg == NULL && context->rarg == NULL);
+				return true;
+			}
+			(void)combin_pullup_context(context, &my_context);
+		}
+
+		if(context->larg != NULL && context->rarg != NULL)
+		{
+			/*
+			 * all table found
+			 * combin clause
+			 */
+			BoolExpr *bexpr;
+			if(jinfo->type == JOIN_LEFT
+				&& join->jointype != JOIN_LEFT
+				&& join->jointype != JOIN_RIGHT)
+			{
+				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
+					, errmsg("a predicate may reference only one outer-joined table")
+					, parser_errposition(pstate, jinfo->location)));
+			}
+
+			if(join->quals == NULL)
+			{
+				bexpr = (BoolExpr*)makeBoolExpr(AND_EXPR, NIL, -1);
+				join->quals = (Node*)bexpr;
+			}else if(and_clause(join->quals))
+			{
+				bexpr = (BoolExpr*)(join->quals);
+			}else
+			{
+				bexpr = (BoolExpr*)makeBoolExpr(AND_EXPR, list_make1(join->quals), -1);
+				join->quals = (Node*)bexpr;
+			}
+			bexpr->args = lappend(bexpr->args, jinfo->expr);
+			return true;
+		}
+
+		/* release [lr]arg to this join node */
+		if(context->larg != NULL)
+			context->larg = node;
+		else if(context->rarg != NULL)
+			context->rarg = node;
+
+		return false;
+	}else if(IsA(node, RangeTblRef))
+	{
+		RangeTblRef *rte = (RangeTblRef*)node;
+		if(rte->rtindex == jinfo->lrtindex)
+		{
+			Assert(context->larg == NULL);
+			context->larg = node;
+		}else if(rte->rtindex == jinfo->rrtindex)
+		{
+			Assert(context->rarg == NULL);
+			context->rarg = node;
+		}
+		return false;
+	}else
+	{
+		ereport(ERROR,
+			(errmsg("unrecognized node type: %d", (int)nodeTag(node))));
+	}
+	return false;
+}
+
+static void check_joinon_column_join(Node *node, ParseState *pstate)
+{
+	if(node == NULL)
+		return;
+
+	switch(nodeTag(node))
+	{
+	case T_JoinExpr:
+		{
+			JoinExprInfo *jinfo;
+			JoinExpr *join = (JoinExpr*)node;
+			Assert(join->larg && join->rarg);
+			check_joinon_column_join(join->larg, pstate);
+			check_joinon_column_join(join->rarg, pstate);
+
+			if(have_ora_column_join(join->quals, NULL) == false)
+				return;
+
+			jinfo = get_ora_column_join(join->quals, pstate);
+			Assert(jinfo);
+
+			if(jinfo->type != JOIN_INNER)
+			{
+				RangeTblRef *rte;
+				bool failed = false;
+				if(IsA(join->larg, RangeTblRef))
+				{
+					rte = (RangeTblRef*)(join->larg);
+					if(rte->rtindex == jinfo->lrtindex && join->jointype != JOIN_LEFT)
+						failed = true;
+					if(rte->rtindex == jinfo->rrtindex && join->jointype != JOIN_RIGHT)
+						failed = true;
+				}
+				if(IsA(join->rarg, RangeTblRef))
+				{
+					rte = (RangeTblRef*)(join->rarg);
+					if(rte->rtindex == jinfo->lrtindex && join->jointype != JOIN_RIGHT)
+						failed = true;
+					if(rte->rtindex == jinfo->rrtindex && join->jointype != JOIN_LEFT)
+						failed = true;
+				}
+				if(failed)
+					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
+						,errmsg("a predicate may reference only on outer-joined table")
+						,parser_errposition(pstate, jinfo->location)));
+			}
+			join->quals = remove_column_join_expr(join->quals, NULL);
+		}
+		break;
+	case T_FromExpr:
+		{
+			ListCell *lc;
+			FromExpr *from = (FromExpr*)node;
+			foreach(lc, from->fromlist)
+				check_joinon_column_join(lfirst(lc), pstate);
+			if(have_ora_column_join(from->quals, NULL))
+				from->quals = remove_column_join_expr(from->quals, NULL);
+		}
+		break;
+	case T_RangeTblRef:
+		break;
+	default:
+		elog(ERROR, "unrecognized node type: %d",(int) nodeTag(node));
+	}
+}
+
+static List* find_namespace_item_for_rte(List *namespace, RangeTblEntry *rte)
+{
+	ListCell *lc;
+	ParseNamespaceItem *pni = NULL;
+	Assert(rte && namespace);
+	foreach(lc, namespace)
+	{
+		pni = lfirst(lc);
+		Assert(pni);
+		if(pni->p_rte == rte)
+			break;
+	}
+	Assert(pni->p_rte == rte);
+	return list_make1(pni);
+}
+
+static void analyze_new_join(ParseState *pstate, Node *node, RangeTblEntry **top_rte
+	, int *rtindex, List **namelist)
+{
+	Assert(pstate && node && top_rte && rtindex);
+	if(IsA(node, JoinExpr))
+	{
+		JoinExpr *j = (JoinExpr*)node;
+		if(j->rtindex == 0)
+		{
+			/* new join expr */
+			ParseNamespaceItem *pni;
+			ListCell *lc;
+			List *res_colnames,
+				 *colnames,
+				 *res_colvars,
+				 *colvars,
+				 *res_namelist,
+				 *arg_namelist;
+			RangeTblEntry	*l_rte;
+			RangeTblEntry	*r_rte;
+			int				l_rtindex;
+			int				r_rtindex;
+			int				k;
+
+			Assert(j->jointype == JOIN_INNER || j->jointype == JOIN_LEFT);
+			analyze_new_join(pstate, j->larg, &l_rte, &l_rtindex, &res_namelist);
+			expandRTE(l_rte, l_rtindex, 0, -1, false, &res_colnames, &res_colvars);
+
+			analyze_new_join(pstate, j->rarg, &r_rte, &r_rtindex, &arg_namelist);
+			expandRTE(r_rte, r_rtindex, 0, -1, false, &colnames, &colvars);
+
+			Assert((checkNameSpaceConflicts(pstate, res_namelist, arg_namelist), true));
+			res_colnames = list_concat(res_colnames, colnames);
+			res_colvars = list_concat(res_colvars, colvars);
+			res_namelist = list_concat(res_namelist, arg_namelist);
+
+			*top_rte = addRangeTableEntryForJoin(pstate, res_colnames, j->jointype
+						, res_colvars, j->alias, true);
+			j->rtindex = list_length(pstate->p_rtable);
+			Assert(*top_rte == rt_fetch(j->rtindex, pstate->p_rtable));
+			*rtindex = j->rtindex;
+
+			/* make a matching link to the JoinExpr for later use */
+			for (k = list_length(pstate->p_joinexprs) + 1; k < j->rtindex; k++)
+				pstate->p_joinexprs = lappend(pstate->p_joinexprs, NULL);
+			pstate->p_joinexprs = lappend(pstate->p_joinexprs, j);
+			Assert(list_length(pstate->p_joinexprs) == j->rtindex);
+
+			foreach(lc, res_namelist)
+			{
+				pni = lfirst(lc);
+				pni->p_cols_visible = false;
+			}
+			pni = palloc0(sizeof(*pni));
+			pni->p_rte = *top_rte;
+			Assert(j->alias == NULL);
+			pni->p_rel_visible = false;
+			pni->p_cols_visible = true;
+			pni->p_lateral_only = false;
+			pni->p_lateral_ok = true;
+			*namelist = lappend(res_namelist, pni);
+		}else
+		{
+			*top_rte = rt_fetch(j->rtindex, pstate->p_rtable);
+			*namelist = find_namespace_item_for_rte(pstate->p_namespace, *top_rte);
+			*rtindex = j->rtindex;
+		}
+	}else if(IsA(node, FromExpr))
+	{
+		RangeTblEntry *rte;
+		List *my_namelist;
+		ListCell *lc;
+		FromExpr *from_expr = (FromExpr*)node;
+		int my_rtindex;
+		foreach(lc, from_expr->fromlist)
+		{
+			analyze_new_join(pstate, lfirst(lc), &rte, &my_rtindex, &my_namelist);
+			Assert((checkNameSpaceConflicts(pstate, *namelist, my_namelist),true));
+			*namelist = list_concat(*namelist, my_namelist);
+		}
+	}else if(IsA(node, RangeTblRef))
+	{
+		RangeTblRef *rtr = (RangeTblRef*)node;
+		*top_rte = rt_fetch(rtr->rtindex, pstate->p_rtable);
+		*namelist = find_namespace_item_for_rte(pstate->p_namespace, *top_rte);
+		*rtindex = rtr->rtindex;
+	}else
+	{
+		ereport(ERROR, (errmsg("unknown node type %d", nodeTag(node))));
+	}
+}
+
+/*
+ * return list of JoinExprInfo
+ *
+ * t1.id=t2.id(+) and t1.name=t2.name and t1.id>10
+ *          |
+ *          V
+ * t1.id=t2.id(+)
+ * t1.name=t2.name
+ * t1.id>10
+ *          |
+ *          V
+ * t1.id=t2.id(+) and t1.name=t2.name
+ * t1.id>10
+ */
+static List* get_join_qual_exprs(Node *quals, ParseState *pstate)
+{
+	ListCell *lc;
+	List *result;
+	List *qual_list;
+	Node *expr;
+	JoinExprInfo *jinfo, *jinfo2;
+	if(quals == NULL)
+		return NIL;
+
+	quals = (Node*)canonicalize_qual((Expr*)quals);
+	if(and_clause(quals))
+		qual_list = ((BoolExpr*)quals)->args;
+	else
+		qual_list = list_make1(quals);
+
+	/*
+	 * this loop, we get all column join expr clause
+	 * and delete from qual_list
+	 */
+	result = NIL;
+	for(lc=list_head(qual_list);lc;)
+	{
+		expr = lfirst(lc);
+		lc = lnext(lc);
+		if(have_ora_column_join(expr, NULL) == false)
+			continue;
+
+		jinfo = get_ora_column_join(expr, pstate);
+		result = lappend(result, jinfo);
+		qual_list = list_delete_ptr(qual_list, expr);
+	}
+
+	/*
+	 * now, we combin exprs
+	 */
+	while(qual_list)
+	{
+		expr = linitial(qual_list);
+		jinfo2 = get_ora_column_join(expr, pstate);
+
+		foreach(lc, result)
+		{
+			jinfo = lfirst(lc);
+			if(jinfo->type == jinfo2->type
+				&& jinfo->lrtindex == jinfo2->lrtindex
+				&& jinfo->rrtindex == jinfo2->rrtindex)
+			{
+				/* same table(s) clause, combin it */
+				BoolExpr *bexpr;
+				if(and_clause(jinfo->expr))
+				{
+					bexpr = (BoolExpr*)(jinfo->expr);
+				}else
+				{
+					bexpr = (BoolExpr*)makeBoolExpr(AND_EXPR, list_make1(jinfo->expr), -1);
+					jinfo->expr = (Node*)bexpr;
+				}
+				bexpr->args = lappend(bexpr->args, jinfo2->expr);
+				pfree(jinfo2);
+				goto next_qual_list;
+			}
+		}
+		/* not match in result */
+		result = lappend(result, jinfo2);
+next_qual_list:
+		qual_list = list_delete_first(qual_list);
+	}
+
+	return result;
+}
+
+/*
+ *  from t1,t2,t3,t4
+ *  where t1.id=t2.id(+)
+ *    and t1.id(+)=t3.id
+ *    and t1.id=t4.id(+);
+ *    and other
+ *         |
+ *         V
+ *  from (t1,t3,t4) left join t2 on t1.id=t2.id
+ *  where t1.id(+)=t3.id
+ *    and t1.id=t4.id(+)
+ *    and other
+ *         |
+ *         V
+ *  from ((t1 left join t3 on t1.id=t3.id),t4) left join t2 on t1.id=t2.id
+ *  where t1.id=t4.id(+)
+ *    and other
+ *         |
+ *         V
+ *  from ((t1 left join t3 on t1.id=t3.id) left join t4 on t1.id=t4.id) left join t2 on t1.id=t2.id
+ *  where other
+ */
+static Node* transformFromAndWhere(ParseState *pstate, Node *quals)
+{
+	List *qual_list,
+		 *new_namelist;
+	ListCell *lc;
+	FromExpr *from;
+	JoinExprInfo *jinfo;
+	PullupRelForJoinContext context;
+
+	if(pstate->p_joinlist == NIL
+		|| have_ora_column_join(quals, NULL) == false)
+		return quals;
+
+	if(list_length(pstate->p_joinlist) == 1)
+	{
+		/* fast process */
+		return remove_column_join_expr(quals, NULL);
+	}
+
+	qual_list = get_join_qual_exprs(quals, pstate);
+	from = makeNode(FromExpr);
+	from->fromlist = pstate->p_joinlist;
+
+	for(lc=list_head(qual_list);lc!=NULL;)
+	{
+		ListCell *tmp = lc;
+		jinfo = lfirst(lc);
+		lc = lnext(lc);
+
+		if(jinfo->lrtindex == 0
+			|| jinfo->rrtindex == 0)
+		{
+			/* keep single table's clause and remove jinfo */
+			lfirst(tmp) = remove_column_join_expr(jinfo->expr, NULL);
+			pfree(jinfo);
+			continue;
+		}
+
+		context.larg = context.rarg = NULL;
+		jinfo->expr = remove_column_join_expr(jinfo->expr, NULL);
+		if(pullup_rel_for_join((Node*)from, jinfo, pstate, &context) == false)
+		{
+			ereport(ERROR, (errmsg("move filter qual to join filter failed!")));
+		}
+		qual_list = list_delete_ptr(qual_list, jinfo);
+		pfree(jinfo);
+	}
+
+	/* save namespace */
+	Assert(pstate->p_save_namespace == NIL);
+	foreach(lc, pstate->p_namespace)
+	{
+		ParseNamespaceItem *ni = palloc(sizeof(*ni));
+		memcpy(ni, lfirst(lc), sizeof(*ni));
+		pstate->p_save_namespace = lappend(pstate->p_save_namespace, ni);
+	}
+
+	{
+		RangeTblEntry *rte;
+		int rtindex;
+		new_namelist = NIL;
+		analyze_new_join(pstate, (Node*)from, &rte, &rtindex, &new_namelist);
+	}
+	pstate->p_namespace = new_namelist;
+
+	pstate->p_joinlist = from->fromlist;
+	pfree(from);
+
+	if(qual_list == NIL)
+	{
+		return NULL;
+	}else if(list_length(qual_list) == 1)
+	{
+		return linitial(qual_list);
+	}
+	return (Node*)makeBoolExpr(AND_EXPR, qual_list, -1);
+}
+
+static bool rewrite_rownum_query_enum(Node *node, void *context)
+{
+	if(node == NULL)
+		return false;
+	/*ADBQ, undefine function: node_tree_walker*/
+	//if(node_tree_walker(node,rewrite_rownum_query_enum, context))
+	//	return true;
+	if(IsA(node, Query))
+	{
+		rewrite_rownum_query((Query*)node);
+	}
+	return false;
+}
+
+/*
+ * let "rownum <[=] CONST" or "CONST >[=] rownum"
+ * to "limit N"
+ * TODO: fix when "Const::consttypmod != -1"
+ * TODO: fix when "rownum < 1 and rownum < 2" to "limit CASE WHEN 1<2 THEN 1 ELSE 2"
+ */
+static void rewrite_rownum_query(Query *query)
+{
+	List *qual_list,*args;
+	ListCell *lc;
+	Node *expr,*l,*r;
+	Node *limitCount;
+	Bitmapset *hints;
+	char opname[4];
+	Oid opno;
+	Oid funcid;
+	int i;
+	int64 v64;
+
+	Assert(query);
+	if(query->jointree == NULL
+		|| query->limitOffset != NULL
+		|| query->limitCount != NULL
+		|| contain_rownum(query->jointree->quals) == false)
+		return;
+
+	query->jointree->quals = expr = (Node*)canonicalize_qual((Expr*)(query->jointree->quals));
+	if(and_clause((Node*)expr))
+		qual_list = ((BoolExpr*)expr)->args;
+	else
+		qual_list = list_make1(expr);
+
+	/* find expr */
+	limitCount = NULL;
+	hints = NULL;
+	for(i=0,lc=list_head(qual_list);lc;lc=lnext(lc),++i)
+	{
+		expr = lfirst(lc);
+		if(contain_rownum((Node*)expr) == false)
+			continue;
+
+		if(IsA(expr, OpExpr))
+		{
+			args = ((OpExpr*)expr)->args;
+			opno = ((OpExpr*)expr)->opno;
+			funcid = ((OpExpr*)expr)->opfuncid;
+		}else if(IsA(expr, FuncExpr))
+		{
+			funcid = ((FuncExpr*)expr)->funcid;
+			args = ((FuncExpr*)expr)->args;
+			opno = InvalidOid;
+		}else
+		{
+			return;
+		}
+		if(list_length(args) != 2)
+			return;
+		l = linitial(args);
+		r = llast(args);
+		Assert(l != NULL && r != NULL);
+		if(!IsA(l,RownumExpr) && !IsA(r, RownumExpr))
+			return;
+
+		if(opno == InvalidOid)
+		{
+			/* get operator */
+			Assert(OidIsValid(funcid));
+			opno = get_operator_for_function(funcid);
+			if(opno == InvalidOid)
+				return;
+		}
+
+		if(IsA(r, RownumExpr))
+		{
+			/* exchange operator, like "10>rownum" to "rownum<10" */
+			Node *tmp;
+			opno = get_commutator(opno);
+			if(opno == InvalidOid)
+				return;
+			tmp = l;
+			l = r;
+			r = tmp;
+		}
+
+		if(!IsA(l, RownumExpr))
+			return;
+		/* get operator name */
+		{
+			char *tmp = get_opname(opno);
+			if(tmp == NULL)
+				return;
+			strncpy(opname, tmp, lengthof(opname));
+			pfree(tmp);
+		}
+
+		if(opname[0] == '<')
+		{
+			if(contain_mutable_functions((Node*)r))
+				return;
+
+			if(const_get_int64((Expr*)r, &v64) == false)
+				return;
+			if(opname[1] == '=' && opname[2] == '\0')
+			{
+				/* rownum <= expr */
+				if(v64 <= (int64)0)
+				{
+					/* rownum <= n, and (n<=0) */
+					limitCount = (Node*)make_int8_const(Int64GetDatum(0));
+					qual_list = NIL;
+					break;
+				}
+				if(limitCount != NULL)
+					return; /* has other operator */
+				limitCount = r;
+			}else if(opname[1] == '\0')
+			{
+				if(v64 <= (int64)1)
+				{
+					/* rownum < n, and (n<=1) */
+					limitCount = (Node*)make_int8_const(Int64GetDatum(0));
+					qual_list = NIL;
+					break;
+				}
+				if(limitCount != NULL)
+					return; /* has other operator */
+				limitCount = (Node*)make_op2(NULL,
+											 SystemFuncName("-"),
+											 (Node*)r,
+											 (Node*)make_int8_const(Int64GetDatum(1)),
+											 NULL,
+											 -1,
+											 true);
+				if(limitCount == NULL)
+					return;
+			}else if(opname[1] == '>' && opname[2] == '\0')
+			{
+				/* rownum <> expr */
+				if(v64 <= (int64)0)
+				{
+					/* rownum <> n, and (n <= 0) ignore */
+				}else if(limitCount != NULL)
+				{
+					return; /* has other operator */
+				}else
+				{
+					/* for now, rownum <> n equal limit n-1 */
+					limitCount = (Node*)make_op2(NULL,
+												 SystemFuncName("-"),
+												 (Node*)r,
+												 (Node*)make_int8_const(Int64GetDatum(1)),
+												 NULL,
+												 -1,
+												 true);
+					if(limitCount == NULL)
+						return;
+				}
+			}else
+			{
+				return; /* unknown operator */
+			}
+		}else if(opname[0] == '>')
+		{
+			if(const_get_int64((Expr*)r, &v64) == false)
+				return;
+
+			if(opname[1] == '=' && opname[2] == '\0')
+			{
+				/* rownum >= expr
+				 *  only support rownum >= 1
+				 */
+				if(v64 != (int64)1)
+					return;
+			}else if(opname[1] == '\0')
+			{
+				/* rownum > expr
+				 *  only support rownum > 0
+				 */
+				if(v64 != (int64)0)
+					return;
+			}else
+			{
+				return;
+			}
+		}else if(opname[0] == '=' && opname[1] == '\0')
+		{
+			if(!IsA(r, RownumExpr))
+				return;
+			/* rownum = rownum ignore */
+		}else
+		{
+			return;
+		}
+
+		hints = bms_add_member(hints, i);
+	}
+
+	query->limitCount = limitCount;
+	if(qual_list != NIL)
+	{
+		/* whe use args for get new quals */
+		args = NIL;
+		for(i=0,lc=list_head(qual_list);lc;lc=lnext(lc),++i)
+		{
+			if(bms_is_member(i, hints))
+				continue;
+			Assert(contain_rownum(lfirst(lc)) == false);
+			args = lappend(args, lfirst(lc));
+		}
+		if(args == NIL)
+		{
+			query->jointree->quals = NULL;
+		}else if(list_length(args) == 1)
+		{
+			query->jointree->quals = linitial(args);
+		}else
+		{
+			query->jointree->quals = (Node*)makeBoolExpr(AND_EXPR, args, -1);
+		}
+	}
+	return;
+}
+
+static Expr* make_int8_const(Datum value)
+{
+	Const *result;
+	result = makeNode(Const);
+	result->consttype = INT8OID;
+	result->consttypmod = -1;
+	result->constcollid = InvalidOid;
+	result->constlen = sizeof(int64);
+	result->constvalue = value;
+	result->constisnull = false;
+	result->constbyval = FLOAT8PASSBYVAL;
+	result->location = -1;
+	return (Expr*)result;
+}
+
+/*
+ * we should be find a cast and call it
+ */
+static bool const_get_int64(const Expr *expr, int64 *val)
+{
+	Const *c;
+	AssertArg(expr && val);
+	if(!IsA(expr, Const))
+		return false;
+	c = (Const*)expr;
+	if(c->constisnull)
+		return false;
+	switch(c->consttype)
+	{
+	case INT8OID:
+		*val = DatumGetInt64(c->constvalue);
+		return true;
+	case INT4OID:
+		*val = (int64)(DatumGetInt32(c->constvalue));
+		return true;
+	case INT2OID:
+		*val = (int64)(DatumGetInt16(c->constvalue));
+		return true;
+	default:
+		break;
+	}
+	return false;
+}
+
+static Oid get_operator_for_function(Oid funcid)
+{
+	Relation rel;
+	HeapScanDesc scanDesc;
+	HeapTuple	htup;
+	ScanKeyData scanKeyData;
+	Oid opno;
+
+	if(funcid == InvalidOid)
+		return InvalidOid;
+
+	ScanKeyInit(&scanKeyData, Anum_pg_operator_oprcode
+		, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(funcid));
+	rel = heap_open(OperatorRelationId, AccessShareLock);
+	scanDesc = heap_beginscan_catalog(rel, 1, &scanKeyData);
+	htup = heap_getnext(scanDesc, ForwardScanDirection);
+	if(HeapTupleIsValid(htup))
+	{
+		opno = HeapTupleGetOid(htup);
+	}else
+	{
+		opno = InvalidOid;
+	}
+	heap_endscan(scanDesc);
+	heap_close(rel, AccessShareLock);
+	return opno;
+}
+
+#endif /* ADB */

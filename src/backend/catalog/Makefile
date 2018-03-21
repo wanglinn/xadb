@@ -16,7 +16,7 @@ OBJS = catalog.o dependency.o heap.o index.o indexing.o namespace.o aclchk.o \
        pg_depend.o pg_enum.o pg_inherits.o pg_largeobject.o pg_namespace.o \
        pg_operator.o pg_proc.o pg_publication.o pg_range.o \
 	   pg_db_role_setting.o pg_shdepend.o pg_subscription.o pg_type.o \
-	   storage.o toasting.o
+	   storage.o toasting.o pgxc_class.o
 
 BKIFILES = postgres.bki postgres.description postgres.shdescription
 
@@ -28,7 +28,7 @@ all: $(BKIFILES) schemapg.h
 # the catalog header files are assembled into postgres.bki.  In particular,
 # indexing.h had better be last, and toasting.h just before it.
 
-POSTGRES_BKI_SRCS = $(addprefix $(top_srcdir)/src/include/catalog/,\
+POSTGRES_BKI_SRCS = \
 	pg_proc.h pg_type.h pg_attribute.h pg_class.h \
 	pg_attrdef.h pg_constraint.h pg_inherits.h pg_index.h pg_operator.h \
 	pg_opfamily.h pg_opclass.h pg_am.h pg_amop.h pg_amproc.h \
@@ -45,9 +45,14 @@ POSTGRES_BKI_SRCS = $(addprefix $(top_srcdir)/src/include/catalog/,\
 	pg_default_acl.h pg_init_privs.h pg_seclabel.h pg_shseclabel.h \
 	pg_collation.h pg_partitioned_table.h pg_range.h pg_transform.h \
 	pg_sequence.h pg_publication.h pg_publication_rel.h pg_subscription.h \
-	pg_subscription_rel.h toasting.h indexing.h \
-	toasting.h indexing.h \
-    )
+	pg_subscription_rel.h \
+	pgxc_class.h pgxc_node.h pgxc_group.h ora_cast.h adb_proc.h \
+	toasting.h indexing.h
+
+$(POSTGRES_BKI_SRCS): % : $(top_srcdir)/src/include/catalog/%
+	rm -f $@.c && $(LN_S) $< $@.c
+	$(CPP) -I$(top_srcdir)/src/include -DBUILD_BKI -DCATALOG_VARLEN -DADB -o $@ $@.c
+	rm -f $@.c
 
 # location of Catalog.pm
 catalogdir = $(top_srcdir)/src/backend/catalog
@@ -77,6 +82,7 @@ install-data: $(BKIFILES) installdirs
 	$(INSTALL_DATA) $(call vpathsearch,postgres.description) '$(DESTDIR)$(datadir)/postgres.description'
 	$(INSTALL_DATA) $(call vpathsearch,postgres.shdescription) '$(DESTDIR)$(datadir)/postgres.shdescription'
 	$(INSTALL_DATA) $(srcdir)/system_views.sql '$(DESTDIR)$(datadir)/system_views.sql'
+	$(INSTALL_DATA) $(srcdir)/adb_views.sql '$(DESTDIR)$(datadir)/adb_views.sql'
 	$(INSTALL_DATA) $(srcdir)/information_schema.sql '$(DESTDIR)$(datadir)/information_schema.sql'
 	$(INSTALL_DATA) $(srcdir)/sql_features.txt '$(DESTDIR)$(datadir)/sql_features.txt'
 
@@ -90,6 +96,7 @@ uninstall-data:
 # postgres.bki, postgres.description, postgres.shdescription, and schemapg.h
 # are in the distribution tarball, so they are not cleaned here.
 clean:
+	rm -f $(POSTGRES_BKI_SRCS)
 
 maintainer-clean: clean
 	rm -f $(BKIFILES)

@@ -15,6 +15,12 @@
 /* Define if building universal (internal helper macro) */
 #undef AC_APPLE_UNIVERSAL_BUILD
 
+/* ADB version as a string */
+#undef ADB_VERSION
+
+/* ADB version as a number */
+#undef ADB_VERSION_NUM
+
 /* The normal alignment of `double', in bytes. */
 #undef ALIGNOF_DOUBLE
 

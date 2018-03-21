@@ -256,6 +256,9 @@ extern int	VacuumPageDirty;
 extern int	VacuumCostBalance;
 extern bool VacuumCostActive;
 
+#ifdef ADB
+extern bool useLocalXid;
+#endif
 
 /* in tcop/postgres.c */
 
@@ -396,7 +399,10 @@ typedef enum
 	CheckpointerProcess,
 	WalWriterProcess,
 	WalReceiverProcess,
-
+#ifdef ADB
+	PoolerProcess,
+	RemoteXactMgrProcess,
+#endif
 	NUM_AUXPROCTYPES			/* Must be last! */
 } AuxProcType;
 
@@ -408,6 +414,9 @@ extern AuxProcType MyAuxProcType;
 #define AmCheckpointerProcess()		(MyAuxProcType == CheckpointerProcess)
 #define AmWalWriterProcess()		(MyAuxProcType == WalWriterProcess)
 #define AmWalReceiverProcess()		(MyAuxProcType == WalReceiverProcess)
+#ifdef ADB
+#define AmRemoteXactMgrProcess()	(MyAuxProcType == RemoteXactMgrProcess)
+#endif
 
 
 /*****************************************************************************
@@ -444,5 +453,9 @@ extern bool has_rolreplication(Oid roleid);
 /* in access/transam/xlog.c */
 extern bool BackupInProgress(void);
 extern void CancelBackup(void);
+
+#ifdef ADB
+void PGXC_init_lock_files(void);
+#endif
 
 #endif							/* MISCADMIN_H */

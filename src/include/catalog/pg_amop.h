@@ -44,7 +44,11 @@
 #ifndef PG_AMOP_H
 #define PG_AMOP_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_amop definition.  cpp turns this into
@@ -81,6 +85,7 @@ typedef FormData_pg_amop *Form_pg_amop;
  * ----------------
  */
 #define Natts_pg_amop					8
+DECLARE_NATTS(Natts_pg_amop);
 #define Anum_pg_amop_amopfamily			1
 #define Anum_pg_amop_amoplefttype		2
 #define Anum_pg_amop_amoprighttype		3

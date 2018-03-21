@@ -31,6 +31,10 @@
 #include "rmgrdesc.h"
 #include "storage/standbydefs.h"
 #include "utils/relmapper.h"
+#ifdef ADB
+#include "access/rxact_mgr.h"
+#include "pgxc/cluster_barrier.h"
+#endif /* ADB */
 
 #define PG_RMGR(symname,name,redo,desc,identify,startup,cleanup,mask) \
 	{ name, desc, identify},

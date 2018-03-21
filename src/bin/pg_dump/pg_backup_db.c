@@ -64,10 +64,14 @@ _check_database_version(ArchiveHandle *AH)
 	 */
 	if (remoteversion >= 90000)
 	{
+#ifdef MGR_DUMP
+/*do nothing*/
+#else
 		res = ExecuteSqlQueryForSingleRow((Archive *) AH, "SELECT pg_catalog.pg_is_in_recovery()");
 
 		AH->public.isStandby = (strcmp(PQgetvalue(res, 0, 0), "t") == 0);
 		PQclear(res);
+#endif
 	}
 	else
 		AH->public.isStandby = false;
@@ -328,6 +332,11 @@ ConnectDatabase(Archive *AHX,
 
 	/* check for version mismatch */
 	_check_database_version(AH);
+
+#ifdef ADB
+		/* set grammar to postgres, and ignore result */
+		PQclear(PQexec(AH->connection, "set grammar=postgres"));
+#endif
 
 	PQsetNoticeProcessor(AH->connection, notice_processor, NULL);
 

@@ -107,6 +107,17 @@
 #include "utils/memutils.h"
 #include "utils/timestamp.h"
 
+#ifdef ADB
+#include "access/rxact_mgr.h"
+#include "agtm/agtm.h"
+#include "commands/dbcommands.h"
+#include "intercomm/inter-comm.h"
+#include "pgxc/execRemote.h"
+#include "pgxc/nodemgr.h"
+#include "pgxc/pgxc.h"
+#include "pgxc/xc_maintenance_mode.h"
+#include "utils/lsyscache.h"
+#endif
 
 /*
  * Directory where Two-phase commit files reside within PGDATA
@@ -114,7 +125,11 @@
 #define TWOPHASE_DIR "pg_twophase"
 
 /* GUC variable, can't be changed after startup */
+#ifdef ADB
+int			max_prepared_xacts = 10;  /* We require 2PC */
+#else
 int			max_prepared_xacts = 0;
+#endif
 
 /*
  * This struct describes one global transaction that is in prepared state
@@ -174,6 +189,10 @@ typedef struct GlobalTransactionData
 	bool		ondisk;			/* TRUE if prepare state file is on disk */
 	bool		inredo;			/* TRUE if entry was added via xlog_redo */
 	char		gid[GIDSIZE];	/* The GID assigned to the prepared xact */
+#ifdef ADB
+	int			node_cnt;		/* Number of involved nodes */
+	Oid		   *nodeIds;		/* Oid of involved nodes */
+#endif
 }			GlobalTransactionData;
 
 /*
@@ -220,16 +239,26 @@ static void RecordTransactionAbortPrepared(TransactionId xid,
 static void ProcessRecords(char *bufptr, TransactionId xid,
 			   const TwoPhaseCallback callbacks[]);
 static void RemoveGXact(GlobalTransaction gxact);
-
 static void XlogReadTwoPhaseData(XLogRecPtr lsn, char **buf, int *len);
 static char *ProcessTwoPhaseBuffer(TransactionId xid,
 					  XLogRecPtr prepare_start_lsn,
 					  bool fromdisk, bool setParent, bool setNextXid);
 static void MarkAsPreparingGuts(GlobalTransaction gxact, TransactionId xid,
 					const char *gid, TimestampTz prepared_at, Oid owner,
-					Oid databaseid);
+					Oid databaseid ADB_ONLY_COMMA_ARG2(int nodecnt, Oid *nodeIds));
 static void RemoveTwoPhaseFile(TransactionId xid, bool giveWarning);
 static void RecreateTwoPhaseFile(TransactionId xid, void *content, int len);
+
+#ifdef ADB
+#define NODES_SIZE	(sizeof(Oid) * (MaxDataNodes + MaxCoords))
+
+static void
+ResetGXactNodes(GlobalTransaction gxact)
+{
+	AssertArg(gxact);
+	memset((void *) (gxact->nodeIds), 0, NODES_SIZE);
+}
+#endif
 
 /*
  * Initialization of shared memory
@@ -246,6 +275,10 @@ TwoPhaseShmemSize(void)
 	size = MAXALIGN(size);
 	size = add_size(size, mul_size(max_prepared_xacts,
 								   sizeof(GlobalTransactionData)));
+#ifdef ADB
+	size = MAXALIGN(size);
+	size = add_size(size, mul_size(max_prepared_xacts, NODES_SIZE));
+#endif
 
 	return size;
 }
@@ -262,6 +295,10 @@ TwoPhaseShmemInit(void)
 	{
 		GlobalTransaction gxacts;
 		int			i;
+#ifdef ADB
+		char		*nodes_addrs;
+		Size		size;
+#endif
 
 		Assert(!found);
 		TwoPhaseState->freeGXacts = NULL;
@@ -274,6 +311,16 @@ TwoPhaseShmemInit(void)
 			((char *) TwoPhaseState +
 			 MAXALIGN(offsetof(TwoPhaseStateData, prepXacts) +
 					  sizeof(GlobalTransaction) * max_prepared_xacts));
+
+#ifdef ADB
+		size = offsetof(TwoPhaseStateData, prepXacts);
+		size += (max_prepared_xacts * sizeof(GlobalTransaction));
+		size = MAXALIGN(size);
+		size += (max_prepared_xacts * sizeof(GlobalTransactionData));
+		size = MAXALIGN(size);
+		nodes_addrs = (char *) TwoPhaseState + size;
+#endif
+
 		for (i = 0; i < max_prepared_xacts; i++)
 		{
 			/* insert into linked list */
@@ -296,6 +343,9 @@ TwoPhaseShmemInit(void)
 			 * technique.
 			 */
 			gxacts[i].dummyBackendId = MaxBackends + 1 + i;
+#ifdef ADB
+			gxacts[i].nodeIds = (Oid *) (nodes_addrs + i * NODES_SIZE);
+#endif
 		}
 	}
 	else
@@ -371,8 +421,15 @@ PostPrepare_Twophase(void)
  *		Reserve the GID for the given transaction.
  */
 GlobalTransaction
+#ifdef ADB
+MarkAsPreparing(TransactionId xid, const char *gid,
+				TimestampTz prepared_at,
+				Oid owner, Oid databaseid,
+				int nodecnt, Oid *nodeIds)
+#else
 MarkAsPreparing(TransactionId xid, const char *gid,
 				TimestampTz prepared_at, Oid owner, Oid databaseid)
+#endif
 {
 	GlobalTransaction gxact;
 	int			i;
@@ -422,7 +479,7 @@ MarkAsPreparing(TransactionId xid, const char *gid,
 	gxact = TwoPhaseState->freeGXacts;
 	TwoPhaseState->freeGXacts = gxact->next;
 
-	MarkAsPreparingGuts(gxact, xid, gid, prepared_at, owner, databaseid);
+	MarkAsPreparingGuts(gxact, xid, gid, prepared_at, owner, databaseid ADB_ONLY_COMMA_ARG2(nodecnt, nodeIds));
 
 	gxact->ondisk = false;
 
@@ -446,7 +503,7 @@ MarkAsPreparing(TransactionId xid, const char *gid,
  */
 static void
 MarkAsPreparingGuts(GlobalTransaction gxact, TransactionId xid, const char *gid,
-					TimestampTz prepared_at, Oid owner, Oid databaseid)
+					TimestampTz prepared_at, Oid owner, Oid databaseid ADB_ONLY_COMMA_ARG2(int nodecnt, Oid *nodeIds))
 {
 	PGPROC	   *proc;
 	PGXACT	   *pgxact;
@@ -491,6 +548,15 @@ MarkAsPreparingGuts(GlobalTransaction gxact, TransactionId xid, const char *gid,
 	gxact->valid = false;
 	gxact->inredo = false;
 	strcpy(gxact->gid, gid);
+#ifdef ADB
+	gxact->node_cnt = nodecnt;
+	if (gxact->node_cnt > 0)
+	{
+		memcpy((void *) (gxact->nodeIds),
+			   (void *) nodeIds,
+			   (gxact->node_cnt) * sizeof(Oid));
+	}
+#endif
 
 	/*
 	 * Remember that we have this GlobalTransaction entry locked for us. If we
@@ -556,7 +622,11 @@ MarkAsPrepared(GlobalTransaction gxact, bool lock_held)
  *		Locate the prepared transaction and mark it busy for COMMIT or PREPARE.
  */
 static GlobalTransaction
+#if defined(ADB) || defined(AGTM)
+LockGXact(const char *gid, Oid user, bool missing_ok)
+#else
 LockGXact(const char *gid, Oid user)
+#endif
 {
 	int			i;
 
@@ -616,10 +686,26 @@ LockGXact(const char *gid, Oid user)
 
 	LWLockRelease(TwoPhaseStateLock);
 
+#ifdef ADB
+	/*
+	 * In PGXC, if xc_maintenance_mode is on, COMMIT/ROLLBACK PREPARED may be issued to the
+	 * node where the given xid does not exist.
+	 */
+	if (!xc_maintenance_mode)
+	{
+#endif
+
+#if defined(ADB) || defined(AGTM)
+		if (!missing_ok)
+#endif
 	ereport(ERROR,
 			(errcode(ERRCODE_UNDEFINED_OBJECT),
 			 errmsg("prepared transaction with identifier \"%s\" does not exist",
 					gid)));
+
+#ifdef ADB
+	}
+#endif
 
 	/* NOTREACHED */
 	return NULL;
@@ -642,6 +728,9 @@ RemoveGXact(GlobalTransaction gxact)
 	{
 		if (gxact == TwoPhaseState->prepXacts[i])
 		{
+#ifdef ADB
+			ResetGXactNodes(TwoPhaseState->prepXacts[i]);
+#endif
 			/* remove from the active array */
 			TwoPhaseState->numPrepXacts--;
 			TwoPhaseState->prepXacts[i] = TwoPhaseState->prepXacts[TwoPhaseState->numPrepXacts];
@@ -687,11 +776,32 @@ GetPreparedTransactionList(GlobalTransaction *gxacts)
 	}
 
 	num = TwoPhaseState->numPrepXacts;
+#ifdef ADB
+	array = (GlobalTransaction) palloc((sizeof(GlobalTransactionData) + NODES_SIZE) * num);
+	*gxacts = array;
+	for (i = 0; i < num; i++)
+	{
+		GlobalTransaction 	gxact;
+		char				*nodes_addrs;
+
+		nodes_addrs = (char *) array + sizeof(GlobalTransactionData) * num;
+		gxact = array + i;
+		gxact->nodeIds = (Oid *) (nodes_addrs + i * NODES_SIZE);
+
+		memcpy(gxact, TwoPhaseState->prepXacts[i],
+			sizeof(GlobalTransactionData));
+
+		memcpy((void *) (gxact->nodeIds),
+			(void *) TwoPhaseState->prepXacts[i]->nodeIds, NODES_SIZE);
+	}
+#else
 	array = (GlobalTransaction) palloc(sizeof(GlobalTransactionData) * num);
 	*gxacts = array;
 	for (i = 0; i < num; i++)
 		memcpy(array + i, TwoPhaseState->prepXacts[i],
 			   sizeof(GlobalTransactionData));
+#endif
+
 
 	LWLockRelease(TwoPhaseStateLock);
 
@@ -735,7 +845,11 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 
 		/* build tupdesc for result tuples */
 		/* this had better match pg_prepared_xacts view in system_views.sql */
+#ifdef ADB
+		tupdesc = CreateTemplateTupleDesc(6, false);
+#else
 		tupdesc = CreateTemplateTupleDesc(5, false);
+#endif
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "transaction",
 						   XIDOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "gid",
@@ -746,6 +860,10 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 						   OIDOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "dbid",
 						   OIDOID, -1, 0);
+#ifdef ADB
+		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "rnodes",
+						   OIDVECTOROID, -1, 0);
+#endif
 
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
@@ -770,10 +888,18 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 		GlobalTransaction gxact = &status->array[status->currIdx++];
 		PGPROC	   *proc = &ProcGlobal->allProcs[gxact->pgprocno];
 		PGXACT	   *pgxact = &ProcGlobal->allPgXact[gxact->pgprocno];
+#ifdef ADB
+		Datum		values[6];
+		bool		nulls[6];
+#else
 		Datum		values[5];
 		bool		nulls[5];
+#endif
 		HeapTuple	tuple;
 		Datum		result;
+#ifdef ADB
+		oidvector  *nodes;
+#endif
 
 		if (!gxact->valid)
 			continue;
@@ -789,6 +915,16 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 		values[2] = TimestampTzGetDatum(gxact->prepared_at);
 		values[3] = ObjectIdGetDatum(gxact->owner);
 		values[4] = ObjectIdGetDatum(proc->databaseId);
+#ifdef ADB
+		if (gxact->node_cnt <= 0)
+		{
+			nulls[5] = true;
+		} else
+		{
+			nodes = buildoidvector(gxact->nodeIds, gxact->node_cnt);
+			values[5] = PointerGetDatum(nodes);
+		}
+#endif
 
 		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 		result = HeapTupleGetDatum(tuple);
@@ -887,10 +1023,18 @@ TwoPhaseGetDummyProc(TransactionId xid)
  *	3. RelFileNode[] (files to be deleted at commit)
  *	4. RelFileNode[] (files to be deleted at abort)
  *	5. SharedInvalidationMessage[] (inval messages to be sent at commit)
+#ifdef ADB
+ *  6. Oid[] (involved nodes' ID)
+ *  7  TwoPhaseRecordOnDisk
+ *  8. ...
+ *  8. TwoPhaseRecordOnDisk (end sentinel, rmid == TWOPHASE_RM_END_ID)
+ * 10. CRC32
+#else
  *	6. TwoPhaseRecordOnDisk
  *	7. ...
  *	8. TwoPhaseRecordOnDisk (end sentinel, rmid == TWOPHASE_RM_END_ID)
  *	9. checksum (CRC-32C)
+#endif
  *
  * Each segment except the final checksum is MAXALIGN'd.
  */
@@ -912,6 +1056,9 @@ typedef struct TwoPhaseFileHeader
 	int32		ncommitrels;	/* number of delete-on-commit rels */
 	int32		nabortrels;		/* number of delete-on-abort rels */
 	int32		ninvalmsgs;		/* number of cache invalidation messages */
+#ifdef ADB
+	int32		nnodes;			/* number of nodes involved in current xact */
+#endif
 	bool		initfileinval;	/* does relcache init file need invalidation? */
 	uint16		gidlen;			/* length of the GID - GID follows the header */
 } TwoPhaseFileHeader;
@@ -982,6 +1129,74 @@ save_state_data(const void *data, uint32 len)
 	records.total_len += padlen;
 }
 
+#ifdef ADB
+/*
+ * Tell remote xact manager to record log of the transaction.
+ */
+void
+StartRemoteXactPrepare(const char *gid, Oid *nodes, int count)
+{
+	if (!IsCoordMaster())
+		return ;
+
+	if (IsConnFromRxactMgr())
+		return ;
+
+	/* Record PREPARE log */
+	RecordRemoteXact(gid, nodes, count, RX_PREPARE, false);
+}
+
+/*
+ * Finish preparing xact.
+ *
+ * Here is where we truly prepare remote nodes(include AGTM), then mark the
+ * xact will COMMIT or SUCCESS PREPARE after all nodes truly prepare.
+ *
+ * It means we tell remote xact manager we step into the second phase.
+ *
+ * Notes:
+ *	   It is just for explicit 2PC transaction.
+ */
+void
+EndRemoteXactPrepare(TransactionId xid, GlobalTransaction gxact)
+{
+	EndRemoteXactPrepareExt(xid, gxact->gid, gxact->nodeIds, gxact->node_cnt, false);
+}
+
+/*
+ * Finish preparing xact extend
+ */
+void
+EndRemoteXactPrepareExt(TransactionId xid, const char *gid, Oid *nodes, int count, bool implicit)
+{
+	if (!IsCoordMaster())
+		return ;
+
+	if (IsConnFromRxactMgr())
+		return ;
+
+	PG_TRY();
+	{
+		/* Prepare on remote nodes */
+		InterXactPrepare(gid, nodes, count);
+
+		/* Prepare on AGTM */
+		agtm_PrepareTransaction(gid);
+	} PG_CATCH();
+	{
+		/* Record FAILED log */
+		if(RecordRemoteXactFailed(gid, RX_PREPARE, true) == false)
+			DisconnectRemoteXact();
+		PG_RE_THROW();
+	} PG_END_TRY();
+
+	if (implicit)
+		RecordRemoteXactAuto(gid, xid, false);
+	else
+		RecordRemoteXactSuccess(gid, RX_PREPARE, false);
+}
+#endif
+
 /*
  * Start preparing a state file.
  *
@@ -1025,6 +1240,9 @@ StartPrepare(GlobalTransaction gxact)
 	hdr.ninvalmsgs = xactGetCommittedInvalidationMessages(&invalmsgs,
 														  &hdr.initfileinval);
 	hdr.gidlen = strlen(gxact->gid) + 1;	/* Include '\0' */
+#ifdef ADB
+	hdr.nnodes = gxact->node_cnt;
+#endif
 
 	save_state_data(&hdr, sizeof(TwoPhaseFileHeader));
 	save_state_data(gxact->gid, hdr.gidlen);
@@ -1055,6 +1273,12 @@ StartPrepare(GlobalTransaction gxact)
 						hdr.ninvalmsgs * sizeof(SharedInvalidationMessage));
 		pfree(invalmsgs);
 	}
+#ifdef ADB
+	if (hdr.nnodes > 0)
+	{
+		save_state_data(gxact->nodeIds, hdr.nnodes * sizeof(Oid));
+	}
+#endif
 }
 
 /*
@@ -1365,6 +1589,14 @@ StandbyTransactionIdIsPrepared(TransactionId xid)
  */
 void
 FinishPreparedTransaction(const char *gid, bool isCommit)
+#if defined(ADB) || defined(AGTM)
+{
+	FinishPreparedTransactionExt(gid, isCommit, false);
+}
+
+void
+FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
+#endif
 {
 	GlobalTransaction gxact;
 	PGPROC	   *proc;
@@ -1380,13 +1612,49 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 	RelFileNode *delrels;
 	int			ndelrels;
 	SharedInvalidationMessage *invalmsgs;
+#ifdef ADB
+	Oid		   *nodeIds;
+#endif
 	int			i;
 
 	/*
 	 * Validate the GID, and lock the GXACT to ensure that two backends do not
 	 * try to commit the same GID at once.
 	 */
+#if defined(ADB) || defined(AGTM)
+	gxact = LockGXact(gid, GetUserId(), isMissingOK);
+#else
 	gxact = LockGXact(gid, GetUserId());
+#endif
+
+#ifdef ADB
+	/*
+	 * LockGXact returns NULL if this node does not contain given two-phase
+	 * TXN.  This can happen when COMMIT/ROLLBACK PREPARED is issued at
+	 * the originating Coordinator for cleanup.
+	 * In this case, no local handling is needed.	Only report to GTM
+	 * is needed and this has already been handled in
+	 * FinishRemotePreparedTransaction().
+	 *
+	 * Second predicate may not be necessary.	It is just in case.
+	 */
+	if (gxact == NULL && xc_maintenance_mode)
+		return ;
+#endif
+
+#if defined(ADB) || defined(AGTM)
+	/*
+	 * Just for COMMIT/ROLLBACK PREPARED IF EXISTS XXX
+	 */
+	if (gxact == NULL && isMissingOK)
+		return ;
+
+	/* Access to field 'pgprocno' results in a dereference of a null
+	 * pointer (loaded from variable 'gxact')
+	 */
+	Assert(gxact);
+#endif
+
 	proc = &ProcGlobal->allProcs[gxact->pgprocno];
 	pgxact = &ProcGlobal->allPgXact[gxact->pgprocno];
 	xid = pgxact->xid;
@@ -1417,6 +1685,18 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 	bufptr += MAXALIGN(hdr->nabortrels * sizeof(RelFileNode));
 	invalmsgs = (SharedInvalidationMessage *) bufptr;
 	bufptr += MAXALIGN(hdr->ninvalmsgs * sizeof(SharedInvalidationMessage));
+#ifdef ADB
+	nodeIds = (Oid *) bufptr;
+	bufptr += MAXALIGN(hdr->nnodes * sizeof(Oid));
+
+	/*
+	 * Notice rxact manager to record rxact log.
+	 */
+	StartFinishPreparedRxact(gid,
+							 hdr->nnodes,
+							 nodeIds,
+							 isCommit);
+#endif
 
 	/* compute latestXid among all children */
 	latestXid = TransactionIdLatest(xid, hdr->nsubxacts, children);
@@ -1510,6 +1790,19 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 	RemoveGXact(gxact);
 	LWLockRelease(TwoPhaseStateLock);
 	MyLockedGxact = NULL;
+
+#ifdef ADB
+	/*
+	 * After local node commit successfully, then we do remote commit.
+	 * It is not necessary to do this if connection is from remote xact
+	 * manager.
+	 */
+	EndFinishPreparedRxact(gid,
+						   hdr->nnodes,
+						   nodeIds,
+						   isMissingOK,
+						   isCommit);
+#endif
 
 	pfree(buf);
 }
@@ -1922,6 +2215,9 @@ RecoverPreparedTransactions(void)
 		TwoPhaseFileHeader *hdr;
 		TransactionId *subxids;
 		const char *gid;
+#ifdef ADB
+		Oid			*nodeIds;
+#endif
 
 		xid = gxact->xid;
 
@@ -1953,6 +2249,10 @@ RecoverPreparedTransactions(void)
 		bufptr += MAXALIGN(hdr->ncommitrels * sizeof(RelFileNode));
 		bufptr += MAXALIGN(hdr->nabortrels * sizeof(RelFileNode));
 		bufptr += MAXALIGN(hdr->ninvalmsgs * sizeof(SharedInvalidationMessage));
+#ifdef ADB
+		nodeIds = (Oid *) bufptr;
+		bufptr += MAXALIGN(hdr->nnodes * sizeof(Oid));
+#endif
 
 		/*
 		 * Recreate its GXACT and dummy PGPROC. But, check whether it was
@@ -1960,7 +2260,7 @@ RecoverPreparedTransactions(void)
 		 */
 		MarkAsPreparingGuts(gxact, xid, gid,
 							hdr->prepared_at,
-							hdr->owner, hdr->database);
+							hdr->owner, hdr->database ADB_ONLY_COMMA_ARG2(hdr->nnodes, nodeIds));
 
 		/* recovered, so reset the flag for entries generated by redo */
 		gxact->inredo = false;

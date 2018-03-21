@@ -17,8 +17,12 @@
 #ifndef PG_REPLICATION_ORIGIN_H
 #define PG_REPLICATION_ORIGIN_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
 #include "access/xlogdefs.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_replication_origin.  cpp turns this into
@@ -59,6 +63,7 @@ typedef FormData_pg_replication_origin *Form_pg_replication_origin;
  * ----------------
  */
 #define Natts_pg_replication_origin					2
+DECLARE_NATTS(Natts_pg_replication_origin);
 #define Anum_pg_replication_origin_roident			1
 #define Anum_pg_replication_origin_roname			2
 

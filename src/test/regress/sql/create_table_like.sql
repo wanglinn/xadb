@@ -51,16 +51,16 @@ INSERT INTO test_like_id_3 (b) VALUES ('b3');
 SELECT * FROM test_like_id_3;  -- identity was copied and applied
 DROP TABLE test_like_id_1, test_like_id_2, test_like_id_3;
 
-CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text); /* copies indexes */
+CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text) DISTRIBUTE BY REPLICATION; /* copies indexes */
 INSERT INTO inhg VALUES (5, 10);
 INSERT INTO inhg VALUES (20, 10); -- should fail
 DROP TABLE inhg;
 /* Multiple primary keys creation should fail */
 CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, PRIMARY KEY(x)); /* fails */
-CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE);
+CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE) DISTRIBUTE BY REPLICATION;
 CREATE UNIQUE INDEX inhz_xx_idx on inhz (xx) WHERE xx <> 'test';
 /* Ok to create multiple unique indexes */
-CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES);
+CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES) DISTRIBUTE BY REPLICATION;
 INSERT INTO inhg (xx, yy, x) VALUES ('test', 5, 10);
 INSERT INTO inhg (xx, yy, x) VALUES ('test', 10, 15);
 INSERT INTO inhg (xx, yy, x) VALUES ('foo', 10, 15); -- should fail
@@ -143,7 +143,7 @@ CREATE TABLE like_test2 (z INTEGER, LIKE no_oid);
 SELECT oid FROM like_test2; -- fail
 CREATE TABLE like_test3 (z INTEGER, LIKE has_oid, LIKE no_oid);
 SELECT oid FROM like_test3;
-CREATE TABLE like_test4 (z INTEGER, PRIMARY KEY(oid), LIKE has_oid);
+CREATE TABLE like_test4 (z INTEGER, PRIMARY KEY(oid), LIKE has_oid) distribute by replication;
 SELECT oid FROM like_test4;
 CREATE TABLE like_test5 (z INTEGER, LIKE no_oid) WITH OIDS;
 SELECT oid FROM like_test5;

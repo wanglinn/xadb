@@ -272,6 +272,16 @@ extern PGconn *PQsetdbLogin(const char *pghost, const char *pgport,
 /* close the current connection and free the PGconn data structure */
 extern void PQfinish(PGconn *conn);
 
+#ifdef ADB
+extern PGconn *PQattach(int sock, void *custom, int close_sock_on_end, int pgversion);
+/* async interface
+ * use PQconnectPoll finish connection
+ * start status is PGRES_POLLING_READING
+ */
+extern PGconn *PQbeginAttach(int sock, void *custom, int close_sock_on_end, int pgversion);
+extern void PQdetach(PGconn *conn);
+#endif /* ADB */
+
 /* get info about connection options known to PQconnectdb */
 extern PQconninfoOption *PQconndefaults(void);
 
@@ -400,6 +410,37 @@ extern PGresult *PQexecPrepared(PGconn *conn,
 
 /* Interface for multiple-result or asynchronous queries */
 extern int	PQsendQuery(PGconn *conn, const char *query);
+#ifdef ADB
+extern int PQsendQueryTree(PGconn *conn, const char *query, const char *query_tree, size_t tree_len);
+extern int PQsendPlan(PGconn *conn, const char *plan, int length);
+extern int PQsendClose(PGconn *conn, int isStatement, const char *name);
+extern int PQsendQueryExtend(PGconn *conn,
+							 const char *command,
+							 const char *stmtName,
+							 const char *portalName,
+							 int sendDescribe,
+							 int fetchSize,
+							 int nParams,
+							 const char **paramTypeNames,
+							 const char *const * paramValues,
+							 const int *paramFormats,
+							 const int *paramLengths,
+							 int nResultFormat,
+							 const int *resultFormats);
+extern int PQsendQueryExtendBinary(PGconn *conn,
+							 const char *command,
+							 const char *stmtName,
+							 const char *portalName,
+							 int sendDescribe,
+							 int fetchSize,
+							 int nParams,
+							 const char **paramTypeNames,
+							 const int *paramFormats,
+							 const char *paramBinaryValue,
+							 const int paramBinaryLength,
+							 int nResultFormat,
+							 const int *resultFormats);
+#endif /* ADB */
 extern int PQsendQueryParams(PGconn *conn,
 				  const char *command,
 				  int nParams,
@@ -420,8 +461,10 @@ extern int PQsendQueryPrepared(PGconn *conn,
 					int resultFormat);
 extern int	PQsetSingleRowMode(PGconn *conn);
 extern PGresult *PQgetResult(PGconn *conn);
-
 /* Routines for managing an asynchronous query */
+#ifdef ADB
+extern int	PQisIdle(PGconn *conn);
+#endif
 extern int	PQisBusy(PGconn *conn);
 extern int	PQconsumeInput(PGconn *conn);
 
@@ -432,6 +475,11 @@ extern PGnotify *PQnotifies(PGconn *conn);
 extern int	PQputCopyData(PGconn *conn, const char *buffer, int nbytes);
 extern int	PQputCopyEnd(PGconn *conn, const char *errormsg);
 extern int	PQgetCopyData(PGconn *conn, char **buffer, int async);
+#ifdef ADB
+extern int	PQgetCopyDataBuffer(PGconn *conn, const char **buffer, int async);
+extern int	PQisCopyOutState(PGconn *conn);
+extern int	PQisCopyInState(PGconn *conn);
+#endif /* ADB */
 
 /* Deprecated routines for copy in/out */
 extern int	PQgetline(PGconn *conn, char *string, int length);

@@ -19,7 +19,11 @@
 #ifndef PG_DEPEND_H
 #define PG_DEPEND_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_depend definition.  cpp turns this into
@@ -65,6 +69,7 @@ typedef FormData_pg_depend *Form_pg_depend;
  * ----------------
  */
 #define Natts_pg_depend				7
+DECLARE_NATTS(Natts_pg_depend);
 #define Anum_pg_depend_classid		1
 #define Anum_pg_depend_objid		2
 #define Anum_pg_depend_objsubid		3

@@ -6,6 +6,7 @@
  *
  * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * src/include/nodes/plannodes.h
  *
@@ -172,7 +173,9 @@ typedef struct Plan
  */
 #define innerPlan(node)			(((Plan *)(node))->righttree)
 #define outerPlan(node)			(((Plan *)(node))->lefttree)
-
+#ifdef ADB
+#define PlanNodeID(node)		(((Plan *)(node))->plan_node_id)
+#endif
 
 /* ----------------
  *	 Result node -
@@ -235,6 +238,9 @@ typedef struct ModifyTable
 	Node	   *onConflictWhere;	/* WHERE for ON CONFLICT UPDATE */
 	Index		exclRelRTI;		/* RTI of the EXCLUDED pseudo relation */
 	List	   *exclRelTlist;	/* tlist of the EXCLUDED pseudo relation */
+#ifdef ADB
+	List	   *remote_plans;	/* per-target-table remote node */
+#endif
 } ModifyTable;
 
 /* ----------------
@@ -327,6 +333,10 @@ typedef struct Scan
 {
 	Plan		plan;
 	Index		scanrelid;		/* relid is index into the range table */
+#ifdef ADB
+	/* node(s) Oid, used in datanode restore Scan plan */
+	List	   *execute_nodes;
+#endif /* ADB */
 } Scan;
 
 /* ----------------
@@ -724,6 +734,9 @@ typedef struct HashJoin
 {
 	Join		join;
 	List	   *hashclauses;
+#ifdef ADB
+	bool		cluster_hashtable_first;	/* build hash table first when cluster plan if true */
+#endif
 } HashJoin;
 
 /* ----------------
@@ -747,6 +760,12 @@ typedef struct Sort
 	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
 	Oid		   *collations;		/* OIDs of collations */
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+#ifdef ADB
+	bool		srt_start_merge;/* No need to create the sorted runs. The
+								 * underlying plan provides those runs. Merge
+								 * them.
+								 */
+#endif /* ADB */
 } Sort;
 
 /* ---------------
@@ -790,6 +809,12 @@ typedef struct Agg
 	/* Note: planner provides numGroups & aggParams only in HASHED/MIXED case */
 	List	   *groupingSets;	/* grouping sets to use */
 	List	   *chain;			/* chained Agg/Sort nodes */
+#ifdef ADB
+	List	   *exec_nodes;		/* when not AGGSPLIT_INITIAL_SERIAL this is execute nodes */
+	bool		skip_trans; 	/* apply collection directly on the data received
+								 * from remote Datanodes
+								 */
+#endif /* ADB */
 } Agg;
 
 /* ----------------
@@ -916,6 +941,67 @@ typedef struct Limit
 	Node	   *limitCount;		/* COUNT parameter, or NULL if none */
 } Limit;
 
+#ifdef ADB
+
+typedef enum ClusterGatherType
+{
+	CLUSTER_GATHER_COORD = 1,
+	CLUSTER_GATHER_DATANODE = 2,
+	CLUSTER_GATHER_ALL = CLUSTER_GATHER_COORD | CLUSTER_GATHER_DATANODE
+}ClusterGatherType;
+
+typedef struct ClusterGather
+{
+	Plan		plan;
+	List	   *rnodes;			/* remote node oids */
+	ClusterGatherType gatherType;
+} ClusterGather;
+
+typedef struct ClusterMergeGather
+{
+	Plan		plan;
+	List	   *rnodes;			/* remote node oids */
+	ClusterGatherType gatherType;
+	/* remaining fields are just like the sort-key info in struct Sort */
+	int			numCols;		/* number of sort-key columns */
+	AttrNumber *sortColIdx;		/* their indexes in the target list */
+	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
+	Oid		   *collations;		/* OIDs of collations */
+	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+}ClusterMergeGather;
+
+typedef Plan ClusterGetCopyData;
+
+typedef struct ClusterReduce
+{
+	Plan		plan;
+	Expr	   *reduce;			/* reduce expr, result NODE Oid(s) */
+	Expr	   *special_reduce;
+	List	   *reduce_oids;
+	Oid			special_node;
+
+	/* remaining fields are just like the sort-key info in struct Sort */
+	int			numCols;		/* number of sort-key columns */
+	AttrNumber *sortColIdx;		/* their indexes in the target list */
+	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
+	Oid		   *collations;		/* OIDs of collations */
+	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+} ClusterReduce;
+
+typedef struct ReduceScan
+{
+	Plan		plan;
+	List	   *param_hash_keys;
+	List	   *scan_hash_keys;
+}ReduceScan;
+
+typedef struct EmptyResult
+{
+	Plan		plan;
+	NodeTag		typeFrom;
+}EmptyResult;
+
+#endif /* ADB */
 
 /*
  * RowMarkType -

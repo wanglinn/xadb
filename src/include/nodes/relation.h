@@ -6,6 +6,7 @@
  *
  * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * src/include/nodes/relation.h
  *
@@ -19,7 +20,9 @@
 #include "nodes/params.h"
 #include "nodes/parsenodes.h"
 #include "storage/block.h"
-
+#ifdef ADB
+#include "pgxc/locator.h"
+#endif
 
 /*
  * Relids
@@ -131,6 +134,10 @@ typedef struct PlannerGlobal
 	bool		parallelModeNeeded; /* parallel mode actually required? */
 
 	char		maxParallelHazard;	/* worst PROPARALLEL hazard level */
+
+#ifdef ADB
+	bool		clusterPlanOK;	/* cluster plan potentially OK? */
+#endif /* ADB */
 } PlannerGlobal;
 
 /* macro for fetching the Plan associated with a SubPlan node */
@@ -303,6 +310,22 @@ typedef struct PlannerInfo
 	bool		hasPseudoConstantQuals; /* true if any RestrictInfo has
 										 * pseudoconstant = true */
 	bool		hasRecursion;	/* true if planning a recursive WITH item */
+
+#ifdef ADB
+	/* This field is used only when RemoteScan nodes are involved */
+	int 		rs_alias_index; /* used to build the alias reference */
+	bool		must_replicate;	/* must create replicate paths */
+
+	/*
+	 * In Postgres-XC Coordinators are supposed to skip the handling of
+	 * row marks of type ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE.
+	 * In order to do that we simply remove such type
+	 * of row marks from the list rowMarks. Instead they are saved
+	 * in xc_rowMarks list that is then handeled to add
+	 * FOR UPDATE/SHARE in the remote query
+	 */
+	List	   *xc_rowMarks;		/* list of PlanRowMarks of type ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE */
+#endif
 
 	/* These fields are used only when hasRecursion is true: */
 	int			wt_param_id;	/* PARAM_EXEC ID for the work table */
@@ -543,6 +566,17 @@ typedef struct RelOptInfo
 	struct Path *cheapest_total_path;
 	struct Path *cheapest_unique_path;
 	List	   *cheapest_parameterized_paths;
+#ifdef ADB
+	List	   *cluster_pathlist;
+	List	   *cluster_partial_pathlist;	/* cluster partial Paths */
+	List	   *cluster_unique_pathlist;
+	struct Path *cheapest_cluster_startup_path;
+	struct Path *cheapest_cluster_total_path;
+	struct Path *cheapest_replicate_path;		/* reduce to replicate */
+	struct Path *cheapest_coordinator_path;		/* reduce to coordinator */
+	List	   *cheapest_cluster_parameterized_paths;
+	struct RelationLocInfo *loc_info;	/* when RELOPT_BASEREL */
+#endif /* ADB */
 
 	/* parameterization information needed for both base rels and join rels */
 	/* (see also lateral_vars and lateral_referencers) */
@@ -967,6 +1001,10 @@ typedef struct Path
 
 	List	   *pathkeys;		/* sort ordering of path's output */
 	/* pathkeys is a List of PathKey nodes; see above */
+#ifdef ADB
+	List	   *reduce_info_list;
+	bool		reduce_is_valid;
+#endif /* ADB */
 } Path;
 
 /* Macro for extracting a path's parameterization relids; beware double eval */
@@ -1212,6 +1250,9 @@ typedef struct ResultPath
 {
 	Path		path;
 	List	   *quals;
+#ifdef ADB
+	Path	   *subpath;
+#endif /* ADB */
 } ResultPath;
 
 /*
@@ -1238,7 +1279,7 @@ typedef struct MaterialPath
  * it's convenient to have a UniquePath in the path tree to signal upper-level
  * routines that the input is known distinct.)
  */
-typedef enum
+typedef enum UniquePathMethod
 {
 	UNIQUE_PATH_NOOP,			/* input is known unique already */
 	UNIQUE_PATH_HASH,			/* use hashing */
@@ -1371,6 +1412,49 @@ typedef struct HashPath
 	List	   *path_hashclauses;	/* join clauses used for hashing */
 	int			num_batches;	/* number of batches expected */
 } HashPath;
+
+#ifdef ADB
+/*
+ * A remotequery path represents the queries to be sent to the datanode/s
+ *
+ * When RemoteQuery plan is created from RemoteQueryPath, we build the query to
+ * be executed at the datanode. For building such a query, it's important to get
+ * the RHS relation and LHS relation of the JOIN clause. So, instead of storing
+ * the outer and inner paths, we find out the RHS and LHS paths and store those
+ * here.
+ */
+
+typedef struct RemoteQueryPath
+{
+	Path			path;
+	ExecNodes		*rqpath_en;		/* List of datanodes to execute the query on */
+	/*
+	 * If the path represents a JOIN rel, leftpath and rightpath represent the
+	 * RemoteQuery paths for left (outer) and right (inner) side of the JOIN
+	 * resp. jointype and join_restrictlist pertains to such JOINs.
+	 */
+	struct RemoteQueryPath	*leftpath;
+	struct RemoteQueryPath	*rightpath;
+	JoinType				jointype;
+	List					*join_restrictlist;	/* restrict list corresponding to JOINs,
+												 * only considered if rest of
+												 * the JOIN information is
+												 * available
+												 */
+	bool					rqhas_unshippable_qual; /* TRUE if there is at least
+													 * one qual which can not be
+													 * shipped to the datanodes
+													 */
+	bool					rqhas_temp_rel;			/* TRUE if one of the base relations
+													 * involved in this path is a temporary
+													 * table.
+													 */
+	bool					rqhas_unshippable_tlist;/* TRUE if there is at least one
+													 * targetlist entry which is
+													 * not completely shippable.
+													 */
+} RemoteQueryPath;
+#endif /* ADB */
 
 /*
  * ProjectionPath represents a projection (that is, targetlist computation)
@@ -1587,6 +1671,9 @@ typedef struct ModifyTablePath
 	List	   *rowMarks;		/* PlanRowMarks (non-locking only) */
 	OnConflictExpr *onconflict; /* ON CONFLICT clause, or NULL */
 	int			epqParam;		/* ID of Param for EvalPlanQual re-eval */
+#ifdef ADB
+	bool		under_cluster;
+#endif /* ADB */
 } ModifyTablePath;
 
 /*
@@ -1600,6 +1687,41 @@ typedef struct LimitPath
 	Node	   *limitCount;		/* COUNT parameter, or NULL if none */
 } LimitPath;
 
+#ifdef ADB
+
+/*
+ * ClusterGather gather remote query result
+ */
+typedef struct ClusterGatherPath
+{
+	Path		path;
+	Path	   *subpath;
+} ClusterGatherPath;
+
+typedef struct ClusterMergeGatherPath
+{
+	Path		path;
+	Path	   *subpath;
+} ClusterMergeGatherPath;
+
+typedef struct ClusterReducePath
+{
+	Path		path;
+	Path	   *subpath;
+	Expr	   *special_reduce;
+	Oid			special_node;
+} ClusterReducePath;
+
+typedef struct ReduceScanPath
+{
+	Path		path;
+	Path	   *reducepath;
+	List	   *rescan_clauses;
+}ReduceScanPath;
+
+typedef ResultPath FilterPath;
+
+#endif /* ADB */
 
 /*
  * Restriction clause info.
@@ -2219,6 +2341,9 @@ typedef struct JoinCostWorkspace
 	/* private for cost_hashjoin code */
 	int			numbuckets;
 	int			numbatches;
+#ifdef ADB
+	bool		is_cluster;
+#endif /* ADB */
 } JoinCostWorkspace;
 
 #endif							/* RELATION_H */

@@ -29,6 +29,7 @@
  *
  * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
+ * Portions Copyright (c) 2014-2017, ADB Development Group
  *
  * src/include/nodes/pg_list.h
  *
@@ -231,6 +232,11 @@ extern bool list_member_ptr(const List *list, const void *datum);
 extern bool list_member_int(const List *list, int datum);
 extern bool list_member_oid(const List *list, Oid datum);
 
+#ifdef ADB
+extern int	list_member_int_idx(const List *list, int datum);
+extern int	list_member_oid_idx(const List *list, Oid datum);
+#endif
+
 extern List *list_delete(List *list, void *datum);
 extern List *list_delete_ptr(List *list, void *datum);
 extern List *list_delete_int(List *list, int datum);
@@ -245,6 +251,12 @@ extern List *list_union_oid(const List *list1, const List *list2);
 
 extern List *list_intersection(const List *list1, const List *list2);
 extern List *list_intersection_int(const List *list1, const List *list2);
+#ifdef ADB
+extern List *list_intersection_oid(const List *list1, const List *list2);
+
+extern bool list_equal_ptr(const List *list1, const List *list2);
+extern bool list_equal_oid_without_order(const List *list1, const List *list2);
+#endif
 
 /* currently, there's no need for list_intersection_ptr etc */
 

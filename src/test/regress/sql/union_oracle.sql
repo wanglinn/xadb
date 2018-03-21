@@ -1,0 +1,30 @@
+set grammar to oracle;
+--UNION 删除重复记录,UNION all 不删除重复记录
+create table tt(id number,job varchar(10));
+insert into tt values(1,'IT');
+insert into tt values(2,'doctor');
+insert into tt values(3,'teacher');
+insert into tt values(4,'police');
+insert into tt values(5,'cleaner');
+insert into tt values(6,null);
+select * from tt where id<3 union select * from tt where id>=2 and id<5 order by id;
+select * from tt where id<3 union all select * from tt where id>=2 and id<5 order by id;
+drop table tt;
+--同种数据类型不同字段union	
+create table tt(id number,sal number);
+insert into tt values(1,1.00);
+insert into tt values(2,2.00);
+select id from tt union all select sal from tt order by id;
+select id from tt union select sal from tt order by id;
+drop table tt;
+--不同数据类型，不同字段
+create table tt(id integer,sal number);
+insert into tt values(1,1880.23);
+insert into tt values(2,17000);
+select id from tt union all select sal from tt order by id;
+drop table tt;
+create table tt(id number(2,1),sal binary_float);
+insert into tt values(1.0,1880.23);
+insert into tt values(2.0,17000);
+select id from tt union all select sal from tt order by id;
+drop table tt;

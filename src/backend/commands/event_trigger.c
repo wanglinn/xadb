@@ -46,6 +46,9 @@
 #include "utils/tqual.h"
 #include "utils/syscache.h"
 #include "tcop/utility.h"
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif
 
 typedef struct EventTriggerQueryState
 {
@@ -798,6 +801,12 @@ EventTriggerDDLCommandStart(Node *parsetree)
 	if (!IsUnderPostmaster)
 		return;
 
+#ifdef ADB
+	/* Event trigger is fired only at originating coordinator */
+	if (!IsCoordMaster())
+		return;
+#endif
+
 	runlist = EventTriggerCommonSetup(parsetree,
 									  EVT_DDLCommandStart,
 									  "ddl_command_start",
@@ -834,6 +843,12 @@ EventTriggerDDLCommandEnd(Node *parsetree)
 	if (!IsUnderPostmaster)
 		return;
 
+#ifdef ADB
+	/* Event trigger is fired only at originating coordinator */
+	if (!IsCoordMaster())
+		return;
+#endif
+
 	runlist = EventTriggerCommonSetup(parsetree,
 									  EVT_DDLCommandEnd, "ddl_command_end",
 									  &trigdata);
@@ -868,6 +883,12 @@ EventTriggerSQLDrop(Node *parsetree)
 	 */
 	if (!IsUnderPostmaster)
 		return;
+
+#ifdef ADB
+	/* Event trigger is fired only at originating coordinator */
+	if (!IsCoordMaster())
+		return;
+#endif
 
 	/*
 	 * Use current state to determine whether this event fires at all.  If
@@ -1184,6 +1205,12 @@ EventTriggerSupportsObjectClass(ObjectClass objclass)
 		case OCLASS_SUBSCRIPTION:
 		case OCLASS_TRANSFORM:
 			return true;
+#ifdef ADB
+		case OCLASS_PGXC_CLASS:
+		case OCLASS_PGXC_NODE:
+		case OCLASS_PGXC_GROUP:
+			return false;
+#endif
 
 			/*
 			 * There's intentionally no default: case here; we want the

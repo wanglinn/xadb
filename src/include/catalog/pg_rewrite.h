@@ -22,7 +22,11 @@
 #ifndef PG_REWRITE_H
 #define PG_REWRITE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_rewrite definition.  cpp turns this into
@@ -57,6 +61,7 @@ typedef FormData_pg_rewrite *Form_pg_rewrite;
  * ----------------
  */
 #define Natts_pg_rewrite				7
+DECLARE_NATTS(Natts_pg_rewrite);
 #define Anum_pg_rewrite_rulename		1
 #define Anum_pg_rewrite_ev_class		2
 #define Anum_pg_rewrite_ev_type			3

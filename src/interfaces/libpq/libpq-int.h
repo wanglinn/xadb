@@ -315,6 +315,16 @@ typedef struct pg_conn_host
 	struct addrinfo *addrlist;	/* list of possible backend addresses */
 } pg_conn_host;
 
+#ifdef ADB
+typedef struct PGcustumFuns
+{
+	int (*getRowDesc)();
+	int (*getAnotherTuple)();
+	int (*getCompleteMsg)(PGconn *conn);
+	/* return -1 for unknown message, 0 for continue, 1 for error */
+	int (*getUnknownMsg)(PGconn *conn, char c, int msgLength);
+}PGcustumFuns;
+#endif /* ADB */
 /*
  * PGconn stores all the state data associated with a single connection
  * to a backend.
@@ -492,6 +502,12 @@ struct pg_conn
 
 	/* Buffer for receiving various parts of messages */
 	PQExpBufferData workBuffer; /* expansible string */
+#ifdef ADB
+	void *custom;				/* user custom data */
+	const PGcustumFuns *funs;	/* custom functions */
+	bool is_attached;
+	bool close_sock_on_end;		/* attached conn, close socket when error or finish */
+#endif /* ADB */
 };
 
 /* PGcancel stores all data necessary to cancel a connection. A copy of this
@@ -578,7 +594,10 @@ extern void pqSaveParameterStatus(PGconn *conn, const char *name,
 					  const char *value);
 extern int	pqRowProcessor(PGconn *conn, const char **errmsgp);
 extern void pqHandleSendFailure(PGconn *conn);
-
+#ifdef ADB
+extern bool PQsendQueryStart(PGconn *conn);
+PGresult *PQexecFinish(PGconn *conn);
+#endif
 /* === in fe-protocol2.c === */
 
 extern PostgresPollingStatusType pqSetenvPoll(PGconn *conn);
@@ -587,6 +606,9 @@ extern char *pqBuildStartupPacket2(PGconn *conn, int *packetlen,
 					  const PQEnvironmentOption *options);
 extern void pqParseInput2(PGconn *conn);
 extern int	pqGetCopyData2(PGconn *conn, char **buffer, int async);
+#ifdef ADB
+extern int	pqGetCopyData2Ex(PGconn *conn, char **buffer, int async, bool alloc_buf);
+#endif /* ADB */
 extern int	pqGetline2(PGconn *conn, char *s, int maxlen);
 extern int	pqGetlineAsync2(PGconn *conn, char *buffer, int bufsize);
 extern int	pqEndcopy2(PGconn *conn);
@@ -594,7 +616,9 @@ extern PGresult *pqFunctionCall2(PGconn *conn, Oid fnid,
 				int *result_buf, int *actual_result_len,
 				int result_is_int,
 				const PQArgBlock *args, int nargs);
-
+#ifdef ADB
+extern int pqSendAgtmListenPort(PGconn *conn, int port);
+#endif
 /* === in fe-protocol3.c === */
 
 extern char *pqBuildStartupPacket3(PGconn *conn, int *packetlen,
@@ -604,6 +628,9 @@ extern int	pqGetErrorNotice3(PGconn *conn, bool isError);
 extern void pqBuildErrorMessage3(PQExpBuffer msg, const PGresult *res,
 					 PGVerbosity verbosity, PGContextVisibility show_context);
 extern int	pqGetCopyData3(PGconn *conn, char **buffer, int async);
+#ifdef ADB
+extern int	pqGetCopyData3Ex(PGconn *conn, char **buffer, int async, bool alloc_buf);
+#endif /* ADB */
 extern int	pqGetline3(PGconn *conn, char *s, int maxlen);
 extern int	pqGetlineAsync3(PGconn *conn, char *buffer, int bufsize);
 extern int	pqEndcopy3(PGconn *conn);

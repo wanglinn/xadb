@@ -63,6 +63,9 @@ extern void ProcArrayRemove(PGPROC *proc, TransactionId latestXid);
 extern void ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid);
 extern void ProcArrayClearTransaction(PGPROC *proc);
 
+#ifdef ADB
+extern void ReloadConnInfoOnBackends(void);
+#endif /* ADB */
 extern void ProcArrayInitRecovery(TransactionId initializedUptoXID);
 extern void ProcArrayApplyRecoveryInfo(RunningTransactions running);
 extern void ProcArrayApplyXidAssignment(TransactionId topxid,
@@ -79,6 +82,9 @@ extern int	GetMaxSnapshotXidCount(void);
 extern int	GetMaxSnapshotSubxidCount(void);
 
 extern Snapshot GetSnapshotData(Snapshot snapshot);
+#ifdef ADB
+extern void EnlargeSnapshotXip(Snapshot snapshot, uint32 need_size);
+#endif /* ADB */
 
 extern bool ProcArrayInstallImportedXmin(TransactionId xmin,
 							 VirtualTransactionId *sourcevxid);
@@ -123,5 +129,10 @@ extern void ProcArraySetReplicationSlotXmin(TransactionId xmin,
 
 extern void ProcArrayGetReplicationSlotXmin(TransactionId *xmin,
 								TransactionId *catalog_xmin);
+
+#if defined(ADB) || defined(AGTM)
+extern void ProcAssignedXids(int nxids, TransactionId *xids);
+extern void ProcUnassignedXids(int nxids, TransactionId *xids);
+#endif
 
 #endif							/* PROCARRAY_H */

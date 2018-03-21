@@ -1,0 +1,16 @@
+set grammar to oracle;
+create table aa(name varchar(10), id int);
+insert into aa values(null, 1); 
+insert into aa values('', 2);
+insert into aa values ('null',3);
+insert into aa values('s', 4);
+insert into aa values ('ss',5);
+select * from aa where lnnvl(name is not null) order by id;
+select * from aa where lnnvl(name is null) order by id;
+select * from aa where lnnvl(name like 's%') order by id;
+select * from aa where lnnvl(name ='s') order by id;
+select * from aa where lnnvl(name like 's%') and id <4 order by id;
+select * from aa where lnnvl(id <2 or id >4) order by id;
+select * from aa where lnnvl(id in(1,3)) order by id;
+select * from aa where lnnvl(id between 1 and 3) order by id;
+drop table aa;

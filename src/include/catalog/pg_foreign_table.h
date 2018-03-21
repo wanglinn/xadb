@@ -17,7 +17,11 @@
 #ifndef PG_FOREIGN_TABLE_H
 #define PG_FOREIGN_TABLE_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_foreign_table definition.  cpp turns this into
@@ -49,6 +53,7 @@ typedef FormData_pg_foreign_table *Form_pg_foreign_table;
  */
 
 #define Natts_pg_foreign_table					3
+DECLARE_NATTS(Natts_pg_foreign_table);
 #define Anum_pg_foreign_table_ftrelid			1
 #define Anum_pg_foreign_table_ftserver			2
 #define Anum_pg_foreign_table_ftoptions			3

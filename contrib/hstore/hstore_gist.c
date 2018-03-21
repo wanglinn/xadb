@@ -70,6 +70,7 @@ typedef struct
 
 /* shorthand for calculating CRC-32 of a single chunk of data. */
 static pg_crc32
+/*ADBQ: crc32_sz different from ADB2.2, code don't combine */
 crc32_sz(char *buf, int size)
 {
 	pg_crc32	crc;

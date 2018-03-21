@@ -301,6 +301,28 @@ extern struct varlena *pg_detoast_datum_packed(struct varlena *datum);
 #define PG_GETARG_BPCHAR_P(n)		DatumGetBpCharP(PG_GETARG_DATUM(n))
 #define PG_GETARG_VARCHAR_P(n)		DatumGetVarCharP(PG_GETARG_DATUM(n))
 
+#ifdef ADB
+#define PG_GETARG_TEXT_P_IF_EXISTS(_n) \
+	(PG_NARGS() > (_n) ? PG_GETARG_TEXT_P(_n) : NULL)
+#define PG_GETARG_TEXT_P_IF_NULL(_n)\
+	(PG_ARGISNULL(_n) ? NULL : PG_GETARG_TEXT_P_IF_EXISTS(_n))
+
+#define PG_GETARG_TEXT_PP_IF_EXISTS(_n) \
+	(PG_NARGS() > (_n) ? PG_GETARG_TEXT_PP(_n) : NULL)
+#define PG_GETARG_TEXT_PP_IF_NULL(_n)\
+	(PG_ARGISNULL(_n) ? NULL : PG_GETARG_TEXT_PP_IF_EXISTS(_n))
+
+#define PG_GETARG_INT32_0_IF_EXISTS(_n) \
+	(PG_NARGS() > (_n) ? PG_GETARG_INT32(_n) : 0)
+#define PG_GETARG_INT32_0_IF_NULL(_n) \
+	(PG_ARGISNULL(_n) ? 0 : PG_GETARG_INT32_0_IF_EXISTS(_n))
+
+#define PG_GETARG_INT32_1_IF_EXISTS(_n) \
+	(PG_NARGS() > (_n) ? PG_GETARG_INT32(_n) : 1)
+#define PG_GETARG_INT32_1_IF_NULL(_n) \
+	(PG_ARGISNULL(_n) ? 1 : PG_GETARG_INT32_1_IF_EXISTS(_n))
+#endif
+
 /* To return a NULL do this: */
 #define PG_RETURN_NULL()  \
 	do { fcinfo->isnull = true; return (Datum) 0; } while (0)
@@ -576,6 +598,10 @@ extern Datum OidFunctionCall9Coll(Oid functionId, Oid collation,
 					 Datum arg3, Datum arg4, Datum arg5,
 					 Datum arg6, Datum arg7, Datum arg8,
 					 Datum arg9);
+#ifdef ADB
+extern Datum OidFunctionCallNColl(Oid functionId, Oid collation, int nelems,
+					 Datum *values, bool* nulls);
+#endif
 
 /* These macros allow the collation argument to be omitted (with a default of
  * InvalidOid, ie, no collation).  They exist mostly for backwards
@@ -637,6 +663,10 @@ extern Datum OidFunctionCall9Coll(Oid functionId, Oid collation,
 	OidFunctionCall8Coll(functionId, InvalidOid, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
 #define OidFunctionCall9(functionId, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) \
 	OidFunctionCall9Coll(functionId, InvalidOid, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
+#ifdef ADB
+#define OidFunctionCallN(functionId, nelems, values, nulls) \
+		OidFunctionCallNColl(functionId, InvalidOid, nelems, values, nulls)
+#endif
 
 
 /* Special cases for convenient invocation of datatype I/O functions. */

@@ -146,4 +146,36 @@ extern void RemovePartitionKeyByRelId(Oid relid);
 extern void StorePartitionBound(Relation rel, Relation parent,
 					PartitionBoundSpec *bound);
 
+#ifdef ADB
+/* Functions related to distribution data of relations */
+extern void AddRelationDistribution(Oid relid,
+				DistributeBy *distributeby,
+				PGXCSubCluster *subcluster,
+				List *parentOids,
+				TupleDesc descriptor);
+
+extern void GetRelationDistributionItems(Oid relid,
+				DistributeBy *distributeby,
+				TupleDesc descriptor,
+				char *locatortype,
+				int *hashalgorithm,
+				int *hashbuckets,
+				AttrNumber *attnum,
+				Oid *funcid,
+				int *numatts,
+				int16 **attnums);
+
+extern void AddPgxcRelationDependFunction(Oid relid,
+				DistributeBy *distributeby,
+				PGXCSubCluster *subcluster,
+				List *parentOids,
+				TupleDesc descriptor);
+
+extern Oid *GetRelationDistributionNodes(PGXCSubCluster *subcluster, int *numnodes);
+
+extern Oid *BuildRelationDistributionNodes(List *nodes, int *numnodes);
+
+extern Oid *SortRelationDistributionNodes(Oid *nodeoids, int numnodes);
+#endif
+
 #endif							/* HEAP_H */

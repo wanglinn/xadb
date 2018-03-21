@@ -19,7 +19,11 @@
 #ifndef PG_STATISTIC_H
 #define PG_STATISTIC_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_statistic definition.  cpp turns this into
@@ -133,6 +137,7 @@ typedef FormData_pg_statistic *Form_pg_statistic;
  * ----------------
  */
 #define Natts_pg_statistic				26
+DECLARE_NATTS(Natts_pg_statistic);
 #define Anum_pg_statistic_starelid		1
 #define Anum_pg_statistic_staattnum		2
 #define Anum_pg_statistic_stainherit	3

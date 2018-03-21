@@ -39,7 +39,11 @@
 #ifndef PG_OPCLASS_H
 #define PG_OPCLASS_H
 
+#ifdef BUILD_BKI
+#include "catalog/buildbki.h"
+#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_opclass definition.  cpp turns this into
@@ -72,6 +76,7 @@ typedef FormData_pg_opclass *Form_pg_opclass;
  * ----------------
  */
 #define Natts_pg_opclass				8
+DECLARE_NATTS(Natts_pg_opclass);
 #define Anum_pg_opclass_opcmethod		1
 #define Anum_pg_opclass_opcname			2
 #define Anum_pg_opclass_opcnamespace	3

@@ -1,0 +1,67 @@
+set grammar to oracle;
+select bin_to_num(1,1,0) from dual;
+ bin_to_num 
+------------
+          6
+(1 row)
+
+select bin_to_num(1.1,0.9,0) from dual;
+ bin_to_num 
+------------
+          4
+(1 row)
+
+select bin_to_num(exp(1)-1) from dual;
+ bin_to_num 
+------------
+          1
+(1 row)
+
+select bin_to_num(-1,1) from dual;
+ERROR:  the value of parameter of bin_to_num is 0 or 1
+HINT:  current value is "-1"
+select bin_to_num(-0,1) from dual;
+ bin_to_num 
+------------
+          1
+(1 row)
+
+select bin_to_num(-1.3,1) from dual;
+ERROR:  the value of parameter of bin_to_num is 0 or 1
+HINT:  current value is "-1"
+select bin_to_num('1','0') from dual;
+ bin_to_num 
+------------
+          2
+(1 row)
+
+select bin_to_num('1.1','0') from dual;
+ bin_to_num 
+------------
+          2
+(1 row)
+
+select bin_to_num('-0','0') from dual;
+ bin_to_num 
+------------
+          0
+(1 row)
+
+select bin_to_num(1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1) from dual;
+ERROR:  bigint out of range
+select bin_to_num(0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1) from dual; 
+ERROR:  cannot pass more than 100 arguments to a function
+LINE 1: select bin_to_num(0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,...
+               ^
+select bin_to_num('','0') from dual;
+ bin_to_num 
+------------
+          0
+(1 row)
+
+select bin_to_num(null,'0') from dual;
+ bin_to_num 
+------------
+          0
+(1 row)
+

@@ -17,7 +17,7 @@
 #include "parser/parse_node.h"
 
 
-extern List *transformCreateStmt(CreateStmt *stmt, const char *queryString);
+extern List *transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG(Node **transform_stmt));
 extern List *transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
 						const char *queryString);
 extern IndexStmt *transformIndexStmt(Oid relid, IndexStmt *stmt,
