@@ -16,11 +16,13 @@
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_collation.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_class.h"
 #include "utils/builtins.h"
 #include "utils/rel.h"
+#include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #include "pgxc/locator.h"
 #include "utils/array.h"
@@ -46,26 +48,20 @@ PgxcClassCreate(Oid pcrelid,
 	HeapTuple	htup;
 	bool		nulls[Natts_pgxc_class];
 	Datum		values[Natts_pgxc_class];
-	int		i;
-	oidvector	*nodes_array;
-	int2vector	*attrs_array;
+	oidvector  *nodes_array;
+	int2vector *attrs_array;
+
+	if (!OidIsValid(pcrelid))
+	{
+		elog(ERROR, "Invalid pgxc relation.");
+		return;
+	}
+
+	MemSet(nulls, 0, sizeof(nulls));
+	MemSet(values, 0, sizeof(values));
 
 	/* Build array of Oids to be inserted */
 	nodes_array = buildoidvector(nodes, numnodes);
-
-	/* Iterate through attributes initializing nulls and values */
-	for (i = 0; i < Natts_pgxc_class; i++)
-	{
-		nulls[i]  = false;
-		values[i] = (Datum) 0;
-	}
-
-	/* should not happen */
-	if (pcrelid == InvalidOid)
-	{
-		elog(ERROR,"pgxc class relid invalid.");
-		return;
-	}
 
 	values[Anum_pgxc_class_pcrelid - 1]   = ObjectIdGetDatum(pcrelid);
 	values[Anum_pgxc_class_pclocatortype - 1] = CharGetDatum(pclocatortype);
@@ -190,7 +186,17 @@ PgxcClassAlter(Oid pcrelid,
 
 	/* Attribute number of distribution column */
 	if (new_record_repl[Anum_pgxc_class_pcattnum - 1])
+	{
 		new_record[Anum_pgxc_class_pcattnum - 1] = UInt16GetDatum(pcattnum);
+
+		/* remove dependency on the old attribute */
+		deleteDependencyRecordsForClass(PgxcClassRelationId, pcrelid,
+										TypeRelationId, DEPENDENCY_NORMAL);
+		deleteDependencyRecordsForClass(PgxcClassRelationId, pcrelid,
+										CollationRelationId, DEPENDENCY_NORMAL);
+		/* then create new dependency */
+		CreatePgxcRelationAttrDepend(pcrelid, pcattnum);
+	}
 
 	/* Hash algorithm type */
 	if (new_record_repl[Anum_pgxc_class_pchashalgorithm - 1])
@@ -206,8 +212,8 @@ PgxcClassAlter(Oid pcrelid,
 
 	if (new_record_repl[Anum_pgxc_class_pcfuncid - 1])
 	{
-		/* First remove dependency on the old function */
-		deleteDependencyRecordsForClass(RelationRelationId, pcrelid,
+		/* remove dependency on the old function */
+		deleteDependencyRecordsForClass(PgxcClassRelationId, pcrelid,
 										ProcedureRelationId, DEPENDENCY_NORMAL);
 
 		if (IsLocatorDistributedByUserDefined(pclocatortype))
@@ -215,8 +221,8 @@ PgxcClassAlter(Oid pcrelid,
 			Assert(OidIsValid(pcfuncid));
 			new_record[Anum_pgxc_class_pcfuncid - 1] = ObjectIdGetDatum(pcfuncid);
 
-			/* Second create new dependency */
-			CreatePgxcClassFuncDepend(pclocatortype, pcrelid, pcfuncid);
+			/* then create new dependency */
+			CreatePgxcRelationFuncDepend(pcrelid, pcfuncid);
 		} else
 		{
 			new_record[Anum_pgxc_class_pcfuncid - 1] = ObjectIdGetDatum(InvalidOid);
@@ -275,22 +281,49 @@ RemovePgxcClass(Oid pcrelid)
 }
 
 void
-CreatePgxcClassFuncDepend(char locatortype, Oid relid, Oid funcid)
+CreatePgxcRelationFuncDepend(Oid relid, Oid funcid)
 {
-	AssertArg(OidIsValid(relid));
-	if (IsLocatorDistributedByUserDefined(locatortype))
+	ObjectAddress myself, referenced;
+
+	if (!OidIsValid(relid) || !OidIsValid(funcid))
+		return ;
+
+	myself.classId = PgxcClassRelationId;
+	myself.objectId = relid;
+	myself.objectSubId = 0;
+
+	referenced.classId = ProcedureRelationId;
+	referenced.objectId = funcid;
+	referenced.objectSubId = 0;
+	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+}
+
+void
+CreatePgxcRelationAttrDepend(Oid relid, AttrNumber attnum)
+{
+	ObjectAddress myself, referenced;
+	Oid typid, collid;
+	int32 typmod;
+
+	if (!OidIsValid(relid) || !AttributeNumberIsValid(attnum))
+		return ;
+
+	get_atttypetypmodcoll(relid, attnum, &typid, &typmod, &collid);
+
+	myself.classId = PgxcClassRelationId;
+	myself.objectId = relid;
+	myself.objectSubId = 0;
+
+	referenced.classId = TypeRelationId;
+	referenced.objectId = typid;
+	referenced.objectSubId = 0;
+	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+
+	/* The default collation is pinned, so don't bother recording it */
+	if (OidIsValid(collid) && collid != DEFAULT_COLLATION_OID)
 	{
-		ObjectAddress myself, referenced;
-
-		Assert(OidIsValid(funcid));
-
-		/* Add pg_class dependency on the function */
-		myself.classId = RelationRelationId;
-		myself.objectId = relid;
-		myself.objectSubId = 0;
-
-		referenced.classId = ProcedureRelationId;
-		referenced.objectId = funcid;
+		referenced.classId = CollationRelationId;
+		referenced.objectId = collid;
 		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}

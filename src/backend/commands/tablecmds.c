@@ -735,31 +735,18 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	 *	  DISTRIBUTE BY clause is missing in the statemnet the system
 	 *	  should not try to find out the node list itself.
 	 */
-	if ((IS_PGXC_COORDINATOR || (isRestoreMode && stmt->distributeby != NULL))
+	if ((IsCnNode() || IsDnNode() || (isRestoreMode && stmt->distributeby != NULL))
 		&& relkind == RELKIND_RELATION
 		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
 	{
 		AddRelationDistribution(relationId,
 								stmt->distributeby,
-								stmt->subcluster, inheritOids, descriptor);
+								stmt->subcluster,
+								inheritOids,
+								descriptor);
 		CommandCounterIncrement();
 		/* Make sure locator info gets rebuilt */
 		RelationCacheInvalidateEntry(relationId);
-	}
-
-	/*
-	 * If datanode, only record the dependency of the relation on the
-	 * funtion which the relation distributed by.
-	 */
-	if ((IS_PGXC_DATANODE || (isRestoreMode && stmt->distributeby != NULL))
-		&& relkind == RELKIND_RELATION
-		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
-	{
-		AddPgxcRelationDependFunction(relationId,
-									  stmt->distributeby,
-									  stmt->subcluster,
-									  inheritOids,
-									  descriptor);
 	}
 #endif
 
@@ -11879,19 +11866,6 @@ AtExecDistributeBy(Relation rel, DistributeBy *options)
 								 &numatts,
 								 &attnums
 								 );
-
-
-	if (IS_PGXC_DATANODE)
-	{
-		/* First remove dependency on the old function */
-		deleteDependencyRecordsForClass(RelationRelationId, relid,
-										ProcedureRelationId, DEPENDENCY_NORMAL);
-		if (IsLocatorDistributedByUserDefined(locatortype))
-		{
-			/* Second create new dependency */
-			CreatePgxcClassFuncDepend(locatortype, relid, funcid);
-		}
-	} else
 
 	/*
 	 * It is not checked if the distribution type list is the same as the old one,

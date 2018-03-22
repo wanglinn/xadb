@@ -153,12 +153,6 @@ extern void GetRelationDistributionItems(Oid relid,
 				int *numatts,
 				int16 **attnums);
 
-extern void AddPgxcRelationDependFunction(Oid relid,
-				DistributeBy *distributeby,
-				PGXCSubCluster *subcluster,
-				List *parentOids,
-				TupleDesc descriptor);
-
 extern Oid *GetRelationDistributionNodes(PGXCSubCluster *subcluster, int *numnodes);
 
 extern Oid *BuildRelationDistributionNodes(List *nodes, int *numnodes);

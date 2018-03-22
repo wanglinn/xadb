@@ -75,7 +75,8 @@ extern void PgxcClassAlter(Oid pcrelid,
 						   int16 *pcfuncattnums);
 extern void RemovePgxcClass(Oid pcrelid);
 
-extern void CreatePgxcClassFuncDepend(char locatortype, Oid relid, Oid funcid);
+extern void CreatePgxcRelationFuncDepend(Oid relid, Oid funcid);
+extern void CreatePgxcRelationAttrDepend(Oid relid, AttrNumber attnum);
 
 #endif   /* PGXC_CLASS_H */
 
