@@ -6735,7 +6735,6 @@ is_projection_capable_path(Path *path)
 		case T_RemoteQuery:
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
-		case T_ClusterGetCopyData:
 #endif /* ADB */
 			return false;
 		case T_Append:
@@ -6786,7 +6785,6 @@ is_projection_capable_plan(Plan *plan)
 #ifdef ADB
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
-		case T_ClusterGetCopyData:
 #endif /* ADB */
 			return false;
 		case T_ProjectSet:

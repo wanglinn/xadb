@@ -443,7 +443,7 @@ ExecRestrPos(PlanState *node)
 			break;
 
 		case T_EmptyResultState:
-			ExecEmptyResult((EmptyResultState *) node);
+			ExecEmptyResultRestrPos((EmptyResultState *) node);
 			break;
 #endif
 

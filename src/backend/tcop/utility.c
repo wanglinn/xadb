@@ -4831,9 +4831,9 @@ GetNodesForCommentUtility(CommentStmt *stmt, bool *is_temp)
 	RemoteQueryExecType	exec_type = EXEC_ON_ALL_NODES;	/* By default execute on all nodes */
 	Oid					object_id;
 
-	if (stmt->objtype == OBJECT_DATABASE && list_length(stmt->objname) == 1)
+	if (stmt->objtype == OBJECT_DATABASE)
 	{
-		char	   *database = strVal(linitial(stmt->objname));
+		char	   *database = strVal(stmt->object);
 		if (!OidIsValid(get_database_oid(database, true)))
 			ereport(WARNING,
 					(errcode(ERRCODE_UNDEFINED_DATABASE),
@@ -4842,7 +4842,7 @@ GetNodesForCommentUtility(CommentStmt *stmt, bool *is_temp)
 		return exec_type;
 	}
 
-	address = get_object_address(stmt->objtype, stmt->objname, stmt->objargs,
+	address = get_object_address(stmt->objtype, stmt->object,
 								 &relation, ShareUpdateExclusiveLock, false);
 	object_id = address.objectId;
 
@@ -4855,7 +4855,7 @@ GetNodesForCommentUtility(CommentStmt *stmt, bool *is_temp)
 		if (!relation && !OidIsValid(relation->rd_id))
 		{
 			/* This should not happen, but prepare for the worst */
-			char *rulename = strVal(llast(stmt->objname));
+			char *rulename = strVal(llast(castNode(List, stmt->object)));
 			ereport(WARNING,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
 					 errmsg("can not find relation for rule \"%s\" does not exist", rulename)));
@@ -4994,11 +4994,12 @@ DropStmtPreTreatment(DropStmt *stmt, const char *queryString, bool sentToRemote,
 		case OBJECT_RULE:
 		case OBJECT_TRIGGER:
 			{
-				List *objname = linitial(stmt->objects);
+				Node *objname = linitial(stmt->objects);
 				Relation    relation = NULL;
 
 				get_object_address(stmt->removeType,
-								   objname, NIL,
+#warning TODO check argument objname
+								   objname,
 								   &relation,
 								   AccessExclusiveLock,
 								   stmt->missing_ok);

@@ -111,10 +111,12 @@ static bool max_parallel_hazard_walker(Node *node,
 #ifdef ADB
 static bool contain_rownum_walker(Node *node, void *context);
 static bool contain_volatile_functions_walker_without_check_RownumExpr(Node *node, void *context);
-static bool has_cluster_hazard_walker(Node *node, has_parallel_hazard_arg *context);
+typedef struct has_cluster_hazard_arg
+{
+	bool allow_restricted;
+}has_cluster_hazard_arg;
+static bool has_cluster_hazard_walker(Node *node, has_cluster_hazard_arg *context);
 #endif
-static bool has_parallel_hazard_walker(Node *node,
-						   has_parallel_hazard_arg *context);
 static bool contain_nonstrict_functions_walker(Node *node, void *context);
 static bool contain_context_dependent_node(Node *clause);
 static bool contain_context_dependent_node_walker(Node *node, int *flags);
@@ -1191,13 +1193,13 @@ has_cluster_hazard_checker(Oid func_id, void *context)
 {
 	char		proclustersafe = func_cluster(func_id);
 
-	if (((has_parallel_hazard_arg *) context)->allow_restricted)
+	if (((has_cluster_hazard_arg *) context)->allow_restricted)
 		return (proclustersafe == PROC_CLUSTER_UNSAFE);
 	else
 		return (proclustersafe != PROC_CLUSTER_SAFE);
 }
 
-static bool has_cluster_hazard_walker(Node *node, has_parallel_hazard_arg *context)
+static bool has_cluster_hazard_walker(Node *node, has_cluster_hazard_arg *context)
 {
 
 	if (node == NULL)
@@ -1248,7 +1250,7 @@ static bool has_cluster_hazard_walker(Node *node, has_parallel_hazard_arg *conte
 
 bool has_cluster_hazard(Node *node, bool allow_restricted)
 {
-	has_parallel_hazard_arg context;
+	has_cluster_hazard_arg context;
 
 	context.allow_restricted = allow_restricted;
 	return has_cluster_hazard_walker(node, &context);

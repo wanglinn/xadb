@@ -24,6 +24,8 @@
 #include "catalog/pgxc_node.h"
 #include "commands/defrem.h"
 #include "nodes/parsenodes.h"
+#include "storage/lwlock.h"
+#include "storage/shmem.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
@@ -612,9 +614,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	htup = heap_form_tuple(pgxcnodesrel->rd_att, values, nulls);
 
 	/* Insert tuple in catalog */
-	nodeOid = simple_heap_insert(pgxcnodesrel, htup);
-
-	CatalogUpdateIndexes(pgxcnodesrel, htup);
+	nodeOid = CatalogTupleInsert(pgxcnodesrel, htup);
 
 	heap_close(pgxcnodesrel, RowExclusiveLock);
 
@@ -745,10 +745,7 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	newtup = heap_modify_tuple(oldtup, RelationGetDescr(rel),
 							   new_record,
 							   new_record_nulls, new_record_repl);
-	simple_heap_update(rel, &oldtup->t_self, newtup);
-
-	/* Update indexes */
-	CatalogUpdateIndexes(rel, newtup);
+	CatalogTupleUpdate(rel, &oldtup->t_self, newtup);
 
 	/* Invalidate primary_data_node if needed */
 	if (primary_off)

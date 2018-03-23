@@ -2611,7 +2611,6 @@ create_nestloop_path(PlannerInfo *root,
 					 List *pathkeys,
 #ifdef ADB
 					 List *reduce_info_list,
-					 bool partial_path,
 #endif /* ADB */
 					 Relids required_outer)
 {
@@ -2658,13 +2657,6 @@ create_nestloop_path(PlannerInfo *root,
 	pathnode->path.parallel_aware = false;
 	pathnode->path.parallel_safe = joinrel->consider_parallel &&
 		outer_path->parallel_safe && inner_path->parallel_safe;
-#ifdef ADB
-	if(partial_path)
-	{
-		Assert(pathnode->path.parallel_safe);
-		pathnode->path.parallel_aware = true;
-	}
-#endif /* ADB */
 	/* This is a foolish way to estimate parallel_workers, but for now... */
 	pathnode->path.parallel_workers = outer_path->parallel_workers;
 	pathnode->path.pathkeys = pathkeys;
@@ -2724,7 +2716,6 @@ create_mergejoin_path(PlannerInfo *root,
 					  List *mergeclauses,
 #ifdef ADB
 					  List *reduce_info_list,
-					  bool partial_path,
 #endif /* ADB */
 					  List *outersortkeys,
 					  List *innersortkeys)
@@ -2745,13 +2736,6 @@ create_mergejoin_path(PlannerInfo *root,
 	pathnode->jpath.path.parallel_aware = false;
 	pathnode->jpath.path.parallel_safe = joinrel->consider_parallel &&
 		outer_path->parallel_safe && inner_path->parallel_safe;
-#ifdef ADB
-	if(partial_path)
-	{
-		Assert(pathnode->jpath.path.parallel_safe);
-		pathnode->jpath.path.parallel_aware = true;
-	}
-#endif /* ADB */
 	/* This is a foolish way to estimate parallel_workers, but for now... */
 	pathnode->jpath.path.parallel_workers = outer_path->parallel_workers;
 	pathnode->jpath.path.pathkeys = pathkeys;
@@ -2810,7 +2794,6 @@ create_hashjoin_path(PlannerInfo *root,
 					 Relids required_outer,
 #ifdef ADB
 					 List *reduce_info_list,
-					 bool partial_path,
 #endif
 					 List *hashclauses)
 {
@@ -2830,13 +2813,6 @@ create_hashjoin_path(PlannerInfo *root,
 	pathnode->jpath.path.parallel_aware = false;
 	pathnode->jpath.path.parallel_safe = joinrel->consider_parallel &&
 		outer_path->parallel_safe && inner_path->parallel_safe;
-#ifdef ADB
-	if(partial_path)
-	{
-		Assert(pathnode->jpath.path.parallel_safe);
-		pathnode->jpath.path.parallel_aware = true;
-	}
-#endif /* ADB */
 	/* This is a foolish way to estimate parallel_workers, but for now... */
 	pathnode->jpath.path.parallel_workers = outer_path->parallel_workers;
 

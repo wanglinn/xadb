@@ -692,7 +692,7 @@ Expr *makeModuloExpr(Expr *expr, int right)
 {
 	Const *r = makeConst(INT4OID, -1, InvalidOid, sizeof(int32),
 						 Int32GetDatum(right), false, true);
-	return make_op(NULL, SystemFuncName("%"), (Node*)expr, (Node*)r, -1);
+	return make_op(NULL, SystemFuncName("%"), (Node*)expr, (Node*)r, NULL, -1);
 }
 
 int32 execModuloValue(Datum datum, Oid typid, int right)
@@ -728,7 +728,7 @@ int32 execModuloValue(Datum datum, Oid typid, int right)
 										-1);
 
 	exprState = ExecInitExpr(expr, NULL);
-	result = ExecEvalExpr(exprState, GetPerTupleExprContext(estate), &boolValue, NULL);
+	result = ExecEvalExpr(exprState, GetPerTupleExprContext(estate), &boolValue);
 	Assert(boolValue == false);
 
 	MemoryContextSwitchTo(old_context);

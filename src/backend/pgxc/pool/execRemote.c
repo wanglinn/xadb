@@ -297,12 +297,7 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	ExecAssignExprContext(estate, &rqstate->ss.ps);
 
 	/* Initialise child expressions */
-	rqstate->ss.ps.targetlist = (List *)
-		ExecInitExpr((Expr *) node->scan.plan.targetlist,
-					 (PlanState *) rqstate);
-	rqstate->ss.ps.qual = (List *)
-		ExecInitExpr((Expr *) node->scan.plan.qual,
-					 (PlanState *) rqstate);
+	rqstate->ss.ps.qual = ExecInitQual(node->scan.plan.qual, (PlanState *) rqstate);
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_MARK)));
@@ -1366,14 +1361,15 @@ pgxc_rq_fire_astriggers(RemoteQueryState *node)
 		Assert(rq->remote_query);
 		switch (rq->remote_query->commandType)
 		{
+#warning TODO add TransitionCaptureState argument for ExecASInsertTriggers,ExecASUpdateTriggers and function
 			case CMD_INSERT:
-				ExecASInsertTriggers(estate, estate->es_result_relations);
+				ExecASInsertTriggers(estate, estate->es_result_relations, NULL);
 				break;
 			case CMD_UPDATE:
-				ExecASUpdateTriggers(estate, estate->es_result_relations);
+				ExecASUpdateTriggers(estate, estate->es_result_relations, NULL);
 				break;
 			case CMD_DELETE:
-				ExecASDeleteTriggers(estate, estate->es_result_relations);
+				ExecASDeleteTriggers(estate, estate->es_result_relations, NULL);
 				break;
 			default:
 				break;

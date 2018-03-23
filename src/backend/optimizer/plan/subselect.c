@@ -2866,7 +2866,6 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 #ifdef ADB
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
-		case T_ClusterGetCopyData:
 		case T_ClusterReduce:
 		case T_ReduceScan:
 #endif /* ADB */

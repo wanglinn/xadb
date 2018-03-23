@@ -1355,17 +1355,6 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	int			parentRTindex = rti;
 	List	   *live_childrels = NIL;
 	ListCell   *l;
-	RelOptInfo *childrel;
-	Path	   *path;
-#ifdef ADB
-	List	   *reduce_list;
-	List	   *reduce_var_map;
-	List	   *all_reduce_by_val_list;
-	List	   *all_replicate_oid;
-	ReduceInfo *reduce_info;
-	ListCell   *lc_new_attno;
-	bool		have_reduce_coord = false;
-#endif /* ADB */
 
 	/*
 	 * Generate access paths for each member relation, and remember the
@@ -1442,6 +1431,17 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 	ListCell   *l;
 	List	   *partitioned_rels = NIL;
 	RangeTblEntry *rte;
+#ifdef ADB
+	List	   *reduce_list;
+	List	   *reduce_var_map;
+	List	   *all_reduce_by_val_list;
+	List	   *all_replicate_oid;
+	ReduceInfo *reduce_info;
+	ListCell   *lc_new_attno;
+	RelOptInfo *childrel;
+	Path	   *path;
+	bool		have_reduce_coord = false;
+#endif /* ADB */
 
 	rte = planner_rt_fetch(rel->relid, root);
 	if (rte->relkind == RELKIND_PARTITIONED_TABLE)
@@ -1772,7 +1772,7 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 			List *params = MakeVarList(lfirst(lc_new_attno), rel->relid, rel->reltarget);
 			Assert(params != NIL);
 			sub_reduce = MakeReduceInfoAs(reduce_info, params);
-			path = (Path*)create_append_path(rel, subpaths, NULL, 0);
+			path = (Path*)create_append_path(rel, subpaths, NULL, 0, NULL);
 			path->reduce_info_list = list_make1(sub_reduce);
 			path->reduce_is_valid = true;
 			add_cluster_path(rel, path);
@@ -1835,7 +1835,7 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 			}
 			reduce_info = MakeRoundReduceInfo(storage);
 			reduce_info->exclude_exec = new_exclude;
-			path = (Path*)create_append_path(rel, subpaths, NULL, 0);
+			path = (Path*)create_append_path(rel, subpaths, NULL, 0, NULL);
 			path->reduce_info_list = list_make1(reduce_info);
 			path->reduce_is_valid = true;
 			add_cluster_path(rel, path);
@@ -1910,7 +1910,7 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 					break;
 				}
 			}
-			path = (Path*)create_append_path(rel, subpaths, NULL, 0);
+			path = (Path*)create_append_path(rel, subpaths, NULL, 0, NULL);
 			if(have_not_reduce_coord_path)
 			{
 				path->reduce_info_list = NIL;
@@ -1958,7 +1958,7 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 		if(subpaths_valid)
 		{
 			reduce_info = MakeReplicateReduceInfo(all_replicate_oid);
-			path = (Path*)create_append_path(rel, subpaths, NULL, 0);
+			path = (Path*)create_append_path(rel, subpaths, NULL, 0, NULL);
 			path->reduce_info_list = list_make1(reduce_info);
 			path->reduce_is_valid = true;
 			add_cluster_path(rel, path);

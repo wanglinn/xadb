@@ -2340,7 +2340,7 @@ pgxc_replace_dist_vars_subquery(Query *query, ExecNodes *exec_nodes, Index varno
 
 		Assert(IsA(var, Var));
 
-		tle = tlist_member((Node *)var, query->targetList);
+		tle = tlist_member((Expr *)var, query->targetList);
 		if (tle)
 		{
 			Var *new_dist_var = makeVar(varno, tle->resno,

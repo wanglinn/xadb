@@ -31,6 +31,7 @@
 #include "catalog/indexing.h"
 #include "intercomm/inter-node.h"
 #include "intercomm/inter-comm.h"
+#include "storage/shmem.h"
 
 /* globals */
 bool cluster_lock_held;
@@ -589,10 +590,7 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	newtup = heap_modify_tuple(oldtup, RelationGetDescr(rel),
 							   new_record,
 							   new_record_nulls, new_record_repl);
-	simple_heap_update(rel, &oldtup->t_self, newtup);
-
-	/* Update indexes */
-	CatalogUpdateIndexes(rel, newtup);
+	CatalogTupleUpdate(rel, &oldtup->t_self, newtup);
 
 	/* Invalidate primary_data_node if needed */
 	if (primary_off)

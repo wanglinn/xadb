@@ -847,7 +847,7 @@ pg_analyze_and_rewrite(RawStmt *parsetree, const char *query_string,
 }
 
 List *
-pg_analyze_and_rewrite_for_gram(Node *parsetree, const char *query_string,
+pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,
 					   Oid *paramTypes, int numParams, QueryEnvironment *queryEnv, ParseGrammar grammar)
 {
 #endif
@@ -4788,7 +4788,7 @@ PostgresMain(int argc, char *argv[],
 					if (am_walsender)
 					{
 						if (!exec_replication_command(query_string))
-							exec_simple_query(query_string);
+							exec_simple_query(query_string ADB_ONLY_COMMA_ARG(NULL));
 					}
 					else
 #ifdef ADB

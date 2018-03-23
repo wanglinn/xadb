@@ -617,6 +617,7 @@ transformOraAExprOp(ParseState * pstate,
 								  opname,
 								  lexpr,
 								  rexpr,
+								  pstate->p_last_srf,
 								  location);
 	} PG_CATCH_HOLD();
 	{
@@ -657,6 +658,7 @@ transformOraAExprOp(ParseState * pstate,
 								  opname,
 								  lexpr,
 								  rexpr,
+								  pstate->p_last_srf,
 								  location);
 	} PG_CATCH();
 	{

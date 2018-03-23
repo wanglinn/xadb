@@ -49,6 +49,7 @@
 #include "pgxc/pgxc.h"
 #include "tcop/tcopprot.h"
 #include "tcop/utility.h"
+#include "utils/ruleutils.h"
 #include "utils/syscache.h"
 #endif
 
@@ -4090,9 +4091,10 @@ QueryRewriteCTAS(Query *parsetree)
 	deparse_query(cparsetree, &cquery, NIL, false, false);
 
 	/* Finally, fire off the query to run the DDL */
+#warning We need a PlanStmt struct, but cparsetree->utilityStmt is a CreateStmt
 	ProcessUtility(cparsetree->utilityStmt,
 				   cquery.data,
-				   PROCESS_UTILITY_TOPLEVEL, NULL, NULL,  /* Tentative fix.  Nedd a review.  K.Suzuki */
+				   PROCESS_UTILITY_TOPLEVEL, NULL, NULL, NULL,  /* Tentative fix.  Nedd a review.  K.Suzuki */
 				   false,
 				   NULL);
 
@@ -4120,8 +4122,11 @@ QueryRewriteCTAS(Query *parsetree)
 			into->skipData ? "LIMIT 0" : "");
 
 	raw_parsetree_list = pg_parse_query(cquery.data);
-	return pg_analyze_and_rewrite(linitial(raw_parsetree_list), cquery.data,
-			NULL, 0);
+	return pg_analyze_and_rewrite(linitial(raw_parsetree_list),
+								  cquery.data,
+								  NULL,
+								  0,
+								  NULL);
 }
 
 /*

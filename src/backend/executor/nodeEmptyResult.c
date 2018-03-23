@@ -16,8 +16,6 @@ EmptyResultState *ExecInitEmptyResult(EmptyResult *node, EState *estate, int efl
 	ers->ps.state = estate;
 	ers->ps.ExecProcNode = ExecEmptyResult;
 
-	ers->ps.targetlist = (List*) ExecInitExpr((Expr*)node->plan.targetlist, (PlanState*)ers);
-
 	/*
 	 * initialize outer and inner nodes if exist
 	 */
@@ -38,7 +36,7 @@ EmptyResultState *ExecInitEmptyResult(EmptyResult *node, EState *estate, int efl
 	case T_BitmapAnd:
 	case T_BitmapOr:
 	case T_BitmapIndexScan:
-		ers->special = (Node*)tbm_create(64*1024L);
+		ers->special = (Node*)tbm_create(64*1024L, NULL);
 		break;
 	default:
 		break;

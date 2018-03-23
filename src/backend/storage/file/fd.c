@@ -2742,6 +2742,7 @@ RemovePgTempFiles(void)
 #else
 		snprintf(temp_path, sizeof(temp_path), "pg_tblspc/%s/%s/%s",
 				 spc_de->d_name, TABLESPACE_VERSION_DIRECTORY, PG_TEMP_FILES_DIR);
+#endif
 		RemovePgTempFilesInDir(temp_path);
 
 #ifdef ADB

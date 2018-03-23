@@ -175,7 +175,7 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 			temp_constraints = lappend(temp_constraints, expr);
 		}
 
-		if (predicate_refuted_by(temp_constraints, new_clauses) == false)
+		if (predicate_refuted_by(temp_constraints, new_clauses, false) == false)
 		{
 			MemoryContextSwitchTo(old_mctx);
 			result = lappend_oid(result, node_oid);
@@ -426,8 +426,7 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 				c2 = context->const_expr;
 				c2->constvalue = ExecEvalExpr(expr_state,
 											  context->expr_context,
-											  &c2->constisnull,
-											  NULL);
+											  &c2->constisnull);
 				MemoryContextSwitchTo(old_context);
 
 				if (c2->constisnull == false && c2->constbyval == false)
@@ -437,8 +436,7 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 			MemoryContextReset(context->expr_context->ecxt_per_tuple_memory);
 			c2->constvalue = ExecEvalExprSwitchContext(context->right_state,
 													   context->expr_context,
-													   &c2->constisnull,
-													   NULL);
+													   &c2->constisnull);
 			context->hint = true;
 			return (Node*)makeInt4EQ(context->partition_expr, (Expr*)c2);
 		}
@@ -504,8 +502,7 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 						c->constisnull = nulls[i];
 						context->const_expr->constvalue = ExecEvalExprSwitchContext(convert_state,
 																					context->expr_context,
-																					&context->const_expr->constisnull,
-																					NULL);
+																					&context->const_expr->constisnull);
 					}else
 					{
 						context->const_expr->constvalue = values[i];
@@ -513,8 +510,7 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 					}
 					new_values[i] = ExecEvalExprSwitchContext(context->right_state,
 															  context->expr_context,
-															  &elmbyval,	/* Interim use */
-															  NULL);
+															  &elmbyval	/* Interim use */);
 					/* right_expr not return NULL value, even input is NULL */
 					Assert(elmbyval == false);
 				}

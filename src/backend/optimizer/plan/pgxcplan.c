@@ -52,6 +52,7 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 #include "utils/fmgroids.h"
+#include "utils/ruleutils.h"
 #include "utils/tqual.h"
 #include "access/htup_details.h"
 
@@ -89,7 +90,7 @@ static RemoteQuery *make_remotequery(List *qptlist, List *qpqual,
 static RangeTblEntry *make_dummy_remote_rte(char *relname, Alias *alias);
 static List *pgxc_build_shippable_tlist(List *tlist, List *unshippabl_quals,
 										bool has_aggs);
-static List *pgxc_add_to_flat_tlist(List *remote_tlist, Node *expr,
+static List *pgxc_add_to_flat_tlist(List *remote_tlist, Expr *expr,
 												Index ressortgroupref);
 static void pgxc_rqplan_adjust_vars(RemoteQuery *rqplan, Node *node);
 
@@ -191,7 +192,7 @@ pgxc_build_shippable_tlist(List *tlist, List *unshippabl_quals, bool has_aggs)
 		 * are unshippable
 		 */
 		if (pgxc_is_expr_shippable((Expr *)tle, tmp_ptr))
-			remote_tlist = pgxc_add_to_flat_tlist(remote_tlist, (Node *)expr,
+			remote_tlist = pgxc_add_to_flat_tlist(remote_tlist, expr,
 															tle->ressortgroupref);
 		else
 			unshippable_expr = lappend(unshippable_expr, expr);
@@ -205,11 +206,11 @@ pgxc_build_shippable_tlist(List *tlist, List *unshippabl_quals, bool has_aggs)
 	aggs_n_vars = pull_var_clause((Node *)unshippable_expr, flags);
 	foreach(lcell, aggs_n_vars)
 	{
-		Node	*agg_or_var = lfirst(lcell);
+		Expr	*agg_or_var = lfirst(lcell);
 		Assert(IsA(agg_or_var, Aggref) || IsA(agg_or_var, Var));
 		/* If it's an aggregate expression, better it be shippable. */
 		Assert(!IsA(agg_or_var, Aggref) ||
-				pgxc_is_expr_shippable((Expr *)agg_or_var, &tmp_has_aggs));
+				pgxc_is_expr_shippable(agg_or_var, &tmp_has_aggs));
 		remote_tlist = pgxc_add_to_flat_tlist(remote_tlist, agg_or_var, 0);
 	}
 
@@ -482,7 +483,7 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 		TargetEntry *tle;
 		Assert(IsA(var, Var));
 
-		tle = tlist_member((Node *)var, left_rep_tlist);
+		tle = tlist_member((Expr *)var, left_rep_tlist);
 		if (tle)
 		{
 			var->varno = left_rtr->rtindex;
@@ -490,7 +491,7 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 		}
 		else
 		{
-			tle = tlist_member((Node *)var, right_rep_tlist);
+			tle = tlist_member((Expr *)var, right_rep_tlist);
 			if (tle)
 			{
 				var->varno = right_rtr->rtindex;
@@ -601,7 +602,7 @@ pgxc_rqplan_adjust_vars(RemoteQuery *rqplan, Node *node)
 		TargetEntry	*qry_tle;
 		Var *var = (Var *)lfirst(lcell_var);
 
-		ref_tle = tlist_member((Node *)var, rqplan->coord_var_tlist);
+		ref_tle = tlist_member((Expr *)var, rqplan->coord_var_tlist);
 		qry_tle = get_tle_by_resno(rqplan->query_var_tlist, ref_tle->resno);
 		if (!IsA(qry_tle->expr, Var))
 			elog(ERROR, "expected a VAR node but got node of type %d", nodeTag(qry_tle->expr));
@@ -980,7 +981,7 @@ pgxc_dml_add_qual_to_query(Query *query, int param_num,
 
 	/* Make the new qual sys_column_name = $? */
 	qual = make_op(NULL, list_make1(makeString("=")), (Node *)lhs_var,
-									(Node *)rhs_param, -1);
+									(Node *)rhs_param, NULL, -1);
 
 	/* Add the qual to the qual list */
 	query->jointree->quals = (Node *)lappend((List *)query->jointree->quals,
@@ -1815,12 +1816,12 @@ pgxc_locate_grouping_columns(PlannerInfo *root, List *tlist,
  * correctness.
  */
 static List *
-pgxc_add_to_flat_tlist(List *remote_tlist, Node *expr, Index ressortgroupref)
+pgxc_add_to_flat_tlist(List *remote_tlist, Expr *expr, Index ressortgroupref)
 {
 	TargetEntry *remote_tle;
 
 
-	remote_tle = tlist_member(expr, remote_tlist);
+	remote_tle = tlist_member((Expr*)expr, remote_tlist);
 
 	if (!remote_tle)
 	{
@@ -2037,7 +2038,7 @@ pgxc_process_having_clause(List *remote_tlist, bool single_node_grouping,
 			/* copy the aggregates into the remote target list */
 			foreach (lcell, vars_n_aggs)
 			{
-				Node 	*agg_or_var = lfirst(lcell);
+				Expr	*agg_or_var = lfirst(lcell);
 				bool	tmp_has_agg;
 
 				Assert(IsA(agg_or_var, Aggref) || IsA(agg_or_var, Var));
@@ -3206,7 +3207,7 @@ create_remotesort_plan(PlannerInfo *root, Plan *local_plan)
 			break;
 		}
 
-		remote_base_tle = tlist_member((Node *)remote_tle->expr,
+		remote_base_tle = tlist_member(remote_tle->expr,
 										remote_scan->base_tlist);
 		/*
 		 * If we didn't find the sorting expression in base_tlist, can't ship
@@ -3414,10 +3415,11 @@ create_remotelimit_plan(PlannerInfo *root, Plan *local_plan)
 			 * here?
 			 */
 			rq_limitCount = (Node *)make_op(make_parsestate(NULL),
-									list_make1(makeString((char *)"+")),
-									copyObject(local_limit->limitCount),
-									copyObject(local_limit->limitOffset),
-									-1);
+											list_make1(makeString((char *)"+")),
+											copyObject(local_limit->limitCount),
+											copyObject(local_limit->limitOffset),
+											NULL,
+											-1);
 		}
 		rq_limitOffset = NULL;
 		result_plan = local_plan;

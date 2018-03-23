@@ -56,7 +56,7 @@ extern WindowFuncLists *find_window_functions(Node *clause, Index maxWinRef);
 extern double expression_returns_set_rows(Node *clause);
 
 extern bool contain_subplans(Node *clause);
-#ifdef ADB 
+#ifdef ADB
 extern bool contain_rownum(Node *clause);
 #endif /* ADB */
 

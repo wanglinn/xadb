@@ -4132,7 +4132,6 @@ bool have_cluster_plan_walker(struct Plan *plan, Node *GlobOrStmt, void *notUse)
 	{
 	case T_ClusterGather:
 	case T_ClusterMergeGather:
-	case T_ClusterGetCopyData:
 	case T_ClusterReduce:
 		return true;
 	default:

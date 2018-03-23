@@ -2098,7 +2098,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 					}
 				}
 			}
-			if (!has_parallel_hazard((Node*)scanjoin_target->exprs, false))
+			if (!is_parallel_safe(root, (Node*)scanjoin_target->exprs))
 			{
 				foreach(lc, current_rel->cluster_partial_pathlist)
 				{
@@ -2345,6 +2345,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 											parse->commandType,
 											parse->canSetTag,
 											parse->resultRelation,
+											NIL,
 											list_make1_int(parse->resultRelation),
 											list_make1(path),
 											list_make1(root),
@@ -2502,6 +2503,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 										parse->commandType,
 										parse->canSetTag,
 										parse->resultRelation,
+										NIL,
 										list_make1_int(parse->resultRelation),
 										list_make1(path),
 										list_make1(root),
@@ -4714,9 +4716,8 @@ create_grouping_paths(PlannerInfo *root,
 				partial_grouping_target = make_partial_grouping_target(root, target);
 
 			dNumPartialGroups = get_number_of_groups(root,
-													cheapest_cluster_path->rows,
-													NIL,
-													NIL);
+													 cheapest_cluster_path->rows,
+													 gd);
 
 			MemSet(&agg_partial_costs, 0, sizeof(AggClauseCosts));
 			MemSet(&agg_final_costs, 0, sizeof(AggClauseCosts));
@@ -4876,7 +4877,7 @@ create_grouping_paths(PlannerInfo *root,
 				List *storage_list;
 				groupExprs = get_sortgrouplist_exprs(parse->groupClause, parse->targetList);
 				subpath = linitial(input_rel->cluster_partial_pathlist);
-				gcontext.partial_groups = get_number_of_groups(root, subpath->rows, NULL, NULL);
+				gcontext.partial_groups = get_number_of_groups(root, subpath->rows, gd);
 
 				/* step 1: parallel agg first */
 				/* gcontext.split = AGGSPLIT_INITIAL_SERIAL; */

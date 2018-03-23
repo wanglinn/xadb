@@ -1319,7 +1319,7 @@ typedef struct BitmapIndexScanState
  *						proceed to iterate over TIDBitmap.
  * ----------------
  */
-typedef enum
+typedef enum SharedBitmapState
 {
 	BM_INITIAL,
 	BM_INPROGRESS,

@@ -163,8 +163,7 @@ static List * fix_remote_expr(PlannerInfo *root,
 			  Index	newrelid,
 			  int rtoffset,
 			  bool return_non_base_vars);
-static Node *fix_remote_expr_mutator(Node *node,
-			  fix_remote_expr_context *context);
+static Node *fix_remote_expr_mutator(Node *node, fix_remote_expr_context *context);
 static void set_remote_references(PlannerInfo *root, RemoteQuery *rscan, int rtoffset);
 #if 0
 static void pgxc_set_agg_references(PlannerInfo *root, Agg *aggplan);
@@ -2845,7 +2844,7 @@ fix_remote_expr_mutator(Node *node, fix_remote_expr_context *context)
 	/* Try matching more complex expressions too, if tlists have any */
 	if (context->base_itlist->has_non_vars)
 	{
-		newvar = search_indexed_tlist_for_non_var(node,
+		newvar = search_indexed_tlist_for_non_var((Expr*)node,
 												  context->base_itlist,
 												  context->relid);
 		if (newvar)

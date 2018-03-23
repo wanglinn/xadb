@@ -59,7 +59,7 @@ ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const E
 	rinfo = MakeEmptyReduceInfo();
 	rinfo->storage_nodes = list_copy(storage);
 	rinfo->exclude_exec = list_copy(exclude);
-	rinfo->params = list_make1(copyObject(param));
+	rinfo->params = list_make1((Expr*)copyObject(param));
 	rinfo->relids = pull_varnos((Node*)param);
 	rinfo->type = REDUCE_TYPE_HASH;
 
@@ -150,7 +150,7 @@ ReduceInfo *MakeModuloReduceInfo(const List *storage, const List *exclude, const
 	rinfo = MakeEmptyReduceInfo();
 	rinfo->storage_nodes = list_copy(storage);
 	rinfo->exclude_exec = list_copy(exclude);
-	rinfo->params = list_make1(copyObject(param));
+	rinfo->params = list_make1((Expr*)copyObject(param));
 	rinfo->relids = pull_varnos((Node*)(rinfo->params));
 	rinfo->type = REDUCE_TYPE_MODULO;
 

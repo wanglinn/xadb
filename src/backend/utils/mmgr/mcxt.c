@@ -1011,11 +1011,9 @@ void *repalloc_no_oom(void *pointer, Size size)
 	/*
 	 * OK, it's probably safe to look at the chunk header.
 	 */
-	context = ((StandardChunkHeader *)
-			   ((char *) pointer - STANDARDCHUNKHEADERSIZE))->context;
+	context = GetMemoryChunkContext(pointer);
 
 	AssertArg(MemoryContextIsValid(context));
-	AssertNotInCriticalSection(context);
 
 	/* isReset must be false already */
 	Assert(!context->isReset);

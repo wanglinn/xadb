@@ -140,7 +140,6 @@ extern NestPath *create_nestloop_path(PlannerInfo *root,
 					 List *pathkeys,
 #ifdef ADB
 					 List *reduce_info_list,
-					 bool partial_path,
 #endif /* ADB */
 					 Relids required_outer);
 
@@ -157,7 +156,6 @@ extern MergePath *create_mergejoin_path(PlannerInfo *root,
 					  List *mergeclauses,
 #ifdef ADB
 					 List *reduce_info_list,
-					 bool partial_path,
 #endif /* ADB */
 					  List *outersortkeys,
 					  List *innersortkeys);
@@ -173,7 +171,6 @@ extern HashPath *create_hashjoin_path(PlannerInfo *root,
 					 Relids required_outer,
 #ifdef ADB
 					 List *reduce_info_list,
-					 bool partial_path,
 #endif /* ADB */
 					 List *hashclauses);
 
