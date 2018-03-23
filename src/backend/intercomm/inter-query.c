@@ -65,10 +65,42 @@ static PGcustumFuns QueryCustomFuncs = {
 	HandleRowDescriptionMsg,
 	NULL,
 	HandleQueryCompleteMsg,
-	NULL
+	HandleInterUnknownMsg
 };
 
 PGcustumFuns *InterQueryCustomFuncs = &QueryCustomFuncs;
+
+int
+HandleInterUnknownMsg(PGconn *conn, char c, int msgLength)
+{
+	switch (c)
+	{
+		case 'M':		/* command id change */
+			{
+				CommandId cid;
+
+				/* invalid command id message length */
+				if (msgLength != sizeof(cid))
+				{
+					appendPQExpBuffer(&conn->errorMessage,
+									 "Invalid command id message length %d, expect %lu bytes",
+									 msgLength, sizeof(cid));
+					return 1;
+				}
+
+				cid = *(CommandId *) &(conn->inBuffer[conn->inCursor]);
+				conn->inCursor += msgLength;
+				if (cid > GetReceivedCommandId())
+					SetReceivedCommandId(cid);
+
+				return 0;
+			}
+		default:
+			break;
+	}
+
+	return -1;
+}
 
 static List *
 RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes)

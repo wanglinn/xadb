@@ -11,7 +11,6 @@
 #define CLUSTER_MSG_INSTRUMENT		'I'
 #define CLUSTER_MSG_PROCESSED		'P'
 #define CLUSTER_MSG_RDC_PORT		'p'
-#define CLUSTER_MSG_COMMAND_ID		'M'
 
 struct pg_conn;
 
@@ -45,7 +44,6 @@ extern void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char ms
 extern MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup);
 extern TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *slot);
 extern void serialize_processed_message(StringInfo buf, uint64 processed);
-extern void serialize_command_id(StringInfo buf, CommandId cid);
 
 #endif /* CLUSTER_RECEIVER_H */
 

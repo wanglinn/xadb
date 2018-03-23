@@ -48,7 +48,7 @@ static PGcustumFuns CommandCustomFuncs = {
 	NULL,
 	NULL,
 	HandleCommandCompleteMsg,
-	NULL
+	HandleInterUnknownMsg
 };
 
 List *

@@ -6386,21 +6386,8 @@ GetReceivedCommandId(void)
 void
 ReportCommandIdChange(CommandId cid)
 {
-	StringInfoData buf;
-
-	/* Send command Id change to Coordinator */
-	initStringInfo(&buf);
-	pq_sendbyte(&buf, 0);
-	pq_sendint(&buf, 0, 2);
-	pq_putmessage('H', buf.data, buf.len);
-
-	resetStringInfo(&buf);
-	serialize_command_id(&buf, cid);
-	pq_putmessage('d', buf.data, buf.len);
-
-	pq_putemptymessage('c');
+	pq_putmessage('M', (const char *) &cid, sizeof(cid));
 	pq_flush();
-	pfree(buf.data);
 }
 
 /*

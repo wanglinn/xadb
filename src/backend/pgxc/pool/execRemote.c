@@ -1020,7 +1020,9 @@ ExecProcNodeDMLInXC(EState *estate,
 		 *		create table t1(id int, value int) distribute by replication.
 		 *		insert into t1 values(1,1),(2,2),(3,3) returning id;
 		 */
-		if (dml_returning_on_replicated)
+		if (dml_returning_on_replicated &&
+			save_rqs_processed == 0 &&
+			resultRemoteRel->rqs_processed > 0)
 			save_rqs_processed = resultRemoteRel->rqs_processed;
 
 	} while (dml_returning_on_replicated);

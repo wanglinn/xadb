@@ -99,12 +99,6 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 			ps->state->es_processed += processed;
 		}
 		return false;
-	}else if (*msg == CLUSTER_MSG_COMMAND_ID)
-	{
-		CommandId cid;
-		memcpy(&cid, msg+1, sizeof(cid));
-		if (cid > GetReceivedCommandId())
-			SetReceivedCommandId(cid);
 	}else
 	{
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
@@ -172,14 +166,6 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					errmsg("con not parse convert tuple")));
-		}
-		break;
-	case CLUSTER_MSG_COMMAND_ID:
-		{
-			CommandId cid;
-			memcpy(&cid, msg+1, sizeof(cid));
-			if (cid > GetReceivedCommandId())
-				SetReceivedCommandId(cid);
 		}
 		break;
 	default:
@@ -376,12 +362,6 @@ void serialize_processed_message(StringInfo buf, uint64 processed)
 {
 	appendStringInfoChar(buf, CLUSTER_MSG_PROCESSED);
 	appendBinaryStringInfo(buf, (char*)&processed, sizeof(processed));
-}
-
-void serialize_command_id(StringInfo buf, CommandId cid)
-{
-	appendStringInfoChar(buf, CLUSTER_MSG_COMMAND_ID);
-	appendBinaryStringInfo(buf, (char*)&cid, sizeof(cid));
 }
 
 void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
