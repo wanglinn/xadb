@@ -61,11 +61,14 @@
 #include "utils/tqual.h"
 
 #ifdef ADB
-static TupleTableSlot *fill_slot_with_oldvals(TupleTableSlot *slot, HeapTupleHeader oldtuphd, Bitmapset *modifiedCols);
+static TupleTableSlot *fill_slot_with_oldvals(TupleTableSlot *slot,
+											  HeapTupleHeader oldtuphd,
+											  Bitmapset *modifiedCols);
 
 /* Copied from trigger.c */
 #define GetModifiedColumns(relinfo, estate) \
 	(rt_fetch((relinfo)->ri_RangeTableIndex, (estate)->es_range_table)->updatedCols)
+
 /* Copied from tid.c */
 #define DatumGetItemPointer(X)	 ((ItemPointer) DatumGetPointer(X))
 #endif
@@ -397,7 +400,7 @@ ExecInsert(ModifyTableState *mtstate,
 			ExecConstraints(resultRelInfo, slot, estate);
 
 #ifdef ADB
-		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+		if (IsCnNode() && resultRemoteRel)
 		{
 			TupleTableSlot *saveSlot = NULL;
 
@@ -411,6 +414,11 @@ ExecInsert(ModifyTableState *mtstate,
 
 			if (TupIsNull(slot))
 				slot = saveSlot;
+			else
+			{
+				if (saveSlot)
+					ExecDropSingleTupleTableSlot(saveSlot);
+			}
 
 			/*
 			 * PGXCTODO: If target table uses WITH OIDS, this should be set to the Oid inserted
@@ -556,7 +564,7 @@ ExecInsert(ModifyTableState *mtstate,
 	if (canSetTag)
 	{
 #ifdef ADB
-		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+		if (IsCnNode() && resultRemoteRel)
 			estate->es_processed += resultRemoteRel->rqs_processed;
 		else
 #endif
@@ -719,7 +727,7 @@ ExecDelete(ItemPointer tupleid,
 		 */
 ldelete:;
 #ifdef ADB
-		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+		if (IsCnNode() && resultRemoteRel)
 		{
 			/*
 			* Pass in the source plan slot, we may attributes other than ctid
@@ -829,7 +837,7 @@ ldelete:;
 	if (canSetTag)
 #ifdef ADB
 	{
-		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+		if (IsCnNode() && resultRemoteRel)
 			estate->es_processed += resultRemoteRel->rqs_processed;
 		else
 #endif
@@ -843,8 +851,7 @@ ldelete:;
 
 	/* Process RETURNING if present */
 #ifdef ADB
-	if (IS_PGXC_COORDINATOR && resultRemoteRel &&
-			resultRelInfo->ri_projectReturning)
+	if (IsCnNode() && resultRemoteRel && resultRelInfo->ri_projectReturning)
 	{
 		if (TupIsNull(slot))
 			return NULL;
@@ -966,7 +973,7 @@ ExecUpdate(ItemPointer tupleid,
 	* values from NEW tuple slot, and store the NEW tuple back into the NEW
 	* tuple slot.
 	*/
-	if (IS_PGXC_COORDINATOR && resultRemoteRel && oldtuple != NULL)
+	if (IsCnNode() && resultRemoteRel && oldtuple != NULL)
 		slot = fill_slot_with_oldvals(slot, oldtuple->t_data,
 				GetModifiedColumns(estate->es_result_relation_info, estate));
 #endif
@@ -1066,7 +1073,7 @@ lreplace:;
 			ExecConstraints(resultRelInfo, slot, estate);
 
 #ifdef ADB
-		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+		if (IsCnNode() && resultRemoteRel)
 		{
 			TupleTableSlot *saveSlot = NULL;
 
@@ -1080,6 +1087,11 @@ lreplace:;
 
 			if (TupIsNull(slot))
 				slot = saveSlot;
+			else
+			{
+				if (saveSlot)
+					ExecDropSingleTupleTableSlot(saveSlot);
+			}
 		}
 		else
 		{
@@ -1197,7 +1209,7 @@ lreplace:;
 	if (canSetTag)
 #ifdef ADB
 	{
-		if (IS_PGXC_COORDINATOR && resultRemoteRel)
+		if (IsCnNode() && resultRemoteRel)
 			estate->es_processed += resultRemoteRel->rqs_processed;
 		else
 #endif
@@ -1206,14 +1218,9 @@ lreplace:;
 	}
 #endif
 
-	if(oldtuple!=0)
-		/* AFTER ROW UPDATE Triggers */
-		ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldtuple, tuple,
-							 recheckIndexes);
-	else
-		ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldtuple, tuple,
-							recheckIndexes);
-
+	/* AFTER ROW UPDATE Triggers */
+	ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldtuple, tuple,
+						 recheckIndexes);
 
 	list_free(recheckIndexes);
 
@@ -1509,7 +1516,7 @@ ExecModifyTable(ModifyTableState *node)
 #ifdef ADB
 	PlanState  *remoterelstate;
 	PlanState  *saved_resultRemoteRel;
-	RemoteQuery		*step = NULL;
+	RemoteQuery*step = NULL;
 #endif
 	JunkFilter *junkfilter;
 	TupleTableSlot *slot;
@@ -1670,7 +1677,7 @@ ExecModifyTable(ModifyTableState *node)
 
 #ifdef ADB
 					/* If available, also extract the OLD row */
-					if (IS_PGXC_COORDINATOR &&
+					if (IsCnNode() &&
 						RelationGetLocInfo(resultRelInfo->ri_RelationDesc) &&
 						junkfilter->jf_xc_wholerow != InvalidAttrNumber)
 					{
@@ -1821,7 +1828,7 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	ListCell   *l;
 	int			i;
 #ifdef ADB
-		PlanState  *saved_remoteRelInfo;
+	PlanState  *saved_remoteRelInfo;
 #endif
 
 	/* check for unsupported flags */
@@ -2201,7 +2208,7 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 						if (!AttributeNumberIsValid(j->jf_junkAttNo))
 							elog(ERROR, "could not find junk ctid column");
 #ifdef ADB
-						if (IS_PGXC_COORDINATOR &&
+						if (IsCnNode() &&
 							RelationGetLocInfo(resultRelInfo->ri_RelationDesc))
 						{
 							/*
@@ -2368,7 +2375,7 @@ fill_slot_with_oldvals(TupleTableSlot *replace_slot, HeapTupleHeader oldtuphd, B
 	for (attindex = 0; attindex < natts; attindex++)
 	{
 		if (bms_is_member(attindex + 1 - FirstLowInvalidHeapAttributeNumber,
-							  modifiedCols))
+						  modifiedCols))
 			replaces[attindex] = true;
 		else
 			replaces[attindex] = false;
@@ -2377,9 +2384,9 @@ fill_slot_with_oldvals(TupleTableSlot *replace_slot, HeapTupleHeader oldtuphd, B
 	slot_getallattrs(replace_slot);
 
 	newtuple = heap_modify_tuple(&oldtuple, replace_slot->tts_tupleDescriptor,
-	                             replace_slot->tts_values,
-	                             replace_slot->tts_isnull,
-	                             replaces);
+								 replace_slot->tts_values,
+								 replace_slot->tts_isnull,
+								 replaces);
 
 	pfree(replaces);
 
