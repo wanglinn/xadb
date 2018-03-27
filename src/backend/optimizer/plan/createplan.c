@@ -6740,7 +6740,11 @@ List* get_remote_nodes(PlannerInfo *root, Path *path, bool include_subroot)
 			Assert(info->rep_count > 0);
 			if (best == NULL ||
 				best->rep_count < info->rep_count)
+			{
 				best = info;
+				if (is_pgxc_nodepreferred(best->nodeOid))
+					break;
+			}
 		}
 		Assert(best);
 		list = lappend_oid(list, best->nodeOid);
