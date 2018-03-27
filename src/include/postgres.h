@@ -50,14 +50,14 @@
 
 #ifdef ADB
 #define ADB_ONLY_ARG(v) v,
-#define ADB_ONLY_ARG2(v,v2) v, v2
+#define ADB_ONLY_ARG2(v1, v2) v1, v2,
 #define ADB_ONLY_COMMA_ARG(v) , v
-#define ADB_ONLY_COMMA_ARG2(v,v2) , v, v2
+#define ADB_ONLY_COMMA_ARG2(v1, v2) , v1, v2
 #else
 #define ADB_ONLY_ARG(v)
-#define ADB_ONLY_ARG2(v,v2)
+#define ADB_ONLY_ARG2(v1, v2)
 #define ADB_ONLY_COMMA_ARG(v)
-#define ADB_ONLY_COMMA_ARG2(v,v2)
+#define ADB_ONLY_COMMA_ARG2(v1, v2)
 #endif /* ADB */
 
 /* ----------------------------------------------------------------

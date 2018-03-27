@@ -37,9 +37,10 @@
 #include "utils/builtins.h"
 #include "utils/varlena.h"
 
+#ifndef ADB /* it is defined at fmgr.h */
 #define PG_GETARG_TEXT_PP_IF_EXISTS(_n) \
 	(PG_NARGS() > (_n) ? PG_GETARG_TEXT_PP(_n) : NULL)
-
+#endif
 
 /* all the options of interest for regex functions */
 typedef struct pg_re_flags
@@ -110,6 +111,8 @@ static cached_re_str re_array[MAX_CACHED_RES];	/* cached re's */
 static regexp_matches_ctx *setup_regexp_matches(text *orig_str, text *pattern,
 					 pg_re_flags *flags,
 					 Oid collation,
+					 ADB_ONLY_ARG(int start_position)
+					 ADB_ONLY_ARG(bool sava_all_match_locs)
 					 bool use_subpatterns,
 					 bool ignore_degenerate);
 static void cleanup_regexp_matches(regexp_matches_ctx *matchctx);
@@ -625,7 +628,7 @@ textregexreplace_noopt(PG_FUNCTION_ARGS)
 
 	re = RE_compile_and_cache(p, REG_ADVANCED, PG_GET_COLLATION());
 
-	PG_RETURN_TEXT_P(replace_text_regexp(s, (void *) re, r, false));
+	PG_RETURN_TEXT_P(replace_text_regexp(s, (void *) re, r, ADB_ONLY_ARG2(0, 0) false));
 }
 
 /*
@@ -646,7 +649,7 @@ textregexreplace(PG_FUNCTION_ARGS)
 
 	re = RE_compile_and_cache(p, flags.cflags, PG_GET_COLLATION());
 
-	PG_RETURN_TEXT_P(replace_text_regexp(s, (void *) re, r, flags.glob));
+	PG_RETURN_TEXT_P(replace_text_regexp(s, (void *) re, r, ADB_ONLY_ARG2(0, 0) flags.glob));
 }
 
 /*
@@ -863,7 +866,9 @@ regexp_match(PG_FUNCTION_ARGS)
 				 errhint("Use the regexp_matches function instead.")));
 
 	matchctx = setup_regexp_matches(orig_str, pattern, &re_flags,
-									PG_GET_COLLATION(), true, false);
+									PG_GET_COLLATION(),
+									ADB_ONLY_ARG2(0, false)
+									true, false);
 
 	if (matchctx->nmatches == 0)
 		PG_RETURN_NULL();
@@ -911,6 +916,7 @@ regexp_matches(PG_FUNCTION_ARGS)
 		matchctx = setup_regexp_matches(PG_GETARG_TEXT_P_COPY(0), pattern,
 										&re_flags,
 										PG_GET_COLLATION(),
+										ADB_ONLY_ARG2(0, false)
 										true, false);
 
 		/* Pre-create workspace that build_regexp_match_result needs */
@@ -961,6 +967,8 @@ regexp_matches_no_flags(PG_FUNCTION_ARGS)
 static regexp_matches_ctx *
 setup_regexp_matches(text *orig_str, text *pattern, pg_re_flags *re_flags,
 					 Oid collation,
+					 ADB_ONLY_ARG(int start_position)
+					 ADB_ONLY_ARG(bool sava_all_match_locs)
 					 bool use_subpatterns,
 					 bool ignore_degenerate)
 {
@@ -975,6 +983,10 @@ setup_regexp_matches(text *orig_str, text *pattern, pg_re_flags *re_flags,
 	int			array_idx;
 	int			prev_match_end;
 	int			start_search;
+
+#ifdef ADB
+	Assert(start_position >= 0);
+#endif
 
 	/* save original string --- we'll extract result substrings from it */
 	matchctx->orig_str = orig_str;
@@ -1010,7 +1022,16 @@ setup_regexp_matches(text *orig_str, text *pattern, pg_re_flags *re_flags,
 
 	/* search for the pattern, perhaps repeatedly */
 	prev_match_end = 0;
+#ifdef ADB
+	if (start_position >= wide_len)
+	{
+		matchctx->nmatches = 0;
+		return matchctx;
+	}
+	start_search = start_position;
+#else
 	start_search = 0;
+#endif
 	while (RE_wchar_execute(cpattern, wide_str, wide_len, start_search,
 							pmatch_len, pmatch))
 	{
@@ -1031,6 +1052,23 @@ setup_regexp_matches(text *orig_str, text *pattern, pg_re_flags *re_flags,
 														sizeof(int) * array_len);
 			}
 
+#ifdef ADB
+			/*
+			 * When compatible with oracle grammar, we need save all match's
+			 * locations. so that, 0 indicate the whole pattern, and 1 to 9
+			 * indicate each sub pattern.
+			 */
+			if (sava_all_match_locs)
+			{
+				int			i;
+
+				for (i = 0; i <= matchctx->npatterns; i++)
+				{
+					matchctx->match_locs[array_idx++] = pmatch[i].rm_so;
+					matchctx->match_locs[array_idx++] = pmatch[i].rm_eo;
+				}
+			} else
+#endif
 			/* save this match's locations */
 			if (use_subpatterns)
 			{
@@ -1168,6 +1206,7 @@ regexp_split_to_table(PG_FUNCTION_ARGS)
 		splitctx = setup_regexp_matches(PG_GETARG_TEXT_P_COPY(0), pattern,
 										&re_flags,
 										PG_GET_COLLATION(),
+										ADB_ONLY_ARG2(0, false)
 										false, true);
 
 		MemoryContextSwitchTo(oldcontext);
@@ -1224,6 +1263,7 @@ regexp_split_to_array(PG_FUNCTION_ARGS)
 									PG_GETARG_TEXT_PP(1),
 									&re_flags,
 									PG_GET_COLLATION(),
+									ADB_ONLY_ARG2(0, false)
 									false, true);
 
 	while (splitctx->next_match <= splitctx->nmatches)
@@ -1355,3 +1395,617 @@ regexp_fixed_prefix(text *text_re, bool case_insensitive, Oid collation,
 
 	return result;
 }
+
+#ifdef ADB
+static void
+ora_parse_re_flags(pg_re_flags *flags, text *opts)
+{
+	flags->cflags = REG_ADVANCED | REG_NLSTOP;
+	flags->glob = false;
+
+	if (opts)
+	{
+		char	   *opt_p = VARDATA_ANY(opts);
+		int 		opt_len = VARSIZE_ANY_EXHDR(opts);
+		int 		i;
+
+		for (i = 0; i < opt_len; i++)
+		{
+			switch (opt_p[i])
+			{
+				case 'c':		/* case sensitive */
+					flags->cflags &= ~REG_ICASE;
+					break;
+				case 'i':		/* case insensitive */
+					flags->cflags |= REG_ICASE;
+					break;
+				case 'n':
+					flags->cflags &= ~REG_NEWLINE;
+					break;
+				case 'm':
+					flags->cflags |= REG_NEWLINE;
+					break;
+				case 'x':
+					flags->cflags |= REG_EXPANDED;
+					break;
+				default:
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+							 errmsg("invalid oracle regexp option: \"%c\"",
+									opt_p[i])));
+					break;
+			}
+		}
+	}
+}
+
+/*
+ * REGEXP_COUNT (source_char, pattern)
+ */
+Datum
+ora_regexp_count2(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_count(fcinfo);
+}
+
+/*
+ * REGEXP_COUNT (source_char, pattern, position)
+ */
+Datum
+ora_regexp_count3(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_count(fcinfo);
+}
+
+/*
+ * REGEXP_COUNT (source_char, pattern [, position [, match_param]])
+ */
+Datum
+ora_regexp_count(PG_FUNCTION_ARGS)
+{
+	regexp_matches_ctx	   *countctx;
+	text				   *s = PG_GETARG_TEXT_PP_IF_NULL(0);
+	text				   *p = PG_GETARG_TEXT_PP_IF_NULL(1);
+	int						position = PG_GETARG_INT32_1_IF_NULL(2);
+	text				   *opt = PG_GETARG_TEXT_PP_IF_NULL(3);
+	pg_re_flags				flags;
+
+	/*
+	 * return null if source_char is null or empty
+	 */
+	if (s == NULL || text_to_cstring(s)[0] == 0x00)
+		PG_RETURN_NULL();
+
+	/*
+	 * return null if pattern is null or empty
+	 */
+	if (p == NULL || text_to_cstring(p)[0] == 0x00)
+		PG_RETURN_NULL();
+
+	/*
+	 * convert "position" to "source_char" offset
+	 */
+	if (position <= 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Invalid \"position\" value (%d) for \"regexp_count\"",
+					position),
+				errhint("\"position\" must be a positive integer")));
+	position = position - 1;
+
+	ora_parse_re_flags(&flags, opt);
+	flags.glob = true;
+
+	countctx = setup_regexp_matches(s, p, &flags,
+									PG_GET_COLLATION(),
+									position, true,
+									false, true);
+
+	PG_RETURN_INT32(countctx->nmatches);
+}
+
+/*
+ * REGEXP_REPLACE(source_char, pattern)
+ */
+Datum
+ora_regexp_replace2(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_replace(fcinfo);
+}
+
+/*
+ * REGEXP_REPLACE(source_char, pattern, replace_string)
+ */
+Datum
+ora_regexp_replace3(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_replace(fcinfo);
+}
+
+/*
+ * REGEXP_REPLACE(source_char, pattern, replace_string, position)
+ */
+Datum
+ora_regexp_replace4(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_replace(fcinfo);
+}
+
+/*
+ * REGEXP_REPLACE(source_char, pattern, replace_string, position, occurrence)
+ */
+Datum
+ora_regexp_replace5(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_replace(fcinfo);
+}
+
+/*
+ * REGEXP_REPLACE(source_char, pattern
+ *				  [, replace_string
+ *					 [, position
+ *						[, occurrence
+ *						   [, match_param ]
+ *						]
+ *					 ]
+ *				  ]
+ *				 )
+ * if you omit "replace_string", then the default value is empty string.
+ * if you omit "position", then the default value is 0, means begin the match
+ * at the first character of "source_char".
+ * if you omit "occurrence", then the default value is 0, means replace all
+ * occurrences of the match.
+ */
+Datum
+ora_regexp_replace(PG_FUNCTION_ARGS)
+{
+	text	   *s = PG_GETARG_TEXT_PP_IF_NULL(0);
+	text	   *p = PG_GETARG_TEXT_PP_IF_NULL(1);
+	text	   *r = PG_GETARG_TEXT_PP_IF_NULL(2);
+	int 		position = PG_GETARG_INT32_1_IF_NULL(3);
+	int 		occurence = PG_GETARG_INT32_0_IF_NULL(4);
+	text	   *opt = PG_GETARG_TEXT_PP_IF_NULL(5);
+	regex_t    *re;
+	pg_re_flags flags;
+
+	/*
+	 * return null if source_char is null or empty
+	 */
+	if (s == NULL || text_to_cstring(s)[0] == 0x00)
+		PG_RETURN_NULL();
+
+	/*
+	 * return source_char if pattern is null or empty
+	 */
+	if (p == NULL || text_to_cstring(p)[0] == 0x00)
+		PG_RETURN_TEXT_P(s);
+
+	/*
+	 * replace_string can be empty
+	 */
+	if (r == NULL)
+		r = cstring_to_text("");
+
+	/*
+	 * convert "position" to "source_char" offset
+	 */
+	if (position <= 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Invalid \"position\" value (%d) for \"regexp_replace\"",
+					position),
+				errhint("\"position\" must be a positive integer")));
+	position = position - 1;
+
+	/*
+	 * make sure occurence be a nonnegative integer
+	 */
+	if (occurence < 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Invalid \"occurence\" value (%d) for \"regexp_replace\"",
+					occurence),
+				errhint("\"occurence\" must be a nonnegative integer")));
+
+	ora_parse_re_flags(&flags, opt);
+	/* must be true */
+	flags.glob = true;
+
+	re = RE_compile_and_cache(p, flags.cflags, PG_GET_COLLATION());
+
+	PG_RETURN_TEXT_P(replace_text_regexp(s,
+										(void *) re,
+										r,
+										position,
+										occurence,
+										flags.glob));
+}
+
+static Datum
+build_ora_regexp_substr_result(regexp_matches_ctx *substrctx, int subexpr)
+{
+	int loc;
+	int so, eo;
+
+	Assert(substrctx);
+	Assert(subexpr >= 0 && subexpr <= substrctx->npatterns);
+
+	loc = substrctx->next_match * (substrctx->npatterns + 1) * 2;
+	loc += 2 * subexpr;
+
+	so = substrctx->match_locs[loc];
+	eo = substrctx->match_locs[loc + 1];
+
+	return DirectFunctionCall3(text_substr,
+							   PointerGetDatum(substrctx->orig_str),
+							   Int32GetDatum(so + 1),
+							   Int32GetDatum(eo - so));
+}
+
+/*
+ * REGEXP_SUBSTR(source_char, pattern)
+ */
+Datum
+ora_regexp_substr2(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_substr(fcinfo);
+}
+
+/*
+ * REGEXP_SUBSTR(source_char, pattern, position)
+ */
+Datum
+ora_regexp_substr3(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_substr(fcinfo);
+}
+
+/*
+ * REGEXP_SUBSTR(source_char, pattern, position, occurrence)
+ */
+Datum
+ora_regexp_substr4(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_substr(fcinfo);
+}
+
+/*
+ * REGEXP_SUBSTR(source_char, pattern, position, occurrence, match_param)
+ */
+Datum
+ora_regexp_substr5(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_substr(fcinfo);
+}
+
+/*
+ * REGEXP_SUBSTR(source_char, pattern
+ *				 [, position
+ *					[, occurrence
+ *					   [, match_param
+ *						  [, subexpr
+ *						  ]
+ *					   ]
+ *					]
+ *				 ]
+ *				)
+ *
+ * Note: position is a positive integer indicating the character of source_char
+ * where Oracle should begin the search. The default is 0, meaning that we
+ * begin the search at the first character of source_char.
+ *
+ * Note: occurrence is a positive integer indicating which occurrence of pattern
+ * in source_char we should search for. The default is 1, meaning that we search
+ * for the first occurrence of pattern.
+ *
+ * Note: For a pattern with subexpressions, subexpr is a nonnegative integer
+ * from 0 to 9 indicating which subexpression in pattern is to be returned by
+ * the function.
+ */
+Datum
+ora_regexp_substr(PG_FUNCTION_ARGS)
+{
+	text			   *s = PG_GETARG_TEXT_PP_IF_NULL(0);
+	text			   *p = PG_GETARG_TEXT_PP_IF_NULL(1);
+	int					position = PG_GETARG_INT32_1_IF_NULL(2);
+	int					occurence = PG_GETARG_INT32_1_IF_NULL(3);
+	text			   *opt = PG_GETARG_TEXT_PP_IF_NULL(4);
+	int					subexpr = PG_GETARG_INT32_0_IF_NULL(5);
+	regexp_matches_ctx *substrctx;
+	pg_re_flags			flags;
+
+	/*
+	 * return null if sourch_char is null or empty
+	 */
+	if (s == NULL || text_to_cstring(s)[0] == 0x00)
+		PG_RETURN_NULL();
+
+	/*
+	 * return null if pattern is null or empty
+	 */
+	if (p == NULL || text_to_cstring(p)[0] == 0x00)
+		PG_RETURN_NULL();
+
+	/*
+	 * convert "position" to "source_char" offset
+	 */
+	if (position <= 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Invalid \"position\" value (%d) for \"regexp_substr\"",
+					position),
+				errhint("\"position\" must be a positive integer")));
+	position = position - 1;
+
+	/*
+	 * make sure "occurence" be a positive integer
+	 */
+	if (occurence <= 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Invalid \"occurence\" value (%d) for \"regexp_substr\"",
+					occurence),
+				errhint("\"occurence\" must be a positive integer")));
+
+	/*
+	 * make sure "subexpr" be a nonnegative integer from 0 to 9
+	 */
+	if (subexpr < 0 || subexpr > 9)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Invalid \"subexpr\" value (%d) for \"regexp_substr\"",
+					subexpr),
+				errhint("\"subexpr\" must be a nonnegative integer from 0 to 9")));
+
+	ora_parse_re_flags(&flags, opt);
+	/* must be true */
+	flags.glob = true;
+
+	substrctx = setup_regexp_matches(s, p, &flags,
+									 PG_GET_COLLATION(),
+									 position, true,
+									 true, true);
+
+	/*
+	 * return null if occurence is greater than substrctx->nmatches
+	 */
+	if (occurence > substrctx->nmatches)
+		PG_RETURN_NULL();
+	if (subexpr > substrctx->npatterns)
+		PG_RETURN_NULL();
+
+	substrctx->next_match = occurence - 1;
+
+	return build_ora_regexp_substr_result(substrctx, subexpr);
+}
+
+static Datum
+build_ora_regexp_instr_result(regexp_matches_ctx *instrctx,
+							  int return_opt, int subexpr)
+{
+	int loc;
+	int so, eo;
+
+	Assert(instrctx);
+	Assert(return_opt >= 0);
+	Assert(subexpr >= 0 && subexpr <= instrctx->npatterns);
+
+	loc = instrctx->next_match * (instrctx->npatterns + 1) * 2;
+	loc += 2 * subexpr;
+
+	so = instrctx->match_locs[loc];
+	eo = instrctx->match_locs[loc + 1];
+
+	/*
+	 * Convert source_char offset to "position" by adding 1.
+	 */
+	if (return_opt == 0)
+		PG_RETURN_INT32(so + 1);
+
+	PG_RETURN_INT32(eo + 1);
+}
+
+/*
+ * REGEXP_INSTR (source_char, pattern)
+ */
+Datum
+ora_regexp_instr2(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_instr(fcinfo);
+}
+
+/*
+ * REGEXP_INSTR (source_char, pattern, position)
+ */
+Datum
+ora_regexp_instr3(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_instr(fcinfo);
+}
+
+/*
+ * REGEXP_INSTR (source_char, pattern, position, occurrence)
+ */
+Datum
+ora_regexp_instr4(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_instr(fcinfo);
+}
+
+/*
+ * REGEXP_INSTR (source_char, pattern, position, occurrence, return_opt)
+ */
+Datum
+ora_regexp_instr5(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_instr(fcinfo);
+}
+
+/*
+ * REGEXP_INSTR (source_char, pattern, position, occurrence, return_opt, match_param)
+ */
+Datum
+ora_regexp_instr6(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_instr(fcinfo);
+}
+
+/*
+ * REGEXP_INSTR (source_char, pattern
+ *				 [, position
+ *					[, occurrence
+ *					   [, return_opt
+ *						  [, match_param
+ *							 [, subexpr]
+ *						  ]
+ *					   ]
+ *					]
+ *				 ]
+ * Note: position is a positive integer indicating the character of source_char
+ * where we should begin the search. The default is 1, meaning that we begin the
+ * search at the first character of source_char.
+ *
+ * Note: occurrence is a positive integer indicating which occurrence of pattern
+ * in source_char we should search for. The default is 1, meaning that we search
+ * for the first occurrence of pattern. If occurrence is greater than 1, then
+ * the database searches for the second occurrence beginning with the first
+ * character following the first occurrence of pattern, and so forth.
+ *
+ * Note: return_option lets you specify what we should return in relation to
+ * the occurrence:
+ *	   If you specify 0, then we return the position of the first character of
+ *	   the occurrence. This is the default.
+ *	   If you specify greater than 1, then we return the position of the
+ *	   character following the occurrence.
+ *
+ * Note: For a pattern with subexpressions, subexpr is an integer from 0 to 9
+ * indicating which subexpression in pattern is the target of the function. The
+ * subexpr is a fragment of pattern enclosed in parentheses. Subexpressions can
+ * be nested. Subexpressions are numbered in order in which their left
+ * parentheses appear in pattern.
+ */
+Datum
+ora_regexp_instr(PG_FUNCTION_ARGS)
+{
+	text			   *s = PG_GETARG_TEXT_PP_IF_NULL(0);
+	text			   *p = PG_GETARG_TEXT_PP_IF_NULL(1);
+	int 				position = PG_GETARG_INT32_1_IF_NULL(2);
+	int 				occurence = PG_GETARG_INT32_1_IF_NULL(3);
+	int 				return_opt = PG_GETARG_INT32_0_IF_NULL(4);
+	text			   *opt = PG_GETARG_TEXT_PP_IF_NULL(5);
+	int 				subexpr = PG_GETARG_INT32_0_IF_NULL(6);
+	regexp_matches_ctx *instrctx;
+	pg_re_flags			flags;
+
+	/*
+	 * return null if source_char is null or empty
+	 */
+	if (s == NULL || text_to_cstring(s)[0] == 0x00)
+		PG_RETURN_NULL();
+
+	/*
+	 * return null if pattern is null or empty
+	 */
+	if (p == NULL || text_to_cstring(p)[0] == 0x00)
+		PG_RETURN_NULL();
+
+	/*
+	 * convert "position" to "source_char" offset
+	 */
+	if (position <= 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Invalid \"position\" value (%d) for \"regexp_instr\"",
+					position),
+				errhint("\"position\" must be a positive integer")));
+	position = position - 1;
+
+	/*
+	 * make sure "occurence" be a positive integer
+	 */
+	if (occurence <= 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Invalid \"occurence\" value (%d) for \"regexp_instr\"",
+					occurence),
+				errhint("\"occurence\" must be a positive integer")));
+
+	/*
+	 * make sure "return_opt" be a nonnegative integer
+	 */
+	if (return_opt < 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Invalid \"return_opt\" value (%d) for \"regexp_instr\"",
+					occurence),
+				errhint("\"return_opt\" must be a nonnegative integer")));
+
+	/*
+	 * make sure "subexpr" be a nonnegative integer from 0 to 9
+	 */
+	if (subexpr < 0 || subexpr > 9)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Invalid \"subexpr\" value (%d) for \"regexp_instr\"",
+					subexpr),
+				errhint("\"subexpr\" must be a nonnegative integer from 0 to 9")));
+
+	ora_parse_re_flags(&flags, opt);
+	/* must be true */
+	flags.glob = true;
+
+	instrctx = setup_regexp_matches(s, p, &flags,
+									PG_GET_COLLATION(),
+									position, true,
+									true, true);
+
+	if (occurence > instrctx->nmatches)
+		PG_RETURN_INT32(0);
+	if (subexpr > instrctx->npatterns)
+		PG_RETURN_INT32(0);
+
+	instrctx->next_match = occurence - 1;
+
+	return build_ora_regexp_instr_result(instrctx, return_opt, subexpr);
+}
+
+
+/*
+ * REGEXP_LIKE (source_char, pattern)
+ */
+Datum
+ora_regexp_like2(PG_FUNCTION_ARGS)
+{
+	return ora_regexp_like(fcinfo);
+}
+
+/*
+ * REGEXP_LIKE(source_char, pattern
+ *			   [, match_param]
+ *			  )
+ */
+Datum
+ora_regexp_like(PG_FUNCTION_ARGS)
+{
+	text	   *s = PG_GETARG_TEXT_PP_IF_NULL(0);
+	text	   *p = PG_GETARG_TEXT_PP_IF_NULL(1);
+	text	   *f = PG_GETARG_TEXT_PP_IF_NULL(2);
+	pg_re_flags flags;
+
+	if (s == NULL || text_to_cstring(s)[0] == 0x00)
+		PG_RETURN_BOOL(false);
+
+	if (p == NULL || text_to_cstring(p)[0] == 0x00)
+		PG_RETURN_BOOL(false);
+
+	ora_parse_re_flags(&flags, f);
+
+	PG_RETURN_BOOL(RE_compile_and_execute(p,
+										  VARDATA_ANY(s),
+										  VARSIZE_ANY_EXHDR(s),
+										  flags.cflags,
+										  PG_GET_COLLATION(),
+										  0, NULL));
+}
+#endif /* ADB */
+
