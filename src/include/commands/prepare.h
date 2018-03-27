@@ -39,7 +39,7 @@ typedef struct
 	/* dynahash.c requires key to be first field */
 	char		stmt_name[NAMEDATALEN];
 	int			node_num;		/* number of nodes where statement is active */
-	Oid 		node_ids[0];	/* node ids where statement is active */
+	Oid 		node_ids[FLEXIBLE_ARRAY_MEMBER];	/* node ids where statement is active */
 } DatanodeStatement;
 #endif
 

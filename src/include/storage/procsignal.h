@@ -31,9 +31,6 @@ typedef enum
 {
 	PROCSIG_CATCHUP_INTERRUPT,	/* sinval catchup interrupt */
 	PROCSIG_NOTIFY_INTERRUPT,	/* listen/notify interrupt */
-#ifdef ADB
-	PROCSIG_PGXCPOOL_RELOAD,	/* abort current transaction and reconnect to pooler */
-#endif
 	PROCSIG_PARALLEL_MESSAGE,	/* message from cooperating parallel backend */
 
 	/* Recovery conflict reasons */

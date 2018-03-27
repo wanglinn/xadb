@@ -593,7 +593,7 @@ create_tablespace_directories(const char *location, const Oid tablespaceoid)
 #ifdef ADB
 	char	   *location_with_version_dir = palloc(strlen(location) + 1 +
 									   strlen(TABLESPACE_VERSION_DIRECTORY) + 1 +
-													   PGXC_NODENAME_LENGTH + 1);
+													   NAMEDATALEN + 1);
 #else
 	char	   *location_with_version_dir;
 #endif

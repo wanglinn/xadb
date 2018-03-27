@@ -403,13 +403,12 @@ get_cluster_nextXids(TransactionId **xidarray,	/* output */
 	TransactionId	xid;
 	TransactionId	max_xid = FirstNormalTransactionId;
 	Datum			value;
-	int				numcoords = 0;
-	int				numdnodes = 0;
-	int				i;
-	int				num, idx = 0;
-	char		   *query = "select current_xid()";
-	Oid			   *coOids = NULL;
-	Oid			   *dnOids = NULL;
+	uint32			numcoords = 0;
+	uint32			numdnodes = 0;
+	uint32			i;
+	uint32			num, idx = 0;
+	const char	   *query = "select current_xid()";
+	Oid			   *oids = NULL;
 	Oid				node;
 
 	/* Only master-coordinator can do this */
@@ -417,51 +416,33 @@ get_cluster_nextXids(TransactionId **xidarray,	/* output */
 		return ;
 
 	/* Get cluster nodes' oids */
-	PgxcNodeGetOids(&coOids, &dnOids, &numcoords, &numdnodes, false);
+	adb_get_all_node_oid_array(&oids, &numcoords, &numdnodes, false);
 
 	num = numcoords + numdnodes;
 	if (arraylen)
 		*arraylen = num;
 	if (xidarray)
 		*xidarray = (TransactionId *) palloc0(num * sizeof(TransactionId));
+
+	/* Get all ndoes' nextXid */
+	for (i = 0; i < num; i++)
+	{
+		value = pgxc_execute_on_nodes(1, &oids[i], query);
+		xid = DatumGetTransactionId(value);
+		if (TransactionIdFollows(xid, max_xid))
+		{
+			max_xid = xid;
+			node = oids[i];
+		}
+		if (xidarray)
+			(*xidarray)[idx] = xid;
+		idx++;
+	}
+
 	if (oidarray)
-		*oidarray = (Oid *) palloc0(num * sizeof(Oid));
-
-	/* Get all coordinators' nextXid */
-	for (i = 0; i < numcoords; i++)
-	{
-		value = pgxc_execute_on_nodes(1, &coOids[i], query);
-		xid = DatumGetTransactionId(value);
-		if (TransactionIdFollows(xid, max_xid))
-		{
-			max_xid = xid;
-			node = coOids[i];
-		}
-		if (xidarray)
-			(*xidarray)[idx] = xid;
-		if (oidarray)
-			(*oidarray)[idx] = coOids[i];
-		idx++;
-	}
-	safe_pfree(coOids);
-
-	/* Get all datanodes' nextXid */
-	for (i = 0; i < numdnodes; i++)
-	{
-		value = pgxc_execute_on_nodes(1, &dnOids[i], query);
-		xid = DatumGetTransactionId(value);
-		if (TransactionIdFollows(xid, max_xid))
-		{
-			max_xid = xid;
-			node = dnOids[i];
-		}
-		if (xidarray)
-			(*xidarray)[idx] = xid;
-		if (oidarray)
-			(*oidarray)[idx] = dnOids[i];
-		idx++;
-	}
-	safe_pfree(dnOids);
+		*oidarray = oids;
+	else
+		pfree(oids);
 
 	if (max_node)
 		*max_node = node;
@@ -1169,4 +1150,3 @@ parse_seqOption_to_string(List * seqOptions, StringInfo strOption)
 		appendBinaryStringInfo(strOption, (const char *)&defel->defaction, sizeof(defel->defaction));
 	}
 }
-

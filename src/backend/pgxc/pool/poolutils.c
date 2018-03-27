@@ -44,42 +44,11 @@
 #include "pgxc/execRemote.h"
 #endif /* ADB */
 
-volatile bool need_reload_pooler = false;
 static List* get_all_xcnode_oid(void);
 
-/*
- * pgxc_pool_reload
- *
- * Reload data cached in pooler and reload node connection
- * information in all the server sessions. This aborts all
- * the existing transactions on this node and reinitializes pooler.
- * First a lock is taken on Pooler to keep consistency of node information
- * being updated. If connection information cached is already consistent
- * in pooler, reload is not executed.
- * Reload itself is made in 2 phases:
- * 1) Update database pools with new connection information based on catalog
- *    pgxc_node. Remote node pools are changed as follows:
- *	  - cluster nodes dropped in new cluster configuration are deleted and all
- *      their remote connections are dropped.
- *    - cluster nodes whose port or host value is modified are dropped the same
- *      way, as connection information has changed.
- *    - cluster nodes whose port or host has not changed are kept as is, but
- *      reorganized respecting the new cluster configuration.
- *    - new cluster nodes are added.
- * 2) Reload information in all the sessions of the local node.
- *    All the sessions in server are signaled to reconnect to pooler to get
- *    newest connection information and update connection information related
- *    to remote nodes. This results in losing prepared and temporary objects
- *    in all the sessions of server. All the existing transactions are aborted
- *    and a WARNING message is sent back to client.
- *    Session that invocated the reload does the same process, but no WARNING
- *    message is sent back to client.
- */
 Datum
 pgxc_pool_reload(PG_FUNCTION_ARGS)
 {
-	MemoryContext old_context;
-
 	if (!superuser())
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
@@ -96,60 +65,8 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 
 	RemoteXactReloadNode();
 
-	/* Take a lock on pooler to forbid any action during reload */
-	PoolManagerLock(true);
-
-	/* No need to reload, node information is consistent */
-	if (PoolManagerCheckConnectionInfo())
-	{
-		/* Release the lock on pooler */
-		PoolManagerLock(false);
-#ifdef ADB
-		/* Sync cluster nextXid with AGTM */
-		ClusterSyncXid();
-#endif
-		PG_RETURN_BOOL(true);
-	}
-
-	/* Reload connection information in pooler */
-	PoolManagerReloadConnectionInfo();
-
-	/* Be sure it is done consistently */
-	if (!PoolManagerCheckConnectionInfo())
-	{
-		/* Release the lock on pooler */
-		PoolManagerLock(false);
-#ifdef ADB
-		/* Sync cluster nextXid with AGTM */
-		ClusterSyncXid();
-#endif
-		PG_RETURN_BOOL(false);
-	}
-
-	/* Now release the lock on pooler */
-	PoolManagerLock(false);
-
-	/* Signal other sessions to reconnect to pooler */
-	ReloadConnInfoOnBackends();
-
-	/* Session is being reloaded, drop prepared and temporary objects */
-	DropAllPreparedStatements();
-
-	/* Now session information is reset in correct memory context */
-	old_context = MemoryContextSwitchTo(TopMemoryContext);
-
-	/* Reinitialize session, while old pooler connection is active */
-	InitMultinodeExecutor(true);
-
-	/* And reconnect to pool manager */
-	PoolManagerReconnect();
-
-	MemoryContextSwitchTo(old_context);
-
-#ifdef ADB
 	/* Sync cluster nextXid with AGTM */
 	ClusterSyncXid();
-#endif
 
 	PG_RETURN_BOOL(true);
 }
@@ -365,70 +282,6 @@ DropDBCleanConnection(char *dbname)
 
 	/* Clean up memory */
 	list_free(list);
-}
-
-/*
- * HandlePoolerReload
- *
- * This is called when PROCSIG_PGXCPOOL_RELOAD is activated.
- * Abort the current transaction if any, then reconnect to pooler.
- * and reinitialize session connection information.
- */
-void
-HandlePoolerReload(void)
-{
-	MemoryContext old_context;
-	ResourceOwner volatile reload_ro;
-
-	/* A Datanode has no pooler active, so do not bother about that */
-	if (IS_PGXC_DATANODE || !IsNormalProcessingMode() || MessageContext == NULL)
-		return;
-
-	/* Abort existing xact if any */
-	AbortCurrentTransaction();
-
-	/* Drop temp objects */
-	StartTransactionCommand();
-	ResetTempTableNamespace();
-	CommitTransactionCommand();
-
-	/* Session is being reloaded, drop prepared and temporary objects */
-	DropAllPreparedStatements();
-
-	/* Now session information is reset in correct memory context */
-	old_context = MemoryContextSwitchTo(TopMemoryContext);
-
-	/* Need to be able to look into catalogs */
-	CurrentResourceOwner = reload_ro = ResourceOwnerCreate(CurrentResourceOwner, "ForPoolerReload");
-
-	PG_TRY();
-	{
-		/* Reinitialize session, while old pooler connection is active */
-		InitMultinodeExecutor(true);
-
-		/* And reconnect to pool manager */
-		PoolManagerReconnect();
-	}PG_CATCH();
-	{
-		CurrentResourceOwner = ResourceOwnerGetParent(reload_ro);
-		PG_RE_THROW();
-	}PG_END_TRY();
-
-	/* Send a message back to client regarding session being reloaded */
-	ereport(WARNING,
-			(errcode(ERRCODE_OPERATOR_INTERVENTION),
-			 errmsg("session has been reloaded due to a cluster configuration modification"),
-			 errdetail("Temporary and prepared objects hold by session have been"
-					   " dropped and current transaction has been aborted.")));
-
-	/* Release everything */
-	ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_BEFORE_LOCKS, true, true);
-	ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_LOCKS, true, true);
-	ResourceOwnerRelease(CurrentResourceOwner, RESOURCE_RELEASE_AFTER_LOCKS, true, true);
-	CurrentResourceOwner = ResourceOwnerGetParent(reload_ro);
-	ResourceOwnerDelete(reload_ro);
-
-	MemoryContextSwitchTo(old_context);
 }
 
 static List* get_all_xcnode_oid(void)

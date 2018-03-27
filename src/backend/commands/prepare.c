@@ -459,7 +459,7 @@ InitQueryHashTable(void)
 		MemSet(&hash_ctl, 0, sizeof(hash_ctl));
 
 		hash_ctl.keysize = NAMEDATALEN;
-		hash_ctl.entrysize = sizeof(DatanodeStatement) + NumDataNodes * sizeof(int);
+		hash_ctl.entrysize = offsetof(DatanodeStatement, node_ids) + MaxDataNodes * sizeof(int);
 
 		datanode_queries = hash_create("Datanode Queries",
 									   64,

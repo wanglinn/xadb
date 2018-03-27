@@ -42,20 +42,6 @@ List *PQNGetConnUseOidList(List *oid_list)
 	return apply_for_node_use_oid(oid_list);
 }
 
-Oid PQNNodeGetNodeOid(int node_index)
-{
-	int index = node_index & PQN_NODE_VALUE_MARK;
-	unsigned int type = node_index & PQN_NODE_TYPE_MARK;
-	Oid oid;
-	if(type == PQN_COORD_VALUE)
-		oid = PGXCNodeGetNodeOid(index, PGXC_NODE_DATANODE);
-	else if(type == PQN_DATANODE_VALUE)
-		oid = PGXCNodeGetNodeOid(index, PGXC_NODE_COORDINATOR);
-	else
-		oid = InvalidOid;
-	return oid;
-}
-
 static void init_htab_oid_pgconn(void)
 {
 	HASHCTL hctl;
@@ -68,7 +54,7 @@ static void init_htab_oid_pgconn(void)
 	hctl.hash = oid_hash;
 	hctl.hcxt = TopMemoryContext;
 	size = 16;
-	while(size < NumCoords + NumDataNodes)
+	while(size < MaxCoords + MaxDataNodes)
 		size <<= 1;	/* size = size*2 */
 	htab_oid_pgconn = hash_create("hash oid to PGconn", size, &hctl
 				, HASH_ELEM | HASH_CONTEXT | HASH_FUNCTION);

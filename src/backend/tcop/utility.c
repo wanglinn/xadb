@@ -2916,7 +2916,7 @@ ExecRemoteUtilityStmt(RemoteUtilityContext *context)
 		return;
 
 	/* If no Datanodes defined, the query cannot be launched */
-	if (NumDataNodes == 0)
+	if (adb_get_all_datanode_oid_array(NULL, false) == 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("No Datanode defined in cluster"),

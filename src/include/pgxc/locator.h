@@ -152,8 +152,6 @@ extern void CoerceUserDefinedFuncArgs(Oid funcid,
 
 /* Global locator data */
 extern void FreeExecNodes(ExecNodes **exec_nodes);
-extern List *GetAllDataNodeIdx(void);
-extern List *GetAllCoordNodeIdx(void);
 
 extern List *GetInvolvedNodes(RelationLocInfo *rel_loc, int nelems, Datum* dist_values, bool* dist_nulls,
 							  Oid* dist_types, RelationAccessType accessType);

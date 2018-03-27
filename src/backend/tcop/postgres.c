@@ -4386,12 +4386,6 @@ PostgresMain(int argc, char *argv[],
 	/* If this postgres is launched from another Coord, do not initialize handles. skip it */
 	if (!am_walsender && IS_PGXC_COORDINATOR && !IsPoolHandle())
 	{
-		need_reload_pooler = false;
-
-		start_xact_command();
-		InitMultinodeExecutor(false);
-		finish_xact_command();
-
 		if (!IsConnFromCoord())
 		{
 			pool_handle = GetPoolManagerHandle();
@@ -4588,13 +4582,6 @@ PostgresMain(int argc, char *argv[],
 
 			/* Make sure the old PGconn will dump the trash data */
 			PQNReleaseAllConnect();
-		}
-
-		if(need_reload_pooler)
-		{
-			need_reload_pooler = false;
-			if(!am_walsender)
-				HandlePoolerReload();
 		}
 #endif
 		/*

@@ -589,29 +589,34 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 			LockLevel locklevel,
 			TryType try)
 {
-	LOCKTAG		locktag;
-	Oid				*coOids, *dnOids;
-	int numdnodes, numcoords;
-	StringInfoData  lock_cmd, unlock_cmd, lock_funcname, unlock_funcname, args;
-	char		str_key[MAXINT8LEN + 1];
-	int i, prev;
-	bool abort_locking = false;
-	Datum lock_status;
-	bool sessionLock = (locklevel == SESSION_LOCK);
-	bool dontWait = (try == DONT_WAIT);
+	LOCKTAG			locktag;
+	int				numcoords;
+	Oid			   *coOids;
+	StringInfoData	lock_cmd,
+					unlock_cmd,
+					lock_funcname,
+					unlock_funcname,
+					args;
+	Datum			lock_status;
+	int				i, prev;
+	char			str_key[MAXINT8LEN + 1];
+	bool			abort_locking = false;
+	bool			sessionLock = (locklevel == SESSION_LOCK);
+	bool			dontWait = (try == DONT_WAIT);
 
 	if (iskeybig)
 		SET_LOCKTAG_INT64(locktag, key64);
 	else
 		SET_LOCKTAG_INT32(locktag, key1, key2);
 
-	PgxcNodeGetOids(&coOids, &dnOids, &numcoords, &numdnodes, false);
+	numcoords = adb_get_all_coord_oid_array(&coOids, false);
 
 	/* Skip everything XC specific if there's only one Coordinator running */
 	if (numcoords <= 1)
 	{
 		LockAcquireResult res;
 
+		pfree(coOids);
 		res = LockAcquire(&locktag, lockmode, sessionLock, dontWait);
 		return (res == LOCKACQUIRE_OK || res == LOCKACQUIRE_ALREADY_HELD);
 	}
@@ -697,6 +702,13 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 		if (sessionLock && prev >= 0 && prev != PGXCNodeId - 1)
 			pgxc_execute_on_nodes(1, &coOids[prev], unlock_cmd.data);
 	}
+
+	pfree(coOids);
+	pfree(lock_cmd.data);
+	pfree(unlock_cmd.data);
+	pfree(lock_funcname.data);
+	pfree(unlock_funcname.data);
+	pfree(args.data);
 
 	return (!abort_locking);
 }

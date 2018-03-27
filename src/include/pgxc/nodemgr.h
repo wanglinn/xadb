@@ -18,36 +18,17 @@
 
 #include "nodes/parsenodes.h"
 
-#define PGXC_NODENAME_LENGTH	64
-
 /* GUC parameters, limit for number of nodes */
 extern int 	MaxDataNodes;
 extern int 	MaxCoords;
-/* Global number of nodes */
-extern volatile int NumDataNodes;
-extern volatile int NumCoords;
-extern volatile int NumCnNodes;
-extern volatile int NumDnNodes;
-/* Node definition */
-typedef struct
-{
-	Oid 		nodeoid;
-	NameData	nodename;
-	NameData	nodehost;
-	int			nodeport;
-	bool		nodeisprimary;
-	bool 		nodeispreferred;
-} NodeDefinition;
 
-extern void NodeTablesShmemInit(void);
-extern Size NodeTablesShmemSize(void);
+extern uint32 adb_get_all_coord_oid_array(Oid **pparr, bool order_name);
+extern List* adb_get_all_coord_oid_list(bool order_name);
+extern uint32 adb_get_all_datanode_oid_array(Oid **pparr, bool order_name);
+extern List* adb_get_all_datanode_oid_list(bool order_name);
+extern void adb_get_all_node_oid_array(Oid **pparr, uint32 *ncoord, uint32 *ndatanode, bool order_name);
+extern void adb_get_all_node_oid_list(List **list_coord, List **list_datanode, bool order_name);
 
-extern void PgxcNodeListAndCount(void);
-extern void PgxcNodeGetOids(Oid **coOids, Oid **dnOids,
-							int *num_coords, int *num_dns,
-							bool update_preferred);
-extern NodeDefinition *PgxcNodeGetDefinition(Oid node);
-extern NodeDefinition *PgxcNodeGetAllDefinition(int *numCN, int *numDN);
 extern void PgxcNodeAlter(AlterNodeStmt *stmt);
 extern void PgxcNodeCreate(CreateNodeStmt *stmt);
 extern void PgxcNodeRemove(DropNodeStmt *stmt);

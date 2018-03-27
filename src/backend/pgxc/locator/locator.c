@@ -746,51 +746,6 @@ GetLocatorType(Oid relid)
 	return ret;
 }
 
-
-/*
- * GetAllDataNodeIdx
- * Return a list of all Datanodes.
- * We assume all tables use all nodes in the prototype, so just return a list
- * from first one.
- */
-List *
-GetAllDataNodeIdx(void)
-{
-	int			i;
-	List	   *nodeList = NIL;
-
-	for (i = 0; i < NumDataNodes; i++)
-		nodeList = lappend_int(nodeList, i);
-
-	return nodeList;
-}
-
-/*
- * GetAllCoordNodeIdx
- * Return a list of all Coordinators
- * This is used to send DDL to all nodes and to clean up pooler connections.
- * Do not put in the list the local Coordinator where this function is launched.
- */
-List *
-GetAllCoordNodeIdx(void)
-{
-	int			i;
-	List	   *nodeList = NIL;
-
-	for (i = 0; i < NumCoords; i++)
-	{
-		/*
-		 * Do not put in list the Coordinator we are on,
-		 * it doesn't make sense to connect to the local Coordinator.
-		 */
-
-		if (i != PGXCNodeId - 1)
-			nodeList = lappend_int(nodeList, i);
-	}
-
-	return nodeList;
-}
-
 /*
  * RelationBuildLocator
  * Build locator information associated with the specified relation.

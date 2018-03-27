@@ -139,9 +139,6 @@ extern int	PoolManagerAbortTransactions(char *dbname, char *username, int **proc
 /* Return connections back to the pool, for both Coordinator and Datanode connections */
 extern void PoolManagerReleaseConnections(bool force_close);
 
-/* Lock/unlock pool manager */
-extern void PoolManagerLock(bool is_lock);
-
 /* Check if pool has a handle */
 extern bool IsPoolHandle(void);
 

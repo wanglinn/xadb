@@ -22,7 +22,6 @@ typedef bool (*PQNExecFinishHook_function)(void *context, struct pg_conn *conn, 
 typedef struct pg_conn* (*GetPGconnHook)(void *arg);
 
 extern List *PQNGetConnUseOidList(List *oid_list);
-extern Oid PQNNodeGetNodeOid(int node_index);
 extern bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, const void *context, bool blocking);
 extern bool PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook, PQNExecFinishHook_function hook, const void *context, bool blocking);
 extern bool PQNEFHNormal(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);

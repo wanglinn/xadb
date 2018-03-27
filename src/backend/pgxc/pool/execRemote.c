@@ -243,8 +243,10 @@ CloseRemoteQueryState(RemoteQueryState *rqstate)
 			if (rqstate->remoteCopyType != REMOTE_COPY_TUPLESTORE)
 				FreeTupleDesc(rqstate->tuple_desc);
 		}
+#if 0
 		if (rqstate->cursor_connections)
 			pfree(rqstate->cursor_connections);
+#endif
 		if (rqstate->tapenodes)
 			pfree(rqstate->tapenodes);
 		pfree(rqstate);

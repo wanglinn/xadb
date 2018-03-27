@@ -41,7 +41,6 @@
 #define PM_MSG_DISCONNECT			'd'
 #define PM_MSG_CLEAN_CONNECT		'f'
 #define PM_MSG_GET_CONNECT			'g'
-#define PM_MSG_LOCK					'o'
 #define PM_MSG_RELEASE_CONNECT		'r'
 #define PM_MSG_SET_COMMAND			's'
 #define PM_MSG_CLOSE_CONNECT		'C'
@@ -987,36 +986,6 @@ PoolManagerSendLocalCommand(int dn_count, int* dn_list, int co_count, int* co_li
 }
 
 /*
- * Lock/unlock pool manager
- * During locking, the only operations not permitted are abort, connection and
- * connection obtention.
- */
-void
-PoolManagerLock(bool is_lock)
-{
-	/* add by jiangmj for execute direct on (coord2) select pgxc_pool_reload()*/
-	if(IsCoordCandidate())
-	{
-		if (poolHandle == NULL)
-		{
-			MemoryContext old_context;
-			/* Now session information is reset in correct memory context */
-			old_context = MemoryContextSwitchTo(TopMemoryContext);
-
-			/* And reconnect to pool manager */
-			PoolManagerReconnect();
-
-			MemoryContextSwitchTo(old_context);
-		}
-	}
-	/* end */
-	Assert(poolHandle);
-
-	pool_putmessage(&(poolHandle->port), PM_MSG_LOCK, &is_lock, 1);
-	pool_flush(&poolHandle->port);
-}
-
-/*
  * Init PoolAgent
  */
 static bool
@@ -1318,7 +1287,7 @@ bool IsPoolHandle(void)
  * Abort PIDs registered with the agents for the given database.
  * Send back to client list of PIDs signaled to watch them.
  */
-int *
+static int *
 abort_pids(int *len, int pid, const char *database, const char *user_name)
 {
 	int *pids = NULL;
@@ -1446,10 +1415,6 @@ static void agent_handle_input(PoolAgent * agent, StringInfo s)
 				agent_acquire_connections(agent, s);
 				AssertState(agent->list_wait != NIL);
 			}
-			break;
-		case PM_MSG_LOCK:		/* Lock/unlock pooler */
-			err_calback.arg = NULL; /* do not send error if have */
-			is_pool_locked = pq_getmsgbyte(s);
 			break;
 		case PM_MSG_RELEASE_CONNECT:
 		case PM_MSG_CLOSE_CONNECT:
