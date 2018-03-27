@@ -292,6 +292,7 @@ static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 							ClusterMergeGatherPath *path, int flags);
 static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags);
 static ClusterGatherType get_gather_type(List *reduce_info_list);
+static Oid get_preferred_nodeoid(List *oid_list);
 static Plan* create_filter_if_replicate(Plan *subplan, List *reduce_list);
 static bool replace_reduce_replicate_nodes(Path *path, List *nodes);
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
@@ -6651,14 +6652,32 @@ static ClusterGatherType get_gather_type(List *reduce_info_list)
 	}
 }
 
+static Oid get_preferred_nodeoid(List *oid_list)
+{
+	ListCell *lc;
+	AssertArg(oid_list != NIL && IsA(oid_list, OidList));
+
+	foreach(lc, oid_list)
+	{
+		if (is_pgxc_nodepreferred(lfirst_oid(lc)))
+			return lfirst_oid(lc);
+	}
+
+	/* not found any preferred node, return first */
+	return linitial_oid(oid_list);
+}
+
 static Plan* create_filter_if_replicate(Plan *subplan, List *reduce_list)
 {
 	if(IsReduceInfoListReplicated(reduce_list))
 	{
 		List *exec_list = ReduceInfoListGetExecuteOidList(reduce_list);
-		subplan = (Plan*)make_result(subplan->targetlist, NULL, subplan);
-		/* just using first node's oid */
-		subplan->qual = list_make1(CreateNodeOidEqualOid(linitial_oid(exec_list)));
+		subplan = (Plan*)make_result(IsA(subplan, ModifyTable) ?
+										linitial(((ModifyTable*)subplan)->returningLists) : subplan->targetlist,
+									 NULL,
+									 subplan);
+		/* just using preferred node's oid */
+		subplan->qual = list_make1(CreateNodeOidEqualOid(get_preferred_nodeoid(exec_list)));
 		copy_plan_costsize(subplan, outerPlan(subplan));
 		list_free(exec_list);
 	}
