@@ -36,7 +36,6 @@ extern int		remoteConnType;
 
 /* Local node name and numer */
 extern char	*PGXCNodeName;
-extern int PGXCNodeId;
 extern Oid PGXCNodeOid;
 extern uint32 PGXCNodeIdentifier;
 

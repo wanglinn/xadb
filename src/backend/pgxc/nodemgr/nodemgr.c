@@ -172,7 +172,7 @@ static void xcnode_endscan(XCNodeScanDesc *desc)
 	{
 		heap_endscan(desc->scan_desc);
 	}
-	heap_close(desc->index_rel, AccessShareLock);
+	heap_close(desc->xcnode_rel, AccessShareLock);
 }
 
 uint32 adb_get_all_coord_oid_array(Oid **pparr, bool order_name)

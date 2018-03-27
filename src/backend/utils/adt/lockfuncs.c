@@ -675,7 +675,7 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 		if (i < numcoords)
 		{
 			/* If this Coordinator is myself, execute native lock calls */
-			if (i == PGXCNodeId - 1)
+			if (coOids[i] == PGXCNodeOid)
 				lock_status = LockAcquire(&locktag, lockmode, sessionLock, dontWait);
 			else
 				lock_status = pgxc_execute_on_nodes(1, &coOids[i], lock_cmd.data);
@@ -688,8 +688,14 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 				 * that we have obtained a local lock. But now that we are
 				 * aborting, we need to release the local lock first.
 				 */
-				if (i > PGXCNodeId - 1)
-					(void) LockRelease(&locktag, lockmode, sessionLock);
+				while ((i--) > 0)
+				{
+					if (coOids[i] == PGXCNodeOid)
+					{
+						LockRelease(&locktag, lockmode, sessionLock);
+						break;
+					}
+				}
 			}
 		}
 
@@ -699,7 +705,7 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 		 * keep that lock. Remember, the final status should be that there is
 		 * only *one* lock held, and that is the local lock.
 		 */
-		if (sessionLock && prev >= 0 && prev != PGXCNodeId - 1)
+		if (sessionLock && prev >= 0 && coOids[prev] != PGXCNodeOid)
 			pgxc_execute_on_nodes(1, &coOids[prev], unlock_cmd.data);
 	}
 

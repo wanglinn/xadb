@@ -406,7 +406,6 @@ static DNSServiceRef bonjour_sdref = NULL;
 
 #ifdef ADB
 char		   *PGXCNodeName = NULL;
-int				PGXCNodeId = -1;
 Oid				PGXCNodeOid = InvalidOid;
 
 /*
