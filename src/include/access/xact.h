@@ -422,8 +422,7 @@ extern bool TopXactBeginAGTM(void);
 extern void SetCurrentXactPhase1(void);
 extern void SetCurrentXactPhase2(void);
 extern bool IsCurrentXactInPhase2(void);
-extern void SetXactErrorAborted(bool flag);
-extern bool IsXactErrorAbort(void);
+extern void MarkCurrentTransactionErrorAborted(void);
 extern void SetCurrentTransactionStartTimestamp(TimestampTz timestamp);
 #endif
 

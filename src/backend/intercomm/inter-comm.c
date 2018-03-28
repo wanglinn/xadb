@@ -783,20 +783,27 @@ HandleFinishCommand(NodeHandle *handle, const char *commandTag)
 	PG_TRY();
 	{
 		(void) PQNOneExecFinish(handle->node_conn, HandleFinishCommandHook, NULL, true);
-		PGconnResetCustomOption(handle->node_conn, save_opt);
 		if (result.command_ok && commandTag && commandTag[0])
 		{
 			/*
 			 * Check whether the completionTag of result match
 			 * the commandTag.
 			 */
-			Assert (strcmp(result.completionTag, commandTag) == 0);
+			if (strcmp(result.completionTag, commandTag) != 0)
+			{
+				resetPQExpBuffer(&handle->node_conn->errorMessage);
+				appendPQExpBuffer(&handle->node_conn->errorMessage,
+								  "invalid command completion tag, expect \"%s\", but get \"%s\".",
+								  commandTag, result.completionTag);
+				result.command_ok = false;
+			}
 		}
 	} PG_CATCH();
 	{
 		PGconnResetCustomOption(handle->node_conn, save_opt);
 		PG_RE_THROW();
 	} PG_END_TRY();
+	PGconnResetCustomOption(handle->node_conn, save_opt);
 
 	return result.command_ok;
 }
@@ -834,7 +841,9 @@ HandleFinishCommandHook(void *context, struct pg_conn *conn, PQNHookFuncType typ
 	switch(type)
 	{
 		case PQNHFT_ERROR:
-			return PQNEFHNormal(NULL, conn, type);
+			resetPQExpBuffer(&conn->errorMessage);
+			appendPQExpBuffer(&conn->errorMessage, "%m");
+			break;
 		case PQNHFT_COPY_OUT_DATA:
 			break;
 		case PQNHFT_COPY_IN_ONLY:
@@ -851,8 +860,11 @@ HandleFinishCommandHook(void *context, struct pg_conn *conn, PQNHookFuncType typ
 				{
 					status = PQresultStatus(res);
 					if(status == PGRES_FATAL_ERROR)
-						PQNReportResultError(res, conn, ERROR, true);
-					else if(status == PGRES_COPY_IN)
+					{
+						resetPQExpBuffer(&conn->errorMessage);
+						appendPQExpBuffer(&conn->errorMessage, "%s",
+										  PQresultErrorMessage(res));
+					} else if(status == PGRES_COPY_IN)
 						PQputCopyEnd(conn, NULL);
 				}
 				va_end(args);

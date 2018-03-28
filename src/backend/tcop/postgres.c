@@ -4483,7 +4483,7 @@ PostgresMain(int argc, char *argv[],
 		ReduceCleanup();
 
 		/* Mark transaction abort with error */
-		SetXactErrorAborted(true);
+		MarkCurrentTransactionErrorAborted();
 #endif
 
 		/*
@@ -4503,9 +4503,6 @@ PostgresMain(int argc, char *argv[],
 
 		/* Make sure the old PGconn will dump the trash data */
 		PQNReleaseAllConnect();
-
-		/* reset xact error abort */
-		SetXactErrorAborted(false);
 #endif
 
 		if (am_walsender)

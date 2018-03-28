@@ -53,7 +53,7 @@ static InterXactStateData TopInterXactStateData = {
 
 static void ResetInterXactState(InterXactState state);
 static void InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool missing_ok);
-static void InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, bool ignore_error);
+static void InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, bool no_error);
 
 /*
  * GetPGconnAttatchCurrentInterXact
@@ -792,7 +792,7 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 }
 
 static void
-InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, bool ignore_error)
+InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, bool no_error)
 {
 	NodeHandle	   *handle;
 	ListCell	   *lc_handle;
@@ -803,7 +803,7 @@ InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_
 		if (!HandleSendQueryTree(handle, InvalidCommandId, NULL, command, NULL) ||
 			!HandleFinishCommand(handle, command_tag))
 		{
-			if (ignore_error)
+			if (no_error)
 				continue;
 
 			ereport(ERROR,
