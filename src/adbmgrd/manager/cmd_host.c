@@ -18,7 +18,7 @@
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
 #include "funcapi.h"
-#include "libpq/ip.h"
+#include "common/ip.h"
 #include "mgr/mgr_agent.h"
 #include "mgr/mgr_cmds.h"
 #include "mgr/mgr_msg_type.h"
@@ -291,12 +291,11 @@ Datum mgr_add_host_func(PG_FUNCTION_ARGS)
 	{
 		heap_close(rel, RowExclusiveLock);
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
-			,errmsg("address \"%s\" is already in host table", address)));		
+			,errmsg("address \"%s\" is already in host table", address)));
 	}
 	/* now, we can insert record */
 	tuple = heap_form_tuple(RelationGetDescr(rel), datum, isnull);
-	simple_heap_insert(rel, tuple);
-	CatalogUpdateIndexes(rel, tuple);
+	CatalogTupleInsert(rel, tuple);
 	heap_freetuple(tuple);
 
 	/* at end, close relation */
@@ -574,8 +573,7 @@ Datum mgr_alter_host_func(PG_FUNCTION_ARGS)
 	}
 
 	new_tuple = heap_modify_tuple(tuple, host_dsc, datum,isnull, got);
-	simple_heap_update(rel, &tuple->t_self, new_tuple);
-	CatalogUpdateIndexes(rel, new_tuple);
+	CatalogTupleUpdate(rel, &tuple->t_self, new_tuple);
 	ReleaseSysCache(tuple);
 	/* at end, close relation */
 	heap_close(rel, RowExclusiveLock);
@@ -1281,7 +1279,7 @@ Datum mgr_start_agent_hostnamelist(PG_FUNCTION_ARGS)
 }
 /*
 * command format:  start agent all password xxx;
-*/ 
+*/
 Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 {
 	InitNodeInfo *info;
@@ -1955,9 +1953,9 @@ static bool mgr_check_address_repeate(char *address)
 	bool isNull = false;
 	bool rest = false;
 	char *addr;
-	
+
 	Assert(address);
-	
+
 	relHost = heap_open(HostRelationId, AccessShareLock);
 	relScan = heap_beginscan_catalog(relHost, 0, NULL);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
@@ -2002,7 +2000,7 @@ static bool mgr_check_can_deploy(char *hostname)
 	bool bget = false;
 	bool res = true;
 	Oid hostOid;
-	
+
 	Assert(hostname);
 	rel = heap_open(HostRelationId, AccessShareLock);
 	scan = heap_beginscan_catalog(rel, 0, NULL);
@@ -2012,7 +2010,7 @@ static bool mgr_check_can_deploy(char *hostname)
 		Assert(mgr_host);
 
 		host_addr = heap_getattr(tuple, Anum_mgr_host_hostaddr, RelationGetDescr(rel), &isNull);
-		
+
 		if(isNull)
 		{
 			heap_endscan(scan);
@@ -2046,7 +2044,7 @@ static bool mgr_check_can_deploy(char *hostname)
 		pfree(address);
 		return false;
 	}
-	
+
 	/*check the node*/
 	ScanKeyInit(&key[0],
 		Anum_mgr_node_nodehost
@@ -2075,6 +2073,6 @@ static bool mgr_check_can_deploy(char *hostname)
 	pfree(address);
 	heap_endscan(scan);
 	heap_close(rel, AccessShareLock);
-	
+
 	return rest;
 }

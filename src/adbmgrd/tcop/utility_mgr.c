@@ -85,11 +85,13 @@ const char *mgr_CreateCommandTag(Node *parsetree)
 	return tag;
 }
 
-void mgr_ProcessUtility(Node *parsetree, const char *queryString,
+void mgr_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 									ProcessUtilityContext context, ParamListInfo params,
+									QueryEnvironment *queryEnv,
 									DestReceiver *dest,
 									char *completionTag)
 {
+	Node *parsetree = pstmt->utilityStmt;
 	AssertArg(parsetree);
 	switch(nodeTag(parsetree))
 	{

@@ -5876,7 +5876,12 @@ StartAdbmonitorWorker(void)
 			 * we'd better have something random in the field to prevent
 			 * unfriendly people from sending cancels to them.
 			 */
-			MyCancelKey = PostmasterRandom();
+			if (!RandomCancelKey(&MyCancelKey))
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						errmsg("could not generate random cancel key")));
+			}
 			bn->cancel_key = MyCancelKey;
 
 			/* Autovac workers are not dead_end and need a child slot */

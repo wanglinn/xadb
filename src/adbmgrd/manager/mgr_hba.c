@@ -271,7 +271,7 @@ static void mgr_add_hba_one(char *coord_name, List *args_list, bool record_err_m
 		str = lfirst(lc);
 		joint_hba_send_str(str, &hbasendmsg);
 		joint_hba_table_str(str, &hbainfomsg);
-		
+
 		/*check the hba value is valid*/
 		is_valid = check_pghbainfo_vaild(&hbasendmsg, &err_msg->description, record_err_msg);
 		if(!is_valid)
@@ -339,7 +339,7 @@ static void mgr_add_hba_one(char *coord_name, List *args_list, bool record_err_m
 		foreach(lc, list_elem)
 		{
 			str_elem = lfirst(lc);
-			datum[Anum_mgr_hba_nodename - 1] = NameGetDatum(coord_name);
+			datum[Anum_mgr_hba_nodename - 1] = CStringGetDatum(coord_name); /* CString compatible Name */
 			datum[Anum_mgr_hba_value - 1] = CStringGetTextDatum(str_elem);
 			tuple_insert_table_hba(datum, isnull);
 		}
@@ -366,8 +366,7 @@ static Oid tuple_insert_table_hba(Datum *values, bool *isnull)
 	rel = heap_open(HbaRelationId, RowExclusiveLock);
 
 	newtuple = heap_form_tuple(RelationGetDescr(rel), values, isnull);
-	hba_oid = simple_heap_insert(rel, newtuple);
-	CatalogUpdateIndexes(rel, newtuple);
+	hba_oid = CatalogTupleInsert(rel, newtuple);
 	heap_close(rel, RowExclusiveLock);
 	heap_freetuple(newtuple);
 	return hba_oid;
@@ -738,8 +737,7 @@ static void delete_table_hba(char *coord_name, char *values)
 	}
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
-		simple_heap_delete(rel, &tuple->t_self);
-		CatalogUpdateIndexes(rel, tuple);
+		CatalogTupleDelete(rel, &tuple->t_self);
 	}
 
 	heap_endscan(rel_scan);
@@ -768,7 +766,7 @@ void add_hba_table_to_file(char *coord_name)
 	char *hba_value;
 	List *value_list = NIL;
 	GetAgentCmdRst err_msg;
-	
+
 	Assert(coord_name);
 	initStringInfo(&(err_msg.description));
 	err_msg.ret = true;
@@ -783,14 +781,14 @@ void add_hba_table_to_file(char *coord_name)
 		rel_scan = heap_beginscan_catalog(rel, 0, NULL);
 	else
 		rel_scan = heap_beginscan_catalog(rel, 1, &scankey[0]);
-		
+
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_hba = (Form_mgr_hba)GETSTRUCT(tuple);
 		Assert(mgr_hba);
 		coord_name = NameStr(mgr_hba->nodename);
 		hba_value = TextDatumGetCString(&(mgr_hba->hbavalue));
-		
+
 		value_list = lappend(value_list, (void *)hba_value);
 		mgr_add_hba_one((char *)coord_name, value_list, true, false, &err_msg);
 		if (!err_msg.ret)

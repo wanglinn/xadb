@@ -19,8 +19,7 @@ include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = access bootstrap catalog parser commands executor foreign lib libpq \
 	main nodes optimizer port postmaster regex replication rewrite manager \
-	storage tcop tsearch utils $(top_builddir)/src/timezone \
-	$(top_builddir)/src/interfaces/libpq
+	statistics storage tcop tsearch utils $(top_builddir)/src/timezone
 
 include $(srcdir)/common.mk
 
@@ -137,6 +136,9 @@ parser/gram.h: $(top_srcdir)/src/backend/parser/gram.y
 storage/lmgr/lwlocknames.h: $(backend_src_dir)/storage/lmgr/generate-lwlocknames.pl storage/lmgr/lwlocknames.txt
 	$(MAKE) -C storage/lmgr lwlocknames.h
 
+utils/fmgrprotos.h: $(backend_src_dir)/utils/Gen_fmgrtab.pl $(backend_src_dir)/catalog/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.h
+	$(MAKE) -C utils fmgrprotos.h
+
 utils/fmgroids.h: $(backend_src_dir)/utils/Gen_fmgrtab.pl $(backend_src_dir)/catalog/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.h
 	$(MAKE) -C utils fmgroids.h
 
@@ -164,7 +166,7 @@ submake-schemapg:
 
 .PHONY: generated-headers
 
-generated-headers: $(top_builddir)/src/adbmgrd/include/parser/gram.h $(mgr_inc_dir)/catalog/schemapg.h $(mgr_inc_dir)/storage/lwlocknames.h $(top_builddir)/src/include/utils/errcodes.h $(mgr_inc_dir)/utils/fmgroids.h $(mgr_inc_dir)/utils/probes.h
+generated-headers: $(top_builddir)/src/adbmgrd/include/parser/gram.h $(mgr_inc_dir)/catalog/schemapg.h $(mgr_inc_dir)/storage/lwlocknames.h $(top_builddir)/src/include/utils/errcodes.h $(mgr_inc_dir)/utils/fmgroids.h $(mgr_inc_dir)/utils/probes.h $(mgr_inc_dir)/utils/fmgrprotos.h
 
 $(top_builddir)/src/adbmgrd/include/parser/gram.h: parser/gram.h
 	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
@@ -192,6 +194,9 @@ $(mgr_inc_dir)/utils/probes.h: utils/probes.h
 	cd '$(dir $@)' && rm -f $(notdir $@) && \
 	    $(LN_S) "../../utils/probes.h" .
 
+$(mgr_inc_dir)/utils/fmgrprotos.h: utils/fmgrprotos.h
+	cd '$(dir $@)' && rm -f $(notdir $@) && \
+	    $(LN_S) "../../utils/fmgrprotos.h" .
 
 utils/probes.o: utils/probes.d $(SUBDIROBJS)
 	$(DTRACE) $(DTRACEFLAGS) -C -G -s $(call expand_subsys,$^) -o $@

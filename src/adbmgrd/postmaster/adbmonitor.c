@@ -416,7 +416,9 @@ AdbMntLauncherMain(int argc, char *argv[])
 		 */
 		rc = WaitLatch(&MyProc->procLatch,
 					   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
-					   (nap.tv_sec * 1000L) + (nap.tv_usec / 1000L));
+					   (nap.tv_sec * 1000L) + (nap.tv_usec / 1000L),
+#warning TODO make sure argument 0 is right, or use WAIT_EVENT_XXX
+					   0);
 		ResetLatch(&MyProc->procLatch);
 
 		/* Process sinval catchup interrupts that happened while sleeping */
@@ -1225,7 +1227,7 @@ adbmonitor_exec_job(Oid jobid)
 			, errmsg("column command is null")));
 	}
 	initStringInfo(&commandsql);
-	appendStringInfo(&commandsql, "%s", TextDatumGetCString(commanddatum));	
+	appendStringInfo(&commandsql, "%s", TextDatumGetCString(commanddatum));
 	ReleaseSysCache(tuple);
 	heap_close(rel_job, AccessShareLock);
 	if (SPI_connect() < 0)
@@ -1286,19 +1288,18 @@ update_next_work_time(Oid jobid)
 		datum[Anum_monitor_job_nexttime - 1] = TimestampTzGetDatum(next_time);
 		got[Anum_monitor_job_nexttime - 1] = true;
 		newtuple = heap_modify_tuple(tuple, tupledsc, datum,isnull, got);
-		simple_heap_update(rel_job, &(tuple->t_self), newtuple);
-		CatalogUpdateIndexes(rel_job, newtuple);
+		CatalogTupleUpdate(rel_job, &(tuple->t_self), newtuple);
 	}
 
 	heap_endscan(rel_scan);
 	heap_close(rel_job, RowExclusiveLock);
-	
+
 }
 
 /*
 * input: hostname, monitor_item
 */
-Datum 
+Datum
 adbmonitor_job(PG_FUNCTION_ARGS)
 {
 	char		  *scriptpath = NULL;
@@ -1352,7 +1353,7 @@ adbmonitor_job(PG_FUNCTION_ARGS)
 			, errmsg("column path is null")));
 	}
 	scriptpath = TextDatumGetCString(datumpath);
-	
+
 	/*connect to agent*/
 	ma = ma_connect_hostoid(hostoid);
 	if (!ma_isconnected(ma))

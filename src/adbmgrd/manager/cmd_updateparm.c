@@ -153,7 +153,7 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 	nodetype = parm_node->nodetype;
 	/*nodename*/
 	namestrcpy(&nodename, parm_node->nodename);
-	
+
 	/*open systbl: mgr_parm*/
 	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
 	/* check node */
@@ -174,7 +174,7 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 			heap_close(rel_node, RowExclusiveLock);
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				, errmsg("the type of node \"%s\" is not %s", NameStr(nodename), mgr_nodetype_str(parm_node->nodetype))));
-		}	
+		}
 		heap_freetuple(checktuple);
 	}
 
@@ -182,8 +182,8 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 	rel_parm = heap_open(ParmRelationId, RowExclusiveLock);
 
 	/*set datanode master/slave all (key=value,...)*/
-	if (strcmp(nodename.data, MACRO_STAND_FOR_ALL_NODENAME) == 0 && (CNDN_TYPE_DATANODE_MASTER == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype || CNDN_TYPE_COORDINATOR_MASTER == nodetype 
-	|| CNDN_TYPE_COORDINATOR_SLAVE == nodetype || GTM_TYPE_GTM_MASTER == nodetype 
+	if (strcmp(nodename.data, MACRO_STAND_FOR_ALL_NODENAME) == 0 && (CNDN_TYPE_DATANODE_MASTER == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype || CNDN_TYPE_COORDINATOR_MASTER == nodetype
+	|| CNDN_TYPE_COORDINATOR_SLAVE == nodetype || GTM_TYPE_GTM_MASTER == nodetype
 	|| GTM_TYPE_GTM_SLAVE == nodetype))
 	{
 		bneednotice = true;
@@ -384,8 +384,7 @@ static void mgr_add_givenname_updateparm(MGRUpdateparm *parm_node, Name nodename
 		datum[Anum_mgr_updateparm_value-1] = CStringGetTextDatum(value.data);
 		/* now, we can insert record */
 		newtuple = heap_form_tuple(RelationGetDescr(rel_updateparm), datum, isnull);
-		simple_heap_insert(rel_updateparm, newtuple);
-		CatalogUpdateIndexes(rel_updateparm, newtuple);
+		CatalogTupleInsert(rel_updateparm, newtuple);
 		heap_freetuple(newtuple);
 	}
 	list_free(param_keyvules_list);
@@ -674,8 +673,7 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 				got[Anum_mgr_updateparm_value-1] = true;
 				tupledsc = RelationGetDescr(noderel);
 				newtuple = heap_modify_tuple(tuple, tupledsc, datum,isnull, got);
-				simple_heap_update(noderel, &tuple->t_self, newtuple);
-				CatalogUpdateIndexes(noderel, newtuple);
+				CatalogTupleUpdate(noderel, &tuple->t_self, newtuple);
 				heap_endscan(rel_scan);
 				return PARM_NEED_UPDATE;
 			}
@@ -737,8 +735,7 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 					else
 						ret = PARM_NEED_NONE;
 					pfree(kValue);
-					simple_heap_delete(noderel, &tuple->t_self);
-					CatalogUpdateIndexes(noderel, tuple);
+					CatalogTupleDelete(noderel, &tuple->t_self);
 					heap_endscan(rel_scan);
 					heap_endscan(rel_scanall);
 					return ret;
@@ -780,8 +777,7 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 				got[Anum_mgr_updateparm_value-1] = true;
 				tupledsc = RelationGetDescr(noderel);
 				newtuple = heap_modify_tuple(tuple, tupledsc, datum,isnull, got);
-				simple_heap_update(noderel, &tuple->t_self, newtuple);
-				CatalogUpdateIndexes(noderel, newtuple);
+				CatalogTupleUpdate(noderel, &tuple->t_self, newtuple);
 				heap_endscan(rel_scan);
 				heap_endscan(rel_scanall);
 				return PARM_NEED_UPDATE;
@@ -943,7 +939,7 @@ static void mgr_reload_parm(Relation noderel, char *nodename, char nodetype, Str
 			/*for coordinator all*/
 			else if (CNDN_TYPE_COORDINATOR == nodetype)
 			{
-				if (mgr_node->nodetype != CNDN_TYPE_COORDINATOR_MASTER 
+				if (mgr_node->nodetype != CNDN_TYPE_COORDINATOR_MASTER
 						&& mgr_node->nodetype != CNDN_TYPE_COORDINATOR_SLAVE)
 					continue;
 			}
@@ -1060,7 +1056,7 @@ static int mgr_delete_tuple_not_all(Relation noderel, char nodetype, Name key)
 		/*for coordinator all*/
 		else if (CNDN_TYPE_COORDINATOR == nodetype)
 		{
-			if (mgr_updateparm->updateparmnodetype != CNDN_TYPE_COORDINATOR_MASTER 
+			if (mgr_updateparm->updateparmnodetype != CNDN_TYPE_COORDINATOR_MASTER
 					&& mgr_updateparm->updateparmnodetype != CNDN_TYPE_COORDINATOR_SLAVE)
 				continue;
 		}
@@ -1068,8 +1064,7 @@ static int mgr_delete_tuple_not_all(Relation noderel, char nodetype, Name key)
 			continue;
 		/*delete the tuple which nodename is not MACRO_STAND_FOR_ALL_NODENAME and has the same nodetype and key*/
 		delnum++;
-		simple_heap_delete(noderel, &looptuple->t_self);
-		CatalogUpdateIndexes(noderel, looptuple);
+		CatalogTupleDelete(noderel, &looptuple->t_self);
 	}
 	heap_endscan(rel_scan);
 	return delnum;
@@ -1259,8 +1254,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 				else
 					continue;
 				/*delete the tuple which nodetype is the given nodetype*/
-				simple_heap_delete(rel_updateparm, &looptuple->t_self);
-				CatalogUpdateIndexes(rel_updateparm, looptuple);
+				CatalogTupleDelete(rel_updateparm, &looptuple->t_self);
 			}
 			heap_endscan(rel_scan);
 		}
@@ -1333,8 +1327,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 				*/
 				if (strcmp(NameStr(nodename), MACRO_STAND_FOR_ALL_NODENAME) == 0 || strcmp(NameStr(mgr_updateparm->updateparmnodename), NameStr(nodename)) ==0)
 				{
-					simple_heap_delete(rel_updateparm, &looptuple->t_self);
-					CatalogUpdateIndexes(rel_updateparm, looptuple);
+					CatalogTupleDelete(rel_updateparm, &looptuple->t_self);
 				}
 				else
 				{
@@ -1367,8 +1360,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 					datum[Anum_mgr_updateparm_value-1] = CStringGetTextDatum(defaultvalue.data);
 					/* now, we can insert record */
 					newtuple = heap_form_tuple(RelationGetDescr(rel_updateparm), datum, isnull);
-					simple_heap_insert(rel_updateparm, newtuple);
-					CatalogUpdateIndexes(rel_updateparm, newtuple);
+					CatalogTupleInsert(rel_updateparm, newtuple);
 					heap_freetuple(newtuple);
 				}
 				heap_endscan(rel_scan);
@@ -1673,8 +1665,7 @@ void mgr_parmr_delete_tuple_nodename_nodetype(Relation noderel, Name nodename, c
 	rel_scan = heap_beginscan_catalog(noderel, 2, scankey);
 	while((looptuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
-		simple_heap_delete(noderel, &looptuple->t_self);
-		CatalogUpdateIndexes(noderel, looptuple);
+		CatalogTupleDelete(noderel, &looptuple->t_self);
 	}
 	heap_endscan(rel_scan);
 }
@@ -1712,8 +1703,7 @@ void mgr_parmr_update_tuple_nodename_nodetype(Relation noderel, Name nodename, c
 		datum[Anum_mgr_updateparm_nodetype-1] = CharGetDatum(newnodetype);
 		got[Anum_mgr_updateparm_nodetype-1] = true;
 		newtuple = heap_modify_tuple(looptuple, tupledsc, datum,isnull, got);
-		simple_heap_update(noderel, &looptuple->t_self, newtuple);
-		CatalogUpdateIndexes(noderel, newtuple);
+		CatalogTupleUpdate(noderel, &looptuple->t_self, newtuple);
 	}
 	heap_endscan(rel_scan);
 }
@@ -1794,9 +1784,9 @@ Datum mgr_show_var_param(PG_FUNCTION_ARGS)
 		masterTupleOid = mgr_node->nodemasternameoid;
 	heap_freetuple(checkTuple);
 	heap_close(relNode, AccessShareLock);
-	
-	
-		
+
+
+
 	if (SRF_IS_FIRSTCALL())
 	{
 		MemoryContext oldcontext;
@@ -2093,7 +2083,7 @@ static char *mgr_get_value_in_updateparm(Relation rel_node, HeapTuple tuple)
 			, errmsg("column value is null")));
 	}
 	kValue = pstrdup(TextDatumGetCString(datumValue));
-	
+
 	return kValue;
 }
 

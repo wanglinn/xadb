@@ -5,7 +5,7 @@
  *
  * The ADB monitor dynamic item, uses two catalog table to record the job content:
  * job table and job table. Jobitem table used to record monitor item name,
- * batch absoulte path with filename and its description. Job table used to record 
+ * batch absoulte path with filename and its description. Job table used to record
  * jobname, next_runtime, interval, status, command(SQL format) and description.
  *
  * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
@@ -234,8 +234,7 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 	/* now, we can insert record */
 	rel = heap_open(MjobRelationId, RowExclusiveLock);
 	newtuple = heap_form_tuple(RelationGetDescr(rel), datum, isnull);
-	simple_heap_insert(rel, newtuple);
-	CatalogUpdateIndexes(rel, newtuple);
+	CatalogTupleInsert(rel, newtuple);
 	heap_freetuple(newtuple);
 	/*close relation */
 	heap_close(rel, RowExclusiveLock);
@@ -365,9 +364,8 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 	}
 	job_dsc = RelationGetDescr(rel);
 	newtuple = heap_modify_tuple(checktuple, job_dsc, datum,isnull, got);
-	simple_heap_update(rel, &checktuple->t_self, newtuple);
-	CatalogUpdateIndexes(rel, newtuple);	
-		
+	CatalogTupleUpdate(rel, &checktuple->t_self, newtuple);
+
 	heap_freetuple(checktuple);
 	/* at end, close relation */
 	heap_close(rel, RowExclusiveLock);
@@ -454,8 +452,7 @@ Datum monitor_job_drop_func(PG_FUNCTION_ARGS)
 		tuple = montiot_job_get_item_tuple(rel, &name);
 		if(HeapTupleIsValid(tuple))
 		{
-			simple_heap_delete(rel, &(tuple->t_self));
-			CatalogUpdateIndexes(rel, tuple);
+			CatalogTupleDelete(rel, &(tuple->t_self));
 			heap_freetuple(tuple);
 		}
 	}
@@ -572,7 +569,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 			iloop++;
 			appendStringInfo(&infosendmsg, "drop node \"%s\"; ", NameStr(mgr_node->nodename));
 		}
-		
+
 		pfree(address);
 	}
 	count = iloop;
@@ -646,7 +643,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 						else
 						{
 							result = false;
-							ereport(WARNING, (errmsg("from ADBMGR, on coordinator \"%s\", execute \"%s\" fail: %s" 
+							ereport(WARNING, (errmsg("from ADBMGR, on coordinator \"%s\", execute \"%s\" fail: %s"
 								, NameStr(mgr_node->nodename), infosendmsg.data, PQresultErrorMessage(res))));
 							appendStringInfo(&strerr, "from ADBMGR, on coordinator \"%s\" execute \"%s\" fail: %s\n"
 							, NameStr(mgr_node->nodename), infosendmsg.data, PQresultErrorMessage(res));
@@ -664,7 +661,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 						else
 						{
 							result = false;
-							ereport(WARNING, (errmsg("from ADBMGR, on coordinator \"%s\", execute \"%s\" fail: %s" 
+							ereport(WARNING, (errmsg("from ADBMGR, on coordinator \"%s\", execute \"%s\" fail: %s"
 								, NameStr(mgr_node->nodename), "select pgxc_pool_reload()", PQresultErrorMessage(res))));
 							appendStringInfo(&strerr, "from ADBMGR, on coordinator \"%s\" execute \"%s\" fail: %s\n"
 								, NameStr(mgr_node->nodename), "select pgxc_pool_reload()", PQresultErrorMessage(res));
@@ -672,7 +669,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 						PQclear(res);
 					}
 					PQfinish(conn);
-					
+
 				}PG_CATCH();
 				{
 					ereport(WARNING, (errmsg("the command result : %s", strerr.data)));
@@ -741,13 +738,13 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 			mgr_node->nodeincluster = false;
 			heap_inplace_update(relNode, tuple);
 		}
-		
+
 		pfree(address);
 		pfree(userName);
 	}
 	heap_endscan(relScan);
 	heap_close(relNode, RowExclusiveLock);
-	
+
 	pfree(restmsg.data);
 	pfree(constr.data);
 	pfree(infosendmsg.data);
@@ -830,7 +827,7 @@ bool mgr_check_job_in_updateparam(const char *subjobstr)
 	}
 	heap_endscan(relScan);
 	heap_close(relJob, AccessShareLock);
-	
+
 	if (res)
 	{
 		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)

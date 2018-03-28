@@ -190,8 +190,7 @@ Datum monitor_jobitem_add_func(PG_FUNCTION_ARGS)
 	/* now, we can insert record */
 	rel = heap_open(MjobitemRelationId, RowExclusiveLock);
 	newtuple = heap_form_tuple(RelationGetDescr(rel), datum, isnull);
-	simple_heap_insert(rel, newtuple);
-	CatalogUpdateIndexes(rel, newtuple);
+	CatalogTupleInsert(rel, newtuple);
 	heap_freetuple(newtuple);
 	/*close relation */
 	heap_close(rel, RowExclusiveLock);
@@ -297,9 +296,8 @@ Datum monitor_jobitem_alter_func(PG_FUNCTION_ARGS)
 	}
 	jobitem_dsc = RelationGetDescr(rel);
 	newtuple = heap_modify_tuple(checktuple, jobitem_dsc, datum,isnull, got);
-	simple_heap_update(rel, &checktuple->t_self, newtuple);
-	CatalogUpdateIndexes(rel, newtuple);
-		
+	CatalogTupleUpdate(rel, &checktuple->t_self, newtuple);
+
 	heap_freetuple(checktuple);
 	/* at end, close relation */
 	heap_close(rel, RowExclusiveLock);
@@ -386,8 +384,7 @@ Datum monitor_jobitem_drop_func(PG_FUNCTION_ARGS)
 		tuple = montiot_jobitem_get_item_tuple(rel, &name);
 		if(HeapTupleIsValid(tuple))
 		{
-			simple_heap_delete(rel, &(tuple->t_self));
-			CatalogUpdateIndexes(rel, tuple);
+			CatalogTupleDelete(rel, &(tuple->t_self));
 			heap_freetuple(tuple);
 		}
 	}

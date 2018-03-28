@@ -148,7 +148,7 @@ monitor_get_hostinfo(PG_FUNCTION_ARGS)
     float sent_speed;
     float recv_speed;
     float disk_iops;
-    
+
     Monitor_Host monitor_host;
     Monitor_Cpu monitor_cpu;
     Monitor_Mem monitor_mem;
@@ -205,13 +205,13 @@ monitor_get_hostinfo(PG_FUNCTION_ARGS)
         host_addr = NameStr(mgr_host->hostname);
     else
         host_addr = TextDatumGetCString(datum);
-    
+
     resetStringInfo(&monitor_alarm.alarm_source);
     appendStringInfoString(&monitor_alarm.alarm_source, host_addr);
 
 		namestrcpy(&hostname, NameStr(mgr_host->hostname));
     ma = ma_connect_hostoid(HeapTupleGetOid(tup));
-    
+
     if (!ma_isconnected(ma))
     {
         /* report error message */
@@ -290,7 +290,7 @@ monitor_get_hostinfo(PG_FUNCTION_ARGS)
         /* disk i/o write time (in milliseconds) */
         monitor_disk.disk_io_write_time = strtoull(&agentRstStr.data[agentRstStr.cursor]);
         agentRstStr.cursor = agentRstStr.cursor + strlen(&agentRstStr.data[agentRstStr.cursor]) + 1;
-        
+
         /* disk total size */
         monitor_disk.disk_total = strtoull(&agentRstStr.data[agentRstStr.cursor]);
         agentRstStr.cursor = agentRstStr.cursor + strlen(&agentRstStr.data[agentRstStr.cursor]) + 1;
@@ -326,7 +326,7 @@ monitor_get_hostinfo(PG_FUNCTION_ARGS)
         /* host cpu available cores */
         monitor_host.cpu_core_available = strtoull(&agentRstStr.data[agentRstStr.cursor]);
         agentRstStr.cursor = agentRstStr.cursor + strlen(&agentRstStr.data[agentRstStr.cursor]) + 1;
-        
+
         /* host seconds since boot */
         monitor_host.seconds_since_boot = strtoull(&agentRstStr.data[agentRstStr.cursor]);
         agentRstStr.cursor = agentRstStr.cursor + strlen(&agentRstStr.data[agentRstStr.cursor]) + 1;
@@ -358,7 +358,7 @@ monitor_get_hostinfo(PG_FUNCTION_ARGS)
 
     get_cpu_usage_alarm(monitor_cpu.cpu_usage, &monitor_alarm);
     get_mem_usage_alarm(monitor_mem.mem_usage, &monitor_alarm);
-    
+
     disk_usage = ((monitor_disk.disk_used/monitor_disk.disk_total)*100);
     get_disk_usage_alarm(disk_usage, &monitor_alarm);
 
@@ -390,8 +390,8 @@ static void insert_into_monotor_cpu(const char *hostname, Monitor_Cpu *monitor_c
     Datum datum[Natts_monitor_cpu];
     bool isnull[Natts_monitor_cpu];
 
-    datum[Anum_monitor_cpu_host_name - 1] = NameGetDatum(hostname);
-    datum[Anum_monitor_cpu_mc_timestamptz - 1] = 
+    datum[Anum_monitor_cpu_host_name - 1] = CStringGetDatum(hostname); /* CString compatible Name */
+    datum[Anum_monitor_cpu_mc_timestamptz - 1] =
         DirectFunctionCall3(timestamptz_in, CStringGetDatum(monitor_cpu->cpu_timestamp.data), ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
     datum[Anum_monitor_cpu_mc_usage - 1] = Float4GetDatum(monitor_cpu->cpu_usage);
     datum[Anum_monitor_cpu_mc_freq - 1] =CStringGetTextDatum(monitor_cpu->cpu_freq.data);
@@ -413,8 +413,8 @@ static void insert_into_monotor_mem(const char *hostname, Monitor_Mem *monitor_m
     Datum datum[Natts_monitor_mem];
     bool isnull[Natts_monitor_mem];
 
-    datum[Anum_monitor_mem_host_name - 1] = NameGetDatum(hostname);
-    datum[Anum_monitor_mem_mm_timestamptz - 1] = 
+    datum[Anum_monitor_mem_host_name - 1] = CStringGetDatum(hostname); /* CString compatible Name */
+    datum[Anum_monitor_mem_mm_timestamptz - 1] =
         DirectFunctionCall3(timestamptz_in, CStringGetDatum(monitor_mem->mem_timestamp.data), ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
     datum[Anum_monitor_mem_mm_total - 1] = Int64GetDatum(monitor_mem->mem_total);
     datum[Anum_monitor_mem_mm_used - 1] = Int64GetDatum(monitor_mem->mem_used);
@@ -437,11 +437,11 @@ static void insert_into_monotor_disk(const char *hostname, Monitor_Disk *monitor
     Datum datum[Natts_monitor_disk];
     bool isnull[Natts_monitor_disk];
 
-    datum[Anum_monitor_disk_host_name - 1] = NameGetDatum(hostname);
-    datum[Anum_monitor_disk_md_timestamptz - 1] = 
+    datum[Anum_monitor_disk_host_name - 1] = CStringGetDatum(hostname); /* CString compatible Name */
+    datum[Anum_monitor_disk_md_timestamptz - 1] =
         DirectFunctionCall3(timestamptz_in, CStringGetDatum(monitor_disk->disk_timestamptz.data), ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
     datum[Anum_monitor_disk_md_total - 1] = Int64GetDatum(monitor_disk->disk_total);
-    datum[Anum_monitor_disk_md_used - 1] = Int64GetDatum(monitor_disk->disk_used);    
+    datum[Anum_monitor_disk_md_used - 1] = Int64GetDatum(monitor_disk->disk_used);
     datum[Anum_monitor_disk_md_io_read_bytes - 1] = Int64GetDatum(monitor_disk->disk_io_read_bytes);
     datum[Anum_monitor_disk_md_io_reat_time - 1] = Int64GetDatum(monitor_disk->disk_io_read_time);
     datum[Anum_monitor_disk_md_io_write_bytes - 1] = Int64GetDatum(monitor_disk->disk_io_write_bytes);
@@ -464,8 +464,8 @@ static void insert_into_monotor_net(const char *hostname, Monitor_Net *monitor_n
     Datum datum[Natts_monitor_net];
     bool isnull[Natts_monitor_net];
 
-    datum[Anum_monitor_net_host_name - 1] = NameGetDatum(hostname);
-    datum[Anum_monitor_net_mn_timestamptz - 1] = 
+    datum[Anum_monitor_net_host_name - 1] = CStringGetDatum(hostname); /* CString compatible Name */
+    datum[Anum_monitor_net_mn_timestamptz - 1] =
         DirectFunctionCall3(timestamptz_in, CStringGetDatum(monitor_net->net_timestamp.data), ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
     datum[Anum_monitor_net_mn_sent - 1] = Int64GetDatum(monitor_net->net_sent);
     datum[Anum_monitor_net_mn_recv - 1] = Int64GetDatum(monitor_net->net_recv);
@@ -487,9 +487,9 @@ static void insert_into_monotor_host(const char *hostname, Monitor_Host *monitor
     Datum datum[Natts_monitor_host];
     bool isnull[Natts_monitor_host];
 
-    datum[Anum_monitor_host_host_name - 1] = NameGetDatum(hostname);
+    datum[Anum_monitor_host_host_name - 1] = CStringGetDatum(hostname); /* CString compatible Name */
     datum[Anum_monitor_host_mh_run_state - 1] = Int16GetDatum(monitor_host->run_state);
-    datum[Anum_monitor_host_mh_current_time - 1] = 
+    datum[Anum_monitor_host_mh_current_time - 1] =
         DirectFunctionCall3(timestamptz_in, CStringGetDatum(monitor_host->current_time.data), ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
     datum[Anum_monitor_host_mh_seconds_since_boot - 1] = Int64GetDatum(monitor_host->seconds_since_boot);
     datum[Anum_monitor_host_mh_cpu_core_total - 1] = Int16GetDatum(monitor_host->cpu_core_total);
@@ -515,7 +515,7 @@ void insert_into_monitor_alarm(Monitor_Alarm *monitor_alarm)
 
     datum[Anum_monitor_alarm_ma_alarm_level - 1] = Int16GetDatum(monitor_alarm->alarm_level);
     datum[Anum_monitor_alarm_ma_alarm_type - 1] = Int16GetDatum(monitor_alarm->alarm_type);
-    datum[Anum_monitor_alarm_ma_alarm_timetz - 1] = 
+    datum[Anum_monitor_alarm_ma_alarm_timetz - 1] =
         DirectFunctionCall3(timestamptz_in, CStringGetDatum(monitor_alarm->alarm_timetz.data), ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
     datum[Anum_monitor_alarm_ma_alarm_status - 1] = Int16GetDatum(monitor_alarm->alarm_status);
     datum[Anum_monitor_alarm_ma_alarm_source - 1] = CStringGetTextDatum(monitor_alarm->alarm_source.data);
@@ -588,7 +588,7 @@ static void get_cpu_usage_alarm(float cpu_usage, Monitor_Alarm *monitor_alarm)
              appendStringInfo(&monitor_alarm->alarm_text, "cpu usage over %d%%",
                                      monitor_threshold.threshold_critical);
              monitor_alarm->alarm_level = 2;
-    
+
          }
          else
          {
@@ -597,7 +597,7 @@ static void get_cpu_usage_alarm(float cpu_usage, Monitor_Alarm *monitor_alarm)
                                      monitor_threshold.threshold_emergency);
              monitor_alarm->alarm_level = 3;
          }
-    
+
          insert_into_monitor_alarm(monitor_alarm);
      }
 }
@@ -623,7 +623,7 @@ static void get_mem_usage_alarm(float mem_usage, Monitor_Alarm *monitor_alarm)
              appendStringInfo(&monitor_alarm->alarm_text, "mem usage over %d%%",
                                      monitor_threshold.threshold_critical);
              monitor_alarm->alarm_level = 2;
-    
+
          }
          else
          {
@@ -632,7 +632,7 @@ static void get_mem_usage_alarm(float mem_usage, Monitor_Alarm *monitor_alarm)
                                      monitor_threshold.threshold_emergency);
              monitor_alarm->alarm_level = 3;
          }
-    
+
          insert_into_monitor_alarm(monitor_alarm);
      }
 }
@@ -658,7 +658,7 @@ static void get_disk_usage_alarm(float disk_usage, Monitor_Alarm *monitor_alarm)
              appendStringInfo(&monitor_alarm->alarm_text, "disk usage over %d%%",
                                      monitor_threshold.threshold_critical);
              monitor_alarm->alarm_level = 2;
-    
+
          }
          else
          {
@@ -667,7 +667,7 @@ static void get_disk_usage_alarm(float disk_usage, Monitor_Alarm *monitor_alarm)
                                      monitor_threshold.threshold_emergency);
              monitor_alarm->alarm_level = 3;
          }
-    
+
          insert_into_monitor_alarm(monitor_alarm);
      }
 }
@@ -693,7 +693,7 @@ static void get_sent_speed_alarm(float sent_speed, Monitor_Alarm *monitor_alarm)
              appendStringInfo(&monitor_alarm->alarm_text, "network sent speed over %d%%",
                                      monitor_threshold.threshold_critical);
              monitor_alarm->alarm_level = 2;
-    
+
          }
          else
          {
@@ -702,7 +702,7 @@ static void get_sent_speed_alarm(float sent_speed, Monitor_Alarm *monitor_alarm)
                                      monitor_threshold.threshold_emergency);
              monitor_alarm->alarm_level = 3;
          }
-    
+
          insert_into_monitor_alarm(monitor_alarm);
      }
 }
@@ -728,7 +728,7 @@ static void get_recv_speed_alarm(float recv_speed, Monitor_Alarm *monitor_alarm)
              appendStringInfo(&monitor_alarm->alarm_text, "network recv speed over %d%%",
                                      monitor_threshold.threshold_critical);
              monitor_alarm->alarm_level = 2;
-    
+
          }
          else
          {
@@ -737,7 +737,7 @@ static void get_recv_speed_alarm(float recv_speed, Monitor_Alarm *monitor_alarm)
                                      monitor_threshold.threshold_emergency);
              monitor_alarm->alarm_level = 3;
          }
-    
+
          insert_into_monitor_alarm(monitor_alarm);
      }
 }
@@ -762,7 +762,7 @@ static void get_disk_iops_alarm(float disk_iops, Monitor_Alarm *monitor_alarm)
             appendStringInfo(&monitor_alarm->alarm_text, "disk IOPS over %d%%",
                                     monitor_threshold.threshold_critical);
             monitor_alarm->alarm_level = 2;
-    
+
         }
         else
         {

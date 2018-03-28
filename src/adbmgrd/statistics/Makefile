@@ -1,18 +1,17 @@
 #-------------------------------------------------------------------------
 #
 # Makefile--
-#    Makefile for access/common
+#    Makefile for statistics
 #
 # IDENTIFICATION
-#    src/adbmgrd/access/common/Makefile
+#    src/adbmgrd/statistics/Makefile
 #
 #-------------------------------------------------------------------------
 
-subdir = src/adbmgrd/access/common
-top_builddir = ../../../..
+subdir = src/adbmgrd/statistics
+top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = bufmask.o heaptuple.o indextuple.o printsimple.o printtup.o \
-	reloptions.o scankey.o tupconvert.o tupdesc.o
+OBJS = extended_stats.o dependencies.o mvdistinct.o
 
 include $(top_srcdir)/src/adbmgrd/common.mk

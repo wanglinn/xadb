@@ -9,7 +9,7 @@
 #include <sys/ioctl.h>
 
 #include "lib/stringinfo.h"
-#include "libpq/ip.h"
+#include "common/ip.h"
 #include "mgr/mgr_cmds.h"
 
 static int waitsocket(int socket_fd, LIBSSH2_SESSION *session)

@@ -59,8 +59,9 @@ extern bool pgxc_lock_for_utility_stmt(Node *parsetree);
 #ifdef ADBMGRD
 /* in utility_mgr.c */
 extern const char *mgr_CreateCommandTag(Node *parsetree);
-extern void mgr_ProcessUtility(Node *parsetree, const char *queryString,
+extern void mgr_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 									ProcessUtilityContext context, ParamListInfo params,
+									QueryEnvironment *queryEnv,
 									DestReceiver *dest,
 									char *completionTag);
 #endif /* ADBMGRD */

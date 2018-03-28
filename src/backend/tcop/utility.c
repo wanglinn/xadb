@@ -412,8 +412,8 @@ ProcessUtility(PlannedStmt *pstmt,
 								context, params, queryEnv,
 								dest, ADB_ONLY_ARG(sentToRemote) completionTag);
 #ifdef ADBMGRD
-	else if(IsMgrNode(parsetree))
-		mgr_ProcessUtility(parsetree, queryString, context, params, dest, completionTag);
+	else if(IsMgrNode(pstmt->utilityStmt))
+		mgr_ProcessUtility(pstmt, queryString, context, params, queryEnv, dest, completionTag);
 #endif /* ADBMGRD */
 	else
 		standard_ProcessUtility(pstmt, queryString,

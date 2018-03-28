@@ -1,7 +1,7 @@
 /*
  * commands of slowlog
  */
- 
+
 #include "../../interfaces/libpq/libpq-fe.h"
 #include "postgres.h"
 #include "access/genam.h"
@@ -55,7 +55,7 @@ char *monitor_get_onestrvalue_one_node(int agentport, char *sqlstr, char *user, 
 	StringInfoData resultstrdata;
 
 	initStringInfo(&resultstrdata);
-	monitor_get_stringvalues(AGT_CMD_GET_EXPLAIN_STRINGVALUES, agentport, sqlstr, user, address, port, dbname, &resultstrdata);	
+	monitor_get_stringvalues(AGT_CMD_GET_EXPLAIN_STRINGVALUES, agentport, sqlstr, user, address, port, dbname, &resultstrdata);
 
 	return resultstrdata.data;
 }
@@ -63,11 +63,11 @@ char *monitor_get_onestrvalue_one_node(int agentport, char *sqlstr, char *user, 
 
 
 /*
-* get GETMAXROWNUM rows from pg_stat_statements on everyone coordinator using given sql. using follow method to judge which need 
-* insert into monitor_slowlog table: 1. judge the query exist in yesterday records or not. if not in yesterday records 
-*	or the calls does not equal yesterday's calls on same query, just insert into monitor_slowlog table; if the calls 
+* get GETMAXROWNUM rows from pg_stat_statements on everyone coordinator using given sql. using follow method to judge which need
+* insert into monitor_slowlog table: 1. judge the query exist in yesterday records or not. if not in yesterday records
+*	or the calls does not equal yesterday's calls on same query, just insert into monitor_slowlog table; if the calls
 *	equals yesterday's calls on same query, ignore the query.
-*	2.for today, if not in today's records, insert it into slowlog table; if the calls which we get deos equal the *   
+*	2.for today, if not in today's records, insert it into slowlog table; if the calls which we get deos equal the *
 * today's calls on the same query, ignore; if the query does exist in today's records and the calls does not equal, let
 * the calls plus 1.
 *
@@ -96,10 +96,10 @@ void monitor_get_onedb_slowdata_insert(Relation rel, int agentport, char *user, 
 	bool gettoday = false;
 	bool getyesdt = false;
 
-	Form_monitor_slowlog monitor_slowlog;	
+	Form_monitor_slowlog monitor_slowlog;
 	pg_time_t ptimenow;
 	Monitor_Threshold monitor_threshold;
-	
+
 	initStringInfo(&sqlslowlogStrData);
 	/*get slowlog min time threshold in MonitorHostThresholdRelationId*/
 	get_threshold(SLOWQUERY_MINTIME, &monitor_threshold);
@@ -157,7 +157,7 @@ void monitor_get_onedb_slowdata_insert(Relation rel, int agentport, char *user, 
 		* just make all reoords which get from coordinato pg_stat_statements as today's data
 		*/
 		tupleret = check_record_yestoday_today(rel, &callstoday, &callsyestd, &gettoday, &getyesdt, querystr.data, dbuser, dbname, ptimenow);
-	
+
 		if (false  == gettoday && false == getyesdt)
 		{
 			/*insert record*/
@@ -223,13 +223,13 @@ void monitor_get_onedb_slowdata_insert(Relation rel, int agentport, char *user, 
 				monitor_slowlog->slowlogsingletime = singletime;
 				heap_inplace_update(rel, tupleret);
 				pfree(tupleret);
-				
+
 			}
 			else
 			{
 				/*do nothing*/
 			}
-			
+
 		}
 
 	}
@@ -259,7 +259,7 @@ Datum monitor_slowlog_insert_data(PG_FUNCTION_ARGS)
 	Form_mgr_host mgr_host;
 	HeapTuple tuple;
 	HeapTuple tup;
-	
+
 	rel_slowlog = heap_open(MslowlogRelationId, RowExclusiveLock);
 	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
 	ScanKeyInit(&key[0],
@@ -330,7 +330,7 @@ HeapTuple monitor_build_slowlog_tuple(Relation rel, TimestampTz time, char *dbna
 	TupleDesc desc;
 	NameData dbnamedata;
 	NameData usernamedata;
-	
+
 	desc = RelationGetDescr(rel);
 	namestrcpy(&dbnamedata, dbname);
 	namestrcpy(&usernamedata, username);
@@ -353,7 +353,7 @@ HeapTuple monitor_build_slowlog_tuple(Relation rel, TimestampTz time, char *dbna
 	datums[5] = CStringGetTextDatum(query);
 	datums[6] = CStringGetTextDatum(queryplan);
 	nulls[0] = nulls[1] = nulls[2] = nulls[3] = nulls[4] = nulls[5] = nulls[6] =false;
-	
+
 	return heap_form_tuple(desc, datums, nulls);
 }
 
@@ -379,7 +379,7 @@ HeapTuple check_record_yestoday_today(Relation rel, int *callstoday, int *callsy
 	*callsyestd = 0;
 
 	pgtimetoday = GETTODAYSTARTTIME(ptimenow);
-	pgtimetomarrow = GETTOMARROWSTARTTIME(ptimenow);	
+	pgtimetomarrow = GETTOMARROWSTARTTIME(ptimenow);
 	rel_scan = heap_beginscan_catalog(rel, 0, NULL);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -417,7 +417,7 @@ HeapTuple check_record_yestoday_today(Relation rel, int *callstoday, int *callsy
 						tupleret = heap_copytuple(tuple);
 				}
 			}
-			
+
 		}
 	}
 	heap_endscan(rel_scan);
@@ -431,7 +431,7 @@ void monitor_insert_record(Relation rel, int agentport, TimestampTz time, char *
 	HeapTuple tup_result;
 	char *queryplanstr;
 	char *queryplanres = NULL;
-	
+
 	queryplanlen = strlen(querystr) + strlen("explain ")+1;
 	queryplanstr = (char *)palloc(queryplanlen*sizeof(char));
 	strcpy(queryplanstr, "explain ");
@@ -447,9 +447,8 @@ void monitor_insert_record(Relation rel, int agentport, TimestampTz time, char *
 		tup_result = monitor_build_slowlog_tuple(rel, time, dbname, dbuser, singletime, calls, querystr, queryplanres);
 		pfree(queryplanres);
 	}
-	simple_heap_insert(rel, tup_result);
-	CatalogUpdateIndexes(rel, tup_result);
+	CatalogTupleInsert(rel, tup_result);
 	heap_freetuple(tup_result);
 	pfree(queryplanstr);
-	
+
 }

@@ -37,7 +37,9 @@ _check_database_version(ArchiveHandle *AH)
 {
 	const char *remoteversion_str;
 	int			remoteversion;
+#ifndef MGR_DUMP
 	PGresult   *res;
+#endif
 
 	remoteversion_str = PQparameterStatus(AH->connection, "server_version");
 	remoteversion = PQserverVersion(AH->connection);

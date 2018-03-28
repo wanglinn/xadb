@@ -136,6 +136,9 @@ parser/gram.h: $(top_srcdir)/src/backend/parser/gram.y
 storage/lmgr/lwlocknames.h: $(backend_src_dir)/storage/lmgr/generate-lwlocknames.pl storage/lmgr/lwlocknames.txt
 	$(MAKE) -C storage/lmgr lwlocknames.h
 
+utils/fmgrprotos.h: $(backend_src_dir)/utils/Gen_fmgrtab.pl $(backend_src_dir)/catalog/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.h
+	$(MAKE) -C utils $(notdir $@)
+
 utils/fmgroids.h: $(backend_src_dir)/utils/Gen_fmgrtab.pl $(backend_src_dir)/catalog/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.h
 	$(MAKE) -C utils fmgroids.h
 
@@ -163,7 +166,7 @@ submake-schemapg:
 
 .PHONY: generated-headers
 
-generated-headers: $(top_builddir)/src/agtm/include/parser/gram.h $(agtm_inc_dir)/catalog/schemapg.h $(agtm_inc_dir)/storage/lwlocknames.h $(top_builddir)/src/include/utils/errcodes.h $(agtm_inc_dir)/utils/fmgroids.h $(agtm_inc_dir)/utils/probes.h
+generated-headers: $(top_builddir)/src/agtm/include/parser/gram.h $(agtm_inc_dir)/catalog/schemapg.h $(agtm_inc_dir)/storage/lwlocknames.h $(top_builddir)/src/include/utils/errcodes.h $(agtm_inc_dir)/utils/fmgroids.h $(agtm_inc_dir)/utils/probes.h $(agtm_inc_dir)/utils/fmgrprotos.h
 
 $(top_builddir)/src/agtm/include/parser/gram.h: parser/gram.h
 	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
@@ -191,6 +194,9 @@ $(agtm_inc_dir)/utils/probes.h: utils/probes.h
 	cd '$(dir $@)' && rm -f $(notdir $@) && \
 	    $(LN_S) "../../utils/probes.h" .
 
+$(agtm_inc_dir)/utils/fmgrprotos.h: utils/fmgrprotos.h
+	cd '$(dir $@)' && rm -f $(notdir $@) && \
+	    $(LN_S) "../../utils/fmgrprotos.h" .
 
 utils/probes.o: utils/probes.d $(SUBDIROBJS)
 	$(DTRACE) $(DTRACEFLAGS) -C -G -s $(call expand_subsys,$^) -o $@

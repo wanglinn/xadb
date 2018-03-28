@@ -61,7 +61,7 @@ static bool mgr_check_track_activities_on_coordinator(void);
 static Oid mgr_get_tupleoid_from_nodename_type(char *nodename, char nodetype);
 
 /*
-* promote the node to master; delete the old master tuple in node systable, delete 
+* promote the node to master; delete the old master tuple in node systable, delete
 * the old master param in param table ; set type of the new master as master type in node
 * table, update the type of the new master param as master type in param table
 */
@@ -107,7 +107,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 
 	Assert(nodename);
 	namestrcpy(&nodenamedata, nodename);
-	
+
 	/* check slave node */
 	if (!mgr_check_node_exist_incluster(&nodenamedata, true))
 	{
@@ -166,8 +166,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 	pfree(nodetypestr);
 	if(HeapTupleIsValid(masterTuple))
 	{
-		simple_heap_delete(rel_node, &masterTuple->t_self);
-		CatalogUpdateIndexes(rel_node, masterTuple);
+		CatalogTupleDelete(rel_node, &masterTuple->t_self);
 		ReleaseSysCache(masterTuple);
 	}
 
@@ -188,7 +187,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 			heap_inplace_update(rel_node, slavetuple);
 			ReleaseSysCache(slavetuple);
 		}
-			
+
 	}
 	heap_close(rel_node, RowExclusiveLock);
 	if (!slave_is_running)
@@ -257,7 +256,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 		if (slave_nodeinfo.tupleoid == HeapTupleGetOid(tuple))
 			continue;
 		mgr_nodetmp = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_nodetmp);	
+		Assert(mgr_nodetmp);
 		/* update datanode slave nodemasternameoid */
 		mgr_nodetmp->nodemasternameoid = slave_nodeinfo.tupleoid;
 		if (strcmp(NameStr(mgr_nodetmp->nodename), slaveNodeName.data) == 0)
@@ -268,13 +267,13 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 		heap_inplace_update(rel_node, tuple);
 	}
 	heap_endscan(relScan);
-	heap_close(rel_node, RowExclusiveLock);	
-	
+	heap_close(rel_node, RowExclusiveLock);
+
 	/*for mgr_updateparm systbl, drop the old master param, update slave parm info in the mgr_updateparm systbl*/
 	ereport(LOG, (errmsg("refresh \"param\" table in ADB Manager, delete the old master parameters, and update %s \"%s\" as master type", nodetypestr, nodenamedata.data)));
 	pfree(nodetypestr);
 	mgr_parm_after_gtm_failover_handle(&masternodenamedata, mastertype, &nodenamedata, nodetype);
-	
+
 	pfree(getAgentCmdRst.description.data);
 	pfree(strinfo.data);
 	pfree(infosendmsg.data);
@@ -375,7 +374,7 @@ Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS)
 	/*get the input variable*/
 	nodetype = PG_GETARG_INT32(0);
 	namestrcpy(&nodenamedata, PG_GETARG_CSTRING(1));
-	
+
 	if (!mgr_check_node_exist_incluster(&nodenamedata, true))
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 					,errmsg("datanode slave \"%s\" does not exist in cluster", nodenamedata.data)));
@@ -394,7 +393,7 @@ Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS)
 	{
 		ereport(ERROR, (errmsg("datanode master \"%s\" does not exist",nodenamedata.data)));
 	}
-	
+
 	/*check all coordinators running normal*/
 	ScanKeyInit(&key[0],
 		Anum_mgr_node_nodetype
@@ -443,7 +442,7 @@ Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS)
 		mgr_unlock_cluster(&pg_conn);
 		PG_RE_THROW();
 	}PG_END_TRY();
-	
+
 	/*unlock cluster*/
 	mgr_unlock_cluster(&pg_conn);
 
@@ -594,7 +593,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 			appendStringInfo(&infosendmsg, " start -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
 		else
 		appendStringInfo(&infosendmsg, " start -Z datanode -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
-	
+
 		ereport(NOTICE, (errmsg("pg_ctl %s", infosendmsg.data)));
 		if (GTM_TYPE_GTM_SLAVE == nodetype)
 			res = mgr_ma_send_cmd(AGT_CMD_GTM_START_SLAVE, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
@@ -620,7 +619,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 		}
 		else
 		{
-			if ((!incluster) && (strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_SYNC].name) == 0 
+			if ((!incluster) && (strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_SYNC].name) == 0
 				|| strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_POTENTIAL].name)) == 0)
 			{
 					appendStringInfo(&strinfo_sync, ",%s", nodenamedata.data);
@@ -724,12 +723,12 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 		pfree_AppendNodeInfo(dest_nodeinfo);
 		ereport(ERROR, (errmsg("coordinator \"%s\" already exists in cluster", s_coordname)));
 	}
-	
+
 	memset(port_buf, 0, sizeof(char)*10);
 	snprintf(port_buf, sizeof(port_buf), "%d", dest_nodeinfo.nodeport);
 	res = pingNode_user(dest_nodeinfo.nodeaddr, port_buf, dest_nodeinfo.nodeusername);
 	if (PQPING_OK == res || PQPING_REJECT == res)
-		ereport(ERROR, (errmsg("%s on port %d, coordinator \"%s\" is running", dest_nodeinfo.nodeaddr, dest_nodeinfo.nodeport, s_coordname)));	
+		ereport(ERROR, (errmsg("%s on port %d, coordinator \"%s\" is running", dest_nodeinfo.nodeaddr, dest_nodeinfo.nodeport, s_coordname)));
 	/* check the folder of dest coordinator */
 	mgr_check_dir_exist_and_priv(dest_nodeinfo.nodehost, dest_nodeinfo.nodepath);
 
@@ -820,7 +819,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 			ereport(WARNING, (errmsg("%s rm %s fail, %s", dest_nodeinfo.nodeaddr, infosendmsg.data, restmsg.data)));
 		}
 	}
-	
+
 	/* start the coordinator */
 	resetStringInfo(&restmsg);
 	resetStringInfo(&infosendmsg);
@@ -832,7 +831,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 		appendStringInfo(&strerr, "pg_ctl %s fail\n, %s", infosendmsg.data, restmsg.data);
 		ereport(WARNING, (errmsg("pg_ctl %s fail, %s", infosendmsg.data, restmsg.data)));
 	}
-	
+
 	/* set all node's pg_hba.conf to allow the new coordiantor to connect */
 	ereport(NOTICE, (errmsg("add address of coordinator \"%s\" on all nodes pg_hba.conf in cluster", s_coordname)));
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
@@ -894,7 +893,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 		, m_coordname, s_coordname, res == true ? "true":"false", strerr.data)));
 	tup_result = build_common_command_tuple(&nodename, res, strerr.data);
 	pfree(strerr.data);
-	
+
 	return HeapTupleGetDatum(tup_result);
 }
 
@@ -904,7 +903,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 
 Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 {
-	
+
 	GetAgentCmdRst getAgentCmdRst;
 	AppendNodeInfo dest_nodeinfo;
 	StringInfoData infosendmsg;
@@ -963,7 +962,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 
 	initStringInfo(&infosendmsg);
 	initStringInfo(&restmsg);
-	
+
 	PG_TRY();
 	{
 		if (PQPING_NO_RESPONSE == rest)
@@ -977,7 +976,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 				ereport(ERROR, (errmsg("pg_ctl %s fail, %s", infosendmsg.data, restmsg.data)));
 			}
 		}
-		
+
 		/*check again*/
 		rest = pingNode_user(dest_nodeinfo.nodeaddr, port_buf, dest_nodeinfo.nodeusername);
 		if (PQPING_OK != rest)
@@ -1062,7 +1061,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 				break;
 			}
 			PQclear(res);
-			
+
 		}
 
 		iloop = iMax;
@@ -1079,7 +1078,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 			}
 			pg_usleep(1000000L);
 		}
-		
+
 		if (PQresultStatus(res) != PGRES_TUPLES_OK)
 		{
 			PQclear(res);
@@ -1088,7 +1087,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		}
 		PQclear(res);
 		res = NULL;
-		
+
 		noneed_dropnode = false;
 		/* send create node sql to all coordiantor*/
 		ereport(LOG, (errmsg("create node \"%s\" on all coordiantors in cluster", s_coordname)));
@@ -1100,9 +1099,9 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		rest = mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_COMMAND_OK, &strerr);
 		if (!rest)
 			ereport(ERROR, (errmsg("create node \"%s\" on all coordiantors in cluster fail", s_coordname)));
-		
+
 		resetStringInfo(&infosendmsg);
-		appendStringInfo(&infosendmsg, "SELECT PGXC_POOL_RELOAD();");		
+		appendStringInfo(&infosendmsg, "SELECT PGXC_POOL_RELOAD();");
 		rest = mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_TUPLES_OK, &strerr);
 		if (!rest)
 			ereport(ERROR, (errmsg("execute \"SELECT PGXC_POOL_RELOAD()\" on all coordiantors in cluster fail")));
@@ -1148,7 +1147,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		}
 		PQclear(res);
 		res = NULL;
-		
+
 		/*rm recovery.conf*/
 		resetStringInfo(&infosendmsg);
 		resetStringInfo(&restmsg);
@@ -1199,7 +1198,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 				(errmsg("the coordinator \"%s\" is not running normal", s_coordname),
 					errhint("try \"monitor all\" to check the nodes status")));
 		}
-		
+
 	}PG_CATCH();
 	{
 		/*drop node info on all coordinators in cluster if get error*/
@@ -1209,9 +1208,9 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 			resetStringInfo(&infosendmsg);
 			appendStringInfo(&infosendmsg, "DROP NODE \"%s\";", s_coordname);
 			rest = mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_COMMAND_OK, &strerr);
-			
+
 			resetStringInfo(&infosendmsg);
-			appendStringInfo(&infosendmsg, "SELECT PGXC_POOL_RELOAD();");		
+			appendStringInfo(&infosendmsg, "SELECT PGXC_POOL_RELOAD();");
 			rest = mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_TUPLES_OK, &strerr);
 		}
 		mgr_unlock_cluster(&pg_conn);
@@ -1245,7 +1244,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 
 	/* unlock the cluster */
 	mgr_unlock_cluster(&pg_conn);
-	
+
 	if (strerr.len == 0)
 	{
 		rest = true;
@@ -1257,9 +1256,9 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		, s_coordname, rest ? "true":"false", strerr.data)));
 	tup_result = build_common_command_tuple(&s_nodename, rest, strerr.data);
 	pfree(strerr.data);
-	
+
 	return HeapTupleGetDatum(tup_result);
-	
+
 }
 
 static bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const int iloop, const int res_type, StringInfo strinfo)
@@ -1318,7 +1317,7 @@ static bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, c
 			}
 			pg_usleep(100000L);
 		}
-		
+
 		if (PQresultStatus(res) != res_type)
 		{
 			rest = false;
@@ -1326,9 +1325,9 @@ static bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, c
 			appendStringInfo(strinfo, "on coordinator \"%s\" execute \"%s\" fail, %s\n", NameStr(mgr_node->nodename), sql, PQerrorMessage(*pg_conn));
 		}
 		PQclear(res);
-		
+
 	}
-	
+
 	heap_endscan(rel_scan);
 	heap_close(rel_node, AccessShareLock);
 	pfree(restmsg.data);
@@ -1389,7 +1388,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	ScanKeyData key[3];
 	GetAgentCmdRst getAgentCmdRst;
 	Datum datumPath;
-	
+
 	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 
@@ -1404,13 +1403,13 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 			,errmsg("it is the %s, no need switchover", GTM_TYPE_GTM_MASTER == nodeType ? "gtm master":"datanode master")));
 	}
-	
+
 	if (CNDN_TYPE_DATANODE_SLAVE != nodeType && GTM_TYPE_GTM_SLAVE != nodeType)
 	{
 		ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 			,errmsg("unknown the node type : %c", nodeType)));
 	}
-	
+
 	/* check the slave node exist */
 	if (nodeType == CNDN_TYPE_DATANODE_SLAVE)
 	{
@@ -1424,9 +1423,9 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		bgtmKind = true;
 		masterType = GTM_TYPE_GTM_MASTER;
 		namestrcpy(&masterTypeStrData, "gtm master");
-		namestrcpy(&nodeTypeStrData, "gtm slave");	
+		namestrcpy(&nodeTypeStrData, "gtm slave");
 	}
-	
+
 	PG_TRY();
 	{
 		get_nodeinfo_byname(nodeNameData.data, nodeType, &isExistS, &isRunningS, &nodeInfoS);
@@ -1482,7 +1481,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 
 		PG_RE_THROW();
 	}PG_END_TRY();
-	
+
 	/*check the parameter on coordinator*/
 	ereport(LOG, (errmsg("check track_activities=on in postgresql.conf on coordinators")));
 	ereport(NOTICE, (errmsg("check track_activities=on in postgresql.conf on coordinators")));
@@ -1549,7 +1548,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		if (!res)
 		{
 			pfree_AppendNodeInfo(nodeInfoS);
-			pfree_AppendNodeInfo(nodeInfoM);		
+			pfree_AppendNodeInfo(nodeInfoM);
 			ereport(ERROR, (errmsg("there are active connect on coordinators or datanode masters")));
 		}
 
@@ -1574,7 +1573,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 				break;
 			pg_usleep(1000000L);
 		}
-		
+
 		if (iloop <= 0)
 			ereport(ERROR, (errmsg("wait max %d seconds to check there is not active locks in pg_locks table on all coordinators except the locks on pg_locks table fail", iMax)));
 
@@ -1593,7 +1592,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("wait max %d seconds to check %s \"%s\", %s \"%s\" have the same xlog position fail"
 					, iMax, masterTypeStrData.data, nodeMasterNameData.data,  nodeTypeStrData.data, nodeNameData.data)));
 		}
-		
+
 		/* stop datanode master mode i*/
 		bStopOldMaster = true;
 		appendStringInfo(&infosendmsg, " stop -D %s -m i -o -i -w -c", nodeInfoM.nodepath);
@@ -1622,7 +1621,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("on %s \"%s\" set synchronous_standby_names=%s fail, %s"
 				, nodeTypeStrData.data, nodeNameData.data, syncStateData.data, getAgentCmdRst.description.data)));
 		}
-		
+
 		/* set the given slave node pg_hba.conf for streaming replication*/
 		ereport(LOG, (errmsg("set %s \"%s\" pg_hba.conf", nodeTypeStrData.data, nodeNameData.data)));
 		ereport(NOTICE, (errmsg("set %s \"%s\" pg_hba.conf", nodeTypeStrData.data, nodeNameData.data)));
@@ -1736,7 +1735,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		ereport(NOTICE, (errmsg("rollback end")));
 		PG_RE_THROW();
 	}PG_END_TRY();
-	
+
 	pfree(restmsg.data);
 	pfree(syncStateData.data);
 
@@ -1796,7 +1795,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	{
 		ereport(LOG, (errmsg("exchange the node type for %s \"%s\" and %s \"%s\" in node table", masterTypeStrData.data, nodeMasterNameData.data, nodeTypeStrData.data, nodeNameData.data)));
 		ereport(NOTICE, (errmsg("exchange the node type for %s \"%s\" and %s \"%s\" in node table", masterTypeStrData.data, nodeMasterNameData.data, nodeTypeStrData.data, nodeNameData.data)));
-		
+
 		/* refresh new master info in node table */
 		nodeRel = heap_open(NodeRelationId, RowExclusiveLock);
 
@@ -1825,7 +1824,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 			mgr_node->nodetype = GTM_TYPE_GTM_MASTER;
 		mgr_node->nodemasternameoid = 0;
 		namestrcpy(&(mgr_node->nodesync), "");
-		heap_inplace_update(nodeRel, tuple);	
+		heap_inplace_update(nodeRel, tuple);
 		ReleaseSysCache(tuple);
 
 		/* refresh new slave info in node table */
@@ -1834,7 +1833,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		mgr_node->nodetype = nodeType;
 		mgr_node->nodemasternameoid = nodeInfoS.tupleoid;
 		namestrcpy(&(mgr_node->nodesync), oldMSyncData.data);
-		heap_inplace_update(nodeRel, tupleS);	
+		heap_inplace_update(nodeRel, tupleS);
 		ReleaseSysCache(tupleS);
 
 		heap_close(nodeRel, RowExclusiveLock);
@@ -1844,7 +1843,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		ereport(NOTICE, (errmsg("rollback start:")));
 
 		ereport(WARNING, (errmsg("exchange the node type for %s \"%s\" and %s \"%s\" in node table fail, exchange them manual, include: nodetype, sync_state, mastername !!! use \"monitor all\", \"monitor ha\" to check nodes status; make the other datanode slave \"%s\" as new slave for new %s: refresh its recovery.conf and its mastername in node table !!!", masterTypeStrData.data, nodeMasterNameData.data, nodeTypeStrData.data, nodeNameData.data, nodeNameData.data, masterTypeStrData.data)));
-		
+
 		pfree(strerr.data);
 		pfree(infosendmsg.data);
 		pfree(getAgentCmdRst.description.data);
@@ -1879,8 +1878,8 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		ereport(WARNING, (errmsg("on new %s \"%s\", set hot_standby=on, synchronous_standby_names='' fail, %s"
 			, nodeTypeStrData.data, nodeMasterNameData.data, getAgentCmdRst.description.data)));
 		appendStringInfo(&strerr, "on new %s \"%s\", set hot_standby=on, synchronous_standby_names='' fail, %s\n", nodeTypeStrData.data, nodeMasterNameData.data, getAgentCmdRst.description.data);
-	}	
-	
+	}
+
 	/* update new slave recovery.conf */
 	ereport(LOG, (errmsg("on new %s \"%s\" refresh recovery.conf", nodeTypeStrData.data, nodeMasterNameData.data)));
 	ereport(NOTICE, (errmsg("on new %s \"%s\" refresh recovery.conf", nodeTypeStrData.data, nodeMasterNameData.data)));
@@ -1895,7 +1894,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 			, nodeTypeStrData.data, nodeMasterNameData.data, getAgentCmdRst.description.data)));
 		appendStringInfo(&strerr, "on new %s \"%s\", refresh recovery.conf fail, %s\n", nodeTypeStrData.data, nodeMasterNameData.data, getAgentCmdRst.description.data);
 	}
-	
+
 	/* start the new slave node */
 	resetStringInfo(&(getAgentCmdRst.description));
 	nodeRel = heap_open(NodeRelationId, AccessShareLock);
@@ -1976,7 +1975,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 				, typestr, NameStr(mgr_node->nodename), getAgentCmdRst.description.data)));
 			appendStringInfo(&strerr, "on %s \"%s\", refresh recovery.conf fail, %s\n", typestr, NameStr(mgr_node->nodename), getAgentCmdRst.description.data);
 		}
-		
+
 		/* restart the node */
 		resetStringInfo(&(getAgentCmdRst.description));
 		if (!bgtmKind)
@@ -2049,7 +2048,7 @@ static void mgr_get_hba_replication_info(Oid masterTupleOid, StringInfo infosend
 		}
 		pfree(hostAddr);
 	}
-	
+
 	heap_endscan(relScan);
 	heap_close(nodeRel, AccessShareLock);
 }
@@ -2063,7 +2062,7 @@ static int mgr_maxtime_check_xlog_diff(const char nodeType, const char *nodeName
 	StringInfoData restmsg;
 	Form_mgr_host mgr_host;
 	HeapTuple hostTupleM;
-	
+
 	Assert(CNDN_TYPE_DATANODE_SLAVE == nodeType || GTM_TYPE_GTM_SLAVE == nodeType);
 	Assert(nodeName);
 	Assert(nodeInfoM);
@@ -2071,7 +2070,7 @@ static int mgr_maxtime_check_xlog_diff(const char nodeType, const char *nodeName
 	initStringInfo(&infosendmsg);
 	initStringInfo(&restmsg);
 	appendStringInfo(&infosendmsg, "select pg_xlog_location_diff(pg_current_xlog_insert_location(),replay_location) = 0 from pg_stat_replication where application_name='%s';", nodeName);
-	
+
 	hostTupleM = SearchSysCache1(HOSTHOSTOID, nodeInfoM->nodehost);
 	if(!(HeapTupleIsValid(hostTupleM)))
 	{
@@ -2082,7 +2081,7 @@ static int mgr_maxtime_check_xlog_diff(const char nodeType, const char *nodeName
 	mgr_host= (Form_mgr_host)GETSTRUCT(hostTupleM);
 	Assert(mgr_host);
 	agentPortM = mgr_host->hostagentport;
-	ReleaseSysCache(hostTupleM);	
+	ReleaseSysCache(hostTupleM);
 	/*checkponit first*/
 	iloop = 10;
 	while (iloop-- > 0)
@@ -2113,10 +2112,10 @@ static int mgr_maxtime_check_xlog_diff(const char nodeType, const char *nodeName
 
 		pg_usleep(1000000L);
 	}
-	
+
 	pfree(infosendmsg.data);
 	pfree(restmsg.data);
-	
+
 	return iloop;
 }
 
@@ -2132,7 +2131,7 @@ static bool mgr_check_active_locks_in_cluster(PGconn *pgConn, const Oid cnOid)
 	char *p = NULL;
 	char *nodeTypeStr;
 	bool rest = false;
-	
+
 	Assert(pgConn);
 	Assert(cnOid);
 	initStringInfo(&cmdstring);
@@ -2167,7 +2166,7 @@ static bool mgr_check_active_locks_in_cluster(PGconn *pgConn, const Oid cnOid)
 			appendStringInfo(&cmdstring, "EXECUTE DIRECT ON (\"%s\") 'select count(*)  from pg_locks where pid !=  pg_backend_pid();'"
 							,NameStr(mgr_node->nodename));
 
-		res = PQexec(pgConn, cmdstring.data);						
+		res = PQexec(pgConn, cmdstring.data);
 		if (PQresultStatus(res) == PGRES_TUPLES_OK)
 		{
 			p = PQgetvalue(res, 0, 0);
@@ -2184,16 +2183,16 @@ static bool mgr_check_active_locks_in_cluster(PGconn *pgConn, const Oid cnOid)
 		{
 			rest = false;
 			ereport(WARNING, (errmsg("%s", PQerrorMessage(pgConn))));
-		}		
+		}
 
 		if (rest == false)
 			break;
 	}
-	
+
 	pfree(cmdstring.data);
 	heap_endscan(relScan);
 	heap_close(nodeRel, AccessShareLock);
-	
+
 	return rest;
 }
 
@@ -2209,7 +2208,7 @@ static bool mgr_check_active_connect_in_coordinator(PGconn *pgConn, const Oid cn
 	char *p = NULL;
 	char *nodeTypeStr;
 	bool rest = false;
-	
+
 	Assert(pgConn);
 	Assert(cnOid);
 	initStringInfo(&cmdstring);
@@ -2236,7 +2235,7 @@ static bool mgr_check_active_connect_in_coordinator(PGconn *pgConn, const Oid cn
 		ereport(LOG, (errmsg("check active connections on %s %s", nodeTypeStr, NameStr(mgr_node->nodename))));
 		ereport(NOTICE, (errmsg("check active connections on %s %s", nodeTypeStr, NameStr(mgr_node->nodename))));
 		resetStringInfo(&cmdstring);
-		pfree(nodeTypeStr);	
+		pfree(nodeTypeStr);
 		/*for coordiantor connect*/
 		resetStringInfo(&cmdstring);
 		if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype)
@@ -2255,7 +2254,7 @@ static bool mgr_check_active_connect_in_coordinator(PGconn *pgConn, const Oid cn
 				appendStringInfo(&cmdstring, "EXECUTE DIRECT ON (\"%s\") 'select  sum(numbackends)-1  from pg_stat_database where datname != ''template1'' and datname != ''template0'';'"
 								,NameStr(mgr_node->nodename));
 		}
-		res = PQexec(pgConn, cmdstring.data);						
+		res = PQexec(pgConn, cmdstring.data);
 		if (PQresultStatus(res) == PGRES_TUPLES_OK)
 		{
 			p = PQgetvalue(res, 0, 0);
@@ -2273,15 +2272,15 @@ static bool mgr_check_active_connect_in_coordinator(PGconn *pgConn, const Oid cn
 			rest = false;
 			ereport(WARNING, (errmsg("%s", PQerrorMessage(pgConn))));
 		}
-		
+
 		if (rest == false)
 			break;
 	}
-	
+
 	pfree(cmdstring.data);
 	heap_endscan(relScan);
 	heap_close(nodeRel, AccessShareLock);
-	
+
 	return rest;
 }
 
@@ -2312,7 +2311,7 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 	Oid hostOid;
 	Oid hostOidtmp;
 	PGresult * volatile res = NULL;
-	
+
 	memset(nodeportBuf, 0, 10);
 	sprintf(nodeportBuf, "%d", cndnport);
 
@@ -2570,13 +2569,13 @@ static bool mgr_check_track_activities_on_coordinator(void)
 		if (!rest)
 			break;
 	}
-	
+
 	heap_endscan(relScan);
 	heap_close(nodeRel, AccessShareLock);
-	
+
 	pfree(infosendmsg.data);
 	pfree(getAgentCmdRst.description.data);
-	
+
 	return rest;
 }
 
@@ -2590,7 +2589,7 @@ static Oid mgr_get_tupleoid_from_nodename_type(char *nodename, char nodetype)
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
 	Oid tupleOid = 0;
-	
+
 	namestrcpy(&nodenamedata, nodename);
 	ScanKeyInit(&key[0],
 		Anum_mgr_node_nodeincluster

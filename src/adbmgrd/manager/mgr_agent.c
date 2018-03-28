@@ -5,7 +5,7 @@
 #include "access/htup.h"
 #include "access/htup_details.h"
 #include "catalog/mgr_host.h"
-#include "libpq/ip.h"
+#include "common/ip.h"
 #include "mgr/mgr_agent.h"
 #include "mgr/mgr_msg_type.h"
 #include "miscadmin.h"
@@ -502,4 +502,3 @@ static void left_stringbuf(StringInfo buf)
 		buf->cursor = 0;
 	}
 }
-
