@@ -28,12 +28,11 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
+#include "utils/varlena.h"
 #include "libpq/libpq-fe.h"
 #include "libpq/libpq-int.h"
-#ifdef ADB
 #include "pgxc/pause.h"
 #include "intercomm/inter-comm.h"
-#endif
 
 #define START_POOL_ALLOC	512
 #define STEP_POLL_ALLOC		8

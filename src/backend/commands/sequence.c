@@ -137,7 +137,7 @@ DefineSequence(ParseState *pstate, CreateSeqStmt *seq)
 
 #ifdef ADB
 	bool			is_restart;
-	List			*seqOptions;
+	List			*seqOptions = seq->options;
 #endif
 
 	/* Unlogged sequences are not implemented -- not clear if useful. */
@@ -165,7 +165,6 @@ DefineSequence(ParseState *pstate, CreateSeqStmt *seq)
 	}
 
 	/* Check and set all option values */
-	seqOptions = seq->options;
 	init_params(pstate, seq->options, seq->for_identity, true,
 				&seqform, &seqdataform,
 				&need_seq_rewrite, &owned_by ADB_ONLY_COMMA_ARG(&is_restart));
@@ -560,7 +559,7 @@ AlterSequence(ParseState *pstate, AlterSeqStmt *stmt)
 
 #ifdef ADB
 	bool			is_restart;
-	List			*seqOptions;
+	List			*seqOptions = stmt->options;
 #endif
 
 	/* Open and lock sequence, and check for ownership along the way. */
@@ -599,7 +598,6 @@ AlterSequence(ParseState *pstate, AlterSeqStmt *stmt)
 	UnlockReleaseBuffer(buf);
 
 	/* Check and set new values */
-	seqOptions = stmt->options;
 	init_params(pstate, stmt->options, stmt->for_identity, false,
 				seqform, newdataform,
 				&need_seq_rewrite, &owned_by ADB_ONLY_COMMA_ARG(&is_restart));

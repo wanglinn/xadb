@@ -1,18 +1,17 @@
 #-------------------------------------------------------------------------
 #
 # Makefile--
-#    Makefile for access/common
+#    Makefile for statistics
 #
 # IDENTIFICATION
-#    src/agtm/access/common/Makefile
+#    src/agtm/statistics/Makefile
 #
 #-------------------------------------------------------------------------
 
-subdir = src/agtm/access/common
-top_builddir = ../../../..
+subdir = src/agtm/statistics
+top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = bufmask.o heaptuple.o indextuple.o printsimple.o printtup.o \
-	reloptions.o scankey.o tupconvert.o tupdesc.o
+OBJS = extended_stats.o dependencies.o mvdistinct.o
 
 include $(top_srcdir)/src/agtm/common.mk

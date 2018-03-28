@@ -9884,7 +9884,7 @@ transaction_mode_item:
 			{
 #ifdef AGTM
 				if (strcmp($2, "xid") == 0)
-					$$ = makeDefElem("least_xid_is", makeIntConst($4, @4));
+					$$ = makeDefElem("least_xid_is", makeIntConst($4, @4), @1);
 				else
 #endif
 					ereport_pos($2, @2);

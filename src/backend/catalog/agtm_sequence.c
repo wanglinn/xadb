@@ -41,10 +41,7 @@ Oid AddAgtmSequence(const char* database,
 	adbSequence = heap_open(AgtmSequenceRelationId, RowExclusiveLock);
 	htup = heap_form_tuple(RelationGetDescr(adbSequence), values, nulls);
 
-	oid = simple_heap_insert(adbSequence, htup);
-
-	/* add index */
-	CatalogUpdateIndexes(adbSequence,htup);
+	oid = CatalogTupleInsert(adbSequence, htup);
 
 	heap_close(adbSequence, RowExclusiveLock);
 
@@ -89,7 +86,7 @@ Oid DelAgtmSequence(const char* database,
 	return oid;
 }
 
-void 
+void
 DelAgtmSequenceByOid(Oid oid)
 {
 	Relation	adbSequence;
@@ -121,7 +118,7 @@ DelAgtmSequenceByDatabse(const char* database)
 	ScanKeyInit(&key[0]
 		,Anum_agtm_sequence_database
 		,BTEqualStrategyNumber, F_NAMEEQ
-		,NameGetDatum(database));
+		,CStringGetDatum(database));	/* CString compatible Name */
 
 	adbSequence = heap_open(AgtmSequenceRelationId, RowExclusiveLock);
 	scan = heap_beginscan_catalog(adbSequence, 1, key);
@@ -257,7 +254,7 @@ void UpdateSequenceInfo(const char* database,
 			namestrcpy(&nameSequence, sequence);
 			values[Anum_agtm_sequence_sequence - 1] = NameGetDatum(&nameSequence);
 			doReplace[Anum_agtm_sequence_sequence - 1] = FALSE;
-			
+
 			break;
 		}
 		case T_AgtmseqDatabase:
@@ -286,8 +283,7 @@ void UpdateSequenceInfo(const char* database,
 
 	rel = heap_open(AgtmSequenceRelationId, RowExclusiveLock);
 	newTuple = heap_modify_tuple(htup, RelationGetDescr(rel), values,nulls, doReplace);
-	simple_heap_update(rel, &htup->t_self, newTuple);
-	CatalogUpdateIndexes(rel,newTuple);
+	CatalogTupleUpdate(rel, &htup->t_self, newTuple);
 
 	ReleaseSysCache(htup);
 
@@ -305,9 +301,9 @@ UpdateSequenceDbExist(const char* oldName, const char* newName)
 	Assert(NULL != oldName && NULL != newName);
 
 	ScanKeyInit(&key[0],
-	Anum_agtm_sequence_database,
-	BTEqualStrategyNumber, F_NAMEEQ,
-	NameGetDatum(oldName));
+		Anum_agtm_sequence_database,
+		BTEqualStrategyNumber, F_NAMEEQ,
+		CStringGetDatum(oldName));	/* CString compatible Name */
 
 	adbSequence = heap_open(AgtmSequenceRelationId, RowExclusiveLock);
 	scan = heap_beginscan_catalog(adbSequence, 1, key);
@@ -330,11 +326,9 @@ UpdateSequenceDbExist(const char* oldName, const char* newName)
 		doReplace[Anum_agtm_sequence_database - 1] = TRUE;
 
 		newTuple = heap_modify_tuple(htup, RelationGetDescr(adbSequence), values,nulls, doReplace);
-		simple_heap_update(adbSequence, &htup->t_self, newTuple);
-		CatalogUpdateIndexes(adbSequence,newTuple);
+		CatalogTupleUpdate(adbSequence, &htup->t_self, newTuple);
 	}
 
 	heap_endscan(scan);
 	heap_close(adbSequence, RowExclusiveLock);
 }
-

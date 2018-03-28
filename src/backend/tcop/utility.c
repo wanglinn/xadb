@@ -1556,7 +1556,6 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 
 		default:
 			/* All other statement types have event trigger support */
-			elog(DEBUG1,"Query String:%s, SendToRemote=%d,CompletionTag=%s\n",queryString,sentToRemote,completionTag);
 			ProcessUtilitySlow(pstate, pstmt, queryString,
 							   context, params, queryEnv,
 							   dest, ADB_ONLY_ARG(sentToRemote) completionTag);

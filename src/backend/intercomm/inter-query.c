@@ -133,8 +133,7 @@ RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes)
 			estate = ExecInitExpr((Expr*)en_expr_node, (PlanState *) planstate);
 			partvalue = ExecEvalExpr(estate,
 									 planstate->ss.ps.ps_ExprContext,
-									 &isnull,
-									 NULL);
+									 &isnull);
 			en_expr_values[idx] = isnull ? (Datum)0 : partvalue;
 			en_expr_nulls[idx] = isnull;
 			en_expr_types[idx] = exprType(en_expr_node);

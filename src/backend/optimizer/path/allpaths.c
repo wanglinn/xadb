@@ -1431,6 +1431,8 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 	ListCell   *l;
 	List	   *partitioned_rels = NIL;
 	RangeTblEntry *rte;
+	Path	   *path;
+	RelOptInfo *childrel;
 #ifdef ADB
 	List	   *reduce_list;
 	List	   *reduce_var_map;
@@ -1438,8 +1440,6 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 	List	   *all_replicate_oid;
 	ReduceInfo *reduce_info;
 	ListCell   *lc_new_attno;
-	RelOptInfo *childrel;
-	Path	   *path;
 	bool		have_reduce_coord = false;
 #endif /* ADB */
 
@@ -1458,8 +1458,8 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 	 */
 	foreach(l, live_childrels)
 	{
-		RelOptInfo *childrel = lfirst(l);
 		ListCell   *lcp;
+		childrel = lfirst(l);
 
 		/*
 		 * If child has an unparameterized cheapest-total path, add that to

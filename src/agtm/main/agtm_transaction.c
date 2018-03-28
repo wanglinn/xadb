@@ -13,6 +13,7 @@
 #include "commands/tablecmds.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
+#include "nodes/makefuncs.h"
 #include "nodes/parsenodes.h"
 #include "nodes/primnodes.h"
 #include "nodes/value.h"
@@ -26,7 +27,7 @@
 
 static List* parse_string_to_seqOption(StringInfo strOption);
 
-static	void parse_seqFullName_to_details(StringInfo message, char ** dbName, 
+static	void parse_seqFullName_to_details(StringInfo message, char ** dbName,
 							char ** schemaName, char ** sequenceName);
 
 StringInfo ProcessGetGXIDCommand(StringInfo message, StringInfo output)
@@ -158,7 +159,7 @@ ProcessSyncXID(StringInfo message, StringInfo output)
 StringInfo
 ProcessSequenceInit(StringInfo message, StringInfo output)
 {
-	List *option;	
+	List *option;
 	/* system table agtm_sequence info */
 	Oid			lineOid;
 	char* dbName = NULL;
@@ -166,9 +167,7 @@ ProcessSequenceInit(StringInfo message, StringInfo output)
 	char* sequenceName = NULL;
 	bool  isExist = FALSE;
 
-	RangeVar * rangeVar = NULL;
 	CreateSeqStmt * seqStmt = NULL;
-	StringInfoData	buf;
 
 	MemoryContext sequece_Context;
 	MemoryContext oldctx = NULL;
@@ -180,9 +179,6 @@ ProcessSequenceInit(StringInfo message, StringInfo output)
 											 ALLOCSET_DEFAULT_MAXSIZE);
 
 	oldctx = MemoryContextSwitchTo(sequece_Context);
-
-	initStringInfo(&buf);
-	rangeVar = makeNode(RangeVar);
 
 	parse_seqFullName_to_details(message, &dbName, &schemaName, &sequenceName);
 	option = parse_string_to_seqOption(message);
@@ -197,18 +193,9 @@ ProcessSequenceInit(StringInfo message, StringInfo output)
 	lineOid = AddAgtmSequence(dbName,schemaName,sequenceName);
 
 	seqStmt = makeNode(CreateSeqStmt);
-	rangeVar->catalogname = NULL;
-	rangeVar->schemaname = NULL;
-	appendStringInfo(&buf, "%s", "seq");
-	appendStringInfo(&buf, "%u", lineOid);
-	rangeVar->relname = buf.data;
-	rangeVar->inhOpt = INH_DEFAULT;
-	rangeVar->relpersistence = 'p';
-	rangeVar->alias = NULL;
-
-	seqStmt->sequence = rangeVar;
+	seqStmt->sequence = makeRangeVar(NULL, psprintf("seq%u", lineOid), -1);
 	seqStmt->options = option;
-	DefineSequence(seqStmt);	
+	DefineSequence(NULL, seqStmt);
 
 	(void)MemoryContextSwitchTo(oldctx);
 	MemoryContextDelete(sequece_Context);
@@ -221,7 +208,7 @@ ProcessSequenceInit(StringInfo message, StringInfo output)
 StringInfo
 ProcessSequenceAlter(StringInfo message, StringInfo output)
 {
-	List *option;	
+	List *option;
 	/* system table agtm_sequence info */
 	Oid			lineOid;
 	char* dbName = NULL;
@@ -229,9 +216,7 @@ ProcessSequenceAlter(StringInfo message, StringInfo output)
 	char* sequenceName = NULL;
 	bool  isExist = FALSE;
 
-	RangeVar * rangeVar = NULL;
 	AlterSeqStmt * seqStmt = NULL;
-	StringInfoData	buf;
 
 	MemoryContext sequece_Context;
 	MemoryContext oldctx = NULL;
@@ -244,9 +229,6 @@ ProcessSequenceAlter(StringInfo message, StringInfo output)
 
 	oldctx = MemoryContextSwitchTo(sequece_Context);
 
-	initStringInfo(&buf);
-	rangeVar = makeNode(RangeVar);
-
 	parse_seqFullName_to_details(message, &dbName, &schemaName, &sequenceName);
 	option = parse_string_to_seqOption(message);
 	pq_getmsgend(message);
@@ -256,22 +238,13 @@ ProcessSequenceAlter(StringInfo message, StringInfo output)
 	if(!isExist)
 		ereport(ERROR,
 			(errmsg("%s, %s, %s not exist!",dbName, schemaName, sequenceName)));
-	
+
 	lineOid = SequenceSystemClassOid(dbName, schemaName, sequenceName);
 	seqStmt = makeNode(AlterSeqStmt);
-	rangeVar->catalogname = NULL;
-	rangeVar->schemaname = NULL;
-	appendStringInfo(&buf, "%s", "seq");
-	appendStringInfo(&buf, "%u", lineOid);
-	rangeVar->relname = buf.data;
-	rangeVar->inhOpt = INH_DEFAULT;
-	rangeVar->relpersistence = 'p';
-	rangeVar->alias = NULL;
-
-	seqStmt->sequence = rangeVar;
+	seqStmt->sequence = makeRangeVar(NULL, psprintf("seq%u", lineOid), -1);
 	seqStmt->options = option;
 
-	AlterSequence(seqStmt);
+	AlterSequence(NULL, seqStmt);
 
 	(void)MemoryContextSwitchTo(oldctx);
 	MemoryContextDelete(sequece_Context);
@@ -288,10 +261,8 @@ ProcessSequenceDrop(StringInfo message, StringInfo output)
 	char* dbName = NULL;
 	bool  isExist = FALSE;
 	char* schemaName = NULL;
-	char* sequenceName = NULL;	
+	char* sequenceName = NULL;
 	DropStmt *drop = NULL;
-	RangeVar * rangeVar = NULL;
-	StringInfoData	buf;
 	List	*rangValList = NULL;
 
 	MemoryContext sequece_Context;
@@ -305,7 +276,6 @@ ProcessSequenceDrop(StringInfo message, StringInfo output)
 
 	oldctx = MemoryContextSwitchTo(sequece_Context);
 
-	initStringInfo(&buf);
 	parse_seqFullName_to_details(message, &dbName, &schemaName, &sequenceName);
 	pq_getmsgend(message);
 	/* check info in system table */
@@ -317,22 +287,14 @@ ProcessSequenceDrop(StringInfo message, StringInfo output)
 	oid = DelAgtmSequence(dbName, schemaName, sequenceName);
 
 	drop = makeNode(DropStmt);
-	rangeVar = makeNode(RangeVar);
 
 	drop->removeType = OBJECT_SEQUENCE;
 	drop->behavior = DROP_RESTRICT;
 	drop->missing_ok = 0;
 	drop->concurrent = 0;
 
-	rangeVar->catalogname = NULL;
-	rangeVar->schemaname = NULL;
-	appendStringInfo(&buf, "%s", "seq");
-	appendStringInfo(&buf, "%u", oid);
-	rangeVar->relname = buf.data;
-	rangeVar->inhOpt = INH_DEFAULT;
-	rangeVar->relpersistence = 'p';
-
-	rangValList = lappend(rangValList, makeString(buf.data));
+#warning is drop->object type right?
+	rangValList = lappend(rangValList, makeString(psprintf("seq%u", oid)));
 	drop->objects = lappend(drop->objects, (void*)rangValList);
 
 	RemoveRelations((void *)drop);
@@ -345,7 +307,7 @@ ProcessSequenceDrop(StringInfo message, StringInfo output)
 	return output;
 }
 
-StringInfo 
+StringInfo
 ProcessSequenceDropByDatabase(StringInfo message, StringInfo output)
 {
 	char * database = NULL;
@@ -377,27 +339,20 @@ ProcessSequenceDropByDatabase(StringInfo message, StringInfo output)
 		foreach(option, list)
 		{
 			DropStmt *drop = NULL;
-			RangeVar * rangeVar = NULL;
 			List	*rangValList = NULL;
 			char    *seq = (char *) lfirst(option);
 			drop = makeNode(DropStmt);
-			rangeVar = makeNode(RangeVar);
 
 			drop->removeType = OBJECT_SEQUENCE;
 			drop->behavior = DROP_RESTRICT;
 			drop->missing_ok = 0;
 			drop->concurrent = 0;
 
-			rangeVar->catalogname = NULL;
-			rangeVar->schemaname = NULL;
-			rangeVar->relname = seq;
-			rangeVar->inhOpt = INH_DEFAULT;
-			rangeVar->relpersistence = 'p';
-
+#warning is drop->object type right?
 			rangValList = lappend(rangValList, makeString(seq));
 			drop->objects = lappend(drop->objects, (void*)rangValList);
 
-			RemoveRelations((void *)drop);
+			RemoveRelations(drop);
 		}
 	}
 
@@ -456,7 +411,7 @@ ProcessSequenceRename(StringInfo message, StringInfo output)
 			ereport(ERROR,
 			(errmsg("sequence rename type error")));
 			break;
-	}	
+	}
 
 	(void)MemoryContextSwitchTo(oldctx);
 	MemoryContextDelete(sequece_Context);
@@ -504,7 +459,7 @@ ProcessSequenceRenameByDatabase(StringInfo message, StringInfo output)
 	return output;
 }
 
-static	void parse_seqFullName_to_details(StringInfo message, char ** dbName, 
+static	void parse_seqFullName_to_details(StringInfo message, char ** dbName,
 							char ** schemaName, char ** sequenceName)
 {
 	int	 sequenceSize = 0;
@@ -555,7 +510,7 @@ parse_string_to_seqOption(StringInfo strOption)
 			defel->defnamespace = pnstrdup(pq_getmsgbytes(strOption, defnamespaceSize), defnamespaceSize);
 
 		memcpy(&defnameSize, pq_getmsgbytes(strOption, sizeof(defnameSize)), sizeof(defnameSize));
-		if(defnameSize != 0)			
+		if(defnameSize != 0)
 			defel->defname = pnstrdup(pq_getmsgbytes(strOption, defnameSize), defnameSize);
 
 		memcpy(&type, pq_getmsgbytes(strOption, sizeof(type)), sizeof(type));
