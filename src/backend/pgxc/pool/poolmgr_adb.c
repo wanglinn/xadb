@@ -1680,12 +1680,6 @@ send_agtm_port_:
 			}
 			if(slot->slot_state == SLOT_STATE_ERROR)
 			{
-				/* connect str need to reset */
-				if (NULL != slot->parent->connstr)
-				{
-					pfree(slot->parent->connstr);
-					slot->parent->connstr = NULL;
-				}
 				ereport(ERROR, (errmsg("reconnect three thimes , %s", PQerrorMessage(slot->conn))));
 			}
 			else if(slot->slot_state != SLOT_STATE_LOCKED)
@@ -1700,6 +1694,7 @@ send_agtm_port_:
 		}
 	}PG_CATCH();
 	{
+		ConnectedInfo *info;
 		agent = volAgent;
 		while(agent->list_wait != NIL)
 		{
@@ -1721,6 +1716,13 @@ send_agtm_port_:
 				dlist_delete(&slot->dnode);
 				SET_SLOT_LIST(slot, NULL_SLOT);
 			}
+			info = hash_search(agent->connected_node,
+							   &slot->parent->hostinfo,
+							   HASH_REMOVE,
+							   NULL);
+			Assert(info && info->slot == slot);
+			pfree(info->info.hostname);
+			MemSet(info, 0, sizeof(*info));
 			idle_slot(slot, true);
 		}
 		PG_RE_THROW();
@@ -1769,7 +1771,7 @@ send_agtm_port_:
 				agent->list_wait = list_delete_first(agent->list_wait);
 				info = hash_search(agent->connected_node,
 								   &slot->parent->hostinfo,
-								   HASH_FIND,
+								   HASH_REMOVE,
 								   NULL);
 				Assert(info);
 				pfree(info->info.hostname);
@@ -2801,6 +2803,17 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 			slot = lfirst(lc);
 			if(slot)
 			{
+				connected_info = hash_search(agent->connected_node,
+											 &slot->parent->hostinfo,
+											 HASH_REMOVE,
+											 NULL);
+				if (connected_info != NULL)
+				{
+					Assert(connected_info->slot == slot);
+					if (connected_info->info.hostname != slot->parent->hostinfo.hostname)
+						pfree(connected_info->info.hostname);
+					MemSet(connected_info, 0, sizeof(*connected_info));
+				}
 				Assert(slot->current_list != NULL_SLOT);
 				dlist_delete(&slot->dnode);
 				SET_SLOT_LIST(slot, NULL_SLOT);
