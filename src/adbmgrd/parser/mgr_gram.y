@@ -1871,6 +1871,16 @@ ListNodeStmt:
 			stmt->whereClause = make_column_in("type", args);
 			$$ = (Node*)stmt;
 		}
+	| LIST NODE HOST AConstList
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("node"), -1));
+			stmt->whereClause = make_column_in("host", $4);
+			$$ = (Node*)stmt;
+
+			check_host_name_isvaild($4);
+		}
 	;
 InitNodeStmt:
 INIT ALL

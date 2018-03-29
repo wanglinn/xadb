@@ -23,6 +23,7 @@ ADB documentation
     <synopsis>
 LIST NODE COORDINATOR [ MASTER | SLAVE ]
 LIST NODE DATANODE [ MASTER | SLAVE ]
+LIST NODE HOST <replaceable class="parameter">host_name</replaceable> [, ...]
 LIST NODE  [ ( <replaceable class="parameter">option</replaceable> ) ] [ <replaceable class="parameter">node_name</replaceable> [, ...] ]
 
 <phrase>where <replaceable class="parameter">option</replaceable> can be one of:</phrase>
@@ -119,6 +120,15 @@ LIST NODE  [ ( <replaceable class="parameter">option</replaceable> ) ] [ <replac
     <listitem>
      <para>
       The symbol of node to show the node is in cluster or not.
+      </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><replaceable class="parameter">host_name</replaceable>
+    </term>
+    <listitem>
+     <para>
+      Host name, corresponds to the name column in the node table.
       </para>
     </listitem>
   </varlistentry>
