@@ -1165,6 +1165,8 @@ PoolManagerGetConnectionsOid(List *oidlist)
 	StringInfoData buf;
 	int val;
 
+	if (!poolHandle)
+		PoolManagerReconnect();
 	Assert(poolHandle != NULL);
 	if(oidlist == NIL)
 		return NULL;
