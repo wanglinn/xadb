@@ -23,6 +23,7 @@
 #include "catalog/indexing.h"
 #include "catalog/pgxc_node.h"
 #include "commands/defrem.h"
+#include "intercomm/inter-node.h"
 #include "nodes/parsenodes.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
@@ -480,7 +481,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	 * Check that this node is not created as a primary if one already
 	 * exists.
 	 */
-	if (is_primary && OidIsValid(primary_data_node))
+	if (is_primary && GetPrimaryNodeHandle() != NULL)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("PGXC node %s: two nodes cannot be primary",
@@ -537,9 +538,6 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	CatalogUpdateIndexes(pgxcnodesrel, htup);
 
 	heap_close(pgxcnodesrel, RowExclusiveLock);
-
-	if (is_primary)
-		primary_data_node = nodeOid;
 }
 
 /*
@@ -554,10 +552,8 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	char	   *node_host_old, *node_host_new = NULL;
 	int			node_port_old, node_port_new;
 	char		node_type_old, node_type_new;
-	bool		is_primary, was_primary;
+	bool		is_primary;
 	bool		is_preferred = false;
-	bool		primary_off = false;
-	Oid			new_primary = InvalidOid;
 	HeapTuple	oldtup, newtup;
 	Oid			node_oid;
 	Relation	rel;
@@ -566,6 +562,7 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	bool		new_record_repl[Natts_pgxc_node];
 	uint32		node_id;
 	Form_pgxc_node node_form;
+	NodeHandle *node_handle;
 
 	/* Only a DB administrator can alter cluster nodes */
 	if (!superuser())
@@ -587,7 +584,7 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	node_host_old = pstrdup(NameStr(node_form->node_host));
 	node_port_old = node_port_new = node_form->node_port;
 	node_type_old = node_type_new = node_form->node_type;
-	was_primary = is_primary = node_form->nodeis_primary;
+	is_primary = node_form->nodeis_primary;
 	is_preferred = node_form->nodeis_preferred;
 	node_id = node_form->node_id;
 
@@ -623,23 +620,12 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	 * error.
 	 */
 	if (is_primary &&
-		OidIsValid(primary_data_node) &&
-		node_oid != primary_data_node)
+		(node_handle=GetPrimaryNodeHandle()) != NULL &&
+		node_oid != node_handle->node_id)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("PGXC node %s: two nodes cannot be primary",
 						node_name)));
-	/*
-	 * If this node is a primary and the statement says primary = false,
-	 * we need to invalidate primary_data_node when the whole operation
-	 * is successful.
-	 */
-	if (was_primary && !is_primary &&
-		OidIsValid(primary_data_node) &&
-		node_oid == primary_data_node)
-		primary_off = true;
-	else if (is_primary)
-		new_primary = node_oid;
 
 	/* Update values for catalog entry */
 	MemSet(new_record, 0, sizeof(new_record));
@@ -668,13 +654,6 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	/* Update indexes */
 	CatalogUpdateIndexes(rel, newtup);
 
-	/* Invalidate primary_data_node if needed */
-	if (primary_off)
-		primary_data_node = InvalidOid;
-	/* Update primary datanode if needed */
-	if (OidIsValid(new_primary))
-		primary_data_node = new_primary;
-
 	ReleaseSysCache(oldtup);
 
 	/* Release lock at Commit */
@@ -694,7 +673,6 @@ PgxcNodeRemove(DropNodeStmt *stmt)
 	HeapTuple	tup;
 	const char	*node_name = stmt->node_name;
 	Oid		noid = get_pgxc_nodeoid(node_name);
-	bool 		is_primary;
 
 	/* Only a DB administrator can remove cluster nodes */
 	if (!superuser())
@@ -729,7 +707,6 @@ PgxcNodeRemove(DropNodeStmt *stmt)
 	/* Delete the pgxc_node tuple */
 	relation = heap_open(PgxcNodeRelationId, RowExclusiveLock);
 	tup = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(noid));
-	is_primary = is_pgxc_nodeprimary(noid);
 	if (!HeapTupleIsValid(tup)) /* should not happen */
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
@@ -740,7 +717,5 @@ PgxcNodeRemove(DropNodeStmt *stmt)
 
 	ReleaseSysCache(tup);
 
-	if (is_primary)
-		primary_data_node = InvalidOid;
 	heap_close(relation, RowExclusiveLock);
 }

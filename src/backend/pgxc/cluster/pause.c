@@ -470,9 +470,6 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	char		node_type, node_type_old;
 	bool		is_preferred;
 	bool		is_primary;
-	bool		was_primary;
-	bool		primary_off = false;
-	Oid			new_primary = InvalidOid;
 	Oid			nodeOid;
 	Relation	rel;
 	HeapTuple	oldtup, newtup;
@@ -482,6 +479,7 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	uint32		node_id;
 	uint32		node_port = 0;
 	NameData node_name_data;
+	NodeHandle *node_handle;
 
 	node_name_old = PG_GETARG_CSTRING(0);
 	node_name_new = PG_GETARG_CSTRING(1);
@@ -520,7 +518,7 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	if (!node_port)
 		node_port = get_pgxc_nodeport(nodeOid);
 	//is_preferred = is_pgxc_nodepreferred(nodeOid);
-	is_primary = was_primary = is_pgxc_nodeprimary(nodeOid);
+	is_primary = is_pgxc_nodeprimary(nodeOid);
 	node_type = get_pgxc_nodetype(nodeOid);
 	node_type_old = node_type;
 	node_id = get_pgxc_node_id(nodeOid);
@@ -531,23 +529,12 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	 * error.
 	 */
 	if (is_primary &&
-		OidIsValid(primary_data_node) &&
-		nodeOid != primary_data_node)
+		((node_handle=GetPrimaryNodeHandle()) != NULL) &&
+		nodeOid != node_handle->node_id)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("PGXC node %s: two nodes cannot be primary",
 						node_name_new)));
-	/*
-	 * If this node is a primary and the statement says primary = false,
-	 * we need to invalidate primary_data_node when the whole operation
-	 * is successful.
-	 */
-	if (was_primary && !is_primary &&
-		OidIsValid(primary_data_node) &&
-		nodeOid == primary_data_node)
-		primary_off = true;
-	else if (is_primary)
-		new_primary = nodeOid;
 
 	/* Check type dependency */
 	if (node_type_old == PGXC_NODE_COORDINATOR &&
@@ -594,12 +581,6 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	/* Update indexes */
 	CatalogUpdateIndexes(rel, newtup);
 
-	/* Invalidate primary_data_node if needed */
-	if (primary_off)
-		primary_data_node = InvalidOid;
-	/* Update primary datanode if needed */
-	if (OidIsValid(new_primary))
-		primary_data_node = new_primary;
 	/* Release lock at Commit */
 	heap_close(rel, NoLock);
 

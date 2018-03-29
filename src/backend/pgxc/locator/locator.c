@@ -103,17 +103,14 @@ Oid		preferred_data_node[MAX_PREFERRED_NODES];
 List *
 GetPreferredRepNodeIds(List *nodeids)
 {
-	int			i;
-	Oid			nodeid;
-
+	ListCell *lc;
 	if (list_length(nodeids) <= 0)
 		elog(ERROR, "a list of nodes should have at least one node");
 
-	for (i = 0; i < num_preferred_data_nodes; i++)
+	foreach(lc, nodeids)
 	{
-		nodeid = preferred_data_node[i];
-		if (list_member_oid(nodeids, nodeid))
-			return list_make1_oid(nodeid);
+		if (is_pgxc_nodepreferred(lfirst_oid(lc)))
+			return list_make1_oid(lfirst_oid(lc));
 	}
 
 	return list_make1_oid(linitial_oid(nodeids));
