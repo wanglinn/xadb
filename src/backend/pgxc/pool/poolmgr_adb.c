@@ -1249,8 +1249,6 @@ void PoolManagerCleanConnectionOid(List *oidlist, const char *dbname, const char
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Clean connections not completed")));
-
-	pfree(buf.data);
 }
 
 void PoolManagerReleaseConnections(bool force_close)
