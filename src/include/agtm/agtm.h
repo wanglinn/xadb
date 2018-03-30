@@ -163,32 +163,7 @@ extern void agtm_CommitTransaction(const char *prepared_gid, bool missing_ok);
 /*
  * rollback transacton on AGTM
  */
-extern void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok, bool ignore_error);
-
-/*
- * create/drop/alter sequence on agtm
- */
-extern void agtm_sequence(const char *dmlSeq);
-
-/*
- * create/drop/alter databae on agtm
- */
-extern void agtm_Database(const char *dmlDatabase);
-
-/*
- * create/drop/alter tablespace on agtm
- */
-extern void agtm_TableSpace(const char *dmlTableSpace);
-
-/*
- * create/drop/alter schema on agtm
- */
-extern void agtm_Schema(const char *dmlSchema);
-
-/*
- * create/drop/alter user on agtm
- */
-extern void agtm_User(const char *dmlUser);
+extern void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok, bool no_error);
 
 /*
  * process command
