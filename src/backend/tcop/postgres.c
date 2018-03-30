@@ -4974,7 +4974,7 @@ PostgresMain(int argc, char *argv[],
 
 					listen_port = pq_getmsgint(&input_message, 4);
 
-					elog(LOG, "Received AGTM listen port: %d", listen_port);
+					ereport(DEBUG1, (errmsg("Received AGTM listen port: %d", listen_port)));
 
 					if (IS_PGXC_DATANODE || IsCoordCandidate())
 						agtm_SetPort(listen_port);

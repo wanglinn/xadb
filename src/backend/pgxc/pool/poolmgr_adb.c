@@ -1560,7 +1560,7 @@ send_session_params_:
 			case SLOT_STATE_LOCKED:
 				continue;
 			case SLOT_STATE_RELEASED:
-				if(slot->last_user_pid != agent->pid)
+				if (slot->last_user_pid != agent->pid)
 				{
 					slot->last_agtm_port = 0;
 					if(!PQsendQuery(slot->conn, "reset all"))
@@ -1582,6 +1582,9 @@ send_session_params_:
 				}else if(!EQUAL_PARAMS_MAGIC(slot->local_magic, agent->local_magic))
 				{
 					goto send_local_params_;
+				}else if (slot->last_agtm_port != agent->agtm_port)
+				{
+					goto send_agtm_port_;
 				}else
 				{
 					slot->slot_state = SLOT_STATE_LOCKED;
