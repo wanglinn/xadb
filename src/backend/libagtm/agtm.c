@@ -982,6 +982,13 @@ agtm_PrepareReusedResult(PGconn *conn)
 	conn->result = reused_result;
 }
 
+void
+agtm_EndReusedResult(PGconn *conn)
+{
+	if (conn->result == reused_result)
+		reused_result = NULL;
+}
+
 /*
  * call pqFlush, pqWait, pqReadData and return agtm_GetResult
  */

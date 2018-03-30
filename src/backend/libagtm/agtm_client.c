@@ -192,6 +192,7 @@ void agtm_Close(void)
 
 		if (agtm_conn->pg_Conn)
 		{
+			agtm_EndReusedResult(agtm_conn->pg_Conn);
 			PQfinish(agtm_conn->pg_Conn);
 			agtm_conn->pg_Conn = NULL;
 		}
