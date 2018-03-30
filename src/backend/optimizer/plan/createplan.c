@@ -6672,7 +6672,7 @@ static Plan* create_filter_if_replicate(Plan *subplan, List *reduce_list)
 	if(IsReduceInfoListReplicated(reduce_list))
 	{
 		List *exec_list = ReduceInfoListGetExecuteOidList(reduce_list);
-		subplan = (Plan*)make_result(IsA(subplan, ModifyTable) ?
+		subplan = (Plan*)make_result(IsA(subplan, ModifyTable) && ((ModifyTable*)subplan)->returningLists != NIL ?
 										linitial(((ModifyTable*)subplan)->returningLists) : subplan->targetlist,
 									 NULL,
 									 subplan);
