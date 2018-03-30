@@ -1,4 +1,3 @@
-#define NO_STRUCT_BaseStmt
 #define NO_STRUCT_QualCost
 #define NO_STRUCT_AggClauseCosts
 #define NO_STRUCT_MergeScanSelCache

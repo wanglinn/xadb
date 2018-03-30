@@ -228,8 +228,6 @@ static bool IsTransactionStmtList(List *pstmts);
 static void drop_unnamed_stmt(void);
 static void log_disconnections(int code, Datum arg);
 #ifdef ADB
-static List *segment_query_string(const char *query_string,
-								  List *parsetree_list);
 static CommandDest PortalSetCommandDest(Portal portal, CommandDest dest);
 #endif
 #ifdef AGTM
@@ -1115,51 +1113,6 @@ pg_plan_queries(List *querytrees, int cursorOptions, ParamListInfo boundParams)
 }
 
 #ifdef ADB
-static List *
-segment_query_string(const char *query_string, List *parsetree_list)
-{
-	ListCell	*parsetree_item;
-	Node		*parsetree;
-	List		*sql_list = NIL;
-	char		*sql_item;
-	int			 save_endpos;
-	int			 curr_endpos;
-
-	if (!query_string || !parsetree_list)
-		return NIL;
-
-	save_endpos = 0;
-	foreach (parsetree_item, parsetree_list)
-	{
-		parsetree = (Node *)lfirst(parsetree_item);
-		Assert(IsBaseStmt(parsetree));
-		curr_endpos = ((BaseStmt *)parsetree)->endpos;
-
-		/*
-		 * trim space character from the head of current sql
-		 */
-		while (query_string[save_endpos] && isspace(query_string[save_endpos]))
-			save_endpos++;
-
-		if (curr_endpos != 0)
-		{
-			Assert(curr_endpos >= save_endpos);
-			sql_item = pnstrdup(query_string + save_endpos,
-								curr_endpos - save_endpos + 1);
-			save_endpos = curr_endpos + 1;
-		} else
-		{
-			Assert(lnext(parsetree_item) == NULL);
-			sql_item = pstrdup(query_string + save_endpos);
-		}
-		sql_list = lappend(sql_list, sql_item);
-	}
-
-	Assert(list_length(sql_list) == list_length(parsetree_list));
-
-	return sql_list;
-}
-
 static CommandDest
 PortalSetCommandDest(Portal portal, CommandDest dest)
 {
@@ -1211,8 +1164,6 @@ exec_simple_query(const char *query_string)
 	List	   *parsetree_list;
 	ListCell   *parsetree_item;
 #ifdef ADB
-	List	   *sql_list;
-	ListCell   *sql_item;
 	ParseGrammar grammar = PARSE_GRAM_POSTGRES;
 #endif
 	bool		save_log_statement_stats = log_statement_stats;
@@ -1291,8 +1242,6 @@ exec_simple_query(const char *query_string)
 #endif
 
 #ifdef ADB
-	sql_list = segment_query_string(query_string, parsetree_list);
-
 	if(Debug_print_grammar)
 		elog_node_display(LOG, "grammar tree", parsetree_list, true);
 #endif
@@ -1324,11 +1273,7 @@ exec_simple_query(const char *query_string)
 	/*
 	 * Run through the raw parsetree(s) and process each one.
 	 */
-#ifdef ADB
-	forboth(parsetree_item, parsetree_list, sql_item, sql_list)
-#else
 	foreach(parsetree_item, parsetree_list)
-#endif
 	{
 		RawStmt    *parsetree = lfirst_node(RawStmt, parsetree_item);
 		bool		snapshot_set = false;
@@ -1340,7 +1285,6 @@ exec_simple_query(const char *query_string)
 		DestReceiver *receiver;
 		int16		format;
 #ifdef ADB
-		const char *query_sql = (const char *)lfirst(sql_item);
 		/*
 		 * By default we do not want Datanodes or client Coordinators to contact GTM directly,
 		 * it should get this information passed down to it.
@@ -1403,8 +1347,10 @@ exec_simple_query(const char *query_string)
 		oldcontext = MemoryContextSwitchTo(MessageContext);
 
 #ifdef ADB
-		querytree_list = pg_analyze_and_rewrite_for_gram(parsetree
-							, query_sql, NULL, 0, NULL, grammar);
+		querytree_list = pg_analyze_and_rewrite_for_gram(parsetree,
+														 query_string,
+														 NULL, 0, NULL,
+														 grammar);
 #else
 		querytree_list = pg_analyze_and_rewrite(parsetree, query_string,
 												NULL, 0, NULL);
@@ -1449,11 +1395,7 @@ exec_simple_query(const char *query_string)
 		 */
 		PortalDefineQuery(portal,
 						  NULL,
-#ifdef ADB
-						  query_sql,
-#else
 						  query_string,
-#endif
 						  commandTag,
 						  plantree_list,
 						  NULL);

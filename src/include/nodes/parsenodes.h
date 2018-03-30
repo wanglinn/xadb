@@ -1520,141 +1520,6 @@ typedef struct RawStmt
 /*****************************************************************************
  *		Optimizable Statements
  *****************************************************************************/
-#ifdef ADB
-typedef struct BaseStmt
-{
-	NodeTag 	type;
-	int 		endpos; 	/* the "endpos" is the position of ';' of each sql,
-							 * while multiple sqls input once.
-							 *
-							 * It's marked when "raw_parser", see the grammar
-							 * rule "stmtmulti" in gram.y.
-							 *
-							 * The purpose is to get itself sql text of each
-							 * parsetree, see the function "exec_simple_query".
-							 *
-							 * If its value equal to zero, means that the parse-
-							 * tree's sql text is the whole input text.
-							 *
-							 * Due to get itself sql text of each parsetree in
-							 * "exec_simple_query" and no other use, so we don't
-							 * deal with the "endpos" parameter of every statement,
-							 * see below, in functions such as "equal()",
-							 * "_outNode" and "parseNodeString".
-							 */
-} BaseStmt;
-
-#define IsBaseStmt(node)	\
-	IsA(node, AlterDatabaseSetStmt) || \
-	IsA(node, AlterDatabaseStmt) || \
-	IsA(node, AlterDefaultPrivilegesStmt) || \
-	IsA(node, AlterDomainStmt) || \
-	IsA(node, AlterEnumStmt) || \
-	IsA(node, AlterEventTrigStmt) || \
-	IsA(node, AlterExtensionContentsStmt) || \
-	IsA(node, AlterExtensionStmt) || \
-	IsA(node, AlterFdwStmt) || \
-	IsA(node, AlterForeignServerStmt) || \
-	IsA(node, AlterFunctionStmt) || \
-	IsA(node, AlterNodeStmt) || \
-	IsA(node, AlterObjectDependsStmt) || \
-	IsA(node, AlterObjectSchemaStmt) || \
-	IsA(node, AlterOperatorStmt) || \
-	IsA(node, AlterOpFamilyStmt) || \
-	IsA(node, AlterOwnerStmt) || \
-	IsA(node, AlterPolicyStmt) || \
-	IsA(node, AlterRoleSetStmt) || \
-	IsA(node, AlterRoleStmt) || \
-	IsA(node, AlterSeqStmt) || \
-	IsA(node, AlterSystemStmt) || \
-	IsA(node, AlterTableMoveAllStmt) || \
-	IsA(node, AlterTableSpaceOptionsStmt) || \
-	IsA(node, AlterTableStmt) || \
-	IsA(node, AlterTSConfigurationStmt) || \
-	IsA(node, AlterTSDictionaryStmt) || \
-	IsA(node, AlterUserMappingStmt) || \
-	IsA(node, BarrierStmt) || \
-	IsA(node, CheckPointStmt) || \
-	IsA(node, CleanConnStmt) || \
-	IsA(node, ClosePortalStmt) || \
-	IsA(node, ClusterStmt) || \
-	IsA(node, CommentStmt) || \
-	IsA(node, CompositeTypeStmt) || \
-	IsA(node, ConstraintsSetStmt) || \
-	IsA(node, CopyStmt) || \
-	IsA(node, CreateAmStmt) || \
-	IsA(node, CreateCastStmt) || \
-	IsA(node, CreateConversionStmt) || \
-	IsA(node, CreatedbStmt) || \
-	IsA(node, CreateDomainStmt) || \
-	IsA(node, CreateEnumStmt) || \
-	IsA(node, CreateEventTrigStmt) || \
-	IsA(node, CreateExtensionStmt) || \
-	IsA(node, CreateFdwStmt) || \
-	IsA(node, CreateForeignServerStmt) || \
-	IsA(node, CreateForeignTableStmt) || \
-	IsA(node, CreateFunctionStmt) || \
-	IsA(node, CreateGroupStmt) || \
-	IsA(node, CreateNodeStmt) || \
-	IsA(node, CreateOpClassStmt) || \
-	IsA(node, CreateOpFamilyStmt) || \
-	IsA(node, CreatePLangStmt) || \
-	IsA(node, CreatePolicyStmt) || \
-	IsA(node, CreateRangeStmt) || \
-	IsA(node, CreateRoleStmt) || \
-	IsA(node, CreateSchemaStmt) || \
-	IsA(node, CreateSeqStmt) || \
-	IsA(node, CreateStmt) || \
-	IsA(node, CreateTableAsStmt) || \
-	IsA(node, CreateTableSpaceStmt) || \
-	IsA(node, CreateTransformStmt) || \
-	IsA(node, CreateTrigStmt) || \
-	IsA(node, CreateUserMappingStmt) || \
-	IsA(node, DeallocateStmt) || \
-	IsA(node, DeclareCursorStmt) || \
-	IsA(node, DefineStmt) || \
-	IsA(node, DeleteStmt) || \
-	IsA(node, DiscardStmt) || \
-	IsA(node, DoStmt) || \
-	IsA(node, DropdbStmt) || \
-	IsA(node, DropGroupStmt) || \
-	IsA(node, DropNodeStmt) || \
-	IsA(node, DropOwnedStmt) || \
-	IsA(node, DropRoleStmt) || \
-	IsA(node, DropStmt) || \
-	IsA(node, DropTableSpaceStmt) || \
-	IsA(node, DropUserMappingStmt) || \
-	IsA(node, ExecDirectStmt) || \
-	IsA(node, ExecuteStmt) || \
-	IsA(node, ExplainStmt) || \
-	IsA(node, FetchStmt) || \
-	IsA(node, GrantRoleStmt) || \
-	IsA(node, GrantStmt) || \
-	IsA(node, ImportForeignSchemaStmt) || \
-	IsA(node, IndexStmt) || \
-	IsA(node, InsertStmt) || \
-	IsA(node, ListenStmt) || \
-	IsA(node, LoadStmt) || \
-	IsA(node, LockStmt) || \
-	IsA(node, NotifyStmt) || \
-	IsA(node, PrepareStmt) || \
-	IsA(node, ReassignOwnedStmt) || \
-	IsA(node, RefreshMatViewStmt) || \
-	IsA(node, ReindexStmt) || \
-	IsA(node, RenameStmt) || \
-	IsA(node, RuleStmt) || \
-	IsA(node, SecLabelStmt) || \
-	IsA(node, SelectStmt) || \
-	IsA(node, SetOperationStmt) || \
-	IsA(node, TransactionStmt) || \
-	IsA(node, TruncateStmt) || \
-	IsA(node, UnlistenStmt) || \
-	IsA(node, UpdateStmt) || \
-	IsA(node, VacuumStmt) || \
-	IsA(node, VariableSetStmt) || \
-	IsA(node, VariableShowStmt) || \
-	IsA(node, ViewStmt)
-#endif
 
 /* ----------------------
  *		Insert Statement
@@ -1667,9 +1532,6 @@ typedef struct BaseStmt
 typedef struct InsertStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RangeVar   *relation;		/* relation to insert into */
 	List	   *cols;			/* optional: names of the target columns */
 	Node	   *selectStmt;		/* the source SELECT/VALUES, or NULL */
@@ -1686,9 +1548,6 @@ typedef struct InsertStmt
 typedef struct DeleteStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RangeVar   *relation;		/* relation to delete from */
 	List	   *usingClause;	/* optional using clause for more tables */
 	Node	   *whereClause;	/* qualifications */
@@ -1703,9 +1562,6 @@ typedef struct DeleteStmt
 typedef struct UpdateStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RangeVar   *relation;		/* relation to update */
 	List	   *targetList;		/* the target list (of ResTarget) */
 	Node	   *whereClause;	/* qualifications */
@@ -1738,9 +1594,6 @@ typedef enum SetOperation
 typedef struct SelectStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	/*
 	 * These fields are used only in "leaf" SelectStmts.
 	 */
@@ -1807,9 +1660,6 @@ typedef struct SelectStmt
 typedef struct SetOperationStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	SetOperation op;			/* type of set op */
 	bool		all;			/* ALL specified? */
 	Node	   *larg;			/* left child */
@@ -1908,9 +1758,6 @@ typedef enum ObjectType
 typedef struct CreateSchemaStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *schemaname;		/* the name of the schema to create */
 	RoleSpec   *authrole;		/* the owner of the created schema */
 	List	   *schemaElts;		/* schema components (list of parsenodes) */
@@ -1931,9 +1778,8 @@ typedef struct AlterTableStmt
 {
 	NodeTag		type;
 #ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
 	ParseGrammar grammar;
-#endif /* ADB */
+#endif
 	RangeVar   *relation;		/* table to work on */
 	List	   *cmds;			/* list of subcommands */
 	ObjectType	relkind;		/* type of object */
@@ -2059,9 +1905,6 @@ typedef struct AlterCollationStmt
 typedef struct AlterDomainStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char		subtype;		/*------------
 								 *	T = alter column default
 								 *	N = alter column drop not null
@@ -2109,9 +1952,6 @@ typedef enum GrantObjectType
 typedef struct GrantStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	bool		is_grant;		/* true = GRANT, false = REVOKE */
 	GrantTargetType targtype;	/* type of the grant target */
 	GrantObjectType objtype;	/* kind of object being operated on */
@@ -2165,9 +2005,6 @@ typedef struct AccessPriv
 typedef struct GrantRoleStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *granted_roles;	/* list of roles to be granted/revoked */
 	List	   *grantee_roles;	/* list of member roles to add/delete */
 	bool		is_grant;		/* true = GRANT, false = REVOKE */
@@ -2183,9 +2020,6 @@ typedef struct GrantRoleStmt
 typedef struct AlterDefaultPrivilegesStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *options;		/* list of DefElem */
 	GrantStmt  *action;			/* GRANT/REVOKE action (with objects=NIL) */
 } AlterDefaultPrivilegesStmt;
@@ -2201,9 +2035,6 @@ typedef struct AlterDefaultPrivilegesStmt
 typedef struct CopyStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RangeVar   *relation;		/* the relation to copy */
 	Node	   *query;			/* the query (SELECT or DML statement with
 								 * RETURNING) to copy, as a raw parse tree */
@@ -2235,9 +2066,6 @@ typedef enum VariableSetKind
 typedef struct VariableSetStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	VariableSetKind kind;
 	char	   *name;			/* variable to be set */
 	List	   *args;			/* List of A_Const nodes */
@@ -2251,9 +2079,6 @@ typedef struct VariableSetStmt
 typedef struct VariableShowStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *name;
 } VariableShowStmt;
 
@@ -2272,7 +2097,6 @@ typedef struct CreateStmt
 {
 	NodeTag		type;
 #ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
 	ParseGrammar grammar;
 #endif /* ADB */
 	RangeVar   *relation;		/* relation to create */
@@ -2409,9 +2233,6 @@ typedef struct Constraint
 typedef struct CreateTableSpaceStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *tablespacename;
 	RoleSpec   *owner;
 	char	   *location;
@@ -2421,9 +2242,6 @@ typedef struct CreateTableSpaceStmt
 typedef struct DropTableSpaceStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *tablespacename;
 	bool		missing_ok;		/* skip error if missing? */
 } DropTableSpaceStmt;
@@ -2431,9 +2249,6 @@ typedef struct DropTableSpaceStmt
 typedef struct AlterTableSpaceOptionsStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *tablespacename;
 	List	   *options;
 	bool		isReset;
@@ -2442,9 +2257,6 @@ typedef struct AlterTableSpaceOptionsStmt
 typedef struct AlterTableMoveAllStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos; 		/* the position of ';' in the sql */
-#endif
 	char	   *orig_tablespacename;
 	ObjectType	objtype;		/* Object type to move */
 	List	   *roles;			/* List of roles to move objects of */
@@ -2460,9 +2272,6 @@ typedef struct AlterTableMoveAllStmt
 typedef struct CreateExtensionStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *extname;
 	bool		if_not_exists;	/* just do nothing if it already exists? */
 	List	   *options;		/* List of DefElem nodes */
@@ -2472,9 +2281,6 @@ typedef struct CreateExtensionStmt
 typedef struct AlterExtensionStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *extname;
 	List	   *options;		/* List of DefElem nodes */
 } AlterExtensionStmt;
@@ -2482,9 +2288,6 @@ typedef struct AlterExtensionStmt
 typedef struct AlterExtensionContentsStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *extname;		/* Extension's name */
 	int			action;			/* +1 = add object, -1 = drop object */
 	ObjectType	objtype;		/* Object's type */
@@ -2499,9 +2302,6 @@ typedef struct AlterExtensionContentsStmt
 typedef struct CreateFdwStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *fdwname;		/* foreign-data wrapper name */
 	List	   *func_options;	/* HANDLER/VALIDATOR options */
 	List	   *options;		/* generic options to FDW */
@@ -2510,9 +2310,6 @@ typedef struct CreateFdwStmt
 typedef struct AlterFdwStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *fdwname;		/* foreign-data wrapper name */
 	List	   *func_options;	/* HANDLER/VALIDATOR options */
 	List	   *options;		/* generic options to FDW */
@@ -2526,9 +2323,6 @@ typedef struct AlterFdwStmt
 typedef struct CreateForeignServerStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *servername;		/* server name */
 	char	   *servertype;		/* optional server type */
 	char	   *version;		/* optional server version */
@@ -2540,9 +2334,6 @@ typedef struct CreateForeignServerStmt
 typedef struct AlterForeignServerStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *servername;		/* server name */
 	char	   *version;		/* optional server version */
 	List	   *options;		/* generic options to server */
@@ -2569,9 +2360,6 @@ typedef struct CreateForeignTableStmt
 typedef struct CreateUserMappingStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RoleSpec   *user;			/* user role */
 	char	   *servername;		/* server name */
 	bool		if_not_exists;	/* just do nothing if it already exists? */
@@ -2581,9 +2369,6 @@ typedef struct CreateUserMappingStmt
 typedef struct AlterUserMappingStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RoleSpec   *user;			/* user role */
 	char	   *servername;		/* server name */
 	List	   *options;		/* generic options to server */
@@ -2592,9 +2377,6 @@ typedef struct AlterUserMappingStmt
 typedef struct DropUserMappingStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RoleSpec   *user;			/* user role */
 	char	   *servername;		/* server name */
 	bool		missing_ok;		/* ignore missing mappings */
@@ -2615,9 +2397,6 @@ typedef enum ImportForeignSchemaType
 typedef struct ImportForeignSchemaStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *server_name;	/* FDW server name */
 	char	   *remote_schema;	/* remote schema name to query */
 	char	   *local_schema;	/* local schema to create objects in */
@@ -2633,9 +2412,6 @@ typedef struct ImportForeignSchemaStmt
 typedef struct CreatePolicyStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *policy_name;	/* Policy's name */
 	RangeVar   *table;			/* the table name the policy applies to */
 	char	   *cmd_name;		/* the command name the policy applies to */
@@ -2652,9 +2428,6 @@ typedef struct CreatePolicyStmt
 typedef struct AlterPolicyStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *policy_name;	/* Policy's name */
 	RangeVar   *table;			/* the table name the policy applies to */
 	List	   *roles;			/* the roles associated with the policy */
@@ -2669,9 +2442,6 @@ typedef struct AlterPolicyStmt
 typedef struct CreateAmStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *amname;			/* access method name */
 	List	   *handler_name;	/* handler function name */
 	char		amtype;			/* type of access method */
@@ -2684,9 +2454,6 @@ typedef struct CreateAmStmt
 typedef struct CreateTrigStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *trigname;		/* TRIGGER's name */
 	RangeVar   *relation;		/* relation trigger is on */
 	List	   *funcname;		/* qual. name of function to call */
@@ -2714,9 +2481,6 @@ typedef struct CreateTrigStmt
 typedef struct CreateEventTrigStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *trigname;		/* TRIGGER's name */
 	char	   *eventname;		/* event's identifier */
 	List	   *whenclause;		/* list of DefElems indicating filtering */
@@ -2730,9 +2494,6 @@ typedef struct CreateEventTrigStmt
 typedef struct AlterEventTrigStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *trigname;		/* TRIGGER's name */
 	char		tgenabled;		/* trigger's firing configuration WRT
 								 * session_replication_role */
@@ -2746,9 +2507,6 @@ typedef struct AlterEventTrigStmt
 typedef struct CreatePLangStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	bool		replace;		/* T => replace if already exists */
 	char	   *plname;			/* PL name */
 	List	   *plhandler;		/* PL call handler function (qual. name) */
@@ -2776,9 +2534,6 @@ typedef enum RoleStmtType
 typedef struct CreateRoleStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RoleStmtType stmt_type;		/* ROLE/USER/GROUP */
 	char	   *role;			/* role name */
 	List	   *options;		/* List of DefElem nodes */
@@ -2787,9 +2542,6 @@ typedef struct CreateRoleStmt
 typedef struct AlterRoleStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RoleSpec   *role;			/* role */
 	List	   *options;		/* List of DefElem nodes */
 	int			action;			/* +1 = add members, -1 = drop members */
@@ -2798,9 +2550,6 @@ typedef struct AlterRoleStmt
 typedef struct AlterRoleSetStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RoleSpec   *role;			/* role */
 	char	   *database;		/* database name, or NULL */
 	VariableSetStmt *setstmt;	/* SET or RESET subcommand */
@@ -2809,9 +2558,6 @@ typedef struct AlterRoleSetStmt
 typedef struct DropRoleStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *roles;			/* List of roles to remove */
 	bool		missing_ok;		/* skip error if a role is missing? */
 } DropRoleStmt;
@@ -2824,9 +2570,6 @@ typedef struct DropRoleStmt
 typedef struct CreateSeqStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RangeVar   *sequence;		/* the sequence to create */
 	List	   *options;
 	Oid			ownerId;		/* ID of owner, or InvalidOid for default */
@@ -2840,9 +2583,6 @@ typedef struct CreateSeqStmt
 typedef struct AlterSeqStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos; 		/* the position of ';' in the sql */
-#endif
 	RangeVar   *sequence;		/* the sequence to alter */
 	List	   *options;
 	bool		for_identity;
@@ -2859,9 +2599,6 @@ typedef struct AlterSeqStmt
 typedef struct DefineStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos; 		/* the position of ';' in the sql */
-#endif
 	ObjectType	kind;			/* aggregate, operator, type */
 	bool		oldstyle;		/* hack to signal old CREATE AGG syntax */
 	List	   *defnames;		/* qualified name (list of Value strings) */
@@ -2877,9 +2614,6 @@ typedef struct DefineStmt
 typedef struct CreateDomainStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos; 		/* the position of ';' in the sql */
-#endif
 	List	   *domainname;		/* qualified name (list of Value strings) */
 	TypeName   *typeName;		/* the base type */
 	CollateClause *collClause;	/* untransformed COLLATE spec, if any */
@@ -2893,9 +2627,6 @@ typedef struct CreateDomainStmt
 typedef struct CreateOpClassStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos; 		/* the position of ';' in the sql */
-#endif
 	List	   *opclassname;	/* qualified name (list of Value strings) */
 	List	   *opfamilyname;	/* qualified name (ditto); NIL if omitted */
 	char	   *amname;			/* name of index AM opclass is for */
@@ -2928,9 +2659,6 @@ typedef struct CreateOpClassItem
 typedef struct CreateOpFamilyStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *opfamilyname;	/* qualified name (list of Value strings) */
 	char	   *amname;			/* name of index AM opfamily is for */
 } CreateOpFamilyStmt;
@@ -2942,9 +2670,6 @@ typedef struct CreateOpFamilyStmt
 typedef struct AlterOpFamilyStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *opfamilyname;	/* qualified name (list of Value strings) */
 	char	   *amname;			/* name of index AM opfamily is for */
 	bool		isDrop;			/* ADD or DROP the items? */
@@ -2959,9 +2684,6 @@ typedef struct AlterOpFamilyStmt
 typedef struct DropStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *objects;		/* list of names */
 	ObjectType	removeType;		/* object type */
 	DropBehavior behavior;		/* RESTRICT or CASCADE behavior */
@@ -2976,9 +2698,6 @@ typedef struct DropStmt
 typedef struct TruncateStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *relations;		/* relations (RangeVars) to be truncated */
 	bool		restart_seqs;	/* restart owned sequences? */
 	DropBehavior behavior;		/* RESTRICT or CASCADE behavior */
@@ -2991,9 +2710,6 @@ typedef struct TruncateStmt
 typedef struct CommentStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	ObjectType	objtype;		/* Object's type */
 	Node	   *object;			/* Qualified name of the object */
 	char	   *comment;		/* Comment to insert, or NULL to remove */
@@ -3006,9 +2722,6 @@ typedef struct CommentStmt
 typedef struct SecLabelStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos; 		/* the position of ';' in the sql */
-#endif
 	ObjectType	objtype;		/* Object's type */
 	Node	   *object;			/* Qualified name of the object */
 	char	   *provider;		/* Label provider (or NULL) */
@@ -3037,9 +2750,6 @@ typedef struct SecLabelStmt
 typedef struct DeclareCursorStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos; 		/* the position of ';' in the sql */
-#endif
 	char	   *portalname;		/* name of the portal (cursor) */
 	int			options;		/* bitmask of options (see above) */
 	Node	   *query;			/* the query (see comments above) */
@@ -3052,9 +2762,6 @@ typedef struct DeclareCursorStmt
 typedef struct ClosePortalStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos; 		/* the position of ';' in the sql */
-#endif
 	char	   *portalname;		/* name of the portal (cursor) */
 	/* NULL means CLOSE ALL */
 } ClosePortalStmt;
@@ -3078,9 +2785,6 @@ typedef enum FetchDirection
 typedef struct FetchStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	FetchDirection direction;	/* see above */
 	long		howMany;		/* number of rows, or position argument */
 	char	   *portalname;		/* name of portal (cursor) */
@@ -3102,7 +2806,6 @@ typedef struct IndexStmt
 {
 	NodeTag		type;
 #ifdef ADB
-	int 		endpos; 		/* the position of ';' in the sql */
 	ParseGrammar grammar;
 #endif /* ADB */
 	char	   *idxname;		/* name of new index, or NULL for default */
@@ -3147,9 +2850,6 @@ typedef struct CreateStatsStmt
 typedef struct CreateFunctionStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	bool		replace;		/* T => replace if already exists */
 	List	   *funcname;		/* qualified name of function to create */
 	List	   *parameters;		/* a list of FunctionParameter */
@@ -3180,9 +2880,6 @@ typedef struct FunctionParameter
 typedef struct AlterFunctionStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	ObjectWithArgs *func;		/* name and args of function */
 	List	   *actions;		/* list of DefElem */
 } AlterFunctionStmt;
@@ -3196,9 +2893,6 @@ typedef struct AlterFunctionStmt
 typedef struct DoStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *args;			/* List of DefElem nodes */
 } DoStmt;
 
@@ -3217,9 +2911,6 @@ typedef struct InlineCodeBlock
 typedef struct RenameStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	ObjectType	renameType;		/* OBJECT_TABLE, OBJECT_COLUMN, etc */
 	ObjectType	relationType;	/* if column name, associated relation type */
 	RangeVar   *relation;		/* in case it's a table */
@@ -3238,9 +2929,6 @@ typedef struct RenameStmt
 typedef struct AlterObjectDependsStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	ObjectType	objectType;		/* OBJECT_FUNCTION, OBJECT_TRIGGER, etc */
 	RangeVar   *relation;		/* in case a table is involved */
 	Node	   *object;			/* name of the object */
@@ -3254,9 +2942,6 @@ typedef struct AlterObjectDependsStmt
 typedef struct AlterObjectSchemaStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	ObjectType	objectType;		/* OBJECT_TABLE, OBJECT_TYPE, etc */
 	RangeVar   *relation;		/* in case it's a table */
 	Node	   *object;			/* in case it's some other object */
@@ -3271,9 +2956,6 @@ typedef struct AlterObjectSchemaStmt
 typedef struct AlterOwnerStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	ObjectType	objectType;		/* OBJECT_TABLE, OBJECT_TYPE, etc */
 	RangeVar   *relation;		/* in case it's a table */
 	Node	   *object;			/* in case it's some other object */
@@ -3288,9 +2970,6 @@ typedef struct AlterOwnerStmt
 typedef struct AlterOperatorStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	ObjectWithArgs *opername;	/* operator name and argument types */
 	List	   *options;		/* List of DefElem nodes */
 } AlterOperatorStmt;
@@ -3303,9 +2982,6 @@ typedef struct AlterOperatorStmt
 typedef struct RuleStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RangeVar   *relation;		/* relation the rule is for */
 	char	   *rulename;		/* name of the rule */
 	Node	   *whereClause;	/* qualifications */
@@ -3322,9 +2998,6 @@ typedef struct RuleStmt
 typedef struct NotifyStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos; 		/* the position of ';' in the sql */
-#endif
 	char	   *conditionname;	/* condition name to notify */
 	char	   *payload;		/* the payload string, or NULL if none */
 } NotifyStmt;
@@ -3336,9 +3009,6 @@ typedef struct NotifyStmt
 typedef struct ListenStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *conditionname;	/* condition name to listen on */
 } ListenStmt;
 
@@ -3349,9 +3019,6 @@ typedef struct ListenStmt
 typedef struct UnlistenStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *conditionname;	/* name to unlisten on, or NULL for all */
 } UnlistenStmt;
 
@@ -3376,9 +3043,6 @@ typedef enum TransactionStmtKind
 typedef struct TransactionStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 #if defined(ADB) || defined(AGTM)
 	bool		missing_ok;
 #endif
@@ -3394,9 +3058,6 @@ typedef struct TransactionStmt
 typedef struct CompositeTypeStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RangeVar   *typevar;		/* the composite type to be created */
 	List	   *coldeflist;		/* list of ColumnDef nodes */
 } CompositeTypeStmt;
@@ -3408,9 +3069,6 @@ typedef struct CompositeTypeStmt
 typedef struct CreateEnumStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *typeName;		/* qualified name (list of Value strings) */
 	List	   *vals;			/* enum values (list of Value strings) */
 } CreateEnumStmt;
@@ -3422,9 +3080,6 @@ typedef struct CreateEnumStmt
 typedef struct CreateRangeStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *typeName;		/* qualified name (list of Value strings) */
 	List	   *params;			/* range parameters (list of DefElem) */
 } CreateRangeStmt;
@@ -3436,9 +3091,6 @@ typedef struct CreateRangeStmt
 typedef struct AlterEnumStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *typeName;		/* qualified name (list of Value strings) */
 	char	   *oldVal;			/* old enum value's name, if renaming */
 	char	   *newVal;			/* new enum value's name */
@@ -3462,7 +3114,6 @@ typedef struct ViewStmt
 {
 	NodeTag		type;
 #ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
 	ParseGrammar grammar;
 #endif
 	RangeVar   *view;			/* the view to be created */
@@ -3480,9 +3131,6 @@ typedef struct ViewStmt
 typedef struct LoadStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *filename;		/* file to load */
 } LoadStmt;
 
@@ -3493,9 +3141,6 @@ typedef struct LoadStmt
 typedef struct CreatedbStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *dbname;			/* name of database to create */
 	List	   *options;		/* List of DefElem nodes */
 } CreatedbStmt;
@@ -3507,9 +3152,6 @@ typedef struct CreatedbStmt
 typedef struct AlterDatabaseStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *dbname;			/* name of database to alter */
 	List	   *options;		/* List of DefElem nodes */
 } AlterDatabaseStmt;
@@ -3517,9 +3159,6 @@ typedef struct AlterDatabaseStmt
 typedef struct AlterDatabaseSetStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *dbname;			/* database name */
 	VariableSetStmt *setstmt;	/* SET or RESET subcommand */
 } AlterDatabaseSetStmt;
@@ -3531,9 +3170,6 @@ typedef struct AlterDatabaseSetStmt
 typedef struct DropdbStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *dbname;			/* database to drop */
 	bool		missing_ok;		/* skip error if db is missing? */
 } DropdbStmt;
@@ -3545,9 +3181,6 @@ typedef struct DropdbStmt
 typedef struct AlterSystemStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	VariableSetStmt *setstmt;	/* SET subcommand */
 } AlterSystemStmt;
 
@@ -3558,9 +3191,6 @@ typedef struct AlterSystemStmt
 typedef struct ClusterStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	RangeVar   *relation;		/* relation being indexed, or NULL if all */
 	char	   *indexname;		/* original index defined */
 	bool		verbose;		/* print progress info */
@@ -3589,9 +3219,6 @@ typedef enum VacuumOption
 typedef struct VacuumStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	int			options;		/* OR of VacuumOption flags */
 	RangeVar   *relation;		/* single table to process, or NULL */
 	List	   *va_cols;		/* list of column names, or NIL for all */
@@ -3605,7 +3232,6 @@ typedef struct VacuumStmt
 typedef struct BarrierStmt
 {
 	NodeTag		type;
-	int 		endpos;			/* the position of ';' in the sql */
 	const char	*id;			/* User supplied barrier id, if any */
 } BarrierStmt;
 
@@ -3616,7 +3242,6 @@ typedef struct BarrierStmt
 typedef struct CreateNodeStmt
 {
 	NodeTag		type;
-	int 		endpos;			/* the position of ';' in the sql */
 	char		*node_name;
 	List		*options;
 } CreateNodeStmt;
@@ -3628,7 +3253,6 @@ typedef struct CreateNodeStmt
 typedef struct AlterNodeStmt
 {
 	NodeTag		type;
-	int 		endpos;			/* the position of ';' in the sql */
 	char		*node_name;
 	List		*options;
 } AlterNodeStmt;
@@ -3640,7 +3264,6 @@ typedef struct AlterNodeStmt
 typedef struct DropNodeStmt
 {
 	NodeTag		type;
-	int 		endpos;			/* the position of ';' in the sql */
 	char		*node_name;
 } DropNodeStmt;
 
@@ -3651,7 +3274,6 @@ typedef struct DropNodeStmt
 typedef struct CreateGroupStmt
 {
 	NodeTag		type;
-	int 		endpos;			/* the position of ';' in the sql */
 	char		*group_name;
 	List		*nodes;
 } CreateGroupStmt;
@@ -3663,7 +3285,6 @@ typedef struct CreateGroupStmt
 typedef struct DropGroupStmt
 {
 	NodeTag		type;
-	int 		endpos;			/* the position of ';' in the sql */
 	char		*group_name;
 } DropGroupStmt;
 #endif
@@ -3679,9 +3300,6 @@ typedef struct DropGroupStmt
 typedef struct ExplainStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	Node	   *query;			/* the query (see comments above) */
 	List	   *options;		/* list of DefElem nodes */
 } ExplainStmt;
@@ -3703,7 +3321,6 @@ typedef struct CreateTableAsStmt
 {
 	NodeTag		type;
 #ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
 	ParseGrammar grammar;
 #endif
 	Node	   *query;			/* the query (see comments above) */
@@ -3720,9 +3337,6 @@ typedef struct CreateTableAsStmt
 typedef struct RefreshMatViewStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	bool		concurrent;		/* allow concurrent access? */
 	bool		skipData;		/* true for WITH NO DATA */
 	RangeVar   *relation;		/* relation to insert into */
@@ -3735,9 +3349,6 @@ typedef struct RefreshMatViewStmt
 typedef struct CheckPointStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 } CheckPointStmt;
 
 /* ----------------------
@@ -3756,9 +3367,6 @@ typedef enum DiscardMode
 typedef struct DiscardStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	DiscardMode target;
 } DiscardStmt;
 
@@ -3769,9 +3377,6 @@ typedef struct DiscardStmt
 typedef struct LockStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *relations;		/* relations to lock */
 	int			mode;			/* lock mode */
 	bool		nowait;			/* no wait mode */
@@ -3784,9 +3389,6 @@ typedef struct LockStmt
 typedef struct ConstraintsSetStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *constraints;	/* List of names as RangeVars */
 	bool		deferred;
 } ConstraintsSetStmt;
@@ -3811,9 +3413,6 @@ typedef enum ReindexObjectType
 typedef struct ReindexStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	ReindexObjectType kind;		/* REINDEX_OBJECT_INDEX, REINDEX_OBJECT_TABLE,
 								 * etc. */
 	RangeVar   *relation;		/* Table or index to reindex */
@@ -3828,9 +3427,6 @@ typedef struct ReindexStmt
 typedef struct CreateConversionStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *conversion_name;	/* Name of the conversion */
 	char	   *for_encoding_name;	/* source encoding name */
 	char	   *to_encoding_name;	/* destination encoding name */
@@ -3845,9 +3441,6 @@ typedef struct CreateConversionStmt
 typedef struct CreateCastStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	TypeName   *sourcetype;
 	TypeName   *targettype;
 	ObjectWithArgs *func;
@@ -3862,9 +3455,6 @@ typedef struct CreateCastStmt
 typedef struct CreateTransformStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	bool		replace;
 	TypeName   *type_name;
 	char	   *lang;
@@ -3879,9 +3469,6 @@ typedef struct CreateTransformStmt
 typedef struct PrepareStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *name;			/* Name of plan, arbitrary */
 	List	   *argtypes;		/* Types of parameters (List of TypeName) */
 	Node	   *query;			/* The query itself (as a raw parsetree) */
@@ -3896,9 +3483,6 @@ typedef struct PrepareStmt
 typedef struct ExecuteStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *name;			/* The name of the plan to execute */
 	List	   *params;			/* Values to assign to parameters */
 } ExecuteStmt;
@@ -3911,9 +3495,6 @@ typedef struct ExecuteStmt
 typedef struct DeallocateStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	char	   *name;			/* The name of the plan to remove */
 	/* NULL means DEALLOCATE ALL */
 } DeallocateStmt;
@@ -3924,9 +3505,6 @@ typedef struct DeallocateStmt
 typedef struct DropOwnedStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *roles;
 	DropBehavior behavior;
 } DropOwnedStmt;
@@ -3937,9 +3515,6 @@ typedef struct DropOwnedStmt
 typedef struct ReassignOwnedStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *roles;
 	RoleSpec   *newrole;
 } ReassignOwnedStmt;
@@ -3950,9 +3525,6 @@ typedef struct ReassignOwnedStmt
 typedef struct AlterTSDictionaryStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	List	   *dictname;		/* qualified name (list of Value strings) */
 	List	   *options;		/* List of DefElem nodes */
 } AlterTSDictionaryStmt;
@@ -3972,9 +3544,6 @@ typedef enum AlterTSConfigType
 typedef struct AlterTSConfigurationStmt
 {
 	NodeTag		type;
-#ifdef ADB
-	int 		endpos;			/* the position of ';' in the sql */
-#endif
 	AlterTSConfigType kind;		/* ALTER_TSCONFIG_ADD_MAPPING, etc */
 	List	   *cfgname;		/* qualified name (list of Value strings) */
 
@@ -4056,7 +3625,7 @@ typedef struct DropSubscriptionStmt
 typedef struct ExecDirectStmt
 {
 	NodeTag		type;
-	int 		endpos;			/* the position of ';' in the sql */
+
 	List		*node_names;
 	char		*query;
 } ExecDirectStmt;
@@ -4067,7 +3636,7 @@ typedef struct ExecDirectStmt
 typedef struct CleanConnStmt
 {
 	NodeTag		type;
-	int 		endpos;			/* the position of ';' in the sql */
+
 	List		*nodes;		/* list of nodes dropped */
 	char		*dbname;	/* name of database to drop connections */
 	char		*username;	/* name of user whose connections are dropped */

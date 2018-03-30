@@ -1,4 +1,3 @@
-#undef NO_STRUCT_BaseStmt
 #undef NO_STRUCT_QualCost
 #undef NO_STRUCT_AggClauseCosts
 #undef NO_STRUCT_MergeScanSelCache

@@ -437,14 +437,6 @@ stmtblock: stmtmulti
 
 stmtmulti: stmtmulti ';' stmt
 		{
-#ifdef ADB
-			BaseStmt *base;
-			if ($1 != NIL)
-			{
-				base = (BaseStmt *)llast($1);
-				base->endpos = @2;
-			}
-#endif
 			if($3)
 				$$ = lappend($1, $3);
 			else

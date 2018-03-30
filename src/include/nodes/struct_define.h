@@ -94,13 +94,6 @@
 #	define NODE_DATUM(t, m, o, n)
 #endif
 
-#ifndef NO_STRUCT_BaseStmt
-BEGIN_STRUCT(BaseStmt)
-	NODE_ENUM(NodeTag,type)
-	NODE_SCALAR(int,endpos)
-END_STRUCT(BaseStmt)
-#endif /* NO_STRUCT_BaseStmt */
-
 #ifndef NO_STRUCT_QualCost
 BEGIN_STRUCT(QualCost)
 	NODE_SCALAR(Cost,startup)

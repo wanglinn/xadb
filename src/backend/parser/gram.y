@@ -790,14 +790,6 @@ stmtmulti:	stmtmulti ';' stmt
 					{
 						/* update length of previous stmt */
 						updateRawStmtEnd(llast_node(RawStmt, $1), @2);
-						/* for BaseStmt, ADBQ: need drop it */
-#ifdef ADB
-						{
-							RawStmt *raw = llast_node(RawStmt, $1);
-							if (IsBaseStmt(raw->stmt))
-								((BaseStmt*)(raw->stmt))->endpos = @2;
-						}
-#endif /* ADB */
 					}
 					if ($3 != NULL)
 						$$ = lappend($1, makeRawStmt($3, @2 + 1));
