@@ -326,7 +326,7 @@ foreach (sort keys %entries)
 {
 	my $id = $_;
 	$id =~ s/ /_/g;
-	print CFILE "    { \"$_\",
+	print $cfile_handle "    { \"$_\",
       N_(\"$entries{$_}{cmddesc}\"),
       mgr_help_$id,
       $entries{$_}{nl_count} },

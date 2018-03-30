@@ -28,7 +28,9 @@
 #define SubscriptionRelRelationId			6102
 
 /* Workaround for genbki not knowing about XLogRecPtr */
+#ifndef BUILD_BKI
 #define pg_lsn XLogRecPtr
+#endif
 
 CATALOG(pg_subscription_rel,6102) BKI_WITHOUT_OIDS
 {

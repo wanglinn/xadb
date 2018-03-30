@@ -498,12 +498,20 @@ readfile(const char *path)
 	rewind(infile);
 	n = 0;
 	while (fgets(buffer, maxlength + 1, infile) != NULL && n < nlines)
+	{
+		result[n] = pg_strdup(buffer);
 #ifdef ADB
 		if(strncmp(buffer, "--ADBONLY", 9) == 0)
-			result[n++] = pg_strdup(buffer+9);
-		else
-#endif /* ADB */
-		result[n++] = pg_strdup(buffer);
+			memset(result[n], ' ', 9);;
+#elif defined(INITMGR)
+		if(strncmp(buffer, "--MGRONLY", 9) == 0)
+			memset(result[n], ' ', 9);
+#elif defined(INITAGTM)
+		if(strncmp(buffer, "--AGTMONLY", 10) == 0)
+			memset(result[n], ' ', 10);
+#endif
+		n++;
+	}
 
 	fclose(infile);
 	free(buffer);

@@ -494,7 +494,11 @@ RegisterLWLockTranches(void)
 
 	if (LWLockTrancheArray == NULL)
 	{
+#if defined(ADB) || defined(ADBMGRD)
+		LWLockTranchesAllocated = 128;
+#else
 		LWLockTranchesAllocated = 64;
+#endif
 		LWLockTrancheArray = (char **)
 			MemoryContextAllocZero(TopMemoryContext,
 								   LWLockTranchesAllocated * sizeof(char *));

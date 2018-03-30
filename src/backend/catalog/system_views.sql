@@ -934,15 +934,15 @@ REVOKE ALL ON pg_subscription FROM public;
 GRANT SELECT (subdbid, subname, subowner, subenabled, subslotname, subpublications)
     ON pg_subscription TO public;
 
-CREATE OR REPLACE VIEW dual ("DUMMY") AS
-	SELECT
-		'X'::varchar2(1);
+--ADBONLY CREATE OR REPLACE VIEW dual ("DUMMY") AS
+--ADBONLY 	SELECT
+--ADBONLY 		'X'::varchar2(1);
 
-CREATE RULE insert_dual AS ON insert TO dual DO INSTEAD NOTHING;
-CREATE RULE update_dual AS ON update TO dual DO INSTEAD NOTHING;
-CREATE RULE delete_dual AS ON delete TO dual DO INSTEAD NOTHING;
+--ADBONLY CREATE RULE insert_dual AS ON insert TO dual DO INSTEAD NOTHING;
+--ADBONLY CREATE RULE update_dual AS ON update TO dual DO INSTEAD NOTHING;
+--ADBONLY CREATE RULE delete_dual AS ON delete TO dual DO INSTEAD NOTHING;
 
-REVOKE ALL on dual FROM public;
+--ADBONLY REVOKE ALL on dual FROM public;
 
 --
 -- We have a few function definitions in here, too.
@@ -1024,7 +1024,7 @@ COMMENT ON FUNCTION ts_debug(text) IS
 CREATE OR REPLACE FUNCTION
   pg_start_backup(label text, fast boolean DEFAULT false, exclusive boolean DEFAULT true)
   RETURNS pg_lsn STRICT VOLATILE LANGUAGE internal AS 'pg_start_backup'
-  CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
   PARALLEL RESTRICTED;
 
 CREATE OR REPLACE FUNCTION pg_stop_backup (
@@ -1036,12 +1036,16 @@ CREATE OR REPLACE FUNCTION pg_stop_backup (
 -- legacy definition for compatibility with 9.3
 CREATE OR REPLACE FUNCTION
   json_populate_record(base anyelement, from_json json, use_json_as_text boolean DEFAULT false)
-  RETURNS anyelement LANGUAGE internal STABLE AS 'json_populate_record' PARALLEL SAFE CLUSTER SAFE;
+  RETURNS anyelement LANGUAGE internal STABLE AS 'json_populate_record' PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+  ;
 
 -- legacy definition for compatibility with 9.3
 CREATE OR REPLACE FUNCTION
   json_populate_recordset(base anyelement, from_json json, use_json_as_text boolean DEFAULT false)
-  RETURNS SETOF anyelement LANGUAGE internal STABLE ROWS 100  AS 'json_populate_recordset' PARALLEL SAFE CLUSTER SAFE;
+  RETURNS SETOF anyelement LANGUAGE internal STABLE ROWS 100  AS 'json_populate_recordset' PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+  ;
 
 CREATE OR REPLACE FUNCTION pg_logical_slot_get_changes(
     IN slot_name name, IN upto_lsn pg_lsn, IN upto_nchanges int, VARIADIC options text[] DEFAULT '{}',
@@ -1049,7 +1053,7 @@ CREATE OR REPLACE FUNCTION pg_logical_slot_get_changes(
 RETURNS SETOF RECORD
 LANGUAGE INTERNAL
 VOLATILE ROWS 1000 COST 1000
-CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
 AS 'pg_logical_slot_get_changes';
 
 CREATE OR REPLACE FUNCTION pg_logical_slot_peek_changes(
@@ -1058,7 +1062,7 @@ CREATE OR REPLACE FUNCTION pg_logical_slot_peek_changes(
 RETURNS SETOF RECORD
 LANGUAGE INTERNAL
 VOLATILE ROWS 1000 COST 1000
-CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
 AS 'pg_logical_slot_peek_changes';
 
 CREATE OR REPLACE FUNCTION pg_logical_slot_get_binary_changes(
@@ -1067,7 +1071,7 @@ CREATE OR REPLACE FUNCTION pg_logical_slot_get_binary_changes(
 RETURNS SETOF RECORD
 LANGUAGE INTERNAL
 VOLATILE ROWS 1000 COST 1000
-CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
 AS 'pg_logical_slot_get_binary_changes';
 
 CREATE OR REPLACE FUNCTION pg_logical_slot_peek_binary_changes(
@@ -1076,7 +1080,7 @@ CREATE OR REPLACE FUNCTION pg_logical_slot_peek_binary_changes(
 RETURNS SETOF RECORD
 LANGUAGE INTERNAL
 VOLATILE ROWS 1000 COST 1000
-CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
 AS 'pg_logical_slot_peek_binary_changes';
 
 CREATE OR REPLACE FUNCTION pg_create_physical_replication_slot(
@@ -1086,7 +1090,7 @@ CREATE OR REPLACE FUNCTION pg_create_physical_replication_slot(
 RETURNS RECORD
 LANGUAGE INTERNAL
 STRICT VOLATILE
-CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
 AS 'pg_create_physical_replication_slot';
 
 CREATE OR REPLACE FUNCTION pg_create_logical_replication_slot(
@@ -1105,7 +1109,7 @@ CREATE OR REPLACE FUNCTION
 RETURNS interval
 LANGUAGE INTERNAL
 STRICT IMMUTABLE PARALLEL SAFE
-CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
 AS 'make_interval';
 
 CREATE OR REPLACE FUNCTION
@@ -1114,7 +1118,7 @@ CREATE OR REPLACE FUNCTION
 RETURNS jsonb
 LANGUAGE INTERNAL
 STRICT IMMUTABLE PARALLEL SAFE
-CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
 AS 'jsonb_set';
 
 CREATE OR REPLACE FUNCTION
@@ -1122,7 +1126,7 @@ CREATE OR REPLACE FUNCTION
 RETURNS text[]
 LANGUAGE INTERNAL
 STRICT IMMUTABLE PARALLEL SAFE
-CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
 AS 'parse_ident';
 
 CREATE OR REPLACE FUNCTION
@@ -1131,7 +1135,7 @@ CREATE OR REPLACE FUNCTION
 RETURNS jsonb
 LANGUAGE INTERNAL
 STRICT IMMUTABLE PARALLEL SAFE
-CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
 AS 'jsonb_insert';
 
 -- The default permissions for functions mean that anyone can execute them.

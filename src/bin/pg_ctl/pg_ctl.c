@@ -2218,7 +2218,7 @@ main(int argc, char **argv)
 	{
 		while ((c = getopt_long(argc, argv,
 #ifdef ADB
-								"cD:e:l:m:N:o:p:P:sS:t:U:wWZ",	/* only add a 'Z' option */
+								"cD:e:l:m:N:o:p:P:sS:t:U:wWZ:",	/* only add a 'Z' option */
 #else
 								"cD:e:l:m:N:o:p:P:sS:t:U:wW",
 #endif

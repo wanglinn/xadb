@@ -83,7 +83,7 @@ install-data: $(BKIFILES) installdirs
 	$(INSTALL_DATA) $(call vpathsearch,agtm.bki) '$(DESTDIR)$(datadir)/agtm.bki'
 	$(INSTALL_DATA) $(call vpathsearch,agtm.description) '$(DESTDIR)$(datadir)/agtm.description'
 	$(INSTALL_DATA) $(call vpathsearch,agtm.shdescription) '$(DESTDIR)$(datadir)/agtm.shdescription'
-	$(INSTALL_DATA) $(srcdir)/system_views.sql '$(DESTDIR)$(datadir)/agtm_views.sql'
+	$(INSTALL_DATA) $(backend_src_dir)/catalog/system_views.sql '$(DESTDIR)$(datadir)/agtm_views.sql'
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(datadir)'

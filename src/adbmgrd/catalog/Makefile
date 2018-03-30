@@ -87,7 +87,7 @@ install-data: $(BKIFILES) installdirs
 	$(INSTALL_DATA) $(call vpathsearch,adbmgrd.bki) '$(DESTDIR)$(datadir)/adbmgrd.bki'
 	$(INSTALL_DATA) $(call vpathsearch,adbmgrd.description) '$(DESTDIR)$(datadir)/adbmgrd.description'
 	$(INSTALL_DATA) $(call vpathsearch,adbmgrd.shdescription) '$(DESTDIR)$(datadir)/adbmgrd.shdescription'
-	$(INSTALL_DATA) $(srcdir)/system_views.sql '$(DESTDIR)$(datadir)/adbmgrd_views.sql'
+	$(INSTALL_DATA) $(backend_src_dir)/catalog/system_views.sql '$(DESTDIR)$(datadir)/adbmgrd_views.sql'
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(datadir)'
