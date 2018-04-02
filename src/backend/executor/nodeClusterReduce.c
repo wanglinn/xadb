@@ -958,6 +958,7 @@ PrepareForReScanClusterReduce(ClusterReduceState *node)
 	}
 
 	list_free(node->closed_remote);
+	node->closed_remote = NIL;
 
 	node->eof_network = false;
 	node->neofs = 0;
