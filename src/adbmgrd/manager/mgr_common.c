@@ -32,6 +32,8 @@ static struct enum_sync_state sync_state_tab[] =
 	{-1, NULL}
 };
 
+#define format_lsn(x) (uint32) (x >> 32), (uint32) x
+
 static TupleDesc common_command_tuple_desc = NULL;
 static TupleDesc common_list_acl_tuple_desc = NULL;
 static TupleDesc showparam_command_tuple_desc = NULL;
@@ -39,6 +41,9 @@ static TupleDesc ha_replication_tuple_desc = NULL;
 static TupleDesc common_command_tuple_desc_four_col = NULL;
 static void mgr_cmd_run_backend(const char nodetype, const char cmdtype, const List* nodenamelist, const char *shutdown_mode, PG_FUNCTION_ARGS);
 static TupleDesc get_common_command_tuple_desc_four_col(void);
+static XLogRecPtr mgr_get_last_wal_receive_location(const Oid hostOid, char *sqlString, const int32 nodePort, const char *database, const bool bgtmtype);
+static XLogRecPtr parse_lsn(const char *str);
+
 
 TupleDesc get_common_command_tuple_desc(void)
 {
@@ -2099,19 +2104,23 @@ char *get_nodepath_from_tupleoid(Oid tupleOid)
 *  get slave node for given sync state, which is running normal
 */
 
-int mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int SYNC_STATE_SYNC, Oid excludeOid, Name slaveNodeName)
+int mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int sync_state_sync, Oid excludeOid, Name slaveNodeName)
 {
 	ScanKeyData key[4];
 	HeapTuple tuple;
 	HeapScanDesc relScan;
 	int res = PQPING_NO_RESPONSE;
-	char *address;
-	char *user;
 	Form_mgr_node mgr_node;
 	NameData sync_state_name;
+	XLogRecPtr	lastWalReceiveLsnMin = InvalidXLogRecPtr;
+	XLogRecPtr	lastWalReceiveLsn = InvalidXLogRecPtr;
+	char *address;
+	char *user;
 	char portBuf[10];
+	char *sqlString = "SELECT pg_catalog.pg_last_xlog_receive_location()";
+	bool bgtmtype = false;
 
-	namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_SYNC].name);
+	namestrcpy(&sync_state_name, sync_state_tab[sync_state_sync].name);
 	ScanKeyInit(&key[0]
 		,Anum_mgr_node_nodemasternameOid
 		,BTEqualStrategyNumber
@@ -2146,17 +2155,37 @@ int mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int SYNC_STA
 		address= get_hostaddress_from_hostoid(mgr_node->nodehost);
 		user = get_hostname_from_hostoid(mgr_node->nodehost);
 		if (GTM_TYPE_GTM_MASTER == mgr_node->nodetype || GTM_TYPE_GTM_SLAVE == mgr_node->nodetype)
+		{
+			bgtmtype = true;
 			res = pingNode_user(address, portBuf, AGTM_USER);
+		}
 		else
 			res = pingNode_user(address, portBuf, user);
+
 		pfree(address);
 		pfree(user);
 
 		if (res == PQPING_OK)
 		{
-			namestrcpy(slaveNodeName, NameStr(mgr_node->nodename));
-			break;
+			if (sync_state_sync != SYNC_STATE_SYNC)
+			{
+				lastWalReceiveLsn = mgr_get_last_wal_receive_location(mgr_node->nodehost, sqlString, mgr_node->nodeport, DEFAULT_DB, bgtmtype);;
+				ereport(NOTICE, (errmsg("slave \"%s\" last receive lsn: %x/%x", NameStr(mgr_node->nodename), format_lsn(lastWalReceiveLsn))));
+				if (lastWalReceiveLsnMin == InvalidXLogRecPtr)
+					namestrcpy(slaveNodeName, NameStr(mgr_node->nodename));
+				if (lastWalReceiveLsn > lastWalReceiveLsnMin)
+				{
+					lastWalReceiveLsnMin = lastWalReceiveLsn;
+					namestrcpy(slaveNodeName, NameStr(mgr_node->nodename));
+				}
+			}
+			else
+			{
+				namestrcpy(slaveNodeName, NameStr(mgr_node->nodename));
+				break;
+			}
 		}
+
 	}
 
 	heap_endscan(relScan);
@@ -2403,4 +2432,65 @@ bool mgr_check_slave_replicate_status(const Oid masterTupleOid, const char nodet
 	pfree(resultstrdata.data);
 
 	return res;
+}
+
+/*
+* get the slave node lsn
+*/
+
+static XLogRecPtr mgr_get_last_wal_receive_location(const Oid hostOid, char *sqlString, const int32 nodePort, const char *database, const bool bgtmtype)
+{
+	Relation hostRel;
+	HeapTuple hostTuple;
+	Datum host_addr;
+	Form_mgr_host mgr_host;
+	XLogRecPtr	ptr = InvalidXLogRecPtr;
+	StringInfoData restmsg;
+	bool isNull = false;
+
+	hostRel = heap_open(HostRelationId, AccessShareLock);
+	hostTuple = SearchSysCache1(HOSTHOSTOID, ObjectIdGetDatum(hostOid));
+	/*check the host exists*/
+	if (!HeapTupleIsValid(hostTuple))
+	{
+		 heap_close(hostRel, AccessShareLock);
+		ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
+		,errmsg("cache lookup failed for relation %u", hostOid)));
+		return ptr;
+	}
+	mgr_host = (Form_mgr_host)GETSTRUCT(hostTuple);
+	host_addr = heap_getattr(hostTuple, Anum_mgr_host_hostaddr, RelationGetDescr(hostRel), &isNull);
+	if(isNull)
+	{
+		ReleaseSysCache(hostTuple);
+		heap_close(hostRel, AccessShareLock);
+		ereport(WARNING, (errcode(ERRCODE_INTERNAL_ERROR)
+			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
+			, errmsg("column hostaddr is null")));
+		return ptr;
+	}
+
+	initStringInfo(&restmsg);
+	monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, mgr_host->hostagentport, sqlString
+				,bgtmtype ? AGTM_USER: NameStr(mgr_host->hostuser), TextDatumGetCString(host_addr), nodePort, DEFAULT_DB, &restmsg);
+	if (restmsg.len != 0)
+		ptr = parse_lsn(restmsg.data);
+	pfree(restmsg.data);
+	ReleaseSysCache(hostTuple);
+	heap_close(hostRel, AccessShareLock);
+
+	return ptr;
+}
+
+
+static XLogRecPtr parse_lsn(const char *str)
+{
+	XLogRecPtr	ptr = InvalidXLogRecPtr;
+	uint32		high,
+				low;
+
+	if (sscanf(str, "%x/%x", &high, &low) == 2)
+		ptr = (((XLogRecPtr) high) << 32) + (XLogRecPtr) low;
+
+	return ptr;
 }
