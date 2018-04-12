@@ -87,6 +87,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 	AppendNodeInfo slave_nodeinfo;
 	StringInfoData infosendmsg;
 	StringInfoData strinfo;
+	StringInfoData strinfotmp;
 	HeapTuple masterTuple;
 	HeapTuple slavetuple;
 	HeapTuple tuple;
@@ -97,6 +98,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 	ScanKeyData key[2];
 	HeapScanDesc relScan;
 	Oid oldMasterTupleOid;
+	int syncNum = 0;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
@@ -197,11 +199,10 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 	/* set new master synchronous_standby_names */
 	resetStringInfo(&strinfo);
 	resetStringInfo(&infosendmsg);
-	mgr_get_master_sync_string(oldMasterTupleOid, true, slave_nodeinfo.tupleoid, &strinfo);
+	syncNum = mgr_get_master_sync_string(oldMasterTupleOid, true, slave_nodeinfo.tupleoid, &strinfo);
 	if(strinfo.len != 0)
 	{
 		int i = 0;
-		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", strinfo.data, &infosendmsg);
 		while(i<strinfo.len && strinfo.data[i] != ',' && i<NAMEDATALEN)
 		{
 			slaveNodeName.data[i] = strinfo.data[i];
@@ -210,6 +211,8 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 		if (i<NAMEDATALEN)
 			slaveNodeName.data[i] = '\0';
 		hasOtherSlave = true;
+		if (syncNum == 0)
+			syncNum++;
 	}
 	else
 	{
@@ -220,13 +223,20 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 		if (res)
 		{
 			appendStringInfo(&strinfo, "%s", slaveNodeName.data);
+			syncNum++;
 		}
 		else
 			hasOtherSlave = false;
 		heap_close(rel_node, AccessShareLock);
-		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", strinfo.len == 0 ? "" : strinfo.data, &infosendmsg);
 	}
-	ereport(LOG, (errmsg("reload \"synchronous_standby_names='%s'\" in postgresql.conf of new master \"%s\"", strinfo.len ? strinfo.data : "", slave_nodeinfo.nodename)));
+	initStringInfo(&strinfotmp);
+	if (strinfo.len != 0)
+		appendStringInfo(&strinfotmp, "%d (%s)", syncNum, strinfo.data);
+
+	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", strinfotmp.len == 0 ? "" : strinfotmp.data, &infosendmsg);
+
+	ereport(LOG, (errmsg("reload \"synchronous_standby_names='%s'\" in postgresql.conf of new master \"%s\"", strinfotmp.len ? strinfotmp.data : "", slave_nodeinfo.nodename)));
+	pfree(strinfotmp.data);
 	initStringInfo(&(getAgentCmdRst.description));
 	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD,
 							slave_nodeinfo.nodepath,
@@ -477,11 +487,13 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	StringInfoData infosendmsg;
 	StringInfoData strinfo;
 	StringInfoData strinfo_sync;
+	StringInfoData strinfo_synctmp;
 	StringInfoData primary_conninfo_value;
 	HeapTuple slavetuple;
 	Form_mgr_node mgr_node;
 	Relation rel_node;
 	GetAgentCmdRst getAgentCmdRst;
+	int syncNum = 0;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
@@ -511,7 +523,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	/*get the master info*/
 	get_nodeinfo_byname(nodemasternamedata.data, mastertype, &master_is_exist, &master_is_running, &master_nodeinfo);
 	/*get master old sync*/
-	mgr_get_master_sync_string(master_nodeinfo.tupleoid, true, InvalidOid, &strinfo_sync);
+	syncNum = mgr_get_master_sync_string(master_nodeinfo.tupleoid, true, InvalidOid, &strinfo_sync);
 
 	/*update the slave's masteroid, sync_state in its tuple*/
 	slavetuple = SearchSysCache1(NODENODEOID, slave_nodeinfo.tupleoid);
@@ -623,7 +635,17 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 			if ((!incluster) && (strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_SYNC].name) == 0
 				|| strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_POTENTIAL].name)) == 0)
 			{
-					appendStringInfo(&strinfo_sync, ",%s", nodenamedata.data);
+				appendStringInfo(&strinfo_sync, ",%s", nodenamedata.data);
+			}
+			if ((!incluster) && (strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_SYNC].name) == 0))
+				syncNum++;
+			if (syncNum != 0)
+			{
+				initStringInfo(&strinfo_synctmp);
+				appendStringInfo(&strinfo_synctmp, "%d (%s)", syncNum, strinfo_sync.data);
+				resetStringInfo(&strinfo_sync);
+				appendStringInfo(&strinfo_sync, "%s", strinfo_synctmp.data);
+				pfree(strinfo_synctmp.data);
 			}
 			mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", strinfo_sync.len != 0 ? strinfo_sync.data: "", &infosendmsg);
 		}
@@ -1367,6 +1389,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	int nodePort;
 	int nodeSlaveSyncKind = SYNC_STATE_ASYNC;
 	const int iMax = 90;
+	int syncNum = 0;
 	HeapTuple tuple;
 	HeapTuple tupResult;
 	HeapTuple tupleS;
@@ -1378,6 +1401,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	AppendNodeInfo nodeInfoS;
 	AppendNodeInfo nodeInfoM;
 	Form_mgr_node mgr_node;
+	Form_mgr_node mgr_slavenode;
 	PGconn *pgConn;
 	StringInfoData restmsg;
 	StringInfoData infosendmsg;
@@ -1509,13 +1533,16 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 
 	initStringInfo(&restmsg);
 	initStringInfo(&syncStateData);
-	mgr_get_master_sync_string(nodeInfoM.tupleoid, true, nodeInfoS.tupleoid, &restmsg);
+	syncNum = mgr_get_master_sync_string(nodeInfoM.tupleoid, true, nodeInfoS.tupleoid, &restmsg);
 	if (restmsg.len != 0)
 	{
 		if (SYNC_STATE_SYNC == nodeSlaveSyncKind)
-			appendStringInfo(&syncStateData, "%s,%s", nodeMasterNameData.data, restmsg.data);
+		{
+			syncNum++;
+			appendStringInfo(&syncStateData, "%d (%s,%s)", syncNum, nodeMasterNameData.data, restmsg.data);
+		}
 		else if (SYNC_STATE_POTENTIAL == nodeSlaveSyncKind)
-			appendStringInfo(&syncStateData, "%s,%s", restmsg.data, nodeMasterNameData.data);
+			appendStringInfo(&syncStateData, "%d (%s,%s)", syncNum, restmsg.data, nodeMasterNameData.data);
 		else
 		{
 			/* do notheing */
@@ -1905,15 +1932,17 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	else
 		mgr_runmode_cndn_get_result(AGT_CMD_GTM_START_SLAVE, &getAgentCmdRst, nodeRel, tuple, TAKEPLAPARM_N);
 
-	heap_freetuple(tuple);
-	heap_close(nodeRel, AccessShareLock);
-
 	if(!getAgentCmdRst.ret)
 	{
 		rest = false;
-		ereport(WARNING, (errmsg("start new %s \"%s\" fail, %s", nodeTypeStrData.data, nodeNameData.data, getAgentCmdRst.description.data)));
-		appendStringInfo(&strerr, "start new %s \"%s\" fail, %s\n", nodeTypeStrData.data, nodeNameData.data, getAgentCmdRst.description.data);
+		mgr_slavenode = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_slavenode);
+		ereport(WARNING, (errmsg("start new %s \"%s\" fail, %s", nodeTypeStrData.data, NameStr(mgr_slavenode->nodename), getAgentCmdRst.description.data)));
+		appendStringInfo(&strerr, "start new %s \"%s\" fail, %s\n", nodeTypeStrData.data, NameStr(mgr_slavenode->nodename), getAgentCmdRst.description.data);
 	}
+
+	heap_freetuple(tuple);
+	heap_close(nodeRel, AccessShareLock);
 
 	/* for other slave */
 	ScanKeyInit(&key[0],

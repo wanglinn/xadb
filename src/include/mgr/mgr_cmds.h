@@ -227,7 +227,7 @@ extern void get_nodeinfo_byname(char *node_name, char node_type, bool *is_exist,
 extern void pfree_AppendNodeInfo(AppendNodeInfo nodeinfo);
 extern bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid);
 extern void mgr_unlock_cluster(PGconn **pg_conn);
-extern void mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam);
+extern int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam);
 extern bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname, GetAgentCmdRst *getAgentCmdRst, PGconn **pg_conn, Oid cnoid);
 /* mgr_common.c */
 extern TupleDesc get_common_command_tuple_desc(void);

@@ -497,6 +497,7 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 	bool hasPotenNodeInCluster = false;
 	int32 newport;
 	int nodeSyncType;
+	int  syncNum = 0;
 	HeapTuple hostTuple;
 	TupleDesc cndn_dsc;
 	Form_mgr_node mgr_node;
@@ -652,12 +653,6 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 					/*sync state*/
 					if(strcmp(str, sync_state_tab[SYNC_STATE_SYNC].name) == 0)
 					{
-						/*check the other slave sync_state is sync, then this can not be as sync*/
-						if (hasSyncNode)
-						{
-							ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
-								,errmsg("not support this node as synchronous node now, its master already has \"sync\" node, the node can set sync_state as \"potential\" or \"async\"")));
-						}
 						namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_SYNC].name);
 						new_sync = SYNC_STATE_SYNC;
 					}
@@ -681,41 +676,17 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 						}
 					}else if(strcmp(str, sync_state_tab[SYNC_STATE_POTENTIAL].name) == 0)
 					{
-						if (nodeSyncType != SYNC_STATE_ASYNC)
-							ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
-								,errmsg("can not support alter this node as a potential node, because its original relation is not async node")));
-						if (bnodeInCluster)
+
+						if(hasSyncNodeInCluster)
 						{
-							if(hasSyncNodeInCluster)
-							{
-								namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_POTENTIAL].name);
-								new_sync = SYNC_STATE_POTENTIAL;
-							}
-							else if (hasSyncNode)
-							{
-								ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
-								,errmsg("can not support alter this node as a potential node, because its master has sync node in ndoe table but not in cluster")));
-							}
-							else
-							{
-								ereport(NOTICE, (errmsg("the master of this node has no synchronous slave node, make this node as synchronous node")));
-								namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_SYNC].name);
-								new_sync = SYNC_STATE_SYNC;
-							}
+							namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_POTENTIAL].name);
+							new_sync = SYNC_STATE_POTENTIAL;
 						}
 						else
 						{
-							if(hasSyncNode)
-							{
-								namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_POTENTIAL].name);
-								new_sync = SYNC_STATE_POTENTIAL;
-							}
-							else
-							{
-								ereport(NOTICE, (errmsg("the master of this node has no synchronous slave node, make this node as synchronous node")));
-								namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_SYNC].name);
-								new_sync = SYNC_STATE_SYNC;
-							}
+							ereport(NOTICE, (errmsg("the master of this node has no synchronous slave node, make this node as synchronous node")));
+							namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_SYNC].name);
+							new_sync = SYNC_STATE_SYNC;
 						}
 					}
 					else
@@ -757,11 +728,12 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 				initStringInfo(&(getAgentCmdRst.description));
 				initStringInfo(&infoSyncStrTmp);
 
-				mgr_get_master_sync_string(masterTupleOid, true, selftupleoid, &infoSyncStr);
+				syncNum = mgr_get_master_sync_string(masterTupleOid, true, selftupleoid, &infoSyncStr);
 				if (0 == infoSyncStr.len)
 				{
-					if (SYNC_STATE_SYNC == new_sync || SYNC_STATE_POTENTIAL == new_sync)
+					if (SYNC_STATE_SYNC == new_sync)
 					{
+						syncNum++;
 						mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", NameStr(name), &infosendmsg);
 					}
 					else
@@ -772,23 +744,28 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 				else
 				{
 					if (SYNC_STATE_SYNC == new_sync)
-						appendStringInfo(&infoSyncStrTmp, "%s,%s", NameStr(name), infoSyncStr.data);
+					{
+						syncNum++;
+						appendStringInfo(&infoSyncStrTmp, "%d (%s,%s)", syncNum, NameStr(name), infoSyncStr.data);
+					}
 					else if (SYNC_STATE_POTENTIAL == new_sync)
-						appendStringInfo(&infoSyncStrTmp, "%s,%s", infoSyncStr.data, NameStr(name));
+					{
+						appendStringInfo(&infoSyncStrTmp, "%d (%s,%s)", syncNum, infoSyncStr.data, NameStr(name));
+					}
 					else
-						appendStringInfo(&infoSyncStrTmp, "%s", infoSyncStr.data);
+						appendStringInfo(&infoSyncStrTmp, "%d (%s)", syncNum, infoSyncStr.data);
 					mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infoSyncStrTmp.data, &infosendmsg);
-					pfree(infoSyncStrTmp.data);
 				}
 
 				masterPath = get_nodepath_from_tupleoid(masterTupleOid);
 				mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, masterPath, &infosendmsg, masterHostOid, &getAgentCmdRst);
 				pfree(masterPath);
-				if (!getAgentCmdRst.ret)
-					ereport(ERROR, (errmsg("refresh synchronous_standby_names='%s' on %s \"%s\" fail %s"
-						, infoSyncStr.data, mgr_nodetype_str(mastertype), mastername.data, getAgentCmdRst.description.data)));
 				pfree(infoSyncStr.data);
 				pfree(infosendmsg.data);
+				if (!getAgentCmdRst.ret)
+					ereport(ERROR, (errmsg("refresh synchronous_standby_names='%s' on %s \"%s\" fail %s"
+						, infoSyncStrTmp.data, mgr_nodetype_str(mastertype), mastername.data, getAgentCmdRst.description.data)));
+				pfree(infoSyncStrTmp.data);
 				pfree(getAgentCmdRst.description.data);
 
 			}
@@ -2984,10 +2961,12 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 	bool agtm_m_is_exist, agtm_m_is_running; /* agtm master status */
 	bool dnmaster_is_running; /* datanode master status */
 	bool result = true;
+	bool bsyncnode = false;
 	StringInfoData  infosendmsg;
 	StringInfoData primary_conninfo_value;
 	StringInfoData recorderr;
 	StringInfoData infostrparam;
+	StringInfoData infostrparamtmp;
 	NameData nodename;
 	NameData gtmMasterNameData;
 	HeapTuple tup_result;
@@ -2997,6 +2976,7 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 	char *gtmMasterName;
 	Oid mastertupleoid;
 	Relation rel;
+	int syncNum = 0;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
@@ -3128,9 +3108,15 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 		/* step 9: update datanode master's postgresql.conf.*/
 		resetStringInfo(&infosendmsg);
 		initStringInfo(&infostrparam);
+		initStringInfo(&infostrparamtmp);
 		if (strcmp(NameStr(appendnodeinfo.sync_state), sync_state_tab[SYNC_STATE_SYNC].name) == 0)
+		{
+			bsyncnode = true;
 			appendStringInfo(&infostrparam, "%s", nodename.data);
-		mgr_get_master_sync_string(mastertupleoid, true, InvalidOid, &infostrparam);
+		}
+		syncNum = mgr_get_master_sync_string(mastertupleoid, true, InvalidOid, &infostrparam);
+		if (bsyncnode)
+			syncNum++;
 		if (strcmp(NameStr(appendnodeinfo.sync_state), sync_state_tab[SYNC_STATE_POTENTIAL].name) == 0)
 		{
 			Assert(infostrparam.len != 0);
@@ -3139,8 +3125,12 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 		if (infostrparam.len == 0)
 			mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", &infosendmsg);
 		else
-			mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infostrparam.data, &infosendmsg);
+		{
+			appendStringInfo(&infostrparamtmp, "%d (%s)", syncNum, infostrparam.data);
+			mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infostrparamtmp.data, &infosendmsg);
+		}
 		pfree(infostrparam.data);
+		pfree(infostrparamtmp.data);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
 								parentnodeinfo.nodepath,
 								&infosendmsg,
@@ -3397,10 +3387,12 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 	bool agtm_m_is_exist;
 	bool agtm_m_is_running; /* agtm master status */
 	bool result = true;
+	bool bsyncnode = false;
 	StringInfoData infosendmsg;
 	StringInfoData primary_conninfo_value;
 	StringInfoData recorderr;
 	StringInfoData infostrparam;
+	StringInfoData infostrparamtmp;
 	NameData nodename;
 	NameData gtmMasterNameData;
 	HeapTuple tup_result;
@@ -3409,6 +3401,7 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 	char nodeport_buf[10];
 	const int max_pingtry = 60;
 	Oid mastertupleoid;
+	int syncNum = 0;
 	Relation rel;
 	Form_mgr_node mgr_node;
 
@@ -3526,9 +3519,15 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 		/* step 7: update agtm master's postgresql.conf.*/
 		resetStringInfo(&infosendmsg);
 		initStringInfo(&infostrparam);
+		initStringInfo(&infostrparamtmp);
 		if (strcmp(NameStr(appendnodeinfo.sync_state), sync_state_tab[SYNC_STATE_SYNC].name) == 0)
+		{
 			appendStringInfo(&infostrparam, "%s", nodename.data);
-		mgr_get_master_sync_string(mastertupleoid, true, InvalidOid, &infostrparam);
+			bsyncnode = true;
+		}
+		syncNum = mgr_get_master_sync_string(mastertupleoid, true, InvalidOid, &infostrparam);
+		if (bsyncnode)
+			syncNum++;
 		if (strcmp(NameStr(appendnodeinfo.sync_state), sync_state_tab[SYNC_STATE_POTENTIAL].name) == 0)
 		{
 			Assert(infostrparam.len != 0);
@@ -3537,8 +3536,12 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 		if (infostrparam.len == 0)
 			mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", &infosendmsg);
 		else
-			mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infostrparam.data, &infosendmsg);
+		{
+			appendStringInfo(&infostrparamtmp, "%d (%s)", syncNum, infostrparam.data);
+			mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infostrparamtmp.data, &infosendmsg);
+		}
 		pfree(infostrparam.data);
+		pfree(infostrparamtmp.data);
 
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
 								agtm_m_nodeinfo.nodepath,
@@ -5932,6 +5935,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 	StringInfoData infosendsyncmsg;
 	StringInfoData resultstrdata;
 	StringInfoData recorderr;
+	StringInfoData infosendsyncmsgtmp;
 	HeapScanDesc rel_scan;
 	Form_mgr_node mgr_node;
 	Form_mgr_node mgr_nodecn;
@@ -5966,6 +5970,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 	int try = 0;
 	int nrow = 0;
 	int pingres = PQPING_NO_RESPONSE;
+	int syncNum = 0;
 
 	initStringInfo(&infosendmsg);
 	initStringInfo(&recorderr);
@@ -6163,7 +6168,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 	/*refresh new master synchronous_standby_names*/
 	resetStringInfo(&infosendmsg);
 	resetStringInfo(&infosendsyncmsg);
-	mgr_get_master_sync_string(nodemasternameoid, true, newGtmMasterTupleOid, &infosendsyncmsg);
+	syncNum = mgr_get_master_sync_string(nodemasternameoid, true, newGtmMasterTupleOid, &infosendsyncmsg);
 	if(infosendsyncmsg.len != 0)
 	{
 		int i = 0;
@@ -6175,6 +6180,8 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 		if (i < NAMEDATALEN)
 			slaveNodeName.data[i] = '\0';
 		hasOtherSlave = true;
+		if (syncNum == 0)
+			syncNum = 1;
 	}
 	else
 	{
@@ -6185,9 +6192,19 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 		if (pingres == PQPING_OK || rest)
 		{
 			appendStringInfo(&infosendsyncmsg, "%s", slaveNodeName.data);
+			syncNum++;
 		}
 		else
 			hasOtherSlave = false;
+	}
+
+	if (infosendsyncmsg.len !=0)
+	{
+		initStringInfo(&infosendsyncmsgtmp);
+		appendStringInfo(&infosendsyncmsgtmp, "%d (%s)", syncNum, infosendsyncmsg.data);
+		resetStringInfo(&infosendsyncmsg);
+		appendStringInfo(&infosendsyncmsg, "%s", infosendsyncmsgtmp.data);
+		pfree(infosendsyncmsgtmp.data);
 	}
 	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infosendsyncmsg.len !=0 ? infosendsyncmsg.data:"", &infosendmsg);
 
@@ -6345,6 +6362,7 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 	StringInfoData infosendmsg;
 	StringInfoData infosendsyncmsg;
 	StringInfoData recorderr;
+	StringInfoData infosendsyncmsgtmp;
 	HeapScanDesc rel_scan;
 	HeapTuple mastertuple;
 	Form_mgr_node mgr_node;
@@ -6365,6 +6383,7 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 	int maxtry = 15;
 	int try;
 	int pingres = PQPING_NO_RESPONSE;
+	int syncNum = 0;
 	ScanKeyData key[2];
 	NameData sync_state_name;
 	NameData slaveNodeName;
@@ -6397,12 +6416,13 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 	/*refresh new master synchronous_standby_names*/
 	initStringInfo(&infosendmsg);
 	initStringInfo(&infosendsyncmsg);
-	mgr_get_master_sync_string(oldMasterTupleOid, true, newmastertupleoid, &infosendsyncmsg);
+	syncNum = mgr_get_master_sync_string(oldMasterTupleOid, true, newmastertupleoid, &infosendsyncmsg);
 	/*refresh master's postgresql.conf*/
 	if(infosendsyncmsg.len != 0)
 	{
 		int i = 0;
-		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infosendsyncmsg.data, &infosendmsg);
+		if (syncNum == 0)
+			syncNum++;
 		while(i<infosendsyncmsg.len && infosendsyncmsg.data[i] != ',' && i<NAMEDATALEN)
 		{
 			slaveNodeName.data[i] = infosendsyncmsg.data[i];
@@ -6421,11 +6441,20 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 		if (pingres == PQPING_OK || rest)
 		{
 			appendStringInfo(&infosendsyncmsg, "%s", slaveNodeName.data);
+			syncNum++;
 		}
 		else
 			hasOtherSlave = false;
-		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infosendsyncmsg.len !=0 ? infosendsyncmsg.data:"", &infosendmsg);
 	}
+	if (infosendsyncmsg.len != 0)
+	{
+		initStringInfo(&infosendsyncmsgtmp);
+		appendStringInfo(&infosendsyncmsgtmp, "%d (%s)", syncNum, infosendsyncmsg.data);
+		resetStringInfo(&infosendsyncmsg);
+		appendStringInfo(&infosendsyncmsg, "%s", infosendsyncmsgtmp.data);
+		pfree(infosendsyncmsgtmp.data);
+	}
+	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infosendsyncmsg.len !=0 ? infosendsyncmsg.data:"", &infosendmsg);
 
 	ereport(LOG, (errmsg("on datanode master \"%s\" reload \"synchronous_standby_names = '%s'\"", NameStr(mgr_node->nodename), infosendsyncmsg.len != 0 ? infosendsyncmsg.data : "")));
 	ereport(NOTICE, (errmsg("on datanode master \"%s\" reload \"synchronous_standby_names = '%s'\"", NameStr(mgr_node->nodename), infosendsyncmsg.len != 0 ? infosendsyncmsg.data : "")));
@@ -6876,11 +6905,14 @@ static void mgr_set_master_sync(void)
 	char *value;
 	StringInfoData infosendmsg;
 	StringInfoData infostrparam;
+	StringInfoData infostrparamtmp;
 	Form_mgr_node mgr_node;
 	GetAgentCmdRst getAgentCmdRst;
+	int syncNum = 0;
 
 	initStringInfo(&infosendmsg);
 	initStringInfo(&infostrparam);
+	initStringInfo(&infostrparamtmp);
 	initStringInfo(&(getAgentCmdRst.description));
 	getAgentCmdRst.ret = false;
 	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
@@ -6905,11 +6937,14 @@ static void mgr_set_master_sync(void)
 				, errmsg("column cndnpath is null")));
 		}
 		path = TextDatumGetCString(datumpath);
-		mgr_get_master_sync_string(HeapTupleGetOid(tuple), true, InvalidOid, &infostrparam);
+		syncNum = mgr_get_master_sync_string(HeapTupleGetOid(tuple), true, InvalidOid, &infostrparam);
 		if (infostrparam.len == 0)
 			mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", &infosendmsg);
 		else
-			mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infostrparam.data, &infosendmsg);
+		{
+			appendStringInfo(&infostrparamtmp, "%d (%s)", syncNum, infostrparam.data);
+			mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infostrparamtmp.data, &infosendmsg);
+		}
 
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD,
 								path,
@@ -6928,12 +6963,14 @@ static void mgr_set_master_sync(void)
 		pfree(address);
 		resetStringInfo(&infosendmsg);
 		resetStringInfo(&infostrparam);
+		resetStringInfo(&infostrparamtmp);
 		resetStringInfo(&(getAgentCmdRst.description));
 	}
 	heap_endscan(rel_scan);
 	heap_close(rel_node, RowExclusiveLock);
 	pfree(infosendmsg.data);
 	pfree(infostrparam.data);
+	pfree(infostrparamtmp.data);
 	pfree(getAgentCmdRst.description.data);
 
 }
@@ -10317,6 +10354,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	char *masterpath;
 	char port_buf[10];
 	NameData namedata;
+	NameData mastername;
 	List *nodenamelist = NIL;
 	Relation rel;
 	HeapScanDesc rel_scan;
@@ -10328,6 +10366,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	ScanKeyData key[3];
 	int iloop = 0;
 	int num = 0;
+	int syncNum = 0;
 	bool bsync_exist;
 	bool isNull;
 	Oid selftupleoid;
@@ -10335,6 +10374,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	GetAgentCmdRst getAgentCmdRst;
 	StringInfoData  infosendmsg;
 	StringInfoData infostrparam;
+	StringInfoData infostrparamtmp;
 	Value *val;
 	char *user;
 
@@ -10447,6 +10487,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
 	initStringInfo(&infostrparam);
+	initStringInfo(&infostrparamtmp);
 
 	foreach(cell, nodenamelist)
 	{
@@ -10464,10 +10505,10 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 			,F_NAMEEQ
 			,NameGetDatum(&namedata));
 		ScanKeyInit(&key[2]
-				,Anum_mgr_node_nodeincluster
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,CharGetDatum(true));
+			,Anum_mgr_node_nodeincluster
+			,BTEqualStrategyNumber
+			,F_BOOLEQ
+			,CharGetDatum(true));
 		rel_scan = heap_beginscan_catalog(rel, 3, key);
 		tuple = heap_getnext(rel_scan, ForwardScanDirection);
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -10482,11 +10523,21 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 		if (strcmp(NameStr(mgr_node->nodesync),sync_state_tab[SYNC_STATE_SYNC].name) == 0
 				|| strcmp(NameStr(mgr_node->nodesync), sync_state_tab[SYNC_STATE_POTENTIAL].name) == 0)
 		{
-				mgr_get_master_sync_string(mgr_node->nodemasternameoid, true, selftupleoid, &infostrparam);
+				syncNum = mgr_get_master_sync_string(mgr_node->nodemasternameoid, true, selftupleoid, &infostrparam);
 		}
 
 		if (infostrparam.len == 0)
 			appendStringInfoString(&infostrparam, "");
+		else
+		{
+			if (syncNum)
+			{
+				resetStringInfo(&infostrparamtmp);
+				appendStringInfo(&infostrparamtmp, "%d(%s)", syncNum, infostrparam.data);
+				resetStringInfo(&infostrparam);
+				appendStringInfo(&infostrparam, "%s", infostrparamtmp.data);
+			}
+		}
 		mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(mgr_node->nodemasternameoid));
 		if(!HeapTupleIsValid(mastertuple))
 		{
@@ -10496,6 +10547,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 				, errmsg("the master \"%s\" does not exist", NameStr(mgr_node->nodename))));
 		}
 		mgr_masternode = (Form_mgr_node)GETSTRUCT(mastertuple);
+		namestrcpy(&mastername, NameStr(mgr_masternode->nodename));
 		datumPath = heap_getattr(mastertuple, Anum_mgr_node_nodepath, RelationGetDescr(rel), &isNull);
 		if (isNull)
 		{
@@ -10521,9 +10573,9 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 		if (strcmp(infostrparam.data, "") == 0)
 		{
 			if (CNDN_TYPE_DATANODE_SLAVE == nodetype)
-				ereport(WARNING, (errmsg("the datanode master \"%s\" has no synchronous slave node", namedata.data)));
+				ereport(WARNING, (errmsg("the datanode master \"%s\" has no synchronous slave node", mastername.data)));
 			else
-				ereport(WARNING, (errmsg("the gtm master \"%s\" has no synchronous slave node", namedata.data)));
+				ereport(WARNING, (errmsg("the gtm master \"%s\" has no synchronous slave node", mastername.data)));
 		}
 		/*update the tuple*/
 		mgr_node->nodeinited = false;
@@ -10535,6 +10587,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	}
 	pfree(infosendmsg.data);
 	pfree(infostrparam.data);
+	pfree(infostrparamtmp.data);
 	pfree(getAgentCmdRst.description.data);
 	heap_close(rel, RowExclusiveLock);
 
@@ -10707,7 +10760,7 @@ static void mgr_update_one_potential_to_sync(Relation rel, Oid mastertupleoid, b
 * get the string "synchronous_standby_names" of master, but not include the tuple which oid is excludeoid
 * the get string record in infostrparam
 */
-void mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam)
+int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam)
 {
 	NameData sync_state_name;
 	Form_mgr_node mgr_node;
@@ -10716,6 +10769,7 @@ void mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid exclude
 	ScanKeyData key[3];
 	Relation rel;
 	int i = 0;
+	int no_async_num = 0;
 
 	rel = heap_open(NodeRelationId, AccessShareLock);
 	for(i=0; i<2; i++)
@@ -10745,6 +10799,8 @@ void mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid exclude
 			Assert(mgr_node);
 			if (HeapTupleGetOid(tuple) == excludeoid)
 				continue;
+			if (i == 0)
+				no_async_num++;
 			if (infostrparam->len == 0)
 				appendStringInfo(infostrparam, "%s", NameStr(mgr_node->nodename));
 			else
@@ -10754,6 +10810,8 @@ void mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid exclude
 	}
 
 	heap_close(rel, AccessShareLock);
+
+	return no_async_num;
 }
 
 /*monitor ha, get the diff between master and slave*/
