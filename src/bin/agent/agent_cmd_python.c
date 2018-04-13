@@ -338,10 +338,11 @@ bool get_disk_iops_info(StringInfo hostinfostring)
     }
     if(NULL != fgets(cmd_output, sizeof(cmd_output), fstream))
     {
-        monitor_append_float(hostinfostring,(float)atof(cmd_output));
+         monitor_append_float(hostinfostring,(float)atof(cmd_output));
     }
     else
     {
+	monitor_append_float(hostinfostring, 0);
         pclose(fstream);
         return false;
     }
@@ -369,6 +370,7 @@ bool get_system_info(StringInfo hostinfostring)
     }
     else
     {
+	monitor_append_str(hostinfostring, "unknown operating system version");
         pclose(fstream);
         return false;
     }
@@ -396,6 +398,7 @@ bool get_platform_type_info(StringInfo hostinfostring)
     }
     else
     {
+        monitor_append_str(hostinfostring, "nnknown operating system architecture");
         pclose(fstream);
         return false;
     }

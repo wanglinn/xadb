@@ -387,7 +387,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage(hostname text, i in
                                                       when 2 then interval '7 day'
                                                       end and
           mgr.hostname = $1
-	order by 1;
+   order by 1 asc;
     $$
     LANGUAGE SQL
     IMMUTABLE
@@ -427,7 +427,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_host_history_usage_by_time_period(host
                         limit 1) as temp
     where c.mc_timestamptz  between $2 and $3
             and mgr.hostname = $1
-	order by 1;
+    order by 1 asc;
     $$
     LANGUAGE SQL
     IMMUTABLE
