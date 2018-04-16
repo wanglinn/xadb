@@ -633,7 +633,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 		else
 		{
 			if ((!incluster) && (strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_SYNC].name) == 0
-				|| strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_POTENTIAL].name)) == 0)
+				|| strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_POTENTIAL].name) == 0))
 			{
 				appendStringInfo(&strinfo_sync, ",%s", nodenamedata.data);
 			}

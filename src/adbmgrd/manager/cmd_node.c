@@ -336,12 +336,6 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 					/*sync state*/
 					if(strcmp(str, sync_state_tab[SYNC_STATE_SYNC].name) == 0)
 					{
-						/*check the other slave sync_state is sync, then this can not be as sync*/
-						if (hasSyncNode)
-						{
-							ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
-								,errmsg("not support this node as synchronous node now, its master already has \"sync\" node, the node can set sync_state as \"potential\" or \"async\"")));
-						}
 						namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_SYNC].name);
 					}
 					else if(strcmp(str, sync_state_tab[SYNC_STATE_ASYNC].name) == 0)
