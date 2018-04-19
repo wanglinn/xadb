@@ -176,7 +176,7 @@ lnext:
 				break;
 		}
 
-		test = heap_lock_tuple(erm->relation, &tuple,
+		test = heap_lock_tuple(erm->relation, &tuple, ADB_ONLY_ARG(estate->es_snapshot)
 							   estate->es_output_cid,
 							   lockmode, erm->waitPolicy, true,
 							   &buffer, &hufd);

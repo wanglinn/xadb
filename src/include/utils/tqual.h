@@ -85,6 +85,9 @@ extern void HeapTupleSetHintBits(HeapTupleHeader tuple, Buffer buffer,
 					 uint16 infomask, TransactionId xid);
 extern bool HeapTupleHeaderIsOnlyLocked(HeapTupleHeader tuple);
 
+#ifdef ADB
+extern bool XidInMVCCSnapshotExtern(TransactionId xid, Snapshot snapshot);
+#endif
 /*
  * To avoid leaking too much knowledge about reorderbuffer implementation
  * details this is implemented in reorderbuffer.c not tqual.c.

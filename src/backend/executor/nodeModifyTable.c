@@ -749,6 +749,7 @@ ldelete:;
 		result = heap_delete(resultRelationDesc, tupleid,
 							 estate->es_output_cid,
 							 estate->es_crosscheck_snapshot,
+							 ADB_ONLY_ARG(estate->es_snapshot)
 							 true /* wait for commit */ ,
 							 &hufd);
 		switch (result)
@@ -1109,6 +1110,7 @@ lreplace:;
 		result = heap_update(resultRelationDesc, tupleid, tuple,
 							 estate->es_output_cid,
 							 estate->es_crosscheck_snapshot,
+							 ADB_ONLY_ARG(estate->es_snapshot)
 							 true /* wait for commit */ ,
 							 &hufd, &lockmode);
 		switch (result)
@@ -1291,7 +1293,7 @@ ExecOnConflictUpdate(ModifyTableState *mtstate,
 	 * true anymore.
 	 */
 	tuple.t_self = *conflictTid;
-	test = heap_lock_tuple(relation, &tuple, estate->es_output_cid,
+	test = heap_lock_tuple(relation, &tuple, ADB_ONLY_ARG(estate->es_snapshot) estate->es_output_cid,
 						   lockmode, LockWaitBlock, false, &buffer,
 						   &hufd);
 	switch (test)

@@ -1571,7 +1571,7 @@ GetSnapshotData(Snapshot snapshot)
 	volatile TransactionId replication_slot_xmin = InvalidTransactionId;
 	volatile TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
 #ifdef ADB
-	bool		is_under_agtm;
+	bool		try_agtm_snap = (IsUnderAGTM() && !IsCatalogSnapshot(snapshot));
 	bool		hint;
 #endif /* ADB */
 
@@ -1629,8 +1629,7 @@ GetSnapshotData(Snapshot snapshot)
 	/*
 	 * Obtain a global snapshot for a Postgres-XC session
 	 */
-	is_under_agtm = IsUnderAGTM();
-	if (IsUnderAGTM() && !IsCatalogSnapshot(snapshot))
+	if (try_agtm_snap)
 	{
 		Snapshot snap PG_USED_FOR_ASSERTS_ONLY;
 		snap = GetGlobalSnapshot(snapshot);
@@ -1667,10 +1666,41 @@ GetSnapshotData(Snapshot snapshot)
 
 	/* initialize xmin calculation with xmax */
 #ifdef ADB
-	if(is_under_agtm)
+	if(try_agtm_snap)
 	{
-		if(TransactionIdPrecedes(xmax, snapshot->xmax))
+		Assert(TransactionIdIsNormal(snapshot->xmax));
+
+		/*
+		 * If local xmax <= global xmax, the xmax of snapshot will be not changed
+		 * in this case. Otherwise, it will update the xmax of snapshot.
+		 */
+		if (TransactionIdPrecedesOrEquals(xmax, snapshot->xmax))
 			xmax = snapshot->xmax;
+		else
+		{
+			TransactionId xid = snapshot->xmax;
+
+			/*
+			 * Try to add "local commited" but "global uncommited" XID to the
+			 * global snapshot.
+			 */
+			while (TransactionIdPrecedes(xid, xmax))
+			{
+				/* We don't include our own XIDs (if any) in the snapshot */
+				if (TransactionIdEquals(xid, MyPgXact->xid))
+				{
+					TransactionIdAdvance(xid);
+					continue;
+				}
+
+				/* local committed but global uncommitted */
+				if (TransactionIdDidCommit(xid))
+					snapshot->xip[count++] = xid;
+
+				TransactionIdAdvance(xid);
+			}
+		}
+
 		globalxmin = xmin = snapshot->xmin;
 	}else
 #endif /* ADB */
@@ -1735,7 +1765,7 @@ GetSnapshotData(Snapshot snapshot)
 				continue;
 
 #ifdef ADB
-			if(is_under_agtm)
+			if(try_agtm_snap)
 			{
 				int i;
 				hint = false;
@@ -1786,7 +1816,7 @@ GetSnapshotData(Snapshot snapshot)
 						volatile PGPROC *proc = &allProcs[pgprocno];
 
 #ifdef ADB
-						if(is_under_agtm)
+						if(try_agtm_snap)
 						{
 							int i,j;
 							for(i=0;i<nxids;++i)

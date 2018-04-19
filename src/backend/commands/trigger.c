@@ -2956,7 +2956,7 @@ GetTupleForTrigger(EState *estate,
 		 */
 ltrmark:;
 		tuple.t_self = *tid;
-		test = heap_lock_tuple(relation, &tuple,
+		test = heap_lock_tuple(relation, &tuple, ADB_ONLY_ARG(estate->es_snapshot)
 							   estate->es_output_cid,
 							   lockmode, LockWaitBlock,
 							   false, &buffer, &hufd);
