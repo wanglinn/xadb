@@ -366,18 +366,27 @@ void serialize_processed_message(StringInfo buf, uint64 processed)
 
 void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
 {
-	int i;
 	char *attname;
 	int32 atttypmod;
 	int32 attndims;
+	int i,natts;
 
 	AssertArg(buf && desc);
 
-	appendStringInfoChar(buf, msg_type);
-	appendStringInfoChar(buf, desc->tdhasoid);
-	appendBinaryStringInfo(buf, (char*)&(desc->natts), sizeof(desc->natts));
+	natts = desc->natts;
 	for(i=0;i<desc->natts;++i)
 	{
+		if (desc->attrs[i]->attisdropped)
+			--natts;
+	}
+	appendStringInfoChar(buf, msg_type);
+	appendStringInfoChar(buf, desc->tdhasoid);
+	appendBinaryStringInfo(buf, (char*)&natts, sizeof(natts));
+	for(i=0;i<desc->natts;++i)
+	{
+		if (desc->attrs[i]->attisdropped)
+			continue;
+
 		/* attname */
 		attname = NameStr(desc->attrs[i]->attname);
 		save_node_string(buf, attname);
@@ -502,6 +511,12 @@ MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup)
 	for(i=desc->natts;(--i)>=0;)
 	{
 		Form_pg_attribute attr=desc->attrs[i];
+		/*
+		 * must have no droped attribute.
+		 * if have, use TupleConversionMap convert is first
+		 */
+		Assert(!attr->attisdropped);
+
 		if (slot->tts_isnull[i] == false &&
 			attr->attlen == -1 &&
 			attr->attbyval == false &&
