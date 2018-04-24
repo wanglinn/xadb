@@ -64,6 +64,7 @@
 #define EXEC_FLAG_WITH_NO_DATA	0x0080	/* rel scannability doesn't matter */
 #ifdef ADB
 #define EXEC_FLAG_IN_SUBPLAN	0x0100	/* at subplan */
+#define EXEC_FLAG_UPDATE_CMD_ID	0x0200	/* force update command id */
 #endif /* ADB */
 
 /*

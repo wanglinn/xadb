@@ -70,6 +70,7 @@ static QueryDesc *create_cluster_query_desc(StringInfo buf, DestReceiver *r);
 static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt, ParamListInfo param, ClusterPlanContext *context);
 static bool SerializePlanHook(StringInfo buf, Node *node, void *context);
 static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context);
+static bool HaveModifyPlanWalker(Plan *plan, Node *GlobOrStmt, void *context);
 static void SerializeRelationOid(StringInfo buf, Oid relid);
 static Oid RestoreRelationOid(StringInfo buf, bool missok);
 static void send_rdc_listend_port(int port);
@@ -92,6 +93,7 @@ void exec_cluster_plan(const void *splan, int length)
 	StringInfoData buf;
 	StringInfoData msg;
 	ClusterErrorHookContext error_context_hook;
+	int eflags;
 	bool need_instrument;
 	bool has_reduce;
 
@@ -139,7 +141,13 @@ void exec_cluster_plan(const void *splan, int length)
 		wait_rdc_group_message();
 	}
 
-	ExecutorStart(query_desc, 0);
+	eflags = 0;
+	if (query_desc->plannedstmt->hasModifyingCTE ||
+		query_desc->plannedstmt->rowMarks != NIL ||
+		HaveModifyPlanWalker(query_desc->plannedstmt->planTree, NULL, NULL))
+		eflags |= EXEC_FLAG_UPDATE_CMD_ID;
+
+	ExecutorStart(query_desc, eflags);
 
 	set_ps_display("<cluster query>", false);
 
@@ -652,6 +660,15 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 	}
 
 	return node;
+}
+
+static bool HaveModifyPlanWalker(Plan *plan, Node *GlobOrStmt, void *context)
+{
+	if (plan == NULL)
+		return false;
+	if (IsA(plan, ModifyTable))
+		return true;
+	return plan_tree_walker(plan, GlobOrStmt, HaveModifyPlanWalker, NULL);
 }
 
 static void SerializeRelationOid(StringInfo buf, Oid relid)

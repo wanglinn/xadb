@@ -210,6 +210,9 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			 * tuples
 			 */
 			if (queryDesc->plannedstmt->rowMarks != NIL ||
+#ifdef ADB
+				(eflags & EXEC_FLAG_UPDATE_CMD_ID) ||
+#endif /* ADB */
 				queryDesc->plannedstmt->hasModifyingCTE)
 				estate->es_output_cid = GetCurrentCommandId(true);
 
