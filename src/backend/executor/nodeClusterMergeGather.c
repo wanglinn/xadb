@@ -114,7 +114,7 @@ re_get_:
 		}
 		binaryheap_build(node->binheap);
 		node->initialized = true;
-	}else
+	}else if (!binaryheap_empty(node->binheap))
 	{
 		i = DatumGetInt32(binaryheap_first(node->binheap));
 		if(i < node->nremote)
