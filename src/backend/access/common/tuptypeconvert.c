@@ -86,9 +86,12 @@ static void free_array_convert(ArrayConvert *ac);
 
 static Datum convert_range_send(PG_FUNCTION_ARGS);
 static Datum convert_range_recv(PG_FUNCTION_ARGS);
-static RangeConvert *
-get_convert_range_io_data(RangeConvert *ac, Oid rngtypid, MemoryContext context, bool is_send);
+static RangeConvert *get_convert_range_io_data(RangeConvert *ac, Oid rngtypid, MemoryContext context, bool is_send);
 static void free_range_convert(RangeConvert *ac);
+
+#ifdef USE_ASSERT_CHECKING
+static bool convert_equal_tuple_desc(TupleDesc desc1, TupleDesc desc2);
+#endif /* USE_ASSERT_CHECKING */
 
 TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool need_in)
 {
@@ -152,10 +155,8 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 	int s,d,natts;
 
 	AssertArg(list_length(convert->io_state) == src->tts_tupleDescriptor->natts);
-	AssertArg(src->tts_tupleDescriptor == convert->out_desc ||
-			  equalTupleDescs(src->tts_tupleDescriptor, convert->out_desc));
-	AssertArg(dest->tts_tupleDescriptor == convert->base_desc ||
-			  equalTupleDescs(dest->tts_tupleDescriptor, convert->base_desc));
+	AssertArg(convert_equal_tuple_desc(src->tts_tupleDescriptor, convert->out_desc));
+	AssertArg(convert_equal_tuple_desc(dest->tts_tupleDescriptor, convert->base_desc));
 	AssertArg(dest->tts_tupleDescriptor->natts >= src->tts_tupleDescriptor->natts);
 
 	ExecClearTuple(dest);
@@ -219,10 +220,8 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 	int s,d,natts;
 
 	AssertArg(list_length(convert->io_state) == dest->tts_tupleDescriptor->natts);
-	AssertArg(src->tts_tupleDescriptor == convert->base_desc ||
-			  equalTupleDescs(src->tts_tupleDescriptor, convert->base_desc));
-	AssertArg(dest->tts_tupleDescriptor == convert->out_desc ||
-			  equalTupleDescs(dest->tts_tupleDescriptor, convert->out_desc));
+	AssertArg(convert_equal_tuple_desc(src->tts_tupleDescriptor, convert->base_desc));
+	AssertArg(convert_equal_tuple_desc(dest->tts_tupleDescriptor, convert->out_desc));
 	AssertArg(dest->tts_tupleDescriptor->natts <= src->tts_tupleDescriptor->natts);
 
 	ExecClearTuple(dest);
@@ -1209,3 +1208,30 @@ static void free_range_convert(RangeConvert *ac)
 		pfree(ac);
 	}
 }
+
+#ifdef USE_ASSERT_CHECKING
+static bool convert_equal_tuple_desc(TupleDesc desc1, TupleDesc desc2)
+{
+	int i;
+	if (desc1 == desc2)
+		return true;
+
+	if (desc1->natts != desc2->natts)
+		return false;
+	if (desc1->tdhasoid != desc2->tdhasoid)
+		return false;
+
+	for (i=0;i<desc1->natts;++i)
+	{
+		Form_pg_attribute attr1 = desc1->attrs[i];
+		Form_pg_attribute attr2 = desc2->attrs[i];
+
+		if (attr1->atttypid != attr2->atttypid)
+			return false;
+		if (attr1->attlen != attr2->attlen)
+			return false;
+	}
+
+	return true;
+}
+#endif /* USE_ASSERT_CHECKING */
