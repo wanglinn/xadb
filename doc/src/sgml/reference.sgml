@@ -74,6 +74,7 @@
    &analyze;
    &begin;
    &checkpoint;
+   &cleanConnection;
    &close;
    &cluster;
    &commentOn;

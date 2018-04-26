@@ -46,6 +46,7 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY analyze            SYSTEM "analyze.sgml">
 <!ENTITY begin              SYSTEM "begin.sgml">
 <!ENTITY checkpoint         SYSTEM "checkpoint.sgml">
+<!ENTITY cleanConnection     SYSTEM "cleanconnection.sgml">
 <!ENTITY close              SYSTEM "close.sgml">
 <!ENTITY cluster            SYSTEM "cluster.sgml">
 <!ENTITY commentOn          SYSTEM "comment.sgml">
