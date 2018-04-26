@@ -6762,7 +6762,10 @@ List* get_remote_nodes(PlannerInfo *root, Path *path, bool include_subroot)
 			{
 				best = info;
 				if (is_pgxc_nodepreferred(best->nodeOid))
+				{
+					hash_seq_term(&seq_status);
 					break;
+				}
 			}
 		}
 		Assert(best);
