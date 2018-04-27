@@ -129,6 +129,7 @@ static volatile unsigned int agentCount = 0;
 
 static volatile pgsocket rxact_client_fd = PGINVALID_SOCKET;
 static bool sended_db_info = false;
+static volatile bool rxact_need_exit = false;
 
 /*
  * Flag to mark SIGHUP. Whenever the main loop comes around it
@@ -243,7 +244,7 @@ CreateRxactAgent(pgsocket agent_fd)
 static void
 RxactMgrQuickdie(SIGNAL_ARGS)
 {
-	exit(0);
+	rxact_need_exit = true;
 }
 
 static void RxactMarkAutoTransaction(void)
@@ -299,7 +300,7 @@ static void RxactLoop(void)
 	(void)MemoryContextSwitchTo(MessageContext);
 
 	last_time = cur_time = time(NULL);
-	for (;;)
+	while(rxact_need_exit == false)
 	{
 		int		pollres;
 
@@ -663,7 +664,7 @@ RemoteXactMgrMain(void)
 	/* Server loop */
 	RxactLoop();
 
-	proc_exit(1);
+	proc_exit(0);
 }
 
 static void RxactLoadLog(void)
