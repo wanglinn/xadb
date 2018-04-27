@@ -1208,6 +1208,9 @@ PoolManagerAbortTransactions(char *dbname, char *username, int **proc_pids)
 {
 	StringInfoData buf;
 	AssertArg(proc_pids);
+
+	if (!poolHandle)
+		PoolManagerReconnect();
 	Assert(poolHandle);
 
 	pq_beginmessage(&buf, PM_MSG_ABORT_TRANSACTIONS);
@@ -3221,6 +3224,11 @@ static void check_idle_slot(void)
 Datum pool_close_idle_conn(PG_FUNCTION_ARGS)
 {
 	StringInfoData buf;
+
+	if (!(IS_PGXC_COORDINATOR || IsConnFromCoord()))
+		PG_RETURN_BOOL(true);
+	if (!poolHandle)
+		PoolManagerReconnect();
 	Assert(poolHandle != NULL);
 
 	pq_beginmessage(&buf, PM_MSG_CLOSE_IDLE_CONNECT);
