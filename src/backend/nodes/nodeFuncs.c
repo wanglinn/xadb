@@ -3889,18 +3889,27 @@ planstate_exec_walk_hashjoin(HashJoinState *node,
 static bool
 planstate_exec_walk_param(Node *expr, void *context)
 {
+	Assert(context);
 	if (IsA(expr, Param))
 	{
-		QualWalkContext *qual_walk_context = (QualWalkContext *) context;
-		Param *expression = (Param *) expr;
-		int thisParamId = expression->paramid;
-		ParamExecData  *prm = &(qual_walk_context->econtext->ecxt_param_exec_vals[thisParamId]);
+		QualWalkContext	   *qual_walk_context = (QualWalkContext *) context;
+		ExprContext		   *econtext = qual_walk_context->econtext;
+		Param			   *param = (Param *) expr;
 
-		if (prm->execPlan)
+		if (param->paramkind == PARAM_EXEC && econtext)
 		{
-			SubPlanState *node = (SubPlanState *) (prm->execPlan);
-			if (qual_walk_context->walker_func(node->planstate, qual_walk_context->walker_context))
-				return true;
+			/*
+			 * PARAM_EXEC params (internal executor parameters) are stored in the
+			 * ecxt_param_exec_vals array, and can be accessed by array index.
+			 */
+			ParamExecData  *prm = &(econtext->ecxt_param_exec_vals[param->paramid]);
+
+			if (prm->execPlan)
+			{
+				SubPlanState *node = (SubPlanState *) (prm->execPlan);
+				if (qual_walk_context->walker_func(node->planstate, qual_walk_context->walker_context))
+					return true;
+			}
 		}
 	}
 
