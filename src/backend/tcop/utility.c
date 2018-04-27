@@ -724,7 +724,7 @@ standard_ProcessUtility(Node *parsetree,
 			{
 				uint64		processed;
 
-				DoCopy((CopyStmt *) parsetree, queryString, &processed);
+				DoCopy((CopyStmt *) parsetree, queryString, &processed ADB_ONLY_COMMA_ARG(context == PROCESS_UTILITY_TOPLEVEL));
 				if (completionTag)
 					snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
 							 "COPY " UINT64_FORMAT, processed);
@@ -739,7 +739,7 @@ standard_ProcessUtility(Node *parsetree,
 		case T_ExecuteStmt:
 			ExecuteQuery((ExecuteStmt *) parsetree, NULL,
 						 queryString, params,
-						 dest, completionTag);
+						 dest, completionTag ADB_ONLY_COMMA_ARG(context==PROCESS_UTILITY_TOPLEVEL));
 			break;
 
 		case T_DeallocateStmt:
@@ -935,7 +935,7 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_ExplainStmt:
-			ExplainQuery((ExplainStmt *) parsetree, queryString, params, dest);
+			ExplainQuery((ExplainStmt *) parsetree, queryString, params, dest ADB_ONLY_COMMA_ARG(context == PROCESS_UTILITY_TOPLEVEL));
 			break;
 
 		case T_AlterSystemStmt:

@@ -2780,6 +2780,9 @@ typedef struct SecLabelStmt
 #define CURSOR_OPT_GENERIC_PLAN 0x0040	/* force use of generic plan */
 #define CURSOR_OPT_CUSTOM_PLAN	0x0080	/* force use of custom plan */
 #define CURSOR_OPT_PARALLEL_OK	0x0100	/* parallel mode OK */
+#ifdef ADB
+#define CURSOR_OPT_CLUSTER_PLAN_SAFE	0x8000	/* can create cluster plan */
+#endif
 
 typedef struct DeclareCursorStmt
 {

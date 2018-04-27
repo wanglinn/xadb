@@ -36,6 +36,7 @@ typedef struct ExplainState
 	bool		nodes;			/* print nodes in RemoteQuery node */
 	bool		num_nodes;		/* print number of nodes in RemoteQuery node */
 	bool		plan_id;		/* print plan node id */
+	bool		isTopLive;		/* is top live query */
 #endif /* ADB */
 	bool		timing;			/* print detailed node timing */
 	bool		summary;		/* print total planning and execution timing */
@@ -65,7 +66,7 @@ extern PGDLLIMPORT explain_get_index_name_hook_type explain_get_index_name_hook;
 
 
 extern void ExplainQuery(ExplainStmt *stmt, const char *queryString,
-			 ParamListInfo params, DestReceiver *dest);
+			 ParamListInfo params, DestReceiver *dest ADB_ONLY_COMMA_ARG(bool isTopLive));
 
 extern ExplainState *NewExplainState(void);
 

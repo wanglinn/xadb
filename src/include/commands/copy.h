@@ -22,7 +22,7 @@
 typedef struct CopyStateData *CopyState;
 
 extern Oid DoCopy(const CopyStmt *stmt, const char *queryString,
-	   uint64 *processed);
+	   uint64 *processed ADB_ONLY_COMMA_ARG(bool cluster_safe));
 
 extern void ProcessCopyOptions(CopyState cstate, bool is_from, List *options);
 extern CopyState BeginCopyFrom(Relation rel, const char *filename,

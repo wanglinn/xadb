@@ -271,7 +271,7 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 		ExecuteStmt *estmt = (ExecuteStmt *) query->utilityStmt;
 
 		Assert(!is_matview);	/* excluded by syntax */
-		ExecuteQuery(estmt, into, queryString, params, dest, completionTag);
+		ExecuteQuery(estmt, into, queryString, params, dest, completionTag ADB_ONLY_COMMA_ARG(false));
 
 		/* get object address that intorel_startup saved for us */
 		address = ((DR_intorel *) dest)->reladdr;
@@ -663,4 +663,3 @@ get_dest_into_rel(DestReceiver *self)
 	return ((DR_intorel *) self)->rel;
 }
 #endif
-

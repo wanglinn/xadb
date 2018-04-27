@@ -206,7 +206,7 @@ PrepareQuery(PrepareStmt *stmt, const char *queryString)
 void
 ExecuteQuery(ExecuteStmt *stmt, IntoClause *intoClause,
 			 const char *queryString, ParamListInfo params,
-			 DestReceiver *dest, char *completionTag)
+			 DestReceiver *dest, char *completionTag ADB_ONLY_COMMA_ARG(bool cluster_safe))
 {
 	PreparedStatement *entry;
 	CachedPlan *cplan;
@@ -253,7 +253,11 @@ ExecuteQuery(ExecuteStmt *stmt, IntoClause *intoClause,
 									   entry->plansource->query_string);
 
 	/* Replan if needed, and increment plan refcount for portal */
+#ifdef ADB
+	cplan = GetCachedPlanADB(entry->plansource, paramLI, false, cluster_safe);
+#else
 	cplan = GetCachedPlan(entry->plansource, paramLI, false);
+#endif /* ADB */
 	plan_list = cplan->stmt_list;
 
 	/*
@@ -752,7 +756,7 @@ DropAllPreparedStatements(void)
  */
 void
 ExplainExecuteQuery(ExecuteStmt *execstmt, IntoClause *into, ExplainState *es,
-					const char *queryString, ParamListInfo params)
+					const char *queryString, ParamListInfo params ADB_ONLY_COMMA_ARG(bool cluster_safe))
 {
 	PreparedStatement *entry;
 	const char *query_string;
@@ -787,7 +791,11 @@ ExplainExecuteQuery(ExecuteStmt *execstmt, IntoClause *into, ExplainState *es,
 	}
 
 	/* Replan if needed, and acquire a transient refcount */
+#ifdef ADB
+	cplan = GetCachedPlanADB(entry->plansource, paramLI, true, cluster_safe);
+#else
 	cplan = GetCachedPlan(entry->plansource, paramLI, true);
+#endif /* ADB */
 
 	plan_list = cplan->stmt_list;
 

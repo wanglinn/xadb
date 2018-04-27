@@ -95,11 +95,11 @@ static void drop_datanode_statements(Plan *plannode);
  */
 static CachedPlanSource *first_saved_plan = NULL;
 
-static void ReleaseGenericPlan(CachedPlanSource *plansource);
+static void ReleaseGenericPlan(CachedPlanSource *plansource ADB_ONLY_COMMA_ARG(bool is_cluster));
 static List *RevalidateCachedQuery(CachedPlanSource *plansource);
-static bool CheckCachedPlan(CachedPlanSource *plansource);
+static bool CheckCachedPlan(CachedPlanSource *plansource ADB_ONLY_COMMA_ARG(bool is_cluster));
 static CachedPlan *BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
-				ParamListInfo boundParams);
+				ParamListInfo boundParams ADB_ONLY_COMMA_ARG(bool is_cluster));
 static bool choose_custom_plan(CachedPlanSource *plansource,
 				   ParamListInfo boundParams);
 static double cached_plan_cost(CachedPlan *plan, bool include_planner);
@@ -471,7 +471,10 @@ SaveCachedPlan(CachedPlanSource *plansource)
 	 * whether the caller has taken suitable care with making references
 	 * long-lived.  Best thing to do seems to be to discard the plan.
 	 */
-	ReleaseGenericPlan(plansource);
+	ReleaseGenericPlan(plansource ADB_ONLY_COMMA_ARG(false));
+#ifdef ADB
+	ReleaseGenericPlan(plansource, true);
+#endif /* ADB */
 
 	/*
 	 * Reparent the source memory context under CacheMemoryContext so that it
@@ -524,7 +527,10 @@ DropCachedPlan(CachedPlanSource *plansource)
 	}
 
 	/* Decrement generic CachePlan's refcount and drop if no longer needed */
-	ReleaseGenericPlan(plansource);
+	ReleaseGenericPlan(plansource ADB_ONLY_COMMA_ARG(false));
+#ifdef ADB
+	ReleaseGenericPlan(plansource, true);
+#endif /* ADB */
 
 	/* Mark it no longer valid */
 	plansource->magic = 0;
@@ -541,16 +547,25 @@ DropCachedPlan(CachedPlanSource *plansource)
  * ReleaseGenericPlan: release a CachedPlanSource's generic plan, if any.
  */
 static void
-ReleaseGenericPlan(CachedPlanSource *plansource)
+ReleaseGenericPlan(CachedPlanSource *plansource ADB_ONLY_COMMA_ARG(bool is_cluster))
 {
-	/* Be paranoid about the possibility that ReleaseCachedPlan fails */
-	if (plansource->gplan)
-	{
-		CachedPlan *plan = plansource->gplan;
+	CachedPlan *plan;
+#ifdef ADB
+	plan = is_cluster ? plansource->cluster_plan : plansource->gplan;
+#else
+	plan = plansource->gplan;
+#endif
 
+	/* Be paranoid about the possibility that ReleaseCachedPlan fails */
+	if (plan)
+	{
+		Assert(plan->magic == CACHEDPLAN_MAGIC);
 #ifdef ADB
 		/* Drop this plan on remote nodes */
-		if (plan)
+		if (is_cluster)
+		{
+			plansource->cluster_plan = NULL;
+		}else
 		{
 			ListCell *lc;
 
@@ -565,10 +580,11 @@ ReleaseGenericPlan(CachedPlanSource *plansource)
 					drop_datanode_statements(ps->planTree);
 				}
 			}
+			plansource->gplan = NULL;
 		}
-#endif
-		Assert(plan->magic == CACHEDPLAN_MAGIC);
+#else
 		plansource->gplan = NULL;
+#endif
 		ReleaseCachedPlan(plan, false);
 	}
 }
@@ -625,6 +641,10 @@ RevalidateCachedQuery(CachedPlanSource *plansource)
 			plansource->is_valid = false;
 			if (plansource->gplan)
 				plansource->gplan->is_valid = false;
+#ifdef ADB
+			if (plansource->cluster_plan)
+				plansource->cluster_plan->is_valid = false;
+#endif /* ADB */
 		}
 	}
 
@@ -686,7 +706,10 @@ RevalidateCachedQuery(CachedPlanSource *plansource)
 	}
 
 	/* Drop the generic plan reference if any */
-	ReleaseGenericPlan(plansource);
+	ReleaseGenericPlan(plansource ADB_ONLY_COMMA_ARG(false));
+#ifdef ADB
+	ReleaseGenericPlan(plansource, true);
+#endif /* ADB */
 
 	/*
 	 * Now re-do parse analysis and rewrite.  This not incidentally acquires
@@ -825,9 +848,13 @@ RevalidateCachedQuery(CachedPlanSource *plansource)
  * (We must do this for the "true" result to be race-condition-free.)
  */
 static bool
-CheckCachedPlan(CachedPlanSource *plansource)
+CheckCachedPlan(CachedPlanSource *plansource ADB_ONLY_COMMA_ARG(bool is_cluster))
 {
+#ifdef ADB
+	CachedPlan *plan = is_cluster ? plansource->cluster_plan : plansource->gplan;
+#else
 	CachedPlan *plan = plansource->gplan;
+#endif
 
 	/* Assert that caller checked the querytree */
 	Assert(plansource->is_valid);
@@ -887,7 +914,7 @@ CheckCachedPlan(CachedPlanSource *plansource)
 	/*
 	 * Plan has been invalidated, so unlink it from the parent and release it.
 	 */
-	ReleaseGenericPlan(plansource);
+	ReleaseGenericPlan(plansource ADB_ONLY_COMMA_ARG(is_cluster));
 
 	return false;
 }
@@ -910,7 +937,7 @@ CheckCachedPlan(CachedPlanSource *plansource)
  */
 static CachedPlan *
 BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
-				ParamListInfo boundParams)
+				ParamListInfo boundParams ADB_ONLY_COMMA_ARG(bool is_cluster))
 {
 	CachedPlan *plan;
 	List	   *plist;
@@ -974,7 +1001,13 @@ BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
 	/*
 	 * Generate the plan.
 	 */
+#ifdef ADB
+	plist = pg_plan_queries(qlist,
+							plansource->cursor_options | (is_cluster ? CURSOR_OPT_CLUSTER_PLAN_SAFE:0),
+							boundParams);
+#else
 	plist = pg_plan_queries(qlist, plansource->cursor_options, boundParams);
+#endif /* ADB */
 
 	/* Clean up SPI state */
 	SPI_pop_conditional(spi_pushed);
@@ -1010,7 +1043,7 @@ BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
 	 * If this plansource belongs to a named prepared statement, store the stmt
 	 * name for the Datanode queries.
 	 */
-	if (IsCoordMaster() && plansource->stmt_name)
+	if (!is_cluster && IsCoordMaster() && plansource->stmt_name)
 	{
 		ListCell	*lc;
 		int 		n;
@@ -1211,6 +1244,23 @@ cached_plan_cost(CachedPlan *plan, bool include_planner)
 CachedPlan *
 GetCachedPlan(CachedPlanSource *plansource, ParamListInfo boundParams,
 			  bool useResOwner)
+#ifdef ADB
+{
+	return GetCachedPlanADB(plansource, boundParams, useResOwner, false);
+}
+
+CachedPlan *GetCachedClusterPlan(CachedPlanSource *plansource,
+								 ParamListInfo boundParams,
+								 bool useResOwner)
+{
+	return GetCachedPlanADB(plansource, boundParams, useResOwner, true);
+}
+
+CachedPlan *GetCachedPlanADB(CachedPlanSource *plansource,
+							 ParamListInfo boundParams,
+							 bool useResOwner,
+							 bool cluster_safe)
+#endif /* ADB */
 {
 	CachedPlan *plan = NULL;
 	List	   *qlist;
@@ -1231,7 +1281,7 @@ GetCachedPlan(CachedPlanSource *plansource, ParamListInfo boundParams,
 
 	if (!customplan)
 	{
-		if (CheckCachedPlan(plansource))
+		if (CheckCachedPlan(plansource ADB_ONLY_COMMA_ARG(cluster_safe)))
 		{
 			/* We want a generic plan, and we already have a valid one */
 			plan = plansource->gplan;
@@ -1240,9 +1290,9 @@ GetCachedPlan(CachedPlanSource *plansource, ParamListInfo boundParams,
 		else
 		{
 			/* Build a new generic plan */
-			plan = BuildCachedPlan(plansource, qlist, NULL);
+			plan = BuildCachedPlan(plansource, qlist, NULL ADB_ONLY_COMMA_ARG(cluster_safe));
 			/* Just make real sure plansource->gplan is clear */
-			ReleaseGenericPlan(plansource);
+			ReleaseGenericPlan(plansource ADB_ONLY_COMMA_ARG(cluster_safe));
 			/* Link the new generic plan into the plansource */
 			plansource->gplan = plan;
 			plan->refcount++;
@@ -1285,7 +1335,7 @@ GetCachedPlan(CachedPlanSource *plansource, ParamListInfo boundParams,
 	if (customplan)
 	{
 		/* Build a custom plan */
-		plan = BuildCachedPlan(plansource, qlist, boundParams);
+		plan = BuildCachedPlan(plansource, qlist, boundParams ADB_ONLY_COMMA_ARG(cluster_safe));
 		/* Accumulate total costs of custom plans, but 'ware overflow */
 		if (plansource->num_custom_plans < INT_MAX)
 		{

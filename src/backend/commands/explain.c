@@ -161,7 +161,7 @@ static void escape_yaml(StringInfo buf, const char *str);
  */
 void
 ExplainQuery(ExplainStmt *stmt, const char *queryString,
-			 ParamListInfo params, DestReceiver *dest)
+			 ParamListInfo params, DestReceiver *dest ADB_ONLY_COMMA_ARG(bool isTopLive))
 {
 	ExplainState *es = NewExplainState();
 	TupOutputState *tstate;
@@ -237,6 +237,10 @@ ExplainQuery(ExplainStmt *stmt, const char *queryString,
 
 	/* currently, summary option is not exposed to users; just set it */
 	es->summary = es->analyze;
+
+#ifdef ADB
+	es->isTopLive = isTopLive;
+#endif /* ADB */
 
 	/*
 	 * Parse analysis was done already, but we still have to run the rule
@@ -377,11 +381,16 @@ ExplainOneQuery(Query *query, IntoClause *into, ExplainState *es,
 		PlannedStmt *plan;
 		instr_time	planstart,
 					planduration;
+		int options = into ? 0 : CURSOR_OPT_PARALLEL_OK;
+#ifdef ADB
+		if (es->isTopLive)
+			options |= CURSOR_OPT_CLUSTER_PLAN_SAFE;
+#endif /* ADB */
 
 		INSTR_TIME_SET_CURRENT(planstart);
 
 		/* plan the query */
-		plan = pg_plan_query(query, into ? 0 : CURSOR_OPT_PARALLEL_OK, params);
+		plan = pg_plan_query(query, options, params);
 
 		INSTR_TIME_SET_CURRENT(planduration);
 		INSTR_TIME_SUBTRACT(planduration, planstart);
@@ -427,7 +436,7 @@ ExplainOneUtility(Node *utilityStmt, IntoClause *into, ExplainState *es,
 	}
 	else if (IsA(utilityStmt, ExecuteStmt))
 		ExplainExecuteQuery((ExecuteStmt *) utilityStmt, into, es,
-							queryString, params);
+							queryString, params ADB_ONLY_COMMA_ARG(es->isTopLive));
 	else if (IsA(utilityStmt, NotifyStmt))
 	{
 		if (es->format == EXPLAIN_FORMAT_TEXT)

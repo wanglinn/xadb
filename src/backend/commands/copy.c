@@ -300,12 +300,12 @@ static const char BinarySignature[11] = "PGCOPY\n\377\r\n\0";
 /* non-export function prototypes */
 static CopyState BeginCopy(bool is_from, Relation rel, Node *raw_query,
 		  const char *queryString, const Oid queryRelId, List *attnamelist,
-		  List *options);
+		  List *options ADB_ONLY_COMMA_ARG(bool cluster_safe));
 static void EndCopy(CopyState cstate);
 static void ClosePipeToProgram(CopyState cstate);
 static CopyState BeginCopyTo(Relation rel, Node *query, const char *queryString,
 			const Oid queryRelId, const char *filename, bool is_program,
-			List *attnamelist, List *options);
+			List *attnamelist, List *options ADB_ONLY_COMMA_ARG(bool cluster_safe));
 static void EndCopyTo(CopyState cstate);
 static uint64 DoCopyTo(CopyState cstate);
 static uint64 CopyTo(CopyState cstate);
@@ -828,7 +828,7 @@ CopyLoadRawBuf(CopyState cstate)
  * the table or the specifically requested columns.
  */
 Oid
-DoCopy(const CopyStmt *stmt, const char *queryString, uint64 *processed)
+DoCopy(const CopyStmt *stmt, const char *queryString, uint64 *processed ADB_ONLY_COMMA_ARG(bool cluster_safe))
 {
 	CopyState	cstate;
 	bool		is_from = stmt->is_from;
@@ -1026,7 +1026,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString, uint64 *processed)
 	{
 		cstate = BeginCopyTo(rel, query, queryString, relid,
 							 stmt->filename, stmt->is_program,
-							 stmt->attlist, stmt->options);
+							 stmt->attlist, stmt->options ADB_ONLY_COMMA_ARG(cluster_safe));
 		*processed = DoCopyTo(cstate);	/* copy from database to file */
 		EndCopyTo(cstate);
 	}
@@ -1404,7 +1404,7 @@ BeginCopy(bool is_from,
 		  const char *queryString,
 		  const Oid queryRelId,
 		  List *attnamelist,
-		  List *options)
+		  List *options ADB_ONLY_COMMA_ARG(bool cluster_safe))
 {
 	CopyState	cstate;
 	TupleDesc	tupDesc;
@@ -1566,7 +1566,11 @@ BeginCopy(bool is_from,
 		}
 
 		/* plan the query */
+#ifdef ADB
+		plan = pg_plan_query(query, cluster_safe ? CURSOR_OPT_CLUSTER_PLAN_SAFE:0, NULL);
+#else
 		plan = pg_plan_query(query, 0, NULL);
+#endif /* ADB */
 
 		/*
 		 * With row level security and a user using "COPY relation TO", we
@@ -1800,7 +1804,7 @@ BeginCopyTo(Relation rel,
 			const char *filename,
 			bool is_program,
 			List *attnamelist,
-			List *options)
+			List *options ADB_ONLY_COMMA_ARG(bool cluster_safe))
 {
 	CopyState	cstate;
 	bool		pipe = (filename == NULL);
@@ -1839,7 +1843,7 @@ BeginCopyTo(Relation rel,
 	}
 
 	cstate = BeginCopy(false, rel, query, queryString, queryRelId, attnamelist,
-					   options);
+					   options ADB_ONLY_COMMA_ARG(cluster_safe));
 	oldcontext = MemoryContextSwitchTo(cstate->copycontext);
 
 	if (pipe)
@@ -2955,7 +2959,8 @@ BeginCopyFrom(Relation rel,
 	MemoryContext oldcontext;
 	bool		volatile_defexprs;
 
-	cstate = BeginCopy(true, rel, NULL, NULL, InvalidOid, attnamelist, options);
+	/* copy from XXX not need Plan, so we set cluster_plan to false */
+	cstate = BeginCopy(true, rel, NULL, NULL, InvalidOid, attnamelist, options ADB_ONLY_COMMA_ARG(false));
 	oldcontext = MemoryContextSwitchTo(cstate->copycontext);
 
 	/* Initialize state variables */

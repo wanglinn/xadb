@@ -94,7 +94,7 @@ create_upper_paths_hook_type create_upper_paths_hook = NULL;
 
 #ifdef ADB
 #define CLUSTER_PLAN_OK(option, parse_)								\
-	(enable_cluster_plan && (option & CURSOR_OPT_PARALLEL_OK) != 0 && \
+	(enable_cluster_plan && (option & CURSOR_OPT_CLUSTER_PLAN_SAFE) != 0 && \
 		IsUnderPostmaster && (parse_)->utilityStmt == NULL &&		\
 		!IsParallelWorker() && !has_cluster_hazard((Node*) (parse_), false))
 

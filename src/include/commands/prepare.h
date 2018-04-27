@@ -47,11 +47,11 @@ typedef struct
 extern void PrepareQuery(PrepareStmt *stmt, const char *queryString);
 extern void ExecuteQuery(ExecuteStmt *stmt, IntoClause *intoClause,
 			 const char *queryString, ParamListInfo params,
-			 DestReceiver *dest, char *completionTag);
+			 DestReceiver *dest, char *completionTag ADB_ONLY_COMMA_ARG(bool cluster_safe));
 extern void DeallocateQuery(DeallocateStmt *stmt);
 extern void ExplainExecuteQuery(ExecuteStmt *execstmt, IntoClause *into,
 					ExplainState *es,
-					const char *queryString, ParamListInfo params);
+					const char *queryString, ParamListInfo params ADB_ONLY_COMMA_ARG(bool cluster_safe));
 
 /* Low-level access to stored prepared statements */
 extern void StorePreparedStatement(const char *stmt_name,

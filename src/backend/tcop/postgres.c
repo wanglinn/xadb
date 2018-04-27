@@ -1400,12 +1400,15 @@ exec_simple_query(const char *query_string)
 #ifdef ADB
 		querytree_list = pg_analyze_and_rewrite_for_gram(parsetree
 							, query_sql, NULL, 0, grammar);
+		plantree_list = pg_plan_queries(querytree_list,
+										CURSOR_OPT_PARALLEL_OK|CURSOR_OPT_CLUSTER_PLAN_SAFE,
+										NULL);
 #else
 		querytree_list = pg_analyze_and_rewrite(parsetree, query_string,
 												NULL, 0);
-#endif
 		plantree_list = pg_plan_queries(querytree_list,
 										CURSOR_OPT_PARALLEL_OK, NULL);
+#endif
 
 		/* Done with the snapshot used for parsing/planning */
 		if (snapshot_set)
@@ -2235,7 +2238,11 @@ exec_bind_message(StringInfo input_message)
 	 * will be generated in MessageContext.  The plan refcount will be
 	 * assigned to the Portal, so it will be released at portal destruction.
 	 */
+#ifdef ADB
+	cplan = GetCachedClusterPlan(psrc, params, false);
+#else
 	cplan = GetCachedPlan(psrc, params, false);
+#endif /* ADB */
 
 	/*
 	 * Now we can define the portal.
