@@ -75,6 +75,7 @@
 #include "utils/tqual.h"
 
 #ifdef ADB
+#define ADB_MAX_HINTBIT_TRACE	0
 extern bool	debug_enable_satisfy_mvcc;
 #endif
 
@@ -84,6 +85,56 @@ SnapshotData SnapshotAnyData = {HeapTupleSatisfiesAny};
 
 /* local functions */
 static bool XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot);
+
+#if ADB_MAX_HINTBIT_TRACE > 0
+#include <execinfo.h>
+static void appendInfoMask(StringInfo buf, int mask)
+{
+#define CASE_INFO_MASK(n)						\
+	do{											\
+		if (mask & n)							\
+		{										\
+			appendStringInfoChar(buf, ' ');		\
+			appendStringInfoString(buf, #n);	\
+		}										\
+	}while(0)
+
+	CASE_INFO_MASK(HEAP_HASNULL);
+	CASE_INFO_MASK(HEAP_HASVARWIDTH);
+	CASE_INFO_MASK(HEAP_HASEXTERNAL);
+	CASE_INFO_MASK(HEAP_HASOID);
+	CASE_INFO_MASK(HEAP_XMAX_KEYSHR_LOCK);
+	CASE_INFO_MASK(HEAP_COMBOCID);
+	CASE_INFO_MASK(HEAP_XMAX_EXCL_LOCK);
+	CASE_INFO_MASK(HEAP_XMAX_LOCK_ONLY);
+	CASE_INFO_MASK(HEAP_XMIN_COMMITTED);
+	CASE_INFO_MASK(HEAP_XMIN_INVALID);
+	CASE_INFO_MASK(HEAP_XMAX_COMMITTED);
+	CASE_INFO_MASK(HEAP_XMAX_INVALID);
+	CASE_INFO_MASK(HEAP_XMAX_IS_MULTI);
+	CASE_INFO_MASK(HEAP_UPDATED);
+	CASE_INFO_MASK(HEAP_MOVED_OFF);
+	CASE_INFO_MASK(HEAP_MOVED_IN);
+
+#undef CASE_INFO_MASK
+}
+static OffsetNumber tuple_headerget_offset(HeapTupleHeader tuple, Buffer buffer)
+{
+	OffsetNumber i;
+	OffsetNumber max_off;
+	Page page = BufferGetPage(buffer);
+	max_off = PageGetMaxOffsetNumber(page);
+	Assert((char*)tuple > (char*)page && (char*)tuple < ((char*)page) + BLCKSZ);
+	for (i=FirstOffsetNumber;i<=max_off;++i)
+	{
+		ItemId id = PageGetItemId(page, i);
+		if (ItemIdIsNormal(id) &&
+			PageGetItem(page, id) == (char*)tuple)
+			return i;
+	}
+	return InvalidOffsetNumber;
+}
+#endif /* ADB_MAX_HINTBIT_TRACE > 0 */
 
 /*
  * SetHintBits()
@@ -120,6 +171,7 @@ static inline void
 SetHintBits(HeapTupleHeader tuple, Buffer buffer,
 			uint16 infomask, TransactionId xid)
 {
+	static int recovery_status = -1;	/* -1 for unknown */
 	if (TransactionIdIsValid(xid))
 	{
 		/* NB: xid must be known committed here! */
@@ -132,6 +184,52 @@ SetHintBits(HeapTupleHeader tuple, Buffer buffer,
 			return;
 		}
 	}
+
+	/*
+	 * in standby mode we don't change it,
+	 * because maybe got error snapshot for this version
+	 */
+	if(recovery_status < 0)
+		recovery_status = RecoveryInProgress() ? 1:0;
+	if(recovery_status > 0)
+		return;
+
+#if ADB_MAX_HINTBIT_TRACE > 0
+	if (!BufferIsLocal(buffer) &&
+		errstart(LOG, __FILE__, __LINE__, PG_FUNCNAME_MACRO, TEXTDOMAIN))
+	{
+		void *addrs[ADB_MAX_HINTBIT_TRACE];
+		RelFileNode rnode;
+		ForkNumber forkNum;
+		BlockNumber blockNum;
+		StringInfoData msg;
+		int n_;
+
+		initStringInfo(&msg);
+
+		/* add infomask */
+		appendStringInfoString(&msg, "HintBits");
+		appendInfoMask(&msg, infomask);
+
+		/* add TransactionId */
+		appendStringInfo(&msg, " TransactionId %u", xid);
+
+		/* add tuple info */
+		BufferGetTag(buffer, &rnode, &forkNum, &blockNum);
+		addrs[0] = relpathperm(rnode, forkNum);
+		appendStringInfo(&msg, " rel %s blk %u off %u", addrs[0], blockNum, tuple_headerget_offset(tuple, buffer));
+		pfree(addrs[0]);
+
+		/* add back trace info */
+		n_ = backtrace(addrs, lengthof(addrs));
+		appendStringInfo(&msg, " backtrace");
+		while(n_--)
+			appendStringInfo(&msg, " %p",addrs[n_]);
+
+		errfinish(errmsg("%s", msg.data));
+		pfree(msg.data);
+	}
+#endif /* ADB_MAX_HINTBIT_TRACE */
 
 	tuple->t_infomask |= infomask;
 	MarkBufferDirtyHint(buffer, true);
