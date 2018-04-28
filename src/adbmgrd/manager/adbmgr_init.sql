@@ -1159,7 +1159,7 @@ alter table pg_catalog.monitor_job add primary key (name);
 --get the content "INSERT INTO adbmgr.parm VALUES..."
 --create table parm(id1 char,name text,setting text,context text,vartype text,unit text, min_val text,max_val text,enumvals text[]) distribute by replication;
 --insert into parm select '*', name, setting, context, vartype, unit, min_val, max_val, enumvals from pg_settings order by 2;
---update parm set id1='#' where name in ('agtm_host','agtm_port','debug_enable_satisfy_mvcc','debug_print_grammar','distribute_by_replication_default','enable_cluster_plan','enable_fast_query_shipping','enable_hashscan','enable_remotegroup','enable_remotejoin','enable_remotelimit','enable_remotesort','enable_stable_func_shipping','grammar','max_coordinators','max_datanodes','max_pool_size','min_pool_size','nls_date_format','nls_timestamp_format','nls_timestamp_tz_format','persistent_datanode_connections','pgxc_enable_remote_query','pgxc_node_name','pgxc_remote_tuple_cost','pgxcnode_cancel_delay','pool_remote_cmd_timeout','pool_time_out','pool_time_out','reduce_conn_cost','reduce_page_cost','reduce_setup_cost','remote_tuple_cost','remotetype','require_replicated_table_pkey','xc_enable_node_tcp_log','xc_maintenance_mode', 'pool_release_to_idle_timeout');
+--update parm set id1='#' where name in ('agtm_host','agtm_port','debug_enable_satisfy_mvcc','debug_print_grammar','distribute_by_replication_default','enable_cluster_plan','enable_fast_query_shipping','enable_hashscan','enable_remotegroup','enable_remotejoin','enable_remotelimit','enable_remotesort','grammar','max_coordinators','max_datanodes','max_pool_size','min_pool_size','nls_date_format','nls_timestamp_format','nls_timestamp_tz_format','persistent_datanode_connections','pgxc_enable_remote_query','pgxc_node_name','pgxc_remote_tuple_cost','pgxcnode_cancel_delay','pool_remote_cmd_timeout','pool_time_out','pool_time_out','reduce_conn_cost','reduce_page_cost','reduce_setup_cost','remote_tuple_cost','remotetype','require_replicated_table_pkey','xc_enable_node_tcp_log','xc_maintenance_mode', 'pool_release_to_idle_timeout');
 --update parm set setting='minimal' where name = 'wal_level';
 --update parm set setting='localhost' where name = 'agtm_host';
 --update parm set unit='8kB' where name = 'wal_buffers';
@@ -1446,7 +1446,6 @@ INSERT INTO adbmgr.parm VALUES ('#', 'enable_remotegroup', 'on', 'user', 'bool',
 INSERT INTO adbmgr.parm VALUES ('#', 'enable_remotejoin', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'enable_remotelimit', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'enable_remotesort', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
-INSERT INTO adbmgr.parm VALUES ('#', 'enable_stable_func_shipping', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'grammar', 'postgres', 'user', 'enum', NULL, NULL, NULL, '{postgres,oracle}');
 INSERT INTO adbmgr.parm VALUES ('#', 'max_coordinators', '16', 'postmaster', 'integer', NULL, '2', '65535', NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'max_datanodes', '16', 'postmaster', 'integer', NULL, '2', '65535', NULL);
@@ -1479,4 +1478,3 @@ INSERT INTO adbmgr.parm VALUES ('*', 'pg_stat_statements.max', '1000', 'postmast
 INSERT INTO adbmgr.parm VALUES ('*', 'pg_stat_statements.track', 'top', 'superuser', 'enum', NULL, NULL, NULL, '{none,top,all}');
 INSERT INTO adbmgr.parm VALUES ('*', 'pg_stat_statements.save', 'on', 'sighup', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'pg_stat_statements.track_utility', 'on', 'superuser', 'bool', NULL, NULL, NULL, NULL);
-

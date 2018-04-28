@@ -524,7 +524,6 @@ int			pool_release_to_idle_timeout;
 bool		enable_adb_ha_sync;
 bool		enable_adb_ha_sync_select;
 bool 		debug_enable_satisfy_mvcc;
-bool		enable_stable_func_shipping;
 bool		enable_pushdown_art;
 bool		enable_zero_year;
 bool		distribute_by_replication_default;
@@ -1919,16 +1918,6 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&distribute_by_replication_default,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"enable_stable_func_shipping", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Enables stable function shipping to ship query directly to datanode."),
-			NULL
-		},
-		&enable_stable_func_shipping,
 		false,
 		NULL, NULL, NULL
 	},
