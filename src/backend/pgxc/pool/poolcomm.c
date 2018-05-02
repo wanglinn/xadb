@@ -767,9 +767,11 @@ pool_recvpids(PoolPort *port, int **pids)
 		return n32;
 	}
 
-	START_CRIT_SECTION();
-	*pids = (int *) palloc(sizeof(int) * n32);
-	END_CRIT_SECTION();
+	*pids = palloc_extended(sizeof(int) * n32 + 1, MCXT_ALLOC_NO_OOM);
+	if (*pids == NULL)
+		ereport(FATAL,
+			(errcode(ERRCODE_OUT_OF_MEMORY),
+			errmsg("cannot allocate enough memory %lu bytes to record connection process pids : out of memory", sizeof(int) * n32 + 1)));
 
 	r = n32*sizeof(int);
 	if(pool_block_recv(Socket(*port), *pids, r) != r)

@@ -1922,7 +1922,6 @@ static int clean_connection(StringInfo msg)
 
 	res = CLEAN_CONNECTION_COMPLETED;
 
-retry_clean_connection_:
 	hash_seq_init(&hash_db_status, htab_database);
 	while((db_pool = hash_seq_search(&hash_db_status)) != NULL)
 	{
@@ -1947,14 +1946,6 @@ retry_clean_connection_:
 			{
 				res = CLEAN_CONNECTION_NOT_COMPLETED;
 			}
-		}
-
-		/* clean db pool if it's empty */
-		if(hash_get_num_entries(db_pool->htab_nodes) == 0)
-		{
-			hash_seq_term(&hash_db_status);
-			destroy_database_pool(db_pool, true);
-			goto retry_clean_connection_;
 		}
 	}
 
@@ -2389,21 +2380,21 @@ static void destroy_database_pool(DatabasePool *db_pool, bool bfree)
 		HASH_SEQ_STATUS status;
 		hash_seq_init(&status, db_pool->htab_nodes);
 		while((node_pool = hash_seq_search(&status)) != NULL)
-			destroy_node_pool(node_pool, false);
+			destroy_node_pool(node_pool, true);
 		hash_destroy(db_pool->htab_nodes);
 	}
 
-	memcpy(&info, &(db_pool->db_info), sizeof(info));
 	if(bfree)
 	{
+		memcpy(&info, &(db_pool->db_info), sizeof(info));
 		hash_search(htab_database, &info, HASH_REMOVE, NULL);
+		if(info.pgoptions)
+			pfree(info.pgoptions);
+		if(info.user_name)
+			pfree(info.user_name);
+		if(db_pool->db_info.database)
+			pfree(info.database);
 	}
-	if(info.pgoptions)
-		pfree(info.pgoptions);
-	if(info.user_name)
-		pfree(info.user_name);
-	if(db_pool->db_info.database)
-		pfree(info.database);
 }
 
 static void agent_release_connections(PoolAgent *agent, bool force_destroy)
