@@ -1736,7 +1736,7 @@ get_remote_relstat(char *nspname, char *relname, bool replicated,
 	validpages = 0;
 	validtuples = 0;
 	validfrozenxids = 0;
-	result = ExecRemoteQuery(node);
+	result = ExecProcNode((PlanState*)node);
 	while (result != NULL && !TupIsNull(result))
 	{
 		Datum 	value;
@@ -1773,7 +1773,7 @@ get_remote_relstat(char *nspname, char *relname, bool replicated,
 			}
 		}
 		/* fetch next */
-		result = ExecRemoteQuery(node);
+		result = ExecProcNode((PlanState*)node);
 	}
 	ExecEndRemoteQuery(node);
 
@@ -1919,4 +1919,3 @@ vacuum_rel_coordinator(Relation onerel, bool is_outer)
 	}
 }
 #endif
-

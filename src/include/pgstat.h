@@ -711,6 +711,10 @@ typedef enum BackendType
 	B_WAL_RECEIVER,
 	B_WAL_SENDER,
 	B_WAL_WRITER
+#ifdef ADB
+	,B_ADB_POOLER
+	,B_ADB_RXACT
+#endif /* ADB */
 } BackendType;
 
 

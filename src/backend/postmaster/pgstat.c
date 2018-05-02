@@ -2870,6 +2870,14 @@ pgstat_bestart(void)
 			case WalReceiverProcess:
 				beentry->st_backendType = B_WAL_RECEIVER;
 				break;
+#ifdef ADB
+			case PoolerProcess:
+				beentry->st_backendType = B_ADB_POOLER;
+				break;
+			case RemoteXactMgrProcess:
+				beentry->st_backendType = B_ADB_RXACT;
+				break;
+#endif /* ADB */
 			default:
 				elog(FATAL, "unrecognized process type: %d",
 					 (int) MyAuxProcType);

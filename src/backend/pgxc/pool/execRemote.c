@@ -286,6 +286,7 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	Assert(outerPlan(node) == NULL);
 
 	rqstate = CreateRemoteQueryState(0, node->combine_type);
+	rqstate->ss.ps.ExecProcNode = ExecRemoteQuery;
 	rqstate->ss.ps.plan = (Plan *) node;
 	rqstate->ss.ps.state = estate;
 
@@ -391,8 +392,9 @@ IsReturningDMLOnReplicatedTable(RemoteQuery *rq)
  */
 
 TupleTableSlot *
-ExecRemoteQuery(RemoteQueryState *node)
+ExecRemoteQuery(PlanState *ps)
 {
+	RemoteQueryState *node = castNode(RemoteQueryState, ps);
 	return ExecScan(&(node->ss),
 					(ExecScanAccessMtd) RemoteQueryNext,
 					(ExecScanRecheckMtd) RemoteQueryRecheck);

@@ -3027,6 +3027,7 @@ List *AddRemoteParseTree(List *stmts, const char *queryString, const Node *parse
 								RemoteQueryExecType remoteExecType, bool is_temp)
 {
 	List *result = stmts;
+	RawStmt raw;
 
 	/* If node is appplied on EXEC_ON_NONE, simply return the list unchanged */
 	if (remoteExecType == EXEC_ON_NONE)
@@ -3042,8 +3043,12 @@ List *AddRemoteParseTree(List *stmts, const char *queryString, const Node *parse
 		step->is_temp = is_temp;
 		if(parseTree)
 		{
+			NodeSetTag(&raw, T_RawStmt);
+			raw.stmt = (Node*)parseTree;
+			raw.stmt_location = 0;
+			raw.stmt_len = strlen(queryString);
 			step->sql_node = makeStringInfo();
-			saveNode(step->sql_node, parseTree);
+			saveNode(step->sql_node, (Node*)&raw);
 		}
 		result = lappend(result, step);
 	}

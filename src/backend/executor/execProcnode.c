@@ -767,6 +767,10 @@ ExecEndNode(PlanState *node)
 			ExecEndClusterMergeGather((ClusterMergeGatherState*) node);
 			break;
 
+		case T_ClusterReduceState:
+			ExecEndClusterReduce((ClusterReduceState*) node);
+			break;
+
 		case T_ReduceScanState:
 			ExecEndReduceScan((ReduceScanState*) node);
 			break;

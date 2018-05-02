@@ -485,7 +485,7 @@ analyze_rel_coordinator(Relation onerel, bool inh, int attr_cnt,
 	for (i = 0; i < attr_cnt; i++)
 		numnodes[i] = 0;
 
-	result = ExecRemoteQuery(node);
+	result = ExecProcNode((PlanState*)node);
 	while (result != NULL && !TupIsNull(result))
 	{
 		Datum			value;
@@ -721,7 +721,7 @@ analyze_rel_coordinator(Relation onerel, bool inh, int attr_cnt,
 		}
 
 		/* fetch next */
-		result = ExecRemoteQuery(node);
+		result = ExecProcNode((PlanState*)node);
 	}
 	ExecEndRemoteQuery(node);
 

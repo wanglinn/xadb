@@ -115,7 +115,7 @@ typedef void (*xact_callback) (bool isCommit, void *args);
 
 extern int ExecCountSlotsRemoteQuery(RemoteQuery *node);
 extern RemoteQueryState *ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags);
-extern TupleTableSlot* ExecRemoteQuery(RemoteQueryState *step);
+extern TupleTableSlot* ExecRemoteQuery(PlanState *ps);
 extern void ExecEndRemoteQuery(RemoteQueryState *step);
 
 extern void HandleCmdComplete(CmdType commandType, CombineTag *combine, const char *msg_body, size_t len);

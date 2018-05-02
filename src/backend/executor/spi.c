@@ -320,6 +320,7 @@ SPI_execute_direct(const char *remote_sql, char *nodename)
 	_SPI_plan	plan;
 	int			res;
 	ExecDirectStmt *stmt = makeNode(ExecDirectStmt);
+	RawStmt raw;
 	StringInfoData execdirect;
 
 	initStringInfo(&execdirect);
@@ -339,7 +340,11 @@ SPI_execute_direct(const char *remote_sql, char *nodename)
 	plan.cursor_options = 0;
 
 	/* Now pass the ExecDirectStmt parsetree node */
-	_SPI_pgxc_prepare_plan(execdirect.data, list_make1(stmt), &plan);
+	NodeSetTag(&raw, T_RawStmt);
+	raw.stmt = (Node*)stmt;
+	raw.stmt_location = 0;
+	raw.stmt_len = execdirect.len;
+	_SPI_pgxc_prepare_plan(execdirect.data, list_make1(&raw), &plan);
 
 	res = _SPI_execute_plan(&plan, NULL,
 							InvalidSnapshot, InvalidSnapshot, false, true, 0);
