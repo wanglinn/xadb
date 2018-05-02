@@ -100,8 +100,6 @@ PgxcClassCreate(Oid pcrelid,
 
 	htup = heap_form_tuple(pgxcclassrel->rd_att, values, nulls);
 
-	(void) simple_heap_insert(pgxcclassrel, htup);
-
 	CatalogTupleInsert(pgxcclassrel, htup);
 
 	heap_close(pgxcclassrel, RowExclusiveLock);

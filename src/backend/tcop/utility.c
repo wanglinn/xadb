@@ -2941,6 +2941,7 @@ static void
 ExecRemoteUtilityStmt(RemoteUtilityContext *context)
 {
 	RemoteQuery *step;
+	RawStmt raw;
 
 	Assert(context);
 
@@ -2967,8 +2968,12 @@ ExecRemoteUtilityStmt(RemoteUtilityContext *context)
 	step = makeNode(RemoteQuery);
 	if(context->stmt)
 	{
+		NodeSetTag(&raw, T_RawStmt);
+		raw.stmt = context->stmt;
+		raw.stmt_location = 0;
+		raw.stmt_len = strlen(context->query);
 		step->sql_node = makeStringInfo();
-		saveNode(step->sql_node, context->stmt);
+		saveNode(step->sql_node, (Node*)&raw);
 	}
 	step->combine_type = COMBINE_TYPE_SAME;
 	step->exec_nodes = context->nodes;
