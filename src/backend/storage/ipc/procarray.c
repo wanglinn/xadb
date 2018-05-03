@@ -1678,13 +1678,17 @@ GetSnapshotData(Snapshot snapshot)
 			xmax = snapshot->xmax;
 		else
 		{
-			TransactionId xid = snapshot->xmax;
+			TransactionId	xid = snapshot->xmax;
+			int				try_max = GetMaxSnapshotXidCount();
+			int				try_cnt = 0;
 
 			/*
 			 * Try to add "local commited" but "global uncommited" XID to the
-			 * global snapshot.
+			 * global snapshot and try GetMaxSnapshotXidCount() times at most.
 			 */
-			while (TransactionIdPrecedes(xid, xmax))
+			for (try_cnt = 0;
+				 TransactionIdPrecedes(xid, xmax) && try_cnt < try_max;
+				 try_cnt++)
 			{
 				/* We don't include our own XIDs (if any) in the snapshot */
 				if (TransactionIdEquals(xid, MyPgXact->xid))
@@ -1693,9 +1697,12 @@ GetSnapshotData(Snapshot snapshot)
 					continue;
 				}
 
-				/* local committed but global uncommitted */
+				/* Local committed but global uncommitted */
 				if (TransactionIdDidCommit(xid))
+				{
+					EnlargeSnapshotXip(snapshot, count + 1);
 					snapshot->xip[count++] = xid;
+				}
 
 				TransactionIdAdvance(xid);
 			}
