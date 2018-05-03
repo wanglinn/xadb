@@ -1564,7 +1564,8 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_CleanConnStmt:
-			Assert(IS_PGXC_COORDINATOR);
+			if (!IS_PGXC_COORDINATOR)
+				break;
 			CleanConnection((CleanConnStmt *) parsetree);
 
 			utilityContext.force_autocommit = true;
