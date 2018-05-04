@@ -229,7 +229,7 @@ extern int pool_release_to_idle_timeout;
 int 		RetryTimes = 3;
 
 /* receive sigquit signal */
-bool	signal_quit = false;
+volatile bool signal_quit = false;
 
 /* Flag to tell if we are Postgres-XC pooler process */
 static bool am_pgxc_pooler = false;
@@ -505,7 +505,7 @@ static void PoolerLoop(void)
 
 		/* receive signal_quit and all agents had destory.exit poolmgr */
 		if (signal_quit && 0 == agentCount)
-			proc_exit(1);
+			proc_exit(0);
 
 		if (got_SIGHUP)
 		{
@@ -1268,11 +1268,6 @@ void PoolManagerReleaseConnections(bool force_close)
 static void pooler_quickdie(SIGNAL_ARGS)
 {
 	signal_quit = true;
-
-#if 0
-	PG_SETMASK(&BlockSig);
-	exit(2);
-#endif
 }
 
 static void pooler_sighup(SIGNAL_ARGS)
