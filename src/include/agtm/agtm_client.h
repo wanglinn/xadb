@@ -43,6 +43,6 @@ extern struct pg_result * agtm_GetResult(void);
 extern StringInfo agtm_use_result_data(const struct pg_result *res, StringInfo buf);
 extern StringInfo agtm_use_result_type(const struct pg_result *res, StringInfo buf, AGTM_ResultType type);
 extern void agtm_check_result(StringInfo buf, AGTM_ResultType type);
-extern void agtm_use_result_end(StringInfo buf);
+extern void agtm_use_result_end(struct pg_result *res, StringInfo buf);
 
 #endif

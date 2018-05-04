@@ -192,7 +192,6 @@ void agtm_Close(void)
 
 		if (agtm_conn->pg_Conn)
 		{
-			agtm_EndReusedResult(agtm_conn->pg_Conn);
 			PQfinish(agtm_conn->pg_Conn);
 			agtm_conn->pg_Conn = NULL;
 		}
@@ -305,8 +304,16 @@ StringInfo agtm_use_result_data(const PGresult *res, StringInfo buf)
 
 StringInfo agtm_use_result_type(const PGresult *res, StringInfo buf, AGTM_ResultType type)
 {
-	agtm_use_result_data(res, buf);
-	agtm_check_result(buf, type);
+	PG_TRY();
+	{
+		agtm_use_result_data(res, buf);
+		agtm_check_result(buf, type);
+	} PG_CATCH();
+	{
+		PQclear((PGresult *) res);
+		PG_RE_THROW();
+	} PG_END_TRY();
+
 	return buf;
 }
 
@@ -320,12 +327,16 @@ void agtm_check_result(StringInfo buf, AGTM_ResultType type)
 	}
 }
 
-void agtm_use_result_end(StringInfo buf)
+void agtm_use_result_end(PGresult *res, StringInfo buf)
 {
 	if (buf->cursor != buf->len)
+	{
+		PQclear(res);
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("invalid message format from AGTM")));
+	}
+	PQclear(res);
 }
 
 /* GUC check hook for agtm_host */

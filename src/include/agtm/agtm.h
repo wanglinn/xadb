@@ -36,9 +36,6 @@ typedef enum AGTM_SequenceKeyType
 	AGTM_SEQ_DB_NAME 	/* DB name part of sequence key */
 } AGTM_SequenceKeyType;
 
-struct pg_conn;
-extern void agtm_EndReusedResult(struct pg_conn *conn);
-
 /*
  * get gixd from AGTM
  */

@@ -27,14 +27,8 @@
 static AGTM_Sequence agtm_DealSequence(const char *seqname, const char * database,
 								const char * schema, AGTM_MessageType type, AGTM_ResultType rtype);
 static PGresult* agtm_get_result(AGTM_MessageType msg_type);
-static void agtm_clear_result(PGresult *res);
 static void agtm_send_message(AGTM_MessageType msg, const char *fmt, ...)
 			__attribute__((format(PG_PRINTF_ATTRIBUTE, 2, 3)));
-
-static PGresult *reused_result = NULL;
-static PGresult_data *saved_curBlock = NULL;
-static int saved_curOffset = 0;
-static int saved_spaceLeft = 0;
 
 TransactionId
 agtm_GetGlobalTransactionId(bool isSubXact)
@@ -55,8 +49,8 @@ agtm_GetGlobalTransactionId(bool isSubXact)
 	ereport(DEBUG1,
 		(errmsg("get global xid: %d from agtm", gxid)));
 
-	agtm_use_result_end(&buf);
-	agtm_clear_result(res);
+	agtm_use_result_end(res, &buf);
+
 	return gxid;
 }
 
@@ -98,9 +92,9 @@ agtm_CreateSequence(const char * seqName, const char * database,
 	Assert(res);
 	agtm_use_result_type(res, &buf, AGTM_MSG_SEQUENCE_INIT_RESULT);
 
-	agtm_use_result_end(&buf);
+	agtm_use_result_end(res, &buf);
 	pfree(strOption.data);
-	agtm_clear_result(res);
+
 	ereport(DEBUG1,
 		(errmsg("create sequence on agtm :%s", seqName)));
 }
@@ -143,9 +137,9 @@ agtm_AlterSequence(const char * seqName, const char * database,
 	Assert(res);
 	agtm_use_result_type(res, &buf, AGTM_MSG_SEQUENCE_ALTER_RESULT);
 
-	agtm_use_result_end(&buf);
+	agtm_use_result_end(res, &buf);
 	pfree(strOption.data);
-	agtm_clear_result(res);
+
 	ereport(DEBUG1,
 		(errmsg("alter sequence on agtm :%s", seqName)));
 }
@@ -182,8 +176,8 @@ agtm_DropSequence(const char * seqName, const char * database, const char * sche
 	Assert(res);
 	agtm_use_result_type(res, &buf, AGTM_MSG_SEQUENCE_DROP_RESULT);
 
-	agtm_use_result_end(&buf);
-	agtm_clear_result(res);
+	agtm_use_result_end(res, &buf);
+
 	ereport(DEBUG1,
 		(errmsg("drop sequence on agtm :%s", seqName)));
 }
@@ -207,8 +201,8 @@ agtms_DropSequenceByDataBase(const char * database)
 	Assert(res);
 	agtm_use_result_type(res, &buf, AGTM_MSG_SEQUENCE_DROP_BYDB_RESULT);
 
-	agtm_use_result_end(&buf);
-	agtm_clear_result(res);
+	agtm_use_result_end(res, &buf);
+
 	ereport(DEBUG1,
 		(errmsg("drop sequence on agtm by database :%s", database)));
 }
@@ -248,8 +242,8 @@ void agtm_RenameSequence(const char * seqName, const char * database,
 	Assert(res);
 	agtm_use_result_type(res, &buf, AGTM_MSG_SEQUENCE_RENAME_RESULT);
 
-	agtm_use_result_end(&buf);
-	agtm_clear_result(res);
+	agtm_use_result_end(res, &buf);
+
 	ereport(DEBUG1,
 		(errmsg("rename sequence %s rename to %s", seqName, newName)));
 }
@@ -282,8 +276,7 @@ agtm_RenameSeuqneceByDataBase(const char * oldDatabase,
 	Assert(res);
 	agtm_use_result_type(res, &buf, AGTM_MSG_SEQUENCE_RENAME_BYDB_RESULT);
 
-	agtm_use_result_end(&buf);
-	agtm_clear_result(res);
+	agtm_use_result_end(res, &buf);
 
 	ereport(DEBUG1,
 		(errmsg("alter sequence on agtm by database rename old name :%s, new name :%s ",
@@ -310,8 +303,8 @@ agtm_GetTimestamptz(void)
 	ereport(DEBUG1,
 		(errmsg("get timestamp: %ld from agtm", timestamp)));
 
-	agtm_use_result_end(&buf);
-	agtm_clear_result(res);
+	agtm_use_result_end(res, &buf);
+
 	return timestamp;
 }
 
@@ -359,8 +352,7 @@ agtm_GetGlobalSnapShot(Snapshot snapshot)
 	pq_copymsgbytes(&buf, (char*)&(snapshot->active_count), sizeof(snapshot->active_count));
 	pq_copymsgbytes(&buf, (char*)&(snapshot->regd_count), sizeof(snapshot->regd_count));
 
-	agtm_use_result_end(&buf);
-	agtm_clear_result(res);
+	agtm_use_result_end(res, &buf);
 
 	if (GetCurrentCommandId(false) > snapshot->curcid)
 		snapshot->curcid = GetCurrentCommandId(false);
@@ -388,8 +380,8 @@ agtm_TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn)
 	ereport(DEBUG1,
 		(errmsg("get xid %u status %d", xid, xid_status)));
 
-	agtm_use_result_end(&buf);
-	agtm_clear_result(res);
+	agtm_use_result_end(res, &buf);
+
 	return xid_status;
 }
 
@@ -461,33 +453,25 @@ agtm_SyncNextXid(TransactionId *src_xid,		/* output */
 	PGresult	   *volatile res = NULL;
 	StringInfoData	buf;
 
-	PG_TRY();
-	{
-		if (src_from_local)
-			sxid = ReadNewTransactionId();
-		else
-			get_cluster_nextXids(NULL, &sxid, NULL, &node, NULL);
-		agtm_send_message(AGTM_MSG_SYNC_XID, "%d%d", (int)sxid, (int)sizeof(sxid));
-		res = agtm_get_result(AGTM_MSG_SYNC_XID);
-		Assert(res);
-		agtm_use_result_type(res, &buf, AGTM_SYNC_XID_RESULT);
-		axid = (TransactionId) pq_getmsgint(&buf, 4);
+	if (src_from_local)
+		sxid = ReadNewTransactionId();
+	else
+		get_cluster_nextXids(NULL, &sxid, NULL, &node, NULL);
+	agtm_send_message(AGTM_MSG_SYNC_XID, "%d%d", (int)sxid, (int)sizeof(sxid));
+	res = agtm_get_result(AGTM_MSG_SYNC_XID);
+	Assert(res);
+	agtm_use_result_type(res, &buf, AGTM_SYNC_XID_RESULT);
+	axid = (TransactionId) pq_getmsgint(&buf, 4);
 
-		ereport(DEBUG1,
-			(errmsg("Sync source xid %u with AGTM xid %u OK", sxid, axid)));
+	ereport(DEBUG1,
+		(errmsg("Sync source xid %u with AGTM xid %u OK", sxid, axid)));
 
-		agtm_use_result_end(&buf);
-		agtm_clear_result(res);
+	agtm_use_result_end(res, &buf);
 
-		if (src_xid)
-			*src_xid = sxid;
-		if (agtm_xid)
-			*agtm_xid = axid;
-	} PG_CATCH();
-	{
-		agtm_clear_result(res);
-		PG_RE_THROW();
-	} PG_END_TRY();
+	if (src_xid)
+		*src_xid = sxid;
+	if (agtm_xid)
+		*agtm_xid = axid;
 
 	return node;
 }
@@ -683,8 +667,8 @@ agtm_DealSequence(const char *seqname, const char * database,
 	agtm_use_result_type(res, &buf, rtype);
 	pq_copymsgbytes(&buf, (char*)&seq, sizeof(seq));
 
-	agtm_use_result_end(&buf);
-	agtm_clear_result(res);
+	agtm_use_result_end(res, &buf);
+
 	return seq;
 }
 
@@ -766,8 +750,8 @@ agtm_SetSeqValCalled(const char *seqname, const char * database,
 	agtm_use_result_type(res, &buf, AGTM_SEQUENCE_SET_VAL_RESULT);
 	pq_copymsgbytes(&buf, (char*)&seq, sizeof(seq));
 
-	agtm_use_result_end(&buf);
-	agtm_clear_result(res);
+	agtm_use_result_end(res, &buf);
+
 	return seq;
 }
 
@@ -785,8 +769,7 @@ agtm_ResetSequenceCaches(void)
 	res = agtm_get_result(AGTM_MSG_SEQUENCE_RESET_CACHE);
 	Assert(res);
 	agtm_use_result_type(res, &buf, AGTM_MSG_SEQUENCE_RESET_CACHE_RESULT);
-	agtm_use_result_end(&buf);
-	agtm_clear_result(res);
+	agtm_use_result_end(res, &buf);
 }
 
 /*
@@ -927,66 +910,33 @@ put_error_:
 }
 
 static void
-agtm_PrepareReusedResult(PGconn *conn)
+agtm_PrepareResult(PGconn *conn)
 {
 	PGresult *result = NULL;
-	PGresult_data *block = NULL;
 
 	if (!conn)
 		return ;
 
-	if (reused_result == NULL)
+	result  = PQmakeEmptyPGresult(conn, PGRES_TUPLES_OK);
+	result->numAttributes = 1;
+	result->attDescs = (PGresAttDesc *) PQresultAlloc(result, 1 * sizeof(PGresAttDesc));
+	if (!result->attDescs)
 	{
-		result  = PQmakeEmptyPGresult(conn, PGRES_TUPLES_OK);
-		result->numAttributes = 1;
-		result->attDescs = (PGresAttDesc *) PQresultAlloc(result, 1 * sizeof(PGresAttDesc));
-		MemSet(result->attDescs, 0, 1 * sizeof(PGresAttDesc));
-		result->binary = 1;
-		result->attDescs[0].name = pqResultStrdup(result, "result");
-		result->attDescs[0].tableid = 0;
-		result->attDescs[0].columnid = 0;
-		result->attDescs[0].format = 1;
-		result->attDescs[0].typid = BYTEAOID;
-		result->attDescs[0].typlen = -1;
-		result->attDescs[0].atttypmod = -1;
-
-		saved_curBlock = result->curBlock;
-		saved_curOffset = result->curOffset;
-		saved_spaceLeft = result->spaceLeft;
-		reused_result = result;
-	} else
-	{
-		result = reused_result;
-		result->ntups = 0;
-		result->resultStatus = PGRES_TUPLES_OK;
-		result->cmdStatus[0] = '\0';
-		result->binary = 1;
-		result->errMsg = NULL;
-		result->errFields = NULL;
-		result->errQuery = NULL;
-		result->null_field[0] = '\0';
-		/* Free all the subsidiary blocks except saved_curBlock */
-		while ((block = result->curBlock) != NULL)
-		{
-			result->curBlock = block->next;
-			if (block != saved_curBlock)
-				free(block);
-			else
-				block->next = NULL;		/* It is saved_curBlock now */
-		}
-		result->curBlock = saved_curBlock;
-		result->curOffset = saved_curOffset;
-		result->spaceLeft = saved_spaceLeft;
+		PQclear(result);
+		ereport(ERROR,
+				(errmsg("Fail to prepare agtm result: out of memory")));
 	}
+	MemSet(result->attDescs, 0, 1 * sizeof(PGresAttDesc));
+	result->binary = 1;
+	result->attDescs[0].name = pqResultStrdup(result, "result");
+	result->attDescs[0].tableid = 0;
+	result->attDescs[0].columnid = 0;
+	result->attDescs[0].format = 1;
+	result->attDescs[0].typid = BYTEAOID;
+	result->attDescs[0].typlen = -1;
+	result->attDescs[0].atttypmod = -1;
 
-	conn->result = reused_result;
-}
-
-void
-agtm_EndReusedResult(PGconn *conn)
-{
-	if (conn->result == reused_result)
-		reused_result = NULL;
+	conn->result = result;
 }
 
 /*
@@ -1011,13 +961,14 @@ static PGresult* agtm_get_result(AGTM_MessageType msg_type)
 			PQerrorMessage(conn), gtm_util_message_name(msg_type))));
 	}
 
-	agtm_PrepareReusedResult(conn);
+	agtm_PrepareResult(conn);
 
 	result = NULL;
 	if(pqWait(true, false, conn) != 0
 		|| pqReadData(conn) < 0
 		|| (result = PQexecFinish(conn)) == NULL)
 	{
+		PQclear(result);
 		ereport(ERROR,
 			(errmsg("read message from AGTM error:%s, message type:%s",
 			PQerrorMessage(conn), gtm_util_message_name(msg_type))));
@@ -1026,20 +977,17 @@ static PGresult* agtm_get_result(AGTM_MessageType msg_type)
 	state = PQresultStatus(result);
 	if(state == PGRES_FATAL_ERROR)
 	{
-		ereport(ERROR, (errmsg("got error message from AGTM %s", PQresultErrorMessage(result))));
+		PQclear(result);
+		ereport(ERROR,
+				(errmsg("got error message from AGTM %s", PQresultErrorMessage(result))));
 	}else if(state != PGRES_TUPLES_OK && state != PGRES_COMMAND_OK)
 	{
-		ereport(ERROR, (errmsg("AGTM result a \"%s\" message", PQresStatus(state))));
+		PQclear(result);
+		ereport(ERROR,
+				(errmsg("AGTM result a \"%s\" message", PQresStatus(state))));
 	}
 
 	return result;
-}
-
-static void
-agtm_clear_result(PGresult *res)
-{
-	if (res != reused_result)
-		PQclear(res);
 }
 
 void
