@@ -57,6 +57,7 @@
 
 bool with_data_checksums = false;
 Oid specHostOid = 0;
+NameData paramV;
 
 static struct enum_sync_state sync_state_tab[] =
 {
@@ -9599,6 +9600,7 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 	bool breload = false;
 	bool bgetAddress = true;
 	bool ret = true;
+	PGresult *res;
 
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
 
@@ -9698,6 +9700,7 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 		else
 			break;
 	}
+
 	try = 0;
 	if (*pg_conn == NULL || PQstatus((PGconn*)*pg_conn) != CONNECTION_OK)
 	{
@@ -9707,6 +9710,29 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 			(errmsg("Fail to connect to coordinator %s", PQerrorMessage((PGconn*)*pg_conn)),
 			errhint("coordinator info(host=%s port=%d dbname=%s user=%s)",
 				coordhost, coordport, DEFAULT_DB, connect_user)));
+	}
+
+	/* get the value of pool_release_to_idle_timeout to record */
+	try = 0;
+	namestrcpy(&paramV, "-1");
+	while(try++ < maxnum)
+	{
+		res = PQexec(*pg_conn, "show pool_release_to_idle_timeout");
+		if (PQresultStatus(res) == PGRES_TUPLES_OK)
+		{
+			namestrcpy(&paramV, PQgetvalue(res, 0, 0));
+			PQclear(res);
+			break;
+		}
+		PQclear(res);
+	}
+	if (paramV.data != NULL && strcmp(paramV.data, "-1") != 0)
+	{
+		ereport(NOTICE, (errmsg("set all coordinators pool_release_to_idle_timeout = -1, original value is '%s'", paramV.data)));
+		ereport(LOG, (errmsg("set all coordinators pool_release_to_idle_timeout = -1, original value is '%s'", paramV.data)));
+		/* set all coordinators pool_release_to_idle_timeout = -1 */
+		mgr_set_all_nodetype_param(CNDN_TYPE_COORDINATOR_MASTER, "pool_release_to_idle_timeout", "-1");
+		pg_usleep(300000L);
 	}
 
 	/*lock cluster*/
@@ -9756,6 +9782,15 @@ void mgr_unlock_cluster(PGconn **pg_conn)
 			,errmsg("execute \"%s\" fail %s", sqlstr, PQerrorMessage((PGconn*)*pg_conn))));
 	}
 	PQfinish(*pg_conn);
+
+	if (paramV.data != NULL && strcmp(paramV.data, "-1") != 0)
+	{
+		/* set all coordinators pool_release_to_idle_timeout to record value */
+		ereport(NOTICE, (errmsg("set all coordinators pool_release_to_idle_timeout = '%s'", paramV.data)));
+		ereport(LOG, (errmsg("set all coordinators pool_release_to_idle_timeout = '%s'", paramV.data)));
+		mgr_set_all_nodetype_param(CNDN_TYPE_COORDINATOR_MASTER, "pool_release_to_idle_timeout", paramV.data);
+	}
+
 }
 
 bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname, GetAgentCmdRst *getAgentCmdRst, PGconn **pg_conn, Oid cnoid)

@@ -390,4 +390,6 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 extern void mgr_add_hbaconf_by_masteroid(Oid mastertupleoid, char *dbname, char *user, char *address);
 extern char *mgr_get_agtm_name(void);
 extern bool mgr_check_slave_replicate_status(const Oid masterTupleOid, const char nodetype, const char *slaveName);
+extern bool mgr_set_all_nodetype_param(const char nodetype, char *paramName, char *paramValue);
+
 #endif /* MGR_CMDS_H */

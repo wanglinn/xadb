@@ -297,11 +297,6 @@ pg_unpause_cluster(PG_FUNCTION_ARGS)
 void
 PGXCCleanClusterLock(int code, Datum arg)
 {
-	NodeHandle *handle;
-	List *node_list;
-	ListCell *lc_handle;
-	NodeMixHandle *cur_handle;
-
 	cluster_lock_held = false;
 
 	/* Do nothing if cluster lock not held */
@@ -314,21 +309,6 @@ PGXCCleanClusterLock(int code, Datum arg)
 			ReleaseClusterLock(true);
 		return;
 	}
-
-	node_list = GetAllCnIDL(false);
-	cur_handle = GetMixedHandles(node_list, NULL);
-	Assert(node_list && cur_handle);
-	list_free(node_list);
-
-	/* Try best-effort to UNPAUSE other coordinators now */
-	foreach (lc_handle, cur_handle->handles)
-	{
-		handle = (NodeHandle *) lfirst(lc_handle);
-		/* No error checking here... */
-		(void)HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot, unpause_cluster_str, NULL);
-	}
-
-	HandleListGC(cur_handle->handles);
 
 	/* Release locally too. We do not want a dangling value in cl_holder_pid! */
 	ReleaseClusterLock(true);

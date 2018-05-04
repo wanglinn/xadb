@@ -2105,3 +2105,89 @@ static int namestrcpylocal(NameLocal name, const char *str)
 	StrNCpy(name->data, str, NAMEDATALEN_LOCAL);
 	return 0;
 }
+
+/*
+* set the parameter on given type of node
+*/
+bool
+mgr_set_all_nodetype_param(const char nodetype, char *paramName, char *paramValue)
+{
+	Relation nodeRel;
+	ScanKeyData key[2];
+	HeapTuple tuple;
+	HeapScanDesc relScan;
+	Form_mgr_node mgr_node;
+	Datum datumPath;
+	char *cndnPath;
+	char *address;
+	const int maxTry = 3;
+	int try;
+	Oid hostOid;
+	bool isNull = false;
+	bool result = true;
+	StringInfoData infosendmsg;
+	GetAgentCmdRst getAgentCmdRst;
+
+	initStringInfo(&infosendmsg);
+	initStringInfo(&(getAgentCmdRst.description));
+	nodeRel = heap_open(NodeRelationId, AccessShareLock);
+	mgr_append_pgconf_paras_str_quotastr(paramName, paramValue, &infosendmsg);
+
+	ScanKeyInit(&key[0],
+		Anum_mgr_node_nodeincluster
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	ScanKeyInit(&key[1],
+		Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(nodetype));
+	relScan = heap_beginscan_catalog(nodeRel, 2, key);
+	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+
+		hostOid = mgr_node->nodehost;
+		datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(nodeRel), &isNull);
+		if(isNull)
+		{
+			pfree(infosendmsg.data);
+			heap_endscan(relScan);
+			heap_close(nodeRel, AccessShareLock);
+			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+				, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
+				, errmsg("column cndnpath is null")));
+		}
+		cndnPath = TextDatumGetCString(datumPath);
+		try = maxTry;
+		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		while(try-- >= 0)
+		{
+			resetStringInfo(&(getAgentCmdRst.description));
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, cndnPath, &infosendmsg, hostOid, &getAgentCmdRst);
+			/*sleep 0.1s*/
+			pg_usleep(100000L);
+
+			/* check the param */
+			if(mgr_check_param_reload_postgresqlconf(mgr_node->nodetype, hostOid, mgr_node->nodeport, address, paramName, paramValue))
+			{
+				break;
+			}
+		}
+		if (try < 0)
+		{
+			result = false;
+			ereport(WARNING, (errmsg("on coordinator \"%s\" reload \"%s=%s\" fail", NameStr(mgr_node->nodename), paramName, paramValue)));
+		}
+		pfree(address);
+
+	}
+
+	pfree(infosendmsg.data);
+	heap_endscan(relScan);
+	heap_close(nodeRel, AccessShareLock);
+
+	return result;
+}
