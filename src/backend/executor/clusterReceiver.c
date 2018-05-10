@@ -37,11 +37,17 @@ typedef struct RestoreInstrumentContext
 	int		plan_id;
 }RestoreInstrumentContext;
 
+typedef struct SerializeInstrumentContext
+{
+	StringInfo buf;
+	Bitmapset *serialized;
+}SerializeInstrumentContext;
+
 static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self);
 static void cluster_receive_startup(DestReceiver *self,int operation,TupleDesc typeinfo);
 static void cluster_receive_shutdown(DestReceiver *self);
 static void cluster_receive_destroy(DestReceiver *self);
-static bool serialize_instrument_walker(PlanState *ps, StringInfo buf);
+static bool serialize_instrument_walker(PlanState *ps, SerializeInstrumentContext *context);
 static void restore_instrument_message(PlanState *ps, const char *msg, int len, struct pg_conn *conn);
 static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *context);
 
@@ -354,8 +360,12 @@ bool clusterRecvSetCheckEndMsg(DestReceiver *r, bool check)
 
 void serialize_instrument_message(PlanState *ps, StringInfo buf)
 {
+	SerializeInstrumentContext context;
 	appendStringInfoChar(buf, CLUSTER_MSG_INSTRUMENT);
-	serialize_instrument_walker(ps, buf);
+	context.buf = buf;
+	context.serialized = NULL;
+	serialize_instrument_walker(ps, &context);
+	bms_free(context.serialized);
 }
 
 void serialize_processed_message(StringInfo buf, uint64 processed)
@@ -600,15 +610,18 @@ TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *s
 	return ExecStoreMinimalTuple(tup, slot, true);
 }
 
-static bool serialize_instrument_walker(PlanState *ps, StringInfo buf)
+static bool serialize_instrument_walker(PlanState *ps, SerializeInstrumentContext *context)
 {
 	int num_worker;
 
-	if(ps == NULL)
+	if (ps == NULL ||
+		bms_is_member(ps->plan->plan_node_id, context->serialized))
 		return false;
 
+	context->serialized = bms_add_member(context->serialized, ps->plan->plan_node_id);
+
 	/* plan ID */
-	appendBinaryStringInfo(buf,
+	appendBinaryStringInfo(context->buf,
 						   (char*)&(ps->plan->plan_node_id),
 						   sizeof(ps->plan->plan_node_id));
 
@@ -620,17 +633,17 @@ static bool serialize_instrument_walker(PlanState *ps, StringInfo buf)
 		num_worker = 0;
 	}
 	/* worker instrument */
-	appendBinaryStringInfo(buf, (char*)&num_worker, sizeof(num_worker));
+	appendBinaryStringInfo(context->buf, (char*)&num_worker, sizeof(num_worker));
 
-	appendBinaryStringInfo(buf,
+	appendBinaryStringInfo(context->buf,
 						   (char*)ps->instrument,
 						   sizeof(*(ps->instrument)));
 	if(num_worker)
-		appendBinaryStringInfo(buf,
+		appendBinaryStringInfo(context->buf,
 							   (char*)(ps->worker_instrument->instrument),
 							   sizeof(Instrumentation) * num_worker);
 
-	return planstate_tree_walker(ps, serialize_instrument_walker, buf);
+	return planstate_tree_walker(ps, serialize_instrument_walker, context);
 }
 
 static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *context)
