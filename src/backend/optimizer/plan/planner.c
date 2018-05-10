@@ -1012,7 +1012,7 @@ preprocess_expression(PlannerInfo *root, Node *expr, int kind)
 	 */
 	if (kind == EXPRKIND_QUAL)
 	{
-		expr = (Node *) canonicalize_qual((Expr *) expr);
+		expr = (Node *) canonicalize_qual_ext((Expr *) expr, false);
 
 #ifdef OPTIMIZER_DEBUG
 		printf("After canonicalize_qual()\n");
@@ -1575,7 +1575,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				 double tuple_fraction)
 {
 	Query	   *parse = root->parse;
-	List	   *tlist = parse->targetList;
+	List	   *tlist;
 	int64		offset_est = 0;
 	int64		count_est = 0;
 	double		limit_tuples = -1.0;
@@ -1773,13 +1773,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		}
 
 		/* Preprocess targetlist */
-		tlist = preprocess_targetlist(root, tlist);
-
-		if (parse->onConflict)
-			parse->onConflict->onConflictSet =
-				preprocess_onconflict_targetlist(parse->onConflict->onConflictSet,
-												 parse->resultRelation,
-												 parse->rtable);
+		tlist = preprocess_targetlist(root);
 
 		/*
 		 * Expand any rangetable entries that have security barrier quals.

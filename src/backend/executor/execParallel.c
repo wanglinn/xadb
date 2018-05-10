@@ -105,8 +105,7 @@ static shm_mq_handle **ExecParallelSetupTupleQueues(ParallelContext *pcxt,
 static bool ExecParallelRetrieveInstrumentation(PlanState *planstate,
 							 SharedExecutorInstrumentation *instrumentation);
 
-/* Helper functions that run in the parallel worker. */
-static void ParallelQueryMain(dsm_segment *seg, shm_toc *toc);
+/* Helper function that runs in the parallel worker. */
 static DestReceiver *ExecParallelGetReceiver(dsm_segment *seg, shm_toc *toc);
 
 /*
@@ -355,7 +354,7 @@ ExecInitParallelPlan(PlanState *planstate, EState *estate, int nworkers)
 	pstmt_data = ExecSerializePlan(planstate->plan, estate);
 
 	/* Create a parallel context. */
-	pcxt = CreateParallelContext(ParallelQueryMain, nworkers);
+	pcxt = CreateParallelContextForExternalFunction("postgres", "ParallelQueryMain", nworkers);
 	pei->pcxt = pcxt;
 
 	/*
@@ -537,7 +536,7 @@ ExecParallelRetrieveInstrumentation(PlanState *planstate,
 
 /*
  * Finish parallel execution.  We wait for parallel workers to finish, and
- * accumulate their buffer usage and instrumentation.
+ * accumulate their buffer usage.
  */
 void
 ExecParallelFinish(ParallelExecutorInfo *pei)
@@ -554,23 +553,23 @@ ExecParallelFinish(ParallelExecutorInfo *pei)
 	for (i = 0; i < pei->pcxt->nworkers_launched; ++i)
 		InstrAccumParallelQuery(&pei->buffer_usage[i]);
 
-	/* Finally, accumulate instrumentation, if any. */
-	if (pei->instrumentation)
-		ExecParallelRetrieveInstrumentation(pei->planstate,
-											pei->instrumentation);
-
 	pei->finished = true;
 }
 
 /*
- * Clean up whatever ParallelExecutorInfo resources still exist after
- * ExecParallelFinish.  We separate these routines because someone might
- * want to examine the contents of the DSM after ExecParallelFinish and
- * before calling this routine.
+ * Accumulate instrumentation, and then clean up whatever ParallelExecutorInfo
+ * resources still exist after ExecParallelFinish.  We separate these
+ * routines because someone might want to examine the contents of the DSM
+ * after ExecParallelFinish and before calling this routine.
  */
 void
 ExecParallelCleanup(ParallelExecutorInfo *pei)
 {
+	/* Accumulate instrumentation, if any. */
+	if (pei->instrumentation)
+		ExecParallelRetrieveInstrumentation(pei->planstate,
+											pei->instrumentation);
+
 	if (pei->pcxt != NULL)
 	{
 		DestroyParallelContext(pei->pcxt);
@@ -720,7 +719,7 @@ ExecParallelInitializeWorker(PlanState *planstate, shm_toc *toc)
  * to do this are also stored in the dsm_segment and can be accessed through
  * the shm_toc.
  */
-static void
+void
 ParallelQueryMain(dsm_segment *seg, shm_toc *toc)
 {
 	BufferUsage *buffer_usage;

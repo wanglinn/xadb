@@ -12,6 +12,7 @@
 #include "postgres_fe.h"
 
 #include "dumputils.h"
+#include "fe_utils/connect.h"
 #include "fe_utils/string_utils.h"
 #include "parallel.h"
 #include "pg_backup_archiver.h"
@@ -117,6 +118,11 @@ ReconnectToServer(ArchiveHandle *AH, const char *dbname, const char *username)
 
 	PQfinish(AH->connection);
 	AH->connection = newConn;
+
+	/* Start strict; later phases may override this. */
+	if (PQserverVersion(AH->connection) >= 70300)
+		PQclear(ExecuteSqlQueryForSingleRow((Archive *) AH,
+											ALWAYS_SECURE_SEARCH_PATH_SQL));
 
 	return 1;
 }
@@ -326,6 +332,11 @@ ConnectDatabase(Archive *AHX,
 					  PQdb(AH->connection) ? PQdb(AH->connection) : "",
 					  PQerrorMessage(AH->connection));
 
+	/* Start strict; later phases may override this. */
+	if (PQserverVersion(AH->connection) >= 70300)
+		PQclear(ExecuteSqlQueryForSingleRow((Archive *) AH,
+											ALWAYS_SECURE_SEARCH_PATH_SQL));
+
 	/*
 	 * We want to remember connection's actual password, whether or not we got
 	 * it by prompting.  So we don't just store the password variable.
@@ -369,12 +380,12 @@ DisconnectDatabase(Archive *AHX)
 	if (AH->connCancel)
 	{
 		/*
-		 * If we have an active query, send a cancel before closing.  This is
-		 * of no use for a normal exit, but might be helpful during
-		 * exit_horribly().
+		 * If we have an active query, send a cancel before closing, ignoring
+		 * any errors.  This is of no use for a normal exit, but might be
+		 * helpful during exit_horribly().
 		 */
 		if (PQtransactionStatus(AH->connection) == PQTRANS_ACTIVE)
-			PQcancel(AH->connCancel, errbuf, sizeof(errbuf));
+			(void) PQcancel(AH->connCancel, errbuf, sizeof(errbuf));
 
 		/*
 		 * Prevent signal handler from sending a cancel after this.

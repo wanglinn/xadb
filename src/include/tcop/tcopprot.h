@@ -44,10 +44,10 @@ typedef enum
 	LOGSTMT_ALL					/* log all statements */
 } LogStmtLevel;
 
-extern int	log_statement;
+extern PGDLLIMPORT int log_statement;
 #ifdef ADB
-extern int parse_grammar;
-extern int current_grammar;
+extern PGDLLIMPORT int parse_grammar;
+extern PGDLLIMPORT int current_grammar;
 
 #define IsCurrentOracleGram() (current_grammar == PARSE_GRAM_ORACLE)
 #endif

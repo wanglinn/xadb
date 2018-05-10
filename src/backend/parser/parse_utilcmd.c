@@ -170,6 +170,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	Oid			existing_relid;
 	ParseCallbackState pcbstate;
 	bool		like_found = false;
+	bool		is_foreign_table = IsA(stmt, CreateForeignTableStmt);
 #ifdef ADB
 	bool		temp_found = false;
 #endif
@@ -338,7 +339,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	/*
 	 * Postprocess check constraints.
 	 */
-	transformCheckConstraints(&cxt, true);
+	transformCheckConstraints(&cxt, !is_foreign_table ? true : false);
 
 	/*
 	 * Output results.
@@ -2027,9 +2028,9 @@ transformCheckConstraints(CreateStmtContext *cxt, bool skipValidation)
 		return;
 
 	/*
-	 * If creating a new table, we can safely skip validation of check
-	 * constraints, and nonetheless mark them valid.  (This will override any
-	 * user-supplied NOT VALID flag.)
+	 * If creating a new table (but not a foreign table), we can safely skip
+	 * validation of check constraints, and nonetheless mark them valid.
+	 * (This will override any user-supplied NOT VALID flag.)
 	 */
 	if (skipValidation)
 	{

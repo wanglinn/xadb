@@ -169,6 +169,7 @@ static bool has_indexed_join_quals(NestPath *joinpath);
 static double approx_tuple_count(PlannerInfo *root, JoinPath *path,
 				   List *quals);
 static double calc_joinrel_size_estimate(PlannerInfo *root,
+						   RelOptInfo *joinrel,
 						   RelOptInfo *outer_rel,
 						   RelOptInfo *inner_rel,
 						   double outer_rows,
@@ -2114,7 +2115,12 @@ final_cost_nestloop(PlannerInfo *root, NestPath *path,
 
 	/* For partial paths, scale row estimate. */
 	if (path->path.parallel_aware && path->path.parallel_workers > 0)
-		path->path.rows /= get_parallel_divisor(&path->path);
+	{
+		double	parallel_divisor = get_parallel_divisor(&path->path);
+
+		path->path.rows =
+			clamp_row_est(path->path.rows / parallel_divisor);
+	}
 
 	/*
 	 * We could include disable_cost in the preliminary estimate, but that
@@ -2549,7 +2555,12 @@ final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 
 	/* For partial paths, scale row estimate. */
 	if (path->jpath.path.parallel_aware && path->jpath.path.parallel_workers > 0)
-		path->jpath.path.rows /= get_parallel_divisor(&path->jpath.path);
+	{
+		double	parallel_divisor = get_parallel_divisor(&path->jpath.path);
+
+		path->jpath.path.rows =
+			clamp_row_est(path->jpath.path.rows / parallel_divisor);
+	}
 
 	/*
 	 * We could include disable_cost in the preliminary estimate, but that
@@ -2951,7 +2962,12 @@ final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 
 	/* For partial paths, scale row estimate. */
 	if (path->jpath.path.parallel_aware && path->jpath.path.parallel_workers > 0)
-		path->jpath.path.rows /= get_parallel_divisor(&path->jpath.path);
+	{
+		double	parallel_divisor = get_parallel_divisor(&path->jpath.path);
+
+		path->jpath.path.rows =
+			clamp_row_est(path->jpath.path.rows / parallel_divisor);
+	}
 
 	/*
 	 * We could include disable_cost in the preliminary estimate, but that
@@ -3851,13 +3867,15 @@ compute_semi_anti_join_factors(PlannerInfo *root,
 	 */
 	if (jointype == JOIN_ANTI)
 	{
+		Relids		joinrelids = bms_union(outerrel->relids, innerrel->relids);
+
 		joinquals = NIL;
 		foreach(l, restrictlist)
 		{
 			RestrictInfo *rinfo = (RestrictInfo *) lfirst(l);
 
 			Assert(IsA(rinfo, RestrictInfo));
-			if (!rinfo->is_pushed_down)
+			if (!RINFO_IS_PUSHED_DOWN(rinfo, joinrelids))
 				joinquals = lappend(joinquals, rinfo);
 		}
 	}
@@ -4177,6 +4195,7 @@ set_joinrel_size_estimates(PlannerInfo *root, RelOptInfo *rel,
 						   List *restrictlist)
 {
 	rel->rows = calc_joinrel_size_estimate(root,
+										   rel,
 										   outer_rel,
 										   inner_rel,
 										   outer_rel->rows,
@@ -4219,6 +4238,7 @@ get_parameterized_joinrel_size(PlannerInfo *root, RelOptInfo *rel,
 	 * estimate for any pair with the same parameterization.
 	 */
 	nrows = calc_joinrel_size_estimate(root,
+									   rel,
 									   outer_path->parent,
 									   inner_path->parent,
 									   outer_path->rows,
@@ -4242,6 +4262,7 @@ get_parameterized_joinrel_size(PlannerInfo *root, RelOptInfo *rel,
  */
 static double
 calc_joinrel_size_estimate(PlannerInfo *root,
+						   RelOptInfo *joinrel,
 						   RelOptInfo *outer_rel,
 						   RelOptInfo *inner_rel,
 						   double outer_rows,
@@ -4295,7 +4316,7 @@ calc_joinrel_size_estimate(PlannerInfo *root,
 			RestrictInfo *rinfo = (RestrictInfo *) lfirst(l);
 
 			Assert(IsA(rinfo, RestrictInfo));
-			if (rinfo->is_pushed_down)
+			if (RINFO_IS_PUSHED_DOWN(rinfo, joinrel->relids))
 				pushedquals = lappend(pushedquals, rinfo);
 			else
 				joinquals = lappend(joinquals, rinfo);
@@ -4409,7 +4430,6 @@ get_foreign_key_join_selectivity(PlannerInfo *root,
 	{
 		ForeignKeyOptInfo *fkinfo = (ForeignKeyOptInfo *) lfirst(lc);
 		bool		ref_is_outer;
-		bool		use_smallest_selectivity = false;
 		List	   *removedlist;
 		ListCell   *cell;
 		ListCell   *prev;
@@ -4426,6 +4446,22 @@ get_foreign_key_join_selectivity(PlannerInfo *root,
 				 bms_is_member(fkinfo->con_relid, inner_relids))
 			ref_is_outer = true;
 		else
+			continue;
+
+		/*
+		 * If we're dealing with a semi/anti join, and the FK's referenced
+		 * relation is on the outside, then knowledge of the FK doesn't help
+		 * us figure out what we need to know (which is the fraction of outer
+		 * rows that have matches).  On the other hand, if the referenced rel
+		 * is on the inside, then all outer rows must have matches in the
+		 * referenced table (ignoring nulls).  But any restriction or join
+		 * clauses that filter that table will reduce the fraction of matches.
+		 * We can account for restriction clauses, but it's too hard to guess
+		 * how many table rows would get through a join that's inside the RHS.
+		 * Hence, if either case applies, punt and ignore the FK.
+		 */
+		if ((jointype == JOIN_SEMI || jointype == JOIN_ANTI) &&
+			(ref_is_outer || bms_membership(inner_relids) != BMS_SINGLETON))
 			continue;
 
 		/*
@@ -4528,10 +4564,7 @@ get_foreign_key_join_selectivity(PlannerInfo *root,
 		 * However (1) if there are any strict restriction clauses for the
 		 * referencing column(s) elsewhere in the query, derating here would
 		 * be double-counting the null fraction, and (2) it's not very clear
-		 * how to combine null fractions for multiple referencing columns.
-		 *
-		 * In the use_smallest_selectivity code below, null derating is done
-		 * implicitly by relying on clause_selectivity(); in the other cases,
+		 * how to combine null fractions for multiple referencing columns. So
 		 * we do nothing for now about correcting for nulls.
 		 *
 		 * XXX another point here is that if either side of an FK constraint
@@ -4544,52 +4577,23 @@ get_foreign_key_join_selectivity(PlannerInfo *root,
 		 * work, it is uncommon in practice to have an FK referencing a parent
 		 * table.  So, at least for now, disregard inheritance here.
 		 */
-		if (ref_is_outer && jointype != JOIN_INNER)
+		if (jointype == JOIN_SEMI || jointype == JOIN_ANTI)
 		{
 			/*
-			 * When the referenced table is on the outer side of a non-inner
-			 * join, knowing that each inner row has exactly one match is not
-			 * as useful as one could wish, since we really need to know the
-			 * fraction of outer rows with a match.  Still, we can avoid the
-			 * folly of multiplying the per-column estimates together.  Take
-			 * the smallest per-column selectivity, instead.  (This should
-			 * correspond to the FK column with the most nulls.)
+			 * For JOIN_SEMI and JOIN_ANTI, we only get here when the FK's
+			 * referenced table is exactly the inside of the join.  The join
+			 * selectivity is defined as the fraction of LHS rows that have
+			 * matches.  The FK implies that every LHS row has a match *in the
+			 * referenced table*; but any restriction clauses on it will
+			 * reduce the number of matches.  Hence we take the join
+			 * selectivity as equal to the selectivity of the table's
+			 * restriction clauses, which is rows / tuples; but we must guard
+			 * against tuples == 0.
 			 */
-			use_smallest_selectivity = true;
-		}
-		else if (jointype == JOIN_SEMI || jointype == JOIN_ANTI)
-		{
-			/*
-			 * For JOIN_SEMI and JOIN_ANTI, the selectivity is defined as the
-			 * fraction of LHS rows that have matches.  The referenced table
-			 * is on the inner side (we already handled the other case above),
-			 * so the FK implies that every LHS row has a match *in the
-			 * referenced table*.  But any restriction or join clauses below
-			 * here will reduce the number of matches.
-			 */
-			if (bms_membership(inner_relids) == BMS_SINGLETON)
-			{
-				/*
-				 * When the inner side of the semi/anti join is just the
-				 * referenced table, we may take the FK selectivity as equal
-				 * to the selectivity of the table's restriction clauses.
-				 */
-				RelOptInfo *ref_rel = find_base_rel(root, fkinfo->ref_relid);
-				double		ref_tuples = Max(ref_rel->tuples, 1.0);
+			RelOptInfo *ref_rel = find_base_rel(root, fkinfo->ref_relid);
+			double		ref_tuples = Max(ref_rel->tuples, 1.0);
 
-				fkselec *= ref_rel->rows / ref_tuples;
-			}
-			else
-			{
-				/*
-				 * When the inner side of the semi/anti join is itself a join,
-				 * it's hard to guess what fraction of the referenced table
-				 * will get through the join.  But we still don't want to
-				 * multiply per-column estimates together.  Take the smallest
-				 * per-column selectivity, instead.
-				 */
-				use_smallest_selectivity = true;
-			}
+			fkselec *= ref_rel->rows / ref_tuples;
 		}
 		else
 		{
@@ -4602,26 +4606,6 @@ get_foreign_key_join_selectivity(PlannerInfo *root,
 			double		ref_tuples = Max(ref_rel->tuples, 1.0);
 
 			fkselec *= 1.0 / ref_tuples;
-		}
-
-		/*
-		 * Common code for cases where we should use the smallest selectivity
-		 * that would be computed for any one of the FK's clauses.
-		 */
-		if (use_smallest_selectivity)
-		{
-			Selectivity thisfksel = 1.0;
-
-			foreach(cell, removedlist)
-			{
-				RestrictInfo *rinfo = (RestrictInfo *) lfirst(cell);
-				Selectivity csel;
-
-				csel = clause_selectivity(root, (Node *) rinfo,
-										  0, jointype, sjinfo);
-				thisfksel = Min(thisfksel, csel);
-			}
-			fkselec *= thisfksel;
 		}
 	}
 

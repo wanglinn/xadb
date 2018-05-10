@@ -3976,7 +3976,9 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 
 	/* Separate restrict list into join quals and quals on join relation */
 	if (IS_OUTER_JOIN(jointype))
-		extract_actual_join_clauses(extra->restrictlist, &joinclauses, &otherclauses);
+		extract_actual_join_clauses(extra->restrictlist,
+									joinrel->relids,
+									&joinclauses, &otherclauses);
 	else
 	{
 		/*
@@ -3989,6 +3991,15 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 		otherclauses = extract_actual_clauses(extra->restrictlist, false);
 		joinclauses = NIL;
 	}
+
+	/* Get foreign server */
+	fpinfo->server = fpinfo_o->server;
+
+	/*
+	 * Copy shippable_extensions before checking whether the foreign join is
+	 * OK, so that we know which quals can be evaluated on the foreign server.
+	 */
+	fpinfo->shippable_extensions = fpinfo_o->shippable_extensions;
 
 	/* Join quals must be safe to push down. */
 	foreach(lc, joinclauses)
@@ -4133,9 +4144,6 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 	else
 		fpinfo->user = NULL;
 
-	/* Get foreign server */
-	fpinfo->server = fpinfo_o->server;
-
 	/*
 	 * Since both the joining relations come from the same server, the server
 	 * level options should have same value for both the relations. Pick from
@@ -4191,9 +4199,25 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 		Cost		startup_cost;
 		Cost		total_cost;
 		List	   *useful_pathkeys = lfirst(lc);
+		Path	   *sorted_epq_path;
 
 		estimate_path_cost_size(root, rel, NIL, useful_pathkeys,
 								&rows, &width, &startup_cost, &total_cost);
+
+		/*
+		 * The EPQ path must be at least as well sorted as the path itself,
+		 * in case it gets used as input to a mergejoin.
+		 */
+		sorted_epq_path = epq_path;
+		if (sorted_epq_path != NULL &&
+			!pathkeys_contained_in(useful_pathkeys,
+								   sorted_epq_path->pathkeys))
+			sorted_epq_path = (Path *)
+				create_sort_path(root,
+								 rel,
+								 sorted_epq_path,
+								 useful_pathkeys,
+								 -1.0);
 
 		add_path(rel, (Path *)
 				 create_foreignscan_path(root, rel,
@@ -4203,7 +4227,7 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 										 total_cost,
 										 useful_pathkeys,
 										 NULL,
-										 epq_path,
+										 sorted_epq_path,
 										 NIL));
 	}
 }
@@ -4255,7 +4279,6 @@ postgresGetForeignJoinPaths(PlannerInfo *root,
 	 * the path list of the joinrel, if one exists.  We must be careful to
 	 * call it before adding any ForeignPath, since the ForeignPath might
 	 * dominate the only suitable local path available.  We also do it before
-	 * reconstruct the row for EvalPlanQual(). Find an alternative local path
 	 * calling foreign_join_ok(), since that function updates fpinfo and marks
 	 * it as pushable if the join is found to be pushable.
 	 */

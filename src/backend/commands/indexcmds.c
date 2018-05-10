@@ -298,8 +298,8 @@ CheckIndexCompatible(Oid oldId,
  * 'indexRelationId': normally InvalidOid, but during bootstrap can be
  *		nonzero to specify a preselected OID for the index.
  * 'is_alter_table': this is due to an ALTER rather than a CREATE operation.
- * 'check_rights': check for CREATE rights in the namespace.  (This should
- *		be true except when ALTER is deleting/recreating an index.)
+ * 'check_rights': check for CREATE rights in namespace and tablespace.  (This
+ *		should be true except when ALTER is deleting/recreating an index.)
  * 'skip_build': make the catalog entries but leave the index file empty;
  *		it will be filled later.
  * 'quiet': suppress the NOTICE chatter ordinarily provided for constraints.
@@ -435,8 +435,9 @@ DefineIndex(Oid relationId,
 		/* note InvalidOid is OK in this case */
 	}
 
-	/* Check permissions except when using database's default */
-	if (OidIsValid(tablespaceId) && tablespaceId != MyDatabaseTableSpace)
+	/* Check tablespace permissions */
+	if (check_rights &&
+		OidIsValid(tablespaceId) && tablespaceId != MyDatabaseTableSpace)
 	{
 		AclResult	aclresult;
 
@@ -865,6 +866,20 @@ DefineIndex(Oid relationId,
 
 	PopActiveSnapshot();
 	UnregisterSnapshot(snapshot);
+
+	/*
+	 * The snapshot subsystem could still contain registered snapshots that
+	 * are holding back our process's advertised xmin; in particular, if
+	 * default_transaction_isolation = serializable, there is a transaction
+	 * snapshot that is still active.  The CatalogSnapshot is likewise a
+	 * hazard.  To ensure no deadlocks, we must commit and start yet another
+	 * transaction, and do our wait before any snapshot has been taken in it.
+	 */
+	CommitTransactionCommand();
+	StartTransactionCommand();
+
+	/* We should now definitely not be advertising any xmin. */
+	Assert(MyPgXact->xmin == InvalidTransactionId);
 
 	/*
 	 * The index is now valid in the sense that it contains all currently

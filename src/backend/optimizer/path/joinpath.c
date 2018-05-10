@@ -179,7 +179,7 @@ add_paths_to_joinrel(PlannerInfo *root,
 	if(extra.mergeclause_list)
 	{
 		List *outerkeys = select_outer_pathkeys_for_merge(root, extra.mergeclause_list, joinrel);
-		List *mergeclauses = find_mergeclauses_for_pathkeys(root, outerkeys, true, extra.mergeclause_list);
+		List *mergeclauses = find_mergeclauses_for_outer_pathkeys(root, outerkeys, extra.mergeclause_list);
 		List *innerkeys = make_inner_pathkeys_for_merge(root, mergeclauses, outerkeys);
 		try_partial_sort_path_for_join(root, outerrel, outerkeys);
 		try_partial_sort_path_for_join(root, innerrel, innerkeys);
@@ -968,10 +968,10 @@ sort_inner_and_outer(PlannerInfo *root,
 			outerkeys = all_pathkeys;	/* no work at first one... */
 
 		/* Sort the mergeclauses into the corresponding ordering */
-		cur_mergeclauses = find_mergeclauses_for_pathkeys(root,
-														  outerkeys,
-														  true,
-													extra->mergeclause_list);
+		cur_mergeclauses =
+			find_mergeclauses_for_outer_pathkeys(root,
+												 outerkeys,
+												 extra->mergeclause_list);
 
 		/* Should have used them all... */
 		Assert(list_length(cur_mergeclauses) == list_length(extra->mergeclause_list));
@@ -1435,10 +1435,10 @@ match_unsorted_outer(PlannerInfo *root,
 			continue;
 
 		/* Look for useful mergeclauses (if any) */
-		mergeclauses = find_mergeclauses_for_pathkeys(root,
-													  outerpath->pathkeys,
-													  true,
-													extra->mergeclause_list);
+		mergeclauses =
+			find_mergeclauses_for_outer_pathkeys(root,
+												 outerpath->pathkeys,
+												 extra->mergeclause_list);
 
 		/*
 		 * Done with this outer path if no chance for a mergejoin.
@@ -1559,10 +1559,9 @@ match_unsorted_outer(PlannerInfo *root,
 				if (sortkeycnt < num_sortkeys)
 				{
 					newclauses =
-						find_mergeclauses_for_pathkeys(root,
-													   trialsortkeys,
-													   false,
-													   mergeclauses);
+						trim_mergeclauses_for_inner_pathkeys(root,
+															 mergeclauses,
+															 trialsortkeys);
 					Assert(newclauses != NIL);
 				}
 				else
@@ -1602,10 +1601,9 @@ match_unsorted_outer(PlannerInfo *root,
 						if (sortkeycnt < num_sortkeys)
 						{
 							newclauses =
-								find_mergeclauses_for_pathkeys(root,
-															   trialsortkeys,
-															   false,
-															   mergeclauses);
+								trim_mergeclauses_for_inner_pathkeys(root,
+																mergeclauses,
+															  trialsortkeys);
 							Assert(newclauses != NIL);
 						}
 						else
@@ -1893,7 +1891,7 @@ hash_inner_and_outer(PlannerInfo *root,
 		 * If processing an outer join, only use its own join clauses for
 		 * hashing.  For inner joins we need not be so picky.
 		 */
-		if (isouterjoin && restrictinfo->is_pushed_down)
+		if (isouterjoin && RINFO_IS_PUSHED_DOWN(restrictinfo, joinrel->relids))
 			continue;
 
 		if (!restrictinfo->can_join ||
@@ -2137,7 +2135,7 @@ select_mergejoin_clauses(PlannerInfo *root,
 		 * we don't set have_nonmergeable_joinclause here because pushed-down
 		 * clauses will become otherquals not joinquals.)
 		 */
-		if (isouterjoin && restrictinfo->is_pushed_down)
+		if (isouterjoin && RINFO_IS_PUSHED_DOWN(restrictinfo, joinrel->relids))
 			continue;
 
 		/* Check that clause is a mergeable operator clause */
@@ -2694,9 +2692,8 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 															   jcontext->jointype,
 															   outer_path->pathkeys);
 
-			jcontext->merge_clauses = find_mergeclauses_for_pathkeys(jcontext->root,
+			jcontext->merge_clauses = find_mergeclauses_for_outer_pathkeys(jcontext->root,
 																	 outer_path->pathkeys,
-																	 true,
 																	 jcontext->extra->mergeclause_list);
 			try_cluster_join_path(jcontext, outer_path, inner_path, new_reduce_list);
 		}
@@ -2852,9 +2849,8 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 					if (num_sortkeys < list_length(innersortkeys))
 					{
 						newclauses =
-							find_mergeclauses_for_pathkeys(jcontext->root,
+							trim_mergeclauses_for_inner_pathkeys(jcontext->root,
 														   trialsortkeys,
-														   false,
 														   jcontext->merge_clauses);
 						Assert(newclauses != NIL);
 					}
@@ -2897,9 +2893,8 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 						{
 							if(num_sortkeys < list_length(innersortkeys))
 							{
-								newclauses = find_mergeclauses_for_pathkeys(jcontext->root,
+								newclauses = trim_mergeclauses_for_inner_pathkeys(jcontext->root,
 																		    trialsortkeys,
-																		    false,
 																		    jcontext->merge_clauses);
 								Assert(newclauses != NIL);
 							}else
@@ -2982,9 +2977,8 @@ static void sort_cluster_inner_and_outer(ClusterJoinContext *jcontext, Path *out
 			outerkeys = all_pathkeys;	/* no work at first one... */
 
 		/* Sort the mergeclauses into the corresponding ordering */
-		cur_mergeclauses = find_mergeclauses_for_pathkeys(jcontext->root,
+		cur_mergeclauses = find_mergeclauses_for_outer_pathkeys(jcontext->root,
 														  outerkeys,
-														  true,
 													extra->mergeclause_list);
 
 		/* Should have used them all... */

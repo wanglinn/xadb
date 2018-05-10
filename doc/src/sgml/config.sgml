@@ -532,10 +532,10 @@ include_dir 'conf.d'
       </term>
       <listitem>
        <para>
-         Specifies the configuration file for
-         <xref linkend="auth-username-maps"> user name mapping
+         Specifies the configuration file for user name mapping
          (customarily called <filename>pg_ident.conf</>).
          This parameter can only be set at server start.
+         See also <xref linkend="auth-username-maps">.
        </para>
       </listitem>
      </varlistentry>
@@ -856,8 +856,8 @@ include_dir 'conf.d'
         Specifies the number of seconds of inactivity after which TCP
         should send a keepalive message to the client.  A value of 0 uses
         the system default.
-        This parameter is supported only on systems that support the
-        <symbol>TCP_KEEPIDLE</> or <symbol>TCP_KEEPALIVE</> symbols, and on
+        This parameter is supported only on systems that support
+        <symbol>TCP_KEEPIDLE</> or an equivalent socket option, and on
         Windows; on other systems, it must be zero.
         In sessions connected via a Unix-domain socket, this parameter is
         ignored and always reads as zero.
@@ -882,9 +882,9 @@ include_dir 'conf.d'
         Specifies the number of seconds after which a TCP keepalive message
         that is not acknowledged by the client should be retransmitted.
         A value of 0 uses the system default.
-        This parameter is supported only on systems that support the
-        <symbol>TCP_KEEPINTVL</> symbol, and on Windows; on other systems, it
-        must be zero.
+        This parameter is supported only on systems that support
+        <symbol>TCP_KEEPINTVL</> or an equivalent socket option, and on
+        Windows; on other systems, it must be zero.
         In sessions connected via a Unix-domain socket, this parameter is
         ignored and always reads as zero.
        </para>
@@ -906,10 +906,11 @@ include_dir 'conf.d'
       <listitem>
        <para>
         Specifies the number of TCP keepalives that can be lost before
-        the server's connection to the client is considered dead.  A value of 0
-        uses the system default.  This parameter is
-        supported only on systems that support the <symbol>TCP_KEEPCNT</>
-        symbol; on other systems, it must be zero.
+        the server's connection to the client is considered dead.
+        A value of 0 uses the system default.
+        This parameter is supported only on systems that support
+        <symbol>TCP_KEEPCNT</> or an equivalent socket option;
+        on other systems, it must be zero.
         In sessions connected via a Unix-domain socket, this parameter is
         ignored and always reads as zero.
        </para>
@@ -3034,7 +3035,7 @@ include_dir 'conf.d'
         earlier in this list, and
         that are both currently connected and streaming data in real-time
         (as shown by a state of <literal>streaming</literal> in the
-        <link linkend="monitoring-stats-views-table">
+        <link linkend="pg-stat-replication-view">
         <literal>pg_stat_replication</></link> view).
         Other standby servers appearing later in this list represent potential
         synchronous standbys. If any of the current synchronous
@@ -3243,7 +3244,7 @@ include_dir 'conf.d'
        Specifies the minimum frequency for the WAL receiver
        process on the standby to send information about replication progress
        to the primary or upstream standby, where it can be seen using the
-       <link linkend="monitoring-stats-views-table">
+       <link linkend="pg-stat-replication-view">
        <literal>pg_stat_replication</></link> view.  The standby will report
        the last transaction log position it has written, the last position it
        has flushed to disk, and the last position it has applied.
@@ -5174,6 +5175,7 @@ FROM pg_stat_activity;
         longer than <xref linkend="guc-deadlock-timeout"> to acquire a
         lock.  This is useful in determining if lock waits are causing
         poor performance.  The default is <literal>off</>.
+        Only superusers can change this setting.
        </para>
       </listitem>
      </varlistentry>
@@ -6000,6 +6002,13 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
        </para>
 
        <para>
+        For more information on schema handling, see
+        <xref linkend="ddl-schemas">.  In particular, the default
+        configuration is suitable only when the database has a single user or
+        a few mutually-trusting users.
+       </para>
+
+       <para>
         The current effective value of the search path can be examined
         via the <acronym>SQL</acronym> function
         <function>current_schemas</>
@@ -6008,10 +6017,6 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
         examining the value of <varname>search_path</varname>, since
         <function>current_schemas</> shows how the items
         appearing in <varname>search_path</varname> were resolved.
-       </para>
-
-       <para>
-        For more information on schema handling, see <xref linkend="ddl-schemas">.
        </para>
       </listitem>
      </varlistentry>

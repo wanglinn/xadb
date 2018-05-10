@@ -112,6 +112,7 @@
 #include "catalog/pg_type.h"
 #include "executor/executor.h"
 #include "mb/pg_wchar.h"
+#include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
@@ -125,6 +126,7 @@
 #include "parser/parse_clause.h"
 #include "parser/parse_coerce.h"
 #include "parser/parsetree.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/bytea.h"
 #include "utils/date.h"
@@ -165,7 +167,7 @@ static double eqjoinsel_semi(Oid operator,
 static bool convert_to_scalar(Datum value, Oid valuetypid, double *scaledvalue,
 				  Datum lobound, Datum hibound, Oid boundstypid,
 				  double *scaledlobound, double *scaledhibound);
-static double convert_numeric_to_scalar(Datum value, Oid typid);
+static double convert_numeric_to_scalar(Datum value, Oid typid, bool *failure);
 static void convert_string_to_scalar(char *value,
 						 double *scaledvalue,
 						 char *lobound,
@@ -182,8 +184,9 @@ static double convert_one_string_to_scalar(char *value,
 							 int rangelo, int rangehi);
 static double convert_one_bytea_to_scalar(unsigned char *value, int valuelen,
 							int rangelo, int rangehi);
-static char *convert_string_datum(Datum value, Oid typid);
-static double convert_timevalue_to_scalar(Datum value, Oid typid);
+static char *convert_string_datum(Datum value, Oid typid, bool *failure);
+static double convert_timevalue_to_scalar(Datum value, Oid typid,
+							bool *failure);
 static void examine_simple_variable(PlannerInfo *root, Var *var,
 						VariableStatData *vardata);
 static bool get_variable_range(PlannerInfo *root, VariableStatData *vardata,
@@ -266,6 +269,7 @@ var_eq_const(VariableStatData *vardata, Oid operator,
 {
 	double		selec;
 	bool		isdefault;
+	Oid			opfuncoid;
 
 	/*
 	 * If the constant is NULL, assume operator is strict and return zero, ie,
@@ -284,7 +288,9 @@ var_eq_const(VariableStatData *vardata, Oid operator,
 	if (vardata->isunique && vardata->rel && vardata->rel->tuples >= 1.0)
 		return 1.0 / vardata->rel->tuples;
 
-	if (HeapTupleIsValid(vardata->statsTuple))
+	if (HeapTupleIsValid(vardata->statsTuple) &&
+		statistic_proc_security_check(vardata,
+									  (opfuncoid = get_opcode(operator))))
 	{
 		Form_pg_statistic stats;
 		Datum	   *values;
@@ -312,7 +318,7 @@ var_eq_const(VariableStatData *vardata, Oid operator,
 		{
 			FmgrInfo	eqproc;
 
-			fmgr_info(get_opcode(operator), &eqproc);
+			fmgr_info(opfuncoid, &eqproc);
 
 			for (i = 0; i < nvalues; i++)
 			{
@@ -525,7 +531,8 @@ neqsel(PG_FUNCTION_ARGS)
  *
  * This routine works for any datatype (or pair of datatypes) known to
  * convert_to_scalar().  If it is applied to some other datatype,
- * it will return a default estimate.
+ * it will return an approximate estimate based on assuming that the constant
+ * value falls in the middle of the bin identified by binary search.
  */
 static double
 scalarineqsel(PlannerInfo *root, Oid operator, bool isgt,
@@ -618,6 +625,7 @@ mcv_selectivity(VariableStatData *vardata, FmgrInfo *opproc,
 	sumcommon = 0.0;
 
 	if (HeapTupleIsValid(vardata->statsTuple) &&
+		statistic_proc_security_check(vardata, opproc->fn_oid) &&
 		get_attstatsslot(vardata->statsTuple,
 						 vardata->atttype, vardata->atttypmod,
 						 STATISTIC_KIND_MCV, InvalidOid,
@@ -694,6 +702,7 @@ histogram_selectivity(VariableStatData *vardata, FmgrInfo *opproc,
 	Assert(min_hist_size > 2 * n_skip);
 
 	if (HeapTupleIsValid(vardata->statsTuple) &&
+		statistic_proc_security_check(vardata, opproc->fn_oid) &&
 		get_attstatsslot(vardata->statsTuple,
 						 vardata->atttype, vardata->atttypmod,
 						 STATISTIC_KIND_HISTOGRAM, InvalidOid,
@@ -771,6 +780,7 @@ ineq_histogram_selectivity(PlannerInfo *root,
 	 * the reverse way if isgt is TRUE.
 	 */
 	if (HeapTupleIsValid(vardata->statsTuple) &&
+		statistic_proc_security_check(vardata, opproc->fn_oid) &&
 		get_attstatsslot(vardata->statsTuple,
 						 vardata->atttype, vardata->atttypmod,
 						 STATISTIC_KIND_HISTOGRAM, InvalidOid,
@@ -2255,6 +2265,7 @@ eqjoinsel_inner(Oid operator,
 	double		nd2;
 	bool		isdefault1;
 	bool		isdefault2;
+	Oid			opfuncoid;
 	Form_pg_statistic stats1 = NULL;
 	Form_pg_statistic stats2 = NULL;
 	bool		have_mcvs1 = false;
@@ -2271,30 +2282,36 @@ eqjoinsel_inner(Oid operator,
 	nd1 = get_variable_numdistinct(vardata1, &isdefault1);
 	nd2 = get_variable_numdistinct(vardata2, &isdefault2);
 
+	opfuncoid = get_opcode(operator);
+
 	if (HeapTupleIsValid(vardata1->statsTuple))
 	{
+		/* note we allow use of nullfrac regardless of security check */
 		stats1 = (Form_pg_statistic) GETSTRUCT(vardata1->statsTuple);
-		have_mcvs1 = get_attstatsslot(vardata1->statsTuple,
-									  vardata1->atttype,
-									  vardata1->atttypmod,
-									  STATISTIC_KIND_MCV,
-									  InvalidOid,
-									  NULL,
-									  &values1, &nvalues1,
-									  &numbers1, &nnumbers1);
+		if (statistic_proc_security_check(vardata1, opfuncoid))
+			have_mcvs1 = get_attstatsslot(vardata1->statsTuple,
+										  vardata1->atttype,
+										  vardata1->atttypmod,
+										  STATISTIC_KIND_MCV,
+										  InvalidOid,
+										  NULL,
+										  &values1, &nvalues1,
+										  &numbers1, &nnumbers1);
 	}
 
 	if (HeapTupleIsValid(vardata2->statsTuple))
 	{
+		/* note we allow use of nullfrac regardless of security check */
 		stats2 = (Form_pg_statistic) GETSTRUCT(vardata2->statsTuple);
-		have_mcvs2 = get_attstatsslot(vardata2->statsTuple,
-									  vardata2->atttype,
-									  vardata2->atttypmod,
-									  STATISTIC_KIND_MCV,
-									  InvalidOid,
-									  NULL,
-									  &values2, &nvalues2,
-									  &numbers2, &nnumbers2);
+		if (statistic_proc_security_check(vardata2, opfuncoid))
+			have_mcvs2 = get_attstatsslot(vardata2->statsTuple,
+										  vardata2->atttype,
+										  vardata2->atttypmod,
+										  STATISTIC_KIND_MCV,
+										  InvalidOid,
+										  NULL,
+										  &values2, &nvalues2,
+										  &numbers2, &nnumbers2);
 	}
 
 	if (have_mcvs1 && have_mcvs2)
@@ -2328,7 +2345,7 @@ eqjoinsel_inner(Oid operator,
 		int			i,
 					nmatches;
 
-		fmgr_info(get_opcode(operator), &eqproc);
+		fmgr_info(opfuncoid, &eqproc);
 		hasmatch1 = (bool *) palloc0(nvalues1 * sizeof(bool));
 		hasmatch2 = (bool *) palloc0(nvalues2 * sizeof(bool));
 
@@ -2471,6 +2488,7 @@ eqjoinsel_inner(Oid operator,
  *
  * (Also used for anti join, which we are supposed to estimate the same way.)
  * Caller has ensured that vardata1 is the LHS variable.
+ * Unlike eqjoinsel_inner, we have to cope with operator being InvalidOid.
  */
 static double
 eqjoinsel_semi(Oid operator,
@@ -2482,6 +2500,7 @@ eqjoinsel_semi(Oid operator,
 	double		nd2;
 	bool		isdefault1;
 	bool		isdefault2;
+	Oid			opfuncoid;
 	Form_pg_statistic stats1 = NULL;
 	bool		have_mcvs1 = false;
 	Datum	   *values1 = NULL;
@@ -2496,6 +2515,8 @@ eqjoinsel_semi(Oid operator,
 
 	nd1 = get_variable_numdistinct(vardata1, &isdefault1);
 	nd2 = get_variable_numdistinct(vardata2, &isdefault2);
+
+	opfuncoid = OidIsValid(operator) ? get_opcode(operator) : InvalidOid;
 
 	/*
 	 * We clamp nd2 to be not more than what we estimate the inner relation's
@@ -2518,18 +2539,21 @@ eqjoinsel_semi(Oid operator,
 
 	if (HeapTupleIsValid(vardata1->statsTuple))
 	{
+		/* note we allow use of nullfrac regardless of security check */
 		stats1 = (Form_pg_statistic) GETSTRUCT(vardata1->statsTuple);
-		have_mcvs1 = get_attstatsslot(vardata1->statsTuple,
-									  vardata1->atttype,
-									  vardata1->atttypmod,
-									  STATISTIC_KIND_MCV,
-									  InvalidOid,
-									  NULL,
-									  &values1, &nvalues1,
-									  &numbers1, &nnumbers1);
+		if (statistic_proc_security_check(vardata1, opfuncoid))
+			have_mcvs1 = get_attstatsslot(vardata1->statsTuple,
+										  vardata1->atttype,
+										  vardata1->atttypmod,
+										  STATISTIC_KIND_MCV,
+										  InvalidOid,
+										  NULL,
+										  &values1, &nvalues1,
+										  &numbers1, &nnumbers1);
 	}
 
-	if (HeapTupleIsValid(vardata2->statsTuple))
+	if (HeapTupleIsValid(vardata2->statsTuple) &&
+		statistic_proc_security_check(vardata2, opfuncoid))
 	{
 		have_mcvs2 = get_attstatsslot(vardata2->statsTuple,
 									  vardata2->atttype,
@@ -2571,7 +2595,7 @@ eqjoinsel_semi(Oid operator,
 		 */
 		clamped_nvalues2 = Min(nvalues2, nd2);
 
-		fmgr_info(get_opcode(operator), &eqproc);
+		fmgr_info(opfuncoid, &eqproc);
 		hasmatch1 = (bool *) palloc0(nvalues1 * sizeof(bool));
 		hasmatch2 = (bool *) palloc0(clamped_nvalues2 * sizeof(bool));
 
@@ -3685,10 +3709,15 @@ convert_to_scalar(Datum value, Oid valuetypid, double *scaledvalue,
 				  Datum lobound, Datum hibound, Oid boundstypid,
 				  double *scaledlobound, double *scaledhibound)
 {
+	bool		failure = false;
+
 	/*
 	 * Both the valuetypid and the boundstypid should exactly match the
-	 * declared input type(s) of the operator we are invoked for, so we just
-	 * error out if either is not recognized.
+	 * declared input type(s) of the operator we are invoked for.  However,
+	 * extensions might try to use scalarineqsel as estimator for operators
+	 * with input type(s) we don't handle here; in such cases, we want to
+	 * return false, not fail.  In any case, we mustn't assume that valuetypid
+	 * and boundstypid are identical.
 	 *
 	 * XXX The histogram we are interpolating between points of could belong
 	 * to a column that's only binary-compatible with the declared type. In
@@ -3723,10 +3752,13 @@ convert_to_scalar(Datum value, Oid valuetypid, double *scaledvalue,
 		case REGDICTIONARYOID:
 		case REGROLEOID:
 		case REGNAMESPACEOID:
-			*scaledvalue = convert_numeric_to_scalar(value, valuetypid);
-			*scaledlobound = convert_numeric_to_scalar(lobound, boundstypid);
-			*scaledhibound = convert_numeric_to_scalar(hibound, boundstypid);
-			return true;
+			*scaledvalue = convert_numeric_to_scalar(value, valuetypid,
+													 &failure);
+			*scaledlobound = convert_numeric_to_scalar(lobound, boundstypid,
+													   &failure);
+			*scaledhibound = convert_numeric_to_scalar(hibound, boundstypid,
+													   &failure);
+			return !failure;
 
 			/*
 			 * Built-in string types
@@ -3737,9 +3769,20 @@ convert_to_scalar(Datum value, Oid valuetypid, double *scaledvalue,
 		case TEXTOID:
 		case NAMEOID:
 			{
-				char	   *valstr = convert_string_datum(value, valuetypid);
-				char	   *lostr = convert_string_datum(lobound, boundstypid);
-				char	   *histr = convert_string_datum(hibound, boundstypid);
+				char	   *valstr = convert_string_datum(value, valuetypid,
+														  &failure);
+				char	   *lostr = convert_string_datum(lobound, boundstypid,
+														 &failure);
+				char	   *histr = convert_string_datum(hibound, boundstypid,
+														 &failure);
+
+				/*
+				 * Bail out if any of the values is not of string type.  We
+				 * might leak converted strings for the other value(s), but
+				 * that's not worth troubling over.
+				 */
+				if (failure)
+					return false;
 
 				convert_string_to_scalar(valstr, scaledvalue,
 										 lostr, scaledlobound,
@@ -3755,6 +3798,9 @@ convert_to_scalar(Datum value, Oid valuetypid, double *scaledvalue,
 			 */
 		case BYTEAOID:
 			{
+				/* We only support bytea vs bytea comparison */
+				if (boundstypid != BYTEAOID)
+					return false;
 				convert_bytea_to_scalar(value, scaledvalue,
 										lobound, scaledlobound,
 										hibound, scaledhibound);
@@ -3773,10 +3819,13 @@ convert_to_scalar(Datum value, Oid valuetypid, double *scaledvalue,
 		case TINTERVALOID:
 		case TIMEOID:
 		case TIMETZOID:
-			*scaledvalue = convert_timevalue_to_scalar(value, valuetypid);
-			*scaledlobound = convert_timevalue_to_scalar(lobound, boundstypid);
-			*scaledhibound = convert_timevalue_to_scalar(hibound, boundstypid);
-			return true;
+			*scaledvalue = convert_timevalue_to_scalar(value, valuetypid,
+													   &failure);
+			*scaledlobound = convert_timevalue_to_scalar(lobound, boundstypid,
+														 &failure);
+			*scaledhibound = convert_timevalue_to_scalar(hibound, boundstypid,
+														 &failure);
+			return !failure;
 
 			/*
 			 * Built-in network types
@@ -3784,10 +3833,13 @@ convert_to_scalar(Datum value, Oid valuetypid, double *scaledvalue,
 		case INETOID:
 		case CIDROID:
 		case MACADDROID:
-			*scaledvalue = convert_network_to_scalar(value, valuetypid);
-			*scaledlobound = convert_network_to_scalar(lobound, boundstypid);
-			*scaledhibound = convert_network_to_scalar(hibound, boundstypid);
-			return true;
+			*scaledvalue = convert_network_to_scalar(value, valuetypid,
+													 &failure);
+			*scaledlobound = convert_network_to_scalar(lobound, boundstypid,
+													   &failure);
+			*scaledhibound = convert_network_to_scalar(hibound, boundstypid,
+													   &failure);
+			return !failure;
 	}
 	/* Don't know how to convert */
 	*scaledvalue = *scaledlobound = *scaledhibound = 0;
@@ -3796,9 +3848,12 @@ convert_to_scalar(Datum value, Oid valuetypid, double *scaledvalue,
 
 /*
  * Do convert_to_scalar()'s work for any numeric data type.
+ *
+ * On failure (e.g., unsupported typid), set *failure to true;
+ * otherwise, that variable is not changed.
  */
 static double
-convert_numeric_to_scalar(Datum value, Oid typid)
+convert_numeric_to_scalar(Datum value, Oid typid, bool *failure)
 {
 	switch (typid)
 	{
@@ -3834,11 +3889,7 @@ convert_numeric_to_scalar(Datum value, Oid typid)
 			return (double) DatumGetObjectId(value);
 	}
 
-	/*
-	 * Can't get here unless someone tries to use scalarltsel/scalargtsel on
-	 * an operator with one numeric and one non-numeric operand.
-	 */
-	elog(ERROR, "unsupported type: %u", typid);
+	*failure = true;
 	return 0;
 }
 
@@ -3987,11 +4038,14 @@ convert_one_string_to_scalar(char *value, int rangelo, int rangehi)
 /*
  * Convert a string-type Datum into a palloc'd, null-terminated string.
  *
+ * On failure (e.g., unsupported typid), set *failure to true;
+ * otherwise, that variable is not changed.  (We'll return NULL on failure.)
+ *
  * When using a non-C locale, we must pass the string through strxfrm()
  * before continuing, so as to generate correct locale-specific results.
  */
 static char *
-convert_string_datum(Datum value, Oid typid)
+convert_string_datum(Datum value, Oid typid, bool *failure)
 {
 	char	   *val;
 
@@ -4015,12 +4069,7 @@ convert_string_datum(Datum value, Oid typid)
 				break;
 			}
 		default:
-
-			/*
-			 * Can't get here unless someone tries to use scalarltsel on an
-			 * operator with one string and one non-string operand.
-			 */
-			elog(ERROR, "unsupported type: %u", typid);
+			*failure = true;
 			return NULL;
 	}
 
@@ -4097,16 +4146,19 @@ convert_bytea_to_scalar(Datum value,
 						Datum hibound,
 						double *scaledhibound)
 {
+	bytea	   *valuep = DatumGetByteaPP(value);
+	bytea	   *loboundp = DatumGetByteaPP(lobound);
+	bytea	   *hiboundp = DatumGetByteaPP(hibound);
 	int			rangelo,
 				rangehi,
-				valuelen = VARSIZE(DatumGetPointer(value)) - VARHDRSZ,
-				loboundlen = VARSIZE(DatumGetPointer(lobound)) - VARHDRSZ,
-				hiboundlen = VARSIZE(DatumGetPointer(hibound)) - VARHDRSZ,
+				valuelen = VARSIZE_ANY_EXHDR(valuep),
+				loboundlen = VARSIZE_ANY_EXHDR(loboundp),
+				hiboundlen = VARSIZE_ANY_EXHDR(hiboundp),
 				i,
 				minlen;
-	unsigned char *valstr = (unsigned char *) VARDATA(DatumGetPointer(value)),
-			   *lostr = (unsigned char *) VARDATA(DatumGetPointer(lobound)),
-			   *histr = (unsigned char *) VARDATA(DatumGetPointer(hibound));
+	unsigned char *valstr = (unsigned char *) VARDATA_ANY(valuep);
+	unsigned char *lostr = (unsigned char *) VARDATA_ANY(loboundp);
+	unsigned char *histr = (unsigned char *) VARDATA_ANY(hiboundp);
 
 	/*
 	 * Assume bytea data is uniformly distributed across all byte values.
@@ -4173,9 +4225,12 @@ convert_one_bytea_to_scalar(unsigned char *value, int valuelen,
 
 /*
  * Do convert_to_scalar()'s work for any timevalue data type.
+ *
+ * On failure (e.g., unsupported typid), set *failure to true;
+ * otherwise, that variable is not changed.
  */
 static double
-convert_timevalue_to_scalar(Datum value, Oid typid)
+convert_timevalue_to_scalar(Datum value, Oid typid, bool *failure)
 {
 	switch (typid)
 	{
@@ -4239,11 +4294,7 @@ convert_timevalue_to_scalar(Datum value, Oid typid)
 			}
 	}
 
-	/*
-	 * Can't get here unless someone tries to use scalarltsel/scalargtsel on
-	 * an operator with one timevalue and one non-timevalue operand.
-	 */
-	elog(ERROR, "unsupported type: %u", typid);
+	*failure = true;
 	return 0;
 }
 
@@ -4387,6 +4438,9 @@ get_join_variables(PlannerInfo *root, List *args, SpecialJoinInfo *sjinfo,
  *		this query.  (Caution: this should be trusted for statistical
  *		purposes only, since we do not check indimmediate nor verify that
  *		the exact same definition of equality applies.)
+ *	acl_ok: TRUE if current user has permission to read the column(s)
+ *		underlying the pg_statistic entry.  This is consulted by
+ *		statistic_proc_security_check().
  *
  * Caller is responsible for doing ReleaseVariableStats() before exiting.
  */
@@ -4555,6 +4609,30 @@ examine_variable(PlannerInfo *root, Node *node, int varRelid,
 												Int16GetDatum(pos + 1),
 												BoolGetDatum(false));
 							vardata->freefunc = ReleaseSysCache;
+
+							if (HeapTupleIsValid(vardata->statsTuple))
+							{
+								/* Get index's table for permission check */
+								RangeTblEntry *rte;
+
+								rte = planner_rt_fetch(index->rel->relid, root);
+								Assert(rte->rtekind == RTE_RELATION);
+
+								/*
+								 * For simplicity, we insist on the whole
+								 * table being selectable, rather than trying
+								 * to identify which column(s) the index
+								 * depends on.
+								 */
+								vardata->acl_ok =
+									(pg_class_aclcheck(rte->relid, GetUserId(),
+												 ACL_SELECT) == ACLCHECK_OK);
+							}
+							else
+							{
+								/* suppress leakproofness checks later */
+								vardata->acl_ok = true;
+							}
 						}
 						if (vardata->statsTuple)
 							break;
@@ -4607,6 +4685,21 @@ examine_simple_variable(PlannerInfo *root, Var *var,
 											  Int16GetDatum(var->varattno),
 											  BoolGetDatum(rte->inh));
 		vardata->freefunc = ReleaseSysCache;
+
+		if (HeapTupleIsValid(vardata->statsTuple))
+		{
+			/* check if user has permission to read this column */
+			vardata->acl_ok =
+				(pg_class_aclcheck(rte->relid, GetUserId(),
+								   ACL_SELECT) == ACLCHECK_OK) ||
+				(pg_attribute_aclcheck(rte->relid, var->varattno, GetUserId(),
+									   ACL_SELECT) == ACLCHECK_OK);
+		}
+		else
+		{
+			/* suppress any possible leakproofness checks later */
+			vardata->acl_ok = true;
+		}
 	}
 	else if (rte->rtekind == RTE_SUBQUERY && !rte->inh)
 	{
@@ -4721,6 +4814,30 @@ examine_simple_variable(PlannerInfo *root, Var *var,
 		 * maybe someday try to be smarter about VALUES and/or CTEs.
 		 */
 	}
+}
+
+/*
+ * Check whether it is permitted to call func_oid passing some of the
+ * pg_statistic data in vardata.  We allow this either if the user has SELECT
+ * privileges on the table or column underlying the pg_statistic data or if
+ * the function is marked leak-proof.
+ */
+bool
+statistic_proc_security_check(VariableStatData *vardata, Oid func_oid)
+{
+	if (vardata->acl_ok)
+		return true;
+
+	if (!OidIsValid(func_oid))
+		return false;
+
+	if (get_func_leakproof(func_oid))
+		return true;
+
+	ereport(DEBUG2,
+			(errmsg_internal("not using statistics because function \"%s\" is not leak-proof",
+							 get_func_name(func_oid))));
+	return false;
 }
 
 /*
@@ -4870,6 +4987,7 @@ get_variable_range(PlannerInfo *root, VariableStatData *vardata, Oid sortop,
 	bool		have_data = false;
 	int16		typLen;
 	bool		typByVal;
+	Oid			opfuncoid;
 	Datum	   *values;
 	int			nvalues;
 	int			i;
@@ -4891,6 +5009,17 @@ get_variable_range(PlannerInfo *root, VariableStatData *vardata, Oid sortop,
 		/* no stats available, so default result */
 		return false;
 	}
+
+	/*
+	 * If we can't apply the sortop to the stats data, just fail.  In
+	 * principle, if there's a histogram and no MCVs, we could return the
+	 * histogram endpoints without ever applying the sortop ... but it's
+	 * probably not worth trying, because whatever the caller wants to do with
+	 * the endpoints would likely fail the security check too.
+	 */
+	if (!statistic_proc_security_check(vardata,
+									   (opfuncoid = get_opcode(sortop))))
+		return false;
 
 	get_typlenbyval(vardata->atttype, &typLen, &typByVal);
 
@@ -4944,7 +5073,7 @@ get_variable_range(PlannerInfo *root, VariableStatData *vardata, Oid sortop,
 		bool		tmax_is_mcv = false;
 		FmgrInfo	opproc;
 
-		fmgr_info(get_opcode(sortop), &opproc);
+		fmgr_info(opfuncoid, &opproc);
 
 		for (i = 0; i < nvalues; i++)
 		{

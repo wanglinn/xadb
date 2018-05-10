@@ -1657,6 +1657,9 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 	/* compute latestXid among all children */
 	latestXid = TransactionIdLatest(xid, hdr->nsubxacts, children);
 
+	/* Prevent cancel/die interrupt while cleaning up */
+	HOLD_INTERRUPTS();
+
 	/*
 	 * The order of operations here is critical: make the XLOG entry for
 	 * commit or abort, then mark the transaction committed or aborted in
@@ -1744,6 +1747,8 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 
 	RemoveGXact(gxact);
 	MyLockedGxact = NULL;
+
+	RESUME_INTERRUPTS();
 
 #ifdef ADB
 	/*
@@ -2180,7 +2185,7 @@ StandbyRecoverPreparedTransactions(bool overwriteOK)
 				TransactionId subxid = subxids[i];
 
 				Assert(TransactionIdFollows(subxid, xid));
-				SubTransSetParent(xid, subxid, overwriteOK);
+				SubTransSetParent(subxid, xid, overwriteOK);
 			}
 
 			pfree(buf);

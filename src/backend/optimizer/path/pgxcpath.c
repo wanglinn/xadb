@@ -256,7 +256,7 @@ create_joinrel_rqpath(PlannerInfo *root, RelOptInfo *joinrel,
 	 * Collect quals from restrictions so as to check the shippability of a JOIN
 	 * between distributed relations.
 	 */
-	extract_actual_join_clauses(restrictlist, &join_quals, &other_quals);
+	extract_actual_join_clauses(restrictlist, joinrel->relids, &join_quals, &other_quals);
 	/*
 	 * If the joining qual is not shippable and it's an OUTER JOIN, we can not
 	 * ship the JOIN, since that would impact JOIN result.

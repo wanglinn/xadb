@@ -100,6 +100,25 @@ static int ldapServiceLookup(const char *purl, PQconninfoOption *options,
 #define ERRCODE_CANNOT_CONNECT_NOW "57P03"
 
 /*
+ * Cope with the various platform-specific ways to spell TCP keepalive socket
+ * options.  This doesn't cover Windows, which as usual does its own thing.
+ */
+#if defined(TCP_KEEPIDLE)
+/* TCP_KEEPIDLE is the name of this option on Linux and *BSD */
+#define PG_TCP_KEEPALIVE_IDLE TCP_KEEPIDLE
+#define PG_TCP_KEEPALIVE_IDLE_STR "TCP_KEEPIDLE"
+#elif defined(TCP_KEEPALIVE_THRESHOLD)
+/* TCP_KEEPALIVE_THRESHOLD is the name of this option on Solaris >= 11 */
+#define PG_TCP_KEEPALIVE_IDLE TCP_KEEPALIVE_THRESHOLD
+#define PG_TCP_KEEPALIVE_IDLE_STR "TCP_KEEPALIVE_THRESHOLD"
+#elif defined(TCP_KEEPALIVE) && defined(__darwin__)
+/* TCP_KEEPALIVE is the name of this option on macOS */
+/* Caution: Solaris has this symbol but it means something different */
+#define PG_TCP_KEEPALIVE_IDLE TCP_KEEPALIVE
+#define PG_TCP_KEEPALIVE_IDLE_STR "TCP_KEEPALIVE"
+#endif
+
+/*
  * fall back options if they are not specified by arguments or defined
  * by environment variables
  */
@@ -404,6 +423,7 @@ pqDropConnection(PGconn *conn, bool flushInput)
 {
 	/* Drop any SSL state */
 	pqsecure_close(conn);
+
 	/* Close the socket itself */
 #ifdef ADB
 	if (conn->sock != PGINVALID_SOCKET)
@@ -415,11 +435,51 @@ pqDropConnection(PGconn *conn, bool flushInput)
 	if (conn->sock >= 0)
 		closesocket(conn->sock);
 	conn->sock = PGINVALID_SOCKET;
+
 	/* Optionally discard any unread data */
 	if (flushInput)
 		conn->inStart = conn->inCursor = conn->inEnd = 0;
+
 	/* Always discard any unsent data */
 	conn->outCount = 0;
+
+	/* Free authentication state */
+#ifdef ENABLE_GSS
+	{
+		OM_uint32	min_s;
+
+		if (conn->gctx)
+			gss_delete_sec_context(&min_s, &conn->gctx, GSS_C_NO_BUFFER);
+		if (conn->gtarg_nam)
+			gss_release_name(&min_s, &conn->gtarg_nam);
+		if (conn->ginbuf.length)
+			gss_release_buffer(&min_s, &conn->ginbuf);
+		if (conn->goutbuf.length)
+			gss_release_buffer(&min_s, &conn->goutbuf);
+	}
+#endif
+#ifdef ENABLE_SSPI
+	if (conn->ginbuf.length)
+		free(conn->ginbuf.value);
+	conn->ginbuf.length = 0;
+	conn->ginbuf.value = NULL;
+	if (conn->sspitarget)
+		free(conn->sspitarget);
+	conn->sspitarget = NULL;
+	if (conn->sspicred)
+	{
+		FreeCredentialsHandle(conn->sspicred);
+		free(conn->sspicred);
+		conn->sspicred = NULL;
+	}
+	if (conn->sspictx)
+	{
+		DeleteSecurityContext(conn->sspictx);
+		free(conn->sspictx);
+		conn->sspictx = NULL;
+	}
+	conn->usesspi = 0;
+#endif
 }
 
 
@@ -1249,31 +1309,18 @@ setKeepalivesIdle(PGconn *conn)
 	if (idle < 0)
 		idle = 0;
 
-#ifdef TCP_KEEPIDLE
-	if (setsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPIDLE,
+#ifdef PG_TCP_KEEPALIVE_IDLE
+	if (setsockopt(conn->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
 				   (char *) &idle, sizeof(idle)) < 0)
 	{
 		char		sebuf[256];
 
 		appendPQExpBuffer(&conn->errorMessage,
-					  libpq_gettext("setsockopt(TCP_KEEPIDLE) failed: %s\n"),
+						  libpq_gettext("setsockopt(%s) failed: %s\n"),
+						  PG_TCP_KEEPALIVE_IDLE_STR,
 						  SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
 		return 0;
 	}
-#else
-#ifdef TCP_KEEPALIVE
-	/* Darwin uses TCP_KEEPALIVE rather than TCP_KEEPIDLE */
-	if (setsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPALIVE,
-				   (char *) &idle, sizeof(idle)) < 0)
-	{
-		char		sebuf[256];
-
-		appendPQExpBuffer(&conn->errorMessage,
-					 libpq_gettext("setsockopt(TCP_KEEPALIVE) failed: %s\n"),
-						  SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
-		return 0;
-	}
-#endif
 #endif
 
 	return 1;
@@ -1301,7 +1348,8 @@ setKeepalivesInterval(PGconn *conn)
 		char		sebuf[256];
 
 		appendPQExpBuffer(&conn->errorMessage,
-					 libpq_gettext("setsockopt(TCP_KEEPINTVL) failed: %s\n"),
+						  libpq_gettext("setsockopt(%s) failed: %s\n"),
+						  "TCP_KEEPINTVL",
 						  SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
 		return 0;
 	}
@@ -1333,7 +1381,8 @@ setKeepalivesCount(PGconn *conn)
 		char		sebuf[256];
 
 		appendPQExpBuffer(&conn->errorMessage,
-					   libpq_gettext("setsockopt(TCP_KEEPCNT) failed: %s\n"),
+						  libpq_gettext("setsockopt(%s) failed: %s\n"),
+						  "TCP_KEEPCNT",
 						  SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
 		return 0;
 	}
@@ -1341,7 +1390,7 @@ setKeepalivesCount(PGconn *conn)
 
 	return 1;
 }
-#else							/* Win32 */
+#else							/* WIN32 */
 #ifdef SIO_KEEPALIVE_VALS
 /*
  * Enable keepalives and set the keepalive values on Win32,
@@ -1805,7 +1854,8 @@ keep_going:						/* We will come back to here until there is
 											(char *) &on, sizeof(on)) < 0)
 						{
 							appendPQExpBuffer(&conn->errorMessage,
-											  libpq_gettext("setsockopt(SO_KEEPALIVE) failed: %s\n"),
+											  libpq_gettext("setsockopt(%s) failed: %s\n"),
+											  "SO_KEEPALIVE",
 							SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
 							err = 1;
 						}
@@ -3039,41 +3089,6 @@ closePGconn(PGconn *conn)
 	if (conn->lobjfuncs)
 		free(conn->lobjfuncs);
 	conn->lobjfuncs = NULL;
-#ifdef ENABLE_GSS
-	{
-		OM_uint32	min_s;
-
-		if (conn->gctx)
-			gss_delete_sec_context(&min_s, &conn->gctx, GSS_C_NO_BUFFER);
-		if (conn->gtarg_nam)
-			gss_release_name(&min_s, &conn->gtarg_nam);
-		if (conn->ginbuf.length)
-			gss_release_buffer(&min_s, &conn->ginbuf);
-		if (conn->goutbuf.length)
-			gss_release_buffer(&min_s, &conn->goutbuf);
-	}
-#endif
-#ifdef ENABLE_SSPI
-	if (conn->ginbuf.length)
-		free(conn->ginbuf.value);
-	conn->ginbuf.length = 0;
-	conn->ginbuf.value = NULL;
-	if (conn->sspitarget)
-		free(conn->sspitarget);
-	conn->sspitarget = NULL;
-	if (conn->sspicred)
-	{
-		FreeCredentialsHandle(conn->sspicred);
-		free(conn->sspicred);
-		conn->sspicred = NULL;
-	}
-	if (conn->sspictx)
-	{
-		DeleteSecurityContext(conn->sspictx);
-		free(conn->sspictx);
-		conn->sspictx = NULL;
-	}
-#endif
 }
 
 /*
@@ -3931,6 +3946,16 @@ ldapServiceLookup(const char *purl, PQconninfoOption *options,
 
 #define MAXBUFSIZE 256
 
+/*
+ * parseServiceInfo: if a service name has been given, look it up and absorb
+ * connection options from it into *options.
+ *
+ * Returns 0 on success, nonzero on failure.  On failure, if errorMessage
+ * isn't null, also store an error message there.  (Note: the only reason
+ * this function and related ones don't dump core on errorMessage == NULL
+ * is the undocumented fact that printfPQExpBuffer does nothing when passed
+ * a null PQExpBuffer pointer.)
+ */
 static int
 parseServiceInfo(PQconninfoOption *options, PQExpBuffer errorMessage)
 {
@@ -3949,9 +3974,14 @@ parseServiceInfo(PQconninfoOption *options, PQExpBuffer errorMessage)
 	if (service == NULL)
 		service = getenv("PGSERVICE");
 
+	/* If no service name given, nothing to do */
 	if (service == NULL)
 		return 0;
 
+	/*
+	 * Try PGSERVICEFILE if specified, else try ~/.pg_service.conf (if that
+	 * exists).
+	 */
 	if ((env = getenv("PGSERVICEFILE")) != NULL)
 		strlcpy(serviceFile, env, sizeof(serviceFile));
 	else
@@ -3959,13 +3989,9 @@ parseServiceInfo(PQconninfoOption *options, PQExpBuffer errorMessage)
 		char		homedir[MAXPGPATH];
 
 		if (!pqGetHomeDirectory(homedir, sizeof(homedir)))
-		{
-			printfPQExpBuffer(errorMessage, libpq_gettext("could not get home directory to locate service definition file"));
-			return 1;
-		}
+			goto next_file;
 		snprintf(serviceFile, MAXPGPATH, "%s/%s", homedir, ".pg_service.conf");
-		errno = 0;
-		if (stat(serviceFile, &stat_buf) != 0 && errno == ENOENT)
+		if (stat(serviceFile, &stat_buf) != 0)
 			goto next_file;
 	}
 
@@ -3981,8 +4007,7 @@ next_file:
 	 */
 	snprintf(serviceFile, MAXPGPATH, "%s/pg_service.conf",
 			 getenv("PGSYSCONFDIR") ? getenv("PGSYSCONFDIR") : SYSCONFDIR);
-	errno = 0;
-	if (stat(serviceFile, &stat_buf) != 0 && errno == ENOENT)
+	if (stat(serviceFile, &stat_buf) != 0)
 		goto last_file;
 
 	status = parseServiceFile(serviceFile, service, options, errorMessage, &group_found);
@@ -4664,6 +4689,30 @@ conninfo_add_defaults(PQconninfoOption *options, PQExpBuffer errorMessage)
 			if ((tmp = getenv(option->envvar)) != NULL)
 			{
 				option->val = strdup(tmp);
+				if (!option->val)
+				{
+					if (errorMessage)
+						printfPQExpBuffer(errorMessage,
+										  libpq_gettext("out of memory\n"));
+					return false;
+				}
+				continue;
+			}
+		}
+
+		/*
+		 * Interpret the deprecated PGREQUIRESSL environment variable.  Per
+		 * tradition, translate values starting with "1" to sslmode=require,
+		 * and ignore other values.  Given both PGREQUIRESSL=1 and PGSSLMODE,
+		 * PGSSLMODE takes precedence; the opposite was true before v9.3.
+		 */
+		if (strcmp(option->keyword, "sslmode") == 0)
+		{
+			const char *requiresslenv = getenv("PGREQUIRESSL");
+
+			if (requiresslenv != NULL && requiresslenv[0] == '1')
+			{
+				option->val = strdup("require");
 				if (!option->val)
 				{
 					if (errorMessage)
@@ -5923,7 +5972,15 @@ dot_pg_pass_warning(PGconn *conn)
  *
  * This is essentially the same as get_home_path(), but we don't use that
  * because we don't want to pull path.c into libpq (it pollutes application
- * namespace)
+ * namespace).
+ *
+ * Returns true on success, false on failure to obtain the directory name.
+ *
+ * CAUTION: although in most situations failure is unexpected, there are users
+ * who like to run applications in a home-directory-less environment.  On
+ * failure, you almost certainly DO NOT want to report an error.  Just act as
+ * though whatever file you were hoping to find in the home directory isn't
+ * there (which it isn't).
  */
 bool
 pqGetHomeDirectory(char *buf, int bufsize)

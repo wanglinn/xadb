@@ -164,8 +164,8 @@ extern Datum binary_decode(PG_FUNCTION_ARGS);
 extern unsigned hex_encode(const char *src, unsigned len, char *dst);
 extern unsigned hex_decode(const char *src, unsigned len, char *dst);
 #ifdef ADB
-extern unsigned b64_encode(const char *src, unsigned len, char *dst);
-extern unsigned b64_decode(const char *src, unsigned len, char *dst);
+extern unsigned pg_base64_encode(const char *src, unsigned len, char *dst);
+extern unsigned pg_base64_decode(const char *src, unsigned len, char *dst);
 #endif
 
 /* enum.c */
@@ -771,6 +771,10 @@ extern Datum pg_get_function_arg_default(PG_FUNCTION_ARGS);
 extern const char *quote_identifier(const char *ident);
 extern char *quote_qualified_identifier(const char *qualifier,
 						   const char *ident);
+extern void generate_operator_clause(fmStringInfo buf,
+						 const char *leftop, Oid leftoptype,
+						 Oid opoid,
+						 const char *rightop, Oid rightoptype);
 
 
 /* tid.c */
@@ -1139,7 +1143,7 @@ extern Datum network_host(PG_FUNCTION_ARGS);
 extern Datum network_show(PG_FUNCTION_ARGS);
 extern Datum inet_abbrev(PG_FUNCTION_ARGS);
 extern Datum cidr_abbrev(PG_FUNCTION_ARGS);
-extern double convert_network_to_scalar(Datum value, Oid typid);
+extern double convert_network_to_scalar(Datum value, Oid typid, bool *failure);
 extern Datum inet_to_cidr(PG_FUNCTION_ARGS);
 extern Datum inet_set_masklen(PG_FUNCTION_ARGS);
 extern Datum cidr_set_masklen(PG_FUNCTION_ARGS);

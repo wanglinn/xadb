@@ -201,6 +201,11 @@ tablespace_list_append(const char *arg)
 		exit(1);
 	}
 
+	/*
+	 * Comparisons done with these values should involve similarly
+	 * canonicalized path values.  This is particularly sensitive on Windows
+	 * where path values may not necessarily use Unix slashes.
+	 */
 	canonicalize_path(cell->old_dir);
 	canonicalize_path(cell->new_dir);
 
@@ -240,7 +245,7 @@ usage(void)
 	printf(_("  -r, --max-rate=RATE    maximum transfer rate to transfer data directory\n"
 	  "                         (in kB/s, or use suffix \"k\" or \"M\")\n"));
 	printf(_("  -R, --write-recovery-conf\n"
-			 "                         write recovery.conf after backup\n"));
+			 "                         write recovery.conf for replication\n"));
 	printf(_("  -S, --slot=SLOTNAME    replication slot to use\n"));
 	printf(_("  -T, --tablespace-mapping=OLDDIR=NEWDIR\n"
 	  "                         relocate tablespace in OLDDIR to NEWDIR\n"));
@@ -806,6 +811,10 @@ ReceiveTarFile(PGconn *conn, PGresult *res, int rownum)
 		 */
 		if (strcmp(basedir, "-") == 0)
 		{
+#ifdef WIN32
+			_setmode(fileno(stdout), _O_BINARY);
+#endif
+
 #ifdef HAVE_LIBZ
 			if (compresslevel != 0)
 			{
@@ -1127,9 +1136,14 @@ static const char *
 get_tablespace_mapping(const char *dir)
 {
 	TablespaceListCell *cell;
+	char		canon_dir[MAXPGPATH];
+
+	/* Canonicalize path for comparison consistency */
+	strlcpy(canon_dir, dir, sizeof(canon_dir));
+	canonicalize_path(canon_dir);
 
 	for (cell = tablespace_dirs.head; cell; cell = cell->next)
-		if (strcmp(dir, cell->old_dir) == 0)
+		if (strcmp(canon_dir, cell->old_dir) == 0)
 			return cell->new_dir;
 
 	return dir;
@@ -1661,6 +1675,14 @@ BaseBackup(void)
 	if (maxrate > 0)
 		maxrate_clause = psprintf("MAX_RATE %u", maxrate);
 
+	if (verbose)
+		fprintf(stderr,
+				_("%s: initiating base backup, waiting for checkpoint to complete\n"),
+				progname);
+
+	if (showprogress && !verbose)
+		fprintf(stderr, "waiting for checkpoint\r");
+
 	basebkp =
 		psprintf("BASE_BACKUP LABEL '%s' %s %s %s %s %s %s",
 				 escaped_label,
@@ -1697,6 +1719,9 @@ BaseBackup(void)
 	}
 
 	strlcpy(xlogstart, PQgetvalue(res, 0, 0), sizeof(xlogstart));
+
+	if (verbose)
+		fprintf(stderr, _("%s: checkpoint completed\n"), progname);
 
 	/*
 	 * 9.3 and later sends the TLI of the starting point. With older servers,

@@ -2275,16 +2275,17 @@ create_gather_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 														  required_outer);
 	pathnode->path.parallel_aware = false;
 	pathnode->path.parallel_safe = false;
-	pathnode->path.parallel_workers = subpath->parallel_workers;
+	pathnode->path.parallel_workers = 0;
 	pathnode->path.pathkeys = NIL;		/* Gather has unordered result */
 
 	pathnode->subpath = subpath;
+	pathnode->num_workers = subpath->parallel_workers;
 	pathnode->single_copy = false;
 
-	if (pathnode->path.parallel_workers == 0)
+	if (pathnode->num_workers == 0)
 	{
-		pathnode->path.parallel_workers = 1;
 		pathnode->path.pathkeys = subpath->pathkeys;
+		pathnode->num_workers = 1;
 		pathnode->single_copy = true;
 	}
 
@@ -3872,6 +3873,29 @@ reparameterize_path(PlannerInfo *root, Path *path,
 														 spath->subpath,
 														 spath->path.pathkeys,
 														 required_outer);
+			}
+		case T_Append:
+			{
+				AppendPath *apath = (AppendPath *) path;
+				List	   *childpaths = NIL;
+				ListCell   *lc;
+
+				/* Reparameterize the children */
+				foreach(lc, apath->subpaths)
+				{
+					Path	   *spath = (Path *) lfirst(lc);
+
+					spath = reparameterize_path(root, spath,
+												required_outer,
+												loop_count);
+					if (spath == NULL)
+						return NULL;
+					childpaths = lappend(childpaths, spath);
+				}
+				return (Path *)
+					create_append_path(rel, childpaths,
+									   required_outer,
+									   apath->path.parallel_workers);
 			}
 		default:
 			break;

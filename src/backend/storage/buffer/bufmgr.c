@@ -1292,12 +1292,17 @@ BufferAlloc(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 	 * paranoia.  We also reset the usage_count since any recency of use of
 	 * the old content is no longer relevant.  (The usage_count starts out at
 	 * 1 so that the buffer can survive one clock-sweep pass.)
+	 *
+	 * Make sure BM_PERMANENT is set for buffers that must be written at every
+	 * checkpoint.  Unlogged buffers only need to be written at shutdown
+	 * checkpoints, except for their "init" forks, which need to be treated
+	 * just like permanent relations.
 	 */
 	buf->tag = newTag;
 	buf_state &= ~(BM_VALID | BM_DIRTY | BM_JUST_DIRTIED |
 				   BM_CHECKPOINT_NEEDED | BM_IO_ERROR | BM_PERMANENT |
 				   BUF_USAGECOUNT_MASK);
-	if (relpersistence == RELPERSISTENCE_PERMANENT)
+	if (relpersistence == RELPERSISTENCE_PERMANENT || forkNum == INIT_FORKNUM)
 		buf_state |= BM_TAG_VALID | BM_PERMANENT | BUF_USAGECOUNT_ONE;
 	else
 		buf_state |= BM_TAG_VALID | BUF_USAGECOUNT_ONE;
@@ -1590,9 +1595,21 @@ PinBuffer(BufferDesc *buf, BufferAccessStrategy strategy)
 			/* increase refcount */
 			buf_state += BUF_REFCOUNT_ONE;
 
-			/* increase usagecount unless already max */
-			if (BUF_STATE_GET_USAGECOUNT(buf_state) != BM_MAX_USAGE_COUNT)
-				buf_state += BUF_USAGECOUNT_ONE;
+			if (strategy == NULL)
+			{
+				/* Default case: increase usagecount unless already max. */
+				if (BUF_STATE_GET_USAGECOUNT(buf_state) < BM_MAX_USAGE_COUNT)
+					buf_state += BUF_USAGECOUNT_ONE;
+			}
+			else
+			{
+				/*
+				 * Ring buffers shouldn't evict others from pool.  Thus we
+				 * don't make usagecount more than 1.
+				 */
+				if (BUF_STATE_GET_USAGECOUNT(buf_state) == 0)
+					buf_state += BUF_USAGECOUNT_ONE;
+			}
 
 			if (pg_atomic_compare_exchange_u32(&buf->state, &old_buf_state,
 											   buf_state))
@@ -3331,7 +3348,6 @@ IncrBufferRefCount(Buffer buffer)
 {
 	Assert(BufferIsPinned(buffer));
 	ResourceOwnerEnlargeBuffers(CurrentResourceOwner);
-	ResourceOwnerRememberBuffer(CurrentResourceOwner, buffer);
 	if (BufferIsLocal(buffer))
 		LocalRefCount[-buffer - 1]++;
 	else
@@ -3342,6 +3358,7 @@ IncrBufferRefCount(Buffer buffer)
 		Assert(ref != NULL);
 		ref->refcount++;
 	}
+	ResourceOwnerRememberBuffer(CurrentResourceOwner, buffer);
 }
 
 /*
@@ -4003,8 +4020,8 @@ local_buffer_write_error_callback(void *arg)
 static int
 rnode_comparator(const void *p1, const void *p2)
 {
-	RelFileNode n1 = *(RelFileNode *) p1;
-	RelFileNode n2 = *(RelFileNode *) p2;
+	RelFileNode n1 = *(const RelFileNode *) p1;
+	RelFileNode n2 = *(const RelFileNode *) p2;
 
 	if (n1.relNode < n2.relNode)
 		return -1;
@@ -4113,8 +4130,8 @@ buffertag_comparator(const void *a, const void *b)
 static int
 ckpt_buforder_comparator(const void *pa, const void *pb)
 {
-	const CkptSortItem *a = (CkptSortItem *) pa;
-	const CkptSortItem *b = (CkptSortItem *) pb;
+	const CkptSortItem *a = (const CkptSortItem *) pa;
+	const CkptSortItem *b = (const CkptSortItem *) pb;
 
 	/* compare tablespace */
 	if (a->tsId < b->tsId)
@@ -4134,8 +4151,10 @@ ckpt_buforder_comparator(const void *pa, const void *pb)
 	/* compare block number */
 	else if (a->blockNum < b->blockNum)
 		return -1;
-	else	/* should not be the same block ... */
+	else if (a->blockNum > b->blockNum)
 		return 1;
+	/* equal page IDs are unlikely, but not impossible */
+	return 0;
 }
 
 /*

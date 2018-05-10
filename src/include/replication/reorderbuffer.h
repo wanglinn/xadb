@@ -168,6 +168,8 @@ typedef struct ReorderBufferTXN
 	 * * plain abort record
 	 * * prepared transaction abort
 	 * * error during decoding
+	 * * for a crashed transaction, the LSN of the last change, regardless of
+	 *   what it was.
 	 * ----
 	 */
 	XLogRecPtr	final_lsn;
@@ -211,6 +213,15 @@ typedef struct ReorderBufferTXN
 	 * spilled to disk.
 	 */
 	uint64		nentries_mem;
+
+	/*
+	 * Has this transaction been spilled to disk?  It's not always possible to
+	 * deduce that fact by comparing nentries with nentries_mem, because
+	 * e.g. subtransactions of a large transaction might get serialized
+	 * together with the parent - if they're restored to memory they'd have
+	 * nentries_mem == nentries.
+	 */
+	bool		serialized;
 
 	/*
 	 * List of ReorderBufferChange structs, including new Snapshots and new

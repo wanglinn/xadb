@@ -334,7 +334,7 @@ void		output_check_banner(bool live_check);
 void		check_and_dump_old_cluster(bool live_check);
 void		check_new_cluster(void);
 void		report_clusters_compatible(void);
-void		issue_warnings(void);
+void		issue_warnings_and_set_wal_level(void);
 void output_completion_banner(char *analyze_script_file_name,
 						 char *deletion_script_file_name);
 void		check_cluster_versions(void);
@@ -374,7 +374,9 @@ void linkFile(const char *src, const char *dst,
 void rewriteVisibilityMap(const char *fromfile, const char *tofile,
 					 const char *schemaName, const char *relName);
 void		check_hard_link(void);
-FILE	   *fopen_priv(const char *path, const char *mode);
+
+/* fopen_priv() is no longer different from fopen() */
+#define fopen_priv(path, mode)	fopen(path, mode)
 
 /* function.c */
 

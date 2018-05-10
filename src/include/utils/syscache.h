@@ -109,17 +109,23 @@ enum SysCacheIdentifier
 	TYPEOID,
 	USERMAPPINGOID,
 	USERMAPPINGUSERSERVER
-#ifdef ADBMGRD
+#if defined(ADBMGRD)
 	,HOSTHOSTNAME
 	,HOSTHOSTOID
 	,PARMTYPENAME
 	,NODENODEOID
 	,MGRUPDATAPARMNODENAMENODETYPEKEY
 	,MONITORJOBOID
-#endif /* ADBMGRD */
-#ifdef AGTM
+
+#define SysCacheSize (MONITORJOBOID + 1)
+#elif defined(AGTM)
 	,AGTMSEQUENCEOID
 	,AGTMSEQUENCEFIELDS
+
+#define SysCacheSize (AGTMSEQUENCEFIELDS + 1)
+#else
+
+#define SysCacheSize (USERMAPPINGUSERSERVER + 1)
 #endif
 };
 
@@ -152,6 +158,8 @@ extern uint32 GetSysCacheHashValue(int cacheId,
 struct catclist;
 extern struct catclist *SearchSysCacheList(int cacheId, int nkeys,
 				   Datum key1, Datum key2, Datum key3, Datum key4);
+
+extern void SysCacheInvalidate(int cacheId, uint32 hashValue);
 
 extern bool RelationInvalidatesSnapshotsOnly(Oid relid);
 extern bool RelationHasSysCache(Oid relid);

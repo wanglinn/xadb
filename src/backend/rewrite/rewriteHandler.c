@@ -83,8 +83,6 @@ static TargetEntry *process_matched_tle(TargetEntry *src_tle,
 static Node *get_assignment_input(Node *node);
 static void rewriteValuesRTE(RangeTblEntry *rte, Relation target_relation,
 				 List *attrnos);
-static void rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
-					Relation target_relation);
 static void markQueryForLocking(Query *qry, Node *jtnode,
 					LockClauseStrength strength, LockWaitPolicy waitPolicy,
 					bool pushedDown);
@@ -715,6 +713,13 @@ adjustJoinTreeList(Query *parsetree, bool removert, int rt_index)
  * rewritten targetlist: an integer list of the assigned-to attnums, in
  * order of the original tlist's non-junk entries.  This is needed for
  * processing VALUES RTEs.
+ *
+ * Note that for an inheritable UPDATE, this processing is only done once,
+ * using the parent relation as reference.  It must not do anything that
+ * will not be correct when transposed to the child relation(s).  (Step 4
+ * is incorrect by this light, since child relations might have different
+ * colun ordering, but the planner will fix things by re-sorting the tlist
+ * for each child.)
  */
 static List *
 rewriteTargetListIU(List *targetList,
@@ -901,6 +906,7 @@ process_matched_tle(TargetEntry *src_tle,
 					const char *attrName)
 {
 	TargetEntry *result;
+	CoerceToDomain *coerce_expr = NULL;
 	Node	   *src_expr;
 	Node	   *prior_expr;
 	Node	   *src_input;
@@ -937,10 +943,30 @@ process_matched_tle(TargetEntry *src_tle,
 	 * For FieldStore, instead of nesting we can generate a single
 	 * FieldStore with multiple target fields.  We must nest when
 	 * ArrayRefs are involved though.
+	 *
+	 * As a further complication, the destination column might be a domain,
+	 * resulting in each assignment containing a CoerceToDomain node over a
+	 * FieldStore or ArrayRef.  These should have matching target domains,
+	 * so we strip them and reconstitute a single CoerceToDomain over the
+	 * combined FieldStore/ArrayRef nodes.  (Notice that this has the result
+	 * that the domain's checks are applied only after we do all the field or
+	 * element updates, not after each one.  This is arguably desirable.)
 	 *----------
 	 */
 	src_expr = (Node *) src_tle->expr;
 	prior_expr = (Node *) prior_tle->expr;
+
+	if (src_expr && IsA(src_expr, CoerceToDomain) &&
+		prior_expr && IsA(prior_expr, CoerceToDomain) &&
+		((CoerceToDomain *) src_expr)->resulttype ==
+		((CoerceToDomain *) prior_expr)->resulttype)
+	{
+		/* we assume without checking that resulttypmod/resultcollid match */
+		coerce_expr = (CoerceToDomain *) src_expr;
+		src_expr = (Node *) ((CoerceToDomain *) src_expr)->arg;
+		prior_expr = (Node *) ((CoerceToDomain *) prior_expr)->arg;
+	}
+
 	src_input = get_assignment_input(src_expr);
 	prior_input = get_assignment_input(prior_expr);
 	if (src_input == NULL ||
@@ -1007,6 +1033,16 @@ process_matched_tle(TargetEntry *src_tle,
 	{
 		elog(ERROR, "cannot happen");
 		newexpr = NULL;
+	}
+
+	if (coerce_expr)
+	{
+		/* put back the CoerceToDomain */
+		CoerceToDomain *newcoerce = makeNode(CoerceToDomain);
+
+		memcpy(newcoerce, coerce_expr, sizeof(CoerceToDomain));
+		newcoerce->arg = (Expr *) newexpr;
+		newexpr = (Node *) newcoerce;
 	}
 
 	result = flatCopyTargetEntry(src_tle);
@@ -1291,14 +1327,15 @@ pull_qual_vars_walker(Node *node, pull_qual_vars_context *context)
  * This function adds a "junk" TLE that is needed to allow the executor to
  * find the original row for the update or delete.  When the target relation
  * is a regular table, the junk TLE emits the ctid attribute of the original
- * row.  When the target relation is a view, there is no ctid, so we instead
- * emit a whole-row Var that will contain the "old" values of the view row.
- * If it's a foreign table, we let the FDW decide what to add.
+ * row.  When the target relation is a foreign table, we let the FDW decide
+ * what to add.
  *
- * For UPDATE queries, this is applied after rewriteTargetListIU.  The
- * ordering isn't actually critical at the moment.
+ * We used to do this during RewriteQuery(), but now that inheritance trees
+ * can contain a mix of regular and foreign tables, we must postpone it till
+ * planning, after the inheritance tree has been expanded.  In that way we
+ * can do the right thing for each child table.
  */
-static void
+void
 rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 					Relation target_relation)
 {
@@ -1477,19 +1514,6 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 			attrname = "wholerow";
 		}
 	}
-	else
-	{
-		/*
-		 * Emit whole-row Var so that executor will have the "old" view row to
-		 * pass to the INSTEAD OF trigger.
-		 */
-		var = makeWholeRowVar(target_rte,
-							  parsetree->resultRelation,
-							  0,
-							  false);
-
-		attrname = "wholerow";
-	}
 
 	if (var != NULL)
 	{
@@ -1661,6 +1685,8 @@ ApplyRetrieveRule(Query *parsetree,
 				 parsetree->commandType == CMD_DELETE)
 		{
 			RangeTblEntry *newrte;
+			Var		   *var;
+			TargetEntry *tle;
 
 			rte = rt_fetch(rt_index, parsetree->rtable);
 			newrte = copyObject(rte);
@@ -1690,6 +1716,20 @@ ApplyRetrieveRule(Query *parsetree,
 			parsetree->returningList = copyObject(parsetree->returningList);
 			ChangeVarNodes((Node *) parsetree->returningList, rt_index,
 						   parsetree->resultRelation, 0);
+
+			/*
+			 * To allow the executor to compute the original view row to pass
+			 * to the INSTEAD OF trigger, we add a resjunk whole-row Var
+			 * referencing the original RTE.  This will later get expanded
+			 * into a RowExpr computing all the OLD values of the view row.
+			 */
+			var = makeWholeRowVar(rte, rt_index, 0, false);
+			tle = makeTargetEntry((Expr *) var,
+								  list_length(parsetree->targetList) + 1,
+								  pstrdup("wholerow"),
+								  true);
+
+			parsetree->targetList = lappend(parsetree->targetList, tle);
 
 			/* Now, continue with expanding the original view RTE */
 		}
@@ -3130,26 +3170,6 @@ rewriteTargetView(Query *parsetree, Relation view)
 	view_rte->securityQuals = NIL;
 
 	/*
-	 * For UPDATE/DELETE, rewriteTargetListUD will have added a wholerow junk
-	 * TLE for the view to the end of the targetlist, which we no longer need.
-	 * Remove it to avoid unnecessary work when we process the targetlist.
-	 * Note that when we recurse through rewriteQuery a new junk TLE will be
-	 * added to allow the executor to find the proper row in the new target
-	 * relation.  (So, if we failed to do this, we might have multiple junk
-	 * TLEs with the same name, which would be disastrous.)
-	 */
-	if (parsetree->commandType != CMD_INSERT)
-	{
-		TargetEntry *tle = (TargetEntry *) llast(parsetree->targetList);
-
-		Assert(tle->resjunk);
-		Assert(IsA(tle->expr, Var) &&
-			   ((Var *) tle->expr)->varno == parsetree->resultRelation &&
-			   ((Var *) tle->expr)->varattno == 0);
-		parsetree->targetList = list_delete_ptr(parsetree->targetList, tle);
-	}
-
-	/*
 	 * Now update all Vars in the outer query that reference the view to
 	 * reference the appropriate column of the base relation instead.
 	 */
@@ -3499,11 +3519,10 @@ RewriteQuery(Query *parsetree, List *rewrite_events)
 				rewriteTargetListIU(parsetree->targetList,
 									parsetree->commandType, rt_entry_relation,
 									parsetree->resultRelation, NULL);
-			rewriteTargetListUD(parsetree, rt_entry, rt_entry_relation);
 		}
 		else if (event == CMD_DELETE)
 		{
-			rewriteTargetListUD(parsetree, rt_entry, rt_entry_relation);
+			/* Nothing to do here */
 		}
 		else
 			elog(ERROR, "unrecognized commandType: %d", (int) event);

@@ -73,10 +73,8 @@ brin_doupdate(Relation idxrel, BlockNumber pagesPerRange,
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-			errmsg("index row size %lu exceeds maximum %lu for index \"%s\"",
-				   (unsigned long) newsz,
-				   (unsigned long) BrinMaxItemSize,
-				   RelationGetRelationName(idxrel))));
+			errmsg("index row size %zu exceeds maximum %zu for index \"%s\"",
+				   newsz, BrinMaxItemSize, RelationGetRelationName(idxrel))));
 		return false;			/* keep compiler quiet */
 	}
 
@@ -115,9 +113,15 @@ brin_doupdate(Relation idxrel, BlockNumber pagesPerRange,
 
 	/*
 	 * Check that the old tuple wasn't updated concurrently: it might have
-	 * moved someplace else entirely ...
+	 * moved someplace else entirely, and for that matter the whole page
+	 * might've become a revmap page.  Note that in the first two cases
+	 * checked here, the "oldlp" we just calculated is garbage; but
+	 * PageGetItemId() is simple enough that it was safe to do that
+	 * calculation anyway.
 	 */
-	if (!ItemIdIsNormal(oldlp))
+	if (!BRIN_IS_REGULAR_PAGE(oldpage) ||
+		oldoff > PageGetMaxOffsetNumber(oldpage) ||
+		!ItemIdIsNormal(oldlp))
 	{
 		LockBuffer(oldbuf, BUFFER_LOCK_UNLOCK);
 
@@ -359,10 +363,8 @@ brin_doinsert(Relation idxrel, BlockNumber pagesPerRange,
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-			errmsg("index row size %lu exceeds maximum %lu for index \"%s\"",
-				   (unsigned long) itemsz,
-				   (unsigned long) BrinMaxItemSize,
-				   RelationGetRelationName(idxrel))));
+			errmsg("index row size %zu exceeds maximum %zu for index \"%s\"",
+				   itemsz, BrinMaxItemSize, RelationGetRelationName(idxrel))));
 		return InvalidOffsetNumber;		/* keep compiler quiet */
 	}
 
@@ -669,7 +671,7 @@ brin_getinsertbuffer(Relation irel, Buffer oldbuf, Size itemsz,
 	BlockNumber oldblk;
 	BlockNumber newblk;
 	Page		page;
-	int			freespace;
+	Size		freespace;
 
 	/* callers must have checked */
 	Assert(itemsz <= BrinMaxItemSize);
@@ -825,10 +827,8 @@ brin_getinsertbuffer(Relation irel, Buffer oldbuf, Size itemsz,
 
 			ereport(ERROR,
 					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-			errmsg("index row size %lu exceeds maximum %lu for index \"%s\"",
-				   (unsigned long) itemsz,
-				   (unsigned long) freespace,
-				   RelationGetRelationName(irel))));
+			errmsg("index row size %zu exceeds maximum %zu for index \"%s\"",
+				   itemsz, freespace, RelationGetRelationName(irel))));
 			return InvalidBuffer;		/* keep compiler quiet */
 		}
 

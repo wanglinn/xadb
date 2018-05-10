@@ -1,35 +1,33 @@
 #
-# Translation of pg_ctl to Italian
-# PostgreSQL Project
+# pg_ctl.po
+#   Italian message translation file for pg_ctl
 #
-# Associazione Culturale ITPUG - Italian PostgreSQL Users Group
-# http://www.itpug.org/ - info@itpug.org
+# For development and bug report please use:
+# https://github.com/dvarrazzo/postgresql-it
 #
-# Traduttori:
-#  * Daniele Varrazzo <daniele.varrazzo@gmail.com>
-#  * Emanuele Zamprogno <emanuele.zamprogno@itpug.org>
+# Copyright (C) 2012-2017 PostgreSQL Global Development Group
+# Copyright (C) 2010, Associazione Culturale ITPUG
 #
-# Revisori:
-#  * Emanuele Zamprogno <emanuele.zamprogno@itpug.org>
+# Daniele Varrazzo <daniele.varrazzo@gmail.com>, 2012-2017.
+# Emanuele Zamprogno <emanuele.zamprogno@itpug.org>, 2010.
 #
-# Copyright (c) 2010, Associazione Culturale ITPUG
-# Distributed under the same license of the PostgreSQL project
+# This file is distributed under the same license as the PostgreSQL package.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: pg_ctl (PostgreSQL) 9.6\n"
 "Report-Msgid-Bugs-To: pgsql-bugs@postgresql.org\n"
 "POT-Creation-Date: 2016-04-17 00:14+0000\n"
-"PO-Revision-Date: 2016-04-17 20:44+0100\n"
+"PO-Revision-Date: 2017-05-29 17:04+0100\n"
 "Last-Translator: Daniele Varrazzo <daniele.varrazzo@gmail.com>\n"
-"Language-Team: Gruppo traduzioni ITPUG <traduzioni@itpug.org>\n"
+"Language-Team: https://github.com/dvarrazzo/postgresql-it\n"
 "Language: it\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "X-Poedit-SourceCharset: utf-8\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Poedit 1.5.4\n"
+"X-Generator: Poedit 1.8.7.1\n"
 
 #: ../../common/exec.c:127 ../../common/exec.c:241 ../../common/exec.c:284
 #, c-format
@@ -562,7 +560,7 @@ msgstr ""
 #: pg_ctl.c:1923
 #, c-format
 msgid "  %s unregister [-N SERVICENAME]\n"
-msgstr "  %s unregister [-N SERVICENAME]\n"
+msgstr "  %s unregister [-N SERVIZIO]\n"
 
 #: pg_ctl.c:1926
 #, c-format
@@ -591,7 +589,7 @@ msgstr "  -s, --silent           mostra solo gli errori, non i messaggi di infor
 #: pg_ctl.c:1932
 #, c-format
 msgid "  -t, --timeout=SECS     seconds to wait when using -w option\n"
-msgstr "  -t, --timeout=SECS     secondi da aspettare quando si usa l'opzione -w\n"
+msgstr "  -t, --timeout=SEC      secondi da aspettare quando si usa l'opzione -w\n"
 
 #: pg_ctl.c:1933
 #, c-format
@@ -727,7 +725,7 @@ msgstr ""
 #: pg_ctl.c:1963
 #, c-format
 msgid "  -N SERVICENAME  service name with which to register PostgreSQL server\n"
-msgstr "  -N SERVICENAME  nome del servizio con cui registrare il server PostgreSQL\n"
+msgstr "  -N SERVIZIO     nome del servizio con cui registrare il server PostgreSQL\n"
 
 #: pg_ctl.c:1964
 #, c-format
@@ -737,12 +735,12 @@ msgstr "  -P PASSWORD     password per l'account con cui registrare il server Po
 #: pg_ctl.c:1965
 #, c-format
 msgid "  -U USERNAME     user name of account to register PostgreSQL server\n"
-msgstr "  -U USERNAME     nome utente dell'account con cui registrare il server PostgreSQL\n"
+msgstr "  -U UTENTE       nome utente dell'account con cui registrare il server PostgreSQL\n"
 
 #: pg_ctl.c:1966
 #, c-format
 msgid "  -S START-TYPE   service start type to register PostgreSQL server\n"
-msgstr "  -S START-TYPE   tipo di avvio del servizio con cui registrare il server PostgreSQL\n"
+msgstr "  -S TIPO-AVVIO   tipo di avvio del servizio con cui registrare il server PostgreSQL\n"
 
 #: pg_ctl.c:1968
 #, c-format
