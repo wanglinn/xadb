@@ -78,7 +78,8 @@ static void wait_rdc_group_message(void);
 static bool get_rdc_listen_port_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 static void StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt);
 static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context);
-static bool InstrumentEndLoop_walker(PlanState *ps, void *);
+static bool InstrumentEndLoop_walker(PlanState *ps, Bitmapset **called);
+static void InstrumentEndLoop_cluster(PlanState *ps);
 static bool RelationIsCoordOnly(Oid relid);
 
 static void ExecClusterErrorHookMaster(void *arg);
@@ -157,7 +158,7 @@ void exec_cluster_plan(const void *splan, int length)
 	ExecutorFinish(query_desc);
 
 	if(need_instrument)
-		InstrumentEndLoop_walker(query_desc->planstate, NULL);
+		InstrumentEndLoop_cluster(query_desc->planstate);
 
 	/* send processed message */
 	resetStringInfo(&msg);
@@ -1013,13 +1014,24 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 	error_context_stack = error_context_hook.previous;
 }
 
-static bool InstrumentEndLoop_walker(PlanState *ps, void *context)
+static bool InstrumentEndLoop_walker(PlanState *ps, Bitmapset **called)
 {
 	if(ps == NULL)
 		return false;
-	if(ps->instrument)
+	if (ps->instrument &&
+		bms_is_member(ps->plan->plan_node_id, *called) == false)
+	{
 		InstrEndLoop(ps->instrument);
-	return planstate_tree_walker(ps, InstrumentEndLoop_walker, NULL);
+		*called = bms_add_member(*called, ps->plan->plan_node_id );
+	}
+	return planstate_tree_walker(ps, InstrumentEndLoop_walker, called);
+}
+
+static void InstrumentEndLoop_cluster(PlanState *ps)
+{
+	Bitmapset *called = NULL;
+	InstrumentEndLoop_walker(ps, &called);
+	bms_free(called);
 }
 
 static void ExecClusterErrorHookMaster(void *arg)
