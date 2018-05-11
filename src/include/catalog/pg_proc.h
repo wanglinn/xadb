@@ -5559,15 +5559,19 @@ DESCR("I/O");
 DATA(insert OID = 9139 (  nvarchar2			PGNSP PGUID 12 1 0 0 varchar_transform f f f f t f i s 3 0 4003 "4003 23 16" _null_ _null_ _null_ _null_ _null_ nvarchar2 _null_ _null_ _null_ ));
 DESCR("adjust nvarchar2() to typmod length");
 
-DATA(insert OID = 9140 ( pg_pause_cluster       PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pg_pause_cluster _null_ _null_ _null_ ));
+DATA(insert OID = 9140 ( pg_pause_cluster	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pg_pause_cluster _null_ _null_ _null_ ));
 DESCR("pause cluster");
 
-DATA(insert OID = 9141 ( pg_unpause_cluster       PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pg_unpause_cluster _null_ _null_ _null_ ));
+DATA(insert OID = 9141 ( pg_unpause_cluster	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pg_unpause_cluster _null_ _null_ _null_ ));
 DESCR("unpause cluster");
 
-DATA(insert OID = 9142 ( pg_alter_node       PGNSP PGUID 12 1 0 0 0 f f f f t f v s 5 0 16 "2275 2275 2275 23 16" _null_ _null_ _null_ _null_ _null_ pg_alter_node _null_ _null_ _null_ ));
+DATA(insert OID = 9142 ( pg_alter_node		PGNSP PGUID 12 1 0 0 0 f f f f t f v s 5 0 16 "2275 2275 2275 23 16" _null_ _null_ _null_ _null_ _null_ pg_alter_node _null_ _null_ _null_ ));
 DESCR("alter node");
 
+DATA(insert OID = 9143 ( random				PGNSP PGUID 12 1 0 0 0 f f f f t f v r 1 0 23 "23" _null_ _null_ _null_ _null_ _null_ int4random_max _null_ _null_ _null_ ));
+DESCR("random int4 value [0,arg0)");
+DATA(insert OID = 9144 ( random				PGNSP PGUID 12 1 0 0 0 f f f f t f v r 2 0 23 "23 23" _null_ _null_ _null_ _null_ _null_ int4random_range _null_ _null_ _null_ ));
+DESCR("random int4 value [arg0,arg1)");
 /*
  * oracle schema builtin functions
  * Oid starts with 5300

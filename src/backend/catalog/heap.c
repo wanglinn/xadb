@@ -1476,9 +1476,9 @@ GetRelationDistributionItems(Oid relid,
 			}
 		}
 
-		/* If we did not find a usable type, fall back to round robin */
+		/* If we did not find a usable type, fall back to random */
 		if (local_attnum == 0)
-			local_locatortype = LOCATOR_TYPE_RROBIN;
+			local_locatortype = LOCATOR_TYPE_RANDOM;
 	}
 	else
 	{
@@ -1540,8 +1540,8 @@ GetRelationDistributionItems(Oid relid,
 				local_locatortype = LOCATOR_TYPE_REPLICATED;
 				break;
 
-			case DISTTYPE_ROUNDROBIN:
-				local_locatortype = LOCATOR_TYPE_RROBIN;
+			case DISTTYPE_RANDOM:
+				local_locatortype = LOCATOR_TYPE_RANDOM;
 				break;
 
 			case DISTTYPE_USER_DEFINED:

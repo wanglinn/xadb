@@ -3085,13 +3085,6 @@ _equalCleanConnStmt(const CleanConnStmt *a, const CleanConnStmt *b)
 	return true;
 }
 
-static bool
-_equalOidVectorLoopExpr(const OidVectorLoopExpr *a, const OidVectorLoopExpr *b)
-{
-	COMPARE_SCALAR_FIELD(signalRowMode);
-	return datumIsEqual(a->vector, b->vector, false, -1);
-}
-
 #endif
 
 #ifdef ADBMGRD
@@ -3687,9 +3680,6 @@ equal(const void *a, const void *b)
 			break;
 		case T_CleanConnStmt:
 			retval = _equalCleanConnStmt(a, b);
-			break;
-		case T_OidVectorLoopExpr:
-			retval = _equalOidVectorLoopExpr(a, b);
 			break;
 #endif
 		case T_CreateSchemaStmt:

@@ -295,18 +295,21 @@ GetSlotFromOuter(ClusterReduceState *node)
 				{
 					datum = ExecMakeFunctionResultSet((SetExprState*)(node->reduceState),
 													  econtext,
-													  &isNull, &done);
+													  &isNull,
+													  &done);
 				}else
 				{
 					datum = ExecEvalExpr(node->reduceState, econtext, &isNull);
 					done = ExprSingleResult;
 				}
-				if(isNull)
-				{
-					Assert(0);
-				}else if(done == ExprEndResult)
+				if(done == ExprEndResult)
 				{
 					break;
+				}else if(isNull)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("ReduceExpr return a null value")));
 				}else
 				{
 					oid = DatumGetObjectId(datum);

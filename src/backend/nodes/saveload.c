@@ -431,11 +431,6 @@ BEGIN_NODE(Const)
 	NODE_SCALAR(int,location)
 END_NODE(Const)
 
-BEGIN_NODE(OidVectorLoopExpr)
-	NODE_SCALAR(bool, signalRowMode)
-	do_datum_convert_out(buf, OIDVECTOROID, node->vector);
-END_NODE(OidVectorLoopExpr)
-
 BEGIN_NODE(A_Const)
 	NODE_SCALAR(NodeTag, val.type);
 	switch(node->val.type)
@@ -933,11 +928,6 @@ BEGIN_NODE(Const)
 	NODE_SCALAR(bool,constbyval)
 	NODE_SCALAR(int,location)
 END_NODE(Const)
-
-BEGIN_NODE(OidVectorLoopExpr)
-	NODE_SCALAR(bool, signalRowMode)
-	node->vector = do_datum_convert_in(buf, OIDVECTOROID);
-END_NODE(OidVectorLoopExpr)
 
 BEGIN_NODE(A_Const)
 	NODE_SCALAR(NodeTag, val.type);

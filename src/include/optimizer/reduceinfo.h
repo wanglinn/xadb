@@ -6,7 +6,7 @@
 #define REDUCE_TYPE_CUSTOM		'C'
 #define REDUCE_TYPE_MODULO		'M'
 #define REDUCE_TYPE_REPLICATED	'R'
-#define REDUCE_TYPE_ROUND		'L'
+#define REDUCE_TYPE_RANDOM		'L'
 #define REDUCE_TYPE_COORDINATOR	'O'
 /* only using in ReducePathXXX functions */
 #define REDUCE_TYPE_IGNORE		'I'
@@ -46,7 +46,7 @@ extern ReduceInfo *MakeCustomReduceInfo(const List *storage, const List *exclude
 extern ReduceInfo *MakeModuloReduceInfo(const List *storage, const List *exclude, const Expr *param);
 extern ReduceInfo *MakeReplicateReduceInfo(const List *storage);
 extern ReduceInfo *MakeFinalReplicateReduceInfo(void);
-extern ReduceInfo *MakeRoundReduceInfo(const List *storage);
+extern ReduceInfo *MakeRandomReduceInfo(const List *storage);
 extern ReduceInfo *MakeCoordinatorReduceInfo(void);
 extern ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const List *exclude, Oid reloid, Index relid);
 extern ReduceInfo *MakeReduceInfoAs(const ReduceInfo *reduce, List *params);
@@ -136,8 +136,8 @@ extern bool IsReduceInfoListByValue(List *list);
 										list_length(r->storage_nodes) == 1 &&	\
 										linitial_oid(r->storage_nodes) == InvalidOid)
 extern bool IsReduceInfoListReplicated(List *list);
-#define IsReduceInfoRound(r)		((r)->type == REDUCE_TYPE_ROUND)
-extern bool IsReduceInfoListRound(List *list);
+#define IsReduceInfoRandom(r)		((r)->type == REDUCE_TYPE_RANDOM)
+extern bool IsReduceInfoListRandom(List *list);
 #define IsReduceInfoCoordinator(r)	((r)->type == REDUCE_TYPE_COORDINATOR)
 extern bool IsReduceInfoListCoordinator(List *list);
 

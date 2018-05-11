@@ -34,7 +34,7 @@
 #define MakeEmptyReduceInfo() palloc0(sizeof(ReduceInfo))
 static Param *makeReduceParam(Oid type, int paramid, int parammod, Oid collid);
 static oidvector *makeOidVector(List *list);
-static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const);
+static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const, bool use_coalesce);
 static Node* ReduceParam2ExprMutator(Node *node, List *params);
 static int CompareOid(const void *a, const void *b);
 
@@ -180,14 +180,14 @@ ReduceInfo *MakeFinalReplicateReduceInfo(void)
 	return rinfo;
 }
 
-ReduceInfo *MakeRoundReduceInfo(const List *storage)
+ReduceInfo *MakeRandomReduceInfo(const List *storage)
 {
 	ReduceInfo *rinfo;
 	AssertArg(storage != NIL && IsA(storage, OidList));
 
 	rinfo = MakeEmptyReduceInfo();
 	rinfo->storage_nodes = SortOidList(list_copy(storage));
-	rinfo->type = REDUCE_TYPE_ROUND;
+	rinfo->type = REDUCE_TYPE_RANDOM;
 
 	return rinfo;
 }
@@ -210,12 +210,9 @@ ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const Lis
 	if(IsRelationReplicated(loc_info))
 	{
 		rinfo = MakeReplicateReduceInfo(rnodes);
-	}else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
+	}else if(loc_info->locatorType == LOCATOR_TYPE_RANDOM)
 	{
-		rinfo = MakeRoundReduceInfo(rnodes);
-	}else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
-	{
-		rinfo = MakeRoundReduceInfo(rnodes);
+		rinfo = MakeRandomReduceInfo(rnodes);
 	}else
 	{
 		if(loc_info->locatorType == LOCATOR_TYPE_HASH)
@@ -265,7 +262,7 @@ ReduceInfo *ConvertReduceInfo(const ReduceInfo *reduce, const PathTarget *target
 		}else
 		{
 			List *exec_nodes = list_difference_oid(reduce->storage_nodes, reduce->exclude_exec);
-			new_reduce = MakeRoundReduceInfo(exec_nodes);
+			new_reduce = MakeRandomReduceInfo(exec_nodes);
 		}
 	}else
 	{
@@ -280,32 +277,32 @@ List *ConvertReduceInfoList(const List *reduce_list, const PathTarget *target, I
 	const ListCell *lc;
 	ReduceInfo *new_reduce;
 	List *new_reduce_list = NIL;
-	List *round_reduce_list = NIL;
+	List *random_reduce_list = NIL;
 
 	foreach(lc, reduce_list)
 	{
 		new_reduce = ConvertReduceInfo(lfirst(lc), target, new_relid);
-		if(IsReduceInfoRound(new_reduce))
-			round_reduce_list = lappend(round_reduce_list, new_reduce);
+		if(IsReduceInfoRandom(new_reduce))
+			random_reduce_list = lappend(random_reduce_list, new_reduce);
 		else
 			new_reduce_list = lappend(new_reduce_list, new_reduce);
 	}
 
-	if(new_reduce_list == NIL && round_reduce_list != NIL)
+	if(new_reduce_list == NIL && random_reduce_list != NIL)
 	{
-		if(list_length(round_reduce_list) == 1)
+		if(list_length(random_reduce_list) == 1)
 		{
-			new_reduce_list = round_reduce_list;
-			round_reduce_list = NIL;
+			new_reduce_list = random_reduce_list;
+			random_reduce_list = NIL;
 		}else
 		{
-			List *exec_node = ReduceInfoListGetExecuteOidList(round_reduce_list);
-			new_reduce = MakeRoundReduceInfo(exec_node);
+			List *exec_node = ReduceInfoListGetExecuteOidList(random_reduce_list);
+			new_reduce = MakeRandomReduceInfo(exec_node);
 			new_reduce_list = list_make1(new_reduce);
 		}
 	}
 
-	FreeReduceInfoList(round_reduce_list);
+	FreeReduceInfoList(random_reduce_list);
 
 	return new_reduce_list;
 }
@@ -957,14 +954,14 @@ bool IsReduceInfoListReplicated(List *list)
 	}
 	return false;
 }
-bool IsReduceInfoListRound(List *list)
+bool IsReduceInfoListRandom(List *list)
 {
 	ListCell *lc;
 	ReduceInfo *rinfo;
 	foreach(lc, list)
 	{
 		rinfo = lfirst(lc);
-		if(IsReduceInfoRound(rinfo))
+		if(IsReduceInfoRandom(rinfo))
 		{
 			Assert(list_length(list) == 1);
 			return true;
@@ -1612,9 +1609,9 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 				return false;
 			}
 		}
-	}else if(IsReduceInfoListRound(outer_reduce_list))
+	}else if(IsReduceInfoListRandom(outer_reduce_list))
 	{
-		/* round can not join coordinator */
+		/* random can not join coordinator */
 		if(IsReduceInfoListCoordinator(inner_reduce_list))
 			return false;
 	}
@@ -1657,7 +1654,7 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 		{
 			if (new_reduce_list)
 			{
-				/* make a round reduce info */
+				/* make a random reduce info */
 				ListCell *lc;
 				ReduceInfo *rinfo;
 				List *storage = NIL;
@@ -1671,7 +1668,7 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 					rinfo = lfirst(lc);
 					storage = list_concat_unique_oid(storage, rinfo->storage_nodes);
 				}
-				*new_reduce_list = list_make1(MakeRoundReduceInfo(storage));
+				*new_reduce_list = list_make1(MakeRandomReduceInfo(storage));
 				list_free(storage);
 			}
 			return true;
@@ -1848,7 +1845,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 									  list_make1(result),
 									  InvalidOid, InvalidOid,
 									  COERCE_EXPLICIT_CALL);
-		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids));
+		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids), true);
 		break;
 	case REDUCE_TYPE_CUSTOM:
 		Assert(list_length(reduce->params) > 0 && reduce->expr != NULL);
@@ -1866,7 +1863,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 									  list_make1(result),
 									  InvalidOid, InvalidOid,
 									  COERCE_EXPLICIT_CALL);
-		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids));
+		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids), true);
 		break;
 	case REDUCE_TYPE_MODULO:
 		Assert(list_length(reduce->params) == 1);
@@ -1883,13 +1880,13 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 									  list_make1(result),
 									  InvalidOid, InvalidOid,
 									  COERCE_EXPLICIT_CALL);
-		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids));
+		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids), true);
 		break;
 	case REDUCE_TYPE_REPLICATED:
-	case REDUCE_TYPE_ROUND:
 		{
 			oidvector *vector;
-			OidVectorLoopExpr *ovl = makeNode(OidVectorLoopExpr);
+			Const *c;
+			FuncExpr *func;
 			if(reduce->exclude_exec != NIL)
 			{
 				List *list_exec = list_difference_oid(reduce->storage_nodes, reduce->exclude_exec);
@@ -1899,9 +1896,50 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 			{
 				vector = makeOidVector(reduce->storage_nodes);
 			}
-			ovl->signalRowMode = (reduce->type == REDUCE_TYPE_ROUND ? true:false);
-			ovl->vector = PointerGetDatum(vector);
-			result = (Expr*)ovl;
+			c = makeConst(OIDARRAYOID,
+						  -1,
+						  InvalidOid,
+						  -1,
+						  PointerGetDatum(vector),
+						  false,
+						  false);
+			func = makeFuncExpr(F_ARRAY_UNNEST,
+								OIDOID,
+								list_make1(c),
+								InvalidOid,
+								InvalidOid,
+								COERCE_EXPLICIT_CALL);
+			/* unnest(array) return set */
+			func->funcretset = true;
+			result = (Expr*)func;
+		}
+		break;
+	case REDUCE_TYPE_RANDOM:
+		{
+			List *store;
+			if (reduce->exclude_exec != NIL)
+				store = list_difference_oid(reduce->storage_nodes, reduce->exclude_exec);
+			else
+				store = reduce->storage_nodes;
+			/* result = random(list_length(store)) */
+			result = (Expr*)makeFuncExpr(F_INT4RANDOM_MAX,
+										 INT4OID,
+										 list_make1(makeConst(INT4OID,
+										 					  -1,
+															  InvalidOid,
+															  sizeof(int32),
+															  Int32GetDatum(list_length(store)),
+															  false,
+															  true)),
+										 InvalidOid,
+										 InvalidOid,
+										 COERCE_EXPLICIT_CALL);
+			/* result = store[result] */
+			result = makeReduceArrayRef(store, result, false, false);
+
+			/* clean resource */
+			if (store != reduce->storage_nodes)
+				list_free(store);
 		}
 		break;
 	case REDUCE_TYPE_COORDINATOR:
@@ -2038,10 +2076,9 @@ static oidvector *makeOidVector(List *list)
 /*
  * oid_list[modulo] expr
  */
-static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const)
+static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const, bool use_coalesce)
 {
 	ArrayRef *aref;
-	CoalesceExpr *coalesce;
 	if(try_const)
 	{
 		Node *node = eval_const_expressions(NULL, (Node*)modulo);
@@ -2072,28 +2109,34 @@ static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const)
 		}
 	}
 
+	if (use_coalesce)
+	{
+		CoalesceExpr *coalesce;
+		coalesce = makeNode(CoalesceExpr);
+		coalesce->coalescetype = INT4OID;
+		coalesce->coalescecollid = InvalidOid;
+		coalesce->args = list_make2(modulo,
+									makeConst(INT4OID,
+											-1,
+											InvalidOid,
+											sizeof(int32),
+											Int32GetDatum(0), /* when null, reduce to first node */
+											false,
+											true)
+									);
+		coalesce->location = -1;
+		modulo = (Expr*)coalesce;
+	}
+
 	/* when "modulo" return NULL, then return 0 */
 	Assert(exprType((Node*)modulo) == INT4OID);
-	coalesce = makeNode(CoalesceExpr);
-	coalesce->coalescetype = INT4OID;
-	coalesce->coalescecollid = InvalidOid;
-	coalesce->args = list_make2(modulo,
-								makeConst(INT4OID,
-										  -1,
-										  InvalidOid,
-										  sizeof(int32),
-										  Int32GetDatum(0), /* when null, reduce to first node */
-										  false,
-										  true)
-								);
-	coalesce->location = -1;
 
 	aref = makeNode(ArrayRef);
 	aref->refarraytype = OIDARRAYOID;
 	aref->refelemtype = OIDOID;
 	aref->reftypmod = -1;
 	aref->refcollid = InvalidOid;
-	aref->refupperindexpr = list_make1(coalesce);
+	aref->refupperindexpr = list_make1(modulo);
 	aref->reflowerindexpr = NIL;
 	aref->refexpr = (Expr*)makeConst(OIDARRAYOID,
 									 -1,

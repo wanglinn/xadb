@@ -1533,7 +1533,7 @@ typedef enum DistributionType
 {
 	DISTTYPE_REPLICATION,		/* Replicated */
 	DISTTYPE_HASH,				/* Hash partitioned */
-	DISTTYPE_ROUNDROBIN,		/* Round Robin */
+	DISTTYPE_RANDOM,			/* Random partitioned */
 	DISTTYPE_MODULO,			/* Modulo partitioned */
 	DISTTYPE_USER_DEFINED		/* User-defined function partitioned */
 } DistributionType;

@@ -5503,7 +5503,7 @@ cost_cluster_reduce(ClusterReducePath *path)
 		is_src_reduce_rep = true;
 	else
 	if (IsReduceInfoListByValue(reduce_from_list) ||
-		IsReduceInfoListRound(reduce_from_list))
+		IsReduceInfoListRandom(reduce_from_list))
 		is_src_reduce_shard = true;
 	else
 	{
@@ -5562,7 +5562,7 @@ cost_cluster_reduce(ClusterReducePath *path)
 		}
 	} else
 	if (IsReduceInfoByValue(reduce_to) ||
-		IsReduceInfoRound(reduce_to))
+		IsReduceInfoRandom(reduce_to))
 	{
 		if (is_src_reduce_coord ||is_src_reduce_rep)
 		{

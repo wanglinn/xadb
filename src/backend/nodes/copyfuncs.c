@@ -4849,17 +4849,6 @@ _copyClusterReduce(const ClusterReduce *from)
 	return newnode;
 }
 
-static OidVectorLoopExpr *
-_copyOidVectorLoopExpr(const OidVectorLoopExpr *from)
-{
-	OidVectorLoopExpr *newnode = makeNode(OidVectorLoopExpr);
-
-	COPY_SCALAR_FIELD(signalRowMode);
-	newnode->vector = datumCopy(from->vector, false, -1);
-
-	return newnode;
-}
-
 /* ****************************************************************
  *					barrier.h copy functions
  * ****************************************************************
@@ -5941,9 +5930,6 @@ copyObjectImpl(const void *from)
 			break;
 		case T_ClusterReduce:
 			retval = _copyClusterReduce(from);
-			break;
-		case T_OidVectorLoopExpr:
-			retval = _copyOidVectorLoopExpr(from);
 			break;
 #endif /* ADB */
 

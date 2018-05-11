@@ -1395,3 +1395,35 @@ generate_series_step_int4(PG_FUNCTION_ARGS)
 		/* do when there is no more left */
 		SRF_RETURN_DONE(funcctx);
 }
+
+#ifdef ADB
+/* 0 <= result < arg0 */
+Datum int4random_max(PG_FUNCTION_ARGS)
+{
+	int32 r;
+	int32 m = PG_GETARG_INT32(0);
+
+	if (m == 0)
+		r = 0;
+	else
+		r = (int32)(random()%m);
+
+	PG_RETURN_INT32(r);
+}
+
+/* arg0 <= result < arg1 */
+Datum int4random_range(PG_FUNCTION_ARGS)
+{
+	int32 r;
+	int32 min = PG_GETARG_INT32(0);
+	int32 max = PG_GETARG_INT32(1);
+	int32 tmp = max-min;
+
+	if (tmp <= 0)
+		r = 0;
+	else
+		r = (int32)(random()%tmp + min);
+
+	PG_RETURN_INT32(r);
+}
+#endif /* ADB */

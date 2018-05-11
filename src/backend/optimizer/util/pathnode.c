@@ -4335,7 +4335,7 @@ static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context
 					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
 					++(exec_info->part_count);
 				}
-			}else if(loc->locatorType == LOCATOR_TYPE_RROBIN)
+			}else if(loc->locatorType == LOCATOR_TYPE_RANDOM)
 			{
 				foreach(lc, loc->nodeids)
 				{

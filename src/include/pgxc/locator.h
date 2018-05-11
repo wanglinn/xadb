@@ -17,7 +17,7 @@
 #define LOCATOR_TYPE_REPLICATED		'R'
 #define LOCATOR_TYPE_HASH			'H'
 #define LOCATOR_TYPE_RANGE			'G'
-#define LOCATOR_TYPE_RROBIN			'N'
+#define LOCATOR_TYPE_RANDOM			'N'
 #define LOCATOR_TYPE_CUSTOM			'C'
 #define LOCATOR_TYPE_MODULO			'M'
 #define LOCATOR_TYPE_NONE			'O'
@@ -35,7 +35,7 @@
 #define IsLocatorNone(x)						((x) == LOCATOR_TYPE_NONE)
 #define IsLocatorReplicated(x) 					((x) == LOCATOR_TYPE_REPLICATED)
 #define IsLocatorColumnDistributed(x) 			((x) == LOCATOR_TYPE_HASH || \
-												 (x) == LOCATOR_TYPE_RROBIN || \
+												 (x) == LOCATOR_TYPE_RANDOM || \
 												 (x) == LOCATOR_TYPE_MODULO || \
 												 (x) == LOCATOR_TYPE_DISTRIBUTED || \
 												 (x) == LOCATOR_TYPE_USER_DEFINED)
@@ -64,7 +64,6 @@ typedef struct RelationLocInfo
 	char		locatorType;			/* locator type, see above */
 	AttrNumber	partAttrNum;			/* Distribution column attribute */
 	List	   *nodeids;				/* Node ids where data is located */
-	ListCell   *roundRobinNode;			/* the next node to use */
 	Oid			funcid;					/* Oid of user-defined distribution function */
 	List	   *funcAttrNums;			/* Attributes indices used for user-defined function  */
 } RelationLocInfo;
@@ -124,7 +123,7 @@ extern List *GetPreferredRepNodeIds(List *nodeids);
 extern bool IsTableDistOnPrimary(RelationLocInfo *locInfo);
 extern bool IsLocatorInfoEqual(RelationLocInfo *locInfo1,
 							   RelationLocInfo *locInfo2);
-extern Oid GetRoundRobinNodeId(Oid relid);
+extern Oid GetRandomRelNodeId(Oid relid);
 extern bool IsTypeDistributable(Oid colType);
 extern bool IsDistribColumn(Oid relid, AttrNumber attNum);
 

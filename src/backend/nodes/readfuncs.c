@@ -2418,35 +2418,6 @@ _readClusterReduce(void)
 	READ_DONE();
 }
 
-static OidVectorLoopExpr *
-_readOidVectorLoopExpr(void)
-{
-	Oid *oids;
-	oidvector *vector;
-	int count;
-	READ_LOCALS(OidVectorLoopExpr);
-
-	READ_BOOL_FIELD(signalRowMode);
-
-	token = pg_strtok(&length);		/* skip :count */ \
-	token = pg_strtok(&length);		/* get field value */ \
-	count = atoi(token);
-
-	token = pg_strtok(&length);		/* skip :vector */
-	oids = readOidCols(count);
-	vector = palloc0(offsetof(oidvector, values) + count * sizeof(Oid));
-	vector->ndim = 1;
-	vector->dataoffset = 0;
-	vector->elemtype = OIDOID;
-	vector->dim1 = count;
-	vector->lbound1 = 0;
-	memcpy(vector->values, oids, sizeof(Oid)*count);
-	SET_VARSIZE(vector, sizeof(Oid) * count);
-	local_node->vector = PointerGetDatum(vector);
-	pfree(oids);
-
-	READ_DONE();
-}
 #endif /* ADB */
 
 /*
@@ -2730,8 +2701,6 @@ parseNodeString(void)
 #ifdef ADB
 	else if (MATCH("CLUSTERREDUCE", 13))
 		return_value = _readClusterReduce();
-	else if (MATCH("OIDVECTORLOOPEXPR", 17))
-		return_value = _readOidVectorLoopExpr();
 #endif /* ADB */
 	else
 	{

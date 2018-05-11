@@ -6969,8 +6969,8 @@ get_utility_query_def(Query *query, deparse_context *context)
 					appendStringInfo(buf, " DISTRIBUTE BY HASH(%s)", stmt->distributeby->colname);
 					break;
 
-				case DISTTYPE_ROUNDROBIN:
-					appendStringInfo(buf, " DISTRIBUTE BY ROUNDROBIN");
+				case DISTTYPE_RANDOM:
+					appendStringInfo(buf, " DISTRIBUTE BY RANDOM");
 					break;
 
 				case DISTTYPE_MODULO:
@@ -9445,27 +9445,6 @@ get_rule_expr(Node *node, deparse_context *context,
 			}
 			break;
 #ifdef ADB
-		case T_OidVectorLoopExpr:
-			{
-				OidVectorLoopExpr *ovl = (OidVectorLoopExpr*)node;
-				oidvector *ov = (oidvector*)DatumGetPointer(ovl->vector);
-				if(ov->dim1 > 0)
-				{
-					int i;
-					char tmp = ovl->signalRowMode ? '{':'[';
-					for(i=0;i<ov->dim1;++i)
-					{
-						appendStringInfoChar(buf, tmp);
-						appendStringInfo(buf, "%u", ov->values[i]);
-						tmp = ' ';
-					}
-					appendStringInfoChar(buf, ovl->signalRowMode ? '}':']');
-				}else
-				{
-					appendStringInfoString(buf, ovl->signalRowMode ? "{}":"[]");
-				}
-			}
-			break;
 		case T_RownumExpr:
 			appendStringInfoString(buf, ".row");
 			break;

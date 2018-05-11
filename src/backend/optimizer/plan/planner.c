@@ -4752,7 +4752,7 @@ create_grouping_paths(PlannerInfo *root,
 			Path *path = lfirst(lc);
 			if(have_cluster_subpath == false)
 				have_cluster_subpath = IsReduceInfoListByValue(get_reduce_info_list(path)) ||
-										IsReduceInfoListRound(get_reduce_info_list(path));
+										IsReduceInfoListRandom(get_reduce_info_list(path));
 			if(CanOnceGroupingClusterPath(target, path))
 			{
 				create_cluster_grouping_path(root, path, &gcontext);
@@ -7479,13 +7479,13 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 		reduce_info = MakeReplicateReduceInfo(storage_nodes);
 		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 	}
-	else if(loc_info->locatorType == LOCATOR_TYPE_RROBIN)
+	else if(loc_info->locatorType == LOCATOR_TYPE_RANDOM)
 	{
 		if (IsReduceInfoListReplicated(reduce_list))
 		{
 			path = replicate_to_one_node(root, path->parent, path, storage_nodes);
 		}
-		reduce_info = MakeRoundReduceInfo(storage_nodes);
+		reduce_info = MakeRandomReduceInfo(storage_nodes);
 		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 	}else if(loc_info->locatorType == LOCATOR_TYPE_HASH ||
 			 loc_info->locatorType == LOCATOR_TYPE_MODULO ||

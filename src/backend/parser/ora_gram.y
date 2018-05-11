@@ -1357,12 +1357,13 @@ OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType
 					DistributeBy *n = makeNode(DistributeBy);
 					if (strcmp($3, "replication") == 0)
 						n->disttype = DISTTYPE_REPLICATION;
-					else if (strcmp($3, "roundrobin") == 0)
-						n->disttype = DISTTYPE_ROUNDROBIN;
-                    else
-                        ereport(ERROR,
-                                (errcode(ERRCODE_SYNTAX_ERROR),
-                                 errmsg("unrecognized distribution option \"%s\"", $3)));
+					else if (strcmp($3, "random") == 0)
+						n->disttype = DISTTYPE_RANDOM;
+					else
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("unrecognized distribution option \"%s\"", $3),
+								 errhint("support:replication, random and hash(column)")));
 					n->colname = NULL;
 					$$ = n;
 				}

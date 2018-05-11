@@ -229,23 +229,18 @@ IsTypeDistributable(Oid col_type)
 }
 
 Oid
-GetRoundRobinNodeId(Oid relid)
+GetRandomRelNodeId(Oid relid)
 {
-	Oid			ret_node;
 	Relation	rel = relation_open(relid, AccessShareLock);
+	Datum		n;
+	Oid			ret_node;
 
 	Assert(rel->rd_locator_info);
 	Assert(rel->rd_locator_info->locatorType == LOCATOR_TYPE_REPLICATED ||
-		   rel->rd_locator_info->locatorType == LOCATOR_TYPE_RROBIN);
+		   rel->rd_locator_info->locatorType == LOCATOR_TYPE_RANDOM);
 
-	ret_node = lfirst_oid(rel->rd_locator_info->roundRobinNode);
-
-	/* Move round robin indicator to next node */
-	if (rel->rd_locator_info->roundRobinNode->next != NULL)
-		rel->rd_locator_info->roundRobinNode = rel->rd_locator_info->roundRobinNode->next;
-	else
-		/* reset to first one */
-		rel->rd_locator_info->roundRobinNode = rel->rd_locator_info->nodeids->head;
+	n = DirectFunctionCall1(int4random_max, Int32GetDatum(list_length(rel->rd_locator_info->nodeids)));
+	ret_node = list_nth_oid(rel->rd_locator_info->nodeids, DatumGetInt32(n));
 
 	relation_close(rel, AccessShareLock);
 
@@ -425,13 +420,13 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 			}
 			break;
 
-		case LOCATOR_TYPE_RROBIN:
+		case LOCATOR_TYPE_RANDOM:
 			/*
-			 * round robin, get next one in case of insert. If not insert, all
+			 * random, get random one in case of insert. If not insert, all
 			 * node needed
 			 */
 			if (accessType == RELATION_ACCESS_INSERT)
-				exec_nodes->nodeids = list_make1_oid(GetRoundRobinNodeId(rel_loc_info->relid));
+				exec_nodes->nodeids = list_make1_oid(GetRandomRelNodeId(rel_loc_info->relid));
 			else
 				exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
 			break;
@@ -843,28 +838,6 @@ RelationBuildLocator(Relation rel)
 		relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
 											   pgxc_class->nodeoids.values[j]);
 
-	/*
-	 * If the locator type is round robin, we set a node to
-	 * use next time. In addition, if it is replicated,
-	 * we choose a node to use for balancing reads.
-	 */
-	if (relationLocInfo->locatorType == LOCATOR_TYPE_RROBIN ||
-		relationLocInfo->locatorType == LOCATOR_TYPE_REPLICATED)
-	{
-		int offset;
-		/*
-		 * pick a random one to start with,
-		 * since each process will do this independently
-		 */
-		offset = abs(rand()) % list_length(relationLocInfo->nodeids);
-
-		srand(time(NULL));
-		Assert(relationLocInfo->nodeids);
-		relationLocInfo->roundRobinNode = relationLocInfo->nodeids->head; /* initialize */
-		for (j = 0; j < offset && relationLocInfo->roundRobinNode->next != NULL; j++)
-			relationLocInfo->roundRobinNode = relationLocInfo->roundRobinNode->next;
-	}
-
 	relationLocInfo->funcid = InvalidOid;
 	relationLocInfo->funcAttrNums = NIL;
 	if (relationLocInfo->locatorType == LOCATOR_TYPE_USER_DEFINED)
@@ -1141,14 +1114,14 @@ GetInvolvedNodes(RelationLocInfo *rel_loc,
 			}
 			break;
 
-		case LOCATOR_TYPE_RROBIN:
+		case LOCATOR_TYPE_RANDOM:
 			{
 				/*
-				 * round robin, get next one in case of insert. If not insert, all
+				 * random, get next one in case of insert. If not insert, all
 				 * node needed
 				 */
 				if (accessType == RELATION_ACCESS_INSERT)
-					node_list = list_make1_oid(GetRoundRobinNodeId(rel_loc->relid));
+					node_list = list_make1_oid(GetRandomRelNodeId(rel_loc->relid));
 				else
 					node_list = list_copy(rel_loc->nodeids);
 			}

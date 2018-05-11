@@ -188,10 +188,10 @@ GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQuer
 			/*
 			 * what the hell!!! Copy these code from old PGXC but i don't understand.
 			 *
-			 * Special handling for ROUND ROBIN distributed tables. The target
+			 * Special handling for RANDOM distributed tables. The target
 			 * node must be determined at the execution time
 			 */
-			if (!rel_loc->locatorType == LOCATOR_TYPE_RROBIN && node_list)
+			if (!rel_loc->locatorType == LOCATOR_TYPE_RANDOM && node_list)
 			{
 				if (exec_type == EXEC_ON_DATANODES || exec_type == EXEC_ON_ALL_NODES)
 				{

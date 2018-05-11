@@ -7329,16 +7329,16 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 
 	 /*
 	  * Can not be in the same partition with primary key rel if distribution
-	  * type of any relation is round robin.
+	  * type of any relation is random.
 	  */
-	 if (rloc->locatorType == LOCATOR_TYPE_RROBIN ||
-		 pkrloc->locatorType == LOCATOR_TYPE_RROBIN)
+	 if (rloc->locatorType == LOCATOR_TYPE_RANDOM||
+		 pkrloc->locatorType == LOCATOR_TYPE_RANDOM)
 	 {
 		 ereport(ERROR,
 			 (errcode(ERRCODE_INVALID_FOREIGN_KEY),
 			 errmsg("Cannot create foreign key \"%s\" which cannot be "
 				 "referenced in the primary key table", constraintName),
-			 errhint("because of round robin distribution type")));
+			 errhint("because of random distribution type")));
 		 return ;
 	 }
 

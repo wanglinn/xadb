@@ -2031,7 +2031,7 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 				result = true;
 				break;
 
-			case LOCATOR_TYPE_RROBIN:
+			case LOCATOR_TYPE_RANDOM:
 				/*
 				 * Index on roundrobin parent table cannot be safely shipped
 				 * because of the random behavior of data balancing.
@@ -2186,7 +2186,7 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 			result = true;
 			break;
 
-		case LOCATOR_TYPE_RROBIN:
+		case LOCATOR_TYPE_RANDOM:
 			/*
 			 * If the parent relation is based on roundrobin, the child
 			 * relation cannot be enforced on remote nodes before of the

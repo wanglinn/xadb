@@ -713,10 +713,6 @@ expression_returns_set_walker(Node *node, void *context)
 		return false;
 	if (IsA(node, WindowFunc))
 		return false;
-#ifdef ADB
-	if (IsA(node, OidVectorLoopExpr))
-		return ((OidVectorLoopExpr*)node)->signalRowMode ? false:true;
-#endif /* ADB */
 
 	return expression_tree_walker(node, expression_returns_set_walker,
 								  context);
@@ -1919,7 +1915,6 @@ expression_tree_walker(Node *node,
 #ifdef ADB
 		case T_RownumExpr:
 		case T_LevelExpr:
-		case T_OidVectorLoopExpr:
 #endif /* ADB */
 		case T_RangeTblRef:
 		case T_SortGroupClause:
@@ -3124,16 +3119,6 @@ expression_tree_mutator(Node *node,
 				return (Node*)newnode;
 			}
 			break;
-		case T_OidVectorLoopExpr:
-			{
-				OidVectorLoopExpr *v = (OidVectorLoopExpr*)node;
-				OidVectorLoopExpr *newnode;
-
-				FLATCOPY(newnode, v, OidVectorLoopExpr);
-				/* XXX we don't bother with datumCopy; should we? */
-
-				return (Node*)newnode;
-			}
 #endif /* ADB */
 		default:
 			elog(ERROR, "unrecognized node type: %d",

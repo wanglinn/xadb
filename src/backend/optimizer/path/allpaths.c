@@ -1833,7 +1833,7 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 				if(!list_member_oid(storage, lfirst_oid(l)))
 					new_exclude = lappend_oid(new_exclude, lfirst_oid(l));
 			}
-			reduce_info = MakeRoundReduceInfo(storage);
+			reduce_info = MakeRandomReduceInfo(storage);
 			reduce_info->exclude_exec = new_exclude;
 			path = (Path*)create_append_path(rel, subpaths, NULL, 0, NULL);
 			path->reduce_info_list = list_make1(reduce_info);

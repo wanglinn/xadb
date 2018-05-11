@@ -29,7 +29,7 @@
 #ifdef ADB
 #define LOCATOR_TYPE_REPLICATED 'R'
 #define LOCATOR_TYPE_HASH 'H'
-#define LOCATOR_TYPE_RROBIN 'N'
+#define LOCATOR_TYPE_RANDOM 'N'
 #define LOCATOR_TYPE_MODULO 'M'
 #define LOCATOR_TYPE_USER_DEFINED 'U'
 #endif
@@ -2951,7 +2951,7 @@ describeOneTableDetails(const char *schemaname,
 			printfPQExpBuffer(&buf,
 						"SELECT CASE pclocatortype \n"
 						"		  WHEN '%c' THEN \n"
-						"		   'ROUND ROBIN' \n"
+						"		   'RANDOM' \n"
 						"		  WHEN '%c' THEN \n"
 						"		   'REPLICATION' \n"
 						"		  WHEN '%c' THEN \n"
@@ -2989,7 +2989,7 @@ describeOneTableDetails(const char *schemaname,
 						"  AND a.attnum = c.pcattnum, \n"
 						"	   (SELECT count(*) AS dn_cn FROM pg_catalog.pgxc_node WHERE node_type = 'D') AS nc \n"
 						" WHERE pcrelid = '%s'"
-					, LOCATOR_TYPE_RROBIN
+					, LOCATOR_TYPE_RANDOM
 					, LOCATOR_TYPE_REPLICATED
 					, LOCATOR_TYPE_HASH
 					, LOCATOR_TYPE_MODULO

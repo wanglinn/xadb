@@ -643,22 +643,6 @@ _outClusterReduce(StringInfo str, const ClusterReduce *node)
 		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
 }
 
-static void
-_outOidVectorLoopExpr(StringInfo str, const OidVectorLoopExpr *node)
-{
-	oidvector *oids;
-	int i;
-	WRITE_NODE_TYPE("OIDVECTORLOOPEXPR");
-
-	WRITE_BOOL_FIELD(signalRowMode);
-	oids = (oidvector*)DatumGetPointer(node->vector);
-	appendStringInfo(str, " :count %d", oids->dim1);
-
-	appendStringInfoString(str, " :vector");
-	for(i=0;i<oids->dim1;++i)
-		appendStringInfo(str, " %u", oids->values[i]);
-}
-
 #endif
 
 static void
@@ -3787,9 +3771,6 @@ outNode(StringInfo str, const void *obj)
 				break;
 			case T_ClusterReduce:
 				_outClusterReduce(str, obj);
-				break;
-			case T_OidVectorLoopExpr:
-				_outOidVectorLoopExpr(str, obj);
 				break;
 #endif
 			case T_IndexScan:

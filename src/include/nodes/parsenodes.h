@@ -1461,13 +1461,6 @@ typedef struct LevelExpr
 	int			location;		/* token location, or -1 if unknown */
 } LevelExpr;
 
-typedef struct OidVectorLoopExpr
-{
-	NodeTag		type;
-	bool		signalRowMode;
-	Datum		vector;
-}OidVectorLoopExpr;
-
 #endif
 
 /* Convenience macro to get the output tlist of a CTE's query */
