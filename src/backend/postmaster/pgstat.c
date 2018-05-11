@@ -4074,6 +4074,14 @@ pgstat_get_backend_desc(BackendType backendType)
 		case B_WAL_WRITER:
 			backendDesc = "walwriter";
 			break;
+#ifdef ADB
+		case B_ADB_POOLER:
+			backendDesc = "pooler process";
+			break;
+		case B_ADB_RXACT:
+			backendDesc = "remote xact manager process";
+			break;
+#endif /* ADB */
 	}
 
 	return backendDesc;
