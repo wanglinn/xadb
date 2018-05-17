@@ -1518,7 +1518,7 @@ pgxc_is_expr_shippable(Expr *node, bool *has_aggs)
 bool
 pgxc_is_func_shippable(Oid funcid)
 {
-	return func_cluster(funcid) != PROC_CLUSTER_SAFE;
+	return func_cluster(funcid) == PROC_CLUSTER_SAFE;
 }
 #ifdef ADB
 /*
