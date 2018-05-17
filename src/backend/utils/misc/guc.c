@@ -477,7 +477,7 @@ bool		Debug_print_plan = false;
 bool		Debug_print_parse = false;
 #ifdef ADB
 bool		Debug_print_grammar = false;
-bool		enable_cluster_plan = false;
+bool		enable_cluster_plan = true;
 #endif
 bool		Debug_print_rewritten = false;
 bool		Debug_pretty_print = true;
@@ -1272,7 +1272,7 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&enable_cluster_plan,
-		false,
+		true,
 		NULL, NULL, NULL
 	},
 	{
