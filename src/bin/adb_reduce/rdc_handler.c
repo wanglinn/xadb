@@ -776,7 +776,7 @@ SendPlanDataToRdc(StringInfo msg, PlanPort *pln_port)
 static int
 SendPlanEofToRdc(StringInfo msg, PlanPort *pln_port)
 {
-	return BroadcastDataToRdc(msg, pln_port, MSG_EOF, NULL, 0, false);
+	return BroadcastDataToRdc(msg, pln_port, MSG_EOF, NULL, 0, true);
 }
 
 /*
@@ -790,7 +790,7 @@ SendPlanEofToRdc(StringInfo msg, PlanPort *pln_port)
 static int
 SendPlanCloseToRdc(StringInfo msg, PlanPort *pln_port)
 {
-	return BroadcastDataToRdc(msg, pln_port, MSG_PLAN_CLOSE, NULL, 0, false);
+	return BroadcastDataToRdc(msg, pln_port, MSG_PLAN_CLOSE, NULL, 0, true);
 }
 
 /*

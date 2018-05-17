@@ -16,6 +16,8 @@
  */
 #include "postgres.h"
 
+#include <time.h>
+
 #include "access/rxact_mgr.h"
 #include "access/transam.h"
 #include "access/twophase.h"
