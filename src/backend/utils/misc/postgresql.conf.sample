@@ -681,6 +681,7 @@
 #enable_zero_year = false			# Thing it is effective if year is zero
 #distribute_by_replication_default = false	# Set distribute by replication default.
 #print_reduce_debug_log = false     # Print debug log of adb reduce
+#enable_cluster_plan = on
 
 #------------------------------------------------------------------------------
 # ADB MONITOR PARAMETERS
