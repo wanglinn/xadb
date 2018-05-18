@@ -154,4 +154,16 @@ extern TypeName *defGetTypeName(DefElem *def);
 extern int	defGetTypeLength(DefElem *def);
 extern DefElem *defWithOids(bool value);
 
+#ifdef ADB
+/* commands/auxiliarytablecmds.c */
+extern void CreateAuxTable(IndexStmt *stmt,
+						Relation rel,
+						const char *index_name,
+						ObjectAddress index_address);
+extern void InsertAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum);
+extern void RemoveAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum);
+extern Oid LookupAuxTable(Oid relid, AttrNumber attnum);
+extern List *QueryRewriteAuxStmt(Query *auxquery);
+#endif
+
 #endif   /* DEFREM_H */

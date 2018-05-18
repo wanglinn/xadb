@@ -77,6 +77,7 @@
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
+#include "catalog/pg_aux_class.h"
 #endif /* ADB */
 #ifdef ADBMGRD
 #include "catalog/mgr_host.h"
@@ -679,6 +680,31 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		256
 	},
+
+	{AuxClassRelationId,		/* AUXCLASSIDENT */
+		AuxClassIdentIndexId,
+		1,
+		{
+			Anum_pg_aux_class_auxrelid,
+			0,
+			0,
+			0
+		},
+		1024
+	},
+
+	{AuxClassRelationId,		/* AUXCLASSRELIDATT */
+		AuxClassRelidAttnumIndexId,
+		2,
+		{
+			Anum_pg_aux_class_relid,
+			Anum_pg_aux_class_attnum,
+			0,
+			0
+		},
+		1024
+	},
+
 #endif
 	{ProcedureRelationId,		/* PROCNAMEARGSNSP */
 		ProcedureNameArgsNspIndexId,

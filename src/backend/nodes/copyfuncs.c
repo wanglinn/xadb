@@ -3167,6 +3167,9 @@ CopyCreateStmtFields(const CreateStmt *from, CreateStmt *newnode)
 	COPY_STRING_FIELD(tablespacename);
 	COPY_SCALAR_FIELD(if_not_exists);
 #ifdef ADB
+	COPY_SCALAR_FIELD(auxiliary);
+	COPY_SCALAR_FIELD(master_relid);
+	COPY_SCALAR_FIELD(aux_attnum);
 	COPY_NODE_FIELD(distributeby);
 	COPY_NODE_FIELD(subcluster);
 #endif
@@ -4824,6 +4827,20 @@ _copyDropGroupStmt(const DropGroupStmt *from)
 	return newnode;
 }
 
+static CreateAuxStmt *
+_copyCreateAuxStmt(const CreateAuxStmt *from)
+{
+	CreateAuxStmt *newnode = makeNode(CreateAuxStmt);
+
+	COPY_SCALAR_FIELD(endpos);
+	COPY_NODE_FIELD(create_stmt);
+	COPY_NODE_FIELD(index_stmt);
+	COPY_NODE_FIELD(master_relation);
+	COPY_STRING_FIELD(aux_column);
+
+	return newnode;
+}
+
 /* ****************************************************************
  *					poolutils.h copy functions
  * ****************************************************************
@@ -5560,6 +5577,9 @@ copyObject(const void *from)
 			break;
 		case T_DropGroupStmt:
 			retval = _copyDropGroupStmt(from);
+			break;
+		case T_CreateAuxStmt:
+			retval = _copyCreateAuxStmt(from);
 			break;
 		case T_CleanConnStmt:
 			retval = _copyCleanConnStmt(from);

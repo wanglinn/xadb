@@ -240,7 +240,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 		AlterTSConfigurationStmt AlterTSDictionaryStmt
 		/* PGXC add BarrierStmt AlterNodeStmt CreateNodeStmt DropNodeStmt CreateNodeGroupStmt DropNodeGroupStmt */
 		BarrierStmt AlterNodeStmt CreateNodeStmt DropNodeStmt
-		CreateNodeGroupStmt DropNodeGroupStmt
+		CreateNodeGroupStmt DropNodeGroupStmt CreateAuxStmt OptIndex
 		CreateMatViewStmt RefreshMatViewStmt CreateAmStmt
 
 %type <node>	select_no_parens select_with_parens select_clause
@@ -303,6 +303,8 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 				opt_collate
 
 %type <range>	qualified_name insert_target OptConstrFromTable
+				/* AntDB add opt_aux_name */
+				opt_aux_name
 
 %type <str>		all_Op MathOp
 
@@ -554,7 +556,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 /* ordinary key words in alphabetical order */
 %token <keyword> ABORT_P ABSOLUTE_P ACCESS ACTION ADD_P ADMIN AFTER
 	AGGREGATE ALL ALSO ALTER ALWAYS ANALYSE ANALYZE AND ANY ARRAY AS ASC
-	ASSERTION ASSIGNMENT ASYMMETRIC AT ATTRIBUTE AUTHORIZATION
+	ASSERTION ASSIGNMENT ASYMMETRIC AT ATTRIBUTE AUTHORIZATION AUXILIARY
 
 	/* PGXC add BARRIER token */
 	BACKWARD BARRIER BEFORE BEGIN_P BETWEEN BIGINT BINARY BIT
@@ -809,6 +811,8 @@ stmt :
 			| CreateAmStmt
 			| CreateAsStmt
 			| CreateAssertStmt
+/* ADB add CreateAuxStmt */
+			| CreateAuxStmt
 			| CreateCastStmt
 			| CreateConversionStmt
 			| CreateDomainStmt
@@ -2915,6 +2919,99 @@ copy_generic_opt_arg_list_item:
 			opt_boolean_or_string	{ $$ = (Node *) makeString($1); }
 		;
 
+/*****************************************************************************
+ *
+ *		QUERY :
+ *				CREATE AUXILIARY TABLE relname
+ *
+ *****************************************************************************/
+CreateAuxStmt:	CREATE OptTemp AUXILIARY TABLE opt_aux_name
+			ON qualified_name '(' ColId OptIndex ')'
+			OptTableSpace OptDistributeBy OptSubCluster
+				{
+					CreateAuxStmt *n = makeNode(CreateAuxStmt);
+					CreateStmt *cs = makeNode(CreateStmt);
+					IndexStmt *is = (IndexStmt *) $10;
+
+					if ($2 == RELPERSISTENCE_TEMP)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("can not create temporary auxiliary table"),
+								 parser_errposition(@2)));
+					if ($5)
+						$5->relpersistence = $2;
+					cs->grammar = PARSE_GRAM_POSTGRES;
+					cs->relation = $5;
+					cs->tableElts = NIL;		/* set when tansformCreateAuxStmt */
+					cs->inhRelations = NIL;
+					cs->ofTypename = NULL;
+					cs->constraints = NIL;
+					cs->options = NULL;
+					cs->oncommit = ONCOMMIT_NOOP;
+					cs->tablespacename = $12;
+					cs->if_not_exists = false;
+					cs->auxiliary = true;
+					cs->master_relid = InvalidOid;
+					cs->aux_attnum = 0;
+					cs->distributeby = $13;
+					cs->subcluster = $14;
+					if (is)
+					{
+						IndexElem *ie = makeNode(IndexElem);
+
+						ie->name = $9;
+						ie->expr = NULL;
+						ie->indexcolname = NULL;
+						ie->collation = NIL;
+						ie->opclass = NIL;
+						ie->ordering = SORTBY_DEFAULT;
+						ie->nulls_ordering = SORTBY_NULLS_DEFAULT;
+
+						is->relation = $5;
+						is->indexParams = list_make1(ie);
+					}
+					n->create_stmt = (Node *) cs;
+					n->index_stmt = (Node *) is;
+					n->master_relation = $7;
+					n->aux_column = $9;
+					$$ = (Node *) n;
+				}
+		;
+
+opt_aux_name:	qualified_name		{ $$ = $1; }
+			| /* EMPTY */			{ $$ = NULL; }
+		;
+
+OptIndex:	/* EMPTY */
+				{
+					IndexStmt *n = makeNode(IndexStmt);
+
+					n->grammar = PARSE_GRAM_POSTGRES;
+					n->unique = false;
+					n->concurrent = false;
+					n->idxname = NULL;
+					n->accessMethod = DEFAULT_INDEX_TYPE;
+					n->options = NIL;
+					n->tableSpace = NULL;
+					n->whereClause = NULL;
+					n->excludeOpNames = NIL;
+					n->idxcomment = NULL;
+					n->indexOid = InvalidOid;
+					n->oldNode = InvalidOid;
+					n->primary = false;
+					n->isconstraint = false;
+					n->deferrable = false;
+					n->initdeferred = false;
+					n->transformed = false;
+					n->if_not_exists = false;
+
+					/* set by caller */
+					n->relation = NULL;
+					n->indexParams = NIL;
+
+					$$ = (Node *)n;
+				}
+		;
 
 /*****************************************************************************
  *
@@ -14265,7 +14362,7 @@ ColLabel:	IDENT									{ $$ = $1; }
 
 /* "Unreserved" keywords --- available for use as any kind of name.
  */
-/* PGXC add DISTRIBUTE, DIRECT, COORDINATOR, CLEAN, NODE, BARRIER */
+/* PGXC add DISTRIBUTE, DIRECT, COORDINATOR, CLEAN, NODE, BARRIER, AUXILIARY */
 unreserved_keyword:
 			  ABORT_P
 			| ABSOLUTE_P
@@ -14282,6 +14379,9 @@ unreserved_keyword:
 			| ASSIGNMENT
 			| AT
 			| ATTRIBUTE
+/* ADB_BEGIN */
+			| AUXILIARY
+/* ADB_END */
 			| BACKWARD
 /* ADB_BEGIN */
 			| BARRIER

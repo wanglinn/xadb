@@ -317,6 +317,12 @@ DECLARE_UNIQUE_INDEX(ora_cast_source_target_index, 9017, on ora_cast using btree
 DECLARE_UNIQUE_INDEX(adb_proc_owner_index, 9008, on adb_proc using btree(proowner oid_ops));
 #define AdbProcOwnerIndexId	9008
 
+DECLARE_UNIQUE_INDEX(pg_aux_class_ident_index, 9019, on pg_aux_class using btree(auxrelid oid_ops));
+#define AuxClassIdentIndexId  9019
+
+DECLARE_UNIQUE_INDEX(pg_aux_class_relid_attnum_index, 9020, on pg_aux_class using btree(relid oid_ops, attnum int2_ops));
+#define AuxClassRelidAttnumIndexId  9020
+
 #endif
 
 DECLARE_UNIQUE_INDEX(pg_foreign_table_relid_index, 3119, on pg_foreign_table using btree(ftrelid oid_ops));

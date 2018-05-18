@@ -40,6 +40,7 @@
 #ifdef ADB
 #include "access/htup_details.h"
 #include "catalog/namespace.h"
+#include "commands/defrem.h"
 #include "nodes/nodes.h"
 #include "optimizer/planner.h"
 #include "optimizer/var.h"
@@ -3772,17 +3773,27 @@ QueryRewrite(Query *parsetree)
 	 * but such query like "EXPLAIN ANALYZE SELECT * INTO X FROM Y"
 	 * can not covered correctly.
 	 */
-	if (parsetree->commandType == CMD_UTILITY &&
-		IsA(parsetree->utilityStmt, CreateTableAsStmt) &&
-		((CreateTableAsStmt *)parsetree->utilityStmt)->relkind != OBJECT_MATVIEW)
+	if (parsetree->commandType == CMD_UTILITY)
 	{
-		/*
-		 * CREATE TABLE AS SELECT and SELECT INTO are rewritten so that the
-		 * target table is created first. The SELECT query is then transformed
-		 * into an INSERT INTO statement. This step is not carried out for
-		 * materialized views.
-		 */
-		return QueryRewriteCTAS(parsetree);
+		if (IsA(parsetree->utilityStmt, CreateTableAsStmt) &&
+			((CreateTableAsStmt *)parsetree->utilityStmt)->relkind != OBJECT_MATVIEW)
+		{
+			/*
+			 * CREATE TABLE AS SELECT and SELECT INTO are rewritten so that the
+			 * target table is created first. The SELECT query is then transformed
+			 * into an INSERT INTO statement. This step is not carried out for
+			 * materialized views.
+			 */
+			return QueryRewriteCTAS(parsetree);
+		}
+
+		if (IsA(parsetree->utilityStmt, CreateAuxStmt))
+		{
+			/*
+			 * Rewrite CREATE AUXILIARY TABLE statment.
+			 */
+			return QueryRewriteAuxStmt(parsetree);
+		}
 	}
 #endif
 

@@ -1456,7 +1456,11 @@ PortalRunMulti(Portal portal,
 			}
 			else
 			{
+#ifdef ADB
+				Assert(IsA(stmt, NotifyStmt) || IsA(stmt, IndexStmt));
+#else
 				Assert(IsA(stmt, NotifyStmt));
+#endif
 				/* stmt added by rewrite cannot set tag */
 				PortalRunUtility(portal, stmt, isTopLevel, false,
 								 altdest, NULL);

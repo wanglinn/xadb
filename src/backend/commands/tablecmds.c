@@ -748,6 +748,17 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		/* Make sure locator info gets rebuilt */
 		RelationCacheInvalidateEntry(relationId);
 	}
+#if 0
+	/* Add for pg_aux_class */
+	if (stmt->auxiliary)
+	{
+		Assert(OidIsValid(stmt->master_relid));
+		Assert(AttributeNumberIsValid(stmt->aux_attnum));
+
+		InsertAuxClassTuple(relationId, stmt->master_relid, stmt->aux_attnum);
+		CommandCounterIncrement();
+	}
+#endif
 #endif
 
 	/*

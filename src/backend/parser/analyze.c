@@ -449,6 +449,7 @@ analyze_requires_snapshot(Node *parseTree)
 			result = true;
 			break;
 #ifdef ADB
+		case T_CreateAuxStmt:
 		case T_ExecDirectStmt:
 
 			/*

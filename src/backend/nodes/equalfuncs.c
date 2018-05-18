@@ -1206,6 +1206,9 @@ _equalCreateStmt(const CreateStmt *a, const CreateStmt *b)
 	COMPARE_STRING_FIELD(tablespacename);
 	COMPARE_SCALAR_FIELD(if_not_exists);
 #ifdef ADB
+	COMPARE_SCALAR_FIELD(auxiliary);
+	COMPARE_SCALAR_FIELD(master_relid);
+	COMPARE_SCALAR_FIELD(aux_attnum);
 	COMPARE_NODE_FIELD(distributeby);
 	COMPARE_NODE_FIELD(subcluster);
 #endif
@@ -2824,6 +2827,17 @@ _equalDropGroupStmt(const DropGroupStmt *a, const DropGroupStmt *b)
 	return true;
 }
 
+static bool
+_equalCreateAuxStmt(const CreateAuxStmt *a, const CreateAuxStmt *b)
+{
+	COMPARE_NODE_FIELD(create_stmt);
+	COMPARE_NODE_FIELD(index_stmt);
+	COMPARE_NODE_FIELD(master_relation);
+	COMPARE_STRING_FIELD(aux_column);
+
+	return true;
+}
+
 /*
  * stuff from poolutils.h
  */
@@ -3416,6 +3430,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_DropGroupStmt:
 			retval = _equalDropGroupStmt(a, b);
+			break;
+		case T_CreateAuxStmt:
+			retval = _equalCreateAuxStmt(a, b);
 			break;
 		case T_CleanConnStmt:
 			retval = _equalCleanConnStmt(a, b);
