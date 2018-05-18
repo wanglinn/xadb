@@ -479,6 +479,7 @@ analyze_requires_snapshot(RawStmt *parseTree)
 			result = true;
 			break;
 #ifdef ADB
+		case T_CreateAuxStmt:
 		case T_ExecDirectStmt:
 
 			/*

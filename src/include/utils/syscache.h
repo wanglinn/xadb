@@ -84,6 +84,8 @@ enum SysCacheIdentifier
 	PGXCNODEIDENTIFIER,
 	ORACASTSOURCETARGET,
 	ADBPROCID,
+	AUXCLASSIDENT,		/* auxrelid */
+	AUXCLASSRELIDATT,	/* relid + attnum */
 #endif
 	PROCNAMEARGSNSP,
 	PROCOID,

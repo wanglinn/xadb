@@ -721,6 +721,16 @@ BEGIN_NODE(DropGroupStmt)
 END_NODE(DropGroupStmt)
 #endif /* NO_NODE_DropGroupStmt */
 
+#ifndef NO_NODE_CreateAuxStmt
+BEGIN_NODE(CreateAuxStmt)
+	NODE_SCALAR(int,endpos)
+	NODE_NODE(Node,create_stmt)
+	NODE_NODE(Node,index_stmt)
+	NODE_NODE(RangeVar,master_relation)
+	NODE_STRING(aux_column)
+END_NODE(CreateAuxStmt)
+#endif /* NO_NODE_CreateAuxStmt */
+
 #ifndef NO_NODE_ClusterGather
 BEGIN_NODE(ClusterGather)
 	NODE_BASE2(Plan,plan)
@@ -2351,6 +2361,9 @@ BEGIN_NODE(CreateStmt)
 	NODE_STRING(tablespacename)
 	NODE_SCALAR(bool,if_not_exists)
 #ifdef ADB
+	NODE_SCALAR(bool,auxiliary)
+	NODE_SCALAR(Oid,master_relid)
+	NODE_SCALAR(AttrNumber, aux_attnum)
 	NODE_NODE(DistributeBy,distributeby)
 	NODE_NODE(PGXCSubCluster,subcluster)
 #endif

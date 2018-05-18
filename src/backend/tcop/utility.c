@@ -4060,6 +4060,10 @@ CreateCommandTag(Node *parsetree)
 		case T_DropGroupStmt:
 			tag = "DROP NODE GROUP";
 			break;
+
+		case T_CreateAuxStmt:
+			tag = "CREATE AUXILIARY TABLE";
+			break;
 #endif
 
 		case T_ReindexStmt:
@@ -4804,6 +4808,7 @@ GetCommandLogLevel(Node *parsetree)
 
 		case T_ExecDirectStmt:
 		case T_BarrierStmt:
+		case T_CreateAuxStmt:
 			lev = LOGSTMT_ALL;
 			break;
 #endif

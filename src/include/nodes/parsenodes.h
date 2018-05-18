@@ -2105,8 +2105,11 @@ typedef struct CreateStmt
 	char	   *tablespacename; /* table space to use, or NULL */
 	bool		if_not_exists;	/* just do nothing if it already exists? */
 #ifdef ADB
-	DistributeBy *distributeby; 	/* distribution to use, or NULL */
-	PGXCSubCluster *subcluster;		/* subcluster of table */
+	bool		auxiliary;		/* auxiliary table? */
+	Oid			master_relid;	/* set valid Oid if auxiliary is true */
+	AttrNumber	aux_attnum;		/* set valid column number if auxiliary is true */
+	DistributeBy *distributeby;	/* distribution to use, or NULL */
+	PGXCSubCluster *subcluster;	/* subcluster of table */
 #endif
 } CreateStmt;
 
@@ -3639,6 +3642,20 @@ typedef struct CleanConnStmt
 	bool		is_coord;	/* type of connections dropped */
 	bool		is_force;	/* option force  */
 } CleanConnStmt;
+
+/*
+ * CREATE AUXILIARY TABLE statement
+ */
+typedef struct CreateAuxStmt
+{
+	NodeTag			type;
+	int 			endpos;			/* the position of ';' in the sql */
+	Node		   *create_stmt;	/* auxiliary table create statement */
+	Node		   *index_stmt;		/* index on "aux_column" for auxiliary table */
+	RangeVar	   *master_relation;/* master relation which auxiliary relation created for */
+	char		   *aux_column;		/* column of master relation which auxiliary relation created for */
+} CreateAuxStmt;
+
 #endif
 
 #endif							/* PARSENODES_H */

@@ -558,10 +558,12 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 %type <distby>	OptDistributeBy OptDistributeByInternal
 %type <node>	AlterNodeStmt
 		BarrierStmt
-		CleanConnStmt CreateNodeGroupStmt CreateNodeStmt
+		CleanConnStmt CreateAuxStmt CreateNodeGroupStmt CreateNodeStmt
 		DropNodeGroupStmt DropNodeStmt
 		ExecDirectStmt
+		OptIndex
 
+%type <range>	opt_aux_name
 %type <list>	pgxcnode_list pgxcnodes
 %type <boolean> opt_force
 %type <str>		CleanConnDbName CleanConnUserName
@@ -684,7 +686,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 
 	ZONE
 /* ADB_BEGIN */
-	BARRIER CLEAN COORDINATOR DIRECT DISTRIBUTE NODE PREFERRED
+	AUXILIARY BARRIER CLEAN COORDINATOR DIRECT DISTRIBUTE NODE PREFERRED
 /* ADB_END */
 
 /*
@@ -856,6 +858,9 @@ stmt :
 			| CreateAmStmt
 			| CreateAsStmt
 			| CreateAssertStmt
+/* ADB_BEGIN */
+			| CreateAuxStmt
+/* ADB_END */
 			| CreateCastStmt
 			| CreateConversionStmt
 			| CreateDomainStmt
@@ -3136,6 +3141,101 @@ copy_generic_opt_arg_list_item:
 			opt_boolean_or_string	{ $$ = (Node *) makeString($1); }
 		;
 
+/* ADB_BEGIN */
+/*****************************************************************************
+ *
+ *		QUERY :
+ *				CREATE AUXILIARY TABLE relname
+ *
+ *****************************************************************************/
+CreateAuxStmt:	CREATE OptTemp AUXILIARY TABLE opt_aux_name
+			ON qualified_name '(' ColId OptIndex ')'
+			OptTableSpace OptDistributeBy OptSubCluster
+				{
+					CreateAuxStmt *n = makeNode(CreateAuxStmt);
+					CreateStmt *cs = makeNode(CreateStmt);
+					IndexStmt *is = (IndexStmt *) $10;
+
+					if ($2 == RELPERSISTENCE_TEMP)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("can not create temporary auxiliary table"),
+								 parser_errposition(@2)));
+					if ($5)
+						$5->relpersistence = $2;
+					cs->grammar = PARSE_GRAM_POSTGRES;
+					cs->relation = $5;
+					cs->tableElts = NIL;		/* set when tansformCreateAuxStmt */
+					cs->inhRelations = NIL;
+					cs->ofTypename = NULL;
+					cs->constraints = NIL;
+					cs->options = NULL;
+					cs->oncommit = ONCOMMIT_NOOP;
+					cs->tablespacename = $12;
+					cs->if_not_exists = false;
+					cs->auxiliary = true;
+					cs->master_relid = InvalidOid;
+					cs->aux_attnum = 0;
+					cs->distributeby = $13;
+					cs->subcluster = $14;
+					if (is)
+					{
+						IndexElem *ie = makeNode(IndexElem);
+
+						ie->name = $9;
+						ie->expr = NULL;
+						ie->indexcolname = NULL;
+						ie->collation = NIL;
+						ie->opclass = NIL;
+						ie->ordering = SORTBY_DEFAULT;
+						ie->nulls_ordering = SORTBY_NULLS_DEFAULT;
+
+						is->relation = $5;
+						is->indexParams = list_make1(ie);
+					}
+					n->create_stmt = (Node *) cs;
+					n->index_stmt = (Node *) is;
+					n->master_relation = $7;
+					n->aux_column = $9;
+					$$ = (Node *) n;
+				}
+		;
+
+opt_aux_name:	qualified_name		{ $$ = $1; }
+			| /* EMPTY */			{ $$ = NULL; }
+		;
+
+OptIndex:	/* EMPTY */
+				{
+					IndexStmt *n = makeNode(IndexStmt);
+
+					n->grammar = PARSE_GRAM_POSTGRES;
+					n->unique = false;
+					n->concurrent = false;
+					n->idxname = NULL;
+					n->accessMethod = DEFAULT_INDEX_TYPE;
+					n->options = NIL;
+					n->tableSpace = NULL;
+					n->whereClause = NULL;
+					n->excludeOpNames = NIL;
+					n->idxcomment = NULL;
+					n->indexOid = InvalidOid;
+					n->oldNode = InvalidOid;
+					n->primary = false;
+					n->isconstraint = false;
+					n->deferrable = false;
+					n->initdeferred = false;
+					n->transformed = false;
+					n->if_not_exists = false;
+
+					/* set by caller */
+					n->relation = NULL;
+					n->indexParams = NIL;
+
+					$$ = (Node *)n;
+				}
+		;
+/* ADB_END */
 
 /*****************************************************************************
  *
@@ -15154,6 +15254,9 @@ unreserved_keyword:
 			| AT
 			| ATTACH
 			| ATTRIBUTE
+/* ADB_BEGIN */
+			| AUXILIARY
+/* ADB_END */
 			| BACKWARD
 /* ADB_BEGIN */
 			| BARRIER
