@@ -2031,8 +2031,9 @@ StartNodeMasterStmt:
 	|	START ALL
 		{
 			SelectStmt *stmt;
+			mgr_check_job_in_updateparam("monitor_handle_gtm");
 			mgr_check_job_in_updateparam("monitor_handle_coordinator");
-
+			mgr_check_job_in_updateparam("monitor_handle_datanode");
 			stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("startall"), -1));
@@ -2149,8 +2150,9 @@ StopNodeMasterStmt:
 		{
 			SelectStmt *stmt;
 
+			mgr_check_job_in_updateparam("monitor_handle_gtm");
 			mgr_check_job_in_updateparam("monitor_handle_coordinator");
-
+			mgr_check_job_in_updateparam("monitor_handle_datanode");
 			stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			if (strcmp($3, SHUTDOWN_S) == 0)
@@ -2165,6 +2167,7 @@ StopNodeMasterStmt:
 FailoverStmt:
 		FAILOVER DATANODE Ident opt_general_force
 	{
+			mgr_check_job_in_updateparam("monitor_handle_datanode");
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($3, -1));
 			args = lappend(args, makeBoolAConst($4, -1));
@@ -2174,6 +2177,7 @@ FailoverStmt:
 	}
 	| FAILOVER GTM Ident opt_general_force
 		{
+			mgr_check_job_in_updateparam("monitor_handle_gtm");
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($3, -1));
 			args = lappend(args, makeBoolAConst($4, -1));
@@ -2627,6 +2631,7 @@ FailoverManualStmt:
 SwitchoverStmt:
 	SWITCHOVER GTM opt_gtm_inner_type Ident
 		{
+			mgr_check_job_in_updateparam("monitor_handle_gtm");
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeIntConst($3, @3));
 			args = lappend(args, makeStringConst($4, @4));
@@ -2637,6 +2642,7 @@ SwitchoverStmt:
 		}
 	| SWITCHOVER GTM opt_gtm_inner_type Ident FORCE
 		{
+			mgr_check_job_in_updateparam("monitor_handle_gtm");
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeIntConst($3, @3));
 			args = lappend(args, makeStringConst($4, @4));
@@ -2647,6 +2653,7 @@ SwitchoverStmt:
 		}
 	| SWITCHOVER DATANODE opt_dn_inner_type Ident
 		{
+			mgr_check_job_in_updateparam("monitor_handle_datanode");
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeIntConst($3, @3));
 			args = lappend(args, makeStringConst($4, @4));
@@ -2657,6 +2664,7 @@ SwitchoverStmt:
 		}
 	| SWITCHOVER DATANODE opt_dn_inner_type Ident FORCE
 		{
+			mgr_check_job_in_updateparam("monitor_handle_datanode");
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeIntConst($3, @3));
 			args = lappend(args, makeStringConst($4, @4));

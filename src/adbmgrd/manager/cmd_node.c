@@ -765,8 +765,12 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 			}
 			if (got[Anum_mgr_node_nodeport-1] == true)
 			{
-				if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
+				if (GTM_TYPE_GTM_MASTER == nodetype)
+					mgr_check_job_in_updateparam("monitor_handle_gtm");
+				else if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
 					mgr_check_job_in_updateparam("monitor_handle_coordinator");
+				else if (CNDN_TYPE_DATANODE_MASTER == nodetype)
+					mgr_check_job_in_updateparam("monitor_handle_datanode");
 				mgr_modify_port_after_initd(rel, oldtuple, name.data, nodetype, newport);
 			}
 		}
@@ -1234,6 +1238,7 @@ Datum mgr_start_gtm_master(PG_FUNCTION_ARGS)
 	List *nodenamelist = NIL;
 	char *nodename;
 
+	mgr_check_job_in_updateparam("monitor_handle_gtm");
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(GTM_TYPE_GTM_MASTER);
@@ -1299,6 +1304,7 @@ Datum mgr_start_dn_master(PG_FUNCTION_ARGS)
 {
 	List *nodenamelist = NIL;
 
+	mgr_check_job_in_updateparam("monitor_handle_datanode");
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_MASTER);
@@ -1772,6 +1778,7 @@ Datum mgr_stop_gtm_master(PG_FUNCTION_ARGS)
 	char *stop_mode;
 	char *nodename;
 
+	mgr_check_job_in_updateparam("monitor_handle_gtm");
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
 	{
@@ -1882,6 +1889,7 @@ Datum mgr_stop_dn_master(PG_FUNCTION_ARGS)
 	List *nodenamelist = NIL;
 	char *stop_mode;
 
+	mgr_check_job_in_updateparam("monitor_handle_datanode");
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
 	{
@@ -5100,6 +5108,8 @@ Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
+	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
+
 	if(force_get)
 		force = true;
 	relNode = heap_open(NodeRelationId, RowExclusiveLock);
@@ -7829,7 +7839,9 @@ Datum mgr_flush_host(PG_FUNCTION_ARGS)
 	bool bgetwarning = false;
 	Oid hostoid;
 
+	mgr_check_job_in_updateparam("monitor_handle_gtm");
 	mgr_check_job_in_updateparam("monitor_handle_coordinator");
+	mgr_check_job_in_updateparam("monitor_handle_datanode");
 
 	initStringInfo(&infosendmsg);
 	initStringInfo(&(getAgentCmdRst.description));

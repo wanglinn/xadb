@@ -17,7 +17,9 @@ ADB documentation
     for database summary 'select monitor_databaseitem_insert_data()',
     for host 'select  monitor_get_hostinfo()',
     for slow log 'select monitor_slowlog_insert_data()',
-    for coordinator handle 'select monitor_handle_coordinator()'. </refpurpose>
+    for gtm handle 'select monitor_handle_gtm(bforce, num, timeMs, ''nodename'')',
+    for coordinator handle 'select monitor_handle_coordinator()',
+    for datanode handle 'select monitor_handle_datanode(bforce, num, timeMs, ''nodename'')'. </refpurpose>
   </refnamediv>
 
   <indexterm zone="monitor-addjob">
