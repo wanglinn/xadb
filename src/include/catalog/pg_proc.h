@@ -5835,6 +5835,11 @@ DESCR("mgr switchover");
 DATA(insert OID = 4896 (  monitor_handle_coordinator       PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "23 2275 23" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_coordinator _null_ _null_ _null_ ));
 DESCR("monitor auto handle coordinator");
 
+DATA(insert OID = 4013 (  monitor_handle_datanode       PGNSP PGUID 12 10 400 0 0 f f f f t t s s 4 0 2249 "16 23 23 2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_datanode _null_ _null_ _null_ ));
+DESCR("monitor auto handle datanode master");
+
+DATA(insert OID = 4014 (  monitor_handle_gtm       PGNSP PGUID 12 10 400 0 0 f f f f t t s s 4 0 2249 "16 23 23 2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_gtm _null_ _null_ _null_ ));
+DESCR("monitor auto handle gtm master");
 
 #endif
 

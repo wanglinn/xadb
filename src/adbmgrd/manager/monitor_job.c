@@ -23,6 +23,14 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/wait.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <arpa/inet.h>
 
 #include "access/skey.h"
 #include "access/sysattr.h"
@@ -65,15 +73,31 @@
 #include "mgr/mgr_msg_type.h"
 #include "executor/spi.h"
 #include "funcapi.h"
-
+#include "common/fe_memutils.h"
 
 /*
 * GUC parameters
 */
 int	adbmonitor_naptime;
+bool adbmonitor_start_daemon;
+
+typedef struct fdCtl
+{
+	int fd;
+	int connected;
+	int connectedError;
+	int port;
+	bool bchecked;
+	bool connectStatus;
+	char *address;
+	NameData nodename;
+} fdCtl;
 
 static HeapTuple montiot_job_get_item_tuple(Relation rel_job, Name jobname);
 static bool mgr_element_in_array(Oid tupleOid, int array[], int count);
+static int mgr_nodeType_Num_incluster(const int masterNodeOid, Relation relNode, const char nodeType);
+static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int timeMs);
+static int mgr_get_fd_noblock(fdCtl *fdHandle, int totalNum);
 
 /*
 * ADD ITEM jobname(jobname, filepath, desc)
@@ -780,6 +804,9 @@ static bool mgr_element_in_array(Oid tupleOid, int array[], int count)
 	return false;
 }
 
+/*
+* check the substring "subjobstr" is in the "JOB" table of "COMMAND" column content
+*/
 bool mgr_check_job_in_updateparam(const char *subjobstr)
 {
 	HeapTuple tuple = NULL;
@@ -793,6 +820,10 @@ bool mgr_check_job_in_updateparam(const char *subjobstr)
 	bool res = false;
 	char *command;
 	char *pstr = NULL;
+
+	/* guc parameter, control job switch */
+	if (!adbmonitor_start_daemon)
+		return false;
 
 	Assert(subjobstr);
 
@@ -834,9 +865,643 @@ bool mgr_check_job_in_updateparam(const char *subjobstr)
 	if (res)
 	{
 		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
-				,errmsg("on job table, the content of job \"%s\" includes \"monitor_handle_coordiantor\" string and its status is \"on\"; you need do \"ALTER JOB \"%s\" (STATUS=false);\" to alter its status to \"off\"", jobname.data, jobname.data)
+				,errmsg("on job table, the content of job \"%s\" includes \"%s\" string and its status is \"on\"; you need do \"ALTER JOB \"%s\" (STATUS=false);\" to alter its status to \"off\" or set \"adbmonitor=off\" in postgresql.conf of ADBMGR to turn all job off which can make effect by mgr_ctl reload", jobname.data, subjobstr, jobname.data)
 				,errhint("try \"list job\" for more information")));
 	}
 
 	return res;
+}
+
+/*
+* check the datanode master running status, when find the master not running normal,
+* inform the adbmgr to do "failover datanode" command.
+*/
+
+Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
+{
+	Relation relNode;
+	HeapScanDesc relScan;
+	HeapTuple tuple;
+	HeapTuple tupResult;
+	Form_mgr_node mgr_node;
+	ScanKeyData key[3];
+	StringInfoData cmdstrmsg;
+	NameData masterName;
+	int nargs;
+	int nodePort;
+	int nmasterNum = 0;
+	int nslaveNum = 0;
+	int createFdNum = 0;
+	int i = 0;
+	char *address;
+	bool bforce = false;
+	bool bnameNull = false;
+	bool res = true;
+	bool bexec = false;
+	int checkNum = 3;
+	int sleepMs = 300;
+	int ret = 0;
+	fdCtl *fdHandle = NULL;
+	struct sockaddr_in *serv_addr = NULL;
+
+	/* check the argv num */
+	nargs = PG_NARGS();
+	Assert(nargs >= 1);
+	bforce = PG_GETARG_BOOL(0);
+	checkNum = PG_GETARG_UINT32(1);
+	sleepMs = PG_GETARG_UINT32(2);
+	namestrcpy(&masterName, PG_GETARG_CSTRING(3));
+	if (masterName.data[0] == '\0')
+		bnameNull = true;
+
+	/* check the nodename exist */
+	if ((!bnameNull) && (!mgr_check_node_exist_incluster(&masterName, true)))
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+			,errmsg("datanode master \"%s\" does not exist in cluster", NameStr(masterName))));
+
+	relNode = heap_open(NodeRelationId, AccessShareLock);
+	/* get total datanode master num */
+	if (!bnameNull)
+		nmasterNum = 1;
+	else
+		nmasterNum = mgr_nodeType_Num_incluster(0, relNode, CNDN_TYPE_DATANODE_MASTER);
+
+	PG_TRY();
+	{
+		if (nmasterNum < 1)
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+				,errmsg("there is not any datanode master in cluster")));
+
+		fdHandle = (fdCtl *)palloc0(sizeof(fdCtl) * nmasterNum);
+		if (!fdHandle)
+			ereport(ERROR, (errmsg("malloc %lu byte fail: %s", sizeof(fdCtl) * nmasterNum, strerror(errno))));
+
+		serv_addr = (struct sockaddr_in *)palloc0(sizeof(struct sockaddr_in) * nmasterNum);
+		if (!serv_addr)
+			ereport(ERROR, (errmsg("malloc %lu byte fail: %s", sizeof(struct sockaddr_in) * nmasterNum, strerror(errno))));
+
+		/* create nmasterNum socket noblock fd */
+		createFdNum = mgr_get_fd_noblock(fdHandle, nmasterNum);
+		if (createFdNum != nmasterNum)
+			ereport(ERROR, (errmsg("create noblock socket fd fail: %s", strerror(errno))));
+
+		/* traversal the datanode master */
+		i = 0;
+		ScanKeyInit(&key[0],
+			Anum_mgr_node_nodeincluster
+			,BTEqualStrategyNumber
+			,F_BOOLEQ
+			,BoolGetDatum(true));
+		ScanKeyInit(&key[1]
+			,Anum_mgr_node_nodeinited
+			,BTEqualStrategyNumber
+			,F_BOOLEQ
+			,BoolGetDatum(true));
+		ScanKeyInit(&key[2]
+			,Anum_mgr_node_nodetype
+			,BTEqualStrategyNumber
+			,F_CHAREQ
+			,CharGetDatum(CNDN_TYPE_DATANODE_MASTER));
+		relScan = heap_beginscan_catalog(relNode, 3, key);
+		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+		{
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgr_node);
+			if(!bnameNull)
+				if (strcmp(masterName.data, NameStr(mgr_node->nodename)) !=0)
+					continue;
+			nodePort = mgr_node->nodeport;
+			address = get_hostaddress_from_hostoid(mgr_node->nodehost);
+			namestrcpy(&(fdHandle[i].nodename), NameStr(mgr_node->nodename));
+			fdHandle[i].port = mgr_node->nodeport;
+			fdHandle[i].address = address;
+
+			serv_addr[i].sin_family = AF_INET;
+			serv_addr[i].sin_port = htons(mgr_node->nodeport);
+			serv_addr[i].sin_addr.s_addr = inet_addr(address);
+			i++;
+		}
+		heap_endscan(relScan);
+
+		i = 0;
+		while (i < nmasterNum)
+		{
+			fdHandle[i].connected = connect(fdHandle[i].fd, (struct sockaddr *)&serv_addr[i], sizeof(struct sockaddr_in));
+			fdHandle[i].connectedError = errno;
+			i++;
+		}
+
+		i = 0;
+		while (i<checkNum)
+		{
+			ret = mgr_get_async_connect_result(fdHandle, nmasterNum, 100);
+			if (ret)
+				pg_usleep(sleepMs*100L);
+			else
+				break;
+			i++;
+		}
+
+		if (ret)
+		{
+			ereport(WARNING, (errmsg("the total number of datanode master which is not running normal : %d" , ret)));
+			/* do fail command */
+			i = 0;
+			/* check the datanode master has slave node */
+			relScan = heap_beginscan_catalog(relNode, 3, key);
+			while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+			{
+				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+				Assert(mgr_node);
+				i++;
+				if (fdHandle[i-1].connectStatus)
+					continue;
+				nslaveNum = mgr_nodeType_Num_incluster(HeapTupleGetOid(tuple), relNode, CNDN_TYPE_DATANODE_SLAVE);
+				if (!nslaveNum)
+				{
+					ereport(WARNING, (errmsg("the datanode master \"%s\" is not running normal and has no slave"
+						, NameStr(mgr_node->nodename))));
+					bexec = false;
+				}
+				else
+				{
+					initStringInfo(&cmdstrmsg);
+					appendStringInfo(&cmdstrmsg, "failover datanode %s %s", NameStr(mgr_node->nodename), bforce ? "FORCE":"");
+					ereport(WARNING, (errmsg("the datanode master \"%s\" is not running normal and will notice ADBMGR to do \"%s\" command" 
+					, NameStr(mgr_node->nodename), cmdstrmsg.data)));
+					bexec = true;
+					/* do failover command */
+					res = DirectFunctionCall2(mgr_failover_one_dn, CStringGetDatum(NameStr(mgr_node->nodename)), BoolGetDatum(bforce));
+					if (!res)
+						ereport(WARNING, (errmsg("on ADBMGR do command \"%s\" fail, check the log" , cmdstrmsg.data)));
+					pfree(cmdstrmsg.data);
+					break;
+				}
+
+			}
+
+			heap_endscan(relScan);
+		}
+	}PG_CATCH();
+	{
+		i = 0;
+		if (fdHandle)
+		{
+			while (i < createFdNum)
+			{
+				if (fdHandle[i].fd == -1)
+					break;
+				close(fdHandle[i].fd);
+				i++;
+			}
+
+			i = 0;
+			if (createFdNum == nmasterNum)
+			{
+				while (i < nmasterNum)
+				{
+					pfree(fdHandle[i].address);
+					i++;
+				}
+			}
+			pfree(fdHandle);
+		}
+		if (serv_addr)
+			pfree(serv_addr);
+		heap_close(relNode, AccessShareLock);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	pfree(serv_addr);
+	i = 0;
+	while (i < nmasterNum)
+	{
+		close(fdHandle[i].fd);
+		pfree(fdHandle[i].address);
+		i++;
+	}
+	pfree(fdHandle);
+	heap_close(relNode, AccessShareLock);
+
+	if (bnameNull)
+		namestrcpy(&masterName, "datanode master");
+	if (!ret)
+	{
+		/* all datanode master running normal */
+		if (bnameNull)
+			tupResult = build_common_command_tuple(&masterName, true, "all datanode master in cluster are running normal");
+		else
+			tupResult = build_common_command_tuple(&masterName, true, "the datanode master in cluster is running normal");
+	}
+	else
+	{
+		if (bexec)
+			tupResult = build_common_command_tuple(&masterName, res,  res ? "execute failover command success" : "execute failover command fail");
+		else
+			ereport(ERROR, (errmsg("all of the datanode master which are not running normal have no slave node")));
+	}
+
+	/* record the result */
+	if (bexec)
+		ereport(LOG, (errmsg("execute the command for monitor_handle_datanode : \n nodename:%s, \n result:%s, \n description:%s"
+			, NameStr(masterName)
+			, res ? "true" : "false"
+			, (res ? "execute failover command success" : "execute failover command fail"))));
+	else
+		ereport(DEBUG1, (errmsg("the command for monitor_handle_datanode : \n nodename:%s, \n result:%s, \n description:%s"
+			, NameStr(masterName)
+			, (!ret) ? "true" : (bexec ? (res ? "true" : "false") : "false")
+			, (!ret) ? (bnameNull? "all datanode master in cluster are running normal" 
+				: "the datanode master in cluster is running normal") 
+				: (bexec ? (res ? "execute failover command success" : "execute failover command fail") 
+				: "all of the datanode master which are not running normal have no slave node"))));
+
+	return HeapTupleGetDatum(tupResult);
+}
+
+/*
+* calculate the total number of slave in cluster for given node type and its master's oid
+*
+*/
+
+static int mgr_nodeType_Num_incluster(const int masterNodeOid, Relation relNode, const char nodeType)
+{
+	HeapScanDesc relScan;
+	HeapTuple tuple;
+	ScanKeyData key[4];
+	int nSlaveNum = 0;
+
+	/* traversal the slave node */
+	ScanKeyInit(&key[0],
+		Anum_mgr_node_nodeincluster
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	ScanKeyInit(&key[1]
+		,Anum_mgr_node_nodeinited
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	ScanKeyInit(&key[2]
+		,Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(nodeType));
+	ScanKeyInit(&key[3]
+		,Anum_mgr_node_nodemasternameOid
+		,BTEqualStrategyNumber
+		,F_OIDEQ
+		,ObjectIdGetDatum(masterNodeOid));
+	relScan = heap_beginscan_catalog(relNode, 4, key);
+	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+	{
+		nSlaveNum++;
+	}
+
+	heap_endscan(relScan);
+
+	return nSlaveNum;
+}
+
+
+/*
+* async connect result, return the number which fd is not connect normal
+*/
+
+static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int timeMs)
+{
+	int m = 0;
+	int s = 0;
+	int i = 0;
+	int maxFd = 0;
+	fd_set rset;
+	fd_set wset;
+	struct timeval tval;
+
+	while (m++ < totalFd)
+	{
+		tval.tv_sec = timeMs*1000L/1000000L;
+		tval.tv_usec = timeMs*1000L%1000000L;
+		FD_ZERO(&rset);
+		FD_ZERO(&wset);
+		i = 0;
+		maxFd = 0;
+		s = 0;
+
+		/* fd set */
+		while (i < totalFd)
+		{
+			if (fdHandle[i].connected == 0)
+			{
+				fdHandle[i].bchecked = true;
+				fdHandle[i].connectStatus = true;
+			}
+			else if (fdHandle[i].connected == -1 && fdHandle[i].connectedError == EINPROGRESS)
+			{
+				if (!(fdHandle[i].bchecked))
+				{
+					FD_SET(fdHandle[i].fd, &rset);
+					FD_SET(fdHandle[i].fd, &wset);
+					s++;
+				}
+				if (fdHandle[i].fd > maxFd)
+					maxFd = fdHandle[i].fd;
+			}
+
+			i++;
+		}
+
+		if (!s)
+			break;
+
+		int res = select(maxFd + 1, &rset, &wset, NULL, &tval);
+		if (res < 0)
+		{
+			ereport(ERROR, (errmsg("network error in connect : %s\n", strerror(errno))));
+		}
+		else if (res == 0)
+		{
+			/* connect timeout, do nothing */
+		}
+		else
+		{
+			/* check connect status */
+			i = 0;
+			while (i < totalFd)
+			{
+				if (fdHandle[i].bchecked == false)
+				{
+					int r1 = FD_ISSET(fdHandle[i].fd, &rset);
+					int w1 = FD_ISSET(fdHandle[i].fd, &wset);
+					if ( r1 || w1 )
+					{
+						int err = 0;
+						int len = sizeof(err);
+						getsockopt(fdHandle[i].fd, SOL_SOCKET, SO_ERROR,&err,(socklen_t *)&len);
+						fdHandle[i].bchecked = true;
+						if (!err)
+							fdHandle[i].connectStatus = true;
+						else
+							fdHandle[i].connectStatus = false;
+					}
+				}
+				i++;
+			}
+		}
+	}
+
+	/*get the num fd which connect not right */
+	i = 0;
+	s = 0;
+	while (i<totalFd)
+	{
+		if (!fdHandle[i].connectStatus)
+			s++;
+		i++;
+	}
+
+	return s;
+}
+
+/*
+* check the gtm master running status, when find the master not running normal,
+* inform the adbmgr to do "failover gtm" command.
+*/
+
+Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
+{
+	Relation relNode;
+	HeapScanDesc relScan;
+	HeapTuple tuple;
+	HeapTuple tupResult;
+	Form_mgr_node mgr_node;
+	ScanKeyData key[3];
+	StringInfoData cmdstrmsg;
+	NameData masterName;
+	int nargs;
+	int nodePort;
+	int nmasterNum = 0;
+	int nslaveNum = 0;
+	int createFdNum = 0;
+	int i = 0;
+	char *address;
+	bool bforce = false;
+	bool bnameNull = false;
+	bool res = true;
+	bool bexec = false;
+	int checkNum = 3;
+	int sleepMs = 300;
+	int ret = 0;
+	fdCtl *fdHandle = NULL;
+	struct sockaddr_in *serv_addr = NULL;
+
+	/* check the argv num */
+	nargs = PG_NARGS();
+	Assert(nargs >= 1);
+	bforce = PG_GETARG_BOOL(0);
+	checkNum = PG_GETARG_UINT32(1);
+	sleepMs = PG_GETARG_UINT32(2);
+	namestrcpy(&masterName, PG_GETARG_CSTRING(3));
+	if (masterName.data[0] == '\0')
+		bnameNull = true;
+
+	/* check the nodename exist */
+	if ((!bnameNull) && (!mgr_check_node_exist_incluster(&masterName, true)))
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+			,errmsg("gtm master \"%s\" does not exist in cluster", NameStr(masterName))));
+
+	relNode = heap_open(NodeRelationId, AccessShareLock);
+	/* get total gtm master num */
+	if (!bnameNull)
+		nmasterNum = 1;
+	else
+		nmasterNum = mgr_nodeType_Num_incluster(0, relNode, GTM_TYPE_GTM_MASTER);
+
+	PG_TRY();
+	{
+		if (nmasterNum != 1)
+			ereport(ERROR, (errmsg("check the node table ,there is not one gtm master in cluster, but is %d", nmasterNum)));
+
+		fdHandle = (fdCtl *)palloc0(sizeof(fdCtl) * nmasterNum);
+		if (!fdHandle)
+			ereport(ERROR, (errmsg("malloc %lu byte fail: %s", sizeof(fdCtl) * nmasterNum, strerror(errno))));
+
+		serv_addr = (struct sockaddr_in *)palloc0(sizeof(struct sockaddr_in) * nmasterNum);
+		if (!serv_addr)
+			ereport(ERROR, (errmsg("malloc %lu byte fail: %s", sizeof(struct sockaddr_in) * nmasterNum, strerror(errno))));
+
+		/* create 1 socket fd */
+		createFdNum = mgr_get_fd_noblock(fdHandle, 1);
+		if (!createFdNum)
+			ereport(ERROR, (errmsg("create noblock socket fd fail : %s", strerror(errno))));
+
+		/* traversal the gtm master */
+		ScanKeyInit(&key[0],
+			Anum_mgr_node_nodeincluster
+			,BTEqualStrategyNumber
+			,F_BOOLEQ
+			,BoolGetDatum(true));
+		ScanKeyInit(&key[1]
+			,Anum_mgr_node_nodeinited
+			,BTEqualStrategyNumber
+			,F_BOOLEQ
+			,BoolGetDatum(true));
+		ScanKeyInit(&key[2]
+			,Anum_mgr_node_nodetype
+			,BTEqualStrategyNumber
+			,F_CHAREQ
+			,CharGetDatum(GTM_TYPE_GTM_MASTER));
+		relScan = heap_beginscan_catalog(relNode, 3, key);
+		if((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+		{
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgr_node);
+			nodePort = mgr_node->nodeport;
+			address = get_hostaddress_from_hostoid(mgr_node->nodehost);
+			namestrcpy(&(fdHandle[0].nodename), NameStr(mgr_node->nodename));
+			fdHandle[0].port = mgr_node->nodeport;
+			fdHandle[0].address = address;
+
+			serv_addr[0].sin_family = AF_INET;
+			serv_addr[0].sin_port = htons(mgr_node->nodeport);
+			serv_addr[0].sin_addr.s_addr = inet_addr(address);
+		}
+		else
+		{
+			heap_endscan(relScan);
+			ereport(ERROR, (errmsg("get information of gtm master in node table fail")));
+		}
+		heap_endscan(relScan);
+
+		fdHandle[0].connected = connect(fdHandle[0].fd, (struct sockaddr *)&serv_addr[0], sizeof(struct sockaddr_in));
+		fdHandle[0].connectedError = errno;
+
+		i = 0;
+		while (i<checkNum)
+		{
+			ret = mgr_get_async_connect_result(fdHandle, 1, 100);
+			if (ret)
+				pg_usleep(sleepMs*1000L);
+			else
+				break;
+			i++;
+		}
+
+		if (ret)
+		{
+			Assert(!fdHandle[0].connectStatus);
+			ereport(WARNING, (errmsg("the number of gtm master which is not running normal : %d" , ret)));
+			/* check the gtm master has slave node */
+			relScan = heap_beginscan_catalog(relNode, 3, key);
+			if((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+			{
+				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+				Assert(mgr_node);;
+				nslaveNum = mgr_nodeType_Num_incluster(HeapTupleGetOid(tuple), relNode, GTM_TYPE_GTM_SLAVE);
+				if (!nslaveNum)
+				{
+					ereport(WARNING, (errmsg("the gtm master \"%s\" is not running normal and has no slave"
+						, NameStr(mgr_node->nodename))));
+					bexec = false;
+				}
+				else
+				{
+					initStringInfo(&cmdstrmsg);
+					appendStringInfo(&cmdstrmsg, "failover gtm %s %s", NameStr(mgr_node->nodename), bforce ? "FORCE":"");
+					ereport(WARNING, (errmsg("the gtm master \"%s\" is not running normal and will notice ADBMGR to do \"%s\" command" 
+					, NameStr(mgr_node->nodename), cmdstrmsg.data)));
+					bexec = true;
+					/* do failover command */
+					res = DirectFunctionCall2(mgr_failover_gtm, CStringGetDatum(NameStr(mgr_node->nodename)), BoolGetDatum(bforce));
+					if (!res)
+						ereport(WARNING, (errmsg("on ADBMGR do command \"%s\" fail, check the log" , cmdstrmsg.data)));
+					pfree(cmdstrmsg.data);
+				}
+
+			}
+			else
+			{
+				heap_endscan(relScan);
+				ereport(ERROR, (errmsg("get information of gtm master in node table fail")));
+			}
+
+			heap_endscan(relScan);
+		}
+	}PG_CATCH();
+	{
+		if (fdHandle)
+		{
+			if (createFdNum)
+				pfree(fdHandle[0].address);
+			pfree(fdHandle);
+		}
+		if (serv_addr)
+			pfree(serv_addr);
+		heap_close(relNode, AccessShareLock);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	pfree(serv_addr);
+	close(fdHandle[0].fd);
+	pfree(fdHandle[0].address);
+	pfree(fdHandle);
+	heap_close(relNode, AccessShareLock);
+
+	namestrcpy(&masterName, "gtm master");
+	if (!ret)
+	{
+		tupResult = build_common_command_tuple(&masterName, true, "the gtm master in cluster is running normal");
+	}
+	else
+	{
+		if (bexec)
+			tupResult = build_common_command_tuple(&masterName, res,  res ? "execute failover command success" : "execute failover command fail");
+		else
+			ereport(ERROR, (errmsg("the gtm master which is not running normal has no slave node")));
+	}
+
+	/* record the result */
+	if (bexec)
+		ereport(LOG, (errmsg("execute the command for monitor_handle_gtm : \n nodename:%s, \n result:%s, \n description:%s"
+		, NameStr(masterName)
+		, res ? "true":"false"
+		, res ? "execute failover command success" : "execute failover command fail")));
+	else
+		ereport(DEBUG1, (errmsg("the command for monitor_handle_gtm : \n nodename:%s, \n result:%s, \n description:%s"
+			, NameStr(masterName)
+			, (!ret) ? "true" : (bexec ? (res ? "true":"false") : "false")
+			, (!ret) ? "the gtm master in cluster is running normal" : 
+				(bexec ? (res ? "execute failover command success" : "execute failover command fail") 
+				: "the gtm master which is not running normal has no slave node"))));
+	return HeapTupleGetDatum(tupResult);
+}
+
+static int mgr_get_fd_noblock(fdCtl *fdHandle, int totalNum)
+{
+	int i = 0;
+	int flags;
+
+	while (i < totalNum)
+	{
+		fdHandle[i].fd = socket(AF_INET, SOCK_STREAM, 0);
+		fdHandle[i].bchecked = false;
+		fdHandle[i].connectStatus = false;
+		if (fdHandle[i].fd == -1)
+			return i;
+		/* set noblock */
+		flags = fcntl(fdHandle[i].fd, F_GETFL, 0);
+		if (flags < 0)
+		{
+			ereport(WARNING, (errmsg("get the file handle status fail : %s", strerror(errno))));
+			return i;
+		}
+		if (fcntl(fdHandle[i].fd, F_SETFL, flags | O_NONBLOCK) == -1)
+		{
+			return i;
+			ereport(WARNING, (errmsg("set the file handle noblock fail : %s", strerror(errno))));
+		}
+		i++;
+	}
+
+	return i;
 }

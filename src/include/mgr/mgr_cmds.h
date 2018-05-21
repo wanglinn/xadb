@@ -391,5 +391,7 @@ extern void mgr_add_hbaconf_by_masteroid(Oid mastertupleoid, char *dbname, char 
 extern char *mgr_get_agtm_name(void);
 extern bool mgr_check_slave_replicate_status(const Oid masterTupleOid, const char nodetype, const char *slaveName);
 extern bool mgr_set_all_nodetype_param(const char nodetype, char *paramName, char *paramValue);
+extern Datum monitor_handle_datanode(PG_FUNCTION_ARGS);
+extern Datum monitor_handle_gtm(PG_FUNCTION_ARGS);
 
 #endif /* MGR_CMDS_H */
