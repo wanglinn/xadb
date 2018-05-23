@@ -2362,7 +2362,7 @@ BEGIN_NODE(CreateStmt)
 	NODE_SCALAR(bool,if_not_exists)
 #ifdef ADB
 	NODE_SCALAR(bool,auxiliary)
-	NODE_SCALAR(Oid,master_relid)
+	NODE_NODE(RangeVar,master_relation)
 	NODE_SCALAR(AttrNumber, aux_attnum)
 	NODE_NODE(DistributeBy,distributeby)
 	NODE_NODE(PGXCSubCluster,subcluster)
@@ -2388,6 +2388,9 @@ BEGIN_NODE(DropStmt)
 	NODE_ENUM(DropBehavior,behavior)
 	NODE_SCALAR(bool,missing_ok)
 	NODE_SCALAR(bool,concurrent)
+#ifdef ADB
+	NODE_SCALAR(bool,auxiliary)
+#endif
 END_NODE(DropStmt)
 #endif /* NO_NODE_DropStmt */
 

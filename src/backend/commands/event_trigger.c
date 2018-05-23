@@ -1133,6 +1133,9 @@ EventTriggerSupportsObjectType(ObjectType obtype)
 		case OBJECT_STATISTIC_EXT:
 		case OBJECT_TABCONSTRAINT:
 		case OBJECT_TABLE:
+#ifdef ADB
+		case OBJECT_AUX_TABLE:
+#endif
 		case OBJECT_TRANSFORM:
 		case OBJECT_TRIGGER:
 		case OBJECT_TSCONFIGURATION:
@@ -1209,6 +1212,7 @@ EventTriggerSupportsObjectClass(ObjectClass objclass)
 		case OCLASS_PGXC_CLASS:
 		case OCLASS_PGXC_NODE:
 		case OCLASS_PGXC_GROUP:
+		case OCLASS_AUX_CLASS:
 			return false;
 #endif
 
