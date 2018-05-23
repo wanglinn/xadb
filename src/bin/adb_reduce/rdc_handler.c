@@ -21,8 +21,8 @@
 
 static int  HandlePlanMsg(RdcPort *work_port, PlanPort *pln_port);
 static void HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes);
-static void HandleReadFromReduce(RdcPort *port, List **pln_nodes);
-static void HandleWriteToReduce(RdcPort *port);
+static void HandleReadFromRdc(RdcPort *port, List **pln_nodes);
+static void HandleWriteToRdc(RdcPort *port);
 static void HandleReadFromPlan(PlanPort *pln_port);
 static void HandleWriteToPlan(PlanPort *pln_port);
 static bool WritePlanEndToPlanHook(const char *data, int datalen, void *context);
@@ -109,9 +109,9 @@ HandleReduceIO(List **pln_nodes)
 			continue;
 
 		if (RdcWaitRead(rdc_port))
-			HandleReadFromReduce(rdc_port, pln_nodes);
+			HandleReadFromRdc(rdc_port, pln_nodes);
 		if (RdcWaitWrite(rdc_port))
-			HandleWriteToReduce(rdc_port);
+			HandleWriteToRdc(rdc_port);
 
 		if (!PortIsValid(rdc_port))
 		{
@@ -535,7 +535,7 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 							 "recv REJECT message of" PLAN_PORT_PRINT_FORMAT
 							 " from" RDC_PORT_PRINT_FORMAT,
 							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
-						/* fill in PLAN CLOSE message */
+						/* fill in PLAN REJECT message */
 						SendPlanRejectToPlan(pln_port, RdcPeerID(rdc_port));
 					}
 				}
@@ -574,12 +574,12 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 }
 
 /*
- * HandleReadFromReduce
+ * HandleReadFromRdc
  *
  * handle message from other reduce
  */
 static void
-HandleReadFromReduce(RdcPort *rdc_port, List **pln_nodes)
+HandleReadFromRdc(RdcPort *rdc_port, List **pln_nodes)
 {
 	AssertArg(pln_nodes);
 	Assert(ReduceTypeIDIsValid(rdc_port));
@@ -597,12 +597,12 @@ HandleReadFromReduce(RdcPort *rdc_port, List **pln_nodes)
 }
 
 /*
- * HandleWriteToReduce
+ * HandleWriteToRdc
  *
  * send data to other reduce
  */
 static void
-HandleWriteToReduce(RdcPort *rdc_port)
+HandleWriteToRdc(RdcPort *rdc_port)
 {
 	int ret;
 
@@ -892,18 +892,16 @@ BroadcastDataToRdc(StringInfo msg,
 		if (flush)
 			ret = rdc_flush(rdc_port);
 		else
-		{
 			ret = rdc_try_flush(rdc_port);
-			/* trouble will be checked */
-			CHECK_FOR_INTERRUPTS();
-			if (ret != 0)
-			{
-				res = ret;
-				RdcWaitEvents(rdc_port) |= WT_SOCK_WRITEABLE;
-			}
-			else
-				RdcWaitEvents(rdc_port) &= ~WT_SOCK_WRITEABLE;
+		/* trouble will be checked */
+		CHECK_FOR_INTERRUPTS();
+		if (ret != 0)
+		{
+			res = ret;
+			RdcWaitEvents(rdc_port) |= WT_SOCK_WRITEABLE;
 		}
+		else
+			RdcWaitEvents(rdc_port) &= ~WT_SOCK_WRITEABLE;
 	}
 	rdc_getmsgend(msg);
 
