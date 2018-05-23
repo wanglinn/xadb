@@ -80,6 +80,9 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
+#ifdef ADB
+#include "commands/defrem.h"
+#endif
 
 /*
  * ObjectProperty
@@ -700,6 +703,9 @@ static void getProcedureTypeDescription(StringInfo buffer, Oid procid);
 static void getConstraintTypeDescription(StringInfo buffer, Oid constroid);
 static void getOpFamilyIdentity(StringInfo buffer, Oid opfid, List **objname);
 static void getRelationIdentity(StringInfo buffer, Oid relid, List **objname);
+#ifdef ADB
+static void getAuxRelationDescription(StringInfo buffer, Oid relid);
+#endif
 
 /*
  * Translate an object name and arguments (as passed by the parser) to an
@@ -3149,6 +3155,14 @@ getObjectDescription(const ObjectAddress *object)
 			appendStringInfo(&buffer, "pgxc_class %u",
 							 object->objectId);
 			break;
+
+		case OCLASS_AUX_CLASS:
+			getAuxRelationDescription(&buffer, object->objectId);
+			if (object->objectSubId != 0)
+				appendStringInfo(&buffer, _(" column %s"),
+								 get_relid_attribute_name(object->objectId,
+													   object->objectSubId));
+			break;
 #endif
 
 		case OCLASS_POLICY:
@@ -3251,6 +3265,14 @@ getRelationDescription(StringInfo buffer, Oid relid)
 		nspname = get_namespace_name(relForm->relnamespace);
 
 	relname = quote_qualified_identifier(nspname, NameStr(relForm->relname));
+
+#ifdef ADB
+	if (IsAuxRelation(relid))
+	{
+		Assert(relForm->relkind == RELKIND_RELATION);
+		appendStringInfoString(buffer, "auxiliary ");
+	}
+#endif
 
 	switch (relForm->relkind)
 	{
@@ -3678,6 +3700,10 @@ getObjectTypeDescription(const ObjectAddress *object)
 		case OCLASS_PGXC_CLASS:
 			appendStringInfo(&buffer, "pgxc_class");
 			break;
+
+		case OCLASS_AUX_CLASS:
+			appendStringInfo(&buffer, "auxiliary table");
+			break;
 #endif
 
 		case OCLASS_POLICY:
@@ -3714,6 +3740,14 @@ getRelationTypeDescription(StringInfo buffer, Oid relid, int32 objectSubId)
 	if (!HeapTupleIsValid(relTup))
 		elog(ERROR, "cache lookup failed for relation %u", relid);
 	relForm = (Form_pg_class) GETSTRUCT(relTup);
+
+#ifdef ADB
+	if (IsAuxRelation(relid))
+	{
+		Assert(relForm->relkind == RELKIND_RELATION);
+		appendStringInfoString(buffer, "auxiliary ");
+	}
+#endif
 
 	switch (relForm->relkind)
 	{
@@ -4619,6 +4653,10 @@ getObjectIdentityParts(const ObjectAddress *object,
 			appendStringInfo(&buffer, "pgxc_class %u",
 							 object->objectId);
 			break;
+
+		case OCLASS_AUX_CLASS:
+			getRelationIdentity(&buffer, object->objectId, objname);
+			break;
 #endif
 
 		case OCLASS_TRANSFORM:
@@ -4785,3 +4823,33 @@ strlist_to_textarray(List *list)
 
 	return arr;
 }
+
+#ifdef ADB
+static void
+getAuxRelationDescription(StringInfo buffer, Oid relid)
+{
+	HeapTuple		relTup;
+	Form_pg_class	relForm;
+	char		   *nspname;
+	char		   *relname;
+
+	relTup = SearchSysCache1(RELOID,
+							 ObjectIdGetDatum(relid));
+	if (!HeapTupleIsValid(relTup))
+		elog(ERROR, "cache lookup failed for relation %u", relid);
+	relForm = (Form_pg_class) GETSTRUCT(relTup);
+
+	/* Qualify the name if not visible in search path */
+	if (RelationIsVisible(relid))
+		nspname = NULL;
+	else
+		nspname = get_namespace_name(relForm->relnamespace);
+
+	relname = quote_qualified_identifier(nspname, NameStr(relForm->relname));
+
+	Assert(relForm->relkind == RELKIND_RELATION);
+	appendStringInfo(buffer, _("auxiliary table %s"), relname);
+
+	ReleaseSysCache(relTup);
+}
+#endif

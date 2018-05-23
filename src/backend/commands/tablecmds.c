@@ -99,6 +99,7 @@
 #ifdef ADB
 #include "agtm/agtm.h"
 #include "catalog/pg_proc.h"
+#include "catalog/pg_aux_class.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
 #include "commands/dbcommands.h"
@@ -505,6 +506,20 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	static char *validnsps[] = HEAP_RELOPT_NAMESPACES;
 	Oid			ofTypeId;
 	ObjectAddress address;
+#ifdef ADB
+	Relation	master_rel = NULL;
+	Oid			master_relid = InvalidOid;
+
+	if (stmt->auxiliary)
+	{
+		Assert(stmt->master_relation);
+		Assert(AttributeNumberIsValid(stmt->aux_attnum));
+
+		/* try to lock master relation */
+		master_rel = relation_openrv(stmt->master_relation, ShareLock);
+		master_relid = RelationGetRelid(master_rel);
+	}
+#endif
 
 	/*
 	 * Truncate relname to appropriate length (probably a waste of time, as
@@ -748,17 +763,18 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		/* Make sure locator info gets rebuilt */
 		RelationCacheInvalidateEntry(relationId);
 	}
-#if 0
+
 	/* Add for pg_aux_class */
 	if (stmt->auxiliary)
 	{
-		Assert(OidIsValid(stmt->master_relid));
-		Assert(AttributeNumberIsValid(stmt->aux_attnum));
+		Assert(master_rel);
+		Assert(OidIsValid(master_relid));
 
-		InsertAuxClassTuple(relationId, stmt->master_relid, stmt->aux_attnum);
+		InsertAuxClassTuple(relationId, master_relid, stmt->aux_attnum);
 		CommandCounterIncrement();
+
+		relation_close(master_rel, NoLock);
 	}
-#endif
 #endif
 
 	/*
@@ -974,6 +990,23 @@ RemoveRelations(DropStmt *drop)
 			DropErrorMsgNonExistent(rel, relkind, drop->missing_ok);
 			continue;
 		}
+#ifdef ADB
+		/* Cannot use DROP TABLE ... to drop auxiliary table */
+		if (OidIsValid(relOid) && IsAuxRelation(relOid))
+		{
+			if (!drop->auxiliary)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("cannot drop auxiliary table \"%s\" use DROP TABLE ...", rel->relname),
+						 errhint("Use DROP AUXILIARY TABLE ... to drop the auxiliary table.")));
+
+			obj.classId = AuxClassRelationId;
+			obj.objectId = relOid;
+			obj.objectSubId = 0;
+
+			add_exact_object_address(&obj, objects);
+		}
+#endif
 
 		/* OK, we're ready to delete this one */
 		obj.classId = RelationRelationId;

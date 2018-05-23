@@ -3168,7 +3168,7 @@ CopyCreateStmtFields(const CreateStmt *from, CreateStmt *newnode)
 	COPY_SCALAR_FIELD(if_not_exists);
 #ifdef ADB
 	COPY_SCALAR_FIELD(auxiliary);
-	COPY_SCALAR_FIELD(master_relid);
+	COPY_NODE_FIELD(master_relation);
 	COPY_SCALAR_FIELD(aux_attnum);
 	COPY_NODE_FIELD(distributeby);
 	COPY_NODE_FIELD(subcluster);
@@ -3225,6 +3225,9 @@ _copyDropStmt(const DropStmt *from)
 	COPY_SCALAR_FIELD(behavior);
 	COPY_SCALAR_FIELD(missing_ok);
 	COPY_SCALAR_FIELD(concurrent);
+#ifdef ADB
+	COPY_SCALAR_FIELD(auxiliary);
+#endif
 
 	return newnode;
 }

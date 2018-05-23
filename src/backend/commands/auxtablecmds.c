@@ -14,29 +14,6 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
-
-void
-CreateAuxTable(IndexStmt *stmt,
-			   Relation rel,
-			   const char *index_name,
-			   ObjectAddress index_address)
-{
-	Oid			relid;
-	CreateStmt *cstmt = makeNode(CreateStmt);
-	StringInfoData aibuf;
-	RangeVar   *airangevar = NULL;
-
-	Assert(rel && index_name);
-
-	initStringInfo(&aibuf);
-	relid = RelationGetRelid(rel);
-	appendStringInfo(&aibuf, "%s_tbl", index_name);
-	airangevar = makeRangeVar(NULL, pstrdup(aibuf.data), -1);
-
-	cstmt->relation = airangevar;
-
-}
-
 void
 InsertAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum)
 {
@@ -44,6 +21,8 @@ InsertAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum)
 	HeapTuple		tuple;
 	Datum			values[Natts_pg_aux_class];
 	bool			nulls[Natts_pg_aux_class];
+	ObjectAddress	myself,
+					referenced;
 
 	/* Sanity check */
 	Assert(OidIsValid(auxrelid));
@@ -65,9 +44,16 @@ InsertAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum)
 	heap_freetuple(tuple);
 	heap_close(auxrelation, RowExclusiveLock);
 
-	/*
-	 * TODO: Record dependency ? Record what and how ?
-	 */
+	/* reference object address */
+	ObjectAddressSubSet(referenced, RelationRelationId, relid, attnum);
+
+	/* Make pg_aux_class object depend entry */
+	ObjectAddressSet(myself, AuxClassRelationId, auxrelid);
+	recordDependencyOn(&myself, &referenced, DEPENDENCY_AUTO);
+
+	/* Make pg_class object depend entry */
+	ObjectAddressSet(myself, RelationRelationId, auxrelid);
+	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 }
 
 void
@@ -95,7 +81,7 @@ RemoveAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum)
 }
 
 Oid
-LookupAuxTable(Oid relid, AttrNumber attnum)
+LookupAuxRelation(Oid relid, AttrNumber attnum)
 {
 	HeapTuple				tuple;
 	Form_pg_aux_class		auxtup;
@@ -108,7 +94,7 @@ LookupAuxTable(Oid relid, AttrNumber attnum)
 		!AttrNumberIsForUserDefinedAttr(attnum))
 		return InvalidOid;
 
-	tuple = SearchSysCache2(AUXCLASSIDENT,
+	tuple = SearchSysCache2(AUXCLASSRELIDATT,
 							ObjectIdGetDatum(relid),
 							Int16GetDatum(attnum));
 	if (!HeapTupleIsValid(tuple))
@@ -120,6 +106,57 @@ LookupAuxTable(Oid relid, AttrNumber attnum)
 	ReleaseSysCache(tuple);
 
 	return auxrelid;
+}
+
+Oid
+LookupAuxMasterRel(Oid auxrelid, AttrNumber *attnum)
+{
+	HeapTuple				tuple;
+	Form_pg_aux_class		auxtup;
+	Oid						master_relid;
+
+	if (!OidIsValid(auxrelid))
+	{
+		if (attnum)
+			*attnum = InvalidAttrNumber;
+		return InvalidOid;
+	}
+
+	tuple = SearchSysCache1(AUXCLASSIDENT,
+							ObjectIdGetDatum(auxrelid));
+	if (!HeapTupleIsValid(tuple))
+	{
+		if (attnum)
+			*attnum = InvalidAttrNumber;
+		return InvalidOid;
+	}
+
+	auxtup = (Form_pg_aux_class) GETSTRUCT(tuple);
+	master_relid = auxtup->relid;
+	if (attnum)
+		*attnum = auxtup->attnum;
+
+	ReleaseSysCache(tuple);
+
+	return master_relid;
+}
+
+bool
+IsAuxRelation(Oid auxrelid)
+{
+	HeapTuple				tuple;
+
+	if (!OidIsValid(auxrelid))
+		return false;
+
+	tuple = SearchSysCache1(AUXCLASSIDENT,
+							ObjectIdGetDatum(auxrelid));
+	if (!HeapTupleIsValid(tuple))
+		return false;
+
+	ReleaseSysCache(tuple);
+
+	return true;
 }
 
 static List *
@@ -150,7 +187,12 @@ MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel, AttrNumber *dista
 	{
 		Assert(list_length(loc->funcAttrNums) == 1);
 		attnum = linitial_int(loc->funcAttrNums);
+	} else
+	{
+		/* should not reach here */
+		attnum = InvalidAttrNumber;
 	}
+	Assert(AttrNumberIsForUserDefinedAttr(attnum));
 	if (distattnum)
 		*distattnum = attnum;
 	discolumn = rel->rd_att->attrs[attnum - 1];
@@ -210,6 +252,7 @@ QueryRewriteAuxStmt(Query *auxquery)
 	Assert(create_stmt && index_stmt);
 	Assert(auxstmt->master_relation);
 	Assert(auxstmt->aux_column);
+	Assert(create_stmt->master_relation);
 
 	/* Master relation check */
 	master_relid = RangeVarGetRelidExtended(auxstmt->master_relation,
@@ -263,7 +306,6 @@ QueryRewriteAuxStmt(Query *auxquery)
 	/* makeup table elements */
 	create_stmt->tableElts = MakeAuxTableColumns(auxattform, master_relation, &distattnum);
 	Assert(AttributeNumberIsValid(distattnum));
-	create_stmt->master_relid = master_relid;
 	create_stmt->aux_attnum = auxattform->attnum;
 	disattform = master_relation->rd_att->attrs[distattnum - 1];
 

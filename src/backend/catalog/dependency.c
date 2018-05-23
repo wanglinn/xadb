@@ -80,6 +80,7 @@
 
 #ifdef ADB
 #include "agtm/agtm.h"
+#include "catalog/pg_aux_class.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
@@ -175,6 +176,7 @@ static const Oid object_classes[] = {
 	PgxcClassRelationId,		/* OCLASS_PGXC_CLASS */
 	PgxcNodeRelationId,			/* OCLASS_PGXC_NODE */
 	PgxcGroupRelationId,		/* OCLASS_PGXC_GROUP */
+	AuxClassRelationId,			/* OCLASS_AUX_CLASS */
 #endif
 	DefaultAclRelationId,		/* OCLASS_DEFACL */
 	ExtensionRelationId,		/* OCLASS_EXTENSION */
@@ -1421,6 +1423,10 @@ doDeletion(const ObjectAddress *object, int flags)
 			RemovePgxcClass(object->objectId);
 			break;
 
+		case OCLASS_AUX_CLASS:
+			RemoveAuxClassTuple(object->objectId, InvalidOid, InvalidAttrNumber);
+			break;
+
 		/*
 		 * OCLASS_PGXC_NODE, OCLASS_PGXC_GROUP intentionally not
 		 * handled here
@@ -2653,6 +2659,10 @@ getObjectClass(const ObjectAddress *object)
 
 		case PgxcGroupRelationId:
 			return OCLASS_PGXC_GROUP;
+
+		case AuxClassRelationId:
+			Assert(object->objectSubId == 0);
+			return OCLASS_AUX_CLASS;
 #endif
 		case PolicyRelationId:
 			return OCLASS_POLICY;

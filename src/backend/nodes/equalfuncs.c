@@ -1207,7 +1207,7 @@ _equalCreateStmt(const CreateStmt *a, const CreateStmt *b)
 	COMPARE_SCALAR_FIELD(if_not_exists);
 #ifdef ADB
 	COMPARE_SCALAR_FIELD(auxiliary);
-	COMPARE_SCALAR_FIELD(master_relid);
+	COMPARE_NODE_FIELD(master_relation);
 	COMPARE_SCALAR_FIELD(aux_attnum);
 	COMPARE_NODE_FIELD(distributeby);
 	COMPARE_NODE_FIELD(subcluster);
@@ -1245,6 +1245,9 @@ _equalDropStmt(const DropStmt *a, const DropStmt *b)
 	COMPARE_SCALAR_FIELD(behavior);
 	COMPARE_SCALAR_FIELD(missing_ok);
 	COMPARE_SCALAR_FIELD(concurrent);
+#ifdef ADB
+	COMPARE_SCALAR_FIELD(auxiliary);
+#endif
 
 	return true;
 }

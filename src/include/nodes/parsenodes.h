@@ -1660,6 +1660,9 @@ typedef enum ObjectType
 	OBJECT_SEQUENCE,
 	OBJECT_TABCONSTRAINT,
 	OBJECT_TABLE,
+#ifdef ADB
+	OBJECT_AUX_TABLE,
+#endif
 	OBJECT_TABLESPACE,
 	OBJECT_TRANSFORM,
 	OBJECT_TRIGGER,
@@ -2043,7 +2046,7 @@ typedef struct CreateStmt
 	bool		if_not_exists;	/* just do nothing if it already exists? */
 #ifdef ADB
 	bool		auxiliary;		/* auxiliary table? */
-	Oid			master_relid;	/* set valid Oid if auxiliary is true */
+	RangeVar   *master_relation;/* set valid Oid if auxiliary is true */
 	AttrNumber	aux_attnum;		/* set valid column number if auxiliary is true */
 	DistributeBy *distributeby;	/* distribution to use, or NULL */
 	PGXCSubCluster *subcluster;	/* subcluster of table */
@@ -2716,6 +2719,9 @@ typedef struct DropStmt
 	DropBehavior behavior;		/* RESTRICT or CASCADE behavior */
 	bool		missing_ok;		/* skip error if object is missing? */
 	bool		concurrent;		/* drop index concurrently? */
+#ifdef ADB
+	bool		auxiliary;		/* drop auxiliary table? */
+#endif
 } DropStmt;
 
 /* ----------------------

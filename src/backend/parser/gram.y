@@ -2942,7 +2942,7 @@ CreateAuxStmt:	CREATE OptTemp AUXILIARY TABLE opt_aux_name
 						$5->relpersistence = $2;
 					cs->grammar = PARSE_GRAM_POSTGRES;
 					cs->relation = $5;
-					cs->tableElts = NIL;		/* set when tansformCreateAuxStmt */
+					cs->tableElts = NIL;		/* set when QueryRewriteAuxStmt */
 					cs->inhRelations = NIL;
 					cs->ofTypename = NULL;
 					cs->constraints = NIL;
@@ -2951,8 +2951,8 @@ CreateAuxStmt:	CREATE OptTemp AUXILIARY TABLE opt_aux_name
 					cs->tablespacename = $12;
 					cs->if_not_exists = false;
 					cs->auxiliary = true;
-					cs->master_relid = InvalidOid;
-					cs->aux_attnum = 0;
+					cs->master_relation = $7;	/* master relation rangevar */
+					cs->aux_attnum = InvalidAttrNumber;	/* set when QueryRewriteAuxStmt */
 					cs->distributeby = $13;
 					cs->subcluster = $14;
 					if (is)
@@ -5984,6 +5984,7 @@ DropStmt:	DROP drop_type IF_P EXISTS any_name_list opt_drop_behavior
 
 
 drop_type:	TABLE									{ $$ = OBJECT_TABLE; }
+			| AUXILIARY TABLE						{ $$ = OBJECT_AUX_TABLE; }
 			| SEQUENCE								{ $$ = OBJECT_SEQUENCE; }
 			| VIEW									{ $$ = OBJECT_VIEW; }
 			| MATERIALIZED VIEW						{ $$ = OBJECT_MATVIEW; }

@@ -393,7 +393,18 @@ transformStmt(ParseState *pstate, Node *parseTree)
 			break;
 
 		default:
+#ifdef ADB
+			if (IsA(parseTree, DropStmt))
+			{
+				DropStmt *stmt = (DropStmt *) parseTree;
 
+				if (stmt->removeType == OBJECT_AUX_TABLE)
+				{
+					stmt->removeType = OBJECT_TABLE;
+					stmt->auxiliary = true;
+				}
+			}
+#endif
 			/*
 			 * other statements don't require any transformation; just return
 			 * the original parsetree with a Query node plastered on top.

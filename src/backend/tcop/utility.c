@@ -3555,6 +3555,11 @@ CreateCommandTag(Node *parsetree)
 				case OBJECT_TABLE:
 					tag = "DROP TABLE";
 					break;
+#ifdef ADB
+				case OBJECT_AUX_TABLE:
+					tag = "DROP AUXILIARY TABLE";
+					break;
+#endif
 				case OBJECT_SEQUENCE:
 					tag = "DROP SEQUENCE";
 					break;

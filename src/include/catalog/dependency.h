@@ -161,6 +161,7 @@ typedef enum ObjectClass
 	OCLASS_PGXC_CLASS,			/* pgxc_class */
 	OCLASS_PGXC_NODE,			/* pgxc_node */
 	OCLASS_PGXC_GROUP,			/* pgxc_group */
+	OCLASS_AUX_CLASS,			/* pg_aux_class */
 #endif
 	OCLASS_DEFACL,				/* pg_default_acl */
 	OCLASS_EXTENSION,			/* pg_extension */
