@@ -15,6 +15,8 @@
 #include "utils/memutils.h"		/* for MemoryContext */
 #include "utils/ps_status.h"	/* for ps status display */
 
+#define DEFAULT_TIMEOUT	3000		/* 300 milliseconds (3 seconds) */
+
 static const char	   *progname = NULL;
 static StringInfo		MyPsCmd = NULL;
 
@@ -52,8 +54,8 @@ static void StartSetupReduceGroup(RdcPort *port);
 static void EndSetupReduceGroup(void);
 static void HandleAcceptConn(List **acp_nodes, List **pln_nodes);
 static void PrePrepareAcceptNodes(WaitEVSet set, List *acp_nodes);
-static bool PrePrepareRdcNodes(WaitEVSet set, RdcNode *rdc_nodes, int rdc_num);
-static void PrePreparePlanNodes(WaitEVSet set, List *pln_nodes);
+static bool PrePrepareRdcNodes(WaitEVSet set, RdcNode *rdc_nodes, int rdc_num, bool need_rdc_to_write);
+static bool PrePreparePlanNodes(WaitEVSet set, List *pln_nodes);
 static int  ReduceLoopRun(void);
 
 static void
@@ -468,9 +470,7 @@ ReduceListen(void)
 	}
 	MyListenSock = fd;
 
-	elog(LOG,
-		 "[REDUCE " PORTID_FORMAT " PROC %d BOSS %d] listen on {%s:%d}",
-		 MyReduceId, MyProcPid, MyBossPid, listen_host, MyListenPort);
+	elog(LOG, "listen on {%s:%d}", listen_host, MyListenPort);
 
 	/* OK */
 	return ;
@@ -1053,7 +1053,7 @@ PrePrepareAcceptNodes(WaitEVSet set, List *acp_nodes)
 }
 
 static bool
-PrePrepareRdcNodes(WaitEVSet set, RdcNode *rdc_nodes, int rdc_num)
+PrePrepareRdcNodes(WaitEVSet set, RdcNode *rdc_nodes, int rdc_num, bool need_rdc_to_write)
 {
 	RdcNode	   *rdc_node;
 	int			rdc_idx;
@@ -1065,6 +1065,8 @@ PrePrepareRdcNodes(WaitEVSet set, RdcNode *rdc_nodes, int rdc_num)
 		if (!PortIsValid(rdc_node->port))
 			continue;
 		quit = false;
+		if (need_rdc_to_write)
+			RdcWaitEvents(rdc_node->port) |= WT_SOCK_WRITEABLE;
 		addWaitEventByArg(set, rdc_node->port,
 						  GetRdcPortSocket,
 						  GetRdcPortWaitEvents);
@@ -1073,12 +1075,14 @@ PrePrepareRdcNodes(WaitEVSet set, RdcNode *rdc_nodes, int rdc_num)
 	return quit;
 }
 
-static void
+static bool
 PrePreparePlanNodes(WaitEVSet set, List *pln_nodes)
 {
 	PlanPort	   *pln_port;
 	RdcPort		   *wrk_port;
 	ListCell	   *cell;
+	StringInfo		msg;
+	bool			set_timeout = false;
 
 	foreach(cell, pln_nodes)
 	{
@@ -1097,12 +1101,23 @@ PrePreparePlanNodes(WaitEVSet set, List *pln_nodes)
 			if (PlanPortIsReject(pln_port))
 				RdcWaitEvents(wrk_port) &= ~WT_SOCK_WRITEABLE;
 
+			/*
+			 * here is some message which haven't been sent
+			 * to corresponding reduce node. so set timeout
+			 * is needed.
+			 */
+			msg = RdcInBuf(wrk_port);
+			if (!set_timeout && msg->len > msg->cursor)
+				set_timeout = true;
+
 			addWaitEventByArg(set, wrk_port,
 							  GetRdcPortSocket,
 							  GetRdcPortWaitEvents);
 			wrk_port = RdcNext(wrk_port);
 		}
 	}
+
+	return set_timeout;
 }
 
 static int
@@ -1163,13 +1178,21 @@ ReduceLoopRun(void)
 		{
 			CHECK_FOR_INTERRUPTS();
 
+			timeout = -1;
 			resetWaitEVSet(&set);
 			addWaitEventBySock(&set, MyListenSock, WT_SOCK_READABLE);
 			addWaitEventBySock(&set, MyBossSock, WT_SOCK_READABLE);
+
+			/* for accept nodes */
 			PrePrepareAcceptNodes(&set, acp_nodes);
-			if (PrePrepareRdcNodes(&set, rdc_nodes, rdc_num))
+
+			/* for plan nodes */
+			if (PrePreparePlanNodes(&set, *pln_nodes))
+				timeout = DEFAULT_TIMEOUT;	/* 3 seconds */
+
+			/* for reduce nodes */
+			if (PrePrepareRdcNodes(&set, rdc_nodes, rdc_num, (timeout == -1)))
 				break;
-			PrePreparePlanNodes(&set, *pln_nodes);
 
 			SetRdcPsStatus(" idle");
 			nready = execWaitEVSet(&set, timeout);
@@ -1181,7 +1204,8 @@ ReduceLoopRun(void)
 			} else
 			if (nready == 0)
 			{
-				/* do nothing if timeout */
+				/* handle un-sent data of plan nodes */
+				HandlePlanIO(pln_nodes);
 			} else
 			{
 				WaitEventElt	*wee = NULL;
