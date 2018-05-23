@@ -2200,6 +2200,41 @@ describeOneTableDetails(const char *schemaname,
 			PQclear(result);
 		}
 
+#ifdef ADB
+		/* print auxiliary table */
+		do {
+			printfPQExpBuffer(&buf,
+							  "SELECT a.auxrelid::pg_catalog.regclass,"
+							  "       b.attname "
+							  "  FROM pg_catalog.pg_aux_class a,"
+							  "       pg_catalog.pg_attribute b"
+							  " WHERE a.relid = '%s'"
+							  "   AND a.relid = b.attrelid"
+							  "   AND a.attnum = b.attnum",
+							  oid);
+			result = PSQLexec(buf.data);
+			if (!result)
+				break;
+
+			tuples = PQntuples(result);
+
+			if (tuples > 0)
+			{
+				printTableAddFooter(&cont, _("Auxiliary table:"));
+				for (i = 0; i < tuples; i++)
+				{
+					/* untranslated index name */
+					printfPQExpBuffer(&buf, "    \"%s\" on %s(%s)",
+									  PQgetvalue(result, i, 0),
+									  relationname,
+									  PQgetvalue(result, i, 1));
+					printTableAddFooter(&cont, buf.data);
+				}
+			}
+			PQclear(result);
+		} while(0);
+#endif
+
 		/* print table (and column) check constraints */
 		if (tableinfo.checks)
 		{
