@@ -52,6 +52,8 @@ static HbaInfo* hba_parse_line(yyscan_t scanner, char *line, Size slen, YY_BUFFE
 static void process_hba_type(int token, YYSTYPE *yysval, HbaInfo *info);
 static char* hba_lex_string(yyscan_t scanner, YYSTYPE *yysval);
 static char* hba_lex_db_user(yyscan_t scanner, YYSTYPE *yysval);
+int hba_yyget_column  (yyscan_t yyscanner);
+void hba_yyset_column (int  column_no , yyscan_t yyscanner);
 
 %}
 

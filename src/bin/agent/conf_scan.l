@@ -42,6 +42,8 @@ static unsigned int conf_flex_file_no;
 static const char *conf_flex_file_name;
 
 static int conf_flex_fatal(const char *msg);
+int conf_yyget_column  (yyscan_t yyscanner);
+void conf_yyset_column (int  column_no , yyscan_t yyscanner);
 
 %}
 

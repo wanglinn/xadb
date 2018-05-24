@@ -1174,6 +1174,7 @@ static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int timeMs
 	int s = 0;
 	int i = 0;
 	int maxFd = 0;
+	int res;
 	fd_set rset;
 	fd_set wset;
 	struct timeval tval;
@@ -1214,7 +1215,7 @@ static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int timeMs
 		if (!s)
 			break;
 
-		int res = select(maxFd + 1, &rset, &wset, NULL, &tval);
+		res = select(maxFd + 1, &rset, &wset, NULL, &tval);
 		if (res < 0)
 		{
 			ereport(ERROR, (errmsg("network error in connect : %s\n", strerror(errno))));

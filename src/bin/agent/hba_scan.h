@@ -39,5 +39,4 @@ typedef struct HbaInfo
 }HbaInfo;
 
 HbaInfo* parse_hba_file(const char *filename);
-
 #endif /* HBA_SCAN_H_ */
