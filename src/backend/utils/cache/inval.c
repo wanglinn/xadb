@@ -109,6 +109,10 @@
 #include "utils/relmapper.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
+#ifdef ADB
+#include "catalog/pg_aux_class.h"
+#include "catalog/pgxc_class.h"
+#endif /* ADB */
 
 
 /*
@@ -1173,6 +1177,22 @@ CacheInvalidateHeapTuple(Relation relation,
 		relationId = indextup->indexrelid;
 		databaseId = MyDatabaseId;
 	}
+#ifdef ADB
+	else if (tupleRelId == PgxcClassRelationId)
+	{
+		Form_pgxc_class xcclass = (Form_pgxc_class) GETSTRUCT(tuple);
+
+		relationId = xcclass->pcrelid;
+		databaseId = MyDatabaseId;
+	}
+	else if (tupleRelId == AuxClassRelationId)
+	{
+		Form_pg_aux_class auxtup = (Form_pg_aux_class) GETSTRUCT(tuple);
+
+		relationId = auxtup->relid;
+		databaseId = MyDatabaseId;
+	}
+#endif /* ADB */
 	else
 		return;
 

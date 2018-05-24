@@ -1,5 +1,6 @@
 #include "postgres.h"
 
+#include "access/genam.h"
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "catalog/indexing.h"
@@ -11,6 +12,8 @@
 #include "nodes/makefuncs.h"
 #include "tcop/utility.h"
 #include "utils/builtins.h"
+#include "utils/fmgroids.h"
+#include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
@@ -361,4 +364,50 @@ QueryRewriteAuxStmt(Query *auxquery)
 	auxquery->querySource = QSRC_PARSER;
 
 	return lappend(rewrite_tree_list, auxquery);
+}
+
+void RelationBuildAuxiliary(Relation rel)
+{
+	HeapTuple				tuple;
+	Form_pg_aux_class		form_aux;
+	Relation				auxrel;
+	ScanKeyData				skey;
+	SysScanDesc				auxscan;
+	List				   *auxlist;
+	Bitmapset			   *auxatt;
+	MemoryContext			old_context;
+	AssertArg(rel);
+
+	if (RelationGetRelid(rel) < FirstNormalObjectId)
+		return;
+
+	ScanKeyInit(&skey,
+				Anum_pg_aux_class_relid,
+				BTEqualStrategyNumber,
+				F_OIDEQ,
+				ObjectIdGetDatum(RelationGetRelid(rel)));
+
+	auxrel = heap_open(AuxClassRelationId, AccessShareLock);
+	auxscan = systable_beginscan(auxrel,
+								 AuxClassRelidAttnumIndexId,
+								 true,
+								 NULL,
+								 1,
+								 &skey);
+
+	old_context = MemoryContextSwitchTo(CacheMemoryContext);
+	auxlist = NIL;
+	auxatt = NULL;
+	while (HeapTupleIsValid(tuple = systable_getnext(auxscan)))
+	{
+		form_aux = (Form_pg_aux_class) GETSTRUCT(tuple);
+		auxlist = lappend_oid(auxlist, form_aux->auxrelid);
+		auxatt = bms_add_member(auxatt, form_aux->attnum);
+	}
+	rel->rd_auxlist = auxlist;
+	rel->rd_auxatt = auxatt;
+	MemoryContextSwitchTo(old_context);
+
+	systable_endscan(auxscan);
+	heap_close(auxrel, AccessShareLock);
 }

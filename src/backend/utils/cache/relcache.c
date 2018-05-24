@@ -80,6 +80,7 @@
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 #ifdef ADB
+#include "commands/defrem.h"
 #include "pgxc/pgxc.h"
 #include "postmaster/autovacuum.h"
 #endif /* ADB */
@@ -1052,12 +1053,10 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 #ifdef ADB
 	if (IS_PGXC_COORDINATOR &&
 		relation->rd_id >= FirstNormalObjectId &&
-		!IsAutoVacuumWorkerProcess()
-#if defined(ADBMGRD)
-		&& !IsAnyAdbMonitorProcess()
-#endif
-		)
+		!IsAutoVacuumWorkerProcess())
 		RelationBuildLocator(relation);
+
+	RelationBuildAuxiliary(relation);
 #endif
 
 	/* foreign key data is not loaded till asked for */

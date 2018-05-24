@@ -176,6 +176,8 @@ typedef struct RelationData
 	struct PgStat_TableStatus *pgstat_info;		/* statistics collection area */
 #ifdef ADB
 	RelationLocInfo *rd_locator_info;
+	List		   *rd_auxlist;		/* list of OIDs of auxiliaries on relation */
+	Bitmapset	   *rd_auxatt;		/* auxiliaries columns used in indexes */
 #endif
 } RelationData;
 
