@@ -253,6 +253,7 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 	}
 	if (false == got[Anum_monitor_job_status-1])
 	{
+		status = true;
 		datum[Anum_monitor_job_status-1] = BoolGetDatum(true);
 	}
 	if (false == got[Anum_monitor_job_command-1])
@@ -264,6 +265,10 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 	{
 		datum[Anum_monitor_job_desc-1] = PointerGetDatum(cstring_to_text(""));
 	}
+	/* check the adbmonitor */
+	if ((status == true) && (adbmonitor_start_daemon == false))
+		ereport(WARNING, (errmsg("in postgresql.conf of ADBMGR adbmonitor=off and all jobs cannot be running, you should change adbmonitor=on which can be made effect by mgr_ctl reload ")));
+
 	/* now, we can insert record */
 	rel = heap_open(MjobRelationId, RowExclusiveLock);
 	newtuple = heap_form_tuple(RelationGetDescr(rel), datum, isnull);
@@ -309,7 +314,7 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 	List *options;
 	TupleDesc job_dsc;
 	int32 interval;
-	bool status;
+	bool status = false;
 	Datum datumtime;
 
 	jobname = PG_GETARG_CSTRING(0);
@@ -396,6 +401,10 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 				,errhint("option is nexttime, interval, status, command, desc")));
 		}
 	}
+	/* check the adbmonitor */
+	if ((status == true) && (adbmonitor_start_daemon == false))
+		ereport(WARNING, (errmsg("in postgresql.conf of ADBMGR adbmonitor=off and all jobs cannot be running, you should change adbmonitor=on which can be made effect by mgr_ctl reload ")));
+
 	job_dsc = RelationGetDescr(rel);
 	newtuple = heap_modify_tuple(checktuple, job_dsc, datum,isnull, got);
 	simple_heap_update(rel, &checktuple->t_self, newtuple);
@@ -1208,6 +1217,7 @@ static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int select
 	int s = 0;
 	int i = 0;
 	int maxFd = 0;
+	int res;
 	fd_set rset;
 	fd_set wset;
 	struct timeval tval;
@@ -1248,7 +1258,7 @@ static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int select
 		if (!s)
 			break;
 
-		int res = select(maxFd + 1, &rset, &wset, NULL, &tval);
+		res = select(maxFd + 1, &rset, &wset, NULL, &tval);
 		if (res < 0)
 		{
 			ereport(ERROR, (errmsg("network error in connect : %s\n", strerror(errno))));
