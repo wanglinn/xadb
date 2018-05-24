@@ -82,6 +82,8 @@ typedef struct mgr_yy_extra_type
 
 union YYSTYPE;					/* need forward reference for tok_is_keyword */
 
+bool adbmonitor_start_daemon;
+
 static void mgr_yyerror(YYLTYPE *yylloc, core_yyscan_t yyscanner,
 						 const char *msg);
 static int mgr_yylex(union YYSTYPE *lvalp, YYLTYPE *llocp,
@@ -101,6 +103,7 @@ static void check__name_isvaild(List *node_name_list);
 static void check_host_name_isvaild(List *node_name_list);
 static void check_job_name_isvaild(List *node_name_list);
 static void check_jobitem_name_isvaild(List *node_name_list);
+static void check_job_status_intbl(void);
 %}
 
 %pure-parser
@@ -2468,6 +2471,7 @@ ListJobStmt:
 	  LIST JOB
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
+			check_job_status_intbl();
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("job"), -1));
 			$$ = (Node*)stmt;
@@ -2475,6 +2479,7 @@ ListJobStmt:
 	|	LIST JOB AConstList
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
+			check_job_status_intbl();
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("job"), -1));
 			stmt->whereClause = make_column_in("name", $3);
@@ -3151,6 +3156,37 @@ static void check_jobitem_name_isvaild(List *node_name_list)
 		heap_endscan(scan);
 		heap_close(rel_jobitem, AccessShareLock);
 	}
+
+	return;
+}
+
+static void check_job_status_intbl(void)
+{
+	Relation rel_job;
+	HeapScanDesc scan;
+	ScanKeyData key[1];
+	HeapTuple tuple;
+	bool bget = false;
+
+
+	ScanKeyInit(&key[0]
+		,Anum_monitor_job_status
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	rel_job = heap_open(MjobRelationId, AccessShareLock);
+	scan = heap_beginscan_catalog(rel_job, 1, key);
+
+	while((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		bget = true;
+		break;
+	}
+	heap_endscan(scan);
+	heap_close(rel_job, AccessShareLock);
+
+	if (bget && (adbmonitor_start_daemon==false))
+		ereport(WARNING, (errmsg("in postgresql.conf of ADBMGR adbmonitor=off and all jobs cannot be running, you should change adbmonitor=on which can be made effect by mgr_ctl reload ")));
 
 	return;
 }
