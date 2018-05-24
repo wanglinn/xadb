@@ -91,6 +91,7 @@
 #include "commands/tablecmds.h"
 #include "nodes/nodes.h"
 #include "optimizer/pgxcship.h"
+#include "optimizer/plancat.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
@@ -436,6 +437,14 @@ static const struct config_enum_entry pgxc_conn_types[] = {
 static const struct config_enum_entry parse_grammer_options[] = {
 	{"postgres", PARSE_GRAM_POSTGRES, false},
 	{"oracle", PARSE_GRAM_ORACLE, false},
+	{NULL, 0, false}
+};
+
+static const struct config_enum_entry adb_aux_types[] = {
+	{"off", USE_AUX_OFF, false},
+	{"on", USE_AUX_NODE, true},
+	{"node", USE_AUX_NODE, false},
+	{"key", USE_AUX_KEY, false},
 	{NULL, 0, false}
 };
 #endif /* ADB */
@@ -4415,6 +4424,16 @@ static struct config_enum ConfigureNamesEnum[] =
 		},
 		&parse_grammar,
 		PARSE_GRAM_POSTGRES, parse_grammer_options,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"use_aux_types", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Sets Auxiliary-table using method"),
+			NULL
+		},
+		&use_aux_type,
+		USE_AUX_NODE, adb_aux_types,
 		NULL, NULL, NULL
 	},
 #endif /* ADB */

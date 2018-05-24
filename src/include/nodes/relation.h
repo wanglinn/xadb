@@ -307,10 +307,10 @@ typedef struct PlannerInfo
 	bool		must_replicate;	/* must create replicate paths */
 
 	/*
-	 * In Postgres-XC Coordinators are supposed to skip the handling of 
+	 * In Postgres-XC Coordinators are supposed to skip the handling of
 	 * row marks of type ROW_MARK_EXCLUSIVE & ROW_MARK_SHARE.
-	 * In order to do that we simply remove such type 
-	 * of row marks from the list rowMarks. Instead they are saved 
+	 * In order to do that we simply remove such type
+	 * of row marks from the list rowMarks. Instead they are saved
 	 * in xc_rowMarks list that is then handeled to add
 	 * FOR UPDATE/SHARE in the remote query
 	 */
@@ -534,6 +534,7 @@ typedef struct RelOptInfo
 	struct Path *cheapest_coordinator_path;		/* reduce to coordinator */
 	List	   *cheapest_cluster_parameterized_paths;
 	struct RelationLocInfo *loc_info;	/* when RELOPT_BASEREL */
+	List	   *remote_oids;			/* when RELOPT_BASEREL */
 #endif /* ADB */
 
 	/* parameterization information needed for both base rels and join rels */
@@ -1345,7 +1346,7 @@ typedef struct RemoteQueryPath
 	/*
 	 * If the path represents a JOIN rel, leftpath and rightpath represent the
 	 * RemoteQuery paths for left (outer) and right (inner) side of the JOIN
-	 * resp. jointype and join_restrictlist pertains to such JOINs. 
+	 * resp. jointype and join_restrictlist pertains to such JOINs.
 	 */
 	struct RemoteQueryPath	*leftpath;
 	struct RemoteQueryPath	*rightpath;

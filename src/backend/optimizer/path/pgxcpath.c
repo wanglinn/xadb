@@ -143,12 +143,13 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte,
 	 * the remote query path unless relation is local to coordinator or the
 	 * query is to entirely executed on coordinator.
 	 */
-	if (!IsCoordMaster() || root->parse->is_local || rel->loc_info == NULL)
+	if (!IsCoordMaster() ||
+		root->parse->is_local ||
+		rel->loc_info == NULL ||
+		rel->remote_oids == NIL)
 		return false;
 
-	rnodes = relation_remote_by_constraints(root, rel);
-	if (rnodes == NIL)
-		return false;
+	rnodes = rel->remote_oids;
 	exec_nodes = MakeExecNodesByOids(rel->loc_info, rnodes, RELATION_ACCESS_READ);
 
 	if (IsExecNodesDistributedByValue(exec_nodes))

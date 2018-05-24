@@ -508,6 +508,10 @@ set_plain_rel_size(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Mark rel with estimated output rows, width, etc */
 	set_baserel_size_estimates(root, rel);
+#ifdef ADB
+	if (rel->loc_info)
+		rel->remote_oids = relation_remote_by_constraints(root, rel);
+#endif /* ADB */
 }
 
 /*
@@ -680,6 +684,13 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	 */
 	required_outer = rel->lateral_relids;
 #ifdef ADB
+	if (rel->loc_info &&
+		rel->remote_oids == NIL)
+	{
+		set_dummy_rel_pathlist(rel);
+		return;
+	}
+
 	if(root->glob->clusterPlanOK && rel->loc_info)
 	{
 		Path *path;
@@ -694,14 +705,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		if (IsLocatorDistributedByValue(loc_info->locatorType) ||
 			loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
 		{
-			List *exec_nodes = relation_remote_by_constraints(root, rel);
-			if (exec_nodes == NIL)
-			{
-				set_dummy_rel_pathlist(rel);
-				return;
-			}
-			exclude = list_difference_oid(rel->loc_info->nodeids, exec_nodes);
-			list_free(exec_nodes);
+			exclude = list_difference_oid(rel->loc_info->nodeids, rel->remote_oids);
 		}
 		rinfo = MakeReduceInfoFromLocInfo(loc_info, exclude, rte->relid, rel->relid);
 		list_free(exclude);
