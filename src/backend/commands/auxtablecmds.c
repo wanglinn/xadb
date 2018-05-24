@@ -17,6 +17,11 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
+/*
+ * InsertAuxClassTuple
+ *
+ * add record for pg_aux_class
+ */
 void
 InsertAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum)
 {
@@ -59,6 +64,12 @@ InsertAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum)
 	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 }
 
+/*
+ * RemoveAuxClassTuple
+ *
+ * remove record from pg_aux_class by "auxrelid" if valid
+ * or "auxrelid" and "attnum".
+ */
 void
 RemoveAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum)
 {
@@ -83,6 +94,12 @@ RemoveAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum)
 	heap_close(auxrelation, RowExclusiveLock);
 }
 
+/*
+ * LookupAuxRelation
+ *
+ * find out the auxiliary relation by the Oid of master
+ * relation and relevant attribute number.
+ */
 Oid
 LookupAuxRelation(Oid relid, AttrNumber attnum)
 {
@@ -111,6 +128,12 @@ LookupAuxRelation(Oid relid, AttrNumber attnum)
 	return auxrelid;
 }
 
+/*
+ * LookupAuxMasterRel
+ *
+ * find out Oid of the master relation by the specified
+ * Oid of auxiliary relation.
+ */
 Oid
 LookupAuxMasterRel(Oid auxrelid, AttrNumber *attnum)
 {
@@ -144,6 +167,11 @@ LookupAuxMasterRel(Oid auxrelid, AttrNumber *attnum)
 	return master_relid;
 }
 
+/*
+ * IsAuxRelation
+ *
+ * is it an auxiliary relation?
+ */
 bool
 IsAuxRelation(Oid auxrelid)
 {
@@ -221,6 +249,11 @@ MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel, AttrNumber *dista
 	return tableElts;
 }
 
+/*
+ * QueryRewriteAuxStmt
+ *
+ * rewrite auxiliary query.
+ */
 List *
 QueryRewriteAuxStmt(Query *auxquery)
 {
@@ -265,17 +298,40 @@ QueryRewriteAuxStmt(Query *auxquery)
 											NULL);
 	master_relation = relation_open(master_relid, NoLock);
 	master_reloc = RelationGetLocInfo(master_relation);
-	if (IsRelationReplicated(master_reloc))
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("no need to build auxiliary table for replication table")));
-	if (IsRelationDistributedByUserDefined(master_reloc) &&
-		list_length(master_reloc->funcAttrNums) > 1)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("auxiliary table on master table which distribute by "
-				 		"user-defined function with more than 2 arguments is "
-				 		"not supported yet")));
+	switch (master_reloc->locatorType)
+	{
+		case LOCATOR_TYPE_REPLICATED:
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("no need to build auxiliary table for replication table")));
+			break;
+		case LOCATOR_TYPE_RROBIN:
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("cannot build auxiliary table for roundrobin table")));
+			break;
+		case LOCATOR_TYPE_USER_DEFINED:
+			if (list_length(master_reloc->funcAttrNums) > 1)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("auxiliary table on master table which distribute by "
+						 		"user-defined function with more than 2 arguments is "
+						 		"not supported yet")));
+			break;
+		case LOCATOR_TYPE_HASH:
+		case LOCATOR_TYPE_MODULO:
+			/* it is OK */
+			break;
+		case LOCATOR_TYPE_CUSTOM:
+			/* not support yet */
+			break;
+		case LOCATOR_TYPE_NONE:
+		case LOCATOR_TYPE_DISTRIBUTED:
+		default:
+			/* should not reach here */
+			Assert(false);
+			break;
+	}
 
 	/* Auxiliary column check */
 	atttuple = SearchSysCacheAttName(master_relid, auxstmt->aux_column);
