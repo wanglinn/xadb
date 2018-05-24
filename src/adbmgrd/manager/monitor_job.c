@@ -93,11 +93,20 @@ typedef struct fdCtl
 	NameData nodename;
 } fdCtl;
 
+typedef struct handleDnGtmArg
+{
+	bool bforce;
+	int reconnect_attempts;
+	int reconnect_interval;
+	int select_timeout;
+}handleDnGtmArg;
+
 static HeapTuple montiot_job_get_item_tuple(Relation rel_job, Name jobname);
 static bool mgr_element_in_array(Oid tupleOid, int array[], int count);
 static int mgr_nodeType_Num_incluster(const int masterNodeOid, Relation relNode, const char nodeType);
-static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int timeMs);
+static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int selectTimeOut);
 static int mgr_get_fd_noblock(fdCtl *fdHandle, int totalNum);
+static void mgr_check_handle_node_func_arg(handleDnGtmArg *nodeArg);
 
 /*
 * ADD ITEM jobname(jobname, filepath, desc)
@@ -865,7 +874,7 @@ bool mgr_check_job_in_updateparam(const char *subjobstr)
 	if (res)
 	{
 		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
-				,errmsg("on job table, the content of job \"%s\" includes \"%s\" string and its status is \"on\"; you need do \"ALTER JOB \"%s\" (STATUS=false);\" to alter its status to \"off\" or set \"adbmonitor=off\" in postgresql.conf of ADBMGR to turn all job off which can make effect by mgr_ctl reload", jobname.data, subjobstr, jobname.data)
+				,errmsg("on job table, the content of job \"%s\" includes \"%s\" string and its status is \"on\"; you need do \"ALTER JOB \"%s\" (STATUS=false);\" to alter its status to \"off\" or set \"adbmonitor=off\" in postgresql.conf of ADBMGR to turn all job off which can be made effect by mgr_ctl reload", jobname.data, subjobstr, jobname.data)
 				,errhint("try \"list job\" for more information")));
 	}
 
@@ -894,23 +903,45 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 	int createFdNum = 0;
 	int i = 0;
 	char *address;
-	bool bforce = false;
 	bool bnameNull = false;
 	bool res = true;
 	bool bexec = false;
-	int checkNum = 3;
-	int sleepMs = 300;
 	int ret = 0;
 	fdCtl *fdHandle = NULL;
 	struct sockaddr_in *serv_addr = NULL;
+	handleDnGtmArg nodeArg;
+
+	/* default failover used "force" */
+	nodeArg.bforce = true;
+	/* default check number */
+	nodeArg.reconnect_attempts = 3;
+	/* default check interval time, unit : S */
+	nodeArg.reconnect_interval = 2;
+	/* default select timeout, unit : S */
+	nodeArg.select_timeout = 15;
 
 	/* check the argv num */
+	namestrcpy(&masterName, "");
 	nargs = PG_NARGS();
-	Assert(nargs >= 1);
-	bforce = PG_GETARG_BOOL(0);
-	checkNum = PG_GETARG_UINT32(1);
-	sleepMs = PG_GETARG_UINT32(2);
-	namestrcpy(&masterName, PG_GETARG_CSTRING(3));
+	switch(nargs)
+	{
+		case 5:
+			nodeArg.select_timeout= PG_GETARG_UINT32(4);
+		case 4:
+			nodeArg.reconnect_interval = PG_GETARG_UINT32(3);
+		case 3:
+			nodeArg.reconnect_attempts = PG_GETARG_UINT32(2);
+		case 2:
+			nodeArg.bforce = PG_GETARG_BOOL(1);
+		case 1:
+			namestrcpy(&masterName, PG_GETARG_CSTRING(0));
+		case 0:
+			break;
+		default:
+			/* error */
+			break;
+	}
+
 	if (masterName.data[0] == '\0')
 		bnameNull = true;
 
@@ -918,6 +949,9 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 	if ((!bnameNull) && (!mgr_check_node_exist_incluster(&masterName, true)))
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 			,errmsg("datanode master \"%s\" does not exist in cluster", NameStr(masterName))));
+
+	/* check the input value */
+	mgr_check_handle_node_func_arg(&nodeArg);
 
 	relNode = heap_open(NodeRelationId, AccessShareLock);
 	/* get total datanode master num */
@@ -992,11 +1026,11 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 		}
 
 		i = 0;
-		while (i<checkNum)
+		while (i<nodeArg.reconnect_attempts)
 		{
-			ret = mgr_get_async_connect_result(fdHandle, nmasterNum, 100);
+			ret = mgr_get_async_connect_result(fdHandle, nmasterNum, nodeArg.select_timeout);
 			if (ret)
-				pg_usleep(sleepMs*100L);
+				pg_usleep(nodeArg.reconnect_interval*1000000L);
 			else
 				break;
 			i++;
@@ -1026,12 +1060,12 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 				else
 				{
 					initStringInfo(&cmdstrmsg);
-					appendStringInfo(&cmdstrmsg, "failover datanode %s %s", NameStr(mgr_node->nodename), bforce ? "FORCE":"");
+					appendStringInfo(&cmdstrmsg, "failover datanode %s %s", NameStr(mgr_node->nodename), nodeArg.bforce ? "FORCE":"");
 					ereport(WARNING, (errmsg("the datanode master \"%s\" is not running normal and will notice ADBMGR to do \"%s\" command" 
 					, NameStr(mgr_node->nodename), cmdstrmsg.data)));
 					bexec = true;
 					/* do failover command */
-					res = DirectFunctionCall2(mgr_failover_one_dn, CStringGetDatum(NameStr(mgr_node->nodename)), BoolGetDatum(bforce));
+					res = DirectFunctionCall2(mgr_failover_one_dn, CStringGetDatum(NameStr(mgr_node->nodename)), BoolGetDatum(nodeArg.bforce));
 					if (!res)
 						ereport(WARNING, (errmsg("on ADBMGR do command \"%s\" fail, check the log" , cmdstrmsg.data)));
 					pfree(cmdstrmsg.data);
@@ -1168,21 +1202,20 @@ static int mgr_nodeType_Num_incluster(const int masterNodeOid, Relation relNode,
 * async connect result, return the number which fd is not connect normal
 */
 
-static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int timeMs)
+static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int selectTimeOut)
 {
 	int m = 0;
 	int s = 0;
 	int i = 0;
 	int maxFd = 0;
-	int res;
 	fd_set rset;
 	fd_set wset;
 	struct timeval tval;
 
 	while (m++ < totalFd)
 	{
-		tval.tv_sec = timeMs*1000L/1000000L;
-		tval.tv_usec = timeMs*1000L%1000000L;
+		tval.tv_sec = selectTimeOut;
+		tval.tv_usec = 0;
 		FD_ZERO(&rset);
 		FD_ZERO(&wset);
 		i = 0;
@@ -1215,7 +1248,7 @@ static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int timeMs
 		if (!s)
 			break;
 
-		res = select(maxFd + 1, &rset, &wset, NULL, &tval);
+		int res = select(maxFd + 1, &rset, &wset, NULL, &tval);
 		if (res < 0)
 		{
 			ereport(ERROR, (errmsg("network error in connect : %s\n", strerror(errno))));
@@ -1286,23 +1319,45 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 	int createFdNum = 0;
 	int i = 0;
 	char *address;
-	bool bforce = false;
 	bool bnameNull = false;
 	bool res = true;
 	bool bexec = false;
-	int checkNum = 3;
-	int sleepMs = 300;
 	int ret = 0;
 	fdCtl *fdHandle = NULL;
 	struct sockaddr_in *serv_addr = NULL;
+	handleDnGtmArg nodeArg;
+
+	/* default failover used "force" */
+	nodeArg.bforce = true;
+	/* default check number */
+	nodeArg.reconnect_attempts = 3;
+	/* default check interval time, unit : S */
+	nodeArg.reconnect_interval = 2;
+	/* default select timeout, unit : S */
+	nodeArg.select_timeout = 15;
 
 	/* check the argv num */
+	namestrcpy(&masterName, "");
 	nargs = PG_NARGS();
-	Assert(nargs >= 1);
-	bforce = PG_GETARG_BOOL(0);
-	checkNum = PG_GETARG_UINT32(1);
-	sleepMs = PG_GETARG_UINT32(2);
-	namestrcpy(&masterName, PG_GETARG_CSTRING(3));
+	switch(nargs)
+	{
+		case 5:
+			nodeArg.select_timeout = PG_GETARG_UINT32(4);
+		case 4:
+			nodeArg.reconnect_interval = PG_GETARG_UINT32(3);
+		case 3:
+			nodeArg.reconnect_attempts = PG_GETARG_UINT32(2);
+		case 2:
+			nodeArg.bforce = PG_GETARG_BOOL(1);
+		case 1:
+			namestrcpy(&masterName, PG_GETARG_CSTRING(0));
+		case 0:
+			break;
+		default:
+			/* error */
+			break;
+	}
+
 	if (masterName.data[0] == '\0')
 		bnameNull = true;
 
@@ -1310,6 +1365,8 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 	if ((!bnameNull) && (!mgr_check_node_exist_incluster(&masterName, true)))
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 			,errmsg("gtm master \"%s\" does not exist in cluster", NameStr(masterName))));
+	/* check the input value */
+	mgr_check_handle_node_func_arg(&nodeArg);
 
 	relNode = heap_open(NodeRelationId, AccessShareLock);
 	/* get total gtm master num */
@@ -1378,11 +1435,11 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 		fdHandle[0].connectedError = errno;
 
 		i = 0;
-		while (i<checkNum)
+		while (i<nodeArg.reconnect_attempts)
 		{
-			ret = mgr_get_async_connect_result(fdHandle, 1, 100);
+			ret = mgr_get_async_connect_result(fdHandle, 1, nodeArg.select_timeout);
 			if (ret)
-				pg_usleep(sleepMs*1000L);
+				pg_usleep(nodeArg.reconnect_interval*1000000L);
 			else
 				break;
 			i++;
@@ -1408,12 +1465,12 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 				else
 				{
 					initStringInfo(&cmdstrmsg);
-					appendStringInfo(&cmdstrmsg, "failover gtm %s %s", NameStr(mgr_node->nodename), bforce ? "FORCE":"");
+					appendStringInfo(&cmdstrmsg, "failover gtm %s %s", NameStr(mgr_node->nodename), nodeArg.bforce ? "FORCE":"");
 					ereport(WARNING, (errmsg("the gtm master \"%s\" is not running normal and will notice ADBMGR to do \"%s\" command" 
 					, NameStr(mgr_node->nodename), cmdstrmsg.data)));
 					bexec = true;
 					/* do failover command */
-					res = DirectFunctionCall2(mgr_failover_gtm, CStringGetDatum(NameStr(mgr_node->nodename)), BoolGetDatum(bforce));
+					res = DirectFunctionCall2(mgr_failover_gtm, CStringGetDatum(NameStr(mgr_node->nodename)), BoolGetDatum(nodeArg.bforce));
 					if (!res)
 						ereport(WARNING, (errmsg("on ADBMGR do command \"%s\" fail, check the log" , cmdstrmsg.data)));
 					pfree(cmdstrmsg.data);
@@ -1505,4 +1562,22 @@ static int mgr_get_fd_noblock(fdCtl *fdHandle, int totalNum)
 	}
 
 	return i;
+}
+
+static void mgr_check_handle_node_func_arg(handleDnGtmArg *nodeArg)
+{
+	Assert(nodeArg);
+	if (nodeArg->reconnect_attempts < 2 || nodeArg->reconnect_attempts > 60)
+		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
+			,errmsg("the third input parameter reconnect_attempts = %d, not in the limit 2<=reconnect_attempts<=60, default value is 2"
+			, nodeArg->reconnect_attempts), errhint("try \"add job\" for more information")));
+	if (nodeArg->reconnect_interval < 2 || nodeArg->reconnect_interval > 120)
+		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
+			,errmsg("the fourth input parameter reconnect_interval = %d, not in the limit 2<=reconnect_interval<=120, default value is 3"
+			, nodeArg->reconnect_interval), errhint("try \"add job\" for more information")));
+	if (nodeArg->select_timeout < 2 || nodeArg->select_timeout > 120)
+		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
+			,errmsg("the fifth input parameter select_timeout = %d, not in the limit 2<=select_timeout<=120, default value is 15"
+			, nodeArg->select_timeout), errhint("try \"add job\" for more information")));
+
 }

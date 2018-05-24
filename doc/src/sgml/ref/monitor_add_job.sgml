@@ -12,14 +12,28 @@ ADB documentation
 
   <refnamediv>
     <refname>ADD JOB</refname>
-    <refpurpose>add one row job information in the job table. The column of "interval" requires an integer value, unit is "second"; The input string of "command" column should be in single quote. If using user-defined monitor item, the input of sql string format likes 'insert into tb_name select adbmonitor_job(''host_name'', ''item_name'')', the item_name in job item table. 
-    the common used functions for monitor are:for tps qps 'select monitor_databasetps_insert_data()',
-    for database summary 'select monitor_databaseitem_insert_data()',
-    for host 'select  monitor_get_hostinfo()',
-    for slow log 'select monitor_slowlog_insert_data()',
-    for gtm handle 'select monitor_handle_gtm(bforce, num, timeMs, ''nodename'')',
-    for coordinator handle 'select monitor_handle_coordinator()',
-    for datanode handle 'select monitor_handle_datanode(bforce, num, timeMs, ''nodename'')'. </refpurpose>
+    <refpurpose>add one row job information in the job table. The column of "interval" requires an integer value, unit is "second"; The input string of "command" column should be in single quote. If using user-defined monitor item, the input of sql string format likes 'insert into tb_name select adbmonitor_job(''host_name'', ''item_name'')', the item_name in job item table.\n\n
+    the common used functions for monitor are:\n
+    for tps qps 'select monitor_databasetps_insert_data()'\n    
+    for database summary 'select monitor_databaseitem_insert_data()'\n  
+    for host 'select  monitor_get_hostinfo()'\n 
+    for slow log 'select monitor_slowlog_insert_data()'\n   
+    for gtm handle 'select monitor_handle_gtm(\n
+        \tname 'nodename' default '''',\n
+        \tbool bforce default true,\n 
+        \tint reconnect_attempts default 3,\n 
+        \tint reconnect_interval default 2,\n 
+        \tint select_timeout default 15)'\n 
+    for coordinator handle 'select monitor_handle_coordinator()'\n
+    for datanode handle 'select monitor_handle_datanode(\n 
+        \tname 'nodename' default '''',\n 
+        \tbool bforce default true,\n 
+        \tint reconnect_attempts default 3,\n 
+        \tint reconnect_interval default 2,\n 
+        \tint select_timeout default 15)\n\n
+
+      the limit of monitor_handle_gtm and monitor_handle_datanode functions:\n
+      2<=reconnect_attempts<=60, 2<=reconnect_interval<120, 2<=select_timeout<120. </refpurpose>
   </refnamediv>
 
   <indexterm zone="monitor-addjob">
