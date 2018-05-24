@@ -576,6 +576,7 @@ typedef struct RelOptInfo
 	struct Path *cheapest_coordinator_path;		/* reduce to coordinator */
 	List	   *cheapest_cluster_parameterized_paths;
 	struct RelationLocInfo *loc_info;	/* when RELOPT_BASEREL */
+	List	   *remote_oids;			/* when RELOPT_BASEREL */
 #endif /* ADB */
 
 	/* parameterization information needed for both base rels and join rels */

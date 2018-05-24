@@ -67,7 +67,15 @@ extern bool has_row_triggers(PlannerInfo *root, Index rti, CmdType event);
 
 #ifdef ADB
 /* src/backend/optimizer/util/remotetest.c */
+typedef enum UseAuxiliaryType
+{
+	USE_AUX_OFF = 0
+	,USE_AUX_NODE
+	,USE_AUX_KEY
+}UseAuxiliaryType;
 struct RelationLocInfo;
+extern int use_aux_type;
+extern int use_aux_arg;
 extern List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel);
 extern List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, struct RelationLocInfo *loc_info, Index varno);
 #endif /* ADB */
