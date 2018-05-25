@@ -43,4 +43,5 @@ typedef FormData_monitor_job *Form_monitor_job;
 #define Anum_monitor_job_command					5
 #define Anum_monitor_job_desc							6
 
+#define MACRO_STAND_FOR_ALL_JOB  "*"
 #endif /* MONITOR_JOB_H */

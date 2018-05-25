@@ -298,11 +298,16 @@ void monitor_job_alter(MonitorJobAlter *node, ParamListInfo params, DestReceiver
 	}
 }
 
+/*
+* alter job property, the command format : ALTER JOB jobname(INTERVAL=interval_time, ...), 
+* ALTER JOB ALL (NEXTTIME=nexttime, INTERVAL=interval_time,STATUS=on|off, DESC=desc) only support thest three items
+*/
 Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 {
 	Relation rel;
 	HeapTuple newtuple;
 	HeapTuple checktuple;
+	HeapTuple tuple;
 	ListCell *lc;
 	DefElem *def;
 	NameData jobnamedata;
@@ -315,28 +320,34 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 	TupleDesc job_dsc;
 	int32 interval;
 	bool status = false;
+	bool bAlterAll = false;
 	Datum datumtime;
+	HeapScanDesc relScan;
 
 	jobname = PG_GETARG_CSTRING(0);
 	options = (List *)PG_GETARG_POINTER(1);
 
 	Assert(jobname);
 	namestrcpy(&jobnamedata, jobname);
+	if (strcmp(jobnamedata.data, MACRO_STAND_FOR_ALL_JOB) ==0)
+		bAlterAll = true;
 	rel = heap_open(MjobRelationId, RowExclusiveLock);
-	/* check exists */
-	checktuple = montiot_job_get_item_tuple(rel, &jobnamedata);
-	if (!HeapTupleIsValid(checktuple))
+	/* check exists, MACRO_STAND_FOR_ALL_JOB stand for all jobs */
+	if (!bAlterAll)
 	{
-		heap_close(rel, RowExclusiveLock);
-		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-				,errmsg("\"%s\" does not exist", jobname)));
+		checktuple = montiot_job_get_item_tuple(rel, &jobnamedata);
+		if (!HeapTupleIsValid(checktuple))
+		{
+			heap_close(rel, RowExclusiveLock);
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+					,errmsg("\"%s\" does not exist", jobname)));
+		}
 	}
 	memset(datum, 0, sizeof(datum));
 	memset(isnull, 0, sizeof(isnull));
 	memset(got, 0, sizeof(got));
 
-	/* name */
-	datum[Anum_monitor_job_name-1] = NameGetDatum(&jobnamedata);
+
 	foreach(lc, options)
 	{
 		def = lfirst(lc);
@@ -344,14 +355,14 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 
 		if (strcmp(def->defname, "nexttime") == 0)
 		{
-			if(got[Anum_monitor_job_name-1])
+			if(got[Anum_monitor_job_nexttime-1])
 				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 					,errmsg("conflicting or redundant options")));
 
 			str = defGetString(def);
 			datumtime = DirectFunctionCall2(to_timestamp,
-																			 PointerGetDatum(cstring_to_text(str)),
-																			 PointerGetDatum(cstring_to_text("yyyy-mm-dd hh24:mi:ss")));
+						PointerGetDatum(cstring_to_text(str)),
+						PointerGetDatum(cstring_to_text("yyyy-mm-dd hh24:mi:ss")));
 			datum[Anum_monitor_job_nexttime-1] = datumtime;
 			got[Anum_monitor_job_nexttime-1] = true;
 		}
@@ -404,13 +415,31 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 	/* check the adbmonitor */
 	if ((status == true) && (adbmonitor_start_daemon == false))
 		ereport(WARNING, (errmsg("in postgresql.conf of ADBMGR adbmonitor=off and all jobs cannot be running, you should change adbmonitor=on which can be made effect by mgr_ctl reload ")));
-
 	job_dsc = RelationGetDescr(rel);
-	newtuple = heap_modify_tuple(checktuple, job_dsc, datum,isnull, got);
-	simple_heap_update(rel, &checktuple->t_self, newtuple);
-	CatalogUpdateIndexes(rel, newtuple);	
-		
-	heap_freetuple(checktuple);
+
+	if (bAlterAll)
+	{
+		if (got[Anum_monitor_job_command-1] || got[Anum_monitor_job_desc-1])
+		{
+			heap_close(rel, RowExclusiveLock);
+			ereport(ERROR, (errmsg("the command of \"ALTER JOB ALL\" not support modify the column \"comamnd\" and \"desc\"")));
+		}
+		relScan = heap_beginscan_catalog(rel, 0, NULL);
+		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+		{
+			newtuple = heap_modify_tuple(tuple, job_dsc, datum,isnull, got);
+			simple_heap_update(rel, &tuple->t_self, newtuple);
+			CatalogUpdateIndexes(rel, newtuple);
+		}
+		heap_endscan(relScan);
+	}
+	else
+	{
+		newtuple = heap_modify_tuple(checktuple, job_dsc, datum,isnull, got);
+		simple_heap_update(rel, &checktuple->t_self, newtuple);
+		CatalogUpdateIndexes(rel, newtuple);
+		heap_freetuple(checktuple);
+	}
 	/* at end, close relation */
 	heap_close(rel, RowExclusiveLock);
 

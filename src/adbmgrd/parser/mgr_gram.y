@@ -2434,6 +2434,13 @@ AlterJobitemStmt:
 		node->options = $4;
 		$$ = (Node*)node;
 	}
+	| ALTER JOB ALL opt_general_options
+	{
+		MonitorJobAlter *node = makeNode(MonitorJobAlter);
+		node->name = MACRO_STAND_FOR_ALL_JOB;
+		node->options = $4;
+		$$ = (Node*)node;
+	}
 	;
 
 DropJobitemStmt:
