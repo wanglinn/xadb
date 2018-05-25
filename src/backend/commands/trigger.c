@@ -212,6 +212,14 @@ CreateTrigger(CreateTrigStmt *stmt, const char *queryString,
 					 errmsg("\"%s\" is a partitioned table",
 							RelationGetRelationName(rel)),
 					 errdetail("Partitioned tables cannot have ROW triggers.")));
+#ifdef ADB
+		if (IsAuxRelation(RelationGetRelid(rel)))
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("\"%s\" is an auxiliary table",
+							RelationGetRelationName(rel)),
+					 errdetail("Auxiliary tables cannot have triggers.")));
+#endif
 	}
 	else if (rel->rd_rel->relkind == RELKIND_VIEW)
 	{
