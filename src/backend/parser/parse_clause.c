@@ -47,6 +47,10 @@
 #include "utils/rel.h"
 
 
+#ifdef ADB
+extern bool enable_aux_dml;
+#endif
+
 /* Convenience macro for the most common makeNamespaceItem() case */
 #define makeDefaultNSItem(rte)	makeNamespaceItem(rte, true, true, false, true)
 
@@ -192,6 +196,18 @@ setTargetTable(ParseState *pstate, RangeVar *relation,
 	 */
 	pstate->p_target_relation = parserOpenTable(pstate, relation,
 												RowExclusiveLock);
+
+#ifdef ADB
+	/*
+	 * check for INSERT/UPDATE/DELETE on the auxiliary table.
+	 */
+	if (IsAuxRelation(RelationGetRelid(pstate->p_target_relation)) &&
+		!enable_aux_dml)
+		ereport(ERROR,
+				(errmsg("It is not allowed to INSERT/UPDATE/DELETE on the auxiliary table"),
+				 errhint("The INSERT/UPDATE/DELETE of the auxiliary table can only be operated "
+				 		 "passively according to its main table")));
+#endif
 
 	/*
 	 * Now build an RTE.

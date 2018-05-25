@@ -538,6 +538,7 @@ bool		enable_pushdown_art;
 bool		enable_zero_year;
 bool		distribute_by_replication_default;
 bool		print_reduce_debug_log = false;
+bool		enable_aux_dml = false;
 #endif
 #ifdef DEBUG_ADB
 bool		ADB_DEBUG;
@@ -1222,6 +1223,16 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&print_reduce_debug_log,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enable_aux_dml", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("enable DML on auxiliary tables."),
+			NULL
+		},
+		&enable_aux_dml,
 		false,
 		NULL, NULL, NULL
 	},
