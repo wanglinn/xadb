@@ -1865,6 +1865,23 @@ ListNodeStmt:
 			stmt->whereClause = make_column_in("type", args);
 			$$ = (Node*)stmt;
 		}
+	|	LIST NODE DATANODE MASTER Ident
+		{
+			List* node_name;
+			SelectStmt *stmt = makeNode(SelectStmt);
+			node_name = (List*)list_make1(makeStringConst($5, -1));
+			check_node_name_isvaild(CNDN_TYPE_DATANODE_MASTER, node_name);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("node"), -1));
+			stmt->whereClause = (Node *) makeOrExpr((Node *) makeSimpleA_Expr(AEXPR_OP, "=",
+															make_ColumnRef("name")
+															, makeStringConst($5, -1), -1),
+													(Node *) makeSimpleA_Expr(AEXPR_OP, "=",
+															make_ColumnRef("mastername")
+															, makeStringConst($5, -1), -1)
+													,-1);
+			$$ = (Node*)stmt;
+		}
 	|	LIST NODE DATANODE SLAVE
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
@@ -3197,3 +3214,4 @@ static void check_job_status_intbl(void)
 
 	return;
 }
+
