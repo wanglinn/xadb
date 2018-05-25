@@ -33,7 +33,8 @@ ADB documentation
         \tint select_timeout default 15)\n\n
 
       the limit of monitor_handle_gtm and monitor_handle_datanode functions:\n
-      2<=reconnect_attempts<=60, 2<=reconnect_interval<120, 2<=select_timeout<120. </refpurpose>
+      2<=reconnect_attempts<=60, 2<=reconnect_interval<120, 2<=select_timeout<120\n
+      reconnect_interval and select_timeout unit: "second". </refpurpose>
   </refnamediv>
 
   <indexterm zone="monitor-addjob">
