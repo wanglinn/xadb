@@ -23,6 +23,7 @@ ADB documentation
     <synopsis>
 LIST NODE COORDINATOR [ MASTER | SLAVE ]
 LIST NODE DATANODE [ MASTER | SLAVE ]
+LIST NODE DATANODE MASTER <replaceable class="parameter">node_name</replaceable>
 LIST NODE HOST <replaceable class="parameter">host_name</replaceable> [, ...]
 LIST NODE  [ ( <replaceable class="parameter">option</replaceable> ) ] [ <replaceable class="parameter">node_name</replaceable> [, ...] ]
 
