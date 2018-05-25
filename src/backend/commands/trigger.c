@@ -200,6 +200,14 @@ CreateTrigger(CreateTrigStmt *stmt, const char *queryString,
 					 errmsg("\"%s\" is a table",
 							RelationGetRelationName(rel)),
 					 errdetail("Tables cannot have INSTEAD OF triggers.")));
+#ifdef ADB
+		if (IsAuxRelation(RelationGetRelid(rel)))
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("\"%s\" is an auxiliary table",
+							RelationGetRelationName(rel)),
+					 errdetail("Auxiliary tables cannot have triggers.")));
+#endif
 	}
 	else if (rel->rd_rel->relkind == RELKIND_VIEW)
 	{
