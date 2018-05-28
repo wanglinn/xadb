@@ -115,7 +115,13 @@ int exec_shell(const char *exec, StringInfo out)
 	if(exit_status == 0)
 			appendBinaryStringInfo(out, buf_stdout.data, buf_stdout.len+1);
 	else
-		appendBinaryStringInfo(out, buf_stderr.data, buf_stderr.len+1);
+	{
+		if (buf_stderr.len == 0 && buf_stdout.len != 0)
+			appendBinaryStringInfo(out, buf_stdout.data, buf_stdout.len+1);
+		else
+			appendBinaryStringInfo(out, buf_stderr.data, buf_stderr.len+1);
+	}
+
 	pfree(buf_stdout.data);
 	pfree(buf_stderr.data);
 
