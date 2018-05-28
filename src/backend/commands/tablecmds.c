@@ -110,6 +110,9 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/redistrib.h"
+
+
+extern bool enable_aux_dml;
 #endif
 
 /*
@@ -1466,6 +1469,16 @@ truncate_check_rel(Relation rel)
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("permission denied: \"%s\" is a system catalog",
 						RelationGetRelationName(rel))));
+
+#ifdef ADB
+	/*
+	 * check for TRUNCATE on the auxiliary table.
+	 */
+	if (IsConnFromApp() && !enable_aux_dml && IsAuxRelation(RelationGetRelid(rel)))
+		ereport(ERROR,
+				(errmsg("It is not allowed to TRUNCATE on the auxiliary table"),
+				 errhint("You only can DROP AUXILIARY TABLE on the auxiliary table")));
+#endif
 
 	/*
 	 * Don't allow truncate on temp tables of other backends ... their local
