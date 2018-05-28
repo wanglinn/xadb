@@ -45,9 +45,10 @@
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
-
-
 #ifdef ADB
+#include "pgxc/pgxc.h"
+
+
 extern bool enable_aux_dml;
 #endif
 
@@ -201,12 +202,15 @@ setTargetTable(ParseState *pstate, RangeVar *relation,
 	/*
 	 * check for INSERT/UPDATE/DELETE on the auxiliary table.
 	 */
-	if (IsAuxRelation(RelationGetRelid(pstate->p_target_relation)) &&
-		!enable_aux_dml)
-		ereport(ERROR,
-				(errmsg("It is not allowed to INSERT/UPDATE/DELETE on the auxiliary table"),
-				 errhint("The INSERT/UPDATE/DELETE of the auxiliary table can only be operated "
-				 		 "passively according to its main table")));
+	do {
+		Oid auxrelid = RelationGetRelid(pstate->p_target_relation);
+
+		if (IsConnFromApp() && !enable_aux_dml && IsAuxRelation(auxrelid))
+			ereport(ERROR,
+					(errmsg("It is not allowed to INSERT/UPDATE/DELETE on the auxiliary table"),
+					 errhint("The INSERT/UPDATE/DELETE of the auxiliary table can only be operated "
+					 		 "passively according to its main table")));
+	} while(0);
 #endif
 
 	/*

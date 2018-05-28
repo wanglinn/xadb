@@ -17,6 +17,8 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
+extern bool enable_aux_dml;
+
 /*
  * InsertAuxClassTuple
  *
@@ -275,6 +277,7 @@ QueryRewriteAuxStmt(Query *auxquery)
 	ListCell		   *lc = NULL,
 					   *lc_query = NULL;
 	Query			   *insert_query = NULL;
+	bool				saved_enable_aux_dml;
 
 	if (auxquery->commandType != CMD_UTILITY ||
 		!IsA(auxquery->utilityStmt, CreateAuxStmt))
@@ -399,20 +402,30 @@ QueryRewriteAuxStmt(Query *auxquery)
 	relation_close(master_relation, NoLock);
 
 	raw_insert_parsetree = pg_parse_query(querystr.data);
-	foreach (lc, raw_insert_parsetree)
+	saved_enable_aux_dml = enable_aux_dml;
+	enable_aux_dml = true;
+	PG_TRY();
 	{
-		each_querytree_list = pg_analyze_and_rewrite((Node *) lfirst(lc), querystr.data, NULL, 0);
-		foreach (lc_query, each_querytree_list)
+		foreach (lc, raw_insert_parsetree)
 		{
-			if (IsA(lfirst(lc_query), Query))
+			each_querytree_list = pg_analyze_and_rewrite((Node *) lfirst(lc), querystr.data, NULL, 0);
+			foreach (lc_query, each_querytree_list)
 			{
-				insert_query = (Query *) lfirst(lc_query);
-				insert_query->canSetTag = false;
-				insert_query->querySource = QSRC_PARSER;
+				if (IsA(lfirst(lc_query), Query))
+				{
+					insert_query = (Query *) lfirst(lc_query);
+					insert_query->canSetTag = false;
+					insert_query->querySource = QSRC_PARSER;
+				}
+				rewrite_tree_list = lappend(rewrite_tree_list, lfirst(lc_query));
 			}
-			rewrite_tree_list = lappend(rewrite_tree_list, lfirst(lc_query));
 		}
-	}
+	} PG_CATCH();
+	{
+		enable_aux_dml = saved_enable_aux_dml;
+		PG_RE_THROW();
+	} PG_END_TRY();
+	enable_aux_dml = saved_enable_aux_dml;
 
 	/* Create index for auxiliary table */
 	auxquery->utilityStmt = (Node *) index_stmt;
