@@ -13,9 +13,11 @@
 #include "tcop/utility.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
+#include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+
 
 extern bool enable_aux_dml;
 
@@ -192,6 +194,32 @@ IsAuxRelation(Oid auxrelid)
 	return true;
 }
 
+static char *
+ChooseAuxTableName(const char *name1, const char *name2,
+				   const char *label, Oid namespaceid)
+{
+	int 		pass = 0;
+	char	   *relname = NULL;
+	char		modlabel[NAMEDATALEN];
+
+	/* try the unmodified label first */
+	StrNCpy(modlabel, label, sizeof(modlabel));
+
+	for (;;)
+	{
+		relname = makeObjectName(name1, name2, modlabel);
+
+		if (!OidIsValid(get_relname_relid(relname, namespaceid)))
+			break;
+
+		/* found a conflict, so try a new name component */
+		pfree(relname);
+		snprintf(modlabel, sizeof(modlabel), "%s%d", label, ++pass);
+	}
+
+	return relname;
+}
+
 static List *
 MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel, AttrNumber *distattnum)
 {
@@ -268,6 +296,7 @@ QueryRewriteAuxStmt(Query *auxquery)
 	Form_pg_attribute	disattform;
 	AttrNumber			distattnum;
 	Relation			master_relation;
+	Oid					master_nspid;
 	Oid					master_relid;
 	RelationLocInfo	   *master_reloc;
 	StringInfoData		querystr;
@@ -302,6 +331,7 @@ QueryRewriteAuxStmt(Query *auxquery)
 											NULL);
 	master_relation = relation_open(master_relid, NoLock);
 	master_reloc = RelationGetLocInfo(master_relation);
+	master_nspid = RelationGetNamespace(master_relation);
 	switch (master_reloc->locatorType)
 	{
 		case LOCATOR_TYPE_REPLICATED:
@@ -360,9 +390,9 @@ QueryRewriteAuxStmt(Query *auxquery)
 	/* choose auxiliary table name */
 	if (create_stmt->relation == NULL)
 	{
-		char relname[NAMEDATALEN];
-		snprintf(relname, sizeof(relname), "_%s_%s_aux",
-			RelationGetRelationName(master_relation), NameStr(auxattform->attname));
+		char *relname = ChooseAuxTableName(RelationGetRelationName(master_relation),
+										   NameStr(auxattform->attname),
+										   "aux", master_nspid);
 		create_stmt->relation = makeRangeVar(NULL, pstrdup(relname), -1);
 		index_stmt->relation = makeRangeVar(NULL, pstrdup(relname), -1);
 	}
