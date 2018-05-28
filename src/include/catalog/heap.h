@@ -137,6 +137,7 @@ extern void CheckAttributeType(const char *attname,
 #ifdef ADB
 /* Functions related to distribution data of relations */
 extern void AddRelationDistribution(Oid relid,
+				bool auxiliary,
 				DistributeBy *distributeby,
 				PGXCSubCluster *subcluster,
 				List *parentOids,

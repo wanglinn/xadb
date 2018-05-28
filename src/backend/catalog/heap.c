@@ -1336,10 +1336,11 @@ GetUserDefinedDistribution(Oid relid,
 */
 void
 AddRelationDistribution(Oid relid,
+						bool auxiliary,
 						DistributeBy *distributeby,
 						PGXCSubCluster *subcluster,
-						List 		*parentOids,
-						TupleDesc	descriptor)
+						List *parentOids,
+						TupleDesc descriptor)
 {
 	char			locatortype = '\0';
 	int				hashalgorithm = 0;
@@ -1373,6 +1374,44 @@ AddRelationDistribution(Oid relid,
 								 &funcid,
 								 &numatts,
 								 &attnums);
+
+	/*
+	 * 1st column of auxiliary table is default auxiliary column,
+	 * see MakeAuxTableColumns.
+	 */
+	if (auxiliary)
+	{
+		switch (locatortype)
+		{
+			case LOCATOR_TYPE_HASH:
+			case LOCATOR_TYPE_MODULO:
+				if (attnum != 1)
+					ereport(ERROR,
+							(errmsg("distribute column of auxiliary table should be auxiliary column")));
+				break;
+			case LOCATOR_TYPE_USER_DEFINED:
+				if (numatts != 1 || attnums[0] != 1)
+					ereport(ERROR,
+							(errmsg("distribute column of auxiliary table should be auxiliary column")));
+				break;
+			case LOCATOR_TYPE_RROBIN:
+				ereport(ERROR,
+						(errmsg("it is useless to distribute auxiliary table by roundrobin")));
+				break;
+			case LOCATOR_TYPE_REPLICATED:
+				/* It is OK */
+				break;
+			case LOCATOR_TYPE_RANGE:
+			case LOCATOR_TYPE_CUSTOM:
+				/* Not support yet */
+				break;
+			case LOCATOR_TYPE_NONE:
+			case LOCATOR_TYPE_DISTRIBUTED:
+			default:
+				Assert(false);
+				break;
+		}
+	}
 
 	/* Now OK to insert data in catalog */
 	PgxcClassCreate(relid, locatortype, attnum, hashalgorithm,

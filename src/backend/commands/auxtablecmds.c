@@ -203,14 +203,14 @@ MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel, AttrNumber *dista
 
 	Assert(auxcolumn && rel);
 
-	/* auxiliary column */
+	/* 1. auxiliary column */
 	coldef = makeColumnDef(NameStr(auxcolumn->attname),
 						   auxcolumn->atttypid,
 						   auxcolumn->atttypmod,
 						   auxcolumn->attcollation);
 	tableElts = lappend(tableElts, coldef);
 
-	/* distribute column */
+	/* 2. distribute column */
 	loc = RelationGetLocInfo(rel);
 	if (IsRelationDistributedByValue(loc))
 	{
@@ -235,13 +235,14 @@ MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel, AttrNumber *dista
 						   discolumn->attcollation);
 	tableElts = lappend(tableElts, coldef);
 
-	/* additional fixed columns */
+	/* 3. additional fixed columns -- auxnodeid */
 	coldef = makeColumnDef("auxnodeid",
 						   INT4OID,
 						   -1,
 						   0);
 	tableElts = lappend(tableElts, coldef);
 
+	/* 4. additional fixed columns -- auxctid */
 	coldef = makeColumnDef("auxctid",
 						   TIDOID,
 						   -1,
@@ -326,6 +327,7 @@ QueryRewriteAuxStmt(Query *auxquery)
 			/* it is OK */
 			break;
 		case LOCATOR_TYPE_CUSTOM:
+		case LOCATOR_TYPE_RANGE:
 			/* not support yet */
 			break;
 		case LOCATOR_TYPE_NONE:
