@@ -334,10 +334,14 @@ ConnectDatabase(Archive *AHX,
 					  PQdb(AH->connection) ? PQdb(AH->connection) : "",
 					  PQerrorMessage(AH->connection));
 
+#ifdef MGR_DUMP
+	/*do nothing*/
+#else
 	/* Start strict; later phases may override this. */
 	if (PQserverVersion(AH->connection) >= 70300)
 		PQclear(ExecuteSqlQueryForSingleRow((Archive *) AH,
 											ALWAYS_SECURE_SEARCH_PATH_SQL));
+#endif
 
 	/*
 	 * We want to remember connection's actual password, whether or not we got
