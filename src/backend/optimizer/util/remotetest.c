@@ -15,6 +15,7 @@
 #include "postgres.h"
 
 #include "access/sysattr.h"
+#include "catalog/pg_aux_class.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
@@ -41,11 +42,6 @@
 #include "utils/rel.h"
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
-
-#define Anum_aux_table_key			1
-#define Anum_aux_table_value		2
-#define Anum_aux_table_auxnodeid	3
-#define Anum_aux_table_auxctid		4
 
 typedef struct ModifyContext
 {

@@ -36,4 +36,11 @@ typedef FormData_pg_aux_class *Form_pg_aux_class;
 #define Anum_pg_aux_class_relid		2
 #define Anum_pg_aux_class_attnum	3
 
+#define Natts_aux_table_class		4
+
+#define Anum_aux_table_key			1
+#define Anum_aux_table_value		2
+#define Anum_aux_table_auxnodeid	3
+#define Anum_aux_table_auxctid		4
+
 #endif
