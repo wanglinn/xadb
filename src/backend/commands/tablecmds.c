@@ -819,6 +819,7 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
 	{
 		AddRelationDistribution(relationId,
+								stmt->auxiliary,
 								stmt->distributeby,
 								stmt->subcluster,
 								inheritOids,

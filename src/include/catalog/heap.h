@@ -149,6 +149,7 @@ extern void StorePartitionBound(Relation rel, Relation parent,
 #ifdef ADB
 /* Functions related to distribution data of relations */
 extern void AddRelationDistribution(Oid relid,
+				bool auxiliary,
 				DistributeBy *distributeby,
 				PGXCSubCluster *subcluster,
 				List *parentOids,
