@@ -161,6 +161,7 @@ extern void RemoveAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum);
 extern Oid LookupAuxRelation(Oid relid, AttrNumber attnum);
 extern Oid LookupAuxMasterRel(Oid auxrelid, AttrNumber *attnum);
 extern bool IsAuxRelation(Oid auxrelid);
+extern bool HasAuxRelation(Oid relid);
 extern List *QueryRewriteAuxStmt(Query *auxquery);
 extern void RelationBuildAuxiliary(Relation rel);
 #endif

@@ -220,6 +220,37 @@ ChooseAuxTableName(const char *name1, const char *name2,
 	return relname;
 }
 
+bool HasAuxRelation(Oid relid)
+{
+	HeapTuple		tuple;
+	ScanKeyData		skey;
+	SysScanDesc		auxscan;
+	Relation		auxrel;
+	bool			result;
+
+	if (relid < FirstNormalObjectId)
+		return false;
+
+	ScanKeyInit(&skey,
+				Anum_pg_aux_class_relid,
+				BTEqualStrategyNumber,
+				F_OIDEQ,
+				ObjectIdGetDatum(relid));
+
+	auxrel = heap_open(AuxClassRelationId, AccessShareLock);
+	auxscan = systable_beginscan(auxrel,
+								 AuxClassRelidAttnumIndexId,
+								 true,
+								 NULL,
+								 1,
+								 &skey);
+	tuple = systable_getnext(auxscan);
+	result = HeapTupleIsValid(tuple);
+	systable_endscan(auxscan);
+
+	return result;
+}
+
 static List *
 MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel, AttrNumber *distattnum)
 {
