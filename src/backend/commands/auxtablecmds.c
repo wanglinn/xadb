@@ -247,6 +247,7 @@ bool HasAuxRelation(Oid relid)
 	tuple = systable_getnext(auxscan);
 	result = HeapTupleIsValid(tuple);
 	systable_endscan(auxscan);
+	heap_close(auxrel, AccessShareLock);
 
 	return result;
 }
