@@ -155,8 +155,13 @@ parse_analyze_for_gram(Node *parseTree, const char *sourceText,
 {
 	ParseState *pstate = make_parsestate(NULL);
 	Query	   *query;
+	volatile bool push_search_path = false;
 	pstate->p_grammar = grammar;
-	PushOverrideSearchPathForGrammar(grammar);
+	if (IsTransactionState())
+	{
+		PushOverrideSearchPathForGrammar(grammar);
+		push_search_path = true;
+	}
 	PG_TRY();
 	{
 #else
@@ -182,10 +187,12 @@ parse_analyze_for_gram(Node *parseTree, const char *sourceText,
 #ifdef ADB
 	}PG_CATCH();
 	{
-		PopOverrideSearchPath();
+		if (push_search_path)
+			PopOverrideSearchPath();
 		PG_RE_THROW();
 	}PG_END_TRY();
-	PopOverrideSearchPath();
+	if (push_search_path)
+		PopOverrideSearchPath();
 #endif
 	return query;
 }
