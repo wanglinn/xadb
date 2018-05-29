@@ -151,6 +151,7 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel)
 	context.list_auxvar = NIL;
 	context.relid = rel->relid;
 	context.hint = false;
+	context.in_not_expr = false;
 	tmp_list = (List*)mutator_aux_equal_expr((Node*)new_quals, &context);
 	list_free(new_quals);
 	list_free(result);
@@ -715,6 +716,11 @@ static Const* get_var_equal_const(List *args, Oid opno, Index relid, AttrNumber 
 	if (op_hashjoinable(opno, type_oid) ||
 		op_mergejoinable(opno, type_oid))
 	{
+		while (IsA(l, RelabelType))
+			l = ((RelabelType*)l)->arg;
+		while (IsA(r, RelabelType))
+			r = ((RelabelType*)r)->arg;
+
 		if (IsA(l, Var) &&
 			((Var*)l)->varno == relid &&
 			((Var*)l)->varattno == attno &&
@@ -752,6 +758,11 @@ static Const* get_mvar_equal_const(List *args, Oid opno, Index relid, Bitmapset 
 	if (op_hashjoinable(opno, type_oid) ||
 		op_mergejoinable(opno, type_oid))
 	{
+		while (IsA(l, RelabelType))
+			l = ((RelabelType*)l)->arg;
+		while (IsA(r, RelabelType))
+			r = ((RelabelType*)r)->arg;
+
 		if (IsA(l, Var) &&
 			((Var*)l)->varno == relid &&
 			bms_is_member(((Var*)l)->varattno, attnos)&&
