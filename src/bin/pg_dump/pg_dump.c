@@ -18017,17 +18017,16 @@ dumpAdbmgrTable(Archive *fout)
 		resetPQExpBuffer(addstrdata);
 		if (strcmp(PQgetvalue(res, i, 0), "*") == 0)
 			appendPQExpBuffer(addstrdata, "SET %s %s (\"%s\"=\"%s\");",
-				strcasecmp(PQgetvalue(res, i, 1), "datanode master|slave|extra") == 0 ? "datanode"
-					:(strcasecmp(PQgetvalue(res, i, 1), "gtm master|slave|extra") == 0 ? "gtm"
-					:PQgetvalue(res, i, 1)),
+				strcasecmp(PQgetvalue(res, i, 1), "datanode master|slave") == 0 ? "datanode"
+					:(strcasecmp(PQgetvalue(res, i, 1), "gtm master|slave") == 0 ? "gtm"
+						:(strcasecmp(PQgetvalue(res, i, 1), "coordinator master|slave") == 0
+						? "coordinator" : PQgetvalue(res, i, 1))),
 				"all",
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 3));
 		else
 			appendPQExpBuffer(addstrdata, "SET %s \"%s\" (\"%s\"=\"%s\");",
-				strcasecmp(PQgetvalue(res, i, 1), "datanode master|slave|extra") == 0 ? "datanode"
-					:(strcasecmp(PQgetvalue(res, i, 1), "gtm master|slave|extra") == 0 ? "gtm"
-					:PQgetvalue(res, i, 1)),
+				PQgetvalue(res, i, 1),
 				PQgetvalue(res, i, 0),
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 3));
