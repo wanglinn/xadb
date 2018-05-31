@@ -229,6 +229,9 @@ static bool IsTransactionStmtList(List *pstmts);
 static void drop_unnamed_stmt(void);
 static void log_disconnections(int code, Datum arg);
 #ifdef ADB
+static int check_adb_log_duration(char * msec_str, bool was_logged);
+static List *segment_query_string(const char *query_string,
+								  List *parsetree_list);
 static CommandDest PortalSetCommandDest(Portal portal, CommandDest dest);
 #endif
 #ifdef AGTM
@@ -1119,6 +1122,63 @@ pg_plan_queries(List *querytrees, int cursorOptions, ParamListInfo boundParams)
 }
 
 #ifdef ADB
+static int
+check_adb_log_duration(char * msec_str, bool was_logged)
+{
+	int ret;
+
+	ret = check_log_duration(msec_str, was_logged);
+	if (adb_log_query)
+		ret = 3;
+
+	return ret;
+}
+
+static List *
+segment_query_string(const char *query_string, List *parsetree_list)
+{
+	ListCell	*parsetree_item;
+	Node		*parsetree;
+	List		*sql_list = NIL;
+	char		*sql_item;
+	int			 save_endpos;
+	int			 curr_endpos;
+
+	if (!query_string || !parsetree_list)
+		return NIL;
+
+	save_endpos = 0;
+	foreach (parsetree_item, parsetree_list)
+	{
+		parsetree = (Node *)lfirst(parsetree_item);
+		Assert(IsBaseStmt(parsetree));
+		curr_endpos = ((BaseStmt *)parsetree)->endpos;
+
+		/*
+		 * trim space character from the head of current sql
+		 */
+		while (query_string[save_endpos] && isspace(query_string[save_endpos]))
+			save_endpos++;
+
+		if (curr_endpos != 0)
+		{
+			Assert(curr_endpos >= save_endpos);
+			sql_item = pnstrdup(query_string + save_endpos,
+								curr_endpos - save_endpos + 1);
+			save_endpos = curr_endpos + 1;
+		} else
+		{
+			Assert(lnext(parsetree_item) == NULL);
+			sql_item = pstrdup(query_string + save_endpos);
+		}
+		sql_list = lappend(sql_list, sql_item);
+	}
+
+	Assert(list_length(sql_list) == list_length(parsetree_list));
+
+	return sql_list;
+}
+
 static CommandDest
 PortalSetCommandDest(Portal portal, CommandDest dest)
 {
@@ -2460,7 +2520,11 @@ exec_execute_message(const char *portal_name, long max_rows)
 	/*
 	 * Emit duration logging if appropriate.
 	 */
+#ifdef ADB
+	switch (check_adb_log_duration(msec_str, was_logged))
+#else
 	switch (check_log_duration(msec_str, was_logged))
+#endif
 	{
 		case 1:
 			ereport(LOG,
@@ -2481,6 +2545,21 @@ exec_execute_message(const char *portal_name, long max_rows)
 					 errhidestmt(true),
 					 errdetail_params(portalParams)));
 			break;
+#ifdef ADB
+		case 3:
+			ereport(LOG,
+					(errmsg("duration: %s ms  grammar: %s %s %s%s%s: %s",
+							msec_str,
+							IsOracleGram(portal->grammar) ? _("oracle") : _("postgres"),
+							execute_is_fetch ? _("execute fetch from") : _("execute"),
+							prepStmtName,
+							*portal_name ? "/" : "",
+							*portal_name ? portal_name : "",
+							sourceText),
+					 errhidestmt(true),
+					 errdetail_params(portalParams)));
+			break;
+#endif
 	}
 
 	if (save_log_statement_stats)
@@ -2536,6 +2615,43 @@ check_log_statement(List *stmt_list)
 int
 check_log_duration(char *msec_str, bool was_logged)
 {
+#ifdef ADB
+	long		secs;
+	int 		usecs;
+	int 		msecs;
+
+	TimestampDifference(GetCurrentStatementStartTimestamp(),
+						GetCurrentGlobalTimestamp(),
+						&secs, &usecs);
+
+	msecs = usecs / 1000;
+	snprintf(msec_str, 32, "%ld.%03d", secs * 1000 + msecs, usecs % 1000);
+
+	if (log_duration || log_min_duration_statement >= 0)
+	{
+		bool		exceeded;
+
+		/*
+		 * This odd-looking test for log_min_duration_statement being exceeded
+		 * is designed to avoid integer overflow with very long durations:
+		 * don't compute secs * 1000 until we've verified it will fit in int.
+		 */
+		exceeded = (log_min_duration_statement == 0 ||
+					(log_min_duration_statement > 0 &&
+					 (secs > log_min_duration_statement / 1000 ||
+					  secs * 1000 + msecs >= log_min_duration_statement)));
+
+		if (exceeded || log_duration)
+		{
+			if (exceeded && !was_logged)
+				return 2;
+			else
+				return 1;
+		}
+	}
+
+	return 0;
+#else
 	if (log_duration || log_min_duration_statement >= 0)
 	{
 		long		secs;
@@ -2570,6 +2686,7 @@ check_log_duration(char *msec_str, bool was_logged)
 	}
 
 	return 0;
+#endif
 }
 
 /*
