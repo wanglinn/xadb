@@ -416,6 +416,7 @@ extern bool GetCurrentLocalParamStatus(void);
 extern void SetCurrentLocalParamStatus(bool status);
 extern void PreventInterTransactionChain(const Oid node_id, const char *stmt_type);
 extern struct InterXactStateData* GetCurrentInterXactState(void);
+extern TimestampTz GetCurrentGlobalTimestamp(void);
 extern CommandId GetCurrentCommandIdIfAny(void);
 extern void SetTopXactBeginAGTM(bool status);
 extern bool TopXactBeginAGTM(void);

@@ -261,6 +261,10 @@ bool		enable_bonjour = false;
 char	   *bonjour_name;
 bool		restart_after_crash = true;
 
+#ifdef ADB
+bool		adb_log_query = false;
+#endif
+
 /* PIDs of special child processes; 0 when not running */
 static pid_t StartupPID = 0,
 #ifdef ADB

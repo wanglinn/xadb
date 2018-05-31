@@ -1891,6 +1891,17 @@ static struct config_bool ConfigureNamesBool[] =
 		true,
 		NULL, NULL, NULL
 	},
+
+	{
+		{"adb_log_query", PGC_USERSET, LOGGING_WHAT,
+			gettext_noop("Log query just for ADB."),
+			NULL
+		},
+		&adb_log_query,
+		false,
+		NULL, NULL, NULL
+	},
+
 #if 0
 	{
 		{"gtm_backup_barrier", PGC_SUSET, QUERY_TUNING_METHOD,
