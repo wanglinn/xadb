@@ -67,7 +67,7 @@
 #define PARALLEL_KEY_ACTIVE_SNAPSHOT		UINT64CONST(0xFFFFFFFFFFFF0007)
 #define PARALLEL_KEY_TRANSACTION_STATE		UINT64CONST(0xFFFFFFFFFFFF0008)
 #define PARALLEL_KEY_ENTRYPOINT				UINT64CONST(0xFFFFFFFFFFFF0009)
-#ifdef ADB                                                                                                                                                                                                        
+#ifdef ADB
 #define PARALLEL_KEY_REDUCE_INFO			UINT64CONST(0xFFFFFFFFFFFF000A)
 #define PARALLEL_KEY_NODE_INFO				UINT64CONST(0xFFFFFFFFFFFF000B)
 #endif /* ADB */
