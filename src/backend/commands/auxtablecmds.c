@@ -380,7 +380,7 @@ QueryRewriteAuxStmt(Query *auxquery)
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("auxiliary table on master table which distribute by "
-						 		"user-defined function with more than one arguments is "
+						 		"user-defined function with more than one argument is "
 						 		"not supported yet")));
 			break;
 		case LOCATOR_TYPE_HASH:
