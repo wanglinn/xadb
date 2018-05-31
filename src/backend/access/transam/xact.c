@@ -890,6 +890,22 @@ GetCurrentInterXactState(void)
 	return s->interXactState;
 }
 
+TimestampTz
+GetCurrentGlobalTimestamp(void)
+{
+	/*
+	 * For ADB, Statement start timestamp is adjusted at each node
+	 * (Coordinator and Datanode) with a difference value that is calculated
+	 * based on the global timestamp value received from AGTM and the local
+	 * clock. This permits to follow the AGTM timeline in the cluster.
+	 */
+	if (IsDnNode() && IsConnFromCoord())
+		return GetCurrentTimestamp();
+	else
+		return GetCurrentTimestamp() + globalDeltaTimestmap;
+}
+
+
 CommandId
 GetCurrentCommandIdIfAny(void)
 {
