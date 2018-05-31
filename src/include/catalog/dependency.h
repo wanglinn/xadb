@@ -162,6 +162,7 @@ typedef enum ObjectClass
 	OCLASS_PGXC_NODE,			/* pgxc_node */
 	OCLASS_PGXC_GROUP,			/* pgxc_group */
 	OCLASS_AUX_CLASS,			/* pg_aux_class */
+	OCLASS_ADB_HA_SYNC_LOG,		/* adb_ha_sync_log */
 #endif
 	OCLASS_DEFACL,				/* pg_default_acl */
 	OCLASS_EXTENSION,			/* pg_extension */

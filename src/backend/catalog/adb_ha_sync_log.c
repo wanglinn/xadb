@@ -1,3 +1,10 @@
+/*-------------------------------------------------------------------------
+ *
+ * Portions Copyright (c) 2015-2017 AntDB Development Group
+ *
+ *-------------------------------------------------------------------------
+ */
+
 #include "postgres.h"
 #include "fmgr.h"
 #include "miscadmin.h"
@@ -20,6 +27,7 @@
 #include "utils/builtins.h"
 #include "utils/date.h"
 #include "utils/datetime.h"
+#include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
@@ -41,9 +49,11 @@ static bool WalkerAlterSeqValFunc(Node *node, void *context);
 static bool WalkerSelectPortal(Portal portal);
 static bool WalkerMultiQueryPortal(Portal portal);
 
-#define IsNormalDatabase()	(MyDatabaseId > TemplateDbOid)
+#define IsNormalDatabase()	(MyDatabaseId >= FirstBootstrapObjectId)
 
-#define CanAdbHaSync()		(enable_adb_ha_sync && IsCoordMaster() && IsNormalDatabase())
+#define CanAdbHaSync()		(enable_adb_ha_sync && \
+							 IsCoordMaster() && \
+							 IsNormalDatabase())
 
 void
 AddAdbHaSyncLog(TimestampTz create_time,
@@ -407,9 +417,9 @@ WalkerAlterSeqValFunc(Node *node, void *context)
 		if (IsA(tle->expr, FuncExpr))
 		{
 			FuncExpr *fexpr = (FuncExpr *)(tle->expr);
-			if (fexpr->funcid == FUNC_NEXTVAL_OID ||
-				fexpr->funcid == FUNC_SETVAL2_OID ||
-				fexpr->funcid == FUNC_SETVAL3_OID)
+			if (fexpr->funcid == F_NEXTVAL_OID ||
+				fexpr->funcid == F_SETVAL_OID ||
+				fexpr->funcid == F_SETVAL3_OID)
 			return true;
 		}
 	}

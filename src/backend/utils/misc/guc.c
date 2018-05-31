@@ -1218,6 +1218,26 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 #ifdef ADB
 	{
+		{"enable_adb_ha_sync", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enable ADB record HA synchronous log."),
+			NULL
+		},
+		&enable_adb_ha_sync,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enable_adb_ha_sync_select", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enable ADB record HA synchronous SELECT SQL log."),
+			NULL
+		},
+		&enable_adb_ha_sync_select,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"print_reduce_debug_log", PGC_USERSET, LOGGING_WHAT,
 			gettext_noop("Logs something about adb reduce."),
 			NULL

@@ -77,6 +77,7 @@
 #include "utils/tqual.h"
 
 #ifdef ADB
+#include "catalog/adb_ha_sync_log.h"
 #include "catalog/namespace.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
@@ -1941,6 +1942,14 @@ heap_create_with_catalog(const char *relname,
 	}
 	else
 		relacl = NULL;
+
+#ifdef ADB
+	if (IsBootstrapProcessingMode() && relid == AdbHaSyncLogRelationId)
+	{
+		Form_pg_attribute *attrs = tupdesc->attrs;
+		attrs[Anum_adb_ha_sync_log_finish_time - 1]->attnotnull = false;
+	}
+#endif
 
 	/*
 	 * Create the relcache entry (mostly dummy at this point) and the physical

@@ -1220,6 +1220,7 @@ EventTriggerSupportsObjectClass(ObjectClass objclass)
 		case OCLASS_PGXC_NODE:
 		case OCLASS_PGXC_GROUP:
 		case OCLASS_AUX_CLASS:
+		case OCLASS_ADB_HA_SYNC_LOG:
 			return false;
 #endif
 

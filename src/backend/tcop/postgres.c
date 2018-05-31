@@ -82,6 +82,7 @@
 #include "access/transam.h"
 #include "agtm/agtm.h"
 #include "agtm/agtm_client.h"
+#include "catalog/adb_ha_sync_log.h"
 #include "commands/copy.h"
 #include "commands/defrem.h"
 #include "commands/trigger.h"
@@ -1521,6 +1522,17 @@ exec_simple_query(const char *query_string)
 
 		(*receiver->rDestroy) (receiver);
 
+#ifdef ADB
+		if (AdbHaSyncLogWalkerPortal(portal))
+		{
+			AddAdbHaSyncLog(portal->creation_time,
+							portal->grammar,
+							ADB_SQL_KIND_SIMPLE,
+							query_sql,
+							portal->portalParams);
+		}
+#endif
+
 		PortalDrop(portal, false);
 
 		if (IsA(parsetree, TransactionStmt))
@@ -1842,6 +1854,10 @@ exec_parse_message(const char *query_string,	/* string to execute */
 		querytree_list = NIL;
 	}
 
+#ifdef ADB
+	psrc->grammar = grammar;
+#endif
+
 	/*
 	 * CachedPlanSource must be a direct child of MessageContext before we
 	 * reparent unnamed_stmt_context under it, else we have a disconnected
@@ -2118,6 +2134,14 @@ exec_bind_message(StringInfo input_message)
 			int16		pformat;
 
 			plength = pq_getmsgint(input_message, 4);
+#ifdef ADB
+			/*
+			 * We treat blank string as NULL value in oracle grammar.
+			 */
+			if (IsOracleGram(psrc->grammar))
+				isNull = (plength == -1 || plength == 0);
+			else
+#endif
 			isNull = (plength == -1);
 
 			if (!isNull)
@@ -2482,6 +2506,17 @@ exec_execute_message(const char *portal_name, long max_rows)
 						  completionTag);
 
 	(*receiver->rDestroy) (receiver);
+
+#ifdef ADB
+	if (AdbHaSyncLogWalkerPortal(portal))
+	{
+		AddAdbHaSyncLog(portal->creation_time,
+						portal->grammar,
+						ADB_SQL_KIND_EXECUTE,
+						portal->sourceText,
+						portal->portalParams);
+	}
+#endif
 
 	if (completed)
 	{
