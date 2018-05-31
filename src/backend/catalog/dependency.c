@@ -80,6 +80,7 @@
 
 #ifdef ADB
 #include "agtm/agtm.h"
+#include "catalog/adb_ha_sync_log.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
@@ -175,6 +176,7 @@ static const Oid object_classes[] = {
 	PgxcClassRelationId,		/* OCLASS_PGXC_CLASS */
 	PgxcNodeRelationId,			/* OCLASS_PGXC_NODE */
 	PgxcGroupRelationId,		/* OCLASS_PGXC_GROUP */
+	AdbHaSyncLogRelationId,		/* OCLASS_ADB_HA_SYNC_LOG */
 #endif
 	DefaultAclRelationId,		/* OCLASS_DEFACL */
 	ExtensionRelationId,		/* OCLASS_EXTENSION */
@@ -2653,6 +2655,9 @@ getObjectClass(const ObjectAddress *object)
 
 		case PgxcGroupRelationId:
 			return OCLASS_PGXC_GROUP;
+
+		case AdbHaSyncLogRelationId:
+			return OCLASS_ADB_HA_SYNC_LOG;
 #endif
 		case PolicyRelationId:
 			return OCLASS_POLICY;

@@ -15,7 +15,7 @@ OBJS = catalog.o dependency.o heap.o index.o indexing.o namespace.o aclchk.o \
        pg_constraint.o pg_conversion.o \
        pg_depend.o pg_enum.o pg_inherits.o pg_largeobject.o pg_namespace.o \
        pg_operator.o pg_proc.o pg_range.o pg_db_role_setting.o pg_shdepend.o \
-       pg_type.o storage.o toasting.o pgxc_class.o
+       pg_type.o storage.o toasting.o pgxc_class.o adb_ha_sync_log.o
 
 BKIFILES = postgres.bki postgres.description postgres.shdescription
 
@@ -44,7 +44,8 @@ POSTGRES_BKI_SRCS = \
 	pg_collation.h pg_range.h pg_transform.h \
 	pgxc_class.h pgxc_node.h pgxc_group.h \
 	ora_cast.h adb_proc.h \
-	toasting.h indexing.h
+	toasting.h indexing.h \
+	adb_ha_sync_log.h
 
 $(POSTGRES_BKI_SRCS): % : $(top_srcdir)/src/include/catalog/%
 	rm -f $@.c && $(LN_S) $< $@.c

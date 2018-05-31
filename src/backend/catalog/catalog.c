@@ -45,6 +45,7 @@
 #include "utils/rel.h"
 #include "utils/tqual.h"
 #ifdef ADB
+#include "catalog/adb_ha_sync_log.h"
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
 #include "pgxc/pgxc.h"
@@ -242,6 +243,10 @@ IsSharedRelation(Oid relationId)
 #ifdef ADB
 		relationId == PgxcGroupRelationId ||
 		relationId == PgxcNodeRelationId ||
+		relationId == AdbHaSyncLogRelationId ||
+		relationId == AdbHaSyncLogOidIndexId ||
+		relationId == AdbHaSyncLogToastTable ||
+		relationId == AdbHaSyncLogToastIndex ||
 #endif
 		relationId == DbRoleSettingRelationId ||
 		relationId == ReplicationOriginRelationId)

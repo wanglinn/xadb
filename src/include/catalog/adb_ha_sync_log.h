@@ -25,9 +25,9 @@
 #define timestamptz int
 #endif /* BUILD_BKI */
 
-#define AdbHaSyncLogRelationId 5002
+#define AdbHaSyncLogRelationId 9004
 
-CATALOG(adb_ha_sync_log,5002) BKI_SHARED_RELATION
+CATALOG(adb_ha_sync_log,9004) BKI_SHARED_RELATION
 {
 	int64			gxid;
 	int32			cmdid;
