@@ -171,11 +171,12 @@ typedef enum ObjectClass
 	,OCLASS_PGXC_NODE			/* pgxc_node */
 	,OCLASS_PGXC_GROUP			/* pgxc_group */
 	,OCLASS_AUX_CLASS			/* pg_aux_class */
+	,OCLASS_ADB_HA_SYNC_LOG		/* adb_ha_sync_log */
 #endif
 } ObjectClass;
 
 #ifdef ADB
-#define LAST_OCLASS		OCLASS_AUX_CLASS
+#define LAST_OCLASS		OCLASS_ADB_HA_SYNC_LOG
 #else
 #define LAST_OCLASS		OCLASS_TRANSFORM
 #endif
