@@ -4195,6 +4195,17 @@ static struct config_string ConfigureNamesString[] =
 		"YYYY-MM-DD HH24:MI:SS.US TZ",
 		NULL, NULL, NULL
 	},
+
+	{
+		{"adb_ha_param_delimiter", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Parameter delimiter for record ADB execute sql."),
+			NULL,
+			GUC_REPORT
+		},
+		&adb_ha_param_delimiter,
+		"$&#$",
+		NULL, NULL, NULL
+	},
 #endif
 
 	/* End-of-list marker */
@@ -10005,7 +10016,7 @@ RestoreGUCState(void *gucstate)
 			InitializeOneGUCOption(guc_variables[i]);
 		}
 
-	srcptr = (char *) gucstate; 
+	srcptr = (char *) gucstate;
 	srcptr += sizeof(len);
 	srcend = srcptr + len;
 
