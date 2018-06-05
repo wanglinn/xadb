@@ -172,6 +172,9 @@
 #include "utils/syscache.h"
 #include "utils/tuplesort.h"
 #include "utils/datum.h"
+#ifdef ADB
+#include "pgxc/pgxc.h" /* for PGXCNodeOid */
+#endif /* ADB */
 
 
 /*
@@ -2948,6 +2951,14 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 */
 	aggstate->numaggs = aggno + 1;
 	aggstate->numtrans = transno + 1;
+
+#ifdef ADB
+	/* in cluster plan, same time Agg can not result any row */
+	if (node->aggsplit != AGGSPLIT_INITIAL_SERIAL &&
+		node->exec_nodes != NIL &&
+		list_member_oid(node->exec_nodes, PGXCNodeOid) == false)
+		aggstate->agg_done = true;
+#endif /* ADB */
 
 	return aggstate;
 }
