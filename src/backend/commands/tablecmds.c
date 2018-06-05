@@ -1076,8 +1076,10 @@ ExecuteTruncate(TruncateStmt *stmt)
 	ResultRelInfo *resultRelInfo;
 	SubTransactionId mySubid;
 	ListCell   *cell;
-
 #ifdef ADB
+	bool		has_temp = false;
+	bool		has_non_temp = false;
+
 	if (stmt->restart_seqs)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1103,6 +1105,17 @@ ExecuteTruncate(TruncateStmt *stmt)
 			heap_close(rel, AccessExclusiveLock);
 			continue;
 		}
+#ifdef ADB
+		if (IsTempTable(myrelid))
+			has_temp = true;
+		else
+			has_non_temp = true;
+
+		if (has_temp && has_non_temp)
+			ereport(ERROR,
+					(errmsg("TRUNCATE not supported for TEMP and non-TEMP objects"),
+					 errdetail("You should separate TEMP and non-TEMP objects")));
+#endif
 		truncate_check_rel(rel);
 		rels = lappend(rels, rel);
 		relids = lappend_oid(relids, myrelid);
@@ -1349,30 +1362,16 @@ ExecuteTruncate(TruncateStmt *stmt)
 	 * AFTER triggers are launched. This insures that the triggers are being fired
 	 * by correct events.
 	 */
-	if (IsCoordMaster())
+	if (IsCoordMaster() && !has_temp)
 	{
-		bool is_temp = false;
 		RemoteQuery *step = makeNode(RemoteQuery);
-
-		foreach(cell, stmt->relations)
-		{
-			Oid relid;
-			RangeVar *rel = (RangeVar *) lfirst(cell);
-
-			relid = RangeVarGetRelid(rel, NoLock, false);
-			if (IsTempTable(relid))
-			{
-				is_temp = true;
-				break;
-			}
-		}
 
 		step->combine_type = COMBINE_TYPE_SAME;
 		step->exec_nodes = NULL;
 		step->sql_statement = pstrdup(sql_statement);
 		step->force_autocommit = false;
 		step->exec_type = EXEC_ON_ALL_NODES;
-		step->is_temp = is_temp;
+		step->is_temp = false;
 		(void) ExecInterXactUtility(step, GetCurrentInterXactState());
 		pfree(step->sql_statement);
 		pfree(step);
