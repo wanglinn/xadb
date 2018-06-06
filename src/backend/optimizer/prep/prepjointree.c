@@ -1127,12 +1127,10 @@ pull_up_simple_subquery(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte,
 				case RTE_JOIN:
 				case RTE_CTE:
 				case RTE_NAMEDTUPLESTORE:
-#ifdef ADB
-				case RTE_PARAMTS:
-#endif /* ADB */
 					/* these can't contain any lateral references */
 					break;
 #ifdef ADB
+				case RTE_PARAMTS:
 				case RTE_REMOTE_DUMMY:
 					break;
 #endif

@@ -676,6 +676,7 @@ set_rel_consider_parallel(PlannerInfo *root, RelOptInfo *rel,
 
 		case RTE_CTE:
 #ifdef ADB
+		case RTE_PARAMTS:
 		/*
 		 * ADBQ: Can not decide remote dummy work with parallel now.
 		 */
@@ -692,9 +693,6 @@ set_rel_consider_parallel(PlannerInfo *root, RelOptInfo *rel,
 			return;
 
 		case RTE_NAMEDTUPLESTORE:
-#ifdef ADB
-		case RTE_PARAMTS:
-#endif /* ADB */
 
 			/*
 			 * tuplestore cannot be shared, at least without more

@@ -450,6 +450,8 @@ markTargetListOrigin(ParseState *pstate, TargetEntry *tle,
 			}
 			break;
 #ifdef ADB
+		case RTE_PARAMTS:
+			break;
 		case RTE_REMOTE_DUMMY:
 			elog(ERROR, "Invalid RTE found");
 			break;
@@ -616,9 +618,9 @@ transformAssignedExpr(ParseState *pstate,
 		{
 			CoercionForm cformat = COERCE_EXPLICIT_CAST;
 			OraCoercionContext oldContext;
-			
+
 			oldContext = OraCoercionContextSwitchTo(ORA_COERCE_COMMON_FUNCTION);
-			
+
 			if (TypeCategory(attrtype) == TYPCATEGORY_STRING)
 				cformat = COERCE_IMPLICIT_CAST;
 
@@ -1060,7 +1062,7 @@ checkInsertTargets(ParseState *pstate, List *cols, List **attrnos)
 			ResTarget  *col = (ResTarget *) lfirst(tl);
 			char	   *name = col->name;
 			int			attrno;
-			
+
 #ifdef ADB
 			if(pstate->p_grammar == PARSE_GRAM_ORACLE)
 			{
@@ -1690,6 +1692,8 @@ expandRecordVariable(ParseState *pstate, Var *var, int levelsup)
 			}
 			break;
 #ifdef ADB
+			case RTE_PARAMTS:
+				break;
 			case RTE_REMOTE_DUMMY:
 				elog(ERROR, "Invalid RTE found");
 				break;
