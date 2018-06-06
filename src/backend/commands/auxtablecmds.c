@@ -3,6 +3,7 @@
 #include "access/genam.h"
 #include "access/heapam.h"
 #include "access/htup_details.h"
+#include "access/sysattr.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_aux_class.h"
@@ -17,7 +18,6 @@
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
-
 
 extern bool enable_aux_dml;
 
@@ -543,4 +543,42 @@ void RelationBuildAuxiliary(Relation rel)
 
 	systable_endscan(auxscan);
 	heap_close(auxrel, AccessShareLock);
+}
+
+Bitmapset *MakeAuxMainRelResultAttnos(Relation rel)
+{
+	Bitmapset *attr;
+	int x;
+	Assert(rel->rd_auxatt && rel->rd_locator_info);
+
+	/* system attrs */
+	attr = bms_make_singleton(SelfItemPointerAttributeNumber - FirstLowInvalidHeapAttributeNumber);
+	attr = bms_add_member(attr, XC_NodeIdAttributeNumber - FirstLowInvalidHeapAttributeNumber);
+
+	/* distribute key */
+	if (IsRelationDistributedByUserDefined(rel->rd_locator_info))
+	{
+		if (list_length(rel->rd_locator_info->funcAttrNums) != 1)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("only support one distribute column yet!"),
+					 err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel))));
+		attr = bms_add_member(attr, linitial_int(rel->rd_locator_info->funcAttrNums) - FirstLowInvalidHeapAttributeNumber);
+	}else if(IsRelationDistributedByValue(rel->rd_locator_info))
+	{
+		attr = bms_add_member(attr, rel->rd_locator_info->partAttrNum - FirstLowInvalidHeapAttributeNumber);
+	}else
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("only support one distribute column yet!"),
+				 err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel))));
+	}
+
+	/* auxiliary columns */
+	x = -1;
+	while ((x=bms_next_member(rel->rd_auxatt, x)) >= 0)
+		attr = bms_add_member(attr, x - FirstLowInvalidHeapAttributeNumber);
+
+	return attr;
 }

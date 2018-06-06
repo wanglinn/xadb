@@ -46,5 +46,10 @@ extern void CheckSelectLocking(Query *qry, LockClauseStrength strength);
 extern void applyLockingClause(Query *qry, Index rtindex,
 				   LockClauseStrength strength,
 				   LockWaitPolicy waitPolicy, bool pushedDown);
+#ifdef ADB
+struct PlannerInfo;
+struct RelOptInfo;
+extern void applyModifyToAuxiliaryTable(struct PlannerInfo *root, struct RelOptInfo *subrel, Index relid);
+#endif /* ADB */
 
 #endif   /* ANALYZE_H */

@@ -25,13 +25,6 @@
 #include "postgres.h"
 
 #include "access/sysattr.h"
-#ifdef ADB
-#include "catalog/pg_inherits.h"
-#include "catalog/pg_inherits_fn.h"
-#include "catalog/indexing.h"
-#include "utils/fmgroids.h"
-#include "utils/tqual.h"
-#endif
 #include "catalog/pg_type.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
@@ -52,11 +45,19 @@
 #include "parser/parsetree.h"
 #include "rewrite/rewriteManip.h"
 #ifdef ADB
-#include "miscadmin.h"
+#include "catalog/pg_inherits.h"
+#include "catalog/pg_inherits_fn.h"
+#include "catalog/heap.h"
+#include "catalog/indexing.h"
+#include "commands/defrem.h"
+#include "utils/fmgroids.h"
+#include "utils/tqual.h"
+#include "catalog/pg_aux_class.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
 #include "utils/lsyscache.h"
 #include "optimizer/pgxcplan.h"
+#include "optimizer/subselect.h"
 #include "tcop/tcopprot.h"
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
@@ -4255,6 +4256,314 @@ static Oid get_operator_for_function(Oid funcid)
 	heap_endscan(scanDesc);
 	heap_close(rel, AccessShareLock);
 	return opno;
+}
+
+static List* make_modify_query_insert_target(List *exprs, List * icolumns, List *attrnos, Bitmapset **inserted);
+static List* make_aux_main_rel_need_result(Relation rel, Index mainrelid, List **colnames, Bitmapset **attrnos);
+static Var* get_ts_scan_var_for_aux_key(RangeTblEntry *tsrte, const char *name, Index relid);
+static List* make_aux_rel_result_vars_rel(RangeTblEntry *rte, Relation aux_rel, Index aux_relid);
+static CommonTableExpr* add_modify_as_cte(Query *query, Query *subquery, const char *target_name);
+
+void applyModifyToAuxiliaryTable(struct PlannerInfo *root, struct RelOptInfo *subrel, Index relid)
+{
+	Query		   *subparse;
+	Relation		rel;
+	Relation		rel_aux;
+	ListCell	   *lc;
+	ParseState	   *pstate;
+	RangeTblEntry  *subrte;
+	RangeTblEntry  *rte;
+	RangeTblRef	   *rtr;
+	Bitmapset	   *mt_result;
+	List		   *icolumns;
+	List		   *attnos;
+	List		   *exprList;
+	List		   *main_names = NIL;
+	List		   *main_vars = NIL;
+	Param		   *param = NULL;
+
+	return;	/* now we can not get right system value for ModifyTable on coordinator(eg. ctid,xc_node_id), disable it for now */
+
+	if (!IS_PGXC_COORDINATOR ||
+		!IsConnFromApp())
+		return;
+
+	rte = rt_fetch(relid, root->parse->rtable);
+	rel = heap_open(rte->relid, NoLock);
+	if (rel->rd_auxlist == NIL)
+	{
+		heap_close(rel, NoLock);
+		return;
+	}
+
+	foreach(lc, rel->rd_auxlist)
+	{
+		rel_aux = heap_open(lfirst_oid(lc), NoLock);
+
+		if (RELATION_IS_OTHER_TEMP(rel_aux))
+		{
+			heap_close(rel_aux, NoLock);
+			continue;
+		}
+
+		pstate = make_parsestate(NULL);
+		if (param == NULL)
+		{
+			param = SS_make_initplan_output_param(root, INTERNALOID, -1, InvalidOid);
+			main_vars = make_aux_main_rel_need_result(rel, relid, &main_names, &mt_result);
+			rte->param_new = param->paramid;
+			rte->param_old = -1;
+			rte->mt_result = mt_result;
+		}
+
+		subparse = makeNode(Query);
+		subparse->commandType = CMD_INSERT;
+		subparse->canSetTag = false;	/* must be false */
+
+		/* make insert target rte */
+		subrte = addRangeTableEntryForRelation(pstate, rel_aux, NULL, false, false);
+		pstate->p_target_rangetblentry = subrte;
+		pstate->p_target_relation = rel_aux;
+		subrte->requiredPerms = ACL_INSERT;
+		//subrte->mt_result = mt_result;
+		subparse->resultRelation = list_length(pstate->p_rtable);
+
+		/* build default list */
+		icolumns = checkInsertTargets(pstate, NULL, &attnos);
+		Assert(list_length(icolumns) == list_length(attnos));
+
+		/* build tuplestore scan RTE */
+		subrte = addRangeTableEntryForParamTupleStore(pstate,
+													  main_vars,
+													  makeAlias(RelationGetRelationName(rel), main_names),
+													  param->paramid,
+													  true);
+		if (subrel && subrel->rows > 0.0)
+			subrte->rows = subrel->rows;
+		else
+			subrte->rows = 1000.0;
+		rtr = makeNode(RangeTblRef);
+		rtr->rtindex = list_length(pstate->p_rtable);
+		Assert(rt_fetch(rtr->rtindex, pstate->p_rtable) == subrte);
+		pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
+
+		/* search vars tuplestore scan result need */
+		exprList = make_aux_rel_result_vars_rel(subrte, rel_aux, rtr->rtindex);
+		exprList = transformInsertRow(pstate, exprList, NULL, icolumns, attnos, false);
+
+		subparse->targetList = make_modify_query_insert_target(exprList,
+															   icolumns,
+															   attnos,
+															   &pstate->p_target_rangetblentry->insertedCols);
+
+		subparse->rtable = pstate->p_rtable;
+		subparse->jointree = makeFromExpr(pstate->p_joinlist, NULL);
+		assign_query_collations(pstate, subparse);
+
+		add_modify_as_cte(root->parse, subparse, RelationGetRelationName(rel_aux));
+
+		root->parse->hasModifyingCTE = true;
+		heap_close(rel_aux, NoLock);
+		pstate->p_target_relation = NULL;
+		free_parsestate(pstate);
+	}
+
+	heap_close(rel, NoLock);
+}
+
+static List* make_modify_query_insert_target(List *exprs, List * icolumns, List *attrnos, Bitmapset **inserted)
+{
+	ListCell *lcExpr;
+	ListCell *lcCol;
+	ListCell *lcAttno;
+	ResTarget *col;
+	TargetEntry *tle;
+	List *result = NULL;
+	Bitmapset *insertedCols = NULL;
+	AttrNumber attr;
+
+	Assert(list_length(exprs) == list_length(icolumns));
+	Assert(list_length(exprs) == list_length(attrnos));
+
+	forthree(lcExpr, exprs,
+			 lcCol, icolumns,
+			 lcAttno, attrnos)
+	{
+		col = lfirst(lcCol);
+		Assert(IsA(col, ResTarget));
+
+		attr = (AttrNumber)lfirst_int(lcAttno);
+
+		tle = makeTargetEntry(lfirst(lcExpr),
+							  attr,
+							  col->name,
+							  false);
+		result = lappend(result, tle);
+
+		insertedCols = bms_add_member(insertedCols, attr - FirstLowInvalidHeapAttributeNumber);
+	}
+
+	*inserted = insertedCols;
+	return result;
+}
+
+static List* make_aux_main_rel_need_result(Relation rel, Index mainrelid, List **colnames, Bitmapset **attrnos)
+{
+	TupleDesc			desc = RelationGetDescr(rel);
+	Form_pg_attribute	attr;
+	List			   *list;
+	List			   *names;
+	Var				   *var;
+	Bitmapset		   *varattnos;
+	int					x;
+
+	Assert(rel->rd_auxatt && rel->rd_locator_info);
+
+	varattnos = MakeAuxMainRelResultAttnos(rel);
+
+	x = -1;
+	list = names = NIL;
+	while ((x=bms_next_member(varattnos, x)) >= 0)
+	{
+		AttrNumber attno = (AttrNumber)(x + FirstLowInvalidHeapAttributeNumber);
+		if (attno < 0)
+			attr = SystemAttributeDefinition(attno, RelationGetForm(rel)->relhasoids);
+		else
+			attr = TupleDescAttr(desc, attno-1);
+
+		var = makeVar(mainrelid, attno, attr->atttypid, attr->atttypmod, attr->attcollation, 0);
+		list = lappend(list, var);
+
+		names = lappend(names, makeString(pstrdup(NameStr(attr->attname))));
+	}
+
+	*colnames = names;
+	*attrnos = varattnos;
+	return list;
+}
+
+static Var* get_ts_scan_var_for_aux_key(RangeTblEntry *tsrte, const char *name, Index relid)
+{
+	ListCell *lc;
+	AttrNumber attno = 0;
+	AssertArg(tsrte->rtekind == RTE_PARAMTS);
+
+	foreach(lc, tsrte->eref->colnames)
+	{
+		if (strcmp(strVal(lfirst(lc)), name) == 0)
+		{
+			return makeVar(relid,
+						   attno+1,
+						   list_nth_oid(tsrte->ctecoltypes, attno),
+						   list_nth_int(tsrte->ctecoltypmods, attno),
+						   list_nth_oid(tsrte->ctecolcollations, attno),
+						   0);
+		}
+		++attno;
+	}
+
+	ereport(ERROR,
+			(errcode(ERRCODE_INTERNAL_ERROR),
+			 errmsg("can not found column \"%s\" in tuplestore scan", name)));
+	return NULL;	/* keep compiler quiet */
+}
+
+static List* make_aux_rel_result_vars_rel(RangeTblEntry *rte, Relation aux_rel, Index aux_relid)
+{
+	List *result = NIL;
+	Form_pg_attribute attr;
+
+#if (Anum_aux_table_key == 1)
+	attr = TupleDescAttr(RelationGetDescr(aux_rel), Anum_aux_table_key - 1);
+	result = lappend(result,
+					 get_ts_scan_var_for_aux_key(rte,
+					 							 NameStr(attr->attname),
+												 aux_relid));
+#else
+#error need change var list order
+#endif
+
+#if (Anum_aux_table_value == 2)
+	attr = TupleDescAttr(RelationGetDescr(aux_rel), Anum_aux_table_value - 1);
+	result = lappend(result,
+					 get_ts_scan_var_for_aux_key(rte,
+					 							 NameStr(attr->attname),
+												 aux_relid));
+#else
+#error need change var list order
+#endif
+
+#if (Anum_aux_table_auxnodeid == 3)
+	attr = SystemAttributeDefinition(XC_NodeIdAttributeNumber, true);
+	result = lappend(result,
+					 get_ts_scan_var_for_aux_key(rte,
+					 							 NameStr(attr->attname),
+												 aux_relid));
+#else
+#error need change var list order
+#endif
+
+#if (Anum_aux_table_auxctid == 4)
+	attr = SystemAttributeDefinition(SelfItemPointerAttributeNumber, true);
+	result = lappend(result,
+					 get_ts_scan_var_for_aux_key(rte,
+					 							 NameStr(attr->attname),
+												 aux_relid));
+#else
+#error need change var list order
+#endif
+
+	return result;
+}
+
+static CommonTableExpr* add_modify_as_cte(Query *query, Query *subquery, const char *target_name)
+{
+	const char *prefix;
+	CommonTableExpr *cte;
+	ListCell *lc;
+	StringInfoData buf;
+	uint32 n = 0;
+
+	switch(subquery->commandType)
+	{
+	case CMD_INSERT:
+		prefix = "insert.";
+		break;
+	case CMD_UPDATE:
+		prefix = "update.";
+		break;
+	case CMD_DELETE:
+		prefix = "delete.";
+		break;
+	default:
+		prefix = "";
+		break;
+	}
+
+	initStringInfo(&buf);
+re_generate_name_:
+	appendStringInfo(&buf, "%s%s", prefix, target_name);
+	if (n)
+		appendStringInfo(&buf, ".%u", n);
+
+	foreach(lc, query->cteList)
+	{
+		cte = lfirst(lc);
+		if (strcmp(cte->ctename, buf.data) == 0)
+		{
+			++n;
+			goto re_generate_name_;
+		}
+	}
+
+	Assert(lc == NULL);
+	cte = makeNode(CommonTableExpr);
+	cte->ctename = buf.data;
+	cte->ctequery = (Node*)subquery;
+	cte->location = -1;
+
+	query->cteList = lappend(query->cteList, cte);
+	return cte;
 }
 
 #endif /* ADB */

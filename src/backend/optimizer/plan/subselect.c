@@ -1220,11 +1220,22 @@ hash_ok_operator(OpExpr *expr)
 void
 SS_process_ctes(PlannerInfo *root)
 {
+#ifndef ADB
 	ListCell   *lc;
+#endif /* ADB */
 
 	Assert(root->cte_plan_ids == NIL);
 
+#ifdef ADB
+	SS_process_ctes_lc(root, list_head(root->parse->cteList));
+}
+
+void SS_process_ctes_lc(PlannerInfo *root, ListCell *lc)
+{
+	for(;lc!=NULL;lc=lnext(lc))
+#else
 	foreach(lc, root->parse->cteList)
+#endif /* ADB */
 	{
 		CommonTableExpr *cte = (CommonTableExpr *) lfirst(lc);
 		CmdType		cmdType = ((Query *) cte->ctequery)->commandType;
@@ -2861,6 +2872,12 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 		case T_ReduceScan:
 #endif /* ADB */
 			break;
+
+#ifdef ADB
+		case T_ParamTuplestoreScan:
+			context.paramids = bms_add_members(context.paramids, scan_params);
+			break;
+#endif /* ADB */
 
 		default:
 			elog(ERROR, "unrecognized node type: %d",

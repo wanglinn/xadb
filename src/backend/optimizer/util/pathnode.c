@@ -2399,6 +2399,28 @@ create_ctescan_path(PlannerInfo *root, RelOptInfo *rel, Relids required_outer)
 	return pathnode;
 }
 
+#ifdef ADB
+Path *create_paramtuplestorescan_path(PlannerInfo *root, RelOptInfo *rel,
+								Relids required_outer)
+{
+	Path	   *pathnode = makeNode(Path);
+
+	pathnode->pathtype = T_ParamTuplestoreScan;
+	pathnode->parent = rel;
+	pathnode->pathtarget = rel->reltarget;
+	pathnode->param_info = get_baserel_parampathinfo(root, rel,
+													 required_outer);
+	pathnode->parallel_aware = false;
+	pathnode->parallel_safe = rel->consider_parallel;
+	pathnode->parallel_workers = 0;
+	pathnode->pathkeys = NIL;	/* result is always unordered */
+
+	cost_paramtuplestorescan(pathnode, root, rel, pathnode->param_info);
+
+	return pathnode;
+
+}
+#endif /* ADB */
 /*
  * create_worktablescan_path
  *	  Creates a path corresponding to a scan of a self-reference CTE,

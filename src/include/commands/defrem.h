@@ -164,6 +164,7 @@ extern bool IsAuxRelation(Oid auxrelid);
 extern bool HasAuxRelation(Oid relid);
 extern List *QueryRewriteAuxStmt(Query *auxquery);
 extern void RelationBuildAuxiliary(Relation rel);
+extern Bitmapset *MakeAuxMainRelResultAttnos(Relation rel);
 #endif
 
 #endif   /* DEFREM_H */

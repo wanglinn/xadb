@@ -147,6 +147,10 @@ static ValuesScan *create_valuesscan_plan(PlannerInfo *root, Path *best_path,
 					   List *tlist, List *scan_clauses);
 static CteScan *create_ctescan_plan(PlannerInfo *root, Path *best_path,
 					List *tlist, List *scan_clauses);
+#ifdef ADB
+static ParamTuplestoreScan *create_paramtuplestorescan_plan(PlannerInfo *root,
+								Path *best_path, List *tlist, List *scan_clauses);
+#endif /* ADB */
 static WorkTableScan *create_worktablescan_plan(PlannerInfo *root, Path *best_path,
 						  List *tlist, List *scan_clauses);
 static ForeignScan *create_foreignscan_plan(PlannerInfo *root, ForeignPath *best_path,
@@ -404,6 +408,9 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 		case T_WorkTableScan:
 		case T_ForeignScan:
 		case T_CustomScan:
+#ifdef ADB
+		case T_ParamTuplestoreScan:
+#endif /* ADB */
 			plan = create_scan_plan(root, best_path, flags);
 			break;
 		case T_HashJoin:
@@ -758,6 +765,14 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 												   tlist,
 												   scan_clauses);
 			break;
+#ifdef ADB
+		case T_ParamTuplestoreScan:
+			plan = (Plan*) create_paramtuplestorescan_plan(root,
+														   best_path,
+														   tlist,
+														   scan_clauses);
+			break;
+#endif /* ADB */
 
 		default:
 			elog(ERROR, "unrecognized node type: %d",
@@ -3370,6 +3385,68 @@ create_ctescan_plan(PlannerInfo *root, Path *best_path,
 
 	return scan_plan;
 }
+
+#ifdef ADB
+static ParamTuplestoreScan *create_paramtuplestorescan_plan(PlannerInfo *root, Path *best_path,
+								List *tlist, List *scan_clauses)
+{
+	ListCell *lctyp, *lcmod, *lccoll;
+	ParamTuplestoreScan *scan_plan;
+	RangeTblEntry *rte;
+	Index		scan_relid = best_path->parent->relid;
+	AttrNumber	attno;
+
+	Assert(scan_relid > 0);
+	rte = planner_rt_fetch(scan_relid, root);
+	Assert(rte->rtekind == RTE_PARAMTS);
+	Assert(rte->param_new >= 0);
+	Assert(list_length(rte->ctecoltypes) == list_length(rte->ctecoltypmods));
+	Assert(list_length(rte->ctecoltypes) == list_length(rte->ctecolcollations));
+
+	/* Sort clauses into best execution order */
+	scan_clauses = order_qual_clauses(root, scan_clauses);
+
+	/* Reduce RestrictInfo list to bare expressions; ignore pseudoconstants */
+	scan_clauses = extract_actual_clauses(scan_clauses, false);
+
+	/* Replace any outer-relation variables with nestloop params */
+	if (best_path->param_info)
+	{
+		scan_clauses = (List *)
+			replace_nestloop_params(root, (Node *) scan_clauses);
+	}
+
+	/*scan_plan = make_namedtuplestorescan(tlist, scan_clauses, scan_relid,
+										 rte->enrname);*/
+	scan_plan = makeNode(ParamTuplestoreScan);
+	scan_plan->scan.plan.targetlist = tlist;
+	scan_plan->scan.plan.qual = scan_clauses;
+	innerPlan(scan_plan) = outerPlan(scan_plan) = NULL;
+	scan_plan->scan.scanrelid = scan_relid;
+	scan_plan->paramid = rte->param_new;
+
+	/* build vars */
+	attno = 0;
+	scan_plan->vars = NIL;
+	forthree(lctyp, rte->ctecoltypes,
+			 lcmod, rte->ctecoltypmods,
+			 lccoll, rte->ctecolcollations)
+	{
+		scan_plan->vars = lappend(scan_plan->vars,
+								  makeVar(scan_relid,
+										  ++attno,
+										  lfirst_oid(lctyp),
+										  lfirst_int(lcmod),
+										  lfirst_oid(lccoll),
+										  0));
+	}
+
+
+	copy_generic_path_info(&scan_plan->scan.plan, best_path);
+
+	return scan_plan;
+}
+#endif /* ADB */
 
 /*
  * create_worktablescan_plan
@@ -6321,6 +6398,7 @@ make_modifytable(PlannerInfo *root,
 	List	   *fdw_private_list;
 	Bitmapset  *direct_modify_plans;
 	ListCell   *lc;
+	RangeTblEntry *rte;
 	int			i;
 
 	Assert(list_length(resultRelations) == list_length(subplans));
@@ -6399,10 +6477,13 @@ make_modifytable(PlannerInfo *root,
 			RelOptInfo *resultRel = root->simple_rel_array[rti];
 
 			fdwroutine = resultRel->fdwroutine;
+#ifdef ADB
+			rte = planner_rt_fetch(rti, root);
+#endif /* ADB */
 		}
 		else
 		{
-			RangeTblEntry *rte = planner_rt_fetch(rti, root);
+			rte = planner_rt_fetch(rti, root);
 
 			Assert(rte->rtekind == RTE_RELATION);
 			if (rte->relkind == RELKIND_FOREIGN_TABLE)
@@ -6410,6 +6491,24 @@ make_modifytable(PlannerInfo *root,
 			else
 				fdwroutine = NULL;
 		}
+
+#ifdef ADB
+		if (rte->mt_result)
+		{
+			int x = -1;
+			List *list = NIL;
+			while ((x=bms_next_member(rte->mt_result, x)) >= 0)
+				list = lappend_int(list, x + FirstLowInvalidHeapAttributeNumber);
+			node->resultAttnos = lappend(node->resultAttnos, list);
+			node->param_new = lappend_int(node->param_new, rte->param_new);
+			node->param_old = lappend_int(node->param_old, rte->param_old);
+		}else
+		{
+			node->resultAttnos = lappend(node->resultAttnos, NIL);
+			node->param_new = lappend_int(node->param_new, -1);
+			node->param_old = lappend_int(node->param_old, -1);
+		}
+#endif /* ADB */
 
 		/*
 		 * Try to modify the foreign table directly if (1) the FDW provides

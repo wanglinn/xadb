@@ -115,6 +115,10 @@ static void set_values_pathlist(PlannerInfo *root, RelOptInfo *rel,
 					RangeTblEntry *rte);
 static void set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel,
 				 RangeTblEntry *rte);
+#ifdef ADB
+static void set_paramtuplestore_pathlist(PlannerInfo *root, RelOptInfo *rel,
+							 RangeTblEntry *rte);
+#endif /* ADB */
 static void set_worktable_pathlist(PlannerInfo *root, RelOptInfo *rel,
 					   RangeTblEntry *rte);
 static RelOptInfo *make_rel_from_joinlist(PlannerInfo *root, List *joinlist);
@@ -398,6 +402,11 @@ set_rel_size(PlannerInfo *root, RelOptInfo *rel,
 				else
 					set_cte_pathlist(root, rel, rte);
 				break;
+#ifdef ADB
+			case RTE_PARAMTS:
+				set_paramtuplestore_pathlist(root, rel, rte);
+				break;
+#endif /* ADB */
 			default:
 				elog(ERROR, "unexpected rtekind: %d", (int) rel->rtekind);
 				break;
@@ -462,6 +471,11 @@ set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 			case RTE_CTE:
 				/* CTE reference --- fully handled during set_rel_size */
 				break;
+#ifdef ADB
+			case RTE_PARAMTS:
+				/* tuplestore reference --- fully handled during set_rel_size */
+				break;
+#endif /* ADB */
 			default:
 				elog(ERROR, "unexpected rtekind: %d", (int) rel->rtekind);
 				break;
@@ -2563,6 +2577,31 @@ set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	}
 #endif /* ADB */
 }
+
+#ifdef ADB
+static void set_paramtuplestore_pathlist(PlannerInfo *root, RelOptInfo *rel,
+							 RangeTblEntry *rte)
+{
+	Relids required_outer;
+	rel->tuples = rte->rows;
+	set_baserel_size_estimates(root, rel);
+
+	/*
+	 * We don't support pushing join clauses into the quals of a tuplestore
+	 * scan, but it could still have required parameterization due to LATERAL
+	 * refs in its tlist.
+	 */
+	required_outer = rel->lateral_relids;
+
+	/* Generate appropriate path */
+	add_path(rel, create_paramtuplestorescan_path(root, rel, required_outer));
+
+	/* Select cheapest path (pretty easy in this case...) */
+	set_cheapest(rel);
+
+}
+
+#endif /* ADB */
 
 /*
  * set_worktable_pathlist

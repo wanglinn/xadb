@@ -846,6 +846,7 @@ typedef enum RTEKind
 	RTE_VALUES,					/* VALUES (<exprlist>), (<exprlist>), ... */
 	RTE_CTE						/* common table expr (WITH list element) */
 #ifdef ADB
+	,RTE_PARAMTS				/* param tuplestore */
 	,RTE_REMOTE_DUMMY			/* RTEs created by remote plan reduction */
 #endif /* ADB */
 } RTEKind;
@@ -924,6 +925,14 @@ typedef struct RangeTblEntry
 	List	   *ctecoltypes;	/* OID list of column type OIDs */
 	List	   *ctecoltypmods;	/* integer list of column typmods */
 	List	   *ctecolcollations;		/* OID list of column collation OIDs */
+
+#ifdef ADB
+	/* Fields valid for a PARAMTS and Modify RTEs */
+	int			param_new;		/* PARAMTS scan param id and ModifyTable new tuple store */
+	int			param_old;		/* ModifyTable old tuple store */
+	Bitmapset  *mt_result;		/* ModifyTable result column(s), attno - FirstLowInvalidHeapAttributeNumber */
+	double		rows;
+#endif /* ADB */
 
 	/*
 	 * Fields valid in all RTEs:

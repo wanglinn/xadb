@@ -49,6 +49,8 @@
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
 #ifdef ADB
+#include "catalog/heap.h"
+#include "nodes/makefuncs.h"
 #include "parser/parsetree.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
@@ -572,6 +574,20 @@ ExecInsert(ModifyTableState *mtstate,
 		estate->es_lastoid = newId;
 		setLastTid(&(tuple->t_self));
 	}
+
+#ifdef ADB
+	if (resultRelInfo->ri_projectTuplestore)
+	{
+		ExprContext *econtext = mtstate->ps.ps_ExprContext;
+		TupleTableSlot *tts_ts;
+		econtext->ecxt_scantuple = resultRelInfo->ri_ttsScan;
+		ExecStoreTuple(tuple, econtext->ecxt_scantuple, InvalidBuffer, false);
+		econtext->ecxt_outertuple = resultRelInfo->ri_ttsTuplestore;
+		tts_ts = ExecProject(resultRelInfo->ri_projectTuplestore, NULL);
+		Assert(!TupIsNull(tts_ts));
+		tuplestore_puttupleslot(resultRelInfo->ts_new, tts_ts);
+	}
+#endif /* ADB */
 
 	/* AFTER ROW INSERT Triggers */
 	ExecARInsertTriggers(estate, resultRelInfo, tuple, recheckIndexes);
@@ -1882,6 +1898,7 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	{
 #ifdef ADB
 		Plan *remoteplan = NULL;
+		List *list_result;
 #endif
 
 		subplan = (Plan *) lfirst(l);
@@ -1894,6 +1911,76 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 			resultRelInfo++;
 			i++;
 			continue;
+		}else if((list_result = list_nth(node->resultAttnos, i)) != NULL)
+		{
+			Form_pg_attribute attr;
+			ExprContext *econtext;
+			ListCell *lc;
+			List *targetList = NIL;
+			TupleDesc rel_desc = RelationGetDescr(resultRelInfo->ri_RelationDesc);
+			TupleDesc res_desc = CreateTemplateTupleDesc(list_length(list_result), false);
+			AttrNumber attno = 0;
+			int paramid;
+			foreach(lc, list_result)
+			{
+				if (lfirst_int(lc) < 0)
+					attr = SystemAttributeDefinition(lfirst_int(lc), true);
+				else
+					attr = TupleDescAttr(rel_desc, lfirst_int(lc) - 1);
+				TupleDescInitEntry(res_desc,
+								   ++attno,
+								   NULL,
+								   attr->atttypid,
+								   attr->atttypmod,
+								   attr->attndims);
+				TupleDescInitEntryCollation(res_desc, attno, attr->attcollation);
+				targetList = lappend(targetList,
+									 makeTargetEntry((Expr*)makeVar(resultRelInfo->ri_RangeTableIndex,
+									 								(AttrNumber)lfirst_int(lc),
+																	attr->atttypid,
+																	attr->atttypmod,
+																	attr->attcollation,
+																	0),
+													 attno,
+													 pstrdup(NameStr(attr->attname)),
+													 false));
+			}
+
+			resultRelInfo->ri_ttsTuplestore = ExecAllocTableSlot(&estate->es_tupleTable);
+			ExecSetSlotDescriptor(resultRelInfo->ri_ttsTuplestore, res_desc);
+			resultRelInfo->ri_ttsScan = ExecAllocTableSlot(&estate->es_tupleTable);
+			ExecSetSlotDescriptor(resultRelInfo->ri_ttsScan, RelationGetDescr(resultRelInfo->ri_RelationDesc));
+
+			if (mtstate->ps.ps_ExprContext)
+				econtext = mtstate->ps.ps_ExprContext;
+			else
+				econtext = mtstate->ps.ps_ExprContext = CreateExprContext(estate);
+
+			targetList = (List*)ExecInitExpr((Expr*)targetList, (PlanState*)mtstate);
+			resultRelInfo->ri_projectTuplestore = ExecBuildProjectionInfo(targetList,
+																 econtext,
+																 resultRelInfo->ri_ttsTuplestore,
+																 rel_desc);
+
+			if ((paramid=list_nth_int(node->param_new, i)) >= 0)
+			{
+				Tuplestorestate *ts = tuplestore_begin_heap(false, false, work_mem);
+				ParamExecData *prmdata = &(estate->es_param_exec_vals[paramid]);
+				Assert(prmdata->execPlan == NULL);
+				prmdata->value = PointerGetDatum(ts);
+				prmdata->isnull = false;
+				resultRelInfo->ts_new = ts;
+			}
+
+			if ((paramid=list_nth_int(node->param_old, i)) >= 0)
+			{
+				Tuplestorestate *ts = tuplestore_begin_heap(false, false, work_mem);
+				ParamExecData *prmdata = &(estate->es_param_exec_vals[paramid]);
+				Assert(prmdata->execPlan == NULL);
+				prmdata->value = PointerGetDatum(ts);
+				prmdata->isnull = false;
+				resultRelInfo->ts_old = ts;
+			}
 		}
 		if (node->remote_plans)
 			remoteplan = list_nth(node->remote_plans, i);
@@ -2006,9 +2093,16 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 		ExecAssignResultType(&mtstate->ps, tupDesc);
 		slot = mtstate->ps.ps_ResultTupleSlot;
 
+#ifdef ADB
+		if (mtstate->ps.ps_ExprContext)
+			econtext = mtstate->ps.ps_ExprContext;
+		else
+			econtext = mtstate->ps.ps_ExprContext = CreateExprContext(estate);
+#else
 		/* Need an econtext too */
 		econtext = CreateExprContext(estate);
 		mtstate->ps.ps_ExprContext = econtext;
+#endif
 
 		/*
 		 * Build a projection for each result rel.
@@ -2043,7 +2137,9 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 		ExecInitResultTupleSlot(estate, &mtstate->ps);
 		ExecAssignResultType(&mtstate->ps, tupDesc);
 
+#ifndef ADB
 		mtstate->ps.ps_ExprContext = NULL;
+#endif /* !defined(ADB) */
 	}
 
 	/*

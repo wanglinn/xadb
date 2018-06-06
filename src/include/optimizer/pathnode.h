@@ -106,6 +106,10 @@ extern Path *create_valuesscan_path(PlannerInfo *root, RelOptInfo *rel,
 					   Relids required_outer);
 extern Path *create_ctescan_path(PlannerInfo *root, RelOptInfo *rel,
 					Relids required_outer);
+#ifdef ADB
+extern Path *create_paramtuplestorescan_path(PlannerInfo *root, RelOptInfo *rel,
+								Relids required_outer);
+#endif /* ADB */
 extern Path *create_worktablescan_path(PlannerInfo *root, RelOptInfo *rel,
 						  Relids required_outer);
 extern ForeignPath *create_foreignscan_path(PlannerInfo *root, RelOptInfo *rel,

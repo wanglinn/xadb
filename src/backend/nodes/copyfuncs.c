@@ -206,6 +206,9 @@ _copyModifyTable(const ModifyTable *from)
 	COPY_NODE_FIELD(exclRelTlist);
 #ifdef ADB
 	COPY_NODE_FIELD(remote_plans);
+	COPY_NODE_FIELD(resultAttnos);
+	COPY_NODE_FIELD(param_new);
+	COPY_NODE_FIELD(param_old);
 #endif
 	return newnode;
 }
@@ -4738,6 +4741,18 @@ _copyClusterReduce(const ClusterReduce *from)
 	return newnode;
 }
 
+static ParamTuplestoreScan *
+_copyParamTuplestoreScan(const ParamTuplestoreScan *from)
+{
+	ParamTuplestoreScan *newnode = makeNode(ParamTuplestoreScan);
+
+	CopyScanFields(&from->scan, &newnode->scan);
+	COPY_NODE_FIELD(vars);
+	COPY_SCALAR_FIELD(paramid);
+
+	return newnode;
+}
+
 static OidVectorLoopExpr *
 _copyOidVectorLoopExpr(const OidVectorLoopExpr *from)
 {
@@ -5787,6 +5802,9 @@ copyObject(const void *from)
 			break;
 		case T_ClusterReduce:
 			retval = _copyClusterReduce(from);
+			break;
+		case T_ParamTuplestoreScan:
+			retval = _copyParamTuplestoreScan(from);
 			break;
 		case T_OidVectorLoopExpr:
 			retval = _copyOidVectorLoopExpr(from);

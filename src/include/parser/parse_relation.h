@@ -100,6 +100,13 @@ extern RangeTblEntry *addRangeTableEntryForCTE(ParseState *pstate,
 						 Index levelsup,
 						 RangeVar *rv,
 						 bool inFromCl);
+#ifdef ADB
+extern RangeTblEntry *addRangeTableEntryForParamTupleStore(ParseState *pstate,
+														   List *exprs,
+														   Alias *alias,
+														   int paramid,
+														   bool inFromCl);
+#endif /* ADB */
 extern bool isLockedRefname(ParseState *pstate, const char *refname);
 extern void addRTEtoQuery(ParseState *pstate, RangeTblEntry *rte,
 			  bool addToJoinList,
