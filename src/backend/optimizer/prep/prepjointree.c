@@ -1159,6 +1159,7 @@ pull_up_simple_subquery(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte,
 					/* these can't contain any lateral references */
 					break;
 #ifdef ADB
+				case RTE_PARAMTS:
 				case RTE_REMOTE_DUMMY:
 					break;
 #endif
@@ -2021,6 +2022,7 @@ replace_vars_in_jointree(Node *jtnode,
 						Assert(false);
 						break;
 #ifdef ADB
+					case RTE_PARAMTS:
 					case RTE_REMOTE_DUMMY:
 						break;
 #endif

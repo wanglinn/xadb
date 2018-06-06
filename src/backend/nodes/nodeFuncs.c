@@ -2370,6 +2370,9 @@ range_table_walker(List *rtable,
 					return true;
 				break;
 #ifdef ADB
+			case RTE_PARAMTS:
+				/* nothing to do */
+				break;
 			case RTE_REMOTE_DUMMY:
 				elog(ERROR, "Invalid RTE found.");
 				break;
@@ -3188,9 +3191,6 @@ range_table_mutator(List *rtable,
 				/* we don't bother to copy eref, aliases, etc; OK? */
 				break;
 			case RTE_CTE:
-#ifdef ADB
-			case RTE_REMOTE_DUMMY:
-#endif /* ADB */
 				/* nothing to do */
 				break;
 			case RTE_SUBQUERY:
@@ -3220,6 +3220,12 @@ range_table_mutator(List *rtable,
 			case RTE_VALUES:
 				MUTATE(newrte->values_lists, rte->values_lists, List *);
 				break;
+#ifdef ADB
+			case RTE_PARAMTS:
+			case RTE_REMOTE_DUMMY:
+				/* nothing to do */
+				break;
+#endif /* ADB */
 		}
 		MUTATE(newrte->securityQuals, rte->securityQuals, List *);
 		newrt = lappend(newrt, newrte);

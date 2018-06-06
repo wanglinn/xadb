@@ -644,6 +644,7 @@ set_rel_consider_parallel(PlannerInfo *root, RelOptInfo *rel,
 
 		case RTE_CTE:
 #ifdef ADB
+		case RTE_PARAMTS:
 		/*
 		 * ADBQ: Can not decide remote dummy work with parallel now.
 		 */
