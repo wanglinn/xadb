@@ -2372,6 +2372,9 @@ range_table_walker(List *rtable,
 				break;
 			case RTE_CTE:
 			case RTE_NAMEDTUPLESTORE:
+#ifdef ADB
+			case RTE_PARAMTS:
+#endif /* ADB */
 				/* nothing to do */
 				break;
 			case RTE_SUBQUERY:
@@ -3223,6 +3226,7 @@ range_table_mutator(List *rtable,
 			case RTE_CTE:
 			case RTE_NAMEDTUPLESTORE:
 #ifdef ADB
+			case RTE_PARAMTS:
 			case RTE_REMOTE_DUMMY:
 #endif /* ADB */
 				/* nothing to do */

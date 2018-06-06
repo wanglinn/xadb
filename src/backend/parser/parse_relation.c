@@ -1258,6 +1258,9 @@ addRangeTableEntry(ParseState *pstate,
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
 	rte->updatedCols = NULL;
+#ifdef ADB
+	rte->param_new = rte->param_old = -1;
+#endif /* ADB */
 
 	/*
 	 * Add completed RTE to pstate's range table list, but not to join list
@@ -1315,6 +1318,9 @@ addRangeTableEntryForRelation(ParseState *pstate,
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
 	rte->updatedCols = NULL;
+#ifdef ADB
+	rte->param_new = rte->param_old = -1;
+#endif /* ADB */
 
 	/*
 	 * Add completed RTE to pstate's range table list, but not to join list
@@ -1393,6 +1399,9 @@ addRangeTableEntryForSubquery(ParseState *pstate,
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
 	rte->updatedCols = NULL;
+#ifdef ADB
+	rte->param_new = rte->param_old = -1;
+#endif /* ADB */
 
 	/*
 	 * Add completed RTE to pstate's range table list, but not to join list
@@ -1650,6 +1659,9 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
 	rte->updatedCols = NULL;
+#ifdef ADB
+	rte->param_new = rte->param_old = -1;
+#endif /* ADB */
 
 	/*
 	 * Add completed RTE to pstate's range table list, but not to join list
@@ -1791,6 +1803,9 @@ addRangeTableEntryForValues(ParseState *pstate,
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
 	rte->updatedCols = NULL;
+#ifdef ADB
+	rte->param_new = rte->param_old = -1;
+#endif /* ADB */
 
 	/*
 	 * Add completed RTE to pstate's range table list, but not to join list
@@ -1860,6 +1875,9 @@ addRangeTableEntryForJoin(ParseState *pstate,
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
 	rte->updatedCols = NULL;
+#ifdef ADB
+	rte->param_new = rte->param_old = -1;
+#endif /* ADB */
 
 	/*
 	 * Add completed RTE to pstate's range table list, but not to join list
@@ -1963,6 +1981,9 @@ addRangeTableEntryForCTE(ParseState *pstate,
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
 	rte->updatedCols = NULL;
+#ifdef ADB
+	rte->param_new = rte->param_old = -1;
+#endif /* ADB */
 
 	/*
 	 * Add completed RTE to pstate's range table list, but not to join list
@@ -2069,7 +2090,64 @@ addRangeTableEntryForENR(ParseState *pstate,
 
 	return rte;
 }
+#ifdef ADB
+RangeTblEntry *addRangeTableEntryForParamTupleStore(ParseState *pstate,
+													List *exprs,
+													Alias *alias,
+													int paramid,
+													bool inFromCl)
+{
+	RangeTblEntry  *rte = makeNode(RangeTblEntry);
+	char		   *refname = alias ? alias->aliasname : psprintf("PARAM %d", paramid);
+	Alias		   *eref;
+	ListCell	   *lc;
+	int				numaliases;
+	int				numcolumns;
 
+	AssertArg(pstate != NULL);
+
+	rte->relid = InvalidOid;
+	rte->rtekind = RTE_PARAMTS;
+	rte->alias = alias;
+
+	eref = alias ? copyObject(alias) : makeAlias(refname, NIL);
+
+	/* fill in any unspecified alias columns */
+	numcolumns = list_length(exprs);
+	numaliases = list_length(eref->colnames);
+	while (numaliases < numcolumns)
+	{
+		char		attrname[64];
+
+		numaliases++;
+		snprintf(attrname, sizeof(attrname), "column%d", numaliases);
+		eref->colnames = lappend(eref->colnames,
+								 makeString(pstrdup(attrname)));
+	}
+	if (numcolumns < numaliases)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
+				 errmsg("TupleStore lists \"%s\" have %d columns available but %d columns specified",
+						refname, numcolumns, numaliases)));
+	rte->eref = eref;
+	rte->param_new = paramid;
+	rte->param_old = -1;
+
+	rte->inFromCl = inFromCl;
+
+	foreach(lc, exprs)
+	{
+		Node *expr = lfirst(lc);
+		rte->coltypes = lappend_oid(rte->coltypes, exprType(expr));
+		rte->coltypmods = lappend_int(rte->coltypmods, exprTypmod(expr));
+		rte->colcollations = lappend_oid(rte->colcollations, exprCollation(expr));
+	}
+
+	pstate->p_rtable = lappend(pstate->p_rtable, rte);
+
+	return rte;
+}
+#endif /* ADB */
 
 /*
  * Has the specified refname been selected FOR UPDATE/FOR SHARE?

@@ -65,6 +65,7 @@
  *   ClusterReduceState
  *   ReduceScanState
  *   EmptyResultState
+ *   ParamTuplestoreScanState
  *   ExprState
  *   AggrefExprState
  *   WindowFuncExprState
@@ -249,6 +250,9 @@ BEGIN_NODE(ModifyTable)
 	NODE_NODE(List,exclRelTlist)
 #ifdef ADB
 	NODE_NODE(List,remote_plans)
+	NODE_NODE(List,resultAttnos)
+	NODE_NODE(List,param_new)
+	NODE_NODE(List,param_old)
 #endif
 END_NODE(ModifyTable)
 #endif /* NO_NODE_ModifyTable */
@@ -781,6 +785,14 @@ BEGIN_NODE(EmptyResult)
 	NODE_ENUM(NodeTag,typeFrom)
 END_NODE(EmptyResult)
 #endif /* NO_NODE_EmptyResult */
+
+#ifndef NO_NODE_ParamTuplestoreScan
+BEGIN_NODE(ParamTuplestoreScan)
+	NODE_BASE2(Scan,scan)
+	NODE_NODE(List,vars)
+	NODE_SCALAR(int,paramid)
+END_NODE(ParamTuplestoreScan)
+#endif /* NO_NODE_ParamTuplestoreScan */
 
 #endif
 
@@ -1475,6 +1487,7 @@ BEGIN_NODE(RelOptInfo)
 	NODE_NODE(Path,cheapest_coordinator_path)
 	NODE_NODE(List,cheapest_cluster_parameterized_paths)
 	NODE_STRUCT(RelationLocInfo,loc_info)
+	NODE_NODE(List,remote_oids)
 #endif
 	NODE_RELIDS(Relids,direct_lateral_relids)
 	NODE_RELIDS(Relids,lateral_relids)
@@ -2363,7 +2376,7 @@ BEGIN_NODE(CreateStmt)
 #ifdef ADB
 	NODE_SCALAR(bool,auxiliary)
 	NODE_NODE(RangeVar,master_relation)
-	NODE_SCALAR(AttrNumber, aux_attnum)
+	NODE_SCALAR(AttrNumber,aux_attnum)
 	NODE_NODE(DistributeBy,distributeby)
 	NODE_NODE(PGXCSubCluster,subcluster)
 #endif
@@ -3560,6 +3573,12 @@ BEGIN_NODE(RangeTblEntry)
 	NODE_NODE(List,colcollations)
 	NODE_STRING(enrname)
 	NODE_SCALAR(double,enrtuples)
+#ifdef ADB
+	NODE_SCALAR(int,param_new)
+	NODE_SCALAR(int,param_old)
+	NODE_BITMAPSET(Bitmapset,mt_result)
+	NODE_SCALAR(double,rows)
+#endif
 	NODE_NODE(Alias,alias)
 	NODE_NODE(Alias,eref)
 	NODE_SCALAR(bool,lateral)

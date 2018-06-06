@@ -1030,6 +1030,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_ReduceScan:
 			pname = sname = "Reduce Scan";
 			break;
+		case T_ParamTuplestoreScan:
+			pname = sname = "Param Tuplestore Scan";
+			break;
 #endif /*ADB*/
 		case T_ForeignScan:
 			sname = "Foreign Scan";
@@ -1207,6 +1210,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_ValuesScan:
 		case T_CteScan:
 		case T_WorkTableScan:
+#ifdef ADB
+		case T_ParamTuplestoreScan:
+#endif /* ADB */
 			ExplainScanTarget((Scan *) plan, es);
 			break;
 		case T_ForeignScan:
@@ -3058,6 +3064,10 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
 			Assert(rte->rtekind == RTE_REMOTE_DUMMY);
 			objectname = rte->relname;
 			objecttag = "RemoteQuery name";
+			break;
+		case T_ParamTuplestoreScan:
+			objecttag = "Param";
+			objectname = psprintf("%d", ((ParamTuplestoreScan*)plan)->paramid);
 			break;
 #endif /* ADB */
 		default:

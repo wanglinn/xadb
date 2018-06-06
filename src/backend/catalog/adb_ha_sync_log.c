@@ -149,9 +149,7 @@ AddAdbHaSyncLog(TimestampTz create_time,
 
 	htup = heap_form_tuple(RelationGetDescr(adbharel), values, nulls);
 
-	(void) simple_heap_insert(adbharel, htup);
-
-	CatalogUpdateIndexes(adbharel, htup);
+	CatalogTupleInsert(adbharel, htup);
 
 	heap_close(adbharel, RowExclusiveLock);
 
@@ -531,4 +529,3 @@ AdbHaSyncLogWalkerPortal(Portal portal)
 	}
 	return result;
 }
-

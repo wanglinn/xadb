@@ -2209,6 +2209,16 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 								  final_targets_contain_srfs);
 	}
 
+#ifdef ADB
+	if (parse->commandType != CMD_SELECT && !inheritance_update)
+	{
+		int last = list_length(parse->cteList);
+		applyModifyToAuxiliaryTable(root, current_rel, parse->resultRelation);
+		if (last != list_length(parse->cteList))
+			SS_process_ctes_lc(root, list_nth_cell(parse->cteList, last));
+	}
+#endif /* ADB */
+
 	/*
 	 * Now we are prepared to build the final-output upperrel.
 	 */

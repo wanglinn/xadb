@@ -1395,7 +1395,7 @@ AddRelationDistribution(Oid relid,
 					ereport(ERROR,
 							(errmsg("distribute column of auxiliary table should be auxiliary column")));
 				break;
-			case LOCATOR_TYPE_RROBIN:
+			case LOCATOR_TYPE_RANDOM:
 				ereport(ERROR,
 						(errmsg("it is useless to distribute auxiliary table by roundrobin")));
 				break;

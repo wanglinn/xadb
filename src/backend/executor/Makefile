@@ -32,6 +32,6 @@ OBJS = execAmi.o execCurrent.o execExpr.o execExprInterp.o \
        nodeTableFuncscan.o \
        clusterReceiver.o nodeClusterGather.o execCluster.o \
        nodeClusterMergeGather.o nodeClusterReduce.o \
-       nodeReduceScan.o nodeEmptyResult.o
+       nodeReduceScan.o nodeEmptyResult.o nodeParamTuplestoreScan.o
 
 include $(top_srcdir)/src/backend/common.mk

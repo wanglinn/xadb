@@ -427,8 +427,7 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{
 			newtuple = heap_modify_tuple(tuple, job_dsc, datum,isnull, got);
-			simple_heap_update(rel, &tuple->t_self, newtuple);
-			CatalogUpdateIndexes(rel, newtuple);
+			CatalogTupleUpdate(rel, &tuple->t_self, newtuple);
 		}
 		heap_endscan(relScan);
 	}
@@ -436,7 +435,6 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 	{
 		newtuple = heap_modify_tuple(checktuple, job_dsc, datum,isnull, got);
 		CatalogTupleUpdate(rel, &checktuple->t_self, newtuple);
-		CatalogUpdateIndexes(rel, newtuple);
 		heap_freetuple(checktuple);
 	}
 	/* at end, close relation */

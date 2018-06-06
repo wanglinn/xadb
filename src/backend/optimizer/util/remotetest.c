@@ -126,7 +126,7 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel)
 		|| list_length(result) <= 1
 		|| list_length(result) < list_length(rel->loc_info->nodeids)
 		|| IsLocatorReplicated(rel->loc_info->locatorType)
-		|| rel->loc_info->locatorType == LOCATOR_TYPE_RROBIN)
+		|| rel->loc_info->locatorType == LOCATOR_TYPE_RANDOM)
 		return result;
 
 	/* have auxiliary table ? */
@@ -938,7 +938,7 @@ static List* get_aux_table_execute_on(ModifyAuxVarContext *mavc, Var *var, Const
 	if (IsLocatorReplicated(mavc->loc_info->locatorType))
 	{
 		return GetPreferredRepNodeIds(mavc->loc_info->nodeids);
-	}else if (mavc->loc_info->locatorType == LOCATOR_TYPE_RROBIN)
+	}else if (mavc->loc_info->locatorType == LOCATOR_TYPE_RANDOM)
 	{
 		ereport(ERROR, (errmsg("auxiliary table not support distribte by roundrobin")));
 	}else if (IsRelationDistributedByUserDefined(mavc->loc_info) &&
@@ -1029,8 +1029,7 @@ static List* get_aux_table_execute_on(ModifyAuxVarContext *mavc, Var *var, Const
 			input->constisnull = nulls[i];
 			target->constvalue = ExecEvalExprSwitchContext(convert_state,
 														   expr_context,
-														   &target->constisnull,
-														   NULL);
+														   &target->constisnull);
 		}else
 		{
 			target->constvalue = values[i];
@@ -1038,8 +1037,7 @@ static List* get_aux_table_execute_on(ModifyAuxVarContext *mavc, Var *var, Const
 		}
 		datum = ExecEvalExprSwitchContext(mavc->reduce_expr_state,
 										  expr_context,
-										  &isnull,
-										  NULL);
+										  &isnull);
 		Assert(isnull == false);
 		bms_nodes = bms_add_member(bms_nodes, DatumGetInt32(datum));
 	}

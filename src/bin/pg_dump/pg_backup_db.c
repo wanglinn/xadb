@@ -327,7 +327,7 @@ ConnectDatabase(Archive *AHX,
 	/* Start strict; later phases may override this. */
 	if (PQserverVersion(AH->connection) >= 70300)
 		PQclear(ExecuteSqlQueryForSingleRow((Archive *) AH,
-											ALWAYS_SECURE_SEARCH_PATH_SQL));
+											"SELECT pg_catalog.set_config('search_path', '', false)"));
 #endif
 
 	/*

@@ -121,6 +121,7 @@
 #include "executor/nodeClusterMergeGather.h"
 #include "executor/nodeClusterReduce.h"
 #include "executor/nodeEmptyResult.h"
+#include "executor/nodeParamTuplestoreScan.h"
 #include "executor/nodeReduceScan.h"
 #endif
 
@@ -399,6 +400,10 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 
 		case T_EmptyResult:
 			result = (PlanState *) ExecInitEmptyResult((EmptyResult*)node, estate, eflags);
+			break;
+
+		case T_ParamTuplestoreScan:
+			result = (PlanState*) ExecInitParamTuplestoreScan((ParamTuplestoreScan*)node, estate, eflags);
 			break;
 #endif
 
@@ -777,6 +782,10 @@ ExecEndNode(PlanState *node)
 
 		case T_EmptyResultState:
 			ExecEndEmptyResult((EmptyResultState *) node);
+			break;
+
+		case T_ParamTuplestoreScanState:
+			ExecEndParamTuplestoreScan((ParamTuplestoreScanState*) node);
 			break;
 #endif
 

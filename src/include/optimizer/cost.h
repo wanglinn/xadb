@@ -123,6 +123,10 @@ extern void cost_ctescan(Path *path, PlannerInfo *root,
 			 RelOptInfo *baserel, ParamPathInfo *param_info);
 extern void cost_namedtuplestorescan(Path *path, PlannerInfo *root,
 						 RelOptInfo *baserel, ParamPathInfo *param_info);
+#ifdef ADB
+extern void cost_paramtuplestorescan(Path *path, PlannerInfo *root,
+						 RelOptInfo *baserel, ParamPathInfo *param_info);
+#endif /* ADB */
 extern void cost_recursive_union(Path *runion, Path *nrterm, Path *rterm);
 extern void cost_sort(Path *path, PlannerInfo *root,
 		  List *pathkeys, Cost input_cost, double tuples, int width,

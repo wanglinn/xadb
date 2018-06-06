@@ -1139,39 +1139,18 @@ static List *
 segment_query_string(const char *query_string, List *parsetree_list)
 {
 	ListCell	*parsetree_item;
-	Node		*parsetree;
+	RawStmt		*raw_stmt;
 	List		*sql_list = NIL;
 	char		*sql_item;
-	int			 save_endpos;
-	int			 curr_endpos;
 
 	if (!query_string || !parsetree_list)
 		return NIL;
 
-	save_endpos = 0;
 	foreach (parsetree_item, parsetree_list)
 	{
-		parsetree = (Node *)lfirst(parsetree_item);
-		Assert(IsBaseStmt(parsetree));
-		curr_endpos = ((BaseStmt *)parsetree)->endpos;
-
-		/*
-		 * trim space character from the head of current sql
-		 */
-		while (query_string[save_endpos] && isspace(query_string[save_endpos]))
-			save_endpos++;
-
-		if (curr_endpos != 0)
-		{
-			Assert(curr_endpos >= save_endpos);
-			sql_item = pnstrdup(query_string + save_endpos,
-								curr_endpos - save_endpos + 1);
-			save_endpos = curr_endpos + 1;
-		} else
-		{
-			Assert(lnext(parsetree_item) == NULL);
-			sql_item = pstrdup(query_string + save_endpos);
-		}
+		raw_stmt = lfirst_node(RawStmt, parsetree_item);
+		Assert(raw_stmt->stmt_location >= 0);
+		sql_item = pnstrdup(query_string + raw_stmt->stmt_location, raw_stmt->stmt_len);
 		sql_list = lappend(sql_list, sql_item);
 	}
 
@@ -1531,7 +1510,7 @@ exec_simple_query(const char *query_string)
 			AddAdbHaSyncLog(portal->creation_time,
 							portal->grammar,
 							ADB_SQL_KIND_SIMPLE,
-							query_sql,
+							query_string,
 							portal->portalParams);
 		}
 #endif

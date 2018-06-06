@@ -998,6 +998,7 @@ typedef enum RTEKind
 	RTE_CTE,					/* common table expr (WITH list element) */
 	RTE_NAMEDTUPLESTORE			/* tuplestore, e.g. for AFTER triggers */
 #ifdef ADB
+	,RTE_PARAMTS				/* param tuplestore */
 	,RTE_REMOTE_DUMMY			/* RTEs created by remote plan reduction */
 #endif /* ADB */
 } RTEKind;
@@ -1103,6 +1104,14 @@ typedef struct RangeTblEntry
 	 */
 	char	   *enrname;		/* name of ephemeral named relation */
 	double		enrtuples;		/* estimated or actual from caller */
+
+#ifdef ADB
+	/* Fields valid for a PARAMTS and Modify RTEs */
+	int			param_new;		/* PARAMTS scan param id and ModifyTable new tuple store */
+	int			param_old;		/* ModifyTable old tuple store */
+	Bitmapset  *mt_result;		/* ModifyTable result column(s), attno - FirstLowInvalidHeapAttributeNumber */
+	double		rows;
+#endif /* ADB */
 
 	/*
 	 * Fields valid in all RTEs:

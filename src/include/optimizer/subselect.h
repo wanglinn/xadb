@@ -15,6 +15,9 @@
 #include "nodes/plannodes.h"
 #include "nodes/relation.h"
 
+#ifdef ADB
+extern void SS_process_ctes_lc(PlannerInfo *root, ListCell *lc);
+#endif /* ADB */
 extern void SS_process_ctes(PlannerInfo *root);
 extern JoinExpr *convert_ANY_sublink_to_join(PlannerInfo *root,
 							SubLink *sublink,

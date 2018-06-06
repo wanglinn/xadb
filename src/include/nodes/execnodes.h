@@ -427,6 +427,13 @@ typedef struct ResultRelInfo
 
 	/* relation descriptor for root partitioned table */
 	Relation	ri_PartitionRoot;
+#ifdef ADB
+	Tuplestorestate *ts_new;
+	Tuplestorestate *ts_old;
+	ProjectionInfo *ri_projectTuplestore;
+	TupleTableSlot *ri_ttsTuplestore;
+	TupleTableSlot *ri_ttsScan;
+#endif /* ADB */
 } ResultRelInfo;
 
 /* ----------------
@@ -2157,6 +2164,15 @@ typedef struct EmptyResultState
 	PlanState			ps;
 	Node			   *special;
 }EmptyResultState;
+
+typedef struct ParamTuplestoreScanState
+{
+	ScanState			ss;
+	TupleTableSlot	   *(*ScanNext) (ScanState *node);
+	Tuplestorestate	   *ts;
+	TupleDesc			tupdesc;		/* format of the tuples in the tuplestore */
+	int					readptr;		/* index of my tuplestore read pointer */
+}ParamTuplestoreScanState;
 
 #endif /* ADB */
 

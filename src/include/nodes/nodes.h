@@ -107,6 +107,7 @@ typedef enum NodeTag
 	T_ClusterReduce,
 	T_ReduceScan,
 	T_EmptyResult,
+	T_ParamTuplestoreScan,
 #endif
 
 	/*
@@ -164,6 +165,7 @@ typedef enum NodeTag
 	T_ClusterReduceState,
 	T_ReduceScanState,
 	T_EmptyResultState,
+	T_ParamTuplestoreScanState,
 #endif
 
 	/*
