@@ -98,8 +98,10 @@ static CombineType get_plan_combine_type(CmdType commandType, char baselocatorty
 static List *pgxc_collect_RTE(Query *query);
 static bool pgxc_collect_RTE_walker(Node *node, collect_RTE_context *crte_context);
 
-static void pgxc_add_returning_list(RemoteQuery *rq, List *ret_list,
-									int rel_index);
+static void pgxc_add_returning_list(RemoteQuery *rq,
+									List *ret_list,
+									int rel_index,
+									bool need_ctid_xcid);
 static void pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 									Index resultRelationIndex,
 									RemoteQuery *rqplan,
@@ -827,54 +829,97 @@ make_remotequery(List *qptlist, List *qpqual, Index scanrelid)
  *                  list is to be added
  * ret_list       : The returning list
  * rel_index      : The index of the concerned relation in RTE list
+ * need_ctid_xcid : Try add ctid and xc_node_id for returning if TRUE
  */
 static void
-pgxc_add_returning_list(RemoteQuery *rq, List *ret_list, int rel_index)
+pgxc_add_returning_list(RemoteQuery *rq,
+						List *ret_list,
+						int rel_index,
+						bool need_ctid_xcid)
 {
-	List		*shipableReturningList = NULL;
+	List		*shipableReturningList = NIL;
 	List		*varlist;
 	ListCell	*lc;
+	TargetEntry *tle;
+	Var			*var;
+	bool		found_ctid = false;
+	bool		found_xcid = false;
 
-	/* Do we have to add a returning clause or not? */
-	if (ret_list == NULL)
-		return;
-
-	/*
-	 * Returning lists cannot contain aggregates and
-	 * we are not supporting place holders for now
-	 */
-	varlist = pull_var_clause((Node *)ret_list, 0);
-
-	/*
-	 * For every entry in the returning list if the entry belongs to the
-	 * same table as the one whose index is passed then add it to the
-	 * shippable returning list
-	 */
-	foreach (lc, varlist)
+	if (ret_list != NIL)
 	{
-		Var *var = lfirst(lc);
+		/*
+		 * Returning lists cannot contain aggregates and
+		 * we are not supporting place holders for now
+		 */
+		varlist = pull_var_clause((Node *)ret_list, 0);
 
-		if (var->varno == rel_index)
+		/*
+		 * For every entry in the returning list if the entry belongs to the
+		 * same table as the one whose index is passed then add it to the
+		 * shippable returning list
+		 */
+		foreach (lc, varlist)
+		{
+			Var *var = lfirst(lc);
+
+			if (var->varno == rel_index)
+			{
+				if (var->varattno == SelfItemPointerAttributeNumber)
+					found_ctid = true;
+				if (var->varattno == XC_NodeIdAttributeNumber)
+					found_xcid = true;
+				shipableReturningList = add_to_flat_tlist(shipableReturningList,
+															list_make1(var));
+			}
+		}
+
+		/*
+		 * If the user query had RETURNING clause and here we find that
+		 * none of the items in the returning list are shippable
+		 * we intend to send RETURNING NULL to the datanodes
+		 * Otherwise no rows will be returned from the datanodes
+		 * and no rows will be projected to the upper nodes in the
+		 * execution tree.
+		 */
+		if ((shipableReturningList == NIL ||
+			list_length(shipableReturningList) <= 0) &&
+			list_length(ret_list) > 0)
+		{
+			Expr *null_const = (Expr *)makeNullConst(INT4OID, -1, InvalidOid);
+
 			shipableReturningList = add_to_flat_tlist(shipableReturningList,
-														list_make1(var));
+													list_make1(null_const));
+		}
 	}
 
-	/*
-	 * If the user query had RETURNING clause and here we find that
-	 * none of the items in the returning list are shippable
-	 * we intend to send RETURNING NULL to the datanodes
-	 * Otherwise no rows will be returned from the datanodes
-	 * and no rows will be projected to the upper nodes in the
-	 * execution tree.
-	 */
-	if ((shipableReturningList == NIL ||
-		list_length(shipableReturningList) <= 0) &&
-		list_length(ret_list) > 0)
+	if (need_ctid_xcid && !found_ctid)
 	{
-		Expr *null_const = (Expr *)makeNullConst(INT4OID, -1, InvalidOid);
+		var = makeVar(rel_index,
+					  SelfItemPointerAttributeNumber,
+					  TIDOID,
+					  -1,
+					  InvalidOid,
+					  0);
+		tle = makeTargetEntry((Expr *) var,
+							  list_length(shipableReturningList) + 1,
+							  pstrdup("ctid"),
+							  false);
+		shipableReturningList = lappend(shipableReturningList, tle);
+	}
 
-		shipableReturningList = add_to_flat_tlist(shipableReturningList,
-												list_make1(null_const));
+	if (need_ctid_xcid && !found_xcid)
+	{
+		var = makeVar(rel_index,
+					  XC_NodeIdAttributeNumber,
+					  INT4OID,
+					  -1,
+					  InvalidOid,
+					  0);
+		tle = makeTargetEntry((Expr *) var,
+							  list_length(shipableReturningList) + 1,
+							  pstrdup("xc_node_id"),
+							  false);
+		shipableReturningList = lappend(shipableReturningList, tle);
 	}
 
 	/*
@@ -1054,7 +1099,7 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 {
 	Query			*query_to_deparse;
 	RangeTblRef		*target_table_ref;
-	RangeTblEntry	*res_rel;
+	RangeTblEntry	*res_rte;
 	ListCell		*elt;
 	bool			ctid_found = false;
 	bool			node_id_found = false;
@@ -1117,20 +1162,20 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 		}
 	}
 
-	res_rel = rt_fetch(resultRelationIndex, query_to_deparse->rtable);
-	Assert(res_rel->rtekind == RTE_RELATION);
+	res_rte = rt_fetch(resultRelationIndex, query_to_deparse->rtable);
+	Assert(res_rte->rtekind == RTE_RELATION);
 
 	/* This RTE should appear in FROM clause of the SQL statement constructed */
-	res_rel->inFromCl = true;
+	res_rte->inFromCl = true;
 
 	query_to_deparse->jointree = makeNode(FromExpr);
 
 	can_use_pk_for_rep_change = (cmdtype == CMD_UPDATE || cmdtype == CMD_DELETE) &&
-				IsRelationReplicated(GetRelationLocInfo(res_rel->relid));
+				IsRelationReplicated(GetRelationLocInfo(res_rte->relid));
 
 	if (can_use_pk_for_rep_change)
 	{
-		index_col_count = pgxc_find_unique_index(res_rel->relid,
+		index_col_count = pgxc_find_unique_index(res_rte->relid,
 												&indexed_col_numbers);
 		if (index_col_count <= 0)
 		{
@@ -1193,13 +1238,13 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 		 * Make sure the entry in the source target list belongs to the
 		 * target table of the DML
 		 */
-		if (tle->resorigtbl != 0 && tle->resorigtbl != res_rel->relid)
+		if (tle->resorigtbl != 0 && tle->resorigtbl != res_rte->relid)
 			continue;
 
 		if (cmdtype == CMD_INSERT)
 		{
 			/* Make sure the column has not been dropped */
-			if (get_rte_attribute_is_dropped(res_rel, col_att))
+			if (get_rte_attribute_is_dropped(res_rte, col_att))
 				continue;
 
 			/*
@@ -1232,18 +1277,18 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 	 */
 	if (cmdtype == CMD_UPDATE)
 	{
-		int			natts = get_relnatts(res_rel->relid);
+		int			natts = get_relnatts(res_rte->relid);
 		int			attnum;
 
 		for (attnum = 1; attnum <= natts; attnum++)
 		{
 			/* Make sure the column has not been dropped */
-			if (get_rte_attribute_is_dropped(res_rel, attnum))
+			if (get_rte_attribute_is_dropped(res_rte, attnum))
 				continue;
 
 			pgxc_add_param_as_tle(query_to_deparse, attnum,
-								get_atttype(res_rel->relid, attnum),
-								get_attname(res_rel->relid, attnum));
+								get_atttype(res_rte->relid, attnum),
+								get_attname(res_rte->relid, attnum));
 		}
 
 		/*
@@ -1409,29 +1454,32 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 	forboth(rel, mt->resultRelations, lc_subpath, mtp->subpaths)
 	{
 		Index			resultRelationIndex = lfirst_int(rel);
-		RangeTblEntry	*res_rel;
-		RelationLocInfo	*rel_loc_info;
-		RemoteQuery		*fstep;
-		RangeTblEntry	*dummy_rte;			/* RTE for the remote query node */
-		Plan			*sourceDataPlan;	/* plan producing source data */
-		char			*relname;
+		Relation		res_rel;
+		RangeTblEntry  *res_rte;
+		RelationLocInfo*rel_loc_info;
+		RemoteQuery	   *fstep;
+		RangeTblEntry  *dummy_rte;			/* RTE for the remote query node */
+		Plan		   *sourceDataPlan;	/* plan producing source data */
+		char		   *relname;
 
 		relcount++;
 		if (have_cluster_path(lfirst(lc_subpath)))
 			continue;
 
-		res_rel = rt_fetch(resultRelationIndex, root->parse->rtable);
+		res_rte = rt_fetch(resultRelationIndex, root->parse->rtable);
 
 		/* Bad relation ? */
-		if (res_rel == NULL || res_rel->rtekind != RTE_RELATION)
+		if (res_rte == NULL || res_rte->rtekind != RTE_RELATION)
 			continue;
 
-		relname = get_rel_name(res_rel->relid);
-
-		/* Get location info of the target table */
-		rel_loc_info = GetRelationLocInfo(res_rel->relid);
+		res_rel = heap_open(res_rte->relid, NoLock);
+		relname = RelationGetRelationName(res_rel);
+		rel_loc_info = RelationGetLocInfo(res_rel);
 		if (rel_loc_info == NULL)
+		{
+			heap_close(res_rel, NoLock);
 			continue;
+		}
 
 		/* Get the plan that is supposed to supply source data to this plan */
 		sourceDataPlan = list_nth(mt->plans, relcount);
@@ -1446,14 +1494,17 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 		 * data plan.
 		 */
 		fstep->rq_params_internal = true;
-
-		fstep->is_temp = IsTempTable(res_rel->relid);
+		fstep->is_temp = RelationUsesLocalBuffers(res_rel);
 		fstep->read_only = false;
 
-		if (mt->returningLists)
+		if (mt->returningLists ||
+			(res_rel->rd_auxlist && (cmdtyp == CMD_UPDATE || cmdtyp == CMD_INSERT)))
 			pgxc_add_returning_list(fstep,
-									list_nth(mt->returningLists, relcount),
-									resultRelationIndex);
+									mt->returningLists ?
+									list_nth(mt->returningLists, relcount) :
+									NIL,
+									resultRelationIndex,
+									res_rel->rd_auxlist != NIL);
 
 		pgxc_build_dml_statement(root, cmdtyp, resultRelationIndex, fstep,
 									sourceDataPlan->targetlist);
@@ -1481,10 +1532,10 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 												 &type,
 												 accessType);
 		}
-		fstep->exec_nodes->en_relid = res_rel->relid;
+		fstep->exec_nodes->en_relid = res_rte->relid;
 
 		if (cmdtyp != CMD_DELETE)
-			fstep->exec_nodes->en_expr = pgxc_set_en_expr(res_rel->relid,
+			fstep->exec_nodes->en_expr = pgxc_set_en_expr(res_rte->relid,
 														resultRelationIndex);
 
 		dummy_rte = make_dummy_remote_rte(relname,
@@ -1493,6 +1544,7 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 		fstep->scan.scanrelid = list_length(root->parse->rtable);
 
 		mt->remote_plans = lappend(mt->remote_plans, fstep);
+		heap_close(res_rel, NoLock);
 	}
 
 	return (Plan *)mt;

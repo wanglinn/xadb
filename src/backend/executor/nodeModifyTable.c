@@ -418,6 +418,38 @@ ExecInsert(ModifyTableState *mtstate,
 				slot = saveSlot;
 			else
 			{
+				Form_pg_attribute  *atts = slot->tts_tupleDescriptor->attrs;
+				int					natts = slot->tts_tupleDescriptor->natts;
+				bool				mark_ctid = false,
+									mark_xcid = false;
+
+				/* Make sure the tuple is fully deconstructed */
+				slot_getallattrs(slot);
+
+				/* we have returning slot, try to find "ctid" and "xc_node_id" */
+				while (natts-- > 0)
+				{
+					/* mark "ctid" of tuple */
+					if (namestrcmp(&(atts[natts]->attname), "ctid") == 0 &&
+						!slot->tts_isnull[natts])
+					{
+						ItemPointerCopy(DatumGetItemPointer(slot->tts_values[natts]),
+										&(tuple->t_self));
+						mark_ctid = true;
+					} else
+					/* mark "xc_node_id" of tuple */
+					if (namestrcmp(&(atts[natts]->attname), "xc_node_id") == 0 &&
+						!slot->tts_isnull[natts])
+					{
+						tuple->t_xc_node_id = DatumGetUInt32(slot->tts_values[natts]);
+						mark_xcid = true;
+					}
+
+					/* we need all done! */
+					if (mark_ctid && mark_xcid)
+						break;
+				}
+
 				if (saveSlot)
 					ExecDropSingleTupleTableSlot(saveSlot);
 			}
