@@ -945,10 +945,10 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 	ScanKeyData key[3];
 	StringInfoData cmdstrmsg;
 	NameData masterName;
+	NameData slaveNodeName;
 	int nargs;
 	int nodePort;
 	int nmasterNum = 0;
-	int nslaveNum = 0;
 	int createFdNum = 0;
 	int i = 0;
 	char *address;
@@ -956,6 +956,7 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 	bool res = true;
 	bool bexec = false;
 	int ret = 0;
+	int pingres = PQPING_NO_RESPONSE;
 	fdCtl *fdHandle = NULL;
 	struct sockaddr_in *serv_addr = NULL;
 	handleDnGtmArg nodeArg;
@@ -1097,22 +1098,54 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 				Assert(mgr_node);
 				i++;
-				if (fdHandle[i-1].connectStatus)
-					continue;
-				nslaveNum = mgr_nodeType_Num_incluster(HeapTupleGetOid(tuple), relNode, CNDN_TYPE_DATANODE_SLAVE);
-				if (!nslaveNum)
+				if (!bnameNull)
 				{
-					ereport(WARNING, (errmsg("the datanode master \"%s\" is not running normal and has no slave"
-						, NameStr(mgr_node->nodename))));
-					bexec = false;
+					if(strcmp(NameStr(mgr_node->nodename), NameStr(masterName)) != 0)
+						continue;
 				}
 				else
+				{
+					if(fdHandle[i-1].connectStatus)
+						continue;
+					if(strcmp(NameStr(fdHandle[i-1].nodename), NameStr(mgr_node->nodename)) != 0)
+						continue;
+				}
+				pingres = mgr_get_normal_slave_node(relNode, HeapTupleGetOid(tuple)
+													, SYNC_STATE_SYNC, InvalidOid, &slaveNodeName);
+				bexec = true;
+				if (pingres != PQPING_OK)
+				{
+					if (!nodeArg.bforce)
+					{
+						bexec = false;
+						ereport(WARNING, (errmsg("the datanode master \"%s\" is not running normal and has no sync active slave node"
+						, NameStr(mgr_node->nodename))));
+					}
+					else
+					{
+						pingres = mgr_get_normal_slave_node(relNode, HeapTupleGetOid(tuple)
+													, SYNC_STATE_POTENTIAL, InvalidOid, &slaveNodeName);
+						if (pingres != PQPING_OK)
+						{
+							pingres = mgr_get_normal_slave_node(relNode, HeapTupleGetOid(tuple)
+													, SYNC_STATE_ASYNC, InvalidOid, &slaveNodeName);
+							if (pingres != PQPING_OK)
+							{
+								bexec = false;
+								ereport(WARNING, (errmsg("the datanode master \"%s\" is not running normal and has no active slave node"
+											, NameStr(mgr_node->nodename))));
+							}
+						}
+					}
+
+				}
+
+				if (bexec)
 				{
 					initStringInfo(&cmdstrmsg);
 					appendStringInfo(&cmdstrmsg, "failover datanode %s %s", NameStr(mgr_node->nodename), nodeArg.bforce ? "FORCE":"");
 					ereport(WARNING, (errmsg("the datanode master \"%s\" is not running normal and will notice ADBMGR to do \"%s\" command" 
 					, NameStr(mgr_node->nodename), cmdstrmsg.data)));
-					bexec = true;
 					/* do failover command */
 					res = DirectFunctionCall2(mgr_failover_one_dn, CStringGetDatum(NameStr(mgr_node->nodename)), BoolGetDatum(nodeArg.bforce));
 					if (!res)
@@ -1181,7 +1214,7 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 		if (bexec)
 			tupResult = build_common_command_tuple(&masterName, res,  res ? "execute failover command success" : "execute failover command fail");
 		else
-			ereport(ERROR, (errmsg("all of the datanode master which are not running normal have no slave node")));
+			ereport(ERROR, (errmsg("the datanode master which are not running normal have no %s active slave node", nodeArg.bforce ? "":"sync")));
 	}
 
 	/* record the result */
@@ -1197,7 +1230,7 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 			, (!ret) ? (bnameNull? "all datanode master in cluster are running normal" 
 				: "the datanode master in cluster is running normal") 
 				: (bexec ? (res ? "execute failover command success" : "execute failover command fail") 
-				: "all of the datanode master which are not running normal have no slave node"))));
+				: "the datanode master which are not running normal have no active slave node"))));
 
 	return HeapTupleGetDatum(tupResult);
 }
@@ -1362,12 +1395,13 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 	ScanKeyData key[3];
 	StringInfoData cmdstrmsg;
 	NameData masterName;
+	NameData slaveNodeName;
 	int nargs;
 	int nodePort;
 	int nmasterNum = 0;
-	int nslaveNum = 0;
 	int createFdNum = 0;
 	int i = 0;
+	int pingres = PQPING_NO_RESPONSE;
 	char *address;
 	bool bnameNull = false;
 	bool res = true;
@@ -1504,21 +1538,41 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 			if((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 			{
 				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-				Assert(mgr_node);;
-				nslaveNum = mgr_nodeType_Num_incluster(HeapTupleGetOid(tuple), relNode, GTM_TYPE_GTM_SLAVE);
-				if (!nslaveNum)
+				Assert(mgr_node);
+				pingres = mgr_get_normal_slave_node(relNode, HeapTupleGetOid(tuple)
+													, SYNC_STATE_SYNC, InvalidOid, &slaveNodeName);
+				bexec = true;
+				if (pingres != PQPING_OK)
 				{
-					ereport(WARNING, (errmsg("the gtm master \"%s\" is not running normal and has no slave"
-						, NameStr(mgr_node->nodename))));
-					bexec = false;
+					if (!nodeArg.bforce)
+					{
+						bexec = false;
+						ereport(WARNING, (errmsg("the gtm master \"%s\" is not running normal and has not active sync slave node"
+							, NameStr(mgr_node->nodename))));
+					}
+					else
+					{
+						pingres = mgr_get_normal_slave_node(relNode, HeapTupleGetOid(tuple)
+													, SYNC_STATE_POTENTIAL, InvalidOid, &slaveNodeName);
+						if (pingres != PQPING_OK)
+						{
+							pingres = mgr_get_normal_slave_node(relNode, HeapTupleGetOid(tuple)
+													, SYNC_STATE_ASYNC, InvalidOid, &slaveNodeName);
+							if (pingres != PQPING_OK)
+							{
+								bexec = false;
+								ereport(WARNING, (errmsg("the gtm master \"%s\" is not running normal and has not active slave node"
+														, NameStr(mgr_node->nodename))));
+							}
+						}
+					}
 				}
-				else
+				if (bexec)
 				{
 					initStringInfo(&cmdstrmsg);
 					appendStringInfo(&cmdstrmsg, "failover gtm %s %s", NameStr(mgr_node->nodename), nodeArg.bforce ? "FORCE":"");
 					ereport(WARNING, (errmsg("the gtm master \"%s\" is not running normal and will notice ADBMGR to do \"%s\" command" 
 					, NameStr(mgr_node->nodename), cmdstrmsg.data)));
-					bexec = true;
 					/* do failover command */
 					res = DirectFunctionCall2(mgr_failover_gtm, CStringGetDatum(NameStr(mgr_node->nodename)), BoolGetDatum(nodeArg.bforce));
 					if (!res)
@@ -1565,7 +1619,7 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 		if (bexec)
 			tupResult = build_common_command_tuple(&masterName, res,  res ? "execute failover command success" : "execute failover command fail");
 		else
-			ereport(ERROR, (errmsg("the gtm master which is not running normal has no slave node")));
+			ereport(ERROR, (errmsg("the gtm master which is not running normal has no %s active slave node", nodeArg.bforce ? "":"sync")));
 	}
 
 	/* record the result */
@@ -1580,7 +1634,7 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 			, (!ret) ? "true" : (bexec ? (res ? "true":"false") : "false")
 			, (!ret) ? "the gtm master in cluster is running normal" : 
 				(bexec ? (res ? "execute failover command success" : "execute failover command fail") 
-				: "the gtm master which is not running normal has no slave node"))));
+				: "the gtm master which is not running normal has no active slave node"))));
 	return HeapTupleGetDatum(tupResult);
 }
 
