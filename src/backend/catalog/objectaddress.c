@@ -3497,7 +3497,7 @@ getRelationDescription(StringInfo buffer, Oid relid)
 	relname = quote_qualified_identifier(nspname, NameStr(relForm->relname));
 
 #ifdef ADB
-	if (IsAuxRelation(relid))
+	if (RelationIdIsAuxiliary(relid))
 	{
 		Assert(relForm->relkind == RELKIND_RELATION);
 		appendStringInfoString(buffer, "auxiliary ");
@@ -3995,7 +3995,7 @@ getRelationTypeDescription(StringInfo buffer, Oid relid, int32 objectSubId)
 	relForm = (Form_pg_class) GETSTRUCT(relTup);
 
 #ifdef ADB
-	if (IsAuxRelation(relid))
+	if (RelationIdIsAuxiliary(relid))
 	{
 		Assert(relForm->relkind == RELKIND_RELATION);
 		appendStringInfoString(buffer, "auxiliary ");

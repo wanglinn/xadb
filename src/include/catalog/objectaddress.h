@@ -31,7 +31,7 @@ typedef struct ObjectAddress
 extern const ObjectAddress InvalidObjectAddress;
 
 #ifdef ADB
-#define ObjectAddressIsInValid(addr) \
+#define ObjectAddressIsInvalid(addr) \
 	((addr).classId == InvalidOid && \
 	 (addr).objectId == InvalidOid && \
 	 (addr).objectSubId == 0)
