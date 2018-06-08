@@ -2696,6 +2696,13 @@ _equalRangeTblEntry(const RangeTblEntry *a, const RangeTblEntry *b)
 	COMPARE_NODE_FIELD(colcollations);
 	COMPARE_STRING_FIELD(enrname);
 	COMPARE_SCALAR_FIELD(enrtuples);
+#ifdef ADB
+	COMPARE_SCALAR_FIELD(param_new);
+	COMPARE_SCALAR_FIELD(param_old);
+	COMPARE_BITMAPSET_FIELD(mt_result);
+	COMPARE_NODE_FIELD(execNodes);
+	COMPARE_SCALAR_FIELD(rows);
+#endif /* ADB */
 	COMPARE_NODE_FIELD(alias);
 	COMPARE_NODE_FIELD(eref);
 	COMPARE_SCALAR_FIELD(lateral);

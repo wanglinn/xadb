@@ -65,6 +65,7 @@
 #include "executor/nodeClusterMergeGather.h"
 #include "executor/nodeClusterReduce.h"
 #include "executor/nodeEmptyResult.h"
+#include "executor/nodeParamTuplestoreScan.h"
 #include "executor/nodeReduceScan.h"
 #endif
 
@@ -253,6 +254,10 @@ ExecReScan(PlanState *node)
 
 		case T_EmptyResultState:
 			ExecReScanEmptyResult((EmptyResultState *) node);
+			break;
+
+		case T_ParamTuplestoreScanState:
+			ExecReScanParamTuplestoreScan((ParamTuplestoreScanState*) node);
 			break;
 #endif
 
@@ -644,6 +649,9 @@ ExecMaterializesOutput(NodeTag plantype)
 		case T_NamedTuplestoreScan:
 		case T_WorkTableScan:
 		case T_Sort:
+#ifdef ADB
+		case T_ParamTuplestoreScan:
+#endif /* ADB */
 			return true;
 
 		default:
