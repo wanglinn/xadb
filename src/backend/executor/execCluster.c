@@ -629,6 +629,8 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 	case T_BitmapIndexScan:
 		LOAD_SCAN_REL_INFO(BitmapIndexScan, indexid);
 		break;
+#if 0
+	/* in cte and subquery we can not get right Relation yet, so disable it for now */
 	case T_Var:
 		if (!IS_SPECIAL_VARNO(((Var*)node)->varno)
 			&& ((Var*)node)->varattno > 0)
@@ -656,6 +658,7 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 			}
 		}
 		break;
+#endif
 	default:
 		break;
 	}
