@@ -1575,7 +1575,6 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 #endif /* END ADB */
 }
 
-
 /*
  * matchLocks -
  *	  match the list of locks and returns the matching rules
