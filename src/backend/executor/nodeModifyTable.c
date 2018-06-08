@@ -680,12 +680,9 @@ ExecDelete(ItemPointer tupleid,
 		   TupleTableSlot *planSlot,
 		   EPQState *epqstate,
 		   EState *estate,
-#ifndef ADB
-		   bool canSetTag)
-#else
-		   bool canSetTag,
-		   TupleTableSlot *pslot)
-#endif
+		   bool canSetTag
+		   ADB_ONLY_COMMA_ARG(TupleTableSlot *pslot)
+		   ADB_ONLY_COMMA_ARG(ExprContext *aux_econtext))
 {
 	ResultRelInfo *resultRelInfo;
 	Relation	resultRelationDesc;
@@ -895,6 +892,24 @@ ldelete:;
 	}
 #endif
 
+#ifdef ADB
+	if (resultRelInfo->ri_projectTuplestore)
+	{
+		ExprContext *econtext = aux_econtext;
+		TupleTableSlot *tts_ts;
+
+		Assert(econtext != NULL);
+
+		/* old tuple */
+		econtext->ecxt_scantuple = resultRelInfo->ri_ttsScan;
+		ExecStoreTuple(oldtuple, econtext->ecxt_scantuple, InvalidBuffer, false);
+		econtext->ecxt_outertuple = resultRelInfo->ri_ttsTuplestore;
+		tts_ts = ExecProject(resultRelInfo->ri_projectTuplestore, NULL);
+		Assert(!TupIsNull(tts_ts));
+		tuplestore_puttupleslot(resultRelInfo->ts_old, tts_ts);
+	}
+#endif /* ADB */
+
 	/* AFTER ROW DELETE Triggers */
 	ExecARDeleteTriggers(estate, resultRelInfo, tupleid, oldtuple);
 
@@ -993,7 +1008,8 @@ ExecUpdate(ItemPointer tupleid,
 		   TupleTableSlot *planSlot,
 		   EPQState *epqstate,
 		   EState *estate,
-		   bool canSetTag)
+		   bool canSetTag
+		   ADB_ONLY_COMMA_ARG(ExprContext *aux_econtext))
 {
 	HeapTuple	tuple;
 	ResultRelInfo *resultRelInfo;
@@ -1138,6 +1154,38 @@ lreplace:;
 				slot = saveSlot;
 			else
 			{
+				Form_pg_attribute  *atts = slot->tts_tupleDescriptor->attrs;
+				int					natts = slot->tts_tupleDescriptor->natts;
+				bool				mark_ctid = false,
+									mark_xcid = false;
+
+				/* Make sure the tuple is fully deconstructed */
+				slot_getallattrs(slot);
+
+				/* we have returning slot, try to find "ctid" and "xc_node_id" */
+				while (natts-- > 0)
+				{
+					/* mark "ctid" of tuple */
+					if (namestrcmp(&(atts[natts]->attname), "ctid") == 0 &&
+						!slot->tts_isnull[natts])
+					{
+						ItemPointerCopy(DatumGetItemPointer(slot->tts_values[natts]),
+										&(tuple->t_self));
+						mark_ctid = true;
+					} else
+					/* mark "xc_node_id" of tuple */
+					if (namestrcmp(&(atts[natts]->attname), "xc_node_id") == 0 &&
+						!slot->tts_isnull[natts])
+					{
+						tuple->t_xc_node_id = DatumGetUInt32(slot->tts_values[natts]);
+						mark_xcid = true;
+					}
+
+					/* we need all done! */
+					if (mark_ctid && mark_xcid)
+						break;
+				}
+
 				if (saveSlot)
 					ExecDropSingleTupleTableSlot(saveSlot);
 			}
@@ -1267,6 +1315,34 @@ lreplace:;
 #ifdef ADB
 	}
 #endif
+
+#ifdef ADB
+	if (resultRelInfo->ri_projectTuplestore)
+	{
+		ExprContext *econtext = aux_econtext;
+		TupleTableSlot *tts_ts;
+
+		Assert(econtext != NULL);
+		econtext->ecxt_scantuple = resultRelInfo->ri_ttsScan;
+		econtext->ecxt_outertuple = resultRelInfo->ri_ttsTuplestore;
+
+		/* old tuple */
+		ExecStoreTuple(oldtuple, econtext->ecxt_scantuple, InvalidBuffer, false);
+		tts_ts = ExecProject(resultRelInfo->ri_projectTuplestore, NULL);
+		Assert(!TupIsNull(tts_ts));
+		tuplestore_puttupleslot(resultRelInfo->ts_old, tts_ts);
+
+		/* clear */
+		econtext->ecxt_scantuple = ExecClearTuple(econtext->ecxt_scantuple);
+		tts_ts = ExecClearTuple(tts_ts);
+
+		/* new tuple */
+		ExecStoreTuple(tuple, econtext->ecxt_scantuple, InvalidBuffer, false);
+		tts_ts = ExecProject(resultRelInfo->ri_projectTuplestore, NULL);
+		Assert(!TupIsNull(tts_ts));
+		tuplestore_puttupleslot(resultRelInfo->ts_new, tts_ts);
+	}
+#endif /* ADB */
 
 	/* AFTER ROW UPDATE Triggers */
 	ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldtuple, tuple,
@@ -1488,7 +1564,8 @@ ExecOnConflictUpdate(ModifyTableState *mtstate,
 	*returning = ExecUpdate(&tuple.t_self, NULL,
 							mtstate->mt_conflproj, planSlot,
 							&mtstate->mt_epqstate, mtstate->ps.state,
-							canSetTag);
+							canSetTag
+							ADB_ONLY_COMMA_ARG(mtstate->ps.ps_ExprContext));
 
 	ReleaseBuffer(buffer);
 	return true;
@@ -1563,11 +1640,6 @@ ExecModifyTable(ModifyTableState *node)
 	ResultRelInfo *saved_resultRelInfo;
 	ResultRelInfo *resultRelInfo;
 	PlanState  *subplanstate;
-#ifdef ADB
-	PlanState  *remoterelstate;
-	PlanState  *saved_resultRemoteRel;
-	RemoteQuery*step = NULL;
-#endif
 	JunkFilter *junkfilter;
 	TupleTableSlot *slot;
 	TupleTableSlot *planSlot;
@@ -1575,6 +1647,12 @@ ExecModifyTable(ModifyTableState *node)
 	ItemPointerData tuple_ctid;
 	HeapTupleData oldtupdata;
 	HeapTuple	oldtuple;
+#ifdef ADB
+	PlanState  *remoterelstate;
+	PlanState  *saved_resultRemoteRel;
+	RemoteQuery*step = NULL;
+	uint32		oldtupxcid = 0;
+#endif
 
 	/*
 	 * This should NOT get called during EvalPlanQual; we should have passed a
@@ -1728,16 +1806,34 @@ ExecModifyTable(ModifyTableState *node)
 
 #ifdef ADB
 					/* If available, also extract the OLD row */
-					if (IsCnNode() &&
-						RelationGetLocInfo(resultRelInfo->ri_RelationDesc) &&
-						junkfilter->jf_xc_wholerow != InvalidAttrNumber)
+					if (IsCnNode() && RelationGetLocInfo(resultRelInfo->ri_RelationDesc))
 					{
-						datum = ExecGetJunkAttribute(slot,
-													junkfilter->jf_xc_wholerow,
-													&isNull);
-
-						if (!isNull)
+						/*
+						 * extract the 'xc_node_id' junk attribute.
+						 */
+						if (AttributeNumberIsValid(junkfilter->jf_xc_node_id))
 						{
+							datum = ExecGetJunkAttribute(slot,
+														 junkfilter->jf_xc_node_id,
+														 &isNull);
+							/* shouldn't ever get a null result... */
+							if (isNull)
+								elog(ERROR, "xc_node_id is NULL");
+							oldtupxcid = DatumGetUInt32(datum);
+						}
+
+						/*
+						 * extract the 'wholerow' junk attribute.
+						 */
+						if (AttributeNumberIsValid(junkfilter->jf_xc_wholerow))
+						{
+							datum = ExecGetJunkAttribute(slot,
+														junkfilter->jf_xc_wholerow,
+														&isNull);
+							/* shouldn't ever get a null result... */
+							if (isNull)
+								elog(ERROR, "wholerow is NULL");
+
 							oldtupdata.t_data = DatumGetHeapTupleHeader(datum);
 							oldtupdata.t_len =
 								HeapTupleHeaderGetDatumLength(oldtupdata.t_data);
@@ -1748,6 +1844,10 @@ ExecModifyTable(ModifyTableState *node)
 								RelationGetRelid(resultRelInfo->ri_RelationDesc);
 
 							oldtuple = &oldtupdata;
+
+							/* mark 'ctid' and 'xc_node_id' for old tuple */
+							ItemPointerCopy(tupleid, &(oldtuple->t_self));
+							oldtuple->t_xc_node_id = oldtupxcid;
 						}
 					}
 #endif
@@ -1817,15 +1917,14 @@ ExecModifyTable(ModifyTableState *node)
 				break;
 			case CMD_UPDATE:
 				slot = ExecUpdate(tupleid, oldtuple, slot, planSlot,
-								&node->mt_epqstate, estate, node->canSetTag);
+								&node->mt_epqstate, estate, node->canSetTag
+								ADB_ONLY_COMMA_ARG(node->ps.ps_ExprContext));
 				break;
 			case CMD_DELETE:
 				slot = ExecDelete(tupleid, oldtuple, planSlot,
-#ifdef ADB
-								  &node->mt_epqstate, estate, node->canSetTag, slot);
-#else
-								  &node->mt_epqstate, estate, node->canSetTag);
-#endif
+								  &node->mt_epqstate, estate, node->canSetTag
+								  ADB_ONLY_COMMA_ARG(slot)
+								  ADB_ONLY_COMMA_ARG(node->ps.ps_ExprContext));
 				break;
 			default:
 				elog(ERROR, "unknown operation");
