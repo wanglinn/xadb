@@ -423,6 +423,10 @@ standard_ExecutorFinish(QueryDesc *queryDesc)
 	/* Run ModifyTable nodes to completion */
 	ExecPostprocessPlan(estate);
 
+#ifdef ADB
+	ExecFinishNode(queryDesc->planstate);
+#endif /* ADB */
+
 	/* Execute queued AFTER triggers, unless told not to */
 	if (!(estate->es_top_eflags & EXEC_FLAG_SKIP_TRIGGERS))
 		AfterTriggerEndQuery(estate);

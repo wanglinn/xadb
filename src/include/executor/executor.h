@@ -232,6 +232,9 @@ extern TupleTableSlot *ExecProcNode(PlanState *node);
 extern Node *MultiExecProcNode(PlanState *node);
 extern void ExecEndNode(PlanState *node);
 extern bool ExecShutdownNode(PlanState *node);
+#ifdef ADB
+extern bool ExecFinishNode(PlanState *node);
+#endif /* ADB */
 
 /*
  * prototypes from functions in execQual.c

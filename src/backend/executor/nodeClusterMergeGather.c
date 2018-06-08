@@ -23,6 +23,7 @@ typedef struct CMGHookContext
 static int cmg_heap_compare_slots(Datum a, Datum b, void *arg);
 static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot, ClusterMergeGatherState *ps);
 static bool cmg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
+static bool cmg_pqexec_normal_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 
 ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, EState *estate, int eflags)
 {
@@ -154,7 +155,7 @@ re_get_:
 	return result;
 }
 
-void ExecEndClusterMergeGather(ClusterMergeGatherState *node)
+void ExecFinishClusterMergeGather(ClusterMergeGatherState *node)
 {
 	List *list;
 	int i;
@@ -165,7 +166,6 @@ void ExecEndClusterMergeGather(ClusterMergeGatherState *node)
 		if(conn != NULL && PQisCopyInState(conn))
 			PQputCopyEnd(conn, NULL);
 	}
-	ExecEndNode(outerPlanState(node));
 
 	list = NIL;
 	for(i=0;i<node->nremote;++i)
@@ -178,11 +178,18 @@ void ExecEndClusterMergeGather(ClusterMergeGatherState *node)
 			list = lappend(list, node->conns[i]);
 		}
 	}
+
 	if(list != NIL)
 	{
-		PQNListExecFinish(list, NULL, PQNEFHNormal, NULL, true);
+		node->recv_state->base_slot = node->ps.ps_ResultTupleSlot;
+		PQNListExecFinish(list, NULL, cmg_pqexec_normal_hook, node, true);
 		list_free(list);
 	}
+}
+
+void ExecEndClusterMergeGather(ClusterMergeGatherState *node)
+{
+	ExecEndNode(outerPlanState(node));
 	freeClusterRecvState(node->recv_state);
 }
 
@@ -258,6 +265,11 @@ bool cmg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType
 		buf = va_arg(args, const char*);
 		len = va_arg(args, int);
 		cmcontext->state->base_slot = cmcontext->slot;
+		if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+		{
+			va_end(args);
+			return true;
+		}
 		if(clusterRecvTupleEx(cmcontext->state, buf, len, conn))
 		{
 			va_end(args);
@@ -289,4 +301,25 @@ bool cmg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType
 		break;
 	}
 	return false;
+}
+
+static bool cmg_pqexec_normal_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
+{
+	ClusterMergeGatherState *cmgs;
+	va_list args;
+	const char *buf;
+	int len;
+
+	if (type == PQNHFT_COPY_OUT_DATA)
+	{
+		cmgs = context;
+		va_start(args, type);
+		buf = va_arg(args, const char*);
+		len = va_arg(args, int);
+		clusterRecvTupleEx(cmgs->recv_state, buf, len, conn);
+		return false;
+	}else
+	{
+		return PQNEFHNormal(NULL, conn, type);
+	}
 }

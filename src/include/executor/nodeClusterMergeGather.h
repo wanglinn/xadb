@@ -6,6 +6,7 @@
 
 extern ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, EState *estate, int eflags);
 extern TupleTableSlot *ExecClusterMergeGather(ClusterMergeGatherState *node);
+extern void ExecFinishClusterMergeGather(ClusterMergeGatherState *node);
 extern void ExecEndClusterMergeGather(ClusterMergeGatherState *node);
 extern void ExecReScanClusterMergeGather(ClusterMergeGatherState *node);
 

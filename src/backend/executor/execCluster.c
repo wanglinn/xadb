@@ -154,6 +154,11 @@ void exec_cluster_plan(const void *splan, int length)
 
 	/* run plan */
 	ExecutorRun(query_desc, ForwardScanDirection, 0L);
+	resetStringInfo(&msg);
+	appendStringInfoChar(&msg, CLUSTER_MSG_EXECUTOR_RUN_END);
+	pq_putmessage('d', msg.data, msg.len);
+	pq_flush();
+
 	/* and finish */
 	ExecutorFinish(query_desc);
 
