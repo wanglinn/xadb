@@ -11,6 +11,7 @@
 #define CLUSTER_MSG_INSTRUMENT		'I'
 #define CLUSTER_MSG_PROCESSED		'P'
 #define CLUSTER_MSG_RDC_PORT		'p'
+#define CLUSTER_MSG_EXECUTOR_RUN_END	'M'
 
 struct pg_conn;
 
@@ -46,4 +47,3 @@ extern TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTable
 extern void serialize_processed_message(StringInfo buf, uint64 processed);
 
 #endif /* CLUSTER_RECEIVER_H */
-

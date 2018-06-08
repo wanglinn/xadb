@@ -14,5 +14,6 @@
 ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, int flags);
 extern void ExecEndClusterGather(ClusterGatherState *node);
 extern void ExecReScanClusterGather(ClusterGatherState *node);
+extern void ExecFinishClusterGather(ClusterGatherState *node);
 
 #endif /* NODECLUSTERGATHER_H */

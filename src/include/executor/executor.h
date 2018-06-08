@@ -237,6 +237,9 @@ extern PlanState *ExecInitNode(Plan *node, EState *estate, int eflags);
 extern Node *MultiExecProcNode(PlanState *node);
 extern void ExecEndNode(PlanState *node);
 extern bool ExecShutdownNode(PlanState *node);
+#ifdef ADB
+extern bool ExecFinishNode(PlanState *node);
+#endif /* ADB */
 
 
 /* ----------------------------------------------------------------
