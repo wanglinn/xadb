@@ -961,3 +961,27 @@ ExecShutdownNode(PlanState *node)
 
 	return planstate_tree_walker(node, ExecShutdownNode, NULL);
 }
+
+#ifdef ADB
+bool ExecFinishNode(PlanState *node)
+{
+	if (node == NULL)
+		return false;
+
+	planstate_tree_walker(node, ExecFinishNode, NULL);
+
+	switch (nodeTag(node))
+	{
+	case T_ClusterGatherState:
+		ExecFinishClusterGather((ClusterGatherState*) node);
+		break;
+	case T_ClusterMergeGatherState:
+		ExecFinishClusterMergeGather((ClusterMergeGatherState*) node);
+		break;
+	default:
+		break;
+	}
+
+	return false;
+}
+#endif /* ADB */

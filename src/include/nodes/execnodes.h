@@ -2147,7 +2147,9 @@ typedef struct LimitState
 typedef struct ClusterGatherState
 {
 	PlanState	ps;
-	List	   *remotes;
+	List	   *remote_running;		/* remote not end of ExecutorRun function */
+	List	   *remote_run_end;		/* remote end of ExecutorRun function */
+	struct pg_conn *last_run_end;	/* last end of of ExecutorRun function */
 	struct ClusterRecvState *recv_state;
 	bool		local_end;	/* local plan is end of tup */
 }ClusterGatherState;

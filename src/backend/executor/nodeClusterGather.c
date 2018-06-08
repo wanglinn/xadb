@@ -15,6 +15,7 @@
 #include "libpq/libpq-fe.h"
 #include "libpq/libpq-node.h"
 #include "miscadmin.h"
+#include "utils/memutils.h"
 
 static bool cg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 
@@ -40,7 +41,7 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 	outerPlanState(gatherstate) = ExecStartClusterPlan(outerPlan(node)
 		, estate, flags, node->rnodes);
 	if((flags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
-		gatherstate->remotes = GetPGconnAttatchCurrentInterXact(node->rnodes);
+		gatherstate->remote_running = GetPGconnAttatchCurrentInterXact(node->rnodes);
 
 	gatherstate->recv_state = createClusterRecvState((PlanState*)gatherstate, false);
 
@@ -56,12 +57,22 @@ TupleTableSlot *ExecClusterGather(ClusterGatherState *node)
 
 	gatherType = ((ClusterGather*)node->ps.plan)->gatherType;
 	blocking = false;	/* first time try nonblocking */
-	while(node->remotes != NIL || node->local_end == false)
+	while(node->remote_running != NIL || node->local_end == false)
 	{
 		/* first try get remote data */
-		if(node->remotes != NIL
-			&& PQNListExecFinish(node->remotes, NULL, cg_pqexec_finish_hook, node, blocking))
+		node->last_run_end = NULL;
+		if(node->remote_running != NIL
+			&& PQNListExecFinish(node->remote_running, NULL, cg_pqexec_finish_hook, node, blocking))
 		{
+			if (node->last_run_end)
+			{
+				MemoryContext context = GetMemoryChunkContext(node);
+				MemoryContext oldcontext = MemoryContextSwitchTo(context);
+				node->remote_running = list_delete_ptr(node->remote_running, node->last_run_end);
+				node->remote_run_end = lappend(node->remote_run_end , node->last_run_end);
+				MemoryContextSwitchTo(oldcontext);
+				continue;
+			}
 			if((gatherType & CLUSTER_GATHER_DATANODE) == 0)
 			{
 				ExecClearTuple(node->ps.ps_ResultTupleSlot);
@@ -84,23 +95,49 @@ TupleTableSlot *ExecClusterGather(ClusterGatherState *node)
 		blocking = true;
 	}
 
-	return node->ps.ps_ResultTupleSlot;
+	/* when run here, no more tuple */
+
+	return ExecClearTuple(node->ps.ps_ResultTupleSlot);
+}
+
+void ExecFinishClusterGather(ClusterGatherState *node)
+{
+	if (node->remote_run_end)
+	{
+		ListCell *lc;
+		PGconn *conn;
+		MemoryContext oldcontext = CurrentMemoryContext;
+		MemoryContext context = GetMemoryChunkContext(node);
+
+		foreach(lc, node->remote_running)
+		{
+			conn = lfirst(lc);
+			if(PQisCopyInState(conn))
+				PQputCopyEnd(conn, NULL);
+		}
+
+		while(node->remote_running != NIL)
+		{
+			node->last_run_end = NULL;
+			ResetPerTupleExprContext(node->ps.state);
+			PQNListExecFinish(node->remote_running, NULL, cg_pqexec_finish_hook, node, true);
+			if (node->last_run_end)
+			{
+				MemoryContextSwitchTo(context);
+				node->remote_running = list_delete_ptr(node->remote_running, node->last_run_end);
+				node->remote_run_end = lappend(node->remote_run_end, node->last_run_end);
+				MemoryContextSwitchTo(oldcontext);
+			}
+		}
+	}
+
+	PQNListExecFinish(node->remote_run_end, NULL, cg_pqexec_finish_hook, node, true);
 }
 
 void ExecEndClusterGather(ClusterGatherState *node)
 {
-	ListCell *lc;
-	PGconn *conn;
-	foreach(lc, node->remotes)
-	{
-		conn = lfirst(lc);
-		if(PQisCopyInState(conn))
-			PQputCopyEnd(conn, NULL);
-	}
-	ExecEndNode(outerPlanState(node));
-	if(node->remotes != NIL)
-		PQNListExecFinish(node->remotes, NULL, PQNEFHNormal, NULL, true);
 	freeClusterRecvState(node->recv_state);
+	ExecEndNode(outerPlanState(node));
 }
 
 void ExecReScanClusterGather(ClusterGatherState *node)
@@ -123,7 +160,12 @@ static bool cg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFu
 			buf = va_arg(args, const char*);
 			len = va_arg(args, int);
 			cgs = context;
-			if(cgs->recv_state)
+			if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+			{
+				cgs->last_run_end = conn;
+				va_end(args);
+				return true;
+			}else if(cgs->recv_state)
 			{
 				if(clusterRecvTupleEx(cgs->recv_state, buf, len, conn))
 				{

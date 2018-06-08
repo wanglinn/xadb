@@ -105,6 +105,9 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 			ps->state->es_processed += processed;
 		}
 		return false;
+	}else if (*msg == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		return false;
 	}else
 	{
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
@@ -173,6 +176,8 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					errmsg("con not parse convert tuple")));
 		}
+		break;
+	case CLUSTER_MSG_EXECUTOR_RUN_END:
 		break;
 	default:
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
