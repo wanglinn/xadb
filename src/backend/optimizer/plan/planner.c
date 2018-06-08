@@ -2449,13 +2449,6 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 					{
 						path = reduce_path;
 					}
-				}else if (have_cluster_reduce_path(path))
-				{
-					/*
-					   when subpath include reduce, maybe update or delete wrong rows
-					   because ctid column maybe not from modify node
-					 */
-					continue;
 				}else if (have_special_path_args(path, T_MergePath, T_HashPath, T_NestPath, T_Invalid))
 				{
 					/*
