@@ -44,6 +44,7 @@
 #include "commands/defrem.h"
 #include "nodes/nodes.h"
 #include "optimizer/planner.h"
+#include "optimizer/tlist.h"
 #include "optimizer/var.h"
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
@@ -1347,7 +1348,7 @@ pull_qual_vars_walker(Node *node, pull_qual_vars_context *context)
 		 * from the same query.
 		 */
 		if (var->varno == context->resultRelation &&
-		    var->varlevelsup == context->sublevels_up)
+			var->varlevelsup == context->sublevels_up)
 		{
 			Var *newvar = palloc(sizeof(Var));
 			*newvar = *var;
@@ -1394,13 +1395,14 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 	Var		   *var = NULL;
 	const char *attrname;
 	TargetEntry *tle;
-
 #ifdef ADB
 	List *var_list = NIL;
 	ListCell *elt;
 	bool can_use_pk_for_rep_change = false;
 	int16 *indexed_col_numbers = NULL;
 	int index_col_count = 0;
+	Form_pg_attribute att_tup;
+	int numattrs = RelationGetNumberOfAttributes(target_relation);
 
 	/*
 	 * In Postgres-XC, we need to evaluate quals of the parse tree and determine
@@ -1418,14 +1420,14 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 
 	foreach(elt, var_list)
 	{
-		Form_pg_attribute att_tup;
-		int numattrs = RelationGetNumberOfAttributes(target_relation);
-
 		var = (Var *) lfirst(elt);
 		/* Bypass in case of extra target items like ctid */
 		if (var->varattno < 1 || var->varattno > numattrs)
 			continue;
 
+		/* do not add twice */
+		if (tlist_member((Expr *) var, parsetree->targetList))
+			continue;
 
 		att_tup = target_relation->rd_att->attrs[var->varattno - 1];
 		tle = makeTargetEntry((Expr *) var,
@@ -1618,9 +1620,10 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 			parsetree->targetList = lappend(parsetree->targetList, tle);
 		}
 
-		/* For non-shippable triggers, we need OLD row. */
-		if (pgxc_trig_oldrow_reqd(target_relation,
-								  parsetree->commandType))
+		/* For non-shippable triggers or auxiliary-has relation, we need OLD row. */
+		if (pgxc_trig_oldrow_reqd(target_relation, parsetree->commandType) ||
+			(target_relation->rd_auxlist && (parsetree->commandType == CMD_UPDATE ||
+											 parsetree->commandType == CMD_DELETE)))
 		{
 			var = makeWholeRowVar(target_rte,
 								  parsetree->resultRelation,

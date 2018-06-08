@@ -375,6 +375,15 @@ expand_targetlist(List *tlist, int command_type,
 
 		if (!old_tle->resjunk)
 			elog(ERROR, "targetlist is not sorted correctly");
+
+#ifdef ADB
+		/* do not add twice */
+		if (tlist_member(old_tle->expr, new_tlist))
+		{
+			tlist_item = lnext(tlist_item);
+			continue;
+		}
+#endif
 		/* Get the resno right, but don't copy unnecessarily */
 		if (old_tle->resno != attrno)
 		{
