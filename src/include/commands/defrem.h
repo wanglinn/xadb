@@ -160,11 +160,21 @@ extern void InsertAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum);
 extern void RemoveAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum);
 extern Oid LookupAuxRelation(Oid relid, AttrNumber attnum);
 extern Oid LookupAuxMasterRel(Oid auxrelid, AttrNumber *attnum);
-extern bool IsAuxRelation(Oid auxrelid);
+extern bool RelationIdGetAuxAttnum(Oid auxrelid, AttrNumber *attnum);
 extern bool HasAuxRelation(Oid relid);
 extern List *QueryRewriteAuxStmt(Query *auxquery);
 extern void RelationBuildAuxiliary(Relation rel);
 extern Bitmapset *MakeAuxMainRelResultAttnos(Relation rel);
+
+#define RelationIdIsAuxiliary(relid) \
+	RelationIdGetAuxAttnum(relid, NULL)
+
+#define RelationIsAuxiliary(relation) \
+	RelationIdGetAuxAttnum(RelationGetRelid(relation), NULL)
+
+#define RelationGetAuxAttnum(relation, auxattnum) \
+	RelationIdGetAuxAttnum(RelationGetRelid(relation), (auxattnum))
+
 #endif
 
 #endif   /* DEFREM_H */

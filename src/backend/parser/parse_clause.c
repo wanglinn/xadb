@@ -202,15 +202,12 @@ setTargetTable(ParseState *pstate, RangeVar *relation,
 	/*
 	 * check for INSERT/UPDATE/DELETE on the auxiliary table.
 	 */
-	do {
-		Oid auxrelid = RelationGetRelid(pstate->p_target_relation);
-
-		if (IsConnFromApp() && !enable_aux_dml && IsAuxRelation(auxrelid))
-			ereport(ERROR,
-					(errmsg("It is not allowed to INSERT/UPDATE/DELETE on the auxiliary table"),
-					 errhint("The INSERT/UPDATE/DELETE of the auxiliary table can only be operated "
-					 		 "passively according to its main table")));
-	} while(0);
+	if (IsConnFromApp() && !enable_aux_dml &&
+		RelationIsAuxiliary(pstate->p_target_relation))
+		ereport(ERROR,
+				(errmsg("It is not allowed to INSERT/UPDATE/DELETE on the auxiliary table"),
+				 errhint("The INSERT/UPDATE/DELETE of the auxiliary table can only be operated "
+				 		 "passively according to its main table")));
 #endif
 
 	/*

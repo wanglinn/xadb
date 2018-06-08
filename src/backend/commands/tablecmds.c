@@ -996,7 +996,7 @@ RemoveRelations(DropStmt *drop)
 		}
 #ifdef ADB
 		/* Cannot use DROP TABLE ... to drop auxiliary table */
-		if (OidIsValid(relOid) && IsAuxRelation(relOid))
+		if (OidIsValid(relOid) && RelationIdIsAuxiliary(relOid))
 		{
 			if (!drop->auxiliary)
 				ereport(ERROR,
@@ -1473,7 +1473,7 @@ truncate_check_rel(Relation rel)
 	/*
 	 * check for TRUNCATE on the auxiliary table.
 	 */
-	if (IsConnFromApp() && !enable_aux_dml && IsAuxRelation(RelationGetRelid(rel)))
+	if (IsConnFromApp() && !enable_aux_dml && RelationIsAuxiliary(rel))
 		ereport(ERROR,
 				(errmsg("It is not allowed to TRUNCATE on the auxiliary table"),
 				 errhint("You only can DROP AUXILIARY TABLE on the auxiliary table")));

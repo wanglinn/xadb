@@ -2380,7 +2380,7 @@ ProcessUtilitySlow(Node *parsetree,
 				/* Send CREATE MATERIALIZED VIEW command to all coordinators. */
 				/* see pg_rewrite_query */
 				Assert(((CreateTableAsStmt *) parsetree)->relkind == OBJECT_MATVIEW);
-				if (!ObjectAddressIsInValid(address))
+				if (!ObjectAddressIsInvalid(address))
 				{
 					if (!((CreateTableAsStmt *) parsetree)->into->skipData && !IsConnFromCoord())
 						pgxc_send_matview_data(((CreateTableAsStmt *) parsetree)->into->rel,

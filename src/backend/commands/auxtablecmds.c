@@ -145,26 +145,23 @@ LookupAuxMasterRel(Oid auxrelid, AttrNumber *attnum)
 	Form_pg_aux_class		auxtup;
 	Oid						master_relid;
 
+	if (attnum)
+		*attnum = InvalidAttrNumber;
+
 	if (!OidIsValid(auxrelid))
-	{
-		if (attnum)
-			*attnum = InvalidAttrNumber;
 		return InvalidOid;
-	}
 
 	tuple = SearchSysCache1(AUXCLASSIDENT,
 							ObjectIdGetDatum(auxrelid));
 	if (!HeapTupleIsValid(tuple))
-	{
-		if (attnum)
-			*attnum = InvalidAttrNumber;
 		return InvalidOid;
-	}
 
 	auxtup = (Form_pg_aux_class) GETSTRUCT(tuple);
 	master_relid = auxtup->relid;
 	if (attnum)
 		*attnum = auxtup->attnum;
+
+	Assert(AttributeNumberIsValid(auxtup->attnum));
 
 	ReleaseSysCache(tuple);
 
@@ -172,14 +169,19 @@ LookupAuxMasterRel(Oid auxrelid, AttrNumber *attnum)
 }
 
 /*
- * IsAuxRelation
+ * RelationIdGetAuxAttnum
  *
- * is it an auxiliary relation?
+ * is it an auxiliary relation? retrun auxiliary attribute
+ * number if true.
  */
 bool
-IsAuxRelation(Oid auxrelid)
+RelationIdGetAuxAttnum(Oid auxrelid, AttrNumber *attnum)
 {
-	HeapTuple				tuple;
+	HeapTuple			tuple;
+	Form_pg_aux_class	auxtup;
+
+	if (attnum)
+		*attnum = InvalidAttrNumber;
 
 	if (!OidIsValid(auxrelid))
 		return false;
@@ -188,6 +190,12 @@ IsAuxRelation(Oid auxrelid)
 							ObjectIdGetDatum(auxrelid));
 	if (!HeapTupleIsValid(tuple))
 		return false;
+
+	auxtup = (Form_pg_aux_class) GETSTRUCT(tuple);
+	if (attnum)
+		*attnum = auxtup->attnum;
+
+	Assert(AttributeNumberIsValid(auxtup->attnum));
 
 	ReleaseSysCache(tuple);
 

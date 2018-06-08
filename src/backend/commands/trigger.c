@@ -201,7 +201,7 @@ CreateTrigger(CreateTrigStmt *stmt, const char *queryString,
 							RelationGetRelationName(rel)),
 					 errdetail("Tables cannot have INSTEAD OF triggers.")));
 #ifdef ADB
-		if (IsAuxRelation(RelationGetRelid(rel)))
+		if (RelationIsAuxiliary(rel))
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 					 errmsg("\"%s\" is an auxiliary table",
