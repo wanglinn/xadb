@@ -1073,8 +1073,12 @@ DriveClusterReduceWalker(PlanState *node)
 		return false;
 
 	estate = node->state;
-	planid = PlanNodeID(node->plan);
+	/* do not drive secondary ModifyTableStates??? */
+	if (list_member_ptr(estate->es_auxmodifytables, node))
+		return false;
 
+	/* do not drive twice */
+	planid = PlanNodeID(node->plan);
 	if (bms_is_member(planid, estate->es_reduce_drived_set))
 		return false;
 
