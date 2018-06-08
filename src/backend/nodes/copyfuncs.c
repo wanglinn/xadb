@@ -2247,6 +2247,13 @@ _copyRangeTblEntry(const RangeTblEntry *from)
 	COPY_NODE_FIELD(ctecoltypes);
 	COPY_NODE_FIELD(ctecoltypmods);
 	COPY_NODE_FIELD(ctecolcollations);
+#ifdef ADB
+	COPY_SCALAR_FIELD(param_new);
+	COPY_SCALAR_FIELD(param_old);
+	COPY_BITMAPSET_FIELD(mt_result);
+	COPY_NODE_FIELD(execNodes);
+	COPY_SCALAR_FIELD(rows);
+#endif /* ADB */
 	COPY_NODE_FIELD(alias);
 	COPY_NODE_FIELD(eref);
 	COPY_SCALAR_FIELD(lateral);

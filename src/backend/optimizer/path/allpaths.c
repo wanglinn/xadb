@@ -2584,6 +2584,7 @@ static void set_paramtuplestore_pathlist(PlannerInfo *root, RelOptInfo *rel,
 							 RangeTblEntry *rte)
 {
 	Relids required_outer;
+	Path *path;
 	rel->tuples = rte->rows;
 	set_baserel_size_estimates(root, rel);
 
@@ -2594,8 +2595,20 @@ static void set_paramtuplestore_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	 */
 	required_outer = rel->lateral_relids;
 
-	/* Generate appropriate path */
-	add_path(rel, create_paramtuplestorescan_path(root, rel, required_outer));
+	/* Generate path */
+	path = create_paramtuplestorescan_path(root, rel, required_outer);
+	path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+	path->reduce_is_valid = true;
+	add_path(rel, path);
+
+	/* generate cluster path */
+	if (root->glob->clusterPlanOK)
+	{
+		path = create_paramtuplestorescan_path(root, rel, required_outer);
+		path->reduce_info_list = list_make1(MakeRoundReduceInfo(rte->execNodes));
+		path->reduce_is_valid = true;
+		add_cluster_path(rel, path);
+	}
 
 	/* Select cheapest path (pretty easy in this case...) */
 	set_cheapest(rel);

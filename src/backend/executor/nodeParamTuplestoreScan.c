@@ -11,6 +11,7 @@
 #include "executor/executor.h"
 #include "executor/nodeParamTuplestoreScan.h"
 #include "miscadmin.h"
+#include "pgxc/pgxc.h"	/* for PGXCNodeOid */
 
 /* ----------------------------------------------------------------
  *		ParamTuplestoreScanNext
@@ -35,13 +36,27 @@ ParamTuplestoreScanNext(ParamTuplestoreScanState *node)
 	return slot;
 }
 
+static TupleTableSlot *ParamTuplestoreScanNull(ParamTuplestoreScanState* node)
+{
+	return NULL;
+}
+
 static TupleTableSlot *
 ParamTuplestoreScanInit(ParamTuplestoreScanState *node)
 {
+	EState *estate;
+	ParamExecData *param;
+	Tuplestorestate *ts;
 	ParamTuplestoreScan *scan = (ParamTuplestoreScan*)node->ss.ps.plan;
-	EState *estate = node->ss.ps.state;
-	ParamExecData *param = &(estate->es_param_exec_vals[scan->paramid]);
-	Tuplestorestate *ts = (Tuplestorestate*)DatumGetPointer(param->value);
+	if (list_member_oid(scan->scan.execute_nodes, PGXCNodeOid) == false)
+	{
+		node->ScanNext = (ExecScanAccessMtd)ParamTuplestoreScanNull;
+		return NULL;
+	}
+
+	estate = node->ss.ps.state;
+	param = &(estate->es_param_exec_vals[scan->paramid]);
+	ts = (Tuplestorestate*)DatumGetPointer(param->value);
 	if (ts == NULL)
 	{
 		ereport(ERROR,

@@ -220,6 +220,7 @@ static void separate_rowmarks(PlannerInfo *root);
 static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path);
 static void set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify, Index relid);
 static bool is_remote_relation(PlannerInfo *root, Index relid);
+static bool modify_have_auxiliary(PlannerInfo *root, Index relid);
 static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms);
 static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *context);
 static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *context);
@@ -2302,7 +2303,8 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				!has_row_triggers(root, parse->resultRelation, CMD_INSERT) &&
 				!have_remote_query_path(path) &&
 				is_remote_relation(root, parse->resultRelation) &&
-				path->rows >= 5.0)
+				(path->rows >= 5.0 ||
+				 modify_have_auxiliary(root, parse->resultRelation)))
 			{
 				ResultPath *rp;
 				ModifyTablePath *modify;
@@ -6846,6 +6848,12 @@ static bool is_remote_relation(PlannerInfo *root, Index relid)
 		relation_close(rel, NoLock);
 		return result;
 	}
+}
+
+static bool modify_have_auxiliary(PlannerInfo *root, Index relid)
+{
+	RangeTblEntry *rte = planner_rt_fetch(relid, root);
+	return rte->param_new || rte->param_old;
 }
 
 static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms)

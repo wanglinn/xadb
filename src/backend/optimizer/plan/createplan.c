@@ -3393,6 +3393,7 @@ static ParamTuplestoreScan *create_paramtuplestorescan_plan(PlannerInfo *root, P
 	ListCell *lctyp, *lcmod, *lccoll;
 	ParamTuplestoreScan *scan_plan;
 	RangeTblEntry *rte;
+	ReduceInfo *rinfo;
 	Index		scan_relid = best_path->parent->relid;
 	AttrNumber	attno;
 
@@ -3402,6 +3403,7 @@ static ParamTuplestoreScan *create_paramtuplestorescan_plan(PlannerInfo *root, P
 	Assert(rte->param_new >= 0);
 	Assert(list_length(rte->ctecoltypes) == list_length(rte->ctecoltypmods));
 	Assert(list_length(rte->ctecoltypes) == list_length(rte->ctecolcollations));
+	Assert(list_length(rte->execNodes) > 0);
 
 	/* Sort clauses into best execution order */
 	scan_clauses = order_qual_clauses(root, scan_clauses);
@@ -3416,14 +3418,15 @@ static ParamTuplestoreScan *create_paramtuplestorescan_plan(PlannerInfo *root, P
 			replace_nestloop_params(root, (Node *) scan_clauses);
 	}
 
-	/*scan_plan = make_namedtuplestorescan(tlist, scan_clauses, scan_relid,
-										 rte->enrname);*/
 	scan_plan = makeNode(ParamTuplestoreScan);
 	scan_plan->scan.plan.targetlist = tlist;
 	scan_plan->scan.plan.qual = scan_clauses;
 	innerPlan(scan_plan) = outerPlan(scan_plan) = NULL;
 	scan_plan->scan.scanrelid = scan_relid;
 	scan_plan->paramid = rte->param_new;
+	Assert(best_path->reduce_is_valid && list_length(best_path->reduce_info_list) == 1);
+	rinfo = linitial(best_path->reduce_info_list);
+	scan_plan->scan.execute_nodes = list_copy(rinfo->storage_nodes);
 
 	/* build vars */
 	attno = 0;

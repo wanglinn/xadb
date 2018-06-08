@@ -4258,6 +4258,9 @@ static Oid get_operator_for_function(Oid funcid)
 	return opno;
 }
 
+static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, RelOptInfo *subrel, int paramid);
+static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, RelOptInfo *subrel, int paramid);
+static Expr* make_aux_update_clause(Relation aux_rel, Index aux_relid, RangeTblEntry *pts_rte, Index pts_relid);
 static List* make_modify_query_insert_target(List *exprs, List * icolumns, List *attrnos, Bitmapset **inserted);
 static List* make_aux_main_rel_need_result(Relation rel, Index mainrelid, List **colnames, Bitmapset **attrnos);
 static Var* get_ts_scan_var_for_aux_key(RangeTblEntry *tsrte, const char *name, Index relid);
@@ -4266,26 +4269,27 @@ static CommonTableExpr* add_modify_as_cte(Query *query, Query *subquery, const c
 
 void applyModifyToAuxiliaryTable(struct PlannerInfo *root, struct RelOptInfo *subrel, Index relid)
 {
-	Query		   *subparse;
 	Relation		rel;
 	Relation		rel_aux;
-	ListCell	   *lc;
-	ParseState	   *pstate;
-	RangeTblEntry  *subrte;
 	RangeTblEntry  *rte;
-	RangeTblRef	   *rtr;
-	Bitmapset	   *mt_result;
-	List		   *icolumns;
-	List		   *attnos;
-	List		   *exprList;
-	List		   *main_names = NIL;
-	List		   *main_vars = NIL;
-	Param		   *param = NULL;
-
-	return;	/* now we can not get right system value for ModifyTable on coordinator(eg. ctid,xc_node_id), disable it for now */
+	Query		   *subparse;
+	ListCell	   *lc;
+	List		   *main_vars;
+	Alias		   *main_alias;
+	Param		   *param_old;
+	Param		   *param_new;
+	List		   *execNodes;
+	CmdType			cmd_type;
+	bool			generated;
 
 	if (!IS_PGXC_COORDINATOR ||
 		!IsConnFromApp())
+		return;
+
+	cmd_type = root->parse->commandType;
+	if (cmd_type != CMD_UPDATE &&
+		cmd_type != CMD_INSERT &&
+		cmd_type != CMD_DELETE)
 		return;
 
 	rte = rt_fetch(relid, root->parse->rtable);
@@ -4296,6 +4300,11 @@ void applyModifyToAuxiliaryTable(struct PlannerInfo *root, struct RelOptInfo *su
 		return;
 	}
 
+	param_old = param_new = NULL;
+	execNodes = main_vars = NIL;
+	main_alias = NULL;
+
+	generated = false;
 	foreach(lc, rel->rd_auxlist)
 	{
 		rel_aux = heap_open(lfirst_oid(lc), NoLock);
@@ -4306,69 +4315,213 @@ void applyModifyToAuxiliaryTable(struct PlannerInfo *root, struct RelOptInfo *su
 			continue;
 		}
 
-		pstate = make_parsestate(NULL);
-		if (param == NULL)
+		if (main_alias == NULL)
 		{
-			param = SS_make_initplan_output_param(root, INTERNALOID, -1, InvalidOid);
-			main_vars = make_aux_main_rel_need_result(rel, relid, &main_names, &mt_result);
-			rte->param_new = param->paramid;
-			rte->param_old = -1;
-			rte->mt_result = mt_result;
+			if (cmd_type == CMD_UPDATE ||
+				cmd_type == CMD_DELETE)
+			{
+				param_old = SS_make_initplan_output_param(root, INTERNALOID, -1, InvalidOid);
+				rte->param_old = param_old->paramid;
+			}
+
+			if (cmd_type == CMD_UPDATE ||
+				cmd_type == CMD_INSERT)
+			{
+				param_new = SS_make_initplan_output_param(root, INTERNALOID, -1, InvalidOid);
+				rte->param_new = param_new->paramid;
+			}
+			main_alias = makeAlias(RelationGetRelationName(rel), NIL);
+			main_vars = make_aux_main_rel_need_result(rel,
+													  relid,
+													  &main_alias->colnames,
+													  &rte->mt_result);
+			/* this is inexactitude for update and delete if where clause have distribute column */
+			execNodes = list_copy(rel->rd_locator_info->nodeids);
 		}
 
-		subparse = makeNode(Query);
-		subparse->commandType = CMD_INSERT;
-		subparse->canSetTag = false;	/* must be false */
+		/* delete old rows from aux_rel */
+		if (cmd_type == CMD_UPDATE ||
+			cmd_type == CMD_DELETE)
+		{
+			subparse = makeAuxiliaryDeleteQuery(rel_aux, main_alias, main_vars, execNodes, subrel, param_old->paramid);
+			add_modify_as_cte(root->parse, subparse, RelationGetRelationName(rel_aux));
+		}
 
-		/* make insert target rte */
-		subrte = addRangeTableEntryForRelation(pstate, rel_aux, NULL, false, false);
-		pstate->p_target_rangetblentry = subrte;
-		pstate->p_target_relation = rel_aux;
-		subrte->requiredPerms = ACL_INSERT;
-		//subrte->mt_result = mt_result;
-		subparse->resultRelation = list_length(pstate->p_rtable);
+		/* insert into new rows to aux_rel */
+		if (cmd_type == CMD_UPDATE ||
+			cmd_type == CMD_INSERT)
+		{
+			subparse = makeAuxiliaryInsertQuery(rel_aux, main_alias, main_vars, execNodes, subrel, param_new->paramid);
+			add_modify_as_cte(root->parse, subparse, RelationGetRelationName(rel_aux));
+		}
 
-		/* build default list */
-		icolumns = checkInsertTargets(pstate, NULL, &attnos);
-		Assert(list_length(icolumns) == list_length(attnos));
-
-		/* build tuplestore scan RTE */
-		subrte = addRangeTableEntryForParamTupleStore(pstate,
-													  main_vars,
-													  makeAlias(RelationGetRelationName(rel), main_names),
-													  param->paramid,
-													  true);
-		if (subrel && subrel->rows > 0.0)
-			subrte->rows = subrel->rows;
-		else
-			subrte->rows = 1000.0;
-		rtr = makeNode(RangeTblRef);
-		rtr->rtindex = list_length(pstate->p_rtable);
-		Assert(rt_fetch(rtr->rtindex, pstate->p_rtable) == subrte);
-		pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
-
-		/* search vars tuplestore scan result need */
-		exprList = make_aux_rel_result_vars_rel(subrte, rel_aux, rtr->rtindex);
-		exprList = transformInsertRow(pstate, exprList, NULL, icolumns, attnos, false);
-
-		subparse->targetList = make_modify_query_insert_target(exprList,
-															   icolumns,
-															   attnos,
-															   &pstate->p_target_rangetblentry->insertedCols);
-
-		subparse->rtable = pstate->p_rtable;
-		subparse->jointree = makeFromExpr(pstate->p_joinlist, NULL);
-		assign_query_collations(pstate, subparse);
-
-		add_modify_as_cte(root->parse, subparse, RelationGetRelationName(rel_aux));
-
-		root->parse->hasModifyingCTE = true;
+		generated = true;
 		heap_close(rel_aux, NoLock);
-		pstate->p_target_relation = NULL;
-		free_parsestate(pstate);
 	}
 
 	heap_close(rel, NoLock);
+	if (generated)
+		root->parse->hasModifyingCTE = true;
+
+	return;
+}
+
+static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, RelOptInfo *subrel, int paramid)
+{
+	Query		   *subparse;
+	ParseState	   *pstate;
+	RangeTblEntry  *subrte;
+	RangeTblRef	   *rtr;
+	List		   *icolumns;
+	List		   *attnos;
+	List		   *exprList;
+
+	pstate = make_parsestate(NULL);
+
+	subparse = makeNode(Query);
+	subparse->commandType = CMD_INSERT;
+	subparse->canSetTag = false;	/* must be false */
+
+	/* make insert target rte */
+	subrte = addRangeTableEntryForRelation(pstate, rel_aux, NULL, false, false);
+	pstate->p_target_rangetblentry = subrte;
+	pstate->p_target_relation = rel_aux;
+	subrte->requiredPerms = ACL_INSERT;
+	subparse->resultRelation = list_length(pstate->p_rtable);
+
+	/* build default list */
+	icolumns = checkInsertTargets(pstate, NULL, &attnos);
+	Assert(list_length(icolumns) == list_length(attnos));
+
+	/* build tuplestore scan RTE */
+	subrte = addRangeTableEntryForParamTupleStore(pstate,
+												  main_vars,
+												  main_alias,
+												  paramid,
+												  false);
+	subrte->execNodes = execNodes;
+	if (subrel && subrel->rows > 0.0)
+		subrte->rows = subrel->rows;
+	else
+		subrte->rows = 1000.0;
+	rtr = makeNode(RangeTblRef);
+	rtr->rtindex = list_length(pstate->p_rtable);
+	Assert(rt_fetch(rtr->rtindex, pstate->p_rtable) == subrte);
+	pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
+
+	/* search vars tuplestore scan result need */
+	exprList = make_aux_rel_result_vars_rel(subrte, rel_aux, rtr->rtindex);
+	exprList = transformInsertRow(pstate, exprList, NULL, icolumns, attnos, false);
+
+	subparse->targetList = make_modify_query_insert_target(exprList,
+															icolumns,
+															attnos,
+															&pstate->p_target_rangetblentry->insertedCols);
+
+	subparse->rtable = pstate->p_rtable;
+	subparse->jointree = makeFromExpr(pstate->p_joinlist, NULL);
+	assign_query_collations(pstate, subparse);
+
+	pstate->p_target_relation = NULL;
+	free_parsestate(pstate);
+
+	return subparse;
+}
+
+
+static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, RelOptInfo *subrel, int paramid)
+{
+	Query		   *subparse;
+	ParseState	   *pstate;
+	RangeTblEntry  *aux_rte;
+	RangeTblEntry  *pts_rte;
+	Expr		   *qual;
+	Index			aux_relid,pts_relid;
+
+	pstate = make_parsestate(NULL);
+
+	subparse = makeNode(Query);
+	subparse->commandType = CMD_DELETE;
+	subparse->canSetTag = false;	/* must be false */
+
+	/* make delete target rte */
+	aux_rte = addRangeTableEntryForRelation(pstate, rel_aux, NULL, false, false);
+	pstate->p_target_rangetblentry = aux_rte;
+	pstate->p_target_relation = rel_aux;
+	aux_rte->requiredPerms = ACL_DELETE|ACL_SELECT;
+	aux_relid = list_length(pstate->p_rtable);
+	Assert(rt_fetch(aux_relid, pstate->p_rtable) == aux_rte);
+	subparse->resultRelation = aux_relid;
+	/* add target rte to joinlist and namespace */
+	addRTEtoQuery(pstate, aux_rte, true, false, false);
+
+	pts_rte = addRangeTableEntryForParamTupleStore(pstate,
+													main_vars,
+													main_alias,
+													paramid,
+													false);
+	pts_rte->execNodes = execNodes;
+	pts_relid = list_length(pstate->p_rtable);
+	Assert(rt_fetch(pts_relid, pstate->p_rtable) == pts_rte);
+	if (subrel && subrel->rows > 0.0)
+		pts_rte->rows = subrel->rows;
+	else
+		pts_rte->rows = 1000.0;
+
+	/* make aux_rel inner join tuplestore */
+	addRTEtoQuery(pstate, pts_rte, true, false, false);
+
+	/* make join clause */
+	qual = make_aux_update_clause(rel_aux, aux_relid, pts_rte, pts_relid);
+
+	subparse->rtable = pstate->p_rtable;
+	subparse->jointree = makeFromExpr(pstate->p_joinlist, (Node*)qual);
+	assign_query_collations(pstate, subparse);
+
+	pstate->p_target_relation = NULL;
+	free_parsestate(pstate);
+
+	return subparse;
+}
+
+static Expr* make_aux_update_clause(Relation aux_rel, Index aux_relid, RangeTblEntry *pts_rte, Index pts_relid)
+{
+	Var				   *pts_var;
+	Var				   *aux_var;
+	Form_pg_attribute	attr;
+	List			   *equals;
+	Expr			   *expr;
+	List			   *equal_op_name = SystemFuncName((char*)"=");
+	TupleDesc			desc = RelationGetDescr(aux_rel);
+
+	/*
+	 * aux_rel.key = tuplestore.key_name
+	 * this is not must, but aux_rel.key has index, so we add this operator
+	 */
+	attr = TupleDescAttr(desc, Anum_aux_table_key-1);
+	aux_var = makeVar(aux_relid, Anum_aux_table_key, attr->atttypid, attr->atttypmod, attr->attcollation, 0);
+	pts_var = get_ts_scan_var_for_aux_key(pts_rte, NameStr(attr->attname), pts_relid);
+	expr = make_op(NULL, equal_op_name, (Node*)aux_var, (Node*)pts_var, -1);
+	equals = list_make1(expr);
+
+	/* aux_rel.auxnodeid = tuplestore.xc_node_id */
+	attr = TupleDescAttr(desc, Anum_aux_table_auxnodeid-1);
+	aux_var = makeVar(aux_relid, Anum_aux_table_auxnodeid, attr->atttypid, attr->atttypmod, attr->attcollation, 0);
+	pts_var = get_ts_scan_var_for_aux_key(pts_rte, "xc_node_id", pts_relid);
+	expr = make_op(NULL, equal_op_name, (Node*)aux_var, (Node*)pts_var, -1);
+	equals = lappend(equals, expr);
+
+	/* aux_rel.auxctid = tuplestore.ctid */
+	attr = TupleDescAttr(desc, Anum_aux_table_auxctid-1);
+	aux_var = makeVar(aux_relid, Anum_aux_table_auxctid, attr->atttypid, attr->atttypmod, attr->attcollation, 0);
+	pts_var = get_ts_scan_var_for_aux_key(pts_rte, "ctid", pts_relid);
+	expr = make_op(NULL, equal_op_name, (Node*)aux_var, (Node*)pts_var, -1);
+	equals = lappend(equals, expr);
+
+	expr = makeBoolExpr(AND_EXPR, equals, -1);
+	list_free(equal_op_name);
+
+	return expr;
 }
 
 static List* make_modify_query_insert_target(List *exprs, List * icolumns, List *attrnos, Bitmapset **inserted)
