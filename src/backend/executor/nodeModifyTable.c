@@ -897,16 +897,33 @@ ldelete:;
 	{
 		ExprContext *econtext = aux_econtext;
 		TupleTableSlot *tts_ts;
+		HeapTuple		deltuple = oldtuple;
+		Buffer			delbuffer = InvalidBuffer;
 
 		Assert(econtext != NULL);
 
+		/* extract old tuple from local if oldtuple is null */
+		if (oldtuple == NULL)
+		{
+			HeapTupleData	deltupdata;
+
+			deltupdata.t_self = *tupleid;
+			if (!heap_fetch(resultRelationDesc, SnapshotAny,
+							&deltupdata, &delbuffer, false, NULL))
+				elog(ERROR, "failed to fetch old tuple for AUX STORE");
+			deltuple = &deltupdata;
+		}
+
 		/* old tuple */
-		econtext->ecxt_scantuple = resultRelInfo->ri_ttsScan;
-		ExecStoreTuple(oldtuple, econtext->ecxt_scantuple, InvalidBuffer, false);
+		econtext->ecxt_scantuple = ExecClearTuple(resultRelInfo->ri_ttsScan);
+		ExecStoreTuple(deltuple, econtext->ecxt_scantuple, InvalidBuffer, false);
 		econtext->ecxt_outertuple = resultRelInfo->ri_ttsTuplestore;
 		tts_ts = ExecProject(resultRelInfo->ri_projectTuplestore, NULL);
 		Assert(!TupIsNull(tts_ts));
 		tuplestore_puttupleslot(resultRelInfo->ts_old, tts_ts);
+
+		if (BufferIsValid(delbuffer))
+			ReleaseBuffer(delbuffer);
 	}
 #endif /* ADB */
 
@@ -1321,18 +1338,35 @@ lreplace:;
 	{
 		ExprContext *econtext = aux_econtext;
 		TupleTableSlot *tts_ts;
+		HeapTuple		deltuple = oldtuple;
+		Buffer			delbuffer = InvalidBuffer;
 
 		Assert(econtext != NULL);
-		econtext->ecxt_scantuple = resultRelInfo->ri_ttsScan;
-		econtext->ecxt_outertuple = resultRelInfo->ri_ttsTuplestore;
+
+		/* extract old tuple from local if oldtuple is null */
+		if (oldtuple == NULL)
+		{
+			HeapTupleData	deltupdata;
+
+			deltupdata.t_self = *tupleid;
+			if (!heap_fetch(resultRelationDesc, SnapshotAny,
+							&deltupdata, &delbuffer, false, NULL))
+				elog(ERROR, "failed to fetch old tuple for AUX STORE");
+			deltuple = &deltupdata;
+		}
+
+		econtext->ecxt_scantuple = ExecClearTuple(resultRelInfo->ri_ttsScan);
+		econtext->ecxt_outertuple = ExecClearTuple(resultRelInfo->ri_ttsTuplestore);
 
 		/* old tuple */
-		ExecStoreTuple(oldtuple, econtext->ecxt_scantuple, InvalidBuffer, false);
+		ExecStoreTuple(deltuple, econtext->ecxt_scantuple, InvalidBuffer, false);
 		tts_ts = ExecProject(resultRelInfo->ri_projectTuplestore, NULL);
 		Assert(!TupIsNull(tts_ts));
 		tuplestore_puttupleslot(resultRelInfo->ts_old, tts_ts);
 
 		/* clear */
+		if (BufferIsValid(delbuffer))
+			ReleaseBuffer(delbuffer);
 		econtext->ecxt_scantuple = ExecClearTuple(econtext->ecxt_scantuple);
 		tts_ts = ExecClearTuple(tts_ts);
 
