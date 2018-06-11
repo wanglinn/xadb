@@ -1073,9 +1073,20 @@ DriveClusterReduceWalker(PlanState *node)
 		return false;
 
 	estate = node->state;
-	/* do not drive secondary ModifyTableStates??? */
 	if (list_member_ptr(estate->es_auxmodifytables, node))
-		return false;
+	{
+		ModifyTableState *mtstate = (ModifyTableState *) node;
+
+		/*
+		 * It's safe to drive ClusterReduce if the secondary
+		 * ModifyTableState is done(mt_done is true). otherwise
+		 * the secondary ModifyTableState will be done by
+		 * ExecPostprocessPlan later and it is not correct to
+		 * drive here.
+		 */
+		if (!mtstate->mt_done)
+			return false;
+	}
 
 	/* do not drive twice */
 	planid = PlanNodeID(node->plan);
