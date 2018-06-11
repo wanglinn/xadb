@@ -2950,7 +2950,7 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 					(cheapest_total_inner == NULL ||
 					 compare_path_costs(inner_path, cheapest_total_inner, TOTAL_COST) < 0))
 				{
-					bool can_join PG_USED_FOR_ASSERTS_ONLY;
+					bool can_join;
 					if (num_sortkeys < list_length(innersortkeys))
 					{
 						newclauses =
@@ -2958,31 +2958,36 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 														   trialsortkeys,
 														   false,
 														   jcontext->merge_clauses);
-						Assert(newclauses != NIL);
 					}
 					else
 					{
 						newclauses = jcontext->merge_clauses;
 					}
-					can_join = reduce_info_list_can_join(outer_reduce_list,
-														 get_reduce_info_list(inner_path),
-														 jcontext->extra->restrictlist,
-														 jointype,
-														 &reduce_info_list);
-					Assert(can_join);
-					try_mergejoin_path(jcontext->root,
-									   jcontext->joinrel,
-									   outer_path,
-									   inner_path,
-									   jcontext->merge_pathkeys,
-									   newclauses,
-									   NIL,
-									   NIL,
-									   jointype,
-									   reduce_info_list,
-									   jcontext->extra,
-									   false);
-					cheapest_total_inner = inner_path;
+
+					if (newclauses == NIL)
+						can_join = false;
+					else
+						can_join = reduce_info_list_can_join(outer_reduce_list,
+															get_reduce_info_list(inner_path),
+															jcontext->extra->restrictlist,
+															jointype,
+															&reduce_info_list);
+					if (can_join)
+					{
+						try_mergejoin_path(jcontext->root,
+										   jcontext->joinrel,
+										   outer_path,
+										   inner_path,
+										   jcontext->merge_pathkeys,
+										   newclauses,
+										   NIL,
+										   NIL,
+										   jointype,
+										   reduce_info_list,
+										   jcontext->extra,
+										   false);
+						cheapest_total_inner = inner_path;
+					}
 				}
 
 				inner_path = get_cheapest_path_for_pathkeys(jcontext->inner_pathlist,
@@ -2996,7 +3001,7 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 				{
 					if(inner_path != cheapest_total_inner)
 					{
-						bool can_join PG_USED_FOR_ASSERTS_ONLY;
+						bool can_join;
 						if(newclauses == NULL)
 						{
 							if(num_sortkeys < list_length(innersortkeys))
@@ -3005,32 +3010,37 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 																		    trialsortkeys,
 																		    false,
 																		    jcontext->merge_clauses);
-								Assert(newclauses != NIL);
 							}else
 							{
 								newclauses = jcontext->merge_clauses;
 							}
 						}
-						can_join = reduce_info_list_can_join(outer_reduce_list,
-															 get_reduce_info_list(inner_path),
-															 jcontext->extra->restrictlist,
-															 jointype,
-															 &reduce_info_list);
-						Assert(can_join);
-						try_mergejoin_path(jcontext->root,
-										   jcontext->joinrel,
-										   outer_path,
-										   inner_path,
-										   jcontext->merge_pathkeys,
-										   newclauses,
-										   NIL,
-										   NIL,
-										   jointype,
-										   reduce_info_list,
-										   jcontext->extra,
-										   false);
+
+						if (newclauses == NIL)
+							can_join = false;
+						else
+							can_join = reduce_info_list_can_join(outer_reduce_list,
+																 get_reduce_info_list(inner_path),
+																 jcontext->extra->restrictlist,
+																 jointype,
+																 &reduce_info_list);
+						if(can_join)
+						{
+							try_mergejoin_path(jcontext->root,
+											   jcontext->joinrel,
+											   outer_path,
+											   inner_path,
+											   jcontext->merge_pathkeys,
+											   newclauses,
+											   NIL,
+											   NIL,
+											   jointype,
+											   reduce_info_list,
+											   jcontext->extra,
+											   false);
+							cheapest_startup_inner = inner_path;
+						}
 					}
-					cheapest_startup_inner = inner_path;
 				}
 				if(useallclauses)
 					break;
