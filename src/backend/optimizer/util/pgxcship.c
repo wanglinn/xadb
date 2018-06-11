@@ -100,7 +100,8 @@ typedef enum
 								 */
 	SS_HAS_AGG_EXPR,			/* it has aggregate expressions */
 	SS_UNSHIPPABLE_TYPE,		/* the type of expression is unshippable */
-	SS_UNSHIPPABLE_TRIGGER		/* the type of trigger is unshippable */
+	SS_UNSHIPPABLE_TRIGGER,		/* the type of trigger is unshippable */
+	SS_RELATION_HAS_AUX			/* it is unshippable if relation has auxiliary relation. */
 } ShippabilityStat;
 
 /* Manipulation of shippability reason */
@@ -1047,6 +1048,12 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				 * to add here evaluation of the shippability of indexes and
 				 * constraints of the relation used for INSERT/UPDATE/DELETE.
 				 */
+
+				/*
+				 * Check that the target relation contains auxiliary relation(s)?
+				 */
+				if (HasAuxRelation(rte->relid))
+					pgxc_set_shippability_reason(sc_context, SS_RELATION_HAS_AUX);
 			}
 
 			/*
