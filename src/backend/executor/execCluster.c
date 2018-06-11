@@ -154,6 +154,13 @@ void exec_cluster_plan(const void *splan, int length)
 
 	/* run plan */
 	ExecutorRun(query_desc, ForwardScanDirection, 0L, true);
+
+	/* send processed message */
+	resetStringInfo(&msg);
+	serialize_processed_message(&msg, query_desc->estate->es_processed);
+	pq_putmessage('d', msg.data, msg.len);
+
+	/* and send function ExecutorRun finish */
 	resetStringInfo(&msg);
 	appendStringInfoChar(&msg, CLUSTER_MSG_EXECUTOR_RUN_END);
 	pq_putmessage('d', msg.data, msg.len);
