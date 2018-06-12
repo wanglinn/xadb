@@ -100,7 +100,8 @@ typedef enum
 								 */
 	SS_HAS_AGG_EXPR,			/* it has aggregate expressions */
 	SS_UNSHIPPABLE_TYPE,		/* the type of expression is unshippable */
-	SS_UNSHIPPABLE_TRIGGER		/* the type of trigger is unshippable */
+	SS_UNSHIPPABLE_TRIGGER,		/* the type of trigger is unshippable */
+	SS_UNSHIPPABLE_RELATION		/* the type of relation is unshippable */
 } ShippabilityStat;
 
 /* Manipulation of shippability reason */
@@ -990,6 +991,30 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			 */
 			if (query->commandType != CMD_SELECT && list_length(query->rtable) > 1)
 				pgxc_set_shippability_reason(sc_context, SS_UNSUPPORTED_EXPR);
+
+			/*
+			 * It is not shippable if relation has inheritance children.
+			 */
+			if (query->commandType == CMD_SELECT)
+			{
+				RangeTblEntry	   *rte;
+				ListCell		   *lc;
+				List			   *children;
+
+				foreach (lc, query->rtable)
+				{
+					rte = (RangeTblEntry *) lfirst(lc);
+					if (rte->rtekind == RTE_RELATION)
+					{
+						children = find_inheritance_children(rte->relid, AccessShareLock);
+						if (children != NIL)
+						{
+							list_free(children);
+							pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_RELATION);
+						}
+					}
+				}
+			}
 
 			/*
 			 * In following conditions query is shippable when there is only one
