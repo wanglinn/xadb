@@ -41,6 +41,7 @@
 #ifdef ADB
 #include "catalog/adb_proc.h"
 #include "catalog/pg_trigger.h"
+#include "commands/defrem.h"
 #include "intercomm/inter-node.h"
 #include "nodes/pg_list.h"
 #endif
