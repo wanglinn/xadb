@@ -41,6 +41,7 @@
 #ifdef ADB
 #include "catalog/adb_proc.h"
 #include "catalog/pg_trigger.h"
+#include "commands/defrem.h"
 #include "intercomm/inter-node.h"
 #include "nodes/pg_list.h"
 #endif
@@ -101,7 +102,7 @@ typedef enum
 	SS_HAS_AGG_EXPR,			/* it has aggregate expressions */
 	SS_UNSHIPPABLE_TYPE,		/* the type of expression is unshippable */
 	SS_UNSHIPPABLE_TRIGGER,		/* the type of trigger is unshippable */
-	SS_RELATION_HAS_AUX			/* it is unshippable if relation has auxiliary relation. */
+	SS_UNSHIPPABLE_RELATION		/* the type of relation is unshippable */
 } ShippabilityStat;
 
 /* Manipulation of shippability reason */
@@ -993,6 +994,30 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				pgxc_set_shippability_reason(sc_context, SS_UNSUPPORTED_EXPR);
 
 			/*
+			 * It is not shippable if relation has inheritance children.
+			 */
+			if (query->commandType == CMD_SELECT)
+			{
+				RangeTblEntry	   *rte;
+				ListCell		   *lc;
+				List			   *children;
+
+				foreach (lc, query->rtable)
+				{
+					rte = (RangeTblEntry *) lfirst(lc);
+					if (rte->rtekind == RTE_RELATION)
+					{
+						children = find_inheritance_children(rte->relid, AccessShareLock);
+						if (children != NIL)
+						{
+							list_free(children);
+							pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_RELATION);
+						}
+					}
+				}
+			}
+
+			/*
 			 * In following conditions query is shippable when there is only one
 			 * Datanode involved
 			 * 1. the query has aggregagtes without grouping by distribution
@@ -1053,7 +1078,7 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				 * Check that the target relation contains auxiliary relation(s)?
 				 */
 				if (HasAuxRelation(rte->relid))
-					pgxc_set_shippability_reason(sc_context, SS_RELATION_HAS_AUX);
+					pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_RELATION);
 			}
 
 			/*
