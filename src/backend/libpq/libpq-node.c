@@ -42,6 +42,16 @@ List *PQNGetConnUseOidList(List *oid_list)
 	return apply_for_node_use_oid(oid_list);
 }
 
+struct pg_conn* PQNFindConnUseOid(Oid oid)
+{
+	OidPGconn *op;
+	if (htab_oid_pgconn == NULL)
+		return NULL;
+
+	op = hash_search(htab_oid_pgconn, &oid, HASH_FIND, NULL);
+	return op ? op->conn : NULL;
+}
+
 static void init_htab_oid_pgconn(void)
 {
 	HASHCTL hctl;
