@@ -170,7 +170,7 @@ DoRemoteClusterBarrier(NodeMixHandle *mix_handle,
 					 errmsg("Failed to do remote CLUSTER BARRIER %s \"%s\"",
 					 		cmd_str, barrierID),
 					 errnode(NameStr(handle->node_name)),
-					 errdetail("%s", HandleGetError(handle, false))));
+					 errdetail("%s", HandleGetError(handle))));
 	}
 }
 

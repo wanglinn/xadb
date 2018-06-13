@@ -132,7 +132,7 @@ ClusterSyncXid(void)
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Fail to send query: \"%s\"", query),
 						 errnode(NameStr(handle->node_name)),
-						 errdetail("%s", HandleGetError(handle, false))));
+						 errdetail("%s", HandleGetError(handle))));
 			}
 		}
 
@@ -199,15 +199,31 @@ GenerateBeginQuery(void)
  *
  */
 char *
-HandleGetError(NodeHandle *handle, bool copy)
+HandleGetError(NodeHandle *handle)
 {
 	char *errmsg = "";
 
 	if (handle && handle->node_conn)
 		errmsg = PQerrorMessage(handle->node_conn);
 
-	if (copy)
-		errmsg = pstrdup(errmsg);
+	return errmsg;
+}
+
+/*
+ * HandleCopyError
+ *
+ * copy error message from NodeHandle.
+ *
+ */
+char *
+HandleCopyError(NodeHandle *handle)
+{
+	char *errmsg = "";
+
+	if (handle && handle->node_conn)
+		errmsg = PQerrorMessage(handle->node_conn);
+
+	errmsg = pstrdup(errmsg);
 
 	return errmsg;
 }

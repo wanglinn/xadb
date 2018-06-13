@@ -612,7 +612,7 @@ InterXactUtility(InterXactState state, Snapshot snapshot,
 				ereport(ERROR,
 						(errmsg("Fail to process utility query on remote node."),
 						 errnode(NameStr(handle->node_name)),
-						 errdetail("%s", HandleGetError(handle, false))));
+						 errdetail("%s", HandleGetError(handle))));
 			}
 		}
 	} PG_CATCH();
@@ -662,7 +662,7 @@ InterXactBegin(InterXactState state, const List *node_list)
 				ereport(ERROR,
 						(errmsg("Fail to begin transaction"),
 						 errnode(NameStr(handle->node_name)),
-						 errdetail("%s:", HandleGetError(handle, false))));
+						 errdetail("%s:", HandleGetError(handle))));
 		}
 	} PG_CATCH();
 	{
@@ -811,7 +811,7 @@ InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_
 			ereport(ERROR,
 					(errmsg("Fail to \"%s\" on remote node.", command),
 					 errnode(NameStr(handle->node_name)),
-					 errdetail("%s", HandleGetError(handle, false))));
+					 errdetail("%s", HandleGetError(handle))));
 		}
 	}
 }
