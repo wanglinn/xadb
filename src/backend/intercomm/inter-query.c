@@ -341,7 +341,7 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *des
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Fail to start query on primary node"),
 						 errnode(NameStr(pr_handle->node_name)),
-						 errhint("%s", HandleGetError(pr_handle, false))));
+						 errhint("%s", HandleGetError(pr_handle))));
 			}
 
 			/*
@@ -373,7 +373,7 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *des
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Fail to start query on remote node"),
 						 errnode(NameStr(handle->node_name)),
-						 errhint("%s", HandleGetError(handle, false))));
+						 errhint("%s", HandleGetError(handle))));
 			}
 		}
 	} PG_CATCH();

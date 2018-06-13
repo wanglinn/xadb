@@ -157,7 +157,7 @@ HandleClusterPause(bool pause, bool initiator)
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Fail to send query: \"%s\"", pause ? pause_cluster_str : unpause_cluster_str),
 						 errnode(NameStr(handle->node_name)),
-						 errdetail("%s", HandleGetError(handle, false))));
+						 errdetail("%s", HandleGetError(handle))));
 			}
 		}
 
@@ -206,7 +206,7 @@ HandleClusterPause(bool pause, bool initiator)
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("Fail to send query: \"%s\"", unpause_cluster_str),
 						 errnode(NameStr(handle->node_name)),
-						 errdetail("%s", HandleGetError(handle, false))));
+						 errdetail("%s", HandleGetError(handle))));
 			}
 		}
 
