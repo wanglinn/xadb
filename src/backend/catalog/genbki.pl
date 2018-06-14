@@ -263,8 +263,8 @@ foreach my $catname (@{ $catalogs->{names} })
 					$attnum--;
 # ADB_BEGIN
 					# rowid is generated dynamically, so skip it.
-					my ($tmpkey, $tmpvalue) = %$attr;
-					next if $tmpvalue eq 'rowid';
+					next
+					  if $attr->{name} eq 'rowid';
 # ADB_END
 					my $row = emit_pgattr_row($table_name, $attr, 1);
 					$row->{attnum}        = $attnum;
