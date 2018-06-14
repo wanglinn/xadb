@@ -148,7 +148,7 @@ StartSelfReduceLauncher(RdcPortId rid)
 #ifdef ADB
 									   "adb_reduce (" ADB_VERSION " based on PostgreSQL) " PG_VERSION"\n",
 #else
-									"adb_reduce based on (PG " PG_VERSION ")\n",
+									   "adb_reduce based on (PG " PG_VERSION ")\n",
 #endif
 									   my_reduce_path)) < 0)
 			{
@@ -185,7 +185,7 @@ StartSelfReduceLauncher(RdcPortId rid)
 	switch ((SelfReducePID = fork_process()))
 	{
 		case -1:
-			ereport(LOG,
+			ereport(ERROR,
 				 (errmsg("could not fork adb reduce launcher process: %m")));
 			return 0;
 
