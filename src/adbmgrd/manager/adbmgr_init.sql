@@ -61,7 +61,8 @@ CREATE VIEW adbmgr.node AS
     mgrnode.nodesync    AS  sync_state,
     mgrnode.nodepath    AS  path,
     mgrnode.nodeinited  AS  initialized,
-    mgrnode.nodeincluster AS incluster
+    mgrnode.nodeincluster AS incluster,
+    mgrnode.nodereadonly AS readonly
   FROM pg_catalog.mgr_node AS mgrnode LEFT JOIN pg_catalog.mgr_host ON mgrnode.nodehost = pg_catalog.mgr_host.oid
 		LEFT JOIN pg_catalog.mgr_node AS node_alise ON node_alise.oid = mgrnode.nodemasternameoid) AS node_tb
 		order by (case type
