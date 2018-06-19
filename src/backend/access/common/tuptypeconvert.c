@@ -89,6 +89,8 @@ static Datum convert_range_recv(PG_FUNCTION_ARGS);
 static RangeConvert *get_convert_range_io_data(RangeConvert *ac, Oid rngtypid, MemoryContext context, bool is_send);
 static void free_range_convert(RangeConvert *ac);
 
+static TupleTableSlot* convert_copy_tuple_oid(TupleTableSlot *dest, TupleTableSlot *src, bool use_min);
+
 #ifdef USE_ASSERT_CHECKING
 static bool convert_equal_tuple_desc(TupleDesc desc1, TupleDesc desc2);
 #endif /* USE_ASSERT_CHECKING */
@@ -210,7 +212,8 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 	}PG_END_TRY();
 	pop_client_encoding();
 
-	return ExecStoreVirtualTuple(dest);
+	ExecStoreVirtualTuple(dest);
+	return convert_copy_tuple_oid(dest, src, false);
 }
 
 TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSlot *src, TupleTableSlot *dest, bool need_copy)
@@ -264,7 +267,8 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 		lc = lnext(lc);
 	}
 
-	return ExecStoreVirtualTuple(dest);
+	ExecStoreVirtualTuple(dest);
+	return convert_copy_tuple_oid(dest, src, true);
 }
 
 Datum do_datum_convert_in(StringInfo buf, Oid typid)
@@ -365,7 +369,7 @@ static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 	if(need_convert == false)
 		return NULL;	/* don't need convert */
 
-	outdesc = CreateTemplateTupleDesc(natts, false);
+	outdesc = CreateTemplateTupleDesc(natts, indesc->tdhasoid);
 	for(i=natts=0;i<indesc->natts;++i)
 	{
 		attr = indesc->attrs[i];
@@ -1235,3 +1239,24 @@ static bool convert_equal_tuple_desc(TupleDesc desc1, TupleDesc desc2)
 	return true;
 }
 #endif /* USE_ASSERT_CHECKING */
+
+static TupleTableSlot* convert_copy_tuple_oid(TupleTableSlot *dest, TupleTableSlot *src, bool use_min)
+{
+	if(src->tts_tupleDescriptor->tdhasoid)
+	{
+		HeapTupleHeader header;
+		Oid oid;
+		Assert(dest->tts_tupleDescriptor->tdhasoid);
+		oid = ExecFetchSlotTupleOid(src);
+		if (OidIsValid(oid))
+		{
+			if (use_min)
+				header = (HeapTupleHeader) ((char*)ExecFetchSlotMinimalTuple(dest) - MINIMAL_TUPLE_OFFSET);
+			else
+				header = ExecMaterializeSlot(dest)->t_data;
+			HeapTupleHeaderSetOid(header, oid);
+		}
+	}
+
+	return dest;
+}
