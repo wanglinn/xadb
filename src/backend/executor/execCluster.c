@@ -3,6 +3,7 @@
 #include "access/xact.h"
 
 #include "catalog/pgxc_node.h"
+#include "commands/copy.h"
 #include "executor/nodeEmptyResult.h"
 #include "executor/execdesc.h"
 #include "executor/executor.h"
@@ -64,12 +65,19 @@ typedef struct ClusterErrorHookContext
 
 extern bool enable_cluster_plan;
 
+
+static void ExecClusterPlanStmt(StringInfo buf);
+static void ExecClusterCopyStmt(StringInfo buf);
+static NodeTag GetClusterPlanType(StringInfo buf);
+
 static void restore_cluster_plan_info(StringInfo buf);
 static QueryDesc *create_cluster_query_desc(StringInfo buf, DestReceiver *r);
 
 static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt, ParamListInfo param, ClusterPlanContext *context);
+static void SerializeTransactionInfo(StringInfo msg);
 static bool SerializePlanHook(StringInfo buf, Node *node, void *context);
 static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context);
+static void* loadNodeType(StringInfo buf, NodeTag tag, NodeTag *ptag);
 static bool HaveModifyPlanWalker(Plan *plan, Node *GlobOrStmt, void *context);
 static void SerializeRelationOid(StringInfo buf, Oid relid);
 static Oid RestoreRelationOid(StringInfo buf, bool missok);
@@ -77,7 +85,7 @@ static void send_rdc_listend_port(int port);
 static void wait_rdc_group_message(void);
 static bool get_rdc_listen_port_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 static void StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt);
-static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context);
+static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context);
 static bool InstrumentEndLoop_walker(PlanState *ps, Bitmapset **called);
 static void InstrumentEndLoop_cluster(PlanState *ps);
 static bool RelationIsCoordOnly(Oid relid);
@@ -89,31 +97,59 @@ static void RestoreClusterHook(ClusterErrorHookContext *context);
 
 void exec_cluster_plan(const void *splan, int length)
 {
+	StringInfoData msg;
+	NodeTag tag;
+
+	ClusterErrorHookContext error_context_hook;
+
+	msg.data = (char*)splan;
+	msg.len = msg.maxlen = length;
+	msg.cursor = 0;
+
+	tag = GetClusterPlanType(&msg);
+
+	SetupClusterErrorHook(&error_context_hook);
+	restore_cluster_plan_info(&msg);
+
+	switch(tag)
+	{
+	case T_PlannedStmt:
+		ExecClusterPlanStmt(&msg);
+		break;
+	case T_CopyStmt:
+		ExecClusterCopyStmt(&msg);
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("unknown cluster plan type %d", tag)));
+	}
+
+	PopActiveSnapshot();
+	EndClusterTransaction();
+
+	RestoreClusterHook(&error_context_hook);
+}
+
+static void ExecClusterPlanStmt(StringInfo buf)
+{
 	QueryDesc *query_desc;
 	DestReceiver *receiver;
-	StringInfoData buf;
 	StringInfoData msg;
-	ClusterErrorHookContext error_context_hook;
 	int eflags;
 	bool need_instrument;
 	bool has_reduce;
 
-	buf.data = (char*)splan;
-	buf.cursor = 0;
-	buf.len = buf.maxlen = length;
-
-	SetupClusterErrorHook(&error_context_hook);
 	enable_cluster_plan = true;
 
-	restore_cluster_plan_info(&buf);
 	receiver = CreateDestReceiver(DestClusterOut);
-	query_desc = create_cluster_query_desc(&buf, receiver);
-	if(mem_toc_lookup(&buf, REMOTE_KEY_ES_INSTRUMENT, NULL) != NULL)
+	query_desc = create_cluster_query_desc(buf, receiver);
+	if(mem_toc_lookup(buf, REMOTE_KEY_ES_INSTRUMENT, NULL) != NULL)
 		need_instrument = true;
 	else
 		need_instrument = false;
 
-	if (mem_toc_lookup(&buf, REMOTE_KEY_HAS_REDUCE, NULL) != NULL)
+	if (mem_toc_lookup(buf, REMOTE_KEY_HAS_REDUCE, NULL) != NULL)
 		has_reduce = true;
 	else
 		has_reduce = false;
@@ -188,14 +224,49 @@ void exec_cluster_plan(const void *splan, int length)
 	/* and clean up */
 	ExecutorEnd(query_desc);
 	FreeQueryDesc(query_desc);
-	RestoreClusterHook(&error_context_hook);
-	PopActiveSnapshot();
 
 	pfree(msg.data);
 
 	/* Send Copy Done message */
 	pq_putemptymessage('c');
-	EndClusterTransaction();
+}
+
+static void ExecClusterCopyStmt(StringInfo buf)
+{
+	CopyStmt *stmt;
+	StringInfoData msg;
+
+	msg.data = mem_toc_lookup(buf, REMOTE_KEY_PLAN_STMT, &msg.len);
+	Assert(msg.data != NULL && msg.len > 0);
+	msg.maxlen = msg.len;
+	msg.cursor = 0;
+
+	stmt = (CopyStmt*)loadNode(&msg);
+	Assert(IsA(stmt, CopyStmt));
+	set_ps_display("CLUSTER COPY FROM", false);
+
+	DoClusterCopy(stmt);
+}
+
+static NodeTag GetClusterPlanType(StringInfo buf)
+{
+	NodeTag tag;
+	StringInfoData plan;
+
+	plan.data = mem_toc_lookup(buf, REMOTE_KEY_PLAN_STMT, &plan.len);
+	if (plan.data == NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("can not found cluster plan info")));
+	}
+	plan.maxlen = plan.len;
+	plan.cursor = 0;
+
+	tag = T_Invalid;
+	loadNodeAndHook(&plan, loadNodeType, &tag);
+
+	return tag;
 }
 
 static void restore_cluster_plan_info(StringInfo buf)
@@ -395,13 +466,39 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 	return ExecInitNode(plan, estate, eflags);
 }
 
+List* ExecStartClusterCopy(List *rnodes, struct CopyStmt *stmt)
+{
+	ClusterPlanContext context;
+	StringInfoData msg;
+	List *conn_list;
+	initStringInfo(&msg);
+
+	begin_mem_toc_insert(&msg, REMOTE_KEY_PLAN_STMT);
+	saveNode(&msg, (Node*)stmt);
+	end_mem_toc_insert(&msg, REMOTE_KEY_PLAN_STMT);
+
+	SerializeTransactionInfo(&msg);
+
+	MemSet(&context, 0, sizeof(context));
+	context.transaction_read_only = false;
+	context.have_temp = false;
+	context.have_reduce = false;
+	context.start_self_reduce = false;
+
+	conn_list = StartRemotePlan(&msg, rnodes, &context);
+	Assert(list_length(conn_list) == list_length(rnodes));
+
+	pfree(msg.data);
+
+	return conn_list;
+}
+
 static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 							  ParamListInfo param, ClusterPlanContext *context)
 {
 	ListCell *lc;
 	List *rte_list;
 	PlannedStmt *new_stmt;
-	Size size;
 
 	new_stmt = palloc(sizeof(*new_stmt));
 	memcpy(new_stmt, stmt, sizeof(*new_stmt));
@@ -444,6 +541,22 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 	SaveParamList(msg, param);
 	end_mem_toc_insert(msg, REMOTE_KEY_PARAM);
 
+	SerializeTransactionInfo(msg);
+
+	foreach(lc, rte_list)
+	{
+		/* pfree we palloced memory */
+		if (list_member_ptr(stmt->rtable, lfirst(lc)) == false)
+			pfree(lfirst(lc));
+	}
+	list_free(rte_list);
+	pfree(new_stmt);
+}
+
+static void SerializeTransactionInfo(StringInfo msg)
+{
+	Size size;
+
 	begin_mem_toc_insert(msg, REMOTE_KEY_ACTIVE_SNAPSHOT);
 	size = EstimateSnapshotSpace(GetActiveSnapshot());
 	enlargeStringInfo(msg, size);
@@ -459,14 +572,6 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 	SerializeClusterTransaction(msg);
 	end_mem_toc_insert(msg, REMOTE_KEY_TRANSACTION_STATE);
 
-	foreach(lc, rte_list)
-	{
-		/* pfree we palloced memory */
-		if (list_member_ptr(stmt->rtable, lfirst(lc)) == false)
-			pfree(lfirst(lc));
-	}
-	list_free(rte_list);
-	pfree(new_stmt);
 }
 
 static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
@@ -678,6 +783,12 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 	return node;
 }
 
+static void* loadNodeType(StringInfo buf, NodeTag tag, NodeTag *ptag)
+{
+	*ptag = tag;
+	return ptag;
+}
+
 static bool HaveModifyPlanWalker(Plan *plan, Node *GlobOrStmt, void *context)
 {
 	if (plan == NULL)
@@ -884,7 +995,7 @@ StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt)
 	pfree(msg.data);
 }
 
-static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context)
+static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context)
 {
 	ListCell *lc;
 	List *list_conn;
@@ -983,6 +1094,7 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 			{
 			case PGRES_COPY_BOTH:
 			case PGRES_COPY_OUT:
+			case PGRES_COPY_IN:
 				break;
 			case PGRES_FATAL_ERROR:
 				PQNReportResultError(res, conn, ERROR, false);
@@ -1030,6 +1142,8 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 	}
 
 	error_context_stack = error_context_hook.previous;
+
+	return list_conn;
 }
 
 static bool InstrumentEndLoop_walker(PlanState *ps, Bitmapset **called)
