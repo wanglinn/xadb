@@ -1475,4 +1475,22 @@ ExecCopyRemoteSlotMinimalTuple(TupleTableSlot *slot)
 										  slot->tts_isnull,
 										  slot->tts_xcnodeoid);
 }
+
+Oid ExecFetchSlotTupleOid(TupleTableSlot *slot)
+{
+	Assert(slot->tts_isempty == false);
+
+	if (slot->tts_tupleDescriptor->tdhasoid == false)
+	{
+		return InvalidOid;
+	}else if(slot->tts_tuple != NULL)
+	{
+		return HeapTupleGetOid(slot->tts_tuple);
+	}else if(slot->tts_mintuple != NULL)
+	{
+		HeapTupleHeader header = (HeapTupleHeader)((char*)slot->tts_mintuple - MINIMAL_TUPLE_OFFSET);
+		return HeapTupleHeaderGetOid(header);
+	}
+	return InvalidOid;
+}
 #endif

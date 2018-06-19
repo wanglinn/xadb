@@ -188,6 +188,7 @@ extern TupleTableSlot *ExecStoreDataRowTuple(char *msg,
 			TupleTableSlot *slot,
 			bool shouldFree);
 extern MinimalTuple ExecCopyRemoteSlotMinimalTuple(TupleTableSlot *slot);
+extern Oid ExecFetchSlotTupleOid(TupleTableSlot *slot);
 #endif
 
 #endif   /* TUPTABLE_H */
