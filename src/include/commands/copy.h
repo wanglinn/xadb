@@ -44,6 +44,7 @@ extern DestReceiver *CreateCopyDestReceiver(void);
 #ifdef ADB
 extern CopyState pgxcMatViewBeginCopyTo(Relation mvrel);
 extern int64 pgxcDoCopyTo(CopyState cstate);
+extern void DoClusterCopy(CopyStmt *stmt);
 #endif /* ADB */
 
 #endif							/* COPY_H */
