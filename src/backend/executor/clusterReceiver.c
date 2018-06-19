@@ -574,6 +574,19 @@ MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup)
 			}
 		}
 		tup = heap_form_minimal_tuple(desc, values, slot->tts_isnull);
+		if (slot->tts_tupleDescriptor->tdhasoid)
+		{
+			HeapTupleHeader header;
+			Oid oid = ExecFetchSlotTupleOid(slot);
+			if (OidIsValid(oid))
+			{
+				header = (HeapTupleHeader)((char*)tup - MINIMAL_TUPLE_OFFSET);
+				HeapTupleHeaderSetOid(header, oid);
+			}
+		}
+		*need_free_tup = true;
+
+		/* clear resource */
 		for(i=desc->natts;(--i)>=0;)
 		{
 			if(values[i] != slot->tts_values[i])
@@ -581,7 +594,6 @@ MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup)
 		}
 		pfree(values);
 		MemoryContextSwitchTo(old_context);
-		*need_free_tup = true;
 	}else
 	{
 		tup = ExecFetchSlotMinimalTuple(slot);
