@@ -228,7 +228,8 @@ extern void pfree_AppendNodeInfo(AppendNodeInfo nodeinfo);
 extern bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid);
 extern void mgr_unlock_cluster(PGconn **pg_conn);
 extern int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam);
-extern bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname, GetAgentCmdRst *getAgentCmdRst, PGconn **pg_conn, Oid cnoid);
+extern bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname
+		, GetAgentCmdRst *getAgentCmdRst, PGconn **pg_conn, Oid cnoid, char *newSyncSlaveName);
 /* mgr_common.c */
 extern TupleDesc get_common_command_tuple_desc(void);
 extern HeapTuple build_common_command_tuple(const Name name, bool success, const char *message);
@@ -393,5 +394,17 @@ extern bool mgr_check_slave_replicate_status(const Oid masterTupleOid, const cha
 extern bool mgr_set_all_nodetype_param(const char nodetype, char *paramName, char *paramValue);
 extern Datum monitor_handle_datanode(PG_FUNCTION_ARGS);
 extern Datum monitor_handle_gtm(PG_FUNCTION_ARGS);
+extern HeapTuple mgr_get_sync_slavenode_tuple(Oid mastertupleoid, bool bincluster, Oid excludeoid);
+extern bool mgr_get_createnodeCmd_on_readonly_cn(char *nodeName, bool bincluster, StringInfo cmdstring);
+extern bool mgr_refresh_pgxc_readnode(PGconn **pg_conn, bool bExecDirect, char *readOnlyNodeName
+				,char *newMasterName, char *newSyncSlaveName, Oid oldMasterTupOid
+				,char *execSqlNode, StringInfo recorderr);
+
+extern int mgr_pqexec_boolsql_try_maxnum(PGconn **pg_conn, char *sqlstr, const int maxnum, int sqltype);
+extern bool mgr_alter_sync_refresh_pgxcnode_readnode(char *masterName, char *currentSlaveNode, char *newSyncSlaveName);
+extern void mgr_get_prefer_nodename_for_cn(char *cnName, bool breadOnly, List *dnNamelist, Name preferredDnName);
+extern Oid mgr_get_tupoid_from_nodename(Relation relNode, char *nodename);
+extern bool mgr_check_list_in(List *list, char *checkName);
+extern bool mgr_try_max_times_get_stringvalues(char cmdtype, int agentPort, char *sqlStr, char *userName				, char *nodeAddress, int nodePort, char *dbname, StringInfo restmsg, int max);
 
 #endif /* MGR_CMDS_H */

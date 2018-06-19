@@ -442,7 +442,8 @@ Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS)
 		mgr_lock_cluster(&pg_conn, &cnoid);
 		/*refresh pgxc_node on all coordiantors*/
 		initStringInfo(&(getAgentCmdRst.description));
-		getrefresh = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, nodetype, nodenamedata.data, &getAgentCmdRst, &pg_conn, cnoid);
+		getrefresh = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, nodetype, nodenamedata.data
+							, &getAgentCmdRst, &pg_conn, cnoid, NULL);
 		if(!getrefresh)
 		{
 			getAgentCmdRst.ret = getrefresh;
@@ -504,6 +505,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	masterName = mgr_get_mastername_by_nodename_type(nodenamedata.data, nodetype);
 	Assert(masterName);
 	namestrcpy(&nodemasternamedata, masterName);
+	pfree(masterName);
 
 	nodetypestr = mgr_nodetype_str(nodetype);
 	initStringInfo(&strinfo);
@@ -620,6 +622,12 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	if (res)
 	{
 		resetStringInfo(&infosendmsg);
+		/* refresh read only coordinator pgxc_node */
+		if (syncNum == 0 && strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_SYNC].name) == 0)
+		{
+			mgr_alter_sync_refresh_pgxcnode_readnode(nodemasternamedata.data, nodenamedata.data, nodenamedata.data);
+		}
+
 		if (strinfo_sync.len == 0)
 		{
 			if (strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_SYNC].name) == 0)
@@ -649,6 +657,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 			}
 			mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", strinfo_sync.len != 0 ? strinfo_sync.data: "", &infosendmsg);
 		}
+
 		resetStringInfo(&(getAgentCmdRst.description));
 		str = mgr_nodetype_str(master_nodeinfo.nodetype);
 		ereport(NOTICE, (errmsg("refresh %s \"%s\" synchronous_standby_names='%s'", str,
@@ -1398,6 +1407,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	NameData nodeTypeStrData;
 	NameData masterTypeStrData;
 	NameData oldMSyncData;
+	NameData newSyncSlaveName;
 	AppendNodeInfo nodeInfoS;
 	AppendNodeInfo nodeInfoM;
 	Form_mgr_node mgr_node;
@@ -1533,12 +1543,27 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 
 	initStringInfo(&restmsg);
 	initStringInfo(&syncStateData);
+	newSyncSlaveName.data[0] = '\0';
 	syncNum = mgr_get_master_sync_string(nodeInfoM.tupleoid, true, nodeInfoS.tupleoid, &restmsg);
+	if(restmsg.len != 0 && syncNum > 0)
+	{
+		int i = 0;
+		while(i<restmsg.len && restmsg.data[i] != ',' && i<NAMEDATALEN)
+		{
+			newSyncSlaveName.data[i] = restmsg.data[i];
+			i++;
+		}
+		if (i<NAMEDATALEN)
+			newSyncSlaveName.data[i] = '\0';
+	}
+
 	if (restmsg.len != 0)
 	{
 		if (SYNC_STATE_SYNC == nodeSlaveSyncKind)
 		{
 			syncNum++;
+			if (syncNum == 1)
+				namestrcpy(&newSyncSlaveName, nodeMasterNameData.data);
 			appendStringInfo(&syncStateData, "%d (%s,%s)", syncNum, nodeMasterNameData.data, restmsg.data);
 		}
 		else if (SYNC_STATE_POTENTIAL == nodeSlaveSyncKind)
@@ -1551,7 +1576,10 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	else
 	{
 		if (SYNC_STATE_SYNC == nodeSlaveSyncKind || SYNC_STATE_POTENTIAL == nodeSlaveSyncKind)
+		{
 			appendStringInfo(&syncStateData, "%s", nodeMasterNameData.data);
+			namestrcpy(&newSyncSlaveName, nodeMasterNameData.data);
+		}
 	}
 
 	/* lock the cluster */
@@ -1774,7 +1802,8 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		/* refresh pgxc_node on all coordinators */
 		ereport(LOG, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node on all coordinators", nodeNameData.data)));
 		ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node on all coordinators", nodeNameData.data)));
-		res = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, nodeType, nodeNameData.data, &getAgentCmdRst, &pgConn, cnOid);
+		res = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, nodeType, nodeNameData.data
+					, &getAgentCmdRst, &pgConn, cnOid, newSyncSlaveName.data);
 		if (!res)
 		{
 			rest = false;
