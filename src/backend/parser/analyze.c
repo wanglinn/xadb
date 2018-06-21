@@ -4364,8 +4364,8 @@ static Oid get_operator_for_function(Oid funcid)
 	return opno;
 }
 
-static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, RelOptInfo *subrel, int paramid);
-static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, RelOptInfo *subrel, int paramid);
+static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, double rows, int paramid);
+static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, double rows, int paramid);
 static Expr* make_aux_update_clause(Relation aux_rel, Index aux_relid, RangeTblEntry *pts_rte, Index pts_relid);
 static List* make_modify_query_insert_target(List *exprs, List * icolumns, List *attrnos, Bitmapset **inserted);
 static List* make_aux_main_rel_need_result(Relation rel, Index mainrelid, List **colnames, Bitmapset **attrnos);
@@ -4373,7 +4373,7 @@ static Var* get_ts_scan_var_for_aux_key(RangeTblEntry *tsrte, const char *name, 
 static List* make_aux_rel_result_vars_rel(RangeTblEntry *rte, Relation aux_rel, Index aux_relid);
 static CommonTableExpr* add_modify_as_cte(Query *query, Query *subquery, const char *target_name);
 
-void applyModifyToAuxiliaryTable(struct PlannerInfo *root, struct RelOptInfo *subrel, Index relid)
+void applyModifyToAuxiliaryTable(struct PlannerInfo *root, double rows, Index relid)
 {
 	Relation		rel;
 	Relation		rel_aux;
@@ -4449,7 +4449,7 @@ void applyModifyToAuxiliaryTable(struct PlannerInfo *root, struct RelOptInfo *su
 		if (cmd_type == CMD_UPDATE ||
 			cmd_type == CMD_DELETE)
 		{
-			subparse = makeAuxiliaryDeleteQuery(rel_aux, main_alias, main_vars, execNodes, subrel, param_old->paramid);
+			subparse = makeAuxiliaryDeleteQuery(rel_aux, main_alias, main_vars, execNodes, rows, param_old->paramid);
 			add_modify_as_cte(root->parse, subparse, RelationGetRelationName(rel_aux));
 		}
 
@@ -4457,7 +4457,7 @@ void applyModifyToAuxiliaryTable(struct PlannerInfo *root, struct RelOptInfo *su
 		if (cmd_type == CMD_UPDATE ||
 			cmd_type == CMD_INSERT)
 		{
-			subparse = makeAuxiliaryInsertQuery(rel_aux, main_alias, main_vars, execNodes, subrel, param_new->paramid);
+			subparse = makeAuxiliaryInsertQuery(rel_aux, main_alias, main_vars, execNodes, rows, param_new->paramid);
 			add_modify_as_cte(root->parse, subparse, RelationGetRelationName(rel_aux));
 		}
 
@@ -4472,7 +4472,7 @@ void applyModifyToAuxiliaryTable(struct PlannerInfo *root, struct RelOptInfo *su
 	return;
 }
 
-static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, RelOptInfo *subrel, int paramid)
+static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, double rows, int paramid)
 {
 	Query		   *subparse;
 	ParseState	   *pstate;
@@ -4506,8 +4506,8 @@ static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List
 												  paramid,
 												  false);
 	subrte->execNodes = execNodes;
-	if (subrel && subrel->rows > 0.0)
-		subrte->rows = subrel->rows;
+	if (rows > 0.0)
+		subrte->rows = rows;
 	else
 		subrte->rows = 1000.0;
 	rtr = makeNode(RangeTblRef);
@@ -4535,7 +4535,7 @@ static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List
 }
 
 
-static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, RelOptInfo *subrel, int paramid)
+static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, double rows, int paramid)
 {
 	Query		   *subparse;
 	ParseState	   *pstate;
@@ -4569,8 +4569,8 @@ static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List
 	pts_rte->execNodes = execNodes;
 	pts_relid = list_length(pstate->p_rtable);
 	Assert(rt_fetch(pts_relid, pstate->p_rtable) == pts_rte);
-	if (subrel && subrel->rows > 0.0)
-		pts_rte->rows = subrel->rows;
+	if (rows > 0.0)
+		pts_rte->rows = rows;
 	else
 		pts_rte->rows = 1000.0;
 

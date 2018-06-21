@@ -1547,6 +1547,14 @@ inheritance_planner(PlannerInfo *root)
 				cluster_valid = false;
 			}
 		}
+
+		/* applyModifyToAuxiliaryTable need RangeTblEntry */
+		{
+			List *save_rtable = parse->rtable;
+			parse->rtable = final_rtable;
+			applyModifyToAuxiliaryTable(root, subpath->rows, appinfo->child_relid);
+			parse->rtable = save_rtable;
+		}
 #endif /* ADB */
 	}
 
@@ -2269,7 +2277,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 	if (parse->commandType != CMD_SELECT && !inheritance_update)
 	{
 		int last = list_length(parse->cteList);
-		applyModifyToAuxiliaryTable(root, current_rel, parse->resultRelation);
+		applyModifyToAuxiliaryTable(root, current_rel->rows, parse->resultRelation);
 		if (last != list_length(parse->cteList))
 			SS_process_ctes_lc(root, list_nth_cell(parse->cteList, last));
 	}
