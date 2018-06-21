@@ -209,6 +209,8 @@ ParseExtraOptions(char *extra_options)
 			MyRdcOpts->Log_destination = atoi(pval);
 		else if (strcmp(pname, "redirection_done") == 0)
 			MyRdcOpts->redirection_done = (bool) atoi(pval);
+		else if (strcmp(pname, "memory_mode") == 0)
+			MyRdcOpts->memory_mode = (bool) atoi(pval);
 		else if (strcmp(pname, "print_reduce_debug_log") == 0)
 			MyRdcOpts->print_reduce_debug_log = (bool) atoi(pval);
 		else
@@ -357,7 +359,9 @@ Usage(bool exit_success)
 	fprintf(fd, "  log_min_messages=ELEVEL          set the minimum log level\n");
 	fprintf(fd, "  log_error_verbosity=VERBOSE      set the verbosity of logged messages\n");
 	fprintf(fd, "  log_destination=DEST             set the destination for server log output\n");
-	fprintf(fd, "  redirection_done=(T|F)           set true if stderr is redirected done\n");
+	fprintf(fd, "  redirection_done=(1|0)           set 1 if stderr is redirected done\n");
+	fprintf(fd, "  memory_mode=(1|0)                set 1 if use rdcstore in memory mode\n");
+	fprintf(fd, "  print_reduce_debug_log=(1|0)     set 1 if print debug log\n");
 
 	exit(exit_success ? EXIT_SUCCESS: EXIT_FAILURE);
 }

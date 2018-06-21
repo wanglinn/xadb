@@ -1,6 +1,11 @@
 #ifndef RDC_TUPSTORE_H
 #define RDC_TUPSTORE_H
 
+#define RS_FLAG_DEFAULT			0x0000		/* default flag for reduce store, store in memory and
+											   temporary file; no duplicate for one record */
+#define RS_FLAG_ONLY_MEMORY		0x0001		/* store only in memory */
+#define RS_FLAG_DUPLICATE		0x0002		/* duplicate each record for any worker */
+
 typedef struct RdcBufFile RdcFile;
 
 /*
@@ -37,6 +42,7 @@ typedef struct
 typedef struct ReduceStorestate
 {
 	TupStoreStatus	status;		/* enumerated value as shown above */
+	int				sflags;		/* flags for reduce store, see RS_FLAG_XXX above */
 	bool			truncated;		/* tuplestore_trim has removed tuples? */
 	int64			availMem;		/* remaining memory available, in bytes */
 	int64			allowedMem;		/* total memory allowed, in bytes */
@@ -98,10 +104,14 @@ typedef struct ReduceStorestate
 	unsigned long	totalRead;
 } RSstate;
 
-extern RSstate *rdcstore_begin(int maxKBytes,char* purpose, int nodeId,
+#define RSstateInMemMode(state)		(((RSstate *)(state))->sflags & RS_FLAG_ONLY_MEMORY)
+
+extern RSstate *rdcstore_begin(int sflags, int maxKBytes,char* purpose, int nodeId,
 							   pid_t pid, pid_t ppid, pg_time_t time);
 
 extern bool rdcstore_ateof(RSstate *state);
+
+extern bool rdcstore_isfull(RSstate *state);
 
 extern void rdcstore_gettuple(RSstate *state ,StringInfo buf, bool *hasData);
 

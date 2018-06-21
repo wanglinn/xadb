@@ -172,7 +172,7 @@ rdc_newport(pgsocket sock,
 	RdcPeerPort(rdc_port) = NULL;
 	RdcSelfHost(rdc_port) = NULL;
 	RdcSelfPort(rdc_port) = NULL;
- #endif
+#endif
 	initStringInfoExtend(RdcMsgBuf(rdc_port), RDC_MSG_SIZE);
 	initStringInfoExtend(RdcPeerExtra(rdc_port), RDC_EXTRA_SIZE);
 	initStringInfoExtend(RdcSelfExtra(rdc_port), RDC_EXTRA_SIZE);
