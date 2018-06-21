@@ -42,6 +42,8 @@ typedef struct ReduceOptionsData
 	bool		redirection_done;
 	bool		print_reduce_debug_log;
 
+	bool		memory_mode;			/* store only in memory for RdcStore if true */
+
 	RdcPort	   *boss_watch;				/* for interprocess communication with boss */
 	RdcPort	   *log_watch;				/* for log record */
 

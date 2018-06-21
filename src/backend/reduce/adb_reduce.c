@@ -62,7 +62,7 @@ static void CloseBackendPort(void);
 static void CloseReducePort(void);
 static int  GetReduceListenPort(void);
 #ifndef WIN32
-static void AdbReduceLauncherMain(char *exec_path, int rid);
+static void AdbReduceLauncherMain(char *exec_path, int rid, bool memory_mode);
 #endif
 static int  SendPlanMsgToRemote(RdcPort *port, char msg_type, List *dest_nodes);
 
@@ -132,7 +132,7 @@ SigChldHandler(SIGNAL_ARGS)
  * return 0 if trouble.
  */
 int
-StartSelfReduceLauncher(RdcPortId rid)
+StartSelfReduceLauncher(RdcPortId rid, bool memory_mode)
 {
 	MemoryContext	old_context;
 
@@ -193,7 +193,7 @@ StartSelfReduceLauncher(RdcPortId rid)
 			/* Lose the backend's on-exit routines */
 			on_exit_reset();
 			CloseBackendPort();
-			AdbReduceLauncherMain(my_reduce_path, rid);
+			AdbReduceLauncherMain(my_reduce_path, rid, memory_mode);
 			break;
 
 		default:
@@ -320,7 +320,7 @@ GetReduceListenPort(void)
 
 #ifndef WIN32
 static void
-AdbReduceLauncherMain(char *exec_path, int rid)
+AdbReduceLauncherMain(char *exec_path, int rid, bool memory_mode)
 {
 	StringInfoData	cmd;
 	int				fd = 3;
@@ -347,11 +347,13 @@ AdbReduceLauncherMain(char *exec_path, int rid)
 						   "log_min_messages=%d "
 						   "log_destination=%d "
 						   "redirection_done=%d "
+						   "memory_mode=%d "
 						   "print_reduce_debug_log=%d",
 						   work_mem,
 						   log_min_messages,
 						   Log_destination,
 						   redirection_done,
+						   memory_mode,
 						   print_reduce_debug_log);
 	(void) execl(exec_path, exec_path, "-n", rid_ptr,
 									   "-W", wfd_ptr,
@@ -608,6 +610,8 @@ GetSlotFromRemote(RdcPort *port, TupleTableSlot *slot,
 
 				if (closed_remote)
 					*closed_remote = list_append_unique_oid(*closed_remote, (Oid) rid);
+				if (eof_oid)
+					*eof_oid = (Oid) rid;
 			}
 			break;
 		default:

@@ -26,11 +26,11 @@ static void HandleWriteToRdc(RdcPort *port);
 static void HandleReadFromPlan(PlanPort *pln_port);
 static void HandleWriteToPlan(PlanPort *pln_port);
 static bool WritePlanEndToPlanHook(const char *data, int datalen, void *context);
-static void SendPlanMsgToPlan(PlanPort *pln_port, char msg_type, RdcPortId rdc_id, const char *data, int datalen);
-static void SendPlanDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen);
-static void SendPlanEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists);
-static void SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id);
-static void SendPlanRejectToPlan(PlanPort *pln_port, RdcPortId rdc_id);
+static bool SendPlanMsgToPlan(PlanPort *pln_port, char msg_type, RdcPortId rdc_id, const char *data, int datalen);
+static bool SendPlanDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen);
+static bool SendPlanEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists);
+static bool SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id);
+static bool SendPlanRejectToPlan(PlanPort *pln_port, RdcPortId rdc_id);
 static int  SendPlanDataToRdc(StringInfo msg, PlanPort *pln_port);
 static int  SendPlanEofToRdc(StringInfo msg, PlanPort *pln_port);
 static int  SendPlanCloseToRdc(StringInfo msg, PlanPort *pln_port);
@@ -450,13 +450,15 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 	char			msg_type;
 	int				msg_len;
 	int				sv_cursor;
+	bool			quit;
 
 	Assert(ReduceTypeIDIsValid(rdc_port));
 	Assert(PortIsValid(rdc_port));
 	Assert(pln_nodes);
 
+	quit = false;
 	msg = RdcInBuf(rdc_port);
-	while (true)
+	while (!quit)
 	{
 		sv_cursor = msg->cursor;
 		if ((msg_type = rdc_getbyte(rdc_port)) == EOF ||
@@ -504,7 +506,12 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 						data = rdc_getmsgbytes(msg, datalen);
 						rdc_getmsgend(msg);
 						/* fill in data */
-						SendPlanDataToPlan(pln_port, RdcPeerID(rdc_port), data, datalen);
+						if (!SendPlanDataToPlan(pln_port, RdcPeerID(rdc_port), data, datalen))
+						{
+							msg->cursor = sv_cursor;
+							quit = true;
+							break;
+						}
 					} else
 					/* EOF message */
 					if (msg_type == MSG_EOF)
@@ -515,7 +522,12 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 							 " from" RDC_PORT_PRINT_FORMAT,
 							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in EOF message */
-						SendPlanEofToPlan(pln_port, RdcPeerID(rdc_port), true);
+						if (!SendPlanEofToPlan(pln_port, RdcPeerID(rdc_port), true))
+						{
+							msg->cursor = sv_cursor;
+							quit = true;
+							break;
+						}
 					} else
 					/* PLAN CLOSE message */
 					if (msg_type == MSG_PLAN_CLOSE)
@@ -526,7 +538,12 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 							 " from" RDC_PORT_PRINT_FORMAT,
 							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in PLAN CLOSE message */
-						SendPlanCloseToPlan(pln_port, RdcPeerID(rdc_port));
+						if (!SendPlanCloseToPlan(pln_port, RdcPeerID(rdc_port)))
+						{
+							msg->cursor = sv_cursor;
+							quit = true;
+							break;
+						}
 					} else
 					/* PLAN REJECT message */
 					{
@@ -536,7 +553,12 @@ HandleRdcMsg(RdcPort *rdc_port, List **pln_nodes)
 							 " from" RDC_PORT_PRINT_FORMAT,
 							 planid, RDC_PORT_PRINT_VALUE(rdc_port));
 						/* fill in PLAN REJECT message */
-						SendPlanRejectToPlan(pln_port, RdcPeerID(rdc_port));
+						if (!SendPlanRejectToPlan(pln_port, RdcPeerID(rdc_port)))
+						{
+							msg->cursor = sv_cursor;
+							quit = true;
+							break;
+						}
 					}
 				}
 				break;
@@ -619,7 +641,7 @@ HandleWriteToRdc(RdcPort *rdc_port)
 		RdcWaitEvents(rdc_port) &= ~WT_SOCK_WRITEABLE;
 }
 
-static void
+static bool
 SendPlanMsgToPlan(PlanPort *pln_port, char msg_type, RdcPortId rdc_id, const char *data, int datalen)
 {
 	RSstate	   *rdcstore;
@@ -639,7 +661,17 @@ SendPlanMsgToPlan(PlanPort *pln_port, char msg_type, RdcPortId rdc_id, const cha
 		 * so increase the number of discarding.
 		 */
 		pln_port->dscd_from_rdc++;
-		return ;
+		return true;
+	}
+
+	Assert(pln_port->rdcstore);
+	rdcstore = pln_port->rdcstore;
+	if (rdcstore_isfull(rdcstore))
+	{
+		/*elog(LOG,
+			 "store of" PLAN_PORT_PRINT_FORMAT " is full now",
+			 pln_port->pln_id);*/
+		return false;
 	}
 
 	/*
@@ -647,12 +679,7 @@ SendPlanMsgToPlan(PlanPort *pln_port, char msg_type, RdcPortId rdc_id, const cha
 	 * so increase the number of receiving from reduce.
 	 */
 	pln_port->recv_from_rdc++;
-
-	Assert(pln_port->rdcstore);
-
-	rdcstore = pln_port->rdcstore;
 	msg = PlanMsgBuf(pln_port);
-
 	resetStringInfo(msg);
 	rdc_beginmessage(msg, msg_type);
 	rdc_sendRdcPortID(msg, rdc_id);
@@ -663,14 +690,16 @@ SendPlanMsgToPlan(PlanPort *pln_port, char msg_type, RdcPortId rdc_id, const cha
 	}
 	rdc_sendlength(msg);
 
-	rdcstore_puttuple(rdcstore, msg->data, msg->len);
-
 	/*
 	 * It may be not useful, because "port" of "pln_port" may be
 	 * NULL until now. so try to add wait events for PlanPort again
 	 * see in HandleWriteToPlan.
 	 */
 	PlanPortAddEvents(pln_port, WT_SOCK_WRITEABLE);
+
+	rdcstore_puttuple(rdcstore, msg->data, msg->len);
+
+	return true;
 }
 
 /*
@@ -678,12 +707,12 @@ SendPlanMsgToPlan(PlanPort *pln_port, char msg_type, RdcPortId rdc_id, const cha
  *
  * send data to plan node
  */
-static void
+static bool
 SendPlanDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int datalen)
 {
 	Assert(data && datalen > 0);
 
-	SendPlanMsgToPlan(pln_port, MSG_R2P_DATA, rdc_id, data, datalen);
+	return SendPlanMsgToPlan(pln_port, MSG_R2P_DATA, rdc_id, data, datalen);
 }
 
 /*
@@ -691,7 +720,7 @@ SendPlanDataToPlan(PlanPort *pln_port, RdcPortId rdc_id, const char *data, int d
  *
  * send EOF to plan node
  */
-static void
+static bool
 SendPlanEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 {
 	int				i;
@@ -716,11 +745,11 @@ SendPlanEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
 						" from [REDUCE " PORTID_FORMAT "] once again",
 				 PlanID(pln_port), rdc_id)));
 
-		return ;
+		return true;
 	} else
 		pln_port->rdc_eofs[pln_port->eof_num++] = rdc_id;
 
-	SendPlanMsgToPlan(pln_port, MSG_EOF, rdc_id, NULL, 0);
+	return SendPlanMsgToPlan(pln_port, MSG_EOF, rdc_id, NULL, 0);
 }
 
 /*
@@ -728,18 +757,16 @@ SendPlanEofToPlan(PlanPort *pln_port, RdcPortId rdc_id, bool error_if_exists)
  *
  * send CLOSE to plan node
  */
-static void
+static bool
 SendPlanCloseToPlan(PlanPort *pln_port, RdcPortId rdc_id)
 {
-	SendPlanMsgToPlan(pln_port, MSG_PLAN_CLOSE, rdc_id, NULL, 0);
-
-	SendPlanEofToPlan(pln_port, rdc_id, false);
+	return SendPlanMsgToPlan(pln_port, MSG_PLAN_CLOSE, rdc_id, NULL, 0);
 }
 
-static void
+static bool
 SendPlanRejectToPlan(PlanPort *pln_port, RdcPortId rdc_id)
 {
-	SendPlanMsgToPlan(pln_port, MSG_PLAN_REJECT, rdc_id, NULL, 0);
+	return SendPlanMsgToPlan(pln_port, MSG_PLAN_REJECT, rdc_id, NULL, 0);
 }
 
 /*

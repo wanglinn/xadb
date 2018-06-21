@@ -168,7 +168,7 @@ static void ExecClusterPlanStmt(StringInfo buf)
 
 		/* Start self Reduce with rdc_id */
 		set_ps_display("<cluster start self reduce>", false);
-		rdc_listen_port = StartSelfReduceLauncher(PGXCNodeOid);
+		rdc_listen_port = StartSelfReduceLauncher(PGXCNodeOid, false);
 
 		/* Tell coordinator self own listen port */
 		send_rdc_listend_port(rdc_listen_port);
@@ -1077,7 +1077,7 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 		/* start self reduce */
 		if (context->have_reduce && context->start_self_reduce)
 		{
-			rdc_masks[rdc_id].rdc_port = StartSelfReduceLauncher(PGXCNodeOid);
+			rdc_masks[rdc_id].rdc_port = StartSelfReduceLauncher(PGXCNodeOid, false);
 			rdc_id++;
 		}
 

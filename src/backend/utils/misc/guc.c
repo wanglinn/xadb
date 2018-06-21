@@ -1267,7 +1267,7 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"print_reduce_debug_log", PGC_USERSET, LOGGING_WHAT,
+		{"print_reduce_debug_log", PGC_USERSET, ADB_REDUCE,
 			gettext_noop("Logs something about adb reduce."),
 			NULL
 		},

@@ -34,7 +34,11 @@ plan_newport(RdcPortId pln_id)
 	PlanPort   *pln_port = NULL;
 	int			rdc_num = MyRdcOpts->rdc_num;
 	int			work_mem = MyRdcOpts->work_mem;
+	int			sflags = RS_FLAG_DEFAULT;
 	int			i;
+
+	if (MyRdcOpts->memory_mode)
+		sflags |= RS_FLAG_ONLY_MEMORY;
 
 	pln_port = (PlanPort *) palloc0(sizeof(*pln_port) + rdc_num * sizeof(RdcPortId));
 	pln_port->work_port = NULL;
@@ -46,7 +50,7 @@ plan_newport(RdcPortId pln_id)
 	pln_port->dscd_from_rdc = 0;
 	pln_port->recv_from_rdc = 0;
 	pln_port->send_to_pln = 0;
-	pln_port->rdcstore = rdcstore_begin(work_mem, "PLAN", pln_id,
+	pln_port->rdcstore = rdcstore_begin(sflags, work_mem, "PLAN", pln_id,
 										MyProcPid, MyBossPid, MyStartTime);
 	pln_port->rdc_num = rdc_num;
 	pln_port->eof_num = 0;

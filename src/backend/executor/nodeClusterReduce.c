@@ -480,9 +480,12 @@ ExecClusterReduce(PlanState *pstate)
 					{
 						found = false;
 						entry = hash_search(node->rdc_htab, &eof_oid, HASH_FIND, &found);
-						Assert(found && !entry->re_eof);
-						entry->re_eof = true;
-						node->neofs++;
+						Assert(found);
+						if (!entry->re_eof)
+						{
+							entry->re_eof = true;
+							node->neofs++;
+						}
 						node->eof_network = (node->neofs == node->nrdcs - 1);
 					} else if (!TupIsNull(outerslot))
 						break;
@@ -610,18 +613,23 @@ GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry)
 
 		if (OidIsValid(eof_oid))
 		{
-			node->neofs++;
-			node->eof_network = (node->neofs == node->nrdcs - 1);
 			if (eof_oid == cur_oid)
 			{
 				entry->re_eof = true;
+				node->neofs++;
+				node->eof_network = (node->neofs == node->nrdcs - 1);
 				return ExecClearTuple(cur_slot);
 			} else
 			{
 				found = false;
 				othr_entry = hash_search(node->rdc_htab, &eof_oid, HASH_FIND, &found);
-				Assert(found && !othr_entry->re_eof);
-				othr_entry->re_eof = true;
+				Assert(found);
+				if (!othr_entry->re_eof)
+				{
+					othr_entry->re_eof = true;
+					node->neofs++;
+					node->eof_network = (node->neofs == node->nrdcs - 1);
+				}
 			}
 		} else if (!TupIsNull(outerslot))
 		{

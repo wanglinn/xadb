@@ -24,7 +24,7 @@ extern void EndSelfReduce(int code, Datum arg);
 extern RdcPort *ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id,
 								  RdcPortPID self_pid, RdcExtra self_extra);
 
-extern int StartSelfReduceLauncher(RdcPortId rid);
+extern int StartSelfReduceLauncher(RdcPortId rid, bool memory_mode);
 
 extern void StartSelfReduceGroup(RdcMask *rdc_masks, int num);
 
