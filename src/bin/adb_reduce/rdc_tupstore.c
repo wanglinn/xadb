@@ -62,7 +62,7 @@ struct RdcBufFile
 };
 
 /* used for extern API */
-static RSstate *rdcstore_begin_common(int maxKBytes, char* purpose, int nodeId,
+static RSstate *rdcstore_begin_common(int sflags, int maxKBytes, char* purpose, int nodeId,
 									  pid_t pid, pid_t ppid, pg_time_t time);
 static void *rdcstore_gettuple_common(RSstate *state);
 static void rdcstore_puttuple_common(RSstate *state, void *tuple);
@@ -140,13 +140,14 @@ static int   rdcNodeId = 0;
  * Initialize for a reduce store operation.
  */
 static RSstate *
-rdcstore_begin_common(int maxKBytes, char *purpose, int nodeId,
+rdcstore_begin_common(int sflags, int maxKBytes, char *purpose, int nodeId,
 					  pid_t pid, pid_t ppid, pg_time_t time)
 {
 	RSstate *state;
 
 	state = (RSstate *) palloc0(sizeof(RSstate));
 	state->status = TSS_INMEM;
+	state->sflags = sflags;
 	state->allowedMem = maxKBytes * 1024L;
 	state->availMem = state->allowedMem;
 	state->myfile = NULL;
@@ -284,6 +285,12 @@ rdcstore_puttuple_common(RSstate *state, void *tuple)
 			 */
 			if (state->memtupcount < state->memtupsize && !LACKMEM(state))
 				return;
+
+			/*
+			 * Done if store memory is full.
+			 */
+			if (RSstateInMemMode(state))
+				return ;
 
 			/* create temp file */
 			 state->myfile = rdcBufFileCreateTemp();
@@ -1182,7 +1189,7 @@ retry:
  * amount is paged to disk).  When in doubt, use work_mem.
  */
 RSstate *
-rdcstore_begin(int maxKBytes, char* purpose, int nodeId,
+rdcstore_begin(int sflags, int maxKBytes, char* purpose, int nodeId,
 			   pid_t pid, pid_t ppid, pg_time_t time)
 {
 	RSstate *state;
@@ -1190,7 +1197,7 @@ rdcstore_begin(int maxKBytes, char* purpose, int nodeId,
 	Assert(maxKBytes > 0 && NULL !=purpose &&
 		nodeId >= 0 && pid > 0 && ppid > 0 && time > 0);
 
-	state = rdcstore_begin_common(maxKBytes, purpose, nodeId,
+	state = rdcstore_begin_common(sflags, maxKBytes, purpose, nodeId,
 								  pid, ppid, time);
 
 	state->copytup = rdcCopyTuple;
@@ -1210,6 +1217,20 @@ rdcstore_ateof(RSstate *state)
 {
 	Assert(NULL != state);
 	return state->readptr->eof_reached;
+}
+
+bool
+rdcstore_isfull(RSstate *state)
+{
+	/* memory mode */
+	if (state && RSstateInMemMode(state))
+	{
+		Assert(state->status == TSS_INMEM);
+		if (state->memtupcount >= state->memtupsize || LACKMEM(state))
+			return true;
+	}
+
+	return false;
 }
 
 /*
