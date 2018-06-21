@@ -250,7 +250,7 @@ static void adjust_paths_for_srfs(PlannerInfo *root, RelOptInfo *rel,
 #ifdef ADB
 static void separate_rowmarks(PlannerInfo *root);
 static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path);
-static void set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify, Index relid);
+static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify);
 static bool is_remote_relation(PlannerInfo *root, Index relid);
 static bool modify_have_auxiliary(PlannerInfo *root, Index relid);
 static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms);
@@ -1219,6 +1219,11 @@ inheritance_planner(PlannerInfo *root)
 	Index		rti;
 	RangeTblEntry *parent_rte;
 	List	   *partitioned_rels = NIL;
+#ifdef ADB
+	int			last_cte_count = list_length(parse->cteList);
+	List	   *cluster_paths = NIL;
+	bool		cluster_valid = true;
+#endif /* ADB */
 
 	Assert(parse->commandType != CMD_INSERT);
 
@@ -1529,6 +1534,20 @@ inheritance_planner(PlannerInfo *root)
 									 subroot->parse->returningList);
 
 		Assert(!parse->onConflict);
+#ifdef ADB
+		if (cluster_valid)
+		{
+			if (sub_final_rel->cheapest_cluster_total_path)
+			{
+				cluster_paths = lappend(cluster_paths, sub_final_rel->cheapest_cluster_total_path);
+			}else
+			{
+				list_free(cluster_paths);
+				cluster_paths = NIL;
+				cluster_valid = false;
+			}
+		}
+#endif /* ADB */
 	}
 
 	if (parent_rte->relkind == RELKIND_PARTITIONED_TABLE)
@@ -1537,6 +1556,11 @@ inheritance_planner(PlannerInfo *root)
 		/* The root partitioned table is included as a child rel */
 		Assert(list_length(partitioned_rels) >= 1);
 	}
+#ifdef ADB
+	/* process auxiliary modify */
+	if (last_cte_count != list_length(parse->cteList))
+		SS_process_ctes_lc(root, list_nth_cell(parse->cteList, last_cte_count));
+#endif /* ADB */
 
 	/* Result path must go into outer query's FINAL upperrel */
 	final_rel = fetch_upper_rel(root, UPPERREL_FINAL, NULL);
@@ -1600,6 +1624,38 @@ inheritance_planner(PlannerInfo *root)
 									 rowMarks,
 									 NULL,
 									 SS_assign_special_param(root)));
+#ifdef ADB
+	if (cluster_valid)
+	{
+		ModifyTablePath *modify = create_modifytable_path(root,
+														  final_rel,
+														  parse->commandType,
+														  parse->canSetTag,
+														  nominalRelation,
+														  partitioned_rels,
+														  resultRelations,
+														  cluster_paths,
+														  subroots,
+														  withCheckOptionLists,
+														  returningLists,
+														  rowMarks,
+														  NULL,
+														  SS_assign_special_param(root));
+		if (set_modifytable_path_reduceinfo(root, modify))
+		{
+			PlannerInfo *subroot;
+			modify->under_cluster = true;
+			if (root->parent_root == NULL)
+				add_path(final_rel, (Path*)create_cluster_gather_path((Path*)modify, final_rel));
+			else
+				add_cluster_path(final_rel, (Path*)modify);
+
+			/* function set_cte_pathlist need final target */
+			subroot = linitial(subroots);
+			root->upper_targets[UPPERREL_FINAL] = subroot->upper_targets[UPPERREL_FINAL];
+		}
+	}
+#endif /* ADB */
 }
 
 /*--------------------
@@ -2029,8 +2085,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			current_rel->partial_pathlist = NIL;
 		}
 #ifdef ADB
-		if (inheritance_update == false &&
-			current_rel->cluster_pathlist &&
+		if (current_rel->cluster_pathlist &&
 			!has_cluster_hazard((Node*)scanjoin_target->exprs, false))
 		{
 			Path *path;
@@ -2315,8 +2370,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 
 #ifdef ADB
 			/* try cluster insert plan */
-			if (inheritance_update == false &&
-				root->glob->clusterPlanOK &&
+			if (root->glob->clusterPlanOK &&
 				parse->commandType == CMD_INSERT &&
 				current_rel->cluster_pathlist == NIL &&
 				/* need this? safety add it */
@@ -2366,7 +2420,8 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 											rowMarks,
 											parse->onConflict,
 											SS_assign_special_param(root));
-				set_modifytable_path_reduceinfo(root, modify, parse->resultRelation);
+				set_modifytable_path_reduceinfo(root, modify);
+				Assert(modify->path.reduce_is_valid && modify->path.reduce_info_list != NIL);
 				modify->under_cluster = true;
 				path = (Path*)create_cluster_gather_path((Path*)modify, final_rel);
 			}else
@@ -2517,13 +2572,15 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 										NIL,	/* no row marks */
 										parse->onConflict,
 										SS_assign_special_param(root));
-			set_modifytable_path_reduceinfo(root, modify, parse->resultRelation);
+			set_modifytable_path_reduceinfo(root, modify);
+			Assert(modify->path.reduce_is_valid && modify->path.reduce_info_list != NIL);
 			modify->under_cluster = true;
 			path = (Path*)modify;
 			reduce_info_list = get_reduce_info_list(path);
 		}
 
-		if(root->parent_root == NULL)
+		if (root->parent_root == NULL &&
+			!inheritance_update)
 		{
 			if(!have_gather)
 			{
@@ -7541,45 +7598,123 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 	return path;
 }
 
-static void set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify, Index relid)
+static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify)
 {
-	RelationLocInfo *loc_info;
-	RangeTblEntry *rte;
-	ReduceInfo *rinfo;
-	bool need_free_loc = false;
+	RelationLocInfo	   *loc_info;
+	RangeTblEntry	   *rte;
+	ReduceInfo		   *rinfo;
+	ReduceInfo		   *result_rinfo = NULL;
+	List			   *result_distribute_cols = NIL;
+	List			   *storage = NIL;
+	ListCell		   *lc;
+	Index				relid;
+	int					nth = 0;
+	bool				have_replicate = false;
+	bool				have_no_rep = false;
 
-	rte = planner_rt_fetch(relid, root);
-
-	if (relid < root->simple_rel_array_size &&
-		root->simple_rel_array[relid] != NULL)
+	foreach(lc, modify->resultRelations)
 	{
-		loc_info = root->simple_rel_array[relid]->loc_info;
-	}else
-	{
-		Relation rel;
-		Assert(rte->rtekind == RTE_RELATION);
-		rel = relation_open(rte->relid, NoLock);
+		relid = lfirst_int(lc);
+		rte = planner_rt_fetch(relid, root);
+		Relation rel = NULL;
 
-		if(rel->rd_locator_info)
+		if (relid < root->simple_rel_array_size &&
+			root->simple_rel_array[relid] != NULL)
 		{
-			loc_info = CopyRelationLocInfo(rel->rd_locator_info);
-			need_free_loc = true;
+			loc_info = root->simple_rel_array[relid]->loc_info;
 		}else
 		{
-			loc_info = NULL;
+			Assert(rte->rtekind == RTE_RELATION);
+			rel = relation_open(rte->relid, NoLock);
+
+			if(rel->rd_locator_info)
+				loc_info = rel->rd_locator_info;
+			else
+				loc_info = NULL;
 		}
-		relation_close(rel, NoLock);
+
+		if (loc_info)
+			rinfo = MakeReduceInfoFromLocInfo(loc_info, NIL, rte->relid, relid);
+		else
+			rinfo = MakeCoordinatorReduceInfo();
+		if (rel != NULL)
+			relation_close(rel, NoLock);
+
+		if (have_replicate == false)
+			have_replicate = IsReduceInfoReplicated(rinfo);
+		if (have_no_rep == false)
+			have_no_rep = !IsReduceInfoReplicated(rinfo);
+
+		if (have_replicate &&
+			have_no_rep &&
+			modify->returningLists != NIL)
+		{
+			/*
+			 * we can not using replicate and no replicate in on ModifyTable
+			 */
+			FreeReduceInfo(rinfo);
+			FreeReduceInfo(result_rinfo);
+			list_free(storage);
+			return false;
+		}
+
+		/* save all target storage */
+		storage = list_concat_unique_oid(storage, rinfo->storage_nodes);
+
+		/* save first reduce info if it is distribute by value */
+		if (nth == 0 &&
+			IsReduceInfoByValue(rinfo))
+		{
+			result_rinfo = rinfo;
+			if (modify->returningLists)
+			{
+				result_distribute_cols = ReduceInfoFindTargetList(rinfo,
+																  linitial(modify->returningLists),
+																  true /* safety we skip junk */);
+			}
+		}
+
+		if (modify->returningLists != NIL &&
+			result_rinfo != NULL &&
+			result_rinfo != rinfo)
+		{
+			bool match = CompReduceInfo(result_rinfo, rinfo, REDUCE_MARK_STORAGE|REDUCE_MARK_TYPE);
+			if (match)
+			{
+				/* compare distribute column(s) order is equal */
+				List *attnos = ReduceInfoFindTargetList(rinfo,
+														list_nth(modify->returningLists, nth),
+														true /* safety we skip junk */);
+				match = equal(attnos, result_distribute_cols);
+				list_free(attnos);
+			}
+			if (match == false)
+			{
+				FreeReduceInfo(result_rinfo);
+				result_rinfo = NULL;
+			}
+		}
+
+		if (rinfo != result_rinfo)
+			FreeReduceInfo(rinfo);
+		++nth;
 	}
 
-	if(loc_info)
-		rinfo = MakeReduceInfoFromLocInfo(loc_info, NIL, rte->relid, relid);
-	else
-		rinfo = MakeCoordinatorReduceInfo();
+	if (result_rinfo == NULL)
+	{
+		/* not all match */
+		if (list_length(storage) == 1 &&
+			linitial_oid(storage) == PGXCNodeOid)
+			result_rinfo = MakeCoordinatorReduceInfo();
+		else
+			result_rinfo = MakeRandomReduceInfo(storage);
+	}
+	list_free(storage);
+	list_free(result_distribute_cols);
 
-	modify->path.reduce_info_list = list_make1(rinfo);
+	modify->path.reduce_info_list = list_make1(result_rinfo);
 	modify->path.reduce_is_valid = true;
-	if(need_free_loc)
-		FreeRelationLocInfo(loc_info);
+	return true;
 }
 
 static bool is_remote_relation(PlannerInfo *root, Index relid)
