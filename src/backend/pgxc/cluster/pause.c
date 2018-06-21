@@ -142,28 +142,29 @@ HandleClusterPause(bool pause, bool initiator)
 	 */
 	node_list = GetAllCnIDL(false);
 	cur_handle = GetMixedHandles(node_list, NULL);
-	Assert(node_list && cur_handle);
 	list_free(node_list);
 
 	PG_TRY();
 	{
-		foreach (lc_handle, cur_handle->handles)
+		if (cur_handle)
 		{
-			handle = (NodeHandle *) lfirst(lc_handle);
-			if (!HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot
-				, pause ? pause_cluster_str : unpause_cluster_str, NULL)
-				|| !HandleFinishCommand(handle, NULL_TAG))
+			foreach (lc_handle, cur_handle->handles)
 			{
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Fail to send query: \"%s\"", pause ? pause_cluster_str : unpause_cluster_str),
-						 errnode(NameStr(handle->node_name)),
-						 errdetail("%s", HandleGetError(handle))));
+				handle = (NodeHandle *) lfirst(lc_handle);
+				if (!HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot
+					, pause ? pause_cluster_str : unpause_cluster_str, NULL)
+					|| !HandleFinishCommand(handle, NULL_TAG))
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Fail to send query: \"%s\"", pause ? pause_cluster_str : unpause_cluster_str),
+							 errnode(NameStr(handle->node_name)),
+							 errdetail("%s", HandleGetError(handle))));
+				}
 			}
+
+			HandleListGC(cur_handle->handles);
 		}
-
-		HandleListGC(cur_handle->handles);
-
 		/*
 		 * Disable/Enable local queries. We need to release the SHARED mode first
 		 *
@@ -196,27 +197,29 @@ HandleClusterPause(bool pause, bool initiator)
 				 (errmsg("\"%s\" command failed on one or more coordinator nodes."
 						" Trying to \"%s\" reachable nodes now", pause_cluster_str, unpause_cluster_str)));
 
-		foreach (lc_handle, cur_handle->handles)
+		if (cur_handle)
 		{
-			handle = (NodeHandle *) lfirst(lc_handle);
-			if (!HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot
-				, unpause_cluster_str, NULL)
-				|| !HandleFinishCommand(handle, NULL_TAG))
+			foreach (lc_handle, cur_handle->handles)
 			{
-					ereport(WARNING,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Fail to send query: \"%s\"", unpause_cluster_str),
-						 errnode(NameStr(handle->node_name)),
-						 errdetail("%s", HandleGetError(handle))));
+				handle = (NodeHandle *) lfirst(lc_handle);
+				if (!HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot
+					, unpause_cluster_str, NULL)
+					|| !HandleFinishCommand(handle, NULL_TAG))
+				{
+						ereport(WARNING,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("Fail to send query: \"%s\"", unpause_cluster_str),
+							 errnode(NameStr(handle->node_name)),
+							 errdetail("%s", HandleGetError(handle))));
+				}
 			}
 		}
-
 		/* cleanup locally.. */
 		ReleaseClusterLock(true);
 		AcquireClusterLock(false);
 		cluster_ex_lock_held = false;
-
-		HandleListGC(cur_handle->handles);
+		if (cur_handle)
+			HandleListGC(cur_handle->handles);
 		PG_RE_THROW();
 	} PG_END_TRY();
 
