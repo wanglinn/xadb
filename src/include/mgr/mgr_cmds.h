@@ -406,5 +406,8 @@ extern void mgr_get_prefer_nodename_for_cn(char *cnName, bool breadOnly, List *d
 extern Oid mgr_get_tupoid_from_nodename(Relation relNode, char *nodename);
 extern bool mgr_check_list_in(List *list, char *checkName);
 extern bool mgr_try_max_times_get_stringvalues(char cmdtype, int agentPort, char *sqlStr, char *userName				, char *nodeAddress, int nodePort, char *dbname, StringInfo restmsg, int max);
+extern bool mgr_get_dnlist(Name oldPreferredNode, char *separateStr, StringInfo restmsg, List **dnList);
+extern void mgr_set_preferred_node(char *oldPreferredNode, char *preferredDnName
+		,char *coordname, char *userName, char *nodeAddress, int agentPort, int nodePort);
 
 #endif /* MGR_CMDS_H */

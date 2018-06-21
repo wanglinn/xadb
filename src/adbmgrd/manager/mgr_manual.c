@@ -945,6 +945,8 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	NameData m_nodename;
 	NameData s_nodename;
+	NameData preferredDnName;
+	NameData oldPreferredNode;
 	HeapTuple tuple;
 	HeapTuple host_tuple;
 	Relation rel_node;
@@ -954,15 +956,22 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	PGresult *res = NULL;
 	char port_buf[10];
 	char *s_coordname;
+	char *nodeAddress;
+	char *userName;
 	bool b_exist_dest = false;
 	bool b_running_dest = false;
 	bool rest = false;
 	bool noneed_dropnode = true;
+	bool bres = false;
+	bool bReadOnly = false;
 	int iloop = 0;
 	int s_agent_port;
 	int iMax = 90;
+	int nodePort;
+	int agentPort;
 	Oid cnoid;
 	Oid checkOid;
+	List *dnList = NIL;
 
 	/*check all gtm, coordinator, datanode master running normal*/
 	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
@@ -1264,18 +1273,50 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	Assert(mgr_node);
 	mgr_node->nodeinited = true;
 	mgr_node->nodeincluster = true;
+	bReadOnly = mgr_node->nodereadonly;
+	agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
+	nodePort = mgr_node->nodeport;
+	nodeAddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
+	userName = get_hostuser_from_hostoid(mgr_node->nodehost);
 	heap_inplace_update(rel_node, tuple);
 	heap_freetuple(tuple);
 	heap_close(rel_node, RowExclusiveLock);
 
-	pfree(sqlstrmsg.data);
-	pfree(restmsg.data);
 	pfree(infosendmsg.data);
 	pfree(getAgentCmdRst.description.data);
 	pfree_AppendNodeInfo(dest_nodeinfo);
 
 	/* unlock the cluster */
 	mgr_unlock_cluster(&pg_conn);
+
+	/* set preferred node */
+	resetStringInfo(&sqlstrmsg);
+	appendStringInfo(&sqlstrmsg, "select node_name from pgxc_node where node_type = 'D' \
+			and nodeis_preferred = true union all select '*' union all select node_name \
+			from pgxc_node where node_type = 'D';");
+	monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data
+			,userName, nodeAddress, nodePort, DEFAULT_DB, &restmsg);
+
+	bres = mgr_get_dnlist(&oldPreferredNode, "*", &restmsg, &dnList);
+	if (!bres || !dnList)
+		ereport(WARNING, (errmsg("on coordinator \"%s\", reset the preperred datanode fail. \
+			please, do it manual", s_coordname)));
+	else
+	{
+		mgr_get_prefer_nodename_for_cn(s_coordname, bReadOnly, dnList, &preferredDnName);
+		list_free(dnList);
+		dnList = NIL;
+		resetStringInfo(&sqlstrmsg);
+		/* set preferred node on coordinator */
+		mgr_set_preferred_node(NameStr(oldPreferredNode), NameStr(preferredDnName)
+							,s_coordname, userName, nodeAddress, agentPort, nodePort);
+
+	}
+
+	pfree(nodeAddress);
+	pfree(userName);
+	pfree(sqlstrmsg.data);
+	pfree(restmsg.data);
 
 	if (strerr.len == 0)
 	{
