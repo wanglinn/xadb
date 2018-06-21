@@ -254,7 +254,7 @@ ReduceInfo *ConvertReduceInfo(const ReduceInfo *reduce, const PathTarget *target
 
 	if (IsReduceInfoByValue(reduce))
 	{
-		List *attnos = ReduceInfoFindTarget(reduce, target);
+		List *attnos = ReduceInfoFindPathTarget(reduce, target);
 		if(attnos != NIL)
 		{
 			new_reduce = MakeReduceInfoAs(reduce, MakeVarList(attnos, new_relid, target));
@@ -1248,7 +1248,7 @@ bool ReduceInfoListIncludeExpr(List *reduceList, Expr *expr)
 /*
  * return found expr index(from 1) list
  */
-List* ReduceInfoFindTarget(const ReduceInfo* reduce, const PathTarget *target)
+List* ReduceInfoFindPathTarget(const ReduceInfo* reduce, const PathTarget *target)
 {
 	const ListCell *lc_param;
 	const ListCell *lc_target;
@@ -1267,6 +1267,38 @@ List* ReduceInfoFindTarget(const ReduceInfo* reduce, const PathTarget *target)
 				break;
 			}
 			++i;
+		}
+		if(lc_target == NULL)
+		{
+			list_free(result);
+			return NIL;
+		}
+	}
+
+	return result;
+}
+
+List* ReduceInfoFindTargetList(const ReduceInfo* reduce, const List *targetlist, bool skip_junk)
+{
+	const ListCell *lc_param;
+	const ListCell *lc_target;
+	TargetEntry *te;
+	List *result = NIL;
+	AssertArg(targetlist && reduce);
+	AssertArg(IsReduceInfoByValue(reduce));
+
+	foreach(lc_param, reduce->params)
+	{
+		foreach(lc_target, targetlist)
+		{
+			te = lfirst(lc_target);
+			if (skip_junk && te->resjunk)
+				continue;
+			if(equal(te->expr, lfirst(lc_param)))
+			{
+				result = lappend_int(result, te->resno);
+				break;
+			}
 		}
 		if(lc_target == NULL)
 		{

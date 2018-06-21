@@ -172,7 +172,8 @@ extern List* GetPathListReduceInfoList(List *pathlist);
 extern int ReduceInfoIncludeExpr(ReduceInfo *reduce, Expr *expr);
 extern bool ReduceInfoListIncludeExpr(List *reduceList, Expr *expr);
 
-extern List* ReduceInfoFindTarget(const ReduceInfo* reduce, const PathTarget *target);
+extern List* ReduceInfoFindPathTarget(const ReduceInfo* reduce, const PathTarget *target);
+extern List* ReduceInfoFindTargetList(const ReduceInfo* reduce, const List *targetlist, bool skip_junk);
 extern List* MakeVarList(const List *attnos, Index relid, const PathTarget *target);
 extern bool IsGroupingReduceExpr(PathTarget *target, ReduceInfo *info);
 extern bool IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
