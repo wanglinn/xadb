@@ -1589,7 +1589,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 					Assert(IsReduceInfoByValue(reduce_info));
 
 					/* find reduce column(s) target */
-					new_attno = ReduceInfoFindTarget(reduce_info, path->pathtarget);
+					new_attno = ReduceInfoFindPathTarget(reduce_info, path->pathtarget);
 					if(new_attno == NIL)
 					{
 						/* lost target */
@@ -1649,7 +1649,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 				{
 					List *new_attno;
 					sub_reduce = lfirst(lc_reduce);
-					new_attno = ReduceInfoFindTarget(sub_reduce, ((Path*)lfirst(lc_path))->pathtarget);
+					new_attno = ReduceInfoFindPathTarget(sub_reduce, ((Path*)lfirst(lc_path))->pathtarget);
 					if (equal(new_attno, lfirst(lc_new_attno)) &&
 						IsReduceInfoSame(sub_reduce, reduce_info))
 					{
