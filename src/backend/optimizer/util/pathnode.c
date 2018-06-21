@@ -4243,7 +4243,9 @@ static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context
 		return false;
 	case T_ModifyTablePath:
 		{
+			PathExecuteOnContext subroot_context;
 			ExecNodeInfo *exec_info;
+			ListCell *lc,*lc2;
 			ModifyTablePath *mtpath = (ModifyTablePath*)path;
 			List *reduce_list = get_reduce_info_list(path);
 			if(IsReduceInfoListCoordinator(reduce_list))
@@ -4252,7 +4254,6 @@ static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context
 				++(exec_info->part_count);
 			}else
 			{
-				ListCell *lc;
 				List *exec_list = ReduceInfoListGetExecuteOidList(get_reduce_info_list(path));
 				foreach(lc, exec_list)
 				{
@@ -4264,8 +4265,17 @@ static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context
 				}
 				list_free(exec_list);
 			}
+
+			subroot_context.htab = context->htab;
+			Assert(list_length(mtpath->subpaths) == list_length(mtpath->subroots));
+			forboth(lc, mtpath->subpaths, lc2, mtpath->subroots)
+			{
+				subroot_context.root = lfirst(lc2);
+				if (get_path_execute_on_walker(lfirst(lc), &subroot_context))
+					return true;
+			}
 		}
-		break;
+		return false;
 	case T_SubqueryScanPath:
 		{
 			PathExecuteOnContext subroot_context;
