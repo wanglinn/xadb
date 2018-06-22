@@ -410,4 +410,7 @@ extern bool mgr_get_dnlist(Name oldPreferredNode, char *separateStr, StringInfo 
 extern void mgr_set_preferred_node(char *oldPreferredNode, char *preferredDnName
 		,char *coordname, char *userName, char *nodeAddress, int agentPort, int nodePort);
 
+extern List *mgr_append_coord_update_pgxcnode(StringInfo sqlstrmsg, List *dnList, Name oldPreferredNode);
+extern bool mgr_get_coord_readtype(char *nodeName);
+
 #endif /* MGR_CMDS_H */
