@@ -99,8 +99,10 @@ void exec_cluster_plan(const void *splan, int length)
 {
 	StringInfoData msg;
 	NodeTag tag;
-
 	ClusterErrorHookContext error_context_hook;
+	static const char copy_msg[] = {1,		/* format, ignore */
+									0, 0	/* natts, ignore */
+											/* no more attr send */};
 
 	msg.data = (char*)splan;
 	msg.len = msg.maxlen = length;
@@ -110,6 +112,28 @@ void exec_cluster_plan(const void *splan, int length)
 
 	SetupClusterErrorHook(&error_context_hook);
 	restore_cluster_plan_info(&msg);
+
+	/* Send a message
+	 * 'H' for copy out, 'W' for copy both */
+	pq_putmessage('W', copy_msg, sizeof(copy_msg));
+	pq_flush();
+
+	if (mem_toc_lookup(&msg, REMOTE_KEY_HAS_REDUCE, NULL) != NULL)
+	{
+		/* need reduce */
+		int rdc_listen_port;
+
+		/* Start self Reduce with rdc_id */
+		set_ps_display("<cluster start self reduce>", false);
+		rdc_listen_port = StartSelfReduceLauncher(PGXCNodeOid, false);
+
+		/* Tell coordinator self own listen port */
+		send_rdc_listend_port(rdc_listen_port);
+
+		/* Wait for the whole Reduce connect OK */
+		set_ps_display("<cluster start group reduce>", false);
+		wait_rdc_group_message();
+	}
 
 	switch(tag)
 	{
@@ -129,6 +153,9 @@ void exec_cluster_plan(const void *splan, int length)
 	EndClusterTransaction();
 
 	RestoreClusterHook(&error_context_hook);
+
+	/* Send Copy Done message */
+	pq_putemptymessage('c');
 }
 
 static void ExecClusterPlanStmt(StringInfo buf)
@@ -138,7 +165,6 @@ static void ExecClusterPlanStmt(StringInfo buf)
 	StringInfoData msg;
 	int eflags;
 	bool need_instrument;
-	bool has_reduce;
 
 	enable_cluster_plan = true;
 
@@ -148,35 +174,6 @@ static void ExecClusterPlanStmt(StringInfo buf)
 		need_instrument = true;
 	else
 		need_instrument = false;
-
-	if (mem_toc_lookup(buf, REMOTE_KEY_HAS_REDUCE, NULL) != NULL)
-		has_reduce = true;
-	else
-		has_reduce = false;
-
-	/* Send a message
-	 * 'H' for copy out, 'W' for copy both */
-	initStringInfo(&msg);
-	pq_sendbyte(&msg, 0);
-	pq_sendint(&msg, 0, 2);
-	pq_putmessage('W', msg.data, msg.len);
-	pq_flush();
-
-	if (has_reduce)
-	{
-		int rdc_listen_port;
-
-		/* Start self Reduce with rdc_id */
-		set_ps_display("<cluster start self reduce>", false);
-		rdc_listen_port = StartSelfReduceLauncher(PGXCNodeOid, false);
-
-		/* Tell coordinator self own listen port */
-		send_rdc_listend_port(rdc_listen_port);
-
-		/* Wait for the whole Reduce connect OK */
-		set_ps_display("<cluster start group reduce>", false);
-		wait_rdc_group_message();
-	}
 
 	eflags = 0;
 	if (query_desc->plannedstmt->hasModifyingCTE ||
@@ -192,7 +189,7 @@ static void ExecClusterPlanStmt(StringInfo buf)
 	ExecutorRun(query_desc, ForwardScanDirection, 0L, true);
 
 	/* send processed message */
-	resetStringInfo(&msg);
+	initStringInfo(&msg);
 	serialize_processed_message(&msg, query_desc->estate->es_processed);
 	pq_putmessage('d', msg.data, msg.len);
 
@@ -226,9 +223,6 @@ static void ExecClusterPlanStmt(StringInfo buf)
 	FreeQueryDesc(query_desc);
 
 	pfree(msg.data);
-
-	/* Send Copy Done message */
-	pq_putemptymessage('c');
 }
 
 static void ExecClusterCopyStmt(StringInfo buf)
@@ -466,12 +460,15 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 	return ExecInitNode(plan, estate, eflags);
 }
 
-List* ExecStartClusterCopy(List *rnodes, struct CopyStmt *stmt)
+List* ExecStartClusterCopy(List *rnodes, struct CopyStmt *stmt, StringInfo mem_toc, uint32 flag)
 {
 	ClusterPlanContext context;
 	StringInfoData msg;
 	List *conn_list;
 	initStringInfo(&msg);
+
+	if(mem_toc)
+		appendBinaryStringInfo(&msg, mem_toc->data, mem_toc->len);
 
 	begin_mem_toc_insert(&msg, REMOTE_KEY_PLAN_STMT);
 	saveNode(&msg, (Node*)stmt);
@@ -482,8 +479,13 @@ List* ExecStartClusterCopy(List *rnodes, struct CopyStmt *stmt)
 	MemSet(&context, 0, sizeof(context));
 	context.transaction_read_only = false;
 	context.have_temp = false;
-	context.have_reduce = false;
-	context.start_self_reduce = false;
+	if (flag & EXEC_CLUSTER_FLAG_NEED_REDUCE)
+		context.have_reduce = true;
+	if (flag & EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE)
+	{
+		Assert(context.have_reduce);
+		context.start_self_reduce = true;
+	}
 
 	conn_list = StartRemotePlan(&msg, rnodes, &context);
 	Assert(list_length(conn_list) == list_length(rnodes));
