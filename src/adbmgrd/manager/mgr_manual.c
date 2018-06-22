@@ -972,6 +972,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	Oid cnoid;
 	Oid checkOid;
 	List *dnList = NIL;
+	List *newDnList = NIL;
 
 	/*check all gtm, coordinator, datanode master running normal*/
 	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
@@ -1208,6 +1209,9 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		mgr_add_parm(s_coordname, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
 		mgr_append_pgconf_paras_str_str("pgxc_node_name", s_coordname, &infosendmsg);
 		mgr_append_pgconf_paras_str_str("hot_standby", "off", &infosendmsg);
+		/* for read only coordinator */
+		if (mgr_get_coord_readtype(s_coordname))
+			mgr_append_pgconf_paras_str_str("default_transaction_read_only", "on", &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, dest_nodeinfo.nodepath, &infosendmsg
 			, dest_nodeinfo.nodehost, &getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
@@ -1289,7 +1293,9 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	/* unlock the cluster */
 	mgr_unlock_cluster(&pg_conn);
 
-	/* set preferred node */
+	/* update pgxc_node if the node is read only node and
+	*  set preferred node
+	*/
 	resetStringInfo(&sqlstrmsg);
 	appendStringInfo(&sqlstrmsg, "select node_name from pgxc_node where node_type = 'D' \
 			and nodeis_preferred = true union all select '*' union all select node_name \
@@ -1303,10 +1309,37 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 			please, do it manual", s_coordname)));
 	else
 	{
-		mgr_get_prefer_nodename_for_cn(s_coordname, bReadOnly, dnList, &preferredDnName);
+		/* update pgxc_node if the append coordinator is read only node
+		*/
+		if (bReadOnly)
+		{
+			resetStringInfo(&sqlstrmsg);
+			newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode);
+			Assert(newDnList);
+			ereport(LOG, (errmsg("on coordinator \"%s\", update the pgxc_node table", s_coordname)));
+			ereport(NOTICE, (errmsg("on coordinator \"%s\", update the pgxc_node table", s_coordname)));
+			bres = mgr_try_max_times_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data, userName
+							, nodeAddress, nodePort, DEFAULT_DB, &restmsg, 3);
+			if (!bres)
+				ereport(WARNING, (errmsg("on coordinator \"%s\" execute \"%s\" fail, you need to check it"
+					, s_coordname
+				, sqlstrmsg.data)));
+		}
+
+		ereport(LOG, (errmsg("on coordinator \"%s\", set the preferred node", s_coordname)));
+		ereport(NOTICE, (errmsg("on coordinator \"%s\", set the preferred node", s_coordname)));
+		if (bReadOnly)
+		{
+			mgr_get_prefer_nodename_for_cn(s_coordname, bReadOnly, newDnList, &preferredDnName);
+			list_free(newDnList);
+		}
+		else
+		{
+			mgr_get_prefer_nodename_for_cn(s_coordname, bReadOnly, dnList, &preferredDnName);
+		}
+
 		list_free(dnList);
 		dnList = NIL;
-		resetStringInfo(&sqlstrmsg);
 		/* set preferred node on coordinator */
 		mgr_set_preferred_node(NameStr(oldPreferredNode), NameStr(preferredDnName)
 							,s_coordname, userName, nodeAddress, agentPort, nodePort);
