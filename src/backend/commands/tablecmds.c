@@ -1168,6 +1168,23 @@ ExecuteTruncate(TruncateStmt *stmt)
 		rels = lappend(rels, rel);
 		relids = lappend_oid(relids, myrelid);
 
+#ifdef ADB
+		/* add the auxiliary tables of parent relation */
+		if (list_length(rel->rd_auxlist) > 0)
+		{
+			ListCell   *auxcell;
+
+			foreach (auxcell, rel->rd_auxlist)
+			{
+				Oid 		auxrelid = lfirst_oid(auxcell);
+
+				rel = heap_open(auxrelid, AccessExclusiveLock);
+				rels = lappend(rels, rel);
+				relids = lappend_oid(relids, auxrelid);
+			}
+		}
+#endif
+
 		if (recurse)
 		{
 			ListCell   *child;
@@ -1187,6 +1204,22 @@ ExecuteTruncate(TruncateStmt *stmt)
 				truncate_check_rel(rel);
 				rels = lappend(rels, rel);
 				relids = lappend_oid(relids, childrelid);
+#ifdef ADB
+				/* add the auxiliary tables of children relation */
+				if (list_length(rel->rd_auxlist) > 0)
+				{
+					ListCell   *auxcell;
+
+					foreach (auxcell, rel->rd_auxlist)
+					{
+						Oid 		auxrelid = lfirst_oid(auxcell);
+
+						rel = heap_open(auxrelid, AccessExclusiveLock);
+						rels = lappend(rels, rel);
+						relids = lappend_oid(relids, auxrelid);
+					}
+				}
+#endif
 			}
 		}
 	}
