@@ -2523,7 +2523,9 @@ re_reduce_join_:
 	}
 
 	/* reduce inner and outer both to coordinator */
-	if (tried_join == false && list_length(joinrel->cluster_pathlist) == 0)
+	if (tried_join == false &&
+		list_length(joinrel->cluster_pathlist) == 0 &&
+		(resultRelation == 0 || bms_is_member(resultRelation, joinrel->relids) == false))
 	{
 		List *outer_pathlist = outerrel->cluster_pathlist == NIL ? outerrel->pathlist:coord_paths_for_join(root, outerrel);
 		List *inner_pathlist = innerrel->cluster_pathlist == NIL ? innerrel->pathlist:coord_paths_for_join(root, innerrel);
