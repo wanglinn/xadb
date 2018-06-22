@@ -3100,7 +3100,7 @@ BeginCopyFrom(Relation rel,
 		{
 			CopyStmt *stmt = makeClusterCopyFromStmt(rel);
 			cstate->NextRowFrom = AddNumberNextCopyFrom;
-			cstate->list_connect = ExecStartClusterCopy(rel->rd_locator_info->nodeids, stmt);
+			cstate->list_connect = ExecStartClusterCopy(rel->rd_locator_info->nodeids, stmt, NULL, 0);
 		}
 		cstate->cs_tupleslot = makeClusterCopySlot(cstate->rel);
 		cstate->cs_convert = create_type_convert(cstate->cs_tupleslot->tts_tupleDescriptor, true, false);
@@ -3467,10 +3467,8 @@ EndCopyFrom(CopyState cstate)
 					break;
 				case PGRES_COPY_OUT:
 					PQclear(res);
-					ereport(ERROR,
-							(errcode(ERRCODE_INTERNAL_ERROR),
-							errmsg("can not process datanode copy out state"),
-							errnode(PQNConnectName(conn))));
+					PQgetCopyDataBuffer(conn, (const char**)&res, 0);		/* just eat message */
+					res = NULL;
 					break;
 				case PGRES_COPY_IN:
 				case PGRES_COPY_BOTH:
@@ -4851,6 +4849,8 @@ void DoClusterCopy(CopyStmt *stmt)
 	cstate->cur_attname = NULL;
 	cstate->cur_attval = NULL;
 	cstate->binary = true;
+	cstate->copy_dest = COPY_NEW_FE;
+	cstate->fe_msgbuf = makeStringInfo();
 
 	cstate->cs_tupleslot = makeClusterCopySlot(rel);
 	cstate->cs_convert = create_type_convert(cstate->cs_tupleslot->tts_tupleDescriptor,
@@ -4858,12 +4858,6 @@ void DoClusterCopy(CopyStmt *stmt)
 											 true);
 	if (cstate->cs_convert)
 		cstate->cs_tsConvert = MakeSingleTupleTableSlot(cstate->cs_convert->out_desc);
-
-	/*
-	 * Send copy in message
-	 * 'H' for copy out, 'G' for copy in, 'W' for copy both
-	 */
-	ReceiveCopyBegin(cstate);
 
 	CopyFrom(cstate);
 
@@ -5141,7 +5135,9 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 	/* start cluster copy */
 	MemoryContextSwitchTo(query_context);
 	cstate->list_connect = ExecStartClusterCopy(cstate->rel->rd_locator_info->nodeids,
-												makeClusterCopyFromStmt(cstate->rel));
+												makeClusterCopyFromStmt(cstate->rel),
+												NULL,
+												0);
 
 	MemoryContextSwitchTo(old_context);
 	cstate->NextRowFrom = NextRowFromTuplestore;
