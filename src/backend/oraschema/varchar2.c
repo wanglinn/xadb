@@ -40,18 +40,18 @@ varchar2_input(const char *s, size_t len, int32 atttypmod)
 
 	maxlen = atttypmod - VARHDRSZ;
 
-	/*
-	 * Perform the typmod check; error out if value too long for VARCHAR2
-	 */
 	if (atttypmod >= (int32) VARHDRSZ && len > maxlen)
 	{
-		if (len > maxlen)
-		{
+		/* Verify that extra characters are spaces, and clip them off */
+		size_t		mbmaxlen = pg_mbcharcliplen(s, len, maxlen);
+
+		if (mbmaxlen < len)
 			ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("input value length is %zd; too long for type varchar2(%zd)",
-				len , maxlen)));
-		}
+					(errcode(ERRCODE_STRING_DATA_RIGHT_TRUNCATION),
+					 errmsg("value too long for type varchar2(%d)",
+					 (int) maxlen)));
+
+		len = mbmaxlen;
 	}
 
 	result = (VarChar *) cstring_to_text_with_len(s, len);
@@ -146,7 +146,8 @@ varchar2(PG_FUNCTION_ARGS)
 	bool		isExplicit = PG_GETARG_BOOL(2);
 	int32		len,
 				maxlen;
-	char		*s_data;
+	size_t		maxmblen;
+	char	   *s_data;
 
 	len = VARSIZE_ANY_EXHDR(source);
 	s_data = VARDATA_ANY(source);
@@ -156,16 +157,23 @@ varchar2(PG_FUNCTION_ARGS)
 	if (maxlen < 0 || len <= maxlen)
 		PG_RETURN_VARCHAR_P(source);
 
+	/* only reach here if string is too long... */
+
+	/* truncate multibyte string preserving multibyte boundary */
+	maxmblen = pg_mbcharcliplen(s_data, len, maxlen);
+
 	/* error out if value too long unless it's an explicit cast */
 	if (!isExplicit)
 	{
-		if (len > maxlen)
+		if (maxmblen < len)
 			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						errmsg("value too long for type varchar2(%d)", maxlen)));
+					(errcode(ERRCODE_STRING_DATA_RIGHT_TRUNCATION),
+					 errmsg("value too long for type varchar2(%d)",
+					 maxlen)));
 	}
 
-	PG_RETURN_VARCHAR_P((VarChar *) cstring_to_text_with_len(s_data,maxlen));
+	PG_RETURN_VARCHAR_P((VarChar *) cstring_to_text_with_len(s_data,
+															 maxmblen));
 }
 
 
