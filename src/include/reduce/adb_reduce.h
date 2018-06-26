@@ -17,12 +17,22 @@
 #include "reduce/rdc_comm.h"
 #include "reduce/rdc_msg.h"
 
+typedef void (*reduce_cleanup_callback)(void *arg);
+
+extern void RegisterReduceCleanup(reduce_cleanup_callback function, void *arg);
+
+extern void UnregisterReduceCleanup(void);
+
+extern void ReduceCleanup(void);
+
 extern void AtEOXact_Reduce(void);
 
 extern void EndSelfReduce(int code, Datum arg);
 
 extern RdcPort *ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id,
 								  RdcPortPID self_pid, RdcExtra self_extra);
+
+extern void DisConnectSelfReduce(RdcPort *port, List *dest_nodes, bool noerror);
 
 extern int StartSelfReduceLauncher(RdcPortId rid, bool memory_mode);
 

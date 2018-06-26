@@ -70,6 +70,7 @@
 #include "executor/nodeReduceScan.h"
 #include "nodes/nodeFuncs.h"
 #include "pgxc/pgxc.h"
+#include "reduce/adb_reduce.h"
 #endif
 
 

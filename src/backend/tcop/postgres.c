@@ -105,6 +105,7 @@
 #include "pgxc/pgxcnode.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/poolutils.h"
+#include "reduce/adb_reduce.h"
 #include "storage/procarray.h"
 #include "utils/guc.h"
 #endif

@@ -17,8 +17,6 @@
 extern bool enable_cluster_plan;
 extern bool print_reduce_debug_log;
 
-static List *reduce_cleanup = NIL;
-
 #define PlanGetTargetNodes(plan)	\
 	((ClusterReduce *) (plan))->reduce_oids
 
@@ -34,40 +32,12 @@ static TupleTableSlot *GetSlotFromOuter(ClusterReduceState *node);
 static TupleTableSlot *GetMergeSlotFromOuter(ClusterReduceState *node, ReduceEntry entry);
 static TupleTableSlot *GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry);
 static TupleTableSlot *ExecClusterMergeReduce(ClusterReduceState *node);
-static void WaitForServerFIN(RdcPort *port);
-static void DisConnectSelfReduce(ClusterReduceState *node, bool noerror);
+static void ClusterReducePortCleanupCallback(void *arg);
+static void ExecDisconnectClusterReduce(ClusterReduceState *node, bool noerror);
 static bool DriveClusterReduceState(ClusterReduceState *node);
 static bool DriveCteScanState(CteScanState *node);
 static bool DriveClusterReduceWalker(PlanState *node);
 static bool IsThereClusterReduce(PlanState *node);
-
-void
-RegisterReduceCleanup(void *crstate)
-{
-	reduce_cleanup = lappend(reduce_cleanup, crstate);
-}
-
-void
-UnregisterReduceCleanup(void)
-{
-	list_free(reduce_cleanup);
-	reduce_cleanup = NIL;
-}
-
-void
-ReduceCleanup(void)
-{
-	ClusterReduceState	   *node;
-	ListCell			   *lc;
-
-	foreach (lc, reduce_cleanup)
-	{
-		node = (ClusterReduceState *) lfirst(lc);
-		DisConnectSelfReduce(node, true);
-	}
-
-	UnregisterReduceCleanup();
-}
 
 static void
 ExecInitClusterReduceStateExtra(ClusterReduceState *crstate)
@@ -173,7 +143,6 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate->eof_underlying = false;
 	crstate->eof_network = false;
 	crstate->started = false;
-	crstate->ended = false;
 	crstate->tuplestorestate = NULL;
 
 	ExecInitResultTupleSlot(estate, &crstate->ps);
@@ -257,7 +226,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	if(crstate->convert)
 		crstate->convert_slot = MakeSingleTupleTableSlot(crstate->convert->out_desc);
 
-	RegisterReduceCleanup(crstate);
+	RegisterReduceCleanup(ClusterReducePortCleanupCallback, crstate);
 
 	return crstate;
 }
@@ -745,70 +714,43 @@ cmr_heap_compare_slots(Datum a, Datum b, void *arg)
 	return 0;
 }
 
-/*
- * WaitForServerFIN
- *
- * wait for FIN of self reduce.
- *
- * Notes:
- *	  This is to make sure socket "close" after the peer's(self reduce) "close".
- *	  make sure the data sent by client was received by self reduce.
- */
 static void
-WaitForServerFIN(RdcPort *port)
+ClusterReducePortCleanupCallback(void *arg)
 {
-	if (port)
-	{
-		ssize_t	rsz;
-		char	buf[1024];
-		int		sock = RdcSocket(port);
+	ClusterReduceState *node = (ClusterReduceState *) arg;
 
-		(void) shutdown(sock, SHUT_WR);
-
-		/* in blocking mode */
-		pg_set_block(sock);
-		for (;;)
-		{
-			rsz = recv(sock, buf, sizeof(buf), 0);
-			/* the peer has performed an orderly shutdown */
-			if (rsz <= 0)
-				return ;
-		}
-	}
+	ExecDisconnectClusterReduce(node, true);
 }
 
 static void
-DisConnectSelfReduce(ClusterReduceState *node, bool noerror)
+ExecDisconnectClusterReduce(ClusterReduceState *node, bool noerorr)
 {
-	if (node->ended)
-		return ;
-
-	/*
-	 * if either of these(node->eof_underlying and node->eof_network)
-	 * is false, it means local backend doesn't fetch all tuple (include
-	 * tuple from other backend and from the outer node).
-	 *
-	 * Here we should tell other backend that the local cluster reduce
-	 * will be closed and no more data is needed.
-	 *
-	 * If we have already sent EOF message of current plan node, it is
-	 * no need to broadcast CLOSE message to other reduce.
-	 */
-	if (node->port && !RdcSendCLOSE(node->port))
+	if (node && node->port)
 	{
-		List *dest_nodes = (RdcSendEOF(node->port) ? NIL : PlanStateGetTargetNodes(node));
-		SendCloseToRemote(node->port, dest_nodes, noerror);
-	}
-	WaitForServerFIN(node->port);
-	rdc_freeport(node->port);
+		List *dest_nodes = NIL;
 
-	node->ended = true;
+		/*
+		 * if either of these(node->eof_underlying and node->eof_network)
+		 * is false, it means local backend doesn't fetch all tuple (include
+		 * tuple from other backend and from the outer node).
+		 *
+		 * Here we should tell other backend that the local cluster reduce
+		 * will be closed and no more data is needed.
+		 *
+		 * If we have already sent EOF message of current plan node, it is
+		 * no need to broadcast CLOSE message to other reduce.
+		 */
+		if (!RdcSendEOF(node->port))
+			dest_nodes = PlanStateGetTargetNodes(node);
+		DisConnectSelfReduce(node->port, dest_nodes, noerorr);
+		node->port = NULL;
+	}
 }
 
-void ExecEndClusterReduce(ClusterReduceState *node)
+void
+ExecEndClusterReduce(ClusterReduceState *node)
 {
-	DisConnectSelfReduce(node, false);
-	node->port = NULL;
+	ExecDisconnectClusterReduce(node, false);
 	list_free(node->closed_remote);
 	node->closed_remote = NIL;
 	if (node->rdc_entrys)
