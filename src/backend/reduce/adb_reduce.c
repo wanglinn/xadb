@@ -52,6 +52,13 @@ static pid_t		SelfReducePID = 0;
 static int			SelfReduceListenPort = 0;
 static RdcPort	   *SelfReducePort = NULL;
 static List		   *GroupReduceList = NIL;
+static List		   *reduce_cleanup_list = NIL;
+
+typedef struct ReduceCleanupEntry
+{
+	reduce_cleanup_callback function;
+	void				   *arg;
+} ReduceCleanupEntry;
 
 #define RDC_BACKEND_HOLD	0
 #define RDC_REDUCE_HOLD		1
@@ -65,6 +72,41 @@ static int  GetReduceListenPort(void);
 static void AdbReduceLauncherMain(char *exec_path, int rid, bool memory_mode);
 #endif
 static int  SendPlanMsgToRemote(RdcPort *port, char msg_type, List *dest_nodes);
+
+void
+RegisterReduceCleanup(reduce_cleanup_callback function, void *arg)
+{
+	ReduceCleanupEntry *entry = NULL;
+	MemoryContext		oldcontext = NULL;
+
+	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+	entry = (ReduceCleanupEntry *) palloc(sizeof(ReduceCleanupEntry));
+	entry->function = function;
+	entry->arg = arg;
+	reduce_cleanup_list = lappend(reduce_cleanup_list, entry);
+	(void) MemoryContextSwitchTo(oldcontext);
+}
+
+void
+UnregisterReduceCleanup(void)
+{
+	list_free_deep(reduce_cleanup_list);
+	reduce_cleanup_list = NIL;
+}
+
+void
+ReduceCleanup(void)
+{
+	ReduceCleanupEntry  *entry;
+	ListCell			   *lc_entry;
+
+	foreach (lc_entry, reduce_cleanup_list)
+	{
+		entry = (ReduceCleanupEntry *) lfirst(lc_entry);
+		(*entry->function)(entry->arg);
+	}
+	UnregisterReduceCleanup();
+}
 
 static void
 ResetSelfReduce(void)
@@ -232,6 +274,51 @@ ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id,
 					   TYPE_REDUCE, SelfReduceID,
 					   self_type, self_id,
 					   self_pid, self_extra);
+}
+
+/*
+ * WaitForServerFIN
+ *
+ * wait for FIN of self reduce.
+ *
+ * Notes:
+ *	This is to make sure socket "close" after the peer's(self reduce) "close".
+ *	make sure the data sent by client was received by self reduce.
+ */
+static void
+WaitForServerFIN(RdcPort *port)
+{
+	if (port)
+	{
+		ssize_t rsz;
+		char	  buf[1024];
+		int	  sock = RdcSocket(port);
+
+		(void) shutdown(sock, SHUT_WR);
+
+		/* in blocking mode */
+		pg_set_block(sock);
+		for (;;)
+		{
+			rsz = recv(sock, buf, sizeof(buf), 0);
+			/* the peer has performed an orderly shutdown */
+			if (rsz <= 0)
+				return ;
+		}
+	}
+}
+
+void
+DisConnectSelfReduce(RdcPort *port, List *dest_nodes, bool noerror)
+{
+	if (!port)
+		return ;
+
+	if (!RdcSendCLOSE(port))
+		SendCloseToRemote(port, dest_nodes, noerror);
+
+	WaitForServerFIN(port);
+	rdc_freeport(port);
 }
 
 /*
@@ -440,7 +527,7 @@ SendRejectToRemote(RdcPort *port, List *dest_nodes)
 void
 SendCloseToRemote(RdcPort *port, List *dest_nodes, bool noerror)
 {
-	ssize_t	rsz;
+	ssize_t rsz;
 	char	buf[1];
 
 	if (!RdcSockIsValid(port))
