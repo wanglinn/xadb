@@ -4,6 +4,7 @@
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/sysattr.h"
+#include "catalog/heap.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_aux_class.h"
@@ -595,4 +596,84 @@ Bitmapset *MakeAuxMainRelResultAttnos(Relation rel)
 		attr = bms_add_member(attr, x - FirstLowInvalidHeapAttributeNumber);
 
 	return attr;
+}
+
+List *MakeMainRelTargetForAux(Relation main_rel, Relation aux_rel, Index relid, bool target_entry)
+{
+	Form_pg_attribute	main_attr;
+	Form_pg_attribute	aux_attr;
+	TupleDesc			main_desc = RelationGetDescr(main_rel);
+	TupleDesc			aux_desc = RelationGetDescr(aux_rel);
+	Var				   *var;
+	TargetEntry		   *te;
+	List			   *result = NIL;
+	char			   *attname;
+	int					anum;
+	int					i,j;
+
+	for(i=anum=0;i<aux_desc->natts;++i)
+	{
+		aux_attr = TupleDescAttr(aux_desc, i);
+		if (aux_attr->attisdropped)
+			continue;
+
+		++anum;
+		attname = NameStr(aux_attr->attname);
+		if (anum == Anum_aux_table_auxnodeid)
+		{
+			main_attr = SystemAttributeDefinition(XC_NodeIdAttributeNumber,
+												  RelationGetForm(main_rel)->relhasoids);
+		}else if (anum == Anum_aux_table_auxctid)
+		{
+			main_attr = SystemAttributeDefinition(SelfItemPointerAttributeNumber,
+												  RelationGetForm(main_rel)->relhasoids);
+		}else
+		{
+			for(j=0;j<main_desc->natts;++j)
+			{
+				main_attr = TupleDescAttr(main_desc, j);
+				if (main_attr->attisdropped)
+					continue;
+
+				if (strcmp(attname, NameStr(main_attr->attname)) == 0)
+					break;
+			}
+			if (j >= main_desc->natts)
+				main_attr = NULL;
+		}
+
+		if (main_attr == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_DATATYPE_MISMATCH),
+					 errmsg("Can not found column \"%s\" in relation \"%s\" for auxiliary table \"%s\"",
+					 		attname, RelationGetRelationName(main_rel), RelationGetRelationName(aux_rel)),
+					 err_generic_string(PG_DIAG_SCHEMA_NAME, get_namespace_name(RelationGetNamespace(main_rel))),
+					 err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(main_rel)),
+					 err_generic_string(PG_DIAG_COLUMN_NAME, attname)));
+
+		if (main_attr->atttypid != aux_attr->atttypid ||
+			main_attr->atttypmod != aux_attr->atttypmod)
+			ereport(ERROR,
+					(errcode(ERRCODE_DATATYPE_MISMATCH),
+					 errmsg("Column \"%s\" in relation \"%s\" off type %s does not match auxiliary column of type %s.",
+					 		NameStr(main_attr->attname),
+							RelationGetRelationName(main_rel),
+							format_type_with_typemod(main_attr->atttypid, main_attr->atttypmod),
+							format_type_with_typemod(aux_attr->atttypid, aux_attr->atttypmod)),
+					 err_generic_string(PG_DIAG_SCHEMA_NAME, get_namespace_name(RelationGetNamespace(main_rel))),
+					 err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(main_rel)),
+					 err_generic_string(PG_DIAG_COLUMN_NAME, attname)));
+
+		var = makeVar(relid, main_attr->attnum, main_attr->atttypid, main_attr->atttypmod, main_attr->attcollation, 0);
+		if (target_entry)
+		{
+			te = makeTargetEntry((Expr*)var, (AttrNumber)anum, pstrdup(NameStr(main_attr->attname)), false);
+			result = lappend(result, te);
+		}else
+		{
+			result = lappend(result, var);
+		}
+	}
+
+	return result;
 }
