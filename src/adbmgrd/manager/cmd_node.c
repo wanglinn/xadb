@@ -3239,6 +3239,8 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 	AppendNodeInfo nodeinfo;
 	StringInfoData send_hba_msg;
 	StringInfoData infosendmsg;
+	StringInfoData sqlstrmsg;
+	StringInfoData restmsg;
 	GetAgentCmdRst getAgentCmdRst;
 	char *coordhost;
 	char *temp_file;
@@ -3251,10 +3253,17 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 	char *gtmMasterName;
 	NameData nodename;
 	NameData gtmMasterNameData;
+	NameData oldPreferredNode;
+	NameData preferredDnName;
 	bool result = true;
+	bool bres = false;
+	bool bReadOnly = false;
 	int max_locktry = 600;
 	const int max_pingtry = 60;
 	int ret = 0;
+	int agentPort;
+	List *dnList = NIL;
+	List *newDnList = NIL;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
@@ -3267,6 +3276,7 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 	/* get node info for append coordinator master */
 	appendnodeinfo.nodename = PG_GETARG_CSTRING(0);
 	Assert(appendnodeinfo.nodename);
+	bReadOnly = mgr_get_coord_readtype(appendnodeinfo.nodename);
 
 	namestrcpy(&nodename, appendnodeinfo.nodename);
 	PG_TRY();
@@ -3308,6 +3318,8 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		mgr_add_parm(appendnodeinfo.nodename, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
 		mgr_get_gtm_host_port(&infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", appendnodeinfo.nodeport, &infosendmsg);
+		if (bReadOnly)
+			mgr_append_pgconf_paras_str_str("default_transaction_read_only", "on", &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
 								appendnodeinfo.nodepath,
 								&infosendmsg,
@@ -3425,6 +3437,46 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 			appendStringInfoCharMacro(&(getAgentCmdRst.description), '\n');
 		result = false;
 		appendStringInfo(&(getAgentCmdRst.description), "waiting %d seconds for the new node can accept connections failed", max_pingtry);
+	}
+
+	if (bReadOnly)
+	{
+		/* update pgxc_node if the node is read only node and
+		*  set preferred node
+		*/
+		initStringInfo(&sqlstrmsg);
+		initStringInfo(&restmsg);
+		agentPort = get_agentPort_from_hostoid(appendnodeinfo.nodehost);
+		appendStringInfo(&sqlstrmsg, "select node_name from pgxc_node where node_type = 'D' \
+				and nodeis_preferred = true union all select '*' union all select node_name \
+				from pgxc_node where node_type = 'D';");
+		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data
+				,appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr, appendnodeinfo.nodeport, DEFAULT_DB, &restmsg);
+		bres = mgr_get_dnlist(&oldPreferredNode, "*", &restmsg, &dnList);
+		if (!bres || !dnList)
+			ereport(WARNING, (errmsg("on coordinator \"%s\", reset the preperred datanode fail. \
+				please, do it manual", nodename.data)));
+		newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode);
+		Assert(newDnList);
+		bres = mgr_try_max_times_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data
+				, appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr, appendnodeinfo.nodeport
+				, DEFAULT_DB, &restmsg, 3);
+		if (!bres)
+			ereport(WARNING, (errmsg("on coordinator \"%s\" execute \"%s\" fail, you need to check it"
+				, nodename.data, sqlstrmsg.data)));
+		ereport(LOG, (errmsg("on coordinator \"%s\", set the preferred node", nodename.data)));
+		ereport(NOTICE, (errmsg("on coordinator \"%s\", set the preferred node", nodename.data)));
+		mgr_get_prefer_nodename_for_cn(nodename.data, true, newDnList, &preferredDnName);
+		/* set preferred node on coordinator */
+		mgr_set_preferred_node(NameStr(oldPreferredNode), NameStr(preferredDnName)
+							,nodename.data, appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr
+							, agentPort, appendnodeinfo.nodeport);
+		pfree(sqlstrmsg.data);
+		pfree(restmsg.data);
+		list_free(newDnList);
+		list_free(dnList);
+		dnList = NIL;
+		newDnList = NIL;
 	}
 
 	tup_result = build_common_command_tuple(&nodename, result, getAgentCmdRst.description.data);
@@ -7491,6 +7543,8 @@ static bool mgr_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 		if(execRes != true)
 		{
 			result = false;
+			ereport(WARNING, (errmsg("execute \"%s\" fail:%s ", cmdstring.data
+					, (getAgentCmdRst->description).data)));
 		}
 		ma_close(ma);
 	}
