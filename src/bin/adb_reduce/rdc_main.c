@@ -1195,7 +1195,7 @@ ReduceLoopRun(void)
 				timeout = DEFAULT_TIMEOUT;	/* 3 seconds */
 
 			/* for reduce nodes */
-			if (PrePrepareRdcNodes(&set, rdc_nodes, rdc_num, (timeout == -1)))
+			if (PrePrepareRdcNodes(&set, rdc_nodes, rdc_num, (timeout != -1)))
 				break;
 
 			SetRdcPsStatus(" idle");
