@@ -165,6 +165,7 @@ extern bool HasAuxRelation(Oid relid);
 extern List *QueryRewriteAuxStmt(Query *auxquery);
 extern void RelationBuildAuxiliary(Relation rel);
 extern Bitmapset *MakeAuxMainRelResultAttnos(Relation rel);
+extern List *MakeMainRelTargetForAux(Relation main_rel, Relation aux_rel, Index relid, bool target_entry);
 
 #define RelationIdIsAuxiliary(relid) \
 	RelationIdGetAuxAttnum(relid, NULL)
