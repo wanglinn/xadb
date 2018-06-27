@@ -239,7 +239,7 @@ static void ExecClusterCopyStmt(StringInfo buf)
 	Assert(IsA(stmt, CopyStmt));
 	set_ps_display("CLUSTER COPY FROM", false);
 
-	DoClusterCopy(stmt);
+	DoClusterCopy(stmt, buf);
 }
 
 static NodeTag GetClusterPlanType(StringInfo buf)
@@ -480,7 +480,12 @@ List* ExecStartClusterCopy(List *rnodes, struct CopyStmt *stmt, StringInfo mem_t
 	context.transaction_read_only = false;
 	context.have_temp = false;
 	if (flag & EXEC_CLUSTER_FLAG_NEED_REDUCE)
+	{
 		context.have_reduce = true;
+		begin_mem_toc_insert(&msg, REMOTE_KEY_HAS_REDUCE);
+		appendStringInfoChar(&msg, true);
+		end_mem_toc_insert(&msg, REMOTE_KEY_HAS_REDUCE);
+	}
 	if (flag & EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE)
 	{
 		Assert(context.have_reduce);

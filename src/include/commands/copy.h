@@ -37,9 +37,14 @@ extern void CopyFromErrorCallback(void *arg);
 extern DestReceiver *CreateCopyDestReceiver(void);
 
 #ifdef ADB
+
+typedef struct TupleTableSlot *(*CustomNextRowFunction)(CopyState cstate, ExprContext *econtext, void *data);
+
 extern CopyState pgxcMatViewBeginCopyTo(Relation mvrel);
 extern int64 pgxcDoCopyTo(CopyState cstate);
-extern void DoClusterCopy(CopyStmt *stmt);
+extern void DoClusterCopy(CopyStmt *stmt, struct StringInfoData *mem_toc);
+extern void ClusterCopyFromReduce(Relation rel, Expr *reduce, List *remote_oids, int id, CustomNextRowFunction fun, void *data);
+extern void ClusterDummyCopyFromReduce(List *target, Expr *reduce, List *remote_oids, int id, CustomNextRowFunction fun, void *data);
 #endif /* ADB */
 
 #endif   /* COPY_H */

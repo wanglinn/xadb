@@ -3,7 +3,8 @@
 
 #define EXEC_CLUSTER_FLAG_NEED_REDUCE		(1<<0)
 #define EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE	(1<<1)
-
+#define EXEC_CLUSTER_FLAG_USE_MEM_REDUCE	(1<<2)
+#define EXEC_CLUSTER_FLAG_USE_SELF_AND_MEM_REDUCE	0x7
 struct Plan;
 struct EState;
 struct CopyStmt;
