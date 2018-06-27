@@ -51,13 +51,18 @@
 
 #ifdef ADB
 #include "access/tuptypeconvert.h"
+#include "catalog/heap.h"
 #include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
 #include "intercomm/inter-comm.h"
+#include "libpq/libpq-fe.h"
 #include "optimizer/reduceinfo.h"
 #include "parser/analyze.h"
 #include "pgxc/pgxc.h"
-#include "libpq/libpq-fe.h"
+#include "reduce/adb_reduce.h"
+#include "storage/buffile.h"
+#include "storage/bufmgr.h"
+#include "storage/mem_toc.h"
 #endif
 
 #define ISOCTAL(c) (((c) >= '0') && ((c) <= '7'))
@@ -85,6 +90,48 @@ typedef enum EolType
 	EOL_CR,
 	EOL_CRNL
 } EolType;
+
+#ifdef ADB
+
+typedef struct CopyFromReduceState
+{
+	ExprContext			   *econtext;
+	ExprState			   *reduce;
+	TupleTableSlot		   *base_slot;
+	TupleTableSlot		   *convert_slot;
+	TupleTypeConvert	   *convert_state;
+	CustomNextRowFunction	NextRow;
+	void				   *func_data;
+	RdcPort				   *rdc_port;
+	List				   *all_nodes_oid;
+	List				   *working_nodes_oid;
+	int						plan_id;
+	bool					eof_local;
+}CopyFromReduceState;
+
+typedef struct TidBufFileScanState
+{
+	BufFile		   *file;
+	ProjectionInfo *project;
+	TupleTableSlot *base_slot;
+	TupleTableSlot *out_slot;
+	Relation		rel;
+	HeapTuple		tuple;
+}TidBufFileScanState;
+
+typedef struct AuxiliaryRelCopy
+{
+	char	   *schemaname;		/* the schema name */
+	char	   *relname;		/* the relation/sequence name */
+	List	   *targetList;		/* main rel result of Exprs */
+	Expr	   *reduce;			/* reduce expr */
+	int			id;				/* id for reduce plan id */
+}AuxiliaryRelCopy;
+
+#define AUX_REL_COPY_INFO	0x1
+#define AUX_REL_MAIN_NODES	0x2
+
+#endif /* ADB */
 
 /*
  * This struct contains all the state variables used throughout a COPY
@@ -227,9 +274,14 @@ typedef struct CopyStateData
 	TupleTableSlot  *cs_tsConvert;
 	TupleTypeConvert *cs_convert;
 	ExprState		*cs_reduce;
-	TupleTableSlot* (*NextRowFrom)(struct CopyStateData *cstate, ExprContext *econtext);
+	CustomNextRowFunction NextRowFrom;
+	void			*func_data;		/* function NextRowFrom's user data, default is TupleTableSlot for target rel */
+	List			*aux_info;		/* list of AuxiliaryCopyInfo */
+	BufFile			*fd_copied_ctid;/* saved tuple(s) ctid */
+	StringInfo		mem_copy_toc;	/* mem_toc if target relation has auxiliary */
 	List			*list_connect;	/* list of pg_conn */
 	uint64			count_tuple;	/* count tuple(s) read */
+	int				exec_cluster_flag;
 #endif
 } CopyStateData;
 
@@ -362,13 +414,22 @@ static bool CopyGetInt16(CopyState cstate, int16 *val);
 
 #ifdef ADB
 static uint64 CoordinatorCopyFrom(CopyState cstate);
-static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econtext);
-static TupleTableSlot* NextRowFromTuplestore(CopyState cstate, ExprContext *econtext);
-static TupleTableSlot* AddNumberNextCopyFrom(CopyState cstate, ExprContext *econtext);
-static bool NextRowFromCoordinator(CopyState cstate, ExprContext *econtext, Datum *values, bool *nulls, Oid *tupleOid);
+static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econtext, void *data);
+static TupleTableSlot* NextRowFromTuplestore(CopyState cstate, ExprContext *econtext, void *data);
+static TupleTableSlot* AddNumberNextCopyFrom(CopyState cstate, ExprContext *econtext, void *data);
+static TupleTableSlot* NextRowFromCoordinator(CopyState cstate, ExprContext *econtext, void *data);
 static TupleTableSlot* makeClusterCopySlot(Relation rel);
 static CopyStmt* makeClusterCopyFromStmt(Relation rel);
 static bool CopyHasOidsOptions(List *list);
+
+static void SerializeAuxRelCopyInfo(StringInfo buf, List *list);
+static List* LoadAuxRelCopyInfo(StringInfo mem_toc);
+static List* RestoreAuxRelCopyInfo(StringInfo buf);
+static List* MakeAuxRelCopyInfo(Relation rel);
+
+static void ApplyCopyToAuxiliary(CopyState parent, List *rnodes);
+static TupleTableSlot* NextRowFromReduce(CopyState cstate, ExprContext *context, void *data);
+static TupleTableSlot* NextRowFromTidBufFile(CopyState cstate, ExprContext *context, void *data);
 #endif
 
 /*
@@ -2617,6 +2678,10 @@ CopyFrom(CopyState cstate)
 	ExecSetSlotDescriptor(myslot, tupDesc);
 	/* Triggers might need a slot as well */
 	estate->es_trig_tuple_slot = ExecInitExtraTupleSlot(estate);
+#ifdef ADB
+	if (cstate->func_data == NULL)
+		cstate->func_data = myslot;
+#endif /* ADB */
 
 	/*
 	 * It's more efficient to prepare a bunch of tuples for insertion, and
@@ -2687,11 +2752,15 @@ CopyFrom(CopyState cstate)
 		MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
 
 #ifdef ADB
-		if (IsConnFromCoord())
+		if (cstate->NextRowFrom)
 		{
-			if (!NextRowFromCoordinator(cstate, econtext, values, nulls, &loaded_oid))
+			slot = (*cstate->NextRowFrom)(cstate, econtext, cstate->func_data);
+			if (TupIsNull(slot))
 				break;
+
+			tuple = ExecCopySlotTuple(slot);
 		}else
+		{
 #endif /* ADB */
 		if (!NextCopyFrom(cstate, econtext, values, nulls, &loaded_oid))
 			break;
@@ -2701,6 +2770,9 @@ CopyFrom(CopyState cstate)
 
 		if (loaded_oid != InvalidOid)
 			HeapTupleSetOid(tuple, loaded_oid);
+#ifdef ADB
+		}
+#endif /* ADB */
 
 		/*
 		 * Constraints might reference the tableoid column, so initialize
@@ -3043,6 +3115,25 @@ CopyFromInsertBatch(CopyState cstate, EState *estate, CommandId mycid,
 					  bistate);
 	MemoryContextSwitchTo(oldcontext);
 
+#ifdef ADB
+	if (cstate->fd_copied_ctid)
+	{
+		int i;
+		for (i=0;i<nBufferedTuples;++i)
+		{
+			if (BufFileWrite(cstate->fd_copied_ctid,
+							 &bufferedTuples[i]->t_self,
+							 sizeof(ItemPointerData)) != sizeof(ItemPointerData))
+			{
+				ereport(ERROR,
+						(errcode_for_file_access(),
+						 errmsg("could not write to copied-ctid temporary file: %m")));
+
+			}
+		}
+	}
+#endif /* ADB */
+
 	/*
 	 * If there are any indexes, update them for all the inserted tuples, and
 	 * run AFTER ROW INSERT triggers.
@@ -3353,6 +3444,25 @@ BeginCopyFrom(ParseState *pstate,
 										  1 /* only have one relation */);
 		reduce = CreateExprUsingReduceInfo(rinfo);
 		cstate->cs_reduce = ExecInitExpr(reduce, NULL);
+		cstate->aux_info = MakeAuxRelCopyInfo(rel);
+		if (cstate->aux_info)
+		{
+			List *rnodes;
+			cstate->exec_cluster_flag = EXEC_CLUSTER_FLAG_USE_SELF_AND_MEM_REDUCE;
+			cstate->fd_copied_ctid = BufFileCreateTemp(false);
+			cstate->mem_copy_toc = makeStringInfo();
+
+			begin_mem_toc_insert(cstate->mem_copy_toc, AUX_REL_COPY_INFO);
+			SerializeAuxRelCopyInfo(cstate->mem_copy_toc, cstate->aux_info);
+			end_mem_toc_insert(cstate->mem_copy_toc, AUX_REL_COPY_INFO);
+
+			begin_mem_toc_insert(cstate->mem_copy_toc, AUX_REL_MAIN_NODES);
+			rnodes = list_copy(rel->rd_locator_info->nodeids);
+			rnodes = lappend_oid(rnodes, PGXCNodeOid);
+			saveNode(cstate->mem_copy_toc, (Node*)rnodes);
+			end_mem_toc_insert(cstate->mem_copy_toc, AUX_REL_MAIN_NODES);
+			list_free(rnodes);
+		}
 
 		/*
 		 * when has insert before or after trigger, we call trigger and save tuple to tuplestore,
@@ -3368,7 +3478,10 @@ BeginCopyFrom(ParseState *pstate,
 		{
 			CopyStmt *stmt = makeClusterCopyFromStmt(rel);
 			cstate->NextRowFrom = AddNumberNextCopyFrom;
-			cstate->list_connect = ExecStartClusterCopy(rel->rd_locator_info->nodeids, stmt, NULL, 0);
+			cstate->list_connect = ExecStartClusterCopy(rel->rd_locator_info->nodeids,
+														stmt,
+														cstate->mem_copy_toc,
+														cstate->exec_cluster_flag);
 		}
 		cstate->cs_tupleslot = makeClusterCopySlot(cstate->rel);
 		cstate->cs_convert = create_type_convert(cstate->cs_tupleslot->tts_tupleDescriptor, true, false);
@@ -3755,6 +3868,8 @@ EndCopyFrom(CopyState cstate)
 			}
 		}
 	}
+	if (cstate->fd_copied_ctid)
+		BufFileClose(cstate->fd_copied_ctid);
 #endif /* ADB */
 
 	EndCopy(cstate);
@@ -5081,13 +5196,14 @@ CreateCopyDestReceiver(void)
 }
 
 #ifdef ADB
-void DoClusterCopy(CopyStmt *stmt)
+void DoClusterCopy(CopyStmt *stmt, StringInfo mem_toc)
 {
 	CopyState		cstate;
 	Relation		rel;
 	MemoryContext	oldcontext;
 	ParseState	   *pstate;
 	RangeTblEntry  *rte;
+	List		   *rnodes = NIL;
 
 	if (stmt->is_from == false)
 	{
@@ -5135,9 +5251,30 @@ void DoClusterCopy(CopyStmt *stmt)
 	if (cstate->cs_convert)
 		cstate->cs_tsConvert = MakeSingleTupleTableSlot(cstate->cs_convert->out_desc);
 
+	cstate->aux_info = LoadAuxRelCopyInfo(mem_toc);
+	if (cstate->aux_info)
+	{
+		StringInfoData buf;
+		buf.data = mem_toc_lookup(mem_toc, AUX_REL_MAIN_NODES, &buf.len);
+		if (buf.data == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					 errmsg("Can not found relation storage info in cluster message")));
+		buf.maxlen = buf.len;
+		buf.cursor = 0;
+		rnodes = (List*)loadNode(&buf);
+		cstate->fd_copied_ctid = BufFileCreateTemp(false);
+	}
+
+	/* func_data auto set to target relation TupleTableSlot in CopyFrom if it is null */
+	cstate->NextRowFrom = NextRowFromCoordinator;
 	CopyFrom(cstate);
 
 	MemoryContextSwitchTo(oldcontext);
+
+	if (cstate->aux_info)
+		ApplyCopyToAuxiliary(cstate, rnodes);
+
 	EndCopyFrom(cstate);
 }
 
@@ -5213,7 +5350,7 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 		/* Switch into its memory context */
 		MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
 
-		slot = (*cstate->NextRowFrom)(cstate, econtext);
+		slot = (*cstate->NextRowFrom)(cstate, econtext, cstate->func_data);
 		if (TupIsNull(slot))
 			break;
 
@@ -5294,13 +5431,20 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 	if (cstate->copy_dest == COPY_OLD_FE)
 		pq_endmsgread();
 
+	if (cstate->aux_info)
+	{
+		List *list = list_copy(cstate->rel->rd_locator_info->nodeids);
+		list = lappend_oid(list, PGXCNodeOid);
+		ApplyCopyToAuxiliary(cstate, list);
+		list_free(list);
+	}
 
 	ExecResetTupleTable(estate->es_tupleTable, false);
 
 	return cstate->count_tuple;
 }
 
-static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econtext)
+static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econtext, void *data)
 {
 	EState *estate = econtext->ecxt_estate;
 	ResultRelInfo  *resultRelInfo;
@@ -5424,15 +5568,15 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 	MemoryContextSwitchTo(query_context);
 	cstate->list_connect = ExecStartClusterCopy(cstate->rel->rd_locator_info->nodeids,
 												makeClusterCopyFromStmt(cstate->rel),
-												NULL,
-												0);
+												cstate->mem_copy_toc,
+												cstate->exec_cluster_flag);
 
 	MemoryContextSwitchTo(old_context);
 	cstate->NextRowFrom = NextRowFromTuplestore;
-	return NextRowFromTuplestore(cstate, econtext);
+	return NextRowFromTuplestore(cstate, econtext, data);
 }
 
-static TupleTableSlot* NextRowFromTuplestore(CopyState cstate, ExprContext *econtext)
+static TupleTableSlot* NextRowFromTuplestore(CopyState cstate, ExprContext *econtext, void *data)
 {
 	TupleTableSlot *slot = cstate->cs_tupleslot;
 	if (tuplestore_gettupleslot(cstate->cs_tuplestore, true, true, slot) == false)
@@ -5445,15 +5589,17 @@ static TupleTableSlot* NextRowFromTuplestore(CopyState cstate, ExprContext *econ
 	return slot;
 }
 
-static bool NextRowFromCoordinator(CopyState cstate, ExprContext *econtext, Datum *values, bool *nulls, Oid *tupleOid)
+static TupleTableSlot* NextRowFromCoordinator(CopyState cstate, ExprContext *context, void *data)
 {
 	TupleTableSlot *slot;
+	TupleTableSlot *dest;
+	HeapTuple tuple;
 	StringInfo buf;
 	int natts;
 	char msg_type;
 
 	if (CopyGetData(cstate, &msg_type, sizeof(msg_type), sizeof(msg_type)) != sizeof(msg_type))
-		return false;	/* copy done */
+		return NULL;	/* copy done */
 	buf = cstate->fe_msgbuf;
 
 	if (msg_type == CLUSTER_MSG_TUPLE_DATA)
@@ -5487,22 +5633,22 @@ static bool NextRowFromCoordinator(CopyState cstate, ExprContext *econtext, Datu
 				 errmsg("unknown copy message type '%d' from coordinator", msg_type)));
 	}
 
+	AssertArg(IsA(data, TupleTableSlot));
+	dest = (TupleTableSlot*)data;
 	slot_getallattrs(slot);
 	natts = RelationGetDescr(cstate->rel)->natts;
-	memcpy(values, slot->tts_values, sizeof(values[0]) * natts);
-	memcpy(nulls, slot->tts_isnull, sizeof(nulls[0]) * natts);
+	tuple = heap_form_tuple(dest->tts_tupleDescriptor, slot->tts_values, slot->tts_isnull);
 	if (slot->tts_tupleDescriptor->tdhasoid)
 	{
-		*tupleOid = ExecFetchSlotTupleOid(slot);
+		HeapTupleSetOid(tuple, ExecFetchSlotTupleOid(slot));
 	}
 	Assert(TupleDescAttr(slot->tts_tupleDescriptor, natts)->atttypid == INT4OID);
 
 	cstate->cur_lineno = DatumGetInt32(slot->tts_values[natts]);
-
-	return true;
+	return ExecStoreTuple(tuple, dest, InvalidBuffer, true);
 }
 
-static TupleTableSlot* AddNumberNextCopyFrom(CopyState cstate, ExprContext *econtext)
+static TupleTableSlot* AddNumberNextCopyFrom(CopyState cstate, ExprContext *econtext, void *data)
 {
 	HeapTuple tuple;
 	TupleTableSlot *slot = cstate->cs_tupleslot;
@@ -5584,4 +5730,471 @@ static bool CopyHasOidsOptions(List *list)
 
 	return false;
 }
+
+static void SerializeAuxRelCopyInfo(StringInfo buf, List *list)
+{
+	AuxiliaryRelCopy *aux;
+	ListCell *lc;
+	AssertArg(buf && list_length(list) > 0);
+
+	appendBinaryStringInfo(buf, (char*)&list->length, sizeof(list->length));
+	foreach(lc, list)
+	{
+		aux = lfirst(lc);
+		appendStringInfoString(buf, aux->schemaname);
+		appendStringInfoChar(buf, '\0');
+
+		appendStringInfoString(buf, aux->relname);
+		appendStringInfoChar(buf, '\0');
+
+		saveNode(buf, (Node*)aux->targetList);
+		saveNode(buf, (Node*)aux->reduce);
+		appendBinaryStringInfo(buf, (char*)&aux->id, sizeof(aux->id));
+	}
+}
+
+static List* LoadAuxRelCopyInfo(StringInfo mem_toc)
+{
+	StringInfoData buf;
+	buf.data = mem_toc_lookup(mem_toc, AUX_REL_COPY_INFO, &buf.maxlen);
+	if (buf.data != NULL)
+	{
+		buf.len = buf.maxlen;
+		buf.cursor = 0;
+		return RestoreAuxRelCopyInfo(&buf);
+	}
+	return NIL;
+}
+
+static List* RestoreAuxRelCopyInfo(StringInfo buf)
+{
+	List *list;
+	AuxiliaryRelCopy *aux;
+	int count;
+
+	pq_copymsgbytes(buf, (char*)&count, sizeof(count));
+	list = NIL;
+
+	while(--count >= 0)
+	{
+		aux = palloc(sizeof(*aux));
+		aux->schemaname = pstrdup(pq_getmsgrawstring(buf));
+		aux->relname = pstrdup(pq_getmsgrawstring(buf));
+		aux->targetList = (List*)loadNode(buf);
+		aux->reduce = (Expr*)loadNode(buf);
+		pq_copymsgbytes(buf, (char*)&aux->id, sizeof(aux->id));
+
+		list = lappend(list, aux);
+	}
+
+	return list;
+}
+
+static List* MakeAuxRelCopyInfo(Relation rel)
+{
+	List			   *result;
+	ListCell		   *lc;
+	AuxiliaryRelCopy   *aux_copy;
+	Relation			aux_rel;
+	ReduceInfo		   *rinfo;
+	int					id = 0;
+
+	if (rel->rd_auxlist == NIL)
+		return NULL;
+
+	result = NIL;
+	foreach(lc, rel->rd_auxlist)
+	{
+		aux_rel = heap_open(lfirst_oid(lc), NoLock);
+		if (RELATION_IS_OTHER_TEMP(aux_rel))
+		{
+			heap_close(aux_rel, NoLock);
+			continue;
+		}
+
+
+		aux_copy = palloc0(sizeof(*aux_copy));
+		aux_copy->schemaname = get_namespace_name(RelationGetNamespace(aux_rel));
+		aux_copy->relname = pstrdup(RelationGetRelationName(aux_rel));
+		aux_copy->targetList = MakeMainRelTargetForAux(rel, aux_rel, 1, true);
+		if (aux_rel->rd_locator_info)
+			rinfo = MakeReduceInfoFromLocInfo(aux_rel->rd_locator_info, NIL, lfirst_oid(lc), 1);
+		else
+			rinfo = MakeCoordinatorReduceInfo();
+		aux_copy->reduce = CreateExprUsingReduceInfo(rinfo);
+
+		aux_copy->id = ++id;
+
+		result = lappend(result, aux_copy);
+
+		heap_close(aux_rel, NoLock);
+	}
+
+	return result;
+}
+
+static void ApplyCopyToAuxiliary(CopyState parent, List *rnodes)
+{
+	ListCell *lc;
+	AuxiliaryRelCopy *aux;
+	Relation rel;
+	RangeVar range;
+	ExprContext *econtext;
+	TidBufFileScanState	state;
+	TupleDesc	desc;
+	MemoryContext aux_context;
+	MemoryContext old_context;
+
+	aux_context = AllocSetContextCreate(CurrentMemoryContext,
+										"ApplyCopyToAuxiliary",
+										ALLOCSET_DEFAULT_SIZES);
+	old_context = MemoryContextSwitchTo(aux_context);
+
+	MemSet(&range, 0, sizeof(range));
+	NodeSetTag(&range, T_RangeVar);
+
+	MemSet(&state, 0, sizeof(state));
+	state.file = parent->fd_copied_ctid;
+	state.rel = parent->rel;
+	state.base_slot = MakeSingleTupleTableSlot(RelationGetDescr(parent->rel));
+	state.out_slot = MakeTupleTableSlot();
+	state.tuple = palloc0(sizeof(*(state.tuple)));
+
+	econtext = CreateStandaloneExprContext();
+
+	foreach(lc, parent->aux_info)
+	{
+		aux = lfirst(lc);
+		range.schemaname = aux->schemaname;
+		range.relname = aux->relname;
+		rel = heap_openrv_extended(&range, RowExclusiveLock, true);
+		BufFileSeek(parent->fd_copied_ctid, 0, 0, SEEK_SET);
+
+		if (rel)
+			desc = RelationGetDescr(rel);
+		else
+			desc = ExecTypeFromTL(aux->targetList, false);
+		ExecSetSlotDescriptor(state.out_slot, desc);
+		state.project = ExecBuildProjectionInfo(aux->targetList,
+												econtext,
+												state.out_slot,
+												NULL,
+												RelationGetDescr(parent->rel));
+
+		if (rel)
+		{
+			ClusterCopyFromReduce(rel, aux->reduce, rnodes, aux->id, NextRowFromTidBufFile, &state);
+			heap_close(rel, RowExclusiveLock);
+		}else
+		{
+			ClusterDummyCopyFromReduce(aux->targetList, aux->reduce, rnodes, aux->id, NextRowFromTidBufFile, &state);
+		}
+
+		ReScanExprContext(econtext);
+		if (rel == NULL)
+			FreeTupleDesc(desc);
+	}
+
+	FreeExprContext(econtext, true);
+	ExecDropSingleTupleTableSlot(state.out_slot);
+	ExecDropSingleTupleTableSlot(state.base_slot);
+
+	MemoryContextSwitchTo(old_context);
+	MemoryContextDelete(aux_context);
+}
+
+static void InitCopyFromReduce(CopyFromReduceState *state, TupleDesc desc, Expr *reduce,
+							   List *rnodes, int id, CustomNextRowFunction fun, void *func_data)
+{
+	ListCell *lc;
+	AssertArg(IsA(rnodes, OidList));
+
+	MemSet(state, 0, sizeof(*state));
+	state->econtext = CreateStandaloneExprContext();
+	state->reduce = ExecInitExpr(reduce, NULL);
+	state->base_slot = MakeSingleTupleTableSlot(desc);
+	state->convert_state = create_type_convert(desc, true, true);
+	if (state->convert_state)
+		state->convert_slot = MakeSingleTupleTableSlot(state->convert_state->out_desc);
+
+	state->rdc_port = ConnectSelfReduce(TYPE_PLAN,
+										id,
+										MyProcPid,
+										NULL);
+
+	state->all_nodes_oid = rnodes;
+	foreach(lc, rnodes)
+	{
+		if (lfirst_oid(lc) != PGXCNodeOid)
+			state->working_nodes_oid = lappend_oid(state->working_nodes_oid, lfirst_oid(lc));
+	}
+
+	state->plan_id = id;
+
+	state->NextRow = fun;
+	state->func_data = func_data;
+}
+
+static void CleanCopyFromReduce(CopyFromReduceState *state)
+{
+	list_free(state->working_nodes_oid);
+	FreeExprContext(state->econtext, true);
+	ExecDropSingleTupleTableSlot(state->base_slot);
+	if (state->convert_state)
+	{
+		ExecDropSingleTupleTableSlot(state->convert_slot);
+		free_type_convert(state->convert_state);
+	}
+
+	DisConnectSelfReduce(state->rdc_port, NIL, false);
+}
+
+void ClusterCopyFromReduce(Relation rel, Expr *reduce, List *rnodes, int id, CustomNextRowFunction func, void *data)
+{
+	MemoryContext		oldcontext;
+	CopyState			cstate;
+	CopyFromReduceState	rstate;
+	ParseState		   *pstate;
+
+	/* check read-only transaction and parallel mode */
+	if (XactReadOnly && !rel->rd_islocaltemp)
+		PreventCommandIfReadOnly("COPY FROM");
+	PreventCommandIfParallelMode("COPY FROM");
+
+	pstate = make_parsestate(NULL);
+	addRangeTableEntryForRelation(pstate, rel, NULL, false, false);
+
+	cstate = BeginCopy(pstate, true, rel, NULL, InvalidOid, NULL, NIL, true);
+	oldcontext = MemoryContextSwitchTo(cstate->copycontext);
+
+	/* Initialize state variables */
+	InitCopyFromReduce(&rstate, RelationGetDescr(rel), reduce, rnodes, id, func, data);
+	cstate->fe_eof = false;
+	cstate->eol_type = EOL_UNKNOWN;
+	cstate->cur_relname = RelationGetRelationName(rel);
+	cstate->cur_lineno = 0;
+	cstate->cur_attname = NULL;
+	cstate->cur_attval = NULL;
+	cstate->binary = true;
+	cstate->NextRowFrom = NextRowFromReduce;
+	cstate->func_data = &rstate;
+
+	PG_TRY();
+	{
+		CopyFrom(cstate);
+	}PG_CATCH();
+	{
+		DisConnectSelfReduce(rstate.rdc_port,
+							 RdcSendEOF(rstate.rdc_port) ? NIL:rstate.all_nodes_oid,
+							 true);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	CleanCopyFromReduce(&rstate);
+	MemoryContextSwitchTo(oldcontext);
+	EndCopyFrom(cstate);
+}
+
+void ClusterDummyCopyFromReduce(List *target, Expr *reduce, List *rnodes, int id, CustomNextRowFunction fun, void *data)
+{
+	MemoryContext copy_context = AllocSetContextCreate(CurrentMemoryContext,
+													   "ClusterDummyCopyFromReduce",
+													   ALLOCSET_DEFAULT_SIZES);
+	MemoryContext old_context = MemoryContextSwitchTo(copy_context);
+	TupleDesc desc = ExecTypeFromTL(target, false);
+	CopyFromReduceState	rstate;
+	TupleTableSlot *slot;
+	InitCopyFromReduce(&rstate, desc, reduce, rnodes, id, fun, data);
+
+	PG_TRY();
+	{
+		slot = NextRowFromReduce(NULL, rstate.econtext, &rstate);
+		if (!TupIsNull(slot))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("dummy rel got a tuple from reduce")));
+		}
+	}PG_CATCH();
+	{
+		DisConnectSelfReduce(rstate.rdc_port,
+							 RdcSendEOF(rstate.rdc_port) ? NIL:rstate.all_nodes_oid,
+							 true);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	CleanCopyFromReduce(&rstate);
+	FreeTupleDesc(desc);
+	MemoryContextSwitchTo(old_context);
+	MemoryContextDelete(copy_context);
+}
+
+static TupleTableSlot* NextRowFromReduce(CopyState cstate, ExprContext *econtext, void *data)
+{
+	CopyFromReduceState	   *state = data;
+	TupleTableSlot		   *slot;
+	List				   *rnodes;
+	Datum					datum;
+	ExprDoneCond			done;
+	Oid						nodeoid;
+	bool					isNull;
+
+	rdc_set_noblock(state->rdc_port);
+
+	for(;;)
+	{
+		if (state->working_nodes_oid != NIL)
+		{
+			/* first try from remote, first time it is noblock mode */
+			slot = state->convert_state ? state->convert_slot : state->base_slot;
+			nodeoid = InvalidOid;
+			slot = GetSlotFromRemote(state->rdc_port,
+									 state->convert_state ? state->convert_slot : state->base_slot,
+									 NULL,
+									 &nodeoid,
+									 NULL);
+			if (OidIsValid(nodeoid))
+			{
+				state->working_nodes_oid = list_delete_oid(state->working_nodes_oid, nodeoid);
+				continue;
+			}else if (!TupIsNull(slot))
+			{
+				if (state->convert_state)
+				{
+					Assert(slot == state->convert_slot);
+					slot = do_type_convert_slot_in(state->convert_state,
+												   slot,
+												   state->base_slot,
+												   false);
+				}
+				return slot;
+			}
+		}
+
+		if (state->eof_local == false)
+		{
+			/* try from local */
+			slot = (*state->NextRow)(cstate, econtext, state->func_data);
+			if (!TupIsNull(slot))
+			{
+				bool need_return = false;
+				econtext->ecxt_scantuple = slot;
+				econtext->ecxt_outertuple = econtext->ecxt_innertuple = NULL;
+				rnodes = NIL;
+				for(;;)
+				{
+					if (IsA(state->reduce, SetExprState))
+					{
+						datum = ExecMakeFunctionResultSet((SetExprState*)state->reduce,
+														  econtext,
+														  &isNull,
+														  &done);
+					}else
+					{
+						datum = ExecEvalExpr(state->reduce, econtext, &isNull);
+						done = ExprSingleResult;
+					}
+					if (done == ExprEndResult)
+					{
+						break;
+					}else if (isNull)
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_INTERNAL_ERROR),
+								 errmsg("ReduceExpr return a null value")));
+					}else
+					{
+						nodeoid = DatumGetObjectId(datum);
+						if (nodeoid == PGXCNodeOid)
+							need_return = true;
+						else
+							rnodes = list_append_unique_oid(rnodes, nodeoid);
+						if (done == ExprSingleResult)
+							break;
+					}
+				}
+
+				/* Here we truly send tuple to remote plan nodes */
+				if (rnodes != NIL)
+				{
+					if (state->convert_state)
+					{
+						do_type_convert_slot_out(state->convert_state,
+												 slot,
+												 state->convert_slot,
+												 false);
+						SendSlotToRemote(state->rdc_port, rnodes, state->convert_slot);
+					}else
+					{
+						SendSlotToRemote(state->rdc_port, rnodes, slot);
+					}
+					list_free(rnodes);
+				}
+
+				if (need_return)
+					return slot;
+
+				continue;	/* loop to get data */
+			}else
+			{
+				state->eof_local = true;
+				SendEofToRemote(state->rdc_port, state->all_nodes_oid);
+			}
+		}
+
+		if (state->working_nodes_oid != NIL)
+		{
+			/* set to block mode and try it again */
+			rdc_set_block(state->rdc_port);
+		}else
+		{
+			Assert(state->eof_local);
+			break;
+		}
+	}
+
+	return NULL;
+}
+
+static TupleTableSlot* NextRowFromTidBufFile(CopyState cstate, ExprContext *context, void *data)
+{
+	TidBufFileScanState	   *state = data;
+	size_t					nread;
+	HeapTuple				tuple = state->tuple;
+	Buffer					buffer;
+	ExprContext			   *econtext;
+
+	nread = BufFileRead(state->file, &tuple->t_self, sizeof(ItemPointerData));
+	if (nread == 0)
+	{
+		return ExecClearTuple(state->out_slot);
+	}else if (nread != sizeof(tuple->t_self))
+	{
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not read from copied-ctid temporary file: %m")));
+	}
+	if (heap_fetch(state->rel,
+				   SnapshotAny,
+				   tuple,
+				   &buffer,
+				   false,
+				   NULL) == false)
+	{
+		ereport(ERROR,
+				(errmsg("failed to fetch tuple for NextRowFromTidBufFile")));
+	}
+
+	ExecStoreTuple(tuple, state->base_slot, buffer, false);
+	ReleaseBuffer(buffer);
+	econtext = state->project->pi_exprContext;
+	econtext->ecxt_scantuple = state->base_slot;
+	econtext->ecxt_outertuple = state->out_slot;
+
+	ExecProject(state->project);
+	Assert(!TupIsNull(state->out_slot));
+
+	return state->out_slot;
+}
+
 #endif /* ADB */
