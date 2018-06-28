@@ -5506,7 +5506,8 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 	}
 	else
 	{
-		mgr_get_createnodeCmd_on_readonly_cn(NameStr(mgr_node_out->nodename), false, &cmdstring);
+		mgr_get_createnodeCmd_on_readonly_cn(NameStr(mgr_node_out->nodename)
+								, mgr_node_out->nodeincluster, &cmdstring);
 	}
 	appendStringInfoString(&cmdstring, "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
 
