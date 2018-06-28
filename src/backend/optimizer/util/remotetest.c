@@ -162,6 +162,11 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel)
 	MemoryContextSwitchTo(old_mctx);
 	result = list_copy(result);
 	MemoryContextDelete(main_mctx);
+
+	/* when used auxiliary relation, don't cache plan */
+	if (context.hint)
+		root->glob->transientPlan = true;
+
 	return result;
 }
 
