@@ -3967,6 +3967,7 @@ QueryRewriteCTAS(Query *parsetree)
 	CreateTableAsStmt *stmt;
 	IntoClause *into;
 	ListCell *lc;
+	PlannedStmt *plannedStmt;
 
 	if (parsetree->commandType != CMD_UTILITY ||
 		!IsA(parsetree->utilityStmt, CreateTableAsStmt))
@@ -4091,8 +4092,11 @@ QueryRewriteCTAS(Query *parsetree)
 	deparse_query(cparsetree, &cquery, NIL, false, false);
 
 	/* Finally, fire off the query to run the DDL */
-#warning We need a PlanStmt struct, but cparsetree->utilityStmt is a CreateStmt
-	ProcessUtility(cparsetree->utilityStmt,
+	plannedStmt = makeNode(PlannedStmt);
+	plannedStmt->commandType = CMD_UTILITY;
+	plannedStmt->utilityStmt = (Node *) create_stmt;
+	plannedStmt->stmt_location = -1;
+	ProcessUtility(plannedStmt,
 				   cquery.data,
 				   PROCESS_UTILITY_TOPLEVEL, NULL, NULL, NULL,  /* Tentative fix.  Nedd a review.  K.Suzuki */
 				   false,
