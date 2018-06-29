@@ -402,7 +402,13 @@ main(int argc, char **argv)
 		}
 		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
+#ifdef ADB
+			puts("pg_dump (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+#elif MGR_DUMP
+			puts("mgr_dump (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+#else
 			puts("pg_dump (PostgreSQL) " PG_VERSION);
+#endif
 			exit_nicely(0);
 		}
 	}
@@ -18124,17 +18130,16 @@ dumpAdbmgrTable(Archive *fout)
 		resetPQExpBuffer(addstrdata);
 		if (strcmp(PQgetvalue(res, i, 0), "*") == 0)
 			appendPQExpBuffer(addstrdata, "SET %s %s (\"%s\"=\"%s\");",
-				strcasecmp(PQgetvalue(res, i, 1), "datanode master|slave|extra") == 0 ? "datanode"
-					:(strcasecmp(PQgetvalue(res, i, 1), "gtm master|slave|extra") == 0 ? "gtm"
-					:PQgetvalue(res, i, 1)),
+				strcasecmp(PQgetvalue(res, i, 1), "datanode master|slave") == 0 ? "datanode"
+					:(strcasecmp(PQgetvalue(res, i, 1), "gtm master|slave") == 0 ? "gtm"
+						:(strcasecmp(PQgetvalue(res, i, 1), "coordinator master|slave") == 0
+						? "coordinator" : PQgetvalue(res, i, 1))),
 				"all",
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 3));
 		else
 			appendPQExpBuffer(addstrdata, "SET %s \"%s\" (\"%s\"=\"%s\");",
-				strcasecmp(PQgetvalue(res, i, 1), "datanode master|slave|extra") == 0 ? "datanode"
-					:(strcasecmp(PQgetvalue(res, i, 1), "gtm master|slave|extra") == 0 ? "gtm"
-					:PQgetvalue(res, i, 1)),
+				PQgetvalue(res, i, 1),
 				PQgetvalue(res, i, 0),
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 3));

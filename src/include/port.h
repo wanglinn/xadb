@@ -99,7 +99,11 @@ extern int find_other_exec(const char *argv0, const char *target,
 				const char *versionstr, char *retpath);
 
 /* Doesn't belong here, but this is used with find_other_exec(), so... */
+#if defined(ADB_VERSION)
+#define PG_BACKEND_VERSIONSTR "postgres (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+#else
 #define PG_BACKEND_VERSIONSTR "postgres (PostgreSQL) " PG_VERSION "\n"
+#endif
 
 /* Windows security token manipulation (in exec.c) */
 #ifdef WIN32

@@ -16,6 +16,8 @@
  */
 #include "postgres.h"
 
+#include <time.h>
+
 #include "access/rxact_mgr.h"
 #include "access/transam.h"
 #include "access/twophase.h"
@@ -53,7 +55,7 @@ static InterXactStateData TopInterXactStateData = {
 
 static void ResetInterXactState(InterXactState state);
 static void InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool missing_ok);
-static void InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, bool ignore_error);
+static void InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, bool no_error);
 
 /*
  * GetPGconnAttatchCurrentInterXact
@@ -704,7 +706,7 @@ InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool no
 		InterXactTwoPhase(gid, nodes, nnodes, TP_ABORT, missing_ok);
 	else
 	{
-		List *handle_list = GetHandleList(NULL, nodes, nnodes, false, false, NULL);
+		List *handle_list = GetNodeHandleList(nodes, nnodes, false, true, false, NULL);
 		char *command;
 		const char *command_tag;
 
@@ -734,7 +736,7 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 	char		   *command = NULL;
 	const char	   *command_tag;
 
-	handle_list = GetHandleList(NULL, nodes, nnodes, false, true, NULL);
+	handle_list = GetNodeHandleList(nodes, nnodes, false, false, true, NULL);
 	if (!handle_list)
 		return ;
 
@@ -792,7 +794,7 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 }
 
 static void
-InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, bool ignore_error)
+InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, bool no_error)
 {
 	NodeHandle	   *handle;
 	ListCell	   *lc_handle;
@@ -803,7 +805,7 @@ InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_
 		if (!HandleSendQueryTree(handle, InvalidCommandId, NULL, command, NULL) ||
 			!HandleFinishCommand(handle, command_tag))
 		{
-			if (ignore_error)
+			if (no_error)
 				continue;
 
 			ereport(ERROR,

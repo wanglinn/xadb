@@ -63,6 +63,9 @@
 #include "utils/syscache.h"
 #include "utils/timeout.h"
 #include "utils/tqual.h"
+#ifdef ADB
+#include "intercomm/inter-node.h"
+#endif
 
 
 static HeapTuple GetDatabaseTuple(const char *dbname);
@@ -1048,6 +1051,11 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 
 	/* initialize client encoding */
 	InitializeClientEncoding();
+
+#ifdef ADB
+	/* initialize node executor */
+	InitializeNodeExecutor();
+#endif
 
 	/* report this backend in the PgBackendStatus array */
 	if (!bootstrap)

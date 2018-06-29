@@ -39,7 +39,7 @@ typedef struct
 	/* dynahash.c requires key to be first field */
 	char		stmt_name[NAMEDATALEN];
 	int			node_num;		/* number of nodes where statement is active */
-	Oid 		node_ids[0];	/* node ids where statement is active */
+	Oid 		node_ids[FLEXIBLE_ARRAY_MEMBER];	/* node ids where statement is active */
 } DatanodeStatement;
 #endif
 
@@ -48,11 +48,11 @@ extern void PrepareQuery(PrepareStmt *stmt, const char *queryString,
 			 int stmt_location, int stmt_len);
 extern void ExecuteQuery(ExecuteStmt *stmt, IntoClause *intoClause,
 			 const char *queryString, ParamListInfo params,
-			 DestReceiver *dest, char *completionTag);
+			 DestReceiver *dest, char *completionTag ADB_ONLY_COMMA_ARG(bool cluster_safe));
 extern void DeallocateQuery(DeallocateStmt *stmt);
 extern void ExplainExecuteQuery(ExecuteStmt *execstmt, IntoClause *into,
 					ExplainState *es, const char *queryString,
-					ParamListInfo params, QueryEnvironment *queryEnv);
+					ParamListInfo params, QueryEnvironment *queryEnv ADB_ONLY_COMMA_ARG(bool cluster_safe));
 
 /* Low-level access to stored prepared statements */
 extern void StorePreparedStatement(const char *stmt_name,

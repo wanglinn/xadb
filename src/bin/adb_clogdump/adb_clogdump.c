@@ -414,7 +414,11 @@ int main(int argc, char * const argv[])
 				log_verbose = true;
 				break;
 			case 'V':
+#ifdef ADB
+				fprintf(stdout, "%s (%s based on PostgreSQL) %s\n", progname, ADB_VERSION, PG_VERSION);
+#else
 				fprintf(stdout, "%s (PostgreSQL) %s\n", progname, PG_VERSION);
+#endif
 				exit(EXIT_SUCCESS);
 				break;
 			case 'x':

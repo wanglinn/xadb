@@ -275,7 +275,6 @@ extern char *quote_literal_cstr(const char *rawstr);
 
 #ifdef ADB
 /* backend/pgxc/pool/poolutils.c */
-extern Datum pgxc_pool_check(PG_FUNCTION_ARGS);
 extern Datum pgxc_pool_reload(PG_FUNCTION_ARGS);
 
 extern Datum pgxc_is_committed(PG_FUNCTION_ARGS);

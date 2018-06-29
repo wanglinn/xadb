@@ -434,12 +434,12 @@ pqParseInput3(PGconn *conn)
 						avail = (*conn->funs->getUnknownMsg)(conn, id, msgLength);
 					else
 						avail = -1;
-					if(avail > 0)
-						return;
-					else if(avail == 0)
+
+					if(avail == 0)
 						break;
 					else
 					{
+						if (avail < 0)
 #endif
 					printfPQExpBuffer(&conn->errorMessage,
 									  libpq_gettext(
@@ -1656,7 +1656,27 @@ getCopyDataMessage(PGconn *conn)
 					conn->asyncStatus = PGASYNC_BUSY;
 				return -1;
 			default:			/* treat as end of copy */
+#ifdef ADB
+				if (conn->funs && conn->funs->getUnknownMsg)
+				{
+					int ret;
 
+					/*
+					 * The msgLength contains four bytes of length itself now.
+					 * So subtract it.
+					 */
+					msgLength -= 4;
+					ret = (*(conn->funs->getUnknownMsg))(conn, id, msgLength);
+					if (ret == 0)
+						break;
+					else if (ret > 0)	/* error */
+					{
+						pqSaveErrorResult(conn);
+						conn->asyncStatus = PGASYNC_READY;
+						return -2;
+					}
+				}
+#endif
 				/*
 				 * Any other message terminates either COPY_IN or COPY_BOTH
 				 * mode.

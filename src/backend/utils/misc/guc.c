@@ -124,6 +124,11 @@
 #define CONFIG_EXEC_PARAMS_NEW "global/config_exec_params.new"
 #endif
 
+#ifdef ADB
+#define GUC_AGTM_HOST "agtm_host"
+#define GUC_AGTM_PORT "agtm_port"
+#endif
+
 /*
  * Precision with which REAL type guc values are to be printed for GUC
  * serialization.
@@ -493,7 +498,7 @@ bool		Debug_print_plan = false;
 bool		Debug_print_parse = false;
 #ifdef ADB
 bool		Debug_print_grammar = false;
-bool		enable_cluster_plan = false;
+bool		enable_cluster_plan = true;
 #endif
 bool		Debug_print_rewritten = false;
 bool		Debug_pretty_print = true;
@@ -546,12 +551,10 @@ int			pool_release_to_idle_timeout;
 bool		enable_adb_ha_sync;
 bool		enable_adb_ha_sync_select;
 bool 		debug_enable_satisfy_mvcc;
-bool		enable_stable_func_shipping;
 bool		enable_pushdown_art;
 bool		enable_zero_year;
 bool		distribute_by_replication_default;
 bool		print_reduce_debug_log = false;
-extern bool enable_node_tcp_log;
 #endif
 #ifdef DEBUG_ADB
 bool		ADB_DEBUG;
@@ -1258,7 +1261,7 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&enable_cluster_plan,
-		false,
+		true,
 		NULL, NULL, NULL
 	},
 	{
@@ -1894,15 +1897,6 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 #endif
 	{
-		{"xc_enable_node_tcp_log", PGC_USERSET, LOGGING,
-			gettext_noop("Save node TCP data to log file"),
-			NULL
-		},
-		&enable_node_tcp_log,
-		false,
-		NULL, NULL, NULL
-	},
-	{
 		{"persistent_datanode_connections", PGC_BACKEND, DEVELOPER_OPTIONS,
 			gettext_noop("Session never releases acquired connections."),
 			NULL,
@@ -1929,16 +1923,6 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&distribute_by_replication_default,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"enable_stable_func_shipping", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Enables stable function shipping to ship query directly to datanode."),
-			NULL
-		},
-		&enable_stable_func_shipping,
 		false,
 		NULL, NULL, NULL
 	},
@@ -10008,14 +9992,46 @@ RestoreGUCState(void *gucstate)
 	Size		len;
 	int			i;
 
+	/* First item is the length of the subsequent data */
+	memcpy(&len, gucstate, sizeof(len));
+#ifdef ADB
+	srcptr += sizeof(len);
+	srcend = srcptr + len;
+
+	/* set AGtmPort value */
+	while (srcptr < srcend)
+	{
+		varname = read_gucstate(&srcptr, srcend);
+		varvalue = read_gucstate(&srcptr, srcend);
+		if (strcmp(varname, GUC_AGTM_PORT) == 0)
+		{
+			AGtmPort = pg_atoi(varvalue, sizeof(int32), '\0');
+			break;
+		}
+		varsourcefile = read_gucstate(&srcptr, srcend);
+		if (varsourcefile[0])
+			read_gucstate_binary(&srcptr, srcend,
+							&varsourceline, sizeof(varsourceline));
+		read_gucstate_binary(&srcptr, srcend,
+						&varsource, sizeof(varsource));
+		read_gucstate_binary(&srcptr, srcend,
+						&varscontext, sizeof(varscontext));
+	}
+#endif
+
 	/* See comment at can_skip_gucvar(). */
 	for (i = 0; i < num_guc_variables; i++)
 		if (!can_skip_gucvar(guc_variables[i]))
+		{
+#ifdef ADB
+			/* agtm_host, agtm_port no need init */
+			if (strcmp(((struct config_generic *)guc_variables[i])->name, GUC_AGTM_HOST) != 0 \
+				&& strcmp(((struct config_generic *)guc_variables[i])->name, GUC_AGTM_PORT) != 0)
+#endif
 			InitializeOneGUCOption(guc_variables[i]);
+		}
 
-	/* First item is the length of the subsequent data */
-	memcpy(&len, gucstate, sizeof(len));
-
+	srcptr = (char *) gucstate; 
 	srcptr += sizeof(len);
 	srcend = srcptr + len;
 

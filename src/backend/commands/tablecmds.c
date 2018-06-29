@@ -799,31 +799,18 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	 *	  DISTRIBUTE BY clause is missing in the statemnet the system
 	 *	  should not try to find out the node list itself.
 	 */
-	if ((IS_PGXC_COORDINATOR || (isRestoreMode && stmt->distributeby != NULL))
+	if ((IsCnNode() || IsDnNode() || (isRestoreMode && stmt->distributeby != NULL))
 		&& relkind == RELKIND_RELATION
 		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
 	{
 		AddRelationDistribution(relationId,
 								stmt->distributeby,
-								stmt->subcluster, inheritOids, descriptor);
+								stmt->subcluster,
+								inheritOids,
+								descriptor);
 		CommandCounterIncrement();
 		/* Make sure locator info gets rebuilt */
 		RelationCacheInvalidateEntry(relationId);
-	}
-
-	/*
-	 * If datanode, only record the dependency of the relation on the
-	 * funtion which the relation distributed by.
-	 */
-	if ((IS_PGXC_DATANODE || (isRestoreMode && stmt->distributeby != NULL))
-		&& relkind == RELKIND_RELATION
-		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
-	{
-		AddPgxcRelationDependFunction(relationId,
-									  stmt->distributeby,
-									  stmt->subcluster,
-									  inheritOids,
-									  descriptor);
 	}
 #endif
 
@@ -1281,8 +1268,10 @@ ExecuteTruncate(TruncateStmt *stmt)
 	ResultRelInfo *resultRelInfo;
 	SubTransactionId mySubid;
 	ListCell   *cell;
-
 #ifdef ADB
+	bool		has_temp = false;
+	bool		has_non_temp = false;
+
 	if (stmt->restart_seqs)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1308,6 +1297,17 @@ ExecuteTruncate(TruncateStmt *stmt)
 			heap_close(rel, AccessExclusiveLock);
 			continue;
 		}
+#ifdef ADB
+		if (IsTempTable(myrelid))
+			has_temp = true;
+		else
+			has_non_temp = true;
+
+		if (has_temp && has_non_temp)
+			ereport(ERROR,
+					(errmsg("TRUNCATE not supported for TEMP and non-TEMP objects"),
+					 errdetail("You should separate TEMP and non-TEMP objects")));
+#endif
 		truncate_check_rel(rel);
 		rels = lappend(rels, rel);
 		relids = lappend_oid(relids, myrelid);
@@ -1564,30 +1564,16 @@ ExecuteTruncate(TruncateStmt *stmt)
 	 * AFTER triggers are launched. This insures that the triggers are being fired
 	 * by correct events.
 	 */
-	if (IsCoordMaster())
+	if (IsCoordMaster() && !has_temp)
 	{
-		bool is_temp = false;
 		RemoteQuery *step = makeNode(RemoteQuery);
-
-		foreach(cell, stmt->relations)
-		{
-			Oid relid;
-			RangeVar *rel = (RangeVar *) lfirst(cell);
-
-			relid = RangeVarGetRelid(rel, NoLock, false);
-			if (IsTempTable(relid))
-			{
-				is_temp = true;
-				break;
-			}
-		}
 
 		step->combine_type = COMBINE_TYPE_SAME;
 		step->exec_nodes = NULL;
 		step->sql_statement = pstrdup(sql_statement);
 		step->force_autocommit = false;
 		step->exec_type = EXEC_ON_ALL_NODES;
-		step->is_temp = is_temp;
+		step->is_temp = false;
 		(void) ExecInterXactUtility(step, GetCurrentInterXactState());
 		pfree(step->sql_statement);
 		pfree(step);
@@ -12809,19 +12795,6 @@ AtExecDistributeBy(Relation rel, DistributeBy *options)
 								 &numatts,
 								 &attnums
 								 );
-
-
-	if (IS_PGXC_DATANODE)
-	{
-		/* First remove dependency on the old function */
-		deleteDependencyRecordsForClass(RelationRelationId, relid,
-										ProcedureRelationId, DEPENDENCY_NORMAL);
-		if (IsLocatorDistributedByUserDefined(locatortype))
-		{
-			/* Second create new dependency */
-			CreatePgxcClassFuncDepend(locatortype, relid, funcid);
-		}
-	} else
 
 	/*
 	 * It is not checked if the distribution type list is the same as the old one,

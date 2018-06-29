@@ -164,7 +164,7 @@ static void escape_yaml(StringInfo buf, const char *str);
 void
 ExplainQuery(ParseState *pstate, ExplainStmt *stmt, const char *queryString,
 			 ParamListInfo params, QueryEnvironment *queryEnv,
-			 DestReceiver *dest)
+			 DestReceiver *dest ADB_ONLY_COMMA_ARG(bool isTopLive))
 {
 	ExplainState *es = NewExplainState();
 	TupOutputState *tstate;
@@ -249,6 +249,10 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt, const char *queryString,
 	/* if the summary was not set explicitly, set default value */
 	es->summary = (summary_set) ? es->summary : es->analyze;
 
+#ifdef ADB
+	es->isTopLive = isTopLive;
+#endif /* ADB */
+
 	/*
 	 * Parse analysis was done already, but we still have to run the rule
 	 * rewriter.  We do not do AcquireRewriteLocks: we assume the query either
@@ -283,7 +287,11 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt, const char *queryString,
 		foreach(l, rewritten)
 		{
 			ExplainOneQuery(lfirst_node(Query, l),
+#ifdef ADB
+							CURSOR_OPT_PARALLEL_OK|(isTopLive?CURSOR_OPT_CLUSTER_PLAN_SAFE:0), NULL, es,
+#else
 							CURSOR_OPT_PARALLEL_OK, NULL, es,
+#endif /* ADB */
 							queryString, params, queryEnv);
 
 			/* Separate plans with an appropriate separator */
@@ -441,7 +449,11 @@ ExplainOneUtility(Node *utilityStmt, IntoClause *into, ExplainState *es,
 		rewritten = QueryRewrite(castNode(Query, copyObject(ctas->query)));
 		Assert(list_length(rewritten) == 1);
 		ExplainOneQuery(linitial_node(Query, rewritten),
+#ifdef ADB
+						es->isTopLive ? CURSOR_OPT_CLUSTER_PLAN_SAFE:0, ctas->into, es,
+#else
 						0, ctas->into, es,
+#endif
 						queryString, params, queryEnv);
 	}
 	else if (IsA(utilityStmt, DeclareCursorStmt))
@@ -465,7 +477,7 @@ ExplainOneUtility(Node *utilityStmt, IntoClause *into, ExplainState *es,
 	}
 	else if (IsA(utilityStmt, ExecuteStmt))
 		ExplainExecuteQuery((ExecuteStmt *) utilityStmt, into, es,
-							queryString, params, queryEnv);
+							queryString, params, queryEnv ADB_ONLY_COMMA_ARG(es->isTopLive));
 	else if (IsA(utilityStmt, NotifyStmt))
 	{
 		if (es->format == EXPLAIN_FORMAT_TEXT)
@@ -3785,7 +3797,7 @@ ExplainExecNodes(ExecNodes *en, ExplainState *es)
 	if (en)
 	{
 		node_cnt = list_length(en->nodeids);
-		if (HasPrNode(en->nodeids))
+		if (HasPrimaryNode(en->nodeids))
 		{
 			pr_node_cnt = 1;
 			node_cnt--;
@@ -3838,8 +3850,8 @@ ExplainRemoteQuery(RemoteQuery *plan, PlanState *planstate, List *ancestors, Exp
 	/* add names of the nodes if they exist */
 	if (en && es->nodes)
 	{
-		if (HasPrNode(en->nodeids))
-			ExplainPropertyText("Primary node/s", GetPrNodeName(), es);
+		if (HasPrimaryNode(en->nodeids))
+			ExplainPropertyText("Primary node/s", GetPrimaryNodeName(), es);
 
 		if (en->nodeids)
 		{

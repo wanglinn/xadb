@@ -37,11 +37,17 @@ typedef struct RestoreInstrumentContext
 	int		plan_id;
 }RestoreInstrumentContext;
 
+typedef struct SerializeInstrumentContext
+{
+	StringInfo buf;
+	Bitmapset *serialized;
+}SerializeInstrumentContext;
+
 static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self);
 static void cluster_receive_startup(DestReceiver *self,int operation,TupleDesc typeinfo);
 static void cluster_receive_shutdown(DestReceiver *self);
 static void cluster_receive_destroy(DestReceiver *self);
-static bool serialize_instrument_walker(PlanState *ps, StringInfo buf);
+static bool serialize_instrument_walker(PlanState *ps, SerializeInstrumentContext *context);
 static void restore_instrument_message(PlanState *ps, const char *msg, int len, struct pg_conn *conn);
 static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *context);
 
@@ -99,12 +105,6 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 			ps->state->es_processed += processed;
 		}
 		return false;
-	}else if (*msg == CLUSTER_MSG_COMMAND_ID)
-	{
-		CommandId cid;
-		memcpy(&cid, msg+1, sizeof(cid));
-		if (cid > GetReceivedCommandId())
-			SetReceivedCommandId(cid);
 	}else
 	{
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
@@ -172,14 +172,6 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					errmsg("con not parse convert tuple")));
-		}
-		break;
-	case CLUSTER_MSG_COMMAND_ID:
-		{
-			CommandId cid;
-			memcpy(&cid, msg+1, sizeof(cid));
-			if (cid > GetReceivedCommandId())
-				SetReceivedCommandId(cid);
 		}
 		break;
 	default:
@@ -368,8 +360,12 @@ bool clusterRecvSetCheckEndMsg(DestReceiver *r, bool check)
 
 void serialize_instrument_message(PlanState *ps, StringInfo buf)
 {
+	SerializeInstrumentContext context;
 	appendStringInfoChar(buf, CLUSTER_MSG_INSTRUMENT);
-	serialize_instrument_walker(ps, buf);
+	context.buf = buf;
+	context.serialized = NULL;
+	serialize_instrument_walker(ps, &context);
+	bms_free(context.serialized);
 }
 
 void serialize_processed_message(StringInfo buf, uint64 processed)
@@ -378,26 +374,29 @@ void serialize_processed_message(StringInfo buf, uint64 processed)
 	appendBinaryStringInfo(buf, (char*)&processed, sizeof(processed));
 }
 
-void serialize_command_id(StringInfo buf, CommandId cid)
-{
-	appendStringInfoChar(buf, CLUSTER_MSG_COMMAND_ID);
-	appendBinaryStringInfo(buf, (char*)&cid, sizeof(cid));
-}
-
 void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
 {
-	int i;
 	char *attname;
 	int32 atttypmod;
 	int32 attndims;
+	int i,natts;
 
 	AssertArg(buf && desc);
 
-	appendStringInfoChar(buf, msg_type);
-	appendStringInfoChar(buf, desc->tdhasoid);
-	appendBinaryStringInfo(buf, (char*)&(desc->natts), sizeof(desc->natts));
+	natts = desc->natts;
 	for(i=0;i<desc->natts;++i)
 	{
+		if (desc->attrs[i]->attisdropped)
+			--natts;
+	}
+	appendStringInfoChar(buf, msg_type);
+	appendStringInfoChar(buf, desc->tdhasoid);
+	appendBinaryStringInfo(buf, (char*)&natts, sizeof(natts));
+	for(i=0;i<desc->natts;++i)
+	{
+		if (desc->attrs[i]->attisdropped)
+			continue;
+
 		/* attname */
 		attname = NameStr(desc->attrs[i]->attname);
 		save_node_string(buf, attname);
@@ -522,6 +521,12 @@ MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup)
 	for(i=desc->natts;(--i)>=0;)
 	{
 		Form_pg_attribute attr=desc->attrs[i];
+		/*
+		 * must have no droped attribute.
+		 * if have, use TupleConversionMap convert is first
+		 */
+		Assert(!attr->attisdropped);
+
 		if (slot->tts_isnull[i] == false &&
 			attr->attlen == -1 &&
 			attr->attbyval == false &&
@@ -605,15 +610,18 @@ TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *s
 	return ExecStoreMinimalTuple(tup, slot, true);
 }
 
-static bool serialize_instrument_walker(PlanState *ps, StringInfo buf)
+static bool serialize_instrument_walker(PlanState *ps, SerializeInstrumentContext *context)
 {
 	int num_worker;
 
-	if(ps == NULL)
+	if (ps == NULL ||
+		bms_is_member(ps->plan->plan_node_id, context->serialized))
 		return false;
 
+	context->serialized = bms_add_member(context->serialized, ps->plan->plan_node_id);
+
 	/* plan ID */
-	appendBinaryStringInfo(buf,
+	appendBinaryStringInfo(context->buf,
 						   (char*)&(ps->plan->plan_node_id),
 						   sizeof(ps->plan->plan_node_id));
 
@@ -625,17 +633,17 @@ static bool serialize_instrument_walker(PlanState *ps, StringInfo buf)
 		num_worker = 0;
 	}
 	/* worker instrument */
-	appendBinaryStringInfo(buf, (char*)&num_worker, sizeof(num_worker));
+	appendBinaryStringInfo(context->buf, (char*)&num_worker, sizeof(num_worker));
 
-	appendBinaryStringInfo(buf,
+	appendBinaryStringInfo(context->buf,
 						   (char*)ps->instrument,
 						   sizeof(*(ps->instrument)));
 	if(num_worker)
-		appendBinaryStringInfo(buf,
+		appendBinaryStringInfo(context->buf,
 							   (char*)(ps->worker_instrument->instrument),
 							   sizeof(Instrumentation) * num_worker);
 
-	return planstate_tree_walker(ps, serialize_instrument_walker, buf);
+	return planstate_tree_walker(ps, serialize_instrument_walker, context);
 }
 
 static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *context)

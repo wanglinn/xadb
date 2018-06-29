@@ -192,12 +192,6 @@ typedef enum XactPhase
 	((TransactionState)(s))->xact_phase = XACT_PHASE_ONE
 #define SetXactPhaseTwo(s)	\
 	((TransactionState)(s))->xact_phase = XACT_PHASE_TWO
-
-/*
- * Flag to keep track of whether we have a error in a transaction.
- * This is decide what to do in AbortTransaction about remote nodes.
- */
-static bool xact_error_abort = false;
 #endif
 
 /*
@@ -211,6 +205,9 @@ typedef struct TransactionStateData
 	bool				isLocalParameterUsed;		/* Check if a local parameter is active
 													 * in transaction block (SET LOCAL, DEFERRED) */
 	bool				agtm_begin;					/* mark agtm is begin or not in current xact */
+	bool				error_abort;				/* Flag to keep track of whether we have an error
+													   in a transaction. This will decide what to do in
+													   AbortTransaction about remote nodes */
 	XactPhase			xact_phase;					/* mark which phase the current xact in */
 	InterXactState		interXactState;				/* inter transaction state if TopTransaction */
 #else
@@ -249,6 +246,7 @@ static TransactionStateData TopTransactionStateData = {
 	0,							/* global transaction id */
 	false,						/* isLocalParameterUsed */
 	false,						/* agtm begin? */
+	false,						/* error abort? */
 	XACT_PHASE_ONE,				/* implicit two-phase commit? */
 	NULL,						/* inter transaction state */
 #else
@@ -852,6 +850,31 @@ GetCurrentCommandId(bool used)
 }
 
 #ifdef ADB
+void
+PreventInterTransactionChain(const Oid node_id, const char *stmt_type)
+{
+	TransactionState	s;
+	InterXactState		is;
+	int					i;
+
+	for (s = CurrentTransactionState; s != NULL; s = s->parent)
+	{
+		if (s->interXactState)
+		{
+			is = s->interXactState;
+			for (i = 0; i < is->trans_count; i++)
+			{
+				if (node_id == is->trans_nodes[i])
+					ereport(ERROR,
+						(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
+					/* translator: %s represents an SQL statement name */
+						 errmsg("%s cannot run inside an inter transaction block",
+						 		stmt_type)));
+			}
+		}
+	}
+}
+
 InterXactState
 GetCurrentInterXactState(void)
 {
@@ -910,15 +933,12 @@ IsCurrentXactInPhase2(void)
 }
 
 void
-SetXactErrorAborted(bool flag)
+MarkCurrentTransactionErrorAborted(void)
 {
-	xact_error_abort = flag;
-}
+	TransactionState s;
 
-bool
-IsXactErrorAbort(void)
-{
-	return xact_error_abort;
+	for (s = CurrentTransactionState; s != NULL; s = s->parent)
+		s->error_abort = true;
 }
 
 /*
@@ -2269,6 +2289,13 @@ StartTransaction(void)
 	 */
 	s->state = TRANS_INPROGRESS;
 
+#ifdef ADB
+	/*
+	 * initialize node executor for new transaction if necessary
+	 */
+	AtStart_NodeExecutor();
+#endif
+
 	ShowTransactionState("StartTransaction");
 }
 
@@ -3022,10 +3049,12 @@ AbortTransaction(void)
 	 */
 	AtEOXact_DBCleanup(false);
 
-	if (IsXactErrorAbort())
+	if (s->error_abort)
 		UnexpectedAbortRemoteXact(s);
 	else
 		NormalAbortRemoteXact(s);
+
+	s->error_abort = false;
 #endif
 
 	/* Prevent cancel/die interrupt while cleaning up */
@@ -4856,6 +4885,10 @@ AbortOutOfAnyTransaction(void)
 	 */
 	do
 	{
+#ifdef ADB
+		/* error abort for remote nodes' transaction */
+		s->error_abort = true;
+#endif
 		switch (s->blockState)
 		{
 			case TBLOCK_DEFAULT:
@@ -6403,21 +6436,8 @@ GetReceivedCommandId(void)
 void
 ReportCommandIdChange(CommandId cid)
 {
-	StringInfoData buf;
-
-	/* Send command Id change to Coordinator */
-	initStringInfo(&buf);
-	pq_sendbyte(&buf, 0);
-	pq_sendint(&buf, 0, 2);
-	pq_putmessage('H', buf.data, buf.len);
-
-	resetStringInfo(&buf);
-	serialize_command_id(&buf, cid);
-	pq_putmessage('d', buf.data, buf.len);
-
-	pq_putemptymessage('c');
+	pq_putmessage('M', (const char *) &cid, sizeof(cid));
 	pq_flush();
-	pfree(buf.data);
 }
 
 /*

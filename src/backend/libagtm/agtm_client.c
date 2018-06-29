@@ -159,7 +159,7 @@ agtm_SetPort(int listen_port)
 		ereport(ERROR, (errmsg("Can not set agtm listen port")));
 	if(listen_port < 0 || listen_port > 65535)
 		ereport(ERROR, (errmsg("Invalid port number %d", listen_port)));
-	ereport(LOG,
+	ereport(DEBUG1,
 		(errmsg("Get AGTM listen port: %d from coordinator,", listen_port)));
 
 	SaveDefaultAGtmPort(AGtmPort);
@@ -304,8 +304,16 @@ StringInfo agtm_use_result_data(const PGresult *res, StringInfo buf)
 
 StringInfo agtm_use_result_type(const PGresult *res, StringInfo buf, AGTM_ResultType type)
 {
-	agtm_use_result_data(res, buf);
-	agtm_check_result(buf, type);
+	PG_TRY();
+	{
+		agtm_use_result_data(res, buf);
+		agtm_check_result(buf, type);
+	} PG_CATCH();
+	{
+		PQclear((PGresult *) res);
+		PG_RE_THROW();
+	} PG_END_TRY();
+
 	return buf;
 }
 
@@ -319,12 +327,16 @@ void agtm_check_result(StringInfo buf, AGTM_ResultType type)
 	}
 }
 
-void agtm_use_result_end(StringInfo buf)
+void agtm_use_result_end(PGresult *res, StringInfo buf)
 {
 	if (buf->cursor != buf->len)
+	{
+		PQclear(res);
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("invalid message format from AGTM")));
+	}
+	PQclear(res);
 }
 
 /* GUC check hook for agtm_host */
@@ -384,4 +396,3 @@ check_agtm_port(int *newval, void **extra, GucSource source)
 
 	return true;
 }
-

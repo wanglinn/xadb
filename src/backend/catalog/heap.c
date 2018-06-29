@@ -1346,14 +1346,21 @@ AddRelationDistribution(Oid relid,
 	int				hashbuckets = 0;
 	AttrNumber		attnum = 0;
 	ObjectAddress	myself, referenced;
-	int				numnodes;
-	Oid			   *nodeoids;
+	int				numnodes = 0;
+	Oid			   *nodeoids = NULL;
 	Oid				funcid = InvalidOid;
 	int				numatts = 0;
 	int16		   *attnums = NULL;
 
 	/* Obtain details of nodes and classify them */
-	nodeoids = GetRelationDistributionNodes(subcluster, &numnodes);
+	if (IsDnNode())
+	{
+		numnodes = 0;
+		nodeoids = NULL;
+	} else
+	{
+		nodeoids = GetRelationDistributionNodes(subcluster, &numnodes);
+	}
 
 	/* Obtain details of distribution information */
 	GetRelationDistributionItems(relid,
@@ -1382,50 +1389,11 @@ AddRelationDistribution(Oid relid,
 	referenced.objectSubId = 0;
 	recordDependencyOn(&myself, &referenced, DEPENDENCY_INTERNAL);
 
-	/*
-	 * Dependency on function while distribute
-	 * by user-defined function
-	 */
-	CreatePgxcClassFuncDepend(locatortype, relid, funcid);
-}
+	/* Dependency on the specific attribute */
+	CreatePgxcRelationAttrDepend(relid, attnum);
 
-/*
-* Record the dependency of the specified relation
-* on the specified function by Datanode while
-* the relation is distributed by user-defined function.
-*/
-void
-AddPgxcRelationDependFunction(Oid relid,
-							 DistributeBy *distributeby,
-							 PGXCSubCluster *subcluster,
-							 List *parentOids,
-							 TupleDesc descriptor)
-{
-	char locatortype    = '\0';
-	int hashalgorithm   = 0;
-	int hashbuckets	   = 0;
-	AttrNumber attnum   = 0;
-	Oid funcid		   = InvalidOid;
-	int numatts		   = 0;
-	int16 *attnums	   = NULL;
-
-	/* Obtain details of distribution information */
-	GetRelationDistributionItems(relid,
-								distributeby,
-								descriptor,
-								&locatortype,
-								&hashalgorithm,
-								&hashbuckets,
-								&attnum,
-								&funcid,
-								&numatts,
-								&attnums);
-
-	/*
-	 * Dependency on function while distribute
-	 * by user-defined function
-	 */
-	CreatePgxcClassFuncDepend(locatortype, relid, funcid);
+	/* Dependency on the specific function */
+	CreatePgxcRelationFuncDepend(relid, funcid);
 }
 
 /*

@@ -1351,12 +1351,15 @@ exec_simple_query(const char *query_string)
 														 query_string,
 														 NULL, 0, NULL,
 														 grammar);
+		plantree_list = pg_plan_queries(querytree_list,
+										CURSOR_OPT_PARALLEL_OK|CURSOR_OPT_CLUSTER_PLAN_SAFE,
+										NULL);
 #else
 		querytree_list = pg_analyze_and_rewrite(parsetree, query_string,
 												NULL, 0, NULL);
-#endif
 		plantree_list = pg_plan_queries(querytree_list,
 										CURSOR_OPT_PARALLEL_OK, NULL);
+#endif
 
 		/* Done with the snapshot used for parsing/planning */
 		if (snapshot_set)
@@ -2184,7 +2187,11 @@ exec_bind_message(StringInfo input_message)
 	 * will be generated in MessageContext.  The plan refcount will be
 	 * assigned to the Portal, so it will be released at portal destruction.
 	 */
+#ifdef ADB
+	cplan = GetCachedClusterPlan(psrc, params, false, NULL);
+#else
 	cplan = GetCachedPlan(psrc, params, false, NULL);
+#endif /* ADB */
 
 	/*
 	 * Now we can define the portal.
@@ -4336,13 +4343,6 @@ PostgresMain(int argc, char *argv[],
 	/* If this postgres is launched from another Coord, do not initialize handles. skip it */
 	if (!am_walsender && IS_PGXC_COORDINATOR && !IsPoolHandle())
 	{
-		need_reload_pooler = false;
-
-		start_xact_command();
-		InitMultinodeExecutor(false);
-		InitNodeExecutor(false);
-		finish_xact_command();
-
 		if (!IsConnFromCoord())
 		{
 			pool_handle = GetPoolManagerHandle();
@@ -4440,7 +4440,7 @@ PostgresMain(int argc, char *argv[],
 		ReduceCleanup();
 
 		/* Mark transaction abort with error */
-		SetXactErrorAborted(true);
+		MarkCurrentTransactionErrorAborted();
 #endif
 
 		/*
@@ -4460,9 +4460,6 @@ PostgresMain(int argc, char *argv[],
 
 		/* Make sure the old PGconn will dump the trash data */
 		PQNReleaseAllConnect();
-
-		/* reset xact error abort */
-		SetXactErrorAborted(false);
 #endif
 
 		if (am_walsender)
@@ -4542,13 +4539,6 @@ PostgresMain(int argc, char *argv[],
 
 			/* Make sure the old PGconn will dump the trash data */
 			PQNReleaseAllConnect();
-		}
-
-		if(need_reload_pooler)
-		{
-			need_reload_pooler = false;
-			if(!am_walsender)
-				HandlePoolerReload();
 		}
 #endif
 		/*
@@ -4935,7 +4925,7 @@ PostgresMain(int argc, char *argv[],
 
 					listen_port = pq_getmsgint(&input_message, 4);
 
-					elog(LOG, "Received AGTM listen port: %d", listen_port);
+					ereport(DEBUG1, (errmsg("Received AGTM listen port: %d", listen_port)));
 
 					if (IS_PGXC_DATANODE || IsCoordCandidate())
 						agtm_SetPort(listen_port);

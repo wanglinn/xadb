@@ -1906,6 +1906,12 @@ set_upper_references(PlannerInfo *root, Plan *plan, int rtoffset)
 	List	   *output_targetlist;
 	ListCell   *l;
 
+#ifdef ADB
+	if (IsA(subplan, ModifyTable) &&
+		((ModifyTable*)subplan)->returningLists != NIL)
+		subplan_itlist = build_tlist_index(linitial(((ModifyTable*)subplan)->returningLists));
+	else
+#endif
 	subplan_itlist = build_tlist_index(subplan->targetlist);
 
 	output_targetlist = NIL;

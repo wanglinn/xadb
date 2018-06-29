@@ -735,7 +735,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 
 				DoCopy(pstate, (CopyStmt *) parsetree,
 					   pstmt->stmt_location, pstmt->stmt_len,
-					   &processed);
+					   &processed ADB_ONLY_COMMA_ARG(context == PROCESS_UTILITY_TOPLEVEL));
 				if (completionTag)
 					snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
 							 "COPY " UINT64_FORMAT, processed);
@@ -751,7 +751,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 		case T_ExecuteStmt:
 			ExecuteQuery((ExecuteStmt *) parsetree, NULL,
 						 queryString, params,
-						 dest, completionTag);
+						 dest, completionTag ADB_ONLY_COMMA_ARG(context==PROCESS_UTILITY_TOPLEVEL));
 			break;
 
 		case T_DeallocateStmt:
@@ -948,7 +948,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 
 		case T_ExplainStmt:
 			ExplainQuery(pstate, (ExplainStmt *) parsetree, queryString, params,
-						 queryEnv, dest);
+						 queryEnv, dest ADB_ONLY_COMMA_ARG(context == PROCESS_UTILITY_TOPLEVEL));
 			break;
 
 		case T_AlterSystemStmt:
@@ -1545,7 +1545,8 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			break;
 
 		case T_CleanConnStmt:
-			Assert(IS_PGXC_COORDINATOR);
+			if (!IS_PGXC_COORDINATOR)
+				break;
 			CleanConnection((CleanConnStmt *) parsetree);
 
 			utilityContext.force_autocommit = true;
@@ -2958,7 +2959,7 @@ ExecRemoteUtilityStmt(RemoteUtilityContext *context)
 		return;
 
 	/* If no Datanodes defined, the query cannot be launched */
-	if (NumDataNodes == 0)
+	if (adb_get_all_datanode_oid_array(NULL, false) == 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("No Datanode defined in cluster"),

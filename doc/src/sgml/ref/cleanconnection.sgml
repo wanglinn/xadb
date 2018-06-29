@@ -1,0 +1,43 @@
+<!--
+doc/src/sgml/cleanconnection.sgml
+ADB documentation
+-->
+<refentry id="SQL-CLEANCONNECTION">
+ <indexterm zone="sql-cleanconnection">
+  <primary>CLEAN CONNECTION</primary>
+ </indexterm>
+
+ <refmeta>
+   <refentrytitle>CLEAN CONNECTION</refentrytitle>
+   <manvolnum>7</manvolnum>
+   <refmiscinfo>SQL - Language Statements</refmiscinfo>
+ </refmeta>
+
+  <refnamediv>
+    <refname>CLEAN CONNECTION</refname>
+    <refpurpose>connection cleaning can be made on a chosen database called dbname or/and a chosen user</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+ CLEAN CONNECTION TO { COORDINATOR ( nodename ) | NODE ( nodename ) | ALL {FORCE} } [ FOR DATABASE dbname ] [ TO USER username ]
+</synopsis>
+  </refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+    <command>CLEAN CONNECTION</command> use of CLEAN CONNECTION is limited to a super user; connection cleaning can be made on a chosen database called dbname or/and a chosen user.
+    </para>
+  </refsect1>
+
+  <refsect1>
+  <title>Examples</title>
+ <para>
+Clean the connection of adbuser on cn2 for database postgres:
+<programlisting>
+CLEAN CONNECTION TO COORDINATOR (cn2) for postgres to adbuser;;
+</programlisting>
+</para>
+  </refsect1>
+
+</refentry>

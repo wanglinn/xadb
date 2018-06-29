@@ -27,7 +27,6 @@
 
 #include "pgtime.h"				/* for pg_time_t */
 
-
 #define InvalidPid				(-1)
 
 

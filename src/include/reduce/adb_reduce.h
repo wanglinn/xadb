@@ -34,7 +34,7 @@ extern List *GetReduceGroup(void);
 
 extern void SendRejectToRemote(RdcPort *port, List *dest_nodes);
 
-extern void SendCloseToRemote(RdcPort *port, List *dest_nodes);
+extern void SendCloseToRemote(RdcPort *port, List *dest_nodes, bool noerror);
 
 extern void SendEofToRemote(RdcPort *port, List *dest_nodes);
 

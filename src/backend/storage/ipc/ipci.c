@@ -160,7 +160,6 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 #ifdef ADB
 		if (IS_PGXC_COORDINATOR)
 			size = add_size(size, ClusterLockShmemSize());
-		size = add_size(size, NodeTablesShmemSize());
 #endif
 
 #if defined(ADBMGRD)
@@ -292,10 +291,6 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 	SyncScanShmemInit();
 	AsyncShmemInit();
 	BackendRandomShmemInit();
-
-#ifdef ADB
-	NodeTablesShmemInit();
-#endif
 
 #if defined(ADBMGRD)
 	AdbMonitorShmemInit();

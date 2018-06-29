@@ -27,7 +27,7 @@
  *
  * The member max_xcnt was added as SnapshotData member to indicate the
  * real size of xip array.
- * 
+ *
  * Here, the following assumption is made for SnapshotData struct throughout
  * this module.
  *
@@ -670,50 +670,6 @@ ProcArrayClearTransaction(PGPROC *proc)
 	pgxact->nxids = 0;
 	pgxact->overflowed = false;
 }
-
-#ifdef ADB
-/*
- * ReloadConnInfoOnBackends -- reload connection information for all the backends
- */
-void
-ReloadConnInfoOnBackends(void)
-{
-	ProcArrayStruct *arrayP = procArray;
-	int			index;
-	pid_t		pid = 0;
-
-	/* tell all backends to reload except this one who already reloaded */
-	LWLockAcquire(ProcArrayLock, LW_EXCLUSIVE);
-
-	for (index = 0; index < arrayP->numProcs; index++)
-	{
-		int			pgprocno = arrayP->pgprocnos[index];
-		volatile PGPROC *proc = &allProcs[pgprocno];
-		volatile PGXACT *pgxact = &allPgXact[pgprocno];
-		VirtualTransactionId vxid;
-		GET_VXID_FROM_PGPROC(vxid, *proc);
-
-		if (proc == MyProc)
-			continue;			/* do not do that on myself */
-		if (proc->isPooler)
-			continue;			/* Pooler cannot do that */
-		if (proc->pid == 0)
-			continue;			/* useless on prepared xacts */
-		if (!OidIsValid(proc->databaseId))
-			continue;			/* ignore backends not connected to a database */
-		if (pgxact->vacuumFlags & PROC_IN_VACUUM)
-			continue;			/* ignore vacuum processes */
-
-		pid = proc->pid;
-		/*
-		 * Send the reload signal if backend still exists
-		 */
-		(void) SendProcSignal(pid, PROCSIG_PGXCPOOL_RELOAD, vxid.backendId);
-	}
-
-	LWLockRelease(ProcArrayLock);
-}
-#endif
 
 /*
  * ProcArrayInitRecovery -- initialize recovery xid mgmt environment
@@ -1613,7 +1569,7 @@ GetSnapshotData(Snapshot snapshot)
 	volatile TransactionId replication_slot_xmin = InvalidTransactionId;
 	volatile TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
 #ifdef ADB
-	bool		is_under_agtm;
+	bool		try_agtm_snap = IsUnderAGTM();
 	bool		hint;
 #endif /* ADB */
 
@@ -1671,8 +1627,7 @@ GetSnapshotData(Snapshot snapshot)
 	/*
 	 * Obtain a global snapshot for a Postgres-XC session
 	 */
-	is_under_agtm = IsUnderAGTM();
-	if (IsUnderAGTM() && !IsCatalogSnapshot(snapshot))
+	if (try_agtm_snap)
 	{
 		Snapshot snap PG_USED_FOR_ASSERTS_ONLY;
 		snap = GetGlobalSnapshot(snapshot);
@@ -1709,10 +1664,48 @@ GetSnapshotData(Snapshot snapshot)
 
 	/* initialize xmin calculation with xmax */
 #ifdef ADB
-	if(is_under_agtm)
+	if(try_agtm_snap)
 	{
-		if(TransactionIdPrecedes(xmax, snapshot->xmax))
+		Assert(TransactionIdIsNormal(snapshot->xmax));
+
+		/*
+		 * If local xmax <= global xmax, the xmax of snapshot will be not changed
+		 * in this case. Otherwise, it will update the xmax of snapshot.
+		 */
+		if (TransactionIdPrecedesOrEquals(xmax, snapshot->xmax))
 			xmax = snapshot->xmax;
+		else
+		{
+			TransactionId	xid = snapshot->xmax;
+			int				try_max = GetMaxSnapshotXidCount();
+			int				try_cnt = 0;
+
+			/*
+			 * Try to add "local commited" but "global uncommited" XID to the
+			 * global snapshot and try GetMaxSnapshotXidCount() times at most.
+			 */
+			for (try_cnt = 0;
+				 TransactionIdPrecedes(xid, xmax) && try_cnt < try_max;
+				 try_cnt++)
+			{
+				/* We don't include our own XIDs (if any) in the snapshot */
+				if (TransactionIdEquals(xid, MyPgXact->xid))
+				{
+					TransactionIdAdvance(xid);
+					continue;
+				}
+
+				/* Local committed but global uncommitted */
+				if (TransactionIdDidCommit(xid))
+				{
+					EnlargeSnapshotXip(snapshot, count + 1);
+					snapshot->xip[count++] = xid;
+				}
+
+				TransactionIdAdvance(xid);
+			}
+		}
+
 		globalxmin = xmin = snapshot->xmin;
 	}else
 #endif /* ADB */
@@ -1777,7 +1770,7 @@ GetSnapshotData(Snapshot snapshot)
 				continue;
 
 #ifdef ADB
-			if(is_under_agtm)
+			if(try_agtm_snap)
 			{
 				int i;
 				hint = false;
@@ -1828,7 +1821,7 @@ GetSnapshotData(Snapshot snapshot)
 						volatile PGPROC *proc = &allProcs[pgprocno];
 
 #ifdef ADB
-						if(is_under_agtm)
+						if(try_agtm_snap)
 						{
 							int i,j;
 							for(i=0;i<nxids;++i)

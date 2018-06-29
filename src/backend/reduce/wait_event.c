@@ -481,7 +481,7 @@ execWaitEVSet(WaitEVSet set, int timeout)
 	{
 		wee = &(set->events[nfds]);
 		set->pollfds[nfds].fd = wee->wait_sock;
-		set->pollfds[nfds].events = 0;
+		set->pollfds[nfds].events = POLLERR;
 		set->pollfds[nfds].revents = 0;
 		if (WEEWaitRead(wee))
 			set->pollfds[nfds].events |= POLLIN;

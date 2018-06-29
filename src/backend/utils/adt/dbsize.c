@@ -1110,10 +1110,11 @@ pg_relation_filepath(PG_FUNCTION_ARGS)
 static Datum
 pgxc_tablespace_size(Oid tsOid)
 {
-	StringInfoData  buf;
-	char           *tsname = get_tablespace_name(tsOid);
-	Oid				*coOids, *dnOids;
-	int numdnodes, numcoords;
+	StringInfoData	buf;
+	uint32			numdnodes;
+	Datum			result;
+	Oid			   *dnOids;
+	char		   *tsname = get_tablespace_name(tsOid);
 
 	if (!tsname)
 		ereport(ERROR,
@@ -1123,9 +1124,11 @@ pgxc_tablespace_size(Oid tsOid)
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "SELECT pg_catalog.pg_tablespace_size('%s')", tsname);
 
-	PgxcNodeGetOids(&coOids, &dnOids, &numcoords, &numdnodes, false);
+	numdnodes = adb_get_all_datanode_oid_array(&dnOids, false);
 
-	return pgxc_execute_on_nodes(numdnodes, dnOids, buf.data);
+	result = pgxc_execute_on_nodes(numdnodes, dnOids, buf.data);
+	pfree(dnOids);
+	return result;
 }
 
 /*
@@ -1135,10 +1138,11 @@ pgxc_tablespace_size(Oid tsOid)
 static Datum
 pgxc_database_size(Oid dbOid)
 {
-	StringInfoData  buf;
-	char           *dbname = get_database_name(dbOid);
-	Oid				*coOids, *dnOids;
-	int numdnodes, numcoords;
+	StringInfoData	buf;
+	int				numdnodes;
+	Datum			result;
+	Oid			   *dnOids;
+	char		   *dbname = get_database_name(dbOid);
 
 	if (!dbname)
 		ereport(ERROR,
@@ -1148,9 +1152,11 @@ pgxc_database_size(Oid dbOid)
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "SELECT pg_catalog.pg_database_size('%s')", dbname);
 
-	PgxcNodeGetOids(&coOids, &dnOids, &numcoords, &numdnodes, false);
+	numdnodes = adb_get_all_datanode_oid_array(&dnOids, false);
+	result = pgxc_execute_on_nodes(numdnodes, dnOids, buf.data);
+	pfree(dnOids);
 
-	return pgxc_execute_on_nodes(numdnodes, dnOids, buf.data);
+	return result;
 }
 
 
@@ -1163,7 +1169,7 @@ pgxc_database_size(Oid dbOid)
  * checking the type of the returned value.
  */
 Datum
-pgxc_execute_on_nodes(int numnodes, Oid *nodelist, char *query)
+pgxc_execute_on_nodes(int numnodes, Oid *nodelist, const char *query)
 {
 	StringInfoData  buf;
 	int             ret;

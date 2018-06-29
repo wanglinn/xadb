@@ -67,7 +67,11 @@ static void parse_options(int argc, char **argv)
 		switch(c)
 		{
 		case 'V':
+#ifdef ADB
+			puts("mgr_agent (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+#else
 			puts("mgr_agent (PostgreSQL) " PG_VERSION);
+#endif
 			exit(EXIT_SUCCESS);
 			break;
 		case 'P':

@@ -8,11 +8,14 @@
 #include "libpq/libpq-int.h"
 #include "pgxc/pgxc.h"
 #include "utils/guc.h"
+#include "utils/memutils.h"
 
 #define FAILED 0
 #define SUCESS 1
 #define COMMAND_SIZE 256
 #define BEGIN_COMMAND_SIZE 1024
+
+static StringInfo ErrorBuffer = NULL;
 
 //#define ProcessResult(a) (AssertMacro(0),false)
 //#define ResetCancelConn() Assert(0)
@@ -20,25 +23,17 @@
 static char* agtm_generate_begin_command(void);
 static bool  AcceptAgtmResult(const PGresult *result);
 static bool  AgtmProcessResult(PGresult **results);
-static void  agtm_node_send_query(const char *query);
+static bool  agtm_execute_query(const char *query);
 static bool  CheckAgtmConnection(void);
-static void  CheckAndExecOnAgtm(const char *dmlOperation);
 static bool  ConnectionAgtmUp(void);
 
-/* CheckAndExecOnAgtm
- *
- * check dml string is null and exectue on agtm
- */
-static void
-CheckAndExecOnAgtm(const char *dmlOperation)
+static const char *
+GetAgtmQueryError(void)
 {
-	if (!IsUnderAGTM())
-		return;
+	if (ErrorBuffer && ErrorBuffer->len > 0)
+		return ErrorBuffer->data;
 
-	if(!dmlOperation || dmlOperation[0] == '\0')
-		return;
-
-	agtm_node_send_query(dmlOperation);
+	return "missing error message.";
 }
 
 /* ConnectionAgtmUp
@@ -121,7 +116,6 @@ AgtmProcessResult(PGresult **results)
 	for(;;)
 	{
 		ExecStatusType result_status;
-		bool		is_copy;
 		PGresult   *next_result;
 
 		if (!AcceptAgtmResult(*results))
@@ -141,23 +135,15 @@ AgtmProcessResult(PGresult **results)
 			case PGRES_EMPTY_QUERY:
 			case PGRES_COMMAND_OK:
 			case PGRES_TUPLES_OK:
-				is_copy = false;
 				break;
 
 			case PGRES_COPY_OUT:
 			case PGRES_COPY_IN:
-				is_copy = true;
 				break;
 			default:
-				is_copy = false;
 				ereport(WARNING,(errmsg("unexpected PQresultStatus: %d",
 					result_status)));
 				break;
-		}
-
-		if (is_copy)
-		{
-
 		}
 
 		next_result = PQgetResult(getAgtmConnection());
@@ -202,30 +188,48 @@ agtm_generate_begin_command(void)
 	return begin_cmd;
 }
 
-static void
-agtm_node_send_query(const char *query)
+static bool
+agtm_execute_query(const char *query)
 {
 	PGresult 	*results = NULL;
 	PGconn		*agtm_conn = NULL;
 	bool		OK = false;
 
+	if (ErrorBuffer == NULL)
+	{
+		MemoryContext old_context = MemoryContextSwitchTo(TopMemoryContext);
+		ErrorBuffer = makeStringInfo();
+		(void) MemoryContextSwitchTo(old_context);
+	} else
+	{
+		resetStringInfo(ErrorBuffer);
+	}
+
 	agtm_conn = getAgtmConnection();
+	if (agtm_conn == NULL)
+	{
+		appendStringInfoString(ErrorBuffer,
+			"Fail to get valid agtm connection");
+		return false;
+	}
 
-	if (NULL == agtm_conn)
-		ereport(ERROR,
-			(errmsg("Failt to get agtm connection(return NULL pointer)!"),
-			 errhint("query is: %s", query)));
-
-	if (NULL == (results = PQexec(agtm_conn,query)))
-		ereport(ERROR,
-			(errmsg("Failt to PQexec command(PGresult is NULL)"),
-			 errhint("query is: %s", query)));
+	if ((results = PQexec(agtm_conn,query)) == NULL)
+	{
+		appendStringInfo(ErrorBuffer, "Fail to do query \"%s\": %s",
+			query, PQerrorMessage(agtm_conn));
+		return false;
+	}
 
 	OK = AgtmProcessResult(&results);
 	PQclear(results);
 	if (!OK)
-		ereport(ERROR,
-			(errmsg("process command is not ok, query is: %s", query)));
+	{
+		appendStringInfo(ErrorBuffer, "Fail to get correct result for query \"%s\"",
+			query);
+		return false;
+	}
+
+	return true;
 }
 
 void agtm_BeginTransaction(void)
@@ -243,7 +247,9 @@ void agtm_BeginTransaction(void)
 
 	agtm_begin_cmd = agtm_generate_begin_command();
 
-	agtm_node_send_query(agtm_begin_cmd);
+	if (!agtm_execute_query(agtm_begin_cmd))
+		ereport(ERROR,
+				(errmsg("%s", GetAgtmQueryError())));
 
 	SetTopXactBeginAGTM(true);
 }
@@ -267,19 +273,16 @@ void agtm_PrepareTransaction(const char *prepared_gid)
 	initStringInfo(&prepare_cmd);
 	appendStringInfo(&prepare_cmd, "PREPARE TRANSACTION '%s'", prepared_gid);
 
-	PG_TRY();
-	{
-		agtm_node_send_query(prepare_cmd.data);
-	} PG_CATCH();
+	if (!agtm_execute_query(prepare_cmd.data))
 	{
 		pfree(prepare_cmd.data);
 		agtm_Close();
 		SetTopXactBeginAGTM(false);
-		PG_RE_THROW();
-	} PG_END_TRY();
+		ereport(ERROR,
+				(errmsg("%s", GetAgtmQueryError())));
+	}
 
 	pfree(prepare_cmd.data);
-
 	SetTopXactBeginAGTM(false);
 }
 
@@ -301,7 +304,6 @@ void agtm_CommitTransaction(const char *prepared_gid, bool missing_ok)
 		return ;
 
 	initStringInfo(&commit_cmd);
-
 	if(prepared_gid != NULL)
 	{
 		/*
@@ -318,10 +320,7 @@ void agtm_CommitTransaction(const char *prepared_gid, bool missing_ok)
 		appendStringInfoString(&commit_cmd, "COMMIT TRANSACTION");
 	}
 
-	PG_TRY();
-	{
-		agtm_node_send_query(commit_cmd.data);
-	} PG_CATCH();
+	if (!agtm_execute_query(commit_cmd.data))
 	{
 		pfree(commit_cmd.data);
 		if (TopXactBeginAGTM())
@@ -329,15 +328,14 @@ void agtm_CommitTransaction(const char *prepared_gid, bool missing_ok)
 			agtm_Close();
 			SetTopXactBeginAGTM(false);
 		}
-		PG_RE_THROW();
-	} PG_END_TRY();
-
+		ereport(ERROR,
+				(errmsg("%s", GetAgtmQueryError())));
+	}
 	pfree(commit_cmd.data);
-
 	SetTopXactBeginAGTM(false);
 }
 
-void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok, bool ignore_error)
+void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok, bool no_error)
 {
 	StringInfoData abort_cmd;
 
@@ -355,7 +353,6 @@ void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok, bool ignor
 		return ;
 
 	initStringInfo(&abort_cmd);
-
 	if(prepared_gid != NULL)
 	{
 		/*
@@ -372,10 +369,7 @@ void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok, bool ignor
 		appendStringInfoString(&abort_cmd, "ROLLBACK TRANSACTION");
 	}
 
-	PG_TRY();
-	{
-		agtm_node_send_query(abort_cmd.data);
-	} PG_CATCH();
+	if (!agtm_execute_query(abort_cmd.data))
 	{
 		pfree(abort_cmd.data);
 		if (TopXactBeginAGTM())
@@ -383,44 +377,14 @@ void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok, bool ignor
 			agtm_Close();
 			SetTopXactBeginAGTM(false);
 		}
-		if (ignore_error)
-			errdump();
-		else
-			PG_RE_THROW();
-	} PG_END_TRY();
+
+		if (no_error)
+			return;
+
+		ereport(ERROR,
+				(errmsg("%s", GetAgtmQueryError())));
+	}
 
 	pfree(abort_cmd.data);
-
 	SetTopXactBeginAGTM(false);
 }
-
-void
-agtm_sequence(const char *dmlSeq)
-{
-	CheckAndExecOnAgtm(dmlSeq);
-}
-
-void
-agtm_Database(const char *dmlDatabase)
-{
-	CheckAndExecOnAgtm(dmlDatabase);
-}
-
-void
-agtm_TableSpace(const char *dmlTableSpace)
-{
-	CheckAndExecOnAgtm(dmlTableSpace);
-}
-
-void
-agtm_Schema(const char *dmlSchema)
-{
-	CheckAndExecOnAgtm(dmlSchema);
-}
-
-void
-agtm_User(const char *dmlUser)
-{
-	CheckAndExecOnAgtm(dmlUser);
-}
-

@@ -228,6 +228,9 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			 * tuples
 			 */
 			if (queryDesc->plannedstmt->rowMarks != NIL ||
+#ifdef ADB
+				(eflags & EXEC_FLAG_UPDATE_CMD_ID) ||
+#endif /* ADB */
 				queryDesc->plannedstmt->hasModifyingCTE)
 				estate->es_output_cid = GetCurrentCommandId(true);
 
@@ -2681,7 +2684,7 @@ EvalPlanQualFetch(EState *estate, Relation relation, int lockmode,
 			/*
 			 * This is a live tuple, so now try to lock it.
 			 */
-			test = heap_lock_tuple(relation, &tuple,
+			test = heap_lock_tuple(relation, &tuple, ADB_ONLY_ARG(estate->es_snapshot)
 								   estate->es_output_cid,
 								   lockmode, wait_policy,
 								   false, &buffer, &hufd);

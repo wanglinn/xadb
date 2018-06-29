@@ -105,11 +105,6 @@ typedef struct ExecNodes
 #define IsExecNodesDistributedByValue(en)		IsLocatorDistributedByValue((en)->baselocatortype)
 #define IsExecNodesDistributedByUserDefined(en)	IsLocatorDistributedByUserDefined((en)->baselocatortype)
 
-/* Extern variables related to locations */
-extern Oid primary_data_node;
-extern Oid preferred_data_node[MAX_PREFERRED_NODES];
-extern int num_preferred_data_nodes;
-
 /* Function for RelationLocInfo building and management */
 extern void RelationBuildLocator(Relation rel);
 extern RelationLocInfo *GetRelationLocInfo(Oid relid);
@@ -151,8 +146,6 @@ extern void CoerceUserDefinedFuncArgs(Oid funcid,
 
 /* Global locator data */
 extern void FreeExecNodes(ExecNodes **exec_nodes);
-extern List *GetAllDataNodeIdx(void);
-extern List *GetAllCoordNodeIdx(void);
 
 extern List *GetInvolvedNodes(RelationLocInfo *rel_loc, int nelems, Datum* dist_values, bool* dist_nulls,
 							  Oid* dist_types, RelationAccessType accessType);

@@ -34,6 +34,7 @@ typedef struct RecordConvert
 	TupleTypeConvert *convert;
 	TupleTableSlot *slot_base;
 	TupleTableSlot *slot_temp;
+	char send_msg_type;
 }RecordConvert;
 
 typedef struct ArrayConvert
@@ -68,6 +69,7 @@ static void free_record_convert(RecordConvert *rc);
 
 static bool setup_convert_io(ConvertIO *io, Oid typid, bool need_out, bool need_in);
 static void clean_convert_io(ConvertIO *io);
+static bool have_type_convert(const TupleTypeConvert *convert);
 
 static void append_stringinfo_datum(StringInfo buf, Datum datum, int16 typlen, bool typbyval);
 static Datum load_stringinfo_datum(StringInfo buf, int16 typlen, bool typbyval);
@@ -84,9 +86,12 @@ static void free_array_convert(ArrayConvert *ac);
 
 static Datum convert_range_send(PG_FUNCTION_ARGS);
 static Datum convert_range_recv(PG_FUNCTION_ARGS);
-static RangeConvert *
-get_convert_range_io_data(RangeConvert *ac, Oid rngtypid, MemoryContext context, bool is_send);
+static RangeConvert *get_convert_range_io_data(RangeConvert *ac, Oid rngtypid, MemoryContext context, bool is_send);
 static void free_range_convert(RangeConvert *ac);
+
+#ifdef USE_ASSERT_CHECKING
+static bool convert_equal_tuple_desc(TupleDesc desc1, TupleDesc desc2);
+#endif /* USE_ASSERT_CHECKING */
 
 TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool need_in)
 {
@@ -95,12 +100,13 @@ TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool n
 	Form_pg_attribute attr;
 	ConvertIO *io,tmp_io;
 	int i;
+	AttrNumber natts;
 	AssertArg(need_out || need_in);
 
 	out_desc = create_convert_desc_if_need(base_desc);
 	if(out_desc == NULL)
 		return NULL;
-	Assert(base_desc->natts == out_desc->natts);
+	Assert(base_desc->natts >= out_desc->natts);
 
 	convert = palloc(sizeof(*convert));
 	convert->base_desc = base_desc;
@@ -108,9 +114,12 @@ TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool n
 	convert->out_desc = out_desc;
 	convert->io_state = NIL;
 
-	for(i=0;i<base_desc->natts;++i)
+	for(i=natts=0;i<base_desc->natts;++i)
 	{
 		attr = base_desc->attrs[i];
+		if (attr->attisdropped)
+			continue;
+
 		if (setup_convert_io(&tmp_io, attr->atttypid, need_out, need_in))
 		{
 			io = palloc(sizeof(*io));
@@ -124,16 +133,31 @@ TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool n
 	return convert;
 }
 
+static bool have_type_convert(const TupleTypeConvert *convert)
+{
+	if (convert && convert->io_state != NIL)
+	{
+		ListCell *lc;
+		foreach(lc, convert->io_state)
+		{
+			if (lfirst(lc) != NULL)
+				return true;
+		}
+	}
+	return false;
+}
+
 TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlot *src, TupleTableSlot *dest, bool need_copy)
 {
-	int i;
 	ListCell *lc;
 	ConvertIO *io;
 	StringInfoData buf;
+	int s,d,natts;
 
-	Assert(list_length(convert->io_state) == src->tts_tupleDescriptor->natts);
-	Assert(src->tts_tupleDescriptor->natts == dest->tts_tupleDescriptor->natts);
-	Assert(src->tts_tupleDescriptor->natts == convert->base_desc->natts);
+	AssertArg(list_length(convert->io_state) == src->tts_tupleDescriptor->natts);
+	AssertArg(convert_equal_tuple_desc(src->tts_tupleDescriptor, convert->out_desc));
+	AssertArg(convert_equal_tuple_desc(dest->tts_tupleDescriptor, convert->base_desc));
+	AssertArg(dest->tts_tupleDescriptor->natts >= src->tts_tupleDescriptor->natts);
 
 	ExecClearTuple(dest);
 	if(TupIsNull(src))
@@ -143,36 +167,41 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 	push_client_encoding(GetDatabaseEncoding());
 	PG_TRY();
 	{
-		i=0;
-		memcpy(dest->tts_isnull, src->tts_isnull, sizeof(src->tts_isnull[0]) * src->tts_tupleDescriptor->natts);
-		foreach(lc, convert->io_state)
+		natts = dest->tts_tupleDescriptor->natts;
+		for(s=d=0,lc=list_head(convert->io_state);d<natts;++d)
 		{
-			if(!src->tts_isnull[i])
+			if (dest->tts_tupleDescriptor->attrs[d]->attisdropped)
+				continue;
+
+			if((dest->tts_isnull[d] = src->tts_isnull[s]) == false)
 			{
 				io = lfirst(lc);
 				if(io == NULL)
 				{
-					Form_pg_attribute attr = src->tts_tupleDescriptor->attrs[i];
+					Form_pg_attribute attr = src->tts_tupleDescriptor->attrs[s];
+					Assert(attr->atttypid == dest->tts_tupleDescriptor->attrs[d]->atttypid);
+
 					if (need_copy && !attr->attbyval)
-						dest->tts_values[i] = datumCopy(src->tts_values[i], false, attr->attlen);
+						dest->tts_values[d] = datumCopy(src->tts_values[s], false, attr->attlen);
 					else
-						dest->tts_values[i] = src->tts_values[i];
+						dest->tts_values[d] = src->tts_values[s];
 				}else
 				{
 					if(io->bin_type)
 					{
-						bytea *p = DatumGetByteaP(src->tts_values[i]);
+						bytea *p = DatumGetByteaP(src->tts_values[s]);
 						buf.data = VARDATA_ANY(p);
 						buf.len = buf.maxlen = VARSIZE_ANY_EXHDR(p);
 						buf.cursor = 0;
-						dest->tts_values[i] = ReceiveFunctionCall(&io->in_func, &buf, io->io_param, -1);
+						dest->tts_values[d] = ReceiveFunctionCall(&io->in_func, &buf, io->io_param, -1);
 					}else
 					{
-						dest->tts_values[i] = InputFunctionCall(&io->in_func, DatumGetPointer(src->tts_values[i]), io->io_param, -1);
+						dest->tts_values[d] = InputFunctionCall(&io->in_func, DatumGetPointer(src->tts_values[s]), io->io_param, -1);
 					}
 				}
 			}
-			++i;
+			++s;
+			lc = lnext(lc);
 		}
 	}PG_CATCH();
 	{
@@ -188,45 +217,51 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 {
 	ListCell *lc;
 	ConvertIO *io;
-	int i;
+	int s,d,natts;
 
-	Assert(list_length(convert->io_state) == src->tts_tupleDescriptor->natts);
-	Assert(src->tts_tupleDescriptor->natts == dest->tts_tupleDescriptor->natts);
-	Assert(src->tts_tupleDescriptor->natts == convert->base_desc->natts);
+	AssertArg(list_length(convert->io_state) == dest->tts_tupleDescriptor->natts);
+	AssertArg(convert_equal_tuple_desc(src->tts_tupleDescriptor, convert->base_desc));
+	AssertArg(convert_equal_tuple_desc(dest->tts_tupleDescriptor, convert->out_desc));
+	AssertArg(dest->tts_tupleDescriptor->natts <= src->tts_tupleDescriptor->natts);
 
 	ExecClearTuple(dest);
 	if(TupIsNull(src))
 		return dest;
 	slot_getallattrs(src);
 
-	i=0;
-	memcpy(dest->tts_isnull, src->tts_isnull, sizeof(src->tts_isnull[0]) * src->tts_tupleDescriptor->natts);
-	foreach(lc, convert->io_state)
+	natts = src->tts_tupleDescriptor->natts;
+	for(s=d=0,lc=list_head(convert->io_state);s<natts;++s)
 	{
-		if (!src->tts_isnull[i])
+		if (src->tts_tupleDescriptor->attrs[s]->attisdropped)
+			continue;
+
+		if ((dest->tts_isnull[d]=src->tts_isnull[s]) == false)
 		{
 			io = lfirst(lc);
 			if(io == NULL)
 			{
-				Form_pg_attribute attr = src->tts_tupleDescriptor->attrs[i];
+				Form_pg_attribute attr = src->tts_tupleDescriptor->attrs[s];
+				Assert(attr->atttypid == dest->tts_tupleDescriptor->attrs[d]->atttypid);
+
 				if (need_copy && !attr->attbyval)
-					dest->tts_values[i] = datumCopy(src->tts_values[i], false, attr->attlen);
+					dest->tts_values[d] = datumCopy(src->tts_values[s], false, attr->attlen);
 				else
-					dest->tts_values[i] = src->tts_values[i];
-			}else if(!src->tts_isnull[i])
+					dest->tts_values[d] = src->tts_values[s];
+			}else
 			{
 				if(io->bin_type)
 				{
-					bytea *p = SendFunctionCall(&io->out_func, src->tts_values[i]);
-					dest->tts_values[i] = PointerGetDatum(p);
+					bytea *p = SendFunctionCall(&io->out_func, src->tts_values[s]);
+					dest->tts_values[d] = PointerGetDatum(p);
 				}else
 				{
-					char *str = OutputFunctionCall(&io->out_func, src->tts_values[i]);
-					dest->tts_values[i] = PointerGetDatum(str);
+					char *str = OutputFunctionCall(&io->out_func, src->tts_values[s]);
+					dest->tts_values[d] = CStringGetDatum(str);
 				}
 			}
 		}
-		++i;
+		++d;
+		lc = lnext(lc);
 	}
 
 	return ExecStoreVirtualTuple(dest);
@@ -236,7 +271,7 @@ Datum do_datum_convert_in(StringInfo buf, Oid typid)
 {
 	Datum datum;
 	ConvertIO io;
-	
+
 	if (setup_convert_io(&io, typid, false, true))
 	{
 		push_client_encoding(GetDatabaseEncoding());
@@ -307,29 +342,43 @@ static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 	ConvertIO io;
 	int i;
 	Oid type;
+	AttrNumber natts;
+	bool need_convert;
 
-	for(i=0;i<indesc->natts;++i)
-	{
-		if (setup_convert_io(NULL, indesc->attrs[i]->atttypid, false, false))
-			break;
-	}
-	if(i>=indesc->natts)
-		return NULL;	/* don't need convert */
-
-	outdesc = CreateTemplateTupleDesc(indesc->natts, false);
-	for(i=0;i<indesc->natts;++i)
+	for(i=natts=0,need_convert=false;i<indesc->natts;++i)
 	{
 		attr = indesc->attrs[i];
-		Assert(attr->attisdropped == false);
+		if (attr->attisdropped)
+		{
+			/* when has droped attribute, we need convert */
+			need_convert = true;
+			continue;
+		}
 
-		type = attr->atttypid;
+		++natts;
+		if (need_convert == false &&
+			setup_convert_io(NULL, attr->atttypid, false, false))
+		{
+			need_convert = true;
+		}
+	}
+	if(need_convert == false)
+		return NULL;	/* don't need convert */
+
+	outdesc = CreateTemplateTupleDesc(natts, false);
+	for(i=natts=0;i<indesc->natts;++i)
+	{
+		attr = indesc->attrs[i];
+		if (attr->attisdropped)
+			continue;
+
 		if (setup_convert_io(&io, attr->atttypid, true, true))
 			type = io.bin_type ? BYTEAOID:UNKNOWNOID;
 		else
 			type = attr->atttypid;
 
 		TupleDescInitEntry(outdesc,
-						   i+1,
+						   ++natts,
 						   NULL,
 						   type,
 						   -1,
@@ -353,7 +402,7 @@ static bool setup_convert_io(ConvertIO *io, Oid typid, bool need_out, bool need_
 		PGFunction	recv_func;		/* convert recv function */
 		PGFunction	send_func;		/* convert send function */
 		clean_function clean;	/* clean function if need */
-	}func_map[] = 
+	}func_map[] =
 	{
 		 {F_ENUM_IN, F_ENUM_IN, F_ENUM_OUT, false, NULL, NULL, NULL}
 		,{F_REGCLASSIN, F_REGCLASSIN, F_REGCLASSOUT, false, NULL, NULL, NULL}
@@ -682,7 +731,7 @@ static Datum convert_record_send(PG_FUNCTION_ARGS)
 	if(my_extra->convert)
 	{
 		do_type_convert_slot_out(my_extra->convert, my_extra->slot_base, my_extra->slot_temp, false);
-		serialize_slot_message(&buf, my_extra->slot_temp, CLUSTER_MSG_CONVERT_TUPLE);
+		serialize_slot_message(&buf, my_extra->slot_temp, my_extra->send_msg_type);
 	}else
 	{
 		serialize_slot_message(&buf, my_extra->slot_base, CLUSTER_MSG_TUPLE_DATA);
@@ -726,6 +775,8 @@ static RecordConvert* set_record_convert_tuple_desc(RecordConvert *rc, TupleDesc
 				rc->slot_temp = MakeSingleTupleTableSlot(rc->convert->out_desc);
 			else
 				ExecSetSlotDescriptor(rc->slot_temp, rc->convert->out_desc);
+			if(is_send)
+				rc->send_msg_type = have_type_convert(rc->convert) ? CLUSTER_MSG_CONVERT_TUPLE : CLUSTER_MSG_TUPLE_DATA;
 		}
 		MemoryContextSwitchTo(old_context);
 	}
@@ -863,7 +914,7 @@ static Datum convert_array_send(PG_FUNCTION_ARGS)
 			   *dim,
 			   *lb;
 
-	ac = fcinfo->flinfo->fn_extra 
+	ac = fcinfo->flinfo->fn_extra
 		= set_array_convert(fcinfo->flinfo->fn_extra, element_type, fcinfo->flinfo->fn_mcxt, true);
 
 	ndim = AARR_NDIM(v);
@@ -1157,3 +1208,30 @@ static void free_range_convert(RangeConvert *ac)
 		pfree(ac);
 	}
 }
+
+#ifdef USE_ASSERT_CHECKING
+static bool convert_equal_tuple_desc(TupleDesc desc1, TupleDesc desc2)
+{
+	int i;
+	if (desc1 == desc2)
+		return true;
+
+	if (desc1->natts != desc2->natts)
+		return false;
+	if (desc1->tdhasoid != desc2->tdhasoid)
+		return false;
+
+	for (i=0;i<desc1->natts;++i)
+	{
+		Form_pg_attribute attr1 = desc1->attrs[i];
+		Form_pg_attribute attr2 = desc2->attrs[i];
+
+		if (attr1->atttypid != attr2->atttypid)
+			return false;
+		if (attr1->attlen != attr2->attlen)
+			return false;
+	}
+
+	return true;
+}
+#endif /* USE_ASSERT_CHECKING */

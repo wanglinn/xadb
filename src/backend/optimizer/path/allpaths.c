@@ -145,6 +145,7 @@ static void add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 
 #ifdef ADB
 static bool set_path_reduce_info_worker(Path *path, List *reduce_info_list);
+static bool get_subplan_ref_walker(Expr *expr, int *subplan_ref);
 #endif /* ADB */
 
 /*
@@ -1010,6 +1011,14 @@ set_append_rel_size(PlannerInfo *root, RelOptInfo *rel,
 	double	   *parent_attrsizes;
 	int			nattrs;
 	ListCell   *l;
+#ifdef ADB
+	int		   *subplan_ref;
+	if (root->glob->subplans == NIL ||
+		root->glob->clusterPlanOK == false)
+		subplan_ref = NULL;
+	else
+		subplan_ref = palloc0(list_length(root->glob->subplans) * sizeof(subplan_ref[0]));
+#endif /* ADB */
 
 	Assert(IS_SIMPLE_REL(rel));
 
@@ -1254,6 +1263,11 @@ set_append_rel_size(PlannerInfo *root, RelOptInfo *rel,
 		if (IS_DUMMY_REL(childrel))
 			continue;
 
+#ifdef ADB
+		if (subplan_ref)
+			get_subplan_ref_walker((Expr*)childquals, subplan_ref);
+#endif /* ADB */
+
 		/* We have at least one live child. */
 		has_live_children = true;
 
@@ -1330,6 +1344,26 @@ set_append_rel_size(PlannerInfo *root, RelOptInfo *rel,
 		 * because some places assume rel->tuples is valid for any baserel.
 		 */
 		rel->tuples = parent_rows;
+
+#ifdef ADB
+		if (subplan_ref)
+		{
+			/*
+			 * when ClusterReduce use more then one times, it not work(not support ReScan)
+			 */
+			ListCell *lc;
+			int i = 0;
+			foreach(lc, root->glob->subroots)
+			{
+				if (subplan_ref[i] > 1)
+				{
+					/* SubPlan's cluster plan is not created, just mark it need rewind */
+					root->glob->rewindPlanIDs = bms_add_member(root->glob->rewindPlanIDs, i+1);
+				}
+				++i;
+			}
+		}
+#endif /* ADB */
 	}
 	else
 	{
@@ -1342,6 +1376,10 @@ set_append_rel_size(PlannerInfo *root, RelOptInfo *rel,
 	}
 
 	pfree(parent_attrsizes);
+#ifdef ADB
+	if (subplan_ref)
+		pfree(subplan_ref);
+#endif /* ADB */
 }
 
 /*
@@ -3761,6 +3799,24 @@ static bool set_path_reduce_info_worker(Path *path, List *reduce_info_list)
 		return path_tree_walker(path, set_path_reduce_info_worker, reduce_info_list);
 	}
 	return false;
+}
+
+static bool get_subplan_ref_walker(Expr *expr, int *subplan_ref)
+{
+	if (expr == NULL)
+		return false;
+	if (IsA(expr, SubPlan))
+	{
+		SubPlan *sub = (SubPlan*)expr;
+		subplan_ref[sub->plan_id-1]++;
+		return false;
+	}else if (IsA(expr, RestrictInfo))
+	{
+		return expression_tree_walker((Node*)((RestrictInfo*)expr)->clause,
+									  get_subplan_ref_walker,
+									  subplan_ref);
+	}
+	return expression_tree_walker((Node*)expr, get_subplan_ref_walker, subplan_ref);
 }
 #endif /* ADB */
 

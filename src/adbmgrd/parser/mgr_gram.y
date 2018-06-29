@@ -1908,6 +1908,16 @@ ListNodeStmt:
 			stmt->whereClause = make_column_in("type", args);
 			$$ = (Node*)stmt;
 		}
+	| LIST NODE HOST AConstList
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("node"), -1));
+			stmt->whereClause = make_column_in("host", $4);
+			$$ = (Node*)stmt;
+
+			check_host_name_isvaild($4);
+		}
 	;
 InitNodeStmt:
 INIT ALL
@@ -2020,9 +2030,10 @@ StartNodeMasterStmt:
 		}
 	|	START ALL
 		{
+			SelectStmt *stmt;
 			mgr_check_job_in_updateparam("monitor_handle_coordinator");
 
-			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("startall"), -1));
 			$$ = (Node*)stmt;
@@ -2136,9 +2147,11 @@ StopNodeMasterStmt:
 		}
 	|	STOP ALL opt_stop_mode
 		{
+			SelectStmt *stmt;
+
 			mgr_check_job_in_updateparam("monitor_handle_coordinator");
 
-			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			if (strcmp($3, SHUTDOWN_S) == 0)
 				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stopall"), -1));

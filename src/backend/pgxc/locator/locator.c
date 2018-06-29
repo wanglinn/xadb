@@ -103,17 +103,14 @@ Oid		preferred_data_node[MAX_PREFERRED_NODES];
 List *
 GetPreferredRepNodeIds(List *nodeids)
 {
-	int			i;
-	Oid			nodeid;
-
+	ListCell *lc;
 	if (list_length(nodeids) <= 0)
 		elog(ERROR, "a list of nodes should have at least one node");
 
-	for (i = 0; i < num_preferred_data_nodes; i++)
+	foreach(lc, nodeids)
 	{
-		nodeid = preferred_data_node[i];
-		if (list_member_oid(nodeids, nodeid))
-			return list_make1_oid(nodeid);
+		if (is_pgxc_nodepreferred(lfirst_oid(lc)))
+			return list_make1_oid(lfirst_oid(lc));
 	}
 
 	return list_make1_oid(linitial_oid(nodeids));
@@ -739,51 +736,6 @@ GetLocatorType(Oid relid)
 		ret = locInfo->locatorType;
 
 	return ret;
-}
-
-
-/*
- * GetAllDataNodeIdx
- * Return a list of all Datanodes.
- * We assume all tables use all nodes in the prototype, so just return a list
- * from first one.
- */
-List *
-GetAllDataNodeIdx(void)
-{
-	int			i;
-	List	   *nodeList = NIL;
-
-	for (i = 0; i < NumDataNodes; i++)
-		nodeList = lappend_int(nodeList, i);
-
-	return nodeList;
-}
-
-/*
- * GetAllCoordNodeIdx
- * Return a list of all Coordinators
- * This is used to send DDL to all nodes and to clean up pooler connections.
- * Do not put in the list the local Coordinator where this function is launched.
- */
-List *
-GetAllCoordNodeIdx(void)
-{
-	int			i;
-	List	   *nodeList = NIL;
-
-	for (i = 0; i < NumCoords; i++)
-	{
-		/*
-		 * Do not put in list the Coordinator we are on,
-		 * it doesn't make sense to connect to the local Coordinator.
-		 */
-
-		if (i != PGXCNodeId - 1)
-			nodeList = lappend_int(nodeList, i);
-	}
-
-	return nodeList;
 }
 
 /*

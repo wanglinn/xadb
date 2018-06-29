@@ -27,15 +27,25 @@
 
 #define BUFFER_SIZE 4096
 
-#define GTM_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
-#define INITGTM_VERSION "initagtm (PostgreSQL) " PG_VERSION "\n"
-#define INITDB_VERSION "initdb (PostgreSQL) " PG_VERSION "\n"
-#define PG_BASEBACKUP_VERSION "pg_basebackup (PostgreSQL) " PG_VERSION "\n"
-#define PG_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
-#define PSQL_VERSION "psql (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
-#define PG_DUMPALL_VERSION "pg_dumpall (PostgreSQL) " PG_VERSION "\n"
-#define PG_REWIND_VERSION "pg_rewind (PostgreSQL) " PG_VERSION "\n"
-
+#if defined(ADB) || defined(ADBMGRD)
+	#define GTM_CTL_VERSION "agtm_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define INITGTM_VERSION "initagtm (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define INITDB_VERSION "initdb (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define PG_BASEBACKUP_VERSION "pg_basebackup (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define PG_CTL_VERSION "pg_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define PSQL_VERSION "psql (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define PG_DUMPALL_VERSION "pg_dumpall (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+	#define PG_REWIND_VERSION "pg_rewind (PostgreSQL) " PG_VERSION "\n"
+	#define ADB_REWIND_VERSION "adb_rewind (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+#else
+	#define GTM_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
+	#define INITGTM_VERSION "initagtm (PostgreSQL) " PG_VERSION "\n"
+	#define INITDB_VERSION "initdb (PostgreSQL) " PG_VERSION "\n"
+	#define PG_BASEBACKUP_VERSION "pg_basebackup (PostgreSQL) " PG_VERSION "\n"
+	#define PG_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
+	#define PG_DUMPALL_VERSION "pg_dumpall (PostgreSQL) " PG_VERSION "\n"
+	#define PG_REWIND_VERSION "pg_rewind (PostgreSQL) " PG_VERSION "\n"
+#endif
 static void myUsleep(long microsec);
 static bool parse_ping_node_msg(const StringInfo msg, Name host, Name port, Name user, char *file_path);
 static int exec_ping_node(const char *host, const char *port, const char *user, const char *file_path, StringInfo err_msg);
@@ -183,7 +193,7 @@ void do_agent_command(StringInfo buf)
 		cmd_ping_node(buf);
 		break;
 	case AGT_CMD_NODE_REWIND:
-		cmd_node_init(cmd_type, buf, "adb_rewind", PG_REWIND_VERSION);
+		cmd_node_init(cmd_type, buf, "adb_rewind", ADB_REWIND_VERSION);
 	case AGT_CMD_AGTM_REWIND:
 		cmd_node_init(cmd_type, buf, "pg_rewind", PG_REWIND_VERSION);
 		break;
@@ -212,12 +222,12 @@ static void cmd_ping_node(StringInfo msg)
 	}
 	/*
 	the database of hba in slave datanode is "replication" so the client cann't connect it,
-	so we use psql -p port -U username to connect, 
+	so we use psql -p port -U username to connect,
 	because the agent and the node has the same host,
 	so omit the host ip, the agent will use localhost as host ip
 	*/
 	ping_status = exec_ping_node(NULL, NameStr(port), NameStr(user), file_path, &err_msg);
-	
+
 	/*send msg to client */
 	appendStringInfoCharMacro(&err_msg, ping_status);
 	agt_put_msg(AGT_MSG_RESULT, err_msg.data, err_msg.len);
@@ -228,7 +238,7 @@ static bool parse_ping_node_msg(const StringInfo msg, Name host, Name port, Name
 {
 	int index = msg->cursor;
 	Assert(host && port && user && file_path);
-	
+
 	if (index < msg->len)
 		snprintf(NameStr(*host), NAMEDATALEN, "%s", &(msg->data[index]));
 	else
@@ -339,7 +349,7 @@ static void cmd_check_dir_exist(StringInfo msg)
 	struct stat stat_buf;
 	DIR *chkdir;
 	struct dirent *file;
-	
+
 	initStringInfo(&output);
 	dir_path = agt_getmsgstring(msg);
 
@@ -368,7 +378,7 @@ static void cmd_check_dir_exist(StringInfo msg)
 	chkdir = opendir(dir_path);
 	if (chkdir == NULL)
 	{
-		ereport(ERROR, 
+		ereport(ERROR,
 			(errmsg("append master node: open directory \"%s\" fail, %s", dir_path, strerror(errno))));
 	}
 	else
@@ -380,7 +390,7 @@ static void cmd_check_dir_exist(StringInfo msg)
 				/* skip this and parent directory */
 				continue;
 			}
-			ereport(ERROR, 
+			ereport(ERROR,
 				(errmsg("append master node: directory \"%s\" is not empty", dir_path)));
 		}
 	}
@@ -1147,7 +1157,7 @@ static int copyFile(const char *targetFileWithPath, const char *sourceFileWithPa
 	FILE *fpR, *fpW;
 	char buffer[BUFFER_SIZE];
 	int lenR, lenW;
-	
+
 	errno = 0;
 	if ((fpR = fopen(sourceFileWithPath, "r")) == NULL)
 	{
@@ -1579,7 +1589,7 @@ static void mgr_execute_sqlstring(char cmdtype, char *user, int port, char *addr
 		/*PQclear(res);*/
 		/*return NULL;*/
 	}
-	
+
 	if (AGT_CMD_GET_SQL_STRINGVALUES_COMMAND == cmdtype)
 	{
 		appendStringInfo(output, "%s", PQcmdStatus(res));
@@ -1657,4 +1667,3 @@ static void cmd_get_batch_job_result(int cmd_type, StringInfo buf)
 	pfree(output.data);
 
 }
-

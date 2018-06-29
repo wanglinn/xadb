@@ -119,6 +119,7 @@ typedef struct CachedPlanSource
 	int			num_custom_plans;	/* number of plans included in total */
 #ifdef ADB
 	char	   *stmt_name;		/* If set, this is a copy of prepared stmt name */
+	struct CachedPlan *cluster_plan;	/* cluster plan, or NULL if not valid */
 	ParseGrammar grammar;
 #endif
 } CachedPlanSource;
@@ -190,5 +191,16 @@ extern CachedPlan *GetCachedPlan(CachedPlanSource *plansource,
 			  bool useResOwner,
 			  QueryEnvironment *queryEnv);
 extern void ReleaseCachedPlan(CachedPlan *plan, bool useResOwner);
+#ifdef ADB
+extern CachedPlan *GetCachedClusterPlan(CachedPlanSource *plansource,
+										ParamListInfo boundParams,
+										bool useResOwner,
+										QueryEnvironment *queryEnv);
+extern CachedPlan *GetCachedPlanADB(CachedPlanSource *plansource,
+										ParamListInfo boundParams,
+										bool useResOwner,
+										QueryEnvironment *queryEnv,
+										bool cluster_safe);
+#endif /* ADB */
 
 #endif							/* PLANCACHE_H */

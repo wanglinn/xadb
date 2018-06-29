@@ -888,7 +888,11 @@ main(int argc, char **argv)
 				}
 				break;
 			case 'V':
+#ifdef ADB
+				puts("adb_waldump (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+#else
 				puts("pg_waldump (PostgreSQL) " PG_VERSION);
+#endif
 				exit(EXIT_SUCCESS);
 				break;
 			case 'x':

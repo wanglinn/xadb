@@ -218,7 +218,7 @@ PrepareQuery(PrepareStmt *stmt, const char *queryString,
 void
 ExecuteQuery(ExecuteStmt *stmt, IntoClause *intoClause,
 			 const char *queryString, ParamListInfo params,
-			 DestReceiver *dest, char *completionTag)
+			 DestReceiver *dest, char *completionTag ADB_ONLY_COMMA_ARG(bool cluster_safe))
 {
 	PreparedStatement *entry;
 	CachedPlan *cplan;
@@ -265,7 +265,11 @@ ExecuteQuery(ExecuteStmt *stmt, IntoClause *intoClause,
 									   entry->plansource->query_string);
 
 	/* Replan if needed, and increment plan refcount for portal */
+#ifdef ADB
+	cplan = GetCachedPlanADB(entry->plansource, paramLI, false, NULL, cluster_safe);
+#else
 	cplan = GetCachedPlan(entry->plansource, paramLI, false, NULL);
+#endif /* ADB */
 	plan_list = cplan->stmt_list;
 
 	/*
@@ -468,7 +472,7 @@ InitQueryHashTable(void)
 		MemSet(&hash_ctl, 0, sizeof(hash_ctl));
 
 		hash_ctl.keysize = NAMEDATALEN;
-		hash_ctl.entrysize = sizeof(DatanodeStatement) + NumDataNodes * sizeof(int);
+		hash_ctl.entrysize = offsetof(DatanodeStatement, node_ids) + MaxDataNodes * sizeof(int);
 
 		datanode_queries = hash_create("Datanode Queries",
 									   64,
@@ -762,7 +766,7 @@ DropAllPreparedStatements(void)
 void
 ExplainExecuteQuery(ExecuteStmt *execstmt, IntoClause *into, ExplainState *es,
 					const char *queryString, ParamListInfo params,
-					QueryEnvironment *queryEnv)
+					QueryEnvironment *queryEnv ADB_ONLY_COMMA_ARG(bool cluster_safe))
 {
 	PreparedStatement *entry;
 	const char *query_string;
@@ -801,7 +805,11 @@ ExplainExecuteQuery(ExecuteStmt *execstmt, IntoClause *into, ExplainState *es,
 	}
 
 	/* Replan if needed, and acquire a transient refcount */
+#ifdef ADB
+	cplan = GetCachedPlanADB(entry->plansource, paramLI, true, queryEnv, cluster_safe);
+#else
 	cplan = GetCachedPlan(entry->plansource, paramLI, true, queryEnv);
+#endif /* ADB */
 
 	INSTR_TIME_SET_CURRENT(planduration);
 	INSTR_TIME_SUBTRACT(planduration, planstart);

@@ -136,6 +136,8 @@ extern void EndFinishPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool
 
 /* src/backend/intercomm/inter-query.c */
 extern struct PGcustumFuns *InterQueryCustomFuncs;
+struct pg_conn;
+extern int HandleInterUnknownMsg(struct pg_conn *conn, char c, int msgLength);
 extern List *GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQueryExecType exec_type);
 extern TupleTableSlot *StartRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot);
 extern TupleTableSlot *FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot);

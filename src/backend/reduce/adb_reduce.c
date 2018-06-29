@@ -145,7 +145,11 @@ StartSelfReduceLauncher(RdcPortId rid)
 		PG_TRY();
 		{
 			if ((ret = find_other_exec(my_exec_path, "adb_reduce",
-									   "adb_reduce based on (PG " PG_VERSION ")\n",
+#ifdef ADB
+									   "adb_reduce (" ADB_VERSION " based on PostgreSQL) " PG_VERSION"\n",
+#else
+									"adb_reduce based on (PG " PG_VERSION ")\n",
+#endif
 									   my_reduce_path)) < 0)
 			{
 				if (ret == -1)
@@ -425,14 +429,14 @@ SendRejectToRemote(RdcPort *port, List *dest_nodes)
 				 errdetail("%s", RdcError(port))));
 
 	adb_elog(print_reduce_debug_log, LOG,
-		 "Backend send REJECT message of" PLAN_PORT_PRINT_FORMAT,
-		 RdcSelfID(port));
+		"Backend send REJECT message of" PLAN_PORT_PRINT_FORMAT,
+		RdcSelfID(port));
 
 	port->send_num++;
 }
 
 void
-SendCloseToRemote(RdcPort *port, List *dest_nodes)
+SendCloseToRemote(RdcPort *port, List *dest_nodes, bool noerror)
 {
 	ssize_t	rsz;
 	char	buf[1];
@@ -453,13 +457,18 @@ SendCloseToRemote(RdcPort *port, List *dest_nodes)
 	}
 
 	if (SendPlanMsgToRemote(port, MSG_PLAN_CLOSE, dest_nodes) == EOF)
+	{
+		if (noerror)
+			return ;
+
 		ereport(ERROR,
 				(errmsg("fail to send CLOSE message to remote"),
 				 errdetail("%s", RdcError(port))));
+	}
 
-	 adb_elog(print_reduce_debug_log, LOG,
-		  "Backend send CLOSE message of" PLAN_PORT_PRINT_FORMAT,
-		  RdcSelfID(port));
+	adb_elog(print_reduce_debug_log, LOG,
+		"Backend send CLOSE message of" PLAN_PORT_PRINT_FORMAT,
+		RdcSelfID(port));
 
 	port->send_num++;
 	RdcEndStatus(port) |= RDC_END_CLOSE;
@@ -476,8 +485,8 @@ SendEofToRemote(RdcPort *port, List *dest_nodes)
 				 errdetail("%s", RdcError(port))));
 
 	adb_elog(print_reduce_debug_log, LOG,
-		 "Backend send EOF message of" PLAN_PORT_PRINT_FORMAT,
-		 RdcSelfID(port));
+		"Backend send EOF message of" PLAN_PORT_PRINT_FORMAT,
+		RdcSelfID(port));
 
 	port->send_num++;
 	RdcEndStatus(port) |= RDC_END_EOF;

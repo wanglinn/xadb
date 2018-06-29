@@ -2638,13 +2638,6 @@ ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 	TupleTableSlot *newSlot;
 	int			i;
 
-#ifndef ADB
-	/* ADBQ:
-	 * 		fdw_trigtuple here is equivalent to tuple from datanode for ADB?
-	 */
-	Assert(HeapTupleIsValid(fdw_trigtuple) ^ ItemPointerIsValid(tupleid));
-#endif
-
 #ifdef ADB
 	bool exec_all_triggers;
 
@@ -2667,19 +2660,22 @@ ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 	 * 2. Add FOR UPDATE in the SELECT statement in the subplan itself.
 	 */
 
-	if (IS_PGXC_COORDINATOR && RelationGetLocInfo(relinfo->ri_RelationDesc))
+	if (IsCnNode() && RelationGetLocInfo(relinfo->ri_RelationDesc))
 	{
 		/* No OLD tuple means triggers are to be run on datanode */
 		if (!fdw_trigtuple)
 			return true;
+
 		trigtuple = pgxc_get_trigger_tuple(fdw_trigtuple->t_data);
 
 		if (trigtuple == NULL)
 			return false;
 	}
-	else /* On datanode, do the usual way */
+	else
 	{
+		/* On datanode, do the usual way */
 #endif
+	Assert(HeapTupleIsValid(fdw_trigtuple) ^ ItemPointerIsValid(tupleid));
 	if (fdw_trigtuple == NULL)
 	{
 
@@ -2757,10 +2753,19 @@ ExecARDeleteTriggers(EState *estate, ResultRelInfo *relinfo,
 	{
 		HeapTuple	trigtuple;
 
-#ifndef ADB
-		/* See comments in ExecBRDeleteTriggers */
-		Assert(HeapTupleIsValid(fdw_trigtuple) ^ ItemPointerIsValid(tupleid));
+#ifdef ADB
+		if (IsCnNode() && RelationGetLocInfo(relinfo->ri_RelationDesc))
+		{
+			/* No OLD tuple means triggers are to be run on datanode */
+			if (fdw_trigtuple == NULL)
+				return;
+
+			trigtuple = fdw_trigtuple;
+		} else
+		{
+			/* Do the usual PG-way for datanode */
 #endif
+		Assert(HeapTupleIsValid(fdw_trigtuple) ^ ItemPointerIsValid(tupleid));
 		if (fdw_trigtuple == NULL)
 			trigtuple = GetTupleForTrigger(estate,
 										   NULL,
@@ -2770,6 +2775,9 @@ ExecARDeleteTriggers(EState *estate, ResultRelInfo *relinfo,
 										   NULL);
 		else
 			trigtuple = fdw_trigtuple;
+#ifdef ADB
+		}
+#endif
 		AfterTriggerSaveEvent(estate, relinfo, TRIGGER_EVENT_DELETE,
 							  true, trigtuple, NULL, NIL, NULL,
 							  transition_capture);
@@ -2797,7 +2805,6 @@ ExecIRDeleteTriggers(EState *estate, ResultRelInfo *relinfo,
 								  TRIGGER_TYPE_ROW,
 								  TRIGGER_TYPE_INSTEAD);
 #endif
-
 
 	LocTriggerData.type = T_TriggerData;
 	LocTriggerData.tg_event = TRIGGER_EVENT_DELETE |
@@ -2945,11 +2952,6 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	/* Determine lock mode to use */
 	lockmode = ExecUpdateLockMode(estate, relinfo);
 
-#ifndef ADB
-	/* See comments in ExecBRDeleteTriggers */
-	Assert(HeapTupleIsValid(fdw_trigtuple) ^ ItemPointerIsValid(tupleid));
-#endif
-
 #ifdef ADB
 	/*
 	 * Know whether we should fire triggers on this node. But since internal
@@ -2970,16 +2972,18 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	 * 2. Add FOR UPDATE in the SELECT statement in the subplan itself.
 	 */
 
-	if (IS_PGXC_COORDINATOR && RelationGetLocInfo(relinfo->ri_RelationDesc))
+	if (IsCnNode() && RelationGetLocInfo(relinfo->ri_RelationDesc))
 	{
 		/* No OLD tuple means triggers are to be run on datanode */
 		if (!fdw_trigtuple)
 			return slot;
 		trigtuple = pgxc_get_trigger_tuple(fdw_trigtuple->t_data);
 	}
-	else /* On datanode, do the usual way */
+	else
 	{
+		/* On datanode, do the usual way */
 #endif
+	Assert(HeapTupleIsValid(fdw_trigtuple) ^ ItemPointerIsValid(tupleid));
 	if (fdw_trigtuple == NULL)
 	{
 		/* get a copy of the on-disk tuple we are planning to update */
@@ -3015,7 +3019,6 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 #ifdef ADB
 	}
 #endif
-
 
 	LocTriggerData.type = T_TriggerData;
 	LocTriggerData.tg_event = TRIGGER_EVENT_UPDATE |
@@ -3108,10 +3111,19 @@ ExecARUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
 	{
 		HeapTuple	trigtuple;
 
-#ifndef ADB
-		/* See comments in ExecBRDeleteTriggers */
-		Assert(HeapTupleIsValid(fdw_trigtuple) ^ ItemPointerIsValid(tupleid));
+#ifdef ADB
+		if (IsCnNode() && RelationGetLocInfo(relinfo->ri_RelationDesc))
+		{
+			/* No OLD tuple means triggers are to be run on datanode */
+			if (fdw_trigtuple == NULL)
+				return;
+
+			trigtuple = fdw_trigtuple;
+		} else
+		{
+			/* Do the usual PG-way for datanode */
 #endif
+		Assert(HeapTupleIsValid(fdw_trigtuple) ^ ItemPointerIsValid(tupleid));
 		if (fdw_trigtuple == NULL)
 			trigtuple = GetTupleForTrigger(estate,
 										   NULL,
@@ -3121,6 +3133,9 @@ ExecARUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
 										   NULL);
 		else
 			trigtuple = fdw_trigtuple;
+#ifdef ADB
+		}
+#endif
 		AfterTriggerSaveEvent(estate, relinfo, TRIGGER_EVENT_UPDATE,
 							  true, trigtuple, newtuple, recheckIndexes,
 							  GetUpdatedColumns(relinfo, estate),
@@ -3313,7 +3328,7 @@ GetTupleForTrigger(EState *estate,
 		 */
 ltrmark:;
 		tuple.t_self = *tid;
-		test = heap_lock_tuple(relation, &tuple,
+		test = heap_lock_tuple(relation, &tuple, ADB_ONLY_ARG(estate->es_snapshot)
 							   estate->es_output_cid,
 							   lockmode, LockWaitBlock,
 							   false, &buffer, &hufd);
@@ -4774,7 +4789,7 @@ AfterTriggerBeginQuery(void)
 	 * queries called from inside the sub-transaction. For such queries,
 	 * possibly AfterTriggerEndQuery() might not have been called.
 	 */
-	if (IS_PGXC_COORDINATOR)
+	if (IsCnNode())
 		pgxc_ARFreeRowStoreForQuery(afterTriggers.query_depth);
 #endif
 }
@@ -4884,7 +4899,7 @@ AfterTriggerEndQuery(EState *estate)
 	afterTriggerFreeEventList(&afterTriggers.query_stack[afterTriggers.query_depth]);
 #ifdef ADB
 	/* Cleanup the row store if created for this query */
-	if (IS_PGXC_COORDINATOR)
+	if (IsCnNode())
 		pgxc_ARFreeRowStoreForQuery(afterTriggers.query_depth);
 #endif
 
@@ -4982,7 +4997,7 @@ AfterTriggerEndXact(bool isCommit)
 
 #ifdef ADB
 	/* On similar lines, discard the rowstore memory. */
-	if (IS_PGXC_COORDINATOR && afterTriggers.xc_rs_cxt)
+	if (IsCnNode() && afterTriggers.xc_rs_cxt)
 		MemoryContextDelete(afterTriggers.xc_rs_cxt);
 #endif
 
@@ -5344,7 +5359,7 @@ AfterTriggerSetState(ConstraintsSetStmt *stmt)
 	 * all of them deferred, so they don't get deallocated at the end of query.
 	 * We know that row store is only used for coordinator.
 	 */
-	if (IS_PGXC_COORDINATOR && stmt->deferred)
+	if (IsCnNode() && stmt->deferred)
 		pgxc_ARMarkAllDeferred();
 #endif
 
@@ -6579,7 +6594,7 @@ pgxc_should_exec_triggers(Relation rel, int16 tgtype_event,
 	 * views are defined only on coordinator.
 	 */
 	if (TRIGGER_FOR_INSTEAD(tgtype_timing))
-		return (IS_PGXC_COORDINATOR);
+		return (IsCnNode());
 
 	/*
 	 * On datanode, it is not possible to know if the query we are executing is
@@ -6592,7 +6607,7 @@ pgxc_should_exec_triggers(Relation rel, int16 tgtype_event,
 	 * coordinator.
 	 */
 	if (tgtype_level == TRIGGER_TYPE_STATEMENT)
-		return (IS_PGXC_COORDINATOR);
+		return (IsCnNode());
 
 	/*
 	 * We are done dealing with views/instead_triggers and statement triggers as
@@ -6603,7 +6618,7 @@ pgxc_should_exec_triggers(Relation rel, int16 tgtype_event,
 	has_nonshippable = pgxc_find_nonshippable_row_trig(rel, tgtype_event,
 													   tgtype_timing, false);
 
-	if (IS_PGXC_COORDINATOR)
+	if (IsCnNode())
 	{
 		if (RelationGetLocInfo(rel))
 		{

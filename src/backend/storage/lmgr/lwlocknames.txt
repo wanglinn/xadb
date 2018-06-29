@@ -52,5 +52,4 @@ LogicalRepWorkerLock				44
 CLogTruncationLock					45
 # ADB BEGIN
 BarrierLock							46
-NodeTableLock						47
 # ADB END
