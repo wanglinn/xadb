@@ -5125,6 +5125,7 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 					 errnode(PQNConnectName(lfirst(lc)))));
 		}
 	}
+	PQNFlush(cstate->list_connect, true);
 
 	if (estate->es_result_relations)
 	{
@@ -5752,6 +5753,8 @@ static TupleTableSlot* NextRowFromReduce(CopyState cstate, ExprContext *econtext
 
 	for(;;)
 	{
+		CHECK_FOR_INTERRUPTS();
+
 		if (state->working_nodes_oid != NIL)
 		{
 			/* first try from remote, first time it is noblock mode */
@@ -5844,10 +5847,10 @@ static TupleTableSlot* NextRowFromReduce(CopyState cstate, ExprContext *econtext
 		if (state->working_nodes_oid != NIL)
 		{
 			/* set to block mode and try it again */
-			rdc_set_block(state->rdc_port);
-		}else
+			if (state->eof_local)
+				rdc_set_block(state->rdc_port);
+		}else if(state->eof_local)
 		{
-			Assert(state->eof_local);
 			break;
 		}
 	}
