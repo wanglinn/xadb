@@ -703,3 +703,100 @@ Oid PQNConnectOid(struct pg_conn *conn)
 	}
 	return InvalidOid;
 }
+
+/*
+ * return flush finish count
+ */
+int PQNFlush(List *conn_list, bool blocking)
+{
+	ListCell *lc;
+	Bitmapset *bms_need = NULL;
+	struct pollfd *pfd,*tmp;
+	int result = 0;
+	int i = 0;
+	int count;
+
+	foreach(lc, conn_list)
+	{
+		int r = PQflush(lfirst(lc));
+		if (r == 0)
+		{
+			result++;
+		}else if (r < 0)
+		{
+			ereport(ERROR,
+					(errmsg("%s", PQerrorMessage(lfirst(lc))),
+					 errnode(PQNConnectName(lfirst(lc)))));
+		}else if(blocking)
+		{
+			bms_need = bms_add_member(bms_need, i);
+		}
+		++i;
+	}
+
+	if (bms_need == NULL)
+		return result;
+
+	count = bms_num_members(bms_need);
+	pfd = palloc(sizeof(*pfd) * count);
+
+re_set_:
+	tmp = pfd;
+	i = 0;
+	foreach(lc, conn_list)
+	{
+		if (bms_is_member(i, bms_need))
+		{
+			tmp->fd = PQsocket(lfirst(lc));
+			tmp->events = POLLOUT;
+			tmp = &tmp[1];
+		}
+		++i;
+	}
+re_select_:
+	result = poll(pfd, count, -1);
+	CHECK_FOR_INTERRUPTS();
+	if (result < 0)
+	{
+		if (errno == EINTR)
+			goto re_select_;
+		ereport(ERROR,
+				(errcode_for_socket_access(),
+				 errmsg("Can not poll sockets for flush")));
+	}
+	tmp = pfd;
+	i=0;
+	foreach(lc, conn_list)
+	{
+		if (bms_is_member(i, bms_need))
+		{
+			int r;
+			Assert(PQsocket(lfirst(lc)) == tmp->fd);
+			if (tmp->revents != 0)
+			{
+				int r = PQflush(lfirst(lc));
+				if (r == 0)
+				{
+					if (--count == 0)
+						break;
+					bms_need = bms_del_member(bms_need, i);
+				}else if (r < 0)
+				{
+					ereport(ERROR,
+							(errmsg("%s", PQerrorMessage(lfirst(lc))),
+								errnode(PQNConnectName(lfirst(lc)))));
+				}
+			}
+			tmp = &tmp[1];
+		}
+		++i;
+	}
+
+	if (count == 0)
+	{
+		pfree(pfd);
+		bms_free(bms_need);
+		return list_length(conn_list);
+	}
+	goto re_set_;
+}
