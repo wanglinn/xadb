@@ -4988,6 +4988,7 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 					 errnode(PQNConnectName(lfirst(lc)))));
 		}
 	}
+	PQNFlush(cstate->list_connect, true);
 
 	if (estate->es_result_relations)
 	{
