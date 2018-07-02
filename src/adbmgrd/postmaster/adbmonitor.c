@@ -417,8 +417,7 @@ AdbMntLauncherMain(int argc, char *argv[])
 		rc = WaitLatch(&MyProc->procLatch,
 					   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
 					   (nap.tv_sec * 1000L) + (nap.tv_usec / 1000L),
-#warning TODO make sure argument 0 is right, or use WAIT_EVENT_XXX
-					   0);
+					   PG_WAIT_TIMEOUT);
 		ResetLatch(&MyProc->procLatch);
 
 		/* Process sinval catchup interrupts that happened while sleeping */
