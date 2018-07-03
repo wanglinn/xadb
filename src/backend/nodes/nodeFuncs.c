@@ -3980,14 +3980,11 @@ planstate_exec_walk_param(Node *expr, void *context)
 }
 
 static void
-planstate_exec_walk_qual(List *qual, QualWalkContext *context)
+planstate_exec_walk_qual(ExprState *qual, QualWalkContext *context)
 {
-	ListCell	   *lc;
-
-	foreach (lc, qual)
+	if (qual != NULL)
 	{
-		ExprState  *clause = (ExprState *) lfirst(lc);
-		Expr	   *expr = clause->expr;
+		Expr	   *expr = qual->expr;
 
 		(void) expression_tree_walker((Node *) expr,
 									  planstate_exec_walk_param,
@@ -4002,9 +3999,7 @@ planstate_tree_exec_walker(PlanState *planstate,
 {
 	Plan		   *plan = planstate->plan;
 	ExprContext	   *econtext = planstate->ps_ExprContext;
-	/*List		   *qual = planstate->qual;*/
-	List		   *qual = NIL;
-#warning planstate->qual from pg10 is ExprState*, not a list
+	ExprState	   *qual = planstate->qual;
 	ListCell	   *lc;
 	QualWalkContext qual_walk_context;
 
