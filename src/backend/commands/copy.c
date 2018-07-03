@@ -408,7 +408,7 @@ static TupleTableSlot* NextRowFromTuplestore(CopyState cstate, ExprContext *econ
 static TupleTableSlot* AddNumberNextCopyFrom(CopyState cstate, ExprContext *econtext, void *data);
 static TupleTableSlot* NextRowFromCoordinator(CopyState cstate, ExprContext *econtext, void *data);
 static TupleTableSlot* makeClusterCopySlot(Relation rel);
-static CopyStmt* makeClusterCopyFromStmt(Relation rel);
+static CopyStmt* makeClusterCopyFromStmt(Relation rel, bool freeze);
 static bool CopyHasOidsOptions(List *list);
 
 static void SerializeAuxRelCopyInfo(StringInfo buf, List *list);
@@ -3208,7 +3208,7 @@ BeginCopyFrom(Relation rel,
 			cstate->cs_tuplestore = tuplestore_begin_heap(false, false, work_mem);
 		}else
 		{
-			CopyStmt *stmt = makeClusterCopyFromStmt(rel);
+			CopyStmt *stmt = makeClusterCopyFromStmt(rel, cstate->freeze);
 			cstate->NextRowFrom = AddNumberNextCopyFrom;
 			cstate->list_connect = ExecStartClusterCopy(rel->rd_locator_info->nodeids,
 														stmt,
@@ -5280,7 +5280,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 	/* start cluster copy */
 	MemoryContextSwitchTo(query_context);
 	cstate->list_connect = ExecStartClusterCopy(cstate->rel->rd_locator_info->nodeids,
-												makeClusterCopyFromStmt(cstate->rel),
+												makeClusterCopyFromStmt(cstate->rel, cstate->freeze),
 												cstate->mem_copy_toc,
 												cstate->exec_cluster_flag);
 
@@ -5409,7 +5409,7 @@ static TupleTableSlot* makeClusterCopySlot(Relation rel)
 	return MakeSingleTupleTableSlot(new_desc);
 }
 
-static CopyStmt* makeClusterCopyFromStmt(Relation rel)
+static CopyStmt* makeClusterCopyFromStmt(Relation rel, bool freeze)
 {
 	List	   *options;
 	DefElem	   *def;
@@ -5423,7 +5423,9 @@ static CopyStmt* makeClusterCopyFromStmt(Relation rel)
 					  (Node*)makeString((char*)GetDatabaseEncodingName()));
 	options = list_make1(def);
 
-	/* need freeze? */
+	if (freeze)
+		options = lappend(options, makeDefElem("freeze", (Node*)makeInteger(true)));
+
 	stmt->options = options;
 
 	return stmt;
@@ -5597,7 +5599,7 @@ static void ApplyCopyToAuxiliary(CopyState parent, List *rnodes)
 
 		if (rel)
 		{
-			ClusterCopyFromReduce(rel, aux->reduce, rnodes, aux->id, NextRowFromTidBufFile, &state);
+			ClusterCopyFromReduce(rel, aux->reduce, rnodes, aux->id, parent->freeze, NextRowFromTidBufFile, &state);
 			heap_close(rel, RowExclusiveLock);
 		}else
 		{
@@ -5663,7 +5665,7 @@ static void CleanCopyFromReduce(CopyFromReduceState *state)
 	DisConnectSelfReduce(state->rdc_port, NIL, false);
 }
 
-void ClusterCopyFromReduce(Relation rel, Expr *reduce, List *rnodes, int id, CustomNextRowFunction func, void *data)
+void ClusterCopyFromReduce(Relation rel, Expr *reduce, List *rnodes, int id, bool freeze, CustomNextRowFunction func, void *data)
 {
 	MemoryContext		oldcontext;
 	CopyState			cstate;
@@ -5686,6 +5688,7 @@ void ClusterCopyFromReduce(Relation rel, Expr *reduce, List *rnodes, int id, Cus
 	cstate->cur_attname = NULL;
 	cstate->cur_attval = NULL;
 	cstate->binary = true;
+	cstate->freeze = freeze;
 	cstate->NextRowFrom = NextRowFromReduce;
 	cstate->func_data = &rstate;
 

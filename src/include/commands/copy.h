@@ -43,7 +43,7 @@ typedef struct TupleTableSlot *(*CustomNextRowFunction)(CopyState cstate, ExprCo
 extern CopyState pgxcMatViewBeginCopyTo(Relation mvrel);
 extern int64 pgxcDoCopyTo(CopyState cstate);
 extern void DoClusterCopy(CopyStmt *stmt, struct StringInfoData *mem_toc);
-extern void ClusterCopyFromReduce(Relation rel, Expr *reduce, List *remote_oids, int id, CustomNextRowFunction fun, void *data);
+extern void ClusterCopyFromReduce(Relation rel, Expr *reduce, List *remote_oids, int id, bool freeze, CustomNextRowFunction fun, void *data);
 extern void ClusterDummyCopyFromReduce(List *target, Expr *reduce, List *remote_oids, int id, CustomNextRowFunction fun, void *data);
 #endif /* ADB */
 
