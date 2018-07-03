@@ -45,7 +45,7 @@
 #define REMOTE_KEY_NODE_OID					0xFFFFFF07
 #define REMOTE_KEY_RTE_LIST					0xFFFFFF08
 #define REMOTE_KEY_ES_INSTRUMENT			0xFFFFFF09
-#define REMOTE_KEY_HAS_REDUCE				0xFFFFFF0A
+#define REMOTE_KEY_REDUCE_INFO				0xFFFFFF0A
 #define REMOTE_KEY_REDUCE_GROUP				0xFFFFFF0B
 
 typedef struct ClusterPlanContext
@@ -97,6 +97,7 @@ static void RestoreClusterHook(ClusterErrorHookContext *context);
 
 void exec_cluster_plan(const void *splan, int length)
 {
+	char *tmp;
 	StringInfoData msg;
 	NodeTag tag;
 	ClusterErrorHookContext error_context_hook;
@@ -118,14 +119,14 @@ void exec_cluster_plan(const void *splan, int length)
 	pq_putmessage('W', copy_msg, sizeof(copy_msg));
 	pq_flush();
 
-	if (mem_toc_lookup(&msg, REMOTE_KEY_HAS_REDUCE, NULL) != NULL)
+	if ((tmp=mem_toc_lookup(&msg, REMOTE_KEY_REDUCE_INFO, NULL)) != NULL)
 	{
 		/* need reduce */
 		int rdc_listen_port;
 
 		/* Start self Reduce with rdc_id */
 		set_ps_display("<cluster start self reduce>", false);
-		rdc_listen_port = StartSelfReduceLauncher(PGXCNodeOid, false);
+		rdc_listen_port = StartSelfReduceLauncher(PGXCNodeOid, tmp[0] ? true:false);
 
 		/* Tell coordinator self own listen port */
 		send_rdc_listend_port(rdc_listen_port);
@@ -446,9 +447,9 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 	pfree(stmt);
 	if (have_reduce)
 	{
-		begin_mem_toc_insert(&msg, REMOTE_KEY_HAS_REDUCE);
-		appendBinaryStringInfo(&msg, (const char *) &have_reduce, sizeof(have_reduce));
-		end_mem_toc_insert(&msg, REMOTE_KEY_HAS_REDUCE);
+		begin_mem_toc_insert(&msg, REMOTE_KEY_REDUCE_INFO);
+		appendStringInfoChar(&msg, (char)false);	/* not memory module */
+		end_mem_toc_insert(&msg, REMOTE_KEY_REDUCE_INFO);
 	}
 
 	context.have_reduce = have_reduce;
@@ -480,7 +481,12 @@ List* ExecStartClusterCopy(List *rnodes, struct CopyStmt *stmt, StringInfo mem_t
 	context.transaction_read_only = false;
 	context.have_temp = false;
 	if (flag & EXEC_CLUSTER_FLAG_NEED_REDUCE)
+	{
 		context.have_reduce = true;
+		begin_mem_toc_insert(&msg, REMOTE_KEY_REDUCE_INFO);
+		appendStringInfoChar(&msg, (char)((flag & EXEC_CLUSTER_FLAG_USE_MEM_REDUCE) ? true:false));
+		end_mem_toc_insert(&msg, REMOTE_KEY_REDUCE_INFO);
+	}
 	if (flag & EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE)
 	{
 		Assert(context.have_reduce);
