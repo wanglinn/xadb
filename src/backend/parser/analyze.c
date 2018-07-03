@@ -4732,38 +4732,28 @@ static List* make_aux_rel_result_vars_rel(RangeTblEntry *rte, Relation aux_rel, 
 	List *result = NIL;
 	Form_pg_attribute attr;
 
-#if (Anum_aux_table_key == 1)
+#if (Anum_aux_table_auxnodeid == 1)
+	attr = SystemAttributeDefinition(XC_NodeIdAttributeNumber, RelationGetForm(aux_rel)->relhasoids);
+	result = lappend(result,
+					 get_ts_scan_var_for_aux_key(rte,
+					 							 NameStr(attr->attname),
+												 aux_relid));
+#else
+#error need change var list order
+#endif
+
+#if (Anum_aux_table_auxctid == 2)
+	attr = SystemAttributeDefinition(SelfItemPointerAttributeNumber, RelationGetForm(aux_rel)->relhasoids);
+	result = lappend(result,
+					 get_ts_scan_var_for_aux_key(rte,
+					 							 NameStr(attr->attname),
+												 aux_relid));
+#else
+#error need change var list order
+#endif
+
+#if (Anum_aux_table_key == 3)
 	attr = TupleDescAttr(RelationGetDescr(aux_rel), Anum_aux_table_key - 1);
-	result = lappend(result,
-					 get_ts_scan_var_for_aux_key(rte,
-					 							 NameStr(attr->attname),
-												 aux_relid));
-#else
-#error need change var list order
-#endif
-
-#if (Anum_aux_table_value == 2)
-	attr = TupleDescAttr(RelationGetDescr(aux_rel), Anum_aux_table_value - 1);
-	result = lappend(result,
-					 get_ts_scan_var_for_aux_key(rte,
-					 							 NameStr(attr->attname),
-												 aux_relid));
-#else
-#error need change var list order
-#endif
-
-#if (Anum_aux_table_auxnodeid == 3)
-	attr = SystemAttributeDefinition(XC_NodeIdAttributeNumber, true);
-	result = lappend(result,
-					 get_ts_scan_var_for_aux_key(rte,
-					 							 NameStr(attr->attname),
-												 aux_relid));
-#else
-#error need change var list order
-#endif
-
-#if (Anum_aux_table_auxctid == 4)
-	attr = SystemAttributeDefinition(SelfItemPointerAttributeNumber, true);
 	result = lappend(result,
 					 get_ts_scan_var_for_aux_key(rte,
 					 							 NameStr(attr->attname),

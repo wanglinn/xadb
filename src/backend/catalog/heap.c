@@ -84,6 +84,7 @@
 #ifdef ADB
 #include "catalog/adb_ha_sync_log.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_aux_class.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
 #include "commands/dbcommands.h"
@@ -1386,12 +1387,12 @@ AddRelationDistribution(Oid relid,
 		{
 			case LOCATOR_TYPE_HASH:
 			case LOCATOR_TYPE_MODULO:
-				if (attnum != 1)
+				if (attnum != Anum_aux_table_key)
 					ereport(ERROR,
 							(errmsg("distribute column of auxiliary table should be auxiliary column")));
 				break;
 			case LOCATOR_TYPE_USER_DEFINED:
-				if (numatts != 1 || attnums[0] != 1)
+				if (numatts != 1 || attnums[0] != Anum_aux_table_key)
 					ereport(ERROR,
 							(errmsg("distribute column of auxiliary table should be auxiliary column")));
 				break;
