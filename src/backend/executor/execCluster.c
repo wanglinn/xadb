@@ -1076,6 +1076,7 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 		}
 	}
 	msg->len = save_len;
+	PQNFlush(list_conn, true);
 
 	res = NULL;
 	rdc_id = 0;
