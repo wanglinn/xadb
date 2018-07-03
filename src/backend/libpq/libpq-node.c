@@ -772,7 +772,6 @@ re_select_:
 	{
 		if (bms_is_member(i, bms_need))
 		{
-			int r;
 			Assert(PQsocket(lfirst(lc)) == tmp->fd);
 			if (tmp->revents != 0)
 			{
