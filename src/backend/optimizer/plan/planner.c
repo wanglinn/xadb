@@ -7780,7 +7780,8 @@ static bool rti_is_base_rel(PlannerInfo *root, Index rti)
 {
 	RangeTblEntry *rte = planner_rt_fetch(rti, root);
 	return rte->rtekind == RTE_RELATION &&
-		   rte->relkind == RELKIND_RELATION;
+		   (rte->relkind == RELKIND_RELATION ||
+			rte->relkind == RELKIND_PARTITIONED_TABLE);
 }
 
 #endif /* ADB */

@@ -2946,7 +2946,9 @@ describeOneTableDetails(const char *schemaname,
 
 #ifdef ADB
 		/* print distribution information */
-		if (verbose && tableinfo.relkind == 'r')
+		if (verbose &&
+			(tableinfo.relkind == RELKIND_RELATION ||
+			 tableinfo.relkind == RELKIND_PARTITIONED_TABLE))
 		{
 			printfPQExpBuffer(&buf,
 						"SELECT CASE pclocatortype \n"

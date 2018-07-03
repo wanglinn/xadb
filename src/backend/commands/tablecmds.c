@@ -800,7 +800,7 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	 *	  should not try to find out the node list itself.
 	 */
 	if ((IsCnNode() || IsDnNode() || (isRestoreMode && stmt->distributeby != NULL))
-		&& relkind == RELKIND_RELATION
+		&& (relkind == RELKIND_RELATION || relkind == RELKIND_PARTITIONED_TABLE)
 		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
 	{
 		AddRelationDistribution(relationId,
