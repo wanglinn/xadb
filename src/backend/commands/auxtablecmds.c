@@ -262,61 +262,45 @@ bool HasAuxRelation(Oid relid)
 }
 
 static List *
-MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel, AttrNumber *distattnum)
+MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel)
 {
 	ColumnDef		   *coldef;
 	List			   *tableElts = NIL;
-	RelationLocInfo	   *loc;
-	AttrNumber			attnum;			/* distribute column attrnum */
-	Form_pg_attribute	discolumn;
 
 	Assert(auxcolumn && rel);
 
-	/* 1. auxiliary column */
+#if (Anum_aux_table_auxnodeid == 1)
+	/* 1. additional fixed columns -- auxnodeid */
+	coldef = makeColumnDef("auxnodeid",
+						   INT4OID,
+						   -1,
+						   InvalidOid);
+	tableElts = lappend(tableElts, coldef);
+#else
+#error need change var list order
+#endif
+
+#if (Anum_aux_table_auxctid == 2)
+	/* 2. additional fixed columns -- auxctid */
+	coldef = makeColumnDef("auxctid",
+						   TIDOID,
+						   -1,
+						   InvalidOid);
+	tableElts = lappend(tableElts, coldef);
+#else
+#error need change var list order
+#endif
+
+#if (Anum_aux_table_key == 3)
+	/* 3. auxiliary column */
 	coldef = makeColumnDef(NameStr(auxcolumn->attname),
 						   auxcolumn->atttypid,
 						   auxcolumn->atttypmod,
 						   auxcolumn->attcollation);
 	tableElts = lappend(tableElts, coldef);
-
-	/* 2. distribute column */
-	loc = RelationGetLocInfo(rel);
-	if (IsRelationDistributedByValue(loc))
-	{
-		attnum = loc->partAttrNum;
-	} else
-	if (IsRelationDistributedByUserDefined(loc))
-	{
-		Assert(list_length(loc->funcAttrNums) == 1);
-		attnum = linitial_int(loc->funcAttrNums);
-	} else
-	{
-		/* should not reach here */
-		attnum = InvalidAttrNumber;
-	}
-	Assert(AttrNumberIsForUserDefinedAttr(attnum));
-	if (distattnum)
-		*distattnum = attnum;
-	discolumn = rel->rd_att->attrs[attnum - 1];
-	coldef = makeColumnDef(NameStr(discolumn->attname),
-						   discolumn->atttypid,
-						   discolumn->atttypmod,
-						   discolumn->attcollation);
-	tableElts = lappend(tableElts, coldef);
-
-	/* 3. additional fixed columns -- auxnodeid */
-	coldef = makeColumnDef("auxnodeid",
-						   INT4OID,
-						   -1,
-						   0);
-	tableElts = lappend(tableElts, coldef);
-
-	/* 4. additional fixed columns -- auxctid */
-	coldef = makeColumnDef("auxctid",
-						   TIDOID,
-						   -1,
-						   0);
-	tableElts = lappend(tableElts, coldef);
+#else
+#error need change var list order
+#endif
 
 	return tableElts;
 }
@@ -334,8 +318,6 @@ QueryRewriteAuxStmt(Query *auxquery)
 	IndexStmt		   *index_stmt;
 	HeapTuple			atttuple;
 	Form_pg_attribute	auxattform;
-	Form_pg_attribute	disattform;
-	AttrNumber			distattnum;
 	Relation			master_relation;
 	Oid					master_nspid;
 	Oid					master_relid;
@@ -386,13 +368,6 @@ QueryRewriteAuxStmt(Query *auxquery)
 					 errmsg("cannot build auxiliary table for roundrobin table")));
 			break;
 		case LOCATOR_TYPE_USER_DEFINED:
-			if (list_length(master_reloc->funcAttrNums) > 1)
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("auxiliary table on master table which distribute by "
-						 		"user-defined function with more than one argument is "
-						 		"not supported yet")));
-			break;
 		case LOCATOR_TYPE_HASH:
 		case LOCATOR_TYPE_MODULO:
 			/* it is OK */
@@ -439,10 +414,14 @@ QueryRewriteAuxStmt(Query *auxquery)
 	}
 
 	/* makeup table elements */
-	create_stmt->tableElts = MakeAuxTableColumns(auxattform, master_relation, &distattnum);
-	Assert(AttributeNumberIsValid(distattnum));
+	create_stmt->tableElts = MakeAuxTableColumns(auxattform, master_relation);
 	create_stmt->aux_attnum = auxattform->attnum;
-	disattform = master_relation->rd_att->attrs[distattnum - 1];
+	if (create_stmt->distributeby == NULL)
+	{
+		create_stmt->distributeby = makeNode(DistributeBy);
+		create_stmt->distributeby->disttype = DISTTYPE_HASH;
+		create_stmt->distributeby->colname = pstrdup(NameStr(auxattform->attname));
+	}
 
 	create_query = copyObject(auxquery);
 	create_query->commandType = CMD_UTILITY;
@@ -464,9 +443,12 @@ QueryRewriteAuxStmt(Query *auxquery)
 	if (create_stmt->relation->schemaname)
 		appendStringInfo(&querystr, "%s.", create_stmt->relation->schemaname);
 	appendStringInfo(&querystr, "%s ", create_stmt->relation->relname);
-	appendStringInfo(&querystr, "SELECT %s, %s, xc_node_id, ctid FROM ",
-					NameStr(auxattform->attname),
-					NameStr(disattform->attname));
+#if (Anum_aux_table_auxnodeid == 1 && Anum_aux_table_auxctid == 2 && Anum_aux_table_key == 3)
+	appendStringInfo(&querystr, "SELECT xc_node_id, ctid, \"%s\" FROM ",
+					 NameStr(auxattform->attname));
+#else
+#error need change select target list
+#endif
 	if (auxstmt->master_relation->schemaname)
 		appendStringInfo(&querystr, "%s.", auxstmt->master_relation->schemaname);
 	appendStringInfo(&querystr, "%s;", auxstmt->master_relation->relname);
@@ -563,26 +545,6 @@ Bitmapset *MakeAuxMainRelResultAttnos(Relation rel)
 	/* system attrs */
 	attr = bms_make_singleton(SelfItemPointerAttributeNumber - FirstLowInvalidHeapAttributeNumber);
 	attr = bms_add_member(attr, XC_NodeIdAttributeNumber - FirstLowInvalidHeapAttributeNumber);
-
-	/* distribute key */
-	if (IsRelationDistributedByUserDefined(rel->rd_locator_info))
-	{
-		if (list_length(rel->rd_locator_info->funcAttrNums) != 1)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("only support one distribute column yet!"),
-					 err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel))));
-		attr = bms_add_member(attr, linitial_int(rel->rd_locator_info->funcAttrNums) - FirstLowInvalidHeapAttributeNumber);
-	}else if(IsRelationDistributedByValue(rel->rd_locator_info))
-	{
-		attr = bms_add_member(attr, rel->rd_locator_info->partAttrNum - FirstLowInvalidHeapAttributeNumber);
-	}else
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("only support one distribute column yet!"),
-				 err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel))));
-	}
 
 	/* auxiliary columns */
 	x = -1;
