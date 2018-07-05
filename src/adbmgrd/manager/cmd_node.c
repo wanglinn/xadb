@@ -787,9 +787,6 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 					mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infoSyncStrTmp.data, &infosendmsg);
 				}
 
-				/* refresh pgxc_node of read only coordinator */
-				mgr_alter_sync_refresh_pgxcnode_readnode(NameStr(mastername), NameStr(name), NameStr(newSyncSlaveName));
-
 				masterPath = get_nodepath_from_tupleoid(masterTupleOid);
 				mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, masterPath, &infosendmsg, masterHostOid, &getAgentCmdRst);
 				pfree(masterPath);
@@ -827,6 +824,15 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 
 	heap_freetuple(oldtuple);
 	heap_close(rel, RowExclusiveLock);
+
+	if(bnodeInCluster && (got[Anum_mgr_node_nodesync-1] == true))
+	{
+		/* refresh pgxc_node of read only coordinator */
+		if ((new_sync == SYNC_STATE_SYNC) && (new_sync != nodeSyncType))
+			mgr_alter_sync_refresh_pgxcnode_readnode(selftupleoid, InvalidOid);
+		else if ((new_sync != SYNC_STATE_SYNC) && (nodeSyncType == SYNC_STATE_SYNC))
+			mgr_alter_sync_refresh_pgxcnode_readnode(InvalidOid, selftupleoid);
+	}
 	PG_RETURN_BOOL(true);
 }
 
@@ -3164,10 +3170,8 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 		}
 		syncNum = mgr_get_master_sync_string(mastertupleoid, true, InvalidOid, &infostrparam);
 		/* refresh read only coordinator pgxc_node */
-		if (syncNum == 0 && bsyncnode)
-		{
-			mgr_alter_sync_refresh_pgxcnode_readnode(parentnodeinfo.nodename, nodename.data, nodename.data);
-		}
+		if (strcmp(NameStr(appendnodeinfo.sync_state), sync_state_tab[SYNC_STATE_SYNC].name) == 0)
+			mgr_alter_sync_refresh_pgxcnode_readnode(appendnodeinfo.tupleoid, InvalidOid);
 
 		if (bsyncnode)
 			syncNum++;
@@ -3262,6 +3266,7 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 	const int max_pingtry = 60;
 	int ret = 0;
 	int agentPort;
+	int seqNum = 0;
 	List *dnList = NIL;
 	List *newDnList = NIL;
 
@@ -3456,7 +3461,8 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		if (!bres || !dnList)
 			ereport(WARNING, (errmsg("on coordinator \"%s\", reset the preperred datanode fail. \
 				please, do it manual", nodename.data)));
-		newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode);
+		seqNum = mgr_get_node_sequence(nodename.data, CNDN_TYPE_COORDINATOR_MASTER);
+		newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode, seqNum);
 		Assert(newDnList);
 		bres = mgr_try_max_times_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data
 				, appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr, appendnodeinfo.nodeport
@@ -3807,6 +3813,7 @@ void mgr_get_nodeinfo_byname_type(char *node_name, char node_type, bool binclust
 		nodeinfo->nodeaddr = NULL;
 		nodeinfo->nodeusername = NULL;
 		nodeinfo->nodepath = NULL;
+		namestrcpy(&(nodeinfo->sync_state), "");
 		return;
 	}
 
@@ -3824,7 +3831,7 @@ void mgr_get_nodeinfo_byname_type(char *node_name, char node_type, bool binclust
 	nodeinfo->nodehost = mgr_node->nodehost;
 	nodeinfo->nodemasteroid = mgr_node->nodemasternameoid;
 	nodeinfo->tupleoid = HeapTupleGetOid(tuple);
-
+	namestrcpy(&(nodeinfo->sync_state), NameStr(mgr_node->nodesync));
 	/*get nodepath from tuple*/
 	datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(info->rel_node), &isNull);
 	if (isNull)
@@ -10765,9 +10772,9 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 				, errmsg("column nodepath is null")));
 		}
 		/* refresh pgxc_node on read only coordinator */
-		if (strcmp(NameStr(mgr_node->nodesync),sync_state_tab[SYNC_STATE_SYNC].name) == 0)
-			mgr_alter_sync_refresh_pgxcnode_readnode(mastername.data, NameStr(mgr_node->nodename)
-				, newSyncSlaveName.data);
+		if (nodetype == CNDN_TYPE_DATANODE_SLAVE
+			&& strcmp(NameStr(mgr_node->nodesync),sync_state_tab[SYNC_STATE_SYNC].name) == 0)
+			mgr_alter_sync_refresh_pgxcnode_readnode(InvalidOid, selftupleoid);
 		resetStringInfo(&(getAgentCmdRst.description));
 		resetStringInfo(&infosendmsg);
 		masterpath = TextDatumGetCString(datumPath);
