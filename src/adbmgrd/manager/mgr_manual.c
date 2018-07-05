@@ -625,7 +625,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 		/* refresh read only coordinator pgxc_node */
 		if (syncNum == 0 && strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_SYNC].name) == 0)
 		{
-			mgr_alter_sync_refresh_pgxcnode_readnode(nodemasternamedata.data, nodenamedata.data, nodenamedata.data);
+			mgr_alter_sync_refresh_pgxcnode_readnode(slave_nodeinfo.tupleoid, InvalidOid);
 		}
 
 		if (strinfo_sync.len == 0)
@@ -1313,8 +1313,10 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		*/
 		if (bReadOnly)
 		{
+			int seqNum = 0;
 			resetStringInfo(&sqlstrmsg);
-			newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode);
+			seqNum = mgr_get_node_sequence(s_coordname, CNDN_TYPE_COORDINATOR_MASTER);
+			newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode, seqNum);
 			Assert(newDnList);
 			ereport(LOG, (errmsg("on coordinator \"%s\", update the pgxc_node table", s_coordname)));
 			ereport(NOTICE, (errmsg("on coordinator \"%s\", update the pgxc_node table", s_coordname)));
@@ -1876,8 +1878,12 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		/* refresh pgxc_node on all coordinators */
 		ereport(LOG, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node on all coordinators", nodeNameData.data)));
 		ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node on all coordinators", nodeNameData.data)));
-		res = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, nodeType, nodeNameData.data
-					, &getAgentCmdRst, &pgConn, cnOid, newSyncSlaveName.data);
+		if (strcmp(NameStr(nodeInfoS.sync_state), sync_state_tab[SYNC_STATE_SYNC].name) == 0)
+			res = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, nodeType, nodeNameData.data
+					, &getAgentCmdRst, &pgConn, cnOid, nodeMasterNameData.data);
+		else
+			res = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, nodeType, nodeNameData.data
+						, &getAgentCmdRst, &pgConn, cnOid, newSyncSlaveName.data);
 		if (!res)
 		{
 			rest = false;
