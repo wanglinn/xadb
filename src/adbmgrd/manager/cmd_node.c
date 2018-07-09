@@ -1195,7 +1195,6 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 	appendStringInfo(&infosendmsg, " -p %u", masterport);
 	appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
 	appendStringInfo(&infosendmsg, " -D %s", cndnPath);
-	appendStringInfo(&infosendmsg, " -x");
 	/* connection agent */
 	ma = ma_connect_hostoid(hostOid);
 	if(!ma_isconnected(ma))
@@ -11144,7 +11143,13 @@ Datum mgr_monitor_ha(PG_FUNCTION_ARGS)
 		address = get_hostaddress_from_hostoid(mgr_node_m->nodehost);
 		resetStringInfo(&resultstrdata);
 		resetStringInfo(&sqlstrdata);
-		appendStringInfo(&sqlstrdata, "select application_name, client_addr, state, pg_xlogfile_name_offset(sent_location) as sent_location , pg_xlogfile_name_offset(replay_location) as replay_location, sync_state,            pg_xlogfile_name_offset(pg_current_xlog_insert_location()) as master_location, pg_size_pretty(pg_xlog_location_diff(pg_current_xlog_insert_location(),sent_location)) sent_delay,pg_size_pretty(pg_xlog_location_diff(pg_current_xlog_insert_location(),replay_location)) replay_delay  from pg_stat_replication where application_name='%s';", NameStr(mgr_node->nodename));
+		appendStringInfo(&sqlstrdata, "select application_name, client_addr, state, \
+		pg_walfile_name_offset(sent_lsn) as sent_lsn , pg_walfile_name_offset(replay_lsn) as \
+		replay_lsn, sync_state, pg_walfile_name_offset(pg_current_wal_insert_lsn()) as \
+		master_lsn, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_insert_lsn(),sent_lsn)) \
+		sent_delay,pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_insert_lsn(),replay_lsn)) \
+		replay_delay  from pg_stat_replication where application_name='%s';"
+			, NameStr(mgr_node->nodename));
 
 		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, mgr_host->hostagentport, sqlstrdata.data, (GTM_TYPE_GTM_SLAVE == mgr_node->nodetype)? AGTM_USER:NameStr(mgr_host->hostuser), address, mgr_node_m->nodeport, DEFAULT_DB, &resultstrdata);
 		pfree(address);

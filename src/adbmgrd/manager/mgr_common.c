@@ -187,10 +187,10 @@ TupleDesc get_ha_replication_tuple_desc(void)
 			TupleDescInitEntry(desc, (AttrNumber) 3, "application_name", NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 4, "client_addr", NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 5, "state", NAMEOID, -1, 0);
-			TupleDescInitEntry(desc, (AttrNumber) 6, "sent_location", NAMEOID, -1, 0);
-			TupleDescInitEntry(desc, (AttrNumber) 7, "replay_location", NAMEOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 6, "sent_lsn", NAMEOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 7, "replay_lsn", NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 8, "sync_state", NAMEOID, -1, 0);
-			TupleDescInitEntry(desc, (AttrNumber) 9, "master_location", NAMEOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 9, "master_lsn", NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 10, "sent_delay", NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 11, "replay_delay", NAMEOID, -1, 0);
 			ha_replication_tuple_desc = BlessTupleDesc(desc);

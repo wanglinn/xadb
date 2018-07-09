@@ -5956,7 +5956,7 @@ DESCR("create extension");
 DATA(insert OID = 4969 (  mgr_remove_node_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 16 "18 2276" _null_ _null_ _null_ _null_ _null_ mgr_remove_node_func _null_ _null_ _null_ ));
 DESCR("mgr remove node");
 
-DATA(insert OID = 4821 (  mgr_monitor_ha            PGNSP PGUID 12 10 400 0 0 f f f f f t s s 0 0 2249 "" "{19,19,19,19,19,19,19,19,19,19,19}" "{o,o,o,o,o,o,o,o,o,o,o}" "{type,nodename, application_name, client_addr,state,sent_location,replay_location,sync_state,master_location,sent_delay,replay_deplay}" _null_ _null_ mgr_monitor_ha _null_ _null_ _null_ ));
+DATA(insert OID = 4821 (  mgr_monitor_ha            PGNSP PGUID 12 10 400 0 0 f f f f f t s s 0 0 2249 "" "{19,19,19,19,19,19,19,19,19,19,19}" "{o,o,o,o,o,o,o,o,o,o,o}" "{type,nodename, application_name, client_addr,state,sent_lsn,replay_lsn,sync_state,master_lsn,sent_delay,replay_deplay}" _null_ _null_ mgr_monitor_ha _null_ _null_ _null_ ));
 DESCR("monitor hba");
 
 DATA(insert OID = 4824 ( monitor_delete_data_interval_days  PGNSP PGUID 12 1 0 0 0 f f f f t f s s 1 0 16 "23" _null_ _null_ _null_ _null_ _null_ monitor_delete_data_interval_days _null_ _null_ _null_ ));
