@@ -15,11 +15,17 @@
 #include "postgres.h"
 
 #include "access/sysattr.h"
+#include "access/tuptypeconvert.h"
+#include "catalog/heap.h"
 #include "catalog/pg_aux_class.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
 #include "executor/executor.h"
+#include "executor/clusterHeapScan.h"
+#include "executor/clusterReceiver.h"
+#include "libpq/libpq-fe.h"
+#include "libpq/libpq-node.h"
 #include "nodes/execnodes.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -29,11 +35,13 @@
 #include "optimizer/plancat.h"
 #include "optimizer/predtest.h"
 #include "optimizer/reduceinfo.h"
+#include "optimizer/restrictinfo.h"
 #include "optimizer/var.h"
 #include "parser/parser.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_oper.h"
 #include "pgxc/locator.h"
+#include "pgxc/nodemgr.h"
 #include "utils/array.h"
 #include "utils/datum.h"
 #include "utils/fmgroids.h"
@@ -42,6 +50,12 @@
 #include "utils/rel.h"
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
+
+#define AUX_SCAN_INFO_SIZE_STEP		8
+
+#define AUX_REL_LOC_INFO_INVALID	0
+#define AUX_REL_LOC_INFO_REP		1	/* replicated */
+#define AUX_REL_LOC_INFO_REDUCE		2	/* distribute by value */
 
 typedef struct ModifyContext
 {
@@ -56,30 +70,54 @@ typedef struct ModifyContext
 	bool hint;
 }ModifyContext;
 
-typedef struct ModifyAuxVarContext
+typedef struct CoerceInfo
 {
-	char			   *query_sql;			/* select ... from aux_table where key = ... */
-	char			   *aux_rel_name;		/* table name for auxiliary table */
-	char			   *aux_var_name;		/* auxiliary table column name(distribute key), same to main table's auxiliary column */
-	List			   *list_remote;		/* remote node's Oid execute on */
-	RelationLocInfo	   *loc_info;			/* auxiliary table locator info */
-	Expr			   *reduce_expr;		/* auxiliary table reduce expr */
-	Const			   *const_expr;			/* auxiliary distribute key in reduce_expr */
-	ExprState		   *reduce_expr_state;	/* is ExecInitExpr(reduce_expr) */
-	ExprContext		   *expr_context;		/* execute context */
-	StringInfoData		buf;				/* temp buffer */
-	Oid					aux_rel_oid;		/* auxiliary table's OID */
-	AttrNumber			varattno;			/* var attribute number for main table(not auxilary) */
-}ModifyAuxVarContext;
+	Const	   *c;
+	Expr	   *expr;
+	ExprState  *exprState;
+	Oid			type;
+	bool		valid;
+}CoerceInfo;
 
-typedef struct ModifyToAuxContext
+typedef struct GatherAuxColumnInfo
 {
-	Relation main_rel;	/* main relation */
-	List *list_auxvar;	/* list of ModifyAuxVarContext */
-	Index relid;
-	bool hint;
-	bool in_not_expr;
-}ModifyToAuxContext;
+	Form_pg_attribute	attr;			/* main relation attribute for auxiliary column */
+	List			   *list_coerce;	/* list of CoerceInfo */
+	ExprContext		   *econtext;		/* for execute convert and reduce expr state */
+	Const			   *const_expr;		/* for reduce expr input */
+	Expr			   *reduce_expr;	/* reduce expr */
+	ExprState		   *reduce_state;	/* reduce expr state */
+	Relation			rel;			/* auxiliary relation */
+	uint32				max_size;		/* alloc count of datum */
+	uint32				cur_size;		/* saved datum count */
+	int					aux_loc;		/* AUX_REL_LOC_INFO_XXX */
+	AttrNumber			attno;			/* auxiliary table for main's column */
+	bool				has_null;		/* has null value equal */
+	List			   *list_exec;		/* auxiliary relation execute on */
+	Datum			   *datum;			/* datum buffer */
+}GatherAuxColumnInfo;
+
+typedef struct GatherAuxInfoContext
+{
+	ExprContext	   *econtext;
+	Relation		rel;
+	List		   *list_info;
+	Bitmapset	   *bms_attnos;
+	GatherAuxColumnInfo *cheapest;
+	Index			relid;
+	bool			deep;
+}GatherAuxInfoContext;
+
+typedef struct GatherMainRelExecOn
+{
+	TupleTableSlot		   *slot;
+	List				   *list_nodeid;
+	AttrNumber				index_nodeid;
+	AttrNumber				index_tid;
+	uint32					max_tid_size;
+	uint32					cur_tid_size;
+	ItemPointer				tids;
+}GatherMainRelExecOn;
 
 int use_aux_type = USE_AUX_NODE;
 int use_aux_arg = 100;
@@ -96,26 +134,31 @@ static Const* get_var_equal_const(List *args, Oid opno, Index relid, AttrNumber 
 static Const* get_mvar_equal_const(List *args, Oid opno, Index relid, Bitmapset *attnos, Var **var);
 static Const* is_const_able_expr(Expr *expr);
 static List* get_auxiary_quals(List *baserestrictinfo, Index relid, const Bitmapset *attnos);
-static Node* mutator_aux_equal_expr(Node *node, ModifyToAuxContext *context);
-static void reset_aux_var_context(ModifyAuxVarContext *context);
-static ModifyAuxVarContext* get_aux_var_context(ModifyToAuxContext *context, AttrNumber attno);
-static void make_aux_table_query_sql(ModifyAuxVarContext *mavc, Const *c, bool isarray);
-static List* get_aux_table_execute_on(ModifyAuxVarContext *mavc, Var *var, Const *c, bool isarray);
-static List* get_main_table_execute_on(ModifyAuxVarContext *mavc);
-static List* oid_list_copy_bms(List *oid_list, Bitmapset *bms_index);
-static Node* make_xc_node_id_in_expr(Index relid, List *list);
+
+static bool gather_aux_info(Node *node, GatherAuxInfoContext *context);
+static GatherAuxColumnInfo* get_gather_aux_col_info(GatherAuxInfoContext *context, AttrNumber attno);
+static void free_aux_col_info(GatherAuxColumnInfo *info);
+static CoerceInfo* get_coerce_info(GatherAuxColumnInfo *info, Oid typeoid);
+static void push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool isarray);
+static void init_auxiliary_info_if_need(GatherAuxInfoContext *context);
+static void set_cheapest_auxiliary(GatherAuxInfoContext *context);
+static List* get_aux_table_execute_on(GatherAuxColumnInfo *info);
+static GatherMainRelExecOn* get_main_table_execute_on(GatherAuxInfoContext *context, GatherAuxColumnInfo *info);
+static bool process_remote_aux_tuple(void *pointer, struct pg_conn *conn, PQNHookFuncType type, ...);
+static void push_tid_to_exec_on(GatherMainRelExecOn *context, Datum datum);
+static Expr* make_ctid_in_expr(Index relid, ItemPointer tids, uint32 count);
 
 /* return remote oid list */
-List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel)
+List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool modify_info_when_aux)
 {
 	List *result;
 	Relation relation;
 	RangeTblEntry *rte;
 	List *new_quals;
-	List *tmp_list;;
+	ListCell *lc;
 	MemoryContext old_mctx;
 	MemoryContext main_mctx;
-	ModifyToAuxContext context;
+	GatherAuxInfoContext gather;
 
 	result = relation_remote_by_constraints_base(root,
 												(Node*)rel->baserestrictinfo,
@@ -147,25 +190,60 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel)
 									  ALLOCSET_DEFAULT_MAXSIZE);
 	old_mctx = MemoryContextSwitchTo(main_mctx);
 
-	context.main_rel = relation;
-	context.list_auxvar = NIL;
-	context.relid = rel->relid;
-	context.hint = false;
-	context.in_not_expr = false;
-	tmp_list = (List*)mutator_aux_equal_expr((Node*)new_quals, &context);
-	list_free(new_quals);
-	list_free(result);
-	new_quals = tmp_list;
-	result = relation_remote_by_constraints_base(root, (Node*)new_quals, rel->loc_info, rel->relid);
+	gather.econtext = CreateStandaloneExprContext();
+	gather.rel = relation;
+	gather.list_info = NIL;
+	gather.bms_attnos = relation->rd_auxatt;
+	gather.relid = rel->relid;
+	gather.cheapest = NULL;
 
+	/* only try top quals */
+	gather.deep = false;
+	foreach(lc, new_quals)
+		gather_aux_info(lfirst(lc), &gather);
+
+	init_auxiliary_info_if_need(&gather);
+	set_cheapest_auxiliary(&gather);
+	if (gather.cheapest != NULL)
+	{
+		ListCell *lc;
+		GatherMainRelExecOn *exec_on = get_main_table_execute_on(&gather, gather.cheapest);
+		list_free(result);
+		result = NIL;
+		MemoryContextSwitchTo(old_mctx);
+		if (exec_on->list_nodeid != NIL)
+		{
+			foreach (lc, rel->loc_info->nodeids)
+			{
+				if (list_member_int(exec_on->list_nodeid, get_pgxc_node_id(lfirst_oid(lc))))
+					result = lappend_oid(result, lfirst_oid(lc));
+			}
+		}
+		if (modify_info_when_aux && exec_on->cur_tid_size > 0)
+		{
+			Expr *expr = make_ctid_in_expr(rel->relid,
+										   exec_on->tids,
+										   exec_on->cur_tid_size);
+			RestrictInfo *ri = make_restrictinfo(expr,
+												 true,
+												 false,
+												 false,
+												 bms_make_singleton(rel->relid),
+												 NULL,
+												 NULL);
+			rel->baserestrictinfo = lappend(rel->baserestrictinfo, ri);
+			rel->rows = exec_on->cur_tid_size ;
+		}
+		root->glob->transientPlan = true;
+	}
+
+	foreach(lc, gather.list_info)
+		free_aux_col_info(lfirst(lc));
+	FreeExprContext(gather.econtext, true);
 	relation_close(relation, AccessShareLock);
 	MemoryContextSwitchTo(old_mctx);
 	result = list_copy(result);
 	MemoryContextDelete(main_mctx);
-
-	/* when used auxiliary relation, don't cache plan */
-	if (context.hint)
-		root->glob->transientPlan = true;
 
 	return result;
 }
@@ -627,83 +705,6 @@ next_mutator_equal_expr_:
 	return expression_tree_mutator(node, mutator_equal_expr, context);
 }
 
-/*
- * let aux_col=val to xc_node_id = node
- *   aux_col in (v1,v2) to xc_node_id in (node1,node2)
- */
-static Node* mutator_aux_equal_expr(Node *node, ModifyToAuxContext *context)
-{
-	Var *var;
-	Const *c;
-	ModifyAuxVarContext *avc;
-	List *execute_on;
-
-	if (node == NULL)
-		return NULL;
-
-	if (context->in_not_expr == false)
-	{
-		if (IsA(node, OpExpr) &&
-			list_length(((OpExpr*)node)->args) == 2)
-		{
-			OpExpr *op = (OpExpr*)node;
-			c = get_mvar_equal_const(op->args,
-									 op->opno,
-									 context->relid,
-									 context->main_rel->rd_auxatt,
-									 &var);
-			if (c == NULL)
-				goto next_mutator_aux_equal_expr_;
-
-			avc = get_aux_var_context(context, var->varattno);
-			reset_aux_var_context(avc);
-			make_aux_table_query_sql(avc, c, false);
-			list_free(avc->list_remote);
-			avc->list_remote = get_aux_table_execute_on(avc, var, c, false);
-			execute_on = get_main_table_execute_on(avc);
-			node = make_xc_node_id_in_expr(var->varno, execute_on);
-			list_free(execute_on);
-			context->hint = true;
-
-			return node;
-		}else if (IsA(node, ScalarArrayOpExpr) &&
-			((ScalarArrayOpExpr*)node)->useOr &&
-			list_length(((ScalarArrayOpExpr*)node)->args) == 2)
-		{
-			ScalarArrayOpExpr *sao = (ScalarArrayOpExpr*)node;
-			c = get_mvar_equal_const(sao->args,
-									 sao->opno,
-									 context->relid,
-									 context->main_rel->rd_auxatt,
-									 &var);
-			if (c && c->constisnull == false &&
-				type_is_array(c->consttype))
-			{
-				avc = get_aux_var_context(context, var->varattno);
-				reset_aux_var_context(avc);
-				make_aux_table_query_sql(avc, c, true);
-				list_free(avc->list_remote);
-				avc->list_remote = get_aux_table_execute_on(avc, var, c, true);
-				execute_on = get_main_table_execute_on(avc);
-				node = make_xc_node_id_in_expr(var->varno, execute_on);
-				list_free(execute_on);
-				context->hint = true;
-
-				return node;
-			}
-		}
-	}else if(not_clause(node))
-	{
-		context->in_not_expr = true;
-		node = expression_tree_mutator(node, mutator_aux_equal_expr, context);
-		context->in_not_expr = false;
-		return node;
-	}
-
-next_mutator_aux_equal_expr_:
-	return expression_tree_mutator(node, mutator_aux_equal_expr, context);
-}
-
 static Const* get_var_equal_const(List *args, Oid opno, Index relid, AttrNumber attno, Var **var)
 {
 	Expr *l;
@@ -855,306 +856,600 @@ static List* get_auxiary_quals(List *baserestrictinfo, Index relid, const Bitmap
 	return new_quals;
 }
 
-static void reset_aux_var_context(ModifyAuxVarContext *context)
+static void push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool isarray)
 {
-	AssertArg(context);
-	resetStringInfo(&context->buf);
-	list_free(context->list_remote);
-	context->list_remote = NIL;
-}
+	CoerceInfo *coerce;
+	Datum	   *datums;
+	Datum		value;
+	bool	   *nulls;
+	Const	   *cc;
+	Oid			typid;
+	Oid			collid;
+	int32		typmod;
+	int			i,count;
 
-static ModifyAuxVarContext* get_aux_var_context(ModifyToAuxContext *context, AttrNumber attno)
-{
-	ListCell *lc;
-	ModifyAuxVarContext *auxvar;
-	TupleDesc tupdesc;
-	Form_pg_attribute aux_key_attr;
-	Relation aux_rel;
-
-	foreach(lc, context->list_auxvar)
+	if (c->constisnull)
 	{
-		auxvar = lfirst(lc);
-		if (auxvar->varattno == attno)
-			return auxvar;
+		if(isarray == false)
+			info->has_null = true;
+		return;
 	}
 
-	/* not found, make new */
-	tupdesc = RelationGetDescr(context->main_rel);
-	if (!AttributeNumberIsValid(attno) ||
-		attno > tupdesc->natts)
-		ereport(ERROR, (errmsg("Invalid attribute number")));
-	if (attno < 0)
-		ereport(ERROR, (errmsg("system columns is not supported for auxiliary table")));
-
-	auxvar = palloc0(sizeof(*auxvar));
-	auxvar->aux_rel_oid = LookupAuxRelation(RelationGetRelid(context->main_rel), attno);
-	aux_key_attr = tupdesc->attrs[attno-1];
-	if (!OidIsValid(auxvar->aux_rel_oid))
+	if (isarray == false)
 	{
-		ereport(ERROR,
-				(errmsg("not found auxilary table for \"%s\"(\"%s\")",
-					RelationGetRelationName(context->main_rel),
-					NameStr(aux_key_attr->attname))));
-	}
-	aux_rel = relation_open(auxvar->aux_rel_oid, AccessShareLock);
-	auxvar->aux_rel_name = pstrdup(RelationGetRelationName(aux_rel));
-	auxvar->loc_info = aux_rel->rd_locator_info;
-	relation_close(aux_rel, AccessShareLock);
-	auxvar->aux_var_name = pstrdup(NameStr(aux_key_attr->attname));
-	auxvar->varattno = attno;
-	context->list_auxvar = lappend(context->list_auxvar, auxvar);
-	initStringInfo(&auxvar->buf);
-
-	return auxvar;
-}
-
-static void make_aux_table_query_sql(ModifyAuxVarContext *mavc, Const *c, bool isarray)
-{
-	char *value;
-	resetStringInfo(&mavc->buf);
-	appendStringInfo(&mavc->buf,
-					 "select distinct auxnodeid from \"%s\" where \"%s\" = ",
-					 mavc->aux_rel_name,
-					 mavc->aux_var_name);
-	value = deparse_expression((Node*)c, NIL, false, false);
-	if (isarray)
-		appendStringInfo(&mavc->buf, "ANY(%s)", value);
-	else
-		appendStringInfoString(&mavc->buf, value);
-	pfree(value);
-	if(mavc->query_sql)
-		pfree(mavc->query_sql);
-	mavc->query_sql = pstrdup(mavc->buf.data);
-	resetStringInfo(&mavc->buf);
-}
-
-static List* get_aux_table_execute_on(ModifyAuxVarContext *mavc, Var *var, Const *c, bool isarray)
-{
-	List		   *result;
-	Const		   *input;
-	Const		   *target;
-	Expr		   *convert;
-	ExprState	   *convert_state;
-	ExprContext	   *expr_context;
-	MemoryContext	old_context;
-	ArrayType	   *arrayval;
-	Bitmapset	   *bms_nodes;
-	Datum		   *values;
-	bool		   *nulls;
-	int				count;
-	int				i;
-
-	if (IsLocatorReplicated(mavc->loc_info->locatorType))
-	{
-		return GetPreferredRepNodeIds(mavc->loc_info->nodeids);
-	}else if (mavc->loc_info->locatorType == LOCATOR_TYPE_RROBIN)
-	{
-		ereport(ERROR, (errmsg("auxiliary table not support distribte by roundrobin")));
-	}else if (IsRelationDistributedByUserDefined(mavc->loc_info) &&
-			  list_length(mavc->loc_info->funcAttrNums) > 1)
-	{
-		ereport(ERROR, (errmsg("auxiliary table not support distribute by multi-column")));
-	}
-
-	/* get expr execute context */
-	if (mavc->expr_context == NULL)
-	{
-		/* init expr... */
-		target = mavc->const_expr = makeNode(Const);
-		int16 typlen;
-		get_atttypetypmodcoll(mavc->aux_rel_oid,
-							  Anum_aux_table_key,
-							  &target->consttype,
-							  &target->consttypmod,
-							  &target->constcollid);
-		get_typlenbyval(target->consttype, &typlen, &target->constbyval);
-		target->constlen = typlen;
-
-		mavc->reduce_expr = makePartitionExpr(mavc->loc_info, (Node*)target);
-		mavc->reduce_expr_state = ExecInitExpr(mavc->reduce_expr, NULL);
-		mavc->expr_context = expr_context = CreateStandaloneExprContext();
+		typid = c->consttype;
+		datums = &c->constvalue;
+		nulls = &c->constisnull;
+		collid = c->constcollid;
+		typmod = c->consttypmod;
+		count = 1;
 	}else
 	{
-		target = mavc->const_expr;
-		expr_context = mavc->expr_context;
-		MemoryContextReset(expr_context->ecxt_per_tuple_memory);
-	}
-
-	/* get const values */
-	old_context = MemoryContextSwitchTo(expr_context->ecxt_per_tuple_memory);
-	if (isarray)
-	{
-		int16 typlen;
-		char align;
-		Assert(type_is_array(c->consttype));
+		ArrayType		   *arrayval;
+		int16		elmlen;
+		bool		elmbyval;
+		char		elmalign;
 		arrayval = DatumGetArrayTypeP(c->constvalue);
-		input = makeNode(Const);
-		get_typlenbyvalalign(ARR_ELEMTYPE(arrayval),
-							 &typlen,
-							 &input->constbyval,
-							 &align);
-		input->consttype = ARR_ELEMTYPE(arrayval);
-		input->constlen = typlen;
+		typid = ARR_ELEMTYPE(arrayval);
+		get_typlenbyvalalign(typid, &elmlen, &elmbyval, &elmalign);
 		deconstruct_array(arrayval,
-						  ARR_ELEMTYPE(arrayval),
-						  typlen,
-						  input->constbyval,
-						  align,
-						  &values,
+						  typid,
+						  elmlen,
+						  elmbyval,
+						  elmalign,
+						  &datums,
 						  &nulls,
 						  &count);
-	}else
-	{
-		values = &c->constvalue;
-		nulls = &c->constisnull;
-		count = 1;
-		input = palloc(sizeof(*c));
-		memcpy(input, c, sizeof(*c));
+		collid = InvalidOid;
+		typmod = -1;
 	}
 
-	/* make sure input const type same to auxiliary table's distribute column */
-	convert = (Expr*)coerce_to_target_type(NULL,
-										   (Node*)input,
-										   input->consttype,
-										   target->consttype,
-										   target->consttypmod,
-										   COERCION_EXPLICIT,
-										   COERCE_IMPLICIT_CAST,
-										   -1);
-	if ((void*)convert == (void*)input)
-		convert = NULL;
-	convert_state = convert ? ExecInitExpr(convert, NULL) : NULL;
-	MemoryContextSwitchTo(old_context);
-
-	/* compute execute on nodes */
-	bms_nodes = NULL;
-	for (i=0;i<count;++i)
+	coerce = get_coerce_info(info, typid);
+	if (coerce)
 	{
-		Datum datum;
-		bool isnull;
-		if (convert_state)
+		cc = coerce->c;
+		cc->constcollid = collid;
+		cc->consttypmod = typmod;
+		cc->constisnull = false;
+	}
+
+	for(i=0;i<count;++i)
+	{
+		if (nulls[i])
 		{
-			input->constvalue = values[i];
-			input->constisnull = nulls[i];
-			target->constvalue = ExecEvalExprSwitchContext(convert_state,
-														   expr_context,
-														   &target->constisnull,
-														   NULL);
+			info->has_null = true;
+			continue;
+		}
+
+		if (coerce)
+		{
+			bool isnull;
+			ExprDoneCond done;
+			coerce->c->constvalue = datums[i];
+			MemoryContextReset(info->econtext->ecxt_per_tuple_memory);
+			value = ExecEvalExprSwitchContext(coerce->exprState,
+											  info->econtext,
+											  &isnull,
+											  &done);
+			Assert(done == ExprSingleResult);
+			if (isnull)
+			{
+				info->has_null = true;
+				continue;
+			}
+			if (info->attr->attbyval == false)
+				value = datumCopy(value, false, info->attr->attlen);
 		}else
 		{
-			target->constvalue = values[i];
-			target->constisnull = nulls[i];
+			value = datums[i];
 		}
-		datum = ExecEvalExprSwitchContext(mavc->reduce_expr_state,
-										  expr_context,
-										  &isnull,
-										  NULL);
-		Assert(isnull == false);
-		bms_nodes = bms_add_member(bms_nodes, DatumGetInt32(datum));
+
+		Assert(info->cur_size <= info->max_size);
+		if (info->cur_size == info->max_size)
+		{
+			uint32 new_size = info->max_size + AUX_SCAN_INFO_SIZE_STEP;
+			info->datum = repalloc(info->datum, new_size);
+			info->max_size = new_size;
+		}
+		Assert(info->cur_size < info->max_size);
+		info->datum[info->cur_size++] = value;
 	}
-
-	result = oid_list_copy_bms(mavc->loc_info->nodeids, bms_nodes);
-	bms_free(bms_nodes);
-
-	return result;
 }
 
-/* return xc_node_id list */
-static List* get_main_table_execute_on(ModifyAuxVarContext *mavc)
+static GatherAuxColumnInfo* get_gather_aux_col_info(GatherAuxInfoContext *context, AttrNumber attno)
 {
-	List		   *result;
-	EState		   *estate;
-	RemoteQuery	   *step;
-	PlanState	   *ps;
-	TupleTableSlot *slot;
-	MemoryContext	old_context;
-	Datum			datum;
-	int				xc_node_id;
-	bool			isnull;
+	ListCell			*lc;
+	GatherAuxColumnInfo *info;
 
-	estate = CreateExecutorState();
-	estate->es_snapshot = GetActiveSnapshot();
-	old_context = MemoryContextSwitchTo(estate->es_query_cxt);
-	step = makeNode(RemoteQuery);
-	step->combine_type = COMBINE_TYPE_NONE;
-	step->exec_nodes = MakeExecNodesByOids(mavc->loc_info,
-										   mavc->list_remote,
-										   RELATION_ACCESS_READ);
-	step->sql_statement = mavc->query_sql;
-	step->force_autocommit = false;
-	step->exec_type = EXEC_ON_DATANODES;
-	makeTargetEntry((Expr*)makeVar(1, 1, INT4OID, -1, InvalidOid, 0),
-					1, NULL, false);
-	/* we only have on column result */
-	step->scan.plan.targetlist = list_make1(makeTargetEntry((Expr*)makeVar(1, 1, INT4OID, -1, InvalidOid, 0),
-															1,
-															NULL,
-															false));
-
-	ps = ExecInitNode((Plan*)step, estate, 0);
-	result = NIL;
-	for(;;)
+	foreach(lc, context->list_info)
 	{
-		slot = ExecProcNode(ps);
-		if (TupIsNull(slot))
-			break;
-
-		datum = slot_getattr(slot, 1, &isnull);
-		Assert(isnull == false);
-		xc_node_id = DatumGetInt32(datum);
-		MemoryContextSwitchTo(old_context);
-		if (list_member_int(result, xc_node_id) == false)
-			result = lappend_int(result, xc_node_id);
+		info = lfirst(lc);
+		if (info->attno == attno)
+			return info;
 	}
-	ExecEndNode(ps);
-	MemoryContextSwitchTo(old_context);
-	FreeExecutorState(estate);
 
-	return result;
+	info = palloc0(sizeof(*info));
+	info->datum = palloc0(sizeof(Datum) * AUX_SCAN_INFO_SIZE_STEP);
+	info->max_size = AUX_SCAN_INFO_SIZE_STEP;
+	info->attno = attno;
+	info->attr = TupleDescAttr(RelationGetDescr(context->rel), attno-1);
+	info->econtext = context->econtext;
+
+	context->list_info = lappend(context->list_info, info);
+
+	return info;
 }
 
-static List* oid_list_copy_bms(List *oid_list, Bitmapset *bms_index)
+static void free_aux_col_info(GatherAuxColumnInfo *info)
 {
-	List *list = NIL;
-	ListCell *lc;
-	int i = 0;
+	list_free_deep(info->list_coerce);
+	if (info->const_expr)
+		pfree(info->const_expr);
+	if (info->reduce_expr)
+		pfree(info->reduce_expr);
+	if (info->rel)
+		relation_close(info->rel, AccessShareLock);
+	if (info->datum)
+		pfree(info->datum);
+	list_free(info->list_exec);
+	pfree(info);
+}
 
-	foreach(lc, oid_list)
+static CoerceInfo* get_coerce_info(GatherAuxColumnInfo *info, Oid typeoid)
+{
+	ListCell   *lc;
+	CoerceInfo *coerce;
+	Expr	   *expr;
+
+	Form_pg_attribute attr = info->attr;
+	if (typeoid == attr->atttypid)
+		return NULL;
+
+	foreach(lc, info->list_coerce)
 	{
-		if (bms_is_member(i, bms_index))
-			list = lappend_oid(list, lfirst_oid(lc));
-		++i;
+		coerce = lfirst(lc);
+		if (coerce->type == typeoid)
+			return coerce->expr ? coerce:NULL;
 	}
 
-	return list;
+	coerce = palloc0(sizeof(*coerce));
+	info->list_coerce = lappend(info->list_coerce, coerce);
+	coerce->type = typeoid;
+	coerce->c = makeNullConst(typeoid, -1, InvalidOid);
+	coerce->expr = (Expr*)coerce_to_target_type(NULL,
+												(Node*)coerce->c,
+												typeoid,
+												attr->atttypid,
+												attr->atttypmod,
+												COERCION_EXPLICIT,
+												COERCE_IMPLICIT_CAST,
+												-1);
+	expr = coerce->expr;
+	if (expr == NULL)
+	{
+		/* can not coerce */
+		pfree(coerce->c);
+		coerce->c = NULL;
+		coerce->valid = false;
+		return coerce;
+	}
+
+	while(IsA(expr, RelabelType))
+		expr = ((RelabelType*)expr)->arg;
+
+	if ((void*)expr == (void*)(coerce->c))
+	{
+		/* don't need coerce */
+		pfree(coerce->c);
+		coerce->c = NULL;
+		coerce->expr = NULL;
+		return coerce;
+	}
+
+	coerce->exprState = ExecInitExpr(coerce->expr, NULL);
+
+	return coerce;
 }
 
-static Node* make_xc_node_id_in_expr(Index relid, List *list)
+static bool gather_aux_info(Node *node, GatherAuxInfoContext *context)
 {
-	oidvector *ids;
-	ListCell *lc;
-	int32 *values;
-	int i,count,size;
+	Var *var;
+	Const *c;
 
-	count = list_length(list);
-	size = offsetof(oidvector, values) + count * sizeof(int32);
-	ids = palloc0(size);
-	ids->ndim = 1;
-	ids->dataoffset = 0;
-	ids->elemtype = INT4OID;
-	ids->dim1 = count;
-	ids->lbound1 = 0;
-	values = (int32*)(ids->values);
-	SET_VARSIZE(ids, size);
+	if (node == NULL ||
+		not_clause(node))
+		return false;
 
-	i=0;
-	foreach(lc, list)
-		values[i++] = lfirst_int(lc);
+	/* check_stack_depth(); */
 
-	return (Node*)make_scalar_array_op(NULL,
-									   SystemFuncName("="),
-									   true,
-									   (Node*)makeVar(relid, XC_NodeIdAttributeNumber, INT4OID, -1, InvalidOid, 0),
-									   (Node*)makeConst(INT4ARRAYOID, -1, InvalidOid, -1, PointerGetDatum(ids), false, false),
-									   -1);
+	if (IsA(node, OpExpr) &&
+		list_length(((OpExpr*)node)->args) == 2)
+	{
+		OpExpr *op = (OpExpr*)node;
+		c = get_mvar_equal_const(op->args,
+								 op->opno,
+								 context->relid,
+								 context->bms_attnos,
+								 &var);
+		if (c != NULL)
+		{
+			push_const_to_aux_col_info(get_gather_aux_col_info(context, var->varattno),
+									   c,
+									   false);
+			return false;
+		}
+	}else if (IsA(node, ScalarArrayOpExpr) &&
+		((ScalarArrayOpExpr*)node)->useOr &&
+		list_length(((ScalarArrayOpExpr*)node)->args) == 2)
+	{
+		ScalarArrayOpExpr *sao = (ScalarArrayOpExpr*)node;
+		c = get_mvar_equal_const(sao->args,
+								 sao->opno,
+								 context->relid,
+								 context->bms_attnos,
+								 &var);
+		if (c && c->constisnull == false &&
+			type_is_array(c->consttype))
+		{
+			push_const_to_aux_col_info(get_gather_aux_col_info(context, var->varattno),
+									   c,
+									   true);
+			return false;
+		}
+	}
+
+	if (context->deep == false)
+		return false;
+	return expression_tree_walker(node, gather_aux_info, context);
+}
+
+static void init_auxiliary_info_if_need(GatherAuxInfoContext *context)
+{
+	ListCell			*lc;
+	GatherAuxColumnInfo *info;
+	Oid					reloid;
+	foreach(lc, context->list_info)
+	{
+		info = lfirst(lc);
+		if (info->rel == NULL)
+		{
+			Form_pg_attribute a1;
+			Form_pg_attribute a2;
+
+			reloid = LookupAuxRelation(RelationGetRelid(context->rel),
+									   info->attno);
+			info->rel = relation_open(reloid, AccessShareLock);
+			if (RELATION_IS_OTHER_TEMP(info->rel))
+			{
+				relation_close(info->rel, AccessShareLock);
+				info->rel = NULL;
+				continue;
+			}
+
+			/* compare attribute */
+			a1 = TupleDescAttr(RelationGetDescr(context->rel), info->attno-1);
+			a2 = TupleDescAttr(RelationGetDescr(info->rel), Anum_aux_table_key-1);
+			if (a1->atttypid != a2->atttypid ||
+				a1->atttypmod != a2->atttypmod ||
+				a1->attlen != a2->attlen ||
+				a1->attcollation != a2->attcollation ||
+				a1->attbyval != a2->attbyval ||
+				a1->attndims != a2->attndims ||
+				a1->attalign != a2->attalign)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+						 errmsg("auxiliary table \"%s\" key column \"%s\" not equal main table",
+						 		RelationGetRelationName(info->rel),
+								NameStr(a2->attname)),
+						 err_generic_string(PG_DIAG_SCHEMA_NAME, get_namespace_name(RelationGetNamespace(info->rel))),
+						 err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(info->rel)),
+						 err_generic_string(PG_DIAG_COLUMN_NAME, NameStr(a2->attname))));
+			}
+		}
+		if (info->aux_loc == AUX_REL_LOC_INFO_INVALID)
+		{
+			if (info->rel->rd_locator_info)
+			{
+				RelationLocInfo *loc = info->rel->rd_locator_info;
+				if (IsLocatorReplicated(loc->locatorType))
+				{
+					info->aux_loc = AUX_REL_LOC_INFO_REP;
+				}else if (loc->locatorType == LOCATOR_TYPE_RROBIN)
+				{
+					ereport(ERROR, (errmsg("auxiliary table not support distribte by roundrobin")));
+				}else if (IsRelationDistributedByUserDefined(loc) &&
+					list_length(loc->funcAttrNums) > 1)
+				{
+					ereport(ERROR, (errmsg("auxiliary table not support distribute by multi-column")));
+				}else
+				{
+					/* make reduce expr and status */
+					info->const_expr = makeConst(info->attr->atttypid,
+												 info->attr->atttypmod,
+												 info->attr->attcollation,
+												 info->attr->attlen,
+												 (Datum)0,
+												 true,
+												 info->attr->attbyval);
+					info->reduce_expr = makePartitionExpr(loc, (Node*)info->const_expr);
+					info->reduce_state = ExecInitExpr(info->reduce_expr, NULL);
+					info->aux_loc = AUX_REL_LOC_INFO_REDUCE;
+				}
+			}else
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						errmsg("Auxiliary table \"%s\" is not a remote table", RelationGetRelationName(info->rel))));
+			}
+		}
+	}
+}
+
+static void set_cheapest_auxiliary(GatherAuxInfoContext *context)
+{
+	ListCell			*lc;
+	GatherAuxColumnInfo *info;
+	GatherAuxColumnInfo *cheapest = NULL;
+
+	foreach(lc, context->list_info)
+	{
+		info = lfirst(lc);
+		info->list_exec = get_aux_table_execute_on(info);
+		if (cheapest == NULL)
+		{
+			cheapest = info;
+		}else if(list_length(info->list_exec) < list_length(cheapest->list_exec))
+		{
+			cheapest = info;
+		}
+	}
+
+	context->cheapest = cheapest;
+}
+
+static List* get_aux_table_execute_on(GatherAuxColumnInfo *info)
+{
+	Datum value;
+	List *exec_on = NIL;
+
+	if (info->aux_loc == AUX_REL_LOC_INFO_REP)
+	{
+		exec_on = GetPreferredRepNodeIds(info->rel->rd_locator_info->nodeids);
+	}else if (info->aux_loc == AUX_REL_LOC_INFO_REDUCE)
+	{
+		ExprContext *econtext = info->econtext;
+		Const *c = info->const_expr;
+		Bitmapset *bms = NULL;
+		ListCell *lc;
+		uint32 i;
+		ExprDoneCond done;
+		bool isnull;
+
+		c->constisnull = false;
+		for (i=0;i<info->cur_size;++i)
+		{
+			MemoryContextReset(econtext->ecxt_per_tuple_memory);
+			c->constvalue = info->datum[i];
+			value = ExecEvalExprSwitchContext(info->reduce_state,
+											  econtext,
+											  &isnull,
+											  &done);
+			Assert(done == ExprSingleResult);
+			Assert(isnull == false);
+			bms = bms_add_member(bms, DatumGetInt32(value));
+		}
+		if (info->has_null)
+		{
+			MemoryContextReset(econtext->ecxt_per_tuple_memory);
+			c->constisnull = true;
+			c->constvalue = (Datum)0;
+			value = ExecEvalExprSwitchContext(info->reduce_state,
+											  econtext,
+											  &isnull,
+											  &done);
+			Assert(done == ExprSingleResult);
+			Assert(isnull == false);
+			bms = bms_add_member(bms, DatumGetInt32(value));
+		}
+
+		i = 0;
+		foreach(lc, info->rel->rd_locator_info->nodeids)
+		{
+			if (bms_is_member(i++, bms))
+				exec_on = lappend_oid(exec_on, lfirst_oid(lc));
+		}
+		bms_free(bms);
+	}else
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("Unknown locator %d for set cheapest auxiliary",
+						info->aux_loc)));
+	}
+
+	return exec_on;
+}
+
+static GatherMainRelExecOn* get_main_table_execute_on(GatherAuxInfoContext *context, GatherAuxColumnInfo *info)
+{
+	Bitmapset		   *bms_attnos;
+	List			   *list_conn;
+	TupleDesc		 	result_desc;
+	Form_pg_attribute	attrs[2];
+	GatherMainRelExecOn	*exec_on;
+
+	bms_attnos = bms_make_singleton(Anum_aux_table_auxnodeid - FirstLowInvalidHeapAttributeNumber);
+	bms_attnos = bms_add_member(bms_attnos, Anum_aux_table_auxctid - FirstLowInvalidHeapAttributeNumber);
+	exec_on = palloc0(sizeof(*exec_on));
+
+	list_conn = ExecClusterHeapScan(info->list_exec,
+									info->rel,
+									bms_attnos,
+									Anum_aux_table_key,
+									info->datum,
+									info->cur_size,
+									info->has_null);
+	result_desc = CreateTemplateTupleDesc(2, false);
+#if (Anum_aux_table_auxnodeid < Anum_aux_table_auxctid)
+	attrs[0] = TupleDescAttr(RelationGetDescr(info->rel), Anum_aux_table_auxnodeid-1);
+	attrs[1] = TupleDescAttr(RelationGetDescr(info->rel), Anum_aux_table_auxctid-1);
+	exec_on->index_nodeid = 0;
+	exec_on->index_tid = 1;
+#else
+#error change result_desc
+#endif
+	result_desc = CreateTupleDesc(lengthof(attrs), false, attrs);
+	if (create_type_convert(result_desc, false, true) != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("integer and tid should not need convert")));
+	exec_on->slot = MakeSingleTupleTableSlot(result_desc);
+	exec_on->tids = palloc(sizeof(ItemPointerData)*AUX_SCAN_INFO_SIZE_STEP);
+	exec_on->max_tid_size = AUX_SCAN_INFO_SIZE_STEP;
+	exec_on->cur_tid_size = 0;
+	PQNListExecFinish(list_conn, NULL, process_remote_aux_tuple, exec_on, true);
+
+	ExecDropSingleTupleTableSlot(exec_on->slot);
+	exec_on->slot = NULL;
+	FreeTupleDesc(result_desc);
+
+	return exec_on;
+}
+
+static bool process_remote_aux_tuple(void *pointer, struct pg_conn *conn, PQNHookFuncType type, ...)
+{
+	GatherMainRelExecOn *context;
+	va_list args;
+
+	switch(type)
+	{
+	case PQNHFT_ERROR:
+		PQNEFHNormal(pointer, conn, type);
+		return false;
+	case PQNHFT_COPY_OUT_DATA:
+		{
+			const char *buf;
+			TupleTableSlot *slot;
+			int len;
+			va_start(args, type);
+			buf = va_arg(args, const char*);
+			len = va_arg(args, int);
+			context = pointer;
+			slot = context->slot;
+			if (clusterRecvTuple(slot, buf, len, NULL, conn))
+			{
+				slot_getallattrs(slot);
+				context->list_nodeid = list_append_unique_int(context->list_nodeid,
+															  DatumGetInt32(slot->tts_values[context->index_nodeid]));
+				push_tid_to_exec_on(context, slot->tts_values[context->index_tid]);
+			}
+			va_end(args);
+		}
+		return false;
+	case PQNHFT_COPY_IN_ONLY:
+		PQputCopyEnd(conn, NULL);
+		break;
+	case PQNHFT_RESULT:
+		{
+			PGresult *res;
+			va_start(args, type);
+			res = va_arg(args, PGresult*);
+			if(res)
+			{
+				ExecStatusType status = PQresultStatus(res);
+				if(status == PGRES_FATAL_ERROR)
+					PQNReportResultError(res, conn, ERROR, true);
+				else if(status == PGRES_COPY_IN)
+					PQputCopyEnd(conn, NULL);
+			}
+			va_end(args);
+		}
+		break;
+	default:
+		break;
+	}
+
+	return false;
+}
+
+static void push_tid_to_exec_on(GatherMainRelExecOn *context, Datum datum)
+{
+	uint32	i,count = context->cur_tid_size;
+	ItemPointer itemPtr = (ItemPointer)DatumGetPointer(datum);
+
+	for (i=0;i<count;++i)
+	{
+		if (ItemPointerEquals(itemPtr, &context->tids[i]))
+			return;
+	}
+
+	if (context->cur_tid_size == context->max_tid_size)
+	{
+		uint32 new_size = context->max_tid_size + AUX_SCAN_INFO_SIZE_STEP;
+		context->tids = repalloc(context->tids, new_size * sizeof(ItemPointerData));
+		context->max_tid_size = new_size;
+	}
+	Assert(context->cur_tid_size < context->max_tid_size);
+	context->tids[context->cur_tid_size++] = *itemPtr;
+}
+
+static Expr* make_ctid_in_expr(Index relid, ItemPointer tids, uint32 count)
+{
+	Const *c;
+	Form_pg_attribute attr PG_USED_FOR_ASSERTS_ONLY;
+	Expr *expr;
+	Var *var = makeVar(relid,
+					   SelfItemPointerAttributeNumber,
+					   TIDOID,
+					   -1,
+					   InvalidOid,
+					   0);
+	Assert(count > 0);
+	Assert((attr = SystemAttributeDefinition(SelfItemPointerAttributeNumber, false)) != NULL &&
+		   attr->atttypid == TIDOID &&
+		   attr->attbyval == false &&
+		   attr->attlen == sizeof(ItemPointerData));
+	if (count == 1)
+	{
+		c = makeConst(TIDOID,
+					  -1,
+					  InvalidOid,
+					  sizeof(ItemPointerData),
+					  datumCopy(PointerGetDatum(tids), false, sizeof(ItemPointerData)),
+					  false,
+					  false);
+		expr = make_op(NULL, SystemFuncName("="), (Node*)var, (Node*)c, -1);
+	}else
+	{
+		Datum *ctids = palloc(sizeof(Datum) * count);
+		ArrayType *array;
+		uint32 i;
+
+		for (i=0;i<count;++i)
+			ctids[i] = PointerGetDatum(&tids[i]);
+		array = construct_array(ctids,
+								count,
+								TIDOID,
+								sizeof(ItemPointerData),
+								false,
+								's');
+		pfree(ctids);
+
+		c = makeConst(get_array_type(TIDOID),
+					  -1,
+					  InvalidOid,
+					  -1,
+					  PointerGetDatum(array),
+					  false,
+					  false);
+		expr = make_scalar_array_op(NULL,
+									SystemFuncName("="),
+									true,
+									(Node*)var,
+									(Node*)c,
+									-1);
+	}
+
+	return expr;
 }

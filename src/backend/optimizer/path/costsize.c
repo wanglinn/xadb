@@ -4145,6 +4145,12 @@ set_baserel_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 	/* Should only be applied to base relations */
 	Assert(rel->relid > 0);
 
+#ifdef ADB
+	if (rel->loc_info == NULL ||
+		rel->rows == 0.0)
+	{
+		/* maby rows changed by function relation_remote_by_constraints */
+#endif
 	nrows = rel->tuples *
 		clauselist_selectivity(root,
 							   rel->baserestrictinfo,
@@ -4155,6 +4161,7 @@ set_baserel_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 	rel->rows = clamp_row_est(nrows);
 
 #ifdef ADB
+	}
 	if(rel->loc_info)
 		cost_qual_eval_cluster(&rel->baserestrictcost, rel->baserestrictinfo, root);
 	else
