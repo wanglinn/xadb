@@ -3788,7 +3788,7 @@ QueryRewrite(Query *parsetree)
 			 */
 			return QueryRewriteCTAS(parsetree);
 		}
-
+#if 0
 		if (IsA(parsetree->utilityStmt, CreateAuxStmt))
 		{
 			/*
@@ -3796,6 +3796,7 @@ QueryRewrite(Query *parsetree)
 			 */
 			return QueryRewriteAuxStmt(parsetree);
 		}
+#endif
 	}
 #endif
 

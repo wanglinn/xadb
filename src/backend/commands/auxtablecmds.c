@@ -9,9 +9,15 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_aux_class.h"
 #include "catalog/pg_type.h"
+#include "commands/copy.h"
 #include "commands/defrem.h"
 #include "commands/tablecmds.h"
+#include "executor/execCluster.h"
+#include "libpq/libpq-fe.h"
+#include "libpq/libpq-node.h"
 #include "nodes/makefuncs.h"
+#include "pgxc/pgxc.h"
+#include "storage/mem_toc.h"
 #include "tcop/utility.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
@@ -306,6 +312,315 @@ MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel)
 }
 
 /*
+ * AnalyzeRewriteCreateAuxStmt
+ *
+ * Do some necessary checkups and rewrite CreateAuxStmt.
+ */
+static PaddingAuxDataStmt *
+AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
+{
+	PaddingAuxDataStmt *padding_stmt;
+	CreateStmt		   *create_stmt;
+	IndexStmt		   *index_stmt;
+	HeapTuple			atttuple;
+	Form_pg_attribute	auxattform;
+	Relation			master_relation;
+	Oid 				master_nspid;
+	Oid 				master_relid;
+	RelationLocInfo    *master_reloc;
+
+	create_stmt = (CreateStmt *)auxstmt->create_stmt;
+	index_stmt = (IndexStmt *) auxstmt->index_stmt;
+
+	/* Sanity check */
+	Assert(create_stmt && index_stmt);
+	Assert(auxstmt->master_relation);
+	Assert(auxstmt->aux_column);
+	Assert(create_stmt->master_relation);
+	Assert(create_stmt->tableElts == NIL);
+
+	/* Master relation check */
+	master_relid = RangeVarGetRelidExtended(auxstmt->master_relation,
+											ShareLock,
+											false, false,
+											RangeVarCallbackOwnsRelation,
+											NULL);
+	master_relation = relation_open(master_relid, NoLock);
+	master_reloc = RelationGetLocInfo(master_relation);
+	master_nspid = RelationGetNamespace(master_relation);
+	switch (master_reloc->locatorType)
+	{
+		case LOCATOR_TYPE_REPLICATED:
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("no need to build auxiliary table for replication table")));
+			break;
+		case LOCATOR_TYPE_RROBIN:
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("cannot build auxiliary table for roundrobin table")));
+			break;
+		case LOCATOR_TYPE_USER_DEFINED:
+		case LOCATOR_TYPE_HASH:
+		case LOCATOR_TYPE_MODULO:
+			/* it is OK */
+			break;
+		case LOCATOR_TYPE_CUSTOM:
+		case LOCATOR_TYPE_RANGE:
+			/* not support yet */
+			break;
+		case LOCATOR_TYPE_NONE:
+		case LOCATOR_TYPE_DISTRIBUTED:
+		default:
+			/* should not reach here */
+			Assert(false);
+			break;
+	}
+
+	/* Auxiliary column check */
+	atttuple = SearchSysCacheAttName(master_relid, auxstmt->aux_column);
+	if (!HeapTupleIsValid(atttuple))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_COLUMN),
+				 errmsg("column \"%s\" does not exist",
+						auxstmt->aux_column)));
+	auxattform = (Form_pg_attribute) GETSTRUCT(atttuple);
+	if (!AttrNumberIsForUserDefinedAttr(auxattform->attnum))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("auxiliary table on system column \"%s\" is not supported",
+				 auxstmt->aux_column)));
+	if (IsDistribColumn(master_relid, auxattform->attnum))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("no need to build auxiliary table for distribute column \"%s\"",
+				 auxstmt->aux_column)));
+
+	/* choose auxiliary table name */
+	if (create_stmt->relation == NULL)
+	{
+		char *nspname = get_namespace_name(RelationGetNamespace(master_relation));
+		char *relname = ChooseAuxTableName(RelationGetRelationName(master_relation),
+										   NameStr(auxattform->attname),
+										   "aux", master_nspid);
+		create_stmt->relation = makeRangeVar(nspname, relname, -1);
+		index_stmt->relation = makeRangeVar(nspname, relname, -1);
+	}
+
+	padding_stmt = makeNode(PaddingAuxDataStmt);
+	padding_stmt->masterrv = auxstmt->master_relation;
+	padding_stmt->auxrv = create_stmt->relation;
+
+	/* makeup table elements */
+	create_stmt->tableElts = MakeAuxTableColumns(auxattform, master_relation);
+	create_stmt->aux_attnum = auxattform->attnum;
+	if (create_stmt->distributeby == NULL)
+	{
+		create_stmt->distributeby = makeNode(DistributeBy);
+		create_stmt->distributeby->disttype = DISTTYPE_HASH;
+		create_stmt->distributeby->colname = pstrdup(NameStr(auxattform->attname));
+	}
+
+	ReleaseSysCache(atttuple);
+	relation_close(master_relation, NoLock);
+
+	return padding_stmt;
+}
+
+void
+ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
+{
+	List			   *rnodes;
+	AuxiliaryRelCopy   *auxcopy;
+	Relation			master = NULL;
+	Relation			auxrel = NULL;
+
+	Assert(stmt);
+	Assert(stmt->masterrv);
+	Assert(stmt->auxrv);
+
+	if (IsCoordMaster())
+	{
+		List		   *rconns = NIL;
+		List		   *mnodes = NIL;
+		List		   *auxcopylist = NIL;
+		uint32			flags = EXEC_CLUSTER_FLAG_USE_SELF_AND_MEM_REDUCE;
+		StringInfoData	buf;
+
+		/* AnalyzeRewriteCreateAuxStmt has LOCKed already */
+		master = heap_openrv(stmt->masterrv, NoLock);
+		auxrel = heap_openrv(stmt->auxrv, RowExclusiveLock);
+
+		auxcopy = MakeAuxRelCopyInfoFromMaster(master, auxrel, 1);
+		rnodes = NIL;
+		if (master->rd_locator_info)
+			rnodes = list_copy(master->rd_locator_info->nodeids);
+		if (auxrel->rd_locator_info)
+			rnodes = list_concat_unique_oid(rnodes, auxrel->rd_locator_info->nodeids);
+
+		initStringInfo(&buf);
+
+		auxcopylist = list_make1(auxcopy);
+		begin_mem_toc_insert(&buf, AUX_REL_COPY_INFO);
+		SerializeAuxRelCopyInfo(&buf, auxcopylist);
+		end_mem_toc_insert(&buf, AUX_REL_COPY_INFO);
+		list_free(auxcopylist);
+
+		mnodes = list_copy(rnodes);
+		begin_mem_toc_insert(&buf, AUX_REL_MAIN_NODES);
+		if (flags & EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE)
+			mnodes = lappend_oid(mnodes, PGXCNodeOid);
+		saveNode(&buf, (const Node *) mnodes);
+		end_mem_toc_insert(&buf, AUX_REL_MAIN_NODES);
+		list_free(mnodes);
+
+		rconns = ExecStartClusterAuxPadding(rnodes,
+											(Node *) stmt,
+											&buf,
+											flags);
+
+		if (flags & EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE)
+		{
+			DoPaddingDataForAuxRel(master,
+								   auxrel,
+								   rnodes,
+								   auxcopy);
+		}
+
+		/* cleanup */
+		if (rconns)
+		{
+			ListCell	   *lc;
+			PGconn		   *conn;
+			PGresult	   *res;
+			ExecStatusType	rst;
+
+			foreach(lc, rconns)
+			{
+				conn = lfirst(lc);
+				if (PQisCopyInState(conn))
+					PQputCopyEnd(conn, NULL);
+			}
+
+			foreach(lc, rconns)
+			{
+				for(;;)
+				{
+					res = PQgetResult(conn);
+					if (res == NULL)
+						break;
+					rst = PQresultStatus(res);
+					switch(rst)
+					{
+					case PGRES_EMPTY_QUERY:
+					case PGRES_COMMAND_OK:
+						break;
+					case PGRES_TUPLES_OK:
+					case PGRES_SINGLE_TUPLE:
+						PQclear(res);
+						ereport(ERROR,
+								(errcode(ERRCODE_INTERNAL_ERROR),
+								 errmsg("datanode copy command result tuples"),
+								 errnode(PQNConnectName(conn))));
+						break;
+					case PGRES_COPY_OUT:
+						PQclear(res);
+						PQgetCopyDataBuffer(conn, (const char**)&res, 0);		/* just eat message */
+						res = NULL;
+						break;
+					case PGRES_COPY_IN:
+					case PGRES_COPY_BOTH:
+						/* copy in should not happen */
+						PQputCopyEnd(conn, NULL);
+						break;
+					case PGRES_NONFATAL_ERROR:
+						PQNReportResultError(res, conn, NOTICE, false);
+						break;
+					case PGRES_BAD_RESPONSE:
+					case PGRES_FATAL_ERROR:
+						PQNReportResultError(res, conn, ERROR, true);
+						break;
+					}
+					PQclear(res);
+				}
+			}
+		}
+	} else
+	{
+		List		   *auxcopylist;
+		StringInfoData	buf;
+
+		Assert(msg != NULL);
+		buf.data = mem_toc_lookup(msg, AUX_REL_COPY_INFO, &buf.len);
+		Assert(buf.data != NULL && buf.len > 0);
+		buf.maxlen = buf.len;
+		buf.cursor = 0;
+		auxcopylist = RestoreAuxRelCopyInfo(&buf);
+		Assert(list_length(auxcopylist) == 1);
+		auxcopy = (AuxiliaryRelCopy *) linitial(auxcopylist);
+
+		buf.data = mem_toc_lookup(msg, AUX_REL_MAIN_NODES, &buf.len);
+		Assert(buf.data != NULL);
+		buf.maxlen = buf.len;
+		buf.cursor = 0;
+		rnodes = (List*)loadNode(&buf);
+
+		master = heap_openrv_extended(stmt->masterrv, ShareLock, true);
+		auxrel = heap_openrv_extended(stmt->auxrv, RowExclusiveLock, true);
+
+		DoPaddingDataForAuxRel(master,
+							   auxrel,
+							   rnodes,
+							   auxcopy);
+	}
+
+	if (auxrel)
+		heap_close(auxrel, NoLock);
+	if (master)
+		heap_close(master, NoLock);
+}
+
+void
+ExecCreateAuxStmt(CreateAuxStmt *auxstmt,
+				  const char *queryString,
+				  ProcessUtilityContext context,
+				  DestReceiver *dest,
+				  bool sentToRemote,
+				  char *completionTag)
+{
+	PaddingAuxDataStmt *padding_stmt;
+
+	if (!IsCoordMaster())
+		return ;
+
+	padding_stmt = AnalyzeRewriteCreateAuxStmt(auxstmt);
+
+	/*
+	 * Process create auxiliary table
+	 */
+	ProcessUtility(auxstmt->create_stmt,
+				   queryString,
+				   context,
+				   NULL,
+				   dest,
+				   sentToRemote,
+				   completionTag);
+
+	/* Padding data for auxiliary data */
+	ExecPaddingAuxDataStmt(padding_stmt, NULL);
+
+	/* create index for auxiliary table */
+	ProcessUtility(auxstmt->index_stmt,
+				   queryString,
+				   PROCESS_UTILITY_SUBCOMMAND,
+				   NULL,
+				   None_Receiver,
+				   false,
+				   NULL);
+}
+
+#if 0
+/*
  * QueryRewriteAuxStmt
  *
  * rewrite auxiliary query.
@@ -489,6 +804,7 @@ QueryRewriteAuxStmt(Query *auxquery)
 
 	return lappend(rewrite_tree_list, auxquery);
 }
+#endif
 
 void RelationBuildAuxiliary(Relation rel)
 {

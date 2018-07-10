@@ -45,6 +45,27 @@ extern int64 pgxcDoCopyTo(CopyState cstate);
 extern void DoClusterCopy(CopyStmt *stmt, struct StringInfoData *mem_toc);
 extern void ClusterCopyFromReduce(Relation rel, Expr *reduce, List *remote_oids, int id, bool freeze, CustomNextRowFunction fun, void *data);
 extern void ClusterDummyCopyFromReduce(List *target, Expr *reduce, List *remote_oids, int id, CustomNextRowFunction fun, void *data);
+
+typedef struct AuxiliaryRelCopy
+{
+	char	   *schemaname;		/* the schema name */
+	char	   *relname;		/* the relation/sequence name */
+	List	   *targetList;		/* main rel result of Exprs */
+	Expr	   *reduce;			/* reduce expr */
+	int			id;				/* id for reduce plan id */
+} AuxiliaryRelCopy;
+
+#define AUX_REL_COPY_INFO	0x1
+#define AUX_REL_MAIN_NODES	0x2
+
+extern AuxiliaryRelCopy *MakeAuxRelCopyInfoFromMaster(Relation masterrel, Relation auxrel, int auxid);
+extern void SerializeAuxRelCopyInfo(StringInfo buf, List *list);
+extern List* RestoreAuxRelCopyInfo(StringInfo buf);
+
+extern void DoPaddingDataForAuxRel(Relation master,
+								   Relation auxrel,
+								   List *rnodes,
+								   AuxiliaryRelCopy *auxcopy);
 #endif /* ADB */
 
 #endif   /* COPY_H */

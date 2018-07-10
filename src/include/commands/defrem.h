@@ -17,6 +17,9 @@
 #include "catalog/objectaddress.h"
 #include "nodes/parsenodes.h"
 #include "utils/array.h"
+#ifdef ADB
+#include "tcop/utility.h"
+#endif
 
 /* commands/dropcmds.c */
 extern void RemoveObjects(DropStmt *stmt);
@@ -162,7 +165,16 @@ extern Oid LookupAuxRelation(Oid relid, AttrNumber attnum);
 extern Oid LookupAuxMasterRel(Oid auxrelid, AttrNumber *attnum);
 extern bool RelationIdGetAuxAttnum(Oid auxrelid, AttrNumber *attnum);
 extern bool HasAuxRelation(Oid relid);
+extern void ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg);
+extern void ExecCreateAuxStmt(CreateAuxStmt *auxstmt,
+							  const char *queryString,
+							  ProcessUtilityContext context,
+							  DestReceiver *dest,
+							  bool sentToRemote,
+							  char *completionTag);
+#if 0
 extern List *QueryRewriteAuxStmt(Query *auxquery);
+#endif
 extern void RelationBuildAuxiliary(Relation rel);
 extern Bitmapset *MakeAuxMainRelResultAttnos(Relation rel);
 extern List *MakeMainRelTargetForAux(Relation main_rel, Relation aux_rel, Index relid, bool target_entry);

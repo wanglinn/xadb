@@ -2942,7 +2942,7 @@ CreateAuxStmt:	CREATE OptTemp AUXILIARY TABLE opt_aux_name
 						$5->relpersistence = $2;
 					cs->grammar = PARSE_GRAM_POSTGRES;
 					cs->relation = $5;
-					cs->tableElts = NIL;		/* set when QueryRewriteAuxStmt */
+					cs->tableElts = NIL;		/* set when AnalyzeRewriteCreateAuxStmt */
 					cs->inhRelations = NIL;
 					cs->ofTypename = NULL;
 					cs->constraints = NIL;
@@ -2952,7 +2952,7 @@ CreateAuxStmt:	CREATE OptTemp AUXILIARY TABLE opt_aux_name
 					cs->if_not_exists = false;
 					cs->auxiliary = true;
 					cs->master_relation = $7;	/* master relation rangevar */
-					cs->aux_attnum = InvalidAttrNumber;	/* set when QueryRewriteAuxStmt */
+					cs->aux_attnum = InvalidAttrNumber;	/* set when AnalyzeRewriteCreateAuxStmt */
 					cs->distributeby = $13;
 					cs->subcluster = $14;
 					if (is)

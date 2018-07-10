@@ -729,6 +729,13 @@ BEGIN_NODE(CreateAuxStmt)
 END_NODE(CreateAuxStmt)
 #endif /* NO_NODE_CreateAuxStmt */
 
+#ifndef NO_NODE_PaddingAuxDataStmt
+BEGIN_NODE(PaddingAuxDataStmt)
+	NODE_NODE(RangeVar,masterrv)
+	NODE_NODE(RangeVar,auxrv)
+END_NODE(PaddingAuxDataStmt)
+#endif /* NO_NODE_PaddingAuxDataStmt */
+
 #ifndef NO_NODE_ClusterGather
 BEGIN_NODE(ClusterGather)
 	NODE_BASE2(Plan,plan)

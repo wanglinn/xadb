@@ -978,6 +978,7 @@ pg_rewrite_query(Query *query)
 			 */
 			querytree_list = QueryRewriteCTAS(query);
 		} else
+#if 0
 		if (IsA(query->utilityStmt, CreateAuxStmt))
 		{
 			/*
@@ -985,6 +986,7 @@ pg_rewrite_query(Query *query)
 			 */
 			querytree_list = QueryRewriteAuxStmt(query);
 		} else
+#endif
 #endif
 		/* don't rewrite utilities, just dump 'em into result list */
 		querytree_list = list_make1(query);

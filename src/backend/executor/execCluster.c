@@ -4,6 +4,7 @@
 
 #include "catalog/pgxc_node.h"
 #include "commands/copy.h"
+#include "commands/defrem.h"
 #include "executor/nodeEmptyResult.h"
 #include "executor/execdesc.h"
 #include "executor/executor.h"
@@ -68,6 +69,7 @@ extern bool enable_cluster_plan;
 
 static void ExecClusterPlanStmt(StringInfo buf);
 static void ExecClusterCopyStmt(StringInfo buf);
+static void ExecClusterAuxPadding(StringInfo buf);
 static NodeTag GetClusterPlanType(StringInfo buf);
 
 static void restore_cluster_plan_info(StringInfo buf);
@@ -143,6 +145,9 @@ void exec_cluster_plan(const void *splan, int length)
 		break;
 	case T_CopyStmt:
 		ExecClusterCopyStmt(&msg);
+		break;
+	case T_PaddingAuxDataStmt:
+		ExecClusterAuxPadding(&msg);
 		break;
 	default:
 		ereport(ERROR,
@@ -241,6 +246,24 @@ static void ExecClusterCopyStmt(StringInfo buf)
 	set_ps_display("CLUSTER COPY FROM", false);
 
 	DoClusterCopy(stmt, buf);
+}
+
+static void
+ExecClusterAuxPadding(StringInfo buf)
+{
+	PaddingAuxDataStmt *stmt;
+	StringInfoData		msg;
+
+	msg.data = mem_toc_lookup(buf, REMOTE_KEY_PLAN_STMT, &msg.len);
+	Assert(msg.data != NULL && msg.len > 0);
+	msg.maxlen = msg.len;
+	msg.cursor = 0;
+
+	stmt = (PaddingAuxDataStmt *) loadNode(&msg);
+	Assert(IsA(stmt, PaddingAuxDataStmt));
+	set_ps_display("Padding AUXILIARY DATA", false);
+
+	ExecPaddingAuxDataStmt(stmt, buf);
 }
 
 static NodeTag GetClusterPlanType(StringInfo buf)
@@ -473,6 +496,47 @@ List* ExecStartClusterCopy(List *rnodes, struct CopyStmt *stmt, StringInfo mem_t
 
 	begin_mem_toc_insert(&msg, REMOTE_KEY_PLAN_STMT);
 	saveNode(&msg, (Node*)stmt);
+	end_mem_toc_insert(&msg, REMOTE_KEY_PLAN_STMT);
+
+	SerializeTransactionInfo(&msg);
+
+	MemSet(&context, 0, sizeof(context));
+	context.transaction_read_only = false;
+	context.have_temp = false;
+	if (flag & EXEC_CLUSTER_FLAG_NEED_REDUCE)
+	{
+		context.have_reduce = true;
+		begin_mem_toc_insert(&msg, REMOTE_KEY_REDUCE_INFO);
+		appendStringInfoChar(&msg, (char)((flag & EXEC_CLUSTER_FLAG_USE_MEM_REDUCE) ? true:false));
+		end_mem_toc_insert(&msg, REMOTE_KEY_REDUCE_INFO);
+	}
+	if (flag & EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE)
+	{
+		Assert(context.have_reduce);
+		context.start_self_reduce = true;
+	}
+
+	conn_list = StartRemotePlan(&msg, rnodes, &context);
+	Assert(list_length(conn_list) == list_length(rnodes));
+
+	pfree(msg.data);
+
+	return conn_list;
+}
+
+List *
+ExecStartClusterAuxPadding(List *rnodes, Node *stmt, StringInfo mem_toc, uint32 flag)
+{
+	ClusterPlanContext context;
+	StringInfoData msg;
+	List *conn_list;
+	initStringInfo(&msg);
+
+	if(mem_toc)
+		appendBinaryStringInfo(&msg, mem_toc->data, mem_toc->len);
+
+	begin_mem_toc_insert(&msg, REMOTE_KEY_PLAN_STMT);
+	saveNode(&msg, stmt);
 	end_mem_toc_insert(&msg, REMOTE_KEY_PLAN_STMT);
 
 	SerializeTransactionInfo(&msg);
@@ -1142,7 +1206,8 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 		StartRemoteReduceGroup(list_conn, rdc_masks, rdc_id);
 
 		/* wait for self reduce start reduce group OK */
-		EndSelfReduceGroup();
+		if (context->start_self_reduce)
+			EndSelfReduceGroup();
 
 		safe_pfree(rdc_masks);
 	}

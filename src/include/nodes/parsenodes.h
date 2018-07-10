@@ -3788,6 +3788,12 @@ typedef struct CreateAuxStmt
 	char		   *aux_column;		/* column of master relation which auxiliary relation created for */
 } CreateAuxStmt;
 
+typedef struct PaddingAuxDataStmt
+{
+	NodeTag			type;
+	RangeVar	   *masterrv;		/* master RangeVar for padding data from */
+	RangeVar	   *auxrv;			/* auxiliary RangeVar for padding data to */
+} PaddingAuxDataStmt;
 #endif
 
 #endif   /* PARSENODES_H */
