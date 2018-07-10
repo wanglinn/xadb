@@ -106,6 +106,7 @@ typedef struct GatherAuxInfoContext
 	GatherAuxColumnInfo *cheapest;
 	Index			relid;
 	bool			deep;
+	bool			hint;
 }GatherAuxInfoContext;
 
 typedef struct GatherMainRelExecOn
@@ -119,8 +120,8 @@ typedef struct GatherMainRelExecOn
 	ItemPointer				tids;
 }GatherMainRelExecOn;
 
-int use_aux_type = USE_AUX_NODE;
-int use_aux_arg = 100;
+int use_aux_type = USE_AUX_CTID;
+int use_aux_max_times = 1;
 
 static Expr* makeInt4EQ(Expr *l, Expr *r);
 static Expr* makeInt4ArrayIn(Expr *l, Datum *values, int count);
@@ -140,6 +141,7 @@ static GatherAuxColumnInfo* get_gather_aux_col_info(GatherAuxInfoContext *contex
 static void free_aux_col_info(GatherAuxColumnInfo *info);
 static CoerceInfo* get_coerce_info(GatherAuxColumnInfo *info, Oid typeoid);
 static void push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool isarray);
+static void push_aux_col_info_to_gather(GatherAuxInfoContext *context, GatherAuxColumnInfo *info);
 static void init_auxiliary_info_if_need(GatherAuxInfoContext *context);
 static void set_cheapest_auxiliary(GatherAuxInfoContext *context);
 static List* get_aux_table_execute_on(GatherAuxColumnInfo *info);
@@ -165,6 +167,7 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool mo
 												rel->loc_info,
 												rel->relid);
 	if (use_aux_type == USE_AUX_OFF
+		|| (use_aux_max_times >= 0 && root->glob->usedRemoteAux >= use_aux_max_times)
 		|| rel->baserestrictinfo == NIL
 		|| list_length(result) <= 1
 		|| list_length(result) < list_length(rel->loc_info->nodeids)
@@ -235,6 +238,7 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool mo
 			rel->rows = exec_on->cur_tid_size ;
 		}
 		root->glob->transientPlan = true;
+		++(root->glob->usedRemoteAux);
 	}
 
 	foreach(lc, gather.list_info)
@@ -956,6 +960,24 @@ static void push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool
 	}
 }
 
+static void push_aux_col_info_to_gather(GatherAuxInfoContext *context, GatherAuxColumnInfo *info)
+{
+	GatherAuxColumnInfo *old_info = get_gather_aux_col_info(context, info->attno);
+	if (info->has_null)
+		old_info->has_null = true;
+	if (old_info->max_size < old_info->cur_size+info->cur_size)
+	{
+		uint32 new_size = old_info->max_size + info->max_size;
+		old_info->datum = repalloc(old_info->datum, new_size);
+		old_info->max_size = new_size;
+	}
+	Assert(old_info->cur_size+info->cur_size <= old_info->max_size);
+	memcpy(&old_info->datum[old_info->cur_size],
+		   info->datum,
+		   info->cur_size * sizeof(Datum));
+	old_info->cur_size += info->cur_size;
+}
+
 static GatherAuxColumnInfo* get_gather_aux_col_info(GatherAuxInfoContext *context, AttrNumber attno)
 {
 	ListCell			*lc;
@@ -1076,6 +1098,7 @@ static bool gather_aux_info(Node *node, GatherAuxInfoContext *context)
 			push_const_to_aux_col_info(get_gather_aux_col_info(context, var->varattno),
 									   c,
 									   false);
+			context->hint = true;
 			return false;
 		}
 	}else if (IsA(node, ScalarArrayOpExpr) &&
@@ -1094,6 +1117,53 @@ static bool gather_aux_info(Node *node, GatherAuxInfoContext *context)
 			push_const_to_aux_col_info(get_gather_aux_col_info(context, var->varattno),
 									   c,
 									   true);
+			context->hint = true;
+			return false;
+		}
+	}else if (or_clause(node))
+	{
+		BoolExpr *bexpr = (BoolExpr*)node;
+		ListCell *lc;
+		GatherAuxInfoContext tmp;
+		memcpy(&tmp, context, sizeof(tmp));
+		tmp.list_info = NIL;
+		tmp.deep = false;
+		foreach(lc, bexpr->args)
+		{
+			tmp.hint = false;
+			gather_aux_info(lfirst(lc), &tmp);
+			if (tmp.hint == false ||				/* not got */
+				list_length(tmp.list_info) != 1)	/* too many var */
+				break;
+		}
+		if (lc == NULL)
+		{
+			/* all args using same auxiliary column */
+			GatherAuxColumnInfo *info;
+			Assert(list_length(tmp.list_info) == 1);
+			info = linitial(tmp.list_info);
+			push_aux_col_info_to_gather(context, info);
+			free_aux_col_info(info);
+			context->hint = true;
+			return false;
+		}else
+		{
+			foreach(lc, tmp.list_info)
+				free_aux_col_info(lfirst(lc));
+		}
+	}else if (IsA(node, NullTest) &&
+		((NullTest*)node)->nulltesttype == IS_NULL)
+	{
+		GatherAuxColumnInfo *info;
+		Expr *expr = ((NullTest*)node)->arg;
+		while (IsA(expr, RelabelType))
+			expr = ((RelabelType*)expr)->arg;
+		if (IsA(expr, Var) &&
+			bms_is_member(((Var*)expr)->varattno, context->bms_attnos))
+		{
+			info = get_gather_aux_col_info(context, ((Var*)expr)->varattno);
+			info->has_null = true;
+			context->hint = true;
 			return false;
 		}
 	}
@@ -1426,8 +1496,11 @@ static Expr* make_ctid_in_expr(Index relid, ItemPointer tids, uint32 count)
 		ArrayType *array;
 		uint32 i;
 
+		//qsort(ctids, count, sizeof(Datum), (int(*)(const void*, const void*))ItemPointerCompare);
+		qsort(tids, count, sizeof(ItemPointerData), (int(*)(const void*, const void*))ItemPointerCompare);
 		for (i=0;i<count;++i)
 			ctids[i] = PointerGetDatum(&tids[i]);
+
 		array = construct_array(ctids,
 								count,
 								TIDOID,

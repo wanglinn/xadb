@@ -515,7 +515,7 @@ set_plain_rel_size(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 #ifdef ADB
 	if (rel->loc_info)
-		rel->remote_oids = relation_remote_by_constraints(root, rel, true);
+		rel->remote_oids = relation_remote_by_constraints(root, rel, use_aux_type >= USE_AUX_CTID);
 #endif /* ADB */
 
 	/* Mark rel with estimated output rows, width, etc */

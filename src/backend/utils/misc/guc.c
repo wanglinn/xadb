@@ -447,9 +447,11 @@ static const struct config_enum_entry parse_grammer_options[] = {
 
 static const struct config_enum_entry adb_aux_types[] = {
 	{"off", USE_AUX_OFF, false},
-	{"on", USE_AUX_NODE, true},
+	{"false", USE_AUX_OFF, true},
+	{"on", USE_AUX_CTID, false},
+	{"true", USE_AUX_CTID, true},
 	{"node", USE_AUX_NODE, false},
-	{"key", USE_AUX_KEY, false},
+	{"ctid", USE_AUX_CTID, false},
 	{NULL, 0, false}
 };
 #endif /* ADB */
@@ -3320,6 +3322,15 @@ static struct config_int ConfigureNamesInt[] =
 		10, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
+
+	{
+		{"use_aux_max_times", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("max query times for remote auxiliary table in one query"),
+		},
+		&use_aux_max_times,
+		1, -1, INT_MAX,
+		NULL, NULL, NULL
+	},
 #endif /* ADB */
 
 #ifdef AGTM
@@ -4486,12 +4497,12 @@ static struct config_enum ConfigureNamesEnum[] =
 	},
 
 	{
-		{"use_aux_types", PGC_USERSET, QUERY_TUNING_METHOD,
+		{"use_aux_type", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Sets Auxiliary-table using method"),
 			NULL
 		},
 		&use_aux_type,
-		USE_AUX_NODE, adb_aux_types,
+		USE_AUX_CTID, adb_aux_types,
 		NULL, NULL, NULL
 	},
 #endif /* ADB */

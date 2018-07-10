@@ -71,11 +71,11 @@ typedef enum UseAuxiliaryType
 {
 	USE_AUX_OFF = 0
 	,USE_AUX_NODE
-	,USE_AUX_KEY
+	,USE_AUX_CTID
 }UseAuxiliaryType;
 struct RelationLocInfo;
 extern int use_aux_type;
-extern int use_aux_arg;
+extern int use_aux_max_times;
 extern List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool modify_info_when_aux);
 extern List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, struct RelationLocInfo *loc_info, Index varno);
 #endif /* ADB */
