@@ -102,6 +102,7 @@ typedef enum NodeTag
 	T_CreateGroupStmt,
 	T_DropGroupStmt,
 	T_CreateAuxStmt,
+	T_PaddingAuxDataStmt,
 	T_ClusterGather,
 	T_ClusterMergeGather,
 	T_ClusterReduce,

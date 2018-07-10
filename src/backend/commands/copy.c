@@ -50,6 +50,7 @@
 #include "utils/snapmgr.h"
 
 #ifdef ADB
+#include "access/relscan.h"
 #include "access/tuptypeconvert.h"
 #include "catalog/heap.h"
 #include "executor/clusterReceiver.h"
@@ -118,18 +119,6 @@ typedef struct TidBufFileScanState
 	Relation		rel;
 	HeapTuple		tuple;
 }TidBufFileScanState;
-
-typedef struct AuxiliaryRelCopy
-{
-	char	   *schemaname;		/* the schema name */
-	char	   *relname;		/* the relation/sequence name */
-	List	   *targetList;		/* main rel result of Exprs */
-	Expr	   *reduce;			/* reduce expr */
-	int			id;				/* id for reduce plan id */
-}AuxiliaryRelCopy;
-
-#define AUX_REL_COPY_INFO	0x1
-#define AUX_REL_MAIN_NODES	0x2
 
 #endif /* ADB */
 
@@ -422,14 +411,13 @@ static TupleTableSlot* makeClusterCopySlot(Relation rel);
 static CopyStmt* makeClusterCopyFromStmt(Relation rel, bool freeze);
 static bool CopyHasOidsOptions(List *list);
 
-static void SerializeAuxRelCopyInfo(StringInfo buf, List *list);
 static List* LoadAuxRelCopyInfo(StringInfo mem_toc);
-static List* RestoreAuxRelCopyInfo(StringInfo buf);
 static List* MakeAuxRelCopyInfo(Relation rel);
 
 static void ApplyCopyToAuxiliary(CopyState parent, List *rnodes);
 static TupleTableSlot* NextRowFromReduce(CopyState cstate, ExprContext *context, void *data);
 static TupleTableSlot* NextRowFromTidBufFile(CopyState cstate, ExprContext *context, void *data);
+static TupleTableSlot *NextRowForPadding(CopyState cstate, ExprContext *context, void *data);
 #endif
 
 /*
@@ -5713,7 +5701,7 @@ static CopyStmt* makeClusterCopyFromStmt(Relation rel, bool freeze)
 	options = list_make1(def);
 
 	if (freeze)
-		options = lappend(options, makeDefElem("freeze", (Node*)makeInteger(true)));
+		options = lappend(options, makeDefElem("freeze", (Node*)makeInteger(true), -1));
 
 	stmt->options = options;
 
@@ -5734,7 +5722,7 @@ static bool CopyHasOidsOptions(List *list)
 	return false;
 }
 
-static void SerializeAuxRelCopyInfo(StringInfo buf, List *list)
+void SerializeAuxRelCopyInfo(StringInfo buf, List *list)
 {
 	AuxiliaryRelCopy *aux;
 	ListCell *lc;
@@ -5769,7 +5757,7 @@ static List* LoadAuxRelCopyInfo(StringInfo mem_toc)
 	return NIL;
 }
 
-static List* RestoreAuxRelCopyInfo(StringInfo buf)
+List* RestoreAuxRelCopyInfo(StringInfo buf)
 {
 	List *list;
 	AuxiliaryRelCopy *aux;
@@ -5793,13 +5781,33 @@ static List* RestoreAuxRelCopyInfo(StringInfo buf)
 	return list;
 }
 
+AuxiliaryRelCopy *
+MakeAuxRelCopyInfoFromMaster(Relation masterrel, Relation auxrel, int auxid)
+{
+	AuxiliaryRelCopy   *aux_copy;
+	ReduceInfo		   *rinfo;
+
+	aux_copy = palloc0(sizeof(*aux_copy));
+	aux_copy->schemaname = get_namespace_name(RelationGetNamespace(auxrel));
+	aux_copy->relname = pstrdup(RelationGetRelationName(auxrel));
+	aux_copy->targetList = MakeMainRelTargetForAux(masterrel, auxrel, 1, true);
+	if (auxrel->rd_locator_info)
+		rinfo = MakeReduceInfoFromLocInfo(auxrel->rd_locator_info, NIL, RelationGetRelid(auxrel), 1);
+	else
+		rinfo = MakeCoordinatorReduceInfo();
+	aux_copy->reduce = CreateExprUsingReduceInfo(rinfo);
+
+	aux_copy->id = auxid;
+
+	return aux_copy;
+}
+
 static List* MakeAuxRelCopyInfo(Relation rel)
 {
 	List			   *result;
 	ListCell		   *lc;
 	AuxiliaryRelCopy   *aux_copy;
 	Relation			aux_rel;
-	ReduceInfo		   *rinfo;
 	int					id = 0;
 
 	if (rel->rd_auxlist == NIL)
@@ -5815,18 +5823,7 @@ static List* MakeAuxRelCopyInfo(Relation rel)
 			continue;
 		}
 
-
-		aux_copy = palloc0(sizeof(*aux_copy));
-		aux_copy->schemaname = get_namespace_name(RelationGetNamespace(aux_rel));
-		aux_copy->relname = pstrdup(RelationGetRelationName(aux_rel));
-		aux_copy->targetList = MakeMainRelTargetForAux(rel, aux_rel, 1, true);
-		if (aux_rel->rd_locator_info)
-			rinfo = MakeReduceInfoFromLocInfo(aux_rel->rd_locator_info, NIL, lfirst_oid(lc), 1);
-		else
-			rinfo = MakeCoordinatorReduceInfo();
-		aux_copy->reduce = CreateExprUsingReduceInfo(rinfo);
-
-		aux_copy->id = ++id;
+		aux_copy = MakeAuxRelCopyInfoFromMaster(rel, aux_rel, ++id);
 
 		result = lappend(result, aux_copy);
 
@@ -6201,6 +6198,151 @@ static TupleTableSlot* NextRowFromTidBufFile(CopyState cstate, ExprContext *cont
 	Assert(!TupIsNull(state->out_slot));
 
 	return state->out_slot;
+}
+
+typedef struct AuxPaddingState
+{
+	Relation		aux_currentRelation;
+	HeapScanDesc	aux_currentScanDesc;
+	TupleTableSlot *aux_ScanTupleSlot;
+	TupleTableSlot *aux_ResultTupleSlot;
+	ExprContext	   *aux_ExprContext;
+	ProjectionInfo *aux_ProjInfo;
+} AuxPaddingState;
+
+static TupleTableSlot *
+NextRowForPadding(CopyState cstate, ExprContext *context, void *data)
+{
+	AuxPaddingState*state = (AuxPaddingState *) data;
+	HeapTuple		tuple;
+	HeapScanDesc	scandesc;
+	TupleTableSlot *scanslot;
+	ExprContext	   *econtext;
+	ProjectionInfo *projinfo;
+
+	/*
+	 * get information from the estate and scan state
+	 */
+	scandesc = state->aux_currentScanDesc;
+	scanslot = state->aux_ScanTupleSlot;
+	econtext = state->aux_ExprContext;
+	projinfo = state->aux_ProjInfo;
+
+	if (scandesc == NULL)
+	{
+		/*
+		 * We reach here if the scan is not parallel, or if we're executing a
+		 * scan that was intended to be parallel serially.
+		 */
+		scandesc = heap_beginscan(state->aux_currentRelation,
+								  SnapshotAny,
+								  0, NULL);
+		state->aux_currentScanDesc = scandesc;
+	}
+
+	/*
+	 * get the next tuple from the table
+	 */
+	tuple = heap_getnext(scandesc, ForwardScanDirection);
+
+	if (!tuple)
+	{
+		heap_endscan(scandesc);
+		state->aux_currentScanDesc = NULL;
+
+		if (projinfo)
+			return ExecClearTuple(projinfo->pi_state.resultslot);
+		else
+			return ExecClearTuple(scanslot);
+	}
+
+	ExecStoreTuple(tuple,	/* tuple to store */
+				   scanslot,	/* slot to store in */
+				   scandesc->rs_cbuf,		/* buffer associated with this
+				   							 * tuple */
+				   false);	/* don't pfree this pointer */
+
+	if (projinfo)
+	{
+		TupleTableSlot *resultslot;
+
+		ResetExprContext(econtext);
+		econtext->ecxt_scantuple = scanslot;
+		resultslot = ExecProject(projinfo);
+		Assert(!TupIsNull(resultslot));
+
+		return resultslot;
+	} else
+	{
+		return scanslot;
+	}
+}
+
+void
+DoPaddingDataForAuxRel(Relation master,
+					   Relation auxrel,
+					   List *rnodes,
+					   AuxiliaryRelCopy *auxcopy)
+{
+	MemoryContext	padding_context;
+	MemoryContext	old_context;
+	TupleDesc		scan_desc;
+	TupleDesc		result_desc;
+	AuxPaddingState state;
+
+	Assert(master && auxcopy);
+	Assert(list_length(rnodes) > 0);
+
+	padding_context = AllocSetContextCreate(CurrentMemoryContext,
+											"DoPaddingDataForAuxRel",
+											ALLOCSET_DEFAULT_SIZES);
+	old_context = MemoryContextSwitchTo(padding_context);
+
+	scan_desc = RelationGetDescr(master);
+	state.aux_currentRelation = master;
+	state.aux_currentScanDesc = NULL;
+	state.aux_ScanTupleSlot = MakeSingleTupleTableSlot(scan_desc);
+	if (auxrel)
+		result_desc = RelationGetDescr(auxrel);
+	else
+		result_desc = ExecTypeFromTL(auxcopy->targetList, false);
+	state.aux_ResultTupleSlot = MakeSingleTupleTableSlot(result_desc);
+	state.aux_ExprContext = CreateStandaloneExprContext();
+	state.aux_ProjInfo = ExecBuildProjectionInfo(auxcopy->targetList,
+												 state.aux_ExprContext,
+												 state.aux_ResultTupleSlot,
+												 NULL,
+												 scan_desc);
+
+	if (auxrel)
+	{
+		ClusterCopyFromReduce(auxrel,
+							  auxcopy->reduce,
+							  rnodes,
+							  auxcopy->id,
+							  true,
+							  NextRowForPadding,
+							  &state);
+	}else
+	{
+		ClusterDummyCopyFromReduce(auxcopy->targetList,
+								   auxcopy->reduce,
+								   rnodes,
+								   auxcopy->id,
+								   NextRowForPadding,
+								   &state);
+	}
+
+	ReScanExprContext(state.aux_ExprContext);
+	if (auxrel == NULL)
+		FreeTupleDesc(result_desc);
+
+	FreeExprContext(state.aux_ExprContext, true);
+	ExecDropSingleTupleTableSlot(state.aux_ScanTupleSlot);
+	ExecDropSingleTupleTableSlot(state.aux_ResultTupleSlot);
+
+	MemoryContextSwitchTo(old_context);
+	MemoryContextDelete(padding_context);
 }
 
 #endif /* ADB */

@@ -285,6 +285,11 @@ check_ddl_tag(const char *tag)
 	const char *obtypename;
 	event_trigger_support_data *etsd;
 
+#ifdef ADB
+	if (pg_strcasecmp(tag, "CREATE AXUILIARY TABLE") == 0)
+		return EVENT_TRIGGER_COMMAND_TAG_OK;
+#endif
+
 	/*
 	 * Handle some idiosyncratic special cases.
 	 */

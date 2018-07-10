@@ -1553,6 +1553,15 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			utilityContext.exec_type = EXEC_ON_COORDS;
 			ExecRemoteUtilityStmt(&utilityContext);
 			break;
+
+		case T_CreateAuxStmt:
+			ExecCreateAuxStmt((CreateAuxStmt *) parsetree,
+							  queryString,
+							  context,
+							  dest,
+							  sentToRemote,
+							  completionTag);
+			break;
 #endif
 
 		default:
