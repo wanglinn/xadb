@@ -137,6 +137,7 @@ typedef struct PlannerGlobal
 
 #ifdef ADB
 	bool		clusterPlanOK;	/* cluster plan potentially OK? */
+	int			usedRemoteAux;	/* count of used of auxiliary table for test remote node execute on */
 #endif /* ADB */
 } PlannerGlobal;
 
