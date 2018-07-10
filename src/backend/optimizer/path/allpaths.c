@@ -543,12 +543,13 @@ set_plain_rel_size(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	 */
 	check_index_predicates(root, rel);
 
-	/* Mark rel with estimated output rows, width, etc */
-	set_baserel_size_estimates(root, rel);
 #ifdef ADB
 	if (rel->loc_info)
-		rel->remote_oids = relation_remote_by_constraints(root, rel);
+		rel->remote_oids = relation_remote_by_constraints(root, rel, true);
 #endif /* ADB */
+
+	/* Mark rel with estimated output rows, width, etc */
+	set_baserel_size_estimates(root, rel);
 }
 
 /*

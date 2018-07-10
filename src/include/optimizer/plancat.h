@@ -76,7 +76,7 @@ typedef enum UseAuxiliaryType
 struct RelationLocInfo;
 extern int use_aux_type;
 extern int use_aux_arg;
-extern List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel);
+extern List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool modify_info_when_aux);
 extern List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, struct RelationLocInfo *loc_info, Index varno);
 #endif /* ADB */
 
