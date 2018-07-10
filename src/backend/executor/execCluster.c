@@ -1,13 +1,14 @@
 #include "postgres.h"
 
 #include "access/xact.h"
-
 #include "catalog/pgxc_node.h"
 #include "commands/copy.h"
 #include "commands/defrem.h"
 #include "executor/nodeEmptyResult.h"
+#include "executor/clusterHeapScan.h"
 #include "executor/execdesc.h"
 #include "executor/executor.h"
+#include "executor/nodeEmptyResult.h"
 #include "intercomm/inter-comm.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
@@ -48,6 +49,7 @@
 #define REMOTE_KEY_ES_INSTRUMENT			0xFFFFFF09
 #define REMOTE_KEY_REDUCE_INFO				0xFFFFFF0A
 #define REMOTE_KEY_REDUCE_GROUP				0xFFFFFF0B
+#define REMOTE_KEY_CUSTOM_FUNCTION			0xFFFFFF0C
 
 typedef struct ClusterPlanContext
 {
@@ -64,8 +66,14 @@ typedef struct ClusterErrorHookContext
 	bool					saved_enable_cluster_plan;
 }ClusterErrorHookContext;
 
-extern bool enable_cluster_plan;
+typedef struct ClusterCustomExecInfo
+{
+	ClusterCustom_function func;
+	const char *FuncString;
+}ClusterCustomExecInfo;
+#define CLUSTER_CUSTOM_EXEC_FUNC(fun_)	fun_, #fun_
 
+extern bool enable_cluster_plan;
 
 static void ExecClusterPlanStmt(StringInfo buf);
 static void ExecClusterCopyStmt(StringInfo buf);
@@ -97,9 +105,17 @@ static void ExecClusterErrorHookNode(void *arg);
 static void SetupClusterErrorHook(ClusterErrorHookContext *context);
 static void RestoreClusterHook(ClusterErrorHookContext *context);
 
+static const ClusterCustomExecInfo* find_custom_func_info(StringInfo mem_toc, bool noError);
+
+static const ClusterCustomExecInfo cluster_custom_execute[] =
+	{
+		{CLUSTER_CUSTOM_EXEC_FUNC(DoClusterHeapScan)}
+	};
+
 void exec_cluster_plan(const void *splan, int length)
 {
 	char *tmp;
+	const ClusterCustomExecInfo *custom_fun;
 	StringInfoData msg;
 	NodeTag tag;
 	ClusterErrorHookContext error_context_hook;
@@ -111,7 +127,11 @@ void exec_cluster_plan(const void *splan, int length)
 	msg.len = msg.maxlen = length;
 	msg.cursor = 0;
 
-	tag = GetClusterPlanType(&msg);
+	custom_fun = find_custom_func_info(&msg, true);
+	if (custom_fun == NULL)
+		tag = GetClusterPlanType(&msg);
+	else
+		tag = T_Invalid;
 
 	SetupClusterErrorHook(&error_context_hook);
 	restore_cluster_plan_info(&msg);
@@ -140,6 +160,14 @@ void exec_cluster_plan(const void *splan, int length)
 
 	switch(tag)
 	{
+	case T_Invalid:
+		if (custom_fun == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					 errmsg("Can not found valid plan info")));
+		set_ps_display(custom_fun->FuncString, false);
+		(*custom_fun->func)(&msg);
+		break;
 	case T_PlannedStmt:
 		ExecClusterPlanStmt(&msg);
 		break;
@@ -563,6 +591,63 @@ ExecStartClusterAuxPadding(List *rnodes, Node *stmt, StringInfo mem_toc, uint32 
 	pfree(msg.data);
 
 	return conn_list;
+}
+
+void ClusterTocSetCustomFunStr(StringInfo mem_toc, const char *proc)
+{
+	begin_mem_toc_insert(mem_toc, REMOTE_KEY_CUSTOM_FUNCTION);
+	appendStringInfoString(mem_toc, proc);
+	appendStringInfoChar(mem_toc, '\0');
+	end_mem_toc_insert(mem_toc, REMOTE_KEY_CUSTOM_FUNCTION);
+}
+
+static const ClusterCustomExecInfo* find_custom_func_info(StringInfo mem_toc, bool noError)
+{
+	const char *str = mem_toc_lookup(mem_toc, REMOTE_KEY_CUSTOM_FUNCTION, NULL);
+	Size i;
+	if (str == NULL)
+	{
+		if (noError)
+			return NULL;
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Can not found custom cluster function info")));
+	}
+
+	for(i=0;i<lengthof(cluster_custom_execute);++i)
+	{
+		if (strcmp(cluster_custom_execute[i].FuncString, str) == 0)
+			return &cluster_custom_execute[i];
+	}
+
+	if (!noError)
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Can not found custom cluster function \"%s\"", str)));
+
+	return NULL;
+}
+
+List* ExecClusterCustomFunction(List *rnodes, StringInfo mem_toc, uint32 flag, bool read_only)
+{
+	ClusterPlanContext context;
+
+	/* check custom function */
+	find_custom_func_info(mem_toc, false);
+
+	SerializeTransactionInfo(mem_toc);
+
+	MemSet(&context, 0, sizeof(context));
+	context.transaction_read_only = read_only;
+	if (flag & EXEC_CLUSTER_FLAG_NEED_REDUCE)
+	{
+		context.have_reduce = true;
+		begin_mem_toc_insert(mem_toc, REMOTE_KEY_REDUCE_INFO);
+		appendStringInfoChar(mem_toc, (char)((flag & EXEC_CLUSTER_FLAG_USE_MEM_REDUCE) ? true:false));
+		end_mem_toc_insert(mem_toc, REMOTE_KEY_REDUCE_INFO);
+	}
+
+	return StartRemotePlan(mem_toc, rnodes, &context);
 }
 
 static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
