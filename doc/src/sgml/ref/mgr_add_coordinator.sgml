@@ -28,6 +28,7 @@ ADD COORDINATOR MASTER <replaceable class="parameter">master_name</replaceable> 
     PORT = <replaceable class="parameter">port_number</replaceable>,
     SYNC_STATE = <replaceable class="parameter">sync_mode</replaceable>,
     PATH = <replaceable class="parameter">pg_data</replaceable>
+    READONLY = <replaceable class="parameter">readonly_type</replaceable>
 </synopsis>
   </refsynopsisdiv>
 
@@ -103,6 +104,16 @@ ADD COORDINATOR MASTER <replaceable class="parameter">master_name</replaceable> 
         <listitem>
           <para>
     Your data directory.
+          </para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">READONLY</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Read-write or read only type of cooridnator, default is Read-write.
           </para>
         </listitem>
       </varlistentry>
