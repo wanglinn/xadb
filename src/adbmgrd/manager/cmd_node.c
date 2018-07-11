@@ -4950,7 +4950,7 @@ static void mgr_pg_dumpall(Oid hostoid, int32 hostport, Oid dnmasteroid, char *t
 static bool mgr_get_active_hostoid_and_port(char node_type, Oid *hostoid, int32 *hostport, AppendNodeInfo *appendnodeinfo, bool set_ip)
 {
 	InitNodeInfo *info;
-	ScanKeyData key[2];
+	ScanKeyData key[3];
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
 	char * host;
@@ -4972,9 +4972,14 @@ static bool mgr_get_active_hostoid_and_port(char node_type, Oid *hostoid, int32 
 				,BTEqualStrategyNumber
 				,F_BOOLEQ
 				,BoolGetDatum(true));
+	ScanKeyInit(&key[2]
+				,Anum_mgr_node_nodereadonly
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(false));
 	info = palloc(sizeof(*info));
 	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+	info->rel_scan = heap_beginscan_catalog(info->rel_node, 3, key);
 	info->lcp =NULL;
 
 	while((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
@@ -5338,6 +5343,10 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 	if (SRF_IS_FIRSTCALL())
 	{
 		MemoryContext oldcontext;
+		/* check the number of coordinator */
+		if (mgr_get_nodetype_num(CNDN_TYPE_COORDINATOR_MASTER, false, false) < 1)
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+					, errmsg("there is not any read-write coordinators in the node table")));
 		pg_usleep(3000000L);
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
@@ -7483,6 +7492,9 @@ static bool mgr_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 		tuple_out = (HeapTuple)lfirst(lc_out);
 		mgr_node_out = (Form_mgr_node)GETSTRUCT(tuple_out);
 		Assert(mgr_node_out);
+		/* read only coordinator does not need to update the value of the column 'preferred' */
+		if (mgr_node_out->nodereadonly)
+			continue;
 		resetStringInfo(&(getAgentCmdRst->description));
 		namestrcpy(&(getAgentCmdRst->nodename), NameStr(mgr_node_out->nodename));
 		resetStringInfo(&cmdstring);
@@ -10569,6 +10581,8 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	int iloop = 0;
 	int num = 0;
 	int syncNum = 0;
+	int rwNode = 0;
+	int removeRWNode = 0;
 	bool bsync_exist;
 	bool isNull;
 	Oid selftupleoid;
@@ -10609,7 +10623,10 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 		rel_scan = heap_beginscan_catalog(rel, 2, key);
 		while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 		{
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 			num++;
+			if (!mgr_node->nodereadonly)
+				rwNode++;
 		}
 		if (1 == num)
 		{
@@ -10649,8 +10666,9 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				 ,errmsg("%s \"%s\" does not exist in cluster", mgr_nodetype_str(nodetype), namedata.data)));
 		}
-		num++;
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		if (CNDN_TYPE_COORDINATOR_MASTER == nodetype && mgr_node->nodereadonly == false)
+			removeRWNode++;
 		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
 		sprintf(port_buf, "%d", mgr_node->nodeport);
 		iloop = 0;
@@ -10674,6 +10692,11 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 		heap_endscan(rel_scan);
 		pfree(address);
 	}
+
+	/* the cluster must has at least one read-write coordinator */
+	if (CNDN_TYPE_COORDINATOR_MASTER == nodetype && (rwNode <= removeRWNode))
+		ereport(ERROR, (errmsg("the cluster must has at least one read-write coordinator, cannot be removed")));
+
 	/*if coordinator is remove, just to remove it directly*/
 	if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
 	{
@@ -11322,7 +11345,7 @@ static bool get_local_ip(Name local_ip)
 bool get_active_node_info(const char node_type, const char *node_name, AppendNodeInfo *nodeinfo)
 {
 	InitNodeInfo *info = NULL;
-	ScanKeyData key[4];
+	ScanKeyData key[5];
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
 	Datum datumPath;
@@ -11345,8 +11368,13 @@ bool get_active_node_info(const char node_type, const char *node_name, AppendNod
 				,BTEqualStrategyNumber
 				,F_CHAREQ
 				,CharGetDatum(node_type));
+	ScanKeyInit(&key[3]
+				,Anum_mgr_node_nodereadonly
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(false));
 	if (node_name)
-		ScanKeyInit(&key[3]
+		ScanKeyInit(&key[4]
 				,Anum_mgr_node_nodename
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
@@ -11354,9 +11382,9 @@ bool get_active_node_info(const char node_type, const char *node_name, AppendNod
 	info = (InitNodeInfo *)palloc0(sizeof(InitNodeInfo));
 	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
 	if (PointerIsValid(node_name))
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 4, key);
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 5, key);
 	else
-	info->rel_scan = heap_beginscan_catalog(info->rel_node, 3, key);
+	info->rel_scan = heap_beginscan_catalog(info->rel_node, 4, key);
 	info->lcp =NULL;
 	while((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
