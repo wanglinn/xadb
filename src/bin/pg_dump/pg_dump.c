@@ -17976,7 +17976,7 @@ dumpAdbmgrTable(Archive *fout)
 	resetPQExpBuffer(dbQry);
 	appendPQExpBuffer(dbQry, "LIST NODE;");
 	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
-	Assert(PQnfields(res) == 9);
+	Assert(PQnfields(res) == 10);
 	for (i = 0; i < PQntuples(res); i++)
 	{
 		resetPQExpBuffer(addstrdata);
@@ -17988,6 +17988,13 @@ dumpAdbmgrTable(Archive *fout)
 				PQgetvalue(res, i, 1),
 				PQgetvalue(res, i, 4),
 				PQgetvalue(res, i, 5),
+				PQgetvalue(res, i, 6));
+		else if (strcmp(PQgetvalue(res, i, 9), "t") == 0)
+			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\", readonly=true);",
+				PQgetvalue(res, i, 2),
+				PQgetvalue(res, i, 0),
+				PQgetvalue(res, i, 1),
+				PQgetvalue(res, i, 4),
 				PQgetvalue(res, i, 6));
 		else
 			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\");",
