@@ -487,6 +487,7 @@ static void ATCheckCmd(Relation rel, AlterTableCmd *cmd);
 static RedistribState *BuildRedistribCommands(Oid relid, List *subCmds);
 static Oid *delete_node_list(Oid *old_oids, int old_num, Oid *del_oids, int del_num, int *new_num);
 static Oid *add_node_list(Oid *old_oids, int old_num, Oid *add_oids, int add_num, int *new_num);
+static void ATPaddingAuxData(Relation master);
 #endif
 
 static void copy_relation_data(SMgrRelation rel, SMgrRelation dst,
@@ -3720,17 +3721,23 @@ ATController(AlterTableStmt *parsetree,
 #ifdef ADB
 	if (need_rebuid_locator)
 	{
-		Relation rel2 = relation_open(RelationGetRelid(rel), NoLock);
-
 		/* Invalidate all entries related to this relation */
-		CacheInvalidateRelcache(rel2);
+		CacheInvalidateRelcache(rel);
 
 		/* Make sure locator info is rebuilt */
 		RelationCacheInvalidateEntry(RelationGetRelid(rel));
-		relation_close(rel2, NoLock);
 	}
+
 	/* Perform post-catalog-update redistribution operations */
 	PGXCRedistribTable(redistribState, CATALOG_UPDATE_AFTER);
+
+	if (HasAuxRelation(RelationGetRelid(rel)))
+	{
+		Relation master = relation_open(RelationGetRelid(rel), ShareLock);
+		ATPaddingAuxData(master);
+		relation_close(master, NoLock);
+	}
+
 	FreeRedistribState(redistribState);
 #endif
 
@@ -13071,9 +13078,17 @@ ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("Distribution column cannot be dropped")));
-				break;
 			}
+			break;
 
+		case AT_DistributeBy:	/* DISTRIBUTE BY ... */
+			if (HasAuxRelation(RelationGetRelid(rel)))
+				ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("There are some auxiliary table(s) depend on \"%s\"",
+						 		RelationGetRelationName(rel)),
+						 errhint("You should DROP its AUXILIARY TABLE(s) first")));
+			break;
 		default:
 			break;
 	}
@@ -14993,5 +15008,30 @@ DropTableThrowErrorExternal(RangeVar *relation, ObjectType removeType, bool miss
 	}
 
 	DropErrorMsgNonExistent(relation, relkind, missing_ok);
+}
+
+static void
+ATPaddingAuxData(Relation master)
+{
+	Oid					auxrelid;
+	ListCell		   *lc;
+	PaddingAuxDataStmt *stmt;
+
+	if (!IsCoordMaster() ||
+		!master->rd_auxlist)
+		return ;
+
+	stmt = makeNode(PaddingAuxDataStmt);
+	stmt->masterrv = makeRangeVar(get_namespace_name(RelationGetNamespace(master)),
+								  RelationGetRelationName(master),
+								  -1);
+	foreach (lc, master->rd_auxlist)
+	{
+		auxrelid = lfirst_oid(lc);
+		stmt->auxrvlist = lappend(stmt->auxrvlist,
+								  makeRangeVar(get_namespace_name(get_rel_namespace(auxrelid)),
+								  			   get_rel_name(auxrelid), -1));
+	}
+	ExecPaddingAuxDataStmt(stmt, NULL);
 }
 #endif
