@@ -412,7 +412,6 @@ static CopyStmt* makeClusterCopyFromStmt(Relation rel, bool freeze);
 static bool CopyHasOidsOptions(List *list);
 
 static List* LoadAuxRelCopyInfo(StringInfo mem_toc);
-static List* MakeAuxRelCopyInfo(Relation rel);
 
 static void ApplyCopyToAuxiliary(CopyState parent, List *rnodes);
 static TupleTableSlot* NextRowFromReduce(CopyState cstate, ExprContext *context, void *data);
@@ -5802,7 +5801,7 @@ MakeAuxRelCopyInfoFromMaster(Relation masterrel, Relation auxrel, int auxid)
 	return aux_copy;
 }
 
-static List* MakeAuxRelCopyInfo(Relation rel)
+List* MakeAuxRelCopyInfo(Relation rel)
 {
 	List			   *result;
 	ListCell		   *lc;
@@ -6228,18 +6227,6 @@ NextRowForPadding(CopyState cstate, ExprContext *context, void *data)
 	econtext = state->aux_ExprContext;
 	projinfo = state->aux_ProjInfo;
 
-	if (scandesc == NULL)
-	{
-		/*
-		 * We reach here if the scan is not parallel, or if we're executing a
-		 * scan that was intended to be parallel serially.
-		 */
-		scandesc = heap_beginscan(state->aux_currentRelation,
-								  SnapshotAny,
-								  0, NULL);
-		state->aux_currentScanDesc = scandesc;
-	}
-
 	/*
 	 * get the next tuple from the table
 	 */
@@ -6247,9 +6234,6 @@ NextRowForPadding(CopyState cstate, ExprContext *context, void *data)
 
 	if (!tuple)
 	{
-		heap_endscan(scandesc);
-		state->aux_currentScanDesc = NULL;
-
 		if (projinfo)
 			return ExecClearTuple(projinfo->pi_state.resultslot);
 		else
@@ -6300,7 +6284,9 @@ DoPaddingDataForAuxRel(Relation master,
 
 	scan_desc = RelationGetDescr(master);
 	state.aux_currentRelation = master;
-	state.aux_currentScanDesc = NULL;
+	state.aux_currentScanDesc = heap_beginscan(master,
+											   SnapshotAny,
+											   0, NULL);
 	state.aux_ScanTupleSlot = MakeSingleTupleTableSlot(scan_desc);
 	if (auxrel)
 		result_desc = RelationGetDescr(auxrel);
@@ -6320,7 +6306,7 @@ DoPaddingDataForAuxRel(Relation master,
 							  auxcopy->reduce,
 							  rnodes,
 							  auxcopy->id,
-							  true,
+							  false,
 							  NextRowForPadding,
 							  &state);
 	}else
@@ -6340,6 +6326,8 @@ DoPaddingDataForAuxRel(Relation master,
 	FreeExprContext(state.aux_ExprContext, true);
 	ExecDropSingleTupleTableSlot(state.aux_ScanTupleSlot);
 	ExecDropSingleTupleTableSlot(state.aux_ResultTupleSlot);
+	if (state.aux_currentScanDesc != NULL)
+		heap_endscan(state.aux_currentScanDesc);
 
 	MemoryContextSwitchTo(old_context);
 	MemoryContextDelete(padding_context);

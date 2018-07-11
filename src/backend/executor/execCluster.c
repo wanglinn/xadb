@@ -289,7 +289,7 @@ ExecClusterAuxPadding(StringInfo buf)
 
 	stmt = (PaddingAuxDataStmt *) loadNode(&msg);
 	Assert(IsA(stmt, PaddingAuxDataStmt));
-	set_ps_display("Padding AUXILIARY DATA", false);
+	set_ps_display("PADDING AUXILIARY DATA", false);
 
 	ExecPaddingAuxDataStmt(stmt, buf);
 }

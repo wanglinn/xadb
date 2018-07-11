@@ -3676,7 +3676,7 @@ typedef struct PaddingAuxDataStmt
 {
 	NodeTag			type;
 	RangeVar	   *masterrv;		/* master RangeVar for padding data from */
-	RangeVar	   *auxrv;			/* auxiliary RangeVar for padding data to */
+	List		   *auxrvlist;		/* List of auxiliary RangeVar for padding data to */
 } PaddingAuxDataStmt;
 #endif
 
