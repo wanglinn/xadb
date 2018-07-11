@@ -409,7 +409,7 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 
 	padding_stmt = makeNode(PaddingAuxDataStmt);
 	padding_stmt->masterrv = auxstmt->master_relation;
-	padding_stmt->auxrv = create_stmt->relation;
+	padding_stmt->auxrvlist = list_make1(create_stmt->relation);
 
 	/* makeup table elements */
 	create_stmt->tableElts = MakeAuxTableColumns(auxattform, master_relation);
@@ -434,37 +434,47 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 	AuxiliaryRelCopy   *auxcopy;
 	Relation			master = NULL;
 	Relation			auxrel = NULL;
+	List			   *auxcopylist = NIL;
+	ListCell		   *lc;
 
 	Assert(stmt);
 	Assert(stmt->masterrv);
-	Assert(stmt->auxrv);
+	Assert(stmt->auxrvlist);
 
 	if (IsCoordMaster())
 	{
 		List		   *rconns = NIL;
 		List		   *mnodes = NIL;
-		List		   *auxcopylist = NIL;
+		List		   *auxrellist = NIL;
+		int				auxid = 1;
 		uint32			flags = EXEC_CLUSTER_FLAG_USE_SELF_AND_MEM_REDUCE;
 		StringInfoData	buf;
 
 		/* AnalyzeRewriteCreateAuxStmt has LOCKed already */
 		master = heap_openrv(stmt->masterrv, NoLock);
-		auxrel = heap_openrv(stmt->auxrv, RowExclusiveLock);
-
-		auxcopy = MakeAuxRelCopyInfoFromMaster(master, auxrel, 1);
 		rnodes = NIL;
 		if (master->rd_locator_info)
 			rnodes = list_copy(master->rd_locator_info->nodeids);
-		if (auxrel->rd_locator_info)
-			rnodes = list_concat_unique_oid(rnodes, auxrel->rd_locator_info->nodeids);
+		foreach (lc, stmt->auxrvlist)
+		{
+			auxrel = heap_openrv((RangeVar *) lfirst(lc), RowExclusiveLock);
+			if (RELATION_IS_OTHER_TEMP(auxrel))
+			{
+				heap_close(auxrel, RowExclusiveLock);
+				continue;
+			}
+			auxrellist = lappend(auxrellist, auxrel);
+			if (auxrel->rd_locator_info)
+				rnodes = list_concat_unique_oid(rnodes, auxrel->rd_locator_info->nodeids);
+			auxcopy = MakeAuxRelCopyInfoFromMaster(master, auxrel, auxid++);
+			auxcopylist = lappend(auxcopylist, auxcopy);
+		}
 
 		initStringInfo(&buf);
 
-		auxcopylist = list_make1(auxcopy);
 		begin_mem_toc_insert(&buf, AUX_REL_COPY_INFO);
 		SerializeAuxRelCopyInfo(&buf, auxcopylist);
 		end_mem_toc_insert(&buf, AUX_REL_COPY_INFO);
-		list_free(auxcopylist);
 
 		mnodes = list_copy(rnodes);
 		begin_mem_toc_insert(&buf, AUX_REL_MAIN_NODES);
@@ -481,11 +491,25 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 
 		if (flags & EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE)
 		{
-			DoPaddingDataForAuxRel(master,
-								   auxrel,
-								   rnodes,
-								   auxcopy);
+			ListCell *lc1, *lc2;
+
+			forboth(lc1, auxrellist, lc2, auxcopylist)
+			{
+				auxrel = (Relation) lfirst(lc1);
+				auxcopy = (AuxiliaryRelCopy *) lfirst(lc2);
+
+				DoPaddingDataForAuxRel(master,
+									   auxrel,
+									   rnodes,
+									   auxcopy);
+
+				heap_close(auxrel, NoLock);
+			}
+			list_free(auxrellist);
+			list_free(auxcopylist);
 		}
+
+		heap_close(master, NoLock);
 
 		/* cleanup */
 		if (rconns)
@@ -547,8 +571,9 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 		}
 	} else
 	{
-		List		   *auxcopylist;
+		ListCell	   *lc;
 		StringInfoData	buf;
+		RangeVar	   *auxrv;
 
 		Assert(msg != NULL);
 		buf.data = mem_toc_lookup(msg, AUX_REL_COPY_INFO, &buf.len);
@@ -556,8 +581,6 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 		buf.maxlen = buf.len;
 		buf.cursor = 0;
 		auxcopylist = RestoreAuxRelCopyInfo(&buf);
-		Assert(list_length(auxcopylist) == 1);
-		auxcopy = (AuxiliaryRelCopy *) linitial(auxcopylist);
 
 		buf.data = mem_toc_lookup(msg, AUX_REL_MAIN_NODES, &buf.len);
 		Assert(buf.data != NULL);
@@ -566,18 +589,27 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 		rnodes = (List*)loadNode(&buf);
 
 		master = heap_openrv_extended(stmt->masterrv, ShareLock, true);
-		auxrel = heap_openrv_extended(stmt->auxrv, RowExclusiveLock, true);
+		auxrv = makeNode(RangeVar);
+		foreach (lc, auxcopylist)
+		{
+			auxcopy = (AuxiliaryRelCopy *) lfirst(lc);
+			auxrv->schemaname = auxcopy->schemaname;
+			auxrv->relname = auxcopy->relname;
+			auxrel = heap_openrv_extended(auxrv, RowExclusiveLock, true);
 
-		DoPaddingDataForAuxRel(master,
-							   auxrel,
-							   rnodes,
-							   auxcopy);
+			DoPaddingDataForAuxRel(master,
+								   auxrel,
+								   rnodes,
+								   auxcopy);
+
+			if (auxrel)
+				heap_close(auxrel, NoLock);
+		}
+		pfree(auxrv);
+
+		if (master)
+			heap_close(master, NoLock);
 	}
-
-	if (auxrel)
-		heap_close(auxrel, NoLock);
-	if (master)
-		heap_close(master, NoLock);
 }
 
 void

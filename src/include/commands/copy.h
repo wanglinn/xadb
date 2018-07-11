@@ -59,6 +59,8 @@ typedef struct AuxiliaryRelCopy
 #define AUX_REL_MAIN_NODES	0x2
 
 extern AuxiliaryRelCopy *MakeAuxRelCopyInfoFromMaster(Relation masterrel, Relation auxrel, int auxid);
+extern List* MakeAuxRelCopyInfo(Relation rel);
+
 extern void SerializeAuxRelCopyInfo(StringInfo buf, List *list);
 extern List* RestoreAuxRelCopyInfo(StringInfo buf);
 
