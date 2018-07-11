@@ -871,7 +871,7 @@ void mgr_recv_sql_stringvalues_msg(ManagerAgent	*ma, StringInfo resultstrdata)
 */
 bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid)
 {
-	ScanKeyData key[3];
+	ScanKeyData key[4];
 	Form_mgr_node mgr_node;
 	Relation relNode;
 	HeapScanDesc relScan;
@@ -898,8 +898,13 @@ bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid)
 				,BTEqualStrategyNumber
 				,F_BOOLEQ
 				,BoolGetDatum(true));
+	ScanKeyInit(&key[3]
+				,Anum_mgr_node_nodereadonly
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(false));
 	relNode = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(relNode, 3, key);
+	relScan = heap_beginscan_catalog(relNode, 4, key);
 	for (iloop = 0; iloop < 2; iloop++)
 	{
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
@@ -3869,4 +3874,46 @@ Oid mgr_get_nodeMaster_tupleOid(char *nodeName)
 	heap_close(relNode, AccessShareLock);
 
 	return masterTupleOid;
+}
+
+/*
+* get the number of node in node table, which meets the conditions: nodeytpe
+* , incluster, readonly
+*
+*/
+int mgr_get_nodetype_num(const char nodeType, const bool inCluster, const bool readOnly)
+{
+	Relation relNode;
+	HeapScanDesc relScan;
+	HeapTuple tuple;
+	ScanKeyData key[3];
+	int num = 0;
+
+	relNode = heap_open(NodeRelationId, AccessShareLock);
+	/* traversal the slave node */
+	ScanKeyInit(&key[0],
+		Anum_mgr_node_nodeincluster
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(inCluster));
+	ScanKeyInit(&key[1],
+		Anum_mgr_node_nodereadonly
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(readOnly));
+	ScanKeyInit(&key[2]
+		,Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(nodeType));
+	relScan = heap_beginscan_catalog(relNode, 3, key);
+	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+	{
+		num++;
+	}
+
+	heap_endscan(relScan);
+	heap_close(relNode, AccessShareLock);
+
+	return num;
 }
