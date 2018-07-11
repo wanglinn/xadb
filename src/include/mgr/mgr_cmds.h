@@ -414,5 +414,6 @@ extern List *mgr_append_coord_update_pgxcnode(StringInfo sqlstrmsg, List *dnList
 extern bool mgr_get_coord_readtype(char *nodeName);
 extern int mgr_get_node_sequence(char *nodeName, char nodeType);
 extern Oid mgr_get_nodeMaster_tupleOid(char *nodeName);
+extern int mgr_get_nodetype_num(const char nodeType, const bool inCluster, const bool readOnly);
 
 #endif /* MGR_CMDS_H */
