@@ -3458,7 +3458,7 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		if (!bres || !dnList)
 			ereport(WARNING, (errmsg("on coordinator \"%s\", reset the preperred datanode fail. \
 				please, do it manual", nodename.data)));
-		seqNum = mgr_get_node_sequence(nodename.data, CNDN_TYPE_COORDINATOR_MASTER);
+		seqNum = mgr_get_node_sequence(nodename.data, CNDN_TYPE_COORDINATOR_MASTER, true);
 		newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode, seqNum);
 		Assert(newDnList);
 		bres = mgr_try_max_times_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data
@@ -6595,6 +6595,7 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 		getAgentCmdRst->ret = getrefresh;
 		appendStringInfo(&recorderr, "%s\n", (getAgentCmdRst->description).data);
 	}
+
 	/*unlock cluster*/
 	mgr_unlock_cluster(pg_conn);
 
@@ -7488,7 +7489,9 @@ static bool mgr_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 		mgr_node_out = (Form_mgr_node)GETSTRUCT(tuple_out);
 		Assert(mgr_node_out);
 		/* read only coordinator does not need to update the value of the column 'preferred' */
-		if (mgr_node_out->nodereadonly)
+		if (mgr_node_out->nodereadonly
+				&& (mgr_node_out->nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+				&& (strcmp(dnname, NameStr(mgr_node_out->nodename)) != 0))
 			continue;
 		resetStringInfo(&(getAgentCmdRst->description));
 		namestrcpy(&(getAgentCmdRst->nodename), NameStr(mgr_node_out->nodename));
@@ -7508,27 +7511,32 @@ static bool mgr_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 		}
 		pfree(host_address);
 		datanode_num = 0;
-		foreach(dn_lc, prefer_cndn->datanode_list)
+		if (!(mgr_node_out->nodereadonly
+			&& (mgr_node_out->nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+			&& strcmp(dnname, NameStr(mgr_node_out->nodename)) == 0))
 		{
-			datanode_num = datanode_num +1;
-			tuple_in = (HeapTuple)lfirst(dn_lc);
-			mgr_node_in = (Form_mgr_node)GETSTRUCT(tuple_in);
-			Assert(mgr_node_in);
-			host_address = get_hostaddress_from_hostoid(mgr_node_in->nodehost);
-			if(coordinator_num == datanode_num)
+			foreach(dn_lc, prefer_cndn->datanode_list)
 			{
-				is_preferred = true;
+				datanode_num = datanode_num +1;
+				tuple_in = (HeapTuple)lfirst(dn_lc);
+				mgr_node_in = (Form_mgr_node)GETSTRUCT(tuple_in);
+				Assert(mgr_node_in);
+				host_address = get_hostaddress_from_hostoid(mgr_node_in->nodehost);
+				if(coordinator_num == datanode_num)
+				{
+					is_preferred = true;
+				}
+				else
+				{
+					is_preferred = false;
+				}
+				appendStringInfo(&cmdstring, "alter node \\\"%s\\\" with(host='%s', port=%d, preferred = %s);"
+									,NameStr(mgr_node_in->nodename)
+									,host_address
+									,mgr_node_in->nodeport
+									,true == is_preferred ? "true":"false");
+				pfree(host_address);
 			}
-			else
-			{
-				is_preferred = false;
-			}
-			appendStringInfo(&cmdstring, "alter node \\\"%s\\\" with(host='%s', port=%d, preferred = %s);"
-								,NameStr(mgr_node_in->nodename)
-								,host_address
-								,mgr_node_in->nodeport
-								,true == is_preferred ? "true":"false");
-			pfree(host_address);
 		}
 		appendStringInfoString(&cmdstring, "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
 

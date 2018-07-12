@@ -622,7 +622,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	{
 		resetStringInfo(&infosendmsg);
 		/* refresh read only coordinator pgxc_node */
-		if (syncNum == 0 && strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_SYNC].name) == 0)
+		if (strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_SYNC].name) == 0)
 		{
 			mgr_alter_sync_refresh_pgxcnode_readnode(slave_nodeinfo.tupleoid, InvalidOid);
 		}
@@ -1314,7 +1314,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		{
 			int seqNum = 0;
 			resetStringInfo(&sqlstrmsg);
-			seqNum = mgr_get_node_sequence(s_coordname, CNDN_TYPE_COORDINATOR_MASTER);
+			seqNum = mgr_get_node_sequence(s_coordname, CNDN_TYPE_COORDINATOR_MASTER, true);
 			newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode, seqNum);
 			Assert(newDnList);
 			ereport(LOG, (errmsg("on coordinator \"%s\", update the pgxc_node table", s_coordname)));
