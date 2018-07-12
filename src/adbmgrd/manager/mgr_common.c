@@ -2602,7 +2602,7 @@ bool mgr_get_createnodeCmd_on_readonly_cn(char *nodeName, bool bincluster, Strin
 	int seqNum = 0;
 
 	Assert(nodeName);
-	seqNum = mgr_get_node_sequence(nodeName, CNDN_TYPE_COORDINATOR_MASTER);
+	seqNum = mgr_get_node_sequence(nodeName, CNDN_TYPE_COORDINATOR_MASTER, true);
 	relNode = heap_open(NodeRelationId, AccessShareLock);
 	namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_SYNC].name);
 
@@ -3103,10 +3103,9 @@ bool mgr_alter_sync_refresh_pgxcnode_readnode(Oid includeOid, Oid excludeOid)
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
 		/* record the sequence num */
-		seq++;
 		if (!mgr_node->nodereadonly)
 			continue;
-
+		seq++;
 		bneedExec = false;
 		nodePort = mgr_node->nodeport;
 		agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
@@ -3804,14 +3803,14 @@ bool mgr_get_coord_readtype(char *nodeName)
 * get the sequence number in the type of node, used for read only coordinator
 *
 */
-int mgr_get_node_sequence(char *nodeName, char nodeType)
+int mgr_get_node_sequence(char *nodeName, char nodeType, bool bReadOnly)
 {
 	Relation relNode;
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
 	NameData nameattrdata;
 	HeapScanDesc relScan;
-	ScanKeyData key[1];
+	ScanKeyData key[2];
 	bool bget = false;
 	int sequenceNum = 0;
 
@@ -3823,7 +3822,12 @@ int mgr_get_node_sequence(char *nodeName, char nodeType)
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(nodeType));
-	relScan = heap_beginscan_catalog(relNode, 1, key);
+	ScanKeyInit(&key[1]
+		,Anum_mgr_node_nodereadonly
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(bReadOnly));
+	relScan = heap_beginscan_catalog(relNode, 2, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		sequenceNum++;
