@@ -932,7 +932,7 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 		}
 
 		/* send plan info */
-		conn = lfirst(lc);
+		conn = handle->node_conn;
 		if(PQsendPlan(conn, msg->data, msg->len) == false)
 		{
 			const char *node_name = PQNConnectName(conn);
