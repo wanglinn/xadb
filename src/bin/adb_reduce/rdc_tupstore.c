@@ -969,12 +969,16 @@ rdcOpenTempFile(char ** filename)
 	 * Open the file.  Note: we don't use O_EXCL, in case there is an orphaned
 	 * temp file that can be reused.
 	 */
-	file = open(tempfilepath, O_RDWR | O_CREAT | O_TRUNC | PG_BINARY);
+	file = open(tempfilepath,
+				O_RDWR | O_CREAT | O_TRUNC | PG_BINARY,
+				0600);
 
 	if (file < 0)
 	{
 		rdcCreateDir(tempdirpath);
-		file = open(tempfilepath, O_RDWR | O_CREAT | O_TRUNC | PG_BINARY);
+		file = open(tempfilepath,
+					O_RDWR | O_CREAT | O_TRUNC | PG_BINARY,
+					0600);
 
 		if (file < 0)
 			elog(ERROR, "could not create temporary file \"%s\": %m",
