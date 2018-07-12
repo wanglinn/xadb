@@ -140,7 +140,7 @@ static bool gather_aux_info(Node *node, GatherAuxInfoContext *context);
 static GatherAuxColumnInfo* get_gather_aux_col_info(GatherAuxInfoContext *context, AttrNumber attno);
 static void free_aux_col_info(GatherAuxColumnInfo *info);
 static CoerceInfo* get_coerce_info(GatherAuxColumnInfo *info, Oid typeoid);
-static void push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool isarray);
+static bool push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool isarray);
 static void push_aux_col_info_to_gather(GatherAuxInfoContext *context, GatherAuxColumnInfo *info);
 static void init_auxiliary_info_if_need(GatherAuxInfoContext *context);
 static void set_cheapest_auxiliary(GatherAuxInfoContext *context);
@@ -860,7 +860,7 @@ static List* get_auxiary_quals(List *baserestrictinfo, Index relid, const Bitmap
 	return new_quals;
 }
 
-static void push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool isarray)
+static bool push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool isarray)
 {
 	CoerceInfo *coerce;
 	Datum	   *datums;
@@ -874,9 +874,8 @@ static void push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool
 
 	if (c->constisnull)
 	{
-		if(isarray == false)
-			info->has_null = true;
-		return;
+		/* safely we only not use null values */
+		return false;
 	}
 
 	if (isarray == false)
@@ -911,6 +910,8 @@ static void push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool
 	coerce = get_coerce_info(info, typid);
 	if (coerce)
 	{
+		if (coerce->valid == false)
+			return false;	/* can not coerce */
 		cc = coerce->c;
 		cc->constcollid = collid;
 		cc->consttypmod = typmod;
@@ -958,6 +959,7 @@ static void push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool
 		Assert(info->cur_size < info->max_size);
 		info->datum[info->cur_size++] = value;
 	}
+	return true;
 }
 
 static void push_aux_col_info_to_gather(GatherAuxInfoContext *context, GatherAuxColumnInfo *info)
@@ -1056,6 +1058,7 @@ static CoerceInfo* get_coerce_info(GatherAuxColumnInfo *info, Oid typeoid)
 		return coerce;
 	}
 
+	coerce->valid = true;
 	while(IsA(expr, RelabelType))
 		expr = ((RelabelType*)expr)->arg;
 
@@ -1065,7 +1068,7 @@ static CoerceInfo* get_coerce_info(GatherAuxColumnInfo *info, Oid typeoid)
 		pfree(coerce->c);
 		coerce->c = NULL;
 		coerce->expr = NULL;
-		return coerce;
+		return NULL;
 	}
 
 	coerce->exprState = ExecInitExpr(coerce->expr, NULL);
@@ -1077,6 +1080,7 @@ static bool gather_aux_info(Node *node, GatherAuxInfoContext *context)
 {
 	Var *var;
 	Const *c;
+	GatherAuxColumnInfo *info;
 
 	if (node == NULL ||
 		not_clause(node))
@@ -1095,10 +1099,9 @@ static bool gather_aux_info(Node *node, GatherAuxInfoContext *context)
 								 &var);
 		if (c != NULL)
 		{
-			push_const_to_aux_col_info(get_gather_aux_col_info(context, var->varattno),
-									   c,
-									   false);
-			context->hint = true;
+			info = get_gather_aux_col_info(context, var->varattno);
+			if (push_const_to_aux_col_info(info, c, false))
+				context->hint = true;
 			return false;
 		}
 	}else if (IsA(node, ScalarArrayOpExpr) &&
@@ -1114,10 +1117,9 @@ static bool gather_aux_info(Node *node, GatherAuxInfoContext *context)
 		if (c && c->constisnull == false &&
 			type_is_array(c->consttype))
 		{
-			push_const_to_aux_col_info(get_gather_aux_col_info(context, var->varattno),
-									   c,
-									   true);
-			context->hint = true;
+			info = get_gather_aux_col_info(context, var->varattno);
+			if (push_const_to_aux_col_info(info, c, true))
+				context->hint = true;
 			return false;
 		}
 	}else if (or_clause(node))
@@ -1154,7 +1156,6 @@ static bool gather_aux_info(Node *node, GatherAuxInfoContext *context)
 	}else if (IsA(node, NullTest) &&
 		((NullTest*)node)->nulltesttype == IS_NULL)
 	{
-		GatherAuxColumnInfo *info;
 		Expr *expr = ((NullTest*)node)->arg;
 		while (IsA(expr, RelabelType))
 			expr = ((RelabelType*)expr)->arg;
@@ -1266,6 +1267,12 @@ static void set_cheapest_auxiliary(GatherAuxInfoContext *context)
 	{
 		info = lfirst(lc);
 		info->list_exec = get_aux_table_execute_on(info);
+
+		/* ignore empty */
+		if (info->cur_size == 0 &&
+			info->has_null == false)
+			continue;
+
 		if (cheapest == NULL)
 		{
 			cheapest = info;
