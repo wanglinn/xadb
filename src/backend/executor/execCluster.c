@@ -871,7 +871,7 @@ StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt)
 
 static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context)
 {
-	ListCell *lc,*lc2;
+	ListCell *lc;
 	List *list_conn;
 	PGconn *conn;
 	PGresult * volatile res;
@@ -882,6 +882,7 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 	RdcMask		   *rdc_masks = NULL;
 	ErrorContextCallback error_context_hook;
 	InterXactState	state;
+	NodeHandle	   *handle;
 
 	Assert(rnodes);
 	/* try to start transaction */
@@ -910,24 +911,23 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 		}
 	}
 
-	list_conn = GetPGconnFromHandleList(state->cur_handle->handles);
-	/*foreach(lc, list_conn)*/
-	Assert(list_length(list_conn) == list_length(rnodes));
 	save_len = msg->len;
-	forboth(lc, list_conn, lc2, rnodes)
+	foreach (lc, state->cur_handle->handles)
 	{
+		handle = (NodeHandle *) lfirst(lc);
+
 		/* send node oid to remote */
 		msg->len = save_len;
 		begin_mem_toc_insert(msg, REMOTE_KEY_NODE_OID);
-		appendBinaryStringInfo(msg, (char*)&(lfirst_oid(lc2)), sizeof(lfirst_oid(lc2)));
+		appendBinaryStringInfo(msg, (char*)&(handle->node_id), sizeof(handle->node_id));
 		end_mem_toc_insert(msg, REMOTE_KEY_NODE_OID);
 
 		/* send reduce group map and reduce ID to remote */
 		if (context->have_reduce)
 		{
-			rdc_masks[rdc_id].rdc_rpid = lfirst_oid(lc2);
+			rdc_masks[rdc_id].rdc_rpid = handle->node_id;
 			rdc_masks[rdc_id].rdc_port = 0;	/* fill later */
-			rdc_masks[rdc_id].rdc_host = get_pgxc_nodehost(lfirst_oid(lc2));
+			rdc_masks[rdc_id].rdc_host = get_pgxc_nodehost(handle->node_id);
 			rdc_id++;
 		}
 
@@ -943,6 +943,8 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 		}
 	}
 	msg->len = save_len;
+
+	list_conn = GetPGconnFromHandleList(state->cur_handle->handles);
 
 	res = NULL;
 	rdc_id = 0;
@@ -1006,7 +1008,8 @@ static void StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *co
 		StartRemoteReduceGroup(list_conn, rdc_masks, rdc_id);
 
 		/* wait for self reduce start reduce group OK */
-		EndSelfReduceGroup();
+		if (context->start_self_reduce)
+			EndSelfReduceGroup();
 
 		safe_pfree(rdc_masks);
 	}
