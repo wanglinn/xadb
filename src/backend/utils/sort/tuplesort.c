@@ -1871,6 +1871,11 @@ tuplesort_performsort(Tuplesortstate *state)
  * direction into *stup.  Returns FALSE if no more tuples.
  * If *should_free is set, the caller must pfree stup.tuple when done with it.
  * Otherwise, caller should not use tuple following next call here.
+ *
+ * Note:  Public tuplesort fetch routine callers cannot rely on tuple being
+ * allocated in their own memory context when should_free is TRUE.  It may be
+ * necessary to create a new copy of the tuple to meet the requirements of
+ * public fetch routine callers.
  */
 static bool
 tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
@@ -2093,9 +2098,10 @@ tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
  * NULL value in leading attribute will set abbreviated value to zeroed
  * representation, which caller may rely on in abbreviated inequality check.
  *
- * The slot receives a copied tuple (sometimes allocated in caller memory
- * context) that will stay valid regardless of future manipulations of the
- * tuplesort's state.
+ * The slot receives a tuple that's been copied into the caller's memory
+ * context, so that it will stay valid regardless of future manipulations of
+ * the tuplesort's state (up to and including deleting the tuplesort).
+ * This differs from similar routines for other types of tuplesorts.
  */
 bool
 tuplesort_gettupleslot(Tuplesortstate *state, bool forward,
@@ -2116,12 +2122,24 @@ tuplesort_gettupleslot(Tuplesortstate *state, bool forward,
 		if (state->sortKeys->abbrev_converter && abbrev)
 			*abbrev = stup.datum1;
 
-		if (!should_free)
-		{
-			stup.tuple = heap_copy_minimal_tuple((MinimalTuple) stup.tuple);
-			should_free = true;
-		}
-		ExecStoreMinimalTuple((MinimalTuple) stup.tuple, slot, should_free);
+		/*
+		 * Callers rely on tuple being in their own memory context, which is
+		 * not guaranteed by tuplesort_gettuple_common(), even when should_free
+		 * is set to TRUE.  We must always copy here, since our interface does
+		 * not allow callers to opt into arrangement where tuple memory can go
+		 * away on the next call here, or after tuplesort_end() is called.
+		 */
+		ExecStoreMinimalTuple(heap_copy_minimal_tuple((MinimalTuple) stup.tuple),
+							  slot, true);
+
+		/*
+		 * Free local copy if needed.  It would be very invasive to get
+		 * tuplesort_gettuple_common() to allocate tuple in caller's context
+		 * for us, so we just do this instead.
+		 */
+		if (should_free)
+			pfree(stup.tuple);
+
 		return true;
 	}
 	else
@@ -2136,7 +2154,7 @@ tuplesort_gettupleslot(Tuplesortstate *state, bool forward,
  * Returns NULL if no more tuples.  If *should_free is set, the
  * caller must pfree the returned tuple when done with it.
  * If it is not set, caller should not use tuple following next
- * call here.
+ * call here.  It's never okay to use it after tuplesort_end().
  */
 HeapTuple
 tuplesort_getheaptuple(Tuplesortstate *state, bool forward, bool *should_free)
@@ -2157,7 +2175,7 @@ tuplesort_getheaptuple(Tuplesortstate *state, bool forward, bool *should_free)
  * Returns NULL if no more tuples.  If *should_free is set, the
  * caller must pfree the returned tuple when done with it.
  * If it is not set, caller should not use tuple following next
- * call here.
+ * call here.  It's never okay to use it after tuplesort_end().
  */
 IndexTuple
 tuplesort_getindextuple(Tuplesortstate *state, bool forward,
@@ -2179,7 +2197,8 @@ tuplesort_getindextuple(Tuplesortstate *state, bool forward,
  * Returns FALSE if no more datums.
  *
  * If the Datum is pass-by-ref type, the returned value is freshly palloc'd
- * and is now owned by the caller.
+ * in caller's context, and is now owned by the caller (this differs from
+ * similar routines for other types of tuplesorts).
  *
  * Caller may optionally be passed back abbreviated value (on TRUE return
  * value) when abbreviation was used, which can be used to cheaply avoid
@@ -2202,6 +2221,9 @@ tuplesort_getdatum(Tuplesortstate *state, bool forward,
 		return false;
 	}
 
+	/* Ensure we copy into caller's memory context */
+	MemoryContextSwitchTo(oldcontext);
+
 	/* Record abbreviated key for caller */
 	if (state->sortKeys->abbrev_converter && abbrev)
 		*abbrev = stup.datum1;
@@ -2213,16 +2235,26 @@ tuplesort_getdatum(Tuplesortstate *state, bool forward,
 	}
 	else
 	{
-		/* use stup.tuple because stup.datum1 may be an abbreviation */
-
-		if (should_free)
-			*val = PointerGetDatum(stup.tuple);
-		else
-			*val = datumCopy(PointerGetDatum(stup.tuple), false, state->datumTypeLen);
+		/*
+		 * Callers rely on datum being in their own memory context, which is
+		 * not guaranteed by tuplesort_gettuple_common(), even when should_free
+		 * is set to TRUE.  We must always copy here, since our interface does
+		 * not allow callers to opt into arrangement where tuple memory can go
+		 * away on the next call here, or after tuplesort_end() is called.
+		 *
+		 * Use stup.tuple because stup.datum1 may be an abbreviation.
+		 */
+		*val = datumCopy(PointerGetDatum(stup.tuple), false, state->datumTypeLen);
 		*isNull = false;
-	}
 
-	MemoryContextSwitchTo(oldcontext);
+		/*
+		 * Free local copy if needed.  It would be very invasive to get
+		 * tuplesort_gettuple_common() to allocate tuple in caller's context
+		 * for us, so we just do this instead.
+		 */
+		if (should_free)
+			pfree(stup.tuple);
+	}
 
 	return true;
 }
@@ -3863,7 +3895,7 @@ tuplesort_heap_siftup(Tuplesortstate *state, bool checkIndex)
 {
 	SortTuple  *memtuples = state->memtuples;
 	SortTuple  *tuple;
-	int			i,
+	unsigned int i,
 				n;
 
 	Assert(!checkIndex || state->currentRun == RUN_FIRST);
@@ -3872,12 +3904,17 @@ tuplesort_heap_siftup(Tuplesortstate *state, bool checkIndex)
 
 	CHECK_FOR_INTERRUPTS();
 
+	/*
+	 * state->memtupcount is "int", but we use "unsigned int" for i, j, n.
+	 * This prevents overflow in the "2 * i + 1" calculation, since at the top
+	 * of the loop we must have i < n <= INT_MAX <= UINT_MAX/2.
+	 */
 	n = state->memtupcount;
 	tuple = &memtuples[n];		/* tuple that must be reinserted */
 	i = 0;						/* i is where the "hole" is */
 	for (;;)
 	{
-		int			j = 2 * i + 1;
+		unsigned int j = 2 * i + 1;
 
 		if (j >= n)
 			break;

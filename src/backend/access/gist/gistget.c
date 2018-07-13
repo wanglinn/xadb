@@ -61,7 +61,7 @@ gistkillitems(IndexScanDesc scan)
 	 * read. killedItems could be not valid so LP_DEAD hints applying is not
 	 * safe.
 	 */
-	if (PageGetLSN(page) != so->curPageLSN)
+	if (BufferGetLSNAtomic(buffer) != so->curPageLSN)
 	{
 		UnlockReleaseBuffer(buffer);
 		so->numKilled = 0;		/* reset counter */
@@ -375,6 +375,7 @@ gistScanPage(IndexScanDesc scan, GISTSearchItem *pageItem, double *myDistances,
 	}
 
 	so->nPageData = so->curPageData = 0;
+	scan->xs_itup = NULL;		/* might point into pageDataCxt */
 	if (so->pageDataCxt)
 		MemoryContextReset(so->pageDataCxt);
 
@@ -383,7 +384,7 @@ gistScanPage(IndexScanDesc scan, GISTSearchItem *pageItem, double *myDistances,
 	 * safe to apply LP_DEAD hints to the page later. This allows us to drop
 	 * the pin for MVCC scans, which allows vacuum to avoid blocking.
 	 */
-	so->curPageLSN = PageGetLSN(page);
+	so->curPageLSN = BufferGetLSNAtomic(buffer);
 
 	/*
 	 * check all tuples on page
@@ -641,6 +642,7 @@ gistgettuple(IndexScanDesc scan, ScanDirection dir)
 
 		so->firstCall = false;
 		so->curPageData = so->nPageData = 0;
+		scan->xs_itup = NULL;
 		if (so->pageDataCxt)
 			MemoryContextReset(so->pageDataCxt);
 
@@ -765,6 +767,7 @@ gistgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 
 	/* Begin the scan by processing the root page */
 	so->curPageData = so->nPageData = 0;
+	scan->xs_itup = NULL;
 	if (so->pageDataCxt)
 		MemoryContextReset(so->pageDataCxt);
 

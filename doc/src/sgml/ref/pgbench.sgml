@@ -1037,7 +1037,7 @@ f(x) = exp(-parameter * (x - min) / (max - min + 1)) / (1 - exp(-parameter))
 </literallayout>
       Then value <replaceable>i</> between <replaceable>min</> and
       <replaceable>max</> inclusive is drawn with probability:
-      <literal>f(x) - f(x + 1)</>.
+      <literal>f(i) - f(i + 1)</>.
      </para>
 
      <para>
@@ -1335,6 +1335,17 @@ script statistics:
    essential.  It might even be useful to run several <application>pgbench</>
    instances concurrently, on several client machines, against the same
    database server.
+  </para>
+ </refsect2>
+ <refsect2>
+  <title>Security</title>
+
+  <para>
+    If untrusted users have access to a database that has not adopted a
+    <link linkend="ddl-schemas-patterns">secure schema usage pattern</link>,
+    do not run <application>pgbench</application> in that
+    database.  <application>pgbench</application> uses unqualified names and
+    does not manipulate the search path.
   </para>
  </refsect2>
  </refsect1>

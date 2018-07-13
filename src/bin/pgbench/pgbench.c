@@ -2013,7 +2013,6 @@ top:
 		st->listen = false;
 		st->sleeping = false;
 		st->throttling = false;
-		st->is_throttled = false;
 		memset(st->prepared, 0, sizeof(st->prepared));
 	}
 
@@ -3477,7 +3476,7 @@ main(int argc, char **argv)
 {
 	static struct option long_options[] = {
 		/* systematic long/short named options */
-		{"tpc-b", no_argument, NULL, 'b'},
+		{"builtin", required_argument, NULL, 'b'},
 		{"client", required_argument, NULL, 'c'},
 		{"connect", no_argument, NULL, 'C'},
 		{"debug", no_argument, NULL, 'd'},
@@ -4476,6 +4475,12 @@ threadRun(void *arg)
 					if (!doCustom(thread, st, &aggs))
 						remains--;		/* I've aborted */
 				}
+			}
+			else if (is_connect && st->sleeping)
+			{
+				/* it is sleeping for throttling, maybe it is done, let us try */
+				if (!doCustom(thread, st, &aggs))
+					remains--;
 			}
 
 			if (st->ecnt > prev_ecnt && commands[st->state]->type == META_COMMAND)

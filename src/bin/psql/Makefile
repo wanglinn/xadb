@@ -20,7 +20,7 @@ REFDOCDIR= $(top_srcdir)/doc/src/sgml/ref
 REFDOCDIR_MGR = $(top_srcdir)/doc/src/sgml/ref
 
 override CPPFLAGS := -I. -I$(srcdir) -I$(libpq_srcdir) $(CPPFLAGS)
-LDFLAGS += -L$(top_builddir)/src/fe_utils -lpgfeutils -lpq
+override LDFLAGS := -L$(top_builddir)/src/fe_utils -lpgfeutils $(libpq_pgport) $(LDFLAGS)
 
 OBJS=	command.o common.o help.o input.o stringutils.o mainloop.o copy.o \
 	startup.o prompt.o variables.o large_obj.o describe.o \
@@ -32,14 +32,16 @@ OBJS=	command.o common.o help.o input.o stringutils.o mainloop.o copy.o \
 all: psql
 
 psql: $(OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
-	$(CC) $(CFLAGS) $(OBJS) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
 help.o: sql_help.h
 
-sql_help.c: sql_help.h ;
+# See notes in src/backend/parser/Makefile about the following two rules
+sql_help.c: sql_help.h
+	touch $@
+
 sql_help.h: create_help.pl $(wildcard $(REFDOCDIR)/*.sgml) $(wildcard $(REFDOCDIR_MGR)/mgr_*.sgml)
 	$(PERL) $< $(REFDOCDIR) $* $(REFDOCDIR_MGR)
-
 
 psqlscanslash.c: FLEXFLAGS = -Cfe -p -p
 psqlscanslash.c: FLEX_NO_BACKUP=yes
@@ -49,7 +51,7 @@ ifeq ($(GCC),yes)
 psqlscanslash.o: CFLAGS += -Wno-error
 endif
 
-distprep: sql_help.h psqlscanslash.c
+distprep: sql_help.h sql_help.c psqlscanslash.c
 
 install: all installdirs
 	$(INSTALL_PROGRAM) psql$(X) '$(DESTDIR)$(bindir)/psql$(X)'

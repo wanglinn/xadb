@@ -51,6 +51,7 @@ extern int current_grammar;
 
 #define IsCurrentOracleGram() (current_grammar == PARSE_GRAM_ORACLE)
 #endif
+extern PGDLLIMPORT int log_statement;
 
 extern List *pg_parse_query(const char *query_string);
 #ifdef ADB

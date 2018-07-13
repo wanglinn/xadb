@@ -17,7 +17,7 @@ top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
 override CPPFLAGS := -I$(libpq_srcdir) $(CPPFLAGS)
-LDFLAGS += -L$(top_builddir)/src/fe_utils -lpgfeutils -lpq
+override LDFLAGS := -L$(top_builddir)/src/fe_utils -lpgfeutils $(libpq_pgport) $(LDFLAGS)
 
 BASE_OBJS=	pg_backup_archiver.o pg_backup_db.o pg_backup_custom.o \
 	pg_backup_null.o pg_backup_tar.o pg_backup_directory.o \
@@ -36,19 +36,19 @@ MGR_CFLAGS=$(patsubst -DADB,, $(patsubst -DPGXC,,$(CFLAGS)))
 	$(CC) $(MGR_CFLAGS) -DMGR_DUMP $(CPPFLAGS) -c $< -o $@
 
 pg_dump: pg_dump.o common.o pg_dump_sort.o $(OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
-	$(CC) $(CFLAGS) pg_dump.o common.o pg_dump_sort.o $(OBJS) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(CFLAGS) pg_dump.o common.o pg_dump_sort.o $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 mgr_dump: pg_dump_mgr.o common_mgr.o pg_dump_sort_mgr.o $(MGR_OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
-	$(CC) $(MGR_CFLAGS) pg_dump_mgr.o common_mgr.o pg_dump_sort_mgr.o $(MGR_OBJS) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(MGR_CFLAGS) pg_dump_mgr.o common_mgr.o pg_dump_sort_mgr.o $(MGR_OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
 pg_restore: pg_restore.o $(OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
-	$(CC) $(CFLAGS) pg_restore.o $(OBJS) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(CFLAGS) pg_restore.o $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 mgr_restore: pg_restore_mgr.o $(MGR_OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
-	$(CC) $(MGR_CFLAGS) pg_restore_mgr.o $(MGR_OBJS) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(MGR_CFLAGS) pg_restore_mgr.o $(MGR_OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
 pg_dumpall: pg_dumpall.o dumputils.o | submake-libpq submake-libpgport submake-libpgfeutils
-	$(CC) $(CFLAGS) pg_dumpall.o dumputils.o $(WIN32RES) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(CFLAGS) pg_dumpall.o dumputils.o $(WIN32RES) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 mgr_dumpall: pg_dumpall_mgr.o dumputils_mgr.o | submake-libpq submake-libpgport submake-libpgfeutils
-	$(CC) $(MGR_CFLAGS) pg_dumpall_mgr.o dumputils_mgr.o $(WIN32RES) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(MGR_CFLAGS) pg_dumpall_mgr.o dumputils_mgr.o $(WIN32RES) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
 install: all installdirs
 	$(INSTALL_PROGRAM) pg_dump$(X) '$(DESTDIR)$(bindir)'/pg_dump$(X)

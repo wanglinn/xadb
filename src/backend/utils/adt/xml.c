@@ -147,6 +147,10 @@ static int xml_xpathobjtoxmlarray(xmlXPathObjectPtr xpathobj,
 					   PgXmlErrorContext *xmlerrcxt);
 #endif   /* USE_LIBXML */
 
+static void xmldata_root_element_start(StringInfo result, const char *eltname,
+						   const char *xmlschema, const char *targetns,
+						   bool top_level);
+static void xmldata_root_element_end(StringInfo result, const char *eltname);
 static StringInfo query_to_xml_internal(const char *query, char *tablename,
 					  const char *xmlschema, bool nulls, bool tableforest,
 					  const char *targetns, bool top_level);
@@ -2381,6 +2385,12 @@ cursor_to_xml(PG_FUNCTION_ARGS)
 
 	initStringInfo(&result);
 
+	if (!tableforest)
+	{
+		xmldata_root_element_start(&result, "table", NULL, targetns, true);
+		appendStringInfoChar(&result, '\n');
+	}
+
 	SPI_connect();
 	portal = SPI_cursor_find(name);
 	if (portal == NULL)
@@ -2394,6 +2404,9 @@ cursor_to_xml(PG_FUNCTION_ARGS)
 								  tableforest, targetns, true);
 
 	SPI_finish();
+
+	if (!tableforest)
+		xmldata_root_element_end(&result, "table");
 
 	PG_RETURN_XML_P(stringinfo_to_xmltype(&result));
 }
@@ -3765,6 +3778,7 @@ xpath_internal(text *xpath_expr_text, xmltype *data, ArrayType *namespaces,
 	int32		xpath_len;
 	xmlChar    *string;
 	xmlChar    *xpath_expr;
+	size_t		xmldecl_len = 0;
 	int			i;
 	int			ndim;
 	Datum	   *ns_names_uris;
@@ -3825,6 +3839,16 @@ xpath_internal(text *xpath_expr_text, xmltype *data, ArrayType *namespaces,
 	memcpy(xpath_expr, VARDATA(xpath_expr_text), xpath_len);
 	xpath_expr[xpath_len] = '\0';
 
+	/*
+	 * In a UTF8 database, skip any xml declaration, which might assert
+	 * another encoding.  Ignore parse_xml_decl() failure, letting
+	 * xmlCtxtReadMemory() report parse errors.  Documentation disclaims
+	 * xpath() support for non-ASCII data in non-UTF8 databases, so leave
+	 * those scenarios bug-compatible with historical behavior.
+	 */
+	if (GetDatabaseEncoding() == PG_UTF8)
+		parse_xml_decl(string, &xmldecl_len, NULL, NULL, NULL);
+
 	xmlerrcxt = pg_xml_init(PG_XML_STRICTNESS_ALL);
 
 	PG_TRY();
@@ -3839,7 +3863,8 @@ xpath_internal(text *xpath_expr_text, xmltype *data, ArrayType *namespaces,
 		if (ctxt == NULL || xmlerrcxt->err_occurred)
 			xml_ereport(xmlerrcxt, ERROR, ERRCODE_OUT_OF_MEMORY,
 						"could not allocate parser context");
-		doc = xmlCtxtReadMemory(ctxt, (char *) string, len, NULL, NULL, 0);
+		doc = xmlCtxtReadMemory(ctxt, (char *) string + xmldecl_len,
+								len - xmldecl_len, NULL, NULL, 0);
 		if (doc == NULL || xmlerrcxt->err_occurred)
 			xml_ereport(xmlerrcxt, ERROR, ERRCODE_INVALID_XML_DOCUMENT,
 						"could not parse XML document");

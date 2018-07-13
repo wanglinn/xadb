@@ -15,10 +15,8 @@ subdir = src/bin/pg_rewind
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-PG_CPPFLAGS = -I$(libpq_srcdir)
-PG_LIBS = $(libpq_pgport)
-
 override CPPFLAGS := -I$(libpq_srcdir) -DFRONTEND $(CPPFLAGS)
+override LDFLAGS := $(libpq_pgport) $(LDFLAGS)
 
 BASE_OBJS	= pg_rewind.o parsexlog.o xlogreader.o datapagemap.o timeline.o \
 	fetch.o file_ops.o copy_fetch.o libpq_fetch.o filemap.o logging.o
@@ -31,10 +29,10 @@ EXTRA_CLEAN = xlogreader.c
 all: pg_rewind adb_rewind
 
 pg_rewind: $(PG_OBJS) | submake-libpq submake-libpgport
-	$(CC) $(filter-out -DADB, $(CFLAGS)) $^ $(patsubst -lpgcommon, -lpgcommon_pg, $(libpq_pgport)) $(LDFLAGS) $(LDFLAGS_EX) $(patsubst -lpgcommon, -lpgcommon_pg, $(LIBS)) -o $@$(X)
+	$(CC) $(filter-out -DADB, $(CFLAGS)) $^ $(patsubst -lpgcommon, -lpgcommon_pg, $(LDFLAGS)) $(LDFLAGS_EX) $(patsubst -lpgcommon, -lpgcommon_pg, $(LIBS)) -o $@$(X)
 
 adb_rewind: $(ADB_OBJS) | submake-libpq submake-libpgport
-	$(CC) $(CFLAGS) $^ $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
 xlogreader.c: % : $(top_srcdir)/src/backend/access/transam/%
 	rm -f $@ && $(LN_S) $< .
@@ -53,7 +51,7 @@ $(ADB_OBJS): %_adb.o : %.c
 
 else #autodepend
 
-$(PG_OBJS): %_pg.o : %.c 
+$(PG_OBJS): %_pg.o : %.c
 	$(CC) $(filter-out -DADB, $(CFLAGS)) $(CPPFLAGS) -c -o $@ $<
 
 $(ADB_OBJS): %_adb.o : %.c

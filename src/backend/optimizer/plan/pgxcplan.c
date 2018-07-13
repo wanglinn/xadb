@@ -436,8 +436,9 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	 * back the unshippable quals. We need to restamp the Vars in the clauses
 	 * to match the JOINing queries, so make a copy of those.
 	 */
-	extract_actual_join_clauses(rqpath->join_restrictlist, &join_clauses,
-									&other_clauses);
+	extract_actual_join_clauses(rqpath->join_restrictlist,
+								rqpath->path.parent->relids,
+								&join_clauses, &other_clauses);
 	join_clauses = copyObject(join_clauses);
 	other_clauses = list_concat(other_clauses,
 								extract_actual_clauses(rqpath->join_restrictlist,

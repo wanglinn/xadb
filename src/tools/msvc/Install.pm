@@ -380,17 +380,25 @@ sub GenerateTimezoneFiles
 	my $conf   = shift;
 	my $mf     = read_file("src/timezone/Makefile");
 	$mf =~ s{\\\r?\n}{}g;
-	$mf =~ /^TZDATA\s*:?=\s*(.*)$/m
-	  || die "Could not find TZDATA line in timezone makefile\n";
+
+	$mf =~ /^TZDATAFILES\s*:?=\s*(.*)$/m
+	  || die "Could not find TZDATAFILES line in timezone makefile\n";
 	my @tzfiles = split /\s+/, $1;
+
+	$mf =~ /^POSIXRULES\s*:?=\s*(.*)$/m
+	  || die "Could not find POSIXRULES line in timezone makefile\n";
+	my $posixrules = $1;
+	$posixrules =~ s/\s+//g;
 
 	print "Generating timezone files...";
 
-	my @args = ("$conf/zic/zic", '-d', "$target/share/timezone");
+	my @args = ("$conf/zic/zic", '-d', "$target/share/timezone",
+				'-p', "$posixrules");
 	foreach (@tzfiles)
 	{
 		my $tzfile = $_;
-		push(@args, "src/timezone/data/$tzfile");
+		$tzfile =~ s|\$\(srcdir\)|src/timezone|;
+		push(@args, $tzfile);
 	}
 
 	system(@args);
@@ -450,14 +458,12 @@ sub CopyContribFiles
 		opendir($D, $subdir) || croak "Could not opendir on $subdir!\n";
 		while (my $d = readdir($D))
 		{
-
 			# These configuration-based exclusions must match vcregress.pl
 			next if ($d eq "uuid-ossp"       && !defined($config->{uuid}));
 			next if ($d eq "sslinfo"         && !defined($config->{openssl}));
 			next if ($d eq "xml2"            && !defined($config->{xml}));
-			next if ($d eq "hstore_plperl"   && !defined($config->{perl}));
-			next if ($d eq "hstore_plpython" && !defined($config->{python}));
-			next if ($d eq "ltree_plpython"  && !defined($config->{python}));
+			next if ($d =~ /_plperl$/        && !defined($config->{perl}));
+			next if ($d =~ /_plpython$/      && !defined($config->{python}));
 			next if ($d eq "sepgsql");
 
 			CopySubdirFiles($subdir, $d, $config, $target);

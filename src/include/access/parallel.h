@@ -44,6 +44,7 @@ typedef struct ParallelContext
 	void	   *private_memory;
 	shm_toc    *toc;
 	ParallelWorkerInfo *worker;
+	bool	   *any_message_received;
 } ParallelContext;
 
 extern volatile bool ParallelMessagePending;
@@ -66,5 +67,7 @@ extern void HandleParallelMessages(void);
 extern void AtEOXact_Parallel(bool isCommit);
 extern void AtEOSubXact_Parallel(bool isCommit, SubTransactionId mySubId);
 extern void ParallelWorkerReportLastRecEnd(XLogRecPtr last_xlog_end);
+
+extern void ParallelWorkerMain(Datum main_arg);
 
 #endif   /* PARALLEL_H */

@@ -29,9 +29,9 @@ Datum rowid_in(PG_FUNCTION_ARGS)
 			, errmsg("invalid argument string length")));
 
 	rowid = palloc(sizeof(*rowid));
-	b64_decode(str, 8, (char*)&(rowid->node_id));
-	b64_decode(str+8, 8, (char*)&(rowid->block));
-	b64_decode(str+16, 4, (char*)&(rowid->offset));
+	pg_base64_decode(str, 8, (char*)&(rowid->node_id));
+	pg_base64_decode(str+8, 8, (char*)&(rowid->block));
+	pg_base64_decode(str+16, 4, (char*)&(rowid->offset));
 
 	PG_RETURN_POINTER(rowid);
 }
@@ -40,9 +40,9 @@ Datum rowid_out(PG_FUNCTION_ARGS)
 {
 	OraRowID *rowid = (OraRowID*)PG_GETARG_POINTER(0);
 	char *output = palloc(8+8+4+1);
-	b64_encode((char*)&(rowid->node_id), sizeof(rowid->node_id), output);
-	b64_encode((char*)&(rowid->block), sizeof(rowid->block), output+8);
-	b64_encode((char*)&(rowid->offset), sizeof(rowid->offset), output+16);
+	pg_base64_encode((char*)&(rowid->node_id), sizeof(rowid->node_id), output);
+	pg_base64_encode((char*)&(rowid->block), sizeof(rowid->block), output+8);
+	pg_base64_encode((char*)&(rowid->offset), sizeof(rowid->offset), output+16);
 	output[8+8+4] = '\0';
 	PG_RETURN_CSTRING(output);
 }
