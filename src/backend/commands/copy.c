@@ -5980,6 +5980,8 @@ DoPaddingDataForAuxRel(Relation master,
 	Assert(master && auxcopy);
 	Assert(list_length(rnodes) > 0);
 
+	PushActiveSnapshot(GetTransactionSnapshot());
+
 	padding_context = AllocSetContextCreate(CurrentMemoryContext,
 											"DoPaddingDataForAuxRel",
 											ALLOCSET_DEFAULT_SIZES);
@@ -5988,7 +5990,7 @@ DoPaddingDataForAuxRel(Relation master,
 	scan_desc = RelationGetDescr(master);
 	state.aux_currentRelation = master;
 	state.aux_currentScanDesc = heap_beginscan(master,
-											   SnapshotAny,
+											   GetActiveSnapshot(),
 											   0, NULL);
 	state.aux_ScanTupleSlot = MakeSingleTupleTableSlot(scan_desc);
 	if (auxrel)
@@ -6033,6 +6035,8 @@ DoPaddingDataForAuxRel(Relation master,
 
 	MemoryContextSwitchTo(old_context);
 	MemoryContextDelete(padding_context);
+
+	PopActiveSnapshot();
 }
 
 #endif /* ADB */
