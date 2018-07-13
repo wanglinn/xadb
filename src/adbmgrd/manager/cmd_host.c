@@ -1365,6 +1365,8 @@ Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 					, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
 					, errmsg("column hostadbhome is null")));
 			}
+			appendStringInfo(&exec_path
+				, "export LD_LIBRARY_PATH=%s/lib:$LD_LIBRARY_PATH;", TextDatumGetCString(datumpath));
 			appendStringInfoString(&exec_path, TextDatumGetCString(datumpath));
 			if(exec_path.data[exec_path.len] != '/')
 				appendStringInfoChar(&exec_path, '/');
