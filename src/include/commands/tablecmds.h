@@ -53,6 +53,8 @@ extern void AlterRelationNamespaceInternal(Relation classRel, Oid relOid,
 extern void CheckTableNotInUse(Relation rel, const char *stmt);
 
 #ifdef ADB
+extern void CheckTableNotAux(Relation rel, const char *stmt);
+
 extern void ExecuteTruncate(TruncateStmt *stmt, const char *sql_statement);
 #else
 extern void ExecuteTruncate(TruncateStmt *stmt);
