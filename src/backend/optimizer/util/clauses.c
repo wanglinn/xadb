@@ -1056,6 +1056,10 @@ contain_volatile_functions_walker(Node *node, void *context)
 {
 	if (node == NULL)
 		return false;
+#ifdef ADB
+	if (IsA(node, RownumExpr))
+		return true;	/* RownumExpr is volatile */
+#endif /* ADB */
 	/* Check for volatile functions in node itself */
 	if (check_functions_in_node(node, contain_volatile_functions_checker,
 								context))
