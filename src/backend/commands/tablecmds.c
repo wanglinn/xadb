@@ -1002,8 +1002,8 @@ RemoveRelations(DropStmt *drop)
 			if (!drop->auxiliary)
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("cannot drop auxiliary table \"%s\" use DROP TABLE ...", rel->relname),
-						 errhint("Use DROP AUXILIARY TABLE ... to drop the auxiliary table.")));
+						 errmsg("permission denied: \"%s\" is an auxiliary table", rel->relname),
+						 errhint("Use DROP AUXILIARY TABLE ... to drop an auxiliary table.")));
 
 			obj.classId = AuxClassRelationId;
 			obj.objectId = relOid;
@@ -1509,8 +1509,8 @@ truncate_check_rel(Relation rel)
 	 */
 	if (IsConnFromApp() && !enable_aux_dml && RelationIsAuxiliary(rel))
 		ereport(ERROR,
-				(errmsg("It is not allowed to TRUNCATE on the auxiliary table"),
-				 errhint("You only can DROP AUXILIARY TABLE on the auxiliary table")));
+				(errmsg("permission denied: \"%s\" is an auxiliary table",
+						RelationGetRelationName(rel))));
 #endif
 
 	/*
@@ -2930,6 +2930,20 @@ CheckTableNotInUse(Relation rel, const char *stmt)
 						stmt, RelationGetRelationName(rel))));
 }
 
+#ifdef ADB
+void
+CheckTableNotAux(Relation rel, const char *stmt)
+{
+	if (RelationIsAuxiliary(rel))
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+		/* translator: first %s is a SQL command, eg ALTER TABLE */
+				 errmsg("cannot %s \"%s\" because "
+						"it is an auxiliary table",
+						stmt, RelationGetRelationName(rel))));
+}
+#endif
+
 /*
  * AlterTableLookupRelation
  *		Look up, and lock, the OID for the relation named by an alter table
@@ -3001,6 +3015,10 @@ AlterTable(Oid relid, LOCKMODE lockmode, AlterTableStmt *stmt)
 
 	/* Caller is required to provide an adequate lock. */
 	rel = relation_open(relid, NoLock);
+
+#ifdef ADB
+	CheckTableNotAux(rel, "ALTER TABLE");
+#endif
 
 	CheckTableNotInUse(rel, "ALTER TABLE");
 
