@@ -5191,6 +5191,7 @@ void DoClusterCopy(CopyStmt *stmt, StringInfo mem_toc)
 	ParseState	   *pstate;
 	RangeTblEntry  *rte;
 	List		   *rnodes = NIL;
+	RangeTblEntry  *rte;
 
 	if (stmt->is_from == false)
 	{
@@ -5219,6 +5220,13 @@ void DoClusterCopy(CopyStmt *stmt, StringInfo mem_toc)
 
 	cstate = BeginCopy(pstate, true, rel, NULL, InvalidOid, NULL, stmt->options, true);
 	oldcontext = MemoryContextSwitchTo(cstate->copycontext);
+
+	rte = makeNode(RangeTblEntry);
+	rte->rtekind = RTE_RELATION;
+	rte->relid = RelationGetRelid(rel);
+	rte->relkind = rel->rd_rel->relkind;
+	rte->requiredPerms = ACL_INSERT;
+	cstate->range_table = list_make1(rte);
 
 	/* Initialize state variables */
 	cstate->fe_eof = false;
