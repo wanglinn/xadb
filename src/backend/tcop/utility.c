@@ -906,28 +906,36 @@ standard_ProcessUtility(Node *parsetree,
 				PreventCommandDuringRecovery((stmt->options & VACOPT_VACUUM) ?
 											 "VACUUM" : "ANALYZE");
 #ifdef ADB
-				if (IsCoordMaster() && stmt->relation)
+				if (IsCoordMaster())
 				{
-					vacuum_rel = heap_openrv_extended(stmt->relation, AccessShareLock, true);
-
-					if(vacuum_rel)
+					if (stmt->relation)
 					{
-						if (RELKIND_MATVIEW!=RelationGetForm(vacuum_rel)->relkind &&
-							RelationGetLocInfo(vacuum_rel))
+						vacuum_rel = heap_openrv_extended(stmt->relation,
+														  AccessShareLock,
+														  true);
+						if (vacuum_rel)
 						{
-							/*
-							 * We have to run the command on nodes before Coordinator because
-							 * vacuum() pops active snapshot and we can not send it to nodes
-							 */
-							utilityContext.force_autocommit = true;
-							utilityContext.exec_type = EXEC_ON_DATANODES;
-							ExecRemoteUtilityStmt(&utilityContext);
-						}
+							if (RelationGetForm(vacuum_rel)->relkind != RELKIND_MATVIEW &&
+								RelationGetLocInfo(vacuum_rel))
+							{
+								/*
+								 * We have to run the command on nodes before Coordinator because
+								 * vacuum() pops active snapshot and we can not send it to nodes
+								 */
+								utilityContext.force_autocommit = true;
+								utilityContext.exec_type = EXEC_ON_DATANODES;
+								ExecRemoteUtilityStmt(&utilityContext);
+							}
 
-						relation_close(vacuum_rel, AccessShareLock);
+							relation_close(vacuum_rel, AccessShareLock);
+						}
+					} else
+					{
+						utilityContext.force_autocommit = true;
+						utilityContext.exec_type = EXEC_ON_ALL_NODES;
+						ExecRemoteUtilityStmt(&utilityContext);
 					}
 				}
-
 #endif /* ADB */
 				/* forbidden in parallel mode due to CommandIsReadOnly */
 				ExecVacuum(stmt, isTopLevel);
