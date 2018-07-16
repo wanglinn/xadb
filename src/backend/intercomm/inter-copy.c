@@ -150,7 +150,7 @@ EndRemoteCopy(RemoteCopyState *node)
 				!HandleFinishCommand(handle, NULL))
 				ereport(ERROR,
 						(errmsg("Fail to end COPY %s", node->is_from ? "FROM" : "TO"),
-						 errnode(NameStr(prhandle->node_name)),
+						 errnode(NameStr(handle->node_name)),
 						 errdetail("%s", HandleGetError(handle))));
 		}
 	} PG_CATCH();
