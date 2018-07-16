@@ -182,12 +182,19 @@ extern void ExecCreateAuxStmt(CreateAuxStmt *auxstmt,
 							  DestReceiver *dest,
 							  bool sentToRemote,
 							  char *completionTag);
+extern void PaddingAuxDataOfMaster(Relation master);
 #if 0
 extern List *QueryRewriteAuxStmt(Query *auxquery);
 #endif
 extern void RelationBuildAuxiliary(Relation rel);
 extern Bitmapset *MakeAuxMainRelResultAttnos(Relation rel);
 extern List *MakeMainRelTargetForAux(Relation main_rel, Relation aux_rel, Index relid, bool target_entry);
+
+#define RelationIdHasAuxRelation(relid) \
+	HasAuxRelation(relid)
+
+#define RelationHasAuxRelation(relation) \
+	HasAuxRelation(RelationGetRelid(relation))
 
 #define RelationIdIsAuxiliary(relid) \
 	RelationIdGetAuxAttnum(relid, NULL)

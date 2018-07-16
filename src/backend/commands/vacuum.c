@@ -53,6 +53,8 @@
 
 #ifdef ADB
 #include "access/visibilitymap.h"
+#include "catalog/heap.h"
+#include "commands/defrem.h"
 #include "executor/executor.h"
 #include "nodes/makefuncs.h"
 #include "pgxc/execRemote.h"
@@ -82,6 +84,9 @@ static void vac_truncate_clog(TransactionId frozenXID,
 				  MultiXactId lastSaneMinMulti);
 static bool vacuum_rel(Oid relid, RangeVar *relation, int options,
 		   VacuumParams *params);
+#ifdef ADB
+static void vacuum_full_auxrel(Relation master, int options);
+#endif
 
 /*
  * Primary entry point for manual VACUUM and ANALYZE commands
@@ -1468,9 +1473,12 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	 * If we are on coordinator and target relation is distributed, read
 	 * the statistics from the data node instead of vacuuming local relation.
 	 */
-	if (IS_PGXC_COORDINATOR && onerel->rd_locator_info)
+	if (IsCnNode())
 	{
-		vacuum_rel_coordinator(onerel, true);
+		if (RelationGetLocInfo(onerel))
+			vacuum_rel_coordinator(onerel, true);
+
+		vacuum_full_auxrel(onerel, options);
 	}
 	else
 #endif
@@ -1479,6 +1487,10 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	 */
 	if (options & VACOPT_FULL)
 	{
+#ifdef ADB
+		vacuum_full_auxrel(onerel, options);
+#endif
+
 		/* close relation before vacuuming, but hold lock until commit */
 		relation_close(onerel, NoLock);
 		onerel = NULL;
@@ -1631,6 +1643,58 @@ vacuum_delay_point(void)
 }
 
 #ifdef ADB
+/*
+ * vacuum_full_auxrel
+ *
+ * Truncate any auxiliary relation of "master"
+ * if VACUUM FULL.
+ *
+ * Re-padding data for auxiliary relations if
+ * coordinator master.
+ */
+static void
+vacuum_full_auxrel(Relation master, int options)
+{
+	Relation	auxrel;
+	ListCell   *lc;
+
+	/*
+	 * only for VACUUM FULL
+	 */
+	if ((options & (VACOPT_VACUUM | VACOPT_FULL)) !=
+		(VACOPT_VACUUM | VACOPT_FULL))
+		return ;
+
+	/*
+	 * only VACUUM FULL relations that have
+	 * auxiliary relations
+	 */
+	if (master->rd_auxlist == NIL)
+		return ;
+
+	/*
+	 * Truncate any auxiliary relations
+	 */
+	foreach (lc, master->rd_auxlist)
+	{
+		auxrel = relation_open(lfirst_oid(lc), AccessExclusiveLock);
+		if (RELATION_IS_OTHER_TEMP(auxrel))
+		{
+			relation_close(auxrel, AccessExclusiveLock);
+			continue;
+		}
+		heap_truncate_one_rel(auxrel);
+		relation_close(auxrel, AccessExclusiveLock);
+	}
+
+	/*
+	 * re-padding data for auxiliary relations
+	 * if coordinator master.
+	 */
+	if (IsCoordMaster())
+		PaddingAuxDataOfMaster(master);
+}
+
 /*
  * For the data node query make up TargetEntry representing specified column
  * of pg_class catalog table
