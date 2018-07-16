@@ -9815,6 +9815,7 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 			case OCLASS_PGXC_NODE:
 			case OCLASS_PGXC_GROUP:
 			case OCLASS_PGXC_CLASS:
+			case OCLASS_AUX_CLASS:
 #endif
 				/*
 				 * We don't expect any of these sorts of objects to depend on
