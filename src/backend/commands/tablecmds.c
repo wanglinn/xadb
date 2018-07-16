@@ -3427,7 +3427,8 @@ ATController(AlterTableStmt *parsetree,
 	/* Perform post-catalog-update redistribution operations */
 	PGXCRedistribTable(redistribState, CATALOG_UPDATE_AFTER);
 
-	if (HasAuxRelation(RelationGetRelid(rel)))
+	/* Perform padding data to auxiliary relation */
+	if (RelationHasAuxRelation(rel))
 	{
 		Relation master = relation_open(RelationGetRelid(rel), ShareLock);
 		ATPaddingAuxData(master);
@@ -13399,25 +13400,6 @@ DropTableThrowErrorExternal(RangeVar *relation, ObjectType removeType, bool miss
 static void
 ATPaddingAuxData(Relation master)
 {
-	Oid					auxrelid;
-	ListCell		   *lc;
-	PaddingAuxDataStmt *stmt;
-
-	if (!IsCoordMaster() ||
-		!master->rd_auxlist)
-		return ;
-
-	stmt = makeNode(PaddingAuxDataStmt);
-	stmt->masterrv = makeRangeVar(get_namespace_name(RelationGetNamespace(master)),
-								  RelationGetRelationName(master),
-								  -1);
-	foreach (lc, master->rd_auxlist)
-	{
-		auxrelid = lfirst_oid(lc);
-		stmt->auxrvlist = lappend(stmt->auxrvlist,
-								  makeRangeVar(get_namespace_name(get_rel_namespace(auxrelid)),
-								  			   get_rel_name(auxrelid), -1));
-	}
-	ExecPaddingAuxDataStmt(stmt, NULL);
+	PaddingAuxDataOfMaster(master);
 }
 #endif

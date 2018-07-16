@@ -651,6 +651,30 @@ ExecCreateAuxStmt(CreateAuxStmt *auxstmt,
 				   NULL);
 }
 
+void
+PaddingAuxDataOfMaster(Relation master)
+{
+	Oid				  auxrelid;
+	ListCell		 *lc;
+	PaddingAuxDataStmt *stmt;
+
+	if (!IsCoordMaster() ||
+		!master->rd_auxlist)
+		return ;
+
+	stmt = makeNode(PaddingAuxDataStmt);
+	stmt->masterrv = makeRangeVar(get_namespace_name(RelationGetNamespace(master)),
+								  RelationGetRelationName(master),
+								  -1);
+	foreach (lc, master->rd_auxlist)
+	{
+		auxrelid = lfirst_oid(lc);
+		stmt->auxrvlist = lappend(stmt->auxrvlist,
+								  makeRangeVar(get_namespace_name(get_rel_namespace(auxrelid)),
+								  get_rel_name(auxrelid), -1));
+	}
+	ExecPaddingAuxDataStmt(stmt, NULL);
+}
 #if 0
 /*
  * QueryRewriteAuxStmt
