@@ -1141,7 +1141,6 @@ inheritance_planner(PlannerInfo *root)
 	ListCell   *lc;
 	Index		rti;
 #ifdef ADB
-	int			last_cte_count = list_length(parse->cteList);
 	List	   *cluster_paths = NIL;
 	bool		cluster_valid = true;
 #endif /* ADB */
@@ -1497,12 +1496,6 @@ inheritance_planner(PlannerInfo *root)
 		}
 #endif /* ADB */
 	}
-
-#ifdef ADB
-	/* process auxiliary modify */
-	if (last_cte_count != list_length(parse->cteList))
-		SS_process_ctes_lc(root, list_nth_cell(parse->cteList, last_cte_count));
-#endif /* ADB */
 
 	/* Result path must go into outer query's FINAL upperrel */
 	final_rel = fetch_upper_rel(root, UPPERREL_FINAL, NULL);
