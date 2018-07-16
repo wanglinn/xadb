@@ -1350,7 +1350,7 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 		relation->rd_rsdesc = NULL;
 
 #ifdef ADB
-	if (IS_PGXC_COORDINATOR &&
+	if (IsCnNode() &&
 		relation->rd_id >= FirstNormalObjectId &&
 		!IsAutoVacuumWorkerProcess())
 		RelationBuildLocator(relation);
