@@ -719,3 +719,14 @@ PgxcNodeRemove(DropNodeStmt *stmt)
 
 	heap_close(relation, RowExclusiveLock);
 }
+
+void
+InitPGXCNodeIdentifier(void)
+{
+	if ((IsCnNode() || IsDnNode()) &&
+		PGXCNodeIdentifier == 0)
+	{
+		PGXCNodeIdentifier = get_pgxc_node_id(
+								get_pgxc_nodeoid(PGXCNodeName));
+	}
+}
