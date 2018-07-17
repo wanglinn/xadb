@@ -20,6 +20,7 @@
 #include "nodes/makefuncs.h"
 #include "nodes/pg_list.h"
 #include "parser/parser.h"
+#include "parser/parse_coerce.h"
 #include "parser/parse_oper.h"
 #include "storage/mem_toc.h"
 #include "utils/array.h"
@@ -100,6 +101,7 @@ void DoClusterHeapScan(StringInfo mem_toc)
 	StringInfoData			buf;
 	Oid						array_type;
 	Oid						opno;
+	StrategyNumber			stragegy;
 	AttrNumber				eq_attr;
 	bool					test_null;
 
@@ -185,14 +187,29 @@ void DoClusterHeapScan(StringInfo mem_toc)
 	opno = oprid(tup);
 	ReleaseSysCache(tup);
 
+	stragegy = get_op_opfamily_strategy(opno, index_rel->rd_opfamily[0]);
+	/* check type */
+	if (attr->atttypid != index_rel->rd_opcintype[0])
+	{
+		Oid funcid;
+		CoercionPathType path_type = find_coercion_pathway(index_rel->rd_opcintype[0],
+														   attr->atttypid,
+														   COERCION_IMPLICIT,
+														   &funcid);
+		if (path_type != COERCION_PATH_RELABELTYPE)
+			ereport(ERROR,
+					(errcode(ERRCODE_DATATYPE_MISMATCH),
+					 errmsg("Only support binary-compatible type index scan")));
+	}
+
 	/* index scan */
 	if (index_rel->rd_amroutine->amsearcharray)
 	{
 		ScanKeyEntryInitialize(&key,
 							   SK_SEARCHARRAY,
 							   1,
-							   get_op_opfamily_strategy(opno, index_rel->rd_opfamily[0]),
-							   attr->atttypid,
+							   stragegy,
+							   index_rel->rd_opcintype[0],
 							   attr->attcollation,
 							   get_opcode(opno),
 							   PointerGetDatum(array));
@@ -205,10 +222,9 @@ void DoClusterHeapScan(StringInfo mem_toc)
 		Datum *datums;
 		int count;
 		int i;
-		StrategyNumber stragegy;
 		RegProcedure code;
 		deconstruct_array(array,
-						  attr->atttypid,
+						  index_rel->rd_opcintype[0],
 						  attr->attlen,
 						  attr->attbyval,
 						  attr->attalign,
