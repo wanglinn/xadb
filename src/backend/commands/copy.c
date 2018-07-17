@@ -5426,6 +5426,8 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 		/* Execute AFTER STATEMENT insertion triggers */
 		ExecASInsertTriggers(estate, estate->es_result_relations, cstate->transition_capture);
 
+		ExecCloseIndices(estate->es_result_relations);
+
 		/* Handle queued AFTER triggers */
 		AfterTriggerEndQuery(estate);
 	}
@@ -5560,6 +5562,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 		MemoryContextSwitchTo(tup_context);
 
 		cur_lineno = cstate->cur_lineno;
+		loaded_oid = InvalidOid;
 		if (!NextCopyFrom(cstate, econtext, values, isnull, &loaded_oid))
 			break;
 
