@@ -65,6 +65,7 @@
 #include "utils/tqual.h"
 #ifdef ADB
 #include "intercomm/inter-node.h"
+#include "pgxc/nodemgr.h"
 #endif
 
 
@@ -1047,6 +1048,9 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 #ifdef ADB
 	/* initialize node executor */
 	InitializeNodeExecutor();
+
+	/* initialize node identifier */
+	InitPGXCNodeIdentifier();
 #endif
 
 	/* report this backend in the PgBackendStatus array */
