@@ -607,6 +607,17 @@ void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int el
 		char	   *file_line = PQresultErrorField(result, PG_DIAG_SOURCE_LINE);
 		char	   *func_name = PQresultErrorField(result, PG_DIAG_SOURCE_FUNCTION);
 
+		if (elevel <= 0)
+		{
+			const char * err = PQresultErrorField(result, PG_DIAG_SEVERITY);
+			if (err)
+				elevel = get_str_elevel(err);
+			if (elevel <= 0)
+				elevel = LOG;
+			else if (elevel >= ERROR)
+				elevel = ERROR;
+		}
+
 		if(errstart(elevel, file_name ? file_name : __FILE__,
 			file_line ? atoi(file_line) : __LINE__,
 			func_name ? func_name : PG_FUNCNAME_MACRO,
