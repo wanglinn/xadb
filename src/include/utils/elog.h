@@ -199,6 +199,7 @@ extern int	errhint(const char *fmt,...) pg_attribute_printf(1, 2);
 
 #ifdef ADB
 extern const struct ErrorData* err_current_data(void);
+extern int get_str_elevel(const char *str);
 #endif /* ADB */
 
 /*
