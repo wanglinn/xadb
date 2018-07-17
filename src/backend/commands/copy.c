@@ -5293,7 +5293,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 			slot = relslot;
 		}
 
-		if (slot != NULL)
+		if (!TupIsNull(slot))
 		{
 			tuple = ExecMaterializeSlot(slot);
 			ExecARInsertTriggers(estate, resultRelInfo, tuple, NIL /* coordinator no index to check */);
