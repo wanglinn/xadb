@@ -33,4 +33,6 @@ extern void PgxcNodeAlter(AlterNodeStmt *stmt);
 extern void PgxcNodeCreate(CreateNodeStmt *stmt);
 extern void PgxcNodeRemove(DropNodeStmt *stmt);
 
+extern void InitPGXCNodeIdentifier(void);
+
 #endif	/* NODEMGR_H */

@@ -231,16 +231,7 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 	PortalHashTableInsert(portal, name);
 
 #ifdef ADB
-	if (PGXCNodeIdentifier == 0)
-	{
-		/*
-		 * It is not necessary to check whether the node_oid
-		 * is valid or not. Such as "single" mode postgres.
-		 */
-		Oid node_oid = get_pgxc_nodeoid(PGXCNodeName);
-		PGXCNodeIdentifier = get_pgxc_node_id(node_oid);
-	}
-	portal->grammar = grammar;	
+	portal->grammar = grammar;
 #endif
 
 	return portal;
