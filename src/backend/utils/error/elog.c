@@ -3811,6 +3811,26 @@ error_severity(int elevel)
 	return prefix;
 }
 
+#ifdef ADB
+int get_str_elevel(const char *str)
+{
+	if (strcmp(str, "DEBUG") == 0)
+		return DEBUG1;
+	else if (strcmp(str, "LOG") == 0)
+		return LOG;
+	else if (strcmp(str, "INFO") == 0)
+		return INFO;
+	else if (strcmp(str, "WARNING") == 0)
+		return WARNING;
+	else if (strcmp(str, "ERROR") == 0)
+		return ERROR;
+	else if (strcmp(str, "FATAL") == 0)
+		return FATAL;
+	else if (strcmp(str, "PANIC") == 0)
+		return PANIC;
+	return 0;
+}
+#endif /* ADB */
 
 /*
  *	append_with_tabs
