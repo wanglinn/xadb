@@ -5475,10 +5475,10 @@ static bool CopyFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType 
 			if(res)
 			{
 				ExecStatusType status = PQresultStatus(res);
-				if(status == PGRES_FATAL_ERROR)
+				if(status == PGRES_FATAL_ERROR || status == PGRES_BAD_RESPONSE)
 					PQNReportResultError(res, conn, ERROR, true);
-				else if(status == PGRES_COPY_IN)
-					PQputCopyEnd(conn, NULL);
+				else if(status == PGRES_NONFATAL_ERROR)
+					PQNReportResultError(res, conn, -1, true);
 			}
 			va_end(args);
 		}
