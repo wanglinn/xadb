@@ -6074,7 +6074,7 @@ DoPaddingDataForAuxRel(Relation master,
 							  false,
 							  NextRowForPadding,
 							  &state);
-	}else
+	} else
 	{
 		ClusterDummyCopyFromReduce(auxcopy->targetList,
 								   auxcopy->reduce,
