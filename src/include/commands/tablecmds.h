@@ -102,4 +102,9 @@ extern void RangeVarCallbackOwnsTable(const RangeVar *relation,
 
 extern void RangeVarCallbackOwnsRelation(const RangeVar *relation,
 							 Oid relId, Oid oldRelId, void *noCatalogs);
+
+#ifdef ADB
+extern void PostAlterTable(void);
+#endif
+
 #endif							/* TABLECMDS_H */

@@ -5192,7 +5192,6 @@ void DoClusterCopy(CopyStmt *stmt, StringInfo mem_toc)
 	ParseState	   *pstate;
 	RangeTblEntry  *rte;
 	List		   *rnodes = NIL;
-	RangeTblEntry  *rte;
 
 	if (stmt->is_from == false)
 	{
@@ -6372,7 +6371,7 @@ DoPaddingDataForAuxRel(Relation master,
 							  false,
 							  NextRowForPadding,
 							  &state);
-	}else
+	} else
 	{
 		ClusterDummyCopyFromReduce(auxcopy->targetList,
 								   auxcopy->reduce,

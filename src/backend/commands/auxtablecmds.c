@@ -456,12 +456,13 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 			rnodes = list_copy(master->rd_locator_info->nodeids);
 		foreach (lc, stmt->auxrvlist)
 		{
-			auxrel = heap_openrv((RangeVar *) lfirst(lc), RowExclusiveLock);
+			auxrel = heap_openrv((RangeVar *) lfirst(lc), AccessExclusiveLock);
 			if (RELATION_IS_OTHER_TEMP(auxrel))
 			{
-				heap_close(auxrel, RowExclusiveLock);
+				heap_close(auxrel, AccessExclusiveLock);
 				continue;
 			}
+			heap_truncate_one_rel(auxrel);
 			auxrellist = lappend(auxrellist, auxrel);
 			if (auxrel->rd_locator_info)
 				rnodes = list_concat_unique_oid(rnodes, auxrel->rd_locator_info->nodeids);
@@ -594,7 +595,9 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 			auxcopy = (AuxiliaryRelCopy *) lfirst(lc);
 			auxrv->schemaname = auxcopy->schemaname;
 			auxrv->relname = auxcopy->relname;
-			auxrel = heap_openrv_extended(auxrv, RowExclusiveLock, true);
+			auxrel = heap_openrv_extended(auxrv, AccessExclusiveLock, true);
+			if (auxrel)
+				heap_truncate_one_rel(auxrel);
 
 			DoPaddingDataForAuxRel(master,
 								   auxrel,

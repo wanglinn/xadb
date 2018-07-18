@@ -1857,29 +1857,24 @@ ProcessUtilitySlow(ParseState *pstate,
 						 */
 						if (!sentToRemote)
 						{
-							bool is_temp = false;
 							RemoteQueryExecType exec_type;
-							Oid relid = RangeVarGetRelid(atstmt->relation,
-														 NoLock, true);
+							bool				is_temp = false;
 
-							if (OidIsValid(relid))
+							exec_type = ExecUtilityFindNodes(atstmt->relkind,
+															 relid,
+															 &is_temp);
+							/*
+							 * If the AlterTableStmt self will only update the catalog
+							 * pgxc_node, the RemoteQuery added for the AlterTableStmt
+							 * should only be done on coordinators.
+							 */
+							if (!is_temp)
 							{
-								exec_type = ExecUtilityFindNodes(atstmt->relkind,
-																 relid,
-																 &is_temp);
-								/*
-								 * If the AlterTableStmt self will only update the catalog
-								 * pgxc_node, the RemoteQuery added for the AlterTableStmt
-								 * should only be done on coordinators.
-								 */
-								if (!is_temp)
-								{
-									if (atstmt->relkind == OBJECT_TABLE &&
-										IsAlterTableStmtRedistribution(atstmt))
-										exec_type = EXEC_ON_COORDS;
+								if (atstmt->relkind == OBJECT_TABLE &&
+									IsAlterTableStmtRedistribution(atstmt))
+									exec_type = EXEC_ON_COORDS;
 
-									stmts = AddRemoteParseTree(stmts, queryString, parsetree, exec_type, is_temp);
-								}
+								stmts = AddRemoteParseTree(stmts, queryString, parsetree, exec_type, is_temp);
 							}
 						}
 #endif
@@ -1939,6 +1934,12 @@ ProcessUtilitySlow(ParseState *pstate,
 
 						/* done */
 						EventTriggerAlterTableEnd();
+
+#ifdef ADB
+						/* do alter table post actions */
+						CommandCounterIncrement();
+						PostAlterTable();
+#endif
 					}
 					else
 						ereport(NOTICE,

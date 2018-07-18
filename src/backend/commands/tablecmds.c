@@ -117,6 +117,16 @@
 
 
 extern bool enable_aux_dml;
+
+typedef void (*post_alter_table_callback)(void *arg);
+
+typedef struct PostAlterTableEntry
+{
+	post_alter_table_callback function;
+	void			   *arg;
+} PostAlterTableEntry;
+
+static List *post_alter_table_actions = NIL;
 #endif
 
 /*
@@ -188,6 +198,9 @@ typedef struct AlteredTableInfo
 	int			rewrite;		/* Reason for forced rewrite, if any */
 	Oid			newTableSpace;	/* new tablespace; 0 means no change */
 	bool		chgPersistence; /* T if SET LOGGED/UNLOGGED is used */
+#ifdef ADB
+	bool		chgLoactor;		/* T if AT_DistributeBy, AT_SubCluster, AT_AddNodeList, AT_DeleteNodeList */
+#endif
 	char		newrelpersistence;	/* if above is true */
 	Expr	   *partition_constraint;	/* for attach partition validation */
 	/* Objects to rebuild after completing ALTER TYPE operations */
@@ -487,7 +500,9 @@ static void ATCheckCmd(Relation rel, AlterTableCmd *cmd);
 static RedistribState *BuildRedistribCommands(Oid relid, List *subCmds);
 static Oid *delete_node_list(Oid *old_oids, int old_num, Oid *del_oids, int del_num, int *new_num);
 static Oid *add_node_list(Oid *old_oids, int old_num, Oid *add_oids, int add_num, int *new_num);
-static void ATPaddingAuxData(Relation master);
+static void RegisterPostAlterTableAction(post_alter_table_callback func, void *arg);
+static void CleanupPostAlterTableActions(void);
+static void ATPaddingAuxData(void *arg);
 #endif
 
 static void copy_relation_data(SMgrRelation rel, SMgrRelation dst,
@@ -3339,7 +3354,18 @@ AlterTable(Oid relid, LOCKMODE lockmode, AlterTableStmt *stmt)
 
 	CheckTableNotInUse(rel, "ALTER TABLE");
 
+#ifdef ADB
+	PG_TRY();
+	{
+#endif
 	ATController(stmt, rel, stmt->cmds, stmt->relation->inh, lockmode);
+#ifdef ADB
+	} PG_CATCH();
+	{
+		CleanupPostAlterTableActions();
+		PG_RE_THROW();
+	} PG_END_TRY();
+#endif
 }
 
 /*
@@ -3715,6 +3741,7 @@ ATController(AlterTableStmt *parsetree,
 							 errmsg("Incompatible operation with data redistribution")));
 
 					need_rebuid_locator = true;
+					SetSendCommandId(true);
 					/* Only local coordinator make RedistribState */
 					if (!IsConnFromCoord())
 					/* Scan redistribution commands and improve operation */
@@ -3749,19 +3776,16 @@ ATController(AlterTableStmt *parsetree,
 	/* Perform post-catalog-update redistribution operations */
 	PGXCRedistribTable(redistribState, CATALOG_UPDATE_AFTER);
 
-	/* Perform padding data to auxiliary relation */
-	if (RelationHasAuxRelation(rel))
-	{
-		Relation master = relation_open(RelationGetRelid(rel), ShareLock);
-		ATPaddingAuxData(master);
-		relation_close(master, NoLock);
-	}
-
 	FreeRedistribState(redistribState);
 #endif
 
 	/* Phase 3: scan/rewrite tables as needed */
 	ATRewriteTables(parsetree, &wqueue, lockmode);
+
+#ifdef ADB
+	/* Phase 4: register alter table postoperations */
+	RegisterPostAlterTableAction(ATPaddingAuxData, (void *) wqueue);
+#endif
 }
 
 /*
@@ -4059,6 +4083,7 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 		case AT_AddNodeList:
 		case AT_DeleteNodeList:
 			ATSimplePermissions(rel, ATT_TABLE);
+			tab->chgLoactor = true;
 			/* No command-specific prep needed */
 			pass = AT_PASS_DISTRIB;
 			break;
@@ -5030,6 +5055,9 @@ ATGetQueueEntry(List **wqueue, Relation rel)
 	tab->oldDesc = CreateTupleDescCopy(RelationGetDescr(rel));
 	tab->newrelpersistence = RELPERSISTENCE_PERMANENT;
 	tab->chgPersistence = false;
+#ifdef ADB
+	tab->chgLoactor = false;
+#endif
 
 	*wqueue = lappend(*wqueue, tab);
 
@@ -15031,8 +15059,61 @@ DropTableThrowErrorExternal(RangeVar *relation, ObjectType removeType, bool miss
 }
 
 static void
-ATPaddingAuxData(Relation master)
+RegisterPostAlterTableAction(post_alter_table_callback func, void *arg)
 {
-	PaddingAuxDataOfMaster(master);
+	PostAlterTableEntry *entry = NULL;
+
+	entry = (PostAlterTableEntry *) palloc(sizeof(PostAlterTableEntry));
+	entry->function = func;
+	entry->arg = arg;
+
+	post_alter_table_actions = lappend(post_alter_table_actions, entry);
+}
+
+static void
+CleanupPostAlterTableActions(void)
+{
+	/*
+	 * Memory fo post_alter_table_actions will be
+	 * released with its MemoryContext and not afraid
+	 * of memory leaks.
+	 */
+	post_alter_table_actions = NIL;
+}
+
+void
+PostAlterTable(void)
+{
+	ListCell			   *lc;
+	PostAlterTableEntry	   *entry;
+
+	foreach (lc, post_alter_table_actions)
+	{
+		entry = (PostAlterTableEntry *) lfirst(lc);
+		(*entry->function)(entry->arg);
+	}
+	list_free_deep(post_alter_table_actions);
+	post_alter_table_actions = NIL;
+}
+
+static void
+ATPaddingAuxData(void *arg)
+{
+	List			   *wqueue = (List *) arg;
+	ListCell		   *lc;
+	AlteredTableInfo   *tab;
+
+	foreach (lc, wqueue)
+	{
+		tab = (AlteredTableInfo *) lfirst(lc);
+
+		if ((tab->chgLoactor || tab->rewrite > 0) &&
+			RelationIdHasAuxRelation(tab->relid))
+		{
+			Relation master = relation_open(tab->relid, ShareLock);
+			PaddingAuxDataOfMaster(master);
+			relation_close(master, NoLock);
+		}
+	}
 }
 #endif
