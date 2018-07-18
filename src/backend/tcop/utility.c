@@ -2400,8 +2400,10 @@ ProcessUtilitySlow(ParseState *pstate,
 #ifdef ADB
 				/* Send CREATE MATERIALIZED VIEW command to all coordinators. */
 				/* see pg_rewrite_query */
-				Assert(((CreateTableAsStmt *) parsetree)->relkind == OBJECT_MATVIEW);
-				if (!ObjectAddressIsInvalid(address))
+				Assert(((CreateTableAsStmt *) parsetree)->relkind == OBJECT_MATVIEW ||
+					   ((CreateTableAsStmt *) parsetree)->into->rel->relpersistence == RELPERSISTENCE_TEMP);
+				if (!ObjectAddressIsInvalid(address) &&
+					((CreateTableAsStmt *) parsetree)->into->rel->relpersistence != RELPERSISTENCE_TEMP)
 				{
 					if (!((CreateTableAsStmt *) parsetree)->into->skipData && !IsConnFromCoord())
 						pgxc_send_matview_data(((CreateTableAsStmt *) parsetree)->into->rel,

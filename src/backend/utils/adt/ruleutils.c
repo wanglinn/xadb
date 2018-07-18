@@ -6856,23 +6856,18 @@ get_utility_query_def(Query *query, deparse_context *context)
 		}
 	}
 #ifdef ADB
-	else if (query->utilityStmt && IsA(query->utilityStmt, CreateStmt))
+	else if (query->utilityStmt &&
+		IsA(query->utilityStmt, CreateStmt) &&
+		((CreateStmt*)query->utilityStmt)->relation->relpersistence != RELPERSISTENCE_TEMP)
 	{
 		CreateStmt *stmt = (CreateStmt *) query->utilityStmt;
 		ListCell   *column;
 		const char *delimiter = "";
 		RangeVar   *relation = stmt->relation;
-		bool		istemp = (relation->relpersistence == RELPERSISTENCE_TEMP);
 		bool		isunlogged = (relation->relpersistence == RELPERSISTENCE_UNLOGGED);
 
-		if (istemp && relation->schemaname)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-					 errmsg("temporary tables cannot specify a schema name")));
-
-		appendStringInfo(buf, "CREATE %s %s TABLE ",
-				istemp ? "TEMP" : "",
-				isunlogged ? "UNLOGGED" : "");
+		appendStringInfo(buf, "CREATE %s TABLE ",
+						 isunlogged ? "UNLOGGED" : "");
 
 		if (relation->schemaname && relation->schemaname[0])
 			appendStringInfo(buf, "%s.", relation->schemaname);
