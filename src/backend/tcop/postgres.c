@@ -83,6 +83,7 @@
 #include "agtm/agtm.h"
 #include "agtm/agtm_client.h"
 #include "catalog/adb_ha_sync_log.h"
+#include "catalog/pg_class.h"
 #include "commands/copy.h"
 #include "commands/defrem.h"
 #include "commands/trigger.h"
@@ -968,7 +969,8 @@ pg_rewrite_query(Query *query)
 	{
 #ifdef ADB
 		if (IsA(query->utilityStmt, CreateTableAsStmt) &&
-			((CreateTableAsStmt *)query->utilityStmt)->relkind != OBJECT_MATVIEW)
+			((CreateTableAsStmt *)query->utilityStmt)->relkind != OBJECT_MATVIEW &&
+			((CreateTableAsStmt *)query->utilityStmt)->into->rel->relpersistence != RELPERSISTENCE_TEMP)
 		{
 			/*
 			 * CREATE TABLE AS SELECT and SELECT INTO are rewritten so that the
