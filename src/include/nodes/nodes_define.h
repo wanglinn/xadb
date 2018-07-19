@@ -732,6 +732,7 @@ END_NODE(CreateAuxStmt)
 #ifndef NO_NODE_PaddingAuxDataStmt
 BEGIN_NODE(PaddingAuxDataStmt)
 	NODE_NODE(RangeVar,masterrv)
+	NODE_SCALAR(bool, truncaux)
 	NODE_NODE(List,auxrvlist)
 END_NODE(PaddingAuxDataStmt)
 #endif /* NO_NODE_PaddingAuxDataStmt */

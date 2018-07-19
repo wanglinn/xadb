@@ -1112,6 +1112,80 @@ RangeVarCallbackForDropRelation(const RangeVar *rel, Oid relOid, Oid oldRelOid,
 	}
 }
 
+#ifdef ADB
+void
+TruncateRelation(Relation rel, SubTransactionId mySubid)
+{
+	if (!rel)
+		return ;
+
+	/*
+	 * Normally, we need a transaction-safe truncation here.  However, if
+	 * the table was either created in the current (sub)transaction or has
+	 * a new relfilenode in the current (sub)transaction, then we can just
+	 * truncate it in-place, because a rollback would cause the whole
+	 * table or the current physical file to be thrown away anyway.
+	 */
+	if (rel->rd_createSubid == mySubid ||
+		rel->rd_newRelfilenodeSubid == mySubid)
+	{
+		/* Immediate, non-rollbackable truncation is OK */
+		heap_truncate_one_rel(rel);
+	}
+	else
+	{
+		Oid 		heap_relid;
+		Oid 		toast_relid;
+		MultiXactId minmulti;
+
+		/*
+		 * This effectively deletes all rows in the table, and may be done
+		 * in a serializable transaction.  In that case we must record a
+		 * rw-conflict in to this transaction from each transaction
+		 * holding a predicate lock on the table.
+		 */
+		CheckTableForSerializableConflictIn(rel);
+
+		minmulti = GetOldestMultiXactId();
+
+		/*
+		 * Need the full transaction-safe pushups.
+		 *
+		 * Create a new empty storage file for the relation, and assign it
+		 * as the relfilenode value. The old storage file is scheduled for
+		 * deletion at commit.
+		 */
+		RelationSetNewRelfilenode(rel, rel->rd_rel->relpersistence,
+								  RecentXmin, minmulti);
+		if (rel->rd_rel->relpersistence == RELPERSISTENCE_UNLOGGED)
+			heap_create_init_fork(rel);
+
+		heap_relid = RelationGetRelid(rel);
+		toast_relid = rel->rd_rel->reltoastrelid;
+
+		/*
+		 * The same for the toast table, if any.
+		 */
+		if (OidIsValid(toast_relid))
+		{
+			rel = relation_open(toast_relid, AccessExclusiveLock);
+			RelationSetNewRelfilenode(rel, rel->rd_rel->relpersistence,
+									  RecentXmin, minmulti);
+			if (rel->rd_rel->relpersistence == RELPERSISTENCE_UNLOGGED)
+				heap_create_init_fork(rel);
+			heap_close(rel, NoLock);
+		}
+
+		/*
+		 * Reconstruct the indexes to match, and we're done.
+		 */
+		reindex_relation(heap_relid, REINDEX_REL_PROCESS_TOAST, 0);
+	}
+
+	pgstat_count_truncate(rel);
+}
+#endif
+
 /*
  * ExecuteTruncate
  *		Executes a TRUNCATE command.
@@ -1366,6 +1440,10 @@ ExecuteTruncate(TruncateStmt *stmt)
 	{
 		Relation	rel = (Relation) lfirst(cell);
 
+#ifdef ADB
+		TruncateRelation(rel, mySubid);
+	}
+#else
 		/*
 		 * Normally, we need a transaction-safe truncation here.  However, if
 		 * the table was either created in the current (sub)transaction or has
@@ -1431,6 +1509,7 @@ ExecuteTruncate(TruncateStmt *stmt)
 
 		pgstat_count_truncate(rel);
 	}
+#endif
 
 	/*
 	 * Restart owned sequences if we were asked to.
