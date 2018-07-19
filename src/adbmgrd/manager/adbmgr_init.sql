@@ -1178,7 +1178,8 @@ alter table pg_catalog.monitor_job add primary key (name);
 INSERT INTO adbmgr.parm VALUES ('*', 'DateStyle', 'ISO, MDY', 'user', 'string', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'IntervalStyle', 'postgres', 'user', 'enum', NULL, NULL, NULL, '{postgres,postgres_verbose,sql_standard,iso_8601}');
 INSERT INTO adbmgr.parm VALUES ('*', 'TimeZone', 'PRC', 'user', 'string', NULL, NULL, NULL, NULL);
-INSERT INTO adbmgr.parm VALUES ('*', 'adb_debug', 'off', 'superuser', 'bool', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('*', 'adb_ha_param_delimiter', '$&#$', 'user', 'string', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('*', 'adb_log_query', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'allow_system_table_mods', 'off', 'postmaster', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'application_name', 'psql', 'user', 'string', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'archive_command', '(disabled)', 'sighup', 'string', NULL, NULL, NULL, NULL);
@@ -1244,6 +1245,9 @@ INSERT INTO adbmgr.parm VALUES ('*', 'dynamic_library_path', '$libdir', 'superus
 INSERT INTO adbmgr.parm VALUES ('*', 'dynamic_shared_memory_type', 'sysv', 'postmaster', 'enum', NULL, NULL, NULL, '{posix,sysv,mmap,none}');
 INSERT INTO adbmgr.parm VALUES ('*', 'effective_cache_size', '524288', 'user', 'integer', '8kB', '1', '2147483647', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'effective_io_concurrency', '1', 'user', 'integer', NULL, '0', '1000', NULL);
+INSERT INTO adbmgr.parm VALUES ('*', 'enable_adb_ha_sync', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('*', 'enable_adb_ha_sync_select', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('*', 'enable_aux_dml', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'enable_bitmapscan', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'enable_gathermerge', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'enable_hashagg', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
@@ -1352,6 +1356,7 @@ INSERT INTO adbmgr.parm VALUES ('*', 'password_encryption', 'on', 'user', 'bool'
 INSERT INTO adbmgr.parm VALUES ('*', 'port', '55100', 'postmaster', 'integer', NULL, '1', '65535', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'post_auth_delay', '0', 'backend', 'integer', 's', '0', '2147', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'pre_auth_delay', '0', 'sighup', 'integer', 's', '0', '60', NULL);
+INSERT INTO adbmgr.parm VALUES ('*', 'print_reduce_debug_log', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'quote_all_identifiers', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'random_page_cost', '4', 'user', 'real', NULL, '0', '1.79769e+308', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'replacement_sort_tuples', '150000', 'user', 'integer', NULL, '0', '2147483647', NULL);
@@ -1361,8 +1366,8 @@ INSERT INTO adbmgr.parm VALUES ('*', 'search_path', '"$user", public', 'user', '
 INSERT INTO adbmgr.parm VALUES ('*', 'segment_size', '131072', 'internal', 'integer', '8kB', '131072', '131072', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'seq_page_cost', '1', 'user', 'real', NULL, '0', '1.79769e+308', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'server_encoding', 'UTF8', 'internal', 'string', NULL, NULL, NULL, NULL);
-INSERT INTO adbmgr.parm VALUES ('*', 'server_version', '9.6.2', 'internal', 'string', NULL, NULL, NULL, NULL);
-INSERT INTO adbmgr.parm VALUES ('*', 'server_version_num', '90602', 'internal', 'integer', NULL, '90602', '90602', NULL);
+INSERT INTO adbmgr.parm VALUES ('*', 'server_version', '9.6.9', 'internal', 'string', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('*', 'server_version_num', '90609', 'internal', 'integer', NULL, '90609', '90609', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'session_preload_libraries', '', 'superuser', 'string', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'session_replication_role', 'origin', 'superuser', 'enum', NULL, NULL, NULL, '{origin,replica,local}');
 INSERT INTO adbmgr.parm VALUES ('*', 'shared_buffers', '16384', 'postmaster', 'integer', '8kB', '16', '1073741823', NULL);
@@ -1411,6 +1416,8 @@ INSERT INTO adbmgr.parm VALUES ('*', 'unix_socket_directories', '/tmp', 'postmas
 INSERT INTO adbmgr.parm VALUES ('*', 'unix_socket_group', '', 'postmaster', 'string', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'unix_socket_permissions', '0777', 'postmaster', 'integer', NULL, '0', '511', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'update_process_title', 'on', 'superuser', 'bool', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('*', 'use_aux_max_times', '1', 'user', 'integer', NULL, '-1', '2147483647', NULL);
+INSERT INTO adbmgr.parm VALUES ('*', 'use_aux_type', 'on', 'user', 'enum', NULL, NULL, NULL, '{off,on,node,ctid}');
 INSERT INTO adbmgr.parm VALUES ('*', 'vacuum_cost_delay', '0', 'user', 'integer', 'ms', '0', '100', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'vacuum_cost_limit', '200', 'user', 'integer', NULL, '1', '10000', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'vacuum_cost_page_dirty', '20', 'user', 'integer', NULL, '0', '10000', NULL);
@@ -1423,6 +1430,7 @@ INSERT INTO adbmgr.parm VALUES ('*', 'vacuum_multixact_freeze_min_age', '5000000
 INSERT INTO adbmgr.parm VALUES ('*', 'vacuum_multixact_freeze_table_age', '150000000', 'user', 'integer', NULL, '0', '2000000000', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'wal_block_size', '65536', 'internal', 'integer', NULL, '65536', '65536', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'wal_compression', 'off', 'superuser', 'bool', NULL, NULL, NULL, NULL);
+INSERT INTO adbmgr.parm VALUES ('*', 'wal_debug', 'off', 'superuser', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'wal_keep_segments', '32', 'sighup', 'integer', NULL, '0', '2147483647', NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'wal_log_hints', 'off', 'postmaster', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'wal_receiver_status_interval', '10', 'sighup', 'integer', 's', '0', '2147483', NULL);
@@ -1469,7 +1477,6 @@ INSERT INTO adbmgr.parm VALUES ('#', 'reduce_setup_cost', '1000', 'user', 'real'
 INSERT INTO adbmgr.parm VALUES ('#', 'remote_tuple_cost', '0.3', 'user', 'real', NULL, '0', '1.79769e+308', NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'remotetype', 'application', 'backend', 'enum', NULL, NULL, NULL, '{application,coordinator,datanode,rxactmgr}');
 INSERT INTO adbmgr.parm VALUES ('#', 'require_replicated_table_pkey', 'on', 'user', 'bool', NULL, NULL, NULL, NULL);
-INSERT INTO adbmgr.parm VALUES ('#', 'xc_enable_node_tcp_log', 'off', 'user', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('#', 'xc_maintenance_mode', 'off', 'superuser', 'bool', NULL, NULL, NULL, NULL);
 INSERT INTO adbmgr.parm VALUES ('*', 'wal_level', 'minimal', 'postmaster', 'enum', NULL, NULL, NULL, '{minimal,replica,logical}');
 INSERT INTO adbmgr.parm VALUES ('#', 'agtm_host', 'localhost', 'sighup', 'string', NULL, NULL, NULL, NULL);
