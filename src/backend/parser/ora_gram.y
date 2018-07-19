@@ -1365,10 +1365,10 @@ OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType
 						n->disttype = DISTTYPE_REPLICATION;
 					else if (strcmp($3, "roundrobin") == 0)
 						n->disttype = DISTTYPE_ROUNDROBIN;
-                    else
-                        ereport(ERROR,
-                                (errcode(ERRCODE_SYNTAX_ERROR),
-                                 errmsg("unrecognized distribution option \"%s\"", $3)));
+					else
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("unrecognized distribution option \"%s\"", $3)));
 					n->colname = NULL;
 					$$ = n;
 				}
