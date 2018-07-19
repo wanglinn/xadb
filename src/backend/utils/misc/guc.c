@@ -8226,7 +8226,7 @@ set_config_by_name(PG_FUNCTION_ARGS)
 		appendStringInfo(&poolcmd, "SET %s %s TO %s",
 								   (is_local ? "LOCAL" : ""),
 								   name,
-								   (value ? value : "DEFAULT"));
+								   (value ? (*value ? value : "''") : "DEFAULT"));
 
 		if (PoolManagerSetCommand(poolcmdType, poolcmd.data) < 0)
 			elog(ERROR, "Postgres-XC: ERROR SET query");
