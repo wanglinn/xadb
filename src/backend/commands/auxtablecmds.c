@@ -278,8 +278,13 @@ MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel)
 {
 	ColumnDef		   *coldef;
 	List			   *tableElts = NIL;
+	Constraint		   *n;
 
 	Assert(auxcolumn && rel);
+
+	n = makeNode(Constraint);
+	n->contype = CONSTR_NOTNULL;
+	n->location = -1;
 
 #if (Anum_aux_table_auxnodeid == 1)
 	/* 1. additional fixed columns -- auxnodeid */
@@ -287,6 +292,7 @@ MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel)
 						   INT4OID,
 						   -1,
 						   InvalidOid);
+	coldef->constraints = lappend(coldef->constraints, n);
 	tableElts = lappend(tableElts, coldef);
 #else
 #error need change var list order
@@ -298,6 +304,7 @@ MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel)
 						   TIDOID,
 						   -1,
 						   InvalidOid);
+	coldef->constraints = lappend(coldef->constraints, copyObject(n));
 	tableElts = lappend(tableElts, coldef);
 #else
 #error need change var list order
@@ -309,6 +316,8 @@ MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel)
 						   auxcolumn->atttypid,
 						   auxcolumn->atttypmod,
 						   auxcolumn->attcollation);
+	if (auxcolumn->attnotnull)
+		coldef->constraints = lappend(coldef->constraints, copyObject(n));
 	tableElts = lappend(tableElts, coldef);
 #else
 #error need change var list order
