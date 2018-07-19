@@ -1487,10 +1487,6 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	 */
 	if (options & VACOPT_FULL)
 	{
-#ifdef ADB
-		vacuum_full_auxrel(onerel, options);
-#endif
-
 		/* close relation before vacuuming, but hold lock until commit */
 		relation_close(onerel, NoLock);
 		onerel = NULL;
@@ -1646,18 +1642,12 @@ vacuum_delay_point(void)
 /*
  * vacuum_full_auxrel
  *
- * Truncate any auxiliary relation of "master"
- * if VACUUM FULL.
- *
  * Re-padding data for auxiliary relations if
  * coordinator master.
  */
 static void
 vacuum_full_auxrel(Relation master, int options)
 {
-	Relation	auxrel;
-	ListCell   *lc;
-
 	/*
 	 * only for VACUUM FULL
 	 */
@@ -1671,21 +1661,6 @@ vacuum_full_auxrel(Relation master, int options)
 	 */
 	if (master->rd_auxlist == NIL)
 		return ;
-
-	/*
-	 * Truncate any auxiliary relations
-	 */
-	foreach (lc, master->rd_auxlist)
-	{
-		auxrel = relation_open(lfirst_oid(lc), AccessExclusiveLock);
-		if (RELATION_IS_OTHER_TEMP(auxrel))
-		{
-			relation_close(auxrel, AccessExclusiveLock);
-			continue;
-		}
-		heap_truncate_one_rel(auxrel);
-		relation_close(auxrel, AccessExclusiveLock);
-	}
 
 	/*
 	 * re-padding data for auxiliary relations

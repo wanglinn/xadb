@@ -4,6 +4,7 @@
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/sysattr.h"
+#include "access/xact.h"
 #include "catalog/heap.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
@@ -28,6 +29,12 @@
 #include "utils/syscache.h"
 
 extern bool enable_aux_dml;
+
+static char *ChooseAuxTableName(const char *name1, const char *name2,
+								const char *label, Oid namespaceid);
+static List *MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel);
+static PaddingAuxDataStmt *AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt);
+static void TruncateAuxRelation(Relation rel);
 
 /*
  * InsertAuxClassTuple
@@ -408,6 +415,7 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 
 	padding_stmt = makeNode(PaddingAuxDataStmt);
 	padding_stmt->masterrv = auxstmt->master_relation;
+	padding_stmt->truncaux = false;
 	padding_stmt->auxrvlist = list_make1(create_stmt->relation);
 
 	/* makeup table elements */
@@ -424,6 +432,15 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 	relation_close(master_relation, NoLock);
 
 	return padding_stmt;
+}
+
+static void
+TruncateAuxRelation(Relation rel)
+{
+	if (!rel || !RelationIsAuxiliary(rel))
+		return ;
+
+	TruncateRelation(rel, GetCurrentSubTransactionId());
 }
 
 void
@@ -462,7 +479,8 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 				heap_close(auxrel, AccessExclusiveLock);
 				continue;
 			}
-			heap_truncate_one_rel(auxrel);
+			if (stmt->truncaux)
+				TruncateAuxRelation(auxrel);
 			auxrellist = lappend(auxrellist, auxrel);
 			if (auxrel->rd_locator_info)
 				rnodes = list_concat_unique_oid(rnodes, auxrel->rd_locator_info->nodeids);
@@ -596,8 +614,8 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 			auxrv->schemaname = auxcopy->schemaname;
 			auxrv->relname = auxcopy->relname;
 			auxrel = heap_openrv_extended(auxrv, AccessExclusiveLock, true);
-			if (auxrel)
-				heap_truncate_one_rel(auxrel);
+			if (stmt->truncaux)
+				TruncateAuxRelation(auxrel);
 
 			DoPaddingDataForAuxRel(master,
 								   auxrel,
@@ -677,6 +695,7 @@ PaddingAuxDataOfMaster(Relation master)
 	stmt->masterrv = makeRangeVar(get_namespace_name(RelationGetNamespace(master)),
 								  RelationGetRelationName(master),
 								  -1);
+	stmt->truncaux = true;
 	foreach (lc, master->rd_auxlist)
 	{
 		auxrelid = lfirst_oid(lc);
@@ -686,199 +705,6 @@ PaddingAuxDataOfMaster(Relation master)
 	}
 	ExecPaddingAuxDataStmt(stmt, NULL);
 }
-#if 0
-/*
- * QueryRewriteAuxStmt
- *
- * rewrite auxiliary query.
- */
-List *
-QueryRewriteAuxStmt(Query *auxquery)
-{
-	CreateAuxStmt	   *auxstmt;
-	CreateStmt		   *create_stmt;
-	IndexStmt		   *index_stmt;
-	HeapTuple			atttuple;
-	Form_pg_attribute	auxattform;
-	Relation			master_relation;
-	Oid					master_nspid;
-	Oid					master_relid;
-	RelationLocInfo	   *master_reloc;
-	StringInfoData		querystr;
-	Query			   *create_query;
-	List			   *raw_insert_parsetree = NIL;
-	List			   *each_querytree_list = NIL;
-	List			   *rewrite_tree_list = NIL;
-	ListCell		   *lc = NULL,
-					   *lc_query = NULL;
-	Query			   *insert_query = NULL;
-	PlannedStmt		   *pstmt;
-	bool				saved_enable_aux_dml;
-
-	if (auxquery->commandType != CMD_UTILITY ||
-		!IsA(auxquery->utilityStmt, CreateAuxStmt))
-		elog(ERROR, "Expect auxiliary table query rewriten");
-
-	auxstmt = (CreateAuxStmt *) auxquery->utilityStmt;
-	create_stmt = (CreateStmt *)auxstmt->create_stmt;
-	index_stmt = (IndexStmt *) auxstmt->index_stmt;
-
-	/* Sanity check */
-	Assert(create_stmt && index_stmt);
-	Assert(auxstmt->master_relation);
-	Assert(auxstmt->aux_column);
-	Assert(create_stmt->master_relation);
-
-	/* Master relation check */
-	master_relid = RangeVarGetRelidExtended(auxstmt->master_relation,
-											ShareLock,
-											false, false,
-											RangeVarCallbackOwnsRelation,
-											NULL);
-	master_relation = relation_open(master_relid, NoLock);
-	master_reloc = RelationGetLocInfo(master_relation);
-	master_nspid = RelationGetNamespace(master_relation);
-	switch (master_reloc->locatorType)
-	{
-		case LOCATOR_TYPE_REPLICATED:
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("no need to build auxiliary table for replication table")));
-			break;
-		case LOCATOR_TYPE_RANDOM:
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("cannot build auxiliary table for roundrobin table")));
-			break;
-		case LOCATOR_TYPE_USER_DEFINED:
-		case LOCATOR_TYPE_HASH:
-		case LOCATOR_TYPE_MODULO:
-			/* it is OK */
-			break;
-		case LOCATOR_TYPE_CUSTOM:
-		case LOCATOR_TYPE_RANGE:
-			/* not support yet */
-			break;
-		case LOCATOR_TYPE_NONE:
-		case LOCATOR_TYPE_DISTRIBUTED:
-		default:
-			/* should not reach here */
-			Assert(false);
-			break;
-	}
-
-	/* Auxiliary column check */
-	atttuple = SearchSysCacheAttName(master_relid, auxstmt->aux_column);
-	if (!HeapTupleIsValid(atttuple))
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_COLUMN),
-				 errmsg("column \"%s\" does not exist",
-						auxstmt->aux_column)));
-	auxattform = (Form_pg_attribute) GETSTRUCT(atttuple);
-	if (!AttrNumberIsForUserDefinedAttr(auxattform->attnum))
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("auxiliary table on system column \"%s\" is not supported",
-				 auxstmt->aux_column)));
-	if (IsDistribColumn(master_relid, auxattform->attnum))
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("no need to build auxiliary table for distribute column \"%s\"",
-				 auxstmt->aux_column)));
-
-	/* choose auxiliary table name */
-	if (create_stmt->relation == NULL)
-	{
-		char *relname = ChooseAuxTableName(RelationGetRelationName(master_relation),
-										   NameStr(auxattform->attname),
-										   "aux", master_nspid);
-		create_stmt->relation = makeRangeVar(NULL, pstrdup(relname), -1);
-		index_stmt->relation = makeRangeVar(NULL, pstrdup(relname), -1);
-	}
-
-	/* makeup table elements */
-	create_stmt->tableElts = MakeAuxTableColumns(auxattform, master_relation);
-	create_stmt->aux_attnum = auxattform->attnum;
-	if (create_stmt->distributeby == NULL)
-	{
-		create_stmt->distributeby = makeNode(DistributeBy);
-		create_stmt->distributeby->disttype = DISTTYPE_HASH;
-		create_stmt->distributeby->colname = pstrdup(NameStr(auxattform->attname));
-	}
-
-	create_query = copyObject(auxquery);
-	create_query->commandType = CMD_UTILITY;
-	create_query->utilityStmt = (Node *) create_stmt;
-
-	initStringInfo(&querystr);
-	deparse_query(create_query, &querystr, NIL, false, false);
-
-	/* create auxiliary table first */
-	pstmt = makeNode(PlannedStmt);
-	pstmt->commandType = CMD_UTILITY;
-	pstmt->canSetTag = false;
-	pstmt->utilityStmt = create_query->utilityStmt;
-	pstmt->stmt_location = create_query->stmt_location;
-	pstmt->stmt_len = create_query->stmt_len;
-	ProcessUtility(pstmt,
-				   querystr.data,
-				   PROCESS_UTILITY_TOPLEVEL, NULL, NULL, NULL,
-				   false,
-				   NULL);
-
-	/* Insert into auxiliary table */
-	resetStringInfo(&querystr);
-	appendStringInfoString(&querystr, "INSERT INTO ");
-	if (create_stmt->relation->schemaname)
-		appendStringInfo(&querystr, "%s.", create_stmt->relation->schemaname);
-	appendStringInfo(&querystr, "%s ", create_stmt->relation->relname);
-#if (Anum_aux_table_auxnodeid == 1 && Anum_aux_table_auxctid == 2 && Anum_aux_table_key == 3)
-	appendStringInfo(&querystr, "SELECT xc_node_id, ctid, \"%s\" FROM ",
-					 NameStr(auxattform->attname));
-#else
-#error need change select target list
-#endif
-	if (auxstmt->master_relation->schemaname)
-		appendStringInfo(&querystr, "%s.", auxstmt->master_relation->schemaname);
-	appendStringInfo(&querystr, "%s;", auxstmt->master_relation->relname);
-
-	ReleaseSysCache(atttuple);
-	relation_close(master_relation, NoLock);
-
-	raw_insert_parsetree = pg_parse_query(querystr.data);
-	saved_enable_aux_dml = enable_aux_dml;
-	enable_aux_dml = true;
-	PG_TRY();
-	{
-		foreach (lc, raw_insert_parsetree)
-		{
-			each_querytree_list = pg_analyze_and_rewrite(lfirst_node(RawStmt,lc), querystr.data, NULL, 0, NULL);
-			foreach (lc_query, each_querytree_list)
-			{
-				if (IsA(lfirst(lc_query), Query))
-				{
-					insert_query = (Query *) lfirst(lc_query);
-					insert_query->canSetTag = false;
-					insert_query->querySource = QSRC_PARSER;
-				}
-				rewrite_tree_list = lappend(rewrite_tree_list, lfirst(lc_query));
-			}
-		}
-	} PG_CATCH();
-	{
-		enable_aux_dml = saved_enable_aux_dml;
-		PG_RE_THROW();
-	} PG_END_TRY();
-	enable_aux_dml = saved_enable_aux_dml;
-
-	/* Create index for auxiliary table */
-	auxquery->utilityStmt = (Node *) index_stmt;
-	auxquery->canSetTag = false;
-	auxquery->querySource = QSRC_PARSER;
-
-	return lappend(rewrite_tree_list, auxquery);
-}
-#endif
 
 void RelationBuildAuxiliary(Relation rel)
 {
