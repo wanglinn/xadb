@@ -4926,6 +4926,26 @@ ATSimpleRecursion(List **wqueue, Relation rel,
 			ATPrepCmd(wqueue, childrel, cmd, false, true, lockmode);
 			relation_close(childrel, NoLock);
 		}
+
+#ifdef ADB
+		/*
+		 * try to add "cmd" for auxiliary tables of "rel".
+		 */
+		if (cmd->subtype == AT_DropNotNull ||
+			cmd->subtype == AT_SetNotNull)
+		{
+			Oid auxrelid = LookupAuxRelation(RelationGetRelid(rel),
+											 get_attnum(RelationGetRelid(rel),
+											 			cmd->name));
+			if (OidIsValid(auxrelid))
+			{
+				Relation auxrel = relation_open(auxrelid, lockmode);
+				CheckTableNotInUse(auxrel, "ALTER AUXILIARY TABLE");
+				ATPrepCmd(wqueue, auxrel, cmd, false, true, lockmode);
+				relation_close(auxrel, NoLock);
+			}
+		}
+#endif
 	}
 }
 
