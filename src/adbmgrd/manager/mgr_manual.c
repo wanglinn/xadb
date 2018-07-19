@@ -734,10 +734,15 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errmsg("coordinator \"%s\" is not running normal", m_coordname)));
 	}
 	/* check the source coordinator the parameters in postgresql.conf */
-	if (!mgr_check_param_reload_postgresqlconf(CNDN_TYPE_COORDINATOR_MASTER, src_nodeinfo.nodehost, src_nodeinfo.nodeport, src_nodeinfo.nodeaddr, "wal_level", "replica"))
+	if (!mgr_check_param_reload_postgresqlconf(CNDN_TYPE_COORDINATOR_MASTER
+		, src_nodeinfo.nodehost, src_nodeinfo.nodeport, src_nodeinfo.nodeaddr
+		, "wal_level", "replica")
+		&& !mgr_check_param_reload_postgresqlconf(CNDN_TYPE_COORDINATOR_MASTER
+		, src_nodeinfo.nodehost, src_nodeinfo.nodeport, src_nodeinfo.nodeaddr
+		, "wal_level", "logical"))
 	{
 		pfree_AppendNodeInfo(src_nodeinfo);
-		ereport(ERROR, (errmsg("the parameter \"wal_level\" in coordinator \"%s\" postgresql.conf is not \"hot_standby\"", m_coordname)));
+		ereport(ERROR, (errmsg("the parameter \"wal_level\" in coordinator \"%s\" postgresql.conf is not \"replica\" or \"logical\"", m_coordname)));
 	}
 
 	/* check dest coordinator */
