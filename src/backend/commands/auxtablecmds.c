@@ -361,6 +361,10 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 											false, false,
 											RangeVarCallbackOwnsRelation,
 											NULL);
+	if (RelationIdIsAuxiliary(master_relid))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("cannot build an auxiliary table on auxiliary table")));
 	master_relation = relation_open(master_relid, NoLock);
 	master_reloc = RelationGetLocInfo(master_relation);
 	master_nspid = RelationGetNamespace(master_relation);
