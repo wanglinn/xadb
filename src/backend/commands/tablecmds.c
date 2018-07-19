@@ -501,7 +501,7 @@ static RedistribState *BuildRedistribCommands(Oid relid, List *subCmds);
 static Oid *delete_node_list(Oid *old_oids, int old_num, Oid *del_oids, int del_num, int *new_num);
 static Oid *add_node_list(Oid *old_oids, int old_num, Oid *add_oids, int add_num, int *new_num);
 static void RegisterPostAlterTableAction(post_alter_table_callback func, void *arg);
-static void CleanupPostAlterTableActions(void);
+static void CleanupPostAlterTableActions(void *arg);
 static void ATPaddingAuxData(void *arg);
 #endif
 
@@ -3433,18 +3433,7 @@ AlterTable(Oid relid, LOCKMODE lockmode, AlterTableStmt *stmt)
 
 	CheckTableNotInUse(rel, "ALTER TABLE");
 
-#ifdef ADB
-	PG_TRY();
-	{
-#endif
 	ATController(stmt, rel, stmt->cmds, stmt->relation->inh, lockmode);
-#ifdef ADB
-	} PG_CATCH();
-	{
-		CleanupPostAlterTableActions();
-		PG_RE_THROW();
-	} PG_END_TRY();
-#endif
 }
 
 /*
@@ -3863,7 +3852,8 @@ ATController(AlterTableStmt *parsetree,
 
 #ifdef ADB
 	/* Phase 4: register alter table postoperations */
-	RegisterPostAlterTableAction(ATPaddingAuxData, (void *) wqueue);
+	if (IsCoordMaster())
+		RegisterPostAlterTableAction(ATPaddingAuxData, (void *) wqueue);
 #endif
 }
 
@@ -15160,23 +15150,37 @@ DropTableThrowErrorExternal(RangeVar *relation, ObjectType removeType, bool miss
 static void
 RegisterPostAlterTableAction(post_alter_table_callback func, void *arg)
 {
-	PostAlterTableEntry *entry = NULL;
+	MemoryContext			oldContext;
+	PostAlterTableEntry	   *entry = NULL;
 
+	oldContext = MemoryContextSwitchTo(PortalContext);
+	if (post_alter_table_actions == NIL)
+	{
+		MemoryContextCallback *cb;
+
+		cb = (MemoryContextCallback *) palloc(sizeof(*cb));
+		cb->func = CleanupPostAlterTableActions;
+		cb->arg = (void *) &post_alter_table_actions;
+		cb->next = NULL;
+
+		MemoryContextRegisterResetCallback(PortalContext, cb);
+	}
 	entry = (PostAlterTableEntry *) palloc(sizeof(PostAlterTableEntry));
 	entry->function = func;
 	entry->arg = arg;
-
 	post_alter_table_actions = lappend(post_alter_table_actions, entry);
+	(void) MemoryContextSwitchTo(oldContext);
 }
 
 static void
-CleanupPostAlterTableActions(void)
+CleanupPostAlterTableActions(void *arg)
 {
 	/*
 	 * Memory fo post_alter_table_actions will be
 	 * released with its MemoryContext and not afraid
 	 * of memory leaks.
 	 */
+	Assert(arg == &post_alter_table_actions);
 	post_alter_table_actions = NIL;
 }
 
