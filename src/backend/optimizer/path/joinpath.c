@@ -3057,6 +3057,17 @@ static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptIn
 				need_reduce_list = lappend(need_reduce_list, rinfo);
 			continue;
 		}
+
+		if (IsReduceInfoInOneNode(rinfo))
+		{
+			ReduceInfo *new_rinfo = MakeRoundReduceInfo(list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec));
+			Assert(IsReduceInfoInOneNode(new_rinfo));
+			if (ReduceInfoListMember(need_reduce_list, new_rinfo) == false)
+				need_reduce_list = lappend(need_reduce_list, new_rinfo);
+			else
+				FreeReduceInfo(new_rinfo);
+		}
+
 		switch(jointype)
 		{
 		case JOIN_INNER:
@@ -3111,6 +3122,17 @@ static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptIn
 				need_reduce_list = lappend(need_reduce_list, rinfo);
 			continue;
 		}
+
+		if (IsReduceInfoInOneNode(rinfo))
+		{
+			ReduceInfo *new_rinfo = MakeRoundReduceInfo(list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec));
+			Assert(IsReduceInfoInOneNode(new_rinfo));
+			if (ReduceInfoListMember(need_reduce_list, new_rinfo) == false)
+				need_reduce_list = lappend(need_reduce_list, new_rinfo);
+			else
+				FreeReduceInfo(new_rinfo);
+		}
+
 		switch(jointype)
 		{
 		case JOIN_INNER:
