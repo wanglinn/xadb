@@ -3148,41 +3148,34 @@ copy_generic_opt_arg_list_item:
  *				CREATE AUXILIARY TABLE relname
  *
  *****************************************************************************/
-CreateAuxStmt:	CREATE OptTemp AUXILIARY TABLE opt_aux_name
-			ON qualified_name '(' ColId OptIndex ')'
+CreateAuxStmt:	CREATE AUXILIARY TABLE opt_aux_name ON
+			qualified_name '(' ColId OptIndex ')'
 			OptTableSpace OptDistributeBy OptSubCluster
 				{
 					CreateAuxStmt *n = makeNode(CreateAuxStmt);
 					CreateStmt *cs = makeNode(CreateStmt);
-					IndexStmt *is = (IndexStmt *) $10;
+					IndexStmt *is = (IndexStmt *) $9;
 
-					if ($2 == RELPERSISTENCE_TEMP)
-						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("can not create temporary auxiliary table"),
-								 parser_errposition(@2)));
-					if ($5)
-						$5->relpersistence = $2;
 					cs->grammar = PARSE_GRAM_POSTGRES;
-					cs->relation = $5;
+					cs->relation = $4;
 					cs->tableElts = NIL;		/* set when AnalyzeRewriteCreateAuxStmt */
 					cs->inhRelations = NIL;
 					cs->ofTypename = NULL;
 					cs->constraints = NIL;
 					cs->options = NULL;
 					cs->oncommit = ONCOMMIT_NOOP;
-					cs->tablespacename = $12;
+					cs->tablespacename = $11;
 					cs->if_not_exists = false;
 					cs->auxiliary = true;
-					cs->master_relation = $7;	/* master relation rangevar */
+					cs->master_relation = $6;	/* master relation rangevar */
 					cs->aux_attnum = InvalidAttrNumber;	/* set when AnalyzeRewriteCreateAuxStmt */
-					cs->distributeby = $13;
-					cs->subcluster = $14;
+					cs->distributeby = $12;
+					cs->subcluster = $13;
 					if (is)
 					{
 						IndexElem *ie = makeNode(IndexElem);
 
-						ie->name = $9;
+						ie->name = $8;
 						ie->expr = NULL;
 						ie->indexcolname = NULL;
 						ie->collation = NIL;
@@ -3190,13 +3183,13 @@ CreateAuxStmt:	CREATE OptTemp AUXILIARY TABLE opt_aux_name
 						ie->ordering = SORTBY_DEFAULT;
 						ie->nulls_ordering = SORTBY_NULLS_DEFAULT;
 
-						is->relation = $5;
+						is->relation = $4;
 						is->indexParams = list_make1(ie);
 					}
 					n->create_stmt = (Node *) cs;
 					n->index_stmt = (Node *) is;
-					n->master_relation = $7;
-					n->aux_column = $9;
+					n->master_relation = $6;
+					n->aux_column = $8;
 					$$ = (Node *) n;
 				}
 		;

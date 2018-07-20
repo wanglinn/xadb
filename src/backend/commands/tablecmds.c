@@ -380,6 +380,10 @@ static void ATRewriteTable(AlteredTableInfo *tab, Oid OIDNewHeap, LOCKMODE lockm
 static AlteredTableInfo *ATGetQueueEntry(List **wqueue, Relation rel);
 static void ATSimplePermissions(Relation rel, int allowed_targets);
 static void ATWrongRelkindError(Relation rel, int allowed_targets);
+#ifdef ADB
+static void ATAuxTableInternal(List **wqueue, Relation rel,
+				  AlterTableCmd *cmd, bool recurse, LOCKMODE lockmode);
+#endif
 static void ATSimpleRecursion(List **wqueue, Relation rel,
 				  AlterTableCmd *cmd, bool recurse, LOCKMODE lockmode);
 static void ATTypedTableRecursion(List **wqueue, Relation rel, AlterTableCmd *cmd,
@@ -4163,6 +4167,10 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 			pass = AT_PASS_UNSET;	/* keep compiler quiet */
 			break;
 	}
+#ifdef ADB
+	/* Add specified "cmd" for auxiliary table automatically */
+	ATAuxTableInternal(wqueue, rel, cmd, recurse, lockmode);
+#endif
 	Assert(pass > AT_PASS_UNSET);
 
 	/* Add the subcommand to the appropriate list for phase 2 */
@@ -5247,6 +5255,61 @@ ATWrongRelkindError(Relation rel, int allowed_targets)
 			 errmsg(msg, RelationGetRelationName(rel))));
 }
 
+#ifdef ADB
+/*
+ * ATAuxTableInternal
+ *
+ * Add some specified ALTER TABLE operations for relation which has
+ * any auxiliary table.
+ */
+static void
+ATAuxTableInternal(List **wqueue, Relation rel,
+					AlterTableCmd *cmd, bool recurse, LOCKMODE lockmode)
+{
+	if (recurse && rel->rd_rel->relkind == RELKIND_RELATION)
+	{
+		Oid			auxrelid;
+		Relation	auxrel;
+
+		switch (cmd->subtype)
+		{
+			case AT_DropNotNull:
+			case AT_SetNotNull:
+				{
+					auxrelid = LookupAuxRelation(RelationGetRelid(rel),
+												 get_attnum(RelationGetRelid(rel),
+												 			cmd->name));
+					if (OidIsValid(auxrelid))
+					{
+						Relation auxrel = relation_open(auxrelid, lockmode);
+						CheckTableNotInUse(auxrel, "ALTER AUXILIARY TABLE");
+						ATPrepCmd(wqueue, auxrel, cmd, false, true, lockmode);
+						relation_close(auxrel, NoLock);
+					}
+				}
+				break;
+			case AT_SetLogged:
+			case AT_SetUnLogged:
+				{
+					ListCell *lc;
+
+					foreach (lc, rel->rd_auxlist)
+					{
+						auxrelid = lfirst_oid(lc);
+						auxrel = relation_open(auxrelid, lockmode);
+						CheckTableNotInUse(auxrel, "ALTER AUXILIARY TABLE");
+						ATPrepCmd(wqueue, auxrel, cmd, false, true, lockmode);
+						relation_close(auxrel, NoLock);
+					}
+				}
+				break;
+			default:
+				break;
+		}
+	}
+}
+#endif
+
 /*
  * ATSimpleRecursion
  *
@@ -5292,26 +5355,6 @@ ATSimpleRecursion(List **wqueue, Relation rel,
 			ATPrepCmd(wqueue, childrel, cmd, false, true, lockmode);
 			relation_close(childrel, NoLock);
 		}
-
-#ifdef ADB
-		/*
-		 * try to add "cmd" for auxiliary tables of "rel".
-		 */
-		if (cmd->subtype == AT_DropNotNull ||
-			cmd->subtype == AT_SetNotNull)
-		{
-			Oid auxrelid = LookupAuxRelation(RelationGetRelid(rel),
-											 get_attnum(RelationGetRelid(rel),
-											 			cmd->name));
-			if (OidIsValid(auxrelid))
-			{
-				Relation auxrel = relation_open(auxrelid, lockmode);
-				CheckTableNotInUse(auxrel, "ALTER AUXILIARY TABLE");
-				ATPrepCmd(wqueue, auxrel, cmd, false, true, lockmode);
-				relation_close(auxrel, NoLock);
-			}
-		}
-#endif
 	}
 }
 
