@@ -4365,8 +4365,8 @@ static Oid get_operator_for_function(Oid funcid)
 }
 
 static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, double rows, int paramid);
-static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, double rows, int paramid);
-static Expr* make_aux_update_clause(Relation aux_rel, Index aux_relid, RangeTblEntry *pts_rte, Index pts_relid);
+static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, double rows, int paramid, bool filter_nulls);
+static Expr* make_aux_delete_clause(Relation aux_rel, Index aux_relid, RangeTblEntry *pts_rte, Index pts_relid, bool filter_nulls);
 static List* make_modify_query_insert_target(List *exprs, List * icolumns, List *attrnos, Bitmapset **inserted);
 static List* make_aux_main_rel_need_result(Relation rel, Index mainrelid, List **colnames, Bitmapset **attrnos);
 static Var* get_ts_scan_var_for_aux_key(RangeTblEntry *tsrte, const char *name, Index relid);
@@ -4449,8 +4449,14 @@ void applyModifyToAuxiliaryTable(struct PlannerInfo *root, double rows, Index re
 		if (cmd_type == CMD_UPDATE ||
 			cmd_type == CMD_DELETE)
 		{
-			subparse = makeAuxiliaryDeleteQuery(rel_aux, main_alias, main_vars, execNodes, rows, param_old->paramid);
+			subparse = makeAuxiliaryDeleteQuery(rel_aux, main_alias, main_vars, execNodes, rows, param_old->paramid, true);
 			add_modify_as_cte(root->parse, subparse, RelationGetRelationName(rel_aux));
+
+			if (TupleDescAttr(RelationGetDescr(rel_aux), Anum_aux_table_key-1)->attnotnull == false)
+			{
+				subparse = makeAuxiliaryDeleteQuery(rel_aux, main_alias, main_vars, execNodes, rows, param_old->paramid, false);
+				add_modify_as_cte(root->parse, subparse, RelationGetRelationName(rel_aux));
+			}
 		}
 
 		/* insert into new rows to aux_rel */
@@ -4535,7 +4541,7 @@ static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List
 }
 
 
-static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, double rows, int paramid)
+static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, double rows, int paramid, bool filter_nulls)
 {
 	Query		   *subparse;
 	ParseState	   *pstate;
@@ -4578,7 +4584,7 @@ static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List
 	addRTEtoQuery(pstate, pts_rte, true, false, false);
 
 	/* make join clause */
-	qual = make_aux_update_clause(rel_aux, aux_relid, pts_rte, pts_relid);
+	qual = make_aux_delete_clause(rel_aux, aux_relid, pts_rte, pts_relid, filter_nulls);
 
 	subparse->rtable = pstate->p_rtable;
 	subparse->jointree = makeFromExpr(pstate->p_joinlist, (Node*)qual);
@@ -4590,25 +4596,43 @@ static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List
 	return subparse;
 }
 
-static Expr* make_aux_update_clause(Relation aux_rel, Index aux_relid, RangeTblEntry *pts_rte, Index pts_relid)
+static Expr* make_aux_delete_clause(Relation aux_rel, Index aux_relid, RangeTblEntry *pts_rte, Index pts_relid, bool filter_nulls)
 {
 	Var				   *pts_var;
 	Var				   *aux_var;
 	Form_pg_attribute	attr;
 	List			   *equals;
 	Expr			   *expr;
+	NullTest		   *null_test;
 	List			   *equal_op_name = SystemFuncName((char*)"=");
 	TupleDesc			desc = RelationGetDescr(aux_rel);
 
-	/*
-	 * aux_rel.key = tuplestore.key_name
-	 * this is not must, but aux_rel.key has index, so we add this operator
-	 */
 	attr = TupleDescAttr(desc, Anum_aux_table_key-1);
 	aux_var = makeVar(aux_relid, Anum_aux_table_key, attr->atttypid, attr->atttypmod, attr->attcollation, 0);
 	pts_var = get_ts_scan_var_for_aux_key(pts_rte, NameStr(attr->attname), pts_relid);
-	expr = make_op(NULL, equal_op_name, (Node*)aux_var, (Node*)pts_var, NULL, -1);
-	equals = list_make1(expr);
+
+	if (filter_nulls)
+	{
+		/*
+		 * aux_rel.key = tuplestore.key_name
+		 * this is not must, but aux_rel.key has index, so we add this operator
+		 */
+		expr = make_op(NULL, equal_op_name, (Node*)aux_var, (Node*)pts_var, NULL, -1);
+		equals = list_make1(expr);
+
+		/* tuplestore.key_name is not null */
+		null_test = makeNullTest((Expr*)copyObject(pts_var), IS_NOT_NULL, false, -1);
+		equals = lappend(equals, null_test);
+	}else
+	{
+		/* tuplestore.key_name is null */
+		null_test = makeNullTest((Expr*)copyObject(pts_var), IS_NULL, false, -1);
+		equals = list_make1(null_test);
+
+		/* aux_rel.key is null */
+		null_test = makeNullTest((Expr*)copyObject(aux_var), IS_NULL, false, -1);
+		equals = lappend(equals, null_test);
+	}
 
 	/* aux_rel.auxnodeid = tuplestore.xc_node_id */
 	attr = TupleDescAttr(desc, Anum_aux_table_auxnodeid-1);
@@ -4801,6 +4825,7 @@ re_generate_name_:
 		if (strcmp(cte->ctename, buf.data) == 0)
 		{
 			++n;
+			resetStringInfo(&buf);
 			goto re_generate_name_;
 		}
 	}
