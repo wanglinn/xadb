@@ -437,15 +437,20 @@ stmtblock: stmtmulti
 
 stmtmulti: stmtmulti ';' stmt
 		{
-			if($3)
-				$$ = lappend($1, $3);
+			if ($1 != NIL)
+			{
+				/* update length of previous stmt */
+				updateRawStmtEnd(llast_node(RawStmt, $1), @2);
+			}
+			if ($3 != NULL)
+				$$ = lappend($1, makeRawStmt($3, @2 + 1));
 			else
 				$$ = $1;
 		}
 	| stmt
 		{
-			if($1)
-				$$ = list_make1($1);
+			if ($1 != NULL)
+				$$ = list_make1(makeRawStmt($1, 0));
 			else
 				$$ = NIL;
 		}
