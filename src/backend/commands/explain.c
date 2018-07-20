@@ -1459,6 +1459,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_CteScan:
 		case T_WorkTableScan:
 		case T_SubqueryScan:
+#ifdef ADB
+		case T_ParamTuplestoreScan:
+#endif /* ADB */
 			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
