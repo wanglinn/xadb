@@ -89,6 +89,7 @@ extern GroupingSet *makeGroupingSet(GroupingSetKind kind, List *content, int loc
 #ifdef ADB
 extern Expr *makeHashExpr(Expr *expr);
 extern Expr *makeModuloExpr(Expr *expr, int right);
+extern NullTest *makeNullTest(Expr *arg, NullTestType type, bool isrow, int location);
 extern int32 execHashValue(Datum datum, Oid typid, Oid collid);
 extern int32 execModuloValue(Datum datum, Oid typid, int right);
 #endif /* ADB */

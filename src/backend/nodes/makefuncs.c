@@ -695,6 +695,18 @@ Expr *makeModuloExpr(Expr *expr, int right)
 	return make_op(NULL, SystemFuncName("%"), (Node*)expr, (Node*)r, NULL, -1);
 }
 
+NullTest *makeNullTest(Expr *arg, NullTestType type, bool isrow, int location)
+{
+	NullTest *node = makeNode(NullTest);
+
+	node->arg = arg;
+	node->nulltesttype = type;
+	node->argisrow = isrow;
+	node->location = location;
+
+	return node;
+}
+
 int32 execModuloValue(Datum datum, Oid typid, int right)
 {
 	MemoryContext old_context;
