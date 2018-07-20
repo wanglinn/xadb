@@ -361,11 +361,29 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 											false, false,
 											RangeVarCallbackOwnsRelation,
 											NULL);
+	master_relation = relation_open(master_relid, NoLock);
+
+	/* cannot build auxiliary table on non-table relation */
+	if (master_relation->rd_rel->relkind != RELKIND_RELATION)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("cannot build an auxiliary table on non-table relation \"%s\"",
+				 		RelationGetRelationName(master_relation))));
+
+	/* cannot build auxiliary table on auxiliary table */
 	if (RelationIdIsAuxiliary(master_relid))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("cannot build an auxiliary table on auxiliary table")));
-	master_relation = relation_open(master_relid, NoLock);
+				 errmsg("cannot build an auxiliary table on auxiliary table \"%s\"",
+				 		RelationGetRelationName(master_relation))));
+
+	/* cannot build auxiliary table on local/temporary table */
+	if (RelationGetLocInfo(master_relation) == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("cannot build an auxiliary table on local or temporary table \"%s\"",
+				 		RelationGetRelationName(master_relation))));
+
 	master_reloc = RelationGetLocInfo(master_relation);
 	master_nspid = RelationGetNamespace(master_relation);
 	switch (master_reloc->locatorType)
@@ -426,6 +444,9 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 		create_stmt->relation = makeRangeVar(nspname, relname, -1);
 		index_stmt->relation = makeRangeVar(nspname, relname, -1);
 	}
+
+	/* keep the same persistence with master relation */
+	create_stmt->relation->relpersistence = master_relation->rd_rel->relpersistence;
 
 	padding_stmt = makeNode(PaddingAuxDataStmt);
 	padding_stmt->masterrv = auxstmt->master_relation;
