@@ -570,6 +570,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 		DirectStmt
 		opt_barrier_id OptDistributeType
 		pgxcnode_name pgxcgroup_name
+		aux_opt_index_name
 
 %type <subclus> OptSubCluster OptSubClusterInternal
 /* ADB_END */
@@ -703,6 +704,9 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 
 
 /* Precedence: lowest to highest */
+/* ADB_BEGIN */
+%nonassoc	TABLESPACE		/* see aux_opt_index_name */
+/* ADB_END */
 %nonassoc	SET				/* see relation_expr_opt_alias */
 %left		UNION EXCEPT
 %left		INTERSECT
@@ -3198,7 +3202,47 @@ opt_aux_name:	qualified_name		{ $$ = $1; }
 			| /* EMPTY */			{ $$ = NULL; }
 		;
 
-OptIndex:	/* EMPTY */
+/*
+ * Given "CREATE AUXILIARY TABLE foo ON(column INDEX TABLESPACE ...)", we let "TABLESPACE"
+ * is tablespace keyword, not index name. user can input (column INDEX "tablespace" ... TABLESPACE ...)
+ * let index name is "tablespace"
+ */
+aux_opt_index_name:
+			  index_name		%prec TABLESPACE	{ $$ = $1; }
+			| /* empty */		%prec UMINUS		{ $$ = NULL; }
+			;
+
+OptIndex:	 opt_unique INDEX opt_concurrently aux_opt_index_name access_method_clause opt_reloptions
+			 OptTableSpace
+				{
+					IndexStmt *n = makeNode(IndexStmt);
+
+					n->grammar = PARSE_GRAM_POSTGRES;
+					n->unique = $1;
+					n->concurrent = $3;
+					n->idxname = $4;
+					n->accessMethod = $5;
+					n->options = $6;
+					n->tableSpace = $7;
+					n->whereClause = NULL;
+					n->excludeOpNames = NIL;
+					n->idxcomment = NULL;
+					n->indexOid = InvalidOid;
+					n->oldNode = InvalidOid;
+					n->primary = false;
+					n->isconstraint = false;
+					n->deferrable = false;
+					n->initdeferred = false;
+					n->transformed = false;
+					n->if_not_exists = false;
+
+					/* set by caller */
+					n->relation = NULL;
+					n->indexParams = NIL;
+
+					$$ = (Node *)n;
+				}
+			|/* EMPTY */
 				{
 					IndexStmt *n = makeNode(IndexStmt);
 
