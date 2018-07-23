@@ -279,7 +279,9 @@ MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel)
 {
 	ColumnDef		   *coldef;
 	List			   *tableElts = NIL;
+	List			   *arrayBounds = NIL;
 	Constraint		   *n;
+	int					i;
 
 	Assert(auxcolumn && rel);
 
@@ -317,6 +319,11 @@ MakeAuxTableColumns(Form_pg_attribute auxcolumn, Relation rel)
 						   auxcolumn->atttypid,
 						   auxcolumn->atttypmod,
 						   auxcolumn->attcollation);
+	/* is it an array column? */
+	for (i = 0; i < auxcolumn->attndims; i++)
+		arrayBounds = lappend(arrayBounds, makeInteger(-1));
+	coldef->typeName->arrayBounds = arrayBounds;
+	/* does it have not null constraint? */
 	if (auxcolumn->attnotnull)
 		coldef->constraints = lappend(coldef->constraints, copyObject(n));
 	tableElts = lappend(tableElts, coldef);
