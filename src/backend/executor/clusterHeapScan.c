@@ -190,7 +190,11 @@ void DoClusterHeapScan(StringInfo mem_toc)
 
 	stragegy = get_op_opfamily_strategy(opno, index_rel->rd_opfamily[0]);
 	/* check type */
-	if (attr->atttypid != index_rel->rd_opcintype[0])
+	if (index_rel->rd_opcintype[0] == ANYARRAYOID &&
+		 type_is_array(attr->atttypid))
+	{
+		/* nothing to do */
+	}else if (attr->atttypid != index_rel->rd_opcintype[0])
 	{
 		Oid funcid;
 		CoercionPathType path_type = find_coercion_pathway(index_rel->rd_opcintype[0],
