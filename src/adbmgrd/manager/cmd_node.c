@@ -7611,6 +7611,13 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 		resetStringInfo(&infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
 		mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
+		if (CNDN_TYPE_DATANODE_SLAVE == nodetype)
+		{
+			resetStringInfo(&infosendmsg);
+			appendStringInfo(&infosendmsg, "ALTER NODE \\\"%s\\\" WITH (%s=%d);"
+								,nodename,"port", newport);
+			mgr_modify_readonly_coord_pgxc_node(rel_node, &infosendmsg, nodename, newport);
+		}
 	}
 	/*if nodetype is gtm master, need modify its postgresql.conf and all datanodes、coordinators postgresql.conf for  agtm_port, agtm_host*/
 	else if (GTM_TYPE_GTM_MASTER == nodetype || CNDN_TYPE_DATANODE_MASTER == nodetype)
@@ -7667,6 +7674,7 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 								,"port"
 								,newport);
 			mgr_modify_coord_pgxc_node(rel_node, &infosendmsg, NULL, 0);
+			mgr_modify_readonly_coord_pgxc_node(rel_node, &infosendmsg, nodename, newport);
 		}
 	}
 	else if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
@@ -7685,6 +7693,7 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 							,"port"
 							,newport);
 		mgr_modify_coord_pgxc_node(rel_node, &infosendmsg, nodename, newport);
+		mgr_modify_readonly_coord_pgxc_node(rel_node, &infosendmsg, nodename, newport);
 	}
 	else
 	{
@@ -7907,6 +7916,11 @@ static bool mgr_modify_coord_pgxc_node(Relation rel_node, StringInfo infostrdata
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
+		/* for the readonly coordinator, the node info may be not in the readonly pgxc_node,
+		*  we use the other function to handle it.
+		*/
+		if (mgr_node->nodereadonly)
+			continue;
 		user = get_hostuser_from_hostoid(mgr_node->nodehost);
 		resetStringInfo(&infosendmsg);
 		appendStringInfo(&infosendmsg, " -h %s -p %u -d %s -U %s -a -c \""
@@ -8165,6 +8179,8 @@ Datum mgr_flush_host(PG_FUNCTION_ARGS)
 
 	/*refresh all pgxc_node of all coordinators*/
 	if(!mgr_modify_coord_pgxc_node(rel_node, &infosqlsendmsg, NULL, 0))
+		bgetwarning = true;
+	if (!mgr_update_pgxcnode_readonly_coord())
 		bgetwarning = true;
 
 	heap_close(rel_node, RowExclusiveLock);
