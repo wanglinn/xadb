@@ -141,7 +141,8 @@ extern bool IsReduceInfoListRound(List *list);
 #define IsReduceInfoCoordinator(r)	((r)->type == REDUCE_TYPE_COORDINATOR)
 extern bool IsReduceInfoListCoordinator(List *list);
 
-#define IsReduceInfoInOneNode(r) (list_length(r->storage_nodes) - list_length(r->exclude_exec) == 1)
+#define IsReduceInfoInOneNode(r) (list_length(r->storage_nodes) - list_length(r->exclude_exec) == 1 && \
+								  !IsReduceInfoFinalReplicated(r))
 extern bool IsReduceInfoListInOneNode(List *list);
 
 extern bool IsReduceInfoStorageSubset(const ReduceInfo *rinfo, List *oidlist);
