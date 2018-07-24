@@ -13,6 +13,7 @@ struct CopyStmt;
 typedef void (*ClusterCustom_function)(StringInfo mem_toc);
 #define ClusterTocSetCustomFun(toc, fun) ClusterTocSetCustomFunStr(toc, #fun)
 
+extern Oid GetCurrentCnRdcID(const char *rdc_name);
 extern void exec_cluster_plan(const void *splan, int length);
 extern PlanState* ExecStartClusterPlan(Plan *plan, EState *estate
 								, int eflags, List *rnodes);
