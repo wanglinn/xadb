@@ -415,5 +415,7 @@ extern bool mgr_get_coord_readtype(char *nodeName);
 extern int mgr_get_node_sequence(char *nodeName, char nodeType, bool bReadOnly);
 extern Oid mgr_get_nodeMaster_tupleOid(char *nodeName);
 extern int mgr_get_nodetype_num(const char nodeType, const bool inCluster, const bool readOnly);
+extern bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrdata, char *nodename, int newport);
+extern bool mgr_update_pgxcnode_readonly_coord(void);
 
 #endif /* MGR_CMDS_H */

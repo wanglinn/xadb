@@ -3921,3 +3921,279 @@ int mgr_get_nodetype_num(const char nodeType, const bool inCluster, const bool r
 
 	return num;
 }
+
+/*
+* when alter node port, if the node info on readonly coordinator, it will need update the node info
+* on pgxc_node.
+*/
+bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrdata, char *nodename, int newport)
+{
+	StringInfoData infosendmsg;
+	StringInfoData buf;
+	StringInfoData restmsg;
+	HeapTuple tuple;
+	Form_mgr_node mgr_node;
+	ScanKeyData key[3];
+	char *user;
+	char *address;
+	bool execRes = false;
+	bool bnormal= true;
+	HeapScanDesc relScan;
+	ManagerAgent *ma;
+	GetAgentCmdRst getAgentCmdRst;
+	int agentPort;
+
+	Assert(nodename);
+	initStringInfo(&infosendmsg);
+	initStringInfo(&(getAgentCmdRst.description));
+	initStringInfo(&restmsg);
+
+	ScanKeyInit(&key[0]
+		,Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
+	ScanKeyInit(&key[1]
+		,Anum_mgr_node_nodeincluster
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	ScanKeyInit(&key[2]
+		,Anum_mgr_node_nodereadonly
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	relScan = heap_beginscan_catalog(rel_node, 3, key);
+	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		user = get_hostuser_from_hostoid(mgr_node->nodehost);
+		agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
+		resetStringInfo(&infosendmsg);
+		resetStringInfo(&restmsg);
+
+		appendStringInfo(&infosendmsg, "select count(*) from pgxc_node where node_name = '%s'", nodename);
+		/* check the node info on the pgxc_node of coordinator */
+		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, infosendmsg.data
+			,user, address
+			,strcmp(nodename, NameStr(mgr_node->nodename)) == 0 ? newport : mgr_node->nodeport
+			,DEFAULT_DB, &restmsg);
+		pfree(address);
+		if (restmsg.len != 0 && strcmp(restmsg.data, "0") == 0)
+		{
+			/* do nothing */
+			pfree(user);
+		}else if (restmsg.len != 0 && strcmp(restmsg.data, "1") ==0)
+		{
+			/* update the pgxc_node */
+			resetStringInfo(&infosendmsg);
+			appendStringInfo(&infosendmsg, " -h %s -p %u -d %s -U %s -a -c \""
+				,"127.0.0.1"
+				,strcmp(nodename, NameStr(mgr_node->nodename)) == 0 ? newport : mgr_node->nodeport
+				,DEFAULT_DB
+				,user);
+			appendStringInfo(&infosendmsg, "%s", infostrdata->data);
+			appendStringInfo(&infosendmsg, " set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
+			pfree(user);
+			/* connection agent */
+			ma = ma_connect_hostoid(mgr_node->nodehost);
+			if (!ma_isconnected(ma))
+			{
+				/* report error message */
+				bnormal = false;
+				ereport(WARNING, (errmsg("%s", ma_last_error_msg(ma))));
+				ma_close(ma);
+				continue;
+			}
+			ma_beginmessage(&buf, AGT_MSG_COMMAND);
+			ma_sendbyte(&buf, AGT_CMD_PSQL_CMD);
+			ma_sendstring(&buf,infosendmsg.data);
+			ma_endmessage(&buf, ma);
+			if (! ma_flush(ma, true))
+			{
+				bnormal = false;
+				ereport(WARNING, (errmsg("%s", ma_last_error_msg(ma))));
+				ma_close(ma);
+				continue;
+			}
+			resetStringInfo(&getAgentCmdRst.description);
+			execRes = mgr_recv_msg(ma, &getAgentCmdRst);
+			ma_close(ma);
+			if (!execRes)
+			{
+				bnormal = false;
+				ereport(WARNING, (errmsg("refresh the node \"%s\" information in pgxc_node \
+					of corodinator \"%s\" fail, you should check its pgxc_node, sql string is %s,\
+					the error message: %s", 
+					nodename, NameStr(mgr_node->nodename), infosendmsg.data, getAgentCmdRst.description.data)));
+			}
+		}
+		else
+		{
+			bnormal = false;
+			ereport(WARNING, (errmsg("connect corodinator \"%s\" fail, you should check its pgxc_node, sql string is %s", 
+				NameStr(mgr_node->nodename), infosendmsg.data)));
+		}
+	}
+	pfree(infosendmsg.data);
+	pfree(getAgentCmdRst.description.data);
+	heap_endscan(relScan);
+
+	return bnormal;
+}
+
+/*
+* update the pgxc_node information of readonly coordinator when execute "flush host"
+* 1. the the nodename of datanode in pgxc_node, sql is "select node_name from pgxc_node where node_type = 'D'"
+* 2. form the sql string: from the node name to get its address, sql is "alter node nodename with(host='xxx')"
+* 3. add the sql: set force_parallel_mode =off; select pgxc_pool_reload()
+* 4. send the sql to the readonly coordinator
+*/
+bool mgr_update_pgxcnode_readonly_coord(void)
+{
+	Relation relNode;
+	HeapScanDesc relScan;
+	HeapTuple tuple;
+	HeapTuple nodeTuple;
+	ScanKeyData key[2];
+	Form_mgr_node mgr_node;
+	Form_mgr_node mgr_nodetmp;
+	StringInfoData sqlstrinfocn;
+	StringInfoData sqlstrinfodn;
+	StringInfoData sqlstrinfotmp;
+	StringInfoData sqlinfo;
+	StringInfoData restmsg;
+	char *nodeUser;
+	char *nodeAddress;
+	char *value;
+	int agentPort;
+	int position = 0;
+	bool bnormal = true;
+
+	initStringInfo(&sqlstrinfocn);
+	initStringInfo(&sqlstrinfodn);
+	initStringInfo(&sqlstrinfotmp);
+	initStringInfo(&sqlinfo);
+	initStringInfo(&restmsg);
+	relNode = heap_open(NodeRelationId, AccessShareLock);
+
+	/* for coordinator */
+	ScanKeyInit(&key[0]
+		,Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
+	ScanKeyInit(&key[1]
+		,Anum_mgr_node_nodeincluster
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	relScan = heap_beginscan_catalog(relNode, 2, key);
+	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		nodeAddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		appendStringInfo(&sqlstrinfocn, "ALTER NODE \\\"%s\\\" WITH (HOST='%s');"
+				,NameStr(mgr_node->nodename),nodeAddress);
+		pfree(nodeAddress);
+	}
+	heap_endscan(relScan);
+
+	relScan = heap_beginscan_catalog(relNode, 2, key);
+	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+	{
+		/* just for readonly coordinator */
+		if (!mgr_node->nodereadonly)
+			continue;
+		nodeUser = get_hostuser_from_hostoid(mgr_node->nodehost);
+		agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
+		resetStringInfo(&sqlstrinfotmp);
+		resetStringInfo(&restmsg);
+		resetStringInfo(&sqlstrinfodn);
+		appendStringInfo(&sqlstrinfotmp, "select node_name from pgxc_node where node_type = 'D'");
+		/* get the node names from read only coordinator */
+		nodeAddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrinfotmp.data,
+			nodeUser, nodeAddress,
+			mgr_node->nodeport,
+			DEFAULT_DB,
+			&restmsg);
+		pfree(nodeAddress);
+		if ((restmsg.len >0 && restmsg.data[0] == '\0') || restmsg.len == 0)
+		{
+			bnormal = false;
+			ereport(WARNING, (errmsg("on readonly coordinator \"%s\" execute the sql \"%s\" fail %s, \
+				and will not update the pgxc_node of this coordinator, you need update it by yourself", 
+					NameStr(mgr_node->nodename), sqlstrinfotmp.data
+					, (restmsg.len >0 && restmsg.data[0] != '\0')? restmsg.data : "")));
+		}
+		else
+		{
+			/* for datanode */
+			while(1)
+			{
+				if(position >= restmsg.len)
+					break;
+				value = &(restmsg.data[position]);
+				if (*value)
+				{
+					nodeTuple = mgr_get_tuple_node_from_name_type(relNode, value);
+					if (!HeapTupleIsValid(nodeTuple))
+					{
+						bnormal = false;
+						ereport(WARNING, (errcode(ERRCODE_UNDEFINED_OBJECT)
+							, errmsg("get the node \"%s\" information in node table fail", value)));
+					}
+					else
+					{
+						mgr_nodetmp = (Form_mgr_node)GETSTRUCT(nodeTuple);
+						Assert(mgr_nodetmp);
+						nodeAddress = get_hostaddress_from_hostoid(mgr_nodetmp->nodehost);
+						appendStringInfo(&sqlstrinfodn, "ALTER NODE \\\"%s\\\" WITH (HOST='%s');"
+								,NameStr(mgr_nodetmp->nodename),nodeAddress);
+						pfree(nodeAddress);
+						heap_freetuple(nodeTuple);
+					}
+					position = position + strlen(value);
+				}
+				position = position + 1;
+			}
+			/* connect the sql string */
+			resetStringInfo(&sqlinfo);
+			appendStringInfo(&sqlinfo, " -h %s -p %u -d %s -U %s -a -c \""
+				,"127.0.0.1"
+				,mgr_node->nodeport
+				,DEFAULT_DB
+				,nodeUser);
+			/* send the sql string to readonly coordinator */
+			resetStringInfo(&restmsg);
+			appendStringInfo(&sqlinfo, "%s", sqlstrinfocn.data);
+			appendStringInfo(&sqlinfo, "%s", sqlstrinfodn.data);
+			appendStringInfo(&sqlinfo, "set force_parallel_mode = off; select pgxc_pool_reload();\"");
+			mgr_ma_send_cmd_get_original_result(AGT_CMD_PSQL_CMD, sqlinfo.data, mgr_node->nodehost,
+					&restmsg, true);
+			if ((restmsg.len >0 && restmsg.data[0] == '\0') || restmsg.len == 0)
+			{
+				bnormal = false;
+				ereport(WARNING, (errmsg("on readonly coordinator \"%s\" execute the sql \"%s\" fail %s, \
+				and will not update the pgxc_node of this coordinator, you need update it by yourself", 
+					NameStr(mgr_node->nodename), sqlinfo.data
+					, (restmsg.len >0 && restmsg.data[0] != '\0')? restmsg.data : "")));
+			}
+		}
+		pfree(nodeUser);
+	}
+
+	pfree(sqlstrinfocn.data);
+	pfree(sqlstrinfodn.data);
+	pfree(sqlstrinfotmp.data);
+	pfree(sqlinfo.data);
+	pfree(restmsg.data);
+	heap_endscan(relScan);
+	heap_close(relNode, AccessShareLock);
+
+	return bnormal;
+}
