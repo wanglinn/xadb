@@ -1811,8 +1811,24 @@ static bool reduce_info_in_one_node_can_join(ReduceInfo *outer_info,
 			case JOIN_INNER:
 			case JOIN_UNIQUE_OUTER:
 			case JOIN_UNIQUE_INNER:
-				*new_reduce_list = lappend(lappend(*new_reduce_list, outer_info),
-										   inner_info);
+				if (IsReduceInfoByValue(outer_info))
+				{
+					*new_reduce_list = lappend(*new_reduce_list, outer_info);
+					if (IsReduceInfoByValue(inner_info))
+						*new_reduce_list = lappend(*new_reduce_list, inner_info);
+				}else if(IsReduceInfoByValue(inner_info))
+				{
+					*new_reduce_list = lappend(*new_reduce_list, inner_info);
+					if (IsReduceInfoByValue(outer_info))
+						*new_reduce_list = lappend(*new_reduce_list, outer_info);
+				}else
+				{
+					List *storage = list_make1_oid(outer_at_oid);
+					if (outer_at_oid != inner_at_oid)
+						storage = lappend_oid(storage, inner_at_oid);
+					*new_reduce_list = lappend(*new_reduce_list, MakeRandomReduceInfo(storage));
+					list_free(storage);
+				}
 				break;
 			case JOIN_LEFT:
 			case JOIN_SEMI:
@@ -1820,8 +1836,13 @@ static bool reduce_info_in_one_node_can_join(ReduceInfo *outer_info,
 				*new_reduce_list = lappend(*new_reduce_list, outer_info);
 				break;
 			case JOIN_FULL:
-				*new_reduce_list = lappend(*new_reduce_list,
-										   MakeRandomReduceInfo(list_make1_oid(outer_at_oid)));
+				{
+					List *storage = list_make1_oid(outer_at_oid);
+					if (outer_at_oid != inner_at_oid)
+						storage = lappend_oid(storage, inner_at_oid);
+					*new_reduce_list = lappend(*new_reduce_list, MakeRandomReduceInfo(storage));
+					list_free(storage);
+				}
 				break;
 			case JOIN_RIGHT:
 				*new_reduce_list = lappend(*new_reduce_list, inner_info);
