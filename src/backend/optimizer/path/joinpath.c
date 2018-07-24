@@ -2865,7 +2865,6 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 							trim_mergeclauses_for_inner_pathkeys(jcontext->root,
 																 trialsortkeys,
 																 jcontext->merge_clauses);
-						Assert(newclauses != NIL);
 					}
 					else
 					{
@@ -2915,7 +2914,6 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 								newclauses = trim_mergeclauses_for_inner_pathkeys(jcontext->root,
 																				  trialsortkeys,
 																				  jcontext->merge_clauses);
-								Assert(newclauses != NIL);
 							}else
 							{
 								newclauses = jcontext->merge_clauses;
