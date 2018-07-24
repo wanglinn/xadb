@@ -59,10 +59,8 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
 [ DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
 [ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) } ]
 
-CREATE AUXILIARY TABLE [auxiliary_table_name] ON master_table_name ( column_name [ index_options ])
+CREATE AUXILIARY TABLE [ auxiliary_table_name ] ON master_table_name ( column_name [ aux_index_options ])
 [ TABLESPACE tablespace_name ]
-[ DISTRIBUTE BY OptDistributeType ]
-[ TO NODE (node_name [, ...] ) | TO GROUP pgxcgroup_name ]
 [ DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
 [ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) } ]
 
@@ -101,14 +99,11 @@ IN ( { <replaceable class="PARAMETER">numeric_literal</replaceable> | <replaceab
 FROM ( { <replaceable class="PARAMETER">numeric_literal</replaceable> | <replaceable class="PARAMETER">string_literal</replaceable> | MINVALUE | MAXVALUE } [, ...] )
   TO ( { <replaceable class="PARAMETER">numeric_literal</replaceable> | <replaceable class="PARAMETER">string_literal</replaceable> | MINVALUE | MAXVALUE } [, ...] )
 
-<phrase>and <replaceable class="PARAMETER">index_options</replaceable> is:</phrase>
+<phrase>and <replaceable class="PARAMETER">aux_index_options</replaceable> is:</phrase>
 
-/* empty */
-| INDEX [ CONCURRENTLY ] [ name ] [ USING method ]
+[ UNIQUE ] INDEX [ CONCURRENTLY ] [ index_name ] [ USING method ]
 [ WITH ( storage_parameter = value [, ... ] ) ]
 [ TABLESPACE tablespace_name ]
-[ DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
-[ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) } ]
 
 <phrase><replaceable class="PARAMETER">index_parameters</replaceable> in <literal>UNIQUE</literal>, <literal>PRIMARY KEY</literal>, and <literal>EXCLUDE</literal> constraints are:</phrase>
 

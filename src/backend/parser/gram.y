@@ -3207,13 +3207,12 @@ opt_aux_name:	qualified_name		{ $$ = $1; }
  * is tablespace keyword, not index name. user can input (column INDEX "tablespace" ... TABLESPACE ...)
  * let index name is "tablespace"
  */
-aux_opt_index_name:
-			  index_name		%prec TABLESPACE	{ $$ = $1; }
-			| /* empty */		%prec UMINUS		{ $$ = NULL; }
+aux_opt_index_name:	index_name		%prec TABLESPACE	{ $$ = $1; }
+			| /* empty */			%prec UMINUS		{ $$ = NULL; }
 			;
 
-OptIndex:	 opt_unique INDEX opt_concurrently aux_opt_index_name access_method_clause opt_reloptions
-			 OptTableSpace
+OptIndex:	opt_unique INDEX opt_concurrently aux_opt_index_name
+			access_method_clause opt_reloptions OptTableSpace
 				{
 					IndexStmt *n = makeNode(IndexStmt);
 
@@ -3242,7 +3241,7 @@ OptIndex:	 opt_unique INDEX opt_concurrently aux_opt_index_name access_method_cl
 
 					$$ = (Node *)n;
 				}
-			|/* EMPTY */
+			| /* EMPTY */
 				{
 					IndexStmt *n = makeNode(IndexStmt);
 
