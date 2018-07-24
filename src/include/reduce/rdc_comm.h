@@ -116,6 +116,7 @@ typedef struct RdcPortAttr
 struct RdcMask
 {
 	RdcPortId			rdc_rpid;
+	char				rdc_name[NAMEDATALEN];
 	int 				rdc_port;
 	char			   *rdc_host;
 };

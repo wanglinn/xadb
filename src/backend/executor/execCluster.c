@@ -24,6 +24,7 @@
 #include "tcop/dest.h"
 #include "utils/combocid.h"
 #include "utils/lsyscache.h"
+#include "utils/memutils.h"
 #include "utils/ps_status.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
@@ -94,6 +95,23 @@ static void ExecClusterErrorHookMaster(void *arg);
 static void ExecClusterErrorHookNode(void *arg);
 static void SetupClusterErrorHook(ClusterErrorHookContext *context);
 static void RestoreClusterHook(ClusterErrorHookContext *context);
+
+static RdcMask *CnRdcMasks = NULL;
+static int		CnRdcCnt = 0;
+
+Oid
+GetCurrentCnRdcID(const char *rdc_name)
+{
+	int i;
+
+	for (i = 0; i < CnRdcCnt; i++)
+	{
+		if (pg_strcasecmp(CnRdcMasks[i].rdc_name, rdc_name) == 0)
+			return (Oid) CnRdcMasks[i].rdc_rpid;
+	}
+
+	return InvalidOid;
+}
 
 void exec_cluster_plan(const void *splan, int length)
 {
@@ -844,10 +862,9 @@ static void wait_rdc_group_message(void)
 {
 	int				i;
 	int				type;
-	int				rdc_cnt;
-	RdcMask		   *rdc_masks;
 	StringInfoData	buf;
 	StringInfoData	msg;
+	MemoryContext	oldcontext;
 
 	pq_startmsgread();
 	type = pq_getbyte();
@@ -883,20 +900,28 @@ static void wait_rdc_group_message(void)
 	buf.cursor = 0;
 	buf.maxlen = buf.len;
 
-	pq_copymsgbytes(&buf, (char *) &rdc_cnt, sizeof(rdc_cnt));
-	Assert(rdc_cnt > 0);
-	rdc_masks = (RdcMask *) palloc0(rdc_cnt * sizeof(RdcMask));
-	for (i = 0; i < rdc_cnt; i++)
+	pq_copymsgbytes(&buf, (char *) &CnRdcCnt, sizeof(CnRdcCnt));
+	Assert(CnRdcCnt > 0);
+	/* pfree old CnRdcMasks */
+	if (CnRdcMasks != NULL)
 	{
-		rdc_masks[i].rdc_host = (char *) pq_getmsgrawstring(&buf);
-		pq_copymsgbytes(&buf, (char *) &(rdc_masks[i].rdc_port),
-						sizeof(rdc_masks[i].rdc_port));
-		pq_copymsgbytes(&buf, (char *) &(rdc_masks[i].rdc_rpid),
-						sizeof(rdc_masks[i].rdc_rpid));
+		pfree(CnRdcMasks);
+		CnRdcMasks = NULL;
 	}
-	/*pq_getmsgend(&buf);*/
+	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+	CnRdcMasks = (RdcMask *) palloc0(CnRdcCnt * sizeof(RdcMask));
+	for (i = 0; i < CnRdcCnt; i++)
+	{
+		CnRdcMasks[i].rdc_host = (char *) pq_getmsgrawstring(&buf);
+		StrNCpy(CnRdcMasks[i].rdc_name, (char *) pq_getmsgrawstring(&buf), NAMEDATALEN);
+		pq_copymsgbytes(&buf, (char *) &(CnRdcMasks[i].rdc_port),
+						sizeof(CnRdcMasks[i].rdc_port));
+		pq_copymsgbytes(&buf, (char *) &(CnRdcMasks[i].rdc_rpid),
+						sizeof(CnRdcMasks[i].rdc_rpid));
+	}
+	(void) MemoryContextSwitchTo(oldcontext);
 
-	StartSelfReduceGroup(rdc_masks, rdc_cnt);
+	StartSelfReduceGroup(CnRdcMasks, CnRdcCnt);
 
 	EndSelfReduceGroup();
 
@@ -959,6 +984,7 @@ StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt)
 	ListCell	   *lc;
 	PGconn		   *conn;
 	char		   *host;
+	char		   *name;
 	int				port;
 	RdcPortId		rpid;
 	int				len;
@@ -972,6 +998,7 @@ StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt)
 	for (i = 0; i < rdc_cnt; i++)
 	{
 		host = rdc_masks[i].rdc_host;
+		name = rdc_masks[i].rdc_name;
 		port = rdc_masks[i].rdc_port;
 		rpid = rdc_masks[i].rdc_rpid;
 		Assert(host && host[0]);
@@ -979,6 +1006,8 @@ StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt)
 		/* including the terminating null byte ('\0') */
 		len = strlen(host) + 1;
 		appendBinaryStringInfo(&msg, host, len);
+		len = strlen(name) + 1;
+		appendBinaryStringInfo(&msg, name, len);
 		len = sizeof(port);
 		appendBinaryStringInfo(&msg, (char *) &port, len);
 		len = sizeof(rpid);
@@ -1001,6 +1030,19 @@ StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt)
 		}
 	}
 	pfree(msg.data);
+}
+
+static void
+PrepareRdcMask(RdcMask *rdc_mask, Oid nodeid)
+{
+	char *nodename;
+
+	Assert(rdc_mask);
+	rdc_mask->rdc_rpid = nodeid;
+	rdc_mask->rdc_port = 0;	/* fill later */
+	rdc_mask->rdc_host = get_pgxc_nodehost(nodeid);
+	nodename = get_pgxc_nodename(nodeid);
+	StrNCpy(rdc_mask->rdc_name, nodename, NAMEDATALEN);
 }
 
 static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context)
@@ -1038,9 +1080,7 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 		rdc_masks = (RdcMask *) palloc0(rdc_cnt * sizeof(RdcMask));
 		if (context->start_self_reduce)
 		{
-			rdc_masks[rdc_id].rdc_rpid = PGXCNodeOid;
-			rdc_masks[rdc_id].rdc_port = 0;	/* fill later */
-			rdc_masks[rdc_id].rdc_host = get_pgxc_nodehost(PGXCNodeOid);
+			PrepareRdcMask(&rdc_masks[rdc_id], PGXCNodeOid);
 			rdc_id++;
 		}
 	}
@@ -1059,9 +1099,7 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 		/* send reduce group map and reduce ID to remote */
 		if (context->have_reduce)
 		{
-			rdc_masks[rdc_id].rdc_rpid = handle->node_id;
-			rdc_masks[rdc_id].rdc_port = 0;	/* fill later */
-			rdc_masks[rdc_id].rdc_host = get_pgxc_nodehost(handle->node_id);
+			PrepareRdcMask(&rdc_masks[rdc_id], handle->node_id);
 			rdc_id++;
 		}
 
