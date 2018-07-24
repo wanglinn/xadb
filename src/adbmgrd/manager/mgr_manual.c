@@ -2479,7 +2479,8 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		if (mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER)
+		if (mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER 
+			|| mgr_node->nodetype == CNDN_TYPE_DATANODE_SLAVE)
 		{
 			hostOid = mgr_node->nodehost;
 			datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(nodeRel), &isNull);
