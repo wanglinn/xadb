@@ -2629,6 +2629,23 @@ renameatt_internal(Oid myrelid,
 
 	heap_close(attrelation, RowExclusiveLock);
 
+#ifdef ADB
+	/* rename column of auxiliary relation */
+	if (targetrelation->rd_auxlist)
+	{
+		Oid auxrelid = LookupAuxRelation(RelationGetRelid(targetrelation), attnum);
+
+		if (OidIsValid(auxrelid))
+			renameatt_internal(auxrelid,
+							   oldattname,
+							   newattname,
+							   recurse,
+							   recursing,
+							   0,
+							   behavior);
+	}
+#endif
+
 	relation_close(targetrelation, NoLock);		/* close rel but keep lock */
 
 	return attnum;
