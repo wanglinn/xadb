@@ -17702,12 +17702,10 @@ dumpAdbmgrTable(Archive *fout)
 	PQExpBuffer delQry = createPQExpBuffer();
 	PQExpBuffer creaQry = createPQExpBuffer();
 	PQExpBuffer addstrdata = createPQExpBuffer();
-	PGconn *conn pg_attribute_unused();
 	PGresult *res;
 	char *retstr;
 	int i = 0;
 
-	conn = GetConnection(fout);
 	if (g_verbose)
 		write_msg(NULL, "saving mgr_host,mgr_node definition\n");
 

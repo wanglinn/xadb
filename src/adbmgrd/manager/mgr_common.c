@@ -2597,7 +2597,6 @@ bool mgr_get_createnodeCmd_on_readonly_cn(char *nodeName, bool bincluster, Strin
 	ScanKeyData key[2];
 	Relation relNode;
 	List *dnList = NIL;
-	Oid readNodeHostOid;
 	char *address;
 	bool bgetNode = false;
 	int seqNum = 0;
@@ -2631,8 +2630,6 @@ bool mgr_get_createnodeCmd_on_readonly_cn(char *nodeName, bool bincluster, Strin
 							,NameStr(mgr_node->nodename)
 							,address
 							,mgr_node->nodeport);
-			/*record read node hostname */
-			readNodeHostOid = mgr_node->nodehost;
 		}
 		else
 		{
