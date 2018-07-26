@@ -3627,6 +3627,92 @@ replace_text(PG_FUNCTION_ARGS)
 	PG_RETURN_TEXT_P(ret_text);
 }
 
+#ifdef ADB
+Datum
+ora_replace_text(PG_FUNCTION_ARGS)
+{
+	text	   *src_text = PG_GETARG_TEXT_PP_IF_NULL(0);
+	text	   *from_sub_text = PG_GETARG_TEXT_PP_IF_NULL(1);
+	text	   *to_sub_text = PG_GETARG_TEXT_PP_IF_NULL(2);
+	int 		src_text_len;
+	int 		from_sub_text_len;
+	TextPositionState state;
+	text	   *ret_text;
+	int 		start_posn;
+	int 		curr_posn;
+	int 		chunk_len;
+	char	   *start_ptr;
+	StringInfoData str;
+
+	if (src_text == NULL)
+		PG_RETURN_NULL();
+	if (from_sub_text == NULL)
+		PG_RETURN_TEXT_P(src_text);
+
+	text_position_setup(src_text, from_sub_text, &state);
+
+	/*
+	 * Note: we check the converted string length, not the original, because
+	 * they could be different if the input contained invalid encoding.
+	 */
+	src_text_len = state.len1;
+	from_sub_text_len = state.len2;
+
+	/* Return unmodified source string if empty source or pattern */
+	if (src_text_len < 1 || from_sub_text_len < 1)
+	{
+		text_position_cleanup(&state);
+		PG_RETURN_TEXT_P(src_text);
+	}
+
+	start_posn = 1;
+	curr_posn = text_position_next(1, &state);
+
+	/* When the from_sub_text is not found, there is nothing to do. */
+	if (curr_posn == 0)
+	{
+		text_position_cleanup(&state);
+		PG_RETURN_TEXT_P(src_text);
+	}
+
+	/* start_ptr points to the start_posn'th character of src_text */
+	start_ptr = VARDATA_ANY(src_text);
+
+	initStringInfo(&str);
+
+	do
+	{
+		CHECK_FOR_INTERRUPTS();
+
+		/* copy the data skipped over by last text_position_next() */
+		chunk_len = charlen_to_bytelen(start_ptr, curr_posn - start_posn);
+		appendBinaryStringInfo(&str, start_ptr, chunk_len);
+
+		if (to_sub_text != NULL)
+			appendStringInfoText(&str, to_sub_text);
+
+		start_posn = curr_posn;
+		start_ptr += chunk_len;
+		start_posn += from_sub_text_len;
+		start_ptr += charlen_to_bytelen(start_ptr, from_sub_text_len);
+
+		curr_posn = text_position_next(start_posn, &state);
+	}
+	while (curr_posn > 0);
+
+	/* copy trailing data */
+	chunk_len = ((char *) src_text + VARSIZE_ANY(src_text)) - start_ptr;
+	appendBinaryStringInfo(&str, start_ptr, chunk_len);
+
+	text_position_cleanup(&state);
+
+	ret_text = cstring_to_text_with_len(str.data, str.len);
+	pfree(str.data);
+
+	PG_RETURN_TEXT_P(ret_text);
+}
+#endif
+
 /*
  * check_replace_text_has_escape_char
  *
@@ -3879,7 +3965,7 @@ replace_text_regexp(text *src_text, void *regexp,
 
 		/*
 		 * If match_occurence is 0, then we replace all occurrences of the match.
-		 * If match_occurence equal match_cnt, then we replace the current 
+		 * If match_occurence equal match_cnt, then we replace the current
 		 * occurrence of the match and break. see line 3121.
 		 *
 		 * Otherwise, we keep the source text.

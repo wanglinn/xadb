@@ -888,6 +888,9 @@ extern bool SplitIdentifierString(char *rawstring, char separator,
 extern bool SplitDirectoriesString(char *rawstring, char separator,
 					   List **namelist);
 extern Datum replace_text(PG_FUNCTION_ARGS);
+#ifdef ADB
+extern Datum ora_replace_text(PG_FUNCTION_ARGS);
+#endif
 extern text *replace_text_regexp(text *src_text, void *regexp,
 					text *replace_text,
 #ifdef ADB
