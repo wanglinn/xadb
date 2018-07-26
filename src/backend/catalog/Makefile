@@ -16,7 +16,10 @@ OBJS = catalog.o dependency.o heap.o index.o indexing.o namespace.o aclchk.o \
        pg_depend.o pg_enum.o pg_inherits.o pg_largeobject.o pg_namespace.o \
        pg_operator.o pg_proc.o pg_publication.o pg_range.o \
 	   pg_db_role_setting.o pg_shdepend.o pg_subscription.o pg_type.o \
-	   storage.o toasting.o pgxc_class.o adb_ha_sync_log.o
+	   storage.o toasting.o adb_ha_sync_log.o
+ifeq ($(enable_cluster),yes)
+  OBJS += pgxc_class.o
+endif
 
 BKIFILES = postgres.bki postgres.description postgres.shdescription
 
@@ -30,7 +33,7 @@ all: $(BKIFILES) schemapg.h
 
 POSTGRES_BKI_SRCS = \
 	pg_proc.h pg_type.h pg_attribute.h pg_class.h \
-	pg_attrdef.h pg_constraint.h pg_inherits.h pg_index.h pg_operator.h pg_aux_class.h\
+	pg_attrdef.h pg_constraint.h pg_inherits.h pg_index.h pg_operator.h \
 	pg_opfamily.h pg_opclass.h pg_am.h pg_amop.h pg_amproc.h \
 	pg_language.h pg_largeobject_metadata.h pg_largeobject.h pg_aggregate.h \
 	pg_statistic_ext.h \
@@ -46,9 +49,13 @@ POSTGRES_BKI_SRCS = \
 	pg_collation.h pg_partitioned_table.h pg_range.h pg_transform.h \
 	pg_sequence.h pg_publication.h pg_publication_rel.h pg_subscription.h \
 	pg_subscription_rel.h \
-	pgxc_class.h pgxc_node.h pgxc_group.h ora_cast.h adb_proc.h \
+	ora_cast.h \
 	toasting.h indexing.h \
 	adb_ha_sync_log.h
+ifeq ($(enable_cluster),yes)
+  POSTGRES_BKI_SRCS += adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h
+endif
+
 
 $(POSTGRES_BKI_SRCS): % : $(top_srcdir)/src/include/catalog/%
 	rm -f $@.c && $(LN_S) $< $@.c

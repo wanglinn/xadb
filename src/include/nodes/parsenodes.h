@@ -65,7 +65,7 @@ typedef enum SortByNulls
 	SORTBY_NULLS_LAST
 } SortByNulls;
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 typedef enum ParseGrammar
 {
 	PARSE_GRAM_POSTGRES = 0,

@@ -193,6 +193,14 @@ elif test "$default_port" -lt "1" -o "$default_port" -gt "65535"; then
 fi
 
 #
+# Cluster
+#
+PGAC_ARG_BOOL(enable, cluster, yes,
+              [enable cluster module])
+AC_SUBST(enable_cluster)
+AC_DEFINE(ADB_GRAM_ORA, 1, [Define to 1 to enable oracle grammar])
+
+#
 # '-rpath'-like feature can be disabled
 #
 PGAC_ARG_BOOL(enable, rpath, yes,
@@ -452,8 +460,10 @@ else
   fi
 fi
 
-# for ADB set "-DADB" by default
-CFLAGS="$CFLAGS -DADB"
+if test "$enable_cluster" = yes; then
+  # for ADB set "-DADB" by default
+  CFLAGS="$CFLAGS -DADB"
+fi
 
 # CFLAGS we determined above will be added back at the end
 user_CFLAGS=$CFLAGS

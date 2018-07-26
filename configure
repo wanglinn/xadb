@@ -747,6 +747,7 @@ GCOV
 enable_debug
 enable_strong_random
 enable_rpath
+enable_cluster
 default_port
 WANTED_LANGUAGES
 enable_nls
@@ -811,6 +812,7 @@ with_libs
 enable_integer_datetimes
 enable_nls
 with_pgport
+enable_cluster
 enable_rpath
 enable_spinlocks
 enable_atomics
@@ -1488,6 +1490,7 @@ Optional Features:
                           obsolete option, no longer supported
   --enable-nls[=LANGUAGES]
                           enable Native Language Support
+  --disable-cluster       enable cluster module
   --disable-rpath         do not embed shared library search path in
                           executables
   --disable-spinlocks     do not use spinlocks
@@ -3148,6 +3151,37 @@ elif test "$default_port" -lt "1" -o "$default_port" -gt "65535"; then
 fi
 
 #
+# Cluster
+#
+
+
+# Check whether --enable-cluster was given.
+if test "${enable_cluster+set}" = set; then :
+  enableval=$enable_cluster;
+  case $enableval in
+    yes)
+      :
+      ;;
+    no)
+      :
+      ;;
+    *)
+      as_fn_error $? "no argument expected for --enable-cluster option" "$LINENO" 5
+      ;;
+  esac
+
+else
+  enable_cluster=yes
+
+fi
+
+
+
+
+$as_echo "#define ADB_GRAM_ORA 1" >>confdefs.h
+
+
+#
 # '-rpath'-like feature can be disabled
 #
 
@@ -4517,8 +4551,10 @@ else
   fi
 fi
 
-# for ADB set "-DADB" by default
-CFLAGS="$CFLAGS -DADB"
+if test "$enable_cluster" = yes; then
+  # for ADB set "-DADB" by default
+  CFLAGS="$CFLAGS -DADB"
+fi
 
 # CFLAGS we determined above will be added back at the end
 user_CFLAGS=$CFLAGS

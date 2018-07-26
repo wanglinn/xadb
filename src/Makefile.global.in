@@ -61,6 +61,7 @@ else # not PGXS
 vpath_build = @vpath_build@
 abs_top_builddir = @abs_top_builddir@
 abs_top_srcdir = @abs_top_srcdir@
+enable_cluster = @enable_cluster@
 
 ifneq ($(vpath_build),yes)
 top_srcdir = $(top_builddir)

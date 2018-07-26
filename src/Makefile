@@ -16,7 +16,7 @@ SUBDIRS = \
 	common \
 	port \
 	timezone \
-	agtm adbmgrd backend \
+	backend \
 	backend/utils/mb/conversion_procs \
 	backend/snowball \
 	include \
@@ -29,6 +29,9 @@ SUBDIRS = \
 	makefiles \
 	test/regress \
 	test/perl
+ifeq ($(enable_cluster), yes)
+	SUBDIR += agtm adbmgrd
+endif
 
 # There are too many interdependencies between the subdirectories, so
 # don't attempt parallel make here.
