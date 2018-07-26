@@ -31,6 +31,8 @@
 #include "utils/guc.h"
 #include "utils/guc_tables.h"
 #include "parser/scansup.h"
+#include "executor/spi.h"
+#include "utils/elog.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -93,7 +95,7 @@ const char *const GucContext_Parmnames[] =
 	 /* PGC_USERSET */ "user"
 };
 
-static void mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, NameLocal value, int *vartype, Name parmunit, Name parmmin, Name parmmax, int *effectparmstatus, StringInfo enumvalue, bool bneednotice);
+static bool mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, NameLocal value, int *vartype, Name parmunit, Name parmmin, Name parmmax, int *effectparmstatus, StringInfo enumvalue, bool bneednotice, int elevel);
 static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nodename, Name key, char *value);
 static void mgr_reload_parm(Relation noderel, char *nodename, char nodetype, StringInfo paramstrdata, int effectparmstatus, bool bforce);
 static void mgr_updateparm_send_parm(GetAgentCmdRst *getAgentCmdRst, Oid hostoid, char *nodepath, StringInfo paramstrdata, int effectparmstatus, bool bforce);
@@ -273,7 +275,8 @@ static void mgr_add_givenname_updateparm(MGRUpdateparm *parm_node, Name nodename
 		{
 			/*check the parameter is right for the type node of postgresql.conf*/
 			resetStringInfo(&enumvalue);
-			mgr_check_parm_in_pgconf(rel_parm, parmtype, &key, &defaultvalue, &vartype, &parmunit, &parmmin, &parmmax, &effectparmstatus, &enumvalue, bneednotice);
+			mgr_check_parm_in_pgconf(rel_parm, parmtype, &key, &defaultvalue, &vartype, &parmunit
+				, &parmmin, &parmmax, &effectparmstatus, &enumvalue, bneednotice, ERROR);
 			if(PGC_SIGHUP == effectparmstatus)
 				bsighup = true;
 
@@ -399,7 +402,7 @@ static void mgr_add_givenname_updateparm(MGRUpdateparm *parm_node, Name nodename
 /*
 *check the given parameter nodetype, key,value in mgr_parm, if not in, shows the parameter is not right in postgresql.conf
 */
-static void mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, NameLocal value, int *vartype, Name parmunit, Name parmmin, Name parmmax, int *effectparmstatus, StringInfo enumvalue, bool bneednotice)
+static bool mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, NameLocal value, int *vartype, Name parmunit, Name parmmin, Name parmmax, int *effectparmstatus, StringInfo enumvalue, bool bneednotice, int elevel)
 {
 	HeapTuple tuple;
 	char *gucconntent;
@@ -428,8 +431,11 @@ static void mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 				/*check the parm in mgr_parm, type is '*'*/
 				tuple = SearchSysCache2(PARMTYPENAME, CharGetDatum(PARM_IN_GTM_CN_DN), NameGetDatum(key));
 				if(!HeapTupleIsValid(tuple))
-					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+				{
+					ereport(elevel, (errcode(ERRCODE_UNDEFINED_OBJECT)
 						, errmsg("unrecognized configuration parameter \"%s\"", key->data)));
+					return false;
+				}
 				mgr_parm = (Form_mgr_parm)GETSTRUCT(tuple);
 			}
 			else
@@ -440,14 +446,18 @@ static void mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 			/*check the parm in mgr_parm, type is '*'*/
 			tuple = SearchSysCache2(PARMTYPENAME, CharGetDatum(PARM_IN_GTM_CN_DN), NameGetDatum(key));
 			if(!HeapTupleIsValid(tuple))
-				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+			{
+				ereport(elevel, (errcode(ERRCODE_UNDEFINED_OBJECT)
 					, errmsg("unrecognized configuration parameter \"%s\"", key->data)));
+				return false;
+			}
 			mgr_parm = (Form_mgr_parm)GETSTRUCT(tuple);
 		}
 		else
 		{
-			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+			ereport(elevel, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				, errmsg("the parm type \"%c\" does not exist", parmtype)));
+			return false;
 		}
 	}
 	else
@@ -479,8 +489,10 @@ static void mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 	}
 	else
 	{
-		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+		ReleaseSysCache(tuple);
+		ereport(elevel, (errcode(ERRCODE_UNDEFINED_OBJECT)
 			, errmsg("the value type \"%s\" does not exist", NameStr(mgr_parm->parmvartype))));
+		return false;
 	}
 
 	/*get the default value*/
@@ -559,10 +571,14 @@ static void mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 	}
 	else
 	{
-		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+		ReleaseSysCache(tuple);
+		ereport(elevel, (errcode(ERRCODE_UNDEFINED_OBJECT)
 			, errmsg("unkown the content of this parameter \"%s\"", key->data)));
+		return false;
 	}
 	ReleaseSysCache(tuple);
+
+	return true;
 }
 
 
@@ -1201,7 +1217,8 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 		if (!parm_node->is_force)
 		{
 			resetStringInfo(&enumvalue);
-			mgr_check_parm_in_pgconf(rel_parm, parmtype, &key, &defaultvalue, &vartype, &parmunit, &parmmin, &parmmax, &effectparmstatus, &enumvalue, bneednotice);
+			mgr_check_parm_in_pgconf(rel_parm, parmtype, &key, &defaultvalue, &vartype, &parmunit
+				, &parmmin, &parmmax, &effectparmstatus, &enumvalue, bneednotice, ERROR);
 		}
 		if (PGC_SIGHUP == effectparmstatus)
 			bsighup = true;
@@ -1397,7 +1414,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 */
 static int mgr_check_parm_value(char *name, char *value, int vartype, char *parmunit, char *parmmin, char *parmmax, StringInfo enumvalue)
 {
-	int elevel = ERROR;
+	int elevel = WARNING;
 	int flags;
 
 	switch (vartype)
@@ -1513,7 +1530,7 @@ static int mgr_check_parm_value(char *name, char *value, int vartype, char *parm
 				break;
 			}
 		default:
-				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+				ereport(elevel, (errcode(ERRCODE_UNDEFINED_OBJECT)
 					, errmsg("the param type \"d\" does not exist")));
 	}
 	return 1;
@@ -2190,4 +2207,539 @@ mgr_set_all_nodetype_param(const char nodetype, char *paramName, char *paramValu
 	heap_close(nodeRel, AccessShareLock);
 
 	return result;
+}
+
+/*
+* mgr_parm table used to check the set parameters and values allow or not, use the function mgr_flushparam:
+* 1. clear the mgr_parm table
+* 2. get value from one coordinator then insert into mgr_parm, the param type set if '*'
+* 3. get value from gtm master then insert into mgr_parm, the param type set if 'G'
+* 4. update the parmtype from '*' to '#' for the parameters just used on coordinator/datanode
+* 5. delete the parameters in mgr_parm table for the parameter's parmtype is 'G' and the parameter also
+*    in patmtype '*' tuple
+* 6. check the set_parameters table, if the parameters not suit for mgr_parm table, it will shows some warning
+*
+* manual steps to insert mgr_parm table
+* get the content "INSERT INTO adbmgr.parm VALUES..."
+* create table parm(id1 char,name text,setting text,context text,vartype text,unit text, min_val text
+*  ,max_val text,enumvals text[]) distribute by replication;
+* insert into parm select '*', name, setting, context, vartype, unit, min_val, max_val, enumvals from 
+* pg_settings order by 2;
+* add pg_stat_statements
+* INSERT INTO parm VALUES ('*', 'pg_stat_statements.max', '1000', 'postmaster', 'integer', NULL
+	, '100', '2147483647', NULL);
+* INSERT INTO parm VALUES ('*', 'pg_stat_statements.track', 'top', 'superuser', 'enum', NULL, NULL
+* , NULL, '{none,top,all}');
+* INSERT INTO parm VALUES ('*', 'pg_stat_statements.save', 'on', 'sighup', 'bool', NULL, NULL, NULL, NULL);
+* INSERT INTO parm VALUES ('*', 'pg_stat_statements.track_utility', 'on', 'superuser', 'bool', NULL, NULL
+* , NULL, NULL);
+* pg_dump -p xxxx -d postgres -t parm -f cn1.txt --inserts -a
+*
+*/
+void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *dest)
+{
+	Relation relParm;
+	Relation relNode;
+	Relation relUpdateparm;
+	HeapScanDesc relUpParmScan;
+	Form_mgr_updateparm mgr_updateparm;
+	HeapTuple tuple;
+	StringInfoData sqlStrmsg;
+	StringInfoData conStr;
+	StringInfoData cnInfoSendMsg;
+	StringInfoData gtmInfoSendMsg;
+	StringInfoData enumValue;
+	GetAgentCmdRst getAgentCmdRst;
+	HeapTuple nodeTuple;
+	HeapTuple newTuple;
+	Form_mgr_node mgr_node;
+	PGconn* conn = NULL;
+	PGresult *res = NULL;
+	Datum datumValue;
+	Datum datum[Natts_mgr_parm];
+	Datum datumPath;
+	NameData cnName;
+	NameData parmname;
+	NameData parmvalue;
+	NameData parmcontext;
+	NameData parmvartype;
+	NameData parmUnit;
+	NameData parmMin;
+	NameData parmMax;
+	NameData kName;
+	NameDataLocal defaultvalue;
+	NameData selfAddress;
+	int nodePort;
+	int nRows = 0;
+	int nColumn = 0;
+	int iloop = 0;
+	int effectParmStatus;
+	int varType;
+	int ret;
+	bool isnull[Natts_mgr_parm];
+	bool isNull;
+	bool bNeedNotice = false;
+	bool bnormalName = true;
+	bool bnormalValue = true;
+	bool bgetAddress = false;
+	bool breloadCn = false;
+	bool breloadGtm = false;
+	char *user;
+	char *hostAddr = NULL;
+	char *parmunit;
+	char *parmminval;
+	char *parmmaxval;
+	char *parmenumval;
+	char *parmtype;
+	char *agtmName;
+	char *kValue = NULL;
+	char *kNodeName;
+	char cnPath[MAXPGPATH];
+	char gtmPath[MAXPGPATH];
+	char kNodeType;
+	char ptype;
+	Oid coordHostOid;
+	Oid gtmHostOid;
+
+	struct PG_STAT_STATEMENT
+	{
+		char parmtype;
+		char *parmname;
+		char *parmvalue;
+		char *parmcontext;
+		char *parmvartype;
+		char *parmunit;
+		char *parmminval;
+		char *parmmaxval;
+		char *parmenumval;
+	}pg_stat_statement[4]=
+	{
+		{'*', "pg_stat_statements.max", "1000", "postmaster", "integer", "", "100", "2147483647", ""},
+		{'*', "pg_stat_statements.track", "top", "superuser", "enum", "", "", "", "{none,top,all}"},
+		{'*', "pg_stat_statements.save", "on", "sighup", "bool", "", "", "", ""},
+		{'*', "pg_stat_statements.track_utility", "on", "superuser", "bool", "", "", "", ""}
+	};
+	int i = 0;
+
+	/*check agent running normal*/
+	mgr_check_all_agent();
+	/*check all master nodes running normal*/
+	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
+	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
+
+	/* check connect adbmgr */
+	if ((ret = SPI_connect()) < 0)
+		ereport(ERROR, (errmsg("ADB Manager SPI_connect failed: error code %d", ret)));
+	/* update the parmtype where the parameters just used for coordinator and datanode, not for gtm */
+	ret = SPI_execute("delete from mgr_parm", false, 0);
+	if (ret != SPI_OK_DELETE)
+			ereport(ERROR, (errmsg("ADB Manager SPI_execute failed, delete all contents in mgr_parm table : error code %d", ret)));
+	SPI_freetuptable(SPI_tuptable);
+	SPI_finish();
+
+	relNode = heap_open(NodeRelationId, AccessShareLock);
+	relParm = heap_open(ParmRelationId, RowExclusiveLock);
+	initStringInfo(&conStr);
+	initStringInfo(&sqlStrmsg);
+	initStringInfo(&cnInfoSendMsg);
+	initStringInfo(&gtmInfoSendMsg);
+	initStringInfo(&(getAgentCmdRst.description));
+	agtmName = mgr_get_agtm_name();
+
+	PG_TRY();
+	{
+		/* connect to coordinator, get the content of pg_settings, insert the content into
+		* mgr_parm table; connect the gtm master, get the content of pg_settings, update the
+		* guc name set '*' to '#', which in the coordinator pg_settings but not in gtm pg_settings,
+		* set 'G' which just in gtm master pg_settings.
+		*/
+		mgr_get_active_node(&cnName, CNDN_TYPE_COORDINATOR_MASTER, InvalidOid);
+		/* get node info */
+		nodeTuple = mgr_get_tuple_node_from_name_type(relNode, NameStr(cnName));
+		if (!HeapTupleIsValid(nodeTuple))
+		{
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+				,errmsg("get tuple information of coordinator \"%s\" fail", NameStr(cnName))));
+		}
+		mgr_node = (Form_mgr_node)GETSTRUCT(nodeTuple);
+		Assert(mgr_node);
+		coordHostOid = mgr_node->nodehost;
+		nodePort = mgr_node->nodeport;
+		user = get_hostuser_from_hostoid(coordHostOid);
+		hostAddr = get_hostaddress_from_hostoid(coordHostOid);
+		appendStringInfo(&conStr, "postgresql://%s@%s:%d/%s", user, hostAddr, nodePort, DEFAULT_DB);
+		appendStringInfoCharMacro(&conStr, '\0');
+		/* sql string */
+		appendStringInfo(&sqlStrmsg, "%s", "select  name, setting, context, vartype, unit, min_val, \
+		max_val, enumvals from (select row_number() over (partition by name )as name_idx, * from \
+		pg_settings where name not like 'pg_stat_statements%') as s1 where name_idx = 1 order by 2;");
+		ereport(LOG, (errmsg("connect info: %s, sql: %s",conStr.data, sqlStrmsg.data)));
+		conn = PQconnectdb(conStr.data);
+		if (PQstatus(conn) != CONNECTION_OK)
+		{
+			PQfinish(conn);
+			/* get the adbmgr local address, and set the ip to coordinator pg_hba.conf */
+			memset(selfAddress.data, 0, NAMEDATALEN);
+			bgetAddress = mgr_get_self_address(hostAddr, nodePort, &selfAddress);
+			if (!bgetAddress)
+			{
+				pfree(hostAddr);
+				pfree(user);
+				heap_freetuple(nodeTuple);
+				ereport(ERROR, (errmsg("on ADB Manager get local address fail and can not connect to coordinator \"%s\" from ADB Manager", NameStr(cnName))));
+			}
+			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, DEFAULT_DB, user, selfAddress.data, 31, "trust", &cnInfoSendMsg);
+			datumPath = heap_getattr(nodeTuple, Anum_mgr_node_nodepath, RelationGetDescr(relNode), &isNull);
+			if (isNull)
+			{
+				pfree(hostAddr);
+				pfree(user);
+				heap_freetuple(nodeTuple);
+				ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+					, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
+					, errmsg("column nodepath is null")));
+			}
+			strncpy(cnPath, TextDatumGetCString(datumPath), MAXPGPATH-1);
+			cnPath[strlen(cnPath)] = '\0';
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cnPath, &cnInfoSendMsg, coordHostOid, &getAgentCmdRst);
+			mgr_reload_conf(coordHostOid, cnPath);
+			if (!getAgentCmdRst.ret)
+			{
+				pfree(hostAddr);
+				pfree(user);
+				heap_freetuple(nodeTuple);
+				ereport(ERROR, (errmsg("set ADB Manager ip \"%s\" to coordinator \"%s\" %s/pg_hba.conf fail %s", selfAddress.data, NameStr(cnName), cnPath, getAgentCmdRst.description.data)));
+			}
+			breloadCn = true;
+			/* try connect again */
+			conn = PQconnectdb(conStr.data);
+			if (PQstatus(conn) != CONNECTION_OK)
+				ereport(ERROR, (errmsg("%s", PQerrorMessage(conn))));
+		}
+		heap_freetuple(nodeTuple);
+		pfree(hostAddr);
+		pfree(user);
+		res = PQexec(conn, sqlStrmsg.data);
+		if (PQresultStatus(res) != PGRES_TUPLES_OK)
+		{
+			PQfinish(conn);
+			if (NULL == PQresultErrorMessage(res))
+				ereport(ERROR, (errmsg("%s" , "execute the sql fail")));
+			else
+				ereport(ERROR, (errmsg("%s" , PQresultErrorMessage(res))));
+		}
+		nRows = PQntuples(res);
+		nColumn = PQnfields(res);
+		Assert(Natts_mgr_parm == nColumn + 1);
+		parmtype = MACRO_STAND_FOR_ALL_NODENAME;
+		memset(isnull, 0, sizeof(isnull));
+		for (iloop=0; iloop<nRows; iloop++)
+		{
+			memset(datum, 0, sizeof(datum));
+			namestrcpy(&parmname, PQgetvalue(res, iloop, 0));
+			namestrcpy(&parmvalue, PQgetvalue(res, iloop, 1));
+			namestrcpy(&parmcontext, PQgetvalue(res, iloop, 2));
+			namestrcpy(&parmvartype, PQgetvalue(res, iloop, 3));
+			parmunit = PQgetvalue(res, iloop, 4);
+			parmminval = PQgetvalue(res, iloop, 5);
+			parmmaxval = PQgetvalue(res, iloop, 6);
+			parmenumval = PQgetvalue(res, iloop, 7);
+			datum[Anum_mgr_parm_type-1] = CharGetDatum(*parmtype);
+			datum[Anum_mgr_parm_name-1] = NameGetDatum(&parmname);
+			datum[Anum_mgr_parm_value-1] = NameGetDatum(&parmvalue);
+			datum[Anum_mgr_parm_context-1] = NameGetDatum(&parmcontext);
+			datum[Anum_mgr_parm_vartype-1] = NameGetDatum(&parmvartype);
+			datum[Anum_mgr_parm_unit-1] = CStringGetTextDatum(parmunit);
+			datum[Anum_mgr_parm_minval-1] = CStringGetTextDatum(parmminval);
+			datum[Anum_mgr_parm_maxval-1] = CStringGetTextDatum(parmmaxval);
+			datum[Anum_mgr_parm_enumval-1] = CStringGetTextDatum(parmenumval);
+			/* now, we can insert record */
+			newTuple = heap_form_tuple(RelationGetDescr(relParm), datum, isnull);
+			simple_heap_insert(relParm, newTuple);
+			CatalogUpdateIndexes(relParm, newTuple);
+			heap_freetuple(newTuple);
+		}
+		PQclear(res);
+		PQfinish(conn);
+
+		/*connect gtm master */
+		nodeTuple = mgr_get_tuple_node_from_name_type(relNode, agtmName);
+		if (!HeapTupleIsValid(nodeTuple))
+		{
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+				,errmsg("get tuple information of gtm master \"%s\" fail", agtmName)));
+		}
+		mgr_node = (Form_mgr_node)GETSTRUCT(nodeTuple);
+		Assert(mgr_node);
+		gtmHostOid = mgr_node->nodehost;
+		nodePort = mgr_node->nodeport;
+		hostAddr = get_hostaddress_from_hostoid(gtmHostOid);
+		resetStringInfo(&conStr);
+		appendStringInfo(&conStr, "postgresql://%s@%s:%d/%s", AGTM_USER, hostAddr, nodePort, DEFAULT_DB);
+		appendStringInfoCharMacro(&conStr, '\0');
+		conn = PQconnectdb(conStr.data);
+		if (PQstatus(conn) != CONNECTION_OK)
+		{
+			PQfinish(conn);
+			/* get the adbmgr local address, and set the ip to gtm master pg_hba.conf */
+			memset(selfAddress.data, 0, NAMEDATALEN);
+			bgetAddress = mgr_get_self_address(hostAddr, nodePort, &selfAddress);
+			if (!bgetAddress)
+			{
+				pfree(hostAddr);
+				heap_freetuple(nodeTuple);
+				ereport(ERROR, (errmsg("on ADB Manager get local address fail and can not connect to agtm master \"%s\" from ADB Manager", agtmName)));
+			}
+			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, DEFAULT_DB, AGTM_USER, selfAddress.data, 31, "trust", &gtmInfoSendMsg);
+			datumPath = heap_getattr(nodeTuple, Anum_mgr_node_nodepath, RelationGetDescr(relNode), &isNull);
+			if (isNull)
+			{
+				pfree(hostAddr);
+				heap_freetuple(nodeTuple);
+				ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+					, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
+					, errmsg("column nodepath is null")));
+			}
+			strncpy(gtmPath, TextDatumGetCString(datumPath), MAXPGPATH-1);
+			gtmPath[strlen(gtmPath)] = '\0';
+			resetStringInfo(&(getAgentCmdRst.description));
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, gtmPath, &gtmInfoSendMsg, gtmHostOid, &getAgentCmdRst);
+			mgr_reload_conf(gtmHostOid, gtmPath);
+			if (!getAgentCmdRst.ret)
+			{
+				pfree(hostAddr);
+				heap_freetuple(nodeTuple);
+				ereport(ERROR, (errmsg("set ADB Manager ip \"%s\" to gtm master \"%s\" %s/pg_hba.conf fail %s", selfAddress.data, agtmName, gtmPath, getAgentCmdRst.description.data)));
+			}
+			breloadGtm = true;
+			/* try connect again */
+			conn = PQconnectdb(conStr.data);
+			if (PQstatus(conn) != CONNECTION_OK)
+			{
+				pfree(hostAddr);
+				heap_freetuple(nodeTuple);
+				ereport(ERROR, (errmsg("%s", PQerrorMessage(conn))));
+			}
+
+		}
+		pfree(hostAddr);
+		heap_freetuple(nodeTuple);
+		res = PQexec(conn, sqlStrmsg.data);
+		if (PQresultStatus(res) != PGRES_TUPLES_OK)
+		{
+			if (NULL == PQresultErrorMessage(res))
+				ereport(ERROR, (errmsg("%s" , "execute the sql fail")));
+			else
+				ereport(ERROR, (errmsg("%s" , PQresultErrorMessage(res))));
+		}
+		nRows = PQntuples(res);
+		nColumn = PQnfields(res);
+		Assert(Natts_mgr_parm == nColumn + 1);
+		memset(isnull, 0, sizeof(isnull));
+		for (iloop=0; iloop<nRows; iloop++)
+		{
+			memset(datum, 0, sizeof(datum));
+			namestrcpy(&parmname, PQgetvalue(res, iloop, 0));
+			namestrcpy(&parmvalue, PQgetvalue(res, iloop, 1));
+			namestrcpy(&parmcontext, PQgetvalue(res, iloop, 2));
+			namestrcpy(&parmvartype, PQgetvalue(res, iloop, 3));
+			parmunit = PQgetvalue(res, iloop, 4);
+			parmminval = PQgetvalue(res, iloop, 5);
+			parmmaxval = PQgetvalue(res, iloop, 6);
+			parmenumval = PQgetvalue(res, iloop, 7);
+			datum[Anum_mgr_parm_type-1] = CharGetDatum(PARM_TYPE_GTM);
+			datum[Anum_mgr_parm_name-1] = NameGetDatum(&parmname);
+			datum[Anum_mgr_parm_value-1] = NameGetDatum(&parmvalue);
+			datum[Anum_mgr_parm_context-1] = NameGetDatum(&parmcontext);
+			datum[Anum_mgr_parm_vartype-1] = NameGetDatum(&parmvartype);
+			datum[Anum_mgr_parm_unit-1] = CStringGetTextDatum(parmunit);
+			datum[Anum_mgr_parm_minval-1] = CStringGetTextDatum(parmminval);
+			datum[Anum_mgr_parm_maxval-1] = CStringGetTextDatum(parmmaxval);
+			datum[Anum_mgr_parm_enumval-1] = CStringGetTextDatum(parmenumval);
+			/* now, we can insert record */
+			newTuple = heap_form_tuple(RelationGetDescr(relParm), datum, isnull);
+			simple_heap_insert(relParm, newTuple);
+			CatalogUpdateIndexes(relParm, newTuple);
+			heap_freetuple(newTuple);
+		}
+		PQclear(res);
+		PQfinish(conn);
+
+		/* insert the pg_stat_statement parameters */
+		memset(isnull, 0, sizeof(isnull));
+		for (i=0; i<sizeof(pg_stat_statement)/sizeof(struct PG_STAT_STATEMENT); i++)
+		{
+			memset(datum, 0, sizeof(datum));
+			namestrcpy(&parmname, pg_stat_statement[i].parmname);
+			namestrcpy(&parmvalue, pg_stat_statement[i].parmvalue);
+			namestrcpy(&parmcontext, pg_stat_statement[i].parmcontext);
+			namestrcpy(&parmvartype, pg_stat_statement[i].parmvartype);
+			parmunit = pg_stat_statement[i].parmunit;
+			parmminval = pg_stat_statement[i].parmminval;
+			parmmaxval = pg_stat_statement[i].parmmaxval;
+			parmenumval = pg_stat_statement[i].parmenumval;
+			datum[Anum_mgr_parm_type-1] = CharGetDatum(pg_stat_statement[i].parmtype);
+			datum[Anum_mgr_parm_name-1] = NameGetDatum(&parmname);
+			datum[Anum_mgr_parm_value-1] = NameGetDatum(&parmvalue);
+			datum[Anum_mgr_parm_context-1] = NameGetDatum(&parmcontext);
+			datum[Anum_mgr_parm_vartype-1] = NameGetDatum(&parmvartype);
+			datum[Anum_mgr_parm_unit-1] = CStringGetTextDatum(parmunit);
+			datum[Anum_mgr_parm_minval-1] = CStringGetTextDatum(parmminval);
+			datum[Anum_mgr_parm_maxval-1] = CStringGetTextDatum(parmmaxval);
+			datum[Anum_mgr_parm_enumval-1] = CStringGetTextDatum(parmenumval);
+			/* now, we can insert record */
+			newTuple = heap_form_tuple(RelationGetDescr(relParm), datum, isnull);
+			simple_heap_insert(relParm, newTuple);
+			CatalogUpdateIndexes(relParm, newTuple);
+			heap_freetuple(newTuple);
+		}
+
+		/* delete the add adbmgr ip from coordinator pg_hba.conf and gtm master pg_hba.conf if add */
+		if (breloadCn)
+		{
+			resetStringInfo(&(getAgentCmdRst.description));
+			mgr_send_conf_parameters(AGT_CMD_CNDN_DELETE_PGHBACONF
+									,cnPath
+									,&cnInfoSendMsg
+									,coordHostOid
+									,&getAgentCmdRst);
+			if (!getAgentCmdRst.ret)
+				ereport(WARNING, (errmsg("remove ADB Manager ip \"%s\" from coordinator \"%s\" %s/pg_hba.conf fail %s", selfAddress.data, NameStr(cnName), cnPath, getAgentCmdRst.description.data)));
+			mgr_reload_conf(coordHostOid, cnPath);
+		}
+		if (breloadGtm)
+		{
+			resetStringInfo(&(getAgentCmdRst.description));
+			mgr_send_conf_parameters(AGT_CMD_CNDN_DELETE_PGHBACONF
+									,gtmPath
+									,&gtmInfoSendMsg
+									,gtmHostOid
+									,&getAgentCmdRst);
+			if (!getAgentCmdRst.ret)
+				ereport(WARNING, (errmsg("remove ADB Manager ip \"%s\" from gtm master \"%s\" %s/pg_hba.conf fail %s", selfAddress.data, agtmName, gtmPath, getAgentCmdRst.description.data)));
+			mgr_reload_conf(gtmHostOid, gtmPath);
+		}
+	}PG_CATCH();
+	{
+		pfree(agtmName);
+		pfree(conStr.data);
+		pfree(sqlStrmsg.data);
+		pfree(cnInfoSendMsg.data);
+		pfree(gtmInfoSendMsg.data);
+		pfree(getAgentCmdRst.description.data);
+		heap_close(relNode, AccessShareLock);
+		heap_close(relParm, RowExclusiveLock);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	pfree(agtmName);
+	pfree(sqlStrmsg.data);
+	pfree(conStr.data);
+	pfree(cnInfoSendMsg.data);
+	pfree(gtmInfoSendMsg.data);
+	pfree(getAgentCmdRst.description.data);
+	heap_close(relNode, AccessShareLock);
+	heap_close(relParm, RowExclusiveLock);
+
+	/* check connect adbmgr */
+	if ((ret = SPI_connect()) < 0)
+		ereport(ERROR, (errmsg("ADB Manager SPI_connect failed: error code %d", ret)));
+	/* update the parmtype where the parameters just used for coordinator and datanode, not for gtm */
+	ret = SPI_execute("update mgr_parm set parmtype='#' where parmtype='*' and parmname not \
+		in (select parmname from mgr_parm where parmtype='G') and parmname not like \
+		'pg_stat_statements%';", false, 0);
+	if (ret != SPI_OK_UPDATE)
+			ereport(ERROR, (errmsg("ADB Manager SPI_execute failed, update the parmtype from '*' \
+					to '#' in mgr_parm table : error code %d", ret)));
+	SPI_freetuptable(SPI_tuptable);
+	/* delete the redundant parameters */
+	ret = SPI_execute("delete from mgr_parm where parmtype='G' and parmname in (select parmname \
+		from mgr_parm where parmtype='*');", false, 0);
+	if (ret != SPI_OK_DELETE)
+			ereport(ERROR, (errmsg("ADB Manager SPI_execute failed, delete the redundant parameters \
+				in mgr_parm table : error code %d", ret)));
+	SPI_finish();
+
+	/* check the parameters in mgr_updateparm table, if the parameters not in mgr_parm, give notice
+	* message
+	*/
+	relParm = heap_open(ParmRelationId, AccessShareLock);
+	relUpdateparm = heap_open(UpdateparmRelationId, AccessShareLock);
+	relUpParmScan = heap_beginscan_catalog(relUpdateparm, 0, NULL);
+	initStringInfo(&enumValue);
+
+	PG_TRY();
+	{
+		while((tuple = heap_getnext(relUpParmScan, ForwardScanDirection)) != NULL)
+		{
+			mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(tuple);
+			Assert(mgr_updateparm);
+			kNodeName = NameStr(mgr_updateparm->updateparmnodename);
+			kNodeType = mgr_updateparm->updateparmnodetype;
+			switch(kNodeType)
+			{
+				case GTM_TYPE_GTM_MASTER:
+				case GTM_TYPE_GTM_SLAVE:
+				case CNDN_TYPE_GTM:
+					ptype = CNDN_TYPE_GTM;
+					break;
+				case CNDN_TYPE_COORDINATOR_MASTER:
+				case CNDN_TYPE_COORDINATOR_SLAVE:
+				case CNDN_TYPE_COORDINATOR:
+					ptype = CNDN_TYPE_COORDINATOR;
+					break;
+				case CNDN_TYPE_DATANODE_MASTER:
+				case CNDN_TYPE_DATANODE_SLAVE:
+				case CNDN_TYPE_DATANODE:
+					ptype = CNDN_TYPE_DATANODE;
+					break;
+				default: 
+					ptype = '*';
+					break;
+			}
+
+			namestrcpy(&kName, NameStr(mgr_updateparm->updateparmkey));
+			datumValue = heap_getattr(tuple, Anum_mgr_updateparm_value, RelationGetDescr(relUpdateparm),
+				&isNull);
+			if(isNull)
+			{
+				ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+					, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_updateparm")
+					, errmsg("column value is null")));
+			}
+			kValue = TextDatumGetCString(datumValue);
+			/* check the name and value in mgr_parm */
+			resetStringInfo(&enumValue);
+			if (mgr_check_parm_in_pgconf(relParm, ptype, &kName, &defaultvalue, &varType, &parmUnit
+				, &parmMin, &parmMax, &effectParmStatus, &enumValue, bNeedNotice, WARNING))
+			{
+				if (mgr_check_parm_value(kName.data, kValue, varType, parmUnit.data, parmMin.data
+					, parmMax.data, &enumValue) != 1)
+					bnormalValue = false;
+			}
+			else
+				bnormalName = false;
+		}
+
+		if (!bnormalName)
+			ereport(WARNING, (errcode(ERRCODE_INVALID_PARAMETER_VALUE)
+				,errmsg("according to the warning, some parameters are unrecognized in the set_parameters table,you should use \"reset ... force\" command to clear it")
+				,errhint("try \"\\h reset\" for more information")));
+		if (!bnormalValue)
+			ereport(WARNING, (errcode(ERRCODE_INVALID_PARAMETER_VALUE)
+				,errmsg("according to the warning, some values are not right in the set_parameters table, you should use \"set\" command to set new values")
+				,errhint("try \"\\h set\" for more information")));
+	}PG_CATCH();
+	{
+		pfree(enumValue.data);
+		heap_endscan(relUpParmScan);
+		heap_close(relUpdateparm, AccessShareLock);
+		heap_close(relParm, AccessShareLock);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	pfree(enumValue.data);
+	heap_endscan(relUpParmScan);
+	heap_close(relUpdateparm, AccessShareLock);
+	heap_close(relParm, AccessShareLock);
 }
