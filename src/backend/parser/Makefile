@@ -33,8 +33,32 @@ ora_gram.h: ora_gram.c ;
 
 gram.c: BISONFLAGS += -d
 gram.c: BISON_CHECK_CMD = $(PERL) $(srcdir)/check_keywords.pl $< $(top_srcdir)/src/include/parser/kwlist.h
-ora_gram.c: BISONFLAGS += -d 
+ifneq ($(enable_cluster),yes)
+gram.c: $(abs_top_srcdir)/$(subdir)/gram.y drop-adb.pl modify-line.pl
+	$(PERL) $(abs_top_srcdir)/$(subdir)/drop-adb.pl $< gram.y
+ifdef BISON
+	$(BISON) $(BISONFLAGS) -o tmp_$@ gram.y
+else
+	@$(missing) bison gram.y $@
+endif
+	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_gram.c gram.c gram.y "$<"
+	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_gram.h gram.h gram.y "$<"
+	rm -f tmp_gram.h tmp_gram.c
+endif
 
+ora_gram.c: BISONFLAGS += -d 
+ifneq ($(enable_cluster),yes)
+ora_gram.c: $(abs_top_srcdir)/$(subdir)/ora_gram.y drop-adb.pl modify-line.pl
+	$(PERL) $(abs_top_srcdir)/$(subdir)/drop-adb.pl $< ora_gram.y
+ifdef BISON
+	$(BISON) $(BISONFLAGS) -o tmp_$@ ora_gram.y
+else
+	@$(missing) bison gram.y $@
+endif
+	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_ora_gram.c ora_gram.c gram.y "$<"
+	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_ora_gram.h ora_gram.h gram.y "$<"
+	rm -f tmp_ora_gram.h tmp_ora_gram.c
+endif
 
 scan.c: FLEXFLAGS = -CF -p -p
 scan.c: FLEX_NO_BACKUP=yes

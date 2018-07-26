@@ -28,15 +28,13 @@
 #include "parser/gramparse.h"
 #include "parser/parser.h"
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 #include "catalog/heap.h" /* SystemAttributeByName */
 #include "lib/stringinfo.h"
 #include "miscadmin.h" /* check_stack_depth */
 #include "parser/ora_gramparse.h"
 #include "parser/parse_target.h"
-#endif
 
-#ifdef ADB
 
 typedef enum MutatorConnectByExprKind
 {
@@ -78,7 +76,8 @@ static char* get_expr_name(Node *expr, List *expr_list, List *name_list);
 static bool have_prior_expr(Node *node, void *context);
 static Node* make_concat_expr(Node *larg, Node *rarg, int location);
 
-#endif /* ADB */
+#endif /* #if defined(ADB) || defined(ADB_GRAM_ORA) */
+
 /*
  * raw_parser
  *		Given a query in string form, do lexical and grammatical analysis.
@@ -115,7 +114,7 @@ raw_parser(const char *str)
 	return yyextra.parsetree;
 }
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 List* ora_raw_parser(const char *str)
 {
 	core_yyscan_t yyscanner;
@@ -473,7 +472,7 @@ makeBoolAConst(bool state, int location)
 	return makeTypeCast((Node *)n, SystemTypeName("bool"), -1);
 }
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 List *
 check_sequence_name(List *names, core_yyscan_t yyscanner, int location)
 {
@@ -1065,7 +1064,7 @@ static char* get_expr_name(Node *expr, List *expr_list, List *name_list)
 	return NULL;
 }
 
-#endif
+#endif /* #if defined(ADB) || defined(ADB_GRAM_ORA) */
 
 /* makeRoleSpec
  * Create a RoleSpec with the given type
@@ -1301,7 +1300,7 @@ SystemTypeName(char *name)
 											   makeString(name)));
 }
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 TypeName *SystemTypeNameLocation(char *name, int location)
 {
 	TypeName *typ = makeTypeNameFromNameList(list_make2(makeString("pg_catalog"),
@@ -1666,7 +1665,7 @@ SplitColQualList(List *qualList,
 
 /* ADB end from gram.y */
 
-#ifdef ADB_GRAM_ORA
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 List *OracleFuncName(char *name)
 {
 	return list_make2(makeString("oracle"), makeString(name));
@@ -1685,9 +1684,9 @@ TypeName *OracleTypeNameLocation(char *name, int location)
 	typ->location = location;
 	return typ;
 }
-#endif
+#endif /* #if defined(ADB) || defined(ADB_GRAM_ORA) */
 
-#if defined(ADB)
+#ifdef ADB
 void transformDistributeBy(DistributeBy *dbstmt)
 {
 	List *funcname = NIL;

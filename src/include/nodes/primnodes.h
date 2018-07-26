@@ -929,7 +929,7 @@ typedef struct CaseExpr
 	Expr	   *arg;			/* implicit equality comparison argument */
 	List	   *args;			/* the arguments (list of WHEN clauses) */
 	Expr	   *defresult;		/* the default result (ELSE clause) */
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	bool		isdecode;		/* mark if decode function by oracle gammar */
 #endif
 	int			location;		/* token location, or -1 if unknown */

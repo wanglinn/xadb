@@ -270,7 +270,7 @@ typedef struct ColumnRef
 	int			location;		/* token location, or -1 if unknown */
 } ColumnRef;
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 /*
  * oracle join column
  * for example id(+)
@@ -296,7 +296,7 @@ typedef struct PriorExpr
 	Node	   *expr;
 }PriorExpr;
 
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 
 /*
  * ParamRef - specifies a $n parameter reference
@@ -1453,7 +1453,7 @@ typedef struct CommonTableExpr
 	List	   *ctecolcollations;	/* OID list of column collation OIDs */
 } CommonTableExpr;
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 /*
  * oracle rownum expr
  */

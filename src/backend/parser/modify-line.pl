@@ -21,7 +21,7 @@ my $dest_str = $ARGV[3];
 
 while (my $row = <$src_handle>)
 {
-	if ($row =~ /^\s*#line\s+(\d+)\s+\".*$src_str\"\s*$/)
+	if ($row =~ /^\s*#line\s+(\d+)\s+\".*$src_str\"\s*/)
 	{
 		print $dest_handle "#line $1 \"$dest_str\"\n";
 	}else

@@ -4276,7 +4276,7 @@ bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar)
 		*grammar = gram;
 	return true;
 }
-#endif
+#endif /* #if defined(ADB) || defined(ADB_GRAM_ORA) */
 
 #ifdef ADB
 bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)

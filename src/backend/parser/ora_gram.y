@@ -122,10 +122,10 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	AccessPriv			*accesspriv;
 	InsertStmt			*istmt;
 	VariableSetStmt		*vsetstmt;
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 	DistributeBy		*distby;
 	PGXCSubCluster		*subclus;
-/* PGXC_END */
+/* ADB_END */
 }
 
 /*
@@ -144,11 +144,8 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 
 %type <ielem>	index_elem
 
-%type <distby>	OptDistributeByInternal
-
-
 %type <list>	stmtblock stmtmulti opt_column_list columnList alter_table_cmds
-				pgxcnodes pgxcnode_list OptRoleList
+				OptRoleList
 
 %type <list>	OptSeqOptList SeqOptList
 /* %type <list>	NumericOnly_list */
@@ -158,7 +155,6 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 
 %type <str>		ExistingIndex
 %type <str>		generic_option_name
-%type <str>		OptDistributeType
 %type <node>	generic_option_arg
 
 %type <node>	stmt ViewStmt alter_table_cmd
@@ -176,9 +172,6 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 
 %type <defelt>	transaction_mode_item explain_option_elem def_elem reloption_elem
 				SeqOptElem AlterOptRoleElem CreateOptRoleElem
-
-%type <subclus> OptSubCluster OptSubClusterInternal
-%type <distby>	OptDistributeBy
 
 %type <istmt>	insert_rest insert_rest_no_cols
 
@@ -277,7 +270,6 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	name NonReservedWord NonReservedWord_or_Sconst
 	opt_boolean_or_string opt_encoding OptConsTableSpace opt_index_name
 	OptTableSpace
-	pgxcgroup_name pgxcnode_name
 	RoleId
 	Sconst
 	type_function_name
@@ -296,6 +288,14 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 
 %type <with> with_clause opt_with_clause
 
+/* ADB_BEGIN */
+%type <distby>	OptDistributeBy
+%type <distby>	OptDistributeByInternal
+%type <list>	pgxcnodes pgxcnode_list
+%type <str>		pgxcgroup_name pgxcnode_name OptDistributeType
+%type <subclus> OptSubCluster OptSubClusterInternal
+/* ADB_END */
+
 %token <keyword> ACCESS ADD_P ALL ALTER ANALYZE ANALYSE AND ABORT_P
 	ANY AS ASC AUDIT AUTHORIZATION ACTION ALWAYS
 	ADMIN
@@ -308,10 +308,11 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	CACHE NOCACHE COMMENTS
 	DATE_P DAY_P DBTIMEZONE_P DEC DECIMAL_P DEFAULT DEFERRABLE DELETE_P DESC DISTINCT
 	DO DOCUMENT_P DOUBLE_P DROP DEFERRED DATA_P DEFAULTS
+	DISABLE_P PREPARE PREPARED DOMAIN_P DICTIONARY
 
-	/* PGXC_BEGIN */
-	DISABLE_P DISTRIBUTE PREPARE PREPARED DOMAIN_P DICTIONARY
-	/* PGXC_END */
+	/* ADB_BEGIN */
+	DISTRIBUTE
+	/* ADB_END */
 
 	ELSE END_P ESCAPE EXCLUSIVE EXISTS EXPLAIN EXTRACT
 	ENABLE_P EXCLUDE EVENT EXTENSION EXCLUDING ENCRYPTED
@@ -510,9 +511,9 @@ CreateAsStmt:
 
 create_as_target:
 			qualified_name opt_column_list OptWith OnCommitOption OptTableSpace
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 			OptDistributeBy OptSubCluster
-/* PGXC_END */
+/* ADB_END */
 				{
 					$$ = makeNode(IntoClause);
 					$$->rel = $1;
@@ -522,10 +523,10 @@ create_as_target:
 					$$->tableSpaceName = $5;
 					$$->viewQuery = NULL;
 					$$->skipData = false;		/* might get changed later */
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 					$$->distributeby = $6;
 					$$->subcluster = $7;
-/* PGXC_END */
+/* ADB_END */
 				}
 		;
 
@@ -1239,7 +1240,7 @@ alter_table_cmd:
 					n->def = (Node *)$1;
 					$$ = (Node *) n;
 				}
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 			/* ALTER TABLE <name> DISTRIBUTE BY ... */
 			| OptDistributeByInternal
 				{
@@ -1272,7 +1273,7 @@ alter_table_cmd:
 					n->def = (Node *)$3;
 					$$ = (Node *)n;
 				}
-/* PGXC_END */
+/* ADB_END */
 		;
 
 opt_set_data: SET DATA_P							{ $$ = 1; }
@@ -1349,6 +1350,7 @@ opt_collate_clause:
 			| /* EMPTY */				{ $$ = NULL; }
 		;
 
+/* ADB_BEGIN */
 /*
  * For the distribution type, we use IDENT to limit the impact of keywords
  * related to distribution on other commands and to allow extensibility for
@@ -1420,6 +1422,7 @@ pgxcnode_list:
 			pgxcnode_list ',' pgxcnode_name		{ $$ = lappend($1, makeString($3)); }
 			| pgxcnode_name						{ $$ = list_make1(makeString($1)); }
 		;
+/* ADB_END */
 
 /* ConstraintElem specifies constraint syntax which is not embedded into
  *	a column definition. ColConstraintElem specifies the embedded form.
@@ -1639,9 +1642,9 @@ CreateSeqStmt:
 					n->sequence = $4;
 					n->options = $5;
 					n->ownerId = InvalidOid;
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 					n->is_serial = false;
-/* PGXC_END */
+/* ADB_END */
 					$$ = (Node *)n;
 				}
 		;
@@ -2887,9 +2890,9 @@ ConstTypename:
 
 CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 			OptInherit OptWith OnCommitOption OptTableSpace
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 			OptDistributeBy OptSubCluster
-/* PGXC_END */
+/* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
 					n->grammar = PARSE_GRAM_ORACLE;
@@ -2902,18 +2905,18 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->oncommit = $10;
 					n->tablespacename = $11;
 					n->if_not_exists = false;
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 					n->distributeby = $12;
 					n->subcluster = $13;
-/* PGXC_END */
+/* ADB_END */
 					$$ = (Node *)n;
 				}
 		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name '('
 			OptTableElementList ')' OptInherit OptWith OnCommitOption
 			OptTableSpace
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 			OptDistributeBy OptSubCluster
-/* PGXC_END */
+/* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
 					n->grammar = PARSE_GRAM_ORACLE;
@@ -2926,7 +2929,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->oncommit = $13;
 					n->tablespacename = $14;
 					n->if_not_exists = true;
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 					n->distributeby = $15;
 					n->subcluster = $16;
 					if (n->inhRelations != NULL && n->distributeby != NULL)
@@ -2934,14 +2937,14 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
 								 parser_errposition(exprLocation((Node *) n->distributeby))));
-/* PGXC_END */
+/* ADB_END */
 					$$ = (Node *)n;
 				}
 		| CREATE OptTemp TABLE qualified_name OF any_name
 			OptTypedTableElementList OptWith OnCommitOption OptTableSpace
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 			OptDistributeBy OptSubCluster
-/* PGXC_END */
+/* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
 					n->grammar = PARSE_GRAM_ORACLE;
@@ -2955,7 +2958,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->oncommit = $9;
 					n->tablespacename = $10;
 					n->if_not_exists = false;
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 					n->distributeby = $11;
 					n->subcluster = $12;
 					if (n->inhRelations != NULL && n->distributeby != NULL)
@@ -2963,14 +2966,14 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
 								 parser_errposition(exprLocation((Node *) n->distributeby))));
-/* PGXC_END */
+/* ADB_END */
 					$$ = (Node *)n;
 				}
 		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name OF any_name
 			OptTypedTableElementList OptWith OnCommitOption OptTableSpace
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 			OptDistributeBy OptSubCluster
-/* PGXC_END */
+/* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
 					n->grammar = PARSE_GRAM_ORACLE;
@@ -2984,7 +2987,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->oncommit = $12;
 					n->tablespacename = $13;
 					n->if_not_exists = true;
-/* PGXC_BEGIN */
+/* ADB_BEGIN */
 					n->distributeby = $14;
 					n->subcluster = $15;
 					if (n->inhRelations != NULL && n->distributeby != NULL)
@@ -2992,7 +2995,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
 								 parser_errposition(exprLocation((Node *) n->distributeby))));
-/* PGXC_END */
+/* ADB_END */
 					$$ = (Node *)n;
 				}
 		;
@@ -3057,9 +3060,11 @@ OnCommitOption:  ON COMMIT DROP				{ $$ = ONCOMMIT_DROP; }
 			| /*EMPTY*/						{ $$ = ONCOMMIT_NOOP; }
 		;
 
+/* ADB_BEGIN */
 OptDistributeBy: OptDistributeByInternal			{ $$ = $1; }
 			| /* EMPTY */							{ $$ = NULL; }
 		;
+/* ADB_END */
 
 OptTypedTableElementList:
 			'(' TypedTableElementList ')'		{ $$ = $2; }
@@ -5764,7 +5769,9 @@ unreserved_keyword:
 	| DOMAIN_P
 	| DATA_P
 	| DEFAULTS
+/* ADB_BEGIN */
 	| DISTRIBUTE
+/* ADB_END */
 	| DISABLE_P
 	| ESCAPE
 	| ENABLE_P

@@ -217,7 +217,7 @@ typedef enum NodeTag
 	T_SetToDefault,
 	T_CurrentOfExpr,
 	T_NextValueExpr,
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	T_RownumExpr,
 	T_LevelExpr,
 #endif
@@ -478,7 +478,7 @@ typedef enum NodeTag
 	 */
 	T_A_Expr,
 	T_ColumnRef,
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	T_ColumnRefJoin,
 	T_PriorExpr,
 #endif

@@ -82,13 +82,6 @@ extern bool planstate_tree_walker(struct PlanState *planstate, bool (*walker) ()
 extern bool planstate_tree_exec_walker(struct PlanState *planstate, bool (*walker) (),
 											  void *context);
 
-/* not support PlannerInfo and RelOptInfo */
-extern bool node_tree_walker(Node *node, bool (*walker)(), void *context);
-
-extern Node *node_tree_mutator(Node *node, Node *(*mutator)(), void *context);
-#endif
-#if defined(ADB) || defined(ADB_GRAM_ORA)
-extern bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar);
 struct Plan;
 extern bool plan_tree_walker(struct Plan *plan, Node *GlobOrStmt, bool (*walker)(), void *context);
 extern bool have_cluster_plan_walker(struct Plan *plan, Node *GlobOrStmt, void *notUse);
@@ -96,5 +89,14 @@ extern Node *node_copy(Node *node);
 struct Path;
 extern bool path_tree_walker(struct Path *path, bool (*walker)(), void *context);
 #endif /* ADB */
+
+#if defined(ADB) || defined(ADB_GRAM_ORA)
+/* not support PlannerInfo and RelOptInfo */
+extern bool node_tree_walker(Node *node, bool (*walker)(), void *context);
+
+extern Node *node_tree_mutator(Node *node, Node *(*mutator)(), void *context);
+
+extern bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar);
+#endif /* #if defined(ADB) || defined(ADB_GRAM_ORA) */
 
 #endif							/* NODEFUNCS_H */

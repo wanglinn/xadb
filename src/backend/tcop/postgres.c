@@ -1238,7 +1238,7 @@ exec_simple_query(const char *query_string)
 	 * Do basic parsing of the query or queries (this should be safe even if
 	 * we are in aborted transaction state!)
 	 */
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	if(query_node)
 	{
 		parsetree_list = IsA(query_node, List) ? (List*)query_node : list_make1(query_node);
