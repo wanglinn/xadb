@@ -417,5 +417,7 @@ extern Oid mgr_get_nodeMaster_tupleOid(char *nodeName);
 extern int mgr_get_nodetype_num(const char nodeType, const bool inCluster, const bool readOnly);
 extern bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrdata, char *nodename, int newport);
 extern bool mgr_update_pgxcnode_readonly_coord(void);
+extern void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *dest);
+extern void mgr_check_all_agent(void);
 
 #endif /* MGR_CMDS_H */

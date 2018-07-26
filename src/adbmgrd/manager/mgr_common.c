@@ -2446,6 +2446,7 @@ bool mgr_check_slave_replicate_status(const Oid masterTupleOid, const char nodet
 	{
 		pfree(sqlstrdata.data);
 		pfree(resultstrdata.data);
+		PG_RE_THROW();
 	}PG_END_TRY();
 
 	pfree(sqlstrdata.data);

@@ -107,7 +107,6 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 static bool mgr_modify_node_parameter_after_initd(Relation rel_node, HeapTuple nodetuple, StringInfo infosendmsg, bool brestart);
 static void mgr_modify_port_recoveryconf(Relation rel_node, HeapTuple aimtuple, int32 master_newport);
 static bool mgr_modify_coord_pgxc_node(Relation rel_node, StringInfo infostrdata, char *nodename, int newport);
-static void mgr_check_all_agent(void);
 static bool mgr_add_extension_sqlcmd(char *sqlstr);
 static char *get_username_list_str(List *user_list);
 static void mgr_manage_flush(char command_type, char *user_list_str);
@@ -5383,6 +5382,10 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 
 		/*add content of hba table to the pg_hba.conf file ,the "*" is meaning all*/
 		add_hba_table_to_file("*");
+		/* get the content from coordinator and gtm, then insert into mgr_parm which used 
+		* to check set parameters
+		*/
+		mgr_flushparam(NULL, NULL, NULL);
 		SRF_RETURN_DONE(funcctx);
 	}
 
@@ -8192,7 +8195,7 @@ Datum mgr_flush_host(PG_FUNCTION_ARGS)
 		PG_RETURN_BOOL(true);
 }
 
-static void mgr_check_all_agent(void)
+void mgr_check_all_agent(void)
 {
 	Form_mgr_host mgr_host;
 	HeapScanDesc rel_scan;

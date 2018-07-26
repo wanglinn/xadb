@@ -191,5 +191,10 @@ typedef struct MonitorDeleteData
 	int32	days;
 }MonitorDeleteData;
 
+typedef struct MGRFlushParam
+{
+	NodeTag type;
+}MGRFlushParam;
+
 #endif
 #endif /* MGR_NODE_H */
