@@ -115,7 +115,7 @@ typedef void (*re_flags_hook)(pg_re_flags *flags, text *opts);
 
 /* Local functions */
 #ifdef ADB
-static regexp_matches_ctx *setup_regexp_matches(text *orig_str, 
+static regexp_matches_ctx *setup_regexp_matches(text *orig_str,
 					 int start_position, text *pattern,
 					 text *flags, re_flags_hook flags_hook,
 					 Oid collation,
@@ -1496,7 +1496,7 @@ ora_regexp_count(PG_FUNCTION_ARGS)
 	if (position <= 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Invalid \"position\" value (%d) for \"regexp_count\"", 
+				errmsg("Invalid \"position\" value (%d) for \"regexp_count\"",
 					position),
 				errhint("\"position\" must be a positive integer")));
 	position = position - 1;
@@ -1560,7 +1560,7 @@ ora_regexp_replace5(PG_FUNCTION_ARGS)
  * if you omit "replace_string", then the default value is empty string.
  * if you omit "position", then the default value is 0, means begin the match
  * at the first character of "source_char".
- * if you omit "occurrence", then the default value is 0, means replace all 
+ * if you omit "occurrence", then the default value is 0, means replace all
  * occurrences of the match.
  */
 Datum
@@ -1599,7 +1599,7 @@ ora_regexp_replace(PG_FUNCTION_ARGS)
 	if (position <= 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Invalid \"position\" value (%d) for \"regexp_replace\"", 
+				errmsg("Invalid \"position\" value (%d) for \"regexp_replace\"",
 					position),
 				errhint("\"position\" must be a positive integer")));
 	position = position - 1;
@@ -1610,7 +1610,7 @@ ora_regexp_replace(PG_FUNCTION_ARGS)
 	if (occurence < 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Invalid \"occurence\" value (%d) for \"regexp_replace\"", 
+				errmsg("Invalid \"occurence\" value (%d) for \"regexp_replace\"",
 					occurence),
 				errhint("\"occurence\" must be a nonnegative integer")));
 
@@ -1621,11 +1621,11 @@ ora_regexp_replace(PG_FUNCTION_ARGS)
 
 	re = RE_compile_and_cache(p, flags.cflags, PG_GET_COLLATION());
 
-	PG_RETURN_TEXT_P(replace_text_regexp(s, 
-										(void *) re, 
-										r, 
-										position, 
-										occurence, 
+	PG_RETURN_TEXT_P(replace_text_regexp(s,
+										(void *) re,
+										r,
+										position,
+										occurence,
 										flags.glob));
 }
 
@@ -1697,18 +1697,18 @@ ora_regexp_substr5(PG_FUNCTION_ARGS)
  *					]
  *				 ]
  *				)
- * 
- * Note: position is a positive integer indicating the character of source_char 
- * where Oracle should begin the search. The default is 0, meaning that we 
+ *
+ * Note: position is a positive integer indicating the character of source_char
+ * where Oracle should begin the search. The default is 0, meaning that we
  * begin the search at the first character of source_char.
  *
  * Note: occurrence is a positive integer indicating which occurrence of pattern
  * in source_char we should search for. The default is 1, meaning that we search
  * for the first occurrence of pattern.
  *
- * Note: For a pattern with subexpressions, subexpr is a nonnegative integer 
- * from 0 to 9 indicating which subexpression in pattern is to be returned by 
- * the function. 
+ * Note: For a pattern with subexpressions, subexpr is a nonnegative integer
+ * from 0 to 9 indicating which subexpression in pattern is to be returned by
+ * the function.
  */
 Datum
 ora_regexp_substr(PG_FUNCTION_ARGS)
@@ -1739,7 +1739,7 @@ ora_regexp_substr(PG_FUNCTION_ARGS)
 	if (position <= 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Invalid \"position\" value (%d) for \"regexp_substr\"", 
+				errmsg("Invalid \"position\" value (%d) for \"regexp_substr\"",
 					position),
 				errhint("\"position\" must be a positive integer")));
 	position = position - 1;
@@ -1750,7 +1750,7 @@ ora_regexp_substr(PG_FUNCTION_ARGS)
 	if (occurence <= 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Invalid \"occurence\" value (%d) for \"regexp_substr\"", 
+				errmsg("Invalid \"occurence\" value (%d) for \"regexp_substr\"",
 					occurence),
 				errhint("\"occurence\" must be a positive integer")));
 
@@ -1760,7 +1760,7 @@ ora_regexp_substr(PG_FUNCTION_ARGS)
 	if (subexpr < 0 || subexpr > 9)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Invalid \"subexpr\" value (%d) for \"regexp_substr\"", 
+				errmsg("Invalid \"subexpr\" value (%d) for \"regexp_substr\"",
 					subexpr),
 				errhint("\"subexpr\" must be a nonnegative integer from 0 to 9")));
 
@@ -1864,27 +1864,27 @@ ora_regexp_instr6(PG_FUNCTION_ARGS)
  *					   ]
  *					]
  *				 ]
- * Note: position is a positive integer indicating the character of source_char 
+ * Note: position is a positive integer indicating the character of source_char
  * where we should begin the search. The default is 1, meaning that we begin the
  * search at the first character of source_char.
  *
  * Note: occurrence is a positive integer indicating which occurrence of pattern
  * in source_char we should search for. The default is 1, meaning that we search
- * for the first occurrence of pattern. If occurrence is greater than 1, then 
- * the database searches for the second occurrence beginning with the first 
+ * for the first occurrence of pattern. If occurrence is greater than 1, then
+ * the database searches for the second occurrence beginning with the first
  * character following the first occurrence of pattern, and so forth.
  *
- * Note: return_option lets you specify what we should return in relation to 
- * the occurrence:	
- *	   If you specify 0, then we return the position of the first character of 
- *	   the occurrence. This is the default.  
- *	   If you specify greater than 1, then we return the position of the 
+ * Note: return_option lets you specify what we should return in relation to
+ * the occurrence:
+ *	   If you specify 0, then we return the position of the first character of
+ *	   the occurrence. This is the default.
+ *	   If you specify greater than 1, then we return the position of the
  *	   character following the occurrence.
  *
- * Note: For a pattern with subexpressions, subexpr is an integer from 0 to 9 
- * indicating which subexpression in pattern is the target of the function. The 
- * subexpr is a fragment of pattern enclosed in parentheses. Subexpressions can 
- * be nested. Subexpressions are numbered in order in which their left 
+ * Note: For a pattern with subexpressions, subexpr is an integer from 0 to 9
+ * indicating which subexpression in pattern is the target of the function. The
+ * subexpr is a fragment of pattern enclosed in parentheses. Subexpressions can
+ * be nested. Subexpressions are numbered in order in which their left
  * parentheses appear in pattern.
  */
 Datum
@@ -1917,7 +1917,7 @@ ora_regexp_instr(PG_FUNCTION_ARGS)
 	if (position <= 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Invalid \"position\" value (%d) for \"regexp_instr\"", 
+				errmsg("Invalid \"position\" value (%d) for \"regexp_instr\"",
 					position),
 				errhint("\"position\" must be a positive integer")));
 	position = position - 1;
@@ -1928,7 +1928,7 @@ ora_regexp_instr(PG_FUNCTION_ARGS)
 	if (occurence <= 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Invalid \"occurence\" value (%d) for \"regexp_instr\"", 
+				errmsg("Invalid \"occurence\" value (%d) for \"regexp_instr\"",
 					occurence),
 				errhint("\"occurence\" must be a positive integer")));
 
@@ -1938,7 +1938,7 @@ ora_regexp_instr(PG_FUNCTION_ARGS)
 	if (return_opt < 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Invalid \"return_opt\" value (%d) for \"regexp_instr\"", 
+				errmsg("Invalid \"return_opt\" value (%d) for \"regexp_instr\"",
 					occurence),
 				errhint("\"return_opt\" must be a nonnegative integer")));
 
@@ -1948,7 +1948,7 @@ ora_regexp_instr(PG_FUNCTION_ARGS)
 	if (subexpr < 0 || subexpr > 9)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Invalid \"subexpr\" value (%d) for \"regexp_instr\"", 
+				errmsg("Invalid \"subexpr\" value (%d) for \"regexp_instr\"",
 					subexpr),
 				errhint("\"subexpr\" must be a nonnegative integer from 0 to 9")));
 
