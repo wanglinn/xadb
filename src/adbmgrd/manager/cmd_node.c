@@ -10595,7 +10595,6 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	char port_buf[10];
 	NameData namedata;
 	NameData mastername;
-	NameData newSyncSlaveName;
 	List *nodenamelist = NIL;
 	Relation rel;
 	HeapScanDesc rel_scan;
@@ -10740,7 +10739,6 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	initStringInfo(&infosendmsg);
 	initStringInfo(&infostrparam);
 	initStringInfo(&infostrparamtmp);
-	newSyncSlaveName.data[0] = '\0';
 
 	foreach(cell, nodenamelist)
 	{
@@ -10785,16 +10783,6 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 		{
 			if (syncNum)
 			{
-				/* get one sync slave node name for read only coordinator to refresh pgxc_node */
-				int i = 0;
-				while(i<infostrparam.len && infostrparam.data[i] != ',' && i<NAMEDATALEN)
-				{
-						newSyncSlaveName.data[i] = infostrparam.data[i];
-						i++;
-				}
-				if (i<NAMEDATALEN)
-					newSyncSlaveName.data[i] = '\0';
-
 				resetStringInfo(&infostrparamtmp);
 				appendStringInfo(&infostrparamtmp, "%d(%s)", syncNum, infostrparam.data);
 				resetStringInfo(&infostrparam);

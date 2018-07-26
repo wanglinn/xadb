@@ -2293,7 +2293,6 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	char *parmtype;
 	char *agtmName;
 	char *kValue = NULL;
-	char *kNodeName;
 	char cnPath[MAXPGPATH];
 	char gtmPath[MAXPGPATH];
 	char kNodeType;
@@ -2674,7 +2673,6 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 		{
 			mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(tuple);
 			Assert(mgr_updateparm);
-			kNodeName = NameStr(mgr_updateparm->updateparmnodename);
 			kNodeType = mgr_updateparm->updateparmnodetype;
 			switch(kNodeType)
 			{

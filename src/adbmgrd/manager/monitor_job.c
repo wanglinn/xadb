@@ -947,7 +947,6 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 	NameData masterName;
 	NameData slaveNodeName;
 	int nargs;
-	int nodePort;
 	int nmasterNum = 0;
 	int createFdNum = 0;
 	int i = 0;
@@ -1054,7 +1053,6 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 			if(!bnameNull)
 				if (strcmp(masterName.data, NameStr(mgr_node->nodename)) !=0)
 					continue;
-			nodePort = mgr_node->nodeport;
 			address = get_hostaddress_from_hostoid(mgr_node->nodehost);
 			namestrcpy(&(fdHandle[i].nodename), NameStr(mgr_node->nodename));
 			fdHandle[i].port = mgr_node->nodeport;
@@ -1397,7 +1395,6 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 	NameData masterName;
 	NameData slaveNodeName;
 	int nargs;
-	int nodePort;
 	int nmasterNum = 0;
 	int createFdNum = 0;
 	int i = 0;
@@ -1498,7 +1495,6 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 			Assert(mgr_node);
-			nodePort = mgr_node->nodeport;
 			address = get_hostaddress_from_hostoid(mgr_node->nodehost);
 			namestrcpy(&(fdHandle[0].nodename), NameStr(mgr_node->nodename));
 			fdHandle[0].port = mgr_node->nodeport;
