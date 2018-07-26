@@ -7622,9 +7622,9 @@ static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *
 
 	foreach(lc, modify->resultRelations)
 	{
+		Relation rel = NULL;
 		relid = lfirst_int(lc);
 		rte = planner_rt_fetch(relid, root);
-		Relation rel = NULL;
 
 		if (relid < root->simple_rel_array_size &&
 			root->simple_rel_array[relid] != NULL)

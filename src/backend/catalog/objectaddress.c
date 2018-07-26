@@ -2110,6 +2110,9 @@ pg_get_object_address(PG_FUNCTION_ARGS)
 	switch (type)
 	{
 		case OBJECT_TABLE:
+#ifdef ADB
+		case OBJECT_AUX_TABLE:
+#endif
 		case OBJECT_SEQUENCE:
 		case OBJECT_VIEW:
 		case OBJECT_MATVIEW:
@@ -3445,6 +3448,10 @@ getObjectDescription(const ObjectAddress *object)
 								 get_relid_attribute_name(object->objectId,
 													   object->objectSubId));
 			break;
+
+		case OCLASS_ADB_HA_SYNC_LOG:
+			appendStringInfoString(&buffer, _("adb ha sync log"));
+			break;
 #endif
 
 			/*
@@ -3967,6 +3974,9 @@ getObjectTypeDescription(const ObjectAddress *object)
 			break;
 		case OCLASS_AUX_CLASS:
 			appendStringInfo(&buffer, "auxiliary table");
+			break;
+		case OCLASS_ADB_HA_SYNC_LOG:
+			appendStringInfo(&buffer, "adb ha sync log");
 			break;
 #endif
 
@@ -5062,6 +5072,9 @@ getObjectIdentityParts(const ObjectAddress *object,
 			}
 		case OCLASS_AUX_CLASS:
 			getRelationIdentity(&buffer, object->objectId, objname);
+			break;
+		case OCLASS_ADB_HA_SYNC_LOG:
+			*objname = list_make1(pstrdup("adb ha sync log"));
 			break;
 #endif
 

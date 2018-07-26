@@ -1449,6 +1449,7 @@ doDeletion(const ObjectAddress *object, int flags)
 #ifdef ADB
 		case OCLASS_PGXC_NODE:
 		case OCLASS_PGXC_GROUP:
+		case OCLASS_ADB_HA_SYNC_LOG:
 #endif /* ADB */
 			elog(ERROR, "global objects cannot be deleted by doDeletion");
 			break;

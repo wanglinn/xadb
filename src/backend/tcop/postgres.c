@@ -233,8 +233,6 @@ static void drop_unnamed_stmt(void);
 static void log_disconnections(int code, Datum arg);
 #ifdef ADB
 static int check_adb_log_duration(char * msec_str, bool was_logged);
-static List *segment_query_string(const char *query_string,
-								  List *parsetree_list);
 static CommandDest PortalSetCommandDest(Portal portal, CommandDest dest);
 #endif
 #ifdef AGTM
@@ -1138,30 +1136,6 @@ check_adb_log_duration(char * msec_str, bool was_logged)
 		ret = 3;
 
 	return ret;
-}
-
-static List *
-segment_query_string(const char *query_string, List *parsetree_list)
-{
-	ListCell	*parsetree_item;
-	RawStmt		*raw_stmt;
-	List		*sql_list = NIL;
-	char		*sql_item;
-
-	if (!query_string || !parsetree_list)
-		return NIL;
-
-	foreach (parsetree_item, parsetree_list)
-	{
-		raw_stmt = lfirst_node(RawStmt, parsetree_item);
-		Assert(raw_stmt->stmt_location >= 0);
-		sql_item = pnstrdup(query_string + raw_stmt->stmt_location, raw_stmt->stmt_len);
-		sql_list = lappend(sql_list, sql_item);
-	}
-
-	Assert(list_length(sql_list) == list_length(parsetree_list));
-
-	return sql_list;
 }
 
 static CommandDest

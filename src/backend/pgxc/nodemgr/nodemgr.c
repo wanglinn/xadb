@@ -449,7 +449,6 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	bool		is_primary = false;
 	bool		is_preferred = false;
 	Datum		node_id;
-	Oid			nodeOid;
 
 	/* Only a DB administrator can add nodes */
 	if (!superuser())
@@ -535,7 +534,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	htup = heap_form_tuple(pgxcnodesrel->rd_att, values, nulls);
 
 	/* Insert tuple in catalog */
-	nodeOid = CatalogTupleInsert(pgxcnodesrel, htup);
+	CatalogTupleInsert(pgxcnodesrel, htup);
 
 	heap_close(pgxcnodesrel, RowExclusiveLock);
 }

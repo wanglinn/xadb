@@ -2213,7 +2213,7 @@ mgr_set_all_nodetype_param(const char nodetype, char *paramName, char *paramValu
 * get the content "INSERT INTO adbmgr.parm VALUES..."
 * create table parm(id1 char,name text,setting text,context text,vartype text,unit text, min_val text
 *  ,max_val text,enumvals text[]) distribute by replication;
-* insert into parm select '*', name, setting, context, vartype, unit, min_val, max_val, enumvals from 
+* insert into parm select '*', name, setting, context, vartype, unit, min_val, max_val, enumvals from
 * pg_settings order by 2;
 * add pg_stat_statements
 * INSERT INTO parm VALUES ('*', 'pg_stat_statements.max', '1000', 'postmaster', 'integer', NULL
@@ -2445,8 +2445,7 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 			datum[Anum_mgr_parm_enumval-1] = CStringGetTextDatum(parmenumval);
 			/* now, we can insert record */
 			newTuple = heap_form_tuple(RelationGetDescr(relParm), datum, isnull);
-			simple_heap_insert(relParm, newTuple);
-			CatalogUpdateIndexes(relParm, newTuple);
+			CatalogTupleInsert(relParm, newTuple);
 			heap_freetuple(newTuple);
 		}
 		PQclear(res);
@@ -2548,8 +2547,7 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 			datum[Anum_mgr_parm_enumval-1] = CStringGetTextDatum(parmenumval);
 			/* now, we can insert record */
 			newTuple = heap_form_tuple(RelationGetDescr(relParm), datum, isnull);
-			simple_heap_insert(relParm, newTuple);
-			CatalogUpdateIndexes(relParm, newTuple);
+			CatalogTupleInsert(relParm, newTuple);
 			heap_freetuple(newTuple);
 		}
 		PQclear(res);
@@ -2579,8 +2577,7 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 			datum[Anum_mgr_parm_enumval-1] = CStringGetTextDatum(parmenumval);
 			/* now, we can insert record */
 			newTuple = heap_form_tuple(RelationGetDescr(relParm), datum, isnull);
-			simple_heap_insert(relParm, newTuple);
-			CatalogUpdateIndexes(relParm, newTuple);
+			CatalogTupleInsert(relParm, newTuple);
 			heap_freetuple(newTuple);
 		}
 
@@ -2683,7 +2680,7 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 				case CNDN_TYPE_DATANODE:
 					ptype = CNDN_TYPE_DATANODE;
 					break;
-				default: 
+				default:
 					ptype = '*';
 					break;
 			}
