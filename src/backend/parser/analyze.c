@@ -63,7 +63,13 @@
 #include "pgxc/poolmgr.h"
 #include "catalog/pgxc_node.h"
 #include "pgxc/xc_maintenance_mode.h"
+#include "catalog/pg_operator.h"
+#include "parser/parser.h"
+#include "utils/syscache.h"
+#endif
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 #include "access/xact.h"
+#include "catalog/namespace.h"
 #endif
 
 #include "utils/rel.h"
@@ -73,12 +79,6 @@
 #include "access/htup_details.h"
 #include "miscadmin.h"
 
-#ifdef ADB
-#include "catalog/namespace.h"
-#include "catalog/pg_operator.h"
-#include "parser/parser.h"
-#include "utils/syscache.h"
-#endif
 /* End of addition */
 
 /* Hook for plugins to get control at end of parse analysis */
@@ -147,7 +147,7 @@ parse_analyze(RawStmt *parseTree, const char *sourceText,
 			  Oid *paramTypes, int numParams,
 			  QueryEnvironment *queryEnv)
 {
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	return parse_analyze_for_gram(parseTree, sourceText
 						,paramTypes, numParams, queryEnv, PARSE_GRAM_POSTGRES);
 }
@@ -189,7 +189,7 @@ parse_analyze_for_gram(RawStmt *parseTree, const char *sourceText,
 		(*post_parse_analyze_hook) (pstate, query);
 
 	free_parsestate(pstate);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	}PG_CATCH();
 	{
 		if (push_search_path)
@@ -213,7 +213,7 @@ Query *
 parse_analyze_varparams(RawStmt *parseTree, const char *sourceText,
 						Oid **paramTypes, int *numParams)
 {
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	return parse_analyze_varparams_for_gram(parseTree, sourceText
 		,paramTypes, numParams, PARSE_GRAM_POSTGRES);
 }
@@ -226,10 +226,10 @@ Query *parse_analyze_varparams_for_gram(RawStmt *parseTree, const char *sourceTe
 	PushOverrideSearchPathForGrammar(grammar);
 	PG_TRY();
 	{
-#else /* ADB */
+#else /* ADB_GRAM_ORA */
 	ParseState *pstate = make_parsestate(NULL);
 	Query	   *query;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 	Assert(sourceText != NULL); /* required as of 8.4 */
 
 	pstate->p_sourcetext = sourceText;
@@ -245,7 +245,7 @@ Query *parse_analyze_varparams_for_gram(RawStmt *parseTree, const char *sourceTe
 		(*post_parse_analyze_hook) (pstate, query);
 
 	free_parsestate(pstate);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	}PG_CATCH();
 	{
 		PopOverrideSearchPath();

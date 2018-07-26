@@ -70,7 +70,8 @@ typedef enum ParseGrammar
 {
 	PARSE_GRAM_POSTGRES = 0,
 	PARSE_GRAM_ORACLE
-}ParseGrammar;
+} ParseGrammar;
+
 #define IsOracleGram(gram)	((gram) == PARSE_GRAM_ORACLE)
 #endif
 
@@ -1783,7 +1784,7 @@ typedef enum DropBehavior
 typedef struct AlterTableStmt
 {
 	NodeTag		type;
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	ParseGrammar grammar;
 #endif
 	RangeVar   *relation;		/* table to work on */
@@ -2102,7 +2103,7 @@ typedef struct VariableShowStmt
 typedef struct CreateStmt
 {
 	NodeTag		type;
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	ParseGrammar grammar;
 #endif /* ADB */
 	RangeVar   *relation;		/* relation to create */
@@ -2820,9 +2821,9 @@ typedef struct FetchStmt
 typedef struct IndexStmt
 {
 	NodeTag		type;
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	ParseGrammar grammar;
-#endif /* ADB */
+#endif
 	char	   *idxname;		/* name of new index, or NULL for default */
 	RangeVar   *relation;		/* relation to build index on */
 	char	   *accessMethod;	/* name of access method (eg. btree) */
@@ -3128,7 +3129,7 @@ typedef enum ViewCheckOption
 typedef struct ViewStmt
 {
 	NodeTag		type;
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	ParseGrammar grammar;
 #endif
 	RangeVar   *view;			/* the view to be created */
@@ -3335,7 +3336,7 @@ typedef struct ExplainStmt
 typedef struct CreateTableAsStmt
 {
 	NodeTag		type;
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	ParseGrammar grammar;
 #endif
 	Node	   *query;			/* the query (see comments above) */

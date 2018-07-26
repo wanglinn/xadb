@@ -5497,7 +5497,7 @@ DESCR("list files in the log directory");
 DATA(insert OID = 3354 (  pg_ls_waldir				 PGNSP PGUID 12 10 20 0 0 f f f f t t v s 0 0 2249 "" "{25,20,1184}" "{o,o,o}" "{name,size,modification}" _null_ _null_ pg_ls_waldir _null_ _null_ _null_ ));
 DESCR("list of files in the WAL directory");
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 /* rowid builtin functions */
 DATA(insert OID = 9100 (  rowid_in			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 336 "2275" _null_ _null_ _null_ _null_ _null_ rowid_in _null_ _null_ _null_ ));
 DATA(insert OID = 9101 (  rowid_out			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 2275 "336" _null_ _null_ _null_ _null_ _null_ rowid_out _null_ _null_ _null_ ));

@@ -99,10 +99,13 @@ extern void SplitColQualList(List *qualList,
 							 core_yyscan_t yyscanner);
 /* end from gram.y */
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 extern List *OracleFuncName(char *name);
 extern TypeName *OracleTypeName(char *name);
 extern TypeName *OracleTypeNameLocation(char *name, int location);
+#endif
+
+#if defined(ADB)
 extern void transformDistributeBy(DistributeBy *dbstmt);
 #endif
 

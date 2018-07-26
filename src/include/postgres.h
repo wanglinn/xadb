@@ -48,7 +48,7 @@
 #include "utils/elog.h"
 #include "utils/palloc.h"
 
-#ifdef ADB
+#if defined(ADB)
 #define ADB_ONLY_ARG(v) v,
 #define ADB_ONLY_ARG2(v1, v2) v1, v2,
 #define ADB_ONLY_COMMA_ARG(v) , v

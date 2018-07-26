@@ -536,7 +536,7 @@ make_const(ParseState *pstate, Value *value, int location)
 			break;
 
 		case T_String:
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 			if (IsOracleParseGram(pstate))
 			{
 				if (/*IsOracleCoerceFunc() && */strVal(value)[0] == 0x00)

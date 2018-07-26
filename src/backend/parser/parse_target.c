@@ -186,7 +186,7 @@ transformTargetList(ParseState *pstate, List *targetlist,
 			}
 		}
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		/*
 		 * we need transform target first in oracle grammar
 		 * in default grammar(pg) stmt "UPDATE t set t.col ..." the "t.col" is invalid,
@@ -207,7 +207,7 @@ transformTargetList(ParseState *pstate, List *targetlist,
 			/* we don't need transformed node(Var) */
 			pfree(node);
 		}
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 
 		/*
 		 * Not "something.*", or we want to treat that as a plain whole-row
@@ -519,7 +519,7 @@ transformAssignedExpr(ParseState *pstate,
 	attrtype = attnumTypeId(rd, attrno);
 	attrtypmod = rd->rd_att->attrs[attrno - 1]->atttypmod;
 	attrcollation = rd->rd_att->attrs[attrno - 1]->attcollation;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	if (IsOracleParseGram(pstate) &&
 		(exprKind == EXPR_KIND_INSERT_TARGET ||
 		 exprKind == EXPR_KIND_UPDATE_TARGET) &&
@@ -611,7 +611,7 @@ transformAssignedExpr(ParseState *pstate,
 		 * coercion.
 		 */
 		Node	   *orig_expr = (Node *) expr;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		if (IsOracleParseGram(pstate) &&
 			(exprKind == EXPR_KIND_INSERT_TARGET ||
 			 exprKind == EXPR_KIND_UPDATE_TARGET))
@@ -1063,7 +1063,7 @@ checkInsertTargets(ParseState *pstate, List *cols, List **attrnos)
 			char	   *name = col->name;
 			int			attrno;
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 			if(pstate->p_grammar == PARSE_GRAM_ORACLE)
 			{
 				/* oracle grammar support table and column alias */
@@ -1079,7 +1079,7 @@ checkInsertTargets(ParseState *pstate, List *cols, List **attrnos)
 				attrno = var->varattno;
 				pfree(var);
 			}else
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 
 			/* Lookup column name, ereport on failure */
 			attrno = attnameAttNum(pstate->p_target_relation, name, false);

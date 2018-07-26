@@ -46,7 +46,7 @@ typedef enum
 } LogStmtLevel;
 
 extern int	log_statement;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 extern int parse_grammar;
 extern int current_grammar;
 
@@ -58,12 +58,16 @@ extern List *pg_analyze_and_rewrite(RawStmt *parsetree,
 					   const char *query_string,
 					   Oid *paramTypes, int numParams,
 					   QueryEnvironment *queryEnv);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 extern List *ora_parse_query(const char *query_string);
-extern List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram);
 extern List *pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,
 						Oid *paramTypes, int numParams, QueryEnvironment *queryEnv, ParseGrammar grammar);
-#endif /* ADB */
+#endif
+
+#if defined(ADB) || defined(ADB_GRAM_ORA)
+extern List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram);
+#endif
+
 #ifdef ADBMGRD
 extern List *mgr_parse_query(const char *query_string);
 #endif /* ADBMGRD */

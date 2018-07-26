@@ -33,7 +33,7 @@ extern bool SplitDirectoriesString(char *rawstring, char separator,
 					   List **namelist);
 extern text *replace_text_regexp(text *src_text, void *regexp,
 					text *replace_text,
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 					int start_position,
 					int match_occurence,
 #endif

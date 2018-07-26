@@ -449,12 +449,6 @@ static const struct config_enum_entry pgxc_conn_types[] = {
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry parse_grammer_options[] = {
-	{"postgres", PARSE_GRAM_POSTGRES, false},
-	{"oracle", PARSE_GRAM_ORACLE, false},
-	{NULL, 0, false}
-};
-
 static const struct config_enum_entry adb_aux_types[] = {
 	{"off", USE_AUX_OFF, false},
 	{"false", USE_AUX_OFF, true},
@@ -465,6 +459,14 @@ static const struct config_enum_entry adb_aux_types[] = {
 	{NULL, 0, false}
 };
 #endif /* ADB */
+
+#ifdef ADB_GRAM_ORA
+static const struct config_enum_entry parse_grammer_options[] = {
+	{"postgres", PARSE_GRAM_POSTGRES, false},
+	{"oracle", PARSE_GRAM_ORACLE, false},
+	{NULL, 0, false}
+};
+#endif
 
 #ifdef ADBMGRD
 static const struct config_enum_entry command_mode[] = {
@@ -550,10 +552,12 @@ char	   *application_name;
 int			tcp_keepalives_idle;
 int			tcp_keepalives_interval;
 int			tcp_keepalives_count;
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 char	   *nls_date_format;
 char	   *nls_timestamp_format;
 char	   *nls_timestamp_tz_format;
+#endif
+#ifdef ADB
 char	   *adb_ha_param_delimiter;
 char	   *AGtmHost;
 int			AGtmPort;
@@ -4264,6 +4268,19 @@ static struct config_string ConfigureNamesString[] =
 	},
 
 	{
+		{"adb_ha_param_delimiter", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Parameter delimiter for record ADB execute sql."),
+			NULL,
+			GUC_REPORT
+		},
+		&adb_ha_param_delimiter,
+		"$&#$",
+		NULL, NULL, NULL
+	},
+#endif
+
+#ifdef ADB_GRAM_ORA
+	{
 		{"nls_date_format", PGC_USERSET, CUSTOM_OPTIONS,
 			gettext_noop("Emulate oracle's date output behaviour."),
 			NULL,
@@ -4293,17 +4310,6 @@ static struct config_string ConfigureNamesString[] =
 		},
 		&nls_timestamp_tz_format,
 		"YYYY-MM-DD HH24:MI:SS.US TZ",
-		NULL, NULL, NULL
-	},
-
-	{
-		{"adb_ha_param_delimiter", PGC_USERSET, CUSTOM_OPTIONS,
-			gettext_noop("Parameter delimiter for record ADB execute sql."),
-			NULL,
-			GUC_REPORT
-		},
-		&adb_ha_param_delimiter,
-		"$&#$",
 		NULL, NULL, NULL
 	},
 #endif

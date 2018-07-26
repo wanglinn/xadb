@@ -111,8 +111,10 @@ static cached_re_str re_array[MAX_CACHED_RES];	/* cached re's */
 static regexp_matches_ctx *setup_regexp_matches(text *orig_str, text *pattern,
 					 pg_re_flags *flags,
 					 Oid collation,
-					 ADB_ONLY_ARG(int start_position)
-					 ADB_ONLY_ARG(bool sava_all_match_locs)
+#if defined(ADB_GRAM_ORA)
+					 int start_position,
+					 bool sava_all_match_locs,
+#endif
 					 bool use_subpatterns,
 					 bool ignore_degenerate);
 static void cleanup_regexp_matches(regexp_matches_ctx *matchctx);
@@ -628,7 +630,11 @@ textregexreplace_noopt(PG_FUNCTION_ARGS)
 
 	re = RE_compile_and_cache(p, REG_ADVANCED, PG_GET_COLLATION());
 
-	PG_RETURN_TEXT_P(replace_text_regexp(s, (void *) re, r, ADB_ONLY_ARG2(0, 0) false));
+#if defined(ADB_GRAM_ORA)
+	PG_RETURN_TEXT_P(replace_text_regexp(s, (void *) re, r, 0, 0, false));
+#else
+	PG_RETURN_TEXT_P(replace_text_regexp(s, (void *) re, r, false));
+#endif
 }
 
 /*
@@ -649,7 +655,11 @@ textregexreplace(PG_FUNCTION_ARGS)
 
 	re = RE_compile_and_cache(p, flags.cflags, PG_GET_COLLATION());
 
-	PG_RETURN_TEXT_P(replace_text_regexp(s, (void *) re, r, ADB_ONLY_ARG2(0, 0) flags.glob));
+#if defined(ADB_GRAM_ORA)
+	PG_RETURN_TEXT_P(replace_text_regexp(s, (void *) re, r, 0, 0, flags.glob));
+#else
+	PG_RETURN_TEXT_P(replace_text_regexp(s, (void *) re, r, flags.glob));
+#endif
 }
 
 /*
@@ -867,7 +877,9 @@ regexp_match(PG_FUNCTION_ARGS)
 
 	matchctx = setup_regexp_matches(orig_str, pattern, &re_flags,
 									PG_GET_COLLATION(),
-									ADB_ONLY_ARG2(0, false)
+#if defined(ADB_GRAM_ORA)
+									0, false,
+#endif
 									true, false);
 
 	if (matchctx->nmatches == 0)
@@ -916,7 +928,9 @@ regexp_matches(PG_FUNCTION_ARGS)
 		matchctx = setup_regexp_matches(PG_GETARG_TEXT_P_COPY(0), pattern,
 										&re_flags,
 										PG_GET_COLLATION(),
-										ADB_ONLY_ARG2(0, false)
+#if defined(ADB_GRAM_ORA)
+										0, false,
+#endif
 										true, false);
 
 		/* Pre-create workspace that build_regexp_match_result needs */
@@ -967,8 +981,10 @@ regexp_matches_no_flags(PG_FUNCTION_ARGS)
 static regexp_matches_ctx *
 setup_regexp_matches(text *orig_str, text *pattern, pg_re_flags *re_flags,
 					 Oid collation,
-					 ADB_ONLY_ARG(int start_position)
-					 ADB_ONLY_ARG(bool sava_all_match_locs)
+#if defined(ADB_GRAM_ORA)
+					 int start_position,
+					 bool sava_all_match_locs,
+#endif
 					 bool use_subpatterns,
 					 bool ignore_degenerate)
 {
@@ -1206,7 +1222,9 @@ regexp_split_to_table(PG_FUNCTION_ARGS)
 		splitctx = setup_regexp_matches(PG_GETARG_TEXT_P_COPY(0), pattern,
 										&re_flags,
 										PG_GET_COLLATION(),
-										ADB_ONLY_ARG2(0, false)
+#if defined(ADB_GRAM_ORA)
+										0, false,
+#endif
 										false, true);
 
 		MemoryContextSwitchTo(oldcontext);
@@ -1263,7 +1281,9 @@ regexp_split_to_array(PG_FUNCTION_ARGS)
 									PG_GETARG_TEXT_PP(1),
 									&re_flags,
 									PG_GET_COLLATION(),
-									ADB_ONLY_ARG2(0, false)
+#if defined(ADB_GRAM_ORA)
+									0, false,
+#endif
 									false, true);
 
 	while (splitctx->next_match <= splitctx->nmatches)
@@ -1396,7 +1416,7 @@ regexp_fixed_prefix(text *text_re, bool case_insensitive, Oid collation,
 	return result;
 }
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 static void
 ora_parse_re_flags(pg_re_flags *flags, text *opts)
 {

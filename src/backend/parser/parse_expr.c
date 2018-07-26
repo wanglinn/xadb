@@ -142,7 +142,7 @@ static void emit_precedence_warnings(ParseState *pstate,
 						 int opgroup, const char *opname,
 						 Node *lchild, Node *rchild,
 						 int location);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 static void ora_select_common_type(ParseState *pstate,
 								   List *exprs, Oid *typoid, int32 *typmod);
 #endif
@@ -384,7 +384,7 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 				/* the argument can be any type, so don't coerce it */
 				n->argisrow = type_is_rowtype(exprType((Node *) n->arg));
 				result = expr;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 				/*
 				 * Blank string is known as NULL value in oracle grammar but
 				 * it is NOT NULL in postgres grammar.
@@ -1055,7 +1055,7 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 										castNode(RowExpr, rexpr)->args,
 										a->location);
 	}
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	else if(IsOracleParseGram(pstate))
 	{
 		Node *new_lexpr = transformExprRecurse(pstate, lexpr);
@@ -1098,7 +1098,7 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 									  a->location);
 		}
 	}
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 	else
 	{
 		/* Ordinary scalar operator */
@@ -1397,7 +1397,7 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 	foreach(l, (List *) a->rexpr)
 	{
 		Node	   *rexpr = transformExprRecurse(pstate, lfirst(l));
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		/*
 		 * Return the type of the first expression.
 		 *
@@ -1452,7 +1452,7 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 		 * Note: use list_concat here not lcons, to avoid damaging rnonvars.
 		 */
 		allexprs = list_concat(list_make1(lexpr), rnonvars);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		/*
 		 * Return the type of the first expression.
 		 *
@@ -1709,7 +1709,7 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 	Node	   *last_srf = pstate->p_last_srf;
 	List	   *targs;
 	ListCell   *args;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	Node	   *result;
 	OraCoercionContext oldContext;
 
@@ -1748,7 +1748,7 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 		}
 	}
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	if (IsOracleParseGram(pstate))
 	{
 		char *nspname = NULL;
@@ -1806,7 +1806,7 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 							 last_srf,
 							 fn,
 							 fn->location);
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 }
 
 static Node *
@@ -2049,7 +2049,7 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 
 	newc->arg = (Expr *) arg;
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	/*
 	 * Oracle automatically converts expr and each search value to
 	 * the data type of the first search value before comparing.
@@ -2115,7 +2115,7 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 											 warg,
 											 w->location);
 		}
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		if (IsOracleParseGram(pstate) && c->isdecode)
 			neww->expr = (Expr *)transformDecodeExpr(pstate, warg, expr, stype);
 		else
@@ -2153,7 +2153,7 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 	 * determining preferred type. This is how the code worked before, but it
 	 * seems a little bogus to me --- tgl
 	 */
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	if (IsOracleParseGram(pstate) && c->isdecode)
 	{
 		Oid 	typoid = InvalidOid;
@@ -2750,7 +2750,7 @@ transformCoalesceExpr(ParseState *pstate, CoalesceExpr *c)
 	return (Node *) newc;
 }
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 static void
 ora_select_common_type(ParseState *pstate,
 					   List *exprs,
@@ -2798,14 +2798,14 @@ transformMinMaxExpr(ParseState *pstate, MinMaxExpr *m)
 		Node	   *newe;
 
 		newe = transformExprRecurse(pstate, e);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		if (IsOracleParseGram(pstate) && IsNullConst(newe))
 			return (Node*)makeNullConst(UNKNOWNOID, -1, InvalidOid);
 #endif
 		newargs = lappend(newargs, newe);
 	}
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	if (IsOracleParseGram(pstate))
 	{
 		Oid 	targetTypeId = InvalidOid;
@@ -3452,7 +3452,7 @@ make_row_comparison_op(ParseState *pstate, List *opname,
 		Node	   *rarg = (Node *) lfirst(r);
 		OpExpr	   *cmp;
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		if (IsOracleParseGram(pstate) && larg && rarg)
 			cmp = castNode(OpExpr, transformOraAExprOp(pstate, opname, larg, rarg, location));
 		else

@@ -138,13 +138,13 @@ extern void SetTempNamespaceState(Oid tempNamespaceId,
 extern void ResetTempTableNamespace(void);
 
 extern OverrideSearchPath *GetOverrideSearchPath(MemoryContext context);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 extern OverrideSearchPath *GetOverrideSearchPathExtend(MemoryContext context, bool recompute);
 #endif
 extern OverrideSearchPath *CopyOverrideSearchPath(OverrideSearchPath *path);
 extern bool OverrideSearchPathMatchesCurrent(OverrideSearchPath *path);
 extern void PushOverrideSearchPath(OverrideSearchPath *newpath);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 extern void PushOverrideSearchPathForGrammar(int grammar);
 #endif
 extern void PopOverrideSearchPath(void);

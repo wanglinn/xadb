@@ -86,7 +86,8 @@ extern bool planstate_tree_exec_walker(struct PlanState *planstate, bool (*walke
 extern bool node_tree_walker(Node *node, bool (*walker)(), void *context);
 
 extern Node *node_tree_mutator(Node *node, Node *(*mutator)(), void *context);
-
+#endif
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 extern bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar);
 struct Plan;
 extern bool plan_tree_walker(struct Plan *plan, Node *GlobOrStmt, bool (*walker)(), void *context);

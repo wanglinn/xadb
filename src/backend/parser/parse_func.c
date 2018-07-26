@@ -1500,7 +1500,7 @@ func_get_detail(List *funcname,
 				best_candidate = func_select_candidate(nargs,
 													   argtypes,
 													   current_candidates);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 				/*
 				 * We think the function belong to oracle namespace is the best
 				 * candidate if we are not able to choose the best candidate

@@ -160,8 +160,10 @@ static char *conf_file;
 static char *conversion_file;
 static char *dictionary_file;
 static char *info_schema_file;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 static char *oracle_schema_file;
+#endif
+#ifdef ADB
 static char *adb_views_file;
 #endif
 static char *features_file;
@@ -274,8 +276,10 @@ static void setup_dictionary(FILE *cmdfd);
 static void setup_privileges(FILE *cmdfd);
 static void set_info_version(void);
 static void setup_schema(FILE *cmdfd);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 static void setup_oracle_schema(FILE *cmdfd);
+#endif
+#ifdef ADB
 static void setup_adb_views(FILE *cmdfd);
 #endif
 static void load_plpgsql(FILE *cmdfd);
@@ -1583,7 +1587,7 @@ setup_depend(FILE *cmdfd)
 		"INSERT INTO pg_depend SELECT 0,0,0, tableoid,oid,0, 'p' "
 		" FROM pg_namespace "
 		"    WHERE nspname LIKE 'pg%';\n\n",
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		/*
 		 * restriction here to avoid dropping the oracle namespace
 		 */
@@ -1980,7 +1984,7 @@ setup_schema(FILE *cmdfd)
 				   escape_quotes(features_file));
 }
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 /*
  * load oracle schema
  */
@@ -2000,7 +2004,9 @@ setup_oracle_schema(FILE *cmdfd)
 
 	free(lines);
 }
+#endif
 
+#ifdef ADB
 /*
  * load PL/pgsql server-side language
  */
@@ -2765,8 +2771,10 @@ setup_data_file_paths(void)
 #endif
 	set_input(&dictionary_file, "snowball_create.sql");
 	set_input(&info_schema_file, "information_schema.sql");
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	set_input(&oracle_schema_file, "oracle_schema.sql");
+#endif
+#ifdef ADB
 	set_input(&adb_views_file, "adb_views.sql");
 #endif
 	set_input(&features_file, "sql_features.txt");
@@ -2807,7 +2815,7 @@ setup_data_file_paths(void)
 	check_input(conversion_file);
 	check_input(dictionary_file);
 	check_input(info_schema_file);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	check_input(oracle_schema_file);
 #endif
 	check_input(features_file);
@@ -3176,8 +3184,11 @@ initialize_data_directory(void)
 
 	load_plpgsql(cmdfd);
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	setup_oracle_schema(cmdfd);
+#endif
+
+#ifdef ADB
 	setup_adb_views(cmdfd);
 #endif
 

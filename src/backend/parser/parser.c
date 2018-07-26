@@ -1666,7 +1666,7 @@ SplitColQualList(List *qualList,
 
 /* ADB end from gram.y */
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 List *OracleFuncName(char *name)
 {
 	return list_make2(makeString("oracle"), makeString(name));
@@ -1685,7 +1685,9 @@ TypeName *OracleTypeNameLocation(char *name, int location)
 	typ->location = location;
 	return typ;
 }
+#endif
 
+#if defined(ADB)
 void transformDistributeBy(DistributeBy *dbstmt)
 {
 	List *funcname = NIL;

@@ -675,7 +675,7 @@ ProcessClientWriteInterrupt(bool blocked)
 
 	errno = save_errno;
 }
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram)
 {
 	static const struct
@@ -796,7 +796,7 @@ pg_parse_query(const char *query_string)
 	return raw_parsetree_list;
 }
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 List *ora_parse_query(const char *query_string)
 {
 	List	   *raw_parsetree_list;
@@ -828,7 +828,7 @@ List *ora_parse_query(const char *query_string)
 
 	return raw_parsetree_list;
 }
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 
 /*
  * Given a raw parsetree (gram.y output), and optionally information about
@@ -844,7 +844,7 @@ pg_analyze_and_rewrite(RawStmt *parsetree, const char *query_string,
 					   Oid *paramTypes, int numParams,
 					   QueryEnvironment *queryEnv)
 {
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	return pg_analyze_and_rewrite_for_gram(parsetree, query_string
 		, paramTypes, numParams, queryEnv, PARSE_GRAM_POSTGRES);
 }
@@ -865,7 +865,7 @@ pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,
 	if (log_parser_stats)
 		ResetUsage();
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	query = parse_analyze_for_gram(parsetree, query_string, paramTypes, numParams, queryEnv, grammar);
 #else
 	query = parse_analyze(parsetree, query_string, paramTypes, numParams,
@@ -1188,7 +1188,7 @@ exec_simple_query(const char *query_string)
 	MemoryContext oldcontext;
 	List	   *parsetree_list;
 	ListCell   *parsetree_item;
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	ParseGrammar grammar = PARSE_GRAM_POSTGRES;
 #endif
 	bool		save_log_statement_stats = log_statement_stats;
@@ -1407,7 +1407,7 @@ exec_simple_query(const char *query_string)
 		 * Create unnamed portal to run the query or queries in. If there
 		 * already is one, silently drop it.
 		 */
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 		portal = CreatePortal("", true, true, grammar);
 #else
 		portal = CreatePortal("", true, true);
@@ -1593,7 +1593,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 	const char *commandTag;
 	List	   *querytree_list;
 	CachedPlanSource *psrc;
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	ParseGrammar	grammar;
 #endif
 	bool		is_named;
@@ -1753,7 +1753,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 		if (log_parser_stats)
 			ResetUsage();
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		query = parse_analyze_varparams_for_gram(raw_parse_tree,
 												 query_string,
 												 &paramTypes,
@@ -2023,13 +2023,13 @@ exec_bind_message(StringInfo input_message)
 	 * if the unnamed portal is specified.
 	 */
 	if (portal_name[0] == '\0')
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 		portal = CreatePortal(portal_name, true, true, psrc->grammar);
 #else
 		portal = CreatePortal(portal_name, true, true);
 #endif
 	else
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 		portal = CreatePortal(portal_name, false, false, psrc->grammar);
 #else
 		portal = CreatePortal(portal_name, false, false);
@@ -2096,7 +2096,7 @@ exec_bind_message(StringInfo input_message)
 			int16		pformat;
 
 			plength = pq_getmsgint(input_message, 4);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 			/*
 			 * We treat blank string as NULL value in oracle grammar.
 			 */
@@ -2540,10 +2540,16 @@ exec_execute_message(const char *portal_name, long max_rows)
 			break;
 #ifdef ADB
 		case 3:
+#ifdef ADB_GRAM_ORA
 			ereport(LOG,
 					(errmsg("duration: %s ms  grammar: %s %s %s%s%s: %s",
 							msec_str,
 							IsOracleGram(portal->grammar) ? _("oracle") : _("postgres"),
+#else
+			ereport(LOG,
+					(errmsg("duration: %s ms  %s %s%s%s: %s",
+							msec_str,
+#endif
 							execute_is_fetch ? _("execute fetch from") : _("execute"),
 							prepStmtName,
 							*portal_name ? "/" : "",

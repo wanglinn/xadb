@@ -18,7 +18,7 @@
 #include "access/tupdesc.h"
 #include "nodes/params.h"
 #include "utils/queryenvironment.h"
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 #include "nodes/parsenodes.h"
 #endif
 
@@ -120,6 +120,8 @@ typedef struct CachedPlanSource
 #ifdef ADB
 	char	   *stmt_name;		/* If set, this is a copy of prepared stmt name */
 	struct CachedPlan *cluster_plan;	/* cluster plan, or NULL if not valid */
+#endif
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	ParseGrammar grammar;
 #endif
 } CachedPlanSource;

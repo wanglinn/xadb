@@ -3907,7 +3907,7 @@ appendStringInfoRegexpSubstr(StringInfo str, text *replace_text,
 text *
 replace_text_regexp(text *src_text, void *regexp,
 					text *replace_text,
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 					int start_position,
 					int match_occurence,
 #endif
@@ -3922,14 +3922,14 @@ replace_text_regexp(text *src_text, void *regexp,
 	size_t		data_len;
 	int			search_start;
 	int			data_pos;
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 	int			match_cnt;
 	int			chunk_len;
 #endif
 	char	   *start_ptr;
 	bool		have_escape;
 
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 	Assert(start_position >= 0);
 	Assert(match_occurence >= 0);
 #endif
@@ -3947,7 +3947,7 @@ replace_text_regexp(text *src_text, void *regexp,
 	start_ptr = (char *) VARDATA_ANY(src_text);
 	data_pos = 0;
 
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 	match_cnt = 0;
 	search_start = start_position;
 #else
@@ -3988,7 +3988,7 @@ replace_text_regexp(text *src_text, void *regexp,
 		 */
 		if (pmatch[0].rm_so - data_pos > 0)
 		{
-#ifndef ADB
+#if defined(ADB_GRAM_ORA)
 			int			chunk_len;
 #endif
 
@@ -4004,7 +4004,7 @@ replace_text_regexp(text *src_text, void *regexp,
 			data_pos = pmatch[0].rm_so;
 		}
 
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 		/*
 		 * Get one match, and get pmatch length "chunk_len"
 		 */
@@ -4013,7 +4013,7 @@ replace_text_regexp(text *src_text, void *regexp,
 
 		/*
 		 * If match_occurence is 0, then we replace all occurrences of the match.
-		 * If match_occurence equal match_cnt, then we replace the current 
+		 * If match_occurence equal match_cnt, then we replace the current
 		 * occurrence of the match and break. see line 3121.
 		 *
 		 * Otherwise, we keep the source text.
@@ -4054,7 +4054,7 @@ replace_text_regexp(text *src_text, void *regexp,
 #endif
 		data_pos = pmatch[0].rm_eo;
 
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 		/*
 		 * When global option is off, replace the first instance only.
 		 * Or

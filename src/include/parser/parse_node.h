@@ -83,7 +83,7 @@ typedef Node *(*CoerceParamHook) (ParseState *pstate, Param *param,
 								  Oid targetTypeId, int32 targetTypeMod,
 								  int location);
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 #define IsOracleParseGram(pstate) \
 	(pstate && ((ParseState *)pstate)->p_grammar == PARSE_GRAM_ORACLE)
 #endif

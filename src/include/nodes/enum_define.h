@@ -759,7 +759,7 @@ BEGIN_ENUM(SortByNulls)
 END_ENUM(SortByNulls)
 #endif /* NO_ENUM_SortByNulls */
 
-#if defined(ADB)
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 #ifndef NO_ENUM_ParseGrammar
 BEGIN_ENUM(ParseGrammar)
 	ENUM_VALUE(PARSE_GRAM_POSTGRES)

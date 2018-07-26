@@ -230,7 +230,7 @@ coerce_type(ParseState *pstate, Node *node,
 			return node;
 		}
 	}
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	if ((inputTypeId == UNKNOWNOID ||
 		(IsOracleParseGram(pstate) && inputTypeId == TEXTOID &&
 		TypeCategory(targetTypeId) == TYPCATEGORY_STRING)) && IsA(node, Const))
@@ -318,7 +318,7 @@ coerce_type(ParseState *pstate, Node *node,
 		 * as CSTRING.
 		 */
 		if (!con->constisnull)
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		{
 			if (IsOracleParseGram(pstate) && inputTypeId == TEXTOID)
 				string = TextDatumGetCString(con->constvalue);

@@ -301,7 +301,7 @@ extern struct varlena *pg_detoast_datum_packed(struct varlena *datum);
 #define PG_GETARG_BPCHAR_P(n)		DatumGetBpCharP(PG_GETARG_DATUM(n))
 #define PG_GETARG_VARCHAR_P(n)		DatumGetVarCharP(PG_GETARG_DATUM(n))
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 #define PG_GETARG_TEXT_P_IF_EXISTS(_n) \
 	(PG_NARGS() > (_n) ? PG_GETARG_TEXT_P(_n) : NULL)
 #define PG_GETARG_TEXT_P_IF_NULL(_n)\

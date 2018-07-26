@@ -439,7 +439,7 @@ DefineView(ViewStmt *stmt, const char *queryString,
 	rawstmt->stmt_location = stmt_location;
 	rawstmt->stmt_len = stmt_len;
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	viewParse = parse_analyze_for_gram(rawstmt, queryString, NULL, 0, NULL, stmt->grammar);
 #else
 	viewParse = parse_analyze(rawstmt, queryString, NULL, 0, NULL);

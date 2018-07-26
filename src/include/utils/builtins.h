@@ -76,7 +76,7 @@ extern int	oid_cmp(const void *p1, const void *p2);
 /* regexp.c */
 extern char *regexp_fixed_prefix(text *text_re, bool case_insensitive,
 					Oid collation, bool *exact);
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 extern Datum ora_regexp_count2(PG_FUNCTION_ARGS);
 extern Datum ora_regexp_count3(PG_FUNCTION_ARGS);
 extern Datum ora_regexp_count(PG_FUNCTION_ARGS);

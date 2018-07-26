@@ -4239,7 +4239,7 @@ planstate_walk_members(List *plans, PlanState **planstates,
 	return false;
 }
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar)
 {
 	ParseGrammar gram;
@@ -4276,7 +4276,9 @@ bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar)
 		*grammar = gram;
 	return true;
 }
+#endif
 
+#ifdef ADB
 bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
 {
 	check_stack_depth();

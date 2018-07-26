@@ -99,14 +99,15 @@ PerformCursorOpen(DeclareCursorStmt *cstmt, ParamListInfo params,
 	 * Create a portal and copy the plan and queryString into its memory.
 	 */
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	portal = CreatePortal(cstmt->portalname, false, false, PARSE_GRAM_POSTGRES);
-
+#if defined(ADB)
 	/*
 	 * Consume the command id of the command creating the cursor
 	 */
 	if (IsCoordMaster())
 		GetCurrentCommandId(true);
+#endif
 #else
 	portal = CreatePortal(cstmt->portalname, false, false);
 #endif
