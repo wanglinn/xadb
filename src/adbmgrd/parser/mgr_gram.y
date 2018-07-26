@@ -153,7 +153,7 @@ static void check_job_status_intbl(void);
 				MonitorStmt FailoverStmt /* ConfigAllStmt */ DeploryStmt
 				Gethostparm ListMonitor Gettopologyparm Update_host_config_value
 				Get_host_threshold Get_alarm_info AppendNodeStmt
-				AddUpdataparmStmt CleanAllStmt ResetUpdataparmStmt ShowStmt FlushHost
+				AddUpdataparmStmt CleanAllStmt ResetUpdataparmStmt ShowStmt FlushStmt
 				AddHbaStmt DropHbaStmt ListHbaStmt ListAclStmt
 				CreateUserStmt DropUserStmt GrantStmt privilege username hostname
 				AlterUserStmt AddJobitemStmt AlterJobitemStmt DropJobitemStmt ListJobStmt
@@ -272,7 +272,7 @@ stmt :
 	| ResetUpdataparmStmt
 	| CleanAllStmt
 	| ShowStmt
-	| FlushHost
+	| FlushStmt
 	| AddHbaStmt
 	| DropHbaStmt
 	| ListHbaStmt
@@ -2394,10 +2394,15 @@ ShowStmt:
 	}
 	;
 
-FlushHost:
-FLUSH HOST
+FlushStmt:
+	FLUSH HOST
 	{
 		MGRFlushHost *node = makeNode(MGRFlushHost);
+		$$ = (Node*)node;
+	}
+	| FLUSH PARAM
+	{
+		MGRFlushParam *node = makeNode(MGRFlushParam);
 		$$ = (Node*)node;
 	}
 	;

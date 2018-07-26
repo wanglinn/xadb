@@ -570,6 +570,7 @@ typedef enum NodeTag
 	,T_MgrRemoveNode
 	,T_MGRSetClusterInit
 	,T_MonitorDeleteData
+	,T_MGRFlushParam
 	,T_MGR_NODE_END
 #endif /* ADBMGRD */
 } NodeTag;

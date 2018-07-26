@@ -77,6 +77,9 @@ const char *mgr_CreateCommandTag(Node *parsetree)
 	case T_MonitorDeleteData:
 		tag = "CLEAN MONITOR DATA";
 		break;
+	case T_MGRFlushParam:
+		tag = "FLUSH PARAM";
+		break;
 	default:
 		ereport(WARNING, (errmsg("unrecognized node type: %d", (int)nodeTag(parsetree))));
 		tag = "???";
@@ -152,6 +155,9 @@ void mgr_ProcessUtility(Node *parsetree, const char *queryString,
 		break;
 	case T_MonitorDeleteData:
 		monitor_delete_data((MonitorDeleteData*)parsetree, params, dest);
+		break;
+	case T_MGRFlushParam:
+		mgr_flushparam((MGRFlushParam*)parsetree, params, dest);
 		break;
 	default:
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
