@@ -56,6 +56,12 @@ ParamTuplestoreScanInit(ParamTuplestoreScanState *node)
 		return NULL;
 	}
 
+	if (node->readptr > 0)
+	{
+		Assert(node->ts != NULL);
+		return ParamTuplestoreScanNext(node);
+	}
+
 	estate = node->ss.ps.state;
 	param = &(estate->es_param_exec_vals[scan->paramid]);
 	ts = (Tuplestorestate*)DatumGetPointer(param->value);
