@@ -75,7 +75,7 @@ DECLARE_NATTS(Natts_adb_ha_sync_log);
 #define Anum_adb_ha_sync_log_params			9
 
 extern void AddAdbHaSyncLog(TimestampTz create_time,
-							ParseGrammar sql_gram,
+							ADB_MULTI_GRAM_ARG_COMMA(ParseGrammar sql_gram)
 							char sql_kind,
 							const char *query_sql,
 							ParamListInfo params);

@@ -29,13 +29,12 @@
 #include "parser/parser.h"
 
 #ifdef ADB
-#include "catalog/heap.h" /* SystemAttributeByName */
 #include "lib/stringinfo.h"
 #include "miscadmin.h" /* check_stack_depth */
 #endif /* ADB */
 
 #ifdef ADB_GRAM_ORA
-#include "catalog/heap.h"
+#include "catalog/heap.h" /* SystemAttributeByName */
 #include "lib/stringinfo.h"
 #include "miscadmin.h"
 #include "parser/ora_gramparse.h"

@@ -18,11 +18,15 @@ top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = access bootstrap catalog parser commands executor foreign lib libpq \
-	main nodes optimizer oraschema port postmaster reduce regex replication rewrite \
+	main nodes optimizer port postmaster reduce regex replication rewrite \
 	statistics storage tcop tsearch utils $(top_builddir)/src/timezone
 
 ifeq ($(enable_cluster),yes)
   SUBDIRS += libagtm pgxc intercomm
+endif
+
+ifeq ($(enable_grammar_oracle), yes)
+  SUBDIRS += oraschema
 endif
 
 include $(srcdir)/common.mk

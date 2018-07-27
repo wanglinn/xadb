@@ -95,7 +95,6 @@
 #include "intercomm/inter-node.h"
 #include "libpq/libpq-node.h"
 #include "nodes/nodes.h"
-#include "nodes/nodeFuncs.h"
 #include "nodes/parsenodes.h"
 #include "optimizer/pgxcplan.h"
 #include "parser/parse_type.h"
@@ -109,6 +108,9 @@
 #include "reduce/adb_reduce.h"
 #include "storage/procarray.h"
 #include "utils/guc.h"
+#endif
+#if defined(ADB) || defined(ADB_GRAM_ORA)
+#include "nodes/nodeFuncs.h"
 #endif
 #ifdef AGTM
 #include "agtm/agtm.h"
@@ -1238,12 +1240,14 @@ exec_simple_query(const char *query_string)
 	 * Do basic parsing of the query or queries (this should be safe even if
 	 * we are in aborted transaction state!)
 	 */
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB)
 	if(query_node)
 	{
 		parsetree_list = IsA(query_node, List) ? (List*)query_node : list_make1(query_node);
+#if defined(ADB_GRAM_ORA)
 		if(get_parse_node_grammar(query_node, &grammar) == false)
 			grammar = PARSE_GRAM_POSTGRES;
+#endif
 	}else
 	{
 		parsetree_list = parse_query_auto_gram(query_string, &grammar);
@@ -1487,7 +1491,7 @@ exec_simple_query(const char *query_string)
 		if (AdbHaSyncLogWalkerPortal(portal))
 		{
 			AddAdbHaSyncLog(portal->creation_time,
-							portal->grammar,
+							ADB_MULTI_GRAM_ARG_COMMA(portal->grammar),
 							ADB_SQL_KIND_SIMPLE,
 							query_string,
 							portal->portalParams);
@@ -1594,7 +1598,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 	List	   *querytree_list;
 	CachedPlanSource *psrc;
 #if defined(ADB) || defined(ADB_GRAM_ORA)
-	ParseGrammar	grammar;
+	ParseGrammar grammar = PARSE_GRAM_POSTGRES;
 #endif
 	bool		is_named;
 	bool		save_log_statement_stats = log_statement_stats;
@@ -2474,7 +2478,7 @@ exec_execute_message(const char *portal_name, long max_rows)
 	if (AdbHaSyncLogWalkerPortal(portal))
 	{
 		AddAdbHaSyncLog(portal->creation_time,
-						portal->grammar,
+						ADB_MULTI_GRAM_ARG_COMMA(portal->grammar)
 						ADB_SQL_KIND_EXECUTE,
 						portal->sourceText,
 						portal->portalParams);

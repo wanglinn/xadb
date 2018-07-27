@@ -57,7 +57,7 @@ static bool WalkerMultiQueryPortal(Portal portal);
 
 void
 AddAdbHaSyncLog(TimestampTz create_time,
-				ParseGrammar sql_gram,
+				ADB_MULTI_GRAM_ARG_COMMA(ParseGrammar sql_gram)
 				char sql_kind,
 				const char *query_sql,
 				ParamListInfo params)
@@ -80,6 +80,7 @@ AddAdbHaSyncLog(TimestampTz create_time,
 
 	Assert(IsValidAdbSqlKind(sql_kind));
 
+#if defined(ADB_MULTI_GRAM)
 	switch (sql_gram)
 	{
 		case PARSE_GRAM_ORACLE:
@@ -88,6 +89,7 @@ AddAdbHaSyncLog(TimestampTz create_time,
 		default:
 			break;
 	}
+#endif
 
 	if (AdbHaSyncLogContext == NULL)
 	{
