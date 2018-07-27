@@ -31,7 +31,7 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/typcache.h"
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 #include "oraschema/oracoerce.h"
 #endif
 

@@ -42,10 +42,13 @@
 #ifdef ADB
 #include "access/sysattr.h"
 #include "optimizer/clauses.h"
-#include "oraschema/oracoerce.h"
 #include "parser/parser.h"
 #include "tcop/tcopprot.h"
 #include "utils/fmgroids.h"
+#endif
+
+#if defined(ADB_GRAM_ORA)
+#include "oraschema/oracoerce.h"
 #endif
 
 /* GUC parameters */
@@ -1956,7 +1959,7 @@ transformMultiAssignRef(ParseState *pstate, MultiAssignRef *maref)
 	return NULL;				/* keep compiler quiet */
 }
 
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 static Node *
 transformDecodeExpr(ParseState *pstate, Node *warg, Node *expr, Oid stype)
 {
@@ -2010,7 +2013,7 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 	ListCell   *l;
 	Node	   *defresult;
 	Oid			ptype;
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 	Node	   *expr;
 	Oid			stype;
 #endif
@@ -2893,7 +2896,7 @@ transformMinMaxExpr(ParseState *pstate, MinMaxExpr *m)
 									 funcname);
 		newcoercedargs = lappend(newcoercedargs, newe);
 	}
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 	}
 #endif
 

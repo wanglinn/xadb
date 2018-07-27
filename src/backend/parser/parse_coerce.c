@@ -262,7 +262,7 @@ coerce_type(ParseState *pstate, Node *node,
 		int32		inputTypeMod;
 		Type		baseType;
 		ParseCallbackState pcbstate;
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 		char	   *string;
 #endif
 

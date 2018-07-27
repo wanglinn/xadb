@@ -208,8 +208,8 @@ typedef struct Const
 	int			location;		/* token location, or -1 if unknown */
 } Const;
 
-#ifdef ADB
-#define IsNullConst(node)   (node && IsA(node, Const) && ((Const *)(node))->constisnull)
+#if defined(ADB) || defined(ADB_GRAM_ORA)
+#define IsNullConst(node)	(node && IsA(node, Const) && ((Const *)(node))->constisnull)
 #endif
 
 /*

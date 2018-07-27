@@ -199,7 +199,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_SetToDefault)
 	ENUM_VALUE(T_CurrentOfExpr)
 	ENUM_VALUE(T_NextValueExpr)
-#ifdef ADB
+#ifdefined(ADB)||defined(ADB_GRAM_ORA)
 	ENUM_VALUE(T_RownumExpr)
 	ENUM_VALUE(T_LevelExpr)
 #endif
@@ -421,7 +421,7 @@ BEGIN_ENUM(NodeTag)
 #endif
 	ENUM_VALUE(T_A_Expr)
 	ENUM_VALUE(T_ColumnRef)
-#ifdef ADB
+#ifdefined(ADB)||defined(ADB_GRAM_ORA)
 	ENUM_VALUE(T_ColumnRefJoin)
 	ENUM_VALUE(T_PriorExpr)
 #endif
@@ -513,6 +513,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_MgrRemoveNode)
 	ENUM_VALUE(T_MGRSetClusterInit)
 	ENUM_VALUE(T_MonitorDeleteData)
+	ENUM_VALUE(T_MGRFlushParam)
 #endif
 END_ENUM(NodeTag)
 #endif /* NO_ENUM_NodeTag */
@@ -759,7 +760,7 @@ BEGIN_ENUM(SortByNulls)
 END_ENUM(SortByNulls)
 #endif /* NO_ENUM_SortByNulls */
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB)
 #ifndef NO_ENUM_ParseGrammar
 BEGIN_ENUM(ParseGrammar)
 	ENUM_VALUE(PARSE_GRAM_POSTGRES)

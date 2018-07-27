@@ -738,7 +738,7 @@ END_NODE(CreateAuxStmt)
 #ifndef NO_NODE_PaddingAuxDataStmt
 BEGIN_NODE(PaddingAuxDataStmt)
 	NODE_NODE(RangeVar,masterrv)
-	NODE_SCALAR(bool, truncaux)
+	NODE_SCALAR(bool,truncaux)
 	NODE_NODE(List,auxrvlist)
 END_NODE(PaddingAuxDataStmt)
 #endif /* NO_NODE_PaddingAuxDataStmt */
@@ -1159,7 +1159,7 @@ BEGIN_NODE(CaseExpr)
 	NODE_NODE(Expr,arg)
 	NODE_NODE(List,args)
 	NODE_NODE(Expr,defresult)
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	NODE_SCALAR(bool,isdecode)
 #endif
 	NODE_SCALAR(int,location)
@@ -1334,7 +1334,7 @@ BEGIN_NODE(NextValueExpr)
 END_NODE(NextValueExpr)
 #endif /* NO_NODE_NextValueExpr */
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 
 #ifndef NO_NODE_RownumExpr
 BEGIN_NODE(RownumExpr)
@@ -3286,7 +3286,7 @@ BEGIN_NODE(ColumnRef)
 END_NODE(ColumnRef)
 #endif /* NO_NODE_ColumnRef */
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 
 #ifndef NO_NODE_ColumnRefJoin
 BEGIN_NODE(ColumnRefJoin)
@@ -4037,6 +4037,11 @@ BEGIN_NODE(MonitorDeleteData)
 	NODE_SCALAR(int32,days)
 END_NODE(MonitorDeleteData)
 #endif /* NO_NODE_MonitorDeleteData */
+
+#ifndef NO_NODE_MGRFlushParam
+BEGIN_NODE(MGRFlushParam)
+END_NODE(MGRFlushParam)
+#endif /* NO_NODE_MGRFlushParam */
 
 #endif
 

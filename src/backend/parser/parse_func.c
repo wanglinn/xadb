@@ -33,7 +33,7 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 #include "catalog/pg_namespace.h"
 #include "oraschema/oracoerce.h"
 #endif
