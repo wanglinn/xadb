@@ -65,13 +65,15 @@ typedef enum SortByNulls
 	SORTBY_NULLS_LAST
 } SortByNulls;
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_MULTI_GRAM
 typedef enum ParseGrammar
 {
 	PARSE_GRAM_POSTGRES = 0,
 	PARSE_GRAM_ORACLE
 } ParseGrammar;
+#endif /* ADB_MULTI_GRAM */
 
+#ifdef ADB_GRAM_ORA
 #define IsOracleGram(gram)	((gram) == PARSE_GRAM_ORACLE)
 #endif
 
@@ -270,7 +272,7 @@ typedef struct ColumnRef
 	int			location;		/* token location, or -1 if unknown */
 } ColumnRef;
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 /*
  * oracle join column
  * for example id(+)
@@ -1453,7 +1455,7 @@ typedef struct CommonTableExpr
 	List	   *ctecolcollations;	/* OID list of column collation OIDs */
 } CommonTableExpr;
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 /*
  * oracle rownum expr
  */
@@ -1472,7 +1474,7 @@ typedef struct LevelExpr
 	int			location;		/* token location, or -1 if unknown */
 } LevelExpr;
 
-#endif
+#endif /* ADB_GRAM_ORA */
 
 /* Convenience macro to get the output tlist of a CTE's query */
 #define GetCTETargetList(cte) \

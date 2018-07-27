@@ -198,7 +198,23 @@ fi
 PGAC_ARG_BOOL(enable, cluster, yes,
               [enable cluster module])
 AC_SUBST(enable_cluster)
-AC_DEFINE(ADB_GRAM_ORA, 1, [Define to 1 to enable oracle grammar])
+
+#
+# oracle grammar
+#
+PGAC_ARG_BOOL(enable,grammar-oracle, yes,
+              [enable oracle grammar],
+              [AC_DEFINE(ADB_GRAM_ORA, 1, [Define to 1 to enable oracle grammar])])
+AC_SUBST(enable_grammar_oracle)
+
+#
+# multi grammar
+#
+if test "$enable_grammar_oracle" = yes; then
+  adb_multi_gram="yes"
+  AC_DEFINE(ADB_MULTI_GRAM, 1, [Define to 1 to enable AntDB multi-grammar])
+fi
+AC_SUBST(adb_multi_gram)
 
 #
 # '-rpath'-like feature can be disabled

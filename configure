@@ -747,6 +747,8 @@ GCOV
 enable_debug
 enable_strong_random
 enable_rpath
+adb_multi_gram
+enable_grammar_oracle
 enable_cluster
 default_port
 WANTED_LANGUAGES
@@ -813,6 +815,7 @@ enable_integer_datetimes
 enable_nls
 with_pgport
 enable_cluster
+enable_grammar_oracle
 enable_rpath
 enable_spinlocks
 enable_atomics
@@ -1491,6 +1494,8 @@ Optional Features:
   --enable-nls[=LANGUAGES]
                           enable Native Language Support
   --disable-cluster       enable cluster module
+  --disable-grammar-oracle
+                          enable oracle grammar
   --disable-rpath         do not embed shared library search path in
                           executables
   --disable-spinlocks     do not use spinlocks
@@ -3178,7 +3183,47 @@ fi
 
 
 
+#
+# oracle grammar
+#
+
+
+# Check whether --enable-grammar-oracle was given.
+if test "${enable_grammar_oracle+set}" = set; then :
+  enableval=$enable_grammar_oracle;
+  case $enableval in
+    yes)
+
 $as_echo "#define ADB_GRAM_ORA 1" >>confdefs.h
+
+      ;;
+    no)
+      :
+      ;;
+    *)
+      as_fn_error $? "no argument expected for --enable-grammar-oracle option" "$LINENO" 5
+      ;;
+  esac
+
+else
+  enable_grammar_oracle=yes
+
+$as_echo "#define ADB_GRAM_ORA 1" >>confdefs.h
+
+fi
+
+
+
+
+#
+# multi grammar
+#
+if test "$enable_grammar_oracle" = yes; then
+  adb_multi_gram="yes"
+
+$as_echo "#define ADB_MULTI_GRAM 1" >>confdefs.h
+
+fi
 
 
 #

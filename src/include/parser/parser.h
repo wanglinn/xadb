@@ -35,16 +35,16 @@ extern PGDLLIMPORT bool standard_conforming_strings;
 /* Primary entry point for the raw parsing functions */
 extern List *raw_parser(const char *str);
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 extern List *ora_raw_parser(const char *str);
 #endif
 
 /* Utility functions exported by gram.y (perhaps these should be elsewhere) */
 extern List *SystemFuncName(char *name);
 extern TypeName *SystemTypeName(char *name);
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_MULTI_GRAM
 extern TypeName *SystemTypeNameLocation(char *name, int location);
-#endif /* ADB */
+#endif /* ADB_MULTI_GRAM */
 
 /* move from gram.y */
 extern RawStmt *makeRawStmt(Node *stmt, int stmt_location);
@@ -60,7 +60,7 @@ extern Node *makeBitStringConst(char *str, int location);
 extern Node *makeNullAConst(int location);
 extern Node *makeAConst(Value *v, int location);
 extern Node *makeBoolAConst(bool state, int location);
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 extern List *check_sequence_name(List *names, core_yyscan_t yyscanner, int location);
 extern Node *makeConnectByStmt(SelectStmt *stmt, Node *start, Node *connect_by,
 							core_yyscan_t yyscanner);
@@ -99,7 +99,7 @@ extern void SplitColQualList(List *qualList,
 							 core_yyscan_t yyscanner);
 /* end from gram.y */
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 extern List *OracleFuncName(char *name);
 extern TypeName *OracleTypeName(char *name);
 extern TypeName *OracleTypeNameLocation(char *name, int location);

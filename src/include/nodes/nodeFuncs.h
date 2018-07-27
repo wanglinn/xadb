@@ -90,13 +90,13 @@ struct Path;
 extern bool path_tree_walker(struct Path *path, bool (*walker)(), void *context);
 #endif /* ADB */
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_MULTI_GRAM
 /* not support PlannerInfo and RelOptInfo */
 extern bool node_tree_walker(Node *node, bool (*walker)(), void *context);
 
 extern Node *node_tree_mutator(Node *node, Node *(*mutator)(), void *context);
 
 extern bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar);
-#endif /* #if defined(ADB) || defined(ADB_GRAM_ORA) */
+#endif /* ADB_MULTI_GRAM */
 
 #endif							/* NODEFUNCS_H */

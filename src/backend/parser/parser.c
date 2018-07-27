@@ -28,10 +28,15 @@
 #include "parser/gramparse.h"
 #include "parser/parser.h"
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB
 #include "catalog/heap.h" /* SystemAttributeByName */
 #include "lib/stringinfo.h"
 #include "miscadmin.h" /* check_stack_depth */
+#endif /* ADB */
+
+#ifdef ADB_GRAM_ORA
+#include "lib/stringinfo.h"
+#include "miscadmin.h"
 #include "parser/ora_gramparse.h"
 #include "parser/parse_target.h"
 
@@ -76,7 +81,7 @@ static char* get_expr_name(Node *expr, List *expr_list, List *name_list);
 static bool have_prior_expr(Node *node, void *context);
 static Node* make_concat_expr(Node *larg, Node *rarg, int location);
 
-#endif /* #if defined(ADB) || defined(ADB_GRAM_ORA) */
+#endif /* ADB_GRAM_ORA */
 
 /*
  * raw_parser
@@ -114,7 +119,7 @@ raw_parser(const char *str)
 	return yyextra.parsetree;
 }
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 List* ora_raw_parser(const char *str)
 {
 	core_yyscan_t yyscanner;
@@ -139,7 +144,7 @@ List* ora_raw_parser(const char *str)
 
 	return yyextra.parsetree;
 }
-#endif
+#endif /* ADB_GRAM_ORA */
 
 /*
  * Intermediate filter between parser and core lexer (core_yylex in scan.l).
@@ -472,7 +477,7 @@ makeBoolAConst(bool state, int location)
 	return makeTypeCast((Node *)n, SystemTypeName("bool"), -1);
 }
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 List *
 check_sequence_name(List *names, core_yyscan_t yyscanner, int location)
 {
@@ -1064,7 +1069,7 @@ static char* get_expr_name(Node *expr, List *expr_list, List *name_list)
 	return NULL;
 }
 
-#endif /* #if defined(ADB) || defined(ADB_GRAM_ORA) */
+#endif /* ADB_GRAM_ORA */
 
 /* makeRoleSpec
  * Create a RoleSpec with the given type
@@ -1300,7 +1305,7 @@ SystemTypeName(char *name)
 											   makeString(name)));
 }
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_MULTI_GRAM
 TypeName *SystemTypeNameLocation(char *name, int location)
 {
 	TypeName *typ = makeTypeNameFromNameList(list_make2(makeString("pg_catalog"),
@@ -1308,7 +1313,7 @@ TypeName *SystemTypeNameLocation(char *name, int location)
 	typ->location = location;
 	return typ;
 }
-#endif /* ADB */
+#endif /* ADB_MULTI_GRAM */
 
 /* doNegate()
  * Handle negation of a numeric constant.
@@ -1665,7 +1670,7 @@ SplitColQualList(List *qualList,
 
 /* ADB end from gram.y */
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 List *OracleFuncName(char *name)
 {
 	return list_make2(makeString("oracle"), makeString(name));
@@ -1684,7 +1689,7 @@ TypeName *OracleTypeNameLocation(char *name, int location)
 	typ->location = location;
 	return typ;
 }
-#endif /* #if defined(ADB) || defined(ADB_GRAM_ORA) */
+#endif /* ADB_GRAM_ORA */
 
 #ifdef ADB
 void transformDistributeBy(DistributeBy *dbstmt)
@@ -1749,4 +1754,4 @@ void transformDistributeBy(DistributeBy *dbstmt)
 		 */
 	}
 }
-#endif
+#endif /* ADB */

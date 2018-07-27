@@ -18,6 +18,9 @@
 /* Define to 1 to enable oracle grammar */
 #undef ADB_GRAM_ORA
 
+/* Define to 1 to enable AntDB multi-grammar */
+#undef ADB_MULTI_GRAM
+
 /* ADB version as a string */
 #undef ADB_VERSION
 
