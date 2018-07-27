@@ -1197,7 +1197,7 @@ exec_simple_query(const char *query_string)
 	MemoryContext oldcontext;
 	List	   *parsetree_list;
 	ListCell   *parsetree_item;
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	ParseGrammar grammar = PARSE_GRAM_POSTGRES;
 #endif
 	bool		save_log_statement_stats = log_statement_stats;
@@ -1422,7 +1422,7 @@ exec_simple_query(const char *query_string)
 		 * Create unnamed portal to run the query or queries in. If there
 		 * already is one, silently drop it.
 		 */
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 		portal = CreatePortal("", true, true, grammar);
 #else
 		portal = CreatePortal("", true, true);
@@ -1608,7 +1608,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 	const char *commandTag;
 	List	   *querytree_list;
 	CachedPlanSource *psrc;
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	ParseGrammar grammar = PARSE_GRAM_POSTGRES;
 #endif
 	bool		is_named;
@@ -1689,7 +1689,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 	 * Do basic parsing of the query or queries (this should be safe even if
 	 * we are in aborted transaction state!)
 	 */
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	parsetree_list = parse_query_auto_gram(query_string, &grammar);
 #elif defined(ADBMGRD)
 	if(mgr_cmd_mode == CMD_MODE_MGR)
@@ -2038,13 +2038,13 @@ exec_bind_message(StringInfo input_message)
 	 * if the unnamed portal is specified.
 	 */
 	if (portal_name[0] == '\0')
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 		portal = CreatePortal(portal_name, true, true, psrc->grammar);
 #else
 		portal = CreatePortal(portal_name, true, true);
 #endif
 	else
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 		portal = CreatePortal(portal_name, false, false, psrc->grammar);
 #else
 		portal = CreatePortal(portal_name, false, false);

@@ -1784,7 +1784,7 @@ typedef enum DropBehavior
 typedef struct AlterTableStmt
 {
 	NodeTag		type;
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	ParseGrammar grammar;
 #endif
 	RangeVar   *relation;		/* table to work on */
@@ -2103,7 +2103,7 @@ typedef struct VariableShowStmt
 typedef struct CreateStmt
 {
 	NodeTag		type;
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	ParseGrammar grammar;
 #endif /* ADB */
 	RangeVar   *relation;		/* relation to create */
@@ -2821,7 +2821,7 @@ typedef struct FetchStmt
 typedef struct IndexStmt
 {
 	NodeTag		type;
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	ParseGrammar grammar;
 #endif
 	char	   *idxname;		/* name of new index, or NULL for default */
@@ -3129,7 +3129,7 @@ typedef enum ViewCheckOption
 typedef struct ViewStmt
 {
 	NodeTag		type;
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	ParseGrammar grammar;
 #endif
 	RangeVar   *view;			/* the view to be created */
@@ -3336,7 +3336,7 @@ typedef struct ExplainStmt
 typedef struct CreateTableAsStmt
 {
 	NodeTag		type;
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	ParseGrammar grammar;
 #endif
 	Node	   *query;			/* the query (see comments above) */

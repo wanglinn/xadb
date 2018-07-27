@@ -99,7 +99,7 @@ PerformCursorOpen(DeclareCursorStmt *cstmt, ParamListInfo params,
 	 * Create a portal and copy the plan and queryString into its memory.
 	 */
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	portal = CreatePortal(cstmt->portalname, false, false, PARSE_GRAM_POSTGRES);
 #if defined(ADB)
 	/*

@@ -121,7 +121,7 @@ typedef struct CachedPlanSource
 	char	   *stmt_name;		/* If set, this is a copy of prepared stmt name */
 	struct CachedPlan *cluster_plan;	/* cluster plan, or NULL if not valid */
 #endif
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	ParseGrammar grammar;
 #endif
 } CachedPlanSource;

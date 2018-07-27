@@ -2263,7 +2263,7 @@ END_NODE(SelectStmt)
 
 #ifndef NO_NODE_AlterTableStmt
 BEGIN_NODE(AlterTableStmt)
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	NODE_ENUM(ParseGrammar,grammar)
 #endif
 	NODE_NODE(RangeVar,relation)
@@ -2367,7 +2367,7 @@ END_NODE(CopyStmt)
 
 #ifndef NO_NODE_CreateStmt
 BEGIN_NODE(CreateStmt)
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	NODE_ENUM(ParseGrammar,grammar)
 #endif
 	NODE_NODE(RangeVar,relation)
@@ -2442,7 +2442,7 @@ END_NODE(FetchStmt)
 
 #ifndef NO_NODE_IndexStmt
 BEGIN_NODE(IndexStmt)
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	NODE_ENUM(ParseGrammar,grammar)
 #endif
 	NODE_STRING(idxname)
@@ -2548,7 +2548,7 @@ END_NODE(TransactionStmt)
 
 #ifndef NO_NODE_ViewStmt
 BEGIN_NODE(ViewStmt)
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	NODE_ENUM(ParseGrammar,grammar)
 #endif
 	NODE_NODE(RangeVar,view)
@@ -2606,7 +2606,7 @@ END_NODE(ExplainStmt)
 
 #ifndef NO_NODE_CreateTableAsStmt
 BEGIN_NODE(CreateTableAsStmt)
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	NODE_ENUM(ParseGrammar,grammar)
 #endif
 	NODE_NODE(Node,query)

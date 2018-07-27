@@ -1225,13 +1225,13 @@ SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 	{
 		/* Use a random nonconflicting name */
 		portal = CreateNewPortal();
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 		portal->grammar = plansource->grammar;
 #endif
 	}
 	else
 	{
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 		portal = CreatePortal(name, false, false, plansource->grammar);
 #else
 		/* In this path, error if portal of same name already exists */

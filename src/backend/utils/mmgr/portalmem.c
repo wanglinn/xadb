@@ -178,7 +178,7 @@ PortalGetPrimaryStmt(Portal portal)
  * dupSilent: if true, don't even emit a WARNING.
  */
 Portal
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 CreatePortal(const char *name, bool allowDup, bool dupSilent, ParseGrammar grammar)
 #else
 CreatePortal(const char *name, bool allowDup, bool dupSilent)
@@ -257,7 +257,7 @@ CreateNewPortal(void)
 			break;
 	}
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	return CreatePortal(portalname, false, false, PARSE_GRAM_POSTGRES);
 #else
 	return CreatePortal(portalname, false, false);
