@@ -86,7 +86,13 @@ ifeq ($(PORTNAME), win32)
 SHLIB_LINK += -lshell32 -lws2_32 -lsecur32 $(filter -leay32 -lssleay32 -lcomerr32 -lkrb5_32, $(LIBS))
 endif
 
+ifeq ($(enable_cluster),yes)
 SHLIB_EXPORTS = exports.txt
+else
+new_exports.txt: $(abs_top_srcdir)/$(subdir)/exports.txt $(abs_top_srcdir)/src/backend/parser/drop-adb.pl
+	$(PERL) $(abs_top_srcdir)/src/backend/parser/drop-adb.pl $< $@
+SHLIB_EXPORTS = new_exports.txt
+endif
 
 all: all-lib
 

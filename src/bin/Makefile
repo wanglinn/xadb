@@ -14,8 +14,6 @@ top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = \
-	adb_clogdump \
-	adb_reduce \
 	initdb \
 	pg_archivecleanup \
 	pg_basebackup \
@@ -32,13 +30,16 @@ SUBDIRS = \
 	pg_waldump \
 	pgbench \
 	psql \
-	scripts \
-	agent
+	scripts
 
 ifeq ($(PORTNAME), win32)
 SUBDIRS += pgevent
 else
 ALWAYS_SUBDIRS += pgevent
+endif
+
+ifeq ($(enable_cluster),yes)
+  SUBDIRS += adb_clogdump adb_reduce agent
 endif
 
 $(recurse)

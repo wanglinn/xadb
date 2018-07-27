@@ -32,6 +32,19 @@ while (my $row = <$src_handle>)
 				print $dest_handle "\n";
 			}
 		}
+	}elsif ($row =~ /^\s*#\s*ADB_BEGIN\s*$/)
+	{
+		while ($row = <$src_handle>)
+		{
+			if ($row =~ /^\s*#\s*ADB_END\s*$/)
+			{
+				print $dest_handle "$row";
+				last;
+			}else
+			{
+				print $dest_handle "\n";
+			}
+		}
 	}
 }
 

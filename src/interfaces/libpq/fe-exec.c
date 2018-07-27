@@ -53,7 +53,7 @@ static bool static_std_strings = false;
 static PGEvent *dupEvents(PGEvent *events, int count);
 static bool pqAddTuple(PGresult *res, PGresAttValue *tup);
 /* function used by agtm_client.c, need extern */
-#if 0
+#ifndef ADB
 static bool PQsendQueryStart(PGconn *conn);
 #endif
 static int PQsendQueryGuts(PGconn *conn,
@@ -69,7 +69,7 @@ static void parseInput(PGconn *conn);
 static PGresult *getCopyResult(PGconn *conn, ExecStatusType copytype);
 static bool PQexecStart(PGconn *conn);
 /* function used by agtm_client.c, need extern */
-#if 0
+#ifndef ADB
 static PGresult *PQexecFinish(PGconn *conn);
 #endif
 static int PQsendDescribe(PGconn *conn, char desc_type,
@@ -2158,7 +2158,8 @@ parseInput(PGconn *conn)
  * PQisIdle
  *	 Return TRUE if PGASYNC_IDLE.
  */
-int
+#ifdef ADB
+static int
 PQisIdle(PGconn *conn)
 {
 	if (!conn)
@@ -2170,6 +2171,7 @@ PQisIdle(PGconn *conn)
 	/* PQgetResult will return immediately in all states except BUSY. */
 	return conn->asyncStatus == PGASYNC_IDLE;
 }
+#endif
 
 /*
  * PQisBusy
@@ -4359,4 +4361,3 @@ int pqSendAgtmListenPort(PGconn *conn, int port)
 	return 0;
 }
 #endif
-

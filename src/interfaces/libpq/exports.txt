@@ -172,6 +172,7 @@ PQsslAttribute            169
 PQsetErrorContextVisibility 170
 PQresultVerboseErrorMessage 171
 PQencryptPasswordConn     172
+# ADB_BEGIN
 pqSendAgtmListenPort      173
 PQsendQueryStart          174
 pqPutMsgStart             175
@@ -198,3 +199,4 @@ PQsendQueryExtend         195
 PQsendQueryExtendBinary   196
 PQisIdle                  197
 pqResultStrdup            198
+# ADB_END
