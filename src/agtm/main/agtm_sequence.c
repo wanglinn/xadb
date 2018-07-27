@@ -15,7 +15,7 @@ static Datum  GetSeqKeyToDatumOid(char *seq_key);
 
 static Datum prase_to_agtm_sequence_name(StringInfo message);
 
-static	void parse_seqFullName_to_details(StringInfo message, char ** dbName, 
+static	void parse_seqFullName_to_details(StringInfo message, char ** dbName,
 							char ** schemaName, char ** sequenceName);
 
 static void
@@ -29,8 +29,9 @@ static Datum
 GetSeqKeyToDatumOid(char *seq_key)
 {
 	Datum seq_name_to_oid;
-	seq_name_to_oid = DirectFunctionCall1(regclassin, CStringGetDatum(seq_key));
-	if(ObjectIdGetDatum(InvalidOid) == seq_name_to_oid)
+	seq_name_to_oid = DirectFunctionCall1(regclassin,
+										  CStringGetDatum(seq_key));
+	if (!OidIsValid(DatumGetObjectId(seq_name_to_oid)))
 		ereport(ERROR,
 			(errmsg("convert sequence key to oid invalid, sequence key : %s",
 				seq_key)));
@@ -47,7 +48,8 @@ ProcessNextSeqCommand(StringInfo message, StringInfo output)
 	seq_name_to_oid= prase_to_agtm_sequence_name(message);
 	pq_getmsgend(message);
 
-	seq_val_datum = DirectFunctionCall1(nextval_oid, seq_name_to_oid);
+	seq_val_datum = DirectFunctionCall1(nextval_oid,
+										seq_name_to_oid);
 	seq_val = DatumGetInt64(seq_val_datum);
 
 	/* Respond to the client */
@@ -67,9 +69,10 @@ ProcessCurSeqCommand(StringInfo message, StringInfo output)
 	pq_getmsgend(message);
 
 	/*if nextval function never called in this session and before currval function called,
-	 *curral_oid fuction will ereport(error) 
+	 *curral_oid fuction will ereport(error)
 	 */
-	seq_val_datum = DirectFunctionCall1(currval_oid, seq_name_to_oid);
+	seq_val_datum = DirectFunctionCall1(currval_oid,
+										seq_name_to_oid);
 	seq_val = DatumGetInt64(seq_val_datum);
 
 	/* Respond to the client */
@@ -91,7 +94,7 @@ PorcessLastSeqCommand(StringInfo message, StringInfo output)
 	pq_getmsgend(message);
 
 	/*if nextval function never called in this session and before currval function called,
-	 *curral_oid fuction will ereport(error) 
+	 *curral_oid fuction will ereport(error)
 	 */
 	seq_val_datum = DirectFunctionCall1(lastval, (Datum)0);
 	seq_val = DatumGetInt64(seq_val_datum);
@@ -116,12 +119,14 @@ ProcessSetSeqCommand(StringInfo message, StringInfo output)
 
 	seq_name_to_oid= prase_to_agtm_sequence_name(message);
 	memcpy(&seq_nextval,pq_getmsgbytes(message, sizeof(seq_nextval)),
-		sizeof (seq_nextval));	
+		sizeof (seq_nextval));
 	iscalled = pq_getmsgbyte(message);
 	pq_getmsgend(message);
 
 	seq_val_datum = DirectFunctionCall3(setval3_oid,
-		seq_name_to_oid, seq_nextval, iscalled);
+										seq_name_to_oid,
+										Int64GetDatum(seq_nextval),
+										BoolGetDatum(iscalled));
 
 	seq_val = DatumGetInt64(seq_val_datum);
 
@@ -140,7 +145,7 @@ ProcessDiscardCommand(StringInfo message, StringInfo output)
 	return output;
 }
 
-static	void parse_seqFullName_to_details(StringInfo message, char ** dbName, 
+static	void parse_seqFullName_to_details(StringInfo message, char ** dbName,
 							char ** schemaName, char ** sequenceName)
 {
 	int	 sequenceSize = 0;
@@ -172,11 +177,11 @@ prase_to_agtm_sequence_name(StringInfo message)
 	bool  isExist = FALSE;
 	char* dbName = NULL;
 	char* schemaName = NULL;
-	char* sequenceName = NULL;	
+	char* sequenceName = NULL;
 	StringInfoData	buf;
 	Oid			lineOid;
 	char *	agtmSeqName = NULL;
-	int		oid;
+	Datum	oid;
 
 	initStringInfo(&buf);
 	parse_seqFullName_to_details(message, &dbName, &schemaName, &sequenceName);
