@@ -325,11 +325,6 @@ DECLARE_UNIQUE_INDEX(pgxc_group_oid, 9013, on pgxc_group using btree(oid oid_ops
 DECLARE_UNIQUE_INDEX(pgxc_node_id_index, 9022, on pgxc_node using btree(node_id int4_ops));
 #define PgxcNodeNodeIdIndexId 	9022
 
-DECLARE_UNIQUE_INDEX(ora_cast_oid_index, 9016, on ora_cast using btree(oid oid_ops));
-#define OraCastOidIndexId	9016
-DECLARE_UNIQUE_INDEX(ora_cast_source_target_index, 9017, on ora_cast using btree(castsource oid_ops, casttarget oid_ops, castcontext char_ops));
-#define OraCastSourceTargetIndexId  9017
-
 DECLARE_UNIQUE_INDEX(adb_proc_owner_index, 9019, on adb_proc using btree(proowner oid_ops));
 #define AdbProcOwnerIndexId	9019
 
@@ -342,6 +337,13 @@ DECLARE_UNIQUE_INDEX(pg_aux_class_relid_attnum_index, 9024, on pg_aux_class usin
 DECLARE_UNIQUE_INDEX(adb_ha_sync_log_oid_index, 9025, on adb_ha_sync_log using btree(oid oid_ops));
 #define AdbHaSyncLogOidIndexId			9025
 
+#endif
+
+#ifdef ADB_GRAM_ORA
+DECLARE_UNIQUE_INDEX(ora_cast_oid_index, 9016, on ora_cast using btree(oid oid_ops));
+#define OraCastOidIndexId	9016
+DECLARE_UNIQUE_INDEX(ora_cast_source_target_index, 9017, on ora_cast using btree(castsource oid_ops, casttarget oid_ops, castcontext char_ops));
+#define OraCastSourceTargetIndexId  9017
 #endif
 
 DECLARE_UNIQUE_INDEX(pg_foreign_table_relid_index, 3119, on pg_foreign_table using btree(ftrelid oid_ops));

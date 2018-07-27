@@ -28,7 +28,7 @@ extern char *asc_tolower(const char *buff, size_t nbytes);
 extern char *asc_toupper(const char *buff, size_t nbytes);
 extern char *asc_initcap(const char *buff, size_t nbytes);
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 extern Datum ora_to_timestamp(text * date_txt, text * fmt);
 #endif
 

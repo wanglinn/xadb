@@ -154,13 +154,15 @@ parse_analyze(RawStmt *parseTree, const char *sourceText,
 			  QueryEnvironment *queryEnv)
 {
 #ifdef ADB_MULTI_GRAM
-	return parse_analyze_for_gram(parseTree, sourceText
-						,paramTypes, numParams, queryEnv, PARSE_GRAM_POSTGRES);
+	return parse_analyze_for_gram(parseTree, sourceText,
+								  paramTypes, numParams,
+								  queryEnv, PARSE_GRAM_POSTGRES);
 }
 
 Query *
 parse_analyze_for_gram(RawStmt *parseTree, const char *sourceText,
-					   Oid *paramTypes, int numParams, QueryEnvironment *queryEnv, ParseGrammar grammar)
+					   Oid *paramTypes, int numParams,
+					   QueryEnvironment *queryEnv, ParseGrammar grammar)
 {
 	ParseState *pstate = make_parsestate(NULL);
 	Query	   *query;
@@ -220,11 +222,15 @@ parse_analyze_varparams(RawStmt *parseTree, const char *sourceText,
 						Oid **paramTypes, int *numParams)
 {
 #ifdef ADB_MULTI_GRAM
-	return parse_analyze_varparams_for_gram(parseTree, sourceText
-		,paramTypes, numParams, PARSE_GRAM_POSTGRES);
+	return parse_analyze_varparams_for_gram(parseTree, sourceText,
+											paramTypes, numParams,
+											PARSE_GRAM_POSTGRES);
 }
-Query *parse_analyze_varparams_for_gram(RawStmt *parseTree, const char *sourceText,
-						Oid **paramTypes, int *numParams, ParseGrammar grammar)
+
+Query *
+parse_analyze_varparams_for_gram(RawStmt *parseTree, const char *sourceText,
+								 Oid **paramTypes, int *numParams,
+								 ParseGrammar grammar)
 {
 	ParseState *pstate = make_parsestate(NULL);
 	Query	   *query;
@@ -236,6 +242,7 @@ Query *parse_analyze_varparams_for_gram(RawStmt *parseTree, const char *sourceTe
 	ParseState *pstate = make_parsestate(NULL);
 	Query	   *query;
 #endif /* ADB_MULTI_GRAM */
+
 	Assert(sourceText != NULL); /* required as of 8.4 */
 
 	pstate->p_sourcetext = sourceText;
@@ -251,6 +258,7 @@ Query *parse_analyze_varparams_for_gram(RawStmt *parseTree, const char *sourceTe
 		(*post_parse_analyze_hook) (pstate, query);
 
 	free_parsestate(pstate);
+
 #ifdef ADB_MULTI_GRAM
 	}PG_CATCH();
 	{
@@ -259,6 +267,7 @@ Query *parse_analyze_varparams_for_gram(RawStmt *parseTree, const char *sourceTe
 	}PG_END_TRY();
 	PopOverrideSearchPath();
 #endif /* ADB_MULTI_GRAM */
+
 	return query;
 }
 

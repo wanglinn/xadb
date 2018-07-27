@@ -181,7 +181,7 @@ struct tzEntry;
 #define DTK_TZ_MINUTE	35
 #define DTK_ISOYEAR		36
 #define DTK_ISODOW		37
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 #define DTK_TZ_ABBR		38
 #define DTK_TZ_REGION	39
 
@@ -325,7 +325,7 @@ extern int DetermineTimeZoneAbbrevOffsetTS(TimestampTz ts, const char *abbr,
 extern void EncodeDateOnly(struct pg_tm *tm, int style, char *str);
 extern void EncodeTimeOnly(struct pg_tm *tm, fsec_t fsec, bool print_tz, int tz, int style, char *str);
 extern void EncodeDateTime(struct pg_tm *tm, fsec_t fsec, bool print_tz, int tz, const char *tzn, int style, char *str);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 extern void EncodeDateTimeExtend(struct pg_tm * tm, fsec_t fsec,
 								 bool print_tz, int tz,
 								 const char *tzn, int style,

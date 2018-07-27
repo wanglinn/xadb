@@ -70,7 +70,7 @@
 #include <math.h>
 #include <float.h>
 #include <limits.h>
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 #include <time.h>
 #endif
 
@@ -99,7 +99,7 @@
 #include "utils/numeric.h"
 #include "utils/pg_locale.h"
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 #define RADIX			"."
 #endif
 
@@ -592,7 +592,7 @@ typedef enum
 	DCH_Day,
 	DCH_Dy,
 	DCH_D,
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	DCH_FF1,
 	DCH_FF2,
 	DCH_FF3,
@@ -628,11 +628,11 @@ typedef enum
 	DCH_PM,
 	DCH_Q,
 	DCH_RM,
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	DCH_SSSSS,
 #endif
 	DCH_SSSS,
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	DCH_SCC,
 #endif
 	DCH_SS,
@@ -640,7 +640,7 @@ typedef enum
 	DCH_US,
 	DCH_WW,
 	DCH_W,
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	DCH_XFF1,
 	DCH_XFF2,
 	DCH_XFF3,
@@ -669,7 +669,7 @@ typedef enum
 	DCH_dd,
 	DCH_dy,
 	DCH_d,
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	DCH_ff1,
 	DCH_ff2,
 	DCH_ff3,
@@ -702,11 +702,11 @@ typedef enum
 	DCH_pm,
 	DCH_q,
 	DCH_rm,
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	DCH_sssss,
 #endif
 	DCH_ssss,
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	DCH_scc,
 #endif
 	DCH_ss,
@@ -714,7 +714,7 @@ typedef enum
 	DCH_us,
 	DCH_ww,
 	DCH_w,
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	DCH_xff1,
 	DCH_xff2,
 	DCH_xff3,
@@ -799,7 +799,7 @@ static const KeyWord DCH_keywords[] = {
 	{"Day", 3, DCH_Day, FALSE, FROM_CHAR_DATE_NONE},
 	{"Dy", 2, DCH_Dy, FALSE, FROM_CHAR_DATE_NONE},
 	{"D", 1, DCH_D, TRUE, FROM_CHAR_DATE_GREGORIAN},
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	{"FF1", 3, DCH_FF1, TRUE, FROM_CHAR_DATE_NONE},	/* F */
 	{"FF2", 3, DCH_FF2, TRUE, FROM_CHAR_DATE_NONE},
 	{"FF3", 3, DCH_FF3, TRUE, FROM_CHAR_DATE_NONE},
@@ -835,11 +835,11 @@ static const KeyWord DCH_keywords[] = {
 	{"PM", 2, DCH_PM, FALSE, FROM_CHAR_DATE_NONE},
 	{"Q", 1, DCH_Q, TRUE, FROM_CHAR_DATE_NONE}, /* Q */
 	{"RM", 2, DCH_RM, FALSE, FROM_CHAR_DATE_GREGORIAN}, /* R */
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	{"SSSSS", 5, DCH_SSSSS, TRUE, FROM_CHAR_DATE_NONE},	/* S */
 #endif
 	{"SSSS", 4, DCH_SSSS, TRUE, FROM_CHAR_DATE_NONE},	/* S */
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	{"SCC", 3, DCH_SCC, TRUE, FROM_CHAR_DATE_NONE},
 #endif
 	{"SS", 2, DCH_SS, TRUE, FROM_CHAR_DATE_NONE},
@@ -847,7 +847,7 @@ static const KeyWord DCH_keywords[] = {
 	{"US", 2, DCH_US, TRUE, FROM_CHAR_DATE_NONE},	/* U */
 	{"WW", 2, DCH_WW, TRUE, FROM_CHAR_DATE_GREGORIAN},	/* W */
 	{"W", 1, DCH_W, TRUE, FROM_CHAR_DATE_GREGORIAN},
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	{"XFF1", 4, DCH_XFF1, FALSE, FROM_CHAR_DATE_NONE},	/* X */
 	{"XFF2", 4, DCH_XFF2, FALSE, FROM_CHAR_DATE_NONE},
 	{"XFF3", 4, DCH_XFF3, FALSE, FROM_CHAR_DATE_NONE},
@@ -876,7 +876,7 @@ static const KeyWord DCH_keywords[] = {
 	{"dd", 2, DCH_DD, TRUE, FROM_CHAR_DATE_GREGORIAN},
 	{"dy", 2, DCH_dy, FALSE, FROM_CHAR_DATE_NONE},
 	{"d", 1, DCH_D, TRUE, FROM_CHAR_DATE_GREGORIAN},
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	{"ff1", 3, DCH_FF1, TRUE, FROM_CHAR_DATE_NONE},	/* f */
 	{"ff2", 3, DCH_FF2, TRUE, FROM_CHAR_DATE_NONE},
 	{"ff3", 3, DCH_FF3, TRUE, FROM_CHAR_DATE_NONE},
@@ -909,11 +909,11 @@ static const KeyWord DCH_keywords[] = {
 	{"pm", 2, DCH_pm, FALSE, FROM_CHAR_DATE_NONE},
 	{"q", 1, DCH_Q, TRUE, FROM_CHAR_DATE_NONE}, /* q */
 	{"rm", 2, DCH_rm, FALSE, FROM_CHAR_DATE_GREGORIAN}, /* r */
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	{"sssss", 5, DCH_SSSSS, TRUE, FROM_CHAR_DATE_NONE}, /* s */
 #endif
 	{"ssss", 4, DCH_SSSS, TRUE, FROM_CHAR_DATE_NONE},	/* s */
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	{"scc", 3, DCH_SCC, TRUE, FROM_CHAR_DATE_NONE},
 #endif
 	{"ss", 2, DCH_SS, TRUE, FROM_CHAR_DATE_NONE},
@@ -921,7 +921,7 @@ static const KeyWord DCH_keywords[] = {
 	{"us", 2, DCH_US, TRUE, FROM_CHAR_DATE_NONE},	/* u */
 	{"ww", 2, DCH_WW, TRUE, FROM_CHAR_DATE_GREGORIAN},	/* w */
 	{"w", 1, DCH_W, TRUE, FROM_CHAR_DATE_GREGORIAN},
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	{"xff1", 4, DCH_XFF1, TRUE, FROM_CHAR_DATE_NONE},	/* x */
 	{"xff2", 4, DCH_XFF2, TRUE, FROM_CHAR_DATE_NONE},
 	{"xff3", 4, DCH_XFF3, TRUE, FROM_CHAR_DATE_NONE},
@@ -997,7 +997,7 @@ static const KeyWord NUM_keywords[] = {
  * KeyWords index for DATE-TIME version
  * ----------
  */
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 static const int DCH_index[KeyWord_INDEX_SIZE] = {
 /*
 0	1	2	3	4	5	6	7	8	9
@@ -1092,7 +1092,7 @@ typedef struct NUMProc
 			   *L_positive_sign,
 			   *decimal,
 			   *L_thousands_sep,
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 			   *C_currency_symbol,
 #endif
 			   *L_currency_symbol;
@@ -1131,7 +1131,7 @@ static int	seq_search(char *name, const char *const *array, int type, int max, i
 static int	from_char_seq_search(int *dest, char **src, const char *const *array, int type, int max, FormatNode *node);
 static void do_to_timestamp(text *date_txt, text *fmt,
 				struct pg_tm *tm, fsec_t *fsec);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 static void do_to_timestamp_internal(text *date_txt, text *fmt,
 				struct pg_tm * tm, fsec_t *fsec,
 				void (*DCH_from_char_ptr)(FormatNode *, char *, TmFromChar *));
@@ -2661,7 +2661,7 @@ DCH_to_char(FormatNode *node, bool is_interval, TmToChar *in, char *out, Oid col
 					str_numth(s, s, S_TH_TYPE(n->suffix));
 				s += strlen(s);
 				break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 			case DCH_XFF1:
 			case DCH_FF1:
 #ifdef HAVE_INT64_TIMESTAMP
@@ -2808,7 +2808,7 @@ DCH_to_char(FormatNode *node, bool is_interval, TmToChar *in, char *out, Oid col
 					str_numth(s, s, S_TH_TYPE(n->suffix));
 				s += strlen(s);
 				break;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 			case DCH_MS:		/* millisecond */
 				sprintf(s, "%03d", (int) (in->fsec / INT64CONST(1000)));
 				if (S_THth(n->suffix))
@@ -2821,7 +2821,7 @@ DCH_to_char(FormatNode *node, bool is_interval, TmToChar *in, char *out, Oid col
 					str_numth(s, s, S_TH_TYPE(n->suffix));
 				s += strlen(s);
 				break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 			case DCH_SSSSS:
 #endif
 			case DCH_SSSS:
@@ -3171,7 +3171,7 @@ DCH_to_char(FormatNode *node, bool is_interval, TmToChar *in, char *out, Oid col
 					str_numth(s, s, S_TH_TYPE(n->suffix));
 				s += strlen(s);
 				break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 			case DCH_SCC:
 #endif
 			case DCH_CC:
@@ -3933,7 +3933,7 @@ to_date(PG_FUNCTION_ARGS)
 static void
 do_to_timestamp(text *date_txt, text *fmt,
 				struct pg_tm *tm, fsec_t *fsec)
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 {
 	do_to_timestamp_internal(date_txt, fmt, tm, fsec, DCH_from_char);
 }
@@ -3995,7 +3995,7 @@ do_to_timestamp_internal(text *date_txt, text *fmt,
 		/* dump_index(DCH_keywords, DCH_index); */
 #endif
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		(*DCH_from_char_ptr)(format, date_str, &tmfc);
 #else
 		DCH_from_char(format, date_str, &tmfc);
@@ -4518,7 +4518,7 @@ NUM_prepare_locale(NUMProc *Np)
 		else
 			Np->L_thousands_sep = ".";
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		/*
 		 * ISO currency symbol
 		 */
@@ -4546,7 +4546,7 @@ NUM_prepare_locale(NUMProc *Np)
 		Np->decimal = ".";
 
 		Np->L_thousands_sep = ",";
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		Np->C_currency_symbol = " ";
 #endif
 		Np->L_currency_symbol = " ";
@@ -5259,7 +5259,7 @@ NUM_processor(FormatNode *node, NUMDesc *Num, char *inout,
 						Np->inout_p += strlen(Np->L_thousands_sep) - 1;
 					}
 					break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 				case NUM_C:
 					if (Np->is_to_char)
 					{
@@ -6050,7 +6050,7 @@ float8_to_char(PG_FUNCTION_ARGS)
 	PG_RETURN_TEXT_P(result);
 }
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 /* ---------------------
  * ORA_TO_TIMESTAMP()
  *

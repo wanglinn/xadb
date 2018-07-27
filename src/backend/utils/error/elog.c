@@ -569,7 +569,7 @@ errfinish(int dummy,...)
 	CHECK_FOR_INTERRUPTS();
 }
 
-#if defined(ADB) || defined(ADBMGRD) || defined(AGTM)
+#if defined(ADB) || defined(ADBMGRD) || defined(AGTM) || defined(ADB_MULTI_GRAM)
 /*
  * errdump --- dump the latest ErrorData from error data stack.
  *

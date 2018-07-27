@@ -232,12 +232,12 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 		stmt->relation->schemaname = get_namespace_name(namespaceid);
 
 	/* Set up CreateStmtContext */
-#ifdef ADB
+#ifdef ADB_MULTI_GRAM
 	pstate->p_grammar = stmt->grammar;
 	PushOverrideSearchPathForGrammar(stmt->grammar);
 	PG_TRY();
 	{
-#endif /* ADB */
+#endif
 	cxt.pstate = pstate;
 	if (IsA(stmt, CreateForeignTableStmt))
 	{
@@ -392,7 +392,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	}
 #endif
 
-#ifdef ADB
+#ifdef ADB_MULTI_GRAM
 	}PG_CATCH();
 	{
 		PopOverrideSearchPath();
@@ -2362,12 +2362,12 @@ transformIndexStmt(Oid relid, IndexStmt *stmt, const char *queryString)
 
 	/* Set up pstate */
 	pstate = make_parsestate(NULL);
-#ifdef ADB
+#ifdef ADB_MULTI_GRAM
 	pstate->p_grammar = stmt->grammar;
 	PushOverrideSearchPathForGrammar(stmt->grammar);
 	PG_TRY();
 	{
-#endif /* ADB */
+#endif
 	pstate->p_sourcetext = queryString;
 
 	/*
@@ -2436,7 +2436,8 @@ transformIndexStmt(Oid relid, IndexStmt *stmt, const char *queryString)
 
 	/* Mark statement as successfully transformed */
 	stmt->transformed = true;
-#ifdef ADB
+
+#ifdef ADB_MULTI_GRAM
 	}PG_CATCH();
 	{
 		PopOverrideSearchPath();
@@ -2804,12 +2805,13 @@ transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
 										false,
 										true);
 	addRTEtoQuery(pstate, rte, false, true, true);
-#ifdef ADB
+
+#ifdef ADB_MULTI_GRAM
 	pstate->p_grammar = stmt->grammar;
 	PushOverrideSearchPathForGrammar(stmt->grammar);
 	PG_TRY();
 	{
-#endif /* ADB */
+#endif
 	/* Set up CreateStmtContext */
 	cxt.pstate = pstate;
 	if (stmt->relkind == OBJECT_FOREIGN_TABLE)
@@ -3109,7 +3111,8 @@ transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
 	result = lappend(cxt.blist, stmt);
 	result = list_concat(result, cxt.alist);
 	result = list_concat(result, save_alist);
-#ifdef ADB
+
+#ifdef ADB_MULTI_GRAM
 	}PG_CATCH();
 	{
 		PopOverrideSearchPath();

@@ -121,7 +121,7 @@ extern void text_to_cstring_buffer(const text *src, char *dst, size_t dst_len);
 /* xid.c */
 extern int	xidComparator(const void *arg1, const void *arg2);
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 /* orastr.c */
 extern Datum orastr_instr2(PG_FUNCTION_ARGS);
 extern Datum orastr_instr3(PG_FUNCTION_ARGS);

@@ -68,8 +68,10 @@ extern bool is_parallel_safe(PlannerInfo *root, Node *node);
 extern bool contain_nonstrict_functions(Node *clause);
 extern bool contain_leaked_vars(Node *clause);
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 extern bool contain_volatile_functions_without_check_RownumExpr(Node *clause);
+#endif
+#ifdef ADB
 extern bool has_cluster_hazard(Node *node, bool allow_restricted);
 #endif
 

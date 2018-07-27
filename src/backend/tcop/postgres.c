@@ -202,7 +202,7 @@ static bool RecoveryConflictPending = false;
 static bool RecoveryConflictRetryable = true;
 static ProcSignalReason RecoveryConflictReason;
 
-#ifdef ADB
+#ifdef ADB_MULTI_GRAM
 int parse_grammar = PARSE_GRAM_POSTGRES;
 int current_grammar = PARSE_GRAM_POSTGRES;
 #endif
@@ -677,6 +677,7 @@ ProcessClientWriteInterrupt(bool blocked)
 
 	errno = save_errno;
 }
+
 #ifdef ADB_MULTI_GRAM
 List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram)
 {
@@ -687,8 +688,8 @@ List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram)
 		ParseGrammar gram;
 	}token_gram[]={
 		 {"pg",2,PARSE_GRAM_POSTGRES}
-#ifdef ADB_GRAM_ORA
 		,{"postgres", 8, PARSE_GRAM_POSTGRES}
+#ifdef ADB_GRAM_ORA
 		,{"oracle", 6, PARSE_GRAM_ORACLE}
 		,{"ora", 3, PARSE_GRAM_ORACLE}
 #endif
@@ -851,13 +852,15 @@ pg_analyze_and_rewrite(RawStmt *parsetree, const char *query_string,
 					   QueryEnvironment *queryEnv)
 {
 #ifdef ADB_MULTI_GRAM
-	return pg_analyze_and_rewrite_for_gram(parsetree, query_string
-		, paramTypes, numParams, queryEnv, PARSE_GRAM_POSTGRES);
+	return pg_analyze_and_rewrite_for_gram(parsetree, query_string,
+										   paramTypes, numParams,
+										   queryEnv, PARSE_GRAM_POSTGRES);
 }
 
 List *
 pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,
-					   Oid *paramTypes, int numParams, QueryEnvironment *queryEnv, ParseGrammar grammar)
+								Oid *paramTypes, int numParams,
+								QueryEnvironment *queryEnv, ParseGrammar grammar)
 {
 #endif /* ADB_MULTI_GRAM */
 	Query	   *query;
@@ -1248,7 +1251,7 @@ exec_simple_query(const char *query_string)
 	if(query_node)
 	{
 		parsetree_list = IsA(query_node, List) ? (List*)query_node : list_make1(query_node);
-#if defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 		if(get_parse_node_grammar(query_node, &grammar) == false)
 			grammar = PARSE_GRAM_POSTGRES;
 #endif
@@ -1379,17 +1382,21 @@ exec_simple_query(const char *query_string)
 		 */
 		oldcontext = MemoryContextSwitchTo(MessageContext);
 
-#ifdef ADB
+#ifdef ADB_MULTI_GRAM
 		querytree_list = pg_analyze_and_rewrite_for_gram(parsetree,
 														 query_string,
 														 NULL, 0, NULL,
 														 grammar);
-		plantree_list = pg_plan_queries(querytree_list,
-										CURSOR_OPT_PARALLEL_OK|CURSOR_OPT_CLUSTER_PLAN_SAFE,
-										NULL);
 #else
 		querytree_list = pg_analyze_and_rewrite(parsetree, query_string,
 												NULL, 0, NULL);
+#endif
+
+#ifdef ADB
+		plantree_list = pg_plan_queries(querytree_list,
+										CURSOR_OPT_PARALLEL_OK | CURSOR_OPT_CLUSTER_PLAN_SAFE,
+										NULL);
+#else
 		plantree_list = pg_plan_queries(querytree_list,
 										CURSOR_OPT_PARALLEL_OK, NULL);
 #endif
@@ -1761,7 +1768,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 		if (log_parser_stats)
 			ResetUsage();
 
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 		query = parse_analyze_varparams_for_gram(raw_parse_tree,
 												 query_string,
 												 &paramTypes,

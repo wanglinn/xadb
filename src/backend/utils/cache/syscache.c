@@ -80,7 +80,6 @@
 #include "utils/syscache.h"
 #ifdef ADB
 #include "catalog/adb_proc.h"
-#include "catalog/ora_cast.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
@@ -98,6 +97,9 @@
 #endif /* ADBMGRD */
 #ifdef AGTM
 #include "catalog/agtm_sequence.h"
+#endif
+#ifdef ADB_GRAM_ORA
+#include "catalog/ora_cast.h"
 #endif
 /*---------------------------------------------------------------------------
 
@@ -673,18 +675,6 @@ static const struct cachedesc cacheinfo[] = {
 		256
 	},
 	{
-		OraCastRelationId,			/* ORACASTSOURCETARGET */
-		OraCastSourceTargetIndexId,
-		3,
-		{
-			Anum_ora_cast_castsource,
-			Anum_ora_cast_casttarget,
-			Anum_ora_cast_castcontext,
-			0
-		},
-		256
-	},
-	{
 		AdbProcRelationId,			/* ADBPROCID */
 		AdbProcOwnerIndexId,
 		1,
@@ -1107,6 +1097,20 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		2
 	}
+#ifdef ADB_GRAM_ORA
+	,{
+		OraCastRelationId,			/* ORACASTSOURCETARGET */
+		OraCastSourceTargetIndexId,
+		3,
+		{
+			Anum_ora_cast_castsource,
+			Anum_ora_cast_casttarget,
+			Anum_ora_cast_castcontext,
+			0
+		},
+		256
+	},
+#endif
 #ifdef ADBMGRD
 	,{HostRelationId,		/* HOSTHOSTNAME */
 		HostHostnameIndexId,

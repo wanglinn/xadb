@@ -168,7 +168,7 @@ extern bool errstart(int elevel, const char *filename, int lineno,
 		 const char *funcname, const char *domain);
 extern void errfinish(int dummy,...);
 
-#if defined(ADB) || defined(ADBMGRD) || defined(AGTM)
+#if defined(ADB) || defined(ADBMGRD) || defined(AGTM) || defined(ADB_MULTI_GRAM)
 extern void errdump(void);
 #endif
 
@@ -401,7 +401,7 @@ extern PGDLLIMPORT ErrorContextCallback *error_context_stack;
  *		}
  *		PG_END_TRY();
  */
-#if defined(ADB) || defined(ADBMGRD)
+#if defined(ADB) || defined(ADBMGRD) || defined(ADB_MULTI_GRAM)
 #define PG_TRY_HOLD()														\
 	do {																	\
 		extern PGDLLIMPORT volatile uint32 InterruptHoldoffCount;			\

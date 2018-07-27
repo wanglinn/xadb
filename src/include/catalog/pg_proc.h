@@ -5514,26 +5514,6 @@ DESCR("larger of two");
 DATA(insert OID = 9111 (  rowid_smaller		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 336 "336 336" _null_ _null_ _null_ _null_ _null_ rowid_smaller _null_ _null_ _null_ ));
 DESCR("smaller of two");
 
-DATA(insert OID = 9112 ( pg_explain_infomask	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 25 "23" _null_ _null_ _null_ _null_ _null_ pg_explain_infomask _null_ _null_ _null_ ));
-DESCR("explain infomask of each heap tuple");
-
-DATA(insert OID = 9113 (  rxact_get_running PGNSP PGUID 12 5 20 0 0 f f f f t t v s 0 0 2249 "" "{25,26,18,16,1028,1000}" "{o,o,o,o,o,o}" "{gid,dbid,type,backend,nodes,status}" _null_ _null_ rxact_get_running _null_ _null_ _null_ ));
-DESCR("list RXACT running transactions");
-DATA(insert OID = 9114 ( rxact_wait_gid     PGNSP PGUID 12 1 0 0 0 f f f f t f v s 1 0 2278 "25" _null_ _null_ _null_ _null_ _null_ rxact_wait_gid _null_ _null_ _null_ ));
-DESCR("wait RXACT transaction finish");
-
-DATA(insert OID = 9115 ( pgxc_node_str		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 19 "" _null_ _null_ _null_ _null_ _null_ pgxc_node_str _null_ _null_ _null_ ));
-DESCR("get the name of the node");
-DATA(insert OID = 9116 ( adb_node_oid		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 26 "" _null_ _null_ _null_ _null_ _null_ adb_node_oid _null_ _null_ _null_ ));
-DESCR("get the object ID of the node");
-
-DATA(insert OID = 9118 ( pgxc_pool_reload	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_pool_reload _null_ _null_ _null_ ));
-DESCR("reload connection information in pooler and reload server sessions");
-DATA(insert OID = 9119 (  pgxc_is_committed	PGNSP PGUID 12 1 1 0 0 f f f f t t s s 1 0 16 "28" _null_ _null_ _null_ _null_ _null_ pgxc_is_committed _null_ _null_ _null_ ));
-DESCR("is given GXID committed or aborted?");
-DATA(insert OID = 9120 ( pgxc_lock_for_backup	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_lock_for_backup _null_ _null_ _null_ ));
-DESCR("lock the cluster for taking backup");
-
 DATA(insert OID = 9131 (  ora_date_out		ORANSP PGUID 12 1 0 0 0 f f f f t f s s 1 0 2275 "1114" _null_ _null_ _null_ _null_ _null_ ora_date_out _null_ _null_ _null_ ));
 DESCR("I/O");
 
@@ -5557,19 +5537,6 @@ DESCR("I/O");
 DATA(insert OID = 9139 (  nvarchar2			PGNSP PGUID 12 1 0 0 varchar_transform f f f f t f i s 3 0 4003 "4003 23 16" _null_ _null_ _null_ _null_ _null_ nvarchar2 _null_ _null_ _null_ ));
 DESCR("adjust nvarchar2() to typmod length");
 
-DATA(insert OID = 9140 ( pg_pause_cluster	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pg_pause_cluster _null_ _null_ _null_ ));
-DESCR("pause cluster");
-
-DATA(insert OID = 9141 ( pg_unpause_cluster	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pg_unpause_cluster _null_ _null_ _null_ ));
-DESCR("unpause cluster");
-
-DATA(insert OID = 9142 ( pg_alter_node		PGNSP PGUID 12 1 0 0 0 f f f f t f v s 5 0 16 "2275 2275 2275 23 16" _null_ _null_ _null_ _null_ _null_ pg_alter_node _null_ _null_ _null_ ));
-DESCR("alter node");
-
-DATA(insert OID = 9143 ( random				PGNSP PGUID 12 1 0 0 0 f f f f t f v r 1 0 23 "23" _null_ _null_ _null_ _null_ _null_ int4random_max _null_ _null_ _null_ ));
-DESCR("random int4 value [0,arg0)");
-DATA(insert OID = 9144 ( random				PGNSP PGUID 12 1 0 0 0 f f f f t f v r 2 0 23 "23 23" _null_ _null_ _null_ _null_ _null_ int4random_range _null_ _null_ _null_ ));
-DESCR("random int4 value [arg0,arg1)");
 /*
  * oracle schema builtin functions
  * Oid starts with 5300
@@ -5712,6 +5679,42 @@ DATA(insert OID = 5399 (  text_toint8			ORANSP PGUID 12 1 0 0 0 f f f f t f i s 
 DATA(insert OID = 5400 ( ora_date_pl_interval	ORANSP PGUID 12 1 0 0 0 f f f f t f s s 2 0 9009 "9009 1186" _null_ _null_ _null_ _null_ _null_ timestamptz_pl_interval _null_ _null_ _null_ ));
 DATA(insert OID = 5401 ( interval_pl_ora_date	ORANSP PGUID 14 1 0 0 0 f f f f t f s s 2 0 9009 "1186 9009" _null_ _null_ _null_ _null_ _null_	"select $2 + $1" _null_ _null_ _null_ ));
 DATA(insert OID = 5402 ( ora_date_mi_interval	ORANSP PGUID 12 1 0 0 0 f f f f t f s s 2 0 9009 "9009 1186" _null_ _null_ _null_ _null_ _null_ timestamptz_mi_interval _null_ _null_ _null_ ));
+#endif
+
+#ifdef ADB
+DATA(insert OID = 9140 ( pg_pause_cluster	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pg_pause_cluster _null_ _null_ _null_ ));
+DESCR("pause cluster");
+
+DATA(insert OID = 9141 ( pg_unpause_cluster	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pg_unpause_cluster _null_ _null_ _null_ ));
+DESCR("unpause cluster");
+
+DATA(insert OID = 9142 ( pg_alter_node		PGNSP PGUID 12 1 0 0 0 f f f f t f v s 5 0 16 "2275 2275 2275 23 16" _null_ _null_ _null_ _null_ _null_ pg_alter_node _null_ _null_ _null_ ));
+DESCR("alter node");
+
+DATA(insert OID = 9143 ( random				PGNSP PGUID 12 1 0 0 0 f f f f t f v r 1 0 23 "23" _null_ _null_ _null_ _null_ _null_ int4random_max _null_ _null_ _null_ ));
+DESCR("random int4 value [0,arg0)");
+DATA(insert OID = 9144 ( random				PGNSP PGUID 12 1 0 0 0 f f f f t f v r 2 0 23 "23 23" _null_ _null_ _null_ _null_ _null_ int4random_range _null_ _null_ _null_ ));
+DESCR("random int4 value [arg0,arg1)");
+
+DATA(insert OID = 9112 ( pg_explain_infomask	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 25 "23" _null_ _null_ _null_ _null_ _null_ pg_explain_infomask _null_ _null_ _null_ ));
+DESCR("explain infomask of each heap tuple");
+
+DATA(insert OID = 9113 (  rxact_get_running PGNSP PGUID 12 5 20 0 0 f f f f t t v s 0 0 2249 "" "{25,26,18,16,1028,1000}" "{o,o,o,o,o,o}" "{gid,dbid,type,backend,nodes,status}" _null_ _null_ rxact_get_running _null_ _null_ _null_ ));
+DESCR("list RXACT running transactions");
+DATA(insert OID = 9114 ( rxact_wait_gid     PGNSP PGUID 12 1 0 0 0 f f f f t f v s 1 0 2278 "25" _null_ _null_ _null_ _null_ _null_ rxact_wait_gid _null_ _null_ _null_ ));
+DESCR("wait RXACT transaction finish");
+
+DATA(insert OID = 9115 ( pgxc_node_str		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 19 "" _null_ _null_ _null_ _null_ _null_ pgxc_node_str _null_ _null_ _null_ ));
+DESCR("get the name of the node");
+DATA(insert OID = 9116 ( adb_node_oid		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 26 "" _null_ _null_ _null_ _null_ _null_ adb_node_oid _null_ _null_ _null_ ));
+DESCR("get the object ID of the node");
+
+DATA(insert OID = 9118 ( pgxc_pool_reload	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_pool_reload _null_ _null_ _null_ ));
+DESCR("reload connection information in pooler and reload server sessions");
+DATA(insert OID = 9119 (  pgxc_is_committed	PGNSP PGUID 12 1 1 0 0 f f f f t t s s 1 0 16 "28" _null_ _null_ _null_ _null_ _null_ pgxc_is_committed _null_ _null_ _null_ ));
+DESCR("is given GXID committed or aborted?");
+DATA(insert OID = 9120 ( pgxc_lock_for_backup	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_lock_for_backup _null_ _null_ _null_ ));
+DESCR("lock the cluster for taking backup");
 
 DATA(insert OID = 8890 (  pool_close_idle_conn		PGNSP PGUID 12 1 0 0 0 f f f f f f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pool_close_idle_conn _null_ _null_ _null_ ));
 DESCR("close pool connection in  idle_slot");
@@ -5728,7 +5731,7 @@ DESCR("show current nextXid");
 DATA(insert OID = 8894 ( sync_local_xid	 PGNSP PGUID 12 10 100 0 0 f f f f t t s s 0 0 2249 "" "{28,28}" "{o,o}" "{local,agtm}" _null_ _null_ sync_local_xid _null_ _null_ _null_ ));
 DESCR("synchronize the local next XID with AGTM");
 
-#endif /* ADB */
+#endif
 
 #if defined(ADB) || defined(AGTM)
 DATA(insert OID = 5403 (  pg_xact_status	PGNSP PGUID 12 1 1 0 0 f f f f t t s s 1 0 2275 "20" _null_ _null_ _null_ _null_ _null_ pg_xact_status _null_ _null_ _null_ ));

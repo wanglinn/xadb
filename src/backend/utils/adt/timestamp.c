@@ -249,7 +249,7 @@ timestamp_out(PG_FUNCTION_ARGS)
 	PG_RETURN_CSTRING(result);
 }
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 Datum
 ora_date_out(PG_FUNCTION_ARGS)
 {
