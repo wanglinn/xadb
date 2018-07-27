@@ -67,9 +67,13 @@
 #include "parser/parser.h"
 #include "utils/syscache.h"
 #endif
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 #include "access/xact.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_operator.h"
+#include "parser/parser.h"
+#include "utils/fmgroids.h"
+#include "utils/lsyscache.h"
 #endif
 
 #include "utils/rel.h"
@@ -121,6 +125,8 @@ static Query *transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt);
 static bool IsExecDirectUtilityStmt(Node *node);
 static bool is_relation_child(RangeTblEntry *child_rte, List *rtable);
 static bool is_rel_child_of_rel(RangeTblEntry *child_rte, RangeTblEntry *parent_rte);
+#endif /* ADB */
+#ifdef ADB_GRAM_ORA
 static Node* transformFromAndWhere(ParseState *pstate, Node *quals);
 static void check_joinon_column_join(Node *node, ParseState *pstate);
 static void rewrite_rownum_query(Query *query);
@@ -147,7 +153,7 @@ parse_analyze(RawStmt *parseTree, const char *sourceText,
 			  Oid *paramTypes, int numParams,
 			  QueryEnvironment *queryEnv)
 {
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 	return parse_analyze_for_gram(parseTree, sourceText
 						,paramTypes, numParams, queryEnv, PARSE_GRAM_POSTGRES);
 }
@@ -167,10 +173,10 @@ parse_analyze_for_gram(RawStmt *parseTree, const char *sourceText,
 	}
 	PG_TRY();
 	{
-#else
+#else /* ADB_MULTI_GRAM */
 	ParseState *pstate = make_parsestate(NULL);
 	Query	   *query;
-#endif
+#endif /* ADB_MULTI_GRAM */
 	Assert(sourceText != NULL); /* required as of 8.4 */
 
 	pstate->p_sourcetext = sourceText;
@@ -181,15 +187,15 @@ parse_analyze_for_gram(RawStmt *parseTree, const char *sourceText,
 	pstate->p_queryEnv = queryEnv;
 
 	query = transformTopLevelStmt(pstate, parseTree);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	check_joinon_column_join((Node*)(query->jointree), pstate);
 	rewrite_rownum_query_enum((Node*)query, NULL);
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 	if (post_parse_analyze_hook)
 		(*post_parse_analyze_hook) (pstate, query);
 
 	free_parsestate(pstate);
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 	}PG_CATCH();
 	{
 		if (push_search_path)
@@ -213,7 +219,7 @@ Query *
 parse_analyze_varparams(RawStmt *parseTree, const char *sourceText,
 						Oid **paramTypes, int *numParams)
 {
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 	return parse_analyze_varparams_for_gram(parseTree, sourceText
 		,paramTypes, numParams, PARSE_GRAM_POSTGRES);
 }
@@ -226,10 +232,10 @@ Query *parse_analyze_varparams_for_gram(RawStmt *parseTree, const char *sourceTe
 	PushOverrideSearchPathForGrammar(grammar);
 	PG_TRY();
 	{
-#else /* ADB_GRAM_ORA */
+#else /* ADB_MULTI_GRAM */
 	ParseState *pstate = make_parsestate(NULL);
 	Query	   *query;
-#endif /* ADB_GRAM_ORA */
+#endif /* ADB_MULTI_GRAM */
 	Assert(sourceText != NULL); /* required as of 8.4 */
 
 	pstate->p_sourcetext = sourceText;
@@ -245,14 +251,14 @@ Query *parse_analyze_varparams_for_gram(RawStmt *parseTree, const char *sourceTe
 		(*post_parse_analyze_hook) (pstate, query);
 
 	free_parsestate(pstate);
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 	}PG_CATCH();
 	{
 		PopOverrideSearchPath();
 		PG_RE_THROW();
 	}PG_END_TRY();
 	PopOverrideSearchPath();
-#endif /* ADB */
+#endif /* ADB_MULTI_GRAM */
 	return query;
 }
 
@@ -1403,13 +1409,13 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 
 	/* process the FROM clause */
 	transformFromClause(pstate, stmt->fromClause);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	/* transform WHERE */
 	qual = transformWhereClause(pstate, stmt->whereClause,
 								EXPR_KIND_WHERE, "WHERE");
 
 	qual = transformFromAndWhere(pstate, qual);
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 	/* transform targetlist */
 	qry->targetList = transformTargetList(pstate, stmt->targetList,
 										  EXPR_KIND_SELECT_TARGET);
@@ -1417,11 +1423,11 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	/* mark column origins */
 	markTargetListOrigins(pstate, qry->targetList);
 
-#ifndef ADB
+#ifndef ADB_GRAM_ORA
 	/* transform WHERE */
 	qual = transformWhereClause(pstate, stmt->whereClause,
 								EXPR_KIND_WHERE, "WHERE");
-#endif /* ndef ADB */
+#endif /* ndef ADB_GRAM_ORA */
 	/* initial processing of HAVING clause is much like WHERE clause */
 	qry->havingQual = transformWhereClause(pstate, stmt->havingClause,
 										   EXPR_KIND_HAVING, "HAVING");
@@ -3431,7 +3437,7 @@ test_raw_expression_coverage(Node *node, void *context)
 
 #endif							/* RAW_EXPRESSION_COVERAGE_TEST */
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 typedef struct JoinExprInfo
 {
 	Node		*expr;		/* join clause */
@@ -4363,7 +4369,9 @@ static Oid get_operator_for_function(Oid funcid)
 	heap_close(rel, AccessShareLock);
 	return opno;
 }
+#endif /* ADB_GRAM_ORA */
 
+#ifdef ADB
 static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, double rows, int paramid);
 static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List *main_vars, List *execNodes, double rows, int paramid, bool filter_nulls);
 static Expr* make_aux_delete_clause(Relation aux_rel, Index aux_relid, RangeTblEntry *pts_rte, Index pts_relid, bool filter_nulls);

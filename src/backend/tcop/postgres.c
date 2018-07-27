@@ -677,7 +677,7 @@ ProcessClientWriteInterrupt(bool blocked)
 
 	errno = save_errno;
 }
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_MULTI_GRAM
 List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram)
 {
 	static const struct
@@ -687,9 +687,11 @@ List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram)
 		ParseGrammar gram;
 	}token_gram[]={
 		 {"pg",2,PARSE_GRAM_POSTGRES}
+#ifdef ADB_GRAM_ORA
 		,{"postgres", 8, PARSE_GRAM_POSTGRES}
 		,{"oracle", 6, PARSE_GRAM_ORACLE}
 		,{"ora", 3, PARSE_GRAM_ORACLE}
+#endif
 	};
 	const char *str;
 	ParseGrammar grammer;
@@ -740,8 +742,10 @@ List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram)
 	{
 	case PARSE_GRAM_POSTGRES:
 		return pg_parse_query(query_string);
+#ifdef ADB_GRAM_ORA
 	case PARSE_GRAM_ORACLE:
 		return ora_parse_query(query_string);
+#endif
 	default:
 		ereport(ERROR, (errmsg("Unknown grammar %d", grammer)
 				, errcode(ERRCODE_INTERNAL_ERROR)
@@ -846,7 +850,7 @@ pg_analyze_and_rewrite(RawStmt *parsetree, const char *query_string,
 					   Oid *paramTypes, int numParams,
 					   QueryEnvironment *queryEnv)
 {
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 	return pg_analyze_and_rewrite_for_gram(parsetree, query_string
 		, paramTypes, numParams, queryEnv, PARSE_GRAM_POSTGRES);
 }
@@ -855,7 +859,7 @@ List *
 pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,
 					   Oid *paramTypes, int numParams, QueryEnvironment *queryEnv, ParseGrammar grammar)
 {
-#endif
+#endif /* ADB_MULTI_GRAM */
 	Query	   *query;
 	List	   *querytree_list;
 
@@ -867,7 +871,7 @@ pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,
 	if (log_parser_stats)
 		ResetUsage();
 
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 	query = parse_analyze_for_gram(parsetree, query_string, paramTypes, numParams, queryEnv, grammar);
 #else
 	query = parse_analyze(parsetree, query_string, paramTypes, numParams,
@@ -1491,7 +1495,7 @@ exec_simple_query(const char *query_string)
 		if (AdbHaSyncLogWalkerPortal(portal))
 		{
 			AddAdbHaSyncLog(portal->creation_time,
-							ADB_MULTI_GRAM_ARG_COMMA(portal->grammar),
+							ADB_MULTI_GRAM_ARG_COMMA(portal->grammar)
 							ADB_SQL_KIND_SIMPLE,
 							query_string,
 							portal->portalParams);

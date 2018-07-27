@@ -3289,7 +3289,7 @@ SetTempNamespaceState(Oid tempNamespaceId, Oid tempToastNamespaceId)
  */
 OverrideSearchPath *
 GetOverrideSearchPath(MemoryContext context)
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 {
 	return GetOverrideSearchPathExtend(context, true);
 }
@@ -3302,7 +3302,7 @@ GetOverrideSearchPathExtend(MemoryContext context, bool recompute)
 	List	   *schemas;
 	MemoryContext oldcxt;
 
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 	if (recompute)
 #endif
 	recomputeNamespacePath();
@@ -3317,10 +3317,13 @@ GetOverrideSearchPathExtend(MemoryContext context, bool recompute)
 			result->addTemp = true;
 		else
 		{
-#if defined(ADB_GRAM_ORA) && defined(USE_ASSERT_CHECKING)
+#if defined(ADB_MULTI_GRAM) && defined(USE_ASSERT_CHECKING)
 			Oid ns = linitial_oid(schemas);
 			Assert(ns == PG_CATALOG_NAMESPACE
-				|| ns == PG_ORACLE_NAMESPACE);
+#ifdef ADB_GRAM_ORA
+				|| ns == PG_ORACLE_NAMESPACE
+#endif
+				  );
 #else
 			Assert(linitial_oid(schemas) == PG_CATALOG_NAMESPACE);
 #endif
@@ -3469,7 +3472,7 @@ PushOverrideSearchPath(OverrideSearchPath *newpath)
 	MemoryContextSwitchTo(oldcxt);
 }
 
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 /*
  * PushOverrideSearchPathForGrammar - using grammar's search path
  * myTempNamespace > grammar-namespace > catalog-namespace > other

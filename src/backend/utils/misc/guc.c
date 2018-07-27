@@ -460,7 +460,7 @@ static const struct config_enum_entry adb_aux_types[] = {
 };
 #endif /* ADB */
 
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 static const struct config_enum_entry parse_grammer_options[] = {
 	{"postgres", PARSE_GRAM_POSTGRES, false},
 	{"oracle", PARSE_GRAM_ORACLE, false},
@@ -4613,6 +4613,18 @@ static struct config_enum ConfigureNamesEnum[] =
 		NULL, NULL, NULL
 	},
 #endif /* ADB */
+
+#ifdef ADB_MULTI_GRAM
+	{
+		{"grammar", PGC_USERSET, UNGROUPED,
+			gettext_noop("Set SQL grammar"),
+			NULL
+		},
+		&parse_grammar,
+		PARSE_GRAM_POSTGRES, parse_grammer_options,
+		NULL, NULL, NULL
+	},
+#endif /* ADB_MULTI_GRAM */
 
 #ifdef ADBMGRD
 	{

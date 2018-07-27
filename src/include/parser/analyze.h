@@ -26,7 +26,7 @@ extern Query *parse_analyze(RawStmt *parseTree, const char *sourceText,
 			  Oid *paramTypes, int numParams, QueryEnvironment *queryEnv);
 extern Query *parse_analyze_varparams(RawStmt *parseTree, const char *sourceText,
 						Oid **paramTypes, int *numParams);
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 extern Query *parse_analyze_for_gram(RawStmt *parseTree, const char *sourceText,
 									 Oid *paramTypes, int numParams, QueryEnvironment *queryEnv, ParseGrammar grammar);
 extern Query *parse_analyze_varparams_for_gram(RawStmt *parseTree, const char *sourceText,

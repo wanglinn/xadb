@@ -108,9 +108,12 @@ static bool contain_volatile_functions_walker(Node *node, void *context);
 static bool contain_volatile_functions_not_nextval_walker(Node *node, void *context);
 static bool max_parallel_hazard_walker(Node *node,
 						   max_parallel_hazard_context *context);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 static bool contain_rownum_walker(Node *node, void *context);
 static bool contain_volatile_functions_walker_without_check_RownumExpr(Node *node, void *context);
+#endif /* ADB_GRAM_ORA */
+
+#ifdef ADB
 typedef struct has_cluster_hazard_arg
 {
 	bool allow_restricted;
@@ -868,7 +871,7 @@ contain_subplans_walker(Node *node, void *context)
 	return expression_tree_walker(node, contain_subplans_walker, context);
 }
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 bool contain_rownum(Node *clause)
 {
 	return contain_rownum_walker(clause, NULL);
@@ -882,7 +885,7 @@ static bool contain_rownum_walker(Node *node, void *context)
 		return true;
 	return expression_tree_walker(node, contain_rownum_walker, context);
 }
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 
 /*****************************************************************************
  *		Check clauses for mutable functions
@@ -1078,7 +1081,7 @@ contain_volatile_functions_not_nextval_walker(Node *node, void *context)
 								  context);
 }
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 bool
 contain_volatile_functions_without_check_RownumExpr(Node *clause)
 {
@@ -1191,7 +1194,9 @@ contain_volatile_functions_walker_without_check_RownumExpr(Node *node, void *con
 	return expression_tree_walker(node, contain_volatile_functions_walker_without_check_RownumExpr,
 								  context);
 }
+#endif /* ADB_GRAM_ORA */
 
+#ifdef ADB
 static bool
 has_cluster_hazard_checker(Oid func_id, void *context)
 {

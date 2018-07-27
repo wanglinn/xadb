@@ -60,11 +60,11 @@ extern List *pg_analyze_and_rewrite(RawStmt *parsetree,
 					   QueryEnvironment *queryEnv);
 #ifdef ADB_GRAM_ORA
 extern List *ora_parse_query(const char *query_string);
-extern List *pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,
-						Oid *paramTypes, int numParams, QueryEnvironment *queryEnv, ParseGrammar grammar);
 #endif
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_MULTI_GRAM
+extern List *pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,
+						Oid *paramTypes, int numParams, QueryEnvironment *queryEnv, ParseGrammar grammar);
 extern List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram);
 #endif
 

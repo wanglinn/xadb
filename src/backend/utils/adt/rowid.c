@@ -183,7 +183,7 @@ Datum rowid_larger(PG_FUNCTION_ARGS)
 	memcpy(result, rowid_compare(l, r) > 0 ? l:r, sizeof(OraRowID));
 	PG_RETURN_POINTER(result);
 #else
-	return tidlarger(fcinf);
+	return tidlarger(fcinfo);
 #endif
 }
 

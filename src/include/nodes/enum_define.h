@@ -518,6 +518,22 @@ BEGIN_ENUM(NodeTag)
 END_ENUM(NodeTag)
 #endif /* NO_ENUM_NodeTag */
 
+#ifndef NO_ENUM_SetFunctionReturnMode
+BEGIN_ENUM(SetFunctionReturnMode)
+	ENUM_VALUE(SFRM_ValuePerCall)
+	ENUM_VALUE(SFRM_Materialize)
+	ENUM_VALUE(SFRM_Materialize_Random)
+	ENUM_VALUE(SFRM_Materialize_Preferred)
+END_ENUM(SetFunctionReturnMode)
+#endif /* NO_ENUM_SetFunctionReturnMode */
+
+#ifndef NO_ENUM_DomainConstraintType
+BEGIN_ENUM(DomainConstraintType)
+	ENUM_VALUE(DOM_CONSTRAINT_NOTNULL)
+	ENUM_VALUE(DOM_CONSTRAINT_CHECK)
+END_ENUM(DomainConstraintType)
+#endif /* NO_ENUM_DomainConstraintType */
+
 #ifndef NO_ENUM_JoinType
 BEGIN_ENUM(JoinType)
 	ENUM_VALUE(JOIN_INNER)
@@ -760,7 +776,7 @@ BEGIN_ENUM(SortByNulls)
 END_ENUM(SortByNulls)
 #endif /* NO_ENUM_SortByNulls */
 
-#if defined(ADB)
+#if defined(ADB_MULTI_GRAM)
 #ifndef NO_ENUM_ParseGrammar
 BEGIN_ENUM(ParseGrammar)
 	ENUM_VALUE(PARSE_GRAM_POSTGRES)
@@ -1251,22 +1267,6 @@ BEGIN_ENUM(ExprDoneCond)
 	ENUM_VALUE(ExprEndResult)
 END_ENUM(ExprDoneCond)
 #endif /* NO_ENUM_ExprDoneCond */
-
-#ifndef NO_ENUM_SetFunctionReturnMode
-BEGIN_ENUM(SetFunctionReturnMode)
-	ENUM_VALUE(SFRM_ValuePerCall)
-	ENUM_VALUE(SFRM_Materialize)
-	ENUM_VALUE(SFRM_Materialize_Random)
-	ENUM_VALUE(SFRM_Materialize_Preferred)
-END_ENUM(SetFunctionReturnMode)
-#endif /* NO_ENUM_SetFunctionReturnMode */
-
-#ifndef NO_ENUM_DomainConstraintType
-BEGIN_ENUM(DomainConstraintType)
-	ENUM_VALUE(DOM_CONSTRAINT_NOTNULL)
-	ENUM_VALUE(DOM_CONSTRAINT_CHECK)
-END_ENUM(DomainConstraintType)
-#endif /* NO_ENUM_DomainConstraintType */
 
 #ifndef NO_ENUM_SharedBitmapState
 BEGIN_ENUM(SharedBitmapState)
