@@ -221,21 +221,36 @@ static FormData_pg_attribute a8 = {
 	true, 'p', 'i', true, false, false, true, 0
 };
 
-static FormData_pg_attribute a9 = {
-	0, {"rowid"}, RIDOID, 0, 10,
-	ADB_RowIdAttributeNumber, 0, -1, -1,
-	false, 'p', 'i', true, false, false, true, 0
-};
+	#ifdef ADB_GRAM_ORA
+		static FormData_pg_attribute a9 = {
+			0, {"rowid"}, RIDOID, 0, RID_DATA_SIZE,
+			ADB_RowIdAttributeNumber, 0, -1, -1,
+			false, 'p', 'i', true, false, false, true, 0
+		};
 
-static FormData_pg_attribute a10 = {
-	0, {"infomask"}, INT2OID, 0, sizeof(int16),
-	ADB_InfoMaskAttributeNumber, 0, -1, -1,
-	true, 'p', 'i', true, false, false, true, 0
-};
-
-static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7, &a8, &a9, &a10};
-#else
-static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7};
+		static FormData_pg_attribute a10 = {
+			0, {"infomask"}, INT2OID, 0, sizeof(int16),
+			ADB_InfoMaskAttributeNumber, 0, -1, -1,
+			true, 'p', 'i', true, false, false, true, 0
+		};
+		static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7, &a8, &a9, &a10};
+	#else /* else ADB_GRAM_ORA */
+		static FormData_pg_attribute a9 = {
+			0, {"infomask"}, INT2OID, 0, sizeof(int16),
+			ADB_InfoMaskAttributeNumber, 0, -1, -1,
+			true, 'p', 'i', true, false, false, true, 0
+		};
+		static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7, &a8, &a9};
+	#endif /* ADB_GRAM_ORA */
+#elif defined(ADB_GRAM_ORA) /* else ADB */
+	static FormData_pg_attribute a8 = {
+		0, {"rowid"}, RIDOID, 0, RID_DATA_SIZE,
+		ADB_RowIdAttributeNumber, 0, -1, -1,
+		false, 'p', 'i', true, false, false, true, 0
+	};
+	static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7, &a8};
+#else	/* else ADB, else ADB_GRAM_ORA */
+	static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7};
 #endif
 
 /*
@@ -246,6 +261,9 @@ static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7};
 Form_pg_attribute
 SystemAttributeDefinition(AttrNumber attno, bool relhasoids)
 {
+	StaticAssertStmt(lengthof(SysAtt) == (-FirstLowInvalidHeapAttributeNumber)-1,
+					"error sizeof SysAtt");
+
 	if (attno >= 0 || attno < -(int) lengthof(SysAtt))
 		elog(ERROR, "invalid system attribute number %d", attno);
 	if (attno == ObjectIdAttributeNumber && !relhasoids)

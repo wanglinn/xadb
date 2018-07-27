@@ -1334,7 +1334,7 @@ BEGIN_NODE(NextValueExpr)
 END_NODE(NextValueExpr)
 #endif /* NO_NODE_NextValueExpr */
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 
 #ifndef NO_NODE_RownumExpr
 BEGIN_NODE(RownumExpr)
@@ -3286,7 +3286,7 @@ BEGIN_NODE(ColumnRef)
 END_NODE(ColumnRef)
 #endif /* NO_NODE_ColumnRef */
 
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 
 #ifndef NO_NODE_ColumnRefJoin
 BEGIN_NODE(ColumnRefJoin)

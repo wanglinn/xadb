@@ -40,15 +40,15 @@
 #include "utils/xml.h"
 
 #ifdef ADB
-#include "access/sysattr.h"
-#include "optimizer/clauses.h"
-#include "parser/parser.h"
 #include "tcop/tcopprot.h"
-#include "utils/fmgroids.h"
 #endif
 
 #if defined(ADB_GRAM_ORA)
+#include "access/sysattr.h"
+#include "optimizer/clauses.h"
 #include "oraschema/oracoerce.h"
+#include "parser/parser.h"
+#include "utils/fmgroids.h"
 #endif
 
 /* GUC parameters */
@@ -1118,7 +1118,7 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 								  a->location);
 	}
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	if (pstate->p_expr_kind == EXPR_KIND_WHERE &&
 		result && IsA(result, OpExpr) &&
 		((OpExpr*)result)->opfuncid == F_ROWID_EQ)
@@ -1131,40 +1131,57 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 			 IsA(lexpr, Const) /*&& ((Const*)lexpr)->consttype == RIDOID*/))
 		{
 			/* rowid=const OR const=rowid */
-			List *args;
+			Expr *expr;
+#ifdef ADB
 			uint32 xc_node_id;
+#endif /* ADB */
 			Index varno;
 			Index level;
 			ItemPointer ctid = palloc(sizeof(ItemPointerData));
 			if(IsA(lexpr, Const))
 			{
+#ifdef ADB
 				xc_node_id = rowid_get_data(((Const*)lexpr)->constvalue, ctid);
+#else
+				rowid_get_data(((Const*)lexpr)->constvalue, ctid);
+#endif /* ADB */
 				varno = ((Var*)rexpr)->varno;
 				level = ((Var*)rexpr)->varlevelsup;
 			}else
 			{
+#ifdef ADB
 				xc_node_id = rowid_get_data(((Const*)rexpr)->constvalue, ctid);
+#else
+				rowid_get_data(((Const*)rexpr)->constvalue, ctid);
+#endif /* ADB */
 				varno = ((Var*)lexpr)->varno;
 				level = ((Var*)lexpr)->varlevelsup;
 			}
 
-			/* make xc_node_id=const AND ctid=const */
-			args = list_make2(make_op(pstate,
-									  SystemFuncName((char*)"="),
-									  (Node*)makeVar(varno, XC_NodeIdAttributeNumber, INT4OID, -1, InvalidOid, level),
-									  (Node*)makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(xc_node_id), false, true),
-									  pstate->p_last_srf,
-									  -1),
-							  make_op(pstate,
-									  SystemFuncName((char*)"="),
-									  (Node*)makeVar(varno, SelfItemPointerAttributeNumber, TIDOID, -1, InvalidOid, level),
-									  (Node*)makeConst(TIDOID, -1, InvalidOid, sizeof(*ctid), PointerGetDatum(ctid), false, false),
-									  pstate->p_last_srf,
-									  -1));
-			result = (Node*) makeBoolExpr(AND_EXPR, args, -1);
+			/* ctid=const */
+			expr = make_op(pstate,
+						   SystemFuncName((char*)"="),
+						   (Node*)makeVar(varno, SelfItemPointerAttributeNumber, TIDOID, -1, InvalidOid, level),
+						   (Node*)makeConst(TIDOID, -1, InvalidOid, sizeof(*ctid), PointerGetDatum(ctid), false, false),
+						   pstate->p_last_srf,
+						   ((OpExpr*)result)->location);
+#ifdef ADB
+			/* and xc_node_id=const */
+			result = (Node*)makeBoolExpr(AND_EXPR,
+										 list_make2(make_op(pstate,
+															SystemFuncName((char*)"="),
+															(Node*)makeVar(varno, XC_NodeIdAttributeNumber, INT4OID, -1, InvalidOid, level),
+															(Node*)makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(xc_node_id), false, true),
+															pstate->p_last_srf,
+															((OpExpr*)result)->location),
+													expr),
+										 ((OpExpr*)result)->location);
+#else
+			result = (Node*)expr;
+#endif /* ADB */
 		}
 	}
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 
 	return result;
 }

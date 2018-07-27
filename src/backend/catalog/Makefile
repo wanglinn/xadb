@@ -27,6 +27,8 @@ include $(top_srcdir)/src/backend/common.mk
 
 all: $(BKIFILES) schemapg.h
 
+MYCPPFLAGS = -DBUILD_BKI -DCATALOG_VARLEN
+
 # Note: there are some undocumented dependencies on the ordering in which
 # the catalog header files are assembled into postgres.bki.  In particular,
 # indexing.h had better be last, and toasting.h just before it.
@@ -54,12 +56,15 @@ POSTGRES_BKI_SRCS = \
 	adb_ha_sync_log.h
 ifeq ($(enable_cluster),yes)
   POSTGRES_BKI_SRCS += adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h
+  MYCPPFLAGS += -DADB
 endif
-
+ifeq ($(enable_grammar_oracle),yes)
+  MYCPPFLAGS += -DADB_GRAM_ORA
+endif
 
 $(POSTGRES_BKI_SRCS): % : $(top_srcdir)/src/include/catalog/%
 	rm -f $@.c && $(LN_S) $< $@.c
-	$(CPP) -I$(top_srcdir)/src/include -DBUILD_BKI -DCATALOG_VARLEN -DADB -o $@ $@.c
+	$(CPP) -I$(top_srcdir)/src/include $(MYCPPFLAGS) -o $@ $@.c
 	rm -f $@.c
 
 # location of Catalog.pm

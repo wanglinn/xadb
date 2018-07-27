@@ -26,12 +26,20 @@
 #define MaxCommandIdAttributeNumber				(-6)
 #define TableOidAttributeNumber					(-7)
 #ifdef ADB
-#define XC_NodeIdAttributeNumber				(-8)
-#define ADB_RowIdAttributeNumber				(-9)
-#define ADB_InfoMaskAttributeNumber				(-10)
-#define FirstLowInvalidHeapAttributeNumber		(-11)
-#else
-#define FirstLowInvalidHeapAttributeNumber		(-8)
+	#define XC_NodeIdAttributeNumber				(-8)
+	#ifdef ADB_GRAM_ORA
+		#define ADB_RowIdAttributeNumber			(-9)
+		#define ADB_InfoMaskAttributeNumber			(-10)
+		#define FirstLowInvalidHeapAttributeNumber	(-11)
+	#else /* ADB_GRAM_ORA */
+		#define ADB_InfoMaskAttributeNumber			(-9)
+		#define FirstLowInvalidHeapAttributeNumber	(-10)
+	#endif /* ADB_GRAM_ORA */
+#elif defined(ADB_GRAM_ORA) /* else adb */
+	#define ADB_RowIdAttributeNumber				(-8)
+	#define FirstLowInvalidHeapAttributeNumber		(-9)
+#else /* else ADB, else ADB_GRAM_ORA */
+	#define FirstLowInvalidHeapAttributeNumber		(-8)
 #endif
 
 #endif							/* SYSATTR_H */

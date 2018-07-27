@@ -162,10 +162,13 @@ typedef ItemPointerData *ItemPointer;
 extern bool ItemPointerEquals(ItemPointer pointer1, ItemPointer pointer2);
 extern int32 ItemPointerCompare(ItemPointer arg1, ItemPointer arg2);
 
-#ifdef ADB
+#if defined(ADB) && defined(ADB_GRAM_ORA)
 /* in rowid.c */
 extern Datum rowid_make(uint32 node_id, ItemPointer const tid);
 extern uint32 rowid_get_data(Datum arg, ItemPointer tid);
+#elif defined(ADB_GRAM_ORA)
+extern Datum rowid_make(ItemPointer const tid);
+extern void rowid_get_data(Datum arg, ItemPointer tid);
 #endif /* ADB */
 
 #endif							/* ITEMPTR_H */

@@ -24,10 +24,16 @@ $(SUBDIRS:%=%-recursive): fmgroids.h fmgrprotos.h
 fmgrprotos.h: fmgroids.h ;
 fmgroids.h: fmgrtab.c ;
 
+ifeq ($(enable_cluster),yes)
+  MYCFLAGS += -DADB
+endif
+ifeq ($(enable_grammar_oracle),yes)
+  MYCFLAGS += -DADB_GRAM_ORA
+endif
 fmgrtab.c: Gen_fmgrtab.pl $(catalogdir)/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.h
 	rm -f pg_proc.h.c
 	$(LN_S) $(top_srcdir)/src/include/catalog/pg_proc.h pg_proc.h.c
-	$(CPP) -DBUILD_FMGRTAB -DCATALOG_VARLEN -DADB "-DDECLARE_NATTS(n)=_##n n" -o pg_proc.h pg_proc.h.c
+	$(CPP) -DBUILD_FMGRTAB -DCATALOG_VARLEN "-DDECLARE_NATTS(n)=_##n n" $(MYCFLAGS) -o pg_proc.h pg_proc.h.c
 	$(PERL) -I $(catalogdir) $< pg_proc.h
 	rm -f pg_proc.h
 

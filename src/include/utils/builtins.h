@@ -32,7 +32,7 @@ extern int	errdomainconstraint(Oid datatypeOid, const char *conname);
 /* encode.c */
 extern unsigned hex_encode(const char *src, unsigned len, char *dst);
 extern unsigned hex_decode(const char *src, unsigned len, char *dst);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 extern unsigned b64_encode(const char *src, unsigned len, char *dst);
 extern unsigned b64_decode(const char *src, unsigned len, char *dst);
 #endif

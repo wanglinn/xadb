@@ -199,7 +199,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_SetToDefault)
 	ENUM_VALUE(T_CurrentOfExpr)
 	ENUM_VALUE(T_NextValueExpr)
-#ifdefined(ADB)||defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 	ENUM_VALUE(T_RownumExpr)
 	ENUM_VALUE(T_LevelExpr)
 #endif
@@ -421,7 +421,7 @@ BEGIN_ENUM(NodeTag)
 #endif
 	ENUM_VALUE(T_A_Expr)
 	ENUM_VALUE(T_ColumnRef)
-#ifdefined(ADB)||defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 	ENUM_VALUE(T_ColumnRefJoin)
 	ENUM_VALUE(T_PriorExpr)
 #endif

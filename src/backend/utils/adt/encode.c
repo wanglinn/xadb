@@ -214,7 +214,7 @@ static const int8 b64lookup[128] = {
 	41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1,
 };
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 unsigned
 #else
 static unsigned
@@ -265,7 +265,7 @@ b64_encode(const char *src, unsigned len, char *dst)
 	return p - dst;
 }
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 unsigned
 #else
 static unsigned

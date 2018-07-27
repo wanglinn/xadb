@@ -30,7 +30,7 @@
 #undef NO_STRUCT_ReduceInfo
 
 static void *pmemdup(const void *src, Size size);
-static List *mutator_struct_list(List *list, Size size, void*(*fun)(), Node*(*mutator)(), void *context)
+pg_attribute_unused() static List *mutator_struct_list(List *list, Size size, void*(*fun)(), Node*(*mutator)(), void *context)
 {
 	ListCell *lc;
 	List *newList = NIL;

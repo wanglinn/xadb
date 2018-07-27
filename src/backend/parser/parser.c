@@ -35,6 +35,7 @@
 #endif /* ADB */
 
 #ifdef ADB_GRAM_ORA
+#include "catalog/heap.h"
 #include "lib/stringinfo.h"
 #include "miscadmin.h"
 #include "parser/ora_gramparse.h"
