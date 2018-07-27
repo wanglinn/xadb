@@ -1273,6 +1273,8 @@ exec_simple_query(const char *query_string)
 	{
 		parsetree_list = pg_parse_query(query_string);
 	}
+#elif defined(ADB_MULTI_GRAM)
+	parsetree_list = parse_query_auto_gram(query_string, &grammar);
 #else
 	parsetree_list = pg_parse_query(query_string);
 #endif

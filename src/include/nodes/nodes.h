@@ -249,9 +249,6 @@ typedef enum NodeTag
 	T_SubPlanState,
 	T_AlternativeSubPlanState,
 	T_DomainConstraintState,
-#ifdef ADB
-	T_RownumExprState,
-#endif
 
 	/*
 	 * TAGS FOR PLANNER NODES (relation.h)

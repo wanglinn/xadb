@@ -256,8 +256,10 @@ ExecProcNode(PlanState *node)
 	if (node->chgParam != NULL) /* something changed? */
 		ExecReScan(node);		/* let ReScan handle this */
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	++(node->rownum);
+#endif
+#ifdef ADB
 	{
 		TupleTableSlot *result = node->ExecProcNode(node);
 		if (TupIsNull(result) ||
@@ -265,8 +267,9 @@ ExecProcNode(PlanState *node)
 			TopDownDriveClusterReduce(node);
 		return result;
 	}
-#endif /* ADB */
+#else
 	return node->ExecProcNode(node);
+#endif
 }
 #endif
 

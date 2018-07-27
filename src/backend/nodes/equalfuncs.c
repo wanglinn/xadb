@@ -760,7 +760,7 @@ _equalInferenceElem(const InferenceElem *a, const InferenceElem *b)
 	return true;
 }
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 static bool _equalColumRefJoin(const ColumnRefJoin *a, const ColumnRefJoin *b)
 {
 	COMPARE_SCALAR_FIELD(var);
@@ -785,7 +785,7 @@ static bool _equalLevelExpr(const LevelExpr *a, const LevelExpr *b)
 	return true;
 }
 
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 
 static bool
 _equalTargetEntry(const TargetEntry *a, const TargetEntry *b)
@@ -3310,7 +3310,7 @@ equal(const void *a, const void *b)
 		case T_InferenceElem:
 			retval = _equalInferenceElem(a, b);
 			break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_ColumnRefJoin:
 			retval = _equalColumRefJoin(a, b);
 			break;
@@ -3323,7 +3323,7 @@ equal(const void *a, const void *b)
 		case T_LevelExpr:
 			retval = _equalLevelExpr(a, b);
 			break;
-#endif /* ABD */
+#endif /* ADB_GRAM_ORA */
 		case T_TargetEntry:
 			retval = _equalTargetEntry(a, b);
 			break;

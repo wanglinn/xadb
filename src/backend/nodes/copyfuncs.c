@@ -2091,7 +2091,7 @@ _copyInferenceElem(const InferenceElem *from)
 	return newnode;
 }
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 
 static LevelExpr* _copyLevelExpr(const LevelExpr *from)
 {
@@ -2112,7 +2112,7 @@ static PriorExpr* _copyPriorExpr(const PriorExpr *from)
 	return newnode;
 }
 
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 
 /*
  * _copyTargetEntry
@@ -2594,7 +2594,7 @@ _copyColumnRef(const ColumnRef *from)
 	return newnode;
 }
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 static RownumExpr* _copyRownumExpr(const RownumExpr *from)
 {
 	RownumExpr *newnode = makeNode(RownumExpr);
@@ -2614,7 +2614,7 @@ _copyColumnRefJoin(const ColumnRefJoin *from)
 
 	return newnode;
 }
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 
 static ParamRef *
 _copyParamRef(const ParamRef *from)
@@ -5939,7 +5939,7 @@ copyObjectImpl(const void *from)
 		case T_ForeignKeyCacheInfo:
 			retval = _copyForeignKeyCacheInfo(from);
 			break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			retval = _copyRownumExpr(from);
 			break;
@@ -5952,6 +5952,8 @@ copyObjectImpl(const void *from)
 		case T_PriorExpr:
 			retval = _copyPriorExpr(from);
 			break;
+#endif /* ADB_GRAM_ORA */
+#ifdef ADB
 		case T_ExecDirectStmt:
 			retval = _copyExecDirectStmt(from);
 			break;

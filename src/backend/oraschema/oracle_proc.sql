@@ -16,7 +16,7 @@ CREATE OR REPLACE FUNCTION oracle.bitand(bigint, bigint)
     AS $$select $1 & $2;$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -28,7 +28,7 @@ CREATE OR REPLACE FUNCTION oracle.nanvl(float8, float8)
     AS $$SELECT CASE WHEN $1 = 'NaN' THEN $2 ELSE $1 END;$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     STRICT;
 
 /*
@@ -41,7 +41,7 @@ CREATE OR REPLACE FUNCTION oracle.sinh(numeric)
     AS $$SELECT (exp($1) - exp(-$1)) / 2;$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -54,7 +54,7 @@ CREATE OR REPLACE FUNCTION oracle.sinh(float8)
     AS $$SELECT (exp($1) - exp(-$1)) / 2;$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -67,7 +67,7 @@ CREATE OR REPLACE FUNCTION oracle.cosh(numeric)
     AS $$SELECT (exp($1) + exp(-$1)) / 2;$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -80,7 +80,7 @@ CREATE OR REPLACE FUNCTION oracle.cosh(float8)
     AS $$SELECT (exp($1) + exp(-$1)) / 2;$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -93,7 +93,7 @@ CREATE OR REPLACE FUNCTION oracle.tanh(numeric)
     AS $$SELECT (exp($1) - exp(-$1)) / (exp($1) + exp(-$1));$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -106,7 +106,7 @@ CREATE OR REPLACE FUNCTION oracle.tanh(float8)
     AS $$SELECT (exp($1) - exp(-$1)) / (exp($1) + exp(-$1));$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -116,7 +116,7 @@ CREATE OR REPLACE FUNCTION oracle.instr(str text, patt text, start int default 1
     RETURNS int
     AS 'orastr_instr4'
     LANGUAGE INTERNAL
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     IMMUTABLE STRICT;
 
 /*
@@ -127,7 +127,7 @@ CREATE FUNCTION oracle.add_months(TIMESTAMP WITH TIME ZONE, INTEGER)
      AS $$SELECT oracle.add_months($1::pg_catalog.date, $2) + $1::pg_catalog.time;$$
      LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -138,7 +138,7 @@ CREATE OR REPLACE FUNCTION oracle.last_day(TIMESTAMP WITH TIME ZONE)
     AS $$SELECT (oracle.last_day($1::pg_catalog.date) + $1::time)::oracle.date;$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -149,7 +149,7 @@ CREATE FUNCTION oracle.months_between(TIMESTAMP WITH TIME ZONE, TIMESTAMP WITH T
     AS $$SELECT oracle.months_between($1::pg_catalog.date, $2::pg_catalog.date);$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -188,14 +188,14 @@ CREATE OR REPLACE FUNCTION oracle.next_day(oracle.date, text)
     AS $$SELECT (oracle.ora_next_day($1::pg_catalog.date, $2) + $1::time)::oracle.date;$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.next_day(timestamptz, text)
     RETURNS oracle.date
     AS $$SELECT (oracle.ora_next_day($1::pg_catalog.date, $2) + $1::time)::oracle.date;$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -206,7 +206,7 @@ CREATE OR REPLACE FUNCTION oracle.round(pg_catalog.date, text default 'DDD')
     AS 'ora_date_round'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 CREATE OR REPLACE FUNCTION oracle.round(timestamptz, text default 'DDD')
@@ -214,7 +214,7 @@ CREATE OR REPLACE FUNCTION oracle.round(timestamptz, text default 'DDD')
     AS $$select oracle.ora_timestamptz_round($1, $2)::oracle.date;$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -229,7 +229,7 @@ CREATE OR REPLACE FUNCTION oracle.trunc(pg_catalog.date, text default 'DDD')
     AS 'ora_date_trunc'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 CREATE OR REPLACE FUNCTION oracle.trunc(oracle.date, text default 'DDD')
@@ -237,7 +237,7 @@ CREATE OR REPLACE FUNCTION oracle.trunc(oracle.date, text default 'DDD')
     AS 'ora_timestamptz_trunc'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 CREATE OR REPLACE FUNCTION oracle.trunc(timestamptz, text default 'DDD')
@@ -245,7 +245,7 @@ CREATE OR REPLACE FUNCTION oracle.trunc(timestamptz, text default 'DDD')
     AS $$select oracle.ora_timestamptz_trunc($1, $2)::oracle.date;$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -257,7 +257,7 @@ CREATE OR REPLACE FUNCTION oracle.first(str text)
     AS 'orachr_first'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     STRICT;
 
 /*
@@ -269,7 +269,7 @@ CREATE OR REPLACE FUNCTION oracle.last(str text)
     AS 'orachr_last'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     STRICT;
 
 /*
@@ -279,28 +279,28 @@ CREATE OR REPLACE FUNCTION oracle.date_pl_numeric(oracle.date,numeric)
     RETURNS oracle.date
     AS $$SELECT ($1 + interval '1 day' * $2)::oracle.date;$$
     LANGUAGE SQL
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 CREATE OR REPLACE FUNCTION oracle.numeric_pl_date(numeric, oracle.date)
     RETURNS oracle.date
     AS $$SELECT ($2 + interval '1 day' * $1)::oracle.date;$$
     LANGUAGE SQL
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 CREATE OR REPLACE FUNCTION oracle.subtract (oracle.date, numeric)
     RETURNS oracle.date
     AS $$SELECT ($1 - interval '1 day' * $2)::oracle.date;$$
     LANGUAGE SQL
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 CREATE OR REPLACE FUNCTION oracle.subtract(oracle.date, oracle.date)
     RETURNS double precision
     AS $$SELECT date_part('epoch', ($1 - $2)/3600/24);$$
     LANGUAGE SQL
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -313,14 +313,14 @@ CREATE OR REPLACE FUNCTION oracle.to_date(text)
     AS 'text_todate'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_date(text, text)
     RETURNS oracle.date
     AS 'text_todate'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -333,14 +333,14 @@ CREATE OR REPLACE FUNCTION oracle.to_timestamp(text)
     AS 'text_totimestamp'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_timestamp(text, text)
     RETURNS timestamp
     AS 'text_totimestamp'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -353,14 +353,14 @@ CREATE OR REPLACE FUNCTION oracle.to_timestamp_tz(text)
     AS 'text_totimestamptz'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_timestamp_tz(text, text)
     RETURNS timestamptz
     AS 'text_totimestamptz'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -390,133 +390,133 @@ CREATE OR REPLACE FUNCTION oracle.to_char(smallint)
     AS 'int4_tochar'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_char(smallint, text)
     RETURNS text
     AS 'int4_tochar'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_char(int)
     RETURNS text
     AS 'int4_tochar'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_char(int, text)
     RETURNS text
     AS 'int4_tochar'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_char(bigint)
     RETURNS text
     AS 'int8_tochar'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_char(bigint, text)
     RETURNS text
     AS 'int8_tochar'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_char(real)
     RETURNS text
     AS 'float4_tochar'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_char(real, text)
     RETURNS text
     AS 'float4_tochar'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_char(double precision)
     RETURNS text
     AS 'float8_tochar'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_char(double precision, text)
     RETURNS text
     AS 'float8_tochar'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_char(numeric)
     RETURNS text
     AS 'numeric_tochar'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_char(numeric, text)
     RETURNS text
     AS 'numeric_tochar'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE FUNCTION oracle.to_char(text)
     RETURNS TEXT
     AS 'text_tochar'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE FUNCTION oracle.to_char(timestamp)
     RETURNS TEXT
     AS 'timestamp_tochar'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE FUNCTION oracle.to_char(timestamp, text)
     RETURNS TEXT
     AS 'timestamp_tochar'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE FUNCTION oracle.to_char(timestamptz)
     RETURNS TEXT
     AS 'timestamptz_tochar'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE FUNCTION oracle.to_char(timestamptz, text)
     RETURNS TEXT
     AS 'timestamptz_tochar'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE FUNCTION oracle.to_char(interval)
     RETURNS TEXT
     AS 'interval_tochar'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE FUNCTION oracle.to_char(interval, text)
     RETURNS TEXT
     AS 'interval_tochar'
     LANGUAGE INTERNAL
     STABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -535,56 +535,56 @@ CREATE OR REPLACE FUNCTION oracle.to_number(text)
     AS 'text_tonumber'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_number(text, text)
     RETURNS numeric
     AS 'text_tonumber'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_number(float4)
     RETURNS numeric
     AS 'float4_tonumber'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_number(float4, text)
     RETURNS numeric
     AS 'float4_tonumber'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_number(float8)
     RETURNS numeric
     AS 'float8_tonumber'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_number(float8, text)
     RETURNS numeric
     AS 'float8_tonumber'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_number(numeric)
     RETURNS numeric
     AS 'select $1'
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_number(numeric, text)
     RETURNS numeric
     AS 'select oracle.to_number($1::text, $2)'
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -596,7 +596,7 @@ CREATE OR REPLACE FUNCTION oracle.to_multi_byte(text)
     AS 'ora_to_multi_byte'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -608,7 +608,7 @@ CREATE OR REPLACE FUNCTION oracle.to_single_byte(text)
     AS 'ora_to_single_byte'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -625,7 +625,7 @@ CREATE OR REPLACE FUNCTION oracle.substr(text, integer)
     AS 'orastr_substr2'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 CREATE OR REPLACE FUNCTION oracle.substr(text, integer, integer)
@@ -633,7 +633,7 @@ CREATE OR REPLACE FUNCTION oracle.substr(text, integer, integer)
     AS 'orastr_substr3'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -645,7 +645,7 @@ CREATE OR REPLACE FUNCTION oracle.dump(text, integer default 10)
     AS 'ora_dump'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     STRICT;
 
 /*
@@ -660,7 +660,7 @@ CREATE OR REPLACE FUNCTION oracle.length(char)
     AS 'orastr_bpcharlen'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     STRICT;
 
 /*
@@ -674,7 +674,7 @@ CREATE OR REPLACE FUNCTION oracle.lengthb(varchar2)
     AS 'byteaoctetlen'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     STRICT;
 
 /* string functions for varchar2 type
@@ -685,7 +685,7 @@ CREATE OR REPLACE FUNCTION oracle.substrb(varchar2, integer)
     AS 'bytea_substr_no_len'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     STRICT;
 
 CREATE OR REPLACE FUNCTION oracle.substrb(varchar2, integer, integer)
@@ -693,7 +693,7 @@ CREATE OR REPLACE FUNCTION oracle.substrb(varchar2, integer, integer)
     AS 'bytea_substr'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     STRICT;
 
 CREATE OR REPLACE FUNCTION oracle.strposb(varchar2, varchar2)
@@ -701,7 +701,7 @@ CREATE OR REPLACE FUNCTION oracle.strposb(varchar2, varchar2)
     AS 'byteapos'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     STRICT;
 
 /*
@@ -713,7 +713,7 @@ CREATE OR REPLACE FUNCTION oracle.lpad(text, integer, text default ' '::text)
     AS 'lpad'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -725,7 +725,7 @@ CREATE OR REPLACE FUNCTION oracle.rpad(text, integer, text default ' '::text)
     AS 'rpad'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -737,7 +737,7 @@ CREATE OR REPLACE FUNCTION oracle.remainder(n2 numeric, n1 numeric)
     AS $$select n2 - n1*round(n2/n1);$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
 /*
@@ -748,7 +748,7 @@ CREATE OR REPLACE FUNCTION oracle.sys_extract_utc(timestamp with time zone)
     AS $$select $1 at time zone 'UTC';$$
     LANGUAGE SQL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     STRICT;
 
 /*
@@ -762,6 +762,6 @@ CREATE OR REPLACE FUNCTION oracle.mod(numeric, numeric)
     AS 'numeric_mod'
     LANGUAGE INTERNAL
     IMMUTABLE
-    CLUSTER SAFE
+--ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 

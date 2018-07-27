@@ -2026,6 +2026,22 @@ ExecInitExprRec(Expr *node, PlanState *parent, ExprState *state,
 				break;
 			}
 
+#ifdef ADB_GRAM_ORA
+		case T_RownumExpr:
+			{
+				if (parent == NULL)
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("RowNumber expr must have parent plan state")));
+
+				scratch.opcode = EEOP_ROW_NUMBER;
+				scratch.d.row_number.parent = parent;
+
+				ExprEvalPushStep(state, &scratch);
+				break;
+			}
+#endif /* ADB_GRAM_ORA */
+
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(node));

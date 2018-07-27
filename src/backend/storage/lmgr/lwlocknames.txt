@@ -50,6 +50,6 @@ OldSnapshotTimeMapLock				42
 BackendRandomLock					43
 LogicalRepWorkerLock				44
 CLogTruncationLock					45
-# ADB BEGIN
+# ADB_BEGIN
 BarrierLock							46
-# ADB END
+# ADB_END

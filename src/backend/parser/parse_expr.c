@@ -202,7 +202,7 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 			result = transformColumnRef(pstate, (ColumnRef *) expr);
 			break;
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_ColumnRefJoin:
 			if(pstate->p_expr_kind != EXPR_KIND_JOIN_ON
 				&& pstate->p_expr_kind != EXPR_KIND_WHERE)
@@ -233,7 +233,7 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 				,errmsg("syntax error")
 				,parser_errposition(pstate, exprLocation(expr))));
 			break;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 
 		case T_ParamRef:
 			result = transformParamRef(pstate, (ParamRef *) expr);
@@ -491,11 +491,11 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 				result = (Node *) expr;
 				break;
 			}
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			result = (Node *) expr;
 			break;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		default:
 			/* should not reach here */
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));

@@ -837,12 +837,12 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 		}
 		break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 			pgxc_set_shippability_reason(sc_context, SS_NEEDS_COORD);
 			break;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		case T_Aggref:
 		{
 			Aggref *aggref = (Aggref *)node;

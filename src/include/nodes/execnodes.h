@@ -910,7 +910,7 @@ typedef struct PlanState
 	TupleTableSlot *ps_ResultTupleSlot; /* slot for my result tuples */
 	ExprContext *ps_ExprContext;	/* node's expression-evaluation context */
 	ProjectionInfo *ps_ProjInfo;	/* info for doing tuple projection */
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	int64		rownum;
 	int64		rownum_marked;
 #endif

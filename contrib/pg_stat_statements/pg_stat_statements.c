@@ -2935,14 +2935,14 @@ JumbleExpr(pgssJumbleState *jstate, Node *node)
 				JumbleExpr(jstate, (Node *) tsc->repeatable);
 			}
 			break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			RecordConstLocation(jstate, ((RownumExpr*)node)->location);
 			break;
 		case T_ColumnRefJoin:
 			JumbleExpr(jstate, (Node*)(((ColumnRefJoin*)node)->var));
 			break;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		default:
 			/* Only a warning, since we can stumble along anyway */
 			elog(WARNING, "unrecognized node type: %d",

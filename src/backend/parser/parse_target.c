@@ -2000,14 +2000,14 @@ FigureColnameInternal(Node *node, char **name)
 		case T_XmlSerialize:
 			*name = "xmlserialize";
 			return 2;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			*name = "rownum";
 			return 2;
 		case T_LevelExpr:
 			*name = "level";
 			return 2;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		default:
 			break;
 	}

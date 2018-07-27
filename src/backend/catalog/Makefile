@@ -33,7 +33,11 @@ MYCPPFLAGS = -DBUILD_BKI -DCATALOG_VARLEN
 # the catalog header files are assembled into postgres.bki.  In particular,
 # indexing.h had better be last, and toasting.h just before it.
 
-POSTGRES_BKI_SRCS = \
+ifeq ($(enable_cluster),yes)
+  POSTGRES_BKI_SRCS = adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h adb_ha_sync_log.h
+  MYCPPFLAGS += -DADB
+endif
+POSTGRES_BKI_SRCS += \
 	pg_proc.h pg_type.h pg_attribute.h pg_class.h \
 	pg_attrdef.h pg_constraint.h pg_inherits.h pg_index.h pg_operator.h \
 	pg_opfamily.h pg_opclass.h pg_am.h pg_amop.h pg_amproc.h \
@@ -52,12 +56,8 @@ POSTGRES_BKI_SRCS = \
 	pg_sequence.h pg_publication.h pg_publication_rel.h pg_subscription.h \
 	pg_subscription_rel.h \
 	ora_cast.h \
-	toasting.h indexing.h \
-	adb_ha_sync_log.h
-ifeq ($(enable_cluster),yes)
-  POSTGRES_BKI_SRCS += adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h
-  MYCPPFLAGS += -DADB
-endif
+	toasting.h indexing.h
+
 ifeq ($(enable_grammar_oracle),yes)
   MYCPPFLAGS += -DADB_GRAM_ORA
 endif
@@ -95,9 +95,11 @@ install-data: $(BKIFILES) installdirs
 	$(INSTALL_DATA) $(call vpathsearch,postgres.description) '$(DESTDIR)$(datadir)/postgres.description'
 	$(INSTALL_DATA) $(call vpathsearch,postgres.shdescription) '$(DESTDIR)$(datadir)/postgres.shdescription'
 	$(INSTALL_DATA) $(srcdir)/system_views.sql '$(DESTDIR)$(datadir)/system_views.sql'
-	$(INSTALL_DATA) $(srcdir)/adb_views.sql '$(DESTDIR)$(datadir)/adb_views.sql'
 	$(INSTALL_DATA) $(srcdir)/information_schema.sql '$(DESTDIR)$(datadir)/information_schema.sql'
 	$(INSTALL_DATA) $(srcdir)/sql_features.txt '$(DESTDIR)$(datadir)/sql_features.txt'
+ifeq ($(enable_cluster),yes)
+	$(INSTALL_DATA) $(srcdir)/adb_views.sql '$(DESTDIR)$(datadir)/adb_views.sql'
+endif
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(datadir)'
@@ -105,6 +107,9 @@ installdirs:
 .PHONY: uninstall-data
 uninstall-data:
 	rm -f $(addprefix '$(DESTDIR)$(datadir)'/, $(BKIFILES) system_views.sql information_schema.sql sql_features.txt)
+ifeq ($(enable_cluster),yes)
+	rm -f $(addprefix '$(DESTDIR)$(datadir)'/, adb_views.sql)
+endif
 
 # postgres.bki, postgres.description, postgres.shdescription, and schemapg.h
 # are in the distribution tarball, so they are not cleaned here.

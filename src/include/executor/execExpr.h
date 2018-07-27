@@ -212,6 +212,10 @@ typedef enum ExprEvalOp
 	EEOP_SUBPLAN,
 	EEOP_ALTERNATIVE_SUBPLAN,
 
+#ifdef ADB_GRAM_ORA
+	EEOP_ROW_NUMBER,
+#endif
+
 	/* non-existent operation, used e.g. to check array lengths */
 	EEOP_LAST
 } ExprEvalOp;
@@ -560,6 +564,14 @@ typedef struct ExprEvalStep
 			/* out-of-line state, created by nodeSubplan.c */
 			AlternativeSubPlanState *asstate;
 		}			alternative_subplan;
+
+#ifdef ADB_GRAM_ORA
+		/* for EEOP_ROW_NUMBER */
+		struct
+		{
+			PlanState *parent;
+		}			row_number;
+#endif
 	}			d;
 } ExprEvalStep;
 

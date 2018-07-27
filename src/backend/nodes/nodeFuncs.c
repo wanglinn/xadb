@@ -269,14 +269,14 @@ exprType(const Node *expr)
 		case T_PlaceHolderVar:
 			type = exprType((Node *) ((const PlaceHolderVar *) expr)->phexpr);
 			break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			type = INT8OID;
 			break;
 		case T_ColumnRefJoin:
 			type = exprType((Node*)(((ColumnRefJoin*)expr)->var));
 			break;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
 			type = InvalidOid;	/* keep compiler quiet */
@@ -510,12 +510,12 @@ exprTypmod(const Node *expr)
 			return ((const SetToDefault *) expr)->typeMod;
 		case T_PlaceHolderVar:
 			return exprTypmod((Node *) ((const PlaceHolderVar *) expr)->phexpr);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			return -1;
 		case T_ColumnRefJoin:
 			return exprTypmod((Node*)(((ColumnRefJoin*)expr)->var));
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		default:
 			break;
 	}
@@ -927,14 +927,14 @@ exprCollation(const Node *expr)
 		case T_PlaceHolderVar:
 			coll = exprCollation((Node *) ((const PlaceHolderVar *) expr)->phexpr);
 			break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			coll = InvalidOid;
 			break;
 		case T_ColumnRefJoin:
 			coll = exprCollation((Node*)(((ColumnRefJoin*)expr)->var));
 			break;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
 			coll = InvalidOid;	/* keep compiler quiet */
@@ -1136,14 +1136,14 @@ exprSetCollation(Node *expr, Oid collation)
 			Assert(!OidIsValid(collation)); /* result is always an integer
 											 * type */
 			break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			Assert(!OidIsValid(collation));
 			break;
 		case T_ColumnRefJoin:
 			exprSetCollation((Node*)(((ColumnRefJoin*)expr)->var), collation);
 			break;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
 			break;
@@ -1584,7 +1584,7 @@ exprLocation(const Node *expr)
 		case T_PartitionRangeDatum:
 			loc = ((const PartitionRangeDatum *) expr)->location;
 			break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_ColumnRefJoin:
 			loc = ((const ColumnRefJoin*) expr)->location;
 			break;
@@ -1594,7 +1594,7 @@ exprLocation(const Node *expr)
 		case T_LevelExpr:
 			loc = ((const LevelExpr*)expr)->location;
 			break;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		default:
 			/* for any other node type it's just unknown... */
 			loc = -1;
@@ -1922,10 +1922,10 @@ expression_tree_walker(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 		case T_NextValueExpr:
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 		case T_LevelExpr:
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		case T_RangeTblRef:
 		case T_SortGroupClause:
 			/* primitive node types with no expression subnodes */
@@ -2245,12 +2245,12 @@ expression_tree_walker(Node *node,
 			break;
 		case T_PlaceHolderInfo:
 			return walker(((PlaceHolderInfo *) node)->ph_var, context);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_ColumnRefJoin:
 			return walker(((ColumnRefJoin*)node)->column, context);
 		case T_PriorExpr:
 			return walker(((PriorExpr*)node)->expr, context);
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		case T_RangeTblFunction:
 			return walker(((RangeTblFunction *) node)->funcexpr, context);
 		case T_TableSampleClause:
@@ -2536,10 +2536,10 @@ expression_tree_mutator(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 		case T_NextValueExpr:
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 		case T_LevelExpr:
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		case T_RangeTblRef:
 		case T_SortGroupClause:
 			return (Node *) copyObject(node);
@@ -3111,7 +3111,7 @@ expression_tree_mutator(Node *node,
 				return (Node *) newnode;
 			}
 			break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_ColumnRefJoin:
 			{
 				ColumnRefJoin *crj = (ColumnRefJoin*)node;
@@ -3132,7 +3132,7 @@ expression_tree_mutator(Node *node,
 				return (Node*)newnode;
 			}
 			break;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(node));
@@ -3354,10 +3354,10 @@ raw_expression_tree_walker(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 		case T_SQLValueFunction:
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 		case T_LevelExpr:
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		case T_Integer:
 		case T_Float:
 		case T_String:
@@ -3574,7 +3574,7 @@ raw_expression_tree_walker(Node *node,
 		case T_ColumnRef:
 			/* we assume the fields contain nothing interesting */
 			break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_ColumnRefJoin:
 			if(walker(((ColumnRefJoin*)node)->column, context))
 				return true;
@@ -3583,7 +3583,7 @@ raw_expression_tree_walker(Node *node,
 			if(walker(((PriorExpr*)node)->expr, context))
 				return true;
 			break;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 		case T_FuncCall:
 			{
 				FuncCall   *fcall = (FuncCall *) node;

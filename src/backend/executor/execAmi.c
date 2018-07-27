@@ -351,7 +351,7 @@ ExecReScan(PlanState *node)
 void
 ExecMarkPos(PlanState *node)
 {
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	node->rownum_marked = node->rownum;
 #endif /* ADB */
 	switch (nodeTag(node))
@@ -413,7 +413,7 @@ ExecMarkPos(PlanState *node)
 void
 ExecRestrPos(PlanState *node)
 {
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	node->rownum = node->rownum_marked;
 #endif /* ADB */
 	switch (nodeTag(node))

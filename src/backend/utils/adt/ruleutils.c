@@ -9442,11 +9442,11 @@ get_rule_expr(Node *node, deparse_context *context,
 				}
 			}
 			break;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			appendStringInfoString(buf, ".row");
 			break;
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 
 		case T_TableFunc:
 			get_tablefunc((TableFunc *) node, context, showimplicit);

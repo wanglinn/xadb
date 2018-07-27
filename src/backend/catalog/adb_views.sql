@@ -37,3 +37,21 @@ CREATE OR REPLACE VIEW rxact_get_running AS
       ) AS r
         LEFT JOIN pg_catalog.pgxc_node AS n
         ON r.nodes[r.i] = n.oid;
+
+CREATE VIEW pg_aux_tables AS
+    SELECT
+        N.nspname AS schemaname,
+        U.auxrelid::regclass AS tablename,
+        pg_get_userbyid(C.relowner) AS tableowner,
+        T.spcname AS tablespace,
+        C.relhasindex AS hasindexes,
+        C.relhasrules AS hasrules,
+        C.relhastriggers AS hastriggers,
+        C.relrowsecurity AS rowsecurity,
+        U.relid::regclass AS "master tablename",
+        A.attname AS "auxiliary column"
+    FROM pg_aux_class U LEFT JOIN pg_class C ON (U.auxrelid = C.oid)
+         LEFT JOIN pg_attribute A ON (U.relid = A.attrelid AND U.attnum = A.attnum)
+         LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+         LEFT JOIN pg_tablespace T ON (T.oid = C.reltablespace)
+    WHERE C.relkind = 'r';

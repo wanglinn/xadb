@@ -29,7 +29,12 @@ s_lock_test: s_lock.c $(top_builddir)/src/port/libpgport.a
 lwlocknames.c: lwlocknames.h ;
 
 lwlocknames.h: $(top_srcdir)/src/backend/storage/lmgr/lwlocknames.txt generate-lwlocknames.pl
+ifeq ($(enable_cluster),yes)
 	$(PERL) $(srcdir)/generate-lwlocknames.pl $<
+else
+	$(PERL) $(abs_top_srcdir)/src/backend/parser/drop-adb.pl $< tmpnames.txt
+	$(PERL) $(srcdir)/generate-lwlocknames.pl tmpnames.txt
+endif
 
 check: s_lock_test
 	./s_lock_test
@@ -39,3 +44,6 @@ clean distclean:
 
 maintainer-clean: clean
 	rm -f lwlocknames.h lwlocknames.c
+ifneq ($(enable_cluster),yes)
+	rm -f tmpnames.txt
+endif

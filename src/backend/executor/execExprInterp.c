@@ -363,6 +363,9 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 		&&CASE_EEOP_WINDOW_FUNC,
 		&&CASE_EEOP_SUBPLAN,
 		&&CASE_EEOP_ALTERNATIVE_SUBPLAN,
+#ifdef ADB_GRAM_ORA
+		&&CASE_EEOP_ROW_NUMBER,
+#endif
 		&&CASE_EEOP_LAST
 	};
 
@@ -1505,6 +1508,16 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 
 			EEO_NEXT();
 		}
+
+#ifdef ADB_GRAM_ORA
+		EEO_CASE(EEOP_ROW_NUMBER)
+		{
+			*op->resvalue = Int64GetDatum(op->d.row_number.parent->rownum);
+			*op->resnull = false;
+
+			EEO_NEXT();
+		}
+#endif /* ADB_GRAM_ORA */
 
 		EEO_CASE(EEOP_LAST)
 		{
