@@ -999,10 +999,10 @@ contain_volatile_functions_walker(Node *node, void *context)
 {
 	if (node == NULL)
 		return false;
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	if (IsA(node, RownumExpr))
 		return true;	/* RownumExpr is volatile */
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 	/* Check for volatile functions in node itself */
 	if (check_functions_in_node(node, contain_volatile_functions_checker,
 								context))
