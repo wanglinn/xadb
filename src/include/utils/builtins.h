@@ -279,9 +279,6 @@ extern Datum pgxc_pool_reload(PG_FUNCTION_ARGS);
 
 extern Datum pgxc_is_committed(PG_FUNCTION_ARGS);
 
-/* src/backend/catalog/heap.c */
-extern Datum pg_explain_infomask(PG_FUNCTION_ARGS);
-
 /* src/backend/pgxc/pool/pgxcnode.c */
 extern Datum pgxc_node_str (PG_FUNCTION_ARGS);
 extern Datum adb_node_oid(PG_FUNCTION_ARGS);
@@ -297,8 +294,13 @@ extern Datum rxact_get_running(PG_FUNCTION_ARGS);
 extern Datum current_xid(PG_FUNCTION_ARGS);
 #endif   /* ADB */
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB) || defined(AGTM) || defined(ADB_MULTI_GRAM)
 extern Datum pg_xact_status(PG_FUNCTION_ARGS);
+#endif
+
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
+/* src/backend/catalog/heap.c */
+extern Datum pg_explain_infomask(PG_FUNCTION_ARGS);
 #endif
 
 #endif							/* BUILTINS_H */

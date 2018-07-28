@@ -5696,9 +5696,6 @@ DESCR("random int4 value [0,arg0)");
 DATA(insert OID = 9144 ( random				PGNSP PGUID 12 1 0 0 0 f f f f t f v r 2 0 23 "23 23" _null_ _null_ _null_ _null_ _null_ int4random_range _null_ _null_ _null_ ));
 DESCR("random int4 value [arg0,arg1)");
 
-DATA(insert OID = 9112 ( pg_explain_infomask	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 25 "23" _null_ _null_ _null_ _null_ _null_ pg_explain_infomask _null_ _null_ _null_ ));
-DESCR("explain infomask of each heap tuple");
-
 DATA(insert OID = 9113 (  rxact_get_running PGNSP PGUID 12 5 20 0 0 f f f f t t v s 0 0 2249 "" "{25,26,18,16,1028,1000}" "{o,o,o,o,o,o}" "{gid,dbid,type,backend,nodes,status}" _null_ _null_ rxact_get_running _null_ _null_ _null_ ));
 DESCR("list RXACT running transactions");
 DATA(insert OID = 9114 ( rxact_wait_gid     PGNSP PGUID 12 1 0 0 0 f f f f t f v s 1 0 2278 "25" _null_ _null_ _null_ _null_ _null_ rxact_wait_gid _null_ _null_ _null_ ));
@@ -5733,9 +5730,14 @@ DESCR("synchronize the local next XID with AGTM");
 
 #endif
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB) || defined(AGTM) || defined(ADB_MULTI_GRAM)
 DATA(insert OID = 5403 (  pg_xact_status	PGNSP PGUID 12 1 1 0 0 f f f f t t s s 1 0 2275 "20" _null_ _null_ _null_ _null_ _null_ pg_xact_status _null_ _null_ _null_ ));
 DESCR("transaction status of specifical xid");
+#endif
+
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
+DATA(insert OID = 9112 ( pg_explain_infomask	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 25 "23" _null_ _null_ _null_ _null_ _null_ pg_explain_infomask _null_ _null_ _null_ ));
+DESCR("explain infomask of each heap tuple");
 #endif
 
 #ifdef ADBMGRD

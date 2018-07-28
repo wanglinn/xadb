@@ -4093,7 +4093,8 @@ StorePartitionBound(Relation rel, Relation parent, PartitionBoundSpec *bound)
 
 	CacheInvalidateRelcache(parent);
 }
-#ifdef ADB
+
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
 Datum pg_explain_infomask(PG_FUNCTION_ARGS)
 {
 	uint16			infomask;

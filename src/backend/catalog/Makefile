@@ -59,7 +59,7 @@ POSTGRES_BKI_SRCS += \
 	toasting.h indexing.h
 
 ifeq ($(enable_grammar_oracle),yes)
-  MYCPPFLAGS += -DADB_GRAM_ORA
+  MYCPPFLAGS += -DADB_GRAM_ORA -DADB_MULTI_GRAM
 endif
 
 $(POSTGRES_BKI_SRCS): % : $(top_srcdir)/src/include/catalog/%

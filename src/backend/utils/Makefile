@@ -28,7 +28,7 @@ ifeq ($(enable_cluster),yes)
   MYCFLAGS += -DADB
 endif
 ifeq ($(enable_grammar_oracle),yes)
-  MYCFLAGS += -DADB_GRAM_ORA
+  MYCFLAGS += -DADB_GRAM_ORA -DADB_MULTI_GRAM
 endif
 fmgrtab.c: Gen_fmgrtab.pl $(catalogdir)/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.h
 	rm -f pg_proc.h.c
