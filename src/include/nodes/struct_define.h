@@ -94,6 +94,38 @@
 #	define NODE_DATUM(t, m, o, n)
 #endif
 
+#ifndef NO_STRUCT_QualCost
+BEGIN_STRUCT(QualCost)
+	NODE_SCALAR(Cost,startup)
+	NODE_SCALAR(Cost,per_tuple)
+END_STRUCT(QualCost)
+#endif /* NO_STRUCT_QualCost */
+
+#ifndef NO_STRUCT_AggClauseCosts
+BEGIN_STRUCT(AggClauseCosts)
+	NODE_SCALAR(int,numAggs)
+	NODE_SCALAR(int,numOrderedAggs)
+	NODE_SCALAR(bool,hasNonPartial)
+	NODE_SCALAR(bool,hasNonSerial)
+	NODE_STRUCT_MEB(QualCost,transCost)
+	NODE_SCALAR(Cost,finalCost)
+	NODE_SCALAR(Size,transitionSpace)
+END_STRUCT(AggClauseCosts)
+#endif /* NO_STRUCT_AggClauseCosts */
+
+#ifndef NO_STRUCT_MergeScanSelCache
+BEGIN_STRUCT(MergeScanSelCache)
+	NODE_SCALAR(Oid,opfamily)
+	NODE_SCALAR(Oid,collation)
+	NODE_SCALAR(int,strategy)
+	NODE_SCALAR(bool,nulls_first)
+	NODE_SCALAR(Selectivity,leftstartsel)
+	NODE_SCALAR(Selectivity,leftendsel)
+	NODE_SCALAR(Selectivity,rightstartsel)
+	NODE_SCALAR(Selectivity,rightendsel)
+END_STRUCT(MergeScanSelCache)
+#endif /* NO_STRUCT_MergeScanSelCache */
+
 #ifndef NO_STRUCT_SemiAntiJoinFactors
 BEGIN_STRUCT(SemiAntiJoinFactors)
 	NODE_SCALAR(Selectivity,outer_match_frac)
@@ -138,38 +170,6 @@ BEGIN_STRUCT(ExprContext_CB)
 	NODE_SCALAR(Datum, arg)
 END_STRUCT(ExprContext_CB)
 #endif /* NO_STRUCT_ExprContext_CB */
-
-#ifndef NO_STRUCT_QualCost
-BEGIN_STRUCT(QualCost)
-	NODE_SCALAR(Cost,startup)
-	NODE_SCALAR(Cost,per_tuple)
-END_STRUCT(QualCost)
-#endif /* NO_STRUCT_QualCost */
-
-#ifndef NO_STRUCT_AggClauseCosts
-BEGIN_STRUCT(AggClauseCosts)
-	NODE_SCALAR(int,numAggs)
-	NODE_SCALAR(int,numOrderedAggs)
-	NODE_SCALAR(bool,hasNonPartial)
-	NODE_SCALAR(bool,hasNonSerial)
-	NODE_STRUCT_MEB(QualCost,transCost)
-	NODE_SCALAR(Cost,finalCost)
-	NODE_SCALAR(Size,transitionSpace)
-END_STRUCT(AggClauseCosts)
-#endif /* NO_STRUCT_AggClauseCosts */
-
-#ifndef NO_STRUCT_MergeScanSelCache
-BEGIN_STRUCT(MergeScanSelCache)
-	NODE_SCALAR(Oid,opfamily)
-	NODE_SCALAR(Oid,collation)
-	NODE_SCALAR(int,strategy)
-	NODE_SCALAR(bool,nulls_first)
-	NODE_SCALAR(Selectivity,leftstartsel)
-	NODE_SCALAR(Selectivity,leftendsel)
-	NODE_SCALAR(Selectivity,rightstartsel)
-	NODE_SCALAR(Selectivity,rightendsel)
-END_STRUCT(MergeScanSelCache)
-#endif /* NO_STRUCT_MergeScanSelCache */
 
 #ifndef NO_STRUCT_ExecRowMark
 BEGIN_STRUCT(ExecRowMark)

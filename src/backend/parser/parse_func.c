@@ -1046,7 +1046,7 @@ func_select_candidate(int nargs,
 	if (ncandidates == 1)
 		return candidates;
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	/*
 	 * Still too many candidates? Now look for candidates which have same
 	 * category by oracle grammar at the args that will require coercion.
@@ -1093,7 +1093,7 @@ func_select_candidate(int nargs,
 		if (ncandidates == 1)
 			return candidates;
 	}
-#endif
+#endif /* ADB_GRAM_ORA */
 
 	/*
 	 * Still too many candidates?  Try assigning types for the unknown inputs.

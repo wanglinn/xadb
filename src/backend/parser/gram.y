@@ -13857,14 +13857,16 @@ c_expr:		columnref								{ $$ = $1; }
 				  g->location = @1;
 				  $$ = (Node *)g;
 			  }
-/* ADB_BEGIN */
 			| '.' ROW
 				{
+#ifdef ADB_GRAM_ORA
 					RownumExpr *r = makeNode(RownumExpr);
 					r->location = @1;
 					$$ = (Node*)r;
+#else
+					ereport_pos(".", @1);
+#endif
 				}
-/* ADB_END */
 		;
 
 func_application: func_name '(' ')'

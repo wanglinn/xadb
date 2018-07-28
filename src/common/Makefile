@@ -51,22 +51,34 @@ else
 OBJS_COMMON += sha2.o
 endif
 
-OBJS_FRONTEND = $(OBJS_COMMON) fe_memutils.o file_utils.o restricted_token.o ora_keywords.o
+OBJS_FRONTEND = $(OBJS_COMMON) fe_memutils.o file_utils.o restricted_token.o
+ifeq ($(enable_grammar_oracle),yes)
+  OBJS_FRONTEND += ora_keywords.o
+endif
 
 OBJS_PG_FRONTEND = $(OBJS_FRONTEND:%.o=%_pg.o)
 
-OBJS_SRV = $(OBJS_COMMON:%.o=%_srv.o) ora_keywords_srv.o
+OBJS_SRV = $(OBJS_COMMON:%.o=%_srv.o)
+ifeq ($(enable_grammar_oracle),yes)
+  OBJS_SRV += ora_keywords_srv.o
+endif
 
 OBJS_AGTM = $(OBJS_COMMON:%.o=%_agtm.o)
 
 OBJS_MGR = $(OBJS_COMMON:%.o=%_mgr.o)
 
+ifeq ($(enable_cluster),yes)
 all: libpgcommon.a libpgcommon_srv.a libpgcommon_agtm.a libpgcommon_mgr.a libpgcommon_pg.a
+else
+all: libpgcommon.a libpgcommon_srv.a
+endif
 
 # libpgcommon is needed by some contrib
 install: all installdirs
 	$(INSTALL_STLIB) libpgcommon.a '$(DESTDIR)$(libdir)/libpgcommon.a'
+ifeq ($(enable_cluster),yes)
 	$(INSTALL_STLIB) libpgcommon_pg.a '$(DESTDIR)$(libdir)/libpgcommon_pg.a'
+endif
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(libdir)'

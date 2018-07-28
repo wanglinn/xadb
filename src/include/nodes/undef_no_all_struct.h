@@ -1,10 +1,10 @@
+#undef NO_STRUCT_QualCost
+#undef NO_STRUCT_AggClauseCosts
+#undef NO_STRUCT_MergeScanSelCache
 #undef NO_STRUCT_SemiAntiJoinFactors
 #undef NO_STRUCT_JoinPathExtraData
 #undef NO_STRUCT_JoinCostWorkspace
 #undef NO_STRUCT_ExprContext_CB
-#undef NO_STRUCT_QualCost
-#undef NO_STRUCT_AggClauseCosts
-#undef NO_STRUCT_MergeScanSelCache
 #undef NO_STRUCT_ExecRowMark
 #undef NO_STRUCT_ExecAuxRowMark
 #undef NO_STRUCT_TupleHashEntryData

@@ -12,11 +12,14 @@ include $(top_builddir)/src/Makefile.global
 
 override CPPFLAGS := -I. -I$(srcdir) $(CPPFLAGS)
 
-OBJS= analyze.o gram.o ora_gram.o scan.o parser.o \
+OBJS= analyze.o gram.o scan.o parser.o \
       parse_agg.o parse_clause.o parse_coerce.o parse_collate.o parse_cte.o \
       parse_enr.o parse_expr.o parse_func.o parse_node.o parse_oper.o \
       parse_param.o parse_relation.o parse_target.o parse_type.o \
       parse_utilcmd.o scansup.o
+ifeq ($(enable_grammar_oracle),yes)
+	OBJS += ora_gram.o
+endif
 
 include $(top_srcdir)/src/backend/common.mk
 
@@ -46,7 +49,7 @@ endif
 	rm -f tmp_gram.h tmp_gram.c
 endif
 
-ora_gram.c: BISONFLAGS += -d 
+ora_gram.c: BISONFLAGS += -d
 ifneq ($(enable_cluster),yes)
 ora_gram.c: $(abs_top_srcdir)/$(subdir)/ora_gram.y drop-adb.pl modify-line.pl
 	$(PERL) $(abs_top_srcdir)/$(subdir)/drop-adb.pl $< ora_gram.y

@@ -30,8 +30,10 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 #include "oraschema/oracoerce.h"
+#endif
+#ifdef ADB
 #include "pgxc/pgxc.h"
 #include "tcop/tcopprot.h"
 #endif
@@ -427,7 +429,7 @@ coerce_type(ParseState *pstate, Node *node,
 	}
 	pathtype = find_coercion_pathway(targetTypeId, inputTypeId, ccontext,
 									 &funcId);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	if (pathtype == COERCION_PATH_ORA_FUNC)
 		cformat = COERCE_EXPLICIT_CALL;
 #endif
@@ -866,7 +868,7 @@ build_coercion_expression(Node *node,
 		ReleaseSysCache(tp);
 	}
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	if (pathtype == COERCION_PATH_FUNC ||
 		pathtype == COERCION_PATH_ORA_FUNC)
 #else
@@ -2333,7 +2335,7 @@ find_coercion_pathway(Oid targetTypeId, Oid sourceTypeId,
 		}
 	}
 
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	/*
 	 * If current grammar is oracle grammar and we still haven't found a
 	 * possibilty to the last, check out coeicion function explicitly by
@@ -2351,7 +2353,7 @@ find_coercion_pathway(Oid targetTypeId, Oid sourceTypeId,
 				result = COERCION_PATH_ORA_FUNC;
 		}
 	}
-#endif
+#endif /* ADB_GRAM_ORA */
 
 	return result;
 }

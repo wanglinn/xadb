@@ -26,10 +26,18 @@ ADB_OBJS = $(BASE_OBJS:%.o=%_adb.o) $(WIN32RES)
 
 EXTRA_CLEAN = xlogreader.c
 
+ifeq ($(enable_cluster),yes)
 all: pg_rewind adb_rewind
+else
+all: pg_rewind
+endif
 
 pg_rewind: $(PG_OBJS) | submake-libpq submake-libpgport
+ifeq ($(enable_cluster),yes)
 	$(CC) $(filter-out -DADB, $(CFLAGS)) $^ $(patsubst -lpgcommon, -lpgcommon_pg, $(LDFLAGS)) $(LDFLAGS_EX) $(patsubst -lpgcommon, -lpgcommon_pg, $(LIBS)) -o $@$(X)
+else
+	$(CC) $(filter-out -DADB, $(CFLAGS)) $^ $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+endif
 
 adb_rewind: $(ADB_OBJS) | submake-libpq submake-libpgport
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
@@ -61,18 +69,24 @@ endif #autodepend
 
 install: all installdirs
 	$(INSTALL_PROGRAM) pg_rewind$(X) '$(DESTDIR)$(bindir)/pg_rewind$(X)'
+ifeq ($(enable_cluster),yes)
 	$(INSTALL_PROGRAM) adb_rewind$(X) '$(DESTDIR)$(bindir)/adb_rewind$(X)'
+endif
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(bindir)'
 
 uninstall:
 	rm -f '$(DESTDIR)$(bindir)/pg_rewind$(X)'
+ifeq ($(enable_cluster),yes)
 	rm -f '$(DESTDIR)$(bindir)/adb_rewind$(X)'
+endif
 
 clean distclean maintainer-clean:
 	rm -f pg_rewind$(X) $(PG_OBJS) xlogreader.c
+ifeq ($(enable_cluster),yes)
 	rm -f adb_rewind$(X) $(ADB_OBJS)
+endif
 	rm -rf tmp_check
 
 check:

@@ -25,7 +25,7 @@ typedef enum CoercionPathType
 {
 	COERCION_PATH_NONE,			/* failed to find any coercion pathway */
 	COERCION_PATH_FUNC,			/* apply the specified coercion function */
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	COERCION_PATH_ORA_FUNC,		/* apply the oracle implicit coercion function */
 #endif
 	COERCION_PATH_RELABELTYPE,	/* binary-compatible cast, no function */

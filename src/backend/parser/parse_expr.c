@@ -39,16 +39,15 @@
 #include "utils/timestamp.h"
 #include "utils/xml.h"
 
-#ifdef ADB
-#include "tcop/tcopprot.h"
-#endif
-
-#if defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 #include "access/sysattr.h"
 #include "optimizer/clauses.h"
-#include "oraschema/oracoerce.h"
 #include "parser/parser.h"
+#include "tcop/tcopprot.h"
 #include "utils/fmgroids.h"
+#endif
+#ifdef ADB_GRAM_ORA
+#include "oraschema/oracoerce.h"
 #endif
 
 /* GUC parameters */
@@ -178,20 +177,20 @@ static Node *
 transformExprRecurse(ParseState *pstate, Node *expr)
 {
 	Node	   *result;
-#ifdef ADB
+#ifdef ADB_MULTI_GRAM
 	volatile int	sv_grammar;
 #endif
 
 	if (expr == NULL)
 		return NULL;
 
-#ifdef ADB
+#ifdef ADB_MULTI_GRAM
 	sv_grammar = current_grammar;
 	current_grammar = pstate->p_grammar;
 
 	PG_TRY();
 	{
-#endif
+#endif /* ADB_MULTI_GRAM */
 
 	/* Guard against stack overflow due to overly complex expressions */
 	check_stack_depth();
@@ -502,7 +501,7 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 			result = NULL;		/* keep compiler quiet */
 			break;
 	}
-#ifdef ADB
+#ifdef ADB_MULTI_GRAM
 	} PG_CATCH();
 	{
 		current_grammar = sv_grammar;
@@ -510,7 +509,7 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 	} PG_END_TRY();
 
 	current_grammar = sv_grammar;
-#endif
+#endif /* ADB_MULTI_GRAM */
 
 	return result;
 }

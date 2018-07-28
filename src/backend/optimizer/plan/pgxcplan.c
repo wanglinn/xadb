@@ -2656,9 +2656,14 @@ pgxc_is_all_replicated_table(Query *query)
 		return NULL;
 
 
+#ifdef ADB_GRAM_ORA
 	//2.pushdown sql without volatile functions(without_check_RownumExpr).
 	if (contain_volatile_functions_without_check_RownumExpr((Node *)query))
 		return NULL;
+#else
+	if (contain_volatile_functions((Node*)query))
+		return NULL;
+#endif /* ADB_GRAM_ORA */
 
 
 	//3. choose one datanode and return ExecNodes.

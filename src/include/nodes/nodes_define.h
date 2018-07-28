@@ -73,7 +73,6 @@
  *   SubPlanState
  *   AlternativeSubPlanState
  *   DomainConstraintState
- *   RownumExprState
  *   PlannerInfo
  *   ForeignKeyOptInfo
  *   CustomPath
@@ -1444,10 +1443,6 @@ BEGIN_NODE(PGXCSubCluster)
 	NODE_NODE(List,members)
 END_NODE(PGXCSubCluster)
 #endif /* NO_NODE_PGXCSubCluster */
-
-#endif
-
-#ifdef ADB
 
 #endif
 

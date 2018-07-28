@@ -46,7 +46,7 @@ typedef enum
 } LogStmtLevel;
 
 extern int	log_statement;
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 extern int parse_grammar;
 extern int current_grammar;
 

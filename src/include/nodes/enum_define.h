@@ -221,9 +221,6 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_SubPlanState)
 	ENUM_VALUE(T_AlternativeSubPlanState)
 	ENUM_VALUE(T_DomainConstraintState)
-#ifdef ADB
-	ENUM_VALUE(T_RownumExprState)
-#endif
 	ENUM_VALUE(T_PlannerInfo)
 	ENUM_VALUE(T_PlannerGlobal)
 	ENUM_VALUE(T_RelOptInfo)
@@ -517,22 +514,6 @@ BEGIN_ENUM(NodeTag)
 #endif
 END_ENUM(NodeTag)
 #endif /* NO_ENUM_NodeTag */
-
-#ifndef NO_ENUM_SetFunctionReturnMode
-BEGIN_ENUM(SetFunctionReturnMode)
-	ENUM_VALUE(SFRM_ValuePerCall)
-	ENUM_VALUE(SFRM_Materialize)
-	ENUM_VALUE(SFRM_Materialize_Random)
-	ENUM_VALUE(SFRM_Materialize_Preferred)
-END_ENUM(SetFunctionReturnMode)
-#endif /* NO_ENUM_SetFunctionReturnMode */
-
-#ifndef NO_ENUM_DomainConstraintType
-BEGIN_ENUM(DomainConstraintType)
-	ENUM_VALUE(DOM_CONSTRAINT_NOTNULL)
-	ENUM_VALUE(DOM_CONSTRAINT_CHECK)
-END_ENUM(DomainConstraintType)
-#endif /* NO_ENUM_DomainConstraintType */
 
 #ifndef NO_ENUM_JoinType
 BEGIN_ENUM(JoinType)
@@ -1267,6 +1248,22 @@ BEGIN_ENUM(ExprDoneCond)
 	ENUM_VALUE(ExprEndResult)
 END_ENUM(ExprDoneCond)
 #endif /* NO_ENUM_ExprDoneCond */
+
+#ifndef NO_ENUM_SetFunctionReturnMode
+BEGIN_ENUM(SetFunctionReturnMode)
+	ENUM_VALUE(SFRM_ValuePerCall)
+	ENUM_VALUE(SFRM_Materialize)
+	ENUM_VALUE(SFRM_Materialize_Random)
+	ENUM_VALUE(SFRM_Materialize_Preferred)
+END_ENUM(SetFunctionReturnMode)
+#endif /* NO_ENUM_SetFunctionReturnMode */
+
+#ifndef NO_ENUM_DomainConstraintType
+BEGIN_ENUM(DomainConstraintType)
+	ENUM_VALUE(DOM_CONSTRAINT_NOTNULL)
+	ENUM_VALUE(DOM_CONSTRAINT_CHECK)
+END_ENUM(DomainConstraintType)
+#endif /* NO_ENUM_DomainConstraintType */
 
 #ifndef NO_ENUM_SharedBitmapState
 BEGIN_ENUM(SharedBitmapState)

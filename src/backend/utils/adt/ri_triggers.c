@@ -267,7 +267,7 @@ RI_FKey_check(TriggerData *trigdata)
 	int			i;
 
 #ifdef ADB
-	/* 
+	/*
 	 * Referential integrity is not supported on Coordinator as it has no data, so
 	 * we just come out of the function without actually performing any integrity checks.
 	 */
@@ -3679,14 +3679,11 @@ ri_HashCompareOp(Oid eq_opr, Oid typeid)
 			pathtype = find_coercion_pathway(lefttype, typeid,
 											 COERCION_IMPLICIT,
 											 &castfunc);
-#ifdef ADB
 			if (pathtype != COERCION_PATH_FUNC &&
+#ifdef ADB_GRAM_ORA
 				pathtype != COERCION_PATH_ORA_FUNC &&
-				pathtype != COERCION_PATH_RELABELTYPE)
-#else
-			if (pathtype != COERCION_PATH_FUNC &&
-				pathtype != COERCION_PATH_RELABELTYPE)
 #endif
+				pathtype != COERCION_PATH_RELABELTYPE)
 			{
 				/*
 				 * The declared input type of the eq_opr might be a

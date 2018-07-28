@@ -1,10 +1,10 @@
+#define NO_STRUCT_QualCost
+#define NO_STRUCT_AggClauseCosts
+#define NO_STRUCT_MergeScanSelCache
 #define NO_STRUCT_SemiAntiJoinFactors
 #define NO_STRUCT_JoinPathExtraData
 #define NO_STRUCT_JoinCostWorkspace
 #define NO_STRUCT_ExprContext_CB
-#define NO_STRUCT_QualCost
-#define NO_STRUCT_AggClauseCosts
-#define NO_STRUCT_MergeScanSelCache
 #define NO_STRUCT_ExecRowMark
 #define NO_STRUCT_ExecAuxRowMark
 #define NO_STRUCT_TupleHashEntryData
