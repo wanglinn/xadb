@@ -1496,7 +1496,7 @@ heap_beginscan_internal(Relation relation, Snapshot snapshot,
 	/* we only need to set this up once */
 	scan->rs_ctup.t_tableOid = RelationGetRelid(relation);
 
-#ifdef ADB
+#if defined(ADB)
 	scan->rs_ctup.t_xc_node_id = PGXCNodeIdentifier;
 #endif
 

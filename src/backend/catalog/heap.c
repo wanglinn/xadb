@@ -218,27 +218,27 @@ static FormData_pg_attribute a7 = {
 static FormData_pg_attribute a8 = {
 	0, {"xc_node_id"}, INT4OID, 0, sizeof(int32),
 	XC_NodeIdAttributeNumber, 0, -1, -1,
-	true, 'p', 'i', true, false, false, true, 0
+	true, 'p', 'i', true, false, '\0', false, true, 0
 };
 
 	#ifdef ADB_GRAM_ORA
 		static FormData_pg_attribute a9 = {
 			0, {"rowid"}, RIDOID, 0, RID_DATA_SIZE,
 			ADB_RowIdAttributeNumber, 0, -1, -1,
-			false, 'p', 'i', true, false, false, true, 0
+			false, 'p', 'i', true, false, '\0', false, true, 0
 		};
 
 		static FormData_pg_attribute a10 = {
 			0, {"infomask"}, INT2OID, 0, sizeof(int16),
 			ADB_InfoMaskAttributeNumber, 0, -1, -1,
-			true, 'p', 'i', true, false, false, true, 0
+			true, 'p', 'i', true, false, '\0', false, true, 0
 		};
 		static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7, &a8, &a9, &a10};
 	#else /* else ADB_GRAM_ORA */
 		static FormData_pg_attribute a9 = {
 			0, {"infomask"}, INT2OID, 0, sizeof(int16),
 			ADB_InfoMaskAttributeNumber, 0, -1, -1,
-			true, 'p', 'i', true, false, false, true, 0
+			true, 'p', 'i', true, false, '\0', false, true, 0
 		};
 		static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7, &a8, &a9};
 	#endif /* ADB_GRAM_ORA */
@@ -246,9 +246,14 @@ static FormData_pg_attribute a8 = {
 	static FormData_pg_attribute a8 = {
 		0, {"rowid"}, RIDOID, 0, RID_DATA_SIZE,
 		ADB_RowIdAttributeNumber, 0, -1, -1,
-		false, 'p', 'i', true, false, false, true, 0
+		false, 'p', 'i', true, false, '\0', false, true, 0
 	};
-	static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7, &a8};
+	static FormData_pg_attribute a9 = {
+		0, {"infomask"}, INT2OID, 0, sizeof(int16),
+		ADB_InfoMaskAttributeNumber, 0, -1, -1,
+		true, 'p', 'i', true, false, '\0', false, true, 0
+	};
+	static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7, &a8, &a9};
 #else	/* else ADB, else ADB_GRAM_ORA */
 	static const Form_pg_attribute SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a7};
 #endif

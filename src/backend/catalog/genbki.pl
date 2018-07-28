@@ -23,6 +23,10 @@ my @input_files;
 our @include_path;
 my $output_path = '';
 my $major_version;
+# ADB_BEGIN
+my $enable_cluster;
+my $enable_grammar_oracle;
+# ADB_END
 
 # Process command line switches.
 while (@ARGV)
@@ -46,6 +50,20 @@ while (@ARGV)
 		die "Invalid version string.\n"
 		  if !($major_version =~ /^\d+$/);
 	}
+# ADB_BEGIN
+	elsif ($arg =~ /^--enable-cluster=(.*)$/)
+	{
+		$enable_cluster = lc($1);
+		die "Invalid version string.\n"
+		  if !($enable_cluster =~ /^(yes|no)$/i);
+	}
+	elsif ($arg =~ /^--enable-grammar-oracle=(.*)$/)
+	{
+		$enable_grammar_oracle = lc($1);
+		die "Invalid version string.\n"
+		  if !($enable_grammar_oracle =~ /^(yes|no)$/i);
+	}
+# ADB_END
 	else
 	{
 		usage();
@@ -56,6 +74,16 @@ while (@ARGV)
 die "No input files.\n"                                     if !@input_files;
 die "No include path; you must specify -I at least once.\n" if !@include_path;
 die "--set-version must be specified.\n" if !defined $major_version;
+# ADB_BEGIN
+if (!defined $enable_cluster)
+{
+	$enable_cluster = 'no';
+}
+if (!defined $enable_grammar_oracle)
+{
+	$enable_grammar_oracle = 'no';
+}
+# ADB_END
 
 # Make sure output_path ends in a slash.
 if ($output_path ne '' && substr($output_path, -1) ne '/')
@@ -288,20 +316,41 @@ foreach my $catname (@{ $catalogs->{names} })
 					{ name => 'xmax',     type => 'xid' },
 					{ name => 'cmax',     type => 'cid' },
 					{ name => 'tableoid', type => 'oid' }
-# ADB_BEGIN
-					, { name => 'xc_node_id', type => 'int4' }
-					, { name => 'rowid', type => 'rid' }
-					, { name => 'infomask', type => 'int4' }
-# ADB_END
 					);
+
+# ADB_BEGIN
+				# add xc_node_id system column
+				if ($enable_cluster eq 'yes')
+				{
+					push @SYS_ATTRS,
+						{ name => 'xc_node_id', type => 'int4' };
+				}
+
+				# add rowid system column
+				if ($enable_grammar_oracle eq 'yes')
+				{
+					push @SYS_ATTRS,
+						{ name => 'rowid', type => 'rid' };
+				}
+
+				# add infomask system column
+				if ($enable_cluster eq 'yes' || $enable_grammar_oracle eq 'yes')
+				{
+					push @SYS_ATTRS,
+						{ name => 'infomask', type => 'int4' };
+				}
+# ADB_END
+
 				foreach my $attr (@SYS_ATTRS)
 				{
 					$attnum--;
+
 # ADB_BEGIN
 					# rowid is generated dynamically, so skip it.
 					next
 					  if $attr->{name} eq 'rowid';
 # ADB_END
+
 					my $row = emit_pgattr_row($table_name, $attr, 1);
 					$row->{attnum}        = $attnum;
 					$row->{attstattarget} = '0';

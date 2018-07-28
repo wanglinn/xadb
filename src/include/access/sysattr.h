@@ -37,7 +37,8 @@
 	#endif /* ADB_GRAM_ORA */
 #elif defined(ADB_GRAM_ORA) /* else adb */
 	#define ADB_RowIdAttributeNumber				(-8)
-	#define FirstLowInvalidHeapAttributeNumber		(-9)
+	#define ADB_InfoMaskAttributeNumber				(-9)
+	#define FirstLowInvalidHeapAttributeNumber		(-10)
 #else /* else ADB, else ADB_GRAM_ORA */
 	#define FirstLowInvalidHeapAttributeNumber		(-8)
 #endif

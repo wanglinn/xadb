@@ -3010,7 +3010,7 @@ EvalPlanQualFetchRowMarks(EPQState *epqstate)
 
 			/* build a temporary HeapTuple control structure */
 			tuple.t_len = HeapTupleHeaderGetDatumLength(td);
-#ifdef ADB
+#if defined(ADB)
 			tuple.t_xc_node_id = 0;
 #endif
 			tuple.t_data = td;
