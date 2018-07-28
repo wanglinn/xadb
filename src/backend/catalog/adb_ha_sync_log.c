@@ -286,7 +286,9 @@ deparseParamOutString(ParamExternData *prm)
 				}
 			}
 			break;
+#if defined(ADB_GRAM_ORA)
 		case ORADATEOID:
+#endif
 		case TIMESTAMPOID:
 			{
 				Timestamp	timestamp = DatumGetTimestamp(prm->value);
@@ -375,7 +377,9 @@ deparseParamListInfo(ParamListInfo params, StringInfo buf)
 			switch (prm->ptype)
 			{
 				case DATEOID:
+#if defined(ADB_GRAM_ORA)
 				case ORADATEOID:
+#endif
 					appendStringInfo(buf, "(DATE) = ");
 					break;
 				case TIMESTAMPOID:

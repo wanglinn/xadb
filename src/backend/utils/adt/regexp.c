@@ -1000,7 +1000,7 @@ setup_regexp_matches(text *orig_str, text *pattern, pg_re_flags *re_flags,
 	int			prev_match_end;
 	int			start_search;
 
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 	Assert(start_position >= 0);
 #endif
 
@@ -1038,7 +1038,7 @@ setup_regexp_matches(text *orig_str, text *pattern, pg_re_flags *re_flags,
 
 	/* search for the pattern, perhaps repeatedly */
 	prev_match_end = 0;
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 	if (start_position >= wide_len)
 	{
 		matchctx->nmatches = 0;
@@ -1068,7 +1068,7 @@ setup_regexp_matches(text *orig_str, text *pattern, pg_re_flags *re_flags,
 														sizeof(int) * array_len);
 			}
 
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 			/*
 			 * When compatible with oracle grammar, we need save all match's
 			 * locations. so that, 0 indicate the whole pattern, and 1 to 9

@@ -4594,16 +4594,6 @@ static struct config_enum ConfigureNamesEnum[] =
 	},
 
 	{
-		{"grammar", PGC_USERSET, UNGROUPED,
-			gettext_noop("Set SQL grammar"),
-			NULL
-		},
-		&parse_grammar,
-		PARSE_GRAM_POSTGRES, parse_grammer_options,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"use_aux_type", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Sets Auxiliary-table using method"),
 			NULL

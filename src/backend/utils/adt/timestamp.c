@@ -71,7 +71,7 @@ typedef struct
 static TimeOffset time2t(const int hour, const int min, const int sec, const fsec_t fsec);
 static Timestamp dt2local(Timestamp dt, int timezone);
 static void AdjustTimestampForTypmod(Timestamp *time, int32 typmod);
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 static void AdjustIntervalForTypmod(Interval *interval, int32 typmod, int ora_extra);
 #else
 static void AdjustIntervalForTypmod(Interval *interval, int32 typmod);
@@ -936,7 +936,7 @@ interval_in(PG_FUNCTION_ARGS)
 	Oid			typelem = PG_GETARG_OID(1);
 #endif
 	int32		typmod = PG_GETARG_INT32(2);
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 	/* Just for oracle grammar */
 	int32		ora_extra = PG_GETARG_INT32_0_IF_NULL(3);
 #endif
@@ -1005,7 +1005,7 @@ interval_in(PG_FUNCTION_ARGS)
 				 dtype, str);
 	}
 
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 	AdjustIntervalForTypmod(result, typmod, ora_extra);
 #else
 	AdjustIntervalForTypmod(result, typmod);
@@ -1056,7 +1056,7 @@ interval_recv(PG_FUNCTION_ARGS)
 	interval->day = pq_getmsgint(buf, sizeof(interval->day));
 	interval->month = pq_getmsgint(buf, sizeof(interval->month));
 
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 	AdjustIntervalForTypmod(interval, typmod, 0);
 #else
 	AdjustIntervalForTypmod(interval, typmod);
@@ -1374,7 +1374,7 @@ interval_scale(PG_FUNCTION_ARGS)
 	result = palloc(sizeof(Interval));
 	*result = *interval;
 
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 	AdjustIntervalForTypmod(result, typmod, 0);
 #else
 	AdjustIntervalForTypmod(result, typmod);
@@ -1388,7 +1388,7 @@ interval_scale(PG_FUNCTION_ARGS)
  *	range and sub-second precision.
  */
 static void
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 AdjustIntervalForTypmod(Interval *interval, int32 typmod, int ora_extra)
 #else
 AdjustIntervalForTypmod(Interval *interval, int32 typmod)
@@ -1414,7 +1414,7 @@ AdjustIntervalForTypmod(Interval *interval, int32 typmod)
 		INT64CONST(0)
 	};
 
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 	/*
 	 * ora_extra: 0 means PG grammar, otherwise means oracle grammar.
 	 */
@@ -1561,7 +1561,7 @@ AdjustIntervalForTypmod(Interval *interval, int32 typmod)
 			}
 		}
 	}
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	} else
 	{
 		switch (ora_extra)

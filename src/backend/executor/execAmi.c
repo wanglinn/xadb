@@ -83,9 +83,9 @@ static bool IndexSupportsBackwardScan(Oid indexid);
 void
 ExecReScan(PlanState *node)
 {
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	node->rownum = 0L;
-#endif /* ADB */
+#endif
 	/* If collecting timing stats, update them */
 	if (node->instrument)
 		InstrEndLoop(node->instrument);

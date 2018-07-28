@@ -256,7 +256,7 @@ ExecuteQuery(ExecuteStmt *stmt, IntoClause *intoClause,
 	portal = CreateNewPortal();
 	/* Don't display the portal in pg_cursors, it is for internal use only */
 	portal->visible = false;
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	portal->grammar = entry->plansource->grammar;
 #endif
 

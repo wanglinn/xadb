@@ -230,7 +230,7 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 	/* put portal in table (sets portal->name) */
 	PortalHashTableInsert(portal, name);
 
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	portal->grammar = grammar;
 #endif
 

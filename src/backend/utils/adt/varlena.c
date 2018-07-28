@@ -3988,7 +3988,7 @@ replace_text_regexp(text *src_text, void *regexp,
 		 */
 		if (pmatch[0].rm_so - data_pos > 0)
 		{
-#if defined(ADB_GRAM_ORA)
+#if !defined(ADB_GRAM_ORA)
 			int			chunk_len;
 #endif
 

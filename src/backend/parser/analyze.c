@@ -68,12 +68,14 @@
 #include "utils/syscache.h"
 #endif
 #ifdef ADB_GRAM_ORA
-#include "access/xact.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_operator.h"
 #include "parser/parser.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
+#endif
+#if defined(ADB) || defined(ADB_GRAM_ORA)
+#include "access/xact.h"
 #endif
 
 #include "utils/rel.h"
@@ -728,7 +730,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	qry->resultRelation = setTargetTable(pstate, stmt->relation,
 										 false, false, targetPerms);
 
-#ifdef ADB
+#ifdef ADB_MULTI_GRAM
 	if(pstate->p_grammar == PARSE_GRAM_ORACLE)
 		addRTEtoQuery(pstate, rt_fetch(qry->resultRelation, pstate->p_rtable), false, true, true);
 #endif /* ADB */

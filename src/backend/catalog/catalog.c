@@ -168,8 +168,11 @@ bool
 IsSystemNamespace(Oid namespaceId)
 {
 #ifdef ADB
-	return (namespaceId == PG_CATALOG_NAMESPACE ||
-			namespaceId == PG_ORACLE_NAMESPACE);
+	return (namespaceId == PG_CATALOG_NAMESPACE
+#ifdef ADB_GRAM_ORA
+	||namespaceId == PG_ORACLE_NAMESPACE
+#endif
+	);
 #elif defined(ADBMGRD)
 	return (namespaceId == PG_CATALOG_NAMESPACE ||
 			namespaceId == PG_MANAGER_NAMESPACE);

@@ -87,15 +87,17 @@ extern bool plan_tree_walker(struct Plan *plan, Node *GlobOrStmt, bool (*walker)
 extern bool have_cluster_plan_walker(struct Plan *plan, Node *GlobOrStmt, void *notUse);
 struct Path;
 extern bool path_tree_walker(struct Path *path, bool (*walker)(), void *context);
-#endif /* ADB */
+#endif
 
-#ifdef ADB_MULTI_GRAM
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
 /* not support PlannerInfo and RelOptInfo */
 extern bool node_tree_walker(Node *node, bool (*walker)(), void *context);
 extern Node *node_tree_mutator(Node *node, Node *(*mutator)(), void *context);
 extern Node *node_copy(Node *node);
+#endif
 
+#ifdef ADB_MULTI_GRAM
 extern bool get_parse_node_grammar(const Node *node, ParseGrammar *grammar);
-#endif /* ADB_MULTI_GRAM */
+#endif
 
 #endif							/* NODEFUNCS_H */

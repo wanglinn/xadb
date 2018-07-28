@@ -3180,7 +3180,7 @@ static AlterTableStmt *
 _copyAlterTableStmt(const AlterTableStmt *from)
 {
 	AlterTableStmt *newnode = makeNode(AlterTableStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	COPY_SCALAR_FIELD(grammar);
 #endif /* ADB */
 	COPY_NODE_FIELD(relation);
@@ -3349,7 +3349,7 @@ _copyCopyStmt(const CopyStmt *from)
 static void
 CopyCreateStmtFields(const CreateStmt *from, CreateStmt *newnode)
 {
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	COPY_SCALAR_FIELD(grammar);
 #endif /* ADB */
 	COPY_NODE_FIELD(relation);
@@ -3473,7 +3473,7 @@ static IndexStmt *
 _copyIndexStmt(const IndexStmt *from)
 {
 	IndexStmt  *newnode = makeNode(IndexStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	COPY_SCALAR_FIELD(grammar);
 #endif /* ADB */
 	COPY_STRING_FIELD(idxname);
@@ -3731,7 +3731,7 @@ static ViewStmt *
 _copyViewStmt(const ViewStmt *from)
 {
 	ViewStmt   *newnode = makeNode(ViewStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	COPY_SCALAR_FIELD(grammar);
 #endif
 	COPY_NODE_FIELD(view);
@@ -3881,7 +3881,7 @@ static CreateTableAsStmt *
 _copyCreateTableAsStmt(const CreateTableAsStmt *from)
 {
 	CreateTableAsStmt *newnode = makeNode(CreateTableAsStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	COPY_SCALAR_FIELD(grammar);
 #endif /* ADB */
 	COPY_NODE_FIELD(query);

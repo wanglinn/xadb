@@ -1839,7 +1839,7 @@ AlterTableStmt:
 			ALTER TABLE relation_expr alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->relation = $3;
@@ -1851,7 +1851,7 @@ AlterTableStmt:
 		|	ALTER TABLE IF_P EXISTS relation_expr alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->relation = $5;
@@ -1903,7 +1903,7 @@ AlterTableStmt:
 		|	ALTER INDEX qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->relation = $3;
@@ -1915,7 +1915,7 @@ AlterTableStmt:
 		|	ALTER INDEX IF_P EXISTS qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->relation = $5;
@@ -1949,7 +1949,7 @@ AlterTableStmt:
 		|	ALTER SEQUENCE qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->relation = $3;
@@ -1961,7 +1961,7 @@ AlterTableStmt:
 		|	ALTER SEQUENCE IF_P EXISTS qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->relation = $5;
@@ -1973,7 +1973,7 @@ AlterTableStmt:
 		|	ALTER VIEW qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->relation = $3;
@@ -1985,7 +1985,7 @@ AlterTableStmt:
 		|	ALTER VIEW IF_P EXISTS qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->relation = $5;
@@ -1997,7 +1997,7 @@ AlterTableStmt:
 		|	ALTER MATERIALIZED VIEW qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->relation = $4;
@@ -2009,7 +2009,7 @@ AlterTableStmt:
 		|	ALTER MATERIALIZED VIEW IF_P EXISTS qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->relation = $6;
@@ -3160,7 +3160,9 @@ CreateAuxStmt:	CREATE AUXILIARY TABLE opt_aux_name ON
 					CreateStmt *cs = makeNode(CreateStmt);
 					IndexStmt *is = (IndexStmt *) $9;
 
+#if defined(ADB_MULTI_GRAM)
 					cs->grammar = PARSE_GRAM_POSTGRES;
+#endif
 					cs->relation = $4;
 					cs->tableElts = NIL;		/* set when AnalyzeRewriteCreateAuxStmt */
 					cs->inhRelations = NIL;
@@ -3216,7 +3218,9 @@ OptIndex:	opt_unique INDEX opt_concurrently aux_opt_index_name
 				{
 					IndexStmt *n = makeNode(IndexStmt);
 
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
+#endif
 					n->unique = $1;
 					n->concurrent = $3;
 					n->idxname = $4;
@@ -3245,7 +3249,9 @@ OptIndex:	opt_unique INDEX opt_concurrently aux_opt_index_name
 				{
 					IndexStmt *n = makeNode(IndexStmt);
 
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
+#endif
 					n->unique = false;
 					n->concurrent = false;
 					n->idxname = NULL;
@@ -3287,7 +3293,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 /* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					$4->relpersistence = $2;
@@ -3320,7 +3326,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 /* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					$7->relpersistence = $2;
@@ -3353,7 +3359,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 /* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					$4->relpersistence = $2;
@@ -3382,7 +3388,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 /* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					$7->relpersistence = $2;
@@ -3411,7 +3417,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 /* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					$4->relpersistence = $2;
@@ -3445,7 +3451,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 /* ADB_END */
 				{
 					CreateStmt *n = makeNode(CreateStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					$7->relpersistence = $2;
@@ -4244,7 +4250,7 @@ CreateAsStmt:
 		CREATE OptTemp TABLE create_as_target AS SelectStmt opt_with_data
 				{
 					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					ctas->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					ctas->query = $6;
@@ -7529,7 +7535,7 @@ IndexStmt:	CREATE opt_unique INDEX opt_concurrently opt_index_name
 			opt_reloptions OptTableSpace where_clause
 				{
 					IndexStmt *n = makeNode(IndexStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->unique = $2;
@@ -10052,7 +10058,7 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 				AS SelectStmt opt_check_option
 				{
 					ViewStmt *n = makeNode(ViewStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->view = $4;
@@ -10068,7 +10074,7 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 				AS SelectStmt opt_check_option
 				{
 					ViewStmt *n = makeNode(ViewStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->view = $6;
@@ -10084,7 +10090,7 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 				AS SelectStmt opt_check_option
 				{
 					ViewStmt *n = makeNode(ViewStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->view = $5;
@@ -10105,7 +10111,7 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
 				AS SelectStmt opt_check_option
 				{
 					ViewStmt *n = makeNode(ViewStmt);
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 					n->grammar = PARSE_GRAM_POSTGRES;
 #endif /* ADB */
 					n->view = $7;

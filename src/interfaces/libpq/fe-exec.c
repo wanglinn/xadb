@@ -2159,7 +2159,7 @@ parseInput(PGconn *conn)
  *	 Return TRUE if PGASYNC_IDLE.
  */
 #ifdef ADB
-static int
+int
 PQisIdle(PGconn *conn)
 {
 	if (!conn)

@@ -224,12 +224,12 @@ static const datetkn deltatktbl[] = {
 	{"seconds", UNITS, DTK_SECOND},
 	{"secs", UNITS, DTK_SECOND},
 	{DTIMEZONE, UNITS, DTK_TZ}, /* "timezone" time offset */
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	{"timezone_a", UNITS, DTK_TZ_ABBR}, /* timezone abbreviations */
 #endif
 	{"timezone_h", UNITS, DTK_TZ_HOUR}, /* timezone hour units */
 	{"timezone_m", UNITS, DTK_TZ_MINUTE},	/* timezone minutes units */
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	{"timezone_r", UNITS, DTK_TZ_REGION}, /* timezone region */
 #endif
 	{"undefined", RESERV, DTK_INVALID}, /* pre-v6.1 invalid time */

@@ -1123,7 +1123,7 @@ _equalSetOperationStmt(const SetOperationStmt *a, const SetOperationStmt *b)
 static bool
 _equalAlterTableStmt(const AlterTableStmt *a, const AlterTableStmt *b)
 {
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	COMPARE_SCALAR_FIELD(grammar);
 #endif /* ADB */
 	COMPARE_NODE_FIELD(relation);
@@ -1269,7 +1269,7 @@ _equalCopyStmt(const CopyStmt *a, const CopyStmt *b)
 static bool
 _equalCreateStmt(const CreateStmt *a, const CreateStmt *b)
 {
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	COMPARE_SCALAR_FIELD(grammar);
 #endif /* ADB */
 	COMPARE_NODE_FIELD(relation);
@@ -1375,7 +1375,7 @@ _equalFetchStmt(const FetchStmt *a, const FetchStmt *b)
 static bool
 _equalIndexStmt(const IndexStmt *a, const IndexStmt *b)
 {
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	COMPARE_SCALAR_FIELD(grammar);
 #endif /* ADB */
 	COMPARE_STRING_FIELD(idxname);
@@ -1607,7 +1607,7 @@ _equalAlterEnumStmt(const AlterEnumStmt *a, const AlterEnumStmt *b)
 static bool
 _equalViewStmt(const ViewStmt *a, const ViewStmt *b)
 {
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	COMPARE_SCALAR_FIELD(grammar);
 #endif
 	COMPARE_NODE_FIELD(view);
@@ -1743,7 +1743,7 @@ _equalExplainStmt(const ExplainStmt *a, const ExplainStmt *b)
 static bool
 _equalCreateTableAsStmt(const CreateTableAsStmt *a, const CreateTableAsStmt *b)
 {
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	COMPARE_SCALAR_FIELD(grammar);
 #endif /* ADB */
 	COMPARE_NODE_FIELD(query);

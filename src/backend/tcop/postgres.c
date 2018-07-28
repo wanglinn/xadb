@@ -1257,7 +1257,11 @@ exec_simple_query(const char *query_string)
 #endif
 	}else
 	{
+#if defined(ADB_MULTI_GRAM)
 		parsetree_list = parse_query_auto_gram(query_string, &grammar);
+#else
+		parsetree_list = pg_parse_query(query_string);
+#endif
 	}
 #elif defined(ADBMGRD)
 	if(IsUnderPostmaster)
@@ -1832,7 +1836,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 		querytree_list = NIL;
 	}
 
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 	psrc->grammar = grammar;
 #endif
 
