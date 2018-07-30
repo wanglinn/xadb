@@ -3376,8 +3376,10 @@ DATA(insert OID = 2244 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 1042
 DESCR("maximum value of all bpchar input values");
 DATA(insert OID = 2797 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 27 "27" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("maximum value of all tid input values");
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 DATA(insert OID = 5299 (  max				ORANSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 9009 "9009" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
+#endif
+#ifdef ADB
 DATA(insert OID = 5404 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 336 "336" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("maximum value of all rid input values");
 #endif /* ADB */
@@ -3422,8 +3424,10 @@ DATA(insert OID = 2245 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 1042
 DESCR("minimum value of all bpchar input values");
 DATA(insert OID = 2798 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 27 "27" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("minimum value of all tid input values");
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 DATA(insert OID = 5297 (  min				ORANSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 9009 "9009" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
+#endif
+#ifdef ADB
 DATA(insert OID = 5298 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 336 "336" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("minimum value of all rid input values");
 #endif /* ADB */
