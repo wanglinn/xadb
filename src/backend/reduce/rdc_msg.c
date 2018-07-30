@@ -89,7 +89,7 @@ rdc_send_group_rqt(RdcPort *port, RdcMask *rdc_masks, int num)
 		mask = &(rdc_masks[i]);
 		Assert(mask);
 		Assert(mask->rdc_host[0]);
-		Assert(mask->rdc_port > 1024 && mask->rdc_port < 65535);
+		Assert(mask->rdc_port != 0);
 #ifdef DEBUG_ADB
 		elog(LOG,
 			 "[REDUCE " PORTID_FORMAT "] {%s:%d}",
