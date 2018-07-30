@@ -765,3 +765,14 @@ CREATE OR REPLACE FUNCTION oracle.mod(numeric, numeric)
 --ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
+/*
+ * Function: replace(text, text)
+ */
+CREATE OR REPLACE FUNCTION oracle.replace(text, text)
+    RETURNS text
+    AS $$select oracle.replace($1, $2, NULL);$$
+    LANGUAGE SQL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    CALLED ON NULL INPUT;
+
