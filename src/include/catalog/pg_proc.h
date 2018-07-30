@@ -5622,6 +5622,10 @@ DATA(insert OID = 5355 (  regexp_instr			ORANSP PGUID 12 1 0 0 0 f f f f t f i s
 DATA(insert OID = 5356 (  regexp_like			ORANSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 16 "25 25" _null_ _null_ _null_ _null_ _null_	ora_regexp_like2 _null_ _null_ _null_ ));
 DATA(insert OID = 5357 (  regexp_like			ORANSP PGUID 12 1 0 0 0 f f f f t f i s 3 0 16 "25 25 25" _null_ _null_ _null_ _null_ _null_	ora_regexp_like _null_ _null_ _null_ ));
 
+/* oracle replace */
+DATA(insert OID =  5405 ( replace				ORANSP PGUID 12 1 0 0 0 f f f f f f i s 3 0 25 "25 25 25" _null_ _null_ _null_ _null_ _null_	ora_replace_text _null_ _null_ _null_ ));
+DESCR("oracle replace all occurrences in string of old_substr with new_substr");
+
 /*
  * Oracle Conversion functions
  */
