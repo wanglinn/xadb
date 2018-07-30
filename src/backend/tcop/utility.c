@@ -5033,7 +5033,6 @@ DropStmtPreTreatment(DropStmt *stmt, const char *queryString, bool sentToRemote,
 				Relation    relation = NULL;
 
 				get_object_address(stmt->removeType,
-#warning TODO check argument objname
 								   objname,
 								   &relation,
 								   AccessExclusiveLock,

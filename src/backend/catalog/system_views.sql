@@ -934,16 +934,6 @@ REVOKE ALL ON pg_subscription FROM public;
 GRANT SELECT (subdbid, subname, subowner, subenabled, subslotname, subpublications)
     ON pg_subscription TO public;
 
---ADBONLY CREATE OR REPLACE VIEW dual ("DUMMY") AS
---ADBONLY 	SELECT
---ADBONLY 		'X'::varchar2(1);
-
---ADBONLY CREATE RULE insert_dual AS ON insert TO dual DO INSTEAD NOTHING;
---ADBONLY CREATE RULE update_dual AS ON update TO dual DO INSTEAD NOTHING;
---ADBONLY CREATE RULE delete_dual AS ON delete TO dual DO INSTEAD NOTHING;
-
---ADBONLY REVOKE ALL on dual FROM public;
-
 --
 -- We have a few function definitions in here, too.
 -- At some point there might be enough to justify breaking them out into

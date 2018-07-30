@@ -6,6 +6,15 @@
  *
  * src/backend/oraschema/oracle_views.sql
  */
+CREATE OR REPLACE VIEW pg_catalog.dual ("DUMMY") AS
+    SELECT
+        'X'::varchar2(1);
+
+CREATE RULE insert_dual AS ON insert TO pg_catalog.dual DO INSTEAD NOTHING;
+CREATE RULE update_dual AS ON update TO pg_catalog.dual DO INSTEAD NOTHING;
+CREATE RULE delete_dual AS ON delete TO pg_catalog.dual DO INSTEAD NOTHING;
+
+REVOKE ALL on pg_catalog.dual FROM public;
 
 CREATE OR REPLACE VIEW pg_catalog.all_constraints AS
     SELECT UPPER(con.table_schema) AS owner,
