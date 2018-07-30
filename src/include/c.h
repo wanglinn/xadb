@@ -101,6 +101,11 @@
 #include "pg_config_os.h"
 #endif
 
+#if defined(AGTM) || defined(ADBMGRD)
+#undef ADB_GRAM_ORA
+#undef ADB_MULTI_GRAM
+#endif
+
 /*
  * Force disable inlining if PG_FORCE_DISABLE_INLINE is defined. This is used
  * to work around compiler bugs and might also be useful for investigatory

@@ -29,8 +29,8 @@ SUBDIRS = \
 	makefiles \
 	test/regress \
 	test/perl
-ifeq ($(enable_cluster), yes)
-	SUBDIR += agtm adbmgrd
+ifeq ($(enable_cluster),yes)
+	SUBDIRS += agtm adbmgrd
 endif
 
 # There are too many interdependencies between the subdirectories, so

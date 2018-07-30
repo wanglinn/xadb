@@ -121,9 +121,14 @@ enum SysCacheIdentifier
 	TYPEOID,
 	USERMAPPINGOID,
 	USERMAPPINGUSERSERVER
-#if defined(ADB_GRAM_ORA)
+#ifdef ADB
+	#if defined(ADB_GRAM_ORA)
+		,ORACASTSOURCETARGET
+		#define SysCacheSize (ORACASTSOURCETARGET + 1)
+	#endif
+#elif defined(ADB_GRAM_ORA)
 	,ORACASTSOURCETARGET
-#define SysCacheSize (ORACASTSOURCETARGET + 1)
+	#define SysCacheSize (ORACASTSOURCETARGET + 1)
 #elif defined(ADBMGRD)
 	,HOSTHOSTNAME
 	,HOSTHOSTOID
