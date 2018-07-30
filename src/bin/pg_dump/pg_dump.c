@@ -18047,7 +18047,7 @@ dumpAdbmgrTable(Archive *fout)
 	PQExpBuffer delQry = createPQExpBuffer();
 	PQExpBuffer creaQry = createPQExpBuffer();
 	PQExpBuffer addstrdata = createPQExpBuffer();
-	PGconn *conn;
+	PGconn *conn pg_attribute_unused();
 	PGresult *res;
 	char *retstr;
 	int i = 0;

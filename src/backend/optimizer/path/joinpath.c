@@ -2398,7 +2398,7 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 	ListCell   *lc1;
 	int			resultRelation;
 	bool		nestjoinOK;
-	bool		useallclauses;
+	bool		useallclauses pg_attribute_unused(); /* when create merge join path we need this, for now just set attribute to unused */
 	bool		tried_join;
 
 	if ((outerrel->cluster_pathlist == NIL && innerrel->cluster_pathlist == NIL) ||
