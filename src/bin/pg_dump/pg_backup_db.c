@@ -12,6 +12,7 @@
 #include "postgres_fe.h"
 
 #include "dumputils.h"
+#include "fe_utils/connect.h"
 #include "fe_utils/string_utils.h"
 #include "parallel.h"
 #include "pg_backup_archiver.h"
@@ -117,6 +118,10 @@ ReconnectToServer(ArchiveHandle *AH, const char *dbname, const char *username)
 
 	PQfinish(AH->connection);
 	AH->connection = newConn;
+
+	/* Start strict; later phases may override this. */
+	PQclear(ExecuteSqlQueryForSingleRow((Archive *) AH,
+										ALWAYS_SECURE_SEARCH_PATH_SQL));
 
 	return 1;
 }
@@ -325,9 +330,8 @@ ConnectDatabase(Archive *AHX,
 	/*do nothing*/
 #else
 	/* Start strict; later phases may override this. */
-	if (PQserverVersion(AH->connection) >= 70300)
-		PQclear(ExecuteSqlQueryForSingleRow((Archive *) AH,
-											"SELECT pg_catalog.set_config('search_path', '', false)"));
+	PQclear(ExecuteSqlQueryForSingleRow((Archive *) AH,
+										ALWAYS_SECURE_SEARCH_PATH_SQL));
 #endif
 
 	/*

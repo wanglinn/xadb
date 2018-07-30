@@ -1,14 +1,13 @@
 # Russian message translation file for pg_rewind
 # Copyright (C) 2015-2016 PostgreSQL Global Development Group
 # This file is distributed under the same license as the PostgreSQL package.
-# Alexander Lakhin <exclusion@gmail.com>, 2015-2017.
-#
+# Alexander Lakhin <exclusion@gmail.com>, 2015-2017, 2018.
 msgid ""
 msgstr ""
 "Project-Id-Version: pg_rewind (PostgreSQL current)\n"
 "Report-Msgid-Bugs-To: pgsql-bugs@postgresql.org\n"
-"POT-Creation-Date: 2017-03-27 12:46+0000\n"
-"PO-Revision-Date: 2016-11-24 14:26+0300\n"
+"POT-Creation-Date: 2018-04-27 15:35+0300\n"
+"PO-Revision-Date: 2018-04-27 16:42+0300\n"
 "Last-Translator: Alexander Lakhin <exclusion@gmail.com>\n"
 "Language-Team: Russian <pgsql-ru-general@postgresql.org>\n"
 "Language: ru\n"
@@ -71,7 +70,7 @@ msgstr "%s: не удалось получить код выхода от под
 msgid "could not open directory \"%s\": %s\n"
 msgstr "не удалось открыть каталог \"%s\": %s\n"
 
-#: copy_fetch.c:91 filemap.c:111 filemap.c:266
+#: copy_fetch.c:91 filemap.c:112 filemap.c:267
 #, c-format
 msgid "could not stat file \"%s\": %s\n"
 msgstr "не удалось получить информацию о файле \"%s\": %s\n"
@@ -115,7 +114,7 @@ msgstr "не удалось открыть исходный файл \"%s\": %s\
 msgid "could not seek in source file: %s\n"
 msgstr "не удалось переместиться в исходном файле: %s\n"
 
-#: copy_fetch.c:190 file_ops.c:299
+#: copy_fetch.c:190 file_ops.c:307
 #, c-format
 msgid "could not read file \"%s\": %s\n"
 msgstr "не удалось прочитать файл \"%s\": %s\n"
@@ -135,97 +134,97 @@ msgstr "не удалось закрыть файл \"%s\": %s\n"
 msgid "  block %u\n"
 msgstr "  блок %u\n"
 
-#: file_ops.c:63
+#: file_ops.c:62
 #, c-format
 msgid "could not open target file \"%s\": %s\n"
 msgstr "не удалось открыть целевой файл \"%s\": %s\n"
 
-#: file_ops.c:77
+#: file_ops.c:76
 #, c-format
 msgid "could not close target file \"%s\": %s\n"
 msgstr "не удалось закрыть целевой файл \"%s\": %s\n"
 
-#: file_ops.c:97
+#: file_ops.c:96
 #, c-format
 msgid "could not seek in target file \"%s\": %s\n"
 msgstr "не удалось переместиться в целевом файле \"%s\": %s\n"
 
-#: file_ops.c:113
+#: file_ops.c:112
 #, c-format
 msgid "could not write file \"%s\": %s\n"
 msgstr "не удалось записать файл \"%s\": %s\n"
 
-#: file_ops.c:163
+#: file_ops.c:162
 #, c-format
 msgid "invalid action (CREATE) for regular file\n"
 msgstr "неверное действие (CREATE) для обычного файла\n"
 
-#: file_ops.c:178
+#: file_ops.c:185
 #, c-format
 msgid "could not remove file \"%s\": %s\n"
 msgstr "не удалось стереть файл \"%s\": %s\n"
 
-#: file_ops.c:195
+#: file_ops.c:203
 #, c-format
 msgid "could not open file \"%s\" for truncation: %s\n"
 msgstr "не удалось открыть файл \"%s\" для усечения: %s\n"
 
-#: file_ops.c:199
+#: file_ops.c:207
 #, c-format
 msgid "could not truncate file \"%s\" to %u: %s\n"
 msgstr "не удалось усечь файл \"%s\" до нужного размера (%u): %s\n"
 
-#: file_ops.c:215
+#: file_ops.c:223
 #, c-format
 msgid "could not create directory \"%s\": %s\n"
 msgstr "создать каталог \"%s\" не удалось: %s\n"
 
-#: file_ops.c:229
+#: file_ops.c:237
 #, c-format
 msgid "could not remove directory \"%s\": %s\n"
 msgstr "ошибка при удалении каталога \"%s\": %s\n"
 
-#: file_ops.c:243
+#: file_ops.c:251
 #, c-format
 msgid "could not create symbolic link at \"%s\": %s\n"
 msgstr "не удалось создать символическую ссылку \"%s\": %s\n"
 
-#: file_ops.c:257
+#: file_ops.c:265
 #, c-format
 msgid "could not remove symbolic link \"%s\": %s\n"
 msgstr "ошибка при удалении символической ссылки \"%s\": %s\n"
 
-#: file_ops.c:287 file_ops.c:291
+#: file_ops.c:295 file_ops.c:299
 #, c-format
 msgid "could not open file \"%s\" for reading: %s\n"
 msgstr "не удалось открыть файл \"%s\" для чтения: %s\n"
 
-#: filemap.c:103
+#: filemap.c:104
 #, c-format
 msgid "data file \"%s\" in source is not a regular file\n"
 msgstr "файл данных \"%s\" в источнике не является обычным файлом\n"
 
-#: filemap.c:125
+#: filemap.c:126
 #, c-format
 msgid "\"%s\" is not a directory\n"
 msgstr "\"%s\" не является каталогом\n"
 
-#: filemap.c:148
+#: filemap.c:149
 #, c-format
 msgid "\"%s\" is not a symbolic link\n"
 msgstr "\"%s\" не является символической ссылкой\n"
 
-#: filemap.c:160
+#: filemap.c:161
 #, c-format
 msgid "\"%s\" is not a regular file\n"
 msgstr "\"%s\" не является обычным файлом\n"
 
-#: filemap.c:278
+#: filemap.c:279
 #, c-format
 msgid "source file list is empty\n"
 msgstr "список файлов в источнике пуст\n"
 
-#: filemap.c:400
+#: filemap.c:401
 #, c-format
 msgid "unexpected page modification for directory or symbolic link \"%s\"\n"
 msgstr ""
@@ -233,88 +232,93 @@ msgstr ""
 "\"\n"
 
 #. translator: first %s is a file path, second is a keyword such as COPY
-#: filemap.c:536
+#: filemap.c:537
 #, c-format
 msgid "%s (%s)\n"
 msgstr "%s (%s)\n"
 
-#: libpq_fetch.c:55
+#: libpq_fetch.c:56
 #, c-format
 msgid "could not connect to server: %s"
 msgstr "не удалось подключиться к серверу: %s"
 
-#: libpq_fetch.c:58
+#: libpq_fetch.c:59
 #, c-format
 msgid "connected to server\n"
 msgstr "подключение к серверу установлено\n"
 
-#: libpq_fetch.c:68
+#: libpq_fetch.c:63
+#, c-format
+msgid "could not clear search_path: %s"
+msgstr "не удалось очистить search_path: %s"
+
+#: libpq_fetch.c:75
 #, c-format
 msgid "source server must not be in recovery mode\n"
 msgstr "исходный сервер должен быть в режиме восстановления\n"
 
-#: libpq_fetch.c:78
+#: libpq_fetch.c:85
 #, c-format
 msgid "full_page_writes must be enabled in the source server\n"
 msgstr "на исходном сервере должен быть включён режим full_page_writes\n"
 
-#: libpq_fetch.c:90
+#: libpq_fetch.c:97
 #, c-format
 msgid "could not set up connection context: %s"
 msgstr "не удалось настроить контекст подключения: %s"
 
-#: libpq_fetch.c:108
+#: libpq_fetch.c:115
 #, c-format
 msgid "error running query (%s) in source server: %s"
 msgstr "ошибка выполнения запроса (%s) на исходном сервере: %s"
 
-#: libpq_fetch.c:113
+#: libpq_fetch.c:120
 #, c-format
 msgid "unexpected result set from query\n"
 msgstr "неожиданный результат запроса\n"
 
-#: libpq_fetch.c:136
+#: libpq_fetch.c:143
 #, c-format
 msgid "unrecognized result \"%s\" for current WAL insert location\n"
 msgstr ""
 "нераспознанный результат \"%s\" вместо текущей позиции добавления в WAL\n"
 
-#: libpq_fetch.c:186
+#: libpq_fetch.c:193
 #, c-format
 msgid "could not fetch file list: %s"
 msgstr "не удалось получить список файлов: %s"
 
-#: libpq_fetch.c:191
+#: libpq_fetch.c:198
 #, c-format
 msgid "unexpected result set while fetching file list\n"
 msgstr "неожиданный результат при получении списка файлов\n"
 
-#: libpq_fetch.c:239
+#: libpq_fetch.c:268
 #, c-format
 msgid "could not send query: %s"
 msgstr "не удалось отправить запрос: %s"
 
-#: libpq_fetch.c:241
+#: libpq_fetch.c:270
 #, c-format
 msgid "getting file chunks\n"
 msgstr "получение сегментов файлов\n"
 
-#: libpq_fetch.c:244
+#: libpq_fetch.c:273
 #, c-format
 msgid "could not set libpq connection to single row mode\n"
 msgstr "не удалось перевести подключение libpq в однострочный режим\n"
 
-#: libpq_fetch.c:264
+#: libpq_fetch.c:294
 #, c-format
 msgid "unexpected result while fetching remote files: %s"
 msgstr "неожиданный результат при получении удалённых файлов: %s"
 
-#: libpq_fetch.c:270
+#: libpq_fetch.c:300
 #, c-format
 msgid "unexpected result set size while fetching remote files\n"
 msgstr "неожиданный размер набора результатов при получении удалённых файлов\n"
 
-#: libpq_fetch.c:276
+#: libpq_fetch.c:306
 #, c-format
 msgid ""
 "unexpected data types in result set while fetching remote files: %u %u %u\n"
@@ -322,68 +326,68 @@ msgstr ""
 "неожиданные типы данных в наборе результатов при получении удалённых файлов: "
 "%u %u %u\n"
 
-#: libpq_fetch.c:284
+#: libpq_fetch.c:314
 #, c-format
 msgid "unexpected result format while fetching remote files\n"
 msgstr "неожиданный формат результата при получении удалённых файлов\n"
 
-#: libpq_fetch.c:290
+#: libpq_fetch.c:320
 #, c-format
 msgid "unexpected null values in result while fetching remote files\n"
 msgstr ""
 "неожиданные значения NULL в результате при получении удалённых файлов\n"
 
-#: libpq_fetch.c:294
+#: libpq_fetch.c:324
 #, c-format
 msgid "unexpected result length while fetching remote files\n"
 msgstr "неожиданная длина результата при получении удалённых файлов\n"
 
-#: libpq_fetch.c:316
+#: libpq_fetch.c:349
 #, c-format
 msgid "received null value for chunk for file \"%s\", file has been deleted\n"
 msgstr "для файла \"%s\" вместо сегмента получено NULL-значение, файл удалён\n"
 
-#: libpq_fetch.c:323
+#: libpq_fetch.c:362
 #, c-format
-msgid "received chunk for file \"%s\", offset %d, size %d\n"
-msgstr "получен сегмент файла \"%s\": смещение %d, размер %d\n"
+msgid "received chunk for file \"%s\", offset %s, size %d\n"
+msgstr "получен сегмент файла \"%s\": смещение %s, размер %d\n"
 
-#: libpq_fetch.c:352
+#: libpq_fetch.c:391
 #, c-format
 msgid "could not fetch remote file \"%s\": %s"
 msgstr "не удалось получить удалённый файл \"%s\": %s"
 
-#: libpq_fetch.c:357
+#: libpq_fetch.c:396
 #, c-format
 msgid "unexpected result set while fetching remote file \"%s\"\n"
 msgstr "неожиданный набор результатов при получении удалённого файла \"%s\"\n"
 
-#: libpq_fetch.c:368
+#: libpq_fetch.c:407
 #, c-format
 msgid "fetched file \"%s\", length %d\n"
 msgstr "получен файл \"%s\", длина %d\n"
 
-#: libpq_fetch.c:400
+#: libpq_fetch.c:440
 #, c-format
 msgid "could not send COPY data: %s"
 msgstr "не удалось отправить данные COPY: %s"
 
-#: libpq_fetch.c:426
+#: libpq_fetch.c:466
 #, c-format
 msgid "could not create temporary table: %s"
 msgstr "не удалось создать временную таблицу: %s"
 
-#: libpq_fetch.c:434
+#: libpq_fetch.c:474
 #, c-format
 msgid "could not send file list: %s"
 msgstr "не удалось отправить список файлов: %s"
 
-#: libpq_fetch.c:476
+#: libpq_fetch.c:516
 #, c-format
 msgid "could not send end-of-COPY: %s"
 msgstr "не удалось отправить сообщение о завершении копирования: %s"
 
-#: libpq_fetch.c:482
+#: libpq_fetch.c:522
 #, c-format
 msgid "unexpected result while sending file list: %s"
 msgstr "неожиданный результат при передаче списка: %s"
@@ -571,8 +575,8 @@ msgstr "исходный и целевой кластер уже на одной
 
 #: pg_rewind.c:234
 #, c-format
-msgid "servers diverged at WAL position %X/%X on timeline %u\n"
-msgstr "Серверы разошлись в позиции WAL %X/%X на линии времени %u.\n"
+msgid "servers diverged at WAL location %X/%X on timeline %u\n"
+msgstr "серверы разошлись в позиции WAL %X/%X на линии времени %u\n"
 
 #: pg_rewind.c:271
 #, c-format
@@ -697,7 +701,7 @@ msgstr "неверная контрольная сумма управляюще�
 msgid "unexpected control file size %d, expected %d\n"
 msgstr "неверный размер управляющего файла (%d), ожидалось: %d\n"
 
-#: pg_rewind.c:696
+#: pg_rewind.c:705
 #, c-format
 msgid ""
 "The program \"initdb\" is needed by %s but was\n"
@@ -708,7 +712,7 @@ msgstr ""
 "в каталоге \"%s\".\n"
 "Проверьте правильность установки СУБД.\n"
 
-#: pg_rewind.c:700
+#: pg_rewind.c:709
 #, c-format
 msgid ""
 "The program \"initdb\" was found by \"%s\"\n"
@@ -719,7 +723,7 @@ msgstr ""
 "но её версия отличается от версии %s.\n"
 "Проверьте правильность установки СУБД.\n"
 
-#: pg_rewind.c:718
+#: pg_rewind.c:727
 #, c-format
 msgid "sync of target directory failed\n"
 msgstr "сбой синхронизации целевого каталога\n"
@@ -736,8 +740,8 @@ msgstr "Ожидается числовой идентификатор лини�
 
 #: timeline.c:83
 #, c-format
-msgid "Expected a transaction log switchpoint location.\n"
-msgstr "Ожидается положение точки переключения журнала транзакций.\n"
+msgid "Expected a write-ahead log switchpoint location.\n"
+msgstr "Ожидается положение точки переключения журнала предзаписи.\n"
 
 #: timeline.c:88
 #, c-format
@@ -917,12 +921,12 @@ msgstr ""
 msgid "invalid block_id %u at %X/%X"
 msgstr "неверный идентификатор блока %u в позиции %X/%X"
 
-#: xlogreader.c:1291
+#: xlogreader.c:1306
 #, c-format
 msgid "record with invalid length at %X/%X"
 msgstr "запись с неверной длиной в позиции %X/%X"
 
-#: xlogreader.c:1380
+#: xlogreader.c:1395
 #, c-format
 msgid "invalid compressed image at %X/%X, block %d"
 msgstr "неверный сжатый образ в позиции %X/%X, блок %d"

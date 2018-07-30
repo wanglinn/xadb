@@ -1663,6 +1663,30 @@ reset enable_seqscan;
 reset enable_indexscan;
 reset enable_bitmapscan;
 --
+-- Check handling of a constant-null CHECK constraint
+--
+create table cnullparent (f1 int);
+create table cnullchild (check (f1 = 1 or f1 = null)) inherits(cnullparent);
+insert into cnullchild values(1);
+insert into cnullchild values(2);
+insert into cnullchild values(null);
+select * from cnullparent;
+ f1 
+----
+  1
+  2
+   
+(3 rows)
+
+select * from cnullparent where f1 = 2;
+ f1 
+----
+  2
+(1 row)
+
+drop table cnullparent cascade;
+NOTICE:  drop cascades to table cnullchild
+--
 -- Check that constraint exclusion works correctly with partitions using
 -- implicit constraints generated from the partition bound information.
 --
@@ -1857,12 +1881,12 @@ drop table range_list_parted;
 -- check that constraint exclusion is able to cope with the partition
 -- constraint emitted for multi-column range partitioned tables
 create table mcrparted (a int, b int, c int) partition by range (a, abs(b), c);
-create table mcrparted0 partition of mcrparted for values from (minvalue, 0, 0) to (1, 1, 1);
+create table mcrparted0 partition of mcrparted for values from (minvalue, minvalue, minvalue) to (1, 1, 1);
 create table mcrparted1 partition of mcrparted for values from (1, 1, 1) to (10, 5, 10);
 create table mcrparted2 partition of mcrparted for values from (10, 5, 10) to (10, 10, 10);
 create table mcrparted3 partition of mcrparted for values from (11, 1, 1) to (20, 10, 10);
 create table mcrparted4 partition of mcrparted for values from (20, 10, 10) to (20, 20, 20);
-create table mcrparted5 partition of mcrparted for values from (20, 20, 20) to (maxvalue, 0, 0);
+create table mcrparted5 partition of mcrparted for values from (20, 20, 20) to (maxvalue, maxvalue, maxvalue);
 explain (costs off) select * from mcrparted where a = 0;	-- scans mcrparted0
           QUERY PLAN          
 ------------------------------

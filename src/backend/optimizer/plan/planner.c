@@ -521,6 +521,12 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		gather->invisible = (force_parallel_mode == FORCE_PARALLEL_REGRESS);
 
 		/*
+		 * Since this Gather has no parallel-aware descendants to signal to,
+		 * we don't need a rescan Param.
+		 */
+		gather->rescan_param = -1;
+
+		/*
 		 * Ideally we'd use cost_gather here, but setting up dummy path data
 		 * to satisfy it doesn't seem much cleaner than knowing what it does.
 		 */
@@ -930,6 +936,27 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	}
 
 	/*
+	 * Now that we are done preprocessing expressions, and in particular done
+	 * flattening join alias variables, get rid of the joinaliasvars lists.
+	 * They no longer match what expressions in the rest of the tree look
+	 * like, because we have not preprocessed expressions in those lists (and
+	 * do not want to; for example, expanding a SubLink there would result in
+	 * a useless unreferenced subplan).  Leaving them in place simply creates
+	 * a hazard for later scans of the tree.  We could try to prevent that by
+	 * using QTW_IGNORE_JOINALIASES in every tree scan done after this point,
+	 * but that doesn't sound very reliable.
+	 */
+	if (root->hasJoinRTEs)
+	{
+		foreach(l, parse->rtable)
+		{
+			RangeTblEntry *rte = lfirst_node(RangeTblEntry, l);
+
+			rte->joinaliasvars = NIL;
+		}
+	}
+
+	/*
 	 * In some cases we may want to transfer a HAVING clause into WHERE. We
 	 * cannot do so if the HAVING clause contains aggregates (obviously) or
 	 * volatile functions (since a HAVING clause is supposed to be executed
@@ -1055,11 +1082,12 @@ preprocess_expression(PlannerInfo *root, Node *expr, int kind)
 
 	/*
 	 * If the query has any join RTEs, replace join alias variables with
-	 * base-relation variables.  We must do this before sublink processing,
-	 * else sublinks expanded out from join aliases would not get processed.
-	 * We can skip it in non-lateral RTE functions, VALUES lists, and
-	 * TABLESAMPLE clauses, however, since they can't contain any Vars of the
-	 * current query level.
+	 * base-relation variables.  We must do this first, since any expressions
+	 * we may extract from the joinaliasvars lists have not been preprocessed.
+	 * For example, if we did this after sublink processing, sublinks expanded
+	 * out from join aliases would not get processed.  But we can skip this in
+	 * non-lateral RTE functions, VALUES lists, and TABLESAMPLE clauses, since
+	 * they can't contain any Vars of the current query level.
 	 */
 	if (root->hasJoinRTEs &&
 		!(kind == EXPRKIND_RTFUNC ||
@@ -1090,7 +1118,7 @@ preprocess_expression(PlannerInfo *root, Node *expr, int kind)
 	 */
 	if (kind == EXPRKIND_QUAL)
 	{
-		expr = (Node *) canonicalize_qual((Expr *) expr);
+		expr = (Node *) canonicalize_qual_ext((Expr *) expr, false);
 
 #ifdef OPTIMIZER_DEBUG
 		printf("After canonicalize_qual()\n");
@@ -1699,7 +1727,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				 double tuple_fraction)
 {
 	Query	   *parse = root->parse;
-	List	   *tlist = parse->targetList;
+	List	   *tlist;
 	int64		offset_est = 0;
 	int64		count_est = 0;
 	double		limit_tuples = -1.0;
@@ -1830,13 +1858,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		}
 
 		/* Preprocess targetlist */
-		tlist = preprocess_targetlist(root, tlist);
-
-		if (parse->onConflict)
-			parse->onConflict->onConflictSet =
-				preprocess_onconflict_targetlist(parse->onConflict->onConflictSet,
-												 parse->resultRelation,
-												 parse->rtable);
+		tlist = preprocess_targetlist(root);
 
 		/*
 		 * We are now done hacking up the query's targetlist.  Most of the
@@ -5068,7 +5090,28 @@ consider_groupingsets_paths(PlannerInfo *root,
 
 		Assert(can_hash);
 
-		if (pathkeys_contained_in(root->group_pathkeys, path->pathkeys))
+		/*
+		 * If the input is coincidentally sorted usefully (which can happen
+		 * even if is_sorted is false, since that only means that our caller
+		 * has set up the sorting for us), then save some hashtable space by
+		 * making use of that. But we need to watch out for degenerate cases:
+		 *
+		 * 1) If there are any empty grouping sets, then group_pathkeys might
+		 * be NIL if all non-empty grouping sets are unsortable. In this case,
+		 * there will be a rollup containing only empty groups, and the
+		 * pathkeys_contained_in test is vacuously true; this is ok.
+		 *
+		 * XXX: the above relies on the fact that group_pathkeys is generated
+		 * from the first rollup. If we add the ability to consider multiple
+		 * sort orders for grouping input, this assumption might fail.
+		 *
+		 * 2) If there are no empty sets and only unsortable sets, then the
+		 * rollups list will be empty (and thus l_start == NULL), and
+		 * group_pathkeys will be NIL; we must ensure that the vacuously-true
+		 * pathkeys_contain_in test doesn't cause us to crash.
+		 */
+		if (l_start != NULL &&
+			pathkeys_contained_in(root->group_pathkeys, path->pathkeys))
 		{
 			unhashed_rollup = lfirst(l_start);
 			exclude_groups = unhashed_rollup->numGroups;
@@ -7475,7 +7518,8 @@ plan_cluster_use_sort(Oid tableOid, Oid indexOid)
  *		Returns a list of the RT indexes of the partitioned child relations
  *		with rti as the root parent RT index.
  *
- * Note: Only call this function on RTEs known to be partitioned tables.
+ * Note: This function might get called even for range table entries that
+ * are not partitioned tables; in such a case, it will simply return NIL.
  */
 List *
 get_partitioned_child_rels(PlannerInfo *root, Index rti)
@@ -7493,9 +7537,6 @@ get_partitioned_child_rels(PlannerInfo *root, Index rti)
 			break;
 		}
 	}
-
-	/* The root partitioned table is included as a child rel */
-	Assert(list_length(result) >= 1);
 
 	return result;
 }

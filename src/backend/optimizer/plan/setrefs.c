@@ -1025,7 +1025,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 				 * following list contains the RT indexes of partitioned child
 				 * relations including the root, which are not included in the
 				 * above list.  We also keep RT indexes of the roots
-				 * separately to be identitied as such during the executor
+				 * separately to be identified as such during the executor
 				 * initialization.
 				 */
 				if (splan->partitioned_rels != NIL)
@@ -1933,8 +1933,8 @@ set_upper_references(PlannerInfo *root, Plan *plan, int rtoffset)
 		TargetEntry *tle = (TargetEntry *) lfirst(l);
 		Node	   *newexpr;
 
-		/* If it's a non-Var sort/group item, first try to match by sortref */
-		if (tle->ressortgroupref != 0 && !IsA(tle->expr, Var))
+		/* If it's a sort/group item, first try to match by sortref */
+		if (tle->ressortgroupref != 0)
 		{
 			newexpr = (Node *)
 				search_indexed_tlist_for_sortgroupref(tle->expr,
@@ -2295,7 +2295,6 @@ search_indexed_tlist_for_non_var(Expr *node,
 
 /*
  * search_indexed_tlist_for_sortgroupref --- find a sort/group expression
- *		(which is assumed not to be just a Var)
  *
  * If a match is found, return a Var constructed to reference the tlist item.
  * If no match, return NULL.

@@ -230,7 +230,8 @@ copy_executeFileMap(filemap_t *map)
 				break;
 
 			case FILE_ACTION_COPY_TAIL:
-				rewind_copy_file_range(entry->path, entry->oldsize, entry->newsize, false);
+				rewind_copy_file_range(entry->path, entry->oldsize,
+									   entry->newsize, false);
 				break;
 
 			case FILE_ACTION_CREATE:

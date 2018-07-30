@@ -710,6 +710,8 @@ typedef struct ColumnDef
 	Node	   *raw_default;	/* default value (untransformed parse tree) */
 	Node	   *cooked_default; /* default value (transformed expr tree) */
 	char		identity;		/* attidentity setting */
+	RangeVar   *identitySequence; /* to store identity sequence name for ALTER
+								   * TABLE ... ADD COLUMN */
 	CollateClause *collClause;	/* untransformed COLLATE spec, if any */
 	Oid			collOid;		/* collation OID (InvalidOid if not set) */
 	List	   *constraints;	/* other constraints on column */
@@ -735,6 +737,7 @@ typedef enum TableLikeOption
 	CREATE_TABLE_LIKE_INDEXES = 1 << 3,
 	CREATE_TABLE_LIKE_STORAGE = 1 << 4,
 	CREATE_TABLE_LIKE_COMMENTS = 1 << 5,
+	CREATE_TABLE_LIKE_STATISTICS = 1 << 6,
 	CREATE_TABLE_LIKE_ALL = PG_INT32_MAX
 } TableLikeOption;
 
@@ -1095,6 +1098,11 @@ typedef struct RangeTblEntry
 	 * from the catalogs if 'relid' was supplied, but we'd still need these
 	 * for TupleDesc-based ENRs, so we might as well always store the type
 	 * info here).
+	 *
+	 * For ENRs only, we have to consider the possibility of dropped columns.
+	 * A dropped column is included in these lists, but it will have zeroes in
+	 * all three lists (as well as an empty-string entry in eref).  Testing
+	 * for zero coltype is the standard way to detect a dropped column.
 	 */
 	List	   *coltypes;		/* OID list of column type OIDs */
 	List	   *coltypmods;		/* integer list of column typmods */

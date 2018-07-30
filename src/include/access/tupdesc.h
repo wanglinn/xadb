@@ -84,7 +84,6 @@ typedef struct tupleDesc
 /* Accessor for the i'th attribute of tupdesc. */
 #define TupleDescAttr(tupdesc, i) ((tupdesc)->attrs[(i)])
 
-
 extern TupleDesc CreateTemplateTupleDesc(int natts, bool hasoid);
 
 extern TupleDesc CreateTupleDesc(int natts, bool hasoid,

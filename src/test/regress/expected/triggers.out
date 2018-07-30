@@ -133,6 +133,32 @@ DROP TABLE fkeys2;
 -- select count(*) from dup17 where x = 13;
 --
 -- DROP TABLE dup17;
+-- Check behavior when trigger returns unmodified trigtuple
+create table trigtest (f1 int, f2 text);
+create trigger trigger_return_old
+	before insert or delete or update on trigtest
+	for each row execute procedure trigger_return_old();
+insert into trigtest values(1, 'foo');
+select * from trigtest;
+ f1 | f2  
+----+-----
+  1 | foo
+(1 row)
+
+update trigtest set f2 = f2 || 'bar';
+select * from trigtest;
+ f1 | f2  
+----+-----
+  1 | foo
+(1 row)
+
+delete from trigtest;
+select * from trigtest;
+ f1 | f2 
+----+----
+(0 rows)
+
+drop table trigtest;
 create sequence ttdummy_seq increment 10 start 0 minvalue 0;
 create table tttest (
     id          int4,
@@ -392,9 +418,9 @@ SELECT pg_get_triggerdef(oid, true) FROM pg_trigger WHERE tgrelid = 'main_table'
 (1 row)
 
 SELECT pg_get_triggerdef(oid, false) FROM pg_trigger WHERE tgrelid = 'main_table'::regclass AND tgname = 'modified_a';
-                                                              pg_get_triggerdef                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------
- CREATE TRIGGER modified_a BEFORE UPDATE OF a ON main_table FOR EACH ROW WHEN ((old.a <> new.a)) EXECUTE PROCEDURE trigger_func('modified_a')
+                                                                  pg_get_triggerdef                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ CREATE TRIGGER modified_a BEFORE UPDATE OF a ON public.main_table FOR EACH ROW WHEN ((old.a <> new.a)) EXECUTE PROCEDURE trigger_func('modified_a')
 (1 row)
 
 SELECT pg_get_triggerdef(oid, true) FROM pg_trigger WHERE tgrelid = 'main_table'::regclass AND tgname = 'modified_any';
@@ -422,9 +448,9 @@ FOR EACH STATEMENT EXECUTE PROCEDURE trigger_func('before_upd_a_stmt');
 CREATE TRIGGER after_upd_b_stmt_trig AFTER UPDATE OF b ON main_table
 FOR EACH STATEMENT EXECUTE PROCEDURE trigger_func('after_upd_b_stmt');
 SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid = 'main_table'::regclass AND tgname = 'after_upd_a_b_row_trig';
-                                                             pg_get_triggerdef                                                             
--------------------------------------------------------------------------------------------------------------------------------------------
- CREATE TRIGGER after_upd_a_b_row_trig AFTER UPDATE OF a, b ON main_table FOR EACH ROW EXECUTE PROCEDURE trigger_func('after_upd_a_b_row')
+                                                                pg_get_triggerdef                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ CREATE TRIGGER after_upd_a_b_row_trig AFTER UPDATE OF a, b ON public.main_table FOR EACH ROW EXECUTE PROCEDURE trigger_func('after_upd_a_b_row')
 (1 row)
 
 UPDATE main_table SET a = 50;
@@ -2218,6 +2244,23 @@ with wcte as (insert into table1 values (42))
   insert into table2 values ('hello world');
 NOTICE:  trigger = table2_trig, new table = ("hello world")
 NOTICE:  trigger = table1_trig, new table = (42)
+with wcte as (insert into table1 values (43))
+  insert into table1 values (44);
+NOTICE:  trigger = table1_trig, new table = (43), (44)
+select * from table1;
+ a  
+----
+ 42
+ 44
+ 43
+(3 rows)
+
+select * from table2;
+      a      
+-------------
+ hello world
+(1 row)
+
 drop table table1;
 drop table table2;
 --
@@ -2256,8 +2299,103 @@ NOTICE:  trigger = my_table_insert_trig, new table = <NULL>
 create trigger my_table_multievent_trig
   after insert or update on my_table referencing new table as new_table
   for each statement execute procedure dump_insert();
-ERROR:  Transition tables cannot be specified for triggers with more than one event
+ERROR:  transition tables cannot be specified for triggers with more than one event
+--
+-- Verify that you can't create a trigger with transition tables with
+-- a column list.
+--
+create trigger my_table_col_update_trig
+  after update of b on my_table referencing new table as new_table
+  for each statement execute procedure dump_insert();
+ERROR:  transition tables cannot be specified for triggers with column lists
 drop table my_table;
+--
+-- Test firing of triggers with transition tables by foreign key cascades
+--
+create table refd_table (a int primary key, b text);
+create table trig_table (a int, b text,
+  foreign key (a) references refd_table on update cascade on delete cascade
+);
+create trigger trig_table_before_trig
+  before insert or update or delete on trig_table
+  for each statement execute procedure trigger_func('trig_table');
+create trigger trig_table_insert_trig
+  after insert on trig_table referencing new table as new_table
+  for each statement execute procedure dump_insert();
+create trigger trig_table_update_trig
+  after update on trig_table referencing old table as old_table new table as new_table
+  for each statement execute procedure dump_update();
+create trigger trig_table_delete_trig
+  after delete on trig_table referencing old table as old_table
+  for each statement execute procedure dump_delete();
+insert into refd_table values
+  (1, 'one'),
+  (2, 'two'),
+  (3, 'three');
+insert into trig_table values
+  (1, 'one a'),
+  (1, 'one b'),
+  (2, 'two a'),
+  (2, 'two b'),
+  (3, 'three a'),
+  (3, 'three b');
+NOTICE:  trigger_func(trig_table) called: action = INSERT, when = BEFORE, level = STATEMENT
+NOTICE:  trigger = trig_table_insert_trig, new table = (1,"one a"), (1,"one b"), (2,"two a"), (2,"two b"), (3,"three a"), (3,"three b")
+update refd_table set a = 11 where b = 'one';
+NOTICE:  trigger_func(trig_table) called: action = UPDATE, when = BEFORE, level = STATEMENT
+NOTICE:  trigger = trig_table_update_trig, old table = (1,"one a"), (1,"one b"), new table = (11,"one a"), (11,"one b")
+select * from trig_table;
+ a  |    b    
+----+---------
+  2 | two a
+  2 | two b
+  3 | three a
+  3 | three b
+ 11 | one a
+ 11 | one b
+(6 rows)
+
+delete from refd_table where length(b) = 3;
+NOTICE:  trigger_func(trig_table) called: action = DELETE, when = BEFORE, level = STATEMENT
+NOTICE:  trigger = trig_table_delete_trig, old table = (2,"two a"), (2,"two b"), (11,"one a"), (11,"one b")
+select * from trig_table;
+ a |    b    
+---+---------
+ 3 | three a
+ 3 | three b
+(2 rows)
+
+drop table refd_table, trig_table;
+--
+-- self-referential FKs are even more fun
+--
+create table self_ref (a int primary key,
+                       b int references self_ref(a) on delete cascade);
+create trigger self_ref_before_trig
+  before delete on self_ref
+  for each statement execute procedure trigger_func('self_ref');
+create trigger self_ref_r_trig
+  after delete on self_ref referencing old table as old_table
+  for each row execute procedure dump_delete();
+create trigger self_ref_s_trig
+  after delete on self_ref referencing old table as old_table
+  for each statement execute procedure dump_delete();
+insert into self_ref values (1, null), (2, 1), (3, 2);
+delete from self_ref where a = 1;
+NOTICE:  trigger_func(self_ref) called: action = DELETE, when = BEFORE, level = STATEMENT
+NOTICE:  trigger = self_ref_r_trig, old table = (1,), (2,1)
+NOTICE:  trigger_func(self_ref) called: action = DELETE, when = BEFORE, level = STATEMENT
+NOTICE:  trigger = self_ref_r_trig, old table = (1,), (2,1)
+NOTICE:  trigger = self_ref_s_trig, old table = (1,), (2,1)
+NOTICE:  trigger = self_ref_r_trig, old table = (3,2)
+NOTICE:  trigger = self_ref_s_trig, old table = (3,2)
+-- without AR trigger, cascaded deletes all end up in one transition table
+drop trigger self_ref_r_trig on self_ref;
+insert into self_ref values (1, null), (2, 1), (3, 2), (4, 3);
+delete from self_ref where a = 1;
+NOTICE:  trigger_func(self_ref) called: action = DELETE, when = BEFORE, level = STATEMENT
+NOTICE:  trigger = self_ref_s_trig, old table = (1,), (2,1), (3,2), (4,3)
+drop table self_ref;
 -- cleanup
 drop function dump_insert();
 drop function dump_update();

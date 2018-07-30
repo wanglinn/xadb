@@ -280,37 +280,42 @@ drop table mlparted5;
 create table key_desc (a int, b int) partition by list ((a+0));
 create table key_desc_1 partition of key_desc for values in (1) partition by range (b);
 
-create user someone_else;
-grant select (a) on key_desc_1 to someone_else;
-grant insert on key_desc to someone_else;
+create user regress_insert_other_user;
+grant select (a) on key_desc_1 to regress_insert_other_user;
+grant insert on key_desc to regress_insert_other_user;
 
-set role someone_else;
+set role regress_insert_other_user;
 -- no key description is shown
 insert into key_desc values (1, 1);
 
 reset role;
-grant select (b) on key_desc_1 to someone_else;
-set role someone_else;
+grant select (b) on key_desc_1 to regress_insert_other_user;
+set role regress_insert_other_user;
 -- key description (b)=(1) is now shown
 insert into key_desc values (1, 1);
 
 -- key description is not shown if key contains expression
 insert into key_desc values (2, 1);
 reset role;
-revoke all on key_desc from someone_else;
-revoke all on key_desc_1 from someone_else;
-drop role someone_else;
+revoke all on key_desc from regress_insert_other_user;
+revoke all on key_desc_1 from regress_insert_other_user;
+drop role regress_insert_other_user;
 drop table key_desc, key_desc_1;
+
+-- test minvalue/maxvalue restrictions
+create table mcrparted (a int, b int, c int) partition by range (a, abs(b), c);
+create table mcrparted0 partition of mcrparted for values from (minvalue, 0, 0) to (1, maxvalue, maxvalue);
+create table mcrparted2 partition of mcrparted for values from (10, 6, minvalue) to (10, maxvalue, minvalue);
+create table mcrparted4 partition of mcrparted for values from (21, minvalue, 0) to (30, 20, minvalue);
 
 -- check multi-column range partitioning expression enforces the same
 -- constraint as what tuple-routing would determine it to be
-create table mcrparted (a int, b int, c int) partition by range (a, abs(b), c);
-create table mcrparted0 partition of mcrparted for values from (minvalue, 0, 0) to (1, maxvalue, 0);
+create table mcrparted0 partition of mcrparted for values from (minvalue, minvalue, minvalue) to (1, maxvalue, maxvalue);
 create table mcrparted1 partition of mcrparted for values from (2, 1, minvalue) to (10, 5, 10);
-create table mcrparted2 partition of mcrparted for values from (10, 6, minvalue) to (10, maxvalue, 0);
+create table mcrparted2 partition of mcrparted for values from (10, 6, minvalue) to (10, maxvalue, maxvalue);
 create table mcrparted3 partition of mcrparted for values from (11, 1, 1) to (20, 10, 10);
-create table mcrparted4 partition of mcrparted for values from (21, minvalue, 0) to (30, 20, maxvalue);
-create table mcrparted5 partition of mcrparted for values from (30, 21, 20) to (maxvalue, 0, 0);
+create table mcrparted4 partition of mcrparted for values from (21, minvalue, minvalue) to (30, 20, maxvalue);
+create table mcrparted5 partition of mcrparted for values from (30, 21, 20) to (maxvalue, maxvalue, maxvalue);
 
 -- routed to mcrparted0
 insert into mcrparted values (0, 1, 1);
@@ -373,16 +378,39 @@ drop table inserttest3;
 drop table brtrigpartcon;
 drop function brtrigpartcon1trigf();
 
+-- check that "do nothing" BR triggers work with tuple-routing (this checks
+-- that estate->es_result_relation_info is appropriately set/reset for each
+-- routed tuple)
+create table donothingbrtrig_test (a int, b text) partition by list (a);
+create table donothingbrtrig_test1 (b text, a int);
+create table donothingbrtrig_test2 (c text, b text, a int);
+alter table donothingbrtrig_test2 drop column c;
+create or replace function donothingbrtrig_func() returns trigger as $$begin raise notice 'b: %', new.b; return NULL; end$$ language plpgsql;
+create trigger donothingbrtrig1 before insert on donothingbrtrig_test1 for each row execute procedure donothingbrtrig_func();
+create trigger donothingbrtrig2 before insert on donothingbrtrig_test2 for each row execute procedure donothingbrtrig_func();
+alter table donothingbrtrig_test attach partition donothingbrtrig_test1 for values in (1);
+alter table donothingbrtrig_test attach partition donothingbrtrig_test2 for values in (2);
+insert into donothingbrtrig_test values (1, 'foo'), (2, 'bar');
+copy donothingbrtrig_test from stdout;
+1	baz
+2	qux
+\.
+select tableoid::regclass, * from donothingbrtrig_test;
+
+-- cleanup
+drop table donothingbrtrig_test;
+drop function donothingbrtrig_func();
+
 -- check multi-column range partitioning with minvalue/maxvalue constraints
 create table mcrparted (a text, b int) partition by range(a, b);
-create table mcrparted1_lt_b partition of mcrparted for values from (minvalue, 0) to ('b', minvalue);
+create table mcrparted1_lt_b partition of mcrparted for values from (minvalue, minvalue) to ('b', minvalue);
 create table mcrparted2_b partition of mcrparted for values from ('b', minvalue) to ('c', minvalue);
 create table mcrparted3_c_to_common partition of mcrparted for values from ('c', minvalue) to ('common', minvalue);
 create table mcrparted4_common_lt_0 partition of mcrparted for values from ('common', minvalue) to ('common', 0);
 create table mcrparted5_common_0_to_10 partition of mcrparted for values from ('common', 0) to ('common', 10);
 create table mcrparted6_common_ge_10 partition of mcrparted for values from ('common', 10) to ('common', maxvalue);
 create table mcrparted7_gt_common_lt_d partition of mcrparted for values from ('common', maxvalue) to ('d', minvalue);
-create table mcrparted8_ge_d partition of mcrparted for values from ('d', minvalue) to (maxvalue, 0);
+create table mcrparted8_ge_d partition of mcrparted for values from ('d', minvalue) to (maxvalue, maxvalue);
 
 \d+ mcrparted
 \d+ mcrparted1_lt_b

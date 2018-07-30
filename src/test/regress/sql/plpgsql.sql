@@ -4678,14 +4678,14 @@ CREATE FUNCTION transition_table_level2_bad_usage_func()
   LANGUAGE plpgsql
 AS $$
   BEGIN
-    INSERT INTO d VALUES (1000000, 1000000, 'x');
+    INSERT INTO dx VALUES (1000000, 1000000, 'x');
     RETURN NULL;
   END;
 $$;
 
 CREATE TRIGGER transition_table_level2_bad_usage_trigger
   AFTER DELETE ON transition_table_level2
-  REFERENCING OLD TABLE AS d
+  REFERENCING OLD TABLE AS dx
   FOR EACH STATEMENT EXECUTE PROCEDURE
     transition_table_level2_bad_usage_func();
 
@@ -4772,6 +4772,32 @@ ALTER TABLE alter_table_under_transition_tables
   DROP column name;
 UPDATE alter_table_under_transition_tables
   SET id = id;
+
+--
+-- Test multiple reference to a transition table
+--
+
+CREATE TABLE multi_test (i int);
+INSERT INTO multi_test VALUES (1);
+
+CREATE OR REPLACE FUNCTION multi_test_trig() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE NOTICE 'count = %', (SELECT COUNT(*) FROM new_test);
+    RAISE NOTICE 'count union = %',
+      (SELECT COUNT(*)
+       FROM (SELECT * FROM new_test UNION ALL SELECT * FROM new_test) ss);
+    RETURN NULL;
+END$$;
+
+CREATE TRIGGER my_trigger AFTER UPDATE ON multi_test
+  REFERENCING NEW TABLE AS new_test OLD TABLE as old_test
+  FOR EACH STATEMENT EXECUTE PROCEDURE multi_test_trig();
+
+UPDATE multi_test SET i = i;
+
+DROP TABLE multi_test;
+DROP FUNCTION multi_test_trig();
 
 --
 -- Check type parsing and record fetching from partitioned tables

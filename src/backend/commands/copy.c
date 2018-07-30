@@ -1569,59 +1569,6 @@ BeginCopy(ParseState *pstate,
 					(errcode(ERRCODE_UNDEFINED_COLUMN),
 					 errmsg("table \"%s\" does not have OIDs",
 							RelationGetRelationName(cstate->rel))));
-
-		/*
-		 * If there are any triggers with transition tables on the named
-		 * relation, we need to be prepared to capture transition tuples.
-		 */
-		cstate->transition_capture = MakeTransitionCaptureState(rel->trigdesc);
-
-		/* Initialize state for CopyFrom tuple routing. */
-		if (is_from && rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
-		{
-			PartitionDispatch *partition_dispatch_info;
-			ResultRelInfo *partitions;
-			TupleConversionMap **partition_tupconv_maps;
-			TupleTableSlot *partition_tuple_slot;
-			int			num_parted,
-						num_partitions;
-
-			ExecSetupPartitionTupleRouting(rel,
-										   1,
-										   &partition_dispatch_info,
-										   &partitions,
-										   &partition_tupconv_maps,
-										   &partition_tuple_slot,
-										   &num_parted, &num_partitions);
-			cstate->partition_dispatch_info = partition_dispatch_info;
-			cstate->num_dispatch = num_parted;
-			cstate->partitions = partitions;
-			cstate->num_partitions = num_partitions;
-			cstate->partition_tupconv_maps = partition_tupconv_maps;
-			cstate->partition_tuple_slot = partition_tuple_slot;
-
-			/*
-			 * If we are capturing transition tuples, they may need to be
-			 * converted from partition format back to partitioned table
-			 * format (this is only ever necessary if a BEFORE trigger
-			 * modifies the tuple).
-			 */
-			if (cstate->transition_capture != NULL)
-			{
-				int			i;
-
-				cstate->transition_tupconv_maps = (TupleConversionMap **)
-					palloc0(sizeof(TupleConversionMap *) *
-							cstate->num_partitions);
-				for (i = 0; i < cstate->num_partitions; ++i)
-				{
-					cstate->transition_tupconv_maps[i] =
-						convert_tuples_by_name(RelationGetDescr(cstate->partitions[i].ri_RelationDesc),
-											   RelationGetDescr(rel),
-											   gettext_noop("could not convert row type"));
-				}
-			}
-		}
 	}
 	else
 	{
@@ -2043,7 +1990,16 @@ BeginCopyTo(ParseState *pstate,
 						 errmsg("relative path not allowed for COPY to file")));
 
 			oumask = umask(S_IWGRP | S_IWOTH);
-			cstate->copy_file = AllocateFile(cstate->filename, PG_BINARY_W);
+			PG_TRY();
+			{
+				cstate->copy_file = AllocateFile(cstate->filename, PG_BINARY_W);
+			}
+			PG_CATCH();
+			{
+				umask(oumask);
+				PG_RE_THROW();
+			}
+			PG_END_TRY();
 			umask(oumask);
 			if (cstate->copy_file == NULL)
 			{
@@ -2612,13 +2568,25 @@ CopyFrom(CopyState cstate)
 	/*
 	 * Optimize if new relfilenode was created in this subxact or one of its
 	 * committed children and we won't see those rows later as part of an
-	 * earlier scan or command. This ensures that if this subtransaction
-	 * aborts then the frozen rows won't be visible after xact cleanup. Note
+	 * earlier scan or command. The subxact test ensures that if this subxact
+	 * aborts then the frozen rows won't be visible after xact cleanup.  Note
 	 * that the stronger test of exactly which subtransaction created it is
-	 * crucial for correctness of this optimization.
+	 * crucial for correctness of this optimization. The test for an earlier
+	 * scan or command tolerates false negatives. FREEZE causes other sessions
+	 * to see rows they would not see under MVCC, and a false negative merely
+	 * spreads that anomaly to the current session.
 	 */
 	if (cstate->freeze)
 	{
+		/*
+		 * Tolerate one registration for the benefit of FirstXactSnapshot.
+		 * Scan-bearing queries generally create at least two registrations,
+		 * though relying on that is fragile, as is ignoring ActiveSnapshot.
+		 * Clear CatalogSnapshot to avoid counting its registration.  We'll
+		 * still detect ongoing catalog scans, each of which separately
+		 * registers the snapshot it uses.
+		 */
+		InvalidateCatalogSnapshot();
 		if (!ThereAreNoPriorRegisteredSnapshots() || !ThereAreNoReadyPortals())
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_TRANSACTION_STATE),
@@ -2671,6 +2639,68 @@ CopyFrom(CopyState cstate)
 		cstate->func_data = myslot;
 #endif /* ADB */
 
+	/* Prepare to catch AFTER triggers. */
+	AfterTriggerBeginQuery();
+
+	/*
+	 * If there are any triggers with transition tables on the named relation,
+	 * we need to be prepared to capture transition tuples.
+	 */
+	cstate->transition_capture =
+		MakeTransitionCaptureState(cstate->rel->trigdesc,
+								   RelationGetRelid(cstate->rel),
+								   CMD_INSERT);
+
+	/*
+	 * If the named relation is a partitioned table, initialize state for
+	 * CopyFrom tuple routing.
+	 */
+	if (cstate->rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
+	{
+		PartitionDispatch *partition_dispatch_info;
+		ResultRelInfo *partitions;
+		TupleConversionMap **partition_tupconv_maps;
+		TupleTableSlot *partition_tuple_slot;
+		int			num_parted,
+					num_partitions;
+
+		ExecSetupPartitionTupleRouting(cstate->rel,
+									   1,
+									   estate,
+									   &partition_dispatch_info,
+									   &partitions,
+									   &partition_tupconv_maps,
+									   &partition_tuple_slot,
+									   &num_parted, &num_partitions);
+		cstate->partition_dispatch_info = partition_dispatch_info;
+		cstate->num_dispatch = num_parted;
+		cstate->partitions = partitions;
+		cstate->num_partitions = num_partitions;
+		cstate->partition_tupconv_maps = partition_tupconv_maps;
+		cstate->partition_tuple_slot = partition_tuple_slot;
+
+		/*
+		 * If we are capturing transition tuples, they may need to be
+		 * converted from partition format back to partitioned table format
+		 * (this is only ever necessary if a BEFORE trigger modifies the
+		 * tuple).
+		 */
+		if (cstate->transition_capture != NULL)
+		{
+			int			i;
+
+			cstate->transition_tupconv_maps = (TupleConversionMap **)
+				palloc0(sizeof(TupleConversionMap *) * cstate->num_partitions);
+			for (i = 0; i < cstate->num_partitions; ++i)
+			{
+				cstate->transition_tupconv_maps[i] =
+					convert_tuples_by_name(RelationGetDescr(cstate->partitions[i].ri_RelationDesc),
+										   RelationGetDescr(cstate->rel),
+										   gettext_noop("could not convert row type"));
+			}
+		}
+	}
+
 	/*
 	 * It's more efficient to prepare a bunch of tuples for insertion, and
 	 * insert them in one heap_multi_insert() call, than call heap_insert()
@@ -2694,9 +2724,6 @@ CopyFrom(CopyState cstate)
 		useHeapMultiInsert = true;
 		bufferedTuples = palloc(MAX_BUFFERED_TUPLES * sizeof(HeapTuple));
 	}
-
-	/* Prepare to catch AFTER triggers. */
-	AfterTriggerBeginQuery();
 
 	/*
 	 * Check BEFORE STATEMENT insertion triggers. It's debatable whether we
@@ -2839,13 +2866,12 @@ CopyFrom(CopyState cstate)
 			if (cstate->transition_capture != NULL)
 			{
 				if (resultRelInfo->ri_TrigDesc &&
-					(resultRelInfo->ri_TrigDesc->trig_insert_before_row ||
-					 resultRelInfo->ri_TrigDesc->trig_insert_instead_row))
+					resultRelInfo->ri_TrigDesc->trig_insert_before_row)
 				{
 					/*
-					 * If there are any BEFORE or INSTEAD triggers on the
-					 * partition, we'll have to be ready to convert their
-					 * result back to tuplestore format.
+					 * If there are any BEFORE triggers on the partition,
+					 * we'll have to be ready to convert their result back to
+					 * tuplestore format.
 					 */
 					cstate->transition_capture->tcs_original_insert_tuple = NULL;
 					cstate->transition_capture->tcs_map =
@@ -2928,7 +2954,8 @@ CopyFrom(CopyState cstate)
 					check_partition_constr = false;
 
 				/* Check the constraints of the tuple */
-				if (cstate->rel->rd_att->constr || check_partition_constr)
+				if (resultRelInfo->ri_RelationDesc->rd_att->constr ||
+					check_partition_constr)
 					ExecConstraints(resultRelInfo, slot, estate);
 
 				if (useHeapMultiInsert)
@@ -2986,12 +3013,13 @@ CopyFrom(CopyState cstate)
 			 * tuples inserted by an INSERT command.
 			 */
 			processed++;
+		}
 
-			if (saved_resultRelInfo)
-			{
-				resultRelInfo = saved_resultRelInfo;
-				estate->es_result_relation_info = resultRelInfo;
-			}
+		/* Restore the saved ResultRelInfo */
+		if (saved_resultRelInfo)
+		{
+			resultRelInfo = saved_resultRelInfo;
+			estate->es_result_relation_info = resultRelInfo;
 		}
 	}
 

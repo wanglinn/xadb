@@ -2180,6 +2180,7 @@ _readGather(void)
 	ReadCommonPlan(&local_node->plan);
 
 	READ_INT_FIELD(num_workers);
+	READ_INT_FIELD(rescan_param);
 	READ_BOOL_FIELD(single_copy);
 	READ_BOOL_FIELD(invisible);
 
@@ -2197,6 +2198,7 @@ _readGatherMerge(void)
 	ReadCommonPlan(&local_node->plan);
 
 	READ_INT_FIELD(num_workers);
+	READ_INT_FIELD(rescan_param);
 	READ_INT_FIELD(numCols);
 	READ_ATTRNUMBER_ARRAY(sortColIdx, local_node->numCols);
 	READ_OID_ARRAY(sortOperators, local_node->numCols);

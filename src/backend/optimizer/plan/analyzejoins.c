@@ -253,8 +253,7 @@ join_is_removable(PlannerInfo *root, SpecialJoinInfo *sjinfo)
 		 * above the outer join, even if it references no other rels (it might
 		 * be from WHERE, for example).
 		 */
-		if (restrictinfo->is_pushed_down ||
-			!bms_equal(restrictinfo->required_relids, joinrelids))
+		if (RINFO_IS_PUSHED_DOWN(restrictinfo, joinrelids))
 		{
 			/*
 			 * If such a clause actually references the inner rel then join
@@ -422,8 +421,7 @@ remove_rel_from_query(PlannerInfo *root, int relid, Relids joinrelids)
 
 		remove_join_clause_from_rels(root, rinfo, rinfo->required_relids);
 
-		if (rinfo->is_pushed_down ||
-			!bms_equal(rinfo->required_relids, joinrelids))
+		if (RINFO_IS_PUSHED_DOWN(rinfo, joinrelids))
 		{
 			/* Recheck that qual doesn't actually reference the target rel */
 			Assert(!bms_is_member(relid, rinfo->clause_relids));
@@ -704,6 +702,14 @@ rel_is_distinct_for(PlannerInfo *root, RelOptInfo *rel, List *clause_list)
 				var = (Var *) get_leftop(rinfo->clause);
 
 			/*
+			 * We may ignore any RelabelType node above the operand.  (There
+			 * won't be more than one, since eval_const_expressions() has been
+			 * applied already.)
+			 */
+			if (var && IsA(var, RelabelType))
+				var = (Var *) ((RelabelType *) var)->arg;
+
+			/*
 			 * If inner side isn't a Var referencing a subquery output column,
 			 * this clause doesn't help us.
 			 */
@@ -736,8 +742,8 @@ rel_is_distinct_for(PlannerInfo *root, RelOptInfo *rel, List *clause_list)
 bool
 query_supports_distinctness(Query *query)
 {
-	/* we don't cope with SRFs, see comment below */
-	if (query->hasTargetSRFs)
+	/* SRFs break distinctness except with DISTINCT, see below */
+	if (query->hasTargetSRFs && query->distinctClause == NIL)
 		return false;
 
 	/* check for features we can prove distinctness with */
@@ -779,20 +785,10 @@ query_is_distinct_for(Query *query, List *colnos, List *opids)
 	Assert(list_length(colnos) == list_length(opids));
 
 	/*
-	 * A set-returning function in the query's targetlist can result in
-	 * returning duplicate rows, if the SRF is evaluated after the
-	 * de-duplication step; so we play it safe and say "no" if there are any
-	 * SRFs.  (We could be certain that it's okay if SRFs appear only in the
-	 * specified columns, since those must be evaluated before de-duplication;
-	 * but it doesn't presently seem worth the complication to check that.)
-	 */
-	if (query->hasTargetSRFs)
-		return false;
-
-	/*
 	 * DISTINCT (including DISTINCT ON) guarantees uniqueness if all the
 	 * columns in the DISTINCT clause appear in colnos and operator semantics
-	 * match.
+	 * match.  This is true even if there are SRFs in the DISTINCT columns or
+	 * elsewhere in the tlist.
 	 */
 	if (query->distinctClause)
 	{
@@ -810,6 +806,16 @@ query_is_distinct_for(Query *query, List *colnos, List *opids)
 		if (l == NULL)			/* had matches for all? */
 			return true;
 	}
+
+	/*
+	 * Otherwise, a set-returning function in the query's targetlist can
+	 * result in returning duplicate rows, despite any grouping that might
+	 * occur before tlist evaluation.  (If all tlist SRFs are within GROUP BY
+	 * columns, it would be safe because they'd be expanded before grouping.
+	 * But it doesn't currently seem worth the effort to check for that.)
+	 */
+	if (query->hasTargetSRFs)
+		return false;
 
 	/*
 	 * Similarly, GROUP BY without GROUPING SETS guarantees uniqueness if all
@@ -1072,6 +1078,7 @@ is_innerrel_unique_for(PlannerInfo *root,
 					   JoinType jointype,
 					   List *restrictlist)
 {
+	Relids		joinrelids = bms_union(outerrelids, innerrel->relids);
 	List	   *clause_list = NIL;
 	ListCell   *lc;
 
@@ -1090,7 +1097,8 @@ is_innerrel_unique_for(PlannerInfo *root,
 		 * As noted above, if it's a pushed-down clause and we're at an outer
 		 * join, we can't use it.
 		 */
-		if (restrictinfo->is_pushed_down && IS_OUTER_JOIN(jointype))
+		if (IS_OUTER_JOIN(jointype) &&
+			RINFO_IS_PUSHED_DOWN(restrictinfo, joinrelids))
 			continue;
 
 		/* Ignore if it's not a mergejoinable clause */

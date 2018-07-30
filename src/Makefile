@@ -28,6 +28,7 @@ SUBDIRS = \
 	pl \
 	makefiles \
 	test/regress \
+	test/isolation \
 	test/perl
 ifeq ($(enable_cluster),yes)
 	SUBDIRS += agtm adbmgrd

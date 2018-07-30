@@ -1694,7 +1694,6 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 	{
 		result = asc_tolower(buff, nbytes);
 	}
-#ifdef USE_WIDE_UPPER_LOWER
 	else
 	{
 		pg_locale_t mylocale = 0;
@@ -1732,6 +1731,7 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 		else
 #endif
 		{
+#ifdef USE_WIDE_UPPER_LOWER
 			if (pg_database_encoding_max_length() > 1)
 			{
 				wchar_t    *workspace;
@@ -1769,8 +1769,8 @@ str_tolower(const char *buff, size_t nbytes, Oid collid)
 				wchar2char(result, workspace, result_size, mylocale);
 				pfree(workspace);
 			}
-#endif							/* USE_WIDE_UPPER_LOWER */
 			else
+#endif							/* USE_WIDE_UPPER_LOWER */
 			{
 				char	   *p;
 
@@ -1818,7 +1818,6 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 	{
 		result = asc_toupper(buff, nbytes);
 	}
-#ifdef USE_WIDE_UPPER_LOWER
 	else
 	{
 		pg_locale_t mylocale = 0;
@@ -1856,6 +1855,7 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 		else
 #endif
 		{
+#ifdef USE_WIDE_UPPER_LOWER
 			if (pg_database_encoding_max_length() > 1)
 			{
 				wchar_t    *workspace;
@@ -1893,8 +1893,8 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 				wchar2char(result, workspace, result_size, mylocale);
 				pfree(workspace);
 			}
-#endif							/* USE_WIDE_UPPER_LOWER */
 			else
+#endif							/* USE_WIDE_UPPER_LOWER */
 			{
 				char	   *p;
 
@@ -1943,7 +1943,6 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 	{
 		result = asc_initcap(buff, nbytes);
 	}
-#ifdef USE_WIDE_UPPER_LOWER
 	else
 	{
 		pg_locale_t mylocale = 0;
@@ -1981,6 +1980,7 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 		else
 #endif
 		{
+#ifdef USE_WIDE_UPPER_LOWER
 			if (pg_database_encoding_max_length() > 1)
 			{
 				wchar_t    *workspace;
@@ -2030,8 +2030,8 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 				wchar2char(result, workspace, result_size, mylocale);
 				pfree(workspace);
 			}
-#endif							/* USE_WIDE_UPPER_LOWER */
 			else
+#endif							/* USE_WIDE_UPPER_LOWER */
 			{
 				char	   *p;
 

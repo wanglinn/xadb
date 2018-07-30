@@ -120,6 +120,10 @@ CreateExecutorState(void)
 	estate->es_reduce_drived_set = NULL;
 	estate->es_reduce_plan_inited = false;
 #endif
+	estate->es_root_result_relations = NULL;
+	estate->es_num_root_result_relations = 0;
+
+	estate->es_leaf_result_relations = NIL;
 
 	estate->es_trig_target_relations = NIL;
 	estate->es_trig_tuple_slot = NULL;
@@ -156,6 +160,8 @@ CreateExecutorState(void)
 	estate->es_epqTupleSet = NULL;
 	estate->es_epqScanDone = NULL;
 	estate->es_sourceText = NULL;
+
+	estate->es_use_parallel_mode = false;
 
 	/*
 	 * Return the executor state structure

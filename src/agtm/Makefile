@@ -40,7 +40,7 @@ OBJS = $(SUBDIROBJS) $(LOCALOBJS) $(top_builddir)/src/port/libpgport_srv.a \
 
 # We put libpgport and libpgcommon into OBJS, so remove it from LIBS; also add
 # libldap
-LIBS := $(filter-out -lpgport -lpgcommon, $(LIBS)) $(LDAP_LIBS_BE)
+LIBS := $(filter-out -lpgport -lpgcommon, $(LIBS)) $(LDAP_LIBS_BE) $(ICU_LIBS)
 
 # The backend doesn't need everything that's in LIBS, however
 LIBS := $(filter-out -lz -lreadline -ledit -ltermcap -lncurses -lcurses, $(LIBS))
@@ -57,7 +57,7 @@ ifneq ($(PORTNAME), cygwin)
 ifneq ($(PORTNAME), win32)
 ifneq ($(PORTNAME), aix)
 
-agtm: $(OBJS)
+agtm: $(OBJS) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) $(call expand_subsys,$^) $(LIBS) -o $@
 
 endif
@@ -66,7 +66,7 @@ endif
 
 ifeq ($(PORTNAME), cygwin)
 
-agtm: $(OBJS)
+agtm: $(OBJS) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) -Wl,--stack,$(WIN32_STACK_RLIMIT) -Wl,--export-all-symbols -Wl,--out-implib=libagtm.a $(call expand_subsys,$^) $(LIBS) -o $@
 
 # There is no correct way to write a rule that generates two files.
@@ -82,7 +82,7 @@ endif # cygwin
 ifeq ($(PORTNAME), win32)
 LIBS += -lsecur32
 
-agtm: $(OBJS) $(WIN32RES)
+agtm: $(OBJS) $(WIN32RES) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) -Wl,--stack=$(WIN32_STACK_RLIMIT) -Wl,--export-all-symbols -Wl,--out-implib=libagtm.a $(call expand_subsys,$(OBJS)) $(WIN32RES) $(LIBS) -o $@$(X)
 
 libagtm.a: agtm ;

@@ -61,6 +61,7 @@
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
+#include "utils/guc.h"
 #include "utils/hsearch.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
@@ -94,15 +95,17 @@
 #define PRETTYINDENT_LIMIT		40	/* wrap limit */
 
 /* Pretty flags */
-#define PRETTYFLAG_PAREN		1
-#define PRETTYFLAG_INDENT		2
+#define PRETTYFLAG_PAREN		0x0001
+#define PRETTYFLAG_INDENT		0x0002
+#define PRETTYFLAG_SCHEMA		0x0004
 
 /* Default line length for pretty-print wrapping: 0 means wrap always */
 #define WRAP_COLUMN_DEFAULT		0
 
-/* macro to test if pretty action needed */
+/* macros to test if pretty action needed */
 #define PRETTY_PAREN(context)	((context)->prettyFlags & PRETTYFLAG_PAREN)
 #define PRETTY_INDENT(context)	((context)->prettyFlags & PRETTYFLAG_INDENT)
+#define PRETTY_SCHEMA(context)	((context)->prettyFlags & PRETTYFLAG_SCHEMA)
 
 
 /* ----------
@@ -487,6 +490,7 @@ static char *generate_function_name(Oid funcid, int nargs,
 					   bool has_variadic, bool *use_variadic_p,
 					   ParseExprKind special_exprkind);
 static char *generate_operator_name(Oid operid, Oid arg1, Oid arg2);
+static void add_cast_to(StringInfo buf, Oid typid);
 static text *string_to_text(char *str);
 static char *flatten_reloptions(Oid relid);
 
@@ -525,7 +529,7 @@ pg_get_ruledef_ext(PG_FUNCTION_ARGS)
 	int			prettyFlags;
 	char	   *res;
 
-	prettyFlags = pretty ? PRETTYFLAG_PAREN | PRETTYFLAG_INDENT : PRETTYFLAG_INDENT;
+	prettyFlags = pretty ? (PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA) : PRETTYFLAG_INDENT;
 
 	res = pg_get_ruledef_worker(ruleoid, prettyFlags);
 
@@ -646,7 +650,7 @@ pg_get_viewdef_ext(PG_FUNCTION_ARGS)
 	int			prettyFlags;
 	char	   *res;
 
-	prettyFlags = pretty ? PRETTYFLAG_PAREN | PRETTYFLAG_INDENT : PRETTYFLAG_INDENT;
+	prettyFlags = pretty ? (PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA) : PRETTYFLAG_INDENT;
 
 	res = pg_get_viewdef_worker(viewoid, prettyFlags, WRAP_COLUMN_DEFAULT);
 
@@ -666,7 +670,7 @@ pg_get_viewdef_wrap(PG_FUNCTION_ARGS)
 	char	   *res;
 
 	/* calling this implies we want pretty printing */
-	prettyFlags = PRETTYFLAG_PAREN | PRETTYFLAG_INDENT;
+	prettyFlags = PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA;
 
 	res = pg_get_viewdef_worker(viewoid, prettyFlags, wrap);
 
@@ -712,7 +716,7 @@ pg_get_viewdef_name_ext(PG_FUNCTION_ARGS)
 	Oid			viewoid;
 	char	   *res;
 
-	prettyFlags = pretty ? PRETTYFLAG_PAREN | PRETTYFLAG_INDENT : PRETTYFLAG_INDENT;
+	prettyFlags = pretty ? (PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA) : PRETTYFLAG_INDENT;
 
 	/* Look up view name.  Can't lock it - we might not have privileges. */
 	viewrel = makeRangeVarFromNameList(textToQualifiedNameList(viewname));
@@ -948,8 +952,15 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 			appendStringInfoString(&buf, " TRUNCATE");
 		findx++;
 	}
+
+	/*
+	 * In non-pretty mode, always schema-qualify the target table name for
+	 * safety.  In pretty mode, schema-qualify only if not visible.
+	 */
 	appendStringInfo(&buf, " ON %s ",
-					 generate_relation_name(trigrec->tgrelid, NIL));
+					 pretty ?
+					 generate_relation_name(trigrec->tgrelid, NIL) :
+					 generate_qualified_relation_name(trigrec->tgrelid));
 
 	if (OidIsValid(trigrec->tgconstraint))
 	{
@@ -1043,7 +1054,7 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 		context.windowClause = NIL;
 		context.windowTList = NIL;
 		context.varprefix = true;
-		context.prettyFlags = pretty ? PRETTYFLAG_PAREN | PRETTYFLAG_INDENT : PRETTYFLAG_INDENT;
+		context.prettyFlags = pretty ? (PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA) : PRETTYFLAG_INDENT;
 		context.wrapColumn = WRAP_COLUMN_DEFAULT;
 		context.indentLevel = PRETTYINDENT_STD;
 		context.special_exprkind = EXPR_KIND_NONE;
@@ -1133,7 +1144,7 @@ pg_get_indexdef_ext(PG_FUNCTION_ARGS)
 	int			prettyFlags;
 	char	   *res;
 
-	prettyFlags = pretty ? PRETTYFLAG_PAREN | PRETTYFLAG_INDENT : PRETTYFLAG_INDENT;
+	prettyFlags = pretty ? (PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA) : PRETTYFLAG_INDENT;
 
 	res = pg_get_indexdef_worker(indexrelid, colno, NULL, colno != 0, false,
 								 prettyFlags, true);
@@ -1161,7 +1172,8 @@ pg_get_indexdef_columns(Oid indexrelid, bool pretty)
 {
 	int			prettyFlags;
 
-	prettyFlags = pretty ? PRETTYFLAG_PAREN | PRETTYFLAG_INDENT : PRETTYFLAG_INDENT;
+	prettyFlags = pretty ? (PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA) : PRETTYFLAG_INDENT;
+
 	return pg_get_indexdef_worker(indexrelid, 0, NULL, true, false,
 								  prettyFlags, false);
 }
@@ -1291,7 +1303,9 @@ pg_get_indexdef_worker(Oid indexrelid, int colno,
 			appendStringInfo(&buf, "CREATE %sINDEX %s ON %s USING %s (",
 							 idxrec->indisunique ? "UNIQUE " : "",
 							 quote_identifier(NameStr(idxrelrec->relname)),
-							 generate_relation_name(indrelid, NIL),
+							 (prettyFlags & PRETTYFLAG_SCHEMA) ?
+							 generate_relation_name(indrelid, NIL) :
+							 generate_qualified_relation_name(indrelid),
 							 quote_identifier(NameStr(amrec->amname)));
 		else					/* currently, must be EXCLUDE constraint */
 			appendStringInfo(&buf, "EXCLUDE USING %s (",
@@ -1602,7 +1616,8 @@ pg_get_partkeydef_columns(Oid relid, bool pretty)
 {
 	int			prettyFlags;
 
-	prettyFlags = pretty ? PRETTYFLAG_PAREN | PRETTYFLAG_INDENT : PRETTYFLAG_INDENT;
+	prettyFlags = pretty ? (PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA) : PRETTYFLAG_INDENT;
+
 	return pg_get_partkeydef_worker(relid, prettyFlags, true, false);
 }
 
@@ -1826,7 +1841,7 @@ pg_get_constraintdef_ext(PG_FUNCTION_ARGS)
 	int			prettyFlags;
 	char	   *res;
 
-	prettyFlags = pretty ? PRETTYFLAG_PAREN | PRETTYFLAG_INDENT : PRETTYFLAG_INDENT;
+	prettyFlags = pretty ? (PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA) : PRETTYFLAG_INDENT;
 
 	res = pg_get_constraintdef_worker(constraintId, false, prettyFlags, true);
 
@@ -2268,7 +2283,7 @@ pg_get_expr_ext(PG_FUNCTION_ARGS)
 	int			prettyFlags;
 	char	   *relname;
 
-	prettyFlags = pretty ? PRETTYFLAG_PAREN | PRETTYFLAG_INDENT : PRETTYFLAG_INDENT;
+	prettyFlags = pretty ? (PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA) : PRETTYFLAG_INDENT;
 
 	if (OidIsValid(relid))
 	{
@@ -2352,7 +2367,7 @@ pg_get_userbyid(PG_FUNCTION_ARGS)
 
 /*
  * pg_get_serial_sequence
- *		Get the name of the sequence used by a serial column,
+ *		Get the name of the sequence used by an identity or serial column,
  *		formatted suitably for passing to setval, nextval or currval.
  *		First parameter is not treated as double-quoted, second parameter
  *		is --- see documentation for reason.
@@ -2410,13 +2425,14 @@ pg_get_serial_sequence(PG_FUNCTION_ARGS)
 		Form_pg_depend deprec = (Form_pg_depend) GETSTRUCT(tup);
 
 		/*
-		 * We assume any auto dependency of a sequence on a column must be
-		 * what we are looking for.  (We need the relkind test because indexes
-		 * can also have auto dependencies on columns.)
+		 * Look for an auto dependency (serial column) or internal dependency
+		 * (identity column) of a sequence on a column.  (We need the relkind
+		 * test because indexes can also have auto dependencies on columns.)
 		 */
 		if (deprec->classid == RelationRelationId &&
 			deprec->objsubid == 0 &&
-			deprec->deptype == DEPENDENCY_AUTO &&
+			(deprec->deptype == DEPENDENCY_AUTO ||
+			 deprec->deptype == DEPENDENCY_INTERNAL) &&
 			get_rel_relkind(deprec->objid) == RELKIND_SEQUENCE)
 		{
 			sequenceId = deprec->objid;
@@ -2609,11 +2625,15 @@ pg_get_functiondef(PG_FUNCTION_ARGS)
 								 quote_identifier(configitem));
 
 				/*
-				 * Some GUC variable names are 'LIST' type and hence must not
-				 * be quoted.
+				 * Variables that are marked GUC_LIST_QUOTE were already fully
+				 * quoted by flatten_set_variable_args() before they were put
+				 * into the proconfig array; we mustn't re-quote them or we'll
+				 * make a mess.  Variables that are not so marked should just
+				 * be emitted as simple string literals.  If the variable is
+				 * not known to guc.c, we'll do the latter; this makes it
+				 * unsafe to use GUC_LIST_QUOTE for extension variables.
 				 */
-				if (pg_strcasecmp(configitem, "DateStyle") == 0
-					|| pg_strcasecmp(configitem, "search_path") == 0)
+				if (GetConfigOptionFlags(configitem, true) & GUC_LIST_QUOTE)
 					appendStringInfoString(&buf, pos);
 				else
 					simple_quote_literal(&buf, pos);
@@ -4884,7 +4904,10 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	}
 
 	/* The relation the rule is fired on */
-	appendStringInfo(buf, " TO %s", generate_relation_name(ev_class, NIL));
+	appendStringInfo(buf, " TO %s",
+					 (prettyFlags & PRETTYFLAG_SCHEMA) ?
+					 generate_relation_name(ev_class, NIL) :
+					 generate_qualified_relation_name(ev_class));
 
 	/* If the rule has an event qualification, add it */
 	if (ev_qual == NULL)
@@ -7522,8 +7545,8 @@ get_name_for_var_field(Var *var, int fieldno,
 #endif /* ADB */
 
 			/*
-			 * This case should not occur: a column of a table or values list
-			 * shouldn't have type RECORD.  Fall through and fail (most
+			 * This case should not occur: a column of a table, values list,
+			 * or ENR shouldn't have type RECORD.  Fall through and fail (most
 			 * likely) at the bottom.
 			 */
 			break;
@@ -11497,6 +11520,85 @@ generate_operator_name(Oid operid, Oid arg1, Oid arg2)
 	ReleaseSysCache(opertup);
 
 	return buf.data;
+}
+
+/*
+ * generate_operator_clause --- generate a binary-operator WHERE clause
+ *
+ * This is used for internally-generated-and-executed SQL queries, where
+ * precision is essential and readability is secondary.  The basic
+ * requirement is to append "leftop op rightop" to buf, where leftop and
+ * rightop are given as strings and are assumed to yield types leftoptype
+ * and rightoptype; the operator is identified by OID.  The complexity
+ * comes from needing to be sure that the parser will select the desired
+ * operator when the query is parsed.  We always name the operator using
+ * OPERATOR(schema.op) syntax, so as to avoid search-path uncertainties.
+ * We have to emit casts too, if either input isn't already the input type
+ * of the operator; else we are at the mercy of the parser's heuristics for
+ * ambiguous-operator resolution.  The caller must ensure that leftop and
+ * rightop are suitable arguments for a cast operation; it's best to insert
+ * parentheses if they aren't just variables or parameters.
+ */
+void
+generate_operator_clause(StringInfo buf,
+						 const char *leftop, Oid leftoptype,
+						 Oid opoid,
+						 const char *rightop, Oid rightoptype)
+{
+	HeapTuple	opertup;
+	Form_pg_operator operform;
+	char	   *oprname;
+	char	   *nspname;
+
+	opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(opoid));
+	if (!HeapTupleIsValid(opertup))
+		elog(ERROR, "cache lookup failed for operator %u", opoid);
+	operform = (Form_pg_operator) GETSTRUCT(opertup);
+	Assert(operform->oprkind == 'b');
+	oprname = NameStr(operform->oprname);
+
+	nspname = get_namespace_name(operform->oprnamespace);
+
+	appendStringInfoString(buf, leftop);
+	if (leftoptype != operform->oprleft)
+		add_cast_to(buf, operform->oprleft);
+	appendStringInfo(buf, " OPERATOR(%s.", quote_identifier(nspname));
+	appendStringInfoString(buf, oprname);
+	appendStringInfo(buf, ") %s", rightop);
+	if (rightoptype != operform->oprright)
+		add_cast_to(buf, operform->oprright);
+
+	ReleaseSysCache(opertup);
+}
+
+/*
+ * Add a cast specification to buf.  We spell out the type name the hard way,
+ * intentionally not using format_type_be().  This is to avoid corner cases
+ * for CHARACTER, BIT, and perhaps other types, where specifying the type
+ * using SQL-standard syntax results in undesirable data truncation.  By
+ * doing it this way we can be certain that the cast will have default (-1)
+ * target typmod.
+ */
+static void
+add_cast_to(StringInfo buf, Oid typid)
+{
+	HeapTuple	typetup;
+	Form_pg_type typform;
+	char	   *typname;
+	char	   *nspname;
+
+	typetup = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
+	if (!HeapTupleIsValid(typetup))
+		elog(ERROR, "cache lookup failed for type %u", typid);
+	typform = (Form_pg_type) GETSTRUCT(typetup);
+
+	typname = NameStr(typform->typname);
+	nspname = get_namespace_name(typform->typnamespace);
+
+	appendStringInfo(buf, "::%s.%s",
+					 quote_identifier(nspname), quote_identifier(typname));
+
+	ReleaseSysCache(typetup);
 }
 
 /*

@@ -20,9 +20,12 @@ all: errcodes.h fmgroids.h fmgrprotos.h probes.h
 
 $(SUBDIRS:%=%-recursive): fmgroids.h fmgrprotos.h
 
-# see explanation in ../parser/Makefile
-fmgrprotos.h: fmgroids.h ;
-fmgroids.h: fmgrtab.c ;
+# see notes in src/backend/parser/Makefile
+fmgrprotos.h: fmgroids.h
+	touch $@
+
+fmgroids.h: fmgrtab.c
+	touch $@
 
 ifeq ($(enable_cluster),yes)
   MYCFLAGS += -DADB

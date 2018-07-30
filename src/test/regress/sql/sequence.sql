@@ -65,6 +65,8 @@ SELECT * FROM serialTest1;
 SELECT * FROM serialTest ORDER BY f1, f2;
 >>>>>>> e4e2e7774a... 3.1 patch
 
+SELECT pg_get_serial_sequence('serialTest1', 'f2');
+
 -- test smallserial / bigserial
 CREATE TABLE serialTest2 (f1 text, f2 serial, f3 smallserial, f4 serial2,
   f5 bigserial, f6 serial8);
@@ -252,6 +254,10 @@ WHERE sequencename ~ ANY(ARRAY['sequence_test', 'serialtest'])
 
 
 SELECT * FROM pg_sequence_parameters('sequence_test4'::regclass);
+
+
+\d sequence_test4
+\d serialtest2_f2_seq
 
 
 -- Test comments

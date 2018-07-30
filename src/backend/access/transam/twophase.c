@@ -1701,6 +1701,9 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 	/* compute latestXid among all children */
 	latestXid = TransactionIdLatest(xid, hdr->nsubxacts, children);
 
+	/* Prevent cancel/die interrupt while cleaning up */
+	HOLD_INTERRUPTS();
+
 	/*
 	 * The order of operations here is critical: make the XLOG entry for
 	 * commit or abort, then mark the transaction committed or aborted in
@@ -1803,6 +1806,7 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 						   isMissingOK,
 						   isCommit);
 #endif
+	RESUME_INTERRUPTS();
 
 	pfree(buf);
 }
@@ -2028,8 +2032,8 @@ restoreTwoPhaseData(void)
 	DIR		   *cldir;
 	struct dirent *clde;
 
-	cldir = AllocateDir(TWOPHASE_DIR);
 	LWLockAcquire(TwoPhaseStateLock, LW_EXCLUSIVE);
+	cldir = AllocateDir(TWOPHASE_DIR);
 	while ((clde = ReadDir(cldir, TWOPHASE_DIR)) != NULL)
 	{
 		if (strlen(clde->d_name) == 8 &&
@@ -2331,14 +2335,14 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 		if (fromdisk)
 		{
 			ereport(WARNING,
-					(errmsg("removing stale two-phase state file for \"%u\"",
+					(errmsg("removing stale two-phase state file for transaction %u",
 							xid)));
 			RemoveTwoPhaseFile(xid, true);
 		}
 		else
 		{
 			ereport(WARNING,
-					(errmsg("removing stale two-phase state from shared memory for \"%u\"",
+					(errmsg("removing stale two-phase state from memory for transaction %u",
 							xid)));
 			PrepareRedoRemove(xid, true);
 		}
@@ -2351,14 +2355,14 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 		if (fromdisk)
 		{
 			ereport(WARNING,
-					(errmsg("removing future two-phase state file for \"%u\"",
+					(errmsg("removing future two-phase state file for transaction %u",
 							xid)));
 			RemoveTwoPhaseFile(xid, true);
 		}
 		else
 		{
 			ereport(WARNING,
-					(errmsg("removing future two-phase state from memory for \"%u\"",
+					(errmsg("removing future two-phase state from memory for transaction %u",
 							xid)));
 			PrepareRedoRemove(xid, true);
 		}
@@ -2372,7 +2376,7 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 		if (buf == NULL)
 		{
 			ereport(WARNING,
-					(errmsg("removing corrupt two-phase state file for \"%u\"",
+					(errmsg("removing corrupt two-phase state file for transaction %u",
 							xid)));
 			RemoveTwoPhaseFile(xid, true);
 			return NULL;
@@ -2391,14 +2395,14 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 		if (fromdisk)
 		{
 			ereport(WARNING,
-					(errmsg("removing corrupt two-phase state file for \"%u\"",
+					(errmsg("removing corrupt two-phase state file for transaction %u",
 							xid)));
 			RemoveTwoPhaseFile(xid, true);
 		}
 		else
 		{
 			ereport(WARNING,
-					(errmsg("removing corrupt two-phase state from memory for \"%u\"",
+					(errmsg("removing corrupt two-phase state from memory for transaction %u",
 							xid)));
 			PrepareRedoRemove(xid, true);
 		}

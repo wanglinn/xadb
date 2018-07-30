@@ -1886,7 +1886,7 @@ Partitions: pt2_1 FOR VALUES IN (1)
  c2     | text    |           |          |         |             | extended |              | 
  c3     | date    |           |          |         |             | plain    |              | 
 Partition of: pt2 FOR VALUES IN (1)
-Partition constraint: ((c1 IS NOT NULL) AND (c1 = ANY (ARRAY[1])))
+Partition constraint: ((c1 IS NOT NULL) AND (c1 = 1))
 Server: s0
 FDW options: (delimiter ',', quote '"', "be quoted" 'value')
 
@@ -1911,7 +1911,7 @@ FDW options: (delimiter ',', quote '"', "be quoted" 'value')
 
 ALTER TABLE pt2 ATTACH PARTITION pt2_1 FOR VALUES IN (1);       -- ERROR
 ERROR:  table "pt2_1" contains column "c4" not found in parent "pt2"
-DETAIL:  New partition should contain only the columns present in parent.
+DETAIL:  The new partition may contain only the columns present in parent.
 DROP FOREIGN TABLE pt2_1;
 \d+ pt2
                                     Table "public.pt2"
@@ -1957,7 +1957,7 @@ Partitions: pt2_1 FOR VALUES IN (1)
  c2     | text    |           |          |         |             | extended |              | 
  c3     | date    |           |          |         |             | plain    |              | 
 Partition of: pt2 FOR VALUES IN (1)
-Partition constraint: ((c1 IS NOT NULL) AND (c1 = ANY (ARRAY[1])))
+Partition constraint: ((c1 IS NOT NULL) AND (c1 = 1))
 Server: s0
 FDW options: (delimiter ',', quote '"', "be quoted" 'value')
 
@@ -1985,7 +1985,7 @@ Partitions: pt2_1 FOR VALUES IN (1)
  c2     | text    |           |          |         |             | extended |              | 
  c3     | date    |           | not null |         |             | plain    |              | 
 Partition of: pt2 FOR VALUES IN (1)
-Partition constraint: ((c1 IS NOT NULL) AND (c1 = ANY (ARRAY[1])))
+Partition constraint: ((c1 IS NOT NULL) AND (c1 = 1))
 Check constraints:
     "p21chk" CHECK (c2 <> ''::text)
 Server: s0

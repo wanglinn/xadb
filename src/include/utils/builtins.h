@@ -33,8 +33,8 @@ extern int	errdomainconstraint(Oid datatypeOid, const char *conname);
 extern unsigned hex_encode(const char *src, unsigned len, char *dst);
 extern unsigned hex_decode(const char *src, unsigned len, char *dst);
 #ifdef ADB_GRAM_ORA
-extern unsigned b64_encode(const char *src, unsigned len, char *dst);
-extern unsigned b64_decode(const char *src, unsigned len, char *dst);
+extern unsigned pg_base64_encode(const char *src, unsigned len, char *dst);
+extern unsigned pg_base64_decode(const char *src, unsigned len, char *dst);
 #endif
 
 /* int.c */
@@ -105,6 +105,10 @@ extern bool quote_all_identifiers;
 extern const char *quote_identifier(const char *ident);
 extern char *quote_qualified_identifier(const char *qualifier,
 						   const char *ident);
+extern void generate_operator_clause(fmStringInfo buf,
+						 const char *leftop, Oid leftoptype,
+						 Oid opoid,
+						 const char *rightop, Oid rightoptype);
 
 /* varchar.c */
 extern int	bpchartruelen(char *s, int len);
@@ -255,7 +259,7 @@ extern int inet_net_pton(int af, const char *src,
 			  void *dst, size_t size);
 
 /* network.c */
-extern double convert_network_to_scalar(Datum value, Oid typid);
+extern double convert_network_to_scalar(Datum value, Oid typid, bool *failure);
 extern Datum network_scan_first(Datum in);
 extern Datum network_scan_last(Datum in);
 extern void clean_ipv6_addr(int addr_family, char *addr);

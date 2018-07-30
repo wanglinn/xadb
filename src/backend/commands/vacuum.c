@@ -141,9 +141,11 @@ ExecVacuum(VacuumStmt *vacstmt, bool isTopLevel)
  *
  * options is a bitmask of VacuumOption flags, indicating what to do.
  *
- * relid, if not InvalidOid, indicate the relation to process; otherwise,
- * the RangeVar is used.  (The latter must always be passed, because it's
- * used for error messages.)
+ * relid, if not InvalidOid, indicates the relation to process; otherwise,
+ * if a RangeVar is supplied, that's what to process; otherwise, we process
+ * all relevant tables in the database.  (If both relid and a RangeVar are
+ * supplied, the relid is what is processed, but we use the RangeVar's name
+ * to report any open/lock failure.)
  *
  * params contains a set of parameters that can be used to customize the
  * behavior.
@@ -239,8 +241,8 @@ vacuum(int options, RangeVar *relation, Oid relid, VacuumParams *params,
 	vac_strategy = bstrategy;
 
 	/*
-	 * Build list of relations to process, unless caller gave us one. (If we
-	 * build one, we put it in vac_context for safekeeping.)
+	 * Build list of relation OID(s) to process, putting it in vac_context for
+	 * safekeeping.
 	 */
 	relations = get_rel_oids(relid, relation);
 
@@ -406,22 +408,18 @@ get_rel_oids(Oid relid, const RangeVar *vacrel)
 	}
 	else if (vacrel)
 	{
-		/* Process a specific relation */
+		/* Process a specific relation, and possibly partitions thereof */
 		Oid			relid;
 		HeapTuple	tuple;
 		Form_pg_class classForm;
 		bool		include_parts;
 
 		/*
-		 * Since we don't take a lock here, the relation might be gone, or the
-		 * RangeVar might no longer refer to the OID we look up here.  In the
-		 * former case, VACUUM will do nothing; in the latter case, it will
-		 * process the OID we looked up here, rather than the new one. Neither
-		 * is ideal, but there's little practical alternative, since we're
-		 * going to commit this transaction and begin a new one between now
-		 * and then.
+		 * We transiently take AccessShareLock to protect the syscache lookup
+		 * below, as well as find_all_inheritors's expectation that the caller
+		 * holds some lock on the starting relation.
 		 */
-		relid = RangeVarGetRelid(vacrel, NoLock, false);
+		relid = RangeVarGetRelid(vacrel, AccessShareLock, false);
 
 		/*
 		 * To check whether the relation is a partitioned table, fetch its
@@ -435,10 +433,11 @@ get_rel_oids(Oid relid, const RangeVar *vacrel)
 		ReleaseSysCache(tuple);
 
 		/*
-		 * Make relation list entries for this guy and its partitions, if any.
-		 * Note that the list returned by find_all_inheritors() include the
-		 * passed-in OID at its head.  Also note that we did not request a
-		 * lock to be taken to match what would be done otherwise.
+		 * Make relation list entries for this rel and its partitions, if any.
+		 * Note that the list returned by find_all_inheritors() includes the
+		 * passed-in OID at its head.  There's no point in taking locks on the
+		 * individual partitions yet, and doing so would just add unnecessary
+		 * deadlock risk.
 		 */
 		oldcontext = MemoryContextSwitchTo(vac_context);
 		if (include_parts)
@@ -447,6 +446,19 @@ get_rel_oids(Oid relid, const RangeVar *vacrel)
 		else
 			oid_list = lappend_oid(oid_list, relid);
 		MemoryContextSwitchTo(oldcontext);
+
+		/*
+		 * Release lock again.  This means that by the time we actually try to
+		 * process the table, it might be gone or renamed.  In the former case
+		 * we'll silently ignore it; in the latter case we'll process it
+		 * anyway, but we must beware that the RangeVar doesn't necessarily
+		 * identify it anymore.  This isn't ideal, perhaps, but there's little
+		 * practical alternative, since we're typically going to commit this
+		 * transaction and begin a new one between now and then.  Moreover,
+		 * holding locks on multiple relations would create significant risk
+		 * of deadlock.
+		 */
+		UnlockRelationOid(relid, AccessShareLock);
 	}
 	else
 	{
@@ -476,7 +488,7 @@ get_rel_oids(Oid relid, const RangeVar *vacrel)
 				classForm->relkind != RELKIND_PARTITIONED_TABLE)
 				continue;
 
-			/* Make a relation list entry for this guy */
+			/* Make a relation list entry for this rel */
 			oldcontext = MemoryContextSwitchTo(vac_context);
 			oid_list = lappend_oid(oid_list, HeapTupleGetOid(tuple));
 			MemoryContextSwitchTo(oldcontext);
@@ -686,13 +698,13 @@ vacuum_set_xid_limits(Relation rel,
  * vac_estimate_reltuples() -- estimate the new value for pg_class.reltuples
  *
  *		If we scanned the whole relation then we should just use the count of
- *		live tuples seen; but if we did not, we should not trust the count
- *		unreservedly, especially not in VACUUM, which may have scanned a quite
- *		nonrandom subset of the table.  When we have only partial information,
- *		we take the old value of pg_class.reltuples as a measurement of the
+ *		live tuples seen; but if we did not, we should not blindly extrapolate
+ *		from that number, since VACUUM may have scanned a quite nonrandom
+ *		subset of the table.  When we have only partial information, we take
+ *		the old value of pg_class.reltuples as a measurement of the
  *		tuple density in the unscanned pages.
  *
- *		This routine is shared by VACUUM and ANALYZE.
+ *		The is_analyze argument is historical.
  */
 double
 vac_estimate_reltuples(Relation relation, bool is_analyze,
@@ -703,9 +715,8 @@ vac_estimate_reltuples(Relation relation, bool is_analyze,
 	BlockNumber old_rel_pages = relation->rd_rel->relpages;
 	double		old_rel_tuples = relation->rd_rel->reltuples;
 	double		old_density;
-	double		new_density;
-	double		multiplier;
-	double		updated_density;
+	double		unscanned_pages;
+	double		total_tuples;
 
 	/* If we did scan the whole table, just use the count as-is */
 	if (scanned_pages >= total_pages)
@@ -729,31 +740,14 @@ vac_estimate_reltuples(Relation relation, bool is_analyze,
 
 	/*
 	 * Okay, we've covered the corner cases.  The normal calculation is to
-	 * convert the old measurement to a density (tuples per page), then update
-	 * the density using an exponential-moving-average approach, and finally
-	 * compute reltuples as updated_density * total_pages.
-	 *
-	 * For ANALYZE, the moving average multiplier is just the fraction of the
-	 * table's pages we scanned.  This is equivalent to assuming that the
-	 * tuple density in the unscanned pages didn't change.  Of course, it
-	 * probably did, if the new density measurement is different. But over
-	 * repeated cycles, the value of reltuples will converge towards the
-	 * correct value, if repeated measurements show the same new density.
-	 *
-	 * For VACUUM, the situation is a bit different: we have looked at a
-	 * nonrandom sample of pages, but we know for certain that the pages we
-	 * didn't look at are precisely the ones that haven't changed lately.
-	 * Thus, there is a reasonable argument for doing exactly the same thing
-	 * as for the ANALYZE case, that is use the old density measurement as the
-	 * value for the unscanned pages.
-	 *
-	 * This logic could probably use further refinement.
+	 * convert the old measurement to a density (tuples per page), then
+	 * estimate the number of tuples in the unscanned pages using that figure,
+	 * and finally add on the number of tuples in the scanned pages.
 	 */
 	old_density = old_rel_tuples / old_rel_pages;
-	new_density = scanned_tuples / scanned_pages;
-	multiplier = (double) scanned_pages / (double) total_pages;
-	updated_density = old_density + (new_density - old_density) * multiplier;
-	return floor(updated_density * total_pages + 0.5);
+	unscanned_pages = (double) total_pages - (double) scanned_pages;
+	total_tuples = old_density * unscanned_pages + scanned_tuples;
+	return floor(total_tuples + 0.5);
 }
 
 
@@ -1240,6 +1234,11 @@ vac_truncate_clog(TransactionId frozenXID,
 /*
  *	vacuum_rel() -- vacuum one heap relation
  *
+ *		relid identifies the relation to vacuum.  If relation is supplied,
+ *		use the name therein for reporting any failure to open/lock the rel;
+ *		do not use it once we've successfully opened the rel, since it might
+ *		be stale.
+ *
  *		Doing one heap at a time incurs extra overhead, since we need to
  *		check that the heap exists again just before we vacuum it.  The
  *		reason that we do this is so that vacuuming can be spread across
@@ -1340,7 +1339,8 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	else
 	{
 		onerel = NULL;
-		if (IsAutoVacuumWorkerProcess() && params->log_min_duration >= 0)
+		if (relation &&
+			IsAutoVacuumWorkerProcess() && params->log_min_duration >= 0)
 			ereport(LOG,
 					(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
 					 errmsg("skipping vacuum of \"%s\" --- lock not available",
@@ -1522,7 +1522,7 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	 * totally unimportant for toast relations.
 	 */
 	if (toast_relid != InvalidOid)
-		vacuum_rel(toast_relid, relation, options, params);
+		vacuum_rel(toast_relid, NULL, options, params);
 
 	/*
 	 * Now release the session-level lock on the master table.
