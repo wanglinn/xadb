@@ -50,7 +50,7 @@ static void AdjustFractSeconds(double frac, struct pg_tm *tm, fsec_t *fsec,
 				   int scale);
 static void AdjustFractDays(double frac, struct pg_tm *tm, fsec_t *fsec,
 				int scale);
-#ifdef ADB
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
 static void AdjustFracMonths(double frac, struct pg_tm *tm, fsec_t *fsec,
 				int scale);
 #endif
@@ -503,7 +503,7 @@ AdjustFractDays(double frac, struct pg_tm *tm, fsec_t *fsec, int scale)
 	AdjustFractSeconds(frac, tm, fsec, SECS_PER_DAY);
 }
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
 static void
 AdjustFracMonths(double frac, struct pg_tm *tm, fsec_t *fsec, int scale)
 {
@@ -3318,7 +3318,7 @@ DecodeInterval(char **field, int *ftype, int nf, int range,
 
 					case DTK_YEAR:
 						tm->tm_year += val;
-#ifdef ADB
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
 						AdjustFracMonths(fval, tm, fsec, MONTHS_PER_YEAR);
 #else
 						if (fval != 0)
