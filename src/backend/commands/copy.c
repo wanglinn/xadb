@@ -2820,6 +2820,13 @@ CopyFrom(CopyState cstate)
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("cannot route inserted tuples to a foreign table")));
 
+#ifdef ADB
+		if (resultRelInfo->ri_RelationDesc->rd_auxlist != NIL)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("cannot route inserted tuples to a has auxiliary table")));
+#endif /* ADB */
+
 			/*
 			 * For ExecInsertIndexTuples() to work on the partition's indexes
 			 */
