@@ -1859,7 +1859,7 @@ DESCR("delete array element");
 DATA(insert OID = 3287 (  "#-"	   PGNSP PGUID b f f 3802 1009 3802 0 0 jsonb_delete_path - - ));
 DESCR("delete path");
 
-#ifdef ADB
+#if defined(ADB_GRAM_ORA)
 /* rowid operators */
 DATA(insert OID = 9001 (  "="	   PGNSP PGUID b t t 336 336 16 9001 9002 rowid_eq eqsel eqjoinsel ));
 DESCR("equal");
