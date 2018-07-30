@@ -29,7 +29,7 @@ typedef struct _FuncCandidateList
 {
 	struct _FuncCandidateList *next;
 	int			pathpos;		/* for internal use of namespace lookup */
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#if defined(ADB_MULTI_GRAM)
 	Oid			nspoid;			/* the function or operator's namespace OID */
 #endif
 	Oid			oid;			/* the function or operator's OID */

@@ -1069,7 +1069,7 @@ FuncnameGetCandidates(List *names, int nargs, List *argnames,
 			palloc(offsetof(struct _FuncCandidateList, args) +
 				   effective_nargs * sizeof(Oid));
 		newResult->pathpos = pathpos;
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 		newResult->nspoid = procform->pronamespace;
 #endif
 		newResult->oid = HeapTupleGetOid(proctup);
@@ -1688,7 +1688,7 @@ OpernameGetCandidates(List *names, char oprkind, bool missing_schema_ok)
 		nextResult += SPACE_PER_OP;
 
 		newResult->pathpos = pathpos;
-#ifdef ADB
+#if defined(ADB_MULTI_GRAM)
 		newResult->nspoid = operform->oprnamespace;
 #endif
 		newResult->oid = HeapTupleGetOid(opertup);
