@@ -1167,4 +1167,13 @@ DATA(insert (	4104	603  603 12 s	  2572	  3580 0 ));
 /* we could, but choose not to, supply entries for strategies 13 and 14 */
 DATA(insert (	4104	603  600  7 s	   433	  3580 0 ));
 
+#ifdef ADB_GRAM_ORA
+DATA(insert (	9145	336  336 1 s	  9003	   403 0 ));
+DATA(insert (	9145	336  336 2 s	  9005	   403 0 ));
+DATA(insert (	9145	336  336 3 s	  9001	   403 0 ));
+DATA(insert (	9145	336  336 4 s	  9006	   403 0 ));
+DATA(insert (	9145	336  336 5 s	  9004	   403 0 ));
+DATA(insert (	9146	336  336 1 s	  9001	   405 0 ));
+#endif
+
 #endif							/* PG_AMOP_H */

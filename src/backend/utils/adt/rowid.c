@@ -3,6 +3,7 @@
 
 #ifdef ADB_GRAM_ORA
 
+#include "access/hash.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
 #include "libpq/pqformat.h"
@@ -16,8 +17,17 @@ typedef struct OraRowID
 	BlockNumber		block;
 	OffsetNumber	offset;
 }OraRowID;
-static int rowid_compare(const OraRowID *l, const OraRowID *r);
+static int32 rowid_compare(const OraRowID *l, const OraRowID *r);
+typedef OraRowID *RowIDPointer;
+#else
+#define RowIDPointer ItemPointer
+#define rowid_compare ItemPointerCompare
 #endif
+
+#define DatumGetRowIDPointer(X)		((RowIDPointer)DatumGetPointer(X))
+#define RowIDPointerGetDatum(X)		PointerGetDatum(X)
+#define PG_GETARG_ROWIDPOINTER(n)	DatumGetRowIDPointer(PG_GETARG_DATUM(n))
+#define PG_RETURN_ROWIDPOINTER(X)	return RowIDPointerGetDatum(X)
 
 Datum rowid_in(PG_FUNCTION_ARGS)
 {
@@ -110,94 +120,78 @@ Datum rowid_send(PG_FUNCTION_ARGS)
 
 Datum rowid_eq(PG_FUNCTION_ARGS)
 {
-#ifdef ADB
-	OraRowID *l = (OraRowID*)PG_GETARG_POINTER(0);
-	OraRowID *r = (OraRowID*)PG_GETARG_POINTER(1);
-	PG_RETURN_BOOL(rowid_compare(l,r) == 0);
-#else
-	return tideq(fcinfo);
-#endif
+	PG_RETURN_BOOL(rowid_compare(PG_GETARG_ROWIDPOINTER(0),
+								 PG_GETARG_ROWIDPOINTER(1)) == 0);
 }
 
 Datum rowid_ne(PG_FUNCTION_ARGS)
 {
-#ifdef ADB
-	OraRowID *l = (OraRowID*)PG_GETARG_POINTER(0);
-	OraRowID *r = (OraRowID*)PG_GETARG_POINTER(1);
-	PG_RETURN_BOOL(rowid_compare(l,r) != 0);
-#else
-	return tidne(fcinfo);
-#endif
+	PG_RETURN_BOOL(rowid_compare(PG_GETARG_ROWIDPOINTER(0),
+								 PG_GETARG_ROWIDPOINTER(1)) != 0);
 }
 
 Datum rowid_lt(PG_FUNCTION_ARGS)
 {
-#ifdef ADB
-	OraRowID *l = (OraRowID*)PG_GETARG_POINTER(0);
-	OraRowID *r = (OraRowID*)PG_GETARG_POINTER(1);
-	PG_RETURN_BOOL(rowid_compare(l,r) < 0);
-#else
-	return tidlt(fcinfo);
-#endif
+	PG_RETURN_BOOL(rowid_compare(PG_GETARG_ROWIDPOINTER(0),
+								 PG_GETARG_ROWIDPOINTER(1)) < 0);
 }
 
 Datum rowid_le(PG_FUNCTION_ARGS)
 {
-#ifdef ADB
-	OraRowID *l = (OraRowID*)PG_GETARG_POINTER(0);
-	OraRowID *r = (OraRowID*)PG_GETARG_POINTER(1);
-	PG_RETURN_BOOL(rowid_compare(l,r) <= 0);
-#else
-	return tidle(fcinfo);
-#endif
+	PG_RETURN_BOOL(rowid_compare(PG_GETARG_ROWIDPOINTER(0),
+								 PG_GETARG_ROWIDPOINTER(1)) <= 0);
 }
 
 Datum rowid_gt(PG_FUNCTION_ARGS)
 {
-#ifdef ADB
-	OraRowID *l = (OraRowID*)PG_GETARG_POINTER(0);
-	OraRowID *r = (OraRowID*)PG_GETARG_POINTER(1);
-	PG_RETURN_BOOL(rowid_compare(l,r) > 0);
-#else
-	return tidgt(fcinfo);
-#endif
+	PG_RETURN_BOOL(rowid_compare(PG_GETARG_ROWIDPOINTER(0),
+								 PG_GETARG_ROWIDPOINTER(1)) > 0);
 }
 
 Datum rowid_ge(PG_FUNCTION_ARGS)
 {
-#ifdef ADB
-	OraRowID *l = (OraRowID*)PG_GETARG_POINTER(0);
-	OraRowID *r = (OraRowID*)PG_GETARG_POINTER(1);
-	PG_RETURN_BOOL(rowid_compare(l,r) >= 0);
-#else
-	return tidge(fcinfo);
-#endif
+	PG_RETURN_BOOL(rowid_compare(PG_GETARG_ROWIDPOINTER(0),
+								 PG_GETARG_ROWIDPOINTER(1)) >= 0);
+}
+
+Datum rowid_hash(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_INT32(hash_any((unsigned char*)PG_GETARG_POINTER(0), RID_DATA_SIZE));
+}
+
+Datum rowid_cmp(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_INT32(rowid_compare(PG_GETARG_ROWIDPOINTER(0),
+								  PG_GETARG_ROWIDPOINTER(1)));
+}
+
+static int
+rowid_fastcmp(Datum x, Datum y, SortSupport ssup)
+{
+	return rowid_compare(DatumGetRowIDPointer(x),
+						 DatumGetRowIDPointer(y));
+}
+
+Datum rowid_sortsupport(PG_FUNCTION_ARGS)
+{
+	SortSupport ssup = (SortSupport) PG_GETARG_POINTER(0);
+
+	ssup->comparator = rowid_fastcmp;
+	PG_RETURN_VOID();
 }
 
 Datum rowid_larger(PG_FUNCTION_ARGS)
 {
-#ifdef ADB
-	OraRowID *l = (OraRowID*)PG_GETARG_POINTER(0);
-	OraRowID *r = (OraRowID*)PG_GETARG_POINTER(1);
-	OraRowID *result = palloc(sizeof(OraRowID));
-	memcpy(result, rowid_compare(l, r) > 0 ? l:r, sizeof(OraRowID));
-	PG_RETURN_POINTER(result);
-#else
-	return tidlarger(fcinfo);
-#endif
+	RowIDPointer l = PG_GETARG_ROWIDPOINTER(0);
+	RowIDPointer r = PG_GETARG_ROWIDPOINTER(1);
+	PG_RETURN_ROWIDPOINTER(rowid_compare(l, r) > 0 ? l:r);
 }
 
 Datum rowid_smaller(PG_FUNCTION_ARGS)
 {
-#ifdef ADB
-	OraRowID *l = (OraRowID*)PG_GETARG_POINTER(0);
-	OraRowID *r = (OraRowID*)PG_GETARG_POINTER(1);
-	OraRowID *result = palloc(sizeof(OraRowID));
-	memcpy(result, rowid_compare(l, r) < 0 ? l:r, sizeof(OraRowID));
-	PG_RETURN_POINTER(result);
-#else
-	return tidsmaller(fcinfo);
-#endif
+	RowIDPointer l = PG_GETARG_ROWIDPOINTER(0);
+	RowIDPointer r = PG_GETARG_ROWIDPOINTER(1);
+	PG_RETURN_ROWIDPOINTER(rowid_compare(l, r) < 0 ? l:r);
 }
 
 #if defined(ADB) && defined(ADB_GRAM_ORA)
@@ -237,7 +231,7 @@ void rowid_get_data(Datum arg, ItemPointer tid)
 #endif
 
 #ifdef ADB
-static int rowid_compare(const OraRowID *l, const OraRowID *r)
+static int32 rowid_compare(const OraRowID *l, const OraRowID *r)
 {
 	AssertArg(l && r);
 	if(l->node_id < r->node_id)

@@ -182,8 +182,6 @@ DATA(insert ( 3526	n 0 enum_larger		-				enum_larger			-	-	-				-				-				f f 35
 DATA(insert ( 3564	n 0 network_larger	-				network_larger		-	-	-				-				-				f f 1205	869		0	0		0	_null_ _null_ ));
 #ifdef ADB_GRAM_ORA
 DATA(insert ( 5299	n 0 timestamptz_larger	-			timestamptz_larger	-	-	-				-				-				f f 1324	1184	0	0		0	_null_ _null_ ));
-#endif
-#ifdef ADB
 DATA(insert ( 5404	n 0 rowid_larger	-				rowid_larger		-	-	-				-				-				f f 3404	336		0	0		0	_null_ _null_ ));
 #endif
 /* min */
@@ -210,8 +208,6 @@ DATA(insert ( 3527	n 0 enum_smaller	-				enum_smaller		-	-	-				-				-				f f 35
 DATA(insert ( 3565	n 0 network_smaller -				network_smaller		-	-	-				-				-				f f 1203	869		0	0		0	_null_ _null_ ));
 #ifdef ADB_GRAM_ORA
 DATA(insert ( 5297	n 0 timestamptz_smaller -			timestamptz_smaller -	-	-				-				-				f f 1322	1184	0	0		0	_null_ _null_ ));
-#endif
-#ifdef ADB
 DATA(insert ( 5298	n 0 rowid_smaller	-				rowid_larger		-	-	-				-				-				f f 3403	336		0	0		0	_null_ _null_ ));
 #endif
 

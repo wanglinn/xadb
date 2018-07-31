@@ -541,4 +541,12 @@ DATA(insert (	4104   603	 603  4  4108 ));
 DATA(insert (	4104   603	 603  11 4067 ));
 DATA(insert (	4104   603	 603  13  187 ));
 
+#ifdef ADB_GRAM_ORA
+/* rid btree */
+DATA(insert (	9145   336 336 1 9147));	/* rowid_cmp */
+DATA(insert (	9145   336 336 2 9148));	/* rowid_sortsupport */
+/* rid hash */
+DATA(insert (	9146   336 336 1 9117));
+#endif
+
 #endif							/* PG_AMPROC_H */

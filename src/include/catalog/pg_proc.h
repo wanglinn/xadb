@@ -3378,8 +3378,6 @@ DATA(insert OID = 2797 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 27 "
 DESCR("maximum value of all tid input values");
 #ifdef ADB_GRAM_ORA
 DATA(insert OID = 5299 (  max				ORANSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 9009 "9009" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
-#endif
-#ifdef ADB
 DATA(insert OID = 5404 (  max				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 336 "336" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("maximum value of all rid input values");
 #endif /* ADB */
@@ -3426,8 +3424,6 @@ DATA(insert OID = 2798 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 27 "
 DESCR("minimum value of all tid input values");
 #ifdef ADB_GRAM_ORA
 DATA(insert OID = 5297 (  min				ORANSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 9009 "9009" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
-#endif
-#ifdef ADB
 DATA(insert OID = 5298 (  min				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 336 "336" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("minimum value of all rid input values");
 #endif /* ADB */
@@ -5517,6 +5513,11 @@ DATA(insert OID = 9110 (  rowid_larger		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2
 DESCR("larger of two");
 DATA(insert OID = 9111 (  rowid_smaller		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 336 "336 336" _null_ _null_ _null_ _null_ _null_ rowid_smaller _null_ _null_ _null_ ));
 DESCR("smaller of two");
+DATA(insert OID = 9117 (  rowid_hash		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 23 "336" _null_ _null_ _null_ _null_ _null_ rowid_hash _null_ _null_ _null_ ));
+DATA(insert OID = 9147 (  rowid_cmp			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 23 "336 336" _null_ _null_ _null_ _null_ _null_ rowid_cmp _null_ _null_ _null_ ));
+DESCR("less-equal-greater");
+DATA(insert OID = 9148 ( rowid_sortsupport PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 2278 "2281" _null_ _null_ _null_ _null_ _null_ rowid_sortsupport _null_ _null_ _null_ ));
+DESCR("sort support");
 
 DATA(insert OID = 9131 (  ora_date_out		ORANSP PGUID 12 1 0 0 0 f f f f t f s s 1 0 2275 "1114" _null_ _null_ _null_ _null_ _null_ ora_date_out _null_ _null_ _null_ ));
 DESCR("I/O");

@@ -192,4 +192,10 @@ DATA(insert OID = 4082 (	3580	pg_lsn_minmax_ops		PGNSP PGUID ));
 DATA(insert OID = 4104 (	3580	box_inclusion_ops		PGNSP PGUID ));
 DATA(insert OID = 5000 (	4000	box_ops		PGNSP PGUID ));
 
+#ifdef ADB_GRAM_ORA
+/* rid btree */
+DATA(insert OID = 9145 (	403		rid_ops					PGNSP PGUID ));
+/* rid hash */
+DATA(insert OID = 9146 (	405		rid_ops					PGNSP PGUID ));
+#endif
 #endif							/* PG_OPFAMILY_H */

@@ -252,4 +252,11 @@ DATA(insert (	3580	pg_lsn_minmax_ops		PGNSP PGUID 4082  3220 t 3220 ));
 DATA(insert (	3580	box_inclusion_ops		PGNSP PGUID 4104   603 t 603 ));
 /* no brin opclass for the geometric types except box */
 
+#ifdef ADB_GRAM_ORA
+/* rid default btree */
+DATA(insert (	403		rid_ops					PGNSP PGUID 9145   336 t 0));
+/* rid default hash */
+DATA(insert (	405		rid_ops					PGNSP PGUID 9146   336 t 0));
+#endif
+
 #endif							/* PG_OPCLASS_H */
