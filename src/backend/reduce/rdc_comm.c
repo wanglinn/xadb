@@ -323,7 +323,7 @@ rdc_connect_start(const char *host, uint32 port,
 	rdc_port->addr_cur = rdc_port->addrs;
 	RdcStatus(rdc_port) = RDC_CONNECTION_NEEDED;
 #ifdef DEBUG_ADB
-	RdcPeerHost(rdc_port) = pstrdup(host);
+	RdcPeerHost(rdc_port) = host ? pstrdup(host) : pstrdup("localhost");
 	RdcPeerPort(rdc_port) = pstrdup(portstr);
 #endif
 
