@@ -245,4 +245,9 @@
 { oid => '5008',
   opfmethod => 'spgist', opfname => 'poly_ops' },
 
+{ oid => '9145', row_macros => 'ADB_GRAM_ORA',
+  opfmethod => 'btree', opfname => 'rid_ops' },
+{ oid => '9146', row_macros => 'ADB_GRAM_ORA',
+  opfmethod => 'hash', opfname => 'rid_ops' },
+
 ]
