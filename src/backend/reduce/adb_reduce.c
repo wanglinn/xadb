@@ -109,9 +109,25 @@ ReduceCleanup(void)
 }
 
 static void
+BackendCloseSelfReduce(void)
+{
+	if (SelfReducePort)
+	{
+		StringInfo msg = RdcMsgBuf(SelfReducePort);
+
+		resetStringInfo(msg);
+		rdc_beginmessage(msg, MSG_BACKEND_CLOSE);
+		rdc_endmessage(SelfReducePort, msg);
+		(void) rdc_flush(SelfReducePort);
+
+		rdc_freeport(SelfReducePort);
+	}
+	SelfReducePort = NULL;
+}
+
+static void
 ResetSelfReduce(void)
 {
-	rdc_freeport(SelfReducePort);
 	SelfReducePort = NULL;
 	SelfReduceListenPort = 0;
 	SelfReduceID = InvalidOid;
@@ -123,14 +139,10 @@ ResetSelfReduce(void)
 void
 AtEOXact_Reduce(void)
 {
-	if (SelfReducePort && IsCoordMaster())
+	if (SelfReducePort)
 	{
-		StringInfo msg = RdcMsgBuf(SelfReducePort);
-
-		resetStringInfo(msg);
-		rdc_beginmessage(msg, MSG_BACKEND_CLOSE);
-		rdc_endmessage(SelfReducePort, msg);
-		(void) rdc_flush(SelfReducePort);
+		if (IsCoordMaster())
+			BackendCloseSelfReduce();
 
 		ResetSelfReduce();
 	}
@@ -139,22 +151,7 @@ AtEOXact_Reduce(void)
 void
 EndSelfReduce(int code, Datum arg)
 {
-	if (!IsParallelWorker() && SelfReducePID != 0)
-	{
-		int ret = kill(SelfReducePID, SIGTERM);
-		bool no_error = DatumGetBool(arg);
-		if (!(ret == 0 || errno == ESRCH))
-		{
-			if (no_error)
-			{
-				ereport(ERROR,
-					(errmsg("fail to terminate adb reduce subprocess")));
-			}
-		}
-		adb_elog(print_reduce_debug_log, LOG,
-			"[proc %d] kill SIGTERM to [proc %d]", MyProcPid, SelfReducePID);
-		SelfReducePID = 0;
- 	}
+	BackendCloseSelfReduce();
 	ResetSelfReduce();
 }
 
@@ -270,7 +267,7 @@ ConnectSelfReduce(RdcPortType self_type, RdcPortId self_id,
 	Assert(IsParallelWorker() || SelfReducePID != 0);
 	Assert(SelfReduceListenPort != 0);
 	Assert(SelfReduceID != InvalidOid);
-	return rdc_connect("127.0.0.1", SelfReduceListenPort,
+	return rdc_connect(NULL, SelfReduceListenPort,
 					   TYPE_REDUCE, SelfReduceID,
 					   self_type, self_id,
 					   self_pid, self_extra);
