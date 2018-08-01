@@ -66,6 +66,8 @@
 #include "pgxc/pgxc.h"
 #include "optimizer/pgxcplan.h"
 #include "pgxc/execRemote.h"
+#include "catalog/pg_proc.h"
+#include "catalog/pg_namespace.h"
 #endif
 #include "parser/parser.h"
 #include "rewrite/rewriteManip.h"
@@ -159,6 +161,114 @@ static void validateInfiniteBounds(ParseState *pstate, List *blist);
 static Const *transformPartitionBoundValue(ParseState *pstate, A_Const *con,
 							 const char *colName, Oid colType, int32 colTypmod);
 
+#ifdef ADB
+/*
+ * addDefaultDistributeBy
+ *
+ * Add the same DistributeBy as its parent if the table has
+ * no DistributeBy and inherit from only one parent.
+ *
+ * NOTES:
+ * the caller must be sure as below.
+ *	  1. must be coordinator master.
+ *	  2. must have no DistributeBy.
+ *	  3. must inherit from only one parent
+ */
+static void
+addDefaultDistributeBy(CreateStmt *stmt)
+{
+	Relation			parent;
+	RelationLocInfo	   *relloc;
+	DistributeBy	   *distby;
+
+	/* only coordinator master can do this */
+	Assert(IsCoordMaster());
+	/* has no DistributeBy */
+	Assert(stmt->distributeby == NULL);
+	/* inherit from only one parent */
+	Assert(list_length(stmt->inhRelations) == 1);
+
+	parent = heap_openrv((const RangeVar *) linitial(stmt->inhRelations),
+								  ShareUpdateExclusiveLock);
+	relloc = RelationGetLocInfo(parent);
+	if (relloc == NULL)
+	{
+		heap_close(parent, ShareUpdateExclusiveLock);
+		return ;
+	}
+	distby = makeNode(DistributeBy);
+
+	switch (relloc->locatorType)
+	{
+		case LOCATOR_TYPE_REPLICATED:
+			distby->disttype = DISTTYPE_REPLICATION;
+			break;
+		case LOCATOR_TYPE_HASH:
+			distby->disttype = DISTTYPE_HASH;
+			distby->colname = get_attname(relloc->relid, relloc->partAttrNum);
+			break;
+		case LOCATOR_TYPE_RROBIN:
+			distby->disttype = DISTTYPE_ROUNDROBIN;
+			break;
+		case LOCATOR_TYPE_MODULO:
+			distby->disttype = DISTTYPE_MODULO;
+			distby->colname = get_attname(relloc->relid, relloc->partAttrNum);
+			break;
+		case LOCATOR_TYPE_USER_DEFINED:
+			{
+				HeapTuple	proctup;
+				Form_pg_proc procform;
+				ColumnRef  *c = NULL;
+				List	   *funcname = NIL;
+				List	   *funcargs = NIL;
+				ListCell   *lc = NULL;
+				char	   *colname = NULL;
+
+				proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(relloc->funcid));
+				if (!HeapTupleIsValid(proctup))
+					elog(ERROR, "cache lookup failed for function %u", relloc->funcid);
+				procform = (Form_pg_proc) GETSTRUCT(proctup);
+
+				/* Print schema name only if it's not pg_catalog */
+				if (procform->pronamespace != PG_CATALOG_NAMESPACE)
+				{
+					char *schemaname = get_namespace_name(procform->pronamespace);
+					funcname = lappend(funcname, makeString(schemaname));
+				}
+				/* Deparse the function name */
+				funcname = lappend(funcname, makeString(pstrdup(NameStr(procform->proname))));
+				ReleaseSysCache(proctup);
+
+				foreach (lc, relloc->funcAttrNums)
+				{
+					colname = get_attname(relloc->relid, (AttrNumber) lfirst_int(lc));
+					c = makeNode(ColumnRef);
+					c->fields = list_make1(makeString(colname));
+					c->location = -1;
+
+					funcargs = lappend(funcargs, c);
+				}
+
+				distby->disttype = DISTTYPE_USER_DEFINED;
+				distby->funcname = funcname;
+				distby->funcargs = funcargs;
+			}
+			break;
+		case LOCATOR_TYPE_RANGE:
+		case LOCATOR_TYPE_CUSTOM:
+			/* not support yet */
+			break;
+		case LOCATOR_TYPE_NONE:
+		case LOCATOR_TYPE_DISTRIBUTED:
+		default:
+			Assert(false);
+			break;
+	}
+
+	stmt->distributeby = distby;
+	heap_close(parent, ShareUpdateExclusiveLock);
+}
+#endif
 
 /*
  * transformCreateStmt -
@@ -189,6 +299,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	bool		is_foreign_table = IsA(stmt, CreateForeignTableStmt);
 #ifdef ADB
 	bool		temp_found = false;
+	CreateStmt *orgstmt = stmt;
 #endif
 
 	/*
@@ -404,6 +515,14 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 		stmt->distributeby = makeNode(DistributeBy);
 		stmt->distributeby->disttype = DISTTYPE_HASH;
 		stmt->distributeby->colname = cxt.fallback_dist_col;
+	}
+
+	if (IsCoordMaster() &&
+		stmt->distributeby == NULL &&
+		list_length(stmt->inhRelations) == 1)
+	{
+		addDefaultDistributeBy(stmt);
+		orgstmt->distributeby = (DistributeBy *) copyObject(stmt->distributeby);
 	}
 #endif
 
