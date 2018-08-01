@@ -196,12 +196,7 @@ rdc_recv_group_rsp(RdcPort *port)
 	AssertArg(port);
 	mtype = rdc_getmessage(port, 0);
 	if (mtype != MSG_GROUP_RSP)
-	{
-		rdc_puterror(port,
-					 "expected group response from server, "
-					 "but received %c", mtype);
 		return EOF;
-	}
 	rdc_getmsgend(RdcInBuf(port));
 
 	return 0;
