@@ -36,6 +36,7 @@
 #include "utils/elog.h"
 #include "utils/ps_status.h"
 #include "utils/timestamp.h"
+#include "pgxc/pgxc.h"
 
 
 typedef struct
@@ -837,14 +838,24 @@ sendTablespace(char *path, bool sizeonly)
 {
 	int64		size;
 	char		pathbuf[MAXPGPATH];
+#ifdef ADB
+	char		adbpathbuf[MAXPGPATH];
+#endif
 	struct stat statbuf;
 
 	/*
 	 * 'path' points to the tablespace location, but we only want to include
 	 * the version directory in it that belongs to us.
 	 */
+#ifdef ADB
+	snprintf(adbpathbuf, sizeof(adbpathbuf), "%s_%s",
+			TABLESPACE_VERSION_DIRECTORY, PGXCNodeName);
+	snprintf(pathbuf, sizeof(pathbuf), "%s/%s_%s", path,
+			TABLESPACE_VERSION_DIRECTORY, PGXCNodeName);
+#else
 	snprintf(pathbuf, sizeof(pathbuf), "%s/%s", path,
 			 TABLESPACE_VERSION_DIRECTORY);
+#endif
 
 	/*
 	 * Store a directory entry in the tar file so we get the permissions
@@ -862,7 +873,11 @@ sendTablespace(char *path, bool sizeonly)
 		return 0;
 	}
 	if (!sizeonly)
+#ifdef ADB
+		_tarWriteHeader(adbpathbuf, NULL, &statbuf);
+#else
 		_tarWriteHeader(TABLESPACE_VERSION_DIRECTORY, NULL, &statbuf);
+#endif
 	size = 512;					/* Size of the header just added */
 
 	/* Send all the files in the tablespace version directory */
