@@ -33,11 +33,7 @@ MYCPPFLAGS = -DBUILD_BKI -DCATALOG_VARLEN
 # the catalog header files are assembled into postgres.bki.  In particular,
 # indexing.h had better be last, and toasting.h just before it.
 
-ifeq ($(enable_cluster),yes)
-  POSTGRES_BKI_SRCS = adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h adb_ha_sync_log.h
-  MYCPPFLAGS += -DADB
-endif
-POSTGRES_BKI_SRCS += \
+POSTGRES_BKI_SRCS = \
 	pg_proc.h pg_type.h pg_attribute.h pg_class.h \
 	pg_attrdef.h pg_constraint.h pg_inherits.h pg_index.h pg_operator.h \
 	pg_opfamily.h pg_opclass.h pg_am.h pg_amop.h pg_amproc.h \
@@ -54,13 +50,18 @@ POSTGRES_BKI_SRCS += \
 	pg_default_acl.h pg_init_privs.h pg_seclabel.h pg_shseclabel.h \
 	pg_collation.h pg_partitioned_table.h pg_range.h pg_transform.h \
 	pg_sequence.h pg_publication.h pg_publication_rel.h pg_subscription.h \
-	pg_subscription_rel.h \
-	ora_cast.h \
-	toasting.h indexing.h
+	pg_subscription_rel.h
 
+ifeq ($(enable_cluster),yes)
+  POSTGRES_BKI_SRCS += adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h adb_ha_sync_log.h
+  MYCPPFLAGS += -DADB
+endif
 ifeq ($(enable_grammar_oracle),yes)
   MYCPPFLAGS += -DADB_GRAM_ORA -DADB_MULTI_GRAM
+  POSTGRES_BKI_SRCS += ora_cast.h
 endif
+
+POSTGRES_BKI_SRCS += toasting.h indexing.h
 
 $(POSTGRES_BKI_SRCS): % : $(top_srcdir)/src/include/catalog/%
 	rm -f $@.c && $(LN_S) $< $@.c
