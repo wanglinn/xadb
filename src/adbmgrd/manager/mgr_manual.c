@@ -792,8 +792,9 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	/*base backup*/
 	initStringInfo(&restmsg);
 	resetStringInfo(&infosendmsg);
-	appendStringInfo(&infosendmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -c fast -R", src_nodeinfo.nodeaddr
-										, src_nodeinfo.nodeport, src_nodeinfo.nodeusername, dest_nodeinfo.nodepath);
+	appendStringInfo(&infosendmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -c fast -R -k %s"
+		, src_nodeinfo.nodeaddr, src_nodeinfo.nodeport, src_nodeinfo.nodeusername, dest_nodeinfo.nodepath
+		,dest_nodeinfo.nodename);
 	if (!mgr_ma_send_cmd(AGT_CMD_CNDN_SLAVE_INIT, infosendmsg.data, dest_nodeinfo.nodehost, &restmsg))
 	{
 		pfree_AppendNodeInfo(src_nodeinfo);
