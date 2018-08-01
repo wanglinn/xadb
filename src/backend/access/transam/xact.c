@@ -2660,7 +2660,7 @@ CommitTransaction(void)
 	RESUME_INTERRUPTS();
 
 #ifdef ADB
-	AtEOXact_Reduce();
+	AtEOXact_Reduce(true);
 
 	s->blockState = TBLOCK_DEFAULT;
 	EndCommitRemoteXact(s);
@@ -3243,7 +3243,7 @@ AbortTransaction(void)
 	RESUME_INTERRUPTS();
 
 #ifdef ADB
-	AtEOXact_Reduce();
+	AtEOXact_Reduce(false);
 #endif
 }
 

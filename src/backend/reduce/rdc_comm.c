@@ -1345,16 +1345,15 @@ rdc_discardbytes(RdcPort *port, size_t len)
 }
 
 /*
- * rdc_getmessage - get one whole message
+ * rdc_getmsgtype - Blocking to get message type
  *
  * returns EOF if error.
  * returns message type if OK.
  */
-int
-rdc_getmessage(RdcPort *port, size_t maxlen)
+static int
+rdc_getmsgtype(RdcPort *port)
 {
-	char	rdctype = '\0';
-	uint32	len;
+	int		res;
 	bool	sv_noblock;
 
 	AssertArg(port);
@@ -1363,38 +1362,10 @@ rdc_getmessage(RdcPort *port, size_t maxlen)
 	sv_noblock = port->noblock;
 	if (sv_noblock)
 		rdc_set_block(port);
+
 	PG_TRY();
 	{
-		rdctype = rdc_getbyte(port);
-		if (rdctype == EOF)
-		{
-			rdc_puterror(port, "unexpected EOF on client connection: %m");
-			goto eof_end;
-		}
-
-		if (rdc_getbytes(port, sizeof(len)) == EOF)
-		{
-			rdc_puterror(port, "unexpected EOF within message length word: %m");
-			goto eof_end;
-		}
-
-		len = rdc_getmsgint(RdcInBuf(port), sizeof(len));
-		if (len < 4 ||
-			(maxlen > 0 && len > maxlen))
-		{
-			rdc_puterror(port, "invalid message length");
-			goto eof_end;
-		}
-
-		len -= 4;					/* discount length itself */
-		if (len > 0)
-		{
-			if (rdc_getbytes(port, len) == EOF)
-			{
-				rdc_puterror(port, "incomplete message from client");
-				goto eof_end;
-			}
-		}
+		res = rdc_getbyte(port);
 	} PG_CATCH();
 	{
 		/* set in noblocking mode */
@@ -1403,14 +1374,125 @@ rdc_getmessage(RdcPort *port, size_t maxlen)
 		PG_RE_THROW();
 	} PG_END_TRY();
 
-	/* already parse firstchar and length, just parse other data left */
-	return rdctype;
-
-eof_end:
 	/* set in noblocking mode */
 	if (sv_noblock)
 		rdc_set_noblock(port);
-	return EOF;
+
+	return res;
+}
+
+/*
+ * rdc_getmsglen - Blocking to get message length
+ *
+ * returns EOF if error.
+ * returns message length if OK.
+ */
+static int
+rdc_getmsglen(RdcPort *port, size_t maxlen)
+{
+	int		res;
+	uint32	len;
+	bool	sv_noblock;
+	uint32	msglen;
+
+	AssertArg(port);
+
+	/* set in blocking mode */
+	sv_noblock = port->noblock;
+	if (sv_noblock)
+		rdc_set_block(port);
+
+	PG_TRY();
+	{
+		res = rdc_getbytes(port, sizeof(len));
+	} PG_CATCH();
+	{
+		/* set in noblocking mode */
+		if (sv_noblock)
+			rdc_set_noblock(port);
+		PG_RE_THROW();
+	} PG_END_TRY();
+
+	/* set in noblocking mode */
+	if (sv_noblock)
+		rdc_set_noblock(port);
+
+	if (res == EOF)
+		return EOF;
+
+	msglen = rdc_getmsgint(RdcInBuf(port), sizeof(msglen));
+	if (msglen < 4 || (maxlen > 0 && msglen > maxlen))
+	{
+		rdc_puterror(port, "invalid message length: %u", msglen);
+		return EOF;
+	}
+	msglen -= 4;					/* discount length itself */
+
+	return msglen;
+}
+
+/*
+ * rdc_getmsgdata - Blocking to get message data
+ *
+ * returns EOF if error.
+ * returns 0 if OK.
+ */
+static int
+rdc_getmsgdata(RdcPort *port, size_t len)
+{
+	int		res;
+	bool	sv_noblock;
+
+	AssertArg(port);
+
+	/* set in blocking mode */
+	sv_noblock = port->noblock;
+	if (sv_noblock)
+		rdc_set_block(port);
+
+	PG_TRY();
+	{
+		res = rdc_getbytes(port, len);
+	} PG_CATCH();
+	{
+		/* set in noblocking mode */
+		if (sv_noblock)
+			rdc_set_noblock(port);
+		PG_RE_THROW();
+	} PG_END_TRY();
+
+	/* set in noblocking mode */
+	if (sv_noblock)
+		rdc_set_noblock(port);
+
+	return res;
+}
+
+/*
+ * rdc_getmessage - Blocking to get one whole message
+ *
+ * returns EOF if error.
+ * returns message type if OK.
+ */
+int
+rdc_getmessage(RdcPort *port, size_t maxlen)
+{
+	int		msgtype = '\0';
+	uint32	msglen = 0;
+
+	if ((msgtype = rdc_getmsgtype(port)) == EOF)
+		return EOF;
+
+	if ((msglen = rdc_getmsglen(port, maxlen)) == EOF)
+		return EOF;
+
+	if (msglen > 0)
+	{
+		if (rdc_getmsgdata(port, msglen) == EOF)
+			return EOF;
+	}
+
+	return msgtype;
 }
 
 /*
