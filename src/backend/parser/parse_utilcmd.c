@@ -207,8 +207,8 @@ addDefaultDistributeBy(CreateStmt *stmt)
 			distby->disttype = DISTTYPE_HASH;
 			distby->colname = get_attname(relloc->relid, relloc->partAttrNum);
 			break;
-		case LOCATOR_TYPE_RROBIN:
-			distby->disttype = DISTTYPE_ROUNDROBIN;
+		case LOCATOR_TYPE_RANDOM:
+			distby->disttype = DISTTYPE_RANDOM;
 			break;
 		case LOCATOR_TYPE_MODULO:
 			distby->disttype = DISTTYPE_MODULO;
@@ -256,12 +256,12 @@ addDefaultDistributeBy(CreateStmt *stmt)
 			break;
 		case LOCATOR_TYPE_RANGE:
 		case LOCATOR_TYPE_CUSTOM:
-			/* not support yet */
-			break;
 		case LOCATOR_TYPE_NONE:
 		case LOCATOR_TYPE_DISTRIBUTED:
 		default:
-			Assert(false);
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("not supported locator type %d", relloc->locatorType)));
 			break;
 	}
 
