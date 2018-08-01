@@ -37,6 +37,7 @@
 #include "receivelog.h"
 #include "replication/basebackup.h"
 #include "streamutil.h"
+#include "catalog/catalog.h"
 
 
 typedef struct TablespaceListCell
@@ -118,6 +119,10 @@ static bool in_log_streamer = false;
 /* End position for xlog streaming, empty string if unknown yet */
 static XLogRecPtr xlogendptr;
 
+#ifdef ADB
+static char *nodename = NULL;
+#endif
+
 #ifndef WIN32
 static int	has_xlogendptr = 0;
 #else
@@ -145,6 +150,9 @@ static bool reached_end_position(XLogRecPtr segendpos, uint32 timeline,
 static const char *get_tablespace_mapping(const char *dir);
 static void tablespace_list_append(const char *arg);
 
+#ifdef ADB
+static bool check_tablespace_mapping(const char *dir);
+#endif
 
 static void
 cleanup_directories_atexit(void)
@@ -349,6 +357,9 @@ usage(void)
 	printf(_("      --waldir=WALDIR    location for the write-ahead log directory\n"));
 	printf(_("  -z, --gzip             compress tar output\n"));
 	printf(_("  -Z, --compress=0-9     compress tar output with given compression level\n"));
+#ifdef ADB
+	printf(_("  -k, --nodename=NODENAME  set node name\n"));
+#endif
 	printf(_("\nGeneral options:\n"));
 	printf(_("  -c, --checkpoint=fast|spread\n"
 			 "                         set fast or spread checkpointing\n"));
@@ -1319,6 +1330,7 @@ ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum)
 	const char *mapped_tblspc_path;
 	pgoff_t		current_len_left = 0;
 	int			current_padding = 0;
+	int 		pgversionstrlen = strlen(TABLESPACE_VERSION_DIRECTORY);
 	bool		basetablespace;
 	char	   *copybuf = NULL;
 	FILE	   *file = NULL;
@@ -1400,6 +1412,23 @@ ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum)
 			/*
 			 * First part of header is zero terminated filename
 			 */
+#ifdef ADB
+			if (strlen(copybuf) > pgversionstrlen
+				&& strncmp(copybuf, TABLESPACE_VERSION_DIRECTORY, pgversionstrlen) ==0)
+			{
+				char *newpostion = copybuf;
+				newpostion = newpostion + sizeof(char)*pgversionstrlen;
+				while(*newpostion != '\0')
+				{
+					if (*newpostion == '/')
+						break;
+					newpostion++;
+				}
+				snprintf(filename, sizeof(filename), "%s/%s_%s%s", current_path,
+									TABLESPACE_VERSION_DIRECTORY, nodename, newpostion);
+			}
+			else
+#endif
 			snprintf(filename, sizeof(filename), "%s/%s", current_path,
 					 copybuf);
 			if (filename[strlen(filename) - 1] == '/')
@@ -1868,7 +1897,30 @@ BaseBackup(void)
 		{
 			char	   *path = (char *) get_tablespace_mapping(PQgetvalue(res, i, 1));
 
+#ifdef ADB
+			if (check_tablespace_mapping(path))
+			{
+				int pathstatus = pg_check_dir(path);
+				if (pathstatus == 0)
+				{
+					if (pg_mkdir_p(path, S_IRWXU) == -1)
+					{
+						fprintf(stderr,
+								_("%s: could not create directory \"%s\": %s\n"),
+								progname, path, strerror(errno));
+						disconnect_and_exit(1);
+					}
+				}
+				else if (pathstatus == -1)
+				{
+					fprintf(stderr, _("%s: could not access directory \"%s\": %s\n"),
+										progname, path, strerror(errno));
+					disconnect_and_exit(1);
+				}
+			}
+#else
 			verify_dir_is_empty_or_create(path, &made_tablespace_dirs, &found_tablespace_dirs);
+#endif
 		}
 	}
 
@@ -2095,6 +2147,9 @@ main(int argc, char **argv)
 		{"wal-method", required_argument, NULL, 'X'},
 		{"gzip", no_argument, NULL, 'z'},
 		{"compress", required_argument, NULL, 'Z'},
+#ifdef ADB
+		{"nodename", required_argument, NULL, 'k'},
+#endif
 		{"label", required_argument, NULL, 'l'},
 		{"no-clean", no_argument, NULL, 'n'},
 		{"no-sync", no_argument, NULL, 'N'},
@@ -2140,7 +2195,7 @@ main(int argc, char **argv)
 
 	atexit(cleanup_directories_atexit);
 
-	while ((c = getopt_long(argc, argv, "D:F:r:RT:X:l:nNzZ:d:c:h:p:U:s:S:wWvP",
+	while ((c = getopt_long(argc, argv, "D:F:r:RT:X:l:nNzZ:d:c:h:k:p:U:s:S:wWvP",
 							long_options, &option_index)) != -1)
 	{
 		switch (c)
@@ -2234,6 +2289,11 @@ main(int argc, char **argv)
 					exit(1);
 				}
 				break;
+#ifdef ADB
+			case 'k':
+				nodename = pg_strdup(optarg);
+				break;
+#endif
 			case 'c':
 				if (pg_strcasecmp(optarg, "fast") == 0)
 					fastcheckpoint = true;
@@ -2313,6 +2373,15 @@ main(int argc, char **argv)
 				progname);
 		exit(1);
 	}
+#ifdef ADB
+	if (nodename == NULL)
+	{
+		fprintf(stderr, _("%s: no nodename specified\n"), progname);
+		fprintf(stderr, _("Try \"%s --help\" for more information.\n"),
+				progname);
+		exit(1);
+	}
+#endif
 
 	/*
 	 * Mutually exclusive arguments
@@ -2445,3 +2514,23 @@ main(int argc, char **argv)
 	success = true;
 	return 0;
 }
+
+#ifdef ADB
+/* check the given dir is mapping tablespace path */
+static bool
+check_tablespace_mapping(const char *dir)
+{
+	TablespaceListCell *cell;
+	char		canon_dir[MAXPGPATH];
+
+	/* Canonicalize path for comparison consistency */
+	strlcpy(canon_dir, dir, sizeof(canon_dir));
+	canonicalize_path(canon_dir);
+
+	for (cell = tablespace_dirs.head; cell; cell = cell->next)
+		if (strcmp(canon_dir, cell->new_dir) == 0)
+			return true;
+
+	return false;
+}
+#endif
