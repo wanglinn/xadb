@@ -125,6 +125,8 @@ enum SysCacheIdentifier
 	#if defined(ADB_GRAM_ORA)
 		,ORACASTSOURCETARGET
 		#define SysCacheSize (ORACASTSOURCETARGET + 1)
+	#else
+		#define SysCacheSize (USERMAPPINGUSERSERVER + 1)
 	#endif
 #elif defined(ADB_GRAM_ORA)
 	,ORACASTSOURCETARGET
