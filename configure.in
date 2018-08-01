@@ -213,6 +213,8 @@ AC_SUBST(enable_grammar_oracle)
 if test "$enable_grammar_oracle" = yes; then
   adb_multi_gram="yes"
   AC_DEFINE(ADB_MULTI_GRAM, 1, [Define to 1 to enable AntDB multi-grammar])
+else
+  adb_multi_gram="no"
 fi
 AC_SUBST(adb_multi_gram)
 
