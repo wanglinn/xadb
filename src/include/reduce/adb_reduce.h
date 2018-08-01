@@ -25,7 +25,7 @@ extern void UnregisterReduceCleanup(void);
 
 extern void ReduceCleanup(void);
 
-extern void AtEOXact_Reduce(void);
+extern void AtEOXact_Reduce(bool isCommit);
 
 extern void EndSelfReduce(int code, Datum arg);
 

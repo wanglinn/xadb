@@ -606,14 +606,14 @@ int main(int argc, char** argv)
 	/* parse options */
 	ParseReduceOptions(argc, argv);
 
+	/* set signals */
+	SetReduceSignals();
+
 	/* start listen */
 	ReduceListen();
 
 	/* tell its parent listen port */
 	TransListenPort();
-
-	/* set signals */
-	SetReduceSignals();
 
 	/* wait for reduce group be ready */
 	WaitForReduceGroupReady();

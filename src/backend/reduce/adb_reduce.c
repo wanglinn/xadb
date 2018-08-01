@@ -137,12 +137,15 @@ ResetSelfReduce(void)
 }
 
 void
-AtEOXact_Reduce(void)
+AtEOXact_Reduce(bool isCommit)
 {
 	if (SelfReducePort)
 	{
 		if (IsCoordMaster())
 			BackendCloseSelfReduce();
+
+		if (isCommit == false)
+			CloseBackendPort();
 
 		ResetSelfReduce();
 	}
@@ -353,11 +356,14 @@ static void
 CloseBackendPort(void)
 {
 #ifndef WIN32
-	if (close(backend_reduce_fds[RDC_BACKEND_HOLD]))
-		ereport(FATAL,
-				(errcode_for_file_access(),
-				 errmsg_internal("could not close backend port in reduce process: %m")));
-	backend_reduce_fds[RDC_BACKEND_HOLD] = -1;
+	if (backend_reduce_fds[RDC_BACKEND_HOLD] > 0)
+	{
+		if (close(backend_reduce_fds[RDC_BACKEND_HOLD]))
+			ereport(FATAL,
+					(errcode_for_file_access(),
+					 errmsg_internal("could not close backend port in reduce process: %m")));
+		backend_reduce_fds[RDC_BACKEND_HOLD] = -1;
+	}
 #endif	/* WIN32 */
 }
 
@@ -365,11 +371,14 @@ static void
 CloseReducePort(void)
 {
 #ifndef WIN32
-	if (close(backend_reduce_fds[RDC_REDUCE_HOLD]))
-		ereport(FATAL,
-				(errcode_for_file_access(),
-				 errmsg_internal("could not close reduce in backend process: %m")));
-	backend_reduce_fds[RDC_REDUCE_HOLD] = -1;
+	if (backend_reduce_fds[RDC_REDUCE_HOLD])
+	{
+		if (close(backend_reduce_fds[RDC_REDUCE_HOLD]))
+			ereport(FATAL,
+					(errcode_for_file_access(),
+					 errmsg_internal("could not close reduce in backend process: %m")));
+		backend_reduce_fds[RDC_REDUCE_HOLD] = -1;
+	}
 #endif	/* WIN32 */
 }
 
