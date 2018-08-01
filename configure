@@ -3223,6 +3223,8 @@ if test "$enable_grammar_oracle" = yes; then
 
 $as_echo "#define ADB_MULTI_GRAM 1" >>confdefs.h
 
+else
+  adb_multi_gram="no"
 fi
 
 

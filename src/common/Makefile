@@ -148,7 +148,11 @@ $(top_builddir)/src/agtm/include/parser/gram.h: $(top_srcdir)/src/backend/parser
 $(top_builddir)/src/adbmgrd/include/parser/gram.h: $(top_srcdir)/src/backend/parser/gram.y
 	$(MAKE) -C $(top_builddir)/src/adbmgrd $@
 
+ifeq ($(enable_grammar_oracle),yes)
 keywords.o: $(top_srcdir)/src/include/parser/kwlist.h $(top_builddir)/src/include/parser/ora_gram.h
+else
+keywords.o: $(top_srcdir)/src/include/parser/kwlist.h
+endif
 keywords_srv.o: $(top_builddir)/src/include/parser/gram.h $(top_srcdir)/src/include/parser/kwlist.h
 keywords_agtm.o: $(top_builddir)/src/agtm/include/parser/gram.h
 keywords_mgr.o: $(top_builddir)/src/adbmgrd/include/parser/gram.h
