@@ -1193,6 +1193,7 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 	appendStringInfo(&infosendmsg, " -p %u", masterport);
 	appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
 	appendStringInfo(&infosendmsg, " -D %s", cndnPath);
+	appendStringInfo(&infosendmsg, " --nodename %s", cndnnametmp);
 	/* connection agent */
 	ma = ma_connect_hostoid(hostOid);
 	if(!ma_isconnected(ma))
@@ -1236,6 +1237,7 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 		/*refresh postgresql.conf of this node*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
+		mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", cndnnametmp, &infosendmsg);
 		mgr_add_parameters_pgsqlconf(tupleOid, nodetype, cndnport, &infosendmsg);
 		mgr_add_parm(cndnnametmp, nodetype, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
@@ -1605,7 +1607,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
 		appendStringInfo(&infosendmsg, " -D %s", cndnPath);
 		appendStringInfo(&infosendmsg, " -U %s", AGTM_USER);
-		appendStringInfo(&infosendmsg, " -x");
+		appendStringInfo(&infosendmsg, " --nodename %s", cndnname);
 		ReleaseSysCache(gtmmastertuple);
 		/*check it need start gtm master*/
 		initStringInfo(&strinfoport);
@@ -3108,6 +3110,7 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 
 		/* step 6: update datanode slave's postgresql.conf. */
 		resetStringInfo(&infosendmsg);
+		mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", appendnodeinfo.nodename, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("archive_command", "", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("log_directory", "pg_log", &infosendmsg);
 		mgr_add_parm(appendnodeinfo.nodename, CNDN_TYPE_DATANODE_SLAVE, &infosendmsg);
@@ -3955,20 +3958,22 @@ void mgr_pgbasebackup(char nodetype, AppendNodeInfo *appendnodeinfo, AppendNodeI
 
 	if (nodetype == GTM_TYPE_GTM_SLAVE)
 	{
-		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R",
+		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R -k %s",
 									get_hostaddress_from_hostoid(parentnodeinfo->nodehost)
 									,parentnodeinfo->nodeport
 									,AGTM_USER
-									,appendnodeinfo->nodepath);
+									,appendnodeinfo->nodepath
+									,appendnodeinfo->nodename);
 
 	}
 	else if (nodetype == CNDN_TYPE_DATANODE_SLAVE)
 	{
-		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R",
+		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R -k %s",
 									get_hostaddress_from_hostoid(parentnodeinfo->nodehost)
 									,parentnodeinfo->nodeport
 									,get_hostuser_from_hostoid(parentnodeinfo->nodehost)
-									,appendnodeinfo->nodepath);
+									,appendnodeinfo->nodepath
+									,appendnodeinfo->nodename);
 	}
 
 	ma = ma_connect_hostoid(appendnodeinfo->nodehost);
