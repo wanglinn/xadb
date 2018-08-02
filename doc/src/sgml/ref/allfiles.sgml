@@ -256,6 +256,7 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrFailoverDatanode SYSTEM "mgr_failover_datanode.sgml">
 <!ENTITY mgrFailoverGtm     SYSTEM "mgr_failover_gtm.sgml">
 <!ENTITY mgrFlushHost       SYSTEM "mgr_flush_host.sgml">
+<!ENTITY mgrFlushParam      SYSTEM "mgr_flush_param.sgml">
 <!ENTITY mgrGrant           SYSTEM "mgr_grant_right.sgml">
 <!ENTITY mgrInitAll         SYSTEM "mgr_init_all.sgml">
 <!ENTITY mgrListAcl         SYSTEM "mgr_list_acl.sgml">
