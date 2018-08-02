@@ -1135,11 +1135,11 @@ setup_connection(Archive *AH, const char *dumpencoding,
 		if (dopt->serializable_deferrable && AH->sync_snapshot_id == NULL)
 			ExecuteSqlStatement(AH,
 								"SET TRANSACTION ISOLATION LEVEL "
-								"SERIALIZABLE, READ ONLY, DEFERRABLE");
+								"SERIALIZABLE, DEFERRABLE");
 		else
 			ExecuteSqlStatement(AH,
 								"SET TRANSACTION ISOLATION LEVEL "
-								"REPEATABLE READ, READ ONLY");
+								"REPEATABLE READ");
 	}
 	else if (AH->remoteVersion >= 70400)
 	{
@@ -16637,7 +16637,7 @@ dumpSequenceData(Archive *fout, TableDataInfo *tdinfo)
 	 */
 	resetPQExpBuffer(query);
 	appendPQExpBuffer(query, "SELECT pg_catalog.nextval(");
-	appendStringLiteralAH(query, fmtId(tbinfo->dobj.name), fout);
+	appendStringLiteralAH(query, fmtQualifiedDumpable(tbinfo), fout);
 	appendPQExpBuffer(query, ");\n");
 	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
 
@@ -16648,7 +16648,7 @@ dumpSequenceData(Archive *fout, TableDataInfo *tdinfo)
 										"query to get nextval of sequence \"%s\" "
 									 "returned %d rows (expected 1)\n",
 									 PQntuples(res)),
-					  tbinfo->dobj.name, PQntuples(res));
+					  fmtQualifiedDumpable(tbinfo), PQntuples(res));
 		exit_nicely(1);
 	}
 
