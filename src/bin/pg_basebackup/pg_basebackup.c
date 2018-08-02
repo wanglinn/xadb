@@ -1330,7 +1330,9 @@ ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum)
 	const char *mapped_tblspc_path;
 	pgoff_t		current_len_left = 0;
 	int			current_padding = 0;
+#ifdef ADB
 	int 		pgversionstrlen = strlen(TABLESPACE_VERSION_DIRECTORY);
+#endif /* ADB */
 	bool		basetablespace;
 	char	   *copybuf = NULL;
 	FILE	   *file = NULL;
