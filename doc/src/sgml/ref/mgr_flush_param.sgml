@@ -1,0 +1,51 @@
+<!--
+doc/src/sgml/ref/mgr_flush_param.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-FLUSHPARAM">
+  <refmeta>
+    <refentrytitle>FLUSH PARAM</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>FLUSH PARAM</refname>
+    <refpurpose>get guc names and constraints from coordinator/datanode/gtm then insert into adbmgr check_parameter table</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-flushparam">
+    <primary>FLUSH PARAM</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+<synopsis>
+FLUSH PARAM
+</synopsis>
+  </refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+    <command>FLUSH PARAM</command> clean adbmgr check_parameter table, get guc names and constraints from coordinator/datanode/gtm then insert into adbmgr check_parameter table, check the adbmgr set_parameters table's content.
+    </para>
+  </refsect1>
+
+  <refsect1>
+  <title>Examples</title>
+ <para>
+Refresh the content of adbmgr check_parameter table:
+<programlisting>
+FLUSH PARAM;
+</programlisting>
+</para>
+  </refsect1>
+      <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-flushhost"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>

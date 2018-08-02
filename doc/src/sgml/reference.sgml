@@ -327,6 +327,7 @@
    &mgrFailoverDatanode;
    &mgrFailoverGtm;
    &mgrFlushHost;
+   &mgrFlushParam;
    &mgrGrant;
    &mgrInitAll;
    &mgrListAcl;
