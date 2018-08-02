@@ -104,7 +104,7 @@
 #include "pg_config_os.h"
 #endif
 
-#if defined(AGTM) || defined(ADBMGRD)
+#if defined(AGTM) || defined(ADBMGRD) || defined(INITMGR) || defined(INITAGTM)
 #undef ADB_GRAM_ORA
 #undef ADB_MULTI_GRAM
 #endif
