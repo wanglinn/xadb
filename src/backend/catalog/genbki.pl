@@ -54,13 +54,13 @@ while (@ARGV)
 	elsif ($arg =~ /^--enable-cluster=(.*)$/)
 	{
 		$enable_cluster = lc($1);
-		die "Invalid version string.\n"
+		die "Invalid enable-cluster string.\n"
 		  if !($enable_cluster =~ /^(yes|no)$/i);
 	}
 	elsif ($arg =~ /^--enable-grammar-oracle=(.*)$/)
 	{
 		$enable_grammar_oracle = lc($1);
-		die "Invalid version string.\n"
+		die "Invalid enable-grammar-oracle string.\n"
 		  if !($enable_grammar_oracle =~ /^(yes|no)$/i);
 	}
 # ADB_END
