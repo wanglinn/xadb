@@ -929,7 +929,6 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 		{
 			parent_rel->partial_pathlist =
 				list_delete_cell(parent_rel->partial_pathlist, p1, p1_prev);
-			/* we should not see IndexPaths here, so always safe to delete */
 			pfree(old_path);
 			/* p1_prev does not advance */
 		}
@@ -1278,7 +1277,6 @@ void add_cluster_partial_path(RelOptInfo *parent_rel, Path *new_path)
 		{
 			parent_rel->cluster_partial_pathlist =
 				list_delete_cell(parent_rel->cluster_partial_pathlist, p1, p1_prev);
-			/* we should not see IndexPaths here, so always safe to delete */
 			pfree(old_path);
 			/* p1_prev does not advance */
 		}
