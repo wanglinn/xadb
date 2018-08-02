@@ -5328,6 +5328,8 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 	ManagerAgent *ma;
 	bool execRes = false;
 	char *address = NULL;
+	char *cnAddress = NULL;
+	char *cnUser = NULL;
 
 	bool is_preferred = false;
 	bool is_primary = false;
@@ -5398,11 +5400,13 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 	//getAgentCmdRst.nodename = get_hostname_from_hostoid(mgr_node_out->nodehost);
 
 	initStringInfo(&cmdstring);
+	cnAddress = get_hostaddress_from_hostoid(mgr_node_out->nodehost);
+	cnUser = get_hostuser_from_hostoid(mgr_node_out->nodehost);
 	appendStringInfo(&cmdstring, " -h %s -p %u -d %s -U %s -a -c \""
-					,get_hostaddress_from_hostoid(mgr_node_out->nodehost)
+					,cnAddress
 					,mgr_node_out->nodeport
 					,DEFAULT_DB
-					,get_hostuser_from_hostoid(mgr_node_out->nodehost));
+					,cnUser);
 	breadOnlyNode = mgr_node_out->nodereadonly;
 	if (breadOnlyNode)
 		appendStringInfoString(&cmdstring, "set default_transaction_read_only=on;");
@@ -5530,14 +5534,14 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 		mgr_get_createnodeCmd_on_readonly_cn(NameStr(mgr_node_out->nodename)
 								, mgr_node_out->nodeincluster, &cmdstring);
 	}
-	appendStringInfoString(&cmdstring, "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
+	appendStringInfoString(&cmdstring, "\"");
 
 	/* connection agent */
+	getAgentCmdRst.ret = false;
 	ma = ma_connect_hostoid(mgr_node_out->nodehost);
 	if(!ma_isconnected(ma))
 	{
 		/* report error message */
-		getAgentCmdRst.ret = false;
 		appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
 		goto func_end;
 	}
@@ -5545,26 +5549,63 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 	ma_beginmessage(&buf, AGT_MSG_COMMAND);
 	ma_sendbyte(&buf, AGT_CMD_PSQL_CMD);
 	ma_sendstring(&buf,cmdstring.data);
-	pfree(cmdstring.data);
 	ma_endmessage(&buf, ma);
 	if (! ma_flush(ma, true))
 	{
-		getAgentCmdRst.ret = false;
 		appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
 		goto func_end;
 	}
 
 	/*check the receive msg*/
-	execRes = mgr_recv_msg(ma, &getAgentCmdRst);
+	execRes = mgr_recv_msg_original_result(ma, &getAgentCmdRst, false);
 	if (!execRes)
+	{
 		ereport(WARNING, (errmsg("config all, create node on all coordinators fail %s",
 				getAgentCmdRst.description.data)));
+		goto func_end;
+	}
+	ma_close(ma);
+	/* pgxc pool reload */
+	resetStringInfo(&cmdstring);
+	getAgentCmdRst.ret = false;
+	appendStringInfo(&cmdstring, " -h %s -p %u -d %s -U %s -a -c \""
+						,cnAddress
+						,mgr_node_out->nodeport
+						,DEFAULT_DB
+						,cnUser);
+	appendStringInfoString(&cmdstring, "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
+	ma = ma_connect_hostoid(mgr_node_out->nodehost);
+	if(!ma_isconnected(ma))
+	{
+		/* report error message */
+		appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
+		goto func_end;
+	}
+	ma_beginmessage(&buf, AGT_MSG_COMMAND);
+	ma_sendbyte(&buf, AGT_CMD_PSQL_CMD);
+	ma_sendstring(&buf,cmdstring.data);
+
+	ma_endmessage(&buf, ma);
+	if (! ma_flush(ma, true))
+	{
+		appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
+		goto func_end;
+	}
+	/* check the receive msg */
+	execRes = mgr_recv_msg_original_result(ma, &getAgentCmdRst, false);
+	if (!execRes)
+		ereport(WARNING, (errmsg("config all, select pgxc_pool_reload() fail %s",
+		getAgentCmdRst.description.data)));
+
 	func_end:
 		tup_result = build_common_command_tuple( &(getAgentCmdRst.nodename)
 				,getAgentCmdRst.ret
 				,getAgentCmdRst.ret == true ? "success":getAgentCmdRst.description.data);
 
 	ma_close(ma);
+	pfree(cnAddress);
+	pfree(cnUser);
+	pfree(cmdstring.data);
 	pfree(getAgentCmdRst.description.data);
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
