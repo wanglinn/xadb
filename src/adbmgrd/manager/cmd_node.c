@@ -1613,6 +1613,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
 		appendStringInfo(&infosendmsg, " -D %s", cndnPath);
 		appendStringInfo(&infosendmsg, " -U %s", AGTM_USER);
+		appendStringInfo(&infosendmsg, " -k %s", cndnname);
 		appendStringInfo(&infosendmsg, " -x");
 		ReleaseSysCache(gtmmastertuple);
 		/*check it need start gtm master*/
