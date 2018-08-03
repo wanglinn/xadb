@@ -426,6 +426,7 @@ bool get_cpu_freq(StringInfo hostinfostring)
     }
     else
     {
+        monitor_append_str(hostinfostring, "0GHz");
         pclose(fstream);
         return false;
     }
