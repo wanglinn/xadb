@@ -65,8 +65,8 @@ typedef struct ReduceCleanupEntry
 
 static void ResetSelfReduce(void);
 static void InitCommunicationChannel(void);
-static void CloseBackendPort(void);
-static void CloseReducePort(void);
+static void CloseBackendPort(bool noerorr);
+static void CloseReducePort(bool noerror);
 static int  GetReduceListenPort(void);
 #ifndef WIN32
 static void AdbReduceLauncherMain(char *exec_path, int rid, bool memory_mode);
@@ -145,7 +145,7 @@ AtEOXact_Reduce(bool isCommit)
 			BackendCloseSelfReduce();
 
 		if (isCommit == false)
-			CloseBackendPort();
+			CloseBackendPort(true);
 
 		ResetSelfReduce();
 	}
@@ -234,12 +234,12 @@ StartSelfReduceLauncher(RdcPortId rid, bool memory_mode)
 		case 0:
 			/* Lose the backend's on-exit routines */
 			on_exit_reset();
-			CloseBackendPort();
+			CloseBackendPort(false);
 			AdbReduceLauncherMain(my_reduce_path, rid, memory_mode);
 			break;
 
 		default:
-			CloseReducePort();
+			CloseReducePort(false);
 			old_context = MemoryContextSwitchTo(TopMemoryContext);
 			SelfReducePort = rdc_newport(backend_reduce_fds[RDC_BACKEND_HOLD],
 										 TYPE_REDUCE, SelfReduceID,
@@ -353,30 +353,36 @@ InitCommunicationChannel(void)
 }
 
 static void
-CloseBackendPort(void)
+CloseBackendPort(bool noerorr)
 {
 #ifndef WIN32
 	if (backend_reduce_fds[RDC_BACKEND_HOLD] > 0)
 	{
 		if (close(backend_reduce_fds[RDC_BACKEND_HOLD]))
-			ereport(FATAL,
+		{
+			if (!noerorr)
+				ereport(FATAL,
 					(errcode_for_file_access(),
 					 errmsg_internal("could not close backend port in reduce process: %m")));
+		}
 		backend_reduce_fds[RDC_BACKEND_HOLD] = -1;
 	}
 #endif	/* WIN32 */
 }
 
 static void
-CloseReducePort(void)
+CloseReducePort(bool noerorr)
 {
 #ifndef WIN32
 	if (backend_reduce_fds[RDC_REDUCE_HOLD])
 	{
 		if (close(backend_reduce_fds[RDC_REDUCE_HOLD]))
-			ereport(FATAL,
-					(errcode_for_file_access(),
-					 errmsg_internal("could not close reduce in backend process: %m")));
+		{
+			if (!noerorr)
+				ereport(FATAL,
+						(errcode_for_file_access(),
+						 errmsg_internal("could not close reduce in backend process: %m")));
+		}
 		backend_reduce_fds[RDC_REDUCE_HOLD] = -1;
 	}
 #endif	/* WIN32 */
