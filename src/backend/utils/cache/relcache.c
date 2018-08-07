@@ -1052,8 +1052,7 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 
 #ifdef ADB
 	if (IsCnNode() &&
-		relation->rd_id >= FirstNormalObjectId &&
-		!IsAutoVacuumWorkerProcess())
+		relation->rd_id >= FirstNormalObjectId)
 		RelationBuildLocator(relation);
 
 	RelationBuildAuxiliary(relation);
