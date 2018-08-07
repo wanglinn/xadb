@@ -76,7 +76,7 @@
 #include "pgxc/pgxc.h"
 
 
-static void drop_datanode_statements(Plan *plannode);
+static bool drop_datanode_statements(Plan *plannode, Node *GlobOrStmt, void *context);
 #endif
 
 /*
@@ -577,7 +577,7 @@ ReleaseGenericPlan(CachedPlanSource *plansource ADB_ONLY_COMMA_ARG(bool is_clust
 				if (IsA(node, PlannedStmt))
 				{
 					PlannedStmt *ps = (PlannedStmt *)node;
-					drop_datanode_statements(ps->planTree);
+					drop_datanode_statements(ps->planTree, NULL, NULL);
 				}
 			}
 			plansource->gplan = NULL;
@@ -1372,22 +1372,23 @@ CachedPlan *GetCachedPlanADB(CachedPlanSource *plansource,
 /*
  * Find and release all Datanode statements referenced by the plan node and subnodes
  */
-static void
-drop_datanode_statements(Plan *plannode)
+static bool
+drop_datanode_statements(Plan *plannode, Node *GlobOrStmt, void *context)
 {
+	if (plannode == NULL)
+		return false;
+
 	if (IsA(plannode, RemoteQuery))
 	{
 		RemoteQuery *step = (RemoteQuery *) plannode;
 
 		if (step->statement)
 			DropDatanodeStatement(step->statement);
+
+		return false;
 	}
 
-	if (innerPlan(plannode))
-		drop_datanode_statements(innerPlan(plannode));
-
-	if (outerPlan(plannode))
-		drop_datanode_statements(outerPlan(plannode));
+	return plan_tree_walker(plannode, NULL, drop_datanode_statements, NULL);
 }
 #endif
 
