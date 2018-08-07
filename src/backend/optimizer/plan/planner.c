@@ -2330,7 +2330,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 					}
 				}
 			}
-			if (!is_parallel_safe(root, (Node*)scanjoin_target->exprs))
+			if (is_parallel_safe(root, (Node*)scanjoin_target->exprs))
 			{
 				foreach(lc, current_rel->cluster_partial_pathlist)
 				{
