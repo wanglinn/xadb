@@ -1051,12 +1051,7 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 
 #ifdef ADB
 	if (IsCnNode() &&
-		relation->rd_id >= FirstNormalObjectId &&
-		!IsAutoVacuumWorkerProcess()
-#if defined(ADBMGRD)
-		&& !IsAnyAdbMonitorProcess()
-#endif
-		)
+		relation->rd_id >= FirstNormalObjectId)
 		RelationBuildLocator(relation);
 #endif
 

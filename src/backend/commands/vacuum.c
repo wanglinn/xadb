@@ -53,6 +53,7 @@
 #ifdef ADB
 #include "access/visibilitymap.h"
 #include "executor/executor.h"
+#include "intercomm/inter-comm.h"
 #include "nodes/makefuncs.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
@@ -1613,6 +1614,8 @@ get_remote_relstat(char *nspname, char *relname, bool replicated,
 
 	/* Make up query string */
 	initStringInfo(&query);
+	if (IsCoordMaster() && IsAutoVacuumWorkerProcess())
+		appendStringInfo(&query, "ANALYZE %s.%s;", nspname, relname);
 	appendStringInfo(&query, "SELECT c.relpages, "
 									"c.reltuples, "
 									"c.relfrozenxid "
@@ -1620,7 +1623,7 @@ get_remote_relstat(char *nspname, char *relname, bool replicated,
 							 "ON c.relnamespace = n.oid "
 							 "WHERE n.nspname = '%s' "
 							 "AND c.relname = '%s'",
-					 nspname, relname);
+							 nspname, relname);
 
 	/* Build up RemoteQuery */
 	step = makeNode(RemoteQuery);
@@ -1737,6 +1740,25 @@ get_remote_relstat(char *nspname, char *relname, bool replicated,
 	}
 }
 
+static void
+vacuum_rel_other_coordinator(char *nspname, char *relname)
+{
+	StringInfoData		query;
+	RemoteQuery		   *step;
+
+	initStringInfo(&query);
+	appendStringInfo(&query, "ANALYZE %s.%s", nspname, relname);
+
+	step = makeNode(RemoteQuery);
+	step->combine_type = COMBINE_TYPE_NONE;
+	step->exec_nodes = NULL;
+	step->sql_statement = query.data;
+	step->force_autocommit = true;
+	step->exec_type = EXEC_ON_COORDS;
+	(void) ExecInterXactUtility(step, GetCurrentInterXactState());
+	pfree(query.data);
+	pfree(step);
+}
 
 /*
  * Coordinator does not contain any data, so we never need to vacuum relations.
@@ -1843,6 +1865,9 @@ vacuum_rel_coordinator(Relation onerel, bool is_outer)
 							min_frozenxid,
 							InvalidMultiXactId,
 							is_outer);
+
+		if (IsCoordMaster() && IsAutoVacuumWorkerProcess())
+			vacuum_rel_other_coordinator(nspname, relname);
 	}
 }
 #endif
