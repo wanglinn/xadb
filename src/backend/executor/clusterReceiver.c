@@ -8,6 +8,7 @@
 #include "access/xact.h"
 #include "nodes/execnodes.h"
 #include "executor/clusterReceiver.h"
+#include "executor/execCluster.h"
 #include "executor/executor.h"
 #include "executor/tuptable.h"
 #include "libpq/libpq.h"
@@ -85,11 +86,15 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 {
 	if(*msg == CLUSTER_MSG_TUPLE_DATA)
 	{
-		restore_slot_message(msg+1, len-1, slot);
-		return true;
+		if (slot)
+		{
+			restore_slot_message(msg+1, len-1, slot);
+			return true;
+		}
 	}else if(*msg == CLUSTER_MSG_TUPLE_DESC)
 	{
-		compare_slot_head_message(msg+1, len-1, slot->tts_tupleDescriptor);
+		if (slot)
+			compare_slot_head_message(msg+1, len-1, slot->tts_tupleDescriptor);
 		return false;
 	}else if(*msg == CLUSTER_MSG_INSTRUMENT)
 	{
@@ -107,6 +112,10 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 		return false;
 	}else if (*msg == CLUSTER_MSG_EXECUTOR_RUN_END)
 	{
+		return false;
+	}else if (*msg == CLUSTER_MSG_TABLE_STAT)
+	{
+		ClusterRecvTableStat(msg+1, len-1);
 		return false;
 	}else
 	{
@@ -177,6 +186,9 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 		}
 		break;
 	case CLUSTER_MSG_EXECUTOR_RUN_END:
+		break;
+	case CLUSTER_MSG_TABLE_STAT:
+		ClusterRecvTableStat(msg+1, len-1);
 		break;
 	default:
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),

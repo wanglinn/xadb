@@ -1,5 +1,6 @@
 #include "postgres.h"
 
+#include "access/transam.h"
 #include "access/xact.h"
 #include "catalog/pgxc_node.h"
 #include "commands/copy.h"
@@ -21,6 +22,7 @@
 #include "nodes/nodeFuncs.h"
 #include "nodes/plannodes.h"
 #include "parser/parsetree.h"
+#include "pgstat.h"
 #include "storage/lmgr.h"
 #include "storage/mem_toc.h"
 #include "tcop/dest.h"
@@ -108,6 +110,10 @@ static void RestoreClusterHook(ClusterErrorHookContext *context);
 
 static const ClusterCustomExecInfo* find_custom_func_info(StringInfo mem_toc, bool noError);
 
+static void SaveTableStatSnapshot(void);
+static bool SerializeTableStat(StringInfo buf);
+static void DestroyTableStateSnapshot(void);
+
 static const ClusterCustomExecInfo cluster_custom_execute[] =
 	{
 		{CLUSTER_CUSTOM_EXEC_FUNC(DoClusterHeapScan)}
@@ -159,6 +165,8 @@ void exec_cluster_plan(const void *splan, int length)
 	pq_putmessage('W', copy_msg, sizeof(copy_msg));
 	pq_flush();
 
+	SaveTableStatSnapshot();
+
 	if ((tmp=mem_toc_lookup(&msg, REMOTE_KEY_REDUCE_INFO, NULL)) != NULL)
 	{
 		/* need reduce */
@@ -201,6 +209,12 @@ void exec_cluster_plan(const void *splan, int length)
 				 errmsg("unknown cluster plan type %d", tag)));
 	}
 
+	/* send stat */
+	initStringInfo(&msg);
+	if(SerializeTableStat(&msg))
+		pq_putmessage('d', msg.data, msg.len);
+	pfree(msg.data);
+
 	PopActiveSnapshot();
 	EndClusterTransaction();
 
@@ -208,6 +222,8 @@ void exec_cluster_plan(const void *splan, int length)
 
 	/* Send Copy Done message */
 	pq_putemptymessage('c');
+
+	DestroyTableStateSnapshot();
 }
 
 static void ExecClusterPlanStmt(StringInfo buf)
@@ -1416,4 +1432,314 @@ static bool RelationIsCoordOnly(Oid relid)
 
 	heap_close(rel, NoLock);
 	return result;
+}
+
+/******************** cluster stat ***********************/
+
+#define CLUSTER_TAB_STAT_INSERTED			(1<<0)
+#define CLSUTER_TAB_STAT_UPDATED			(1<<1)
+#define CLSUTER_TAB_STAT_DELETED			(1<<2)
+#define CLUSTER_TAB_STAT_INSERTED_PRE_TRUNC	(1<<3)
+#define CLSUTER_TAB_STAT_UPDATED_PRE_TRUNC	(1<<4)
+#define CLSUTER_TAB_STAT_DELETED_PRE_TRUNC	(1<<5)
+#define CLUSTER_TAB_STAT_PRE_TRUNC			(CLUSTER_TAB_STAT_INSERTED_PRE_TRUNC | \
+											 CLSUTER_TAB_STAT_UPDATED_PRE_TRUNC | \
+											 CLSUTER_TAB_STAT_DELETED_PRE_TRUNC)
+typedef uint8 cluster_tab_stat_mark_type;
+
+typedef struct ClusterTabStatKey
+{
+	Oid			oid;					/* table's OID */
+	int			nest_level;				/* subtransaction nest level */
+}ClusterTabStatKey;
+
+typedef struct ClusterTabStatValue
+{
+	PgStat_Counter tuples_inserted;		/* tuples inserted in (sub)xact */
+	PgStat_Counter tuples_updated;		/* tuples updated in (sub)xact */
+	PgStat_Counter tuples_deleted;		/* tuples deleted in (sub)xact */
+	PgStat_Counter inserted_pre_trunc;	/* tuples inserted prior to truncate */
+	PgStat_Counter updated_pre_trunc;	/* tuples updated prior to truncate */
+	PgStat_Counter deleted_pre_trunc;	/* tuples deleted prior to truncate */
+}ClusterTabStatValue;
+
+typedef struct ClusterTabStatInfo
+{
+	ClusterTabStatKey	key;
+	ClusterTabStatValue	value;
+}ClusterTabStatInfo;
+
+static HTAB	   *clusterStatSnapshot = NULL;
+
+static bool count_table_pgstat(PgStat_TableStatus *status, long *nelem)
+{
+	PgStat_TableXactStatus *trans = status->trans;
+	int count = 0;
+	if (status->t_id < FirstNormalObjectId ||	/* ignore system relation */
+		trans == NULL)
+		return false;
+
+	/* get first trans */
+	while (trans->upper)
+		trans = trans->upper;
+
+	while(trans)
+	{
+		++count;
+		trans = trans->next;
+	}
+
+	*nelem += count;
+	return false;
+}
+
+static void create_cluster_table_stat_htab(long nelem)
+{
+	HASHCTL		ctl;
+
+	memset(&ctl, 0, sizeof(ctl));
+	ctl.keysize = sizeof(ClusterTabStatKey);
+	ctl.entrysize = sizeof(ClusterTabStatInfo);
+	clusterStatSnapshot = hash_create("cluster table stat snapshot",
+									  100,
+									  &ctl,
+									  HASH_ELEM | HASH_BLOBS);
+}
+
+static void copy_table_pgstat(ClusterTabStatValue *val, const PgStat_TableXactStatus *trans)
+{
+	val->tuples_inserted = trans->tuples_inserted;
+	val->tuples_updated = trans->tuples_updated;
+	val->tuples_deleted = trans->tuples_deleted;
+	if (trans->truncated)
+	{
+		val->inserted_pre_trunc = trans->inserted_pre_trunc;
+		val->updated_pre_trunc = trans->updated_pre_trunc;
+		val->deleted_pre_trunc = trans->deleted_pre_trunc;
+	}else
+	{
+		val->inserted_pre_trunc =
+			val->updated_pre_trunc =
+			val->deleted_pre_trunc = 0;
+	}
+}
+
+static bool save_table_pgstat(PgStat_TableStatus *status, void *context)
+{
+	PgStat_TableXactStatus *trans;
+	ClusterTabStatKey key;
+	ClusterTabStatInfo *info;
+	key.oid = status->t_id;
+
+	trans = status->trans;
+	if (status->t_id < FirstNormalObjectId || /* ignore system relation */
+		trans == NULL)
+		return false;
+
+	/* get first trans */
+	while(trans->upper)
+		trans = trans->upper;
+
+	while(trans)
+	{
+		key.nest_level = trans->nest_level;
+		info = hash_search(clusterStatSnapshot, &key, HASH_ENTER, NULL);
+
+		copy_table_pgstat(&info->value, trans);
+
+		trans = trans->next;
+	}
+
+	return false;
+}
+
+static bool serialize_table_pgstate(PgStat_TableStatus *status, StringInfo buf)
+{
+	PgStat_TableXactStatus *trans;
+	ClusterTabStatInfo *saved;
+	ClusterTabStatInfo info;
+	int saved_len;
+	cluster_tab_stat_mark_type mark;
+
+	trans = status->trans;
+	if (status->t_id < FirstNormalObjectId || /* ignore system relation */
+		trans == NULL)
+		return false;
+
+	/* get first trans */
+	while(trans->upper)
+		trans = trans->upper;
+
+	info.key.oid = status->t_id;
+	while(trans)
+	{
+		info.key.nest_level = trans->nest_level;
+		if (clusterStatSnapshot)
+			saved = hash_search(clusterStatSnapshot, &info.key, HASH_FIND, NULL);
+		else
+			saved = NULL;
+
+		copy_table_pgstat(&info.value, trans);
+		if (saved)
+		{
+			info.value.tuples_inserted -= saved->value.tuples_inserted;
+			info.value.tuples_updated -= saved->value.tuples_updated;
+			info.value.tuples_deleted -= saved->value.tuples_deleted;
+			info.value.inserted_pre_trunc -= saved->value.inserted_pre_trunc;
+			info.value.updated_pre_trunc -= saved->value.updated_pre_trunc;
+			info.value.deleted_pre_trunc -= saved->value.deleted_pre_trunc;
+		}
+
+		/* save last len for mark */
+		saved_len = buf->len;
+		mark = 0;
+		appendBinaryStringInfo(buf, (char*)&mark, sizeof(mark));
+
+#define SERIALIZE(field, macro)				\
+		do{if (info.value.field)			\
+		{									\
+			mark |= macro;					\
+			appendBinaryStringInfo(buf,		\
+				(char*)&info.value.field,	\
+				sizeof(info.value.field));	\
+		}}while(0)
+
+		SERIALIZE(tuples_inserted,		CLUSTER_TAB_STAT_INSERTED);
+		SERIALIZE(tuples_updated,		CLSUTER_TAB_STAT_UPDATED);
+		SERIALIZE(tuples_deleted,		CLSUTER_TAB_STAT_DELETED);
+		SERIALIZE(inserted_pre_trunc,	CLUSTER_TAB_STAT_INSERTED_PRE_TRUNC);
+		SERIALIZE(updated_pre_trunc,	CLSUTER_TAB_STAT_UPDATED_PRE_TRUNC);
+		SERIALIZE(deleted_pre_trunc,	CLSUTER_TAB_STAT_DELETED_PRE_TRUNC);
+#undef SERIALIZE
+
+		if (mark == 0)
+		{
+			/* no stat saved, reset buffer */
+			buf->len = saved_len;
+		}else
+		{
+			/* rewrite mark */
+			memcpy(buf->data + saved_len, (char*)&mark, sizeof(mark));
+			/* save relation oid and nest_level */
+			save_oid_class(buf, info.key.oid);
+			appendBinaryStringInfo(buf, (char*)&info.key.nest_level, sizeof(info.key.nest_level));
+		}
+
+		trans = trans->next;
+	}
+
+	return false;
+}
+
+void ClusterRecvTableStat(const char *data, int length)
+{
+	Relation					rel = NULL;
+	PgStat_TableStatus		   *status;
+	PgStat_TableXactStatus	   *trans;
+	ClusterTabStatInfo			info;
+	StringInfoData				buf;
+	cluster_tab_stat_mark_type	mark;
+
+	buf.data = (char*)data;
+	buf.cursor = 0;
+	buf.len = buf.maxlen = length;
+
+	while(buf.cursor < buf.len)
+	{
+		pq_copymsgbytes(&buf, (char*)&mark, sizeof(mark));
+#define RESTORE(field, macro)							\
+		do{if(mark & macro)								\
+		{												\
+			pq_copymsgbytes(&buf,						\
+				(char*)&info.value.field,				\
+				sizeof(info.value.field));				\
+		}}while(0)
+		MemSet(&info.value, 0, sizeof(info.value));
+		RESTORE(tuples_inserted,	CLUSTER_TAB_STAT_INSERTED);
+		RESTORE(tuples_updated,		CLSUTER_TAB_STAT_UPDATED);
+		RESTORE(tuples_deleted,		CLSUTER_TAB_STAT_DELETED);
+		RESTORE(inserted_pre_trunc,	CLUSTER_TAB_STAT_INSERTED_PRE_TRUNC);
+		RESTORE(updated_pre_trunc,	CLSUTER_TAB_STAT_UPDATED_PRE_TRUNC);
+		RESTORE(deleted_pre_trunc,	CLSUTER_TAB_STAT_DELETED_PRE_TRUNC);
+#undef RESTORE
+
+		info.key.oid = load_oid_class(&buf);
+		pq_copymsgbytes(&buf, (char*)&info.key.nest_level, sizeof(info.key.nest_level));
+
+		if (rel == NULL ||
+			RelationGetRelid(rel) != info.key.oid)
+		{
+			if(rel)
+				relation_close(rel, NoLock);
+			rel = relation_open(info.key.oid, NoLock);
+		}
+
+		status = pgstat_get_status(rel);
+		if (status && status->trans)
+		{
+			trans = status->trans;
+			trans->tuples_inserted += info.value.tuples_inserted;
+			trans->tuples_updated += info.value.tuples_updated;
+			trans->tuples_deleted += info.value.tuples_deleted;
+			if (mark & CLUSTER_TAB_STAT_PRE_TRUNC)
+			{
+				if (trans->truncated)
+				{
+					trans->inserted_pre_trunc += info.value.inserted_pre_trunc;
+					trans->updated_pre_trunc += info.value.updated_pre_trunc;
+					trans->deleted_pre_trunc += info.value.deleted_pre_trunc;
+				}else
+				{
+					trans->inserted_pre_trunc = info.value.inserted_pre_trunc;
+					trans->updated_pre_trunc = info.value.updated_pre_trunc;
+					trans->deleted_pre_trunc = info.value.deleted_pre_trunc;
+					trans->truncated = true;
+				}
+			}
+		}
+	}
+
+	if (rel)
+		relation_close(rel, NoLock);
+}
+
+static void SaveTableStatSnapshot(void)
+{
+	long nelem = 0L;
+	walker_table_stat(count_table_pgstat, &nelem);
+	if (nelem == 0L)
+	{
+		clusterStatSnapshot = NULL;
+	}else
+	{
+		create_cluster_table_stat_htab(nelem);
+		Assert(clusterStatSnapshot != NULL);
+		walker_table_stat(save_table_pgstat, NULL);
+	}
+}
+
+static bool SerializeTableStat(StringInfo buf)
+{
+	int saved_len1;
+	int saved_len2 = buf->len;
+	appendStringInfoChar(buf, CLUSTER_MSG_TABLE_STAT);
+	saved_len1 = buf->len;
+	walker_table_stat(serialize_table_pgstate, buf);
+	if (buf->len == saved_len1)
+	{
+		/* not have any serialized, reset buffer */
+		buf->len = saved_len2;
+		return false;
+	}
+
+	return true;
+}
+
+static void DestroyTableStateSnapshot(void)
+{
+	if (clusterStatSnapshot)
+	{
+		hash_destroy(clusterStatSnapshot);
+		clusterStatSnapshot = NULL;
+	}
 }
