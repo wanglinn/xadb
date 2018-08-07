@@ -744,53 +744,75 @@ GetLocatorType(Oid relid)
 }
 
 /*
- * RelationBuildLocator
- * Build locator information associated with the specified relation.
+ * HasRelationLocator
+ *
+ * return true if the specified relation has locator, otherwise
+ * return false.
  */
-void
-RelationBuildLocator(Relation rel)
+bool
+HasRelationLocator(Oid relid)
 {
-	Relation	pcrel;
-	ScanKeyData	skey;
-	SysScanDesc	pcscan;
-	HeapTuple	htup;
-	MemoryContext	oldContext;
-	RelationLocInfo	*relationLocInfo;
-	int		j;
-	Form_pgxc_class	pgxc_class;
+	Relation		pcrel;
+	ScanKeyData		skey;
+	SysScanDesc		pcscan;
+	bool			result;
+
+	ScanKeyInit(&skey,
+				Anum_pgxc_class_pcrelid,
+				BTEqualStrategyNumber,
+				F_OIDEQ,
+				ObjectIdGetDatum(relid));
+
+	pcrel = heap_open(PgxcClassRelationId, AccessShareLock);
+	pcscan = systable_beginscan(pcrel,
+								PgxcClassPgxcRelIdIndexId,
+								true,
+								NULL,
+								1,
+								&skey);
+	result = HeapTupleIsValid(systable_getnext(pcscan));
+	systable_endscan(pcscan);
+	heap_close(pcrel, AccessShareLock);
+
+	return result;
+}
+
+/*
+ * RelationIdBuildLocator
+ * Build locator information associated with the specified relation id.
+ */
+RelationLocInfo *
+RelationIdBuildLocator(Oid relid)
+{
+	Relation		pcrel;
+	ScanKeyData		skey;
+	SysScanDesc		pcscan;
+	HeapTuple		htup;
+	Form_pgxc_class pgxc_class;
+	RelationLocInfo*relationLocInfo;
+	int				j;
 
 	ScanKeyInit(&skey,
 				Anum_pgxc_class_pcrelid,
 				BTEqualStrategyNumber, F_OIDEQ,
-				ObjectIdGetDatum(RelationGetRelid(rel)));
-
+				ObjectIdGetDatum(relid));
 	pcrel = heap_open(PgxcClassRelationId, AccessShareLock);
 	pcscan = systable_beginscan(pcrel, PgxcClassPgxcRelIdIndexId, true,
 								NULL, 1, &skey);
 	htup = systable_getnext(pcscan);
-
 	if (!HeapTupleIsValid(htup))
 	{
-		/* Assume local relation only */
-		rel->rd_locator_info = NULL;
 		systable_endscan(pcscan);
 		heap_close(pcrel, AccessShareLock);
-		return;
+		return NULL;
 	}
 
 	pgxc_class = (Form_pgxc_class) GETSTRUCT(htup);
-
-	oldContext = MemoryContextSwitchTo(CacheMemoryContext);
-
 	relationLocInfo = (RelationLocInfo *) palloc(sizeof(RelationLocInfo));
-	rel->rd_locator_info = relationLocInfo;
-
-	relationLocInfo->relid = RelationGetRelid(rel);
+	relationLocInfo->relid = relid;
 	relationLocInfo->locatorType = pgxc_class->pclocatortype;
-
 	relationLocInfo->partAttrNum = pgxc_class->pcattnum;
 	relationLocInfo->nodeids = NIL;
-
 	for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
 		relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
 											   pgxc_class->nodeoids.values[j]);
@@ -843,6 +865,20 @@ RelationBuildLocator(Relation rel)
 	systable_endscan(pcscan);
 	heap_close(pcrel, AccessShareLock);
 
+	return relationLocInfo;
+}
+
+/*
+ * RelationBuildLocator
+ * Build locator information associated with the specified relation.
+ */
+void
+RelationBuildLocator(Relation rel)
+{
+	MemoryContext	oldContext;
+
+	oldContext = MemoryContextSwitchTo(CacheMemoryContext);
+	rel->rd_locator_info = RelationIdBuildLocator(RelationGetRelid(rel));
 	MemoryContextSwitchTo(oldContext);
 }
 
