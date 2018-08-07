@@ -2042,6 +2042,25 @@ pgstat_update_heap_dead_tuples(Relation rel, int delta)
 		pgstat_info->t_counts.t_delta_dead_tuples -= delta;
 }
 
+#ifdef ADB
+PgStat_TableStatus *pgstat_get_status(Relation rel)
+{
+	PgStat_TableStatus *pgstat_info = rel->pgstat_info;
+
+	if (pgstat_info != NULL)
+	{
+		/* We have to log the effect at the proper transactional level */
+		int			nest_level = GetCurrentTransactionNestLevel();
+
+		if (pgstat_info->trans == NULL ||
+			pgstat_info->trans->nest_level != nest_level)
+			add_tabstat_xact_level(pgstat_info, nest_level);
+		Assert(pgstat_info->trans);
+	}
+
+	return pgstat_info;
+}
+#endif /* ADB */
 
 /* ----------
  * AtEOXact_PgStat
@@ -6405,3 +6424,25 @@ pgstat_clip_activity(const char *raw_activity)
 
 	return activity;
 }
+
+#ifdef ADB
+bool walker_table_stat(bool(*walker)(), void *context)
+{
+	TabStatHashEntry *entry;
+	HASH_SEQ_STATUS status;
+	if (pgStatTabHash == NULL)
+		return false;
+
+	hash_seq_init(&status, pgStatTabHash);
+	while((entry=hash_seq_search(&status)) != NULL)
+	{
+		if ((*walker)(entry->tsa_entry, context))
+		{
+			hash_seq_term(&status);
+			return true;
+		}
+	}
+
+	return false;
+}
+#endif /* ADB */
