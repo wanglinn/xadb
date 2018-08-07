@@ -3870,9 +3870,15 @@ EndCopyFrom(CopyState cstate)
 							 errnode(PQNConnectName(conn))));
 					break;
 				case PGRES_COPY_OUT:
-					PQclear(res);
-					PQgetCopyDataBuffer(conn, (const char**)&res, 0);		/* just eat message */
-					res = NULL;
+					{
+						PQclear(res);
+						res = NULL;
+						const char *msg;
+						int len;
+						len = PQgetCopyDataBuffer(conn, &msg, true);
+						if (len > 0)
+							clusterRecvTuple(NULL, msg, len, NULL, conn);
+					}
 					break;
 				case PGRES_COPY_IN:
 				case PGRES_COPY_BOTH:
@@ -5497,9 +5503,15 @@ static bool CopyFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType 
 		ereport(ERROR, (errmsg("%m")));
 		break;
 	case PQNHFT_COPY_OUT_DATA:
-		ereport(ERROR,
-				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("remote node should not copy out data")));
+		{
+			const char	   *buf;
+			int				len;
+			va_start(args, type);
+			buf = va_arg(args, const char*);
+			len = va_arg(args, int);
+			clusterRecvTuple(NULL, buf, len, NULL, conn);
+			va_end(args);
+		}
 		break;
 	case PQNHFT_COPY_IN_ONLY:
 		break;
