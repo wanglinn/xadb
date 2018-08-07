@@ -767,7 +767,11 @@ void RelationBuildAuxiliary(Relation rel)
 	AssertArg(rel);
 
 	if (RelationGetRelid(rel) < FirstNormalObjectId)
+	{
+		rel->rd_auxlist = NIL;
+		rel->rd_auxatt = NULL;
 		return;
+	}
 
 	ScanKeyInit(&skey,
 				Anum_pg_aux_class_relid,
