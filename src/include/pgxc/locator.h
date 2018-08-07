@@ -106,6 +106,14 @@ typedef struct ExecNodes
 #define IsExecNodesDistributedByUserDefined(en)	IsLocatorDistributedByUserDefined((en)->baselocatortype)
 
 /* Function for RelationLocInfo building and management */
+#define RelationIdHasLocator(relid)	\
+	HasRelationLocator(relid)
+
+#define RelationHasLocator(relation) \
+	HasRelationLocator(RelationGetRelid(relation))
+
+extern bool HasRelationLocator(Oid relid);
+extern RelationLocInfo *RelationIdBuildLocator(Oid relid);
 extern void RelationBuildLocator(Relation rel);
 extern RelationLocInfo *GetRelationLocInfo(Oid relid);
 extern RelationLocInfo *CopyRelationLocInfo(RelationLocInfo *srcInfo);
