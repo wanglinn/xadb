@@ -1108,6 +1108,9 @@ extern void pgstat_count_heap_update(Relation rel, bool hot);
 extern void pgstat_count_heap_delete(Relation rel);
 extern void pgstat_count_truncate(Relation rel);
 extern void pgstat_update_heap_dead_tuples(Relation rel, int delta);
+#ifdef ADB
+extern PgStat_TableStatus *pgstat_get_status(Relation rel);
+#endif /* ADB */
 
 extern void pgstat_init_function_usage(FunctionCallInfoData *fcinfo,
 						   PgStat_FunctionCallUsage *fcu);
@@ -1141,5 +1144,9 @@ extern PgStat_StatFuncEntry *pgstat_fetch_stat_funcentry(Oid funcid);
 extern int	pgstat_fetch_stat_numbackends(void);
 extern PgStat_ArchiverStats *pgstat_fetch_stat_archiver(void);
 extern PgStat_GlobalStats *pgstat_fetch_global(void);
+
+#ifdef ADB
+extern bool walker_table_stat(bool(*walker)(), void *context);
+#endif /* ADB */
 
 #endif   /* PGSTAT_H */
