@@ -13,6 +13,7 @@
 #include "commands/copy.h"
 #include "commands/defrem.h"
 #include "commands/tablecmds.h"
+#include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
 #include "libpq/libpq-fe.h"
 #include "libpq/libpq-node.h"
@@ -604,13 +605,19 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 						PQclear(res);
 						ereport(ERROR,
 								(errcode(ERRCODE_INTERNAL_ERROR),
-								 errmsg("datanode copy command result tuples"),
+								 errmsg("datanode padding auxiliary command result tuples"),
 								 errnode(PQNConnectName(conn))));
 						break;
 					case PGRES_COPY_OUT:
-						PQclear(res);
-						PQgetCopyDataBuffer(conn, (const char**)&res, 0);		/* just eat message */
-						res = NULL;
+						{
+							PQclear(res);
+							res = NULL;
+							const char *msg;
+							int len;
+							len = PQgetCopyDataBuffer(conn, &msg, true);
+							if (len > 0)
+								clusterRecvTuple(NULL, msg, len, NULL, conn);
+						}
 						break;
 					case PGRES_COPY_IN:
 					case PGRES_COPY_BOTH:
