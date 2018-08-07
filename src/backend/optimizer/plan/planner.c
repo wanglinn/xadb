@@ -7738,8 +7738,24 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 			}
 			if(gcontext.new_paths_list)
 			{
-				new_path_list = gcontext.new_paths_list;
+				new_path_list = NIL;
+				foreach(lc, gcontext.new_paths_list)
+				{
+					subpath = lfirst(lc);
+					new_path_list = lappend(new_path_list, subpath);
+					if (!pathkeys_contained_in(gcontext.group_pathkeys, subpath->pathkeys))
+					{
+						subpath = (Path*)create_sort_path(root,
+														  input_rel,
+														  subpath,
+														  gcontext.group_pathkeys,
+														  -1.0);
+						new_path_list = lappend(new_path_list, subpath);
+					}
+				}
+				list_free(gcontext.new_paths_list);
 				gcontext.new_paths_list = NIL;
+
 				gcontext.split = AGGSPLIT_FINAL_DESERIAL;
 				ParallelGatherSubPathList(root, grouped_rel, new_path_list, create_cluster_grouping_path, &gcontext);
 				add_cluster_path_list(grouped_rel, gcontext.new_paths_list, true);
@@ -7756,16 +7772,33 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 				/* gcontext.split = AGGSPLIT_INITIAL_SERIAL; */
 				foreach(lc, input_rel->cluster_partial_pathlist)
 					create_cluster_grouping_path(root, lfirst(lc), &gcontext);
-				new_path_list = gcontext.new_paths_list;
+
+				/* step 2: sort(hash agg) */
+				new_path_list = NIL;
+				foreach(lc, gcontext.new_paths_list)
+				{
+					subpath = lfirst(lc);
+					new_path_list = lappend(new_path_list, subpath);
+					if (!pathkeys_contained_in(gcontext.group_pathkeys, subpath->pathkeys))
+					{
+						subpath = (Path*)create_sort_path(root,
+														  input_rel,
+														  subpath,
+														  gcontext.group_pathkeys,
+														  -1.0);
+						new_path_list = lappend(new_path_list, subpath);
+					}
+				}
+				list_free(gcontext.new_paths_list);
 				gcontext.new_paths_list = NIL;
 
-				/* step 2: gather */
+				/* step 3: gather */
 				ParallelGatherSubPathList(root, grouped_rel, new_path_list, ReducePathSave2List, (void*)&gcontext.new_paths_list);
 				list_free(new_path_list);
 				new_path_list = gcontext.new_paths_list;
 				gcontext.new_paths_list = NIL;
 
-				/* step 3: reduce and final agg */
+				/* step 4: reduce and final agg */
 				gcontext.split = AGGSPLIT_FINAL_DESERIAL;
 				foreach(lc, new_path_list)
 				{
