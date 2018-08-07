@@ -1174,7 +1174,8 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 			{
 				while (i < nmasterNum)
 				{
-					pfree(fdHandle[i].address);
+					if (fdHandle[i].address)
+						pfree(fdHandle[i].address);
 					i++;
 				}
 			}
@@ -1589,7 +1590,7 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 	{
 		if (fdHandle)
 		{
-			if (createFdNum)
+			if (createFdNum && fdHandle[0].address)
 				pfree(fdHandle[0].address);
 			pfree(fdHandle);
 		}
