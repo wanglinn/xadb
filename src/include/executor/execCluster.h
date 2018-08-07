@@ -15,4 +15,5 @@ extern void exec_cluster_plan(const void *splan, int length);
 extern PlanState* ExecStartClusterPlan(Plan *plan, EState *estate
 								, int eflags, List *rnodes);
 extern List* ExecStartClusterCopy(List *rnodes, struct CopyStmt *stmt, StringInfo mem_toc, uint32 flag);
+extern void ClusterRecvTableStat(const char *data, int length);
 #endif /* EXEC_CLUSTER_H */

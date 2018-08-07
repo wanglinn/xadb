@@ -12,6 +12,7 @@
 #define CLUSTER_MSG_PROCESSED		'P'
 #define CLUSTER_MSG_RDC_PORT		'p'
 #define CLUSTER_MSG_EXECUTOR_RUN_END	'M'
+#define CLUSTER_MSG_TABLE_STAT		'S'
 
 struct pg_conn;
 
