@@ -935,7 +935,9 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 								 * vacuum() pops active snapshot and we can not send it to nodes
 								 */
 								utilityContext.force_autocommit = true;
-								utilityContext.exec_type = EXEC_ON_ALL_NODES;
+								utilityContext.exec_type = EXEC_ON_DATANODES;
+								ExecRemoteUtilityStmt(&utilityContext);
+								utilityContext.exec_type = EXEC_ON_COORDS;
 								ExecRemoteUtilityStmt(&utilityContext);
 							}
 
@@ -944,7 +946,9 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 					} else
 					{
 						utilityContext.force_autocommit = true;
-						utilityContext.exec_type = EXEC_ON_ALL_NODES;
+						utilityContext.exec_type = EXEC_ON_DATANODES;
+						ExecRemoteUtilityStmt(&utilityContext);
+						utilityContext.exec_type = EXEC_ON_COORDS;
 						ExecRemoteUtilityStmt(&utilityContext);
 					}
 				}
