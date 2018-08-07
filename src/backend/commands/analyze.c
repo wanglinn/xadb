@@ -315,7 +315,7 @@ analyze_rel_coordinator(Relation onerel, bool inh, int attr_cnt,
 	relname = RelationGetRelationName(onerel);
 	nspname = get_namespace_name(RelationGetNamespace(onerel));
 
-	elog(LOG, "Getting detailed statistics for %s.%s", nspname, relname);
+	elog(DEBUG1, "Getting detailed statistics for %s.%s", nspname, relname);
 
 	/* Make up query string */
 	initStringInfo(&query);
@@ -365,7 +365,7 @@ analyze_rel_coordinator(Relation onerel, bool inh, int attr_cnt,
 							  "AND c.relname = '%s'",
 					 nspname, relname);
 
-	elog(LOG, "Query:%s", query.data);
+	elog(DEBUG1, "Query:%s", query.data);
 	/* Build up RemoteQuery */
 	step = makeNode(RemoteQuery);
 	step->combine_type = COMBINE_TYPE_NONE;

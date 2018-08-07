@@ -1800,7 +1800,7 @@ vacuum_rel_coordinator(Relation onerel, bool is_outer)
 	relname = RelationGetRelationName(onerel);
 	nspname = get_namespace_name(RelationGetNamespace(onerel));
 
-	elog(LOG, "Getting relation statistics for %s.%s", nspname, relname);
+	elog(DEBUG1, "Getting relation statistics for %s.%s", nspname, relname);
 
 	replicated = IsLocatorReplicated(RelationGetLocatorType(onerel));
 	/*
@@ -1871,13 +1871,12 @@ vacuum_rel_coordinator(Relation onerel, bool is_outer)
 		{
 			min_frozenxid = InvalidTransactionId;
 		}
-/*ADBQ*/
+
 		visibilitymap_count(onerel, &relallvisible, NULL);
 		/* save changes */
 		vac_update_relstats(onerel,
 							(BlockNumber) num_pages,
 							(double) num_tuples,
-/* ADBQ:visibilitymap_count expected 3 param and return void */
 							relallvisible,
 							hasindex,
 							min_frozenxid,
