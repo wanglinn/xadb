@@ -1586,7 +1586,11 @@ exec_simple_query(const char *query_string)
 	/*
 	 * Emit duration logging if appropriate.
 	 */
+#ifdef ADB
+	switch (check_adb_log_duration(msec_str, was_logged))
+#else
 	switch (check_log_duration(msec_str, was_logged))
+#endif
 	{
 		case 1:
 			ereport(LOG,
@@ -1600,6 +1604,17 @@ exec_simple_query(const char *query_string)
 					 errhidestmt(true),
 					 errdetail_execute(parsetree_list)));
 			break;
+#ifdef ADB
+		case 3:
+			ereport(LOG,
+					(errmsg("duration: %s ms  grammar: %s  statement: %s",
+							msec_str,
+							IsOracleGram(grammar) ? _("oracle") : _("postgres"),
+							query_string),
+					 errhidestmt(true),
+					 errdetail_execute(parsetree_list)));
+			break;
+#endif
 	}
 
 	if (save_log_statement_stats)
