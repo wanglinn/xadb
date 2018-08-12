@@ -62,4 +62,6 @@ extern Datum xc_lockForBackupKey2;
 #define XC_LOCK_FOR_BACKUP_KEY_1	0xFFFF
 #define XC_LOCK_FOR_BACKUP_KEY_2	0xFFFF
 
+#define IS_PGXC_REAL_DATANODE		(IS_PGXC_DATANODE&&!useLocalXid&&!isRestoreMode)
+
 #endif   /* PGXC_H */

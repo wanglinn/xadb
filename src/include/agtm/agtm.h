@@ -24,7 +24,8 @@
 #define IsNormalDatabase()	(MyDatabaseId != InvalidOid &&		\
 							 MyDatabaseId != TemplateDbOid)
 
-#define IsUnderAGTM()		((isPGXCCoordinator || isPGXCDataNode) &&	\
+#define IsUnderAGTM()		(!useLocalXid&&!isRestoreMode && \
+							(isPGXCCoordinator || isPGXCDataNode) &&	\
 							  IsUnderPostmaster &&						\
 							  IsNormalDatabase() &&						\
 							  IsNormalProcessingMode())
