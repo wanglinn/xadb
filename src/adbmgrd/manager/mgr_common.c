@@ -2147,7 +2147,7 @@ int mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int sync_sta
 	char *address;
 	char *user;
 	char portBuf[10];
-	char *sqlString = "SELECT pg_catalog.pg_last_xlog_receive_location()";
+	char *sqlString = "SELECT pg_catalog.pg_last_wal_receive_lsn()";
 	bool bgtmtype = false;
 
 	namestrcpy(&sync_state_name, sync_state_tab[sync_state_sync].name);

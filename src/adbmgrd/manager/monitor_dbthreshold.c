@@ -380,7 +380,7 @@ static void  mthreshold_standbydelay(void)
 	int agentport = 0;
 	NameData ndatauser;
 	char *address;
-	char *sqlstandbydelay = "select CASE WHEN pg_last_xlog_receive_location() = pg_last_xlog_replay_location() THEN 0  ELSE abs(round(EXTRACT (EPOCH FROM now() - pg_last_xact_replay_timestamp()))) end;";
+	char *sqlstandbydelay = "select CASE WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0  ELSE abs(round(EXTRACT (EPOCH FROM now() - pg_last_xact_replay_timestamp()))) end;";
 	bool getnode = false;
 	char *nodetime;
 	const char *clustertime;
