@@ -658,7 +658,7 @@ List *monitor_get_dbname_list(char *user, char *address, int port)
 void monitor_get_one_node_user_address_port(Relation rel_node, int *agentport, char **user, char **address, int *coordport, char nodetype)
 {
 	HeapScanDesc rel_scan;
-	ScanKeyData key[1];
+	ScanKeyData key[3];
 	HeapTuple tuple;
 	HeapTuple tup;
 	Form_mgr_node mgr_node;
@@ -669,7 +669,17 @@ void monitor_get_one_node_user_address_port(Relation rel_node, int *agentport, c
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(nodetype));
-	rel_scan = heap_beginscan_catalog(rel_node, 1, key);
+	ScanKeyInit(&key[1]
+		,Anum_mgr_node_nodeinited
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	ScanKeyInit(&key[2]
+		,Anum_mgr_node_nodeincluster
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	rel_scan = heap_beginscan_catalog(rel_node, 3, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
