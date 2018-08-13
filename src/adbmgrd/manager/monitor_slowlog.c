@@ -254,7 +254,7 @@ Datum monitor_slowlog_insert_data(PG_FUNCTION_ARGS)
 	ListCell *cell;
 	bool haveget = false;
 	HeapScanDesc rel_scan;
-	ScanKeyData key[1];
+	ScanKeyData key[3];
 	Form_mgr_node mgr_node;
 	Form_mgr_host mgr_host;
 	HeapTuple tuple;
@@ -267,7 +267,17 @@ Datum monitor_slowlog_insert_data(PG_FUNCTION_ARGS)
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
-	rel_scan = heap_beginscan_catalog(rel_node, 1, key);
+	ScanKeyInit(&key[1]
+		,Anum_mgr_node_nodeinited
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	ScanKeyInit(&key[2]
+		,Anum_mgr_node_nodeincluster
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	rel_scan = heap_beginscan_catalog(rel_node, 3, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
