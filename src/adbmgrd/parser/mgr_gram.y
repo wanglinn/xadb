@@ -32,6 +32,7 @@
 #include "miscadmin.h"
 #include "nodes/parsenodes.h"
 #include "parser/mgr_node.h"
+
 /*
  * The YY_EXTRA data that a flex scanner allows us to pass around.  Private
  * state needed for raw parsing/lexing goes here.
@@ -700,7 +701,9 @@ Get_host_threshold:
 MonitorStmt:
 		MONITOR opt_general_all
 		{
-			SelectStmt *stmt = makeNode(SelectStmt);
+			SelectStmt *stmt;
+			check_node_incluster();
+			stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("monitor_all"), -1));
 			$$ = (Node*)stmt;
@@ -1828,7 +1831,9 @@ ListAclStmt:
 ListNodeStmt:
 	  LIST NODE
 		{
-			SelectStmt *stmt = makeNode(SelectStmt);
+			SelectStmt *stmt;
+			check_node_incluster();
+			stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("node"), -1));
 			$$ = (Node*)stmt;
