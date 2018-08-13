@@ -591,6 +591,8 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 	bool result = true;
 	bool rest;
 
+	/* check the node in cluster */
+	check_node_incluster();
 	namestrcpy(&s_nodename, "coordinator");
 	initStringInfo(&infosendmsg);
 	/* check the status of all coordinator in cluster */
