@@ -1092,10 +1092,10 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 			appendStringInfo(&restmsg, "EXECUTE DIRECT ON (\"%s\") 'checkpoint;'", m_nodename.data);
 
 		if (checkOid == cnoid)
-			appendStringInfo(&sqlstrmsg, "select pg_xlog_location_diff(pg_current_xlog_insert_location(),replay_location) = 0  from pg_stat_replication where application_name='%s';"
+			appendStringInfo(&sqlstrmsg, "select pg_wal_lsn_diff(pg_current_wal_insert_lsn(),replay_lsn) = 0  from pg_stat_replication where application_name='%s';"
 				,s_coordname);
 		else
-			appendStringInfo(&sqlstrmsg, "EXECUTE DIRECT ON (\"%s\") 'select pg_xlog_location_diff(pg_current_xlog_insert_location(),replay_location) = 0  from pg_stat_replication where application_name=''%s'';'"
+			appendStringInfo(&sqlstrmsg, "EXECUTE DIRECT ON (\"%s\") 'select pg_wal_lsn_diff(pg_current_wal_insert_lsn(),replay_lsn) = 0  from pg_stat_replication where application_name=''%s'';'"
 			, m_nodename.data, s_coordname);
 		iloop = 10;
 		while (iloop-- > 0)
@@ -2213,7 +2213,7 @@ static int mgr_maxtime_check_xlog_diff(const char nodeType, const char *nodeName
 
 	initStringInfo(&infosendmsg);
 	initStringInfo(&restmsg);
-	appendStringInfo(&infosendmsg, "select pg_xlog_location_diff(pg_current_xlog_insert_location(),replay_location) = 0 from pg_stat_replication where application_name='%s';", nodeName);
+	appendStringInfo(&infosendmsg, "select pg_wal_lsn_diff(pg_current_wal_insert_lsn(),replay_lsn) = 0 from pg_stat_replication where application_name='%s';", nodeName);
 
 	hostTupleM = SearchSysCache1(HOSTHOSTOID, nodeInfoM->nodehost);
 	if(!(HeapTupleIsValid(hostTupleM)))

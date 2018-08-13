@@ -220,7 +220,7 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 	StringInfoData sqlstr_heaphit_read_indexsize;
 	StringInfoData sqlstr_commit_connect_longidle_prepare;
 	char *sqlunusedindex = "select count(*) from  pg_stat_user_indexes where idx_scan = 0";
-	char *sqlstrstandbydelay = "select CASE WHEN pg_last_xlog_receive_location() = pg_last_xlog_replay_location() THEN 0  ELSE round(EXTRACT (EPOCH FROM now() - pg_last_xact_replay_timestamp())) end;";
+	char *sqlstrstandbydelay = "select CASE WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0  ELSE round(EXTRACT (EPOCH FROM now() - pg_last_xact_replay_timestamp())) end;";
 	Monitor_Threshold monitor_threshold;
 
 	rel = heap_open(MdatabaseitemRelationId, RowExclusiveLock);
