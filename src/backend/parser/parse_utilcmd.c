@@ -517,12 +517,23 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 		stmt->distributeby->colname = cxt.fallback_dist_col;
 	}
 
-	if (IsCoordMaster() &&
-		stmt->distributeby == NULL &&
-		list_length(stmt->inhRelations) == 1)
+	/*
+	 * DistributeBy clause sanity check.
+	 */
+	if (IsCoordMaster())
 	{
-		addDefaultDistributeBy(stmt);
-		orgstmt->distributeby = (DistributeBy *) copyObject(stmt->distributeby);
+		if (stmt->distributeby == NULL)
+		{
+			/*
+			 * Add default DistributeBy clause if stmt->distributeby is null
+			 * and has only one parent. (include partition table)
+			 */
+			if (list_length(stmt->inhRelations) == 1)
+			{
+				addDefaultDistributeBy(stmt);
+				orgstmt->distributeby = (DistributeBy *) copyObject(stmt->distributeby);
+			}
+		}
 	}
 #endif
 

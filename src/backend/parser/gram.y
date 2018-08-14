@@ -3440,7 +3440,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					if (n->inhRelations != NIL && n->distributeby != NULL)
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
+								 errmsg("CREATE TABLE cannot include both PARTITION OF clause and DISTRIBUTE BY clause"),
 								 parser_errposition(exprLocation((Node *) n->distributeby))));
 /* ADB_END */
 					$$ = (Node *)n;
@@ -3474,7 +3474,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					if (n->inhRelations != NIL && n->distributeby != NULL)
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
+								 errmsg("CREATE TABLE cannot include both PARTITION OF clause and DISTRIBUTE BY clause"),
 								 parser_errposition(exprLocation((Node *) n->distributeby))));
 /* ADB_END */
 					$$ = (Node *)n;
