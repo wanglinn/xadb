@@ -1088,7 +1088,7 @@ RenameDatabase(const char *oldname, const char *newname)
 	CatalogTupleUpdate(rel, &newtup->t_self, newtup);
 
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		agtm_RenameSeuqneceByDataBase(oldname, newname);
 #endif
 
@@ -1606,7 +1606,7 @@ AlterDatabase(ParseState *pstate, AlterDatabaseStmt *stmt, bool isTopLevel)
 					 parser_errposition(pstate, dtablespace->location)));
 #ifdef ADB
 		/* ... but we allow it on remote nodes */
-		if (IsCoordMaster())
+		if (IsCnMaster())
 #endif /*ADB*/
 
 /* prevent agtm check IsTransactionBlock(), user PGXC restrict, by lvcx */

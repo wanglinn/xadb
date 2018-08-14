@@ -8151,7 +8151,7 @@ ExecSetVariableStmt(VariableSetStmt *stmt, bool isTopLevel)
 		case VAR_RESET_ALL:
 			ResetAllOptions();
 #ifdef ADB
-			if (!IsCoordMaster())
+			if (!IsCnMaster())
 				ResetTempTableNamespace();
 #endif
 			break;
@@ -8249,7 +8249,7 @@ set_config_by_name(PG_FUNCTION_ARGS)
 	 * If command is local and we are not in a transaction block do NOT
 	 * send this query to backend nodes, it is just bypassed by the backend.
 	 */
-	if (IsCoordMaster() && (!is_local || IsTransactionBlock()))
+	if (IsCnMaster() && (!is_local || IsTransactionBlock()))
 	{
 		PoolCommandType poolcmdType = (is_local ? POOL_CMD_LOCAL_SET : POOL_CMD_GLOBAL_SET);
 		StringInfoData poolcmd;

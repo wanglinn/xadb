@@ -499,7 +499,7 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 	Assert(stmt->masterrv);
 	Assert(stmt->auxrvlist);
 
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		List		   *rconns = NIL;
 		List		   *mnodes = NIL;
@@ -692,7 +692,7 @@ ExecCreateAuxStmt(CreateAuxStmt *auxstmt,
 	PaddingAuxDataStmt *padding_stmt;
 	PlannedStmt *stmt;
 
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	padding_stmt = AnalyzeRewriteCreateAuxStmt(auxstmt);
@@ -736,7 +736,7 @@ PaddingAuxDataOfMaster(Relation master)
 	ListCell		 *lc;
 	PaddingAuxDataStmt *stmt;
 
-	if (!IsCoordMaster() ||
+	if (!IsCnMaster() ||
 		!master->rd_auxlist)
 		return ;
 

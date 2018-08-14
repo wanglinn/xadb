@@ -951,7 +951,7 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 																  NULL);
 #ifdef ADB
 				/* Check if the list of queries contains temporary objects */
-				if (IsCoordMaster())
+				if (IsCnMaster())
 				{
 					if (pgxc_query_contains_utility(querytree_sublist))
 						ereport(ERROR,

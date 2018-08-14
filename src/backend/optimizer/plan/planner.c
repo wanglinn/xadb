@@ -299,7 +299,7 @@ planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		 * A Coordinator receiving a query from another Coordinator
 		 * is not allowed to go into PGXC planner.
 		 */
-		if (IsCoordMaster())
+		if (IsCnMaster())
 			result = pgxc_planner(parse, cursorOptions, boundParams);
 		else
 #endif
@@ -387,7 +387,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	}
 
 #ifdef ADB
-	glob->clusterPlanOK = (IsCoordMaster() && CLUSTER_PLAN_OK(cursorOptions, parse));
+	glob->clusterPlanOK = (IsCnMaster() && CLUSTER_PLAN_OK(cursorOptions, parse));
 #endif /* ADB */
 
 	/*
@@ -3058,7 +3058,7 @@ separate_rowmarks(PlannerInfo *root)
 	List		*rml_1, *rml_2;
 	ListCell	*rm;
 
-	if (!IsCoordMaster() || root->rowMarks == NULL)
+	if (!IsCnMaster() || root->rowMarks == NULL)
 		return;
 
 	rml_1 = NULL;

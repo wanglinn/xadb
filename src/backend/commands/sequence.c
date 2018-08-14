@@ -264,7 +264,7 @@ DefineSequence(ParseState *pstate, CreateSeqStmt *seq)
 	 * Remote Coordinator is in charge of creating sequence in AGTM.
 	 * If sequence is temporary, it is not necessary to create it on AGTM.
 	 */
-	if (IsCoordMaster() &&
+	if (IsCnMaster() &&
 		(seq->sequence->relpersistence == RELPERSISTENCE_PERMANENT ||
 		 seq->sequence->relpersistence == RELPERSISTENCE_UNLOGGED))
 	{
@@ -647,7 +647,7 @@ AlterSequence(ParseState *pstate, AlterSeqStmt *stmt)
 	 * Remote Coordinator is in charge of create sequence in AGTM
 	 * If sequence is temporary, no need to go through GTM.
 	 */
-	 if (IsCoordMaster() && seqrel->rd_backend != MyBackendId)
+	 if (IsCnMaster() && seqrel->rd_backend != MyBackendId)
 	{
 		char * databaseName = NULL;
 		char * schemaName = NULL;
@@ -792,7 +792,7 @@ nextval_internal(Oid relid, bool check_permissions)
 
 #ifdef ADB
 	is_temp = seqrel->rd_backend == MyBackendId;
-	if (IsCoordMaster() && !is_temp)
+	if (IsCnMaster() && !is_temp)
 	{
 		char * seqName = NULL;
 		char * databaseName = NULL;
@@ -1100,7 +1100,7 @@ currval_oid(PG_FUNCTION_ARGS)
 						RelationGetRelationName(seqrel))));
 
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 #endif
 		result = elm->last;
@@ -1146,7 +1146,7 @@ lastval(PG_FUNCTION_ARGS)
 						RelationGetRelationName(seqrel))));
 
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 #endif
 		result = last_used_seq->last;
@@ -1292,7 +1292,7 @@ setval_oid(PG_FUNCTION_ARGS)
 	int64		next = PG_GETARG_INT64(1);
 
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		Relation	seqrel;
 		SeqTable	elm;
@@ -1343,7 +1343,7 @@ setval3_oid(PG_FUNCTION_ARGS)
 	bool		iscalled = PG_GETARG_BOOL(2);
 
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		Relation	seqrel;
 		SeqTable	elm;
@@ -2289,7 +2289,7 @@ void
 ResetSequenceCaches(void)
 {
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		agtm_ResetSequenceCaches();
 	else
 	{

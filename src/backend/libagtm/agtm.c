@@ -404,7 +404,7 @@ get_cluster_nextXids(TransactionId **xidarray,	/* output */
 	Oid				node;
 
 	/* Only master-coordinator can do this */
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	/* Get cluster nodes' oids */
@@ -499,7 +499,7 @@ sync_cluster_xid(PG_FUNCTION_ARGS)
 	NameData		nodename;
 	Oid				nodeoid;
 
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		PG_RETURN_NULL();
 
 	nodeoid = agtm_SyncClusterNextXid(&cxid, &axid);
@@ -564,7 +564,7 @@ show_cluster_xid(PG_FUNCTION_ARGS)
 	} ClusterNextXids;
 	ClusterNextXids *status = NULL;
 
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		PG_RETURN_NULL();
 
 	if (SRF_IS_FIRSTCALL())

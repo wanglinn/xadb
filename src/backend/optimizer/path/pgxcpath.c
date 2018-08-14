@@ -143,7 +143,7 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte,
 	 * the remote query path unless relation is local to coordinator or the
 	 * query is to entirely executed on coordinator.
 	 */
-	if (!IsCoordMaster() ||
+	if (!IsCnMaster() ||
 		root->parse->is_local ||
 		rel->loc_info == NULL ||
 		rel->remote_oids == NIL)

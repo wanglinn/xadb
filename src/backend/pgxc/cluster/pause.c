@@ -54,7 +54,7 @@ ProcessClusterPauseRequest(bool pause)
 {
 	char *action = pause? pause_cluster_str:unpause_cluster_str;
 
-	if (!IsCoordCandidate())
+	if (!IsCnCandidate())
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("The \"%s\" message is expected to "

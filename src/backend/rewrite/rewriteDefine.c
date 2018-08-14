@@ -1034,7 +1034,7 @@ dropRemoteTable(const char *relname, bool is_temp)
 	RemoteQuery	  *step;
 	StringInfoData   sql;
 
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	initStringInfo(&sql);

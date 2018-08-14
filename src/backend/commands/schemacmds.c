@@ -304,7 +304,7 @@ RenameSchema(const char *oldname, const char *newname)
 	CatalogTupleUpdate(rel, &tup->t_self, tup);
 
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		ObjectAddress		object;
 		Oid 				namespaceId;

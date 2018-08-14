@@ -108,7 +108,7 @@ ClusterSyncXid(void)
 	const char		   *query = "select * from sync_local_xid()";
 
 	/* only master coordinator can do this */
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	node_list = GetAllNodeIDL(false);

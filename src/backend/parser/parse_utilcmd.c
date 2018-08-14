@@ -182,7 +182,7 @@ addDefaultDistributeBy(CreateStmt *stmt)
 	DistributeBy	   *distby;
 
 	/* only coordinator master can do this */
-	Assert(IsCoordMaster());
+	Assert(IsCnMaster());
 	/* has no DistributeBy */
 	Assert(stmt->distributeby == NULL);
 	/* inherit from only one parent */
@@ -520,7 +520,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	/*
 	 * DistributeBy clause sanity check.
 	 */
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		if (stmt->distributeby == NULL)
 		{

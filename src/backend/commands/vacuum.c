@@ -1667,7 +1667,7 @@ vacuum_full_auxrel(Relation master, int options)
 	 * re-padding data for auxiliary relations
 	 * if coordinator master.
 	 */
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PaddingAuxDataOfMaster(master);
 }
 
@@ -1725,7 +1725,7 @@ get_remote_relstat(char *nspname, char *relname, bool replicated,
 
 	/* Make up query string */
 	initStringInfo(&query);
-	if (IsCoordMaster() && IsAutoVacuumWorkerProcess())
+	if (IsCnMaster() && IsAutoVacuumWorkerProcess())
 		appendStringInfo(&query, "ANALYZE %s.%s;", nspname, relname);
 	appendStringInfo(&query, "SELECT c.relpages, "
 									"c.reltuples, "
@@ -1977,7 +1977,7 @@ vacuum_rel_coordinator(Relation onerel, bool is_outer)
 							InvalidMultiXactId,
 							is_outer);
 
-		if (IsCoordMaster() && IsAutoVacuumWorkerProcess())
+		if (IsCnMaster() && IsAutoVacuumWorkerProcess())
 			vacuum_rel_other_coordinator(nspname, relname);
 	}
 }
