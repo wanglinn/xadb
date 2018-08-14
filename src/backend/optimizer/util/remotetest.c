@@ -59,16 +59,23 @@
 
 typedef struct ModifyContext
 {
-	RelationLocInfo *loc_info;
-	Expr *partition_expr;				/* like hash(column) % datanode_count */
-	Expr *right_expr;					/* like hash(value) % datanode_count */
-	Const *const_expr;					/* right_expr's value */
-	ExprState *right_state;				/* init by right_expr */
-	ExprContext *expr_context;
-	Index relid;
-	AttrNumber varattno;
-	bool hint;
+	RelationLocInfo	   *loc_info;
+	Expr			   *partition_expr;				/* like hash(column) % datanode_count */
+	Expr			   *right_expr;					/* like hash(value) % datanode_count */
+	Param			   *param_expr;					/* right_expr's param expr */
+	ParamExecData	   *param_data;					/* right_expr's value */
+	Var				   *var_expr;					/* right_expr's type info */
+	ExprState		   *right_state;				/* init by right_expr */
+	ExprContext		   *expr_context;
+	Index				relid;
+	AttrNumber			varattno;
+	int16				var_typlen;
+	bool				var_typbyval;
+	bool				hint;
 }ModifyContext;
+#define MODIFY_CONTEXT_PARAM_COUNT		2
+#define MODIFY_CONTEXT_PARAM_RIGHT		0
+#define MODIFY_CONTEXT_PARAM_CONVERT	1
 
 typedef struct CoerceInfo
 {
@@ -289,7 +296,8 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 		if(list_length(loc_info->funcAttrNums) == 1)
 		{
 			context.varattno = linitial_int(loc_info->funcAttrNums);
-			context.partition_expr = makePartitionExpr(loc_info, (Node*)makeVarByRel(context.varattno, loc_info->relid, varno));
+			context.var_expr = makeVarByRel(context.varattno, loc_info->relid, varno);
+			context.partition_expr = makePartitionExpr(loc_info, (Node*)context.var_expr);
 		}
 		if (func_strict(loc_info->funcid))
 		{
@@ -302,8 +310,9 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 	}else if(IsLocatorDistributedByValue(loc_info->locatorType))
 	{
 		context.varattno = loc_info->partAttrNum;
-		context.partition_expr = makePartitionExpr(loc_info, (Node*)makeVarByRel(loc_info->partAttrNum, loc_info->relid, varno));
-		null_test_list = list_make1(makeNotNullTest((Expr*)makeVarByRel(context.varattno, loc_info->relid, varno), false));
+		context.var_expr = makeVarByRel(context.varattno, loc_info->relid, varno);
+		context.partition_expr = makePartitionExpr(loc_info, (Node*)context.var_expr);
+		null_test_list = list_make1(makeNotNullTest((Expr*)context.var_expr, false));
 	}
 
 	constraint_pred = get_relation_constraints_base(root, loc_info->relid, varno, true);
@@ -581,24 +590,25 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 		if (convert != NULL)
 		{
 			Const *c2;
+			ParamExecData *param;
 			init_context_expr_if_need(context);
+			param = &context->param_data[MODIFY_CONTEXT_PARAM_RIGHT];
 
 			if ((void*)convert == (void*)c)
 			{
-				context->const_expr->constvalue = c->constvalue;
-				context->const_expr->constisnull = c->constisnull;
+				param->value = c->constvalue;
+				param->isnull = c->constisnull;
 			}else
 			{
 				MemoryContext old_context = MemoryContextSwitchTo(context->expr_context->ecxt_per_tuple_memory);
 				ExprState *expr_state = ExecInitExpr(convert, NULL);
-				c2 = context->const_expr;
-				c2->constvalue = ExecEvalExpr(expr_state,
-											  context->expr_context,
-											  &c2->constisnull);
+				param->value = ExecEvalExpr(expr_state,
+											context->expr_context,
+											&param->isnull);
 				MemoryContextSwitchTo(old_context);
 
-				if (c2->constisnull == false && c2->constbyval == false)
-					c2->constvalue = datumCopy(c2->constvalue, c2->constbyval, c2->constlen);
+				if (param->isnull == false && context->var_typbyval == false)
+					param->value = datumCopy(param->value, context->var_typbyval, context->var_typlen);
 			}
 			c2 = (Const*)makeInt4Const(0);
 			MemoryContextReset(context->expr_context->ecxt_per_tuple_memory);
@@ -623,9 +633,16 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 			if (ARR_ELEMTYPE(arrayval) != var->vartype &&
 				can_coerce_type(1, &ARR_ELEMTYPE(arrayval), &var->vartype, COERCION_EXPLICIT))
 			{
-				c = makeNullConst(ARR_ELEMTYPE(arrayval), -1, InvalidOid);
+				Param *param = makeNode(Param);
+				param->paramkind = PARAM_EXEC;
+				param->paramid = MODIFY_CONTEXT_PARAM_CONVERT;
+				param->paramtype = ARR_ELEMTYPE(arrayval);
+				param->paramtypmod = -1;
+				param->paramcollid = InvalidOid;
+				param->location = -1;
+
 				convert = (Expr*) coerce_to_target_type(NULL,
-														(Node*)c,
+														(Node*)param,
 														ARR_ELEMTYPE(arrayval),
 														var->vartype,
 														var->vartypmod,
@@ -638,6 +655,7 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 				convert != NULL)
 			{
 				ExprState *convert_state = NULL;
+				ParamExecData *param;
 				Datum	   *values;
 				Datum	   *new_values;
 				bool	   *nulls;
@@ -658,6 +676,7 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 								  &num_elems);
 
 				init_context_expr_if_need(context);
+				param = context->param_data;
 				new_values = palloc(sizeof(Datum)*num_elems);
 				if (convert)
 					convert_state = ExecInitExpr(convert, NULL);
@@ -666,16 +685,15 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 					MemoryContextReset(context->expr_context->ecxt_per_tuple_memory);
 					if (convert_state)
 					{
-						/* c is new Const, not ScalarArrayOpExpr's arg */
-						c->constvalue = values[i];
-						c->constisnull = nulls[i];
-						context->const_expr->constvalue = ExecEvalExprSwitchContext(convert_state,
-																					context->expr_context,
-																					&context->const_expr->constisnull);
+						param[MODIFY_CONTEXT_PARAM_CONVERT].value = values[i];
+						param[MODIFY_CONTEXT_PARAM_CONVERT].isnull = nulls[i];
+						param[MODIFY_CONTEXT_PARAM_RIGHT].value = ExecEvalExprSwitchContext(convert_state,
+																							context->expr_context,
+																							&param[MODIFY_CONTEXT_PARAM_RIGHT].isnull);
 					}else
 					{
-						context->const_expr->constvalue = values[i];
-						context->const_expr->constisnull = nulls[i];
+						param[MODIFY_CONTEXT_PARAM_RIGHT].value = values[i];
+						param[MODIFY_CONTEXT_PARAM_RIGHT].isnull = nulls[i];
 					}
 					new_values[i] = ExecEvalExprSwitchContext(context->right_state,
 															  context->expr_context,
@@ -801,24 +819,25 @@ static Const* is_const_able_expr(Expr *expr)
 
 static void init_context_expr_if_need(ModifyContext *context)
 {
-	if (context->const_expr == NULL)
+	if (context->right_state == NULL)
 	{
-		Const *c = context->const_expr = makeNode(Const);
-		int16 typlen;
-		get_atttypetypmodcoll(context->loc_info->relid,
-								context->varattno,
-								&c->consttype,
-								&c->consttypmod,
-								&c->constcollid);
-		get_typlenbyval(c->consttype, &typlen, &c->constbyval);
-		c->constlen = typlen;
-		context->const_expr->location = -1;
-
-		context->right_expr = makePartitionExpr(context->loc_info, (Node*)context->const_expr);
-
-		context->right_state = ExecInitExpr(context->right_expr, NULL);
-
+		Param *param;
 		context->expr_context = CreateStandaloneExprContext();
+		context->param_data = palloc0(sizeof(ParamExecData) * MODIFY_CONTEXT_PARAM_COUNT);
+		context->expr_context->ecxt_param_exec_vals = context->param_data;
+
+		param = context->param_expr = makeNode(Param);
+		param->paramkind = PARAM_EXEC;
+		param->paramid = MODIFY_CONTEXT_PARAM_RIGHT;
+		param->paramtype = context->var_expr->vartype;
+		param->paramtypmod = context->var_expr->vartypmod;
+		param->paramcollid = context->var_expr->varcollid;
+		param->location = -1;
+
+		get_typlenbyval(param->paramtype, &context->var_typlen, &context->var_typbyval);
+
+		context->right_expr = makePartitionExpr(context->loc_info, (Node*)param);
+		context->right_state = ExecInitExpr(context->right_expr, NULL);
 	}
 }
 
