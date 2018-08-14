@@ -3871,10 +3871,10 @@ EndCopyFrom(CopyState cstate)
 					break;
 				case PGRES_COPY_OUT:
 					{
-						PQclear(res);
-						res = NULL;
 						const char *msg;
 						int len;
+						PQclear(res);
+						res = NULL;
 						len = PQgetCopyDataBuffer(conn, &msg, true);
 						if (len > 0)
 							clusterRecvTuple(NULL, msg, len, NULL, conn);
