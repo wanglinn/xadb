@@ -380,7 +380,16 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 
 		ExecutePlan(estate,
 					queryDesc->planstate,
+#ifdef ADB
+					/*
+					 * for now, in coordinator only have temp, system and foreign
+					 * table, and they are not support parallel, so we disable parallel mode
+					 * in coordinator
+					 */
+					IS_PGXC_COORDINATOR ? false : queryDesc->plannedstmt->parallelModeNeeded,
+#else
 					queryDesc->plannedstmt->parallelModeNeeded,
+#endif
 					operation,
 					sendTuples,
 					count,
