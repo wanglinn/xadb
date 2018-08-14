@@ -948,6 +948,10 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 		}
 		break;
 
+		case T_SQLValueFunction:
+			pgxc_set_shippability_reason(sc_context, SS_NEEDS_COORD);
+			break;
+
 		case T_Query:
 		{
 			Query *query = (Query *)node;
