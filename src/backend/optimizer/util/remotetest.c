@@ -79,11 +79,12 @@ typedef struct ModifyContext
 
 typedef struct CoerceInfo
 {
-	Const	   *c;
-	Expr	   *expr;
-	ExprState  *exprState;
-	Oid			type;
-	bool		valid;
+	ParamExecData  *param_data;
+	Param		   *param_expr;
+	Expr		   *expr;
+	ExprState	   *exprState;
+	Oid				type;
+	bool			valid;
 }CoerceInfo;
 
 typedef struct GatherAuxColumnInfo
@@ -91,7 +92,8 @@ typedef struct GatherAuxColumnInfo
 	Form_pg_attribute	attr;			/* main relation attribute for auxiliary column */
 	List			   *list_coerce;	/* list of CoerceInfo */
 	ExprContext		   *econtext;		/* for execute convert and reduce expr state */
-	Const			   *const_expr;		/* for reduce expr input */
+	ParamExecData	   *param_data;		/* for reduce expr input data */
+	Param			   *param_expr;		/* for reduce expr input param expr */
 	Expr			   *reduce_expr;	/* reduce expr */
 	ExprState		   *reduce_state;	/* reduce expr state */
 	Relation			rel;			/* auxiliary relation */
@@ -103,6 +105,9 @@ typedef struct GatherAuxColumnInfo
 	List			   *list_exec;		/* auxiliary relation execute on */
 	Datum			   *datum;			/* datum buffer */
 }GatherAuxColumnInfo;
+#define GACI_PARAM_COUNT		2
+#define GACI_PARAM_REDUCE		0
+#define GACI_PARAM_CONVERT		1
 
 typedef struct GatherAuxInfoContext
 {
@@ -199,6 +204,7 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool mo
 	old_mctx = MemoryContextSwitchTo(main_mctx);
 
 	gather.econtext = CreateStandaloneExprContext();
+	gather.econtext->ecxt_param_exec_vals = palloc0(sizeof(ParamExecData) * GACI_PARAM_COUNT);
 	gather.rel = relation;
 	gather.list_info = NIL;
 	gather.bms_attnos = relation->rd_auxatt;
@@ -876,7 +882,6 @@ static bool push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool
 	Datum	   *datums;
 	Datum		value;
 	bool	   *nulls;
-	Const	   *cc;
 	Oid			typid;
 	Oid			collid;
 	int32		typmod;
@@ -922,10 +927,6 @@ static bool push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool
 	{
 		if (coerce->valid == false)
 			return false;	/* can not coerce */
-		cc = coerce->c;
-		cc->constcollid = collid;
-		cc->consttypmod = typmod;
-		cc->constisnull = false;
 	}
 
 	for(i=0;i<count;++i)
@@ -939,7 +940,8 @@ static bool push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool
 		if (coerce)
 		{
 			bool isnull;
-			coerce->c->constvalue = datums[i];
+			coerce->param_data->value = datums[i];
+			coerce->param_data->isnull = nulls[i];
 			MemoryContextReset(info->econtext->ecxt_per_tuple_memory);
 			value = ExecEvalExprSwitchContext(coerce->exprState,
 											  info->econtext,
@@ -1014,8 +1016,8 @@ static GatherAuxColumnInfo* get_gather_aux_col_info(GatherAuxInfoContext *contex
 static void free_aux_col_info(GatherAuxColumnInfo *info)
 {
 	list_free_deep(info->list_coerce);
-	if (info->const_expr)
-		pfree(info->const_expr);
+	if (info->param_expr)
+		pfree(info->param_expr);
 	if (info->reduce_expr)
 		pfree(info->reduce_expr);
 	if (info->rel)
@@ -1031,6 +1033,7 @@ static CoerceInfo* get_coerce_info(GatherAuxColumnInfo *info, Oid typeoid)
 	ListCell   *lc;
 	CoerceInfo *coerce;
 	Expr	   *expr;
+	Param	   *param;
 
 	Form_pg_attribute attr = info->attr;
 	if (typeoid == attr->atttypid)
@@ -1046,9 +1049,15 @@ static CoerceInfo* get_coerce_info(GatherAuxColumnInfo *info, Oid typeoid)
 	coerce = palloc0(sizeof(*coerce));
 	info->list_coerce = lappend(info->list_coerce, coerce);
 	coerce->type = typeoid;
-	coerce->c = makeNullConst(typeoid, -1, InvalidOid);
+	param = coerce->param_expr = makeNode(Param);
+	param->paramkind = PARAM_EXEC;
+	param->paramid = MODIFY_CONTEXT_PARAM_CONVERT;
+	param->paramtype = typeoid;
+	param->paramtypmod = -1;
+	param->paramcollid = InvalidOid;
+	param->location = -1;
 	coerce->expr = (Expr*)coerce_to_target_type(NULL,
-												(Node*)coerce->c,
+												(Node*)param,
 												typeoid,
 												attr->atttypid,
 												attr->atttypmod,
@@ -1059,8 +1068,8 @@ static CoerceInfo* get_coerce_info(GatherAuxColumnInfo *info, Oid typeoid)
 	if (expr == NULL)
 	{
 		/* can not coerce */
-		pfree(coerce->c);
-		coerce->c = NULL;
+		pfree(coerce->param_expr);
+		coerce->param_expr = NULL;
 		coerce->valid = false;
 		return coerce;
 	}
@@ -1069,16 +1078,17 @@ static CoerceInfo* get_coerce_info(GatherAuxColumnInfo *info, Oid typeoid)
 	while(IsA(expr, RelabelType))
 		expr = ((RelabelType*)expr)->arg;
 
-	if ((void*)expr == (void*)(coerce->c))
+	if ((void*)expr == (void*)(coerce->param_expr))
 	{
 		/* don't need coerce */
-		pfree(coerce->c);
-		coerce->c = NULL;
+		pfree(coerce->param_expr);
+		coerce->param_expr = NULL;
 		coerce->expr = NULL;
 		return NULL;
 	}
 
 	coerce->exprState = ExecInitExpr(coerce->expr, NULL);
+	coerce->param_data = &info->econtext->ecxt_param_exec_vals[MODIFY_CONTEXT_PARAM_CONVERT];
 
 	return coerce;
 }
@@ -1243,16 +1253,17 @@ static void init_auxiliary_info_if_need(GatherAuxInfoContext *context)
 				}else
 				{
 					/* make reduce expr and status */
-					info->const_expr = makeConst(info->attr->atttypid,
-												 info->attr->atttypmod,
-												 info->attr->attcollation,
-												 info->attr->attlen,
-												 (Datum)0,
-												 true,
-												 info->attr->attbyval);
-					info->reduce_expr = makePartitionExpr(loc, (Node*)info->const_expr);
+					Param *param = info->param_expr = makeNode(Param);
+					param->paramkind = PARAM_EXEC;
+					param->paramid = GACI_PARAM_REDUCE;
+					param->paramtype = info->attr->atttypid;
+					param->paramtypmod = info->attr->atttypmod;
+					param->paramcollid = info->attr->attcollation;
+					param->location = -1;
+					info->reduce_expr = makePartitionExpr(loc, (Node*)param);
 					info->reduce_state = ExecInitExpr(info->reduce_expr, NULL);
 					info->aux_loc = AUX_REL_LOC_INFO_REDUCE;
+					info->param_data = &info->econtext->ecxt_param_exec_vals[GACI_PARAM_REDUCE];
 				}
 			}else
 			{
@@ -1303,17 +1314,17 @@ static List* get_aux_table_execute_on(GatherAuxColumnInfo *info)
 	}else if (info->aux_loc == AUX_REL_LOC_INFO_REDUCE)
 	{
 		ExprContext *econtext = info->econtext;
-		Const *c = info->const_expr;
+		ParamExecData *param = info->param_data;
 		Bitmapset *bms = NULL;
 		ListCell *lc;
 		uint32 i;
 		bool isnull;
 
-		c->constisnull = false;
+		param->isnull = false;
 		for (i=0;i<info->cur_size;++i)
 		{
 			MemoryContextReset(econtext->ecxt_per_tuple_memory);
-			c->constvalue = info->datum[i];
+			param->value = info->datum[i];
 			value = ExecEvalExprSwitchContext(info->reduce_state,
 											  econtext,
 											  &isnull);
@@ -1323,8 +1334,8 @@ static List* get_aux_table_execute_on(GatherAuxColumnInfo *info)
 		if (info->has_null)
 		{
 			MemoryContextReset(econtext->ecxt_per_tuple_memory);
-			c->constisnull = true;
-			c->constvalue = (Datum)0;
+			param->isnull = true;
+			param->value = (Datum)0;
 			value = ExecEvalExprSwitchContext(info->reduce_state,
 											  econtext,
 											  &isnull);
