@@ -17,6 +17,7 @@
 #include "executor/execCluster.h"
 #include "libpq/libpq-fe.h"
 #include "libpq/libpq-node.h"
+#include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "pgxc/pgxc.h"
 #include "storage/mem_toc.h"
@@ -591,6 +592,7 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 			{
 				for(;;)
 				{
+					CHECK_FOR_INTERRUPTS();
 					res = PQgetResult(conn);
 					if (res == NULL)
 						break;
@@ -610,11 +612,12 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 						break;
 					case PGRES_COPY_OUT:
 						{
-							PQclear(res);
-							res = NULL;
 							const char *msg;
 							int len;
-							len = PQgetCopyDataBuffer(conn, &msg, true);
+
+							PQclear(res);
+							res = NULL;
+							len = PQgetCopyDataBuffer(conn, &msg, false);
 							if (len > 0)
 								clusterRecvTuple(NULL, msg, len, NULL, conn);
 						}

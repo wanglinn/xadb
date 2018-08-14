@@ -3549,6 +3549,7 @@ EndCopyFrom(CopyState cstate)
 		{
 			for(;;)
 			{
+				CHECK_FOR_INTERRUPTS();
 				res = PQgetResult(conn);
 				if (res == NULL)
 					break;
@@ -3568,11 +3569,11 @@ EndCopyFrom(CopyState cstate)
 					break;
 				case PGRES_COPY_OUT:
 					{
-						PQclear(res);
-						res = NULL;
 						const char *msg;
 						int len;
-						len = PQgetCopyDataBuffer(conn, &msg, true);
+						PQclear(res);
+						res = NULL;
+						len = PQgetCopyDataBuffer(conn, &msg, false);
 						if (len > 0)
 							clusterRecvTuple(NULL, msg, len, NULL, conn);
 					}
