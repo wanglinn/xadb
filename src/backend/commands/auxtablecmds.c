@@ -697,7 +697,7 @@ ExecCreateAuxStmt(CreateAuxStmt *auxstmt,
 
 	padding_stmt = AnalyzeRewriteCreateAuxStmt(auxstmt);
 
-	stmt = palloc0(sizeof(*stmt));
+	stmt = makeNode(PlannedStmt);
 	stmt->commandType = CMD_UTILITY;
 	stmt->utilityStmt = auxstmt->create_stmt;
 
