@@ -3852,6 +3852,7 @@ EndCopyFrom(CopyState cstate)
 		{
 			for(;;)
 			{
+				CHECK_FOR_INTERRUPTS();
 				res = PQgetResult(conn);
 				if (res == NULL)
 					break;
@@ -3875,7 +3876,7 @@ EndCopyFrom(CopyState cstate)
 						int len;
 						PQclear(res);
 						res = NULL;
-						len = PQgetCopyDataBuffer(conn, &msg, true);
+						len = PQgetCopyDataBuffer(conn, &msg, false);
 						if (len > 0)
 							clusterRecvTuple(NULL, msg, len, NULL, conn);
 					}
