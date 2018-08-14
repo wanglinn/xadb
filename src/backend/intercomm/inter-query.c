@@ -26,6 +26,7 @@
 #include "commands/prepare.h"
 #include "executor/clusterReceiver.h"
 #include "executor/executor.h"
+#include "executor/execCluster.h"
 #include "intercomm/inter-comm.h"
 #include "libpq/libpq-fe.h"
 #include "libpq/libpq-int.h"
@@ -73,28 +74,45 @@ PGcustumFuns *InterQueryCustomFuncs = &QueryCustomFuncs;
 int
 HandleInterUnknownMsg(PGconn *conn, char c, int msgLength)
 {
-	switch (c)
+	char msgid = '\0';
+	int msglen = msgLength;
+
+	if (c != 'U')
+		return -1;
+
+	if (pqGetc(&msgid, conn))
+		return 1;
+	msglen--;
+
+	switch (msgid)
 	{
 		case 'M':		/* command id change */
 			{
-				CommandId cid;
+				CommandId	cid;
 
-				/* invalid command id message length */
-				if (msgLength != sizeof(cid))
+				if (msglen != sizeof(cid) ||
+					pqGetInt((int *) &cid, sizeof(cid), conn))
 				{
 					appendPQExpBuffer(&conn->errorMessage,
-									 "Invalid command id message length %d, expect %lu bytes",
-									 msgLength, sizeof(cid));
+									  "Invalid command id length %d, expect %lu bytes",
+									  msglen, sizeof(cid));
 					return 1;
 				}
 
-				cid = *(CommandId *) &(conn->inBuffer[conn->inCursor]);
-				conn->inCursor += msgLength;
 				if (cid > GetReceivedCommandId())
 					SetReceivedCommandId(cid);
 
 				return 0;
 			}
+
+		case CLUSTER_MSG_TABLE_STAT:	/* table stat change */
+			{
+				ClusterRecvTableStat(conn->inBuffer + conn->inCursor, msglen);
+				conn->inCursor += msglen;
+
+				return 0;
+			}
+
 		default:
 			break;
 	}

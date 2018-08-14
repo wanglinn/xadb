@@ -199,4 +199,6 @@ PQsendQueryExtend         195
 PQsendQueryExtendBinary   196
 PQisIdle                  197
 pqResultStrdup            198
+pqGetc                    199
+pqGetInt                  200
 # ADB_END
