@@ -6608,8 +6608,14 @@ GetReceivedCommandId(void)
 void
 ReportCommandIdChange(CommandId cid)
 {
-	pq_putmessage('M', (const char *) &cid, sizeof(cid));
+	StringInfoData buf;
+
+	initStringInfo(&buf);
+	pq_sendbyte(&buf, 'M');
+	pq_sendint(&buf, (int) cid, sizeof(cid));
+	pq_putmessage('U', buf.data, buf.len);
 	pq_flush();
+	pfree(buf.data);
 }
 
 /*

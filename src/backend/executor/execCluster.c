@@ -111,7 +111,6 @@ static void RestoreClusterHook(ClusterErrorHookContext *context);
 static const ClusterCustomExecInfo* find_custom_func_info(StringInfo mem_toc, bool noError);
 
 static void SaveTableStatSnapshot(void);
-static bool SerializeTableStat(StringInfo buf);
 static void DestroyTableStateSnapshot(void);
 
 static const ClusterCustomExecInfo cluster_custom_execute[] =
@@ -1718,7 +1717,7 @@ static void SaveTableStatSnapshot(void)
 	}
 }
 
-static bool SerializeTableStat(StringInfo buf)
+bool SerializeTableStat(StringInfo buf)
 {
 	int saved_len1;
 	int saved_len2 = buf->len;
