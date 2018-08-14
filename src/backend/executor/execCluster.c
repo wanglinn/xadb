@@ -99,7 +99,6 @@ static void SetupClusterErrorHook(ClusterErrorHookContext *context);
 static void RestoreClusterHook(ClusterErrorHookContext *context);
 
 static void SaveTableStatSnapshot(void);
-static bool SerializeTableStat(StringInfo buf);
 static void DestroyTableStateSnapshot(void);
 
 static RdcMask *CnRdcMasks = NULL;
@@ -1568,7 +1567,7 @@ static void SaveTableStatSnapshot(void)
 	}
 }
 
-static bool SerializeTableStat(StringInfo buf)
+bool SerializeTableStat(StringInfo buf)
 {
 	int saved_len1;
 	int saved_len2 = buf->len;

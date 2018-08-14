@@ -40,6 +40,7 @@
 #include "libpq/pqformat.h"
 #include "utils/portal.h"
 #ifdef ADB
+#include "executor/execCluster.h"
 #include "executor/clusterReceiver.h"
 #include "pgxc/pgxc.h"
 #endif /* ADB */
@@ -148,6 +149,24 @@ CreateDestReceiver(CommandDest dest)
 	return &donothingDR;
 }
 
+#ifdef ADB
+static void
+ReportTableStatsChange(void)
+{
+	if (IsDnNode() && IsConnFromCoord())
+	{
+		StringInfoData	buf;
+		initStringInfo(&buf);
+		if (SerializeTableStat(&buf))
+		{
+			pq_putmessage('U', buf.data, buf.len);
+			pq_flush();
+		}
+		pfree(buf.data);
+	}
+}
+#endif
+
 /* ----------------
  *		EndCommand - clean up the destination at end of command
  * ----------------
@@ -164,6 +183,9 @@ EndCommand(const char *commandTag, CommandDest dest)
 			if (IsConnFromCoord() && dest == DestClusterOut)
 				/* copy done */
 				pq_putemptymessage('c');
+
+			/* report table stat change */
+			ReportTableStatsChange();
 #endif /* ADB */
 
 			/*
