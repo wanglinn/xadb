@@ -904,7 +904,7 @@ pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,
 	querytree_list = pg_rewrite_query(query);
 
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		ListCell   *lc;
 
@@ -1346,7 +1346,7 @@ exec_simple_query(const char *query_string)
 		 * By default we do not want Datanodes or client Coordinators to contact GTM directly,
 		 * it should get this information passed down to it.
 		 */
-		if (!IsCoordMaster())
+		if (!IsCnMaster())
 			SetForceObtainXidFromAGTM(false);
 
 		dest = whereToSendOutput;
@@ -1849,7 +1849,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 
 		querytree_list = pg_rewrite_query(query);
 #ifdef ADB
-		if (IsCoordMaster())
+		if (IsCnMaster())
 		{
 			ListCell   *lc;
 
@@ -4848,7 +4848,7 @@ PostgresMain(int argc, char *argv[],
 			 * when it was expected. However if any deferred trigger is supposed
 			 * to be fired at commit time we need to preserve the snapshot sent previously
 			 */
-			if (!IsCoordMaster() && !IsAnyAfterTriggerDeferred())
+			if (!IsCnMaster() && !IsAnyAfterTriggerDeferred())
 				UnsetGlobalSnapshot();
 #endif
 			send_ready_for_query = false;
@@ -5156,7 +5156,7 @@ PostgresMain(int argc, char *argv[],
 
 					ereport(DEBUG1, (errmsg("Received AGTM listen port: %d", listen_port)));
 
-					if (IS_PGXC_DATANODE || IsCoordCandidate())
+					if (IS_PGXC_DATANODE || IsCnCandidate())
 						agtm_SetPort(listen_port);
 					sprintf(cmd_msg, "%d", listen_port);
 					EndCommand(cmd_msg, whereToSendOutput);
@@ -5253,7 +5253,7 @@ PostgresMain(int argc, char *argv[],
 					/* Set the GXID got from Master-Coordinator */
 					GlobalTransactionId gxid = InvalidGlobalTransactionId;
 
-					Assert(!IsCoordMaster());
+					Assert(!IsCnMaster());
 					gxid = (GlobalTransactionId) pq_getmsgint(&input_message, 4);
 					elog(DEBUG1, "Received new global xid %u", gxid);
 					SetGlobalTransactionId(gxid);
@@ -5263,7 +5263,7 @@ PostgresMain(int argc, char *argv[],
 
 			case 's':			/* global snapshot */
 				{
-					Assert(!IsCoordMaster());
+					Assert(!IsCnMaster());
 					SetGlobalSnapshot(&input_message);
 				}
 				break;

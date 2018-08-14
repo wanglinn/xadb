@@ -1652,7 +1652,7 @@ ExecuteTruncate(TruncateStmt *stmt)
 	 * AFTER triggers are launched. This insures that the triggers are being fired
 	 * by correct events.
 	 */
-	if (IsCoordMaster() && !has_temp)
+	if (IsCnMaster() && !has_temp)
 	{
 		RemoteQuery *step = makeNode(RemoteQuery);
 
@@ -3503,7 +3503,7 @@ RenameRelationInternal(Oid myrelid, const char *newrelname, bool is_internal)
 	}
 
 #ifdef ADB
-	if (IsCoordMaster() &&
+	if (IsCnMaster() &&
 		(targetrelation->rd_rel->reltype == OBJECT_SEQUENCE ||
 		 targetrelation->rd_rel->relkind == RELKIND_SEQUENCE) &&
 		!IsTempSequence(myrelid)) /* It is possible to rename a sequence with ALTER TABLE */
@@ -4088,7 +4088,7 @@ ATController(AlterTableStmt *parsetree,
 
 #ifdef ADB
 	/* Phase 4: register alter table postoperations */
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		RegisterPostAlterTableAction(ATPaddingAuxData, (void *) wqueue);
 #endif
 }
@@ -4802,7 +4802,7 @@ ATRewriteTables(AlterTableStmt *parsetree, List **wqueue, LOCKMODE lockmode)
 
 #ifdef ADB
 		/* Forbid table rewrite operations with online data redistribution */
-		if (tab->rewrite && IsCoordMaster() &&
+		if (tab->rewrite && IsCnMaster() &&
 			list_length(tab->subcmds[AT_PASS_DISTRIB]) > 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
@@ -13684,7 +13684,7 @@ static void
 ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 {
 	/* Do nothing in the case of a remote node */
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return;
 
 	switch (cmd->subtype)
@@ -14396,7 +14396,7 @@ AlterSeqNamespaces(Relation classRel, Relation rel,
 		AlterTypeNamespaceInternal(RelationGetForm(seqRel)->reltype,
 								   newNspOid, false, false, objsMoved);
 #ifdef ADB
-		if(IsCoordMaster())
+		if(IsCnMaster())
 		{
 			char * seqName = NULL;
 			char * databaseName = NULL;

@@ -810,7 +810,7 @@ EventTriggerDDLCommandStart(Node *parsetree)
 
 #ifdef ADB
 	/* Event trigger is fired only at originating coordinator */
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return;
 #endif
 
@@ -852,7 +852,7 @@ EventTriggerDDLCommandEnd(Node *parsetree)
 
 #ifdef ADB
 	/* Event trigger is fired only at originating coordinator */
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return;
 #endif
 
@@ -906,7 +906,7 @@ EventTriggerSQLDrop(Node *parsetree)
 
 #ifdef ADB
 	/* Event trigger is fired only at originating coordinator */
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return;
 #endif
 

@@ -1136,7 +1136,7 @@ save_state_data(const void *data, uint32 len)
 void
 StartRemoteXactPrepare(const char *gid, Oid *nodes, int count)
 {
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	if (IsConnFromRxactMgr())
@@ -1169,7 +1169,7 @@ EndRemoteXactPrepare(TransactionId xid, GlobalTransaction gxact)
 void
 EndRemoteXactPrepareExt(TransactionId xid, const char *gid, Oid *nodes, int count, bool implicit)
 {
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	if (IsConnFromRxactMgr())

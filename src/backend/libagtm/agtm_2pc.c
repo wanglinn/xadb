@@ -239,7 +239,7 @@ void agtm_BeginTransaction(void)
 	if (!IsUnderAGTM() || IsGTMNode())
 		return ;
 
-	if (!GetForceXidFromAGTM() && !IsCoordMaster())
+	if (!GetForceXidFromAGTM() && !IsCnMaster())
 		return;
 
 	if (TopXactBeginAGTM())
@@ -264,7 +264,7 @@ void agtm_PrepareTransaction(const char *prepared_gid)
 	if (prepared_gid == NULL || prepared_gid[0] == 0x00)
 		return ;
 
-	if (!IsCoordMaster() || IsGTMNode())
+	if (!IsCnMaster() || IsGTMNode())
 		return ;
 
 	if (!TopXactBeginAGTM())
@@ -293,7 +293,7 @@ void agtm_CommitTransaction(const char *prepared_gid, bool missing_ok)
 	if (!IsUnderAGTM() || IsGTMNode())
 		return ;
 
-	if (!GetForceXidFromAGTM() && !IsCoordMaster())
+	if (!GetForceXidFromAGTM() && !IsCnMaster())
 		return ;
 
 	/*
@@ -342,7 +342,7 @@ void agtm_AbortTransaction(const char *prepared_gid, bool missing_ok, bool no_er
 	if (!IsUnderAGTM() || IsGTMNode())
 		return;
 
-	if (!GetForceXidFromAGTM() && !IsCoordMaster())
+	if (!GetForceXidFromAGTM() && !IsCnMaster())
 		return ;
 
 	/*

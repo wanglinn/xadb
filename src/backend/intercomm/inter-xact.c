@@ -421,7 +421,7 @@ InterXactBeginNodes(InterXactState state, bool include_self, int *node_num)
 	Oid				   *res;
 	int					node_cnt;
 
-	if (!IsCoordMaster() || state == NULL)
+	if (!IsCnMaster() || state == NULL)
 	{
 		if (node_num)
 			*node_num = 0;
@@ -823,7 +823,7 @@ static void AbortPreparedRxact(const char *gid, int nnodes, Oid *nodes, bool mis
 void
 RemoteXactCommit(int nnodes, Oid *nodes)
 {
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	InterXactCommit(NULL, nodes, nnodes, false);
@@ -833,7 +833,7 @@ RemoteXactCommit(int nnodes, Oid *nodes)
 void
 RemoteXactAbort(int nnodes, Oid *nodes, bool normal)
 {
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	InterXactAbort(NULL, nodes, nnodes, false, normal);
@@ -851,7 +851,7 @@ StartFinishPreparedRxact(const char *gid,
 						 Oid *nodes,
 						 bool isCommit)
 {
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	if (IsConnFromRxactMgr())
@@ -880,7 +880,7 @@ EndFinishPreparedRxact(const char *gid,
 					   bool isMissingOK,
 					   bool isCommit)
 {
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	if (IsConnFromRxactMgr())

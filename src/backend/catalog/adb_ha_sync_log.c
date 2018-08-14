@@ -50,7 +50,7 @@ static bool WalkerMultiQueryPortal(Portal portal);
 #define IsNormalDatabase()	(MyDatabaseId >= FirstBootstrapObjectId)
 
 #define CanAdbHaSync()		(enable_adb_ha_sync && \
-							 IsCoordMaster() && \
+							 IsCnMaster() && \
 							 IsNormalDatabase())
 
 void

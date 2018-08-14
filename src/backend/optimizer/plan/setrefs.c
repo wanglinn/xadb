@@ -909,7 +909,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 							rq = (RemoteQuery *)list_nth(splan->remote_plans, n);
 						n++;
 
-						if(rq != NULL && IsCoordMaster())
+						if(rq != NULL && IsCnMaster())
 						{
 							/*
 							 * Set references of returning clause by adjusting
@@ -1050,7 +1050,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 				}
 #ifdef ADB
 				/* Adjust references of remote query nodes in ModifyTable node */
-				if(IsCoordMaster())
+				if(IsCnMaster())
 				{
 					ListCell *elt;
 					RemoteQuery *rq;

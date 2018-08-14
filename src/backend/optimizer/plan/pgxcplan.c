@@ -950,7 +950,7 @@ pgxc_make_modifytable(PlannerInfo *root, Plan *topplan, ModifyTablePath *mtp)
 	 * when there is something to modify.
 	 */
 
-	if (IsCoordMaster() && !mtp->under_cluster)
+	if (IsCnMaster() && !mtp->under_cluster)
 		topplan = create_remotedml_plan(root, topplan, mt->operation, mtp);
 
 	return topplan;
@@ -3090,7 +3090,7 @@ List *AddRemoteParseTree(List *stmts, const char *queryString, const Node *parse
 		return result;
 
 	/* Only a remote Coordinator is allowed to send a query to backend nodes */
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		RemoteQuery *step = makeNode(RemoteQuery);
 		step->combine_type = COMBINE_TYPE_SAME;

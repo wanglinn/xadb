@@ -822,7 +822,7 @@ GetCurrentCommandId(bool used)
 		isCommandIdReceived = false;
 		currentCommandId = GetReceivedCommandId();
 	}
-	else if (IsCoordMaster())
+	else if (IsCnMaster())
 	{
 		/*
 		 * If command id reported by remote node is greater that the current
@@ -975,7 +975,7 @@ SetCurrentTransactionStartTimestamp(TimestampTz timestamp)
 	 * Datanode or NoMaster-Coordinator get timestamp from Master-Co
 	 * ordinator.
 	 */
-	if ((IsCoordMaster() && !FirstSnapshotSet) || !IsCoordMaster())
+	if ((IsCnMaster() && !FirstSnapshotSet) || !IsCnMaster())
 	{
 		globalXactStartTimestamp = timestamp;
 		globalDeltaTimestmap = globalXactStartTimestamp - xactStartTimestamp;
@@ -2326,7 +2326,7 @@ StartCommitRemoteXact(TransactionState state)
 	InterXactState	is;
 	bool			isimplicit;
 
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	Assert(state);
@@ -2372,7 +2372,7 @@ EndCommitRemoteXact(TransactionState state)
 		return ;
 	}
 
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	/* Here is where we commit remote xact */
@@ -2583,7 +2583,7 @@ CommitTransaction(void)
 	if (cluster_ex_lock_held)
 	{
 		elog(DEBUG2, "PAUSE CLUSTER still held at commit");
-		/*if (IsCoordMaster())
+		/*if (IsCnMaster())
 			RequestClusterPause(false, NULL);*/
 	}
 #endif
@@ -2649,7 +2649,7 @@ CommitTransaction(void)
 	 * For remote nodes, enforce the command ID sending flag to false to avoid
 	 * sending any command ID by default as now transaction is done.
 	 */
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		SetReceivedCommandId(FirstCommandId);
 	else
 		SetSendCommandId(false);
@@ -2978,7 +2978,7 @@ PrepareTransaction(void)
 
 	RESUME_INTERRUPTS();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		SetReceivedCommandId(FirstCommandId);
 	else
 		SetSendCommandId(false);
@@ -2995,7 +2995,7 @@ NormalAbortRemoteXact(TransactionState state)
 		return ;
 	}
 
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	/* we are now in phase 2 */
@@ -3040,7 +3040,7 @@ UnexpectedAbortRemoteXact(TransactionState state)
 		return ;
 	}
 
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	InterXactGCAll(state->interXactState);
@@ -3309,7 +3309,7 @@ CleanupTransaction(void)
 	 * For remote nodes, enforce the command ID sending flag to false to avoid
 	 * sending any command ID by default as now transaction is done.
 	 */
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		SetReceivedCommandId(FirstCommandId);
 	else
 		SetSendCommandId(false);
@@ -4122,7 +4122,7 @@ BeginTransactionBlock(void)
 	 * from a Coordinator. This may not be always the case depending on the queries being
 	 * run and how command Ids are generated on remote nodes.
 	 */
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		SetSendCommandId(true);
 #endif
 }

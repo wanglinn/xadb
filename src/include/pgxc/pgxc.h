@@ -53,8 +53,8 @@ extern Datum xc_lockForBackupKey2;
 
 #define IsDnNode()				isPGXCDataNode
 #define IsCnNode()				isPGXCCoordinator
-#define IsCoordMaster()			(IS_PGXC_COORDINATOR && !IsConnFromCoord())
-#define IsCoordCandidate()		(IS_PGXC_COORDINATOR && IsConnFromCoord())
+#define IsCnMaster()			(IS_PGXC_COORDINATOR && !IsConnFromCoord())
+#define IsCnCandidate()			(IS_PGXC_COORDINATOR && IsConnFromCoord())
 #define IsGTMNode()				isAntDB_GTM
 #define IsGTMCnNode()			(isAntDB_GTM && isPGXCCoordinator)
 

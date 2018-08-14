@@ -105,7 +105,7 @@ PerformCursorOpen(DeclareCursorStmt *cstmt, ParamListInfo params,
 	/*
 	 * Consume the command id of the command creating the cursor
 	 */
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		GetCurrentCommandId(true);
 #endif
 #else
