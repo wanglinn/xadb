@@ -44,7 +44,7 @@ typedef FormData_monitor_user *Form_monitor_user;
  *		compiler constants for Form_monitor_user
  * ----------------
  */
-#define Natts_monitor_user								7
+#define Natts_monitor_user								9
 #define Anum_monitor_user_name							1
 #define Anum_monitor_user_type							2
 #define Anum_monitor_user_starttime						3
