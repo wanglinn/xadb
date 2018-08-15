@@ -25,6 +25,8 @@ extern List* ExecClusterCustomFunction(List *rnodes, StringInfo mem_toc, uint32 
 
 extern void ClusterRecvTableStat(const char *data, int length);
 
+extern void SaveTableStatSnapshot(void);
 extern bool SerializeTableStat(StringInfo buf);
+extern void DestroyTableStateSnapshot(void);
 
 #endif /* EXEC_CLUSTER_H */

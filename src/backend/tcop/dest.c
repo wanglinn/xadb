@@ -103,6 +103,14 @@ void
 BeginCommand(const char *commandTag, CommandDest dest)
 {
 	/* Nothing to do at present */
+#ifdef ADB
+	/*
+	 * Initialize the current table statistics hash table,
+	 * if you change here, EndCommand will be also changed.
+	 */
+	if (IsDnNode() && IsConnFromCoord())
+		SaveTableStatSnapshot();
+#endif
 }
 
 /* ----------------
@@ -216,6 +224,11 @@ EndCommand(const char *commandTag, CommandDest dest)
 		case DestTupleQueue:
 			break;
 	}
+#ifdef ADB
+	/* See BeginCommand */
+	if (IsDnNode() && IsConnFromCoord())
+		DestroyTableStateSnapshot();
+#endif
 }
 
 /* ----------------
