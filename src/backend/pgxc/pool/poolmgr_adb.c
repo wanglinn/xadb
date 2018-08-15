@@ -3159,10 +3159,13 @@ static int pool_wait_pq(PGconn *conn)
 
 static int pq_custom_msg(PGconn *conn, char id, int msgLength)
 {
-	if(id == 'M')
+	switch (id)
 	{
-		conn->inCursor += msgLength;
-		return 0;
+		case 'U':
+			conn->inCursor += msgLength;
+			return 0;
+		default:
+			break;
 	}
 	return -1;
 }
