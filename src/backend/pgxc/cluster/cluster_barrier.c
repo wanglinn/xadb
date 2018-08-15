@@ -51,7 +51,7 @@ static void DoRemoteClusterBarrier(NodeMixHandle *mix_handle,
 static void
 CreateClusterBarrierPrepare(const char *barrierID)
 {
-	if (!IsCoordCandidate())
+	if (!IsCnCandidate())
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("The CREATE CLUSTER BARRIER PREPARE message is expected to "
@@ -95,7 +95,7 @@ CreateClusterBarrierExecute(const char *barrierID)
 static void
 CreateClusterBarrierEnd(const char *barrierID)
 {
-	if (!IsCoordCandidate())
+	if (!IsCnCandidate())
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("The CREATE CLUSTER BARRIER END message is expected to "
@@ -209,7 +209,7 @@ ExecCreateClusterBarrier(const char *barrierID, char *completionTag)
 	/*
 	 * Ensure that cluster barrier will be done at a Master-coordinator.
 	 */
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("CREATE CLUSTER BARRIER command must be "

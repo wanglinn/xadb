@@ -141,7 +141,7 @@ AtEOXact_Reduce(bool isCommit)
 {
 	if (SelfReducePort)
 	{
-		if (IsCoordMaster())
+		if (IsCnMaster())
 			BackendCloseSelfReduce();
 
 		if (isCommit == false)

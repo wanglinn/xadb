@@ -610,7 +610,7 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 
 #ifdef ADB
 	/* This is not necessary for a PGXC Coordinator, we just need one plan */
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		return result;
 #endif
 

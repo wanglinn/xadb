@@ -741,7 +741,7 @@ pg_advisory_lock_int8(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		pgxc_advisory_lock(key, 0, 0, true, ExclusiveLock, SESSION_LOCK, WAIT);
 		PG_RETURN_VOID();
@@ -766,7 +766,7 @@ pg_advisory_xact_lock_int8(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		pgxc_advisory_lock(key, 0, 0, true, ExclusiveLock, TRANSACTION_LOCK, WAIT);
 		PG_RETURN_VOID();
@@ -790,7 +790,7 @@ pg_advisory_lock_shared_int8(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		pgxc_advisory_lock(key, 0, 0, true, ShareLock, SESSION_LOCK, WAIT);
 		PG_RETURN_VOID();
@@ -815,7 +815,7 @@ pg_advisory_xact_lock_shared_int8(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		pgxc_advisory_lock(key, 0, 0, true, ShareLock, TRANSACTION_LOCK, WAIT);
 		PG_RETURN_VOID();
@@ -842,7 +842,7 @@ pg_try_advisory_lock_int8(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(key, 0, 0, true, ExclusiveLock, SESSION_LOCK, DONT_WAIT));
 #endif
 	SET_LOCKTAG_INT64(tag, key);
@@ -867,7 +867,7 @@ pg_try_advisory_xact_lock_int8(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(key, 0, 0, true, ExclusiveLock, TRANSACTION_LOCK, DONT_WAIT));
 #endif
 	SET_LOCKTAG_INT64(tag, key);
@@ -891,7 +891,7 @@ pg_try_advisory_lock_shared_int8(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(key, 0, 0, true, ShareLock, SESSION_LOCK, DONT_WAIT));
 #endif
 	SET_LOCKTAG_INT64(tag, key);
@@ -916,7 +916,7 @@ pg_try_advisory_xact_lock_shared_int8(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(key, 0, 0, true, ShareLock, TRANSACTION_LOCK, DONT_WAIT));
 #endif
 	SET_LOCKTAG_INT64(tag, key);
@@ -978,7 +978,7 @@ pg_advisory_lock_int4(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		pgxc_advisory_lock(0, key1, key2, false, ExclusiveLock, SESSION_LOCK, WAIT);
 		PG_RETURN_VOID();
@@ -1004,7 +1004,7 @@ pg_advisory_xact_lock_int4(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		pgxc_advisory_lock(0, key1, key2, false, ExclusiveLock, TRANSACTION_LOCK, WAIT);
 		PG_RETURN_VOID();
@@ -1029,7 +1029,7 @@ pg_advisory_lock_shared_int4(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		pgxc_advisory_lock(0, key1, key2, false, ShareLock, SESSION_LOCK, WAIT);
 		PG_RETURN_VOID();
@@ -1055,7 +1055,7 @@ pg_advisory_xact_lock_shared_int4(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		pgxc_advisory_lock(0, key1, key2, false, ShareLock, TRANSACTION_LOCK, WAIT);
 		PG_RETURN_VOID();
@@ -1083,7 +1083,7 @@ pg_try_advisory_lock_int4(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(0, key1, key2, false, ExclusiveLock, SESSION_LOCK, DONT_WAIT));
 #endif
 	SET_LOCKTAG_INT32(tag, key1, key2);
@@ -1109,7 +1109,7 @@ pg_try_advisory_xact_lock_int4(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(0, key1, key2, false, ExclusiveLock, TRANSACTION_LOCK, DONT_WAIT));
 #endif
 	SET_LOCKTAG_INT32(tag, key1, key2);
@@ -1134,7 +1134,7 @@ pg_try_advisory_lock_shared_int4(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(0, key1, key2, false, ShareLock, SESSION_LOCK, DONT_WAIT));
 #endif
 	SET_LOCKTAG_INT32(tag, key1, key2);
@@ -1160,7 +1160,7 @@ pg_try_advisory_xact_lock_shared_int4(PG_FUNCTION_ARGS)
 
 	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(0, key1, key2, false, ShareLock, TRANSACTION_LOCK, DONT_WAIT));
 #endif
 	SET_LOCKTAG_INT32(tag, key1, key2);

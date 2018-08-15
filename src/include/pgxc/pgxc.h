@@ -54,8 +54,8 @@ extern Datum xc_lockForBackupKey2;
 
 #define IsDnNode()				isPGXCDataNode
 #define IsCnNode()				isPGXCCoordinator
-#define IsCoordMaster()			(IS_PGXC_COORDINATOR && !IsConnFromCoord())
-#define IsCoordCandidate()		(IS_PGXC_COORDINATOR && IsConnFromCoord())
+#define IsCnMaster()			(IS_PGXC_COORDINATOR && !IsConnFromCoord())
+#define IsCnCandidate()		(IS_PGXC_COORDINATOR && IsConnFromCoord())
 
 
 /* key pair to be used as object id while using advisory lock for backup */

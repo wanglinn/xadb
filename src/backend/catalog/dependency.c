@@ -432,7 +432,7 @@ doRename(const ObjectAddress *object, const char *oldname, const char *newname)
 			  * has also to be renamed on GTM.
 			  * An operation with GTM can just be done from a remote Coordinator.
 			  */
-			 if (relKind == RELKIND_SEQUENCE && IsCoordMaster() &&
+			 if (relKind == RELKIND_SEQUENCE && IsCnMaster() &&
 				 !IsTempSequence(object->objectId))
 			 {
 				 Relation relseq = relation_open(object->objectId, AccessShareLock);
@@ -1258,7 +1258,7 @@ doDeletion(const ObjectAddress *object, int flags)
 				 * Do not do extra process if this session is connected to a remote
 				 * Coordinator.
 				 */
-				if (!IsCoordMaster())
+				if (!IsCnMaster())
 					break;
 
 				/*

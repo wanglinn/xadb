@@ -166,7 +166,7 @@ addDefaultDistributeBy(CreateStmt *stmt)
 	DistributeBy	   *distby;
 
 	/* only coordinator master can do this */
-	Assert(IsCoordMaster());
+	Assert(IsCnMaster());
 	/* has no DistributeBy */
 	Assert(stmt->distributeby == NULL);
 	/* inherit from only one parent */
@@ -483,7 +483,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 		stmt->distributeby->colname = cxt.fallback_dist_col;
 	}
 
-	if (IsCoordMaster() &&
+	if (IsCnMaster() &&
 		stmt->distributeby == NULL &&
 		list_length(stmt->inhRelations) == 1)
 	{

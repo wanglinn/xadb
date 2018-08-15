@@ -1043,7 +1043,7 @@ BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
 	 * If this plansource belongs to a named prepared statement, store the stmt
 	 * name for the Datanode queries.
 	 */
-	if (!is_cluster && IsCoordMaster() && plansource->stmt_name)
+	if (!is_cluster && IsCnMaster() && plansource->stmt_name)
 	{
 		ListCell	*lc;
 		int 		n;

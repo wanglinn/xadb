@@ -469,7 +469,7 @@ standard_ProcessUtility(Node *parsetree,
 	 * This request would fail because the unfinished transaction
 	 * would already hold the advisory lock.
 	 */
-	if (IsCoordMaster() && IsNormalProcessingMode())
+	if (IsCnMaster() && IsNormalProcessingMode())
 	{
 		/* Is the statement a prohibited one? */
 		if (!IsStmtAllowedInLockedMode(parsetree, queryString))
@@ -675,7 +675,7 @@ standard_ProcessUtility(Node *parsetree,
 
 		case T_CreateTableSpaceStmt:
 #ifdef ADB
-			if (IsCoordMaster())
+			if (IsCnMaster())
 #endif
 			/* no event triggers for global objects */
 			PreventTransactionChain(isTopLevel, "CREATE TABLESPACE");
@@ -688,7 +688,7 @@ standard_ProcessUtility(Node *parsetree,
 		case T_DropTableSpaceStmt:
 #ifdef ADB
 			/* Allow this to be run inside transaction block on remote nodes */
-			if (IsCoordMaster())
+			if (IsCnMaster())
 #endif
 			/* no event triggers for global objects */
 			PreventTransactionChain(isTopLevel, "DROP TABLESPACE");
@@ -757,7 +757,7 @@ standard_ProcessUtility(Node *parsetree,
 
 		case T_CreatedbStmt:
 #ifdef ADB
-			if (IsCoordMaster())
+			if (IsCnMaster())
 #endif
 			/* no event triggers for global objects */
 			PreventTransactionChain(isTopLevel, "CREATE DATABASE");
@@ -788,14 +788,14 @@ standard_ProcessUtility(Node *parsetree,
 				DropdbStmt *stmt = (DropdbStmt *) parsetree;
 #ifdef ADB
 				/* Allow this to be run inside transaction block on remote nodes */
-				if (IsCoordMaster())
+				if (IsCnMaster())
 #endif
 				/* no event triggers for global objects */
 				PreventTransactionChain(isTopLevel, "DROP DATABASE");
 				dropdb(stmt->dbname, stmt->missing_ok);
 #ifdef ADB
 				/* Clean connections before dropping a database on local node */
-				if (IsCoordMaster())
+				if (IsCnMaster())
 				{
 					RemoteUtilityContext rcontext;
 					char				*query;
@@ -817,7 +817,7 @@ standard_ProcessUtility(Node *parsetree,
 #endif
 
 #ifdef ADB
-				if (IsCoordMaster())
+				if (IsCnMaster())
 					agtms_DropSequenceByDataBase(stmt->dbname);
 				ExecRemoteUtilityStmt(&utilityContext);
 #endif
@@ -877,7 +877,7 @@ standard_ProcessUtility(Node *parsetree,
 			/* forbidden in parallel mode due to CommandIsReadOnly */
 			cluster((ClusterStmt *) parsetree, isTopLevel);
 #ifdef ADB
-			if (IsCoordMaster())
+			if (IsCnMaster())
 			{
 				ClusterStmt *stmt = (ClusterStmt *) parsetree;
 				bool need_remote = true;
@@ -906,7 +906,7 @@ standard_ProcessUtility(Node *parsetree,
 				PreventCommandDuringRecovery((stmt->options & VACOPT_VACUUM) ?
 											 "VACUUM" : "ANALYZE");
 #ifdef ADB
-				if (IsCoordMaster())
+				if (IsCnMaster())
 				{
 					if (stmt->relation)
 					{
@@ -959,7 +959,7 @@ standard_ProcessUtility(Node *parsetree,
 			ExecSetVariableStmt((VariableSetStmt *) parsetree, isTopLevel);
 #ifdef ADB
 			/* Let the pooler manage the statement */
-			if (IsCoordMaster())
+			if (IsCnMaster())
 			{
 				VariableSetStmt *stmt = (VariableSetStmt *) parsetree;
 				/*
@@ -1217,7 +1217,7 @@ standard_ProcessUtility(Node *parsetree,
 				GrantStmt  *stmt = (GrantStmt *) parsetree;
 
 #ifdef ADB
-				if (IsCoordMaster())
+				if (IsCnMaster())
 				{
 					RemoteQueryExecType	remoteExecType = EXEC_ON_ALL_NODES;
 					bool				is_temp = false;
@@ -1312,7 +1312,7 @@ standard_ProcessUtility(Node *parsetree,
 				RenameStmt *stmt = (RenameStmt *) parsetree;
 
 #ifdef ADB
-				if (IsCoordMaster())
+				if (IsCnMaster())
 				{
 					RemoteQueryExecType	exec_type;
 					bool				is_temp = false;
@@ -1367,7 +1367,7 @@ standard_ProcessUtility(Node *parsetree,
 			{
 				AlterObjectDependsStmt *stmt = (AlterObjectDependsStmt *) parsetree;
 #ifdef ADB
-				if (IsCoordMaster())
+				if (IsCnMaster())
 				{
 					RemoteQueryExecType exec_type;
 					bool				is_temp = false;
@@ -1425,7 +1425,7 @@ standard_ProcessUtility(Node *parsetree,
 				AlterObjectSchemaStmt *stmt = (AlterObjectSchemaStmt *) parsetree;
 #ifdef ADB
 				Oid oid;
-				if (IsCoordMaster())
+				if (IsCnMaster())
 				{
 					RemoteQueryExecType	exec_type;
 					bool				is_temp = false;
@@ -1535,7 +1535,7 @@ standard_ProcessUtility(Node *parsetree,
 					CommentObject((CommentStmt *) parsetree);
 #ifdef ADB
 				/* Comment objects depending on their object and temporary types */
-				if (IsCoordMaster())
+				if (IsCnMaster())
 				{
 					bool is_temp = false;
 					RemoteQueryExecType exec_type = GetNodesForCommentUtility(stmt, &is_temp);
@@ -1680,7 +1680,7 @@ ProcessUtilitySlow(Node *parsetree,
 					stmts = transformCreateStmt((CreateStmt *) parsetree,
 												queryString ADB_ONLY_COMMA_ARG(&transformed_stmt));
 #ifdef ADB
-					if (IsCoordMaster())
+					if (IsCnMaster())
 					{
 						/*
 						 * Scan the list of objects.
@@ -2317,7 +2317,7 @@ ProcessUtilitySlow(Node *parsetree,
 			case T_RuleStmt:	/* CREATE RULE */
 				address = DefineRule((RuleStmt *) parsetree, queryString);
 #ifdef ADB
-				if (IsCoordMaster())
+				if (IsCnMaster())
 				{
 					RemoteQueryExecType	exec_type;
 					bool				is_temp;
@@ -2919,7 +2919,7 @@ ExecRemoteUtilityStmt(RemoteUtilityContext *context)
 	Assert(context);
 
 	/* only master-coordinator can do this */
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return ;
 
 	/* Return if query is launched on no nodes */
@@ -4821,7 +4821,7 @@ DropStmtPreTreatment(DropStmt *stmt, const char *queryString, bool sentToRemote,
 	RemoteQueryExecType res_exec_type = EXEC_ON_ALL_NODES;
 
 	/* Nothing to do if not local Coordinator */
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return;
 
 	switch (stmt->removeType)

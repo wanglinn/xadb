@@ -343,7 +343,7 @@ void agtm_use_result_end(PGresult *res, StringInfo buf)
 bool
 check_agtm_host(char **newval, void **extra, GucSource source)
 {
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return true;
 
 	if (save_AGtmHost == NULL)
@@ -372,7 +372,7 @@ check_agtm_host(char **newval, void **extra, GucSource source)
 bool
 check_agtm_port(int *newval, void **extra, GucSource source)
 {
-	if (!IsCoordMaster())
+	if (!IsCnMaster())
 		return true;
 
 	if (save_AGtmPort == 0)

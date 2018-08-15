@@ -2042,7 +2042,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 		}
 		break;
 	case REDUCE_TYPE_COORDINATOR:
-		Assert(IsCoordMaster());
+		Assert(IsCnMaster());
 		result = (Expr*)makeConst(OIDOID,
 								  -1,
 								  InvalidOid,

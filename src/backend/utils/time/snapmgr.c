@@ -883,7 +883,7 @@ GetActiveSnapshot(void)
 	 * Check if topmost snapshot is null or not,
 	 * if it is, a new one will be taken from GTM.
 	 */
-	if (!ActiveSnapshot && IsCoordMaster())
+	if (!ActiveSnapshot && IsCnMaster())
 		return NULL;
 #endif
 	Assert(ActiveSnapshot != NULL);
@@ -2249,7 +2249,7 @@ SetGlobalSnapshot(StringInfo input_message)
 	int				i;
 	TransactionId	*subxip = NULL;
 
-	Assert(!IsCoordMaster());
+	Assert(!IsCnMaster());
 	RecentGlobalXmin = pq_getmsgint(input_message, sizeof(TransactionId));
 	if (GlobalSnapshot == NULL)
 	{
@@ -2342,7 +2342,7 @@ GetGlobalSnapshot(Snapshot snapshot)
 	Snapshot	snap;
 	CommandId	cid;
 
-	if (IsCoordMaster())
+	if (IsCnMaster())
 	{
 		/*
 	 	 * Master-Coordinator get snapshot from AGTM.
