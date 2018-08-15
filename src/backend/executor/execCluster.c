@@ -110,9 +110,6 @@ static void RestoreClusterHook(ClusterErrorHookContext *context);
 
 static const ClusterCustomExecInfo* find_custom_func_info(StringInfo mem_toc, bool noError);
 
-static void SaveTableStatSnapshot(void);
-static void DestroyTableStateSnapshot(void);
-
 static const ClusterCustomExecInfo cluster_custom_execute[] =
 	{
 		{CLUSTER_CUSTOM_EXEC_FUNC(DoClusterHeapScan)}
@@ -1474,7 +1471,7 @@ static bool count_table_pgstat(PgStat_TableStatus *status, long *nelem)
 {
 	PgStat_TableXactStatus *trans = status->trans;
 	int count = 0;
-	if (status->t_id < FirstNormalObjectId ||	/* ignore system relation */
+	if (status->t_system ||	/* ignore system relation, include toast relation */
 		trans == NULL)
 		return false;
 
@@ -1499,10 +1496,11 @@ static void create_cluster_table_stat_htab(long nelem)
 	memset(&ctl, 0, sizeof(ctl));
 	ctl.keysize = sizeof(ClusterTabStatKey);
 	ctl.entrysize = sizeof(ClusterTabStatInfo);
+	ctl.hcxt = MessageContext;
 	clusterStatSnapshot = hash_create("cluster table stat snapshot",
 									  100,
 									  &ctl,
-									  HASH_ELEM | HASH_BLOBS);
+									  HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 }
 
 static void copy_table_pgstat(ClusterTabStatValue *val, const PgStat_TableXactStatus *trans)
@@ -1531,7 +1529,7 @@ static bool save_table_pgstat(PgStat_TableStatus *status, void *context)
 	key.oid = status->t_id;
 
 	trans = status->trans;
-	if (status->t_id < FirstNormalObjectId || /* ignore system relation */
+	if (status->t_system ||	/* ignore system relation, include toast relation */
 		trans == NULL)
 		return false;
 
@@ -1702,7 +1700,7 @@ void ClusterRecvTableStat(const char *data, int length)
 		relation_close(rel, NoLock);
 }
 
-static void SaveTableStatSnapshot(void)
+void SaveTableStatSnapshot(void)
 {
 	long nelem = 0L;
 	walker_table_stat(count_table_pgstat, &nelem);
@@ -1734,7 +1732,7 @@ bool SerializeTableStat(StringInfo buf)
 	return true;
 }
 
-static void DestroyTableStateSnapshot(void)
+void DestroyTableStateSnapshot(void)
 {
 	if (clusterStatSnapshot)
 	{
