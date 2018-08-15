@@ -136,6 +136,7 @@ extern bool IsReduceInfoListByValue(List *list);
 										list_length(r->storage_nodes) == 1 &&	\
 										linitial_oid(r->storage_nodes) == InvalidOid)
 extern bool IsReduceInfoListReplicated(List *list);
+extern bool IsReduceInfoListReplicatedOids(List *list, List *storage, List *exclude);
 extern bool IsReduceInfoListFinalReplicated(List *list);
 #define IsReduceInfoRandom(r)		((r)->type == REDUCE_TYPE_RANDOM)
 extern bool IsReduceInfoListRandom(List *list);
