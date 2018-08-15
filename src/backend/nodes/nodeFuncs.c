@@ -4376,6 +4376,9 @@ bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
 	case T_ProjectionPath:
 		WALK_CHILD_PATH(ProjectionPath, subpath);
 		break;
+	case T_ProjectSetPath:
+		WALK_CHILD_PATH(ProjectSetPath, subpath);
+		break;
 	case T_SortPath:
 		WALK_CHILD_PATH(SortPath, subpath);
 		break;
