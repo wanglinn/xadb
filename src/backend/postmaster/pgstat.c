@@ -67,6 +67,9 @@
 #include "utils/snapmgr.h"
 #include "utils/timestamp.h"
 #include "utils/tqual.h"
+#ifdef ADB
+#include "catalog/catalog.h"
+#endif
 
 
 /* ----------
@@ -207,6 +210,12 @@ typedef struct TwoPhasePgStatRecord
 	PgStat_Counter deleted_pre_trunc;	/* tuples deleted prior to truncate */
 	Oid			t_id;			/* table's OID */
 	bool		t_shared;		/* is it a shared catalog? */
+#ifdef ADB
+	bool		t_system;		/* is it a system relation? Judge by IsSystemRelation.
+								   It is used to determine whether to send statistics of
+								   this table to coordinator master.
+								   See serialize_table_pgstate. */
+#endif
 	bool		t_truncated;	/* was the relation truncated? */
 } TwoPhasePgStatRecord;
 
@@ -275,7 +284,7 @@ static void pgstat_send_tabstat(PgStat_MsgTabstat *tsmsg);
 static void pgstat_send_funcstats(void);
 static HTAB *pgstat_collect_oids(Oid catalogid);
 
-static PgStat_TableStatus *get_tabstat_entry(Oid rel_id, bool isshared);
+static PgStat_TableStatus *get_tabstat_entry(Oid rel_id, bool isshared ADB_ONLY_COMMA_ARG(bool issystem));
 
 static void pgstat_setup_memcxt(void);
 
@@ -1690,14 +1699,15 @@ pgstat_initstats(Relation rel)
 		return;
 
 	/* Else find or make the PgStat_TableStatus entry, and update link */
-	rel->pgstat_info = get_tabstat_entry(rel_id, rel->rd_rel->relisshared);
+	rel->pgstat_info = get_tabstat_entry(rel_id, rel->rd_rel->relisshared
+										 ADB_ONLY_COMMA_ARG(IsSystemRelation(rel)));
 }
 
 /*
  * get_tabstat_entry - find or create a PgStat_TableStatus entry for rel
  */
 static PgStat_TableStatus *
-get_tabstat_entry(Oid rel_id, bool isshared)
+get_tabstat_entry(Oid rel_id, bool isshared ADB_ONLY_COMMA_ARG(bool issysetm))
 {
 	PgStat_TableStatus *entry;
 	TabStatusArray *tsa;
@@ -1727,6 +1737,9 @@ get_tabstat_entry(Oid rel_id, bool isshared)
 			entry = &tsa->tsa_entries[tsa->tsa_used++];
 			entry->t_id = rel_id;
 			entry->t_shared = isshared;
+#ifdef ADB
+			entry->t_system = issysetm;
+#endif
 			return entry;
 		}
 	}
@@ -1747,6 +1760,10 @@ get_tabstat_entry(Oid rel_id, bool isshared)
 	entry = &tsa->tsa_entries[tsa->tsa_used++];
 	entry->t_id = rel_id;
 	entry->t_shared = isshared;
+#ifdef ADB
+	entry->t_system = issysetm;
+#endif
+
 	return entry;
 }
 
@@ -2205,6 +2222,9 @@ AtPrepare_PgStat(void)
 			record.deleted_pre_trunc = trans->deleted_pre_trunc;
 			record.t_id = tabstat->t_id;
 			record.t_shared = tabstat->t_shared;
+#ifdef ADB
+			record.t_system = tabstat->t_system;
+#endif
 			record.t_truncated = trans->truncated;
 
 			RegisterTwoPhaseRecord(TWOPHASE_RM_PGSTAT_ID, 0,
@@ -2265,7 +2285,7 @@ pgstat_twophase_postcommit(TransactionId xid, uint16 info,
 	PgStat_TableStatus *pgstat_info;
 
 	/* Find or create a tabstat entry for the rel */
-	pgstat_info = get_tabstat_entry(rec->t_id, rec->t_shared);
+	pgstat_info = get_tabstat_entry(rec->t_id, rec->t_shared ADB_ONLY_COMMA_ARG(rec->t_system));
 
 	/* Same math as in AtEOXact_PgStat, commit case */
 	pgstat_info->t_counts.t_tuples_inserted += rec->tuples_inserted;
@@ -2301,7 +2321,7 @@ pgstat_twophase_postabort(TransactionId xid, uint16 info,
 	PgStat_TableStatus *pgstat_info;
 
 	/* Find or create a tabstat entry for the rel */
-	pgstat_info = get_tabstat_entry(rec->t_id, rec->t_shared);
+	pgstat_info = get_tabstat_entry(rec->t_id, rec->t_shared ADB_ONLY_COMMA_ARG(rec->t_system));
 
 	/* Same math as in AtEOXact_PgStat, abort case */
 	if (rec->t_truncated)

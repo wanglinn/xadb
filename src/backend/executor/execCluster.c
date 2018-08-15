@@ -1411,7 +1411,7 @@ static bool serialize_table_pgstate(PgStat_TableStatus *status, StringInfo buf)
 	cluster_tab_stat_mark_type mark;
 
 	trans = status->trans;
-	if (status->t_id < FirstNormalObjectId || /* ignore system relation */
+	if (status->t_system || /* ignore system relation, include toast relation */
 		trans == NULL)
 		return false;
 
