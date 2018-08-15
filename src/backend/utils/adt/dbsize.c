@@ -47,7 +47,7 @@ static int64 pgxc_exec_sizefunc(Oid relOid, char *funcname, char *extra_arg);
  * tables, we should return the data from Coordinator. If we don't find
  * locator info, that means it is a Coordinator-only table.
  */
-#define COLLECT_FROM_DATANODES(relid) (IsCoordMaster() && GetRelationLocInfo((relid)))
+#define COLLECT_FROM_DATANODES(relid) (IsCnMaster() && GetRelationLocInfo((relid)))
 #endif
 
 
@@ -161,7 +161,7 @@ pg_database_size_oid(PG_FUNCTION_ARGS)
 	int64		size;
 
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PG_RETURN_DATUM(pgxc_database_size(dbOid));
 #endif
 
@@ -181,7 +181,7 @@ pg_database_size_name(PG_FUNCTION_ARGS)
 	int64		size;
 
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PG_RETURN_DATUM(pgxc_database_size(dbOid));
 #endif
 
@@ -280,7 +280,7 @@ pg_tablespace_size_oid(PG_FUNCTION_ARGS)
 	int64		size;
 
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PG_RETURN_DATUM(pgxc_tablespace_size(tblspcOid));
 #endif
 
@@ -300,7 +300,7 @@ pg_tablespace_size_name(PG_FUNCTION_ARGS)
 	int64		size;
 
 #ifdef ADB
-	if (IsCoordMaster())
+	if (IsCnMaster())
 		PG_RETURN_DATUM(pgxc_tablespace_size(tblspcOid));
 #endif
 
