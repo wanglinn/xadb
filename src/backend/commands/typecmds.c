@@ -1272,6 +1272,10 @@ AlterEnum(AlterEnumStmt *stmt, bool isTopLevel)
 			!(tup->t_data->t_infomask & HEAP_UPDATED))
 			 /* safe to do inside transaction block */ ;
 		else
+#ifdef ADB
+		/* Allow this to be run inside transaction block on remote nodes */
+		if (IsCnMaster())
+#endif
 			PreventTransactionChain(isTopLevel, "ALTER TYPE ... ADD");
 
 		AddEnumLabel(enum_type_oid, stmt->newVal,
