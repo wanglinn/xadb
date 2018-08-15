@@ -963,6 +963,22 @@ bool IsReduceInfoListReplicated(List *list)
 	return false;
 }
 
+bool IsReduceInfoListReplicatedOids(List *list, List *storage, List *exclude)
+{
+	ReduceInfo *rinfo;
+	if (list_length(list) != 1)
+		return false;
+	rinfo = linitial(list);
+	if (!IsReduceInfoReplicated(rinfo))
+		return false;
+
+	if (list_equal_oid_without_order(storage, rinfo->storage_nodes) == false ||
+		list_equal_oid_without_order(exclude, rinfo->exclude_exec) == false)
+		return false;
+
+	return true;
+}
+
 bool IsReduceInfoListFinalReplicated(List *list)
 {
 	ListCell *lc;
