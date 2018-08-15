@@ -962,6 +962,23 @@ bool IsReduceInfoListReplicated(List *list)
 	}
 	return false;
 }
+
+bool IsReduceInfoListFinalReplicated(List *list)
+{
+	ListCell *lc;
+	ReduceInfo *rinfo;
+	foreach(lc, list)
+	{
+		rinfo = lfirst(lc);
+		if (IsReduceInfoFinalReplicated(rinfo))
+		{
+			Assert(list_length(list) == 1);
+			return true;
+		}
+	}
+	return false;
+}
+
 bool IsReduceInfoListRound(List *list)
 {
 	ListCell *lc;
