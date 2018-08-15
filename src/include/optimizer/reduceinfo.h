@@ -136,6 +136,7 @@ extern bool IsReduceInfoListByValue(List *list);
 										list_length(r->storage_nodes) == 1 &&	\
 										linitial_oid(r->storage_nodes) == InvalidOid)
 extern bool IsReduceInfoListReplicated(List *list);
+extern bool IsReduceInfoListFinalReplicated(List *list);
 #define IsReduceInfoRound(r)		((r)->type == REDUCE_TYPE_ROUND)
 extern bool IsReduceInfoListRound(List *list);
 #define IsReduceInfoCoordinator(r)	((r)->type == REDUCE_TYPE_COORDINATOR)
