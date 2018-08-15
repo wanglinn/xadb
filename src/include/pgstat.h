@@ -154,6 +154,12 @@ typedef struct PgStat_TableStatus
 {
 	Oid			t_id;			/* table's OID */
 	bool		t_shared;		/* is it a shared catalog? */
+#ifdef ADB
+	bool		t_system;		/* is it a system relation? Judge by IsSystemRelation.
+								   It is used to determine whether to send statistics of
+								   this table to coordinator master.
+								   See serialize_table_pgstate. */
+#endif
 	struct PgStat_TableXactStatus *trans;	/* lowest subxact's counts */
 	PgStat_TableCounts t_counts;	/* event counts to be sent */
 } PgStat_TableStatus;
