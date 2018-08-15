@@ -104,9 +104,6 @@ static Path *get_cheapest_parameterized_child_path(PlannerInfo *root,
 									  RelOptInfo *rel,
 									  Relids required_outer);
 static List *accumulate_append_subpath(List *subpaths, Path *path);
-#ifdef ADB
-static List *accumulate_reduce_append_subpath(List *subpaths, Path *path);
-#endif /* ADB */
 static void set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 					  Index rti, RangeTblEntry *rte);
 static void set_function_pathlist(PlannerInfo *root, RelOptInfo *rel,
@@ -141,6 +138,7 @@ static void remove_unused_subquery_outputs(Query *subquery, RelOptInfo *rel);
 #ifdef ADB
 static bool set_path_reduce_info_worker(Path *path, List *reduce_info_list);
 static bool get_subplan_ref_walker(Expr *expr, int *subplan_ref);
+static int get_max_parallel_workers(List *pathlist);
 #endif /* ADB */
 
 /*
@@ -1331,8 +1329,10 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	List	   *all_reduce_by_val_list;
 	List	   *all_replicate_oid;
 	ReduceInfo *reduce_info;
-	ListCell   *lc_new_attno;
+	ListCell   *lc_pk;
 	bool		have_reduce_coord = false;
+	bool		have_final_replicate = false;
+	bool		generate_partial;
 #endif /* ADB */
 
 	/*
@@ -1554,39 +1554,43 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	}
 
 #ifdef ADB
+	generate_partial = false;
+re_generate_append_:
 	reduce_var_map = NIL;
 	all_reduce_by_val_list = NIL;
 	all_replicate_oid = NIL;
+	all_child_pathkeys = NIL;
+	all_child_outers = NIL;
 	foreach(l, live_childrels)
 	{
 		ListCell *lc_path;
-		bool have_no_param_path = false;
 		childrel = lfirst(l);
-		if(childrel->cheapest_coordinator_path)
-			have_reduce_coord = true;
-		if(childrel->cheapest_replicate_path)
-		{
-			/* remember all replicated nodes oid */
-			Assert(list_length(childrel->cheapest_replicate_path->reduce_info_list) == 1);
-			reduce_list = get_reduce_info_list(childrel->cheapest_replicate_path);
-			Assert(list_length(reduce_list) == 1);
-			reduce_info = linitial(reduce_list);
-			all_replicate_oid = list_concat_unique_oid(all_replicate_oid, reduce_info->storage_nodes);
-		}
 
-		/* find all reduce info */
-		foreach(lc_path, childrel->cluster_pathlist)
+		foreach(lc_path, generate_partial ? childrel->cluster_partial_pathlist : childrel->cluster_pathlist)
 		{
+			Relids		childouter;
 			path = lfirst(lc_path);
-			if(PATH_REQ_OUTER(path))
+
+			/* find all param paths */
+			childouter = PATH_REQ_OUTER(path);
+			if(childouter)
 			{
-				/* ADBQ: for now we not support param other rel path yet! */
-				continue;
-			}else
-			{
-				have_no_param_path = true;
+				ListCell   *lco;
+				bool		found = false;
+
+				foreach(lco, all_child_outers)
+				{
+					if (bms_equal(lfirst(lco), childouter))
+					{
+						found = true;
+						break;
+					}
+				}
+				if (!found)
+					all_child_outers = lappend(all_child_outers, childouter);
 			}
 
+			/* find all reduce info */
 			reduce_list = get_reduce_info_list(path);
 			if(IsReduceInfoListByValue(reduce_list))
 			{
@@ -1624,263 +1628,343 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 						list_free(new_attno);
 					}
 				}
-			}
-		}
-		if(have_no_param_path == false)
-		{
-			/* ADBQ: for now we not support param other rel path yet! */
-			list_free(all_reduce_by_val_list);
-			return;
-		}
-	}
-
-	/* make redue by value AppendPath */
-	forboth(l, all_reduce_by_val_list, lc_new_attno, reduce_var_map)
-	{
-		ReduceInfo *sub_reduce;
-		ListCell *lc_rel;
-		ListCell *lc_path;
-		ListCell *lc_reduce;
-		reduce_info = lfirst(l);
-		subpaths = NIL;
-		subpaths_valid = true;
-		foreach(lc_rel, live_childrels)
-		{
-			childrel = lfirst(lc_rel);
-			path = NULL;
-			/* find same reduce */
-			foreach(lc_path, childrel->cluster_pathlist)
+			}else if(IsReduceInfoListCoordinator(reduce_list))
 			{
-				if(PATH_REQ_OUTER((Path*)lfirst(lc_path)))
-					continue;
-				reduce_list = get_reduce_info_list(lfirst(lc_path));
-				if(!IsReduceInfoListByValue(reduce_list))
-					continue;
+				have_reduce_coord = true;
+			}else if(IsReduceInfoListFinalReplicated(reduce_list))
+			{
+				have_final_replicate = true;
+			}else if(IsReduceInfoListReplicated(reduce_list))
+			{
+				/* remember all replicated nodes oid */
+				Assert(list_length(reduce_list) == 1);
+				reduce_info = linitial(reduce_list);
+				all_replicate_oid = list_concat_unique_oid(all_replicate_oid, reduce_info->storage_nodes);
+			}
 
-				foreach(lc_reduce, reduce_list)
+			/* remember all pathkeys */
+			if (path->pathkeys != NIL)
+			{
+				ListCell   *lpk;
+				bool		found = false;
+
+				foreach(lpk, all_child_pathkeys)
 				{
-					List *new_attno;
-					sub_reduce = lfirst(lc_reduce);
-					new_attno = ReduceInfoFindPathTarget(sub_reduce, ((Path*)lfirst(lc_path))->pathtarget);
-					if (equal(new_attno, lfirst(lc_new_attno)) &&
-						IsReduceInfoSame(sub_reduce, reduce_info))
+					if (compare_pathkeys(lfirst(lpk), path->pathkeys) == PATHKEYS_EQUAL)
 					{
-						/* found match reduce */
-						path = lfirst(lc_path);
-						list_free(new_attno);
+						found = true;
 						break;
 					}
-					list_free(new_attno);
 				}
-				if(path)
-					break;
+				if (!found)
+					all_child_pathkeys = lappend(all_child_pathkeys, path->pathkeys);
 			}
-			if(path)
-			{
-				subpaths = accumulate_append_subpath(subpaths, path);
-			}else
-			{
-				subpaths_valid = false;
-				break;
-			}
-		}
-		if(subpaths_valid)
-		{
-			/* make new reduce for AppendPath */
-			List *params = MakeVarList(lfirst(lc_new_attno), rel->relid, rel->reltarget);
-			Assert(params != NIL);
-			sub_reduce = MakeReduceInfoAs(reduce_info, params);
-			path = (Path*)create_append_path(rel, subpaths, NULL, 0);
-			path->reduce_info_list = list_make1(sub_reduce);
-			path->reduce_is_valid = true;
-			add_cluster_path(rel, path);
-		}else
-		{
-			list_free(subpaths);
 		}
 	}
 
-	if(rel->cluster_pathlist == NIL)
+	all_child_pathkeys = lcons(NIL, all_child_pathkeys);
+	all_child_outers = lcons(NULL, all_child_outers);
+	foreach(lc_pk, all_child_pathkeys)
 	{
-		/* make a none reduce path */
-		ListCell *lc_path;
-		ListCell *lc_reduce;
-		List *storage = NIL;
-		List *exclude = NIL;
-		subpaths = NIL;
-		subpaths_valid = true;
-		foreach(l, live_childrels)
+		ListCell	   *lc_new_attno;
+		ReduceInfo	   *sub_reduce;
+		ListCell	   *lc_rel;
+		ListCell	   *lc_path;
+		ListCell	   *lc_reduce;
+		ListCell	   *lc_outer;
+		Relids			req_outer;
+		Path		   *test_path;
+		Path		   *pathkey_path;
+		List		   *pathkeys = lfirst(lc_pk);
+		int				parallel_workers;
+		bool			have_pathkeys_path;
+
+		foreach(lc_outer, all_child_outers)
 		{
-			/* find cheapest path */
-			childrel = lfirst(l);
-			path = NULL;
-			foreach(lc_path, childrel->cluster_pathlist)
+			req_outer = lfirst(lc_outer);
+
+			/* make redue by value AppendPath */
+			forboth(l, all_reduce_by_val_list, lc_new_attno, reduce_var_map)
 			{
-				Path *tmp = lfirst(lc_path);
-				if(PATH_REQ_OUTER(tmp))
-					continue;
-				reduce_list = get_reduce_info_list(tmp);
-				if (IsReduceInfoListCoordinator(reduce_list) ||
-					IsReduceInfoListReplicated(reduce_list))
-					continue;
-				if(path == NULL || path->total_cost > tmp->total_cost)
+				have_pathkeys_path = false;
+				reduce_info = lfirst(l);
+				subpaths = NIL;
+				subpaths_valid = true;
+				foreach(lc_rel, live_childrels)
 				{
-					path = tmp;
-					foreach(lc_reduce, reduce_list)
+					childrel = lfirst(lc_rel);
+					path = pathkey_path = NULL;
+					/* find same reduce */
+					foreach(lc_path, generate_partial ? childrel->cluster_partial_pathlist : childrel->cluster_pathlist)
 					{
-						reduce_info = lfirst(lc_reduce);
-						storage = list_concat_unique_oid(storage, reduce_info->storage_nodes);
-						exclude = list_concat_unique_oid(exclude, reduce_info->exclude_exec);
-					}
-				}
-			}
-			if(path == NULL)
-			{
-				subpaths_valid = false;
-				break;
-			}else
-			{
-				subpaths = accumulate_append_subpath(subpaths, path);
-			}
-		}
-		if(subpaths_valid)
-		{
-			List *new_exclude = NIL;
-			foreach(l, exclude)
-			{
-				if(!list_member_oid(storage, lfirst_oid(l)))
-					new_exclude = lappend_oid(new_exclude, lfirst_oid(l));
-			}
-			reduce_info = MakeRoundReduceInfo(storage);
-			reduce_info->exclude_exec = new_exclude;
-			path = (Path*)create_append_path(rel, subpaths, NULL, 0);
-			path->reduce_info_list = list_make1(reduce_info);
-			path->reduce_is_valid = true;
-			add_cluster_path(rel, path);
-			list_free(storage);
-			list_free(exclude);
-		}
-	}
+						test_path = lfirst(lc_path);
+						if (bms_equal(PATH_REQ_OUTER(test_path), req_outer) == false)
+							continue;
+						reduce_list = get_reduce_info_list(test_path);
+						if (!IsReduceInfoListByValue(reduce_list))
+							continue;
 
-	if(have_reduce_coord)
-	{
-		subpaths_valid = true;
-		/* make reduce to coordinator append path */
-		subpaths = NIL;
-		foreach(l, live_childrels)
-		{
-			childrel = lfirst(l);
-			path = NULL;
-			if (childrel->cheapest_coordinator_path &&
-				PATH_REQ_OUTER(childrel->cheapest_coordinator_path) == NULL)
-			{
-				path = childrel->cheapest_coordinator_path;
-			}else
-			{
-				Path *cheapest_path;
-				ListCell *lc;
-
-				/* get cheapest total no param path */
-				if(PATH_REQ_OUTER(childrel->cheapest_cluster_total_path) == NULL)
-					cheapest_path = childrel->cheapest_cluster_total_path;
-				else
-					cheapest_path = NULL;
-
-				foreach(lc, childrel->cluster_pathlist)
-				{
-					Path *subpath = lfirst(lc);
-					if(PATH_REQ_OUTER(subpath))
-						continue;
-					if(IsReduceInfoListCoordinator(get_reduce_info_list(subpath)))
-					{
-						if (path == NULL ||
-							path->total_cost > subpath->total_cost)
+						foreach(lc_reduce, reduce_list)
 						{
-							path = subpath;
+							List *new_attno;
+							sub_reduce = lfirst(lc_reduce);
+							new_attno = ReduceInfoFindPathTarget(sub_reduce, test_path->pathtarget);
+							if (equal(new_attno, lfirst(lc_new_attno)) &&
+								IsReduceInfoSame(sub_reduce, reduce_info))
+							{
+								/* found match reduce */
+								if (path == NULL ||
+									compare_path_costs(path, test_path, TOTAL_COST) > 0)
+								{
+									path = test_path;
+								}
+
+								if (pathkeys &&
+									pathkeys_contained_in(pathkeys, test_path->pathkeys) &&
+									(pathkey_path == NULL ||
+									 compare_path_costs(pathkey_path, test_path, TOTAL_COST) > 0))
+								{
+									pathkey_path = test_path;
+								}
+							}
+							list_free(new_attno);
 						}
-					}else if(cheapest_path == NULL ||
-						cheapest_path->total_cost > subpath->total_cost)
+					}
+
+					if (pathkeys && pathkey_path)
 					{
-						cheapest_path = subpath;
+						path = pathkey_path;
+						have_pathkeys_path = true;
+					}
+
+					if(path)
+					{
+						subpaths = accumulate_append_subpath(subpaths, path);
+					}else
+					{
+						subpaths_valid = false;
+						break;
 					}
 				}
-				if(path == NULL)
-					path = cheapest_path;
-			}
-			if(path == NULL)
-			{
-				subpaths_valid = false;
-				break;
-			}
-			subpaths = accumulate_reduce_append_subpath(subpaths, path);
-		}
 
-		/* make AppendPath */
-		if(subpaths_valid)
-		{
-			bool have_not_reduce_coord_path = false;
-			foreach(l, subpaths)
-			{
-				path = lfirst(l);
-				if(IsReduceInfoListCoordinator(get_reduce_info_list(lfirst(l))) == false)
+				if (pathkeys && have_pathkeys_path == false)
+					subpaths_valid = false;
+
+				if(subpaths_valid)
 				{
-					have_not_reduce_coord_path = true;
-					break;
+					parallel_workers = 0;
+					/* make new reduce for AppendPath */
+					List *params = MakeVarList(lfirst(lc_new_attno), rel->relid, rel->reltarget);
+					Assert(params != NIL);
+					sub_reduce = MakeReduceInfoAs(reduce_info, params);
+					if (generate_partial)
+						parallel_workers = get_max_parallel_workers(subpaths);
+
+					if (pathkeys)
+					{
+						Assert(have_pathkeys_path);
+						path = (Path*)create_merge_append_path(root,
+															   rel,
+															   subpaths,
+															   pathkeys,
+															   req_outer);
+						path->parallel_workers = parallel_workers;
+					}else
+					{
+						path = (Path*)create_append_path(rel,
+														 subpaths,
+														 req_outer,
+														 parallel_workers);
+					}
+					path->reduce_info_list = list_make1(sub_reduce);
+					path->reduce_is_valid = true;
+					if (generate_partial)
+						add_cluster_partial_path(rel, path);
+					else
+						add_cluster_path(rel, path);
+				}else
+				{
+					list_free(subpaths);
+				}
+			} /* foreach all by value reduce info */
+
+			if (pathkeys == NIL && req_outer == NULL && /* first loop */
+				(generate_partial ? rel->cluster_partial_pathlist : rel->cluster_pathlist) == NIL)
+			{
+				/* make a none reduce path */
+				List *storage = NIL;
+				List *exclude = NIL;
+				subpaths = NIL;
+				subpaths_valid = true;
+				foreach(l, live_childrels)
+				{
+					/* find cheapest path */
+					childrel = lfirst(l);
+					path = NULL;
+					foreach(lc_path, generate_partial ? childrel->cluster_partial_pathlist : childrel->cluster_pathlist)
+					{
+						test_path = lfirst(lc_path);
+						if(PATH_REQ_OUTER(test_path))
+							continue;
+						reduce_list = get_reduce_info_list(test_path);
+						if (IsReduceInfoListCoordinator(reduce_list) ||
+							IsReduceInfoListReplicated(reduce_list))
+							continue;
+
+						if (path == NULL ||
+							compare_path_costs(path, test_path, TOTAL_COST) > 0)
+						{
+							path = test_path;
+							foreach(lc_reduce, reduce_list)
+							{
+								reduce_info = lfirst(lc_reduce);
+								storage = list_concat_unique_oid(storage, reduce_info->storage_nodes);
+								exclude = list_concat_unique_oid(exclude, reduce_info->exclude_exec);
+							}
+						}
+					}
+					if(path == NULL)
+					{
+						subpaths_valid = false;
+						break;
+					}else
+					{
+						subpaths = accumulate_append_subpath(subpaths, path);
+					}
+				}
+				if(subpaths_valid)
+				{
+					parallel_workers = 0;
+					List *new_exclude = NIL;
+					foreach(l, exclude)
+					{
+						if(!list_member_oid(storage, lfirst_oid(l)))
+							new_exclude = lappend_oid(new_exclude, lfirst_oid(l));
+					}
+					reduce_info = MakeRoundReduceInfo(storage);
+					reduce_info->exclude_exec = new_exclude;
+					if (generate_partial)
+						parallel_workers = get_max_parallel_workers(subpaths);
+					path = (Path*)create_append_path(rel, subpaths, NULL, parallel_workers);
+					path->reduce_info_list = list_make1(reduce_info);
+					path->reduce_is_valid = true;
+					if (generate_partial)
+						add_cluster_partial_path(rel, path);
+					else
+						add_cluster_path(rel, path);
+					list_free(storage);
+					list_free(exclude);
 				}
 			}
-			path = (Path*)create_append_path(rel, subpaths, NULL, 0);
-			if(have_not_reduce_coord_path)
-			{
-				path->reduce_info_list = NIL;
-				path->reduce_is_valid = true;
-				path = create_cluster_reduce_path(root, path, list_make1(MakeCoordinatorReduceInfo()), rel, NIL);
-			}else
-			{
-				path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
-				path->reduce_is_valid = true;
-			}
-			add_cluster_path(rel, path);
-		}
-	}
 
-	/* make replacite AppendPath */
-	if(all_replicate_oid)
+#define MY_MAKE_PATH(reduce_list_test_fun_, new_reduce_info_)							\
+	do																					\
+	{																					\
+		have_pathkeys_path = false;														\
+		subpaths_valid = true;															\
+		subpaths = NIL;																	\
+		foreach(l, live_childrels)														\
+		{																				\
+			childrel = lfirst(l);														\
+			path = pathkey_path = NULL;													\
+			foreach(lc_path, generate_partial ? childrel->cluster_partial_pathlist : childrel->cluster_pathlist)	\
+			{																			\
+				test_path = lfirst(lc_path);											\
+				if (bms_equal(PATH_REQ_OUTER(test_path), req_outer) == false ||			\
+					!reduce_list_test_fun_(get_reduce_info_list(test_path)))			\
+					continue;															\
+																						\
+				if (path == NULL ||														\
+					compare_path_costs(path, test_path, TOTAL_COST) > 0)				\
+				{																		\
+					path = test_path;													\
+				}																		\
+																						\
+				if (pathkeys &&															\
+					pathkeys_contained_in(pathkeys, test_path->pathkeys) &&				\
+					(pathkey_path == NULL ||											\
+					 compare_path_costs(pathkey_path, test_path, TOTAL_COST) > 0))		\
+				{																		\
+					pathkey_path = test_path;											\
+				}																		\
+			}																			\
+																						\
+			if (pathkeys && pathkey_path)												\
+			{																			\
+				path = pathkey_path;													\
+				have_pathkeys_path = true;												\
+			}																			\
+			if (path)																	\
+			{																			\
+				subpaths = accumulate_append_subpath(subpaths, path);					\
+			}else																		\
+			{																			\
+				subpaths_valid = false;													\
+				break;																	\
+			}																			\
+		}																				\
+																						\
+		if (pathkeys && have_pathkeys_path == false)									\
+			subpaths_valid = false;														\
+		if (subpaths_valid)																\
+		{																				\
+			parallel_workers = 0;														\
+			if (generate_partial)														\
+				parallel_workers = get_max_parallel_workers(subpaths);					\
+			if (pathkeys)																\
+			{																			\
+				Assert(have_pathkeys_path);												\
+				path = (Path*)create_merge_append_path(root,							\
+														rel,							\
+														subpaths,						\
+														pathkeys,						\
+														req_outer);						\
+				path->parallel_workers = parallel_workers;								\
+			}else																		\
+			{																			\
+				path = (Path*)create_append_path(rel,									\
+													subpaths,							\
+													req_outer,							\
+													parallel_workers);					\
+			}																			\
+			path->reduce_info_list = list_make1(new_reduce_info_);						\
+			path->reduce_is_valid;														\
+			if (generate_partial)														\
+				add_cluster_partial_path(rel, path);									\
+			else																		\
+				add_cluster_path(rel, path);											\
+		}																				\
+	}while(0)
+
+			if (have_reduce_coord)
+			{
+				/* make reduce to coordinator append path */
+				MY_MAKE_PATH(IsReduceInfoListCoordinator,
+							 MakeCoordinatorReduceInfo());
+			}
+
+			if (have_final_replicate)
+			{
+				MY_MAKE_PATH(IsReduceInfoListFinalReplicated,
+							 MakeFinalReplicateReduceInfo());
+			}
+
+			if (all_replicate_oid)
+			{
+				#define MY_TEST_FUN(list_) IsReduceInfoListReplicatedOids((list_), all_replicate_oid, NIL)
+				MY_MAKE_PATH(MY_TEST_FUN,
+							 MakeReplicateReduceInfo(all_replicate_oid));
+				#undef MY_TEST_FUN
+			}
+#undef MY_MAKE_PATH
+		} /* foreach all_child_outers */
+	} /* foreach all_child_pathkeys */
+
+	if (rel->consider_parallel &&
+		generate_partial == false)
 	{
-		ListCell *lc_path;
-		subpaths = NIL;
-		subpaths_valid = true;
-		foreach(l, live_childrels)
-		{
-			childrel = lfirst(l);
-			path = NULL;
-			foreach(lc_path, childrel->cluster_pathlist)
-			{
-				Path *tmp = lfirst(lc_path);
-				if(PATH_REQ_OUTER(tmp))
-					continue;
-				reduce_list = get_reduce_info_list(tmp);
-				if (!IsReduceInfoListReplicated(reduce_list))
-					continue;
-				if(path == NULL || path->total_cost > tmp->total_cost)
-					path = tmp;
-			}
-			if(path == NULL)
-			{
-				subpaths_valid = false;
-				break;
-			}else
-			{
-				subpaths = accumulate_append_subpath(subpaths, path);
-			}
-		}
-		if(subpaths_valid)
-		{
-			reduce_info = MakeReplicateReduceInfo(all_replicate_oid);
-			path = (Path*)create_append_path(rel, subpaths, NULL, 0);
-			path->reduce_info_list = list_make1(reduce_info);
-			path->reduce_is_valid = true;
-			add_cluster_path(rel, path);
-		}
+		generate_partial = true;
+		goto re_generate_append_;
 	}
 #endif /* ADB */
 }
@@ -2090,15 +2174,6 @@ accumulate_append_subpath(List *subpaths, Path *path)
 	else
 		return lappend(subpaths, path);
 }
-
-#ifdef ADB
-static List *accumulate_reduce_append_subpath(List *subpaths, Path *path)
-{
-	while(IsA(path, ClusterReducePath))
-		path = ((ClusterReducePath*)path)->subpath;
-	return accumulate_append_subpath(subpaths, path);
-}
-#endif /* ADB */
 
 /*
  * set_dummy_rel_pathlist
@@ -3586,6 +3661,22 @@ static bool get_subplan_ref_walker(Expr *expr, int *subplan_ref)
 		return false;
 	}
 	return expression_tree_walker((Node*)expr, get_subplan_ref_walker, subplan_ref);
+}
+
+static int get_max_parallel_workers(List *pathlist)
+{
+	ListCell *lc;
+	Path *path;
+	int max_parallel_workers = 0;
+
+	foreach(lc, pathlist)
+	{
+		path = lfirst(lc);
+		if (max_parallel_workers < path->parallel_workers)
+			max_parallel_workers = path->parallel_workers;
+	}
+
+	return max_parallel_workers;
 }
 #endif /* ADB */
 
