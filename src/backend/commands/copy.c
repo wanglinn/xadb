@@ -219,6 +219,7 @@ typedef struct CopyStateData
 	TupleTableSlot* (*NextRowFrom)(struct CopyStateData *cstate, ExprContext *econtext);
 	List			*list_connect;	/* list of pg_conn */
 	uint64			count_tuple;	/* count tuple(s) read */
+	bool			is_cluster;		/* is call form DoClusterCopy */
 #endif
 } CopyStateData;
 
@@ -2614,8 +2615,9 @@ CopyFrom(CopyState cstate)
 		MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
 
 #ifdef ADB
-		if (IsConnFromCoord())
+		if (cstate->is_cluster)
 		{
+			Assert(IsConnFromCoord());
 			if (!NextRowFromCoordinator(cstate, econtext, values, nulls, &loaded_oid))
 				break;
 		}else
@@ -4876,6 +4878,7 @@ void DoClusterCopy(CopyStmt *stmt)
 											 true);
 	if (cstate->cs_convert)
 		cstate->cs_tsConvert = MakeSingleTupleTableSlot(cstate->cs_convert->out_desc);
+	cstate->is_cluster = true;
 
 	CopyFrom(cstate);
 
