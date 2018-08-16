@@ -5391,7 +5391,7 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 
 		/*add content of hba table to the pg_hba.conf file ,the "*" is meaning all*/
 		add_hba_table_to_file("*");
-		/* get the content from coordinator and gtm, then insert into mgr_parm which used 
+		/* get the content from coordinator and gtm, then insert into mgr_parm which used
 		* to check set parameters
 		*/
 		mgr_flushparam(NULL, NULL, NULL);
@@ -9925,7 +9925,7 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 		}
 		PQclear(res);
 	}
-	if (paramV.data != NULL && strcmp(paramV.data, "-1") != 0)
+	if (strcmp(paramV.data, "-1") != 0)
 	{
 		ereport(NOTICE, (errmsg("set all coordinators pool_release_to_idle_timeout = -1, original value is '%s'", paramV.data)));
 		ereport(LOG, (errmsg("set all coordinators pool_release_to_idle_timeout = -1, original value is '%s'", paramV.data)));
@@ -9983,7 +9983,7 @@ void mgr_unlock_cluster(PGconn **pg_conn)
 	}
 	PQfinish(*pg_conn);
 
-	if (paramV.data != NULL && strcmp(paramV.data, "-1") != 0)
+	if (strcmp(paramV.data, "-1") != 0)
 	{
 		/* set all coordinators pool_release_to_idle_timeout to record value */
 		ereport(NOTICE, (errmsg("set all coordinators pool_release_to_idle_timeout = '%s'", paramV.data)));

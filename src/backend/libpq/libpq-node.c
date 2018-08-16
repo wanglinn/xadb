@@ -640,7 +640,7 @@ void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int el
 				str = PQparameterStatus(conn, "pgxc_node_name");
 			if(str == NULL)
 				str = PQNConnectName(conn);
-			if(str != NULL);
+			if(str != NULL)
 				errnode(str);
 
 #define GENERIC_ERROR(diag, func)									\
