@@ -2171,9 +2171,9 @@ re_generate_append_:
 
 				if(subpaths_valid)
 				{
-					parallel_workers = 0;
 					/* make new reduce for AppendPath */
 					List *params = MakeVarList(lfirst(lc_new_attno), rel->relid, rel->reltarget);
+					parallel_workers = 0;
 					Assert(params != NIL);
 					sub_reduce = MakeReduceInfoAs(reduce_info, params);
 					if (generate_partial)
@@ -2259,8 +2259,8 @@ re_generate_append_:
 				}
 				if(subpaths_valid)
 				{
-					parallel_workers = 0;
 					List *new_exclude = NIL;
+					parallel_workers = 0;
 					foreach(l, exclude)
 					{
 						if(!list_member_oid(storage, lfirst_oid(l)))
@@ -2348,11 +2348,11 @@ re_generate_append_:
 			{																			\
 				Assert(have_pathkeys_path);												\
 				path = (Path*)create_merge_append_path(root,							\
-														rel,							\
-														subpaths,						\
-														pathkeys,						\
-														req_outer,						\
-														partitioned_rels);				\
+													   rel,								\
+													   subpaths,						\
+													   pathkeys,						\
+													   req_outer,						\
+													   partitioned_rels);				\
 				path->parallel_workers = parallel_workers;								\
 			}else																		\
 			{																			\
@@ -2367,7 +2367,7 @@ re_generate_append_:
 												 -1);									\
 			}																			\
 			path->reduce_info_list = list_make1(new_reduce_info_);						\
-			path->reduce_is_valid;														\
+			path->reduce_is_valid = true;												\
 			if (generate_partial)														\
 				add_cluster_partial_path(rel, path);									\
 			else																		\
