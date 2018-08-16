@@ -521,8 +521,8 @@ Datum monitor_databasetps_insert_data(PG_FUNCTION_ARGS)
 	foreach(cell, dbnamelist)
 	{
 		dbname = (char *)(lfirst(cell));
-		tps = abs(dbtps[idex][1] - dbtps[idex][0])/sleepTime;
-		qps = abs(dbqps[idex][1] - dbqps[idex][0])/sleepTime;
+		tps = labs(dbtps[idex][1] - dbtps[idex][0])/sleepTime;
+		qps = labs(dbqps[idex][1] - dbqps[idex][0])/sleepTime;
 		appendStringInfo(&sqldbruntimeStrData, "select case when  stats_reset IS NULL then  0 else  round(abs(extract(epoch from now())- extract(epoch from  stats_reset))) end from pg_stat_database where datname = \'%s\';", dbname);
 		pgdbruntime = monitor_get_result_one_node(rel_node, sqldbruntimeStrData.data, DEFAULT_DB, CNDN_TYPE_COORDINATOR_MASTER);
 		tup_result = monitor_build_databasetps_qps_tuple(rel, time, dbname, tps, qps, pgdbruntime);

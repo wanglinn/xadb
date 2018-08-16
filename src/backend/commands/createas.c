@@ -355,6 +355,9 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 			ExecutorStart(queryDesc, EXEC_FLAG_EXPLAIN_ONLY);
 			pgxc_fill_matview_by_copy(dest, into->skipData, queryDesc->operation,
 										queryDesc->tupDesc);
+
+			/* get object address that intorel_startup saved for us */
+			address = ((DR_intorel *) dest)->reladdr;
 		}
 		else
 		{
