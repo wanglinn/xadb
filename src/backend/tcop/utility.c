@@ -130,6 +130,7 @@ static void ProcessUtilitySlow(ParseState *pstate,
 				   QueryEnvironment *queryEnv,
 				   DestReceiver *dest,
 #ifdef ADB
+				   const char *this_query_str,
 				   bool sentToRemote,
 #endif
 				   char *completionTag);
@@ -451,6 +452,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 #ifdef ADB
 
 	Relation	vacuum_rel = NULL;
+	const char *this_query_str = NULL;
 
 	RemoteUtilityContext utilityContext = {
 							sentToRemote,
@@ -461,6 +463,27 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 							queryString,
 							NULL
 						};
+	if (pstmt->stmt_location < 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown query string")));
+	AssertArg(pstmt->stmt_len >= 0);
+
+	if (pstmt->stmt_location == 0)
+	{
+		if (pstmt->stmt_len == 0)
+			this_query_str = queryString;
+		else
+			this_query_str = pnstrdup(queryString, pstmt->stmt_len);
+	}else
+	{
+		if (pstmt->stmt_len == 0)
+			this_query_str = pstrdup(&queryString[pstmt->stmt_location]);
+		else
+			this_query_str = pnstrdup(&queryString[pstmt->stmt_location], pstmt->stmt_len);
+	}
+	utilityContext.query = this_query_str;
+
 	/*
 	 * For more detail see comments in function pgxc_lock_for_backup.
 	 *
@@ -723,7 +746,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			 * before AFTER triggers. As this needs an internal control it is
 			 * managed by this function internally.
 			 */
-			ExecuteTruncate((TruncateStmt *) parsetree, queryString);
+			ExecuteTruncate((TruncateStmt *) parsetree, this_query_str);
 #else
 			ExecuteTruncate((TruncateStmt *) parsetree);
 #endif
@@ -987,13 +1010,13 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				{
 					if (IsTransactionBlock())
 					{
-						if (PoolManagerSetCommand(POOL_CMD_LOCAL_SET, queryString) < 0)
+						if (PoolManagerSetCommand(POOL_CMD_LOCAL_SET, this_query_str) < 0)
 							elog(ERROR, "Postgres-XC: ERROR SET query");
 					}
 				}
 				else
 				{
-					if (PoolManagerSetCommand(POOL_CMD_GLOBAL_SET, queryString) < 0)
+					if (PoolManagerSetCommand(POOL_CMD_GLOBAL_SET, this_query_str) < 0)
 						elog(ERROR, "Postgres-XC: ERROR SET query");
 				}
 			}
@@ -1289,7 +1312,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsGrantObjectType(stmt->objtype))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
 				else
 					ExecuteGrantStmt(stmt);
 			}
@@ -1302,13 +1325,9 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->removeType))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
 				else
-#ifdef ADB
-					ExecDropStmt(stmt, isTopLevel, queryString, sentToRemote);
-#else
-					ExecDropStmt(stmt, isTopLevel);
-#endif
+					ExecDropStmt(stmt, isTopLevel ADB_ONLY_COMMA_ARG2(this_query_str, sentToRemote));
 			}
 			break;
 
@@ -1358,7 +1377,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->renameType))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
 				else
 					ExecRenameStmt(stmt);
 			}
@@ -1411,7 +1430,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->objectType))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
 				else
 					ExecAlterObjectDependsStmt(stmt, NULL);
 			}
@@ -1485,7 +1504,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->objectType))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
 				else
 					ExecAlterObjectSchemaStmt(stmt, NULL);
 			}
@@ -1498,7 +1517,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->objectType))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
 				else
 					ExecAlterOwnerStmt(stmt);
 
@@ -1515,7 +1534,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->objtype))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
 				else
 					CommentObject(stmt);
 #ifdef ADB
@@ -1542,7 +1561,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->objtype))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
 				else
 					ExecSecLabelStmt(stmt);
 				break;
@@ -1568,7 +1587,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 
 		case T_CreateAuxStmt:
 			ExecCreateAuxStmt((CreateAuxStmt *) parsetree,
-							  queryString,
+							  this_query_str,
 							  context,
 							  dest,
 							  sentToRemote,
@@ -1580,9 +1599,14 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			/* All other statement types have event trigger support */
 			ProcessUtilitySlow(pstate, pstmt, queryString,
 							   context, params, queryEnv,
-							   dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+							   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
 			break;
 	}
+
+#ifdef ADB
+	if (this_query_str != queryString)
+		pfree((void*)this_query_str);
+#endif /* ADB */
 
 	free_parsestate(pstate);
 }
@@ -1601,6 +1625,7 @@ ProcessUtilitySlow(ParseState *pstate,
 				   QueryEnvironment *queryEnv,
 				   DestReceiver *dest,
 #ifdef ADB
+				   const char *this_query_str,
 				   bool sentToRemote,
 #endif
 				   char *completionTag)
@@ -1619,7 +1644,7 @@ ProcessUtilitySlow(ParseState *pstate,
 							false,
 							EXEC_ON_ALL_NODES,
 							NULL,
-							queryString,
+							this_query_str,
 							NULL
 						};
 #endif
@@ -1730,9 +1755,9 @@ ProcessUtilitySlow(ParseState *pstate,
 					if (!sentToRemote && !is_temp)
 					{
 						if (transformed_stmt)
-							stmts = AddRemoteParseTree(stmts, queryString, transformed_stmt, EXEC_ON_ALL_NODES, is_temp);
+							stmts = AddRemoteParseTree(stmts, this_query_str, transformed_stmt, EXEC_ON_ALL_NODES, is_temp);
 						else
-							stmts = AddRemoteParseTree(stmts, queryString, parsetree, EXEC_ON_ALL_NODES, is_temp);
+							stmts = AddRemoteParseTree(stmts, this_query_str, parsetree, EXEC_ON_ALL_NODES, is_temp);
 					}
 #endif
 
@@ -1878,7 +1903,7 @@ ProcessUtilitySlow(ParseState *pstate,
 									IsAlterTableStmtRedistribution(atstmt))
 									exec_type = EXEC_ON_COORDS;
 
-								stmts = AddRemoteParseTree(stmts, queryString, parsetree, exec_type, is_temp);
+								stmts = AddRemoteParseTree(stmts, this_query_str, parsetree, exec_type, is_temp);
 							}
 						}
 #endif
@@ -2411,7 +2436,7 @@ ProcessUtilitySlow(ParseState *pstate,
 				{
 					if (!((CreateTableAsStmt *) parsetree)->into->skipData && !IsConnFromCoord())
 						pgxc_send_matview_data(((CreateTableAsStmt *) parsetree)->into->rel,
-												queryString);
+												this_query_str);
 					else
 					{
 						utilityContext.exec_type = EXEC_ON_COORDS;
@@ -2450,7 +2475,7 @@ ProcessUtilitySlow(ParseState *pstate,
 				 */
 				if (!((RefreshMatViewStmt *)parsetree)->skipData && !IsConnFromCoord())
 					pgxc_send_matview_data(((RefreshMatViewStmt *)parsetree)->relation,
-											queryString);
+											this_query_str);
 				else
 				{
 					utilityContext.exec_type = EXEC_ON_COORDS;
@@ -2574,11 +2599,7 @@ ProcessUtilitySlow(ParseState *pstate,
 				break;
 
 			case T_DropStmt:
-#ifdef ADB
-				ExecDropStmt((DropStmt *) parsetree, isTopLevel, queryString, sentToRemote);
-#else
-				ExecDropStmt((DropStmt *) parsetree, isTopLevel);
-#endif
+				ExecDropStmt((DropStmt *) parsetree, isTopLevel ADB_ONLY_COMMA_ARG2(this_query_str, sentToRemote));
 				/* no commands stashed for DROP */
 				commandCollected = true;
 				break;
