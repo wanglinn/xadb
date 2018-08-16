@@ -150,6 +150,7 @@ static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptIn
 											   JoinType jointype, JoinPathExtraData *extra);
 static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptInfo *innerrel,
 											   JoinType jointype, JoinPathExtraData *extra);
+static List *create_and_append_replicate_reduceinfo(List *list, const ReduceInfo *rinfo);
 static List *reduce_paths_for_join(PlannerInfo *root, RelOptInfo *rel, List *pathlist, List *reduce_list);
 static List *coord_paths_for_join(PlannerInfo *root, RelOptInfo *rel);
 static bool get_cluster_join_exprs(RelOptInfo *outerrel, RelOptInfo *innerrel,
@@ -3254,7 +3255,6 @@ static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptIn
 	ListCell *lc;
 	ReduceInfo *rinfo;
 	List *exprList;
-	List *exec_list;
 	List *need_reduce_list = NIL;
 
 	foreach(lc, outer_reduce_list)
@@ -3284,6 +3284,7 @@ static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptIn
 		case JOIN_UNIQUE_INNER:
 		case JOIN_UNIQUE_OUTER:
 		case JOIN_SEMI:
+			need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
 			if (!IsReduceInfoByValue(rinfo) ||
 				(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, innerrel)) == NULL)
 				continue;
@@ -3295,13 +3296,7 @@ static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptIn
 			break;
 		case JOIN_LEFT:
 		case JOIN_ANTI:
-			exec_list = list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec);
-			rinfo = MakeReplicateReduceInfo(exec_list);
-			list_free(exec_list);
-			if(ReduceInfoListMember(need_reduce_list, rinfo))
-				FreeReduceInfo(rinfo);
-			else
-				need_reduce_list = lappend(need_reduce_list, rinfo);
+			need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
 			break;
 		case JOIN_FULL:
 		case JOIN_RIGHT:
@@ -3319,7 +3314,6 @@ static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptIn
 	ListCell *lc;
 	ReduceInfo *rinfo;
 	List *exprList;
-	List *exec_list;
 	List *need_reduce_list = NIL;
 
 	foreach(lc, inner_reduce_list)
@@ -3349,6 +3343,7 @@ static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptIn
 		case JOIN_UNIQUE_INNER:
 		case JOIN_UNIQUE_OUTER:
 		case JOIN_SEMI:
+			need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
 			if (!IsReduceInfoByValue(rinfo) ||
 				(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, outerrel)) == NULL)
 				continue;
@@ -3359,13 +3354,7 @@ static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptIn
 				need_reduce_list = lappend(need_reduce_list, rinfo);
 			break;
 		case JOIN_RIGHT:
-			exec_list = list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec);
-			rinfo = MakeReplicateReduceInfo(exec_list);
-			list_free(exec_list);
-			if(ReduceInfoListMember(need_reduce_list, rinfo))
-				FreeReduceInfo(rinfo);
-			else
-				need_reduce_list = lappend(need_reduce_list, rinfo);
+			need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
 			break;
 		default:
 			break;
@@ -3373,6 +3362,17 @@ static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptIn
 	}
 
 	return need_reduce_list;
+}
+
+static List *create_and_append_replicate_reduceinfo(List *list, const ReduceInfo *rinfo)
+{
+	List *exec_list = list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec);
+	ReduceInfo *new_rinfo = MakeReplicateReduceInfo(exec_list);
+	if (ReduceInfoListMember(list, new_rinfo))
+		FreeReduceInfo(new_rinfo);
+	else
+		list = lappend(list, new_rinfo);
+	return list;
 }
 
 static List *reduce_paths_for_join(PlannerInfo *root, RelOptInfo *rel, List *pathlist, List *reduce_list)
