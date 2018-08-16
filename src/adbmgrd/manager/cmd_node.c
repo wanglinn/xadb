@@ -9957,7 +9957,7 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 		}
 		PQclear(res);
 	}
-	if (paramV.data != NULL && strcmp(paramV.data, "-1") != 0)
+	if (strcmp(paramV.data, "-1") != 0)
 	{
 		ereport(NOTICE, (errmsg("set all coordinators pool_release_to_idle_timeout = -1, original value is '%s'", paramV.data)));
 		ereport(LOG, (errmsg("set all coordinators pool_release_to_idle_timeout = -1, original value is '%s'", paramV.data)));
@@ -10015,7 +10015,7 @@ void mgr_unlock_cluster(PGconn **pg_conn)
 	}
 	PQfinish(*pg_conn);
 
-	if (paramV.data != NULL && strcmp(paramV.data, "-1") != 0)
+	if (strcmp(paramV.data, "-1") != 0)
 	{
 		/* set all coordinators pool_release_to_idle_timeout to record value */
 		ereport(NOTICE, (errmsg("set all coordinators pool_release_to_idle_timeout = '%s'", paramV.data)));
