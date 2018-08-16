@@ -57,7 +57,7 @@
 
 #ifdef ADB
 #define InvalidGlobalTimestamp ((TimestampTz) 0)
-#define GlobalTimestampIsValid(timestamp) ((TimestampTz) (timestamp)) != InvalidGlobalTimestamp
+#define GlobalTimestampIsValid(timestamp) (((TimestampTz) (timestamp)) != InvalidGlobalTimestamp)
 #endif
 
 

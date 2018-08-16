@@ -241,7 +241,7 @@ GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQuer
 			 * Special handling for RANDOM distributed tables. The target
 			 * node must be determined at the execution time
 			 */
-			if (!rel_loc->locatorType == LOCATOR_TYPE_RANDOM && node_list)
+			if (!(rel_loc->locatorType == LOCATOR_TYPE_RANDOM && node_list))
 			{
 				if (exec_type == EXEC_ON_DATANODES || exec_type == EXEC_ON_ALL_NODES)
 				{
