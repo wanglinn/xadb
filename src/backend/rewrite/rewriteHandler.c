@@ -3943,41 +3943,42 @@ QueryRewriteCTAS(Query *parsetree)
 	lc = list_head(into->colNames);
 	foreach(col, tlist)
 	{
-		TargetEntry *tle = (TargetEntry *)lfirst(col);
-		ColumnDef   *coldef;
-		TypeName    *typename;
+		TargetEntry*tle = (TargetEntry *)lfirst(col);
+		ColumnDef  *coldef;
+		char	   *colname;
 
 		/* Ignore junk columns from the targetlist */
 		if (tle->resjunk)
 			continue;
 
-		coldef = makeNode(ColumnDef);
-		typename = makeNode(TypeName);
-
 		/* Take the column name specified if any */
 		if (lc)
 		{
-			coldef->colname = strVal(lfirst(lc));
+			colname = strVal(lfirst(lc));
 			lc = lnext(lc);
 		}
 		else
-			coldef->colname = pstrdup(tle->resname);
+			colname = tle->resname;
 
-		coldef->inhcount = 0;
-		coldef->is_local = true;
-		coldef->is_not_null = false;
-		coldef->raw_default = NULL;
-		coldef->cooked_default = NULL;
-		coldef->constraints = NIL;
+		coldef = makeColumnDef(colname,
+							   exprType((const Node *) tle->expr),
+							   exprTypmod((const Node *) tle->expr),
+							   exprCollation((const Node *) tle->expr));
 
 		/*
-		 * Set typeOid and typemod. The name of the type is derived while
-		 * generating query
+		 * It's possible that the column is of a collatable type but the
+		 * collation could not be resolved, so double-check.  (We must check
+		 * this here because DefineRelation would adopt the type's default
+		 * collation rather than complaining.)
 		 */
-		typename->typeOid = exprType((Node *)tle->expr);
-		typename->typemod = exprTypmod((Node *)tle->expr);
-
-		coldef->typeName = typename;
+		if (!OidIsValid(coldef->collOid) &&
+			type_is_collatable(coldef->typeName->typeOid))
+			ereport(ERROR,
+					(errcode(ERRCODE_INDETERMINATE_COLLATION),
+					 errmsg("no collation was derived for column \"%s\" with collatable type %s",
+							coldef->colname,
+							format_type_be(coldef->typeName->typeOid)),
+					 errhint("Use the COLLATE clause to set the collation explicitly.")));
 
 		tableElts = lappend(tableElts, coldef);
 	}
