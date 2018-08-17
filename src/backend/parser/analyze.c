@@ -4113,9 +4113,8 @@ static bool rewrite_rownum_query_enum(Node *node, void *context)
 {
 	if(node == NULL)
 		return false;
-	/*ADBQ, undefine function: node_tree_walker*/
-	//if(node_tree_walker(node,rewrite_rownum_query_enum, context))
-	//	return true;
+	if(node_tree_walker(node,rewrite_rownum_query_enum, context))
+		return true;
 	if(IsA(node, Query))
 	{
 		rewrite_rownum_query((Query*)node);
