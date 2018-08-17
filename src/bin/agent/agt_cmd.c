@@ -270,10 +270,10 @@ static int exec_ping_node(const char *host, const char *port, const char *user, 
 	int RETRY = 3;
 	int ret = -1;
 	if (host)
-	{
 		snprintf(editBuf, NAMEDATALEN, "host='%s' ", host);
-		strncat(conninfo, editBuf, NAMEDATALEN);
-	}
+	else
+		snprintf(editBuf, NAMEDATALEN, "host='%s' ", "127.0.0.1");
+	strncat(conninfo, editBuf, NAMEDATALEN);
 
 	if (port)
 	{
