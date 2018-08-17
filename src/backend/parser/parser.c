@@ -626,9 +626,7 @@ static bool have_prior_expr(Node *node, void *context)
 		return false;
 	if(IsA(node, PriorExpr))
 		return true;
-	/*ADBQ, undefine function node_tree_walker*/
-	//return node_tree_walker(node, have_prior_expr, context);
-	return false;
+	return node_tree_walker(node, have_prior_expr, context);
 }
 
 static Node* make_concat_expr(Node *larg, Node *rarg, int location)
@@ -731,9 +729,7 @@ static bool search_columnref(Node *node, ConnectByParseState *context)
 		}
 		return false;
 	}
-	/*ADBQ, undefine function node_tree_walker*/
-	//return node_tree_walker((Node*)node, search_columnref, context);
-	return false;
+	return node_tree_walker((Node*)node, search_columnref, context);
 }
 
 static void make_scbp_as_list(ConnectByParseState *context)
@@ -758,9 +754,8 @@ static List* make_target_list_base(ConnectByParseState *context)
 	new_list = NIL;
 	if(context->have_star == false)
 	{
-		/*ADBQ, undefine the function node_copy*/
 		/* have no "*" just use all column */
-		//new_list = (List*)node_copy((Node*)context->column_list);
+		new_list = (List*)node_copy((Node*)context->column_list);
 	}else
 	{
 		/* have "*", we select "*" and all system column */
