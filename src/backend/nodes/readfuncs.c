@@ -2422,6 +2422,28 @@ _readClusterReduce(void)
 
 #endif /* ADB */
 
+#ifdef ADB_GRAM_ORA
+static RownumExpr *
+_readRownumExpr(void)
+{
+	READ_LOCALS(RownumExpr);
+
+	READ_LOCATION_FIELD(location);
+
+	READ_DONE();
+}
+
+static LevelExpr *
+_readLevelExpr(void)
+{
+	READ_LOCALS(LevelExpr);
+
+	READ_LOCATION_FIELD(location);
+
+	READ_DONE();
+}
+#endif /* ADB_GRAM_ORA */
+
 /*
  * _readPartitionBoundSpec
  */
@@ -2704,6 +2726,12 @@ parseNodeString(void)
 	else if (MATCH("CLUSTERREDUCE", 13))
 		return_value = _readClusterReduce();
 #endif /* ADB */
+#ifdef ADB_GRAM_ORA
+	else if (MATCH("ROWNUMEXPR", 10))
+		return_value = _readRownumExpr();
+	else if (MATCH("LEVELEXPR", 9))
+		return_value = _readLevelExpr();
+#endif /* ADB_GRAM_ORA */
 	else
 	{
 		elog(ERROR, "badly formatted node string \"%.32s\"...", token);

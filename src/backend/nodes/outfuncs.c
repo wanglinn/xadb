@@ -3702,6 +3702,24 @@ _outPartitionRangeDatum(StringInfo str, const PartitionRangeDatum *node)
 	WRITE_LOCATION_FIELD(location);
 }
 
+#ifdef ADB_GRAM_ORA
+static void
+_outRownumExpr(StringInfo str, const RownumExpr *node)
+{
+	WRITE_NODE_TYPE("ROWNUMEXPR");
+
+	WRITE_LOCATION_FIELD(location);
+}
+
+static void
+_outLevelExpr(StringInfo str, const LevelExpr *node)
+{
+	WRITE_NODE_TYPE("LEVELEXPR");
+
+	WRITE_LOCATION_FIELD(location);
+}
+#endif /* ADB_GRAM_ORA */
+
 /*
  * outNode -
  *	  converts a Node into ascii string and append it to 'str'
@@ -4007,6 +4025,14 @@ outNode(StringInfo str, const void *obj)
 			case T_NextValueExpr:
 				_outNextValueExpr(str, obj);
 				break;
+#ifdef ADB_GRAM_ORA
+			case T_RownumExpr:
+				_outRownumExpr(str, obj);
+				break;
+			case T_LevelExpr:
+				_outLevelExpr(str, obj);
+				break;
+#endif /* ADB_GRAM_ORA */
 			case T_InferenceElem:
 				_outInferenceElem(str, obj);
 				break;
