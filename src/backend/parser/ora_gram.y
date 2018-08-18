@@ -4865,17 +4865,28 @@ SimpleTypename:
 			if($3)
 				$$->typmods = lappend($$->typmods, $3);
 		}
-	/*| type_function_name
+	| IDENT
 		{
 			$$ = makeTypeName($1);
 			$$->location = @1;
 		}
-	| type_function_name '(' expr_list ')'
+	| IDENT '(' expr_list ')'
 		{
 			$$ = makeTypeName($1);
-			$$->typmods = $3
+			$$->typmods = $3;
 			$$->location = @1;
-		}*/
+		}
+	| type_func_name_keyword
+		{
+			$$ = makeTypeName(pstrdup($1));
+			$$->location = @1;
+		}
+	| type_func_name_keyword '(' expr_list ')'
+		{
+			$$ = makeTypeName(pstrdup($1));
+			$$->typmods = $3;
+			$$->location = @1;
+		}
 	;
 
 simple_select:
