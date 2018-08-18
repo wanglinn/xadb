@@ -18,6 +18,7 @@
 #include "../../interfaces/libpq/libpq-fe.h"
 #include "utils/fmgroids.h"
 #include "executor/spi.h"
+#include "utils/snapmgr.h"
 
 #define MAXLINE (8192-1)
 #define MAXPATH (512-1)
@@ -4204,4 +4205,57 @@ bool mgr_update_pgxcnode_readonly_coord(void)
 	heap_close(relNode, AccessShareLock);
 
 	return bnormal;
+}
+
+void check_node_incluster(void)
+{
+	Relation relNode;
+	Form_mgr_node mgr_node;
+	HeapTuple tuple;
+	HeapScanDesc scan;
+	ScanKeyData key[1];
+	bool gtmInCluster = false;
+	char *nodetypeStr;
+
+	/*check gtm master is init*/
+	ScanKeyInit(&key[0]
+		,Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(GTM_TYPE_GTM_MASTER));
+	relNode = heap_open(NodeRelationId, AccessShareLock);
+	scan = heap_beginscan_catalog(relNode, 1, key);
+	while((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		gtmInCluster = mgr_node->nodeincluster;
+	}
+
+	if (!gtmInCluster)
+	{
+		heap_endscan(scan);
+		heap_close(relNode, AccessShareLock);
+		return;
+	}
+
+	/* check node in mgr_node table */
+	heap_endscan(scan);
+	scan = heap_beginscan_catalog(relNode, 0, NULL);
+	while((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		if (!mgr_node->nodeincluster)
+		{
+			nodetypeStr = mgr_nodetype_str(mgr_node->nodetype);
+			ereport(WARNING, (errmsg("%s %s does not in the cluster"
+						, nodetypeStr, NameStr(mgr_node->nodename))));
+			pfree(nodetypeStr);
+		}
+
+	}
+
+	heap_endscan(scan);
+	heap_close(relNode, AccessShareLock);
 }
