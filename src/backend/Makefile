@@ -240,6 +240,9 @@ distprep:
 	$(MAKE) -C parser	gram.c gram.h scan.c
 	$(MAKE) -C bootstrap	bootparse.c bootscanner.c
 	$(MAKE) -C catalog	schemapg.h postgres.bki postgres.description postgres.shdescription
+ifeq ($(enable_grammar_oracle),yes)
+	$(MAKE) -C oraschema oracle_schema.sql
+endif
 	$(MAKE) -C replication	repl_gram.c repl_scanner.c syncrep_gram.c syncrep_scanner.c
 	$(MAKE) -C storage/lmgr	lwlocknames.h lwlocknames.c
 	$(MAKE) -C utils	fmgrtab.c fmgroids.h fmgrprotos.h errcodes.h
@@ -261,14 +264,14 @@ ifeq ($(MAKE_DLL), true)
 endif
 endif
 	$(MAKE) -C catalog install-data
+ifeq ($(enable_grammar_oracle),yes)
+	$(MAKE) -C oraschema install-data
+endif
 	$(MAKE) -C tsearch install-data
 	$(INSTALL_DATA) $(srcdir)/libpq/pg_hba.conf.sample '$(DESTDIR)$(datadir)/pg_hba.conf.sample'
 	$(INSTALL_DATA) $(srcdir)/libpq/pg_ident.conf.sample '$(DESTDIR)$(datadir)/pg_ident.conf.sample'
 	$(INSTALL_DATA) $(srcdir)/utils/misc/postgresql.conf.sample '$(DESTDIR)$(datadir)/postgresql.conf.sample'
 	$(INSTALL_DATA) $(srcdir)/access/transam/recovery.conf.sample '$(DESTDIR)$(datadir)/recovery.conf.sample'
-ifeq ($(enable_grammar_oracle),yes)
-	$(INSTALL_DATA) $(top_builddir)/$(subdir)/oraschema/oracle_schema.sql '$(DESTDIR)$(datadir)/oracle_schema.sql'
-endif
 
 install-bin: postgres $(POSTGRES_IMP) installdirs
 	$(INSTALL_PROGRAM) postgres$(X) '$(DESTDIR)$(bindir)/postgres$(X)'
@@ -322,15 +325,14 @@ ifeq ($(MAKE_DLL), true)
 endif
 endif
 	$(MAKE) -C catalog uninstall-data
+ifeq ($(enable_grammar_oracle),yes)
+	$(MAKE) -C oraschema uninstall-data
+endif
 	$(MAKE) -C tsearch uninstall-data
 	rm -f '$(DESTDIR)$(datadir)/pg_hba.conf.sample' \
 	      '$(DESTDIR)$(datadir)/pg_ident.conf.sample' \
 	      '$(DESTDIR)$(datadir)/postgresql.conf.sample' \
 	      '$(DESTDIR)$(datadir)/recovery.conf.sample'
-ifeq ($(enable_grammar_oracle),yes)
-	rm -f '$(DESTDIR)$(datadir)/oracle_schema.sql'
-endif
-
 
 ##########################################################################
 
@@ -362,6 +364,9 @@ maintainer-clean: distclean
 	      catalog/postgres.bki \
 	      catalog/postgres.description \
 	      catalog/postgres.shdescription \
+ifeq ($(enable_grammar_oracle),yes)
+		  oraschema/oracle_schema.sql \
+endif
 	      replication/repl_gram.c \
 	      replication/repl_scanner.c \
 	      replication/syncrep_gram.c \
