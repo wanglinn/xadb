@@ -240,7 +240,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	ConstraintElem CreateSeqStmt CreateAsStmt connect_by_clause
 	DeleteStmt DropStmt def_arg
 	ExplainStmt ExplainableStmt explain_option_arg ExclusionWhereClause
-	func_arg_expr func_expr for_locking_item
+	func_application func_arg_expr func_expr func_table for_locking_item
 	having_clause
 	indirection_el InsertStmt IndexStmt
 	join_outer
@@ -3340,6 +3340,18 @@ extract_arg:
 			| SECOND_P								{ $$ = "second"; }
 			| Sconst								{ $$ = $1; }
 		;
+
+func_table: func_application
+			{
+				RangeFunction *n = makeNode(RangeFunction);
+				n->lateral = false;
+				n->ordinality = false;
+				n->is_rowsfrom = false;
+				n->functions = list_make1(list_make2($1, NIL));
+				/* alias and coldeflist are set by table_ref production */
+				$$ = (Node *) n;
+			}
+		;
 /*
  * func_expr is split out from c_expr just so that we have a classification
  * for "everything that is a function call or looks like one".  This isn't
@@ -3348,7 +3360,10 @@ extract_arg:
  * (Note that many of the special SQL functions wouldn't actually make any
  * sense as functional index entries, but we ignore that consideration here.)
  */
-func_expr:	func_name '(' ')'
+func_expr: func_application
+		;
+
+func_application:	func_name '(' ')'
 			{
 				FuncCall *n = makeNode(FuncCall);
 				n->funcname = $1;
@@ -5034,6 +5049,10 @@ table_ref:
 			{
 				$2->alias = $4;
 				$$ = (Node *) $2;
+			}
+		| func_table
+			{
+				;
 			}
 		;
 
