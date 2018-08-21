@@ -1468,7 +1468,13 @@ selectDumpableNamespace(NamespaceInfo *nsinfo, Archive *fout)
 								   nsinfo->dobj.catId.oid) ?
 			DUMP_COMPONENT_ALL : DUMP_COMPONENT_NONE;
 	else if (fout->remoteVersion >= 90600 &&
+#ifdef ADB_GRAM_ORA
+			 (strcmp(nsinfo->dobj.name, "pg_catalog") == 0 ||
+			  strcmp(nsinfo->dobj.name, "oracle") == 0 ||
+			  strcmp(nsinfo->dobj.name, "dbms_random") == 0))
+#else
 			 strcmp(nsinfo->dobj.name, "pg_catalog") == 0)
+#endif
 	{
 		/*
 		 * In 9.6 and above, we dump out any ACLs defined in pg_catalog, if
