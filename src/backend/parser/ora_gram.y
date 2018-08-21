@@ -5207,6 +5207,8 @@ var_value:	opt_boolean_or_string
 				{ $$ = makeStringConst($1, @1); }
 			| NumericOnly
 				{ $$ = makeAConst($1, @1); }
+			| PUBLIC
+				{ $$ = makeStringConst(pstrdup($1), @1); }
 		;
 
 var_name:	ColId								{ $$ = $1; }
