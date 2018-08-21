@@ -3848,6 +3848,7 @@ QueryRewrite(Query *parsetree)
 	if (parsetree->commandType == CMD_UTILITY)
 	{
 		if (IsA(parsetree->utilityStmt, CreateTableAsStmt) &&
+			parsetree->in_explain == false &&
 			((CreateTableAsStmt *)parsetree->utilityStmt)->relkind != OBJECT_MATVIEW)
 		{
 			/*
@@ -3858,15 +3859,6 @@ QueryRewrite(Query *parsetree)
 			 */
 			return QueryRewriteCTAS(parsetree);
 		}
-#if 0
-		if (IsA(parsetree->utilityStmt, CreateAuxStmt))
-		{
-			/*
-			 * Rewrite CREATE AUXILIARY TABLE statment.
-			 */
-			return QueryRewriteAuxStmt(parsetree);
-		}
-#endif
 	}
 #endif
 
@@ -4098,7 +4090,7 @@ QueryRewriteCTAS(Query *parsetree)
 	plannedStmt = makeNode(PlannedStmt);
 	plannedStmt->commandType = CMD_UTILITY;
 	plannedStmt->utilityStmt = (Node *) create_stmt;
-	plannedStmt->stmt_location = -1;
+	plannedStmt->stmt_location = cparsetree->stmt_location;
 	ProcessUtility(plannedStmt,
 				   cquery.data,
 				   PROCESS_UTILITY_TOPLEVEL, NULL, NULL, NULL,  /* Tentative fix.  Nedd a review.  K.Suzuki */

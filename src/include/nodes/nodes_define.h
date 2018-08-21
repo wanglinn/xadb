@@ -726,7 +726,6 @@ END_NODE(DropGroupStmt)
 
 #ifndef NO_NODE_CreateAuxStmt
 BEGIN_NODE(CreateAuxStmt)
-	NODE_SCALAR(int,endpos)
 	NODE_NODE(Node,create_stmt)
 	NODE_NODE(Node,index_stmt)
 	NODE_NODE(RangeVar,master_relation)
@@ -2169,6 +2168,7 @@ BEGIN_NODE(Query)
 	NODE_SCALAR(bool,is_local)
 	NODE_SCALAR(bool,has_to_save_cmd_id)
 	NODE_SCALAR(bool,in_sub_plan)
+	NODE_SCALAR(bool,in_explain)
 #endif
 END_NODE(Query)
 #endif /* NO_NODE_Query */
