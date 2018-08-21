@@ -194,6 +194,7 @@ typedef struct Query
 									 * updates a table in main query and inserts
 									 * a row to the same table in WITH query*/
 	bool		in_sub_plan;
+	bool		in_explain;		/* mark it true when transform an EXPLAIN statement */
 #endif
 } Query;
 

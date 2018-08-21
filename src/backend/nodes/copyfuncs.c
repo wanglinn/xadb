@@ -2869,6 +2869,7 @@ _copyQuery(const Query *from)
 	COPY_SCALAR_FIELD(is_local);
 	COPY_SCALAR_FIELD(has_to_save_cmd_id);
 	COPY_SCALAR_FIELD(in_sub_plan);
+	COPY_SCALAR_FIELD(in_explain);
 #endif
 	return newnode;
 }

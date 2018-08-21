@@ -3773,6 +3773,7 @@ QueryRewrite(Query *parsetree)
 	 */
 	if (parsetree->commandType == CMD_UTILITY &&
 		IsA(parsetree->utilityStmt, CreateTableAsStmt) &&
+		parsetree->in_explain == false &&
 		((CreateTableAsStmt *)parsetree->utilityStmt)->relkind != OBJECT_MATVIEW)
 	{
 		/*

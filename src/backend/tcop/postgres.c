@@ -967,6 +967,7 @@ pg_rewrite_query(Query *query)
 #ifdef ADB
 	if (query->commandType == CMD_UTILITY &&
 		IsA(query->utilityStmt, CreateTableAsStmt) &&
+		query->in_explain == false &&
 		((CreateTableAsStmt *)query->utilityStmt)->relkind != OBJECT_MATVIEW &&
 		((CreateTableAsStmt *)query->utilityStmt)->into->rel->relpersistence != RELPERSISTENCE_TEMP)
 	{

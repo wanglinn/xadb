@@ -2043,6 +2043,7 @@ BEGIN_NODE(Query)
 	NODE_SCALAR(bool,is_local)
 	NODE_SCALAR(bool,has_to_save_cmd_id)
 	NODE_SCALAR(bool,in_sub_plan)
+	NODE_SCALAR(bool,in_explain)
 #endif
 END_NODE(Query)
 #endif /* NO_NODE_Query */
