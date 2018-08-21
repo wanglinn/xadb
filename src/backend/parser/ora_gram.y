@@ -3320,6 +3320,8 @@ from_list: table_ref				{ $$ = $1 ? list_make1($1):NIL; }
 		;
 
 func_arg_expr: a_expr				{ $$ = $1; }
+		| TRUE_P					{ $$ = makeBoolAConst(true, @1); }
+		| FALSE_P					{ $$ = makeBoolAConst(false, @1); }
 		;
 
 func_arg_list: func_arg_expr				{ $$ = list_make1($1); }
