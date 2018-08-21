@@ -3134,6 +3134,7 @@ _copyQuery(const Query *from)
 	COPY_SCALAR_FIELD(is_local);
 	COPY_SCALAR_FIELD(has_to_save_cmd_id);
 	COPY_SCALAR_FIELD(in_sub_plan);
+	COPY_SCALAR_FIELD(in_explain);
 #endif
 
 	return newnode;
@@ -5056,7 +5057,6 @@ _copyCreateAuxStmt(const CreateAuxStmt *from)
 {
 	CreateAuxStmt *newnode = makeNode(CreateAuxStmt);
 
-	COPY_SCALAR_FIELD(endpos);
 	COPY_NODE_FIELD(create_stmt);
 	COPY_NODE_FIELD(index_stmt);
 	COPY_NODE_FIELD(master_relation);

@@ -2742,6 +2742,9 @@ transformExplainStmt(ParseState *pstate, ExplainStmt *stmt)
 
 	/* transform contained query, allowing SELECT INTO */
 	stmt->query = (Node *) transformOptionalSelectInto(pstate, stmt->query);
+#ifdef ADB
+	((Query *)(stmt->query))->in_explain = true;
+#endif
 
 	/* represent the command as a utility Query */
 	result = makeNode(Query);

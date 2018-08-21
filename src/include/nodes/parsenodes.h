@@ -214,6 +214,7 @@ typedef struct Query
 									 * updates a table in main query and inserts
 									 * a row to the same table in WITH query*/
 	bool		in_sub_plan;
+	bool		in_explain;		/* true when execute EXPLAIN */
 #endif
 } Query;
 
@@ -3730,7 +3731,6 @@ typedef struct CleanConnStmt
 typedef struct CreateAuxStmt
 {
 	NodeTag			type;
-	int 			endpos;			/* the position of ';' in the sql */
 	Node		   *create_stmt;	/* auxiliary table create statement */
 	Node		   *index_stmt;		/* index on "aux_column" for auxiliary table */
 	RangeVar	   *master_relation;/* master relation which auxiliary relation created for */
