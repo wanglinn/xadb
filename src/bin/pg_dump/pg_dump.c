@@ -1484,6 +1484,10 @@ selectDumpableNamespace(NamespaceInfo *nsinfo, Archive *fout)
 		nsinfo->dobj.dump_contains = nsinfo->dobj.dump = DUMP_COMPONENT_ACL;
 	}
 	else if (strncmp(nsinfo->dobj.name, "pg_", 3) == 0 ||
+#ifdef ADB_GRAM_ORA
+			 strcmp(nsinfo->dobj.name, "oracle") == 0 ||
+			 strcmp(nsinfo->dobj.name, "dbms_random") == 0 ||
+#endif
 			 strcmp(nsinfo->dobj.name, "information_schema") == 0)
 	{
 		/* Other system schemas don't get dumped */
