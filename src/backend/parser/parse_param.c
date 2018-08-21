@@ -161,7 +161,14 @@ variable_paramref_hook(ParseState *pstate, ParamRef *pref)
 
 	/* If not seen before, initialize to UNKNOWN type */
 	if (*pptype == InvalidOid)
+	{
+#ifdef ADB_GRAM_ORA
+		if (IsOracleParseGram(pstate))
+			*pptype = VARCHAR2OID;
+		else
+#endif
 		*pptype = UNKNOWNOID;
+	}
 
 	param = makeNode(Param);
 	param->paramkind = PARAM_EXTERN;
