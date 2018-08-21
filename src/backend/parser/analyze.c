@@ -2639,6 +2639,11 @@ transformExplainStmt(ParseState *pstate, ExplainStmt *stmt)
 	/* transform contained query, allowing SELECT INTO */
 	stmt->query = (Node *) transformTopLevelStmt(pstate, stmt->query);
 
+#ifdef ADB
+	/* mark it true when transform an EXPLAIN statement */
+	((Query *) (stmt->query))->in_explain = true;
+#endif
+
 	/* represent the command as a utility Query */
 	result = makeNode(Query);
 	result->commandType = CMD_UTILITY;

@@ -3778,6 +3778,7 @@ QueryRewrite(Query *parsetree)
 	if (parsetree->commandType == CMD_UTILITY)
 	{
 		if (IsA(parsetree->utilityStmt, CreateTableAsStmt) &&
+			parsetree->in_explain == false &&
 			((CreateTableAsStmt *)parsetree->utilityStmt)->relkind != OBJECT_MATVIEW)
 		{
 			/*
@@ -3788,15 +3789,6 @@ QueryRewrite(Query *parsetree)
 			 */
 			return QueryRewriteCTAS(parsetree);
 		}
-#if 0
-		if (IsA(parsetree->utilityStmt, CreateAuxStmt))
-		{
-			/*
-			 * Rewrite CREATE AUXILIARY TABLE statment.
-			 */
-			return QueryRewriteAuxStmt(parsetree);
-		}
-#endif
 	}
 #endif
 

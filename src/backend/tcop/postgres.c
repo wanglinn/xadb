@@ -969,6 +969,7 @@ pg_rewrite_query(Query *query)
 	{
 #ifdef ADB
 		if (IsA(query->utilityStmt, CreateTableAsStmt) &&
+			query->in_explain == false &&
 			((CreateTableAsStmt *)query->utilityStmt)->relkind != OBJECT_MATVIEW &&
 			((CreateTableAsStmt *)query->utilityStmt)->into->rel->relpersistence != RELPERSISTENCE_TEMP)
 		{
@@ -980,15 +981,6 @@ pg_rewrite_query(Query *query)
 			 */
 			querytree_list = QueryRewriteCTAS(query);
 		} else
-#if 0
-		if (IsA(query->utilityStmt, CreateAuxStmt))
-		{
-			/*
-			 * Rewrite CREATE AUXILIARY TABLE statment.
-			 */
-			querytree_list = QueryRewriteAuxStmt(query);
-		} else
-#endif
 #endif
 		/* don't rewrite utilities, just dump 'em into result list */
 		querytree_list = list_make1(query);
