@@ -244,7 +244,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	DeclareCursorStmt DeleteStmt DropStmt def_arg
 	ExplainStmt ExplainableStmt explain_option_arg ExclusionWhereClause
 	FetchStmt fetch_args
-	func_application func_arg_expr func_expr func_table for_locking_item
+	func_application func_application_normal func_arg_expr func_expr func_table for_locking_item
 	having_clause
 	indirection_el InsertStmt IndexStmt
 	join_outer
@@ -3580,7 +3580,24 @@ frame_bound:
 				}
 		;
 
-func_application:	func_name '(' ')'
+func_application: func_application_normal
+			{
+				FuncCall *n = (FuncCall*)$1;
+				if (IsA(n, FuncCall) &&
+					list_length(n->funcname) == 1 &&
+					list_length(n->args) == 1 &&
+					strcmp(strVal(linitial(n->funcname)), "wm_concat") == 0)
+				{
+					/* wm_concat(?) -> string_agg(?, ',') */
+					n->funcname = SystemFuncName(pstrdup("string_agg"));
+					n->args = lappend(n->args, makeStringConst(pstrdup(","), -1));
+				}
+				$$ = (Node*)n;
+			}
+		;
+
+func_application_normal:
+		 func_name '(' ')'
 			{
 				FuncCall *n = makeNode(FuncCall);
 				n->funcname = $1;
@@ -3600,32 +3617,17 @@ func_application:	func_name '(' ')'
 				$$ = NULL;
 
 				DeconstructQualifiedName($1, &nspname, &objname);
-				if (nspname == NULL ||
-					strcmp(nspname, "oracle") == 0)
+				if (strcasecmp(objname, "decode") == 0 &&
+					(nspname == NULL ||
+					 strcmp(nspname, "oracle") == 0))
 				{
-					if (strcasecmp(objname, "decode") == 0)
-					{
-						if (list_length($3) < 3)
-							ereport(ERROR,
-									(errcode(ERRCODE_SYNTAX_ERROR),
-									errmsg("Not engouh parameters for \"decode\" function"),
-									parser_errposition(@1)));
+					if (list_length($3) < 3)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								errmsg("Not engouh parameters for \"decode\" function"),
+								parser_errposition(@1)));
 
-						$$ = reparse_decode_func($3, @1);
-					}else if (list_length($3) == 1 &&
-						strcmp(objname, "wm_concat") == 0)
-					{
-						/* wm_concat(?) -> string_agg(?, ',') */
-						FuncCall *string_agg = makeNode(FuncCall);
-						string_agg->funcname = SystemFuncName(pstrdup("string_agg"));
-						string_agg->args = lappend($3, makeStringConst(pstrdup(","), -1));
-						string_agg->agg_order = NIL;
-						string_agg->agg_star = false;
-						string_agg->agg_distinct = false;
-						string_agg->func_variadic = false;
-						string_agg->location = @1;	/* location to to_char */
-						$$ = (Node*)string_agg;
-					}
+					$$ = reparse_decode_func($3, @1);
 				}
 				if ($$ == NULL)
 				{
