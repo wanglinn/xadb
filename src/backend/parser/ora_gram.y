@@ -3376,7 +3376,20 @@ func_expr: func_application over_clause
 			{
 				FuncCall *n = (FuncCall *) $1;
 
-				n->over = $2;
+				if ($2)
+				{
+					if (IsA(n, FuncCall))
+					{
+						n->over = $2;
+					}else
+					{
+						/* not FuncCall, not support over ... */
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("syntax error"),
+								 parser_errposition(@2)));
+					}
+				}
 				$$ = $1;
 			}
 		;
