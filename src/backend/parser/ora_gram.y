@@ -254,7 +254,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	simple_select select_limit_value select_offset_value start_with_clause
 	TableElement TypedTableElement table_ref TruncateStmt
 	TransactionStmt
-	UpdateStmt
+	UpdateStmt UpdateSelectStmt
 	RenameStmt
 	values_clause VariableResetStmt VariableSetStmt var_value VariableShowStmt
 	where_clause
@@ -5408,7 +5408,29 @@ UpdateStmt:
 			n->returningList = $6;
 			$$ = (Node*)n;
 		}
+	| UPDATE '(' UpdateSelectStmt ')' SET set_clause_list returning_clause
+		{
+			UpdateStmt *n = (UpdateStmt*)$3;
+			n->targetList = $6;
+			n->returningList = $7;
+			$$ = (Node*)n;
+		}
 	;
+
+UpdateSelectStmt:
+		  SELECT target_list FROM relation_expr where_clause
+			{
+				UpdateStmt *n = makeNode(UpdateStmt);
+				n->relation = $4;
+				n->whereClause = $5;
+				/* ignore target list */
+				$$ = (Node*)n;
+			}
+		| '(' UpdateSelectStmt ')'
+			{
+				$$ = $2;
+			}
+		;
 
 values_clause:
 		VALUES ctext_row
