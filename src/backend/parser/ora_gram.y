@@ -225,7 +225,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	opt_reloptions OptInherit
 	qual_Op qual_all_Op qualified_name_list
 	relation_expr_list returning_clause returning_item reloption_list
-	reloptions role_list row
+	reloptions role_list implicit_row
 	select_limit set_clause_list set_clause set_expr_list set_expr_row
 	set_target_list sortby_list sort_clause subquery_Op
 	TableElementList target_list transaction_mode_list_or_empty TypedTableElementList
@@ -2509,12 +2509,13 @@ c_expr: columnref
 			n->location = @1;
 			$$ = (Node *)n;
 		}
-	| row
+	| implicit_row
 		{
 			RowExpr *r = makeNode(RowExpr);
 			r->args = $1;
 			r->row_typeid = InvalidOid;	/* not analyzed yet */
 			r->colnames = NIL;	/* to be filled in during analysis */
+			r->row_format = COERCE_IMPLICIT_CAST; /* abuse */
 			r->location = @1;
 			$$ = (Node *)r;
 		}
@@ -4280,9 +4281,7 @@ join_type:	FULL join_outer							{ $$ = JOIN_FULL; }
 			| INNER_P								{ $$ = JOIN_INNER; }
 		;
 
-row:		'(' expr_list ',' a_expr ')'			{ $$ = lappend($2, $4); }
-			/*| ROW '(' expr_list ')'					{ $$ = $3; }
-			| ROW '(' ')'							{ $$ = NIL; }*/
+implicit_row:	'(' expr_list ',' a_expr ')'		{ $$ = lappend($2, $4); }
 		;
 
 MathOp: '+'									{ $$ = "+"; }
