@@ -1288,10 +1288,10 @@ exec_simple_query(const char *query_string)
 	parsetree_list = pg_parse_query(query_string);
 #endif
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
 	if(Debug_print_grammar)
 		elog_node_display(LOG, "grammar tree", parsetree_list, true);
-#endif
+#endif /* defined(ADB) || defined(ADB_MULTI_GRAM) */
 
 	/* Log immediately if dictated by log_statement */
 	if (check_log_statement(parsetree_list))

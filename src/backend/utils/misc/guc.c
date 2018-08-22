@@ -511,8 +511,10 @@ extern const struct config_enum_entry dynamic_shared_memory_options[];
 bool		log_duration = false;
 bool		Debug_print_plan = false;
 bool		Debug_print_parse = false;
-#ifdef ADB
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
 bool		Debug_print_grammar = false;
+#endif /* defined(ADB) || defined(ADB_MULTI_GRAM) */
+#ifdef ADB
 bool		enable_cluster_plan = true;
 #endif
 bool		Debug_print_rewritten = false;
@@ -1323,6 +1325,17 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
+	{
+		{"debug_print_grammar", PGC_USERSET, LOGGING_WHAT,
+			gettext_noop("Logs each query's grammar tree."),
+			NULL
+		},
+		&Debug_print_grammar,
+		false,
+		NULL, NULL, NULL
+	},
+#endif /* defined(ADB) || defined(ADB_MULTI_GRAM) */
 #ifdef ADB
 	{
 		{"enable_adb_ha_sync", PGC_USERSET, QUERY_TUNING_METHOD,
@@ -1364,15 +1377,6 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
-	{
-		{"debug_print_grammar", PGC_USERSET, LOGGING_WHAT,
-			gettext_noop("Logs each query's grammar tree."),
-			NULL
-		},
-		&Debug_print_grammar,
-		false,
-		NULL, NULL, NULL
-	},
 	{
 		{"enable_cluster_plan", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Using cluster plan for quer."),

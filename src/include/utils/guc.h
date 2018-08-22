@@ -234,9 +234,9 @@ typedef enum
 extern bool log_duration;
 extern bool Debug_print_plan;
 extern bool Debug_print_parse;
-#ifdef ADB
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
 extern bool Debug_print_grammar;
-#endif
+#endif /* defined(ADB) || defined(ADB_MULTI_GRAM) */
 extern bool Debug_print_rewritten;
 extern bool Debug_pretty_print;
 
