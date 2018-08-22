@@ -298,7 +298,7 @@ CREATE OR REPLACE FUNCTION oracle.subtract (oracle.date, numeric)
 
 CREATE OR REPLACE FUNCTION oracle.subtract(oracle.date, oracle.date)
     RETURNS double precision
-    AS $$SELECT date_part('epoch', ($1 - $2)/3600/24);$$
+    AS $$SELECT date_part('epoch', ($1::pg_catalog.timestamptz - $2::pg_catalog.timestamptz)/3600/24);$$
     LANGUAGE SQL
 --ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
