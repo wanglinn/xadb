@@ -105,7 +105,8 @@ typedef enum PLpgSQL_stmt_type
 	PLPGSQL_STMT_OPEN,
 	PLPGSQL_STMT_FETCH,
 	PLPGSQL_STMT_CLOSE,
-	PLPGSQL_STMT_PERFORM
+	PLPGSQL_STMT_PERFORM,
+	PLPGSQL_STMT_GOTO
 } PLpgSQL_stmt_type;
 
 /*
@@ -116,7 +117,8 @@ enum
 	PLPGSQL_RC_OK,
 	PLPGSQL_RC_EXIT,
 	PLPGSQL_RC_RETURN,
-	PLPGSQL_RC_CONTINUE
+	PLPGSQL_RC_CONTINUE,
+	PLPGSQL_RC_GOTO
 };
 
 /*
@@ -431,6 +433,7 @@ typedef struct PLpgSQL_stmt_perform
 	PLpgSQL_stmt_type cmd_type;
 	int			lineno;
 	PLpgSQL_expr *expr;
+	char	   *label;
 } PLpgSQL_stmt_perform;
 
 /*
@@ -451,6 +454,7 @@ typedef struct PLpgSQL_stmt_getdiag
 	int			lineno;
 	bool		is_stacked;		/* STACKED or CURRENT diagnostics area? */
 	List	   *diag_items;		/* List of PLpgSQL_diag_item */
+	char	   *label;
 } PLpgSQL_stmt_getdiag;
 
 /*
@@ -464,6 +468,7 @@ typedef struct PLpgSQL_stmt_if
 	List	   *then_body;		/* List of statements */
 	List	   *elsif_list;		/* List of PLpgSQL_if_elsif structs */
 	List	   *else_body;		/* List of statements */
+	char	   *label;
 } PLpgSQL_stmt_if;
 
 /*
@@ -488,6 +493,7 @@ typedef struct PLpgSQL_stmt_case
 	List	   *case_when_list; /* List of PLpgSQL_case_when structs */
 	bool		have_else;		/* flag needed because list could be empty */
 	List	   *else_stmts;		/* List of statements */
+	char	   *label;
 } PLpgSQL_stmt_case;
 
 /*
@@ -629,6 +635,7 @@ typedef struct PLpgSQL_stmt_open
 	PLpgSQL_expr *query;
 	PLpgSQL_expr *dynquery;
 	List	   *params;			/* USING expressions */
+	char	   *label;
 } PLpgSQL_stmt_open;
 
 /*
@@ -646,6 +653,7 @@ typedef struct PLpgSQL_stmt_fetch
 	PLpgSQL_expr *expr;			/* count, if expression */
 	bool		is_move;		/* is this a fetch or move? */
 	bool		returns_multiple_rows;	/* can return more than one row? */
+	char	   *label;
 } PLpgSQL_stmt_fetch;
 
 /*
@@ -656,6 +664,7 @@ typedef struct PLpgSQL_stmt_close
 	PLpgSQL_stmt_type cmd_type;
 	int			lineno;
 	int			curvar;
+	char	   *label;
 } PLpgSQL_stmt_close;
 
 /*
@@ -668,6 +677,7 @@ typedef struct PLpgSQL_stmt_exit
 	bool		is_exit;		/* Is this an exit or a continue? */
 	char	   *label;			/* NULL if it's an unlabelled EXIT/CONTINUE */
 	PLpgSQL_expr *cond;
+	char	   *block_name;
 } PLpgSQL_stmt_exit;
 
 /*
@@ -679,6 +689,7 @@ typedef struct PLpgSQL_stmt_return
 	int			lineno;
 	PLpgSQL_expr *expr;
 	int			retvarno;
+	char	   *label;
 } PLpgSQL_stmt_return;
 
 /*
@@ -690,6 +701,7 @@ typedef struct PLpgSQL_stmt_return_next
 	int			lineno;
 	PLpgSQL_expr *expr;
 	int			retvarno;
+	char	   *label;
 } PLpgSQL_stmt_return_next;
 
 /*
@@ -702,6 +714,7 @@ typedef struct PLpgSQL_stmt_return_query
 	PLpgSQL_expr *query;		/* if static query */
 	PLpgSQL_expr *dynquery;		/* if dynamic query (RETURN QUERY EXECUTE) */
 	List	   *params;			/* USING arguments for dynamic query */
+	char	   *label;
 } PLpgSQL_stmt_return_query;
 
 /*
@@ -716,6 +729,7 @@ typedef struct PLpgSQL_stmt_raise
 	char	   *message;		/* old-style message format literal, or NULL */
 	List	   *params;			/* list of expressions for old-style message */
 	List	   *options;		/* list of PLpgSQL_raise_option */
+	char	   *label;
 } PLpgSQL_stmt_raise;
 
 /*
@@ -736,6 +750,7 @@ typedef struct PLpgSQL_stmt_assert
 	int			lineno;
 	PLpgSQL_expr *cond;
 	PLpgSQL_expr *message;
+	char	   *label;
 } PLpgSQL_stmt_assert;
 
 /*
@@ -767,7 +782,19 @@ typedef struct PLpgSQL_stmt_dynexecute
 	PLpgSQL_rec *rec;			/* INTO target, if record */
 	PLpgSQL_row *row;			/* INTO target, if row */
 	List	   *params;			/* USING expressions */
+	char	   *label;
 } PLpgSQL_stmt_dynexecute;
+
+/*
+ * GOTO SQL statement to jump
+ */
+typedef struct PLpgSQL_stmt_goto
+{
+	PLpgSQL_stmt_type cmd_type;
+	int			lineno;
+	char	   *label_goto;
+	char	   *label;
+}PLpgSQL_stmt_goto;
 
 /*
  * Hash lookup key for functions
@@ -933,6 +960,8 @@ typedef struct PLpgSQL_execstate
 	const char *err_text;		/* additional state info */
 
 	void	   *plugin_info;	/* reserved for use by optional plugin */
+
+	char	   *gotolabel;
 } PLpgSQL_execstate;
 
 /*
@@ -1128,6 +1157,7 @@ extern const char *plpgsql_stmt_typename(PLpgSQL_stmt *stmt);
 extern const char *plpgsql_getdiag_kindname(PLpgSQL_getdiag_kind kind);
 extern void plpgsql_free_function_memory(PLpgSQL_function *func);
 extern void plpgsql_dumptree(PLpgSQL_function *func);
+extern const char *plpgsql_stmt_get_label(PLpgSQL_stmt *stmt);
 
 /*
  * Scanner functions in pl_scanner.c
