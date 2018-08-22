@@ -221,6 +221,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	opt_indirection opt_interval opt_name_list opt_sort_clause
 	OptWith OptTypedTableElementList
 	opt_type_mod opt_type_modifiers opt_definition opt_collate opt_class opt_select_limit
+	opt_partition_clause
 	opt_reloptions OptInherit
 	qual_Op qual_all_Op qualified_name_list
 	relation_expr_list returning_clause returning_item reloption_list
@@ -272,6 +273,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	MathOp
 	name NonReservedWord NonReservedWord_or_Sconst
 	opt_boolean_or_string opt_encoding OptConsTableSpace opt_index_name
+	opt_existing_window_name
 	OptTableSpace
 	RoleId
 	Sconst
@@ -288,7 +290,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 %type <oncommit> OnCommitOption
 
 %type <vsetstmt> set_rest set_rest_more
-
+%type <windef> over_clause window_specification opt_frame_clause frame_extent frame_bound
 %type <with> with_clause opt_with_clause
 
 /* ADB_BEGIN */
@@ -320,7 +322,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 
 	ELSE END_P ESCAPE EXCLUSIVE EXISTS EXPLAIN EXTRACT
 	ENABLE_P EXCLUDE EVENT EXTENSION EXCLUDING ENCRYPTED
-	FALSE_P FETCH FILE_P FIRST_P FLOAT_P FOR FORWARD FROM FOREIGN FULL
+	FALSE_P FETCH FILE_P FIRST_P FLOAT_P FOLLOWING FOR FORWARD FROM FOREIGN FULL
 	GLOBAL GRANT GREATEST GROUP_P HAVING
 	HOLD HOUR_P
 	IDENTIFIED IF_P IMMEDIATE IN_P INCREMENT INDEX INITIAL_P INSERT INHERIT INITIALLY
@@ -337,10 +339,10 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	/* PGXC add NODE token */
 	NODE NULLS_P
 	OF OFF OFFLINE OFFSET ON ONLINE ONLY OPERATOR OPTION OR ORDER OUTER_P
-	OWNER OIDS OPTIONS OWNED
+	OWNER OIDS OPTIONS OVER OWNED
 	PCTFREE PRECISION PRESERVE PRIOR PRIVILEGES PUBLIC PURGE
-	PARTIAL PRIMARY PARSER PASSWORD
-	RAW READ REAL RECURSIVE RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
+	PARTITION PRECEDING PARTIAL PRIMARY PARSER PASSWORD
+	RANGE RAW READ REAL RECURSIVE RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
 	RETURNING RETURN_P REVOKE REUSE RIGHT ROLE ROLLBACK ROW ROWID ROWNUM ROWS
 	REFERENCES REPLICA RULE RELATIVE_P RELEASE
 	SCHEMA SECOND_P SELECT SERIALIZABLE SESSION SESSIONTIMEZONE SET SHARE SHOW SIZE SEARCH
@@ -350,7 +352,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	TRANSACTION TREAT TRIM TRUNCATE TRIGGER TRUE_P TABLESPACE
 	TYPE_P TEXT_P
 	UID UNCOMMITTED UNION UNIQUE UPDATE USER USING UNLOGGED
-	UNENCRYPTED UNTIL
+	UNENCRYPTED UNTIL UNBOUNDED
 	VALIDATE VALUES VARCHAR VARCHAR2 VERBOSE VIEW VALID
 	WHEN WHENEVER WHERE WITH WRITE WITHOUT WORK
 	XML_P
@@ -402,8 +404,8 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
  * keywords anywhere else in the grammar, but it's definitely risky.  We can
  * blame any funny behavior of UNBOUNDED on the SQL standard, though.
  */
-//%nonassoc	UNBOUNDED		/* ideally should have same precedence as IDENT */
-%nonassoc	IDENT NULL_P /*PARTITION RANGE*/ ROWS //PRECEDING FOLLOWING
+%nonassoc	UNBOUNDED		/* ideally should have same precedence as IDENT */
+%nonassoc	IDENT NULL_P PARTITION RANGE ROWS PRECEDING FOLLOWING
 %left		Op OPERATOR		/* multi-character ops and user-defined operators */
 //%nonassoc	NOTNULL
 //%nonassoc	ISNULL
@@ -3369,7 +3371,213 @@ func_table: func_application
  * (Note that many of the special SQL functions wouldn't actually make any
  * sense as functional index entries, but we ignore that consideration here.)
  */
-func_expr: func_application
+func_expr: func_application over_clause
+			{
+				FuncCall *n = (FuncCall *) $1;
+
+				n->over = $2;
+				$$ = $1;
+			}
+		;
+
+over_clause: OVER window_specification
+				{ $$ = $2; }
+			|OVER ColId
+				{
+					WindowDef *n = makeNode(WindowDef);
+					n->name = $2;
+					n->refname = NULL;
+					n->partitionClause = NIL;
+					n->orderClause = NIL;
+					n->frameOptions = FRAMEOPTION_DEFAULTS;
+					n->startOffset = NULL;
+					n->endOffset = NULL;
+					n->location = @2;
+					$$ = n;
+				}
+			| /*EMPTY*/
+				{ $$ = NULL; }
+		;
+
+window_specification: '(' opt_existing_window_name opt_partition_clause
+						opt_sort_clause opt_frame_clause ')'
+				{
+					WindowDef *n = makeNode(WindowDef);
+					n->name = NULL;
+					n->refname = $2;
+					n->partitionClause = $3;
+					n->orderClause = $4;
+					/* copy relevant fields of opt_frame_clause */
+					n->frameOptions = $5->frameOptions;
+					n->startOffset = $5->startOffset;
+					n->endOffset = $5->endOffset;
+					n->location = @1;
+					$$ = n;
+				}
+		;
+
+/*
+ * If we see PARTITION, RANGE, or ROWS as the first token after the '('
+ * of a window_specification, we want the assumption to be that there is
+ * no existing_window_name; but those keywords are unreserved and so could
+ * be ColIds.  We fix this by making them have the same precedence as IDENT
+ * and giving the empty production here a slightly higher precedence, so
+ * that the shift/reduce conflict is resolved in favor of reducing the rule.
+ * These keywords are thus precluded from being an existing_window_name but
+ * are not reserved for any other purpose.
+ */
+opt_existing_window_name: ColId						{ $$ = $1; }
+			| /*EMPTY*/				%prec Op		{ $$ = NULL; }
+		;
+
+opt_partition_clause: PARTITION BY expr_list		{ $$ = $3; }
+			| /*EMPTY*/								{ $$ = NIL; }
+		;
+
+/*
+ * For frame clauses, we return a WindowDef, but only some fields are used:
+ * frameOptions, startOffset, and endOffset.
+ *
+ * This is only a subset of the full SQL:2008 frame_clause grammar.
+ * We don't support <window frame exclusion> yet.
+ */
+opt_frame_clause:
+			RANGE frame_extent
+				{
+					WindowDef *n = $2;
+					n->frameOptions |= FRAMEOPTION_NONDEFAULT | FRAMEOPTION_RANGE;
+					if (n->frameOptions & (FRAMEOPTION_START_VALUE_PRECEDING |
+										   FRAMEOPTION_END_VALUE_PRECEDING))
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								 errmsg("RANGE PRECEDING is only supported with UNBOUNDED"),
+								 parser_errposition(@1)));
+					if (n->frameOptions & (FRAMEOPTION_START_VALUE_FOLLOWING |
+										   FRAMEOPTION_END_VALUE_FOLLOWING))
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								 errmsg("RANGE FOLLOWING is only supported with UNBOUNDED"),
+								 parser_errposition(@1)));
+					$$ = n;
+				}
+			| ROWS frame_extent
+				{
+					WindowDef *n = $2;
+					n->frameOptions |= FRAMEOPTION_NONDEFAULT | FRAMEOPTION_ROWS;
+					$$ = n;
+				}
+			| /*EMPTY*/
+				{
+					WindowDef *n = makeNode(WindowDef);
+					n->frameOptions = FRAMEOPTION_DEFAULTS;
+					n->startOffset = NULL;
+					n->endOffset = NULL;
+					$$ = n;
+				}
+		;
+
+frame_extent: frame_bound
+				{
+					WindowDef *n = $1;
+					/* reject invalid cases */
+					if (n->frameOptions & FRAMEOPTION_START_UNBOUNDED_FOLLOWING)
+						ereport(ERROR,
+								(errcode(ERRCODE_WINDOWING_ERROR),
+								 errmsg("frame start cannot be UNBOUNDED FOLLOWING"),
+								 parser_errposition(@1)));
+					if (n->frameOptions & FRAMEOPTION_START_VALUE_FOLLOWING)
+						ereport(ERROR,
+								(errcode(ERRCODE_WINDOWING_ERROR),
+								 errmsg("frame starting from following row cannot end with current row"),
+								 parser_errposition(@1)));
+					n->frameOptions |= FRAMEOPTION_END_CURRENT_ROW;
+					$$ = n;
+				}
+			| BETWEEN frame_bound AND frame_bound
+				{
+					WindowDef *n1 = $2;
+					WindowDef *n2 = $4;
+					/* form merged options */
+					int		frameOptions = n1->frameOptions;
+					/* shift converts START_ options to END_ options */
+					frameOptions |= n2->frameOptions << 1;
+					frameOptions |= FRAMEOPTION_BETWEEN;
+					/* reject invalid cases */
+					if (frameOptions & FRAMEOPTION_START_UNBOUNDED_FOLLOWING)
+						ereport(ERROR,
+								(errcode(ERRCODE_WINDOWING_ERROR),
+								 errmsg("frame start cannot be UNBOUNDED FOLLOWING"),
+								 parser_errposition(@2)));
+					if (frameOptions & FRAMEOPTION_END_UNBOUNDED_PRECEDING)
+						ereport(ERROR,
+								(errcode(ERRCODE_WINDOWING_ERROR),
+								 errmsg("frame end cannot be UNBOUNDED PRECEDING"),
+								 parser_errposition(@4)));
+					if ((frameOptions & FRAMEOPTION_START_CURRENT_ROW) &&
+						(frameOptions & FRAMEOPTION_END_VALUE_PRECEDING))
+						ereport(ERROR,
+								(errcode(ERRCODE_WINDOWING_ERROR),
+								 errmsg("frame starting from current row cannot have preceding rows"),
+								 parser_errposition(@4)));
+					if ((frameOptions & FRAMEOPTION_START_VALUE_FOLLOWING) &&
+						(frameOptions & (FRAMEOPTION_END_VALUE_PRECEDING |
+										 FRAMEOPTION_END_CURRENT_ROW)))
+						ereport(ERROR,
+								(errcode(ERRCODE_WINDOWING_ERROR),
+								 errmsg("frame starting from following row cannot have preceding rows"),
+								 parser_errposition(@4)));
+					n1->frameOptions = frameOptions;
+					n1->endOffset = n2->startOffset;
+					$$ = n1;
+				}
+		;
+
+/*
+ * This is used for both frame start and frame end, with output set up on
+ * the assumption it's frame start; the frame_extent productions must reject
+ * invalid cases.
+ */
+frame_bound:
+			UNBOUNDED PRECEDING
+				{
+					WindowDef *n = makeNode(WindowDef);
+					n->frameOptions = FRAMEOPTION_START_UNBOUNDED_PRECEDING;
+					n->startOffset = NULL;
+					n->endOffset = NULL;
+					$$ = n;
+				}
+			| UNBOUNDED FOLLOWING
+				{
+					WindowDef *n = makeNode(WindowDef);
+					n->frameOptions = FRAMEOPTION_START_UNBOUNDED_FOLLOWING;
+					n->startOffset = NULL;
+					n->endOffset = NULL;
+					$$ = n;
+				}
+			| CURRENT_P ROW
+				{
+					WindowDef *n = makeNode(WindowDef);
+					n->frameOptions = FRAMEOPTION_START_CURRENT_ROW;
+					n->startOffset = NULL;
+					n->endOffset = NULL;
+					$$ = n;
+				}
+			| a_expr PRECEDING
+				{
+					WindowDef *n = makeNode(WindowDef);
+					n->frameOptions = FRAMEOPTION_START_VALUE_PRECEDING;
+					n->startOffset = $1;
+					n->endOffset = NULL;
+					$$ = n;
+				}
+			| a_expr FOLLOWING
+				{
+					WindowDef *n = makeNode(WindowDef);
+					n->frameOptions = FRAMEOPTION_START_VALUE_FOLLOWING;
+					n->startOffset = $1;
+					n->endOffset = NULL;
+					$$ = n;
+				}
 		;
 
 func_application:	func_name '(' ')'
@@ -6000,6 +6208,7 @@ type_func_name_keyword:
 	| JOIN
 	| LEFT
 	| OUTER_P
+	| OVER
 	| RIGHT
 	;
 
@@ -6060,6 +6269,7 @@ unreserved_keyword:
 	| EXCLUSIVE
 	| FETCH
 	| FIRST_P
+	| FOLLOWING
 	| FORWARD
 	| GLOBAL
 	| HOLD
@@ -6104,7 +6314,9 @@ unreserved_keyword:
 	| OPTIONS
 	| PASSWORD
 	| PARSER
+	| PARTITION
 	| PRECISION
+	| PRECEDING
 	| PREPARE
 	| PREPARED
 	| PRESERVE
@@ -6112,6 +6324,7 @@ unreserved_keyword:
 	| PARTIAL
 	| PRIVILEGES
 	| PURGE
+	| RANGE
 	| READ
 	| RELATIVE_P
 	| RELEASE
@@ -6151,6 +6364,7 @@ unreserved_keyword:
 	| TYPE_P
 	| TEXT_P
 	| TABLESPACE
+	| UNBOUNDED
 	| UNCOMMITTED
 	| UNLOGGED
 	| UNTIL
