@@ -292,6 +292,8 @@ plpgsql_stmt_typename(PLpgSQL_stmt *stmt)
 			return "ROLLBACK";
 		case PLPGSQL_STMT_SET:
 			return "SET";
+		case PLPGSQL_STMT_GOTO:
+			return "GOTO";
 	}
 
 	return "unknown";
@@ -375,6 +377,7 @@ static void free_call(PLpgSQL_stmt_call *stmt);
 static void free_commit(PLpgSQL_stmt_commit *stmt);
 static void free_rollback(PLpgSQL_stmt_rollback *stmt);
 static void free_set(PLpgSQL_stmt_set *stmt);
+static void free_goto(PLpgSQL_stmt_goto *stmt);
 static void free_expr(PLpgSQL_expr *expr);
 
 
@@ -466,6 +469,9 @@ free_stmt(PLpgSQL_stmt *stmt)
 			break;
 		case PLPGSQL_STMT_SET:
 			free_set((PLpgSQL_stmt_set *) stmt);
+			break;
+		case PLPGSQL_STMT_GOTO:
+			free_goto((PLpgSQL_stmt_goto *) stmt);
 			break;
 		default:
 			elog(ERROR, "unrecognized cmd_type: %d", stmt->cmd_type);
@@ -612,6 +618,10 @@ static void
 free_perform(PLpgSQL_stmt_perform *stmt)
 {
 	free_expr(stmt->expr);
+}
+
+static void free_goto(PLpgSQL_stmt_goto *stmt)
+{
 }
 
 static void
@@ -1719,4 +1729,56 @@ plpgsql_dumptree(PLpgSQL_function *func)
 	dump_block(func->action);
 	printf("\nEnd of execution tree of function %s\n\n", func->fn_signature);
 	fflush(stdout);
+}
+
+const char *plpgsql_stmt_get_label(PLpgSQL_stmt *stmt)
+{
+	if (stmt == NULL)
+		return NULL;
+
+	switch(stmt->cmd_type)
+	{
+	case PLPGSQL_STMT_ASSERT:
+		return ((PLpgSQL_stmt_assert*)stmt)->label;
+	case PLPGSQL_STMT_CASE:
+		return ((PLpgSQL_stmt_case*)stmt)->label;
+	case PLPGSQL_STMT_CLOSE:
+		return ((PLpgSQL_stmt_close*)stmt)->label;
+	case PLPGSQL_STMT_DYNEXECUTE:
+		return ((PLpgSQL_stmt_dynexecute*)stmt)->label;
+	case PLPGSQL_STMT_EXIT:
+		return ((PLpgSQL_stmt_exit*)stmt)->block_name;
+	case PLPGSQL_STMT_FETCH:
+		return ((PLpgSQL_stmt_fetch*)stmt)->label;
+	case PLPGSQL_STMT_FORI:
+		return ((PLpgSQL_stmt_fori*)stmt)->label;
+	case PLPGSQL_STMT_FORS:
+		return ((PLpgSQL_stmt_fors*)stmt)->label;
+	case PLPGSQL_STMT_FORC:
+		return ((PLpgSQL_stmt_forc*)stmt)->label;
+	case PLPGSQL_STMT_DYNFORS:
+		return ((PLpgSQL_stmt_dynfors*)stmt)->label;
+	case PLPGSQL_STMT_FOREACH_A:
+		return ((PLpgSQL_stmt_foreach_a*)stmt)->label;
+	case PLPGSQL_STMT_GETDIAG:
+		return ((PLpgSQL_stmt_getdiag*)stmt)->label;
+	case PLPGSQL_STMT_IF:
+		return ((PLpgSQL_stmt_if*)stmt)->label;
+	case PLPGSQL_STMT_LOOP:
+		return ((PLpgSQL_stmt_loop*)stmt)->label;
+	case PLPGSQL_STMT_WHILE:
+		return ((PLpgSQL_stmt_while*)stmt)->label;
+	case PLPGSQL_STMT_OPEN:
+		return ((PLpgSQL_stmt_open*)stmt)->label;
+	case PLPGSQL_STMT_RAISE:
+		return ((PLpgSQL_stmt_raise*)stmt)->label;
+	case PLPGSQL_STMT_PERFORM:
+		return ((PLpgSQL_stmt_perform*)stmt)->label;
+	case PLPGSQL_STMT_GOTO:
+		return ((PLpgSQL_stmt_goto*)stmt)->label;
+	default:
+		break;
+	}
+
+	return NULL;
 }

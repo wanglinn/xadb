@@ -56,6 +56,19 @@ typedef struct
 
 #define parser_errposition(pos)  plpgsql_scanner_errposition(pos)
 
+#ifdef USE_ASSERT_CHECKING
+static inline PLpgSQL_stmt *
+castStmtImpl(PLpgSQL_stmt_type type, void *ptr)
+{
+	Assert(ptr == NULL || ((PLpgSQL_stmt*)ptr)->cmd_type == type);
+	return (PLpgSQL_stmt *) ptr;
+}
+#define castStmt(_name_, _type_, nodeptr) ((PLpgSQL_stmt_##_name_ *) castStmtImpl(PLPGSQL_STMT_##_type_, nodeptr))
+#else
+#define castStmt(_name_, _type_, nodeptr) ((PLpgSQL_stmt_##_name_ *) (nodeptr))
+#endif							/* USE_ASSERT_CHECKING */
+
+
 union YYSTYPE;					/* need forward reference for tok_is_keyword */
 
 static	bool			tok_is_keyword(int token, union YYSTYPE *lval,
@@ -201,6 +214,7 @@ static	void			check_raise_parameters(PLpgSQL_stmt_raise *stmt);
 %type <stmt>	stmt_open stmt_fetch stmt_move stmt_close stmt_null
 %type <stmt>	stmt_commit stmt_rollback stmt_set
 %type <stmt>	stmt_case stmt_foreach_a
+%type <stmt>	stmt_goto
 
 %type <list>	proc_exceptions
 %type <exception_block> exception_sect
@@ -293,6 +307,7 @@ static	void			check_raise_parameters(PLpgSQL_stmt_raise *stmt);
 %token <keyword>	K_FORWARD
 %token <keyword>	K_FROM
 %token <keyword>	K_GET
+%token <keyword>	K_GOTO
 %token <keyword>	K_HINT
 %token <keyword>	K_IF
 %token <keyword>	K_IMPORT
@@ -850,51 +865,74 @@ proc_stmt		: pl_block ';'
 						{ $$ = $1; }
 				| stmt_assign
 						{ $$ = $1; }
-				| stmt_if
-						{ $$ = $1; }
-				| stmt_case
-						{ $$ = $1; }
+				| opt_block_label stmt_if
+						{ $$ = $2; castStmt(if, IF, $$)->label = $1; }
+				| opt_block_label stmt_case
+						{ $$ = $2; castStmt(case, CASE, $$)->label = $1; }
 				| stmt_loop
 						{ $$ = $1; }
 				| stmt_while
 						{ $$ = $1; }
 				| stmt_for
-						{ $$ = $1; }
+					{ $$ = $1; }
 				| stmt_foreach_a
 						{ $$ = $1; }
-				| stmt_exit
-						{ $$ = $1; }
-				| stmt_return
-						{ $$ = $1; }
-				| stmt_raise
-						{ $$ = $1; }
+				| opt_block_label stmt_exit
+						{ $$ = $2; castStmt(exit, EXIT, $$)->block_name = $1; }
+				| opt_block_label stmt_return
+						{
+							$$ = $2;
+							if ($1)
+							{
+								switch($$->cmd_type)
+								{
+								case PLPGSQL_STMT_RETURN:
+									((PLpgSQL_stmt_return*)$$)->label = $1;
+									break;
+								case PLPGSQL_STMT_RETURN_NEXT:
+									((PLpgSQL_stmt_return_next*)$$)->label = $1;
+									break;
+								case PLPGSQL_STMT_RETURN_QUERY:
+									((PLpgSQL_stmt_return_query*)$$)->label = $1;
+									break;
+								default:
+									ereport(ERROR,
+											(errcode(ERRCODE_INTERNAL_ERROR),
+											 errmsg("Unknown Pl/pgsql return type for stmt %d", $$->cmd_type)));
+								}
+							}
+						}
+				| opt_block_label stmt_raise
+						{ $$ = $2; castStmt(raise, RAISE, $$)->label = $1; }
 				| stmt_assert
 						{ $$ = $1; }
 				| stmt_execsql
 						{ $$ = $1; }
-				| stmt_dynexecute
-						{ $$ = $1; }
-				| stmt_perform
-						{ $$ = $1; }
-				| stmt_call
-						{ $$ = $1; }
-				| stmt_getdiag
-						{ $$ = $1; }
-				| stmt_open
-						{ $$ = $1; }
-				| stmt_fetch
-						{ $$ = $1; }
+				| opt_block_label stmt_dynexecute
+						{ $$ = $2; castStmt(dynexecute, DYNEXECUTE, $$)->label = $1; }
+				| opt_block_label stmt_perform
+						{ $$ = $2; castStmt(perform, PERFORM, $$)->label = $1; }
+				| opt_block_label stmt_call
+						{ $$ = $2; castStmt(call, CALL, $$)->label = $1; }
+				| opt_block_label stmt_getdiag
+						{ $$ = $2; castStmt(getdiag, GETDIAG, $$)->label = $1; }
+				| opt_block_label stmt_open
+						{ $$ = $2; castStmt(open, OPEN, $$)->label = $1; }
+				| opt_block_label stmt_fetch
+						{ $$ = $2; castStmt(fetch, FETCH, $$)->label = $1; }
 				| stmt_move
 						{ $$ = $1; }
-				| stmt_close
-						{ $$ = $1; }
+				| opt_block_label stmt_close
+						{ $$ = $2; castStmt(close, CLOSE, $$)->label = $1; }
 				| stmt_null
 						{ $$ = $1; }
-				| stmt_commit
-						{ $$ = $1; }
-				| stmt_rollback
-						{ $$ = $1; }
-				| stmt_set
+				| opt_block_label stmt_commit
+						{ $$ = $2; castStmt(commit, COMMIT, $$)->label = $1; }
+				| opt_block_label stmt_rollback
+						{ $$ = $2; castStmt(rollback, ROLLBACK, $$)->label = $1; }
+				| opt_block_label stmt_set
+						{ $$ = $2; castStmt(set, SET, $$)->label = $1; }
+				| stmt_goto
 						{ $$ = $1; }
 				;
 
@@ -1902,7 +1940,7 @@ stmt_raise		: K_RAISE
 					}
 				;
 
-stmt_assert		: K_ASSERT
+stmt_assert		: opt_block_label K_ASSERT
 					{
 						PLpgSQL_stmt_assert		*new;
 						int	tok;
@@ -1911,6 +1949,7 @@ stmt_assert		: K_ASSERT
 
 						new->cmd_type	= PLPGSQL_STMT_ASSERT;
 						new->lineno		= plpgsql_location_to_lineno(@1);
+						new->label		= $1;
 
 						new->cond = read_sql_expression2(',', ';',
 														 ", or ;",
@@ -2228,6 +2267,20 @@ stmt_set	: K_SET
 						$$ = (PLpgSQL_stmt *)new;
 					}
 			;
+
+stmt_goto		: opt_block_label K_GOTO any_identifier ';'
+					{
+						PLpgSQL_stmt_goto *new;
+
+						new = palloc0(sizeof(PLpgSQL_stmt_goto));
+						new->cmd_type = PLPGSQL_STMT_GOTO;
+						new->lineno = plpgsql_location_to_lineno(@2);
+						new->label_goto = $3;
+						new->label = $1;
+
+						$$ = (PLpgSQL_stmt *)new;
+					}
+				;
 
 
 cursor_variable	: T_DATUM

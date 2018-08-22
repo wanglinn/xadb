@@ -252,6 +252,8 @@ static int exec_stmt_block(PLpgSQL_execstate *estate,
 				PLpgSQL_stmt_block *block);
 static int exec_stmts(PLpgSQL_execstate *estate,
 		   List *stmts);
+static int exec_stmts_lc(PLpgSQL_execstate *estate,
+		   ListCell *lc);
 static int exec_stmt(PLpgSQL_execstate *estate,
 		  PLpgSQL_stmt *stmt);
 static int exec_stmt_assign(PLpgSQL_execstate *estate,
@@ -429,6 +431,8 @@ static char *format_expr_params(PLpgSQL_execstate *estate,
 				   const PLpgSQL_expr *expr);
 static char *format_preparedparamsdata(PLpgSQL_execstate *estate,
 						  const PreparedParamsData *ppd);
+static int exec_stmt_goto(PLpgSQL_execstate *estate, PLpgSQL_stmt_goto *stmt);
+static ListCell *find_stmt_for_label(List *stmts, const char *label);
 
 
 /* ----------
@@ -1530,6 +1534,7 @@ exception_matches_conditions(ErrorData *edata, PLpgSQL_condition *cond)
 static int
 exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 {
+	ListCell   *lc;
 	volatile int rc = -1;
 	int			i;
 
@@ -1818,6 +1823,14 @@ exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 
 	estate->err_text = NULL;
 
+	lc = NULL;
+redo_:
+	if (lc != NULL)
+	{
+		Assert(rc == PLPGSQL_RC_GOTO);
+		rc = exec_stmts_lc(estate, lc);
+		lc = NULL;
+	}
 	/*
 	 * Handle the return code.  This is intentionally different from
 	 * LOOP_RC_PROCESSING(): CONTINUE never matches a block, and EXIT matches
@@ -1840,6 +1853,18 @@ exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 			estate->exitlabel = NULL;
 			return PLPGSQL_RC_OK;
 
+		case PLPGSQL_RC_GOTO:
+			if ((lc = find_stmt_for_label(block->body, estate->gotolabel)) != NULL)
+			{
+				goto redo_;
+			}else
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("Can not found label \"%s\" for goto", estate->gotolabel)));
+			}
+			break;
+
 		default:
 			elog(ERROR, "unrecognized rc: %d", rc);
 	}
@@ -1856,9 +1881,27 @@ exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 static int
 exec_stmts(PLpgSQL_execstate *estate, List *stmts)
 {
-	ListCell   *s;
+	ListCell *lc = list_head(stmts);
+	int rc;
 
-	if (stmts == NIL)
+recall_:
+	rc = exec_stmts_lc(estate, lc);
+
+	if (rc == PLPGSQL_RC_GOTO)
+	{
+		if ((lc = find_stmt_for_label(stmts, estate->gotolabel)) != NULL)
+			goto recall_;
+
+		/* not found label */
+		return PLPGSQL_RC_GOTO;
+	}
+
+	return rc;
+}
+
+static int exec_stmts_lc(PLpgSQL_execstate *estate, ListCell *lc)
+{
+	if (lc == NULL)
 	{
 		/*
 		 * Ensure we do a CHECK_FOR_INTERRUPTS() even though there is no
@@ -1869,9 +1912,9 @@ exec_stmts(PLpgSQL_execstate *estate, List *stmts)
 		return PLPGSQL_RC_OK;
 	}
 
-	foreach(s, stmts)
+	for(;lc!=NULL;lc=lnext(lc))
 	{
-		PLpgSQL_stmt *stmt = (PLpgSQL_stmt *) lfirst(s);
+		PLpgSQL_stmt *stmt = (PLpgSQL_stmt *) lfirst(lc);
 		int			rc = exec_stmt(estate, stmt);
 
 		if (rc != PLPGSQL_RC_OK)
@@ -2014,6 +2057,10 @@ exec_stmt(PLpgSQL_execstate *estate, PLpgSQL_stmt *stmt)
 
 		case PLPGSQL_STMT_SET:
 			rc = exec_stmt_set(estate, (PLpgSQL_stmt_set *) stmt);
+			break;
+
+		case PLPGSQL_STMT_GOTO:
+			rc = exec_stmt_goto(estate, (PLpgSQL_stmt_goto *) stmt);
 			break;
 
 		default:
@@ -4774,6 +4821,31 @@ exec_stmt_set(PLpgSQL_execstate *estate, PLpgSQL_stmt_set *stmt)
 			 expr->query, SPI_result_code_string(rc));
 
 	return PLPGSQL_RC_OK;
+}
+
+static int exec_stmt_goto(PLpgSQL_execstate *estate, PLpgSQL_stmt_goto *stmt)
+{
+	estate->gotolabel = stmt->label_goto;
+
+	return PLPGSQL_RC_GOTO;
+}
+
+static ListCell *find_stmt_for_label(List *stmts, const char *label)
+{
+	const char *thislabel;
+	ListCell *lc;
+
+	foreach(lc, stmts)
+	{
+		thislabel = plpgsql_stmt_get_label(lfirst(lc));
+		if (thislabel != NULL &&
+			strcasecmp(thislabel, label) == 0)
+		{
+			return lc;
+		}
+	}
+
+	return NULL;
 }
 
 /* ----------
