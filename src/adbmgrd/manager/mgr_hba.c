@@ -885,6 +885,8 @@ static bool check_pghbainfo_vaild(StringInfo hba_info, StringInfo err_msg, bool 
 	int count_elem;
 	int ipaddr;
 	int str_len = 0;
+	bool bipv4 = false;
+	bool bipv6 = false;
 	MemoryContext pgconf_context;
 	MemoryContext oldcontext;
 	pgconf_context = AllocSetContextCreate(CurrentMemoryContext,
@@ -948,14 +950,19 @@ static bool check_pghbainfo_vaild(StringInfo hba_info, StringInfo err_msg, bool 
 		goto func_end;
 	}
 
-	if(inet_pton(AF_INET, newinfo->addr, &ipaddr) == 0)
+	if(inet_pton(AF_INET, newinfo->addr, &ipaddr) == 1)
+		bipv4 = true;
+	else if (inet_pton(AF_INET6, newinfo->addr, &ipaddr) == 1)
+		bipv6 = true;
+	if ((!bipv6) && (!bipv4))
 	{
 		is_valid = false;
 		if(true == record_err_msg)
 			appendStringInfoString(err_msg, "Error:\"the address is invaild\"\n");
 		goto func_end;
 	}
-	if(newinfo->addr_mark < 0 || newinfo->addr_mark > 32)
+	if((bipv4 && (newinfo->addr_mark < 0 || newinfo->addr_mark > 32))
+		|| (bipv6 && (newinfo->addr_mark < 0 || newinfo->addr_mark > 128)))
 	{
 		is_valid = false;
 		if(true == record_err_msg)
