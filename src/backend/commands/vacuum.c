@@ -1653,8 +1653,8 @@ get_remote_relstat(char *nspname, char *relname, bool replicated, bool preAnalyz
 
 	/* Make up query string */
 	initStringInfo(&query);
-	if (IsCoordMaster() && IsAutoVacuumWorkerProcess() && preAnalyze)
-		appendStringInfo(&query, "ANALYZE %s.%s;", nspname, relname);
+	/*if (IsCoordMaster() && IsAutoVacuumWorkerProcess() && preAnalyze)
+		appendStringInfo(&query, "ANALYZE %s.%s;", nspname, relname);*/
 	appendStringInfo(&query, "SELECT c.relpages, "
 									"c.reltuples, "
 									"c.relfrozenxid "
@@ -1905,8 +1905,8 @@ vacuum_rel_coordinator(Relation onerel, bool is_outer)
 							InvalidMultiXactId,
 							is_outer);
 
-		if (IsCoordMaster() && IsAutoVacuumWorkerProcess())
-			vacuum_rel_other_coordinator(nspname, relname);
+		/*if (IsCoordMaster() && IsAutoVacuumWorkerProcess())
+			vacuum_rel_other_coordinator(nspname, relname);*/
 	}
 }
 #endif
