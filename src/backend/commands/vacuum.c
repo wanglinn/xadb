@@ -1637,7 +1637,7 @@ make_relation_tle(Oid reloid, const char *relname, const char *column, AttrNumbe
  * Returns number of nodes that returned correct statistics.
  */
 static int
-get_remote_relstat(char *nspname, char *relname, bool replicated,
+get_remote_relstat(char *nspname, char *relname, bool replicated, bool preAnalyze,
 				   int32 *pages, float4 *tuples, TransactionId *frozenXid)
 {
 	StringInfoData query;
@@ -1653,7 +1653,7 @@ get_remote_relstat(char *nspname, char *relname, bool replicated,
 
 	/* Make up query string */
 	initStringInfo(&query);
-	if (IsCoordMaster() && IsAutoVacuumWorkerProcess())
+	if (IsCoordMaster() && IsAutoVacuumWorkerProcess() && preAnalyze)
 		appendStringInfo(&query, "ANALYZE %s.%s;", nspname, relname);
 	appendStringInfo(&query, "SELECT c.relpages, "
 									"c.reltuples, "
@@ -1670,7 +1670,7 @@ get_remote_relstat(char *nspname, char *relname, bool replicated,
 	step->combine_type = COMBINE_TYPE_NONE;
 	step->exec_nodes = NULL;
 	step->sql_statement = query.data;
-	step->force_autocommit = true;
+	step->force_autocommit = false;
 	step->exec_type = EXEC_ON_DATANODES;
 
 	/* Add targetlist entries */
@@ -1829,7 +1829,7 @@ vacuum_rel_coordinator(Relation onerel, bool is_outer)
 	 * Get stats from the remote nodes. Function returns the number of nodes
 	 * returning correct stats.
 	 */
-	rel_nodes = get_remote_relstat(nspname, relname, replicated,
+	rel_nodes = get_remote_relstat(nspname, relname, replicated, true,
 								   &num_pages, &num_tuples, &min_frozenxid);
 	if (rel_nodes > 0)
 	{
@@ -1856,7 +1856,7 @@ vacuum_rel_coordinator(Relation onerel, bool is_outer)
 				relname = RelationGetRelationName(Irel[i]);
 				nspname = get_namespace_name(RelationGetNamespace(Irel[i]));
 				/* Index is replicated if parent relation is replicated */
-				idx_nodes = get_remote_relstat(nspname, relname, replicated,
+				idx_nodes = get_remote_relstat(nspname, relname, replicated, false,
 										&idx_pages, &idx_tuples, &idx_frozenxid);
 				if (idx_nodes > 0)
 				{
