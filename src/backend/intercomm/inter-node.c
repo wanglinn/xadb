@@ -468,6 +468,7 @@ GetPGconnAttatchToHandle(List *node_list, List *handle_list)
 		List	   *conn_list = NIL;
 		ListCell   *lc_conn, *lc_handle;
 		NodeHandle *handle;
+		PGconn	   *conn;
 
 		Assert(handle_list && list_length(node_list) == list_length(handle_list));
 
@@ -476,13 +477,14 @@ GetPGconnAttatchToHandle(List *node_list, List *handle_list)
 		forboth (lc_conn, conn_list, lc_handle, handle_list)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
-			if (PQstatus(handle->node_conn) != CONNECTION_OK)
+			conn = (PGconn *) lfirst(lc_conn);
+			if (PQstatus(conn) != CONNECTION_OK)
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Fail to get connection with node \"%s\"",
+						 errmsg("Fail to get connection with \"%s\"",
 						 		NameStr(handle->node_name)),
-						 errhint("%s", HandleGetError(handle))));
-			handle->node_conn = (PGconn *) lfirst(lc_conn);
+						 errhint("%s", PQerrorMessage(conn))));
+			handle->node_conn = conn;
 			handle->node_conn->custom = handle;
 			handle->node_conn->funs = InterQueryCustomFuncs;
 		}
