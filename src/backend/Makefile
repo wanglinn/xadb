@@ -364,9 +364,6 @@ maintainer-clean: distclean
 	      catalog/postgres.bki \
 	      catalog/postgres.description \
 	      catalog/postgres.shdescription \
-ifeq ($(enable_grammar_oracle),yes)
-		  oraschema/oracle_schema.sql \
-endif
 	      replication/repl_gram.c \
 	      replication/repl_scanner.c \
 	      replication/syncrep_gram.c \
@@ -379,6 +376,9 @@ endif
 	      utils/errcodes.h \
 	      utils/misc/guc-file.c \
 	      utils/sort/qsort_tuple.c
+ifeq ($(enable_grammar_oracle),yes)
+	rm -f oraschema/oracle_schema.sql
+endif
 
 
 ##########################################################################
