@@ -739,6 +739,11 @@ List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram)
 
 	if(gram)
 		*gram = grammer;
+	return parse_query_for_gram(query_string, grammer);
+}
+
+List *parse_query_for_gram(const char *query_string, ParseGrammar grammer)
+{
 	switch(grammer)
 	{
 	case PARSE_GRAM_POSTGRES:
