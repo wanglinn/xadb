@@ -24,6 +24,11 @@ OBJS = pl_gram.o pl_handler.o pl_comp.o pl_exec.o \
 
 DATA = plpgsql.control plpgsql--1.0.sql plpgsql--unpackaged--1.0.sql
 
+ifeq ($(enable_grammar_oracle),yes)
+	OBJS += plora_gram.o plora_kwlist.o
+	DATA += plorasql.control plorasql--1.0.sql plorasql--unpackaged--1.0.sql
+endif
+
 all: all-lib
 
 # Shared library stuff
@@ -63,6 +68,13 @@ pl_gram.h: pl_gram.c
 
 pl_gram.c: BISONFLAGS += -d
 
+ifeq ($(enable_grammar_oracle),yes)
+plora_gram.o: plpgsql.h plora_gram.h plerrcodes.h
+plora_gram.h: plora_gram.c
+	touch $@
+plora_gram.c: BISONFLAGS += -d
+endif
+
 # generate plerrcodes.h from src/backend/utils/errcodes.txt
 plerrcodes.h: $(top_srcdir)/src/backend/utils/errcodes.txt generate-plerrcodes.pl
 	$(PERL) $(srcdir)/generate-plerrcodes.pl $< > $@
@@ -76,3 +88,6 @@ clean distclean: clean-lib
 
 maintainer-clean: clean
 	rm -f pl_gram.c pl_gram.h plerrcodes.h
+ifeq ($(enable_grammar_oracle),yes)
+	rm -f plora_gram.c plora_gram.h
+endif

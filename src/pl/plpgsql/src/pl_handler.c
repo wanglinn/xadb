@@ -215,9 +215,16 @@ _PG_init(void)
  * ----------
  */
 PG_FUNCTION_INFO_V1(plpgsql_call_handler);
+#ifdef ADB_GRAM_ORA
+PG_FUNCTION_INFO_V1(plorasql_call_handler);
+#endif
 
-Datum
-plpgsql_call_handler(PG_FUNCTION_ARGS)
+static Datum
+plsql_call_handler(PG_FUNCTION_ARGS,
+				   PLpgSQL_function *(*compile)(FunctionCallInfo,bool),
+				   HeapTuple (*exec_trigger)(PLpgSQL_function*,TriggerData*),
+				   void (*event_trigger)(PLpgSQL_function*,EventTriggerData*),
+				   Datum (*exec_func)(PLpgSQL_function*,FunctionCallInfo,EState*))
 {
 	PLpgSQL_function *func;
 	PLpgSQL_execstate *save_cur_estate;
@@ -231,7 +238,7 @@ plpgsql_call_handler(PG_FUNCTION_ARGS)
 		elog(ERROR, "SPI_connect failed: %s", SPI_result_code_string(rc));
 
 	/* Find or compile the function */
-	func = plpgsql_compile(fcinfo, false);
+	func = (*compile)(fcinfo, false);
 
 	/* Must save and restore prior value of cur_estate */
 	save_cur_estate = func->cur_estate;
@@ -246,16 +253,16 @@ plpgsql_call_handler(PG_FUNCTION_ARGS)
 		 * subhandler
 		 */
 		if (CALLED_AS_TRIGGER(fcinfo))
-			retval = PointerGetDatum(plpgsql_exec_trigger(func,
-														  (TriggerData *) fcinfo->context));
+			retval = PointerGetDatum((*exec_trigger)(func,
+													 (TriggerData *) fcinfo->context));
 		else if (CALLED_AS_EVENT_TRIGGER(fcinfo))
 		{
-			plpgsql_exec_event_trigger(func,
-									   (EventTriggerData *) fcinfo->context);
+			(*event_trigger)(func,
+							 (EventTriggerData *) fcinfo->context);
 			retval = (Datum) 0;
 		}
 		else
-			retval = plpgsql_exec_function(func, fcinfo, NULL);
+			retval = (*exec_func)(func, fcinfo, NULL);
 	}
 	PG_CATCH();
 	{
@@ -279,6 +286,26 @@ plpgsql_call_handler(PG_FUNCTION_ARGS)
 	return retval;
 }
 
+Datum plpgsql_call_handler(PG_FUNCTION_ARGS)
+{
+	return plsql_call_handler(fcinfo,
+							  plpgsql_compile,
+							  plpgsql_exec_trigger,
+							  plpgsql_exec_event_trigger,
+							  plpgsql_exec_function);
+}
+
+#ifdef ADB_GRAM_ORA
+Datum plorasql_call_handler(PG_FUNCTION_ARGS)
+{
+	return plsql_call_handler(fcinfo,
+							  plorasql_compile,
+							  plpgsql_exec_trigger,
+							  plpgsql_exec_event_trigger,
+							  plpgsql_exec_function);
+}
+#endif
+
 /* ----------
  * plpgsql_inline_handler
  *
@@ -286,9 +313,15 @@ plpgsql_call_handler(PG_FUNCTION_ARGS)
  * ----------
  */
 PG_FUNCTION_INFO_V1(plpgsql_inline_handler);
+#ifdef ADB_GRAM_ORA
+PG_FUNCTION_INFO_V1(plorasql_inline_handler);
+#endif
 
-Datum
-plpgsql_inline_handler(PG_FUNCTION_ARGS)
+static Datum
+plsql_inline_handler(PG_FUNCTION_ARGS,
+					 PLpgSQL_function *(*inline_compile)(char *source_text),
+					 Datum (*exec_func)(PLpgSQL_function*, FunctionCallInfo, EState*),
+					 void (*free_func)(PLpgSQL_function*))
 {
 	InlineCodeBlock *codeblock = castNode(InlineCodeBlock, DatumGetPointer(PG_GETARG_DATUM(0)));
 	PLpgSQL_function *func;
@@ -305,7 +338,7 @@ plpgsql_inline_handler(PG_FUNCTION_ARGS)
 		elog(ERROR, "SPI_connect failed: %s", SPI_result_code_string(rc));
 
 	/* Compile the anonymous code block */
-	func = plpgsql_compile_inline(codeblock->source_text);
+	func = (*inline_compile)(codeblock->source_text);
 
 	/* Mark the function as busy, just pro forma */
 	func->use_count++;
@@ -327,7 +360,7 @@ plpgsql_inline_handler(PG_FUNCTION_ARGS)
 	/* And run the function */
 	PG_TRY();
 	{
-		retval = plpgsql_exec_function(func, &fake_fcinfo, simple_eval_estate);
+		retval = (*exec_func)(func, &fake_fcinfo, simple_eval_estate);
 	}
 	PG_CATCH();
 	{
@@ -357,7 +390,7 @@ plpgsql_inline_handler(PG_FUNCTION_ARGS)
 		Assert(func->use_count == 0);
 
 		/* ... so we can free subsidiary storage */
-		plpgsql_free_function_memory(func);
+		(*free_func)(func);
 
 		/* And propagate the error */
 		PG_RE_THROW();
@@ -372,7 +405,7 @@ plpgsql_inline_handler(PG_FUNCTION_ARGS)
 	Assert(func->use_count == 0);
 
 	/* ... so we can free subsidiary storage */
-	plpgsql_free_function_memory(func);
+	(*free_func)(func);
 
 	/*
 	 * Disconnect from SPI manager
@@ -383,6 +416,24 @@ plpgsql_inline_handler(PG_FUNCTION_ARGS)
 	return retval;
 }
 
+Datum plpgsql_inline_handler(PG_FUNCTION_ARGS)
+{
+	return plsql_inline_handler(fcinfo,
+								plpgsql_compile_inline,
+								plpgsql_exec_function,
+								plpgsql_free_function_memory);
+}
+
+#ifdef ADB_GRAM_ORA
+Datum plorasql_inline_handler(PG_FUNCTION_ARGS)
+{
+	return plsql_inline_handler(fcinfo,
+								plorasql_compile_inline,
+								plpgsql_exec_function,
+								plpgsql_free_function_memory);
+}
+#endif
+
 /* ----------
  * plpgsql_validator
  *
@@ -391,9 +442,13 @@ plpgsql_inline_handler(PG_FUNCTION_ARGS)
  * ----------
  */
 PG_FUNCTION_INFO_V1(plpgsql_validator);
+#ifdef ADB_GRAM_ORA
+PG_FUNCTION_INFO_V1(plorasql_validator);
+#endif
 
-Datum
-plpgsql_validator(PG_FUNCTION_ARGS)
+static Datum
+plsql_validator(PG_FUNCTION_ARGS,
+				  PLpgSQL_function *(*compile)(FunctionCallInfo,bool))
 {
 	Oid			funcoid = PG_GETARG_OID(0);
 	HeapTuple	tuple;
@@ -491,7 +546,7 @@ plpgsql_validator(PG_FUNCTION_ARGS)
 		}
 
 		/* Test-compile the function */
-		plpgsql_compile(&fake_fcinfo, true);
+		(*compile)(&fake_fcinfo, true);
 
 		/*
 		 * Disconnect from SPI manager
@@ -504,3 +559,15 @@ plpgsql_validator(PG_FUNCTION_ARGS)
 
 	PG_RETURN_VOID();
 }
+
+Datum plpgsql_validator(PG_FUNCTION_ARGS)
+{
+	return plsql_validator(fcinfo, plpgsql_compile);
+}
+
+#ifdef ADB_GRAM_ORA
+Datum plorasql_validator(PG_FUNCTION_ARGS)
+{
+	return plsql_validator(fcinfo, plorasql_compile);
+}
+#endif

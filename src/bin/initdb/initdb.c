@@ -283,6 +283,9 @@ static void setup_oracle_schema(FILE *cmdfd);
 static void setup_adb_views(FILE *cmdfd);
 #endif
 static void load_plpgsql(FILE *cmdfd);
+#ifdef ADB_GRAM_ORA
+static void load_plorasql(FILE *cmdfd);
+#endif
 static void vacuum_db(FILE *cmdfd);
 static void make_template0(FILE *cmdfd);
 static void make_postgres(FILE *cmdfd);
@@ -2054,6 +2057,13 @@ load_plpgsql(FILE *cmdfd)
 	PG_CMD_PUTS("CREATE EXTENSION plpgsql;\n\n");
 }
 
+#ifdef ADB_GRAM_ORA
+static void load_plorasql(FILE *cmdfd)
+{
+	PG_CMD_PUTS("CREATE EXTENSION plorasql;\n\n");
+}
+#endif
+
 #ifdef ADB
 /*
  * Vacuum Freeze given database. This is required to prevent xid wraparound
@@ -3185,6 +3195,7 @@ initialize_data_directory(void)
 	load_plpgsql(cmdfd);
 
 #ifdef ADB_GRAM_ORA
+	load_plorasql(cmdfd);
 	setup_oracle_schema(cmdfd);
 #endif
 

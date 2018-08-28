@@ -94,7 +94,9 @@ static PLpgSQL_function *do_compile(FunctionCallInfo fcinfo,
 		   HeapTuple procTup,
 		   PLpgSQL_function *function,
 		   PLpgSQL_func_hashkey *hashkey,
-		   bool forValidator);
+		   bool forValidator,
+		   void (*init_func)(const char *sproc_source),
+		   int (*parse_func)(void));
 static void plpgsql_compile_error_callback(void *arg);
 static void add_parameter_name(PLpgSQL_nsitem_type itemtype, int itemno, const char *name);
 static void add_dummy_return(PLpgSQL_function *function);
@@ -133,8 +135,10 @@ static void delete_function(PLpgSQL_function *func);
  * has already been compiled.
  * ----------
  */
-PLpgSQL_function *
-plpgsql_compile(FunctionCallInfo fcinfo, bool forValidator)
+static PLpgSQL_function *
+plsql_compile(FunctionCallInfo fcinfo, bool forValidator,
+				void (*init_func)(const char *sproc_source),
+				int (*parse_func)(void))
 {
 	Oid			funcOid = fcinfo->flinfo->fn_oid;
 	HeapTuple	procTup;
@@ -223,7 +227,9 @@ recheck:
 		 * Do the hard part.
 		 */
 		function = do_compile(fcinfo, procTup, function,
-							  &hashkey, forValidator);
+							  &hashkey, forValidator,
+							  init_func,
+							  parse_func);
 	}
 
 	ReleaseSysCache(procTup);
@@ -238,6 +244,28 @@ recheck:
 	 */
 	return function;
 }
+
+PLpgSQL_function *
+plpgsql_compile(FunctionCallInfo fcinfo, bool forValidator)
+{
+	return plsql_compile(fcinfo,
+						 forValidator,
+						 plpgsql_scanner_init,
+						 plpgsql_yyparse);
+}
+
+#ifdef ADB_GRAM_ORA
+PLpgSQL_function *plorasql_compile(FunctionCallInfo fcinfo, bool forValidator)
+{
+	PLpgSQL_function *func;
+	func = plsql_compile(fcinfo,
+						 forValidator,
+						 plpgsql_scanner_init,
+						 plorasql_yyparse);
+	func->grammar = PARSE_GRAM_ORACLE;
+	return func;
+}
+#endif /* ADB_GRAM_ORA */
 
 /*
  * This is the slow part of plpgsql_compile().
@@ -266,7 +294,9 @@ do_compile(FunctionCallInfo fcinfo,
 		   HeapTuple procTup,
 		   PLpgSQL_function *function,
 		   PLpgSQL_func_hashkey *hashkey,
-		   bool forValidator)
+		   bool forValidator,
+		   void (*init_func)(const char *sproc_source),
+		   int (*parse_func)(void))
 {
 	Form_pg_proc procStruct = (Form_pg_proc) GETSTRUCT(procTup);
 	bool		is_dml_trigger = CALLED_AS_TRIGGER(fcinfo);
@@ -302,7 +332,7 @@ do_compile(FunctionCallInfo fcinfo,
 	if (isnull)
 		elog(ERROR, "null prosrc");
 	proc_source = TextDatumGetCString(prosrcdatum);
-	plpgsql_scanner_init(proc_source);
+	(*init_func)(proc_source);
 
 	plpgsql_error_funcname = pstrdup(NameStr(procStruct->proname));
 
@@ -731,7 +761,7 @@ do_compile(FunctionCallInfo fcinfo,
 	/*
 	 * Now parse the function's text
 	 */
-	parse_rc = plpgsql_yyparse();
+	parse_rc = (*parse_func)();
 	if (parse_rc != 0)
 		elog(ERROR, "plpgsql parser returned %d", parse_rc);
 	function->action = plpgsql_parse_result;
@@ -790,8 +820,10 @@ do_compile(FunctionCallInfo fcinfo,
  * persistent data structures.
  * ----------
  */
-PLpgSQL_function *
-plpgsql_compile_inline(char *proc_source)
+static PLpgSQL_function *
+plsql_compile_inline(char *proc_source,
+					 void (*init_func)(const char *sproc_source),
+					 int (*parse_func)(void))
 {
 	char	   *func_name = "inline_code_block";
 	PLpgSQL_function *function;
@@ -805,7 +837,7 @@ plpgsql_compile_inline(char *proc_source)
 	 * cannot be invoked recursively, so there's no need to save and restore
 	 * the static variables used here.
 	 */
-	plpgsql_scanner_init(proc_source);
+	(*init_func)(proc_source);
 
 	plpgsql_error_funcname = func_name;
 
@@ -881,7 +913,7 @@ plpgsql_compile_inline(char *proc_source)
 	/*
 	 * Now parse the function's text
 	 */
-	parse_rc = plpgsql_yyparse();
+	parse_rc = (*parse_func)();
 	if (parse_rc != 0)
 		elog(ERROR, "plpgsql parser returned %d", parse_rc);
 	function->action = plpgsql_parse_result;
@@ -915,6 +947,25 @@ plpgsql_compile_inline(char *proc_source)
 	return function;
 }
 
+PLpgSQL_function *plpgsql_compile_inline(char *proc_source)
+{
+	return plsql_compile_inline(proc_source,
+								plpgsql_scanner_init,
+								plpgsql_yyparse);
+	/* PLpgSQL_function::grammar default is PARSE_GRAM_POSTGRES */
+}
+
+#ifdef ADB_GRAM_ORA
+PLpgSQL_function *plorasql_compile_inline(char *proc_source)
+{
+	PLpgSQL_function *func;
+	func = plsql_compile_inline(proc_source,
+								plorasql_scanner_init,
+								plorasql_yyparse);
+	func->grammar = PARSE_GRAM_ORACLE;
+	return func;
+}
+#endif /* ADB_GRAM_ORA */
 
 /*
  * error context callback to let us supply a call-stack traceback.

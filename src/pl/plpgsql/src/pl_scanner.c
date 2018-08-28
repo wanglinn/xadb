@@ -20,6 +20,9 @@
 
 #include "plpgsql.h"
 #include "pl_gram.h"			/* must be after parser/scanner.h */
+#ifdef ADB_GRAM_ORA
+#include "plora_kwlist.h"
+#endif /* ADB_GRAM_ORA */
 
 
 #define PG_KEYWORD(a,b,c) {a,b,c},
@@ -219,6 +222,10 @@ static int	plpgsql_yyleng;
 
 /* Current token's code (corresponds to plpgsql_yylval and plpgsql_yylloc) */
 static int	plpgsql_yytoken;
+#ifdef ADB_GRAM_ORA
+extern YYLTYPE plorasql_yylloc;
+extern YYSTYPE plorasql_yylval;
+#endif /* ADB_GRAM_ORA */
 
 /* Token pushback stack */
 #define MAX_PUSHBACKS 4
@@ -414,6 +421,41 @@ plpgsql_yylex(void)
 	plpgsql_yytoken = tok1;
 	return tok1;
 }
+
+#ifdef ADB_GRAM_ORA
+int	plorasql_yylex(void)
+{
+	int			tok1;
+	TokenAuxData aux1;
+	const ScanKeyword *kw;
+
+	tok1 = internal_yylex(&aux1);
+	if (tok1 == IDENT)
+	{
+		/* try for variable name, then for unreserved keyword */
+		if (plpgsql_parse_word(aux1.lval.str,
+								core_yy.scanbuf + aux1.lloc,
+								&aux1.lval.wdatum,
+								&aux1.lval.word))
+			tok1 = T_DATUM;
+		else if (!aux1.lval.word.quoted &&
+					(kw = ScanKeywordLookup(aux1.lval.word.ident,
+											plora_unreserved_keywords,
+											num_plora_unreserved_keywords)))
+		{
+			aux1.lval.keyword = kw->name;
+			tok1 = kw->value;
+		}
+		else
+			tok1 = T_WORD;
+	}
+	plorasql_yylval = aux1.lval;
+	plorasql_yylloc = aux1.lloc;
+	plpgsql_yyleng = aux1.leng;
+	plpgsql_yytoken = tok1;
+	return tok1;
+}
+#endif /* ADB_GRAM_ORA */
 
 /*
  * Internal yylex function.  This wraps the core lexer and adds one feature:
@@ -722,6 +764,33 @@ plpgsql_scanner_init(const char *str)
 
 	location_lineno_init();
 }
+#ifdef ADB_GRAM_ORA
+void plorasql_scanner_init(const char *str)
+{
+	/* Start up the core scanner */
+	yyscanner = scanner_init(str,
+							 &core_yy,
+							 plora_reserved_keywords,
+							 num_plora_reserved_keywords);
+
+	/*
+	 * scanorig points to the original string, which unlike the scanner's
+	 * scanbuf won't be modified on-the-fly by flex.  Notice that although
+	 * yytext points into scanbuf, we rely on being able to apply locations
+	 * (offsets from string start) to scanorig as well.
+	 */
+	scanorig = str;
+
+	/* Other setup */
+	plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
+	plpgsql_yytoken = 0;
+
+	num_pushbacks = 0;
+
+	location_lineno_init();
+
+}
+#endif /* ADB_GRAM_ORA */
 
 /*
  * Called after parsing is done to clean up after plpgsql_scanner_init()

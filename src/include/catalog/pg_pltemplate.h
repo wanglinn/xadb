@@ -84,5 +84,8 @@ DATA(insert ( "plperlu"		f f "plperlu_call_handler" "plperlu_inline_handler" "pl
 DATA(insert ( "plpythonu"	f f "plpython_call_handler" "plpython_inline_handler" "plpython_validator" "$libdir/plpython2" _null_ ));
 DATA(insert ( "plpython2u"	f f "plpython2_call_handler" "plpython2_inline_handler" "plpython2_validator" "$libdir/plpython2" _null_ ));
 DATA(insert ( "plpython3u"	f f "plpython3_call_handler" "plpython3_inline_handler" "plpython3_validator" "$libdir/plpython3" _null_ ));
+#ifdef ADB_GRAM_ORA
+DATA(insert ( "plorasql"	t t "plorasql_call_handler" "plorasql_inline_handler" "plorasql_validator" "$libdir/plpgsql" _null_ ));
+#endif /* ADB_GRAM_ORA */
 
 #endif							/* PG_PLTEMPLATE_H */
