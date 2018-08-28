@@ -67,6 +67,7 @@ extern List *pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *que
 											 Oid *paramTypes, int numParams,
 											 QueryEnvironment *queryEnv, ParseGrammar grammar);
 extern List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram);
+extern List *parse_query_for_gram(const char *query_string, ParseGrammar grammer);
 #endif
 
 #ifdef ADBMGRD
