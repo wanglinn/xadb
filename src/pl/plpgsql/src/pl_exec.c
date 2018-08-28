@@ -3619,10 +3619,18 @@ exec_prepare_plan(PLpgSQL_execstate *estate,
 	/*
 	 * Generate and save the plan
 	 */
+#ifdef ADB_MULTI_GRAM
+	plan = SPI_prepare_params_grammar(expr->query,
+									  (ParserSetupHook) plpgsql_parser_setup,
+									  (void *) expr,
+									  cursorOptions,
+									  estate->grammar);
+#else
 	plan = SPI_prepare_params(expr->query,
 							  (ParserSetupHook) plpgsql_parser_setup,
 							  (void *) expr,
 							  cursorOptions);
+#endif /* ADB_MULTI_GRAM */
 	if (plan == NULL)
 	{
 		/* Some SPI errors deserve specific error messages */
@@ -3919,13 +3927,27 @@ exec_stmt_dynexecute(PLpgSQL_execstate *estate,
 	if (stmt->params)
 	{
 		ppd = exec_eval_using_params(estate, stmt->params);
+#ifdef ADB_MULTI_GRAM
+		exec_res = SPI_execute_with_args_grammar(querystr,
+												 ppd->nargs, ppd->types,
+												 ppd->values, ppd->nulls,
+												 estate->readonly_func, 0,
+												 estate->grammar);
+#else
 		exec_res = SPI_execute_with_args(querystr,
 										 ppd->nargs, ppd->types,
 										 ppd->values, ppd->nulls,
 										 estate->readonly_func, 0);
+#endif
 	}
 	else
+	{
+#ifdef ADB_MULTI_GRAM
+		exec_res = SPI_execute_grammar(querystr, estate->readonly_func, 0, estate->grammar);
+#else /* ADB_MULTI_GRAM */
 		exec_res = SPI_execute(querystr, estate->readonly_func, 0);
+#endif /* ADB_MULTI_GRAM */
+	}
 
 	switch (exec_res)
 	{
