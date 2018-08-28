@@ -1001,6 +1001,9 @@ typedef struct PLpgSQL_function
 	/* these fields change when the function is used */
 	struct PLpgSQL_execstate *cur_estate;
 	unsigned long use_count;
+#ifdef ADB_MULTI_GRAM
+	ParseGrammar grammar;
+#endif /* ADB_MULTI_GRAM */
 } PLpgSQL_function;
 
 /*
@@ -1079,6 +1082,9 @@ typedef struct PLpgSQL_execstate
 	void	   *plugin_info;	/* reserved for use by optional plugin */
 
 	char	   *gotolabel;
+#ifdef ADB_MULTI_GRAM
+	ParseGrammar grammar;
+#endif /* ADB_MULTI_GRAM */
 } PLpgSQL_execstate;
 
 /*
@@ -1229,6 +1235,10 @@ extern PLpgSQL_condition *plpgsql_parse_err_condition(char *condname);
 extern void plpgsql_adddatum(PLpgSQL_datum *new);
 extern int	plpgsql_add_initdatums(int **varnos);
 extern void plpgsql_HashTableInit(void);
+#ifdef ADB_GRAM_ORA
+extern PLpgSQL_function *plorasql_compile(FunctionCallInfo fcinfo, bool forValidator);
+extern PLpgSQL_function *plorasql_compile_inline(char *proc_source);
+#endif /* ADB_GRAM_ORA */
 
 /*
  * Functions in pl_handler.c
@@ -1298,10 +1308,21 @@ extern int	plpgsql_location_to_lineno(int location);
 extern int	plpgsql_latest_lineno(void);
 extern void plpgsql_scanner_init(const char *str);
 extern void plpgsql_scanner_finish(void);
+#ifdef ADB_GRAM_ORA
+extern void plorasql_scanner_init(const char *str);
+extern int	plorasql_yylex(void);
+#endif /* ADB_GRAM_ORA */
 
 /*
  * Externs in gram.y
  */
 extern int	plpgsql_yyparse(void);
+
+#ifdef ADB_GRAM_ORA
+/*
+ * Externs in gram.y
+ */
+extern int	plorasql_yyparse(void);
+#endif /* ADB_GRAM_ORA */
 
 #endif							/* PLPGSQL_H */

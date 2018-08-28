@@ -3939,6 +3939,10 @@ plpgsql_estate_setup(PLpgSQL_execstate *estate,
 
 	estate->plugin_info = NULL;
 
+#ifdef ADB_MULTI_GRAM
+	estate->grammar = func->grammar;
+#endif /* ADB_MULTI_GRAM */
+
 	/*
 	 * Create an EState and ExprContext for evaluation of simple expressions.
 	 */

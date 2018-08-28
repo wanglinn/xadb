@@ -48,4 +48,10 @@
   tmplvalidator => 'plpython3_validator', tmpllibrary => '$libdir/plpython3',
   tmplacl => '_null_' },
 
+{ row_macros => 'ADB_GRAM_ORA',
+  tmplname => 'plorasql', tmpltrusted => 't', tmpldbacreate => 't',
+  tmplhandler => 'plorasql_call_handler',
+  tmplinline => 'plorasql_inline_handler',
+  tmplvalidator => 'plorasql_validator', tmpllibrary => '$libdir/plpgsql',
+  tmplacl => '_null_' },
 ]
