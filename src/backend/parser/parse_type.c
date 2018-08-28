@@ -686,6 +686,12 @@ pts_error_callback(void *arg)
 TypeName *
 typeStringToTypeName(const char *str)
 {
+#ifdef ADB_MULTI_GRAM
+	return typeStringToTypeNameForGrammar(str, PARSE_GRAM_POSTGRES);
+}
+TypeName *typeStringToTypeNameForGrammar(const char *str, ParseGrammar grammar)
+{
+#endif
 	StringInfoData buf;
 	List	   *raw_parsetree_list;
 	SelectStmt *stmt;
@@ -709,7 +715,23 @@ typeStringToTypeName(const char *str)
 	ptserrcontext.previous = error_context_stack;
 	error_context_stack = &ptserrcontext;
 
+#ifdef ADB_MULTI_GRAM
+	raw_parsetree_list = NIL;
+	switch(grammar)
+	{
+#ifdef ADB_GRAM_ORA
+	case PARSE_GRAM_ORACLE:
+		raw_parsetree_list = ora_raw_parser(buf.data);
+		break;
+#endif
+	case PARSE_GRAM_POSTGRES:
+		raw_parsetree_list = raw_parser(buf.data);
+		break;
+	/* keep a compiler warning */
+	}
+#else
 	raw_parsetree_list = raw_parser(buf.data);
+#endif
 
 	error_context_stack = ptserrcontext.previous;
 
@@ -780,10 +802,20 @@ fail:
 void
 parseTypeString(const char *str, Oid *typeid_p, int32 *typmod_p, bool missing_ok)
 {
+#ifdef ADB_MULTI_GRAM
+	return parseTypeStringForGrammar(str, typeid_p, typmod_p, missing_ok, PARSE_GRAM_POSTGRES);
+}
+extern void parseTypeStringForGrammar(const char *str, Oid *typeid_p, int32 *typmod_p, bool missing_ok, ParseGrammar grammar)
+{
+#endif /* ADB_MULTI_GRAM */
 	TypeName   *typeName;
 	Type		tup;
 
+#ifdef ADB_MULTI_GRAM
+	typeName = typeStringToTypeNameForGrammar(str, grammar);;
+#else
 	typeName = typeStringToTypeName(str);
+#endif
 
 	tup = LookupTypeName(NULL, typeName, typmod_p, missing_ok);
 	if (tup == NULL)

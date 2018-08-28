@@ -49,6 +49,10 @@ extern Oid	typeidTypeRelid(Oid type_id);
 
 extern TypeName *typeStringToTypeName(const char *str);
 extern void parseTypeString(const char *str, Oid *typeid_p, int32 *typmod_p, bool missing_ok);
+#ifdef ADB_MULTI_GRAM
+extern TypeName *typeStringToTypeNameForGrammar(const char *str, ParseGrammar grammar);
+extern void parseTypeStringForGrammar(const char *str, Oid *typeid_p, int32 *typmod_p, bool missing_ok,ParseGrammar grammar);
+#endif
 
 #define ISCOMPLEX(typeid) (typeidTypeRelid(typeid) != InvalidOid)
 
