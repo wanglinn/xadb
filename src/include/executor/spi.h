@@ -104,6 +104,23 @@ extern SPIPlanPtr SPI_prepare_params(const char *src,
 				   ParserSetupHook parserSetup,
 				   void *parserSetupArg,
 				   int cursorOptions);
+#ifdef ADB_MULTI_GRAM
+extern int	SPI_execute_grammar(const char *src, bool read_only, long tcount, ParseGrammar grammar);
+extern int	SPI_exec_grammar(const char *src, long tcount, ParseGrammar grammar);
+extern int SPI_execute_with_args_grammar(const char *src,
+					  int nargs, Oid *argtypes,
+					  Datum *Values, const char *Nulls,
+					  bool read_only, long tcount,
+					  ParseGrammar grammar);
+extern SPIPlanPtr SPI_prepare_grammar(const char *src, int nargs, Oid *argtypes, ParseGrammar grammar);
+extern SPIPlanPtr SPI_prepare_cursor_grammar(const char *src, int nargs, Oid *argtypes,
+											 int cursorOptions, ParseGrammar grammar);
+extern SPIPlanPtr SPI_prepare_params_grammar(const char *src,
+											 ParserSetupHook parserSetup,
+											 void *parserSetupArg,
+											 int cursorOptions,
+											 ParseGrammar grammar);
+#endif /* ADB_MULTI_GRAM */
 extern int	SPI_keepplan(SPIPlanPtr plan);
 extern SPIPlanPtr SPI_saveplan(SPIPlanPtr plan);
 extern int	SPI_freeplan(SPIPlanPtr plan);
@@ -143,6 +160,14 @@ extern Portal SPI_cursor_open_with_args(const char *name,
 						  int nargs, Oid *argtypes,
 						  Datum *Values, const char *Nulls,
 						  bool read_only, int cursorOptions);
+#ifdef ADB_MULTI_GRAM
+extern Portal SPI_cursor_open_with_args_grammar(const char *name,
+						  const char *src,
+						  int nargs, Oid *argtypes,
+						  Datum *Values, const char *Nulls,
+						  bool read_only, int cursorOptions,
+						  ParseGrammar grammar);
+#endif /* ADB_MULTI_GRAM */
 extern Portal SPI_cursor_open_with_paramlist(const char *name, SPIPlanPtr plan,
 							   ParamListInfo params, bool read_only);
 extern Portal SPI_cursor_find(const char *name);

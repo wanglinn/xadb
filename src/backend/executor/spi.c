@@ -49,13 +49,13 @@ static int	_SPI_connected = -1;	/* current stack index */
 static Portal SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 						 ParamListInfo paramLI, bool read_only);
 
-static void _SPI_prepare_plan(const char *src, SPIPlanPtr plan);
+static void _SPI_prepare_plan(const char *src, SPIPlanPtr plan ADB_MULTI_GRAM_COMMA_ARG(ParseGrammar grammar));
 
-static void _SPI_prepare_oneshot_plan(const char *src, SPIPlanPtr plan);
+static void _SPI_prepare_oneshot_plan(const char *src, SPIPlanPtr plan ADB_MULTI_GRAM_COMMA_ARG(ParseGrammar grammar));
 
 #ifdef ADB
 static void _SPI_pgxc_prepare_plan(const char *src, List *src_parsetree,
-								   SPIPlanPtr plan);
+								   SPIPlanPtr plan ADB_MULTI_GRAM_COMMA_ARG(ParseGrammar grammar));
 #endif
 
 static int _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
@@ -364,6 +364,14 @@ SPI_execute_direct(const char *remote_sql, char *nodename)
 int
 SPI_execute(const char *src, bool read_only, long tcount)
 {
+#ifdef ADB_MULTI_GRAM
+	return SPI_execute_grammar(src, read_only, tcount, PARSE_GRAM_POSTGRES);
+}
+
+int
+SPI_execute_grammar(const char *src, bool read_only, long tcount, ParseGrammar grammar)
+{
+#endif /* ADB_MULTI_GRAM */
 	_SPI_plan	plan;
 	int			res;
 
@@ -378,7 +386,7 @@ SPI_execute(const char *src, bool read_only, long tcount)
 	plan.magic = _SPI_PLAN_MAGIC;
 	plan.cursor_options = CURSOR_OPT_PARALLEL_OK;
 
-	_SPI_prepare_oneshot_plan(src, &plan);
+	_SPI_prepare_oneshot_plan(src, &plan ADB_MULTI_GRAM_COMMA_ARG(grammar));
 
 	res = _SPI_execute_plan(&plan, NULL,
 							InvalidSnapshot, InvalidSnapshot,
@@ -394,6 +402,13 @@ SPI_exec(const char *src, long tcount)
 {
 	return SPI_execute(src, false, tcount);
 }
+
+#ifdef ADB_MULTI_GRAM
+int SPI_exec_grammar(const char *src, long tcount, ParseGrammar grammar)
+{
+	return SPI_execute_grammar(src, false, tcount, grammar);
+}
+#endif /* ADB_MULTI_GRAM */
 
 /* Execute a previously prepared plan */
 int
@@ -504,6 +519,25 @@ SPI_execute_with_args(const char *src,
 					  Datum *Values, const char *Nulls,
 					  bool read_only, long tcount)
 {
+#ifdef ADB_MULTI_GRAM
+	return SPI_execute_with_args_grammar(src,
+										 nargs,
+										 argtypes,
+										 Values,
+										 Nulls,
+										 read_only,
+										 tcount,
+										 PARSE_GRAM_POSTGRES);
+}
+
+int
+SPI_execute_with_args_grammar(const char *src,
+							  int nargs, Oid *argtypes,
+							  Datum *Values, const char *Nulls,
+							  bool read_only, long tcount,
+							  ParseGrammar grammar)
+{
+#endif /* ADB_MULTI_GRAM */
 	int			res;
 	_SPI_plan	plan;
 	ParamListInfo paramLI;
@@ -529,7 +563,7 @@ SPI_execute_with_args(const char *src,
 	paramLI = _SPI_convert_params(nargs, argtypes,
 								  Values, Nulls);
 
-	_SPI_prepare_oneshot_plan(src, &plan);
+	_SPI_prepare_oneshot_plan(src, &plan ADB_MULTI_GRAM_COMMA_ARG(grammar));
 
 	res = _SPI_execute_plan(&plan, paramLI,
 							InvalidSnapshot, InvalidSnapshot,
@@ -545,10 +579,27 @@ SPI_prepare(const char *src, int nargs, Oid *argtypes)
 	return SPI_prepare_cursor(src, nargs, argtypes, 0);
 }
 
+#ifdef ADB_MULTI_GRAM
+SPIPlanPtr
+SPI_prepare_grammar(const char *src, int nargs, Oid *argtypes, ParseGrammar grammar)
+{
+	return SPI_prepare_cursor_grammar(src, nargs, argtypes, 0, grammar);
+}
+#endif /* ADB_MULTI_GRAM */
+
 SPIPlanPtr
 SPI_prepare_cursor(const char *src, int nargs, Oid *argtypes,
 				   int cursorOptions)
 {
+#ifdef ADB_MULTI_GRAM
+	return SPI_prepare_cursor_grammar(src, nargs, argtypes, cursorOptions, PARSE_GRAM_POSTGRES);
+}
+
+SPIPlanPtr
+SPI_prepare_cursor_grammar(const char *src, int nargs, Oid *argtypes,
+						   int cursorOptions, ParseGrammar grammar)
+{
+#endif
 	_SPI_plan	plan;
 	SPIPlanPtr	result;
 
@@ -570,7 +621,7 @@ SPI_prepare_cursor(const char *src, int nargs, Oid *argtypes,
 	plan.parserSetup = NULL;
 	plan.parserSetupArg = NULL;
 
-	_SPI_prepare_plan(src, &plan);
+	_SPI_prepare_plan(src, &plan ADB_MULTI_GRAM_COMMA_ARG(grammar));
 
 	/* copy plan to procedure context */
 	result = _SPI_make_plan_non_temp(&plan);
@@ -586,6 +637,22 @@ SPI_prepare_params(const char *src,
 				   void *parserSetupArg,
 				   int cursorOptions)
 {
+#ifdef ADB_MULTI_GRAM
+	return SPI_prepare_params_grammar(src,
+									  parserSetup,
+									  parserSetupArg,
+									  cursorOptions,
+									  PARSE_GRAM_POSTGRES);
+}
+
+SPIPlanPtr
+SPI_prepare_params_grammar(const char *src,
+						   ParserSetupHook parserSetup,
+						   void *parserSetupArg,
+						   int cursorOptions,
+						   ParseGrammar grammar)
+{
+#endif /* ADB_MULTI_GRAM */
 	_SPI_plan	plan;
 	SPIPlanPtr	result;
 
@@ -607,7 +674,7 @@ SPI_prepare_params(const char *src,
 	plan.parserSetup = parserSetup;
 	plan.parserSetupArg = parserSetupArg;
 
-	_SPI_prepare_plan(src, &plan);
+	_SPI_prepare_plan(src, &plan ADB_MULTI_GRAM_COMMA_ARG(grammar));
 
 	/* copy plan to procedure context */
 	result = _SPI_make_plan_non_temp(&plan);
@@ -1123,6 +1190,27 @@ SPI_cursor_open_with_args(const char *name,
 						  Datum *Values, const char *Nulls,
 						  bool read_only, int cursorOptions)
 {
+#ifdef ADB_MULTI_GRAM
+	return SPI_cursor_open_with_args_grammar(name,
+											 src,
+											 nargs,
+											 argtypes,
+											 Values,
+											 Nulls,
+											 read_only,
+											 cursorOptions,
+											 PARSE_GRAM_POSTGRES);
+}
+
+Portal
+SPI_cursor_open_with_args_grammar(const char *name,
+						  const char *src,
+						  int nargs, Oid *argtypes,
+						  Datum *Values, const char *Nulls,
+						  bool read_only, int cursorOptions,
+						  ParseGrammar grammar)
+{
+#endif
 	Portal		result;
 	_SPI_plan	plan;
 	ParamListInfo paramLI;
@@ -1149,7 +1237,7 @@ SPI_cursor_open_with_args(const char *name,
 	paramLI = _SPI_convert_params(nargs, argtypes,
 								  Values, Nulls);
 
-	_SPI_prepare_plan(src, &plan);
+	_SPI_prepare_plan(src, &plan ADB_MULTI_GRAM_COMMA_ARG(grammar));
 
 	/* We needn't copy the plan; SPI_cursor_open_internal will do so */
 
@@ -1813,10 +1901,10 @@ spi_printtup(TupleTableSlot *slot, DestReceiver *self)
  * parsing is also left in CurrentMemoryContext.
  */
 static void
-_SPI_prepare_plan(const char *src, SPIPlanPtr plan)
+_SPI_prepare_plan(const char *src, SPIPlanPtr plan ADB_MULTI_GRAM_COMMA_ARG(ParseGrammar grammar))
 {
 #ifdef ADB
-	_SPI_pgxc_prepare_plan(src, NULL, plan);
+	_SPI_pgxc_prepare_plan(src, NULL, plan ADB_MULTI_GRAM_COMMA_ARG(grammar));
 }
 
 /*
@@ -1826,7 +1914,7 @@ _SPI_prepare_plan(const char *src, SPIPlanPtr plan)
  * transparent to the user.
  */
 static void
-_SPI_pgxc_prepare_plan(const char *src, List *src_parsetree, SPIPlanPtr plan)
+_SPI_pgxc_prepare_plan(const char *src, List *src_parsetree, SPIPlanPtr plan ADB_MULTI_GRAM_COMMA_ARG(ParseGrammar grammar))
 {
 #endif
 	List	   *raw_parsetree_list;
@@ -1851,7 +1939,11 @@ _SPI_pgxc_prepare_plan(const char *src, List *src_parsetree, SPIPlanPtr plan)
 		raw_parsetree_list = src_parsetree;
 	else
 #endif
+#ifdef ADB_MULTI_GRAM
+	raw_parsetree_list = parse_query_for_gram(src, grammar);
+#else
 	raw_parsetree_list = pg_parse_query(src);
+#endif
 
 	/*
 	 * Do parse analysis and rule rewrite for each raw parsetree, storing the
@@ -1939,7 +2031,7 @@ _SPI_pgxc_prepare_plan(const char *src, List *src_parsetree, SPIPlanPtr plan)
  * parsing is also left in CurrentMemoryContext.
  */
 static void
-_SPI_prepare_oneshot_plan(const char *src, SPIPlanPtr plan)
+_SPI_prepare_oneshot_plan(const char *src, SPIPlanPtr plan ADB_MULTI_GRAM_COMMA_ARG(ParseGrammar grammar))
 {
 	List	   *raw_parsetree_list;
 	List	   *plancache_list;
@@ -1957,7 +2049,11 @@ _SPI_prepare_oneshot_plan(const char *src, SPIPlanPtr plan)
 	/*
 	 * Parse the request string into a list of raw parse trees.
 	 */
+#ifdef ADB_MULTI_GRAM
+	raw_parsetree_list = parse_query_for_gram(src, grammar);
+#else
 	raw_parsetree_list = pg_parse_query(src);
+#endif
 
 	/*
 	 * Construct plancache entries, but don't do parse analysis yet.
