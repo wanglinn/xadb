@@ -118,7 +118,8 @@ static	PLpgSQL_type	*parse_datatype(const char *string, int location);
 static	void			 check_labels(const char *start_label,
 									  const char *end_label,
 									  int end_location);
-
+static PLpgSQL_stmt		*make_stmt_raise(int lloc, int elevel, char *name,
+										 char *message, List *params);
 %}
 
 %expect 0
@@ -192,6 +193,7 @@ static	void			 check_labels(const char *start_label,
 %type <str>		any_identifier opt_block_label /*opt_loop_label*/ opt_label
 /*%type <str>		option_value raise_exception*/
 %type <str>		raise_exception
+%type <ival>	raise_level opt_raise_level
 
 %type <list>	proc_sect stmt_elsifs stmt_else
 %type <stmt>	proc_stmt pl_block
@@ -769,25 +771,58 @@ stmt_return		: POK_RETURN
 
 stmt_raise		: POK_RAISE raise_exception ';'
 					{
-						PLpgSQL_stmt_raise		*new;
+						$$ = make_stmt_raise(@1, ERROR, $2, NULL, NIL);
+					}
+				| POK_RAISE raise_level raise_exception ';'
+					{
+						$$ = make_stmt_raise(@1, $2, $3, NULL, NIL);
+					}
+				| POK_RAISE opt_raise_level SCONST
+					{
+						List *params = NIL;
+						int tok = yylex();
+						if (tok != ',' && tok != ';')
+							yyerror("syntax error");
 
-						new = palloc(sizeof(PLpgSQL_stmt_raise));
+						while (tok == ',')
+						{
+							PLpgSQL_expr *expr;
 
-						new->cmd_type	= PLPGSQL_STMT_RAISE;
-						new->lineno		= plpgsql_location_to_lineno(@1);
-						new->elog_level = ERROR;	/* default */
-						new->condname	= $2;
-						new->message	= NULL;
-						new->params		= NIL;
-						new->options	= NIL;
-
-						plpgsql_recognize_err_condition(new->condname, false);
-						$$ = (PLpgSQL_stmt *)new;
+							expr = read_sql_construct(',', ';', 0,
+														", or ;",
+														"SELECT ",
+														true, true, true,
+														NULL, &tok);
+							params = lappend(params, expr);
+						}
+						$$ = make_stmt_raise(@1, $2, NULL, $3, params);
 					}
 				;
 
 raise_exception	: T_WORD				{ $$ = yylval.word.ident; }
 				| unreserved_keyword	{ $$ = pstrdup(yylval.keyword); }
+				;
+
+raise_level		: POK_EXCEPTION			{ $$ = ERROR; }
+				| T_WORD
+					{
+						if (strcmp($1.ident, "warning") == 0)
+							$$ = WARNING;
+						else if (strcmp($1.ident, "notice") == 0)
+							$$ = NOTICE;
+						else if (strcmp($1.ident, "info") == 0)
+							$$ = INFO;
+						else if (strcmp($1.ident, "log") == 0)
+							$$ = LOG;
+						else if (strcmp($1.ident, "debug") == 0)
+							$$ = DEBUG1;
+						else
+							yyerror("syntax error");
+					}
+				;
+
+opt_raise_level	: raise_level		{ $$ = $1; }
+				| /* empty */		{ $$ = ERROR; }
 				;
 
 stmt_goto		: opt_block_label POK_GOTO any_identifier ';'
@@ -2244,3 +2279,49 @@ check_labels(const char *start_label, const char *end_label, int end_location)
 //
 //	return (PLpgSQL_stmt *) new;
 //}
+
+static PLpgSQL_stmt *make_stmt_raise(int lloc, int elevel, char *name,
+										 char *message, List *params)
+{
+	PLpgSQL_stmt_raise *new;
+	int					expected_nparams;
+
+	if (name)
+		plpgsql_recognize_err_condition(name, false);
+	new = palloc0(sizeof(PLpgSQL_stmt_raise));
+
+	new->cmd_type = PLPGSQL_STMT_RAISE;
+	new->lineno = plpgsql_location_to_lineno(lloc);
+	new->elog_level = elevel;
+	new->condname = name;
+	new->message = message;
+	new->params = params;
+
+	/* check raise parameters */
+	if (message)
+	{
+		expected_nparams = 0;
+		for (;*message;++message)
+		{
+			if (message[0] == '%')
+			{
+				/* ignore literal % characters */
+				if (message[1] == '%')
+					message++;
+				else
+					expected_nparams++;
+			}
+		}
+
+		if (expected_nparams < list_length(params))
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					errmsg("too many parameters specified for RAISE")));
+		if (expected_nparams > list_length(params))
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					errmsg("too few parameters specified for RAISE")));
+	}
+
+	return (PLpgSQL_stmt*)new;
+}
