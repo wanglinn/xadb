@@ -254,8 +254,8 @@ static void location_lineno_init(void);
  * T_WORD or T_CWORD respectively, or as an unreserved keyword if it
  * matches one of those.
  */
-int
-plpgsql_yylex(void)
+static int
+plsql_yylex(const ScanKeyword *unreserved_kws, int num_kws)
 {
 	int			tok1;
 	TokenAuxData aux1;
@@ -336,8 +336,8 @@ plpgsql_yylex(void)
 					tok1 = T_DATUM;
 				else if (!aux1.lval.word.quoted &&
 						 (kw = ScanKeywordLookup(aux1.lval.word.ident,
-												 unreserved_keywords,
-												 num_unreserved_keywords)))
+												 unreserved_kws,
+												 num_kws)))
 				{
 					aux1.lval.keyword = kw->name;
 					tok1 = kw->value;
@@ -366,8 +366,8 @@ plpgsql_yylex(void)
 				/* try for unreserved keyword, then for variable name */
 				if (core_yy.scanbuf[aux1.lloc] != '"' &&
 					(kw = ScanKeywordLookup(aux1.lval.str,
-											unreserved_keywords,
-											num_unreserved_keywords)))
+											unreserved_kws,
+											num_kws)))
 				{
 					aux1.lval.keyword = kw->name;
 					tok1 = kw->value;
@@ -390,8 +390,8 @@ plpgsql_yylex(void)
 					tok1 = T_DATUM;
 				else if (!aux1.lval.word.quoted &&
 						 (kw = ScanKeywordLookup(aux1.lval.word.ident,
-												 unreserved_keywords,
-												 num_unreserved_keywords)))
+												 unreserved_kws,
+												 num_kws)))
 				{
 					aux1.lval.keyword = kw->name;
 					tok1 = kw->value;
@@ -421,38 +421,20 @@ plpgsql_yylex(void)
 	plpgsql_yytoken = tok1;
 	return tok1;
 }
+int
+plpgsql_yylex(void)
+{
+	return plsql_yylex(unreserved_keywords, num_unreserved_keywords);
+}
 
 #ifdef ADB_GRAM_ORA
 int	plorasql_yylex(void)
 {
-	int			tok1;
-	TokenAuxData aux1;
-	const ScanKeyword *kw;
+	int tok1 = plsql_yylex(plora_unreserved_keywords, num_plora_unreserved_keywords);
 
-	tok1 = internal_yylex(&aux1);
-	if (tok1 == IDENT)
-	{
-		/* try for variable name, then for unreserved keyword */
-		if (plpgsql_parse_word(aux1.lval.str,
-								core_yy.scanbuf + aux1.lloc,
-								&aux1.lval.wdatum,
-								&aux1.lval.word))
-			tok1 = T_DATUM;
-		else if (!aux1.lval.word.quoted &&
-					(kw = ScanKeywordLookup(aux1.lval.word.ident,
-											plora_unreserved_keywords,
-											num_plora_unreserved_keywords)))
-		{
-			aux1.lval.keyword = kw->name;
-			tok1 = kw->value;
-		}
-		else
-			tok1 = T_WORD;
-	}
-	plorasql_yylval = aux1.lval;
-	plorasql_yylloc = aux1.lloc;
-	plpgsql_yyleng = aux1.leng;
-	plpgsql_yytoken = tok1;
+	plorasql_yylval = plpgsql_yylval;
+	plorasql_yylloc = plpgsql_yylloc;
+
 	return tok1;
 }
 #endif /* ADB_GRAM_ORA */
