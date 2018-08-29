@@ -236,6 +236,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	AexprConst a_expr AlterTableStmt alter_column_default AlterObjectSchemaStmt
 	alter_using
 	b_expr
+	BlockCodeStmt
 	ClosePortalStmt
 	common_table_expr columnDef columnref CreateStmt ctext_expr columnElem
 	ColConstraint ColConstraintElem ConstraintAttr CreateRoleStmt
@@ -466,6 +467,7 @@ stmtmulti: stmtmulti ';' stmt
 stmt:
 	  AlterTableStmt
 	| AlterObjectSchemaStmt
+	| BlockCodeStmt
 	| ClosePortalStmt
 	| CreateAsStmt
 	| CreateStmt
@@ -5925,6 +5927,15 @@ DeclareCursorStmt: DECLARE cursor_name cursor_options CURSOR opt_hold FOR Select
 				}
 		;
 
+BlockCodeStmt: DECLARE Sconst
+				{
+					DoStmt *n = makeNode(DoStmt);
+					n->args = list_make2(makeDefElem("as", (Node *)makeString($2), @2),
+										 makeDefElem("language", (Node *)makeString("plorasql"), -1));
+					$$ = (Node*)n;
+				}
+			;
+
 
 cursor_name:	name						{ $$ = $1; }
 		;
@@ -6497,6 +6508,7 @@ void ora_parser_init(ora_yy_extra_type *yyext)
 	StaticAssertExpr(lengthof(yyext->lookahead)==2, "change init code");
 	yyext->lookahead[0].token = yyext->lookahead[1].token = INVALID_TOKEN;
 	yyext->has_no_alias_subquery = false;
+	yyext->parsing_first_token = true;
 }
 
 static void ora_yyerror(YYLTYPE *yyloc, core_yyscan_t yyscanner, const char *msg)
@@ -6538,6 +6550,101 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 		cur_token = core_yylex(&(lvalp->core_yystype), lloc, yyscanner);
 	}
 
+	if (yyextra->parsing_first_token)
+	{
+		yyextra->parsing_first_token = false;
+		if (cur_token == DECLARE)
+		{
+			/* find code block */
+			Assert(yyextra->lookahead[0].token == INVALID_TOKEN);
+			yyextra->lookahead[0].token = core_yylex(&(yyextra->lookahead[0].lval),
+													 &(yyextra->lookahead[0].loc),
+													 yyscanner);
+			if (yyextra->lookahead[0].token == SCONST)
+			{
+				return cur_token;
+			}else if (yyextra->lookahead[0].token != 0)
+			{
+				ora_yy_lookahead_type *lookahead;
+				char *scanbuf;
+				int wait_end_keyword;
+				yyextra->lookahead[1].token = core_yylex(&(yyextra->lookahead[1].lval),
+														 &(yyextra->lookahead[1].loc),
+														 yyscanner);
+				switch(yyextra->lookahead[1].token)
+				{
+				case BINARY:
+				case INSENSITIVE:
+				case NO:
+				case SCROLL:
+				case CURSOR:
+					return cur_token;
+				default:
+					break;
+				}
+
+				/*
+				 * now we are in block code
+				 * first find BEGIN keyword
+				 */
+				lookahead = &(yyextra->lookahead[1]);
+				for(;;)
+				{
+					lookahead->token = core_yylex(&(lookahead->lval),
+												  &(lookahead->loc),
+												  yyscanner);
+					if (lookahead->token == 0)
+						parser_yyerror("syntax error");
+					else if (lookahead->token == BEGIN_P)
+						break;
+				}
+
+				/* second found END keyword */
+				scanbuf = yyextra->core_yy_extra.scanbuf;
+				wait_end_keyword = 1;
+				for(;;)
+				{
+					lookahead->token = core_yylex(&(lookahead->lval),
+												  &(lookahead->loc),
+												  yyscanner);
+					switch(lookahead->token)
+					{
+					case 0:
+						parser_yyerror("syntax error");
+						break;
+					case BEGIN_P:
+					case CASE:
+						++wait_end_keyword;
+						break;
+					case IDENT:
+						if (scanbuf[lookahead->loc] != '"' &&
+							(strcmp(lookahead->lval.str, "if") == 0 ||
+							 strcmp(lookahead->lval.str, "loop") == 0))
+						{
+							++wait_end_keyword;
+						}
+						break;
+					case END_P:
+						--wait_end_keyword;
+						break;
+					default:
+						break;
+					}
+					if (wait_end_keyword == 0)
+						break;
+				}
+
+				/* make SCONST, include */
+				yyextra->lookahead[0].lval.str = pnstrdup(scanbuf + *lloc,
+														  /* 3 is length of END keywork */
+														  (lookahead->loc - *lloc)+3);
+				yyextra->lookahead[0].loc = *lloc;
+				yyextra->lookahead[0].token = SCONST;
+				yyextra->lookahead[1].token = INVALID_TOKEN;
+			}
+		}
+	}
+
 	switch(cur_token)
 	{
 	/* find "(+)" token */
@@ -6575,6 +6682,9 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 		/* now we have "connect by" token */
 		cur_token = CONNECT_BY;
 		yyextra->lookahead[0].token = INVALID_TOKEN;
+		break;
+	case ';':
+		yyextra->parsing_first_token = true;
 		break;
 	default:
 		break;

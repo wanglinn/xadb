@@ -29,6 +29,7 @@ typedef struct ora_yy_extra_type
 	ora_yy_lookahead_type lookahead[ORA_YY_MAX_LOOKAHEAD];
 
 	bool has_no_alias_subquery;
+	bool parsing_first_token;
 }ora_yy_extra_type;
 
 /*
@@ -49,4 +50,3 @@ extern PGDLLIMPORT const struct ScanKeyword OraScanKeywords[];
 extern PGDLLIMPORT const int OraNumScanKeywords;
 
 #endif /* ORA_GRAMPARSE_H */
-
