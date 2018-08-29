@@ -1394,7 +1394,7 @@ read_datatype(int tok)
 			}
 		}
 	}
-	else if (plpgsql_token_is_unreserved_keyword(tok))
+	else if (plorasql_token_is_unreserved_keyword(tok))
 	{
 		char   *dtname = pstrdup(yylval.keyword);
 

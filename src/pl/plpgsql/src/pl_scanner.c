@@ -537,6 +537,21 @@ plpgsql_token_is_unreserved_keyword(int token)
 	return false;
 }
 
+#ifdef ADB_GRAM_ORA
+bool plorasql_token_is_unreserved_keyword(int token)
+{
+	int			i;
+
+	for (i = 0; i < num_plora_unreserved_keywords; i++)
+	{
+		if (plora_unreserved_keywords[i].value == token)
+			return true;
+	}
+	return false;
+
+}
+#endif /* ADB_GRAM_ORA */
+
 /*
  * Append the function text starting at startlocation and extending to
  * (not including) endlocation onto the existing contents of "buf".
@@ -764,7 +779,7 @@ void plorasql_scanner_init(const char *str)
 	scanorig = str;
 
 	/* Other setup */
-	plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
+	plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_DECLARE;
 	plpgsql_yytoken = 0;
 
 	num_pushbacks = 0;

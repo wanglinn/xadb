@@ -1188,6 +1188,7 @@ extern int	plpgsql_latest_lineno(void);
 extern void plpgsql_scanner_init(const char *str);
 extern void plpgsql_scanner_finish(void);
 #ifdef ADB_GRAM_ORA
+extern bool plorasql_token_is_unreserved_keyword(int token);
 extern void plorasql_scanner_init(const char *str);
 extern int	plorasql_yylex(void);
 #endif /* ADB_GRAM_ORA */
