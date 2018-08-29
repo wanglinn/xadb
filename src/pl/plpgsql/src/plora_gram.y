@@ -180,7 +180,7 @@ static PLpgSQL_stmt		*make_stmt_raise(int lloc, int elevel, char *name,
 
 %type <datum>	assign_var
 
-%type <declhdr> decl_sect
+%type <declhdr> decl_sect decl_sect_top
 %type <varname> decl_varname
 %type <boolean>	decl_const decl_notnull exit_type
 %type <expr>	decl_defval
@@ -196,7 +196,7 @@ static PLpgSQL_stmt		*make_stmt_raise(int lloc, int elevel, char *name,
 %type <ival>	raise_level opt_raise_level
 
 %type <list>	proc_sect stmt_elsifs stmt_else
-%type <stmt>	proc_stmt pl_block
+%type <stmt>	proc_stmt pl_block pl_block_top
 %type <stmt>	stmt_assign stmt_if /*stmt_loop stmt_while stmt_exit*/
 %type <stmt>	stmt_return stmt_raise /*stmt_assert stmt_execsql
 %type <stmt>	stmt_dynexecute stmt_for stmt_perform stmt_getdiag
@@ -350,7 +350,7 @@ static PLpgSQL_stmt		*make_stmt_raise(int lloc, int elevel, char *name,
 %token <keyword> POK_ZONE
 %%
 
-pl_function		: pl_block opt_semi
+pl_function		: pl_block_top opt_semi
 					{
 						plpgsql_parse_result = (PLpgSQL_stmt_block *) $1;
 					}
@@ -358,6 +358,63 @@ pl_function		: pl_block opt_semi
 
 opt_semi		:
 				| ';'
+				;
+
+pl_block_top	: decl_sect_top POK_BEGIN proc_sect exception_sect POK_END opt_label
+					{
+						PLpgSQL_stmt_block *new;
+
+						new = palloc0(sizeof(PLpgSQL_stmt_block));
+
+						new->cmd_type	= PLPGSQL_STMT_BLOCK;
+						new->lineno		= plpgsql_location_to_lineno(@2);
+						new->label		= $1.label;
+						new->n_initvars = $1.n_initvars;
+						new->initvarnos = $1.initvarnos;
+						new->body		= $3;
+						new->exceptions	= $4;
+
+						check_labels($1.label, $6, @6);
+						plpgsql_ns_pop();
+
+						$$ = (PLpgSQL_stmt *)new;
+					}
+				;
+
+/* top block DECLARE is optional */
+decl_sect_top	: opt_block_label
+					{
+						/* done with decls, so resume identifier lookup */
+						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
+						$$.label	  = $1;
+						$$.n_initvars = 0;
+						$$.initvarnos = NULL;
+					}
+				| opt_block_label decl_start
+					{
+						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
+						$$.label	  = $1;
+						$$.n_initvars = 0;
+						$$.initvarnos = NULL;
+					}
+				| opt_block_label decl_start decl_stmts
+					{
+						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
+						$$.label	  = $1;
+						/* Remember variables declared in decl_stmts */
+						$$.n_initvars = plpgsql_add_initdatums(&($$.initvarnos));
+					}
+				| opt_block_label decl_stmts_top
+					{
+						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
+						$$.label	  = $1;
+						/* Remember variables declared in decl_stmts */
+						$$.n_initvars = plpgsql_add_initdatums(&($$.initvarnos));
+					}
+				;
+
+decl_stmts_top	: decl_stmts_top decl_statement
+				| decl_statement
 				;
 
 pl_block		: decl_sect POK_BEGIN proc_sect exception_sect POK_END opt_label
