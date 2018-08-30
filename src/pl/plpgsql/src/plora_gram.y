@@ -1727,6 +1727,30 @@ tok_is_keyword(int token, union YYSTYPE *lval,
 	return false;				/* not the keyword */
 }
 
+static bool
+tok_is_reserved_keyword(int token, union YYSTYPE *lval,
+			   int kw_token, const char *kw_str)
+{
+	if (token == kw_token)
+	{
+		/* Normal case, was recognized by scanner (no conflicting variable) */
+		return true;
+	}
+	else if (token == T_WORD)
+	{
+		/*
+		 * It's a variable, so recheck the string name.  Note we will not
+		 * match composite names (hence an reserved word followed by "."
+		 * will not be recognized).
+		 */
+		if (!lval->word.quoted &&
+			lval->word.ident != NULL &&
+			strcmp(lval->word.ident, kw_str) == 0)
+			return true;
+	}
+	return false;				/* not the keyword */
+}
+
 /*
  * Convenience routine to complain when we expected T_DATUM and got T_WORD,
  * ie, unrecognized variable.
@@ -1947,8 +1971,8 @@ read_datatype(int tok)
 		if (tok == '%')
 		{
 			tok = yylex();
-			if (tok_is_keyword(tok, &yylval,
-							   POK_TYPE, "type"))
+			if (tok_is_reserved_keyword(tok, &yylval,
+										POK_TYPE, "type"))
 			{
 				result = plpgsql_parse_wordtype(dtname);
 				if (result)
@@ -1964,8 +1988,8 @@ read_datatype(int tok)
 		if (tok == '%')
 		{
 			tok = yylex();
-			if (tok_is_keyword(tok, &yylval,
-							   POK_TYPE, "type"))
+			if (tok_is_reserved_keyword(tok, &yylval,
+										POK_TYPE, "type"))
 			{
 				result = plpgsql_parse_wordtype(dtname);
 				if (result)
@@ -1981,8 +2005,8 @@ read_datatype(int tok)
 		if (tok == '%')
 		{
 			tok = yylex();
-			if (tok_is_keyword(tok, &yylval,
-							   POK_TYPE, "type"))
+			if (tok_is_reserved_keyword(tok, &yylval,
+										POK_TYPE, "type"))
 			{
 				result = plpgsql_parse_cwordtype(dtnames);
 				if (result)
