@@ -753,8 +753,8 @@ plpgsql_scanner_init(const char *str)
 	 */
 	scanorig = str;
 
-	/* Other setup */
-	plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
+	/* Other setup, top DECLARE keyword is optional */
+	plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_DECLARE;
 	plpgsql_yytoken = 0;
 
 	num_pushbacks = 0;
