@@ -52,7 +52,6 @@ else
 endif
 	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_gram.c gram.c gram.y "$<"
 	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_gram.h gram.h gram.y "$<"
-	rm -f tmp_gram.h tmp_gram.c
 endif
 
 ora_gram.c: BISONFLAGS += -d
@@ -64,9 +63,8 @@ ifdef BISON
 else
 	@$(missing) bison gram.y $@
 endif
-	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_ora_gram.c ora_gram.c gram.y "$<"
-	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_ora_gram.h ora_gram.h gram.y "$<"
-	rm -f tmp_ora_gram.h tmp_ora_gram.c
+	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_ora_gram.c ora_gram.c ora_gram.y "$<"
+	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_ora_gram.h ora_gram.h ora_gram.y "$<"
 endif
 
 scan.c: FLEXFLAGS = -CF -p -p
@@ -81,4 +79,4 @@ gram.o ora_gram.o scan.o parser.o: gram.h
 # gram.c, gram.h, and scan.c are in the distribution tarball, so they
 # are not cleaned here.
 clean distclean maintainer-clean:
-	rm -f lex.backup
+	rm -f lex.backup tmp_gram.h tmp_gram.c tmp_ora_gram.h tmp_ora_gram.c
