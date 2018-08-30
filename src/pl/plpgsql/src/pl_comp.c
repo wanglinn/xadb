@@ -259,7 +259,7 @@ PLpgSQL_function *plorasql_compile(FunctionCallInfo fcinfo, bool forValidator)
 	PLpgSQL_function *func;
 	func = plsql_compile(fcinfo,
 						 forValidator,
-						 plpgsql_scanner_init,
+						 plorasql_scanner_init,
 						 plorasql_yyparse);
 	func->grammar = PARSE_GRAM_ORACLE;
 	return func;

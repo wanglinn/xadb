@@ -2640,7 +2640,7 @@ check_sql_expr(const char *stmt, int location, int leaderlen)
 	error_context_stack = &syntax_errcontext;
 
 	oldCxt = MemoryContextSwitchTo(plpgsql_compile_tmp_cxt);
-	(void) raw_parser(stmt);
+	(void) ora_raw_parser(stmt);
 	MemoryContextSwitchTo(oldCxt);
 
 	/* Restore former ereport callback */
