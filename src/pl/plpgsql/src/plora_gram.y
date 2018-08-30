@@ -120,6 +120,8 @@ static	void			 check_labels(const char *start_label,
 									  int end_location);
 static PLpgSQL_stmt		*make_stmt_raise(int lloc, int elevel, char *name,
 										 char *message, List *params);
+static PLpgSQL_expr    *read_cursor_args(PLpgSQL_var *cursor, int until, const char *expected);
+
 %}
 
 %expect 0
@@ -148,8 +150,7 @@ static PLpgSQL_stmt		*make_stmt_raise(int lloc, int elevel, char *name,
 			char *name;
 			int  lineno;
 			PLpgSQL_datum   *scalar;
-			PLpgSQL_rec		*rec;
-			PLpgSQL_row		*row;
+			PLpgSQL_datum   *row;
 		}						forvariable;
 		struct
 		{
@@ -187,23 +188,26 @@ static PLpgSQL_stmt		*make_stmt_raise(int lloc, int elevel, char *name,
 %type <dtype>	decl_datatype
 
 %type <expr>	expr_until_semi/* expr_until_rightbracket*/
-%type <expr>	expr_until_then /*expr_until_loop opt_expr_until_when*/
+%type <expr>	expr_until_then expr_until_loop /*opt_expr_until_when*/
 %type <expr>	opt_exitcond
 
-%type <str>		any_identifier opt_block_label /*opt_loop_label*/ opt_label
+%type <str>		any_identifier opt_block_label opt_loop_label opt_label
 /*%type <str>		option_value raise_exception*/
 %type <str>		raise_exception
 %type <ival>	raise_level opt_raise_level
 
 %type <list>	proc_sect stmt_elsifs stmt_else
 %type <stmt>	proc_stmt pl_block pl_block_top
-%type <stmt>	stmt_assign stmt_if /*stmt_loop stmt_while stmt_exit*/
+%type <stmt>	stmt_assign stmt_if stmt_loop stmt_while stmt_exit
 %type <stmt>	stmt_return stmt_raise /*stmt_assert stmt_execsql
 %type <stmt>	stmt_dynexecute stmt_for stmt_perform stmt_getdiag
 %type <stmt>	stmt_open stmt_fetch stmt_move stmt_close stmt_null
 %type <stmt>	stmt_case stmt_foreach_a*/
-%type <stmt>	stmt_exit
 %type <stmt>	stmt_goto
+%type <stmt>	for_control
+%type <stmt>	stmt_for
+%type <loop_body>	loop_body
+%type <forvariable>	for_variable
 
 /*%type <list>	proc_exceptions*/
 %type <exception_block> exception_sect
@@ -685,6 +689,12 @@ proc_stmt		: pl_block ';'
 						{ $$ = $2; castStmt(raise, RAISE, $$)->label = $1; }
 				| stmt_goto
 						{ $$ = $1; }
+				| stmt_loop
+						{ $$ = $1; }
+				| stmt_while
+						{ $$ = $1; }
+				| stmt_for
+						{ $$ = $1; }
 				;
 
 stmt_assign		: assign_var assign_operator expr_until_semi
@@ -911,9 +921,9 @@ expr_until_then :
 					{ $$ = read_sql_expression(POK_THEN, "THEN"); }
 				;
 
-/*expr_until_loop :
+expr_until_loop :
 					{ $$ = read_sql_expression(POK_LOOP, "LOOP"); }
-				;*/
+				;
 
 opt_block_label	:
 					{
@@ -927,7 +937,7 @@ opt_block_label	:
 					}
 				;
 
-/*opt_loop_label	:
+opt_loop_label	:
 					{
 						plpgsql_ns_push(NULL, PLPGSQL_LABEL_LOOP);
 						$$ = NULL;
@@ -937,7 +947,7 @@ opt_block_label	:
 						plpgsql_ns_push($2, PLPGSQL_LABEL_LOOP);
 						$$ = $2;
 					}
-				;*/
+				;
 
 opt_label	:
 					{
@@ -972,6 +982,386 @@ any_identifier	: T_WORD
 						if ($1.ident == NULL) /* composite name not OK */
 							yyerror("syntax error");
 						$$ = $1.ident;
+					}
+				;
+
+stmt_loop		: opt_loop_label POK_LOOP loop_body
+					{
+						PLpgSQL_stmt_loop *new;
+
+						new = palloc0(sizeof(PLpgSQL_stmt_loop));
+						new->cmd_type = PLPGSQL_STMT_LOOP;
+						new->lineno   = plpgsql_location_to_lineno(@2);
+						new->label	  = $1;
+						new->body	  = $3.stmts;
+
+						check_labels($1, $3.end_label, $3.end_label_location);
+						plpgsql_ns_pop();
+
+						$$ = (PLpgSQL_stmt *)new;
+					}
+				;
+
+stmt_while		: opt_loop_label POK_WHILE expr_until_loop loop_body
+					{
+						PLpgSQL_stmt_while *new;
+
+						new = palloc0(sizeof(PLpgSQL_stmt_while));
+						new->cmd_type = PLPGSQL_STMT_WHILE;
+						new->lineno   = plpgsql_location_to_lineno(@2);
+						new->label	  = $1;
+						new->cond	  = $3;
+						new->body	  = $4.stmts;
+
+						check_labels($1, $4.end_label, $4.end_label_location);
+						plpgsql_ns_pop();
+
+						$$ = (PLpgSQL_stmt *)new;
+					}
+				;
+
+stmt_for		: opt_loop_label POK_FOR for_control loop_body
+					{
+						/* This runs after we've scanned the loop body */
+						if ($3->cmd_type == PLPGSQL_STMT_FORI)
+						{
+							PLpgSQL_stmt_fori		*new;
+
+							new = (PLpgSQL_stmt_fori *) $3;
+							new->lineno   = plpgsql_location_to_lineno(@2);
+							new->label	  = $1;
+							new->body	  = $4.stmts;
+							$$ = (PLpgSQL_stmt *) new;
+						}
+						else
+						{
+							PLpgSQL_stmt_forq		*new;
+
+							Assert($3->cmd_type == PLPGSQL_STMT_FORS ||
+								   $3->cmd_type == PLPGSQL_STMT_FORC ||
+								   $3->cmd_type == PLPGSQL_STMT_DYNFORS);
+							/* forq is the common supertype of all three */
+							new = (PLpgSQL_stmt_forq *) $3;
+							new->lineno   = plpgsql_location_to_lineno(@2);
+							new->label	  = $1;
+							new->body	  = $4.stmts;
+							$$ = (PLpgSQL_stmt *) new;
+						}
+
+						check_labels($1, $4.end_label, $4.end_label_location);
+						/* close namespace started in opt_loop_label */
+						plpgsql_ns_pop();
+					}
+				;
+
+for_control		: for_variable POK_IN
+					{
+						int			tok = yylex();
+						int			tokloc = yylloc;
+
+						if (tok == POK_EXECUTE)
+						{
+							/* EXECUTE means it's a dynamic FOR loop */
+							PLpgSQL_stmt_dynfors	*new;
+							PLpgSQL_expr			*expr;
+							int						term;
+
+							expr = read_sql_expression2(POK_LOOP, POK_USING,
+														"LOOP or USING",
+														&term);
+
+							new = palloc0(sizeof(PLpgSQL_stmt_dynfors));
+							new->cmd_type = PLPGSQL_STMT_DYNFORS;
+							if ($1.row)
+							{
+								new->var = (PLpgSQL_variable *) $1.row;
+								check_assignable($1.row, @1);
+							}
+							else if ($1.scalar)
+							{
+								/* convert single scalar to list */
+								new->var = (PLpgSQL_variable *)
+									make_scalar_list1($1.name, $1.scalar,
+													  $1.lineno, @1);
+								/* make_scalar_list1 did check_assignable */
+							}
+							else
+							{
+								ereport(ERROR,
+										(errcode(ERRCODE_DATATYPE_MISMATCH),
+										 errmsg("loop variable of loop over rows must be a record or row variable or list of scalar variables"),
+										 parser_errposition(@1)));
+							}
+							new->query = expr;
+
+							if (term == POK_USING)
+							{
+								do
+								{
+									expr = read_sql_expression2(',', POK_LOOP,
+																", or LOOP",
+																&term);
+									new->params = lappend(new->params, expr);
+								} while (term == ',');
+							}
+
+							$$ = (PLpgSQL_stmt *) new;
+						}
+						else if (tok == T_DATUM &&
+								 yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_VAR &&
+								 ((PLpgSQL_var *) yylval.wdatum.datum)->datatype->typoid == REFCURSOROID)
+						{
+							/* It's FOR var IN cursor */
+							PLpgSQL_stmt_forc	*new;
+							PLpgSQL_var			*cursor = (PLpgSQL_var *) yylval.wdatum.datum;
+
+							new = (PLpgSQL_stmt_forc *) palloc0(sizeof(PLpgSQL_stmt_forc));
+							new->cmd_type = PLPGSQL_STMT_FORC;
+							new->curvar = cursor->dno;
+
+							/* Should have had a single variable name */
+							if ($1.scalar && $1.row)
+								ereport(ERROR,
+										(errcode(ERRCODE_SYNTAX_ERROR),
+										 errmsg("cursor FOR loop must have only one target variable"),
+										 parser_errposition(@1)));
+
+							/* can't use an unbound cursor this way */
+							if (cursor->cursor_explicit_expr == NULL)
+								ereport(ERROR,
+										(errcode(ERRCODE_SYNTAX_ERROR),
+										 errmsg("cursor FOR loop must use a bound cursor variable"),
+										 parser_errposition(tokloc)));
+
+							/* collect cursor's parameters if any */
+							new->argquery = read_cursor_args(cursor,
+															 POK_LOOP,
+															 "LOOP");
+
+							/* create loop's private RECORD variable */
+							new->var = (PLpgSQL_variable *)
+								plpgsql_build_record($1.name,
+													 $1.lineno,
+													 NULL,
+													 RECORDOID,
+													 true);
+
+							$$ = (PLpgSQL_stmt *) new;
+						}
+						else
+						{
+							PLpgSQL_expr	*expr1;
+							int				expr1loc;
+							bool			reverse = false;
+
+							/*
+							 * We have to distinguish between two
+							 * alternatives: FOR var IN a .. b and FOR
+							 * var IN query. Unfortunately this is
+							 * tricky, since the query in the second
+							 * form needn't start with a SELECT
+							 * keyword.  We use the ugly hack of
+							 * looking for two periods after the first
+							 * token. We also check for the REVERSE
+							 * keyword, which means it must be an
+							 * integer loop.
+							 */
+							if (tok_is_keyword(tok, &yylval,
+											   POK_REVERSE, "reverse"))
+								reverse = true;
+							else
+								plpgsql_push_back_token(tok);
+
+							/*
+							 * Read tokens until we see either a ".."
+							 * or a LOOP. The text we read may not
+							 * necessarily be a well-formed SQL
+							 * statement, so we need to invoke
+							 * read_sql_construct directly.
+							 */
+							expr1 = read_sql_construct(DOT_DOT,
+													   POK_LOOP,
+													   0,
+													   "LOOP",
+													   "SELECT ",
+													   true,
+													   false,
+													   true,
+													   &expr1loc,
+													   &tok);
+
+							if (tok == DOT_DOT)
+							{
+								/* Saw "..", so it must be an integer loop */
+								PLpgSQL_expr		*expr2;
+								PLpgSQL_expr		*expr_by;
+								PLpgSQL_var			*fvar;
+								PLpgSQL_stmt_fori	*new;
+
+								/* Check first expression is well-formed */
+								check_sql_expr(expr1->query, expr1loc, 7);
+
+								/* Read and check the second one */
+								expr2 = read_sql_expression2(POK_LOOP, POK_BY,
+															 "LOOP",
+															 &tok);
+
+								/* Get the BY clause if any */
+								if (tok == POK_BY)
+									expr_by = read_sql_expression(POK_LOOP,
+																  "LOOP");
+								else
+									expr_by = NULL;
+
+								/* Should have had a single variable name */
+								if ($1.scalar && $1.row)
+									ereport(ERROR,
+											(errcode(ERRCODE_SYNTAX_ERROR),
+											 errmsg("integer FOR loop must have only one target variable"),
+											 parser_errposition(@1)));
+
+								/* create loop's private variable */
+								fvar = (PLpgSQL_var *)
+									plpgsql_build_variable($1.name,
+														   $1.lineno,
+														   plpgsql_build_datatype(INT4OID,
+																				  -1,
+																				  InvalidOid),
+														   true);
+
+								new = palloc0(sizeof(PLpgSQL_stmt_fori));
+								new->cmd_type = PLPGSQL_STMT_FORI;
+								new->var	  = fvar;
+								new->reverse  = reverse;
+								new->lower	  = expr1;
+								new->upper	  = expr2;
+								new->step	  = expr_by;
+
+								$$ = (PLpgSQL_stmt *) new;
+							}
+							else
+							{
+								/*
+								 * No "..", so it must be a query loop. We've
+								 * prefixed an extra SELECT to the query text,
+								 * so we need to remove that before performing
+								 * syntax checking.
+								 */
+								char				*tmp_query;
+								PLpgSQL_stmt_fors	*new;
+
+								if (reverse)
+									ereport(ERROR,
+											(errcode(ERRCODE_SYNTAX_ERROR),
+											 errmsg("cannot specify REVERSE in query FOR loop"),
+											 parser_errposition(tokloc)));
+
+								Assert(strncmp(expr1->query, "SELECT ", 7) == 0);
+								tmp_query = pstrdup(expr1->query + 7);
+								pfree(expr1->query);
+								expr1->query = tmp_query;
+
+								check_sql_expr(expr1->query, expr1loc, 0);
+
+								new = palloc0(sizeof(PLpgSQL_stmt_fors));
+								new->cmd_type = PLPGSQL_STMT_FORS;
+								if ($1.row)
+								{
+									new->var = (PLpgSQL_variable *) $1.row;
+									check_assignable($1.row, @1);
+								}
+								else if ($1.scalar)
+								{
+									/* convert single scalar to list */
+									new->var = (PLpgSQL_variable *)
+										make_scalar_list1($1.name, $1.scalar,
+														  $1.lineno, @1);
+									/* make_scalar_list1 did check_assignable */
+								}
+								else
+								{
+									ereport(ERROR,
+											(errcode(ERRCODE_SYNTAX_ERROR),
+											 errmsg("loop variable of loop over rows must be a record or row variable or list of scalar variables"),
+											 parser_errposition(@1)));
+								}
+
+								new->query = expr1;
+								$$ = (PLpgSQL_stmt *) new;
+							}
+						}
+					}
+				;
+
+/*
+ * Processing the for_variable is tricky because we don't yet know if the
+ * FOR is an integer FOR loop or a loop over query results.  In the former
+ * case, the variable is just a name that we must instantiate as a loop
+ * local variable, regardless of any other definition it might have.
+ * Therefore, we always save the actual identifier into $$.name where it
+ * can be used for that case.  We also save the outer-variable definition,
+ * if any, because that's what we need for the loop-over-query case.  Note
+ * that we must NOT apply check_assignable() or any other semantic check
+ * until we know what's what.
+ *
+ * However, if we see a comma-separated list of names, we know that it
+ * can't be an integer FOR loop and so it's OK to check the variables
+ * immediately.  In particular, for T_WORD followed by comma, we should
+ * complain that the name is not known rather than say it's a syntax error.
+ * Note that the non-error result of this case sets *both* $$.scalar and
+ * $$.row; see the for_control production.
+ */
+for_variable	: T_DATUM
+					{
+						$$.name = NameOfDatum(&($1));
+						$$.lineno = plpgsql_location_to_lineno(@1);
+						if ($1.datum->dtype == PLPGSQL_DTYPE_ROW)
+						{
+							$$.scalar = NULL;
+							$$.row = $1.datum;
+						}
+						else
+						{
+							int			tok;
+
+							$$.scalar = $1.datum;
+							$$.row = NULL;
+							/* check for comma-separated list */
+							tok = yylex();
+							plpgsql_push_back_token(tok);
+							if (tok == ',')
+								$$.row = (PLpgSQL_datum *)
+									read_into_scalar_list($$.name,
+														  $$.scalar,
+														  @1);
+						}
+					}
+				| T_WORD
+					{
+						int			tok;
+
+						$$.name = $1.ident;
+						$$.lineno = plpgsql_location_to_lineno(@1);
+						$$.scalar = NULL;
+						$$.row = NULL;
+						/* check for comma-separated list */
+						tok = yylex();
+						plpgsql_push_back_token(tok);
+						if (tok == ',')
+							word_is_not_variable(&($1), @1);
+					}
+				| T_CWORD
+					{
+						/* just to give a better message than "syntax error" */
+						cword_is_not_variable(&($1), @1);
+					}
+				;
+
+loop_body		: proc_sect POK_END POK_LOOP opt_label ';'
+					{
+						$$.stmts = $1;
+						$$.end_label = $4;
+						$$.end_label_location = @4;
 					}
 				;
 
@@ -2380,4 +2770,182 @@ static PLpgSQL_stmt *make_stmt_raise(int lloc, int elevel, char *name,
 	}
 
 	return (PLpgSQL_stmt*)new;
+}
+
+/*
+ * Read the arguments (if any) for a cursor, followed by the until token
+ *
+ * If cursor has no args, just swallow the until token and return NULL.
+ * If it does have args, we expect to see "( arg [, arg ...] )" followed
+ * by the until token, where arg may be a plain expression, or a named
+ * parameter assignment of the form argname := expr. Consume all that and
+ * return a SELECT query that evaluates the expression(s) (without the outer
+ * parens).
+ */
+static PLpgSQL_expr *
+read_cursor_args(PLpgSQL_var *cursor, int until, const char *expected)
+{
+	PLpgSQL_expr *expr;
+	PLpgSQL_row *row;
+	int			tok;
+	int			argc;
+	char	  **argv;
+	StringInfoData ds;
+	char	   *sqlstart = "SELECT ";
+	bool		any_named = false;
+
+	tok = yylex();
+	if (cursor->cursor_explicit_argrow < 0)
+	{
+		/* No arguments expected */
+		if (tok == '(')
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("cursor \"%s\" has no arguments",
+							cursor->refname),
+					 parser_errposition(yylloc)));
+
+		if (tok != until)
+			yyerror("syntax error");
+
+		return NULL;
+	}
+
+	/* Else better provide arguments */
+	if (tok != '(')
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("cursor \"%s\" has arguments",
+						cursor->refname),
+				 parser_errposition(yylloc)));
+
+	/*
+	 * Read the arguments, one by one.
+	 */
+	row = (PLpgSQL_row *) plpgsql_Datums[cursor->cursor_explicit_argrow];
+	argv = (char **) palloc0(row->nfields * sizeof(char *));
+
+	for (argc = 0; argc < row->nfields; argc++)
+	{
+		PLpgSQL_expr *item;
+		int		endtoken;
+		int		argpos;
+		int		tok1,
+				tok2;
+		int		arglocation;
+
+		/* Check if it's a named parameter: "param := value" */
+		plpgsql_peek2(&tok1, &tok2, &arglocation, NULL);
+		if (tok1 == IDENT && tok2 == COLON_EQUALS)
+		{
+			char   *argname;
+			IdentifierLookup save_IdentifierLookup;
+
+			/* Read the argument name, ignoring any matching variable */
+			save_IdentifierLookup = plpgsql_IdentifierLookup;
+			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_DECLARE;
+			yylex();
+			argname = yylval.str;
+			plpgsql_IdentifierLookup = save_IdentifierLookup;
+
+			/* Match argument name to cursor arguments */
+			for (argpos = 0; argpos < row->nfields; argpos++)
+			{
+				if (strcmp(row->fieldnames[argpos], argname) == 0)
+					break;
+			}
+			if (argpos == row->nfields)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("cursor \"%s\" has no argument named \"%s\"",
+								cursor->refname, argname),
+						 parser_errposition(yylloc)));
+
+			/*
+			 * Eat the ":=". We already peeked, so the error should never
+			 * happen.
+			 */
+			tok2 = yylex();
+			if (tok2 != COLON_EQUALS)
+				yyerror("syntax error");
+
+			any_named = true;
+		}
+		else
+			argpos = argc;
+
+		if (argv[argpos] != NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("value for parameter \"%s\" of cursor \"%s\" specified more than once",
+							row->fieldnames[argpos], cursor->refname),
+					 parser_errposition(arglocation)));
+
+		/*
+		 * Read the value expression. To provide the user with meaningful
+		 * parse error positions, we check the syntax immediately, instead of
+		 * checking the final expression that may have the arguments
+		 * reordered. Trailing whitespace must not be trimmed, because
+		 * otherwise input of the form (param -- comment\n, param) would be
+		 * translated into a form where the second parameter is commented
+		 * out.
+		 */
+		item = read_sql_construct(',', ')', 0,
+								  ",\" or \")",
+								  sqlstart,
+								  true, true,
+								  false, /* do not trim */
+								  NULL, &endtoken);
+
+		argv[argpos] = item->query + strlen(sqlstart);
+
+		if (endtoken == ')' && !(argc == row->nfields - 1))
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("not enough arguments for cursor \"%s\"",
+							cursor->refname),
+					 parser_errposition(yylloc)));
+
+		if (endtoken == ',' && (argc == row->nfields - 1))
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("too many arguments for cursor \"%s\"",
+							cursor->refname),
+					 parser_errposition(yylloc)));
+	}
+
+	/* Make positional argument list */
+	initStringInfo(&ds);
+	appendStringInfoString(&ds, sqlstart);
+	for (argc = 0; argc < row->nfields; argc++)
+	{
+		Assert(argv[argc] != NULL);
+
+		/*
+		 * Because named notation allows permutated argument lists, include
+		 * the parameter name for meaningful runtime errors.
+		 */
+		appendStringInfoString(&ds, argv[argc]);
+		if (any_named)
+			appendStringInfo(&ds, " AS %s",
+							 quote_identifier(row->fieldnames[argc]));
+		if (argc < row->nfields - 1)
+			appendStringInfoString(&ds, ", ");
+	}
+	appendStringInfoChar(&ds, ';');
+
+	expr = palloc0(sizeof(PLpgSQL_expr));
+	expr->query			= pstrdup(ds.data);
+	expr->plan			= NULL;
+	expr->paramnos		= NULL;
+	expr->rwparam		= -1;
+	expr->ns            = plpgsql_ns_top();
+	pfree(ds.data);
+
+	/* Next we'd better find the until token */
+	tok = yylex();
+	if (tok != until)
+		yyerror("syntax error");
+
+	return expr;
 }
