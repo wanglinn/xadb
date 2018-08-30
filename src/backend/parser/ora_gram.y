@@ -166,7 +166,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 %type <alias>	alias_clause opt_alias_clause
 
 %type <boolean>	opt_all opt_byte_char opt_restart_seqs opt_verbose opt_no_inherit
-				opt_unique opt_concurrently opt_with_data
+				opt_unique opt_concurrently opt_with_data opt_or_replace
 
 %type <dbehavior>	opt_drop_behavior
 
@@ -211,7 +211,8 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	ColQualList
 	definition def_list
 	explain_option_list expr_list extract_list
-	from_clause from_list func_arg_list func_name for_locking_clause for_locking_items
+	from_clause from_list func_arg_list func_args_with_defaults func_args_with_defaults_list
+	func_name for_locking_clause for_locking_items
 	group_clause
 	indirection insert_column_list interval_second index_params
 	locked_rels_list
@@ -239,7 +240,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	BlockCodeStmt
 	ClosePortalStmt
 	common_table_expr columnDef columnref CreateStmt ctext_expr columnElem
-	ColConstraint ColConstraintElem ConstraintAttr CreateRoleStmt
+	ColConstraint ColConstraintElem ConstraintAttr CreateProcedureStmt CreateRoleStmt
 	case_default case_expr /*case_when*/ case_when_item c_expr
 	ConstraintElem CreateSeqStmt CreateAsStmt connect_by_clause
 	DeclareCursorStmt DeleteStmt DropStmt def_arg
@@ -276,6 +277,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	opt_boolean_or_string opt_encoding OptConsTableSpace opt_index_name
 	opt_existing_window_name
 	OptTableSpace
+	param_name
 	RoleId
 	Sconst
 	type_function_name
@@ -293,6 +295,8 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 %type <vsetstmt> set_rest set_rest_more
 %type <windef> over_clause window_specification opt_frame_clause frame_extent frame_bound
 %type <with> with_clause opt_with_clause
+%type <fun_param> func_arg func_arg_with_default
+%type <fun_param_mode> arg_class
 
 /* ADB_BEGIN */
 %type <distby>	OptDistributeBy
@@ -304,17 +308,17 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 
 %token <keyword> ABSOLUTE_P ACCESS ADD_P ALL ALTER ANALYZE ANALYSE AND ABORT_P
 	ANY AS ASC AUDIT AUTHORIZATION ACTION ALWAYS
-	ADMIN
+	ADMIN AUTHID
 	BACKWARD BEGIN_P BETWEEN BFILE BIGINT BINARY BINARY_FLOAT BINARY_DOUBLE
 	BLOB BOOLEAN_P BOTH BY BYTE_P
 	CASCADE CASE CAST CATALOG_P CHAR_P CHARACTERISTICS CHECK CLOSE CLUSTER
 	COLUMN COMMIT COMMENT COLLATION CONVERSION_P CONNECTION
 	COMMITTED COMPRESS COLLATE CONNECT CONSTRAINT CYCLE NOCYCLE
 	CONSTRAINTS CLOB COALESCE CONTENT_P CONTINUE_P CREATE CROSS CURRENT_DATE
-	CURRENT_P CURRENT_TIMESTAMP CURRVAL CURSOR CONCURRENTLY CONFIGURATION
+	CURRENT_P CURRENT_TIMESTAMP CURRENT_USER CURRVAL CURSOR CONCURRENTLY CONFIGURATION
 	CACHE NOCACHE COMMENTS
 	DATE_P DAY_P DBTIMEZONE_P DEC DECIMAL_P DECLARE DEFAULT DEFERRABLE DELETE_P DESC DISTINCT
-	DO DOCUMENT_P DOUBLE_P DROP DEFERRED DATA_P DEFAULTS
+	DO DOCUMENT_P DOUBLE_P DROP DEFERRED DATA_P DEFAULTS DEFINER
 	DISABLE_P PREPARE PREPARED DOMAIN_P DICTIONARY
 
 	/* ADB_BEGIN */
@@ -326,7 +330,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	FALSE_P FETCH FILE_P FIRST_P FLOAT_P FOLLOWING FOR FORWARD FROM FOREIGN FULL
 	GLOBAL GRANT GREATEST GROUP_P HAVING
 	HOLD HOUR_P
-	IDENTIFIED IF_P IMMEDIATE IN_P INCREMENT INDEX INITIAL_P INSERT INHERIT INITIALLY
+	IDENTIFIED IF_P IMMEDIATE IN_P INOUT INCREMENT INDEX INITIAL_P INSERT INHERIT INITIALLY
 	INHERITS INCLUDING INDEXES INNER_P INSENSITIVE
 	IDENTITY_P INTEGER INTERSECT INTO INTERVAL INT_P IS ISOLATION
 	LAST_P
@@ -339,10 +343,10 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	NUMERIC NVARCHAR2 NO
 	/* PGXC add NODE token */
 	NODE NULLS_P
-	OF OFF OFFLINE OFFSET ON ONLINE ONLY OPERATOR OPTION OR ORDER OUTER_P
+	OF OFF OFFLINE OFFSET ON ONLINE ONLY OPERATOR OPTION OR ORDER OUT_P OUTER_P
 	OWNER OIDS OPTIONS OVER OWNED
 	PCTFREE PRECISION PRESERVE PRIOR PRIVILEGES PUBLIC PURGE
-	PARTITION PRECEDING PARTIAL PRIMARY PARSER PASSWORD
+	PARTITION PRECEDING PROCEDURE PARTIAL PRIMARY PARSER PASSWORD
 	RANGE RAW READ REAL RECURSIVE RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
 	RETURNING RETURN_P REVOKE REUSE RIGHT ROLE ROLLBACK ROW ROWID ROWNUM ROWS
 	REFERENCES REPLICA RULE RELATIVE_P RELEASE
@@ -473,6 +477,7 @@ stmt:
 	| CreateStmt
 	| CreateSeqStmt
 	| CreateRoleStmt
+	| CreateProcedureStmt
 	| DeclareCursorStmt
 	| DeleteStmt
 	| DropStmt
@@ -689,6 +694,140 @@ AlterOptRoleElem:
 								 errmsg("unrecognized role option \"%s\"", $1),
 									 parser_errposition(@1)));
 				}
+		;
+
+/*****************************************************************************
+ *
+ * CREATE PROCEDURE
+ *
+ *****************************************************************************/
+
+CreateProcedureStmt:
+			CREATE opt_or_replace PROCEDURE func_name func_args_with_defaults
+			create_procedure_invoker_rights_clause create_procedure_is_or_as Sconst
+				{
+					CreateFunctionStmt *n = makeNode(CreateFunctionStmt);
+					n->replace = $2;
+					n->funcname = $4;
+					n->parameters = $5;
+					n->returnType = NULL;
+					n->options = list_make2(makeDefElem("as", (Node *)list_make1(makeString($8)), @8),
+											makeDefElem("language", (Node *)makeString("plorasql"), -1));
+					n->withClause = NULL;
+					/* ignore invoker_rights_clause */
+					$$ = (Node *)n;
+				}
+			;
+
+opt_or_replace:
+			OR REPLACE								{ $$ = true; }
+			| /*EMPTY*/								{ $$ = false; }
+		;
+
+create_procedure_invoker_rights_clause:
+			  AUTHID CURRENT_USER
+			| AUTHID DEFINER
+			| /* empty */
+			;
+
+create_procedure_is_or_as: is_or_as
+				{
+					ora_yyget_extra(yyscanner)->parsing_code_block = true;
+				}
+			;
+
+is_or_as:
+			  AS
+			| IS
+			;
+/*
+ * func_args_with_defaults is separate because we only want to accept
+ * defaults in CREATE FUNCTION, not in ALTER etc.
+ */
+func_args_with_defaults:
+		'(' func_args_with_defaults_list ')'		{ $$ = $2; }
+		| '(' ')'									{ $$ = NIL; }
+		;
+
+func_args_with_defaults_list:
+		func_arg_with_default						{ $$ = list_make1($1); }
+		| func_args_with_defaults_list ',' func_arg_with_default
+													{ $$ = lappend($1, $3); }
+		;
+
+/*
+ * The style with arg_class first is SQL99 standard, but Oracle puts
+ * param_name first; accept both since it's likely people will try both
+ * anyway.  Don't bother trying to save productions by letting arg_class
+ * have an empty alternative ... you'll get shift/reduce conflicts.
+ *
+ * We can catch over-specified arguments here if we want to,
+ * but for now better to silently swallow typmod, etc.
+ * - thomas 2000-03-22
+ */
+func_arg:
+			arg_class param_name func_type
+				{
+					FunctionParameter *n = makeNode(FunctionParameter);
+					n->name = $2;
+					n->argType = $3;
+					n->mode = $1;
+					n->defexpr = NULL;
+					$$ = n;
+				}
+			| param_name arg_class func_type
+				{
+					FunctionParameter *n = makeNode(FunctionParameter);
+					n->name = $1;
+					n->argType = $3;
+					n->mode = $2;
+					n->defexpr = NULL;
+					$$ = n;
+				}
+			| param_name func_type
+				{
+					FunctionParameter *n = makeNode(FunctionParameter);
+					n->name = $1;
+					n->argType = $2;
+					n->mode = FUNC_PARAM_IN;
+					n->defexpr = NULL;
+					$$ = n;
+				}
+		;
+
+func_arg_with_default:
+		func_arg
+				{
+					$$ = $1;
+				}
+		| func_arg DEFAULT a_expr
+				{
+					$$ = $1;
+					$$->defexpr = $3;
+				}
+		| func_arg '=' a_expr
+				{
+					$$ = $1;
+					$$->defexpr = $3;
+				}
+		| func_arg COLON_EQUALS a_expr
+				{
+					$$ = $1;
+					$$->defexpr = $3;
+				}
+		;
+
+/* INOUT is SQL99 standard, IN OUT is for Oracle compatibility */
+arg_class:	IN_P								{ $$ = FUNC_PARAM_IN; }
+			| OUT_P								{ $$ = FUNC_PARAM_OUT; }
+			| INOUT								{ $$ = FUNC_PARAM_INOUT; }
+			| IN_P OUT_P						{ $$ = FUNC_PARAM_INOUT; }
+		;
+
+/*
+ * Ideally param_name should be ColId, but that causes too many conflicts.
+ */
+param_name:	type_function_name
 		;
 
 /*****************************************************************************
@@ -1896,7 +2035,6 @@ reloption_elem:
 
 /* Note: any simple identifier will be returned as a type name! */
 def_arg:	func_type						{ $$ = (Node *)$1; }
-			| reserved_keyword				{ $$ = (Node *)makeString(pstrdup($1)); }
 			| qual_all_Op					{ $$ = (Node *)$1; }
 			| NumericOnly					{ $$ = (Node *)$1; }
 			| Sconst						{ $$ = (Node *)makeString($1); }
@@ -2434,6 +2572,10 @@ Character:
 		{
 			$$ = SystemTypeNameLocation("varchar", @1);
 			$$->typmods = $2;
+		}
+	| VARCHAR2
+		{
+			$$ = SystemTypeNameLocation("varchar2", @1);
 		}
 	| VARCHAR2 '(' Iconst opt_byte_char ')'
 		{
@@ -6127,12 +6269,14 @@ col_name_keyword:
 	| EXISTS
 	| FLOAT_P
 	| INT_P
+	| INOUT
 	| INTEGER
 	| LONG_P
 	| NUMBER_P
 	| SETOF
 	| SMALLINT
 	| NUMERIC
+	| OUT_P
 	| REAL
 	| VARCHAR
 	| TIME
@@ -6268,6 +6412,7 @@ unreserved_keyword:
 	| ALWAYS
 	| ACTION
 	| ALTER
+	| AUTHID
 	| BACKWARD
 	| BEGIN_P
 	| BFILE
@@ -6290,12 +6435,14 @@ unreserved_keyword:
 	| CONNECT
 	| CONSTRAINTS
 	/*| CURRVAL*/
+	| CURRENT_USER
 	| CURSOR
 	| CYCLE
 	| NOCYCLE
 	| DAY_P
 	| DECLARE
 	| DEFERRED
+	| DEFINER
 	| DICTIONARY
 	| DOCUMENT_P
 	| DOUBLE_P
@@ -6368,6 +6515,7 @@ unreserved_keyword:
 	| PREPARED
 	| PRESERVE
 	| PRIMARY
+	| PROCEDURE
 	| PARTIAL
 	| PRIVILEGES
 	| PURGE
@@ -6428,8 +6576,6 @@ unreserved_keyword:
 	;
 
 %%
-
-#define INVALID_TOKEN -1
 
 /*
  * Process result of ConstraintAttributeSpec, and set appropriate bool flags
@@ -6505,10 +6651,10 @@ processCASbits(int cas_bits, int location, const char *constrType,
 void ora_parser_init(ora_yy_extra_type *yyext)
 {
 	yyext->parsetree = NIL;
-	StaticAssertExpr(lengthof(yyext->lookahead)==2, "change init code");
-	yyext->lookahead[0].token = yyext->lookahead[1].token = INVALID_TOKEN;
+	yyext->count_look = 0;
 	yyext->has_no_alias_subquery = false;
 	yyext->parsing_first_token = true;
+	yyext->parsing_code_block = false;
 }
 
 static void ora_yyerror(YYLTYPE *yyloc, core_yyscan_t yyscanner, const char *msg)
@@ -6532,23 +6678,73 @@ static Node *makeDeleteStmt(RangeVar *range, Alias *alias, WithClause *with
 	return (Node*)stmt;
 }
 
+#define HAVE_LOOKAHEAD(extra)	(extra->count_look > 0)
+#define LEX_LOOKAHEAD(p)		do{											\
+	if (HAVE_LOOKAHEAD(yyextra))											\
+	{																		\
+		(p)->token = pop_lookahead(&((p)->lval),							\
+								   &((p)->loc),								\
+								   &((p)->length),							\
+								   yyextra);								\
+	}else																	\
+	{																		\
+		(p)->token = core_yylex(&((p)->lval), &((p)->loc), yyscanner);		\
+		(p)->length = core_yyget_leng(yyscanner);							\
+	}}while(0)
+#define PUSH_LOOKAHEAD(p)	\
+	push_lookahead(yyextra, (p)->lval, (p)->loc, (p)->token, (p)->length)
+
+static ora_yy_lookahead_type* push_empty_look(ora_yy_extra_type *extra)
+{
+	ora_yy_lookahead_type *look;
+	if (extra->count_look == ORA_YY_MAX_LOOKAHEAD)
+		elog(ERROR, "too many tokens pushed back");
+
+	look = &(extra->lookahead[extra->count_look]);
+	++(extra->count_look);
+	return look;
+}
+
+static ora_yy_lookahead_type* push_lookahead(ora_yy_extra_type *extra, core_YYSTYPE lval,
+											 YYLTYPE lloc, int token, size_t length)
+{
+	ora_yy_lookahead_type *look = push_empty_look(extra);
+
+	look->lval = lval;
+	look->length = length;
+	look->loc = lloc;
+	look->token = token;
+
+	return look;
+}
+
+static int pop_lookahead(core_YYSTYPE *lval, YYLTYPE *lloc, size_t *length, ora_yy_extra_type *extra)
+{
+	ora_yy_lookahead_type *look;
+	if (extra->count_look <= 0)
+		elog(ERROR, "empty tokens pushed back");
+
+	look = &(extra->lookahead[--(extra->count_look)]);
+
+	*lloc = look->loc;
+	*lval = look->lval;
+	if (length)
+		*length = look->length;
+
+	return look->token;
+}
+
 static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 {
 	ora_yy_extra_type *yyextra = ora_yyget_extra(yyscanner);
+	ora_yy_lookahead_type look1;
+	ora_yy_lookahead_type look2;
 	int			cur_token;
 
-	if(yyextra->lookahead[0].token != INVALID_TOKEN)
-	{
-		cur_token = yyextra->lookahead[0].token;
-		lvalp->core_yystype = yyextra->lookahead[0].lval;
-		*lloc = yyextra->lookahead[0].loc;
-		memcpy(yyextra->lookahead, &(yyextra->lookahead[1])
-			, sizeof(yyextra->lookahead) - sizeof(yyextra->lookahead[0]));
-		yyextra->lookahead[lengthof(yyextra->lookahead)-1].token = INVALID_TOKEN;
-	}else
-	{
+	if (HAVE_LOOKAHEAD(yyextra))
+		cur_token = pop_lookahead(&(lvalp->core_yystype), lloc, NULL, yyextra);
+	else
 		cur_token = core_yylex(&(lvalp->core_yystype), lloc, yyscanner);
-	}
 
 	if (yyextra->parsing_first_token)
 	{
@@ -6556,132 +6752,137 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 		if (cur_token == DECLARE)
 		{
 			/* find code block */
-			Assert(yyextra->lookahead[0].token == INVALID_TOKEN);
-			yyextra->lookahead[0].token = core_yylex(&(yyextra->lookahead[0].lval),
-													 &(yyextra->lookahead[0].loc),
-													 yyscanner);
-			if (yyextra->lookahead[0].token == SCONST)
+			LEX_LOOKAHEAD(&look1);
+
+			if (look1.token != SCONST &&
+				look1.token != 0)
 			{
-				return cur_token;
-			}else if (yyextra->lookahead[0].token != 0)
-			{
-				ora_yy_lookahead_type *lookahead;
-				char *scanbuf;
-				int wait_end_keyword;
-				yyextra->lookahead[1].token = core_yylex(&(yyextra->lookahead[1].lval),
-														 &(yyextra->lookahead[1].loc),
-														 yyscanner);
-				switch(yyextra->lookahead[1].token)
+				LEX_LOOKAHEAD(&look2);
+
+				switch(look2.token)
 				{
 				case BINARY:
 				case INSENSITIVE:
 				case NO:
 				case SCROLL:
 				case CURSOR:
-					return cur_token;
+					/* nothing todo */
+					break;
 				default:
+					yyextra->parsing_code_block = true;
 					break;
 				}
 
-				/*
-				 * now we are in block code
-				 * first find BEGIN keyword
-				 */
-				lookahead = &(yyextra->lookahead[1]);
-				for(;;)
-				{
-					lookahead->token = core_yylex(&(lookahead->lval),
-												  &(lookahead->loc),
-												  yyscanner);
-					if (lookahead->token == 0)
-						parser_yyerror("syntax error");
-					else if (lookahead->token == BEGIN_P)
-						break;
-				}
-
-				/* second found END keyword */
-				scanbuf = yyextra->core_yy_extra.scanbuf;
-				wait_end_keyword = 1;
-				for(;;)
-				{
-					lookahead->token = core_yylex(&(lookahead->lval),
-												  &(lookahead->loc),
-												  yyscanner);
-					switch(lookahead->token)
-					{
-					case 0:
-						parser_yyerror("syntax error");
-						break;
-					case BEGIN_P:
-					case CASE:
-						++wait_end_keyword;
-						break;
-					case IDENT:
-						if (scanbuf[lookahead->loc] != '"' &&
-							(strcmp(lookahead->lval.str, "if") == 0 ||
-							 strcmp(lookahead->lval.str, "loop") == 0))
-						{
-							++wait_end_keyword;
-						}
-						break;
-					case END_P:
-						--wait_end_keyword;
-						break;
-					default:
-						break;
-					}
-					if (wait_end_keyword == 0)
-						break;
-				}
-
-				/* make SCONST, include */
-				yyextra->lookahead[0].lval.str = pnstrdup(scanbuf + *lloc,
-														  /* 3 is length of END keywork */
-														  (lookahead->loc - *lloc)+3);
-				yyextra->lookahead[0].loc = *lloc;
-				yyextra->lookahead[0].token = SCONST;
-				yyextra->lookahead[1].token = INVALID_TOKEN;
+				PUSH_LOOKAHEAD(&look2);
 			}
+
+			PUSH_LOOKAHEAD(&look1);
+			return cur_token;
 		}
+	}else if (yyextra->parsing_code_block)
+	{
+		char   *scanbuf;
+		int		wait_end_keyword;
+		enum yytokentype last_token;
+
+		yyextra->parsing_code_block = false;
+		if (cur_token == SCONST)
+			return SCONST;
+
+		/* first find BEGIN keyword */
+		for (;;)
+		{
+			LEX_LOOKAHEAD(&look1);
+			if (look1.token == 0)
+				parser_yyerror("syntax error");
+			else if (look1.token == BEGIN_P)
+				break;
+		}
+
+		/* second found END keyword */
+		scanbuf = yyextra->core_yy_extra.scanbuf;
+		wait_end_keyword = 1;
+		for(;;)
+		{
+			last_token = look1.token;
+			LEX_LOOKAHEAD(&look1);
+
+			switch(look1.token)
+			{
+			case 0:
+				parser_yyerror("syntax error");
+				break;
+			case BEGIN_P:
+			case CASE:
+				++wait_end_keyword;
+				break;
+			case IF_P:
+				if (last_token != END_P)
+					++wait_end_keyword;
+				break;
+			case IDENT:
+				if (scanbuf[look1.loc] != '"' &&
+					strcmp(look1.lval.str, "loop") == 0)
+				{
+					++wait_end_keyword;
+				}
+				break;
+			case END_P:
+				--wait_end_keyword;
+				break;
+			default:
+				break;
+			}
+			if (wait_end_keyword == 0)
+				break;
+		}
+
+		/* found optional label */
+		LEX_LOOKAHEAD(&look2);
+		if (look2.token <= 255)
+		{
+			lvalp->core_yystype.str = pnstrdup(scanbuf + (*lloc),
+											   look1.loc + look1.length - (*lloc));
+			PUSH_LOOKAHEAD(&look2);
+		}else
+		{
+			lvalp->core_yystype.str = pnstrdup(scanbuf + (*lloc),
+											   look2.loc + look2.length - (*lloc));
+		}
+		return SCONST;
 	}
 
 	switch(cur_token)
 	{
 	/* find "(+)" token */
 	case '(':
-		if(yyextra->lookahead[0].token == INVALID_TOKEN)
+		LEX_LOOKAHEAD(&look1);
+		if (look1.token == '+')
 		{
-			yyextra->lookahead[0].token = core_yylex(&(yyextra->lookahead[0].lval)
-				, &(yyextra->lookahead[0].loc), yyscanner);
-		}
-		if(yyextra->lookahead[0].token != '+')
-			break;
-
-		if(yyextra->lookahead[1].token == INVALID_TOKEN)
+			LEX_LOOKAHEAD(&look2);
+			if (look2.token == ')')
+			{
+				/* now we have "(+)" token */
+				cur_token = ORACLE_JOIN_OP;
+			}else
+			{
+				PUSH_LOOKAHEAD(&look2);
+			}
+		}else
 		{
-			yyextra->lookahead[1].token = core_yylex(&(yyextra->lookahead[1].lval)
-				, &(yyextra->lookahead[1].loc), yyscanner);
+			PUSH_LOOKAHEAD(&look1);
 		}
-		if(yyextra->lookahead[1].token != ')')
-			break;
-
-		/* now we have "(+)" token */
-		cur_token = ORACLE_JOIN_OP;
-		StaticAssertExpr(lengthof(yyextra->lookahead)==2, "change invalid code");
-		yyextra->lookahead[0].token = yyextra->lookahead[1].token = INVALID_TOKEN;
 		break;
 	case CONNECT:
-		if(yyextra->lookahead[0].token == INVALID_TOKEN)
+		LEX_LOOKAHEAD(&look1);
+		if (look1.token == BY)
 		{
-			yyextra->lookahead[0].token = core_yylex(&(yyextra->lookahead[0].lval)
-				, &(yyextra->lookahead[0].loc), yyscanner);
+			/* now we have "connect by" token */
+			cur_token = CONNECT_BY;
+		}else
+		{
+			PUSH_LOOKAHEAD(&look1);
 		}
-		if(yyextra->lookahead[0].token != BY)
-			break;
-
-		/* now we have "connect by" token */
-		cur_token = CONNECT_BY;
-		yyextra->lookahead[0].token = INVALID_TOKEN;
 		break;
 	case ';':
 		yyextra->parsing_first_token = true;

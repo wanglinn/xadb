@@ -9,6 +9,7 @@
 typedef struct ora_yy_lookahead_type
 {
 	core_YYSTYPE	lval;
+	size_t			length;
 	int 			token;
 	YYLTYPE			loc;
 }ora_yy_lookahead_type;
@@ -27,9 +28,11 @@ typedef struct ora_yy_extra_type
 
 	/* lookahead */
 	ora_yy_lookahead_type lookahead[ORA_YY_MAX_LOOKAHEAD];
+	int			count_look;
 
 	bool has_no_alias_subquery;
 	bool parsing_first_token;
+	bool parsing_code_block;
 }ora_yy_extra_type;
 
 /*
