@@ -24,6 +24,9 @@ while (my $row = <$src_handle>)
 	if ($row =~ /^\s*#line\s+(\d+)\s+\".*$src_str\"\s*/)
 	{
 		print $dest_handle "#line $1 \"$dest_str\"\n";
+	}elsif ($row =~ /^\s*#line\s+(\d+)\s+\".*$src_str\"\s+(\/\*.+\*\/)/)
+	{
+		print $dest_handle "#line $1 \"$dest_str\" $2\n";
 	}else
 	{
 		print $dest_handle "$row";
