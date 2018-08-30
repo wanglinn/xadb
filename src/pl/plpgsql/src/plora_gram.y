@@ -189,7 +189,7 @@ static PLpgSQL_expr    *read_cursor_args(PLpgSQL_var *cursor, int until, const c
 %type <dtype>	decl_datatype
 
 %type <expr>	expr_until_semi/* expr_until_rightbracket*/
-%type <expr>	expr_until_then expr_until_loop /*opt_expr_until_when*/
+%type <expr>	expr_until_then expr_until_loop opt_expr_until_when
 %type <expr>	opt_exitcond
 
 %type <str>		any_identifier opt_block_label opt_loop_label opt_label
@@ -204,11 +204,14 @@ static PLpgSQL_expr    *read_cursor_args(PLpgSQL_var *cursor, int until, const c
 %type <stmt>	stmt_dynexecute stmt_for stmt_perform stmt_getdiag
 %type <stmt>	stmt_open stmt_fetch stmt_move stmt_close stmt_null
 %type <stmt>	stmt_case stmt_foreach_a*/
-%type <stmt>	stmt_goto
+%type <stmt>	stmt_goto stmt_case
 %type <stmt>	for_control
 %type <stmt>	stmt_for
 %type <loop_body>	loop_body
 %type <forvariable>	for_variable
+
+%type <casewhen>	case_when
+%type <list>	case_when_list opt_case_else
 
 /*%type <list>	proc_exceptions*/
 %type <exception_block> exception_sect
@@ -696,6 +699,8 @@ proc_stmt		: pl_block ';'
 						{ $$ = $1; }
 				| stmt_for
 						{ $$ = $1; }
+				| opt_block_label stmt_case
+						{ $$ = $2; castStmt(case, CASE, $$)->label = $1; }
 				;
 
 stmt_assign		: assign_var assign_operator expr_until_semi
@@ -1376,6 +1381,67 @@ loop_body		: proc_sect POK_END POK_LOOP opt_label ';'
 						$$.stmts = $1;
 						$$.end_label = $4;
 						$$.end_label_location = @4;
+					}
+				;
+
+stmt_case		: POK_CASE opt_expr_until_when case_when_list opt_case_else POK_END POK_CASE ';'
+					{
+						$$ = make_case(@1, $2, $3, $4);
+					}
+				;
+
+opt_expr_until_when	:
+					{
+						PLpgSQL_expr *expr = NULL;
+						int	tok = yylex();
+
+						if (tok != POK_WHEN)
+						{
+							plpgsql_push_back_token(tok);
+							expr = read_sql_expression(POK_WHEN, "WHEN");
+						}
+						plpgsql_push_back_token(POK_WHEN);
+						$$ = expr;
+					}
+				;
+
+case_when_list	: case_when_list case_when
+					{
+						$$ = lappend($1, $2);
+					}
+				| case_when
+					{
+						$$ = list_make1($1);
+					}
+				;
+
+case_when		: POK_WHEN expr_until_then proc_sect
+					{
+						PLpgSQL_case_when *new = palloc(sizeof(PLpgSQL_case_when));
+
+						new->lineno	= plpgsql_location_to_lineno(@1);
+						new->expr	= $2;
+						new->stmts	= $3;
+						$$ = new;
+					}
+				;
+
+opt_case_else	:
+					{
+						$$ = NIL;
+					}
+				| POK_ELSE proc_sect
+					{
+						/*
+						 * proc_sect could return an empty list, but we
+						 * must distinguish that from not having ELSE at all.
+						 * Simplest fix is to return a list with one NULL
+						 * pointer, which make_case() must take care of.
+						 */
+						if ($2 != NIL)
+							$$ = $2;
+						else
+							$$ = list_make1(NULL);
 					}
 				;
 
@@ -2665,81 +2731,81 @@ check_labels(const char *start_label, const char *end_label, int end_location)
 /*
  * Fix up CASE statement
  */
-//static PLpgSQL_stmt *
-//make_case(int location, PLpgSQL_expr *t_expr,
-//		  List *case_when_list, List *else_stmts)
-//{
-//	PLpgSQL_stmt_case	*new;
-//
-//	new = palloc(sizeof(PLpgSQL_stmt_case));
-//	new->cmd_type = PLPGSQL_STMT_CASE;
-//	new->lineno = plpgsql_location_to_lineno(location);
-//	new->t_expr = t_expr;
-//	new->t_varno = 0;
-//	new->case_when_list = case_when_list;
-//	new->have_else = (else_stmts != NIL);
-//	/* Get rid of list-with-NULL hack */
-//	if (list_length(else_stmts) == 1 && linitial(else_stmts) == NULL)
-//		new->else_stmts = NIL;
-//	else
-//		new->else_stmts = else_stmts;
-//
-//	/*
-//	 * When test expression is present, we create a var for it and then
-//	 * convert all the WHEN expressions to "VAR IN (original_expression)".
-//	 * This is a bit klugy, but okay since we haven't yet done more than
-//	 * read the expressions as text.  (Note that previous parsing won't
-//	 * have complained if the WHEN ... THEN expression contained multiple
-//	 * comma-separated values.)
-//	 */
-//	if (t_expr)
-//	{
-//		char	varname[32];
-//		PLpgSQL_var *t_var;
-//		ListCell *l;
-//
-//		/* use a name unlikely to collide with any user names */
-//		snprintf(varname, sizeof(varname), "__Case__Variable_%d__",
-//				 plpgsql_nDatums);
-//
-//		/*
-//		 * We don't yet know the result datatype of t_expr.  Build the
-//		 * variable as if it were INT4; we'll fix this at runtime if needed.
-//		 */
-//		t_var = (PLpgSQL_var *)
-//			plpgsql_build_variable(varname, new->lineno,
-//								   plpgsql_build_datatype(INT4OID,
-//														  -1,
-//														  InvalidOid),
-//								   true);
-//		new->t_varno = t_var->dno;
-//
-//		foreach(l, case_when_list)
-//		{
-//			PLpgSQL_case_when *cwt = (PLpgSQL_case_when *) lfirst(l);
-//			PLpgSQL_expr *expr = cwt->expr;
-//			StringInfoData	ds;
-//
-//			/* copy expression query without SELECT keyword (expr->query + 7) */
-//			Assert(strncmp(expr->query, "SELECT ", 7) == 0);
-//
-//			/* And do the string hacking */
-//			initStringInfo(&ds);
-//
-//			appendStringInfo(&ds, "SELECT \"%s\" IN (%s)",
-//							 varname, expr->query + 7);
-//
-//			pfree(expr->query);
-//			expr->query = pstrdup(ds.data);
-//			/* Adjust expr's namespace to include the case variable */
-//			expr->ns = plpgsql_ns_top();
-//
-//			pfree(ds.data);
-//		}
-//	}
-//
-//	return (PLpgSQL_stmt *) new;
-//}
+static PLpgSQL_stmt *
+make_case(int location, PLpgSQL_expr *t_expr,
+		  List *case_when_list, List *else_stmts)
+{
+	PLpgSQL_stmt_case	*new;
+
+	new = palloc(sizeof(PLpgSQL_stmt_case));
+	new->cmd_type = PLPGSQL_STMT_CASE;
+	new->lineno = plpgsql_location_to_lineno(location);
+	new->t_expr = t_expr;
+	new->t_varno = 0;
+	new->case_when_list = case_when_list;
+	new->have_else = (else_stmts != NIL);
+	/* Get rid of list-with-NULL hack */
+	if (list_length(else_stmts) == 1 && linitial(else_stmts) == NULL)
+		new->else_stmts = NIL;
+	else
+		new->else_stmts = else_stmts;
+
+	/*
+	 * When test expression is present, we create a var for it and then
+	 * convert all the WHEN expressions to "VAR IN (original_expression)".
+	 * This is a bit klugy, but okay since we haven't yet done more than
+	 * read the expressions as text.  (Note that previous parsing won't
+	 * have complained if the WHEN ... THEN expression contained multiple
+	 * comma-separated values.)
+	 */
+	if (t_expr)
+	{
+		char	varname[32];
+		PLpgSQL_var *t_var;
+		ListCell *l;
+
+		/* use a name unlikely to collide with any user names */
+		snprintf(varname, sizeof(varname), "__Case__Variable_%d__",
+				 plpgsql_nDatums);
+
+		/*
+		 * We don't yet know the result datatype of t_expr.  Build the
+		 * variable as if it were INT4; we'll fix this at runtime if needed.
+		 */
+		t_var = (PLpgSQL_var *)
+			plpgsql_build_variable(varname, new->lineno,
+								   plpgsql_build_datatype(INT4OID,
+														  -1,
+														  InvalidOid),
+								   true);
+		new->t_varno = t_var->dno;
+
+		foreach(l, case_when_list)
+		{
+			PLpgSQL_case_when *cwt = (PLpgSQL_case_when *) lfirst(l);
+			PLpgSQL_expr *expr = cwt->expr;
+			StringInfoData	ds;
+
+			/* copy expression query without SELECT keyword (expr->query + 7) */
+			Assert(strncmp(expr->query, "SELECT ", 7) == 0);
+
+			/* And do the string hacking */
+			initStringInfo(&ds);
+
+			appendStringInfo(&ds, "SELECT \"%s\" IN (%s)",
+							 varname, expr->query + 7);
+
+			pfree(expr->query);
+			expr->query = pstrdup(ds.data);
+			/* Adjust expr's namespace to include the case variable */
+			expr->ns = plpgsql_ns_top();
+
+			pfree(ds.data);
+		}
+	}
+
+	return (PLpgSQL_stmt *) new;
+}
 
 static PLpgSQL_stmt *make_stmt_raise(int lloc, int elevel, char *name,
 										 char *message, List *params)
