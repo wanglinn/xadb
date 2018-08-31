@@ -92,7 +92,7 @@ static	PLpgSQL_expr	*read_sql_expression2(int until, int until2,
 											  int *endtoken);
 static	PLpgSQL_expr	*read_sql_stmt(const char *sqlstart);
 static	PLpgSQL_type	*read_datatype(int tok);
-/*static	PLpgSQL_stmt	*make_execsql_stmt(int firsttoken, int location);*/
+static	PLpgSQL_stmt	*make_execsql_stmt(int firsttoken, int location);
 static	PLpgSQL_stmt_fetch *read_fetch_direction(void);
 /*static	void			 complete_direction(PLpgSQL_stmt_fetch *fetch,
 											bool *check_FROM);*/
@@ -103,8 +103,8 @@ static  PLpgSQL_stmt	*make_case(int location, PLpgSQL_expr *t_expr,
 								   List *case_when_list, List *else_stmts);
 static	char			*NameOfDatum(PLwdatum *wdatum);
 static	void			 check_assignable(PLpgSQL_datum *datum, int location);
-/*static	void			 read_into_target(PLpgSQL_rec **rec, PLpgSQL_row **row,
-										  bool *strict);*/
+static	void			 read_into_target(PLpgSQL_variable **target,
+										  bool *strict);
 static	PLpgSQL_row		*read_into_scalar_list(char *initial_name,
 											   PLpgSQL_datum *initial_datum,
 											   int initial_location);
@@ -204,7 +204,7 @@ static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 %type <stmt>	stmt_dynexecute stmt_for stmt_perform stmt_getdiag
 %type <stmt>	stmt_open stmt_fetch stmt_move stmt_close stmt_null
 %type <stmt>	stmt_case stmt_foreach_a*/
-%type <stmt>	stmt_goto stmt_case
+%type <stmt>	stmt_goto stmt_case stmt_null stmt_execsql
 %type <stmt>	for_control
 %type <stmt>	stmt_for stmt_func
 %type <loop_body>	loop_body
@@ -353,9 +353,9 @@ static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 
 %token <keyword> POK_WHILE POK_WORK POK_WRAPPED POK_WRITE
 
-%token <keyword> POK_YEAR
+%token <keyword> POK_YEAR POK_STRICT
 
-%token <keyword> POK_ZONE
+%token <keyword> POK_ZONE POK_IMPORT POK_NEXT POK_LAST POK_ABSOLUTE POK_RELATIVE POK_FORWARD POK_BACKWARD
 %%
 
 pl_function		: pl_block_top opt_semi
@@ -703,6 +703,10 @@ proc_stmt		: pl_block ';'
 						{ $$ = $1; }
 				| opt_block_label stmt_case
 						{ $$ = $2; castStmt(case, CASE, $$)->label = $1; }
+				| stmt_null
+						{ $$ = $1; }
+				| stmt_execsql
+						{ $$ = $1; }
 				;
 
 stmt_assign		: assign_var assign_operator expr_until_semi
@@ -1440,6 +1444,53 @@ opt_case_else	:
 					}
 				;
 
+stmt_null		: POK_NULL ';'
+					{
+						/* We do not bother building a node for NULL */
+						$$ = NULL;
+					}
+				;
+
+/*
+ * T_WORD+T_CWORD match any initial identifier that is not a known plpgsql
+ * variable.  (The composite case is probably a syntax error, but we'll let
+ * the core parser decide that.)  Normally, we should assume that such a
+ * word is a SQL statement keyword that isn't also a plpgsql keyword.
+ * However, if the next token is assignment or '[', it can't be a valid
+ * SQL statement, and what we're probably looking at is an intended variable
+ * assignment.  Give an appropriate complaint for that, instead of letting
+ * the core parser throw an unhelpful "syntax error".
+ */
+stmt_execsql	: POK_IMPORT
+					{
+						$$ = make_execsql_stmt(POK_IMPORT, @1);
+					}
+				| POK_INSERT
+					{
+						$$ = make_execsql_stmt(POK_INSERT, @1);
+					}
+/*				| T_WORD
+					{
+						int			tok;
+
+						tok = yylex();
+						plpgsql_push_back_token(tok);
+						if (tok == '=' || tok == COLON_EQUALS || tok == '[')
+							word_is_not_variable(&($1), @1);
+						$$ = make_execsql_stmt(T_WORD, @1);
+					}
+				| T_CWORD
+					{
+						int			tok;
+
+						tok = yylex();
+						plpgsql_push_back_token(tok);
+						if (tok == '=' || tok == COLON_EQUALS || tok == '[')
+							cword_is_not_variable(&($1), @1);
+						$$ = make_execsql_stmt(T_CWORD, @1);
+					}*/
+				;
+
 unreserved_keyword	:
 				  POK_A
 				| POK_ADD
@@ -2050,125 +2101,122 @@ read_datatype(int tok)
 	return result;
 }
 
-//static PLpgSQL_stmt *
-//make_execsql_stmt(int firsttoken, int location)
-//{
-//	StringInfoData		ds;
-//	IdentifierLookup	save_IdentifierLookup;
-//	PLpgSQL_stmt_execsql *execsql;
-//	PLpgSQL_expr		*expr;
-//	PLpgSQL_row			*row = NULL;
-//	PLpgSQL_rec			*rec = NULL;
-//	int					tok;
-//	int					prev_tok;
-//	bool				have_into = false;
-//	bool				have_strict = false;
-//	int					into_start_loc = -1;
-//	int					into_end_loc = -1;
-//
-//	initStringInfo(&ds);
-//
-//	/* special lookup mode for identifiers within the SQL text */
-//	save_IdentifierLookup = plpgsql_IdentifierLookup;
-//	plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_EXPR;
-//
-//	/*
-//	 * Scan to the end of the SQL command.  Identify any INTO-variables
-//	 * clause lurking within it, and parse that via read_into_target().
-//	 *
-//	 * Because INTO is sometimes used in the main SQL grammar, we have to be
-//	 * careful not to take any such usage of INTO as a PL/pgSQL INTO clause.
-//	 * There are currently three such cases:
-//	 *
-//	 * 1. SELECT ... INTO.  We don't care, we just override that with the
-//	 * PL/pgSQL definition.
-//	 *
-//	 * 2. INSERT INTO.  This is relatively easy to recognize since the words
-//	 * must appear adjacently; but we can't assume INSERT starts the command,
-//	 * because it can appear in CREATE RULE or WITH.  Unfortunately, INSERT is
-//	 * *not* fully reserved, so that means there is a chance of a false match;
-//	 * but it's not very likely.
-//	 *
-//	 * 3. IMPORT FOREIGN SCHEMA ... INTO.  This is not allowed in CREATE RULE
-//	 * or WITH, so we just check for IMPORT as the command's first token.
-//	 * (If IMPORT FOREIGN SCHEMA returned data someone might wish to capture
-//	 * with an INTO-variables clause, we'd have to work much harder here.)
-//	 *
-//	 * Fortunately, INTO is a fully reserved word in the main grammar, so
-//	 * at least we need not worry about it appearing as an identifier.
-//	 *
-//	 * Any future additional uses of INTO in the main grammar will doubtless
-//	 * break this logic again ... beware!
-//	 */
-//	tok = firsttoken;
-//	for (;;)
-//	{
-//		prev_tok = tok;
-//		tok = yylex();
-//		if (have_into && into_end_loc < 0)
-//			into_end_loc = yylloc;		/* token after the INTO part */
-//		if (tok == ';')
-//			break;
-//		if (tok == 0)
-//			yyerror("unexpected end of function definition");
-//		if (tok == POK_INTO)
-//		{
-//			if (prev_tok == POK_INSERT)
-//				continue;		/* INSERT INTO is not an INTO-target */
-//			if (firsttoken == POK_IMPORT)
-//				continue;		/* IMPORT ... INTO is not an INTO-target */
-//			if (have_into)
-//				yyerror("INTO specified more than once");
-//			have_into = true;
-//			into_start_loc = yylloc;
-//			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
-//			read_into_target(&rec, &row, &have_strict);
-//			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_EXPR;
-//		}
-//	}
-//
-//	plpgsql_IdentifierLookup = save_IdentifierLookup;
-//
-//	if (have_into)
-//	{
-//		/*
-//		 * Insert an appropriate number of spaces corresponding to the
-//		 * INTO text, so that locations within the redacted SQL statement
-//		 * still line up with those in the original source text.
-//		 */
-//		plpgsql_append_source_text(&ds, location, into_start_loc);
-//		appendStringInfoSpaces(&ds, into_end_loc - into_start_loc);
-//		plpgsql_append_source_text(&ds, into_end_loc, yylloc);
-//	}
-//	else
-//		plpgsql_append_source_text(&ds, location, yylloc);
-//
-//	/* trim any trailing whitespace, for neatness */
-//	while (ds.len > 0 && scanner_isspace(ds.data[ds.len - 1]))
-//		ds.data[--ds.len] = '\0';
-//
-//	expr = palloc0(sizeof(PLpgSQL_expr));
-//	expr->dtype			= PLPGSQL_DTYPE_EXPR;
-//	expr->query			= pstrdup(ds.data);
-//	expr->plan			= NULL;
-//	expr->paramnos		= NULL;
-//	expr->rwparam		= -1;
-//	expr->ns			= plpgsql_ns_top();
-//	pfree(ds.data);
-//
-//	check_sql_expr(expr->query, location, 0);
-//
-//	execsql = palloc(sizeof(PLpgSQL_stmt_execsql));
-//	execsql->cmd_type = PLPGSQL_STMT_EXECSQL;
-//	execsql->lineno  = plpgsql_location_to_lineno(location);
-//	execsql->sqlstmt = expr;
-//	execsql->into	 = have_into;
-//	execsql->strict	 = have_strict;
-//	execsql->rec	 = rec;
-//	execsql->row	 = row;
-//
-//	return (PLpgSQL_stmt *) execsql;
-//}
+static PLpgSQL_stmt *
+make_execsql_stmt(int firsttoken, int location)
+{
+	StringInfoData		ds;
+	IdentifierLookup	save_IdentifierLookup;
+	PLpgSQL_stmt_execsql *execsql;
+	PLpgSQL_expr		*expr;
+	PLpgSQL_variable	*target = NULL;
+	int					tok;
+	int					prev_tok;
+	bool				have_into = false;
+	bool				have_strict = false;
+	int					into_start_loc = -1;
+	int					into_end_loc = -1;
+
+	initStringInfo(&ds);
+
+	/* special lookup mode for identifiers within the SQL text */
+	save_IdentifierLookup = plpgsql_IdentifierLookup;
+	plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_EXPR;
+
+	/*
+	 * Scan to the end of the SQL command.  Identify any INTO-variables
+	 * clause lurking within it, and parse that via read_into_target().
+	 *
+	 * Because INTO is sometimes used in the main SQL grammar, we have to be
+	 * careful not to take any such usage of INTO as a PL/pgSQL INTO clause.
+	 * There are currently three such cases:
+	 *
+	 * 1. SELECT ... INTO.  We don't care, we just override that with the
+	 * PL/pgSQL definition.
+	 *
+	 * 2. INSERT INTO.  This is relatively easy to recognize since the words
+	 * must appear adjacently; but we can't assume INSERT starts the command,
+	 * because it can appear in CREATE RULE or WITH.  Unfortunately, INSERT is
+	 * *not* fully reserved, so that means there is a chance of a false match;
+	 * but it's not very likely.
+	 *
+	 * 3. IMPORT FOREIGN SCHEMA ... INTO.  This is not allowed in CREATE RULE
+	 * or WITH, so we just check for IMPORT as the command's first token.
+	 * (If IMPORT FOREIGN SCHEMA returned data someone might wish to capture
+	 * with an INTO-variables clause, we'd have to work much harder here.)
+	 *
+	 * Fortunately, INTO is a fully reserved word in the main grammar, so
+	 * at least we need not worry about it appearing as an identifier.
+	 *
+	 * Any future additional uses of INTO in the main grammar will doubtless
+	 * break this logic again ... beware!
+	 */
+	tok = firsttoken;
+	for (;;)
+	{
+		prev_tok = tok;
+		tok = yylex();
+		if (have_into && into_end_loc < 0)
+			into_end_loc = yylloc;		/* token after the INTO part */
+		if (tok == ';')
+			break;
+		if (tok == 0)
+			yyerror("unexpected end of function definition");
+		if (tok == POK_INTO)
+		{
+			if (prev_tok == POK_INSERT)
+				continue;		/* INSERT INTO is not an INTO-target */
+			if (firsttoken == POK_IMPORT)
+				continue;		/* IMPORT ... INTO is not an INTO-target */
+			if (have_into)
+				yyerror("INTO specified more than once");
+			have_into = true;
+			into_start_loc = yylloc;
+			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
+			read_into_target(&target, &have_strict);
+			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_EXPR;
+		}
+	}
+
+	plpgsql_IdentifierLookup = save_IdentifierLookup;
+
+	if (have_into)
+	{
+		/*
+		 * Insert an appropriate number of spaces corresponding to the
+		 * INTO text, so that locations within the redacted SQL statement
+		 * still line up with those in the original source text.
+		 */
+		plpgsql_append_source_text(&ds, location, into_start_loc);
+		appendStringInfoSpaces(&ds, into_end_loc - into_start_loc);
+		plpgsql_append_source_text(&ds, into_end_loc, yylloc);
+	}
+	else
+		plpgsql_append_source_text(&ds, location, yylloc);
+
+	/* trim any trailing whitespace, for neatness */
+	while (ds.len > 0 && scanner_isspace(ds.data[ds.len - 1]))
+		ds.data[--ds.len] = '\0';
+
+	expr = palloc0(sizeof(PLpgSQL_expr));
+	expr->query			= pstrdup(ds.data);
+	expr->plan			= NULL;
+	expr->paramnos		= NULL;
+	expr->rwparam		= -1;
+	expr->ns			= plpgsql_ns_top();
+	pfree(ds.data);
+
+	check_sql_expr(expr->query, location, 0);
+
+	execsql = palloc(sizeof(PLpgSQL_stmt_execsql));
+	execsql->cmd_type = PLPGSQL_STMT_EXECSQL;
+	execsql->lineno  = plpgsql_location_to_lineno(location);
+	execsql->sqlstmt = expr;
+	execsql->into	 = have_into;
+	execsql->strict	 = have_strict;
+	execsql->target	 = target;
+
+	return (PLpgSQL_stmt *) execsql;
+}
 
 /*
  * Process remainder of FETCH/MOVE direction after FORWARD or BACKWARD.
@@ -2432,70 +2480,59 @@ check_assignable(PLpgSQL_datum *datum, int location)
  * Read the argument of an INTO clause.  On entry, we have just read the
  * INTO keyword.
  */
-//static void
-//read_into_target(PLpgSQL_rec **rec, PLpgSQL_row **row, bool *strict)
-//{
-//	int			tok;
-//
-//	/* Set default results */
-//	*rec = NULL;
-//	*row = NULL;
-//	if (strict)
-//		*strict = false;
-//
-//	tok = yylex();
-//	if (strict && tok == POK_STRICT)
-//	{
-//		*strict = true;
-//		tok = yylex();
-//	}
-//
-//	/*
-//	 * Currently, a row or record variable can be the single INTO target,
-//	 * but not a member of a multi-target list.  So we throw error if there
-//	 * is a comma after it, because that probably means the user tried to
-//	 * write a multi-target list.  If this ever gets generalized, we should
-//	 * probably refactor read_into_scalar_list so it handles all cases.
-//	 */
-//	switch (tok)
-//	{
-//		case T_DATUM:
-//			if (yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_ROW)
-//			{
-//				check_assignable(yylval.wdatum.datum, yylloc);
-//				*row = (PLpgSQL_row *) yylval.wdatum.datum;
-//
-//				if ((tok = yylex()) == ',')
-//					ereport(ERROR,
-//							(errcode(ERRCODE_SYNTAX_ERROR),
-//							 errmsg("record or row variable cannot be part of multiple-item INTO list"),
-//							 parser_errposition(yylloc)));
-//				plpgsql_push_back_token(tok);
-//			}
-//			else if (yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_REC)
-//			{
-//				check_assignable(yylval.wdatum.datum, yylloc);
-//				*rec = (PLpgSQL_rec *) yylval.wdatum.datum;
-//
-//				if ((tok = yylex()) == ',')
-//					ereport(ERROR,
-//							(errcode(ERRCODE_SYNTAX_ERROR),
-//							 errmsg("record or row variable cannot be part of multiple-item INTO list"),
-//							 parser_errposition(yylloc)));
-//				plpgsql_push_back_token(tok);
-//			}
-//			else
-//			{
-//				*row = read_into_scalar_list(NameOfDatum(&(yylval.wdatum)),
-//											 yylval.wdatum.datum, yylloc);
-//			}
-//			break;
-//
-//		default:
-//			/* just to give a better message than "syntax error" */
-//			current_token_is_not_variable(tok);
-//	}
-//}
+static void
+read_into_target(PLpgSQL_variable **target, bool *strict)
+{
+	int			tok;
+
+	/* Set default results */
+	*target = NULL;
+	if (strict)
+		*strict = false;
+
+	tok = yylex();
+	if (strict && tok == POK_STRICT)
+	{
+		*strict = true;
+		tok = yylex();
+	}
+
+	/*
+	 * Currently, a row or record variable can be the single INTO target,
+	 * but not a member of a multi-target list.  So we throw error if there
+	 * is a comma after it, because that probably means the user tried to
+	 * write a multi-target list.  If this ever gets generalized, we should
+	 * probably refactor read_into_scalar_list so it handles all cases.
+	 */
+	switch (tok)
+	{
+		case T_DATUM:
+			if (yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_ROW ||
+				yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_REC)
+			{
+				check_assignable(yylval.wdatum.datum, yylloc);
+				*target = (PLpgSQL_variable *) yylval.wdatum.datum;
+
+				if ((tok = yylex()) == ',')
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("record variable cannot be part of multiple-item INTO list"),
+							 parser_errposition(yylloc)));
+				plpgsql_push_back_token(tok);
+			}
+			else
+			{
+				*target = (PLpgSQL_variable *)
+					read_into_scalar_list(NameOfDatum(&(yylval.wdatum)),
+										  yylval.wdatum.datum, yylloc);
+			}
+			break;
+
+		default:
+			/* just to give a better message than "syntax error" */
+			current_token_is_not_variable(tok);
+	}
+}
 
 /*
  * Given the first datum and name in the INTO list, continue to read
