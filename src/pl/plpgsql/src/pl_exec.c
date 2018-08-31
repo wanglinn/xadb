@@ -314,6 +314,9 @@ static char *format_expr_params(PLpgSQL_execstate *estate,
 static char *format_preparedparamsdata(PLpgSQL_execstate *estate,
 						  const PreparedParamsData *ppd);
 static int exec_stmt_goto(PLpgSQL_execstate *estate, PLpgSQL_stmt_goto *stmt);
+#ifdef ADB_GRAM_ORA
+static int exec_stmt_func(PLpgSQL_execstate *estate, PLpgSQL_stmt_func *stmt);
+#endif /* ADB_GRAM_ORA */
 static ListCell *find_stmt_for_label(List *stmts, const char *label);
 
 
@@ -1693,6 +1696,12 @@ exec_stmt(PLpgSQL_execstate *estate, PLpgSQL_stmt *stmt)
 		case PLPGSQL_STMT_GOTO:
 			rc = exec_stmt_goto(estate, (PLpgSQL_stmt_goto *) stmt);
 			break;
+
+#ifdef ADB_GRAM_ORA
+		case PLPGSQL_STMT_FUNC:
+			rc = exec_stmt_func(estate, (PLpgSQL_stmt_func *) stmt);
+			break;
+#endif /* ADB_GRAM_ORA */
 
 		default:
 			estate->err_stmt = save_estmt;
@@ -4427,6 +4436,19 @@ static int exec_stmt_goto(PLpgSQL_execstate *estate, PLpgSQL_stmt_goto *stmt)
 
 	return PLPGSQL_RC_GOTO;
 }
+
+#ifdef ADB_GRAM_ORA
+static int exec_stmt_func(PLpgSQL_execstate *estate, PLpgSQL_stmt_func *stmt)
+{
+	bool		isnull;
+	Oid			valtype;
+	int32		valtypmod;
+
+	(void)exec_eval_expr(estate, stmt->expr, &isnull, &valtype, &valtypmod);
+
+	return PLPGSQL_RC_OK;
+}
+#endif /* ADB_GRAM_ORA */
 
 static ListCell *find_stmt_for_label(List *stmts, const char *label)
 {
