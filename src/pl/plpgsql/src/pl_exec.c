@@ -4826,6 +4826,8 @@ exec_stmt_rollback(PLpgSQL_execstate *estate, PLpgSQL_stmt_rollback *stmt)
 	estate->simple_eval_estate = NULL;
 	plpgsql_create_econtext(estate);
 
+	exec_eval_cleanup(estate);
+
 	return PLPGSQL_RC_OK;
 }
 
