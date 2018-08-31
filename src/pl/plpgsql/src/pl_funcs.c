@@ -294,6 +294,10 @@ plpgsql_stmt_typename(PLpgSQL_stmt *stmt)
 			return "SET";
 		case PLPGSQL_STMT_GOTO:
 			return "GOTO";
+#ifdef ADB_GRAM_ORA
+		case PLPGSQL_STMT_FUNC:
+			return "FUNCTION CALL";
+#endif /* ADB_GRAM_ORA */
 	}
 
 	return "unknown";
@@ -378,6 +382,9 @@ static void free_commit(PLpgSQL_stmt_commit *stmt);
 static void free_rollback(PLpgSQL_stmt_rollback *stmt);
 static void free_set(PLpgSQL_stmt_set *stmt);
 static void free_goto(PLpgSQL_stmt_goto *stmt);
+#ifdef ADB_GRAM_ORA
+static void free_func(PLpgSQL_stmt_func * stmt);
+#endif /* ADB_GRAM_ORA */
 static void free_expr(PLpgSQL_expr *expr);
 
 
@@ -473,6 +480,11 @@ free_stmt(PLpgSQL_stmt *stmt)
 		case PLPGSQL_STMT_GOTO:
 			free_goto((PLpgSQL_stmt_goto *) stmt);
 			break;
+#ifdef ADB_GRAM_ORA
+		case PLPGSQL_STMT_FUNC:
+			free_func((PLpgSQL_stmt_func *) stmt);
+			break;
+#endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized cmd_type: %d", stmt->cmd_type);
 			break;
@@ -623,6 +635,14 @@ free_perform(PLpgSQL_stmt_perform *stmt)
 static void free_goto(PLpgSQL_stmt_goto *stmt)
 {
 }
+
+#ifdef ADB_GRAM_ORA
+static void
+free_func(PLpgSQL_stmt_func * stmt)
+{
+	free_expr(stmt->expr);
+}
+#endif /* ADB_GRAM_ORA */
 
 static void
 free_call(PLpgSQL_stmt_call *stmt)
@@ -1776,6 +1796,10 @@ const char *plpgsql_stmt_get_label(PLpgSQL_stmt *stmt)
 		return ((PLpgSQL_stmt_perform*)stmt)->label;
 	case PLPGSQL_STMT_GOTO:
 		return ((PLpgSQL_stmt_goto*)stmt)->label;
+#ifdef ADB_GRAM_ORA
+	case PLPGSQL_STMT_FUNC:
+		return ((PLpgSQL_stmt_func*)stmt)->label;
+#endif /* ADB_GRAM_ORA */
 	default:
 		break;
 	}

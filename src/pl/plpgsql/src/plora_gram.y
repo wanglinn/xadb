@@ -121,6 +121,7 @@ static	void			 check_labels(const char *start_label,
 static PLpgSQL_stmt		*make_stmt_raise(int lloc, int elevel, char *name,
 										 char *message, List *params);
 static PLpgSQL_expr    *read_cursor_args(PLpgSQL_var *cursor, int until, const char *expected);
+static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 
 %}
 
@@ -205,7 +206,7 @@ static PLpgSQL_expr    *read_cursor_args(PLpgSQL_var *cursor, int until, const c
 %type <stmt>	stmt_case stmt_foreach_a*/
 %type <stmt>	stmt_goto stmt_case
 %type <stmt>	for_control
-%type <stmt>	stmt_for
+%type <stmt>	stmt_for stmt_func
 %type <loop_body>	loop_body
 %type <forvariable>	for_variable
 
@@ -665,6 +666,8 @@ proc_stmt		: pl_block ';'
 						{ $$ = $2; castStmt(if, IF, $$)->label = $1; }
 				| opt_block_label stmt_exit
 						{ $$ = $2; castStmt(exit, EXIT, $$)->block_name = $1; }
+				| opt_block_label stmt_func
+						{ $$ = $2; castStmt(func, FUNC, $$)->label = $1; }
 				| opt_block_label stmt_return
 						{
 							$$ = $2;
@@ -721,6 +724,12 @@ assign_var		: T_DATUM
 						check_assignable($1.datum, @1);
 						$$ = $1.datum;
 					}
+				;
+
+stmt_func		: T_CWORD '('
+					{ $$ = (PLpgSQL_stmt *)read_func_stmt(@1, @2); }
+				| T_WORD '('
+					{ $$ = (PLpgSQL_stmt *)read_func_stmt(@1, @2); }
 				;
 
 stmt_if			: POK_IF expr_until_then proc_sect stmt_elsifs stmt_else POK_END POK_IF ';'
@@ -3038,4 +3047,27 @@ read_cursor_args(PLpgSQL_var *cursor, int until, const char *expected)
 		yyerror("syntax error");
 
 	return expr;
+}
+
+static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc)
+{
+	PLpgSQL_stmt_func *new;
+	StringInfoData buf;
+
+	new = palloc0(sizeof(PLpgSQL_stmt_func));
+	new->cmd_type = PLPGSQL_STMT_FUNC;
+	new->lineno = plpgsql_location_to_lineno(startloc);
+
+	initStringInfo(&buf);
+	appendStringInfoString(&buf, "SELECT ");
+	plpgsql_append_source_text(&buf, startloc, endloc);
+
+	plpgsql_push_back_token('(');
+	new->expr = read_sql_construct(';', 0, 0,
+									";", buf.data,
+									true, true, true, NULL, NULL);
+
+	pfree(buf.data);
+
+	return new;
 }

@@ -130,6 +130,9 @@ typedef enum PLpgSQL_stmt_type
 	PLPGSQL_STMT_ROLLBACK,
 	PLPGSQL_STMT_SET,
 	PLPGSQL_STMT_GOTO
+#ifdef ADB_GRAM_ORA
+	,PLPGSQL_STMT_FUNC
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_stmt_type;
 
 /*
@@ -909,6 +912,15 @@ typedef struct PLpgSQL_stmt_goto
 	char	   *label;
 }PLpgSQL_stmt_goto;
 
+#ifdef ADB_GRAM_ORA
+typedef struct PLpgSQL_stmt_func
+{
+	PLpgSQL_stmt_type cmd_type;
+	int			lineno;
+	char	   *label;
+	PLpgSQL_expr *expr;
+}PLpgSQL_stmt_func;
+#endif /* ADB_GRAM_ORA */
 /*
  * Hash lookup key for functions
  */
