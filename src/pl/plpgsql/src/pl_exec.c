@@ -4446,6 +4446,8 @@ static int exec_stmt_func(PLpgSQL_execstate *estate, PLpgSQL_stmt_func *stmt)
 
 	(void)exec_eval_expr(estate, stmt->expr, &isnull, &valtype, &valtypmod);
 
+	exec_eval_cleanup(estate);
+
 	return PLPGSQL_RC_OK;
 }
 #endif /* ADB_GRAM_ORA */
