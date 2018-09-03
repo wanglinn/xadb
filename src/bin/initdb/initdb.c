@@ -286,7 +286,9 @@ static void setup_oracle_schema(FILE *cmdfd);
 #ifdef ADB
 static void setup_adb_views(FILE *cmdfd);
 #endif
+#if !(defined(INITMGR) || defined(INITAGTM))
 static void load_plpgsql(FILE *cmdfd);
+#endif /* !(defined(INITMGR) || defined(INITAGTM)) */
 #ifdef ADB_GRAM_ORA
 static void load_plorasql(FILE *cmdfd);
 #endif
@@ -2155,11 +2157,13 @@ static void setup_manager_file(FILE *cmdfd)
 /*
  * load PL/pgSQL server-side language
  */
+#if !(defined(INITMGR) || defined(INITAGTM))
 static void
 load_plpgsql(FILE *cmdfd)
 {
 	PG_CMD_PUTS("CREATE EXTENSION plpgsql;\n\n");
 }
+#endif /* !(defined(INITMGR) || defined(INITAGTM)) */
 
 #ifdef ADB_GRAM_ORA
 static void load_plorasql(FILE *cmdfd)
@@ -3304,7 +3308,9 @@ initialize_data_directory(void)
 
 	setup_schema(cmdfd);
 
+#if !(defined(INITMGR) || defined(INITAGTM))
 	load_plpgsql(cmdfd);
+#endif /* !(defined(INITMGR) || defined(INITAGTM)) */
 
 #ifdef ADB_GRAM_ORA
 	load_plorasql(cmdfd);
