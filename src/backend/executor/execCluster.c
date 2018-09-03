@@ -1381,7 +1381,8 @@ static void ExecClusterErrorHookMaster(void *arg)
 	if ((err_data = err_current_data()) != NULL &&
 		err_data->elevel >= ERROR)
 	{
-		EndSelfReduce(0, 0);
+		/* no need to do this, it will be done @AtEOXact_Reduce */
+		//EndSelfReduce(0, 0);
 	}
 }
 
