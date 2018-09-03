@@ -713,6 +713,7 @@ CreateProcedureStmt:
 					n->returnType = NULL;
 					n->options = list_make2(makeDefElem("as", (Node *)list_make1(makeString($8)), @8),
 											makeDefElem("language", (Node *)makeString("plorasql"), -1));
+					n->returnType = makeTypeNameFromNameList(SystemFuncName("void"));
 					/* ignore invoker_rights_clause */
 					$$ = (Node *)n;
 				}
@@ -6789,13 +6790,16 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 			return SCONST;
 
 		/* first find BEGIN keyword */
-		for (;;)
+		if (cur_token != BEGIN_P)
 		{
-			LEX_LOOKAHEAD(&look1);
-			if (look1.token == 0)
-				parser_yyerror("syntax error");
-			else if (look1.token == BEGIN_P)
-				break;
+			for (;;)
+			{
+				LEX_LOOKAHEAD(&look1);
+				if (look1.token == 0)
+					parser_yyerror("syntax error");
+				else if (look1.token == BEGIN_P)
+					break;
+			}
 		}
 
 		/* second found END keyword */
