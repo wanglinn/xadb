@@ -1737,12 +1737,7 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 		}
 		break;
 	case JOIN_SEMI:
-		if (IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
-		{
-			if (new_reduce_list)
-				*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
-			return true;
-		}else if(IsReduceInfoListReplicated(inner_reduce_list))
+		if(IsReduceInfoListReplicated(inner_reduce_list))
 		{
 			ReduceInfo *rinfo = linitial(inner_reduce_list);
 			if (IsReduceInfoListExecuteSubset(outer_reduce_list, rinfo->storage_nodes))
@@ -1751,6 +1746,12 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 					*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
 				return true;
 			}
+		}else if (!IsReduceInfoListReplicated(outer_reduce_list) &&
+			IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
+		{
+			if (new_reduce_list)
+				*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
+			return true;
 		}
 		break;
 	case JOIN_ANTI:
