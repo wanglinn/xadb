@@ -1543,3 +1543,12 @@ core_yyfree(void *ptr, core_yyscan_t yyscanner)
 	if (ptr)
 		pfree(ptr);
 }
+
+/*
+ * before flex 2.5.37 function core_yyget_leng result type is int,
+ * so we need convert result
+ */
+size_t core_yyget_length(core_yyscan_t yyscanner)
+{
+	return core_yyget_leng(yyscanner);
+}

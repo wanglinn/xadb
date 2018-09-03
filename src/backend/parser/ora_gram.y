@@ -6688,7 +6688,7 @@ static Node *makeDeleteStmt(RangeVar *range, Alias *alias, WithClause *with
 	}else																	\
 	{																		\
 		(p)->token = core_yylex(&((p)->lval), &((p)->loc), yyscanner);		\
-		(p)->length = core_yyget_leng(yyscanner);							\
+		(p)->length = core_yyget_length(yyscanner);							\
 	}}while(0)
 #define PUSH_LOOKAHEAD(p)	\
 	push_lookahead(yyextra, (p)->lval, (p)->loc, (p)->token, (p)->length)
