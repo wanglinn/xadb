@@ -7382,6 +7382,7 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 	case T_ResultPath:
 	case T_MaterialPath:
 	case T_ProjectionPath:
+	case T_ProjectSetPath:
 	case T_ClusterReducePath:
 	case T_IndexPath:
 	case T_UniquePath:

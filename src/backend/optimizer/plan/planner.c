@@ -7311,6 +7311,9 @@ adjust_paths_for_srfs(PlannerInfo *root, RelOptInfo *rel,
 					  List *targets, List *targets_contain_srfs)
 {
 	ListCell   *lc;
+#ifdef ADB
+	bool adjust_cluster = false;
+#endif /* ADB */
 
 	Assert(list_length(targets) == list_length(targets_contain_srfs));
 	Assert(!linitial_int(targets_contain_srfs));
@@ -7329,7 +7332,12 @@ adjust_paths_for_srfs(PlannerInfo *root, RelOptInfo *rel,
 	 * so.  (There should be no parameterized paths anymore, so we needn't
 	 * worry about updating cheapest_parameterized_paths.)
 	 */
+#ifdef ADB
+re_adjust_:
+	foreach(lc, adjust_cluster ? rel->cluster_pathlist : rel->pathlist)
+#else
 	foreach(lc, rel->pathlist)
+#endif /* ADB */
 	{
 		Path	   *subpath = (Path *) lfirst(lc);
 		Path	   *newpath = subpath;
@@ -7359,10 +7367,20 @@ adjust_paths_for_srfs(PlannerInfo *root, RelOptInfo *rel,
 			rel->cheapest_startup_path = newpath;
 		if (subpath == rel->cheapest_total_path)
 			rel->cheapest_total_path = newpath;
+#ifdef ADB
+		if (subpath == rel->cheapest_cluster_startup_path)
+			rel->cheapest_cluster_startup_path = newpath;
+		if (subpath == rel->cheapest_cluster_total_path)
+			rel->cheapest_cluster_total_path = newpath;
+#endif /* ADB */
 	}
 
 	/* Likewise for partial paths, if any */
+#ifdef ADB
+	foreach(lc, adjust_cluster ? rel->cluster_partial_pathlist : rel->partial_pathlist)
+#else
 	foreach(lc, rel->partial_pathlist)
+#endif
 	{
 		Path	   *subpath = (Path *) lfirst(lc);
 		Path	   *newpath = subpath;
@@ -7392,6 +7410,14 @@ adjust_paths_for_srfs(PlannerInfo *root, RelOptInfo *rel,
 		}
 		lfirst(lc) = newpath;
 	}
+
+#ifdef ADB
+	if (adjust_cluster == false)
+	{
+		adjust_cluster = true;
+		goto re_adjust_;
+	}
+#endif /* ADB */
 }
 
 /*
