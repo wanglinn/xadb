@@ -63,6 +63,8 @@ static void outputNode(const void *node, outputfunc func, const char *type, Stri
 {
 	if(node)
 	{
+		if (strcmp(type, "Expr") == 0)
+			return;
 		outputNodeBegin(str, type, space);
 		(*func)(node, str, space+TABLE_STOP);
 		outputNodeEnd(str, type, space);
@@ -275,6 +277,33 @@ static void outputAclMode(StringInfo str, const AclMode *value)
 	}
 }
 
+#ifdef ADB
+static void outputReduceType(StringInfo str, const char *type)
+{
+	const char *name;
+#define CASE_REDUCE_TYPE(t)		\
+	case REDUCE_TYPE_##t:		\
+		name = #t;				\
+		break
+
+	switch(*type)
+	{
+	CASE_REDUCE_TYPE(HASH);
+	CASE_REDUCE_TYPE(CUSTOM);
+	CASE_REDUCE_TYPE(MODULO);
+	CASE_REDUCE_TYPE(REPLICATED);
+	CASE_REDUCE_TYPE(RANDOM);
+	CASE_REDUCE_TYPE(COORDINATOR);
+	default:
+		name = "UNKNOWN";
+		break;
+	}
+
+	appendStringInfoString(str, name);
+#undef CASE_REDUCE_TYPE
+}
+#endif /* ADB */
+
 static void outputbool(StringInfo str, const bool *value)
 {
 	appendStringInfoString(str, *value ? "true":"false");
@@ -353,8 +382,23 @@ SIMPLE_OUTPUT_DECLARE(StrategyNumber, "%u");
 	}
 
 #undef BEGIN_STRUCT
-#define BEGIN_STRUCT	BEGIN_NODE
-#define END_STRUCT		END_NODE
+#define BEGIN_STRUCT(type)					\
+	static void output##type(const type *node, StringInfo str, int space)	\
+	{																		\
+		if (node)															\
+		{																	\
+			outputNodeBegin(str, #type, space);								\
+			space += TABLE_STOP;
+
+#define END_STRUCT(type)													\
+			outputNodeEnd(str, #type, space);								\
+			space -= TABLE_STOP;											\
+		}else																\
+		{																	\
+			appendStringInfoString(str, "<>\n");							\
+		}																	\
+	}
+
 #define NODE_SAME(t1,t2)
 #define NODE_BASE2(type, meb)	\
 	outputNode(&(node->meb), (outputfunc)output##type, #type, str, space);
@@ -371,8 +415,8 @@ SIMPLE_OUTPUT_DECLARE(StrategyNumber, "%u");
 		outputNodeArray((void **const )node->m, l, (outputfunc)printNode, #t, str, space);
 
 #define NODE_BITMAPSET(t,m)								\
-		appendObjectMebName(str, #m, space);		\
-		outputBitmapset(node->m, str, space);
+		appendObjectMebName(str, #m, space);			\
+		outputBitmapset(node->m, str, space+TABLE_STOP);
 
 #define NODE_BITMAPSET_ARRAY(t,m,l)						\
 		do												\
@@ -439,12 +483,21 @@ SIMPLE_OUTPUT_DECLARE(StrategyNumber, "%u");
 #undef NO_STRUCT_ParamExternData
 #undef NO_STRUCT_QualCost
 #undef NO_STRUCT_MergeScanSelCache
-#undef NO_STRUCT_ReduceInfo
 #undef NO_STRUCT_PartitionPruneStep
 #define NO_NODE_Path
 #define NO_NODE_EquivalenceClass
 #define NO_NODE_IndexOptInfo
 #include "nodes/struct_define.h"
+#ifdef ADB
+BEGIN_STRUCT(ReduceInfo)
+	NODE_NODE(List,storage_nodes)
+	NODE_NODE(List,exclude_exec)
+	NODE_NODE(List,params)
+	NODE_NODE(Expr,expr)
+	NODE_RELIDS(Relids,relids)
+	NODE_SCALAR(ReduceType,type)
+END_STRUCT(ReduceInfo)
+#endif /* ADB */
 BEGIN_NODE(Path)
 	NODE_ENUM(NodeTag,pathtype)
 	NODE_OTHER_POINT(RelOptInfo,parent)	/* don't print parent */
@@ -560,3 +613,26 @@ char *printObject(const void *obj)
 	printNode(obj, &str, 0);
 	return str.data;
 }
+
+#ifdef ADB
+char *printReduceInfo(ReduceInfo *rinfo)
+{
+	StringInfoData buf;
+	initStringInfo(&buf);
+
+	outputReduceInfo(rinfo, &buf, 0);
+
+	return buf.data;
+}
+
+char *printReduceInfoList(List *list)
+{
+	StringInfoData buf;
+	initStringInfo(&buf);
+
+	outputListObject(list, &buf, TABLE_STOP, (outputfunc)outputReduceInfo);
+
+	return buf.data;
+}
+
+#endif /* ADB */
