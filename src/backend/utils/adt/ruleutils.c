@@ -8969,6 +8969,8 @@ get_rule_expr(Node *node, deparse_context *context,
 				{
 					int i;
 					char tmp = ovl->signalRowMode ? '{':'[';
+					appendStringInfoString(buf, "OidVectorLoop");
+
 					for(i=0;i<ov->dim1;++i)
 					{
 						appendStringInfoChar(buf, tmp);
@@ -8978,7 +8980,7 @@ get_rule_expr(Node *node, deparse_context *context,
 					appendStringInfoChar(buf, ovl->signalRowMode ? '}':']');
 				}else
 				{
-					appendStringInfoString(buf, ovl->signalRowMode ? "{}":"[]");
+					appendStringInfoString(buf, ovl->signalRowMode ? "OidVectorLoop{}":"OidVectorLoop[]");
 				}
 			}
 			break;
