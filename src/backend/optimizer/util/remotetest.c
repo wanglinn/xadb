@@ -33,6 +33,7 @@
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+#include "pgxc/slot.h"
 
 typedef struct ModifyContext
 {
@@ -166,7 +167,10 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 
 		if(context.partition_expr)
 		{
-			expr = makeInt4EQ(context.partition_expr, makeInt4Const(i));
+			if(LOCATOR_TYPE_HASHMAP==loc_info->locatorType)
+				expr = makeInt4EQ(context.partition_expr, makeInt4Const(node_oid));
+			else
+				expr = makeInt4EQ(context.partition_expr, makeInt4Const(i));
 			temp_constraints = lappend(temp_constraints, expr);
 		}
 
@@ -255,6 +259,7 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 	switch(loc_info->locatorType)
 	{
 	case LOCATOR_TYPE_HASH:
+	case LOCATOR_TYPE_HASHMAP:
 		expr = makeHashExpr((Expr*)node);
 		break;
 	case LOCATOR_TYPE_MODULO:
@@ -301,7 +306,12 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 		return NULL;
 	}
 
-	expr = makeModuloExpr(expr, list_length(loc_info->nodeids));
+
+	if(LOCATOR_TYPE_HASHMAP==loc_info->locatorType)
+		expr = makeModuloExpr(expr, SLOTSIZE);
+	else
+		expr = makeModuloExpr(expr, list_length(loc_info->nodeids));
+
 	expr = (Expr*)coerce_to_target_type(NULL,
 										(Node*)expr,
 										exprType((Node*)expr),
@@ -322,7 +332,14 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 	coalesce->coalescecollid = InvalidOid;
 	coalesce->args = list_make2(expr, makeInt4Const(0)); /* when null, first node */
 
-	return (Expr*)coalesce;
+	if(LOCATOR_TYPE_HASHMAP==loc_info->locatorType)
+		return (Expr*)makeFuncExpr(GetNodeIdFromHashValue,
+					INT4OID,
+					list_make1((Expr*)coalesce),
+					exprType((Node*)coalesce), exprCollation((Node*)coalesce),
+					COERCE_EXPLICIT_CALL);
+	else
+		return (Expr*)coalesce;
 }
 
 static List* make_new_qual_list(ModifyContext *context, Node *quals, bool need_eval_const)
