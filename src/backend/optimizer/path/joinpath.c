@@ -2698,6 +2698,7 @@ re_reduce_join_:
 									 ReducePathSave2List,
 									 (void*)&outer_pathlist,
 									 REDUCE_TYPE_HASH,
+									 REDUCE_TYPE_HASHMAP,
 									 REDUCE_TYPE_MODULO,
 									 REDUCE_TYPE_NONE);
 				ReducePathListByExpr((Expr*)inner_exprs,
@@ -2709,18 +2710,22 @@ re_reduce_join_:
 									 ReducePathSave2List,
 									 (void*)&inner_pathlist,
 									 REDUCE_TYPE_HASH,
+									 REDUCE_TYPE_HASHMAP,
 									 REDUCE_TYPE_MODULO,
 									 REDUCE_TYPE_NONE);
 			}
 			tried_join |= add_cluster_paths_to_joinrel_internal(&jcontext, outer_pathlist, inner_pathlist, nestjoinOK, false);
 			list_free(outer_pathlist);
 			list_free(inner_pathlist);
+			/* don't use coordiator to reduce in hashmap distribution*/
+			/*
 			if(storage && list_member_oid(storage, PGXCNodeOid) == false)
 			{
 				outer_pathlist = inner_pathlist = NIL;
 				storage = SortOidList(lappend_oid(storage, PGXCNodeOid));
 				goto re_reduce_join_;
 			}
+			*/
 			list_free(outer_exec);
 			list_free(inner_exec);
 			list_free(storage);
