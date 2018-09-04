@@ -1307,7 +1307,7 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 		relation->rd_rsdesc = NULL;
 
 #ifdef ADB
-	if (IsCnNode() &&
+	if ((IsCnNode()||IsDnNode()) &&
 		relation->rd_id >= FirstNormalObjectId)
 		RelationBuildLocator(relation);
 
