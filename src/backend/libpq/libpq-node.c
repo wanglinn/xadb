@@ -562,12 +562,51 @@ static int PQNIsConnecting(PGconn *conn)
 void PQNExecFinish_trouble(PGconn *conn)
 {
 	PGresult *res;
+	HOLD_CANCEL_INTERRUPTS();
 	for(;;)
 	{
 		if(PQstatus(conn) == CONNECTION_BAD)
 			break;
 		if(PQisCopyInState(conn))
+		{
+			int ret;
 			PQputCopyEnd(conn, NULL);
+re_flush_:
+			ret = PQflush(conn);
+			if (ret < 0)
+			{
+				break;
+			}else if(ret > 0)
+			{
+				fd_set wfds;
+				fd_set efds;
+				pgsocket sock;
+re_select_:
+				FD_ZERO(&wfds);
+				FD_ZERO(&efds);
+				sock = PQsocket(conn);
+				FD_SET(sock, &wfds);
+				FD_SET(sock, &efds);
+				ret = select(sock + 1, NULL, &wfds, &efds, NULL);
+				CHECK_FOR_INTERRUPTS();
+				if (ret < 0)
+				{
+					if (errno == EINTR)
+					{
+						goto re_select_;
+					}else
+					{
+						pg_usleep(1000);
+						goto re_flush_;
+					}
+				}else if(ret == 0)
+				{
+					/* should not happen */
+					pg_usleep(1000);
+				}
+				goto re_flush_;
+			}
+		}
 		while(PQisCopyOutState(conn))
 		{
 			if(PQgetCopyDataBuffer(conn, (const char**)&res, false) < 0)
@@ -579,6 +618,7 @@ void PQNExecFinish_trouble(PGconn *conn)
 		else
 			break;
 	}
+	RESUME_CANCEL_INTERRUPTS();
 }
 
 void PQNReleaseAllConnect(void)
@@ -639,9 +679,11 @@ void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int el
 
 			str = PQresultErrorField(result, PG_DIAG_NODE_NAME);
 			if(str == NULL && conn)
+			{
 				str = PQparameterStatus(conn, "pgxc_node_name");
-			if(str == NULL)
-				str = PQNConnectName(conn);
+				if(str == NULL)
+					str = PQNConnectName(conn);
+			}
 			if(str != NULL)
 				errnode(str);
 
