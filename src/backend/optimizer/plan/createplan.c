@@ -7086,7 +7086,7 @@ static void set_scan_execute_oids(Scan *scan, Path *path, PlannerInfo *root)
 	}else
 	{
 		/* should be coordinator only */
-		Assert(path->parent->loc_info == NULL);
+		Assert((path->parent->loc_info == NULL)||(LOCATOR_TYPE_META==path->parent->loc_info->locatorType));
 		scan->execute_nodes = list_make1_oid(PGXCNodeOid);
 	}
 }

@@ -551,27 +551,27 @@ compute_hash(Oid type, Datum value, char locator)
 			 *	a = 8446744073709551359
 			 * and	a = 8446744073709551359::int8 both work*/
 			tmp64 = DatumGetInt64(value);
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return DirectFunctionCall1(hashint8, value);
 			return tmp64;
 		case INT2OID:
 			tmp16 = DatumGetInt16(value);
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return DirectFunctionCall1(hashint2, tmp16);
 			return tmp16;
 		case OIDOID:
 			tmpoid = DatumGetObjectId(value);
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return DirectFunctionCall1(hashoid, tmpoid);
 			return tmpoid;
 		case INT4OID:
 			tmp32 = DatumGetInt32(value);
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return DirectFunctionCall1(hashint4, tmp32);
 			return tmp32;
 		case BOOLOID:
 			tmpch = DatumGetBool(value);
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return DirectFunctionCall1(hashchar, tmpch);
 			return tmpch;
 
@@ -598,12 +598,12 @@ compute_hash(Oid type, Datum value, char locator)
 
 		case ABSTIMEOID:
 			tmp32 = DatumGetAbsoluteTime(value);
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return DirectFunctionCall1(hashint4, tmp32);
 			return tmp32;
 		case RELTIMEOID:
 			tmp32 = DatumGetRelativeTime(value);
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return DirectFunctionCall1(hashint4, tmp32);
 			return tmp32;
 		case CASHOID:
@@ -616,7 +616,7 @@ compute_hash(Oid type, Datum value, char locator)
 
 		case DATEOID:
 			tmp32 = DatumGetDateADT(value);
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return DirectFunctionCall1(hashint4, tmp32);
 			return tmp32;
 		case TIMEOID:
@@ -657,24 +657,24 @@ get_compute_hash_function(Oid type, char locator)
 	switch (type)
 	{
 		case INT8OID:
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return "hashint8";
 			return NULL;
 		case INT2OID:
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return "hashint2";
 			return NULL;
 		case OIDOID:
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return "hashoid";
 			return NULL;
 		case DATEOID:
 		case INT4OID:
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return "hashint4";
 			return NULL;
 		case BOOLOID:
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return "hashchar";
 			return NULL;
 		case CHAROID:
@@ -698,7 +698,7 @@ get_compute_hash_function(Oid type, char locator)
 			return "hashfloat8";
 		case RELTIMEOID:
 		case ABSTIMEOID:
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return "hashint4";
 			return NULL;
 		case CASHOID:

@@ -150,6 +150,8 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte,
 	if (rnodes == NIL)
 		return false;
 	exec_nodes = MakeExecNodesByOids(rel->loc_info, rnodes, RELATION_ACCESS_READ);
+	if (!exec_nodes)
+		return false;
 
 	if (IsExecNodesDistributedByValue(exec_nodes))
 	{

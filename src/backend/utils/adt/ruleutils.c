@@ -6607,6 +6607,10 @@ get_utility_query_def(Query *query, deparse_context *context)
 					appendStringInfo(buf, " DISTRIBUTE BY HASH(%s)", stmt->distributeby->colname);
 					break;
 
+				case DISTTYPE_HASHMAP:
+					appendStringInfo(buf, " DISTRIBUTE BY HASHMAP(%s)", stmt->distributeby->colname);
+					break;
+
 				case DISTTYPE_ROUNDROBIN:
 					appendStringInfo(buf, " DISTRIBUTE BY ROUNDROBIN");
 					break;

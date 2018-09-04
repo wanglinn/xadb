@@ -2845,6 +2845,33 @@ _equalOidVectorLoopExpr(const OidVectorLoopExpr *a, const OidVectorLoopExpr *b)
 	return datumIsEqual(a->vector, b->vector, false, -1);
 }
 
+/*
+ * stuff from slot.h
+ */
+
+static bool
+_equalAlterSlotStmt(const AlterSlotStmt *a, const AlterSlotStmt *b)
+{
+	COMPARE_SCALAR_FIELD(slotid);
+	COMPARE_NODE_FIELD(options);
+	return true;
+}
+
+static bool
+_equalCreateSlotStmt(const CreateSlotStmt *a, const CreateSlotStmt *b)
+{
+	COMPARE_SCALAR_FIELD(slotid);
+	COMPARE_NODE_FIELD(options);
+	return true;
+}
+
+static bool
+_equalDropSlotStmt(const DropSlotStmt *a, const DropSlotStmt *b)
+{
+	COMPARE_SCALAR_FIELD(slotid);
+	return true;
+}
+
 #endif
 
 #ifdef ADBMGRD
@@ -3049,6 +3076,15 @@ equal(const void *a, const void *b)
 			break;
 		case T_LevelExpr:
 			retval = _equalLevelExpr(a, b);
+			break;
+		case T_AlterSlotStmt:
+			retval = _equalAlterSlotStmt(a, b);
+			break;
+		case T_CreateSlotStmt:
+			retval = _equalCreateSlotStmt(a, b);
+			break;
+		case T_DropSlotStmt:
+			retval = _equalDropSlotStmt(a, b);
 			break;
 #endif /* ABD */
 		case T_TargetEntry:
