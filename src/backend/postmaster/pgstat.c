@@ -6337,6 +6337,8 @@ bool walker_table_stat(bool(*walker)(), void *context)
 	hash_seq_init(&status, pgStatTabHash);
 	while((entry=hash_seq_search(&status)) != NULL)
 	{
+		if(IsTransactionState()&&(InvalidAttrNumber==get_relnatts(entry->t_id)))
+			continue;
 		if ((*walker)(entry->tsa_entry, context))
 		{
 			hash_seq_term(&status);
