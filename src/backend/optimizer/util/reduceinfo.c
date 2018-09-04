@@ -30,6 +30,7 @@
 #include "utils/typcache.h"
 
 #include "optimizer/reduceinfo.h"
+#include "pgxc/slot.h"
 
 #define MakeEmptyReduceInfo() palloc0(sizeof(ReduceInfo))
 static Param *makeReduceParam(Oid type, int paramid, int parammod, Oid collid);
@@ -67,6 +68,35 @@ ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const E
 	rinfo->params = list_make1(copyObject(param));
 	rinfo->relids = pull_varnos((Node*)param);
 	rinfo->type = REDUCE_TYPE_HASH;
+
+	return rinfo;
+}
+
+
+ReduceInfo *MakeHashmapReduceInfo(const List *storage, const List *exclude, const Expr *param)
+{
+	ReduceInfo *rinfo;
+	TypeCacheEntry *typeCache;
+	Oid typoid;
+	AssertArg(storage && IsA(storage, OidList) && param);
+	AssertArg(exclude == NIL || IsA(exclude, OidList));
+
+	typoid = exprType((Node*)param);
+	typeCache = lookup_type_cache(typoid, TYPECACHE_HASH_PROC);
+	if(!OidIsValid(typeCache->hash_proc))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("could not identify a hash function for type %s",
+						format_type_be(typoid))));
+	}
+
+	rinfo = MakeEmptyReduceInfo();
+	rinfo->storage_nodes = list_copy(storage);
+	rinfo->exclude_exec = list_copy(exclude);
+	rinfo->params = list_make1(copyObject(param));
+	rinfo->relids = pull_varnos((Node*)param);
+	rinfo->type = REDUCE_TYPE_HASHMAP;
 
 	return rinfo;
 }
@@ -227,6 +257,11 @@ ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const Lis
 		{
 			Var *var = makeVarByRel(loc_info->partAttrNum, reloid, relid);
 			rinfo = MakeHashReduceInfo(rnodes, exclude, (Expr*)var);
+		}else if(loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
+		{
+			Var *var = makeVarByRel(loc_info->partAttrNum, reloid, relid);
+			rinfo = MakeHashmapReduceInfo(rnodes, exclude, (Expr*)var);
+
 		}else if(loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
 		{
 			rinfo = MakeCustomReduceInfoByRel(rnodes,
@@ -364,6 +399,45 @@ List *SortOidList(List *list)
 	pfree(oids);
 	return list;
 }
+
+
+int HashmapPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+				   List *storage, List *exclude,
+				   ReducePathCallback_function func, void *context)
+{
+	ReduceInfo *reduce;
+	int result;
+	AssertArg(root && rel && path && storage && func);
+
+	if(expr == NULL)
+		return 0;
+
+	if(IsA(expr, List))
+	{
+		ListCell *lc;
+		result = 0;
+		foreach(lc, (List*)expr)
+		{
+			if (!IsTypeDistributable(exprType(lfirst(lc))) ||
+				expression_have_subplan(lfirst(lc)))
+				continue;
+			reduce = MakeHashmapReduceInfo(storage, exclude, lfirst(lc));
+			result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
+			if(result < 0)
+				break;
+		}
+	}else if(IsTypeDistributable(exprType((Node*)expr)) &&
+			 expression_have_subplan(expr) == false)
+	{
+		reduce = MakeHashmapReduceInfo(storage, exclude, expr);
+		result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
+	}else
+	{
+		result = 0;
+	}
+	return 0;
+}
+
 
 int HashPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 				   List *storage, List *exclude,
@@ -796,6 +870,8 @@ int ReducePathByExprVA(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *pat
 		int type = va_arg(args, int);
 		if(type == REDUCE_TYPE_HASH)
 			result = HashPathByExpr(expr, root,rel, path, storage, exclude, func, context);
+		else if(type == REDUCE_TYPE_HASHMAP)
+			result = HashmapPathByExpr(expr, root,rel, path, storage, exclude, func, context);
 		else if(type == REDUCE_TYPE_MODULO)
 			result = ModuloPathByExpr(expr, root,rel, path, storage, exclude, func, context);
 		else if(type == REDUCE_TYPE_COORDINATOR)
@@ -2012,7 +2088,9 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	case REDUCE_TYPE_HASH:
 		Assert(list_length(reduce->params) == 1);
 		result = makeHashExpr(linitial(reduce->params));
+
 		result = makeModuloExpr(result, list_length(reduce->storage_nodes));
+
 		Assert(exprType((Node*)result) == INT4OID);
 		result = (Expr*) makeFuncExpr(F_INT4ABS,
 									  INT4OID,
@@ -2020,6 +2098,25 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 									  InvalidOid, InvalidOid,
 									  COERCE_EXPLICIT_CALL);
 		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids));
+		break;
+
+	case REDUCE_TYPE_HASHMAP:
+		Assert(list_length(reduce->params) == 1);
+		result = makeHashExpr(linitial(reduce->params));
+
+		result = makeModuloExpr(result, SLOTSIZE);
+		Assert(exprType((Node*)result) == INT4OID);
+		result = (Expr*) makeFuncExpr(F_INT4ABS,
+									  INT4OID,
+									  list_make1(result),
+									  InvalidOid, InvalidOid,
+									  COERCE_EXPLICIT_CALL);
+		result = (Expr*)makeFuncExpr(GetNodeIdFromHashValue,
+			INT4OID,
+			list_make1((Expr*)result),
+			exprType((Node*)result), exprCollation((Node*)result),
+			COERCE_EXPLICIT_CALL);
+
 		break;
 	case REDUCE_TYPE_CUSTOM:
 		Assert(list_length(reduce->params) > 0 && reduce->expr != NULL);

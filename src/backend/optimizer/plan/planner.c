@@ -4616,6 +4616,7 @@ create_grouping_paths(PlannerInfo *root,
 									 create_cluster_grouping_path,
 									 &gcontext,
 									 REDUCE_TYPE_HASH,
+									 REDUCE_TYPE_HASHMAP,
 									 REDUCE_TYPE_MODULO,
 									 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
 									 REDUCE_TYPE_NONE);
@@ -4643,6 +4644,7 @@ create_grouping_paths(PlannerInfo *root,
 								 create_cluster_grouping_path,
 								 &gcontext,
 								 REDUCE_TYPE_HASH,
+								 REDUCE_TYPE_HASHMAP,
 								 REDUCE_TYPE_MODULO,
 								 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
 								 REDUCE_TYPE_NONE);
@@ -4748,6 +4750,7 @@ create_grouping_paths(PlannerInfo *root,
 									 create_cluster_grouping_path,
 									 &gcontext,
 									 groupExprs ? REDUCE_TYPE_HASH : REDUCE_TYPE_IGNORE,
+									 groupExprs ? REDUCE_TYPE_HASHMAP : REDUCE_TYPE_IGNORE,
 									 groupExprs ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
 									 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
 									 REDUCE_TYPE_NONE);
@@ -5552,6 +5555,7 @@ create_distinct_paths(PlannerInfo *root,
 								 create_cluster_distinct_path,
 								 &dcontext,
 								 REDUCE_TYPE_HASH,
+								 REDUCE_TYPE_HASHMAP,
 								 REDUCE_TYPE_MODULO,
 								 REDUCE_TYPE_COORDINATOR,
 								 REDUCE_TYPE_NONE);
@@ -5567,6 +5571,7 @@ create_distinct_paths(PlannerInfo *root,
 									 create_cluster_distinct_path,
 									 &dcontext,
 									 REDUCE_TYPE_HASH,
+									 REDUCE_TYPE_HASHMAP,
 									 REDUCE_TYPE_MODULO,
 									 REDUCE_TYPE_NONE);
 
@@ -6807,6 +6812,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 	}else if(loc_info->locatorType == LOCATOR_TYPE_HASH ||
 			 loc_info->locatorType == LOCATOR_TYPE_MODULO ||
+			 loc_info->locatorType == LOCATOR_TYPE_HASHMAP ||
 			 loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
 	{
 		Expr *expr;
@@ -6819,6 +6825,12 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 		{
 			expr = list_nth(path->pathtarget->exprs, loc_info->partAttrNum - 1);
 			reduce_info = MakeHashReduceInfo(storage_nodes,
+											 NIL,
+											 expr);
+		}else if(loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
+		{
+			expr = list_nth(path->pathtarget->exprs, loc_info->partAttrNum - 1);
+			reduce_info = MakeHashmapReduceInfo(storage_nodes,
 											 NIL,
 											 expr);
 		}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
