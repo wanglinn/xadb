@@ -116,6 +116,9 @@ static void DropStmtPreTreatment(DropStmt *stmt, const char *queryString,
 					bool sentToRemote, bool *is_temp,
 					RemoteQueryExecType *exec_type);
 static bool IsStmtAllowedInLockedMode(Node *parsetree, const char *queryString);
+
+#include "pgxc/slot.h"
+
 #endif
 
 /* Hook for plugins to get control in ProcessUtility() */
@@ -1183,6 +1186,45 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 
 		case T_DropGroupStmt:
 			PgxcGroupRemove((DropGroupStmt *) parsetree);
+			break;
+
+		case T_AlterSlotStmt:
+			SlotAlter((AlterSlotStmt *) parsetree);
+
+			if (IS_PGXC_COORDINATOR)
+				ExecRemoteUtilityStmt(&utilityContext);
+
+			break;
+
+		case T_CreateSlotStmt:
+			SlotCreate((CreateSlotStmt *) parsetree);
+
+			if (IS_PGXC_COORDINATOR)
+				ExecRemoteUtilityStmt(&utilityContext);
+
+			break;
+
+		case T_DropSlotStmt:
+			SlotRemove((DropSlotStmt *) parsetree);
+
+			if (IS_PGXC_COORDINATOR)
+				ExecRemoteUtilityStmt(&utilityContext);
+
+			break;
+
+		case T_FlushSlotStmt:
+			SlotFlush((FlushSlotStmt *) parsetree);
+
+			if (IS_PGXC_COORDINATOR)
+				ExecRemoteUtilityStmt(&utilityContext);
+			break;
+
+		case T_CleanSlotStmt:
+			if (IS_PGXC_DATANODE)
+				SlotClean((CleanSlotStmt *) parsetree);
+
+			if (IS_PGXC_COORDINATOR)
+				ExecRemoteUtilityStmt(&utilityContext);
 			break;
 #endif
 
@@ -4338,8 +4380,27 @@ CreateCommandTag(Node *parsetree)
 		case T_CleanConnStmt:
 			tag = "CLEAN CONNECTION";
 			break;
-#endif
 
+		case T_AlterSlotStmt:
+			tag = "ALTER SLOT";
+			break;
+
+		case T_CreateSlotStmt:
+			tag = "CREATE SLOT";
+			break;
+
+		case T_DropSlotStmt:
+			tag = "DROP SLOT";
+			break;
+
+		case T_FlushSlotStmt:
+			tag = "FLUSH SLOT";
+			break;
+
+		case T_CleanSlotStmt:
+			tag = "CLEAN SLOT";
+			break;
+#endif
 		default:
 			elog(WARNING, "unrecognized node type: %d",
 				 (int) nodeTag(parsetree));
@@ -4872,6 +4933,13 @@ GetCommandLogLevel(Node *parsetree)
 		case T_BarrierStmt:
 		case T_CreateAuxStmt:
 			lev = LOGSTMT_ALL;
+			break;
+		case T_CreateSlotStmt:
+		case T_AlterSlotStmt:
+		case T_DropSlotStmt:
+		case T_FlushSlotStmt:
+		case T_CleanSlotStmt:
+			lev = LOGSTMT_DDL;
 			break;
 #endif
 

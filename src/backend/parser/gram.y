@@ -315,6 +315,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 				name cursor_name file_name
 				index_name opt_index_name cluster_index_specification
 
+
 %type <list>	func_name handler_name qual_Op qual_all_Op subquery_Op
 				opt_class opt_inline_handler opt_validator validator_clause
 				opt_collate
@@ -557,11 +558,12 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 /* ADB_BEGIN */
 %type <distby>	OptDistributeBy OptDistributeByInternal
 %type <node>	AlterNodeStmt
-		BarrierStmt
+		BarrierStmt AlterSlotStmt CreateSlotStmt DropSlotStmt FlushSlotStmt CleanSlotStmt
 		CleanConnStmt CreateAuxStmt CreateNodeGroupStmt CreateNodeStmt
 		DropNodeGroupStmt DropNodeStmt
 		ExecDirectStmt
 		OptIndex
+
 
 %type <range>	opt_aux_name
 %type <list>	pgxcnode_list pgxcnodes
@@ -573,6 +575,9 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 		aux_opt_index_name
 
 %type <subclus> OptSubCluster OptSubClusterInternal
+
+%type <ival>   slotid
+
 /* ADB_END */
 
 /*
@@ -622,7 +627,8 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 	EXCLUDE EXCLUDING EXCLUSIVE EXECUTE EXISTS EXPLAIN
 	EXTENSION EXTERNAL EXTRACT
 
-	FALSE_P FAMILY FETCH FILTER FIRST_P FLOAT_P FOLLOWING FOR
+	/* added FLUSH token */
+	FALSE_P FAMILY FETCH FILTER FIRST_P FLOAT_P FLUSH FOLLOWING FOR
 	FORCE FOREIGN FORWARD FREEZE FROM FULL FUNCTION FUNCTIONS
 
 	GENERATED GLOBAL GRANT GRANTED GREATEST GROUP_P GROUPING
@@ -664,7 +670,8 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 
 	SAVEPOINT SCHEMA SCHEMAS SCROLL SEARCH SECOND_P SECURITY SELECT SEQUENCE SEQUENCES
 	SERIALIZABLE SERVER SESSION SESSION_USER SET SETS SETOF SHARE SHOW
-	SIMILAR SIMPLE SKIP SMALLINT SNAPSHOT SOME SQL_P STABLE STANDALONE_P
+	/* added SLOT token */
+	SIMILAR SIMPLE SKIP SLOT SMALLINT SNAPSHOT SOME SQL_P STABLE STANDALONE_P
 	START STATEMENT STATISTICS STDIN STDOUT STORAGE STRICT_P STRIP_P
 	SUBSCRIPTION SUBSTRING SYMMETRIC SYSID SYSTEM_P
 
@@ -828,6 +835,7 @@ stmt :
 			| AlterGroupStmt
 /* ADB_BEGIN */
 			| AlterNodeStmt
+			| AlterSlotStmt
 /* ADB_END */
 			| AlterObjectDependsStmt
 			| AlterObjectSchemaStmt
@@ -853,6 +861,7 @@ stmt :
 			| CheckPointStmt
 /* ADB_BEGIN */
 			| CleanConnStmt
+			| CleanSlotStmt
 /* ADB_END */
 			| ClosePortalStmt
 			| ClusterStmt
@@ -882,6 +891,9 @@ stmt :
 			| CreateOpClassStmt
 			| CreateOpFamilyStmt
 			| CreatePublicationStmt
+/* ADB_BEGIN */
+			| CreateSlotStmt
+/* ADB_END */
 			| AlterOpFamilyStmt
 			| CreatePolicyStmt
 			| CreatePLangStmt
@@ -914,6 +926,9 @@ stmt :
 			| DropOpFamilyStmt
 			| DropOwnedStmt
 			| DropPLangStmt
+/* ADB_BEGIN */
+			| DropSlotStmt
+/* ADB_END */
 			| DropStmt
 			| DropSubscriptionStmt
 			| DropTableSpaceStmt
@@ -927,6 +942,9 @@ stmt :
 /* ADB_END */
 			| ExplainStmt
 			| FetchStmt
+/* ADB_BEGIN */
+			| FlushSlotStmt
+/* ADB_END */
 			| GrantStmt
 			| GrantRoleStmt
 			| ImportForeignSchemaStmt
@@ -4152,6 +4170,8 @@ OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType
 						n->disttype = DISTTYPE_REPLICATION;
 					else if (strcmp($3, "random") == 0)
 						n->disttype = DISTTYPE_RANDOM;
+					else if (strcmp($3, "meta") == 0)
+						n->disttype = DISTTYPE_META;
 					else
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
@@ -10840,6 +10860,95 @@ DropNodeGroupStmt: DROP NODE GROUP_P pgxcgroup_name
 				}
 		;
 
+
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *
+ *		FLUSH SLOT
+ *
+ *****************************************************************************/
+ FlushSlotStmt: FLUSH SLOT
+				{
+					FlushSlotStmt *n = makeNode(FlushSlotStmt);
+					$$ = (Node *)n;
+				}
+		;
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *
+ *		CLEAN SLOT
+ *
+ *****************************************************************************/
+ CleanSlotStmt: CLEAN SLOT ColId ColId
+				{
+					CleanSlotStmt *n = makeNode(CleanSlotStmt);
+					n->schema_name = $3;
+					n->table_name = $4;
+					$$ = (Node *)n;
+				}
+		;
+/*****************************************************************************
+ *
+ *		QUERY:
+ *
+ *		CREATE SLOT slotid WITH
+ *				(
+ *					[ NODENAME = 'nodename', ]
+ *				)
+ *
+ *****************************************************************************/
+
+CreateSlotStmt: CREATE SLOT slotid OptWith
+				{
+					CreateSlotStmt *n = makeNode(CreateSlotStmt);
+					n->slotid = $3;
+					n->options = $4;
+					$$ = (Node *)n;
+				}
+		;
+
+slotid:
+			Iconst							{ $$ = $1; };
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *		ALTER SLOT slotid WITH
+ *				(
+ *					[ NODENAME = 'nodename', ]
+ *					[ STATUS = 'status', ]
+ *				)
+ *
+ *****************************************************************************/
+
+AlterSlotStmt: ALTER SLOT slotid OptWith
+				{
+					AlterSlotStmt *n = makeNode(AlterSlotStmt);
+					n->slotid = $3;
+					n->options = $4;
+					$$ = (Node *)n;
+				}
+		;
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *				DROP SLOT slotid
+ *
+ *****************************************************************************/
+
+DropSlotStmt: DROP SLOT slotid
+				{
+					DropSlotStmt *n = makeNode(DropSlotStmt);
+					n->slotid = $3;
+					$$ = (Node *)n;
+				}
+		;
+
 /* ADB_END */
 
 /*****************************************************************************
@@ -15393,6 +15502,9 @@ unreserved_keyword:
 			| FAMILY
 			| FILTER
 			| FIRST_P
+/* ADB BEGIN */
+			| FLUSH
+/* ADB END */
 			| FOLLOWING
 			| FORCE
 			| FORWARD
@@ -15538,6 +15650,9 @@ unreserved_keyword:
 			| SHOW
 			| SIMPLE
 			| SKIP
+/* ADB BEGIN */
+			| SLOT
+/* ADB END */
 			| SNAPSHOT
 			| SQL_P
 			| STABLE

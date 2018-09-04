@@ -14,17 +14,22 @@
 #ifndef LOCATOR_H
 #define LOCATOR_H
 
-#define LOCATOR_TYPE_REPLICATED		'R'
+#define LOCATOR_TYPE_REPLICATED			'R'
 #define LOCATOR_TYPE_HASH			'H'
 #define LOCATOR_TYPE_RANGE			'G'
 #define LOCATOR_TYPE_RANDOM			'N'
 #define LOCATOR_TYPE_CUSTOM			'C'
 #define LOCATOR_TYPE_MODULO			'M'
 #define LOCATOR_TYPE_NONE			'O'
-#define LOCATOR_TYPE_DISTRIBUTED	'D'	/* for distributed table without specific
+#define LOCATOR_TYPE_DISTRIBUTED		'D'	/* for distributed table without specific
 										 * scheme, e.g. result of JOIN of
 										 * replicated and distributed table */
-#define LOCATOR_TYPE_USER_DEFINED	'U'
+#define LOCATOR_TYPE_USER_DEFINED		'U'
+
+#define LOCATOR_TYPE_META			'A'
+#define LOCATOR_TYPE_HASHMAP			'B'
+#define LOCATOR_TYPE_INVALID			'X'
+
 
 /* Maximum number of preferred Datanodes that can be defined in cluster */
 #define MAX_PREFERRED_NODES 64
@@ -36,13 +41,19 @@
 #define IsLocatorReplicated(x) 					((x) == LOCATOR_TYPE_REPLICATED)
 #define IsLocatorColumnDistributed(x) 			((x) == LOCATOR_TYPE_HASH || \
 												 (x) == LOCATOR_TYPE_RANDOM || \
+												 (x) == LOCATOR_TYPE_HASHMAP || \
 												 (x) == LOCATOR_TYPE_MODULO || \
 												 (x) == LOCATOR_TYPE_DISTRIBUTED || \
 												 (x) == LOCATOR_TYPE_USER_DEFINED)
 #define IsLocatorDistributedByValue(x)			((x) == LOCATOR_TYPE_HASH || \
 												 (x) == LOCATOR_TYPE_MODULO || \
+												 (x) == LOCATOR_TYPE_HASHMAP || \
 												 (x) == LOCATOR_TYPE_RANGE)
 #define IsLocatorDistributedByUserDefined(x)	((x) == LOCATOR_TYPE_USER_DEFINED)
+
+#define IsLocatorMeta(x) 						(x == LOCATOR_TYPE_META)
+#define IsLocatorHashmap(x) 					(x == LOCATOR_TYPE_HASHMAP)
+
 
 #include "nodes/primnodes.h"
 #include "utils/relcache.h"
