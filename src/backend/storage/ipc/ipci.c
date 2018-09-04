@@ -50,6 +50,8 @@
 #include "pgxc/nodemgr.h"
 #include "pgxc/pause.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/slot.h"
+
 #endif
 #if defined(ADBMGRD)
 #include "postmaster/adbmonitor.h"
@@ -160,6 +162,9 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 #ifdef ADB
 		if (IS_PGXC_COORDINATOR)
 			size = add_size(size, ClusterLockShmemSize());
+
+			size = add_size(size, SlotShmemSize());
+
 #endif
 
 #if defined(ADBMGRD)
@@ -281,6 +286,9 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 #ifdef ADB
 	if (IS_PGXC_COORDINATOR)
 		ClusterLockShmemInit();
+
+		SlotShmemInit();
+
 #endif
 
 	/*

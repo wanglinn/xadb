@@ -11,6 +11,6 @@ subdir = src/backend/pgxc
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-SUBDIRS = xc_maintenance_mode locator nodemgr pool copy cluster
+SUBDIRS = xc_maintenance_mode locator nodemgr pool copy cluster slot
 
 include $(top_srcdir)/src/backend/common.mk
