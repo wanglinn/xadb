@@ -1267,7 +1267,8 @@ pgxc_exec_sizefunc(Oid relOid, char *funcname, char *extra_arg)
 	else
 		appendStringInfo(&buf, "SELECT pg_catalog.%s('%s', '%s')", funcname, relname, extra_arg);
 
-	numnodes = get_pgxc_classnodes(RelationGetRelid(rel), &nodelist);
+	//numnodes = get_pgxc_classnodes(RelationGetRelid(rel), &nodelist);
+	numnodes = adb_get_all_datanode_oid_array(&nodelist, false);
 
 	relation_close(rel, AccessShareLock);
 
