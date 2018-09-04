@@ -64,6 +64,7 @@
 #include "pgxc/execRemote.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_namespace.h"
+#include "pgxc/slot.h"
 #endif
 #include "parser/parser.h"
 #include "rewrite/rewriteManip.h"
@@ -189,6 +190,10 @@ addDefaultDistributeBy(CreateStmt *stmt)
 			break;
 		case LOCATOR_TYPE_HASH:
 			distby->disttype = DISTTYPE_HASH;
+			distby->colname = get_attname(relloc->relid, relloc->partAttrNum);
+			break;
+		case LOCATOR_TYPE_HASHMAP:
+			distby->disttype = DISTTYPE_HASHMAP;
 			distby->colname = get_attname(relloc->relid, relloc->partAttrNum);
 			break;
 		case LOCATOR_TYPE_RROBIN:
@@ -479,7 +484,10 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 		cxt.fallback_dist_col)
 	{
 		stmt->distributeby = makeNode(DistributeBy);
-		stmt->distributeby->disttype = DISTTYPE_HASH;
+		if(hash_distribute_by_hashmap_default)
+			stmt->distributeby->disttype = DISTTYPE_HASHMAP;
+		else
+			stmt->distributeby->disttype = DISTTYPE_HASH;
 		stmt->distributeby->colname = cxt.fallback_dist_col;
 	}
 
@@ -2102,7 +2110,8 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 			}
 		}
 #ifdef ADB
-		if (IS_PGXC_COORDINATOR)
+		if (IS_PGXC_COORDINATOR ||
+			(IS_PGXC_DATANODE&&!useLocalXid&&!isRestoreMode))
 		{
 			/*
 			 * Set fallback distribution column.
