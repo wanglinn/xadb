@@ -17,6 +17,7 @@
 #define PGXC_H
 
 #include "postgres.h"
+#include "miscadmin.h"
 
 extern bool isPGXCCoordinator;
 extern bool isPGXCDataNode;

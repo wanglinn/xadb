@@ -50,6 +50,10 @@
 #include "utils/spccache.h"
 #include "utils/snapmgr.h"
 #include "utils/tqual.h"
+#ifdef ADB
+#include "pgxc/slot.h"
+#include "pgxc/pgxc.h"
+#endif
 
 
 static TupleTableSlot *BitmapHeapNext(BitmapHeapScanState *node);
@@ -429,6 +433,15 @@ bitgetpage(HeapScanDesc scan, TBMIterateResult *tbmres)
 			loctup.t_tableOid = scan->rs_rd->rd_id;
 			ItemPointerSet(&loctup.t_self, page, offnum);
 			valid = HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer);
+
+
+#ifdef ADB
+			//only check tuple slot in datanode and hash distribution
+			if ((valid)&&(scan->rs_rd->rd_id >= FirstNormalObjectId)
+				&& IS_PGXC_REAL_DATANODE&&adb_slot_enable_mvcc
+				&&(LOCATOR_TYPE_HASHMAP == scan->rs_rd->rd_locator_info->locatorType))
+				valid = HeapTupleSatisfiesSlot(scan->rs_rd, &loctup);
+#endif
 			if (valid)
 			{
 				scan->rs_vistuples[ntup++] = offnum;
