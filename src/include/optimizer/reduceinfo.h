@@ -2,6 +2,7 @@
 #define REDUCEINFO_H
 
 #define REDUCE_TYPE_NONE		'\0'
+#define REDUCE_TYPE_HASHMAP		'B'
 #define REDUCE_TYPE_HASH		'H'
 #define REDUCE_TYPE_CUSTOM		'C'
 #define REDUCE_TYPE_MODULO		'M'
@@ -40,6 +41,7 @@ struct RelationLocInfo;
 typedef int(*ReducePathCallback_function)(PlannerInfo *root, Path *path, void *context);
 
 extern ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const Expr *param);
+extern ReduceInfo *MakeHashmapReduceInfo(const List *storage, const List *exclude, const Expr *param);
 extern ReduceInfo *MakeCustomReduceInfoByRel(const List *storage, const List *exclude,
 						const List *attnums, Oid funcid, Oid reloid, Index rel_index);
 extern ReduceInfo *MakeCustomReduceInfo(const List *storage, const List *exclude, List *params, Oid funcid, Oid reloid);
@@ -59,6 +61,9 @@ extern bool CanModuloType(Oid type, bool no_error);
 
 
 extern int HashPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
+						  List *storage, List *exclude,
+						  ReducePathCallback_function func, void *context);
+extern int HashmapPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 						  List *storage, List *exclude,
 						  ReducePathCallback_function func, void *context);
 extern int HashPathListByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, List *pathlist,
@@ -128,6 +133,7 @@ extern List *GetCheapestReducePathList(RelOptInfo *rel, List *pathlist, Path **c
 extern int ReducePathSave2List(PlannerInfo *root, Path *path, void *pplist);
 
 #define IsReduceInfoByValue(r) ((r)->type == REDUCE_TYPE_HASH || \
+								(r)->type == REDUCE_TYPE_HASHMAP || \
 								(r)->type == REDUCE_TYPE_CUSTOM || \
 								(r)->type == REDUCE_TYPE_MODULO)
 extern bool IsReduceInfoListByValue(List *list);
