@@ -1344,7 +1344,12 @@ static void agent_handle_input(PoolAgent * agent, StringInfo s)
 	/* try recv data */
 	if(agent_recv_data(agent) == false)
 	{
-		/* closed by remote */
+		/*
+		 * closed by remote, maybe it have not normal exit.
+		 * PGconn maybe have dirty data in socket buffer,
+		 * safety we destroy it
+		 */
+		agent_release_connections(agent, true);
 		agent_destroy(agent);
 		return;
 	}
