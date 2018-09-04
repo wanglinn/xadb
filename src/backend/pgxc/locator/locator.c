@@ -57,6 +57,7 @@
 #include "pgxc/pgxcnode.h"
 #include "postmaster/autovacuum.h"
 #include "utils/typcache.h"
+#include "pgxc/slot.h"
 
 #define PUSH_REDUCE_EXPR_BMS	1
 #define PUSH_REDUCE_EXPR_LIST	2
@@ -305,6 +306,9 @@ ExecNodes *MakeExecNodesByOids(RelationLocInfo *loc_info, List *oids, RelationAc
 	if (oids == NIL)
 		return NULL;
 
+	if(loc_info->locatorType == LOCATOR_TYPE_META)
+		return NULL;
+
 	exec_nodes = makeNode(ExecNodes);
 	exec_nodes->accesstype = accesstype;
 	exec_nodes->baselocatortype = loc_info->locatorType;
@@ -345,6 +349,10 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 {
 	ExecNodes  *exec_nodes;
 	int			modulo;
+
+	int			nodeIndex;
+	int			slotstatus;
+
 
 	if (rel_loc_info == NULL)
 		return NULL;
@@ -483,6 +491,42 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 			}
 			break;
 
+		case LOCATOR_TYPE_META:
+			if (accessType == RELATION_ACCESS_READ)
+				return NULL;
+			else
+				ereport(ERROR, (errmsg("Error: can't use sql to modify meta table. Use command.\n")));
+			break;
+
+		case LOCATOR_TYPE_HASHMAP:
+			{
+				if(IS_PGXC_DATANODE)
+					return NULL;
+
+				if(dist_col_nulls[0])
+				{
+					if(accessType == RELATION_ACCESS_INSERT)
+					{
+						/* Insert NULL to first node*/
+						modulo = 0;
+						SlotGetInfo(0, &nodeIndex, &slotstatus);
+						exec_nodes->nodeids = list_make1_oid(nodeIndex);
+					}else
+					{
+						exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
+						break;
+					}
+				}else
+				{
+						int32 hashVal = execHashValue(dist_col_values[0],
+							dist_col_types[0],InvalidOid);
+						modulo = execModuloValue(Int32GetDatum(hashVal),
+							INT4OID, SLOTSIZE);
+						SlotGetInfo(modulo, &nodeIndex, &slotstatus);
+						exec_nodes->nodeids = list_make1_oid(nodeIndex);
+				}
+			}
+			break;
 			/* PGXCTODO case LOCATOR_TYPE_RANGE: */
 			/* PGXCTODO case LOCATOR_TYPE_CUSTOM: */
 		default:
@@ -787,6 +831,12 @@ RelationIdBuildLocator(Oid relid)
 	RelationLocInfo*relationLocInfo;
 	int				j;
 
+	Relation		relPgxcNode;
+	HeapScanDesc	relPgxcNodeScan;
+	HeapTuple		pgxcNodeTuple;
+	Form_pgxc_node	pgxc_node;
+
+
 	ScanKeyInit(&skey,
 				Anum_pgxc_class_pcrelid,
 				BTEqualStrategyNumber, F_OIDEQ,
@@ -808,9 +858,23 @@ RelationIdBuildLocator(Oid relid)
 	relationLocInfo->locatorType = pgxc_class->pclocatortype;
 	relationLocInfo->partAttrNum = pgxc_class->pcattnum;
 	relationLocInfo->nodeids = NIL;
+	/*
 	for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
 		relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
 											   pgxc_class->nodeoids.values[j]);
+	*/
+	//add all node in pgxc node table
+	relPgxcNode = heap_open(PgxcNodeRelationId, AccessShareLock);
+	relPgxcNodeScan = heap_beginscan_catalog(relPgxcNode, 0, NULL);
+	while((pgxcNodeTuple = heap_getnext(relPgxcNodeScan, ForwardScanDirection)) != NULL)
+	{
+		pgxc_node = (Form_pgxc_node) GETSTRUCT(pgxcNodeTuple);
+		if(PGXC_NODE_DATANODE == pgxc_node->node_type)
+			relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
+											   HeapTupleGetOid(pgxcNodeTuple));
+	}
+	heap_endscan(relPgxcNodeScan);
+	heap_close(relPgxcNode, AccessShareLock);
 
 	relationLocInfo->funcid = InvalidOid;
 	relationLocInfo->funcAttrNums = NIL;
@@ -1049,6 +1113,9 @@ GetInvolvedNodes(RelationLocInfo *rel_loc,
 	List	   *node_list = NIL;
 	int32		modulo;
 
+	int			nodeIndex;
+	int			slotstatus;
+
 	if (rel_loc == NULL)
 		return NIL;
 
@@ -1170,6 +1237,37 @@ GetInvolvedNodes(RelationLocInfo *rel_loc,
 
 			/* TODO case LOCATOR_TYPE_RANGE: */
 			/* TODO case LOCATOR_TYPE_CUSTOM: */
+			case LOCATOR_TYPE_HASHMAP:
+			{
+				int nnodes;
+
+				Assert(rel_loc->nodeids);
+				nnodes = list_length(rel_loc->nodeids);
+				Assert(nnodes > 0);
+
+				if(dist_nulls[0])
+				{
+					if(accessType == RELATION_ACCESS_INSERT)
+					{
+						modulo = 0; /* Insert NULL to first node*/
+						SlotGetInfo(0, &nodeIndex, &slotstatus);
+						node_list = list_make1_oid(nodeIndex);
+					}
+					else
+					{
+						node_list = list_copy(rel_loc->nodeids);
+						break;
+					}
+				} else
+				{
+					int32 hashVal = execHashValue(dist_values[0], dist_types[0], InvalidOid);
+					modulo = execModuloValue(Int32GetDatum(hashVal), INT4OID, SLOTSIZE);
+					SlotGetInfo(modulo, &nodeIndex, &slotstatus);
+					node_list = list_make1_oid(nodeIndex);
+				}
+			}
+			break;
+
 		default:
 			ereport(ERROR,
 					(errmsg("locator type '%c' not support yet", rel_loc->locatorType)));
