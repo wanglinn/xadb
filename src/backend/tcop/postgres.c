@@ -108,6 +108,9 @@
 #include "reduce/adb_reduce.h"
 #include "storage/procarray.h"
 #include "utils/guc.h"
+
+#include "pgxc/slot.h"
+
 #endif
 #if defined(ADB) || defined(ADB_GRAM_ORA)
 #include "nodes/nodeFuncs.h"
@@ -4593,6 +4596,10 @@ PostgresMain(int argc, char *argv[],
 
 		/* Mark transaction abort with error */
 		MarkCurrentTransactionErrorAborted();
+
+		adb_slot_enable_clean = false;
+		DatanodeInClusterPlan = false;
+
 #endif
 
 		/*
@@ -4818,6 +4825,9 @@ PostgresMain(int argc, char *argv[],
 			AcquireClusterLock(exclusive);
 			cluster_lock_held = true;
 		}
+
+		adb_slot_enable_clean = false;
+
 #endif
 
 		/*
