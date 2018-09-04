@@ -7070,6 +7070,10 @@ get_utility_query_def(Query *query, deparse_context *context)
 					appendStringInfo(buf, " DISTRIBUTE BY RANDOM");
 					break;
 
+				case DISTTYPE_HASHMAP:
+					appendStringInfo(buf, " DISTRIBUTE BY HASHMAP(%s)", stmt->distributeby->colname);
+					break;
+
 				case DISTTYPE_MODULO:
 					appendStringInfo(buf, " DISTRIBUTE BY MODULO(%s)", stmt->distributeby->colname);
 					break;

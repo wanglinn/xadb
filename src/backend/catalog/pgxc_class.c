@@ -66,7 +66,7 @@ PgxcClassCreate(Oid pcrelid,
 	values[Anum_pgxc_class_pcrelid - 1]   = ObjectIdGetDatum(pcrelid);
 	values[Anum_pgxc_class_pclocatortype - 1] = CharGetDatum(pclocatortype);
 
-	if (pclocatortype == LOCATOR_TYPE_HASH || pclocatortype == LOCATOR_TYPE_MODULO)
+	if (pclocatortype == LOCATOR_TYPE_HASH || pclocatortype == LOCATOR_TYPE_MODULO || pclocatortype == LOCATOR_TYPE_HASHMAP)
 	{
 		values[Anum_pgxc_class_pcattnum - 1] = UInt16GetDatum(pcattnum);
 		values[Anum_pgxc_class_pchashalgorithm - 1] = UInt16GetDatum(pchashalgorithm);

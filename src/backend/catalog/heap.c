@@ -101,6 +101,8 @@
 #include "pgxc/pgxcnode.h"
 
 extern bool distribute_by_replication_default;
+extern bool hash_distribute_by_hashmap_default;
+
 #endif
 
 /* Potentially set by pg_upgrade_support functions */
@@ -1503,7 +1505,11 @@ GetRelationDistributionItems(Oid relid,
 		Form_pg_attribute attr;
 		int i;
 
-		local_locatortype = LOCATOR_TYPE_HASH;
+		if(hash_distribute_by_hashmap_default)
+			local_locatortype = LOCATOR_TYPE_HASHMAP;
+		else
+			local_locatortype = LOCATOR_TYPE_HASH;
+
 
 		for (i = 0; i < descriptor->natts; i++)
 		{
@@ -1597,15 +1603,37 @@ GetRelationDistributionItems(Oid relid,
 				}
 				break;
 
-			default:
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						 errmsg("Invalid distribution type")));
+			case DISTTYPE_META:
+				local_locatortype = LOCATOR_TYPE_META;
+				break;
+			case DISTTYPE_HASHMAP:
+				/*
+				 * Validate user-specified hash column.
+				 * System columns cannot be used.
+				 */
+				local_attnum = get_attnum(relid, distributeby->colname);
+				if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+							 errmsg("Invalid distribution column specified")));
+				}
+
+				if (!IsTypeDistributable(descriptor->attrs[local_attnum - 1]->atttypid))
+				{
+					ereport(ERROR,
+						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+							 errmsg("Column %s is not a hash distributable data type",
+							 distributeby->colname)));
+				}
+				local_locatortype = LOCATOR_TYPE_HASHMAP;
+				break;
 		}
 	}
 
 	/* Use default hash values */
-	if (local_locatortype == LOCATOR_TYPE_HASH)
+	if ((local_locatortype == LOCATOR_TYPE_HASH)
+		|| (local_locatortype == LOCATOR_TYPE_HASHMAP))
 	{
 		local_hashalgorithm = 1;
 		local_hashbuckets = HASH_SIZE;

@@ -494,6 +494,9 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	if (!rel_loc_info)
 		return NULL;
 
+	if(rel_loc_info->locatorType == LOCATOR_TYPE_META)
+		return NULL;
+
 	/*
 	 * Find out the datanodes to execute this query on.
 	 * PGXC_FQS_TODO: for now, we apply node reduction only when there is only
@@ -501,6 +504,7 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	 * tables in the query and we apply node reduction here, we may fail to ship
 	 * the entire join. We should apply node reduction transitively.
 	 */
+
 	if (rel_access == RELATION_ACCESS_READ &&
 		list_length(query->rtable) == 1 &&
 		query->jointree->quals != NULL &&
@@ -2058,6 +2062,7 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 				break;
 
 			case LOCATOR_TYPE_HASH:
+			case LOCATOR_TYPE_HASHMAP:
 			case LOCATOR_TYPE_MODULO:
 				/*
 				 * Unique indexes on Hash and Modulo tables are shippable if the
@@ -2214,6 +2219,7 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 			break;
 #ifdef ADB
 		case LOCATOR_TYPE_USER_DEFINED:
+		case LOCATOR_TYPE_HASHMAP:
 #endif
 		case LOCATOR_TYPE_HASH:
 		case LOCATOR_TYPE_MODULO:

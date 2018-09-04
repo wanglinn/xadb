@@ -1734,7 +1734,20 @@ void transformDistributeBy(DistributeBy *dbstmt)
 
 			dbstmt->disttype = DISTTYPE_MODULO;
 			dbstmt->colname = strVal(linitial(((ColumnRef *)argnode)->fields));
-		} else
+		} else if (strcasecmp(fname, "HASHMAP") == 0)
+		{
+			if (list_length(funcargs) != 1 ||
+				IsA(argnode, ColumnRef) == false ||
+				list_length(((ColumnRef *)argnode)->fields) != 1)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("Invalid distribution column specified for \"HASH\""),
+						 errhint("Valid syntax input: HASH(column)")));
+
+			dbstmt->disttype = DISTTYPE_HASHMAP;
+			dbstmt->colname = strVal(linitial(((ColumnRef *)argnode)->fields));
+		}
+		else
 		{
 			/*
 			 * Nothing changed.

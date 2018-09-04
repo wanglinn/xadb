@@ -850,6 +850,38 @@ BEGIN_NODE(ParamTuplestoreScan)
 END_NODE(ParamTuplestoreScan)
 #endif /* NO_NODE_ParamTuplestoreScan */
 
+#ifndef NO_NODE_AlterSlotStmt
+BEGIN_NODE(AlterSlotStmt)
+	NODE_SCALAR(int32,slotid)
+	NODE_NODE(List,options)
+END_NODE(AlterSlotStmt)
+#endif /* NO_NODE_AlterSlotStmt */
+
+#ifndef NO_NODE_CreateSlotStmt
+BEGIN_NODE(CreateSlotStmt)
+	NODE_SCALAR(int32,slotid)
+	NODE_NODE(List,options)
+END_NODE(CreateSlotStmt)
+#endif /* NO_NODE_CreateSlotStmt */
+
+#ifndef NO_NODE_DropSlotStmt
+BEGIN_NODE(DropSlotStmt)
+	NODE_SCALAR(int32,slotid)
+END_NODE(DropSlotStmt)
+#endif /* NO_NODE_DropSlotStmt */
+
+#ifndef NO_NODE_FlushSlotStmt
+BEGIN_NODE(FlushSlotStmt)
+END_NODE(FlushSlotStmt)
+#endif /* FlushSlotStmt*/
+
+#ifndef NO_NODE_CleanSlotStmt
+BEGIN_NODE(CleanSlotStmt)
+	NODE_STRING(schema_name)
+	NODE_STRING(table_name)
+END_NODE(CleanSlotStmt)
+#endif /* CleanSlotStmt*/
+
 #endif
 
 #ifdef ADB
@@ -4070,6 +4102,14 @@ END_NODE(MonitorDeleteData)
 BEGIN_NODE(MGRFlushParam)
 END_NODE(MGRFlushParam)
 #endif /* NO_NODE_MGRFlushParam */
+
+#ifdef ADB
+#ifndef NO_NODE_ClusterSlotInitStmt
+BEGIN_NODE(ClusterSlotInitStmt)
+	NODE_NODE(List,options)
+END_NODE(ClusterSlotInitStmt)
+#endif /* NO_NODE_ClusterSlotInitStmt */
+#endif
 
 #endif
 

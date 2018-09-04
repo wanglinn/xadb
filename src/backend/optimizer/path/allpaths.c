@@ -746,7 +746,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		return;
 	}
 
-	if(root->glob->clusterPlanOK && rel->loc_info)
+	if(root->glob->clusterPlanOK && rel->loc_info && (LOCATOR_TYPE_META!=rel->loc_info->locatorType))
 	{
 		Path *path;
 		ListCell *lc;

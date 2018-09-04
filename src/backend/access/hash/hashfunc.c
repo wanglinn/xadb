@@ -941,6 +941,8 @@ hash_uint32_extended(uint32 k, uint64 seed)
 
 #ifdef ADB
 #include "pgxc/locator.h"
+
+
 /*
  * get_compute_hash_function
  * Get hash function name depending on the hash type.
@@ -953,24 +955,24 @@ get_compute_hash_function(Oid type, char locator)
 	switch (type)
 	{
 		case INT8OID:
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return "hashint8";
 			return NULL;
 		case INT2OID:
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return "hashint2";
 			return NULL;
 		case OIDOID:
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return "hashoid";
 			return NULL;
 		case DATEOID:
 		case INT4OID:
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return "hashint4";
 			return NULL;
 		case BOOLOID:
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return "hashchar";
 			return NULL;
 		case CHAROID:
@@ -995,7 +997,7 @@ get_compute_hash_function(Oid type, char locator)
 			return "hashfloat8";
 		case RELTIMEOID:
 		case ABSTIMEOID:
-			if (locator == LOCATOR_TYPE_HASH)
+			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
 				return "hashint4";
 			return NULL;
 		case CASHOID:
