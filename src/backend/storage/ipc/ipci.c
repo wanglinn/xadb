@@ -52,6 +52,8 @@
 #include "pgxc/pgxc.h"
 #include "replication/snapreceiver.h"
 #include "replication/snapsender.h"
+#include "pgxc/slot.h"
+
 #endif
 #if defined(ADBMGRD)
 #include "postmaster/adbmonitor.h"
@@ -166,6 +168,9 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 			size = add_size(size, SnapRcvShmemSize());
 		if (IS_PGXC_COORDINATOR)
 			size = add_size(size, ClusterLockShmemSize());
+
+			size = add_size(size, SlotShmemSize());
+
 #endif
 
 #if defined(ADBMGRD)
@@ -291,6 +296,9 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		SnapRcvShmemInit();
 	if (IS_PGXC_COORDINATOR)
 		ClusterLockShmemInit();
+
+		SlotShmemInit();
+
 #endif
 
 	/*

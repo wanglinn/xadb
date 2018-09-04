@@ -480,6 +480,8 @@ static const struct config_enum_entry command_mode[] = {
 };
 
 extern int mgr_cmd_mode;
+char* MGRDatabaseName;
+
 #endif /* ADBMGRD */
 
 /*
@@ -577,7 +579,11 @@ bool		enable_zero_year;
 bool		distribute_by_replication_default;
 bool		print_reduce_debug_log = false;
 bool		enable_aux_dml = false;
+bool		adb_slot_enable_mvcc;
+char*		SlotDatabaseName;
+bool		hash_distribute_by_hashmap_default;
 #endif
+
 #ifdef DEBUG_ADB
 bool		ADB_DEBUG;
 #endif
@@ -941,6 +947,17 @@ static const unit_conversion time_unit_conversion_table[] =
 
 static struct config_bool ConfigureNamesBool[] =
 {
+#ifdef ADB
+	{
+		{"adb_slot_enable_mvcc", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("enable slot mvcc."),
+			NULL
+		},
+		&adb_slot_enable_mvcc,
+		false,
+		NULL, NULL, NULL
+	},
+#endif
 	{
 		{"enable_seqscan", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of sequential-scan plans."),
@@ -2174,6 +2191,16 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&enable_pushdown_art,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"hash_distribute_by_hashmap_default", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("hashmap is default distribution type."),
+			NULL
+		},
+		&hash_distribute_by_hashmap_default,
 		false,
 		NULL, NULL, NULL
 	},
@@ -4558,6 +4585,31 @@ static struct config_string ConfigureNamesString[] =
 		},
 		&nls_timestamp_tz_format,
 		"YYYY-MM-DD HH24:MI:SS.US TZ",
+		NULL, NULL, NULL
+	},
+#endif
+
+#ifdef ADBMGRD
+	{
+		{"mgr_database_name", PGC_USERSET, ADBMONITOR,
+			gettext_noop("The database name mgr connects to."),
+			NULL,
+			GUC_IS_NAME
+		},
+		&MGRDatabaseName,
+		"",
+		NULL, NULL, NULL
+	},
+#endif
+#ifdef ADB
+	{
+		{"slot_database_name", PGC_USERSET, CUSTOM_OPTIONS,
+		gettext_noop("The database that adb.adb_slot exists in."),
+		NULL,
+		GUC_IS_NAME
+		},
+		&SlotDatabaseName,
+		"postgres",
 		NULL, NULL, NULL
 	},
 #endif

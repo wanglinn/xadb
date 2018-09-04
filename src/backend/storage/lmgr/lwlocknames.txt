@@ -52,4 +52,5 @@ LogicalRepWorkerLock				44
 CLogTruncationLock					45
 # ADB_BEGIN
 BarrierLock							46
-# ADB_END
+SlotTableLock						47
+# ADB END
