@@ -1328,6 +1328,11 @@ typedef struct BaseStmt
 } BaseStmt;
 
 #define IsBaseStmt(node)	\
+	IsA(node, CreateSlotStmt) || \
+	IsA(node, AlterSlotStmt) || \
+	IsA(node, DropSlotStmt) || \
+	IsA(node, FlushSlotStmt) || \
+	IsA(node, CleanSlotStmt) || \
 	IsA(node, AlterDatabaseSetStmt) || \
 	IsA(node, AlterDatabaseStmt) || \
 	IsA(node, AlterDefaultPrivilegesStmt) || \
@@ -3384,6 +3389,55 @@ typedef struct DropNodeStmt
 	int 		endpos;			/* the position of ';' in the sql */
 	char		*node_name;
 } DropNodeStmt;
+
+
+
+typedef struct CreateSlotStmt
+{
+	NodeTag		type;
+	int 		endpos;			/* the position of ';' in the sql */
+	int 		slotid;
+	List		*options;
+} CreateSlotStmt;
+
+typedef struct AlterSlotStmt
+{
+	NodeTag		type;
+	int 		endpos;			/* the position of ';' in the sql */
+	int 		slotid;
+	List		*options;
+} AlterSlotStmt;
+
+typedef struct DropSlotStmt
+{
+	NodeTag		type;
+	int 		endpos;			/* the position of ';' in the sql */
+	int			slotid;
+} DropSlotStmt;
+
+/*
+ * ----------------------
+ *      Flush Slot table
+ */
+typedef struct FlushSlotStmt
+{
+	NodeTag		type;
+	int 		endpos;			/* the position of ';' in the sql */
+} FlushSlotStmt;
+
+/*
+ * ----------------------
+ *      Clean Slot table
+ */
+typedef struct CleanSlotStmt
+{
+	NodeTag		type;
+	int 		endpos;			/* the position of ';' in the sql */
+	char		*schema_name;
+	char		*table_name;
+} CleanSlotStmt;
+
+
 
 /*
  * ----------------------

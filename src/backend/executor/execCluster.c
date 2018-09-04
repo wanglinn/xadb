@@ -37,6 +37,8 @@
 #include "libpq/libpq-fe.h"
 
 #include "reduce/adb_reduce.h"
+#include "pgxc/slot.h"
+
 
 #define REMOTE_KEY_END						0xFFFFFF00
 #define REMOTE_KEY_TRANSACTION_STATE		0xFFFFFF01
@@ -156,6 +158,7 @@ void exec_cluster_plan(const void *splan, int length)
 		/* Wait for the whole Reduce connect OK */
 		set_ps_display("<cluster start group reduce>", false);
 		wait_rdc_group_message();
+		DatanodeInClusterPlan = true;
 	}
 
 	switch(tag)
@@ -185,6 +188,7 @@ void exec_cluster_plan(const void *splan, int length)
 
 	/* Send Copy Done message */
 	pq_putemptymessage('c');
+	DatanodeInClusterPlan = false;
 
 	DestroyTableStateSnapshot();
 }
