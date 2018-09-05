@@ -241,7 +241,7 @@ extern AttInMetadata *TupleDescGetAttInMetadata(TupleDesc tupdesc);
 extern HeapTuple BuildTupleFromCStrings(AttInMetadata *attinmeta, char **values);
 extern Datum HeapTupleHeaderGetDatum(HeapTupleHeader tuple);
 extern TupleTableSlot *TupleDescGetSlot(TupleDesc tupdesc);
-
+extern Datum BuildFieldFromCStrings(AttInMetadata *attinmeta, char *value, int fieldnum);
 
 /*----------
  *		Support for Set Returning Functions (SRFs)
