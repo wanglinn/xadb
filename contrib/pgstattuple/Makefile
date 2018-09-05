@@ -1,7 +1,7 @@
 # contrib/pgstattuple/Makefile
 
 MODULE_big	= pgstattuple
-OBJS		= pgstattuple.o pgstatindex.o pgstatapprox.o $(WIN32RES)
+OBJS		= pgstattuple.o pgstatindex.o pgstatslot.o pgstatapprox.o $(WIN32RES)
 
 EXTENSION = pgstattuple
 DATA = pgstattuple--1.4.sql pgstattuple--1.3--1.4.sql \
