@@ -942,7 +942,7 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 			 * and Permission check at datanode
 			 * now we create a query
 			 */
-			|| (is_from == false && rel->rd_locator_info)
+			|| (is_from == false && RelationGetLocInfoForRemote(rel))
 #endif /* ADB */
 			)
 		{
@@ -1030,7 +1030,7 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 			query->stmt_location = stmt_location;
 			query->stmt_len = stmt_len;
 #ifdef ADB
-			if (is_from == false && rel->rd_locator_info)
+			if (is_from == false && RelationGetLocInfoForRemote(rel))
 			{
 				if (CopyHasOidsOptions(stmt->options))
 				{
@@ -1089,7 +1089,7 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 		cstate = BeginCopyFrom(pstate, rel, stmt->filename, stmt->is_program,
 							   NULL, stmt->attlist, stmt->options);
 #ifdef ADB
-		if(rel->rd_locator_info)
+		if(RelationGetLocInfoForRemote(rel))
 			*processed = CoordinatorCopyFrom(cstate);
 		else
 #endif /* ADB */
@@ -2199,7 +2199,7 @@ CopyTo(CopyState cstate)
 
 	if (cstate->rel
 #ifdef ADB
-		&& cstate->rel->rd_locator_info == NULL
+		&& RelationGetLocInfoForRemote(cstate->rel) == NULL
 #endif
 	)
 	{
@@ -3456,7 +3456,7 @@ BeginCopyFrom(ParseState *pstate,
 	}
 
 #ifdef ADB
-	if (rel->rd_locator_info)
+	if (RelationGetLocInfoForRemote(rel))
 	{
 		ReduceInfo *rinfo;
 
