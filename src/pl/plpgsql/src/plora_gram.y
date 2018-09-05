@@ -1483,26 +1483,18 @@ stmt_execsql	: POK_IMPORT
 					{
 						$$ = make_execsql_stmt(POK_INSERT, @1);
 					}
-/*				| T_WORD
+				| POK_SELECT
 					{
-						int			tok;
-
-						tok = yylex();
-						plpgsql_push_back_token(tok);
-						if (tok == '=' || tok == COLON_EQUALS || tok == '[')
-							word_is_not_variable(&($1), @1);
-						$$ = make_execsql_stmt(T_WORD, @1);
+						$$ = make_execsql_stmt(POK_SELECT, @1);
 					}
-				| T_CWORD
+				| POK_UPDATE
 					{
-						int			tok;
-
-						tok = yylex();
-						plpgsql_push_back_token(tok);
-						if (tok == '=' || tok == COLON_EQUALS || tok == '[')
-							cword_is_not_variable(&($1), @1);
-						$$ = make_execsql_stmt(T_CWORD, @1);
-					}*/
+						$$ = make_execsql_stmt(POK_UPDATE, @1);
+					}
+				| POK_DELETE
+					{
+						$$ = make_execsql_stmt(POK_DELETE, @1);
+					}
 				;
 
 unreserved_keyword	:
