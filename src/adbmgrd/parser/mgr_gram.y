@@ -160,6 +160,10 @@ static void check_job_status_intbl(void);
 				AlterUserStmt AddJobitemStmt AlterJobitemStmt DropJobitemStmt ListJobStmt
 				AddExtensionStmt DropExtensionStmt RemoveNodeStmt FailoverManualStmt SwitchoverStmt
 
+				ExpandNodeStmt CheckNodeStmt ClusterMetaInitStmt ClusterSlotInitStmt
+				ClusterPgxcNodeInitStmt ClusterPgxcNodeCheckStmt
+				ImportHashMetaStmt ClusterHashMetaCheckStmt
+
 %type <list>	general_options opt_general_options general_option_list HbaParaList
 				AConstList targetList ObjList var_list NodeConstList set_parm_general_options
 				OptRoleList name_list privilege_list username_list hostname_list
@@ -194,7 +198,8 @@ static void check_job_status_intbl(void);
 %token<keyword> SET TO ON OFF
 %token<keyword> APPEND CONFIG MODE FAST SMART IMMEDIATE S I F FORCE SHOW FLUSH
 %token<keyword> GRANT REVOKE FROM ITEM JOB EXTENSION REMOVE DATA_CHECKSUMS
-%token<keyword> STATUS ACTIVATE
+%token<keyword> EXPAND ACTIVATE CHECKOUT STATUS RECOVER BASEBACKUP FAIL SUCCESS DOPROMOTE SLOT DOCHECK PGXCNODE END SLEEP META
+%token<keyword> IMPORT HASH
 %token<keyword> PROMOTE ADBMGR REWIND SWITCHOVER
 
 /* for ADB monitor*/
@@ -289,6 +294,14 @@ stmt :
 	| AddExtensionStmt
 	| DropExtensionStmt
 	| RemoveNodeStmt
+	| ExpandNodeStmt
+	| CheckNodeStmt
+	| ClusterMetaInitStmt
+	| ClusterSlotInitStmt
+	| ClusterPgxcNodeInitStmt
+	| ClusterPgxcNodeCheckStmt
+	| ImportHashMetaStmt
+	| ClusterHashMetaCheckStmt
 	| FailoverManualStmt
 	| SwitchoverStmt
 	| /* empty */
@@ -455,6 +468,169 @@ AlterOptRoleElem:
  *									parser_errposition(@1)));
  *				}
  */
+
+ExpandNodeStmt:
+		EXPAND DATANODE MASTER Ident TO Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($4, -1));
+			args = lappend(args,makeStringConst($6, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_dnmaster", args));
+			$$ = (Node*)stmt;
+		}
+		|
+		EXPAND ACTIVATE DATANODE MASTER Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($5, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_activate_dnmaster", args));
+			$$ = (Node*)stmt;
+		}
+		|
+		EXPAND RECOVER BASEBACKUP FAIL Ident TO Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($5, -1));
+			args = lappend(args,makeStringConst($7, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_recover_backup_fail", args));
+			$$ = (Node*)stmt;
+		}
+		|
+		EXPAND RECOVER BASEBACKUP SUCCESS Ident TO Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($5, -1));
+			args = lappend(args,makeStringConst($7, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_recover_backup_suc", args));
+			$$ = (Node*)stmt;
+		}
+		|
+		EXPAND ACTIVATE RECOVER DOPROMOTE SUCCESS Ident
+		{
+
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($6, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_activate_recover_promote_suc", args));
+			$$ = (Node*)stmt;
+		}
+		|
+		EXPAND DOCHECK STATUS
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_check_status", NULL));
+			$$ = (Node*)stmt;
+		}
+		|
+		EXPAND SHOW STATUS
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_show_status", NULL));
+			$$ = (Node*)stmt;
+		}
+		|
+		EXPAND CLEAN INIT
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_clean_init", NULL));
+			$$ = (Node*)stmt;
+		}
+		|
+		EXPAND CLEAN START
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_clean_start", NULL));
+			$$ = (Node*)stmt;
+		}
+		|
+		EXPAND CLEAN END
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_clean_end", NULL));
+			$$ = (Node*)stmt;
+		}
+		|
+		EXPAND SLEEP ICONST
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeIntConst($3, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("pg_sleep", args));
+			$$ = (Node*)stmt;
+		};
+
+ClusterMetaInitStmt:
+		CLUSTER META INIT
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_cluster_meta_init", NULL));
+			$$ = (Node*)stmt;
+		};
+
+ClusterSlotInitStmt:
+		CLUSTER SLOT INIT opt_general_options
+		{
+			ClusterSlotInitStmt *node = makeNode(ClusterSlotInitStmt);
+			node->options = $4;
+			$$ = (Node*)node;
+		};
+
+ClusterPgxcNodeInitStmt:
+		CLUSTER PGXCNODE INIT
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_cluster_pgxcnode_init", NULL));
+			$$ = (Node*)stmt;
+		};
+
+ClusterPgxcNodeCheckStmt:
+		CLUSTER PGXCNODE DOCHECK
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_cluster_pgxcnode_check", NULL));
+			$$ = (Node*)stmt;
+		};
+
+ImportHashMetaStmt:
+		IMPORT HASH META TO Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($5, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_import_hash_meta", args));
+			$$ = (Node*)stmt;
+		};
+
+ClusterHashMetaCheckStmt:
+		CLUSTER HASH META DOCHECK
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_cluster_hash_meta_check", NULL));
+			$$ = (Node*)stmt;
+		};
+
+
+CheckNodeStmt:
+		CHECKOUT DATANODE SLAVE STATUS
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("checkout_dnslave_status"), -1));
+			$$ = (Node*)stmt;
+		}
 
 AppendNodeStmt:
 		APPEND DATANODE MASTER Ident

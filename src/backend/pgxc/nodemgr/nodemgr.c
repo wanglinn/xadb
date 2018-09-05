@@ -605,7 +605,7 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	}
 	if (node_port_old != node_port_new)
 		PreventInterTransactionChain(node_oid, "ALTER NODE PORT");
-	if (node_type_old != node_type_new)
+	if((isPGXCCoordinator) && (node_type_old != node_type_new))
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("PGXC node \"%s\": cannot alter from \"%s\" to \"%s\"",
@@ -722,7 +722,15 @@ InitPGXCNodeIdentifier(void)
 	if ((IsCnNode() || IsDnNode()) &&
 		PGXCNodeIdentifier == 0)
 	{
-		PGXCNodeIdentifier = get_pgxc_node_id(
-								get_pgxc_nodeoid(PGXCNodeName));
+		PGXCNodeIdentifier = get_pgxc_node_id(get_pgxc_nodeoid(PGXCNodeName));
 	}
+
+	if ((IsCnNode() || IsDnNode()) && PGXCNodeOid == 0)
+	{
+		elog(LOG, "NodeName=%s", PGXCNodeName);
+		PGXCNodeOid = get_pgxc_nodeoid(PGXCNodeName);
+	}
+
+	if ((IsCnNode() || IsDnNode()))
+		InitSLOTPGXCNodeOid();
 }
