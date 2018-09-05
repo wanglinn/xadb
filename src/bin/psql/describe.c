@@ -32,6 +32,8 @@
 #define LOCATOR_TYPE_RANDOM 'N'
 #define LOCATOR_TYPE_MODULO 'M'
 #define LOCATOR_TYPE_USER_DEFINED 'U'
+#define LOCATOR_TYPE_META 'A'
+#define LOCATOR_TYPE_HASHMAP 'B'
 #endif
 
 
@@ -3107,7 +3109,11 @@ describeOneTableDetails(const char *schemaname,
 			printfPQExpBuffer(&buf,
 						"SELECT CASE pclocatortype \n"
 						"		  WHEN '%c' THEN \n"
-						"		   'RANDOM' \n"
+						"		   'HASHMAP' \n"
+						"		  WHEN '%c' THEN \n"
+						"		   'META' \n"
+						"		  WHEN '%c' THEN \n"
+						"		   'ROUND ROBIN' \n"
 						"		  WHEN '%c' THEN \n"
 						"		   'REPLICATION' \n"
 						"		  WHEN '%c' THEN \n"
@@ -3130,13 +3136,20 @@ describeOneTableDetails(const char *schemaname,
 						"		  WHEN nc.dn_cn THEN \n"
 						"		   'ALL DATANODES' \n"
 						"		  ELSE \n"
-						"		   array_to_string(ARRAY  \n"
-						"						   (SELECT node_name \n"
-						"							  FROM pg_catalog.pgxc_node \n"
-						"							 WHERE oid IN (SELECT unnest(nodeoids) \n"
-						"											 FROM pg_catalog.pgxc_class \n"
-						"											WHERE pcrelid = '%s')), \n"
-						"						   ', ') \n"
+						"			CASE pclocatortype \n"
+						"			 WHEN '%c' THEN \n"
+						"			   'ALL DATANODES' \n"
+						"			 WHEN '%c' THEN \n"
+						"			   'ALL DATANODES' \n"
+						"			 ELSE \n"
+						"			   array_to_string(ARRAY  \n"
+						"			   (SELECT node_name \n"
+						"				  FROM pg_catalog.pgxc_node \n"
+						"					 WHERE oid IN (SELECT unnest(nodeoids) \n"
+						"					 FROM pg_catalog.pgxc_class \n"
+						"					WHERE pcrelid = '%s')), \n"
+						"				   ', ') \n"
+						"            END \n"
 						"		END AS loc_nodes \n"
 						"  FROM pg_catalog.pg_attribute a \n"
 						" RIGHT JOIN  \n"
@@ -3145,6 +3158,8 @@ describeOneTableDetails(const char *schemaname,
 						"  AND a.attnum = c.pcattnum, \n"
 						"	   (SELECT count(*) AS dn_cn FROM pg_catalog.pgxc_node WHERE node_type = 'D') AS nc \n"
 						" WHERE pcrelid = '%s'"
+					, LOCATOR_TYPE_HASHMAP
+					, LOCATOR_TYPE_META
 					, LOCATOR_TYPE_RANDOM
 					, LOCATOR_TYPE_REPLICATED
 					, LOCATOR_TYPE_HASH
@@ -3152,6 +3167,8 @@ describeOneTableDetails(const char *schemaname,
 					, LOCATOR_TYPE_USER_DEFINED
 					, oid
 					, oid
+					, LOCATOR_TYPE_META
+					, LOCATOR_TYPE_HASHMAP
 					, oid
 					, oid);
 			result = PSQLexec(buf.data);
