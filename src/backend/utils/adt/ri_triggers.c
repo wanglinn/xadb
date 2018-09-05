@@ -269,7 +269,7 @@ RI_FKey_check(TriggerData *trigdata)
 	 * we just come out of the function without actually performing any integrity checks.
 	 */
 	if (IS_PGXC_COORDINATOR &&
-		RelationGetLocInfo(trigdata->tg_relation) != NULL)
+		RelationGetLocInfoForRemote(trigdata->tg_relation) != NULL)
 		return PointerGetDatum(NULL);
 #endif
 
