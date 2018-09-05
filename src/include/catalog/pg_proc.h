@@ -5721,6 +5721,8 @@ DATA(insert OID = 9119 (  pgxc_is_committed	PGNSP PGUID 12 1 1 0 0 f f f f t t s
 DESCR("is given GXID committed or aborted?");
 DATA(insert OID = 9120 ( pgxc_lock_for_backup	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_lock_for_backup _null_ _null_ _null_ ));
 DESCR("lock the cluster for taking backup");
+DATA(insert OID = 9121 ( nodeid_from_hashvalue		PGNSP PGUID 12 1 0 0 0 f f f f f f v s 1 0 20 "23" _null_ _null_ _null_ _null_ _null_ nodeid_from_hashvalue _null_ _null_ _null_ ));
+
 
 DATA(insert OID = 8890 (  pool_close_idle_conn		PGNSP PGUID 12 1 0 0 0 f f f f f f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pool_close_idle_conn _null_ _null_ _null_ ));
 DESCR("close pool connection in  idle_slot");
@@ -6002,6 +6004,57 @@ DESCR("mgr switchover");
 
 DATA(insert OID = 4896 (  monitor_handle_coordinator       PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "23 2275 23" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_coordinator _null_ _null_ _null_ ));
 DESCR("monitor auto handle coordinator");
+
+DATA(insert OID = 4701 (  mgr_expand_dnmaster        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 2249 "2275 2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_expand_dnmaster _null_ _null_ _null_ ));
+DESCR("mgr expand datanode master");
+
+DATA(insert OID = 4702 (  mgr_expand_activate_dnmaster        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_expand_activate_dnmaster _null_ _null_ _null_ ));
+DESCR("mgr expand activate datanode master");
+
+DATA(insert OID = 4703 (  mgr_checkout_dnslave_status            PGNSP PGUID 12 10 400 0 0 f f f f f t s s 0 0 2249 "" "{19,19,16,25}" "{o,o,o,o}" "{nodename,nodetype,status,description}" _null_ _null_ mgr_checkout_dnslave_status _null_ _null_ _null_ ));
+DESCR("mgr checkout datandoe slave status");
+
+DATA(insert OID = 4704 (  mgr_expand_recover_backup_fail        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 2249 "2275 2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_expand_recover_backup_fail _null_ _null_ _null_ ));
+DESCR("expand recover basebackup fail src to dst ");
+
+DATA(insert OID = 4705 (  mgr_expand_recover_backup_suc        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 2 0 2249 "2275 2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_expand_recover_backup_suc _null_ _null_ _null_ ));
+DESCR("expand recover basebackup success src to dst ");
+
+DATA(insert OID = 4706 (  mgr_expand_activate_recover_promote_suc        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_expand_activate_recover_promote_suc _null_ _null_ _null_ ));
+DESCR("expand activate recover dopromote success dst");
+
+DATA(insert OID = 4707 (  mgr_expand_check_status      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_expand_check_status _null_ _null_ _null_ ));
+DESCR("check expand status");
+
+DATA(insert OID = 4708 (  mgr_cluster_pgxcnode_check      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_cluster_pgxcnode_check _null_ _null_ _null_ ));
+DESCR("check pgxc node consistency in cluster");
+
+DATA(insert OID = 4709 (  mgr_expand_clean_init      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_expand_clean_init _null_ _null_ _null_ ));
+DESCR("expend clean init");
+
+DATA(insert OID = 4710 (  mgr_expand_clean_start      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_expand_clean_start _null_ _null_ _null_ ));
+DESCR("expend clean start");
+
+DATA(insert OID = 4711 (  mgr_expand_clean_end      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_expand_clean_end _null_ _null_ _null_ ));
+DESCR("expend clean end");
+
+DATA(insert OID = 4712 (  mgr_expand_show_status      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_expand_show_status _null_ _null_ _null_ ));
+DESCR("show expand status");
+
+DATA(insert OID = 4713 (  mgr_cluster_meta_init      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_cluster_meta_init _null_ _null_ _null_ ));
+DESCR("create adb schema and adb_slot table");
+
+DATA(insert OID = 4714 (  mgr_cluster_slot_init_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 3 0 16 "16 2275 2276" _null_ _null_ _null_ _null_ _null_ mgr_cluster_slot_init_func _null_ _null_ _null_ ));
+DESCR("mgr cluster slot init ");
+
+DATA(insert OID = 4715 (  mgr_cluster_pgxcnode_init      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_cluster_pgxcnode_init _null_ _null_ _null_ ));
+DESCR("init all datanode's dn info in pgxc_node consistent with coor's");
+
+DATA(insert OID = 4716 (  mgr_import_hash_meta        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 1 0 2249 "2275" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_import_hash_meta _null_ _null_ _null_ ));
+DESCR("import coordinator hash table meta info to datanode");
+
+DATA(insert OID = 4717 (  mgr_cluster_hash_meta_check      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_cluster_hash_meta_check _null_ _null_ _null_ ));
+DESCR("check hash table meta info consistency in cluster");
 
 DATA(insert OID = 4013 (  monitor_handle_datanode       PGNSP PGUID 12 10 400 2276 0 f f f f t t s s 1 0 2249 "2275 16 23 23 23" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_datanode _null_ _null_ _null_ ));
 DESCR("monitor auto handle datanode master");

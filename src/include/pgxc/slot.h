@@ -19,7 +19,7 @@ extern bool hash_distribute_by_hashmap_default;
 #define SLOTSIZE	1024
 #define SLOTBEGIN	0
 #define SLOTEND		(SLOTSIZE-1)
-#define GetNodeIdFromHashValue 9019
+#define GetNodeIdFromHashValue 9121
 
 #define UNINIT_SLOT_VALUE	  	-2
 #define INVALID_SLOT_VALUE		InvalidOid

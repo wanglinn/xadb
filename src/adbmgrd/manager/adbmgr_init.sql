@@ -1156,3 +1156,30 @@ revoke execute on function mgr_flush_host() from public;
 alter table pg_catalog.monitor_host_threshold add primary key (mt_type);
 alter table pg_catalog.monitor_user add primary key (username);
 alter table pg_catalog.monitor_job add primary key (name);
+
+--expand
+revoke execute on function mgr_expand_dnmaster(cstring, cstring) from public;
+revoke execute on function mgr_expand_activate_dnmaster(cstring) from public;
+
+--expand
+revoke execute on function
+mgr_import_hash_meta(cstring),
+mgr_cluster_pgxcnode_init(),
+mgr_cluster_meta_init(),
+mgr_cluster_slot_init_func(boolean, cstring, "any"),
+mgr_expand_show_status(),
+mgr_expand_check_status(),
+mgr_cluster_pgxcnode_check(),
+mgr_cluster_hash_meta_check(),
+mgr_checkout_dnslave_status(),
+mgr_expand_dnmaster(cstring, cstring),
+mgr_expand_recover_backup_fail(cstring, cstring),
+mgr_expand_recover_backup_suc(cstring, cstring),
+mgr_expand_activate_dnmaster(cstring),
+mgr_expand_activate_recover_promote_suc(cstring),
+mgr_expand_clean_init(),
+mgr_expand_clean_start(),
+mgr_expand_clean_end()
+from public;
+INSERT INTO adbmgr.parm VALUES ('#', 'slot_database_name', 'postgres', 'user', 'string', NULL, NULL, NULL, NULL);
+

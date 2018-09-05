@@ -40,7 +40,7 @@ typedef struct MGRAlterHost
 typedef struct MGRAlterParm
 {
 	NodeTag		type;
-	bool		if_not_exists;	
+	bool		if_not_exists;
 	char		*parmkey;		/* parm name */
 	char		*parmnode;		/* parm node */
 	List		*options;	/* list of DefElem */
@@ -190,6 +190,12 @@ typedef struct MonitorDeleteData
 	NodeTag	type;
 	int32	days;
 }MonitorDeleteData;
+
+typedef struct ClusterSlotInitStmt
+{
+	NodeTag         type;
+	List            *options;
+}ClusterSlotInitStmt;
 
 typedef struct MGRFlushParam
 {
