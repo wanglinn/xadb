@@ -35,8 +35,11 @@
 #include "optimizer/pgxcplan.h"
 #include "parser/parse_coerce.h"
 #include "pgxc/locator.h"
+#include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
+#include "utils/builtins.h"
 #include "utils/lsyscache.h"
+#include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
 #define REMOTE_FETCH_SIZE	64
@@ -61,6 +64,8 @@ static TupleDesc CreateRemoteTupleDesc(MemoryContext context, const char *msg, i
 static int HandleRowDescriptionMsg(PGconn *conn, int msgLength);
 static int HandleQueryCompleteMsg(PGconn *conn);
 static int ExtractProcessedNumber(const char *buf, int len, uint64 *nprocessed);
+static void deparseStringLiteral(StringInfo buf, const char *val);
+static void deparseCnAnalyzeSizeSql(StringInfo buf, Relation rel);
 
 static PGcustumFuns QueryCustomFuncs = {
 	HandleRowDescriptionMsg,
@@ -970,4 +975,143 @@ ExtractProcessedNumber(const char *buf, int len, uint64 *nprocessed)
 		*nprocessed = strtoul(ptr, NULL, 10);
 
 	return digits;
+}
+
+static void
+deparseStringLiteral(StringInfo buf, const char *val)
+{
+	const char *valptr;
+
+	/*
+	 * Rather than making assumptions about the remote server's value of
+	 * standard_conforming_strings, always use E'foo' syntax if there are any
+	 * backslashes.  This will fail on remote servers before 8.1, but those
+	 * are long out of support.
+	 */
+	if (strchr(val, '\\') != NULL)
+		appendStringInfoChar(buf, ESCAPE_STRING_SYNTAX);
+	appendStringInfoChar(buf, '\'');
+	for (valptr = val; *valptr; valptr++)
+	{
+		char		ch = *valptr;
+
+		if (SQL_STR_DOUBLE(ch, true))
+			appendStringInfoChar(buf, ch);
+		appendStringInfoChar(buf, ch);
+	}
+	appendStringInfoChar(buf, '\'');
+}
+
+static void
+deparseCnAnalyzeSizeSql(StringInfo buf, Relation rel)
+{
+	StringInfoData	namebuf;
+	char		   *nspname;
+	char		   *relname;
+
+	initStringInfo(&namebuf);
+	nspname = get_namespace_name(RelationGetNamespace(rel));
+	relname = RelationGetRelationName(rel);
+	initStringInfo(&namebuf);
+	appendStringInfo(&namebuf, "%s.%s",
+					 quote_identifier(nspname), quote_identifier(relname));
+
+	appendStringInfoString(buf, "SELECT pg_catalog.pg_relation_size(");
+	deparseStringLiteral(buf, namebuf.data);
+	appendStringInfo(buf, "::pg_catalog.regclass) / %d AS relpages", BLCKSZ);
+	pfree(namebuf.data);
+}
+
+BlockNumber
+CnGetRelationNumberOfBlocks(Relation relation)
+{
+	List			   *dn_list;
+	RemoteQuery		   *rquery;
+	RemoteQueryState   *rstate;
+	ExecNodes		   *rnodes;
+	EState			   *estate;
+	TupleTableSlot	   *slot;
+	MemoryContext		oldcontext;
+	StringInfoData		sqlbuf;
+	Datum				value;
+	bool				isnull;
+	BlockNumber			totalpages;
+	int					tuplecnt;
+
+	/* Sancity check */
+	Assert(IsCnNode());
+	Assert(RelationGetLocInfo(relation));
+
+	/* Get all datanode */
+	if ((dn_list = GetAllDnIDL(false)) == NIL)
+		return 0;
+
+	/* Get preferred datanode if replicate */
+	if (IsRelationReplicated(RelationGetLocInfo(relation)))
+		dn_list = GetPreferredRepNodes((const List *) dn_list);
+
+	/* Construct analyze query */
+	initStringInfo(&sqlbuf);
+	deparseCnAnalyzeSizeSql(&sqlbuf, relation);
+
+	/* Build ExecNodes */
+	rnodes = MakeExecNodesByOids(RelationGetLocInfo(relation),
+								 dn_list,
+								 RELATION_ACCESS_READ);
+
+	/* Build up RemoteQuery */
+	rquery = makeNode(RemoteQuery);
+	rquery->combine_type = COMBINE_TYPE_NONE;
+	rquery->exec_nodes = rnodes;
+	rquery->sql_statement = sqlbuf.data;
+	rquery->force_autocommit = true;
+	rquery->exec_type = EXEC_ON_DATANODES;
+
+	/* Execute query on the data nodes */
+	estate = CreateExecutorState();
+	oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
+	estate->es_snapshot = GetActiveSnapshot();
+	rstate = ExecInitRemoteQuery(rquery, estate, 0);
+	MemoryContextSwitchTo(oldcontext);
+
+	totalpages = 0;
+	tuplecnt = 0;
+	for (;;)
+	{
+		/* Reset the per-output-tuple exprcontext */
+		ResetPerTupleExprContext(estate);
+
+		/*
+		 * Execute the plan and obtain a tuple
+		 */
+		slot = ExecProcNode((PlanState *) rstate);
+		if (TupIsNull(slot))
+			break;
+
+		/* tuple count */
+		tuplecnt++;
+
+		/* Extract blocknumm  */
+		value = slot_getattr(slot, 1, &isnull); /* blocknum */
+		if (!isnull)
+			totalpages += DatumGetInt64(value);
+	}
+
+	ExecEndRemoteQuery(rstate);
+
+	FreeExecutorState(estate);
+
+	if (tuplecnt != list_length(dn_list))
+		elog(ERROR,
+			 "unexpected result from deparseCnAnalyzeSizeSql query");
+
+	return totalpages;
+}
+
+int
+CnAcquireSampleRowsFunc(Relation onerel, int elevel,
+						HeapTuple *rows, int targrows,
+						double *totalrows, double *totaldeadrows)
+{
+	return 0;
 }

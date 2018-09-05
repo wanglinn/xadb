@@ -146,6 +146,12 @@ extern TupleTableSlot *HandleFetchRemote(NodeHandle *handle, RemoteQueryState *n
 										 bool blocking, bool batch);
 extern void CloseRemoteStatement(const char *stmt_name, Oid *nodes, int nnodes);
 
+/* for analyze */
+extern BlockNumber CnGetRelationNumberOfBlocks(Relation relation);
+extern int CnAcquireSampleRowsFunc(Relation onerel, int elevel,
+								   HeapTuple *rows, int targrows,
+								   double *totalrows, double *totaldeadrows);
+
 /* src/backend/intercomm/inter-copy.c */
 extern void StartRemoteCopy(RemoteCopyState *node);
 extern void EndRemoteCopy(RemoteCopyState *node);
