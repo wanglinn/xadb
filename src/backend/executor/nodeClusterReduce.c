@@ -6,6 +6,7 @@
 #include "executor/executor.h"
 #include "executor/nodeClusterReduce.h"
 #include "executor/nodeCtescan.h"
+#include "executor/nodeMaterial.h"
 #include "executor/tuptable.h"
 #include "lib/binaryheap.h"
 #include "nodes/execnodes.h"
@@ -35,6 +36,7 @@ static void ClusterReducePortCleanupCallback(void *arg);
 static void ExecDisconnectClusterReduce(ClusterReduceState *node, bool noerror);
 static bool DriveClusterReduceState(ClusterReduceState *node);
 static bool DriveCteScanState(CteScanState *node);
+static bool DriveMaterialState(MaterialState *node);
 static bool DriveClusterReduceWalker(PlanState *node);
 static bool IsThereClusterReduce(PlanState *node);
 
@@ -980,7 +982,7 @@ DriveCteScanState(CteScanState *node)
 	 */
 	for (;;)
 	{
-		slot = ExecCteScan((CteScanState *) node);
+		slot = ExecCteScan(node);
 		if (TupIsNull(slot))
 			break;
 	}
@@ -1007,6 +1009,30 @@ DriveCteScanState(CteScanState *node)
 		Assert(IsA(sps, SubPlanState));
 		if (DriveClusterReduceWalker(sps->planstate))
 			return true;
+	}
+
+	return false;
+}
+
+static bool
+DriveMaterialState(MaterialState *node)
+{
+	TupleTableSlot *slot = NULL;
+
+	Assert(node && IsA(node, MaterialState));
+
+	if (!IsThereClusterReduce((PlanState *) node))
+		return false;
+
+	/*
+	 * Here we do ExecMaterial instead of just driving ClusterReduce,
+	 * because other plan node may need the results of the Material.
+	 */
+	for (;;)
+	{
+		slot = ExecMaterial(node);
+		if (TupIsNull(slot))
+			break;
 	}
 
 	return false;
@@ -1061,6 +1087,10 @@ DriveClusterReduceWalker(PlanState *node)
 	if (IsA(node, CteScanState))
 	{
 		res = DriveCteScanState((CteScanState *) node);
+	} else
+	if (IsA(node, MaterialState))
+	{
+		res = DriveMaterialState((MaterialState *) node);
 	} else
 	{
 		res = planstate_tree_exec_walker(node, DriveClusterReduceWalker, NULL);
