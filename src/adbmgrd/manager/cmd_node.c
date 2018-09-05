@@ -44,6 +44,45 @@
 #include "access/xlog.h"
 #include "nodes/nodes.h"
 
+/*
+hot_expansion changes below functions:
+1.mgr_pgbasebackup:add dnmaster type.
+2.use MGRDatabaseName to login.
+3.get_nodeinfo_byname:nodeinfo->nodename isn't set null when item isn't found.
+4.mgr_runmode_cndn_get_result:add
+		case AGT_CMD_DN_MASTER_PROMOTE:
+			cmdmode = "promote";
+			zmode = "datanode";
+			break;
+5.mgr_runmode_cndn_get_result
+	else if (AGT_CMD_DN_MASTER_PROMOTE == cmdtype)
+	{
+		appendStringInfo(&infosendmsg, " %s -w -D %s", cmdmode, cndnPath);
+	}
+6.mgr_get_cmd_head_word
+		case AGT_CMD_DN_MASTER_PROMOTE:
+*/
+
+extern char	*MGRDatabaseName;
+
+static PGconn *
+ExpPQsetdbLogin(const char *pghost, const char *pgport, const char *pgoptions,
+			 const char *pgtty, const char *login, const char *pwd);
+
+static PGconn *
+ExpPQsetdbLogin(const char *pghost, const char *pgport, const char *pgoptions,
+			 const char *pgtty, const char *login, const char *pwd)
+
+{
+	char* database ;
+	if(0!=strcmp(MGRDatabaseName,""))
+		database = MGRDatabaseName;
+	else
+		database = DEFAULT_DB;
+	return PQsetdbLogin(pghost, pgport, pgoptions, pgtty, database, login, pwd);
+}
+
+
 #define MAX_PREPARED_TRANSACTIONS_DEFAULT	120
 #define PG_DUMPALL_TEMP_FILE "/tmp/pg_dumpall_temp"
 #define MAX_WAL_SENDERS_NUM	5
@@ -1560,6 +1599,10 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			cmdmode = "promote";
 			zmode = "node";
 			break;
+		case AGT_CMD_DN_MASTER_PROMOTE:
+			cmdmode = "promote";
+			zmode = "datanode";
+			break;
 		case AGT_CMD_AGTM_RESTART:
 			cmdmode = "restart";
 			zmode = "node";
@@ -1663,6 +1706,10 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			ereport(WARNING, (errmsg("stop gtm master \"%s\" fail", cndnname)));
 		ReleaseSysCache(mastertuple);
 
+		appendStringInfo(&infosendmsg, " %s -w -D %s", cmdmode, cndnPath);
+	}
+	else if (AGT_CMD_DN_MASTER_PROMOTE == cmdtype)
+	{
 		appendStringInfo(&infosendmsg, " %s -w -D %s", cmdmode, cndnPath);
 	}
 	else if (AGT_CMD_DN_FAILOVER == cmdtype)
@@ -2920,10 +2967,10 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("can not get active coordinator in cluster")));
 		coordhost = get_hostaddress_from_hostoid(coordhostoid);
 		sprintf(coordport_buf, "%d", coordport);
-		pg_conn = PQsetdbLogin(coordhost
+
+		pg_conn = ExpPQsetdbLogin(coordhost
 								,coordport_buf
 								,NULL, NULL
-								,DEFAULT_DB
 								,appendnodeinfo.nodeusername
 								,NULL);
 
@@ -3370,12 +3417,13 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("can not get active coordinator in cluster")));
 		coordhost = get_hostaddress_from_hostoid(coordhostoid);
 		sprintf(coordport_buf, "%d", coordport);
-		pg_conn = PQsetdbLogin(coordhost
+
+		pg_conn = ExpPQsetdbLogin(coordhost
 								,coordport_buf
 								,NULL, NULL
-								,DEFAULT_DB
 								,appendnodeinfo.nodeusername
 								,NULL);
+
 		if (pg_conn == NULL || PQstatus((PGconn*)pg_conn) != CONNECTION_OK)
 		{
 			ereport(ERROR,
@@ -3812,7 +3860,8 @@ void mgr_get_nodeinfo_byname_type(char *node_name, char node_type, bool binclust
 		pfree(info);
 
 		*is_exist = false;
-		nodeinfo->nodename = NULL;
+		//for example, mgr_expand_dnmaster uses this variable.
+		//nodeinfo->nodename = NULL;
 		nodeinfo->nodeaddr = NULL;
 		nodeinfo->nodeusername = NULL;
 		nodeinfo->nodepath = NULL;
@@ -3973,7 +4022,7 @@ void mgr_pgbasebackup(char nodetype, AppendNodeInfo *appendnodeinfo, AppendNodeI
 									,appendnodeinfo->nodename);
 
 	}
-	else if (nodetype == CNDN_TYPE_DATANODE_SLAVE)
+	else if (nodetype == CNDN_TYPE_DATANODE_MASTER || nodetype == CNDN_TYPE_DATANODE_SLAVE)
 	{
 		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R -k %s",
 									get_hostaddress_from_hostoid(parentnodeinfo->nodehost)
@@ -7169,6 +7218,7 @@ void mgr_get_cmd_head_word(char cmdtype, char *str)
 		case AGT_CMD_DN_STOP:
 		case AGT_CMD_DN_FAILOVER:
 		case AGT_CMD_NODE_RELOAD:
+		case AGT_CMD_DN_MASTER_PROMOTE:
 			strcpy(str, "pg_ctl");
 			break;
 		case AGT_CMD_GTM_CLEAN:
@@ -9874,10 +9924,9 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 	sprintf(coordport_buf, "%d", coordport);
 	for (try = 0; try < 2; try++)
 	{
-		*pg_conn = PQsetdbLogin(coordhost
+		*pg_conn = ExpPQsetdbLogin(coordhost
 								,coordport_buf
 								,NULL, NULL
-								,DEFAULT_DB
 								,connect_user
 								,NULL);
 		if (try != 0)
@@ -11224,10 +11273,9 @@ static bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg
 	try = MAX_TRY;
 	do
 	{
-		pg_conn = PQsetdbLogin(nodeinfo->nodeaddr
+		pg_conn = ExpPQsetdbLogin(nodeinfo->nodeaddr
 									,NameStr(node_port)
 									,NULL, NULL
-									,DEFAULT_DB
 									,nodeinfo->nodeusername
 									,NULL);
 		if ((try--) <= 0)
@@ -11257,10 +11305,9 @@ static bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg
 	try = MAX_TRY;
 	do
 	{
-		pg_conn = PQsetdbLogin(nodeinfo->nodeaddr
+		pg_conn = ExpPQsetdbLogin(nodeinfo->nodeaddr
 									,NameStr(node_port)
 									,NULL, NULL
-									,DEFAULT_DB
 									,nodeinfo->nodeusername
 									,NULL);
 		if ((try--) <= 0)

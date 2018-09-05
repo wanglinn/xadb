@@ -77,6 +77,9 @@ const char *mgr_CreateCommandTag(Node *parsetree)
 	case T_MonitorDeleteData:
 		tag = "CLEAN MONITOR DATA";
 		break;
+	case T_ClusterSlotInitStmt:
+		tag = "CLUSTER SLOT INIT";
+		break;
 	case T_MGRFlushParam:
 		tag = "FLUSH PARAM";
 		break;
@@ -155,6 +158,9 @@ void mgr_ProcessUtility(Node *parsetree, const char *queryString,
 		break;
 	case T_MonitorDeleteData:
 		monitor_delete_data((MonitorDeleteData*)parsetree, params, dest);
+		break;
+	case T_ClusterSlotInitStmt:
+		mgr_cluster_slot_init((ClusterSlotInitStmt*)parsetree, params, dest);
 		break;
 	case T_MGRFlushParam:
 		mgr_flushparam((MGRFlushParam*)parsetree, params, dest);

@@ -27,6 +27,7 @@
 
 #define BUFFER_SIZE 4096
 
+
 #if defined(ADB) || defined(ADBMGRD)
 	#define GTM_CTL_VERSION "agtm_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
 	#define INITGTM_VERSION "initagtm (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
@@ -37,6 +38,12 @@
 	#define PG_DUMPALL_VERSION "pg_dumpall (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
 	#define PG_REWIND_VERSION "pg_rewind (PostgreSQL) " PG_VERSION "\n"
 	#define ADB_REWIND_VERSION "adb_rewind (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
+
+	#define DEFAULT_DB "postgres"
+	static bool parse_checkout_node_msg(const StringInfo msg, Name host, Name port, Name user);
+	static void exec_checkout_node(const char *host, const char *port, const char *user, char *result);
+	static void cmd_checkout_node(StringInfo msg);
+
 #else
 	#define GTM_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
 	#define INITGTM_VERSION "initagtm (PostgreSQL) " PG_VERSION "\n"
@@ -115,6 +122,7 @@ void do_agent_command(StringInfo buf)
 	case AGT_CMD_DN_RESTART:
 	case AGT_CMD_CN_RESTART:
 	case AGT_CMD_NODE_RELOAD:
+	case AGT_CMD_DN_MASTER_PROMOTE:
 		cmd_node_init(cmd_type, buf, "pg_ctl", PG_CTL_VERSION);
 		break;
 	case AGT_CMD_PGDUMPALL:
@@ -198,6 +206,9 @@ void do_agent_command(StringInfo buf)
 	case AGT_CMD_AGTM_REWIND:
 		cmd_node_init(cmd_type, buf, "pg_rewind", PG_REWIND_VERSION);
 		break;
+	case AGT_CMD_CHECKOUT_NODE:
+		cmd_checkout_node(buf);
+		break;
 	default:
 		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)
 			,errmsg("unknown agent command %d", cmd_type)));
@@ -223,12 +234,12 @@ static void cmd_ping_node(StringInfo msg)
 	}
 	/*
 	the database of hba in slave datanode is "replication" so the client cann't connect it,
-	so we use psql -p port -U username to connect, 
+	so we use psql -p port -U username to connect,
 	because the agent and the node has the same host,
 	so omit the host ip, the agent will use localhost as host ip
 	*/
 	ping_status = exec_ping_node(NULL, NameStr(port), NameStr(user), file_path, &err_msg);
-	
+
 	/*send msg to client */
 	appendStringInfoCharMacro(&err_msg, ping_status);
 	agt_put_msg(AGT_MSG_RESULT, err_msg.data, err_msg.len);
@@ -239,7 +250,7 @@ static bool parse_ping_node_msg(const StringInfo msg, Name host, Name port, Name
 {
 	int index = msg->cursor;
 	Assert(host && port && user && file_path);
-	
+
 	if (index < msg->len)
 		snprintf(NameStr(*host), NAMEDATALEN, "%s", &(msg->data[index]));
 	else
@@ -350,7 +361,7 @@ static void cmd_check_dir_exist(StringInfo msg)
 	struct stat stat_buf;
 	DIR *chkdir;
 	struct dirent *file;
-	
+
 	initStringInfo(&output);
 	dir_path = agt_getmsgstring(msg);
 
@@ -379,7 +390,7 @@ static void cmd_check_dir_exist(StringInfo msg)
 	chkdir = opendir(dir_path);
 	if (chkdir == NULL)
 	{
-		ereport(ERROR, 
+		ereport(ERROR,
 			(errmsg("append master node: open directory \"%s\" fail, %s", dir_path, strerror(errno))));
 	}
 	else
@@ -391,7 +402,7 @@ static void cmd_check_dir_exist(StringInfo msg)
 				/* skip this and parent directory */
 				continue;
 			}
-			ereport(ERROR, 
+			ereport(ERROR,
 				(errmsg("append master node: directory \"%s\" is not empty", dir_path)));
 		}
 	}
@@ -448,7 +459,7 @@ static void cmd_node_init(char cmdtype, StringInfo msg, char *cmdfile, char* VER
 	if(exec_shell(exec.data, &output) != 0)
 		ereport(ERROR, (errmsg("%s", output.data)));
 	/*for datanode failover*/
-	if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTM_SLAVE_FAILOVER == cmdtype)
+	if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTM_SLAVE_FAILOVER == cmdtype || AGT_CMD_DN_MASTER_PROMOTE==cmdtype)
 	{
 		/*get path from msg: .... -D path ...*/
 		ppath =  strstr(msg->data, " -D ");
@@ -1158,7 +1169,7 @@ static int copyFile(const char *targetFileWithPath, const char *sourceFileWithPa
 	FILE *fpR, *fpW;
 	char buffer[BUFFER_SIZE];
 	int lenR, lenW;
-	
+
 	errno = 0;
 	if ((fpR = fopen(sourceFileWithPath, "r")) == NULL)
 	{
@@ -1590,7 +1601,7 @@ static void mgr_execute_sqlstring(char cmdtype, char *user, int port, char *addr
 		/*PQclear(res);*/
 		/*return NULL;*/
 	}
-	
+
 	if (AGT_CMD_GET_SQL_STRINGVALUES_COMMAND == cmdtype)
 	{
 		appendStringInfo(output, "%s", PQcmdStatus(res));
@@ -1668,4 +1679,73 @@ static void cmd_get_batch_job_result(int cmd_type, StringInfo buf)
 	pfree(output.data);
 
 }
+static void cmd_checkout_node(StringInfo msg)
+{
+	bool is_success = false;
+	NameData host;
+	NameData port;
+	NameData user;
+	NameData result;
 
+	is_success = parse_checkout_node_msg(msg, &host, &port, &user);
+	if (is_success != true)
+	{
+		ereport(ERROR, (errmsg("funciton:cmd_checkout_node, error to get values of host, port and user")));
+	}
+
+	exec_checkout_node(NULL, NameStr(port), NameStr(user), NameStr(result));
+
+	/*send msg to client */
+	agt_put_msg(AGT_MSG_RESULT, result.data, strlen(result.data));
+	agt_flush();
+}
+static bool parse_checkout_node_msg(const StringInfo msg, Name host, Name port, Name user)
+{
+	int index = msg->cursor;
+	Assert(host && port && user);
+
+	if (index < msg->len)
+		snprintf(NameStr(*host), NAMEDATALEN, "%s", &(msg->data[index]));
+	else
+		return false;
+	index = index + strlen(&(msg->data[index])) + 1;
+	if (index < msg->len)
+		snprintf(NameStr(*port), NAMEDATALEN, "%s", &(msg->data[index]));
+	else
+		return false;
+	index = index + strlen(&(msg->data[index])) + 1;
+	if (index < msg->len)
+		snprintf(NameStr(*user), NAMEDATALEN, "%s", &(msg->data[index]));
+	else
+		return false;
+
+	return true;
+}
+static void exec_checkout_node(const char *host, const char *port, const char *user, char *result)
+{
+	PGconn *pg_conn = NULL;
+	PGresult *res;
+	char sqlstr[] = "select * from pg_is_in_recovery();";
+
+	pg_conn = PQsetdbLogin(host,
+						port,
+						NULL, NULL,DEFAULT_DB,
+						user,NULL);
+	if (pg_conn == NULL || PQstatus(pg_conn) != CONNECTION_OK)
+	{
+		ereport(ERROR,
+			(errmsg("Fail to connect to datanode (host=%s port=%s dbname=%s user=%s) %s",
+						host, port, DEFAULT_DB, user, PQerrorMessage(pg_conn))));
+	}
+
+	res = PQexec(pg_conn, sqlstr);
+	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+		ereport(ERROR, (errmsg("%s runs error", sqlstr)));
+	if (PQgetisnull(res, 0, 0))
+		ereport(ERROR, (errmsg("%s runs. resut is null", sqlstr)));
+	/*the type of result is bool*/
+	snprintf(result, sizeof(result)-1, "%s", PQgetvalue(res, 0, 0));
+
+	PQclear(res);
+	PQfinish(pg_conn);
+}
