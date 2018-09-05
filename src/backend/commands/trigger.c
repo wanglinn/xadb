@@ -2310,7 +2310,7 @@ ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 	 * 2. Add FOR UPDATE in the SELECT statement in the subplan itself.
 	 */
 
-	if (IsCnNode() && RelationGetLocInfo(relinfo->ri_RelationDesc))
+	if (IsCnNode() && RelationGetLocInfoForRemote(relinfo->ri_RelationDesc))
 	{
 		/* No OLD tuple means triggers are to be run on datanode */
 		if (!fdw_trigtuple)
@@ -2400,7 +2400,7 @@ ExecARDeleteTriggers(EState *estate, ResultRelInfo *relinfo,
 		HeapTuple	trigtuple;
 
 #ifdef ADB
-		if (IsCnNode() && RelationGetLocInfo(relinfo->ri_RelationDesc))
+		if (IsCnNode() && RelationGetLocInfoForRemote(relinfo->ri_RelationDesc))
 		{
 			/* No OLD tuple means triggers are to be run on datanode */
 			if (fdw_trigtuple == NULL)
@@ -2585,7 +2585,7 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	LockTupleMode lockmode;
 #ifdef ADB
 	bool			exec_all_triggers;
-	RelationLocInfo	*rel_locinfo = RelationGetLocInfo(relinfo->ri_RelationDesc);
+	RelationLocInfo	*rel_locinfo = RelationGetLocInfoForRemote(relinfo->ri_RelationDesc);
 #endif
 
 	/* Determine lock mode to use */
@@ -2611,7 +2611,7 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	 * 2. Add FOR UPDATE in the SELECT statement in the subplan itself.
 	 */
 
-	if (IsCnNode() && RelationGetLocInfo(relinfo->ri_RelationDesc))
+	if (IsCnNode() && RelationGetLocInfoForRemote(relinfo->ri_RelationDesc))
 	{
 		/* No OLD tuple means triggers are to be run on datanode */
 		if (!fdw_trigtuple)
@@ -2745,7 +2745,7 @@ ExecARUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
 		HeapTuple	trigtuple;
 
 #ifdef ADB
-		if (IsCnNode() && RelationGetLocInfo(relinfo->ri_RelationDesc))
+		if (IsCnNode() && RelationGetLocInfoForRemote(relinfo->ri_RelationDesc))
 		{
 			/* No OLD tuple means triggers are to be run on datanode */
 			if (fdw_trigtuple == NULL)
@@ -3921,7 +3921,7 @@ AfterTriggerExecute(AfterTriggerEvent event,
 #ifdef ADB
 	HeapTuple	rs_tuple1 = NULL;
 	HeapTuple	rs_tuple2 = NULL;
-	bool		is_remote_relation = (RelationGetLocInfo(rel) != NULL);
+	bool		is_remote_relation = (RelationGetLocInfoForRemote(rel) != NULL);
 #endif
 
 	/*
@@ -5357,7 +5357,7 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 #ifdef ADB
 	bool		is_deferred = false;
 	bool		event_added = false;
-	bool		is_remote_relation = (RelationGetLocInfo(rel) != NULL);
+	bool		is_remote_relation = (RelationGetLocInfoForRemote(rel) != NULL);
 	bool		exec_all_triggers;
 #endif
 
@@ -6179,7 +6179,7 @@ pgxc_should_exec_triggers(Relation rel, int16 tgtype_event,
 
 	if (IsCnNode())
 	{
-		if (RelationGetLocInfo(rel))
+		if (RelationGetLocInfoForRemote(rel))
 		{
 			/*
 			 * So this is a typical coordinator table that has locator info.
@@ -6248,9 +6248,9 @@ pgxc_should_exec_br_trigger(Relation rel, int16 trigevent)
 					pgxc_find_nonshippable_row_trig(rel,
 					   	trigevent, TRIGGER_TYPE_AFTER, false);
 
-	if (RelationGetLocInfo(rel) && has_nonshippable_row_triggers)
+	if (RelationGetLocInfoForRemote(rel) && has_nonshippable_row_triggers)
 		return true;
-	if (!RelationGetLocInfo(rel) && !has_nonshippable_row_triggers)
+	if (!RelationGetLocInfoForRemote(rel) && !has_nonshippable_row_triggers)
 		return true;
 
 	return false;
@@ -6272,7 +6272,7 @@ pgxc_trig_oldrow_reqd(Relation rel, CmdType commandType)
 	int16		trigevent = pgxc_get_trigevent(commandType);
 
 	/* Should be called only for remote tables */
-	Assert(RelationGetLocInfo(rel));
+	Assert(RelationGetLocInfoForRemote(rel));
 
 	/*
 	 * We require OLD row if we are going to execute BR triggers on coordinator,
@@ -6329,7 +6329,8 @@ pgxc_is_internal_trig_firable(Relation rel, Trigger *trigger)
 	 * Otherwise, execute internal triggers only on datanode or local-only
 	 * tables
 	 */
-	return !RelationGetLocInfo(rel);
+
+	return !RelationGetLocInfoForRemote(rel);
 }
 
 /*

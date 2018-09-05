@@ -906,7 +906,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString, uint64 *processed ADB_ONLY
 			 * and Permission check at datanode
 			 * now we create a query
 			 */
-			|| (is_from == false && rel->rd_locator_info)
+			|| (is_from == false && RelationGetLocInfoForRemote(rel))
 #endif /* ADB */
 			)
 		{
@@ -990,7 +990,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString, uint64 *processed ADB_ONLY
 			select->fromClause = list_make1(from);
 
 #ifdef ADB
-			if (is_from == false && rel->rd_locator_info)
+			if (is_from == false && RelationGetLocInfoForRemote(rel))
 			{
 				if (CopyHasOidsOptions(stmt->options))
 				{
@@ -1047,7 +1047,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString, uint64 *processed ADB_ONLY
 							   stmt->attlist, stmt->options);
 		cstate->range_table = range_table;
 #ifdef ADB
-		if(rel->rd_locator_info)
+		if(RelationGetLocInfoForRemote(rel))
 			*processed = CoordinatorCopyFrom(cstate);
 		else
 #endif /* ADB */
@@ -2123,7 +2123,7 @@ CopyTo(CopyState cstate)
 
 	if (cstate->rel
 #ifdef ADB
-		&& cstate->rel->rd_locator_info == NULL
+		&& RelationGetLocInfoForRemote(cstate->rel) == NULL
 #endif
 	)
 	{
@@ -3077,7 +3077,7 @@ BeginCopyFrom(Relation rel,
 	}
 
 #ifdef ADB
-	if (rel->rd_locator_info)
+	if (RelationGetLocInfoForRemote(rel))
 	{
 		Expr	   *reduce;
 		ReduceInfo *rinfo;

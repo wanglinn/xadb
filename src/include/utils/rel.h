@@ -493,6 +493,11 @@ typedef struct ViewOptions
  */
 #define RelationGetLocInfo(relation) ((relation)->rd_locator_info)
 
+#define RelationGetLocInfoForRemote(relation)	\
+		((relation)->rd_locator_info == NULL ? 	\
+			NULL: IS_PGXC_DATANODE ?			\
+				NULL : (relation)->rd_locator_info )
+
 /*
  * RelationGetLocatorType
  *		Returns the rel's locator type.
