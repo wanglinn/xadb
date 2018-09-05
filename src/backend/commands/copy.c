@@ -261,7 +261,8 @@ typedef struct CopyStateData
 	TupleTableSlot  *cs_tupleslot;
 	TupleTableSlot  *cs_tsConvert;
 	TupleTypeConvert *cs_convert;
-	ExprState		*cs_reduce;
+	ExprState		*cs_reduce_state;
+	Expr			*cs_reduce_expr;
 	CustomNextRowFunction NextRowFrom;
 	void			*func_data;		/* function NextRowFrom's user data, default is TupleTableSlot for target rel */
 	List			*aux_info;		/* list of AuxiliaryCopyInfo */
@@ -3457,7 +3458,6 @@ BeginCopyFrom(ParseState *pstate,
 #ifdef ADB
 	if (rel->rd_locator_info)
 	{
-		Expr	   *reduce;
 		ReduceInfo *rinfo;
 
 		/* make reduce expr */
@@ -3465,8 +3465,7 @@ BeginCopyFrom(ParseState *pstate,
 										  NIL,
 										  RelationGetRelid(rel),
 										  1 /* only have one relation */);
-		reduce = CreateExprUsingReduceInfo(rinfo);
-		cstate->cs_reduce = ExecInitExpr(reduce, NULL);
+		cstate->cs_reduce_expr = CreateExprUsingReduceInfo(rinfo);
 		cstate->aux_info = MakeAuxRelCopyInfo(rel);
 		if (cstate->aux_info)
 		{
@@ -5368,7 +5367,22 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 
 	type_convert = cstate->cs_convert;
 	ts_convert = cstate->cs_tsConvert;
-	expr_state = cstate->cs_reduce;
+	if (cstate->cs_reduce_state == NULL)
+	{
+		Expr *expr = cstate->cs_reduce_expr;
+		Assert(cstate->cs_reduce_expr != NULL);
+		if ((IsA(expr, FuncExpr) &&((FuncExpr *) expr)->funcretset) ||
+			(IsA(expr, OpExpr) &&((OpExpr *) expr)->opretset))
+		{
+			cstate->cs_reduce_state = (ExprState*)ExecInitFunctionResultSet(expr,
+																			econtext,
+																			NULL);
+		}else
+		{
+			cstate->cs_reduce_state = ExecInitExpr(expr, NULL);
+		}
+	}
+	expr_state = cstate->cs_reduce_state;
 	initStringInfo(&buf);
 
 	/* Set up callback to identify error line number */
@@ -6020,7 +6034,16 @@ static void InitCopyFromReduce(CopyFromReduceState *state, TupleDesc desc, Expr 
 
 	MemSet(state, 0, sizeof(*state));
 	state->econtext = CreateStandaloneExprContext();
-	state->reduce = ExecInitExpr(reduce, NULL);
+	if ((IsA(reduce, FuncExpr) && ((FuncExpr*)reduce)->funcretset) ||
+		(IsA(reduce, OpExpr) && ((OpExpr*)reduce)->opretset))
+	{
+		state->reduce = (ExprState*)ExecInitFunctionResultSet(reduce,
+															  state->econtext,
+															  NULL);
+	}else
+	{
+		state->reduce = ExecInitExpr(reduce, NULL);
+	}
 	state->base_slot = MakeSingleTupleTableSlot(desc);
 	state->convert_state = create_type_convert(desc, true, true);
 	if (state->convert_state)
