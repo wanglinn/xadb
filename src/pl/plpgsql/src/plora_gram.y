@@ -199,12 +199,12 @@ static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 
 %type <list>	proc_sect stmt_elsifs stmt_else
 %type <stmt>	proc_stmt pl_block pl_block_top
-%type <stmt>	stmt_assign stmt_if stmt_loop stmt_while stmt_exit
-%type <stmt>	stmt_return stmt_raise /*stmt_assert stmt_execsql
-%type <stmt>	stmt_dynexecute stmt_for stmt_perform stmt_getdiag
-%type <stmt>	stmt_open stmt_fetch stmt_move stmt_close stmt_null
-%type <stmt>	stmt_case stmt_foreach_a*/
-%type <stmt>	stmt_goto stmt_case stmt_null stmt_execsql
+%type <stmt>	stmt_assign stmt_commit stmt_if stmt_loop stmt_while stmt_exit
+%type <stmt>	stmt_return stmt_raise /*stmt_assert*/ stmt_execsql
+/*%type <stmt>	stmt_dynexecute stmt_for stmt_perform stmt_getdiag*/
+%type <stmt>	/*stmt_open stmt_fetch stmt_move stmt_close*/ stmt_null
+/*%type <stmt>	stmt_case stmt_foreach_a*/
+%type <stmt>	stmt_goto stmt_case
 %type <stmt>	for_control
 %type <stmt>	stmt_for stmt_func stmt_open stmt_close stmt_fetch
 %type <loop_body>	loop_body
@@ -783,6 +783,8 @@ proc_stmt		: pl_block ';'
 						{ $$ = $2; castStmt(close, CLOSE, $$)->label = $1; }
 				| opt_block_label stmt_fetch
 						{ $$ = $2; castStmt(fetch, FETCH, $$)->label = $1; }
+				| stmt_commit
+						{ $$ = $1; }
 				;
 
 stmt_assign		: assign_var assign_operator expr_until_semi
@@ -1653,6 +1655,14 @@ stmt_null		: POK_NULL ';'
 					}
 				;
 
+stmt_commit		: POK_COMMIT ';'
+					{
+						/*
+						 * for now PG not support transaction in pl sql,
+						 * so we just accept "COMMIT;" SQL, just ignore it
+						 */
+						$$ = NULL;
+					}
 /*
  * T_WORD+T_CWORD match any initial identifier that is not a known plpgsql
  * variable.  (The composite case is probably a syntax error, but we'll let
