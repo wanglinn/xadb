@@ -213,10 +213,10 @@ static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 %type <casewhen>	case_when
 %type <list>	case_when_list opt_case_else
 
-/*%type <list>	proc_exceptions*/
+%type <list>	proc_exceptions
 %type <exception_block> exception_sect
-/*%type <exception>	proc_exception
-%type <condition>	proc_conditions proc_condition*/
+%type <exception>	proc_exception
+%type <condition>	proc_conditions proc_condition
 
 %type <keyword>	unreserved_keyword
 
@@ -1001,6 +1001,119 @@ stmt_goto		: opt_block_label POK_GOTO any_identifier ';'
 
 exception_sect	:
 					{ $$ = NULL; }
+				| POK_EXCEPTION
+					{
+						/*
+						 * We use a mid-rule action to add these
+						 * special variables to the namespace before
+						 * parsing the WHEN clauses themselves.  The
+						 * scope of the names extends to the end of the
+						 * current block.
+						 */
+						int			lineno = plpgsql_location_to_lineno(@1);
+						PLpgSQL_exception_block *new = palloc(sizeof(PLpgSQL_exception_block));
+						PLpgSQL_variable *var;
+
+						var = plpgsql_build_variable("sqlstate", lineno,
+													 plpgsql_build_datatype(TEXTOID,
+																			-1,
+																			plpgsql_curr_compile->fn_input_collation),
+													 true);
+						((PLpgSQL_var *) var)->isconst = true;
+						new->sqlstate_varno = var->dno;
+
+						var = plpgsql_build_variable("sqlerrm", lineno,
+													 plpgsql_build_datatype(TEXTOID,
+																			-1,
+																			plpgsql_curr_compile->fn_input_collation),
+													 true);
+						((PLpgSQL_var *) var)->isconst = true;
+						new->sqlerrm_varno = var->dno;
+
+						$<exception_block>$ = new;
+					}
+					proc_exceptions
+					{
+						PLpgSQL_exception_block *new = $<exception_block>2;
+						new->exc_list = $3;
+
+						$$ = new;
+					}
+				;
+
+proc_exceptions	: proc_exceptions proc_exception
+						{
+							$$ = lappend($1, $2);
+						}
+				| proc_exception
+						{
+							$$ = list_make1($1);
+						}
+				;
+
+proc_exception	: POK_WHEN proc_conditions POK_THEN proc_sect
+					{
+						PLpgSQL_exception *new;
+
+						new = palloc0(sizeof(PLpgSQL_exception));
+						new->lineno = plpgsql_location_to_lineno(@1);
+						new->conditions = $2;
+						new->action = $4;
+
+						$$ = new;
+					}
+				;
+
+proc_conditions	: proc_conditions POK_OR proc_condition
+						{
+							PLpgSQL_condition	*old;
+
+							for (old = $1; old->next != NULL; old = old->next)
+								/* skip */ ;
+							old->next = $3;
+							$$ = $1;
+						}
+				| proc_condition
+						{
+							$$ = $1;
+						}
+				;
+
+proc_condition	: any_identifier
+						{
+							if (strcmp($1, "sqlstate") != 0)
+							{
+								$$ = plpgsql_parse_err_condition($1);
+							}
+							else
+							{
+								PLpgSQL_condition *new;
+								char   *sqlstatestr;
+
+								/* next token should be a string literal */
+								if (yylex() != SCONST)
+									yyerror("syntax error");
+								sqlstatestr = yylval.str;
+
+								if (strlen(sqlstatestr) != 5)
+									yyerror("invalid SQLSTATE code");
+								if (strspn(sqlstatestr, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ") != 5)
+									yyerror("invalid SQLSTATE code");
+
+								new = palloc(sizeof(PLpgSQL_condition));
+								new->sqlerrstate =
+									MAKE_SQLSTATE(sqlstatestr[0],
+												  sqlstatestr[1],
+												  sqlstatestr[2],
+												  sqlstatestr[3],
+												  sqlstatestr[4]);
+								new->condname = sqlstatestr;
+								new->next = NULL;
+
+								$$ = new;
+							}
+						}
+				;
 
 expr_until_semi :
 					{ $$ = read_sql_expression(';', ";"); }
