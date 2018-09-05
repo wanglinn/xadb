@@ -103,8 +103,7 @@ static  PLpgSQL_stmt	*make_case(int location, PLpgSQL_expr *t_expr,
 								   List *case_when_list, List *else_stmts);
 static	char			*NameOfDatum(PLwdatum *wdatum);
 static	void			 check_assignable(PLpgSQL_datum *datum, int location);
-static	void			 read_into_target(PLpgSQL_rec **rec, PLpgSQL_row **row,
-										  bool *strict);
+static	void			 read_into_target(PLpgSQL_rec **rec, PLpgSQL_row **row);
 static	PLpgSQL_row		*read_into_scalar_list(char *initial_name,
 											   PLpgSQL_datum *initial_datum,
 											   int initial_location);
@@ -359,7 +358,7 @@ static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 
 %token <keyword> POK_WHILE POK_WORK POK_WRAPPED POK_WRITE
 
-%token <keyword> POK_YEAR POK_STRICT
+%token <keyword> POK_YEAR
 
 %token <keyword> POK_ZONE POK_IMPORT POK_NEXT POK_LAST POK_ABSOLUTE POK_RELATIVE POK_FORWARD POK_BACKWARD
 %%
@@ -1800,7 +1799,7 @@ stmt_fetch		: POK_FETCH opt_fetch_direction cursor_variable POK_INTO
 						PLpgSQL_row	   *row;
 
 						/* We have already parsed everything through the INTO keyword */
-						read_into_target(&rec, &row, NULL);
+						read_into_target(&rec, &row);
 
 						if (yylex() != ';')
 							yyerror("syntax error");
@@ -2514,7 +2513,6 @@ make_execsql_stmt(int firsttoken, int location)
 	int					tok;
 	int					prev_tok;
 	bool				have_into = false;
-	bool				have_strict = false;
 	int					into_start_loc = -1;
 	int					into_end_loc = -1;
 
@@ -2574,7 +2572,7 @@ make_execsql_stmt(int firsttoken, int location)
 			have_into = true;
 			into_start_loc = yylloc;
 			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
-			read_into_target(&rec, &row, &have_strict);
+			read_into_target(&rec, &row);
 			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_EXPR;
 		}
 	}
@@ -2615,7 +2613,7 @@ make_execsql_stmt(int firsttoken, int location)
 	execsql->lineno  = plpgsql_location_to_lineno(location);
 	execsql->sqlstmt = expr;
 	execsql->into	 = have_into;
-	execsql->strict	 = have_strict;
+	execsql->strict	 = true;
 	execsql->rec	 = rec;
 	execsql->row	 = row;
 
@@ -2885,22 +2883,15 @@ check_assignable(PLpgSQL_datum *datum, int location)
  * INTO keyword.
  */
 static void
-read_into_target(PLpgSQL_rec **rec, PLpgSQL_row **row, bool *strict)
+read_into_target(PLpgSQL_rec **rec, PLpgSQL_row **row)
 {
 	int			tok;
 
 	/* Set default results */
 	*rec = NULL;
 	*row = NULL;
-	if (strict)
-		*strict = false;
 
 	tok = yylex();
-	if (strict && tok == POK_STRICT)
-	{
-		*strict = true;
-		tok = yylex();
-	}
 
 	/*
 	 * Currently, a row or record variable can be the single INTO target,
