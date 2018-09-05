@@ -58,6 +58,7 @@
 
 #ifdef ADB
 #include "catalog/pg_operator.h"
+#include "intercomm/inter-comm.h"
 #include "nodes/makefuncs.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
@@ -105,6 +106,9 @@ static Datum std_fetch_func(VacAttrStatsP stats, int rownum, bool *isNull);
 static Datum ind_fetch_func(VacAttrStatsP stats, int rownum, bool *isNull);
 
 #ifdef ADB
+static void node_analyze_rel(Relation relation,
+							 AcquireSampleRowsFunc *func,
+							 BlockNumber *totalpages);
 static void analyze_rel_coordinator(Relation onerel, bool inh, int attr_cnt,
 						VacAttrStats **vacattrstats);
 #endif
@@ -214,10 +218,14 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 	if (onerel->rd_rel->relkind == RELKIND_RELATION ||
 		onerel->rd_rel->relkind == RELKIND_MATVIEW)
 	{
+#ifdef ADB
+		node_analyze_rel(onerel, &acquirefunc, &relpages);
+#else
 		/* Regular table, so we'll use the regular row acquisition function */
 		acquirefunc = acquire_sample_rows;
 		/* Also get regular table's size */
 		relpages = RelationGetNumberOfBlocks(onerel);
+#endif
 	}
 	else if (onerel->rd_rel->relkind == RELKIND_FOREIGN_TABLE)
 	{
@@ -293,6 +301,26 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 }
 
 #ifdef ADB
+static void
+node_analyze_rel(Relation relation,
+				AcquireSampleRowsFunc *func,
+				BlockNumber *totalpages)
+{
+	if (IsCnNode() && RelationGetLocInfo(relation))
+	{
+		/* Return the row-analysis function pointer for Coordinator */
+		*func = CnAcquireSampleRowsFunc;
+		/* Also get regular table's size by Coordinator */
+		*totalpages = CnGetRelationNumberOfBlocks(relation);
+	} else
+	{
+		/* Regular table, so we'll use the regular row acquisition function */
+		*func = acquire_sample_rows;
+		/* Also get regular table's size */
+		*totalpages = RelationGetNumberOfBlocks(relation);
+	}
+}
+
 static void
 analyze_rel_coordinator(Relation onerel, bool inh, int attr_cnt,
 						VacAttrStats **vacattrstats)
@@ -852,30 +880,6 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 		attr_cnt = tcnt;
 	}
 
-#ifdef ADB
-	if (IS_PGXC_COORDINATOR && onerel->rd_locator_info)
-	{
-		/*
-		 * Fetch relation statistics from remote nodes and update
-		 */
-		vacuum_rel_coordinator(onerel, in_outer_xact);
-
-		/*
-		 * Fetch attribute statistics from remote nodes.
-		 */
-		analyze_rel_coordinator(onerel, inh, attr_cnt, vacattrstats);
-
-		/*
-		 * Skip acquiring local stats. Coordinator does not store data of
-		 * distributed tables.
-		 */
-		nindexes = 0;
-		hasindex = false;
-		Irel = NULL;
-		goto cleanup;
-	}
-#endif
-
 	/*
 	 * Open all indexes of the relation, and see if there are any analyzable
 	 * columns in the indexes.  We do not analyze index columns if there was
@@ -1083,13 +1087,6 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 								in_outer_xact);
 		}
 	}
-
-#ifdef ADB
-	/*
-	 * Coordinator skips getting local stats of distributed table up to here
-	 */
-	cleanup:
-#endif
 
 	/*
 	 * Report ANALYZE to the stats collector, too.  However, if doing
