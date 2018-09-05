@@ -94,8 +94,8 @@ static	PLpgSQL_expr	*read_sql_stmt(const char *sqlstart);
 static	PLpgSQL_type	*read_datatype(int tok);
 static	PLpgSQL_stmt	*make_execsql_stmt(int firsttoken, int location);
 static	PLpgSQL_stmt_fetch *read_fetch_direction(void);
-/*static	void			 complete_direction(PLpgSQL_stmt_fetch *fetch,
-											bool *check_FROM);*/
+static	void			 complete_direction(PLpgSQL_stmt_fetch *fetch,
+											bool *check_FROM);
 static	PLpgSQL_stmt	*make_return_stmt(int location);
 static	PLpgSQL_stmt	*make_return_next_stmt(int location);
 static	PLpgSQL_stmt	*make_return_query_stmt(int location);
@@ -185,7 +185,7 @@ static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 %type <declhdr> decl_sect decl_sect_top
 %type <varname> decl_varname
 %type <boolean>	decl_const decl_notnull exit_type
-%type <expr>	decl_defval
+%type <expr>	decl_defval decl_cursor_query
 %type <dtype>	decl_datatype
 
 %type <expr>	expr_until_semi/* expr_until_rightbracket*/
@@ -206,7 +206,7 @@ static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 %type <stmt>	stmt_case stmt_foreach_a*/
 %type <stmt>	stmt_goto stmt_case stmt_null stmt_execsql
 %type <stmt>	for_control
-%type <stmt>	stmt_for stmt_func
+%type <stmt>	stmt_for stmt_func stmt_open stmt_close stmt_fetch
 %type <loop_body>	loop_body
 %type <forvariable>	for_variable
 
@@ -220,6 +220,11 @@ static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 
 %type <keyword>	unreserved_keyword
 
+%type <var>		cursor_variable
+%type <fetch>	opt_fetch_direction
+%type <datum>	decl_cursor_args
+%type <datum>	decl_cursor_arg
+%type <list>	decl_cursor_arglist
 
 /*
  * Basic non-keyword token types.  These are hard-wired into the core lexer.
@@ -543,6 +548,70 @@ decl_statement	: decl_varname decl_const decl_datatype decl_notnull decl_defval
 										 parser_errposition(@5)));
 						}
 					}
+				| POK_TYPE decl_varname POK_IS POK_REF POK_CURSOR decl_defval
+					/* RETURN ... not add, need modify */
+					{
+						PLpgSQL_var *var;
+
+						var = (PLpgSQL_var *)
+							plpgsql_build_variable($2.name,
+							$2.lineno,
+							plpgsql_build_datatype(REFCURSOROID,
+							-1,
+							InvalidOid),
+							true);
+					}
+				| POK_CURSOR decl_varname
+					{ plpgsql_ns_push($2.name, PLPGSQL_LABEL_OTHER); }
+				  decl_cursor_args decl_is_for decl_cursor_query
+					{
+						PLpgSQL_var *new;
+						PLpgSQL_expr *curname_def;
+						char		buf[1024];
+						char		*cp1;
+						char		*cp2;
+
+						/* pop local namespace for cursor args */
+						plpgsql_ns_pop();
+
+						new = (PLpgSQL_var *)
+							plpgsql_build_variable($2.name, $2.lineno,
+												   plpgsql_build_datatype(REFCURSOROID,
+																		  -1,
+																		  InvalidOid),
+												   true);
+
+						curname_def = palloc0(sizeof(PLpgSQL_expr));
+
+						strcpy(buf, "SELECT ");
+						cp1 = new->refname;
+						cp2 = buf + strlen(buf);
+						/*
+						 * Don't trust standard_conforming_strings here;
+						 * it might change before we use the string.
+						 */
+						if (strchr(cp1, '\\') != NULL)
+							*cp2++ = ESCAPE_STRING_SYNTAX;
+						*cp2++ = '\'';
+						while (*cp1)
+						{
+							if (SQL_STR_DOUBLE(*cp1, true))
+								*cp2++ = *cp1;
+							*cp2++ = *cp1++;
+						}
+						/*strcpy(cp2, "'::pg_catalog.refcursor");*/
+						/* need modify */
+						strcpy(cp2, "'");
+						curname_def->query = pstrdup(buf);
+						new->default_val = curname_def;
+
+						new->cursor_explicit_expr = $6;
+						if ($4 == NULL)
+							new->cursor_explicit_argrow = -1;
+						else
+							new->cursor_explicit_argrow = $4->dno;
+						new->cursor_options = CURSOR_OPT_FAST_PLAN;
+					}
 
 decl_varname	: T_WORD
 					{
@@ -707,6 +776,12 @@ proc_stmt		: pl_block ';'
 						{ $$ = $1; }
 				| stmt_execsql
 						{ $$ = $1; }
+				| opt_block_label stmt_open
+						{ $$ = $2; castStmt(open, OPEN, $$)->label = $1; }
+				| opt_block_label stmt_close
+						{ $$ = $2; castStmt(close, CLOSE, $$)->label = $1; }
+				| opt_block_label stmt_fetch
+						{ $$ = $2; castStmt(fetch, FETCH, $$)->label = $1; }
 				;
 
 stmt_assign		: assign_var assign_operator expr_until_semi
@@ -1483,6 +1558,209 @@ stmt_execsql	: POK_IMPORT
 					}
 				;
 
+stmt_open		: POK_OPEN cursor_variable
+					{
+						PLpgSQL_stmt_open *new;
+						int				  tok;
+
+						new = palloc0(sizeof(PLpgSQL_stmt_open));
+						new->cmd_type = PLPGSQL_STMT_OPEN;
+						new->lineno = plpgsql_location_to_lineno(@1);
+						new->curvar = $2->dno;
+						new->cursor_options = CURSOR_OPT_FAST_PLAN;
+
+						if ($2->cursor_explicit_expr == NULL)
+						{
+							/* be nice if we could use opt_scrollable here */
+							tok = yylex();
+
+							if (tok != POK_FOR)
+								yyerror("syntax error, expected \"FOR\"");
+
+							tok = yylex();
+							if (tok == POK_EXECUTE)
+							{
+								int		endtoken;
+
+								new->dynquery =
+									read_sql_expression2(POK_USING, ';',
+														 "USING or ;",
+														 &endtoken);
+
+								/* If we found "USING", collect argument(s) */
+								if (endtoken == POK_USING)
+								{
+									PLpgSQL_expr *expr;
+
+									do
+									{
+										expr = read_sql_expression2(',', ';',
+																	", or ;",
+																	&endtoken);
+										new->params = lappend(new->params,
+															  expr);
+									} while (endtoken == ',');
+								}
+							}
+							else
+							{
+								plpgsql_push_back_token(tok);
+								new->query = read_sql_stmt("");
+							}
+						}
+						else
+						{
+							/* predefined cursor query, so read args */
+							new->argquery = read_cursor_args($2, ';', ";");
+						}
+
+						$$ = (PLpgSQL_stmt *)new;
+					}
+				;
+
+cursor_variable	: T_DATUM
+					{
+						/*
+						 * In principle we should support a cursor_variable
+						 * that is an array element, but for now we don't, so
+						 * just throw an error if next token is '['.
+						 */
+						if ($1.datum->dtype != PLPGSQL_DTYPE_VAR ||
+							plpgsql_peek() == '[')
+							ereport(ERROR,
+									(errcode(ERRCODE_DATATYPE_MISMATCH),
+									 errmsg("cursor variable must be a simple variable"),
+									 parser_errposition(@1)));
+
+						if (((PLpgSQL_var *) $1.datum)->datatype->typoid != REFCURSOROID)
+							ereport(ERROR,
+									(errcode(ERRCODE_DATATYPE_MISMATCH),
+									 errmsg("variable \"%s\" must be of type cursor or refcursor",
+											((PLpgSQL_var *) $1.datum)->refname),
+									 parser_errposition(@1)));
+						$$ = (PLpgSQL_var *) $1.datum;
+					}
+				| T_WORD
+					{
+						/* just to give a better message than "syntax error" */
+						word_is_not_variable(&($1), @1);
+					}
+				| T_CWORD
+					{
+						/* just to give a better message than "syntax error" */
+						cword_is_not_variable(&($1), @1);
+					}
+				;
+
+stmt_close		: POK_CLOSE cursor_variable ';'
+					{
+						PLpgSQL_stmt_close *new;
+
+						new = palloc(sizeof(PLpgSQL_stmt_close));
+						new->cmd_type = PLPGSQL_STMT_CLOSE;
+						new->lineno = plpgsql_location_to_lineno(@1);
+						new->curvar = $2->dno;
+
+						$$ = (PLpgSQL_stmt *)new;
+					}
+				;
+
+stmt_fetch		: POK_FETCH opt_fetch_direction cursor_variable POK_INTO
+					{
+						PLpgSQL_stmt_fetch *fetch = $2;
+						PLpgSQL_variable *target;
+
+						/* We have already parsed everything through the INTO keyword */
+						read_into_target(&target, NULL);
+
+						if (yylex() != ';')
+							yyerror("syntax error");
+
+						/*
+						 * We don't allow multiple rows in PL/pgSQL's FETCH
+						 * statement, only in MOVE.
+						 */
+						if (fetch->returns_multiple_rows)
+							ereport(ERROR,
+									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+									 errmsg("FETCH statement cannot return multiple rows"),
+									 parser_errposition(@1)));
+
+						fetch->lineno = plpgsql_location_to_lineno(@1);
+						fetch->target	= target;
+						fetch->curvar	= $3->dno;
+						fetch->is_move	= false;
+
+						$$ = (PLpgSQL_stmt *)fetch;
+					}
+				;
+
+opt_fetch_direction	:
+					{
+						$$ = read_fetch_direction();
+					}
+				;
+
+decl_cursor_args :
+					{
+						$$ = NULL;
+					}
+				| '(' decl_cursor_arglist ')'
+					{
+						PLpgSQL_row *new;
+						int i;
+						ListCell *l;
+
+						new = palloc0(sizeof(PLpgSQL_row));
+						new->dtype = PLPGSQL_DTYPE_ROW;
+						new->lineno = plpgsql_location_to_lineno(@1);
+						new->rowtupdesc = NULL;
+						new->nfields = list_length($2);
+						new->fieldnames = palloc(new->nfields * sizeof(char *));
+						new->varnos = palloc(new->nfields * sizeof(int));
+
+						i = 0;
+						foreach (l, $2)
+						{
+							PLpgSQL_variable *arg = (PLpgSQL_variable *) lfirst(l);
+							new->fieldnames[i] = arg->refname;
+							new->varnos[i] = arg->dno;
+							i++;
+						}
+						list_free($2);
+
+						plpgsql_adddatum((PLpgSQL_datum *) new);
+						$$ = (PLpgSQL_datum *) new;
+					}
+				;
+
+decl_cursor_arglist : decl_cursor_arg
+					{
+						$$ = list_make1($1);
+					}
+				| decl_cursor_arglist ',' decl_cursor_arg
+					{
+						$$ = lappend($1, $3);
+					}
+				;
+
+decl_cursor_arg : decl_varname decl_datatype
+					{
+						$$ = (PLpgSQL_datum *)
+							plpgsql_build_variable($1.name, $1.lineno,
+												   $2, true);
+					}
+				;
+
+decl_cursor_query :
+					{
+						$$ = read_sql_stmt("");
+					}
+				;
+
+decl_is_for		:	POK_IS |		/* Oracle */
+					POK_FOR;		/* SQL standard */
+
 unreserved_keyword	:
 				  POK_A
 				| POK_ADD
@@ -2216,36 +2494,36 @@ make_execsql_stmt(int firsttoken, int location)
  *   FORWARD expr,  FORWARD ALL,  FORWARD
  *   BACKWARD expr, BACKWARD ALL, BACKWARD
  */
-//static void
-//complete_direction(PLpgSQL_stmt_fetch *fetch,  bool *check_FROM)
-//{
-//	int			tok;
-//
-//	tok = yylex();
-//	if (tok == 0)
-//		yyerror("unexpected end of function definition");
-//
-//	if (tok == POK_FROM || tok == POK_IN)
-//	{
-//		*check_FROM = false;
-//		return;
-//	}
-//
-//	if (tok == POK_ALL)
-//	{
-//		fetch->how_many = FETCH_ALL;
-//		fetch->returns_multiple_rows = true;
-//		*check_FROM = true;
-//		return;
-//	}
-//
-//	plpgsql_push_back_token(tok);
-//	fetch->expr = read_sql_expression2(K_FROM, POK_IN,
-//									   "FROM or IN",
-//									   NULL);
-//	fetch->returns_multiple_rows = true;
-//	*check_FROM = false;
-//}
+static void
+complete_direction(PLpgSQL_stmt_fetch *fetch,  bool *check_FROM)
+{
+	int			tok;
+
+	tok = yylex();
+	if (tok == 0)
+		yyerror("unexpected end of function definition");
+
+	if (tok == POK_FROM || tok == POK_IN)
+	{
+		*check_FROM = false;
+		return;
+	}
+
+	if (tok == POK_ALL)
+	{
+		fetch->how_many = FETCH_ALL;
+		fetch->returns_multiple_rows = true;
+		*check_FROM = true;
+		return;
+	}
+
+	plpgsql_push_back_token(tok);
+	fetch->expr = read_sql_expression2(POK_FROM, POK_IN,
+									   "FROM or IN",
+									   NULL);
+	fetch->returns_multiple_rows = true;
+	*check_FROM = false;
+}
 
 
 static PLpgSQL_stmt *
@@ -3099,4 +3377,126 @@ static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc)
 	pfree(buf.data);
 
 	return new;
+}
+
+/*
+ * Read FETCH or MOVE direction clause (everything through FROM/IN).
+ */
+static PLpgSQL_stmt_fetch *
+read_fetch_direction(void)
+{
+	PLpgSQL_stmt_fetch *fetch;
+	int			tok;
+	bool		check_FROM = true;
+
+	/*
+	 * We create the PLpgSQL_stmt_fetch struct here, but only fill in
+	 * the fields arising from the optional direction clause
+	 */
+	fetch = (PLpgSQL_stmt_fetch *) palloc0(sizeof(PLpgSQL_stmt_fetch));
+	fetch->cmd_type = PLPGSQL_STMT_FETCH;
+	/* set direction defaults: */
+	fetch->direction = FETCH_FORWARD;
+	fetch->how_many  = 1;
+	fetch->expr		 = NULL;
+	fetch->returns_multiple_rows = false;
+
+	tok = yylex();
+	if (tok == 0)
+		yyerror("unexpected end of function definition");
+
+	if (tok_is_keyword(tok, &yylval,
+					   POK_NEXT, "next"))
+	{
+		/* use defaults */
+	}
+	else if (tok_is_keyword(tok, &yylval,
+							POK_PRIOR, "prior"))
+	{
+		fetch->direction = FETCH_BACKWARD;
+	}
+	else if (tok_is_keyword(tok, &yylval,
+							POK_FIRST, "first"))
+	{
+		fetch->direction = FETCH_ABSOLUTE;
+	}
+	else if (tok_is_keyword(tok, &yylval,
+							POK_LAST, "last"))
+	{
+		fetch->direction = FETCH_ABSOLUTE;
+		fetch->how_many  = -1;
+	}
+	else if (tok_is_keyword(tok, &yylval,
+							POK_ABSOLUTE, "absolute"))
+	{
+		fetch->direction = FETCH_ABSOLUTE;
+		fetch->expr = read_sql_expression2(POK_FROM, POK_IN,
+										   "FROM or IN",
+										   NULL);
+		check_FROM = false;
+	}
+	else if (tok_is_keyword(tok, &yylval,
+							POK_RELATIVE, "relative"))
+	{
+		fetch->direction = FETCH_RELATIVE;
+		fetch->expr = read_sql_expression2(POK_FROM, POK_IN,
+										   "FROM or IN",
+										   NULL);
+		check_FROM = false;
+	}
+	else if (tok_is_keyword(tok, &yylval,
+							POK_ALL, "all"))
+	{
+		fetch->how_many = FETCH_ALL;
+		fetch->returns_multiple_rows = true;
+	}
+	else if (tok_is_keyword(tok, &yylval,
+							POK_FORWARD, "forward"))
+	{
+		complete_direction(fetch, &check_FROM);
+	}
+	else if (tok_is_keyword(tok, &yylval,
+							POK_BACKWARD, "backward"))
+	{
+		fetch->direction = FETCH_BACKWARD;
+		complete_direction(fetch, &check_FROM);
+	}
+	else if (tok == POK_FROM || tok == POK_IN)
+	{
+		/* empty direction */
+		check_FROM = false;
+	}
+	else if (tok == T_DATUM)
+	{
+		/* Assume there's no direction clause and tok is a cursor name */
+		plpgsql_push_back_token(tok);
+		check_FROM = false;
+	}
+	else
+	{
+		/*
+		 * Assume it's a count expression with no preceding keyword.
+		 * Note: we allow this syntax because core SQL does, but we don't
+		 * document it because of the ambiguity with the omitted-direction
+		 * case.  For instance, "MOVE n IN c" will fail if n is a variable.
+		 * Perhaps this can be improved someday, but it's hardly worth a
+		 * lot of work.
+		 */
+		plpgsql_push_back_token(tok);
+		fetch->expr = read_sql_expression2(POK_FROM, POK_IN,
+										   "FROM or IN",
+										   NULL);
+		fetch->returns_multiple_rows = true;
+		check_FROM = false;
+	}
+
+	/* check FROM or IN keyword after direction's specification */
+	if (check_FROM)
+	{
+		tok = yylex();
+		if (tok != POK_FROM && tok != POK_IN)
+			yyerror("expected FROM or IN");
+	}
+
+	return fetch;
 }
