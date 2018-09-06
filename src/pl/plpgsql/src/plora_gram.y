@@ -551,15 +551,14 @@ decl_statement	: decl_varname decl_const decl_datatype decl_notnull decl_defval
 				| POK_TYPE decl_varname POK_IS POK_REF POK_CURSOR decl_defval
 					/* RETURN ... not add, need modify */
 					{
-						PLpgSQL_var *var;
-
-						var = (PLpgSQL_var *)
-							plpgsql_build_variable($2.name,
-							$2.lineno,
-							plpgsql_build_datatype(REFCURSOROID,
-							-1,
-							InvalidOid),
-							true);
+						PLpgSQL_type *typ = plpgsql_build_datatype(REFCURSOROID, -1, InvalidOid);
+						PLoraSQL_type *oraTyp = palloc0(sizeof(PLoraSQL_type));
+						pfree(typ->typname);
+						typ->typname = pstrdup($2.name);
+						oraTyp->type = typ;
+						oraTyp->dtype = PLPGSQL_DTYPE_TYPE;
+						plpgsql_adddatum((PLpgSQL_datum*) oraTyp);
+						plpgsql_ns_additem(PLPGSQL_NSTYPE_TYPE, oraTyp->dno, typ->typname);
 					}
 				| POK_CURSOR decl_varname
 					{ plpgsql_ns_push($2.name, PLPGSQL_LABEL_OTHER); }
@@ -2433,6 +2432,14 @@ read_datatype(int tok)
 				if (result)
 					return result;
 			}
+		}else if (tok == ';')
+		{
+			result = plpgsql_find_ns_wordtype(dtname);
+			if (result)
+			{
+				plpgsql_push_back_token(tok);
+				return result;
+			}
 		}
 	}
 	else if (plorasql_token_is_unreserved_keyword(tok))
@@ -2449,6 +2456,14 @@ read_datatype(int tok)
 				result = plpgsql_parse_wordtype(dtname);
 				if (result)
 					return result;
+			}
+		}else if (tok == ';')
+		{
+			result = plpgsql_find_ns_wordtype(dtname);
+			if (result)
+			{
+				plpgsql_push_back_token(tok);
+				return result;
 			}
 		}
 	}

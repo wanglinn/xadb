@@ -1680,6 +1680,30 @@ plpgsql_parse_tripword(char *word1, char *word2, char *word3,
 	return false;
 }
 
+#ifdef ADB_GRAM_ORA
+PLpgSQL_type *
+plpgsql_find_ns_wordtype(char *ident)
+{
+	PLpgSQL_nsitem *ns_cur;
+
+	for (ns_cur = plpgsql_ns_top();
+		 ns_cur != NULL;
+		 ns_cur = ns_cur->prev)
+	{
+		if (ns_cur->itemtype == PLPGSQL_NSTYPE_TYPE &&
+			strcmp(ns_cur->name, ident) == 0)
+		{
+			PLpgSQL_datum *datum = plpgsql_Datums[ns_cur->itemno];
+			Assert(datum->dtype == PLPGSQL_DTYPE_TYPE);
+			Assert(datum->dno == ns_cur->itemno);
+			return ((PLoraSQL_type*)datum)->type;
+		}
+	}
+
+	return NULL;				/* no loop found */
+
+}
+#endif /* ADB_GRAM_ORA */
 
 /* ----------
  * plpgsql_parse_wordtype	The scanner found word%TYPE. word can be
