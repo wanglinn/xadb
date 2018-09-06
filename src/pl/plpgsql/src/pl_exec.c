@@ -1270,6 +1270,9 @@ copy_plpgsql_datums(PLpgSQL_execstate *estate,
 			case PLPGSQL_DTYPE_ROW:
 			case PLPGSQL_DTYPE_RECFIELD:
 			case PLPGSQL_DTYPE_ARRAYELEM:
+#ifdef ADB_GRAM_ORA
+			case PLPGSQL_DTYPE_TYPE:
+#endif /* ADB_GRAM_ORA */
 
 				/*
 				 * These datum records are read-only at runtime, so no need to

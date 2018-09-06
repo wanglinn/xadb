@@ -42,6 +42,9 @@ typedef enum PLpgSQL_nsitem_type
 	PLPGSQL_NSTYPE_LABEL,		/* block label */
 	PLPGSQL_NSTYPE_VAR,			/* scalar variable */
 	PLPGSQL_NSTYPE_REC			/* composite variable */
+#ifdef ADB_GRAM_ORA
+	,PLPGSQL_NSTYPE_TYPE
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_nsitem_type;
 
 /*
@@ -65,6 +68,9 @@ typedef enum PLpgSQL_datum_type
 	PLPGSQL_DTYPE_RECFIELD,
 	PLPGSQL_DTYPE_ARRAYELEM,
 	PLPGSQL_DTYPE_PROMISE
+#ifdef ADB_GRAM_ORA
+	,PLPGSQL_DTYPE_TYPE
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_datum_type;
 
 /*
@@ -213,6 +219,15 @@ typedef struct PLpgSQL_type
 	bool		typisarray;		/* is "true" array, or domain over one */
 	int32		atttypmod;		/* typmod (taken from someplace else) */
 } PLpgSQL_type;
+
+#ifdef ADB_GRAM_ORA
+typedef struct PLoraSQL_type
+{
+	PLpgSQL_datum_type dtype;
+	int				dno;
+	PLpgSQL_type	*type;
+}PLoraSQL_type;
+#endif /* ADB_GRAM_ORA */
 
 /*
  * SQL Query to plan and execute
@@ -1233,6 +1248,9 @@ extern bool plpgsql_parse_dblword(char *word1, char *word2,
 					  PLwdatum *wdatum, PLcword *cword);
 extern bool plpgsql_parse_tripword(char *word1, char *word2, char *word3,
 					   PLwdatum *wdatum, PLcword *cword);
+#ifdef ADB_GRAM_ORA
+extern PLpgSQL_type *plpgsql_find_ns_wordtype(char *ident);
+#endif /* ADB_GRAM_ORA */
 extern PLpgSQL_type *plpgsql_parse_wordtype(char *ident);
 extern PLpgSQL_type *plpgsql_parse_cwordtype(List *idents);
 extern PLpgSQL_type *plpgsql_parse_wordrowtype(char *ident);

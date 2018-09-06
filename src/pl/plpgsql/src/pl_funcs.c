@@ -143,6 +143,10 @@ plpgsql_ns_lookup(PLpgSQL_nsitem *ns_cur, bool localmode,
 			 nsitem->itemtype != PLPGSQL_NSTYPE_LABEL;
 			 nsitem = nsitem->prev)
 		{
+#ifdef ADB_GRAM_ORA
+			if (nsitem->itemtype == PLPGSQL_NSTYPE_TYPE)
+				continue;
+#endif /* ADB_GRAM_ORA */
 			if (strcmp(nsitem->name, name1) == 0)
 			{
 				if (name2 == NULL ||
@@ -163,6 +167,10 @@ plpgsql_ns_lookup(PLpgSQL_nsitem *ns_cur, bool localmode,
 				 nsitem->itemtype != PLPGSQL_NSTYPE_LABEL;
 				 nsitem = nsitem->prev)
 			{
+#ifdef ADB_GRAM_ORA
+			if (nsitem->itemtype == PLPGSQL_NSTYPE_TYPE)
+				continue;
+#endif /* ADB_GRAM_ORA */
 				if (strcmp(nsitem->name, name2) == 0)
 				{
 					if (name3 == NULL ||
@@ -805,6 +813,10 @@ plpgsql_free_function_memory(PLpgSQL_function *func)
 			case PLPGSQL_DTYPE_ARRAYELEM:
 				free_expr(((PLpgSQL_arrayelem *) d)->subscript);
 				break;
+#ifdef ADB_GRAM_ORA
+			case PLPGSQL_DTYPE_TYPE:
+				break;
+#endif /* ADB_GRAM_ORA */
 			default:
 				elog(ERROR, "unrecognized data type: %d", d->dtype);
 		}
