@@ -378,7 +378,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 					appendnodeinfo.nodeaddr, appendnodeinfo.nodeport, DEFAULT_DB, appendnodeinfo.nodeusername)));
 		}
 
-		hexp_mgr_pqexec_getlsn(&dst_pg_conn, "select pg_last_xlog_replay_location();",&dst_lsn_high, &dst_lsn_low);
+		hexp_mgr_pqexec_getlsn(&dst_pg_conn, "select pg_last_wal_replay_lsn();",&dst_lsn_high, &dst_lsn_low);
 
 		/*
 		2.2get src lsn
@@ -396,7 +396,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 					errhint("info(host=%s port=%d dbname=%s user=%s)",
 					srcnodeinfo.nodeaddr, srcnodeinfo.nodeport, DEFAULT_DB, srcnodeinfo.nodeusername)));
 		}
-		hexp_mgr_pqexec_getlsn(&src_pg_conn, "select pg_current_xlog_location();",&src_lsn_high, &src_lsn_low);
+		hexp_mgr_pqexec_getlsn(&src_pg_conn, "select pg_current_wal_lsn();",&src_lsn_high, &src_lsn_low);
 
 		/*
 		2.3 check lsn lag between src and dst is 8M.
@@ -421,8 +421,8 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		{
 			if((src_lsn_high==dst_lsn_high) && (src_lsn_low==dst_lsn_low))
 				break;
-			hexp_mgr_pqexec_getlsn(&dst_pg_conn, "select pg_last_xlog_replay_location();",&dst_lsn_high, &dst_lsn_low);
-			hexp_mgr_pqexec_getlsn(&src_pg_conn, "select pg_current_xlog_location();",&src_lsn_high, &src_lsn_low);
+			hexp_mgr_pqexec_getlsn(&dst_pg_conn, "select pg_last_wal_replay_lsn();",&dst_lsn_high, &dst_lsn_low);
+			hexp_mgr_pqexec_getlsn(&src_pg_conn, "select pg_current_wal_lsn();",&src_lsn_high, &src_lsn_low);
 
 			pg_usleep(1000000L);
 			try--;
