@@ -1016,6 +1016,9 @@ typedef struct PLpgSQL_function
 #ifdef ADB_MULTI_GRAM
 	ParseGrammar grammar;
 #endif /* ADB_MULTI_GRAM */
+#ifdef ADB_GRAM_ORA
+	int			ora_rowcount_varno;
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_function;
 
 /*
@@ -1097,6 +1100,9 @@ typedef struct PLpgSQL_execstate
 #ifdef ADB_MULTI_GRAM
 	ParseGrammar grammar;
 #endif /* ADB_MULTI_GRAM */
+#ifdef ADB_GRAM_ORA
+	int			ora_rowcount_varno;
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_execstate;
 
 /*
@@ -1330,12 +1336,5 @@ extern int	plorasql_yylex(void);
  * Externs in gram.y
  */
 extern int	plpgsql_yyparse(void);
-
-#ifdef ADB_GRAM_ORA
-/*
- * Externs in gram.y
- */
-extern int	plorasql_yyparse(void);
-#endif /* ADB_GRAM_ORA */
 
 #endif							/* PLPGSQL_H */

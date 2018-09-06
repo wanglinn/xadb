@@ -124,6 +124,12 @@ static void plpgsql_HashTableInsert(PLpgSQL_function *function,
 static void plpgsql_HashTableDelete(PLpgSQL_function *function);
 static void delete_function(PLpgSQL_function *func);
 
+#ifdef ADB_GRAM_ORA
+extern int plorasql_yyparse(void);
+static int plorasql_parse(void);
+static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a);
+#endif /* ADB_GRAM_ORA */
+
 /* ----------
  * plpgsql_compile		Make an execution tree for a PL/pgSQL function.
  *
@@ -256,13 +262,10 @@ plpgsql_compile(FunctionCallInfo fcinfo, bool forValidator)
 #ifdef ADB_GRAM_ORA
 PLpgSQL_function *plorasql_compile(FunctionCallInfo fcinfo, bool forValidator)
 {
-	PLpgSQL_function *func;
-	func = plsql_compile(fcinfo,
+	return plsql_compile(fcinfo,
 						 forValidator,
 						 plorasql_scanner_init,
-						 plorasql_yyparse);
-	func->grammar = PARSE_GRAM_ORACLE;
-	return func;
+						 plorasql_parse);
 }
 #endif /* ADB_GRAM_ORA */
 
@@ -991,12 +994,9 @@ PLpgSQL_function *plpgsql_compile_inline(char *proc_source)
 #ifdef ADB_GRAM_ORA
 PLpgSQL_function *plorasql_compile_inline(char *proc_source)
 {
-	PLpgSQL_function *func;
-	func = plsql_compile_inline(proc_source,
+	return plsql_compile_inline(proc_source,
 								plorasql_scanner_init,
-								plorasql_yyparse);
-	func->grammar = PARSE_GRAM_ORACLE;
-	return func;
+								plorasql_parse);
 }
 #endif /* ADB_GRAM_ORA */
 
@@ -1106,6 +1106,16 @@ plpgsql_parser_setup(struct ParseState *pstate, PLpgSQL_expr *expr)
 	pstate->p_paramref_hook = plpgsql_param_ref;
 	/* no need to use p_coerce_param_hook */
 	pstate->p_ref_hook_state = (void *) expr;
+#ifdef ADB_MULTI_GRAM
+	switch (expr->func->grammar)
+	{
+	case PARSE_GRAM_ORACLE:
+		pstate->p_pre_aexpr_hook = plora_pre_parse_aexpr;
+		break;
+	default:
+		break;
+	}
+#endif /* ADB_MULTI_GRAM */
 }
 
 /*
@@ -2563,3 +2573,69 @@ plpgsql_HashTableDelete(PLpgSQL_function *function)
 	/* remove back link, which no longer points to allocated storage */
 	function->fn_hashkey = NULL;
 }
+
+#ifdef ADB_GRAM_ORA
+static int plorasql_parse(void)
+{
+	PLpgSQL_variable *var;
+	plpgsql_curr_compile->grammar = PARSE_GRAM_ORACLE;
+	var = plpgsql_build_variable("_ora_sql_rowcount",
+								0,
+								plpgsql_build_datatype(INT8OID,
+														-1,
+														InvalidOid),
+								false);
+	plpgsql_curr_compile->ora_rowcount_varno = var->dno;
+	return plorasql_yyparse();
+}
+
+static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a)
+{
+	ColumnRef	   *l;
+	ColumnRef	   *r;
+	const char	   *lname;
+	const char	   *rname;
+	PLpgSQL_expr   *expr;
+
+	/* test is "column % column" */
+	if (a->kind != AEXPR_OP ||
+		a->lexpr == NULL ||
+		a->rexpr == NULL ||
+		!IsA(a->lexpr, ColumnRef) ||
+		!IsA(a->rexpr, ColumnRef) ||
+		list_length(a->name) != 1 ||
+		!IsA(linitial(a->name), String) ||
+		strcmp(strVal(linitial(a->name)), "%") != 0)
+		return NULL;
+
+	l = (ColumnRef*)(a->lexpr);
+	if (l->location < 0 ||
+		pstate->p_sourcetext[l->location] == '"' ||
+		list_length(l->fields) != 1 ||
+		!IsA(linitial(l->fields), String))
+		return NULL;
+
+	r = (ColumnRef*)(a->rexpr);
+	if (r->location < 0 ||
+		pstate->p_sourcetext[r->location] == '"' ||
+		list_length(r->fields) != 1 ||
+		!IsA(linitial(r->fields), String))
+		return NULL;
+
+	lname = strVal(linitial(l->fields));
+	rname = strVal(linitial(r->fields));
+	expr = (PLpgSQL_expr*)pstate->p_ref_hook_state;
+	if (strcmp(lname, "sql") == 0)
+	{
+		/* is "SQL%rowcount" operator */
+		if (strcmp(rname, "rowcount") == 0)
+		{
+			return make_datum_param(expr,
+									plpgsql_curr_compile->ora_rowcount_varno,
+									a->location);
+		}
+	}
+
+	return NULL;
+}
+#endif /* ADB_GRAM_ORA */
