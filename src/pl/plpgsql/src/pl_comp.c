@@ -23,6 +23,9 @@
 #include "catalog/pg_type.h"
 #include "funcapi.h"
 #include "nodes/makefuncs.h"
+#ifdef ADB_GRAM_ORA
+#include "nodes/nodeFuncs.h"	/* for function exprType */
+#endif /* ADB_GRAM_ORA */
 #include "parser/parse_type.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
@@ -2633,6 +2636,22 @@ static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a)
 			return make_datum_param(expr,
 									plpgsql_curr_compile->ora_rowcount_varno,
 									a->location);
+		}else if (strcmp(rname, "found") == 0)
+		{
+			/* is "SQL%found" operator */
+			return make_datum_param(expr,
+									plpgsql_curr_compile->found_varno,
+									a->location);
+		}else if (strcmp(rname, "notfound") == 0)
+		{
+			/* is "SQL%notfound" operator */
+			Node *node = make_datum_param(expr,
+										  plpgsql_curr_compile->found_varno,
+										  a->location);
+			Assert(exprType(node) == BOOLOID);
+			return (Node*)makeBoolExpr(NOT_EXPR,
+									   list_make1(node),
+									   a->location);
 		}
 	}
 
