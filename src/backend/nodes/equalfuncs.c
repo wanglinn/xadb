@@ -3338,7 +3338,6 @@ equal(const void *a, const void *b)
 		case T_InferenceElem:
 			retval = _equalInferenceElem(a, b);
 			break;
-#ifdef ADB
 #ifdef ADB_GRAM_ORA
 		case T_ColumnRefJoin:
 			retval = _equalColumRefJoin(a, b);
@@ -3354,6 +3353,7 @@ equal(const void *a, const void *b)
 			break;
 #endif /* ADB_GRAM_ORA */
 
+#ifdef ADB
 		case T_AlterSlotStmt:
 			retval = _equalAlterSlotStmt(a, b);
 			break;
