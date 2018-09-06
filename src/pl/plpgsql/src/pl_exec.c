@@ -316,6 +316,9 @@ static char *format_preparedparamsdata(PLpgSQL_execstate *estate,
 static int exec_stmt_goto(PLpgSQL_execstate *estate, PLpgSQL_stmt_goto *stmt);
 #ifdef ADB_GRAM_ORA
 static int exec_stmt_func(PLpgSQL_execstate *estate, PLpgSQL_stmt_func *stmt);
+static void exec_set_ora_rowcount(PLpgSQL_execstate *estate, uint64 count);
+#else
+#define exec_set_ora_rowcount(estate_, count_) ((void*)0)
 #endif /* ADB_GRAM_ORA */
 static ListCell *find_stmt_for_label(List *stmts, const char *label);
 
@@ -457,6 +460,8 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 	 * Set the magic variable FOUND to false
 	 */
 	exec_set_found(&estate, false);
+
+	exec_set_ora_rowcount(&estate, 0);
 
 	/*
 	 * Let the instrumentation plugin peek at this function
@@ -806,6 +811,8 @@ plpgsql_exec_trigger(PLpgSQL_function *func,
 	 * Set the magic variable FOUND to false
 	 */
 	exec_set_found(&estate, false);
+
+	exec_set_ora_rowcount(&estate, 0);
 
 	/*
 	 * Let the instrumentation plugin peek at this function
@@ -3560,6 +3567,9 @@ plpgsql_estate_setup(PLpgSQL_execstate *estate,
 #ifdef ADB_MULTI_GRAM
 	estate->grammar = func->grammar;
 #endif /* ADB_MULTI_GRAM */
+#ifdef ADB_GRAM_ORA
+	estate->ora_rowcount_varno = func->ora_rowcount_varno;
+#endif /* ADB_GRAM_ORA */
 
 	/*
 	 * Create an EState and ExprContext for evaluation of simple expressions.
@@ -3772,6 +3782,7 @@ exec_stmt_execsql(PLpgSQL_execstate *estate,
 		case SPI_OK_DELETE_RETURNING:
 			Assert(stmt->mod_stmt);
 			exec_set_found(estate, (SPI_processed != 0));
+			exec_set_ora_rowcount(estate, SPI_processed);
 			break;
 
 		case SPI_OK_SELINTO:
@@ -7594,3 +7605,16 @@ format_preparedparamsdata(PLpgSQL_execstate *estate,
 
 	return paramstr.data;
 }
+
+#ifdef ADB_GRAM_ORA
+static void exec_set_ora_rowcount(PLpgSQL_execstate *estate, uint64 count)
+{
+	PLpgSQL_var *var;
+	if (estate->grammar == PARSE_GRAM_ORACLE &&
+		estate->ora_rowcount_varno > 0)
+	{
+		var = (PLpgSQL_var *) (estate->datums[estate->ora_rowcount_varno]);
+		assign_simple_var(estate, var, UInt64GetDatum(count), false, false);
+	}
+}
+#endif /* ADB_GRAM_ORA */
