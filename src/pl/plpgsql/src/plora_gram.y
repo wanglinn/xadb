@@ -22,6 +22,7 @@
 #include "parser/scanner.h"
 #include "parser/scansup.h"
 #include "utils/builtins.h"
+#include "utils/lsyscache.h"
 
 #include "plpgsql.h"
 
@@ -121,6 +122,8 @@ static PLpgSQL_stmt		*make_stmt_raise(int lloc, int elevel, char *name,
 										 char *message, List *params);
 static PLpgSQL_expr    *read_cursor_args(PLpgSQL_var *cursor, int until, const char *expected);
 static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
+static PLoraSQL_type   *plora_build_type(char *name, int location, Oid oid, int typmod);
+static PLoraSQL_type   *read_type_define(char *name, int location);
 
 %}
 
@@ -192,8 +195,7 @@ static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 %type <expr>	opt_exitcond
 
 %type <str>		any_identifier opt_block_label opt_loop_label opt_label
-/*%type <str>		option_value raise_exception*/
-%type <str>		raise_exception
+%type <str>		/*option_value */raise_exception
 %type <ival>	raise_level opt_raise_level
 
 %type <list>	proc_sect stmt_elsifs stmt_else
@@ -360,6 +362,10 @@ static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 %token <keyword> POK_YEAR
 
 %token <keyword> POK_ZONE POK_IMPORT POK_NEXT POK_LAST POK_ABSOLUTE POK_RELATIVE POK_FORWARD POK_BACKWARD
+
+/* special keywords */
+%token <keyword> POKS_REF_CURSOR POKS_IS_ARRAY
+
 %%
 
 pl_function		: pl_block_top opt_semi
@@ -547,17 +553,9 @@ decl_statement	: decl_varname decl_const decl_datatype decl_notnull decl_defval
 										 parser_errposition(@5)));
 						}
 					}
-				| POK_TYPE decl_varname POK_IS POK_REF POK_CURSOR decl_defval
-					/* RETURN ... not add, need modify */
+				| POK_TYPE decl_varname POK_IS
 					{
-						PLpgSQL_type *typ = plpgsql_build_datatype(REFCURSOROID, -1, InvalidOid);
-						PLoraSQL_type *oraTyp = palloc0(sizeof(PLoraSQL_type));
-						pfree(typ->typname);
-						typ->typname = pstrdup($2.name);
-						oraTyp->type = typ;
-						oraTyp->dtype = PLPGSQL_DTYPE_TYPE;
-						plpgsql_adddatum((PLpgSQL_datum*) oraTyp);
-						plpgsql_ns_additem(PLPGSQL_NSTYPE_TYPE, oraTyp->dno, typ->typname);
+						read_type_define($2.name, @2);
 					}
 				| POK_CURSOR decl_varname
 					{ plpgsql_ns_push($2.name, PLPGSQL_LABEL_OTHER); }
@@ -3628,4 +3626,105 @@ read_fetch_direction(void)
 	}
 
 	return fetch;
+}
+
+static PLoraSQL_type   *plora_build_type(char *name, int location, Oid oid, int typmod)
+{
+	PLpgSQL_type *typ;
+	PLoraSQL_type *oraTyp;
+	if (plpgsql_find_ns_wordtype(name) != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+					errmsg("duplicate declaration"),
+					plpgsql_scanner_errposition(location)));
+
+	typ = plpgsql_build_datatype(oid, typmod, InvalidOid);
+	oraTyp = palloc0(sizeof(PLoraSQL_type));
+	pfree(typ->typname);
+	typ->typname = name;
+	oraTyp->type = typ;
+	oraTyp->dtype = PLPGSQL_DTYPE_TYPE;
+	plpgsql_adddatum((PLpgSQL_datum*) oraTyp);
+	plpgsql_ns_additem(PLPGSQL_NSTYPE_TYPE, oraTyp->dno, typ->typname);
+
+	return oraTyp;
+}
+
+static PLoraSQL_type* read_type_define(char *name, int location)
+{
+	PLpgSQL_type *typ;
+	Oid typeid;
+	int typ_loc;
+	int arr_loc = -1;
+	int ndim = -1;
+	int tok = yylex();
+
+
+	if (tok == POK_REF)
+	{
+		if (yylex() != POK_CURSOR)
+			goto read_error_;
+		if (yylex() != ';')
+			goto read_error_;
+
+		return plora_build_type(name, location, REFCURSOROID, -1);
+	}else if (tok == POK_ARRAY)
+	{
+		arr_loc = yylloc;
+		/* ( ICONST ) */
+		if (yylex() != '(' )
+			goto read_error_;
+		if (yylex() != ICONST)
+			goto read_error_;
+		ndim = yylval.ival;
+		if (yylex() != ')' )
+			goto read_error_;
+
+		/* OF */
+		if (yylex() != POK_OF)
+			goto read_error_;
+
+		tok = yylex();
+
+		if (tok == POK_REF)
+		{
+			/* array of refcursor */
+			if (yylex() != POK_CURSOR)
+				goto read_error_;
+			if (yylex() != ';')
+				goto read_error_;
+
+			typeid = get_array_type(REFCURSOROID);
+			if (!OidIsValid(typeid))
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("type REF CURSOR of array does not exist"),
+						 plpgsql_scanner_errposition(arr_loc)));
+			return plora_build_type(name, location, typeid, -1);
+		}
+	}
+
+	typ_loc = yylloc;
+	typ = read_datatype(tok);
+	if (yylex() != ';')
+		goto read_error_;
+
+	if (ndim >= 0)
+	{
+		typeid = get_array_type(typ->typoid);
+		if (!OidIsValid(typeid))
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+						errmsg("type \"%s\" of array does not exist", typ->typname),
+						plpgsql_scanner_errposition(arr_loc)));
+	}else
+	{
+		typeid = typ->typoid;
+	}
+
+	return plora_build_type(name, location, typeid, typ->atttypmod);
+
+read_error_:
+	yyerror("syntax error");
+	return NULL;
 }
