@@ -6,6 +6,12 @@
  * knowledge into this script.
  */
 
+CREATE FUNCTION oracle.plorasql_expr_callback(internal, int4, int4)
+ RETURNS internal
+ LANGUAGE c
+AS '$libdir/plpgsql', $$plorasql_expr_callback$$
+PARALLEL UNSAFE;
+
 CREATE PROCEDURAL LANGUAGE plorasql;
 
 COMMENT ON PROCEDURAL LANGUAGE plorasql IS 'PL/oraSQL procedural language';
