@@ -18,6 +18,8 @@
 #include "utils/lsyscache.h"
 #include "executor/spi.h"
 #include "utils/lsyscache.h"
+#include "utils/varlena.h"
+#include "catalog/namespace.h"
 
 #define SELECT_HASH_TABLE "select nspname, relname from pg_class pg, pgxc_class xc , pg_namespace pgn where pg.oid=xc.pcrelid and pclocatortype = 'B' and pg.relnamespace = pgn.oid;"
 

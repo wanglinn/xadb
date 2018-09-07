@@ -70,6 +70,8 @@
 #include "utils/tqual.h"
 #ifdef ADB
 #include "catalog/catalog.h"
+#include "utils/lsyscache.h"
+
 #endif
 
 
