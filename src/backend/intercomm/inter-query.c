@@ -16,6 +16,8 @@
  */
 #include "postgres.h"
 
+#include <math.h>
+
 #include "access/heapam.h"
 #include "access/relscan.h"
 #include "access/tuptypeconvert.h"
@@ -40,6 +42,7 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+#include "utils/sampling.h"
 #include "utils/snapmgr.h"
 
 #define REMOTE_FETCH_SIZE	64
@@ -66,6 +69,7 @@ static int HandleQueryCompleteMsg(PGconn *conn);
 static int ExtractProcessedNumber(const char *buf, int len, uint64 *nprocessed);
 static void deparseStringLiteral(StringInfo buf, const char *val);
 static void deparseCnAnalyzeSizeSql(StringInfo buf, Relation rel);
+static void deparseCnAnalyzeSampleSql(StringInfo buf, Relation rel, int targper);
 
 static PGcustumFuns QueryCustomFuncs = {
 	HandleRowDescriptionMsg,
@@ -1018,7 +1022,7 @@ deparseCnAnalyzeSizeSql(StringInfo buf, Relation rel)
 
 	appendStringInfoString(buf, "SELECT pg_catalog.pg_relation_size(");
 	deparseStringLiteral(buf, namebuf.data);
-	appendStringInfo(buf, "::pg_catalog.regclass) / %d AS relpages", BLCKSZ);
+	appendStringInfo(buf, "::pg_catalog.regclass) / %d AS blocknum", BLCKSZ);
 	pfree(namebuf.data);
 }
 
@@ -1108,10 +1112,166 @@ CnGetRelationNumberOfBlocks(Relation relation)
 	return totalpages;
 }
 
+static void
+deparseCnAnalyzeSampleSql(StringInfo buf, Relation rel, int targper)
+{
+	StringInfoData	namebuf;
+	char		   *nspname;
+	char		   *relname;
+
+	initStringInfo(&namebuf);
+	nspname = get_namespace_name(RelationGetNamespace(rel));
+	relname = RelationGetRelationName(rel);
+	initStringInfo(&namebuf);
+	appendStringInfo(&namebuf, "%s.%s",
+					 quote_identifier(nspname), quote_identifier(relname));
+
+	appendStringInfo(buf, "SELECT * FROM %s TABLESAMPLE BERNOULLI(%d)",
+					 namebuf.data, targper);
+	pfree(namebuf.data);
+}
+
 int
-CnAcquireSampleRowsFunc(Relation onerel, int elevel,
+CnAcquireSampleRowsFunc(Relation relation, int elevel,
 						HeapTuple *rows, int targrows,
 						double *totalrows, double *totaldeadrows)
 {
-	return 0;
+	List			   *dn_list;
+	RemoteQuery		   *rquery;
+	RemoteQueryState   *rstate;
+	ExecNodes		   *rnodes;
+	EState			   *estate;
+	TupleTableSlot	   *slot;
+	MemoryContext		oldcontext;
+	StringInfoData		sqlbuf;
+	HeapTuple			tuple;
+	ReservoirStateData	rs;
+	int					numrows = 0;	/* # rows now in reservoir */
+	double				samplerows = 0; /* total # rows collected */
+	double				rowstoskip = -1;	/* -1 means not set yet */
+	int					sampleper = 1;	/* 1% smaple rows */
+
+	/* Sancity check */
+	Assert(IsCnNode());
+	Assert(RelationGetLocInfo(relation));
+
+	/* Get all datanode */
+	if ((dn_list = GetAllDnIDL(false)) == NIL)
+		return 0;
+
+	/* Prepare for sampling rows */
+	reservoir_init_selection_state(&rs, targrows);
+
+	/* Get preferred datanode if replicate */
+	if (IsRelationReplicated(RelationGetLocInfo(relation)))
+		dn_list = GetPreferredRepNodes((const List *) dn_list);
+
+	/* Construct analyze query */
+	initStringInfo(&sqlbuf);
+	deparseCnAnalyzeSampleSql(&sqlbuf, relation, sampleper);
+
+	/* Build ExecNodes */
+	rnodes = MakeExecNodesByOids(RelationGetLocInfo(relation),
+								 dn_list,
+								 RELATION_ACCESS_READ);
+
+	/* Build up RemoteQuery */
+	rquery = makeNode(RemoteQuery);
+	rquery->combine_type = COMBINE_TYPE_NONE;
+	rquery->exec_nodes = rnodes;
+	rquery->sql_statement = sqlbuf.data;
+	rquery->force_autocommit = true;
+	rquery->exec_type = EXEC_ON_DATANODES;
+
+	/* Execute query on the data nodes */
+	estate = CreateExecutorState();
+	oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
+	estate->es_snapshot = GetActiveSnapshot();
+	rstate = ExecInitRemoteQuery(rquery, estate, 0);
+	MemoryContextSwitchTo(oldcontext);
+
+	for (;;)
+	{
+		/* Reset the per-output-tuple exprcontext */
+		ResetPerTupleExprContext(estate);
+
+		/*
+		 * Execute the plan and obtain a tuple
+		 */
+		slot = ExecProcNode((PlanState *) rstate);
+		if (TupIsNull(slot))
+			break;
+
+		tuple = ExecFetchSlotTuple(slot);
+
+		/*
+		 * The first targrows sample rows are simply copied into the
+		 * reservoir. Then we start replacing tuples in the sample
+		 * until we reach the end of the relation.  This algorithm is
+		 * from Jeff Vitter's paper (see full citation below). It
+		 * works by repeatedly computing the number of tuples to skip
+		 * before selecting a tuple, which replaces a randomly chosen
+		 * element of the reservoir (current set of tuples).  At all
+		 * times the reservoir is a true random sample of the tuples
+		 * we've passed over so far, so when we fall off the end of
+		 * the relation we're done.
+		 */
+		if (numrows < targrows)
+			rows[numrows++] = heap_copytuple(tuple);
+		else
+		{
+			/*
+			 * t in Vitter's paper is the number of records already
+			 * processed.  If we need to compute a new S value, we
+			 * must use the not-yet-incremented value of samplerows as
+			 * t.
+			 */
+			if (rowstoskip < 0)
+				rowstoskip = reservoir_get_next_S(&rs, samplerows, targrows);
+
+			if (rowstoskip <= 0)
+			{
+				/*
+				 * Found a suitable tuple, so save it, replacing one
+				 * old tuple at random
+				 */
+				int			k = (int) (targrows * sampler_random_fract(rs.randstate));
+
+				Assert(k >= 0 && k < targrows);
+				heap_freetuple(rows[k]);
+				rows[k] = heap_copytuple(tuple);
+			}
+
+			rowstoskip -= 1;
+		}
+
+		samplerows += 1;
+	}
+
+	ExecEndRemoteQuery(rstate);
+
+	FreeExecutorState(estate);
+
+	/* We assume that we have no dead tuple. */
+	*totaldeadrows = 0.0;
+
+	/*
+	 * We've retrieved "sampleper" percent living tuples from
+	 * remote nodes. So we estimate that there are
+	 *
+	 *		samplerows * (100.0 / sampleper)
+	 *
+	 * rows at most.
+	 */
+	*totalrows = floor(samplerows * (100.0 / sampleper) + 0.5);
+
+	/*
+	 * Emit some interesting relation info
+	 */
+	ereport(elevel,
+			(errmsg("\"%s\": containing %d rows in sample, %.0f estimated total rows",
+					RelationGetRelationName(relation),
+					numrows, *totalrows)));
+
+	return numrows;
 }
