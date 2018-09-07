@@ -495,6 +495,9 @@ typedef struct ViewOptions
  */
 #define RelationGetLocInfo(relation) ((relation)->rd_locator_info)
 
+#define RelationGetLocInfoForRemote(relation)	\
+		(IsDnNode() ? NULL : ((relation)->rd_locator_info))
+
 /*
  * RelationGetLocatorType
  *		Returns the rel's locator type.

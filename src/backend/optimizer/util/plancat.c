@@ -146,7 +146,7 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 		hasindex = relation->rd_rel->relhasindex;
 
 #ifdef ADB
-	if(relation->rd_locator_info)
+	if(RelationGetLocInfoForRemote(relation))
 		rel->loc_info = CopyRelationLocInfo(relation->rd_locator_info);
 #endif /* ADB */
 
