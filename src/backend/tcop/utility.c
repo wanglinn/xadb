@@ -928,6 +928,18 @@ standard_ProcessUtility(Node *parsetree,
 								utilityContext.force_autocommit = true;
 								utilityContext.exec_type = EXEC_ON_DATANODES;
 								ExecRemoteUtilityStmt(&utilityContext);
+								
+								/*
+								 * Global transaction id maybe changed after doing "vacuum/analyze"
+								 * on remote datanodes. So we should get a new snapshot to avoid
+								 * accessing old tuples.
+								 */
+								if (ActiveSnapshotSet())
+								{
+									PopActiveSnapshot();
+									PushActiveSnapshot(GetTransactionSnapshot());
+								}
+
 								utilityContext.exec_type = EXEC_ON_COORDS;
 								ExecRemoteUtilityStmt(&utilityContext);
 							}
