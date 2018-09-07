@@ -316,9 +316,6 @@ static char *format_preparedparamsdata(PLpgSQL_execstate *estate,
 static int exec_stmt_goto(PLpgSQL_execstate *estate, PLpgSQL_stmt_goto *stmt);
 #ifdef ADB_GRAM_ORA
 static int exec_stmt_func(PLpgSQL_execstate *estate, PLpgSQL_stmt_func *stmt);
-static void exec_set_ora_rowcount(PLpgSQL_execstate *estate, uint64 count);
-#else
-#define exec_set_ora_rowcount(estate_, count_) ((void*)0)
 #endif /* ADB_GRAM_ORA */
 static ListCell *find_stmt_for_label(List *stmts, const char *label);
 
@@ -460,8 +457,6 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 	 * Set the magic variable FOUND to false
 	 */
 	exec_set_found(&estate, false);
-
-	exec_set_ora_rowcount(&estate, 0);
 
 	/*
 	 * Let the instrumentation plugin peek at this function
@@ -811,8 +806,6 @@ plpgsql_exec_trigger(PLpgSQL_function *func,
 	 * Set the magic variable FOUND to false
 	 */
 	exec_set_found(&estate, false);
-
-	exec_set_ora_rowcount(&estate, 0);
 
 	/*
 	 * Let the instrumentation plugin peek at this function
@@ -3570,9 +3563,6 @@ plpgsql_estate_setup(PLpgSQL_execstate *estate,
 #ifdef ADB_MULTI_GRAM
 	estate->grammar = func->grammar;
 #endif /* ADB_MULTI_GRAM */
-#ifdef ADB_GRAM_ORA
-	estate->ora_rowcount_varno = func->ora_rowcount_varno;
-#endif /* ADB_GRAM_ORA */
 
 	/*
 	 * Create an EState and ExprContext for evaluation of simple expressions.
@@ -3785,7 +3775,6 @@ exec_stmt_execsql(PLpgSQL_execstate *estate,
 		case SPI_OK_DELETE_RETURNING:
 			Assert(stmt->mod_stmt);
 			exec_set_found(estate, (SPI_processed != 0));
-			exec_set_ora_rowcount(estate, SPI_processed);
 			break;
 
 		case SPI_OK_SELINTO:
@@ -7610,14 +7599,38 @@ format_preparedparamsdata(PLpgSQL_execstate *estate,
 }
 
 #ifdef ADB_GRAM_ORA
-static void exec_set_ora_rowcount(PLpgSQL_execstate *estate, uint64 count)
+PG_FUNCTION_INFO_V1(plorasql_expr_callback);
+Datum plorasql_expr_callback(PG_FUNCTION_ARGS)
 {
-	PLpgSQL_var *var;
-	if (estate->grammar == PARSE_GRAM_ORACLE &&
-		estate->ora_rowcount_varno > 0)
+	Datum				result;
+	PLpgSQL_var		   *var;
+	PLpgSQL_expr	   *expr = (PLpgSQL_expr*)PG_GETARG_POINTER(0);
+	PLpgSQL_execstate  *pl_estate = expr->func->cur_estate;
+	int					callback_type = PG_GETARG_INT32(1);
+
+
+	switch((PLoraSQL_Callback_Type)callback_type)
 	{
-		var = (PLpgSQL_var *) (estate->datums[estate->ora_rowcount_varno]);
-		assign_simple_var(estate, var, UInt64GetDatum(count), false, false);
+	case PLORASQL_CALLBACK_GLOBAL_ROWCOUNT:
+		result = UInt64GetDatum(pl_estate->eval_processed);
+		break;
+	case PLORASQL_CALLBACK_GLOBAL_FOUND:
+		var = (PLpgSQL_var *) (pl_estate->datums[pl_estate->found_varno]);
+		result = var->value;
+		break;
+	case PLORASQL_CALLBACK_GLOBAL_NOTFOUND:
+		var = (PLpgSQL_var *) (pl_estate->datums[pl_estate->found_varno]);
+		result = BoolGetDatum(!DatumGetBool(var->value));
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown callback type for plorasql %d", callback_type)));
+		result = (Datum)0;
+		break;
 	}
+
+	PG_RETURN_DATUM(result);
 }
+
 #endif /* ADB_GRAM_ORA */

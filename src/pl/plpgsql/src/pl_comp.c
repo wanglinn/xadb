@@ -19,6 +19,9 @@
 
 #include "access/htup_details.h"
 #include "catalog/namespace.h"
+#ifdef ADB_GRAM_ORA
+#include "catalog/pg_namespace.h"	/* for PG_ORACLE_NAMESPACE */
+#endif /* ADB_GRAM_ORA */
 #include "catalog/pg_proc.h"
 #include "catalog/pg_proc_fn.h"
 #include "catalog/pg_type.h"
@@ -2726,14 +2729,42 @@ static int plorasql_parse(void)
 {
 	PLpgSQL_variable *var;
 	plpgsql_curr_compile->grammar = PARSE_GRAM_ORACLE;
-	var = plpgsql_build_variable("_ora_sql_rowcount",
-								0,
-								plpgsql_build_datatype(INT8OID,
-														-1,
-														InvalidOid),
-								false);
-	plpgsql_curr_compile->ora_rowcount_varno = var->dno;
 	return plorasql_yyparse();
+}
+
+static Oid plora_get_callback_func_oid(void)
+{
+	static const char *name = "plorasql_expr_callback";
+	static const Datum args[3] = {ObjectIdGetDatum(INTERNALOID),
+								  ObjectIdGetDatum(INT4OID),
+								  ObjectIdGetDatum(INT4OID)};
+	Oid oid;
+	oidvector *oids = (oidvector*)construct_array((Datum*)args, lengthof(args), OIDOID, sizeof(Oid), true, 'i');
+	oid = get_funcid(name, oids, PG_ORACLE_NAMESPACE);
+
+	if (!OidIsValid(oid))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("function oracle.%s not found", name)));
+	pfree(oids);
+	return oid;
+}
+
+static Node* plora_make_func_global(PLpgSQL_expr *plexpr, PLoraSQL_Callback_Type type, Oid rettype)
+{
+	List *args;
+
+
+	args = list_make1(makeConst(INTERNALOID, -1, InvalidOid, SIZEOF_SIZE_T, PointerGetDatum(plexpr), false, true));
+	args = lappend(args, makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(type), false, true));
+	args = lappend(args, makeNullConst(INT4OID, -1, InvalidOid));
+
+	return (Node*)makeFuncExpr(plora_get_callback_func_oid(),
+							   rettype,
+							   args,
+							   InvalidOid,
+							   InvalidOid,
+							   COERCE_EXPLICIT_CALL);
 }
 
 static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a)
@@ -2777,25 +2808,20 @@ static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a)
 		/* is "SQL%rowcount" operator */
 		if (strcmp(rname, "rowcount") == 0)
 		{
-			return make_datum_param(expr,
-									plpgsql_curr_compile->ora_rowcount_varno,
-									a->location);
+			return plora_make_func_global(expr,
+										  PLORASQL_CALLBACK_GLOBAL_ROWCOUNT,
+										  INT8OID);
 		}else if (strcmp(rname, "found") == 0)
 		{
-			/* is "SQL%found" operator */
-			return make_datum_param(expr,
-									plpgsql_curr_compile->found_varno,
-									a->location);
+			return plora_make_func_global(expr,
+										  PLORASQL_CALLBACK_GLOBAL_FOUND,
+										  BOOLOID);
 		}else if (strcmp(rname, "notfound") == 0)
 		{
 			/* is "SQL%notfound" operator */
-			Node *node = make_datum_param(expr,
-										  plpgsql_curr_compile->found_varno,
-										  a->location);
-			Assert(exprType(node) == BOOLOID);
-			return (Node*)makeBoolExpr(NOT_EXPR,
-									   list_make1(node),
-									   a->location);
+			return plora_make_func_global(expr,
+										  PLORASQL_CALLBACK_GLOBAL_NOTFOUND,
+										  BOOLOID);
 		}
 	}
 
