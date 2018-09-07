@@ -197,7 +197,6 @@ extern char *get_current_schema(void);
 extern Oid get_namespaceid(const char *nspname);
 extern Oid get_typ_namespace(Oid typid);
 extern Oid get_typname_typid(const char *typname, Oid typnamespace);
-extern Oid get_funcid(const char *funcname, oidvector *argtypes, Oid funcnsp);
 extern Oid get_opnamespace(Oid opno);
 extern Oid get_operid(const char *oprname, Oid oprleft, Oid oprright, Oid oprnsp);
 extern char *get_typename(Oid typid);
@@ -214,6 +213,10 @@ extern bool is_pgxc_nodeprimary(Oid nodeid);
 extern Oid get_pgxc_groupoid(const char *groupname);
 extern int get_pgxc_groupmembers(Oid groupid, Oid **members);
 extern int get_pgxc_classnodes(Oid tableid, Oid **nodes);
+#endif
+
+#ifdef ADB_MULTI_GRAM
+extern Oid get_funcid(const char *funcname, oidvector *argtypes, Oid funcnsp);
 #endif
 
 #endif							/* LSYSCACHE_H */
