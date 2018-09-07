@@ -336,6 +336,9 @@ typedef struct PLpgSQL_var
 	 * been fulfilled, this is PLPGSQL_PROMISE_NONE.
 	 */
 	PLpgSQL_promise_type promise;
+#ifdef ADB_GRAM_ORA
+	uint64		row_count;	/* only for refcursor */
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_var;
 
 /*
@@ -1286,6 +1289,7 @@ extern void plpgsql_HashTableInit(void);
 extern PLpgSQL_function *plorasql_compile(FunctionCallInfo fcinfo, bool forValidator);
 extern PLpgSQL_function *plorasql_compile_inline(char *proc_source);
 #endif /* ADB_GRAM_ORA */
+#define OidIsRefcursor(oid_)	((oid_) == REFCURSOROID)
 
 /*
  * Functions in pl_handler.c

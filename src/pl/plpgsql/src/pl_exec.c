@@ -237,6 +237,11 @@ static HTAB *shared_cast_hash = NULL;
 /************************************************************
  * Local function forward declarations
  ************************************************************/
+#ifdef ADB_GRAM_ORA
+#define set_cursor_count(cur_, count)	((cur_)->row_count = (count))
+#else
+#define set_cursor_count(cur_, count)	((void*)0)
+#endif /* ADB_GRAM_ORA */
 static void coerce_function_result_tuple(PLpgSQL_execstate *estate,
 							 TupleDesc tupdesc);
 static void plpgsql_exec_error_callback(void *arg);
@@ -4638,6 +4643,7 @@ exec_stmt_open(PLpgSQL_execstate *estate, PLpgSQL_stmt_open *stmt)
 	/*
 	 * Open the cursor (the paramlist will get copied into the portal)
 	 */
+	set_cursor_count(curvar,0);
 	portal = SPI_cursor_open_with_paramlist(curname, query->plan,
 											paramLI,
 											estate->readonly_func);
@@ -4748,6 +4754,7 @@ exec_stmt_fetch(PLpgSQL_execstate *estate, PLpgSQL_stmt_fetch *stmt)
 	/* Set the ROW_COUNT and the global FOUND variable appropriately. */
 	estate->eval_processed = n;
 	exec_set_found(estate, n != 0);
+	set_cursor_count(curvar, n);
 
 	return PLPGSQL_RC_OK;
 }
@@ -4790,6 +4797,7 @@ exec_stmt_close(PLpgSQL_execstate *estate, PLpgSQL_stmt_close *stmt)
 	 * ----------
 	 */
 	SPI_cursor_close(portal);
+	set_cursor_count(curvar, 0);
 
 	return PLPGSQL_RC_OK;
 }
@@ -8531,15 +8539,48 @@ format_preparedparamsdata(PLpgSQL_execstate *estate,
 }
 
 #ifdef ADB_GRAM_ORA
+
+static PLpgSQL_var* check_pl_refcursor(PLpgSQL_execstate *pl_estate, int dno, bool isnull)
+{
+	PLpgSQL_var *var;
+	Assert(pl_estate);
+	if (isnull)
+		ereport(ERROR,
+				(errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
+				 errmsg("null refcursor id for function \"plorasql_expr_callback\"")));
+
+	if (dno < 0 || dno >= pl_estate->ndatums)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("invalid refcursor id %d", dno)));
+
+	var = (PLpgSQL_var*)pl_estate->datums[dno];
+	if (!OidIsRefcursor(var->datatype->typoid))
+		ereport(ERROR,
+				(errcode(ERRCODE_DATATYPE_MISMATCH),
+				 errmsg("variable \"%s\" must be of type cursor or refcursor", var->refname)));
+
+	return var;
+}
+
 PG_FUNCTION_INFO_V1(plorasql_expr_callback);
 Datum plorasql_expr_callback(PG_FUNCTION_ARGS)
 {
 	Datum				result;
 	PLpgSQL_var		   *var;
+	PLpgSQL_execstate  *pl_estate;
 	PLpgSQL_expr	   *expr = (PLpgSQL_expr*)PG_GETARG_POINTER(0);
-	PLpgSQL_execstate  *pl_estate = expr->func->cur_estate;
 	int					callback_type = PG_GETARG_INT32(1);
 
+	if (PG_NARGS() < 2 ||
+		PG_ARGISNULL(0) ||
+		PG_ARGISNULL(1))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
+				 errmsg("null argument for function \"plorasql_expr_callback\"")));
+	}
+	pl_estate = expr->func->cur_estate;
 
 	switch((PLoraSQL_Callback_Type)callback_type)
 	{
@@ -8553,6 +8594,24 @@ Datum plorasql_expr_callback(PG_FUNCTION_ARGS)
 	case PLORASQL_CALLBACK_GLOBAL_NOTFOUND:
 		var = (PLpgSQL_var *) (pl_estate->datums[pl_estate->found_varno]);
 		result = BoolGetDatum(!DatumGetBool(var->value));
+		break;
+	case PLORASQL_CALLBACK_CURSOR_ROWCOUNT:
+		var = check_pl_refcursor(pl_estate,
+								 PG_GETARG_INT32(2),
+								 PG_NARGS() < 3 || PG_ARGISNULL(2));
+		result = UInt64GetDatum(var->row_count);
+		break;
+	case PLORASQL_CALLBACK_CURSOR_FOUND:
+		var = check_pl_refcursor(pl_estate,
+								 PG_GETARG_INT32(2),
+								 PG_NARGS() < 3 || PG_ARGISNULL(2));
+		result = BoolGetDatum(var->row_count > 0);
+		break;
+	case PLORASQL_CALLBACK_CURSOR_NOTFOUND:
+		var = check_pl_refcursor(pl_estate,
+								 PG_GETARG_INT32(2),
+								 PG_NARGS() < 3 || PG_ARGISNULL(2));
+		result = BoolGetDatum(var->row_count == 0);
 		break;
 	default:
 		ereport(ERROR,

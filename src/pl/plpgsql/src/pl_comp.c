@@ -2607,7 +2607,6 @@ plpgsql_HashTableDelete(PLpgSQL_function *function)
 #ifdef ADB_GRAM_ORA
 static int plorasql_parse(void)
 {
-	PLpgSQL_variable *var;
 	plpgsql_curr_compile->grammar = PARSE_GRAM_ORACLE;
 	return plorasql_yyparse();
 }
@@ -2634,10 +2633,25 @@ static Node* plora_make_func_global(PLpgSQL_expr *plexpr, PLoraSQL_Callback_Type
 {
 	List *args;
 
-
 	args = list_make1(makeConst(INTERNALOID, -1, InvalidOid, SIZEOF_SIZE_T, PointerGetDatum(plexpr), false, true));
 	args = lappend(args, makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(type), false, true));
 	args = lappend(args, makeNullConst(INT4OID, -1, InvalidOid));
+
+	return (Node*)makeFuncExpr(plora_get_callback_func_oid(),
+							   rettype,
+							   args,
+							   InvalidOid,
+							   InvalidOid,
+							   COERCE_EXPLICIT_CALL);
+}
+
+static Node* plora_make_func_cursor(PLpgSQL_expr *plexpr, PLoraSQL_Callback_Type type, Oid rettype, int cursor)
+{
+	List *args;
+
+	args = list_make1(makeConst(INTERNALOID, -1, InvalidOid, SIZEOF_SIZE_T, PointerGetDatum(plexpr), false, true));
+	args = lappend(args, makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(type), false, true));
+	args = lappend(args, makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(cursor), false, true));
 
 	return (Node*)makeFuncExpr(plora_get_callback_func_oid(),
 							   rettype,
@@ -2702,6 +2716,56 @@ static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a)
 			return plora_make_func_global(expr,
 										  PLORASQL_CALLBACK_GLOBAL_NOTFOUND,
 										  BOOLOID);
+		}else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("SQL attribute \"%s\" is invalid", rname),
+					 parser_errposition(pstate, r->location)));
+		}
+	}else
+	{
+		int names;
+		PLpgSQL_execstate *pl_estate;
+		PLpgSQL_var *plvar;
+		PLpgSQL_nsitem *nsitem = plpgsql_ns_lookup(expr->ns, false, lname, NULL, NULL, &names);
+		if (nsitem == NULL ||
+			names != 1 ||
+			nsitem->itemtype != PLPGSQL_NSTYPE_VAR)
+		{
+			return NULL;
+		}
+
+		pl_estate = expr->func->cur_estate;
+		plvar = (PLpgSQL_var*)(pl_estate->datums[nsitem->itemno]);
+		if (!OidIsRefcursor(plvar->datatype->typoid))
+			return NULL;
+
+		/* now, plvar is a refcursor */
+		if (strcmp(rname, "rowcount") == 0)
+		{
+			return plora_make_func_cursor(expr,
+										  PLORASQL_CALLBACK_CURSOR_ROWCOUNT,
+										  INT8OID,
+										  plvar->dno);
+		}else if (strcmp(rname, "found") == 0)
+		{
+			return plora_make_func_cursor(expr,
+										  PLORASQL_CALLBACK_CURSOR_FOUND,
+										  BOOLOID,
+										  plvar->dno);
+		}else if (strcmp(rname, "notfound") == 0)
+		{
+			return plora_make_func_cursor(expr,
+										  PLORASQL_CALLBACK_CURSOR_NOTFOUND,
+										  BOOLOID,
+										  plvar->dno);
+		}else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("refcursor attribute \"%s\" is invalid", rname),
+					 parser_errposition(pstate, r->location)));
 		}
 	}
 
