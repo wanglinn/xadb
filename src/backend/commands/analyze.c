@@ -85,7 +85,7 @@ static BufferAccessStrategy vac_strategy;
 
 static void do_analyze_rel(Relation onerel, int options,
 			   VacuumParams *params, List *va_cols,
-			   AcquireSampleRowsFunc acquirefunc, BlockNumber relpages,
+			   AcquireSampleRowsFunc acquirefunc, BlockNumber relpages, ADB_ONLY_ARG(uint64 reltuples)
 			   bool inh, bool in_outer_xact, int elevel);
 static void compute_index_stats(Relation onerel, double totalrows,
 					AnlIndexData *indexdata, int nindexes,
@@ -108,7 +108,8 @@ static Datum ind_fetch_func(VacAttrStatsP stats, int rownum, bool *isNull);
 #ifdef ADB
 static void node_analyze_rel(Relation relation,
 							 AcquireSampleRowsFunc *func,
-							 BlockNumber *totalpages);
+							 BlockNumber *totalpages,
+							 uint64 *totalrows);
 #endif
 
 /*
@@ -123,6 +124,9 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 	int			elevel;
 	AcquireSampleRowsFunc acquirefunc = NULL;
 	BlockNumber relpages = 0;
+#ifdef ADB
+	uint64		reltuples = 0;
+#endif
 
 	/* Select logging level */
 	if (options & VACOPT_VERBOSE)
@@ -217,7 +221,7 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 		onerel->rd_rel->relkind == RELKIND_MATVIEW)
 	{
 #ifdef ADB
-		node_analyze_rel(onerel, &acquirefunc, &relpages);
+		node_analyze_rel(onerel, &acquirefunc, &relpages, &reltuples);
 #else
 		/* Regular table, so we'll use the regular row acquisition function */
 		acquirefunc = acquire_sample_rows;
@@ -272,14 +276,14 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 	 * Do the normal non-recursive ANALYZE.
 	 */
 	do_analyze_rel(onerel, options, params, va_cols, acquirefunc, relpages,
-				   false, in_outer_xact, elevel);
+				   ADB_ONLY_ARG(reltuples) false, in_outer_xact, elevel);
 
 	/*
 	 * If there are child tables, do recursive ANALYZE.
 	 */
 	if (onerel->rd_rel->relhassubclass)
-		do_analyze_rel(onerel, options, params, va_cols, acquirefunc, relpages,
-					   true, in_outer_xact, elevel);
+		do_analyze_rel(onerel, options, params, va_cols, acquirefunc,
+					   relpages, ADB_ONLY_ARG(0) true, in_outer_xact, elevel);
 
 	/*
 	 * Close source relation now, but keep lock so that no one deletes it
@@ -302,20 +306,22 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 static void
 node_analyze_rel(Relation relation,
 				AcquireSampleRowsFunc *func,
-				BlockNumber *totalpages)
+				BlockNumber *totalpages,
+				uint64 *totalrows)
 {
 	if (IsCnNode() && RelationGetLocInfo(relation))
 	{
 		/* Return the row-analysis function pointer for Coordinator */
 		*func = CnAcquireSampleRowsFunc;
 		/* Also get regular table's size by Coordinator */
-		*totalpages = CnGetRelationNumberOfBlocks(relation);
+		*totalpages = CnGetRelationNumberOfBlocks(relation, totalrows);
 	} else
 	{
 		/* Regular table, so we'll use the regular row acquisition function */
 		*func = acquire_sample_rows;
 		/* Also get regular table's size */
 		*totalpages = RelationGetNumberOfBlocks(relation);
+		*totalrows = 0;
 	}
 }
 #endif
@@ -330,8 +336,8 @@ node_analyze_rel(Relation relation,
 static void
 do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 			   List *va_cols, AcquireSampleRowsFunc acquirefunc,
-			   BlockNumber relpages, bool inh, bool in_outer_xact,
-			   int elevel)
+			   BlockNumber relpages, ADB_ONLY_ARG(uint64 reltuples)
+			   bool inh, bool in_outer_xact, int elevel)
 {
 	int			attr_cnt,
 				tcnt,
@@ -525,6 +531,13 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 				targrows = thisdata->vacattrstats[i]->minrows;
 		}
 	}
+
+#ifdef ADB
+	if (IsCnNode())
+		totalrows = reltuples;
+	else
+		totalrows = 0.0;
+#endif
 
 	/*
 	 * Acquire the sample rows
