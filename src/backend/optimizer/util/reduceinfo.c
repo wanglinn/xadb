@@ -94,7 +94,7 @@ ReduceInfo *MakeHashmapReduceInfo(const List *storage, const List *exclude, cons
 	rinfo = MakeEmptyReduceInfo();
 	rinfo->storage_nodes = list_copy(storage);
 	rinfo->exclude_exec = list_copy(exclude);
-	rinfo->params = list_make1(copyObject(param));
+	rinfo->params = list_make1((Expr*)copyObject(param));
 	rinfo->relids = pull_varnos((Node*)param);
 	rinfo->type = REDUCE_TYPE_HASHMAP;
 

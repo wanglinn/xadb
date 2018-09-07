@@ -34,6 +34,8 @@
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/slot.h"
+
 
 typedef struct NodeOidInfo
 {
