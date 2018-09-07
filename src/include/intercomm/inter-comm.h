@@ -148,7 +148,7 @@ extern void CloseRemoteStatement(const char *stmt_name, Oid *nodes, int nnodes);
 
 /* for analyze */
 extern BlockNumber CnGetRelationNumberOfBlocks(Relation relation);
-extern int CnAcquireSampleRowsFunc(Relation onerel, int elevel,
+extern int CnAcquireSampleRowsFunc(Relation relation, int elevel,
 								   HeapTuple *rows, int targrows,
 								   double *totalrows, double *totaldeadrows);
 
