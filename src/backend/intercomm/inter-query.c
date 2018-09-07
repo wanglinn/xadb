@@ -1023,16 +1023,19 @@ deparseCnAnalyzeSizeSql(StringInfo buf, Relation rel)
 
 	appendStringInfoString(buf, "SELECT pg_catalog.pg_relation_size(");
 	deparseStringLiteral(buf, namebuf.data);
-	appendStringInfo(buf, "::pg_catalog.regclass) / %d AS blocknum", BLCKSZ);
+	appendStringInfo(buf, "::pg_catalog.regclass) / %d AS blocknum,"
+						  "count(1) as count FROM ONLY %s",
+						  BLCKSZ, namebuf.data);
 	pfree(namebuf.data);
 }
 
 BlockNumber
-CnGetRelationNumberOfBlocks(Relation relation)
+CnGetRelationNumberOfBlocks(Relation relation, uint64 *reltuples)
 {
 	List			   *dn_list;
 	RemoteQuery		   *rquery;
 	RemoteQueryState   *rstate;
+	RelationLocInfo	   *rloc;
 	ExecNodes		   *rnodes;
 	EState			   *estate;
 	TupleTableSlot	   *slot;
@@ -1041,19 +1044,29 @@ CnGetRelationNumberOfBlocks(Relation relation)
 	Datum				value;
 	bool				isnull;
 	BlockNumber			totalpages;
+	uint64				totalrows;
 	int					tuplecnt;
 
 	/* Sancity check */
 	Assert(IsCnNode());
 	Assert(RelationGetLocInfo(relation));
 
-	/* Get all datanode */
-	if ((dn_list = GetAllDnIDL(false)) == NIL)
-		return 0;
+	rloc = RelationGetLocInfo(relation);
 
-	/* Get preferred datanode if replicate */
-	if (IsRelationReplicated(RelationGetLocInfo(relation)))
-		dn_list = GetPreferredRepNodes((const List *) dn_list);
+	/* Get involved datanodes */
+	if (list_length(rloc->nodeids) > 0)
+	{
+		if (IsRelationReplicated(rloc))
+			dn_list = GetPreferredRepNodes((const List *) rloc->nodeids);
+		else
+			dn_list = rloc->nodeids;
+	} else
+	{
+		dn_list = GetAllDnIDL(false);
+	}
+
+	if (list_length(dn_list) <= 0)
+		return 0;
 
 	/* Construct analyze query */
 	initStringInfo(&sqlbuf);
@@ -1080,6 +1093,7 @@ CnGetRelationNumberOfBlocks(Relation relation)
 	MemoryContextSwitchTo(oldcontext);
 
 	totalpages = 0;
+	totalrows = 0;
 	tuplecnt = 0;
 	for (;;)
 	{
@@ -1099,12 +1113,20 @@ CnGetRelationNumberOfBlocks(Relation relation)
 		/* Extract blocknumm  */
 		value = slot_getattr(slot, 1, &isnull); /* blocknum */
 		if (!isnull)
-			totalpages += DatumGetInt64(value);
+			totalpages += DatumGetUInt64(value);
+
+		/* Extract count */
+		value = slot_getattr(slot, 2, &isnull); /* count */
+		if (!isnull)
+			totalrows += DatumGetUInt64(value);
 	}
 
 	ExecEndRemoteQuery(rstate);
 
 	FreeExecutorState(estate);
+
+	if (reltuples)
+		*reltuples = totalrows;
 
 	if (tuplecnt != list_length(dn_list))
 		elog(ERROR,
@@ -1120,6 +1142,9 @@ deparseCnAnalyzeSampleSql(StringInfo buf, Relation rel, int targper)
 	char		   *nspname;
 	char		   *relname;
 
+	if (targper < 0)
+		targper = 1;
+
 	initStringInfo(&namebuf);
 	nspname = get_namespace_name(RelationGetNamespace(rel));
 	relname = RelationGetRelationName(rel);
@@ -1127,8 +1152,11 @@ deparseCnAnalyzeSampleSql(StringInfo buf, Relation rel, int targper)
 	appendStringInfo(&namebuf, "%s.%s",
 					 quote_identifier(nspname), quote_identifier(relname));
 
-	appendStringInfo(buf, "SELECT * FROM %s TABLESAMPLE BERNOULLI(%d)",
-					 namebuf.data, targper);
+	if (targper >= 100)
+		appendStringInfo(buf, "SELECT * FROM ONLY %s", namebuf.data);
+	else
+		appendStringInfo(buf, "SELECT * FROM ONLY %s TABLESAMPLE SYSTEM(%d)",
+						 namebuf.data, targper);
 	pfree(namebuf.data);
 }
 
@@ -1141,6 +1169,7 @@ CnAcquireSampleRowsFunc(Relation relation, int elevel,
 	RemoteQuery		   *rquery;
 	RemoteQueryState   *rstate;
 	ExecNodes		   *rnodes;
+	RelationLocInfo	   *rloc;
 	EState			   *estate;
 	TupleTableSlot	   *slot;
 	MemoryContext		oldcontext;
@@ -1156,16 +1185,34 @@ CnAcquireSampleRowsFunc(Relation relation, int elevel,
 	Assert(IsCnNode());
 	Assert(RelationGetLocInfo(relation));
 
-	/* Get all datanode */
-	if ((dn_list = GetAllDnIDL(false)) == NIL)
+	rloc = RelationGetLocInfo(relation);
+
+	/* Get involved datanodes */
+	if (list_length(rloc->nodeids) > 0)
+	{
+		if (IsRelationReplicated(rloc))
+			dn_list = GetPreferredRepNodes((const List *) rloc->nodeids);
+		else
+			dn_list = rloc->nodeids;
+	} else
+	{
+		dn_list = GetAllDnIDL(false);
+	}
+
+	if (list_length(dn_list) <= 0)
 		return 0;
+
+	/* Calculate sample percentage */
+	if (*totalrows > 0)
+	{
+		if (*totalrows <= targrows)
+			sampleper = 100;
+		else
+			sampleper = (int) floor(targrows / *totalrows * 100 + 0.5);
+	}
 
 	/* Prepare for sampling rows */
 	reservoir_init_selection_state(&rs, targrows);
-
-	/* Get preferred datanode if replicate */
-	if (IsRelationReplicated(RelationGetLocInfo(relation)))
-		dn_list = GetPreferredRepNodes((const List *) dn_list);
 
 	/* Construct analyze query */
 	initStringInfo(&sqlbuf);
@@ -1264,7 +1311,8 @@ CnAcquireSampleRowsFunc(Relation relation, int elevel,
 	 *
 	 * rows at most.
 	 */
-	*totalrows = floor(samplerows * (100.0 / sampleper) + 0.5);
+	if (*totalrows <= 0)
+		*totalrows = floor(samplerows * (100.0 / sampleper) + 0.5);
 
 	/*
 	 * Emit some interesting relation info
