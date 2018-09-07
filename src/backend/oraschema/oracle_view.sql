@@ -248,3 +248,20 @@ WHERE OWNER=upper(CURRENT_USER);
 
 GRANT SELECT ON oracle.user_cons_columns TO PUBLIC;
 
+CREATE OR REPLACE FUNCTION oracle.raise_application_error(error_number int, error_msg char(2048), flag boolean default false)
+    RETURNS void
+    AS $$
+    BEGIN
+        IF error_number < -20999 or error_number > -20000 THEN
+            raise exception  'error number between -20999 and -20000';
+        END IF;
+        IF flag = false THEN
+            raise exception 'ORA%: %' , $1, $2;
+        END IF;
+    END;
+    $$
+    LANGUAGE plpgsql
+    IMMUTABLE
+    STRICT;
+
+GRANT EXECUTE   ON FUNCTION  oracle.raise_application_error  TO PUBLIC;
