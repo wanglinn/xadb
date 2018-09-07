@@ -3247,23 +3247,6 @@ get_typname_typid(const char *typname, Oid typnamespace)
 }
 
 /*
- * get_funcid
- *	  Given a function name, argument types and namespace OID, look up
- * the function OID.
- *
- * Returns InvalidOid if there is no such function
- */
-Oid
-get_funcid(const char *funcname, oidvector *argtypes, Oid funcnsp)
-{
-	return GetSysCacheOid(PROCNAMEARGSNSP,
-						  CStringGetDatum(funcname),
-						  PointerGetDatum(argtypes),
-						  ObjectIdGetDatum(funcnsp),
-						  0);
-}
-
-/*
  * get_opnamespace
  *	  Given an opno, find the namespace
  *
@@ -3629,3 +3612,23 @@ get_pgxc_classnodes(Oid tableid, Oid **nodes)
 	return numnodes;
 }
 #endif /* ADB */
+
+#ifdef ADB_MULTI_GRAM
+/*
+ * get_funcid
+ *	  Given a function name, argument types and namespace OID, look up
+ * the function OID.
+ *
+ * Returns InvalidOid if there is no such function
+ */
+Oid
+get_funcid(const char *funcname, oidvector *argtypes, Oid funcnsp)
+{
+	return GetSysCacheOid(PROCNAMEARGSNSP,
+						  CStringGetDatum(funcname),
+						  PointerGetDatum(argtypes),
+						  ObjectIdGetDatum(funcnsp),
+						  0);
+}
+
+#endif /* ADB_MULTI_GRAM */
