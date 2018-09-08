@@ -6344,37 +6344,42 @@ create_ordered_paths(PlannerInfo *root,
 
 		add_cluster_path(ordered_rel, path);
 	}
-	foreach(lc, input_rel->cluster_partial_pathlist)
+	if (ordered_rel->consider_parallel &&
+		root->sort_pathkeys != NIL &&
+		input_rel->cluster_partial_pathlist != NIL)
 	{
-		Path	   *path = (Path *) lfirst(lc);
-		double		total_groups = path->rows * path->parallel_workers;
-
-		if (!pathkeys_contained_in(root->sort_pathkeys, path->pathkeys))
+		Path	   *path;
+		double		total_groups;
+		foreach(lc, input_rel->cluster_partial_pathlist)
 		{
-			/* An explicit sort here can take advantage of LIMIT */
-			path = (Path *) create_sort_path(root,
-											 ordered_rel,
-											 path,
-											 root->sort_pathkeys,
-											 limit_tuples);
+			if (!pathkeys_contained_in(root->sort_pathkeys, path->pathkeys))
+			{
+				/* An explicit sort here can take advantage of LIMIT */
+				path = (Path *) create_sort_path(root,
+												ordered_rel,
+												path,
+												root->sort_pathkeys,
+												limit_tuples);
+
+				total_groups = path->rows * path->parallel_workers;
+				path = (Path*)create_gather_merge_path(root,
+													ordered_rel,
+													path,
+													target,
+													root->sort_pathkeys,
+													NULL,
+													&total_groups);
+				path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(lfirst(lc)));
+				path->reduce_is_valid = true;
+
+				/* Add projection step if needed */
+				if (path->pathtarget != target)
+					path = apply_projection_to_path(root, ordered_rel,
+													path, target);
+
+				add_cluster_path(ordered_rel, path);
+			}
 		}
-
-		path = (Path*)create_gather_merge_path(root,
-											   ordered_rel,
-											   path,
-											   target,
-											   root->sort_pathkeys,
-											   NULL,
-											   &total_groups);
-		path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(lfirst(lc)));
-		path->reduce_is_valid = true;
-
-		/* Add projection step if needed */
-		if (path->pathtarget != target)
-			path = apply_projection_to_path(root, ordered_rel,
-											path, target);
-
-		add_cluster_path(ordered_rel, path);
 	}
 #endif /* ADB */
 
