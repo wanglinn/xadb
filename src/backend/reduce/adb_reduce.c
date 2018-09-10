@@ -329,6 +329,9 @@ DisConnectSelfReduce(RdcPort *port, List *dest_nodes, bool noerror)
 static void
 InitCommunicationChannel(void)
 {
+	/* Try to close old socketpair */
+	CloseBackendPort(true);
+	CloseReducePort(true);
 #ifndef WIN32
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, backend_reduce_fds))
 		ereport(FATAL,
