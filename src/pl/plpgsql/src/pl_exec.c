@@ -184,7 +184,8 @@ static HTAB *shared_cast_hash = NULL;
  * estate->exitlabel is examined and possibly updated.
  */
 #define LOOP_RC_PROCESSING(looplabel, exit_action) \
-	if (rc == PLPGSQL_RC_RETURN) \
+	if (rc == PLPGSQL_RC_RETURN || \
+		rc == PLPGSQL_RC_GOTO) \
 	{ \
 		/* RETURN, so propagate RC_RETURN out */ \
 		exit_action; \
