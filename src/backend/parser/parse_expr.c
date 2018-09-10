@@ -188,6 +188,10 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 	sv_grammar = current_grammar;
 	current_grammar = pstate->p_grammar;
 
+	if (pstate->p_pre_expr_hook != NULL &&
+		(result = (*pstate->p_pre_expr_hook)(pstate, expr)) != NULL)
+		return result;
+
 	PG_TRY();
 	{
 #endif /* ADB_MULTI_GRAM */
@@ -268,10 +272,6 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 			{
 				A_Expr	   *a = (A_Expr *) expr;
 
-#ifdef ADB_MULTI_GRAM
-				if (pstate->p_pre_aexpr_hook == NULL ||
-					(result = (*pstate->p_pre_aexpr_hook)(pstate, a)) == NULL)
-#endif /* ADB_MULTI_GRAM */
 				switch (a->kind)
 				{
 					case AEXPR_OP:
