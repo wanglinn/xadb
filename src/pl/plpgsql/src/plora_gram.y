@@ -416,7 +416,7 @@ decl_sect_top	: opt_block_label
 						$$.n_initvars = 0;
 						$$.initvarnos = NULL;
 					}
-				| opt_block_label decl_start decl_stmts
+				| opt_block_label decl_start decl_stmts_top
 					{
 						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
 						$$.label	  = $1;
@@ -432,8 +432,31 @@ decl_sect_top	: opt_block_label
 					}
 				;
 
-decl_stmts_top	: decl_stmts_top decl_statement
-				| decl_statement
+decl_stmts_top	: decl_stmts_top decl_statement_top
+				| decl_statement_top
+				;
+
+decl_statement_top: decl_statement
+				| POK_PRAGMA T_WORD ';'
+					{
+						if ($2.quoted)
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									errmsg("syntax error"),
+									parser_errposition(@2)));
+
+						if (strcmp($2.ident, "autonomous_transaction") == 0)
+						{
+							/* for now ignore "PRAGMA AUTONOMOUS_TRANSACTION" */
+							;
+						}else
+						{
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									errmsg("syntax error"),
+									parser_errposition(@2)));
+						}
+					}
 				;
 
 pl_block		: decl_sect POK_BEGIN proc_sect exception_sect POK_END opt_label
