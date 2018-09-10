@@ -2716,6 +2716,10 @@ static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a)
 			return plora_make_func_global(expr,
 										  PLORASQL_CALLBACK_GLOBAL_NOTFOUND,
 										  BOOLOID);
+		}else if (strcmp(rname, "isopen") == 0)
+		{
+			/* is "SQL%isopen" operator, the result is always false */
+			return makeBoolConst(false, false);
 		}else
 		{
 			ereport(ERROR,
@@ -2758,6 +2762,12 @@ static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a)
 		{
 			return plora_make_func_cursor(expr,
 										  PLORASQL_CALLBACK_CURSOR_NOTFOUND,
+										  BOOLOID,
+										  plvar->dno);
+		}else if (strcmp(rname, "isopen") == 0)
+		{
+			return plora_make_func_cursor(expr,
+										  PLORASQL_CALLBACK_CURSOR_ISOPEN,
 										  BOOLOID,
 										  plvar->dno);
 		}else

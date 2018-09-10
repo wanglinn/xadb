@@ -8625,6 +8625,8 @@ Datum plorasql_expr_callback(PG_FUNCTION_ARGS)
 	Datum				result;
 	PLpgSQL_var		   *var;
 	PLpgSQL_execstate  *pl_estate;
+	Portal				portal;
+	char				*curname;
 	PLpgSQL_expr	   *expr = (PLpgSQL_expr*)PG_GETARG_POINTER(0);
 	int					callback_type = PG_GETARG_INT32(1);
 
@@ -8668,6 +8670,22 @@ Datum plorasql_expr_callback(PG_FUNCTION_ARGS)
 								 PG_GETARG_INT32(2),
 								 PG_NARGS() < 3 || PG_ARGISNULL(2));
 		result = BoolGetDatum(var->row_count == 0);
+		break;
+	case PLORASQL_CALLBACK_CURSOR_ISOPEN:
+		var = check_pl_refcursor(pl_estate,
+								 PG_GETARG_INT32(2),
+								 PG_NARGS() < 3 || PG_ARGISNULL(2));
+		if (!var->value)
+			result = BoolGetDatum(false);
+		else
+		{
+			curname = TextDatumGetCString(var->value);
+			portal = SPI_cursor_find(curname);
+			if (portal == NULL)
+				result = BoolGetDatum(false);
+			else
+				result = BoolGetDatum(true);
+		}
 		break;
 	default:
 		ereport(ERROR,
