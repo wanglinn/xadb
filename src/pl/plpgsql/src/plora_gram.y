@@ -393,6 +393,10 @@ pl_block_top	: decl_sect_top POK_BEGIN proc_sect exception_sect POK_END opt_labe
 						new->body		= $3;
 						new->exceptions	= $4;
 
+						if ($1.label == NULL &&
+							$6 != NULL)
+							$1.label = $6;
+
 						check_labels($1.label, $6, @6);
 						plpgsql_ns_pop();
 
