@@ -115,6 +115,8 @@ typedef enum PLpgSQL_stmt_type
 	PLPGSQL_STMT_GOTO
 #ifdef ADB_GRAM_ORA
 	,PLPGSQL_STMT_FUNC
+	,PLPGSQL_STMT_SUB_COMMIT
+	,PLPGSQL_STMT_SUB_ROLLBACK
 #endif /* ADB_GRAM_ORA */
 } PLpgSQL_stmt_type;
 
@@ -825,6 +827,15 @@ typedef struct PLpgSQL_stmt_func
 	char	   *label;
 	PLpgSQL_expr *expr;
 }PLpgSQL_stmt_func;
+
+typedef struct PLpgSQL_stmt_sub_commit
+{
+	PLpgSQL_stmt_type cmd_type;
+	int			lineno;
+	char	   *label;
+}PLpgSQL_stmt_sub_commit;
+
+typedef struct PLpgSQL_stmt_sub_commit PLpgSQL_stmt_sub_rollback;
 #endif /* ADB_GRAM_ORA */
 /*
  * Hash lookup key for functions
@@ -933,6 +944,9 @@ typedef struct PLpgSQL_function
 #ifdef ADB_MULTI_GRAM
 	ParseGrammar grammar;
 #endif /* ADB_MULTI_GRAM */
+#ifdef ADB_GRAM_ORA
+	bool		have_sub_trans;
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_function;
 
 /*
