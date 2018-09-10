@@ -305,6 +305,10 @@ plpgsql_stmt_typename(PLpgSQL_stmt *stmt)
 #ifdef ADB_GRAM_ORA
 		case PLPGSQL_STMT_FUNC:
 			return "FUNCTION CALL";
+		case PLPGSQL_STMT_SUB_COMMIT:
+			return "SAVEPOINT";
+		case PLPGSQL_STMT_SUB_ROLLBACK:
+			return "RELEASE SAVEPOINT";
 #endif /* ADB_GRAM_ORA */
 	}
 
@@ -392,6 +396,8 @@ static void free_set(PLpgSQL_stmt_set *stmt);
 static void free_goto(PLpgSQL_stmt_goto *stmt);
 #ifdef ADB_GRAM_ORA
 static void free_func(PLpgSQL_stmt_func * stmt);
+static void free_sub_commit(PLpgSQL_stmt_sub_commit * stmt);
+static void free_sub_rollback(PLpgSQL_stmt_sub_rollback * stmt);
 #endif /* ADB_GRAM_ORA */
 static void free_expr(PLpgSQL_expr *expr);
 
@@ -491,6 +497,12 @@ free_stmt(PLpgSQL_stmt *stmt)
 #ifdef ADB_GRAM_ORA
 		case PLPGSQL_STMT_FUNC:
 			free_func((PLpgSQL_stmt_func *) stmt);
+			break;
+		case PLPGSQL_STMT_SUB_COMMIT:
+			free_sub_commit((PLpgSQL_stmt_sub_commit*) stmt);
+			break;
+		case PLPGSQL_STMT_SUB_ROLLBACK:
+			free_sub_rollback((PLpgSQL_stmt_sub_commit*) stmt);
 			break;
 #endif /* ADB_GRAM_ORA */
 		default:
@@ -649,6 +661,16 @@ static void
 free_func(PLpgSQL_stmt_func * stmt)
 {
 	free_expr(stmt->expr);
+}
+
+static void
+free_sub_commit(PLpgSQL_stmt_sub_commit * stmt)
+{
+}
+
+static void
+free_sub_rollback(PLpgSQL_stmt_sub_rollback * stmt)
+{
 }
 #endif /* ADB_GRAM_ORA */
 
@@ -1811,6 +1833,10 @@ const char *plpgsql_stmt_get_label(PLpgSQL_stmt *stmt)
 #ifdef ADB_GRAM_ORA
 	case PLPGSQL_STMT_FUNC:
 		return ((PLpgSQL_stmt_func*)stmt)->label;
+	case PLPGSQL_STMT_SUB_COMMIT:
+		return ((PLpgSQL_stmt_sub_commit*)stmt)->label;
+	case PLPGSQL_STMT_SUB_ROLLBACK:
+		return ((PLpgSQL_stmt_sub_rollback*)stmt)->label;
 #endif /* ADB_GRAM_ORA */
 	default:
 		break;

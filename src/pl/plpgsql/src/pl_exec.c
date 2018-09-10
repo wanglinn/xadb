@@ -439,6 +439,8 @@ static char *format_preparedparamsdata(PLpgSQL_execstate *estate,
 static int exec_stmt_goto(PLpgSQL_execstate *estate, PLpgSQL_stmt_goto *stmt);
 #ifdef ADB_GRAM_ORA
 static int exec_stmt_func(PLpgSQL_execstate *estate, PLpgSQL_stmt_func *stmt);
+static int exec_stmt_sub_commit(PLpgSQL_execstate *estate, PLpgSQL_stmt_sub_commit *stmt);
+static int exec_stmt_sub_rollback(PLpgSQL_execstate *estate, PLpgSQL_stmt_sub_rollback *stmt);
 #endif /* ADB_GRAM_ORA */
 static ListCell *find_stmt_for_label(List *stmts, const char *label);
 
@@ -595,6 +597,27 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 	 */
 	estate.err_text = NULL;
 	estate.err_stmt = (PLpgSQL_stmt *) (func->action);
+#ifdef ADB_GRAM_ORA
+	if (func->have_sub_trans)
+	{
+		ResourceOwner volatile oldowner = CurrentResourceOwner;
+		MemoryContext volatile oldcontext = CurrentMemoryContext;
+
+		BeginInternalSubTransaction(NULL);
+		PG_TRY();
+		{
+			rc = exec_stmt_block(&estate, func->action);
+		}PG_CATCH();
+		{
+			RollbackAndReleaseCurrentSubTransaction();
+			PG_RE_THROW();
+		}PG_END_TRY();
+
+		ReleaseCurrentSubTransaction();
+		MemoryContextSwitchTo(oldcontext);
+		CurrentResourceOwner = oldowner;
+	}else
+#endif
 	rc = exec_stmt_block(&estate, func->action);
 	if (rc != PLPGSQL_RC_RETURN)
 	{
@@ -2077,6 +2100,12 @@ exec_stmt(PLpgSQL_execstate *estate, PLpgSQL_stmt *stmt)
 #ifdef ADB_GRAM_ORA
 		case PLPGSQL_STMT_FUNC:
 			rc = exec_stmt_func(estate, (PLpgSQL_stmt_func *) stmt);
+			break;
+		case PLPGSQL_STMT_SUB_COMMIT:
+			rc = exec_stmt_sub_commit(estate, (PLpgSQL_stmt_sub_commit *) stmt);
+			break;
+		case PLPGSQL_STMT_SUB_ROLLBACK:
+			rc = exec_stmt_sub_rollback(estate, (PLpgSQL_stmt_sub_rollback *) stmt);
 			break;
 #endif /* ADB_GRAM_ORA */
 
@@ -4889,6 +4918,33 @@ static int exec_stmt_func(PLpgSQL_execstate *estate, PLpgSQL_stmt_func *stmt)
 
 	return PLPGSQL_RC_OK;
 }
+
+static int exec_stmt_sub_commit(PLpgSQL_execstate *estate, PLpgSQL_stmt_sub_commit *stmt)
+{
+	MemoryContext oldcontext = CurrentMemoryContext;
+	ResourceOwner oldowner = CurrentResourceOwner;
+
+	ReleaseCurrentSubTransaction();
+	MemoryContextSwitchTo(oldcontext);
+	BeginInternalSubTransaction(NULL);
+	CurrentResourceOwner = oldowner;
+
+	return PLPGSQL_RC_OK;
+}
+
+static int exec_stmt_sub_rollback(PLpgSQL_execstate *estate, PLpgSQL_stmt_sub_rollback *stmt)
+{
+	MemoryContext oldcontext = CurrentMemoryContext;
+	ResourceOwner oldowner = CurrentResourceOwner;
+
+	RollbackAndReleaseCurrentSubTransaction();
+	MemoryContextSwitchTo(oldcontext);
+	BeginInternalSubTransaction(NULL);
+	CurrentResourceOwner = oldowner;
+
+	return PLPGSQL_RC_OK;
+}
+
 #endif /* ADB_GRAM_ORA */
 
 static ListCell *find_stmt_for_label(List *stmts, const char *label)
