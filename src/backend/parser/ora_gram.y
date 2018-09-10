@@ -6858,7 +6858,8 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 				if (scanbuf[look1.loc] != '"' &&
 					strcmp(look1.lval.str, "loop") == 0)
 				{
-					++wait_end_keyword;
+					if (last_token != END_P)
+						++wait_end_keyword;
 				}
 				break;
 			case END_P:
