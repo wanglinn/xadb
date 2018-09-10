@@ -135,6 +135,7 @@ static void delete_function(PLpgSQL_function *func);
 extern int plorasql_yyparse(void);
 static int plorasql_parse(void);
 static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a);
+static Node* plora_pre_parse_expr(ParseState *pstate, Node *expr);
 #endif /* ADB_GRAM_ORA */
 
 /* ----------
@@ -1083,7 +1084,7 @@ plpgsql_parser_setup(struct ParseState *pstate, PLpgSQL_expr *expr)
 	switch (expr->func->grammar)
 	{
 	case PARSE_GRAM_ORACLE:
-		pstate->p_pre_aexpr_hook = plora_pre_parse_aexpr;
+		pstate->p_pre_expr_hook = plora_pre_parse_expr;
 		break;
 	default:
 		break;
@@ -2779,6 +2780,16 @@ static Node* plora_make_func_cursor(PLpgSQL_expr *plexpr, PLoraSQL_Callback_Type
 							   InvalidOid,
 							   InvalidOid,
 							   COERCE_EXPLICIT_CALL);
+}
+
+static Node* plora_pre_parse_expr(ParseState *pstate, Node *expr)
+{
+	if (expr == NULL)
+		return NULL;
+	if (IsA(expr, A_Expr))
+		return plora_pre_parse_aexpr(pstate, (A_Expr*)expr);
+
+	return NULL;
 }
 
 static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a)
