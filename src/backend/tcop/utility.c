@@ -455,10 +455,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 	bool		isTopLevel = (context == PROCESS_UTILITY_TOPLEVEL);
 	bool		isAtomicContext = (!(context == PROCESS_UTILITY_TOPLEVEL || context == PROCESS_UTILITY_QUERY_NONATOMIC) || IsTransactionBlock());
 	ParseState *pstate;
-
 #ifdef ADB
-
-	Relation	vacuum_rel = NULL;
 	const char *this_query_str = NULL;
 
 	RemoteUtilityContext utilityContext = {
@@ -934,53 +931,6 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				/* we choose to allow this during "read only" transactions */
 				PreventCommandDuringRecovery((stmt->options & VACOPT_VACUUM) ?
 											 "VACUUM" : "ANALYZE");
-#ifdef ADB
-				if (IsCnMaster())
-				{
-					//if (stmt->relation)
-					if (stmt->rels != NIL)
-					{
-						VacuumRelation *vr;
-						ListCell *lc;
-
-						bool have_local = false;
-						bool have_remote = false;
-						foreach(lc, stmt->rels)
-						{
-							vr = lfirst(lc);
-							vacuum_rel = heap_openrv_extended(vr->relation, NoLock, false);
-							if (RelationGetForm(vacuum_rel)->relkind == RELKIND_MATVIEW ||
-								RelationGetLocInfo(vacuum_rel) == NULL)
-								have_local = true;
-							else
-								have_remote = true;
-							relation_close(vacuum_rel, NoLock);
-
-							if (have_local && have_remote)
-							{
-								ereport(ERROR,
-										(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-										 errmsg("AntDB not support vacuum on remote and local relation in one time yet!")));
-							}
-						}
-						if (have_remote)
-						{
-							/*
-							 * We have to run the command on nodes before Coordinator because
-							 * vacuum() pops active snapshot and we can not send it to nodes
-							 */
-							utilityContext.force_autocommit = true;
-							utilityContext.exec_type = EXEC_ON_DATANODES;
-							ExecRemoteUtilityStmt(&utilityContext);
-						}
-					} else
-					{
-						utilityContext.force_autocommit = true;
-						utilityContext.exec_type = EXEC_ON_ALL_NODES;
-						ExecRemoteUtilityStmt(&utilityContext);
-					}
-				}
-#endif /* ADB */
 				/* forbidden in parallel mode due to CommandIsReadOnly */
 				ExecVacuum(stmt, isTopLevel);
 			}
