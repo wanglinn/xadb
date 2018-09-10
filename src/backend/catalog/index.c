@@ -71,6 +71,9 @@
 #include "utils/tuplesort.h"
 #include "utils/snapmgr.h"
 #include "utils/tqual.h"
+#ifdef ADB
+#include "pgxc/pgxc.h"
+#endif
 
 
 /* Potentially set by pg_upgrade_support functions */
@@ -1943,6 +1946,20 @@ index_update_stats(Relation rel,
 		else					/* don't bother for indexes */
 			relallvisible = 0;
 
+#ifdef ADB
+		if (IsCnNode() && RelationGetLocInfo(rel))
+		{
+			/*
+			 * We can't replace the "relpages" and "reltuples" of
+			 * the current tuple here when the statistics of the index
+			 * are changed because they are obtained by sql from its
+			 * associated datanodes actually and can't be changed with
+			 * its index's changed.
+			 */
+
+		} else
+		{
+#endif
 		if (rd_rel->relpages != (int32) relpages)
 		{
 			rd_rel->relpages = (int32) relpages;
@@ -1953,6 +1970,9 @@ index_update_stats(Relation rel,
 			rd_rel->reltuples = (float4) reltuples;
 			dirty = true;
 		}
+#ifdef ADB
+		}
+#endif
 		if (rd_rel->relallvisible != (int32) relallvisible)
 		{
 			rd_rel->relallvisible = (int32) relallvisible;
