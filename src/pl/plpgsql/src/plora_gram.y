@@ -2478,6 +2478,13 @@ read_datatype(int tok)
 				result = plpgsql_parse_wordtype(dtname);
 				if (result)
 					return result;
+			}else if (tok == T_WORD &&
+				yylval.word.quoted == false &&
+				strcmp(yylval.word.ident, "rowtype") == 0)
+			{
+				result = plpgsql_parse_wordrowtype(dtname);
+				if (result)
+					return result;
 			}
 		}else if (tok == ';')
 		{
@@ -2501,6 +2508,13 @@ read_datatype(int tok)
 										POK_TYPE, "type"))
 			{
 				result = plpgsql_parse_wordtype(dtname);
+				if (result)
+					return result;
+			}else if (tok == T_WORD &&
+				yylval.word.quoted == false &&
+				strcmp(yylval.word.ident, "rowtype") == 0)
+			{
+				result = plpgsql_parse_wordrowtype(dtname);
 				if (result)
 					return result;
 			}
@@ -2529,6 +2543,13 @@ read_datatype(int tok)
 				if (result)
 					return result;
 			}
+		}else if (tok == T_WORD &&
+			yylval.word.quoted == false &&
+			strcmp(yylval.word.ident, "rowtype") == 0)
+		{
+			result = plpgsql_parse_cwordrowtype(dtnames);
+			if (result)
+				return result;
 		}
 	}
 
