@@ -59,6 +59,7 @@
 #include "nodes/makefuncs.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
+#include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #endif /* ADB */
 
@@ -83,6 +84,11 @@ static void vac_truncate_clog(TransactionId frozenXID,
 				  TransactionId lastSaneFrozenXid,
 				  MultiXactId lastSaneMinMulti);
 #ifdef ADB
+static void deparse_vacuum(StringInfo buf, int options,
+				  RangeVar *relation, List *va_cols);
+static void vacuum_cn(int options, RangeVar *relation, List *va_cols);
+static void vacuum_dn(VacuumStmt *vacstmt);
+static void vacuum_remote(StringInfo vacsql, List *nodes);
 static void vacuum_full_auxrel(Relation master, int options);
 static bool vacuum_rel(Oid relid, RangeVar *relation, int *poptions,
 		   VacuumParams *params);
@@ -108,6 +114,11 @@ ExecVacuum(VacuumStmt *vacstmt, bool isTopLevel)
 		   !(vacstmt->options & (VACOPT_FULL | VACOPT_FREEZE)));
 	Assert((vacstmt->options & VACOPT_ANALYZE) || vacstmt->va_cols == NIL);
 	Assert(!(vacstmt->options & VACOPT_SKIPTOAST));
+
+#ifdef ADB
+	/* do vacuum/analyze on remote datanode first */
+	vacuum_dn(vacstmt);
+#endif
 
 	/*
 	 * All freeze ages are zero if the FREEZE option is given; otherwise pass
@@ -172,6 +183,15 @@ vacuum(int options, RangeVar *relation, Oid relid, VacuumParams *params,
 	static bool in_vacuum = false;
 
 	Assert(params != NULL);
+
+#ifdef ADB
+	/*
+	 * Do vacuum/analyze on remote coordinator first whether the current
+	 * process is an autovacuum worker process or not when we are coordinator
+	 * master.
+	 */
+	vacuum_cn(options, relation, va_cols);
+#endif
 
 	stmttype = (options & VACOPT_VACUUM) ? "VACUUM" : "ANALYZE";
 
@@ -1612,6 +1632,182 @@ vacuum_full_auxrel(Relation master, int options)
 	 */
 	if (IsCoordMaster())
 		PaddingAuxDataOfMaster(master);
+}
+
+/*
+ * deparse_vacuum
+ *
+ * make up vacuum/analyze query by the specified options.
+ */
+static void
+deparse_vacuum(StringInfo buf, int options,
+			   RangeVar *relation, List *va_cols)
+{
+	Assert(buf);
+	if (options & VACOPT_VACUUM)
+	{
+		appendStringInfoString(buf, "VACUUM");
+		if (options & ~VACOPT_VACUUM)
+		{
+			appendStringInfoString(buf, " (");
+			if (options & VACOPT_FULL)
+				appendStringInfo(buf, "%s, ", "FULL");
+			if (options & VACOPT_FREEZE)
+				appendStringInfo(buf, "%s, ", "FREEZE");
+			if (options & VACOPT_VERBOSE)
+				appendStringInfo(buf, "%s, ", "VERBOSE");
+			if (options & VACOPT_ANALYZE)
+				appendStringInfo(buf, "%s, ", "ANALYZE");
+			if (options & VACOPT_DISABLE_PAGE_SKIPPING)
+				appendStringInfo(buf, "%s, ", "DISABLE_PAGE_SKIPPING");
+			buf->data[--buf->len] = '\0';
+			buf->data[--buf->len] = '\0';
+			appendStringInfoString(buf, ")");
+		}
+	} else
+	{
+		appendStringInfoString(buf, "ANALYZE");
+		if (options & VACOPT_VERBOSE)
+			appendStringInfoString(buf, " VERBOSE");
+	}
+
+	if (relation)
+	{
+		if (relation->schemaname)
+			appendStringInfo(buf, " %s.%s",
+							 quote_identifier(relation->schemaname),
+							 quote_identifier(relation->relname));
+		else
+			appendStringInfo(buf, " %s",
+							 quote_identifier(relation->relname));
+	}
+
+	if (va_cols)
+	{
+		ListCell   *lc;
+
+		appendStringInfoString(buf, "(");
+		foreach (lc, va_cols)
+		{
+			char *col = strVal(lfirst(lc));
+			appendStringInfo(buf, "%s, ", col);
+		}
+		buf->data[--buf->len] = '\0';
+		buf->data[--buf->len] = '\0';
+		appendStringInfoString(buf, ")");
+	}
+}
+
+/*
+ * vacuum_cn
+ *
+ * Send to remote coordinators to do vacuum/analyze
+ * query when we are coordinator master.
+ */
+static void
+vacuum_cn(int options, RangeVar *relation, List *va_cols)
+{
+	StringInfoData	vacsql;
+	List		   *nodes = NIL;
+
+	if (!IsCnMaster())
+		return ;
+
+	nodes = GetAllCnIDL(false);
+	initStringInfo(&vacsql);
+	deparse_vacuum(&vacsql, options, relation, va_cols);
+	vacuum_remote(&vacsql, nodes);
+	list_free(nodes);
+	pfree(vacsql.data);
+
+	if (ActiveSnapshotSet())
+	{
+		PopActiveSnapshot();
+		PushActiveSnapshot(GetTransactionSnapshot());
+	}
+}
+
+/*
+ * vacuum_dn
+ *
+ * Send to remote datanodes to do vacuum/analyze query
+ * when we are coordinator master.
+ */
+static void
+vacuum_dn(VacuumStmt *vacstmt)
+{
+	bool	needremote = false;
+	List   *nodes = NIL;
+
+	if (!IsCnMaster())
+		return ;
+
+	if (vacstmt->relation)
+	{
+		Relation relation;
+
+		relation = heap_openrv(vacstmt->relation, AccessShareLock);
+		if (relation->rd_rel->relkind == RELKIND_RELATION &&
+			RelationGetLocInfo(relation))
+		{
+			needremote = true;
+			nodes = list_copy(relation->rd_locator_info->nodeids);
+		}
+		heap_close(relation, AccessShareLock);
+	} else
+	{
+		needremote = true;
+		nodes = GetAllDnIDL(false);
+	}
+
+	if (needremote)
+	{
+		StringInfoData	vacsql;
+
+		initStringInfo(&vacsql);
+		deparse_vacuum(&vacsql,
+						   vacstmt->options,
+						   vacstmt->relation,
+						   vacstmt->va_cols);
+
+		vacuum_remote(&vacsql, nodes);
+		pfree(vacsql.data);
+		list_free(nodes);
+
+		if (ActiveSnapshotSet())
+		{
+			PopActiveSnapshot();
+			PushActiveSnapshot(GetTransactionSnapshot());
+		}
+	}
+}
+
+/*
+ * vacuum_remote
+ *
+ * Send the specified vacuum/analyze query to
+ * the specified nodes by ExecInterXactUtility.
+ */
+static void
+vacuum_remote(StringInfo vacsql, List *nodes)
+{
+	RemoteQuery	   *rquery;
+	ExecNodes	   *rnodes;
+	ListCell	   *lc;
+
+	rnodes = makeNode(ExecNodes);
+	foreach(lc, nodes)
+		rnodes->nodeids = list_append_unique_oid(rnodes->nodeids, lfirst_oid(lc));
+
+	rquery = makeNode(RemoteQuery);
+	rquery->combine_type = COMBINE_TYPE_NONE;
+	rquery->exec_nodes = rnodes;
+	rquery->sql_statement = vacsql->data;
+	rquery->force_autocommit = true;
+	(void) ExecInterXactUtility(rquery, GetCurrentInterXactState());
+	list_free(rnodes->nodeids);
+	pfree(rnodes);
+	pfree(rquery);
 }
 #endif
 
