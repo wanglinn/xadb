@@ -506,6 +506,14 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 			break;
 	}
 #ifdef ADB_MULTI_GRAM
+		if (pstate->p_post_expr_hook)
+		{
+			Node *hookresult;
+
+			hookresult = (*pstate->p_post_expr_hook)(pstate, expr, result);
+			if (hookresult != result)
+				result = hookresult;
+		}
 	} PG_CATCH();
 	{
 		current_grammar = sv_grammar;
