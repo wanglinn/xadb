@@ -1061,6 +1061,14 @@ exception_sect	:
 						((PLpgSQL_var *) var)->isconst = true;
 						new->sqlerrm_varno = var->dno;
 
+						var = plpgsql_build_variable("sqlcode", lineno,
+													 plpgsql_build_datatype(INT4OID,
+																			-1,
+																			plpgsql_curr_compile->fn_input_collation),
+													 true);
+						((PLpgSQL_var *) var)->isconst = true;
+						new->sqlcode_varno = var->dno;
+
 						$<exception_block>$ = new;
 					}
 					proc_exceptions
