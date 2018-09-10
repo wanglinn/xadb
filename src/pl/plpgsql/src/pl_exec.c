@@ -2073,6 +2073,7 @@ exec_stmt_loop(PLpgSQL_execstate *estate, PLpgSQL_stmt_loop *stmt)
 				break;
 
 			case PLPGSQL_RC_RETURN:
+			case PLPGSQL_RC_GOTO:
 				return rc;
 
 			default:
