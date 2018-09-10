@@ -3514,6 +3514,24 @@ from_list: table_ref				{ $$ = $1 ? list_make1($1):NIL; }
 func_arg_expr: a_expr				{ $$ = $1; }
 		| TRUE_P					{ $$ = makeBoolAConst(true, @1); }
 		| FALSE_P					{ $$ = makeBoolAConst(false, @1); }
+		| param_name COLON_EQUALS a_expr
+			{
+				NamedArgExpr *na = makeNode(NamedArgExpr);
+				na->name = $1;
+				na->arg = (Expr *) $3;
+				na->argnumber = -1;		/* until determined */
+				na->location = @1;
+				$$ = (Node *) na;
+			}
+		| param_name EQUALS_GREATER a_expr
+			{
+				NamedArgExpr *na = makeNode(NamedArgExpr);
+				na->name = $1;
+				na->arg = (Expr *) $3;
+				na->argnumber = -1;		/* until determined */
+				na->location = @1;
+				$$ = (Node *) na;
+			}
 		;
 
 func_arg_list: func_arg_expr				{ $$ = list_make1($1); }
