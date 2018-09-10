@@ -259,7 +259,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	UpdateStmt UpdateSelectStmt
 	RenameStmt
 	values_clause VariableResetStmt VariableSetStmt var_value VariableShowStmt
-	where_clause
+	where_clause where_or_current_clause
 	zone_value
 
 %type <range> qualified_name relation_expr relation_expr_opt_alias
@@ -3319,20 +3319,35 @@ ctext_row: '(' ctext_expr_list ')'					{ $$ = $2; }
 
 DeleteStmt:
 	  opt_with_clause DELETE_P opt_from relation_expr
-	  opt_alias_clause where_clause returning_clause
+	  opt_alias_clause where_or_current_clause returning_clause
 		{
 			$$ = makeDeleteStmt($4, $5, $1, $6, $7);
 		}
 	/*| opt_with_clause  DELETE_P opt_from ONLY '(' relation_expr ')'
-	  opt_alias_clause where_clause returning_clause
+	  opt_alias_clause where_or_current_clause returning_clause
 		{
 			$$ = makeDeleteStmt($6, $8, $1, $9, $10);
 		}*/
 	/*| DELETE_P opt_from select_with_parens
-	  opt_alias_clause where_clause returning_clause
+	  opt_alias_clause where_or_current_clause returning_clause
 		{
 		}*/
 	;
+
+/* variant for UPDATE and DELETE */
+where_or_current_clause:
+			WHERE a_expr							{ $$ = $2; }
+			| WHERE CURRENT_P OF cursor_name
+				{
+					CurrentOfExpr *n = makeNode(CurrentOfExpr);
+					/* cvarno is filled in by parse analysis */
+					n->cursor_name = $4;
+					n->cursor_param = 0;
+					$$ = (Node *) n;
+				}
+			| /*EMPTY*/								{ $$ = NULL; }
+		;
+
 
 document_or_content: DOCUMENT_P						{ $$ = XMLOPTION_DOCUMENT; }
 			| CONTENT_P								{ $$ = XMLOPTION_CONTENT; }
@@ -5587,7 +5602,7 @@ type_function_name:	IDENT							{ $$ = $1; }
 
 UpdateStmt:
 	  UPDATE relation_expr_opt_alias SET set_clause_list
-	  where_clause returning_clause
+	  where_or_current_clause returning_clause
 		{
 			UpdateStmt *n = makeNode(UpdateStmt);
 			n->relation = $2;
@@ -5606,7 +5621,7 @@ UpdateStmt:
 	;
 
 UpdateSelectStmt:
-		  SELECT target_list FROM relation_expr where_clause
+		  SELECT target_list FROM relation_expr where_or_current_clause
 			{
 				UpdateStmt *n = makeNode(UpdateStmt);
 				n->relation = $4;
@@ -5619,6 +5634,7 @@ UpdateSelectStmt:
 				$$ = $2;
 			}
 		;
+
 
 values_clause:
 		VALUES ctext_row
