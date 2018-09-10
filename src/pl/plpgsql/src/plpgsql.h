@@ -411,6 +411,9 @@ typedef struct PLpgSQL_exception_block
 	int			sqlstate_varno;
 	int			sqlerrm_varno;
 	List	   *exc_list;		/* List of WHEN clauses */
+#ifdef ADB_GRAM_ORA
+	int			sqlcode_varno;
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_exception_block;
 
 /*

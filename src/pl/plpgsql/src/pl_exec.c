@@ -1456,6 +1456,18 @@ exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 									unpack_sql_state(edata->sqlerrcode));
 					assign_text_var(estate, errm_var, edata->message);
 
+#ifdef ADB_GRAM_ORA
+					if (estate->grammar == PARSE_GRAM_ORACLE)
+					{
+						PLpgSQL_var *code_var;
+						Assert(block->exceptions->sqlcode_varno > 0);
+						code_var = (PLpgSQL_var *)
+							estate->datums[block->exceptions->sqlcode_varno];
+
+						assign_simple_var(estate, code_var, Int32GetDatum(edata->sqlerrcode), false, true);
+					}
+#endif /* ADB_GRAM_ORA */
+
 					/*
 					 * Also set up cur_error so the error data is accessible
 					 * inside the handler.
