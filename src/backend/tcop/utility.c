@@ -451,10 +451,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 	Node	   *parsetree = pstmt->utilityStmt;
 	bool		isTopLevel = (context == PROCESS_UTILITY_TOPLEVEL);
 	ParseState *pstate;
-
 #ifdef ADB
-
-	Relation	vacuum_rel = NULL;
 	const char *this_query_str = NULL;
 
 	RemoteUtilityContext utilityContext = {
@@ -943,54 +940,6 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				/* we choose to allow this during "read only" transactions */
 				PreventCommandDuringRecovery((stmt->options & VACOPT_VACUUM) ?
 											 "VACUUM" : "ANALYZE");
-#ifdef ADB
-				if (IsCnMaster())
-				{
-					if (stmt->relation)
-					{
-						vacuum_rel = heap_openrv_extended(stmt->relation,
-														  AccessShareLock,
-														  true);
-						if (vacuum_rel)
-						{
-							if (RelationGetForm(vacuum_rel)->relkind != RELKIND_MATVIEW &&
-								RelationGetLocInfo(vacuum_rel))
-							{
-								/*
-								 * We have to run the command on nodes before Coordinator because
-								 * vacuum() pops active snapshot and we can not send it to nodes
-								 */
-								utilityContext.force_autocommit = true;
-								utilityContext.exec_type = EXEC_ON_DATANODES;
-								ExecRemoteUtilityStmt(&utilityContext);
-								
-								/*
-								 * Global transaction id maybe changed after doing "vacuum/analyze"
-								 * on remote datanodes. So we should get a new snapshot to avoid
-								 * accessing old tuples.
-								 */
-								if (ActiveSnapshotSet())
-								{
-									PopActiveSnapshot();
-									PushActiveSnapshot(GetTransactionSnapshot());
-								}
-
-								utilityContext.exec_type = EXEC_ON_COORDS;
-								ExecRemoteUtilityStmt(&utilityContext);
-							}
-
-							relation_close(vacuum_rel, AccessShareLock);
-						}
-					} else
-					{
-						utilityContext.force_autocommit = true;
-						utilityContext.exec_type = EXEC_ON_DATANODES;
-						ExecRemoteUtilityStmt(&utilityContext);
-						utilityContext.exec_type = EXEC_ON_COORDS;
-						ExecRemoteUtilityStmt(&utilityContext);
-					}
-				}
-#endif /* ADB */
 				/* forbidden in parallel mode due to CommandIsReadOnly */
 				ExecVacuum(stmt, isTopLevel);
 			}
