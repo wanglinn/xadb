@@ -248,7 +248,7 @@ WHERE OWNER=upper(CURRENT_USER);
 
 GRANT SELECT ON oracle.user_cons_columns TO PUBLIC;
 
-CREATE OR REPLACE FUNCTION oracle.raise_application_error(error_number int, error_msg char(2048), flag boolean default false)
+CREATE OR REPLACE FUNCTION oracle.raise_application_error(error_number int, error_msg varchar(2048), flag boolean default false)
     RETURNS void
     AS $$
     BEGIN
