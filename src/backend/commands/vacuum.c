@@ -87,7 +87,7 @@ static void vac_truncate_clog(TransactionId frozenXID,
 static void deparse_vacuum(StringInfo buf, int options,
 				  RangeVar *relation, List *va_cols);
 static void vacuum_cn(int options, RangeVar *relation, List *va_cols);
-static void vacuum_dn(VacuumStmt *vacstmt);
+static void vacuum_dn(int options, RangeVar *relation, List *va_cols);
 static void vacuum_remote(StringInfo vacsql, List *nodes);
 static void vacuum_full_auxrel(Relation master, int options);
 static bool vacuum_rel(Oid relid, RangeVar *relation, int *poptions,
@@ -114,11 +114,6 @@ ExecVacuum(VacuumStmt *vacstmt, bool isTopLevel)
 		   !(vacstmt->options & (VACOPT_FULL | VACOPT_FREEZE)));
 	Assert((vacstmt->options & VACOPT_ANALYZE) || vacstmt->va_cols == NIL);
 	Assert(!(vacstmt->options & VACOPT_SKIPTOAST));
-
-#ifdef ADB
-	/* do vacuum/analyze on remote datanode first */
-	vacuum_dn(vacstmt);
-#endif
 
 	/*
 	 * All freeze ages are zero if the FREEZE option is given; otherwise pass
@@ -184,15 +179,6 @@ vacuum(int options, RangeVar *relation, Oid relid, VacuumParams *params,
 
 	Assert(params != NULL);
 
-#ifdef ADB
-	/*
-	 * Do vacuum/analyze on remote coordinator first whether the current
-	 * process is an autovacuum worker process or not when we are coordinator
-	 * master.
-	 */
-	vacuum_cn(options, relation, va_cols);
-#endif
-
 	stmttype = (options & VACOPT_VACUUM) ? "VACUUM" : "ANALYZE";
 
 	/*
@@ -230,6 +216,68 @@ vacuum(int options, RangeVar *relation, Oid relid, VacuumParams *params,
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("VACUUM option DISABLE_PAGE_SKIPPING cannot be used with FULL")));
+
+#ifdef ADB
+	if (IsCnNode())
+	{
+		Relation	 rel = NULL;
+		LOCKMODE	 lmode = ShareUpdateExclusiveLock;
+
+		if ((options & VACOPT_VACUUM) && (options & VACOPT_FULL))
+			lmode = AccessExclusiveLock;
+
+		/*
+		 * Lock relation first before "vacumm/analyze" on remote nodes.
+		 * So that there will be not two "vacuum/analyze" operations at
+		 * the same time on the same coordinator.
+		 *
+		 * But there may have race condition on different coordinators.
+		 */
+		if (relation)
+		{
+			Oid relid = RangeVarGetRelid(relation, AccessShareLock, false);
+
+			if (!(options & VACOPT_NOWAIT))
+				rel = try_relation_open(relid, lmode);
+			else if (ConditionalLockRelationOid(relid, lmode))
+				rel = try_relation_open(relid, NoLock);
+			else
+			{
+				rel = NULL;
+				if (IsAutoVacuumWorkerProcess() && params->log_min_duration >= 0)
+					ereport(LOG,
+							(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
+							 errmsg("skipping vacuum of \"%s\" --- lock not available",
+									relation->relname)));
+			}
+
+			if (rel == NULL)
+				return ;
+
+			/* Keep lock */
+			heap_close(rel, NoLock);
+		}
+
+		/*
+		 * Do vacuum/analyze on remote datanodes if it is not any autovacuum
+		 * process on the coordinator master.
+		 *
+		 * We must vacuum/analyze on remote datanodes first, not with
+		 * coordinators, becuase it is autocommit and will get a new global
+		 * xid. So we may pop old snapshot and push a new one to avoid
+		 * accessing old tuples when we vacuum other coordinators then.
+		 */
+		if (IsCnMaster() && !IsAnyAutoVacuumProcess())
+			vacuum_dn(options, relation, va_cols);
+
+		/*
+		 * Then do vacuum/analyze on remote coordinators if it is on
+		 * coordinator master.
+		 */
+		if (IsCnMaster())
+			vacuum_cn(options, relation, va_cols);
+	}
+#endif
 
 	/*
 	 * Send info about dead objects to the statistics collector, unless we are
@@ -1647,7 +1695,11 @@ deparse_vacuum(StringInfo buf, int options,
 	if (options & VACOPT_VACUUM)
 	{
 		appendStringInfoString(buf, "VACUUM");
-		if (options & ~VACOPT_VACUUM)
+		if (options & (VACOPT_FULL |
+					   VACOPT_FREEZE |
+					   VACOPT_VERBOSE |
+					   VACOPT_ANALYZE |
+					   VACOPT_DISABLE_PAGE_SKIPPING))
 		{
 			appendStringInfoString(buf, " (");
 			if (options & VACOPT_FULL)
@@ -1682,7 +1734,7 @@ deparse_vacuum(StringInfo buf, int options,
 							 quote_identifier(relation->relname));
 	}
 
-	if (va_cols)
+	if (list_length(va_cols) > 0)
 	{
 		ListCell   *lc;
 
@@ -1710,8 +1762,7 @@ vacuum_cn(int options, RangeVar *relation, List *va_cols)
 	StringInfoData	vacsql;
 	List		   *nodes = NIL;
 
-	if (!IsCnMaster())
-		return ;
+	Assert(IsCnMaster());
 
 	nodes = GetAllCnIDL(false);
 	initStringInfo(&vacsql);
@@ -1734,26 +1785,24 @@ vacuum_cn(int options, RangeVar *relation, List *va_cols)
  * when we are coordinator master.
  */
 static void
-vacuum_dn(VacuumStmt *vacstmt)
+vacuum_dn(int options, RangeVar *relation, List *va_cols)
 {
 	bool	needremote = false;
 	List   *nodes = NIL;
 
-	if (!IsCnMaster())
-		return ;
+	Assert(IsCnMaster());
+	Assert(!IsAnyAutoVacuumProcess());
 
-	if (vacstmt->relation)
+	if (relation)
 	{
-		Relation relation;
-
-		relation = heap_openrv(vacstmt->relation, AccessShareLock);
-		if (relation->rd_rel->relkind == RELKIND_RELATION &&
-			RelationGetLocInfo(relation))
+		Relation rel = heap_openrv(relation, AccessShareLock);
+		if (rel->rd_rel->relkind == RELKIND_RELATION &&
+			RelationGetLocInfo(rel))
 		{
 			needremote = true;
-			nodes = list_copy(relation->rd_locator_info->nodeids);
+			nodes = list_copy(rel->rd_locator_info->nodeids);
 		}
-		heap_close(relation, AccessShareLock);
+		heap_close(rel, AccessShareLock);
 	} else
 	{
 		needremote = true;
@@ -1766,9 +1815,9 @@ vacuum_dn(VacuumStmt *vacstmt)
 
 		initStringInfo(&vacsql);
 		deparse_vacuum(&vacsql,
-						   vacstmt->options,
-						   vacstmt->relation,
-						   vacstmt->va_cols);
+					   options,
+					   relation,
+					   va_cols);
 
 		vacuum_remote(&vacsql, nodes);
 		pfree(vacsql.data);
