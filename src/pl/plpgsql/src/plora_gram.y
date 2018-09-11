@@ -1484,8 +1484,16 @@ for_control		: for_variable POK_IN
 								new->cmd_type = PLPGSQL_STMT_FORI;
 								new->var	  = fvar;
 								new->reverse  = reverse;
-								new->lower	  = expr1;
-								new->upper	  = expr2;
+								if (reverse)
+								{
+									new->lower	  = expr2;
+									new->upper	  = expr1;
+								}
+								else
+								{
+									new->lower	  = expr1;
+									new->upper	  = expr2;
+								}
 								new->step	  = expr_by;
 
 								$$ = (PLpgSQL_stmt *) new;
