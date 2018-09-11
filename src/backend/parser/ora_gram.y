@@ -5647,6 +5647,26 @@ UpdateStmt:
 			n->returningList = $7;
 			$$ = (Node*)n;
 		}
+	| UPDATE '(' UpdateSelectStmt ')' ColId SET set_clause_list returning_clause
+		{
+			UpdateStmt *n = (UpdateStmt*)$3;
+			Alias *alias = makeNode(Alias);
+			alias->aliasname = $5;
+			n->relation->alias = alias;
+			n->targetList = $7;
+			n->returningList = $8;
+			$$ = (Node*)n;
+		}
+	| UPDATE '(' UpdateSelectStmt ')' AS ColId SET set_clause_list returning_clause
+		{
+			UpdateStmt *n = (UpdateStmt*)$3;
+			Alias *alias = makeNode(Alias);
+			alias->aliasname = $6;
+			n->relation->alias = alias;
+			n->targetList = $8;
+			n->returningList = $9;
+			$$ = (Node*)n;
+		}
 	;
 
 UpdateSelectStmt:
