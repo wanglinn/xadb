@@ -5340,10 +5340,21 @@ SimpleTypename:
 			$$ = makeTypeName($1);
 			$$->location = @1;
 		}
+	| IDENT '.' IDENT
+		{
+			$$ = makeTypeNameFromNameList(list_make2(makeString($1),makeString($3)));
+			$$->location = @1;
+		}
 	| IDENT '(' expr_list ')'
 		{
 			$$ = makeTypeName($1);
 			$$->typmods = $3;
+			$$->location = @1;
+		}
+	| IDENT '.' IDENT '(' expr_list ')'
+		{
+			$$ = makeTypeNameFromNameList(list_make2(makeString($1),makeString($3)));
+			$$->typmods = $5;
 			$$->location = @1;
 		}
 	| type_func_name_keyword
