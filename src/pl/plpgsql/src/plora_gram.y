@@ -206,7 +206,7 @@ static PLoraSQL_type   *read_type_define(char *name, int location);
 %type <stmt>	/*stmt_open stmt_fetch stmt_move stmt_close*/ stmt_null
 /*%type <stmt>	stmt_case stmt_foreach_a*/
 %type <stmt>	stmt_goto stmt_case
-%type <stmt>	for_control
+%type <stmt>	for_control stmt_dynexecute
 %type <stmt>	stmt_for stmt_func stmt_open stmt_close stmt_fetch
 %type <loop_body>	loop_body
 %type <forvariable>	for_variable
@@ -817,6 +817,8 @@ proc_stmt		: pl_block ';'
 							castStmt(sub_rollback, SUB_ROLLBACK, $$)->label = $1;
 							plpgsql_curr_compile->have_sub_trans = true;
 						}
+				| opt_block_label stmt_dynexecute
+						{ $$ = $2; castStmt(dynexecute, DYNEXECUTE, $$)->label = $1; }
 				;
 
 stmt_assign		: assign_var assign_operator expr_until_semi
@@ -1946,6 +1948,69 @@ decl_cursor_query :
 
 decl_is_for		:	POK_IS |		/* Oracle */
 					POK_FOR;		/* SQL standard */
+
+stmt_dynexecute : POK_EXECUTE POK_IMMEDIATE
+					{
+						PLpgSQL_stmt_dynexecute *new;
+						PLpgSQL_expr *expr;
+						int endtoken;
+
+						expr = read_sql_construct(POK_INTO, POK_USING, ';',
+												  "INTO or USING or ;",
+												  "SELECT ",
+												  true, true, true,
+												  NULL, &endtoken);
+
+						new = palloc(sizeof(PLpgSQL_stmt_dynexecute));
+						new->cmd_type = PLPGSQL_STMT_DYNEXECUTE;
+						new->lineno = plpgsql_location_to_lineno(@1);
+						new->query = expr;
+						new->into = false;
+						new->strict = false;
+						new->rec = NULL;
+						new->row = NULL;
+						new->params = NIL;
+
+						/*
+						 * We loop to allow the INTO and USING clauses to
+						 * appear in either order, since people easily get
+						 * that wrong.  This coding also prevents "INTO foo"
+						 * from getting absorbed into a USING expression,
+						 * which is *really* confusing.
+						 */
+						for (;;)
+						{
+							if (endtoken == POK_INTO)
+							{
+								if (new->into)			/* multiple INTO */
+									yyerror("syntax error");
+								new->into = true;
+								read_into_target(&new->rec, &new->row);
+								endtoken = yylex();
+							}
+							else if (endtoken == POK_USING)
+							{
+								if (new->params)		/* multiple USING */
+									yyerror("syntax error");
+								do
+								{
+									expr = read_sql_construct(',', ';', POK_INTO,
+												", or ; or INTO",
+												"SELECT ",
+												true, true, true,
+												NULL, &endtoken);
+									new->params = lappend(new->params, expr);
+								} while (endtoken == ',');
+							}
+							else if (endtoken == ';')
+								break;
+							else
+								yyerror("syntax error");
+						}
+
+						$$ = (PLpgSQL_stmt *)new;
+					}
+				;
 
 unreserved_keyword	:
 				  POK_A
