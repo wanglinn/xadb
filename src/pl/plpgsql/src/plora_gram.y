@@ -2506,7 +2506,7 @@ read_datatype(int tok)
 			}
 		}else
 		{
-			result = plpgsql_find_ns_wordtype(dtname);
+			result = plpgsql_find_wordtype(dtname);
 			if (result)
 			{
 				plpgsql_push_back_token(tok);
@@ -2538,7 +2538,7 @@ read_datatype(int tok)
 			}
 		}else
 		{
-			result = plpgsql_find_ns_wordtype(dtname);
+			result = plpgsql_find_wordtype(dtname);
 			if (result)
 			{
 				plpgsql_push_back_token(tok);
@@ -3753,7 +3753,7 @@ static PLoraSQL_type   *plora_build_type(char *name, int location, Oid oid, int 
 {
 	PLpgSQL_type *typ;
 	PLoraSQL_type *oraTyp;
-	if (plpgsql_find_ns_wordtype(name) != NULL)
+	if (plpgsql_find_wordtype(name) != NULL)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 					errmsg("duplicate declaration"),

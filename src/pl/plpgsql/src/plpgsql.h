@@ -1164,7 +1164,8 @@ extern bool plpgsql_parse_dblword(char *word1, char *word2,
 extern bool plpgsql_parse_tripword(char *word1, char *word2, char *word3,
 					   PLwdatum *wdatum, PLcword *cword);
 #ifdef ADB_GRAM_ORA
-extern PLpgSQL_type *plpgsql_find_ns_wordtype(char *ident);
+extern PLpgSQL_type *plpgsql_find_wordtype(const char *ident);
+extern PLpgSQL_type *plpgsql_find_wordtype_ns(PLpgSQL_nsitem *ns, const char *ident);
 #endif /* ADB_GRAM_ORA */
 extern PLpgSQL_type *plpgsql_parse_wordtype(char *ident);
 extern PLpgSQL_type *plpgsql_parse_cwordtype(List *idents);

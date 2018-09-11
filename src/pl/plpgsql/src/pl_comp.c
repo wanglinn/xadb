@@ -135,6 +135,7 @@ static void delete_function(PLpgSQL_function *func);
 extern int plorasql_yyparse(void);
 static int plorasql_parse(void);
 static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a);
+static Node* plora_pre_parse_func(ParseState *pstate, FuncCall *func);
 static Node* plora_pre_parse_expr(ParseState *pstate, Node *expr);
 #endif /* ADB_GRAM_ORA */
 
@@ -1686,11 +1687,17 @@ plpgsql_parse_tripword(char *word1, char *word2, char *word3,
 
 #ifdef ADB_GRAM_ORA
 PLpgSQL_type *
-plpgsql_find_ns_wordtype(char *ident)
+plpgsql_find_wordtype(const char *ident)
+{
+	return plpgsql_find_wordtype_ns(plpgsql_ns_top(), ident);
+}
+
+PLpgSQL_type *
+plpgsql_find_wordtype_ns(PLpgSQL_nsitem *ns_top, const char *ident)
 {
 	PLpgSQL_nsitem *ns_cur;
 
-	for (ns_cur = plpgsql_ns_top();
+	for (ns_cur = ns_top;
 		 ns_cur != NULL;
 		 ns_cur = ns_cur->prev)
 	{
@@ -2788,6 +2795,57 @@ static Node* plora_pre_parse_expr(ParseState *pstate, Node *expr)
 		return NULL;
 	if (IsA(expr, A_Expr))
 		return plora_pre_parse_aexpr(pstate, (A_Expr*)expr);
+	else if (IsA(expr, FuncCall))
+		return plora_pre_parse_func(pstate, (FuncCall*)expr);
+
+	return NULL;
+}
+
+static Node* plora_pre_parse_func(ParseState *pstate, FuncCall *func)
+{
+	ListCell	   *lc;
+	const char	   *name;
+	PLpgSQL_expr   *expr;
+	PLpgSQL_type   *type;
+
+	/* test is array asign */
+	if (list_length(func->funcname) != 1 ||
+		list_length(func->args) == 0 ||
+		func->agg_order != NIL ||
+		func->agg_filter != NULL ||
+		func->agg_within_group ||
+		func->agg_star ||
+		func->agg_distinct ||
+		func->func_variadic ||
+		func->over != NULL)
+	{
+		return NULL;
+	}
+
+	foreach(lc, func->args)
+	{
+		if (IsA(lfirst(lc), NamedArgExpr))
+			return NULL;
+	}
+
+	name = strVal(linitial(func->funcname));
+	expr = (PLpgSQL_expr*)(pstate->p_ref_hook_state);
+	type = plpgsql_find_wordtype_ns(expr->ns, name);
+	if (type && type->typisarray)
+	{
+		/* now is array asign */
+		TypeCast *tc = makeNode(TypeCast);
+		A_ArrayExpr *arr = makeNode(A_ArrayExpr);
+
+		arr->elements = func->args;
+		arr->location = func->location;
+
+		tc->arg = (Node*)arr;
+		tc->typeName = makeTypeNameFromOid(type->typoid, type->atttypmod);
+		tc->location = func->location;
+
+		return transformExpr(pstate, (Node*)tc, pstate->p_expr_kind);
+	}
 
 	return NULL;
 }
