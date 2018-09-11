@@ -1773,8 +1773,12 @@ stmt_open		: POK_OPEN cursor_variable
 							if (tok != POK_FOR)
 								yyerror("syntax error, expected \"FOR\"");
 
-							tok = yylex();
-							if (tok == POK_EXECUTE)
+							tok = plpgsql_peek();
+							if (tok == POK_SELECT ||
+								tok == POK_WITH)
+							{
+								new->query = read_sql_stmt("");
+							}else
 							{
 								int		endtoken;
 
@@ -1797,11 +1801,6 @@ stmt_open		: POK_OPEN cursor_variable
 															  expr);
 									} while (endtoken == ',');
 								}
-							}
-							else
-							{
-								plpgsql_push_back_token(tok);
-								new->query = read_sql_stmt("");
 							}
 						}
 						else
