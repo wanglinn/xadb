@@ -2504,7 +2504,7 @@ read_datatype(int tok)
 				if (result)
 					return result;
 			}
-		}else if (tok == ';')
+		}else
 		{
 			result = plpgsql_find_ns_wordtype(dtname);
 			if (result)
@@ -2536,7 +2536,7 @@ read_datatype(int tok)
 				if (result)
 					return result;
 			}
-		}else if (tok == ';')
+		}else
 		{
 			result = plpgsql_find_ns_wordtype(dtname);
 			if (result)
