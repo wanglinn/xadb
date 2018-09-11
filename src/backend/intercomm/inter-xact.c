@@ -241,13 +241,15 @@ MakeInterXactState2(InterXactState state, const List *node_list)
 		list_length(state->cur_handle->handles) == list_length(node_list))
 	{
 		NodeHandle *handle;
-		ListCell   *lc_handle;
+		ListCell   *lc_handle,
+				   *lc_node;
 		bool		equal = true;
 
-		foreach (lc_handle, state->cur_handle->handles)
+		forboth(lc_handle, state->cur_handle->handles,
+				lc_node, node_list)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
-			if (!list_member_oid(node_list, handle->node_id))
+			if (handle->node_id != lfirst_oid(lc_node))
 			{
 				equal = false;
 				break;
@@ -602,12 +604,25 @@ InterXactUtility(InterXactState state, Snapshot snapshot,
 			gxid = GetCurrentTransactionIdIfAny();
 		timestamp = GetCurrentTransactionStartTimestamp();
 
+		/* Send utility query to remote nodes */
 		foreach (lc_handle, cur_handle->handles)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
 			if (!HandleBegin(state, handle, gxid, timestamp, need_xact_block, &already_begin) ||
-				!HandleSendQueryTree(handle, InvalidCommandId, snapshot, utility, utility_tree) ||
-				!HandleFinishCommand(handle, NULL_TAG))
+				!HandleSendQueryTree(handle, InvalidCommandId, snapshot, utility, utility_tree))
+			{
+				ereport(ERROR,
+						(errmsg("Fail to send utility query to remote node."),
+						 errnode(NameStr(handle->node_name)),
+						 errdetail("%s", HandleGetError(handle))));
+			}
+		}
+
+		/* Receive result of utility from remote nodes */
+		foreach (lc_handle, cur_handle->handles)
+		{
+			handle = (NodeHandle *) lfirst(lc_handle);
+			if (!HandleFinishCommand(handle, NULL_TAG))
 			{
 				ereport(ERROR,
 						(errmsg("Fail to process utility query on remote node."),
