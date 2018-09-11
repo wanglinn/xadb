@@ -77,7 +77,6 @@ static bool is_sys_connect_by_path_expr(Node *node);
 static void change_expr_to_target(List *list);
 static char* get_unique_as_name(const char *prefix, uint32 *start, List *list);
 static char* get_expr_name(Node *expr, List *expr_list, List *name_list);
-static bool have_prior_expr(Node *node, void *context);
 static Node* make_concat_expr(Node *larg, Node *rarg, int location);
 
 #endif /* ADB_GRAM_ORA */
@@ -509,13 +508,6 @@ Node *makeConnectByStmt(SelectStmt *stmt, Node *start, Node *connect_by,
 	AssertArg(stmt && connect_by && yyscanner);
 	memset(&pstate, 0, sizeof(pstate));
 
-	/* have PriorExpr? */
-	if(have_prior_expr(connect_by, NULL) == false)
-	{
-		ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
-			errmsg("have no prior expression")));
-	}
-
 	if(stmt->distinctClause || stmt->groupClause || stmt->havingClause || stmt->windowClause)
 	{
 		ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
@@ -617,15 +609,6 @@ Node *makeConnectByStmt(SelectStmt *stmt, Node *start, Node *connect_by,
 	new_select->whereClause = mutator_connect_by_expr(stmt->whereClause, &pstate);
 
 	return (Node*)new_select;
-}
-
-static bool have_prior_expr(Node *node, void *context)
-{
-	if(node == NULL)
-		return false;
-	if(IsA(node, PriorExpr))
-		return true;
-	return node_tree_walker(node, have_prior_expr, context);
 }
 
 static Node* make_concat_expr(Node *larg, Node *rarg, int location)
