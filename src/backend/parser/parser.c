@@ -57,7 +57,6 @@ typedef struct ConnectByParseState
 	List *scbp_list;		/* sys_connect_by_path list */
 	List *scbp_as_list;		/* sys_connect_by_path as name list */
 	const char *base_rel_name;
-	const char *schema_name;
 	const char *database_name;
 	const char *cte_name;
 	char *column_level;
@@ -685,28 +684,15 @@ static bool search_columnref(Node *node, ConnectByParseState *context)
 		if(list_length(c->fields) > 2)
 		{
 			Assert(IsA(lfirst(lc), String));
-			if(context->schema_name == NULL)
-			{
-				context->schema_name = strVal(lfirst(lc));
-			}else if(strcmp(context->schema_name, strVal(lfirst(lc))) != 0)
-			{
-				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
-					errmsg("different schema name"),
-					err_generic_string(PG_DIAG_SCHEMA_NAME, strVal(lfirst(lc))),
-					scanner_errposition(c->location, context->yyscanner)));
-			}
+			if(strcmp(context->base_rel_name, strVal(lfirst(lc))) != 0)
+				return false;
 			lc = lnext(lc);
 		}
 		if(list_length(c->fields) > 1)
 		{
 			Assert(IsA(lfirst(lc), String));
 			if(strcmp(context->base_rel_name, strVal(lfirst(lc))) != 0)
-			{
-				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
-					errmsg("different table name"),
-					err_generic_string(PG_DIAG_TABLE_NAME, strVal(lfirst(lc))),
-					scanner_errposition(c->location, context->yyscanner)));
-			}
+				return false;
 			lc = lnext(lc);
 		}
 		Assert(lnext(lc) == NULL);
