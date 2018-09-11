@@ -29,6 +29,7 @@
 #include "nodes/makefuncs.h"
 #ifdef ADB_GRAM_ORA
 #include "nodes/nodeFuncs.h"	/* for function exprType */
+#include "parser/parse_expr.h"	/* for function transformExpr */
 #endif /* ADB_GRAM_ORA */
 #include "parser/parse_type.h"
 #include "utils/builtins.h"
