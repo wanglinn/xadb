@@ -437,6 +437,14 @@ do_compile(FunctionCallInfo fcinfo,
 			numargs = get_func_arg_info(procTup,
 										&argtypes, &argnames, &argmodes);
 
+			/* convert user defined ref cursor to ref cursor */
+			for (i=0; i<numargs; ++i)
+			{
+				if (argtypes[i] >= FirstBootstrapObjectId &&
+					getBaseType(argtypes[i]) == REFCURSOROID)
+					argtypes[i] = REFCURSOROID;
+			}
+
 			plpgsql_resolve_polymorphic_argtypes(numargs, argtypes, argmodes,
 												 fcinfo->flinfo->fn_expr,
 												 forValidator,
