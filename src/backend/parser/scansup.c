@@ -20,6 +20,9 @@
 #include "parser/scansup.h"
 #include "mb/pg_wchar.h"
 
+#ifdef ADB
+extern bool enable_truncate_ident;
+#endif
 
 /* ----------------
  *		scanstr
@@ -188,6 +191,13 @@ truncate_identifier(char *ident, int len, bool warn)
 {
 	if (len >= NAMEDATALEN)
 	{
+#ifdef ADB
+		if (!enable_truncate_ident && warn)
+			ereport(ERROR,
+					(errcode(ERRCODE_NAME_TOO_LONG),
+					 errmsg("identifier \"%s\" is (%d bytes) longer than %d bytes",
+					 		ident, len, NAMEDATALEN - 1)));
+#endif
 		len = pg_mbcliplen(ident, len, NAMEDATALEN - 1);
 		if (warn)
 		{
