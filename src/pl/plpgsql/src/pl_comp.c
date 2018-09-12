@@ -2696,6 +2696,7 @@ static Node* plora_pre_parse_func(ParseState *pstate, FuncCall *func)
 	const char	   *name;
 	PLpgSQL_expr   *expr;
 	PLpgSQL_type   *type;
+	PLpgSQL_nsitem *nse;
 
 	/* test is array asign */
 	if (list_length(func->funcname) != 1 ||
@@ -2720,6 +2721,30 @@ static Node* plora_pre_parse_func(ParseState *pstate, FuncCall *func)
 	name = strVal(linitial(func->funcname));
 	expr = (PLpgSQL_expr*)(pstate->p_ref_hook_state);
 	type = plpgsql_find_wordtype_ns(expr->ns, name);
+
+	if (!type && (list_length(func->args) == 1))
+	{
+		nse = plpgsql_ns_lookup(expr->ns, false,
+								name, NULL, NULL, NULL);
+		if (!nse)
+			return NULL;
+		A_Indirection *arr = makeNode(A_Indirection);
+		ColumnRef *colRef = makeNode(ColumnRef);
+		A_Indices *a_indice = makeNode(A_Indices);
+
+		colRef->fields = list_make1(makeString(pstrdup(name)));
+		colRef->location = func->location;
+
+		a_indice->is_slice = false;
+		a_indice->lidx = NULL;
+		a_indice->uidx = (Node*)linitial(func->args);
+
+		arr->arg = (Node*)colRef;
+		arr->indirection = list_make1(a_indice);
+
+		return transformExpr(pstate, (Node*)arr, pstate->p_expr_kind);
+	}
+
 	if (type && type->typisarray)
 	{
 		/* now is array asign */
