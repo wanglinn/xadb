@@ -98,8 +98,6 @@ static	PLpgSQL_stmt_fetch *read_fetch_direction(void);
 static	void			 complete_direction(PLpgSQL_stmt_fetch *fetch,
 											bool *check_FROM);
 static	PLpgSQL_stmt	*make_return_stmt(int location);
-static	PLpgSQL_stmt	*make_return_next_stmt(int location);
-static	PLpgSQL_stmt	*make_return_query_stmt(int location);
 static  PLpgSQL_stmt	*make_case(int location, PLpgSQL_expr *t_expr,
 								   List *case_when_list, List *else_stmts);
 static	char			*NameOfDatum(PLwdatum *wdatum);
@@ -2893,114 +2891,6 @@ make_return_stmt(int location)
 
 	return (PLpgSQL_stmt *) new;
 }
-
-
-static PLpgSQL_stmt *
-make_return_next_stmt(int location)
-{
-	PLpgSQL_stmt_return_next *new;
-
-	if (!plpgsql_curr_compile->fn_retset)
-		ereport(ERROR,
-				(errcode(ERRCODE_DATATYPE_MISMATCH),
-				 errmsg("cannot use RETURN NEXT in a non-SETOF function"),
-				 parser_errposition(location)));
-
-	new = palloc0(sizeof(PLpgSQL_stmt_return_next));
-	new->cmd_type	= PLPGSQL_STMT_RETURN_NEXT;
-	new->lineno		= plpgsql_location_to_lineno(location);
-	new->expr		= NULL;
-	new->retvarno	= -1;
-
-	if (plpgsql_curr_compile->out_param_varno >= 0)
-	{
-		if (yylex() != ';')
-			ereport(ERROR,
-					(errcode(ERRCODE_DATATYPE_MISMATCH),
-					 errmsg("RETURN NEXT cannot have a parameter in function with OUT parameters"),
-					 parser_errposition(yylloc)));
-		new->retvarno = plpgsql_curr_compile->out_param_varno;
-	}
-	else
-	{
-		/*
-		 * We want to special-case simple variable references for efficiency.
-		 * So peek ahead to see if that's what we have.
-		 */
-		int		tok = yylex();
-
-		if (tok == T_DATUM && plpgsql_peek() == ';' &&
-			(yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_VAR ||
-			 yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_ROW ||
-			 yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_REC))
-		{
-			new->retvarno = yylval.wdatum.datum->dno;
-			/* eat the semicolon token that we only peeked at above */
-			tok = yylex();
-			Assert(tok == ';');
-		}
-		else
-		{
-			/*
-			 * Not (just) a variable name, so treat as expression.
-			 *
-			 * Note that a well-formed expression is _required_ here;
-			 * anything else is a compile-time error.
-			 */
-			plpgsql_push_back_token(tok);
-			new->expr = read_sql_expression(';', ";");
-		}
-	}
-
-	return (PLpgSQL_stmt *) new;
-}
-
-
-static PLpgSQL_stmt *
-make_return_query_stmt(int location)
-{
-	PLpgSQL_stmt_return_query *new;
-	int			tok;
-
-	if (!plpgsql_curr_compile->fn_retset)
-		ereport(ERROR,
-				(errcode(ERRCODE_DATATYPE_MISMATCH),
-				 errmsg("cannot use RETURN QUERY in a non-SETOF function"),
-				 parser_errposition(location)));
-
-	new = palloc0(sizeof(PLpgSQL_stmt_return_query));
-	new->cmd_type = PLPGSQL_STMT_RETURN_QUERY;
-	new->lineno = plpgsql_location_to_lineno(location);
-
-	/* check for RETURN QUERY EXECUTE */
-	if ((tok = yylex()) != POK_EXECUTE)
-	{
-		/* ordinary static query */
-		plpgsql_push_back_token(tok);
-		new->query = read_sql_stmt("");
-	}
-	else
-	{
-		/* dynamic SQL */
-		int		term;
-
-		new->dynquery = read_sql_expression2(';', POK_USING, "; or USING",
-											 &term);
-		if (term == POK_USING)
-		{
-			do
-			{
-				PLpgSQL_expr *expr;
-
-				expr = read_sql_expression2(',', ';', ", or ;", &term);
-				new->params = lappend(new->params, expr);
-			} while (term == ',');
-		}
-	}
-
-	return (PLpgSQL_stmt *) new;
-}
-
 
 /* convenience routine to fetch the name of a T_DATUM */
 static char *
