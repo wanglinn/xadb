@@ -185,7 +185,7 @@ static PLoraSQL_type   *read_type_define(char *name, int location);
 %type <declhdr> decl_sect decl_sect_top
 %type <varname> decl_varname
 %type <boolean>	decl_const decl_notnull exit_type
-%type <expr>	decl_defval decl_cursor_query
+%type <expr>	decl_defval decl_cursor_query expr_until_rightparenthese
 %type <dtype>	decl_datatype
 
 %type <expr>	expr_until_semi/* expr_until_rightbracket*/
@@ -838,6 +838,21 @@ assign_var		: T_DATUM
 						check_assignable($1.datum, @1);
 						$$ = $1.datum;
 					}
+				| assign_var '(' expr_until_rightparenthese
+					{
+						PLpgSQL_arrayelem	*new;
+
+						new = palloc0(sizeof(PLpgSQL_arrayelem));
+						new->dtype		= PLPGSQL_DTYPE_ARRAYELEM;
+						new->subscript	= $3;
+						new->arrayparentno = $1->dno;
+						/* initialize cached type data to "not valid" */
+						new->parenttypoid = InvalidOid;
+
+						plpgsql_adddatum((PLpgSQL_datum *) new);
+
+						$$ = (PLpgSQL_datum *) new;
+					}
 				;
 
 stmt_func		: T_CWORD '('
@@ -1162,9 +1177,9 @@ expr_until_semi :
 					{ $$ = read_sql_expression(';', ";"); }
 				;
 
-/*expr_until_rightbracket :
-					{ $$ = read_sql_expression(']', "]"); }
-				;*/
+expr_until_rightparenthese :
+					{ $$ = read_sql_expression(')', ")"); }
+				;
 
 expr_until_then :
 					{ $$ = read_sql_expression(POK_THEN, "THEN"); }
