@@ -1016,9 +1016,6 @@ typedef struct PLpgSQL_execstate
 #ifdef ADB_MULTI_GRAM
 	ParseGrammar grammar;
 #endif /* ADB_MULTI_GRAM */
-#ifdef ADB_GRAM_ORA
-	int			ora_rowcount_varno;
-#endif /* ADB_GRAM_ORA */
 } PLpgSQL_execstate;
 
 /*
