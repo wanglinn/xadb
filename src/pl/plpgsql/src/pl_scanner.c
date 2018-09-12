@@ -759,14 +759,15 @@ plpgsql_scanner_init(const char *str)
 	 */
 	scanorig = str;
 
-	/* Other setup, top DECLARE keyword is optional */
-	plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_DECLARE;
+	/* Other setup */
+	plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
 	plpgsql_yytoken = 0;
 
 	num_pushbacks = 0;
 
 	location_lineno_init();
 }
+
 #ifdef ADB_GRAM_ORA
 void plorasql_scanner_init(const char *str)
 {
@@ -785,7 +786,7 @@ void plorasql_scanner_init(const char *str)
 	scanorig = str;
 
 	/* Other setup */
-	plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_DECLARE;
+	plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
 	plpgsql_yytoken = 0;
 
 	num_pushbacks = 0;
