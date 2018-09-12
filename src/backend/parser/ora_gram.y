@@ -327,7 +327,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 
 	ELSE END_P ESCAPE EXCLUSIVE EXISTS EXPLAIN EXTRACT
 	ENABLE_P EXCLUDE EVENT EXTENSION EXCLUDING ENCRYPTED
-	FALSE_P FETCH FILE_P FIRST_P FLOAT_P FOLLOWING FOR FORWARD FROM FOREIGN FULL
+	FALSE_P FETCH FILE_P FIRST_P FLOAT_P FOLLOWING FOR FORWARD FROM FOREIGN FULL FUNCTION
 	GLOBAL GRANT GREATEST GROUP_P HAVING
 	HOLD HOUR_P
 	IDENTIFIED IF_P IMMEDIATE IN_P INOUT INCREMENT INDEX INITIAL_P INSERT INHERIT INITIALLY
@@ -747,6 +747,22 @@ CreateProcedureStmt:
 
 					/* ignore invoker_rights_clause */
 					$$ = (Node *)n;
+				}
+			| CREATE opt_or_replace FUNCTION func_name func_args_with_defaults
+			  create_procedure_invoker_rights_clause RETURN_P Typename
+			  create_procedure_is_or_as Sconst
+				{
+					CreateFunctionStmt *n = makeNode(CreateFunctionStmt);
+
+					n->replace = $2;
+					n->funcname = $4;
+					n->parameters = $5;
+					n->returnType = $8;
+					n->options = list_make2(makeDefElem("as", (Node *)list_make1(makeString($10)), @10),
+											makeDefElem("language", (Node *)makeString("plorasql"), -1));
+					n->withClause = NULL;
+
+					$$ = (Node*)n;
 				}
 			;
 
@@ -6566,6 +6582,7 @@ unreserved_keyword:
 	| FIRST_P
 	| FOLLOWING
 	| FORWARD
+	| FUNCTION
 	| GLOBAL
 	| HOLD
 	| IDENTITY_P
