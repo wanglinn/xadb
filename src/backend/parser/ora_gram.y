@@ -337,7 +337,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	JOIN
 	KEY
 	LEADING LEAST LEFT LEVEL LIMIT LIKE LOCAL LOCALTIMESTAMP LOCK_P LOG_P LONG_P
-	MATERIALIZED MAXEXTENTS MINUS MINUTE_P MLSLABEL MODE MODIFY MONTH_P MOVE
+	MATERIALIZED MAXEXTENTS MINUS MINUTE_P MLSLABEL MOD MODE MODIFY MONTH_P MOVE
 	MATCH MAXVALUE NOMAXVALUE  MINVALUE NOMINVALUE
 	NAMES NCHAR NCLOB NEXT NEXTVAL NOAUDIT NOCOMPRESS NOT NOWAIT NULL_P NULLIF NUMBER_P
 	NUMERIC NVARCHAR2 NO
@@ -416,7 +416,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 //%nonassoc	ISNULL
 %nonassoc	IS				/* sets precedence for IS NULL, etc */
 %left		'+' '-'
-%left		'*' '/' '%'
+%left		'*' '/' '%' MOD
 %left		'^'
 //%right SOME
 /* Unary Operators */
@@ -2202,6 +2202,8 @@ a_expr:	c_expr
 	| a_expr '/' a_expr
 		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "/", $1, $3, @2); }
 	| a_expr '%' a_expr
+		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "%", $1, $3, @2); }
+	| a_expr MOD a_expr
 		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "%", $1, $3, @2); }
 	| a_expr '^' a_expr
 		{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "^", $1, $3, @2); }
@@ -6584,6 +6586,7 @@ unreserved_keyword:
 	| NOMAXVALUE
 	| MINVALUE
 	| NOMINVALUE
+	| MOD
 	| MONTH_P
 	| MOVE
 	| NAMES
