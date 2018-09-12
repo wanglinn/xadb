@@ -193,7 +193,7 @@ static PLoraSQL_type   *read_type_define(char *name, int location);
 %type <expr>	expr_until_then expr_until_loop opt_expr_until_when
 %type <expr>	opt_exitcond
 
-%type <str>		any_identifier opt_block_label opt_loop_label opt_label
+%type <str>		any_identifier opt_block_label opt_block_label_top opt_loop_label opt_label
 %type <str>		/*option_value */raise_exception
 %type <ival>	raise_level opt_raise_level
 
@@ -403,7 +403,7 @@ pl_block_top	: decl_sect_top POK_BEGIN proc_sect exception_sect POK_END opt_labe
 				;
 
 /* top block DECLARE is optional */
-decl_sect_top	: opt_block_label
+decl_sect_top	: opt_block_label_top
 					{
 						/* done with decls, so resume identifier lookup */
 						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
@@ -411,21 +411,21 @@ decl_sect_top	: opt_block_label
 						$$.n_initvars = 0;
 						$$.initvarnos = NULL;
 					}
-				| opt_block_label decl_start
+				| opt_block_label_top POK_DECLARE
 					{
 						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
 						$$.label	  = $1;
 						$$.n_initvars = 0;
 						$$.initvarnos = NULL;
 					}
-				| opt_block_label decl_start decl_stmts_top
+				| opt_block_label_top POK_DECLARE decl_stmts_top
 					{
 						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
 						$$.label	  = $1;
 						/* Remember variables declared in decl_stmts */
 						$$.n_initvars = plpgsql_add_initdatums(&($$.initvarnos));
 					}
-				| opt_block_label decl_stmts_top
+				| opt_block_label_top decl_stmts_top
 					{
 						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
 						$$.label	  = $1;
@@ -433,6 +433,19 @@ decl_sect_top	: opt_block_label
 						$$.n_initvars = plpgsql_add_initdatums(&($$.initvarnos));
 					}
 				;
+
+opt_block_label_top: opt_block_label
+					{
+						/* Forget any variables created before block */
+						plpgsql_add_initdatums(NULL);
+						/*
+						 * Disable scanner lookup of identifiers while
+						 * we process the decl_stmts
+						 */
+						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_DECLARE;
+
+						$$ = $1;
+					}
 
 decl_stmts_top	: decl_stmts_top decl_statement_top
 				| decl_statement_top
