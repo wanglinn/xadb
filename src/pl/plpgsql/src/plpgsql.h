@@ -907,6 +907,7 @@ typedef struct PLpgSQL_stmt_execsql
 	bool		into;			/* INTO supplied? */
 	bool		strict;			/* INTO STRICT flag */
 	PLpgSQL_variable *target;	/* INTO target (record or row) */
+	char	   *label;
 } PLpgSQL_stmt_execsql;
 
 /*
