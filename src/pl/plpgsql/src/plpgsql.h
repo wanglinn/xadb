@@ -793,6 +793,7 @@ typedef struct PLpgSQL_stmt_execsql
 	bool		strict;			/* INTO STRICT flag */
 	PLpgSQL_rec *rec;			/* INTO target, if record */
 	PLpgSQL_row *row;			/* INTO target, if row */
+	char	   *label;
 } PLpgSQL_stmt_execsql;
 
 /*

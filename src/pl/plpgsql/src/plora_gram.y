@@ -799,8 +799,8 @@ proc_stmt		: pl_block ';'
 						{ $$ = $2; castStmt(case, CASE, $$)->label = $1; }
 				| stmt_null
 						{ $$ = $1; }
-				| stmt_execsql
-						{ $$ = $1; }
+				| opt_block_label stmt_execsql
+						{ $$ = $2; castStmt(execsql, EXECSQL, $$)->label = $1; }
 				| opt_block_label stmt_open
 						{ $$ = $2; castStmt(open, OPEN, $$)->label = $1; }
 				| opt_block_label stmt_close
@@ -1766,6 +1766,10 @@ stmt_execsql	: POK_IMPORT
 				| POK_DELETE
 					{
 						$$ = make_execsql_stmt(POK_DELETE, @1);
+					}
+				| POK_WITH
+					{
+						$$ = make_execsql_stmt(POK_WITH, @1);
 					}
 				;
 
