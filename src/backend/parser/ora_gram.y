@@ -376,7 +376,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 %left	HI_THEN_LIMIT
 %left		UNION MINUS /*EXCEPT*/
 //%left		INTERSECT
-%nonassoc	CASE SOME
+%nonassoc	CASE CAST SOME
 %left		WHEN END_P
 %left		OR
 %left		AND
@@ -3865,6 +3865,8 @@ func_application_normal:
 					$$ = (Node *)n;
 				}
 			}
+		| CAST '(' a_expr AS Typename ')'
+			{ $$ = makeTypeCast($3, $5, @1); }
 		| func_name '(' func_arg_list sort_clause ')'
 			{
 				FuncCall *n = makeNode(FuncCall);
@@ -6518,6 +6520,7 @@ unreserved_keyword:
 	| BYTE_P
 	| CASCADE
 	| CACHE
+	| CAST
 	| CLOSE
 	| CATALOG_P
 	| CONNECTION
