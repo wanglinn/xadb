@@ -3781,7 +3781,8 @@ static PLoraSQL_type* read_type_define(char *name, int location)
 			goto read_error_;
 
 		return plora_build_type(name, location, REFCURSOROID, -1);
-	}else if (tok == POK_ARRAY)
+	}else if (tok == POK_ARRAY ||
+			  tok == POK_VARRAY)
 	{
 		arr_loc = yylloc;
 		/* ( ICONST ) */
