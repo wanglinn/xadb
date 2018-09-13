@@ -1842,12 +1842,6 @@ vacuum_cn(int options, RangeVar *relation, List *va_cols)
 	vacuum_remote(&vacsql, nodes);
 	list_free(nodes);
 	pfree(vacsql.data);
-
-	if (ActiveSnapshotSet())
-	{
-		PopActiveSnapshot();
-		PushActiveSnapshot(GetTransactionSnapshot());
-	}
 }
 
 /*
@@ -1890,16 +1884,9 @@ vacuum_dn(int options, RangeVar *relation, List *va_cols)
 					   options,
 					   relation,
 					   va_cols);
-
 		vacuum_remote(&vacsql, nodes);
 		pfree(vacsql.data);
 		list_free(nodes);
-
-		if (ActiveSnapshotSet())
-		{
-			PopActiveSnapshot();
-			PushActiveSnapshot(GetTransactionSnapshot());
-		}
 	}
 }
 
@@ -1915,6 +1902,7 @@ vacuum_remote(StringInfo vacsql, List *nodes)
 	RemoteQuery	   *rquery;
 	ExecNodes	   *rnodes;
 	ListCell	   *lc;
+	bool			snapshot_set;
 
 	rnodes = makeNode(ExecNodes);
 	foreach(lc, nodes)
@@ -1925,7 +1913,14 @@ vacuum_remote(StringInfo vacsql, List *nodes)
 	rquery->exec_nodes = rnodes;
 	rquery->sql_statement = vacsql->data;
 	rquery->force_autocommit = true;
+	snapshot_set = ActiveSnapshotSet();
+	if (snapshot_set)
+		PopActiveSnapshot();
+	PushActiveSnapshot(GetTransactionSnapshot());
 	(void) ExecInterXactUtility(rquery, GetCurrentInterXactState());
+	PopActiveSnapshot();
+	if (snapshot_set)
+		PushActiveSnapshot(GetTransactionSnapshot());
 	list_free(rnodes->nodeids);
 	pfree(rnodes);
 	pfree(rquery);
