@@ -3853,6 +3853,20 @@ func_application: func_application_normal
 				}
 				$$ = (Node*)n;
 			}
+		| TABLE '(' a_expr ')'
+			{
+				if (IsA($3, FuncCall))
+				{
+					$$ = $3;
+				}else
+				{
+					FuncCall *n = makeNode(FuncCall);
+					n->funcname = SystemFuncName("unnest");
+					n->args = list_make1($3);
+					n->location = @1;
+					$$ = (Node*)n;
+				}
+			}
 		;
 
 func_application_normal:
@@ -5623,13 +5637,6 @@ table_ref:
 				RangeFunction *n = (RangeFunction *) $1;
 				n->alias = linitial($2);
 				n->coldeflist = lsecond($2);
-				$$ = (Node *) n;
-			}
-		| TABLE '(' func_table ')' func_alias_clause
-			{
-				RangeFunction *n = (RangeFunction *) $3;
-				n->alias = linitial($5);
-				n->coldeflist = lsecond($5);
 				$$ = (Node *) n;
 			}
 		;
