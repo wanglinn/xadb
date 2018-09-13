@@ -318,7 +318,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	CURRENT_P CURRENT_TIMESTAMP CURRENT_USER CURRVAL CURSOR CONCURRENTLY CONFIGURATION
 	CACHE NOCACHE COMMENTS
 	DATE_P DAY_P DBTIMEZONE_P DEC DECIMAL_P DECLARE DEFAULT DEFERRABLE DELETE_P DESC DISTINCT
-	DO DOCUMENT_P DOUBLE_P DROP DEFERRED DATA_P DEFAULTS DEFINER
+	DO DOCUMENT_P DOUBLE_P DROP DEFERRED DATA_P DEFAULTS DEFINER DETERMINISTIC
 	DISABLE_P PREPARE PREPARED DOMAIN_P DICTIONARY
 
 	/* ADB_BEGIN */
@@ -345,11 +345,11 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	NODE NULLS_P
 	OF OFF OFFLINE OFFSET ON ONLINE ONLY OPERATOR OPTION OR ORDER OUT_P OUTER_P
 	OWNER OIDS OPTIONS OVER OWNED
-	PCTFREE PRECISION PRESERVE PRIOR PRIVILEGES PUBLIC PURGE
-	PARTITION PRECEDING PROCEDURE PARTIAL PRIMARY PARSER PASSWORD
+	PCTFREE PIPELINED PRECISION PRESERVE PRIOR PRIVILEGES PUBLIC PURGE
+	PARTITION PRECEDING PROCEDURE PARTIAL PRIMARY PARSER PASSWORD PARALLEL_ENABLE
 	RANGE RAW READ REAL RECURSIVE RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
 	RETURNING RETURN_P REVOKE REUSE RIGHT ROLE ROLLBACK ROW ROWID ROWNUM ROWS
-	REFERENCES REPLICA RULE RELATIVE_P RELEASE
+	REFERENCES REPLICA RULE RELATIVE_P RELEASE RESULT_CACHE
 	SCHEMA SECOND_P SELECT SERIALIZABLE SESSION SESSIONTIMEZONE SET SHARE SHOW SIZE SEARCH
 	SMALLINT SIMPLE SETOF STATISTICS SAVEPOINT SEQUENCE SYSID SOME SCROLL
 	SNAPSHOT START STORAGE SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
@@ -749,8 +749,8 @@ CreateProcedureStmt:
 					$$ = (Node *)n;
 				}
 			| CREATE opt_or_replace FUNCTION func_name func_args_with_defaults
-			  create_procedure_invoker_rights_clause RETURN_P Typename
-			  create_procedure_is_or_as Sconst
+			  create_function_attrs RETURN_P Typename
+			  opt_pipelined create_procedure_is_or_as Sconst
 				{
 					CreateFunctionStmt *n = makeNode(CreateFunctionStmt);
 
@@ -758,7 +758,7 @@ CreateProcedureStmt:
 					n->funcname = $4;
 					n->parameters = $5;
 					n->returnType = $8;
-					n->options = list_make2(makeDefElem("as", (Node *)list_make1(makeString($10)), @10),
+					n->options = list_make2(makeDefElem("as", (Node *)list_make1(makeString($11)), @11),
 											makeDefElem("language", (Node *)makeString("plorasql"), -1));
 					n->withClause = NULL;
 
@@ -772,10 +772,13 @@ opt_or_replace:
 		;
 
 create_procedure_invoker_rights_clause:
-			  AUTHID CURRENT_USER
-			| AUTHID DEFINER
+			  invoker_rights_clause
 			| /* empty */
 			;
+
+invoker_rights_clause:
+			  AUTHID CURRENT_USER
+			| AUTHID DEFINER
 
 create_procedure_is_or_as: is_or_as
 				{
@@ -787,6 +790,24 @@ is_or_as:
 			  AS
 			| IS
 			;
+
+create_function_attrs:
+			  create_function_attrs create_function_attr_item
+			| /* empty */
+			;
+
+create_function_attr_item:
+			  invoker_rights_clause
+			| DETERMINISTIC
+			| PARALLEL_ENABLE /* not whole of parallel_enable_clause */
+			| RESULT_CACHE /* not whole of result_cache_clause */
+			;
+
+opt_pipelined: PIPELINED
+			| /* empty */
+			;
+
+
 /*
  * func_args_with_defaults is separate because we only want to accept
  * defaults in CREATE FUNCTION, not in ALTER etc.
@@ -6555,11 +6576,11 @@ unreserved_keyword:
 	| CURRENT_USER
 	| CURSOR
 	| CYCLE
-	| NOCYCLE
 	| DAY_P
 	| DECLARE
 	| DEFERRED
 	| DEFINER
+	| DETERMINISTIC
 	| DICTIONARY
 	| DOCUMENT_P
 	| DOUBLE_P
@@ -6615,6 +6636,7 @@ unreserved_keyword:
 	| NODE
 	| NCLOB
 	| NO
+	| NOCYCLE
 	| NEXT
 	/*| NEXTVAL*/
 	| NVARCHAR2
@@ -6625,9 +6647,11 @@ unreserved_keyword:
 	| OWNER
 	| OWNED
 	| OPTIONS
-	| PASSWORD
+	| PARALLEL_ENABLE
 	| PARSER
 	| PARTITION
+	| PASSWORD
+	| PIPELINED
 	| PRECISION
 	| PRECEDING
 	| PREPARE
@@ -6645,6 +6669,7 @@ unreserved_keyword:
 	| REPEATABLE
 	| REPLACE
 	| RESET
+	| RESULT_CACHE
 	| RULE
 	| RESTART
 	| RESTRICT
