@@ -93,4 +93,11 @@ extern Size EstimateNodeInfoSpace(void);
 extern void SerializeNodeInfo(Size maxsize, char *ptr);
 extern void RestoreNodeInfo(char *start_addr);
 
+#ifdef DEBUG_ADB
+extern void DebugPrintPGconn(const char *desc, Oid node, struct pg_conn *conn);
+extern void DebugPrintHandle(const char *desc, NodeHandle *handle);
+extern void DebugPrintPGconnList(const char *desc, List *conn_list);
+extern void DebugPrintHandleList(const char *desc, List *handle_list);
+#endif
+
 #endif /* INTER_NODE_H */
