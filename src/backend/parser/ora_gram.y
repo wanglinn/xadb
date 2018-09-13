@@ -212,7 +212,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	definition def_list
 	explain_option_list expr_list extract_list
 	from_clause from_list func_arg_list func_args_with_defaults func_args_with_defaults_list
-	func_name for_locking_clause for_locking_items
+	func_alias_clause func_name for_locking_clause for_locking_items
 	group_clause
 	indirection insert_column_list interval_second index_params
 	locked_rels_list
@@ -229,7 +229,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	reloptions role_list implicit_row
 	select_limit set_clause_list set_clause set_expr_list set_expr_row
 	set_target_list sortby_list sort_clause subquery_Op
-	TableElementList target_list transaction_mode_list_or_empty TypedTableElementList
+	TableElementList TableFuncElementList target_list transaction_mode_list_or_empty TypedTableElementList
 	transaction_mode_list /*transaction_mode_list_or_empty*/ trim_list
 	var_list
 
@@ -254,7 +254,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	offset_clause opt_collate_clause opt_start_with_clause
 	SelectStmt select_clause select_no_parens select_with_parens set_expr
 	simple_select select_limit_value select_offset_value start_with_clause
-	TableElement TypedTableElement table_ref TruncateStmt
+	TableElement TableFuncElement TypedTableElement table_ref TruncateStmt
 	TransactionStmt
 	UpdateStmt UpdateSelectStmt
 	RenameStmt
@@ -4684,6 +4684,68 @@ opt_alias_clause:
 		| /* empty */ %prec RETURN_P		{ $$ = NULL; }
 		;
 
+/*
+ * func_alias_clause can include both an Alias and a coldeflist, so we make it
+ * return a 2-element list that gets disassembled by calling production.
+ */
+func_alias_clause:
+			alias_clause
+				{
+					$$ = list_make2($1, NIL);
+				}
+			| AS '(' TableFuncElementList ')'
+				{
+					$$ = list_make2(NULL, $3);
+				}
+			| AS ColId '(' TableFuncElementList ')'
+				{
+					Alias *a = makeNode(Alias);
+					a->aliasname = $2;
+					$$ = list_make2(a, $4);
+				}
+			| ColId '(' TableFuncElementList ')'
+				{
+					Alias *a = makeNode(Alias);
+					a->aliasname = $1;
+					$$ = list_make2(a, $3);
+				}
+			| /*EMPTY*/ %prec RETURN_P
+				{
+					$$ = list_make2(NULL, NIL);
+				}
+		;
+
+TableFuncElementList:
+			TableFuncElement
+				{
+					$$ = list_make1($1);
+				}
+			| TableFuncElementList ',' TableFuncElement
+				{
+					$$ = lappend($1, $3);
+				}
+		;
+
+TableFuncElement:	ColId Typename opt_collate_clause
+				{
+					ColumnDef *n = makeNode(ColumnDef);
+					n->colname = $1;
+					n->typeName = $2;
+					n->inhcount = 0;
+					n->is_local = true;
+					n->is_not_null = false;
+					n->is_from_type = false;
+					n->is_from_parent = false;
+					n->storage = 0;
+					n->raw_default = NULL;
+					n->cooked_default = NULL;
+					n->collClause = (CollateClause *) $3;
+					n->collOid = InvalidOid;
+					n->constraints = NIL;
+					n->location = @1;
+					$$ = (Node *)n;
+				}
+		;
 
 opt_all:	ALL										{ $$ = TRUE; }
 			| DISTINCT								{ $$ = FALSE; }
@@ -5558,9 +5620,19 @@ table_ref:
 				$2->alias = $4;
 				$$ = (Node *) $2;
 			}
-		| func_table
+		| func_table func_alias_clause
 			{
-				;
+				RangeFunction *n = (RangeFunction *) $1;
+				n->alias = linitial($2);
+				n->coldeflist = lsecond($2);
+				$$ = (Node *) n;
+			}
+		| TABLE '(' func_table ')' func_alias_clause
+			{
+				RangeFunction *n = (RangeFunction *) $3;
+				n->alias = linitial($5);
+				n->coldeflist = lsecond($5);
+				$$ = (Node *) n;
 			}
 		;
 
