@@ -569,7 +569,7 @@ decl_statement	: decl_varname decl_const decl_datatype decl_notnull decl_defval
 										 errmsg("row or record variable cannot be CONSTANT"),
 										 parser_errposition(@2)));
 						}
-						if ($5)
+						if ($4)
 						{
 							if (var->dtype == PLPGSQL_DTYPE_VAR)
 								((PLpgSQL_var *) var)->notnull = $4;
