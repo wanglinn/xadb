@@ -141,12 +141,7 @@ AtEOXact_Reduce(bool isCommit)
 {
 	if (SelfReducePort)
 	{
-		if (IsCnMaster())
-			BackendCloseSelfReduce();
-
-		if (isCommit == false)
-			CloseBackendPort(true);
-
+		BackendCloseSelfReduce();
 		ResetSelfReduce();
 	}
 }
@@ -245,9 +240,18 @@ StartSelfReduceLauncher(RdcPortId rid, bool memory_mode)
 										 TYPE_REDUCE, SelfReduceID,
 										 TYPE_BACKEND, InvalidPortId,
 										 MyProcPid, NULL);
+
+			/*
+			 * Don't close backend_reduce_fds[RDC_BACKEND_HOLD], just
+			 * set it to -1 and it will be closed by rdc_freeport(SelfReducePort)
+			 * at BackendCloseSelfReduce.
+			 */
+			backend_reduce_fds[RDC_BACKEND_HOLD] = -1;
+
 			if (GroupReduceList != NIL)
 				list_free(GroupReduceList);
 			GroupReduceList = NIL;
+
 			if (!rdc_set_noblock(SelfReducePort))
 				ereport(ERROR,
 						(errmsg("%s", RdcError(SelfReducePort))));
@@ -329,9 +333,6 @@ DisConnectSelfReduce(RdcPort *port, List *dest_nodes, bool noerror)
 static void
 InitCommunicationChannel(void)
 {
-	/* Try to close old socketpair */
-	CloseBackendPort(true);
-	CloseReducePort(true);
 #ifndef WIN32
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, backend_reduce_fds))
 		ereport(FATAL,
@@ -359,7 +360,7 @@ static void
 CloseBackendPort(bool noerorr)
 {
 #ifndef WIN32
-	if (backend_reduce_fds[RDC_BACKEND_HOLD] > 0)
+	if (backend_reduce_fds[RDC_BACKEND_HOLD] >= 0)
 	{
 		if (close(backend_reduce_fds[RDC_BACKEND_HOLD]))
 		{
@@ -377,7 +378,7 @@ static void
 CloseReducePort(bool noerorr)
 {
 #ifndef WIN32
-	if (backend_reduce_fds[RDC_REDUCE_HOLD])
+	if (backend_reduce_fds[RDC_REDUCE_HOLD] >= 0)
 	{
 		if (close(backend_reduce_fds[RDC_REDUCE_HOLD]))
 		{
