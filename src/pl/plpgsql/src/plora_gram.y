@@ -1572,10 +1572,8 @@ for_control		: for_variable POK_IN
 								}
 								else
 								{
-									ereport(ERROR,
-											(errcode(ERRCODE_SYNTAX_ERROR),
-											 errmsg("loop variable of loop over rows must be a record or row variable or list of scalar variables"),
-											 parser_errposition(@1)));
+									/* auto create loop's variable */
+									new->rec = plpgsql_build_record($1.name, $1.lineno, true);
 								}
 
 								new->query = expr1;
