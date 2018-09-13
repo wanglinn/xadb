@@ -107,6 +107,9 @@ typedef struct _psqlSettings
 #ifdef ADB
 	bool		is_manage; 	 /* is server adb managerd */
 #endif /* ADB */
+#ifdef ADB_GRAM_ORA
+	bool		plsql_mode;		/* is using plsql mode? (let " /" execute) */
+#endif /* ADB_GRAM_ORA */
 	int			sversion;		/* backend server version */
 	const char *progname;		/* in case you renamed psql */
 	char	   *inputfile;		/* file being currently processed, if any */
