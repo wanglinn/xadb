@@ -1333,11 +1333,39 @@ SendQuery(const char *query)
 		if (pset.timing)
 			INSTR_TIME_SET_CURRENT(before);
 
+#ifdef ADB_GRAM_ORA
+		if (pset.plsql_mode)
+		{
+			OK = PQsendQuery(pset.db, query);
+			if (OK != false)
+			{
+				for(;;)
+				{
+					results = PQgetResult(pset.db);
+					if (results)
+					{
+						if (ProcessResult(&results) == false ||
+							PrintQueryResults(results) == false)
+							OK = false;
+					}else
+					{
+						break;
+					}
+				}
+				/* these operations are included in the timing result: */
+				ResetCancelConn();
+			}
+		}else
+		{
+#endif /* ADB_GRAM_ORA */
 		results = PQexec(pset.db, query);
 
 		/* these operations are included in the timing result: */
 		ResetCancelConn();
 		OK = ProcessResult(&results);
+#ifdef ADB_GRAM_ORA
+		}
+#endif /* ADB_GRAM_ORA */
 
 		if (pset.timing)
 		{

@@ -268,6 +268,35 @@ MainLoop(FILE *source)
 			char	   *tmp_line;
 
 			pos_in_query = query_buf->len;
+#ifdef ADB_GRAM_ORA
+			if (pset.plsql_mode)
+			{
+				tmp_line = line;
+				while(tmp_line[0])
+				{
+					if (isspace(tmp_line[0]))
+						++tmp_line;
+					else
+						break;
+				}
+				if (tmp_line[0] == '/' &&
+					tmp_line[1] == '\0')
+				{
+					line[0] = '\0';
+					scan_result = PSCAN_SEMICOLON;
+					prompt_tmp = PROMPT_READY;
+				}else if (tmp_line[0] == '\\' &&
+						  query_buf->len == 0)
+				{
+					scan_result = psql_scan(scan_state, query_buf, &prompt_tmp);
+				}else
+				{
+					appendPQExpBufferStr(query_buf, line);
+					scan_result = PSCAN_EOL;
+					prompt_tmp = PROMPT_CONTINUE;
+				}
+			}else
+#endif /* ADB_GRAM_ORA */
 			scan_result = psql_scan(scan_state, query_buf, &prompt_tmp);
 			prompt_status = prompt_tmp;
 

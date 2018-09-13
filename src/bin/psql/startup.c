@@ -1110,6 +1110,15 @@ show_context_hook(const char *newval)
 	return true;
 }
 
+#ifdef ADB_GRAM_ORA
+static bool
+plsql_mode_hook(const char *newval)
+{
+	return ParseVariableBool(newval, "PLSQL_MODE", &pset.plsql_mode);
+}
+
+#endif /* ADB_GRAM_ORA */
+
 
 static void
 EstablishVariableSpace(void)
@@ -1173,4 +1182,9 @@ EstablishVariableSpace(void)
 	SetVariableHooks(pset.vars, "SHOW_CONTEXT",
 					 show_context_substitute_hook,
 					 show_context_hook);
+#ifdef ADB_GRAM_ORA
+	SetVariableHooks(pset.vars, "PLSQL_MODE",
+					 bool_substitute_hook,
+					 plsql_mode_hook);
+#endif /* ADB_GRAM_ORA */
 }
