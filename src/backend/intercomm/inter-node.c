@@ -26,6 +26,7 @@
 #include "intercomm/inter-comm.h"
 #include "intercomm/inter-node.h"
 #include "nodes/pg_list.h"
+#include "libpq/ip.h"
 #include "libpq/libpq-fe.h"
 #include "libpq/libpq-int.h"
 #include "libpq/libpq-node.h"
@@ -490,6 +491,10 @@ GetPGconnAttatchToHandle(List *node_list, List *handle_list)
 		}
 		list_free(conn_list);
 		conn_list = NIL;
+
+#ifdef DEBUG_ADB
+		DebugPrintHandleList(PG_FUNCNAME_MACRO, handle_list);
+#endif
 	}
 }
 
@@ -764,3 +769,105 @@ RestoreNodeInfo(char *ptr)
 	PGXCNodeOid = *(Oid *) ptr;				ptr += sizeof(PGXCNodeOid);
 	PGXCNodeIdentifier = *(uint32 *) ptr;
 }
+
+#ifdef DEBUG_ADB
+static void
+MakeupConnInfo(StringInfo conn_info, const char *desc, Oid node, PGconn *conn)
+{
+	char			hostinfo[NI_MAXHOST];
+	char			service[NI_MAXSERV];
+	int				rc;
+
+	if (desc)
+		appendStringInfo(conn_info, "%s:", desc);
+
+	if (OidIsValid(node))
+		appendStringInfo(conn_info, " [node] %u", node);
+
+	appendStringInfo(conn_info, " [sock] %d [connect]", PQsocket(conn));
+
+	rc = pg_getnameinfo_all(&conn->laddr.addr, conn->laddr.salen,
+							hostinfo, sizeof(hostinfo),
+							service, sizeof(service),
+							NI_NUMERICHOST | NI_NUMERICSERV);
+	if (rc != 0)
+	{
+		ereport(WARNING,
+			(errmsg_internal("pg_getnameinfo_all() get laddr failed: %s",
+							 gai_strerror(rc))));
+	}
+	appendStringInfo(conn_info, " %s:%s", hostinfo, service);
+
+	rc = pg_getnameinfo_all(&conn->raddr.addr, conn->raddr.salen,
+							hostinfo, sizeof(hostinfo),
+							service, sizeof(service),
+							NI_NUMERICHOST | NI_NUMERICSERV);
+	if (rc != 0)
+	{
+		ereport(WARNING,
+			(errmsg_internal("pg_getnameinfo_all() get raddr failed: %s",
+							 gai_strerror(rc))));
+	}
+	appendStringInfo(conn_info, " -> %s:%s", hostinfo, service);
+}
+
+void
+DebugPrintPGconn(const char *desc, Oid node, PGconn *conn)
+{
+	StringInfoData buf;
+
+	initStringInfo(&buf);
+	MakeupConnInfo(&buf, desc, node, conn);
+	elog(LOG, "%s", buf.data);
+	pfree(buf.data);
+}
+
+void
+DebugPrintHandle(const char *desc, NodeHandle *handle)
+{
+	StringInfoData buf;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "%s: [name] %s", desc, NameStr(handle->node_name));
+	MakeupConnInfo(&buf, NULL, handle->node_id, handle->node_conn);
+	elog(LOG, "%s", buf.data);
+	pfree(buf.data);
+}
+
+void
+DebugPrintPGconnList(const char *desc, List *conn_list)
+{
+	StringInfoData	buf;
+	ListCell	   *lc_conn;
+	PGconn		   *conn;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "%s:", desc);
+	foreach (lc_conn, conn_list)
+	{
+		conn = (PGconn *) lfirst(lc_conn);
+		MakeupConnInfo(&buf, NULL, InvalidOid, conn);
+	}
+	elog(LOG, "%s", buf.data);
+	pfree(buf.data);
+}
+
+void
+DebugPrintHandleList(const char *desc, List *handle_list)
+{
+	StringInfoData	buf;
+	ListCell	   *lc_handle;
+	NodeHandle	   *handle;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "%s:", desc);
+	foreach (lc_handle, handle_list)
+	{
+		handle = (NodeHandle *) lfirst(lc_handle);
+		appendStringInfo(&buf, " [name] %s", NameStr(handle->node_name));
+		MakeupConnInfo(&buf, NULL, handle->node_id, handle->node_conn);
+	}
+	elog(LOG, "%s", buf.data);
+	pfree(buf.data);
+}
+#endif
