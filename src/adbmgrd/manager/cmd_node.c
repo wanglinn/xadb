@@ -554,6 +554,11 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 		selftupleoid = HeapTupleGetOid(oldtuple);
 		mgr_node = (Form_mgr_node)GETSTRUCT(oldtuple);
 		Assert(mgr_node);
+		/* check the nodetype from the tuple */
+		if (mgr_node->nodetype != nodetype)
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+				,errmsg("%s \"%s\" does not exist, check the node table", mgr_nodetype_str(nodetype), NameStr(name))));
+
 		hostoid = mgr_node->nodehost;
 		if (GTM_TYPE_GTM_MASTER == mgr_node->nodetype || CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype
 			|| CNDN_TYPE_DATANODE_MASTER == mgr_node->nodetype)
