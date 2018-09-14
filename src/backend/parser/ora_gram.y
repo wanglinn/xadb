@@ -367,7 +367,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 /*
  * same specific token
  */
-%token	ORACLE_JOIN_OP CONNECT_BY NULLS_LA
+%token	ORACLE_JOIN_OP CONNECT_BY CONNECT_BY_NOCYCLE NULLS_LA
 
 /* Precedence: lowest to highest */
 %right	RETURN_P RETURNING PRIMARY
@@ -5571,7 +5571,8 @@ start_with_clause: START WITH a_expr		{ $$ = $3; }
 	;
 
 connect_by_clause:
-	CONNECT_BY a_expr	%prec END_P		{ $$ = $2; }
+	  CONNECT_BY a_expr			%prec END_P		{ $$ = $2; }
+	| CONNECT_BY_NOCYCLE a_expr	%prec END_P		{ $$ = $2; }	/* ignore NOCYCLE keyword */
 	;
 
 TableElement:
@@ -7106,7 +7107,15 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 		if (look1.token == BY)
 		{
 			/* now we have "connect by" token */
-			cur_token = CONNECT_BY;
+			LEX_LOOKAHEAD(&look2);
+			if (look2.token == NOCYCLE)
+			{
+				cur_token = CONNECT_BY_NOCYCLE;
+			}else
+			{
+				cur_token = CONNECT_BY;
+				PUSH_LOOKAHEAD(&look2);
+			}
 		}else
 		{
 			PUSH_LOOKAHEAD(&look1);
