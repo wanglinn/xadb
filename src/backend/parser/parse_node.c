@@ -537,29 +537,21 @@ make_const(ParseState *pstate, Value *value, int location)
 
 		case T_String:
 #ifdef ADB_GRAM_ORA
-			if (IsOracleParseGram(pstate))
+			/*
+			 * The empty string is treated as a null value
+			 * under the oracle grammar.
+			 */
+			if (IsOracleParseGram(pstate) &&
+				strVal(value)[0] == '\0')
 			{
-				if (/*IsOracleCoerceFunc() && */strVal(value)[0] == 0x00)
-				{
-					con = makeConst(TEXTOID,
-									-1,
-									100,
-									-1,
-									(Datum) 0,
-									true,
-									false);
-				} else
-				{
-					con = makeConst(TEXTOID,
-									-1,
-									100,
-									-1,
-									CStringGetTextDatum(strVal(value)),
-									false,
-									false);
-				}
+				con = makeConst(UNKNOWNOID,
+								-1,
+								InvalidOid,
+								-2,
+								(Datum) 0,
+								true,
+								false);
 				con->location = location;
-
 				return con;
 			}
 #endif
