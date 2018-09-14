@@ -498,7 +498,14 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 	}else
 #endif
 	rc = exec_stmt_block(&estate, func->action);
-	if (rc != PLPGSQL_RC_RETURN)
+
+	if (rc == PLPGSQL_RC_GOTO)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_S_R_E_FUNCTION_EXECUTED_NO_RETURN_STATEMENT),
+				 errmsg("Can not found label \"%s\" for goto", estate.gotolabel)));
+	}
+	else if (rc != PLPGSQL_RC_RETURN)
 	{
 		estate.err_stmt = NULL;
 		estate.err_text = NULL;
@@ -1343,7 +1350,14 @@ exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 			estate->err_text = NULL;
 
 			/* Run the block's statements */
-			rc = exec_stmts(estate, block->body);
+			lc = list_head(block->body);
+re_do_in_try_:
+			rc = exec_stmts_lc(estate, lc);
+			if (rc == PLPGSQL_RC_GOTO &&
+				(lc = find_stmt_for_label(block->body, estate->gotolabel)) != NULL)
+			{
+				goto re_do_in_try_;
+			}
 
 			estate->err_text = gettext_noop("during statement block exit");
 
@@ -1508,19 +1522,19 @@ exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 		 */
 		estate->err_text = NULL;
 
-		rc = exec_stmts(estate, block->body);
+		lc = list_head(block->body);
+re_do_no_try_:
+		//rc = exec_stmts(estate, block->body);
+		rc = exec_stmts_lc(estate, lc);
+		if (rc == PLPGSQL_RC_GOTO &&
+			(lc = find_stmt_for_label(block->body, estate->gotolabel)) != NULL)
+		{
+			goto re_do_no_try_;
+		}
 	}
 
 	estate->err_text = NULL;
 
-	lc = NULL;
-redo_:
-	if (lc != NULL)
-	{
-		Assert(rc == PLPGSQL_RC_GOTO);
-		rc = exec_stmts_lc(estate, lc);
-		lc = NULL;
-	}
 	/*
 	 * Handle the return code.
 	 */
@@ -1529,6 +1543,7 @@ redo_:
 		case PLPGSQL_RC_OK:
 		case PLPGSQL_RC_RETURN:
 		case PLPGSQL_RC_CONTINUE:
+		case PLPGSQL_RC_GOTO:
 			return rc;
 
 		case PLPGSQL_RC_EXIT:
@@ -1545,18 +1560,6 @@ redo_:
 				return PLPGSQL_RC_EXIT;
 			estate->exitlabel = NULL;
 			return PLPGSQL_RC_OK;
-
-		case PLPGSQL_RC_GOTO:
-			if ((lc = find_stmt_for_label(block->body, estate->gotolabel)) != NULL)
-			{
-				goto redo_;
-			}else
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("Can not found label \"%s\" for goto", estate->gotolabel)));
-			}
-			break;
 
 		default:
 			elog(ERROR, "unrecognized rc: %d", rc);
