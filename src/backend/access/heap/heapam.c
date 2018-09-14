@@ -3243,7 +3243,7 @@ l1:
 		else
 			result = HeapTupleUpdated;
 	}
-#ifdef ADB
+#if defined(ADB) && defined(GLOBAL_CHECK)
 	else if (result == HeapTupleUpdated && globalcheck != InvalidSnapshot)
 	{
 		TransactionId xwait = HeapTupleHeaderGetRawXmax(tp.t_data);
@@ -3900,7 +3900,7 @@ l2:
 
 		result = can_continue ? HeapTupleMayBeUpdated : HeapTupleUpdated;
 	}
-#ifdef ADB
+#if defined(ADB) && defined(GLOBAL_CHECK)
 	else if (result == HeapTupleUpdated && globalcheck != InvalidSnapshot)
 	{
 		TransactionId xwait = HeapTupleHeaderGetRawXmax(oldtup.t_data);
