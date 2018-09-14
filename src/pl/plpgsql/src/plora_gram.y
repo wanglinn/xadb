@@ -2576,14 +2576,14 @@ read_datatype(int tok)
 			{
 				result = plpgsql_parse_wordtype(dtname);
 				if (result)
-					return result;
+					goto end_read_datatype_;
 			}else if (tok == T_WORD &&
 				yylval.word.quoted == false &&
 				strcmp(yylval.word.ident, "rowtype") == 0)
 			{
 				result = plpgsql_parse_wordrowtype(dtname);
 				if (result)
-					return result;
+					goto end_read_datatype_;
 			}
 		}else
 		{
@@ -2608,14 +2608,14 @@ read_datatype(int tok)
 			{
 				result = plpgsql_parse_wordtype(dtname);
 				if (result)
-					return result;
+					goto end_read_datatype_;
 			}else if (tok == T_WORD &&
 				yylval.word.quoted == false &&
 				strcmp(yylval.word.ident, "rowtype") == 0)
 			{
 				result = plpgsql_parse_wordrowtype(dtname);
 				if (result)
-					return result;
+					goto end_read_datatype_;
 			}
 		}else
 		{
@@ -2640,7 +2640,7 @@ read_datatype(int tok)
 			{
 				result = plpgsql_parse_cwordtype(dtnames);
 				if (result)
-					return result;
+					goto end_read_datatype_;
 			}
 		}else if (tok == T_WORD &&
 			yylval.word.quoted == false &&
@@ -2648,7 +2648,7 @@ read_datatype(int tok)
 		{
 			result = plpgsql_parse_cwordrowtype(dtnames);
 			if (result)
-				return result;
+				goto end_read_datatype_;
 		}
 	}
 
@@ -2689,6 +2689,12 @@ read_datatype(int tok)
 	pfree(ds.data);
 
 	plpgsql_push_back_token(tok);
+
+end_read_datatype_:
+	Assert(result != NULL);
+	if (result->typoid != REFCURSOROID &&
+		getBaseType(result->typoid) == REFCURSOROID)
+		result->typoid = REFCURSOROID;
 
 	return result;
 }
@@ -3226,6 +3232,9 @@ parse_datatype(const char *string, int location)
 
 	/* Let the main parser try to parse it under standard SQL rules */
 	parseTypeStringForGrammar(string, &type_id, &typmod, false, PARSE_GRAM_ORACLE);
+	if (type_id != REFCURSOROID &&
+		getBaseType(type_id) == REFCURSOROID)
+		type_id = REFCURSOROID;
 
 	/* Restore former ereport callback */
 	error_context_stack = syntax_errcontext.previous;
@@ -3716,6 +3725,10 @@ static PLoraSQL_type   *plora_build_type(char *name, int location, Oid oid, int 
 				(errcode(ERRCODE_SYNTAX_ERROR),
 					errmsg("duplicate declaration"),
 					plpgsql_scanner_errposition(location)));
+
+	if (oid != REFCURSOROID &&
+		getBaseType(oid) == REFCURSOROID)
+		oid = REFCURSOROID;
 
 	typ = plpgsql_build_datatype(oid, typmod, InvalidOid);
 	oraTyp = palloc0(sizeof(PLoraSQL_type));
