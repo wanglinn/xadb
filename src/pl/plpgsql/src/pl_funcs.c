@@ -1704,6 +1704,8 @@ const char *plpgsql_stmt_get_label(PLpgSQL_stmt *stmt)
 		return ((PLpgSQL_stmt_case*)stmt)->label;
 	case PLPGSQL_STMT_CLOSE:
 		return ((PLpgSQL_stmt_close*)stmt)->label;
+	case PLPGSQL_STMT_EXECSQL:
+		return ((PLpgSQL_stmt_execsql*)stmt)->label;
 	case PLPGSQL_STMT_DYNEXECUTE:
 		return ((PLpgSQL_stmt_dynexecute*)stmt)->label;
 	case PLPGSQL_STMT_EXIT:
