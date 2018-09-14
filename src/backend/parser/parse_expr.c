@@ -2104,10 +2104,7 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 			aexpr = (A_Expr *)cw->expr;
 			sexpr = transformExprRecurse(pstate, aexpr->rexpr);
 			stype = exprType(sexpr);
-			if (TypeCategory(stype) == TYPCATEGORY_NUMERIC)
-				stype = NUMERICOID;
-			else
-			if (TypeCategory(stype) == TYPCATEGORY_STRING)
+			if (stype == UNKNOWNOID)
 				stype = TEXTOID;
 			expr = transformExprRecurse(pstate, aexpr->lexpr);
 		}
