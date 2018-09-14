@@ -51,5 +51,9 @@ extern void applyLockingClause(Query *qry, Index rtindex,
 struct PlannerInfo;
 extern void applyModifyToAuxiliaryTable(struct PlannerInfo *root, double rows, Index relid);
 #endif /* ADB */
+#ifdef ADB_GRAM_ORA
+void check_joinon_column_join(Node *node, ParseState *pstate);
+bool rewrite_rownum_query_enum(Node *node, void *context);
+#endif /* ADB_GRAM_ORA */
 
 #endif							/* ANALYZE_H */

@@ -114,8 +114,12 @@
 #include "pgxc/slot.h"
 
 #endif
+#ifdef ADB_MULTI_GRAM
+#include "catalog/namespace.h"
+#endif /* ADB_MULTI_GRAM */
 #if defined(ADB) || defined(ADB_GRAM_ORA)
 #include "nodes/nodeFuncs.h"
+#include "parser/analyze.h"
 #endif
 #ifdef AGTM
 #include "agtm/agtm.h"
@@ -915,13 +919,14 @@ pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,
 	if (IsCnMaster())
 	{
 		ListCell   *lc;
+		Query	   *qry;
 
 		foreach(lc, querytree_list)
 		{
-			Query *query = (Query *) lfirst(lc);
+			qry = (Query *) lfirst(lc);
 
-			if (query->sql_statement == NULL)
-				query->sql_statement = pstrdup(query_string);
+			if (qry->sql_statement == NULL)
+				qry->sql_statement = pstrdup(query_string);
 		}
 	}
 #endif
@@ -943,6 +948,24 @@ pg_analyze_and_rewrite_params(RawStmt *parsetree,
 							  void *parserSetupArg,
 							  QueryEnvironment *queryEnv)
 {
+#ifdef ADB_MULTI_GRAM
+	return pg_analyze_and_rewrite_params_for_gram(parsetree,
+												  query_string,
+												  parserSetup,
+												  parserSetupArg,
+												  queryEnv,
+												  PARSE_GRAM_POSTGRES);
+}
+
+List *
+pg_analyze_and_rewrite_params_for_gram(RawStmt *parsetree,
+							  const char *query_string,
+							  ParserSetupHook parserSetup,
+							  void *parserSetupArg,
+							  QueryEnvironment *queryEnv, ParseGrammar grammar)
+{
+	volatile bool push_search_path = false;
+#endif
 	ParseState *pstate;
 	Query	   *query;
 	List	   *querytree_list;
@@ -960,9 +983,37 @@ pg_analyze_and_rewrite_params(RawStmt *parsetree,
 	pstate = make_parsestate(NULL);
 	pstate->p_sourcetext = query_string;
 	pstate->p_queryEnv = queryEnv;
+#ifdef ADB_MULTI_GRAM
+	pstate->p_grammar = grammar;
+#endif /* ADB_MULTI_GRAM */
 	(*parserSetup) (pstate, parserSetupArg);
 
+#ifdef ADB_MULTI_GRAM
+	if (IsTransactionState())
+	{
+		PushOverrideSearchPathForGrammar(grammar);
+		push_search_path = true;
+	}
+	PG_TRY();
+	{
+#endif /* ADB_MULTI_GRAM */
 	query = transformTopLevelStmt(pstate, parsetree);
+
+#ifdef ADB_GRAM_ORA
+	check_joinon_column_join((Node*)(query->jointree), pstate);
+	rewrite_rownum_query_enum((Node*)query, NULL);
+#endif /* ADB_GRAM_ORA */
+
+#ifdef ADB_MULTI_GRAM
+	}PG_CATCH();
+	{
+		if (push_search_path)
+			PopOverrideSearchPath();
+		PG_RE_THROW();
+	}PG_END_TRY();
+	if (push_search_path)
+		PopOverrideSearchPath();
+#endif /* ADB_MULTI_GRAM */
 
 	if (post_parse_analyze_hook)
 		(*post_parse_analyze_hook) (pstate, query);
@@ -976,6 +1027,22 @@ pg_analyze_and_rewrite_params(RawStmt *parsetree,
 	 * (2) Rewrite the queries, as necessary
 	 */
 	querytree_list = pg_rewrite_query(query);
+
+#ifdef ADB
+	if (IsCnMaster())
+	{
+		ListCell   *lc;
+		Query	   *qry;
+
+		foreach(lc, querytree_list)
+		{
+			qry = (Query *) lfirst(lc);
+
+			if (qry->sql_statement == NULL)
+				qry->sql_statement = pstrdup(query_string);
+		}
+	}
+#endif
 
 	TRACE_POSTGRESQL_QUERY_REWRITE_DONE(query_string);
 
