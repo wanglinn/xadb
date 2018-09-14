@@ -71,6 +71,7 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_operator.h"
 #include "parser/parser.h"
+#include "parser/parse_type.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #endif
@@ -134,6 +135,7 @@ static void rewrite_rownum_query(Query *query);
 static bool const_get_int64(const Expr *expr, int64 *val);
 static Expr* make_int8_const(Datum value);
 static Oid get_operator_for_function(Oid funcid);
+static Query *transformCreateFunctionStmt(ParseState *pstate, CreateFunctionStmt *cf);
 #endif /* ADB */
 
 
@@ -441,6 +443,13 @@ transformStmt(ParseState *pstate, Node *parseTree)
 			result = transformCreateTableAsStmt(pstate,
 												(CreateTableAsStmt *) parseTree);
 			break;
+
+#ifdef ADB_GRAM_ORA
+		case T_CreateFunctionStmt:
+			result = transformCreateFunctionStmt(pstate,
+												 (CreateFunctionStmt*) parseTree);
+			break;
+#endif /* ADB_GRAM_ORA */
 
 		default:
 #ifdef ADB
@@ -4379,6 +4388,40 @@ static Oid get_operator_for_function(Oid funcid)
 	heap_endscan(scanDesc);
 	heap_close(rel, AccessShareLock);
 	return opno;
+}
+
+static Query *transformCreateFunctionStmt(ParseState *pstate, CreateFunctionStmt *cf)
+{
+	Query	   *result;
+	ListCell   *lc;
+	TypeName   *typeName;
+
+	if (pstate->p_grammar == PARSE_GRAM_ORACLE)
+	{
+		/* convert user defined ref cursor to ref cursor */
+		foreach(lc, cf->parameters)
+		{
+			typeName = lfirst_node(FunctionParameter, lc)->argType;
+			typenameTypeIdAndMod(pstate,
+								 typeName,
+								 &typeName->typeOid,
+								 &typeName->typemod);
+			if (typeName->typeOid != REFCURSOROID &&
+				getBaseType(typeName->typeOid) == REFCURSOROID)
+			{
+				typeName->typeOid = REFCURSOROID;
+			}
+
+			typeName->names = NIL;
+			typeName->typmods = NIL;
+		}
+	}
+
+	result = makeNode(Query);
+	result->commandType = CMD_UTILITY;
+	result->utilityStmt = (Node *) cf;
+
+	return result;
 }
 #endif /* ADB_GRAM_ORA */
 
