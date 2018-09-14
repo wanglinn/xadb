@@ -5247,6 +5247,7 @@ set_expr_list: set_expr					{ $$ = list_make1($1); }
 	;
 
 set_expr_row: '(' set_expr_list ')'		{ $$ = $2; }
+		| '(' SELECT set_expr_list ')'	{ $$ = $3; }
 	;
 
 set_rest:
