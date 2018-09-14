@@ -78,6 +78,13 @@ extern List *pg_analyze_and_rewrite_params(RawStmt *parsetree,
 							  ParserSetupHook parserSetup,
 							  void *parserSetupArg,
 							  QueryEnvironment *queryEnv);
+#ifdef ADB_MULTI_GRAM
+extern List *pg_analyze_and_rewrite_params_for_gram(RawStmt *parsetree,
+							  const char *query_string,
+							  ParserSetupHook parserSetup,
+							  void *parserSetupArg,
+							  QueryEnvironment *queryEnv, ParseGrammar grammar);
+#endif /* ADB_MULTI_GRAM */
 extern PlannedStmt *pg_plan_query(Query *querytree, int cursorOptions,
 			  ParamListInfo boundParams);
 extern List *pg_plan_queries(List *querytrees, int cursorOptions,

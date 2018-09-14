@@ -1973,19 +1973,38 @@ _SPI_pgxc_prepare_plan(const char *src, List *src_parsetree, SPIPlanPtr plan ADB
 		if (plan->parserSetup != NULL)
 		{
 			Assert(plan->nargs == 0);
+#ifdef ADB_MULTI_GRAM
+			stmt_list = pg_analyze_and_rewrite_params_for_gram(parsetree,
+													  src,
+													  plan->parserSetup,
+													  plan->parserSetupArg,
+													  _SPI_current->queryEnv,
+													  grammar);
+
+#else /* ADB_MULTI_GRAM */
 			stmt_list = pg_analyze_and_rewrite_params(parsetree,
 													  src,
 													  plan->parserSetup,
 													  plan->parserSetupArg,
 													  _SPI_current->queryEnv);
+#endif /* ADB_MULTI_GRAM */
 		}
 		else
 		{
+#ifdef ADB_MULTI_GRAM
+			stmt_list = pg_analyze_and_rewrite_for_gram(parsetree,
+											   src,
+											   plan->argtypes,
+											   plan->nargs,
+											   _SPI_current->queryEnv,
+											   grammar);
+#else /* ADB_MULTI_GRAM */
 			stmt_list = pg_analyze_and_rewrite(parsetree,
 											   src,
 											   plan->argtypes,
 											   plan->nargs,
 											   _SPI_current->queryEnv);
+#endif /* ADB_MULTI_GRAM */
 		}
 
 		/* Finish filling in the CachedPlanSource */

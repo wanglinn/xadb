@@ -130,9 +130,7 @@ static bool is_rel_child_of_rel(RangeTblEntry *child_rte, RangeTblEntry *parent_
 #endif /* ADB */
 #ifdef ADB_GRAM_ORA
 static Node* transformFromAndWhere(ParseState *pstate, Node *quals);
-static void check_joinon_column_join(Node *node, ParseState *pstate);
 static void rewrite_rownum_query(Query *query);
-static bool rewrite_rownum_query_enum(Node *node, void *context);
 static bool const_get_int64(const Expr *expr, int64 *val);
 static Expr* make_int8_const(Datum value);
 static Oid get_operator_for_function(Oid funcid);
@@ -3715,7 +3713,7 @@ static bool pullup_rel_for_join(Node *node, JoinExprInfo *jinfo
 	return false;
 }
 
-static void check_joinon_column_join(Node *node, ParseState *pstate)
+void check_joinon_column_join(Node *node, ParseState *pstate)
 {
 	if(node == NULL)
 		return;
@@ -4075,7 +4073,7 @@ static Node* transformFromAndWhere(ParseState *pstate, Node *quals)
 	return (Node*)makeBoolExpr(AND_EXPR, qual_list, -1);
 }
 
-static bool rewrite_rownum_query_enum(Node *node, void *context)
+bool rewrite_rownum_query_enum(Node *node, void *context)
 {
 	if(node == NULL)
 		return false;
