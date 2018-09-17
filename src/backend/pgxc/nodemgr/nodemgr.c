@@ -721,18 +721,14 @@ PgxcNodeRemove(DropNodeStmt *stmt)
 void
 InitPGXCNodeIdentifier(void)
 {
-	if ((IsCnNode() || IsDnNode()) &&
-		PGXCNodeIdentifier == 0)
+	if (IsCnNode() || IsDnNode())
 	{
-		PGXCNodeIdentifier = get_pgxc_node_id(get_pgxc_nodeoid(PGXCNodeName));
-	}
+		if (!OidIsValid(PGXCNodeOid))
+			PGXCNodeOid = get_pgxc_nodeoid(PGXCNodeName);
 
-	if ((IsCnNode() || IsDnNode()) && PGXCNodeOid == 0)
-	{
-		elog(LOG, "NodeName=%s", PGXCNodeName);
-		PGXCNodeOid = get_pgxc_nodeoid(PGXCNodeName);
-	}
+		if (PGXCNodeIdentifier == 0)
+			PGXCNodeIdentifier = get_pgxc_node_id(PGXCNodeOid);
 
-	if ((IsCnNode() || IsDnNode()))
 		InitSLOTPGXCNodeOid();
+	}
 }
