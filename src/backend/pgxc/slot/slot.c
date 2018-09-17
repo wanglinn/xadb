@@ -857,5 +857,5 @@ Oid get_nodeid_from_hashvalue(void)
 void InitSLOTPGXCNodeOid(void)
 {
 	SLOTPGXCNodeOid = get_pgxc_nodeoid(PGXCNodeName);
-	elog(LOG, "NodeName=%s-SLOTPGXCNodeOid=%d", PGXCNodeName,SLOTPGXCNodeOid);
+	elog(DEBUG1, "NodeName=%s-SLOTPGXCNodeOid=%d", PGXCNodeName,SLOTPGXCNodeOid);
 }
