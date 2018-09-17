@@ -141,8 +141,16 @@ AtEOXact_Reduce(bool isCommit)
 {
 	if (SelfReducePort)
 	{
-		BackendCloseSelfReduce();
-		ResetSelfReduce();
+		if (IsCnMaster())
+		{
+			BackendCloseSelfReduce();
+			ResetSelfReduce();
+		} else
+		if (!isCommit)
+		{
+			rdc_freeport(SelfReducePort);
+			ResetSelfReduce();
+		}
 	}
 }
 
