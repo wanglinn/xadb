@@ -1380,6 +1380,7 @@ extern void plpgsql_scanner_finish(void);
 extern bool plorasql_token_is_unreserved_keyword(int token);
 extern void plorasql_scanner_init(const char *str);
 extern int	plorasql_yylex(void);
+char* plorasql_make_table_record_array(PLpgSQL_execstate *estate, int dno, PLpgSQL_expr *expr);
 #endif /* ADB_GRAM_ORA */
 
 /*

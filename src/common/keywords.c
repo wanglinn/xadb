@@ -71,6 +71,9 @@ ScanKeywordLookup(const char *text,
 	const ScanKeyword *low;
 	const ScanKeyword *high;
 
+	if (num_keywords == 0)
+		return NULL;
+
 	len = strlen(text);
 	/* We assume all keywords are shorter than NAMEDATALEN. */
 	if (len >= NAMEDATALEN)
