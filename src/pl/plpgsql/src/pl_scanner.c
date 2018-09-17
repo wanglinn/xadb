@@ -802,3 +802,83 @@ plpgsql_scanner_finish(void)
 	yyscanner = NULL;
 	scanorig = NULL;
 }
+
+#ifdef ADB_GRAM_ORA
+#include "catalog/namespace.h"
+#include "utils/lsyscache.h"
+
+char* plorasql_make_table_record_array(PLpgSQL_execstate *estate, int dno, PLpgSQL_expr *expr)
+{
+	core_YYSTYPE	lval;
+	YYLTYPE			lloc,start_lloc;
+	core_yyscan_t	scanner;
+	core_yy_extra_type yyext;
+	StringInfoData	buf;
+	List		   *names;
+	RangeVar	   *range_var;
+	Relation		rel;
+	PLpgSQL_var    *var = (PLpgSQL_var*)estate->datums[dno];
+	int				token;
+	int				name_len;
+	Oid				element_type;
+	Oid				var_type = var->datatype->typoid;
+
+	if (var->datatype->typisarray == false ||
+		strncmp(expr->query, "SELECT ", 7) != 0 ||
+		(element_type = get_base_element_type(var_type)) == InvalidOid ||
+		type_is_rowtype(element_type) == false)
+		return NULL;
+
+	scanner = scanner_init(expr->query + 7, &yyext, NULL, 0);
+	names = NIL;
+
+	/* parse ident */
+	token = core_yylex(&lval, &start_lloc, scanner);
+	if (token != IDENT)
+		goto end_make_assign_;
+	names = list_make1(makeString(lval.str));
+
+	/* parse [. ident [. ident] ] */
+	while (list_length(names) < 3)
+	{
+		token = core_yylex(&lval, &lloc, scanner);
+		name_len = lloc - start_lloc;
+		if (token != '.')
+			break;
+		if (core_yylex(&lval, &lloc, scanner) != IDENT)
+			goto end_make_assign_;
+		names = list_make1(makeString(lval.str));
+	}
+
+	/* parse () */
+	if (token != '(' ||
+		core_yylex(&lval, &lloc, scanner) != ')' ||
+		core_yylex(&lval, &lloc, scanner) != 0)
+		goto end_make_assign_;
+
+	/* is it a rel? */
+	range_var = makeRangeVarFromNameList(names);
+	rel = relation_openrv_extended(range_var, NoLock, true);
+	if (rel == NULL)
+	{
+		pfree(range_var);
+		goto end_make_assign_;
+	}
+
+	scanner_finish(scanner);
+
+	/*
+	 * yes, it is a rel
+	 * convert "table_name()" to "select array_agg(table_name) from table_name"
+	 */
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "SELECT array_agg(\"%s\") from ", range_var->relname);
+	appendBinaryStringInfo(&buf, expr->query + start_lloc + 7, name_len);
+	pfree(range_var);
+	return buf.data;
+
+end_make_assign_:
+	scanner_finish(scanner);
+	return NULL;
+}
+#endif /* ADB_GRAM_ORA */

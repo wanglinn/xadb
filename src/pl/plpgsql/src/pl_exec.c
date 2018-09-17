@@ -4574,6 +4574,15 @@ exec_assign_expr(PLpgSQL_execstate *estate, PLpgSQL_datum *target,
 	 */
 	if (expr->plan == NULL)
 	{
+#ifdef ADB_GRAM_ORA
+		char *new_query;
+		if (estate->grammar == PARSE_GRAM_ORACLE &&
+			target->dtype == PLPGSQL_DTYPE_VAR &&
+			(new_query = plorasql_make_table_record_array(estate, target->dno, expr)) != NULL)
+		{
+			expr->query = new_query;
+		}
+#endif /* ADB_GRAM_OR */
 		exec_prepare_plan(estate, expr, 0);
 		if (target->dtype == PLPGSQL_DTYPE_VAR)
 			exec_check_rw_parameter(expr, target->dno);
