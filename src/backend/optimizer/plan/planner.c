@@ -5980,6 +5980,7 @@ create_ordered_paths(PlannerInfo *root,
 		double		total_groups;
 		foreach(lc, input_rel->cluster_partial_pathlist)
 		{
+			path = (Path *) lfirst(lc);
 			if (!pathkeys_contained_in(root->sort_pathkeys, path->pathkeys))
 			{
 				/* An explicit sort here can take advantage of LIMIT */
