@@ -2583,6 +2583,16 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 					rp->subpath = path;
 				path = (Path*)rp;
 
+				/* set path reduce at coordinator */
+				if (path->reduce_is_valid == false)
+				{
+					path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+					path->reduce_is_valid = true;
+				}else
+				{
+					Assert(IsReduceInfoListCoordinator(path->reduce_info_list));
+				}
+
 				/* make reduce path */
 				path = reduce_to_relation_insert(root, parse->resultRelation, path);
 				Assert(path);
