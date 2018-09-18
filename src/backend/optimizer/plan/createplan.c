@@ -7051,8 +7051,9 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 	}
 
 	if ((IsA(path, ResultPath) &&
-		  ((ResultPath*)path)->subpath == NULL) ||
-		IsA(path, ForeignPath))
+		 ((ResultPath*)path)->subpath == NULL) ||
+		IsA(path, ForeignPath) ||
+		IS_DUMMY_PATH(path))
 	{
 		path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
 		path->reduce_is_valid = true;
@@ -7115,7 +7116,8 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist)
 				{
 					copy = true;
 				}
-				if(copy)
+				if (copy &&
+					ReduceInfoListMember(path->reduce_info_list, rinfo) == false)
 				{
 					path->reduce_info_list = lappend(path->reduce_info_list,
 													 CopyReduceInfo(rinfo));
