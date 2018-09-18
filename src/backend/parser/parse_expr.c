@@ -2087,10 +2087,8 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 	 */
 	if (IsOracleParseGram(pstate) && c->isdecode)
 	{
-		A_Expr			*aexpr;
-		Node			*sexpr;
-		OraCoercionContext	oldContext;
-		CaseWhen		*cw = (CaseWhen *)linitial(c->args);
+		CaseWhen	   *cw = (CaseWhen *)linitial(c->args);
+		OraCoercionContext oldContext;
 
 		if (IsA(cw->expr, NullTest))
 		{
@@ -2100,13 +2098,24 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 			expr = transformExprRecurse(pstate, (Node*)nt->arg);;
 		} else
 		{
+			A_Expr		   *aexpr;
+			Node		   *sexpr;
+			Oid				ltype;
+			TYPCATEGORY		typcategory;
+
 			Assert(IsA(cw->expr, A_Expr));
 			aexpr = (A_Expr *)cw->expr;
+			expr = transformExprRecurse(pstate, aexpr->lexpr);
 			sexpr = transformExprRecurse(pstate, aexpr->rexpr);
 			stype = exprType(sexpr);
+			ltype = exprType(expr);
+			typcategory = TypeCategory(stype);
+
+			if (IsPreferredType(typcategory, ltype))
+				stype = ltype;
+
 			if (stype == UNKNOWNOID)
 				stype = TEXTOID;
-			expr = transformExprRecurse(pstate, aexpr->lexpr);
 		}
 
 		oldContext = OraCoercionContextSwitchTo(ORA_COERCE_SPECIAL_FUNCTION);
