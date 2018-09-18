@@ -270,30 +270,42 @@ TryOraOperatorCoercion(ParseState *pstate,	/* in */
 	 * convert character data to numeric data
 	 * during arithmetic operations.
 	 */
-	if (IsArithmeticOperator(opname) &&
-		(TypeCategory(ltypeId) == TYPCATEGORY_STRING ||
-		 TypeCategory(rtypeId) == TYPCATEGORY_STRING))
+	if (IsArithmeticOperator(opname))
 	{
-		coerce_func_oid = OraOperatorCoercion(ltypeId, NUMERICOID, false);
-		if (OidIsValid(coerce_func_oid))
-			*ret_lexpr = (Node *)makeFuncExpr(coerce_func_oid,
-											  get_func_rettype(coerce_func_oid),
-											  list_make1(lexpr),
-											  InvalidOid,
-											  InvalidOid,
-											  COERCE_EXPLICIT_CALL);
+		if (ltypeId == UNKNOWNOID)
+			*ret_lexpr = coerce_to_common_type(pstate, lexpr, NUMERICOID, "ORACLE OPERATOR");
 		else
+		if (TypeCategory(ltypeId) == TYPCATEGORY_STRING)
+		{
+			coerce_func_oid = OraOperatorCoercion(ltypeId, NUMERICOID, false);
+			if (OidIsValid(coerce_func_oid))
+				*ret_lexpr = (Node *)makeFuncExpr(coerce_func_oid,
+												  get_func_rettype(coerce_func_oid),
+												  list_make1(lexpr),
+												  InvalidOid,
+												  InvalidOid,
+												  COERCE_EXPLICIT_CALL);
+			else
+				*ret_lexpr = lexpr;
+		} else
 			*ret_lexpr = lexpr;
 
-		coerce_func_oid = OraOperatorCoercion(rtypeId, NUMERICOID, false);
-		if (OidIsValid(coerce_func_oid))
-			*ret_rexpr = (Node *)makeFuncExpr(coerce_func_oid,
-											  get_func_rettype(coerce_func_oid),
-											  list_make1(rexpr),
-											  InvalidOid,
-											  InvalidOid,
-											  COERCE_EXPLICIT_CALL);
+		if (rtypeId == UNKNOWNOID)
+			*ret_rexpr = coerce_to_common_type(pstate, rexpr, NUMERICOID, "ORACLE OPERATOR");
 		else
+		if (TypeCategory(rtypeId) == TYPCATEGORY_STRING)
+		{
+			coerce_func_oid = OraOperatorCoercion(rtypeId, NUMERICOID, false);
+			if (OidIsValid(coerce_func_oid))
+				*ret_rexpr = (Node *)makeFuncExpr(coerce_func_oid,
+												  get_func_rettype(coerce_func_oid),
+												  list_make1(rexpr),
+												  InvalidOid,
+												  InvalidOid,
+												  COERCE_EXPLICIT_CALL);
+			else
+				*ret_rexpr = rexpr;
+		} else
 			*ret_rexpr = rexpr;
 
 		return ;
