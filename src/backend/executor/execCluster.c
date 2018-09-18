@@ -217,6 +217,7 @@ static void ExecClusterPlanStmt(StringInfo buf)
 		eflags |= EXEC_FLAG_UPDATE_CMD_ID;
 
 	ExecutorStart(query_desc, eflags);
+	clusterRecvSetTopPlanState(receiver, query_desc->planstate);
 
 	set_ps_display("<cluster query>", false);
 
