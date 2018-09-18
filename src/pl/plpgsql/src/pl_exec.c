@@ -7712,6 +7712,30 @@ static PLpgSQL_var* check_pl_refcursor(PLpgSQL_execstate *pl_estate, int dno, bo
 	return var;
 }
 
+static PLpgSQL_var* check_pl_array(PLpgSQL_execstate *pl_estate, int dno, bool isnull)
+{
+	PLpgSQL_var *var;
+	Assert(pl_estate);
+	if (isnull)
+		ereport(ERROR,
+				(errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
+				 errmsg("null array id for function \"plorasql_expr_callback\"")));
+
+	if (dno < 0 || dno >= pl_estate->ndatums)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("invalid array id %d", dno)));
+
+	var = (PLpgSQL_var*)pl_estate->datums[dno];
+	if (var->datatype->typisarray == false)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATATYPE_MISMATCH),
+				 errmsg("variable \"%s\" must be an array type", var->refname)));
+
+	return var;
+}
+
+
 PG_FUNCTION_INFO_V1(plorasql_expr_callback);
 Datum plorasql_expr_callback(PG_FUNCTION_ARGS)
 {
@@ -7784,6 +7808,19 @@ Datum plorasql_expr_callback(PG_FUNCTION_ARGS)
 				result = BoolGetDatum(false);
 			else
 				result = BoolGetDatum(true);
+		}
+		break;
+	case PLORASQL_CALLBACK_ARRAY_COUNT:
+		var = check_pl_array(pl_estate,
+								PG_GETARG_INT32(2),
+								PG_NARGS() < 3 || PG_ARGISNULL(2));
+		if (var->isnull)
+		{
+			result = Int32GetDatum(0);
+		}else
+		{
+			AnyArrayType *v = DatumGetAnyArray(var->value);
+			result = Int32GetDatum(ArrayGetNItems(AARR_NDIM(v), AARR_DIMS(v)));
 		}
 		break;
 	default:

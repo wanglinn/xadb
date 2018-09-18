@@ -135,6 +135,11 @@ static void delete_function(PLpgSQL_function *func);
 #ifdef ADB_GRAM_ORA
 extern int plorasql_yyparse(void);
 static int plorasql_parse(void);
+static Oid plora_get_callback_func_oid(void);
+static Node* plora_make_func_global(PLpgSQL_expr *plexpr, PLoraSQL_Callback_Type type, Oid rettype);
+static Node* plora_make_func_datum(PLpgSQL_expr *plexpr, PLoraSQL_Callback_Type type, Oid rettype, int dno);
+static bool is_simple_func(FuncCall *func);
+static PLpgSQL_var* plora_ns_lookup_var(PLpgSQL_expr *expr, const char *name, PLpgSQL_datum_type type);
 static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a);
 static Node* plora_pre_parse_func(ParseState *pstate, FuncCall *func);
 static Node* plora_pre_parse_expr(ParseState *pstate, Node *expr);
@@ -1149,6 +1154,29 @@ plpgsql_post_column_ref(ParseState *pstate, ColumnRef *cref, Node *var)
 				 parser_errposition(pstate, cref->location)));
 	}
 
+#ifdef ADB_GRAM_ORA
+	if (myvar == NULL &&
+		expr->func->grammar == PARSE_GRAM_ORACLE &&
+		list_length(cref->fields) == 2)
+	{
+		/* test is array.count */
+		const char *name;
+		PLpgSQL_var *var = plora_ns_lookup_var(expr,
+											   strVal(linitial(cref->fields)),
+											   PLPGSQL_DTYPE_VAR);
+		if (var && var->datatype->typisarray)
+		{
+			name = strVal(llast(cref->fields));
+			if (strcmp(name, "count") == 0)
+			{
+				return plora_make_func_datum(expr,
+											 PLORASQL_CALLBACK_ARRAY_COUNT,
+											 INT4OID,
+											 var->dno);
+			}
+		}
+	}
+#endif /* ADB_GRAM_ORA */
 	return myvar;
 }
 
@@ -2774,13 +2802,13 @@ static Node* plora_make_func_global(PLpgSQL_expr *plexpr, PLoraSQL_Callback_Type
 							   COERCE_EXPLICIT_CALL);
 }
 
-static Node* plora_make_func_cursor(PLpgSQL_expr *plexpr, PLoraSQL_Callback_Type type, Oid rettype, int cursor)
+static Node* plora_make_func_datum(PLpgSQL_expr *plexpr, PLoraSQL_Callback_Type type, Oid rettype, int dno)
 {
 	List *args;
 
 	args = list_make1(makeConst(INTERNALOID, -1, InvalidOid, SIZEOF_SIZE_T, PointerGetDatum(plexpr), false, true));
 	args = lappend(args, makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(type), false, true));
-	args = lappend(args, makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(cursor), false, true));
+	args = lappend(args, makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(dno), false, true));
 
 	return (Node*)makeFuncExpr(plora_get_callback_func_oid(),
 							   rettype,
@@ -2790,29 +2818,11 @@ static Node* plora_make_func_cursor(PLpgSQL_expr *plexpr, PLoraSQL_Callback_Type
 							   COERCE_EXPLICIT_CALL);
 }
 
-static Node* plora_pre_parse_expr(ParseState *pstate, Node *expr)
+static bool is_simple_func(FuncCall *func)
 {
-	if (expr == NULL)
-		return NULL;
-	if (IsA(expr, A_Expr))
-		return plora_pre_parse_aexpr(pstate, (A_Expr*)expr);
-	else if (IsA(expr, FuncCall))
-		return plora_pre_parse_func(pstate, (FuncCall*)expr);
+	ListCell *lc;
 
-	return NULL;
-}
-
-static Node* plora_pre_parse_func(ParseState *pstate, FuncCall *func)
-{
-	ListCell	   *lc;
-	const char	   *name;
-	PLpgSQL_expr   *expr;
-	PLpgSQL_type   *type;
-	PLpgSQL_nsitem *nse;
-
-	/* test is array asign */
-	if (list_length(func->funcname) != 1 ||
-		list_length(func->args) == 0 ||
+	if (func == NULL ||
 		func->agg_order != NIL ||
 		func->agg_filter != NULL ||
 		func->agg_within_group ||
@@ -2821,56 +2831,102 @@ static Node* plora_pre_parse_func(ParseState *pstate, FuncCall *func)
 		func->func_variadic ||
 		func->over != NULL)
 	{
-		return NULL;
+		return false;
 	}
 
 	foreach(lc, func->args)
 	{
 		if (IsA(lfirst(lc), NamedArgExpr))
-			return NULL;
+			return false;
 	}
 
-	name = strVal(linitial(func->funcname));
+	return true;
+}
+
+static Node* plora_pre_parse_expr(ParseState *pstate, Node *expr)
+{
+	if (expr == NULL)
+		return NULL;
+	if (IsA(expr, A_Expr))
+	{
+		return plora_pre_parse_aexpr(pstate, (A_Expr*)expr);
+	}else if (IsA(expr, FuncCall))
+	{
+		if (is_simple_func((FuncCall*)expr) == false)
+			return NULL;
+		return plora_pre_parse_func(pstate, (FuncCall*)expr);
+	}
+
+	return NULL;
+}
+
+static PLpgSQL_var* plora_ns_lookup_var(PLpgSQL_expr *expr, const char *name, PLpgSQL_datum_type type)
+{
+	PLpgSQL_nsitem *nse;
+
+	nse = plpgsql_ns_lookup(expr->ns, false, name, NULL, NULL, NULL);
+	if (nse)
+	{
+		PLpgSQL_execstate *estate = expr->func->cur_estate;
+		PLpgSQL_datum *datum = estate->datums[nse->itemno];
+		if (datum->dtype == type)
+			return (PLpgSQL_var*)datum;
+	}
+
+	return NULL;
+}
+
+static Node* plora_pre_parse_func(ParseState *pstate, FuncCall *func)
+{
+	PLpgSQL_expr   *expr;
+	PLpgSQL_var	   *var;
+	const char	   *name;
+	PLpgSQL_type   *type;
+
 	expr = (PLpgSQL_expr*)(pstate->p_ref_hook_state);
-	type = plpgsql_find_wordtype_ns(expr->ns, name);
 
-	if (!type && (list_length(func->args) == 1))
+	if (list_length(func->args) != 0 &&
+		list_length(func->funcname) == 1)
 	{
-		nse = plpgsql_ns_lookup(expr->ns, false,
-								name, NULL, NULL, NULL);
-		if (!nse)
-			return NULL;
-		A_Indirection *arr = makeNode(A_Indirection);
-		ColumnRef *colRef = makeNode(ColumnRef);
-		A_Indices *a_indice = makeNode(A_Indices);
+		name = strVal(linitial(func->funcname));
+		if (list_length(func->args) == 1 &&
+			(var=plora_ns_lookup_var(expr, name, PLPGSQL_DTYPE_VAR)) != NULL &&
+			var->datatype->typisarray)
+		{
+			/* convert "name(arg)" to "name[arg]" */
+			A_Indirection *arr = makeNode(A_Indirection);
+			ColumnRef *colRef = makeNode(ColumnRef);
+			A_Indices *a_indice = makeNode(A_Indices);
 
-		colRef->fields = list_make1(makeString(pstrdup(name)));
-		colRef->location = func->location;
+			colRef->fields = list_make1(makeString(pstrdup(name)));
+			colRef->location = func->location;
 
-		a_indice->is_slice = false;
-		a_indice->lidx = NULL;
-		a_indice->uidx = (Node*)linitial(func->args);
+			a_indice->is_slice = false;
+			a_indice->lidx = NULL;
+			a_indice->uidx = (Node*)linitial(func->args);
 
-		arr->arg = (Node*)colRef;
-		arr->indirection = list_make1(a_indice);
+			arr->arg = (Node*)colRef;
+			arr->indirection = list_make1(a_indice);
 
-		return transformExpr(pstate, (Node*)arr, pstate->p_expr_kind);
-	}
+			return transformExpr(pstate, (Node*)arr, pstate->p_expr_kind);
+		}
 
-	if (type && type->typisarray)
-	{
-		/* now is array asign */
-		TypeCast *tc = makeNode(TypeCast);
-		A_ArrayExpr *arr = makeNode(A_ArrayExpr);
+		type = plpgsql_find_wordtype_ns(expr->ns, name);
+		if (type && type->typisarray)
+		{
+			/* convert "name(arg[,arg...])" to "{arg[,arg...]}::name[] */
+			TypeCast *tc = makeNode(TypeCast);
+			A_ArrayExpr *arr = makeNode(A_ArrayExpr);
 
-		arr->elements = func->args;
-		arr->location = func->location;
+			arr->elements = func->args;
+			arr->location = func->location;
 
-		tc->arg = (Node*)arr;
-		tc->typeName = makeTypeNameFromOid(type->typoid, type->atttypmod);
-		tc->location = func->location;
+			tc->arg = (Node*)arr;
+			tc->typeName = makeTypeNameFromOid(type->typoid, type->atttypmod);
+			tc->location = func->location;
 
-		return transformExpr(pstate, (Node*)tc, pstate->p_expr_kind);
+			return transformExpr(pstate, (Node*)tc, pstate->p_expr_kind);
+		}
 	}
 
 	return NULL;
@@ -2963,25 +3019,25 @@ static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a)
 		/* now, plvar is a refcursor */
 		if (strcmp(rname, "rowcount") == 0)
 		{
-			return plora_make_func_cursor(expr,
+			return plora_make_func_datum(expr,
 										  PLORASQL_CALLBACK_CURSOR_ROWCOUNT,
 										  INT8OID,
 										  plvar->dno);
 		}else if (strcmp(rname, "found") == 0)
 		{
-			return plora_make_func_cursor(expr,
+			return plora_make_func_datum(expr,
 										  PLORASQL_CALLBACK_CURSOR_FOUND,
 										  BOOLOID,
 										  plvar->dno);
 		}else if (strcmp(rname, "notfound") == 0)
 		{
-			return plora_make_func_cursor(expr,
+			return plora_make_func_datum(expr,
 										  PLORASQL_CALLBACK_CURSOR_NOTFOUND,
 										  BOOLOID,
 										  plvar->dno);
 		}else if (strcmp(rname, "isopen") == 0)
 		{
-			return plora_make_func_cursor(expr,
+			return plora_make_func_datum(expr,
 										  PLORASQL_CALLBACK_CURSOR_ISOPEN,
 										  BOOLOID,
 										  plvar->dno);

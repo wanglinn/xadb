@@ -86,6 +86,7 @@ static	PLpgSQL_expr	*read_sql_construct(int until,
 											bool trim,
 											int *startloc,
 											int *endtoken);
+static PLpgSQL_expr *make_plpg_sql_expr(const char *query);
 static	PLpgSQL_expr	*read_sql_expression(int until,
 											 const char *expected);
 static	PLpgSQL_expr	*read_sql_expression2(int until, int until2,
@@ -771,8 +772,8 @@ proc_stmt		: pl_block ';'
 						{ $$ = $2; castStmt(if, IF, $$)->label = $1; }
 				| opt_block_label stmt_exit
 						{ $$ = $2; castStmt(exit, EXIT, $$)->block_name = $1; }
-				| opt_block_label stmt_func
-						{ $$ = $2; castStmt(func, FUNC, $$)->label = $1; }
+				| stmt_func
+						{ $$ = $1; }
 				| opt_block_label stmt_return
 						{
 							$$ = $2;
@@ -870,10 +871,57 @@ assign_var		: T_DATUM
 					}
 				;
 
-stmt_func		: T_CWORD '('
-					{ $$ = (PLpgSQL_stmt *)read_func_stmt(@1, @2); }
-				| T_WORD '('
-					{ $$ = (PLpgSQL_stmt *)read_func_stmt(@1, @2); }
+stmt_func		: opt_block_label T_CWORD '('
+					{
+						$$ = NULL;
+						if (list_length($2.idents) == 2 &&
+							plpgsql_peek() == ')' )
+						{
+							/* test is varray.extend() */
+							PLpgSQL_nsitem *nsi;
+							PLpgSQL_var *var;
+							nsi = plpgsql_ns_lookup(plpgsql_ns_top(),
+													false,
+													strVal(linitial($2.idents)),
+													NULL,
+													NULL,
+													NULL);
+							if (nsi->itemtype == PLPGSQL_NSTYPE_VAR &&
+								(var = (PLpgSQL_var*)plpgsql_Datums[nsi->itemno]) != NULL &&
+								var->datatype->typisarray &&
+								strcmp(strVal(llast($2.idents)), "extend") == 0)
+							{
+								PLpgSQL_stmt_assign *assign;
+								char *sql = psprintf("SELECT pg_catalog.array_append(\"%s\", NULL)", strVal(linitial($2.idents)));
+
+								assign = palloc0(sizeof(PLpgSQL_stmt_assign));
+								assign->cmd_type = PLPGSQL_STMT_ASSIGN;
+								assign->lineno   = plpgsql_location_to_lineno(@2);
+								assign->varno = var->dno;
+								assign->expr  = make_plpg_sql_expr(sql);
+								/* assign->label = $1; */
+								pfree(sql);
+
+								yylex();	/* token is ')' */
+								if (yylex() != ';')
+									yyerror("syntax error");
+
+								$$ = (PLpgSQL_stmt *)assign;
+							}
+						}
+						if ($$ == NULL)
+						{
+							PLpgSQL_stmt_func *func = read_func_stmt(@2, @3);
+							func->label = $1;
+							$$ = (PLpgSQL_stmt *)func;
+						}
+					}
+				| opt_block_label T_WORD '('
+					{
+						PLpgSQL_stmt_func *func = read_func_stmt(@2, @3);
+						func->label = $1;
+						$$ = (PLpgSQL_stmt *)func;
+					}
 				;
 
 stmt_if			: POK_IF expr_until_then proc_sect stmt_elsifs stmt_else POK_END POK_IF ';'
@@ -2545,17 +2593,26 @@ read_sql_construct(int until,
 			ds.data[--ds.len] = '\0';
 	}
 
-	expr = palloc0(sizeof(PLpgSQL_expr));
-	expr->dtype			= PLPGSQL_DTYPE_EXPR;
-	expr->query			= pstrdup(ds.data);
-	expr->plan			= NULL;
-	expr->paramnos		= NULL;
-	expr->rwparam		= -1;
-	expr->ns			= plpgsql_ns_top();
+	expr = make_plpg_sql_expr(ds.data);
 	pfree(ds.data);
 
 	if (valid_sql)
 		check_sql_expr(expr->query, startlocation, strlen(sqlstart));
+
+	return expr;
+}
+
+static PLpgSQL_expr *make_plpg_sql_expr(const char *query)
+{
+	PLpgSQL_expr *expr;
+
+	expr = palloc0(sizeof(PLpgSQL_expr));
+	expr->dtype			= PLPGSQL_DTYPE_EXPR;
+	expr->query			= pstrdup(query);
+	expr->plan			= NULL;
+	expr->paramnos		= NULL;
+	expr->rwparam		= -1;
+	expr->ns			= plpgsql_ns_top();
 
 	return expr;
 }
