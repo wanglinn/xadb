@@ -881,6 +881,7 @@ char* plorasql_make_table_record_array(PLpgSQL_execstate *estate, int dno, PLpgS
 	appendStringInfo(&buf, "SELECT array_agg(\"%s\") from ", range_var->relname);
 	appendBinaryStringInfo(&buf, expr->query + start_lloc + 7, name_len);
 	pfree(range_var);
+	relation_close(rel, NoLock);
 	return buf.data;
 
 end_make_assign_:
