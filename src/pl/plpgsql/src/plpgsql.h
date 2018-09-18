@@ -526,6 +526,7 @@ typedef struct PLpgSQL_stmt_assign
 	int			lineno;
 	int			varno;
 	PLpgSQL_expr *expr;
+	char	   *label;
 } PLpgSQL_stmt_assign;
 
 /*

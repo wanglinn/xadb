@@ -863,8 +863,8 @@ proc_sect		:
 
 proc_stmt		: pl_block ';'
 						{ $$ = $1; }
-				| stmt_assign
-						{ $$ = $1; }
+				| opt_block_label stmt_assign
+						{ $$ = $2; castStmt(assign, ASSIGN, $$)->label = $1; }
 				| opt_block_label stmt_if
 						{ $$ = $2; castStmt(if, IF, $$)->label = $1; }
 				| opt_block_label stmt_case
