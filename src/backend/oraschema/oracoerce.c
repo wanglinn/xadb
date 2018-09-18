@@ -614,34 +614,22 @@ transformOraAExprOp(ParseState * pstate,
 					Node *rexpr,
 					int location)
 {
-	volatile bool   err = false;
-	Node 		   *result = NULL;
-	OraCoercionContext oldContext;
+	Node			   *result = NULL;
+	OraCoercionContext	oldContext;
 
 	Assert(pstate);
 	Assert(lexpr && rexpr);
 	Assert(IsOracleParseGram(pstate));
 
 	oldContext = OraCoercionContextSwitchTo(ORA_COERCE_NOUSE);
-	PG_TRY_HOLD();
-	{
-		result = (Node *) make_op(pstate,
-								  opname,
-								  lexpr,
-								  rexpr,
-								  pstate->p_last_srf,
-								  location);
-	} PG_CATCH_HOLD();
-	{
-		/*
-		 * Here we make an error: e1
-		 * but never throw it, remeber to dump or
-		 * throw it before returning.
-		 */
-		err = true;
-	} PG_END_TRY_HOLD();
-
-	if (!err)
+	result = (Node *) make_op2(pstate,
+							   opname,
+							   lexpr,
+							   rexpr,
+							   pstate->p_last_srf,
+							   location,
+							   true);
+	if (result)
 	{
 		(void) OraCoercionContextSwitchTo(oldContext);
 		return result;
@@ -675,19 +663,8 @@ transformOraAExprOp(ParseState * pstate,
 	} PG_CATCH();
 	{
 		(void) OraCoercionContextSwitchTo(oldContext);
-
-		/*
-		 * Here we make an error: e2
-		 * dump error data "e2" then throw "e1"
-		 */
-		errdump();
 		PG_RE_THROW();
 	} PG_END_TRY();
-
-	/*
-	 * dump error data e1, see above
-	 */
-	errdump();
 	(void) OraCoercionContextSwitchTo(oldContext);
 
 	return result;
