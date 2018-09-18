@@ -1700,6 +1700,8 @@ const char *plpgsql_stmt_get_label(PLpgSQL_stmt *stmt)
 	{
 	case PLPGSQL_STMT_ASSERT:
 		return ((PLpgSQL_stmt_assert*)stmt)->label;
+	case PLPGSQL_STMT_ASSIGN:
+		return ((PLpgSQL_stmt_assign*)stmt)->label;
 	case PLPGSQL_STMT_CASE:
 		return ((PLpgSQL_stmt_case*)stmt)->label;
 	case PLPGSQL_STMT_CLOSE:

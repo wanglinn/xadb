@@ -766,8 +766,8 @@ proc_sect		:
 
 proc_stmt		: pl_block ';'
 						{ $$ = $1; }
-				| stmt_assign
-						{ $$ = $1; }
+				| opt_block_label stmt_assign
+						{ $$ = $2; castStmt(assign, ASSIGN, $$)->label = $1; }
 				| opt_block_label stmt_if
 						{ $$ = $2; castStmt(if, IF, $$)->label = $1; }
 				| opt_block_label stmt_exit
@@ -899,7 +899,7 @@ stmt_func		: opt_block_label T_CWORD '('
 								assign->lineno   = plpgsql_location_to_lineno(@2);
 								assign->varno = var->dno;
 								assign->expr  = make_plpg_sql_expr(sql);
-								/* assign->label = $1; */
+								assign->label = $1;
 								pfree(sql);
 
 								yylex();	/* token is ')' */
