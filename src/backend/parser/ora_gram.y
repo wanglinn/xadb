@@ -231,7 +231,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	set_target_list sortby_list sort_clause subquery_Op
 	TableElementList TableFuncElementList target_list transaction_mode_list_or_empty TypedTableElementList
 	transaction_mode_list /*transaction_mode_list_or_empty*/ trim_list
-	var_list
+	var_list within_group_clause
 
 %type <node>
 	AexprConst a_expr AlterTableStmt alter_column_default AlterObjectSchemaStmt
@@ -246,7 +246,8 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	DeclareCursorStmt DeleteStmt DropStmt def_arg
 	ExplainStmt ExplainableStmt explain_option_arg ExclusionWhereClause
 	FetchStmt fetch_args
-	func_application func_application_normal func_arg_expr func_expr func_table for_locking_item
+	func_application func_application_normal func_expr_common_subexpr func_arg_expr
+	func_expr func_table for_locking_item func_expr_windowless
 	having_clause
 	indirection_el InsertStmt IndexStmt
 	join_outer
@@ -359,7 +360,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	UID UNCOMMITTED UNION UNIQUE UPDATE USER USING UNLOGGED
 	UNENCRYPTED UNTIL UNBOUNDED
 	VALIDATE VALUES VARCHAR VARCHAR2 VERBOSE VIEW VALID
-	WHEN WHENEVER WHERE WITH WRITE WITHOUT WORK
+	WHEN WHENEVER WHERE WITH WRITE WITHIN WITHOUT WORK
 	XML_P
 	YEAR_P
 	ZONE
@@ -2029,7 +2030,7 @@ index_elem:	ColId opt_collate opt_class opt_asc_desc opt_nulls_order
 					$$->ordering = $4;
 					$$->nulls_ordering = $5;
 				}
-			| func_expr opt_collate opt_class opt_asc_desc opt_nulls_order
+			| func_expr_windowless opt_collate opt_class opt_asc_desc opt_nulls_order
 				{
 					$$ = makeNode(IndexElem);
 					$$->name = NULL;
@@ -3619,24 +3620,47 @@ func_table: func_application
  * (Note that many of the special SQL functions wouldn't actually make any
  * sense as functional index entries, but we ignore that consideration here.)
  */
-func_expr: func_application over_clause
+func_expr: func_application within_group_clause over_clause
 			{
 				FuncCall *n = (FuncCall *) $1;
 
-				if ($2)
+				if ($2 != NIL || $3)
 				{
 					if (IsA(n, FuncCall))
 					{
-						n->over = $2;
+						if (n->agg_order != NIL)
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									 errmsg("cannot use multiple ORDER BY clauses with WITHIN GROUP"),
+									 parser_errposition(@2)));
+						if (n->agg_distinct)
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									 errmsg("cannot use DISTINCT with WITHIN GROUP"),
+									 parser_errposition(@2)));
+						if (n->func_variadic)
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									 errmsg("cannot use VARIADIC with WITHIN GROUP"),
+									 parser_errposition(@2)));
+						n->agg_order = $2;
+						/* oracle "within group (...)" same to postgres func(arg... order by ...) */
+						n->agg_within_group = false;
+
+						n->over = $3;
 					}else
 					{
-						/* not FuncCall, not support over ... */
+						/* not FuncCall, not support "within group ..." and "over ..." */
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("syntax error"),
-								 parser_errposition(@2)));
+								 parser_errposition($2 != NIL ? @2:@3)));
 					}
 				}
+				$$ = $1;
+			}
+		| func_expr_common_subexpr
+			{
 				$$ = $1;
 			}
 		;
@@ -3917,8 +3941,6 @@ func_application_normal:
 					$$ = (Node *)n;
 				}
 			}
-		| CAST '(' a_expr AS Typename ')'
-			{ $$ = makeTypeCast($3, $5, @1); }
 		| func_name '(' func_arg_list sort_clause ')'
 			{
 				FuncCall *n = makeNode(FuncCall);
@@ -3984,6 +4006,21 @@ func_application_normal:
 				n->location = @1;
 				$$ = (Node *)n;
 			}
+		;
+/*
+ * As func_expr but does not accept WINDOW functions directly
+ * (but they can still be contained in arguments for functions etc).
+ * Use this when window expressions are not allowed, where needed to
+ * disambiguate the grammar (e.g. in CREATE INDEX).
+ */
+func_expr_windowless:
+			func_application						{ $$ = $1; }
+			| func_expr_common_subexpr				{ $$ = $1; }
+		;
+
+func_expr_common_subexpr:
+		  CAST '(' a_expr AS Typename ')'
+			{ $$ = makeTypeCast($3, $5, @1); }
 		| SYSDATE
 			{
 				/*
@@ -4316,6 +4353,14 @@ func_name:	type_function_name
 					$$ = check_func_name(lcons(makeString(pstrdup($1)), $2),
 										 yyscanner);
 				}
+		;
+
+/*
+ * Aggregate decoration clauses
+ */
+within_group_clause:
+			WITHIN GROUP_P '(' sort_clause ')'		{ $$ = $4; }
+			| /*EMPTY*/								{ $$ = NIL; }
 		;
 
 group_clause:
@@ -6794,6 +6839,7 @@ unreserved_keyword:
 	| VALID
 	| WRITE
 	| WORK
+	| WITHIN
 	| WITHOUT
 	| XML_P
 	| YEAR_P
