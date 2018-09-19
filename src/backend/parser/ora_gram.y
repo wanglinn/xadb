@@ -3657,6 +3657,21 @@ func_expr: func_application within_group_clause over_clause
 								 parser_errposition($2 != NIL ? @2:@3)));
 					}
 				}
+				if (IsA(n, FuncCall))
+				{
+					if (strcmp(strVal(llast(n->funcname)), "listagg") == 0 &&
+						(list_length(n->funcname) == 1 ||
+						 (list_length(n->funcname) == 2 &&
+						  strcmp(strVal(linitial(n->funcname)), "oracle") == 0)))
+					{
+						/* convert listagg(arg1 [,arg2]) to string_agg(arg1, arg2|null) */
+						n->funcname = SystemFuncName("string_agg");
+						if (list_length(n->args) < 2)
+						{
+							n->args = lappend(n->args, makeNullAConst(-1));
+						}
+					}
+				}
 				$$ = $1;
 			}
 		| func_expr_common_subexpr
