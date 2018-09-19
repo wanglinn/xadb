@@ -734,5 +734,4 @@ InitPGXCNodeIdentifier(void)
 
 		InitSLOTPGXCNodeOid();
 	}
->>>>>>> c10f0a1... 重构InitPGXCNodeIdentifier函数
 }
