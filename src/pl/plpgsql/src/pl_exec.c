@@ -8479,21 +8479,41 @@ exec_dynquery_with_params(PLpgSQL_execstate *estate,
 		PreparedParamsData *ppd;
 
 		ppd = exec_eval_using_params(estate, params);
+#ifdef ADB_MULTI_GRAM
+		portal = SPI_cursor_open_with_args_grammar(portalname,
+										   querystr,
+										   ppd->nargs, ppd->types,
+										   ppd->values, ppd->nulls,
+										   estate->readonly_func,
+										   cursorOptions,
+										   estate->grammar);
+#else /* ADB_MULTI_GRAM */
 		portal = SPI_cursor_open_with_args(portalname,
 										   querystr,
 										   ppd->nargs, ppd->types,
 										   ppd->values, ppd->nulls,
 										   estate->readonly_func,
 										   cursorOptions);
+#endif /* ADB_MULTI_GRAM */
 	}
 	else
 	{
+#ifdef ADB_MULTI_GRAM
+		portal = SPI_cursor_open_with_args_grammar(portalname,
+										   querystr,
+										   0, NULL,
+										   NULL, NULL,
+										   estate->readonly_func,
+										   cursorOptions,
+										   estate->grammar);
+#else /* ADB_MULTI_GRAM */
 		portal = SPI_cursor_open_with_args(portalname,
 										   querystr,
 										   0, NULL,
 										   NULL, NULL,
 										   estate->readonly_func,
 										   cursorOptions);
+#endif /* ADB_MULTI_GRAM */
 	}
 
 	if (portal == NULL)
