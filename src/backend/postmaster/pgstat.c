@@ -69,6 +69,7 @@
 #include "utils/tqual.h"
 #ifdef ADB
 #include "catalog/catalog.h"
+#include "utils/lsyscache.h"
 #endif
 
 
@@ -5648,7 +5649,8 @@ bool walker_table_stat(bool(*walker)(), void *context)
 		for (i = 0; i < tsa->tsa_used; i++)
 		{
 			entry = &tsa->tsa_entries[i];
-			if(IsTransactionState()&&(InvalidAttrNumber==get_relnatts(entry->t_id)))
+			if (IsTransactionState() &&
+				InvalidAttrNumber == get_relnatts(entry->t_id))
 				continue;
 
 			if ((*walker)(entry, context))
