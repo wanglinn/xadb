@@ -2753,7 +2753,7 @@ EvalPlanQualFetch(EState *estate, Relation relation, int lockmode,
 			/*
 			 * This is a live tuple, so now try to lock it.
 			 */
-			test = heap_lock_tuple(relation, &tuple, ADB_ONLY_ARG(estate->es_snapshot)
+			test = heap_lock_tuple(relation, &tuple,
 								   estate->es_output_cid,
 								   lockmode, wait_policy,
 								   false, &buffer, &hufd);

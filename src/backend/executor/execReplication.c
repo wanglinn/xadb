@@ -175,7 +175,7 @@ retry:
 
 		PushActiveSnapshot(GetLatestSnapshot());
 
-		res = heap_lock_tuple(rel, &locktup, ADB_ONLY_ARG(&snap) GetCurrentCommandId(false),
+		res = heap_lock_tuple(rel, &locktup, GetCurrentCommandId(false),
 							  lockmode,
 							  LockWaitBlock,
 							  false /* don't follow updates */ ,
@@ -339,7 +339,7 @@ retry:
 
 		PushActiveSnapshot(GetLatestSnapshot());
 
-		res = heap_lock_tuple(rel, &locktup, ADB_ONLY_ARG(&snap) GetCurrentCommandId(false),
+		res = heap_lock_tuple(rel, &locktup, GetCurrentCommandId(false),
 							  lockmode,
 							  LockWaitBlock,
 							  false /* don't follow updates */ ,

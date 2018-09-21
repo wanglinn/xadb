@@ -163,7 +163,7 @@ extern HTSU_Result heap_update(Relation relation, ItemPointer otid,
 			HeapTuple newtup,
 			CommandId cid, Snapshot crosscheck, ADB_ONLY_ARG(Snapshot globalcheck) bool wait,
 			HeapUpdateFailureData *hufd, LockTupleMode *lockmode);
-extern HTSU_Result heap_lock_tuple(Relation relation, HeapTuple tuple, ADB_ONLY_ARG(Snapshot globalcheck)
+extern HTSU_Result heap_lock_tuple(Relation relation, HeapTuple tuple,
 				CommandId cid, LockTupleMode mode, LockWaitPolicy wait_policy,
 				bool follow_update,
 				Buffer *buffer, HeapUpdateFailureData *hufd);
