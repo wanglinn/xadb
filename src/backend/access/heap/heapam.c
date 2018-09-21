@@ -4659,7 +4659,7 @@ get_mxact_status_for_lock(LockTupleMode mode, bool is_update)
  * See README.tuplock for a thorough explanation of this mechanism.
  */
 HTSU_Result
-heap_lock_tuple(Relation relation, HeapTuple tuple, ADB_ONLY_ARG(Snapshot globalcheck)
+heap_lock_tuple(Relation relation, HeapTuple tuple,
 				CommandId cid, LockTupleMode mode, LockWaitPolicy wait_policy,
 				bool follow_updates,
 				Buffer *buffer, HeapUpdateFailureData *hufd)
@@ -4718,18 +4718,6 @@ l3:
 		result = HeapTupleInvisible;
 		goto out_locked;
 	}
-#ifdef ADB
-	else if (result == HeapTupleUpdated && globalcheck != InvalidSnapshot)
-	{
-		TransactionId xwait = HeapTupleHeaderGetRawXmax(tuple->t_data);
-
-		if (XidInMVCCSnapshotExtern(xwait, globalcheck))
-			ereport(ERROR,
-					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					 errmsg("attempted to lock local committed but global uncommitted tuple "
-					 "which version is %u", xwait)));
-	}
-#endif
 	else if (result == HeapTupleBeingUpdated || result == HeapTupleUpdated)
 	{
 		TransactionId xwait;
