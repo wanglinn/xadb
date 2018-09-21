@@ -167,6 +167,9 @@ extern bool TransactionIdFollowsOrEquals(TransactionId id1, TransactionId id2);
 extern TransactionId TransactionIdLatest(TransactionId mainxid,
 					int nxids, const TransactionId *xids);
 extern XLogRecPtr TransactionIdGetCommitLSN(TransactionId xid);
+#ifdef ADB
+extern bool TransactionIdDidCommitGTM(TransactionId transactionId, bool try_gtm);
+#endif /* ADB */
 
 /* in transam/varsup.c */
 #if defined(AGTM)
