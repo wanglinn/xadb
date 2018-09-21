@@ -1697,7 +1697,7 @@ GetSnapshotData(Snapshot snapshot)
 				}
 
 				/* Local committed but global uncommitted */
-				if (TransactionIdDidCommit(xid))
+				if (TransactionIdDidCommitGTM(xid, false))
 				{
 					EnlargeSnapshotXip(snapshot, count + 1);
 					snapshot->xip[count++] = xid;

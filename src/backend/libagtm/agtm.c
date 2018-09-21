@@ -341,9 +341,9 @@ agtm_GetGlobalSnapShot(Snapshot snapshot)
 	snapshot->subxcnt = pq_getmsgint(&buf, sizeof(snapshot->subxcnt));
 	str = pq_getmsgbytes(&buf, snapshot->subxcnt * sizeof(snapshot->subxip[0]));
 	snapshot->suboverflowed = pq_getmsgbyte(&buf);
-	if(snapshot->subxcnt > GetMaxSnapshotXidCount())
+	if(snapshot->subxcnt > GetMaxSnapshotSubxidCount())
 	{
-		snapshot->subxcnt = GetMaxSnapshotXidCount();
+		snapshot->subxcnt = GetMaxSnapshotSubxidCount();
 		snapshot->suboverflowed = true;
 	}
 	memcpy(snapshot->subxip, str, sizeof(snapshot->subxip[0]) * snapshot->subxcnt);

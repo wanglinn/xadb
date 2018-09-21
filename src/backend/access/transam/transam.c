@@ -24,6 +24,13 @@
 #include "access/transam.h"
 #include "utils/snapmgr.h"
 
+#ifdef ADB
+#include "agtm/agtm.h"
+#include "pgxc/pgxc.h"
+#include "storage/proc.h"
+#include "utils/tqual.h"
+#include <time.h>
+#endif /* ADB */
 #if defined(ADB) || defined(AGTM) || defined(ADB_MULTI_GRAM)
 #include "utils/builtins.h"
 #endif
@@ -154,6 +161,12 @@ pgxc_is_committed(PG_FUNCTION_ARGS)
 bool							/* true if given transaction committed */
 TransactionIdDidCommit(TransactionId transactionId)
 {
+#ifdef ADB
+	return TransactionIdDidCommitGTM(transactionId, true);
+}
+bool TransactionIdDidCommitGTM(TransactionId transactionId, bool try_gtm)
+{
+#endif /* ADB */
 	XidStatus	xidstatus;
 
 	xidstatus = TransactionLogFetch(transactionId);
@@ -162,7 +175,35 @@ TransactionIdDidCommit(TransactionId transactionId)
 	 * If it's marked committed, it's committed.
 	 */
 	if (xidstatus == TRANSACTION_STATUS_COMMITTED)
+	{
+#ifdef ADB
+		if (try_gtm &&
+			IsUnderAGTM() &&
+			XidInMVCCSnapshot(transactionId, GetRecentGTMSnapshot(false)))
+		{
+			time_t now,end;
+			end = time(0);
+			if (LockTimeout == 0)
+				end += DeadlockTimeout/1000;
+			else
+				end += LockTimeout/1000;
+			while(XidInMVCCSnapshot(transactionId, GetRecentGTMSnapshot(true)))
+			{
+				now = time(0);
+				if (now > end)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+							 errmsg("attempted to local committed but global uncommitted transaction"),
+							 errdetail("which version is %u", transactionId)));
+				}
+				pg_usleep(1000);
+				CHECK_FOR_INTERRUPTS();
+			}
+		}
+#endif /* ADB */
 		return true;
+	}
 
 	/*
 	 * If it's marked subcommitted, we have to check the parent recursively.
@@ -191,7 +232,11 @@ TransactionIdDidCommit(TransactionId transactionId)
 				 transactionId);
 			return false;
 		}
+#ifdef ADB
+		return TransactionIdDidCommitGTM(parentXid, try_gtm);
+#else
 		return TransactionIdDidCommit(parentXid);
+#endif /* ADB */
 	}
 
 	/*
@@ -478,4 +523,3 @@ Datum pg_xact_status(PG_FUNCTION_ARGS)
 	PG_RETURN_CSTRING("UNKNOWN");
 }
 #endif
-
