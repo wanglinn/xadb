@@ -160,6 +160,7 @@ static Snapshot HistoricSnapshot = NULL;
 #ifdef ADB
 static Snapshot GlobalSnapshot = NULL;
 static bool GlobalSnapshotSet = false;
+static Snapshot RecentGTMSnapshot = NULL;
 #endif
 
 /*
@@ -240,6 +241,7 @@ static void FreeSnapshot(Snapshot snapshot);
 static void SnapshotResetXmin(void);
 #ifdef ADB
 static Snapshot CopyGlobalSnapshot(Snapshot snapshot);
+static void CreateRecentGTMSnapshot(void);
 #endif
 
 /*
@@ -2348,6 +2350,12 @@ SetGlobalSnapshot(StringInfo input_message)
 	}
 
 	GlobalSnapshotSet = true;
+
+	/* update recent GTM snapshot */
+	if (RecentGTMSnapshot == NULL)
+		CreateRecentGTMSnapshot();
+	CopyGlobalSnapshot(RecentGTMSnapshot);
+
 #ifdef SHOW_GLOBAL_SNAPSHOT
 	OutputGlobalSnapshot(GlobalSnapshot);
 #endif
@@ -2435,5 +2443,56 @@ GetGlobalSnapshot(Snapshot snapshot)
 #endif
 
 	return snap;
+}
+
+static void CreateRecentGTMSnapshot(void)
+{
+	if (RecentGTMSnapshot == NULL)
+	{
+		RecentGTMSnapshot = (Snapshot) malloc(sizeof(*RecentGTMSnapshot));
+		if (RecentGTMSnapshot == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+				  errmsg("Fail to memory alloc \"RecentGTMSnapshot\"")));
+		memset(RecentGTMSnapshot, 0, sizeof(*RecentGTMSnapshot));
+
+		PG_TRY();
+		{
+			EnlargeSnapshotXip(RecentGTMSnapshot, GetMaxSnapshotXidCount());
+			RecentGTMSnapshot->subxip = malloc(GetMaxSnapshotSubxidCount() * sizeof(TransactionId));
+			if (RecentGTMSnapshot->subxip == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						errmsg("fail to malloc RecentGTMSnapshot")));
+		}PG_CATCH();
+		{
+			free(RecentGTMSnapshot->xip);
+			free(RecentGTMSnapshot);
+			RecentGTMSnapshot = NULL;
+			PG_RE_THROW();
+		}PG_END_TRY();
+	}
+}
+
+Snapshot GetRecentGTMSnapshot(bool refurbish)
+{
+	if (RecentGTMSnapshot == NULL)
+	{
+		CreateRecentGTMSnapshot();
+		Assert(RecentGTMSnapshot != NULL);
+		refurbish = true;
+	}
+
+	if (refurbish)
+	{
+		if (!IsUnderAGTM())
+		{
+			ereport(ERROR,
+					(errmsg("Can not refurbish GTM snapshot, because not under AGTM")));
+		}
+		agtm_GetGlobalSnapShot(RecentGTMSnapshot);
+	}
+
+	return RecentGTMSnapshot;
 }
 #endif /* ADB */
