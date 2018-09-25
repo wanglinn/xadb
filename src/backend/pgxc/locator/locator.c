@@ -885,8 +885,9 @@ RelationIdBuildLocator(Oid relid)
 	 * use next time. In addition, if it is replicated,
 	 * we choose a node to use for balancing reads.
 	 */
-	if (relationLocInfo->locatorType == LOCATOR_TYPE_RROBIN ||
-		relationLocInfo->locatorType == LOCATOR_TYPE_REPLICATED)
+	if (IsCnNode() &&
+		(relationLocInfo->locatorType == LOCATOR_TYPE_RROBIN ||
+		 relationLocInfo->locatorType == LOCATOR_TYPE_REPLICATED))
 	{
 		int offset;
 		/*
