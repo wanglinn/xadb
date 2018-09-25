@@ -53,6 +53,7 @@
 #define REMOTE_KEY_REDUCE_INFO				0xFFFFFF0A
 #define REMOTE_KEY_REDUCE_GROUP				0xFFFFFF0B
 #define REMOTE_KEY_CUSTOM_FUNCTION			0xFFFFFF0C
+#define REMOTE_KEY_COORD_INFO				0xFFFFFF0D
 
 typedef struct ClusterPlanContext
 {
@@ -76,11 +77,17 @@ typedef struct ClusterCustomExecInfo
 }ClusterCustomExecInfo;
 #define CLUSTER_CUSTOM_EXEC_FUNC(fun_)	fun_, #fun_
 
+typedef struct ClusterCoordInfo
+{
+	const char *name;
+	int			pid;
+}ClusterCoordInfo;
+
 extern bool enable_cluster_plan;
 
-static void ExecClusterPlanStmt(StringInfo buf);
-static void ExecClusterCopyStmt(StringInfo buf);
-static void ExecClusterAuxPadding(StringInfo buf);
+static void ExecClusterPlanStmt(StringInfo buf, ClusterCoordInfo *info);
+static void ExecClusterCopyStmt(StringInfo buf, ClusterCoordInfo *info);
+static void ExecClusterAuxPadding(StringInfo buf, ClusterCoordInfo *info);
 static NodeTag GetClusterPlanType(StringInfo buf);
 
 static void restore_cluster_plan_info(StringInfo buf);
@@ -94,6 +101,8 @@ static void* loadNodeType(StringInfo buf, NodeTag tag, NodeTag *ptag);
 static bool HaveModifyPlanWalker(Plan *plan, Node *GlobOrStmt, void *context);
 static void SerializeRelationOid(StringInfo buf, Oid relid);
 static Oid RestoreRelationOid(StringInfo buf, bool missok);
+static void SerializeCoordinatorInfo(StringInfo buf);
+static ClusterCoordInfo* RestoreCoordinatorInfo(StringInfo buf);
 static void send_rdc_listend_port(int port);
 static void wait_rdc_group_message(void);
 static bool get_rdc_listen_port_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
@@ -114,6 +123,8 @@ static const ClusterCustomExecInfo cluster_custom_execute[] =
 	{
 		{CLUSTER_CUSTOM_EXEC_FUNC(DoClusterHeapScan)}
 	};
+
+static void set_cluster_display(const char *activity, bool force, ClusterCoordInfo *info);
 
 static RdcMask *CnRdcMasks = NULL;
 static int		CnRdcCnt = 0;
@@ -136,6 +147,7 @@ void exec_cluster_plan(const void *splan, int length)
 {
 	char *tmp;
 	const ClusterCustomExecInfo *custom_fun;
+	ClusterCoordInfo *info;
 	StringInfoData msg;
 	NodeTag tag;
 	ClusterErrorHookContext error_context_hook;
@@ -155,6 +167,7 @@ void exec_cluster_plan(const void *splan, int length)
 
 	SetupClusterErrorHook(&error_context_hook);
 	restore_cluster_plan_info(&msg);
+	info = RestoreCoordinatorInfo(&msg);
 
 	/* Send a message
 	 * 'H' for copy out, 'W' for copy both */
@@ -169,14 +182,14 @@ void exec_cluster_plan(const void *splan, int length)
 		int rdc_listen_port;
 
 		/* Start self Reduce with rdc_id */
-		set_ps_display("<cluster start self reduce>", false);
+		set_cluster_display("<cluster start self reduce>", false, info);
 		rdc_listen_port = StartSelfReduceLauncher(PGXCNodeOid, tmp[0] ? true:false);
 
 		/* Tell coordinator self own listen port */
 		send_rdc_listend_port(rdc_listen_port);
 
 		/* Wait for the whole Reduce connect OK */
-		set_ps_display("<cluster start group reduce>", false);
+		set_cluster_display("<cluster start group reduce>", false, info);
 		wait_rdc_group_message();
 	}
 
@@ -187,17 +200,17 @@ void exec_cluster_plan(const void *splan, int length)
 			ereport(ERROR,
 					(errcode(ERRCODE_PROTOCOL_VIOLATION),
 					 errmsg("Can not found valid plan info")));
-		set_ps_display(custom_fun->FuncString, false);
+		set_cluster_display(custom_fun->FuncString, false, info);
 		(*custom_fun->func)(&msg);
 		break;
 	case T_PlannedStmt:
-		ExecClusterPlanStmt(&msg);
+		ExecClusterPlanStmt(&msg, info);
 		break;
 	case T_CopyStmt:
-		ExecClusterCopyStmt(&msg);
+		ExecClusterCopyStmt(&msg, info);
 		break;
 	case T_PaddingAuxDataStmt:
-		ExecClusterAuxPadding(&msg);
+		ExecClusterAuxPadding(&msg, info);
 		break;
 	default:
 		ereport(ERROR,
@@ -222,7 +235,7 @@ void exec_cluster_plan(const void *splan, int length)
 	DestroyTableStateSnapshot();
 }
 
-static void ExecClusterPlanStmt(StringInfo buf)
+static void ExecClusterPlanStmt(StringInfo buf, ClusterCoordInfo *info)
 {
 	QueryDesc *query_desc;
 	DestReceiver *receiver;
@@ -248,7 +261,7 @@ static void ExecClusterPlanStmt(StringInfo buf)
 	ExecutorStart(query_desc, eflags);
 	clusterRecvSetTopPlanState(receiver, query_desc->planstate);
 
-	set_ps_display("<cluster query>", false);
+	set_cluster_display("<cluster query>", false, info);
 
 	/* run plan */
 	ExecutorRun(query_desc, ForwardScanDirection, 0L);
@@ -290,7 +303,7 @@ static void ExecClusterPlanStmt(StringInfo buf)
 	pfree(msg.data);
 }
 
-static void ExecClusterCopyStmt(StringInfo buf)
+static void ExecClusterCopyStmt(StringInfo buf, ClusterCoordInfo *info)
 {
 	CopyStmt *stmt;
 	StringInfoData msg;
@@ -302,13 +315,13 @@ static void ExecClusterCopyStmt(StringInfo buf)
 
 	stmt = (CopyStmt*)loadNode(&msg);
 	Assert(IsA(stmt, CopyStmt));
-	set_ps_display("CLUSTER COPY FROM", false);
+	set_cluster_display("<CLUSTER COPY FROM>", false, info);
 
 	DoClusterCopy(stmt, buf);
 }
 
 static void
-ExecClusterAuxPadding(StringInfo buf)
+ExecClusterAuxPadding(StringInfo buf, ClusterCoordInfo *info)
 {
 	PaddingAuxDataStmt *stmt;
 	StringInfoData		msg;
@@ -320,7 +333,7 @@ ExecClusterAuxPadding(StringInfo buf)
 
 	stmt = (PaddingAuxDataStmt *) loadNode(&msg);
 	Assert(IsA(stmt, PaddingAuxDataStmt));
-	set_ps_display("PADDING AUXILIARY DATA", false);
+	set_cluster_display("<PADDING AUXILIARY DATA>", false, info);
 
 	ExecPaddingAuxDataStmt(stmt, buf);
 }
@@ -534,6 +547,8 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 		end_mem_toc_insert(&msg, REMOTE_KEY_REDUCE_INFO);
 	}
 
+	SerializeCoordinatorInfo(&msg);
+
 	context.have_reduce = have_reduce;
 	context.start_self_reduce = start_self_reduce;
 
@@ -575,6 +590,8 @@ List* ExecStartClusterCopy(List *rnodes, struct CopyStmt *stmt, StringInfo mem_t
 		context.start_self_reduce = true;
 	}
 
+	SerializeCoordinatorInfo(&msg);
+
 	conn_list = StartRemotePlan(&msg, rnodes, &context);
 	Assert(list_length(conn_list) == list_length(rnodes));
 
@@ -615,6 +632,8 @@ ExecStartClusterAuxPadding(List *rnodes, Node *stmt, StringInfo mem_toc, uint32 
 		Assert(context.have_reduce);
 		context.start_self_reduce = true;
 	}
+
+	SerializeCoordinatorInfo(&msg);
 
 	conn_list = StartRemotePlan(&msg, rnodes, &context);
 	Assert(list_length(conn_list) == list_length(rnodes));
@@ -667,6 +686,8 @@ List* ExecClusterCustomFunction(List *rnodes, StringInfo mem_toc, uint32 flag, b
 	find_custom_func_info(mem_toc, false);
 
 	SerializeTransactionInfo(mem_toc);
+
+	SerializeCoordinatorInfo(mem_toc);
 
 	MemSet(&context, 0, sizeof(context));
 	context.transaction_read_only = read_only;
@@ -1008,6 +1029,32 @@ static Oid RestoreRelationOid(StringInfo buf, bool missok)
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				errmsg("relation \"%s\" not exists", rel_name)));
 	return oid;
+}
+
+static void SerializeCoordinatorInfo(StringInfo buf)
+{
+	begin_mem_toc_insert(buf, REMOTE_KEY_COORD_INFO);
+	appendBinaryStringInfo(buf, (char*)&MyProcPid, sizeof(MyProcPid));
+	appendBinaryStringInfo(buf, PGXCNodeName, strlen(PGXCNodeName)+1);
+	end_mem_toc_insert(buf, REMOTE_KEY_COORD_INFO);
+}
+
+static ClusterCoordInfo* RestoreCoordinatorInfo(StringInfo buf)
+{
+	ClusterCoordInfo *info;
+	StringInfoData msg;
+
+	msg.data = mem_toc_lookup(buf, REMOTE_KEY_COORD_INFO, &msg.maxlen);
+	if (msg.data == NULL)
+		return NULL;
+	msg.cursor = 0;
+	msg.len = msg.maxlen;
+
+	info = palloc0(sizeof(*info));
+	pq_copymsgbytes(&msg, (char*)&(info->pid), sizeof(info->pid));
+	info->name = pq_getmsgrawstring(&msg);
+
+	return info;
 }
 
 static void send_rdc_listend_port(int port)
@@ -1740,5 +1787,20 @@ void DestroyTableStateSnapshot(void)
 	{
 		hash_destroy(clusterStatSnapshot);
 		clusterStatSnapshot = NULL;
+	}
+}
+
+static void set_cluster_display(const char *activity, bool force, ClusterCoordInfo *info)
+{
+	if (info == NULL)
+	{
+		set_ps_display(activity, force);
+	}else
+	{
+		StringInfoData buf;
+		initStringInfo(&buf);
+		appendStringInfo(&buf, "%s for PID %d from %s", activity, info->pid, info->name);
+		set_ps_display(buf.data, force);
+		pfree(buf.data);
 	}
 }
