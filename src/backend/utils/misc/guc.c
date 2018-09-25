@@ -635,6 +635,10 @@ static int	wal_block_size;
 static bool data_checksums;
 static bool integer_datetimes;
 static bool assert_enabled;
+#ifdef ADB
+static char *adb_version_string;
+static int adb_version_num;
+#endif /* ADB */
 
 /* should be static, but commands/variable.c needs to get at this */
 char	   *role_string;
@@ -3627,6 +3631,19 @@ static struct config_int ConfigureNamesInt[] =
 		1, -1, INT_MAX,
 		NULL, NULL, NULL
 	},
+
+	{
+		/* Can't be set in postgresql.conf */
+		{"adb_version_num", PGC_INTERNAL, PRESET_OPTIONS,
+			gettext_noop("Shows the AntDB server version as an integer."),
+			NULL,
+			GUC_NOT_IN_SAMPLE | GUC_DISALLOW_IN_FILE
+		},
+		&adb_version_num,
+		ADB_VERSION_NUM, ADB_VERSION_NUM, ADB_VERSION_NUM,
+		NULL, NULL, NULL
+	},
+
 #endif /* ADB */
 
 #ifdef AGTM
@@ -4598,6 +4615,18 @@ static struct config_string ConfigureNamesString[] =
 		"YYYY-MM-DD HH24:MI:SS.US TZ",
 		NULL, NULL, NULL
 	},
+
+	{
+		/* Can't be set in postgresql.conf */
+		{"adb_version", PGC_INTERNAL, PRESET_OPTIONS,
+			gettext_noop("Shows the AntDB server version."),
+			NULL,
+			GUC_REPORT | GUC_NOT_IN_SAMPLE | GUC_DISALLOW_IN_FILE
+		},
+		&adb_version_string,
+		ADB_VERSION,
+		NULL, NULL, NULL
+	},
 #endif
 
 #ifdef ADBMGRD
@@ -4919,7 +4948,8 @@ static struct config_enum ConfigureNamesEnum[] =
 	{
 		{"grammar", PGC_USERSET, UNGROUPED,
 			gettext_noop("Set SQL grammar"),
-			NULL
+			NULL,
+			GUC_REPORT
 		},
 		&parse_grammar,
 		PARSE_GRAM_POSTGRES, parse_grammer_options,
