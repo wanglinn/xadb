@@ -81,6 +81,7 @@ static List* apply_for_node_use_oid(List *oid_list)
 	List *result = NIL;
 	ListCell *lc, *lc2;
 	OidPGconn *op;
+	const char *ver_str;
 
 	foreach(lc, oid_list)
 	{
@@ -123,6 +124,14 @@ static List* apply_for_node_use_oid(List *oid_list)
 				op->conn = linitial(conn_list);
 				op->type = '\0';
 				conn_list = list_delete_first(conn_list);
+				ver_str = PQparameterStatus(op->conn, "adb_version");
+				if (ver_str &&
+					strcmp(ver_str, ADB_VERSION) != 0)
+				{
+					ereport(ERROR,
+							(errmsg("node %u version is \"%s\" not same to coordinator version \"%s\"",
+									lfirst_oid(lc), ver_str, ADB_VERSION)));
+				}
 			}
 		}PG_CATCH();
 		{
