@@ -2444,6 +2444,25 @@ _readLevelExpr(void)
 }
 #endif /* ADB_GRAM_ORA */
 
+#ifdef AGTM
+static TypeName *
+_readTypeName(void)
+{
+	READ_LOCALS(TypeName);
+
+	READ_NODE_FIELD(names);
+	READ_OID_FIELD(typeOid);
+	READ_BOOL_FIELD(setof);
+	READ_BOOL_FIELD(pct_type);
+	READ_NODE_FIELD(typmods);
+	READ_INT_FIELD(typemod);
+	READ_NODE_FIELD(arrayBounds);
+	READ_LOCATION_FIELD(location);
+
+	READ_DONE();
+}
+#endif /* AGTM */
+
 /*
  * _readPartitionBoundSpec
  */
@@ -2732,6 +2751,10 @@ parseNodeString(void)
 	else if (MATCH("LEVELEXPR", 9))
 		return_value = _readLevelExpr();
 #endif /* ADB_GRAM_ORA */
+#ifdef AGTM
+	else if (MATCH("TYPENAME", 8))
+		return_value = _readTypeName();
+#endif /* AGTM */
 	else
 	{
 		elog(ERROR, "badly formatted node string \"%.32s\"...", token);
