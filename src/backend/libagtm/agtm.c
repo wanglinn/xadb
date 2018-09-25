@@ -10,6 +10,7 @@
 #include "agtm/agtm_utils.h"
 #include "agtm/agtm_client.h"
 #include "agtm/agtm_transaction.h"
+#include "catalog/namespace.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
 #include "nodes/parsenodes.h"
@@ -1073,6 +1074,16 @@ parse_seqOption_to_string(List * seqOptions, StringInfo strOption)
 				{
 					type = T_AgtmNull;
 					appendBinaryStringInfo(strOption, (const char *)&type, sizeof(type));
+					break;
+				}
+				case T_TypeName:
+				{
+					char *strNode = nodeToString(defel->arg);
+					int len = strlen(strNode);
+					type = T_AgtmStringNode;
+					appendBinaryStringInfo(strOption, (char*)&type, sizeof(type));
+					appendBinaryStringInfo(strOption, (const char*)&len, sizeof(len));
+					appendStringInfoString(strOption, strNode);
 					break;
 				}
 				case T_List:
