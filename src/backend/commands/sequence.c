@@ -136,6 +136,7 @@ DefineSequence(ParseState *pstate, CreateSeqStmt *seq)
 	int			i;
 
 #ifdef ADB
+	Oid				schemaOid;
 	bool			is_restart;
 	List			*seqOptions = seq->options;
 #endif
@@ -236,6 +237,11 @@ DefineSequence(ParseState *pstate, CreateSeqStmt *seq)
 	if (owned_by)
 		process_owned_by(rel, owned_by, seq->for_identity);
 
+#ifdef ADB
+	Assert(rel->rd_node.dbNode == MyDatabaseId);
+	schemaOid = RelationGetNamespace(rel);
+#endif /* ADB */
+
 	heap_close(rel, NoLock);
 
 	/* fill in pg_sequence */
@@ -271,8 +277,8 @@ DefineSequence(ParseState *pstate, CreateSeqStmt *seq)
 		char * databaseName = NULL;
 		char * schemaName = NULL;
 
-		databaseName = get_database_name(rel->rd_node.dbNode);
-		schemaName = get_namespace_name(RelationGetNamespace(rel));
+		databaseName = get_database_name(MyDatabaseId);
+		schemaName = get_namespace_name(schemaOid);
 
 		agtm_CreateSequence(seq->sequence->relname, databaseName,
 			schemaName, seqOptions);
@@ -840,8 +846,7 @@ nextval_internal(Oid relid, bool check_permissions)
 		/* save info in local cache */
 		elm->last = result;			/* last returned number */
 
-		ereport(ERROR, (errmsg("merge not finish")));
-		//elm->cached = result + seq->cache_value * incby - incby;
+		elm->cached = result;
 		if (incby > 0 && elm->cached > maxv)
 		{
 			elm->cached = maxv - ((maxv - result) % incby);

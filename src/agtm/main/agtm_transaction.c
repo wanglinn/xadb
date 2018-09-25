@@ -561,6 +561,17 @@ parse_string_to_seqOption(StringInfo strOption)
 				defel->arg = NULL;
 				break;
 			}
+			case T_AgtmStringNode:
+			{
+				StringInfoData buf;
+				initStringInfo(&buf);
+				pq_copymsgbytes(strOption, (char*)&buf.cursor, sizeof(buf.cursor));
+				appendBinaryStringInfo(&buf, strOption->data+strOption->cursor, buf.cursor);
+				strOption->cursor += buf.cursor;
+				defel->arg = stringToNode(buf.data);
+				pfree(buf.data);
+				break;
+			}
 			default:
 			{
 				pfree(defel);

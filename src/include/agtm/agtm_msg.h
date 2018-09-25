@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *
  * agtm_msg.h
- *	
+ *
  *   Definitions for message type between agtm and coordinator or datanode
  *
  * Portions Copyright (c) 2016, ASIAINFO BDX ADB Group
@@ -80,7 +80,8 @@ typedef enum AgtmNodeTag
 	T_AgtmSeqName,
 	T_AgtmSeqSchema,
 	T_AgtmseqDatabase,
-	T_AgtmNull
+	T_AgtmNull,
+	T_AgtmStringNode
 } AgtmNodeTag;
 
 typedef enum SequenceRenameType
