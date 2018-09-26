@@ -37,7 +37,7 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 	/*
 	 * initialize child expressions
 	 */
-	rcs->ss.ps.qual = ExecInitExpr((Expr *) node->plan.qual, (PlanState *) rcs);
+	rcs->ss.ps.qual = ExecInitQual(node->plan.qual, (PlanState *) rcs);
 
 	/*
 	 * tuple table initialization
