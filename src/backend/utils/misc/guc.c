@@ -2498,6 +2498,18 @@ static struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 
+#ifdef ADB
+	{
+		{"waitglobaltransaction", PGC_USERSET, CLIENT_CONN_STATEMENT,
+			gettext_noop("Sets the maximum allowed duration of any wait for the global transaction id committed on agtm."),
+			gettext_noop("A value of 0 turns off the wait."),
+			GUC_UNIT_MS
+		},
+		&WaitGlobalTransaction,
+		5000, 0, INT_MAX,
+		NULL, NULL, NULL
+	},
+#endif
 	{
 		{"idle_in_transaction_session_timeout", PGC_USERSET, CLIENT_CONN_STATEMENT,
 			gettext_noop("Sets the maximum allowed duration of any idling transaction."),
