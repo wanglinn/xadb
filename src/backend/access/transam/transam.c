@@ -183,10 +183,7 @@ bool TransactionIdDidCommitGTM(TransactionId transactionId, bool try_gtm)
 		{
 			time_t now,end;
 			end = time(0);
-			if (LockTimeout == 0)
-				end += DeadlockTimeout/1000;
-			else
-				end += LockTimeout/1000;
+			end += WaitGlobalTransaction/1000;
 			while(XidInMVCCSnapshot(transactionId, GetRecentGTMSnapshot(true)))
 			{
 				now = time(0);
@@ -194,8 +191,8 @@ bool TransactionIdDidCommitGTM(TransactionId transactionId, bool try_gtm)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-							 errmsg("attempted to local committed but global uncommitted transaction"),
-							 errdetail("which version is %u", transactionId)));
+							 errmsg("attempted to local committed but global uncommitted transaction, which version is %u", transactionId),
+							 errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
 				}
 				pg_usleep(1000);
 				CHECK_FOR_INTERRUPTS();

@@ -320,6 +320,7 @@ extern PGPROC *PreparedXactProcs;
 extern PGDLLIMPORT int DeadlockTimeout;
 extern int	StatementTimeout;
 extern int	LockTimeout;
+extern int	WaitGlobalTransaction;
 extern int	IdleInTransactionSessionTimeout;
 extern bool log_lock_waits;
 
