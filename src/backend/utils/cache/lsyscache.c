@@ -3566,4 +3566,9 @@ get_pgxc_classnodes(Oid tableid, Oid **nodes)
 	ReleaseSysCache(tuple);
 	return numnodes;
 }
+
+bool is_relid_remote(Oid tableoid)
+{
+	return SearchSysCacheExists1(PGXCCLASSRELID, ObjectIdGetDatum(tableoid));
+}
 #endif /* ADB */

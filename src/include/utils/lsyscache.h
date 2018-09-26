@@ -196,6 +196,7 @@ extern bool is_pgxc_nodeprimary(Oid nodeid);
 extern Oid get_pgxc_groupoid(const char *groupname);
 extern int get_pgxc_groupmembers(Oid groupid, Oid **members);
 extern int get_pgxc_classnodes(Oid tableid, Oid **nodes);
+extern bool is_relid_remote(Oid tableoid);
 #endif
 
 #endif   /* LSYSCACHE_H */
