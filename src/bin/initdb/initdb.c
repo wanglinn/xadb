@@ -3319,6 +3319,9 @@ initialize_data_directory(void)
 
 #ifdef ADB
 	setup_adb_views(cmdfd);
+
+	/* here is no distribute table */
+	PG_CMD_PUTS("DELETE FROM pgxc_class;\n");
 #endif
 
 #ifdef INITMGR
