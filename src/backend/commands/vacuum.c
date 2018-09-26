@@ -233,6 +233,8 @@ vacuum(int options, RangeVar *relation, Oid relid, VacuumParams *params,
 		if (relation)
 		{
 			Oid relid = RangeVarGetRelid(relation, AccessShareLock, false);
+			if (is_relid_remote(relid) == false)
+				goto not_remote_rel_;
 
 			if (!(options & VACOPT_NOWAIT))
 				rel = try_relation_open(relid, lmode);
@@ -274,6 +276,7 @@ vacuum(int options, RangeVar *relation, Oid relid, VacuumParams *params,
 		if (IsCnMaster())
 			vacuum_cn(options, relation, va_cols);
 	}
+not_remote_rel_:
 #endif
 
 	/*
