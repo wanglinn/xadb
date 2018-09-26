@@ -64,6 +64,9 @@
 int			DeadlockTimeout = 1000;
 int			StatementTimeout = 0;
 int			LockTimeout = 0;
+#ifdef ADB
+int			WaitGlobalTransaction = 5000;
+#endif
 int			IdleInTransactionSessionTimeout = 0;
 bool		log_lock_waits = false;
 
