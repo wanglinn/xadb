@@ -45,21 +45,21 @@ pg_dump: pg_dump.o common.o pg_dump_sort.o $(OBJS) | submake-libpq submake-libpg
 	$(CC) $(CFLAGS) pg_dump.o common.o pg_dump_sort.o $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 ifeq ($(enable_cluster),yes)
 mgr_dump: pg_dump_mgr.o common_mgr.o pg_dump_sort_mgr.o $(MGR_OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
-	$(CC) $(MGR_CFLAGS) pg_dump.o common.o pg_dump_sort.o $(MGR_OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(MGR_CFLAGS) pg_dump_mgr.o common_mgr.o pg_dump_sort_mgr.o $(MGR_OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 endif
 
 pg_restore: pg_restore.o $(OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
 	$(CC) $(CFLAGS) pg_restore.o $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 ifeq ($(enable_cluster),yes)
 mgr_restore: pg_restore_mgr.o $(MGR_OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
-	$(CC) $(MGR_CFLAGS) pg_restore.o $(MGR_OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(MGR_CFLAGS) pg_restore_mgr.o $(MGR_OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 endif
 
 pg_dumpall: pg_dumpall.o dumputils.o | submake-libpq submake-libpgport submake-libpgfeutils
 	$(CC) $(CFLAGS) pg_dumpall.o dumputils.o $(WIN32RES) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 ifeq ($(enable_cluster),yes)
 mgr_dumpall: pg_dumpall_mgr.o dumputils_mgr.o | submake-libpq submake-libpgport submake-libpgfeutils
-	$(CC) $(MGR_CFLAGS) pg_dumpall.o dumputils.o $(WIN32RES) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(MGR_CFLAGS) pg_dumpall_mgr.o dumputils_mgr.o $(WIN32RES) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 endif
 
 install: all installdirs
