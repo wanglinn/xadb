@@ -4348,6 +4348,29 @@ static struct config_string ConfigureNamesString[] =
 		"$&#$",
 		NULL, NULL, NULL
 	},
+
+	{
+		{"slot_database_name", PGC_USERSET, CUSTOM_OPTIONS,
+		gettext_noop("The database that adb.adb_slot exists in."),
+		NULL,
+		GUC_IS_NAME
+		},
+		&SlotDatabaseName,
+		"postgres",
+		NULL, NULL, NULL
+	},
+
+	{
+		/* Can't be set in postgresql.conf */
+		{"adb_version", PGC_INTERNAL, PRESET_OPTIONS,
+			gettext_noop("Shows the AntDB server version."),
+			NULL,
+			GUC_REPORT | GUC_NOT_IN_SAMPLE | GUC_DISALLOW_IN_FILE
+		},
+		&adb_version_string,
+		ADB_VERSION,
+		NULL, NULL, NULL
+	},
 #endif
 
 #ifdef ADB_GRAM_ORA
@@ -4383,18 +4406,6 @@ static struct config_string ConfigureNamesString[] =
 		"YYYY-MM-DD HH24:MI:SS.US TZ",
 		NULL, NULL, NULL
 	},
-
-	{
-		/* Can't be set in postgresql.conf */
-		{"adb_version", PGC_INTERNAL, PRESET_OPTIONS,
-			gettext_noop("Shows the AntDB server version."),
-			NULL,
-			GUC_REPORT | GUC_NOT_IN_SAMPLE | GUC_DISALLOW_IN_FILE
-		},
-		&adb_version_string,
-		ADB_VERSION,
-		NULL, NULL, NULL
-	},
 #endif
 
 #ifdef ADBMGRD
@@ -4406,18 +4417,6 @@ static struct config_string ConfigureNamesString[] =
 		},
 		&MGRDatabaseName,
 		"",
-		NULL, NULL, NULL
-	},
-#endif
-#ifdef ADB
-	{
-		{"slot_database_name", PGC_USERSET, CUSTOM_OPTIONS,
-		gettext_noop("The database that adb.adb_slot exists in."),
-		NULL,
-		GUC_IS_NAME
-		},
-		&SlotDatabaseName,
-		"postgres",
 		NULL, NULL, NULL
 	},
 #endif
