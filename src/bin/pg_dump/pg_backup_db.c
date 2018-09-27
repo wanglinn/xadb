@@ -265,6 +265,9 @@ ConnectDatabase(Archive *AHX,
 	char	   *password;
 	char		passbuf[100];
 	bool		new_pass;
+#ifndef MGR_DUMP
+	const char *grammar_str;
+#endif
 
 	if (AH->connection)
 		exit_horribly(modulename, "already connected to a database\n");
@@ -326,6 +329,13 @@ ConnectDatabase(Archive *AHX,
 					  PQdb(AH->connection) ? PQdb(AH->connection) : "",
 					  PQerrorMessage(AH->connection));
 
+#ifndef MGR_DUMP
+	/* Set the grammar to postgres*/
+	grammar_str = PQparameterStatus(AH->connection, "grammar");
+	if (grammar_str && strcasecmp(grammar_str, "oracle") == 0)
+		ExecuteSqlStatement((Archive *)AH, "SET GRAMMAR = POSTGRES");
+#endif
+
 #ifdef MGR_DUMP
 	/*do nothing*/
 #else
@@ -347,11 +357,6 @@ ConnectDatabase(Archive *AHX,
 
 	/* check for version mismatch */
 	_check_database_version(AH);
-
-#ifdef ADB
-	/* set grammar to postgres, and ignore result */
-	PQclear(PQexec(AH->connection, "set grammar=postgres"));
-#endif
 
 	PQsetNoticeProcessor(AH->connection, notice_processor, NULL);
 

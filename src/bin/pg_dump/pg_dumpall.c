@@ -1929,6 +1929,10 @@ connectDatabase(const char *dbname, const char *connection_string,
 	PQconninfoOption *conn_opts = NULL;
 	static bool have_password = false;
 	static char password[100];
+#ifndef MGR_DUMP
+	const char *grammar_str;
+	PGresult   *res;
+#endif
 
 	if (prompt_password == TRI_YES && !have_password)
 	{
@@ -2114,6 +2118,21 @@ connectDatabase(const char *dbname, const char *connection_string,
 		fprintf(stderr, _("aborting because of server version mismatch\n"));
 		exit_nicely(1);
 	}
+
+#ifndef MGR_DUMP
+	/* Set the grammar to postgres */
+	grammar_str = PQparameterStatus(conn, "grammar");
+	if (grammar_str && strcasecmp(grammar_str, "oracle") == 0)
+	{
+		res = PQexec(conn, "SET GRAMMAR = POSTGRES");
+		if (PQresultStatus(res) != PGRES_COMMAND_OK)
+		{
+			fprintf(stderr, "query failed: %s", PQerrorMessage(conn));
+			exit_nicely(1);
+		}
+		PQclear(res);
+	}
+#endif
 
 	PQclear(executeQuery(conn, ALWAYS_SECURE_SEARCH_PATH_SQL));
 
