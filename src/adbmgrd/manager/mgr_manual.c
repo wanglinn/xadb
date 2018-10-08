@@ -975,6 +975,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	int iMax = 90;
 	int nodePort;
 	int agentPort;
+	int nodeStatus;
 	Oid cnoid;
 	Oid checkOid;
 	List *dnList = NIL;
@@ -1006,14 +1007,14 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 
 	memset(port_buf, 0, sizeof(char)*10);
 	snprintf(port_buf, sizeof(port_buf), "%d", dest_nodeinfo.nodeport);
-	rest = pingNode_user(dest_nodeinfo.nodeaddr, port_buf, dest_nodeinfo.nodeusername);
+	nodeStatus = pingNode_user(dest_nodeinfo.nodeaddr, port_buf, dest_nodeinfo.nodeusername);
 
 	initStringInfo(&infosendmsg);
 	initStringInfo(&restmsg);
 
 	PG_TRY();
 	{
-		if (PQPING_NO_RESPONSE == rest)
+		if (PQPING_NO_RESPONSE == nodeStatus)
 		{
 			ereport(WARNING, (errmsg("coordinator \"%s\" is not running, start it now", s_coordname)));
 			appendStringInfo(&infosendmsg, " start -Z coordinator -D %s -o -i -w -c -l %s/logfile -t 10"
@@ -1026,8 +1027,8 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		}
 
 		/*check again*/
-		rest = pingNode_user(dest_nodeinfo.nodeaddr, port_buf, dest_nodeinfo.nodeusername);
-		if (PQPING_OK != rest)
+		nodeStatus = pingNode_user(dest_nodeinfo.nodeaddr, port_buf, dest_nodeinfo.nodeusername);
+		if (PQPING_OK != nodeStatus)
 		{
 			ereport(ERROR, (errmsg("coordinator \"%s\" is not running normal", s_coordname)));
 		}
@@ -1238,13 +1239,13 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("restart coordinator \"%s\" fail, %s", s_coordname, getAgentCmdRst.description.data)));
 		}
 		/*check the node status*/
-		rest = pingNode_user(dest_nodeinfo.nodeaddr, port_buf, dest_nodeinfo.nodeusername);
-		if (PQPING_OK != rest)
+		nodeStatus = pingNode_user(dest_nodeinfo.nodeaddr, port_buf, dest_nodeinfo.nodeusername);
+		if (PQPING_OK != nodeStatus)
 		{
 			ereport(WARNING, (errmsg("the coordinator \"%s\" is not running normal, sleep 10 seconds to check again",s_coordname)));
 			pg_usleep(10000000L);
-			rest = pingNode_user(dest_nodeinfo.nodeaddr, port_buf, dest_nodeinfo.nodeusername);
-			if (PQPING_OK != rest)
+			nodeStatus = pingNode_user(dest_nodeinfo.nodeaddr, port_buf, dest_nodeinfo.nodeusername);
+			if (PQPING_OK != nodeStatus)
 				ereport(ERROR,
 				(errmsg("the coordinator \"%s\" is not running normal", s_coordname),
 					errhint("try \"monitor all\" to check the nodes status")));
@@ -1258,11 +1259,11 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 			ereport(WARNING, (errmsg("rollback, drop the node \"%s\" information in pgxc_node on all coordinators.\n\tif the coordinator pgxc_node has not coordinator \"%s\" information, \n\tthe \"DROP NODE\" command may reports WARNING, ignore the warning.\n\tif you want to execute the command \"APPEND ACTIVATE COORDINATOR %s\" again, \n\tmake the coordinator \"%s\" as slave and build the streaming replication with the coordinator \"%s\"", s_coordname, s_coordname, s_coordname, s_coordname, m_nodename.data)));
 			resetStringInfo(&infosendmsg);
 			appendStringInfo(&infosendmsg, "DROP NODE \"%s\";", s_coordname);
-			rest = mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_COMMAND_OK, &strerr);
+			(void) mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_COMMAND_OK, &strerr);
 
 			resetStringInfo(&infosendmsg);
 			appendStringInfo(&infosendmsg, "SELECT PGXC_POOL_RELOAD();");
-			rest = mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_TUPLES_OK, &strerr);
+			(void) mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_TUPLES_OK, &strerr);
 		}
 		mgr_unlock_cluster(&pg_conn);
 		pfree(sqlstrmsg.data);
