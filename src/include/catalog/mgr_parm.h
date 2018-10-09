@@ -2,28 +2,39 @@
 #ifndef MGR_PARM_H
 #define MGR_PARM_H
 
-#ifdef BUILD_BKI
-#include "catalog/buildbki.h"
-#else /* BUILD_BKI */
 #include "catalog/genbki.h"
-#endif /* BUILD_BKI */
+#include "catalog/mgr_parm_d.h"
 
-
-#define ParmRelationId 4812
-
-CATALOG(mgr_parm,4812) BKI_WITHOUT_OIDS
+CATALOG(mgr_parm,4812,ParmRelationId) BKI_WITHOUT_OIDS
 {
-	char		parmtype;		/* parm type:c/d/g/'*' for all/'#' for datanode and coordinator*/
-	NameData	parmname;			/* parm name */
-	NameData	parmvalue;			/* parm value */
-	NameData	parmcontext;		/*backend, user, internal, postmaster, superuser, sighup*/
-	NameData	parmvartype;		/*bool, enum, string, integer, real*/	
+	/* parm type:c/d/g/'*' for all/'#' for datanode and coordinator*/
+	char		parmtype;
+
+	/* parm name */
+	NameData	parmname;
+
+	/* parm value */
+	NameData	parmvalue;
+
+	/*backend, user, internal, postmaster, superuser, sighup*/
+	NameData	parmcontext;
+
+	/*bool, enum, string, integer, real*/
+	NameData	parmvartype;
+
 #ifdef CATALOG_VARLEN
+	/* param unit */
 	text		parmunit;
-	text		parmminval;			/* parm comment */
+
+	/* param minimal value */
+	text		parmminval;
+
+	/* param maximal value */
 	text		parmmaxval;
+
+	/* param enumerate value */
 	text		parmenumval;
-#endif								/* CATALOG_VARLEN */
+#endif
 } FormData_mgr_parm;
 
 /* ----------------
@@ -33,23 +44,12 @@ CATALOG(mgr_parm,4812) BKI_WITHOUT_OIDS
  */
 typedef FormData_mgr_parm *Form_mgr_parm;
 
-/* ----------------
- *		compiler constants for mgr_parm
- * ----------------
- */
-#define Natts_mgr_parm				9
-#define Anum_mgr_parm_type			1
-#define Anum_mgr_parm_name			2
-#define Anum_mgr_parm_value			3
-#define Anum_mgr_parm_context		4
-#define Anum_mgr_parm_vartype		5
-#define Anum_mgr_parm_unit			6
-#define Anum_mgr_parm_minval		7
-#define Anum_mgr_parm_maxval		8
-#define Anum_mgr_parm_enumval		9
+#ifdef EXPOSE_TO_CLIENT_CODE
 
 #define PARM_TYPE_GTM 				'G'
 #define PARM_TYPE_COORDINATOR		'C'
 #define PARM_TYPE_DATANODE			'D'
+
+#endif							/* EXPOSE_TO_CLIENT_CODE */
 
 #endif /* MGR_PARM_H */

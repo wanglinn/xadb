@@ -30,6 +30,7 @@ all install installdirs uninstall distprep:
 	$(MAKE) -C pgtypeslib $@
 	$(MAKE) -C preproc $@
 	$(MAKE) -C compat_informix $@
+	$(MAKE) -C compat_oracle $@
 	$(MAKE) -C thread $@
 
 clean distclean maintainer-clean:
@@ -38,6 +39,7 @@ clean distclean maintainer-clean:
 	$(MAKE) -C pgtypeslib $@
 	$(MAKE) -C preproc $@
 	$(MAKE) -C compat_informix $@
+	$(MAKE) -C compat_oracle $@
 	$(MAKE) -C thread $@
 	rm -rf tmp_check results log
 	rm -f pg_regress regression.diffs regression.out pg_regress_ecpg.o $(WIN32RES)
@@ -80,9 +82,9 @@ REGRESS_OPTS = --dbname=ecpg1_regression,ecpg2_regression --create-role=regress_
 check: all
 	$(with_temp_install) ./pg_regress $(REGRESS_OPTS) --temp-instance=./tmp_check $(TEMP_CONF) --bindir= $(pg_regress_locale_flags) $(THREAD) --schedule=$(srcdir)/ecpg_schedule sql/twophase
 
-# the same options, but with --listen-on-tcp
-checktcp: all
-	$(with_temp_install) ./pg_regress $(REGRESS_OPTS) --temp-instance=./tmp_check $(TEMP_CONF) --bindir= $(pg_regress_locale_flags) $(THREAD) --schedule=$(srcdir)/ecpg_schedule_tcp --host=localhost
+# Connect to the server using TCP, and add a TCP-specific test.
+checktcp: all | temp-install
+	$(with_temp_install) ./pg_regress $(REGRESS_OPTS) --temp-instance=./tmp_check $(TEMP_CONF) --bindir= $(pg_regress_locale_flags) $(THREAD) --schedule=$(srcdir)/ecpg_schedule --host=localhost sql/twophase connect/test1
 
 installcheck: all
 	./pg_regress $(REGRESS_OPTS) --bindir='$(bindir)' $(pg_regress_locale_flags) $(THREAD) --schedule=$(srcdir)/ecpg_schedule
@@ -95,5 +97,5 @@ installcheck: all
 installcheck-prepared-txns: all
 	./pg_regress $(REGRESS_OPTS) --bindir='$(bindir)' $(pg_regress_locale_flags) $(THREAD) --schedule=$(srcdir)/ecpg_schedule sql/twophase
 
-check-prepared-txns: all
+check-prepared-txns: all | temp-install
 	$(with_temp_install) ./pg_regress $(REGRESS_OPTS) --temp-instance=./tmp_check $(TEMP_CONF) --bindir= $(pg_regress_locale_flags) $(THREAD) --schedule=$(srcdir)/ecpg_schedule sql/twophase

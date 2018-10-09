@@ -14,7 +14,7 @@
  * contain optimizable statements, which we should transform.
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *	src/backend/parser/analyze.c
@@ -38,6 +38,8 @@
 #include "parser/parse_coerce.h"
 #include "parser/parse_collate.h"
 #include "parser/parse_cte.h"
+#include "parser/parse_expr.h"
+#include "parser/parse_func.h"
 #include "parser/parse_oper.h"
 #include "parser/parse_param.h"
 #include "parser/parse_relation.h"
@@ -46,7 +48,6 @@
 #include "rewrite/rewriteManip.h"
 #ifdef ADB
 #include "catalog/pg_inherits.h"
-#include "catalog/pg_inherits_fn.h"
 #include "catalog/heap.h"
 #include "catalog/indexing.h"
 #include "commands/defrem.h"
@@ -116,6 +117,8 @@ static Query *transformExplainStmt(ParseState *pstate,
 					 ExplainStmt *stmt);
 static Query *transformCreateTableAsStmt(ParseState *pstate,
 						   CreateTableAsStmt *stmt);
+static Query *transformCallStmt(ParseState *pstate,
+				  CallStmt *stmt);
 static void transformLockingClause(ParseState *pstate, Query *qry,
 					   LockingClause *lc, bool pushedDown);
 #ifdef RAW_EXPRESSION_COVERAGE_TEST
@@ -442,6 +445,11 @@ transformStmt(ParseState *pstate, Node *parseTree)
 		case T_CreateTableAsStmt:
 			result = transformCreateTableAsStmt(pstate,
 												(CreateTableAsStmt *) parseTree);
+			break;
+
+		case T_CallStmt:
+			result = transformCallStmt(pstate,
+									   (CallStmt *) parseTree);
 			break;
 
 		default:
@@ -1058,16 +1066,8 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 
 	/* Process ON CONFLICT, if any. */
 	if (stmt->onConflictClause)
-	{
-		/* Bail out if target relation is partitioned table */
-		if (pstate->p_target_rangetblentry->relkind == RELKIND_PARTITIONED_TABLE)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("ON CONFLICT clause is not supported with partitioned tables")));
-
 		qry->onConflict = transformOnConflictClause(pstate,
 													stmt->onConflictClause);
-	}
 
 	/*
 	 * If we have a RETURNING clause, we need to add the target relation to
@@ -1259,9 +1259,9 @@ transformOnConflictClause(ParseState *pstate,
 		 * relation.  Have to be careful to use resnos that correspond to
 		 * attnos of the underlying relation.
 		 */
-		for (attno = 0; attno < targetrel->rd_rel->relnatts; attno++)
+		for (attno = 0; attno < RelationGetNumberOfAttributes(targetrel); attno++)
 		{
-			Form_pg_attribute attr = targetrel->rd_att->attrs[attno];
+			Form_pg_attribute attr = TupleDescAttr(targetrel->rd_att, attno);
 			char	   *name;
 
 			if (attr->attisdropped)
@@ -2533,8 +2533,8 @@ transformUpdateTargetList(ParseState *pstate, List *origTlist)
 								EXPR_KIND_UPDATE_SOURCE);
 
 	/* Prepare to assign non-conflicting resnos to resjunk attributes */
-	if (pstate->p_next_resno <= pstate->p_target_relation->rd_rel->relnatts)
-		pstate->p_next_resno = pstate->p_target_relation->rd_rel->relnatts + 1;
+	if (pstate->p_next_resno <= RelationGetNumberOfAttributes(pstate->p_target_relation))
+		pstate->p_next_resno = RelationGetNumberOfAttributes(pstate->p_target_relation) + 1;
 
 	/* Prepare non-junk columns for assignment to target table */
 	target_rte = pstate->p_target_rangetblentry;
@@ -3111,6 +3111,43 @@ is_rel_child_of_rel(RangeTblEntry *child_rte, RangeTblEntry *parent_rte)
 }
 
 #endif
+/*
+ * transform a CallStmt
+ *
+ * We need to do parse analysis on the procedure call and its arguments.
+ */
+static Query *
+transformCallStmt(ParseState *pstate, CallStmt *stmt)
+{
+	List	   *targs;
+	ListCell   *lc;
+	Node	   *node;
+	Query	   *result;
+
+	targs = NIL;
+	foreach(lc, stmt->funccall->args)
+	{
+		targs = lappend(targs, transformExpr(pstate,
+											 (Node *) lfirst(lc),
+											 EXPR_KIND_CALL_ARGUMENT));
+	}
+
+	node = ParseFuncOrColumn(pstate,
+							 stmt->funccall->funcname,
+							 targs,
+							 pstate->p_last_srf,
+							 stmt->funccall,
+							 true,
+							 stmt->funccall->location);
+
+	stmt->funcexpr = castNode(FuncExpr, node);
+
+	result = makeNode(Query);
+	result->commandType = CMD_UTILITY;
+	result->utilityStmt = (Node *) stmt;
+
+	return result;
+}
 
 /*
  * Produce a string representation of a LockClauseStrength value.
@@ -3910,7 +3947,7 @@ static List* get_join_qual_exprs(Node *quals, ParseState *pstate)
 	if(quals == NULL)
 		return NIL;
 
-	quals = (Node*)canonicalize_qual((Expr*)quals);
+	quals = (Node*)canonicalize_qual((Expr*)quals, false);
 	if(and_clause(quals))
 		qual_list = ((BoolExpr*)quals)->args;
 	else
@@ -4112,7 +4149,7 @@ static void rewrite_rownum_query(Query *query)
 		|| contain_rownum(query->jointree->quals) == false)
 		return;
 
-	query->jointree->quals = expr = (Node*)canonicalize_qual((Expr*)(query->jointree->quals));
+	query->jointree->quals = expr = (Node*)canonicalize_qual((Expr*)(query->jointree->quals), false);
 	if(and_clause((Node*)expr))
 		qual_list = ((BoolExpr*)expr)->args;
 	else

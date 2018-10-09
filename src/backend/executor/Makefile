@@ -14,7 +14,7 @@ include $(top_builddir)/src/Makefile.global
 
 OBJS = execAmi.o execCurrent.o execExpr.o execExprInterp.o \
        execGrouping.o execIndexing.o execJunk.o \
-       execMain.o execParallel.o execProcnode.o \
+       execMain.o execParallel.o execPartition.o execProcnode.o \
        execReplication.o execScan.o execSRF.o execTuples.o \
        execUtils.o functions.o instrument.o nodeAppend.o nodeAgg.o \
        nodeBitmapAnd.o nodeBitmapOr.o \
@@ -36,6 +36,7 @@ ifeq ($(enable_cluster),yes)
 		  nodeClusterMergeGather.o nodeClusterReduce.o \
 		  nodeReduceScan.o nodeEmptyResult.o nodeParamTuplestoreScan.o \
 		  clusterHeapScan.o
+	CFLAGS += -I$(top_srcdir)/src/interfaces
 endif
 
 include $(top_srcdir)/src/backend/common.mk

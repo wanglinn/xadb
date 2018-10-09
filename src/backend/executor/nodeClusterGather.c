@@ -23,6 +23,7 @@ static bool cg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFu
 ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, int flags)
 {
 	ClusterGatherState *gatherstate;
+	TupleDesc			tupDesc;
 
 	Assert(outerPlan(node) != NULL);
 	Assert(innerPlan(node) == NULL);
@@ -34,14 +35,18 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 	gatherstate->ps.ExecProcNode = ExecClusterGather;
 	gatherstate->local_end = false;
 
-	/*ExecAssignExprContext(estate, &gatherstate->ps);*/
+	ExecAssignExprContext(estate, &gatherstate->ps);
 
-	ExecInitResultTupleSlot(estate, &gatherstate->ps);
+	outerPlanState(gatherstate) = ExecStartClusterPlan(outerPlan(node),
+													   estate, flags, node->rnodes);
+	tupDesc = ExecGetResultType(outerPlanState(gatherstate));
 
-	ExecAssignResultTypeFromTL(&gatherstate->ps);
+	/*
+	 * Initialize result slot, type and projection.
+	 */
+	ExecInitResultTupleSlotTL(estate, &gatherstate->ps);
+	ExecConditionalAssignProjectionInfo(&gatherstate->ps, tupDesc, OUTER_VAR);
 
-	outerPlanState(gatherstate) = ExecStartClusterPlan(outerPlan(node)
-		, estate, flags, node->rnodes);
 	if((flags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
 		gatherstate->remote_running = GetPGconnAttatchCurrentInterXact(node->rnodes);
 

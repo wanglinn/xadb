@@ -92,7 +92,7 @@
  * heap's TOAST table will go through the normal bufmgr.
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994-5, Regents of the University of California
  *
  * IDENTIFICATION
@@ -407,7 +407,10 @@ rewrite_heap_tuple(RewriteState state,
 	 * While we have our hands on the tuple, we may as well freeze any
 	 * eligible xmin or xmax, so that future VACUUM effort can be saved.
 	 */
-	heap_freeze_tuple(new_tuple->t_data, state->rs_freeze_xid,
+	heap_freeze_tuple(new_tuple->t_data,
+					  state->rs_old_rel->rd_rel->relfrozenxid,
+					  state->rs_old_rel->rd_rel->relminmxid,
+					  state->rs_freeze_xid,
 					  state->rs_cutoff_multi);
 
 	/*
@@ -421,6 +424,7 @@ rewrite_heap_tuple(RewriteState state,
 	 */
 	if (!((old_tuple->t_data->t_infomask & HEAP_XMAX_INVALID) ||
 		  HeapTupleHeaderIsOnlyLocked(old_tuple->t_data)) &&
+		!HeapTupleHeaderIndicatesMovedPartitions(old_tuple->t_data) &&
 		!(ItemPointerEquals(&(old_tuple->t_self),
 							&(old_tuple->t_data->t_ctid))))
 	{
@@ -1013,8 +1017,7 @@ logical_rewrite_log_mapping(RewriteState state, TransactionId xid,
 		src->off = 0;
 		memcpy(src->path, path, sizeof(path));
 		src->vfd = PathNameOpenFile(path,
-									O_CREAT | O_EXCL | O_WRONLY | PG_BINARY,
-									S_IRUSR | S_IWUSR);
+									O_CREAT | O_EXCL | O_WRONLY | PG_BINARY);
 		if (src->vfd < 0)
 			ereport(ERROR,
 					(errcode_for_file_access(),
@@ -1133,8 +1136,7 @@ heap_xlog_logical_rewrite(XLogReaderState *r)
 			 xlrec->mapped_xid, XLogRecGetXid(r));
 
 	fd = OpenTransientFile(path,
-						   O_CREAT | O_WRONLY | PG_BINARY,
-						   S_IRUSR | S_IWUSR);
+						   O_CREAT | O_WRONLY | PG_BINARY);
 	if (fd < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
@@ -1166,9 +1168,14 @@ heap_xlog_logical_rewrite(XLogReaderState *r)
 	/* write out tail end of mapping file (again) */
 	pgstat_report_wait_start(WAIT_EVENT_LOGICAL_REWRITE_MAPPING_WRITE);
 	if (write(fd, data, len) != len)
+	{
+		/* if write didn't set errno, assume problem is no disk space */
+		if (errno == 0)
+			errno = ENOSPC;
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not write to file \"%s\": %m", path)));
+	}
 	pgstat_report_wait_end();
 
 	/*
@@ -1258,7 +1265,7 @@ CheckPointLogicalRewriteHeap(void)
 		}
 		else
 		{
-			int			fd = OpenTransientFile(path, O_RDONLY | PG_BINARY, 0);
+			int			fd = OpenTransientFile(path, O_RDONLY | PG_BINARY);
 
 			/*
 			 * The file cannot vanish due to concurrency since this function

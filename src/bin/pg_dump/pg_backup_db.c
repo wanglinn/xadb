@@ -12,6 +12,7 @@
 #include "postgres_fe.h"
 
 #include "dumputils.h"
+#include "fe_utils/connect.h"
 #include "fe_utils/string_utils.h"
 #include "parallel.h"
 #include "pg_backup_archiver.h"
@@ -82,13 +83,9 @@ _check_database_version(ArchiveHandle *AH)
 /*
  * Reconnect to the server.  If dbname is not NULL, use that database,
  * else the one associated with the archive handle.  If username is
- * not NULL, use that user name, else the one from the handle.  If
- * both the database and the user match the existing connection already,
- * nothing will be done.
- *
- * Returns 1 in any case.
+ * not NULL, use that user name, else the one from the handle.
  */
-int
+void
 ReconnectToServer(ArchiveHandle *AH, const char *dbname, const char *username)
 {
 	PGconn	   *newConn;
@@ -105,11 +102,6 @@ ReconnectToServer(ArchiveHandle *AH, const char *dbname, const char *username)
 	else
 		newusername = username;
 
-	/* Let's see if the request is already satisfied */
-	if (strcmp(newdbname, PQdb(AH->connection)) == 0 &&
-		strcmp(newusername, PQuser(AH->connection)) == 0)
-		return 1;
-
 	newConn = _connectDB(AH, newdbname, newusername);
 
 	/* Update ArchiveHandle's connCancel before closing old connection */
@@ -118,7 +110,9 @@ ReconnectToServer(ArchiveHandle *AH, const char *dbname, const char *username)
 	PQfinish(AH->connection);
 	AH->connection = newConn;
 
-	return 1;
+	/* Start strict; later phases may override this. */
+	PQclear(ExecuteSqlQueryForSingleRow((Archive *) AH,
+										ALWAYS_SECURE_SEARCH_PATH_SQL));
 }
 
 /*
@@ -321,13 +315,10 @@ ConnectDatabase(Archive *AHX,
 					  PQdb(AH->connection) ? PQdb(AH->connection) : "",
 					  PQerrorMessage(AH->connection));
 
-#ifdef MGR_DUMP
-	/*do nothing*/
-#else
+#ifndef MGR_DUMP
 	/* Start strict; later phases may override this. */
-	if (PQserverVersion(AH->connection) >= 70300)
-		PQclear(ExecuteSqlQueryForSingleRow((Archive *) AH,
-											"SELECT pg_catalog.set_config('search_path', '', false)"));
+	PQclear(ExecuteSqlQueryForSingleRow((Archive *) AH,
+										ALWAYS_SECURE_SEARCH_PATH_SQL));
 #endif
 
 	/*
@@ -439,7 +430,7 @@ ExecuteSqlQuery(Archive *AHX, const char *query, ExecStatusType status)
  * Execute an SQL query and verify that we got exactly one row back.
  */
 PGresult *
-ExecuteSqlQueryForSingleRow(Archive *fout, char *query)
+ExecuteSqlQueryForSingleRow(Archive *fout, const char *query)
 {
 	PGresult   *res;
 	int			ntups;

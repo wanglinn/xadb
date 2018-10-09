@@ -2,24 +2,21 @@
 #ifndef MGR_UPDATEPARM_H
 #define MGR_UPDATEPARM_H
 
-#ifdef BUILD_BKI
-#include "catalog/buildbki.h"
-#else /* BUILD_BKI */
 #include "catalog/genbki.h"
-#endif /* BUILD_BKI */
+#include "catalog/mgr_updateparm_d.h"
 
-
-#define UpdateparmRelationId 4801
-
-CATALOG(mgr_updateparm,4801) BKI_WITHOUT_OIDS
+CATALOG(mgr_updateparm,4801,UpdateparmRelationId) BKI_WITHOUT_OIDS
 {
-	NameData	updateparmnodename;			/* updateparm nodename */
+	/* updateparm nodename */
+	NameData	updateparmnodename;
+
 	char		updateparmnodetype;
+
 	NameData	updateparmkey;
+
 #ifdef CATALOG_VARLEN
 	text	updateparmvalue;
 #endif
-	/* CATALOG_VARLEN */
 } FormData_mgr_updateparm;
 
 /* ----------------
@@ -29,16 +26,10 @@ CATALOG(mgr_updateparm,4801) BKI_WITHOUT_OIDS
  */
 typedef FormData_mgr_updateparm *Form_mgr_updateparm;
 
-/* ----------------
- *		compiler constants for mgr_updateparm
- * ----------------
- */
-#define Natts_mgr_updateparm				4
-#define Anum_mgr_updateparm_nodename		1
-#define Anum_mgr_updateparm_nodetype		2
-#define Anum_mgr_updateparm_key				3
-#define Anum_mgr_updateparm_value			4
+#ifdef EXPOSE_TO_CLIENT_CODE
 
 #define MACRO_STAND_FOR_ALL_NODENAME "*"
+
+#endif							/* EXPOSE_TO_CLIENT_CODE */
 
 #endif /* MGR_UPDATEPARM_H */

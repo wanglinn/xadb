@@ -1,41 +1,34 @@
 /*-------------------------------------------------------------------------
  *
  * pg_enum.h
- *	  definition of the system "enum" relation (pg_enum)
- *	  along with the relation's initial contents.
+ *	  definition of the "enum" system catalog (pg_enum)
  *
  *
- * Copyright (c) 2006-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_enum.h
  *
  * NOTES
- *	  the genbki.pl script reads this file and generates .bki
- *	  information from the DATA() statements.
- *
- *	  XXX do NOT break up DATA() statements into multiple lines!
- *		  the scripts are not as smart as you might think...
+ *	  The Catalog.pm module reads this file and derives schema
+ *	  information.
  *
  *-------------------------------------------------------------------------
  */
 #ifndef PG_ENUM_H
 #define PG_ENUM_H
 
-#ifdef BUILD_BKI
-#include "catalog/buildbki.h"
-#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#include "catalog/pg_enum_d.h"
+
 #include "nodes/pg_list.h"
-#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_enum definition.  cpp turns this into
  *		typedef struct FormData_pg_enum
  * ----------------
  */
-#define EnumRelationId	3501
-
-CATALOG(pg_enum,3501)
+CATALOG(pg_enum,3501,EnumRelationId)
 {
 	Oid			enumtypid;		/* OID of owning enum type */
 	float4		enumsortorder;	/* sort position of this enum value */
@@ -48,21 +41,6 @@ CATALOG(pg_enum,3501)
  * ----------------
  */
 typedef FormData_pg_enum *Form_pg_enum;
-
-/* ----------------
- *		compiler constants for pg_enum
- * ----------------
- */
-#define Natts_pg_enum					3
-DECLARE_NATTS(Natts_pg_enum);
-#define Anum_pg_enum_enumtypid			1
-#define Anum_pg_enum_enumsortorder		2
-#define Anum_pg_enum_enumlabel			3
-
-/* ----------------
- *		pg_enum has no initial contents
- * ----------------
- */
 
 /*
  * prototypes for functions in pg_enum.c

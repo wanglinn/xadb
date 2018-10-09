@@ -13,7 +13,7 @@
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/mgr_host.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "catalog/monitor_databaseitem.h"
 #include "catalog/monitor_databasetps.h"
 #include "catalog/pg_type.h"
@@ -365,22 +365,22 @@ HeapTuple monitor_build_database_item_tuple(Relation rel, const TimestampTz time
 	desc = RelationGetDescr(rel);
 	namestrcpy(&name, dbname);
 	AssertArg(desc && desc->natts == 16
-		&& desc->attrs[0]->atttypid == TIMESTAMPTZOID
-		&& desc->attrs[1]->atttypid == NAMEOID
-		&& desc->attrs[2]->atttypid == INT8OID
-		&& desc->attrs[3]->atttypid == BOOLOID
-		&& desc->attrs[4]->atttypid == BOOLOID
-		&& desc->attrs[5]->atttypid == FLOAT4OID
-		&& desc->attrs[6]->atttypid == FLOAT4OID
-		&& desc->attrs[7]->atttypid == INT8OID
-		&& desc->attrs[8]->atttypid == INT8OID
-		&& desc->attrs[9]->atttypid == INT8OID
-		&& desc->attrs[10]->atttypid == INT8OID
-		&& desc->attrs[11]->atttypid == INT8OID
-		&& desc->attrs[12]->atttypid == INT8OID
-		&& desc->attrs[13]->atttypid == INT8OID
-		&& desc->attrs[14]->atttypid == INT8OID
-		&& desc->attrs[15]->atttypid == INT8OID
+		&& TupleDescAttr(desc, 0)->atttypid == TIMESTAMPTZOID
+		&& TupleDescAttr(desc, 1)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 2)->atttypid == INT8OID
+		&& TupleDescAttr(desc, 3)->atttypid == BOOLOID
+		&& TupleDescAttr(desc, 4)->atttypid == BOOLOID
+		&& TupleDescAttr(desc, 5)->atttypid == FLOAT4OID
+		&& TupleDescAttr(desc, 6)->atttypid == FLOAT4OID
+		&& TupleDescAttr(desc, 7)->atttypid == INT8OID
+		&& TupleDescAttr(desc, 8)->atttypid == INT8OID
+		&& TupleDescAttr(desc, 9)->atttypid == INT8OID
+		&& TupleDescAttr(desc, 10)->atttypid == INT8OID
+		&& TupleDescAttr(desc, 11)->atttypid == INT8OID
+		&& TupleDescAttr(desc, 12)->atttypid == INT8OID
+		&& TupleDescAttr(desc, 13)->atttypid == INT8OID
+		&& TupleDescAttr(desc, 14)->atttypid == INT8OID
+		&& TupleDescAttr(desc, 15)->atttypid == INT8OID
 		);
 	memset(datums, 0, sizeof(datums));
 	memset(nulls, 0, sizeof(nulls));
@@ -551,11 +551,11 @@ HeapTuple monitor_build_databasetps_qps_tuple(Relation rel, const TimestampTz ti
 	desc = RelationGetDescr(rel);
 	namestrcpy(&name, dbname);
 	AssertArg(desc && desc->natts == 5
-		&& desc->attrs[0]->atttypid == TIMESTAMPTZOID
-		&& desc->attrs[1]->atttypid == NAMEOID
-		&& desc->attrs[2]->atttypid == INT8OID
-		&& desc->attrs[3]->atttypid == INT8OID
-		&& desc->attrs[4]->atttypid == INT8OID
+		&& TupleDescAttr(desc, 0)->atttypid == TIMESTAMPTZOID
+		&& TupleDescAttr(desc, 1)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 2)->atttypid == INT8OID
+		&& TupleDescAttr(desc, 3)->atttypid == INT8OID
+		&& TupleDescAttr(desc, 4)->atttypid == INT8OID
 		);
 	memset(datums, 0, sizeof(datums));
 	memset(nulls, 0, sizeof(nulls));

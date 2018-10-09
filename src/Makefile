@@ -28,9 +28,14 @@ SUBDIRS = \
 	pl \
 	makefiles \
 	test/regress \
+	test/isolation \
 	test/perl
 ifeq ($(enable_cluster),yes)
-	SUBDIRS += agtm adbmgrd
+	SUBDIRS += adbmgrd
+endif
+
+ifeq ($(with_llvm), yes)
+SUBDIRS += backend/jit/llvm
 endif
 
 # There are too many interdependencies between the subdirectories, so

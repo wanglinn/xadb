@@ -1,40 +1,33 @@
 /*-------------------------------------------------------------------------
  *
  * pg_ts_config.h
- *	definition of configuration of tsearch
+ *	  definition of the "text search configuration" system catalog
+ *	  (pg_ts_config)
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_ts_config.h
  *
  * NOTES
- *		the genbki.pl script reads this file and generates .bki
- *		information from the DATA() statements.
- *
- *		XXX do NOT break up DATA() statements into multiple lines!
- *			the scripts are not as smart as you might think...
+ *	  The Catalog.pm module reads this file and derives schema
+ *	  information.
  *
  *-------------------------------------------------------------------------
  */
 #ifndef PG_TS_CONFIG_H
 #define PG_TS_CONFIG_H
 
-#ifdef BUILD_BKI
-#include "catalog/buildbki.h"
-#else /* BUILD_BKI */
 #include "catalog/genbki.h"
-#endif /* BUILD_BKI */
+#include "catalog/pg_ts_config_d.h"
 
 /* ----------------
  *		pg_ts_config definition.  cpp turns this into
  *		typedef struct FormData_pg_ts_config
  * ----------------
  */
-#define TSConfigRelationId	3602
-
-CATALOG(pg_ts_config,3602)
+CATALOG(pg_ts_config,3602,TSConfigRelationId)
 {
 	NameData	cfgname;		/* name of configuration */
 	Oid			cfgnamespace;	/* name space */
@@ -43,23 +36,5 @@ CATALOG(pg_ts_config,3602)
 } FormData_pg_ts_config;
 
 typedef FormData_pg_ts_config *Form_pg_ts_config;
-
-/* ----------------
- *		compiler constants for pg_ts_config
- * ----------------
- */
-#define Natts_pg_ts_config				4
-DECLARE_NATTS(Natts_pg_ts_config);
-#define Anum_pg_ts_config_cfgname		1
-#define Anum_pg_ts_config_cfgnamespace	2
-#define Anum_pg_ts_config_cfgowner		3
-#define Anum_pg_ts_config_cfgparser		4
-
-/* ----------------
- *		initial contents of pg_ts_config
- * ----------------
- */
-DATA(insert OID = 3748 ( "simple" PGNSP PGUID 3722 ));
-DESCR("simple configuration");
 
 #endif							/* PG_TS_CONFIG_H */

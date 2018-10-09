@@ -23,7 +23,7 @@
 #include "executor/clusterReceiver.h"
 #include "intercomm/inter-comm.h"
 #include "libpq/libpq.h"
-#include "libpq/libpq-int.h"
+#include "libpq-int.h"
 #include "libpq/libpq-node.h"
 #include "nodes/execnodes.h"
 #include "pgxc/pgxc.h"
@@ -290,7 +290,7 @@ HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 		case REMOTE_COPY_TUPLESTORE:
 			{
 				TupleDesc			tupdesc = node->tuple_desc;
-				Form_pg_attribute  *attr = tupdesc->attrs;
+				Form_pg_attribute	attr = tupdesc->attrs;
 				Oid				   *typioparams = node->copy_extra->typioparams;
 				FmgrInfo		   *in_functions = node->copy_extra->inflinfos;
 				Datum			   *values = node->copy_extra->values;
@@ -314,7 +314,7 @@ HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 					nulls[i] = false;
 					field = fields[i - dropped];
 					/* Do not need any information for dropped attributes */
-					if (attr[i]->attisdropped)
+					if (attr[i].attisdropped)
 					{
 						dropped++;
 						nulls[i] = true; /* Consider dropped parameter as NULL */
@@ -325,7 +325,7 @@ HandleCopyOutRow(RemoteCopyState *node, char *buf, int len)
 					values[i] = InputFunctionCall(&in_functions[i],
 												  field,
 												  typioparams[i],
-												  attr[i]->atttypmod);
+												  attr[i].atttypmod);
 					/* Setup value with NULL flag if necessary */
 					if (field == NULL)
 						nulls[i] = true;

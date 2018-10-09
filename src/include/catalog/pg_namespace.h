@@ -1,18 +1,17 @@
 /*-------------------------------------------------------------------------
  *
  * pg_namespace.h
- *	  definition of the system "namespace" relation (pg_namespace)
- *	  along with the relation's initial contents.
+ *	  definition of the "namespace" system catalog (pg_namespace)
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_namespace.h
  *
  * NOTES
- *	  the genbki.pl script reads this file and generates .bki
- *	  information from the DATA() statements.
+ *	  The Catalog.pm module reads this file and derives schema
+ *	  information.
  *
  *-------------------------------------------------------------------------
  */
@@ -24,6 +23,7 @@
 #else /* BUILD_BKI */
 #include "catalog/genbki.h"
 #endif /* BUILD_BKI */
+#include "catalog/pg_namespace_d.h"
 
 /* ----------------------------------------------------------------
  *		pg_namespace definition.
@@ -35,9 +35,7 @@
  *	nspacl				access privilege list
  * ----------------------------------------------------------------
  */
-#define NamespaceRelationId  2615
-
-CATALOG(pg_namespace,2615)
+CATALOG(pg_namespace,2615,NamespaceRelationId)
 {
 	NameData	nspname;
 	Oid			nspowner;
@@ -54,42 +52,10 @@ CATALOG(pg_namespace,2615)
  */
 typedef FormData_pg_namespace *Form_pg_namespace;
 
-/* ----------------
- *		compiler constants for pg_namespace
- * ----------------
- */
-
-#define Natts_pg_namespace				3
-DECLARE_NATTS(Natts_pg_namespace);
-#define Anum_pg_namespace_nspname		1
-#define Anum_pg_namespace_nspowner		2
-#define Anum_pg_namespace_nspacl		3
-
-
-/* ----------------
- * initial contents of pg_namespace
- * ---------------
- */
-
-DATA(insert OID = 11 ( "pg_catalog" PGUID _null_ ));
-DESCR("system catalog schema");
-#define PG_CATALOG_NAMESPACE 11
-DATA(insert OID = 99 ( "pg_toast" PGUID _null_ ));
-DESCR("reserved schema for TOAST tables");
-#define PG_TOAST_NAMESPACE 99
-DATA(insert OID = 2200 ( "public" PGUID _null_ ));
-DESCR("standard public schema");
-#define PG_PUBLIC_NAMESPACE 2200
-#ifdef ADB_GRAM_ORA
-DATA(insert OID = 6103 ( "oracle" PGUID _null_ ));
-DESCR("compatible oracle schema");
-#define PG_ORACLE_NAMESPACE 6103
-#endif
-#ifdef ADBMGRD
-DATA(insert OID = 6105 ( "adbmgr" PGUID _null_ ));
-DESCR("ADB manager schema");
-#define PG_MANAGER_NAMESPACE 6105
-#endif /* ADBMGRD */
+#ifdef EXPOSE_TO_CLIENT_CODE
+/* I have no good idea for auto generate to main pg_*_d.h */
+#define PG_MANAGER_NAMESPACE	6105
+#endif							/* EXPOSE_TO_CLIENT_CODE */
 
 /*
  * prototypes for functions in pg_namespace.c

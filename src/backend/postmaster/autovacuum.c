@@ -50,7 +50,7 @@
  * there is a window (caused by pgstat delay) on which a worker may choose a
  * table that was already vacuumed; this is a bug in the current design.
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -79,6 +79,7 @@
 #include "lib/ilist.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
+#include "nodes/makefuncs.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
 #include "postmaster/fork_process.h"
@@ -91,8 +92,8 @@
 #include "storage/proc.h"
 #include "storage/procsignal.h"
 #include "storage/sinvaladt.h"
+#include "storage/smgr.h"
 #include "tcop/tcopprot.h"
-#include "utils/dsa.h"
 #include "utils/fmgroids.h"
 #include "utils/fmgrprotos.h"
 #include "utils/lsyscache.h"
@@ -211,9 +212,9 @@ typedef struct autovac_table
  * wi_launchtime Time at which this worker was launched
  * wi_cost_*	Vacuum cost-based delay parameters current in this worker
  *
- * All fields are protected by AutovacuumLock, except for wi_tableoid which is
- * protected by AutovacuumScheduleLock (which is read-only for everyone except
- * that worker itself).
+ * All fields are protected by AutovacuumLock, except for wi_tableoid and
+ * wi_sharedrel which are protected by AutovacuumScheduleLock (note these
+ * two fields are read-only for everyone except that worker itself).
  *-------------
  */
 typedef struct WorkerInfoData
@@ -244,6 +245,24 @@ typedef enum
 	AutoVacNumSignals			/* must be last */
 }			AutoVacuumSignal;
 
+/*
+ * Autovacuum workitem array, stored in AutoVacuumShmem->av_workItems.  This
+ * list is mostly protected by AutovacuumLock, except that if an item is
+ * marked 'active' other processes must not modify the work-identifying
+ * members.
+ */
+typedef struct AutoVacuumWorkItem
+{
+	AutoVacuumWorkItemType avw_type;
+	bool		avw_used;		/* below data is valid */
+	bool		avw_active;		/* being processed */
+	Oid			avw_database;
+	Oid			avw_relation;
+	BlockNumber avw_blockNumber;
+} AutoVacuumWorkItem;
+
+#define NUM_WORKITEMS	256
+
 /*-------------
  * The main autovacuum shmem struct.  On shared memory we store this main
  * struct and the array of WorkerInfo structs.  This struct keeps:
@@ -254,10 +273,10 @@ typedef enum
  * av_runningWorkers the WorkerInfo non-free queue
  * av_startingWorker pointer to WorkerInfo currently being started (cleared by
  *					the worker itself as soon as it's up and running)
- * av_dsa_handle	handle for allocatable shared memory
+ * av_workItems		work item array
  *
  * This struct is protected by AutovacuumLock, except for av_signal and parts
- * of the worker list (see above).  av_dsa_handle is readable unlocked.
+ * of the worker list (see above).
  *-------------
  */
 typedef struct
@@ -267,8 +286,7 @@ typedef struct
 	dlist_head	av_freeWorkers;
 	dlist_head	av_runningWorkers;
 	WorkerInfo	av_startingWorker;
-	dsa_handle	av_dsa_handle;
-	dsa_pointer av_workitems;
+	AutoVacuumWorkItem av_workItems[NUM_WORKITEMS];
 } AutoVacuumShmemStruct;
 
 static AutoVacuumShmemStruct *AutoVacuumShmem;
@@ -282,32 +300,6 @@ static MemoryContext DatabaseListCxt = NULL;
 
 /* Pointer to my own WorkerInfo, valid on each worker */
 static WorkerInfo MyWorkerInfo = NULL;
-
-/*
- * Autovacuum workitem array, stored in AutoVacuumShmem->av_workitems.  This
- * list is mostly protected by AutovacuumLock, except that if it's marked
- * 'active' other processes must not modify the work-identifying members,
- * though changing the list pointers is okay.
- */
-typedef struct AutoVacuumWorkItem
-{
-	AutoVacuumWorkItemType avw_type;
-	Oid			avw_database;
-	Oid			avw_relation;
-	BlockNumber avw_blockNumber;
-	bool		avw_active;
-	dsa_pointer avw_next;		/* doubly linked list pointers */
-	dsa_pointer avw_prev;
-} AutoVacuumWorkItem;
-
-#define NUM_WORKITEMS	256
-typedef struct
-{
-	dsa_pointer avs_usedItems;
-	dsa_pointer avs_freeItems;
-} AutovacWorkItems;
-
-static dsa_area *AutoVacuumDSA = NULL;
 
 /* PID of launcher, valid only in worker while shutting down */
 int			AutovacuumLauncherPid = 0;
@@ -355,8 +347,6 @@ static void av_sighup_handler(SIGNAL_ARGS);
 static void avl_sigusr2_handler(SIGNAL_ARGS);
 static void avl_sigterm_handler(SIGNAL_ARGS);
 static void autovac_refresh_stats(void);
-static void remove_wi_from_list(dsa_pointer *list, dsa_pointer wi_ptr);
-static void add_wi_to_list(dsa_pointer *list, dsa_pointer wi_ptr);
 
 
 
@@ -446,7 +436,7 @@ AutoVacLauncherMain(int argc, char *argv[])
 	am_autovacuum_launcher = true;
 
 	/* Identify myself via ps */
-	init_ps_display("autovacuum launcher process", "", "", "");
+	init_ps_display(pgstat_get_backend_desc(B_AUTOVAC_LAUNCHER), "", "", "");
 
 	ereport(DEBUG1,
 			(errmsg("autovacuum launcher started")));
@@ -487,7 +477,7 @@ AutoVacLauncherMain(int argc, char *argv[])
 	InitProcess();
 #endif
 
-	InitPostgres(NULL, InvalidOid, NULL, InvalidOid, NULL);
+	InitPostgres(NULL, InvalidOid, NULL, InvalidOid, NULL, false);
 
 	SetProcessingMode(NormalProcessing);
 
@@ -523,6 +513,26 @@ AutoVacLauncherMain(int argc, char *argv[])
 
 		/* Abort the current transaction in order to recover */
 		AbortCurrentTransaction();
+
+		/*
+		 * Release any other resources, for the case where we were not in a
+		 * transaction.
+		 */
+		LWLockReleaseAll();
+		pgstat_report_wait_end();
+		AbortBufferIO();
+		UnlockBuffers();
+		if (CurrentResourceOwner)
+		{
+			ResourceOwnerRelease(CurrentResourceOwner,
+								 RESOURCE_RELEASE_BEFORE_LOCKS,
+								 false, true);
+			/* we needn't bother with the other ResourceOwnerRelease phases */
+		}
+		AtEOXact_Buffers(false);
+		AtEOXact_SMgr();
+		AtEOXact_Files(false);
+		AtEOXact_HashTables(false);
 
 		/*
 		 * Now return to normal top-level context and clear ErrorContext for
@@ -563,6 +573,12 @@ AutoVacLauncherMain(int argc, char *argv[])
 
 	/* must unblock signals before calling rebuild_database_list */
 	PG_SETMASK(&UnBlockSig);
+
+	/*
+	 * Set always-secure search path.  Launcher doesn't connect to a database,
+	 * so this has no effect.
+	 */
+	SetConfigOption("search_path", "", PGC_SUSET, PGC_S_OVERRIDE);
 
 	/*
 	 * Force zero_damaged_pages OFF in the autovac process, even if it is set
@@ -609,29 +625,6 @@ AutoVacLauncherMain(int argc, char *argv[])
 	 * entry, and time always increases).
 	 */
 	rebuild_database_list(InvalidOid);
-
-	/*
-	 * Set up our DSA so that backends can install work-item requests.  It may
-	 * already exist as created by a previous launcher; and we may even be
-	 * already attached to it, if we're here after longjmp'ing above.
-	 */
-	if (!AutoVacuumShmem->av_dsa_handle)
-	{
-		LWLockAcquire(AutovacuumLock, LW_EXCLUSIVE);
-		AutoVacuumDSA = dsa_create(AutovacuumLock->tranche);
-		/* make sure it doesn't go away even if we do */
-		dsa_pin(AutoVacuumDSA);
-		dsa_pin_mapping(AutoVacuumDSA);
-		AutoVacuumShmem->av_dsa_handle = dsa_get_handle(AutoVacuumDSA);
-		/* delay array allocation until first request */
-		AutoVacuumShmem->av_workitems = InvalidDsaPointer;
-		LWLockRelease(AutovacuumLock);
-	}
-	else if (AutoVacuumDSA == NULL)
-	{
-		AutoVacuumDSA = dsa_attach(AutoVacuumShmem->av_dsa_handle);
-		dsa_pin_mapping(AutoVacuumDSA);
-	}
 
 	/* loop until shutdown request */
 	while (!got_SIGTERM)
@@ -1532,7 +1525,7 @@ AutoVacWorkerMain(int argc, char *argv[])
 	am_autovacuum_worker = true;
 
 	/* Identify myself via ps */
-	init_ps_display("autovacuum worker process", "", "", "");
+	init_ps_display(pgstat_get_backend_desc(B_AUTOVAC_WORKER), "", "", "");
 
 	SetProcessingMode(InitProcessing);
 
@@ -1596,6 +1589,14 @@ AutoVacWorkerMain(int argc, char *argv[])
 	PG_exception_stack = &local_sigjmp_buf;
 
 	PG_SETMASK(&UnBlockSig);
+
+	/*
+	 * Set always-secure search path, so malicious users can't redirect user
+	 * code (e.g. pg_index.indexprs).  (That code runs in a
+	 * SECURITY_RESTRICTED_OPERATION sandbox, so malicious users could not
+	 * take control of the entire autovacuum worker in any case.)
+	 */
+	SetConfigOption("search_path", "", PGC_SUSET, PGC_S_OVERRIDE);
 
 	/*
 	 * Force zero_damaged_pages OFF in the autovac process, even if it is set
@@ -1676,14 +1677,6 @@ AutoVacWorkerMain(int argc, char *argv[])
 	{
 		char		dbname[NAMEDATALEN];
 
-		if (AutoVacuumShmem->av_dsa_handle)
-		{
-			/* First use of DSA in this worker, so attach to it */
-			Assert(!AutoVacuumDSA);
-			AutoVacuumDSA = dsa_attach(AutoVacuumShmem->av_dsa_handle);
-			dsa_pin_mapping(AutoVacuumDSA);
-		}
-
 		/*
 		 * Report autovac startup to the stats collector.  We deliberately do
 		 * this before InitPostgres, so that the last_autovac_time will get
@@ -1700,7 +1693,7 @@ AutoVacWorkerMain(int argc, char *argv[])
 		 * Note: if we have selected a just-deleted database (due to using
 		 * stale stats info), we'll fail and exit here.
 		 */
-		InitPostgres(NULL, dbid, NULL, InvalidOid, dbname);
+		InitPostgres(NULL, dbid, NULL, InvalidOid, dbname, false);
 		SetProcessingMode(NormalProcessing);
 		set_ps_display(dbname, false);
 		ereport(DEBUG1,
@@ -1966,6 +1959,7 @@ do_autovacuum(void)
 	int			effective_multixact_freeze_max_age;
 	bool		did_vacuum = false;
 	bool		found_concurrent_worker = false;
+	int			i;
 
 	/*
 	 * StartTransactionCommand and CommitTransactionCommand will automatically
@@ -2323,7 +2317,9 @@ do_autovacuum(void)
 	foreach(cell, table_oids)
 	{
 		Oid			relid = lfirst_oid(cell);
+		HeapTuple	classTup;
 		autovac_table *tab;
+		bool		isshared;
 		bool		skipit;
 		int			stdVacuumCostDelay;
 		int			stdVacuumCostLimit;
@@ -2348,9 +2344,23 @@ do_autovacuum(void)
 		}
 
 		/*
-		 * hold schedule lock from here until we're sure that this table still
-		 * needs vacuuming.  We also need the AutovacuumLock to walk the
-		 * worker array, but we'll let go of that one quickly.
+		 * Find out whether the table is shared or not.  (It's slightly
+		 * annoying to fetch the syscache entry just for this, but in typical
+		 * cases it adds little cost because table_recheck_autovac would
+		 * refetch the entry anyway.  We could buy that back by copying the
+		 * tuple here and passing it to table_recheck_autovac, but that
+		 * increases the odds of that function working with stale data.)
+		 */
+		classTup = SearchSysCache1(RELOID, ObjectIdGetDatum(relid));
+		if (!HeapTupleIsValid(classTup))
+			continue;			/* somebody deleted the rel, forget it */
+		isshared = ((Form_pg_class) GETSTRUCT(classTup))->relisshared;
+		ReleaseSysCache(classTup);
+
+		/*
+		 * Hold schedule lock from here until we've claimed the table.  We
+		 * also need the AutovacuumLock to walk the worker array, but that one
+		 * can just be a shared lock.
 		 */
 		LWLockAcquire(AutovacuumScheduleLock, LW_EXCLUSIVE);
 		LWLockAcquire(AutovacuumLock, LW_SHARED);
@@ -2387,6 +2397,16 @@ do_autovacuum(void)
 		}
 
 		/*
+		 * Store the table's OID in shared memory before releasing the
+		 * schedule lock, so that other workers don't try to vacuum it
+		 * concurrently.  (We claim it here so as not to hold
+		 * AutovacuumScheduleLock while rechecking the stats.)
+		 */
+		MyWorkerInfo->wi_tableoid = relid;
+		MyWorkerInfo->wi_sharedrel = isshared;
+		LWLockRelease(AutovacuumScheduleLock);
+
+		/*
 		 * Check whether pgstat data still says we need to vacuum this table.
 		 * It could have changed if something else processed the table while
 		 * we weren't looking.
@@ -2402,17 +2422,12 @@ do_autovacuum(void)
 		if (tab == NULL)
 		{
 			/* someone else vacuumed the table, or it went away */
+			LWLockAcquire(AutovacuumScheduleLock, LW_EXCLUSIVE);
+			MyWorkerInfo->wi_tableoid = InvalidOid;
+			MyWorkerInfo->wi_sharedrel = false;
 			LWLockRelease(AutovacuumScheduleLock);
 			continue;
 		}
-
-		/*
-		 * Ok, good to go.  Store the table in shared memory before releasing
-		 * the lock so that other workers don't vacuum it concurrently.
-		 */
-		MyWorkerInfo->wi_tableoid = relid;
-		MyWorkerInfo->wi_sharedrel = tab->at_sharedrel;
-		LWLockRelease(AutovacuumScheduleLock);
 
 		/*
 		 * Remember the prevailing values of the vacuum cost GUCs.  We have to
@@ -2464,8 +2479,10 @@ do_autovacuum(void)
 		 */
 		PG_TRY();
 		{
+			/* Use PortalContext for any per-table allocations */
+			MemoryContextSwitchTo(PortalContext);
+
 			/* have at it */
-			MemoryContextSwitchTo(TopTransactionContext);
 			autovacuum_do_vac_analyze(tab, bstrategy);
 
 			/*
@@ -2502,6 +2519,9 @@ do_autovacuum(void)
 		}
 		PG_END_TRY();
 
+		/* Make sure we're back in AutovacMemCxt */
+		MemoryContextSwitchTo(AutovacMemCxt);
+
 		did_vacuum = true;
 
 		/* the PGXACT flags are reset at the next end of transaction */
@@ -2523,10 +2543,10 @@ deleted:
 		 * settings, so we don't want to give up our share of I/O for a very
 		 * short interval and thereby thrash the global balance.
 		 */
-		LWLockAcquire(AutovacuumLock, LW_EXCLUSIVE);
+		LWLockAcquire(AutovacuumScheduleLock, LW_EXCLUSIVE);
 		MyWorkerInfo->wi_tableoid = InvalidOid;
 		MyWorkerInfo->wi_sharedrel = false;
-		LWLockRelease(AutovacuumLock);
+		LWLockRelease(AutovacuumScheduleLock);
 
 		/* restore vacuum cost GUCs for the next iteration */
 		VacuumCostDelay = stdVacuumCostDelay;
@@ -2536,65 +2556,41 @@ deleted:
 	/*
 	 * Perform additional work items, as requested by backends.
 	 */
-	if (AutoVacuumShmem->av_workitems)
+	LWLockAcquire(AutovacuumLock, LW_EXCLUSIVE);
+	for (i = 0; i < NUM_WORKITEMS; i++)
 	{
-		dsa_pointer wi_ptr;
-		AutovacWorkItems *workitems;
+		AutoVacuumWorkItem *workitem = &AutoVacuumShmem->av_workItems[i];
+
+		if (!workitem->avw_used)
+			continue;
+		if (workitem->avw_active)
+			continue;
+		if (workitem->avw_database != MyDatabaseId)
+			continue;
+
+		/* claim this one, and release lock while performing it */
+		workitem->avw_active = true;
+		LWLockRelease(AutovacuumLock);
+
+		perform_work_item(workitem);
+
+		/*
+		 * Check for config changes before acquiring lock for further jobs.
+		 */
+		CHECK_FOR_INTERRUPTS();
+		if (got_SIGHUP)
+		{
+			got_SIGHUP = false;
+			ProcessConfigFile(PGC_SIGHUP);
+		}
 
 		LWLockAcquire(AutovacuumLock, LW_EXCLUSIVE);
 
-		/*
-		 * Scan the list of pending items, and process the inactive ones in
-		 * our database.
-		 */
-		workitems = (AutovacWorkItems *)
-			dsa_get_address(AutoVacuumDSA, AutoVacuumShmem->av_workitems);
-		wi_ptr = workitems->avs_usedItems;
-
-		while (wi_ptr != InvalidDsaPointer)
-		{
-			AutoVacuumWorkItem *workitem;
-
-			workitem = (AutoVacuumWorkItem *)
-				dsa_get_address(AutoVacuumDSA, wi_ptr);
-
-			if (workitem->avw_database == MyDatabaseId && !workitem->avw_active)
-			{
-				dsa_pointer next_ptr;
-
-				/* claim this one */
-				workitem->avw_active = true;
-
-				LWLockRelease(AutovacuumLock);
-
-				perform_work_item(workitem);
-
-				/*
-				 * Check for config changes before acquiring lock for further
-				 * jobs.
-				 */
-				CHECK_FOR_INTERRUPTS();
-				if (got_SIGHUP)
-				{
-					got_SIGHUP = false;
-					ProcessConfigFile(PGC_SIGHUP);
-				}
-
-				LWLockAcquire(AutovacuumLock, LW_EXCLUSIVE);
-
-				/* Put the array item back for the next user */
-				next_ptr = workitem->avw_next;
-				remove_wi_from_list(&workitems->avs_usedItems, wi_ptr);
-				add_wi_to_list(&workitems->avs_freeItems, wi_ptr);
-				wi_ptr = next_ptr;
-			}
-			else
-				wi_ptr = workitem->avw_next;
-		}
-
-		/* all done */
-		LWLockRelease(AutovacuumLock);
+		/* and mark it done */
+		workitem->avw_active = false;
+		workitem->avw_used = false;
 	}
+	LWLockRelease(AutovacuumLock);
 
 	/*
 	 * We leak table_toast_map here (among other things), but since we're
@@ -2646,10 +2642,9 @@ perform_work_item(AutoVacuumWorkItem *workitem)
 	/*
 	 * Save the relation name for a possible error message, to avoid a catalog
 	 * lookup in case of an error.  If any of these return NULL, then the
-	 * relation has been dropped since last we checked; skip it. Note: they
-	 * must live in a long-lived memory context because we call vacuum and
-	 * analyze in different transactions.
+	 * relation has been dropped since last we checked; skip it.
 	 */
+	Assert(CurrentMemoryContext == AutovacMemCxt);
 
 	cur_relname = get_rel_name(workitem->avw_relation);
 	cur_nspname = get_namespace_name(get_rel_namespace(workitem->avw_relation));
@@ -2659,6 +2654,9 @@ perform_work_item(AutoVacuumWorkItem *workitem)
 
 	autovac_report_workitem(workitem, cur_nspname, cur_datname);
 
+	/* clean up memory before each work item */
+	MemoryContextResetAndDeleteChildren(PortalContext);
+
 	/*
 	 * We will abort the current work item if something errors out, and
 	 * continue with the next one; in particular, this happens if we are
@@ -2667,9 +2665,10 @@ perform_work_item(AutoVacuumWorkItem *workitem)
 	 */
 	PG_TRY();
 	{
-		/* have at it */
-		MemoryContextSwitchTo(TopTransactionContext);
+		/* Use PortalContext for any per-work-item allocations */
+		MemoryContextSwitchTo(PortalContext);
 
+		/* have at it */
 		switch (workitem->avw_type)
 		{
 			case AVW_BRINSummarizeRange:
@@ -2712,6 +2711,9 @@ perform_work_item(AutoVacuumWorkItem *workitem)
 		RESUME_INTERRUPTS();
 	}
 	PG_END_TRY();
+
+	/* Make sure we're back in AutovacMemCxt */
+	MemoryContextSwitchTo(AutovacMemCxt);
 
 	/* We intentionally do not set did_vacuum here */
 
@@ -3114,20 +3116,19 @@ relation_needs_vacanalyze(Oid relid,
 static void
 autovacuum_do_vac_analyze(autovac_table *tab, BufferAccessStrategy bstrategy)
 {
-	RangeVar	rangevar;
-
-	/* Set up command parameters --- use local variables instead of palloc */
-	MemSet(&rangevar, 0, sizeof(rangevar));
-
-	rangevar.schemaname = tab->at_nspname;
-	rangevar.relname = tab->at_relname;
-	rangevar.location = -1;
+	RangeVar   *rangevar;
+	VacuumRelation *rel;
+	List	   *rel_list;
 
 	/* Let pgstat know what we're doing */
 	autovac_report_activity(tab);
 
-	vacuum(tab->at_vacoptions, &rangevar, tab->at_relid, &tab->at_params, NIL,
-		   bstrategy, true);
+	/* Set up one VacuumRelation target, identified by OID, for vacuum() */
+	rangevar = makeRangeVar(tab->at_nspname, tab->at_relname, -1);
+	rel = makeVacuumRelation(rangevar, tab->at_relid, NIL);
+	rel_list = list_make1(rel);
+
+	vacuum(tab->at_vacoptions, rel_list, &tab->at_params, bstrategy, true);
 }
 
 /*
@@ -3226,109 +3227,42 @@ AutoVacuumingActive(void)
 
 /*
  * Request one work item to the next autovacuum run processing our database.
+ * Return false if the request can't be recorded.
  */
-void
+bool
 AutoVacuumRequestWork(AutoVacuumWorkItemType type, Oid relationId,
 					  BlockNumber blkno)
 {
-	AutovacWorkItems *workitems;
-	dsa_pointer wi_ptr;
-	AutoVacuumWorkItem *workitem;
+	int			i;
+	bool		result = false;
 
 	LWLockAcquire(AutovacuumLock, LW_EXCLUSIVE);
 
 	/*
-	 * It may be useful to de-duplicate the list upon insertion.  For the only
-	 * currently existing caller, this is not necessary.
+	 * Locate an unused work item and fill it with the given data.
 	 */
-
-	/* First use in this process?  Set up DSA */
-	if (!AutoVacuumDSA)
+	for (i = 0; i < NUM_WORKITEMS; i++)
 	{
-		if (!AutoVacuumShmem->av_dsa_handle)
-		{
-			/* autovacuum launcher not started; nothing can be done */
-			LWLockRelease(AutovacuumLock);
-			return;
-		}
-		AutoVacuumDSA = dsa_attach(AutoVacuumShmem->av_dsa_handle);
-		dsa_pin_mapping(AutoVacuumDSA);
+		AutoVacuumWorkItem *workitem = &AutoVacuumShmem->av_workItems[i];
+
+		if (workitem->avw_used)
+			continue;
+
+		workitem->avw_used = true;
+		workitem->avw_active = false;
+		workitem->avw_type = type;
+		workitem->avw_database = MyDatabaseId;
+		workitem->avw_relation = relationId;
+		workitem->avw_blockNumber = blkno;
+		result = true;
+
+		/* done */
+		break;
 	}
-
-	/* First use overall?  Allocate work items array */
-	if (AutoVacuumShmem->av_workitems == InvalidDsaPointer)
-	{
-		int			i;
-		AutovacWorkItems *workitems;
-
-		AutoVacuumShmem->av_workitems =
-			dsa_allocate_extended(AutoVacuumDSA,
-								  sizeof(AutovacWorkItems) +
-								  NUM_WORKITEMS * sizeof(AutoVacuumWorkItem),
-								  DSA_ALLOC_NO_OOM);
-		/* if out of memory, silently disregard the request */
-		if (AutoVacuumShmem->av_workitems == InvalidDsaPointer)
-		{
-			LWLockRelease(AutovacuumLock);
-			dsa_detach(AutoVacuumDSA);
-			AutoVacuumDSA = NULL;
-			return;
-		}
-
-		/* Initialize each array entry as a member of the free list */
-		workitems = dsa_get_address(AutoVacuumDSA, AutoVacuumShmem->av_workitems);
-
-		workitems->avs_usedItems = InvalidDsaPointer;
-		workitems->avs_freeItems = InvalidDsaPointer;
-		for (i = 0; i < NUM_WORKITEMS; i++)
-		{
-			/* XXX surely there is a simpler way to do this */
-			wi_ptr = AutoVacuumShmem->av_workitems + sizeof(AutovacWorkItems) +
-				sizeof(AutoVacuumWorkItem) * i;
-			workitem = (AutoVacuumWorkItem *) dsa_get_address(AutoVacuumDSA, wi_ptr);
-
-			workitem->avw_type = 0;
-			workitem->avw_database = InvalidOid;
-			workitem->avw_relation = InvalidOid;
-			workitem->avw_active = false;
-
-			/* put this item in the free list */
-			workitem->avw_next = workitems->avs_freeItems;
-			workitems->avs_freeItems = wi_ptr;
-		}
-	}
-
-	workitems = (AutovacWorkItems *)
-		dsa_get_address(AutoVacuumDSA, AutoVacuumShmem->av_workitems);
-
-	/* If array is full, disregard the request */
-	if (workitems->avs_freeItems == InvalidDsaPointer)
-	{
-		LWLockRelease(AutovacuumLock);
-		dsa_detach(AutoVacuumDSA);
-		AutoVacuumDSA = NULL;
-		return;
-	}
-
-	/* remove workitem struct from free list ... */
-	wi_ptr = workitems->avs_freeItems;
-	remove_wi_from_list(&workitems->avs_freeItems, wi_ptr);
-
-	/* ... initialize it ... */
-	workitem = dsa_get_address(AutoVacuumDSA, wi_ptr);
-	workitem->avw_type = type;
-	workitem->avw_database = MyDatabaseId;
-	workitem->avw_relation = relationId;
-	workitem->avw_blockNumber = blkno;
-	workitem->avw_active = false;
-
-	/* ... and put it on autovacuum's to-do list */
-	add_wi_to_list(&workitems->avs_usedItems, wi_ptr);
 
 	LWLockRelease(AutovacuumLock);
 
-	dsa_detach(AutoVacuumDSA);
-	AutoVacuumDSA = NULL;
+	return result;
 }
 
 /*
@@ -3408,6 +3342,8 @@ AutoVacuumShmemInit(void)
 		dlist_init(&AutoVacuumShmem->av_freeWorkers);
 		dlist_init(&AutoVacuumShmem->av_runningWorkers);
 		AutoVacuumShmem->av_startingWorker = NULL;
+		memset(AutoVacuumShmem->av_workItems, 0,
+			   sizeof(AutoVacuumWorkItem) * NUM_WORKITEMS);
 
 		worker = (WorkerInfo) ((char *) AutoVacuumShmem +
 							   MAXALIGN(sizeof(AutoVacuumShmemStruct)));
@@ -3451,60 +3387,4 @@ autovac_refresh_stats(void)
 	}
 
 	pgstat_clear_snapshot();
-}
-
-/*
- * Simplistic open-coded list implementation for objects stored in DSA.
- * Each item is doubly linked, but we have no tail pointer, and the "prev"
- * element of the first item is null, not the list.
- */
-
-/*
- * Remove a work item from the given list.
- */
-static void
-remove_wi_from_list(dsa_pointer *list, dsa_pointer wi_ptr)
-{
-	AutoVacuumWorkItem *workitem = dsa_get_address(AutoVacuumDSA, wi_ptr);
-	dsa_pointer next = workitem->avw_next;
-	dsa_pointer prev = workitem->avw_prev;
-
-	workitem->avw_next = workitem->avw_prev = InvalidDsaPointer;
-
-	if (next != InvalidDsaPointer)
-	{
-		workitem = dsa_get_address(AutoVacuumDSA, next);
-		workitem->avw_prev = prev;
-	}
-
-	if (prev != InvalidDsaPointer)
-	{
-		workitem = dsa_get_address(AutoVacuumDSA, prev);
-		workitem->avw_next = next;
-	}
-	else
-		*list = next;
-}
-
-/*
- * Add a workitem to the given list
- */
-static void
-add_wi_to_list(dsa_pointer *list, dsa_pointer wi_ptr)
-{
-	if (*list == InvalidDsaPointer)
-	{
-		/* list is empty; item is now singleton */
-		*list = wi_ptr;
-	}
-	else
-	{
-		AutoVacuumWorkItem *workitem = dsa_get_address(AutoVacuumDSA, wi_ptr);
-		AutoVacuumWorkItem *old = dsa_get_address(AutoVacuumDSA, *list);
-
-		/* Put item at head of list */
-		workitem->avw_next = *list;
-		old->avw_prev = wi_ptr;
-		*list = wi_ptr;
-	}
 }

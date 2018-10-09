@@ -8,42 +8,42 @@
 #ifndef PGXC_CLASS_H
 #define PGXC_CLASS_H
 
-#ifdef BUILD_BKI
-#include "catalog/buildbki.h"
-#else /* BUILD_BKI */
 #include "catalog/genbki.h"
-#include "nodes/parsenodes.h"
-#endif /* BUILD_BKI */
+#include "catalog/pgxc_class_d.h"
 
-#define PgxcClassRelationId  9020
-
-CATALOG(pgxc_class,9020) BKI_WITHOUT_OIDS
+CATALOG(pgxc_class,9020,PgxcClassRelationId) BKI_WITHOUT_OIDS
 {
-	Oid			pcrelid;			/* Table Oid */
-	char		pclocatortype;		/* Type of distribution */
-	int16		pcattnum;			/* Column number of distribution */
-	int16		pchashalgorithm;	/* Hashing algorithm */
-	int16		pchashbuckets;		/* Number of buckets */
-	Oid			pcfuncid;			/* User-defined distribution function oid */
+	/* Table Oid */
+	Oid			pcrelid;
 
-	oidvector	nodeoids;			/* List of nodes used by table */
+	/* Type of distribution */
+	char		pclocatortype;
+
+	/* Column number of distribution */
+	int16		pcattnum;
+
+	/* Hashing algorithm */
+	int16		pchashalgorithm;
+
+	/* Number of buckets */
+	int16		pchashbuckets;
+
+	/* User-defined distribution function oid */
+	Oid			pcfuncid;
+
+	/* List of nodes used by table */
+	oidvector	nodeoids;
+
 #ifdef CATALOG_VARLEN
-	int2vector	pcfuncattnums;		/* List of column number of distribution */
+
+	/* List of column number of distribution */
+	int2vector	pcfuncattnums;
 #endif
 } FormData_pgxc_class;
 
 typedef FormData_pgxc_class *Form_pgxc_class;
 
-#define Natts_pgxc_class					8
-DECLARE_NATTS(Natts_pgxc_class);
-#define Anum_pgxc_class_pcrelid				1
-#define Anum_pgxc_class_pclocatortype		2
-#define Anum_pgxc_class_pcattnum			3
-#define Anum_pgxc_class_pchashalgorithm		4
-#define Anum_pgxc_class_pchashbuckets		5
-#define Anum_pgxc_class_pcfuncid			6
-#define Anum_pgxc_class_nodes				7
-#define Anum_pgxc_class_pcfuncattnums		8
+#ifdef EXPOSE_TO_CLIENT_CODE
 
 typedef enum PgxcClassAlterType
 {
@@ -51,6 +51,8 @@ typedef enum PgxcClassAlterType
 	PGXC_CLASS_ALTER_NODES,
 	PGXC_CLASS_ALTER_ALL
 } PgxcClassAlterType;
+
+#endif							/* EXPOSE_TO_CLIENT_CODE */
 
 extern void PgxcClassCreate(Oid pcrelid,
 							char pclocatortype,

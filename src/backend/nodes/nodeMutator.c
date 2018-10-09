@@ -28,6 +28,7 @@
 #include "nodes/def_no_all_struct.h"
 #undef NO_STRUCT_QualCost
 #undef NO_STRUCT_ReduceInfo
+#undef NO_STRUCT_PartitionPruneStep
 
 static void *pmemdup(const void *src, Size size);
 pg_attribute_unused() static List *mutator_struct_list(List *list, Size size, void*(*fun)(), Node*(*mutator)(), void *context)

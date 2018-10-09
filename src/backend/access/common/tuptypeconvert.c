@@ -118,7 +118,7 @@ TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool n
 
 	for(i=natts=0;i<base_desc->natts;++i)
 	{
-		attr = base_desc->attrs[i];
+		attr = TupleDescAttr(base_desc, i);
 		if (attr->attisdropped)
 			continue;
 
@@ -172,7 +172,7 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 		natts = dest->tts_tupleDescriptor->natts;
 		for(s=d=0,lc=list_head(convert->io_state);d<natts;++d)
 		{
-			if (dest->tts_tupleDescriptor->attrs[d]->attisdropped)
+			if (TupleDescAttr(dest->tts_tupleDescriptor, d)->attisdropped)
 				continue;
 
 			if((dest->tts_isnull[d] = src->tts_isnull[s]) == false)
@@ -180,8 +180,8 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 				io = lfirst(lc);
 				if(io == NULL)
 				{
-					Form_pg_attribute attr = src->tts_tupleDescriptor->attrs[s];
-					Assert(attr->atttypid == dest->tts_tupleDescriptor->attrs[d]->atttypid);
+					Form_pg_attribute attr = TupleDescAttr(src->tts_tupleDescriptor, s);
+					Assert(attr->atttypid == TupleDescAttr(dest->tts_tupleDescriptor, d)->atttypid);
 
 					if (need_copy && !attr->attbyval)
 						dest->tts_values[d] = datumCopy(src->tts_values[s], false, attr->attlen);
@@ -235,7 +235,7 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 	natts = src->tts_tupleDescriptor->natts;
 	for(s=d=0,lc=list_head(convert->io_state);s<natts;++s)
 	{
-		if (src->tts_tupleDescriptor->attrs[s]->attisdropped)
+		if (TupleDescAttr(src->tts_tupleDescriptor, s)->attisdropped)
 			continue;
 
 		if ((dest->tts_isnull[d]=src->tts_isnull[s]) == false)
@@ -243,8 +243,8 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 			io = lfirst(lc);
 			if(io == NULL)
 			{
-				Form_pg_attribute attr = src->tts_tupleDescriptor->attrs[s];
-				Assert(attr->atttypid == dest->tts_tupleDescriptor->attrs[d]->atttypid);
+				Form_pg_attribute attr = TupleDescAttr(src->tts_tupleDescriptor, s);
+				Assert(attr->atttypid == TupleDescAttr(dest->tts_tupleDescriptor, d)->atttypid);
 
 				if (need_copy && !attr->attbyval)
 					dest->tts_values[d] = datumCopy(src->tts_values[s], false, attr->attlen);
@@ -351,7 +351,7 @@ static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 
 	for(i=natts=0,need_convert=false;i<indesc->natts;++i)
 	{
-		attr = indesc->attrs[i];
+		attr = TupleDescAttr(indesc, i);
 		if (attr->attisdropped)
 		{
 			/* when has droped attribute, we need convert */
@@ -372,7 +372,7 @@ static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 	outdesc = CreateTemplateTupleDesc(natts, indesc->tdhasoid);
 	for(i=natts=0;i<indesc->natts;++i)
 	{
-		attr = indesc->attrs[i];
+		attr = TupleDescAttr(indesc, i);
 		if (attr->attisdropped)
 			continue;
 
@@ -909,7 +909,7 @@ static Datum convert_array_send(PG_FUNCTION_ARGS)
 {
 	StringInfoData buf;
 	ArrayConvert *ac;
-	AnyArrayType *v = PG_GETARG_ANY_ARRAY(0);
+	AnyArrayType *v = PG_GETARG_ANY_ARRAY_P(0);
 	Oid			element_type = AARR_ELEMTYPE(v);
 	array_iter	iter;
 	int			nitems,
@@ -1025,7 +1025,7 @@ static void free_array_convert(ArrayConvert *ac)
 /* like range_send, but we convert range item if need */
 static Datum convert_range_send(PG_FUNCTION_ARGS)
 {
-	RangeType  *range = PG_GETARG_RANGE(0);
+	RangeType  *range = PG_GETARG_RANGE_P(0);
 	StringInfo	buf = makeStringInfo();
 	RangeBound	lower;
 	RangeBound	upper;
@@ -1153,7 +1153,7 @@ convert_range_recv(PG_FUNCTION_ARGS)
 	/* serialize and canonicalize */
 	range = make_range(ac->typcache, &lower, &upper, flags & RANGE_EMPTY);
 
-	PG_RETURN_RANGE(range);
+	PG_RETURN_RANGE_P(range);
 }
 
 /*
@@ -1227,8 +1227,8 @@ static bool convert_equal_tuple_desc(TupleDesc desc1, TupleDesc desc2)
 
 	for (i=0;i<desc1->natts;++i)
 	{
-		Form_pg_attribute attr1 = desc1->attrs[i];
-		Form_pg_attribute attr2 = desc2->attrs[i];
+		Form_pg_attribute attr1 = TupleDescAttr(desc1,i);
+		Form_pg_attribute attr2 = TupleDescAttr(desc2,i);
 
 		if (attr1->atttypid != attr2->atttypid)
 			return false;

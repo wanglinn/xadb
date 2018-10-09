@@ -9,7 +9,7 @@
  * and implementing search-path-controlled searches.
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -32,7 +32,6 @@
 #include "catalog/pg_authid.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_conversion.h"
-#include "catalog/pg_conversion_fn.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_opclass.h"
 #include "catalog/pg_operator.h"
@@ -99,7 +98,7 @@
  * set up until the first attempt to create something in it.  (The reason for
  * klugery is that we can't create the temp namespace outside a transaction,
  * but initial GUC processing of search_path happens outside a transaction.)
- * activeTempCreationPending is TRUE if "pg_temp" appears first in the string
+ * activeTempCreationPending is true if "pg_temp" appears first in the string
  * but is not reflected in activeCreationNamespace because the namespace isn't
  * set up yet.
  *
@@ -140,7 +139,7 @@ static List *activeSearchPath = NIL;
 /* default place to create stuff; if InvalidOid, no default */
 static Oid	activeCreationNamespace = InvalidOid;
 
-/* if TRUE, activeCreationNamespace is wrong, it should be temp namespace */
+/* if true, activeCreationNamespace is wrong, it should be temp namespace */
 static bool activeTempCreationPending = false;
 
 /* These variables are the values last derived from namespace_search_path: */
@@ -206,27 +205,41 @@ static bool MatchNamedCall(HeapTuple proctup, int nargs, List *argnames,
 
 
 /*
- * RangeVarGetRelid
+ * RangeVarGetRelidExtended
  *		Given a RangeVar describing an existing relation,
  *		select the proper namespace and look up the relation OID.
  *
- * If the schema or relation is not found, return InvalidOid if missing_ok
- * = true, otherwise raise an error.
+ * If the schema or relation is not found, return InvalidOid if flags contains
+ * RVR_MISSING_OK, otherwise raise an error.
  *
- * If nowait = true, throw an error if we'd have to wait for a lock.
+ * If flags contains RVR_NOWAIT, throw an error if we'd have to wait for a
+ * lock.
+ *
+ * If flags contains RVR_SKIP_LOCKED, return InvalidOid if we'd have to wait
+ * for a lock.
+ *
+ * flags cannot contain both RVR_NOWAIT and RVR_SKIP_LOCKED.
+ *
+ * Note that if RVR_MISSING_OK and RVR_SKIP_LOCKED are both specified, a
+ * return value of InvalidOid could either mean the relation is missing or it
+ * could not be locked.
  *
  * Callback allows caller to check permissions or acquire additional locks
  * prior to grabbing the relation lock.
  */
 Oid
 RangeVarGetRelidExtended(const RangeVar *relation, LOCKMODE lockmode,
-						 bool missing_ok, bool nowait,
+						 uint32 flags,
 						 RangeVarGetRelidCallback callback, void *callback_arg)
 {
 	uint64		inval_count;
 	Oid			relId;
 	Oid			oldRelId = InvalidOid;
 	bool		retry = false;
+	bool		missing_ok = (flags & RVR_MISSING_OK) != 0;
+
+	/* verify that flags do no conflict */
+	Assert(!((flags & RVR_NOWAIT) && (flags & RVR_SKIP_LOCKED)));
 
 	/*
 	 * We check the catalog name and then ignore it.
@@ -365,20 +378,24 @@ RangeVarGetRelidExtended(const RangeVar *relation, LOCKMODE lockmode,
 		 */
 		if (!OidIsValid(relId))
 			AcceptInvalidationMessages();
-		else if (!nowait)
+		else if (!(flags & (RVR_NOWAIT | RVR_SKIP_LOCKED)))
 			LockRelationOid(relId, lockmode);
 		else if (!ConditionalLockRelationOid(relId, lockmode))
 		{
+			int			elevel = (flags & RVR_SKIP_LOCKED) ? DEBUG1 : ERROR;
+
 			if (relation->schemaname)
-				ereport(ERROR,
+				ereport(elevel,
 						(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
 						 errmsg("could not obtain lock on relation \"%s.%s\"",
 								relation->schemaname, relation->relname)));
 			else
-				ereport(ERROR,
+				ereport(elevel,
 						(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
 						 errmsg("could not obtain lock on relation \"%s\"",
 								relation->relname)));
+
+			return InvalidOid;
 		}
 
 		/*
@@ -396,15 +413,17 @@ RangeVarGetRelidExtended(const RangeVar *relation, LOCKMODE lockmode,
 		oldRelId = relId;
 	}
 
-	if (!OidIsValid(relId) && !missing_ok)
+	if (!OidIsValid(relId))
 	{
+		int			elevel = missing_ok ? DEBUG1 : ERROR;
+
 		if (relation->schemaname)
-			ereport(ERROR,
+			ereport(elevel,
 					(errcode(ERRCODE_UNDEFINED_TABLE),
 					 errmsg("relation \"%s.%s\" does not exist",
 							relation->schemaname, relation->relname)));
 		else
-			ereport(ERROR,
+			ereport(elevel,
 					(errcode(ERRCODE_UNDEFINED_TABLE),
 					 errmsg("relation \"%s\" does not exist",
 							relation->relname)));
@@ -564,7 +583,7 @@ RangeVarGetAndCheckCreationNamespace(RangeVar *relation,
 		/* Check namespace permissions. */
 		aclresult = pg_namespace_aclcheck(nspid, GetUserId(), ACL_CREATE);
 		if (aclresult != ACLCHECK_OK)
-			aclcheck_error(aclresult, ACL_KIND_NAMESPACE,
+			aclcheck_error(aclresult, OBJECT_SCHEMA,
 						   get_namespace_name(nspid));
 
 		if (retry)
@@ -589,7 +608,7 @@ RangeVarGetAndCheckCreationNamespace(RangeVar *relation,
 		if (lockmode != NoLock && OidIsValid(relid))
 		{
 			if (!pg_class_ownercheck(relid, GetUserId()))
-				aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_CLASS,
+				aclcheck_error(ACLCHECK_NOT_OWNER, get_relkind_objtype(get_rel_relkind(relid)),
 							   relation->relname);
 			if (relid != oldrelid)
 				LockRelationOid(relid, lockmode);
@@ -2884,7 +2903,7 @@ LookupExplicitNamespace(const char *nspname, bool missing_ok)
 
 	aclresult = pg_namespace_aclcheck(namespaceId, GetUserId(), ACL_USAGE);
 	if (aclresult != ACLCHECK_OK)
-		aclcheck_error(aclresult, ACL_KIND_NAMESPACE,
+		aclcheck_error(aclresult, OBJECT_SCHEMA,
 					   nspname);
 	/* Schema search hook for this lookup */
 	InvokeNamespaceSearchHook(namespaceId, true);
@@ -2921,7 +2940,7 @@ LookupCreationNamespace(const char *nspname)
 
 	aclresult = pg_namespace_aclcheck(namespaceId, GetUserId(), ACL_CREATE);
 	if (aclresult != ACLCHECK_OK)
-		aclcheck_error(aclresult, ACL_KIND_NAMESPACE,
+		aclcheck_error(aclresult, OBJECT_SCHEMA,
 					   nspname);
 
 	return namespaceId;

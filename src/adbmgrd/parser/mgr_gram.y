@@ -9,7 +9,7 @@
 #include "parser/mgr_node.h"
 #include "parser/parser.h"
 #include "parser/scanner.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "catalog/mgr_parm.h"
 #include "catalog/mgr_updateparm.h"
 #include "utils/builtins.h"
@@ -394,7 +394,7 @@ DropUserStmt:
 			DROP USER name_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
-					n->missing_ok = FALSE;
+					n->missing_ok = false;
 					n->roles = $3;
 					$$ = (Node *)n;
 				}
@@ -444,9 +444,9 @@ AlterOptRoleElem:
 /*			| IDENT
  *				{
  *					if (strcmp($1, "superuser") == 0)
- *						$$ = makeDefElem("superuser", (Node *)makeInteger(TRUE));
+ *						$$ = makeDefElem("superuser", (Node *)makeInteger(true));
  *					else if (strcmp($1, "nosuperuser") == 0)
- *						$$ = makeDefElem("superuser", (Node *)makeInteger(FALSE));
+ *						$$ = makeDefElem("superuser", (Node *)makeInteger(false));
  *					else
  *						ereport(ERROR,
  *								(errcode(ERRCODE_SYNTAX_ERROR),
@@ -2212,8 +2212,8 @@ FailoverStmt:
 		}
 	;
 opt_general_force:
-	FORCE		{$$ = TRUE;}
-	|/*empty*/	{$$ = FALSE;}
+	FORCE		{$$ = true;}
+	|/*empty*/	{$$ = false;}
 	;
 /* cndn end*/
 
@@ -2887,9 +2887,9 @@ static Node* make_func_call(const char *func_name, List *func_args)
 	n->funcname = list_make1(makeString(pstrdup(func_name)));
 	n->args = func_args;
 	n->agg_order = NIL;
-	n->agg_star = FALSE;
-	n->agg_distinct = FALSE;
-	n->func_variadic = FALSE;
+	n->agg_star = false;
+	n->agg_distinct = false;
+	n->func_variadic = false;
 	n->over = NULL;
 	n->location = -1;
 	return (Node *) n;
@@ -3209,7 +3209,7 @@ static void check_jobitem_name_isvaild(List *node_name_list)
 		namestrcpy(&name, strVal(&(jobitem_name->val)));
 
 		ScanKeyInit(&key[0]
-			,Anum_monitor_jobitem_itemname
+			,Anum_monitor_jobitem_jobitem_itemname
 			,BTEqualStrategyNumber, F_NAMEEQ
 			,NameGetDatum(&name));
 
@@ -3261,4 +3261,3 @@ static void check_job_status_intbl(void)
 
 	return;
 }
-

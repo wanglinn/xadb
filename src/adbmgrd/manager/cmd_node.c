@@ -14,7 +14,7 @@
 #include "catalog/indexing.h"
 #include "catalog/mgr_host.h"
 #include "catalog/pg_authid.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "catalog/mgr_updateparm.h"
 #include "catalog/mgr_parm.h"
 #include "catalog/pg_type.h"
@@ -423,13 +423,13 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 				namestrcpy(&sync_state_name, "");
 			datum[Anum_mgr_node_nodesync-1] = NameGetDatum(&sync_state_name);
 		}
-		if(got[Anum_mgr_node_nodemasternameOid-1] == false)
+		if(got[Anum_mgr_node_nodemasternameoid-1] == false)
 		{
 			if (CNDN_TYPE_DATANODE_MASTER == nodetype || CNDN_TYPE_COORDINATOR_MASTER == nodetype || GTM_TYPE_GTM_MASTER == nodetype)
-				datum[Anum_mgr_node_nodemasternameOid-1] = UInt32GetDatum(0);
+				datum[Anum_mgr_node_nodemasternameoid-1] = UInt32GetDatum(0);
 			else
 			{
-				datum[Anum_mgr_node_nodemasternameOid-1] = ObjectIdGetDatum(masterTupleOid);
+				datum[Anum_mgr_node_nodemasternameoid-1] = ObjectIdGetDatum(masterTupleOid);
 			}
 		}
 		if(got[Anum_mgr_node_nodereadonly-1] == false)
@@ -871,11 +871,9 @@ Datum mgr_drop_node_func(PG_FUNCTION_ARGS)
 	nodetype = PG_GETARG_CHAR(0);
 	nodename = PG_GETARG_CSTRING(1);
 	namestrcpy(&nodenameData, nodename);
-	context = AllocSetContextCreate(CurrentMemoryContext
-			,"DROP NODE"
-			,ALLOCSET_DEFAULT_MINSIZE
-			,ALLOCSET_DEFAULT_INITSIZE
-			,ALLOCSET_DEFAULT_MAXSIZE);
+	context = AllocSetContextCreate(CurrentMemoryContext,
+									"DROP NODE",
+									ALLOCSET_DEFAULT_SIZES);
 	rel = heap_open(NodeRelationId, RowExclusiveLock);
 	old_context = MemoryContextSwitchTo(context);
 
@@ -2715,12 +2713,12 @@ HeapTuple build_common_command_tuple_for_monitor(const Name name
     desc = get_common_command_tuple_desc_for_monitor();
 
     AssertArg(desc && desc->natts == 6
-        && desc->attrs[0]->atttypid == NAMEOID
-        && desc->attrs[1]->atttypid == NAMEOID
-        && desc->attrs[2]->atttypid == BOOLOID
-        && desc->attrs[3]->atttypid == TEXTOID
-        && desc->attrs[4]->atttypid == NAMEOID
-        && desc->attrs[5]->atttypid == INT4OID);
+        && TupleDescAttr(desc, 0)->atttypid == NAMEOID
+        && TupleDescAttr(desc, 1)->atttypid == NAMEOID
+        && TupleDescAttr(desc, 2)->atttypid == BOOLOID
+        && TupleDescAttr(desc, 3)->atttypid == TEXTOID
+        && TupleDescAttr(desc, 4)->atttypid == NAMEOID
+        && TupleDescAttr(desc, 5)->atttypid == INT4OID);
 
     switch(type)
     {
@@ -5381,7 +5379,7 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 
 		/*add content of hba table to the pg_hba.conf file ,the "*" is meaning all*/
 		add_hba_table_to_file("*");
-		/* get the content from coordinator and gtm, then insert into mgr_parm which used 
+		/* get the content from coordinator and gtm, then insert into mgr_parm which used
 		* to check set parameters
 		*/
 		mgr_flushparam(NULL, NULL, NULL);
@@ -6663,7 +6661,7 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 		,F_CHAREQ
 		,CharGetDatum(CNDN_TYPE_DATANODE_SLAVE));
 	ScanKeyInit(&key[1]
-		,Anum_mgr_node_nodemasternameOid
+		,Anum_mgr_node_nodemasternameoid
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(oldMasterTupleOid));
@@ -6993,7 +6991,7 @@ static bool mgr_node_has_slave(Relation rel, Oid mastertupleoid)
 	HeapScanDesc scan;
 
 	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodemasternameOid
+		,Anum_mgr_node_nodemasternameoid
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(mastertupleoid));
@@ -10468,7 +10466,7 @@ static bool mgr_check_syncstate_node_exist(Relation rel, Oid masterTupleOid, int
 
 	namestrcpy(&sync_state_name, sync_state_tab[sync_state_type].name);
 	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodemasternameOid
+		,Anum_mgr_node_nodemasternameoid
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(masterTupleOid));
@@ -10990,7 +10988,7 @@ static void mgr_update_one_potential_to_sync(Relation rel, Oid mastertupleoid, b
 	namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_POTENTIAL].name);
 	namestrcpy(&sync_state_name_sync, sync_state_tab[SYNC_STATE_SYNC].name);
 	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodemasternameOid
+		,Anum_mgr_node_nodemasternameoid
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(mastertupleoid));
@@ -11043,7 +11041,7 @@ int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeo
 		else
 			namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_POTENTIAL].name);
 		ScanKeyInit(&key[0]
-			,Anum_mgr_node_nodemasternameOid
+			,Anum_mgr_node_nodemasternameoid
 			,BTEqualStrategyNumber
 			,F_OIDEQ
 			,ObjectIdGetDatum(mastertupleoid));

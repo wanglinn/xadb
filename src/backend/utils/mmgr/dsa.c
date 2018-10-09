@@ -39,7 +39,7 @@
  * empty and be returned to the free page manager, and whole segments can
  * become empty and be returned to the operating system.
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -649,7 +649,7 @@ dsa_pin_mapping(dsa_area *area)
  * will result in an ERROR.
  *
  * DSA_ALLOC_NO_OOM causes this function to return InvalidDsaPointer when
- * no memory is available or a size limit establed by set_dsa_size_limit
+ * no memory is available or a size limit established by set_dsa_size_limit
  * would be exceeded.  Otherwise, such allocations will result in an ERROR.
  *
  * DSA_ALLOC_ZERO causes the allocated memory to be zeroed.  Otherwise, the
@@ -707,7 +707,7 @@ dsa_allocate_extended(dsa_area *area, Size size, int flags)
 			dsa_free(area, span_pointer);
 
 			/* Raise error unless asked not to. */
-			if ((flags & MCXT_ALLOC_NO_OOM) == 0)
+			if ((flags & DSA_ALLOC_NO_OOM) == 0)
 				ereport(ERROR,
 						(errcode(ERRCODE_OUT_OF_MEMORY),
 						 errmsg("out of memory"),

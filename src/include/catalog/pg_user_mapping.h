@@ -1,36 +1,31 @@
 /*-------------------------------------------------------------------------
  *
  * pg_user_mapping.h
- *	  definition of the system "user mapping" relation (pg_user_mapping)
+ *	  definition of the "user mapping" system catalog (pg_user_mapping)
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_user_mapping.h
  *
  * NOTES
- *	  the genbki.pl script reads this file and generates .bki
- *	  information from the DATA() statements.
+ *	  The Catalog.pm module reads this file and derives schema
+ *	  information.
  *
  *-------------------------------------------------------------------------
  */
 #ifndef PG_USER_MAPPING_H
 #define PG_USER_MAPPING_H
 
-#ifdef BUILD_BKI
-#include "catalog/buildbki.h"
-#else /* BUILD_BKI */
 #include "catalog/genbki.h"
-#endif /* BUILD_BKI */
+#include "catalog/pg_user_mapping_d.h"
 
 /* ----------------
  *		pg_user_mapping definition.  cpp turns this into
  *		typedef struct FormData_pg_user_mapping
  * ----------------
  */
-#define UserMappingRelationId	1418
-
-CATALOG(pg_user_mapping,1418)
+CATALOG(pg_user_mapping,1418,UserMappingRelationId)
 {
 	Oid			umuser;			/* Id of the user, InvalidOid if PUBLIC is
 								 * wanted */
@@ -47,16 +42,5 @@ CATALOG(pg_user_mapping,1418)
  * ----------------
  */
 typedef FormData_pg_user_mapping *Form_pg_user_mapping;
-
-/* ----------------
- *		compiler constants for pg_user_mapping
- * ----------------
- */
-
-#define Natts_pg_user_mapping				3
-DECLARE_NATTS(Natts_pg_user_mapping);
-#define Anum_pg_user_mapping_umuser			1
-#define Anum_pg_user_mapping_umserver		2
-#define Anum_pg_user_mapping_umoptions		3
 
 #endif							/* PG_USER_MAPPING_H */

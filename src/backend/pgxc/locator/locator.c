@@ -147,7 +147,7 @@ GetRelationDistribColumn(RelationLocInfo *locInfo)
 		return NULL;
 
 	/* Return column name */
-	return get_attname(locInfo->relid, locInfo->partAttrNum);
+	return get_attname(locInfo->relid, locInfo->partAttrNum, false);
 }
 
 List *
@@ -165,7 +165,7 @@ GetRelationDistribColumnList(RelationLocInfo *locInfo)
 
 	foreach (lc, locInfo->funcAttrNums)
 	{
-		attname = get_attname(locInfo->relid, (AttrNumber)lfirst_int(lc));
+		attname = get_attname(locInfo->relid, (AttrNumber)lfirst_int(lc), false);
 		result = lappend(result, attname);
 	}
 

@@ -11,6 +11,7 @@
 subdir = src/backend/intercomm
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
+CFLAGS += -I$(libpq_srcdir)
 
 OBJS = inter-node.o inter-comm.o inter-xact.o inter-query.o inter-copy.o
 

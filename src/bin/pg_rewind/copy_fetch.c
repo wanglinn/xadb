@@ -3,7 +3,7 @@
  * copy_fetch.c
  *	  Functions for using a data directory as the source.
  *
- * Portions Copyright (c) 2013-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2013-2018, PostgreSQL Global Development Group
  *
  *-------------------------------------------------------------------------
  */
@@ -20,8 +20,6 @@
 #include "filemap.h"
 #include "logging.h"
 #include "pg_rewind.h"
-
-#include "catalog/catalog.h"
 
 static void recurse_dir(const char *datadir, const char *path,
 			process_file_callback_t callback);
@@ -230,7 +228,8 @@ copy_executeFileMap(filemap_t *map)
 				break;
 
 			case FILE_ACTION_COPY_TAIL:
-				rewind_copy_file_range(entry->path, entry->oldsize, entry->newsize, false);
+				rewind_copy_file_range(entry->path, entry->oldsize,
+									   entry->newsize, false);
 				break;
 
 			case FILE_ACTION_CREATE:

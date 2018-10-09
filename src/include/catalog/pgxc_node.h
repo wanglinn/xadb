@@ -20,15 +20,10 @@
 #ifndef PGXC_NODE_H
 #define PGXC_NODE_H
 
-#ifdef BUILD_BKI
-#include "catalog/buildbki.h"
-#else /* BUILD_BKI */
 #include "catalog/genbki.h"
-#endif /* BUILD_BKI */
+#include "catalog/pgxc_node_d.h"
 
-#define PgxcNodeRelationId  9015
-
-CATALOG(pgxc_node,9015) BKI_SHARED_RELATION
+CATALOG(pgxc_node,9015,PgxcNodeRelationId) BKI_SHARED_RELATION
 {
 	NameData	node_name;
 
@@ -66,19 +61,13 @@ CATALOG(pgxc_node,9015) BKI_SHARED_RELATION
 
 typedef FormData_pgxc_node *Form_pgxc_node;
 
-#define Natts_pgxc_node				7
-DECLARE_NATTS(Natts_pgxc_node);
-#define Anum_pgxc_node_name			1
-#define Anum_pgxc_node_type			2
-#define Anum_pgxc_node_port			3
-#define Anum_pgxc_node_host			4
-#define Anum_pgxc_node_is_primary	5
-#define Anum_pgxc_node_is_preferred	6
-#define Anum_pgxc_node_id		7
+#ifdef EXPOSE_TO_CLIENT_CODE
 
 /* Possible types of nodes */
 #define PGXC_NODE_COORDINATOR		'C'
 #define PGXC_NODE_DATANODE			'D'
 #define PGXC_NODE_NONE				'N'
 
-#endif   /* PGXC_NODE_H */
+#endif							/* EXPOSE_TO_CLIENT_CODE */
+
+#endif							/* PGXC_NODE_H */

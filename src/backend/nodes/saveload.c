@@ -45,6 +45,7 @@
 #include "nodes/def_no_all_struct.h"
 #undef NO_STRUCT_QualCost
 #undef NO_STRUCT_ReduceInfo
+#undef NO_STRUCT_PartitionPruneStep
 
 /* declare static functions */
 #define BEGIN_NODE(type) 										\
@@ -1039,15 +1040,11 @@ void SaveParamList(struct StringInfoData *buf, ParamListInfo paramLI)
 		nparams = paramLI->numParams;
 	}
 
-	for (i = 0; i < nparams; i++)
+	if (paramLI->paramFetch != NULL)
 	{
-		ParamExternData *prm = &paramLI->params[i];
-
-		if(bms_is_member(i, paramLI->paramMask))
+		for (i = 0; i < nparams; i++)
 		{
-			/* give hook a chance in case parameter is dynamic */
-			if (!OidIsValid(prm->ptype) && paramLI->paramFetch != NULL)
-				(*paramLI->paramFetch) (paramLI, i + 1);
+			(*paramLI->paramFetch) (paramLI, i + 1, false, &paramLI->params[i]);
 		}
 	}
 	SAVE_IS_NOT_NULL();

@@ -24,7 +24,7 @@
 #include "executor/executor.h"
 #include "executor/clusterHeapScan.h"
 #include "executor/clusterReceiver.h"
-#include "libpq/libpq-fe.h"
+#include "libpq-fe.h"
 #include "libpq/libpq-node.h"
 #include "nodes/execnodes.h"
 #include "nodes/makefuncs.h"
@@ -188,9 +188,7 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool mo
 
 	main_mctx = AllocSetContextCreate(CurrentMemoryContext,
 									  "RRBC",
-									  ALLOCSET_DEFAULT_MINSIZE,
-									  ALLOCSET_DEFAULT_INITSIZE,
-									  ALLOCSET_DEFAULT_MAXSIZE);
+									  ALLOCSET_DEFAULT_SIZES);
 	old_mctx = MemoryContextSwitchTo(main_mctx);
 
 	gather.econtext = CreateStandaloneExprContext();
@@ -278,14 +276,10 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 	/* create memory context */
 	main_mctx = AllocSetContextCreate(CurrentMemoryContext,
 									  "RRBC main",
-									  ALLOCSET_DEFAULT_MINSIZE,
-									  ALLOCSET_DEFAULT_INITSIZE,
-									  ALLOCSET_DEFAULT_MAXSIZE);
+									  ALLOCSET_DEFAULT_SIZES);
 	temp_mctx = AllocSetContextCreate(main_mctx,
 									  "RRBC temp",
-									  ALLOCSET_DEFAULT_MINSIZE,
-									  ALLOCSET_DEFAULT_INITSIZE,
-									  ALLOCSET_DEFAULT_MAXSIZE);
+									  ALLOCSET_DEFAULT_SIZES);
 	old_mctx = MemoryContextSwitchTo(main_mctx);
 
 	context.relid = varno;

@@ -4,7 +4,7 @@
  *	  prototypes for postgres.c.
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/tcop/tcopprot.h
@@ -45,10 +45,10 @@ typedef enum
 	LOGSTMT_ALL					/* log all statements */
 } LogStmtLevel;
 
-extern int	log_statement;
+extern PGDLLIMPORT int log_statement;
 #ifdef ADB_MULTI_GRAM
-extern int parse_grammar;
-extern int current_grammar;
+extern PGDLLIMPORT int parse_grammar;
+extern PGDLLIMPORT int current_grammar;
 
 #define IsCurrentOracleGram() (current_grammar == PARSE_GRAM_ORACLE)
 #endif

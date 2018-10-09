@@ -106,6 +106,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	ClusterReduceState *crstate;
 	Plan			   *outerPlan;
 	Expr			   *expr;
+	TupleDesc			tupDesc;
 
 	Assert(outerPlan(node) != NULL);
 	Assert(innerPlan(node) == NULL);
@@ -145,9 +146,12 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate->started = false;
 	crstate->tuplestorestate = NULL;
 
-	ExecInitResultTupleSlot(estate, &crstate->ps);
+	/*
+	 * Miscellaneous initialization
+	 *
+	 * create expression context for node
+	 */
 	ExecAssignExprContext(estate, &crstate->ps);
-	ExecAssignResultTypeFromTL(&crstate->ps);
 
 	Assert(OidIsValid(PGXCNodeOid));
 
@@ -199,6 +203,12 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 
 	outerPlan = outerPlan(node);
 	outerPlanState(crstate) = ExecInitNode(outerPlan, estate, eflags);
+	tupDesc = ExecGetResultType(outerPlanState(crstate));
+
+	/*
+	 * Initialize result slot, type and projection.
+	 */
+	ExecInitResultTupleSlotTL(estate, &crstate->ps);
 
 	/* init reduce expr */
 	if(node->special_node == PGXCNodeOid)
@@ -264,6 +274,8 @@ GetSlotFromOuter(ClusterReduceState *node)
 				{
 					datum = ExecMakeFunctionResultSet((SetExprState*)(node->reduceState),
 													  econtext,
+													  NULL,
+#warning need a real MemoryContext
 													  &isNull,
 													  &done);
 				}else

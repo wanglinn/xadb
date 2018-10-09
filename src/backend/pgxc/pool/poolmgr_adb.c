@@ -29,8 +29,8 @@
 #include "utils/resowner.h"
 #include "utils/varlena.h"
 #include "utils/syscache.h"
-#include "libpq/libpq-fe.h"
-#include "libpq/libpq-int.h"
+#include "libpq-fe.h"
+#include "libpq-int.h"
 #include "pgxc/pause.h"
 #include "intercomm/inter-comm.h"
 
@@ -399,9 +399,7 @@ PoolManagerInit()
 	 */
 	PoolerMemoryContext = AllocSetContextCreate(TopMemoryContext,
 												"PoolerMemoryContext",
-												ALLOCSET_DEFAULT_MINSIZE,
-												ALLOCSET_DEFAULT_INITSIZE,
-												ALLOCSET_DEFAULT_MAXSIZE);
+												ALLOCSET_DEFAULT_SIZES);
 
 	/*
 	 * Properly accept or ignore signals the postmaster might send us
@@ -472,10 +470,8 @@ static void PoolerLoop(void)
 	poll_fd = palloc(START_POOL_ALLOC * sizeof(struct pollfd));
 	initStringInfo(&input_msg);
 	context = AllocSetContextCreate(CurrentMemoryContext,
-										"PoolerMemoryContext",
-										ALLOCSET_DEFAULT_MINSIZE,
-										ALLOCSET_DEFAULT_INITSIZE,
-										ALLOCSET_DEFAULT_MAXSIZE);
+									"PoolerMemoryContext",
+									ALLOCSET_DEFAULT_SIZES);
 	poll_fd[0].fd = server_fd;
 	poll_fd[0].events = POLLIN;
 	for(i=1;i<START_POOL_ALLOC;++i)
@@ -786,10 +782,8 @@ static void agent_create(volatile pgsocket new_fd)
 
 		/* Allocate MemoryContext */
 		context = AllocSetContextCreate(PoolerMemoryContext,
-								"PoolAgent",
-								ALLOCSET_DEFAULT_MINSIZE,
-								ALLOCSET_DEFAULT_INITSIZE,
-								ALLOCSET_DEFAULT_MAXSIZE);
+										"PoolAgent",
+										ALLOCSET_DEFAULT_SIZES);
 		agent = MemoryContextAllocZero(context, sizeof(*agent));
 		agent->port.fdsock = new_fd;
 		agent->mctx = context;

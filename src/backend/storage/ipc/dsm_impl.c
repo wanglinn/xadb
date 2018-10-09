@@ -36,7 +36,7 @@
  *
  * As ever, Windows requires its own implementation.
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -60,6 +60,7 @@
 #ifdef HAVE_SYS_SHM_H
 #include <sys/shm.h>
 #endif
+#include "common/file_perm.h"
 #include "pgstat.h"
 
 #include "portability/mem.h"
@@ -73,6 +74,7 @@
 static bool dsm_impl_posix(dsm_op op, dsm_handle handle, Size request_size,
 			   void **impl_private, void **mapped_address,
 			   Size *mapped_size, int elevel);
+static int	dsm_impl_posix_resize(int fd, off_t size);
 #endif
 #ifdef USE_DSM_SYSV
 static bool dsm_impl_sysv(dsm_op op, dsm_handle handle, Size request_size,
@@ -284,7 +286,7 @@ dsm_impl_posix(dsm_op op, dsm_handle handle, Size request_size,
 	 * returning.
 	 */
 	flags = O_RDWR | (op == DSM_OP_CREATE ? O_CREAT | O_EXCL : 0);
-	if ((fd = shm_open(name, flags, 0600)) == -1)
+	if ((fd = shm_open(name, flags, PG_FILE_MODE_OWNER)) == -1)
 	{
 		if (errno != EEXIST)
 			ereport(elevel,
@@ -319,7 +321,8 @@ dsm_impl_posix(dsm_op op, dsm_handle handle, Size request_size,
 		}
 		request_size = st.st_size;
 	}
-	else if (*mapped_size != request_size && ftruncate(fd, request_size))
+	else if (*mapped_size != request_size &&
+			 dsm_impl_posix_resize(fd, request_size) != 0)
 	{
 		int			save_errno;
 
@@ -392,7 +395,52 @@ dsm_impl_posix(dsm_op op, dsm_handle handle, Size request_size,
 
 	return true;
 }
-#endif
+
+/*
+ * Set the size of a virtual memory region associated with a file descriptor.
+ * If necessary, also ensure that virtual memory is actually allocated by the
+ * operating system, to avoid nasty surprises later.
+ *
+ * Returns non-zero if either truncation or allocation fails, and sets errno.
+ */
+static int
+dsm_impl_posix_resize(int fd, off_t size)
+{
+	int			rc;
+
+	/* Truncate (or extend) the file to the requested size. */
+	rc = ftruncate(fd, size);
+
+	/*
+	 * On Linux, a shm_open fd is backed by a tmpfs file.  After resizing with
+	 * ftruncate, the file may contain a hole.  Accessing memory backed by a
+	 * hole causes tmpfs to allocate pages, which fails with SIGBUS if there
+	 * is no more tmpfs space available.  So we ask tmpfs to allocate pages
+	 * here, so we can fail gracefully with ENOSPC now rather than risking
+	 * SIGBUS later.
+	 */
+#if defined(HAVE_POSIX_FALLOCATE) && defined(__linux__)
+	if (rc == 0)
+	{
+		/* We may get interrupted, if so just retry. */
+		do
+		{
+			rc = posix_fallocate(fd, 0, size);
+		} while (rc == EINTR);
+
+		/*
+		 * The caller expects errno to be set, but posix_fallocate() doesn't
+		 * set it.  Instead it returns error numbers directly.  So set errno,
+		 * even though we'll also return rc to indicate success or failure.
+		 */
+		errno = rc;
+	}
+#endif							/* HAVE_POSIX_FALLOCATE && __linux__ */
+
+	return rc;
+}
+
+#endif							/* USE_DSM_POSIX */
 
 #ifdef USE_DSM_SYSV
 /*
@@ -635,7 +683,7 @@ dsm_impl_windows(dsm_op op, dsm_handle handle, Size request_size,
 
 	/*
 	 * Handle teardown cases.  Since Windows automatically destroys the object
-	 * when no references reamin, we can treat it the same as detach.
+	 * when no references remain, we can treat it the same as detach.
 	 */
 	if (op == DSM_OP_DETACH || op == DSM_OP_DESTROY)
 	{
@@ -835,7 +883,7 @@ dsm_impl_mmap(dsm_op op, dsm_handle handle, Size request_size,
 
 	/* Create new segment or open an existing one for attach or resize. */
 	flags = O_RDWR | (op == DSM_OP_CREATE ? O_CREAT | O_EXCL : 0);
-	if ((fd = OpenTransientFile(name, flags, 0600)) == -1)
+	if ((fd = OpenTransientFile(name, flags)) == -1)
 	{
 		if (errno != EEXIST)
 			ereport(elevel,
@@ -876,7 +924,7 @@ dsm_impl_mmap(dsm_op op, dsm_handle handle, Size request_size,
 
 		/* Back out what's already been done. */
 		save_errno = errno;
-		close(fd);
+		CloseTransientFile(fd);
 		if (op == DSM_OP_CREATE)
 			unlink(name);
 		errno = save_errno;

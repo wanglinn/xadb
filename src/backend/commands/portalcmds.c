@@ -9,7 +9,7 @@
  * storage management for portals (but doesn't run any queries in them).
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -67,7 +67,7 @@ PerformCursorOpen(DeclareCursorStmt *cstmt, ParamListInfo params,
 	 * user-visible effect).
 	 */
 	if (!(cstmt->options & CURSOR_OPT_HOLD))
-		RequireTransactionChain(isTopLevel, "DECLARE CURSOR");
+		RequireTransactionBlock(isTopLevel, "DECLARE CURSOR");
 
 	/*
 	 * Parse analysis was done already, but we still have to run the rule
@@ -112,7 +112,7 @@ PerformCursorOpen(DeclareCursorStmt *cstmt, ParamListInfo params,
 	portal = CreatePortal(cstmt->portalname, false, false);
 #endif
 
-	oldContext = MemoryContextSwitchTo(PortalGetHeapMemory(portal));
+	oldContext = MemoryContextSwitchTo(portal->portalContext);
 
 	plan = copyObject(plan);
 
@@ -293,7 +293,7 @@ PortalCleanup(Portal portal)
 	 * since other mechanisms will take care of releasing executor resources,
 	 * and we can't be sure that ExecutorEnd itself wouldn't fail.
 	 */
-	queryDesc = PortalGetQueryDesc(portal);
+	queryDesc = portal->queryDesc;
 	if (queryDesc)
 	{
 		/*
@@ -310,21 +310,13 @@ PortalCleanup(Portal portal)
 
 			/* We must make the portal's resource owner current */
 			saveResourceOwner = CurrentResourceOwner;
-			PG_TRY();
-			{
-				if (portal->resowner)
-					CurrentResourceOwner = portal->resowner;
-				ExecutorFinish(queryDesc);
-				ExecutorEnd(queryDesc);
-				FreeQueryDesc(queryDesc);
-			}
-			PG_CATCH();
-			{
-				/* Ensure CurrentResourceOwner is restored on error */
-				CurrentResourceOwner = saveResourceOwner;
-				PG_RE_THROW();
-			}
-			PG_END_TRY();
+			if (portal->resowner)
+				CurrentResourceOwner = portal->resowner;
+
+			ExecutorFinish(queryDesc);
+			ExecutorEnd(queryDesc);
+			FreeQueryDesc(queryDesc);
+
 			CurrentResourceOwner = saveResourceOwner;
 		}
 	}
@@ -341,7 +333,7 @@ PortalCleanup(Portal portal)
 void
 PersistHoldablePortal(Portal portal)
 {
-	QueryDesc  *queryDesc = PortalGetQueryDesc(portal);
+	QueryDesc  *queryDesc = portal->queryDesc;
 	Portal		saveActivePortal;
 	ResourceOwner saveResourceOwner;
 	MemoryContext savePortalContext;
@@ -387,7 +379,7 @@ PersistHoldablePortal(Portal portal)
 		ActivePortal = portal;
 		if (portal->resowner)
 			CurrentResourceOwner = portal->resowner;
-		PortalContext = PortalGetHeapMemory(portal);
+		PortalContext = portal->portalContext;
 
 		MemoryContextSwitchTo(PortalContext);
 
@@ -413,7 +405,7 @@ PersistHoldablePortal(Portal portal)
 		/* Fetch the result set into the tuplestore */
 		ExecutorRun(queryDesc, ForwardScanDirection, 0L, false);
 
-		(*queryDesc->dest->rDestroy) (queryDesc->dest);
+		queryDesc->dest->rDestroy(queryDesc->dest);
 		queryDesc->dest = NULL;
 
 		/*
@@ -474,10 +466,10 @@ PersistHoldablePortal(Portal portal)
 	PopActiveSnapshot();
 
 	/*
-	 * We can now release any subsidiary memory of the portal's heap context;
-	 * we'll never use it again.  The executor already dropped its context,
-	 * but this will clean up anything that glommed onto the portal's heap via
+	 * We can now release any subsidiary memory of the portal's context; we'll
+	 * never use it again.  The executor already dropped its context, but this
+	 * will clean up anything that glommed onto the portal's context via
 	 * PortalContext.
 	 */
-	MemoryContextDeleteChildren(PortalGetHeapMemory(portal));
+	MemoryContextDeleteChildren(portal->portalContext);
 }

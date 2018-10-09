@@ -78,6 +78,7 @@ REGRESS = \
 	plpython_spi \
 	plpython_newline \
 	plpython_void \
+	plpython_call \
 	plpython_params \
 	plpython_setof \
 	plpython_record \
@@ -89,6 +90,7 @@ REGRESS = \
 	plpython_quote \
 	plpython_composite \
 	plpython_subtransaction \
+	plpython_transaction \
 	plpython_drop
 
 REGRESS_PLPYTHON3_MANGLE := $(REGRESS)
@@ -97,8 +99,8 @@ include $(top_srcdir)/src/Makefile.shlib
 
 all: all-lib
 
+# Ensure parallel safety if a build is started in this directory
 $(OBJS): | submake-generated-headers
-
 
 install: all install-lib install-data
 
@@ -129,7 +131,7 @@ installcheck: submake-pg-regress
 
 
 .PHONY: submake-pg-regress
-submake-pg-regress:
+submake-pg-regress: | submake-generated-headers
 	$(MAKE) -C $(top_builddir)/src/test/regress pg_regress$(X)
 
 clean distclean: clean-lib

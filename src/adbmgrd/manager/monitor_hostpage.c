@@ -8,7 +8,7 @@
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/mgr_host.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "catalog/pg_type.h"
 #include "utils/timestamp.h"
 #include "utils/inet.h"
@@ -18,7 +18,7 @@
 #include "catalog/monitor_net.h"
 #include "catalog/monitor_disk.h"
 #include "catalog/monitor_alarm.h"
-#include "catalog/monitor_host_threshlod.h"
+#include "catalog/monitor_host_threshold.h"
 #include "commands/defrem.h"
 #include "fmgr.h"
 #include "mgr/mgr_cmds.h"
@@ -390,11 +390,11 @@ static void insert_into_monotor_cpu(const char *hostname, Monitor_Cpu *monitor_c
     Datum datum[Natts_monitor_cpu];
     bool isnull[Natts_monitor_cpu];
 
-    datum[Anum_monitor_cpu_host_name - 1] = CStringGetDatum(hostname); /* CString compatible Name */
+    datum[Anum_monitor_cpu_hostname - 1] = CStringGetDatum(hostname); /* CString compatible Name */
     datum[Anum_monitor_cpu_mc_timestamptz - 1] =
         DirectFunctionCall3(timestamptz_in, CStringGetDatum(monitor_cpu->cpu_timestamp.data), ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
-    datum[Anum_monitor_cpu_mc_usage - 1] = Float4GetDatum(monitor_cpu->cpu_usage);
-    datum[Anum_monitor_cpu_mc_freq - 1] =CStringGetTextDatum(monitor_cpu->cpu_freq.data);
+    datum[Anum_monitor_cpu_mc_cpu_usage - 1] = Float4GetDatum(monitor_cpu->cpu_usage);
+    datum[Anum_monitor_cpu_mc_cpu_freq - 1] =CStringGetTextDatum(monitor_cpu->cpu_freq.data);
 
     memset(isnull, 0, sizeof(isnull));
 
@@ -413,7 +413,7 @@ static void insert_into_monotor_mem(const char *hostname, Monitor_Mem *monitor_m
     Datum datum[Natts_monitor_mem];
     bool isnull[Natts_monitor_mem];
 
-    datum[Anum_monitor_mem_host_name - 1] = CStringGetDatum(hostname); /* CString compatible Name */
+    datum[Anum_monitor_mem_hostname - 1] = CStringGetDatum(hostname); /* CString compatible Name */
     datum[Anum_monitor_mem_mm_timestamptz - 1] =
         DirectFunctionCall3(timestamptz_in, CStringGetDatum(monitor_mem->mem_timestamp.data), ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
     datum[Anum_monitor_mem_mm_total - 1] = Int64GetDatum(monitor_mem->mem_total);
@@ -437,13 +437,13 @@ static void insert_into_monotor_disk(const char *hostname, Monitor_Disk *monitor
     Datum datum[Natts_monitor_disk];
     bool isnull[Natts_monitor_disk];
 
-    datum[Anum_monitor_disk_host_name - 1] = CStringGetDatum(hostname); /* CString compatible Name */
+    datum[Anum_monitor_disk_hostname - 1] = CStringGetDatum(hostname); /* CString compatible Name */
     datum[Anum_monitor_disk_md_timestamptz - 1] =
         DirectFunctionCall3(timestamptz_in, CStringGetDatum(monitor_disk->disk_timestamptz.data), ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
     datum[Anum_monitor_disk_md_total - 1] = Int64GetDatum(monitor_disk->disk_total);
     datum[Anum_monitor_disk_md_used - 1] = Int64GetDatum(monitor_disk->disk_used);
     datum[Anum_monitor_disk_md_io_read_bytes - 1] = Int64GetDatum(monitor_disk->disk_io_read_bytes);
-    datum[Anum_monitor_disk_md_io_reat_time - 1] = Int64GetDatum(monitor_disk->disk_io_read_time);
+    datum[Anum_monitor_disk_md_io_read_time - 1] = Int64GetDatum(monitor_disk->disk_io_read_time);
     datum[Anum_monitor_disk_md_io_write_bytes - 1] = Int64GetDatum(monitor_disk->disk_io_write_bytes);
     datum[Anum_monitor_disk_md_io_write_time - 1] = Int64GetDatum(monitor_disk->disk_io_write_time);
 
@@ -464,7 +464,7 @@ static void insert_into_monotor_net(const char *hostname, Monitor_Net *monitor_n
     Datum datum[Natts_monitor_net];
     bool isnull[Natts_monitor_net];
 
-    datum[Anum_monitor_net_host_name - 1] = CStringGetDatum(hostname); /* CString compatible Name */
+    datum[Anum_monitor_net_hostname - 1] = CStringGetDatum(hostname); /* CString compatible Name */
     datum[Anum_monitor_net_mn_timestamptz - 1] =
         DirectFunctionCall3(timestamptz_in, CStringGetDatum(monitor_net->net_timestamp.data), ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
     datum[Anum_monitor_net_mn_sent - 1] = Int64GetDatum(monitor_net->net_sent);
@@ -487,7 +487,7 @@ static void insert_into_monotor_host(const char *hostname, Monitor_Host *monitor
     Datum datum[Natts_monitor_host];
     bool isnull[Natts_monitor_host];
 
-    datum[Anum_monitor_host_host_name - 1] = CStringGetDatum(hostname); /* CString compatible Name */
+    datum[Anum_monitor_host_hostname - 1] = CStringGetDatum(hostname); /* CString compatible Name */
     datum[Anum_monitor_host_mh_run_state - 1] = Int16GetDatum(monitor_host->run_state);
     datum[Anum_monitor_host_mh_current_time - 1] =
         DirectFunctionCall3(timestamptz_in, CStringGetDatum(monitor_host->current_time.data), ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));

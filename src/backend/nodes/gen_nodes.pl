@@ -11,7 +11,7 @@ my $same_node;
 my %all_enum;
 my %ident_if_defined;
 my $ident = '[a-zA-Z_][a-zA-Z0-9_]*';
-my $scalar_ident = 'char|bool|int|int16|uint16|int32|uint32|bits32|double|long|Cost|AttrNumber|Index|Oid|BlockNumber|Selectivity|Size|float8|TimeLineID|Buffer|AclMode|TriggerEvent|XLogRecPtr';
+my $scalar_ident = 'char|bool|int|int16|uint16|int32|uint32|bits32|uint64|double|long|Cost|AttrNumber|Index|Oid|BlockNumber|Selectivity|Size|float8|TimeLineID|Buffer|AclMode|TriggerEvent|XLogRecPtr|StrategyNumber';
 my $reg_args = "\\s*$ident\\s*(,\\s*$ident\\s*)*";
 my %special_node;
 my %special_member;
@@ -169,6 +169,8 @@ while(<>)
 					or $1 eq 'StartReplicationCmd'
 					or $1 eq 'SlabContext'
 					or $1 eq 'TimeLineHistoryCmd'
+					or $1 eq 'GenerationContext'
+					or $1 eq 'RelOptInfo'
 					or $1 =~ '^(FdwRoutine|TIDBitmap|IndexAmRoutine)$'
 					or $1 =~ '^(Value|Integer|Float|String|BitString|Null)$'
 					or $1 =~ '^(List|IntList|OidList)$'
@@ -183,7 +185,7 @@ while(<>)
 				push @enum_item,"T_$node";
 			}
 		}
-	} 
+	}
 	elsif (/^\s*typedef\s+struct\s+$ident\s+\{$/
 		or /^\s*typedef\s+struct\s*\{$/)
 	{
@@ -197,6 +199,21 @@ while(<>)
 			}
 			push @node_item,$_;
 		}
+	}
+	elsif (/^\s*struct\s+($ident)\s*\{$/)
+	{
+		my @node_item;
+		my $name = $1;
+		while(<>)
+		{
+			if (/\s*\}\s*;\s*$/)
+			{
+				$all_node{${name}} = \@node_item;
+				last;
+			}
+			push @node_item,$_;
+		}
+
 	}
 	elsif (/^\s*typedef\s+enum\s+$ident\s+\{$/
 		or /^\s*typedef\s+enum\s*\{$/)

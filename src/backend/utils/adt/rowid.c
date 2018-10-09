@@ -33,9 +33,9 @@ Datum rowid_in(PG_FUNCTION_ARGS)
 			, errmsg("invalid argument string length")));
 
 	rowid = palloc(sizeof(*rowid));
-	b64_decode(str, 8, (char*)&(rowid->node_id));
-	b64_decode(str+8, 8, (char*)&(rowid->block));
-	b64_decode(str+16, 4, (char*)&(rowid->offset));
+	pg_base64_decode(str, 8, (char*)&(rowid->node_id));
+	pg_base64_decode(str+8, 8, (char*)&(rowid->block));
+	pg_base64_decode(str+16, 4, (char*)&(rowid->offset));
 
 	PG_RETURN_POINTER(rowid);
 #else
@@ -47,9 +47,9 @@ Datum rowid_in(PG_FUNCTION_ARGS)
 			, errmsg("invalid argument string length")));
 
 	tid = palloc(sizeof(*tid));
-	b64_decode(str, 4, (char*)&(tid->ip_blkid.bi_hi));
-	b64_decode(str+4, 4, (char*)&(tid->ip_blkid.bi_lo));
-	b64_decode(str+8, 4, (char*)&(tid->ip_posid));
+	pg_base64_decode(str, 4, (char*)&(tid->ip_blkid.bi_hi));
+	pg_base64_decode(str+4, 4, (char*)&(tid->ip_blkid.bi_lo));
+	pg_base64_decode(str+8, 4, (char*)&(tid->ip_posid));
 	PG_RETURN_POINTER(tid);
 #endif
 }
@@ -59,17 +59,17 @@ Datum rowid_out(PG_FUNCTION_ARGS)
 #ifdef ADB
 	OraRowID *rowid = (OraRowID*)PG_GETARG_POINTER(0);
 	char *output = palloc(8+8+4+1);
-	b64_encode((char*)&(rowid->node_id), sizeof(rowid->node_id), output);
-	b64_encode((char*)&(rowid->block), sizeof(rowid->block), output+8);
-	b64_encode((char*)&(rowid->offset), sizeof(rowid->offset), output+16);
+	pg_base64_encode((char*)&(rowid->node_id), sizeof(rowid->node_id), output);
+	pg_base64_encode((char*)&(rowid->block), sizeof(rowid->block), output+8);
+	pg_base64_encode((char*)&(rowid->offset), sizeof(rowid->offset), output+16);
 	output[8+8+4] = '\0';
 	PG_RETURN_CSTRING(output);
 #else
 	ItemPointer tid = (ItemPointer)PG_GETARG_POINTER(0);
 	char *output = palloc(4+4+4+1);
-	b64_encode((char*)&(tid->ip_blkid.bi_hi), 2, output);
-	b64_encode((char*)&(tid->ip_blkid.bi_lo), 2, output+4);
-	b64_encode((char*)&(tid->ip_posid), 2, output+8);
+	pg_base64_encode((char*)&(tid->ip_blkid.bi_hi), 2, output);
+	pg_base64_encode((char*)&(tid->ip_blkid.bi_lo), 2, output+4);
+	pg_base64_encode((char*)&(tid->ip_posid), 2, output+8);
 	output[4+4+4] = '\0';
 	PG_RETURN_CSTRING(output);
 #endif

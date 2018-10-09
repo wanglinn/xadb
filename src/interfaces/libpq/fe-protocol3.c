@@ -3,7 +3,7 @@
  * fe-protocol3.c
  *	  functions that are specific to frontend/backend protocol version 3
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -21,16 +21,15 @@
 #include "libpq-int.h"
 
 #include "mb/pg_wchar.h"
+#include "port/pg_bswap.h"
 
 #ifdef WIN32
 #include "win32.h"
 #else
 #include <unistd.h>
-#include <netinet/in.h>
 #ifdef HAVE_NETINET_TCP_H
 #include <netinet/tcp.h>
 #endif
-#include <arpa/inet.h>
 #endif
 
 
@@ -548,7 +547,7 @@ getRowDescriptions(PGconn *conn, int msgLength)
 	if (nfields > 0)
 	{
 		result->attDescs = (PGresAttDesc *)
-			pqResultAlloc(result, nfields * sizeof(PGresAttDesc), TRUE);
+			pqResultAlloc(result, nfields * sizeof(PGresAttDesc), true);
 		if (!result->attDescs)
 		{
 			errmsg = NULL;		/* means "out of memory", see below */
@@ -706,7 +705,7 @@ getParamDescriptions(PGconn *conn, int msgLength)
 	if (nparams > 0)
 	{
 		result->paramDescs = (PGresParamDesc *)
-			pqResultAlloc(result, nparams * sizeof(PGresParamDesc), TRUE);
+			pqResultAlloc(result, nparams * sizeof(PGresParamDesc), true);
 		if (!result->paramDescs)
 			goto advance_and_error;
 		MemSet(result->paramDescs, 0, nparams * sizeof(PGresParamDesc));
@@ -919,6 +918,14 @@ pqGetErrorNotice3(PGconn *conn, bool isError)
 	char		id;
 
 	/*
+	 * If this is an error message, pre-emptively clear any incomplete query
+	 * result we may have.  We'd just throw it away below anyway, and
+	 * releasing it before collecting the error might avoid out-of-memory.
+	 */
+	if (isError)
+		pqClearAsyncResult(conn);
+
+	/*
 	 * Since the fields might be pretty long, we create a temporary
 	 * PQExpBuffer rather than using conn->workBuffer.  workBuffer is intended
 	 * for stuff that is expected to be short.  We shouldn't use
@@ -982,7 +989,7 @@ pqGetErrorNotice3(PGconn *conn, bool isError)
 	{
 		if (res)
 			res->errMsg = pqResultStrdup(res, workBuf.data);
-		pqClearAsyncResult(conn);
+		pqClearAsyncResult(conn);	/* redundant, but be safe */
 		conn->result = res;
 		if (PQExpBufferDataBroken(workBuf))
 			printfPQExpBuffer(&conn->errorMessage,
@@ -998,7 +1005,7 @@ pqGetErrorNotice3(PGconn *conn, bool isError)
 			/* We can cheat a little here and not copy the message. */
 			res->errMsg = workBuf.data;
 			if (res->noticeHooks.noticeRec != NULL)
-				(*res->noticeHooks.noticeRec) (res->noticeHooks.noticeRecArg, res);
+				res->noticeHooks.noticeRec(res->noticeHooks.noticeRecArg, res);
 			PQclear(res);
 		}
 	}
@@ -1510,7 +1517,7 @@ getCopyStart(PGconn *conn, ExecStatusType copytype)
 	if (nfields > 0)
 	{
 		result->attDescs = (PGresAttDesc *)
-			pqResultAlloc(result, nfields * sizeof(PGresAttDesc), TRUE);
+			pqResultAlloc(result, nfields * sizeof(PGresAttDesc), true);
 		if (!result->attDescs)
 			goto failure;
 		MemSet(result->attDescs, 0, nfields * sizeof(PGresAttDesc));
@@ -1727,7 +1734,7 @@ int pqGetCopyData3Ex(PGconn *conn, char **buffer, int async, bool alloc_buf)
 			if (async)
 				return 0;
 			/* Need to load more data */
-			if (pqWait(TRUE, FALSE, conn) ||
+			if (pqWait(true, false, conn) ||
 				pqReadData(conn) < 0)
 				return -2;
 			continue;
@@ -1795,7 +1802,7 @@ pqGetline3(PGconn *conn, char *s, int maxlen)
 	while ((status = PQgetlineAsync(conn, s, maxlen - 1)) == 0)
 	{
 		/* need to load more data */
-		if (pqWait(TRUE, FALSE, conn) ||
+		if (pqWait(true, false, conn) ||
 			pqReadData(conn) < 0)
 		{
 			*s = '\0';
@@ -2048,7 +2055,7 @@ pqFunctionCall3(PGconn *conn, Oid fnid,
 		if (needInput)
 		{
 			/* Wait for some data to arrive (or for the channel to close) */
-			if (pqWait(TRUE, FALSE, conn) ||
+			if (pqWait(true, false, conn) ||
 				pqReadData(conn) < 0)
 				break;
 		}
@@ -2227,7 +2234,7 @@ build_startup_packet(const PGconn *conn, char *packet,
 	/* Protocol version comes first. */
 	if (packet)
 	{
-		ProtocolVersion pv = htonl(conn->pversion);
+		ProtocolVersion pv = pg_hton32(conn->pversion);
 
 		memcpy(packet + packet_len, &pv, sizeof(ProtocolVersion));
 	}

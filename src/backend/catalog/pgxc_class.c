@@ -74,7 +74,7 @@ PgxcClassCreate(Oid pcrelid,
 	}
 
 	/* Node information */
-	values[Anum_pgxc_class_nodes - 1] = PointerGetDatum(nodes_array);
+	values[Anum_pgxc_class_nodeoids - 1] = PointerGetDatum(nodes_array);
 
 	if (pclocatortype == LOCATOR_TYPE_USER_DEFINED)
 	{
@@ -157,7 +157,7 @@ PgxcClassAlter(Oid pcrelid,
 			new_record_repl[Anum_pgxc_class_pcfuncattnums - 1] = true;
 			break;
 		case PGXC_CLASS_ALTER_NODES:
-			new_record_repl[Anum_pgxc_class_nodes - 1] = true;
+			new_record_repl[Anum_pgxc_class_nodeoids - 1] = true;
 			break;
 		case PGXC_CLASS_ALTER_ALL:
 		default:
@@ -166,7 +166,7 @@ PgxcClassAlter(Oid pcrelid,
 			new_record_repl[Anum_pgxc_class_pcattnum - 1] = true;
 			new_record_repl[Anum_pgxc_class_pchashalgorithm - 1] = true;
 			new_record_repl[Anum_pgxc_class_pchashbuckets - 1] = true;
-			new_record_repl[Anum_pgxc_class_nodes - 1] = true;
+			new_record_repl[Anum_pgxc_class_nodeoids - 1] = true;
 			new_record_repl[Anum_pgxc_class_pcfuncid - 1] = true;
 			new_record_repl[Anum_pgxc_class_pcfuncattnums - 1] = true;
 	}
@@ -203,8 +203,8 @@ PgxcClassAlter(Oid pcrelid,
 		new_record[Anum_pgxc_class_pchashbuckets - 1] = UInt16GetDatum(pchashbuckets);
 
 	/* Node information */
-	if (new_record_repl[Anum_pgxc_class_nodes - 1])
-		new_record[Anum_pgxc_class_nodes - 1] = PointerGetDatum(nodes_array);
+	if (new_record_repl[Anum_pgxc_class_nodeoids - 1])
+		new_record[Anum_pgxc_class_nodeoids - 1] = PointerGetDatum(nodes_array);
 
 	if (new_record_repl[Anum_pgxc_class_pcfuncid - 1])
 	{

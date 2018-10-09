@@ -5,7 +5,7 @@
  *	  on system catalogs
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
  * Portions Copyright (c) 2014-2017, ADB Development Group
@@ -49,12 +49,11 @@ extern void CatalogTupleDelete(Relation heapRel, ItemPointer tid);
 
 /*
  * These macros are just to keep the C compiler from spitting up on the
- * upcoming commands for genbki.pl.
+ * upcoming commands for Catalog.pm.
  */
 #ifndef BUILD_BKI
 #define DECLARE_INDEX(name,oid,decl) extern int no_such_variable
 #define DECLARE_UNIQUE_INDEX(name,oid,decl) extern int no_such_variable
-#define BUILD_INDICES
 #endif /* BUILD_BKI */
 
 
@@ -136,6 +135,8 @@ DECLARE_INDEX(pg_constraint_contypid_index, 2666, on pg_constraint using btree(c
 #define ConstraintTypidIndexId	2666
 DECLARE_UNIQUE_INDEX(pg_constraint_oid_index, 2667, on pg_constraint using btree(oid oid_ops));
 #define ConstraintOidIndexId  2667
+DECLARE_INDEX(pg_constraint_conparentid_index, 2579, on pg_constraint using btree(conparentid oid_ops));
+#define ConstraintParentIndexId	2579
 
 DECLARE_UNIQUE_INDEX(pg_conversion_default_index, 2668, on pg_conversion using btree(connamespace oid_ops, conforencoding int4_ops, contoencoding int4_ops, oid oid_ops));
 #define ConversionDefaultIndexId  2668
@@ -469,8 +470,5 @@ DECLARE_UNIQUE_INDEX(agtm_sequence_fields_index, 4999, on agtm_sequence using bt
 #define AgtmSequenceFieldsIndexId 4999
 
 #endif
-
-/* last step of initialization script: build the indexes declared above */
-BUILD_INDICES
 
 #endif							/* INDEXING_H */

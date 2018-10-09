@@ -150,8 +150,7 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 			desc = restore_slot_head_message(msg+1, len-1);
 			if(state->ps)
 			{
-				state->convert_slot = ExecInitExtraTupleSlot(state->ps->state);
-				ExecSetSlotDescriptor(state->convert_slot, desc);
+				state->convert_slot = ExecInitExtraTupleSlot(state->ps->state, desc);
 			}else
 			{
 				state->convert_slot = MakeSingleTupleTableSlot(desc);
@@ -325,9 +324,8 @@ ClusterRecvState *createClusterRecvState(PlanState *ps, bool need_copy)
 	state->convert = create_type_convert(slot->tts_tupleDescriptor, false, true);
 	if(state->convert != NULL)
 	{
-		state->convert_slot = ExecInitExtraTupleSlot(ps->state);
+		state->convert_slot = ExecInitExtraTupleSlot(ps->state, state->convert->out_desc);
 		state->slot_need_copy_datum = need_copy;
-		ExecSetSlotDescriptor(state->convert_slot, state->convert->out_desc);
 	}
 
 	return state;
@@ -391,7 +389,7 @@ void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
 	natts = desc->natts;
 	for(i=0;i<desc->natts;++i)
 	{
-		if (desc->attrs[i]->attisdropped)
+		if (TupleDescAttr(desc, i)->attisdropped)
 			--natts;
 	}
 	appendStringInfoChar(buf, msg_type);
@@ -399,20 +397,20 @@ void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
 	appendBinaryStringInfo(buf, (char*)&natts, sizeof(natts));
 	for(i=0;i<desc->natts;++i)
 	{
-		if (desc->attrs[i]->attisdropped)
+		if (TupleDescAttr(desc, i)->attisdropped)
 			continue;
 
 		/* attname */
-		attname = NameStr(desc->attrs[i]->attname);
+		attname = NameStr(TupleDescAttr(desc, i)->attname);
 		save_node_string(buf, attname);
 		/* atttypmod */
-		atttypmod = desc->attrs[i]->atttypmod;
+		atttypmod = TupleDescAttr(desc, i)->atttypmod;
 		appendBinaryStringInfo(buf, (const char *) &atttypmod, sizeof(atttypmod));
 		/* attndims */
-		attndims = desc->attrs[i]->attndims;
+		attndims = TupleDescAttr(desc, i)->attndims;
 		appendBinaryStringInfo(buf, (const char *) &attndims, sizeof(attndims));
 		/* save oid type */
-		save_oid_type(buf, desc->attrs[i]->atttypid);
+		save_oid_type(buf, TupleDescAttr(desc, i)->atttypid);
 	}
 }
 
@@ -458,12 +456,12 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 		buf.cursor += sizeof(int32);
 		/* load oid type */
 		oid = load_oid_type(&buf);
-		if(oid != desc->attrs[i]->atttypid)
+		if(oid != TupleDescAttr(desc, i)->atttypid)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
 					errmsg("diffent TupleDesc of attribute[%d]", i),
-					errdetail("local is %u, remote is %u", desc->attrs[i]->atttypid, oid)));
+					errdetail("local is %u, remote is %u", TupleDescAttr(desc, i)->atttypid, oid)));
 		}
 	}
 }
@@ -525,7 +523,7 @@ MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup)
 	desc = slot->tts_tupleDescriptor;
 	for(i=desc->natts;(--i)>=0;)
 	{
-		Form_pg_attribute attr=desc->attrs[i];
+		Form_pg_attribute attr=TupleDescAttr(desc, i);
 		/*
 		 * must have no droped attribute.
 		 * if have, use TupleConversionMap convert is first
@@ -549,7 +547,7 @@ MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup)
 		Datum *values = palloc(sizeof(Datum) * desc->natts);
 		for(i=desc->natts;(--i)>=0;)
 		{
-			Form_pg_attribute attr = desc->attrs[i];
+			Form_pg_attribute attr = TupleDescAttr(desc, i);
 			if (slot->tts_isnull[i] == false &&
 				attr->attlen == -1 &&
 				attr->attbyval == false &&

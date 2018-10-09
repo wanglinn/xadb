@@ -31,7 +31,7 @@ void
 RemoteCopyBuildExtra(RemoteCopyState *rcstate, TupleDesc tupdesc)
 {
 	RemoteCopyExtra		   *extra;
-	Form_pg_attribute	   *attrs;
+	Form_pg_attribute		attrs;
 	Oid						infuncoid;
 	int						natts, i;
 
@@ -55,10 +55,10 @@ RemoteCopyBuildExtra(RemoteCopyState *rcstate, TupleDesc tupdesc)
 	for (i = 0; i < natts; i++)
 	{
 		/* Do not need any information for dropped attributes */
-		if (attrs[i]->attisdropped)
+		if (attrs[i].attisdropped)
 			continue;
 
-		getTypeInputInfo(attrs[i]->atttypid, &infuncoid, &extra->typioparams[i]);
+		getTypeInputInfo(attrs[i].atttypid, &infuncoid, &extra->typioparams[i]);
 		fmgr_info(infuncoid, &extra->inflinfos[i]);
 	}
 	rcstate->copy_extra = extra;
@@ -198,7 +198,7 @@ RemoteCopyBuildStatement(RemoteCopyState *state,
 			for (attnum = 1; attnum <= tupDesc->natts; attnum++)
 			{
 				/* Don't let dropped attributes go into the column list */
-				if (tupDesc->attrs[attnum - 1]->attisdropped)
+				if (TupleDescAttr(tupDesc, attnum - 1)->attisdropped)
 					continue;
 
 				if (!list_member_int(attnums, attnum))
@@ -210,7 +210,7 @@ RemoteCopyBuildStatement(RemoteCopyState *state,
 						{
 							appendStringInfoString(&state->query_buf, ", ");
 							appendStringInfoString(&state->query_buf,
-							   quote_identifier(NameStr(tupDesc->attrs[attnum - 1]->attname)));
+							   quote_identifier(NameStr(TupleDescAttr(tupDesc, attnum - 1)->attname)));
 						}
 				}
 			}

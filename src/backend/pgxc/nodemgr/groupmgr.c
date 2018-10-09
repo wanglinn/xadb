@@ -101,9 +101,9 @@ PgxcGroupCreate(CreateGroupStmt *stmt)
 	}
 
 	/* Insert Data correctly */
-	values[Anum_pgxc_group_name - 1] =
+	values[Anum_pgxc_group_group_name - 1] =
 		DirectFunctionCall1(namein, CStringGetDatum(group_name));
-	values[Anum_pgxc_group_members - 1] = PointerGetDatum(nodes_array);
+	values[Anum_pgxc_group_group_members - 1] = PointerGetDatum(nodes_array);
 
 	/* Open the relation for insertion */
 	rel = heap_open(PgxcGroupRelationId, RowExclusiveLock);

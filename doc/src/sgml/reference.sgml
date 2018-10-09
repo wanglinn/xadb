@@ -54,8 +54,10 @@
    &alterOperatorClass;
    &alterOperatorFamily;
    &alterPolicy;
+   &alterProcedure;
    &alterPublication;
    &alterRole;
+   &alterRoutine;
    &alterRule;
    &alterSchema;
    &alterSequence;
@@ -76,6 +78,7 @@
    &alterView;
    &analyze;
    &begin;
+   &call;
    &checkpoint;
    &cleanConnection;
    &close;
@@ -104,6 +107,7 @@
    &createOperatorClass;
    &createOperatorFamily;
    &createPolicy;
+   &createProcedure;
    &createPublication;
    &createRole;
    &createRule;
@@ -151,8 +155,10 @@
    &dropOperatorFamily;
    &dropOwned;
    &dropPolicy;
+   &dropProcedure;
    &dropPublication;
    &dropRole;
+   &dropRoutine;
    &dropRule;
    &dropSchema;
    &dropSequence;
@@ -265,7 +271,7 @@
     <productname>PostgreSQL</productname> server applications and
     support utilities.  These commands can only be run usefully on the
     host where the database server resides.  Other utility programs
-    are listed in <xref linkend="reference-client">.
+    are listed in <xref linkend="reference-client"/>.
    </para>
   </partintro>
 
@@ -278,6 +284,7 @@
    &pgtestfsync;
    &pgtesttiming;
    &pgupgrade;
+   &pgVerifyChecksums;
    &pgwaldump;
    &postgres;
    &postmaster;

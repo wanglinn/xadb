@@ -9,7 +9,7 @@
  * data even if the underlying table is dropped.
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -52,7 +52,6 @@ tstoreStartupReceiver(DestReceiver *self, int operation, TupleDesc typeinfo)
 {
 	TStoreState *myState = (TStoreState *) self;
 	bool		needtoast = false;
-	Form_pg_attribute *attrs = typeinfo->attrs;
 	int			natts = typeinfo->natts;
 	int			i;
 
@@ -61,9 +60,11 @@ tstoreStartupReceiver(DestReceiver *self, int operation, TupleDesc typeinfo)
 	{
 		for (i = 0; i < natts; i++)
 		{
-			if (attrs[i]->attisdropped)
+			Form_pg_attribute attr = TupleDescAttr(typeinfo, i);
+
+			if (attr->attisdropped)
 				continue;
-			if (attrs[i]->attlen == -1)
+			if (attr->attlen == -1)
 			{
 				needtoast = true;
 				break;
@@ -115,7 +116,6 @@ tstoreReceiveSlot_detoast(TupleTableSlot *slot, DestReceiver *self)
 {
 	TStoreState *myState = (TStoreState *) self;
 	TupleDesc	typeinfo = slot->tts_tupleDescriptor;
-	Form_pg_attribute *attrs = typeinfo->attrs;
 	int			natts = typeinfo->natts;
 	int			nfree;
 	int			i;
@@ -151,10 +151,9 @@ tstoreReceiveSlot_detoast(TupleTableSlot *slot, DestReceiver *self)
 	for (i = 0; i < natts; i++)
 	{
 		Datum		val = slot->tts_values[i];
+		Form_pg_attribute attr = TupleDescAttr(typeinfo, i);
 
-		if (!attrs[i]->attisdropped &&
-			attrs[i]->attlen == -1 &&
-			!slot->tts_isnull[i])
+		if (!attr->attisdropped && attr->attlen == -1 && !slot->tts_isnull[i])
 		{
 			if (VARATT_IS_EXTERNAL(DatumGetPointer(val)))
 			{

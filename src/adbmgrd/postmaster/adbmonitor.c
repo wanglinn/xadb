@@ -283,7 +283,7 @@ AdbMntLauncherMain(int argc, char *argv[])
 	InitProcess();
 #endif
 
-	InitPostgres(dbname, InvalidOid, NULL, InvalidOid, NULL);
+	InitPostgres(dbname, InvalidOid, NULL, InvalidOid, NULL, false);
 
 	SetProcessingMode(NormalProcessing);
 
@@ -294,9 +294,7 @@ AdbMntLauncherMain(int argc, char *argv[])
 	 */
 	AdbMntMemCxt = AllocSetContextCreate(TopMemoryContext,
 										  "ADB Monitor Launcher",
-										  ALLOCSET_DEFAULT_MINSIZE,
-										  ALLOCSET_DEFAULT_INITSIZE,
-										  ALLOCSET_DEFAULT_MAXSIZE);
+										  ALLOCSET_DEFAULT_SIZES);
 	MemoryContextSwitchTo(AdbMntMemCxt);
 
 	/*
@@ -611,7 +609,7 @@ launcher_obtain_amljob(void)
 				BoolGetDatum(true));
 	current_time = GetCurrentTimestamp();
 	ScanKeyInit(&entry[1],
-				Anum_monitor_job_nexttime,
+				Anum_monitor_job_next_time,
 				BTLessEqualStrategyNumber, F_TIMESTAMP_LE,
 				TimestampTzGetDatum(current_time));
 	rel_scan = heap_beginscan_catalog(rel_node, 2, entry);
@@ -1135,7 +1133,7 @@ AdbMntWorkerMain(int argc, char *argv[])
 		char jobstr[16] = {0};
 		snprintf(jobstr, sizeof(jobstr), "job %u", jobid);
 
-		InitPostgres(dbname, InvalidOid, NULL, InvalidOid, NULL);
+		InitPostgres(dbname, InvalidOid, NULL, InvalidOid, NULL, false);
 		SetProcessingMode(NormalProcessing);
 		set_ps_display(jobstr, false);
 		ereport(DEBUG1,
@@ -1284,8 +1282,8 @@ update_next_work_time(Oid jobid)
 		MemSet(got, 0, sizeof(got));
 		next_time = TimestampTzPlusMilliseconds(GetCurrentTimestamp(),
 						(monitor_job->interval) * INT64CONST(1000));
-		datum[Anum_monitor_job_nexttime - 1] = TimestampTzGetDatum(next_time);
-		got[Anum_monitor_job_nexttime - 1] = true;
+		datum[Anum_monitor_job_next_time - 1] = TimestampTzGetDatum(next_time);
+		got[Anum_monitor_job_next_time - 1] = true;
 		newtuple = heap_modify_tuple(tuple, tupledsc, datum,isnull, got);
 		CatalogTupleUpdate(rel_job, &(tuple->t_self), newtuple);
 	}
@@ -1333,14 +1331,14 @@ adbmonitor_job(PG_FUNCTION_ARGS)
 	/*get batch path*/
 	rel_jobitem = heap_open(MjobitemRelationId, AccessShareLock);
 	ScanKeyInit(&key[0],
-					Anum_monitor_jobitem_itemname
-					,BTEqualStrategyNumber
-					,F_NAMEEQ
-					,NameGetDatum(&itemname));
+				Anum_monitor_jobitem_jobitem_itemname,
+				BTEqualStrategyNumber,
+				F_NAMEEQ,
+				NameGetDatum(&itemname));
 	rel_scan = heap_beginscan_catalog(rel_jobitem, 1, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
-		datumpath = heap_getattr(tuple, Anum_monitor_jobitem_path, RelationGetDescr(rel_jobitem), &isNull);
+		datumpath = heap_getattr(tuple, Anum_monitor_jobitem_jobitem_path, RelationGetDescr(rel_jobitem), &isNull);
 		break;
 	}
 	heap_endscan(rel_scan);

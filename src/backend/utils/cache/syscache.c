@@ -3,7 +3,7 @@
  * syscache.c
  *	  System cache management routines
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
  * Portions Copyright (c) 2014-2017, ADB Development Group
@@ -89,7 +89,7 @@
 #include "catalog/mgr_host.h"
 #include "catalog/mgr_parm.h"
 #include "catalog/mgr_updateparm.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "catalog/monitor_databasetps.h"
 #include "catalog/monitor_databaseitem.h"
 #include "catalog/monitor_slowlog.h"
@@ -623,7 +623,7 @@ static const struct cachedesc cacheinfo[] = {
 		PgxcGroupGroupNameIndexId,
 		1,
 		{
-			Anum_pgxc_group_name,
+			Anum_pgxc_group_group_name,
 			0,
 			0,
 			0
@@ -645,7 +645,7 @@ static const struct cachedesc cacheinfo[] = {
 		PgxcNodeNodeNameIndexId,
 		1,
 		{
-			Anum_pgxc_node_name,
+			Anum_pgxc_node_node_name,
 			0,
 			0,
 			0
@@ -667,7 +667,7 @@ static const struct cachedesc cacheinfo[] = {
 		PgxcNodeNodeIdIndexId,
 		1,
 		{
-			Anum_pgxc_node_id,
+			Anum_pgxc_node_node_id,
 			0,
 			0,
 			0
@@ -1138,8 +1138,8 @@ static const struct cachedesc cacheinfo[] = {
 		ParmTypeNameIndexId,
 		2,
 		{
-			Anum_mgr_parm_type,
-			Anum_mgr_parm_name,
+			Anum_mgr_parm_parmtype,
+			Anum_mgr_parm_parmname,
 			0,
 			0
 		},
@@ -1160,9 +1160,9 @@ static const struct cachedesc cacheinfo[] = {
 		MgrUpdataparmNodenameNodetypeKeyIndexId,
 		3,
 		{
-			Anum_mgr_updateparm_nodename,
-			Anum_mgr_updateparm_nodetype,
-			Anum_mgr_updateparm_key,
+			Anum_mgr_updateparm_updateparmnodename,
+			Anum_mgr_updateparm_updateparmnodetype,
+			Anum_mgr_updateparm_updateparmkey,
 			0
 		},
 		32
@@ -1336,11 +1336,54 @@ SearchSysCache(int cacheId,
 			   Datum key3,
 			   Datum key4)
 {
-	if (cacheId < 0 || cacheId >= SysCacheSize ||
-		!PointerIsValid(SysCache[cacheId]))
-		elog(ERROR, "invalid cache ID: %d", cacheId);
+	Assert(cacheId >= 0 && cacheId < SysCacheSize &&
+		   PointerIsValid(SysCache[cacheId]));
 
 	return SearchCatCache(SysCache[cacheId], key1, key2, key3, key4);
+}
+
+HeapTuple
+SearchSysCache1(int cacheId,
+				Datum key1)
+{
+	Assert(cacheId >= 0 && cacheId < SysCacheSize &&
+		   PointerIsValid(SysCache[cacheId]));
+	Assert(SysCache[cacheId]->cc_nkeys == 1);
+
+	return SearchCatCache1(SysCache[cacheId], key1);
+}
+
+HeapTuple
+SearchSysCache2(int cacheId,
+				Datum key1, Datum key2)
+{
+	Assert(cacheId >= 0 && cacheId < SysCacheSize &&
+		   PointerIsValid(SysCache[cacheId]));
+	Assert(SysCache[cacheId]->cc_nkeys == 2);
+
+	return SearchCatCache2(SysCache[cacheId], key1, key2);
+}
+
+HeapTuple
+SearchSysCache3(int cacheId,
+				Datum key1, Datum key2, Datum key3)
+{
+	Assert(cacheId >= 0 && cacheId < SysCacheSize &&
+		   PointerIsValid(SysCache[cacheId]));
+	Assert(SysCache[cacheId]->cc_nkeys == 3);
+
+	return SearchCatCache3(SysCache[cacheId], key1, key2, key3);
+}
+
+HeapTuple
+SearchSysCache4(int cacheId,
+				Datum key1, Datum key2, Datum key3, Datum key4)
+{
+	Assert(cacheId >= 0 && cacheId < SysCacheSize &&
+		   PointerIsValid(SysCache[cacheId]));
+	Assert(SysCache[cacheId]->cc_nkeys == 4);
+
+	return SearchCatCache4(SysCache[cacheId], key1, key2, key3, key4);
 }
 
 /*
@@ -1491,6 +1534,52 @@ SearchSysCacheExistsAttName(Oid relid, const char *attname)
 
 
 /*
+ * SearchSysCacheAttNum
+ *
+ * This routine is equivalent to SearchSysCache on the ATTNUM cache,
+ * except that it will return NULL if the found attribute is marked
+ * attisdropped.  This is convenient for callers that want to act as
+ * though dropped attributes don't exist.
+ */
+HeapTuple
+SearchSysCacheAttNum(Oid relid, int16 attnum)
+{
+	HeapTuple	tuple;
+
+	tuple = SearchSysCache2(ATTNUM,
+							ObjectIdGetDatum(relid),
+							Int16GetDatum(attnum));
+	if (!HeapTupleIsValid(tuple))
+		return NULL;
+	if (((Form_pg_attribute) GETSTRUCT(tuple))->attisdropped)
+	{
+		ReleaseSysCache(tuple);
+		return NULL;
+	}
+	return tuple;
+}
+
+/*
+ * SearchSysCacheCopyAttNum
+ *
+ * As above, an attisdropped-aware version of SearchSysCacheCopy.
+ */
+HeapTuple
+SearchSysCacheCopyAttNum(Oid relid, int16 attnum)
+{
+	HeapTuple	tuple,
+				newtuple;
+
+	tuple = SearchSysCacheAttNum(relid, attnum);
+	if (!HeapTupleIsValid(tuple))
+		return NULL;
+	newtuple = heap_copytuple(tuple);
+	ReleaseSysCache(tuple);
+	return newtuple;
+}
+
+
+/*
  * SysCacheGetAttr
  *
  *		Given a tuple previously fetched by SearchSysCache(),
@@ -1563,14 +1652,14 @@ GetSysCacheHashValue(int cacheId,
  */
 struct catclist *
 SearchSysCacheList(int cacheId, int nkeys,
-				   Datum key1, Datum key2, Datum key3, Datum key4)
+				   Datum key1, Datum key2, Datum key3)
 {
 	if (cacheId < 0 || cacheId >= SysCacheSize ||
 		!PointerIsValid(SysCache[cacheId]))
 		elog(ERROR, "invalid cache ID: %d", cacheId);
 
 	return SearchCatCacheList(SysCache[cacheId], nkeys,
-							  key1, key2, key3, key4);
+							  key1, key2, key3);
 }
 
 /*

@@ -39,6 +39,9 @@
 /* The normal alignment of `long long int', in bytes. */
 #undef ALIGNOF_LONG_LONG_INT
 
+/* The normal alignment of `PG_INT128_TYPE', in bytes. */
+#undef ALIGNOF_PG_INT128_TYPE
+
 /* The normal alignment of `short', in bytes. */
 #undef ALIGNOF_SHORT
 
@@ -143,6 +146,22 @@
    don't. */
 #undef HAVE_DECL_F_FULLFSYNC
 
+/* Define to 1 if you have the declaration of `LLVMGetHostCPUName', and to 0
+   if you don't. */
+#undef HAVE_DECL_LLVMGETHOSTCPUNAME
+
+/* Define to 1 if you have the declaration of `LLVMOrcGetSymbolAddressIn', and
+   to 0 if you don't. */
+#undef HAVE_DECL_LLVMORCGETSYMBOLADDRESSIN
+
+/* Define to 1 if you have the declaration of `LLVMOrcRegisterGDB', and to 0
+   if you don't. */
+#undef HAVE_DECL_LLVMORCREGISTERGDB
+
+/* Define to 1 if you have the declaration of `LLVMOrcRegisterPerf', and to 0
+   if you don't. */
+#undef HAVE_DECL_LLVMORCREGISTERPERF
+
 /* Define to 1 if you have the declaration of `posix_fadvise', and to 0 if you
    don't. */
 #undef HAVE_DECL_POSIX_FADVISE
@@ -158,6 +177,18 @@
 /* Define to 1 if you have the declaration of `strlcpy', and to 0 if you
    don't. */
 #undef HAVE_DECL_STRLCPY
+
+/* Define to 1 if you have the declaration of `strnlen', and to 0 if you
+   don't. */
+#undef HAVE_DECL_STRNLEN
+
+/* Define to 1 if you have the declaration of `strtoll', and to 0 if you
+   don't. */
+#undef HAVE_DECL_STRTOLL
+
+/* Define to 1 if you have the declaration of `strtoull', and to 0 if you
+   don't. */
+#undef HAVE_DECL_STRTOULL
 
 /* Define to 1 if you have the declaration of `sys_siglist', and to 0 if you
    don't. */
@@ -315,6 +346,9 @@
 /* Define to 1 if you have the <ldap.h> header file. */
 #undef HAVE_LDAP_H
 
+/* Define to 1 if you have the `ldap_initialize' function. */
+#undef HAVE_LDAP_INITIALIZE
+
 /* Define to 1 if you have the `crypto' library (-lcrypto). */
 #undef HAVE_LIBCRYPTO
 
@@ -350,10 +384,6 @@
 
 /* Define to 1 if you have the `z' library (-lz). */
 #undef HAVE_LIBZ
-
-/* Define to 1 if constants of type 'long long int' should have the suffix LL.
-   */
-#undef HAVE_LL_CONSTANTS
 
 /* Define to 1 if the system has the type `locale_t'. */
 #undef HAVE_LOCALE_T
@@ -408,6 +438,9 @@
 
 /* Define to 1 if you have the `posix_fadvise' function. */
 #undef HAVE_POSIX_FADVISE
+
+/* Define to 1 if you have the `posix_fallocate' function. */
+#undef HAVE_POSIX_FALLOCATE
 
 /* Define to 1 if the assembler supports PPC's LWARX mutex hint bit. */
 #undef HAVE_PPC_LWARX_MUTEX_HINT
@@ -482,8 +515,14 @@
 /* Define to 1 if you have the `srandom' function. */
 #undef HAVE_SRANDOM
 
+/* Define to 1 if you have the `SSL_clear_options' function. */
+#undef HAVE_SSL_CLEAR_OPTIONS
+
 /* Define to 1 if you have the `SSL_get_current_compression' function. */
 #undef HAVE_SSL_GET_CURRENT_COMPRESSION
+
+/* Define to 1 if stdbool.h conforms to C99. */
+#undef HAVE_STDBOOL_H
 
 /* Define to 1 if you have the <stdint.h> header file. */
 #undef HAVE_STDINT_H
@@ -508,6 +547,9 @@
 
 /* Define to 1 if you have the `strlcpy' function. */
 #undef HAVE_STRLCPY
+
+/* Define to 1 if you have the `strnlen' function. */
+#undef HAVE_STRNLEN
 
 /* Define to use have a strong random number source */
 #undef HAVE_STRONG_RANDOM
@@ -609,9 +651,6 @@
    `HAVE_STRUCT_TM_TM_ZONE' instead. */
 #undef HAVE_TM_ZONE
 
-/* Define to 1 if you have the `towlower' function. */
-#undef HAVE_TOWLOWER
-
 /* Define to 1 if your compiler understands `typeof' or something similar. */
 #undef HAVE_TYPEOF
 
@@ -675,9 +714,6 @@
 /* Define to 1 if you have the <wchar.h> header file. */
 #undef HAVE_WCHAR_H
 
-/* Define to 1 if you have the `wcstombs' function. */
-#undef HAVE_WCSTOMBS
-
 /* Define to 1 if you have the `wcstombs_l' function. */
 #undef HAVE_WCSTOMBS_L
 
@@ -687,6 +723,15 @@
 /* Define to 1 if you have the <winldap.h> header file. */
 #undef HAVE_WINLDAP_H
 
+/* Define to 1 if you have the `X509_get_signature_nid' function. */
+#undef HAVE_X509_GET_SIGNATURE_NID
+
+/* Define to 1 if the system has the type `_Bool'. */
+#undef HAVE__BOOL
+
+/* Define to 1 if your compiler understands __builtin_bswap16. */
+#undef HAVE__BUILTIN_BSWAP16
+
 /* Define to 1 if your compiler understands __builtin_bswap32. */
 #undef HAVE__BUILTIN_BSWAP32
 
@@ -695,6 +740,9 @@
 
 /* Define to 1 if your compiler understands __builtin_constant_p. */
 #undef HAVE__BUILTIN_CONSTANT_P
+
+/* Define to 1 if your compiler understands __builtin_$op_overflow. */
+#undef HAVE__BUILTIN_OP_OVERFLOW
 
 /* Define to 1 if your compiler understands __builtin_types_compatible_p. */
 #undef HAVE__BUILTIN_TYPES_COMPATIBLE_P
@@ -714,7 +762,13 @@
 /* Define to 1 if your compiler understands __VA_ARGS__ in macros. */
 #undef HAVE__VA_ARGS
 
-/* Define to the appropriate snprintf length modifier for 64-bit ints. */
+/* Define to 1 if you have the `__strtoll' function. */
+#undef HAVE___STRTOLL
+
+/* Define to 1 if you have the `__strtoull' function. */
+#undef HAVE___STRTOULL
+
+/* Define to the appropriate printf length modifier for 64-bit ints. */
 #undef INT64_MODIFIER
 
 /* Define to 1 if `locale_t' requires <xlocale.h>. */
@@ -790,6 +844,9 @@
    RELSEG_SIZE requires an initdb. */
 #undef RELSEG_SIZE
 
+/* The size of `bool', as computed by sizeof. */
+#undef SIZEOF_BOOL
+
 /* The size of `long', as computed by sizeof. */
 #undef SIZEOF_LONG
 
@@ -810,6 +867,12 @@
 
 /* Define to 1 if your <sys/time.h> declares `struct tm'. */
 #undef TM_IN_SYS_TIME
+
+/* Define to 1 to use ARMv8 CRC Extension. */
+#undef USE_ARMV8_CRC32C
+
+/* Define to 1 to use ARMv8 CRC Extension with a runtime check. */
+#undef USE_ARMV8_CRC32C_WITH_RUNTIME_CHECK
 
 /* Define to 1 to build with assertion checks. (--enable-cassert) */
 #undef USE_ASSERT_CHECKING
@@ -844,6 +907,9 @@
    (--with-libxslt) */
 #undef USE_LIBXSLT
 
+/* Define to 1 to build with LLVM based JIT support. (--with-llvm) */
+#undef USE_LLVM
+
 /* Define to select named POSIX semaphores. */
 #undef USE_NAMED_POSIX_SEMAPHORES
 
@@ -859,13 +925,13 @@
 /* Use replacement snprintf() functions. */
 #undef USE_REPL_SNPRINTF
 
-/* Define to 1 to use Intel SSE 4.2 CRC instructions with a runtime check. */
+/* Define to 1 to use software CRC-32C implementation (slicing-by-8). */
 #undef USE_SLICING_BY_8_CRC32C
 
 /* Define to 1 use Intel SSE 4.2 CRC instructions. */
 #undef USE_SSE42_CRC32C
 
-/* Define to 1 to use Intel SSSE 4.2 CRC instructions with a runtime check. */
+/* Define to 1 to use Intel SSE 4.2 CRC instructions with a runtime check. */
 #undef USE_SSE42_CRC32C_WITH_RUNTIME_CHECK
 
 /* Define to build with systemd support. (--with-systemd) */
@@ -911,11 +977,6 @@
    */
 #undef XLOG_BLCKSZ
 
-/* XLOG_SEG_SIZE is the size of a single WAL file. This must be a power of 2
-   and larger than XLOG_BLCKSZ (preferably, a great deal larger than
-   XLOG_BLCKSZ). Changing XLOG_SEG_SIZE requires an initdb. */
-#undef XLOG_SEG_SIZE
-
 
 
 /* Number of bits in a file offset, on hosts where this is settable. */
@@ -936,6 +997,24 @@
 /* Define to the type of a signed integer type wide enough to hold a pointer,
    if such a type exists, and if the system does not define it. */
 #undef intptr_t
+
+/* Define to keyword to use for C99 restrict support, or to nothing if not
+   supported */
+#undef pg_restrict
+
+/* Define to the equivalent of the C99 'restrict' keyword, or to
+   nothing if this is not supported.  Do not define if restrict is
+   supported directly.  */
+#undef restrict
+/* Work around a bug in Sun C++: it does not support _Restrict or
+   __restrict__, even though the corresponding Sun C compiler ends up with
+   "#define restrict _Restrict" or "#define restrict __restrict__" in the
+   previous line.  Perhaps some future version of Sun C++ will work with
+   restrict; if so, hopefully it defines __RESTRICT like Sun C does.  */
+#if defined __SUNPRO_CC && !defined __RESTRICT
+# define _Restrict
+# define __restrict__
+#endif
 
 /* Define to empty if the C compiler does not understand signed types. */
 #undef signed

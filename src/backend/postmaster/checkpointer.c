@@ -26,7 +26,7 @@
  * restart needs to be forced.)
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -282,7 +282,7 @@ CheckpointerMain(void)
 		/* we needn't bother with the other ResourceOwnerRelease phases */
 		AtEOXact_Buffers(false);
 		AtEOXact_SMgr();
-		AtEOXact_Files();
+		AtEOXact_Files(false);
 		AtEOXact_HashTables(false);
 
 		/* Warn any waiting backends that the checkpoint failed. */
@@ -624,7 +624,7 @@ CheckArchiveTimeout(void)
 			 * If the returned pointer points exactly to a segment boundary,
 			 * assume nothing happened.
 			 */
-			if ((switchpoint % XLogSegSize) != 0)
+			if (XLogSegmentOffset(switchpoint, wal_segment_size) != 0)
 				elog(DEBUG1, "write-ahead log switch forced (archive_timeout=%d)",
 					 XLogArchiveTimeout);
 		}
@@ -782,7 +782,8 @@ IsCheckpointOnSchedule(double progress)
 		recptr = GetXLogReplayRecPtr(NULL);
 	else
 		recptr = GetInsertRecPtr();
-	elapsed_xlogs = (((double) (recptr - ckpt_start_recptr)) / XLogSegSize) / CheckPointSegments;
+	elapsed_xlogs = (((double) (recptr - ckpt_start_recptr)) /
+					 wal_segment_size) / CheckPointSegments;
 
 	if (progress < elapsed_xlogs)
 	{

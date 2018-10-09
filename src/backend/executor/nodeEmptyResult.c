@@ -27,8 +27,7 @@ EmptyResultState *ExecInitEmptyResult(EmptyResult *node, EState *estate, int efl
 	/*
 	 * initialize tuple table and tuple type
 	 */
-	ExecInitResultTupleSlot(estate, &ers->ps);
-	ExecAssignResultTypeFromTL(&ers->ps);
+	ExecInitResultTupleSlotTL(estate, &ers->ps);
 
 	/* initialize special node if need */
 	switch(node->typeFrom)
@@ -51,7 +50,7 @@ static TupleTableSlot *ExecEmptyResult(PlanState *pstate)
 	if (node->special)
 	{
 		elog(ERROR,
-			 "Enpty result node does not support ExecProcNode call convention when from %d",
+			 "Empty result node does not support ExecProcNode call convention when from %d",
 			 ((EmptyResult*)(node->ps.plan))->typeFrom);
 	}
 
@@ -83,7 +82,7 @@ Node* MultiExecEmptyResult(EmptyResultState *node)
 	if (node->special == NULL)
 	{
 		elog(ERROR,
-			 "Enpty result node does not MultiExecProcNode call when from %d",
+			 "Empty result node does not MultiExecProcNode call when from %d",
 			 ((EmptyResult*)(node->ps.plan))->typeFrom);
 	}
 	return node->special;

@@ -20,7 +20,7 @@
 #include "access/xact.h"
 #include "catalog/pg_type.h"
 #include "intercomm/inter-comm.h"
-#include "libpq/libpq-int.h"
+#include "libpq-int.h"
 #include "pgxc/pgxc.h"
 #include "reduce/wait_event.h"
 #include "utils/builtins.h"

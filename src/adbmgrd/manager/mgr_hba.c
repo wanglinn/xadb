@@ -13,7 +13,7 @@
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/mgr_host.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "catalog/mgr_updateparm.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_collation.h"
@@ -340,7 +340,7 @@ static void mgr_add_hba_one(char *coord_name, List *args_list, bool record_err_m
 		{
 			str_elem = lfirst(lc);
 			datum[Anum_mgr_hba_nodename - 1] = CStringGetDatum(coord_name); /* CString compatible Name */
-			datum[Anum_mgr_hba_value - 1] = CStringGetTextDatum(str_elem);
+			datum[Anum_mgr_hba_hbavalue - 1] = CStringGetTextDatum(str_elem);
 			tuple_insert_table_hba(datum, isnull);
 		}
 	}
@@ -409,8 +409,8 @@ static HeapTuple tuple_form_table_hba(const Name node_name, const char * values)
 	desc = get_tuple_desc_for_hba();
 
 	AssertArg(desc && desc->natts == HBA_RESULT_COLUMN
-		&& desc->attrs[0]->atttypid == NAMEOID
-		&& desc->attrs[1]->atttypid == TEXTOID);
+		&& TupleDescAttr(desc, 0)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 1)->atttypid == TEXTOID);
 	datums[0] = NameGetDatum(node_name);
 	datums[1] = CStringGetTextDatum(values);
 	return heap_form_tuple(desc, datums, nulls);
@@ -714,7 +714,7 @@ static void delete_table_hba(char *coord_name, char *values)
 	{
 		is_check_value = true;
 		ScanKeyInit(&scankey[1]
-				,Anum_mgr_hba_value
+				,Anum_mgr_hba_hbavalue
 				,BTEqualStrategyNumber
 				,F_TEXTEQ
 				,CStringGetTextDatum(values));
@@ -828,7 +828,7 @@ static bool check_hba_tuple_exist(char *coord_name, char *values)
 			,F_NAMEEQ
 			,CStringGetDatum(coord_name));
 	ScanKeyInit(&scankey[1]
-			,Anum_mgr_hba_value
+			,Anum_mgr_hba_hbavalue
 			,BTEqualStrategyNumber
 			,F_TEXTEQ
 			,CStringGetTextDatum(values));
@@ -888,10 +888,8 @@ static bool check_pghbainfo_vaild(StringInfo hba_info, StringInfo err_msg, bool 
 	MemoryContext pgconf_context;
 	MemoryContext oldcontext;
 	pgconf_context = AllocSetContextCreate(CurrentMemoryContext,
-									"pghbaadd",
-									ALLOCSET_DEFAULT_MINSIZE,
-									ALLOCSET_DEFAULT_INITSIZE,
-									ALLOCSET_DEFAULT_MAXSIZE);
+										   "pghbaadd",
+										   ALLOCSET_DEFAULT_SIZES);
 	oldcontext = MemoryContextSwitchTo(pgconf_context);
 	newinfo = palloc(sizeof(HbaInfo));
 	initStringInfo(&str_hbainfo);

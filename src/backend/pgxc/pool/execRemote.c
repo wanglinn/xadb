@@ -323,14 +323,11 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 
 	rqstate->eof_underlying = false;
 
-	ExecInitResultTupleSlot(estate, &rqstate->ss.ps);
-	ExecInitScanTupleSlot(estate, &rqstate->ss);
 	scan_type = ExecTypeFromTL(node->base_tlist, false);
-	ExecAssignScanType(&rqstate->ss, scan_type);
-	rqstate->iterSlot = ExecInitExtraTupleSlot(estate);
-	ExecSetSlotDescriptor(rqstate->iterSlot, scan_type);
-	rqstate->convertSlot = ExecInitExtraTupleSlot(estate);
-	ExecSetSlotDescriptor(rqstate->convertSlot, scan_type);
+	ExecInitScanTupleSlot(estate, &rqstate->ss, scan_type);
+
+	rqstate->iterSlot = ExecInitExtraTupleSlot(estate, scan_type);
+	rqstate->convertSlot = ExecInitExtraTupleSlot(estate, scan_type);
 
 	/*
 	 * convert will be set while the tuple description
@@ -338,8 +335,6 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	 */
 	rqstate->recvState = (ClusterRecvState *) palloc0(sizeof(ClusterRecvState));
 	rqstate->recvState->ps = &rqstate->ss.ps;
-
-	rqstate->ss.ps.ps_TupFromTlist = false;
 
 	/*
 	 * If there are parameters supplied, get them into a form to be sent to the
@@ -350,7 +345,7 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	/*
 	 * Initialize result tuple type and projection info.
 	 */
-	ExecAssignResultTypeFromTL(&rqstate->ss.ps);
+	ExecInitResultTupleSlotTL(estate, &rqstate->ss.ps);
 	ExecAssignScanProjectionInfo(&rqstate->ss);
 
 	if (node->rq_save_command_id)
@@ -743,7 +738,7 @@ SetDataRowForExtParams(ParamListInfo paraminfo, RemoteQueryState *rq_state)
 		param = &paraminfo->params[i];
 
 		if (!OidIsValid(param->ptype) && paraminfo->paramFetch != NULL)
-			(*paraminfo->paramFetch) (paraminfo, i + 1);
+			(*paraminfo->paramFetch) (paraminfo, i + 1, false, param);
 
 		/*
 		 * This is the last parameter found as useful, so we need
@@ -1157,7 +1152,7 @@ SetDataRowForIntParams(JunkFilter *junkfilter,
 			for (attindex = 0; attindex < numatts; attindex++)
 			{
 				rq_state->rqs_param_types[attindex] =
-					tdesc->attrs[attindex]->atttypid;
+					TupleDescAttr(tdesc, attindex)->atttypid;
 			}
 		}
 		if (junkfilter) /* Param types for specific junk attributes if present */
@@ -1222,7 +1217,7 @@ SetDataRowForIntParams(JunkFilter *junkfilter,
 				appendBinaryStringInfo(&buf, (char *) &n32, 4);
 			}
 			else
-				pgxc_append_param_val(&buf, dataSlot->tts_values[attindex], tdesc->attrs[attindex]->atttypid);
+				pgxc_append_param_val(&buf, dataSlot->tts_values[attindex], TupleDescAttr(tdesc, attindex)->atttypid);
 
 		}
 	}

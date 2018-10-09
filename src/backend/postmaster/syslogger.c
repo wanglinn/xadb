@@ -13,7 +13,7 @@
  *
  * Author: Andreas Pflug <pgadmin@pse-consulting.de>
  *
- * Copyright (c) 2004-2017, PostgreSQL Global Development Group
+ * Copyright (c) 2004-2018, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -41,6 +41,7 @@
 #include "postmaster/postmaster.h"
 #include "postmaster/syslogger.h"
 #include "storage/dsm.h"
+#include "storage/fd.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/pg_shmem.h"
@@ -173,7 +174,7 @@ SysLoggerMain(int argc, char *argv[])
 
 	am_syslogger = true;
 
-	init_ps_display("logger process", "", "", "");
+	init_ps_display("logger", "", "", "");
 
 	/*
 	 * If we restarted, our stderr is already redirected into our own input
@@ -322,7 +323,7 @@ SysLoggerMain(int argc, char *argv[])
 				/*
 				 * Also, create new directory if not present; ignore errors
 				 */
-				mkdir(Log_directory, S_IRWXU);
+				(void) MakePGDirectory(Log_directory);
 			}
 			if (strcmp(Log_filename, currentLogFilename) != 0)
 			{
@@ -564,7 +565,7 @@ SysLogger_Start(void)
 	/*
 	 * Create log directory if not present; ignore errors
 	 */
-	mkdir(Log_directory, S_IRWXU);
+	(void) MakePGDirectory(Log_directory);
 
 	/*
 	 * The initial logfile is created right in the postmaster, to verify that

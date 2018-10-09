@@ -20,11 +20,7 @@ SELECT * FROM mvtest_tm ORDER BY type;
 REFRESH MATERIALIZED VIEW mvtest_tm;
 SELECT relispopulated FROM pg_class WHERE oid = 'mvtest_tm'::regclass;
 CREATE UNIQUE INDEX mvtest_tm_type ON mvtest_tm (type);
-<<<<<<< HEAD
-SELECT * FROM mvtest_tm ORDER BY type;
-=======
-SELECT * FROM mvtest_tm ORDER BY type, totamt ;
->>>>>>> e4e2e7774a... 3.1 patch
+SELECT * FROM mvtest_tm ORDER BY type, totamt;
 
 -- create various views
 EXPLAIN (costs off)

@@ -29,6 +29,7 @@ static bool cmg_pqexec_normal_hook(void *context, struct pg_conn *conn, PQNHookF
 ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, EState *estate, int eflags)
 {
 	ClusterMergeGatherState *ps = makeNode(ClusterMergeGatherState);
+	TupleDesc	tupDesc;
 	int nremote;
 	int i;
 
@@ -40,8 +41,30 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 	ps->ps.ExecProcNode = ExecClusterMergeGather;
 	ps->local_end = false;
 
-	ExecInitResultTupleSlot(estate, &ps->ps);
-	ExecAssignResultTypeFromTL(&ps->ps);
+	/*
+	 * Miscellaneous initialization
+	 *
+	 * create expression context for node
+	 */
+	ExecAssignExprContext(estate, &ps->ps);
+
+	/*
+	 * now initialize outer plan
+	 */
+	outerPlanState(ps) = ExecStartClusterPlan(outerPlan(node),
+											  estate, eflags, node->rnodes);
+
+	/*
+	 * Store the tuple descriptor into gather merge state, so we can use it
+	 * while initializing the gather merge slots.
+	 */
+	tupDesc = ExecGetResultType(outerPlanState(ps));
+
+	/*
+	 * Initialize result slot, type and projection.
+	 */
+	ExecInitResultTupleSlotTL(estate, &ps->ps);
+	ExecConditionalAssignProjectionInfo(&ps->ps, tupDesc, OUTER_VAR);
 
 	ps->nkeys = node->numCols;
 	ps->sortkeys = palloc0(sizeof(ps->sortkeys[0]) * node->numCols);
@@ -67,12 +90,8 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 	ps->slots = palloc0(sizeof(ps->slots[0]) * (nremote+1));
 	for(i=0;i<nremote;++i)
 	{
-		ps->slots[i] = ExecAllocTableSlot(&estate->es_tupleTable);
-		ExecSetSlotDescriptor(ps->slots[i], ps->ps.ps_ResultTupleSlot->tts_tupleDescriptor);
+		ps->slots[i] = ExecAllocTableSlot(&estate->es_tupleTable, tupDesc);
 	}
-
-	outerPlanState(ps) = ExecStartClusterPlan(outerPlan(node)
-							, estate, eflags, node->rnodes);
 
 	if((eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
 	{
@@ -155,7 +174,8 @@ re_get_:
 		result = node->slots[i];
 	}
 
-	return result;
+	node->ps.ps_ExprContext->ecxt_outertuple = result;
+	return ExecProject(node->ps.ps_ProjInfo);
 }
 
 void ExecFinishClusterMergeGather(ClusterMergeGatherState *node)

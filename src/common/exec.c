@@ -4,7 +4,7 @@
  *		Functions for finding and validating executable files
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -308,7 +308,7 @@ find_other_exec(const char *argv0, const char *target,
 				const char *versionstr, char *retpath)
 {
 	char		cmd[MAXPGPATH];
-	char		line[100];
+	char		line[MAXPGPATH];
 
 	if (find_my_exec(argv0, retpath) < 0)
 		return -1;

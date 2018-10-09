@@ -9,7 +9,7 @@
 #include "access/htup_details.h"
 #include "catalog/indexing.h"
 #include "catalog/mgr_host.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "catalog/mgr_parm.h"
 #include "catalog/mgr_updateparm.h"
 #include "commands/defrem.h"
@@ -381,10 +381,10 @@ static void mgr_add_givenname_updateparm(MGRUpdateparm *parm_node, Name nodename
 		{
 			continue;
 		}
-		datum[Anum_mgr_updateparm_nodename-1] = NameGetDatum(nodename);
-		datum[Anum_mgr_updateparm_nodetype-1] = CharGetDatum(nodetype);
-		datum[Anum_mgr_updateparm_key-1] = NameGetDatum(&key);
-		datum[Anum_mgr_updateparm_value-1] = CStringGetTextDatum(value.data);
+		datum[Anum_mgr_updateparm_updateparmnodename-1] = NameGetDatum(nodename);
+		datum[Anum_mgr_updateparm_updateparmnodetype-1] = CharGetDatum(nodetype);
+		datum[Anum_mgr_updateparm_updateparmkey-1] = NameGetDatum(&key);
+		datum[Anum_mgr_updateparm_updateparmvalue-1] = CStringGetTextDatum(value.data);
 		/* now, we can insert record */
 		newtuple = heap_form_tuple(RelationGetDescr(rel_updateparm), datum, isnull);
 		CatalogTupleInsert(rel_updateparm, newtuple);
@@ -502,7 +502,7 @@ static bool mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 		mgr_string_add_single_quota(value);
 	}
 	/*get parm unit*/
-	datumparmunit = heap_getattr(tuple, Anum_mgr_parm_unit, RelationGetDescr(noderel), &isNull);
+	datumparmunit = heap_getattr(tuple, Anum_mgr_parm_parmunit, RelationGetDescr(noderel), &isNull);
 	if(isNull)
 	{
 		namestrcpy(parmunit, "");
@@ -512,7 +512,7 @@ static bool mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 		namestrcpy(parmunit,TextDatumGetCString(datumparmunit));
 	}
 	/*get parm min*/
-	datumparmmin = heap_getattr(tuple, Anum_mgr_parm_minval, RelationGetDescr(noderel), &isNull);
+	datumparmmin = heap_getattr(tuple, Anum_mgr_parm_parmminval, RelationGetDescr(noderel), &isNull);
 	if(isNull)
 	{
 		namestrcpy(parmmin, "0");
@@ -522,7 +522,7 @@ static bool mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 		namestrcpy(parmmin,TextDatumGetCString(datumparmmin));
 	}
 	/*get parm max*/
-	datumparmmax = heap_getattr(tuple, Anum_mgr_parm_maxval, RelationGetDescr(noderel), &isNull);
+	datumparmmax = heap_getattr(tuple, Anum_mgr_parm_parmmaxval, RelationGetDescr(noderel), &isNull);
 	if(isNull)
 	{
 		namestrcpy(parmmax, "0");
@@ -532,7 +532,7 @@ static bool mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 		namestrcpy(parmmax,TextDatumGetCString(datumparmmax));
 	}
 	/*get enumvalues*/
-	datumenumvalues = heap_getattr(tuple, Anum_mgr_parm_enumval, RelationGetDescr(noderel), &isNull);
+	datumenumvalues = heap_getattr(tuple, Anum_mgr_parm_parmenumval, RelationGetDescr(noderel), &isNull);
 	if(isNull)
 	{
 		/*never come here*/
@@ -637,17 +637,17 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 	if (namestrcmp(nodename, MACRO_STAND_FOR_ALL_NODENAME) == 0)
 	{
 		ScanKeyInit(&scankey[0]
-			,Anum_mgr_updateparm_nodetype
+			,Anum_mgr_updateparm_updateparmnodetype
 			,BTEqualStrategyNumber
 			,F_CHAREQ
 			,CharGetDatum(nodetype));
 		ScanKeyInit(&scankey[1]
-			,Anum_mgr_updateparm_nodename
+			,Anum_mgr_updateparm_updateparmnodename
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
 			,NameGetDatum(nodename));
 		ScanKeyInit(&scankey[2]
-			,Anum_mgr_updateparm_key
+			,Anum_mgr_updateparm_updateparmkey
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
 			,NameGetDatum(key));
@@ -685,8 +685,8 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 				memset(isnull, 0, sizeof(isnull));
 				memset(got, 0, sizeof(got));
 				namestrcpylocal(&valuedata, value);
-				datum[Anum_mgr_updateparm_value-1] = CStringGetTextDatum(valuedata.data);
-				got[Anum_mgr_updateparm_value-1] = true;
+				datum[Anum_mgr_updateparm_updateparmvalue-1] = CStringGetTextDatum(valuedata.data);
+				got[Anum_mgr_updateparm_updateparmvalue-1] = true;
 				tupledsc = RelationGetDescr(noderel);
 				newtuple = heap_modify_tuple(tuple, tupledsc, datum,isnull, got);
 				CatalogTupleUpdate(noderel, &tuple->t_self, newtuple);
@@ -699,34 +699,34 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 	{
 		namestrcpy(&name_standall, MACRO_STAND_FOR_ALL_NODENAME);
 		ScanKeyInit(&scankey[0]
-			,Anum_mgr_updateparm_nodetype
+			,Anum_mgr_updateparm_updateparmnodetype
 			,BTEqualStrategyNumber
 			,F_CHAREQ
 			,CharGetDatum(allnodetype));
 		ScanKeyInit(&scankey[1]
-			,Anum_mgr_updateparm_nodename
+			,Anum_mgr_updateparm_updateparmnodename
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
 			,NameGetDatum(&name_standall));
 		ScanKeyInit(&scankey[2]
-			,Anum_mgr_updateparm_key
+			,Anum_mgr_updateparm_updateparmkey
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
 			,NameGetDatum(key));
 		rel_scanall = heap_beginscan_catalog(noderel, 3, scankey);
 		alltype_tuple = heap_getnext(rel_scanall, ForwardScanDirection);
 		ScanKeyInit(&scankey[0]
-			,Anum_mgr_updateparm_nodetype
+			,Anum_mgr_updateparm_updateparmnodetype
 			,BTEqualStrategyNumber
 			,F_CHAREQ
 			,CharGetDatum(nodetype));
 		ScanKeyInit(&scankey[1]
-			,Anum_mgr_updateparm_nodename
+			,Anum_mgr_updateparm_updateparmnodename
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
 			,NameGetDatum(nodename));
 		ScanKeyInit(&scankey[2]
-			,Anum_mgr_updateparm_key
+			,Anum_mgr_updateparm_updateparmkey
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
 			,NameGetDatum(key));
@@ -789,8 +789,8 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 				memset(isnull, 0, sizeof(isnull));
 				memset(got, 0, sizeof(got));
 				namestrcpylocal(&valuedata, value);
-				datum[Anum_mgr_updateparm_value-1] = CStringGetTextDatum(valuedata.data);
-				got[Anum_mgr_updateparm_value-1] = true;
+				datum[Anum_mgr_updateparm_updateparmvalue-1] = CStringGetTextDatum(valuedata.data);
+				got[Anum_mgr_updateparm_updateparmvalue-1] = true;
 				tupledsc = RelationGetDescr(noderel);
 				newtuple = heap_modify_tuple(tuple, tupledsc, datum,isnull, got);
 				CatalogTupleUpdate(noderel, &tuple->t_self, newtuple);
@@ -838,12 +838,12 @@ void mgr_add_parm(char *nodename, char nodetype, StringInfo infosendparamsg)
 	namestrcpy(&nodenamedata, MACRO_STAND_FOR_ALL_NODENAME);
 	namestrcpy(&nodenamedatacheck, nodename);
 	ScanKeyInit(&key[0],
-		Anum_mgr_updateparm_nodetype
+		Anum_mgr_updateparm_updateparmnodetype
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(allnodetype));
 	ScanKeyInit(&key[1],
-		Anum_mgr_updateparm_nodename
+		Anum_mgr_updateparm_updateparmnodename
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,NameGetDatum(&nodenamedata));
@@ -879,12 +879,12 @@ void mgr_add_parm(char *nodename, char nodetype, StringInfo infosendparamsg)
 	/*second: add the parameter for given name with given nodetype*/
 	namestrcpy(&nodenamedata, nodename);
 	ScanKeyInit(&key[0],
-		Anum_mgr_updateparm_nodetype
+		Anum_mgr_updateparm_updateparmnodetype
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(nodetype));
 	ScanKeyInit(&key[1],
-		Anum_mgr_updateparm_nodename
+		Anum_mgr_updateparm_updateparmnodename
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,NameGetDatum(&nodenamedata));
@@ -1242,7 +1242,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 		if (strcmp(nodename.data, MACRO_STAND_FOR_ALL_NODENAME) == 0 && (CNDN_TYPE_GTM == nodetype || CNDN_TYPE_DATANODE == nodetype ||CNDN_TYPE_COORDINATOR == nodetype))
 		{
 			ScanKeyInit(&scankey[0],
-				Anum_mgr_updateparm_key
+				Anum_mgr_updateparm_updateparmkey
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,NameGetDatum(&key));
@@ -1291,17 +1291,17 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 			namestrcpy(&nodenametmp, MACRO_STAND_FOR_ALL_NODENAME);
 			bneedinsert = false;
 			ScanKeyInit(&scankey[0],
-				Anum_mgr_updateparm_nodename
+				Anum_mgr_updateparm_updateparmnodename
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,NameGetDatum(&nodenametmp));
 			ScanKeyInit(&scankey[1],
-				Anum_mgr_updateparm_nodetype
+				Anum_mgr_updateparm_updateparmnodetype
 				,BTEqualStrategyNumber
 				,F_CHAREQ
 				,CharGetDatum(allnodetype));
 			ScanKeyInit(&scankey[2],
-				Anum_mgr_updateparm_key
+				Anum_mgr_updateparm_updateparmkey
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,NameGetDatum(&key));
@@ -1323,12 +1323,12 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 
 			/*delete the tuple*/
 			ScanKeyInit(&scankey[0],
-				Anum_mgr_updateparm_nodetype
+				Anum_mgr_updateparm_updateparmnodetype
 				,BTEqualStrategyNumber
 				,F_CHAREQ
 				,CharGetDatum(nodetype));
 			ScanKeyInit(&scankey[1],
-				Anum_mgr_updateparm_key
+				Anum_mgr_updateparm_updateparmkey
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,NameGetDatum(&key));
@@ -1371,10 +1371,10 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 						if (strcmp(NameStr(nodename), NameStr(mgr_node->nodename)) != 0)
 							continue;
 					}
-					datum[Anum_mgr_updateparm_nodename-1] = NameGetDatum(&(mgr_node->nodename));
-					datum[Anum_mgr_updateparm_nodetype-1] = CharGetDatum(nodetype);
-					datum[Anum_mgr_updateparm_key-1] = NameGetDatum(&key);
-					datum[Anum_mgr_updateparm_value-1] = CStringGetTextDatum(defaultvalue.data);
+					datum[Anum_mgr_updateparm_updateparmnodename-1] = NameGetDatum(&(mgr_node->nodename));
+					datum[Anum_mgr_updateparm_updateparmnodetype-1] = CharGetDatum(nodetype);
+					datum[Anum_mgr_updateparm_updateparmkey-1] = NameGetDatum(&key);
+					datum[Anum_mgr_updateparm_updateparmvalue-1] = CStringGetTextDatum(defaultvalue.data);
 					/* now, we can insert record */
 					newtuple = heap_form_tuple(RelationGetDescr(rel_updateparm), datum, isnull);
 					CatalogTupleInsert(rel_updateparm, newtuple);
@@ -1670,12 +1670,12 @@ void mgr_parmr_delete_tuple_nodename_nodetype(Relation noderel, Name nodename, c
 			return;
 	}
 	ScanKeyInit(&scankey[0],
-		Anum_mgr_updateparm_nodename
+		Anum_mgr_updateparm_updateparmnodename
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,NameGetDatum(nodename));
 	ScanKeyInit(&scankey[1],
-		Anum_mgr_updateparm_nodetype
+		Anum_mgr_updateparm_updateparmnodetype
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(nodetype));
@@ -1700,12 +1700,12 @@ void mgr_parmr_update_tuple_nodename_nodetype(Relation noderel, Name nodename, c
 	bool got[Natts_mgr_updateparm];
 
 	ScanKeyInit(&scankey[0],
-		Anum_mgr_updateparm_nodename
+		Anum_mgr_updateparm_updateparmnodename
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,NameGetDatum(nodename));
 	ScanKeyInit(&scankey[1],
-		Anum_mgr_updateparm_nodetype
+		Anum_mgr_updateparm_updateparmnodetype
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(oldnodetype));
@@ -1717,8 +1717,8 @@ void mgr_parmr_update_tuple_nodename_nodetype(Relation noderel, Name nodename, c
 		memset(datum, 0, sizeof(datum));
 		memset(isnull, 0, sizeof(isnull));
 		memset(got, 0, sizeof(got));
-		datum[Anum_mgr_updateparm_nodetype-1] = CharGetDatum(newnodetype);
-		got[Anum_mgr_updateparm_nodetype-1] = true;
+		datum[Anum_mgr_updateparm_updateparmnodetype-1] = CharGetDatum(newnodetype);
+		got[Anum_mgr_updateparm_updateparmnodetype-1] = true;
 		newtuple = heap_modify_tuple(looptuple, tupledsc, datum,isnull, got);
 		CatalogTupleUpdate(noderel, &looptuple->t_self, newtuple);
 	}
@@ -2092,7 +2092,7 @@ static char *mgr_get_value_in_updateparm(Relation rel_node, HeapTuple tuple)
 	char *kValue = NULL;
 	Datum datumValue;
 
-	datumValue = heap_getattr(tuple, Anum_mgr_updateparm_value, RelationGetDescr(rel_node), &isNull);
+	datumValue = heap_getattr(tuple, Anum_mgr_updateparm_updateparmvalue, RelationGetDescr(rel_node), &isNull);
 	if(isNull)
 	{
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
@@ -2434,15 +2434,15 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 			parmminval = PQgetvalue(res, iloop, 5);
 			parmmaxval = PQgetvalue(res, iloop, 6);
 			parmenumval = PQgetvalue(res, iloop, 7);
-			datum[Anum_mgr_parm_type-1] = CharGetDatum(*parmtype);
-			datum[Anum_mgr_parm_name-1] = NameGetDatum(&parmname);
-			datum[Anum_mgr_parm_value-1] = NameGetDatum(&parmvalue);
-			datum[Anum_mgr_parm_context-1] = NameGetDatum(&parmcontext);
-			datum[Anum_mgr_parm_vartype-1] = NameGetDatum(&parmvartype);
-			datum[Anum_mgr_parm_unit-1] = CStringGetTextDatum(parmunit);
-			datum[Anum_mgr_parm_minval-1] = CStringGetTextDatum(parmminval);
-			datum[Anum_mgr_parm_maxval-1] = CStringGetTextDatum(parmmaxval);
-			datum[Anum_mgr_parm_enumval-1] = CStringGetTextDatum(parmenumval);
+			datum[Anum_mgr_parm_parmtype-1] = CharGetDatum(*parmtype);
+			datum[Anum_mgr_parm_parmname-1] = NameGetDatum(&parmname);
+			datum[Anum_mgr_parm_parmvalue-1] = NameGetDatum(&parmvalue);
+			datum[Anum_mgr_parm_parmcontext-1] = NameGetDatum(&parmcontext);
+			datum[Anum_mgr_parm_parmvartype-1] = NameGetDatum(&parmvartype);
+			datum[Anum_mgr_parm_parmunit-1] = CStringGetTextDatum(parmunit);
+			datum[Anum_mgr_parm_parmminval-1] = CStringGetTextDatum(parmminval);
+			datum[Anum_mgr_parm_parmmaxval-1] = CStringGetTextDatum(parmmaxval);
+			datum[Anum_mgr_parm_parmenumval-1] = CStringGetTextDatum(parmenumval);
 			/* now, we can insert record */
 			newTuple = heap_form_tuple(RelationGetDescr(relParm), datum, isnull);
 			CatalogTupleInsert(relParm, newTuple);
@@ -2536,15 +2536,15 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 			parmminval = PQgetvalue(res, iloop, 5);
 			parmmaxval = PQgetvalue(res, iloop, 6);
 			parmenumval = PQgetvalue(res, iloop, 7);
-			datum[Anum_mgr_parm_type-1] = CharGetDatum(PARM_TYPE_GTM);
-			datum[Anum_mgr_parm_name-1] = NameGetDatum(&parmname);
-			datum[Anum_mgr_parm_value-1] = NameGetDatum(&parmvalue);
-			datum[Anum_mgr_parm_context-1] = NameGetDatum(&parmcontext);
-			datum[Anum_mgr_parm_vartype-1] = NameGetDatum(&parmvartype);
-			datum[Anum_mgr_parm_unit-1] = CStringGetTextDatum(parmunit);
-			datum[Anum_mgr_parm_minval-1] = CStringGetTextDatum(parmminval);
-			datum[Anum_mgr_parm_maxval-1] = CStringGetTextDatum(parmmaxval);
-			datum[Anum_mgr_parm_enumval-1] = CStringGetTextDatum(parmenumval);
+			datum[Anum_mgr_parm_parmtype-1] = CharGetDatum(PARM_TYPE_GTM);
+			datum[Anum_mgr_parm_parmname-1] = NameGetDatum(&parmname);
+			datum[Anum_mgr_parm_parmvalue-1] = NameGetDatum(&parmvalue);
+			datum[Anum_mgr_parm_parmcontext-1] = NameGetDatum(&parmcontext);
+			datum[Anum_mgr_parm_parmvartype-1] = NameGetDatum(&parmvartype);
+			datum[Anum_mgr_parm_parmunit-1] = CStringGetTextDatum(parmunit);
+			datum[Anum_mgr_parm_parmminval-1] = CStringGetTextDatum(parmminval);
+			datum[Anum_mgr_parm_parmmaxval-1] = CStringGetTextDatum(parmmaxval);
+			datum[Anum_mgr_parm_parmenumval-1] = CStringGetTextDatum(parmenumval);
 			/* now, we can insert record */
 			newTuple = heap_form_tuple(RelationGetDescr(relParm), datum, isnull);
 			CatalogTupleInsert(relParm, newTuple);
@@ -2566,15 +2566,15 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 			parmminval = pg_stat_statement[i].parmminval;
 			parmmaxval = pg_stat_statement[i].parmmaxval;
 			parmenumval = pg_stat_statement[i].parmenumval;
-			datum[Anum_mgr_parm_type-1] = CharGetDatum(pg_stat_statement[i].parmtype);
-			datum[Anum_mgr_parm_name-1] = NameGetDatum(&parmname);
-			datum[Anum_mgr_parm_value-1] = NameGetDatum(&parmvalue);
-			datum[Anum_mgr_parm_context-1] = NameGetDatum(&parmcontext);
-			datum[Anum_mgr_parm_vartype-1] = NameGetDatum(&parmvartype);
-			datum[Anum_mgr_parm_unit-1] = CStringGetTextDatum(parmunit);
-			datum[Anum_mgr_parm_minval-1] = CStringGetTextDatum(parmminval);
-			datum[Anum_mgr_parm_maxval-1] = CStringGetTextDatum(parmmaxval);
-			datum[Anum_mgr_parm_enumval-1] = CStringGetTextDatum(parmenumval);
+			datum[Anum_mgr_parm_parmtype-1] = CharGetDatum(pg_stat_statement[i].parmtype);
+			datum[Anum_mgr_parm_parmname-1] = NameGetDatum(&parmname);
+			datum[Anum_mgr_parm_parmvalue-1] = NameGetDatum(&parmvalue);
+			datum[Anum_mgr_parm_parmcontext-1] = NameGetDatum(&parmcontext);
+			datum[Anum_mgr_parm_parmvartype-1] = NameGetDatum(&parmvartype);
+			datum[Anum_mgr_parm_parmunit-1] = CStringGetTextDatum(parmunit);
+			datum[Anum_mgr_parm_parmminval-1] = CStringGetTextDatum(parmminval);
+			datum[Anum_mgr_parm_parmmaxval-1] = CStringGetTextDatum(parmmaxval);
+			datum[Anum_mgr_parm_parmenumval-1] = CStringGetTextDatum(parmenumval);
 			/* now, we can insert record */
 			newTuple = heap_form_tuple(RelationGetDescr(relParm), datum, isnull);
 			CatalogTupleInsert(relParm, newTuple);
@@ -2686,7 +2686,7 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 			}
 
 			namestrcpy(&kName, NameStr(mgr_updateparm->updateparmkey));
-			datumValue = heap_getattr(tuple, Anum_mgr_updateparm_value, RelationGetDescr(relUpdateparm),
+			datumValue = heap_getattr(tuple, Anum_mgr_updateparm_updateparmvalue, RelationGetDescr(relUpdateparm),
 				&isNull);
 			if(isNull)
 			{

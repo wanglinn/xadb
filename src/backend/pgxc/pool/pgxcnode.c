@@ -27,7 +27,7 @@
 #include "catalog/pg_collation.h"
 #include "catalog/pgxc_node.h"
 #include "commands/prepare.h"
-#include "libpq/libpq-fe.h"
+#include "libpq-fe.h"
 #include "nodes/nodes.h"
 #include "pgxc/pause.h"
 #include "pgxc/pgxcnode.h"

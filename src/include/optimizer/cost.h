@@ -4,7 +4,7 @@
  *	  prototypes for costsize.c and clausesel.c.
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/optimizer/cost.h
@@ -67,29 +67,34 @@ extern PGDLLIMPORT double reduce_page_cost;
 #endif /* ADB */
 extern PGDLLIMPORT double parallel_setup_cost;
 extern PGDLLIMPORT int effective_cache_size;
-extern Cost disable_cost;
-extern int	max_parallel_workers_per_gather;
-extern bool enable_seqscan;
-extern bool enable_indexscan;
-extern bool enable_indexonlyscan;
-extern bool enable_bitmapscan;
-extern bool enable_tidscan;
-extern bool enable_sort;
-extern bool enable_hashagg;
-extern bool enable_nestloop;
-extern bool enable_material;
-extern bool enable_mergejoin;
-extern bool enable_hashjoin;
-extern bool enable_gathermerge;
-extern int	constraint_exclusion;
+extern PGDLLIMPORT Cost disable_cost;
+extern PGDLLIMPORT int max_parallel_workers_per_gather;
+extern PGDLLIMPORT bool enable_seqscan;
+extern PGDLLIMPORT bool enable_indexscan;
+extern PGDLLIMPORT bool enable_indexonlyscan;
+extern PGDLLIMPORT bool enable_bitmapscan;
+extern PGDLLIMPORT bool enable_tidscan;
+extern PGDLLIMPORT bool enable_sort;
+extern PGDLLIMPORT bool enable_hashagg;
+extern PGDLLIMPORT bool enable_nestloop;
+extern PGDLLIMPORT bool enable_material;
+extern PGDLLIMPORT bool enable_mergejoin;
+extern PGDLLIMPORT bool enable_hashjoin;
+extern PGDLLIMPORT bool enable_gathermerge;
+extern PGDLLIMPORT bool enable_partitionwise_join;
+extern PGDLLIMPORT bool enable_partitionwise_aggregate;
+extern PGDLLIMPORT bool enable_parallel_append;
+extern PGDLLIMPORT bool enable_parallel_hash;
+extern PGDLLIMPORT bool enable_partition_pruning;
+extern PGDLLIMPORT int constraint_exclusion;
 #ifdef ADB
-extern bool enable_fast_query_shipping;
-extern bool pgxc_enable_remote_query;
-extern bool enable_remotejoin;
-extern bool enable_remotegroup;
-extern bool enable_remotesort;
-extern bool enable_remotelimit;
-extern bool enable_hashscan;
+extern PGDLLIMPORT bool enable_fast_query_shipping;
+extern PGDLLIMPORT bool pgxc_enable_remote_query;
+extern PGDLLIMPORT bool enable_remotejoin;
+extern PGDLLIMPORT bool enable_remotegroup;
+extern PGDLLIMPORT bool enable_remotesort;
+extern PGDLLIMPORT bool enable_remotelimit;
+extern PGDLLIMPORT bool enable_hashscan;
 #endif
 
 extern double clamp_row_est(double nrows);
@@ -132,6 +137,7 @@ extern void cost_sort(Path *path, PlannerInfo *root,
 		  List *pathkeys, Cost input_cost, double tuples, int width,
 		  Cost comparison_cost, int sort_mem,
 		  double limit_tuples);
+extern void cost_append(AppendPath *path);
 extern void cost_merge_append(Path *path, PlannerInfo *root,
 				  List *pathkeys, int n_streams,
 				  Cost input_startup_cost, Cost input_total_cost,
@@ -142,6 +148,7 @@ extern void cost_material(Path *path,
 extern void cost_agg(Path *path, PlannerInfo *root,
 		 AggStrategy aggstrategy, const AggClauseCosts *aggcosts,
 		 int numGroupCols, double numGroups,
+		 List *quals,
 		 Cost input_startup_cost, Cost input_total_cost,
 		 double input_tuples);
 extern void cost_windowagg(Path *path, PlannerInfo *root,
@@ -150,6 +157,7 @@ extern void cost_windowagg(Path *path, PlannerInfo *root,
 			   double input_tuples);
 extern void cost_group(Path *path, PlannerInfo *root,
 		   int numGroupCols, double numGroups,
+		   List *quals,
 		   Cost input_startup_cost, Cost input_total_cost,
 		   double input_tuples);
 extern void initial_cost_nestloop(PlannerInfo *root,
@@ -177,7 +185,8 @@ extern void initial_cost_hashjoin(PlannerInfo *root,
 					  JoinType jointype,
 					  List *hashclauses,
 					  Path *outer_path, Path *inner_path,
-					  JoinPathExtraData *extra);
+					  JoinPathExtraData *extra,
+					  bool parallel_hash);
 extern void final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 					JoinCostWorkspace *workspace,
 					ADB_ONLY_ARG(double *rows)
@@ -193,6 +202,7 @@ extern void cost_qual_eval_node_cluster(QualCost *cost, Node *qual, PlannerInfo 
 extern void cost_qual_eval(QualCost *cost, List *quals, PlannerInfo *root);
 extern void cost_qual_eval_node(QualCost *cost, Node *qual, PlannerInfo *root);
 extern void compute_semi_anti_join_factors(PlannerInfo *root,
+							   RelOptInfo *joinrel,
 							   RelOptInfo *outerrel,
 							   RelOptInfo *innerrel,
 							   JoinType jointype,

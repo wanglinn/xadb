@@ -4,7 +4,7 @@
  *	  POSTGRES heap tuple definitions.
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/access/htup.h
@@ -66,6 +66,9 @@ typedef struct HeapTupleData
 	Oid			t_tableOid;		/* table the tuple came from */
 #if defined(ADB)
 	uint32		t_xc_node_id;	/* Data node the tuple came from */
+#define FIELDNO_HEAPTUPLEDATA_DATA 4
+#else
+#define FIELDNO_HEAPTUPLEDATA_DATA 3
 #endif
 	HeapTupleHeader t_data;		/* -> tuple header and data */
 } HeapTupleData;

@@ -18,8 +18,10 @@ top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = access bootstrap catalog parser commands executor foreign lib libpq \
-	main nodes optimizer port postmaster regex replication rewrite manager \
-	statistics storage tcop tsearch utils $(top_builddir)/src/timezone
+	main nodes optimizer partitioning port postmaster \
+	regex replication rewrite manager \
+	statistics storage tcop tsearch utils $(top_builddir)/src/timezone \
+	jit
 
 include $(srcdir)/common.mk
 
@@ -38,8 +40,8 @@ endif
 OBJS = $(SUBDIROBJS) $(LOCALOBJS) $(top_builddir)/src/port/libpgport_srv.a \
 	$(top_builddir)/src/common/libpgcommon_mgr.a
 # We put libpgport and libpgcommon into OBJS, so remove it from LIBS; also add
-# libldap
-LIBS := $(filter-out -lpgport -lpgcommon, $(LIBS)) $(LDAP_LIBS_BE)
+# libldap and ICU
+LIBS := $(filter-out -lpgport -lpgcommon, $(LIBS)) $(LDAP_LIBS_BE) $(ICU_LIBS)
 
 # The admbgrd doesn't need everything that's in LIBS, however
 LIBS := $(filter-out -lz -lreadline -ledit -ltermcap -lncurses -lcurses, $(LIBS))
@@ -51,7 +53,7 @@ endif
 
 ##########################################################################
 
-all: submake-libpgport submake-schemapg adbmgrd $(MGR_IMP)
+all: submake-libpgport submake-catalog-headers submake-utils-headers generated-headers adbmgrd $(MGR_IMP)
 
 ifneq ($(PORTNAME), cygwin)
 ifneq ($(PORTNAME), win32)
@@ -69,13 +71,10 @@ ifeq ($(PORTNAME), cygwin)
 adbmgrd: $(OBJS) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) -Wl,--stack,$(WIN32_STACK_RLIMIT) -Wl,--export-all-symbols -Wl,--out-implib=libadbmgrd.a $(call expand_subsys,$^) $(LIBS) -o $@
 
-# There is no correct way to write a rule that generates two files.
-# Rules with two targets don't have that meaning, they are merely
-# shorthand for two otherwise separate rules.  To be safe for parallel
-# make, we must chain the dependencies like this.  The semicolon is
-# important, otherwise make will choose some built-in rule.
-
-libadbmgrd.a: adbmgrd ;
+# libpostgres.a is actually built in the preceding rule, but we need this to
+# ensure it's newer than postgres; see notes in src/backend/parser/Makefile
+libadbmgrd.a: adbmgrd
+	touch $@
 
 endif # cygwin
 
@@ -85,7 +84,10 @@ LIBS += -lsecur32
 adbmgrd: $(OBJS) $(WIN32RES) | submake-libpq
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) -Wl,--stack=$(WIN32_STACK_RLIMIT) -Wl,--export-all-symbols -Wl,--out-implib=libadbmgrd.a $(call expand_subsys,$(OBJS)) $(WIN32RES) $(LIBS) -o $@$(X)
 
-libadbmgrd.a: adbmgrd ;
+# libpostgres.a is actually built in the preceding rule, but we need this to
+# ensure it's newer than postgres; see notes in src/backend/parser/Makefile
+libadbmgrd.a: adbmgrd
+	touch $@
 
 endif # win32
 
@@ -109,15 +111,7 @@ endif
 
 endif # aix
 
-# Update the commonly used headers before building the subdirectories
-$(SUBDIRS:%=%-recursive): | generated-headers
-
-submake-errcodes:
-	$(MAKE) -C $(backend_obj_dir) submake-errcodes
-
-.PHONY: submake-errcodes
-
-$(top_builddir)/src/port/libpgport_mgr.a: | submake-libpgport
+$(top_builddir)/src/port/libpgport_srv.a: | submake-libpgport
 
 
 # The postgres.o target is needed by the rule in Makefile.global that
@@ -136,22 +130,15 @@ parser/gram.h: $(top_srcdir)/src/backend/parser/gram.y
 storage/lmgr/lwlocknames.h: $(backend_src_dir)/storage/lmgr/generate-lwlocknames.pl storage/lmgr/lwlocknames.txt
 	$(MAKE) -C storage/lmgr lwlocknames.h
 
-utils/fmgrprotos.h: $(backend_src_dir)/utils/Gen_fmgrtab.pl $(backend_src_dir)/catalog/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.h
-	$(MAKE) -C utils fmgrprotos.h
-
-utils/fmgroids.h: $(backend_src_dir)/utils/Gen_fmgrtab.pl $(backend_src_dir)/catalog/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.h
-	$(MAKE) -C utils fmgroids.h
-
-utils/probes.h: utils/probes.d
-	$(MAKE) -C utils probes.h
+# run this unconditionally to avoid needing to know its dependencies here:
+submake-catalog-headers:
+	$(MAKE) -C catalog distprep generated-header-symlinks
 
 # run this unconditionally to avoid needing to know its dependencies here:
-catalog/schemapg.h: | submake-schemapg
+submake-utils-headers:
+	$(MAKE) -C utils distprep generated-header-symlinks
 
-submake-schemapg:
-	$(MAKE) -C catalog schemapg.h
-
-.PHONY: submake-schemapg
+.PHONY: submake-catalog-headers submake-utils-headers
 
 # Make symlinks for these headers in the include directory. That way
 # we can cut down on the -I options. Also, a symlink is automatically
@@ -166,14 +153,9 @@ submake-schemapg:
 
 .PHONY: generated-headers
 
-generated-headers: $(top_builddir)/src/adbmgrd/include/parser/gram.h $(mgr_inc_dir)/catalog/schemapg.h $(mgr_inc_dir)/storage/lwlocknames.h $(top_builddir)/src/include/utils/errcodes.h $(mgr_inc_dir)/utils/fmgroids.h $(mgr_inc_dir)/utils/probes.h $(mgr_inc_dir)/utils/fmgrprotos.h
+generated-headers: $(top_builddir)/src/adbmgrd/include/parser/gram.h $(mgr_inc_dir)/storage/lwlocknames.h submake-catalog-headers submake-utils-headers
 
 $(top_builddir)/src/adbmgrd/include/parser/gram.h: parser/gram.h
-	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
-	  cd '$(dir $@)' && rm -f $(notdir $@) && \
-	  $(LN_S) "$$prereqdir/$(notdir $<)" .
-
-$(mgr_inc_dir)/catalog/schemapg.h: catalog/schemapg.h
 	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
 	  cd '$(dir $@)' && rm -f $(notdir $@) && \
 	  $(LN_S) "$$prereqdir/$(notdir $<)" .
@@ -183,20 +165,6 @@ $(mgr_inc_dir)/storage/lwlocknames.h: storage/lmgr/lwlocknames.h
 	  cd '$(dir $@)' && rm -f $(notdir $@) && \
 	  $(LN_S) "$$prereqdir/$(notdir $<)" .
 
-$(top_builddir)/src/include/utils/errcodes.h: | submake-errcodes
-
-$(mgr_inc_dir)/utils/fmgroids.h: utils/fmgroids.h
-	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
-	  cd '$(dir $@)' && rm -f $(notdir $@) && \
-	  $(LN_S) "$$prereqdir/$(notdir $<)" .
-
-$(mgr_inc_dir)/utils/probes.h: utils/probes.h
-	cd '$(dir $@)' && rm -f $(notdir $@) && \
-	    $(LN_S) "../../utils/probes.h" .
-
-$(mgr_inc_dir)/utils/fmgrprotos.h: utils/fmgrprotos.h
-	cd '$(dir $@)' && rm -f $(notdir $@) && \
-	    $(LN_S) "../../utils/fmgrprotos.h" .
 
 utils/probes.o: utils/probes.d $(SUBDIROBJS)
 	$(DTRACE) $(DTRACEFLAGS) -C -G -s $(call expand_subsys,$^) -o $@
@@ -208,10 +176,10 @@ utils/probes.o: utils/probes.d $(SUBDIROBJS)
 distprep:
 	$(MAKE) -C parser	gram.c gram.h scan.c
 	$(MAKE) -C bootstrap	bootparse.c bootscanner.c
-	$(MAKE) -C catalog	schemapg.h adbmgrd.bki adbmgrd.description adbmgrd.shdescription
+	$(MAKE) -C catalog	distprep
 	$(MAKE) -C replication	repl_gram.c repl_scanner.c syncrep_gram.c syncrep_scanner.c
-	$(MAKE) -C storage/lmgr	lwlocknames.h
-	$(MAKE) -C utils	fmgrtab.c fmgroids.h
+	$(MAKE) -C storage/lmgr	lwlocknames.h lwlocknames.c
+	$(MAKE) -C utils	distprep
 	$(MAKE) -C utils/misc	guc-file.c
 	$(MAKE) -C utils/sort	qsort_tuple.c
 
@@ -230,9 +198,11 @@ ifeq ($(MAKE_DLL), true)
 endif
 endif
 	$(MAKE) -C catalog install-data
+	$(MAKE) -C tsearch install-data
+	$(MAKE) -C utils install-data
 	$(INSTALL_DATA) $(srcdir)/utils/misc/postgresql.conf.sample '$(DESTDIR)$(datadir)/adbmgrd.conf.sample'
 	$(INSTALL_DATA) $(srcdir)/manager/adbmgr_init.sql '$(DESTDIR)$(datadir)/adbmgr_init.sql'
-        
+
 install-bin: adbmgrd $(POSTGRES_IMP) installdirs
 	$(INSTALL_PROGRAM) adbmgrd$(X) '$(DESTDIR)$(bindir)/adbmgrd$(X)'
 ifeq ($(MAKE_EXPORTS), true)
@@ -276,18 +246,16 @@ ifeq ($(MAKE_DLL), true)
 	rm -f '$(DESTDIR)$(libdir)/libadbmgrd.a'
 endif
 endif
+	$(MAKE) -C catalog uninstall-data
+	$(MAKE) -C tsearch uninstall-data
+	$(MAKE) -C utils uninstall-data
 	rm -f '$(DESTDIR)$(datadir)/adbmgrd.conf.sample'
 
 
 ##########################################################################
 
 clean:
-	rm -f $(LOCALOBJS) adbmgrd$(X) $(AGTM_IMP) \
-		$(mgr_inc_dir)/parser/gram.h \
-		$(mgr_inc_dir)/catalog/schemapg.h \
-		$(mgr_inc_dir)/storage/lwlocknames.h \
-		$(mgr_inc_dir)/utils/fmgroids.h \
-		$(mgr_inc_dir)/utils/probes.h
+	rm -f $(LOCALOBJS) adbmgrd$(X) $(AGTM_IMP)
 ifeq ($(PORTNAME), cygwin)
 	rm -f adbmgrd.dll libadbmgrd.a
 endif
@@ -299,24 +267,19 @@ distclean: clean
 	rm -f port/tas.s port/dynloader.c port/pg_sema.c port/pg_shmem.c
 
 maintainer-clean: distclean
+	$(MAKE) -C catalog $@
+	$(MAKE) -C utils $@
 	rm -f bootstrap/bootparse.c \
 	      bootstrap/bootscanner.c \
 	      parser/gram.c \
 	      parser/gram.h \
 	      parser/scan.c \
-	      catalog/schemapg.h \
-	      catalog/adbmgrd.bki \
-	      catalog/adbmgrd.description \
-	      catalog/adbmgrd.shdescription \
 	      replication/repl_gram.c \
 	      replication/repl_scanner.c \
 	      replication/syncrep_gram.c \
 	      replication/syncrep_scanner.c \
 	      storage/lmgr/lwlocknames.c \
 	      storage/lmgr/lwlocknames.h \
-	      utils/fmgroids.h \
-	      utils/fmgrtab.c \
-	      utils/errcodes.h \
 	      utils/misc/guc-file.c \
 	      utils/sort/qsort_tuple.c
 

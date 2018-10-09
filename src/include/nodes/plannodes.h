@@ -4,7 +4,7 @@
  *	  definitions for query plan nodes
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2014-2017, ADB Development Group
  *
@@ -16,6 +16,7 @@
 #define PLANNODES_H
 
 #include "access/sdir.h"
+#include "access/stratnum.h"
 #include "lib/stringinfo.h"
 #include "nodes/bitmapset.h"
 #include "nodes/lockoptions.h"
@@ -45,7 +46,7 @@ typedef struct PlannedStmt
 
 	CmdType		commandType;	/* select|insert|update|delete|utility */
 
-	uint32		queryId;		/* query identifier (copied from Query) */
+	uint64		queryId;		/* query identifier (copied from Query) */
 
 	bool		hasReturning;	/* is it insert|update|delete RETURNING? */
 
@@ -58,6 +59,8 @@ typedef struct PlannedStmt
 	bool		dependsOnRole;	/* is plan specific to current role? */
 
 	bool		parallelModeNeeded; /* parallel mode required to execute? */
+
+	int			jitFlags;		/* which forms of JIT should be performed */
 
 	struct Plan *planTree;		/* tree of Plan nodes */
 
@@ -90,7 +93,7 @@ typedef struct PlannedStmt
 
 	List	   *invalItems;		/* other dependencies, as PlanInvalItems */
 
-	int			nParamExec;		/* number of PARAM_EXEC Params used */
+	List	   *paramExecTypes; /* type OIDs for PARAM_EXEC Params */
 
 	Node	   *utilityStmt;	/* non-null if this is utility stmt */
 
@@ -222,6 +225,7 @@ typedef struct ModifyTable
 	Index		nominalRelation;	/* Parent RT index for use of EXPLAIN */
 	/* RT indexes of non-leaf tables in a partition tree */
 	List	   *partitioned_rels;
+	bool		partColsUpdated;	/* some part key in hierarchy updated */
 	List	   *resultRelations;	/* integer list of RT indexes */
 	int			resultRelIndex; /* index of first resultRel in plan's list */
 	int			rootResultRelIndex; /* index of the partitioned table root */
@@ -254,9 +258,19 @@ typedef struct ModifyTable
 typedef struct Append
 {
 	Plan		plan;
+	List	   *appendplans;
+
+	/*
+	 * All 'appendplans' preceding this index are non-partial plans. All
+	 * 'appendplans' from this index onwards are partial plans.
+	 */
+	int			first_partial_plan;
+
 	/* RT indexes of non-leaf tables in a partition tree */
 	List	   *partitioned_rels;
-	List	   *appendplans;
+
+	/* Info for run-time subplan pruning, one entry per partitioned_rels */
+	List	   *part_prune_infos;	/* List of PartitionPruneInfo */
 } Append;
 
 /* ----------------
@@ -837,6 +851,12 @@ typedef struct WindowAgg
 	int			frameOptions;	/* frame_clause options, see WindowDef */
 	Node	   *startOffset;	/* expression for starting bound, if any */
 	Node	   *endOffset;		/* expression for ending bound, if any */
+	/* these fields are used with RANGE offset PRECEDING/FOLLOWING: */
+	Oid			startInRangeFunc;	/* in_range function for startOffset */
+	Oid			endInRangeFunc; /* in_range function for endOffset */
+	Oid			inRangeColl;	/* collation for in_range tests */
+	bool		inRangeAsc;		/* use ASC sort order for in_range tests? */
+	bool		inRangeNullsFirst;	/* nulls sort first for in_range tests? */
 } WindowAgg;
 
 /* ----------------
@@ -853,14 +873,24 @@ typedef struct Unique
 
 /* ------------
  *		gather node
+ *
+ * Note: rescan_param is the ID of a PARAM_EXEC parameter slot.  That slot
+ * will never actually contain a value, but the Gather node must flag it as
+ * having changed whenever it is rescanned.  The child parallel-aware scan
+ * nodes are marked as depending on that parameter, so that the rescan
+ * machinery is aware that their output is likely to change across rescans.
+ * In some cases we don't need a rescan Param, so rescan_param is set to -1.
  * ------------
  */
 typedef struct Gather
 {
 	Plan		plan;
-	int			num_workers;
-	bool		single_copy;
+	int			num_workers;	/* planned number of worker processes */
+	int			rescan_param;	/* ID of Param that signals a rescan, or -1 */
+	bool		single_copy;	/* don't execute plan more than once */
 	bool		invisible;		/* suppress EXPLAIN display (for testing)? */
+	Bitmapset  *initParam;		/* param id's of initplans which are referred
+								 * at gather or one of it's child node */
 } Gather;
 
 /* ------------
@@ -870,13 +900,16 @@ typedef struct Gather
 typedef struct GatherMerge
 {
 	Plan		plan;
-	int			num_workers;
+	int			num_workers;	/* planned number of worker processes */
+	int			rescan_param;	/* ID of Param that signals a rescan, or -1 */
 	/* remaining fields are just like the sort-key info in struct Sort */
 	int			numCols;		/* number of sort-key columns */
 	AttrNumber *sortColIdx;		/* their indexes in the target list */
 	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
 	Oid		   *collations;		/* OIDs of collations */
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+	Bitmapset  *initParam;		/* param id's of initplans which are referred
+								 * at gather merge or one of it's child node */
 } GatherMerge;
 
 /* ----------------
@@ -894,6 +927,7 @@ typedef struct Hash
 	AttrNumber	skewColumn;		/* outer join key's column #, or zero */
 	bool		skewInherit;	/* is outer join rel an inheritance tree? */
 	/* all other info is in the parent HashJoin node */
+	double		rows_total;		/* estimate total rows if parallel_aware */
 } Hash;
 
 /* ----------------
@@ -1106,6 +1140,127 @@ typedef struct PlanRowMark
 	LockWaitPolicy waitPolicy;	/* NOWAIT and SKIP LOCKED options */
 	bool		isParent;		/* true if this is a "dummy" parent entry */
 } PlanRowMark;
+
+
+/*
+ * Node types to represent partition pruning information.
+ */
+
+/*
+ * PartitionPruneInfo - Details required to allow the executor to prune
+ * partitions.
+ *
+ * Here we store mapping details to allow translation of a partitioned table's
+ * index as returned by the partition pruning code into subplan indexes for
+ * plan types which support arbitrary numbers of subplans, such as Append.
+ * We also store various details to tell the executor when it should be
+ * performing partition pruning.
+ *
+ * Each PartitionPruneInfo describes the partitioning rules for a single
+ * partitioned table (a/k/a level of partitioning).  For a multilevel
+ * partitioned table, we have a List of PartitionPruneInfos, where the
+ * first entry represents the topmost partitioned table and additional
+ * entries represent non-leaf child partitions, ordered such that parents
+ * appear before their children.
+ *
+ * subplan_map[] and subpart_map[] are indexed by partition index (where
+ * zero is the topmost partition, and non-leaf partitions must come before
+ * their children).  For a leaf partition p, subplan_map[p] contains the
+ * zero-based index of the partition's subplan in the parent plan's subplan
+ * list; it is -1 if the partition is non-leaf or has been pruned.  For a
+ * non-leaf partition p, subpart_map[p] contains the zero-based index of
+ * that sub-partition's PartitionPruneInfo in the plan's PartitionPruneInfo
+ * list; it is -1 if the partition is a leaf or has been pruned.  All these
+ * indexes are global across the whole partitioned table and Append plan node.
+ */
+typedef struct PartitionPruneInfo
+{
+	NodeTag		type;
+	Oid			reloid;			/* OID of partition rel for this level */
+	List	   *pruning_steps;	/* List of PartitionPruneStep, see below */
+	Bitmapset  *present_parts;	/* Indexes of all partitions which subplans or
+								 * subparts are present for. */
+	int			nparts;			/* Length of subplan_map[] and subpart_map[] */
+	int			nexprs;			/* Length of hasexecparam[] */
+	int		   *subplan_map;	/* subplan index by partition index, or -1 */
+	int		   *subpart_map;	/* subpart index by partition index, or -1 */
+	bool	   *hasexecparam;	/* true if corresponding pruning_step contains
+								 * any PARAM_EXEC Params. */
+	bool		do_initial_prune;	/* true if pruning should be performed
+									 * during executor startup. */
+	bool		do_exec_prune;	/* true if pruning should be performed during
+								 * executor run. */
+	Bitmapset  *execparamids;	/* All PARAM_EXEC Param IDs in pruning_steps */
+} PartitionPruneInfo;
+
+/*
+ * Abstract Node type for partition pruning steps (there are no concrete
+ * Nodes of this type).
+ *
+ * step_id is the global identifier of the step within its pruning context.
+ */
+typedef struct PartitionPruneStep
+{
+	NodeTag		type;
+	int			step_id;
+} PartitionPruneStep;
+
+/*
+ * PartitionPruneStepOp - Information to prune using a set of mutually AND'd
+ *							OpExpr clauses
+ *
+ * This contains information extracted from up to partnatts OpExpr clauses,
+ * where partnatts is the number of partition key columns.  'opstrategy' is the
+ * strategy of the operator in the clause matched to the last partition key.
+ * 'exprs' contains expressions which comprise the lookup key to be passed to
+ * the partition bound search function.  'cmpfns' contains the OIDs of
+ * comparison functions used to compare aforementioned expressions with
+ * partition bounds.  Both 'exprs' and 'cmpfns' contain the same number of
+ * items, up to partnatts items.
+ *
+ * Once we find the offset of a partition bound using the lookup key, we
+ * determine which partitions to include in the result based on the value of
+ * 'opstrategy'.  For example, if it were equality, we'd return just the
+ * partition that would contain that key or a set of partitions if the key
+ * didn't consist of all partitioning columns.  For non-equality strategies,
+ * we'd need to include other partitions as appropriate.
+ *
+ * 'nullkeys' is the set containing the offset of the partition keys (0 to
+ * partnatts - 1) that were matched to an IS NULL clause.  This is only
+ * considered for hash partitioning as we need to pass which keys are null
+ * to the hash partition bound search function.  It is never possible to
+ * have an expression be present in 'exprs' for a given partition key and
+ * the corresponding bit set in 'nullkeys'.
+ */
+typedef struct PartitionPruneStepOp
+{
+	PartitionPruneStep step;
+
+	StrategyNumber opstrategy;
+	List	   *exprs;
+	List	   *cmpfns;
+	Bitmapset  *nullkeys;
+} PartitionPruneStepOp;
+
+/*
+ * PartitionPruneStepCombine - Information to prune using a BoolExpr clause
+ *
+ * For BoolExpr clauses, we combine the set of partitions determined for each
+ * of the argument clauses.
+ */
+typedef enum PartitionPruneCombineOp
+{
+	PARTPRUNE_COMBINE_UNION,
+	PARTPRUNE_COMBINE_INTERSECT
+} PartitionPruneCombineOp;
+
+typedef struct PartitionPruneStepCombine
+{
+	PartitionPruneStep step;
+
+	PartitionPruneCombineOp combineOp;
+	List	   *source_stepids;
+} PartitionPruneStepCombine;
 
 
 /*

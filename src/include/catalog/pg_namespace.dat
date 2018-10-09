@@ -1,0 +1,35 @@
+#----------------------------------------------------------------------
+#
+# pg_namespace.dat
+#    Initial contents of the pg_namespace system catalog.
+#
+# Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+# Portions Copyright (c) 1994, Regents of the University of California
+#
+# src/include/catalog/pg_namespace.dat
+#
+#----------------------------------------------------------------------
+
+[
+
+{ oid => '11', oid_symbol => 'PG_CATALOG_NAMESPACE',
+  descr => 'system catalog schema',
+  nspname => 'pg_catalog', nspowner => 'PGUID', nspacl => '_null_' },
+{ oid => '99', oid_symbol => 'PG_TOAST_NAMESPACE',
+  descr => 'reserved schema for TOAST tables',
+  nspname => 'pg_toast', nspowner => 'PGUID', nspacl => '_null_' },
+{ oid => '2200', oid_symbol => 'PG_PUBLIC_NAMESPACE',
+  descr => 'standard public schema',
+  nspname => 'public', nspowner => 'PGUID', nspacl => '_null_' },
+
+# ADB_BEGIN
+{ oid => '6130', oid_symbol => 'PG_ORACLE_NAMESPACE', row_macros => 'ADB_GRAM_ORA',
+  descr => 'compatible oracle schema',
+  nspname => 'oracle', nspowner => 'PGUID', nspacl => '_null_' },
+
+#modify this oid, must modify PG_MANAGER_NAMESPACE macro in pg_namespace.h
+{ oid => '6105', oid_symbol => 'PG_MANAGER_NAMESPACE', row_macros => 'ADBMGRD',
+  descr => 'ADB manager schema',
+  nspname => 'adbmgr', nspowner => 'PGUID', nspacl => '_null_' },
+#ADB_END
+]

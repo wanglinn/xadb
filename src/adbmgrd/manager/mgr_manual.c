@@ -14,7 +14,7 @@
 #include "catalog/indexing.h"
 #include "catalog/mgr_host.h"
 #include "catalog/pg_authid.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "catalog/mgr_updateparm.h"
 #include "catalog/monitor_job.h"
 #include "catalog/mgr_parm.h"
@@ -256,7 +256,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 		,F_CHAREQ
 		,CharGetDatum(CNDN_TYPE_DATANODE_SLAVE));
 	ScanKeyInit(&key[1]
-		,Anum_mgr_node_nodemasternameOid
+		,Anum_mgr_node_nodemasternameoid
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(oldMasterTupleOid));
@@ -2069,7 +2069,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		,F_BOOLEQ
 		,BoolGetDatum(true));
 	ScanKeyInit(&key[2]
-		,Anum_mgr_node_nodemasternameOid
+		,Anum_mgr_node_nodemasternameoid
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(nodeInfoS.nodemasteroid));
@@ -2483,7 +2483,7 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		if (mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER 
+		if (mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER
 			|| mgr_node->nodetype == CNDN_TYPE_DATANODE_SLAVE)
 		{
 			hostOid = mgr_node->nodehost;

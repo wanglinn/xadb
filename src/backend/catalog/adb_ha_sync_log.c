@@ -40,8 +40,6 @@ extern char *adb_ha_param_delimiter;
 
 static MemoryContext AdbHaSyncLogContext = NULL;
 
-static int time2tm(TimeADT time, struct pg_tm * tm, fsec_t *fsec);
-static int timetz2tm(TimeTzADT *time, struct pg_tm * tm, fsec_t *fsec, int *tzp);
 static void deparsePgTmOutString(struct pg_tm *tm, fsec_t fsec, StringInfo buf);
 static char* deparseParamOutString(ParamExternData *prm);
 static void deparseParamListInfo(ParamListInfo params, StringInfo buf);
@@ -95,9 +93,7 @@ AddAdbHaSyncLog(TimestampTz create_time,
 	{
 		AdbHaSyncLogContext = AllocSetContextCreate(TopMemoryContext,
 													"AdbHaSyncLogContext",
-													ALLOCSET_DEFAULT_MINSIZE,
-													ALLOCSET_DEFAULT_INITSIZE,
-													ALLOCSET_DEFAULT_MAXSIZE);
+													ALLOCSET_DEFAULT_SIZES);
 	} else
 	{
 		MemoryContextResetAndDeleteChildren(AdbHaSyncLogContext);
@@ -162,71 +158,6 @@ AddAdbHaSyncLog(TimestampTz create_time,
 		MemoryContextStats(AdbHaSyncLogContext);
 #endif
 	MemoryContextResetAndDeleteChildren(AdbHaSyncLogContext);
-}
-
-static int
-time2tm(TimeADT time, struct pg_tm * tm, fsec_t *fsec)
-{
-#ifdef HAVE_INT64_TIMESTAMP
-	tm->tm_hour = time / USECS_PER_HOUR;
-	time -= tm->tm_hour * USECS_PER_HOUR;
-	tm->tm_min = time / USECS_PER_MINUTE;
-	time -= tm->tm_min * USECS_PER_MINUTE;
-	tm->tm_sec = time / USECS_PER_SEC;
-	time -= tm->tm_sec * USECS_PER_SEC;
-	*fsec = time;
-#else
-	double		trem;
-
-recalc:
-	trem = time;
-	TMODULO(trem, tm->tm_hour, (double) SECS_PER_HOUR);
-	TMODULO(trem, tm->tm_min, (double) SECS_PER_MINUTE);
-	TMODULO(trem, tm->tm_sec, 1.0);
-	trem = TIMEROUND(trem);
-	/* roundoff may need to propagate to higher-order fields */
-	if (trem >= 1.0)
-	{
-		time = ceil(time);
-		goto recalc;
-	}
-	*fsec = trem;
-#endif
-
-	return 0;
-}
-
-static int
-timetz2tm(TimeTzADT *time, struct pg_tm * tm, fsec_t *fsec, int *tzp)
-{
-	TimeOffset	trem = time->time;
-
-#ifdef HAVE_INT64_TIMESTAMP
-	tm->tm_hour = trem / USECS_PER_HOUR;
-	trem -= tm->tm_hour * USECS_PER_HOUR;
-	tm->tm_min = trem / USECS_PER_MINUTE;
-	trem -= tm->tm_min * USECS_PER_MINUTE;
-	tm->tm_sec = trem / USECS_PER_SEC;
-	*fsec = trem - tm->tm_sec * USECS_PER_SEC;
-#else
-recalc:
-	TMODULO(trem, tm->tm_hour, (double) SECS_PER_HOUR);
-	TMODULO(trem, tm->tm_min, (double) SECS_PER_MINUTE);
-	TMODULO(trem, tm->tm_sec, 1.0);
-	trem = TIMEROUND(trem);
-	/* roundoff may need to propagate to higher-order fields */
-	if (trem >= 1.0)
-	{
-		trem = ceil(time->time);
-		goto recalc;
-	}
-	*fsec = trem;
-#endif
-
-	if (tzp != NULL)
-		*tzp = time->zone;
-
-	return 0;
 }
 
 static void

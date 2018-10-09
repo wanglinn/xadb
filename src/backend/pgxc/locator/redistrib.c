@@ -454,7 +454,7 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 	RemoteCopyState	   *copyState;
 	bool				contains_tuple = true;
 	TupleDesc			tupdesc;
-	Form_pg_attribute  *attr;
+	Form_pg_attribute	attr;
 	TupleTableSlot	   *slot;
 	Datum			   *dist_col_values;
 	bool			   *dist_col_is_nulls;
@@ -535,7 +535,7 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 			attnum = copyState->rel_loc->partAttrNum;
 			dist_col_values = &slot->tts_values[attnum - 1];
 			dist_col_is_nulls = &slot->tts_isnull[attnum - 1];
-			dist_col_types = &attr[attnum - 1]->atttypid;
+			dist_col_types = &attr[attnum - 1].atttypid;
 		} else
 		if (IsRelationDistributedByUserDefined(copyState->rel_loc))
 		{
@@ -554,7 +554,7 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 				attnum = (AttrNumber) lfirst_int(lc);
 				dist_col_values[idx] = slot->tts_values[attnum - 1];
 				dist_col_is_nulls[idx] = slot->tts_isnull[attnum - 1];
-				dist_col_types[idx] = attr[attnum - 1]->atttypid;
+				dist_col_types[idx] = attr[attnum - 1].atttypid;
 				idx++;
 			}
 		} else
@@ -741,14 +741,14 @@ distrib_delete_hash(RedistribState *distribState, ExecNodes *exec_nodes)
 		int			nodepos = 0;
 		ExecNodes  *local_exec_nodes = makeNode(ExecNodes);
 		TupleDesc	tupDesc = RelationGetDescr(rel);
-		Form_pg_attribute *attr = tupDesc->attrs;
+		Form_pg_attribute attr = tupDesc->attrs;
 		ListCell   *item2;
 
 		/* Here the query is launched to a unique node */
 		local_exec_nodes->nodeids = lappend_oid(NIL, nodeid);
 
 		/* Get the hash type of relation */
-		hashtype = attr[locinfo->partAttrNum - 1]->atttypid;
+		hashtype = attr[locinfo->partAttrNum - 1].atttypid;
 
 		/* Get function hash name */
 		hashfuncname = get_compute_hash_function(hashtype, locinfo->locatorType);

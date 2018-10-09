@@ -94,6 +94,13 @@
 #	define NODE_DATUM(t, m, o, n)
 #endif
 
+#ifndef NO_STRUCT_PartitionPruneStep
+BEGIN_STRUCT(PartitionPruneStep)
+	NODE_ENUM(NodeTag,type)
+	NODE_SCALAR(int,step_id)
+END_STRUCT(PartitionPruneStep)
+#endif /* NO_STRUCT_PartitionPruneStep */
+
 #ifndef NO_STRUCT_QualCost
 BEGIN_STRUCT(QualCost)
 	NODE_SCALAR(Cost,startup)
@@ -112,6 +119,19 @@ BEGIN_STRUCT(AggClauseCosts)
 	NODE_SCALAR(Size,transitionSpace)
 END_STRUCT(AggClauseCosts)
 #endif /* NO_STRUCT_AggClauseCosts */
+
+#ifndef NO_STRUCT_PartitionSchemeData
+BEGIN_STRUCT(PartitionSchemeData)
+	NODE_SCALAR(char,strategy)
+	NODE_SCALAR(int16,partnatts)
+	NODE_SCALAR_POINT(Oid,partopfamily,NODE_ARG_->------)
+	NODE_SCALAR_POINT(Oid,partopcintype,NODE_ARG_->------)
+	NODE_SCALAR_POINT(Oid,partcollation,NODE_ARG_->------)
+	NODE_SCALAR_POINT(int16,parttyplen,NODE_ARG_->------)
+	NODE_SCALAR_POINT(bool,parttypbyval,NODE_ARG_->------)
+FmgrInfo *partsupfunc
+END_STRUCT(PartitionSchemeData)
+#endif /* NO_STRUCT_PartitionSchemeData */
 
 #ifndef NO_STRUCT_MergeScanSelCache
 BEGIN_STRUCT(MergeScanSelCache)
@@ -157,6 +177,7 @@ BEGIN_STRUCT(JoinCostWorkspace)
 	NODE_SCALAR(double,inner_skip_rows)
 	NODE_SCALAR(int,numbuckets)
 	NODE_SCALAR(int,numbatches)
+	NODE_SCALAR(double,inner_rows_total)
 #ifdef ADB
 	NODE_SCALAR(bool,is_cluster)
 #endif
@@ -211,15 +232,16 @@ BEGIN_STRUCT(TupleHashTableData)
 	NODE_SCALAR(int,numCols)
 	NODE_SCALAR_POINT(AttrNumber,keyColIdx,NODE_ARG_->numCols)
 	NODE_OTHER_POINT(FmgrInfo, tab_hash_funcs)
-	NODE_OTHER_POINT(FmgrInfo, tab_eq_funcs)
+	NODE_NODE(ExprState,tab_eq_func)
 	NODE_NODE_MEB(MemoryContext,tablecxt)
 	NODE_NODE_MEB(MemoryContext,tempcxt)
 	NODE_SCALAR(Size,entrysize)
 	NODE_NODE(TupleTableSlot,tableslot)
 	NODE_NODE(TupleTableSlot,inputslot)
 	NODE_OTHER_POINT(FmgrInfo, in_hash_funcs)
-	NODE_OTHER_POINT(FmgrInfo, cur_eq_funcs)
+	NODE_NODE(ExprState,cur_eq_func)
 	NODE_SCALAR(uint32,hash_iv)
+	NODE_NODE(ExprContext,exprcontext)
 END_STRUCT(TupleHashTableData)
 #endif /* NO_STRUCT_TupleHashTableData */
 
@@ -233,6 +255,111 @@ BEGIN_STRUCT(EPQState)
 	NODE_SCALAR(int,epqParam)
 END_STRUCT(EPQState)
 #endif /* NO_STRUCT_EPQState */
+
+#ifndef NO_STRUCT_SharedSortInfo
+BEGIN_STRUCT(SharedSortInfo)
+	NODE_SCALAR(int,num_workers)
+TuplesortInstrumentation sinstrument[FLEXIBLE_ARRAY_MEMBER]
+END_STRUCT(SharedSortInfo)
+#endif /* NO_STRUCT_SharedSortInfo */
+
+#ifndef NO_STRUCT_GenericIndexOpts
+BEGIN_STRUCT(GenericIndexOpts)
+	NODE_SCALAR(int32,vl_len_)
+	NODE_SCALAR(bool,recheck_on_update)
+END_STRUCT(GenericIndexOpts)
+#endif /* NO_STRUCT_GenericIndexOpts */
+
+#ifndef NO_STRUCT_AutoVacOpts
+BEGIN_STRUCT(AutoVacOpts)
+	NODE_SCALAR(bool,enabled)
+	NODE_SCALAR(int,vacuum_threshold)
+	NODE_SCALAR(int,analyze_threshold)
+	NODE_SCALAR(int,vacuum_cost_delay)
+	NODE_SCALAR(int,vacuum_cost_limit)
+	NODE_SCALAR(int,freeze_min_age)
+	NODE_SCALAR(int,freeze_max_age)
+	NODE_SCALAR(int,freeze_table_age)
+	NODE_SCALAR(int,multixact_freeze_min_age)
+	NODE_SCALAR(int,multixact_freeze_max_age)
+	NODE_SCALAR(int,multixact_freeze_table_age)
+	NODE_SCALAR(int,log_min_duration)
+	NODE_SCALAR(float8,vacuum_scale_factor)
+	NODE_SCALAR(float8,analyze_scale_factor)
+END_STRUCT(AutoVacOpts)
+#endif /* NO_STRUCT_AutoVacOpts */
+
+#ifndef NO_STRUCT_StdRdOptions
+BEGIN_STRUCT(StdRdOptions)
+	NODE_SCALAR(int32,vl_len_)
+	NODE_SCALAR(int,fillfactor)
+	NODE_SCALAR(float8,vacuum_cleanup_index_scale_factor)
+	NODE_SCALAR(int,toast_tuple_target)
+	NODE_STRUCT_MEB(AutoVacOpts,autovacuum)
+	NODE_SCALAR(bool,user_catalog_table)
+	NODE_SCALAR(int,parallel_workers)
+END_STRUCT(StdRdOptions)
+#endif /* NO_STRUCT_StdRdOptions */
+
+#ifndef NO_STRUCT_ViewOptions
+BEGIN_STRUCT(ViewOptions)
+	NODE_SCALAR(int32,vl_len_)
+	NODE_SCALAR(bool,security_barrier)
+	NODE_SCALAR(int,check_option_offset)
+END_STRUCT(ViewOptions)
+#endif /* NO_STRUCT_ViewOptions */
+
+#ifndef NO_STRUCT_ParamExternData
+BEGIN_STRUCT(ParamExternData)
+	NODE_DATUM(Datum,value,NODE_ARG_->ptype, NODE_ARG_->isnull)
+	NODE_SCALAR(bool,isnull)
+	NODE_SCALAR(uint16,pflags)
+	NODE_SCALAR(Oid,ptype)
+END_STRUCT(ParamExternData)
+#endif /* NO_STRUCT_ParamExternData */
+
+#ifndef NO_STRUCT_ParamListInfoData
+BEGIN_STRUCT(ParamListInfoData)
+	NODE_OTHER_POINT(ParamFetchHook,paramFetch)
+	NODE_OTHER_POINT(void,paramFetchArg)
+	NODE_OTHER_POINT(ParamCompileHook,paramCompile)
+	NODE_OTHER_POINT(void,paramCompileArg)
+	NODE_OTHER_POINT(ParserSetupHook,parserSetup)
+	NODE_OTHER_POINT(void,parserSetupArg)
+	NODE_SCALAR(int,numParams)
+	NODE_STRUCT_ARRAY(ParamExternData,params, NODE_ARG_->numParams)
+END_STRUCT(ParamListInfoData)
+#endif /* NO_STRUCT_ParamListInfoData */
+
+#if defined(ADB)
+#ifndef NO_STRUCT_ReduceInfo
+BEGIN_STRUCT(ReduceInfo)
+	NODE_NODE(List,storage_nodes)
+	NODE_NODE(List,exclude_exec)
+	NODE_NODE(List,params)
+	NODE_NODE(Expr,expr)
+	NODE_RELIDS(Relids,relids)
+	NODE_SCALAR(char,type)
+END_STRUCT(ReduceInfo)
+#endif /* NO_STRUCT_ReduceInfo */
+#endif
+
+#ifndef NO_STRUCT_HashInstrumentation
+BEGIN_STRUCT(HashInstrumentation)
+	NODE_SCALAR(int,nbuckets)
+	NODE_SCALAR(int,nbuckets_original)
+	NODE_SCALAR(int,nbatch)
+	NODE_SCALAR(int,nbatch_original)
+size_t space_peak
+END_STRUCT(HashInstrumentation)
+#endif /* NO_STRUCT_HashInstrumentation */
+
+#ifndef NO_STRUCT_SharedHashInfo
+BEGIN_STRUCT(SharedHashInfo)
+	NODE_SCALAR(int,num_workers)
+HashInstrumentation hinstrument[FLEXIBLE_ARRAY_MEMBER]
+END_STRUCT(SharedHashInfo)
+#endif /* NO_STRUCT_SharedHashInfo */
 
 #ifndef NO_STRUCT_ExtensibleNodeMethods
 BEGIN_STRUCT(ExtensibleNodeMethods)
@@ -249,6 +376,7 @@ END_STRUCT(ExtensibleNodeMethods)
 BEGIN_STRUCT(CustomPathMethods)
 	NODE_STRING(CustomName)
 	NODE_OTHER_POINT(void,PlanCustomPath)
+	NODE_OTHER_POINT(void,ReparameterizeCustomPathByChild)
 END_STRUCT(CustomPathMethods)
 #endif /* NO_STRUCT_CustomPathMethods */
 
@@ -270,6 +398,7 @@ BEGIN_STRUCT(CustomExecMethods)
 	NODE_OTHER_POINT(void,RestrPosCustomScan)
 	NODE_OTHER_POINT(void,EstimateDSMCustomScan)
 	NODE_OTHER_POINT(void,InitializeDSMCustomScan)
+	NODE_OTHER_POINT(void,ReInitializeDSMCustomScan)
 	NODE_OTHER_POINT(void,InitializeWorkerCustomScan)
 	NODE_OTHER_POINT(void,ShutdownCustomScan)
 	NODE_OTHER_POINT(void,ExplainCustomScan)
@@ -333,74 +462,3 @@ BEGIN_STRUCT(LockInfoData)
 	NODE_STRUCT_MEB(LockRelId,lockRelId)
 END_STRUCT(LockInfoData)
 #endif /* NO_STRUCT_LockInfoData */
-
-#ifndef NO_STRUCT_AutoVacOpts
-BEGIN_STRUCT(AutoVacOpts)
-	NODE_SCALAR(bool,enabled)
-	NODE_SCALAR(int,vacuum_threshold)
-	NODE_SCALAR(int,analyze_threshold)
-	NODE_SCALAR(int,vacuum_cost_delay)
-	NODE_SCALAR(int,vacuum_cost_limit)
-	NODE_SCALAR(int,freeze_min_age)
-	NODE_SCALAR(int,freeze_max_age)
-	NODE_SCALAR(int,freeze_table_age)
-	NODE_SCALAR(int,multixact_freeze_min_age)
-	NODE_SCALAR(int,multixact_freeze_max_age)
-	NODE_SCALAR(int,multixact_freeze_table_age)
-	NODE_SCALAR(int,log_min_duration)
-	NODE_SCALAR(float8,vacuum_scale_factor)
-	NODE_SCALAR(float8,analyze_scale_factor)
-END_STRUCT(AutoVacOpts)
-#endif /* NO_STRUCT_AutoVacOpts */
-
-#ifndef NO_STRUCT_StdRdOptions
-BEGIN_STRUCT(StdRdOptions)
-	NODE_SCALAR(int32,vl_len_)
-	NODE_SCALAR(int,fillfactor)
-	NODE_STRUCT_MEB(AutoVacOpts,autovacuum)
-	NODE_SCALAR(bool,user_catalog_table)
-	NODE_SCALAR(int,parallel_workers)
-END_STRUCT(StdRdOptions)
-#endif /* NO_STRUCT_StdRdOptions */
-
-#ifndef NO_STRUCT_ViewOptions
-BEGIN_STRUCT(ViewOptions)
-	NODE_SCALAR(int32,vl_len_)
-	NODE_SCALAR(bool,security_barrier)
-	NODE_SCALAR(int,check_option_offset)
-END_STRUCT(ViewOptions)
-#endif /* NO_STRUCT_ViewOptions */
-
-#ifndef NO_STRUCT_ParamExternData
-BEGIN_STRUCT(ParamExternData)
-	NODE_DATUM(Datum,value,NODE_ARG_->ptype, NODE_ARG_->isnull)
-	NODE_SCALAR(bool,isnull)
-	NODE_SCALAR(uint16,pflags)
-	NODE_SCALAR(Oid,ptype)
-END_STRUCT(ParamExternData)
-#endif /* NO_STRUCT_ParamExternData */
-
-#ifndef NO_STRUCT_ParamListInfoData
-BEGIN_STRUCT(ParamListInfoData)
-	NODE_OTHER_POINT(ParamFetchHook,paramFetch)
-	NODE_OTHER_POINT(void,paramFetchArg)
-	NODE_OTHER_POINT(ParserSetupHook,parserSetup)
-	NODE_OTHER_POINT(void,parserSetupArg)
-	NODE_SCALAR(int,numParams)
-	NODE_BITMAPSET(Bitmapset,paramMask)
-	NODE_STRUCT_ARRAY(ParamExternData,params, NODE_ARG_->numParams)
-END_STRUCT(ParamListInfoData)
-#endif /* NO_STRUCT_ParamListInfoData */
-
-#if defined(ADB)
-#ifndef NO_STRUCT_ReduceInfo
-BEGIN_STRUCT(ReduceInfo)
-	NODE_NODE(List,storage_nodes)
-	NODE_NODE(List,exclude_exec)
-	NODE_NODE(List,params)
-	NODE_NODE(Expr,expr)
-	NODE_RELIDS(Relids,relids)
-	NODE_SCALAR(char,type)
-END_STRUCT(ReduceInfo)
-#endif /* NO_STRUCT_ReduceInfo */
-#endif

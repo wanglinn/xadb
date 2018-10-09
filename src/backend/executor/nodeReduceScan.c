@@ -21,6 +21,7 @@ static void ExecReduceScanSaveTuple(ReduceScanState *node, TupleTableSlot *slot,
 ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags)
 {
 	Plan	   *outer_plan;
+	TupleDesc	tupDesc;
 	ReduceScanState *rcs = makeNode(ReduceScanState);
 
 	rcs->ss.ps.plan = (Plan*)node;
@@ -37,30 +38,24 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 	/*
 	 * initialize child expressions
 	 */
-	rcs->ss.ps.qual = ExecInitExpr((Expr *) node->plan.qual, (PlanState *) rcs);
-
-	/*
-	 * tuple table initialization
-	 *
-	 * material nodes only return tuples from their materialized relation.
-	 */
-	ExecInitResultTupleSlot(estate, &rcs->ss.ps);
-	ExecInitScanTupleSlot(estate, &rcs->ss);
+	rcs->ss.ps.qual = ExecInitQual(node->plan.qual, (PlanState *) rcs);
 
 	outer_plan = outerPlan(node);
 	outerPlanState(rcs) = ExecInitNode(outer_plan, estate, eflags);
+	tupDesc = ExecGetResultType(outerPlanState(rcs));
 
 	/*
 	 * initialize tuple type.  no need to initialize projection info because
 	 * this node doesn't do projections.
 	 */
-	ExecAssignResultTypeFromTL(&rcs->ss.ps);
-	ExecAssignScanTypeFromOuterPlan(&rcs->ss);
-	ExecAssignProjectionInfo(&rcs->ss.ps, rcs->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
+	ExecInitScanTupleSlot(estate, &rcs->ss, tupDesc);
+	ExecInitResultTupleSlotTL(estate, &rcs->ss.ps);
+	ExecConditionalAssignProjectionInfo(&rcs->ss.ps, tupDesc, OUTER_VAR);
 
 	if(node->param_hash_keys != NIL)
 	{
 		ListCell *lc;
+		size_t space_allowed;
 		int i;
 		int nbatches;
 		int nbuckets;
@@ -71,6 +66,9 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 		ExecChooseHashTableSize(outer_plan->plan_rows,
 								outer_plan->plan_width,
 								false,
+								false,
+								0,
+								&space_allowed,
 								&nbuckets,
 								&nbatches,
 								&nskew_mcvs);

@@ -14,7 +14,7 @@
 #include "access/htup_details.h"
 #include "catalog/indexing.h"
 #include "catalog/mgr_host.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
 #include "funcapi.h"
@@ -330,11 +330,9 @@ Datum mgr_drop_host_func(PG_FUNCTION_ARGS)
 	bool if_exists = PG_GETARG_BOOL(0);
 	List *host_list = (List *)PG_GETARG_POINTER(1);
 
-	context = AllocSetContextCreate(CurrentMemoryContext
-			,"DROP HOST"
-			,ALLOCSET_DEFAULT_MINSIZE
-			,ALLOCSET_DEFAULT_INITSIZE
-			,ALLOCSET_DEFAULT_MAXSIZE);
+	context = AllocSetContextCreate(CurrentMemoryContext,
+									"DROP HOST",
+									ALLOCSET_DEFAULT_SIZES);
 	rel = heap_open(HostRelationId, RowExclusiveLock);
 	old_context = MemoryContextSwitchTo(context);
 

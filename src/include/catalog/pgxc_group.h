@@ -20,28 +20,19 @@
 #ifndef PGXC_GROUP_H
 #define PGXC_GROUP_H
 
-#ifdef BUILD_BKI
-#include "catalog/buildbki.h"
-#else /* BUILD_BKI */
 #include "catalog/genbki.h"
-#include "nodes/parsenodes.h"
-#endif /* BUILD_BKI */
+#include "catalog/pgxc_group_d.h"
 
-#define PgxcGroupRelationId  9014
-
-CATALOG(pgxc_group,9014) BKI_SHARED_RELATION
+CATALOG(pgxc_group,9014,PgxcGroupRelationId) BKI_SHARED_RELATION
 {
-	NameData	group_name;			/* Group name */
+		/* Group name */
+	NameData	group_name;
 
 	/* VARIABLE LENGTH FIELDS: */
-	oidvector	group_members;		/* Group members */
+	/* Group members */
+	oidvector	group_members;
 } FormData_pgxc_group;
 
 typedef FormData_pgxc_group *Form_pgxc_group;
 
-#define Natts_pgxc_group			2
-DECLARE_NATTS(Natts_pgxc_group);
-#define Anum_pgxc_group_name		1
-#define Anum_pgxc_group_members		2
-
-#endif   /* PGXC_GROUP_H */
+#endif	/* PGXC_GROUP_H */

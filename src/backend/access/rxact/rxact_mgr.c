@@ -560,9 +560,7 @@ static void RemoteXactMgrInit(void)
 
 	MessageContext = AllocSetContextCreate(TopMemoryContext,
 										   "MessageContext",
-										   ALLOCSET_DEFAULT_MINSIZE,
-										   ALLOCSET_DEFAULT_INITSIZE,
-										   ALLOCSET_DEFAULT_MAXSIZE);
+										   ALLOCSET_DEFAULT_SIZES);
 
 	on_proc_exit(on_exit_rxact_mgr, (Datum)0);
 }
@@ -2041,7 +2039,7 @@ static File rxact_log_open_file(const char *log_name, int fileFlags, int fileMod
 	AssertArg(log_name);
 
 	snprintf(file_name, sizeof(file_name), "%s/%s", rxlf_directory, log_name);
-	rfile = PathNameOpenFile(file_name, fileFlags, fileMode);
+	rfile = PathNameOpenFilePerm(file_name, fileFlags, fileMode);
 	if(rfile == -1)
 	{
 		const char *tmp = (fileFlags & O_CREAT) == O_CREAT ? " or create" : "";

@@ -10,7 +10,7 @@
 #include "utils/syscache.h"
 #include "mgr/mgr_msg_type.h"
 #include "catalog/mgr_host.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "utils/rel.h"
 #include "utils/array.h"
 #include "utils/tqual.h"
@@ -84,9 +84,9 @@ HeapTuple build_common_command_tuple(const Name name, bool success, const char *
 	desc = get_common_command_tuple_desc();
 
 	AssertArg(desc && desc->natts == 3
-		&& desc->attrs[0]->atttypid == NAMEOID
-		&& desc->attrs[1]->atttypid == BOOLOID
-		&& desc->attrs[2]->atttypid == TEXTOID);
+		&& TupleDescAttr(desc, 0)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 1)->atttypid == BOOLOID
+		&& TupleDescAttr(desc, 2)->atttypid == TEXTOID);
 
 	datums[0] = NameGetDatum(name);
 	datums[1] = BoolGetDatum(success);
@@ -104,8 +104,8 @@ HeapTuple build_list_acl_command_tuple(const Name name, const char *message)
 	desc = get_list_acl_command_tuple_desc();
 
 	AssertArg(desc && desc->natts == 2
-		&& desc->attrs[0]->atttypid == NAMEOID
-		&& desc->attrs[1]->atttypid == TEXTOID);
+		&& TupleDescAttr(desc, 0)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 1)->atttypid == TEXTOID);
 
 	datums[0] = NameGetDatum(name);
 	datums[1] = CStringGetTextDatum(message);
@@ -154,7 +154,7 @@ HeapTuple build_ha_replication_tuple(const Name type, const Name nodename, const
 	AssertArg(desc && desc->natts == 11);
 	while(i<11)
 	{
-		AssertArg(desc->attrs[i]->atttypid == NAMEOID);
+		AssertArg(TupleDescAttr(desc, i)->atttypid == NAMEOID);
 		nulls[i] = false;
 		i++;
 	}
@@ -1905,10 +1905,10 @@ HeapTuple build_common_command_tuple_four_col(const Name name, char type, bool s
     desc = get_common_command_tuple_desc_four_col();
 
     AssertArg(desc && desc->natts == 4
-        && desc->attrs[0]->atttypid == NAMEOID
-        && desc->attrs[1]->atttypid == NAMEOID
-        && desc->attrs[2]->atttypid == BOOLOID
-        && desc->attrs[3]->atttypid == TEXTOID);
+        && TupleDescAttr(desc, 0)->atttypid == NAMEOID
+        && TupleDescAttr(desc, 1)->atttypid == NAMEOID
+        && TupleDescAttr(desc, 2)->atttypid == BOOLOID
+        && TupleDescAttr(desc, 3)->atttypid == TEXTOID);
 
     switch(type)
     {
@@ -2020,7 +2020,7 @@ void mgr_add_hbaconf_by_masteroid(Oid mastertupleoid, char *dbname, char *user, 
 	initStringInfo(&infosendmsg);
 
 	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodemasternameOid
+		,Anum_mgr_node_nodemasternameoid
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(mastertupleoid));
@@ -2142,7 +2142,7 @@ int mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int sync_sta
 
 	namestrcpy(&sync_state_name, sync_state_tab[sync_state_sync].name);
 	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodemasternameOid
+		,Anum_mgr_node_nodemasternameoid
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(masterTupleOid));
@@ -2230,7 +2230,7 @@ bool mgr_get_slave_node(Relation relNode, Oid masterTupleOid, int SYNC_STATE_SYN
 
 	namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_SYNC].name);
 	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodemasternameOid
+		,Anum_mgr_node_nodemasternameoid
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(masterTupleOid));
@@ -2534,7 +2534,7 @@ HeapTuple mgr_get_sync_slavenode_tuple(Oid mastertupleoid, bool bincluster, Oid 
 
 	relNode = heap_open(NodeRelationId, AccessShareLock);
 	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodemasternameOid
+		,Anum_mgr_node_nodemasternameoid
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(mastertupleoid));
@@ -3743,7 +3743,7 @@ List *mgr_append_coord_update_pgxcnode(StringInfo sqlstrmsg, List *dnList, Name 
 					appendStringInfo(sqlstrmsg, "select pg_alter_node('%s', '%s', '%s', %d, %s);"
 						, nodeName, NameStr(mgr_syncNode->nodename), address
 						, port
-						, (strcmp(oldPreferredNode->data, NameStr(mgr_node->nodename)) == 0) 
+						, (strcmp(oldPreferredNode->data, NameStr(mgr_node->nodename)) == 0)
 							? "true":"false");
 					pfree(address);
 					heap_freetuple(syncNodeTuple);
@@ -3847,7 +3847,7 @@ int mgr_get_node_sequence(char *nodeName, char nodeType, bool bReadOnly)
 }
 
 /*
-* get the the master tuple oid, if the node is gtm or datanode slave , the mgr_node->nodemasternameoid 
+* get the the master tuple oid, if the node is gtm or datanode slave , the mgr_node->nodemasternameoid
 * is its master tuple oid.
 */
 Oid mgr_get_nodeMaster_tupleOid(char *nodeName)
@@ -4027,14 +4027,14 @@ bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrda
 				bnormal = false;
 				ereport(WARNING, (errmsg("refresh the node \"%s\" information in pgxc_node \
 					of corodinator \"%s\" fail, you should check its pgxc_node, sql string is %s,\
-					the error message: %s", 
+					the error message: %s",
 					nodename, NameStr(mgr_node->nodename), infosendmsg.data, getAgentCmdRst.description.data)));
 			}
 		}
 		else
 		{
 			bnormal = false;
-			ereport(WARNING, (errmsg("connect corodinator \"%s\" fail, you should check its pgxc_node, sql string is %s", 
+			ereport(WARNING, (errmsg("connect corodinator \"%s\" fail, you should check its pgxc_node, sql string is %s",
 				NameStr(mgr_node->nodename), infosendmsg.data)));
 		}
 	}
@@ -4127,7 +4127,7 @@ bool mgr_update_pgxcnode_readonly_coord(void)
 		{
 			bnormal = false;
 			ereport(WARNING, (errmsg("on readonly coordinator \"%s\" execute the sql \"%s\" fail %s, \
-				and will not update the pgxc_node of this coordinator, you need update it by yourself", 
+				and will not update the pgxc_node of this coordinator, you need update it by yourself",
 					NameStr(mgr_node->nodename), sqlstrinfotmp.data
 					, (restmsg.len >0 && restmsg.data[0] != '\0')? restmsg.data : "")));
 		}
@@ -4180,7 +4180,7 @@ bool mgr_update_pgxcnode_readonly_coord(void)
 			{
 				bnormal = false;
 				ereport(WARNING, (errmsg("on readonly coordinator \"%s\" execute the sql \"%s\" fail %s, \
-				and will not update the pgxc_node of this coordinator, you need update it by yourself", 
+				and will not update the pgxc_node of this coordinator, you need update it by yourself",
 					NameStr(mgr_node->nodename), sqlinfo.data
 					, (restmsg.len >0 && restmsg.data[0] != '\0')? restmsg.data : "")));
 			}

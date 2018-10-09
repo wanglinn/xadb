@@ -12,7 +12,7 @@
 #include "mgr/mgr_agent.h"
 #include "utils/timestamp.h"
 #include "../../interfaces/libpq/libpq-fe.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "utils/relcache.h"
 #include "access/heapam.h"
 

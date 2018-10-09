@@ -16,38 +16,34 @@ catalogdir  = $(top_srcdir)/src/backend/catalog
 
 include $(top_srcdir)/src/adbmgrd/common.mk
 
-all: fmgroids.h probes.h
+all: distprep generated-header-symlinks
 
-$(SUBDIRS:%=%-recursive): fmgroids.h
+distprep: fmgr-stamp $(top_builddir)/src/include/utils/errcodes.h
 
-# see explanation in ../parser/Makefile
-fmgroids.h: fmgrtab.c ;
+.PHONY: generated-header-symlinks
 
-fmgrtab.c: Gen_fmgrtab.pl $(catalogdir)/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.h
-	rm -f pg_proc.h.c
-	$(LN_S) $(top_srcdir)/src/include/catalog/pg_proc.h pg_proc.h.c
-	$(CPP) -DBUILD_FMGRTAB -DCATALOG_VARLEN -DADBMGRD "-DDECLARE_NATTS(n)=_##n n" -o pg_proc.h pg_proc.h.c
-	$(PERL) -I $(catalogdir) $< pg_proc.h
-	rm -f pg_proc.h.c pg_proc.h
+generated-header-symlinks: $(top_builddir)/src/include/utils/header-stamp $(top_builddir)/src/include/utils/probes.h
 
-ifneq ($(enable_dtrace), yes)
-probes.h: Gen_dummy_probes.sed
-endif
+$(SUBDIRS:%=%-recursive): fmgr-stamp $(top_builddir)/src/include/utils/errcodes.h
 
-probes.h: probes.d
-ifeq ($(enable_dtrace), yes)
-	$(DTRACE) -C -h -s $< -o $@.tmp
-	sed -e 's/POSTGRESQL_/TRACE_POSTGRESQL_/g' $@.tmp >$@
-	rm $@.tmp
-else
-	sed -f $(backend_src_dir)/$(cur_dir)/Gen_dummy_probes.sed $< >$@
-endif
+FMGR_DATA := $(addprefix $(top_srcdir)/src/include/catalog/,\
+	pg_language.dat pg_proc.dat \
+	)
 
+# fmgr-stamp records the last time we ran Gen_fmgrtab.pl.  We don't rely on
+# the timestamps of the individual output files, because the Perl script
+# won't update them if they didn't change (to avoid unnecessary recompiles).
+fmgr-stamp: Gen_fmgrtab.pl $(catalogdir)/Catalog.pm $(FMGR_DATA) $(top_srcdir)/src/include/access/transam.h
+	$(PERL) -I $(catalogdir) $< -I $(top_srcdir)/src/include/ $(FMGR_DATA) -DADBMGRD
+	touch $@
 
-# fmgroids.h and fmgrtab.c are in the distribution tarball, so they
-# are not cleaned here.
-clean:
-	rm -f probes.h
+$(top_builddir)/src/include/utils/errcodes.h: $(top_builddir)/src/include/utils/header-stamp
+
+$(top_builddir)/src/include/utils/header-stamp:
+	$(MAKE) -C $(backend_obj_dir)/utils $@
+
+$(top_builddir)/src/include/utils/probes.h:
+	$(MAKE) -C $(backend_obj_dir)/utils $@
 
 maintainer-clean: clean
-	rm -f fmgroids.h fmgrtab.c
+	rm -f fmgroids.h fmgrprotos.h fmgrtab.c fmgr-stamp errcodes.h

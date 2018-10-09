@@ -26,7 +26,7 @@
 #include "agtm/agtm_client.h"
 #include "datatype/timestamp.h"
 #include "intercomm/inter-comm.h"
-#include "libpq/libpq-fe.h"
+#include "libpq-fe.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 #include "storage/ipc.h"

@@ -523,13 +523,13 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	pgxcnodesrel = heap_open(PgxcNodeRelationId, RowExclusiveLock);
 
 	/* Build entry tuple */
-	values[Anum_pgxc_node_name - 1] = DirectFunctionCall1(namein, CStringGetDatum(node_name));
-	values[Anum_pgxc_node_type - 1] = CharGetDatum(node_type);
-	values[Anum_pgxc_node_port - 1] = Int32GetDatum(node_port);
-	values[Anum_pgxc_node_host - 1] = DirectFunctionCall1(namein, CStringGetDatum(node_host));
-	values[Anum_pgxc_node_is_primary - 1] = BoolGetDatum(is_primary);
-	values[Anum_pgxc_node_is_preferred - 1] = BoolGetDatum(is_preferred);
-	values[Anum_pgxc_node_id - 1] = node_id;
+	values[Anum_pgxc_node_node_name - 1] = DirectFunctionCall1(namein, CStringGetDatum(node_name));
+	values[Anum_pgxc_node_node_type - 1] = CharGetDatum(node_type);
+	values[Anum_pgxc_node_node_port - 1] = Int32GetDatum(node_port);
+	values[Anum_pgxc_node_node_host - 1] = DirectFunctionCall1(namein, CStringGetDatum(node_host));
+	values[Anum_pgxc_node_nodeis_primary - 1] = BoolGetDatum(is_primary);
+	values[Anum_pgxc_node_nodeis_preferred - 1] = BoolGetDatum(is_preferred);
+	values[Anum_pgxc_node_node_id - 1] = node_id;
 
 	htup = heap_form_tuple(pgxcnodesrel->rd_att, values, nulls);
 
@@ -630,19 +630,19 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	MemSet(new_record, 0, sizeof(new_record));
 	MemSet(new_record_nulls, false, sizeof(new_record_nulls));
 	MemSet(new_record_repl, false, sizeof(new_record_repl));
-	new_record[Anum_pgxc_node_port - 1] = Int32GetDatum(node_port_new);
-	new_record_repl[Anum_pgxc_node_port - 1] = true;
-	new_record[Anum_pgxc_node_host - 1] =
+	new_record[Anum_pgxc_node_node_port - 1] = Int32GetDatum(node_port_new);
+	new_record_repl[Anum_pgxc_node_node_port - 1] = true;
+	new_record[Anum_pgxc_node_node_host - 1] =
 		DirectFunctionCall1(namein, CStringGetDatum(node_host_new));
-	new_record_repl[Anum_pgxc_node_host - 1] = true;
-	new_record[Anum_pgxc_node_type - 1] = CharGetDatum(node_type_new);
-	new_record_repl[Anum_pgxc_node_type - 1] = true;
-	new_record[Anum_pgxc_node_is_primary - 1] = BoolGetDatum(is_primary);
-	new_record_repl[Anum_pgxc_node_is_primary - 1] = true;
-	new_record[Anum_pgxc_node_is_preferred - 1] = BoolGetDatum(is_preferred);
-	new_record_repl[Anum_pgxc_node_is_preferred - 1] = true;
-	new_record[Anum_pgxc_node_id - 1] = UInt32GetDatum(node_id);
-	new_record_repl[Anum_pgxc_node_id - 1] = true;
+	new_record_repl[Anum_pgxc_node_node_host - 1] = true;
+	new_record[Anum_pgxc_node_node_type - 1] = CharGetDatum(node_type_new);
+	new_record_repl[Anum_pgxc_node_node_type - 1] = true;
+	new_record[Anum_pgxc_node_nodeis_primary - 1] = BoolGetDatum(is_primary);
+	new_record_repl[Anum_pgxc_node_nodeis_primary - 1] = true;
+	new_record[Anum_pgxc_node_nodeis_preferred - 1] = BoolGetDatum(is_preferred);
+	new_record_repl[Anum_pgxc_node_nodeis_preferred - 1] = true;
+	new_record[Anum_pgxc_node_node_id - 1] = UInt32GetDatum(node_id);
+	new_record_repl[Anum_pgxc_node_node_id - 1] = true;
 
 	/* Update relation */
 	newtup = heap_modify_tuple(oldtup, RelationGetDescr(rel),

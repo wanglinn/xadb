@@ -10,11 +10,12 @@
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/mgr_host.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "catalog/monitor_slowlog.h"
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
 #include "fmgr.h"
+#include "funcapi.h"
 #include "mgr/mgr_cmds.h"
 #include "mgr/mgr_agent.h"
 #include "mgr/mgr_msg_type.h"
@@ -29,8 +30,6 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
-#include "funcapi.h"
-#include "fmgr.h"
 #include "utils/lsyscache.h"
 #include "access/xact.h"
 #include "utils/date.h"
@@ -335,13 +334,13 @@ HeapTuple monitor_build_slowlog_tuple(Relation rel, TimestampTz time, char *dbna
 	namestrcpy(&dbnamedata, dbname);
 	namestrcpy(&usernamedata, username);
 	AssertArg(desc && desc->natts == 7
-		&& desc->attrs[0]->atttypid == NAMEOID
-		&& desc->attrs[1]->atttypid == NAMEOID
-		&& desc->attrs[2]->atttypid == FLOAT4OID
-		&& desc->attrs[3]->atttypid == INT4OID
-		&& desc->attrs[4]->atttypid == TIMESTAMPTZOID
-		&& desc->attrs[5]->atttypid == TEXTOID
-		&& desc->attrs[6]->atttypid == TEXTOID
+		&& TupleDescAttr(desc, 0)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 1)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 2)->atttypid == FLOAT4OID
+		&& TupleDescAttr(desc, 3)->atttypid == INT4OID
+		&& TupleDescAttr(desc, 4)->atttypid == TIMESTAMPTZOID
+		&& TupleDescAttr(desc, 5)->atttypid == TEXTOID
+		&& TupleDescAttr(desc, 6)->atttypid == TEXTOID
 		);
 	memset(datums, 0, sizeof(datums));
 	memset(nulls, 0, sizeof(nulls));
@@ -384,7 +383,7 @@ HeapTuple check_record_yestoday_today(Relation rel, int *callstoday, int *callsy
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		/*check the time*/
-		datumtime = heap_getattr(tuple, Anum_monitor_slowlog_time, RelationGetDescr(rel), &isNull);
+		datumtime = heap_getattr(tuple, Anum_monitor_slowlog_slowlogtime, RelationGetDescr(rel), &isNull);
 		if(isNull)
 		{
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
@@ -402,7 +401,7 @@ HeapTuple check_record_yestoday_today(Relation rel, int *callstoday, int *callsy
 			if (strcmp(NameStr(monitor_slowlog->slowloguser), user) == 0 && strcmp(NameStr(monitor_slowlog->slowlogdbname), dbname) == 0)
 			{
 				/*check query*/
-				datumquery = heap_getattr(tuple, Anum_monitor_slowlog_query, RelationGetDescr(rel), &isNull);
+				datumquery = heap_getattr(tuple, Anum_monitor_slowlog_slowlogquery, RelationGetDescr(rel), &isNull);
 				if(isNull)
 				{
 					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)

@@ -2,19 +2,16 @@
 #ifndef MGR_HBA_H
 #define MGR_HBA_H
 
-#ifdef BUILD_BKI
-#include "catalog/buildbki.h"
-#else /* BUILD_BKI */
 #include "catalog/genbki.h"
-#endif /* BUILD_BKI */
+#include "catalog/mgr_hba_d.h"
 
-
-#define HbaRelationId 4800
-
-CATALOG(mgr_hba,4800)
+CATALOG(mgr_hba,4800,HbaRelationId)
 {
-	NameData	nodename;		/* node name */
-	text		hbavalue;		/* storing a line of pg_hba.conf */
+	/* node name */
+	NameData	nodename;
+
+	/* storing a line of pg_hba.conf */
+	text		hbavalue;
 } FormData_mgr_hba;
 
 /* ----------------
@@ -23,15 +20,6 @@ CATALOG(mgr_hba,4800)
  * ----------------
  */
 typedef FormData_mgr_hba *Form_mgr_hba;
-
-/* ----------------
- *		compiler constants for mgr_updateparm
- * ----------------
- */
-#define Natts_mgr_hba				2
-#define Anum_mgr_hba_nodename		1
-#define Anum_mgr_hba_value			2
-
 
 
 #endif /* MGR_HBA_H */

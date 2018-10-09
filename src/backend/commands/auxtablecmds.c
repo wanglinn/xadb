@@ -364,7 +364,7 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 	/* Master relation check */
 	master_relid = RangeVarGetRelidExtended(auxstmt->master_relation,
 											ShareLock,
-											false, false,
+											0,
 											RangeVarCallbackOwnsRelation,
 											NULL);
 	master_relation = relation_open(master_relid, NoLock);

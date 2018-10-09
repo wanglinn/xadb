@@ -68,13 +68,8 @@ SELECT f1 AS five FROM FLOAT8_TBL
   WHERE f1 BETWEEN -1e6 AND 1e6
 UNION
 SELECT f1 FROM INT4_TBL
-<<<<<<< HEAD
   WHERE f1 BETWEEN 0 AND 1000000
 ORDER BY 1;
-=======
-  WHERE f1 BETWEEN 0 AND 1000000 
-  ORDER BY 1;
->>>>>>> e4e2e7774a... 3.1 patch
 
 SELECT CAST(f1 AS char(4)) AS three FROM VARCHAR_TBL
 UNION
@@ -166,19 +161,11 @@ SELECT f1 FROM float8_tbl EXCEPT SELECT f1 FROM int4_tbl ORDER BY 1;
 -- Operator precedence and (((((extra))))) parentheses
 --
 
-<<<<<<< HEAD
 SELECT q1 FROM int8_tbl INTERSECT SELECT q2 FROM int8_tbl UNION ALL SELECT q2 FROM int8_tbl  ORDER BY 1;
 
 SELECT q1 FROM int8_tbl INTERSECT (((SELECT q2 FROM int8_tbl UNION ALL SELECT q2 FROM int8_tbl))) ORDER BY 1;
 
 (((SELECT q1 FROM int8_tbl INTERSECT SELECT q2 FROM int8_tbl ORDER BY 1))) UNION ALL SELECT q2 FROM int8_tbl;
-=======
-SELECT q1 FROM int8_tbl INTERSECT SELECT q2 FROM int8_tbl UNION ALL SELECT q2 FROM int8_tbl ORDER BY 1;
-
-SELECT q1 FROM int8_tbl INTERSECT (((SELECT q2 FROM int8_tbl UNION ALL SELECT q2 FROM int8_tbl))) ORDER BY 1;
-
-(((SELECT q1 FROM int8_tbl INTERSECT SELECT q2 FROM int8_tbl))) UNION ALL SELECT q2 FROM int8_tbl ORDER BY 1;
->>>>>>> e4e2e7774a... 3.1 patch
 
 SELECT q1 FROM int8_tbl UNION ALL SELECT q2 FROM int8_tbl EXCEPT SELECT q1 FROM int8_tbl ORDER BY 1;
 
@@ -198,17 +185,56 @@ ORDER BY q2,q1;
 SELECT q1 FROM int8_tbl EXCEPT SELECT q2 FROM int8_tbl ORDER BY q2 LIMIT 1;
 
 -- But this should work:
-<<<<<<< HEAD
 SELECT q1 FROM int8_tbl EXCEPT (((SELECT q2 FROM int8_tbl ORDER BY q2 LIMIT 1))) ORDER BY 1;
-=======
-SELECT q1 FROM int8_tbl EXCEPT (((SELECT q2 FROM int8_tbl ORDER BY q2 LIMIT 1))) ORDER BY q1;
->>>>>>> e4e2e7774a... 3.1 patch
 
 --
 -- New syntaxes (7.1) permit new tests
 --
 
 (((((select * from int8_tbl  ORDER BY q1, q2)))));
+
+--
+-- Check behavior with empty select list (allowed since 9.4)
+--
+
+select union select;
+select intersect select;
+select except select;
+
+-- check hashed implementation
+set enable_hashagg = true;
+set enable_sort = false;
+
+explain (costs off)
+select from generate_series(1,5) union select from generate_series(1,3);
+explain (costs off)
+select from generate_series(1,5) intersect select from generate_series(1,3);
+
+select from generate_series(1,5) union select from generate_series(1,3);
+select from generate_series(1,5) union all select from generate_series(1,3);
+select from generate_series(1,5) intersect select from generate_series(1,3);
+select from generate_series(1,5) intersect all select from generate_series(1,3);
+select from generate_series(1,5) except select from generate_series(1,3);
+select from generate_series(1,5) except all select from generate_series(1,3);
+
+-- check sorted implementation
+set enable_hashagg = false;
+set enable_sort = true;
+
+explain (costs off)
+select from generate_series(1,5) union select from generate_series(1,3);
+explain (costs off)
+select from generate_series(1,5) intersect select from generate_series(1,3);
+
+select from generate_series(1,5) union select from generate_series(1,3);
+select from generate_series(1,5) union all select from generate_series(1,3);
+select from generate_series(1,5) intersect select from generate_series(1,3);
+select from generate_series(1,5) intersect all select from generate_series(1,3);
+select from generate_series(1,5) except select from generate_series(1,3);
+select from generate_series(1,5) except all select from generate_series(1,3);
+
+reset enable_hashagg;
+reset enable_sort;
 
 --
 -- Check handling of a case with unknown constants.  We don't guarantee

@@ -2,45 +2,26 @@
 #ifndef MONITOR_VARPARM_H
 #define MONITOR_VARPARM_H
 
-#ifdef BUILD_BKI
-#include "catalog/buildbki.h"
-#else /* BUILD_BKI */
 #include "catalog/genbki.h"
-#include "nodes/params.h"
-#include "nodes/parsenodes.h"
-#include "utils/portal.h"
-#include "utils/timestamp.h"
-#define timestamptz int
-#endif /* BUILD_BKI */
+#include "catalog/monitor_varparm_d.h"
 
-#define MonitorVarParmRelationId 4810
-
-CATALOG(monitor_varparm,4810)
+CATALOG(monitor_varparm,4810,MonitorVarParmRelationId)
 {
-    int16       mv_cpu_threshold;   /* CPU threshold,More than this value will alarm */
-    int16       mv_mem_threshold;   /* memory threshold,More than this value will alarm */
-    int16       mv_disk_threshold;  /* disk threshold,More than this value will alarm */
+	/* CPU threshold,More than this value will alarm */
+	int16		mv_cpu_threshold;
+
+	/* memory threshold,More than this value will alarm */
+	int16		mv_mem_threshold;
+
+	/* disk threshold,More than this value will alarm */
+	int16		mv_disk_threshold;
 } FormData_monitor_varparm;
 
-#ifndef BUILD_BKI
-#undef timestamptz
-#endif
-
 /* ----------------
- *      Form_monitor_varparm corresponds to a pointer to a tuple with
- *      the format of monitor_varparm relation.
+ *		Form_monitor_varparm corresponds to a pointer to a tuple with
+ *	the format of monitor_varparm relation.
  * ----------------
  */
 typedef FormData_monitor_varparm *Form_monitor_varparm;
-
-/* ----------------
- *      compiler constants for monitor_varparm
- * ----------------
- */
-#define Natts_monitor_varparm                            3
-#define Anum_monitor_varparm_mv_cpu_threshold            1
-#define Anum_monitor_varparm_mv_mem_threshold            2
-#define Anum_monitor_varparm_mv_disk_threshold           3
-
 
 #endif /* MONITOR_VARPARM_H */

@@ -13,33 +13,30 @@
 #ifndef PG_AUX_CLASS
 #define PG_AUX_CLASS
 
-#ifdef BUILD_BKI
-#include "catalog/buildbki.h"
-#else /* BUILD_BKI */
 #include "catalog/genbki.h"
-#endif /* BUILD_BKI */
+#include "catalog/pg_aux_class_d.h"
 
-#define AuxClassRelationId 5320
-
-CATALOG(pg_aux_class,5320) BKI_WITHOUT_OIDS
+CATALOG(pg_aux_class,5320,AuxClassRelationId) BKI_WITHOUT_OIDS
 {
-	Oid		auxrelid;			/* Auxiliary table Oid */
-	Oid		relid;				/* Parent table Oid */
-	int16	attnum;				/* Auxiliary column number */
+	/* Auxiliary table Oid */
+	Oid			auxrelid;
+
+	/* Parent table Oid */
+	Oid			relid;
+
+	/* Auxiliary column number */
+	int16		attnum;
 } FormData_pg_aux_class;
 
 typedef FormData_pg_aux_class *Form_pg_aux_class;
 
-#define Natts_pg_aux_class			3
-
-#define Anum_pg_aux_class_auxrelid	1
-#define Anum_pg_aux_class_relid		2
-#define Anum_pg_aux_class_attnum	3
+#ifdef EXPOSE_TO_CLIENT_CODE
 
 #define Natts_aux_table_class		3
-
 #define Anum_aux_table_auxnodeid	1
 #define Anum_aux_table_auxctid		2
 #define Anum_aux_table_key			3
+
+#endif							/* EXPOSE_TO_CLIENT_CODE */
 
 #endif

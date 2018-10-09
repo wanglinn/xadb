@@ -88,16 +88,34 @@ create event trigger regress_event_trigger_noperms on ddl_command_start
 ERROR:  permission denied to create event trigger "regress_event_trigger_noperms"
 HINT:  Must be superuser to create an event trigger.
 reset role;
--- all OK
-alter event trigger regress_event_trigger enable replica;
-alter event trigger regress_event_trigger enable always;
-alter event trigger regress_event_trigger enable;
+-- test enabling and disabling
 alter event trigger regress_event_trigger disable;
--- regress_event_trigger2 and regress_event_trigger_end should fire, but not
--- regress_event_trigger
+-- fires _trigger2 and _trigger_end should fire, but not _trigger
 create table event_trigger_fire1 (a int);
 NOTICE:  test_event_trigger: ddl_command_start CREATE TABLE
 NOTICE:  test_event_trigger: ddl_command_end CREATE TABLE
+alter event trigger regress_event_trigger enable;
+set session_replication_role = replica;
+-- fires nothing
+create table event_trigger_fire2 (a int);
+alter event trigger regress_event_trigger enable replica;
+-- fires only _trigger
+create table event_trigger_fire3 (a int);
+NOTICE:  test_event_trigger: ddl_command_start CREATE TABLE
+alter event trigger regress_event_trigger enable always;
+-- fires only _trigger
+create table event_trigger_fire4 (a int);
+NOTICE:  test_event_trigger: ddl_command_start CREATE TABLE
+reset session_replication_role;
+-- fires all three
+create table event_trigger_fire5 (a int);
+NOTICE:  test_event_trigger: ddl_command_start CREATE TABLE
+NOTICE:  test_event_trigger: ddl_command_start CREATE TABLE
+NOTICE:  test_event_trigger: ddl_command_end CREATE TABLE
+-- clean up
+alter event trigger regress_event_trigger disable;
+drop table event_trigger_fire2, event_trigger_fire3, event_trigger_fire4, event_trigger_fire5;
+NOTICE:  test_event_trigger: ddl_command_end DROP TABLE
 -- regress_event_trigger_end should fire on these commands
 grant all on table event_trigger_fire1 to public;
 NOTICE:  test_event_trigger: ddl_command_end GRANT
@@ -371,8 +389,6 @@ alter table rewriteme alter column foo type numeric;
 ERROR:  rewrites not allowed
 CONTEXT:  PL/pgSQL function test_evtrig_no_rewrite() line 3 at RAISE
 alter table rewriteme add column baz int default 0;
-ERROR:  rewrites not allowed
-CONTEXT:  PL/pgSQL function test_evtrig_no_rewrite() line 3 at RAISE
 -- test with more than one reason to rewrite a single table
 CREATE OR REPLACE FUNCTION test_evtrig_no_rewrite() RETURNS event_trigger
 LANGUAGE plpgsql AS $$
@@ -386,7 +402,7 @@ alter table rewriteme
  add column onemore int default 0,
  add column another int default -1,
  alter column foo type numeric(10,4);
-NOTICE:  Table 'rewriteme' is being rewritten (reason = 6)
+NOTICE:  Table 'rewriteme' is being rewritten (reason = 4)
 -- shouldn't trigger a table_rewrite event
 alter table rewriteme alter column foo type numeric(12,4);
 -- typed tables are rewritten when their type changes.  Don't emit table

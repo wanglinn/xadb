@@ -198,10 +198,19 @@ BEGIN_NODE(PlannerGlobal)
 	NODE_NODE(List,resultRelations)
 	NODE_NODE(List,relationOids)
 	NODE_NODE(List,invalItems)
-	NODE_SCALAR(int,nParamExec)
+	NODE_NODE(List,paramExecTypes)
 	NODE_SCALAR(Index,lastPHId)
 	NODE_SCALAR(Index,lastRowMarkId)
+	NODE_SCALAR(int,lastPlanNodeId)
 	NODE_SCALAR(bool,transientPlan)
+	NODE_SCALAR(bool,dependsOnRole)
+	NODE_SCALAR(bool,parallelModeOK)
+	NODE_SCALAR(bool,parallelModeNeeded)
+	NODE_SCALAR(char,maxParallelHazard)
+#ifdef ADB
+	NODE_SCALAR(bool,clusterPlanOK)
+	NODE_SCALAR(int,usedRemoteAux)
+#endif /* ADB */
 END_NODE(PlannerGlobal)
 
 BEGIN_NODE(ColumnRefJoin)
@@ -354,6 +363,7 @@ END_SPECIAL_MEB(RestrictInfo)
 
 NODE_SPECIAL_MEB(ParamListInfoData)
 	paramFetch NODE_OTHER_POINT(ParamFetchHook,paramFetch)
+	paramCompile NODE_OTHER_POINT(ParamCompileHook,paramCompile)
 	parserSetup NODE_OTHER_POINT(ParserSetupHook,parserSetup)
 END_SPECIAL_MEB(ParamListInfoData)
 
@@ -603,6 +613,12 @@ END_SPECIAL_MEB(OidVectorLoopExpr)
 NODE_SPECIAL_MEB(RangeTblEntry)
 	relid NODE_OID(class, relid)
 END_SPECIAL_MEB(RangeTblEntry)
+
+NODE_SPECIAL_MEB(PartitionPruneInfo)
+	subplan_map NODE_SCALAR_POINT(int,subplan_map,NODE_ARG_->nparts)
+	subpart_map NODE_SCALAR_POINT(int,subpart_map,NODE_ARG_->nparts)
+	hasexecparam NODE_SCALAR_POINT(bool,hasexecparam,NODE_ARG_->nexprs)
+END_SPECIAL_MEB(PartitionPruneInfo)
 
 /*******************************************************************/
 

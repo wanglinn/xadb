@@ -270,7 +270,7 @@ DropDBCleanConnection(char *dbname)
 
 	/* Check permissions for this database */
 	if (!pg_database_ownercheck(get_database_oid(dbname, true), GetUserId()))
-		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_DATABASE,
+		aclcheck_error(ACLCHECK_NOT_OWNER, OBJECT_DATABASE,
 					   dbname);
 	if (!IsPoolHandle())
 	{

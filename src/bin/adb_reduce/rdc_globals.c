@@ -61,3 +61,13 @@ void rdc_ProcessInterrupts(void)
 	}
 }
 
+int
+pg_mbcliplen(const char *mbstr, int len, int limit)
+{
+	int			l = 0;
+
+	len = Min(len, limit);
+	while (l < len && mbstr[l])
+		l++;
+	return l;
+}

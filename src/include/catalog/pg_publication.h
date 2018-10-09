@@ -1,38 +1,33 @@
 /*-------------------------------------------------------------------------
  *
  * pg_publication.h
- *	  definition of the relation sets relation (pg_publication)
+ *	  definition of the "publication" system catalog (pg_publication)
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_publication.h
  *
  * NOTES
- *	  the genbki.pl script reads this file and generates .bki
- *	  information from the DATA() statements.
+ *	  The Catalog.pm module reads this file and derives schema
+ *	  information.
  *
  *-------------------------------------------------------------------------
  */
 #ifndef PG_PUBLICATION_H
 #define PG_PUBLICATION_H
 
-#ifdef BUILD_BKI
-#include "catalog/buildbki.h"
-#else /* BUILD_BKI */
 #include "catalog/genbki.h"
+#include "catalog/pg_publication_d.h"
+
 #include "catalog/objectaddress.h"
-#endif /* BUILD_BKI */
 
 /* ----------------
  *		pg_publication definition.  cpp turns this into
  *		typedef struct FormData_pg_publication
- *
  * ----------------
  */
-#define PublicationRelationId			6104
-
-CATALOG(pg_publication,6104)
+CATALOG(pg_publication,6104,PublicationRelationId)
 {
 	NameData	pubname;		/* name of the publication */
 
@@ -53,6 +48,9 @@ CATALOG(pg_publication,6104)
 	/* true if deletes are published */
 	bool		pubdelete;
 
+	/* true if truncates are published */
+	bool		pubtruncate;
+
 } FormData_pg_publication;
 
 /* ----------------
@@ -62,25 +60,12 @@ CATALOG(pg_publication,6104)
  */
 typedef FormData_pg_publication *Form_pg_publication;
 
-/* ----------------
- *		compiler constants for pg_publication
- * ----------------
- */
-
-#define Natts_pg_publication				6
-DECLARE_NATTS(Natts_pg_publication);
-#define Anum_pg_publication_pubname			1
-#define Anum_pg_publication_pubowner		2
-#define Anum_pg_publication_puballtables	3
-#define Anum_pg_publication_pubinsert		4
-#define Anum_pg_publication_pubupdate		5
-#define Anum_pg_publication_pubdelete		6
-
 typedef struct PublicationActions
 {
 	bool		pubinsert;
 	bool		pubupdate;
 	bool		pubdelete;
+	bool		pubtruncate;
 } PublicationActions;
 
 typedef struct Publication
@@ -98,6 +83,7 @@ extern List *GetPublicationRelations(Oid pubid);
 extern List *GetAllTablesPublications(void);
 extern List *GetAllTablesPublicationRelations(void);
 
+extern bool is_publishable_relation(Relation rel);
 extern ObjectAddress publication_add_relation(Oid pubid, Relation targetrel,
 						 bool if_not_exists);
 

@@ -515,10 +515,8 @@ static void cmd_node_refresh_pghba_parse(AgentCommand cmd_type, StringInfo msg)
 	Assert(AGT_CMD_CNDN_DELETE_PGHBACONF == cmd_type || AGT_CMD_CNDN_ADD_PGHBACONF == cmd_type);
 
 	pgconf_context = AllocSetContextCreate(CurrentMemoryContext,
-										"pghbaconf",
-										ALLOCSET_DEFAULT_MINSIZE,
-										ALLOCSET_DEFAULT_INITSIZE,
-										ALLOCSET_DEFAULT_MAXSIZE);
+										   "pghbaconf",
+										   ALLOCSET_DEFAULT_SIZES);
 	oldcontext = MemoryContextSwitchTo(pgconf_context);
 
 	rec_msg_string = agt_getmsgstring(msg);
@@ -833,10 +831,8 @@ static void cmd_node_refresh_pgsql_paras(char cmdtype, StringInfo msg)
 	MemoryContext oldcontext;
 
 	pgconf_context = AllocSetContextCreate(CurrentMemoryContext,
-										"pgconf",
-										ALLOCSET_DEFAULT_MINSIZE,
-										ALLOCSET_DEFAULT_INITSIZE,
-										ALLOCSET_DEFAULT_MAXSIZE);
+										   "pgconf",
+										   ALLOCSET_DEFAULT_SIZES);
 	oldcontext = MemoryContextSwitchTo(pgconf_context);
 
 	rec_msg_string = agt_getmsgstring(msg);

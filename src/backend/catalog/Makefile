@@ -2,6 +2,9 @@
 #
 # Makefile for backend/catalog
 #
+# Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+# Portions Copyright (c) 1994, Regents of the University of California
+#
 # src/backend/catalog/Makefile
 #
 #-------------------------------------------------------------------------
@@ -25,19 +28,11 @@ BKIFILES = postgres.bki postgres.description postgres.shdescription
 
 include $(top_srcdir)/src/backend/common.mk
 
-all: $(BKIFILES) schemapg.h
-
-MYCPPFLAGS = -DBUILD_BKI -DCATALOG_VARLEN
-
-# Note: there are some undocumented dependencies on the ordering in which
-# the catalog header files are assembled into postgres.bki.  In particular,
-# indexing.h had better be last, and toasting.h just before it.
-
-ifeq ($(enable_cluster),yes)
-  POSTGRES_BKI_SRCS = adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h adb_ha_sync_log.h
-  MYCPPFLAGS += -DADB
-endif
-POSTGRES_BKI_SRCS += \
+# Note: the order of this list determines the order in which the catalog
+# header files are assembled into postgres.bki.  BKI_BOOTSTRAP catalogs
+# must appear first, and there are reputedly other, undocumented ordering
+# dependencies.
+CATALOG_HEADERS := \
 	pg_proc.h pg_type.h pg_attribute.h pg_class.h \
 	pg_attrdef.h pg_constraint.h pg_inherits.h pg_index.h pg_operator.h \
 	pg_opfamily.h pg_opclass.h pg_am.h pg_amop.h pg_amproc.h \
@@ -54,43 +49,88 @@ POSTGRES_BKI_SRCS += \
 	pg_default_acl.h pg_init_privs.h pg_seclabel.h pg_shseclabel.h \
 	pg_collation.h pg_partitioned_table.h pg_range.h pg_transform.h \
 	pg_sequence.h pg_publication.h pg_publication_rel.h pg_subscription.h \
-	pg_subscription_rel.h \
-	ora_cast.h \
-	toasting.h indexing.h
+	pg_subscription_rel.h
+
+MYCPPFLAGS = -DBUILD_BKI -DCATALOG_VARLEN
+
+ifeq ($(enable_cluster),yes)
+  CATALOG_HEADERS += adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h adb_ha_sync_log.h
+  MYCPPFLAGS += -DADB
+endif
 
 ifeq ($(enable_grammar_oracle),yes)
+  CATALOG_HEADERS += ora_cast.h
   MYCPPFLAGS += -DADB_GRAM_ORA -DADB_MULTI_GRAM
 endif
 
-$(POSTGRES_BKI_SRCS): % : $(top_srcdir)/src/include/catalog/%
+GENERATED_HEADERS := $(CATALOG_HEADERS:%.h=%_d.h) schemapg.h
+
+# In the list of headers used to assemble postgres.bki, indexing.h needs
+# be last, and toasting.h just before it.  This ensures we don't try to
+# create indexes or toast tables before their catalogs exist.
+toasting.h indexing.h: % : $(top_srcdir)/src/include/catalog/%
 	rm -f $@.c && $(LN_S) $< $@.c
 	$(CPP) -I$(top_srcdir)/src/include $(MYCPPFLAGS) -o $@ $@.c
 	rm -f $@.c
 
+POSTGRES_BKI_SRCS := $(addprefix $(top_srcdir)/src/include/catalog/,\
+	$(CATALOG_HEADERS)) toasting.h indexing.h
+
+# The .dat files we need can just be listed alphabetically.
+POSTGRES_BKI_DATA = $(addprefix $(top_srcdir)/src/include/catalog/,\
+	pg_aggregate.dat pg_am.dat pg_amop.dat pg_amproc.dat pg_authid.dat \
+	pg_cast.dat pg_class.dat pg_collation.dat \
+	pg_database.dat pg_language.dat \
+	pg_namespace.dat pg_opclass.dat pg_operator.dat pg_opfamily.dat \
+	pg_pltemplate.dat pg_proc.dat pg_range.dat pg_tablespace.dat \
+	pg_ts_config.dat pg_ts_config_map.dat pg_ts_dict.dat pg_ts_parser.dat \
+	pg_ts_template.dat pg_type.dat \
+	)
+ifeq ($(enable_cluster),yes)
+  POSTGRES_BKI_DATA += $(top_srcdir)/src/include/catalog/adb_proc.dat
+endif
+
+ifeq ($(enable_grammar_oracle),yes)
+  POSTGRES_BKI_DATA += $(top_srcdir)/src/include/catalog/ora_cast.dat
+endif
+
 # location of Catalog.pm
 catalogdir = $(top_srcdir)/src/backend/catalog
 
-# locations of headers that genbki.pl needs to read
-pg_includes = -I$(top_srcdir)/src/include/catalog -I$(top_builddir)/src/include/catalog
+all: distprep generated-header-symlinks
 
-# see explanation in ../parser/Makefile
-postgres.description: postgres.bki ;
+distprep: bki-stamp
 
-postgres.shdescription: postgres.bki ;
+.PHONY: generated-header-symlinks
 
-schemapg.h: postgres.bki ;
+generated-header-symlinks: $(top_builddir)/src/include/catalog/header-stamp
 
-# Technically, this should depend on Makefile.global, but then
-# postgres.bki would need to be rebuilt after every configure run,
-# even in distribution tarballs.  So this is cheating a bit, but it
-# will achieve the goal of updating the version number when it
-# changes.
-postgres.bki: genbki.pl Catalog.pm $(POSTGRES_BKI_SRCS) $(top_srcdir)/configure $(top_srcdir)/src/include/catalog/duplicate_oids
-	cd $(top_srcdir)/src/include/catalog && $(PERL) ./duplicate_oids
-	$(PERL) -I $(catalogdir) $< $(pg_includes) --set-version=$(MAJORVERSION) --enable-cluster=$(enable_cluster) --enable-grammar-oracle=$(enable_grammar_oracle) $(POSTGRES_BKI_SRCS)
+# bki-stamp records the last time we ran genbki.pl.  We don't rely on
+# the timestamps of the individual output files, because the Perl script
+# won't update them if they didn't change (to avoid unnecessary recompiles).
+# Technically, this should depend on Makefile.global which supplies
+# $(MAJORVERSION); but then genbki.pl would need to be re-run after every
+# configure run, even in distribution tarballs.  So depending on configure.in
+# instead is cheating a bit, but it will achieve the goal of updating the
+# version number when it changes.
+bki-stamp: genbki.pl Catalog.pm $(POSTGRES_BKI_SRCS) $(POSTGRES_BKI_DATA) $(top_srcdir)/configure.in
+	$(PERL) -I $(catalogdir) $< --set-version=$(MAJORVERSION) $(POSTGRES_BKI_SRCS) $(MYCPPFLAGS)
+	touch $@
 
+# The generated headers must all be symlinked into builddir/src/include/,
+# using absolute links for the reasons explained in src/backend/Makefile.
+# We use header-stamp to record that we've done this because the symlinks
+# themselves may appear older than bki-stamp.
+$(top_builddir)/src/include/catalog/header-stamp: bki-stamp
+	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
+	cd '$(dir $@)' && for file in $(GENERATED_HEADERS); do \
+	  rm -f $$file && $(LN_S) "$$prereqdir/$$file" . ; \
+	done
+	touch $@
+
+# Note: installation of generated headers is handled elsewhere
 .PHONY: install-data
-install-data: $(BKIFILES) installdirs
+install-data: bki-stamp installdirs
 	$(INSTALL_DATA) $(call vpathsearch,postgres.bki) '$(DESTDIR)$(datadir)/postgres.bki'
 	$(INSTALL_DATA) $(call vpathsearch,postgres.description) '$(DESTDIR)$(datadir)/postgres.description'
 	$(INSTALL_DATA) $(call vpathsearch,postgres.shdescription) '$(DESTDIR)$(datadir)/postgres.shdescription'
@@ -111,10 +151,11 @@ ifeq ($(enable_cluster),yes)
 	rm -f $(addprefix '$(DESTDIR)$(datadir)'/, adb_views.sql)
 endif
 
-# postgres.bki, postgres.description, postgres.shdescription, and schemapg.h
-# are in the distribution tarball, so they are not cleaned here.
+# postgres.bki, postgres.description, postgres.shdescription,
+# and the generated headers are in the distribution tarball,
+# so they are not cleaned here.
 clean:
-	rm -f $(POSTGRES_BKI_SRCS)
+	rm -f toasting.h indexing.h
 
 maintainer-clean: clean
-	rm -f $(BKIFILES)
+	rm -f bki-stamp $(BKIFILES) $(GENERATED_HEADERS)

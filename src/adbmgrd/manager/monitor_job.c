@@ -184,7 +184,7 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 
 		if (strcmp(def->defname, "nexttime") == 0)
 		{
-			if(got[Anum_monitor_job_nexttime-1])
+			if(got[Anum_monitor_job_next_time-1])
 				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 					,errmsg("conflicting or redundant options")));
 
@@ -192,8 +192,8 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 			datumtime = DirectFunctionCall2(to_timestamp,
 																			 PointerGetDatum(cstring_to_text(str)),
 																			 PointerGetDatum(cstring_to_text("yyyy-mm-dd hh24:mi:ss")));
-			datum[Anum_monitor_job_nexttime-1] = datumtime;
-			got[Anum_monitor_job_nexttime-1] = true;
+			datum[Anum_monitor_job_next_time-1] = datumtime;
+			got[Anum_monitor_job_next_time-1] = true;
 		}
 		else if (strcmp(def->defname, "interval") == 0)
 		{
@@ -227,12 +227,12 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 		}
 		else if (strcmp(def->defname, "desc") == 0)
 		{
-			if(got[Anum_monitor_job_desc-1])
+			if(got[Anum_monitor_job_description-1])
 				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 					,errmsg("conflicting or redundant options")));
 			str = defGetString(def);
-			datum[Anum_monitor_job_desc-1] = PointerGetDatum(cstring_to_text(str));
-			got[Anum_monitor_job_desc-1] = true;
+			datum[Anum_monitor_job_description-1] = PointerGetDatum(cstring_to_text(str));
+			got[Anum_monitor_job_description-1] = true;
 		}
 		else
 		{
@@ -242,10 +242,10 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 		}
 	}
 	/* if not give, set to default */
-	if (false == got[Anum_monitor_job_nexttime-1])
+	if (false == got[Anum_monitor_job_next_time-1])
 	{
 		current_time = GetCurrentTimestamp();
-		datum[Anum_monitor_job_nexttime-1] = TimestampTzGetDatum(current_time);;
+		datum[Anum_monitor_job_next_time-1] = TimestampTzGetDatum(current_time);;
 	}
 	if (false == got[Anum_monitor_job_interval-1])
 	{
@@ -261,9 +261,9 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 			, errmsg("option \"command\" must be given")));
 	}
-	if (false == got[Anum_monitor_job_desc-1])
+	if (false == got[Anum_monitor_job_description-1])
 	{
-		datum[Anum_monitor_job_desc-1] = PointerGetDatum(cstring_to_text(""));
+		datum[Anum_monitor_job_description-1] = PointerGetDatum(cstring_to_text(""));
 	}
 	/* check the adbmonitor */
 	if ((status == true) && (adbmonitor_start_daemon == false))
@@ -354,7 +354,7 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 
 		if (strcmp(def->defname, "nexttime") == 0)
 		{
-			if(got[Anum_monitor_job_nexttime-1])
+			if(got[Anum_monitor_job_next_time-1])
 				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 					,errmsg("conflicting or redundant options")));
 
@@ -362,8 +362,8 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 			datumtime = DirectFunctionCall2(to_timestamp,
 						PointerGetDatum(cstring_to_text(str)),
 						PointerGetDatum(cstring_to_text("yyyy-mm-dd hh24:mi:ss")));
-			datum[Anum_monitor_job_nexttime-1] = datumtime;
-			got[Anum_monitor_job_nexttime-1] = true;
+			datum[Anum_monitor_job_next_time-1] = datumtime;
+			got[Anum_monitor_job_next_time-1] = true;
 		}
 		else if (strcmp(def->defname, "interval") == 0)
 		{
@@ -397,12 +397,12 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 		}
 		else if (strcmp(def->defname, "desc") == 0)
 		{
-			if(got[Anum_monitor_job_desc-1])
+			if(got[Anum_monitor_job_description-1])
 				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 					,errmsg("conflicting or redundant options")));
 			str = defGetString(def);
-			datum[Anum_monitor_job_desc-1] = PointerGetDatum(cstring_to_text(str));
-			got[Anum_monitor_job_desc-1] = true;
+			datum[Anum_monitor_job_description-1] = PointerGetDatum(cstring_to_text(str));
+			got[Anum_monitor_job_description-1] = true;
 		}
 		else
 		{
@@ -418,7 +418,7 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 
 	if (bAlterAll)
 	{
-		if (got[Anum_monitor_job_command-1] || got[Anum_monitor_job_desc-1])
+		if (got[Anum_monitor_job_command-1] || got[Anum_monitor_job_description-1])
 		{
 			heap_close(rel, RowExclusiveLock);
 			ereport(ERROR, (errmsg("the command of \"ALTER JOB ALL\" not support modify the column \"comamnd\" and \"desc\"")));
@@ -477,11 +477,9 @@ Datum monitor_job_drop_func(PG_FUNCTION_ARGS)
 	if_exists = PG_GETARG_BOOL(0);
 	name_list = (List *)PG_GETARG_POINTER(1);
 	Assert(name_list);
-	context = AllocSetContextCreate(CurrentMemoryContext
-			,"DROP JOB"
-			,ALLOCSET_DEFAULT_MINSIZE
-			,ALLOCSET_DEFAULT_INITSIZE
-			,ALLOCSET_DEFAULT_MAXSIZE);
+	context = AllocSetContextCreate(CurrentMemoryContext,
+									"DROP JOB",
+									ALLOCSET_DEFAULT_SIZES);
 	rel = heap_open(MjobRelationId, RowExclusiveLock);
 	old_context = MemoryContextSwitchTo(context);
 
@@ -1260,7 +1258,7 @@ static int mgr_nodeType_Num_incluster(const int masterNodeOid, Relation relNode,
 		,F_CHAREQ
 		,CharGetDatum(nodeType));
 	ScanKeyInit(&key[3]
-		,Anum_mgr_node_nodemasternameOid
+		,Anum_mgr_node_nodemasternameoid
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(masterNodeOid));

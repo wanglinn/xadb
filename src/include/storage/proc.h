@@ -4,7 +4,7 @@
  *	  per-process shared memory data structures
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/storage/proc.h
@@ -14,6 +14,7 @@
 #ifndef _PROC_H_
 #define _PROC_H_
 
+#include "access/clog.h"
 #include "access/xlogdefs.h"
 #include "lib/ilist.h"
 #include "storage/latch.h"
@@ -176,6 +177,17 @@ struct PGPROC
 
 	uint32		wait_event_info;	/* proc's wait information */
 
+	/* Support for group transaction status update. */
+	bool		clogGroupMember;	/* true, if member of clog group */
+	pg_atomic_uint32 clogGroupNext; /* next clog group member */
+	TransactionId clogGroupMemberXid;	/* transaction id of clog group member */
+	XidStatus	clogGroupMemberXidStatus;	/* transaction status of clog
+											 * group member */
+	int			clogGroupMemberPage;	/* clog page corresponding to
+										 * transaction id of clog group member */
+	XLogRecPtr	clogGroupMemberLsn; /* WAL location of commit record for clog
+									 * group member */
+
 	/* Per-backend LWLock.  Protects fields below (but not group fields). */
 	LWLock		backendLock;
 
@@ -251,6 +263,8 @@ typedef struct PROC_HDR
 	PGPROC	   *bgworkerFreeProcs;
 	/* First pgproc waiting for group XID clear */
 	pg_atomic_uint32 procArrayGroupFirst;
+	/* First pgproc waiting for group transaction status update */
+	pg_atomic_uint32 clogGroupFirst;
 	/* WALWriter process's latch */
 	Latch	   *walwriterLatch;
 	/* Checkpointer process's latch */
@@ -264,7 +278,7 @@ typedef struct PROC_HDR
 	int			startupBufferPinWaitBufId;
 } PROC_HDR;
 
-extern PROC_HDR *ProcGlobal;
+extern PGDLLIMPORT PROC_HDR *ProcGlobal;
 
 extern PGPROC *PreparedXactProcs;
 
@@ -286,7 +300,7 @@ extern PGPROC *PreparedXactProcs;
 #endif
 
 /* configurable options */
-extern int	DeadlockTimeout;
+extern PGDLLIMPORT int DeadlockTimeout;
 extern int	StatementTimeout;
 extern int	LockTimeout;
 extern int	IdleInTransactionSessionTimeout;

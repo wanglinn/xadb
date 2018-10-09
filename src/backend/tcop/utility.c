@@ -5,7 +5,7 @@
  *	  commands.  At one time acted as an interface between the Lisp and C
  *	  systems.
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
  * Portions Copyright (c) 2014-2017, ADB Development Group
@@ -25,6 +25,7 @@
 #include "access/xlog.h"
 #include "catalog/catalog.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_inherits.h"
 #include "catalog/toasting.h"
 #include "commands/alter.h"
 #include "commands/async.h"
@@ -68,7 +69,9 @@
 #include "tcop/utility.h"
 #include "utils/acl.h"
 #include "utils/guc.h"
+#include "utils/lsyscache.h"
 #include "utils/syscache.h"
+#include "utils/rel.h"
 
 
 #ifdef ADB
@@ -446,6 +449,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 {
 	Node	   *parsetree = pstmt->utilityStmt;
 	bool		isTopLevel = (context == PROCESS_UTILITY_TOPLEVEL);
+	bool		isAtomicContext = (!(context == PROCESS_UTILITY_TOPLEVEL || context == PROCESS_UTILITY_QUERY_NONATOMIC) || IsTransactionBlock());
 	ParseState *pstate;
 
 #ifdef ADB
@@ -576,7 +580,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						break;
 
 					case TRANS_STMT_COMMIT_PREPARED:
-						PreventTransactionChain(isTopLevel, "COMMIT PREPARED");
+						PreventInTransactionBlock(isTopLevel, "COMMIT PREPARED");
 						PreventCommandDuringRecovery("COMMIT PREPARED");
 #if defined(ADB) || defined(AGTM)
 #ifdef ADB
@@ -592,7 +596,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						break;
 
 					case TRANS_STMT_ROLLBACK_PREPARED:
-						PreventTransactionChain(isTopLevel, "ROLLBACK PREPARED");
+						PreventInTransactionBlock(isTopLevel, "ROLLBACK PREPARED");
 						PreventCommandDuringRecovery("ROLLBACK PREPARED");
 #if defined(ADB) || defined(AGTM)
 #ifdef ADB
@@ -612,40 +616,23 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						break;
 
 					case TRANS_STMT_SAVEPOINT:
-						{
-							ListCell   *cell;
-							char	   *name = NULL;
-
 #ifdef ADB
-							ereport(ERROR,
-									(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-									 (errmsg("SAVEPOINT is not yet supported."))));
+						ereport(ERROR,
+								(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+								 (errmsg("SAVEPOINT is not yet supported."))));
 #endif
-
-							RequireTransactionChain(isTopLevel, "SAVEPOINT");
-
-							foreach(cell, stmt->options)
-							{
-								DefElem    *elem = lfirst(cell);
-
-								if (strcmp(elem->defname, "savepoint_name") == 0)
-									name = strVal(elem->arg);
-							}
-
-							Assert(PointerIsValid(name));
-
-							DefineSavepoint(name);
-						}
+						RequireTransactionBlock(isTopLevel, "SAVEPOINT");
+						DefineSavepoint(stmt->savepoint_name);
 						break;
 
 					case TRANS_STMT_RELEASE:
-						RequireTransactionChain(isTopLevel, "RELEASE SAVEPOINT");
-						ReleaseSavepoint(stmt->options);
+						RequireTransactionBlock(isTopLevel, "RELEASE SAVEPOINT");
+						ReleaseSavepoint(stmt->savepoint_name);
 						break;
 
 					case TRANS_STMT_ROLLBACK_TO:
-						RequireTransactionChain(isTopLevel, "ROLLBACK TO SAVEPOINT");
-						RollbackToSavepoint(stmt->options);
+						RequireTransactionBlock(isTopLevel, "ROLLBACK TO SAVEPOINT");
+						RollbackToSavepoint(stmt->savepoint_name);
 
 						/*
 						 * CommitTransactionCommand is in charge of
@@ -679,7 +666,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			break;
 
 		case T_DoStmt:
-			ExecuteDoStmt((DoStmt *) parsetree);
+			ExecuteDoStmt((DoStmt *) parsetree, isAtomicContext);
 			break;
 
 		case T_CreateTableSpaceStmt:
@@ -687,7 +674,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			if (IsCoordMaster())
 #endif
 			/* no event triggers for global objects */
-			PreventTransactionChain(isTopLevel, "CREATE TABLESPACE");
+			PreventInTransactionBlock(isTopLevel, "CREATE TABLESPACE");
 			CreateTableSpace((CreateTableSpaceStmt *) parsetree);
 #ifdef ADB
 			ExecRemoteUtilityStmt(&utilityContext);
@@ -700,7 +687,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			if (IsCoordMaster())
 #endif
 			/* no event triggers for global objects */
-			PreventTransactionChain(isTopLevel, "DROP TABLESPACE");
+			PreventInTransactionBlock(isTopLevel, "DROP TABLESPACE");
 			DropTableSpace((DropTableSpaceStmt *) parsetree);
 #ifdef ADB
 			ExecRemoteUtilityStmt(&utilityContext);
@@ -772,7 +759,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			if (IsCoordMaster())
 #endif
 			/* no event triggers for global objects */
-			PreventTransactionChain(isTopLevel, "CREATE DATABASE");
+			PreventInTransactionBlock(isTopLevel, "CREATE DATABASE");
 			createdb(pstate, (CreatedbStmt *) parsetree);
 #ifdef ADB
 			ExecRemoteUtilityStmt(&utilityContext);
@@ -803,7 +790,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (IsCoordMaster())
 #endif
 				/* no event triggers for global objects */
-				PreventTransactionChain(isTopLevel, "DROP DATABASE");
+				PreventInTransactionBlock(isTopLevel, "DROP DATABASE");
 				dropdb(stmt->dbname, stmt->missing_ok);
 #ifdef ADB
 				/* Clean connections before dropping a database on local node */
@@ -883,6 +870,10 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			}
 			break;
 
+		case T_CallStmt:
+			ExecuteCallStmt(castNode(CallStmt, parsetree), params, isAtomicContext, dest);
+			break;
+
 		case T_ClusterStmt:
 			/* we choose to allow this during "read only" transactions */
 			PreventCommandDuringRecovery("CLUSTER");
@@ -920,26 +911,41 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 #ifdef ADB
 				if (IsCoordMaster())
 				{
-					if (stmt->relation)
+					//if (stmt->relation)
+					if (stmt->rels != NIL)
 					{
-						vacuum_rel = heap_openrv_extended(stmt->relation,
-														  AccessShareLock,
-														  true);
-						if (vacuum_rel)
-						{
-							if (RelationGetForm(vacuum_rel)->relkind != RELKIND_MATVIEW &&
-								RelationGetLocInfo(vacuum_rel))
-							{
-								/*
-								 * We have to run the command on nodes before Coordinator because
-								 * vacuum() pops active snapshot and we can not send it to nodes
-								 */
-								utilityContext.force_autocommit = true;
-								utilityContext.exec_type = EXEC_ON_DATANODES;
-								ExecRemoteUtilityStmt(&utilityContext);
-							}
+						VacuumRelation *vr;
+						ListCell *lc;
 
-							relation_close(vacuum_rel, AccessShareLock);
+						bool have_local = false;
+						bool have_remote = false;
+						foreach(lc, stmt->rels)
+						{
+							vr = lfirst(lc);
+							vacuum_rel = heap_openrv_extended(vr->relation, NoLock, false);
+							if (RelationGetForm(vacuum_rel)->relkind == RELKIND_MATVIEW ||
+								RelationGetLocInfo(vacuum_rel) == NULL)
+								have_local = true;
+							else
+								have_remote = true;
+							relation_close(vacuum_rel, NoLock);
+
+							if (have_local && have_remote)
+							{
+								ereport(ERROR,
+										(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+										 errmsg("AntDB not support vacuum on remote and local relation in one time yet!")));
+							}
+						}
+						if (have_remote)
+						{
+							/*
+							 * We have to run the command on nodes before Coordinator because
+							 * vacuum() pops active snapshot and we can not send it to nodes
+							 */
+							utilityContext.force_autocommit = true;
+							utilityContext.exec_type = EXEC_ON_DATANODES;
+							ExecRemoteUtilityStmt(&utilityContext);
 						}
 					} else
 					{
@@ -960,7 +966,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			break;
 
 		case T_AlterSystemStmt:
-			PreventTransactionChain(isTopLevel, "ALTER SYSTEM");
+			PreventInTransactionBlock(isTopLevel, "ALTER SYSTEM");
 			AlterSystemSetConfigFile((AlterSystemStmt *) parsetree);
 			break;
 
@@ -1084,7 +1090,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			 * Since the lock would just get dropped immediately, LOCK TABLE
 			 * outside a transaction block is presumed to be user error.
 			 */
-			RequireTransactionChain(isTopLevel, "LOCK TABLE");
+			RequireTransactionBlock(isTopLevel, "LOCK TABLE");
 			/* forbidden in parallel mode due to CommandIsReadOnly */
 			LockTableCommand((LockStmt *) parsetree);
 #ifdef ADB
@@ -1093,7 +1099,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			break;
 
 		case T_ConstraintsSetStmt:
-			WarnNoTransactionChain(isTopLevel, "SET CONSTRAINTS");
+			WarnNoTransactionBlock(isTopLevel, "SET CONSTRAINTS");
 			AfterTriggerSetState((ConstraintsSetStmt *) parsetree);
 #ifdef ADB
 			/*
@@ -1187,10 +1193,10 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						 * start-transaction-command calls would not have the
 						 * intended effect!
 						 */
-						PreventTransactionChain(isTopLevel,
-												(stmt->kind == REINDEX_OBJECT_SCHEMA) ? "REINDEX SCHEMA" :
-												(stmt->kind == REINDEX_OBJECT_SYSTEM) ? "REINDEX SYSTEM" :
-												"REINDEX DATABASE");
+						PreventInTransactionBlock(isTopLevel,
+												  (stmt->kind == REINDEX_OBJECT_SCHEMA) ? "REINDEX SCHEMA" :
+												  (stmt->kind == REINDEX_OBJECT_SYSTEM) ? "REINDEX SYSTEM" :
+												  "REINDEX DATABASE");
 						ReindexMultipleTables(stmt->name, stmt->kind, stmt->options);
 						break;
 					default:
@@ -1233,7 +1239,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 					bool				is_temp2;
 
 					/* Launch GRANT on Coordinator if object is a sequence */
-					if ((stmt->objtype == ACL_OBJECT_RELATION &&
+					if ((stmt->objtype == OBJECT_TABLE &&
 						 stmt->targtype == ACL_TARGET_OBJECT))
 					{
 						/*
@@ -1282,7 +1288,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 					}
 				}
 #endif
-				if (EventTriggerSupportsGrantObjectType(stmt->objtype))
+				if (EventTriggerSupportsObjectType(stmt->objtype))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
 									   dest, ADB_ONLY_ARG(sentToRemote) completionTag);
@@ -2104,8 +2110,8 @@ ProcessUtilitySlow(ParseState *pstate,
 #endif
 
 					if (stmt->concurrent)
-						PreventTransactionChain(isTopLevel,
-												"CREATE INDEX CONCURRENTLY");
+						PreventInTransactionBlock(isTopLevel,
+												  "CREATE INDEX CONCURRENTLY");
 
 					/*
 					 * Look up the relation OID just once, right here at the
@@ -2120,9 +2126,42 @@ ProcessUtilitySlow(ParseState *pstate,
 						: ShareLock;
 					relid =
 						RangeVarGetRelidExtended(stmt->relation, lockmode,
-												 false, false,
+												 0,
 												 RangeVarCallbackOwnsRelation,
 												 NULL);
+
+					/*
+					 * CREATE INDEX on partitioned tables (but not regular
+					 * inherited tables) recurses to partitions, so we must
+					 * acquire locks early to avoid deadlocks.
+					 *
+					 * We also take the opportunity to verify that all
+					 * partitions are something we can put an index on, to
+					 * avoid building some indexes only to fail later.
+					 */
+					if (stmt->relation->inh &&
+						get_rel_relkind(relid) == RELKIND_PARTITIONED_TABLE)
+					{
+						ListCell   *lc;
+						List	   *inheritors = NIL;
+
+						inheritors = find_all_inheritors(relid, lockmode, NULL);
+						foreach(lc, inheritors)
+						{
+							char		relkind = get_rel_relkind(lfirst_oid(lc));
+
+							if (relkind != RELKIND_RELATION &&
+								relkind != RELKIND_MATVIEW &&
+								relkind != RELKIND_PARTITIONED_TABLE)
+								ereport(ERROR,
+										(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+										 errmsg("cannot create index on partitioned table \"%s\"",
+												stmt->relation->relname),
+										 errdetail("Table \"%s\" contains partitions that are foreign tables.",
+												   stmt->relation->relname)));
+						}
+						list_free(inheritors);
+					}
 
 					/* Run parse analysis ... */
 					stmt = transformIndexStmt(relid, stmt, queryString);
@@ -2133,6 +2172,8 @@ ProcessUtilitySlow(ParseState *pstate,
 						DefineIndex(relid,	/* OID of heap relation */
 									stmt,
 									InvalidOid, /* no predefined OID */
+									InvalidOid, /* no parent index */
+									InvalidOid, /* no parent constraint */
 									false,	/* is_alter_table */
 									true,	/* check_rights */
 									true,	/* check_not_in_use */
@@ -2268,7 +2309,7 @@ ProcessUtilitySlow(ParseState *pstate,
 				break;
 
 			case T_AlterEnumStmt:	/* ALTER TYPE (enum) */
-				address = AlterEnum((AlterEnumStmt *) parsetree);
+				address = AlterEnum((AlterEnumStmt *) parsetree, isTopLevel);
 #ifdef ADB
 				/*
 				 * In this case force autocommit, this transaction cannot be launched
@@ -2458,7 +2499,8 @@ ProcessUtilitySlow(ParseState *pstate,
 			case T_CreateTrigStmt:
 				address = CreateTrigger((CreateTrigStmt *) parsetree,
 										queryString, InvalidOid, InvalidOid,
-										InvalidOid, InvalidOid, false);
+										InvalidOid, InvalidOid, InvalidOid,
+										InvalidOid, NULL, false, false);
 #ifdef ADB
 				if (IS_PGXC_COORDINATOR)
 				{
@@ -2753,10 +2795,11 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 						 errdetail("The feature is not currently supported")));
 
 #else
-				PreventTransactionChain(isTopLevel,
-										"DROP INDEX CONCURRENTLY");
-#endif
+			if (stmt->concurrent)
+				PreventInTransactionBlock(isTopLevel,
+										  "DROP INDEX CONCURRENTLY");
 			/* fall through */
+#endif
 
 		case OBJECT_TABLE:
 		case OBJECT_SEQUENCE:
@@ -3379,8 +3422,14 @@ AlterObjectTypeCommandTag(ObjectType objtype)
 		case OBJECT_POLICY:
 			tag = "ALTER POLICY";
 			break;
+		case OBJECT_PROCEDURE:
+			tag = "ALTER PROCEDURE";
+			break;
 		case OBJECT_ROLE:
 			tag = "ALTER ROLE";
+			break;
+		case OBJECT_ROUTINE:
+			tag = "ALTER ROUTINE";
 			break;
 		case OBJECT_RULE:
 			tag = "ALTER RULE";
@@ -3691,6 +3740,12 @@ CreateCommandTag(Node *parsetree)
 				case OBJECT_FUNCTION:
 					tag = "DROP FUNCTION";
 					break;
+				case OBJECT_PROCEDURE:
+					tag = "DROP PROCEDURE";
+					break;
+				case OBJECT_ROUTINE:
+					tag = "DROP ROUTINE";
+					break;
 				case OBJECT_AGGREGATE:
 					tag = "DROP AGGREGATE";
 					break;
@@ -3789,7 +3844,20 @@ CreateCommandTag(Node *parsetree)
 			break;
 
 		case T_AlterFunctionStmt:
-			tag = "ALTER FUNCTION";
+			switch (((AlterFunctionStmt *) parsetree)->objtype)
+			{
+				case OBJECT_FUNCTION:
+					tag = "ALTER FUNCTION";
+					break;
+				case OBJECT_PROCEDURE:
+					tag = "ALTER PROCEDURE";
+					break;
+				case OBJECT_ROUTINE:
+					tag = "ALTER ROUTINE";
+					break;
+				default:
+					tag = "???";
+			}
 			break;
 
 		case T_GrantStmt:
@@ -3868,7 +3936,10 @@ CreateCommandTag(Node *parsetree)
 			break;
 
 		case T_CreateFunctionStmt:
-			tag = "CREATE FUNCTION";
+			if (((CreateFunctionStmt *) parsetree)->is_procedure)
+				tag = "CREATE PROCEDURE";
+			else
+				tag = "CREATE FUNCTION";
 			break;
 
 		case T_IndexStmt:
@@ -3921,6 +3992,10 @@ CreateCommandTag(Node *parsetree)
 
 		case T_LoadStmt:
 			tag = "LOAD";
+			break;
+
+		case T_CallStmt:
+			tag = "CALL";
 			break;
 
 		case T_ClusterStmt:
@@ -4476,6 +4551,10 @@ GetCommandLogLevel(Node *parsetree)
 			lev = LOGSTMT_DDL;
 			break;
 
+		case T_AlterOperatorStmt:
+			lev = LOGSTMT_DDL;
+			break;
+
 		case T_AlterTableMoveAllStmt:
 		case T_AlterTableStmt:
 			lev = LOGSTMT_DDL;
@@ -4578,6 +4657,10 @@ GetCommandLogLevel(Node *parsetree)
 			break;
 
 		case T_LoadStmt:
+			lev = LOGSTMT_ALL;
+			break;
+
+		case T_CallStmt:
 			lev = LOGSTMT_ALL;
 			break;
 
@@ -4757,6 +4840,14 @@ GetCommandLogLevel(Node *parsetree)
 			break;
 
 		case T_DropSubscriptionStmt:
+			lev = LOGSTMT_DDL;
+			break;
+
+		case T_CreateStatsStmt:
+			lev = LOGSTMT_DDL;
+			break;
+
+		case T_AlterCollationStmt:
 			lev = LOGSTMT_DDL;
 			break;
 

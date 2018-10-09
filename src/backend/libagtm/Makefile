@@ -16,7 +16,4 @@ OBJS = agtm.o agtm_client.o agtm_2pc.o agtm_utils.o
 
 CFLAGS += -I$(abs_top_srcdir)/src/interfaces
 
-include $(top_srcdir)/src/backend/common.mk
-
-agtm_utils.c: % :$(abs_top_srcdir)/src/agtm/main/%
-	rm -f $@ && $(LN_S) $< .
+include $(top_srcdir)/src/backend/common.mk 

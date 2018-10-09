@@ -3,13 +3,14 @@
  *
  *	file system operations
  *
- *	Copyright (c) 2010-2017, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2018, PostgreSQL Global Development Group
  *	src/bin/pg_upgrade/file.c
  */
 
 #include "postgres_fe.h"
 
 #include "access/visibilitymap.h"
+#include "common/file_perm.h"
 #include "pg_upgrade.h"
 #include "storage/bufpage.h"
 #include "storage/checksum.h"
@@ -44,7 +45,7 @@ copyFile(const char *src, const char *dst,
 				 schemaName, relName, src, strerror(errno));
 
 	if ((dest_fd = open(dst, O_RDWR | O_CREAT | O_EXCL | PG_BINARY,
-						S_IRUSR | S_IWUSR)) < 0)
+						pg_file_create_mode)) < 0)
 		pg_fatal("error while copying relation \"%s.%s\": could not create file \"%s\": %s\n",
 				 schemaName, relName, dst, strerror(errno));
 
@@ -151,7 +152,7 @@ rewriteVisibilityMap(const char *fromfile, const char *tofile,
 				 schemaName, relName, fromfile, strerror(errno));
 
 	if ((dst_fd = open(tofile, O_RDWR | O_CREAT | O_EXCL | PG_BINARY,
-					   S_IRUSR | S_IWUSR)) < 0)
+					   pg_file_create_mode)) < 0)
 		pg_fatal("error while copying relation \"%s.%s\": could not create file \"%s\": %s\n",
 				 schemaName, relName, tofile, strerror(errno));
 
@@ -290,7 +291,7 @@ check_hard_link(void)
 
 	if (pg_link_file(existing_file, new_link_file) < 0)
 		pg_fatal("could not create hard link between old and new data directories: %s\n"
-				 "In link mode the old and new data directories must be on the same file system volume.\n",
+				 "In link mode the old and new data directories must be on the same file system.\n",
 				 strerror(errno));
 
 	unlink(new_link_file);
@@ -314,18 +315,3 @@ win32_pghardlink(const char *src, const char *dst)
 		return 0;
 }
 #endif
-
-
-/* fopen() file with no group/other permissions */
-FILE *
-fopen_priv(const char *path, const char *mode)
-{
-	mode_t		old_umask = umask(S_IRWXG | S_IRWXO);
-	FILE	   *fp;
-
-	fp = fopen(path, mode);
-
-	umask(old_umask);			/* we assume this can't change errno */
-
-	return fp;
-}

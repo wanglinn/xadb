@@ -21,14 +21,10 @@ void agent_backend(pgsocket fd)
 	agt_msg_init(fd);
 	MessageContext = AllocSetContextCreate(TopMemoryContext,
 										 "MessageContext",
-										 ALLOCSET_SMALL_MINSIZE,
-										 ALLOCSET_SMALL_INITSIZE,
-										 ALLOCSET_SMALL_MAXSIZE);
+										 ALLOCSET_DEFAULT_SIZES);
 	ErrorContext = AllocSetContextCreate(TopMemoryContext,
 										 "ErrorContext",
-										 ALLOCSET_SMALL_MINSIZE,
-										 ALLOCSET_SMALL_INITSIZE,
-										 ALLOCSET_SMALL_MAXSIZE);
+										 ALLOCSET_DEFAULT_SIZES);
 	initStringInfo(&input_message);
 	MemoryContextSwitchTo(MessageContext);
 

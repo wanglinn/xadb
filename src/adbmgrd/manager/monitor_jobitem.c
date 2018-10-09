@@ -131,7 +131,7 @@ Datum monitor_jobitem_add_func(PG_FUNCTION_ARGS)
 	memset(got, 0, sizeof(got));
 
 	/* name */
-	datum[Anum_monitor_jobitem_itemname-1] = NameGetDatum(&itemnamedata);
+	datum[Anum_monitor_jobitem_jobitem_itemname-1] = NameGetDatum(&itemnamedata);
 	foreach(lc, options)
 	{
 		def = lfirst(lc);
@@ -139,7 +139,7 @@ Datum monitor_jobitem_add_func(PG_FUNCTION_ARGS)
 
 		if (strcmp(def->defname, "path") == 0)
 		{
-			if(got[Anum_monitor_jobitem_path-1])
+			if(got[Anum_monitor_jobitem_jobitem_path-1])
 				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 					,errmsg("conflicting or redundant options")));
 			str = defGetString(def);
@@ -150,25 +150,25 @@ Datum monitor_jobitem_add_func(PG_FUNCTION_ARGS)
 					,errmsg("invalid absoulte path: \"%s\"", str)));
 			/*check whether space in str*/
 			if (strchr(str, space) == NULL)
-				datum[Anum_monitor_jobitem_path-1] = PointerGetDatum(cstring_to_text(str));
+				datum[Anum_monitor_jobitem_jobitem_path-1] = PointerGetDatum(cstring_to_text(str));
 			else
 			{
 				/*add single quota*/
 				initStringInfo(&filepathstrdata);
 				monitor_get_absolute_filepath(&filepathstrdata, str);
-				datum[Anum_monitor_jobitem_path-1] = PointerGetDatum(cstring_to_text(filepathstrdata.data));
+				datum[Anum_monitor_jobitem_jobitem_path-1] = PointerGetDatum(cstring_to_text(filepathstrdata.data));
 				pfree(filepathstrdata.data);
 			}
-			got[Anum_monitor_jobitem_path-1] = true;
+			got[Anum_monitor_jobitem_jobitem_path-1] = true;
 		}
 		else if (strcmp(def->defname, "desc") == 0)
 		{
-			if(got[Anum_monitor_jobitem_desc-1])
+			if(got[Anum_monitor_jobitem_jobitem_desc-1])
 				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 					,errmsg("conflicting or redundant options")));
 			str = defGetString(def);
-			datum[Anum_monitor_jobitem_desc-1] = PointerGetDatum(cstring_to_text(str));
-			got[Anum_monitor_jobitem_desc-1] = true;
+			datum[Anum_monitor_jobitem_jobitem_desc-1] = PointerGetDatum(cstring_to_text(str));
+			got[Anum_monitor_jobitem_jobitem_desc-1] = true;
 		}
 		else
 		{
@@ -178,14 +178,14 @@ Datum monitor_jobitem_add_func(PG_FUNCTION_ARGS)
 		}
 	}
 	/* if not give, set to default */
-	if (false == datum[Anum_monitor_jobitem_path-1])
+	if (false == datum[Anum_monitor_jobitem_jobitem_path-1])
 	{
 		ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 			, errmsg("option \"path\" must be given")));
 	}
-	if (false == got[Anum_monitor_jobitem_desc-1])
+	if (false == got[Anum_monitor_jobitem_jobitem_desc-1])
 	{
-		datum[Anum_monitor_jobitem_desc-1] = PointerGetDatum(cstring_to_text(""));
+		datum[Anum_monitor_jobitem_jobitem_desc-1] = PointerGetDatum(cstring_to_text(""));
 	}
 	/* now, we can insert record */
 	rel = heap_open(MjobitemRelationId, RowExclusiveLock);
@@ -251,7 +251,7 @@ Datum monitor_jobitem_alter_func(PG_FUNCTION_ARGS)
 	memset(got, 0, sizeof(got));
 
 	/* name */
-	datum[Anum_monitor_jobitem_itemname-1] = NameGetDatum(&itemnamedata);
+	datum[Anum_monitor_jobitem_jobitem_itemname-1] = NameGetDatum(&itemnamedata);
 	foreach(lc, options)
 	{
 		def = lfirst(lc);
@@ -259,7 +259,7 @@ Datum monitor_jobitem_alter_func(PG_FUNCTION_ARGS)
 
 		if (strcmp(def->defname, "path") == 0)
 		{
-			if(got[Anum_monitor_jobitem_path-1])
+			if(got[Anum_monitor_jobitem_jobitem_path-1])
 				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 					,errmsg("conflicting or redundant options")));
 			str = defGetString(def);
@@ -267,25 +267,25 @@ Datum monitor_jobitem_alter_func(PG_FUNCTION_ARGS)
 				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 					,errmsg("invalid absoulte path: \"%s\"", str)));
 			if (strchr(str, ' ') == NULL)
-				datum[Anum_monitor_jobitem_path-1] = PointerGetDatum(cstring_to_text(str));
+				datum[Anum_monitor_jobitem_jobitem_path-1] = PointerGetDatum(cstring_to_text(str));
 			else
 			{
 				/*add single quota*/
 				initStringInfo(&filepathstrdata);
 				monitor_get_absolute_filepath(&filepathstrdata, str);
-				datum[Anum_monitor_jobitem_path-1] = PointerGetDatum(cstring_to_text(filepathstrdata.data));
+				datum[Anum_monitor_jobitem_jobitem_path-1] = PointerGetDatum(cstring_to_text(filepathstrdata.data));
 				pfree(filepathstrdata.data);
 			}
-			got[Anum_monitor_jobitem_path-1] = true;
+			got[Anum_monitor_jobitem_jobitem_path-1] = true;
 		}
 		else if (strcmp(def->defname, "desc") == 0)
 		{
-			if(got[Anum_monitor_jobitem_desc-1])
+			if(got[Anum_monitor_jobitem_jobitem_desc-1])
 				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 					,errmsg("conflicting or redundant options")));
 			str = defGetString(def);
-			datum[Anum_monitor_jobitem_desc-1] = PointerGetDatum(cstring_to_text(str));
-			got[Anum_monitor_jobitem_desc-1] = true;
+			datum[Anum_monitor_jobitem_jobitem_desc-1] = PointerGetDatum(cstring_to_text(str));
+			got[Anum_monitor_jobitem_jobitem_desc-1] = true;
 		}
 		else
 		{
@@ -339,11 +339,9 @@ Datum monitor_jobitem_drop_func(PG_FUNCTION_ARGS)
 	if_exists = PG_GETARG_BOOL(0);
 	name_list = (List *)PG_GETARG_POINTER(1);
 	Assert(name_list);
-	context = AllocSetContextCreate(CurrentMemoryContext
-			,"DROP ITEM"
-			,ALLOCSET_DEFAULT_MINSIZE
-			,ALLOCSET_DEFAULT_INITSIZE
-			,ALLOCSET_DEFAULT_MAXSIZE);
+	context = AllocSetContextCreate(CurrentMemoryContext,
+									"DROP ITEM",
+									ALLOCSET_DEFAULT_SIZES);
 	rel = heap_open(MjobitemRelationId, RowExclusiveLock);
 	old_context = MemoryContextSwitchTo(context);
 
@@ -404,7 +402,7 @@ static HeapTuple montiot_jobitem_get_item_tuple(Relation rel_jobitem, Name itemn
 	HeapScanDesc rel_scan;
 
 	ScanKeyInit(&key[0]
-				,Anum_monitor_jobitem_itemname
+				,Anum_monitor_jobitem_jobitem_itemname
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,NameGetDatum(itemname));

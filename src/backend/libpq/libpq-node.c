@@ -2,7 +2,7 @@
 
 #include "catalog/pgxc_node.h"
 #include "intercomm/inter-node.h"
-#include "libpq/libpq-fe.h"
+#include "libpq-fe.h"
 #include "libpq/pqcomm.h"
 #include "miscadmin.h"
 #include "utils/memutils.h"

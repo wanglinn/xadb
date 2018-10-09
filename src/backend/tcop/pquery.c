@@ -3,7 +3,7 @@
  * pquery.c
  *	  POSTGRES process query command code
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -532,9 +532,9 @@ PortalStart(Portal portal, ParamListInfo params,
 		ActivePortal = portal;
 		if (portal->resowner)
 			CurrentResourceOwner = portal->resowner;
-		PortalContext = PortalGetHeapMemory(portal);
+		PortalContext = portal->portalContext;
 
-		oldContext = MemoryContextSwitchTo(PortalGetHeapMemory(portal));
+		oldContext = MemoryContextSwitchTo(PortalContext);
 
 		/* Must remember portal param list, if any */
 		portal->portalParams = params;
@@ -700,7 +700,7 @@ PortalSetResultFormat(Portal portal, int nFormats, int16 *formats)
 		return;
 	natts = portal->tupDesc->natts;
 	portal->formats = (int16 *)
-		MemoryContextAlloc(PortalGetHeapMemory(portal),
+		MemoryContextAlloc(portal->portalContext,
 						   natts * sizeof(int16));
 	if (nFormats > 1)
 	{
@@ -748,7 +748,7 @@ PortalSetResultFormat(Portal portal, int nFormats, int16 *formats)
  *		in which to store a command completion status string.
  *		May be NULL if caller doesn't want a status string.
  *
- * Returns TRUE if the portal's execution is complete, FALSE if it was
+ * Returns true if the portal's execution is complete, false if it was
  * suspended due to exhaustion of the count parameter.
  */
 bool
@@ -814,7 +814,7 @@ PortalRun(Portal portal, long count, bool isTopLevel, bool run_once,
 		ActivePortal = portal;
 		if (portal->resowner)
 			CurrentResourceOwner = portal->resowner;
-		PortalContext = PortalGetHeapMemory(portal);
+		PortalContext = portal->portalContext;
 
 		MemoryContextSwitchTo(PortalContext);
 
@@ -951,7 +951,7 @@ PortalRunSelect(Portal portal,
 	 * NB: queryDesc will be NULL if we are fetching from a held cursor or a
 	 * completed utility query; can't use it in that path.
 	 */
-	queryDesc = PortalGetQueryDesc(portal);
+	queryDesc = portal->queryDesc;
 
 	/* Caller messed up if we have neither a ready query nor held data. */
 	Assert(queryDesc || portal->holdStore);
@@ -1141,7 +1141,7 @@ FillPortalStore(Portal portal, bool isTopLevel)
 	if (completionTag[0] != '\0')
 		portal->commandTag = pstrdup(completionTag);
 
-	(*treceiver->rDestroy) (treceiver);
+	treceiver->rDestroy(treceiver);
 }
 
 /*
@@ -1165,7 +1165,7 @@ RunFromStore(Portal portal, ScanDirection direction, uint64 count,
 
 	slot = MakeSingleTupleTableSlot(portal->tupDesc);
 
-	(*dest->rStartup) (dest, CMD_SELECT, portal->tupDesc);
+	dest->rStartup(dest, CMD_SELECT, portal->tupDesc);
 
 	if (ScanDirectionIsNoMovement(direction))
 	{
@@ -1195,7 +1195,7 @@ RunFromStore(Portal portal, ScanDirection direction, uint64 count,
 			 * has closed and no more tuples can be sent. If that's the case,
 			 * end the loop.
 			 */
-			if (!((*dest->receiveSlot) (slot, dest)))
+			if (!dest->receiveSlot(slot, dest))
 				break;
 
 			ExecClearTuple(slot);
@@ -1211,7 +1211,7 @@ RunFromStore(Portal portal, ScanDirection direction, uint64 count,
 		}
 	}
 
-	(*dest->rShutdown) (dest);
+	dest->rShutdown(dest);
 
 	ExecDropSingleTupleTableSlot(slot);
 
@@ -1283,7 +1283,7 @@ PortalRunUtility(Portal portal, PlannedStmt *pstmt,
 				   completionTag);
 
 	/* Some utility statements may change context on us */
-	MemoryContextSwitchTo(PortalGetHeapMemory(portal));
+	MemoryContextSwitchTo(portal->portalContext);
 
 	/*
 	 * Some utility commands may pop the ActiveSnapshot stack from under us,
@@ -1459,9 +1459,9 @@ PortalRunMulti(Portal portal,
 		/*
 		 * Clear subsidiary contexts to recover temporary memory.
 		 */
-		Assert(PortalGetHeapMemory(portal) == CurrentMemoryContext);
+		Assert(portal->portalContext == CurrentMemoryContext);
 
-		MemoryContextDeleteChildren(PortalGetHeapMemory(portal));
+		MemoryContextDeleteChildren(portal->portalContext);
 	}
 
 	/* Pop the snapshot if we pushed one. */
@@ -1544,7 +1544,7 @@ PortalRunFetch(Portal portal,
 		ActivePortal = portal;
 		if (portal->resowner)
 			CurrentResourceOwner = portal->resowner;
-		PortalContext = PortalGetHeapMemory(portal);
+		PortalContext = portal->portalContext;
 
 		oldContext = MemoryContextSwitchTo(PortalContext);
 
@@ -1814,7 +1814,7 @@ DoPortalRewind(Portal portal)
 	}
 
 	/* Rewind executor, if active */
-	queryDesc = PortalGetQueryDesc(portal);
+	queryDesc = portal->queryDesc;
 	if (queryDesc)
 	{
 		PushActiveSnapshot(queryDesc->snapshot);

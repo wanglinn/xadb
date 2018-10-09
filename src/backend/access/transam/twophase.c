@@ -3,7 +3,7 @@
  * twophase.c
  *		Two-phase commit support functions.
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -159,11 +159,7 @@ int			max_prepared_xacts = 0;
  *
  * typedef struct GlobalTransactionData *GlobalTransaction appears in
  * twophase.h
- *
- * Note that the max value of GIDSIZE must fit in the uint16 gidlen,
- * specified in TwoPhaseFileHeader.
  */
-#define GIDSIZE 200
 
 typedef struct GlobalTransactionData
 {
@@ -185,9 +181,9 @@ typedef struct GlobalTransactionData
 
 	Oid			owner;			/* ID of user that executed the xact */
 	BackendId	locking_backend;	/* backend currently working on the xact */
-	bool		valid;			/* TRUE if PGPROC entry is in proc array */
-	bool		ondisk;			/* TRUE if prepare state file is on disk */
-	bool		inredo;			/* TRUE if entry was added via xlog_redo */
+	bool		valid;			/* true if PGPROC entry is in proc array */
+	bool		ondisk;			/* true if prepare state file is on disk */
+	bool		inredo;			/* true if entry was added via xlog_redo */
 	char		gid[GIDSIZE];	/* The GID assigned to the prepared xact */
 #ifdef ADB
 	int			node_cnt;		/* Number of involved nodes */
@@ -230,12 +226,14 @@ static void RecordTransactionCommitPrepared(TransactionId xid,
 								RelFileNode *rels,
 								int ninvalmsgs,
 								SharedInvalidationMessage *invalmsgs,
-								bool initfileinval);
+								bool initfileinval,
+								const char *gid);
 static void RecordTransactionAbortPrepared(TransactionId xid,
 							   int nchildren,
 							   TransactionId *children,
 							   int nrels,
-							   RelFileNode *rels);
+							   RelFileNode *rels,
+							   const char *gid);
 static void ProcessRecords(char *bufptr, TransactionId xid,
 			   const TwoPhaseCallback callbacks[]);
 static void RemoveGXact(GlobalTransaction gxact);
@@ -1042,7 +1040,7 @@ TwoPhaseGetDummyProc(TransactionId xid)
 /*
  * Header for a 2PC state file
  */
-#define TWOPHASE_MAGIC	0x57F94533	/* format identifier */
+#define TWOPHASE_MAGIC	0x57F94534	/* format identifier */
 
 typedef struct TwoPhaseFileHeader
 {
@@ -1061,6 +1059,8 @@ typedef struct TwoPhaseFileHeader
 #endif
 	bool		initfileinval;	/* does relcache init file need invalidation? */
 	uint16		gidlen;			/* length of the GID - GID follows the header */
+	XLogRecPtr	origin_lsn;		/* lsn of this record at origin node */
+	TimestampTz origin_timestamp;	/* time of prepare at origin node */
 } TwoPhaseFileHeader;
 
 /*
@@ -1289,6 +1289,7 @@ EndPrepare(GlobalTransaction gxact)
 {
 	TwoPhaseFileHeader *hdr;
 	StateFileChunk *record;
+	bool		replorigin;
 
 	/* Add the end sentinel to the list of 2PC records */
 	RegisterTwoPhaseRecord(TWOPHASE_RM_END_ID, 0,
@@ -1298,6 +1299,21 @@ EndPrepare(GlobalTransaction gxact)
 	hdr = (TwoPhaseFileHeader *) records.head->data;
 	Assert(hdr->magic == TWOPHASE_MAGIC);
 	hdr->total_len = records.total_len + sizeof(pg_crc32c);
+
+	replorigin = (replorigin_session_origin != InvalidRepOriginId &&
+				  replorigin_session_origin != DoNotReplicateId);
+
+	if (replorigin)
+	{
+		Assert(replorigin_session_origin_lsn != InvalidXLogRecPtr);
+		hdr->origin_lsn = replorigin_session_origin_lsn;
+		hdr->origin_timestamp = replorigin_session_origin_timestamp;
+	}
+	else
+	{
+		hdr->origin_lsn = InvalidXLogRecPtr;
+		hdr->origin_timestamp = 0;
+	}
 
 	/*
 	 * If the data size exceeds MaxAllocSize, we won't be able to read it in
@@ -1331,7 +1347,18 @@ EndPrepare(GlobalTransaction gxact)
 	XLogBeginInsert();
 	for (record = records.head; record != NULL; record = record->next)
 		XLogRegisterData(record->data, record->len);
+
+	XLogSetRecordFlags(XLOG_INCLUDE_ORIGIN);
+
 	gxact->prepare_end_lsn = XLogInsert(RM_XACT_ID, XLOG_XACT_PREPARE);
+
+	if (replorigin)
+	{
+		/* Move LSNs forward for this replication origin */
+		replorigin_session_advance(replorigin_session_origin_lsn,
+								   gxact->prepare_end_lsn);
+	}
+
 	XLogFlush(gxact->prepare_end_lsn);
 
 	/* If we crash now, we have prepared: WAL replay will fix things */
@@ -1419,7 +1446,7 @@ ReadTwoPhaseFile(TransactionId xid, bool give_warnings)
 
 	TwoPhaseFilePath(path, xid);
 
-	fd = OpenTransientFile(path, O_RDONLY | PG_BINARY, 0);
+	fd = OpenTransientFile(path, O_RDONLY | PG_BINARY);
 	if (fd < 0)
 	{
 		if (give_warnings)
@@ -1438,12 +1465,17 @@ ReadTwoPhaseFile(TransactionId xid, bool give_warnings)
 	 */
 	if (fstat(fd, &stat))
 	{
+		int			save_errno = errno;
+
 		CloseTransientFile(fd);
 		if (give_warnings)
+		{
+			errno = save_errno;
 			ereport(WARNING,
 					(errcode_for_file_access(),
 					 errmsg("could not stat two-phase state file \"%s\": %m",
 							path)));
+		}
 		return NULL;
 	}
 
@@ -1471,13 +1503,18 @@ ReadTwoPhaseFile(TransactionId xid, bool give_warnings)
 	pgstat_report_wait_start(WAIT_EVENT_TWOPHASE_FILE_READ);
 	if (read(fd, buf, stat.st_size) != stat.st_size)
 	{
+		int			save_errno = errno;
+
 		pgstat_report_wait_end();
 		CloseTransientFile(fd);
 		if (give_warnings)
+		{
+			errno = save_errno;
 			ereport(WARNING,
 					(errcode_for_file_access(),
 					 errmsg("could not read two-phase state file \"%s\": %m",
 							path)));
+		}
 		pfree(buf);
 		return NULL;
 	}
@@ -1507,6 +1544,44 @@ ReadTwoPhaseFile(TransactionId xid, bool give_warnings)
 	return buf;
 }
 
+/*
+ * ParsePrepareRecord
+ */
+void
+ParsePrepareRecord(uint8 info, char *xlrec, xl_xact_parsed_prepare *parsed)
+{
+	TwoPhaseFileHeader *hdr;
+	char	   *bufptr;
+
+	hdr = (TwoPhaseFileHeader *) xlrec;
+	bufptr = xlrec + MAXALIGN(sizeof(TwoPhaseFileHeader));
+
+	parsed->origin_lsn = hdr->origin_lsn;
+	parsed->origin_timestamp = hdr->origin_timestamp;
+	parsed->twophase_xid = hdr->xid;
+	parsed->dbId = hdr->database;
+	parsed->nsubxacts = hdr->nsubxacts;
+	parsed->nrels = hdr->ncommitrels;
+	parsed->nabortrels = hdr->nabortrels;
+	parsed->nmsgs = hdr->ninvalmsgs;
+
+	strncpy(parsed->twophase_gid, bufptr, hdr->gidlen);
+	bufptr += MAXALIGN(hdr->gidlen);
+
+	parsed->subxacts = (TransactionId *) bufptr;
+	bufptr += MAXALIGN(hdr->nsubxacts * sizeof(TransactionId));
+
+	parsed->xnodes = (RelFileNode *) bufptr;
+	bufptr += MAXALIGN(hdr->ncommitrels * sizeof(RelFileNode));
+
+	parsed->abortnodes = (RelFileNode *) bufptr;
+	bufptr += MAXALIGN(hdr->nabortrels * sizeof(RelFileNode));
+
+	parsed->msgs = (SharedInvalidationMessage *) bufptr;
+	bufptr += MAXALIGN(hdr->ninvalmsgs * sizeof(SharedInvalidationMessage));
+}
+
+
 
 /*
  * Reads 2PC data from xlog. During checkpoint this data will be moved to
@@ -1523,7 +1598,8 @@ XlogReadTwoPhaseData(XLogRecPtr lsn, char **buf, int *len)
 	XLogReaderState *xlogreader;
 	char	   *errormsg;
 
-	xlogreader = XLogReaderAllocate(&read_local_xlog_page, NULL);
+	xlogreader = XLogReaderAllocate(wal_segment_size, &read_local_xlog_page,
+									NULL);
 	if (!xlogreader)
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
@@ -1701,6 +1777,9 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 	/* compute latestXid among all children */
 	latestXid = TransactionIdLatest(xid, hdr->nsubxacts, children);
 
+	/* Prevent cancel/die interrupt while cleaning up */
+	HOLD_INTERRUPTS();
+
 	/*
 	 * The order of operations here is critical: make the XLOG entry for
 	 * commit or abort, then mark the transaction committed or aborted in
@@ -1714,11 +1793,12 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 										hdr->nsubxacts, children,
 										hdr->ncommitrels, commitrels,
 										hdr->ninvalmsgs, invalmsgs,
-										hdr->initfileinval);
+										hdr->initfileinval, gid);
 	else
 		RecordTransactionAbortPrepared(xid,
 									   hdr->nsubxacts, children,
-									   hdr->nabortrels, abortrels);
+									   hdr->nabortrels, abortrels,
+									   gid);
 
 	ProcArrayRemove(proc, latestXid);
 
@@ -1803,6 +1883,7 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 						   isMissingOK,
 						   isCommit);
 #endif
+	RESUME_INTERRUPTS();
 
 	pfree(buf);
 }
@@ -1873,8 +1954,7 @@ RecreateTwoPhaseFile(TransactionId xid, void *content, int len)
 	TwoPhaseFilePath(path, xid);
 
 	fd = OpenTransientFile(path,
-						   O_CREAT | O_TRUNC | O_WRONLY | PG_BINARY,
-						   S_IRUSR | S_IWUSR);
+						   O_CREAT | O_TRUNC | O_WRONLY | PG_BINARY);
 	if (fd < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
@@ -1885,16 +1965,26 @@ RecreateTwoPhaseFile(TransactionId xid, void *content, int len)
 	pgstat_report_wait_start(WAIT_EVENT_TWOPHASE_FILE_WRITE);
 	if (write(fd, content, len) != len)
 	{
+		int			save_errno = errno;
+
 		pgstat_report_wait_end();
 		CloseTransientFile(fd);
+
+		/* if write didn't set errno, assume problem is no disk space */
+		errno = save_errno ? save_errno : ENOSPC;
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not write two-phase state file: %m")));
 	}
 	if (write(fd, &statefile_crc, sizeof(pg_crc32c)) != sizeof(pg_crc32c))
 	{
+		int			save_errno = errno;
+
 		pgstat_report_wait_end();
 		CloseTransientFile(fd);
+
+		/* if write didn't set errno, assume problem is no disk space */
+		errno = save_errno ? save_errno : ENOSPC;
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not write two-phase state file: %m")));
@@ -1908,7 +1998,10 @@ RecreateTwoPhaseFile(TransactionId xid, void *content, int len)
 	pgstat_report_wait_start(WAIT_EVENT_TWOPHASE_FILE_SYNC);
 	if (pg_fsync(fd) != 0)
 	{
+		int			save_errno = errno;
+
 		CloseTransientFile(fd);
+		errno = save_errno;
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not fsync two-phase state file: %m")));
@@ -2028,8 +2121,8 @@ restoreTwoPhaseData(void)
 	DIR		   *cldir;
 	struct dirent *clde;
 
-	cldir = AllocateDir(TWOPHASE_DIR);
 	LWLockAcquire(TwoPhaseStateLock, LW_EXCLUSIVE);
+	cldir = AllocateDir(TWOPHASE_DIR);
 	while ((clde = ReadDir(cldir, TWOPHASE_DIR)) != NULL)
 	{
 		if (strlen(clde->d_name) == 8 &&
@@ -2045,7 +2138,8 @@ restoreTwoPhaseData(void)
 			if (buf == NULL)
 				continue;
 
-			PrepareRedoAdd(buf, InvalidXLogRecPtr, InvalidXLogRecPtr);
+			PrepareRedoAdd(buf, InvalidXLogRecPtr,
+						   InvalidXLogRecPtr, InvalidRepOriginId);
 		}
 	}
 	LWLockRelease(TwoPhaseStateLock);
@@ -2331,14 +2425,14 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 		if (fromdisk)
 		{
 			ereport(WARNING,
-					(errmsg("removing stale two-phase state file for \"%u\"",
+					(errmsg("removing stale two-phase state file for transaction %u",
 							xid)));
 			RemoveTwoPhaseFile(xid, true);
 		}
 		else
 		{
 			ereport(WARNING,
-					(errmsg("removing stale two-phase state from shared memory for \"%u\"",
+					(errmsg("removing stale two-phase state from memory for transaction %u",
 							xid)));
 			PrepareRedoRemove(xid, true);
 		}
@@ -2351,14 +2445,14 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 		if (fromdisk)
 		{
 			ereport(WARNING,
-					(errmsg("removing future two-phase state file for \"%u\"",
+					(errmsg("removing future two-phase state file for transaction %u",
 							xid)));
 			RemoveTwoPhaseFile(xid, true);
 		}
 		else
 		{
 			ereport(WARNING,
-					(errmsg("removing future two-phase state from memory for \"%u\"",
+					(errmsg("removing future two-phase state from memory for transaction %u",
 							xid)));
 			PrepareRedoRemove(xid, true);
 		}
@@ -2372,7 +2466,7 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 		if (buf == NULL)
 		{
 			ereport(WARNING,
-					(errmsg("removing corrupt two-phase state file for \"%u\"",
+					(errmsg("removing corrupt two-phase state file for transaction %u",
 							xid)));
 			RemoveTwoPhaseFile(xid, true);
 			return NULL;
@@ -2391,14 +2485,14 @@ ProcessTwoPhaseBuffer(TransactionId xid,
 		if (fromdisk)
 		{
 			ereport(WARNING,
-					(errmsg("removing corrupt two-phase state file for \"%u\"",
+					(errmsg("removing corrupt two-phase state file for transaction %u",
 							xid)));
 			RemoveTwoPhaseFile(xid, true);
 		}
 		else
 		{
 			ereport(WARNING,
-					(errmsg("removing corrupt two-phase state from memory for \"%u\"",
+					(errmsg("removing corrupt two-phase state from memory for transaction %u",
 							xid)));
 			PrepareRedoRemove(xid, true);
 		}
@@ -2465,7 +2559,8 @@ RecordTransactionCommitPrepared(TransactionId xid,
 								RelFileNode *rels,
 								int ninvalmsgs,
 								SharedInvalidationMessage *invalmsgs,
-								bool initfileinval)
+								bool initfileinval,
+								const char *gid)
 {
 	XLogRecPtr	recptr;
 	TimestampTz committs = GetCurrentTimestamp();
@@ -2493,7 +2588,7 @@ RecordTransactionCommitPrepared(TransactionId xid,
 								 ninvalmsgs, invalmsgs,
 								 initfileinval, false,
 								 MyXactFlags | XACT_FLAGS_ACQUIREDACCESSEXCLUSIVELOCK,
-								 xid);
+								 xid, gid);
 
 
 	if (replorigin)
@@ -2555,7 +2650,8 @@ RecordTransactionAbortPrepared(TransactionId xid,
 							   int nchildren,
 							   TransactionId *children,
 							   int nrels,
-							   RelFileNode *rels)
+							   RelFileNode *rels,
+							   const char *gid)
 {
 	XLogRecPtr	recptr;
 
@@ -2578,7 +2674,7 @@ RecordTransactionAbortPrepared(TransactionId xid,
 								nchildren, children,
 								nrels, rels,
 								MyXactFlags | XACT_FLAGS_ACQUIREDACCESSEXCLUSIVELOCK,
-								xid);
+								xid, gid);
 
 	/* Always flush, since we're about to remove the 2PC state file */
 	XLogFlush(recptr);
@@ -2609,7 +2705,8 @@ RecordTransactionAbortPrepared(TransactionId xid,
  * data, the entry is marked as located on disk.
  */
 void
-PrepareRedoAdd(char *buf, XLogRecPtr start_lsn, XLogRecPtr end_lsn)
+PrepareRedoAdd(char *buf, XLogRecPtr start_lsn,
+			   XLogRecPtr end_lsn, RepOriginId origin_id)
 {
 	TwoPhaseFileHeader *hdr = (TwoPhaseFileHeader *) buf;
 	char	   *bufptr;
@@ -2657,6 +2754,13 @@ PrepareRedoAdd(char *buf, XLogRecPtr start_lsn, XLogRecPtr end_lsn)
 	/* And insert it into the active array */
 	Assert(TwoPhaseState->numPrepXacts < max_prepared_xacts);
 	TwoPhaseState->prepXacts[TwoPhaseState->numPrepXacts++] = gxact;
+
+	if (origin_id != InvalidRepOriginId)
+	{
+		/* recover apply progress */
+		replorigin_advance(origin_id, hdr->origin_lsn, end_lsn,
+						   false /* backward */ , false /* WAL */ );
+	}
 
 	elog(DEBUG2, "added 2PC data in shared memory for transaction %u", gxact->xid);
 }

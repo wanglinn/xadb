@@ -1,7 +1,7 @@
 /*
  * commands of dbthreshold
  */
- 
+
 #include "../../interfaces/libpq/libpq-fe.h"
 #include "postgres.h"
 #include "access/genam.h"
@@ -10,7 +10,7 @@
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/mgr_host.h"
-#include "catalog/mgr_cndnnode.h"
+#include "catalog/mgr_node.h"
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
 #include "fmgr.h"
@@ -94,7 +94,7 @@ char *monitor_get_timestamptz_onenode(int agentport, char *user, char *address, 
 }
 
 /*monitor items: heaphitrate, unusedindex
-* the monitor values of heaphitrate and unusedindexs from datanode masters, if the monitor values 
+* the monitor values of heaphitrate and unusedindexs from datanode masters, if the monitor values
 * larger then item threshold, record the data to monitor_alarm table
 */
 static void  mthreshold_sqlvaluesfrom_dnmaster(void)
@@ -133,7 +133,7 @@ static void  mthreshold_sqlvaluesfrom_dnmaster(void)
 	bool getnode = false;
 	char *nodetime;
 	const char *clustertime;
-	
+
 	hostrel = heap_open(HostRelationId, RowExclusiveLock);
 	hostrel_scan = heap_beginscan_catalog(hostrel, 0, NULL);
 	noderel = heap_open(NodeRelationId, RowExclusiveLock);
@@ -180,7 +180,7 @@ static void  mthreshold_sqlvaluesfrom_dnmaster(void)
 				phynodeheaphit = phynodeheaphit + iarray[0];
 				phynodeheapread = phynodeheapread + iarray[1];
 				phynodeunusedindex = phynodeunusedindex + iarray[2];
-				
+
 			}
 			list_free(dbnamelist);
 			getnode = true;
@@ -191,7 +191,7 @@ static void  mthreshold_sqlvaluesfrom_dnmaster(void)
 		/*check the phynode heaphitrate*/
 		if (phynodeheaphit+phynodeheapread != 0)
 			phyheaphitrate = phynodeheaphit*100/(phynodeheaphit+phynodeheapread);
-	
+
 		if (getnode)
 		{
 			nodetime = monitor_get_timestamptz_onenode(agentport, ndatauser.data, address, port);
@@ -203,9 +203,9 @@ static void  mthreshold_sqlvaluesfrom_dnmaster(void)
 			mthreshold_levelvalue_impositiveseq(OBJECT_NODE_HEAPHIT, address, nodetime, phyheaphitrate, "heaphit rate");
 			pfree(nodetime);
 		}
-		
+
 		heap_endscan(noderel_scan);
-		
+
 	}
 	heap_endscan(hostrel_scan);
 	heap_close(hostrel, RowExclusiveLock);
@@ -260,10 +260,10 @@ static void  mthreshold_sqlvaluesfrom_coord(void)
 	NameData ndatauser;
 	char *address;
 	char *sqlstr = "select sum(xact_commit)  from pg_stat_database union all select sum(xact_rollback) from pg_stat_database union all select count(1) from pg_locks where database is not null union all select count(*) from  pg_stat_activity where extract(epoch from (query_start-now())) > 200 union all select count(*) from pg_stat_activity where state='idle' union all select sum(numbackends) from pg_stat_database;";
-	bool getnode = false;	
+	bool getnode = false;
 	char *nodetime;
 	const char *clustertime;
-	
+
 	hostrel = heap_open(HostRelationId, RowExclusiveLock);
 	hostrel_scan = heap_beginscan_catalog(hostrel, 0, NULL);
 	noderel = heap_open(NodeRelationId, RowExclusiveLock);
@@ -337,7 +337,7 @@ static void  mthreshold_sqlvaluesfrom_coord(void)
 			mthreshold_levelvalue_positiveseq(OBJECT_NODE_LONGTRANS, address, nodetime, phynodeidletrans, "idle transactions");
 			mthreshold_levelvalue_positiveseq(OBJECT_NODE_CONNECT, address, nodetime, phynodeconnect, "connect");
 			pfree(nodetime);
-		}		
+		}
 	}
 	heap_endscan(hostrel_scan);
 	heap_close(hostrel, RowExclusiveLock);
@@ -355,7 +355,7 @@ static void  mthreshold_sqlvaluesfrom_coord(void)
 
 /*
 * monitor item: standby delay
-* the monitor values of standby delay from datanode slave, if the monitor values larger then item 
+* the monitor values of standby delay from datanode slave, if the monitor values larger then item
 * threshold, record the data to monitor_alarm table
 */
 
@@ -384,7 +384,7 @@ static void  mthreshold_standbydelay(void)
 	bool getnode = false;
 	char *nodetime;
 	const char *clustertime;
-	
+
 	hostrel = heap_open(HostRelationId, RowExclusiveLock);
 	hostrel_scan = heap_beginscan_catalog(hostrel, 0, NULL);
 	noderel = heap_open(NodeRelationId, RowExclusiveLock);
@@ -448,7 +448,7 @@ static void  mthreshold_standbydelay(void)
 			mthreshold_levelvalue_positiveseq(OBJECT_NODE_STANDBYDELAY, address, nodetime, phynodestandbydelay, "standby delay");
 			pfree(nodetime);
 		}
-		
+
 	}
 	heap_endscan(hostrel_scan);
 	heap_close(hostrel, RowExclusiveLock);
@@ -467,7 +467,7 @@ static void mthreshold_levelvalue_impositiveseq(DbthresholdObject objectype, cha
 {
 	Monitor_Alarm Monitor_Alarm;
 	Monitor_Threshold dbthreshold;
-	
+
 	get_threshold(objectype, &dbthreshold);
 	if (value > dbthreshold.threshold_warning)
 	{
@@ -496,7 +496,7 @@ static void mthreshold_levelvalue_impositiveseq(DbthresholdObject objectype, cha
 			value, dbthreshold.threshold_emergency);
 		Monitor_Alarm.alarm_level = ALARM_EMERGENCY;
 	}
-		
+
 	appendStringInfo(&(Monitor_Alarm.alarm_source), "%s",address);
 	appendStringInfo(&(Monitor_Alarm.alarm_timetz), "%s", time);
 	Monitor_Alarm.alarm_type = 2;
@@ -505,7 +505,7 @@ static void mthreshold_levelvalue_impositiveseq(DbthresholdObject objectype, cha
 	insert_into_monitor_alarm(&Monitor_Alarm);
 	pfree(Monitor_Alarm.alarm_text.data);
 	pfree(Monitor_Alarm.alarm_source.data);
-	pfree(Monitor_Alarm.alarm_timetz.data);	
+	pfree(Monitor_Alarm.alarm_timetz.data);
 }
 
 /*
@@ -516,14 +516,14 @@ static void mthreshold_levelvalue_positiveseq(DbthresholdObject objectype, char 
 {
 	Monitor_Alarm Monitor_Alarm;
 	Monitor_Threshold dbthreshold;
-	
+
 	get_threshold(objectype, &dbthreshold);
 	if (value < dbthreshold.threshold_warning)
 	{
 		/*do nothing*/
 		return;
 	}
-	
+
 	initStringInfo(&(Monitor_Alarm.alarm_text));
 	initStringInfo(&(Monitor_Alarm.alarm_source));
 	initStringInfo(&(Monitor_Alarm.alarm_timetz));
@@ -555,5 +555,5 @@ static void mthreshold_levelvalue_positiveseq(DbthresholdObject objectype, char 
 	insert_into_monitor_alarm(&Monitor_Alarm);
 	pfree(Monitor_Alarm.alarm_text.data);
 	pfree(Monitor_Alarm.alarm_source.data);
-	pfree(Monitor_Alarm.alarm_timetz.data);	
+	pfree(Monitor_Alarm.alarm_timetz.data);
 }

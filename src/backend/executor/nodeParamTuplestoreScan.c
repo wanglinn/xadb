@@ -163,18 +163,11 @@ ExecInitParamTuplestoreScan(ParamTuplestoreScan *node, EState *estate, int eflag
 	scanstate->ss.ps.qual = ExecInitQual(node->scan.plan.qual, (PlanState*)scanstate);
 
 	/*
-	 * Tuple table and result type initialization. The scan tuple type is
-	 * specified for the tuplestore.
-	 */
-	ExecInitResultTupleSlot(estate, &scanstate->ss.ps);
-	ExecInitScanTupleSlot(estate, &scanstate->ss);
-	ExecAssignScanType((ScanState*)scanstate, scanstate->tupdesc);
-
-	/*
 	 * Initialize result tuple type and projection info.
+	 * The scan tuple type is specified for the tuplestore.
 	 */
-	ExecAssignResultTypeFromTL(&scanstate->ss.ps);
-	ExecAssignScanProjectionInfo(&scanstate->ss);
+	ExecInitResultTupleSlotTL(estate, &scanstate->ss.ps);
+	ExecConditionalAssignProjectionInfo(&scanstate->ss.ps, scanstate->tupdesc, OUTER_VAR);
 
 	return scanstate;
 }

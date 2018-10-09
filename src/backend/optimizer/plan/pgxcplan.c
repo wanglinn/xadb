@@ -17,7 +17,6 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_inherits.h"
-#include "catalog/pg_inherits_fn.h"
 #include "catalog/indexing.h"
 #include "catalog/pgxc_node.h"
 #include "commands/prepare.h"
@@ -439,8 +438,10 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	 * back the unshippable quals. We need to restamp the Vars in the clauses
 	 * to match the JOINing queries, so make a copy of those.
 	 */
-	extract_actual_join_clauses(rqpath->join_restrictlist, &join_clauses,
-									&other_clauses);
+	extract_actual_join_clauses(rqpath->join_restrictlist,
+								rqpath->path.parent->relids,
+								&join_clauses,
+								&other_clauses);
 	join_clauses = copyObject(join_clauses);
 	other_clauses = list_concat(other_clauses,
 								extract_actual_clauses(rqpath->join_restrictlist,
@@ -1287,8 +1288,8 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 				continue;
 
 			pgxc_add_param_as_tle(query_to_deparse, attnum,
-								get_atttype(res_rte->relid, attnum),
-								get_attname(res_rte->relid, attnum));
+								  get_atttype(res_rte->relid, attnum),
+								  get_attname(res_rte->relid, attnum, false));
 		}
 
 		/*
@@ -2428,10 +2429,8 @@ fetch_ctid_of(Plan *subtree, Query *query)
 		MemoryContext		tmpcontext;
 
 		tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
-							"Temp Context",
-							ALLOCSET_DEFAULT_MINSIZE,
-							ALLOCSET_DEFAULT_INITSIZE,
-							ALLOCSET_DEFAULT_MAXSIZE);
+										   "Temp Context",
+										   ALLOCSET_DEFAULT_SIZES);
 		oldcontext = MemoryContextSwitchTo(tmpcontext);
 
 		/* Copy the query tree to make changes to the target list */

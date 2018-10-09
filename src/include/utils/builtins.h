@@ -4,7 +4,7 @@
  *	  Declarations for operations on built-in types.
  *
  *
- * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/builtins.h
@@ -33,8 +33,8 @@ extern int	errdomainconstraint(Oid datatypeOid, const char *conname);
 extern unsigned hex_encode(const char *src, unsigned len, char *dst);
 extern unsigned hex_decode(const char *src, unsigned len, char *dst);
 #ifdef ADB_GRAM_ORA
-extern unsigned b64_encode(const char *src, unsigned len, char *dst);
-extern unsigned b64_decode(const char *src, unsigned len, char *dst);
+extern unsigned pg_base64_encode(const char *src, unsigned len, char *dst);
+extern unsigned pg_base64_decode(const char *src, unsigned len, char *dst);
 #endif
 
 /* int.c */
@@ -105,6 +105,10 @@ extern bool quote_all_identifiers;
 extern const char *quote_identifier(const char *ident);
 extern char *quote_qualified_identifier(const char *qualifier,
 						   const char *ident);
+extern void generate_operator_clause(fmStringInfo buf,
+						 const char *leftop, Oid leftoptype,
+						 Oid opoid,
+						 const char *rightop, Oid rightoptype);
 
 /* varchar.c */
 extern int	bpchartruelen(char *s, int len);
@@ -255,7 +259,7 @@ extern int inet_net_pton(int af, const char *src,
 			  void *dst, size_t size);
 
 /* network.c */
-extern double convert_network_to_scalar(Datum value, Oid typid);
+extern double convert_network_to_scalar(Datum value, Oid typid, bool *failure);
 extern Datum network_scan_first(Datum in);
 extern Datum network_scan_last(Datum in);
 extern void clean_ipv6_addr(int addr_family, char *addr);
@@ -264,10 +268,17 @@ extern void clean_ipv6_addr(int addr_family, char *addr);
 extern Datum numeric_float8_no_overflow(PG_FUNCTION_ARGS);
 
 /* format_type.c */
+
+/* Control flags for format_type_extended */
+#define FORMAT_TYPE_TYPEMOD_GIVEN	0x01	/* typemod defined by caller */
+#define FORMAT_TYPE_ALLOW_INVALID	0x02	/* allow invalid types */
+#define FORMAT_TYPE_FORCE_QUALIFY	0x04	/* force qualification of type */
+extern char *format_type_extended(Oid type_oid, int32 typemod, bits16 flags);
+
 extern char *format_type_be(Oid type_oid);
 extern char *format_type_be_qualified(Oid type_oid);
 extern char *format_type_with_typemod(Oid type_oid, int32 typemod);
-extern char *format_type_with_typemod_qualified(Oid type_oid, int32 typemod);
+
 extern int32 type_maximum_size(Oid type_oid, int32 typemod);
 
 /* quote.c */

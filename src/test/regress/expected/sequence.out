@@ -71,17 +71,19 @@ INSERT INTO serialTest1 VALUES ('force', 100);
 INSERT INTO serialTest1 VALUES ('wrong', NULL);
 ERROR:  null value in column "f2" violates not-null constraint
 DETAIL:  Failing row contains (wrong, null).
-<<<<<<< HEAD
-SELECT * FROM serialTest1;
-=======
-SELECT * FROM serialTest ORDER BY f1, f2;
->>>>>>> e4e2e7774a... 3.1 patch
+SELECT * FROM serialTest1 ORDER BY f1, f2;
   f1   | f2  
 -------+-----
  bar   |   2
  foo   |   1
  force | 100
 (3 rows)
+
+SELECT pg_get_serial_sequence('serialTest1', 'f2');
+  pg_get_serial_sequence   
+---------------------------
+ public.serialtest1_f2_seq
+(1 row)
 
 -- test smallserial / bigserial
 CREATE TABLE serialTest2 (f1 text, f2 serial, f3 smallserial, f4 serial2,
@@ -267,15 +269,9 @@ SELECT last_value, log_cnt IN (31, 32) AS log_cnt_ok, is_called FROM foo_seq_new
 
 DROP SEQUENCE foo_seq_new;
 -- renaming serial sequences
-<<<<<<< HEAD
 ALTER TABLE serialtest1_f2_seq RENAME TO serialtest1_f2_foo;
 INSERT INTO serialTest1 VALUES ('more');
-SELECT * FROM serialTest1;
-=======
-ALTER TABLE serialtest_f2_seq RENAME TO serialtest_f2_foo;
-INSERT INTO serialTest VALUES ('more');
-SELECT * FROM serialTest ORDER BY f1, f2;
->>>>>>> e4e2e7774a... 3.1 patch
+SELECT * FROM serialTest1 ORDER BY f1, f2;
   f1   | f2  
 -------+-----
  bar   |   2
@@ -297,11 +293,11 @@ CREATE TEMP TABLE t1 (
 -- Both drops should fail, but with different error messages:
 DROP SEQUENCE t1_f1_seq;
 ERROR:  cannot drop sequence t1_f1_seq because other objects depend on it
-DETAIL:  default for table t1 column f1 depends on sequence t1_f1_seq
+DETAIL:  default value for column f1 of table t1 depends on sequence t1_f1_seq
 HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 DROP SEQUENCE myseq2;
 ERROR:  cannot drop sequence myseq2 because other objects depend on it
-DETAIL:  default for table t1 column f2 depends on sequence myseq2
+DETAIL:  default value for column f2 of table t1 depends on sequence myseq2
 HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 -- This however will work:
 DROP SEQUENCE myseq3;
@@ -538,6 +534,19 @@ SELECT * FROM pg_sequence_parameters('sequence_test4'::regclass);
 -------------+----------------------+---------------+-----------+--------------+------------+-----------
           -1 | -9223372036854775808 |            -1 |        -1 | f            |          1 |        20
 (1 row)
+
+\d sequence_test4
+                       Sequence "public.sequence_test4"
+  Type  | Start |       Minimum        | Maximum | Increment | Cycles? | Cache 
+--------+-------+----------------------+---------+-----------+---------+-------
+ bigint |    -1 | -9223372036854775808 |      -1 |        -1 | no      |     1
+
+\d serialtest2_f2_seq
+                 Sequence "public.serialtest2_f2_seq"
+  Type   | Start | Minimum |  Maximum   | Increment | Cycles? | Cache 
+---------+-------+---------+------------+-----------+---------+-------
+ integer |     1 |       1 | 2147483647 |         1 | no      |     1
+Owned by: public.serialtest2.f2
 
 -- Test comments
 COMMENT ON SEQUENCE asdf IS 'won''t work';
@@ -776,7 +785,7 @@ ROLLBACK;
 BEGIN;
 SET LOCAL SESSION AUTHORIZATION regress_seq_user;
 ALTER SEQUENCE sequence_test2 START WITH 1;
-ERROR:  must be owner of relation sequence_test2
+ERROR:  must be owner of sequence sequence_test2
 ROLLBACK;
 -- Sequences should get wiped out as well:
 DROP TABLE serialTest1, serialTest2;

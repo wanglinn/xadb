@@ -134,7 +134,7 @@ static void outputValue(const Value *value, StringInfo str, int space)
 		appendStringInfoString(str, "Value");
 		break;
 	case T_Integer:
-		appendStringInfo(str, "Integer %ld", intVal(value));
+		appendStringInfo(str, "Integer %d", intVal(value));
 		break;
 	case T_Float:
 		appendStringInfo(str, "Float %s", strVal(value));
@@ -325,9 +325,15 @@ SIMPLE_OUTPUT_DECLARE(int32, "%d")
 SIMPLE_OUTPUT_DECLARE(int16, "%d")
 SIMPLE_OUTPUT_DECLARE(uint16, "%u")
 SIMPLE_OUTPUT_DECLARE(uint32, "%u")
+#ifdef HAVE_LONG_INT_64
+SIMPLE_OUTPUT_DECLARE(uint64, "%lu")
+#elif defined(HAVE_LONG_LONG_INT_64)
+SIMPLE_OUTPUT_DECLARE(uint64, "%llu")
+#endif
 SIMPLE_OUTPUT_DECLARE(BlockNumber, "%u")
 SIMPLE_OUTPUT_DECLARE(Selectivity, "%g")
 SIMPLE_OUTPUT_DECLARE(bits32, "%08x")
+SIMPLE_OUTPUT_DECLARE(StrategyNumber, "%u");
 
 /* declare functions */
 #define BEGIN_NODE(type)	\
@@ -433,8 +439,8 @@ SIMPLE_OUTPUT_DECLARE(bits32, "%08x")
 #undef NO_STRUCT_ParamExternData
 #undef NO_STRUCT_QualCost
 #undef NO_STRUCT_MergeScanSelCache
-#undef NO_STRUCT_RelationLocInfo
 #undef NO_STRUCT_ReduceInfo
+#undef NO_STRUCT_PartitionPruneStep
 #define NO_NODE_Path
 #define NO_NODE_EquivalenceClass
 #define NO_NODE_IndexOptInfo
@@ -554,5 +560,3 @@ char *printObject(const void *obj)
 	printNode(obj, &str, 0);
 	return str.data;
 }
-
-

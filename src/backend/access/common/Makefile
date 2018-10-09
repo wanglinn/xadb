@@ -13,10 +13,9 @@ top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
 OBJS = bufmask.o heaptuple.o indextuple.o printsimple.o printtup.o \
-	reloptions.o scankey.o tupconvert.o tupdesc.o
+	reloptions.o scankey.o session.o tupconvert.o tupdesc.o
 ifeq ($(enable_cluster),yes)
   OBJS += tuptypeconvert.o
 endif
-
 
 include $(top_srcdir)/src/backend/common.mk

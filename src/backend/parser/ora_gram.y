@@ -531,7 +531,7 @@ create_as_target:
 		;
 
 opt_with_data:
-			 /*EMPTY*/								{ $$ = TRUE; }
+			 /*EMPTY*/								{ $$ = true; }
 		;
 
 /*****************************************************************************
@@ -612,7 +612,7 @@ AlterOptRoleElem:
 				}
 			| INHERIT
 				{
-					$$ = makeDefElem("inherit", (Node *)makeInteger(TRUE), @1);
+					$$ = makeDefElem("inherit", (Node *)makeInteger(true), @1);
 				}
 			| CONNECTION LIMIT SignedIconst
 				{
@@ -635,42 +635,42 @@ AlterOptRoleElem:
 					 * size of the main parser.
 					 */
 					if (strcmp($1, "superuser") == 0)
-						$$ = makeDefElem("superuser", (Node *)makeInteger(TRUE), @1);
+						$$ = makeDefElem("superuser", (Node *)makeInteger(true), @1);
 					else if (strcmp($1, "nosuperuser") == 0)
-						$$ = makeDefElem("superuser", (Node *)makeInteger(FALSE), @1);
+						$$ = makeDefElem("superuser", (Node *)makeInteger(false), @1);
 					else if (strcmp($1, "createuser") == 0)
 					{
 						/* For backwards compatibility, synonym for SUPERUSER */
-						$$ = makeDefElem("superuser", (Node *)makeInteger(TRUE), @1);
+						$$ = makeDefElem("superuser", (Node *)makeInteger(true), @1);
 					}
 					else if (strcmp($1, "nocreateuser") == 0)
 					{
 						/* For backwards compatibility, synonym for SUPERUSER */
-						$$ = makeDefElem("superuser", (Node *)makeInteger(FALSE), @1);
+						$$ = makeDefElem("superuser", (Node *)makeInteger(false), @1);
 					}
 					else if (strcmp($1, "createrole") == 0)
-						$$ = makeDefElem("createrole", (Node *)makeInteger(TRUE), @1);
+						$$ = makeDefElem("createrole", (Node *)makeInteger(true), @1);
 					else if (strcmp($1, "nocreaterole") == 0)
-						$$ = makeDefElem("createrole", (Node *)makeInteger(FALSE), @1);
+						$$ = makeDefElem("createrole", (Node *)makeInteger(false), @1);
 					else if (strcmp($1, "replication") == 0)
-						$$ = makeDefElem("isreplication", (Node *)makeInteger(TRUE), @1);
+						$$ = makeDefElem("isreplication", (Node *)makeInteger(true), @1);
 					else if (strcmp($1, "noreplication") == 0)
-						$$ = makeDefElem("isreplication", (Node *)makeInteger(FALSE), @1);
+						$$ = makeDefElem("isreplication", (Node *)makeInteger(false), @1);
 					else if (strcmp($1, "createdb") == 0)
-						$$ = makeDefElem("createdb", (Node *)makeInteger(TRUE), @1);
+						$$ = makeDefElem("createdb", (Node *)makeInteger(true), @1);
 					else if (strcmp($1, "nocreatedb") == 0)
-						$$ = makeDefElem("createdb", (Node *)makeInteger(FALSE), @1);
+						$$ = makeDefElem("createdb", (Node *)makeInteger(false), @1);
 					else if (strcmp($1, "login") == 0)
-						$$ = makeDefElem("canlogin", (Node *)makeInteger(TRUE), @1);
+						$$ = makeDefElem("canlogin", (Node *)makeInteger(true), @1);
 					else if (strcmp($1, "nologin") == 0)
-						$$ = makeDefElem("canlogin", (Node *)makeInteger(FALSE), @1);
+						$$ = makeDefElem("canlogin", (Node *)makeInteger(false), @1);
 					else if (strcmp($1, "noinherit") == 0)
 					{
 						/*
 						 * Note that INHERIT is a keyword, so it's handled by main parser, but
 						 * NOINHERIT is handled here.
 						 */
-						$$ = makeDefElem("inherit", (Node *)makeInteger(FALSE), @1);
+						$$ = makeDefElem("inherit", (Node *)makeInteger(false), @1);
 					}
 					else
 						ereport(ERROR,
@@ -958,7 +958,7 @@ alter_table_cmd:
 					n->subtype = AT_DropColumn;
 					n->name = $5;
 					n->behavior = $6;
-					n->missing_ok = TRUE;
+					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
 			/* ALTER TABLE <name> DROP [COLUMN] <colname> [RESTRICT|CASCADE] */
@@ -968,7 +968,7 @@ alter_table_cmd:
 					n->subtype = AT_DropColumn;
 					n->name = $3;
 					n->behavior = $4;
-					n->missing_ok = FALSE;
+					n->missing_ok = false;
 					$$ = (Node *)n;
 				}
 			/*
@@ -1033,7 +1033,7 @@ alter_table_cmd:
 					n->subtype = AT_DropConstraint;
 					n->name = $5;
 					n->behavior = $6;
-					n->missing_ok = TRUE;
+					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
 			/* ALTER TABLE <name> DROP CONSTRAINT <name> [RESTRICT|CASCADE] */
@@ -1043,7 +1043,7 @@ alter_table_cmd:
 					n->subtype = AT_DropConstraint;
 					n->name = $3;
 					n->behavior = $4;
-					n->missing_ok = FALSE;
+					n->missing_ok = false;
 					$$ = (Node *)n;
 				}
 			/* ALTER TABLE <name> SET WITH OIDS  */
@@ -1669,15 +1669,15 @@ SeqOptElem: CACHE NumericOnly
 				}
 			| CYCLE
 				{
-					$$ = makeDefElem("cycle", (Node *)makeInteger(TRUE), @1);
+					$$ = makeDefElem("cycle", (Node *)makeInteger(true), @1);
 				}
 			| NO CYCLE
 				{
-					$$ = makeDefElem("cycle", (Node *)makeInteger(FALSE), @1);
+					$$ = makeDefElem("cycle", (Node *)makeInteger(false), @1);
 				}
 			| NOCYCLE
 				{
-					$$ = makeDefElem("cycle", (Node *)makeInteger(FALSE), @1);
+					$$ = makeDefElem("cycle", (Node *)makeInteger(false), @1);
 				}
 			| INCREMENT opt_by NumericOnly
 				{
@@ -1773,12 +1773,12 @@ IndexStmt:	CREATE opt_unique INDEX opt_concurrently opt_index_name
 		;
 
 opt_unique:
-			UNIQUE									{ $$ = TRUE; }
-			| /*EMPTY*/								{ $$ = FALSE; }
+			UNIQUE									{ $$ = true; }
+			| /*EMPTY*/								{ $$ = false; }
 		;
 opt_concurrently:
-			CONCURRENTLY							{ $$ = TRUE; }
-			| /*EMPTY*/								{ $$ = FALSE; }
+			CONCURRENTLY							{ $$ = true; }
+			| /*EMPTY*/								{ $$ = false; }
 		;
 opt_index_name:
 			index_name								{ $$ = $1; }
@@ -1907,7 +1907,7 @@ func_type:	Typename								{ $$ = $1; }
 				{
 					$$ = makeTypeNameFromNameList(lcons(makeString($2), $3));
 					$$->pct_type = true;
-					$$->setof = TRUE;
+					$$->setof = true;
 					$$->location = @2;
 				}
 		;
@@ -2002,9 +2002,9 @@ a_expr:	c_expr
 			n->funcname = SystemFuncName("timezone");
 			n->args = list_make2($5, $1);
 			n->agg_order = NIL;
-			n->agg_star = FALSE;
-			n->agg_distinct = FALSE;
-			n->func_variadic = FALSE;
+			n->agg_star = false;
+			n->agg_distinct = false;
+			n->func_variadic = false;
 			n->over = NULL;
 			n->location = @2;
 			$$ = (Node *) n;
@@ -2076,9 +2076,9 @@ a_expr:	c_expr
 			n->funcname = SystemFuncName("like_escape");
 			n->args = list_make2($3, $5);
 			n->agg_order = NIL;
-			n->agg_star = FALSE;
-			n->agg_distinct = FALSE;
-			n->func_variadic = FALSE;
+			n->agg_star = false;
+			n->agg_distinct = false;
+			n->func_variadic = false;
 			n->over = NULL;
 			n->location = @2;
 			$$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "~~", $1, (Node *) n, @2);
@@ -2091,9 +2091,9 @@ a_expr:	c_expr
 			n->funcname = SystemFuncName("like_escape");
 			n->args = list_make2($4, $6);
 			n->agg_order = NIL;
-			n->agg_star = FALSE;
-			n->agg_distinct = FALSE;
-			n->func_variadic = FALSE;
+			n->agg_star = false;
+			n->agg_distinct = false;
+			n->func_variadic = false;
 			n->over = NULL;
 			n->location = @2;
 			$$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "!~~", $1, (Node *) n, @2);
@@ -2698,8 +2698,8 @@ OptConsTableSpace:   USING INDEX TABLESPACE name	{ $$ = $4; }
 			| /*EMPTY*/								{ $$ = NULL; }
 		;
 
-opt_no_inherit:	NO INHERIT							{  $$ = TRUE; }
-			| /* EMPTY */							{  $$ = FALSE; }
+opt_no_inherit:	NO INHERIT							{  $$ = true; }
+			| /* EMPTY */							{  $$ = false; }
 		;
 opt_column_list:
 			'(' columnList ')'						{ $$ = $2; }
@@ -3158,7 +3158,7 @@ DropStmt:
 		{
 			DropStmt *n = makeNode(DropStmt);
 			n->removeType = $2;
-			n->missing_ok = TRUE;
+			n->missing_ok = true;
 			n->objects = $5;
 			n->behavior = $6;
 			n->concurrent = false;
@@ -3168,7 +3168,7 @@ DropStmt:
 		{
 			DropStmt *n = makeNode(DropStmt);
 			n->removeType = $2;
-			n->missing_ok = FALSE;
+			n->missing_ok = false;
 			n->objects = $3;
 			n->behavior = $4;
 			n->concurrent = false;
@@ -3178,7 +3178,7 @@ DropStmt:
 		{
 			DropStmt *n = makeNode(DropStmt);
 			n->removeType = OBJECT_INDEX;
-			n->missing_ok = FALSE;
+			n->missing_ok = false;
 			n->objects = $4;
 			n->behavior = $5;
 			n->concurrent = true;
@@ -3188,7 +3188,7 @@ DropStmt:
 		{
 			DropStmt *n = makeNode(DropStmt);
 			n->removeType = OBJECT_INDEX;
-			n->missing_ok = TRUE;
+			n->missing_ok = true;
 			n->objects = $6;
 			n->behavior = $7;
 			n->concurrent = true;
@@ -3354,9 +3354,9 @@ func_expr:	func_name '(' ')'
 				n->funcname = $1;
 				n->args = NIL;
 				n->agg_order = NIL;
-				n->agg_star = FALSE;
-				n->agg_distinct = FALSE;
-				n->func_variadic = FALSE;
+				n->agg_star = false;
+				n->agg_distinct = false;
+				n->func_variadic = false;
 				n->over = NULL;
 				n->location = @1;
 				$$ = (Node *)n;
@@ -3384,9 +3384,9 @@ func_expr:	func_name '(' ')'
 					n->funcname = $1;
 					n->args = $3;
 					n->agg_order = NIL;
-					n->agg_star = FALSE;
-					n->agg_distinct = FALSE;
-					n->func_variadic = FALSE;
+					n->agg_star = false;
+					n->agg_distinct = false;
+					n->func_variadic = false;
 					n->location = @1;
 					$$ = (Node *)n;
 				}
@@ -3397,9 +3397,9 @@ func_expr:	func_name '(' ')'
 				n->funcname = $1;
 				n->args = $3;
 				n->agg_order = $4;
-				n->agg_star = FALSE;
-				n->agg_distinct = FALSE;
-				n->func_variadic = FALSE;
+				n->agg_star = false;
+				n->agg_distinct = false;
+				n->func_variadic = false;
 				/* n->over = $6; */
 				n->location = @1;
 				$$ = (Node *)n;
@@ -3410,13 +3410,13 @@ func_expr:	func_name '(' ')'
 				n->funcname = $1;
 				n->args = $4;
 				n->agg_order = $5;
-				n->agg_star = FALSE;
-				n->agg_distinct = FALSE;
+				n->agg_star = false;
+				n->agg_distinct = false;
 				/* Ideally we'd mark the FuncCall node to indicate
 				 * "must be an aggregate", but there's no provision
 				 * for that in FuncCall at the moment.
 				 */
-				n->func_variadic = FALSE;
+				n->func_variadic = false;
 				/* n->over = $7; */
 				n->location = @1;
 				$$ = (Node *)n;
@@ -3427,9 +3427,9 @@ func_expr:	func_name '(' ')'
 				n->funcname = $1;
 				n->args = $4;
 				n->agg_order = $5;
-				n->agg_star = FALSE;
-				n->agg_distinct = TRUE;
-				n->func_variadic = FALSE;
+				n->agg_star = false;
+				n->agg_distinct = true;
+				n->func_variadic = false;
 				/* n->over = $7; */
 				n->location = @1;
 				$$ = (Node *)n;
@@ -3450,9 +3450,9 @@ func_expr:	func_name '(' ')'
 				n->funcname = $1;
 				n->args = NIL;
 				n->agg_order = NIL;
-				n->agg_star = TRUE;
-				n->agg_distinct = FALSE;
-				n->func_variadic = FALSE;
+				n->agg_star = true;
+				n->agg_distinct = false;
+				n->func_variadic = false;
 				n->location = @1;
 				$$ = (Node *)n;
 			}
@@ -3468,9 +3468,9 @@ func_expr:	func_name '(' ')'
 				fc->funcname = OracleFuncName("ora_sys_now");
 				fc->args = NIL;
 				fc->agg_order = NIL;
-				fc->agg_star = FALSE;
-				fc->agg_distinct = FALSE;
-				fc->func_variadic = FALSE;
+				fc->agg_star = false;
+				fc->agg_distinct = false;
+				fc->func_variadic = false;
 				fc->over = NULL;
 				fc->location = -1;
 
@@ -3489,9 +3489,9 @@ func_expr:	func_name '(' ')'
 				fc->funcname = OracleFuncName("ora_sys_now");
 				fc->args = NIL;
 				fc->agg_order = NIL;
-				fc->agg_star = FALSE;
-				fc->agg_distinct = FALSE;
-				fc->func_variadic = FALSE;
+				fc->agg_star = false;
+				fc->agg_distinct = false;
+				fc->func_variadic = false;
 				fc->over = NULL;
 				fc->location = -1;
 
@@ -3520,9 +3520,9 @@ func_expr:	func_name '(' ')'
 				n->funcname = SystemFuncName("now");
 				n->args = NIL;
 				n->agg_order = NIL;
-				n->agg_star = FALSE;
-				n->agg_distinct = FALSE;
-				n->func_variadic = FALSE;
+				n->agg_star = false;
+				n->agg_distinct = false;
+				n->func_variadic = false;
 				n->over = NULL;
 				n->location = @1;
 				$$ = (Node *)n;
@@ -3605,9 +3605,9 @@ func_expr:	func_name '(' ')'
 				n->funcname = SystemFuncName(((Value *)llast($5->names))->val.str);
 				n->args = list_make1($3);
 				n->agg_order = NIL;
-				n->agg_star = FALSE;
-				n->agg_distinct = FALSE;
-				n->func_variadic = FALSE;
+				n->agg_star = false;
+				n->agg_distinct = false;
+				n->func_variadic = false;
 				n->over = NULL;
 				n->location = @1;
 				$$ = (Node *)n;
@@ -3621,9 +3621,9 @@ func_expr:	func_name '(' ')'
 				n->funcname = SystemFuncName("btrim");
 				n->args = $4;
 				n->agg_order = NIL;
-				n->agg_star = FALSE;
-				n->agg_distinct = FALSE;
-				n->func_variadic = FALSE;
+				n->agg_star = false;
+				n->agg_distinct = false;
+				n->func_variadic = false;
 				n->over = NULL;
 				n->location = @1;
 				$$ = (Node *)n;
@@ -3634,9 +3634,9 @@ func_expr:	func_name '(' ')'
 				n->funcname = SystemFuncName("ltrim");
 				n->args = $4;
 				n->agg_order = NIL;
-				n->agg_star = FALSE;
-				n->agg_distinct = FALSE;
-				n->func_variadic = FALSE;
+				n->agg_star = false;
+				n->agg_distinct = false;
+				n->func_variadic = false;
 				n->over = NULL;
 				n->location = @1;
 				$$ = (Node *)n;
@@ -3647,9 +3647,9 @@ func_expr:	func_name '(' ')'
 				n->funcname = SystemFuncName("rtrim");
 				n->args = $4;
 				n->agg_order = NIL;
-				n->agg_star = FALSE;
-				n->agg_distinct = FALSE;
-				n->func_variadic = FALSE;
+				n->agg_star = false;
+				n->agg_distinct = false;
+				n->func_variadic = false;
 				n->over = NULL;
 				n->location = @1;
 				$$ = (Node *)n;
@@ -3660,9 +3660,9 @@ func_expr:	func_name '(' ')'
 				n->funcname = SystemFuncName("btrim");
 				n->args = $3;
 				n->agg_order = NIL;
-				n->agg_star = FALSE;
-				n->agg_distinct = FALSE;
-				n->func_variadic = FALSE;
+				n->agg_star = false;
+				n->agg_distinct = false;
+				n->func_variadic = false;
 				n->over = NULL;
 				n->location = @1;
 				$$ = (Node *)n;
@@ -3675,9 +3675,9 @@ func_expr:	func_name '(' ')'
 				fc->funcname = OracleFuncName("ora_dbtimezone");
 				fc->args = NIL;
 				fc->agg_order = NIL;
-				fc->agg_star = FALSE;
-				fc->agg_distinct = FALSE;
-				fc->func_variadic = FALSE;
+				fc->agg_star = false;
+				fc->agg_distinct = false;
+				fc->func_variadic = false;
 				fc->over = NULL;
 				fc->location = -1;
 
@@ -3691,9 +3691,9 @@ func_expr:	func_name '(' ')'
 				fc->funcname = OracleFuncName("ora_session_timezone");
 				fc->args = NIL;
 				fc->agg_order = NIL;
-				fc->agg_star = FALSE;
-				fc->agg_distinct = FALSE;
-				fc->func_variadic = FALSE;
+				fc->agg_star = false;
+				fc->agg_distinct = false;
+				fc->func_variadic = false;
 				fc->over = NULL;
 				fc->location = -1;
 
@@ -3705,9 +3705,9 @@ func_expr:	func_name '(' ')'
 				n->funcname = SystemFuncName("date_part");
 				n->args = $3;
 				n->agg_order = NIL;
-				n->agg_star = FALSE;
-				n->agg_distinct = FALSE;
-				n->func_variadic = FALSE;
+				n->agg_star = false;
+				n->agg_distinct = false;
+				n->func_variadic = false;
 				n->over = NULL;
 				n->location = @1;
 				$$ = (Node *)n;
@@ -3971,7 +3971,7 @@ joined_table: '(' joined_table ')'			{ $$ = $2; }
 					join */
 					JoinExpr *n = makeNode(JoinExpr);
 					n->jointype = JOIN_INNER;
-					n->isNatural = FALSE;
+					n->isNatural = false;
 					n->larg = $1;
 					n->rarg = $4;
 					n->usingClause = NIL;
@@ -3982,7 +3982,7 @@ joined_table: '(' joined_table ')'			{ $$ = $2; }
 				{
 					JoinExpr *n = makeNode(JoinExpr);
 					n->jointype = $2;
-					n->isNatural = FALSE;
+					n->isNatural = false;
 					n->larg = $1;
 					n->rarg = $4;
 					n->quals = $6;
@@ -3992,7 +3992,7 @@ joined_table: '(' joined_table ')'			{ $$ = $2; }
 				{
 					JoinExpr *n = makeNode(JoinExpr);
 					n->jointype = $2;
-					n->isNatural = FALSE;
+					n->isNatural = false;
 					n->larg = $1;
 					n->rarg = $4;
 					if ($5 != NULL && IsA($5, List))
@@ -4006,7 +4006,7 @@ joined_table: '(' joined_table ')'			{ $$ = $2; }
 					/* letting join_type reduce to empty doesn't work */
 					JoinExpr *n = makeNode(JoinExpr);
 					n->jointype = JOIN_INNER;
-					n->isNatural = FALSE;
+					n->isNatural = false;
 					n->larg = $1;
 					n->rarg = $3;
 					n->quals = $5; /* ON clause */
@@ -4173,9 +4173,9 @@ opt_alias_clause:
 		;
 
 
-opt_all:	ALL										{ $$ = TRUE; }
-			| DISTINCT								{ $$ = FALSE; }
-			| /*EMPTY*/								{ $$ = FALSE; }
+opt_all:	ALL										{ $$ = true; }
+			| DISTINCT								{ $$ = false; }
+			| /*EMPTY*/								{ $$ = false; }
 		;
 
 opt_asc_desc:
@@ -4314,8 +4314,8 @@ opt_type_modifiers:'(' expr_list ')'				{ $$ = $2; }
 		;
 
 opt_verbose:
-			VERBOSE									{ $$ = TRUE; }
-			| /*EMPTY*/								{ $$ = FALSE; }
+			VERBOSE									{ $$ = true; }
+			| /*EMPTY*/								{ $$ = false; }
 		;
 
 opt_with_clause:
@@ -5068,16 +5068,16 @@ transaction_mode_item:
 									   makeStringConst($3, @3), @1); }
 			| READ ONLY
 					{ $$ = makeDefElem("transaction_read_only",
-									   makeIntConst(TRUE, @1), @1); }
+									   makeIntConst(true, @1), @1); }
 			| READ WRITE
 					{ $$ = makeDefElem("transaction_read_only",
-									   makeIntConst(FALSE, @1), @1); }
+									   makeIntConst(false, @1), @1); }
 			| DEFERRABLE
 					{ $$ = makeDefElem("transaction_deferrable",
-									   makeIntConst(TRUE, @1), @1); }
+									   makeIntConst(true, @1), @1); }
 			| NOT DEFERRABLE
 					{ $$ = makeDefElem("transaction_deferrable",
-									   makeIntConst(FALSE, @1), @1); }
+									   makeIntConst(false, @1), @1); }
 		;
 
 /* Syntax with commas is SQL-spec, without commas is Postgres historical */
