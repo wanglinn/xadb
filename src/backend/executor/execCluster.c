@@ -403,6 +403,7 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	List *rte_list;
 	Relation *base_rels;
 	PlannedStmt *stmt;
+	RangeTblEntry *rte;
 	ParamListInfo paramLI;
 	StringInfoData buf;
 	int es_instrument;
@@ -420,7 +421,7 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	base_rels = palloc(sizeof(Relation) * n);
 	for(i=0,lc=list_head(rte_list);lc!=NULL;lc=lnext(lc),++i)
 	{
-		RangeTblEntry *rte = lfirst(lc);
+		rte = lfirst(lc);
 		if(rte->rtekind == RTE_RELATION)
 			base_rels[i] = heap_open(rte->relid, NoLock);
 		else
@@ -448,18 +449,19 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	foreach(lc, stmt->rowMarks)
 	{
 		PlanRowMark *rc = (PlanRowMark *) lfirst(lc);
-		Oid			relid;
 
 		/* ignore "parent" rowmarks; they are irrelevant at runtime */
-		if (rc->isParent)
+		if (rc->isParent ||
+			rc->markType == ROW_MARK_COPY)	/* "copy" don't need open relation */
 			continue;
 
-		/* get relation's OID (will produce InvalidOid if subquery) */
-		relid = getrelid(rc->rti, rte_list);
-
-		/* let function InitPlan ignore this */
-		if (!OidIsValid(relid))
+		rte = rt_fetch(rc->rti, rte_list);
+		if (rte->rtekind == RTE_RELATION &&
+			!OidIsValid(rte->relid))
+		{
+			/* let function InitPlan ignore this */
 			rc->isParent = true;
+		}
 	}
 
 	buf.data = mem_toc_lookup(info, REMOTE_KEY_PARAM, &buf.len);
