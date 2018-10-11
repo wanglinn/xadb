@@ -744,9 +744,6 @@ nextval_internal(Oid relid, bool check_permissions)
 				rescnt = 0;
 	bool		cycle;
 	bool		logit = false;
-#ifdef ADB
-	bool		is_temp;
-#endif
 
 	/* open and lock sequence */
 	init_sequence(relid, &elm, &seqrel);
@@ -792,78 +789,35 @@ nextval_internal(Oid relid, bool check_permissions)
 	cycle = pgsform->seqcycle;
 	ReleaseSysCache(pgstuple);
 
-	/* lock page' buffer and read tuple */
-	seq = read_seq_tuple(seqrel, &buf, &seqdatatuple);
-	page = BufferGetPage(buf);
-
 #ifdef ADB
-	is_temp = seqrel->rd_backend == MyBackendId;
-	if (IsCnMaster() && !is_temp)
+	if (IsCnMaster() &&
+		!RelationUsesLocalBuffers(seqrel))
 	{
 		char * seqName = NULL;
 		char * databaseName = NULL;
 		char * schemaName = NULL;
 
-		/* reach max value or min value */
-		/* ADBQ TODO is cycled ?
-		if (!seq->is_cycled)
-		{
-			if (incby > 0 &&
-				((elm->last >= maxv) || (elm->last + incby > maxv)))
-			{
-				char		buf[100];
-				snprintf(buf, sizeof(buf), INT64_FORMAT, maxv);
-				ereport(ERROR,
-							  (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-							   errmsg("nextval: reached maximum value of sequence \"%s\" (%s)",
-									  RelationGetRelationName(seqrel), buf)));
-			}
-			else if (incby < 0 &&
-				((elm->last <= minv) || (elm->last + incby < minv)))
-			{
-				char		buf[100];
-				snprintf(buf, sizeof(buf), INT64_FORMAT, minv);
-				ereport(ERROR,
-							  (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-							   errmsg("nextval: reached minimum value of sequence \"%s\" (%s)",
-									  RelationGetRelationName(seqrel), buf)));
-			}
-		}*/
-
 		seqName = RelationGetRelationName(seqrel);
 		databaseName = get_database_name(seqrel->rd_node.dbNode);
 		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 
-		result = agtm_GetSeqNextVal(seqName, databaseName, schemaName);
+		result = agtm_GetSeqNextVal(seqName, databaseName, schemaName,
+									minv, maxv, cache, incby, cycle, &elm->cached);
+		elm->last = result;
+		elm->last_valid = true;
+		elm->increment = incby;
 
 		pfree(databaseName);
 		pfree(schemaName);
 
-		/* Update the on-disk data */
-		seq->last_value = result; /* last fetched number */
-		seq->is_called = true;
-
-		/* save info in local cache */
-		elm->last = result;			/* last returned number */
-
-		elm->cached = result;
-		if (incby > 0 && elm->cached > maxv)
-		{
-			elm->cached = maxv - ((maxv - result) % incby);
-		}
-		else if (incby < 0 && elm->cached < minv)
-		{
-			elm->cached = minv - ((minv - result) % incby);
-		}
-		elm->last_valid = true;
-
-		last_used_seq = elm;
-
-		UnlockReleaseBuffer(buf);
 		relation_close(seqrel, NoLock);
 		return result;
 	}
 #endif
+
+	/* lock page' buffer and read tuple */
+	seq = read_seq_tuple(seqrel, &buf, &seqdatatuple);
+	page = BufferGetPage(buf);
 
 	elm->increment = incby;
 	last = next = result = seq->last_value;
@@ -910,11 +864,6 @@ nextval_internal(Oid relid, bool check_permissions)
 		 * Check MAXVALUE for ascending sequences and MINVALUE for descending
 		 * sequences
 		 */
-#ifdef ADB
-		/* Temporary sequences go through normal process */
-		if (is_temp)
-		{
-#endif
 		if (incby > 0)
 		{
 			/* ascending sequence */
@@ -961,36 +910,20 @@ nextval_internal(Oid relid, bool check_permissions)
 			else
 				next += incby;
 		}
-#ifdef ADB
-		}
-#endif
 		fetch--;
 		if (rescnt < cache)
 		{
 			log--;
 			rescnt++;
-#ifdef ADB
-			/* Temporary sequences can go through normal process */
-			if (is_temp)
-			{
-#endif
 			last = next;
 			if (rescnt == 1)	/* if it's first result - */
 				result = next;	/* it's what to return */
-#ifdef ADB
-			}
-#endif
 		}
 	}
 
 	log -= fetch;				/* adjust for any unfetched numbers */
 	Assert(log >= 0);
 
-#ifdef ADB
-	/* Temporary sequences go through normal process */
-	if (is_temp)
-	{
-#endif
 	/* save info in local cache */
 	elm->last = result;			/* last returned number */
 	elm->cached = last;			/* last fetched number */
@@ -1058,23 +991,46 @@ nextval_internal(Oid relid, bool check_permissions)
 	seq->log_cnt = log;			/* how much is logged */
 
 	END_CRIT_SECTION();
-#ifdef ADB
-	}
-	else
-	{
-		seq->log_cnt = log;
-	}
-#endif
 	UnlockReleaseBuffer(buf);
-
-#ifdef AGTM
-	elm->last = elm->cached;
-#endif
 
 	relation_close(seqrel, NoLock);
 
 	return result;
 }
+
+#ifdef AGTM
+int64 agtm_seq_next_value(Oid relid, int64 min, int64 max, int64 cache, int64 inc, bool cycle, int64 *cached)
+{
+	HeapTuple	pgstuple;
+	Form_pg_sequence pgsform;
+	SeqTable	elm;
+	int64		result = nextval_internal(relid, true);
+
+	/* check is same options */
+	pgstuple = SearchSysCache1(SEQRELID, ObjectIdGetDatum(relid));
+	Assert(HeapTupleIsValid(pgstuple));
+	pgsform = (Form_pg_sequence) GETSTRUCT(pgstuple);
+	if (pgsform->seqmin != min ||
+		pgsform->seqmax != max ||
+		pgsform->seqcache != cache ||
+		pgsform->seqincrement != inc ||
+		pgsform->seqcycle != cycle)
+	{
+		ereport(ERROR,
+				(errmsg("AGTM sequence %u options has been modified not by coordinator", relid)));
+	}
+	ReleaseSysCache(pgstuple);
+
+	/* change cached sequence */
+	elm = (SeqTable) hash_search(seqhashtab, &relid, HASH_FIND, NULL);
+	Assert(elm != NULL);
+	Assert(elm->last_valid && result == elm->last);
+	*cached = elm->cached;
+	elm->last = elm->cached;
+
+	return result;
+}
+#endif /* AGTM */
 
 Datum
 currval_oid(PG_FUNCTION_ARGS)

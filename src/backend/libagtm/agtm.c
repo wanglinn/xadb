@@ -674,12 +674,51 @@ agtm_DealSequence(const char *seqname, const char * database,
 }
 
 AGTM_Sequence
-agtm_GetSeqNextVal(const char *seqname, const char * database,	const char * schema)
+agtm_GetSeqNextVal(const char *seqname, const char * database,	const char * schema,
+				   int64 min, int64 max, int64 cache, int64 inc, bool cycle, int64 *cached)
 {
-	Assert(seqname != NULL && database != NULL && schema != NULL);
+	PGresult		*res;
+	AGTM_Sequence	result;
+	StringInfoData	buf;
+	int				seqNameSize;
+	int 			databaseSize;
+	int				schemaSize;
 
-	return agtm_DealSequence(seqname, database, schema, AGTM_MSG_SEQUENCE_GET_NEXT
-			, AGTM_SEQUENCE_GET_NEXT_RESULT);
+	Assert(seqname != NULL && database != NULL && schema != NULL);
+	if(seqname[0] == '\0' || database[0] == '\0' || schema[0] == '\0')
+		ereport(ERROR,
+				(errmsg("agtm_GetSeqNextVal parameter seqname is null")));
+	if(!IsUnderAGTM())
+		ereport(ERROR,
+				(errmsg("agtm_GetSeqNextVal function must under AGTM")));
+
+	seqNameSize = strlen(seqname);
+	databaseSize = strlen(database);
+	schemaSize = strlen(schema);
+	agtm_send_message(AGTM_MSG_SEQUENCE_GET_NEXT,
+					  "%d%d %p%d %d%d %p%d %d%d %p%d" "%p%d %p%d %p%d %p%d %c",
+					  seqNameSize, 4,
+					  seqname, seqNameSize,
+					  databaseSize, 4,
+					  database, databaseSize,
+					  schemaSize, 4,
+					  schema, schemaSize,
+					  &min, (int)sizeof(min),
+					  &max, (int)sizeof(max),
+					  &cache, (int)sizeof(cache),
+					  &inc, (int)sizeof(inc),
+					  cycle);
+
+	res = agtm_get_result(AGTM_MSG_SEQUENCE_GET_NEXT);
+	Assert(res);
+	agtm_use_result_type(res, &buf, AGTM_SEQUENCE_GET_NEXT_RESULT);
+	
+	pq_copymsgbytes(&buf, (char*)&result, sizeof(result));
+	pq_copymsgbytes(&buf, (char*)cached, sizeof(*cached));
+
+	agtm_use_result_end(res, &buf);
+
+	return result;
 }
 
 AGTM_Sequence

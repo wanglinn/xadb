@@ -109,7 +109,8 @@ extern void agtm_RenameSeuqneceByDataBase(const char * oldDatabase,
 /*
  * get next Sequence from AGTM
  */
-extern AGTM_Sequence agtm_GetSeqNextVal(const char *seqname, const char * database,	const char * schema);
+extern AGTM_Sequence agtm_GetSeqNextVal(const char *seqname, const char * database,	const char * schema,
+										int64 min, int64 max, int64 cache, int64 inc, bool cycle, int64 *cached);
 
 /*
  * get current Sequence from AGTM

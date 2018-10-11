@@ -40,18 +40,30 @@ GetSeqKeyToDatumOid(char *seq_key)
 StringInfo
 ProcessNextSeqCommand(StringInfo message, StringInfo output)
 {
-	Datum seq_val_datum;
-	int64 seq_val;
-	Datum seq_name_to_oid;
+	Datum	seq_name_to_oid;
+	int64	seq_val;
+	int64	min;
+	int64	max;
+	int64	cache;
+	int64	cached;
+	int64	inc;
+	bool	cycle;
 
-	seq_name_to_oid= prase_to_agtm_sequence_name(message);
+	seq_name_to_oid = prase_to_agtm_sequence_name(message);
+	pq_copymsgbytes(message, (char*)&min, sizeof(min));
+	pq_copymsgbytes(message, (char*)&max, sizeof(max));
+	pq_copymsgbytes(message, (char*)&cache, sizeof(cache));
+	pq_copymsgbytes(message, (char*)&inc, sizeof(inc));
+	cycle = (bool)pq_getmsgbyte(message);
 	pq_getmsgend(message);
 
-	seq_val_datum = DirectFunctionCall1(nextval_oid, seq_name_to_oid);
-	seq_val = DatumGetInt64(seq_val_datum);
+	seq_val = agtm_seq_next_value(DatumGetObjectId(seq_name_to_oid),
+								  min, max, cache, inc, cycle,
+								  &cached);
 
 	/* Respond to the client */
 	RespondSeqToClient(seq_val, AGTM_SEQUENCE_GET_NEXT_RESULT, output);
+	pq_sendbytes(output, (char*)&cached, sizeof(cached));
 
 	return output;
 }
@@ -197,6 +209,7 @@ prase_to_agtm_sequence_name(StringInfo message)
 	pfree(sequenceName);
 	pfree(dbName);
 	pfree(schemaName);
-	return oid ;
+
+	return ObjectIdGetDatum(oid);
 }
 
