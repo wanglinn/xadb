@@ -6903,6 +6903,7 @@ static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *
 	RangeTblEntry	   *rte;
 	ReduceInfo		   *rinfo;
 	ReduceInfo		   *result_rinfo = NULL;
+	ReduceInfo		   *rep_rinfo = NULL;
 	List			   *result_distribute_cols = NIL;
 	List			   *storage = NIL;
 	ListCell		   *lc;
@@ -6939,22 +6940,30 @@ static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *
 		if (rel != NULL)
 			relation_close(rel, NoLock);
 
-		if (have_replicate == false)
-			have_replicate = IsReduceInfoReplicated(rinfo);
-		if (have_no_rep == false)
-			have_no_rep = !IsReduceInfoReplicated(rinfo);
+		if (IsReduceInfoReplicated(rinfo))
+		{
+			if (rep_rinfo == NULL)
+			{
+				rep_rinfo = rinfo;
+			}else if(modify->returningLists != NIL &&
+					 !IsReduceInfoEqual(rep_rinfo, rinfo))
+			{
+				goto failed_;
+			}
+			have_replicate = true;
+		}else
+		{
+			have_no_rep = true;
+		}
 
 		if (have_replicate &&
 			have_no_rep &&
 			modify->returningLists != NIL)
 		{
 			/*
-			 * we can not using replicate and no replicate in on ModifyTable
+			 * we can not using replicate and no replicate in one ModifyTable
 			 */
-			FreeReduceInfo(rinfo);
-			FreeReduceInfo(result_rinfo);
-			list_free(storage);
-			return false;
+			goto failed_;
 		}
 
 		/* save all target storage */
@@ -6994,11 +7003,18 @@ static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *
 			}
 		}
 
-		if (rinfo != result_rinfo)
+		if (rinfo != result_rinfo &&
+			rinfo != rep_rinfo)
 			FreeReduceInfo(rinfo);
 		++nth;
 	}
 
+	if (rep_rinfo != NULL)
+	{
+		Assert(result_rinfo == NULL);
+		result_rinfo = rep_rinfo;
+	}
+	
 	if (result_rinfo == NULL)
 	{
 		/* not all match */
@@ -7014,6 +7030,13 @@ static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *
 	modify->path.reduce_info_list = list_make1(result_rinfo);
 	modify->path.reduce_is_valid = true;
 	return true;
+
+failed_:
+	FreeReduceInfo(rinfo);
+	FreeReduceInfo(result_rinfo);
+	FreeReduceInfo(rep_rinfo);
+	list_free(storage);
+	return false;
 }
 
 static bool is_remote_relation(PlannerInfo *root, Index relid)
