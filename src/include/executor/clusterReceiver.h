@@ -47,5 +47,6 @@ extern void serialize_slot_message(StringInfo buf, TupleTableSlot *slot, char ms
 extern MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup);
 extern TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *slot);
 extern void serialize_processed_message(StringInfo buf, uint64 processed);
+extern uint64 restore_processed_message(const char *msg, int len);
 
 #endif /* CLUSTER_RECEIVER_H */
