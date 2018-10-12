@@ -105,11 +105,7 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 	}else if(*msg == CLUSTER_MSG_PROCESSED)
 	{
 		if(ps != NULL)
-		{
-			uint64 processed;
-			memcpy(&processed, msg+1, sizeof(processed));
-			ps->state->es_processed += processed;
-		}
+			ps->state->es_processed += restore_processed_message(msg+1, len-1);
 		return false;
 	}else if (*msg == CLUSTER_MSG_EXECUTOR_RUN_END)
 	{
@@ -142,11 +138,7 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 		break;
 	case CLUSTER_MSG_PROCESSED:
 		if(state->ps != NULL)
-		{
-			uint64 processed;
-			memcpy(&processed, msg+1, sizeof(processed));
-			state->ps->state->es_processed += processed;
-		}
+			state->ps->state->es_processed += restore_processed_message(msg+1, len-1);
 		break;
 	case CLUSTER_MSG_CONVERT_DESC:
 		if(state->convert_slot)
@@ -407,6 +399,18 @@ void serialize_processed_message(StringInfo buf, uint64 processed)
 {
 	appendStringInfoChar(buf, CLUSTER_MSG_PROCESSED);
 	appendBinaryStringInfo(buf, (char*)&processed, sizeof(processed));
+}
+
+uint64 restore_processed_message(const char *msg, int len)
+{
+	uint64 processed;
+	if (len != sizeof(processed))
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Invalid processed message length")));
+	memcpy(&processed, msg, sizeof(processed));
+
+	return processed;
 }
 
 void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
