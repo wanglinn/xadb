@@ -418,7 +418,10 @@ static bool setup_convert_io(ConvertIO *io, Oid typid, bool need_out, bool need_
 		,{F_ANYRANGE_IN, InvalidOid, InvalidOid, true, convert_range_recv, convert_range_send, (clean_function)free_range_convert}
 	};
 
-	getTypeInputInfo(typid, &func, &io_param);
+	if (get_typtype(typid) == TYPTYPE_DOMAIN)
+		getTypeInputInfo(getBaseType(typid), &func, &io_param);
+	else
+		getTypeInputInfo(typid, &func, &io_param);
 	for(i=0;i<lengthof(func_map);++i)
 	{
 		if(func_map[i].base_func == func)
