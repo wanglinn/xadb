@@ -750,7 +750,7 @@ CreateProcedureStmt:
 				}
 			| CREATE opt_or_replace FUNCTION func_name func_args_with_defaults
 			  create_function_attrs RETURN_P Typename
-			  opt_pipelined create_procedure_is_or_as Sconst
+			  create_procedure_is_or_as Sconst
 				{
 					CreateFunctionStmt *n = makeNode(CreateFunctionStmt);
 
@@ -758,7 +758,7 @@ CreateProcedureStmt:
 					n->funcname = $4;
 					n->parameters = $5;
 					n->returnType = $8;
-					n->options = list_make2(makeDefElem("as", (Node *)list_make1(makeString($11)), @11),
+					n->options = list_make2(makeDefElem("as", (Node *)list_make1(makeString($10)), @10),
 											makeDefElem("language", (Node *)makeString("plorasql"), -1));
 
 					$$ = (Node*)n;
@@ -800,10 +800,6 @@ create_function_attr_item:
 			| DETERMINISTIC
 			| PARALLEL_ENABLE /* not whole of parallel_enable_clause */
 			| RESULT_CACHE /* not whole of result_cache_clause */
-			;
-
-opt_pipelined: PIPELINED
-			| /* empty */
 			;
 
 
@@ -5793,7 +5789,15 @@ TruncateStmt_storage_opt:
 	| /* empty */
 	;
 
-Typename: SimpleTypename
+Typename:	SimpleTypename
+				{
+					$$ = $1;
+				}
+			| SimpleTypename PIPELINED
+				{
+					$$ = $1;
+					$$->setof = true;
+				}
 	;
 
 //transaction_mode_list_or_empty:
@@ -6549,6 +6553,7 @@ col_name_keyword:
 	| INTEGER
 	| LONG_P
 	| NUMBER_P
+	| PIPELINED
 	| SETOF
 	| SMALLINT
 	| NUMERIC
@@ -6790,7 +6795,6 @@ unreserved_keyword:
 	| PARSER
 	| PARTITION
 	| PASSWORD
-	| PIPELINED
 	| PRECISION
 	| PRECEDING
 	| PREPARE
