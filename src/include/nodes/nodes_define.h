@@ -4051,6 +4051,8 @@ END_NODE(MGRFlushParam)
 
 #endif
 
+#ifdef ADB
+
 #ifndef NO_NODE_CreateSlotStmt
 BEGIN_NODE(CreateSlotStmt)
 	NODE_SCALAR(int,endpos)
@@ -4087,6 +4089,8 @@ BEGIN_NODE(CleanSlotStmt)
 	NODE_STRING(table_name)
 END_NODE(CleanSlotStmt)
 #endif /* NO_NODE_CleanSlotStmt */
+
+#endif
 
 #ifndef NO_NODE_JoinPath
 BEGIN_NODE(JoinPath)
