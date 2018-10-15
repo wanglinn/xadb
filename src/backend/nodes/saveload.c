@@ -1059,6 +1059,6 @@ ParamListInfo LoadParamList(struct StringInfoData *buf)
 	ParamListInfo info;
 	if(LOAD_IS_NULL())
 		return NULL;
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	return load_ParamListInfoData(buf, info, NULL, NULL);
 }
