@@ -527,7 +527,8 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	 */
 	if (IsCnMaster())
 	{
-		if (stmt->distributeby == NULL)
+		if (stmt->distributeby == NULL &&
+			stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
 		{
 			/*
 			 * Add default DistributeBy clause if stmt->distributeby is null
