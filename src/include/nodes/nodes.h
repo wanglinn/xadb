@@ -592,11 +592,13 @@ typedef enum NodeTag
 	,T_MGRFlushParam
 	,T_MGR_NODE_END
 #endif /* ADBMGRD */
+#ifdef ADB
 	,T_CreateSlotStmt,
 	T_AlterSlotStmt,
 	T_DropSlotStmt,
 	T_FlushSlotStmt,
 	T_CleanSlotStmt
+#endif /* ADB */
 } NodeTag;
 
 /*

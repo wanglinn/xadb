@@ -4918,6 +4918,7 @@ _copyClusterGather(const ClusterGather *from)
 	CopyPlanFields(&from->plan, &newnode->plan);
 	COPY_NODE_FIELD(rnodes);
 	COPY_SCALAR_FIELD(gatherType);
+	COPY_SCALAR_FIELD(check_rep_processed);
 
 	return newnode;
 }

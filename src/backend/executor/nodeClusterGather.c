@@ -52,6 +52,8 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 
 	gatherstate->recv_state = createClusterRecvState((PlanState*)gatherstate, false);
 
+	gatherstate->check_rep_processed = node->check_rep_processed;
+
 	return gatherstate;
 }
 
@@ -173,6 +175,27 @@ static bool cg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFu
 				cgs->last_run_end = conn;
 				va_end(args);
 				return true;
+			}else if(buf[0] == CLUSTER_MSG_PROCESSED)
+			{
+				EState *estate = cgs->ps.state;
+				uint64 processed = restore_processed_message(buf+1, len-1);
+				if (cgs->check_rep_processed)
+				{
+					if (cgs->got_processed)
+					{
+						if (estate->es_processed != processed)
+							ereport(ERROR,
+									(errcode(ERRCODE_INTERNAL_ERROR),
+									 errmsg("All datanode modified table row count not same")));
+					}else
+					{
+						cgs->got_processed = true;
+						estate->es_processed += processed;
+					}
+				}else
+				{
+					estate->es_processed += processed;
+				}
 			}else if(cgs->recv_state)
 			{
 				if(clusterRecvTupleEx(cgs->recv_state, buf, len, conn))

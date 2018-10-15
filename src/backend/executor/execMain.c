@@ -1838,6 +1838,9 @@ ExecutePlan(EState *estate,
 		 * types, the ModifyTable plan node must count the appropriate
 		 * events.)
 		 */
+#ifdef ADB
+		if (dest->mydest != DestClusterOut)
+#endif /* ADB */
 		if (operation == CMD_SELECT)
 			(estate->es_processed)++;
 
