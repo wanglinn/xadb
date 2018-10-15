@@ -123,6 +123,7 @@ static PLpgSQL_expr    *read_cursor_args(PLpgSQL_var *cursor, int until, const c
 static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 static PLoraSQL_type   *plora_build_type(char *name, int location, Oid oid, int typmod);
 static PLoraSQL_type   *read_type_define(char *name, int location);
+static	PLpgSQL_stmt	*make_piperow_stmt(int location);
 
 %}
 
@@ -207,7 +208,7 @@ static PLoraSQL_type   *read_type_define(char *name, int location);
 /*%type <stmt>	stmt_case stmt_foreach_a*/
 %type <stmt>	stmt_goto stmt_case
 %type <stmt>	for_control stmt_dynexecute
-%type <stmt>	stmt_for stmt_func stmt_open stmt_close stmt_fetch
+%type <stmt>	stmt_for stmt_func stmt_open stmt_close stmt_fetch stmt_piperow
 %type <loop_body>	loop_body
 %type <forvariable>	for_variable
 
@@ -795,6 +796,20 @@ proc_stmt		: pl_block ';'
 											(errcode(ERRCODE_INTERNAL_ERROR),
 											 errmsg("Unknown Pl/pgsql return type for stmt %d", $$->cmd_type)));
 								}
+							}
+						}
+				| opt_block_label stmt_piperow
+						{
+							$$ = $2;
+							switch($$->cmd_type)
+							{
+							case PLPGSQL_STMT_RETURN_NEXT:
+								((PLpgSQL_stmt_return_next*)$$)->label = $1;
+								break;
+							default:
+								ereport(ERROR,
+										(errcode(ERRCODE_INTERNAL_ERROR),
+										 errmsg("Unknown Pl/pgsql return type for stmt %d", $$->cmd_type)));
 							}
 						}
 				| opt_block_label stmt_raise
@@ -2110,6 +2125,27 @@ stmt_dynexecute : POK_EXECUTE POK_IMMEDIATE
 
 						$$ = (PLpgSQL_stmt *)new;
 					}
+				;
+
+stmt_piperow : POK_PIPE
+				{
+					int	tok;
+
+					tok = yylex();
+					if (tok == 0)
+						yyerror("unexpected end of function definition");
+
+					if (tok_is_keyword(tok, &yylval,
+									   POK_ROW, "row"))
+					{
+						$$ = make_piperow_stmt(@1);
+					}
+					else
+					{
+						plpgsql_push_back_token(tok);
+						$$ = make_return_stmt(@1);
+					}
+				}
 				;
 
 unreserved_keyword	:
@@ -3911,4 +3947,64 @@ static PLoraSQL_type* read_type_define(char *name, int location)
 read_error_:
 	yyerror("syntax error");
 	return NULL;
+}
+
+static PLpgSQL_stmt *
+make_piperow_stmt(int location)
+{
+	PLpgSQL_stmt_return_next *new;
+
+	if (!plpgsql_curr_compile->fn_retset)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATATYPE_MISMATCH),
+				 errmsg("cannot use PIPE ROW in a non-PIPELINED function"),
+				 parser_errposition(location)));
+
+	new = palloc0(sizeof(PLpgSQL_stmt_return_next));
+	new->cmd_type	= PLPGSQL_STMT_RETURN_NEXT;
+	new->lineno		= plpgsql_location_to_lineno(location);
+	new->expr		= NULL;
+	new->retvarno	= -1;
+
+	if (plpgsql_curr_compile->out_param_varno >= 0)
+	{
+		if (yylex() != ';')
+			ereport(ERROR,
+					(errcode(ERRCODE_DATATYPE_MISMATCH),
+					 errmsg("PIPE ROW cannot have a parameter in function with OUT parameters"),
+					 parser_errposition(yylloc)));
+		new->retvarno = plpgsql_curr_compile->out_param_varno;
+	}
+	else
+	{
+		/*
+		 * We want to special-case simple variable references for efficiency.
+		 * So peek ahead to see if that's what we have.
+		 */
+		int		tok = yylex();
+
+		if (tok == T_DATUM && plpgsql_peek() == ';' &&
+			(yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_VAR ||
+			 yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_ROW ||
+			 yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_REC))
+		{
+			new->retvarno = yylval.wdatum.datum->dno;
+			/* eat the semicolon token that we only peeked at above */
+			tok = yylex();
+			Assert(tok == ';');
+		}
+		else
+		{
+			/*
+			 * Not (just) a variable name, so treat as expression.
+			 *
+			 * Note that a well-formed expression is _required_ here;
+			 * anything else is a compile-time error.
+			 */
+			plpgsql_push_back_token(tok);
+			new->expr = read_sql_expression(';', ";");
+		}
+	}
+
+	return (PLpgSQL_stmt *) new;
 }
