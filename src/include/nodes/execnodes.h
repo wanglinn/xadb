@@ -2144,7 +2144,9 @@ typedef struct ClusterGatherState
 	List	   *remote_run_end;		/* remote end of ExecutorRun function */
 	struct pg_conn *last_run_end;	/* last end of of ExecutorRun function */
 	struct ClusterRecvState *recv_state;
-	bool		local_end;	/* local plan is end of tup */
+	bool		local_end;			/* local plan is end of tup */
+	bool		check_rep_processed;
+	bool		got_processed;
 }ClusterGatherState;
 
 typedef struct ClusterMergeGatherState

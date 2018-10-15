@@ -888,6 +888,7 @@ typedef struct ClusterGather
 	Plan		plan;
 	List	   *rnodes;			/* remote node oids */
 	ClusterGatherType gatherType;
+	bool		check_rep_processed;
 } ClusterGather;
 
 typedef struct ClusterMergeGather
