@@ -436,25 +436,6 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	}
 	pfree(base_rels);
 
-	/* modify RowMarks */
-	foreach(lc, stmt->rowMarks)
-	{
-		PlanRowMark *rc = (PlanRowMark *) lfirst(lc);
-
-		/* ignore "parent" rowmarks; they are irrelevant at runtime */
-		if (rc->isParent ||
-			rc->markType == ROW_MARK_COPY)	/* "copy" don't need open relation */
-			continue;
-
-		rte = rt_fetch(rc->rti, rte_list);
-		if (rte->rtekind == RTE_RELATION &&
-			!OidIsValid(rte->relid))
-		{
-			/* let function InitPlan ignore this */
-			rc->isParent = true;
-		}
-	}
-
 	buf.data = mem_toc_lookup(info, REMOTE_KEY_PARAM, &buf.len);
 	if(buf.data)
 	{
@@ -705,6 +686,8 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 	ListCell *lc;
 	List *rte_list;
 	PlannedStmt *new_stmt;
+	Bitmapset *coord_only_rti = NULL;
+	Index rti;
 
 	new_stmt = palloc(sizeof(*new_stmt));
 	memcpy(new_stmt, stmt, sizeof(*new_stmt));
@@ -716,28 +699,65 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 		context->transaction_read_only = true;
 	}
 
+	/* modify range table if relation is in coordinator only */
+	rti = 1;
 	rte_list = NIL;
 	foreach(lc, stmt->rtable)
 	{
 		RangeTblEntry *rte = lfirst(lc);
-		if(rte->rtekind == RTE_RELATION &&
-			(rte->relkind == RELKIND_VIEW ||
-			 rte->relkind == RELKIND_FOREIGN_TABLE ||
-			 rte->relkind == RELKIND_MATVIEW))
+		if (rte->rtekind == RTE_RELATION)
 		{
-			RangeTblEntry *new_rte = palloc(sizeof(*rte));
-			memcpy(new_rte, rte, sizeof(*rte));
-			new_rte->rtekind = RTE_REMOTE_DUMMY;
-			new_rte->relid = InvalidOid;
-			rte_list = lappend(rte_list, new_rte);
-		}else
-		{
-			rte_list = lappend(rte_list, rte);
+			bool coord_only = false;
+			if (rte->relkind == RELKIND_VIEW ||
+				rte->relkind == RELKIND_MATVIEW ||
+				rte->relkind == RELKIND_FOREIGN_TABLE)
+			{
+				coord_only = true;
+			}else if(rte->relkind == RELKIND_RELATION &&
+					 is_relid_remote(rte->relid) == false)
+			{
+				coord_only = true;
+			}
+
+			if (coord_only)
+			{
+				RangeTblEntry *new_rte = palloc(sizeof(*rte));
+				memcpy(new_rte, rte, sizeof(*rte));
+				new_rte->rtekind = RTE_REMOTE_DUMMY;
+				new_rte->relid = InvalidOid;
+				rte = new_rte;
+
+				coord_only_rti = bms_add_member(coord_only_rti, rti);
+			}
 		}
+		rte_list = lappend(rte_list, rte);
+		++rti;
 	}
+
+	/* serialize range table */
 	begin_mem_toc_insert(msg, REMOTE_KEY_RTE_LIST);
 	saveNodeAndHook(msg, (Node*)rte_list, SerializePlanHook, context);
 	end_mem_toc_insert(msg, REMOTE_KEY_RTE_LIST);
+
+	/* modify RowMarks if relation is in coordinator only */
+	if (stmt->rowMarks != NIL)
+	{
+		/* do not lock view, foreign table, matview and temporary table,
+		   because it only in coordinator
+		 */
+		PlanRowMark *rowmark;
+		new_stmt->rowMarks = NIL;
+		foreach (lc, new_stmt->rowMarks)
+		{
+			rowmark = copyObject(lfirst(lc));
+
+			/* let mark type is copy(don't lock relation) when relation only in coordinator */
+			if (bms_is_member(rowmark->rti, coord_only_rti))
+				rowmark->markType = ROW_MARK_COPY;
+
+			new_stmt->rowMarks = lappend(new_stmt->rowMarks, rowmark);
+		}
+	}
 
 	begin_mem_toc_insert(msg, REMOTE_KEY_PLAN_STMT);
 	saveNodeAndHook(msg, (Node*)new_stmt, SerializePlanHook, context);
@@ -756,6 +776,9 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 			pfree(lfirst(lc));
 	}
 	list_free(rte_list);
+	bms_free(coord_only_rti);
+	if (new_stmt->rowMarks)
+		list_free_deep(new_stmt->rowMarks);
 	pfree(new_stmt);
 }
 
