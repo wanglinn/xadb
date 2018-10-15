@@ -2707,6 +2707,9 @@ ProcessUtilitySlow(ParseState *pstate,
 
 			case T_CreatePublicationStmt:
 				address = CreatePublication((CreatePublicationStmt *) parsetree);
+#ifdef ADB
+				ExecRemoteUtilityStmt(&utilityContext);
+#endif
 				break;
 
 			case T_AlterPublicationStmt:
@@ -2717,21 +2720,33 @@ ProcessUtilitySlow(ParseState *pstate,
 				 * directly
 				 */
 				commandCollected = true;
+#ifdef ADB
+				ExecRemoteUtilityStmt(&utilityContext);
+#endif
 				break;
 
 			case T_CreateSubscriptionStmt:
 				address = CreateSubscription((CreateSubscriptionStmt *) parsetree,
 											 isTopLevel);
+#ifdef ADB
+				ExecRemoteUtilityStmt(&utilityContext);
+#endif
 				break;
 
 			case T_AlterSubscriptionStmt:
 				address = AlterSubscription((AlterSubscriptionStmt *) parsetree);
+#ifdef ADB
+				ExecRemoteUtilityStmt(&utilityContext);
+#endif
 				break;
 
 			case T_DropSubscriptionStmt:
 				DropSubscription((DropSubscriptionStmt *) parsetree, isTopLevel);
 				/* no commands stashed for DROP */
 				commandCollected = true;
+#ifdef ADB
+				ExecRemoteUtilityStmt(&utilityContext);
+#endif
 				break;
 
 			case T_CreateStatsStmt:
