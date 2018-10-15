@@ -283,11 +283,6 @@ static void ExecClusterPlanStmt(StringInfo buf, ClusterCoordInfo *info)
 	if(need_instrument)
 		InstrumentEndLoop_cluster(query_desc->planstate);
 
-	/* send processed message */
-	resetStringInfo(&msg);
-	serialize_processed_message(&msg, query_desc->estate->es_processed);
-	pq_putmessage('d', msg.data, msg.len);
-
 	/* send Instrumentation info */
 	if(need_instrument)
 	{

@@ -732,7 +732,7 @@ END_NODE(CreateAuxStmt)
 #ifndef NO_NODE_PaddingAuxDataStmt
 BEGIN_NODE(PaddingAuxDataStmt)
 	NODE_NODE(RangeVar,masterrv)
-	NODE_SCALAR(bool, truncaux)
+	NODE_SCALAR(bool,truncaux)
 	NODE_NODE(List,auxrvlist)
 END_NODE(PaddingAuxDataStmt)
 #endif /* NO_NODE_PaddingAuxDataStmt */
@@ -742,6 +742,7 @@ BEGIN_NODE(ClusterGather)
 	NODE_BASE2(Plan,plan)
 	NODE_NODE(List,rnodes)
 	NODE_ENUM(ClusterGatherType,gatherType)
+	NODE_SCALAR(bool,check_rep_processed)
 END_NODE(ClusterGather)
 #endif /* NO_NODE_ClusterGather */
 
@@ -4077,6 +4078,11 @@ BEGIN_NODE(MonitorDeleteData)
 	NODE_SCALAR(int32,days)
 END_NODE(MonitorDeleteData)
 #endif /* NO_NODE_MonitorDeleteData */
+
+#ifndef NO_NODE_MGRFlushParam
+BEGIN_NODE(MGRFlushParam)
+END_NODE(MGRFlushParam)
+#endif /* NO_NODE_MGRFlushParam */
 
 #endif
 

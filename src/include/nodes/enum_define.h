@@ -506,6 +506,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_MgrRemoveNode)
 	ENUM_VALUE(T_MGRSetClusterInit)
 	ENUM_VALUE(T_MonitorDeleteData)
+	ENUM_VALUE(T_MGRFlushParam)
 #endif
 END_ENUM(NodeTag)
 #endif /* NO_ENUM_NodeTag */
