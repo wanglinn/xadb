@@ -7006,15 +7006,23 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 	ClusterGather *plan;
 	Plan *subplan;
 	List *reduce_list;
+	Path *subpath = path->subpath;
+	Assert(subpath->reduce_is_valid);
 
 	plan = makeNode(ClusterGather);
-	plan->rnodes = get_remote_nodes(root, path->subpath, true);
-	replace_reduce_replicate_nodes(path->subpath, plan->rnodes);
-	reduce_list = get_reduce_info_list(path->subpath);
+	plan->rnodes = get_remote_nodes(root, subpath, true);
+	replace_reduce_replicate_nodes(subpath, plan->rnodes);
+	reduce_list = get_reduce_info_list(subpath);
 	plan->gatherType = get_gather_type(reduce_list);
 
+	if (IsA(subpath, ModifyTablePath) &&
+		((ModifyTablePath*)subpath)->canSetTag &&
+		IsReduceInfoListReplicated(subpath->reduce_info_list))
+	{
+		plan->check_rep_processed = true;
+	}
 
-	subplan = create_plan_recurse(root, path->subpath, flags);
+	subplan = create_plan_recurse(root, subpath, flags);
 	if(list_length(plan->rnodes) > 1)
 		subplan = create_filter_if_replicate(subplan, reduce_list);
 
