@@ -3489,7 +3489,7 @@ typedef struct DropNodeStmt
 } DropNodeStmt;
 
 
-
+#ifdef ADB
 typedef struct CreateSlotStmt
 {
 	NodeTag		type;
@@ -3534,7 +3534,7 @@ typedef struct CleanSlotStmt
 	char		*schema_name;
 	char		*table_name;
 } CleanSlotStmt;
-
+#endif /* ADB */
 
 
 /*
