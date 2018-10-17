@@ -14,6 +14,7 @@
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_proc.h"
+#include "catalog/pg_ts_config.h"
 #include "catalog/pg_type.h"
 #include "mb/pg_wchar.h"
 #include "nodes/nodes.h"
@@ -340,6 +341,36 @@ void save_oid_class(StringInfo buf, Oid oid_rel)
 			save_node_string(buf, NameStr(classform->relname));
 		}
 		ReleaseSysCache(classtup);
+	}
+}
+
+void save_oid_ts_config(struct StringInfoData *buf, Oid cfg)
+{
+	HeapTuple			tuple;
+	Form_pg_ts_config	ts_config;
+
+	if (IS_OID_BUILTIN(cfg))
+	{
+		SAVE_BOOL(true);
+		pq_sendbytes(buf, (char*)&cfg, sizeof(cfg));
+		return;
+	}
+
+	/* not builtin */
+	SAVE_BOOL(false);
+
+	tuple = SearchSysCache1(TSCONFIGOID, ObjectIdGetDatum(cfg));
+	if (HeapTupleIsValid(tuple))
+	{
+		ts_config = (Form_pg_ts_config)GETSTRUCT(tuple);
+		save_namespace(buf, ts_config->cfgnamespace);
+		save_node_string(buf, NameStr(ts_config->cfgname));
+		ReleaseSysCache(tuple);
+	}else
+	{
+		ereport(ERROR, 
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("cache lookup failed for text search configuration %u", cfg)));
 	}
 }
 
@@ -831,6 +862,33 @@ Oid load_oid_class(StringInfo buf)
 			elog(ERROR, "relation \"%s\" not exists in schema %u", relname, nsp);
 	}
 	return oid;
+}
+
+Oid load_oid_ts_config(struct StringInfoData *buf)
+{
+	char *tsname;
+	Oid nsp;
+	Oid result;
+
+	if (LOAD_BOOL())
+	{
+		pq_copymsgbytes(buf, (char*)&result, sizeof(result));
+		return result;
+	}else
+	{
+		nsp = load_namespace(buf);
+		tsname = load_node_string(buf, false);
+		result = GetSysCacheOid2(TSCONFIGNAMENSP, PointerGetDatum(tsname), ObjectIdGetDatum(nsp));
+		if (!OidIsValid(result))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("text search configuration \"%s\" does not exist", tsname),
+					 err_generic_string(PG_DIAG_SCHEMA_NAME, get_namespace_name(nsp))));
+		}
+	}
+
+	return result;
 }
 
 static ParamExternData* load_ParamExternData(StringInfo buf, ParamExternData *node)
