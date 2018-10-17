@@ -89,6 +89,9 @@ static Datum convert_range_recv(PG_FUNCTION_ARGS);
 static RangeConvert *get_convert_range_io_data(RangeConvert *ac, Oid rngtypid, MemoryContext context, bool is_send);
 static void free_range_convert(RangeConvert *ac);
 
+static Datum convert_ts_config_send(PG_FUNCTION_ARGS);
+static Datum convert_ts_config_recv(PG_FUNCTION_ARGS);
+
 static TupleTableSlot* convert_copy_tuple_oid(TupleTableSlot *dest, TupleTableSlot *src, bool use_min);
 
 #ifdef USE_ASSERT_CHECKING
@@ -416,6 +419,7 @@ static bool setup_convert_io(ConvertIO *io, Oid typid, bool need_out, bool need_
 		,{F_RECORD_IN, InvalidOid, InvalidOid, true, convert_record_recv, convert_record_send, (clean_function)free_record_convert}
 		,{F_RANGE_IN, InvalidOid, InvalidOid, true, convert_range_recv, convert_range_send, (clean_function)free_range_convert}
 		,{F_ANYRANGE_IN, InvalidOid, InvalidOid, true, convert_range_recv, convert_range_send, (clean_function)free_range_convert}
+		,{F_REGCONFIGIN, InvalidOid, InvalidOid, true, convert_ts_config_recv, convert_ts_config_send, NULL}
 	};
 
 	if (get_typtype(typid) == TYPTYPE_DOMAIN)
@@ -1215,6 +1219,25 @@ static void free_range_convert(RangeConvert *ac)
 		pfree(ac);
 	}
 }
+
+static Datum convert_ts_config_send(PG_FUNCTION_ARGS)
+{
+	StringInfoData	buf;
+
+	pq_begintypsend(&buf);
+	save_oid_ts_config(&buf, PG_GETARG_OID(0));
+
+	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
+}
+
+static Datum convert_ts_config_recv(PG_FUNCTION_ARGS)
+{
+	StringInfo	buf = (StringInfo) PG_GETARG_POINTER(0);
+	Oid oid = load_oid_ts_config(buf);
+
+	PG_RETURN_OID(oid);
+}
+
 
 #ifdef USE_ASSERT_CHECKING
 static bool convert_equal_tuple_desc(TupleDesc desc1, TupleDesc desc2)
