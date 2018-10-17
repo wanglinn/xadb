@@ -580,6 +580,9 @@ ExecSupportsBackwardScan(Plan *node)
 
 		case T_Material:
 		case T_Sort:
+#ifdef ADB
+		case T_RemoteQuery:
+#endif
 			/* these don't evaluate tlist */
 			return true;
 
