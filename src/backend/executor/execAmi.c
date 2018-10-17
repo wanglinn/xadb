@@ -594,6 +594,9 @@ ExecSupportsBackwardScan(Plan *node)
 		case T_CteScan:
 		case T_Material:
 		case T_Sort:
+#ifdef ADB
+		case T_RemoteQuery:
+#endif
 			return true;
 
 		case T_LockRows:
