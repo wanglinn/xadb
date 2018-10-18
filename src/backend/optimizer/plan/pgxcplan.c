@@ -1249,6 +1249,10 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 			if (get_rte_attribute_is_dropped(res_rte, col_att))
 				continue;
 
+			if (query_to_deparse->override != OVERRIDING_SYSTEM_VALUE &&
+				res_rte->rtekind == RTE_RELATION &&
+				get_attidentity(res_rte->relid, col_att) == ATTRIBUTE_IDENTITY_ALWAYS)
+				query_to_deparse->override = OVERRIDING_SYSTEM_VALUE;
 			/*
 			 * Create the param to be used for VALUES caluse ($1, $2 ...)
 			 * and add it to the query target list
