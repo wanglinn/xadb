@@ -1312,6 +1312,9 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 					pgxc_set_shippability_reason(sc_context, SS_NEEDS_COORD);
 			}
 			break;
+		case T_NextValueExpr:
+			pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_TYPE);
+			break;
 
 		default:
 			elog(ERROR, "unrecognized node type: %d",
