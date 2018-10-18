@@ -62,6 +62,7 @@ typedef struct
 } collect_RTE_context;
 
 static void validate_part_col_updatable(const Query *query);
+static void validate_targetlist_updatable(List *tlist, RelationLocInfo *rel_loc_info, Index relid);
 static bool contains_temp_tables(List *rtable);
 static void pgxc_handle_unsupported_stmts(Query *query);
 static PlannedStmt *pgxc_FQS_planner(Query *query, int cursorOptions,
@@ -2600,21 +2601,24 @@ pgxc_handle_unsupported_stmts(Query *query)
 {
 	ListCell *lc;
 
+	if (query == NULL ||
+		!IsA(query, Query))
+		return;
+
+	/* Guard against stack overflow due to overly complex expressions */
+	check_stack_depth();
+
 	/*
 	 * PGXCTODO: This validation will not be removed
 	 * until we support moving tuples from one node to another
 	 * when the partition column of a table is updated
 	 */
-	if (query->commandType == CMD_UPDATE)
-		validate_part_col_updatable(query);
+	validate_part_col_updatable(query);
 
 	foreach(lc, query->cteList)
 	{
-		Query *wqry;
 		CommonTableExpr *cte = (CommonTableExpr *) lfirst(lc);
-		wqry = (Query *)cte->ctequery;
-		if (wqry->commandType == CMD_UPDATE)
-			validate_part_col_updatable(wqry);
+		pgxc_handle_unsupported_stmts((Query *)cte->ctequery);
 	}
 }
 
@@ -2966,7 +2970,11 @@ validate_part_col_updatable(const Query *query)
 {
 	RangeTblEntry *rte;
 	RelationLocInfo *rel_loc_info;
-	ListCell *lc;
+
+	if (query->commandType != CMD_UPDATE &&
+		(query->onConflict == NULL ||
+		 query->onConflict->action != ONCONFLICT_UPDATE))
+		return;
 
 	/* Make sure there is one table at least */
 	if (query->rtable == NULL)
@@ -2990,83 +2998,68 @@ validate_part_col_updatable(const Query *query)
 		return;
 
 	/* Only relations distributed by value can be checked */
-	if (IsRelationDistributedByValue(rel_loc_info))
+	if (IsRelationDistributedByValue(rel_loc_info) ||
+		IsRelationDistributedByUserDefined(rel_loc_info))
 	{
-		/* It is a partitioned table, check partition column in targetList */
-		foreach(lc, query->targetList)
+		if (query->commandType == CMD_UPDATE)
+			validate_targetlist_updatable(query->targetList,
+										  rel_loc_info,
+										  query->resultRelation);
+
+		if (query->onConflict)
 		{
-			TargetEntry *tle = (TargetEntry *) lfirst(lc);
-
-			/* Nothing to do for a junk entry */
-			if (tle->resjunk)
-				continue;
-
-			/*
-			 * The TargetEntry::resno is the same as the attribute number
-			 * of the column being updated, if the attribute number of the
-			 * column being updated and the attribute on which the table is
-			 * distributed is same means this set clause entry is updating the
-			 * distribution column of the target table.
-			 */
-			if (rel_loc_info->partAttrNum == tle->resno)
-			{
-				/*
-				 * The TargetEntry::expr contains the RHS of the SET clause
-				 * i.e. the expression that the target column should get
-				 * updated to. If that expression is such that it is not
-				 * changing the target column e.g. in case of a statement
-				 * UPDATE tab set dist_col = dist_col;
-				 * then this UPDATE should be allowed.
-				 */
-				if (IsA(tle->expr, Var))
-				{
-					Var *v = (Var *)tle->expr;
-					if (v->varno == query->resultRelation &&
-						v->varattno == tle->resno)
-						return;
-				}
-
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
-						(errmsg("Partition column can't be updated in current version"))));
-			}
+			Assert(query->onConflict->action == ONCONFLICT_UPDATE);
+			validate_targetlist_updatable(query->onConflict->onConflictSet,
+										  rel_loc_info,
+										  query->resultRelation);
 		}
 	}
+}
 
-	/*
-	 * Every attribute on which the table is distributed should be
-	 * not updated.
-	 *
-	 * But we allow the statement like UPDATE table set dist_col = dist_col
-	 */
-	if (IsRelationDistributedByUserDefined(rel_loc_info))
+static void validate_targetlist_updatable(List *tlist, RelationLocInfo *rel_loc_info, Index relid)
+{
+	ListCell	   *lc;
+	TargetEntry	   *tle;
+	Var			   *var;
+
+	/* It is a partitioned table, check partition column in targetList */
+	foreach(lc, tlist)
 	{
-		ListCell *l;
+		tle = (TargetEntry *) lfirst(lc);
 
-		foreach(lc, query->targetList)
+		/* Nothing to do for a junk entry */
+		if (tle->resjunk)
+			continue;
+
+		/*
+			* The TargetEntry::resno is the same as the attribute number
+			* of the column being updated, if the attribute number of the
+			* column being updated and the attribute on which the table is
+			* distributed is same means this set clause entry is updating the
+			* distribution column of the target table.
+			*/
+		if (rel_loc_info->partAttrNum == tle->resno ||
+			list_member_int(rel_loc_info->funcAttrNums, tle->resno))
 		{
-			TargetEntry *tle = (TargetEntry *) lfirst(lc);
-
-			if (tle->resjunk)
-				continue;
-
-			foreach (l, rel_loc_info->funcAttrNums)
+			/*
+			 * The TargetEntry::expr contains the RHS of the SET clause
+			 * i.e. the expression that the target column should get
+			 * updated to. If that expression is such that it is not
+			 * changing the target column e.g. in case of a statement
+			 * UPDATE tab set dist_col = dist_col;
+			 * then this UPDATE should be allowed.
+			 */
+			if (IsA(tle->expr, Var))
 			{
-				if (lfirst_int(l) == tle->resno)
-				{
-					if (IsA(tle->expr, Var))
-					{
-						Var *v = (Var *)tle->expr;
-						if (v->varno == query->resultRelation &&
-							v->varattno == tle->resno)
-							return;
-					}
-
-					ereport(ERROR,
-							(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
-							(errmsg("Partition column can't be updated in current version"))));
-				}
+				var = (Var *)tle->expr;
+				if (var->varno == relid &&
+					var->varattno == tle->resno)
+					continue;
 			}
+
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
+					 errmsg("Partition column can't be updated in current version")));
 		}
 	}
 }
