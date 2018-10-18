@@ -86,6 +86,9 @@
 #ifndef NODE_DATUM
 #	define NODE_DATUM(t, m, o, n)
 #endif
+#ifndef NODE_OID_LIST
+#	define NODE_OID_LIST(t,m) NODE_NODE(List, m)
+#endif
 /*END_HEAD*/
 
 /*BEGIN_STRUCT_HEAD*/
@@ -603,6 +606,10 @@ END_SPECIAL_MEB(OidVectorLoopExpr)
 NODE_SPECIAL_MEB(RangeTblEntry)
 	relid NODE_OID(class, relid)
 END_SPECIAL_MEB(RangeTblEntry)
+
+NODE_SPECIAL_MEB(ModifyTable)
+	arbiterIndexes NODE_OID_LIST(class,arbiterIndexes)
+END_SPECIAL_MEB(ModifyTable)
 
 /*******************************************************************/
 

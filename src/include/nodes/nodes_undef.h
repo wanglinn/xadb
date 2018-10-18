@@ -25,3 +25,4 @@
 #undef NODE_STRUCT_MEB
 #undef NODE_ENUM
 #undef NODE_DATUM
+#undef NODE_OID_LIST
