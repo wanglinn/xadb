@@ -191,6 +191,9 @@
 #ifndef NODE_DATUM
 #	define NODE_DATUM(t, m, o, n)
 #endif
+#ifndef NODE_OID_LIST
+#	define NODE_OID_LIST(t,m) NODE_NODE(List, m)
+#endif
 
 #ifndef NO_NODE_Plan
 BEGIN_NODE(Plan)
@@ -242,7 +245,7 @@ BEGIN_NODE(ModifyTable)
 	NODE_NODE(List,rowMarks)
 	NODE_SCALAR(int,epqParam)
 	NODE_ENUM(OnConflictAction,onConflictAction)
-	NODE_NODE(List,arbiterIndexes)
+	NODE_OID_LIST(class,arbiterIndexes)
 	NODE_NODE(List,onConflictSet)
 	NODE_NODE(Node,onConflictWhere)
 	NODE_SCALAR(Index,exclRelRTI)
