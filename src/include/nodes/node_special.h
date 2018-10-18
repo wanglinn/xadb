@@ -86,6 +86,9 @@
 #ifndef NODE_DATUM
 #	define NODE_DATUM(t, m, o, n)
 #endif
+#ifndef NODE_OID_LIST
+#	define NODE_OID_LIST(t,m) NODE_NODE(List, m)
+#endif
 /*END_HEAD*/
 
 /*BEGIN_STRUCT_HEAD*/
@@ -619,6 +622,10 @@ NODE_SPECIAL_MEB(PartitionPruneInfo)
 	subpart_map NODE_SCALAR_POINT(int,subpart_map,NODE_ARG_->nparts)
 	hasexecparam NODE_SCALAR_POINT(bool,hasexecparam,NODE_ARG_->nexprs)
 END_SPECIAL_MEB(PartitionPruneInfo)
+
+NODE_SPECIAL_MEB(ModifyTable)
+	arbiterIndexes NODE_OID_LIST(class,arbiterIndexes)
+END_SPECIAL_MEB(ModifyTable)
 
 /*******************************************************************/
 
