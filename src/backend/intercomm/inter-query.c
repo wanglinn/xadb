@@ -520,6 +520,7 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot)
 	RemoteQueryContext	context;
 	Tuplestorestate	   *tuplestorestate;
 	bool				eof_tuplestore;
+	bool				forward;
 	ListCell		   *lc_handle;
 	NodeHandle		   *handle;
 	List			   *handle_list = NIL;
@@ -530,10 +531,11 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot)
 	tuplestorestate = node->tuplestorestate;
 	Assert(tuplestorestate);
 
+	forward = ((EState *)(node->ss.ps.state))->es_direction == ForwardScanDirection ? true:false;
 	eof_tuplestore = tuplestore_ateof(tuplestorestate);
-	if (!eof_tuplestore)
+	if (!eof_tuplestore || !forward)
 	{
-		if (!tuplestore_get_remotetupleslot(tuplestorestate, true, false, destslot))
+		if (!tuplestore_get_remotetupleslot(tuplestorestate, forward, false, destslot))
 			eof_tuplestore = true;
 	}
 
