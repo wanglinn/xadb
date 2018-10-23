@@ -124,6 +124,7 @@ typedef struct GatherAuxInfoContext
 
 typedef struct GatherMainRelExecOn
 {
+	PQNHookFunctions		funcs;
 	TupleTableSlot		   *slot;
 	List				   *list_nodeid;
 	AttrNumber				index_nodeid;
@@ -132,6 +133,7 @@ typedef struct GatherMainRelExecOn
 	uint32					cur_tid_size;
 	ItemPointer				tids;
 }GatherMainRelExecOn;
+#define HOOK_GET_GATHER(hook_) ((GatherMainRelExecOn*)hook_)
 
 int use_aux_type = USE_AUX_CTID;
 int use_aux_max_times = 1;
@@ -159,7 +161,7 @@ static void init_auxiliary_info_if_need(GatherAuxInfoContext *context);
 static void set_cheapest_auxiliary(GatherAuxInfoContext *context);
 static List* get_aux_table_execute_on(GatherAuxColumnInfo *info);
 static GatherMainRelExecOn* get_main_table_execute_on(GatherAuxInfoContext *context, GatherAuxColumnInfo *info);
-static bool process_remote_aux_tuple(void *pointer, struct pg_conn *conn, PQNHookFuncType type, ...);
+static bool process_remote_aux_tuple(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
 static void push_tid_to_exec_on(GatherMainRelExecOn *context, Datum datum);
 static Expr* make_ctid_in_expr(Index relid, ItemPointer tids, uint32 count);
 
@@ -1421,7 +1423,9 @@ static GatherMainRelExecOn* get_main_table_execute_on(GatherAuxInfoContext *cont
 	exec_on->tids = palloc(sizeof(ItemPointerData)*AUX_SCAN_INFO_SIZE_STEP);
 	exec_on->max_tid_size = AUX_SCAN_INFO_SIZE_STEP;
 	exec_on->cur_tid_size = 0;
-	PQNListExecFinish(list_conn, NULL, process_remote_aux_tuple, exec_on, true);
+	exec_on->funcs = PQNDefaultHookFunctions;
+	exec_on->funcs.HookCopyOut = process_remote_aux_tuple;
+	PQNListExecFinish(list_conn, NULL, &exec_on->funcs, true);
 
 	ExecDropSingleTupleTableSlot(exec_on->slot);
 	exec_on->slot = NULL;
@@ -1430,57 +1434,17 @@ static GatherMainRelExecOn* get_main_table_execute_on(GatherAuxInfoContext *cont
 	return exec_on;
 }
 
-static bool process_remote_aux_tuple(void *pointer, struct pg_conn *conn, PQNHookFuncType type, ...)
+static bool process_remote_aux_tuple(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
 {
-	GatherMainRelExecOn *context;
-	va_list args;
+	GatherMainRelExecOn *context = HOOK_GET_GATHER(pub);
+	TupleTableSlot *slot = context->slot;
 
-	switch(type)
+	if (clusterRecvTuple(context->slot, buf, len, NULL, conn))
 	{
-	case PQNHFT_ERROR:
-		PQNEFHNormal(pointer, conn, type);
-		return false;
-	case PQNHFT_COPY_OUT_DATA:
-		{
-			const char *buf;
-			TupleTableSlot *slot;
-			int len;
-			va_start(args, type);
-			buf = va_arg(args, const char*);
-			len = va_arg(args, int);
-			context = pointer;
-			slot = context->slot;
-			if (clusterRecvTuple(slot, buf, len, NULL, conn))
-			{
-				slot_getallattrs(slot);
-				context->list_nodeid = list_append_unique_int(context->list_nodeid,
-															  DatumGetInt32(slot->tts_values[context->index_nodeid]));
-				push_tid_to_exec_on(context, slot->tts_values[context->index_tid]);
-			}
-			va_end(args);
-		}
-		return false;
-	case PQNHFT_COPY_IN_ONLY:
-		PQputCopyEnd(conn, NULL);
-		break;
-	case PQNHFT_RESULT:
-		{
-			PGresult *res;
-			va_start(args, type);
-			res = va_arg(args, PGresult*);
-			if(res)
-			{
-				ExecStatusType status = PQresultStatus(res);
-				if(status == PGRES_FATAL_ERROR)
-					PQNReportResultError(res, conn, ERROR, true);
-				else if(status == PGRES_COPY_IN)
-					PQputCopyEnd(conn, NULL);
-			}
-			va_end(args);
-		}
-		break;
-	default:
-		break;
+		slot_getallattrs(slot);
+		context->list_nodeid = list_append_unique_int(context->list_nodeid,
+													  DatumGetInt32(slot->tts_values[context->index_nodeid]));
+		push_tid_to_exec_on(context, slot->tts_values[context->index_tid]);
 	}
 
 	return false;

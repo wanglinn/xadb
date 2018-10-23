@@ -18,13 +18,30 @@ typedef enum PQNHookFuncType
 #define PQN_NODE_VALUE_MARK	0x3FFFFFFF
 #define PQN_NODE_TYPE_MARK	0xC0000000
 
-typedef bool (*PQNExecFinishHook_function)(void *context, struct pg_conn *conn, PQNHookFuncType type,  ...);
+typedef struct PQNHookFunctions PQNHookFunctions;
+
+typedef bool (*PQNHookError_function)(PQNHookFunctions *pub);
+typedef bool (*PQNHookCopyOut_function)(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
+typedef bool (*PQNHookCopyInOnly_function)(PQNHookFunctions *pub, struct pg_conn *conn);
+typedef bool (*PQNHookResult_function)(PQNHookFunctions *pub, struct pg_conn *conn, struct pg_result *res);
+
+struct PQNHookFunctions
+{
+	PQNHookError_function HookError;
+	PQNHookCopyOut_function HookCopyOut;
+	PQNHookCopyInOnly_function HookCopyInOnly;
+	PQNHookResult_function HookResult;
+};
+
 typedef struct pg_conn* (*GetPGconnHook)(void *arg);
+
+PGDLLIMPORT const PQNHookFunctions PQNDefaultHookFunctions;
+PGDLLIMPORT const PQNHookFunctions PQNFalseHookFunctions;
 
 extern List *PQNGetConnUseOidList(List *oid_list);
 extern struct pg_conn* PQNFindConnUseOid(Oid oid);
-extern bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, const void *context, bool blocking);
-extern bool PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook, PQNExecFinishHook_function hook, const void *context, bool blocking);
+extern bool PQNOneExecFinish(struct pg_conn *conn, const PQNHookFunctions *hook, bool blocking);
+extern bool PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook, const PQNHookFunctions *hook, bool blocking);
 extern bool PQNEFHNormal(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 extern void PQNExecFinish_trouble(struct pg_conn *conn);
 extern void PQNReleaseAllConnect(void);
@@ -32,5 +49,13 @@ extern void PQNReportResultError(struct pg_result *result, struct pg_conn *conn,
 extern const char *PQNConnectName(struct pg_conn *conn);
 extern Oid PQNConnectOid(struct pg_conn *conn);
 extern int PQNFlush(List *conn_list, bool blocking);
+
+extern void* PQNMakeDefHookFunctions(Size size);
+
+extern bool PQNDefHookError(PQNHookFunctions *pub);
+extern bool PQNDefHookCopyOut(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
+extern bool PQNFalseHookCopyOut(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
+extern bool PQNDefHookCopyInOnly(PQNHookFunctions *pub, struct pg_conn *conn);
+extern bool PQNDefHookResult(PQNHookFunctions *pub, struct pg_conn *conn, struct pg_result *res);
 
 #endif /* LIBPQ_NODE_H */

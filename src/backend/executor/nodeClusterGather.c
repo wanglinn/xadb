@@ -17,8 +17,10 @@
 #include "miscadmin.h"
 #include "utils/memutils.h"
 
+#define CG_HOOK_GET_STATE(hook_) ((ClusterGatherState*)((char*)hook_ - offsetof(ClusterGatherState, hook_funcs)))
+
 static TupleTableSlot *ExecClusterGather(PlanState *pstate);
-static bool cg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
+static bool cg_pqexec_recv_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
 
 ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, int flags)
 {
@@ -49,6 +51,9 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 
 	gatherstate->check_rep_processed = node->check_rep_processed;
 
+	gatherstate->hook_funcs = PQNDefaultHookFunctions;
+	gatherstate->hook_funcs.HookCopyOut = cg_pqexec_recv_hook;
+
 	return gatherstate;
 }
 
@@ -67,7 +72,7 @@ TupleTableSlot *ExecClusterGather(PlanState *pstate)
 		/* first try get remote data */
 		node->last_run_end = NULL;
 		if(node->remote_running != NIL
-			&& PQNListExecFinish(node->remote_running, NULL, cg_pqexec_finish_hook, node, blocking))
+			&& PQNListExecFinish(node->remote_running, NULL, &node->hook_funcs, blocking))
 		{
 			if (node->last_run_end)
 			{
@@ -125,7 +130,7 @@ void ExecFinishClusterGather(ClusterGatherState *node)
 		{
 			node->last_run_end = NULL;
 			ResetPerTupleExprContext(node->ps.state);
-			PQNListExecFinish(node->remote_running, NULL, cg_pqexec_finish_hook, node, true);
+			PQNListExecFinish(node->remote_running, NULL, &node->hook_funcs, true);
 			if (node->last_run_end)
 			{
 				MemoryContextSwitchTo(context);
@@ -136,7 +141,7 @@ void ExecFinishClusterGather(ClusterGatherState *node)
 		}
 	}
 
-	PQNListExecFinish(node->remote_run_end, NULL, cg_pqexec_finish_hook, node, true);
+	PQNListExecFinish(node->remote_run_end, NULL, &node->hook_funcs, true);
 }
 
 void ExecEndClusterGather(ClusterGatherState *node)
@@ -149,84 +154,43 @@ void ExecReScanClusterGather(ClusterGatherState *node)
 {
 }
 
-static bool cg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
+static bool cg_pqexec_recv_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
 {
-	ClusterGatherState *cgs;
-	va_list args;
-	switch(type)
+	ClusterGatherState *cgs = CG_HOOK_GET_STATE(pub);
+
+	if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
 	{
-	case PQNHFT_ERROR:
-		return PQNEFHNormal(NULL, conn, type);
-	case PQNHFT_COPY_OUT_DATA:
+		cgs->last_run_end = conn;
+		return true;
+	}else if (buf[0] == CLUSTER_MSG_PROCESSED)
+	{
+		EState *estate = cgs->ps.state;
+		uint64 processed = restore_processed_message(buf+1, len-1);
+		if (cgs->check_rep_processed)
 		{
-			const char *buf;
-			int len;
-			va_start(args, type);
-			buf = va_arg(args, const char*);
-			len = va_arg(args, int);
-			cgs = context;
-			if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+			if (cgs->got_processed)
 			{
-				cgs->last_run_end = conn;
-				va_end(args);
-				return true;
-			}else if(buf[0] == CLUSTER_MSG_PROCESSED)
+				if (estate->es_processed != processed)
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+								errmsg("All datanode modified table row count not same")));
+			}else
 			{
-				EState *estate = cgs->ps.state;
-				uint64 processed = restore_processed_message(buf+1, len-1);
-				if (cgs->check_rep_processed)
-				{
-					if (cgs->got_processed)
-					{
-						if (estate->es_processed != processed)
-							ereport(ERROR,
-									(errcode(ERRCODE_INTERNAL_ERROR),
-									 errmsg("All datanode modified table row count not same")));
-					}else
-					{
-						cgs->got_processed = true;
-						estate->es_processed += processed;
-					}
-				}else
-				{
-					estate->es_processed += processed;
-				}
-			}else if(cgs->recv_state)
-			{
-				if(clusterRecvTupleEx(cgs->recv_state, buf, len, conn))
-				{
-					va_end(args);
-					return true;
-				}
-			}else if(clusterRecvTuple(cgs->ps.ps_ResultTupleSlot, buf, len, &cgs->ps, conn))
-			{
-				va_end(args);
-				return true;
+				cgs->got_processed = true;
+				estate->es_processed += processed;
 			}
-			va_end(args);
-		}
-		break;
-	case PQNHFT_COPY_IN_ONLY:
-		PQputCopyEnd(conn, NULL);
-		break;
-	case PQNHFT_RESULT:
+		}else
 		{
-			PGresult *res;
-			va_start(args, type);
-			res = va_arg(args, PGresult*);
-			if(res)
-			{
-				ExecStatusType status = PQresultStatus(res);
-				if(status == PGRES_FATAL_ERROR)
-					PQNReportResultError(res, conn, ERROR, true);
-				else if(status == PGRES_COPY_IN)
-					PQputCopyEnd(conn, NULL);
-			}
-			va_end(args);
+			estate->es_processed += processed;
 		}
-		break;
-	default:
-		break;
+	}else if(cgs->recv_state)
+	{
+		if(clusterRecvTupleEx(cgs->recv_state, buf, len, conn))
+			return true;
+	}else if(clusterRecvTuple(cgs->ps.ps_ResultTupleSlot, buf, len, &cgs->ps, conn))
+	{
+		return true;
 	}
+
 	return false;
 }

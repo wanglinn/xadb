@@ -85,6 +85,12 @@ typedef struct ClusterCoordInfo
 	int			pid;
 }ClusterCoordInfo;
 
+typedef struct GetRDCListenPortHook
+{
+	PQNHookFunctions	pub;
+	RdcMask			   *rdc_mark;
+}GetRDCListenPortHook;
+
 extern bool enable_cluster_plan;
 
 static void ExecClusterPlanStmt(StringInfo buf, ClusterCoordInfo *info);
@@ -107,7 +113,7 @@ static void SerializeCoordinatorInfo(StringInfo buf);
 static ClusterCoordInfo* RestoreCoordinatorInfo(StringInfo buf);
 static void send_rdc_listend_port(int port);
 static void wait_rdc_group_message(void);
-static bool get_rdc_listen_port_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
+static bool get_rdc_listen_port_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
 static void StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt);
 static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context);
 static bool InstrumentEndLoop_walker(PlanState *ps, Bitmapset **called);
@@ -1164,50 +1170,13 @@ static void wait_rdc_group_message(void)
 }
 
 static bool
-get_rdc_listen_port_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
+get_rdc_listen_port_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
 {
-	RdcMask		   *rdc_mask = (RdcMask *) context;
-	va_list			args;
-	const char	   *buf;
-	int				len;
+	RdcMask *rdc_mask = ((GetRDCListenPortHook*)pub)->rdc_mark;
 
-	AssertArg(context);
-	switch (type)
-	{
-		case PQNHFT_ERROR:
-			ereport(ERROR, (errmsg("%m")));
-		case PQNHFT_COPY_OUT_DATA:
-			va_start(args, type);
-			buf = va_arg(args, const char*);
-			len = va_arg(args, int);
+	if(clusterRecvRdcListenPort(conn, buf, len, &(rdc_mask->rdc_port)))
+		return true;
 
-			if(clusterRecvRdcListenPort(conn, buf, len, &(rdc_mask->rdc_port)))
-			{
-				va_end(args);
-				return true;
-			}
-			va_end(args);
-			break;
-		case PQNHFT_RESULT:
-			{
-				PGresult	   *res;
-				ExecStatusType	status;
-
-				va_start(args, type);
-				res = va_arg(args, PGresult*);
-				if(res)
-				{
-					status = PQresultStatus(res);
-					if(status == PGRES_FATAL_ERROR)
-						PQNReportResultError(res, conn, ERROR, true);
-				}
-				va_end(args);
-			}
-			break;
-		default:
-			ereport(ERROR, (errmsg("unexpected PQNHookFuncType %d", type)));
-			break;
-	}
 	return false;
 }
 
@@ -1400,11 +1369,14 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 	/* Start makeup reduce group */
 	if (context->have_reduce)
 	{
+		GetRDCListenPortHook *hook = PQNMakeDefHookFunctions(sizeof(GetRDCListenPortHook));
+		hook->pub.HookCopyOut = get_rdc_listen_port_hook;
 		/* wait for listen port of other reduce */
 		foreach(lc, list_conn)
 		{
 			conn = lfirst(lc);
-			PQNOneExecFinish(conn, get_rdc_listen_port_hook, &rdc_masks[rdc_id], true);
+			hook->rdc_mark = &rdc_masks[rdc_id];
+			PQNOneExecFinish(conn, &hook->pub, true);
 			rdc_id++;
 		}
 
@@ -1419,6 +1391,7 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 		if (context->start_self_reduce)
 			EndSelfReduceGroup();
 
+		pfree(hook);
 		safe_pfree(rdc_masks);
 	}
 

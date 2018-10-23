@@ -49,6 +49,7 @@
 
 typedef struct RemoteQueryContext
 {
+	PQNHookFunctions	pub;			/* don't move this to other locator */
 	RemoteQueryState   *node;
 	TupleTableSlot	   *dest_slot;
 	bool				fetch_batch;
@@ -60,8 +61,8 @@ static TupleTableSlot *InterXactQuery(InterXactState state, RemoteQueryState *no
 static bool HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node);
 static TupleTableSlot *RestoreRemoteSlot(const char *buf, int len, TupleTableSlot *slot, Oid node_id);
 static bool StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *iterslot, TupleTableSlot *destslot);
-static bool HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len);
-static bool RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
+static bool HandleCopyOutData(PQNHookFunctions *pub, PGconn *conn, const char *buf, int len);
+static bool HandleResultHook(PQNHookFunctions *pub, struct pg_conn *conn, struct pg_result *res);
 static TupleDesc CreateRemoteTupleDesc(MemoryContext context, const char *msg, int len);
 
 static int HandleRowDescriptionMsg(PGconn *conn, int msgLength);
@@ -540,6 +541,9 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot)
 	if (eof_tuplestore)
 	{
 		handle_list = node->cur_handles;
+		context.pub = PQNDefaultHookFunctions;
+		context.pub.HookCopyOut = HandleCopyOutData;
+		context.pub.HookResult = HandleResultHook;
 		context.node = node;
 		context.dest_slot = destslot;
 		if (node->eflags & EXEC_FLAG_REWIND)
@@ -558,7 +562,7 @@ FetchRemoteQuery(RemoteQueryState *node, TupleTableSlot *destslot)
 			handle->node_owner = node;
 		}
 
-		PQNListExecFinish(handle_list, HandleGetPGconn, RemoteQueryFinishHook, &context, true);
+		PQNListExecFinish(handle_list, HandleGetPGconn, &context.pub, true);
 	}
 
 	return destslot;
@@ -575,12 +579,15 @@ HandleFetchRemote(NodeHandle *handle, RemoteQueryState *node, TupleTableSlot *de
 
 	ExecClearTuple(destslot);
 
+	context.pub = PQNDefaultHookFunctions;
+	context.pub.HookCopyOut = HandleCopyOutData;
+	context.pub.HookResult = HandleResultHook;
 	context.node = node;
 	context.dest_slot = destslot;
 	context.fetch_batch = batch;
 	context.fetch_count = 0;
 
-	PQNOneExecFinish(handle->node_conn, RemoteQueryFinishHook, &context, blocking);
+	PQNOneExecFinish(handle->node_conn, &context.pub, blocking);
 
 	return destslot;
 }
@@ -652,8 +659,9 @@ StoreRemoteSlot(RemoteQueryContext *context, TupleTableSlot *iterslot, TupleTabl
 }
 
 static bool
-HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, int len)
+HandleCopyOutData(PQNHookFunctions *pub, PGconn *conn, const char *buf, int len)
 {
+	RemoteQueryContext *context = (RemoteQueryContext*)pub;
 	RemoteQueryState   *node;
 	TupleTableSlot	   *destSlot;
 	TupleTableSlot	   *scanSlot;
@@ -750,60 +758,23 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 	return ret;
 }
 
-static bool
-RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
+static bool HandleResultHook(PQNHookFunctions *pub, struct pg_conn *conn, struct pg_result *res)
 {
-	va_list args;
-
-	switch(type)
+	ExecStatusType	status;
+	if (res)
 	{
-		case PQNHFT_ERROR:
-			return PQNEFHNormal(NULL, conn, type);
-		case PQNHFT_COPY_OUT_DATA:
-			{
-				int				len;
-				const char		*buf;
-
-				va_start(args, type);
-				buf = va_arg(args, const char*);
-				len = va_arg(args, int);
-
-				if(HandleCopyOutData(context, conn, buf, len))
-				{
-					va_end(args);
-					return true;
-				}
-				va_end(args);
-			}
-			break;
-		case PQNHFT_COPY_IN_ONLY:
+		status = PQresultStatus(res);
+		if(status == PGRES_FATAL_ERROR)
+		{
+			RemoteQueryState   *node;
+			node = ((RemoteQueryContext *) pub)->node;
+			node->command_error_count++;
+			PQNReportResultError(res, conn, ERROR, true);
+		}
+		else if(status == PGRES_COPY_IN)
+		{
 			PQputCopyEnd(conn, NULL);
-			break;
-		case PQNHFT_RESULT:
-			{
-				PGresult	   *res;
-				ExecStatusType	status;
-
-				va_start(args, type);
-				res = va_arg(args, PGresult*);
-				if(res)
-				{
-					status = PQresultStatus(res);
-					if(status == PGRES_FATAL_ERROR)
-					{
-						RemoteQueryState   *node;
-						node = ((RemoteQueryContext *) context)->node;
-						node->command_error_count++;
-						PQNReportResultError(res, conn, ERROR, true);
-					}
-					else if(status == PGRES_COPY_IN)
-						PQputCopyEnd(conn, NULL);
-				}
-				va_end(args);
-			}
-			break;
-		default:
-			break;
+		}
 	}
 	return false;
 }
