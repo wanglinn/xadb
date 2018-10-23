@@ -41,7 +41,7 @@ static const char *GenerateBeginQuery(void);
 static int HandleSendBegin(NodeHandle *handle,
 						   GlobalTransactionId xid, TimestampTz timestamp,
 						   bool need_xact_block, bool *already_begin);
-static bool HandleFinishCommandHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
+static bool HandleFinishCommandResultHook(PQNHookFunctions *pub, struct pg_conn *conn, struct pg_result *res);
 static int HandleCommandCompleteMsg(PGconn *conn);
 
 static PGcustumFuns CommandCustomFuncs = {
@@ -789,16 +789,23 @@ HandleFinishCommand(NodeHandle *handle, const char *commandTag)
 {
 	CommandResult	result;
 	CustomOption   *save_opt;
+	static PQNHookFunctions hook = {NULL};
 
 	Assert(handle && handle->node_conn);
 
 	result.command_ok = false;
 	result.completionTag[0] = '\0';
 
+	if (hook.HookError == NULL)
+	{
+		hook = PQNFalseHookFunctions;
+		hook.HookResult = HandleFinishCommandResultHook;
+	}
+
 	save_opt = PGconnSetCustomOption(handle->node_conn, &result, &CommandCustomFuncs);
 	PG_TRY();
 	{
-		(void) PQNOneExecFinish(handle->node_conn, HandleFinishCommandHook, NULL, true);
+		(void) PQNOneExecFinish(handle->node_conn, &hook, true);
 		if (result.command_ok && commandTag && commandTag[0])
 		{
 			/*
@@ -849,46 +856,26 @@ HandleListFinishCommand(const List *handle_list, const char *commandTag)
 	return all_success;
 }
 
-static bool
-HandleFinishCommandHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
+static bool HandleFinishCommandResultHook(PQNHookFunctions *pub, struct pg_conn *conn, struct pg_result *res)
 {
-	va_list args;
-
-	switch(type)
+	ExecStatusType status;
+	if (res)
 	{
-		case PQNHFT_ERROR:
-			resetPQExpBuffer(&conn->errorMessage);
-			appendPQExpBuffer(&conn->errorMessage, "%m");
-			break;
-		case PQNHFT_COPY_OUT_DATA:
-			break;
-		case PQNHFT_COPY_IN_ONLY:
-			PQputCopyEnd(conn, NULL);
-			break;
-		case PQNHFT_RESULT:
+		status = PQresultStatus(res);
+		if(status == PGRES_FATAL_ERROR)
+		{
+			if (strcmp(PQerrorMessage(conn), PQresultErrorMessage(res)) != 0)
 			{
-				PGresult	   *res;
-				ExecStatusType	status;
-
-				va_start(args, type);
-				res = va_arg(args, PGresult*);
-				if(res)
-				{
-					status = PQresultStatus(res);
-					if(status == PGRES_FATAL_ERROR)
-					{
-						resetPQExpBuffer(&conn->errorMessage);
-						appendPQExpBuffer(&conn->errorMessage, "%s",
-										  PQresultErrorMessage(res));
-					} else if(status == PGRES_COPY_IN)
-						PQputCopyEnd(conn, NULL);
-				}
-				va_end(args);
+				resetPQExpBuffer(&conn->errorMessage);
+				appendPQExpBuffer(&conn->errorMessage, "%s",
+								  PQresultErrorMessage(res));
 			}
-			break;
-		default:
-			break;
+		} else if(status == PGRES_COPY_IN)
+		{
+			PQputCopyEnd(conn, NULL);
+		}
 	}
+
 	return false;
 }
 

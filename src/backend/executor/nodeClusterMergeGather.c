@@ -13,18 +13,14 @@
 
 #include "executor/nodeClusterMergeGather.h"
 
-typedef struct CMGHookContext
-{
-	PlanState *ps;
-	TupleTableSlot *slot;
-	ClusterRecvState *state;
-}CMGHookContext;
+#define CMG_HOOK_GET_STATE(hook_) ((ClusterMergeGatherState*)((char*)hook_ - offsetof(ClusterMergeGatherState, hook_funcs)))
 
 static int cmg_heap_compare_slots(Datum a, Datum b, void *arg);
 static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot, ClusterMergeGatherState *ps);
-static bool cmg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
+static bool cmg_pqexec_recv_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
+static bool cmg_pqexec_result_hook(PQNHookFunctions *pub, struct pg_conn *conn, struct pg_result *res);
 static TupleTableSlot *ExecClusterMergeGather(PlanState *pstate);
-static bool cmg_pqexec_normal_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
+static bool cmg_pqexec_normal_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
 
 ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, EState *estate, int eflags)
 {
@@ -106,6 +102,10 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 	ps->initialized = false;
 
 	ps->recv_state = createClusterRecvState((PlanState*)ps, true);
+
+	ps->hook_funcs = PQNDefaultHookFunctions;
+	ps->hook_funcs.HookCopyOut = cmg_pqexec_recv_hook;
+	ps->hook_funcs.HookResult = cmg_pqexec_result_hook;
 
 	return ps;
 }
@@ -205,7 +205,8 @@ void ExecFinishClusterMergeGather(ClusterMergeGatherState *node)
 	if(list != NIL)
 	{
 		node->recv_state->base_slot = node->ps.ps_ResultTupleSlot;
-		PQNListExecFinish(list, NULL, cmg_pqexec_normal_hook, node, true);
+		node->hook_funcs.HookCopyOut = cmg_pqexec_normal_hook;
+		PQNListExecFinish(list, NULL, &node->hook_funcs, true);
 		list_free(list);
 	}
 }
@@ -262,87 +263,37 @@ cmg_heap_compare_slots(Datum a, Datum b, void *arg)
 
 static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot, ClusterMergeGatherState *ps)
 {
-	CMGHookContext context;
-	context.ps = &ps->ps;
-	context.slot = slot;
-	context.state = ps->recv_state;
-	ExecClearTuple(slot);
-	PQNOneExecFinish(conn, cmg_pqexec_finish_hook, &context, true);
+	ps->recv_state->base_slot = ExecClearTuple(slot);
+	PQNOneExecFinish(conn, &ps->hook_funcs, true);
 	return slot;
 }
 
-bool cmg_pqexec_finish_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
+static bool cmg_pqexec_recv_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
 {
-	va_list args;
-	const char *buf;
-	CMGHookContext *cmcontext;
-	int len;
+	ClusterMergeGatherState *cmg;
+	if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+		return true;
 
-	switch(type)
+	cmg = CMG_HOOK_GET_STATE(pub);
+	return clusterRecvTupleEx(cmg->recv_state, buf, len, conn);
+}
+
+static bool cmg_pqexec_result_hook(PQNHookFunctions *pub, struct pg_conn *conn, struct pg_result *res)
+{
+	if (res)
 	{
-	case PQNHFT_ERROR:
-		return PQNEFHNormal(NULL, conn, type);
-	case PQNHFT_COPY_OUT_DATA:
-		cmcontext = context;
-		va_start(args, type);
-		buf = va_arg(args, const char*);
-		len = va_arg(args, int);
-		cmcontext->state->base_slot = cmcontext->slot;
-		if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
-		{
-			va_end(args);
-			return true;
-		}
-		if(clusterRecvTupleEx(cmcontext->state, buf, len, conn))
-		{
-			va_end(args);
-			return true;
-		}
-		va_end(args);
-		break;
-	case PQNHFT_COPY_IN_ONLY:
+		if (PQresultStatus(res) != PGRES_COPY_IN)
+			return PQNDefHookResult(pub, conn, res);
 		PQputCopyEnd(conn, NULL);
-		break;
-	case PQNHFT_RESULT:
-		{
-			PGresult *res;
-			ExecStatusType status;
-			va_start(args, type);
-			res = va_arg(args, PGresult*);
-			if(res)
-			{
-				status = PQresultStatus(res);
-				if(status == PGRES_FATAL_ERROR)
-					PQNReportResultError(res, conn, ERROR, true);
-				else if(status == PGRES_COPY_IN)
-					PQputCopyEnd(conn, NULL);
-			}
-			va_end(args);
-		}
-		break;
-	default:
-		break;
 	}
 	return false;
 }
 
-static bool cmg_pqexec_normal_hook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
+static bool cmg_pqexec_normal_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
 {
-	ClusterMergeGatherState *cmgs;
-	va_list args;
-	const char *buf;
-	int len;
+	ClusterMergeGatherState *cmgs = CMG_HOOK_GET_STATE(pub);
 
-	if (type == PQNHFT_COPY_OUT_DATA)
-	{
-		cmgs = context;
-		va_start(args, type);
-		buf = va_arg(args, const char*);
-		len = va_arg(args, int);
-		clusterRecvTupleEx(cmgs->recv_state, buf, len, conn);
-		return false;
-	}else
-	{
-		return PQNEFHNormal(NULL, conn, type);
-	}
+	clusterRecvTupleEx(cmgs->recv_state, buf, len, conn);
+
+	return false;
 }

@@ -1,6 +1,7 @@
 #include "postgres.h"
 
 #include "catalog/pgxc_node.h"
+#include "executor/clusterReceiver.h"
 #include "intercomm/inter-node.h"
 #include "libpq-fe.h"
 #include "libpq/pqcomm.h"
@@ -27,12 +28,28 @@ typedef struct OidPGconn
 	PGconn *conn;
 }OidPGconn;
 
+const PQNHookFunctions PQNDefaultHookFunctions =
+{
+	PQNDefHookError,
+	PQNDefHookCopyOut,
+	PQNDefHookCopyInOnly,
+	PQNDefHookResult
+};
+
+const PQNHookFunctions PQNFalseHookFunctions =
+{
+	PQNDefHookError,
+	PQNFalseHookCopyOut,
+	PQNDefHookCopyInOnly,
+	PQNDefHookResult
+};
+
 static HTAB *htab_oid_pgconn = NULL;
 
 static void init_htab_oid_pgconn(void);
 static List* apply_for_node_use_oid(List *oid_list);
 static List* pg_conn_attach_socket(int *fds, Size n);
-static bool PQNExecFinish(PGconn *conn, PQNExecFinishHook_function hook, const void *context);
+static bool PQNExecFinish(PGconn *conn, const PQNHookFunctions *hook);
 static int PQNIsConnecting(PGconn *conn);
 
 List *PQNGetConnUseOidList(List *oid_list)
@@ -116,7 +133,7 @@ static List* apply_for_node_use_oid(List *oid_list)
 			pfree(fds);
 			fds = NULL;
 
-			PQNListExecFinish(conn_list, NULL, PQNEFHNormal, NULL, true);
+			PQNListExecFinish(conn_list, NULL, &PQNDefaultHookFunctions, true);
 
 			foreach(lc, need_list)
 			{
@@ -204,7 +221,7 @@ static List* pg_conn_attach_socket(int *fds, Size n)
 	return list;
 }
 
-bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, const void *context, bool blocking)
+bool PQNOneExecFinish(struct pg_conn *conn, const PQNHookFunctions *hook, bool blocking)
 {
 	struct pollfd pfd;
 	int connecting_status;
@@ -230,7 +247,7 @@ bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, con
 					CHECK_FOR_INTERRUPTS();
 					continue;
 				}
-				if((*hook)((void*)context, NULL, PQNHFT_ERROR))
+				if ((*hook->HookError)((PQNHookFunctions*)hook))
 					return true;
 			}
 		}
@@ -263,13 +280,13 @@ bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, con
 		{
 			if(errno != EINTR)
 			{
-				if((*hook)((void*)context, NULL, PQNHFT_ERROR))
+				if ((*hook->HookError)((PQNHookFunctions*)hook))
 					return true;
 			}
 		}
 	}
 
-	if(PQNExecFinish(conn, hook, context))
+	if(PQNExecFinish(conn, hook))
 		return true;
 	if(PQstatus(conn) == CONNECTION_BAD
 		|| (PQisCopyInState(conn) && ! PQisCopyOutState(conn)))
@@ -291,7 +308,7 @@ bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, con
 				CHECK_FOR_INTERRUPTS();
 				continue;
 			}
-			if((*hook)((void*)context, NULL, PQNHFT_ERROR))
+			if ((*hook->HookError)((PQNHookFunctions*)hook))
 				return true;
 			continue;
 		}else if(poll_res == 0)
@@ -300,7 +317,7 @@ bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, con
 		}
 		Assert(poll_res > 0);
 		PQconsumeInput(conn);
-		if(PQNExecFinish(conn, hook, context))
+		if(PQNExecFinish(conn, hook))
 			return true;
 	}
 
@@ -309,7 +326,7 @@ bool PQNOneExecFinish(struct pg_conn *conn, PQNExecFinishHook_function hook, con
 
 bool
 PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook,
-				  PQNExecFinishHook_function hook, const void *context, bool blocking)
+				  const PQNHookFunctions *hook, bool blocking)
 {
 	List *list;
 	ListCell *lc;
@@ -326,7 +343,7 @@ PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook,
 			conn = (*get_pgconn_hook)(linitial(conn_list));
 		else
 			conn = linitial(conn_list);
-		return PQNOneExecFinish(conn, hook, context, blocking);
+		return PQNOneExecFinish(conn, hook, blocking);
 	}
 
 	/* first try got data */
@@ -338,7 +355,7 @@ PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook,
 			conn = lfirst(lc);
 		if(PQNIsConnecting(conn) == 0 &&
 			!PQisIdle(conn) &&
-			(res = PQNExecFinish(conn, hook, context)) != false)
+			(res = PQNExecFinish(conn, hook)) != false)
 			return res;
 	}
 
@@ -405,7 +422,7 @@ re_poll_:
 				CHECK_FOR_INTERRUPTS();
 				goto re_poll_;
 			}
-			res = (*hook)((void*)context, NULL, PQNHFT_ERROR);
+			res = (*hook->HookError)((PQNHookFunctions*)hook);
 			if(res)
 				break;
 		}else if(n == 0)
@@ -443,7 +460,7 @@ re_poll_:
 			}
 
 			conn = lfirst(lc);
-			res = PQNExecFinish(conn, hook, context);
+			res = PQNExecFinish(conn, hook);
 			if(res)
 				goto end_loop_;
 			if(PQstatus(conn) == CONNECTION_BAD
@@ -471,7 +488,7 @@ bool PQNEFHNormal(void *context, struct pg_conn *conn, PQNHookFuncType type,...)
 	return false;
 }
 
-static bool PQNExecFinish(PGconn *conn, PQNExecFinishHook_function hook, const void *context)
+static bool PQNExecFinish(PGconn *conn, const PQNHookFunctions *hook)
 {
 	PGresult   *res;
 	bool		hook_res;
@@ -480,7 +497,7 @@ re_get_:
 	if (PQstatus(conn) == CONNECTION_BAD)
 	{
 		res = PQgetResult(conn);
-		hook_res = (*hook)((void*)context, conn, PQNHFT_RESULT, res);
+		hook_res = (*hook->HookResult)((PQNHookFunctions*)hook, conn, res);
 		PQclear(res);
 		if (hook_res)
 			return true;
@@ -494,7 +511,7 @@ re_get_:
 			n = PQgetCopyDataBuffer(conn, &buf, true);
 			if (n > 0)
 			{
-				if ((*hook)((void*)context, conn, PQNHFT_COPY_OUT_DATA, buf, n))
+				if ((*hook->HookCopyOut)((PQNHookFunctions*)hook, conn, buf, n))
 					return true;
 				goto re_get_;
 			} else if (n < 0)
@@ -506,14 +523,14 @@ re_get_:
 			}
 		} else if (PQisCopyInState(conn))
 		{
-			if ((*hook)((void*)context, conn, PQNHFT_COPY_IN_ONLY))
+			if ((*hook->HookCopyInOnly)((PQNHookFunctions*)hook, conn))
 				return true;
 			if (!PQisCopyInState(conn))
 				goto re_get_;
 		} else
 		{
 			res = PQgetResult(conn);
-			hook_res = (*hook)((void*)context, conn, PQNHFT_RESULT, res);
+			hook_res = (*hook->HookResult)((PQNHookFunctions*)hook, conn, res);
 			PQclear(res);
 			if (hook_res)
 				return true;
@@ -862,4 +879,57 @@ re_select_:
 		return list_length(conn_list);
 	}
 	goto re_set_;
+}
+
+void* PQNMakeDefHookFunctions(Size size)
+{
+	PQNHookFunctions *pub;
+	if (size < sizeof(*pub))
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("invalid size %zu of PQNHookFunctions", size)));
+	
+	pub = palloc0(size);
+	memcpy(pub, &PQNDefaultHookFunctions, sizeof(*pub));
+
+	return pub;
+}
+
+bool PQNDefHookError(PQNHookFunctions *pub)
+{
+	ereport(ERROR, (errmsg("%m")));
+	return false;	/* keep compiler quiet */
+}
+
+bool PQNDefHookCopyOut(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
+{
+	return clusterRecvTuple(NULL, buf, len, NULL, conn);
+}
+
+bool PQNFalseHookCopyOut(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
+{
+	clusterRecvTuple(NULL, buf, len, NULL, conn);
+	return false;
+}
+
+bool PQNDefHookCopyInOnly(PQNHookFunctions *pub, struct pg_conn *conn)
+{
+	PQputCopyEnd(conn, NULL);
+	return false;
+}
+
+bool PQNDefHookResult(PQNHookFunctions *pub, struct pg_conn *conn, struct pg_result *res)
+{
+	ExecStatusType status;
+	
+	if (res)
+	{
+		status = PQresultStatus(res);
+
+		if(status == PGRES_FATAL_ERROR || status == PGRES_BAD_RESPONSE)
+			PQNReportResultError(res, conn, ERROR, true);
+		else if(status == PGRES_NONFATAL_ERROR)
+			PQNReportResultError(res, conn, -1, true);
+	}
+	return false;
 }

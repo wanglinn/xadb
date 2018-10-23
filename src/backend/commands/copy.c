@@ -403,7 +403,6 @@ static bool CopyGetInt16(CopyState cstate, int16 *val);
 
 #ifdef ADB
 static uint64 CoordinatorCopyFrom(CopyState cstate);
-static bool CopyFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type,  ...);
 static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econtext, void *data);
 static TupleTableSlot* NextRowFromTuplestore(CopyState cstate, ExprContext *econtext, void *data);
 static TupleTableSlot* AddNumberNextCopyFrom(CopyState cstate, ExprContext *econtext, void *data);
@@ -5401,7 +5400,10 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 		if (cur_time != last_time)
 		{
 			/* check datanode error */
-			PQNListExecFinish(cstate->list_connect, NULL, CopyFinishHook, NULL, false);
+			PQNListExecFinish(cstate->list_connect,
+							  NULL,
+							  &PQNFalseHookFunctions,
+							  false);
 			last_time = cur_time;
 		}
 		ExecClearTuple(cstate->cs_tupleslot);
@@ -5476,7 +5478,10 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 		}
 	}
 	PQNFlush(cstate->list_connect, true);
-	PQNListExecFinish(cstate->list_connect, NULL, CopyFinishHook, NULL, true);
+	PQNListExecFinish(cstate->list_connect,
+					  NULL,
+					  &PQNDefaultHookFunctions,
+					  true);
 
 
 	if (estate->es_result_relations)
@@ -5510,50 +5515,6 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 	ExecResetTupleTable(estate->es_tupleTable, false);
 
 	return cstate->count_tuple;
-}
-
-static bool CopyFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type,  ...)
-{
-	va_list args;
-	switch(type)
-	{
-	case PQNHFT_ERROR:
-		ereport(ERROR, (errmsg("%m")));
-		break;
-	case PQNHFT_COPY_OUT_DATA:
-		{
-			const char	   *buf;
-			int				len;
-			va_start(args, type);
-			buf = va_arg(args, const char*);
-			len = va_arg(args, int);
-			clusterRecvTuple(NULL, buf, len, NULL, conn);
-			va_end(args);
-		}
-		break;
-	case PQNHFT_COPY_IN_ONLY:
-		break;
-	case PQNHFT_RESULT:
-		{
-			PGresult *res;
-			va_start(args, type);
-			res = va_arg(args, PGresult*);
-			if(res)
-			{
-				ExecStatusType status = PQresultStatus(res);
-				if(status == PGRES_FATAL_ERROR || status == PGRES_BAD_RESPONSE)
-					PQNReportResultError(res, conn, ERROR, true);
-				else if(status == PGRES_NONFATAL_ERROR)
-					PQNReportResultError(res, conn, -1, true);
-			}
-			va_end(args);
-		}
-		break;
-	default:
-		ereport(ERROR, (errmsg("unknown PQNHookFuncType %d for copy", type)));
-		break;
-	}
-	return false;
 }
 
 static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econtext, void *data)

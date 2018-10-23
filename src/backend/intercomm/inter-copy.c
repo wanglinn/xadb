@@ -37,12 +37,18 @@ typedef struct RemoteCopyContext
 	TupleTableSlot	   *slot;
 } RemoteCopyContext;
 
+typedef struct FetchRemoteCopyContext
+{
+	PQNHookFunctions	pub;
+	StringInfo			row;
+}FetchRemoteCopyContext;
+
 static NodeHandle*LookupNodeHandle(List *handle_list, Oid node_id);
 static void HandleCopyOutRow(RemoteCopyState *node, char *buf, int len);
 static int HandleStartRemoteCopy(NodeHandle *handle, CommandId cmid, Snapshot snap, const char *copy_query);
 static bool HandleRecvCopyResult(NodeHandle *handle);
 static void FetchRemoteCopyRow(RemoteCopyState *node, StringInfo row);
-static bool FetchCopyRowHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
+static bool FetchCopyRowHook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
 
 /*
  * StartRemoteCopy
@@ -407,65 +413,30 @@ HandleRecvCopyResult(NodeHandle *handle)
 static void
 FetchRemoteCopyRow(RemoteCopyState *node, StringInfo row)
 {
+	FetchRemoteCopyContext hook;
 	List *handle_list = NIL;
 
 	Assert(node && row);
-	handle_list = node->copy_handles;
-	row->data = NULL;
-	row->len = 0;
-	row->maxlen = 0;
-	row->cursor = 0;
 
-	PQNListExecFinish(handle_list, HandleGetPGconn, FetchCopyRowHook, row, true);
+	handle_list = node->copy_handles;
+	hook.pub = PQNDefaultHookFunctions;
+	hook.pub.HookCopyOut = FetchCopyRowHook;
+
+	MemSet(row, 0, sizeof(*row));
+	hook.row = row;
+
+	PQNListExecFinish(handle_list, HandleGetPGconn, &hook.pub, true);
 }
 
 static bool
-FetchCopyRowHook(void *context, struct pg_conn *conn, PQNHookFuncType type, ...)
+FetchCopyRowHook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
 {
-	va_list args;
+	StringInfo	row = ((FetchRemoteCopyContext*)pub)->row;
 
-	switch(type)
-	{
-		case PQNHFT_ERROR:
-			return PQNEFHNormal(NULL, conn, type);
-		case PQNHFT_COPY_OUT_DATA:
-			{
-				StringInfo	row = (StringInfo) context;
+	row->data = (char *) buf;
+	row->len = row->maxlen = len;
 
-				va_start(args, type);
-				row->data = (char *) va_arg(args, const char*);
-				row->len = row->maxlen = va_arg(args, int);
-				va_end(args);
-
-				return true;
-			}
-			break;
-		case PQNHFT_COPY_IN_ONLY:
-			PQputCopyEnd(conn, NULL);
-			break;
-		case PQNHFT_RESULT:
-			{
-				PGresult	   *res;
-				ExecStatusType	status;
-
-				va_start(args, type);
-				res = va_arg(args, PGresult*);
-				if(res)
-				{
-					status = PQresultStatus(res);
-					if(status == PGRES_FATAL_ERROR)
-						PQNReportResultError(res, conn, ERROR, true);
-					else if(status == PGRES_COPY_IN)
-						PQputCopyEnd(conn, NULL);
-				}
-				va_end(args);
-			}
-			break;
-		default:
-			break;
-	}
-
-	return false;
+	return true;
 }
 
 /*

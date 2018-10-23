@@ -31,6 +31,7 @@
 #include "nodes/tidbitmap.h"
 #include "storage/condition_variable.h"
 #ifdef ADB
+#include "libpq/libpq-node.h"
 #include "reduce/rdc_comm.h"
 #endif
 
@@ -2271,6 +2272,7 @@ typedef struct ClusterGatherState
 	List	   *remote_run_end;		/* remote end of ExecutorRun function */
 	struct pg_conn *last_run_end;	/* last end of of ExecutorRun function */
 	struct ClusterRecvState *recv_state;
+	struct PQNHookFunctions hook_funcs;
 	bool		local_end;			/* local plan is end of tup */
 	bool		check_rep_processed;
 	bool		got_processed;
@@ -2286,6 +2288,7 @@ typedef struct ClusterMergeGatherState
 	struct binaryheap *binheap;	/* binary heap of slot indices */
 	struct pg_conn **conns;		/* remote connections */
 	struct ClusterRecvState *recv_state;
+	struct PQNHookFunctions hook_funcs;
 	bool			initialized;
 	bool			local_end;	/* local plan is end of tup */
 }ClusterMergeGatherState;
