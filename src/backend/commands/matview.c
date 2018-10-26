@@ -43,6 +43,18 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #ifdef ADB
+#include "access/tuptypeconvert.h"
+#include "commands/event_trigger.h"
+#include "executor/clusterReceiver.h"
+#include "executor/execCluster.h"
+#include "executor/tstoreReceiver.h"
+#include "libpq/libpq-fe.h"
+#include "libpq/pqformat.h"
+#include "libpq/libpq-node.h"
+#include "libpq/libpq.h"
+#include "pgxc/nodemgr.h"
+#include "storage/mem_toc.h"
+#include "utils/memutils.h"
 #include "catalog/pgxc_node.h"
 #include "commands/copy.h"
 #include "commands/createas.h"
@@ -52,6 +64,8 @@
 #include "pgxc/remotecopy.h"
 #include "pgxc/copyops.h"
 #include "utils/tqual.h"
+
+#define REMOTE_KEY_CMD_INFO		0x1
 #endif
 
 
@@ -76,11 +90,18 @@ static uint64 refresh_matview_datafill(DestReceiver *dest, Query *query,
 						 const char *queryString);
 static char *make_temptable_name_n(char *tempname, int n);
 static void refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
-					   int save_sec_context);
+					   int save_sec_context ADB_ONLY_COMMA_ARG(Tuplestorestate *tstore));
 static void refresh_by_heap_swap(Oid matviewOid, Oid OIDNewHeap, char relpersistence);
 static bool is_usable_unique_index(Relation indexRel);
 static void OpenMatViewIncrementalMaintenance(void);
 static void CloseMatViewIncrementalMaintenance(void);
+#ifdef ADB
+static ObjectAddress ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
+											ParamListInfo params, char *completionTag, bool master);
+static void adb_send_relation_data(List *connList, Oid reloid, LOCKMODE lockmode);
+static void adb_send_copy_end(List *connList);
+static uint64 adb_recv_relation_data(DestReceiver *self, TupleDesc desc, int operator);
+#endif /* ADB */
 
 /*
  * SetMatViewPopulatedState
@@ -122,6 +143,60 @@ SetMatViewPopulatedState(Relation relation, bool newstate)
 	CommandCounterIncrement();
 }
 
+#ifdef ADB
+void ClusterRefreshMatView(StringInfo mem_toc)
+{
+	RefreshMatViewStmt *stmt;
+	const char		   *queryString;
+	ParamListInfo		params;
+	char			   *completionTag;
+
+	StringInfoData		buf;
+	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_CMD_INFO, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Can not found cluster refresh materialized view message")));
+	}
+	buf.len = buf.maxlen;
+	buf.cursor = 0;
+
+	stmt = (RefreshMatViewStmt*)loadNode(&buf);
+	if (stmt == NULL ||
+		!IsA(stmt, RefreshMatViewStmt))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Can not found RefreshMatViewStmt struct")));
+	}
+	queryString = load_node_string(&buf, false);
+	completionTag = load_node_string(&buf, true);
+	params = LoadParamList(&buf);
+
+	/*
+	 * REFRESH CONCURRENTLY executes some DDL commands internally.
+	 * Inhibit DDL command collection here to avoid those commands
+	 * from showing up in the deparsed command queue.  The refresh
+	 * command itself is queued, which is enough.
+	 */
+	EventTriggerInhibitCommandCollection();
+	PG_TRY();
+	{
+		ExecRefreshMatView_adb(stmt, queryString, params, completionTag, false);
+	}
+	PG_CATCH();
+	{
+		EventTriggerUndoInhibitCommandCollection();
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+	EventTriggerUndoInhibitCommandCollection();
+
+	pfree(completionTag);
+}
+#endif /* ADB */
+
 /*
  * ExecRefreshMatView -- execute a REFRESH MATERIALIZED VIEW command
  *
@@ -146,6 +221,17 @@ ObjectAddress
 ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 				   ParamListInfo params, char *completionTag)
 {
+#ifdef ADB
+	return ExecRefreshMatView_adb(stmt, queryString, params, completionTag, true);
+}
+
+static ObjectAddress
+ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
+					   ParamListInfo params, char *completionTag, bool master)
+{
+	Tuplestorestate *tstore = NULL;
+	List		   *connList = NIL;
+#endif /* ADB */
 	Oid			matviewOid;
 	Relation	matviewRel;
 	RewriteRule *rule;
@@ -279,6 +365,35 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	 */
 	SetMatViewPopulatedState(matviewRel, !stmt->skipData);
 
+#ifdef ADB
+	if (master)
+	{
+		List		   *oidList = adb_get_all_coord_oid_list(false);
+		StringInfoData	toc;
+
+		/* not include me */
+		oidList = list_delete_oid(oidList, PGXCNodeOid);
+		if (oidList != NIL)
+		{
+			initStringInfo(&toc);
+			
+			ClusterTocSetCustomFun(&toc, ClusterRefreshMatView);
+
+			begin_mem_toc_insert(&toc, REMOTE_KEY_CMD_INFO);
+			saveNode(&toc, (Node*)stmt);
+			save_node_string(&toc, queryString);
+			save_node_string(&toc, completionTag);
+			SaveParamList(&toc, params);
+			end_mem_toc_insert(&toc, REMOTE_KEY_CMD_INFO);
+
+			connList = ExecClusterCustomFunction(oidList, &toc, 0, false);
+
+			pfree(toc.data);
+			list_free(oidList);
+		}
+	}
+#endif /* ADB */
+
 	relowner = matviewRel->rd_rel->relowner;
 
 	/*
@@ -293,6 +408,17 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	save_nestlevel = NewGUCNestLevel();
 
 	/* Concurrent refresh builds new data in temp tablespace, and does diff. */
+#ifdef ADB
+	/* if we using a temporary table not in master coordinator, we can not using 2PC */
+	if (master == false && concurrent)
+	{
+		tstore = tuplestore_begin_heap(true, false, work_mem);
+		dest = CreateTuplestoreDestReceiver();
+		SetTuplestoreDestReceiverParams(dest, tstore, CurrentMemoryContext, false);
+		OIDNewHeap = InvalidOid;
+	}else
+	{
+#endif /* ADB */
 	if (concurrent)
 	{
 		tableSpace = GetDefaultTablespace(RELPERSISTENCE_TEMP);
@@ -313,6 +439,9 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 							   ExclusiveLock);
 	LockRelationOid(OIDNewHeap, AccessExclusiveLock);
 	dest = CreateTransientRelDestReceiver(OIDNewHeap);
+#ifdef ADB
+	}
+#endif /* ADB */
 
 	/*
 	 * Now lock down security-restricted operations.
@@ -320,21 +449,25 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	SetUserIdAndSecContext(relowner,
 						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
 
-#ifdef ADB
-	/*
-	 * If the REFRESH command was received from other coordinator, it will also send
-	 * the data to be filled in the materialized view, using COPY protocol.
-	 */
-	if (IsConnFromCoord())
-	{
-		Assert(IS_PGXC_COORDINATOR);
-		pgxc_fill_matview_by_copy(dest, stmt->skipData, 0, NULL);
-	}
-	else
-#endif /* ADB */
 	/* Generate the data, if wanted. */
 	if (!stmt->skipData)
+	{
+#ifdef ADB
+		if (master)
+		{
+#endif /* ADB */
 		processed = refresh_matview_datafill(dest, dataQuery, queryString);
+#ifdef ADB
+			adb_send_relation_data(connList, OIDNewHeap, NoLock);
+			adb_send_copy_end(connList);
+		}else
+		{
+			processed = adb_recv_relation_data(dest,
+											   RelationGetDescr(matviewRel),
+											   dataQuery->commandType);
+		}
+#endif /* ADB */
+	}
 
 	/* Make the matview match the newly generated data. */
 	if (concurrent)
@@ -344,7 +477,7 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 		PG_TRY();
 		{
 			refresh_by_match_merge(matviewOid, OIDNewHeap, relowner,
-								   save_sec_context);
+								   save_sec_context ADB_ONLY_COMMA_ARG(tstore));
 		}
 		PG_CATCH();
 		{
@@ -378,6 +511,16 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	SetUserIdAndSecContext(save_userid, save_sec_context);
 
 	ObjectAddressSet(address, RelationRelationId, matviewOid);
+
+#ifdef ADB
+	if (tstore)
+		tuplestore_end(tstore);
+	if (connList)
+	{
+		PQNListExecFinish(connList, NULL, &PQNFalseHookFunctions, true);
+		list_free(connList);
+	}
+#endif /* ADB */
 
 	return address;
 }
@@ -601,7 +744,7 @@ make_temptable_name_n(char *tempname, int n)
  */
 static void
 refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
-					   int save_sec_context)
+					   int save_sec_context ADB_ONLY_COMMA_ARG(Tuplestorestate *tstore))
 {
 	StringInfoData querybuf;
 	Relation	matviewRel;
@@ -620,9 +763,20 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 	matviewRel = heap_open(matviewOid, NoLock);
 	matviewname = quote_qualified_identifier(get_namespace_name(RelationGetNamespace(matviewRel)),
 											 RelationGetRelationName(matviewRel));
+#ifdef ADB
+	if (tstore)
+	{
+		tempRel = NULL;
+		tempname = "named_ts_for_refresh_mv";
+	}else
+	{
+#endif /* ADB */
 	tempRel = heap_open(tempOid, NoLock);
 	tempname = quote_qualified_identifier(get_namespace_name(RelationGetNamespace(tempRel)),
 										  RelationGetRelationName(tempRel));
+#ifdef ADB
+	}
+#endif /* ADB */
 	diffname = make_temptable_name_n(tempname, 2);
 
 	relnatts = RelationGetNumberOfAttributes(matviewRel);
@@ -631,6 +785,25 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 	if (SPI_connect() != SPI_OK_CONNECT)
 		elog(ERROR, "SPI_connect failed");
 
+#ifdef ADB
+	if (tstore)
+	{
+		EphemeralNamedRelation enr = palloc0(sizeof(*enr));
+		int rc;
+		
+		enr->md.name = tempname;
+		enr->md.reliddesc = InvalidOid;
+		enr->md.tupdesc = RelationGetDescr(matviewRel);
+		enr->md.enrtype = ENR_NAMED_TUPLESTORE;
+		enr->md.enrtuples = tuplestore_tuple_count(tstore);
+		enr->reldata = tstore;
+
+		rc = SPI_register_relation(enr);
+		if (rc != SPI_OK_REL_REGISTER)
+			elog(ERROR, "SPI register relation failed:%d", rc);
+	}else
+	{
+#endif /* ADB */
 	/* Analyze the temp table with the new contents. */
 	appendStringInfo(&querybuf, "ANALYZE %s", tempname);
 	if (SPI_exec(querybuf.data, 0) != SPI_OK_UTILITY)
@@ -670,17 +843,25 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 				 errdetail("Row: %s",
 						   SPI_getvalue(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 1))));
 	}
+#ifdef ADB
+	}
+#endif /* ADB */
 
 	SetUserIdAndSecContext(relowner,
 						   save_sec_context | SECURITY_LOCAL_USERID_CHANGE);
 
 	/* Start building the query for creating the diff table. */
 	resetStringInfo(&querybuf);
+#ifdef ADB
+	if (tstore)
+		appendStringInfo(&querybuf, "WITH %s AS (", diffname);
+	else
+		appendStringInfo(&querybuf, "CREATE TEMP TABLE %s AS ", diffname);
+#endif /* ADB */
 	appendStringInfo(&querybuf,
-					 "CREATE TEMP TABLE %s AS "
 					 "SELECT mv.ctid AS tid, newdata "
 					 "FROM %s mv FULL JOIN %s newdata ON (",
-					 diffname, matviewname, tempname);
+					 matviewname, tempname);
 
 	/*
 	 * Get the list of index OIDs for the table from the relcache, and look up
@@ -805,7 +986,9 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 						   " AND newdata OPERATOR(pg_catalog.*=) mv) "
 						   "WHERE newdata IS NULL OR mv IS NULL "
 						   "ORDER BY tid");
-
+#ifdef ADB
+	if (tstore == NULL)
+#endif /* ADB */
 	/* Create the temporary "diff" table. */
 	if (SPI_exec(querybuf.data, 0) != SPI_OK_UTILITY)
 		elog(ERROR, "SPI_exec failed: %s", querybuf.data);
@@ -818,6 +1001,10 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 	 * must keep it around because its type is referenced from the diff table.
 	 */
 
+#ifdef ADB
+	if (tstore == NULL)
+	{
+#endif /* ADB */
 	/* Analyze the diff table. */
 	resetStringInfo(&querybuf);
 	appendStringInfo(&querybuf, "ANALYZE %s", diffname);
@@ -828,17 +1015,34 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 
 	/* Deletes must come before inserts; do them first. */
 	resetStringInfo(&querybuf);
+#ifdef ADB
+	}else
+	{
+		OpenMatViewIncrementalMaintenance();
+		appendStringInfoString(&querybuf, "),\"_refresh_mv_delete_\" AS (");
+	}
+#endif /* ADB */
 	appendStringInfo(&querybuf,
 					 "DELETE FROM %s mv WHERE ctid OPERATOR(pg_catalog.=) ANY "
 					 "(SELECT diff.tid FROM %s diff "
 					 "WHERE diff.tid IS NOT NULL "
 					 "AND diff.newdata IS NULL)",
 					 matviewname, diffname);
+#ifdef ADB
+	if (tstore == NULL)
+	{
+#endif /* ADB */
 	if (SPI_exec(querybuf.data, 0) != SPI_OK_DELETE)
 		elog(ERROR, "SPI_exec failed: %s", querybuf.data);
 
 	/* Inserts go last. */
 	resetStringInfo(&querybuf);
+#ifdef ADB
+	}else
+	{
+		appendStringInfoChar(&querybuf, ')');
+	}
+#endif /* ADB */
 	appendStringInfo(&querybuf,
 					 "INSERT INTO %s SELECT (diff.newdata).* "
 					 "FROM %s diff WHERE tid IS NULL",
@@ -848,14 +1052,24 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 
 	/* We're done maintaining the materialized view. */
 	CloseMatViewIncrementalMaintenance();
+#ifdef ADB
+	if (tempRel != NULL)
+#endif /* ADB */
 	heap_close(tempRel, NoLock);
 	heap_close(matviewRel, NoLock);
 
 	/* Clean up temp tables. */
 	resetStringInfo(&querybuf);
+#ifdef ADB
+	if (tstore == NULL)
+	{
+#endif /* ADB */
 	appendStringInfo(&querybuf, "DROP TABLE %s, %s", diffname, tempname);
 	if (SPI_exec(querybuf.data, 0) != SPI_OK_UTILITY)
 		elog(ERROR, "SPI_exec failed: %s", querybuf.data);
+#ifdef ADB
+	}
+#endif /* ADB */
 
 	/* Close SPI context. */
 	if (SPI_finish() != SPI_OK_FINISH)
@@ -951,6 +1165,248 @@ CloseMatViewIncrementalMaintenance(void)
 }
 
 #ifdef ADB
+static void flush_copy_data(PGconn *conn)
+{
+	int res;
+	for(;;)
+	{
+		res = PQflush(conn);
+		if (res < 0)
+			ereport(ERROR,
+					(errmsg("%s", PQerrorMessage(conn)),
+					 errnode(PQNConnectName(conn))));
+		else if (res == 0)
+			break;
+		
+		WaitLatchOrSocket(MyLatch,
+						  WL_LATCH_SET | WL_SOCKET_WRITEABLE,
+						  PQsocket(conn),
+						  -1L,
+						  PG_WAIT_EXTENSION);
+		ResetLatch(MyLatch);
+		CHECK_FOR_INTERRUPTS();
+	}
+}
+static void send_copy_data(List *list, const char *buf, int len)
+{
+	ListCell *lc;
+	int res;
+	foreach (lc, list)
+	{
+		res = PQputCopyData(lfirst(lc), buf, len);
+		if (res < 0)
+			ereport(ERROR,
+					(errmsg("%s", PQerrorMessage(lfirst(lc))),
+					 errnode(PQNConnectName(lfirst(lc)))));
+		else if (res > 0)
+			flush_copy_data(lfirst(lc));
+	}
+}
+
+static void adb_send_copy_end(List *connList)
+{
+	ListCell *lc;
+	int res;
+	foreach (lc, connList)
+	{
+		res = PQputCopyEnd(lfirst(lc), NULL);
+		if (res < 0)
+			ereport(ERROR,
+					(errmsg("%s", PQerrorMessage(lfirst(lc))),
+					 errnode(PQNConnectName(lfirst(lc)))));
+		else if (res > 0)
+			flush_copy_data(lfirst(lc));
+	}
+}
+
+static void adb_send_relation_data(List *connList, Oid reloid, LOCKMODE lockmode)
+{
+	Relation			rel = heap_open(reloid, lockmode);
+	HeapScanDesc		scandesc = heap_beginscan(rel, GetActiveSnapshot(), 0, NULL);
+	TupleTypeConvert   *convert = create_type_convert(RelationGetDescr(rel), true, false);
+	TupleTableSlot	   *base_slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
+	MemoryContext		context = AllocSetContextCreate(CurrentMemoryContext,
+														"SEND RELATION",
+														ALLOCSET_DEFAULT_SIZES);
+	MemoryContext		oldcontext;
+	TupleTableSlot	   *out_slot;
+	HeapTuple			tuple;
+	StringInfoData		buf;
+	char				msg_type;
+
+	initStringInfo(&buf);
+	serialize_slot_head_message(&buf, RelationGetDescr(rel));
+	send_copy_data(connList, buf.data, buf.len);
+	if (convert)
+	{
+		out_slot = MakeSingleTupleTableSlot(convert->out_desc);
+		msg_type = CLUSTER_MSG_CONVERT_TUPLE;
+		resetStringInfo(&buf);
+		serialize_slot_convert_head(&buf, convert->out_desc);
+		send_copy_data(connList, buf.data, buf.len);
+	}else
+	{
+		out_slot = base_slot;
+		msg_type = CLUSTER_MSG_TUPLE_DATA;
+	}
+
+	oldcontext = MemoryContextSwitchTo(context);
+	while ((tuple = heap_getnext(scandesc, ForwardScanDirection)) != NULL)
+	{
+		ExecStoreTuple(tuple, base_slot, InvalidBuffer, false);
+		if (convert)
+			do_type_convert_slot_out(convert, base_slot, out_slot, false);
+
+		resetStringInfo(&buf);
+		serialize_slot_message(&buf, out_slot, msg_type);
+		send_copy_data(connList, buf.data, buf.len);
+
+		MemoryContextReset(context);
+	}
+
+	pfree(buf.data);
+	free_type_convert(convert);
+	if (out_slot != base_slot)
+		ExecDropSingleTupleTableSlot(out_slot);
+	ExecDropSingleTupleTableSlot(base_slot);
+	heap_endscan(scandesc);
+	heap_close(rel, NoLock);
+	MemoryContextSwitchTo(oldcontext);
+	MemoryContextDelete(context);
+}
+
+static bool recv_copy_data(StringInfo buf, char msg_type)
+{
+	int			mtype;
+
+readmessage:
+	HOLD_CANCEL_INTERRUPTS();
+	pq_startmsgread();
+	mtype = pq_getbyte();
+	if (mtype == EOF ||
+		pq_getmessage(buf, 0))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 errmsg("unexpected EOF on client connection with an open transaction")));
+	}
+	RESUME_CANCEL_INTERRUPTS();
+
+	switch (mtype)
+	{
+		case 'd':	/* CopyData */
+			break;
+		case 'c':	/* CopyDone */
+			/* COPY IN correctly terminated by frontend */
+			return false;
+		case 'f':	/* CopyFail */
+			ereport(ERROR,
+					(errcode(ERRCODE_QUERY_CANCELED),
+					 errmsg("COPY from stdin failed: %s",
+							pq_getmsgstring(buf))));
+			break;
+		case 'H':	/* Flush */
+		case 'S':	/* Sync */
+
+			/*
+			 * Ignore Flush/Sync for the convenience of client
+			 * libraries (such as libpq) that may send those
+			 * without noticing that the command they just
+			 * sent was COPY.
+			 */
+			goto readmessage;
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					 errmsg("unexpected message type 0x%02X during COPY from stdin",
+							mtype)));
+			break;
+	}
+
+	if (buf->data[0] != msg_type)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Invalid message type 0x%02X", buf->data[0]),
+				 errdetail("Expect 0x%02X", msg_type)));
+	}
+	++(buf->cursor);
+
+	return true;
+}
+
+static uint64 adb_recv_relation_data(DestReceiver *self, TupleDesc desc, int operator)
+{
+	TupleTypeConvert   *convert = create_type_convert(desc, false, true);
+	TupleTableSlot	   *base_slot = MakeSingleTupleTableSlot(desc);
+	MemoryContext		context = AllocSetContextCreate(CurrentMemoryContext,
+														"RECV RELATION",
+														ALLOCSET_DEFAULT_SIZES);
+	MemoryContext		oldcontext;
+	TupleTableSlot	   *in_slot;
+	uint64				processed;
+	StringInfoData		buf;
+	char				msg_type;
+
+	initStringInfo(&buf);
+	if (recv_copy_data(&buf, CLUSTER_MSG_TUPLE_DESC) == false)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Can not found datatype message")));
+	}
+	compare_slot_head_message(&buf.data[buf.cursor], buf.len-buf.cursor, desc);
+
+	if (convert)
+	{
+		in_slot = MakeSingleTupleTableSlot(convert->out_desc);
+		msg_type = CLUSTER_MSG_CONVERT_TUPLE;
+		if (recv_copy_data(&buf, CLUSTER_MSG_CONVERT_DESC) == false)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					errmsg("Can not found datatype message")));
+		}
+		compare_slot_head_message(&buf.data[buf.cursor], buf.len-buf.cursor, convert->out_desc);
+	}else
+	{
+		in_slot = base_slot;
+		msg_type = CLUSTER_MSG_TUPLE_DATA;
+	}
+
+	(*self->rStartup)(self, operator, desc);
+	processed = 0;
+
+	oldcontext = MemoryContextSwitchTo(context);
+	while (recv_copy_data(&buf, msg_type))
+	{
+		MemoryContextReset(context);
+
+		restore_slot_message(&buf.data[buf.cursor], buf.len - buf.cursor, in_slot);
+		if (convert)
+			do_type_convert_slot_in(convert, in_slot, base_slot, false);
+		
+		if (((*self->receiveSlot)(base_slot, self)) == false)
+			break;
+		++processed;
+	}
+
+	(*self->rShutdown)(self);
+
+	pfree(buf.data);
+	MemoryContextSwitchTo(oldcontext);
+	MemoryContextDelete(context);
+	if (convert)
+	{
+		Assert(in_slot != base_slot);
+		free_type_convert(convert);
+		ExecDropSingleTupleTableSlot(in_slot);
+	}
+	ExecDropSingleTupleTableSlot(base_slot);
+
+	return processed;
+}
+
 /*
  * This function accepts the data from the coordinator which initiated the
  * REFRESH MV command and inserts it into the transient relation created for the

@@ -5,6 +5,7 @@
 #include "catalog/pgxc_node.h"
 #include "commands/copy.h"
 #include "commands/defrem.h"
+#include "commands/matview.h"
 #include "executor/nodeEmptyResult.h"
 #include "executor/clusterHeapScan.h"
 #include "executor/execdesc.h"
@@ -130,6 +131,7 @@ static const ClusterCustomExecInfo* find_custom_func_info(StringInfo mem_toc, bo
 static const ClusterCustomExecInfo cluster_custom_execute[] =
 	{
 		{CLUSTER_CUSTOM_EXEC_FUNC(DoClusterHeapScan)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRefreshMatView)}
 	};
 
 static void set_cluster_display(const char *activity, bool force, ClusterCoordInfo *info);

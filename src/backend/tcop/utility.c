@@ -2496,21 +2496,6 @@ ProcessUtilitySlow(ParseState *pstate,
 				}
 				PG_END_TRY();
 				EventTriggerUndoInhibitCommandCollection();
-
-#ifdef ADB
-				Assert(IS_PGXC_COORDINATOR);
-				/* Send REFRESH MATERIALIZED VIEW command and the data to be populated
-				 * to all coordinators.
-				 */
-				if (!((RefreshMatViewStmt *)parsetree)->skipData && !IsConnFromCoord())
-					pgxc_send_matview_data(((RefreshMatViewStmt *)parsetree)->relation,
-											this_query_str);
-				else
-				{
-					utilityContext.exec_type = EXEC_ON_COORDS;
-					ExecRemoteUtilityStmt(&utilityContext);
-				}
-#endif /* ADB */
 				break;
 
 			case T_CreateTrigStmt:

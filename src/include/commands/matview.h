@@ -31,6 +31,7 @@ extern DestReceiver *CreateTransientRelDestReceiver(Oid oid);
 extern bool MatViewIncrementalMaintenanceIsEnabled(void);
 
 #ifdef ADB
+extern void ClusterRefreshMatView(StringInfo mem_toc);
 extern void pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string);
 extern void pgxc_fill_matview_by_copy(DestReceiver *mv_dest, bool skipdata,
 										int operation, TupleDesc tupdesc);
