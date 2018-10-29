@@ -627,6 +627,10 @@ NODE_SPECIAL_MEB(ModifyTable)
 	arbiterIndexes NODE_OID_LIST(class,arbiterIndexes)
 END_SPECIAL_MEB(ModifyTable)
 
+NODE_SPECIAL_MEB(NextValueExpr)
+	seqid NODE_OID(class,seqid)
+END_SPECIAL_MEB(NextValueExpr)
+
 /*******************************************************************/
 
 /* ENUM_IF_DEFINED(type_name, macro_name [, ...]) */
