@@ -718,6 +718,7 @@ extern Oid load_oid_class(struct StringInfoData *buf);
 extern struct List* load_oid_list_class(struct StringInfoData *buf);
 extern char * load_node_string(struct StringInfoData *buf, bool need_dup);
 extern Oid load_oid_ts_config(struct StringInfoData *buf);
+extern Oid load_oid_authid(struct StringInfoData *buf);
 extern struct Bitmapset* load_Bitmapset(struct StringInfoData *buf);
 extern void save_oid_operator(struct StringInfoData *buf, Oid op);
 extern void save_oid_proc(struct StringInfoData *buf, Oid proc);
@@ -729,6 +730,7 @@ extern void save_oid_list_class(struct StringInfoData *buf, struct List *list);
 extern void save_node_string(struct StringInfoData *buf, const char *str);
 extern void save_node_bitmapset(struct StringInfoData *buf, const struct Bitmapset *node);
 extern void save_oid_ts_config(struct StringInfoData *buf, Oid cfg);
+extern void save_oid_authid(struct StringInfoData *buf, Oid authid);
 #endif /* ADB */
 
 /*
