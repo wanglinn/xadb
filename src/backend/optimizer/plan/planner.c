@@ -2336,7 +2336,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				/* need this? safety add it */
 				root->parent_root == NULL &&
 				rti_is_base_rel(root, parse->resultRelation) &&
-				!has_row_triggers(root, parse->resultRelation, CMD_INSERT) &&
+				!has_any_triggers(root, parse->resultRelation, CMD_INSERT) &&
 				!have_remote_query_path(path) &&
 				is_remote_relation(root, parse->resultRelation) &&
 				path->rows >= 5.0)
@@ -2454,7 +2454,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			ModifyTablePath *modify;
 			if (parse->withCheckOptions ||
 				rti_is_base_rel(root, parse->resultRelation) == false ||
-				has_row_triggers(root, parse->resultRelation, parse->commandType))
+				has_any_triggers(root, parse->resultRelation, parse->commandType))
 				break;
 
 			if (is_remote_relation(root, parse->resultRelation) == false)
