@@ -2565,14 +2565,17 @@ ExecBRInsertTriggers(EState *estate, ResultRelInfo *relinfo,
 
 #ifdef ADB
 	bool exec_all_triggers;
+	bool is_temp = RelationUsesLocalBuffers(relinfo->ri_RelationDesc);
 
 	/*
 	 * Fire triggers only at the node where we are supposed to fire them.
 	 * Note: the special requirement for BR triggers is that we should fire
 	 * them on coordinator even when we have shippable BR and a non-shippable AR
 	 * trigger. For details see the comments in the function definition.
+	 * temporary relation only in coordinator, so need execute.
 	 */
-	exec_all_triggers = pgxc_should_exec_br_trigger(relinfo->ri_RelationDesc,
+	exec_all_triggers = is_temp ||
+						pgxc_should_exec_br_trigger(relinfo->ri_RelationDesc,
 													TRIGGER_TYPE_INSERT);
 #endif
 
@@ -2590,7 +2593,8 @@ ExecBRInsertTriggers(EState *estate, ResultRelInfo *relinfo,
 		Trigger    *trigger = &trigdesc->triggers[i];
 
 #ifdef ADB
-		if (!pgxc_is_trigger_firable(relinfo->ri_RelationDesc, trigger,
+		if (is_temp == false &&
+			!pgxc_is_trigger_firable(relinfo->ri_RelationDesc, trigger,
 									 exec_all_triggers))
 			continue;
 #endif
