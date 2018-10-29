@@ -67,7 +67,7 @@ extern bool has_row_triggers(PlannerInfo *root, Index rti, CmdType event);
 
 #ifdef ADB
 
-extern bool has_row_triggers_subclass(PlannerInfo *root, Index rti, CmdType event);
+extern bool has_any_triggers_subclass(PlannerInfo *root, Index rti, CmdType event);
 
 /* src/backend/optimizer/util/remotetest.c */
 typedef enum UseAuxiliaryType

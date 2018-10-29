@@ -1925,7 +1925,7 @@ has_row_triggers(PlannerInfo *root, Index rti, CmdType event)
 
 #ifdef ADB
 
-bool has_row_triggers_subclass(PlannerInfo *root, Index rti, CmdType event)
+bool has_any_triggers_subclass(PlannerInfo *root, Index rti, CmdType event)
 {
 	List		   *list;
 	ListCell	   *lc;
@@ -1933,10 +1933,11 @@ bool has_row_triggers_subclass(PlannerInfo *root, Index rti, CmdType event)
 	TriggerDesc	   *trigDesc;
 	RangeTblEntry  *rte = planner_rt_fetch(rti, root);
 	bool			result;
-	if (!has_subclass(rte->relid))
-		return has_row_triggers(root, rti, event);
 
-	list = find_all_inheritors(rte->relid, NoLock, NULL);
+	if (!has_subclass(rte->relid))
+		list = list_make1_oid(rte->relid);
+	else
+		list = find_all_inheritors(rte->relid, NoLock, NULL);
 	foreach(lc, list)
 	{
 		relation = heap_open(lfirst_oid(lc), NoLock);
@@ -1946,19 +1947,25 @@ bool has_row_triggers_subclass(PlannerInfo *root, Index rti, CmdType event)
 			case CMD_INSERT:
 				if (trigDesc &&
 					(trigDesc->trig_insert_after_row ||
-					 trigDesc->trig_insert_before_row))
+					 trigDesc->trig_insert_before_row ||
+					 trigDesc->trig_insert_after_statement ||
+					 trigDesc->trig_insert_before_statement))
 					result = true;
 				break;
 			case CMD_UPDATE:
 				if (trigDesc &&
 					(trigDesc->trig_update_after_row ||
-					 trigDesc->trig_update_before_row))
+					 trigDesc->trig_update_before_row ||
+					 trigDesc->trig_update_after_statement ||
+					 trigDesc->trig_update_before_statement))
 					result = true;
 				break;
 			case CMD_DELETE:
 				if (trigDesc &&
 					(trigDesc->trig_delete_after_row ||
-					 trigDesc->trig_delete_before_row))
+					 trigDesc->trig_delete_before_row ||
+					 trigDesc->trig_delete_after_statement ||
+					 trigDesc->trig_delete_before_statement))
 					result = true;
 				break;
 			default:
