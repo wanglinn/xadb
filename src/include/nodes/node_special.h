@@ -615,6 +615,7 @@ END_SPECIAL_MEB(OidVectorLoopExpr)
 
 NODE_SPECIAL_MEB(RangeTblEntry)
 	relid NODE_OID(class, relid)
+	checkAsUser NODE_OID(authid,checkAsUser)
 END_SPECIAL_MEB(RangeTblEntry)
 
 NODE_SPECIAL_MEB(PartitionPruneInfo)

@@ -32,6 +32,7 @@
 #include "nodes/replnodes.h"
 #include "commands/event_trigger.h"
 #ifdef ADB
+#include "miscadmin.h"
 #include "optimizer/reduceinfo.h"
 #include "optimizer/planmain.h"
 #endif /* ADB */
@@ -383,6 +384,21 @@ void save_oid_ts_config(struct StringInfoData *buf, Oid cfg)
 		ereport(ERROR, 
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("cache lookup failed for text search configuration %u", cfg)));
+	}
+}
+
+void save_oid_authid(struct StringInfoData *buf, Oid authid)
+{
+	if (IS_OID_BUILTIN(authid))
+	{
+		SAVE_BOOL(true);
+		pq_sendbytes(buf, (char*)&authid, sizeof(authid));
+	}else
+	{
+		char *name = GetUserNameFromId(authid, false);
+		SAVE_BOOL(false);
+		save_node_string(buf, name);
+		pfree(name);
 	}
 }
 
@@ -913,6 +929,26 @@ Oid load_oid_ts_config(struct StringInfoData *buf)
 		}
 	}
 
+	return result;
+}
+
+Oid load_oid_authid(struct StringInfoData *buf)
+{
+	char *name;
+	Oid result;
+
+	if (LOAD_BOOL())
+	{
+		pq_copymsgbytes(buf, (char*)&result, sizeof(result));
+	}else
+	{
+		name = load_node_string(buf, false);
+		result = GetSysCacheOid1(AUTHNAME, CStringGetDatum(name));	/* CString compatible Name */
+		if (!OidIsValid(result))
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("role \"%s\" does not exist", name)));
+	}
 	return result;
 }
 
