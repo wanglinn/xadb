@@ -1333,7 +1333,7 @@ END_NODE(CurrentOfExpr)
 #ifndef NO_NODE_NextValueExpr
 BEGIN_NODE(NextValueExpr)
 	NODE_BASE2(Expr,xpr)
-	NODE_SCALAR(Oid,seqid)
+	NODE_OID(class,seqid)
 	NODE_SCALAR(Oid,typeId)
 END_NODE(NextValueExpr)
 #endif /* NO_NODE_NextValueExpr */

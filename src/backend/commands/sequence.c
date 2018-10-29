@@ -296,68 +296,7 @@ DefineSequence(ParseState *pstate, CreateSeqStmt *seq)
 bool
 IsTempSequence(Oid relid)
 {
-	Relation seqrel;
-	bool res;
-	SeqTable	elm;
-
-	/* open and AccessShareLock sequence */
-	init_sequence(relid, &elm, &seqrel);
-
-	res = seqrel->rd_backend == MyBackendId;
-	relation_close(seqrel, NoLock);
-	return res;
-}
-
-/*
- * GetGlobalSeqName
- *
- * Returns a global sequence name adapted to AGTM
- * Name format is dbname.schemaname.seqname
- * so as to identify in a unique way in the whole cluster each sequence
- */
-char *
-GetGlobalSeqName(Relation seqrel, const char *new_seqname, const char *new_schemaname)
-{
-	char *seqname, *dbname, *schemaname, *relname;
-	int charlen;
-
-	/* Get all the necessary relation names */
-	dbname = get_database_name(seqrel->rd_node.dbNode);
-
-	if (new_seqname)
-		relname = (char *) new_seqname;
-	else
-		relname = RelationGetRelationName(seqrel);
-
-	if (new_schemaname)
-		schemaname = (char *) new_schemaname;
-	else
-		schemaname = get_namespace_name(RelationGetNamespace(seqrel));
-
-	/* Calculate the global name size including the dots and \0 */
-	charlen = strlen(dbname) + strlen(schemaname) + strlen(relname) + 3;
-	seqname = (char *) palloc(charlen);
-
-	/* Form a unique sequence name with schema and database name for GTM */
-	snprintf(seqname,
-			 charlen,
-			 "%s.%s.%s",
-			 dbname,
-			 schemaname,
-			 relname);
-
-	if (dbname)
-		pfree(dbname);
-	if (schemaname)
-		pfree(schemaname);
-
-	return seqname;
-}
-
-extern void GetSequenceInfoByName(Relation seqrel, char ** dbname, char ** schemaName)
-{
-	*dbname = get_database_name(seqrel->rd_node.dbNode);
-	*schemaName = get_namespace_name(RelationGetNamespace(seqrel));
+	return get_rel_persistence(relid) == RELPERSISTENCE_TEMP;
 }
 
 void
@@ -790,8 +729,7 @@ nextval_internal(Oid relid, bool check_permissions)
 	ReleaseSysCache(pgstuple);
 
 #ifdef ADB
-	if (IsCnMaster() &&
-		!RelationUsesLocalBuffers(seqrel))
+	if (!RelationUsesLocalBuffers(seqrel))
 	{
 		char * seqName = NULL;
 		char * databaseName = NULL;
@@ -1036,11 +974,7 @@ Datum
 currval_oid(PG_FUNCTION_ARGS)
 {
 	Oid			relid = PG_GETARG_OID(0);
-#ifdef ADB
-	int64		result = 0;
-#else
 	int64		result;
-#endif
 	SeqTable	elm;
 	Relation	seqrel;
 
@@ -1060,17 +994,10 @@ currval_oid(PG_FUNCTION_ARGS)
 				 errmsg("currval of sequence \"%s\" is not yet defined in this session",
 						RelationGetRelationName(seqrel))));
 
-#ifdef ADB
-	if (IsCnMaster())
-	{
-#endif
-		result = elm->last;
-		relation_close(seqrel, NoLock);
-#ifdef ADB
-	}
-	else
-		PreventCommandIfReadOnly("currval()");
-#endif
+	result = elm->last;
+
+	relation_close(seqrel, NoLock);
+
 	PG_RETURN_INT64(result);
 }
 
@@ -1078,15 +1005,12 @@ Datum
 lastval(PG_FUNCTION_ARGS)
 {
 	Relation	seqrel;
-#ifdef ADB
-	int64		result = 0;
-#else
 	int64		result;
-#endif
+
 	if (last_used_seq == NULL)
-	ereport(ERROR,
-			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-			 errmsg("lastval is not yet defined in this session")));
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("lastval is not yet defined in this session")));
 
 	/* Someone may have dropped the sequence since the last nextval() */
 	if (!SearchSysCacheExists1(RELOID, ObjectIdGetDatum(last_used_seq->relid)))
@@ -1106,17 +1030,9 @@ lastval(PG_FUNCTION_ARGS)
 				 errmsg("permission denied for sequence %s",
 						RelationGetRelationName(seqrel))));
 
-#ifdef ADB
-	if (IsCnMaster())
-	{
-#endif
-		result = last_used_seq->last;
-		relation_close(seqrel, NoLock);
-#ifdef ADB
-	}
-	else
-		PreventCommandIfReadOnly("lastval()");
-#endif
+	result = last_used_seq->last;
+	relation_close(seqrel, NoLock);
+
 	PG_RETURN_INT64(result);
 }
 
@@ -1253,37 +1169,27 @@ setval_oid(PG_FUNCTION_ARGS)
 	int64		next = PG_GETARG_INT64(1);
 
 #ifdef ADB
-	if (IsCnMaster())
+	if (get_rel_persistence(relid) != RELPERSISTENCE_TEMP)
 	{
 		Relation	seqrel;
 		SeqTable	elm;
 		int64		seq_val;
-		bool		is_temp;
 
-		char * seqName = NULL;
-		char * databaseName = NULL;
-		char * schemaName = NULL;
+		char * seqName;
+		char * databaseName;
+		char * schemaName;
 
 		init_sequence(relid, &elm, &seqrel);
 
-		is_temp = seqrel->rd_backend == MyBackendId;
-		if (!is_temp)
-		{
-			seqName = RelationGetRelationName(seqrel);
-			databaseName = get_database_name(seqrel->rd_node.dbNode);
-			schemaName = get_namespace_name(RelationGetNamespace(seqrel));
+		seqName = RelationGetRelationName(seqrel);
+		databaseName = get_database_name(seqrel->rd_node.dbNode);
+		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 
-			seq_val = agtm_SetSeqVal(seqName, databaseName, schemaName, next);
-			relation_close(seqrel, NoLock);
-			/* do location */
-			do_setval(relid, next, true);
-			PG_RETURN_INT64(seq_val);
-		}
+		seq_val = agtm_SetSeqVal(seqName, databaseName, schemaName, next);
 		relation_close(seqrel, NoLock);
-	}
-	else
-	{
-		PreventCommandIfReadOnly("setval()");
+
+		pfree(databaseName);
+		pfree(schemaName);
 	}
 #endif
 
@@ -1304,38 +1210,28 @@ setval3_oid(PG_FUNCTION_ARGS)
 	bool		iscalled = PG_GETARG_BOOL(2);
 
 #ifdef ADB
-	if (IsCnMaster())
+	if (get_rel_persistence(relid) != RELPERSISTENCE_TEMP)
 	{
 		Relation	seqrel;
 		SeqTable	elm;
 		int64		seq_val;
-		bool		is_temp;
 
-		char * seqName = NULL;
-		char * databaseName = NULL;
-		char * schemaName = NULL;
+		char * seqName;
+		char * databaseName;
+		char * schemaName;
 
 		/* open and AccessShareLock sequence */
 		init_sequence(relid, &elm, &seqrel);
 
-		is_temp = seqrel->rd_backend == MyBackendId;
-		if (!is_temp)
-		{
-			seqName = RelationGetRelationName(seqrel);
-			databaseName = get_database_name(seqrel->rd_node.dbNode);
-			schemaName = get_namespace_name(RelationGetNamespace(seqrel));
+		seqName = RelationGetRelationName(seqrel);
+		databaseName = get_database_name(seqrel->rd_node.dbNode);
+		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 
-			seq_val = agtm_SetSeqValCalled(seqName, databaseName, schemaName, next, iscalled);
-			relation_close(seqrel, NoLock);
-			/* do location */
-			do_setval(relid, next, iscalled);
-			PG_RETURN_INT64(seq_val);
-		}
+		seq_val = agtm_SetSeqValCalled(seqName, databaseName, schemaName, next, iscalled);
 		relation_close(seqrel, NoLock);
-	}
-	else
-	{
-		PreventCommandIfReadOnly("setval()");
+
+		pfree(databaseName);
+		pfree(schemaName);
 	}
 #endif
 

@@ -42,13 +42,4 @@ DATA(insert ( 2324 u));
 /* pg_database_size(Name) */
 DATA(insert ( 2168 u));
 
-/* nextval(regclass) */
-DATA(insert ( 1574 r));
-/* currval(regclass) */
-DATA(insert ( 1575 r));
-/* setval(regclass,bigint) */
-DATA(insert ( 1576 r));
-/* setval(regclass,bigint,boolean) */
-DATA(insert ( 1765 r));
-
 #endif /* ADB_PROC_H */

@@ -1224,6 +1224,30 @@ static bool has_cluster_hazard_walker(Node *node, has_cluster_hazard_arg *contex
 		return true;
 #endif /* ADB_MULTI_GRAM */
 
+	/* temporary sequence can not */
+	else if (IsA(node, NextValueExpr))
+	{
+		if (get_rel_persistence(((NextValueExpr*)node)->seqid) == RELPERSISTENCE_TEMP)
+			return true;
+	}else if (IsA(node, FuncExpr))
+	{
+		switch(((FuncExpr*)node)->funcid)
+		{
+		case F_NEXTVAL_OID:
+		case F_CURRVAL_OID:
+		case F_SETVAL_OID:
+		case F_SETVAL3_OID:
+			if (IsA(linitial(((FuncExpr*)node)->args), Const))
+			{
+				Const *c = linitial(((FuncExpr*)node)->args);
+				Assert(c->consttype == REGCLASSOID);
+				if (get_rel_persistence(DatumGetObjectId(c->constvalue)) == RELPERSISTENCE_TEMP)
+					return true;
+			}
+		default:
+			break;
+		}
+	}
 	/*
 	 * As a notational convenience for callers, look through RestrictInfo.
 	 */
