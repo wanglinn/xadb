@@ -1727,3 +1727,50 @@ has_row_triggers(PlannerInfo *root, Index rti, CmdType event)
 	heap_close(relation, NoLock);
 	return result;
 }
+
+#ifdef ADB
+bool has_any_triggers(PlannerInfo *root, Index rti, CmdType event)
+{
+	Relation		relation;
+	TriggerDesc	   *trigDesc;
+	RangeTblEntry  *rte = planner_rt_fetch(rti, root);
+	bool			result = false;
+
+	relation = heap_open(rte->relid, NoLock);
+	trigDesc = relation->trigdesc;
+	switch (event)
+	{
+		case CMD_INSERT:
+			if (trigDesc &&
+				(trigDesc->trig_insert_after_row ||
+				 trigDesc->trig_insert_before_row ||
+				 trigDesc->trig_insert_after_statement ||
+				 trigDesc->trig_insert_before_statement))
+				result = true;
+			break;
+		case CMD_UPDATE:
+			if (trigDesc &&
+				(trigDesc->trig_update_after_row ||
+				 trigDesc->trig_update_before_row ||
+				 trigDesc->trig_update_after_statement ||
+				 trigDesc->trig_update_before_statement))
+				result = true;
+			break;
+		case CMD_DELETE:
+			if (trigDesc &&
+				(trigDesc->trig_delete_after_row ||
+				 trigDesc->trig_delete_before_row ||
+				 trigDesc->trig_delete_after_statement ||
+				 trigDesc->trig_delete_before_statement))
+				result = true;
+			break;
+		default:
+			elog(ERROR, "unrecognized CmdType: %d", (int) event);
+			break;
+	}
+	heap_close(relation, NoLock);
+
+	return result;
+}
+
+#endif /* ADB */

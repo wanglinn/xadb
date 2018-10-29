@@ -66,6 +66,9 @@ extern Selectivity join_selectivity(PlannerInfo *root,
 extern bool has_row_triggers(PlannerInfo *root, Index rti, CmdType event);
 
 #ifdef ADB
+
+extern bool has_any_triggers(PlannerInfo *root, Index rti, CmdType event);
+
 /* src/backend/optimizer/util/remotetest.c */
 typedef enum UseAuxiliaryType
 {
