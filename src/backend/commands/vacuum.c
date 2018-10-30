@@ -279,7 +279,7 @@ vacuum(int options, RangeVar *relation, Oid relid, VacuumParams *params,
 		 * Then do vacuum/analyze on remote coordinators if it is on
 		 * coordinator master.
 		 */
-		if (IsCnMaster())
+		if (IsCnMaster() && !(options & VACOPT_FULL))
 			vacuum_cn(options, relation, va_cols);
 	}
 not_remote_rel_:
