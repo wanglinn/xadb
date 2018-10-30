@@ -399,3 +399,41 @@ free_conversion_map(TupleConversionMap *map)
 	pfree(map->outisnull);
 	pfree(map);
 }
+
+#ifdef ADB
+/*
+ * Perform conversion of a tuple according to the map.
+ * Use the tuple to reverse execution transformation.
+ */
+HeapTuple
+do_reverse_convert_tuple(HeapTuple tuple, TupleConversionMap *map)
+{
+	AttrNumber *attrMap = map->attrMap;
+	Datum		*invalues = map->invalues;
+	bool		*inisnull = map->inisnull;
+	Datum		*outvalues = map->outvalues;
+	bool		*outisnull = map->outisnull;
+	int			outnatts = map->outdesc->natts;
+	int			innatts = map->indesc->natts;
+	int			i;
+
+	heap_deform_tuple(tuple, map->outdesc, outvalues, outisnull);
+	/*
+	 * Transpose into proper fields of the new tuple.
+	 */
+	for (i = 0; i < outnatts; i++)
+	{
+		int		j = attrMap[i];
+		Assert(j >= 0 && j <= innatts);
+		if(j == 0)
+			continue;
+		invalues[j-1] = outvalues[i];
+		inisnull[j-1] = outisnull[i];
+	}
+
+	/*
+	 * Now form the new tuple.
+	 */
+	return heap_form_tuple(map->indesc, invalues, inisnull);
+}
+#endif
