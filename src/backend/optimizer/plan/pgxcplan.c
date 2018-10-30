@@ -2692,25 +2692,6 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	if (exec_nodes == NULL)
 		return NULL;
 
-	/*
-	 * for now not support source have SRF call
-	 */
-	if (exec_nodes->accesstype == RELATION_ACCESS_INSERT)
-	{
-		ListCell *lc;
-		Expr *expr;
-		foreach (lc, exec_nodes->en_expr)
-		{
-			expr = lfirst(lc);
-			if ((IsA(expr, FuncExpr) && ((FuncExpr *) (expr))->funcretset) ||
-				(IsA(expr, OpExpr) && ((OpExpr *) (expr))->opretset))
-			{
-				FreeExecNodes(&exec_nodes);
-				return NULL;
-			}
-		}
-	}
-
 	glob = makeNode(PlannerGlobal);
 	glob->boundParams = boundParams;
 	/* Create a PlannerInfo data structure, usually it is done for a subquery */
