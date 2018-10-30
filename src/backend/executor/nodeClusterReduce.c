@@ -868,17 +868,9 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 	}
 	else
 	{
-		/* In this case we are just passing on the subquery's output */
-
-		/*
-		 * if chgParam of subnode is not null then plan will be re-scanned by
-		 * first ExecProcNode.
-		 */
-		if (outerPlan->chgParam == NULL)
-			ExecReScan(outerPlan);
-		node->eof_underlying = false;
-
-		PrepareForReScanClusterReduce(node);
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("ClusterReduce not support rescan without EXEC_FLAG_REWIND flag")));
 	}
 }
 
