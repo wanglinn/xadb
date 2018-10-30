@@ -44,6 +44,7 @@
 #include "commands/defrem.h"
 #include "intercomm/inter-node.h"
 #include "nodes/pg_list.h"
+#include "utils/fmgroids.h"
 #endif
 /*
  * Shippability_context
@@ -133,6 +134,7 @@ static ExecNodes *pgxc_FQS_datanodes_for_rtr(Index varno,
 static void pgxc_replace_dist_vars_subquery(Query *query, ExecNodes *exec_nodes,
 												Index varno);
 static bool pgxc_is_trigger_shippable(Trigger *trigger);
+static bool exprssion_have_sequence_expr(Node *node, void *none);
 
 /*
  * Set the given reason in Shippability_context indicating why the query can not be
@@ -841,6 +843,14 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 		}
 		break;
+		case T_NextValueExpr:
+			pgxc_set_exprtype_shippability(((NextValueExpr*)node)->typeId, sc_context);
+			if (get_rel_persistence(((NextValueExpr*)node)->seqid) == RELPERSISTENCE_TEMP)
+			{
+				/* temporary sequence must run in coordinator */
+				pgxc_set_shippability_reason(sc_context, SS_NEEDS_COORD);
+			}
+			break;
 #ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			pgxc_set_exprtype_shippability(exprType(node), sc_context);
@@ -882,6 +892,7 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 
 		case T_FuncExpr:
 		{
+			Const		*c;
 			FuncExpr	*funcexpr = (FuncExpr *)node;
 			/*
 			 * PGXC_FQS_TODO: it's too restrictive not to ship non-immutable
@@ -900,6 +911,24 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_EXPR);
 
 			pgxc_set_exprtype_shippability(exprType(node), sc_context);
+
+			switch (funcexpr->funcid)
+			{
+			case F_NEXTVAL_OID:
+			case F_CURRVAL_OID:
+			case F_SETVAL_OID:
+			case F_SETVAL3_OID:
+				c = linitial(funcexpr->args);
+				if (!IsA(c, Const) ||
+					get_rel_persistence(DatumGetObjectId(c->constvalue)) == RELPERSISTENCE_TEMP)
+				{
+					/* temporary sequence must run in coordinator */
+					pgxc_set_shippability_reason(sc_context, SS_NEEDS_COORD);
+				}
+				break;
+			default:
+				break;
+			}
 		}
 		break;
 
@@ -1312,9 +1341,6 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 					pgxc_set_shippability_reason(sc_context, SS_NEEDS_COORD);
 			}
 			break;
-		case T_NextValueExpr:
-			pgxc_set_shippability_reason(sc_context, SS_UNSHIPPABLE_TYPE);
-			break;
 
 		default:
 			elog(ERROR, "unrecognized node type: %d",
@@ -1491,6 +1517,24 @@ pgxc_is_query_shippable(Query *query, int query_level)
 
 	/* Can not ship the query for some reason */
 	if (!bms_is_empty(shippability))
+		canShip = false;
+
+	/*
+	 * for now not support source have SRF call
+	 * and sequence will be call twice
+	 */
+	if (canShip &&
+		exec_nodes->accesstype == RELATION_ACCESS_INSERT &&
+		(expression_returns_set((Node*)exec_nodes->en_expr) ||
+		 exprssion_have_sequence_expr((Node*)exec_nodes->en_expr, NULL)))
+		canShip = false;
+
+	/* sequence exprs must run in coordinator when update/insert replicated relation */
+	if (canShip &&
+		IsExecNodesReplicated(exec_nodes) &&
+		(exec_nodes->accesstype == RELATION_ACCESS_INSERT ||
+		 exec_nodes->accesstype == RELATION_ACCESS_UPDATE) &&
+		exprssion_have_sequence_expr((Node*)query->targetList, NULL))
 		canShip = false;
 
 	/* Always keep this at the end before checking canShip and return */
@@ -2754,4 +2798,30 @@ pgxc_is_trigger_shippable(Trigger *trigger)
 		res = false;
 
 	return res;
+}
+
+static bool exprssion_have_sequence_expr(Node *node, void *none)
+{
+	if (node == NULL)
+		return false;
+
+	if (IsA(node, FuncExpr))
+	{
+		switch(((FuncExpr*)node)->funcid)
+		{
+		case F_NEXTVAL_OID:
+		case F_CURRVAL_OID:
+		case F_SETVAL_OID:
+		case F_SETVAL3_OID:
+		case F_LASTVAL:
+			return true;
+		default:
+			break;
+		}
+	}else if (IsA(node, NextValueExpr))
+	{
+		return true;
+	}
+
+	return expression_tree_walker(node, exprssion_have_sequence_expr, NULL);
 }
