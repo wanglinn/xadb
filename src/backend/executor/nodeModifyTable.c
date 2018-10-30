@@ -291,6 +291,10 @@ ExecInsert(ModifyTableState *mtstate,
 	List	   *recheckIndexes = NIL;
 	TupleTableSlot *result = NULL;
 #ifdef ADB
+	int partidx = -1;
+	TupleConversionMap *map;
+	HeapTuple parentTuple = NULL;
+	TupleTableSlot *parentSlot = NULL;
 	RemoteQueryState  *resultRemoteRel = NULL;
 #endif
 
@@ -440,7 +444,42 @@ ExecInsert(ModifyTableState *mtstate,
 				saveSlot = ExecCopySlot(saveSlot, slot);
 			}
 
-			slot = ExecProcNodeDMLInXC(estate, planSlot, slot);
+			/* get the top partition relation slot */
+			if(mtstate->mt_partition_dispatch_info)
+			{
+				for(partidx=0; partidx < mtstate->mt_num_partitions; partidx++)
+				{
+					Oid relid = RelationGetRelid(mtstate->mt_partitions[partidx].ri_RelationDesc);
+					if (tuple->t_tableOid == relid)
+					{
+						break;
+					}
+				}
+
+				Assert(partidx>=0);
+				map = mtstate->mt_partition_tupconv_maps[partidx];
+				if (map)
+				{
+					parentTuple = do_reverse_convert_tuple(tuple, map);
+
+					/*
+					 * We must use the partition's tuple descriptor from this point on,
+					 * until we're finished dealing with the partition.  Use the
+					 * dedicated slot for that.
+					 */
+					parentSlot = MakeSingleTupleTableSlot(planSlot->tts_tupleDescriptor);
+					parentSlot = ExecCopySlot(parentSlot, planSlot);
+					ExecStoreTuple(parentTuple, parentSlot, InvalidBuffer, true);
+				}
+			}
+
+			if (parentSlot)
+			{
+				slot = ExecProcNodeDMLInXC(estate, planSlot, parentSlot);
+				ExecDropSingleTupleTableSlot(parentSlot);
+			}
+			else
+				slot = ExecProcNodeDMLInXC(estate, planSlot, slot);
 
 			if (TupIsNull(slot))
 				slot = saveSlot;

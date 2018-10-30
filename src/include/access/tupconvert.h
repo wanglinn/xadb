@@ -16,6 +16,7 @@
 
 #include "access/htup.h"
 #include "access/tupdesc.h"
+#include "executor/tuptable.h"
 
 
 typedef struct TupleConversionMap
@@ -43,6 +44,9 @@ extern AttrNumber *convert_tuples_by_name_map(TupleDesc indesc,
 						   const char *msg);
 
 extern HeapTuple do_convert_tuple(HeapTuple tuple, TupleConversionMap *map);
+#ifdef ADB
+extern HeapTuple do_reverse_convert_tuple(HeapTuple tuple, TupleConversionMap *map);
+#endif
 
 extern void free_conversion_map(TupleConversionMap *map);
 
