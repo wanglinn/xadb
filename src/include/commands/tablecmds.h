@@ -107,6 +107,7 @@ extern void RangeVarCallbackOwnsRelation(const RangeVar *relation,
 
 #ifdef ADB
 extern void PostAlterTable(void);
+bool checkTwoTblDistributebyType(Relation destRel, Relation sourceRel, bool checkByColName, bool no_error);
 #endif
 
 #endif							/* TABLECMDS_H */

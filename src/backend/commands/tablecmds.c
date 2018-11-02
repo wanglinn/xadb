@@ -14874,6 +14874,9 @@ ATExecAttachPartition(List **wqueue, Relation rel, PartitionCmd *cmd)
 						trigger_name, RelationGetRelationName(attachrel)),
 				 errdetail("ROW triggers with transition tables are not supported on partitions")));
 
+#ifdef ADB
+	checkTwoTblDistributebyType(attachrel, rel, true, false);
+#endif
 	/* OK to create inheritance.  Rest of the checks performed there */
 	CreateInheritance(attachrel, rel);
 
@@ -15302,5 +15305,153 @@ ATPaddingAuxData(void *arg)
 			relation_close(master, NoLock);
 		}
 	}
+}
+
+/* Check dest relation has the same distributeby type and store nodes with the source relation
+ * if distribute by value, dest relation should have the same distributeby column name with source relation
+ * if distribute by user defined function, dest function should have the same of the input parameters and with
+ *    the same the order of parameters by name or location number with source function
+ */
+
+bool
+checkTwoTblDistributebyType(Relation destRel, Relation sourceRel, bool checkByColName, bool no_error)
+{
+	char *destColName;
+	char *destRelName;
+	char *sourceColName;
+	char *sourceRelName;
+	int destAttno;
+	int sourceAttno;
+	ListCell *attachCeil;
+	ListCell *relCeil;
+	TupleDesc destRelTupleDesc;
+	TupleDesc sourceRelTupleDesc;
+
+	Assert(RelationIsValid(destRel));
+	Assert(RelationIsValid(sourceRel));
+
+	if (!destRel->rd_locator_info || !sourceRel->rd_locator_info)
+		return false;
+
+	destRelName = RelationGetRelationName(destRel);
+	sourceRelName = RelationGetRelationName(sourceRel);
+
+	/* Check distributeby type */
+	if (destRel->rd_locator_info->locatorType != sourceRel->rd_locator_info->locatorType)
+	{
+		if (no_error)
+			return false;
+		ereport(ERROR,
+			(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				errmsg("table \"%s\" hash different distributeby type with table \"%s\"",
+					destRelName, sourceRelName)));
+	}
+	else if (!list_equal_oid_without_order(destRel->rd_locator_info->nodeids
+				, sourceRel->rd_locator_info->nodeids))
+	{
+		if (no_error)
+			return false;
+		ereport(ERROR,
+			(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				errmsg("table \"%s\" has different data store nodes with table \"%s\"",
+					destRelName, sourceRelName)));
+	}
+	else if (IsRelationDistributedByValue(destRel->rd_locator_info))
+	{
+		destAttno = destRel->rd_locator_info->partAttrNum;
+		sourceAttno = sourceRel->rd_locator_info->partAttrNum;
+		if (!checkByColName)
+		{
+			if (destAttno != sourceAttno)
+			{
+				if (no_error)
+					return false;
+				ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					errmsg("table \"%s\" has different distributeby column localtion number with "
+						"table \"%s\"", destRelName, sourceRelName)));
+			}
+		}
+		else
+		{
+			destColName = NameStr(destRel->rd_att->attrs[destAttno - 1]->attname);
+			sourceColName = NameStr(sourceRel->rd_att->attrs[sourceAttno - 1]->attname);
+			if (strcmp(destColName, sourceColName) != 0)
+			{
+				if (no_error)
+					return false;
+				ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+						errmsg("table \"%s\" has different distributeby column name with table \"%s\"",
+							destRelName, sourceRelName)));
+			}
+		}
+	}
+	else if (IsRelationDistributedByUserDefined(destRel->rd_locator_info))
+	{
+		if (destRel->rd_locator_info->funcid != sourceRel->rd_locator_info->funcid)
+		{
+			if (no_error)
+				return false;
+			ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					errmsg("table \"%s\" has different distributeby user defined function with "
+						"table \"%s\"", destRelName, sourceRelName)));
+		}
+		else if (list_length(destRel->rd_locator_info->funcAttrNums) \
+			!= list_length(sourceRel->rd_locator_info->funcAttrNums))
+		{
+			if (no_error)
+				return false;
+			ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					errmsg("table \"%s\" has different input parameters number in distributeby user "
+						"defined function with table \"%s\"",
+						destRelName, sourceRelName)));
+		}
+		else
+		{
+			/* Check the dest relation and source relation have the same input parameters order in
+			 * distributeby user defined function
+			 */
+			destRelTupleDesc = RelationGetDescr(destRel);
+			sourceRelTupleDesc = RelationGetDescr(sourceRel);
+
+			forboth(attachCeil, destRel->rd_locator_info->funcAttrNums \
+				, relCeil, sourceRel->rd_locator_info->funcAttrNums)
+			{
+				destAttno = (int ) lfirst(attachCeil);
+				sourceAttno = (int ) lfirst(relCeil);
+				if (!checkByColName)
+				{
+					if (destAttno != sourceAttno)
+					{
+						if (no_error)
+							return false;
+						ereport(ERROR,
+							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+								errmsg("table \"%s\" has different distributeby column localtion "
+									"number with table \"%s\"", destRelName, sourceRelName)));
+					}
+				}
+				else
+				{
+					destColName = NameStr(destRelTupleDesc->attrs[destAttno - 1]->attname);
+					sourceColName = NameStr(sourceRelTupleDesc->attrs[sourceAttno - 1]->attname);
+					if (strcmp(destColName, sourceColName) != 0)
+					{
+						if (no_error)
+							return false;
+						ereport(ERROR,
+							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+								errmsg("table \"%s\" has different distributeby column names order with "
+									"table \"%s\"", destRelName, sourceRelName)));
+					}
+				}
+			}
+		}
+	}
+
+	return true;
 }
 #endif
