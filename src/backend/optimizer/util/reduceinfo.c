@@ -1162,6 +1162,31 @@ bool IsReduceInfoListExecuteSubset(List *reduce_info_list, List *oidlist)
 	return result;
 }
 
+bool IsReduceInfoListExecuteSubsetReduceInfo(List *reduce_info_list, const ReduceInfo *rinfo)
+{
+	ListCell *lc;
+	List *execute_list;
+	bool result;
+
+	/* further change replicate */
+	if (IsReduceInfoFinalReplicated(rinfo))
+		return true;
+
+	execute_list = ReduceInfoListGetExecuteOidList(reduce_info_list);
+	result = true;
+	foreach(lc, execute_list)
+	{
+		if (list_member_oid(rinfo->exclude_exec, lfirst_oid(lc)) == true ||
+			list_member_oid(rinfo->storage_nodes, lfirst_oid(lc)) == false)
+		{
+			result = false;
+			break;
+		}
+	}
+	list_free(execute_list);
+	return result;
+}
+
 List *ReduceInfoListGetExecuteOidList(const List *list)
 {
 	List *exclude_list;
@@ -1501,7 +1526,7 @@ bool IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
 		outer_reduce = lfirst(outer_lc);
 		AssertArg(outer_reduce);
 		if(IsReduceInfoReplicated(outer_reduce))
-			return true;
+			return IsReduceInfoListExecuteSubsetReduceInfo(inner_reduce_list, outer_reduce);
 
 		foreach(inner_lc, inner_reduce_list)
 		{
@@ -1521,6 +1546,33 @@ bool IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
 				IsReduceInfoCanInnerJoin(outer_reduce, inner_reduce, restrictlist))
 				return true;
 		}
+	}
+
+	return false;
+}
+
+bool IsReduceInfoListCanUniqueJoin(List *reduce_list, List *restrictlist)
+{
+	ListCell	   *lc;
+	RestrictInfo   *ri;
+
+	if (IsReduceInfoListInOneNode(reduce_list))
+		return true;
+	if (IsReduceInfoListByValue(reduce_list) == false)
+		return false;
+
+	foreach (lc, restrictlist)
+	{
+		ri = lfirst_node(RestrictInfo, lc);
+
+		/* only support X=X expression */
+		if (!is_opclause(ri->clause) ||
+			!op_is_equivalence(((OpExpr *)(ri->clause))->opno))
+			continue;
+
+		if (ReduceInfoListIncludeExpr(reduce_list, (Expr*)get_leftop(ri->clause)) ||
+			ReduceInfoListIncludeExpr(reduce_list, (Expr*)get_rightop(ri->clause)))
+			return true;
 	}
 
 	return false;
@@ -1767,9 +1819,15 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 
 	switch(jointype)
 	{
-	case JOIN_INNER:
-	case JOIN_UNIQUE_INNER:
 	case JOIN_UNIQUE_OUTER:
+	case JOIN_UNIQUE_INNER:
+		if (IsReduceInfoListCanUniqueJoin(jointype == JOIN_UNIQUE_OUTER ? outer_reduce_list : inner_reduce_list,
+										  restrictlist) == false)
+		{
+			return false;
+		}
+		/* do not add break, need run in JOIN_INNER case */
+	case JOIN_INNER:
 		if(IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
 		{
 			if (new_reduce_list)
