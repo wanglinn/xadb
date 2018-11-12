@@ -150,6 +150,7 @@ extern bool IsReduceInfoListInOneNode(List *list);
 extern bool IsReduceInfoStorageSubset(const ReduceInfo *rinfo, List *oidlist);
 extern bool IsReduceInfoExecuteSubset(const ReduceInfo *rinfo, List *oidlist);
 extern bool IsReduceInfoListExecuteSubset(List *reduce_info_list, List *oidlist);
+extern bool IsReduceInfoListExecuteSubsetReduceInfo(List *reduce_info_list, const ReduceInfo *rinfo);
 extern List *ReduceInfoListGetExecuteOidList(const List *list);
 extern void ReduceInfoListGetStorageAndExcludeOidList(const List *list, List **storage, List **exclude);
 
@@ -182,6 +183,7 @@ extern bool IsGroupingReduceExpr(PathTarget *target, ReduceInfo *info);
 extern bool IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
 									List *inner_reduce_list,
 									List *restrictlist);
+extern bool IsReduceInfoListCanUniqueJoin(List *reduce_list, List *restrictlist);
 extern bool IsReduceInfoCanInnerJoin(ReduceInfo *outer_rinfo,
 									 ReduceInfo *inner_rinfo,
 									 List *restrictlist);
