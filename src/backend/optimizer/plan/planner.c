@@ -8978,7 +8978,7 @@ static bool is_remote_relation(PlannerInfo *root, Index relid)
 static bool modify_have_auxiliary(PlannerInfo *root, Index relid)
 {
 	RangeTblEntry *rte = planner_rt_fetch(relid, root);
-	return rte->param_new || rte->param_old;
+	return rte->param_new >= 0 || rte->param_old >= 0;
 }
 
 static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms)
