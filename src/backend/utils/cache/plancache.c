@@ -1284,6 +1284,11 @@ CachedPlan *GetCachedPlanADB(CachedPlanSource *plansource,
 		if (CheckCachedPlan(plansource ADB_ONLY_COMMA_ARG(cluster_safe)))
 		{
 			/* We want a generic plan, and we already have a valid one */
+#ifdef ADB
+			if (cluster_safe)
+				plan = plansource->cluster_plan;
+			else
+#endif /* ADB */
 			plan = plansource->gplan;
 			Assert(plan->magic == CACHEDPLAN_MAGIC);
 		}
@@ -1294,6 +1299,11 @@ CachedPlan *GetCachedPlanADB(CachedPlanSource *plansource,
 			/* Just make real sure plansource->gplan is clear */
 			ReleaseGenericPlan(plansource ADB_ONLY_COMMA_ARG(cluster_safe));
 			/* Link the new generic plan into the plansource */
+#ifdef ADB
+			if (cluster_safe)
+				plansource->cluster_plan = plan;
+			else
+#endif /* ADB */
 			plansource->gplan = plan;
 			plan->refcount++;
 			/* Immediately reparent into appropriate context */
