@@ -901,6 +901,8 @@ void
 PoolManagerReconnect(void)
 {
 	PoolHandle *handle;
+	char *dbname;
+	char *username;
 	char *options = session_options();
 
 	if (poolHandle)
@@ -910,9 +912,11 @@ PoolManagerReconnect(void)
 
 	handle = GetPoolManagerHandle();
 	PoolManagerConnect(handle,
-					   get_database_name(MyDatabaseId),
-					   GetUserNameFromId(GetUserId(), false),
+					   (dbname=get_database_name(MyDatabaseId)),
+					   (username=GetUserNameFromId(GetUserId(), false)),
 					   options);
+	pfree(username);
+	pfree(dbname);
 	pfree(options);
 }
 
