@@ -927,6 +927,8 @@ ExecConnectReduceWalker(PlanState *node, EState *estate)
 void
 ExecConnectReduce(PlanState *node)
 {
+	if (node == NULL)
+		return;
 	Assert((node->state->es_top_eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0);
 	ExecConnectReduceWalker(node, node->state);
 }
