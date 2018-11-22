@@ -293,7 +293,6 @@ ProcessSequenceDrop(StringInfo message, StringInfo output)
 	drop->missing_ok = 0;
 	drop->concurrent = 0;
 
-#warning is drop->object type right?
 	rangValList = lappend(rangValList, makeString(psprintf("seq%u", oid)));
 	drop->objects = lappend(drop->objects, (void*)rangValList);
 
@@ -348,7 +347,6 @@ ProcessSequenceDropByDatabase(StringInfo message, StringInfo output)
 			drop->missing_ok = 0;
 			drop->concurrent = 0;
 
-#warning is drop->object type right?
 			rangValList = lappend(rangValList, makeString(seq));
 			drop->objects = lappend(drop->objects, (void*)rangValList);
 
