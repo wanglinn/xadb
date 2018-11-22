@@ -734,6 +734,16 @@ add_path_precheck(RelOptInfo *parent_rel,
 				  Cost startup_cost, Cost total_cost,
 				  List *pathkeys, Relids required_outer)
 {
+#ifdef ADB
+	return add_cluster_path_precheck(parent_rel, NIL,
+									 startup_cost, total_cost,
+									 pathkeys, required_outer);
+}
+bool add_cluster_path_precheck(RelOptInfo *parent_rel, List *reducelist,
+							   Cost startup_cost, Cost total_cost,
+							   List *pathkeys, Relids required_outer)
+{
+#endif /* ADB */
 	List	   *new_path_pathkeys;
 	bool		consider_startup;
 	ListCell   *p1;
@@ -744,10 +754,21 @@ add_path_precheck(RelOptInfo *parent_rel,
 	/* Decide whether new path's startup cost is interesting */
 	consider_startup = required_outer ? parent_rel->consider_param_startup : parent_rel->consider_startup;
 
+#ifdef ADB
+	foreach(p1, reducelist ? parent_rel->cluster_pathlist:parent_rel->pathlist)
+#else
 	foreach(p1, parent_rel->pathlist)
+#endif
 	{
 		Path	   *old_path = (Path *) lfirst(p1);
 		PathKeysComparison keyscmp;
+
+#ifdef ADB
+		if (reducelist &&
+			old_path->reduce_is_valid &&
+			!IsReduceInfoListEqual(reducelist, old_path->reduce_info_list))
+			continue;
+#endif /* ADB */
 
 		/*
 		 * We are looking for an old_path with the same parameterization (and
@@ -1305,6 +1326,14 @@ bool
 add_partial_path_precheck(RelOptInfo *parent_rel, Cost total_cost,
 						  List *pathkeys)
 {
+#ifdef ADB
+	return add_cluster_partial_path_precheck(parent_rel, NIL, total_cost, pathkeys);
+}
+bool add_cluster_partial_path_precheck(RelOptInfo *parent_rel, List *reducelist,
+									   Cost total_cost, List *pathkeys)
+{
+#endif /* ADB */
+
 	ListCell   *p1;
 
 	/*
@@ -1318,10 +1347,21 @@ add_partial_path_precheck(RelOptInfo *parent_rel, Cost total_cost,
 	 * expect partial_pathlist to be very short, and getting a definitive
 	 * answer at this stage avoids the need to call add_path_precheck.
 	 */
+#ifdef ADB
+	foreach(p1, reducelist ? parent_rel->cluster_partial_pathlist : parent_rel->partial_pathlist)
+#else
 	foreach(p1, parent_rel->partial_pathlist)
+#endif /* ADB */
 	{
 		Path	   *old_path = (Path *) lfirst(p1);
 		PathKeysComparison keyscmp;
+
+#ifdef ADB
+		if (reducelist &&
+			old_path->reduce_is_valid &&
+			!IsReduceInfoListEqual(reducelist, old_path->reduce_info_list))
+			continue;
+#endif /* ADB */
 
 		keyscmp = compare_pathkeys(pathkeys, old_path->pathkeys);
 		if (keyscmp != PATHKEYS_DIFFERENT)
@@ -1346,9 +1386,14 @@ add_partial_path_precheck(RelOptInfo *parent_rel, Cost total_cost,
 	 * partial path; the resulting plans, if run in parallel, will be run to
 	 * completion.
 	 */
+#ifdef ADB
+	if (!add_cluster_path_precheck(parent_rel, reducelist, total_cost, total_cost, pathkeys, NULL))
+		return false;
+#else
 	if (!add_path_precheck(parent_rel, total_cost, total_cost, pathkeys,
 						   NULL))
 		return false;
+#endif /* ADB */
 
 	return true;
 }
