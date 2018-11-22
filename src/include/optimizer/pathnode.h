@@ -170,7 +170,6 @@ extern HashPath *create_hashjoin_path(PlannerInfo *root,
 					 Relids required_outer,
 #ifdef ADB
 					 List *reduce_info_list,
-					 bool partial_path,
 #endif /* ADB */
 					 List *hashclauses);
 

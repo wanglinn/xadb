@@ -551,6 +551,8 @@ try_cluster_partial_nestloop_path(PlannerInfo *root,
 	initial_cost_nestloop(root, &workspace, jointype,
 						  outer_path, inner_path,
 						  extra->sjinfo, &extra->semifactors);
+	if (!add_cluster_partial_path_precheck(joinrel, reduce_info_list, workspace.total_cost, pathkeys))
+		return;
 
 	/* Might be good enough to be worth trying, so let's try it. */
 	nestloop = create_nestloop_path(root,
@@ -735,7 +737,6 @@ try_hashjoin_path(PlannerInfo *root,
 									  extra->restrictlist,
 									  required_outer,
 									  ADB_ONLY_ARG(reduce_info_list)
-									  ADB_ONLY_ARG(false)
 									  hashclauses));
 #ifdef ADB
 		if(reduce_info_list)
@@ -768,9 +769,11 @@ try_partial_hashjoin_path(PlannerInfo *root,
 						  Path *inner_path,
 						  List *hashclauses,
 						  JoinType jointype,
+						  ADB_ONLY_ARG(List *reduce_info_list)
 						  JoinPathExtraData *extra)
 {
 	JoinCostWorkspace workspace;
+	Path *path;
 
 	/*
 	 * If the inner path is parameterized, the parameterization must be fully
@@ -792,16 +795,23 @@ try_partial_hashjoin_path(PlannerInfo *root,
 	 * cost.  Bail out right away if it looks terrible.
 	 */
 #ifdef ADB
-	workspace.is_cluster = false;
+	workspace.is_cluster = (reduce_info_list ? true:false);
 #endif /* ADB */
 	initial_cost_hashjoin(root, &workspace, jointype, hashclauses,
 						  outer_path, inner_path,
 						  extra->sjinfo, &extra->semifactors);
+#ifdef ADB
+	if (reduce_info_list)
+	{
+		if (!add_cluster_partial_path_precheck(joinrel, reduce_info_list, workspace.total_cost, NIL))
+			return;
+	}else
+#endif /* ADB */
 	if (!add_partial_path_precheck(joinrel, workspace.total_cost, NIL))
 		return;
 
 	/* Might be good enough to be worth trying, so let's try it. */
-	add_partial_path(joinrel, (Path *)
+	path = (Path *)
 					 create_hashjoin_path(root,
 										  joinrel,
 										  jointype,
@@ -812,9 +822,14 @@ try_partial_hashjoin_path(PlannerInfo *root,
 										  inner_path,
 										  extra->restrictlist,
 										  NULL,
-										  ADB_ONLY_ARG(NIL)
-										  ADB_ONLY_ARG(true)
-										  hashclauses));
+										  ADB_ONLY_ARG(reduce_info_list)
+										  hashclauses);
+#ifdef ADB
+	if (reduce_info_list)
+		add_cluster_partial_path(joinrel, path);
+	else
+#endif /* ADB */
+	add_partial_path(joinrel, path);
 }
 
 /*
@@ -2087,7 +2102,7 @@ hash_inner_and_outer(PlannerInfo *root,
 				try_partial_hashjoin_path(root, joinrel,
 										  cheapest_partial_outer,
 										  cheapest_safe_inner,
-										  hashclauses, jointype, extra);
+										  hashclauses, jointype, ADB_ONLY_ARG(NIL) extra);
 		}
 	}
 }
@@ -2274,7 +2289,8 @@ static void set_all_join_inner_path(ClusterJoinContext *jcontext, Path *outer_pa
 		Path *inner_path = lfirst(lc);
 		List *inner_reduce_list;
 		if (inner_path->reduce_is_valid == false &&
-			inner_pathlist == jcontext->innerrel->pathlist)
+			(inner_pathlist == jcontext->innerrel->pathlist ||
+			 list_member_ptr(jcontext->innerrel->pathlist, inner_path)))
 		{
 			inner_path->reduce_info_list = inner_reduce_list = list_make1(MakeCoordinatorReduceInfo());
 			inner_path->reduce_is_valid = true;
@@ -2564,6 +2580,50 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 			list_free(outer_pathlist);
 		if(inner_pathlist != innerrel->pathlist)
 			list_free(inner_pathlist);
+	}
+
+	/* try partial hash join */
+	if (joinrel->consider_parallel &&
+		jcontext.hashclauses != NIL &&
+		jcontext.jointype != JOIN_UNIQUE_OUTER &&
+		jcontext.jointype != JOIN_UNIQUE_INNER && /* for now not support */
+		jcontext.jointype != JOIN_FULL &&
+		jcontext.jointype != JOIN_RIGHT &&
+		outerrel->cluster_partial_pathlist != NIL &&
+		bms_is_empty(joinrel->lateral_relids))
+	{
+		Path *outer_path;
+		Path *inner_path;
+		List *reduce_list;
+		List *inner_pathlist = NIL;
+
+		/* find all parallel safe paths */
+		foreach(lc1, innerrel->cluster_pathlist)
+		{
+			inner_path = lfirst(lc1);
+			if (inner_path->parallel_safe)
+				inner_pathlist = lappend(inner_pathlist, inner_path);
+		}
+
+		if (inner_pathlist != NIL)
+		{
+			foreach(lc1, outerrel->cluster_partial_pathlist)
+			{
+				outer_path = lfirst(lc1);
+				if (PATH_PARAM_BY_REL(outer_path, innerrel))
+					continue;
+				
+				set_all_join_inner_path(&jcontext, outer_path, inner_pathlist);
+				inner_path = get_cheapest_join_path(&jcontext, outer_path, TOTAL_COST, true, &reduce_list);
+				if (inner_path)
+					try_partial_hashjoin_path(root, joinrel,
+											  outer_path, inner_path,
+											  jcontext.hashclauses, jointype,
+											  reduce_list, extra);
+			}
+
+			list_free(inner_pathlist);
+		}
 	}
 }
 
