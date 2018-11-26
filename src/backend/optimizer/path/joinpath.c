@@ -2519,7 +2519,7 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 																  &path);
 				if(path && list_member_ptr(reduce_inner_pathlist, path) == false)
 					reduce_inner_pathlist = lappend(reduce_inner_pathlist, path);
-/*re_reduce_join_:*/
+re_reduce_join_:
 				ReducePathListByExpr((Expr*)outer_exprs,
 									 root,
 									 outerrel,
