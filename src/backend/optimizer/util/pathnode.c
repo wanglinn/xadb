@@ -1226,6 +1226,12 @@ void add_cluster_partial_path(RelOptInfo *parent_rel, Path *new_path)
 	AssertArg(parent_rel && new_path);
 	CHECK_FOR_INTERRUPTS();
 
+	/* Path to be added must be parallel safe. */
+	Assert(new_path->parallel_safe);
+
+	/* Relation should be OK for parallelism, too. */
+	Assert(parent_rel->consider_parallel);
+
 	new_reduce_list = get_reduce_info_list(new_path);
 	Assert(new_reduce_list != NIL);
 
