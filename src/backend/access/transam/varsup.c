@@ -94,6 +94,7 @@ AdjustTransactionId(TransactionId least_xid)
 	}
 }
 
+#if 0
 static void
 XLogPutXid(TransactionId *xids, int nxids, bool assign, bool flush)
 {
@@ -111,6 +112,7 @@ XLogPutXid(TransactionId *xids, int nxids, bool assign, bool flush)
 	if (flush)
 		XLogFlush(record);
 }
+#endif
 
 /*
  * XLogRecordXidAssignment
@@ -118,6 +120,7 @@ XLogPutXid(TransactionId *xids, int nxids, bool assign, bool flush)
  *
  * Caller must hold XidGenLock in exclusive mode.
  */
+#if 0
 static void
 XLogRecordXidAssignment(TransactionId xid)
 {
@@ -154,6 +157,8 @@ XLogRecordXidAssignment(TransactionId xid)
 		prev_nextXid = InvalidTransactionId;
 	}
 }
+#endif
+
 #endif
 
 #ifdef ADB
@@ -657,8 +662,13 @@ GetNewTransactionId(bool isSubXact)
 	/*
 	 * Write ahead xid assignment xlog to ensure that the same xid
 	 * will never be assigned twice.
+	 * The comment is due to the fact that the xid processing logic has guaranteed
+	 * that no duplicate values will occur now.
 	 */
+#if 0
 	XLogRecordXidAssignment(xid);
+#endif
+
 #endif
 
 	LWLockRelease(XidGenLock);
