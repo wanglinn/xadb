@@ -58,7 +58,10 @@ extern int compute_parallel_worker(RelOptInfo *rel, double heap_pages,
 						double index_pages);
 extern void create_partial_bitmap_paths(PlannerInfo *root, RelOptInfo *rel,
 							Path *bitmapqual);
-
+#ifdef ADB
+extern void add_cluster_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
+											List *childrels, List *partitioned_rels);
+#endif /* ADB */
 #ifdef OPTIMIZER_DEBUG
 extern void debug_print_rel(PlannerInfo *root, RelOptInfo *rel);
 #endif
