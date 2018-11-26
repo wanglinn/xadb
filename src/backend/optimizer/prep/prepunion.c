@@ -329,6 +329,31 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 			add_partial_path(rel, partial_path);
 		}
 
+#ifdef ADB
+		if (final_rel->cluster_pathlist != NIL)
+		{
+			ListCell	   *lc;
+			foreach(lc, final_rel->cluster_pathlist)
+			{
+				path = lfirst(lc);
+				path = (Path*)create_subqueryscan_path(root, rel, path, path->pathkeys, PATH_REQ_OUTER(path));
+				add_cluster_path(rel, path);
+			}
+
+			if (rel->consider_parallel &&
+				bms_is_empty(rel->lateral_relids) &&
+				final_rel->cluster_partial_pathlist != NIL)
+			{
+				foreach(lc, final_rel->cluster_partial_pathlist)
+				{
+					path = lfirst(lc);
+					path = (Path*)create_subqueryscan_path(root, rel, path, path->pathkeys, PATH_REQ_OUTER(path));
+					add_cluster_partial_path(rel, path);
+				}
+			}
+		}
+#endif /* ADB */
+
 		/*
 		 * Estimate number of groups if caller wants it.  If the subquery used
 		 * grouping or aggregation, its output is probably mostly unique
@@ -699,6 +724,12 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 			ppath = make_union_unique(op, ppath, tlist, root);
 		add_path(result_rel, ppath);
 	}
+
+#ifdef ADB
+	/* for now we only generate "union all" paths */
+	if (op->all)
+		add_cluster_paths_to_append_rel(root, result_rel, rellist, NIL);
+#endif /* ADB */
 
 	/* Undo effects of possibly forcing tuple_fraction to 0 */
 	root->tuple_fraction = save_fraction;
