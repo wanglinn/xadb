@@ -682,19 +682,16 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 		 * the children.  The precise formula is just a guess; see
 		 * add_paths_to_append_rel.
 		 */
-		if (enable_parallel_append)
-		{
-			parallel_workers = Max(parallel_workers,
-								   fls(list_length(partial_pathlist)));
-			parallel_workers = Min(parallel_workers,
-								   max_parallel_workers_per_gather);
-		}
+		parallel_workers = Max(parallel_workers,
+							   fls(list_length(partial_pathlist)));
+		parallel_workers = Min(parallel_workers,
+							   max_parallel_workers_per_gather);
 		Assert(parallel_workers > 0);
 
 		ppath = (Path *)
-			create_append_path(result_rel, NIL, partial_pathlist,
-							   NULL, parallel_workers, enable_parallel_append,
-							   NIL, -1);
+			create_append_path(result_rel, partial_pathlist,
+							   NULL, parallel_workers,
+							   NIL);
 		ppath = (Path *)
 			create_gather_path(root, result_rel, ppath,
 							   result_rel->reltarget, NULL, NULL);
