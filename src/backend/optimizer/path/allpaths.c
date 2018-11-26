@@ -1584,17 +1584,6 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 	Path	   *path;
 	bool		build_partitioned_rels = false;
 	double		partial_rows = -1;
-#ifdef ADB
-	List	   *reduce_list;
-	List	   *reduce_var_map;
-	List	   *all_reduce_by_val_list;
-	List	   *all_replicate_oid;
-	ReduceInfo *reduce_info;
-	ListCell   *lc_pk;
-	bool		have_reduce_coord = false;
-	bool		have_final_replicate = false;
-	bool		generate_partial;
-#endif /* ADB */
 
 	/* If appropriate, consider parallel append */
 	pa_subpaths_valid = enable_parallel_append && rel->consider_parallel;
@@ -1973,14 +1962,41 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 										partitioned_rels, -1));
 	}
 #ifdef ADB
+	add_cluster_paths_to_append_rel(root, rel, live_childrels, partitioned_rels);
+#endif /* ADB */
+}
+
+#ifdef ADB
+void add_cluster_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
+									 List *childrels, List *partitioned_rels)
+{
+	List	   *reduce_list;
+	List	   *reduce_var_map;
+	List	   *all_reduce_by_val_list;
+	List	   *all_replicate_oid;
+	List	   *all_child_pathkeys;
+	List	   *all_child_outers;
+	List	   *subpaths;
+	ListCell   *lc_pk;
+	ListCell   *l;
+	Path	   *path;
+	RelOptInfo *childrel;
+	ReduceInfo *reduce_info;
+	bool		have_reduce_coord;
+	bool		have_final_replicate;
+	bool		generate_partial;
+	bool		subpaths_valid;
+
 	generate_partial = false;
 re_generate_append_:
+	have_reduce_coord = false;
+	have_final_replicate = false;
 	reduce_var_map = NIL;
 	all_reduce_by_val_list = NIL;
 	all_replicate_oid = NIL;
 	all_child_pathkeys = NIL;
 	all_child_outers = NIL;
-	foreach(l, live_childrels)
+	foreach(l, childrels)
 	{
 		ListCell *lc_path;
 		childrel = lfirst(l);
@@ -2109,7 +2125,7 @@ re_generate_append_:
 				reduce_info = lfirst(l);
 				subpaths = NIL;
 				subpaths_valid = true;
-				foreach(lc_rel, live_childrels)
+				foreach(lc_rel, childrels)
 				{
 					childrel = lfirst(lc_rel);
 					path = pathkey_path = NULL;
@@ -2221,7 +2237,7 @@ re_generate_append_:
 				List *exclude = NIL;
 				subpaths = NIL;
 				subpaths_valid = true;
-				foreach(l, live_childrels)
+				foreach(l, childrels)
 				{
 					/* find cheapest path */
 					childrel = lfirst(l);
@@ -2296,7 +2312,7 @@ re_generate_append_:
 		have_pathkeys_path = false;														\
 		subpaths_valid = true;															\
 		subpaths = NIL;																	\
-		foreach(l, live_childrels)														\
+		foreach(l, childrels)															\
 		{																				\
 			childrel = lfirst(l);														\
 			path = pathkey_path = NULL;													\
@@ -2405,8 +2421,8 @@ re_generate_append_:
 		generate_partial = true;
 		goto re_generate_append_;
 	}
-#endif /* ADB */
 }
+#endif /* ADB */
 
 /*
  * generate_mergeappend_paths
