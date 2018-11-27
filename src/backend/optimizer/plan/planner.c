@@ -1798,6 +1798,14 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		/* Also extract the PathTarget form of the setop result tlist */
 		final_target = current_rel->cheapest_total_path->pathtarget;
 
+#ifdef ADB
+		/*
+		 * some function call ConvertReduceInfoList need this
+		 * E.g set_cte_pathlist and find_cluster_reduce_expr
+		 */
+		root->upper_targets[UPPERREL_FINAL] = final_target;
+#endif /* ADB */
+
 		/* The setop result tlist couldn't contain any SRFs */
 		Assert(!parse->hasTargetSRFs);
 		final_targets = final_targets_contain_srfs = NIL;
