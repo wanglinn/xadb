@@ -1985,6 +1985,14 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		/* Also extract the PathTarget form of the setop result tlist */
 		final_target = current_rel->cheapest_total_path->pathtarget;
 
+#ifdef ADB
+		/*
+		 * some function call ConvertReduceInfoList need this
+		 * E.g set_cte_pathlist and find_cluster_reduce_expr
+		 */
+		root->upper_targets[UPPERREL_FINAL] = final_target;
+#endif /* ADB */
+
 		/* And check whether it's parallel safe */
 		final_target_parallel_safe =
 			is_parallel_safe(root, (Node *) final_target->exprs);
