@@ -1991,8 +1991,7 @@ re_generate_append_:
 						if(PATH_REQ_OUTER(test_path))
 							continue;
 						reduce_list = get_reduce_info_list(test_path);
-						if (IsReduceInfoListCoordinator(reduce_list) ||
-							IsReduceInfoListReplicated(reduce_list))
+						if (IsReduceInfoListReplicated(reduce_list))
 							continue;
 
 						if (path == NULL ||
