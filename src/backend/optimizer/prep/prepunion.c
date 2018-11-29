@@ -453,6 +453,35 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 													   subpath, target);
 				lfirst(lc) = path;
 			}
+#ifdef ADB
+			/* Apply projection to each cluster path */
+			foreach(lc, rel->cluster_pathlist)
+			{
+				Path	   *subpath = (Path *) lfirst(lc);
+				Path	   *path;
+
+				Assert(subpath->param_info == NULL);
+				path = apply_projection_to_path(root, subpath->parent,
+												subpath, target);
+				/* If we had to add a Result, path is different from subpath */
+				if (path != subpath)
+					lfirst(lc) = path;
+			}
+
+			/* Apply projection to each cluster partial path */
+			foreach(lc, rel->cluster_partial_pathlist)
+			{
+				Path	   *subpath = (Path *) lfirst(lc);
+				Path	   *path;
+
+				Assert(subpath->param_info == NULL);
+
+				/* avoid apply_projection_to_path, in case of multiple refs */
+				path = (Path *) create_projection_path(root, subpath->parent,
+													   subpath, target);
+				lfirst(lc) = path;
+			}
+#endif /* ADB */
 		}
 	}
 	else
