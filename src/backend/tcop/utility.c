@@ -2673,6 +2673,9 @@ ProcessUtilitySlow(ParseState *pstate,
 
 			case T_CreatePolicyStmt:	/* CREATE POLICY */
 				address = CreatePolicy((CreatePolicyStmt *) parsetree);
+#ifdef ADB
+				ExecRemoteUtilityStmt(&utilityContext);
+#endif
 				break;
 
 			case T_AlterPolicyStmt: /* ALTER POLICY */
