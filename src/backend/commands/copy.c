@@ -5562,7 +5562,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 	uint64 processed = 0L;
 	Oid loaded_oid;
 	int cur_lineno;
-	bool br_trigger;
+	bool br_trigger = false;
 	bool skip = false;
 
 	/*
@@ -5775,7 +5775,10 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 			}
 
 			tuple->t_tableOid = RelationGetRelid(resultRelInfo->ri_RelationDesc);
-			br_trigger = resultRelInfo->ri_RelationDesc->trigdesc->trig_insert_before_row;
+			if (resultRelInfo->ri_RelationDesc->trigdesc)
+				br_trigger = resultRelInfo->ri_RelationDesc->trigdesc->trig_insert_before_row;
+			else
+				br_trigger = false;
 		}
 		else
 		{
