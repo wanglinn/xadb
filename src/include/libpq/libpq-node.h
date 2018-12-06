@@ -40,6 +40,7 @@ PGDLLIMPORT const PQNHookFunctions PQNFalseHookFunctions;
 
 extern List *PQNGetConnUseOidList(List *oid_list);
 extern struct pg_conn* PQNFindConnUseOid(Oid oid);
+extern List* PQNGetAllConns(void);
 extern bool PQNOneExecFinish(struct pg_conn *conn, const PQNHookFunctions *hook, bool blocking);
 extern bool PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook, const PQNHookFunctions *hook, bool blocking);
 extern bool PQNEFHNormal(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
@@ -49,6 +50,8 @@ extern void PQNReportResultError(struct pg_result *result, struct pg_conn *conn,
 extern const char *PQNConnectName(struct pg_conn *conn);
 extern Oid PQNConnectOid(struct pg_conn *conn);
 extern int PQNFlush(List *conn_list, bool blocking);
+
+extern void PQNputCopyData(List *conn_list, const char *buffer, int nbytes);
 
 extern void* PQNMakeDefHookFunctions(Size size);
 
