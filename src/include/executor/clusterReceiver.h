@@ -28,6 +28,7 @@ typedef struct ClusterRecvState
 
 extern DestReceiver *createClusterReceiver(void);
 extern ClusterRecvState *createClusterRecvState(PlanState *ps, bool need_copy);
+extern ClusterRecvState *createClusterRecvStateFromSlot(TupleTableSlot *slot, bool need_copy);
 extern void freeClusterRecvState(ClusterRecvState *state);
 extern bool clusterRecvSetCheckEndMsg(DestReceiver *r, bool check);
 extern void clusterRecvSetTopPlanState(DestReceiver *r, PlanState *ps);
@@ -48,5 +49,6 @@ extern MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup
 extern TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTableSlot *slot);
 extern void serialize_processed_message(StringInfo buf, uint64 processed);
 extern uint64 restore_processed_message(const char *msg, int len);
+extern void put_executor_end_msg(bool flush);
 
 #endif /* CLUSTER_RECEIVER_H */
