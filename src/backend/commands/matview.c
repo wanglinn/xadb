@@ -386,7 +386,7 @@ ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
 			SaveParamList(&toc, params);
 			end_mem_toc_insert(&toc, REMOTE_KEY_CMD_INFO);
 
-			connList = ExecClusterCustomFunction(oidList, &toc, 0, false);
+			connList = ExecClusterCustomFunction(oidList, &toc, 0);
 
 			pfree(toc.data);
 			list_free(oidList);

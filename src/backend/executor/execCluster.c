@@ -116,7 +116,7 @@ static void send_rdc_listend_port(int port);
 static void wait_rdc_group_message(void);
 static bool get_rdc_listen_port_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
 static void StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt);
-static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context);
+static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context, bool start_trans);
 static bool InstrumentEndLoop_walker(PlanState *ps, Bitmapset **called);
 static void InstrumentEndLoop_cluster(PlanState *ps);
 static bool RelationIsCoordOnly(Oid relid);
@@ -235,7 +235,11 @@ void exec_cluster_plan(const void *splan, int length)
 		pq_putmessage('d', msg.data, msg.len);
 	pfree(msg.data);
 
-	PopActiveSnapshot();
+	if (ActiveSnapshotSet())
+	{
+		PopActiveSnapshot();
+		Assert(ActiveSnapshotSet() == false);
+	}
 	EndClusterTransaction();
 
 	RestoreClusterHook(&error_context_hook);
@@ -542,7 +546,7 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 	context.have_reduce = have_reduce;
 	context.start_self_reduce = start_self_reduce;
 
-	StartRemotePlan(&msg, rnodes, &context);
+	StartRemotePlan(&msg, rnodes, &context, true);
 	pfree(msg.data);
 
 	return ExecInitNode(plan, estate, eflags);
@@ -582,7 +586,7 @@ List* ExecStartClusterCopy(List *rnodes, struct CopyStmt *stmt, StringInfo mem_t
 
 	SerializeCoordinatorInfo(&msg);
 
-	conn_list = StartRemotePlan(&msg, rnodes, &context);
+	conn_list = StartRemotePlan(&msg, rnodes, &context, true);
 	Assert(list_length(conn_list) == list_length(rnodes));
 
 	pfree(msg.data);
@@ -625,7 +629,7 @@ ExecStartClusterAuxPadding(List *rnodes, Node *stmt, StringInfo mem_toc, uint32 
 
 	SerializeCoordinatorInfo(&msg);
 
-	conn_list = StartRemotePlan(&msg, rnodes, &context);
+	conn_list = StartRemotePlan(&msg, rnodes, &context, true);
 	Assert(list_length(conn_list) == list_length(rnodes));
 
 	pfree(msg.data);
@@ -668,7 +672,7 @@ static const ClusterCustomExecInfo* find_custom_func_info(StringInfo mem_toc, bo
 	return NULL;
 }
 
-List* ExecClusterCustomFunction(List *rnodes, StringInfo mem_toc, uint32 flag, bool read_only)
+List* ExecClusterCustomFunction(List *rnodes, StringInfo mem_toc, uint32 flag)
 {
 	ClusterPlanContext context;
 
@@ -680,7 +684,7 @@ List* ExecClusterCustomFunction(List *rnodes, StringInfo mem_toc, uint32 flag, b
 	SerializeCoordinatorInfo(mem_toc);
 
 	MemSet(&context, 0, sizeof(context));
-	context.transaction_read_only = read_only;
+	context.transaction_read_only = ((flag & EXEC_CLUSTER_FLAG_READ_ONLY) ? true:false);
 	if (flag & EXEC_CLUSTER_FLAG_NEED_REDUCE)
 	{
 		context.have_reduce = true;
@@ -689,7 +693,7 @@ List* ExecClusterCustomFunction(List *rnodes, StringInfo mem_toc, uint32 flag, b
 		end_mem_toc_insert(mem_toc, REMOTE_KEY_REDUCE_INFO);
 	}
 
-	return StartRemotePlan(mem_toc, rnodes, &context);
+	return StartRemotePlan(mem_toc, rnodes, &context, (flag & EXEC_CLUSTER_FLAG_NOT_START_TRANS) ? false:true);
 }
 
 static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
@@ -1251,7 +1255,7 @@ PrepareRdcMask(RdcMask *rdc_mask, Oid nodeid)
 	StrNCpy(rdc_mask->rdc_name, nodename, NAMEDATALEN);
 }
 
-static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context)
+static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context, bool start_trans)
 {
 	ListCell *lc;
 	List *list_conn;
@@ -1269,7 +1273,8 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 	Assert(rnodes);
 	/* try to start transaction */
 	state = GetCurrentInterXactState();
-	if (!context->transaction_read_only)
+	if (start_trans &&
+		!context->transaction_read_only)
 		state->need_xact_block = true;
 	InterXactBegin(state, rnodes);
 	Assert(state->cur_handle);
