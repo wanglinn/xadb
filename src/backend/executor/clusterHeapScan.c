@@ -68,7 +68,7 @@ List* ExecClusterHeapScan(List *rnodes, Relation rel, Bitmapset *ret_attnos,
 	appendStringInfoChar(&msg, (char)test_null);						/* test_null */
 	end_mem_toc_insert(&msg, REMOTE_KEY_HEAP_SCAN_INFO);
 
-	result = ExecClusterCustomFunction(rnodes, &msg, 0, true);
+	result = ExecClusterCustomFunction(rnodes, &msg, EXEC_CLUSTER_FLAG_READ_ONLY);
 
 	pfree(msg.data);
 	pfree(array);

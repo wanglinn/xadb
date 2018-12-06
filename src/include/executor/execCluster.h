@@ -5,6 +5,8 @@
 #define EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE	(1<<1)
 #define EXEC_CLUSTER_FLAG_USE_MEM_REDUCE	(1<<2)
 #define EXEC_CLUSTER_FLAG_USE_SELF_AND_MEM_REDUCE	0x7
+#define EXEC_CLUSTER_FLAG_READ_ONLY			(1<<3)
+#define EXEC_CLUSTER_FLAG_NOT_START_TRANS	(1<<4)
 
 struct Plan;
 struct EState;
@@ -21,7 +23,7 @@ extern List* ExecStartClusterCopy(List *rnodes, struct CopyStmt *stmt, StringInf
 extern List *ExecStartClusterAuxPadding(List *rnodes, Node *stmt, StringInfo mem_toc, uint32 flag);
 
 extern void ClusterTocSetCustomFunStr(StringInfo mem_toc, const char *proc);
-extern List* ExecClusterCustomFunction(List *rnodes, StringInfo mem_toc, uint32 flag, bool read_only);
+extern List* ExecClusterCustomFunction(List *rnodes, StringInfo mem_toc, uint32 flag);
 
 extern void ClusterRecvTableStat(const char *data, int length);
 
