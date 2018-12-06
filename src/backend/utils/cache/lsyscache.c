@@ -3503,6 +3503,21 @@ is_pgxc_nodepreferred(Oid nodeid)
 	return result;
 }
 
+Oid get_preferred_nodeoid(List *oid_list)
+{
+	ListCell *lc;
+	AssertArg(oid_list != NIL && IsA(oid_list, OidList));
+
+	foreach(lc, oid_list)
+	{
+		if (is_pgxc_nodepreferred(lfirst_oid(lc)))
+			return lfirst_oid(lc);
+	}
+
+	/* not found any preferred node, return first */
+	return linitial_oid(oid_list);
+}
+
 /*
  * is_pgxc_nodeprimary
  *		Determine if node is a primary one
