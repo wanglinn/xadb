@@ -69,6 +69,25 @@ struct pg_conn* PQNFindConnUseOid(Oid oid)
 	return op ? op->conn : NULL;
 }
 
+List* PQNGetAllConns(void)
+{
+	List *result;
+	OidPGconn *op;
+	HASH_SEQ_STATUS seq;
+
+	if (htab_oid_pgconn == NULL)
+		return NIL;
+
+	result = NIL;
+	hash_seq_init(&seq, htab_oid_pgconn);
+	while((op = hash_seq_search(&seq)) != NULL)
+	{
+		result = lappend(result, op->conn);
+	}
+	
+	return result;
+}
+
 static void init_htab_oid_pgconn(void)
 {
 	HASHCTL hctl;
@@ -879,6 +898,54 @@ re_select_:
 		return list_length(conn_list);
 	}
 	goto re_set_;
+}
+
+void PQNputCopyData(List *conn_list, const char *buffer, int nbytes)
+{
+	ListCell *lc,*prev,*next;
+	List *list;
+	int result;
+
+	if (conn_list == NIL)
+		return;
+
+	list = NIL;
+	foreach(lc, conn_list)
+	{
+		result = PQputCopyData(lfirst(lc), buffer, nbytes);
+		if (result == 0)
+		{
+			list = lappend(list, lfirst(lc));
+		}else if (result < 0)
+		{
+			ereport(ERROR,
+					(errmsg("%s", PQerrorMessage(lfirst(lc))),
+					 errnode(PQNConnectName(lfirst(lc)))));
+		}
+	}
+
+	while(list != NIL)
+	{
+		PQNFlush(list, true);
+
+		prev = NULL;
+		for(lc = list_head(list);lc!=NULL;lc=next)
+		{
+			next = lnext(lc);
+			result = PQputCopyData(lfirst(lc), buffer, nbytes);
+			if (result > 0)
+			{
+				list = list_delete_cell(list, lc, prev);
+				continue;
+			}else if(result < 0)
+			{
+				ereport(ERROR,
+						(errmsg("%s", PQerrorMessage(lfirst(lc))),
+						 errnode(PQNConnectName(lfirst(lc)))));
+			}
+			prev = lc;
+		}
+	}
 }
 
 void* PQNMakeDefHookFunctions(Size size)
