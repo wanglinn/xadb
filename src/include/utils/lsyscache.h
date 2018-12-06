@@ -209,6 +209,7 @@ extern int get_pgxc_nodeport(Oid nodeid);
 extern char *get_pgxc_nodehost(Oid nodeid);
 extern void get_pgxc_nodeinfo(Oid nodeid, char **nodehost, int *nodeport);
 extern bool is_pgxc_nodepreferred(Oid nodeid);
+extern Oid get_preferred_nodeoid(List *oid_list);
 extern bool is_pgxc_nodeprimary(Oid nodeid);
 extern Oid get_pgxc_groupoid(const char *groupname);
 extern int get_pgxc_groupmembers(Oid groupid, Oid **members);
