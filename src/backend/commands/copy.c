@@ -736,6 +736,70 @@ CopyGetData(CopyState cstate, void *databuf, int minread, int maxread)
 	return bytesread;
 }
 
+#ifdef ADB
+int SimpleNextCopyFromNewFE(SimpleCopyDataFunction fun, void *context)
+{
+	StringInfoData	buf;
+	int				mtype;
+	int				result = 0;
+
+	initStringInfo(&buf);
+
+readmessage:
+	HOLD_CANCEL_INTERRUPTS();
+	pq_startmsgread();
+	mtype = pq_getbyte();
+	if (mtype == EOF)
+		ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 errmsg("unexpected EOF on client connection with an open transaction")));
+	if (pq_getmessage(&buf, 0))
+		ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 errmsg("unexpected EOF on client connection with an open transaction")));
+	RESUME_CANCEL_INTERRUPTS();
+	switch (mtype)
+	{
+		case 'd':	/* CopyData */
+			break;
+		case 'c':	/* CopyDone */
+			/* COPY IN correctly terminated by frontend */
+			result = 0;
+			goto end_read;
+		case 'f':	/* CopyFail */
+			ereport(ERROR,
+					(errcode(ERRCODE_QUERY_CANCELED),
+					 errmsg("COPY from stdin failed: %s",
+							pq_getmsgstring(&buf))));
+			break;
+		case 'H':	/* Flush */
+		case 'S':	/* Sync */
+
+			/*
+				* Ignore Flush/Sync for the convenience of client
+				* libraries (such as libpq) that may send those
+				* without noticing that the command they just
+				* sent was COPY.
+				*/
+			goto readmessage;
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					 errmsg("unexpected message type 0x%02X during COPY from stdin",
+							mtype)));
+			break;
+	}
+
+	result = (*fun)(context, buf.data+buf.cursor, buf.len - buf.cursor);
+	if (result == 0)
+		goto readmessage;
+
+end_read:
+	pfree(buf.data);
+	return result;
+}
+
+#endif /* ADB */
 
 /*
  * These functions do apply some data conversion
