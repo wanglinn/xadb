@@ -328,10 +328,9 @@ DestReceiver *createClusterReceiver(void)
 	return &self->pub;
 }
 
-ClusterRecvState *createClusterRecvState(PlanState *ps, bool need_copy)
+static ClusterRecvState *createClusterRecvStateEx(TupleTableSlot *slot, PlanState *ps, bool need_copy)
 {
 	ClusterRecvState *state;
-	TupleTableSlot *slot = ps->ps_ResultTupleSlot;
 
 	state = palloc0(sizeof(*state));
 	state->base_slot = slot;
@@ -340,12 +339,31 @@ ClusterRecvState *createClusterRecvState(PlanState *ps, bool need_copy)
 	state->convert = create_type_convert(slot->tts_tupleDescriptor, false, true);
 	if(state->convert != NULL)
 	{
-		state->convert_slot = ExecInitExtraTupleSlot(ps->state);
 		state->slot_need_copy_datum = need_copy;
-		ExecSetSlotDescriptor(state->convert_slot, state->convert->out_desc);
+		if (ps)
+		{
+			state->convert_slot = ExecInitExtraTupleSlot(ps->state);
+			ExecSetSlotDescriptor(state->convert_slot, state->convert->out_desc);
+			state->convert_slot_is_single = false;
+		}else
+		{
+			state->convert_slot = MakeSingleTupleTableSlot(state->convert->out_desc);
+			state->convert_slot_is_single = true;
+		}
 	}
 
 	return state;
+}
+
+ClusterRecvState *createClusterRecvState(PlanState *ps, bool need_copy)
+{
+
+	return createClusterRecvStateEx(ps->ps_ResultTupleSlot, ps, need_copy);
+}
+
+ClusterRecvState *createClusterRecvStateFromSlot(TupleTableSlot *slot, bool need_copy)
+{
+	return createClusterRecvStateEx(slot, NULL, need_copy);
 }
 
 void freeClusterRecvState(ClusterRecvState *state)
@@ -748,4 +766,12 @@ static void restore_instrument_message(PlanState *ps, const char *msg, int len, 
 			ereport(ERROR, (errmsg("plan node %d not found", context.plan_id)));
 		}
 	}
+}
+
+void put_executor_end_msg(bool flush)
+{
+	static const char run_end_msg[] = {CLUSTER_MSG_EXECUTOR_RUN_END};
+	pq_putmessage('d', run_end_msg, sizeof(run_end_msg));
+	if (flush)
+		pq_flush();
 }
