@@ -274,6 +274,70 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 	return convert_copy_tuple_oid(dest, src, true);
 }
 
+void do_type_convert_slot_out_ex(TupleDesc base_desc, void *context_next, void *context_save, int flags,
+								 ConvertGetNextRowFunction next, ConvertSaveRowFunction save)
+{
+	TupleTypeConvert *convert = create_type_convert(base_desc, true, false);
+	TupleTableSlot *slot_convert;
+	TupleTableSlot *slot;
+	StringInfoData buf;
+
+	initStringInfo(&buf);
+
+	if (convert)
+	{
+		slot_convert = MakeSingleTupleTableSlot(convert->out_desc);
+		if ((flags & CONVERT_SAVE_SKIP_CONVERT_HEAD) == 0)
+		{
+			serialize_slot_convert_head(&buf, convert->out_desc);
+			(*save)(context_save, buf.data, buf.len);
+			resetStringInfo(&buf);
+		}
+	}else
+	{
+		slot_convert = NULL;
+	}
+
+	if ((flags & CONVERT_SAVE_SKIP_BASE_HEAD) == 0)
+	{
+		serialize_slot_head_message(&buf, base_desc);
+		(*save)(context_save, buf.data, buf.len);
+		resetStringInfo(&buf);
+	}
+
+	for(;;)
+	{
+		slot = (*next)(context_next);
+		if (TupIsNull(slot))
+			break;
+		
+		if (convert)
+		{
+			do_type_convert_slot_out(convert, slot, slot_convert, false);
+			serialize_slot_message(&buf, slot_convert, CLUSTER_MSG_CONVERT_TUPLE);
+		}else
+		{
+			serialize_slot_message(&buf, slot, CLUSTER_MSG_TUPLE_DATA);
+		}
+
+		(*save)(context_save, buf.data, buf.len);
+		resetStringInfo(&buf);
+	}
+
+	if ((flags & CONVERT_SAVE_SKIP_RUN_END) == 0)
+	{
+		static const char run_end[] = {CLUSTER_MSG_EXECUTOR_RUN_END};
+		(*save)(context_save, run_end, lengthof(run_end));
+	}
+
+	pfree(buf.data);
+	if (convert)
+	{
+		ExecDropSingleTupleTableSlot(slot_convert);
+		free_type_convert(convert);
+	}
+}
+
 Datum do_datum_convert_in(StringInfo buf, Oid typid)
 {
 	Datum datum;
