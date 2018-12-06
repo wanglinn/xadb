@@ -461,6 +461,9 @@ errfinish(int dummy,...)
 		QueryCancelHoldoffCount = 0;
 
 		CritSectionCount = 0;	/* should be unnecessary, but... */
+#ifdef ADB
+		ClusterOwnerXactSectionCount = 0;
+#endif /* ADB */
 
 		/*
 		 * Note that we leave CurrentMemoryContext set to ErrorContext. The

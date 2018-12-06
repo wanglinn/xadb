@@ -320,6 +320,7 @@ static TimestampTz xactStopTimestamp;
 #ifdef ADB
 static TimestampTz globalXactStartTimestamp;
 static TimestampTz globalDeltaTimestmap;
+volatile uint32 ClusterOwnerXactSectionCount = 0;
 #endif
 
 /*
@@ -2326,6 +2327,13 @@ StartCommitRemoteXact(TransactionState state)
 	InterXactState	is;
 	bool			isimplicit;
 
+	if (ClusterOwnerXactSectionCount > 0
+		&& IsCnMaster())
+	{
+		agtm_BeginTransaction();
+		return ;
+	}
+
 	if (!IsCnMaster())
 		return ;
 
@@ -2362,6 +2370,13 @@ EndCommitRemoteXact(TransactionState state)
 	InterXactState	is;
 	Oid			   *nodeIds;
 	int				nodecnt;
+
+	if (ClusterOwnerXactSectionCount > 0
+		&& IsCnMaster())
+	{
+		agtm_CommitTransaction(NULL, true);
+		return;
+	}
 
 	Assert(state);
 	is = state->interXactState;
@@ -2989,6 +3004,13 @@ PrepareTransaction(void)
 static void
 NormalAbortRemoteXact(TransactionState state)
 {
+	if (ClusterOwnerXactSectionCount > 0
+		&& IsCnMaster())
+	{
+		agtm_AbortTransaction(NULL, true, true);
+		return;
+	}
+
 	if (IS_PGXC_DATANODE && GetForceXidFromAGTM())
 	{
 		agtm_CommitTransaction(NULL, true);
@@ -3033,6 +3055,13 @@ UnexpectedAbortRemoteXact(TransactionState state)
 {
 	int		 nodecnt;
 	Oid		*nodeIds;
+
+	if (ClusterOwnerXactSectionCount > 0
+		&& IsCnMaster())
+	{
+		agtm_AbortTransaction(NULL, true, true);
+		return;
+	}
 
 	if (IS_PGXC_DATANODE && GetForceXidFromAGTM())
 	{

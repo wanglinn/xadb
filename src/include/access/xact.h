@@ -472,6 +472,16 @@ extern void SetCurrentXactPhase2(void);
 extern bool IsCurrentXactInPhase2(void);
 extern void MarkCurrentTransactionErrorAborted(void);
 extern void SetCurrentTransactionStartTimestamp(TimestampTz timestamp);
-#endif
+
+extern PGDLLIMPORT volatile uint32 ClusterOwnerXactSectionCount;
+
+#define START_CLUSTER_OWNER_XACT_SECTION()	(ClusterOwnerXactSectionCount++)
+#define END_CLUSTER_OWNER_XACT_SECTION()			\
+	do {											\
+		Assert(ClusterOwnerXactSectionCount > 0);	\
+		ClusterOwnerXactSectionCount--;				\
+	}while(0)
+
+#endif	/* ADB */
 
 #endif							/* XACT_H */
