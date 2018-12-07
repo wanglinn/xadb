@@ -54,14 +54,41 @@
 
 #ifdef ADB
 #include "access/visibilitymap.h"
+#include "catalog/catalog.h"
 #include "catalog/heap.h"
+#include "catalog/pgxc_class.h"
+#include "commands/copy.h"
 #include "commands/defrem.h"
+#include "executor/clusterReceiver.h"
 #include "executor/executor.h"
+#include "executor/execCluster.h"
 #include "intercomm/inter-comm.h"
+#include "libpq/libpq.h"
+#include "libpq/libpq-fe.h"
+#include "libpq/libpq-node.h"
+#include "libpq/pqformat.h"
 #include "nodes/makefuncs.h"
 #include "pgxc/execRemote.h"
+#include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
+#include "storage/mem_toc.h"
 #include "utils/lsyscache.h"
+
+#define REMOTE_KEY_VACUUM_INFO	0x1
+
+typedef struct ClusterVacuumHookFuncs
+{
+	PQNHookFunctions pub;
+	PGconn *conn;			/* last exec end PGconn* */
+}ClusterVacuumHookFuncs;
+
+typedef struct ClusterVacuumCmdContext
+{
+	VacuumParams   *params;
+	int				options;
+	bool			use_own_xacts;
+	bool			in_outer_xact;
+}ClusterVacuumCmdContext;
 #endif /* ADB */
 
 /*
@@ -85,11 +112,14 @@ static void vac_truncate_clog(TransactionId frozenXID,
 				  MultiXactId minMulti,
 				  TransactionId lastSaneFrozenXid,
 				  MultiXactId lastSaneMinMulti);
+#ifdef ADB
+static List* get_vacuum_all_node(List *relations, MemoryContext context, bool need_vacuum);
+static List* get_vacuum_all_coord(List *relations, MemoryContext context);
+static void cluster_recv_exec_end(List *conns);
+static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const char *data, int len);
+#endif /* ADB */
 static bool vacuum_rel(Oid relid, RangeVar *relation, int options,
 		   VacuumParams *params);
-#ifdef ADB
-static void vacuum_full_auxrel(Relation master, int options);
-#endif
 
 /*
  * Primary entry point for manual VACUUM and ANALYZE commands
@@ -185,6 +215,11 @@ vacuum(int options, List *relations, VacuumParams *params,
 	const char *stmttype;
 	volatile bool in_outer_xact,
 				use_own_xacts;
+#ifdef ADB
+	List	   *list_datanode = NIL;
+	List	   *list_coordinator = NIL;
+	List * volatile list_conns = NIL;
+#endif /* ADB */
 
 	Assert(params != NULL);
 
@@ -230,6 +265,9 @@ vacuum(int options, List *relations, VacuumParams *params,
 	 * Send info about dead objects to the statistics collector, unless we are
 	 * in autovacuum --- autovacuum.c does this for itself.
 	 */
+#ifdef ADB
+	if ((options & VACOPT_IN_CLUSTER) == 0)
+#endif /* ADB */
 	if ((options & VACOPT_VACUUM) && !IsAutoVacuumWorkerProcess())
 		pgstat_vacuum_stat();
 
@@ -260,6 +298,11 @@ vacuum(int options, List *relations, VacuumParams *params,
 	 * Build list of relation(s) to process, putting any new data in
 	 * vac_context for safekeeping.
 	 */
+#ifdef ADB
+	if (options & VACOPT_IN_CLUSTER)
+		relations = NIL;	/* waiting coordinator send relations */
+	else
+#endif /* ADB */
 	if (relations != NIL)
 	{
 		List	   *newrels = NIL;
@@ -304,11 +347,61 @@ vacuum(int options, List *relations, VacuumParams *params,
 			use_own_xacts = true;
 		else if (in_outer_xact)
 			use_own_xacts = false;
+#ifdef ADB
+		else if (options & VACOPT_IN_CLUSTER)
+			use_own_xacts = true;
+#endif /* ADB */
 		else if (list_length(relations) > 1)
 			use_own_xacts = true;
 		else
 			use_own_xacts = false;
 	}
+
+#ifdef ADB
+	if (options & VACOPT_IN_CLUSTER)
+		list_datanode = NIL;
+	else
+		list_datanode = get_vacuum_all_node(relations,
+											vac_context,
+											(options & VACOPT_VACUUM) ? true:false);
+
+	if (list_datanode != NIL)
+	{
+		list_coordinator = GetAllCnIDL(false);
+	}else
+	{
+		list_coordinator = get_vacuum_all_coord(relations,
+												vac_context);
+	}
+
+	if (list_datanode != NIL ||
+		list_coordinator != NIL)
+	{
+		List *tmp;
+		StringInfoData buf;
+		uint32 flags;
+
+		initStringInfo(&buf);
+		ClusterTocSetCustomFun(&buf, cluster_vacuum);
+
+		begin_mem_toc_insert(&buf, REMOTE_KEY_VACUUM_INFO);
+		appendBinaryStringInfo(&buf, (char*)&options, sizeof(options));
+		appendBinaryStringInfo(&buf, (char*)params, sizeof(*params));
+		end_mem_toc_insert(&buf, REMOTE_KEY_VACUUM_INFO);
+
+		tmp = list_union_oid(list_coordinator, list_datanode);
+
+		if (use_own_xacts)
+			flags = EXEC_CLUSTER_FLAG_NOT_START_TRANS;
+		else
+			flags = 0;
+
+		list_conns = ExecClusterCustomFunction(tmp, &buf, flags);
+
+		pfree(buf.data);
+		list_free(tmp);
+	}
+#endif /* ADB */
 
 	/*
 	 * vacuum_rel expects to be entered with no transaction active; it will
@@ -321,6 +414,11 @@ vacuum(int options, List *relations, VacuumParams *params,
 	if (use_own_xacts)
 	{
 		Assert(!in_outer_xact);
+
+#ifdef ADB
+		if (list_conns != NIL)
+			START_CLUSTER_OWNER_XACT_SECTION();
+#endif /* ADB */
 
 		/* ActiveSnapshot is not set by autovacuum */
 		if (ActiveSnapshotSet())
@@ -368,8 +466,13 @@ vacuum(int options, List *relations, VacuumParams *params,
 					PushActiveSnapshot(GetTransactionSnapshot());
 				}
 
+#ifdef ADB
+				analyze_rel(vrel->oid, vrel->relation, options|VACOPT_IN_CLUSTER, params,
+							vrel->va_cols, in_outer_xact, vac_strategy);
+#else
 				analyze_rel(vrel->oid, vrel->relation, options, params,
 							vrel->va_cols, in_outer_xact, vac_strategy);
+#endif /* ADB */
 
 				if (use_own_xacts)
 				{
@@ -378,6 +481,18 @@ vacuum(int options, List *relations, VacuumParams *params,
 				}
 			}
 		}
+#ifdef ADB
+		if (options & VACOPT_IN_CLUSTER)
+		{
+			ClusterVacuumCmdContext context;
+			context.params = params;
+			context.options = options;
+			context.use_own_xacts = use_own_xacts;
+			context.in_outer_xact = in_outer_xact;
+
+			SimpleNextCopyFromNewFE((SimpleCopyDataFunction)process_master_vacuum_cmd, &context);
+		}
+#endif /* ADB */
 	}
 	PG_CATCH();
 	{
@@ -412,6 +527,20 @@ vacuum(int options, List *relations, VacuumParams *params,
 		 */
 		vac_update_datfrozenxid();
 	}
+
+#ifdef ADB
+	if (list_conns)
+	{
+		ListCell *lc;
+		foreach(lc, list_conns)
+			PQputCopyEnd(lfirst(lc), NULL);
+
+		PQNListExecFinish(list_conns, NULL, &PQNFalseHookFunctions, true);
+
+		if (use_own_xacts)
+			END_CLUSTER_OWNER_XACT_SECTION();
+	}
+#endif /* ADB */
 
 	/*
 	 * Clean up working storage --- note we must do this after
@@ -1337,20 +1466,30 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	int			save_sec_context;
 	int			save_nestlevel;
 	bool		rel_lock = true;
+#ifdef ADB
+	StringInfoData	buf;
+	List		   *conns;
+#endif /* ADB */
 
 	Assert(params != NULL);
 
 	/* Begin a transaction for vacuuming this relation */
 	StartTransactionCommand();
 
-#ifndef ADB
-	/* In Postgres-XC, take a snapshot after setting the vacuum flags */
 	/*
 	 * Functions in indexes may want a snapshot set.  Also, setting a snapshot
 	 * ensures that RecentGlobalXmin is kept truly recent.
 	 */
 	PushActiveSnapshot(GetTransactionSnapshot());
-#endif
+
+#ifdef ADB
+	if (!OidIsValid(relid) &&
+		relation != NULL &&
+		(options & VACOPT_IN_CLUSTER))
+	{
+		relid = RangeVarGetRelid(relation, AccessShareLock, true);
+	}
+#endif /* ADB */
 
 	if (!(options & VACOPT_FULL))
 	{
@@ -1380,15 +1519,6 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 			MyPgXact->vacuumFlags |= PROC_VACUUM_FOR_WRAPAROUND;
 		LWLockRelease(ProcArrayLock);
 	}
-
-#ifdef ADB
-	elog(DEBUG1, "Starting autovacuum");
-
-	/* Now that flags have been set, we can take a snapshot correctly */
-	PushActiveSnapshot(GetTransactionSnapshot());
-
-	elog(DEBUG1, "Started autovacuum");
-#endif
 
 	/*
 	 * Check for user-requested abort.  Note we want this to be inside a
@@ -1469,6 +1599,20 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 		CommitTransactionCommand();
 		return false;
 	}
+
+#ifdef ADB
+	if ((options & VACOPT_FULL) != 0 &&
+		onerel->rd_auxlist != NIL)
+	{
+		ereport(LOG,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("skipping vacuum full of \"%s\" --- it has auxiliary table",
+				 		relation->relname)));
+		PopActiveSnapshot();
+		CommitTransactionCommand();
+		return false;
+	}
+#endif /* ADB */
 
 	/*
 	 * Check permissions.
@@ -1560,6 +1704,54 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	onerelid = onerel->rd_lockInfo.lockRelId;
 	LockRelationIdForSession(&onerelid, lmode);
 
+#ifdef ADB
+	conns = NIL;
+	if (IsCnMaster() &&
+		!IsToastRelation(onerel) &&
+		(onerel->rd_locator_info != NULL ||
+		 onerel->rd_rel->relkind == RELKIND_MATVIEW))
+	{
+		char	   *namespace;
+		ListCell   *lc;
+		List	   *oids = NIL;
+		MemoryContext oldcontext = MemoryContextSwitchTo(vac_context);
+
+
+		if (onerel->rd_rel->relkind == RELKIND_MATVIEW)
+			oids = GetAllCnIDL(false);
+		if (onerel->rd_locator_info != NULL)
+			oids = list_union_oid(oids, onerel->rd_locator_info->nodeids);
+
+		if (oids != NIL)
+		{
+			initStringInfo(&buf);
+
+			appendStringInfoChar(&buf, CLUSTER_VACUUM_CMD_VACUUM);
+			namespace = get_namespace_name(RelationGetNamespace(onerel));
+			save_node_string(&buf, namespace);
+			save_node_string(&buf, RelationGetRelationName(onerel));
+			pfree(namespace);
+
+			foreach(lc, oids)
+			{
+				PGconn *conn = PQNFindConnUseOid(lfirst_oid(lc));
+				if (conn == NULL)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							errmsg("remote node %u not connected", lfirst_oid(lc))));
+				}
+				conns = lappend(conns, conn);
+			}
+			list_free(oids);
+
+			PQNputCopyData(conns, buf.data, buf.len);
+			pfree(buf.data);
+		}
+		MemoryContextSwitchTo(oldcontext);
+	}
+#endif /* ADB */
+
 	/*
 	 * Remember the relation's TOAST relation for later, if the caller asked
 	 * us to process it.  In VACUUM FULL, though, the toast table is
@@ -1581,20 +1773,6 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
 	save_nestlevel = NewGUCNestLevel();
 
-#ifdef ADB
-	/*
-	 * If we are on coordinator and target relation is distributed, read
-	 * the statistics from the data node instead of vacuuming local relation.
-	 */
-	if (IsCnNode())
-	{
-		if (RelationGetLocInfo(onerel))
-			vacuum_rel_coordinator(onerel, true);
-
-		vacuum_full_auxrel(onerel, options);
-	}
-	else
-#endif
 	/*
 	 * Do the actual work --- either FULL or "lazy" vacuum
 	 */
@@ -1641,6 +1819,14 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	 * Now release the session-level lock on the master table.
 	 */
 	UnlockRelationIdForSession(&onerelid, lmode);
+
+#ifdef ADB
+	if (conns != NIL)
+	{
+		cluster_recv_exec_end(conns);
+		list_free(conns);
+	}
+#endif /* ADB */
 
 	/* Report that we really did it. */
 	return true;
@@ -1752,346 +1938,221 @@ vacuum_delay_point(void)
 }
 
 #ifdef ADB
-/*
- * vacuum_full_auxrel
- *
- * Re-padding data for auxiliary relations if
- * coordinator master.
- */
-static void
-vacuum_full_auxrel(Relation master, int options)
+void cluster_vacuum(struct StringInfoData *msg)
 {
-	/*
-	 * only for VACUUM FULL
-	 */
-	if ((options & (VACOPT_VACUUM | VACOPT_FULL)) !=
-		(VACOPT_VACUUM | VACOPT_FULL))
-		return ;
+	StringInfoData	buf;
+	int				options;
+	VacuumParams	params;
 
-	/*
-	 * only VACUUM FULL relations that have
-	 * auxiliary relations
-	 */
-	if (master->rd_auxlist == NIL)
-		return ;
-
-	/*
-	 * re-padding data for auxiliary relations
-	 * if coordinator master.
-	 */
-	if (IsCnMaster())
-		PaddingAuxDataOfMaster(master);
-}
-
-/*
- * For the data node query make up TargetEntry representing specified column
- * of pg_class catalog table
- */
-TargetEntry *
-make_relation_tle(Oid reloid, const char *relname, const char *column, AttrNumber attnum)
-{
-	HeapTuple	tuple;
-	Var		   *var;
-	Form_pg_attribute att_tup;
-	TargetEntry *tle;
-
-	tuple = SearchSysCacheAttName(reloid, column);
-	if (!HeapTupleIsValid(tuple))
+	buf.data = mem_toc_lookup(msg, REMOTE_KEY_VACUUM_INFO, &buf.maxlen);
+	if (buf.data == NULL)
+	{
 		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_COLUMN),
-				 errmsg("column \"%s\" of relation \"%s\" does not exist",
-						column, relname)));
-	att_tup = (Form_pg_attribute) GETSTRUCT(tuple);
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Can not found vacuum info")));
+	}
+	buf.cursor = 0;
+	buf.len = buf.maxlen;
 
-	var = makeVar(1,
-				  attnum,
-				  att_tup->atttypid,
-				  att_tup->atttypmod,
-				  InvalidOid,
-				  0);
+	pq_copymsgbytes(&buf, (char*)&options, sizeof(options));
+	pq_copymsgbytes(&buf, (char*)&params, sizeof(params));
 
-	tle = makeTargetEntry((Expr *) var, attnum, NULL, false);
+	vacuum(options | VACOPT_IN_CLUSTER,
+		   NIL,
+		   &params,
+		   NULL,
+		   true);
+}
+
+static List* get_vacuum_rel_node(List *nodes, Oid reloid, bool need_vacuum)
+{
+	HeapTuple		tuple;
+	Form_pgxc_class	classForm;
+	Oid			   *oids;
+	int				i;
+	int				count;
+
+	tuple = SearchSysCache1(PGXCCLASSRELID, ObjectIdGetDatum(reloid));
+	if (!HeapTupleIsValid(tuple))
+		return nodes;
+
+	classForm = (Form_pgxc_class) GETSTRUCT(tuple);
+	oids = classForm->nodeoids.values;
+	count = classForm->nodeoids.dim1;
+	if (need_vacuum ||
+		classForm->pclocatortype != LOCATOR_TYPE_REPLICATED)
+	{
+		for (i=0;i<count;++i)
+			nodes = list_append_unique_oid(nodes, oids[i]);
+	}else
+	{
+		for (i=0;i<count;++i)
+		{
+			if (is_pgxc_nodepreferred(oids[i]))
+			{
+				nodes = list_append_unique_oid(nodes, oids[i]);
+				break;
+			}
+		}
+		if (i>=count)
+			nodes = list_append_unique_oid(nodes, oids[0]);
+	}
+
 	ReleaseSysCache(tuple);
-	return tle;
+
+	return nodes;
 }
 
-
-/*
- * Get relation statistics from remote data nodes
- * Returns number of nodes that returned correct statistics.
- */
-static int
-get_remote_relstat(char *nspname, char *relname, bool replicated, bool preAnalyze,
-				   int32 *pages, float4 *tuples, TransactionId *frozenXid)
+static List* get_vacuum_all_node(List *relations, MemoryContext context, bool need_vacuum)
 {
-	StringInfoData query;
-	EState 	   *estate;
-	MemoryContext oldcontext;
-	RemoteQuery *step;
-	RemoteQueryState *node;
-	TupleTableSlot *result;
-	int			validpages,
-				validtuples,
-				validfrozenxids;
-	AttrNumber	attnum = 1;
+	ListCell	   *lc;
+	List		   *list = NIL;
+	VacuumRelation *vrel;
+	MemoryContext	old_context = MemoryContextSwitchTo(context);
+	Assert(relations == NIL || IsA(relations, List));
 
-	/* Make up query string */
-	initStringInfo(&query);
-	/*if (IsCnMaster() && IsAutoVacuumWorkerProcess() && preAnalyze)
-		appendStringInfo(&query, "ANALYZE %s.%s;", nspname, relname);*/
-	appendStringInfo(&query, "SELECT c.relpages, "
-									"c.reltuples, "
-									"c.relfrozenxid "
-							 "FROM pg_class c JOIN pg_namespace n "
-							 "ON c.relnamespace = n.oid "
-							 "WHERE n.nspname = '%s' "
-							 "AND c.relname = '%s'",
-							 nspname, relname);
-
-	/* Build up RemoteQuery */
-	step = makeNode(RemoteQuery);
-
-	step->combine_type = COMBINE_TYPE_NONE;
-	step->exec_nodes = NULL;
-	step->sql_statement = query.data;
-	step->force_autocommit = true;
-	step->exec_type = EXEC_ON_DATANODES;
-
-	/* Add targetlist entries */
-	step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-										 make_relation_tle(RelationRelationId,
-														   "pg_class",
-														   "relpages",
-														   attnum++));
-	step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-										 make_relation_tle(RelationRelationId,
-														   "pg_class",
-														   "reltuples",
-														   attnum++));
-	step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-										 make_relation_tle(RelationRelationId,
-														   "pg_class",
-														   "relfrozenxid",
-														   attnum++));
-
-	/* Execute query on the data nodes */
-	estate = CreateExecutorState();
-
-	oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
-
-	estate->es_snapshot = GetActiveSnapshot();
-
-	node = ExecInitRemoteQuery(step, estate, 0);
-	MemoryContextSwitchTo(oldcontext);
-	/* get ready to combine results */
-	*pages = 0;
-	*tuples = 0.0;
-	*frozenXid = InvalidTransactionId;
-	validpages = 0;
-	validtuples = 0;
-	validfrozenxids = 0;
-	result = ExecProcNode((PlanState*)node);
-	while (result != NULL && !TupIsNull(result))
+	foreach(lc, relations)
 	{
-		Datum 	value;
-		bool	isnull;
-		/* Process statistics from the data node */
-		value = slot_getattr(result, 1, &isnull); /* relpages */
-		if (!isnull)
-		{
-			validpages++;
-			*pages += DatumGetInt32(value);
-		}
-		value = slot_getattr(result, 2, &isnull); /* reltuples */
-		if (!isnull)
-		{
-			validtuples++;
-			*tuples += DatumGetFloat4(value);
-		}
-		value = slot_getattr(result, 3, &isnull); /* relfrozenxid */
-		if (!isnull)
-		{
-			/*
-			 * relfrozenxid on coordinator should be the lowest one from the
-			 * datanodes.
-			 */
-			TransactionId xid = DatumGetTransactionId(value);
-			if (TransactionIdIsValid(xid))
-			{
-				validfrozenxids++;
-				if (!TransactionIdIsValid(*frozenXid) ||
-						TransactionIdPrecedes(xid, *frozenXid))
-				{
-					*frozenXid = xid;
-				}
-			}
-		}
-		/* fetch next */
-		result = ExecProcNode((PlanState*)node);
-	}
-	ExecEndRemoteQuery(node);
-
-	if (replicated)
-	{
-		/*
-		 * Normally numbers should be the same on the nodes, but relations
-		 * are autovacuum'ed independedly, so they may differ.
-		 * Average is good enough approximation in this case.
-		 */
-		if (validpages > 0)
-			*pages /= validpages;
-
-		if (validtuples > 0)
-			*tuples /= validtuples;
+		vrel = lfirst_node(VacuumRelation, lc);
+		if (!OidIsValid(vrel->oid))
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Invalid OID for vacuum \"%s\"", vrel->relation->relname)));
+		list = get_vacuum_rel_node(list, vrel->oid, need_vacuum);
 	}
 
-	if (validfrozenxids < validpages || validfrozenxids < validtuples)
+	MemoryContextSwitchTo(old_context);
+	return list;
+}
+
+static List* get_vacuum_all_coord(List *relations, MemoryContext context)
+{
+	HeapTuple		tuple;
+	Form_pg_class	classForm;
+	ListCell	   *lc;
+	List		   *list = NIL;
+	MemoryContext	old_context = MemoryContextSwitchTo(context);
+	Assert(relations == NIL || IsA(relations, OidList));
+
+	foreach(lc, relations)
 	{
-		/*
-		 * If some node returned invalid value for frozenxid we can not set
-		 * it on coordinator. There are other cases when returned value of
-		 * frozenXid should be ignored, these cases are checked by caller.
-		 * Basically, to be sure, there should be one value from each node,
-		 * where the table is partitioned.
-		 */
-		*frozenXid = InvalidTransactionId;
-		return Max(validpages, validtuples);
+		tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(lfirst_oid(lc)));
+		if (!HeapTupleIsValid(tuple))
+			continue;	/* should not happen, but ... */
+		
+		classForm = (Form_pg_class) GETSTRUCT(tuple);
+		if (classForm->relpersistence == RELPERSISTENCE_TEMP)
+		{
+			/* temp relation only in this node */
+			ReleaseSysCache(tuple);
+			continue;
+		}
+		if (classForm->relkind == RELKIND_RELATION ||
+			classForm->relkind == RELKIND_MATVIEW ||
+			classForm->relkind == RELKIND_PARTITIONED_TABLE ||
+			classForm->relkind == RELKIND_FOREIGN_TABLE)
+		{
+			ReleaseSysCache(tuple);
+			list = GetAllCnIDL(false);
+			break;
+		}
 	}
+
+	MemoryContextSwitchTo(old_context);
+	return list;
+}
+
+static bool ClusterVacuumExecEndHookCopyOut(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
+{
+	if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		ClusterVacuumHookFuncs *context = (ClusterVacuumHookFuncs*)pub;
+		context->conn = conn;
+		return true;
+	}
+
+	return clusterRecvTuple(NULL, buf, len, NULL, conn);
+}
+
+static void cluster_recv_exec_end(List *conns)
+{
+	ClusterVacuumHookFuncs context;
+	if (conns == NIL)
+		conns = PQNGetAllConns();
 	else
+		conns = list_copy(conns);
+
+	context.pub = PQNDefaultHookFunctions;
+	context.pub.HookCopyOut = ClusterVacuumExecEndHookCopyOut;
+	while (conns)
 	{
-		return validfrozenxids;
+		context.conn = NULL;
+		PQNListExecFinish(conns, NULL, &context.pub, true);
+		Assert(context.conn != NULL);
+		conns = list_delete_ptr(conns, context.conn);
 	}
 }
 
-static void
-vacuum_rel_other_coordinator(char *nspname, char *relname)
+static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const char *data, int len)
 {
-	StringInfoData		query;
-	RemoteQuery		   *step;
+	char *namespace;
+	char *relname;
+	RangeVar *range = NULL;
+	List *va_cols;
+	int mtype;
+	Oid relid;
 
-	initStringInfo(&query);
-	appendStringInfo(&query, "ANALYZE %s.%s", nspname, relname);
+	StringInfoData buf;
+	buf.data = (char*)data;
+	buf.maxlen = buf.len = len;
+	buf.cursor = 0;
 
-	step = makeNode(RemoteQuery);
-	step->combine_type = COMBINE_TYPE_NONE;
-	step->exec_nodes = NULL;
-	step->sql_statement = query.data;
-	step->force_autocommit = true;
-	step->exec_type = EXEC_ON_COORDS;
-	(void) ExecInterXactUtility(step, GetCurrentInterXactState());
-	pfree(query.data);
-	pfree(step);
-}
-
-/*
- * Coordinator does not contain any data, so we never need to vacuum relations.
- * This function only updates optimizer statistics based on info from the
- * data nodes.
- */
-void
-vacuum_rel_coordinator(Relation onerel, bool is_outer)
-{
-	char	   *nspname;
-	char	   *relname;
-	/* fields to combine relation statistics */
-	int32		num_pages;
-	float4		num_tuples;
-	TransactionId min_frozenxid;
-	bool		hasindex;
-	bool		replicated;
-	int 		rel_nodes;
-	BlockNumber relallvisible;
-
-	/* Get the relation identifier */
-	relname = RelationGetRelationName(onerel);
-	nspname = get_namespace_name(RelationGetNamespace(onerel));
-
-	elog(LOG, "Getting relation statistics for %s.%s", nspname, relname);
-
-	replicated = IsLocatorReplicated(RelationGetLocatorType(onerel));
-	/*
-	 * Get stats from the remote nodes. Function returns the number of nodes
-	 * returning correct stats.
-	 */
-	rel_nodes = get_remote_relstat(nspname, relname, replicated, true,
-								   &num_pages, &num_tuples, &min_frozenxid);
-	if (rel_nodes > 0)
+	mtype = pq_getmsgbyte(&buf);
+	switch(mtype)
 	{
-		int 		nindexes;
-		Relation   *Irel;
-		int 		nodes = list_length(RelationGetLocInfo(onerel)->nodeids);
-
-		vac_open_indexes(onerel, ShareUpdateExclusiveLock, &nindexes, &Irel);
-		hasindex = (nindexes > 0);
-
-		if (hasindex)
-		{
-			int 	i;
-
-			/* Fetch index stats */
-			for (i = 0; i < nindexes; i++)
-			{
-				int32	idx_pages;
-				float4	idx_tuples;
-				TransactionId idx_frozenxid;
-				int idx_nodes;
-
-				/* Get the index identifier */
-				relname = RelationGetRelationName(Irel[i]);
-				nspname = get_namespace_name(RelationGetNamespace(Irel[i]));
-				/* Index is replicated if parent relation is replicated */
-				idx_nodes = get_remote_relstat(nspname, relname, replicated, false,
-										&idx_pages, &idx_tuples, &idx_frozenxid);
-				if (idx_nodes > 0)
-				{
-					/*
-					 * Do not update the frozenxid if information was not from
-					 * all the expected nodes.
-					 */
-					if (idx_nodes < nodes)
-					{
-						idx_frozenxid = InvalidTransactionId;
-					}
-					/* save changes */
-					/* !!TODO Get multi-xid from remote nodes */
-					vac_update_relstats(Irel[i],
-										(BlockNumber) idx_pages,
-										(double) idx_tuples,
-										0,
-										false,
-										idx_frozenxid,
-										InvalidMultiXactId,
-										is_outer);
-				}
-			}
-		}
-
-		/* Done with indexes */
-		vac_close_indexes(nindexes, Irel, NoLock);
-
+	case CLUSTER_VACUUM_CMD_VACUUM:
+		namespace = load_node_string(&buf, false);
+		relname = load_node_string(&buf, false);
+		range = makeRangeVar(namespace, relname, -1);
+		vacuum_rel(InvalidOid, range, context->options, context->params);
+		put_executor_end_msg(true);
+		break;
+	case CLUSTER_VACUUM_CMD_ANALYZE:
+	case CLUSTER_VACUUM_CMD_ANALYZE_FORCE_INH:
+		namespace = load_node_string(&buf, false);
+		relname = load_node_string(&buf, false);
+		va_cols = castNode(List, loadNode(&buf));
+		range = makeRangeVar(namespace, relname, -1);
 		/*
-		 * Do not update the frozenxid if information was not from all
-		 * the expected nodes.
+		 * If using separate xacts, start one for analyze. Otherwise,
+		 * we can use the outer transaction.
 		 */
-		if (rel_nodes < nodes)
+		if (context->use_own_xacts)
 		{
-			min_frozenxid = InvalidTransactionId;
+			StartTransactionCommand();
+			/* functions in indexes may want a snapshot set */
+			PushActiveSnapshot(GetTransactionSnapshot());
 		}
-/*ADBQ*/
-		visibilitymap_count(onerel, &relallvisible, NULL);
-		/* save changes */
-		vac_update_relstats(onerel,
-							(BlockNumber) num_pages,
-							(double) num_tuples,
-/* ADBQ:visibilitymap_count expected 3 param and return void */
-							relallvisible,
-							hasindex,
-							min_frozenxid,
-							InvalidMultiXactId,
-							is_outer);
-
-		/*if (IsCnMaster() && IsAutoVacuumWorkerProcess())
-			vacuum_rel_other_coordinator(nspname, relname);*/
+		relid = RangeVarGetRelid(range, AccessShareLock, false);
+		analyze_rel(relid, range, context->options|(mtype == CLUSTER_VACUUM_CMD_ANALYZE_FORCE_INH ? VACOPT_ANALYZE_FORCE_INH:0),
+					context->params, va_cols, context->in_outer_xact, vac_strategy);
+		if (context->use_own_xacts)
+		{
+			PopActiveSnapshot();
+			CommitTransactionCommand();
+		}
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("unexpected cluster command 0x%02X during COPY from coordinator",
+						mtype)));
+		break;
 	}
+
+	if (range)
+		pfree(range);
+
+	return 0;
 }
 #endif

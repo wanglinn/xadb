@@ -22,6 +22,11 @@
 #include "storage/lock.h"
 #include "utils/relcache.h"
 
+#ifdef ADB
+#define CLUSTER_VACUUM_CMD_VACUUM				0x80
+#define CLUSTER_VACUUM_CMD_ANALYZE				0x81
+#define CLUSTER_VACUUM_CMD_ANALYZE_FORCE_INH	0x82
+#endif /* ADB */
 
 /*----------
  * ANALYZE builds one of these structs for each attribute (column) that is
@@ -185,12 +190,9 @@ extern void vacuum_set_xid_limits(Relation rel,
 					  MultiXactId *mxactFullScanLimit);
 extern void vac_update_datfrozenxid(void);
 extern void vacuum_delay_point(void);
-
 #ifdef ADB
-extern void vacuum_rel_coordinator(Relation onerel, bool is_outer);
-extern TargetEntry *make_relation_tle(Oid reloid, const char *relname,
-						const char *column, AttrNumber attnum);
-#endif
+extern void cluster_vacuum(struct StringInfoData *msg);
+#endif /* ADB */
 
 /* in commands/vacuumlazy.c */
 extern void lazy_vacuum_rel(Relation onerel, int options,

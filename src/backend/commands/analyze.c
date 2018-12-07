@@ -63,7 +63,14 @@
 #include "utils/tqual.h"
 
 #ifdef ADB
+#include "access/tupdesc.h"
+#include "access/tuptypeconvert.h"
 #include "catalog/pg_operator.h"
+#include "commands/copy.h"
+#include "executor/clusterReceiver.h"
+#include "intercomm/inter-comm.h"
+#include "libpq/libpq-fe.h"
+#include "libpq/libpq-node.h"
 #include "nodes/makefuncs.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
@@ -111,8 +118,21 @@ static Datum std_fetch_func(VacAttrStatsP stats, int rownum, bool *isNull);
 static Datum ind_fetch_func(VacAttrStatsP stats, int rownum, bool *isNull);
 
 #ifdef ADB
-static void analyze_rel_coordinator(Relation onerel, bool inh, int attr_cnt,
-						VacAttrStats **vacattrstats);
+static List* FindConnectedList(List *list);
+static int acquire_sample_rows_coord_master(Relation onerel, int elevel,
+					HeapTuple *rows, int targrows,
+					double *totalrows, double *totaldeadrows);
+static int acquire_sample_rows_coord_slave(Relation onerel, int elevel,
+					HeapTuple *rows, int targrows,
+					double *totalrows, double *totaldeadrows);
+static void send_sample_rows_to_other_coord(Relation onerel, HeapTuple *rows, int targrows,
+											double totalrows, double totaldeadrows);
+static void send_sample_rows_to_coord(Relation onerel, HeapTuple *rows, int targrows,
+									  double totalrows, double totaldeadrows);
+static int32 acquire_relpage_num_coord_master(List *dnlist);
+static int32 acquire_relpage_num_coord_slave(void);
+static void send_relpage_num_to_coord(int32 relpages);
+static void send_relpage_num_to_other_coord(List *conns, int32 relpage);
 #endif
 
 /*
@@ -170,6 +190,24 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 	 */
 	if (!onerel)
 	{
+#ifdef ADB
+		if ((options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER &&
+			IsConnFromCoord())
+		{
+			/* we report an error, let master known we not locked the relation */
+			Assert(relation);
+			if (!rel_lock)
+				ereport(ERROR,
+						(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
+						 errmsg("Can not analyze of \"%s\" --- lock not available",
+								relation->relname)));
+			else
+				ereport(ERROR,
+						(errcode(ERRCODE_UNDEFINED_TABLE),
+						 errmsg("Can not analyze of \"%s\" --- relation no longer exists",
+								relation->relname)));
+		}
+#endif /* ADB */
 		/*
 		 * If the RangeVar is not defined, we do not have enough information
 		 * to provide a meaningful log statement.  Chances are that
@@ -229,6 +267,18 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 								RelationGetRelationName(onerel))));
 		}
 		relation_close(onerel, ShareUpdateExclusiveLock);
+#ifdef ADB
+		if ((options & VACOPT_IN_CLUSTER) &&
+			IsConnFromCoord())
+		{
+			/* should not happen, we report an error, let master known we not locked the relation */
+			Assert(relation);
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+					 errmsg("permission denied for table %s",
+							relation->relname)));
+		}
+#endif /* ADB */
 		return;
 	}
 
@@ -241,6 +291,17 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 	if (RELATION_IS_OTHER_TEMP(onerel))
 	{
 		relation_close(onerel, ShareUpdateExclusiveLock);
+#ifdef ADB
+		if ((options & VACOPT_IN_CLUSTER) &&
+			IsConnFromCoord())
+		{
+			/* should not happen, we report an error, let master known we not locked the relation */
+			Assert(relation);
+			ereport(ERROR,
+					(errmsg("Can not analyze other temporary table %s",
+							relation->relname)));
+		}
+#endif /* ADB */
 		return;
 	}
 
@@ -249,6 +310,16 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 	 */
 	if (RelationGetRelid(onerel) == StatisticRelationId)
 	{
+#ifdef ADB
+		if ((options & VACOPT_IN_CLUSTER) &&
+			IsConnFromCoord())
+		{
+			/* should not happen, we report an error, let master known we not locked the relation */
+			Assert(relation);
+			ereport(ERROR,
+					(errmsg("Can not analyze table pg_statistic")));
+		}
+#endif /* ADB */
 		relation_close(onerel, ShareUpdateExclusiveLock);
 		return;
 	}
@@ -273,6 +344,11 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 		FdwRoutine *fdwroutine;
 		bool		ok = false;
 
+#ifdef ADB
+		if ((options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER &&
+			IsConnFromCoord())
+			goto end_if_;	/* not master, sample rows from master */
+#endif /* ADB */
 		fdwroutine = GetFdwRoutineForRelation(onerel, false);
 
 		if (fdwroutine->AnalyzeForeignTable != NULL)
@@ -306,6 +382,21 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 		return;
 	}
 
+#ifdef ADB
+end_if_:
+	if (IS_PGXC_COORDINATOR &&
+		(options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER &&
+		(onerel->rd_locator_info != NULL ||
+		 onerel->rd_rel->relkind == RELKIND_MATVIEW ||
+		 onerel->rd_rel->relkind == RELKIND_FOREIGN_TABLE))
+	{
+		if (IsConnFromCoord())
+			acquirefunc = acquire_sample_rows_coord_slave;
+		else if(onerel->rd_locator_info != NULL)
+			acquirefunc = acquire_sample_rows_coord_master;
+	}
+#endif /* ADB */
+
 	/*
 	 * OK, let's do it.  First let other backends know I'm in ANALYZE.
 	 */
@@ -313,6 +404,105 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 	MyPgXact->vacuumFlags |= PROC_IN_ANALYZE;
 	LWLockRelease(ProcArrayLock);
 
+#ifdef ADB
+	if (acquirefunc == acquire_sample_rows_coord_master ||
+		((options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER &&
+		 (IsAutoVacuumWorkerProcess() || IsCnMaster()) &&
+		 (onerel->rd_rel->relkind == RELKIND_MATVIEW ||
+		  onerel->rd_rel->relkind == RELKIND_FOREIGN_TABLE)))
+	{
+		/* send analyze command to other nodes */
+		List *dnlist = NIL;
+		List *cnlist = NIL;
+		List *oids;
+
+		/* find all other coordinator connection */
+		if (RelationUsesLocalBuffers(onerel))
+		{
+			/* temp relation only in master coordinator */
+			Assert(onerel->rd_locator_info == NULL);
+			oids = NIL;
+		}else
+		{
+			oids = GetAllCnIDL(false);
+		}
+		if (oids != NIL)
+		{
+			cnlist = FindConnectedList(oids);
+			list_free(oids);
+		}
+
+		/* find all datanode connection */
+		if (onerel->rd_locator_info)
+		{
+			if (IsRelationReplicated(onerel->rd_locator_info))
+			{
+				Oid oid = get_preferred_nodeoid(onerel->rd_locator_info->nodeids);
+				oids = lappend_oid(oids, oid);
+			}else
+			{
+				oids = onerel->rd_locator_info->nodeids;
+			}
+			Assert(oids != NIL);
+			dnlist = FindConnectedList(oids);
+			if (oids != onerel->rd_locator_info->nodeids)
+				list_free(oids);
+		}
+
+		if(dnlist != NIL || cnlist != NIL)
+		{
+			/* send command to all nodes */
+			List *conns = list_union_ptr(cnlist, dnlist);
+			char *namespace = get_namespace_name(RelationGetNamespace(onerel));
+			StringInfoData buf;
+
+			initStringInfo(&buf);
+			if (onerel->rd_rel->relhassubclass)
+				appendStringInfoChar(&buf, CLUSTER_VACUUM_CMD_ANALYZE_FORCE_INH);
+			else
+				appendStringInfoChar(&buf, CLUSTER_VACUUM_CMD_ANALYZE);
+			save_node_string(&buf, namespace);
+			save_node_string(&buf, RelationGetRelationName(onerel));
+			saveNode(&buf, (Node*)va_cols);
+			PQNputCopyData(conns, buf.data, buf.len);
+			PQNFlush(conns, true);
+
+			/* clean up */
+			pfree(namespace);
+			pfree(buf.data);
+			list_free(conns);
+		}
+
+		if (onerel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
+		{
+			if (dnlist != NIL)
+			{
+				/* recv relpages from datanode */
+				relpages = acquire_relpage_num_coord_master(dnlist);
+			}
+
+			if (cnlist != NIL)
+			{
+				/* send relpages to other coordinator */
+				send_relpage_num_to_other_coord(cnlist, relpages);
+			}
+		}
+		/* clean up */
+		list_free(dnlist);
+		list_free(cnlist);
+	}else if (acquirefunc == acquire_sample_rows_coord_slave &&
+		onerel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
+	{
+		/* recv relpages from master */
+		relpages = acquire_relpage_num_coord_slave();
+	}else if (IS_PGXC_DATANODE &&
+		(options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER &&
+		onerel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
+	{
+		/* send relpages to master */
+		send_relpage_num_to_coord(relpages);
+	}
+#endif /* ADB */
 	/*
 	 * Do the normal non-recursive ANALYZE.  We can skip this for partitioned
 	 * tables, which don't contain any rows.
@@ -324,7 +514,11 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 	/*
 	 * If there are child tables, do recursive ANALYZE.
 	 */
-	if (onerel->rd_rel->relhassubclass)
+	if (onerel->rd_rel->relhassubclass
+#ifdef ADB
+		|| (options & VACOPT_ANALYZE_FORCE_INH) == VACOPT_ANALYZE_FORCE_INH
+#endif /* ADB */
+		)
 		do_analyze_rel(onerel, options, params, va_cols, acquirefunc, relpages,
 					   true, in_outer_xact, elevel);
 
@@ -344,440 +538,6 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 	MyPgXact->vacuumFlags &= ~PROC_IN_ANALYZE;
 	LWLockRelease(ProcArrayLock);
 }
-
-#ifdef ADB
-static void
-analyze_rel_coordinator(Relation onerel, bool inh, int attr_cnt,
-						VacAttrStats **vacattrstats)
-{
-	char		   *nspname;
-	char		   *relname;
-	/* Fields to run query to read statistics from data nodes */
-	StringInfoData	query;
-	EState		   *estate;
-	MemoryContext	oldcontext;
-	RemoteQuery 	*step;
-	RemoteQueryState *node;
-	TupleTableSlot *result;
-	int 			i;
-	/* Number of data nodes from which attribute statistics are received. */
-	int 		   *numnodes;
-	AttrNumber		attnum = 1;
-
-	/* Get the relation identifier */
-	relname = RelationGetRelationName(onerel);
-	nspname = get_namespace_name(RelationGetNamespace(onerel));
-
-	elog(LOG, "Getting detailed statistics for %s.%s", nspname, relname);
-
-	/* Make up query string */
-	initStringInfo(&query);
-	/* Generic statistic fields */
-	appendStringInfoString(&query, "SELECT s.staattnum, "
-// assume the number of tuples approximately the same on all nodes
-// to build more precise statistics get this number
-//										  "c.reltuples, "
-										  "s.stanullfrac, "
-										  "s.stawidth, "
-										  "s.stadistinct");
-	/* Detailed statistic slots */
-	for (i = 1; i <= STATISTIC_NUM_SLOTS; i++)
-		appendStringInfo(&query, ", s.stakind%d"
-								 ", o%d.oprname"
-								 ", no%d.nspname"
-								 ", t%dl.typname"
-								 ", nt%dl.nspname"
-								 ", t%dr.typname"
-								 ", nt%dr.nspname"
-								 ", s.stanumbers%d"
-								 ", s.stavalues%d",
-						 i, i, i, i, i, i, i, i, i);
-
-	/* Common part of FROM clause */
-	appendStringInfoString(&query, " FROM pg_statistic s JOIN pg_class c "
-									"	 ON s.starelid = c.oid "
-									"JOIN pg_namespace nc "
-									"	 ON c.relnamespace = nc.oid ");
-	/* Info about involved operations */
-	for (i = 1; i <= STATISTIC_NUM_SLOTS; i++)
-		appendStringInfo(&query, "LEFT JOIN (pg_operator o%d "
-								 "			 JOIN pg_namespace no%d "
-								 "				 ON o%d.oprnamespace = no%d.oid "
-								 "			 JOIN pg_type t%dl "
-								 "				 ON o%d.oprleft = t%dl.oid "
-								 "			 JOIN pg_namespace nt%dl "
-								 "				 ON t%dl.typnamespace = nt%dl.oid "
-								 "			 JOIN pg_type t%dr "
-								 "				 ON o%d.oprright = t%dr.oid "
-								 "			 JOIN pg_namespace nt%dr "
-								 "				 ON t%dr.typnamespace = nt%dr.oid) "
-								 "	  ON s.staop%d = o%d.oid ",
-						 i, i, i, i, i, i, i, i, i,
-						 i, i, i, i, i, i, i, i, i);
-	appendStringInfo(&query, "WHERE nc.nspname = '%s' "
-							  "AND c.relname = '%s'",
-					 nspname, relname);
-
-	elog(LOG, "Query:%s", query.data);
-	/* Build up RemoteQuery */
-	step = makeNode(RemoteQuery);
-	step->combine_type = COMBINE_TYPE_NONE;
-	step->exec_nodes = NULL;
-	step->sql_statement = query.data;
-	step->force_autocommit = true;
-	step->exec_type = EXEC_ON_DATANODES;
-
-	/* Add targetlist entries */
-	step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-										 make_relation_tle(StatisticRelationId,
-														   "pg_statistic",
-														   "staattnum",
-														   attnum++));
-//	step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-//										 make_relation_tle(RelationRelationId,
-//														   "pg_class",
-//														   "reltuples"));
-	step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-										 make_relation_tle(StatisticRelationId,
-														   "pg_statistic",
-														   "stanullfrac",
-														   attnum++));
-	step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-										 make_relation_tle(StatisticRelationId,
-														   "pg_statistic",
-														   "stawidth",
-														   attnum++));
-	step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-										 make_relation_tle(StatisticRelationId,
-														   "pg_statistic",
-														   "stadistinct",
-														   attnum++));
-	for (i = 1; i <= STATISTIC_NUM_SLOTS; i++)
-	{
-		/* 16 characters would be enough */
-		char	colname[16];
-
-		sprintf(colname, "stakind%d", i);
-		step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-											 make_relation_tle(StatisticRelationId,
-															   "pg_statistic",
-															   colname,
-															   attnum++));
-
-		step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-											 make_relation_tle(OperatorRelationId,
-															   "pg_operator",
-															   "oprname",
-															   attnum++));
-		step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-											 make_relation_tle(NamespaceRelationId,
-															   "pg_namespace",
-															   "nspname",
-															   attnum++));
-		step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-											 make_relation_tle(TypeRelationId,
-															   "pg_type",
-															   "typname",
-															   attnum++));
-		step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-											 make_relation_tle(NamespaceRelationId,
-															   "pg_namespace",
-															   "nspname",
-															   attnum++));
-		step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-											 make_relation_tle(TypeRelationId,
-															   "pg_type",
-															   "typname",
-															   attnum++));
-		step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-											 make_relation_tle(NamespaceRelationId,
-															   "pg_namespace",
-															   "nspname",
-															   attnum++));
-
-		sprintf(colname, "stanumbers%d", i);
-		step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-											 make_relation_tle(StatisticRelationId,
-															   "pg_statistic",
-															   colname,
-															   attnum++));
-
-		sprintf(colname, "stavalues%d", i);
-		step->scan.plan.targetlist = lappend(step->scan.plan.targetlist,
-											 make_relation_tle(StatisticRelationId,
-															   "pg_statistic",
-															   colname,
-															   attnum++));
-	}
-	/* Execute query on the data nodes */
-	estate = CreateExecutorState();
-
-	oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
-
-	estate->es_snapshot = GetActiveSnapshot();
-
-	node = ExecInitRemoteQuery(step, estate, 0);
-	MemoryContextSwitchTo(oldcontext);
-
-	/* get ready to combine results */
-	numnodes = (int *) palloc(attr_cnt * sizeof(int));
-	for (i = 0; i < attr_cnt; i++)
-		numnodes[i] = 0;
-
-	result = ExecProcNode((PlanState*)node);
-	while (result != NULL && !TupIsNull(result))
-	{
-		Datum			value;
-		bool			isnull;
-		int 			colnum = 1;
-		int16			attnum;
-//		float4			reltuples;
-		float4			nullfrac;
-		int32			width;
-		float4			distinct;
-		VacAttrStats   *stats = NULL;
-
-
-		/* Process statistics from the data node */
-		value = slot_getattr(result, colnum++, &isnull); /* staattnum */
-		attnum = DatumGetInt16(value);
-		for (i = 0; i < attr_cnt; i++)
-			if (vacattrstats[i]->attr->attnum == attnum)
-			{
-				stats = vacattrstats[i];
-				stats->stats_valid = true;
-				numnodes[i]++;
-				break;
-			}
-
-//		value = slot_getattr(result, colnum++, &isnull); /* reltuples */
-//		reltuples = DatumGetFloat4(value);
-
-		if (stats)
-		{
-			value = slot_getattr(result, colnum++, &isnull); /* stanullfrac */
-			nullfrac = DatumGetFloat4(value);
-			stats->stanullfrac += nullfrac;
-
-			value = slot_getattr(result, colnum++, &isnull); /* stawidth */
-			width = DatumGetInt32(value);
-			stats->stawidth += width;
-
-			value = slot_getattr(result, colnum++, &isnull); /* stadistinct */
-			distinct = DatumGetFloat4(value);
-			stats->stadistinct += distinct;
-
-			/* Detailed statistics */
-			for (i = 1; i <= STATISTIC_NUM_SLOTS; i++)
-			{
-				int16		kind;
-				float4	   *numbers;
-				Datum	   *values;
-				int 		nnumbers, nvalues;
-				int 		k;
-
-				value = slot_getattr(result, colnum++, &isnull); /* kind */
-				kind = DatumGetInt16(value);
-
-				if (kind == 0)
-				{
-					/*
-					 * Empty slot - skip next 8 fields: 6 fields of the
-					 * operation identifier and two data fields (numbers and
-					 * values)
-					 */
-					colnum += 8;
-					continue;
-				}
-				else
-				{
-					Oid 		oprid;
-
-					/* Get operator */
-					value = slot_getattr(result, colnum++, &isnull); /* oprname */
-					if (isnull)
-					{
-						/*
-						 * Operator is not specified for that kind, skip remaining
-						 * fields to lookup the operator
-						 */
-						oprid = InvalidOid;
-						colnum += 5; /* skip operation nsp and types */
-					}
-					else
-					{
-						char	   *oprname;
-						char	   *oprnspname;
-						Oid 		ltypid, rtypid;
-						char	   *ltypname,
-								   *rtypname;
-						char	   *ltypnspname,
-								   *rtypnspname;
-						oprname = DatumGetCString(value);
-						value = slot_getattr(result, colnum++, &isnull); /* oprnspname */
-						oprnspname = DatumGetCString(value);
-						/* Get left operand data type */
-						value = slot_getattr(result, colnum++, &isnull); /* typname */
-						ltypname = DatumGetCString(value);
-						value = slot_getattr(result, colnum++, &isnull); /* typnspname */
-						ltypnspname = DatumGetCString(value);
-						ltypid = get_typname_typid(ltypname,
-											   get_namespaceid(ltypnspname));
-						/* Get right operand data type */
-						value = slot_getattr(result, colnum++, &isnull); /* typname */
-						rtypname = DatumGetCString(value);
-						value = slot_getattr(result, colnum++, &isnull); /* typnspname */
-						rtypnspname = DatumGetCString(value);
-						rtypid = get_typname_typid(rtypname,
-											   get_namespaceid(rtypnspname));
-						/* lookup operator */
-						oprid = get_operid(oprname, ltypid, rtypid,
-										   get_namespaceid(oprnspname));
-					}
-					/*
-					 * Look up a statistics slot. If there is an entry of the
-					 * same kind already, leave it, assuming the statistics
-					 * is approximately the same on all nodes, so values from
-					 * one node are representing entire relation well.
-					 * If empty slot is found store values here. If no more
-					 * slots skip remaining values.
-					 */
-					for (k = 0; k < STATISTIC_NUM_SLOTS; k++)
-					{
-						if (stats->stakind[k] == 0 ||
-								(stats->stakind[k] == kind && stats->staop[k] == oprid))
-							break;
-					}
-
-					if (k >= STATISTIC_NUM_SLOTS)
-					{
-						/* No empty slots */
-						break;
-					}
-
-					/*
-					 * If it is an existing slot which has numbers or values
-					 * continue to the next set. If slot exists but without
-					 * numbers and values, try to acquire them now
-					 */
-					if (stats->stakind[k] != 0 && (stats->numnumbers[k] > 0 ||
-							stats->numvalues[k] > 0))
-					{
-						colnum += 2; /* skip numbers and values */
-						continue;
-					}
-
-					/*
-					 * Initialize slot
-					 */
-					stats->stakind[k] = kind;
-					stats->staop[k] = oprid;
-					stats->numnumbers[k] = 0;
-					stats->stanumbers[k] = NULL;
-					stats->numvalues[k] = 0;
-					stats->stavalues[k] = NULL;
-					stats->statypid[k] = InvalidOid;
-					stats->statyplen[k] = -1;
-					stats->statypalign[k] = 'i';
-					stats->statypbyval[k] = true;
-				}
-
-
-				/* get numbers */
-				value = slot_getattr(result, colnum++, &isnull); /* numbers */
-				if (!isnull)
-				{
-					ArrayType  *arry = DatumGetArrayTypeP(value);
-
-					/*
-					 * We expect the array to be a 1-D float4 array; verify that. We don't
-					 * need to use deconstruct_array() since the array data is just going
-					 * to look like a C array of float4 values.
-					 */
-					nnumbers = ARR_DIMS(arry)[0];
-					if (ARR_NDIM(arry) != 1 || nnumbers <= 0 ||
-						ARR_HASNULL(arry) ||
-						ARR_ELEMTYPE(arry) != FLOAT4OID)
-						elog(ERROR, "stanumbers is not a 1-D float4 array");
-					numbers = (float4 *) palloc(nnumbers * sizeof(float4));
-					memcpy(numbers, ARR_DATA_PTR(arry),
-						   nnumbers * sizeof(float4));
-
-					/*
-					 * Free arry if it's a detoasted copy.
-					 */
-					if ((Pointer) arry != DatumGetPointer(value))
-						pfree(arry);
-
-					stats->numnumbers[k] = nnumbers;
-					stats->stanumbers[k] = numbers;
-				}
-				/* get values */
-				value = slot_getattr(result, colnum++, &isnull); /* values */
-				if (!isnull)
-				{
-					int 		j;
-					ArrayType  *arry;
-					int16		elmlen;
-					bool		elmbyval;
-					char		elmalign;
-					arry = DatumGetArrayTypeP(value);
-					/* We could cache this data, but not clear it's worth it */
-					get_typlenbyvalalign(ARR_ELEMTYPE(arry),
-										 &elmlen, &elmbyval, &elmalign);
-					/* Deconstruct array into Datum elements; NULLs not expected */
-					deconstruct_array(arry,
-									  ARR_ELEMTYPE(arry),
-									  elmlen, elmbyval, elmalign,
-									  &values, NULL, &nvalues);
-
-					/*
-					 * If the element type is pass-by-reference, we now have a bunch of
-					 * Datums that are pointers into the syscache value.  Copy them to
-					 * avoid problems if syscache decides to drop the entry.
-					 */
-					if (!elmbyval)
-					{
-						for (j = 0; j < nvalues; j++)
-							values[j] = datumCopy(values[j], elmbyval, elmlen);
-					}
-
-					stats->numvalues[k] = nvalues;
-					stats->stavalues[k] = values;
-					/* store details about values data type */
-					stats->statypid[k] = ARR_ELEMTYPE(arry);
-					stats->statyplen[k] = elmlen;
-					stats->statypalign[k] = elmalign;
-					stats->statypbyval[k] = elmbyval;
-
-					/*
-					 * Free statarray if it's a detoasted copy.
-					 */
-					if ((Pointer) arry != DatumGetPointer(value))
-						pfree(arry);
-				}
-			}
-		}
-
-		/* fetch next */
-		result = ExecProcNode((PlanState*)node);
-	}
-	ExecEndRemoteQuery(node);
-
-	for (i = 0; i < attr_cnt; i++)
-	{
-		VacAttrStats *stats = vacattrstats[i];
-
-		if (numnodes[i] > 0)
-		{
-			stats->stanullfrac /= numnodes[i];
-			stats->stawidth /= numnodes[i];
-			stats->stadistinct /= numnodes[i];
-		}
-	}
-	update_attstats(RelationGetRelid(onerel), inh, attr_cnt, vacattrstats);
-}
-#endif
 
 /*
  *	do_analyze_rel() -- analyze one relation, recursively or not
@@ -905,30 +665,6 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 		attr_cnt = tcnt;
 	}
 
-#ifdef ADB
-	if (IS_PGXC_COORDINATOR && onerel->rd_locator_info)
-	{
-		/*
-		 * Fetch relation statistics from remote nodes and update
-		 */
-		vacuum_rel_coordinator(onerel, in_outer_xact);
-
-		/*
-		 * Fetch attribute statistics from remote nodes.
-		 */
-		analyze_rel_coordinator(onerel, inh, attr_cnt, vacattrstats);
-
-		/*
-		 * Skip acquiring local stats. Coordinator does not store data of
-		 * distributed tables.
-		 */
-		nindexes = 0;
-		hasindex = false;
-		Irel = NULL;
-		goto cleanup;
-	}
-#endif
-
 	/*
 	 * Open all indexes of the relation, and see if there are any analyzable
 	 * columns in the indexes.  We do not analyze index columns if there was
@@ -1013,7 +749,12 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 	 * Acquire the sample rows
 	 */
 	rows = (HeapTuple *) palloc(targrows * sizeof(HeapTuple));
-	if (inh)
+	if (inh
+#ifdef ADB
+		&& acquirefunc != acquire_sample_rows_coord_master
+		&& acquirefunc != acquire_sample_rows_coord_slave
+#endif /* ADB */
+		)
 		numrows = acquire_inherited_sample_rows(onerel, elevel,
 												rows, targrows,
 												&totalrows, &totaldeadrows);
@@ -1021,6 +762,21 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 		numrows = (*acquirefunc) (onerel, elevel,
 								  rows, targrows,
 								  &totalrows, &totaldeadrows);
+#ifdef ADB
+	if ((options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER)
+	{
+		if (IS_PGXC_DATANODE)
+		{
+			send_sample_rows_to_coord(onerel, rows, numrows, totalrows, totaldeadrows);
+		}else if ((IsAutoVacuumWorkerProcess() || IsCnMaster()) &&
+			(onerel->rd_locator_info != NULL ||
+			 onerel->rd_rel->relkind == RELKIND_MATVIEW ||
+			 onerel->rd_rel->relkind == RELKIND_FOREIGN_TABLE))
+		{
+			send_sample_rows_to_other_coord(onerel, rows, numrows, totalrows, totaldeadrows);
+		}
+	}
+#endif /* ADB */
 
 	/*
 	 * Compute the statistics.  Temporary results during the calculations for
@@ -1140,13 +896,6 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 								in_outer_xact);
 		}
 	}
-
-#ifdef ADB
-	/*
-	 * Coordinator skips getting local stats of distributed table up to here
-	 */
-	cleanup:
-#endif
 
 	/*
 	 * Report ANALYZE to the stats collector, too.  However, if doing
@@ -3457,3 +3206,553 @@ analyze_mcv_list(int *mcv_counts,
 	}
 	return num_mcv;
 }
+
+#ifdef ADB
+
+typedef struct RecvSampleContext
+{
+	ClusterRecvState	   *rstate;
+	bool					got_run_end;
+}RecvSampleContext;
+
+typedef struct RecvSampleRowsContext
+{
+	RecvSampleContext	base;
+	HeapTuple		   *rows;
+	ReservoirStateData	rsd;
+	double				rowstoskip;
+	int					targrows;
+	int					currows;
+	int					samplerows;
+}RecvSampleRowsContext;
+
+typedef struct RecvSampleOtherContext
+{
+	RecvSampleContext	base;
+	double				totalrows;
+	double				totaldeadrows;
+}RecvSampleOtherContext;
+
+typedef struct RecvRelNumContext
+{
+	RecvSampleContext	base;
+	int32				relpages;
+}RecvRelNumContext;
+
+typedef struct HookSampleFunctions
+{
+	PQNHookFunctions		funcs;
+	SimpleCopyDataFunction	recvfun;
+	List				   *conns;
+	List				   *got_end_conns;
+	void				   *context;
+}HookSampleFunctions;
+
+typedef struct NextSampleContext
+{
+	TupleTableSlot *slot;
+	HeapTuple	   *rows;
+	int				cursor;
+	int				maxrows;
+}NextSampleContext;
+
+typedef struct OnceTupleContext
+{
+	TupleDesc		desc;
+	TupleTableSlot *slot;
+	Datum		   *values;
+}OnceTupleContext;
+
+static TupleDesc CreateOtherSampleInfoDesc(void)
+{
+	TupleDesc desc = CreateTemplateTupleDesc(2, false);
+
+	TupleDescInitEntry(desc, 1, "totalrows", FLOAT8OID, -1, 0);
+	TupleDescInitEntry(desc, 2, "totaldeadrows", FLOAT8OID, -1, 0);
+
+	return desc;
+}
+
+static TupleDesc CreateRelPageNumDesc(void)
+{
+	TupleDesc desc = CreateTemplateTupleDesc(1, false);
+	
+	TupleDescInitEntry(desc, 1, "relpages", INT4OID, -1, 0);
+
+	return desc;
+}
+
+static void InitSampleContext(RecvSampleContext *context, TupleDesc desc)
+{
+	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc);
+	context->rstate = createClusterRecvStateFromSlot(slot, false);
+	context->got_run_end = false;
+}
+
+static void DestroySampleContext(RecvSampleContext *context, bool drop_desc)
+{
+	TupleTableSlot *slot = context->rstate->base_slot;
+	TupleDesc desc = slot->tts_tupleDescriptor;
+	freeClusterRecvState(context->rstate);
+	ExecDropSingleTupleTableSlot(slot);
+	if (drop_desc)
+		FreeTupleDesc(desc);
+}
+
+static void InitSampleRowsContext(RecvSampleRowsContext *context, TupleDesc desc, HeapTuple *rows, int targrows)
+{
+	InitSampleContext(&context->base, desc);
+	reservoir_init_selection_state(&context->rsd, targrows);
+	context->rows = rows;
+	context->targrows = targrows;
+	context->samplerows = 0;
+	context->currows = 0;
+	context->rowstoskip = -1;
+}
+
+static void DestroySampleRowsCotext(RecvSampleRowsContext *context)
+{
+	DestroySampleContext(&context->base, false);
+}
+
+static void InitSampleOtherContext(RecvSampleOtherContext *context)
+{
+	TupleDesc desc = CreateOtherSampleInfoDesc();
+	InitSampleContext(&context->base, desc);
+	context->totalrows = context->totaldeadrows = 0.0;
+}
+
+static void DestroySampleOtherContext(RecvSampleOtherContext *context)
+{
+	DestroySampleContext(&context->base, true);
+}
+
+static void InitRecvRelNumContext(RecvRelNumContext *context)
+{
+	TupleDesc desc = CreateRelPageNumDesc();
+	InitSampleContext(&context->base, desc);
+	context->relpages = 0;
+}
+
+static void DestroyRecvRelNumContext(RecvRelNumContext *context)
+{
+	DestroySampleContext(&context->base, true);
+}
+
+static int NextSampleRowFromRaw(void *context, const char *data, int len)
+{
+	HeapTuple	tup;
+	RecvSampleRowsContext *rs = (RecvSampleRowsContext*)context;
+
+	if (data[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		rs->base.got_run_end = true;
+		return 1;
+	}else if (clusterRecvTupleEx(rs->base.rstate, data, len, NULL))
+	{
+		tup = ExecCopySlotTuple(rs->base.rstate->base_slot);
+		if (rs->currows < rs->targrows)
+		{
+			rs->rows[rs->currows++] = tup;
+		}else
+		{
+			if (rs->rowstoskip < 0)
+				rs->rowstoskip = reservoir_get_next_S(&rs->rsd, rs->samplerows, rs->targrows);
+			
+			if (rs->rowstoskip <= 0)
+			{
+				/*
+				 * Found a suitable tuple, so save it, replacing one
+				 * old tuple at random
+				 */
+				int k = (int) (rs->targrows * sampler_random_fract(rs->rsd.randstate));
+
+				Assert(k >= 0 && k < rs->targrows);
+				heap_freetuple(rs->rows[k]);
+				rs->rows[k] = tup;
+			}
+
+			rs->rowstoskip = -1;
+		}
+
+		++(rs->samplerows);
+	}
+	return 0;
+}
+
+static int NextSampleOtherFromRaw(void *context, const char *data, int len)
+{
+	RecvSampleOtherContext *rso = (RecvSampleOtherContext*)context;
+
+	if (data[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		rso->base.got_run_end = true;
+		return 1;
+	}else if (clusterRecvTupleEx(rso->base.rstate, data, len, NULL))
+	{
+		TupleTableSlot *slot = rso->base.rstate->base_slot;
+		Assert(slot->tts_tupleDescriptor->natts == 2);
+		Assert(TupleDescAttr(slot->tts_tupleDescriptor, 0)->atttypid == FLOAT8OID);
+		Assert(TupleDescAttr(slot->tts_tupleDescriptor, 1)->atttypid == FLOAT8OID);
+		slot_getallattrs(slot);
+		if (slot->tts_isnull[0] == false)
+			rso->totalrows += DatumGetFloat8(slot->tts_values[0]);
+		if (slot->tts_isnull[0] == false)
+			rso->totaldeadrows += DatumGetFloat8(slot->tts_values[1]);
+	}
+
+	return 0;
+}
+
+static int NextRelNumFromRaw(void *context, const char *data, int len)
+{
+	RecvRelNumContext *renc = (RecvRelNumContext*)context;
+
+	if (data[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		renc->base.got_run_end = true;
+		return 1;
+	}else if(clusterRecvTupleEx(renc->base.rstate, data, len, NULL))
+	{
+		TupleTableSlot *slot = renc->base.rstate->base_slot;
+		Assert(slot->tts_tupleDescriptor->natts == 1);
+		Assert(TupleDescAttr(slot->tts_tupleDescriptor, 0)->atttypid == INT4OID);
+		slot_getallattrs(slot);
+		if (slot->tts_isnull[0] == false)
+			renc->relpages += DatumGetInt32(slot->tts_values[0]);
+	}
+
+	return 0;
+}
+
+static bool HookSampleFunc(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
+{
+	HookSampleFunctions *funcs = (HookSampleFunctions*)pub;
+	if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		funcs->conns = list_delete_ptr(funcs->conns, conn);
+		funcs->got_end_conns = lappend(funcs->got_end_conns, conn);
+		return true;
+	}else
+	{
+		(*funcs->recvfun)(funcs->context, buf, len);
+		return false;
+	}
+}
+
+static List* FindConnectedList(List *list)
+{
+	List *result = NIL;
+	ListCell *lc;
+	struct pg_conn *conn;
+
+	Assert(list == NIL || IsA(list, OidList));
+	foreach (lc, list)
+	{
+		conn = PQNFindConnUseOid(lfirst_oid(lc));
+		if (conn == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Connection for node %u not connected", lfirst_oid(lc))));
+		if (!PQisCopyOutState(conn) ||
+			!PQisCopyInState(conn))
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Connection for node %u is not in copy both mode", lfirst_oid(lc))));
+		result = lappend(result, conn);
+	}
+	return result;
+}
+
+static TupleTableSlot* NextSampleFunction(NextSampleContext *context)
+{
+	if (context->cursor < context->maxrows)
+		return ExecStoreTuple(context->rows[context->cursor++], context->slot, InvalidBuffer, false);
+	else
+		return ExecClearTuple(context->slot);
+}
+
+static TupleTableSlot* OnceTupleFunction(OnceTupleContext *context)
+{
+	if (context->slot == NULL)
+	{
+		TupleTableSlot *slot;
+		int i;
+		slot = context->slot = MakeSingleTupleTableSlot(context->desc);
+		for(i=context->desc->natts;(i--)>0;)
+		{
+			slot->tts_values[i] = context->values[i];
+			slot->tts_isnull[i] = false;
+		}
+		return ExecStoreVirtualTuple(slot);
+	}else
+	{
+		ExecDropSingleTupleTableSlot(context->slot);
+		context->slot = NULL;
+		return NULL;
+	}
+}
+
+static void acquire_sample_coord_master(void *context, SimpleCopyDataFunction recvfun, List *conns)
+{
+	HookSampleFunctions	hook;
+	hook.funcs = PQNDefaultHookFunctions;
+	hook.funcs.HookCopyOut = HookSampleFunc;
+	hook.context = context;
+	hook.recvfun = recvfun;
+	hook.got_end_conns = NIL;
+
+	hook.conns = list_copy(conns);
+	while(hook.conns != NIL)
+		PQNListExecFinish(hook.conns, NULL, &hook.funcs, true);
+	if (list_length(conns) != list_length(hook.got_end_conns))
+	{
+		ListCell *lc;
+		PGconn *conn;
+		foreach(lc, conns)
+		{
+			conn = lfirst(lc);
+			if (list_member_ptr(hook.got_end_conns, conn) == false)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("not got data end message"),
+						 errnode(PQNConnectName(conn))));
+			}
+		}
+		Assert(false);
+	}
+	list_free(hook.got_end_conns);
+}
+
+static int acquire_sample_rows_coord_master(Relation onerel, int elevel,
+					HeapTuple *rows, int targrows,
+					double *totalrows, double *totaldeadrows)
+{
+	RecvSampleRowsContext rows_context;
+	RecvSampleOtherContext other_context;
+	List *dnlist;
+
+	/* recv rows */
+	Assert(onerel->rd_locator_info);
+	if (IsRelationReplicated(onerel->rd_locator_info))
+	{
+		List *oids = list_make1_oid(get_preferred_nodeoid(onerel->rd_locator_info->nodeids));
+		dnlist = FindConnectedList(oids);
+		list_free(oids);
+	}else
+	{
+		dnlist = FindConnectedList(onerel->rd_locator_info->nodeids);
+	}
+
+	/* recv sample rows */
+	InitSampleRowsContext(&rows_context, RelationGetDescr(onerel), rows, targrows);
+	acquire_sample_coord_master(&rows_context, NextSampleRowFromRaw, dnlist);
+	DestroySampleRowsCotext(&rows_context);
+
+	/* recv other sample info */
+	InitSampleOtherContext(&other_context);
+	acquire_sample_coord_master(&other_context, NextSampleOtherFromRaw, dnlist);
+	DestroySampleOtherContext(&other_context);
+
+	/* result */
+	*totalrows = other_context.totalrows;
+	*totaldeadrows = other_context.totaldeadrows;
+
+	ereport(elevel,
+			(errmsg("\"%s\":"
+					"containing %.0f live rows and %.0f dead rows;"
+					"%d rows in sample, %d total sample rows from datanode(s)",
+					RelationGetRelationName(onerel),
+					other_context.totalrows, other_context.totaldeadrows,
+					rows_context.currows, rows_context.samplerows)));
+
+	return rows_context.currows;
+}
+
+static void send_sample_rows_to_other_coord(Relation onerel, HeapTuple *rows, int targrows,
+											double totalrows, double totaldeadrows)
+{
+	/* get all connected for other coordinator */
+	List   *oids = GetAllCnIDL(false);
+	List   *cnlist = FindConnectedList(oids);
+	list_free(oids);
+
+	if (cnlist)
+	{
+		NextSampleContext	sample_context;
+		OnceTupleContext	other_context;
+		Datum				datums[2];
+
+		/* send rows to other coordinator(s) */
+		sample_context.slot = MakeSingleTupleTableSlot(RelationGetDescr(onerel));
+		sample_context.rows = rows;
+		sample_context.maxrows = targrows;
+		sample_context.cursor = 0;
+		do_type_convert_slot_out_ex(RelationGetDescr(onerel), &sample_context, cnlist, 0,
+									(ConvertGetNextRowFunction)NextSampleFunction,
+									(ConvertSaveRowFunction)PQNputCopyData);
+		ExecDropSingleTupleTableSlot(sample_context.slot);
+
+		/* send other info to other coordinators */
+		other_context.desc = CreateOtherSampleInfoDesc();
+		Assert(other_context.desc->natts == lengthof(datums));
+		other_context.slot = NULL;
+		other_context.values = datums;
+		datums[0] = Float8GetDatum(totalrows);
+		datums[1] = Float8GetDatum(totaldeadrows);
+		do_type_convert_slot_out_ex(other_context.desc, &other_context, cnlist, 0,
+									(ConvertGetNextRowFunction)OnceTupleFunction,
+									(ConvertSaveRowFunction)PQNputCopyData);
+		FreeTupleDesc(other_context.desc);
+
+		PQNFlush(cnlist, true);
+
+		list_free(cnlist);
+	}
+}
+
+static int acquire_sample_rows_coord_slave(Relation onerel, int elevel,
+					HeapTuple *rows, int targrows,
+					double *totalrows, double *totaldeadrows)
+{
+	RecvSampleRowsContext	context;
+	RecvSampleOtherContext	other;
+
+	/* recv rows */
+	InitSampleRowsContext(&context, RelationGetDescr(onerel), rows, targrows);
+	SimpleNextCopyFromNewFE(NextSampleRowFromRaw, &context);
+	if (context.base.got_run_end == false)
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("not got data end message")));
+	DestroySampleRowsCotext(&context);
+
+	/* recv other info */
+	InitSampleOtherContext(&other);
+	SimpleNextCopyFromNewFE(NextSampleOtherFromRaw, &other);
+	if (other.base.got_run_end == false)
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("not got data end message")));
+	DestroySampleOtherContext(&other);
+
+	*totalrows = other.totalrows;
+	*totaldeadrows = other.totaldeadrows;
+	return context.currows;
+}
+
+static void send_sample_rows_to_coord(Relation onerel, HeapTuple *rows, int targrows,
+									  double totalrows, double totaldeadrows)
+{
+	TupleTableSlot *slot;
+	TupleDesc		desc;
+	DestReceiver *r = CreateDestReceiver(DestClusterOut);
+	int i;
+
+	/* send rows */
+	slot = MakeSingleTupleTableSlot(NULL);	/* we need change Descr, so don't use RelationGetDescr(onerel) */
+	ExecSetSlotDescriptor(slot, RelationGetDescr(onerel));
+
+	clusterRecvSetCheckEndMsg(r, false);
+	(*r->rStartup)(r, 0, RelationGetDescr(onerel));
+	for(i=0;i<targrows;++i)
+	{
+		ExecStoreTuple(rows[i], slot, InvalidBuffer, false);
+		if (((*r->receiveSlot)(slot, r)) == false)
+			break;
+	}
+	(*r->rShutdown)(r);
+	(*r->rDestroy)(r);
+	put_executor_end_msg(false);
+
+	/* send other info */
+	desc = CreateOtherSampleInfoDesc();
+	Assert(desc->natts == 2);
+	Assert(TupleDescAttr(desc, 0)->atttypid == FLOAT8OID);
+	Assert(TupleDescAttr(desc, 1)->atttypid == FLOAT8OID);
+
+	ExecSetSlotDescriptor(slot, desc);
+	slot->tts_values[0] = Float8GetDatum(totalrows);
+	slot->tts_isnull[0] = false;
+	slot->tts_values[1] = Float8GetDatum(totaldeadrows);
+	slot->tts_isnull[0] = false;
+	ExecStoreVirtualTuple(slot);
+	
+	r = CreateDestReceiver(DestClusterOut);
+	clusterRecvSetCheckEndMsg(r, false);
+	(*r->rStartup)(r, 0, desc);
+	(*r->receiveSlot)(slot, r);
+	(*r->rShutdown)(r);
+	(*r->rDestroy)(r);
+	put_executor_end_msg(true);
+
+	ExecDropSingleTupleTableSlot(slot);
+	FreeTupleDesc(desc);
+}
+
+static int32 acquire_relpage_num_coord_master(List *dnlist)
+{
+	RecvRelNumContext	context;
+
+	InitRecvRelNumContext(&context);
+	acquire_sample_coord_master(&context, NextRelNumFromRaw, dnlist);
+	DestroyRecvRelNumContext(&context);
+
+	return context.relpages;
+}
+
+static int32 acquire_relpage_num_coord_slave(void)
+{
+	RecvRelNumContext	context;
+	
+	InitRecvRelNumContext(&context);
+	SimpleNextCopyFromNewFE(NextRelNumFromRaw, &context);
+	if (context.base.got_run_end == false)
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("not got data end message")));
+	DestroyRecvRelNumContext(&context);
+
+	return context.relpages;
+}
+
+static void send_relpage_num_to_coord(int32 relpages)
+{
+	TupleDesc desc = CreateRelPageNumDesc();
+	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc);
+	DestReceiver *r = CreateDestReceiver(DestClusterOut);
+
+	slot->tts_values[0] = Int32GetDatum(relpages);
+	slot->tts_isnull[0] = false;
+	ExecStoreVirtualTuple(slot);
+
+	clusterRecvSetCheckEndMsg(r, false);
+	(*r->rStartup)(r, 0, desc);
+	(*r->receiveSlot)(slot, r);
+	(*r->rShutdown)(r);
+	(*r->rDestroy)(r);
+	put_executor_end_msg(true);
+
+	ExecDropSingleTupleTableSlot(slot);
+	FreeTupleDesc(desc);
+}
+
+static void send_relpage_num_to_other_coord(List *conns, int32 relpage)
+{
+	OnceTupleContext	context;
+	Datum				datum;
+
+	context.desc = CreateRelPageNumDesc();
+	Assert(context.desc->natts == 1);
+	context.slot = NULL;
+	context.values = &datum;
+	datum = Int32GetDatum(relpage);
+	do_type_convert_slot_out_ex(context.desc, &context, conns, 0,
+								(ConvertGetNextRowFunction)OnceTupleFunction,
+								(ConvertSaveRowFunction)PQNputCopyData);
+	PQNFlush(conns, true);
+	FreeTupleDesc(context.desc);
+}
+
+#endif /* ADB */
