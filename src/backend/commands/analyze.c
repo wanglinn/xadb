@@ -118,10 +118,6 @@ static Datum std_fetch_func(VacAttrStatsP stats, int rownum, bool *isNull);
 static Datum ind_fetch_func(VacAttrStatsP stats, int rownum, bool *isNull);
 
 #ifdef ADB
-static void node_analyze_rel(Relation relation,
-							 AcquireSampleRowsFunc *func,
-							 BlockNumber *totalpages,
-							 uint64 *totalrows);
 static List* FindConnectedList(List *list);
 static int acquire_sample_rows_coord_master(Relation onerel, int elevel,
 					HeapTuple *rows, int targrows,
@@ -503,30 +499,6 @@ end_if_:
 	MyPgXact->vacuumFlags &= ~PROC_IN_ANALYZE;
 	LWLockRelease(ProcArrayLock);
 }
-
-#ifdef ADB
-static void
-node_analyze_rel(Relation relation,
-				AcquireSampleRowsFunc *func,
-				BlockNumber *totalpages,
-				uint64 *totalrows)
-{
-	if (IsCnNode() && RelationGetLocInfo(relation))
-	{
-		/* Return the row-analysis function pointer for Coordinator */
-		*func = CnAcquireSampleRowsFunc;
-		/* Also get regular table's size by Coordinator */
-		*totalpages = CnGetRelationNumberOfBlocks(relation, totalrows);
-	} else
-	{
-		/* Regular table, so we'll use the regular row acquisition function */
-		*func = acquire_sample_rows;
-		/* Also get regular table's size */
-		*totalpages = RelationGetNumberOfBlocks(relation);
-		*totalrows = 0;
-	}
-}
-#endif
 
 /*
  *	do_analyze_rel() -- analyze one relation, recursively or not
