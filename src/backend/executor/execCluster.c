@@ -6,6 +6,7 @@
 #include "commands/copy.h"
 #include "commands/defrem.h"
 #include "commands/matview.h"
+#include "commands/vacuum.h"
 #include "executor/nodeEmptyResult.h"
 #include "executor/clusterHeapScan.h"
 #include "executor/execdesc.h"
@@ -132,6 +133,7 @@ static const ClusterCustomExecInfo cluster_custom_execute[] =
 	{
 		{CLUSTER_CUSTOM_EXEC_FUNC(DoClusterHeapScan)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRefreshMatView)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_vacuum)}
 	};
 
 static void set_cluster_display(const char *activity, bool force, ClusterCoordInfo *info);

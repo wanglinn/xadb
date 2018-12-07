@@ -3379,6 +3379,10 @@ typedef enum VacuumOption
 	VACOPT_NOWAIT = 1 << 5,		/* don't wait to get lock (autovacuum only) */
 	VACOPT_SKIPTOAST = 1 << 6,	/* don't process the TOAST table, if any */
 	VACOPT_DISABLE_PAGE_SKIPPING = 1 << 7	/* don't skip any pages */
+#ifdef ADB
+	,VACOPT_IN_CLUSTER = 1 << 8
+	,VACOPT_ANALYZE_FORCE_INH	= 1 << 9
+#endif /* ADB */
 } VacuumOption;
 
 typedef struct VacuumStmt
