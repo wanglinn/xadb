@@ -407,7 +407,7 @@ end_if_:
 #ifdef ADB
 	if (acquirefunc == acquire_sample_rows_coord_master ||
 		((options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER &&
-		 (IsAutoVacuumWorkerProcess() || IsCnMaster()) &&
+		 IsCnMaster() &&
 		 (onerel->rd_rel->relkind == RELKIND_MATVIEW ||
 		  onerel->rd_rel->relkind == RELKIND_FOREIGN_TABLE)))
 	{
@@ -438,7 +438,7 @@ end_if_:
 			if (IsRelationReplicated(onerel->rd_locator_info))
 			{
 				Oid oid = get_preferred_nodeoid(onerel->rd_locator_info->nodeids);
-				oids = lappend_oid(oids, oid);
+				oids = list_make1_oid(oid);
 			}else
 			{
 				oids = onerel->rd_locator_info->nodeids;
