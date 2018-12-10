@@ -54,6 +54,7 @@
 
 #ifdef ADB
 #include "access/visibilitymap.h"
+#include "agtm/agtm.h"
 #include "catalog/catalog.h"
 #include "catalog/heap.h"
 #include "catalog/pgxc_class.h"
@@ -219,6 +220,7 @@ vacuum(int options, List *relations, VacuumParams *params,
 	List	   *list_datanode = NIL;
 	List	   *list_coordinator = NIL;
 	List * volatile list_conns = NIL;
+	bool		under_agtm = IsUnderAGTM();
 #endif /* ADB */
 
 	Assert(params != NULL);
@@ -358,14 +360,17 @@ vacuum(int options, List *relations, VacuumParams *params,
 	}
 
 #ifdef ADB
-	if (options & VACOPT_IN_CLUSTER)
+	if ((options & VACOPT_IN_CLUSTER) || !under_agtm || IS_PGXC_DATANODE)
 		list_datanode = NIL;
 	else
 		list_datanode = get_vacuum_all_node(relations,
 											vac_context,
 											(options & VACOPT_VACUUM) ? true:false);
 
-	if (list_datanode != NIL)
+	if (!under_agtm || IS_PGXC_DATANODE)
+	{
+		list_coordinator = NIL;
+	}else if (list_datanode != NIL)
 	{
 		list_coordinator = GetAllCnIDL(false);
 	}else
@@ -395,6 +400,9 @@ vacuum(int options, List *relations, VacuumParams *params,
 			flags = EXEC_CLUSTER_FLAG_NOT_START_TRANS;
 		else
 			flags = 0;
+
+		if (ActiveSnapshotSet() == false)
+			PushActiveSnapshot(GetTransactionSnapshot());
 
 		list_conns = ExecClusterCustomFunction(tmp, &buf, flags);
 
@@ -467,8 +475,10 @@ vacuum(int options, List *relations, VacuumParams *params,
 				}
 
 #ifdef ADB
-				analyze_rel(vrel->oid, vrel->relation, options|VACOPT_IN_CLUSTER, params,
-							vrel->va_cols, in_outer_xact, vac_strategy);
+				if (under_agtm)
+					analyze_rel(vrel->oid, vrel->relation, options|VACOPT_IN_CLUSTER, params,
+								vrel->va_cols, in_outer_xact, vac_strategy);
+				else
 #else
 				analyze_rel(vrel->oid, vrel->relation, options, params,
 							vrel->va_cols, in_outer_xact, vac_strategy);

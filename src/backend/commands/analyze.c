@@ -496,6 +496,7 @@ end_if_:
 		/* recv relpages from master */
 		relpages = acquire_relpage_num_coord_slave();
 	}else if (IS_PGXC_DATANODE &&
+		IsConnFromCoord() &&
 		(options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER &&
 		onerel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
 	{
@@ -765,10 +766,11 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 #ifdef ADB
 	if ((options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER)
 	{
-		if (IS_PGXC_DATANODE)
+		if (IS_PGXC_DATANODE &&
+			IsConnFromCoord())
 		{
 			send_sample_rows_to_coord(onerel, rows, numrows, totalrows, totaldeadrows);
-		}else if ((IsAutoVacuumWorkerProcess() || IsCnMaster()) &&
+		}else if (IsCnMaster() &&
 			(onerel->rd_locator_info != NULL ||
 			 onerel->rd_rel->relkind == RELKIND_MATVIEW ||
 			 onerel->rd_rel->relkind == RELKIND_FOREIGN_TABLE))
