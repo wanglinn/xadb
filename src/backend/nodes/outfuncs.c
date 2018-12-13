@@ -648,6 +648,16 @@ _outClusterReduce(StringInfo str, const ClusterReduce *node)
 		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
 }
 
+static void
+_outEmptyResult(StringInfo str, const EmptyResult *node)
+{
+	WRITE_NODE_TYPE("EMPTYRESULT");
+
+	_outPlanInfo(str, &node->plan);
+
+	WRITE_ENUM_FIELD(typeFrom, NodeTag);
+}
+
 #endif
 
 static void
@@ -3795,6 +3805,9 @@ outNode(StringInfo str, const void *obj)
 				break;
 			case T_ClusterReduce:
 				_outClusterReduce(str, obj);
+				break;
+			case T_EmptyResult:
+				_outEmptyResult(str, obj);
 				break;
 #endif
 			case T_IndexScan:

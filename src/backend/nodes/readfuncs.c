@@ -2420,6 +2420,18 @@ _readClusterReduce(void)
 	READ_DONE();
 }
 
+static EmptyResult *
+_readEmptyResult(void)
+{
+	READ_LOCALS(EmptyResult);
+
+	ReadCommonPlan(&local_node->plan);
+
+	READ_ENUM_FIELD(typeFrom, NodeTag);
+
+	READ_DONE();
+}
+
 #endif /* ADB */
 
 #ifdef ADB_GRAM_ORA
@@ -2744,6 +2756,8 @@ parseNodeString(void)
 #ifdef ADB
 	else if (MATCH("CLUSTERREDUCE", 13))
 		return_value = _readClusterReduce();
+	else if (MATCH("EMPTYRESULT", 11))
+		return_value = _readEmptyResult();
 #endif /* ADB */
 #ifdef ADB_GRAM_ORA
 	else if (MATCH("ROWNUMEXPR", 10))
