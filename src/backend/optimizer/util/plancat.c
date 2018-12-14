@@ -1846,7 +1846,7 @@ bool has_any_triggers_subclass(PlannerInfo *root, Index rti, CmdType event)
 	Relation		relation;
 	TriggerDesc	   *trigDesc;
 	RangeTblEntry  *rte = planner_rt_fetch(rti, root);
-	bool			result;
+	bool			result = false;
 
 	if (!has_subclass(rte->relid))
 		list = list_make1_oid(rte->relid);
