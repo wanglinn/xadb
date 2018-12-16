@@ -64,6 +64,8 @@
 #include "pgxc/remotecopy.h"
 #include "pgxc/copyops.h"
 #include "utils/tqual.h"
+#include "catalog/pg_type.h"
+#include "funcapi.h"
 
 #define REMOTE_KEY_CMD_INFO		0x1
 #endif
@@ -751,6 +753,13 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 	Relation	tempRel;
 	char	   *matviewname;
 	char	   *tempname;
+#ifdef ADB
+	char	   *difftempname;
+	EphemeralNamedRelation difftblenr;
+	TupleDesc difftbldesc = NULL;
+	Tuplestorestate *difftbltupstore = NULL;
+	int difftblrc;
+#endif
 	char	   *diffname;
 	TupleDesc	tupdesc;
 	bool		foundUniqueIndex;
@@ -768,6 +777,7 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 	{
 		tempRel = NULL;
 		tempname = "named_ts_for_refresh_mv";
+		difftempname = "named_ts_for_diff_mv";
 	}else
 	{
 #endif /* ADB */
@@ -853,9 +863,7 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 	/* Start building the query for creating the diff table. */
 	resetStringInfo(&querybuf);
 #ifdef ADB
-	if (tstore)
-		appendStringInfo(&querybuf, "WITH %s AS (", diffname);
-	else
+	if (!tstore)
 		appendStringInfo(&querybuf, "CREATE TEMP TABLE %s AS ", diffname);
 #endif /* ADB */
 	appendStringInfo(&querybuf,
@@ -988,11 +996,51 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 						   "ORDER BY tid");
 #ifdef ADB
 	if (tstore == NULL)
+	{
 #endif /* ADB */
 	/* Create the temporary "diff" table. */
 	if (SPI_exec(querybuf.data, 0) != SPI_OK_UTILITY)
 		elog(ERROR, "SPI_exec failed: %s", querybuf.data);
+#ifdef ADB
+	}
+	else
+	{
+		HeapTuple spi_tuple;
+		int i = 0;
 
+		/* use the tuplestore difftbltupstore to store the diff tuple content */
+		difftblenr = palloc0(sizeof(*difftblenr));
+		difftblenr->md.name = difftempname;
+		difftblenr->md.reliddesc = InvalidOid;
+		difftblenr->md.enrtype = ENR_NAMED_TUPLESTORE;
+		difftbltupstore = tuplestore_begin_heap(true, false, work_mem);
+
+		if ( SPI_exec(querybuf.data, 0) != SPI_OK_SELECT)
+			elog(ERROR, "SPI_exec failed: %s", querybuf.data);
+
+		difftbldesc = CreateTemplateTupleDesc(2, false);
+		TupleDescInitEntry(difftbldesc, (AttrNumber) 1, "tid",
+						   TIDOID, -1, 0);
+		TupleDescInitEntry(difftbldesc, (AttrNumber) 2, "newdata",
+						   matviewRel->rd_att->tdtypeid, -1, 0);
+		difftblenr->md.tupdesc = BlessTupleDesc(difftbldesc);
+
+		for (i = 0; i < SPI_processed; i++)
+		{
+			spi_tuple = SPI_tuptable->vals[i];
+			tuplestore_puttuple(difftbltupstore, spi_tuple);
+		}
+
+		difftblenr->md.enrtuples = tuplestore_tuple_count(difftbltupstore);
+		tuplestore_donestoring(difftbltupstore);
+		difftblenr->reldata = difftbltupstore;
+		difftblrc = SPI_register_relation(difftblenr);
+
+		if (difftblrc != SPI_OK_REL_REGISTER)
+			elog(ERROR, "SPI register relation failed:%d", difftblrc);
+
+	}
+#endif
 	SetUserIdAndSecContext(relowner,
 						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
 
@@ -1018,10 +1066,22 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 #ifdef ADB
 	}else
 	{
+		/* Deletes must come before inserts; do them first. */
+		resetStringInfo(&querybuf);
 		OpenMatViewIncrementalMaintenance();
-		appendStringInfoString(&querybuf, "),\"_refresh_mv_delete_\" AS (");
 	}
 #endif /* ADB */
+
+#ifdef ADB
+	if (tstore)
+		appendStringInfo(&querybuf,
+					 "DELETE FROM %s mv WHERE ctid OPERATOR(pg_catalog.=) ANY "
+					 "(SELECT diff.tid FROM %s diff "
+					 "WHERE diff.tid IS NOT NULL "
+					 "AND diff.newdata IS NULL)",
+					 matviewname, difftempname);
+	else
+#endif
 	appendStringInfo(&querybuf,
 					 "DELETE FROM %s mv WHERE ctid OPERATOR(pg_catalog.=) ANY "
 					 "(SELECT diff.tid FROM %s diff "
@@ -1040,9 +1100,22 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 #ifdef ADB
 	}else
 	{
-		appendStringInfoChar(&querybuf, ')');
+		if (SPI_exec(querybuf.data, 0) != SPI_OK_DELETE)
+			elog(ERROR, "SPI_exec failed: %s", querybuf.data);
+
+		/* Inserts go last. */
+		resetStringInfo(&querybuf);
 	}
 #endif /* ADB */
+
+#ifdef ADB
+	if (tstore)
+		appendStringInfo(&querybuf,
+					 "INSERT INTO %s SELECT (diff.newdata).* "
+					 "FROM %s diff WHERE tid IS NULL",
+					 matviewname, difftempname);
+	else
+#endif
 	appendStringInfo(&querybuf,
 					 "INSERT INTO %s SELECT (diff.newdata).* "
 					 "FROM %s diff WHERE tid IS NULL",
@@ -1068,6 +1141,16 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 	if (SPI_exec(querybuf.data, 0) != SPI_OK_UTILITY)
 		elog(ERROR, "SPI_exec failed: %s", querybuf.data);
 #ifdef ADB
+	}
+	else
+	{
+		SPI_unregister_relation(difftempname);
+		if (difftbltupstore)
+			tuplestore_end(difftbltupstore);
+		if (difftbldesc)
+			FreeTupleDesc(difftbldesc);
+		pfree(difftblenr);
+
 	}
 #endif /* ADB */
 
