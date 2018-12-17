@@ -5462,15 +5462,6 @@ compute_bitmap_pages(PlannerInfo *root, RelOptInfo *baserel, Path *bitmapqual,
 	return pages_fetched;
 }
 #ifdef ADB
-void cost_div(Path *path, int n)
-{
-	if(n > 0)
-	{
-		path->rows /= n;
-		path->startup_cost /= n;
-		path->total_cost /= n;
-	}
-}
 void cost_cluster_gather(ClusterGatherPath *path, RelOptInfo *baserel, ParamPathInfo *param_info, double *rows)
 {
 	Cost		startup_cost = 0;

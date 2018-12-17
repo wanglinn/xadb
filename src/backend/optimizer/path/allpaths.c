@@ -715,6 +715,25 @@ set_rel_consider_parallel(PlannerInfo *root, RelOptInfo *rel,
 	rel->consider_parallel = true;
 }
 
+#ifdef ADB
+static void recost_plain_path(Path *path, ReduceInfo *rinfo)
+{
+	if (rinfo->exclude_exec == NIL &&	/* not hin distribute key */
+		path->pathtype == T_SeqScan)	/* not IndexScan,TidScan... */
+	{
+		Cost run_cost = path->total_cost - path->startup_cost;
+		path->total_cost = path->startup_cost + run_cost / list_length(rinfo->storage_nodes);
+
+		if (path->rows >= 1.0)			/* avoid final rows is zero */
+		{
+			path->rows /= list_length(rinfo->storage_nodes);
+			if (path->rows < 1.0)
+				path->rows = 1.0;
+		}
+	}
+}
+#endif /* ADB */
+
 /*
  * set_plain_rel_pathlist
  *	  Build access paths for a plain relation (no subquery, no inheritance)
@@ -793,7 +812,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 			set_path_reduce_info_worker(path, reduce_info_list);
 
-			cost_div(path, list_length(loc_info->nodeids));
+			recost_plain_path(path, rinfo);
 		}
 
 		if (exec_param_clauses)
@@ -814,7 +833,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			{
 				path = create_seqscan_path(root, rel, required_outer, 0);
 				set_path_reduce_info_worker(path, reduce_info_list);
-				cost_div(path, list_length(loc_info->nodeids));
+				recost_plain_path(path, rinfo);
 				path = (Path*)try_reducescan_path(root, rel, path->pathtarget, path, replicate, NULL, exec_param_clauses);
 				Assert(path);
 				rel->cluster_pathlist = list_make1(path);
@@ -836,7 +855,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 					set_path_reduce_info_worker(path, reduce_info_list);
 
-					cost_div(path, list_length(loc_info->nodeids));
+					recost_plain_path(path, rinfo);
 					add_cluster_partial_path(rel, path);
 				}
 				rel->partial_pathlist = NIL;

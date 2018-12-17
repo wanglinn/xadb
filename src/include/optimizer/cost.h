@@ -246,7 +246,6 @@ extern void cost_gather_merge(GatherMergePath *path, PlannerInfo *root,
 				  double *rows);
 #ifdef ADB
 extern void cost_remotequery(RemoteQueryPath *rqpath, PlannerInfo *root, RelOptInfo *rel);
-extern void cost_div(Path *path, int n);
 extern void cost_cluster_gather(ClusterGatherPath *path, RelOptInfo *baserel, ParamPathInfo *param_info, double *rows);
 extern void cost_cluster_reduce(ClusterReducePath *path);
 #endif
