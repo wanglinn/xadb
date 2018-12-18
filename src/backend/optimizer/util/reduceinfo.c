@@ -815,7 +815,19 @@ int ReducePathUsingReduceInfo(PlannerInfo *root, RelOptInfo *rel, Path *path,
 		}
 	}
 	if(new_path == NULL)
+	{
+		if (IsReduceInfoListCoordinator(old_reduce_list))
+		{
+			/*
+			 * make sure result tuple(s) only in coordinator,
+			 * some path return tuple(s) in any node,
+			 * e.g "SELECT 1 AS XXX"
+			 */
+			path = (Path*)create_filter_path(root, rel, path, path->pathtarget,
+											 list_make1(CreateNodeOidEqualOid(PGXCNodeOid)));
+		}
 		new_path = create_cluster_reduce_path(root, path, list_make1(reduce), rel, NIL);
+	}
 	result = (*func)(root, new_path, context);
 	if(result < 0)
 		return result;
