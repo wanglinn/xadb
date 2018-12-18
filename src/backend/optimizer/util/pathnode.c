@@ -1869,11 +1869,25 @@ create_result_path(PlannerInfo *root, RelOptInfo *rel,
 }
 
 #ifdef ADB
-FilterPath *create_filter_path(PlannerInfo *root, RelOptInfo *rel,
-				   PathTarget *target, List *quals)
+FilterPath *create_filter_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
+							   PathTarget *target, List *quals)
 {
-	ResultPath *filter = create_result_path(root, rel, target, quals);
-	filter->path.type = T_FilterPath;
+	QualCost	qual_cost;
+	ResultPath *filter = makeNode(FilterPath);
+	memcpy(filter, subpath, sizeof(Path));
+	NodeSetTag(filter, T_FilterPath);
+	filter->path.pathtype = T_Result;
+	filter->path.pathtarget = target;
+	filter->path.parent = rel;
+	filter->path.parallel_safe = rel->consider_parallel && subpath->parallel_safe;
+	filter->path.total_cost += (cpu_tuple_cost + target->cost.per_tuple) * subpath->rows;
+
+	filter->subpath = subpath;
+	filter->quals = quals;
+	cost_qual_eval(&qual_cost, quals, root);
+	filter->path.startup_cost += qual_cost.startup + qual_cost.per_tuple;
+	filter->path.total_cost += qual_cost.startup + qual_cost.per_tuple * subpath->rows;
+
 	return filter;
 }
 
@@ -1913,9 +1927,9 @@ Path *replicate_to_one_node(PlannerInfo *root, RelOptInfo *rel, Path *path, List
 
 	filter = create_filter_path(root,
 								rel,
+								path,
 								path->pathtarget,
 								list_make1(CreateNodeOidEqualOid(target)));
-	filter->subpath = path;
 
 	source_oids = list_make1_oid(target);
 	filter->path.reduce_info_list = list_make1(MakeReplicateReduceInfo(source_oids));
