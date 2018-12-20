@@ -471,37 +471,42 @@ void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
 void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 {
 	StringInfoData buf;
-	int i;
+	int i,nattr;
 	Oid oid;
 
 	if(len < (sizeof(bool) + sizeof(int)))
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				errmsg("invalid message length")));
+				 errmsg("invalid message length")));
 	}
 
 	if(desc->tdhasoid != (bool)msg[0])
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
-				errmsg("diffent TupleDesc of has Oid"),
-				errdetail("local is %d, remote is %d", desc->tdhasoid, msg[0])));
+				 errmsg("diffent TupleDesc of has Oid"),
+				 errdetail("local is %d, remote is %d", desc->tdhasoid, msg[0])));
 	}
 
-	memcpy(&i, msg+1, sizeof(i));
-	if(i!=desc->natts)
-	{
-		ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED),
-				errmsg("diffent TupleDesc of number attribute"),
-				errdetail("local is %d, remote is %d", desc->natts, i)));
-	}
+	memcpy(&nattr, msg+1, sizeof(nattr));
 
 	buf.data = (char*)msg;
 	buf.maxlen = buf.len = len;
 	buf.cursor = (sizeof(bool)+sizeof(int));
 	for(i=0;i<desc->natts;++i)
 	{
+		if (TupleDescAttr(desc, i)->attisdropped)
+			continue;
+
+		if (i>=nattr)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					 errmsg("diffent TupleDesc of number attribute"),
+					 errdetail("local is %d, remote is %d", desc->natts, nattr)));
+		}
+
 		/* attname ignore */
 		(void) load_node_string(&buf, false);
 		/* atttypmod ignore */
@@ -514,9 +519,17 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
-					errmsg("diffent TupleDesc of attribute[%d]", i),
-					errdetail("local is %u, remote is %u", TupleDescAttr(desc, i)->atttypid, oid)));
+					 errmsg("diffent TupleDesc of attribute[%d]", i),
+					 errdetail("local is %u, remote is %u", TupleDescAttr(desc, i)->atttypid, oid)));
 		}
+	}
+
+	if (i<nattr)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_DATA_CORRUPTED),
+				 errmsg("diffent TupleDesc of number attribute"),
+				 errdetail("local is %d, remote is %d", desc->natts, nattr)));
 	}
 }
 
