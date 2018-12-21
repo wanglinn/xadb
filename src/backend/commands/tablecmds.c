@@ -16671,8 +16671,8 @@ checkTwoTblDistributebyType(Relation destRel, Relation sourceRel, bool checkByCo
 			forboth(attachCeil, destRel->rd_locator_info->funcAttrNums \
 				, relCeil, sourceRel->rd_locator_info->funcAttrNums)
 			{
-				destAttno = (int ) lfirst(attachCeil);
-				sourceAttno = (int ) lfirst(relCeil);
+				destAttno = lfirst_int(attachCeil);
+				sourceAttno = lfirst_int(relCeil);
 				if (!checkByColName)
 				{
 					if (destAttno != sourceAttno)
