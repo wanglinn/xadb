@@ -1948,7 +1948,7 @@ stmt_assert		: opt_block_label K_ASSERT
 						new = palloc(sizeof(PLpgSQL_stmt_assert));
 
 						new->cmd_type	= PLPGSQL_STMT_ASSERT;
-						new->lineno		= plpgsql_location_to_lineno(@1);
+						new->lineno		= plpgsql_location_to_lineno(@2);
 						new->label		= $1;
 
 						new->cond = read_sql_expression2(',', ';',
