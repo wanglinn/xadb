@@ -270,6 +270,7 @@ static PathTarget* update_window_target(PathTarget *input_target,
 										WindowFuncLists *wflists,
 										WindowClause *wc);
 static bool rti_is_base_rel(PlannerInfo *root, Index rti);
+static bool get_path_rewind_subplan_ids(Path *path, Bitmapset **pbms);
 #endif
 
 
@@ -437,58 +438,106 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	/* Select best Path and turn it into a Plan */
 	final_rel = fetch_upper_rel(root, UPPERREL_FINAL, NULL);
 	best_path = get_cheapest_fractional_path(final_rel, tuple_fraction);
+
 #ifdef ADB
-	if (glob->subplans != NIL &&
-		have_cluster_gather_path(best_path))
+	if (glob->subplans != NIL)
 	{
-		/* we need change subplan */
 		ListCell *lc_subroot;
 		ListCell *lc_subplan;
 		PlannerInfo *subroot;
 		RelOptInfo *sub_final;
 		Path *path;
 		Bitmapset *cte_planids = NULL;
-		List *nodeOids = get_remote_nodes(root, best_path, false);
+		List *nodeOids;
 		List *reduce_list;
 		int sub_plan_id;
-		Assert(glob->clusterPlanOK);
+		bool is_cluster_plan = have_cluster_gather_path(best_path);
 
-		foreach(lc_subroot, root->glob->subroots)
-			cte_planids = find_cte_planid(lfirst(lc_subroot), cte_planids);
-		cte_planids = find_cte_planid(root, cte_planids);
-
-		sub_plan_id = 0;
-		nodeOids = list_append_unique_oid(nodeOids, PGXCNodeOid);
-		reduce_list = list_make1(MakeReplicateReduceInfo(nodeOids));
-		forboth(lc_subroot, root->glob->subroots, lc_subplan, root->glob->subplans)
+		/* find all CTE plan ids if generate cluster plan */
+		if (is_cluster_plan)
 		{
-			++sub_plan_id;
-			subroot = lfirst(lc_subroot);
-			sub_final = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
-
-			if(bms_is_member(sub_plan_id, cte_planids))
-			{
-				/*
-				 * we clear cheapest replicate path
-				 * see function get_remote_nodes
-				 */
-				sub_final->cheapest_replicate_path = NULL;
-				Assert(sub_final->cheapest_cluster_total_path);
-				path = sub_final->cheapest_cluster_total_path;
-			}else
-			{
-				Assert(sub_final->cheapest_replicate_path != NULL);
-				path = sub_final->cheapest_replicate_path;
-				replace_replicate_reduce(path, reduce_list);
-
-				if (bms_is_member(sub_plan_id, glob->rewindPlanIDs) &&
-					!ExecMaterializesOutput(path->pathtype))
-					path = (Path*)create_material_path(sub_final, path);
-			}
-
-			lfirst(lc_subplan) = create_plan(subroot, path);
+			foreach(lc_subroot, root->glob->subroots)
+				cte_planids = find_cte_planid(lfirst(lc_subroot), cte_planids);
+			cte_planids = find_cte_planid(root, cte_planids);
 		}
-		bms_free(cte_planids);
+
+		/* subplan is not all CTE */
+		if (bms_num_members(cte_planids) != list_length(glob->subplans))
+		{
+			/*
+			 * sometimes SubPlan use one more times, but it not rewindPlanIDs
+			 * e.g. SubPlan using in HashJoin cond
+			 */
+			get_path_rewind_subplan_ids(best_path, &glob->rewindPlanIDs);
+
+			sub_plan_id = 0;
+			foreach(lc_subroot, root->glob->subroots)
+			{
+				++sub_plan_id;
+				subroot = lfirst(lc_subroot);
+				sub_final = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
+
+				if (is_cluster_plan)
+				{
+					if (bms_is_member(sub_plan_id, cte_planids))
+					{
+						Assert(sub_final->cheapest_cluster_total_path);
+						path = sub_final->cheapest_cluster_total_path;
+					}else
+					{
+						Assert(sub_final->cheapest_replicate_path != NULL);
+						path = sub_final->cheapest_replicate_path;
+					}
+				}else
+				{
+					/* same code as function make_subplan */
+					path = get_cheapest_fractional_path(sub_final, subroot->tuple_fraction);
+					path = sub_final->cheapest_total_path;
+				}
+				get_path_rewind_subplan_ids(path, &glob->rewindPlanIDs);
+			}
+		}
+
+		if (is_cluster_plan)
+		{
+			Assert(glob->clusterPlanOK);
+
+			/* we need change subplan as cluster */
+			nodeOids = get_remote_nodes(root, best_path, false);
+
+			sub_plan_id = 0;
+			nodeOids = list_append_unique_oid(nodeOids, PGXCNodeOid);
+			reduce_list = list_make1(MakeReplicateReduceInfo(nodeOids));
+			forboth(lc_subroot, root->glob->subroots, lc_subplan, root->glob->subplans)
+			{
+				++sub_plan_id;
+				subroot = lfirst(lc_subroot);
+				sub_final = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
+
+				if(bms_is_member(sub_plan_id, cte_planids))
+				{
+					/*
+					* we clear cheapest replicate path
+					* see function get_remote_nodes
+					*/
+					sub_final->cheapest_replicate_path = NULL;
+					Assert(sub_final->cheapest_cluster_total_path);
+					path = sub_final->cheapest_cluster_total_path;
+				}else
+				{
+					Assert(sub_final->cheapest_replicate_path != NULL);
+					path = sub_final->cheapest_replicate_path;
+					replace_replicate_reduce(path, reduce_list);
+
+					if (bms_is_member(sub_plan_id, glob->rewindPlanIDs) &&
+						!ExecMaterializesOutput(path->pathtype))
+						path = (Path*)create_material_path(sub_final, path);
+				}
+
+				lfirst(lc_subplan) = create_plan(subroot, path);
+			}
+			bms_free(cte_planids);
+		}
 	}
 #endif /* ADB */
 
@@ -8095,6 +8144,42 @@ static bool rti_is_base_rel(PlannerInfo *root, Index rti)
 	return rte->rtekind == RTE_RELATION &&
 		   (rte->relkind == RELKIND_RELATION ||
 			rte->relkind == RELKIND_PARTITIONED_TABLE);
+}
+
+static bool get_expr_rewind_subplan_ids(Node *expr, Bitmapset **pbms)
+{
+	if (expr == NULL)
+		return false;
+
+	if (IsA(expr, SubPlan))
+	{
+		*pbms = bms_add_member(*pbms, ((SubPlan*)expr)->plan_id);
+	}else if (IsA(expr, RestrictInfo))
+	{
+		RestrictInfo *ri = (RestrictInfo*)expr;
+		expression_tree_walker((Node*)(ri->clause),
+							   get_expr_rewind_subplan_ids,
+							   pbms);
+		expression_tree_walker((Node*)(ri->orclause),
+							   get_expr_rewind_subplan_ids,
+							   pbms);
+		return false;
+	}
+
+	return expression_tree_walker(expr, get_expr_rewind_subplan_ids, pbms);
+}
+
+static bool get_path_rewind_subplan_ids(Path *path, Bitmapset **pbms)
+{
+	if (path == NULL)
+		return false;
+	if (IsA(path, HashPath))
+	{
+		HashPath *hashpath = (HashPath*)path;
+		get_expr_rewind_subplan_ids((Node*)(hashpath->path_hashclauses), pbms);
+	}
+
+	return path_tree_walker(path, get_path_rewind_subplan_ids, pbms);
 }
 
 #endif /* ADB */
