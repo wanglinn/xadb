@@ -2739,6 +2739,9 @@ ProcessUtilitySlow(ParseState *pstate,
 
 			case T_CreateStatsStmt:
 				address = CreateStatistics((CreateStatsStmt *) parsetree);
+#ifdef ADB
+				ExecRemoteUtilityStmt(&utilityContext);
+#endif
 				break;
 
 			case T_AlterCollationStmt:
