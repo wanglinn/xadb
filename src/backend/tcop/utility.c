@@ -3135,8 +3135,11 @@ ExecUtilityFindNodesRelkind(Oid relid, bool *is_temp)
 			break;
 
 		case RELKIND_RELATION:
-			*is_temp = IsTempTable(relid);
-			exec_type = EXEC_ON_ALL_NODES;
+		case RELKIND_PARTITIONED_TABLE:
+			if ((*is_temp = IsTempTable(relid)))
+				exec_type = EXEC_ON_NONE;
+			else
+				exec_type = EXEC_ON_ALL_NODES;
 			break;
 
 		case RELKIND_VIEW:
