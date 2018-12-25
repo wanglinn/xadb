@@ -2371,7 +2371,7 @@ bool EqualReduceExpr(Expr *left, Expr *right)
 
 static Param *makeReduceParam(Oid type, int paramid, int parammod, Oid collid)
 {
-	Param *param = palloc(sizeof(Param));
+	Param *param = makeNode(Param);
 	param->location = -1;
 	param->paramid = paramid;
 	param->paramtype = type;
