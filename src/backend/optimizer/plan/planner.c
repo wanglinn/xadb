@@ -531,7 +531,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 
 					if (bms_is_member(sub_plan_id, glob->rewindPlanIDs) &&
 						!ExecMaterializesOutput(path->pathtype))
-						path = (Path*)create_material_path(sub_final, path);
+						path = (Path*)create_material_path(path->parent, path);
 				}
 
 				lfirst(lc_subplan) = create_plan(subroot, path);
