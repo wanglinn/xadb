@@ -4341,9 +4341,8 @@ OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType
 				{
 					DistributeBy *n = makeNode(DistributeBy);
 					n->disttype = DISTTYPE_USER_DEFINED;
-					n->funcname = $3;
-					n->funcargs = $5;
-					transformDistributeBy(n);
+					n->func = makeFuncCall($3, $5, @3);
+					transformDistributeBy(n, yyscanner);
 					$$ = n;
 				}
 		;

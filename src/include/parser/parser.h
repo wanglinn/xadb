@@ -105,7 +105,7 @@ extern TypeName *OracleTypeName(char *name);
 extern TypeName *OracleTypeNameLocation(char *name, int location);
 #endif
 #ifdef ADB
-extern void transformDistributeBy(DistributeBy *dbstmt);
+extern void transformDistributeBy(DistributeBy *dbstmt, core_yyscan_t yyscanner);
 #endif
 
 #endif							/* PARSER_H */

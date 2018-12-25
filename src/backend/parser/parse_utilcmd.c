@@ -252,8 +252,7 @@ addDefaultDistributeBy(CreateStmt *stmt)
 				}
 
 				distby->disttype = DISTTYPE_USER_DEFINED;
-				distby->funcname = funcname;
-				distby->funcargs = funcargs;
+				distby->func = makeFuncCall(funcname, funcargs, -1);
 			}
 			break;
 		case LOCATOR_TYPE_RANGE:

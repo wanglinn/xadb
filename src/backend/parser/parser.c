@@ -1656,18 +1656,21 @@ TypeName *OracleTypeNameLocation(char *name, int location)
 #endif /* ADB_GRAM_ORA */
 
 #ifdef ADB
-void transformDistributeBy(DistributeBy *dbstmt)
+void transformDistributeBy(DistributeBy *dbstmt, core_yyscan_t yyscanner)
 {
-	List *funcname = NIL;
-	List *funcargs = NIL;
+	FuncCall *func;
+	List *funcname;
+	List *funcargs;
 
 	if (dbstmt == NULL ||
 		/* must be replication or roundrobin */
 		dbstmt->disttype != DISTTYPE_USER_DEFINED)
 		return ;
 
-	funcname = dbstmt->funcname;
-	funcargs = dbstmt->funcargs;
+	Assert(dbstmt->func);
+	func = dbstmt->func;
+	funcname = func->funcname;
+	funcargs = func->args;
 
 	Assert(funcname && funcargs);
 
@@ -1687,7 +1690,8 @@ void transformDistributeBy(DistributeBy *dbstmt)
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("Invalid distribution column specified for \"HASH\""),
-						 errhint("Valid syntax input: HASH(column)")));
+						 errhint("Valid syntax input: HASH(column)"),
+						 scanner_errposition(func->location, yyscanner)));
 
 			dbstmt->disttype = DISTTYPE_HASH;
 			dbstmt->colname = strVal(linitial(((ColumnRef *)argnode)->fields));
@@ -1699,7 +1703,8 @@ void transformDistributeBy(DistributeBy *dbstmt)
 				ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
 					errmsg("Invalid distribution column specified for \"MODULO\""),
-					errhint("Valid syntax input: MODULO(column)")));
+					errhint("Valid syntax input: MODULO(column)"),
+					scanner_errposition(func->location, yyscanner)));
 
 			dbstmt->disttype = DISTTYPE_MODULO;
 			dbstmt->colname = strVal(linitial(((ColumnRef *)argnode)->fields));
@@ -1711,7 +1716,8 @@ void transformDistributeBy(DistributeBy *dbstmt)
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("Invalid distribution column specified for \"HASH\""),
-						 errhint("Valid syntax input: HASH(column)")));
+						 errhint("Valid syntax input: HASH(column)"),
+						 scanner_errposition(func->location, yyscanner)));
 
 			dbstmt->disttype = DISTTYPE_HASHMAP;
 			dbstmt->colname = strVal(linitial(((ColumnRef *)argnode)->fields));
