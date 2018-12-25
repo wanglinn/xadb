@@ -471,7 +471,7 @@ void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
 void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 {
 	StringInfoData buf;
-	int i,nattr;
+	int i,j,nattr;
 	Oid oid;
 
 	if(len < (sizeof(bool) + sizeof(int)))
@@ -494,12 +494,12 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 	buf.data = (char*)msg;
 	buf.maxlen = buf.len = len;
 	buf.cursor = (sizeof(bool)+sizeof(int));
-	for(i=0;i<desc->natts;++i)
+	for(i=j=0;i<desc->natts;++i)
 	{
 		if (TupleDescAttr(desc, i)->attisdropped)
 			continue;
 
-		if (i>=nattr)
+		if (j>=nattr)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
@@ -522,9 +522,10 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 					 errmsg("diffent TupleDesc of attribute[%d]", i),
 					 errdetail("local is %u, remote is %u", TupleDescAttr(desc, i)->atttypid, oid)));
 		}
+		++j;
 	}
 
-	if (i<nattr)
+	if (j<nattr)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
