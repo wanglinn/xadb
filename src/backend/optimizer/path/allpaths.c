@@ -776,6 +776,68 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		rinfo = MakeReduceInfoFromLocInfo(loc_info, exclude, rte->relid, rel->relid);
 		list_free(exclude);
 
+		if (!IsReduceInfoInOneNode(rinfo))
+		{
+			/*
+			 * volatile exprs can not run in one more node,
+			 * because they return different results on different nodes
+			 */
+			bool has_volatile_expr = false;
+			foreach(lc, rel->baserestrictinfo)
+			{
+				RestrictInfo *ri = lfirst(lc);
+				if (contain_volatile_functions((Node*)(ri->clause)) ||
+					contain_volatile_functions((Node*)(ri->orclause)))
+				{
+					has_volatile_expr = true;
+					break;
+				}
+			}
+
+			/* target list usually not real for now, so skip test PathTarget */
+#if 0
+			if (has_volatile_expr == false &&
+				rel->reltarget != NULL && /* Is it can be null? Add test in case of safety */
+				contain_volatile_functions((Node*)(rel->reltarget->exprs)))
+				has_volatile_expr = true;
+#endif
+
+			if (has_volatile_expr)
+			{
+				List *exec_on;
+				Oid preferred;
+				if (!IsReduceInfoReplicated(rinfo))
+				{
+					/*
+					 * when not replicate relation,
+					 * we have no idea to make cluster plan only run in one node
+					 */
+					root->glob->clusterPlanOK = false;
+					FreeReduceInfo(rinfo);
+					goto no_cluster_paths_;
+				}
+
+				/* let plan run in preferred node */
+				if (rinfo->exclude_exec == NIL)
+					exec_on = rinfo->storage_nodes;
+				else
+					exec_on = list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec);
+
+				preferred = get_preferred_nodeoid(exec_on);
+				if (exec_on != rinfo->storage_nodes)
+					list_free(exec_on);
+				FreeReduceInfo(rinfo);
+
+				/*
+				 * make a random ReduceInfo only run in preferred node,
+				 * when other node received this plan will replace it to empty plan
+				 */
+				exec_on = list_make1_oid(preferred);
+				rinfo = MakeRandomReduceInfo(exec_on);
+				list_free(exec_on);
+			}
+		}
+
 		exec_param_clauses = NIL;
 		save_clauses = rel->baserestrictinfo;
 		if(root->must_replicate)
@@ -863,6 +925,8 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		}
 		rel->pathlist = NIL;
 	}
+
+no_cluster_paths_:
 	if (!create_plainrel_rqpath(root, rel, rte, required_outer))
 	{
 #endif
