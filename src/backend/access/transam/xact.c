@@ -823,19 +823,6 @@ GetCurrentCommandId(bool used)
 		isCommandIdReceived = false;
 		currentCommandId = GetReceivedCommandId();
 	}
-	else if (IsCnMaster())
-	{
-		/*
-		 * If command id reported by remote node is greater that the current
-		 * command id, the coordinator needs to use it. This is required because
-		 * a remote node can increase the command id sent by the coordinator
-		 * e.g. in case a trigger fires at the remote node and inserts some rows
-		 * The coordinator should now send the next command id knowing
-		 * the largest command id either current or received from remote node.
-		 */
-		if (GetReceivedCommandId() > currentCommandId)
-			currentCommandId = GetReceivedCommandId();
-	}
 #endif
 
 	/* this is global to a transaction, not subtransaction-local */
@@ -1258,6 +1245,21 @@ CommandCounterIncrement(void)
 		if (IsInParallelMode() || IsParallelWorker())
 			elog(ERROR, "cannot start commands during a parallel operation");
 
+#ifdef ADB
+		if (IsCnMaster() &&
+			GetReceivedCommandId() > currentCommandId)
+		{
+			/*
+			 * If command id reported by remote node is greater that the current
+			 * command id, the coordinator needs to use it. This is required because
+			 * a remote node can increase the command id sent by the coordinator
+			 * e.g. in case a trigger fires at the remote node and inserts some rows
+			 * The coordinator should now send the next command id knowing
+			 * the largest command id either current or received from remote node.
+			 */
+			currentCommandId = GetReceivedCommandId();
+		}else
+#endif /* ADB */
 		currentCommandId += 1;
 		if (currentCommandId == InvalidCommandId)
 		{
