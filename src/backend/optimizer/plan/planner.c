@@ -64,6 +64,7 @@
 #include "pgxc/pgxcnode.h"
 #include "optimizer/pgxcplan.h"
 #include "optimizer/reduceinfo.h"
+#include "optimizer/restrictinfo.h"
 #include "utils/fmgroids.h"
 #endif
 
@@ -324,6 +325,7 @@ static PathTarget* update_window_target(PathTarget *input_target,
 										WindowClause *wc);
 static bool rti_is_base_rel(PlannerInfo *root, Index rti);
 static bool get_path_rewind_subplan_ids(Path *path, Bitmapset **pbms);
+static Path *apply_volatile_tlist_cluster_path(PlannerInfo *root, PathTarget *target, Path *path, RelOptInfo *rel);
 #endif
 
 
@@ -2325,6 +2327,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			List *reduce_info = NULL;
 			List *new_pathlist = NIL;
 			bool try_reduce = root->must_replicate && expression_have_exec_param((Expr*)scanjoin_target->exprs);
+			bool has_volatile = contain_volatile_functions((Node*)scanjoin_target->exprs);
 			if(try_reduce)
 				reduce_info = list_make1(MakeFinalReplicateReduceInfo());
 
@@ -2332,6 +2335,10 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			{
 				Path *subpath = lfirst(lc);
 				Assert(subpath->param_info == NULL);
+
+				if (has_volatile &&
+					(subpath = apply_volatile_tlist_cluster_path(root, scanjoin_target, subpath, current_rel)) == NULL)
+					continue;
 
 				if (try_reduce)
 				{
@@ -9259,6 +9266,49 @@ static bool get_path_rewind_subplan_ids(Path *path, Bitmapset **pbms)
 	}
 
 	return path_tree_walker(path, get_path_rewind_subplan_ids, pbms);
+}
+
+static Path *apply_volatile_tlist_cluster_path(PlannerInfo *root, PathTarget *target, Path *path, RelOptInfo *rel)
+{
+	List	   *exec_on;
+	Path	   *new_path;
+	List	   *rinfo_list = get_reduce_info_list(path);
+	ReduceInfo *rinfo;
+	Oid			preferred;
+
+	if (rinfo_list == NIL)
+		return NULL;
+
+	if (IsReduceInfoListInOneNode(rinfo_list) ||
+		IsReduceInfoListReplicated(rinfo_list) == false)
+		return path;
+
+	/*
+	 * if relation is replicate and target list has volatile expr,
+	 * it can not as replicate, because they return different results on different nodes
+	 */
+	exec_on = ReduceInfoListGetExecuteOidList(rinfo_list);
+	preferred = get_preferred_nodeoid(exec_on);
+	list_free(exec_on);
+	exec_on = list_make1_oid(preferred);
+	rinfo = MakeRandomReduceInfo(exec_on);
+
+	if (is_cluster_base_relation_scan_plan(path->pathtype))
+	{
+		new_path = path;
+	}else
+	{
+		Expr *expr = CreateNodeOidEqualOid(preferred);
+		RestrictInfo *ri = make_simple_restrictinfo(expr);
+		ResultPath *result_path = create_result_path(root, rel, target, list_make1(ri));
+		result_path->subpath = path;
+		new_path = (Path*)result_path;
+	}
+
+	new_path->reduce_info_list = list_make1(rinfo);
+	new_path->reduce_is_valid = true;
+
+	return new_path;
 }
 
 #endif /* ADB */
