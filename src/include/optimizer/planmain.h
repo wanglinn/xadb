@@ -56,6 +56,9 @@ extern ForeignScan *make_foreignscan(List *qptlist, List *qpqual,
 extern Plan *materialize_finished_plan(Plan *subplan);
 extern bool is_projection_capable_path(Path *path);
 extern bool is_projection_capable_plan(Plan *plan);
+#ifdef ADB
+extern bool is_cluster_base_relation_scan_plan(NodeTag tag);
+#endif /* ADB */
 
 /* External use of these functions is deprecated: */
 extern Sort *make_sort_from_sortclauses(List *sortcls, Plan *lefttree);

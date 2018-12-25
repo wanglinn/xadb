@@ -7069,6 +7069,23 @@ is_projection_capable_plan(Plan *plan)
 }
 
 #ifdef ADB
+bool is_cluster_base_relation_scan_plan(NodeTag tag)
+{
+	/* must same as function LoadPlanHook in execCluster.c */
+	switch(tag)
+	{
+	case T_SeqScan:
+	case T_TidScan:
+	case T_BitmapIndexScan:
+	case T_IndexScan:
+	case T_IndexOnlyScan:
+		return true;
+	default:
+		break;
+	}
+	return false;
+}
+
 /*
  * Wrapper functions to expose some functions to PGXC planner. These functions
  * are meant to be wrappers just calling the static function in this file. If
