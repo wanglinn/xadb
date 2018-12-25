@@ -4803,8 +4803,7 @@ _copyDistributeBy(const DistributeBy *from)
 
 	COPY_SCALAR_FIELD(disttype);
 	COPY_STRING_FIELD(colname);
-	COPY_NODE_FIELD(funcname);
-	COPY_NODE_FIELD(funcargs);
+	COPY_NODE_FIELD(func);
 
 	return newnode;
 }

@@ -1550,9 +1550,8 @@ typedef struct DistributeBy
 {
 	NodeTag		type;
 	DistributionType disttype;	/* Distribution type */
-	char	   	*colname;		/* Distribution column name */
-	List		*funcname;		/* User-defined distribute function name */
-	List		*funcargs;		/* User-defined distribute function arguments */
+	char	   *colname;		/* Distribution column name */
+	struct FuncCall *func;		/* User-defined distribute function */
 } DistributeBy;
 
 /*----------

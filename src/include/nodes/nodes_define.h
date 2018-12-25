@@ -1437,8 +1437,7 @@ END_NODE(IntoClause)
 BEGIN_NODE(DistributeBy)
 	NODE_ENUM(DistributionType,disttype)
 	NODE_STRING(colname)
-	NODE_NODE(List,funcname)
-	NODE_NODE(List,funcargs)
+	NODE_NODE(FuncCall,func)
 END_NODE(DistributeBy)
 #endif /* NO_NODE_DistributeBy */
 

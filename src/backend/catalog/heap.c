@@ -85,6 +85,7 @@
 #include "catalog/adb_ha_sync_log.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_aux_class.h"
+#include "catalog/pg_proc.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
 #include "commands/dbcommands.h"
@@ -1046,7 +1047,7 @@ GetUserDefinedFuncArgVars(Oid relid,
 	Assert(distributeby && descriptor);
 	Assert(distributeby->disttype == DISTTYPE_USER_DEFINED);
 
-	funcargs = distributeby->funcargs;
+	funcargs = distributeby->func->args;
 
 	foreach (cell, funcargs)
 	{
@@ -1170,7 +1171,8 @@ GetUserDefinedFuncArgVars(Oid relid,
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 					 errmsg("Invalid distribution column specified: %s", NameListToString(cref->fields)),
-					 errhint("Only column(s) of the relation can be specified")));
+					 errhint("Only column(s) of the relation can be specified"),
+					 errposition(distributeby->func->location)));
 		} else
 		{
 			local_var = makeVar(1,
@@ -1207,7 +1209,7 @@ IsReturnTypeDistributable(Oid retype)
 }
 
 static Oid
-lookup_distribute_function(List *funcname, List *funcargs)
+lookup_distribute_function(List *funcname, List *funcargs, int location)
 {
 	ListCell 	   *l;
 	ListCell 	   *nextl;
@@ -1226,7 +1228,8 @@ lookup_distribute_function(List *funcname, List *funcargs)
 		ereport(ERROR,
 				(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
 				 errmsg("cannot pass more than %d argument to a function: %s",
-				 FUNC_MAX_ARGS, NameListToString(funcname))));
+						FUNC_MAX_ARGS, NameListToString(funcname)),
+				 errposition(location)));
 
 	/*
 	 * Extract arg type info in preparation for function lookup.
@@ -1271,22 +1274,39 @@ lookup_distribute_function(List *funcname, List *funcargs)
 		fdresult == FUNCDETAIL_AGGREGATE ||
 		fdresult == FUNCDETAIL_WINDOWFUNC)
 	{
-		if (IsReturnTypeDistributable(rettype))
-			return funcid;
-		else
+		if (!IsReturnTypeDistributable(rettype))
+		{
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 					 errmsg("Return type of user-defined partition function "
-					 		"must be an integer")));
+							"must be an integer"),
+					 errposition(location)));
+		}
+		if (get_func_retset(funcid))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("set-returning functions are not allowed in DISTRIBUTE BY expressions"),
+					 errposition(location)));
+		}
+		if (func_volatile(funcid) != PROVOLATILE_IMMUTABLE)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("not IMMUTABLE functions are not allowed in DISTRIBUTE BY expressions"),
+					 errposition(location)));
+		}
+		return funcid;
 	} else
 	if (fdresult == FUNCDETAIL_MULTIPLE)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_AMBIGUOUS_FUNCTION),
 				 errmsg("function %s is not unique",
-				 		func_signature_string(funcname, nargs, NIL, actual_arg_types)),
+						func_signature_string(funcname, nargs, NIL, actual_arg_types)),
 				 errhint("Could not choose a best candidate function. "
-				 		 "You might need to add explicit type casts.")));
+						 "You might need to add explicit type casts."),
+				 errposition(location)));
 	} else
 	if (fdresult == FUNCDETAIL_NOTFOUND ||
 		fdresult == FUNCDETAIL_COERCION)
@@ -1294,9 +1314,10 @@ lookup_distribute_function(List *funcname, List *funcargs)
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_FUNCTION),
 				 errmsg("function %s does not exist",
-				 		func_signature_string(funcname, nargs, NIL, actual_arg_types)),
+						func_signature_string(funcname, nargs, NIL, actual_arg_types)),
 				 errhint("No function matches the given name and argument types. "
-				 		"You might need to add explicit type casts.")));
+						"You might need to add explicit type casts."),
+				 errposition(location)));
 	}
 
 	return InvalidOid;
@@ -1310,6 +1331,7 @@ GetUserDefinedDistribution(Oid relid,
 						   int *numatts,
 						   int16 **attnums)
 {
+	FuncCall *func;
 	List 	*funcargs;
 	Oid 	fnoid;
 	int 	nargs;
@@ -1319,6 +1341,8 @@ GetUserDefinedDistribution(Oid relid,
 	Assert(OidIsValid(relid));
 	Assert(distributeby && descriptor);
 	Assert(distributeby->disttype == DISTTYPE_USER_DEFINED);
+	Assert(distributeby->func != NULL);
+	func = distributeby->func;
 
 	/*
 	 * Step 1:
@@ -1333,7 +1357,7 @@ GetUserDefinedDistribution(Oid relid,
 	 *
 	 * Analyze and get distribute function infomation.
 	 */
-	fnoid = lookup_distribute_function(distributeby->funcname, funcargs);
+	fnoid = lookup_distribute_function(func->funcname, funcargs, func->location);
 
 	/*
 	 * Step 3:

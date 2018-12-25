@@ -109,6 +109,7 @@
 #include "commands/dbcommands.h"
 #include "commands/sequence.h"
 #include "intercomm/inter-comm.h"
+#include "mb/pg_wchar.h"
 #include "optimizer/pgxcship.h"
 #include "optimizer/pgxcplan.h"
 #include "pgxc/pgxc.h"
@@ -841,9 +842,18 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		&& (relkind == RELKIND_RELATION || relkind == RELKIND_PARTITIONED_TABLE)
 		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
 	{
+		DistributeBy *distributeby = stmt->distributeby;
+		if (distributeby &&
+			distributeby->func &&
+			distributeby->func->location >= 0)
+		{
+			/* change location to real location */
+			FuncCall *func = distributeby->func;
+			func->location = pg_mbstrlen_with_len(queryString, func->location) + 1;
+		}
 		AddRelationDistribution(relationId,
 								stmt->auxiliary,
-								stmt->distributeby,
+								distributeby,
 								stmt->subcluster,
 								inheritOids,
 								descriptor);
