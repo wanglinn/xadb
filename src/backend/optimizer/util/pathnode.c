@@ -2029,7 +2029,7 @@ Path *replicate_to_one_node(PlannerInfo *root, RelOptInfo *rel, Path *path, List
 								list_make1(CreateNodeOidEqualOid(target)));
 
 	source_oids = list_make1_oid(target);
-	filter->path.reduce_info_list = list_make1(MakeReplicateReduceInfo(source_oids));
+	filter->path.reduce_info_list = list_make1(MakeRandomReduceInfo(source_oids));
 	list_free(source_oids);
 	filter->path.reduce_is_valid = true;
 
