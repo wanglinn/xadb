@@ -474,7 +474,7 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 {
 	Form_pg_attribute attr;
 	StringInfoData buf;
-	int i,nattr;
+	int i,j,nattr;
 	Oid oid;
 
 	if(len < (sizeof(bool) + sizeof(int)))
@@ -497,13 +497,13 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 	buf.data = (char*)msg;
 	buf.maxlen = buf.len = len;
 	buf.cursor = (sizeof(bool)+sizeof(int));
-	for(i=0;i<desc->natts;++i)
+	for(i=j=0;i<desc->natts;++i)
 	{
 		attr = TupleDescAttr(desc, i);
 		if (attr->attisdropped)
 			continue;
 
-		if (i>=nattr)
+		if (j>=nattr)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
@@ -526,9 +526,10 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 					 errmsg("diffent TupleDesc of attribute[%d]", i),
 					 errdetail("local is %u, remote is %u", desc->attrs[i]->atttypid, oid)));
 		}
+		++j;
 	}
 
-	if (i<nattr)
+	if (j<nattr)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
