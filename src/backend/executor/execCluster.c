@@ -980,6 +980,7 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 			list_member_oid(((Agg*)node)->exec_nodes, PGXCNodeOid) == false)
 			node = (Node*)MakeEmptyResultPlan((Plan*)node);
 		break;
+	/* if make empty plan using execute_nodes, must modify is_cluster_base_relation_scan_plan function */ 
 	case T_SeqScan:
 	case T_TidScan:
 		if (!list_member_oid(((Scan*)node)->execute_nodes, PGXCNodeOid))
