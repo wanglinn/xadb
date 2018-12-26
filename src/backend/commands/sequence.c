@@ -744,10 +744,12 @@ nextval_internal(Oid relid, bool check_permissions)
 		elm->last_valid = true;
 		elm->increment = incby;
 
+		relation_close(seqrel, NoLock);
+		last_used_seq = elm;
+
 		pfree(databaseName);
 		pfree(schemaName);
 
-		relation_close(seqrel, NoLock);
 		return result;
 	}
 #endif
