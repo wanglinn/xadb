@@ -793,9 +793,8 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			bool has_volatile_expr = false;
 			foreach(lc, rel->baserestrictinfo)
 			{
-				RestrictInfo *ri = lfirst(lc);
-				if (contain_volatile_functions((Node*)(ri->clause)) ||
-					contain_volatile_functions((Node*)(ri->orclause)))
+				RestrictInfo *ri = lfirst_node(RestrictInfo, lc);
+				if (contain_volatile_functions((Node*)(ri->clause)))
 				{
 					has_volatile_expr = true;
 					break;
