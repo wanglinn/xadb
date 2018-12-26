@@ -458,7 +458,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		/* find all CTE plan ids if generate cluster plan */
 		if (is_cluster_plan)
 		{
-			foreach(lc_subroot, root->glob->subroots)
+			foreach(lc_subroot, glob->subroots)
 				cte_planids = find_cte_planid(lfirst(lc_subroot), cte_planids);
 			cte_planids = find_cte_planid(root, cte_planids);
 		}
@@ -473,7 +473,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 			get_path_rewind_subplan_ids(best_path, &glob->rewindPlanIDs);
 
 			sub_plan_id = 0;
-			foreach(lc_subroot, root->glob->subroots)
+			foreach(lc_subroot, glob->subroots)
 			{
 				++sub_plan_id;
 				subroot = lfirst(lc_subroot);
@@ -494,7 +494,6 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 				{
 					/* same code as function make_subplan */
 					path = get_cheapest_fractional_path(sub_final, subroot->tuple_fraction);
-					path = sub_final->cheapest_total_path;
 				}
 				get_path_rewind_subplan_ids(path, &glob->rewindPlanIDs);
 			}
