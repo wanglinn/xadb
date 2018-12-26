@@ -491,6 +491,13 @@ build_minmax_path(PlannerInfo *root, MinMaxAggInfo *mminfo,
 	mminfo->path = sorted_path;
 	mminfo->pathcost = path_cost;
 
+#ifdef ADB
+	/* function standard_planner need path in final rel, see standard_planner */
+	final_rel = fetch_upper_rel(subroot, UPPERREL_FINAL, NULL);
+	add_path(final_rel, sorted_path);
+	set_cheapest(final_rel);
+#endif /* ADB */
+
 	return true;
 }
 
