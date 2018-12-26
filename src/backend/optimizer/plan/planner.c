@@ -3312,9 +3312,18 @@ separate_rowmarks(PlannerInfo *root)
 	foreach(rm, root->rowMarks)
 	{
 		PlanRowMark *prm = (PlanRowMark *) lfirst(rm);
+		RangeTblEntry *rte = planner_rt_fetch(prm->rti, root);
 
 		if (prm->markType == ROW_MARK_EXCLUSIVE || prm->markType == ROW_MARK_SHARE)
+		{
+			/* materialized view only on coordinators, append prm to rowmarks */
+			if (rte->relkind == RELKIND_MATVIEW)
+			{
+				rml_2 = lappend(rml_2, prm);
+				continue;
+			}
 			rml_1 = lappend(rml_1, prm);
+		}
 		else
 			rml_2 = lappend(rml_2, prm);
 	}
