@@ -2712,10 +2712,10 @@ pgxc_find_nonshippable_row_trig(Relation rel, int16 tgtype_event,
 	if (!trigdesc)
 		return false;
 
-	if ((trigdesc->trig_update_after_statement \
-			&& (trigdesc->trig_update_old_table || trigdesc->trig_update_new_table))
+	if ((trigdesc->trig_update_after_statement
+			 && (trigdesc->trig_update_old_table || trigdesc->trig_update_new_table))
 		|| (trigdesc->trig_delete_after_statement && trigdesc->trig_delete_old_table)
-		|| (trigdesc->trig_insert_after_statement && trigdesc->trig_insert_new_table));
+		|| (trigdesc->trig_insert_after_statement && trigdesc->trig_insert_new_table))
 		return true;
 	/*
 	 * Quick check by just scanning the trigger descriptor, before
