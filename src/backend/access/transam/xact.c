@@ -2393,7 +2393,6 @@ EndCommitRemoteXact(TransactionState state)
 	if (IsXactInPhaseTwo(state))
 	{
 		Assert(is);
-		PreventTransactionChain(true, "COMMIT IMPLICIT PREPARED");
 		EndFinishPreparedRxact(is->gid, nodecnt, nodeIds, false, true);
 		SetXactPhaseOne(state);
 	} else
@@ -2534,6 +2533,14 @@ CommitTransaction(void)
 	}
 
 	TRACE_POSTGRESQL_TRANSACTION_COMMIT(MyProc->lxid);
+
+#ifdef ADB
+	/*
+	 * WAL record transaction commit, let GTM commit before send invalid message
+	 * and release locks, if at after then other session(backend) maybe use old system info
+	 */
+	EndCommitRemoteXact(s);
+#endif /* ADB */
 
 	/*
 	 * Let others know about no transaction in progress by me. Note that this
@@ -2678,9 +2685,6 @@ CommitTransaction(void)
 
 #ifdef ADB
 	AtEOXact_Reduce(true);
-
-	s->blockState = TBLOCK_DEFAULT;
-	EndCommitRemoteXact(s);
 #endif
 }
 
