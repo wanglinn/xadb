@@ -1175,7 +1175,6 @@ setval_oid(PG_FUNCTION_ARGS)
 	{
 		Relation	seqrel;
 		SeqTable	elm;
-		int64		seq_val;
 
 		char * seqName;
 		char * databaseName;
@@ -1187,7 +1186,7 @@ setval_oid(PG_FUNCTION_ARGS)
 		databaseName = get_database_name(seqrel->rd_node.dbNode);
 		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 
-		seq_val = agtm_SetSeqVal(seqName, databaseName, schemaName, next);
+		agtm_SetSeqVal(seqName, databaseName, schemaName, next);
 		relation_close(seqrel, NoLock);
 
 		pfree(databaseName);
@@ -1216,7 +1215,6 @@ setval3_oid(PG_FUNCTION_ARGS)
 	{
 		Relation	seqrel;
 		SeqTable	elm;
-		int64		seq_val;
 
 		char * seqName;
 		char * databaseName;
@@ -1229,7 +1227,7 @@ setval3_oid(PG_FUNCTION_ARGS)
 		databaseName = get_database_name(seqrel->rd_node.dbNode);
 		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 
-		seq_val = agtm_SetSeqValCalled(seqName, databaseName, schemaName, next, iscalled);
+		agtm_SetSeqValCalled(seqName, databaseName, schemaName, next, iscalled);
 		relation_close(seqrel, NoLock);
 
 		pfree(databaseName);
