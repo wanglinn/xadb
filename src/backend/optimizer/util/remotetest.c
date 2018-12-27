@@ -902,8 +902,6 @@ static bool push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool
 	Datum		value;
 	bool	   *nulls;
 	Oid			typid;
-	Oid			collid;
-	int32		typmod;
 	int			i,count;
 
 	if (c->constisnull)
@@ -917,8 +915,6 @@ static bool push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool
 		typid = c->consttype;
 		datums = &c->constvalue;
 		nulls = &c->constisnull;
-		collid = c->constcollid;
-		typmod = c->consttypmod;
 		count = 1;
 	}else
 	{
@@ -937,8 +933,6 @@ static bool push_const_to_aux_col_info(GatherAuxColumnInfo *info, Const *c, bool
 						  &datums,
 						  &nulls,
 						  &count);
-		collid = InvalidOid;
-		typmod = -1;
 	}
 
 	coerce = get_coerce_info(info, typid);
