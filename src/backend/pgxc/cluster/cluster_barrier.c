@@ -264,5 +264,5 @@ ExecCreateClusterBarrier(const char *barrierID, char *completionTag)
 	FreeMixHandle(mix_handle);
 
 	if (completionTag)
-		snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s", CLUSTER_BARRIER_TAG);
+		snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s %s", CLUSTER_BARRIER_TAG, barrier_id);
 }
