@@ -3873,11 +3873,9 @@ static PLoraSQL_type* read_type_define(char *name, int location)
 {
 	PLpgSQL_type *typ;
 	Oid typeid;
-	int typ_loc;
 	int arr_loc = -1;
 	int ndim = -1;
 	int tok = yylex();
-
 
 	if (tok == POK_REF)
 	{
@@ -3924,7 +3922,6 @@ static PLoraSQL_type* read_type_define(char *name, int location)
 		}
 	}
 
-	typ_loc = yylloc;
 	typ = read_datatype(tok);
 	if (yylex() != ';')
 		goto read_error_;
