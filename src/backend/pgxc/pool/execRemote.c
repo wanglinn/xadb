@@ -1362,7 +1362,6 @@ pgxc_rq_fire_astriggers(RemoteQueryState *node)
 		Assert(rq->remote_query);
 		switch (rq->remote_query->commandType)
 		{
-#warning TODO add TransitionCaptureState argument for ExecASInsertTriggers,ExecASUpdateTriggers and function
 			case CMD_INSERT:
 				ExecASInsertTriggers(estate, estate->es_result_relations, NULL);
 				break;
