@@ -4085,6 +4085,9 @@ ExplainExecNodes(ExecNodes *en, ExplainState *es)
 static void ExplainRemoteList(List *rnode, ExplainState *es)
 {
 	ListCell *lc;
+	if (rnode == NIL)
+		return;
+
 	if (es->format == EXPLAIN_FORMAT_TEXT)
 	{
 		const char *tmp = " ";

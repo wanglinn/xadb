@@ -7645,11 +7645,6 @@ static void set_scan_execute_oids(Scan *scan, Path *path, PlannerInfo *root)
 		Assert(list_length(path->reduce_info_list) == 1);
 		rinfo = linitial(path->reduce_info_list);
 		scan->execute_nodes = list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec);
-	}else
-	{
-		/* should be coordinator only */
-		Assert((path->parent->loc_info == NULL)||(LOCATOR_TYPE_META==path->parent->loc_info->locatorType));
-		scan->execute_nodes = list_make1_oid(PGXCNodeOid);
 	}
 }
 
