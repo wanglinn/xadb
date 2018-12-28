@@ -658,8 +658,6 @@ RemoteXactMgrMain(void)
 	RxactLoadLog();
 	RxactMarkAutoTransaction();
 
-	enableFsync = true; /* force enable it */
-
 	/* Server loop */
 	RxactLoop();
 
