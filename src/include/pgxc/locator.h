@@ -128,6 +128,7 @@ extern RelationLocInfo *RelationIdBuildLocator(Oid relid);
 extern void RelationBuildLocator(Relation rel);
 extern RelationLocInfo *GetRelationLocInfo(Oid relid);
 extern RelationLocInfo *CopyRelationLocInfo(RelationLocInfo *srcInfo);
+extern bool EqualRelationLocInfo(const RelationLocInfo *a, const RelationLocInfo *b);
 extern void FreeRelationLocInfo(RelationLocInfo *relationLocInfo);
 extern char *GetRelationDistribColumn(RelationLocInfo *locInfo);
 extern List *GetRelationDistribColumnList(RelationLocInfo *locInfo);
