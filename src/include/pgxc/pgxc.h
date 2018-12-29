@@ -23,6 +23,7 @@ extern bool isPGXCCoordinator;
 extern bool isPGXCDataNode;
 extern bool isRestoreMode;
 extern bool isADBLoader;
+extern bool isRestoreCoordType;
 
 typedef enum
 {

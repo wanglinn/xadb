@@ -121,6 +121,7 @@ static pid_t postmasterPID = -1;
 
 #ifdef ADB
 static char *pgxcCommand = NULL;
+static char *pgxcRestoreMode = NULL;
 #endif
 
 static void write_stderr(const char *fmt,...) pg_attribute_printf(1, 2);
@@ -453,6 +454,9 @@ static pgpid_t
 start_postmaster(void)
 {
 	char		cmd[MAXPGPATH];
+#ifdef ADB
+	char		restoreModestr[20];
+#endif
 
 #ifndef WIN32
 	pgpid_t		pm_pid;
@@ -482,10 +486,19 @@ start_postmaster(void)
 	 * everything to a shell to process them.  Use exec so that the postmaster
 	 * has the same PID as the current child process.
 	 */
+#ifdef ADB
+	memset(restoreModestr, '\0', sizeof(restoreModestr));
+	if (pgxcRestoreMode)
+	{
+		snprintf(restoreModestr, sizeof(restoreModestr), " -R %s ", pgxcRestoreMode);
+	}
+	else
+		strncpy(restoreModestr, "", 1);
+#endif
 	if (log_file != NULL)
 #ifdef ADB
-		snprintf(cmd, MAXPGPATH, "exec \"%s\" %s %s%s < \"%s\" >> \"%s\" 2>&1",
-				exec_path, pgxcCommand, pgdata_opt, post_opts,
+		snprintf(cmd, MAXPGPATH, "exec \"%s\" %s %s%s %s< \"%s\" >> \"%s\" 2>&1",
+				exec_path, pgxcCommand, pgdata_opt, post_opts, restoreModestr,
 				DEVNULL, log_file);
 #else
 		snprintf(cmd, MAXPGPATH, "exec \"%s\" %s%s < \"%s\" >> \"%s\" 2>&1",
@@ -494,8 +507,8 @@ start_postmaster(void)
 #endif /* ADB */
 	else
 #ifdef ADB
-		snprintf(cmd, MAXPGPATH, "exec \"%s\" %s %s%s < \"%s\" 2>&1",
-				exec_path, pgxcCommand, pgdata_opt, post_opts, DEVNULL);
+		snprintf(cmd, MAXPGPATH, "exec \"%s\" %s %s%s %s< \"%s\" 2>&1",
+				exec_path, pgxcCommand, pgdata_opt, post_opts, restoreModestr, DEVNULL);
 #else
 		snprintf(cmd, MAXPGPATH, "exec \"%s\" %s%s < \"%s\" 2>&1",
 				 exec_path, pgdata_opt, post_opts, DEVNULL);
@@ -1893,7 +1906,7 @@ do_help(void)
 	printf(_("Usage:\n"));
 	printf(_("  %s init[db] [-D DATADIR] [-s] [-o OPTIONS]\n"), progname);
 #ifdef ADB
-	printf(_("  %s start    -Z NODE-TYPE [-D DATADIR] [-l FILENAME] [-W] [-t SECS] [-s]\n"
+	printf(_("  %s start    -Z NODE-TYPE [-D DATADIR] [-R NODE-TYPE][-l FILENAME] [-W] [-t SECS] [-s]\n"
 			 "                  [-o OPTIONS] [-p PATH] [-c]\n"), progname);
 #else
 	printf(_("  %s start    [-D DATADIR] [-l FILENAME] [-W] [-t SECS] [-s]\n"
@@ -1928,6 +1941,7 @@ do_help(void)
 	printf(_("  -w, --wait             wait until operation completes (default)\n"));
 	printf(_("  -W, --no-wait          do not wait until operation completes\n"));
 	printf(_("  -Z NODE-TYPE           can be \"coordinator\" or \"datanode\" (Postgres-XC)\n"));
+	printf(_("  -R NODE-TYPE           can be \"coordinator\" or \"datanode\", just when the node in restore mode\n"));
 	printf(_("  -?, --help             show this help, then exit\n"));
 	printf(_("If the -D option is omitted, the environment variable PGDATA is used.\n"));
 
@@ -2228,7 +2242,7 @@ main(int argc, char **argv)
 	{
 		while ((c = getopt_long(argc, argv,
 #ifdef ADB
-								"cD:e:l:m:N:o:p:P:sS:t:U:wWZ:",	/* only add a 'Z' option */
+								"cD:e:l:m:N:o:p:P:sS:t:U:wWZ:R:", /* add 'Z' option, add 'R' for restore mode */
 #else
 								"cD:e:l:m:N:o:p:P:sS:t:U:wW",
 #endif
@@ -2285,6 +2299,9 @@ main(int argc, char **argv)
 					register_password = pg_strdup(optarg);
 					break;
 #ifdef ADB
+				case 'R':
+					pgxcRestoreMode = strdup(optarg);
+					break;
 				case 'Z':
 					if (strcmp(optarg, "coordinator") == 0)
 						pgxcCommand = strdup("--coordinator");
@@ -2406,6 +2423,24 @@ main(int argc, char **argv)
 		do_advice();
 		exit(1);
 	}
+
+	/* start command with restore mode need to have Coordinator or Datanode options */
+	if ((ctl_command == START_COMMAND || ctl_command == RESTART_COMMAND)
+		 && pgxcCommand && strcmp(pgxcCommand, "--restoremode") == 0)
+	{
+		if (pgxcRestoreMode)
+		{
+			if (!(strcmp(pgxcRestoreMode, "coordinator") == 0 || strcmp(pgxcRestoreMode, "datanode") == 0))
+			{
+				write_stderr(_("%s: unrecognized restore mode \"%s\"\n"), progname, pgxcRestoreMode);
+				do_advice();
+				exit(1);
+			}
+		}
+		else
+			pgxcRestoreMode = strdup("coordinator");
+	}
+
 #endif
 
 	/* Note we put any -D switch into the env var above */
