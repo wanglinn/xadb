@@ -623,6 +623,7 @@ bool isAntDB_GTM = false;
  * treated as a datanode.
  */
 bool isRestoreMode = false;
+bool isRestoreCoordType = true;
 
 int remoteConnType = REMOTE_CONN_APP;
 
@@ -767,7 +768,7 @@ PostmasterMain(int argc, char *argv[])
 	 * tcop/postgres.c (the option sets should not conflict) and with the
 	 * common help() function in main/main.c.
 	 */
-	while ((opt = getopt(argc, argv, "B:bc:C:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:W:-:")) != -1)
+	while ((opt = getopt(argc, argv, "B:bc:C:D:d:EeFf:h:ijk:lN:nOo:Pp:r:S:sTt:W:-:R:")) != -1)
 	{
 		switch (opt)
 		{
@@ -962,6 +963,16 @@ PostmasterMain(int argc, char *argv[])
 						free(value);
 					break;
 				}
+#ifdef ADB
+			case 'R':
+			{
+				if (strcmp(optarg, "coordinator") == 0)
+					isRestoreCoordType = true;
+				else
+					isRestoreCoordType = false;
+				break;
+			}
+#endif
 
 			default:
 				write_stderr("Try \"%s --help\" for more information.\n",

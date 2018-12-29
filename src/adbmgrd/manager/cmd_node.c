@@ -126,7 +126,7 @@ static void mgr_pg_dumpall(Oid hostoid, int32 hostport, Oid dnmasteroid, char *t
 static void mgr_stop_node_with_restoremode(const char *nodepath, Oid hostoid);
 static void mgr_pg_dumpall_input_node(const Oid dn_master_oid, const int32 dn_master_port, char *temp_file);
 static void mgr_rm_dumpall_temp_file(Oid dnhostoid,char *temp_file);
-static void mgr_start_node_with_restoremode(const char *nodepath, Oid hostoid);
+static void mgr_start_node_with_restoremode(const char *nodepath, Oid hostoid, char nodetype);
 static void mgr_create_node_on_all_coord(PG_FUNCTION_ARGS, char nodetype, char *dnname, Oid dnhostoid, int32 dnport);
 static void mgr_drop_node_on_all_coord(char nodetype, char *nodename);
 static void mgr_set_inited_incluster(char *nodename, char nodetype, bool checkvalue, bool setvalue);
@@ -2999,7 +2999,7 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 		mgr_pg_dumpall(dnhostoid, dnport, appendnodeinfo.nodehost, temp_file);
 
 		/* step 6: start the datanode master with restoremode mode, and input all catalog message */
-		mgr_start_node_with_restoremode(appendnodeinfo.nodepath, appendnodeinfo.nodehost);
+		mgr_start_node_with_restoremode(appendnodeinfo.nodepath, appendnodeinfo.nodehost, CNDN_TYPE_DATANODE_MASTER);
 		mgr_pg_dumpall_input_node(appendnodeinfo.nodehost, appendnodeinfo.nodeport, temp_file);
 		mgr_rm_dumpall_temp_file(appendnodeinfo.nodehost, temp_file);
 
@@ -3446,7 +3446,7 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		mgr_pg_dumpall(coordhostoid, coordport, appendnodeinfo.nodehost, temp_file);
 
 		/* step 6: start the append coordiantor with restoremode mode, and input all catalog message */
-		mgr_start_node_with_restoremode(appendnodeinfo.nodepath, appendnodeinfo.nodehost);
+		mgr_start_node_with_restoremode(appendnodeinfo.nodepath, appendnodeinfo.nodehost, CNDN_TYPE_COORDINATOR_MASTER);
 		mgr_pg_dumpall_input_node(appendnodeinfo.nodehost, appendnodeinfo.nodeport, temp_file);
 		mgr_rm_dumpall_temp_file(appendnodeinfo.nodehost, temp_file);
 
@@ -4900,18 +4900,23 @@ static void mgr_pg_dumpall_input_node(const Oid dn_master_oid, const int32 dn_ma
 	pfree(getAgentCmdRst.description.data);
 }
 
-static void mgr_start_node_with_restoremode(const char *nodepath, Oid hostoid)
+static void mgr_start_node_with_restoremode(const char *nodepath, Oid hostoid, char nodetype)
 {
 	StringInfoData start_cmd;
 	StringInfoData buf;
 	GetAgentCmdRst getAgentCmdRst;
 	ManagerAgent *ma;
+	char *nodetypestring;
+
+	Assert(nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_DATANODE_MASTER);
 
 	initStringInfo(&start_cmd);
 	initStringInfo(&buf);
 	initStringInfo(&(getAgentCmdRst.description));
+	nodetypestring = (nodetype == CNDN_TYPE_COORDINATOR_MASTER) ? "coordinator" : "datanode";
 
-	appendStringInfo(&start_cmd, " start -Z restoremode -D %s -o -i -w -c -l %s/logfile", nodepath, nodepath);
+	appendStringInfo(&start_cmd, " start -Z restoremode -D %s -R %s -o -i -w -c -l %s/logfile"
+		, nodepath, nodetypestring, nodepath);
 
 	/* connection agent */
 	ma = ma_connect_hostoid(hostoid);

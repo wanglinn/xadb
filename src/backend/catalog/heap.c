@@ -1413,7 +1413,7 @@ AddRelationDistribution(Oid relid,
 	int16		   *attnums = NULL;
 
 	/* Obtain details of nodes and classify them */
-	if (IsDnNode() && (!isRestoreMode))
+	if (IsDnNode() && (!(isRestoreMode && isRestoreCoordType)))
 	{
 		numnodes = 0;
 		nodeoids = NULL;
