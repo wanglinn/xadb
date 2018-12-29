@@ -2558,6 +2558,39 @@ RelationClearRelation(Relation relation, bool rebuild)
 			SWAPFIELD(MemoryContext, rd_pdcxt);
 		}
 
+#ifdef ADB
+		{
+			ListCell *lc;
+			bool keep_aux;
+
+			if (list_length(relation->rd_auxlist) != list_length(newrel->rd_auxlist))
+			{
+				keep_aux = false;
+			}else if (equal(relation->rd_auxlist, newrel->rd_auxlist))
+			{
+				keep_aux = true;
+			}else
+			{
+				keep_aux = true;
+				foreach(lc, newrel->rd_auxlist)
+				{
+					if (list_member_oid(relation->rd_auxlist, lfirst_oid(lc)) == false)
+					{
+						keep_aux = false;
+						break;
+					}
+				}
+			}
+			if (keep_aux)
+				SWAPFIELD(List *, rd_auxlist);
+
+			if (bms_equal(relation->rd_auxatt, newrel->rd_auxatt))
+				SWAPFIELD(Bitmapset *, rd_auxatt);
+		}
+		if (EqualRelationLocInfo(relation->rd_locator_info, newrel->rd_locator_info))
+			SWAPFIELD(RelationLocInfo *, rd_locator_info);
+#endif /* ADB */
+
 #undef SWAPFIELD
 
 		/* And now we can throw away the temporary entry */
