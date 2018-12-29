@@ -5730,6 +5730,8 @@ recoveryStopsBefore(XLogReaderState *record)
 						 &parsed);
 		recordXid = parsed.twophase_xid;
 	}
+	else
+		return false;
 #ifdef ADB
 	}
 	else if (XLogRecGetRmid(record) == RM_BARRIER_ID)
@@ -5744,8 +5746,6 @@ recoveryStopsBefore(XLogReaderState *record)
 		recordXid = InvalidTransactionId;
 	}
 #endif
-	else
-		return false;
 
 	if (recoveryTarget == RECOVERY_TARGET_XID && !recoveryTargetInclusive)
 	{
