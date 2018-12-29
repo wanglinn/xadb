@@ -963,6 +963,40 @@ CopyRelationLocInfo(RelationLocInfo *srcInfo)
 	return destInfo;
 }
 
+bool EqualRelationLocInfo(const RelationLocInfo *a, const RelationLocInfo *b)
+{
+	if (a == b)
+		return true;
+
+	/* tested "a == b", run to here "a != b" is true */
+	if (a == NULL || b == NULL)
+		return false;
+
+	if (a->relid != b->relid ||
+		a->locatorType != b->locatorType ||
+		a->partAttrNum != b->partAttrNum ||
+		a->funcid != b->funcid ||
+		list_length(a->nodeids) != list_length(a->nodeids) ||
+		equal(a->funcAttrNums, b->funcAttrNums) == false)
+		return false;
+
+	if ((IsRelationDistributedByValue(a) ||
+		 IsRelationDistributedByUserDefined(a)) &&
+		equal(a->nodeids, b->nodeids) == false)
+	{
+		return false;
+	}else if(equal(a->nodeids, b->nodeids) == false)
+	{
+		const ListCell *lc;
+		foreach(lc, a->nodeids)
+		{
+			if (list_member_oid(b->nodeids, lfirst_oid(lc)) == false)
+				return false;
+		}
+	}
+
+	return true;
+}
 
 /*
  * FreeRelationLocInfo
