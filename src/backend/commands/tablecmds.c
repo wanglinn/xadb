@@ -858,8 +858,6 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 								inheritOids,
 								descriptor);
 		CommandCounterIncrement();
-		/* Make sure locator info gets rebuilt */
-		RelationCacheInvalidateEntry(relationId);
 	}
 
 	/* Add for pg_aux_class */
