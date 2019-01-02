@@ -144,7 +144,7 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 	char *jobname;
 	List *options;
 	int32 interval;
-	bool status;
+	bool status = false;
 	Datum datumtime;
 	TimestampTz current_time = 0;
 
@@ -305,7 +305,7 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 {
 	Relation rel;
 	HeapTuple newtuple;
-	HeapTuple checktuple;
+	HeapTuple checktuple = NULL;
 	HeapTuple tuple;
 	ListCell *lc;
 	DefElem *def;

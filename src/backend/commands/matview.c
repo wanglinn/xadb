@@ -246,7 +246,7 @@ ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
 	uint64		processed = 0;
 	bool		concurrent;
 	LOCKMODE	lockmode;
-	char		relpersistence;
+	char		relpersistence = RELPERSISTENCE_TEMP;
 	Oid			save_userid;
 	int			save_sec_context;
 	int			save_nestlevel;
@@ -755,7 +755,7 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 	char	   *tempname;
 #ifdef ADB
 	char	   *difftempname;
-	EphemeralNamedRelation difftblenr;
+	EphemeralNamedRelation difftblenr = NULL;
 	TupleDesc difftbldesc = NULL;
 	Tuplestorestate *difftbltupstore = NULL;
 	int difftblrc;

@@ -1289,8 +1289,8 @@ AlterFunction(ParseState *pstate, AlterFunctionStmt *stmt)
 	DefElem    *parallel_item = NULL;
 #ifdef ADB
 	DefElem    *cluster_item = NULL;
-	Relation	adb_proc_rel;
-	char		cluster_safe;
+	Relation	adb_proc_rel = InvalidRelation;
+	char		cluster_safe = PROPARALLEL_UNSAFE;
 #endif /* ADB */
 	ObjectAddress address;
 

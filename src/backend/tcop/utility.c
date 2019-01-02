@@ -1434,7 +1434,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			{
 				AlterObjectSchemaStmt *stmt = (AlterObjectSchemaStmt *) parsetree;
 #ifdef ADB
-				Oid oid;
+				Oid oid = InvalidOid;
 				if (IsCnMaster())
 				{
 					RemoteQueryExecType	exec_type;

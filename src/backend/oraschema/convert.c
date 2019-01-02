@@ -178,7 +178,7 @@ trunc_text_toint2(PG_FUNCTION_ARGS)
 {
 	text	*txt = PG_GETARG_TEXT_PP_IF_NULL(0);
 	char	*txtstr = NULL;
-	Datum	result;
+	Datum	result = (Datum)0;
 
 	if (!txt)
 		PG_RETURN_NULL();
@@ -230,7 +230,7 @@ trunc_text_toint4(PG_FUNCTION_ARGS)
 {
 	text	*txt = PG_GETARG_TEXT_PP_IF_NULL(0);
 	char	*txtstr = NULL;
-	Datum	result;
+	Datum	result = (Datum)0;
 
 	if (!txt)
 		PG_RETURN_NULL();
@@ -282,7 +282,7 @@ trunc_text_toint8(PG_FUNCTION_ARGS)
 {
 	text	*txt = PG_GETARG_TEXT_PP_IF_NULL(0);
 	char	*txtstr = NULL;
-	Datum	result;
+	Datum	result = (Datum)0;
 
 	if (!txt)
 		PG_RETURN_NULL();

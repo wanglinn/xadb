@@ -1060,8 +1060,8 @@ static void joint_hba_send_str(char *hbavalue, StringInfo infosendmsg)
 {
 	char *split_str;
 	HbaType conntype = HBA_TYPE_EMPTY;
-	char *str_remain;
-	char *str_elem;
+	char *str_remain = NULL;
+	char *str_elem = NULL;
 	Assert(hbavalue);
 	split_str = palloc0(strlen(hbavalue)+1);
 	memcpy(split_str, hbavalue, strlen(hbavalue)+1);

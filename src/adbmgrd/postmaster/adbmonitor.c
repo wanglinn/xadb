@@ -1313,7 +1313,7 @@ adbmonitor_job(PG_FUNCTION_ARGS)
 	Relation rel_jobitem;
 	ScanKeyData key[1];
 	HeapScanDesc rel_scan;
-	Datum	datumpath;
+	Datum	datumpath = (Datum) 0;
 
 	/*get input*/
 	namestrcpy(&hostname, PG_GETARG_CSTRING(0));

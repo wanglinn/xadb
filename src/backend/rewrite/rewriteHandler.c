@@ -1399,7 +1399,7 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 					Relation target_relation)
 {
 	Var		   *var = NULL;
-	const char *attrname;
+	const char *attrname = NULL;
 	TargetEntry *tle;
 #ifdef ADB
 	List *var_list = NIL;

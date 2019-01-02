@@ -47,7 +47,7 @@ static pgsocket connect_host(const char *hostname, unsigned short port, StringIn
 	struct addrinfo *addr;
 	struct addrinfo *addrs;
 	struct addrinfo hint;
-	pgsocket sock;
+	pgsocket sock = PGINVALID_SOCKET;
 	char str_port[6];
 	int ret;
 
