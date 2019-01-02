@@ -163,6 +163,10 @@ static void check_job_status_intbl(void);
 				ExpandNodeStmt CheckNodeStmt ClusterMetaInitStmt ClusterSlotInitStmt
 				ClusterPgxcNodeInitStmt ClusterPgxcNodeCheckStmt
 				ImportHashMetaStmt ClusterHashMetaCheckStmt
+%type <node>	ListNodeSize
+%type <node>	opt_nodesize_with_list  opt_nodesize_with_list_items
+// %type <boolean>	opt_pretty
+%type <list>	dataNameList
 
 %type <list>	general_options opt_general_options general_option_list HbaParaList
 				AConstList targetList ObjList var_list NodeConstList set_parm_general_options
@@ -193,6 +197,7 @@ static void check_job_status_intbl(void);
 %token<keyword>	FALSE_P TRUE_P
 %token<keyword>	HOST MONITOR PARAM HBA HA
 %token<keyword>	INIT GTM MASTER SLAVE ALL NODE COORDINATOR DATANODE
+%token<keyword>	PRETTY SIZE WITH SLINK
 %token<keyword> PASSWORD CLEAN RESET WHERE ROW_ID
 %token<keyword> START AGENT STOP FAILOVER
 %token<keyword> SET TO ON OFF
@@ -264,6 +269,7 @@ stmt :
 	| AlterNodeStmt
 	| DropNodeStmt
 	| ListNodeStmt
+	| ListNodeSize
 	| MonitorStmt
 	| VariableSetStmt
 	| InitNodeStmt
@@ -1049,7 +1055,7 @@ opt_boolean_or_string:
 			/*
 			 * OFF is also accepted as a boolean value, but is handled by
 			 * the NonReservedWord rule.  The action for booleans and strings
-			 * is the same, so we don't need to distinguish them here.
+			 * is the same, so we don''t need to distinguish them here.
 			 */
 			| NonReservedWord_or_Sconst				{ $$ = $1; }
 			;
@@ -2003,6 +2009,100 @@ ListAclStmt:
 			$$ = (Node*)stmt;
 		}
 		;
+ListNodeSize:
+	LIST NODE SIZE dataNameList opt_nodesize_with_list
+		{
+			SelectStmt 	*stmt = makeNode(SelectStmt);
+			List 		*args = $4;
+			
+			if($4 == NIL)
+			{
+				args = list_make1($5);
+			}
+			else
+			{
+				args = lappend(args, $5);
+			}
+
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_list_nodesize_all", args));
+			//stmt->whereClause = make_column_in("nodename", $4);
+			$$ = (Node*)stmt;
+		}
+	| LIST NODE PRETTY SIZE dataNameList opt_nodesize_with_list
+		{
+			SelectStmt 	*stmt = makeNode(SelectStmt);
+			ResTarget 	*resTarget1 = makeNode(ResTarget);
+			ResTarget 	*resTarget2 = makeNode(ResTarget);
+			ResTarget 	*resTarget3 = makeNode(ResTarget);
+			ResTarget 	*resTarget4 = makeNode(ResTarget);
+			ResTarget 	*resTarget5 = makeNode(ResTarget);
+			List 		*args = $5;
+			
+			if($5 == NIL)
+			{
+				args = list_make1($6);
+			}
+			else
+			{
+				args = lappend(args, $6);
+			}
+
+			//1
+			resTarget1->name = NULL;
+			resTarget1->indirection = NIL;
+			resTarget1->val = makeColumnRef("nodename", NIL, -1, 0);
+			resTarget1->location = -1;
+			//2
+			resTarget2->name = NULL;
+			resTarget2->indirection = NIL;
+			resTarget2->val = makeColumnRef("type", NIL, -1, 0);
+			resTarget2->location = -1;
+			//3
+			resTarget3->name = NULL;
+			resTarget3->indirection = NIL;
+			resTarget3->val = makeColumnRef("port", NIL, -1, 0);
+			resTarget3->location = -1;
+			//4
+			resTarget4->name = NULL;
+			resTarget4->indirection = NIL;
+			resTarget4->val = makeColumnRef("nodepath", NIL, -1, 0);
+			resTarget4->location = -1;
+			//5
+			resTarget5->name = "nodesize";
+			resTarget5->indirection = NIL;
+			resTarget5->val = (Node *)makeFuncCall(list_make1(makeString("pg_size_pretty")), 
+												list_make1(makeColumnRef("nodesize", NIL, -1, 0)), 
+												-1);
+			resTarget5->location = -1;
+
+			stmt->targetList = list_make5(resTarget1, resTarget2, resTarget3, resTarget4, resTarget5);
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_list_nodesize_all", args));
+			//stmt->whereClause = make_column_in("nodename", $5);
+			$$ = (Node*)stmt;
+		}
+		;
+opt_nodesize_with_list:
+	WITH opt_nodesize_with_list_items
+		{ $$ = $2; }
+	| /* empty */
+		{ $$ = makeBoolAConst(false, -1); }
+	;
+opt_nodesize_with_list_items:
+	SLINK
+		{$$ = makeBoolAConst(true, @1); }
+	| /* empty */
+		{ $$ = makeBoolAConst(false, -1); }
+	;
+
+dataNameList:
+	dataNameList ',' Ident		
+	  	{ $$ = lappend($1, makeAConst(makeString($3), @3)); }
+	| Ident							
+		{ $$ = list_make1(makeAConst(makeString($1), @1)); }
+	| ALL					
+		{ $$ = NIL; }
+	;
 
 ListNodeStmt:
 	  LIST NODE
@@ -2960,6 +3060,7 @@ unreserved_keyword:
 	| PARAM
 	| PASSWORD
 	| PROMOTE
+	| PRETTY
 	| REMOVE
 	| RESET
 	| REVOKE
@@ -2968,7 +3069,9 @@ unreserved_keyword:
 	| S
 	| SET
 	| SHOW
+	| SIZE
 	| SLAVE
+	| SLINK
 	| SMART
 	| START
 	| STOP
@@ -2978,6 +3081,7 @@ unreserved_keyword:
 	| UPDATE_THRESHOLD_VALUE
 	| UPDATE_USER
 	| USER
+	| WITH
 	;
 
 reserved_keyword:

@@ -46,6 +46,10 @@ static TupleDesc get_common_command_tuple_desc_four_col(void);
 static XLogRecPtr mgr_get_last_wal_receive_location(const Oid hostOid, char *sqlString, const int32 nodePort
 	, const char *database, const bool bgtmtype);
 static XLogRecPtr parse_lsn(const char *str);
+static TupleDesc get_list_nodesize_tuple_desc(void);
+bool mgr_recv_msg_for_nodesize(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst);
+HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, int32 nodeport, const char *nodepath, int64 nodesize);
+TupleDesc common_list_nodesize = NULL;
 
 
 TupleDesc get_common_command_tuple_desc(void)
@@ -93,6 +97,69 @@ HeapTuple build_common_command_tuple(const Name name, bool success, const char *
 	datums[1] = BoolGetDatum(success);
 	datums[2] = CStringGetTextDatum(message);
 	nulls[0] = nulls[1] = nulls[2] = false;
+	return heap_form_tuple(desc, datums, nulls);
+}
+
+
+TupleDesc get_list_nodesize_tuple_desc(void)
+{
+	if(common_list_nodesize == NULL)
+	{
+		MemoryContext volatile old_context = MemoryContextSwitchTo(TopMemoryContext);
+		TupleDesc volatile desc = NULL;
+		PG_TRY();
+		{
+			desc = CreateTemplateTupleDesc(5, false);
+			TupleDescInitEntry(desc, (AttrNumber) 1, "nodename",
+							   NAMEOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 2, "type",
+							   NAMEOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 3, "port",
+							   INT4OID, -1, 0);							   
+			TupleDescInitEntry(desc, (AttrNumber) 4, "nodepath",
+							   TEXTOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 5, "nodesize",
+							   INT8OID, -1, 0);
+			common_list_nodesize = BlessTupleDesc(desc);
+		}PG_CATCH();
+		{
+			if(desc)
+				FreeTupleDesc(desc);
+			PG_RE_THROW();
+		}PG_END_TRY();
+		(void)MemoryContextSwitchTo(old_context);
+	}
+	Assert(common_list_nodesize);
+	return common_list_nodesize;
+}
+
+HeapTuple build_list_nodesize_tuple(const Name nodename, 
+									char nodetype,
+									int32 nodeport,	
+									const char *nodepath, 
+									int64 nodesize)
+{
+	Datum datums[5];
+	bool nulls[5];
+	TupleDesc desc;
+	NameData nodeTypeStr;
+	AssertArg(nodename && nodepath);
+	desc = get_list_nodesize_tuple_desc();
+
+	get_node_type_str(nodetype, &nodeTypeStr);
+	AssertArg(desc && desc->natts == 5
+		&& TupleDescAttr(desc, 0)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 1)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 2)->atttypid == INT4OID
+		&& TupleDescAttr(desc, 3)->atttypid == TEXTOID
+		&& TupleDescAttr(desc, 4)->atttypid == INT8OID);
+
+	datums[0] = NameGetDatum(nodename);
+	datums[1] = NameGetDatum(&nodeTypeStr);
+	datums[2] = Int32GetDatum(nodeport);
+	datums[3] = CStringGetTextDatum(nodepath);
+	datums[4] = Int64GetDatum(nodesize);
+	nulls[0] = nulls[1] = nulls[2] = nulls[3] = nulls[4] = false;
 	return heap_form_tuple(desc, datums, nulls);
 }
 
@@ -342,16 +409,23 @@ bool mgr_recv_msg_original_result(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdR
 		else if(msg_type == AGT_MSG_RESULT)
 		{
 			getAgentCmdRst->ret = true;
-			if (bOriginalResult)
+			if (bOriginalResult == -1)
 			{
 				appendStringInfoString(&(getAgentCmdRst->description), recvbuf.data);
-				ereport(NOTICE, (errmsg("receive msg: %s", recvbuf.data)));
-				ereport(LOG, (errmsg("receive msg: %s", recvbuf.data)));
 			}
 			else
 			{
-				appendStringInfoString(&(getAgentCmdRst->description), run_success);
-				ereport(DEBUG1, (errmsg("receive msg: %s", recvbuf.data)));
+				if (bOriginalResult)
+				{
+					appendStringInfoString(&(getAgentCmdRst->description), recvbuf.data);
+					ereport(NOTICE, (errmsg("receive msg: %s", recvbuf.data)));
+					ereport(LOG, (errmsg("receive msg: %s", recvbuf.data)));
+				}
+				else
+				{
+					appendStringInfoString(&(getAgentCmdRst->description), run_success);
+					ereport(DEBUG1, (errmsg("receive msg: %s", recvbuf.data)));
+				}
 			}
 			initdone = true;
 			break;
@@ -364,6 +438,12 @@ bool mgr_recv_msg_original_result(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdR
 bool mgr_recv_msg(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst)
 {
 	return mgr_recv_msg_original_result(ma, getAgentCmdRst, false);
+}
+
+//get node size from agent
+bool mgr_recv_msg_for_nodesize(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst)
+{
+	return mgr_recv_msg_original_result(ma, getAgentCmdRst, -1);
 }
 
 /*

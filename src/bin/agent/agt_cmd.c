@@ -3,7 +3,7 @@
  * agent commands
  */
 
-#include<unistd.h>
+#include <unistd.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +13,7 @@
 #include <dirent.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 #include "agent.h"
 #include "agt_msg.h"
@@ -43,6 +44,7 @@
 	static bool parse_checkout_node_msg(const StringInfo msg, Name host, Name port, Name user);
 	static void exec_checkout_node(const char *host, const char *port, const char *user, char *result);
 	static void cmd_checkout_node(StringInfo msg);
+	static void cmd_list_node_folder_size_msg(StringInfo msg, bool checkSoftLink);
 
 #else
 	#define GTM_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
@@ -95,6 +97,22 @@ static bool check_pghba_exist_info(HbaInfo *checkinfo, HbaInfo *infohead);
 static char *pghba_info_parse(char *ptmp, HbaInfo *newinfo, StringInfo infoparastr);
 static bool check_hba_vaild(char * datapath, HbaInfo * info_head);
 static void cmd_get_batch_job_result(int cmd_type, StringInfo buf);
+static int cmd_get_node_folder_size(const char *basePath, bool checkSoftLink, unsigned long long *folderSize, long *pathDepth);
+static void check_stack_depth(void);
+static bool stack_is_too_deep(void);
+/* max_stack_depth converted to bytes for speed of checking */
+static long max_stack_depth_bytes = 100 * 1024L;
+
+/*
+ * Stack base pointer -- initialized by PostmasterMain and inherited by
+ * subprocesses. This is not static because old versions of PL/Java modify
+ * it directly. Newer versions use set_stack_base(), but we want to stay
+ * binary-compatible for the time being.
+ */
+char	   *stack_base_ptr = NULL;
+/* GUC variable for maximum stack depth (measured in kilobytes) */
+int			max_stack_depth = 100;
+
 
 void do_agent_command(StringInfo buf)
 {
@@ -207,6 +225,12 @@ void do_agent_command(StringInfo buf)
 		break;
 	case AGT_CMD_CHECKOUT_NODE:
 		cmd_checkout_node(buf);
+		break;
+	case AGT_CMD_LIST_NODESIZE:
+		cmd_list_node_folder_size_msg(buf, false);
+		break;
+	case AGT_CMD_LIST_NODESIZE_CHECK_SOFTLINK:
+		cmd_list_node_folder_size_msg(buf, true);
 		break;
 	default:
 		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)
@@ -1694,6 +1718,115 @@ static void cmd_checkout_node(StringInfo msg)
 	agt_put_msg(AGT_MSG_RESULT, result.data, strlen(result.data));
 	agt_flush();
 }
+
+/**
+ * @brief  analyze message
+ * @note   
+ * @param  msg: mgr message
+ * @param  checkSoftLink: check soft link mark
+ * @retval None
+ */
+static void cmd_list_node_folder_size_msg(StringInfo msg, bool checkSoftLink)
+{
+	unsigned long long folderSize;
+	const char *rec_msg_string;
+	char cFolderSize[20];
+	NameData result;
+	long pathDepth = 0;
+
+	rec_msg_string = agt_getmsgstring(msg);
+	folderSize = 0LL;
+	if (cmd_get_node_folder_size(rec_msg_string, checkSoftLink, &folderSize, &pathDepth)<0)
+	{
+		ereport(ERROR, (errmsg("count size fail.")));
+	}
+	sprintf(cFolderSize, "%lld", folderSize);
+	strcpy(result.data, cFolderSize);
+
+	/*send msg to client */
+	agt_put_msg(AGT_MSG_RESULT, result.data, strlen(result.data));
+	agt_flush();
+}
+/**
+ * @brief  get folder size
+ * @note   
+ * @param  *basePath: node path
+ * @param  *folderSize: folder size result
+ * @retval 
+ */
+/**
+ * @brief  get folder size
+ * @note   
+ * @param  *basePath: node path
+ * @param  checkSoftLink: check soft link
+ * @param  *folderSize: folder size result
+ * @param  *pathDepth: recursive query depth
+ * @retval 
+ */
+static int cmd_get_node_folder_size(const char *basePath, bool checkSoftLink, unsigned long long *folderSize, long *pathDepth)
+{
+	DIR *dir;
+    struct dirent *ptr;
+    struct stat statbuff;   //file struct
+    char base[1000];    	//path
+    char filePath[1000];    //path
+	
+	(*pathDepth)++;
+	check_stack_depth();	//check endless loop
+    if ((dir=opendir(basePath)) == NULL)
+    {   
+		ereport(ERROR, (errmsg("Open dir error. \ncurrent path:%s(%llu)\nopen path depth:(%ld)", basePath, *folderSize, *pathDepth)));
+    }
+    while ((ptr=readdir(dir)) != NULL)
+    {   
+        if(strcmp(ptr->d_name,".")==0 || strcmp(ptr->d_name,"..")==0)    //current dir OR parrent dir
+            continue;
+        else if(ptr->d_type == 8 )     //file
+        {   
+			memset(filePath,'\0',sizeof(filePath));
+			strcpy(filePath, basePath);
+			strcat(filePath,"/");
+			strcat(filePath,ptr->d_name);
+            //get file info
+            if(stat(filePath, &statbuff) < 0){
+                ereport(ERROR, (errmsg("Open file error. current file:%s",filePath)));
+                return -2;
+            }else{
+                *folderSize += statbuff.st_size;
+            }
+        }
+		else if(ptr->d_type == 10 && checkSoftLink)  //linke
+        {
+            char buf[1024];
+            ssize_t len;
+			memset(filePath,'\0',sizeof(filePath));
+			strcpy(filePath, basePath);
+			strcat(filePath,"/");
+			strcat(filePath,ptr->d_name);
+			
+            if ((len = readlink(filePath, buf, 1024 - 1)) != -1) 	//get target file path
+			{
+                buf[len] = '\0';       
+                cmd_get_node_folder_size(buf, checkSoftLink, folderSize, pathDepth);
+            }
+			else
+			{
+				ereport(ERROR, (errmsg("read link file. current link file:%s", filePath)));
+			}
+        }
+        else if(ptr->d_type == 4)    //dir
+        {   
+            memset(base,'\0',sizeof(base));
+            strcpy(base,basePath);
+            strcat(base,"/");
+            strcat(base,ptr->d_name);
+            cmd_get_node_folder_size(base, checkSoftLink, folderSize, pathDepth);
+        }
+    }
+    closedir(dir);
+	return 0;
+}
+
 static bool parse_checkout_node_msg(const StringInfo msg, Name host, Name port, Name user)
 {
 	int index = msg->cursor;
@@ -1743,4 +1876,75 @@ static void exec_checkout_node(const char *host, const char *port, const char *u
 
 	PQclear(res);
 	PQfinish(pg_conn);
+}
+
+/*
+ * check_stack_depth/stack_is_too_deep: check for excessively deep recursion
+ *
+ * This should be called someplace in any recursive routine that might possibly
+ * recurse deep enough to overflow the stack.  Most Unixen treat stack
+ * overflow as an unrecoverable SIGSEGV, so we want to error out ourselves
+ * before hitting the hardware limit.
+ *
+ * check_stack_depth() just throws an error summarily.  stack_is_too_deep()
+ * can be used by code that wants to handle the error condition itself.
+ */
+void
+check_stack_depth(void)
+{
+	if (stack_is_too_deep())
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+				 errmsg("stack depth limit exceeded! Increase the configuration parameter \"max_stack_depth\" (currently %dkB), "
+			  "after ensuring the platform's stack depth limit is adequate.", max_stack_depth)));
+	}
+}
+
+bool
+stack_is_too_deep(void)
+{
+	char		stack_top_loc;
+	long		stack_depth;
+
+	/*
+	 * Compute distance from reference point to my local variables
+	 */
+	stack_depth = (long) (stack_base_ptr - &stack_top_loc);
+
+	/*
+	 * Take abs value, since stacks grow up on some machines, down on others
+	 */
+	if (stack_depth < 0)
+		stack_depth = -stack_depth;
+
+	/*
+	 * Trouble?
+	 *
+	 * The test on stack_base_ptr prevents us from erroring out if called
+	 * during process setup or in a non-backend process.  Logically it should
+	 * be done first, but putting it here avoids wasting cycles during normal
+	 * cases.
+	 */
+	if (stack_depth > max_stack_depth_bytes &&
+		stack_base_ptr != NULL)
+		return true;
+
+	/*
+	 * On IA64 there is a separate "register" stack that requires its own
+	 * independent check.  For this, we have to measure the change in the
+	 * "BSP" pointer from PostgresMain to here.  Logic is just as above,
+	 * except that we know IA64's register stack grows up.
+	 *
+	 * Note we assume that the same max_stack_depth applies to both stacks.
+	 */
+#if defined(__ia64__) || defined(__ia64)
+	stack_depth = (long) (ia64_get_bsp() - register_stack_base_ptr);
+
+	if (stack_depth > max_stack_depth_bytes &&
+		register_stack_base_ptr != NULL)
+		return true;
+#endif   /* IA64 */
+
+	return false;
 }
