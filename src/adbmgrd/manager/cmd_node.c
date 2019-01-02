@@ -245,10 +245,10 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 	bool got[Natts_mgr_node];
 	bool hasSyncNode = false;
 	bool breadOnly = false;
-	Oid cndn_oid;
-	Oid hostoid;
-	Oid masterTupleOid;
-	int32 port;
+	Oid cndn_oid = InvalidOid;
+	Oid hostoid = InvalidOid;
+	Oid masterTupleOid = InvalidOid;
+	int32 port = -1;
 	char nodetype;   /*coordinator or datanode master/slave*/
 	char mastertype;
 	char *nodename;
@@ -540,7 +540,7 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 	bool hasSyncNodeInCluster = false;
 	bool hasPotenNode = false;
 	bool hasPotenNodeInCluster = false;
-	int32 newport;
+	int32 newport = -1;
 	int nodeSyncType;
 	int  syncNum = 0;
 	HeapTuple hostTuple;
@@ -552,16 +552,16 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 	NameData sync_state_name;
 	NameData mastername;
 	NameData name;
-	char new_sync;
+	char new_sync = SYNC_STATE_SYNC;
 	char nodetype;
 	char mastertype;
 	char *str;
 	char *name_str;
 	char *masterPath;
-	Oid hostoid;
-	Oid selftupleoid;
-	Oid masterTupleOid;
-	Oid masterHostOid;
+	Oid hostoid = InvalidOid;
+	Oid selftupleoid = InvalidOid;
+	Oid masterTupleOid = InvalidOid;
+	Oid masterHostOid = InvalidOid;
 	StringInfoData infoSyncStr;
 	StringInfoData infosendmsg;
 	StringInfoData infoSyncStrTmp;
@@ -1475,7 +1475,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	char *hostaddress;
 	char *cndnPath;
 	char *cmdmode;
-	char *zmode;
+	char *zmode = NULL;
 	char *cndnname;
 	char *masterhostaddress;
 	char *mastername;
@@ -5398,7 +5398,8 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 	bool breadOnlyNode = false;
 	struct tuple_cndn *prefer_cndn;
 	ListCell *cn_lc, *dn_lc;
-	HeapTuple tuple_primary, tuple_preferred;
+	HeapTuple tuple_primary = NULL;
+	HeapTuple tuple_preferred = NULL;
 	int coordinator_num = 0, datanode_num = 0;
 
 	if (SRF_IS_FIRSTCALL())
@@ -9871,13 +9872,13 @@ List* mgr_get_nodetype_namelist(char nodetype)
 */
 bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 {
-	Oid coordhostoid;
-	int32 coordport;
+	Oid coordhostoid = InvalidOid;
+	int32 coordport = -1;
 	int iloop = 0;
 	int max = 3;
-	char *coordhost;
+	char *coordhost = NULL;
 	char coordport_buf[10];
-	char *connect_user;
+	char *connect_user = NULL;
 	char cnpath[1024];
 	int try = 0;
 	const int maxnum = 15;
@@ -9887,7 +9888,7 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 	StringInfoData infosendmsg;
 	Datum datumPath;
 	Relation rel_node;
-	HeapTuple tuple;
+	HeapTuple tuple = NULL;
 	Form_mgr_node mgr_node;
 	bool isNull;
 	bool breload = false;

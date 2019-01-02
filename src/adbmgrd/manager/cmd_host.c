@@ -106,7 +106,7 @@ Datum mgr_add_host_func(PG_FUNCTION_ARGS)
 	ListCell *lc;
 	DefElem *def;
 	char *str;
-	char *address;
+	char *address = NULL;
 	NameData name;
 	NameData user;
 	Datum datum[Natts_mgr_host];

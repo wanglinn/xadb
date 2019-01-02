@@ -2730,18 +2730,18 @@ bool mgr_refresh_pgxc_readnode(PGconn **pg_conn, bool bExecDirect, char *readOnl
 	PGresult *res;
 	NameData tmpNodeName;
 	NameData preferredDnName;
-	HeapTuple oldMasterTuple;
+	HeapTuple oldMasterTuple = NULL;
 	HeapTuple syncSlaveNodeTup = NULL;
-	HeapTuple newMasterTup;
+	HeapTuple newMasterTup = NULL;
 	List *dnList = NIL;
-	Form_mgr_node mgr_nodeOld;
-	Form_mgr_node mgr_node_tmp;
+	Form_mgr_node mgr_nodeOld = NULL;
+	Form_mgr_node mgr_node_tmp = NULL;
 	char *newSyncSlaveAddress = NULL;
-	int newSyncSlavePort;
-	int try;
+	int newSyncSlavePort = -1;
+	int try = 0;
 	int maxnum = 5;
-	char *newMasterAddress;
-	int newMasterPort;
+	char *newMasterAddress = NULL;
+	int newMasterPort = -1;
 	bool result = true;
 
 	initStringInfo(&cmdstring);
@@ -4067,8 +4067,8 @@ bool mgr_update_pgxcnode_readonly_coord(void)
 	HeapTuple tuple;
 	HeapTuple nodeTuple;
 	ScanKeyData key[2];
-	Form_mgr_node mgr_node;
-	Form_mgr_node mgr_nodetmp;
+	Form_mgr_node mgr_node = NULL;
+	Form_mgr_node mgr_nodetmp = NULL;
 	StringInfoData sqlstrinfocn;
 	StringInfoData sqlstrinfodn;
 	StringInfoData sqlstrinfotmp;

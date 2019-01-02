@@ -819,7 +819,7 @@ char* plorasql_make_table_record_array(PLpgSQL_execstate *estate, int dno, PLpgS
 	Relation		rel;
 	PLpgSQL_var    *var = (PLpgSQL_var*)estate->datums[dno];
 	int				token;
-	int				name_len;
+	int				name_len = 0;
 	Oid				element_type;
 	Oid				var_type = var->datatype->typoid;
 

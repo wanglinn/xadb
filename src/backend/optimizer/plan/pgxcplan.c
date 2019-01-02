@@ -2633,7 +2633,7 @@ pgxc_is_all_replicated_table(Query *query)
 	List *collected_rtable;
 	ListCell *lc;
 	RangeTblEntry *rte;
-	RelationLocInfo *rel_loc_info;
+	RelationLocInfo *rel_loc_info = NULL;
 	int unrep_table_count = 0;
 	int rep_table_count = 0;
 	RelationAccessType rel_access = RELATION_ACCESS_READ;

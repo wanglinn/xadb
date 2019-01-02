@@ -7081,9 +7081,9 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 	AttrNumber	attnum;
 	int			netlevelsup;
 	deparse_namespace *dpns;
-	deparse_columns *colinfo;
-	char	   *refname;
-	char	   *attname;
+	deparse_columns *colinfo = NULL;
+	char	   *refname = NULL;
+	char	   *attname = NULL;
 
 	/* Find appropriate nesting depth */
 	netlevelsup = var->varlevelsup + levelsup;

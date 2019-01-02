@@ -815,7 +815,7 @@ const char* pool_get_sock_path(void)
 
 static void pool_report_error(pgsocket sock, uint32 msg_len)
 {
-	char *err_msg;
+	char *err_msg = NULL;
 	uint32 recv_len;
 	if(msg_len > 0)
 	{

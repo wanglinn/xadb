@@ -402,7 +402,7 @@ get_cluster_nextXids(TransactionId **xidarray,	/* output */
 	uint32			num, idx = 0;
 	const char	   *query = "select current_xid()";
 	Oid			   *oids = NULL;
-	Oid				node;
+	Oid				node = InvalidOid;
 
 	/* Only master-coordinator can do this */
 	if (!IsCnMaster())

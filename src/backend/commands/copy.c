@@ -5727,7 +5727,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 	for(;;)
 	{
 		int leaf_part_index;
-		TupleConversionMap *map;
+		TupleConversionMap *map = NULL;
 		HeapTuple parentTuple = NULL;
 		TupleTableSlot *parentSlot = NULL;
 

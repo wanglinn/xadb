@@ -1742,7 +1742,7 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 	ListCell   *args;
 #ifdef ADB_GRAM_ORA
 	Node	   *result;
-	OraCoercionContext oldContext;
+	OraCoercionContext oldContext = ORA_COERCE_DEFAULT;
 
 	if (IsOracleParseGram(pstate))
 		oldContext = OraCoercionContextSwitchTo(ORA_COERCE_COMMON_FUNCTION);
@@ -1994,7 +1994,7 @@ transformDecodeExpr(ParseState *pstate, Node *warg, Node *expr, Oid stype)
 	A_Expr		*aexpr;
 	Node		*sexpr;
 	Node		*result;
-	OraCoercionContext oldContext;
+	OraCoercionContext oldContext = ORA_COERCE_DEFAULT;
 
 	Assert(pstate && warg && expr);
 	if (!OidIsValid(stype) || IsA(warg, NullTest))
@@ -2042,8 +2042,8 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 	Node	   *defresult;
 	Oid			ptype;
 #if defined(ADB_GRAM_ORA)
-	Node	   *expr;
-	Oid			stype;
+	Node	   *expr = NULL;
+	Oid	   stype = InvalidOid;
 #endif
 
 	/* transform the test expression, if any */
