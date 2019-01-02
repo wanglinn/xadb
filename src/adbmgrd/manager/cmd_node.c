@@ -82,6 +82,12 @@ ExpPQsetdbLogin(const char *pghost, const char *pgport, const char *pgoptions,
 	return PQsetdbLogin(pghost, pgport, pgoptions, pgtty, database, login, pwd);
 }
 
+typedef struct NodeSizeInfo
+{
+	Relation rel_host;
+	HeapScanDesc rel_scan;
+	ListCell  **lcp;
+}NodeSizeInfo;
 
 #define MAX_PREPARED_TRANSACTIONS_DEFAULT	120
 #define PG_DUMPALL_TEMP_FILE "/tmp/pg_dumpall_temp"
@@ -201,6 +207,7 @@ static void exec_remove_coordinator(char *nodename);
 static bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg);
 static bool RemoveHba(const AppendNodeInfo *nodeinfo, const StringInfo infosendmsg);
 static bool get_local_ip(Name local_ip);
+extern HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, int32 nodeport, const char *nodepath, int64 nodesize);
 
 #if (Natts_mgr_node != 10)
 #error "need change code"
@@ -9461,6 +9468,139 @@ Datum mgr_list_acl_all(PG_FUNCTION_ARGS)
 	mgr_get_acl_by_username(username, &acl);
 	tup_result = build_list_acl_command_tuple(&(pg_authid->rolname), acl.data);
 
+	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+}
+
+/**
+ * @brief  
+ * @note   
+ * @retval 
+ */
+Datum mgr_list_nodesize_all(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	NodeSizeInfo *info;
+	HeapTuple tup;
+	HeapTuple tup_result;
+	Form_mgr_node mgr_node;
+	ManagerAgent *ma;
+	GetAgentCmdRst getAgentCmdRst;
+	StringInfoData message;
+	char * nodepath;
+	bool isNull;
+	int checkNodeName;
+	Datum datumPath;
+	bool checkSoftLink = PG_GETARG_BOOL(PG_NARGS()-1);
+	int i;
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		MemoryContext oldcontext;
+		funcctx = SRF_FIRSTCALL_INIT();
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		info = palloc(sizeof(*info));
+		info->rel_host = heap_open(NodeRelationId, AccessShareLock);
+		info->rel_scan = heap_beginscan_catalog(info->rel_host, 0, NULL);
+        info->lcp = NULL;
+
+		/* save info */
+		funcctx->user_fctx = info;
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	Assert(funcctx);
+	info = funcctx->user_fctx;
+	Assert(info);
+
+	do
+	{
+		tup = heap_getnext(info->rel_scan, ForwardScanDirection);
+		if(tup == NULL)
+		{
+			/* end of row */
+			heap_endscan(info->rel_scan);
+			heap_close(info->rel_host, AccessShareLock);
+			pfree(info);
+			SRF_RETURN_DONE(funcctx);
+		}
+		mgr_node = (Form_mgr_node)GETSTRUCT(tup);
+		Assert(mgr_node);
+
+		checkNodeName = 1;	// check column node name;
+		for(i=0; i<(PG_NARGS()-1); i++)
+		{
+			if((checkNodeName = strcmp(PG_GETARG_CSTRING(i), (mgr_node->nodename).data)) == 0)
+				break;
+		}
+	} while(checkNodeName != 0 && PG_NARGS() > 1);	//checke nodeName && check argument count
+
+	// *get column nodepath
+	datumPath = heap_getattr(tup, Anum_mgr_node_nodepath, RelationGetDescr(info->rel_host), &isNull);
+	if (isNull)
+	{
+		ereport(NOTICE,  (errcode(ERRCODE_DUPLICATE_OBJECT),
+				errmsg("node \"%s\" nodepath is null", NameStr(mgr_node->nodename))));
+		PG_RETURN_BOOL(false);
+	}
+
+	nodepath = text_to_cstring((DatumGetTextP(datumPath)));
+
+	/* test is running ? */
+	ma = ma_connect_hostoid(mgr_node->nodehost);
+	if(!ma_isconnected(ma))
+	{
+		tup_result = build_list_nodesize_tuple(&(mgr_node->nodename), 
+												   mgr_node->nodetype,
+												   mgr_node->nodeport,
+												   nodepath, 
+												   0 );
+		ma_close(ma);
+		ereport(INFO, (errmsg("ndoename \"%s\" : agent is not running", NameStr(mgr_node->nodename))));
+	}else
+	{
+		initStringInfo(&message);
+		initStringInfo(&(getAgentCmdRst.description));
+
+		/*send cmd*/
+		ma_beginmessage(&message, AGT_MSG_COMMAND);
+		if(!checkSoftLink)	//true or false check softlink
+			ma_sendbyte(&message, AGT_CMD_LIST_NODESIZE);
+		else
+			ma_sendbyte(&message, AGT_CMD_LIST_NODESIZE_CHECK_SOFTLINK);
+		ma_sendstring(&message, nodepath);	//ndoepath
+		ma_endmessage(&message, ma);
+		if (!ma_flush(ma, true))
+		{
+			getAgentCmdRst.ret = false;
+			appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
+			ma_close(ma);
+			tup_result = build_common_command_tuple(&(mgr_node->nodename)
+			, getAgentCmdRst.ret, getAgentCmdRst.description.data);
+		}
+		else
+		{
+			mgr_recv_msg_for_nodesize(ma, &getAgentCmdRst);
+			ma_close(ma);
+			//check result data
+			if (strlen(getAgentCmdRst.description.data) > 20)
+				ereport(INFO, (errmsg("ndoename \"%s\" %s", NameStr(mgr_node->nodename), getAgentCmdRst.description.data)));
+			tup_result = build_list_nodesize_tuple(&(mgr_node->nodename), 
+												   mgr_node->nodetype,
+												   mgr_node->nodeport,
+												   nodepath, 
+												   pg_strtouint64(getAgentCmdRst.description.data, NULL, 10));
+			//free getAgentCmdRst.description.data
+			if(getAgentCmdRst.description.data)
+				pfree(getAgentCmdRst.description.data);
+			//free nodepath
+			pfree(nodepath);
+			nodepath = NULL;
+		}
+	}
+
+	//return tuple_result
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
 

@@ -188,6 +188,7 @@ extern Datum mgr_priv_list_to_all(PG_FUNCTION_ARGS);
 
 extern Datum mgr_add_host_func(PG_FUNCTION_ARGS);
 extern Datum mgr_add_node_func(PG_FUNCTION_ARGS);
+extern Datum mgr_list_nodesize_all(PG_FUNCTION_ARGS);
 extern Datum mgr_alter_node_func(PG_FUNCTION_ARGS);
 
 extern Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS);
@@ -254,6 +255,7 @@ char *get_hostuser_from_hostoid(Oid hostOid);
 
 /* get msg from agent */
 bool mgr_recv_msg(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst);
+bool mgr_recv_msg_for_nodesize(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst);
 bool mgr_recv_msg_for_monitor(ManagerAgent	*ma, bool *ret, StringInfo agentRstStr);
 extern List *monitor_get_dbname_list(char *user, char *address, int port);
 extern void monitor_get_one_node_user_address_port(Relation rel_node, int *agentport, char **user, char **address, int *coordport, char nodetype);

@@ -1579,13 +1579,13 @@ ResTarget* make_star_target(int location)
 	ResTarget *target;
 	ColumnRef *n = makeNode(ColumnRef);
 	n->fields = list_make1(makeNode(A_Star));
-	n->location = -1;
+	n->location = location;
 
 	target = makeNode(ResTarget);
 	target->name = NULL;
 	target->indirection = NIL;
 	target->val = (Node *)n;
-	target->location = -1;
+	target->location = location;
 
 	return target;
 }
