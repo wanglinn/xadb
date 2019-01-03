@@ -45,5 +45,9 @@ $(top_builddir)/src/include/utils/header-stamp:
 $(top_builddir)/src/include/utils/probes.h:
 	$(MAKE) -C $(backend_obj_dir)/utils $@
 
+.PHONY: install-data
+install-data:
+	$(MAKE) -C $(backend_obj_dir)/utils $@
+
 maintainer-clean: clean
 	rm -f fmgroids.h fmgrprotos.h fmgrtab.c fmgr-stamp errcodes.h
