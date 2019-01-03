@@ -622,7 +622,6 @@ bool isPGXCDataNode = false;
 bool isRestoreMode = false;
 
 int remoteConnType = REMOTE_CONN_APP;
-bool isADBLoader = false;
 
 /* key pair to be used as object id while using advisory lock for backup */
 Datum xc_lockForBackupKey1;
@@ -924,10 +923,6 @@ PostmasterMain(int argc, char *argv[])
 						isRestoreMode = true;
 						isPGXCDataNode = true;
 					}
-					else if (strcmp(name, "adbloader") == 0 && !value)
-					{
-						isADBLoader = true;
-					}
 					else /* default case */
 					{
 #endif
@@ -965,9 +960,9 @@ PostmasterMain(int argc, char *argv[])
 	}
 
 #ifdef ADB
-	if (!IS_PGXC_COORDINATOR && !IS_PGXC_DATANODE && !IS_ADBLOADER)
+	if (!IS_PGXC_COORDINATOR && !IS_PGXC_DATANODE)
 	{
-		write_stderr("%s: Postgres-XC: must start as either a Coordinator (--coordinator) or Datanode (--datanode) or ADBloader (--adbloader)\n",
+		write_stderr("%s: Postgres-XC: must start as either a Coordinator (--coordinator) or Datanode (--datanode)\n",
 					 progname);
 		ExitPostmaster(1);
 	}

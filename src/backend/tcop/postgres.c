@@ -4214,12 +4214,12 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 	 * Allow for the exception of initdb by checking config option
 	 * ADBQ
 	 */
-	if (!IS_PGXC_COORDINATOR && !IS_PGXC_DATANODE /*&& !IS_ADBLOADER*/ && IsUnderPostmaster)
+	if (!IS_PGXC_COORDINATOR && !IS_PGXC_DATANODE && IsUnderPostmaster)
 	{
 		ereport(FATAL,
 				(errcode(ERRCODE_SYNTAX_ERROR),
-			 errmsg("Postgres-XC: must start as either a Coordinator (--coordinator) or "
-			 		"Datanode (-datanode) or ADBloader (--adbloader)\n")));
+				 errmsg("Postgres-XC: must start as either a Coordinator (--coordinator) or "
+						"Datanode (-datanode)\n")));
 	}
 	if (!IsPostmasterEnvironment)
 	{

@@ -483,18 +483,6 @@ GetNewTransactionId(bool isSubXact)
 	}
 
 	/* safety check, we should never get this far in a HS standby */
-#if defined(ADB)
-	if (!isADBLoader)
-	{
-		if (IsUnderAGTM())
-		{
-			/*
-			 * The new XID must be got from AGTM when processing mode is normal.
-			 */
-			Assert(!(IsUnderPostmaster && IsNormalProcessingMode()));
-		}
-	}
-#endif
 	if (RecoveryInProgress())
 		elog(ERROR, "cannot assign TransactionIds during recovery");
 

@@ -21,7 +21,6 @@
 extern bool isPGXCCoordinator;
 extern bool isPGXCDataNode;
 extern bool isRestoreMode;
-extern bool isADBLoader;
 
 typedef enum
 {
@@ -45,7 +44,6 @@ extern Datum xc_lockForBackupKey2;
 #define IS_PGXC_COORDINATOR		isPGXCCoordinator
 #define IS_PGXC_DATANODE		isPGXCDataNode
 #define REMOTE_CONN_TYPE		remoteConnType
-#define IS_ADBLOADER			isADBLoader
 
 #define IsConnFromApp()			(remoteConnType == REMOTE_CONN_APP)
 #define IsConnFromCoord()		(remoteConnType == REMOTE_CONN_COORD)
