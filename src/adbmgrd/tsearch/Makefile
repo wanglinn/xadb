@@ -21,4 +21,4 @@ include $(top_srcdir)/src/adbmgrd/common.mk
 .PHONY: install-data
 .PHONY: uninstall-data
 install-data uninstall-data:
-	$(MAKE) -C $(backend_obj_dir)/$(subdir) $@
+	$(MAKE) -C $(backend_obj_dir)/$(cur_dir) $@
