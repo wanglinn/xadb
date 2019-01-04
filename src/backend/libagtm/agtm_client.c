@@ -44,6 +44,10 @@ static void agtm_Connect(void);
 static void
 agtm_Connect(void)
 {
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("AGTM not support yet!")));
+#if 0
 	PGconn volatile	*pg_conn;
 	char			 port_buf[10];
 	/* libpq connection keywords */
@@ -118,6 +122,7 @@ agtm_Connect(void)
 	ereport(DEBUG1,
 		(errmsg("Connect to AGTM(host=%s port=%d dbname=%s user=%s) successfully.",
 		AGtmHost, AGtmPort, AGTM_DBNAME, AGTM_USER)));
+#endif
 }
 
 int
