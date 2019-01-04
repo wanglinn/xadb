@@ -281,12 +281,6 @@ CREATE VIEW pg_available_extension_versions AS
            LEFT JOIN pg_extension AS X
              ON E.name = X.extname AND E.version = X.extversion;
 
---ADBONLY CREATE OR REPLACE FUNCTION pg_catalog.pg_prepared_xact(OUT transaction xid, OUT gid text, OUT prepared timestamp with time zone, OUT ownerid oid, OUT dbid oid, OUT rnodes oidvector)
---ADBONLY  RETURNS SETOF record
---ADBONLY  LANGUAGE internal
---ADBONLY  PARALLEL SAFE CLUSTER SAFE STRICT
---ADBONLY AS 'pg_prepared_xact';
-
 CREATE VIEW pg_prepared_xacts AS
     SELECT P.transaction, P.gid, P.prepared,
            U.rolname AS owner, D.datname AS database

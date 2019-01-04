@@ -22,7 +22,7 @@
 #include "utils/portal.h"
 #include "utils/timestamp.h"
 
-CATALOG(adb_ha_sync_log,9117,AdbHaSyncLogRelationId) BKI_SHARED_RELATION BKI_WITHOUT_OIDS
+CATALOG(adb_ha_sync_log,9117,AdbHaSyncLogRelationId) BKI_SHARED_RELATION
 {
 	int64			gxid;
 

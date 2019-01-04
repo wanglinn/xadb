@@ -193,7 +193,7 @@ CATALOG(pg_type,1247,TypeRelationId) BKI_BOOTSTRAP BKI_ROWTYPE_OID(71,TypeRelati
 	 * Domains use typbasetype to show the base (or domain) type that the
 	 * domain is based on.  Zero if the type is not a domain.
 	 */
-	Oid			typbasetype BKI_DEFAULT(0);
+	Oid			typbasetype BKI_DEFAULT(0) BKI_LOOKUP(pg_type);
 
 	/*
 	 * Domains use typtypmod to record the typmod to be applied to their base

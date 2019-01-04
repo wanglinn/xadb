@@ -124,7 +124,7 @@ CREATE OR REPLACE FUNCTION oracle.instr(str text, patt text, start int default 1
  */
 CREATE FUNCTION oracle.add_months(TIMESTAMP WITH TIME ZONE, INTEGER)
      RETURNS TIMESTAMP
-     AS $$SELECT oracle.add_months($1::pg_catalog.date, $2) + $1::pg_catalog.time;$$
+     AS $$SELECT oracle.add_months($1::oracle.date, $2) + $1::pg_catalog.time;$$
      LANGUAGE SQL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
@@ -135,7 +135,7 @@ CREATE FUNCTION oracle.add_months(TIMESTAMP WITH TIME ZONE, INTEGER)
  */
 CREATE OR REPLACE FUNCTION oracle.last_day(TIMESTAMP WITH TIME ZONE)
     RETURNS oracle.date
-    AS $$SELECT (oracle.last_day($1::pg_catalog.date) + $1::time)::oracle.date;$$
+    AS $$SELECT (oracle.last_day($1::oracle.date) + $1::time)::oracle.date;$$
     LANGUAGE SQL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
@@ -146,7 +146,7 @@ CREATE OR REPLACE FUNCTION oracle.last_day(TIMESTAMP WITH TIME ZONE)
  */
 CREATE FUNCTION oracle.months_between(TIMESTAMP WITH TIME ZONE, TIMESTAMP WITH TIME ZONE)
     RETURNS NUMERIC
-    AS $$SELECT oracle.months_between($1::pg_catalog.date, $2::pg_catalog.date);$$
+    AS $$SELECT oracle.months_between($1::oracle.date, $2::oracle.date);$$
     LANGUAGE SQL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
@@ -185,14 +185,14 @@ CREATE OR REPLACE FUNCTION oracle.new_time(tt timestamp with time zone, z1 text,
  */
 CREATE OR REPLACE FUNCTION oracle.next_day(oracle.date, text)
     RETURNS oracle.date
-    AS $$SELECT (oracle.ora_next_day($1::pg_catalog.date, $2) + $1::time)::oracle.date;$$
+    AS $$SELECT (oracle.ora_next_day($1::oracle.date, $2) + $1::time)::oracle.date;$$
     LANGUAGE SQL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.next_day(timestamptz, text)
     RETURNS oracle.date
-    AS $$SELECT (oracle.ora_next_day($1::pg_catalog.date, $2) + $1::time)::oracle.date;$$
+    AS $$SELECT (oracle.ora_next_day($1::oracle.date, $2) + $1::time)::oracle.date;$$
     LANGUAGE SQL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
@@ -298,7 +298,7 @@ CREATE OR REPLACE FUNCTION oracle.subtract (oracle.date, numeric)
 
 CREATE OR REPLACE FUNCTION oracle.subtract(oracle.date, oracle.date)
     RETURNS double precision
-    AS $$SELECT date_part('epoch', ($1 - $2)/3600/24);$$
+    AS $$SELECT date_part('epoch', ($1::pg_catalog.timestamptz - $2::pg_catalog.timestamptz)/3600/24);$$
     LANGUAGE SQL
 --ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;

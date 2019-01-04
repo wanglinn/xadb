@@ -106,16 +106,25 @@ foreach my $row (@{ $catalog_data{pg_proc} })
 	# Select out just the rows for internal-language procedures.
 	next if $bki_values{prolang} ne $INTERNALlanguageId;
 
-	my $macro_str;
-	if (defined $bki_values{row_macros})
+#ADB_BEGIN
+	if (defined $bki_values{row_macros} && $bki_values{proname} ne 'pg_prepared_xact')
 	{
-		my $def_str = "#if";
+		my $drop = 1;
 		foreach my $row_macro (split(/\s+/, $bki_values{row_macros}))
 		{
-			$macro_str .= "$def_str defined($row_macro)";
-			$def_str = " ||";
+			foreach my $arg_macro (@arg_macros)
+			{
+				if ($row_macro eq $arg_macro)
+				{
+					$drop = 0;
+					last;
+				}
+			}
+			last if $drop eq 0;
 		}
+		next if $drop eq 1;
 	}
+#ADB_END
 
 	push @fmgr,
 	  {
@@ -124,9 +133,6 @@ foreach my $row (@{ $catalog_data{pg_proc} })
 		retset => $bki_values{proretset},
 		nargs  => $bki_values{pronargs},
 		prosrc => $bki_values{prosrc},
-#ADB_BEGIN
-		row_macros => $macro_str,
-#ADB_END
 	  };
 }
 
@@ -240,22 +246,8 @@ foreach my $s (sort { $a->{oid} <=> $b->{oid} } @fmgr)
 {
 	next if $seenit{ $s->{prosrc} };
 	$seenit{ $s->{prosrc} } = 1;
-#ADB_BEGIN
-	if (defined $s->{row_macros})
-	{
-		print $ofh "$s->{row_macros}\n";
-		print $pfh "$s->{row_macros}\n";
-	}
-#ADB_END
 	print $ofh "#define F_" . uc $s->{prosrc} . " $s->{oid}\n";
 	print $pfh "extern Datum $s->{prosrc}(PG_FUNCTION_ARGS);\n";
-#ADB_BEGIN
-	if (defined $s->{row_macros})
-	{
-		print $ofh "#endif\n";
-		print $pfh "#endif\n";
-	}
-#ADB_END
 }
 
 # Create the fmgr_builtins table, collect data for fmgr_builtin_oid_index
@@ -265,18 +257,8 @@ $bmap{'t'} = 'true';
 $bmap{'f'} = 'false';
 my @fmgr_builtin_oid_index;
 my $fmgr_count = 0;
-#ADB_BEGIN
-my @fmgr_builtin_oid_macro;
-#ADB_END
 foreach my $s (sort { $a->{oid} <=> $b->{oid} } @fmgr)
 {
-#ADB_BEGIN
-	if (defined $s->{row_macros})
-	{
-		print $tfh "$s->{row_macros}\n";
-		$fmgr_builtin_oid_macro[$s->{oid}] = "$s->{row_macros}";
-	}
-#ADB_END
 	print $tfh
 	  "  { $s->{oid}, \"$s->{prosrc}\", $s->{nargs}, $bmap{$s->{strict}}, $bmap{$s->{retset}}, $s->{prosrc} }";
 
@@ -290,10 +272,6 @@ foreach my $s (sort { $a->{oid} <=> $b->{oid} } @fmgr)
 	{
 		print $tfh "\n";
 	}
-#ADB_BEGIN
-	print $tfh "#endif\n"
-	  if (defined $s->{row_macros});
-#ADB_END
 }
 print $tfh "};\n";
 
@@ -313,10 +291,6 @@ const uint16 fmgr_builtin_oid_index[FirstBootstrapObjectId] = {
 for (my $i = 0; $i < $FirstBootstrapObjectId; $i++)
 {
 	my $oid = $fmgr_builtin_oid_index[$i];
-#ADB_BEGIN
-	my $macro_str = $fmgr_builtin_oid_macro[$i];
-	print $tfh "$macro_str\n" if (defined $macro_str);
-#ADB_END
 
 	# fmgr_builtin_oid_index is sparse, map nonexistant functions to
 	# InvalidOidBuiltinMapping
@@ -328,18 +302,10 @@ for (my $i = 0; $i < $FirstBootstrapObjectId; $i++)
 	if ($i + 1 == $FirstBootstrapObjectId)
 	{
 		print $tfh "  $oid\n";
-#ADB_BEGIN
-		print $tfh "#else\n  InvalidOidBuiltinMapping\n#endif\n"
-		  if (defined $macro_str);
-#ADB_END
 	}
 	else
 	{
 		print $tfh "  $oid,\n";
-#ADB_BEGIN
-		print $tfh "#else\n  InvalidOidBuiltinMapping,\n#endif\n"
-		  if (defined $macro_str);
-#ADB_END
 	}
 }
 print $tfh "};\n";

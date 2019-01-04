@@ -22,7 +22,9 @@ distprep: fmgr-stamp $(top_builddir)/src/include/utils/errcodes.h
 
 .PHONY: generated-header-symlinks
 
-generated-header-symlinks: $(top_builddir)/src/include/utils/header-stamp $(top_builddir)/src/include/utils/probes.h
+generated-header-symlinks: $(top_builddir)/src/include/utils/header-stamp \
+	$(mgr_inc_dir)/utils/header-stamp \
+	$(top_builddir)/src/include/utils/probes.h
 
 $(SUBDIRS:%=%-recursive): fmgr-stamp $(top_builddir)/src/include/utils/errcodes.h
 
@@ -41,6 +43,13 @@ $(top_builddir)/src/include/utils/errcodes.h: $(top_builddir)/src/include/utils/
 
 $(top_builddir)/src/include/utils/header-stamp:
 	$(MAKE) -C $(backend_obj_dir)/utils $@
+
+$(mgr_inc_dir)/utils/header-stamp: fmgr-stamp
+	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
+	cd '$(dir $@)' && for file in fmgroids.h fmgrprotos.h; do \
+	  rm -f $$file && $(LN_S) "$$prereqdir/$$file" . ; \
+	done
+	touch $@
 
 $(top_builddir)/src/include/utils/probes.h:
 	$(MAKE) -C $(backend_obj_dir)/utils $@

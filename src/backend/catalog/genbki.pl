@@ -165,8 +165,10 @@ foreach my $header (@input_files)
 						if ($row_macro eq $arg_macro)
 						{
 							$drop = 0;
+							last;
 						}
 					}
+					last if $drop eq 0;
 				}
 				if ($drop eq 0)
 				{
