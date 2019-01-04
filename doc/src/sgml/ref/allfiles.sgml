@@ -256,6 +256,7 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrListHba         SYSTEM "mgr_list_hba.sgml">
 <!ENTITY mgrListHost        SYSTEM "mgr_list_host.sgml">
 <!ENTITY mgrListNode        SYSTEM "mgr_list_node.sgml">
+<!ENTITY mgrListNodeSize    SYSTEM "mgr_list_node_size.sgml">
 <!ENTITY mgrListParam       SYSTEM "mgr_list_param.sgml">
 <!ENTITY mgrMonitorAgent    SYSTEM "mgr_monitor_agent.sgml">
 <!ENTITY mgrMonitorAll      SYSTEM "mgr_monitor_all.sgml">

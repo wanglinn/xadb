@@ -1,0 +1,75 @@
+<!--
+doc/src/sgml/ref/mgr_list_node_size.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-LISTNODE">
+  <refmeta>
+    <refentrytitle>LIST NODE SIZE</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>LIST NODE SIZE</refname>
+    <refpurpose>show the content of node table</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-listnode">
+    <primary>LIST NODE SIZE</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+LIST NODE SIZE ALL|<replaceable class="parameter">node_name</replaceable> [, ...] [ WITH option ]
+LIST NODE PRETTY SIZE ALL|<replaceable class="parameter">node_name</replaceable> [, ...] [ WITH option ]
+      
+<phrase>where <replaceable class="parameter">option</replaceable> can be one of:</phrase>
+
+    SLINK
+    </synopsis>
+  </refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+      <command>LIST NODE SIZE</command> show the content of the node table.
+    </para>
+  </refsect1>
+  <refsect1>
+    <title>Parameters</title>
+    <variablelist>
+      <varlistentry>
+        <term><literal>SLINK</literal></term>
+        <listitem>
+          <para>
+            Node name.
+          </para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+  <refsect1>
+    <title>Examples</title>
+    <para>
+      List all content of the node table:
+      <programlisting>
+      LIST NODE SIZE;
+      </programlisting>
+    </para>
+    <para>
+      List  the content of datanode_name1:
+      <programlisting>
+        LIST NODE SIZE datanode_name1;
+      </programlisting>
+    </para>
+  </refsect1>
+  <refsect1>
+    <title>See Also</title>
+    <simplelist type="inline">
+      <member><xref linkend="mgr-adddatanode"></member>
+      <member><xref linkend="mgr-alterdatanode"></member>
+      <member><xref linkend="mgr-dropdatanode"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>
