@@ -341,6 +341,7 @@
    &mgrListHba;
    &mgrListHost;
    &mgrListNode;
+   &mgrListNodeSize;
    &mgrListParam;
    &mgrMonitorAgent;
    &mgrMonitorAll;
