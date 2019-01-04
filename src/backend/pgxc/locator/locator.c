@@ -858,24 +858,27 @@ RelationIdBuildLocator(Oid relid)
 	relationLocInfo->locatorType = pgxc_class->pclocatortype;
 	relationLocInfo->partAttrNum = pgxc_class->pcattnum;
 	relationLocInfo->nodeids = NIL;
-	/*
-	for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
-		relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
-											   pgxc_class->nodeoids.values[j]);
-	*/
-	//add all node in pgxc node table
-	relPgxcNode = heap_open(PgxcNodeRelationId, AccessShareLock);
-	relPgxcNodeScan = heap_beginscan_catalog(relPgxcNode, 0, NULL);
-	while((pgxcNodeTuple = heap_getnext(relPgxcNodeScan, ForwardScanDirection)) != NULL)
+	if (pgxc_class->pclocatortype != LOCATOR_TYPE_HASHMAP)
 	{
-		pgxc_node = (Form_pgxc_node) GETSTRUCT(pgxcNodeTuple);
-		if(PGXC_NODE_DATANODE == pgxc_node->node_type)
+		for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
 			relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
-											   HeapTupleGetOid(pgxcNodeTuple));
+							pgxc_class->nodeoids.values[j]);
 	}
-	heap_endscan(relPgxcNodeScan);
-	heap_close(relPgxcNode, AccessShareLock);
-
+	else
+	{
+		//add all node in pgxc node table
+		relPgxcNode = heap_open(PgxcNodeRelationId, AccessShareLock);
+		relPgxcNodeScan = heap_beginscan_catalog(relPgxcNode, 0, NULL);
+		while((pgxcNodeTuple = heap_getnext(relPgxcNodeScan, ForwardScanDirection)) != NULL)
+		{
+			pgxc_node = (Form_pgxc_node) GETSTRUCT(pgxcNodeTuple);
+			if(PGXC_NODE_DATANODE == pgxc_node->node_type)
+				relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
+							HeapTupleGetOid(pgxcNodeTuple));
+		}
+		heap_endscan(relPgxcNodeScan);
+		heap_close(relPgxcNode, AccessShareLock);
+	}
 	relationLocInfo->funcid = InvalidOid;
 	relationLocInfo->funcAttrNums = NIL;
 	if (relationLocInfo->locatorType == LOCATOR_TYPE_USER_DEFINED)
