@@ -202,14 +202,14 @@ addDefaultDistributeBy(CreateStmt *stmt)
 			break;
 		case LOCATOR_TYPE_HASH:
 			distby->disttype = DISTTYPE_HASH;
-			distby->colname = get_attname(relloc->relid, relloc->partAttrNum);
+			distby->colname = get_attname(relloc->relid, relloc->partAttrNum, false);
 			break;
 		case LOCATOR_TYPE_RANDOM:
 			distby->disttype = DISTTYPE_RANDOM;
 			break;
 		case LOCATOR_TYPE_MODULO:
 			distby->disttype = DISTTYPE_MODULO;
-			distby->colname = get_attname(relloc->relid, relloc->partAttrNum);
+			distby->colname = get_attname(relloc->relid, relloc->partAttrNum, false);
 			break;
 		case LOCATOR_TYPE_USER_DEFINED:
 			{
@@ -238,7 +238,7 @@ addDefaultDistributeBy(CreateStmt *stmt)
 
 				foreach (lc, relloc->funcAttrNums)
 				{
-					colname = get_attname(relloc->relid, (AttrNumber) lfirst_int(lc));
+					colname = get_attname(relloc->relid, (AttrNumber) lfirst_int(lc), false);
 					c = makeNode(ColumnRef);
 					c->fields = list_make1(makeString(colname));
 					c->location = -1;
