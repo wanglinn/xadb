@@ -20,6 +20,7 @@
 
 extern bool isPGXCCoordinator;
 extern bool isPGXCDataNode;
+extern bool isAntDB_GTM;
 extern bool isRestoreMode;
 
 typedef enum
@@ -54,6 +55,8 @@ extern Datum xc_lockForBackupKey2;
 #define IsCnNode()				isPGXCCoordinator
 #define IsCoordMaster()			(IS_PGXC_COORDINATOR && !IsConnFromCoord())
 #define IsCoordCandidate()		(IS_PGXC_COORDINATOR && IsConnFromCoord())
+#define IsGTMNode()				isAntDB_GTM
+#define IsGTMCnNode()			(isAntDB_GTM && isPGXCCoordinator)
 
 
 /* key pair to be used as object id while using advisory lock for backup */

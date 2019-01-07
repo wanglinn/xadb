@@ -605,6 +605,7 @@ static void ShmemBackendArrayRemove(Backend *bn);
 #ifdef ADB
 bool isPGXCCoordinator = false;
 bool isPGXCDataNode = false;
+bool isAntDB_GTM = false;
 
 /*
  * While adding a new node to the cluster we need to restore the schema of
@@ -911,6 +912,12 @@ PostmasterMain(int argc, char *argv[])
 					if (strcmp(name, "coordinator") == 0 &&
 						!value)
 						isPGXCCoordinator = true;
+					/* A AntDB GTM and Coordinator is being activated */
+					else if (strcmp(name, "gtm_coord") == 0 && !value)
+					{
+						isPGXCCoordinator = true;
+						isAntDB_GTM = true;
+					}
 					else if (strcmp(name, "datanode") == 0 &&
 						!value)
 						isPGXCDataNode = true;

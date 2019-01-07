@@ -2347,6 +2347,8 @@ main(int argc, char **argv)
 						pgxcCommand = strdup("--datanode");
 					else if (strcmp(optarg, "restoremode") == 0)
 						pgxcCommand = strdup("--restoremode");
+					else if (strcmp(optarg, "gtm_coord") == 0)
+						pgxcCommand = strdup("--gtm_coord");
 #endif
 				case 's':
 					silent_mode = true;

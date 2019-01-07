@@ -596,7 +596,7 @@ AssignTransactionId(TransactionState s)
 	ResourceOwner currentOwner;
 	bool		log_unknown_top = false;
 #ifdef ADB
-	bool		is_under_agtm = IsUnderAGTM();
+	bool		try_agtm = IsUnderAGTM() && !IsGTMNode();
 #endif /* ADB */
 
 	/* Assert that caller didn't screw up */
@@ -604,7 +604,7 @@ AssignTransactionId(TransactionState s)
 	Assert(s->state == TRANS_INPROGRESS);
 
 #ifdef ADB
-	if(isSubXact && is_under_agtm)
+	if(isSubXact && try_agtm)
 		ereport(ERROR, (errmsg("cannot assign XIDs in child transaction")));
 #endif /* ADB */
 
@@ -670,7 +670,7 @@ AssignTransactionId(TransactionState s)
 	/*
 	 * Get global transaction xid from AGTM.
 	 */
-	if (is_under_agtm)
+	if (try_agtm)
 	{
 		agtm_BeginTransaction();
 		s->transactionId = GetNewGlobalTransactionId(isSubXact);

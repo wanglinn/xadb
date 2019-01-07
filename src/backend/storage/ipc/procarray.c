@@ -1567,7 +1567,7 @@ GetSnapshotData(Snapshot snapshot)
 	volatile TransactionId replication_slot_xmin = InvalidTransactionId;
 	volatile TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
 #ifdef ADB
-	bool		try_agtm_snap = IsUnderAGTM();
+	bool		try_agtm_snap = IsUnderAGTM() && !IsGTMNode();
 	bool		hint;
 #endif /* ADB */
 

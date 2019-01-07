@@ -4164,6 +4164,12 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 					else if (strcmp(name, "datanode") == 0 &&
 							 !value)
 						isPGXCDataNode = true;
+					/* A AntDB GTM and Coordinator is being activated */
+					else if (strcmp(name, "gtm_coord") == 0 && !value)
+					{
+						isPGXCCoordinator = true;
+						isAntDB_GTM = true;
+					}
 					else if (strcmp(name, "localxid") == 0 &&
 							 !value)
 					{
