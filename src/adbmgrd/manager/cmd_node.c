@@ -204,8 +204,6 @@ static bool mgr_check_node_port(Relation rel, Oid hostoid, int port);
 static void mgr_update_one_potential_to_sync(Relation rel, Oid mastertupleoid, bool bincluster, bool excludeoid);
 static void exec_remove_coordinator(char *nodename);
 
-static bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg);
-static bool RemoveHba(const AppendNodeInfo *nodeinfo, const StringInfo infosendmsg);
 static bool get_local_ip(Name local_ip);
 extern HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, int32 nodeport, const char *nodepath, int64 nodesize);
 
@@ -11443,7 +11441,7 @@ void release_append_node_info(AppendNodeInfo *node_info, bool is_release)
 	if the function return true; show that we add manager hba to node
 	so we need remove the hba when we close the pg_conn.
 */
-static bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg)
+bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg)
 {
 	const int MAX_TRY = 3;
 	int try = MAX_TRY;
@@ -11517,7 +11515,7 @@ static bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg
 /*
 remove the add line from coordinator pg_hba.conf
 */
-static bool RemoveHba(const AppendNodeInfo *nodeinfo, const StringInfo infosendmsg)
+bool RemoveHba(const AppendNodeInfo *nodeinfo, const StringInfo infosendmsg)
 {
 	GetAgentCmdRst getAgentCmdRst;
 	initStringInfo(&(getAgentCmdRst.description));

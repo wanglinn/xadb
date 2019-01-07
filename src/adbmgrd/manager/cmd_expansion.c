@@ -281,7 +281,8 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 {
 	AppendNodeInfo appendnodeinfo;
 	AppendNodeInfo srcnodeinfo;
-	StringInfoData  infosendmsg;
+	StringInfoData  infosendmsgsrc;
+	StringInfoData  infosendmsgdst;
 	NameData nodename;
 	const int max_pingtry = 60;
 	char nodeport_buf[10];
@@ -291,6 +292,8 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 	GetAgentCmdRst getAgentCmdRst;
 	bool result = true;
 	bool findtuple = false;
+	bool isAddHbaSrc = false;
+	bool isAddHbaDst = false;
 	PGconn * src_pg_conn = NULL;
 	PGconn * dst_pg_conn = NULL;
 	PGconn * co_pg_conn = NULL;
@@ -319,7 +322,8 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 	memset(&appendnodeinfo, 0, sizeof(AppendNodeInfo));
 
 	initStringInfo(&(getAgentCmdRst.description));
-	initStringInfo(&infosendmsg);
+	initStringInfo(&infosendmsgsrc);
+	initStringInfo(&infosendmsgdst);
 	appendnodeinfo.nodename = PG_GETARG_CSTRING(0);
 	Assert(appendnodeinfo.nodename);
 
@@ -372,10 +376,17 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 						appendnodeinfo.nodeusername,NULL);
 		if (dst_pg_conn == NULL || PQstatus((PGconn*)dst_pg_conn) != CONNECTION_OK)
 		{
-			ereport(ERROR,
-				(errmsg("Fail to connect to expend dst datanode %s", PQerrorMessage((PGconn*)dst_pg_conn)),
-					errhint("info(host=%s port=%d dbname=%s user=%s)",
-					appendnodeinfo.nodeaddr, appendnodeinfo.nodeport, DEFAULT_DB, appendnodeinfo.nodeusername)));
+			/* update dst pg_hba.conf */
+			isAddHbaSrc = AddHbaIsValid(&appendnodeinfo, &infosendmsgdst);
+			dst_pg_conn = PQsetdbLogin(appendnodeinfo.nodeaddr,
+						dstport_buf,
+						NULL, NULL,database,
+						appendnodeinfo.nodeusername,NULL);
+			if (dst_pg_conn == NULL || PQstatus((PGconn*)dst_pg_conn) != CONNECTION_OK)
+				ereport(ERROR,
+					(errmsg("Fail to connect to expend dst datanode %s", PQerrorMessage((PGconn*)dst_pg_conn)),
+						errhint("info(host=%s port=%d dbname=%s user=%s)",
+						appendnodeinfo.nodeaddr, appendnodeinfo.nodeport, DEFAULT_DB, appendnodeinfo.nodeusername)));
 		}
 
 		hexp_mgr_pqexec_getlsn(&dst_pg_conn, "select pg_last_wal_replay_lsn();",&dst_lsn_high, &dst_lsn_low);
@@ -391,10 +402,17 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 						srcnodeinfo.nodeusername,NULL);
 		if (src_pg_conn == NULL || PQstatus((PGconn*)src_pg_conn) != CONNECTION_OK)
 		{
-			ereport(ERROR,
-				(errmsg("Fail to connect to expend src datanode %s", PQerrorMessage((PGconn*)src_pg_conn)),
-					errhint("info(host=%s port=%d dbname=%s user=%s)",
-					srcnodeinfo.nodeaddr, srcnodeinfo.nodeport, DEFAULT_DB, srcnodeinfo.nodeusername)));
+			/* update src pg_hba.conf */
+			isAddHbaSrc = AddHbaIsValid(&srcnodeinfo, &infosendmsgsrc);
+			src_pg_conn = PQsetdbLogin(srcnodeinfo.nodeaddr,
+						srcport_buf,
+						NULL, NULL,database,
+						srcnodeinfo.nodeusername,NULL);
+			if (src_pg_conn == NULL || PQstatus((PGconn*)src_pg_conn) != CONNECTION_OK)
+				ereport(ERROR,
+					(errmsg("Fail to connect to expend src datanode %s", PQerrorMessage((PGconn*)src_pg_conn)),
+						errhint("info(host=%s port=%d dbname=%s user=%s)",
+						srcnodeinfo.nodeaddr, srcnodeinfo.nodeport, DEFAULT_DB, srcnodeinfo.nodeusername)));
 		}
 		hexp_mgr_pqexec_getlsn(&src_pg_conn, "select pg_current_wal_lsn();",&src_lsn_high, &src_lsn_low);
 
@@ -541,6 +559,12 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 
 	tup_result = build_common_command_tuple(&nodename, result, getAgentCmdRst.description.data);
 
+	if (isAddHbaSrc)
+		RemoveHba(&appendnodeinfo, &infosendmsgsrc);
+	if (isAddHbaDst)
+		RemoveHba(&appendnodeinfo, &infosendmsgdst);
+	pfree(infosendmsgsrc.data);
+	pfree(infosendmsgdst.data);
 	pfree(getAgentCmdRst.description.data);
 	pfree_AppendNodeInfo(appendnodeinfo);
 
@@ -1200,13 +1224,15 @@ Datum mgr_expand_clean_init(PG_FUNCTION_ARGS)
 	PGconn *pg_conn = NULL;
 	PGconn *pg_conn_clean = NULL;
 	Oid cnoid;
-	HeapTuple tup_result;
+	HeapTuple tup_result = NULL;
+	HeapTuple tuple_coord = NULL;
 	int ret;
 	char ret_msg[100];
 	NameData nodename;
 	StringInfoData psql_cmd;
 	StringInfoData serialize;
 	bool is_vacuum_state;
+	bool isAddHba = false;
 	DN_STATUS dn_status[MaxDNMaster];
 	int	dn_status_index = 0;
 	PGresult* res;
@@ -1223,6 +1249,9 @@ Datum mgr_expand_clean_init(PG_FUNCTION_ARGS)
 	char*	dbname;
 	char*	name_pg_conn_clean;
 	char*	schema_pg_conn_clean;
+	AppendNodeInfo coordnodeinfo;
+	Form_mgr_node mgr_node;
+	StringInfoData infosendmsg;
 
 	strcpy(nodename.data, "---");
 	strcpy(ret_msg, "expand clean init success.");
@@ -1233,6 +1262,22 @@ Datum mgr_expand_clean_init(PG_FUNCTION_ARGS)
 	{
 		hexp_get_coordinator_conn_output(&pg_conn, &cnoid, out_host, out_port, out_db, out_user);
 
+		Assert(cnoid);
+		coordnodeinfo.nodeport = atoi(out_port);
+		coordnodeinfo.nodeaddr = out_host;
+		coordnodeinfo.nodeusername = out_user;
+		coordnodeinfo.nodepath = get_nodepath_from_tupleoid(cnoid);
+		tuple_coord = SearchSysCache1(NODENODEOID, cnoid);
+		if(!(HeapTupleIsValid(tuple_coord)))
+		{
+			ereport(ERROR, (errmsg("get node oid %d tuple information in node table error", cnoid)));
+		}
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple_coord);
+		coordnodeinfo.nodehost = mgr_node->nodehost;
+		ReleaseSysCache(tuple_coord);
+		initStringInfo(&infosendmsg);
+		/* update coordinator pg_hba.conf */
+		isAddHba = AddHbaIsValid(&coordnodeinfo, &infosendmsg);
 		//check get node in clean status
 		initStringInfo(&serialize);
 		is_vacuum_state = hexp_check_cluster_status_internal(dn_status, &dn_status_index , &serialize, true);
@@ -1307,6 +1352,10 @@ Datum mgr_expand_clean_init(PG_FUNCTION_ARGS)
 		hexp_pqexec_direct_execute_utility(pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 		PQfinish(pg_conn);
 		pg_conn = NULL;
+		if (isAddHba)
+			RemoveHba(&coordnodeinfo, &infosendmsg);
+		pfree(coordnodeinfo.nodepath);
+		pfree(infosendmsg.data);
 	}PG_CATCH();
 	{
 		if(pg_conn)
@@ -1331,11 +1380,12 @@ Datum mgr_expand_clean_start(PG_FUNCTION_ARGS)
 	PGconn *pg_conn = NULL;
 	PGconn *pg_conn_clean = NULL;
 	Oid cnoid;
-	HeapTuple tup_result;
+	HeapTuple tup_result = NULL;
 	int ret;
 	char ret_msg[100];
 	NameData nodename;
-	bool is_vacuum_state;
+	bool is_vacuum_state = false;
+	bool isAddHba = false;
 
 
 	DN_STATUS dn_status[MaxDNMaster];
@@ -1356,6 +1406,10 @@ Datum mgr_expand_clean_start(PG_FUNCTION_ARGS)
 	char	out_port[64];
 	char	out_db[64];
 	char	out_user[64];
+	HeapTuple tuple_coord = NULL;
+	AppendNodeInfo coordnodeinfo;
+	Form_mgr_node mgr_node;
+	StringInfoData infosendmsg;
 
 	initStringInfo(&table_name);
 	initStringInfo(&schema_name);
@@ -1379,6 +1433,22 @@ Datum mgr_expand_clean_start(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		hexp_get_coordinator_conn_output(&pg_conn, &cnoid, out_host, out_port, out_db, out_user);
+		Assert(cnoid);
+		coordnodeinfo.nodeport = atoi(out_port);
+		coordnodeinfo.nodeaddr = out_host;
+		coordnodeinfo.nodeusername = out_user;
+		coordnodeinfo.nodepath = get_nodepath_from_tupleoid(cnoid);
+		tuple_coord = SearchSysCache1(NODENODEOID, cnoid);
+		if(!(HeapTupleIsValid(tuple_coord)))
+		{
+			ereport(ERROR, (errmsg("get node oid %d tuple information in node table error", cnoid)));
+		}
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple_coord);
+		coordnodeinfo.nodehost = mgr_node->nodehost;
+		ReleaseSysCache(tuple_coord);
+		initStringInfo(&infosendmsg);
+		/* update coordinator pg_hba.conf */
+		isAddHba = AddHbaIsValid(&coordnodeinfo, &infosendmsg);
 
 		initStringInfo(&serialize);
 		is_vacuum_state = hexp_check_cluster_status_internal(dn_status, &dn_status_index , &serialize, true);
@@ -1458,6 +1528,11 @@ Datum mgr_expand_clean_start(PG_FUNCTION_ARGS)
 			hexp_pqexec_direct_execute_utility(pg_conn_clean, vacuum_slot_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 			hexp_pqexec_direct_execute_utility(pg_conn, update_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 		}
+
+		if (isAddHba)
+			RemoveHba(&coordnodeinfo, &infosendmsg);
+		pfree(coordnodeinfo.nodepath);
+		pfree(infosendmsg.data);
 	}PG_CATCH();
 	{
 		if(pg_conn)
