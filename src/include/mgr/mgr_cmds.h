@@ -475,4 +475,6 @@ Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype
 extern char* hexp_get_database(void);
 bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid);
 
+extern bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg);
+extern bool RemoveHba(const AppendNodeInfo *nodeinfo, const StringInfo infosendmsg);
 #endif /* MGR_CMDS_H */
