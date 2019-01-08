@@ -4017,7 +4017,7 @@ void mgr_pgbasebackup(char nodetype, AppendNodeInfo *appendnodeinfo, AppendNodeI
 
 	if (nodetype == GTM_TYPE_GTM_SLAVE)
 	{
-		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R -k %s",
+		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R --nodename %s",
 									get_hostaddress_from_hostoid(parentnodeinfo->nodehost)
 									,parentnodeinfo->nodeport
 									,AGTM_USER
@@ -4027,7 +4027,7 @@ void mgr_pgbasebackup(char nodetype, AppendNodeInfo *appendnodeinfo, AppendNodeI
 	}
 	else if (nodetype == CNDN_TYPE_DATANODE_MASTER || nodetype == CNDN_TYPE_DATANODE_SLAVE)
 	{
-		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R -k %s",
+		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R --nodename %s",
 									get_hostaddress_from_hostoid(parentnodeinfo->nodehost)
 									,parentnodeinfo->nodeport
 									,get_hostuser_from_hostoid(parentnodeinfo->nodehost)
