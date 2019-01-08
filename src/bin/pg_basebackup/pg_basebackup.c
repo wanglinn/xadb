@@ -358,7 +358,7 @@ usage(void)
 	printf(_("  -z, --gzip             compress tar output\n"));
 	printf(_("  -Z, --compress=0-9     compress tar output with given compression level\n"));
 #ifdef ADB
-	printf(_("  -k, --nodename=NODENAME  set node name\n"));
+	printf(_("  --nodename=NODENAME    set node name\n"));
 #endif
 	printf(_("\nGeneral options:\n"));
 	printf(_("  -c, --checkpoint=fast|spread\n"
@@ -2150,7 +2150,7 @@ main(int argc, char **argv)
 		{"gzip", no_argument, NULL, 'z'},
 		{"compress", required_argument, NULL, 'Z'},
 #ifdef ADB
-		{"nodename", required_argument, NULL, 'k'},
+		{"nodename", required_argument, NULL, 11},
 #endif
 		{"label", required_argument, NULL, 'l'},
 		{"no-clean", no_argument, NULL, 'n'},
@@ -2197,7 +2197,7 @@ main(int argc, char **argv)
 
 	atexit(cleanup_directories_atexit);
 
-	while ((c = getopt_long(argc, argv, "D:F:r:RT:X:l:nNzZ:d:c:h:k:p:U:s:S:wWvP",
+	while ((c = getopt_long(argc, argv, "D:F:r:RT:X:l:nNzZ:d:c:h:p:U:s:S:wWvP",
 							long_options, &option_index)) != -1)
 	{
 		switch (c)
@@ -2292,7 +2292,7 @@ main(int argc, char **argv)
 				}
 				break;
 #ifdef ADB
-			case 'k':
+			case 11:
 				nodename = pg_strdup(optarg);
 				break;
 #endif

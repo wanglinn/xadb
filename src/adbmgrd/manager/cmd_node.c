@@ -1244,7 +1244,7 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 	appendStringInfo(&infosendmsg, " -p %u", masterport);
 	appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
 	appendStringInfo(&infosendmsg, " -D %s", cndnPath);
-	appendStringInfo(&infosendmsg, " -k %s", cndnnametmp);
+	appendStringInfo(&infosendmsg, " --nodename %s", cndnnametmp);
 	/* connection agent */
 	ma = ma_connect_hostoid(hostOid);
 	if(!ma_isconnected(ma))
@@ -1662,7 +1662,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
 		appendStringInfo(&infosendmsg, " -D %s", cndnPath);
 		appendStringInfo(&infosendmsg, " -U %s", AGTM_USER);
-		appendStringInfo(&infosendmsg, " -k %s", cndnname);
+		appendStringInfo(&infosendmsg, " --nodename %s", cndnname);
 		ReleaseSysCache(gtmmastertuple);
 		/*check it need start gtm master*/
 		initStringInfo(&strinfoport);
@@ -4019,7 +4019,7 @@ void mgr_pgbasebackup(char nodetype, AppendNodeInfo *appendnodeinfo, AppendNodeI
 
 	if (nodetype == GTM_TYPE_GTM_SLAVE)
 	{
-		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R -k %s",
+		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R --nodename %s",
 									get_hostaddress_from_hostoid(parentnodeinfo->nodehost)
 									,parentnodeinfo->nodeport
 									,AGTM_USER
@@ -4029,7 +4029,7 @@ void mgr_pgbasebackup(char nodetype, AppendNodeInfo *appendnodeinfo, AppendNodeI
 	}
 	else if (nodetype == CNDN_TYPE_DATANODE_MASTER || nodetype == CNDN_TYPE_DATANODE_SLAVE)
 	{
-		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R -k %s",
+		appendStringInfo(&sendstrmsg, " -h %s -p %d -U %s -D %s -Xs -Fp -R --nodename %s",
 									get_hostaddress_from_hostoid(parentnodeinfo->nodehost)
 									,parentnodeinfo->nodeport
 									,get_hostuser_from_hostoid(parentnodeinfo->nodehost)
