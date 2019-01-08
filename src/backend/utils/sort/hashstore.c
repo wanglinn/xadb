@@ -285,7 +285,7 @@ static Hashstorestate *new_hashstore(int nbuckets)
 {
 	Hashstorestate *store;
 	HASHCTL info;
-	int nbufs = (work_mem*1024)/BLCKSZ;
+	int nbufs = work_mem/(BLCKSZ/1024);
 	int i;
 	AssertArg(nbuckets > 0);
 
@@ -293,6 +293,8 @@ static Hashstorestate *new_hashstore(int nbuckets)
 	store->nbucket = nbuckets;
 
 	/* init pages and desc */
+	if (nbufs < 8)
+		nbufs = 8;
 	store->cache_page = palloc0(nbufs * BLCKSZ);
 	store->cache_desc = palloc0(nbufs * sizeof(HashStoreBufferDesc));
 	store->max_cache = nbufs;
