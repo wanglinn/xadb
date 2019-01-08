@@ -4959,6 +4959,18 @@ _copyClusterReduce(const ClusterReduce *from)
 	return newnode;
 }
 
+static ReduceScan *
+_copyReduceScan(const ReduceScan *from)
+{
+	ReduceScan *newnode = makeNode(ReduceScan);
+
+	CopyPlanFields(&from->plan, &newnode->plan);
+	COPY_NODE_FIELD(param_hash_keys);
+	COPY_NODE_FIELD(scan_hash_keys);
+
+	return newnode;
+}
+
 static ParamTuplestoreScan *
 _copyParamTuplestoreScan(const ParamTuplestoreScan *from)
 {
@@ -6131,6 +6143,9 @@ copyObjectImpl(const void *from)
 			break;
 		case T_ClusterReduce:
 			retval = _copyClusterReduce(from);
+			break;
+		case T_ReduceScan:
+			retval = _copyReduceScan(from);
 			break;
 		case T_ParamTuplestoreScan:
 			retval = _copyParamTuplestoreScan(from);
