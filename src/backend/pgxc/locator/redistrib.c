@@ -379,6 +379,9 @@ distrib_execute_command(RedistribState *distribState, RedistribCommand *command)
 		default:
 			Assert(0); /* Should not happen */
 	}
+
+	GetCurrentCommandId(true);
+	CommandCounterIncrement();
 }
 
 
