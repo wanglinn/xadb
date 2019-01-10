@@ -654,11 +654,21 @@ HandleCopyOutData(RemoteQueryContext *context, PGconn *conn, const char *buf, in
 		case CLUSTER_MSG_TUPLE_DESC:
 			if (node->description_count++ == 0)
 			{
-				TupleDesc desc = CreateRemoteTupleDesc(destSlot->tts_mcxt, buf, len);
-				ExecSetSlotDescriptor(destSlot, desc);
+				TupleDesc desc = destSlot->tts_tupleDescriptor;
+				if (desc == NULL)
+				{
+					desc = CreateRemoteTupleDesc(destSlot->tts_mcxt, buf, len);
+					ExecSetSlotDescriptor(destSlot, desc);
+				}else
+				{
+					compare_slot_head_message(&buf[1], len-1, desc);
+				}
 				if (destSlot == scanSlot)
 				{
-					ExecSetSlotDescriptor(iterSlot, desc);
+					if (iterSlot->tts_tupleDescriptor)
+						compare_slot_head_message(&buf[1], len-1, desc);
+					else
+						ExecSetSlotDescriptor(iterSlot, desc);
 
 					/* construct cluster receive state */
 					Assert(node->recvState && !node->recvState->convert);
