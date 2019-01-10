@@ -792,41 +792,13 @@ RemoteQueryFinishHook(void *context, struct pg_conn *conn, PQNHookFuncType type,
 static TupleDesc
 CreateRemoteTupleDesc(MemoryContext context, const char *msg, int len)
 {
-	StringInfoData	buf;
 	TupleDesc		desc;
-	int				i, natts;
-	Oid				atttypid;
-	char		   *attname;
-	int32			atttypmod;
-	int32			attndims;
 	MemoryContext	oldContext;
 
 	Assert(msg[0] == CLUSTER_MSG_TUPLE_DESC);
 
 	oldContext = MemoryContextSwitchTo(context);
-
-	natts = *(int *) &(msg[2]);
-	desc = CreateTemplateTupleDesc(natts, (bool) msg[1]);
-
-	buf.data = (char *) msg;
-	buf.len = buf.maxlen = len;
-	buf.cursor = 6;
-	for (i = 1; i <= natts; i++)
-	{
-		/* attname */
-		attname = load_node_string(&buf, false);
-		/* atttypmod */
-		atttypmod = *(int32 *)(buf.data + buf.cursor);
-		buf.cursor += sizeof(atttypmod);
-		/* attndims */
-		attndims = *(int32 *)(buf.data + buf.cursor);
-		buf.cursor += sizeof(attndims);
-		/* atttypid */
-		atttypid = load_oid_type(&buf);
-
-		TupleDescInitEntry(desc, (AttrNumber) i, attname, atttypid, atttypmod, attndims);
-	}
-
+	desc = restore_slot_head_message(&msg[1], len-1);
 	(void) MemoryContextSwitchTo(oldContext);
 
 	return desc;
