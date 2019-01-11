@@ -18,7 +18,7 @@ OBJS = be-fsstubs.o be-secure.o be-secure-common.o auth.o crypt.o hba.o ifaddr.o
        pqformat.o pqmq.o pqsignal.o auth-scram.o
 
 ifeq ($(enable_cluster),yes)
-OBJS += libpq-node.o
+OBJS += libpq-node.o pqnode.o pqnone.o
 libpq-node.o: CFLAGS += -I$(libpq_srcdir)
 endif
 
