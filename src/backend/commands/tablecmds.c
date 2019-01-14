@@ -13434,17 +13434,16 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 		Oid			indid = lfirst_oid(item);
 		Relation	indexRel = index_open(indid, AccessShareLock);
 		List	   *indexColNums = NIL;
-		int2vector	colIds = indexRel->rd_index->indkey;
 
 		/*
 		 * Prepare call to shippability check. Attributes set to 0 correspond
 		 * to index expressions and are evaluated internally, so they are not
 		 * appended in given list.
 		 */
-		for (i = 0; i < colIds.dim1; i++)
+		for (i = 0; i < indexRel->rd_index->indkey.dim1; i++)
 		{
-			if (colIds.values[i] > 0)
-				indexColNums = lappend_int(indexColNums, colIds.values[i]);
+			if (indexRel->rd_index->indkey.values[i] > 0)
+				indexColNums = lappend_int(indexColNums, indexRel->rd_index->indkey.values[i]);
 		}
 
 		if (!pgxc_check_index_shippability(newLocInfo,
