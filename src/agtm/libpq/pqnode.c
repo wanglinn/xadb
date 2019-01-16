@@ -644,7 +644,7 @@ void pq_node_close(pq_comm_node *node)
 	if(current_pq_node == node)
 		current_pq_node = NULL;
 	list_pq_node = list_delete_ptr(list_pq_node, node);
-	if(node->sock)
+	if(node->sock != PGINVALID_SOCKET)
 		closesocket(node->sock);
 	if(node->in_buf.data)
 		pfree(node->in_buf.data);
