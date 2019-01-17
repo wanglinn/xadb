@@ -4881,6 +4881,17 @@ _copyReduceScan(const ReduceScan *from)
 	return newnode;
 }
 
+static EmptyResult *
+_copyEmptyResult(const EmptyResult *from)
+{
+	EmptyResult *newnode = makeNode(EmptyResult);
+
+	CopyPlanFields(&from->plan, &newnode->plan);
+	COPY_SCALAR_FIELD(typeFrom);
+
+	return newnode;
+}
+
 static ParamTuplestoreScan *
 _copyParamTuplestoreScan(const ParamTuplestoreScan *from)
 {
@@ -6044,6 +6055,9 @@ copyObjectImpl(const void *from)
 			break;
 		case T_ReduceScan:
 			retval = _copyReduceScan(from);
+			break;
+		case T_EmptyResult:
+			retval = _copyEmptyResult(from);
 			break;
 		case T_ParamTuplestoreScan:
 			retval = _copyParamTuplestoreScan(from);
