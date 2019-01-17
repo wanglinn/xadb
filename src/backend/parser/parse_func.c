@@ -33,10 +33,13 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
+#ifdef ADB_MULTI_GRAM
+#include "tcop/tcopprot.h"
+#endif /* ADB_MULTI_GRAM */
 #if defined(ADB_GRAM_ORA)
 #include "catalog/pg_namespace.h"
 #include "oraschema/oracoerce.h"
-#endif
+#endif /* ADB_GRAM_ORA */
 
 
 static void unify_hypothetical_args(ParseState *pstate,
@@ -1571,13 +1574,54 @@ func_get_detail(List *funcname,
 			 */
 			else if (ncandidates > 1)
 			{
+#ifdef ADB_MULTI_GRAM
+				Oid nsp;
+
+				if (list_length(funcname) == 1 &&	/* unspecified schema */
+					current_grammar != PARSE_GRAM_POSTGRES &&
+					(nsp = get_namespace_for_gram(current_grammar)) != InvalidOid)
+				{
+					ListCell *lc;
+					List *list_better = NIL;
+					for(best_candidate = current_candidates;
+						best_candidate != NULL;
+						best_candidate = best_candidate->next)
+					{
+						if (best_candidate->nspoid == nsp)
+							list_better = lappend(list_better, best_candidate);
+					}
+
+					/* modify chain if we found better */
+					if (list_better != NIL)
+					{
+						lc = list_head(list_better);
+						best_candidate = current_candidates = lfirst(lc);
+						for(lc=lnext(lc);lc!=NULL;lc=lnext(lc))
+						{
+							best_candidate->next = lfirst(lc);
+							best_candidate = lfirst(lc);
+						}
+						best_candidate->next = NULL;
+						list_free(list_better);
+					}
+				}
+#endif
 				best_candidate = func_select_candidate(nargs,
 													   argtypes,
 													   current_candidates);
 #ifdef ADB_GRAM_ORA
 				/*
 				 * We think the function belong to oracle namespace is the best
-				 * candidate if we are not able to choose the best candidate
+				 * candidate if we are not able to choose the best candidate.
+				 *
+				 * but, there may still be multiple matches,
+				 * the code is not a good idea
+				 * e.g.
+				 *          subtract('2018-01-01', '1')
+				 * it can be
+				 *   oracle.subtract('2018-01-01', '1'::oracle.date)
+				 * and
+				 *   oracle.subtract('2018-01-01', '1'::numeric)
 				 */
 				if (!best_candidate && IsOraFunctionCoercionContext())
 				{
