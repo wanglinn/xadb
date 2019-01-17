@@ -5393,11 +5393,12 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 	time_t last_time;
 	time_t cur_time;
 	StringInfoData	buf;
-	/* CommandId	mycid = GetCurrentCommandId(true); */
 	ExprDoneCond done;
 	bool isnull;
 
 	Assert(cstate->rel);
+	/* force refresh currentCommandId */
+	GetCurrentCommandId(true);
 
 	if (cstate->rel->rd_rel->relkind != RELKIND_RELATION &&
 		cstate->rel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE &&
