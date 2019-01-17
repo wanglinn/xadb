@@ -2273,7 +2273,24 @@ re_generate_append_:
 					List *params = MakeVarList(lfirst(lc_new_attno), rel->relid, rel->reltarget);
 					parallel_workers = 0;
 					Assert(params != NIL);
-					sub_reduce = MakeReduceInfoAs(reduce_info, params);
+
+					sub_reduce = CopyReduceInfoExtend(reduce_info,
+													  REDUCE_MARK_ALL & ~(REDUCE_MARK_PARAMS|REDUCE_MARK_EXCLUDE));
+					sub_reduce->params = params;
+
+					/* combination exclude node oids */
+					if (reduce_info->exclude_exec == NIL)
+					{
+						/* quick combination */
+						sub_reduce->exclude_exec = NIL;
+					}else
+					{
+						List *exec_on = PathListGetReduceInfoListExecuteOn(subpaths);
+						sub_reduce->exclude_exec = list_difference_oid(sub_reduce->storage_nodes,
+																	   exec_on);
+						list_free(exec_on);
+					}
+
 					if (generate_partial)
 						parallel_workers = get_max_parallel_workers(subpaths);
 
