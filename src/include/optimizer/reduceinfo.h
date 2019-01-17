@@ -159,6 +159,7 @@ extern bool IsReduceInfoListExecuteSubset(List *reduce_info_list, List *oidlist)
 extern bool IsReduceInfoListExecuteSubsetReduceInfo(List *reduce_info_list, const ReduceInfo *rinfo);
 extern List *ReduceInfoListGetExecuteOidList(const List *list);
 extern void ReduceInfoListGetStorageAndExcludeOidList(const List *list, List **storage, List **exclude);
+extern List *PathListGetReduceInfoListExecuteOn(List *pathlist);
 
 /* copy reduce info */
 #define CopyReduceInfo(r) CopyReduceInfoExtend(r, REDUCE_MARK_ALL)

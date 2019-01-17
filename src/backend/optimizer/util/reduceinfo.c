@@ -1234,6 +1234,36 @@ void ReduceInfoListGetStorageAndExcludeOidList(const List *list, List **storage,
 		*exclude = exclude_list;
 }
 
+List *PathListGetReduceInfoListExecuteOn(List *pathlist)
+{
+	Path	   *path;
+	ReduceInfo *rinfo;
+	ListCell   *lc_path;
+	ListCell   *lc_reduce;
+	ListCell   *lc_oid;
+	List	   *reducelist;
+	List	   *result = NIL;
+
+	foreach(lc_path, pathlist)
+	{
+		path = lfirst(lc_path);
+		reducelist = get_reduce_info_list(path);
+		foreach(lc_reduce, reducelist)
+		{
+			rinfo = lfirst(lc_reduce);
+			foreach(lc_oid, rinfo->storage_nodes)
+			{
+				Oid oid = lfirst_oid(lc_oid);
+				if (list_member_oid(rinfo->exclude_exec, oid) == false &&
+					list_member_oid(result, oid) == false)
+					result = lappend_oid(result, oid);
+			}
+		}
+	}
+
+	return result;
+}
+
 ReduceInfo *CopyReduceInfoExtend(const ReduceInfo *reduce, int mark)
 {
 	ReduceInfo *rinfo;
