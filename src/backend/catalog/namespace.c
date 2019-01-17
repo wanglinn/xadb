@@ -4328,6 +4328,26 @@ fetch_search_path_array(Oid *sarray, int sarray_len)
 	return count;
 }
 
+#ifdef ADB_MULTI_GRAM
+Oid	get_namespace_for_gram(int grammar)
+{
+	switch((ParseGrammar)grammar)
+	{
+	case PARSE_GRAM_POSTGRES:
+		return PG_CATALOG_NAMESPACE;
+	case PARSE_GRAM_ORACLE:
+#ifdef ADB_GRAM_ORA
+		return PG_ORACLE_NAMESPACE;
+#else
+		break;
+#endif
+	/* no default, need a warning */
+	}
+
+	return InvalidOid;
+}
+#endif /* ADB_MULTI_GRAM */
+
 
 /*
  * Export the FooIsVisible functions as SQL-callable functions.
