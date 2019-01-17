@@ -7419,8 +7419,14 @@ static Plan *create_reducescan_plan(PlannerInfo *root, ReduceScanPath *path, int
 	rc = makeNode(ReduceScan);
 	outerPlan(rc) = subplan;
 	rc->plan.targetlist = build_path_tlist(root, &path->path);
+
 	clauses = order_qual_clauses(root, path->rescan_clauses);
-	rc->plan.qual = extract_actual_clauses(clauses, false);
+	rc->plan.qual = NIL;
+	foreach(lc, clauses)
+	{
+		rc->plan.qual = lappend(rc->plan.qual,
+								lfirst_node(RestrictInfo, lc)->clause);
+	}
 
 	relid = path->path.parent->relid;
 	attnos = NULL;
