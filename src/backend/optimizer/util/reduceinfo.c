@@ -1491,7 +1491,7 @@ List* ReduceInfoFindTargetList(const ReduceInfo* reduce, const List *targetlist,
 	return result;
 }
 
-extern List* MakeVarList(const List *attnos, Index relid, const PathTarget *target)
+List* MakeVarList(const List *attnos, Index relid, const PathTarget *target)
 {
 	const Expr *expr;
 	Var *var;
@@ -1508,6 +1508,21 @@ extern List* MakeVarList(const List *attnos, Index relid, const PathTarget *targ
 					  0);
 		result = lappend(result, var);
 	}
+	return result;
+}
+
+List* ExtractExprList(const List *attnos, List *exprs)
+{
+	ListCell   *lc;
+	List	   *result = NIL;
+	Assert(attnos == NIL || IsA(attnos, IntList));
+
+	foreach(lc, attnos)
+	{
+		Expr *expr = list_nth(exprs, lfirst_int(lc)-1);
+		result = lappend(result, expr);
+	}
+
 	return result;
 }
 
