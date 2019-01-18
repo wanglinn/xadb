@@ -288,6 +288,7 @@ static void outputReduceType(StringInfo str, const char *type)
 
 	switch(*type)
 	{
+	CASE_REDUCE_TYPE(HASHMAP);
 	CASE_REDUCE_TYPE(HASH);
 	CASE_REDUCE_TYPE(CUSTOM);
 	CASE_REDUCE_TYPE(MODULO);
