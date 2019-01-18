@@ -2183,7 +2183,7 @@ re_generate_append_:
 	all_child_outers = lcons(NULL, all_child_outers);
 	foreach(lc_pk, all_child_pathkeys)
 	{
-		ListCell	   *lc_new_attno;
+		ListCell	   *lc_reduce_attno;
 		ReduceInfo	   *sub_reduce;
 		ListCell	   *lc_rel;
 		ListCell	   *lc_path;
@@ -2192,6 +2192,7 @@ re_generate_append_:
 		Relids			req_outer;
 		Path		   *test_path;
 		Path		   *pathkey_path;
+		List		   *reduce_attno;
 		List		   *pathkeys = lfirst(lc_pk);
 		int				parallel_workers;
 		bool			have_pathkeys_path;
@@ -2201,10 +2202,11 @@ re_generate_append_:
 			req_outer = lfirst(lc_outer);
 
 			/* make redue by value AppendPath */
-			forboth(l, all_reduce_by_val_list, lc_new_attno, reduce_var_map)
+			forboth(l, all_reduce_by_val_list, lc_reduce_attno, reduce_var_map)
 			{
 				have_pathkeys_path = false;
 				reduce_info = lfirst(l);
+				reduce_attno = lfirst(lc_reduce_attno);
 				subpaths = NIL;
 				subpaths_valid = true;
 				foreach(lc_rel, childrels)
@@ -2226,7 +2228,7 @@ re_generate_append_:
 							List *new_attno;
 							sub_reduce = lfirst(lc_reduce);
 							new_attno = ReduceInfoFindPathTarget(sub_reduce, test_path->pathtarget);
-							if (equal(new_attno, lfirst(lc_new_attno)) &&
+							if (equal(new_attno, reduce_attno) &&
 								IsReduceInfoSame(sub_reduce, reduce_info))
 							{
 								/* found match reduce */
@@ -2270,9 +2272,13 @@ re_generate_append_:
 				if(subpaths_valid)
 				{
 					/* make new reduce for AppendPath */
-					List *params = MakeVarList(lfirst(lc_new_attno), rel->relid, rel->reltarget);
-					parallel_workers = 0;
+					List *params;
+					if (rel->rtekind == RTE_SUBQUERY)
+						params = MakeVarList(reduce_attno, rel->relid, rel->reltarget);
+					else
+						params = ExtractExprList(reduce_attno, rel->reltarget->exprs);
 					Assert(params != NIL);
+					parallel_workers = 0;
 
 					sub_reduce = CopyReduceInfoExtend(reduce_info,
 													  REDUCE_MARK_ALL & ~(REDUCE_MARK_PARAMS|REDUCE_MARK_EXCLUDE));
