@@ -7592,11 +7592,9 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 				MemSet(gcontext.agg_final_costs, 0, sizeof(AggClauseCosts));
 				if (parse->hasAggs)
 				{
-					List	   *partial_target_exprs;
 
 					/* partial phase */
-					partial_target_exprs = partially_grouped_rel->reltarget->exprs;
-					get_agg_clause_costs(root, (Node *) partial_target_exprs,
+					get_agg_clause_costs(root, (Node *) gcontext.partial_target->exprs,
 										 AGGSPLIT_INITIAL_SERIAL,
 										 gcontext.agg_partial_costs);
 
