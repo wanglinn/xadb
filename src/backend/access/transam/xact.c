@@ -1229,6 +1229,19 @@ IsInParallelMode(void)
 void
 CommandCounterIncrement(void)
 {
+#ifdef ADB
+	bool use_received_cmd_id;
+	if (IsCnMaster() &&
+		GetReceivedCommandId() > currentCommandId)
+	{
+		use_received_cmd_id = true;
+		currentCommandIdUsed = true;
+	}else
+	{
+		use_received_cmd_id = false;
+	}
+#endif /* ADB */
+
 	/*
 	 * If the current value of the command counter hasn't been "used" to mark
 	 * tuples, we need not increment it, since there's no need to distinguish
@@ -1246,8 +1259,7 @@ CommandCounterIncrement(void)
 			elog(ERROR, "cannot start commands during a parallel operation");
 
 #ifdef ADB
-		if (IsCnMaster() &&
-			GetReceivedCommandId() > currentCommandId)
+		if (use_received_cmd_id)
 		{
 			/*
 			 * If command id reported by remote node is greater that the current
