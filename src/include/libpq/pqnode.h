@@ -15,16 +15,18 @@
 
 typedef struct pq_comm_node pq_comm_node;
 
-extern List* get_all_pq_node(void);
 extern pgsocket socket_pq_node(pq_comm_node *node);
 extern bool pq_node_send_pending(pq_comm_node *node);
 extern bool pq_node_is_write_only(pq_comm_node *node);
 extern int	pq_node_flush_sock(pq_comm_node *node);
-extern void pq_node_new(pgsocket sock);
+extern pq_comm_node* pq_node_new(pgsocket sock, bool check_proc_port);
 extern int	pq_node_recvbuf(pq_comm_node *node);
 extern void pq_node_close(pq_comm_node *node);
 extern int	pq_node_get_msg(StringInfo s, pq_comm_node *node);
 extern void pq_node_switch_to(pq_comm_node *node);
 extern int	pq_node_get_id_socket(pq_comm_node *node);
+extern int	pq_node_flush_if_writable_sock(pq_comm_node *node);
+extern int	pq_node_putmessage_sock(pq_comm_node *node, char msgtype, const char *s, size_t len);
+extern void pq_node_putmessage_noblock_sock(pq_comm_node *node, char msgtype, const char *s, size_t len);
 
 #endif /* PQ_NODE_H */
