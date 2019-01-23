@@ -273,6 +273,8 @@ static pid_t StartupPID = 0,
 #ifdef ADB
 			PgPoolerPID = 0,
 			RemoteXactMgrPID = 0,
+			SnapSenderPID = 0,
+			SnapReceiverPID = 0,
 #endif
 #if defined(ADBMGRD)
 			AdbMntPID = 0,
@@ -630,6 +632,8 @@ Datum xc_lockForBackupKey2;
 
 #define StartPoolManager()		StartChildProcess(PoolerProcess)
 #define StartRemoteXactMgr()	StartChildProcess(RemoteXactMgrProcess)
+#define StartSnapSender()		StartChildProcess(SnapSenderProcess)
+#define StartSnapReceiver()		StartChildProcess(SnapReceiverProcess)
 #endif /* ADB */
 
 #define StartupDataBase()		StartChildProcess(StartupProcess)
@@ -1523,6 +1527,11 @@ PostmasterMain(int argc, char *argv[])
 
 		MemoryContextSwitchTo(oldcontext);
 	}
+
+	if (IsGTMNode())
+		SnapSenderPID = StartSnapSender();
+	else
+		SnapReceiverPID = StartSnapReceiver();
 #endif
 
 	/* Some workers may be scheduled to start now */
@@ -1925,6 +1934,16 @@ ServerLoop(void)
 
 		if (IS_PGXC_COORDINATOR && RemoteXactMgrPID == 0 && pmState == PM_RUN)
 			RemoteXactMgrPID = StartRemoteXactMgr();
+
+		if (IsGTMNode() &&
+			SnapSenderPID == 0 &&
+			pmState == PM_RUN)
+			SnapSenderPID = StartSnapSender();
+
+		if (!IsGTMNode() &&
+			SnapReceiverPID == 0 &&
+			pmState == PM_RUN)
+			SnapReceiverPID = StartSnapReceiver();
 #endif
 
 #if defined(ADBMGRD)
@@ -2738,6 +2757,12 @@ SIGHUP_handler(SIGNAL_ARGS)
 
 		if (IS_PGXC_COORDINATOR && RemoteXactMgrPID != 0)
 			signal_child(RemoteXactMgrPID, SIGHUP);
+
+		if (SnapSenderPID != 0)
+			signal_child(SnapSenderPID, SIGHUP);
+
+		if (SnapReceiverPID != 0)
+			signal_child(SnapReceiverPID, SIGHUP);
 #endif
 		if (BgWriterPID != 0)
 			signal_child(BgWriterPID, SIGHUP);
@@ -3125,6 +3150,10 @@ reaper(SIGNAL_ARGS)
 				PgPoolerPID = StartPoolManager();
 			if (IS_PGXC_COORDINATOR && RemoteXactMgrPID == 0)
 				RemoteXactMgrPID = StartRemoteXactMgr();
+			if (IsGTMNode() && SnapSenderPID == 0)
+				SnapSenderPID = StartSnapSender();
+			if (!IsGTMNode() && SnapReceiverPID == 0)
+				SnapReceiverPID = StartSnapReceiver();
 #endif
 #if defined(ADBMGRD)
 			if (AdbMonitoringActive() && AdbMntPID == 0)
@@ -3350,6 +3379,40 @@ reaper(SIGNAL_ARGS)
 			if (!EXIT_STATUS_0(exitstatus))
 				HandleChildCrash(pid, exitstatus,
 								 _("remote xact manager process"));
+			continue;
+		}
+
+		if (IsGTMNode() && pid == SnapSenderPID)
+		{
+			SnapSenderPID = 0;
+			if (EXIT_STATUS_0(exitstatus) ||
+				EXIT_STATUS_1(exitstatus))
+			{
+				LogChildExit(LOG,
+							 pgstat_get_backend_desc(B_ADB_SNAP_SENDER), pid, exitstatus);
+				SnapReceiverPID = StartSnapSender();
+			}else
+			{
+				HandleChildCrash(pid, exitstatus,
+								 pgstat_get_backend_desc(B_ADB_SNAP_SENDER));
+			}
+			continue;
+		}
+
+		if (!IsGTMNode() && pid == SnapReceiverPID)
+		{
+			SnapReceiverPID = 0;
+			if (EXIT_STATUS_0(exitstatus) ||
+				EXIT_STATUS_1(exitstatus))
+			{
+				LogChildExit(LOG,
+							 pgstat_get_backend_desc(B_ADB_SNAP_RECEIVER), pid, exitstatus);
+				SnapReceiverPID = StartSnapReceiver();
+			}else
+			{
+				HandleChildCrash(pid, exitstatus,
+								 pgstat_get_backend_desc(B_ADB_SNAP_RECEIVER));
+			}
 			continue;
 		}
 #endif /* ADB */
@@ -3815,6 +3878,34 @@ HandleChildCrash(int pid, int exitstatus, const char *procname)
 								 (SendStop ? "SIGSTOP" : "SIGQUIT"),
 								 (int) RemoteXactMgrPID)));
 			signal_child(RemoteXactMgrPID, (SendStop ? SIGSTOP : SIGQUIT));
+		}
+	}
+
+	if (IsGTMNode())
+	{
+		if (pid == SnapSenderPID)
+		{
+			SnapSenderPID = 0;
+		}else if (SnapSenderPID != 0 && !FatalError)
+		{
+			ereport(DEBUG2,
+					(errmsg_internal("sending %s to process %d",
+									 (SendStop ? "SIGSTOP" : "SIGQUIT"),
+									 (int)SnapSenderPID)));
+			signal_child(SnapSenderPID, (SendStop ? SIGSTOP : SIGQUIT));
+		}
+	}else /* if (!IsGTMNode()) */
+	{
+		if (pid == SnapReceiverPID)
+		{
+			SnapReceiverPID = 0;
+		}else if (SnapReceiverPID != 0 && !FatalError)
+		{
+			ereport(DEBUG2,
+					(errmsg_internal("sending %s to process %d",
+									 (SendStop ? "SIGSTOP" : "SIGQUIT"),
+									 (int)SnapReceiverPID)));
+			signal_child(SnapReceiverPID, (SendStop ? SIGSTOP : SIGQUIT));
 		}
 	}
 #endif
@@ -5735,6 +5826,14 @@ StartChildProcess(AuxProcType type)
 			case RemoteXactMgrProcess:
 				ereport(LOG,
 						(errmsg("could not fork remote xact manager process: %m")));
+				break;
+			case SnapSenderProcess:
+				ereport(LOG,
+						(errmsg("could not fork snapshot sender process: %m")));
+				break;
+			case SnapReceiverProcess:
+				ereport(LOG,
+						(errmsg("could not fork snapshot receiver process: %m")));
 				break;
 #endif
 			case StartupProcess:

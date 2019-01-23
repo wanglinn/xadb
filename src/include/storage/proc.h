@@ -205,6 +205,17 @@ struct PGPROC
 	PGPROC	   *lockGroupLeader;	/* lock group leader, if I'm a member */
 	dlist_head	lockGroupMembers;	/* list of members, if I'm a leader */
 	dlist_node	lockGroupLink;	/* my member link, if I'm a member */
+
+#ifdef ADB
+	/*
+	 * Support for wait GTM snapshot or Transaction end
+	 * when waitGlobalTransaction is
+	 *   InvalidTransactionId -- wait snapshot
+	 *   TransactionIdIsNormal() -- wait GTM end of Transaction
+	 */
+	TransactionId waitGlobalTransaction;
+	proclist_head GTMWaitLink;
+#endif /* ADB */
 };
 
 /* NOTE: "typedef struct PGPROC PGPROC" appears in storage/lock.h. */
@@ -294,7 +305,13 @@ extern PGPROC *PreparedXactProcs;
  * launched only after startup has exited, so we only need 4 slots.
  */
 #ifdef ADB
-#define NUM_AUXILIARY_PROCS		6	/* include pooler manager and rxact manager processes  */
+/*
+ *include
+ * pooler manager processes
+ * rxact manager processes
+ * snapshot sender or receiver process
+ */
+#define NUM_AUXILIARY_PROCS		7
 #else
 #define NUM_AUXILIARY_PROCS		4
 #endif

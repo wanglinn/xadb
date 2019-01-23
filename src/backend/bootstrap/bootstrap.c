@@ -50,6 +50,8 @@
 #include "access/rxact_mgr.h"
 #include "nodes/nodes.h"
 #include "pgxc/poolmgr.h"
+#include "replication/snapsender.h"
+#include "replication/snapreceiver.h"
 #endif
 
 uint32		bootstrap_data_checksum_version = 0;	/* No checksum */
@@ -333,6 +335,12 @@ AuxiliaryProcessMain(int argc, char *argv[])
 			case RemoteXactMgrProcess:
 				statmsg = "remote xact manager process";
 				break;
+			case SnapSenderProcess:
+				statmsg = pgstat_get_backend_desc(B_ADB_SNAP_SENDER);
+				break;
+			case SnapReceiverProcess:
+				statmsg = pgstat_get_backend_desc(B_ADB_SNAP_RECEIVER);
+				break;
 #endif
 			case StartupProcess:
 				statmsg = pgstat_get_backend_desc(B_STARTUP);
@@ -396,7 +404,7 @@ AuxiliaryProcessMain(int argc, char *argv[])
 #ifdef ADB
 		/* Initialize pooler flag before creating PGPROC structure */
 		if (MyAuxProcType == PoolerProcess)
-			PGXCPoolerProcessIam();			
+			PGXCPoolerProcessIam();
 #endif
 
 		/*
@@ -446,6 +454,14 @@ AuxiliaryProcessMain(int argc, char *argv[])
 
 		case RemoteXactMgrProcess:
 			RemoteXactMgrMain();
+			proc_exit(1);
+
+		case SnapSenderProcess:
+			SnapSenderMain();
+			proc_exit(1);
+
+		case SnapReceiverProcess:
+			SnapReceiverMain();
 			proc_exit(1);
 #endif
 		case CheckerProcess:

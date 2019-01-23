@@ -72,6 +72,7 @@
 #include "libpq/pqformat.h"
 #include "pgxc/pgxc.h"
 #include "postmaster/autovacuum.h"
+#include "replication/snapreceiver.h"
 #endif
 
 
@@ -2394,7 +2395,7 @@ GetGlobalSnapshot(Snapshot snapshot)
 		/*
 	 	 * Master-Coordinator get snapshot from AGTM.
 	 	 */
-		snap = agtm_GetGlobalSnapShot(snapshot);
+		snap = SnapRcvGetSnapshot(snapshot);
 	} else if (GlobalSnapshot == NULL ||
 		GlobalSnapshotSet == false ||
 		IsAnyAutoVacuumProcess())
@@ -2404,7 +2405,7 @@ GetGlobalSnapshot(Snapshot snapshot)
 		 * from AGTM when GlobalSnapshot is invalid or
 		 * current process is AutoVacuum process.
 		 */
-		snap = agtm_GetGlobalSnapShot(snapshot);
+		snap = SnapRcvGetSnapshot(snapshot);
 #ifdef SHOW_GLOBAL_SNAPSHOT
 		if (IsAnyAutoVacuumProcess())
 		{

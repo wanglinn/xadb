@@ -87,9 +87,11 @@
 #include "utils/snapmgr.h"
 #ifdef ADB
 #include "agtm/agtm.h"
+#include "libpq/pqformat.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 #include "postmaster/autovacuum.h"
+#include "replication/snapsender.h"
 #include "storage/ipc.h"
 #include "utils/tqual.h"
 #endif
@@ -404,12 +406,23 @@ ProcArrayRemove(PGPROC *proc, TransactionId latestXid)
 			arrayP->pgprocnos[arrayP->numProcs - 1] = -1;	/* for debugging */
 			arrayP->numProcs--;
 			LWLockRelease(ProcArrayLock);
+#ifdef ADB
+			if (TransactionIdIsValid(latestXid) &&
+				IsGTMNode())
+				SnapSendTransactionFinish(latestXid);
+#endif /* ADB */
 			return;
 		}
 	}
 
 	/* Oops */
 	LWLockRelease(ProcArrayLock);
+
+#ifdef ADB
+	if (TransactionIdIsValid(latestXid) &&
+		IsGTMNode())
+		SnapSendTransactionFinish(latestXid);
+#endif /* ADB */
 
 	elog(LOG, "failed to find proc %p in ProcArray", proc);
 }
@@ -512,6 +525,9 @@ ProcArrayEndTransactionInternal(PGPROC *proc, PGXACT *pgxact,
 	if (TransactionIdPrecedes(ShmemVariableCache->latestCompletedXid,
 							  latestXid))
 		ShmemVariableCache->latestCompletedXid = latestXid;
+#ifdef ADB
+	SnapSendTransactionFinish(latestXid);
+#endif /* ADB */
 }
 
 /*
@@ -4339,5 +4355,42 @@ void EnlargeSnapshotXip(Snapshot snapshot, uint32 need_size)
 	}
 	snapshot->xip = p;
 	snapshot->max_xcnt = new_size;
+}
+
+/* like GetSnapshotData, but serialize all active transaction IDs */
+void SerializeActiveTransactionIds(StringInfo buf)
+{
+	ProcArrayStruct *arrayP = procArray;
+	TransactionId   *xids;
+	int			   *pgprocnos;
+	int				numProcs;
+	int				index;
+	uint32			i,count;
+	TransactionId	latestCompletedXid;
+
+	xids = palloc(GetMaxSnapshotXidCount() * sizeof(TransactionId));
+	count = 0;
+
+	/* get all Transaction IDs */
+	LWLockAcquire(ProcArrayLock, LW_SHARED);
+	latestCompletedXid = ShmemVariableCache->latestCompletedXid;
+	pgprocnos = arrayP->pgprocnos;
+	numProcs = arrayP->numProcs;
+	for (index = 0; index < numProcs; ++index)
+	{
+		int			pgprocno = pgprocnos[index];
+		volatile PGXACT *pgxact = &allPgXact[pgprocno];
+
+		TransactionId xid = (TransactionId)(*((volatile TransactionId*)&pgxact->xid));
+		if (TransactionIdIsNormal(xid))
+			xids[count++] = xid;
+	}
+	LWLockRelease(ProcArrayLock);
+
+	pq_sendint32(buf, latestCompletedXid);
+	for(i=0;i<count;++i)
+		pq_sendint32(buf, xids[i]);
+
+	pfree(xids);
 }
 #endif /* ADB */

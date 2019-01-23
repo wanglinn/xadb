@@ -50,6 +50,8 @@
 #include "pgxc/nodemgr.h"
 #include "pgxc/pause.h"
 #include "pgxc/pgxc.h"
+#include "replication/snapreceiver.h"
+#include "replication/snapsender.h"
 #endif
 #if defined(ADBMGRD)
 #include "postmaster/adbmonitor.h"
@@ -158,6 +160,10 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		size = add_size(size, AsyncShmemSize());
 		size = add_size(size, BackendRandomShmemSize());
 #ifdef ADB
+		if (IsGTMNode())
+			size = add_size(size, SnapSenderShmemSize());
+		else
+			size = add_size(size, SnapRcvShmemSize());
 		if (IS_PGXC_COORDINATOR)
 			size = add_size(size, ClusterLockShmemSize());
 #endif
@@ -279,6 +285,10 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 	ApplyLauncherShmemInit();
 
 #ifdef ADB
+	if (IsGTMNode())
+		SnapSenderShmemInit();
+	else
+		SnapRcvShmemInit();
 	if (IS_PGXC_COORDINATOR)
 		ClusterLockShmemInit();
 #endif

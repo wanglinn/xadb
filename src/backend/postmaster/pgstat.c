@@ -2877,6 +2877,12 @@ pgstat_bestart(void)
 			case RemoteXactMgrProcess:
 				beentry->st_backendType = B_ADB_RXACT;
 				break;
+			case SnapSenderProcess:
+				beentry->st_backendType = B_ADB_SNAP_SENDER;
+				break;
+			case SnapReceiverProcess:
+				beentry->st_backendType = B_ADB_SNAP_RECEIVER;
+				break;
 #endif /* ADB */
 			default:
 				elog(FATAL, "unrecognized process type: %d",
@@ -4146,6 +4152,12 @@ pgstat_get_backend_desc(BackendType backendType)
 			break;
 		case B_ADB_RXACT:
 			backendDesc = "remote xact manager process";
+			break;
+		case B_ADB_SNAP_SENDER:
+			backendDesc = "snapshot sender process";
+			break;
+		case B_ADB_SNAP_RECEIVER:
+			backendDesc = "snapshot receiver process";
 			break;
 #endif /* ADB */
 	}

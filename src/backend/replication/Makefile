@@ -17,6 +17,10 @@ override CPPFLAGS := -I. -I$(srcdir) $(CPPFLAGS)
 OBJS = walsender.o walreceiverfuncs.o walreceiver.o basebackup.o \
 	repl_gram.o slot.o slotfuncs.o syncrep.o syncrep_gram.o
 
+ifeq ($(enable_cluster),yes)
+  OBJS += snapreceiver.o snapsender.o
+endif
+
 SUBDIRS = logical
 
 include $(top_srcdir)/src/backend/common.mk

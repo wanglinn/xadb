@@ -405,6 +405,8 @@ typedef enum
 #ifdef ADB
 	PoolerProcess,
 	RemoteXactMgrProcess,
+	SnapSenderProcess,
+	SnapReceiverProcess,
 #endif
 	NUM_AUXPROCTYPES			/* Must be last! */
 } AuxProcType;
