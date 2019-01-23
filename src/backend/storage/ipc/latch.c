@@ -51,6 +51,7 @@
 #include "storage/latch.h"
 #include "storage/pmsignal.h"
 #include "storage/shmem.h"
+#include "utils/memutils.h"
 
 /*
  * Select the fd readiness primitive to use. Normally the "most modern"
@@ -510,14 +511,8 @@ ResetLatch(volatile Latch *latch)
 	pg_memory_barrier();
 }
 
-/*
- * Create a WaitEventSet with space for nevents different events to wait for.
- *
- * These events can then be efficiently waited upon together, using
- * WaitEventSetWait().
- */
-WaitEventSet *
-CreateWaitEventSet(MemoryContext context, int nevents)
+/* ADB */
+static WaitEventSet *AllocWaitEventSet(MemoryContext context, int nevents)
 {
 	WaitEventSet *set;
 	char	   *data;
@@ -562,6 +557,23 @@ CreateWaitEventSet(MemoryContext context, int nevents)
 
 	set->latch = NULL;
 	set->nevents_space = nevents;
+
+	return set;
+}
+/* end ADB */
+
+/*
+ * Create a WaitEventSet with space for nevents different events to wait for.
+ *
+ * These events can then be efficiently waited upon together, using
+ * WaitEventSetWait().
+ */
+WaitEventSet *
+CreateWaitEventSet(MemoryContext context, int nevents)
+{
+	WaitEventSet *set;
+
+	set = AllocWaitEventSet(context, nevents);
 
 #if defined(WAIT_USE_EPOLL)
 #ifdef EPOLL_CLOEXEC
@@ -779,6 +791,92 @@ ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, Latch *latch)
 	WaitEventAdjustWin32(set, event);
 #endif
 }
+
+#ifdef ADB
+void RemoveWaitEvent(WaitEventSet *set, int pos)
+{
+	WaitEvent  *event;
+
+	Assert(pos < set->nevents && pos >= 0);
+
+	event = &set->events[pos];
+
+	if (pos == set->latch_pos)
+	{
+		/* we could allow to remove latch events for a while */
+		elog(ERROR, "cannot remove latch event");
+	}
+
+	if (event->events & WL_POSTMASTER_DEATH)
+	{
+		elog(ERROR, "cannot remove postmaster death event");
+	}
+
+#if defined(WAIT_USE_EPOLL)
+	WaitEventAdjustEpoll(set, event, EPOLL_CTL_DEL);
+#elif defined(WAIT_USE_POLL)
+	memcpy(&set->pollfds[pos],
+		   &set->pollfds[pos+1],
+		   sizeof(set->pollfds[0]) * (set->nevents-pos));
+#elif defined(WAIT_USE_WIN32)
+	memcpy(&set->handles[pos+1],
+		   &set->handles[pos+2],
+		   sizeof(set->handles[0]) * (set->nevents-pos));
+#endif
+	memcpy(&set->events[pos],
+		   &set->events[pos+1],
+		   sizeof(WaitEvent*) * (set->nevents-pos));
+	set->nevents--;
+	for(;pos<set->nevents;++pos)
+	{
+		event = &set->events[pos];
+		if (set->latch_pos == event->pos--)
+		{
+			set->latch_pos--;
+		}
+	}
+}
+
+WaitEventSet* EnlargeWaitEventSet(WaitEventSet *set, int nevents)
+{
+	WaitEventSet *newset;
+	MemoryContext context;
+
+	if (nevents <= set->nevents_space)
+		return set;
+
+	/* alloc new WaitEventSet */
+	context = GetMemoryChunkContext(set);
+	newset = AllocWaitEventSet(context, nevents);
+
+	/* copy old to new */
+	newset->latch = set->latch;
+	newset->nevents = set->nevents;
+	newset->latch_pos = set->latch_pos;
+	memcpy(newset->events, set->events,
+		   sizeof(set->events[0]) * set->nevents);
+#if defined(WAIT_USE_EPOLL)
+	newset->epoll_fd = set->epoll_fd;
+	memcpy(newset->epoll_ret_events, set->epoll_ret_events,
+		   sizeof(set->epoll_ret_events[0]) * set->nevents);
+#elif defined(WAIT_USE_POLL)
+	memcpy(newset->pollfds, set->pollfds,
+		   sizeof(set->pollfds[0]) * set->nevents);
+#elif defined(WAIT_USE_WIN32)
+	memcpy(newset->handles, set->handles,
+		   sizeof(set->handles[0]) * (set->nevents + 1));
+#endif
+
+	pfree(set);
+	return newset;
+}
+
+void* GetWaitEventData(WaitEventSet *set, int pos)
+{
+	Assert(pos < set->nevents);
+	return set->events[pos].user_data;
+}
+#endif /* ADB */
 
 #if defined(WAIT_USE_EPOLL)
 /*
