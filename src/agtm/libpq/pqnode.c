@@ -24,6 +24,7 @@ struct pq_comm_node
 	bool		write_only;
 	bool		in_start;
 	bool		sended_ssl;
+	bool		check_proc_port;
 };
 
 static void pq_node_comm_reset(void);
@@ -32,12 +33,9 @@ static void pq_node_set_nonblocking(bool nonblocking);
 static void pq_node_set_nonblocking_sock(pq_comm_node *node, bool nonblocking);
 static int	pq_node_flush(void);
 static int	pq_node_flush_if_writable(void);
-static int	pq_node_flush_if_writable_sock(pq_comm_node *node);
 static bool pq_node_is_send_pending(void);
 static int	pq_node_putmessage(char msgtype, const char *s, size_t len);
-static int	pq_node_putmessage_sock(pq_comm_node *node, char msgtype, const char *s, size_t len);
 static void pq_node_putmessage_noblock(char msgtype, const char *s, size_t len);
-static void pq_node_putmessage_noblock_sock(pq_comm_node *node, char msgtype, const char *s, size_t len);
 static void pq_node_startcopyout(void);
 static void pq_node_startcopyout_sock(pq_comm_node *node);
 static void pq_node_endcopyout(bool errorAbort);
@@ -60,7 +58,6 @@ static PQcommMethods PqCommoNodeMethods = {
 	pq_node_endcopyout
 };
 static pq_comm_node *current_pq_node = NULL;
-static List *list_pq_node = NIL;
 
 static void pq_node_comm_reset(void)
 {
@@ -239,7 +236,7 @@ static int	pq_node_flush_if_writable(void)
 	return pq_node_flush_if_writable_sock(current_pq_node);
 }
 
-static int	pq_node_flush_if_writable_sock(pq_comm_node *node)
+int pq_node_flush_if_writable_sock(pq_comm_node *node)
 {
 	int			res;
 	AssertArg(node);
@@ -278,7 +275,7 @@ static int	pq_node_putmessage(char msgtype, const char *s, size_t len)
 	return pq_node_putmessage_sock(current_pq_node, msgtype, s, len);
 }
 
-static int	pq_node_putmessage_sock(pq_comm_node *node, char msgtype, const char *s, size_t len)
+int pq_node_putmessage_sock(pq_comm_node *node, char msgtype, const char *s, size_t len)
 {
 	AssertArg(node);
 	if (node->doing_copy_out || node->busy)
@@ -311,7 +308,7 @@ static void pq_node_putmessage_noblock(char msgtype, const char *s, size_t len)
 	pq_node_putmessage_noblock_sock(current_pq_node, msgtype, s, len);
 }
 
-static void pq_node_putmessage_noblock_sock(pq_comm_node *node, char msgtype, const char *s, size_t len)
+void pq_node_putmessage_noblock_sock(pq_comm_node *node, char msgtype, const char *s, size_t len)
 {
 	int res		PG_USED_FOR_ASSERTS_ONLY;
 	StringInfo	buf;
@@ -363,11 +360,6 @@ static void pq_node_endcopyout_sock(pq_comm_node *node, bool errorAbort)
 	node->doing_copy_out = false;
 }
 
-List* get_all_pq_node(void)
-{
-	return list_pq_node;
-}
-
 pgsocket socket_pq_node(pq_comm_node *node)
 {
 	AssertArg(node);
@@ -380,33 +372,17 @@ bool pq_node_is_write_only(pq_comm_node *node)
 	return node->write_only;
 }
 
-void pq_node_new(pgsocket sock)
+pq_comm_node* pq_node_new(pgsocket sock, bool check_proc_port)
 {
-	pq_comm_node volatile *node = NULL;
-	MemoryContext old_ctx;
-	PG_TRY();
-	{
-		old_ctx = MemoryContextSwitchTo(TopMemoryContext);
-		node = palloc0(sizeof(*node));
-		initStringInfo((StringInfo)&(node->in_buf));
-		initStringInfo((StringInfo)&(node->out_buf));
-		list_pq_node = lappend(list_pq_node, (pq_comm_node*)node);
-		MemoryContextSwitchTo(old_ctx);
-	}PG_CATCH();
-	{
-		if(node)
-		{
-			if(node->out_buf.data)
-				pfree(node->out_buf.data);
-			if(node->in_buf.data)
-				pfree(node->in_buf.data);
-			/*list_pq_node = list_delete_ptr(list_pq_node, node);*/
-		}
-		closesocket(sock);
-		PG_RE_THROW();
-	}PG_END_TRY();
+	pq_comm_node *node = palloc0(sizeof(pq_comm_node));
+
+	initStringInfo((StringInfo)&(node->in_buf));
+	initStringInfo((StringInfo)&(node->out_buf));
 	node->sock = sock;
 	node->in_start = true;
+	node->check_proc_port = check_proc_port;
+
+	return node;
 }
 
 int	pq_node_recvbuf(pq_comm_node *node)
@@ -586,21 +562,27 @@ static bool pq_node_ProcessStartupPacket(pq_comm_node *node)
 		if(nameptr[0] == '\0')
 			break;
 		valptr = pq_getmsgstring(buf);
-		if(strcmp(nameptr, "database") == 0)
+		if (node->check_proc_port)
 		{
-			if(strcmp(MyProcPort->database_name, valptr) != 0)
-				ereport(ERROR, (errmsg("database name \"%s\" not match current database name \"%s\""
-					, valptr, MyProcPort->database_name)));
-		}else if(strcmp(nameptr, "user") == 0)
-		{
-			if(strcmp(MyProcPort->user_name, valptr) != 0)
-				ereport(ERROR, (errmsg("user name \"%s\" not match current user name \"%s\""
-					, valptr, MyProcPort->user_name)));
-		}else if(strcmp(nameptr, "options") == 0)
-		{
-			if(strcmp(MyProcPort->cmdline_options, valptr) != 0)
-				ereport(ERROR, (errmsg("options \"%s\" not match current options \"%s\""
-					, valptr, MyProcPort->cmdline_options)));
+			if(strcmp(nameptr, "database") == 0)
+			{
+				if(strcmp(MyProcPort->database_name, valptr) != 0)
+					ereport(ERROR,
+							(errmsg("database name \"%s\" not match current database name \"%s\"",
+									valptr, MyProcPort->database_name)));
+			}else if(strcmp(nameptr, "user") == 0)
+			{
+				if(strcmp(MyProcPort->user_name, valptr) != 0)
+					ereport(ERROR,
+							(errmsg("user name \"%s\" not match current user name \"%s\"",
+									valptr, MyProcPort->user_name)));
+			}else if(strcmp(nameptr, "options") == 0)
+			{
+				if(strcmp(MyProcPort->cmdline_options, valptr) != 0)
+					ereport(ERROR,
+							(errmsg("options \"%s\" not match current options \"%s\"",
+									valptr, MyProcPort->cmdline_options)));
+			}
 		}
 	}
 
@@ -643,7 +625,6 @@ void pq_node_close(pq_comm_node *node)
 		return;
 	if(current_pq_node == node)
 		current_pq_node = NULL;
-	list_pq_node = list_delete_ptr(list_pq_node, node);
 	if(node->sock != PGINVALID_SOCKET)
 		closesocket(node->sock);
 	if(node->in_buf.data)
