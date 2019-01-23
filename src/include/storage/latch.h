@@ -167,6 +167,11 @@ extern void FreeWaitEventSet(WaitEventSet *set);
 extern int AddWaitEventToSet(WaitEventSet *set, uint32 events, pgsocket fd,
 				  Latch *latch, void *user_data);
 extern void ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, Latch *latch);
+#ifdef ADB
+extern void RemoveWaitEvent(WaitEventSet *set, int pos);
+extern WaitEventSet* EnlargeWaitEventSet(WaitEventSet *set, int nevents);
+extern void* GetWaitEventData(WaitEventSet *set, int pos);
+#endif /* ADB */
 
 extern int WaitEventSetWait(WaitEventSet *set, long timeout,
 				 WaitEvent *occurred_events, int nevents,
