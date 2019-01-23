@@ -15232,10 +15232,10 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 		/* Add the grammar extension linked to ADB depending on data got from pgxc_class */
 		if (tbinfo->pgxclocatortype != 'E')
 		{
-			/* N: DISTRIBUTE BY ROUNDROBIN */
+			/* N: DISTRIBUTE BY RANDOM */
 			if (tbinfo->pgxclocatortype == 'N')
 			{
-				appendPQExpBuffer(q, "\nDISTRIBUTE BY ROUNDROBIN");
+				appendPQExpBuffer(q, "\nDISTRIBUTE BY RANDOM");
 			}
 			/* R: DISTRIBUTE BY REPLICATED */
 			else if (tbinfo->pgxclocatortype == 'R')
@@ -15253,6 +15253,12 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 			{
 				int hashkey = tbinfo->pgxcattnum;
 				appendPQExpBuffer(q, "\nDISTRIBUTE BY MODULO (%s)",
+				fmtId(tbinfo->attnames[hashkey - 1]));
+			}
+			else if (tbinfo->pgxclocatortype == 'B')
+			{
+				int hashkey = tbinfo->pgxcattnum;
+				appendPQExpBuffer(q, "\nDISTRIBUTE BY HASHMAP (%s)",
 				fmtId(tbinfo->attnames[hashkey - 1]));
 			}
 		}

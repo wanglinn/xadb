@@ -3026,11 +3026,11 @@ describeOneTableDetails(const char *schemaname,
 			printfPQExpBuffer(&buf,
 						"SELECT CASE pclocatortype \n"
 						"		  WHEN '%c' THEN \n"
-						"		   'HASHMAP' \n"
+						"		   'HASHMAP' || '(' || a.attname || ')' \n"
 						"		  WHEN '%c' THEN \n"
 						"		   'META' \n"
 						"		  WHEN '%c' THEN \n"
-						"		   'ROUND ROBIN' \n"
+						"		   'RANDOM' \n"
 						"		  WHEN '%c' THEN \n"
 						"		   'REPLICATION' \n"
 						"		  WHEN '%c' THEN \n"
