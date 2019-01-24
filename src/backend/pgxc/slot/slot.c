@@ -712,7 +712,9 @@ slot_handler_finish:
 
 	if(i!=SLOTSIZE)
 	{
-		InitSlotArrary(INVALID_SLOT_VALUE);
+		/* if adb_slot is empty no need init slot array */
+		if (i != 0)
+			InitSlotArrary(INVALID_SLOT_VALUE);
 
 		LWLockRelease(SlotTableLock);
 
