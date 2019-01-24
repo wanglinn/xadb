@@ -2446,10 +2446,6 @@ CommitTransaction(void)
 			 TransStateAsString(s->state));
 	Assert(s->parent == NULL);
 
-#if defined(ADB)
-	StartCommitRemoteXact(s);
-#endif
-
 	/*
 	 * Do pre-commit processing that involves calling user-defined code, such
 	 * as triggers.  Since closing cursors could queue trigger actions,
@@ -2474,6 +2470,10 @@ CommitTransaction(void)
 
 	CallXactCallbacks(is_parallel_worker ? XACT_EVENT_PARALLEL_PRE_COMMIT
 					  : XACT_EVENT_PRE_COMMIT);
+
+#if defined(ADB)
+	StartCommitRemoteXact(s);
+#endif
 
 	/*
 	 * The remaining actions cannot call any user-defined code, so it's safe
