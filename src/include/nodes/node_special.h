@@ -386,6 +386,7 @@ NODE_SPECIAL_MEB(Aggref)
 	aggtrantype NODE_OID(type,aggtrantype)
 	aggtranstype NODE_OID(type,aggtranstype)
 	inputcollid NODE_OID(collation,inputcollid)
+	aggargtypes NODE_OID_LIST(type,aggargtypes)
 END_SPECIAL_MEB(Aggref)
 
 NODE_SPECIAL_MEB(MinMaxAggInfo)

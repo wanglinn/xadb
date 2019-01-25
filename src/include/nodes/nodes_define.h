@@ -954,7 +954,7 @@ BEGIN_NODE(Aggref)
 	NODE_OID(type,aggtrantype)
 	NODE_SCALAR(bool,agghas_collectfn)
 #endif
-	NODE_NODE(List,aggargtypes)
+	NODE_OID_LIST(type,aggargtypes)
 	NODE_NODE(List,aggdirectargs)
 	NODE_NODE(List,args)
 	NODE_NODE(List,aggorder)
