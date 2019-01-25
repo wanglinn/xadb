@@ -963,14 +963,11 @@ pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,
 		/* user maybe using "VALUES LESS THAN (...)", it is not have min values */
 		if (pg_strcasecmp(parent->partspec->strategy, "range") == 0)
 		{
-			PartitionRangeDatum *range_datum;
 			int n = list_length(parent->partspec->partParams);
 			while(n>0)
 			{
-				range_datum = makeNode(PartitionRangeDatum);
-				range_datum->kind = PARTITION_RANGE_DATUM_MINVALUE;
-				range_datum->location = -1;
-				last_range_upperdatums = lappend(last_range_upperdatums, range_datum);
+				last_range_upperdatums = lappend(last_range_upperdatums,
+												 makeColumnRef("minvalue", NIL, -1, NULL));
 				--n;
 			}
 		}

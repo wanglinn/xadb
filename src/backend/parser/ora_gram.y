@@ -314,8 +314,8 @@ typedef struct OraclePartitionSpec
 %type <partelem>	part_elem
 %type <list>		part_params
 %type <partboundspec> ForValues
-%type <list>		ora_part_child_list range_datum_list
-%type <node>		ora_part_child PartitionRangeDatum
+%type <list>		ora_part_child_list
+%type <node>		ora_part_child
 
 /* ADB_BEGIN */
 %type <distby>	OptDistributeBy
@@ -3401,7 +3401,7 @@ ForValues:
 				}
 
 			/* a RANGE partition */
-			| VALUES FROM '(' range_datum_list ')' TO '(' range_datum_list ')'
+			| VALUES FROM '(' expr_list ')' TO '(' expr_list ')'
 				{
 					PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
 
@@ -3412,7 +3412,7 @@ ForValues:
 
 					$$ = n;
 				}
-			| VALUES LESS THAN '(' range_datum_list ')'
+			| VALUES LESS THAN '(' expr_list ')'
 				{
 						PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
 
@@ -3424,32 +3424,6 @@ ForValues:
 						$$ = n;
 				}
 		;
-
-range_datum_list:
-			PartitionRangeDatum					{ $$ = list_make1($1); }
-			| range_datum_list ',' PartitionRangeDatum
-												{ $$ = lappend($1, $3); }
-		;
-
-PartitionRangeDatum: a_expr
-				{
-					PartitionRangeDatum *n;
-					if (!IsA($1, A_Const))
-					{
-						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("syntax error"),
-								 parser_errposition(@1)));
-					}
-					n = makeNode(PartitionRangeDatum);
-
-					n->kind = PARTITION_RANGE_DATUM_VALUE;
-					n->value = $1;
-					n->location = @1;
-
-					$$ = (Node *) n;
-				}
-			;
 
 create_generic_options:
 	  /* empty */						{ $$ = NIL; }
