@@ -48,6 +48,7 @@
 #include "nodes/pg_list.h"
 #include "nodes/value.h"
 #include "pgxc/nodemgr.h"
+#include "utils/inval.h"
 
 
 typedef struct FormData_adb_slot
@@ -79,6 +80,7 @@ static void SlotUploadFromRemoteDB(void);
 static void SlotUploadFlush(void);
 static void check_Slot_options(List *options, char **pnodename, char *pnodestatus);
 
+Datum nodeid_from_hashvalue(PG_FUNCTION_ARGS);
 Datum nodeid_from_hashvalue(PG_FUNCTION_ARGS);
 
 
@@ -860,4 +862,15 @@ void InitSLOTPGXCNodeOid(void)
 {
 	SLOTPGXCNodeOid = get_pgxc_nodeoid(PGXCNodeName);
 	elog(DEBUG1, "NodeName=%s-SLOTPGXCNodeOid=%d", PGXCNodeName,SLOTPGXCNodeOid);
+}
+
+/*
+* invalidate all cache of relations
+*/
+Datum
+adb_invalidate_relcache_all(PG_FUNCTION_ARGS)
+{
+	CacheInvalidateRelcacheAll();
+
+	PG_RETURN_BOOL(true);
 }

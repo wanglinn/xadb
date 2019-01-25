@@ -477,4 +477,6 @@ bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid);
 
 extern bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg);
 extern bool RemoveHba(const AppendNodeInfo *nodeinfo, const StringInfo infosendmsg);
+extern bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const int iloop, const int res_type, StringInfo strinfo);
+
 #endif /* MGR_CMDS_H */
