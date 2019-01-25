@@ -52,7 +52,6 @@ static struct enum_sync_state sync_state_tab[] =
 	{-1, NULL}
 };
 
-static bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const int iloop, const int res_type, StringInfo strinfo);
 static void mgr_get_hba_replication_info(Oid masterTupleOid, StringInfo infosendmsg);
 static int mgr_maxtime_check_xlog_diff(const char nodeType, const char *nodeName, AppendNodeInfo *nodeInfoM, const int maxSecond);
 static bool mgr_check_active_locks_in_cluster(PGconn *pgConn, const Oid cnOid);
@@ -1375,7 +1374,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 
 }
 
-static bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const int iloop, const int res_type, StringInfo strinfo)
+bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const int iloop, const int res_type, StringInfo strinfo)
 {
 	StringInfoData restmsg;
 	ScanKeyData key[3];

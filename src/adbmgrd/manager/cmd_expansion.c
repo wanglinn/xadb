@@ -283,6 +283,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 	AppendNodeInfo srcnodeinfo;
 	StringInfoData  infosendmsgsrc;
 	StringInfoData  infosendmsgdst;
+	StringInfoData  strinfo;
 	NameData nodename;
 	const int max_pingtry = 60;
 	char nodeport_buf[10];
@@ -324,6 +325,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsgsrc);
 	initStringInfo(&infosendmsgdst);
+	initStringInfo(&strinfo);
 	appendnodeinfo.nodename = PG_GETARG_CSTRING(0);
 	Assert(appendnodeinfo.nodename);
 
@@ -517,6 +519,15 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 
 		//flush slot info in all nodes(includes new node)
 		hexp_pqexec_direct_execute_utility(co_pg_conn, "flush slot;", MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+
+		/*
+		7.refresh hashmap table nodeoids in pgxc_class
+		*/
+		ereport(INFO, (errmsg("update nodeoids of hashmap table in pgxc_class.if this step fails, use 'select adb_invalidate_relcache_all() on all coordinators.")));
+		if (!mgr_execute_direct_on_all_coord(&co_pg_conn, "select adb_invalidate_relcache_all();",
+			3, PGRES_TUPLES_OK, &strinfo))
+			ereport(WARNING, (errmsg("%s, use 'select adb_invalidate_relcache_all() on the coordinators.", strinfo.data)));
+
 		mgr_unlock_cluster(&co_pg_conn);
 
 		//5.update dst node init and in cluster, and parent node is empty.
@@ -567,6 +578,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 	pfree(infosendmsgdst.data);
 	pfree(getAgentCmdRst.description.data);
 	pfree_AppendNodeInfo(appendnodeinfo);
+	pfree(strinfo.data);
 
 	return HeapTupleGetDatum(tup_result);
 }

@@ -5739,6 +5739,9 @@ DESCR("show current nextXid");
 DATA(insert OID = 8894 ( sync_local_xid	 PGNSP PGUID 12 10 100 0 0 f f f f t t s s 0 0 2249 "" "{28,28}" "{o,o}" "{local,agtm}" _null_ _null_ sync_local_xid _null_ _null_ _null_ ));
 DESCR("synchronize the local next XID with AGTM");
 
+DATA(insert OID = 5009 ( adb_invalidate_relcache_all  PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ adb_invalidate_relcache_all _null_ _null_ _null_ ));
+DESCR("refresh pgxc_class hashmap table nodeoids");
+
 #endif
 
 #if defined(ADB) || defined(AGTM) || defined(ADB_MULTI_GRAM)
