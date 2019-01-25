@@ -145,7 +145,7 @@ static void save_##type(StringInfo buf, const type *node			\
 #define NODE_DATUM(t,m,o,n)			not support
 #define NODE_OID(t, m)					save_oid_##t(buf, node->m);
 
-#define NODE_OID_LIST(t,m)				save_oid_list_##t(buf, node->m);
+#define NODE_OID_LIST(t,m)				save_oid_list(buf, node->m, save_oid_##t);
 
 /*#define SAVE_ARRAY(t,m,l,f,t2)										\
 	do{																	\
@@ -347,14 +347,14 @@ void save_oid_class(StringInfo buf, Oid oid_rel)
 	}
 }
 
-void save_oid_list_class(struct StringInfoData *buf, List *list)
+void save_oid_list(struct StringInfoData *buf, struct List *list, save_oid_fun fun)
 {
 	ListCell *lc;
 	int length = list_length(list);
-	
+
 	pq_sendbytes(buf, (char*)&length, sizeof(length));
 	foreach (lc, list)
-		save_oid_class(buf, lfirst_oid(lc));
+		(*fun)(buf, lfirst_oid(lc));
 }
 
 void save_oid_ts_config(struct StringInfoData *buf, Oid cfg)
@@ -381,7 +381,7 @@ void save_oid_ts_config(struct StringInfoData *buf, Oid cfg)
 		ReleaseSysCache(tuple);
 	}else
 	{
-		ereport(ERROR, 
+		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("cache lookup failed for text search configuration %u", cfg)));
 	}
@@ -640,7 +640,7 @@ void saveNodeAndHook(StringInfo buf, const Node *node
 #define NODE_ENUM(t,m)					NODE_SCALAR(t,m)
 #define NODE_DATUM(t,m,o,n)				not support
 #define NODE_OID(t,m)					node->m = load_oid_##t(buf);
-#define NODE_OID_LIST(t,m)				node->m = load_oid_list_##t(buf);
+#define NODE_OID_LIST(t,m)				node->m = load_oid_list(buf, load_oid_##t);
 
 char * load_node_string(StringInfo buf, bool need_dup)
 {
@@ -893,14 +893,14 @@ Oid load_oid_class(StringInfo buf)
 	return oid;
 }
 
-List* load_oid_list_class(struct StringInfoData *buf)
+List* load_oid_list(struct StringInfoData *buf, load_oid_fun fun)
 {
 	List *list = NIL;
 	int length;
 
 	pq_copymsgbytes(buf, (char*)&length, sizeof(length));
 	while(length--)
-		list = lappend_oid(list, load_oid_class(buf));
+		list = lappend_oid(list, (*fun)(buf));
 
 	return list;
 }
