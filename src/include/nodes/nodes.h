@@ -692,6 +692,10 @@ extern char *printObject(const void *obj);
 struct StringInfoData;
 struct Bitmapset;
 struct List;
+
+typedef Oid(*load_oid_fun)(struct StringInfoData *buf);
+typedef void(*save_oid_fun)(struct StringInfoData *buf, Oid oid);
+
 extern void saveNode(struct StringInfoData* buf, const Node *node);
 /*
  * bool savehook(StringInfo buf, Node *not_null_node, void *context)
@@ -715,7 +719,7 @@ extern Oid load_oid_type(struct StringInfoData *buf);
 extern Oid load_namespace(struct StringInfoData *buf);
 extern Oid load_namespace_extend(struct StringInfoData *buf, bool missok);
 extern Oid load_oid_class(struct StringInfoData *buf);
-extern struct List* load_oid_list_class(struct StringInfoData *buf);
+extern struct List* load_oid_list(struct StringInfoData *buf, load_oid_fun fun);
 extern char * load_node_string(struct StringInfoData *buf, bool need_dup);
 extern Oid load_oid_ts_config(struct StringInfoData *buf);
 extern Oid load_oid_authid(struct StringInfoData *buf);
@@ -726,7 +730,7 @@ extern void save_oid_collation(struct StringInfoData *buf, Oid collation);
 extern void save_oid_type(struct StringInfoData *buf, Oid typid);
 extern void save_namespace(struct StringInfoData *buf, Oid nsp);
 extern void save_oid_class(struct StringInfoData *buf, Oid oid_rel);
-extern void save_oid_list_class(struct StringInfoData *buf, struct List *list);
+extern void save_oid_list(struct StringInfoData *buf, struct List *list, save_oid_fun fun);
 extern void save_node_string(struct StringInfoData *buf, const char *str);
 extern void save_node_bitmapset(struct StringInfoData *buf, const struct Bitmapset *node);
 extern void save_oid_ts_config(struct StringInfoData *buf, Oid cfg);
