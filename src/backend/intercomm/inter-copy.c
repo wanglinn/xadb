@@ -232,7 +232,11 @@ DoRemoteCopyFrom(RemoteCopyState *node, const StringInfo line_buf, const List *n
 			if (prhandle && node_id == prhandle->node_id)
 				continue;
 			handle = LookupNodeHandle(node->copy_handles, node_id);
-			Assert(handle);
+			if (!handle)
+				ereport(ERROR,
+					(errcode(ERRCODE_DATA_EXCEPTION),
+					errmsg("Fail to lookup handle for node which oid is \"%d\"", node_id)));
+
 			if (PQputCopyData(handle->node_conn, line_buf->data, line_buf->len) <= 0)
 				ereport(ERROR,
 						(errmsg("Fail to send to COPY FROM data."),
