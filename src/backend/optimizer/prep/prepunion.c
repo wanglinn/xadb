@@ -777,8 +777,34 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 
 #ifdef ADB
 	/* for now we only generate "union all" paths */
-	if (op->all)
-		add_cluster_paths_to_append_rel(root, result_rel, rellist, NIL);
+	add_cluster_paths_to_append_rel(root, result_rel, rellist, NIL);
+	if (!op->all)
+	{
+		ListCell *lc;
+		ListCell *lc2;
+		List *all_paths = result_rel->cluster_pathlist;
+		result_rel->cluster_pathlist = NIL;
+		result_rel->cluster_partial_pathlist = NIL;
+		foreach(lc, all_paths)
+		{
+			Path *subpath = lfirst(lc);
+			List *reduce_info_list = get_reduce_info_list(subpath);
+			if (IsReduceInfoListInOneNode(reduce_info_list))
+			{
+					Path *path = make_union_unique(op, lfirst(lc), tlist, root);
+					add_cluster_path(result_rel, path);
+					continue;
+			}
+			foreach(lc2, tlist)
+			{
+				if (ReduceInfoListIncludeExpr(reduce_info_list, lfirst(lc2)))
+				{
+					Path *path = make_union_unique(op, lfirst(lc), tlist, root);
+					add_cluster_path(result_rel, path);
+				}
+			}
+		}
+	}
 #endif /* ADB */
 
 	/* Undo effects of possibly forcing tuple_fraction to 0 */
