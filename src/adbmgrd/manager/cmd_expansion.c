@@ -136,13 +136,11 @@ ADBSQL
 #define SELECT_HASH_TABLE							"select relname, pgn.nspname from pgxc_class xcc , pg_class pgc , pg_namespace pgn where xcc.pclocatortype = 'B' and xcc.pcrelid = pgc.oid and pgc.relnamespace = pgn.oid and pgn.nspname!='information_schema';"
 #define INSERT_ADB_SLOT_CLEAN_TABLE					"insert into adb.adb_slot_clean(dbname, name, schema) values('%s', '%s', '%s');"
 /*adb_slot*/
-#define IS_ADB_SLOT_TABLE_EXISTS 					"select count(*) from pg_class pgc, pg_namespace pgn where pgn.nspname = 'adb' and pgc.relname = 'adb_slot' and pgc.relnamespace = pgn.oid;"
-#define SELECT_ADB_SLOT_TABLE_COUNT					"select count(*) from adb.adb_slot;"
-#define CREATE_ADB_SLOT_TABLE 						"create table adb.adb_slot(slotid int, node_name name, status int) distribute by meta;"
-#define SELECT_STATUS_COUNT_FROM_ADB_SLOT_BY_NODE 	"select status, count(*) from adb.adb_slot where node_name = '%s' group by status;"
-#define SELECT_COUNT_FROM_ADB_SLOT_BY_NODE 			"select count(*) from adb.adb_slot where node_name = '%s'"
-#define SELECT_FIRST_SLOTID_FROM_ADB_SLOT_BY_NODE 	"select slotid from adb.adb_slot where node_name = '%s' order by slotid asc limit 1;"
-#define SELECT_SLOTID_STATUS_FROM_ADB_SLOT_BY_NODE 	"select slotid, status from adb.adb_slot where node_name = '%s' order by slotid;"
+#define SELECT_ADB_SLOT_TABLE_COUNT					"select count(*) from pg_catalog.adb_slot;"
+#define SELECT_STATUS_COUNT_FROM_ADB_SLOT_BY_NODE 	"select slotstatus as status, count(*) from pg_catalog.adb_slot where slotnodename = '%s' group by status;"
+#define SELECT_COUNT_FROM_ADB_SLOT_BY_NODE 			"select count(*) from pg_catalog.adb_slot where slotnodename = '%s'"
+#define SELECT_FIRST_SLOTID_FROM_ADB_SLOT_BY_NODE 	"select slotid from pg_catalog.adb_slot where slotnodename = '%s' order by slotid asc limit 1;"
+#define SELECT_SLOTID_STATUS_FROM_ADB_SLOT_BY_NODE 	"select slotid, slotstatus as status from pg_catalog.adb_slot where slotnodename = '%s' order by slotid;"
 
 /*slot command*/
 #define CREATE_SLOT									"create slot %d with(nodename = %s, status = 'online');"
@@ -206,7 +204,6 @@ static void hexp_update_slot_get_slotinfo(
 static void hexp_update_slot_phase1_rollback(PGconn *pgconn,char* src_node_name);
 static void hexp_check_dn_pgxcnode_info(PGconn *pg_conn, char *nodename, StringInfoData* pnode_list_exists);
 static void hexp_check_cluster_pgxcnode(void);
-static void hexp_check_meta_init(PGconn *pg_conn, bool check_exists);
 static bool hexp_activate_dn_exist(char* dn_name);
 static void hexp_get_all_dn_status(DN_STATUS* pdn_status, int* pdn_status_index);
 static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* pdn_status, char* cnpath);
@@ -1710,50 +1707,6 @@ Datum mgr_cluster_pgxcnode_check(PG_FUNCTION_ARGS)
 	return HeapTupleGetDatum(tup_result);
 }
 
-
-Datum mgr_cluster_meta_init(PG_FUNCTION_ARGS)
-{
-	HeapTuple tup_result;
-	char ret_msg[100];
-	NameData nodename;
-	PGconn * co_pg_conn = NULL;
-	Oid cnoid;
-
-	strcpy(nodename.data, "---");
-	strcpy(ret_msg, "create adb schema and adb_slot table.");
-	if (RecoveryInProgress())
-		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
-
-
-	PG_TRY();
-	{
-		hexp_check_cluster_pgxcnode();
-
-		hexp_get_coordinator_conn(&co_pg_conn, &cnoid);
-		hexp_check_meta_init(co_pg_conn, false);
-
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-
-		hexp_pqexec_direct_execute_utility(co_pg_conn,CREATE_SCHEMA , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		hexp_pqexec_direct_execute_utility(co_pg_conn,CREATE_ADB_SLOT_TABLE , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		PQfinish(co_pg_conn);
-		co_pg_conn = NULL;
-	}PG_CATCH();
-	{
-		if(co_pg_conn)
-		{
-			PQfinish(co_pg_conn);
-			co_pg_conn = NULL;
-		}
-		PG_RE_THROW();
-	}PG_END_TRY();
-
-	tup_result = build_common_command_tuple(&nodename, true, ret_msg);
-	return HeapTupleGetDatum(tup_result);
-}
-
 Datum mgr_cluster_slot_init_func(PG_FUNCTION_ARGS)
 {
 	List			*options;
@@ -1784,11 +1737,9 @@ Datum mgr_cluster_slot_init_func(PG_FUNCTION_ARGS)
 
 		hexp_get_coordinator_conn(&co_pg_conn, &cnoid);
 
-		//check adb.adb_slot exit and slot number is zero.
-		if(!hexp_check_select_result_count(co_pg_conn, IS_ADB_SLOT_TABLE_EXISTS))
-			ereport(ERROR, (errmsg("adb.adb_slot doesn't exist. execute cluster meta init.")));
+		//check pg_catalog.adb_slot slot number is zero.
 		if(hexp_check_select_result_count(co_pg_conn, SELECT_ADB_SLOT_TABLE_COUNT))
-			ereport(ERROR, (errmsg("adb.adb_slot is not empty. ")));
+			ereport(ERROR, (errmsg("pg_catalog.adb_slot is not empty. ")));
 
 		//create slot
 		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
@@ -3159,67 +3110,6 @@ static bool hexp_check_select_result_count(PGconn *pg_conn, char* sql)
 
 }
 
-static void hexp_check_meta_init(PGconn *pg_conn, bool check_exists)
-{
-	PGresult *res;
-	ExecStatusType status;
-	int count;
-
-	Assert((pg_conn)!= 0);
-
-	res = PQexec(pg_conn, IS_ADB_SCHEMA_EXISTS);
-	status = PQresultStatus(res);
-	switch(status)
-	{
-		case PGRES_TUPLES_OK:
-			break;
-		default:
-			ereport(ERROR, (errmsg("%s runs error. result is %s.", IS_ADB_SCHEMA_EXISTS, PQresultErrorMessage(res))));
-	}
-	count = atoi(PQgetvalue(res, 0, 0));
-
-	if((check_exists)&&(1!=count))
-	{
-		PQclear(res);
-		ereport(ERROR, (errmsg("adb schema doesn't exist.")));
-	}
-
-	if((!check_exists)&&(1==count))
-	{
-		PQclear(res);
-		ereport(ERROR, (errmsg("adb schema exists.")));
-	}
-
-	PQclear(res);
-
-
-
-	res = PQexec(pg_conn, IS_ADB_SLOT_TABLE_EXISTS);
-	status = PQresultStatus(res);
-	switch(status)
-	{
-		case PGRES_TUPLES_OK:
-			break;
-		default:
-			ereport(ERROR, (errmsg("%s runs error. result is %s.", IS_ADB_SLOT_TABLE_EXISTS, PQresultErrorMessage(res))));
-	}
-
-	count = atoi(PQgetvalue(res, 0, 0));
-	if((check_exists)&&(1!=count))
-	{
-		PQclear(res);
-		ereport(ERROR, (errmsg("adb_slot table doesn't exist.")));
-	}
-
-	if((!check_exists)&&(1==count))
-	{
-		PQclear(res);
-		ereport(ERROR, (errmsg("adb_slot table exists.")));
-	}
-
-	PQclear(res);
-}
-
 static void hexp_check_dn_pgxcnode_info(PGconn *pg_conn, char *nodename, StringInfoData* pcoor_node_list)
 {
 	PGresult *res;
@@ -3915,10 +3805,6 @@ bool hexp_check_cluster_status_internal(DN_STATUS* dn_status, int* pdn_status_in
 		//call pgxc_pool_reload on all nodes in expand show status cmd
 		if(!check)
 			hexp_pgxc_pool_reload_on_all_node(pg_conn);
-
-		//check adb.slot exists.
-		if(!hexp_check_select_result_count(pg_conn, IS_ADB_SLOT_TABLE_EXISTS))
-			ereport(ERROR, (errmsg("cluster slot is not initialized.")));
 
 		//check pgxc node info is consistent
 		hexp_check_cluster_pgxcnode();
