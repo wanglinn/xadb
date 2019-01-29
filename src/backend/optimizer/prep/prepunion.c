@@ -51,6 +51,10 @@
 #include "utils/rel.h"
 #include "utils/selfuncs.h"
 
+#ifdef ADB
+#include "optimizer/reduceinfo.h"
+#include "pgxc/locator.h"
+#endif
 
 typedef struct
 {
@@ -770,15 +774,19 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 			List *reduce_info_list = get_reduce_info_list(subpath);
 			if (IsReduceInfoListInOneNode(reduce_info_list))
 			{
-					Path *path = make_union_unique(op, lfirst(lc), tlist, root);
-					add_cluster_path(result_rel, path);
-					continue;
+				Path *path = make_union_unique(op, lfirst(lc), tlist, root);
+				path->reduce_info_list = reduce_info_list;
+				path->reduce_is_valid = true;
+				add_cluster_path(result_rel, path);
+				continue;
 			}
 			foreach(lc2, tlist)
 			{
 				if (ReduceInfoListIncludeExpr(reduce_info_list, lfirst(lc2)))
 				{
 					Path *path = make_union_unique(op, lfirst(lc), tlist, root);
+					path->reduce_info_list = reduce_info_list;
+					path->reduce_is_valid = true;
 					add_cluster_path(result_rel, path);
 				}
 			}
