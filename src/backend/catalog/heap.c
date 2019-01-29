@@ -1419,7 +1419,8 @@ AddRelationDistribution(Oid relid,
 		nodeoids = NULL;
 	} else
 	{
-		if (distributeby && distributeby->disttype == DISTTYPE_HASHMAP && subcluster)
+		if (((distributeby && distributeby->disttype == DISTTYPE_HASHMAP)
+			 || (!distributeby && hash_distribute_by_hashmap_default ))&& subcluster)
 			ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 					errmsg("not support CREATE hashmap table TO node")));
