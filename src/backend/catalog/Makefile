@@ -53,7 +53,7 @@ POSTGRES_BKI_SRCS = \
 	pg_subscription_rel.h
 
 ifeq ($(enable_cluster),yes)
-  POSTGRES_BKI_SRCS += adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h adb_ha_sync_log.h
+  POSTGRES_BKI_SRCS += adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h adb_ha_sync_log.h adb_slot.h
   MYCPPFLAGS += -DADB
 endif
 ifeq ($(enable_grammar_oracle),yes)

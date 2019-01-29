@@ -435,33 +435,6 @@ extern Datum mgr_expand_show_status(PG_FUNCTION_ARGS);
 extern Datum mgr_expand_clean_init(PG_FUNCTION_ARGS);
 extern Datum mgr_expand_clean_start(PG_FUNCTION_ARGS);
 extern Datum mgr_expand_clean_end(PG_FUNCTION_ARGS);
-extern Datum mgr_cluster_meta_init(PG_FUNCTION_ARGS);
-extern Datum mgr_cluster_slot_init_func(PG_FUNCTION_ARGS);
-extern Datum mgr_cluster_pgxcnode_init(PG_FUNCTION_ARGS);
-extern Datum mgr_import_hash_meta(PG_FUNCTION_ARGS);
-extern Datum mgr_cluster_hash_meta_check(PG_FUNCTION_ARGS);
-extern Datum mgr_cluster_pgxcnode_check(PG_FUNCTION_ARGS);
-
-/*online expand internal function*/
-void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, DestReceiver *dest);
-bool get_agent_info_from_hostoid(const Oid hostOid, char *agent_addr, int *agent_port);
-Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype, bool nodetypechange, bool bforce);
-extern char* hexp_get_database(void);
-bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid);
-
-/*online expand external function*/
-extern Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS);
-extern Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS);
-extern Datum mgr_checkout_dnslave_status(PG_FUNCTION_ARGS);
-extern Datum mgr_expand_recover_backup_fail(PG_FUNCTION_ARGS);
-extern Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS);
-extern Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS);
-extern Datum mgr_expand_check_status(PG_FUNCTION_ARGS);
-extern Datum mgr_expand_show_status(PG_FUNCTION_ARGS);
-extern Datum mgr_expand_clean_init(PG_FUNCTION_ARGS);
-extern Datum mgr_expand_clean_start(PG_FUNCTION_ARGS);
-extern Datum mgr_expand_clean_end(PG_FUNCTION_ARGS);
-extern Datum mgr_cluster_meta_init(PG_FUNCTION_ARGS);
 extern Datum mgr_cluster_slot_init_func(PG_FUNCTION_ARGS);
 extern Datum mgr_cluster_pgxcnode_init(PG_FUNCTION_ARGS);
 extern Datum mgr_import_hash_meta(PG_FUNCTION_ARGS);

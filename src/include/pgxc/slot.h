@@ -19,7 +19,6 @@ extern bool hash_distribute_by_hashmap_default;
 #define SLOTSIZE	1024
 #define SLOTBEGIN	0
 #define SLOTEND		(SLOTSIZE-1)
-#define GetNodeIdFromHashValue 9121
 
 #define UNINIT_SLOT_VALUE	  	-2
 #define INVALID_SLOT_VALUE		InvalidOid
@@ -27,10 +26,6 @@ extern bool hash_distribute_by_hashmap_default;
 #define SlotStatusOnlineInDB		1
 #define SlotStatusMoveInDB		2
 #define SlotStatusCleanInDB		3
-
-#define SLOT_ERR_MVCC 		elog(ERROR, "%s:fatal error. clean slot when mvcc is off.", PGXCNodeName);
-#define SLOT_ERR_DN 		elog(ERROR, "%s:clean slot cmd only deletes data on datanode.", PGXCNodeName);
-#define SLOT_ERR_HTABLE 	elog(ERROR, "%s:clean slot cmd only deletes hash table or toast table.", PGXCNodeName);
 
 extern char*	PGXCNodeName;
 extern bool		DatanodeInClusterPlan;
@@ -54,7 +49,6 @@ When adb_slot_enable_clean is on, the function returns true if this tuple doesn'
 extern bool HeapTupleSatisfiesSlot(Relation rel, HeapTuple tuple);
 extern int GetHeapTupleSlotId(Relation rel, HeapTuple tuple);
 extern int GetValueSlotId(Relation rel, Datum value, AttrNumber	attrNum);
-extern Oid get_nodeid_from_hashvalue(void);
 extern void InitSLOTPGXCNodeOid(void);
 
 #endif

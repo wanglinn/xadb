@@ -337,6 +337,8 @@ DECLARE_UNIQUE_INDEX(pg_aux_class_relid_attnum_index, 9024, on pg_aux_class usin
 DECLARE_UNIQUE_INDEX(adb_ha_sync_log_oid_index, 9025, on adb_ha_sync_log using btree(oid oid_ops));
 #define AdbHaSyncLogOidIndexId			9025
 
+DECLARE_UNIQUE_INDEX(adb_slot_slotid_index, 9028, on adb_slot using btree(slotid int4_ops));
+#define AdbSlotSlotidIndexId		9028
 #endif
 
 #ifdef ADB_GRAM_ORA

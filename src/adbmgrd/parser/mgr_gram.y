@@ -160,7 +160,7 @@ static void check_job_status_intbl(void);
 				AlterUserStmt AddJobitemStmt AlterJobitemStmt DropJobitemStmt ListJobStmt
 				AddExtensionStmt DropExtensionStmt RemoveNodeStmt FailoverManualStmt SwitchoverStmt
 
-				ExpandNodeStmt CheckNodeStmt ClusterMetaInitStmt ClusterSlotInitStmt
+				ExpandNodeStmt CheckNodeStmt ClusterSlotInitStmt
 				ClusterPgxcNodeInitStmt ClusterPgxcNodeCheckStmt
 				ImportHashMetaStmt ClusterHashMetaCheckStmt
 %type <node>	ListNodeSize
@@ -302,7 +302,6 @@ stmt :
 	| RemoveNodeStmt
 	| ExpandNodeStmt
 	| CheckNodeStmt
-	| ClusterMetaInitStmt
 	| ClusterSlotInitStmt
 	| ClusterPgxcNodeInitStmt
 	| ClusterPgxcNodeCheckStmt
@@ -571,15 +570,6 @@ ExpandNodeStmt:
 			List *args = list_make1(makeIntConst($3, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("pg_sleep", args));
-			$$ = (Node*)stmt;
-		};
-
-ClusterMetaInitStmt:
-		CLUSTER META INIT
-		{
-			SelectStmt *stmt = makeNode(SelectStmt);
-			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_cluster_meta_init", NULL));
 			$$ = (Node*)stmt;
 		};
 
@@ -2014,7 +2004,7 @@ ListNodeSize:
 		{
 			SelectStmt 	*stmt = makeNode(SelectStmt);
 			List 		*args = $4;
-			
+
 			if($4 == NIL)
 			{
 				args = list_make1($5);
@@ -2038,7 +2028,7 @@ ListNodeSize:
 			ResTarget 	*resTarget4 = makeNode(ResTarget);
 			ResTarget 	*resTarget5 = makeNode(ResTarget);
 			List 		*args = $5;
-			
+
 			if($5 == NIL)
 			{
 				args = list_make1($6);
@@ -2071,8 +2061,8 @@ ListNodeSize:
 			//5
 			resTarget5->name = "nodesize";
 			resTarget5->indirection = NIL;
-			resTarget5->val = (Node *)makeFuncCall(list_make1(makeString("pg_size_pretty")), 
-												list_make1(makeColumnRef("nodesize", NIL, -1, 0)), 
+			resTarget5->val = (Node *)makeFuncCall(list_make1(makeString("pg_size_pretty")),
+												list_make1(makeColumnRef("nodesize", NIL, -1, 0)),
 												-1);
 			resTarget5->location = -1;
 
@@ -2096,11 +2086,11 @@ opt_nodesize_with_list_items:
 	;
 
 dataNameList:
-	dataNameList ',' Ident		
+	dataNameList ',' Ident
 	  	{ $$ = lappend($1, makeAConst(makeString($3), @3)); }
-	| Ident							
+	| Ident
 		{ $$ = list_make1(makeAConst(makeString($1), @1)); }
-	| ALL					
+	| ALL
 		{ $$ = NIL; }
 	;
 

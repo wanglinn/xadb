@@ -536,7 +536,7 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 	coalesce->args = list_make2(expr, makeInt4Const(0)); /* when null, first node */
 
 	if(LOCATOR_TYPE_HASHMAP==loc_info->locatorType)
-		return (Expr*)makeFuncExpr(GetNodeIdFromHashValue,
+		return (Expr*)makeFuncExpr(F_NODEID_FROM_HASHVALUE,
 					INT4OID,
 					list_make1((Expr*)coalesce),
 					exprType((Node*)coalesce), exprCollation((Node*)coalesce),

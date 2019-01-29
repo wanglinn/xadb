@@ -8,82 +8,42 @@
  */
 
 #include "postgres.h"
-#include "miscadmin.h"
 
-#include "access/hash.h"
-#include "access/heapam.h"
-#include "catalog/catalog.h"
+#include "access/htup_details.h"
+#include "catalog/adb_slot.h"
 #include "catalog/indexing.h"
+#include "catalog/namespace.h"
 #include "catalog/pgxc_node.h"
 #include "commands/defrem.h"
+#include "nodes/execnodes.h"	/* before execCluster.h */
+#include "executor/execCluster.h"
+#include "executor/spi.h"
+#include "miscadmin.h"
+#include "nodes/makefuncs.h"
 #include "nodes/parsenodes.h"
-#include "utils/builtins.h"
-#include "utils/rel.h"
-#include "utils/syscache.h"
-#include "utils/lsyscache.h"
-#include "utils/tqual.h"
+#include "nodes/pg_list.h"
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
-#include "pgxc/pgxcnode.h"
-#include "access/htup_details.h"
-#include "pg_config.h"
-
-#include "catalog/namespace.h"
 #include "pgxc/slot.h"
-
-#include <unistd.h>
-#include <fcntl.h>
-
+#include "utils/builtins.h"
 #include "utils/fmgroids.h"
-
-#include "access/hash.h"
-#include "executor/spi.h"
-#include "commands/dbcommands.h"
-#include "nodes/makefuncs.h"
-#include "catalog/pg_type.h"
-
-#include "executor/execCluster.h"
-#include "parser/parse_func.h"
-#include "nodes/pg_list.h"
-#include "nodes/value.h"
-#include "pgxc/nodemgr.h"
 #include "utils/inval.h"
-
-
-typedef struct FormData_adb_slot
-{
-	int32 		slotid;
-	NameData	nodename;
-	int32		status;
-} FormData_adb_slot;
-typedef FormData_adb_slot *Form_adb_slot;
-
-static char* adb_slot_schema_name = "adb";
-static char* adb_slot_table_name = "adb_slot";
-#define Natts_adb_slot			3
-
-#define Anum_adb_slotid			1
-#define Anum_adb_nodename		2
-#define Anum_adb_status			3
-
+#include "utils/lsyscache.h"
+#include "utils/rel.h"
+#include "utils/snapmgr.h"
 
 /* Shared memory tables of slot definitions */
-int*	slotnode;
-int*	slotstatus;
+static int *slotnode = NULL;
+static int *slotstatus = NULL;
 
 static HeapTuple search_adb_slot_tuple_by_slotid(Relation rel, int slotid);
-static Oid GetAdbSlotRelId(void);
 static void InitSlotArrary(int value);
 static void SlotUploadFromCurrentDB(void);
-static void SlotUploadFromRemoteDB(void);
-static void SlotUploadFlush(void);
 static void check_Slot_options(List *options, char **pnodename, char *pnodestatus);
+static int32 DatumGetHashAndModulo(Datum datum, Oid typid, bool isnull);
 
 Datum nodeid_from_hashvalue(PG_FUNCTION_ARGS);
-Datum nodeid_from_hashvalue(PG_FUNCTION_ARGS);
-
-
 
 #define SLOT_STATUS_ONLINE	"online"
 #define SLOT_STATUS_MOVE	"move"
@@ -92,24 +52,7 @@ Datum nodeid_from_hashvalue(PG_FUNCTION_ARGS);
 bool	adb_slot_enable_clean;
 bool	DatanodeInClusterPlan;
 
-
-extern char* 	SlotDatabaseName;
-extern int 		PostPortNumber;
-
-#define SELECT_CHECK_DBLINK				"select count(*) from pg_extension where extname='dblink';"
-#define SELECT_CHECK_CONNECT			"select count(*) from dblink_get_connections() where dblink_get_connections = '{slotlink}';"
-#define CREATE_DBLINK_CONNECT			"select dblink_connect('slotlink','dbname=%s host=localhost port=%d user=adbslotuser password=asiainfonj connect_timeout=5');"
-#define DROP_DBLINK_CONNECT				"select dblink_disconnect('slotlink');"
-#define FLUSH_SLOT_BY_DBLINK 			"select * from dblink('slotlink','flush slot') as t1(result varchar(64));"
-
-Oid	SLOTPGXCNodeOid = InvalidOid;
-
-static Oid GetAdbSlotRelId(void)
-{
-	Oid np_oid;
-	np_oid = LookupExplicitNamespace(adb_slot_schema_name, true);
-	return get_relname_relid(adb_slot_table_name, np_oid);
-}
+static Oid	SLOTPGXCNodeOid = InvalidOid;
 
 static void InitSlotArrary(int value)
 {
@@ -129,22 +72,14 @@ void
 SlotShmemInit(void)
 {
 	bool found;
-	Size size;
 
-	size = mul_size(sizeof(*slotnode), SLOTSIZE);
-	size = MAXALIGN(size);
 	slotnode = ShmemInitStruct("node in adb slot table",
-								size,
-								&found);
-	//TODO handle found
-
-	size = mul_size(sizeof(*slotstatus), SLOTSIZE);
-	size = MAXALIGN(size);
-	slotstatus = ShmemInitStruct("status in adb slot table",
-								size,
-								&found);
-
-	InitSlotArrary(UNINIT_SLOT_VALUE);
+							   SlotShmemSize(),
+							   &found);
+	slotstatus = (void*)(slotnode + SLOTSIZE);
+	slotstatus = (void*)(((char*)slotnode) + MAXALIGN(mul_size(sizeof(*slotnode), SLOTSIZE)));
+	if (!found)
+		InitSlotArrary(UNINIT_SLOT_VALUE);
 }
 
 
@@ -189,19 +124,16 @@ check_Slot_options(List *options, char **pnodename, char *pnodestatus)
 
 			status = defGetString(defel);
 
-			if (strcmp(status, SLOT_STATUS_ONLINE) != 0 &&
-				strcmp(status, SLOT_STATUS_MOVE) != 0 &&
-				strcmp(status, SLOT_STATUS_CLEAN)  != 0)
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("status value is incorrect, specify online, move, switch or clean")));
-
 			if (strcmp(status, SLOT_STATUS_ONLINE) == 0)
 				*pnodestatus = SlotStatusOnlineInDB;
 			else if (strcmp(status, SLOT_STATUS_MOVE) == 0)
 				*pnodestatus = SlotStatusMoveInDB;
 			else if (strcmp(status, SLOT_STATUS_CLEAN) == 0)
 				*pnodestatus = SlotStatusCleanInDB;
+			else
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("status value is incorrect, specify online, move, switch or clean")));
 		}
 		else
 		{
@@ -210,26 +142,18 @@ check_Slot_options(List *options, char **pnodename, char *pnodestatus)
 					 errmsg("incorrect option: %s", defel->defname)));
 		}
 	}
-
-
-}
-
-
-static void
-SlotUploadFlush(void)
-{
-	Name db = (Name) palloc(NAMEDATALEN);
-	namestrcpy(db, get_database_name(MyDatabaseId));
-
-	InitSLOTPGXCNodeOid();
-	if(0==namestrcmp(db, SlotDatabaseName))
-		SlotUploadFromCurrentDB();
-	else
-		SlotUploadFromRemoteDB();
 }
 
 void SlotGetInfo(int slotid, int* pnodeindex, int* pstatus)
 {
+	if (slotid >= SLOTSIZE ||
+		slotid < 0)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Invalid slotid %d", slotid)));
+	}
+
 	LWLockAcquire(SlotTableLock, LW_SHARED);
 	*pnodeindex = slotnode[slotid];
 	*pstatus = slotstatus[slotid];
@@ -241,7 +165,7 @@ void SlotGetInfo(int slotid, int* pnodeindex, int* pstatus)
 	*/
 	if(((*pnodeindex)==UNINIT_SLOT_VALUE)
 		|| ((*pstatus)==UNINIT_SLOT_VALUE))
-		SlotUploadFlush();
+		SlotUploadFromCurrentDB();
 
 	LWLockAcquire(SlotTableLock, LW_SHARED);
 	*pnodeindex = slotnode[slotid];
@@ -272,7 +196,7 @@ void SlotGetInfo(int slotid, int* pnodeindex, int* pstatus)
 static HeapTuple search_adb_slot_tuple_by_slotid(Relation rel, int slotid)
 {
 	ScanKeyData key[1];
-	HeapScanDesc rel_scan;
+	SysScanDesc scandesc;
 	HeapTuple tuple =NULL;
 	HeapTuple tupleret = NULL;
 	Snapshot snapshot;
@@ -284,13 +208,10 @@ static HeapTuple search_adb_slot_tuple_by_slotid(Relation rel, int slotid)
 		,Int32GetDatum((int32)slotid));
 
 	snapshot = RegisterSnapshot(GetLatestSnapshot());
-	rel_scan = heap_beginscan(rel, snapshot, 1, key);
-	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
-	{
-		break;
-	}
+	scandesc = systable_beginscan(rel, AdbSlotSlotidIndexId, true, snapshot, lengthof(key), key);
+	tuple = systable_getnext(scandesc);
 	tupleret = heap_copytuple(tuple);
-	heap_endscan(rel_scan);
+	systable_endscan(scandesc);
 	UnregisterSnapshot(snapshot);
 
 	return tupleret;
@@ -308,7 +229,6 @@ SlotCreate(CreateSlotStmt *stmt)
 	char* 		nodename = NULL;
 	char 		slotstatus = 0;
 	Oid 		nodeid = 0;
-	Oid			slotrelOid =0;
 	int 		i = 0;
 
 	/* Only a DB administrator can add slots */
@@ -337,13 +257,12 @@ SlotCreate(CreateSlotStmt *stmt)
 		values[i] = (Datum) 0;
 	}
 
-	slotrelOid = GetAdbSlotRelId();
-	if (!OidIsValid(slotrelOid))
+	adbslotsrel = heap_open(AdbSlotRelationId, RowExclusiveLock);
+	if (!RelationIsValid(adbslotsrel))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_TABLE),
-				 errmsg("relation \"%s.%s\" does not exist", adb_slot_schema_name, adb_slot_table_name)));
-
-	adbslotsrel = heap_open(slotrelOid, RowExclusiveLock);
+				 err_generic_string(PG_DIAG_TABLE_NAME, "adb_slot"),
+				 errmsg("relation \"adb_slot\" does not exist")));
 
 	htup = search_adb_slot_tuple_by_slotid(adbslotsrel, slotid);
 	if (HeapTupleIsValid(htup))
@@ -352,14 +271,15 @@ SlotCreate(CreateSlotStmt *stmt)
 
 	/* Build entry tuple */
 	values[Anum_adb_slotid - 1] = Int32GetDatum(slotid);
-	values[Anum_adb_nodename - 1] = DirectFunctionCall1(namein, CStringGetDatum(nodename));
-	values[Anum_adb_status - 1] = Int32GetDatum(slotstatus);
+	values[Anum_adb_slotnodename - 1] = DirectFunctionCall1(namein, CStringGetDatum(nodename));
+	values[Anum_adb_slotstatus - 1] = Int32GetDatum(slotstatus);
 
 	htup = heap_form_tuple(adbslotsrel->rd_att, values, nulls);
 
-	simple_heap_insert(adbslotsrel, htup);
+	CatalogTupleInsert(adbslotsrel, htup);
 
-	heap_close(adbslotsrel, RowExclusiveLock);
+	/* lock relation until transaction end */
+	heap_close(adbslotsrel, NoLock);
 }
 
 
@@ -375,7 +295,6 @@ SlotAlter(AlterSlotStmt *stmt)
 	Datum		new_record[Natts_adb_slot];
 	bool		new_record_nulls[Natts_adb_slot];
 	bool		new_record_repl[Natts_adb_slot];
-	Oid			slotrelOid =0;
 	Oid 		nodeid = 0;
 
 
@@ -385,16 +304,13 @@ SlotAlter(AlterSlotStmt *stmt)
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("must be superuser to change slot")));
 
-
-	slotrelOid = GetAdbSlotRelId();
-	if (!OidIsValid(slotrelOid))
+	/* Look at the node tuple, and take exclusive lock on it */
+	rel = heap_open(AdbSlotRelationId, RowExclusiveLock);
+	if (!RelationIsValid(rel))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_TABLE),
-				 errmsg("relation \"%s%s\" does not exist", adb_slot_schema_name, adb_slot_table_name)));
-
-
-	/* Look at the node tuple, and take exclusive lock on it */
-	rel = heap_open(slotrelOid, RowExclusiveLock);
+				 err_generic_string(PG_DIAG_TABLE_NAME, "adb_slot"),
+				 errmsg("relation \"adb_slot\" does not exist")));
 	oldtup = search_adb_slot_tuple_by_slotid(rel, slotid);
 
 	if (!HeapTupleIsValid(oldtup))
@@ -402,8 +318,8 @@ SlotAlter(AlterSlotStmt *stmt)
 
 	slotForm = (Form_adb_slot) GETSTRUCT(oldtup);
 
-	nodename = slotForm->nodename.data;
-	slotstatus = slotForm->status;
+	nodename = NameStr(slotForm->slotnodename);
+	slotstatus = slotForm->slotstatus;
 
 	check_Slot_options(stmt->options, &nodename, &slotstatus);
 
@@ -421,18 +337,19 @@ SlotAlter(AlterSlotStmt *stmt)
 
 	new_record[Anum_adb_slotid - 1] = Int32GetDatum(slotid);
 	new_record_repl[Anum_adb_slotid - 1] = true;
-	new_record[Anum_adb_nodename - 1] = DirectFunctionCall1(namein, CStringGetDatum(nodename));
-	new_record_repl[Anum_adb_nodename - 1] = true;
-	new_record[Anum_adb_status - 1] = Int32GetDatum(slotstatus);
-	new_record_repl[Anum_adb_status - 1] = true;
+	new_record[Anum_adb_slotnodename - 1] = DirectFunctionCall1(namein, CStringGetDatum(nodename));
+	new_record_repl[Anum_adb_slotnodename - 1] = true;
+	new_record[Anum_adb_slotstatus - 1] = Int32GetDatum(slotstatus);
+	new_record_repl[Anum_adb_slotstatus - 1] = true;
 
 	/* Update relation */
 	newtup = heap_modify_tuple(oldtup, RelationGetDescr(rel),
 							   new_record,
 							   new_record_nulls, new_record_repl);
-	simple_heap_update(rel, &oldtup->t_self, newtup);
+	CatalogTupleUpdate(rel, &oldtup->t_self, newtup);
 
-	heap_close(rel, RowExclusiveLock);
+	/* lock relation until transaction end */
+	heap_close(rel, NoLock);
 }
 
 
@@ -442,8 +359,6 @@ SlotRemove(DropSlotStmt *stmt)
 	int 		slotid = stmt->slotid;
 	HeapTuple	tup;
 	Relation	rel;
-	Oid			slotrelOid =0;
-
 
 	/* Only a DB administrator can alter cluster nodes */
 	if (!superuser())
@@ -451,29 +366,26 @@ SlotRemove(DropSlotStmt *stmt)
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("must be superuser to change slot")));
 
-
-	slotrelOid = GetAdbSlotRelId();
-	if (!OidIsValid(slotrelOid))
+	/* Look at the node tuple, and take exclusive lock on it */
+	rel = heap_open(AdbSlotRelationId, RowExclusiveLock);
+	if (!RelationIsValid(rel))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_TABLE),
-				 errmsg("relation \"%s%s\" does not exist", adb_slot_schema_name, adb_slot_table_name)));
-
-
-	/* Look at the node tuple, and take exclusive lock on it */
-	rel = heap_open(slotrelOid, RowExclusiveLock);
+				 errmsg("relation \"adb_slot\" does not exist")));
 	tup = search_adb_slot_tuple_by_slotid(rel, slotid);
 
 	if (!HeapTupleIsValid(tup))
 		elog(ERROR, "cache lookup failed for slotid %u", slotid);
 
-	simple_heap_delete(rel, &tup->t_self);
+	CatalogTupleDelete(rel, &tup->t_self);
 
-	heap_close(rel, RowExclusiveLock);
+	/* lock relation until transaction end */
+	heap_close(rel, NoLock);
 }
 
 void SlotFlush(FlushSlotStmt* stmt)
 {
-	SlotUploadFlush();
+	SlotUploadFromCurrentDB();
 }
 
 void SlotClean(CleanSlotStmt* stmt)
@@ -512,17 +424,9 @@ void SlotClean(CleanSlotStmt* stmt)
 
 bool HeapTupleSatisfiesSlot(Relation rel, HeapTuple tuple)
 {
-	TupleDesc	tupDesc;
-	int			num_phys_attrs;
-	Datum	   *values;
-	bool	   *nulls;
-	Form_pg_attribute *attr;
-
-	long	hashValue;
 	int		modulo;
 	int		nodeIndex;
 	int		slotstatus;
-	AttrNumber attrNum;
 	bool ret;
 
 	if(InvalidOid==SLOTPGXCNodeOid)
@@ -533,58 +437,25 @@ bool HeapTupleSatisfiesSlot(Relation rel, HeapTuple tuple)
 	}
 
 	ret = false;
-	//1.get value
-	attrNum = rel->rd_locator_info->partAttrNum;
-	tupDesc = RelationGetDescr(rel);
-	attr = tupDesc->attrs;
-	num_phys_attrs = tupDesc->natts;
-	values = (Datum *) palloc(num_phys_attrs * sizeof(Datum));
-	nulls = (bool *) palloc(num_phys_attrs * sizeof(bool));
-	heap_deform_tuple(tuple, tupDesc, values, nulls);
+	//1.get modulo
+	modulo = GetHeapTupleSlotId(rel, tuple);
 
 	//2.check if the tuple belongs to this datanode
-	if(!nulls[attrNum - 1])
-	{
-		hashValue = execHashValue(values[attrNum - 1],
-								  attr[attrNum - 1]->atttypid,
-								  InvalidOid);
-		modulo = execModuloValue(Int32GetDatum(hashValue),
-									 INT4OID,
-									 SLOTSIZE);
+	SlotGetInfo(modulo, &nodeIndex, &slotstatus);
 
-		SlotGetInfo(modulo, &nodeIndex, &slotstatus);
-
-		pfree(values);
-		pfree(nulls);
-
-		if((DatanodeInClusterPlan)&&IS_PGXC_DATANODE)
-			ret = (PGXCNodeOid==nodeIndex);
-		else
-			ret = (SLOTPGXCNodeOid==nodeIndex);
-	}
+	if((DatanodeInClusterPlan)&&IS_PGXC_DATANODE)
+		ret = (PGXCNodeOid==nodeIndex);
 	else
-	{
-		pfree(values);
-		pfree(nulls);
+		ret = (SLOTPGXCNodeOid==nodeIndex);
 
-		//rows which's distribution key is null is only stored in slot 0.
-		SlotGetInfo(0, &nodeIndex, &slotstatus);
-
-		if((DatanodeInClusterPlan)&&IS_PGXC_DATANODE)
-			ret =  (PGXCNodeOid==nodeIndex);
-		else
-			ret =  (SLOTPGXCNodeOid==nodeIndex);
-	}
-
-	elog(DEBUG1,
-		"PGXCNodeOid=%d-SLOTPGXCNodeOid=%d-data=%d-nodeIndex=%d-adb_slot_enable_mvcc=%d-adb_slot_enable_clean=%d-ret=%d",
-		PGXCNodeOid,
-		SLOTPGXCNodeOid,
-		DatumGetInt32(values[attrNum - 1]),
-		nodeIndex,
-		adb_slot_enable_mvcc,
-		adb_slot_enable_clean,
-		ret);
+	ereport(DEBUG1,
+			(errmsg("PGXCNodeOid=%d-SLOTPGXCNodeOid=%d-nodeIndex=%d-adb_slot_enable_mvcc=%d-adb_slot_enable_clean=%d-ret=%d",
+			 PGXCNodeOid,
+			 SLOTPGXCNodeOid,
+			 nodeIndex,
+			 adb_slot_enable_mvcc,
+			 adb_slot_enable_clean,
+			 ret)));
 
 	if(adb_slot_enable_clean)
 		return !ret;
@@ -594,45 +465,28 @@ bool HeapTupleSatisfiesSlot(Relation rel, HeapTuple tuple)
 
 int GetHeapTupleSlotId(Relation rel, HeapTuple tuple)
 {
-	TupleDesc	tupDesc;
-	int			num_phys_attrs;
-	Datum	   *values;
-	bool	   *nulls;
-	Form_pg_attribute *attr;
+	TupleDesc			tupDesc;
+	Datum				value;
+	bool				isnull;
 
-	long	hashValue;
 	int		modulo;
 	AttrNumber attrNum;
 
-	//1.get value
-	attrNum = rel->rd_locator_info->partAttrNum;
 	tupDesc = RelationGetDescr(rel);
-	attr = tupDesc->attrs;
-	num_phys_attrs = tupDesc->natts;
-	values = (Datum *) palloc(num_phys_attrs * sizeof(Datum));
-	nulls = (bool *) palloc(num_phys_attrs * sizeof(bool));
-	heap_deform_tuple(tuple, tupDesc, values, nulls);
+	attrNum = rel->rd_locator_info->partAttrNum;
+	if (attrNum <= 0 ||
+		attrNum > tupDesc->natts)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(rel)),
+				 errmsg("invalid distribute attribute number %d", attrNum)));
+
+	value = fastgetattr(tuple, attrNum, tupDesc, &isnull);
 
 	//2.check if the tuple belongs to this datanode
-	if(!nulls[attrNum - 1])
-	{
-		hashValue = execHashValue(values[attrNum - 1],
-								  attr[attrNum - 1]->atttypid,
-								  InvalidOid);
-		modulo = execModuloValue(Int32GetDatum(hashValue),
-									 INT4OID,
-									 SLOTSIZE);
-
-		pfree(values);
-		pfree(nulls);
-	}
-	else
-	{
-		pfree(values);
-		pfree(nulls);
-
-		modulo = 0;
-	}
+	modulo = DatumGetHashAndModulo(value,
+								   TupleDescAttr(tupDesc, attrNum-1)->atttypid,
+								   isnull);
 
 	return modulo;
 }
@@ -640,197 +494,117 @@ int GetHeapTupleSlotId(Relation rel, HeapTuple tuple)
 int GetValueSlotId(Relation rel, Datum value, AttrNumber	attrNum)
 {
 	TupleDesc	tupDesc;
-	Form_pg_attribute *attr;
-	long		hashValue;
+	Form_pg_attribute attr;
 	int			slotid;
 
-	//1.get value
 	tupDesc = RelationGetDescr(rel);
-	attr = tupDesc->attrs;
+	if (attrNum <= 0 ||
+		attrNum > tupDesc->natts)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_COLUMN_DEFINITION),
+				 errmsg("Invalid distribute attribute number %d", attrNum)));
+	attr = TupleDescAttr(tupDesc, attrNum-1);
 
-	//2.check if the tuple belongs to this datanode
-	//hashValue = locator_compute_hash(attr[attrNum - 1]->atttypid, value, LOCATOR_TYPE_HASH);
-	//slotid = locator_compute_modulo(labs(hashValue), SLOTSIZE);
-
-	hashValue = execHashValue(value,
-			attr[attrNum - 1]->atttypid, InvalidOid);
-	slotid = execModuloValue(Int32GetDatum(hashValue),
-			INT4OID, SLOTSIZE);
+	slotid = DatumGetHashAndModulo(value, attr->atttypid, false);
 
 	return slotid;
+}
+
+static int32 DatumGetHashAndModulo(Datum datum, Oid typid, bool isnull)
+{
+	int32 hashvalue;
+
+	if (isnull)
+		return 0;
+
+	hashvalue = execHashValue(datum, typid, InvalidOid);
+	datum = DirectFunctionCall2(int4mod, Int32GetDatum(hashvalue), Int32GetDatum(SLOTSIZE));
+	datum = DirectFunctionCall1(int4abs, datum);
+
+	return DatumGetInt32(datum);
 }
 
 static void
 SlotUploadFromCurrentDB(void)
 {
-	Relation 	rel;
-	HeapScanDesc scan;
-	HeapTuple	tuple;
-	Oid			slotrelOid;
-	int 		i;
-	Form_adb_slot  slotForm;
-	char		msg[200];
-	Snapshot snapshot;
+	Relation		rel;
+	SysScanDesc		scan;
+	HeapTuple		tuple;
+	Form_adb_slot	slotForm;
+	Snapshot		snapshot;
+	int			   *load_slotnode;
+	int			   *load_slotstatus;
+	int				last_slotid;
 
-	strcpy(msg,"");
+	load_slotnode = palloc(sizeof(*load_slotnode)*SLOTSIZE);
+	load_slotstatus = palloc(sizeof(*load_slotstatus)*SLOTSIZE);
 
+	rel = heap_open(AdbSlotRelationId, AccessShareLock);
+	if (!RelationIsValid(rel))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_TABLE),
+				 err_generic_string(PG_DIAG_TABLE_NAME, "adb_slot"),
+				 errmsg("load adb_slot failed. relation adb_slot doesn't exist.")));
 
-	i = 0;
-	slotForm = NULL;
-	slotrelOid = GetAdbSlotRelId();
-
-	LWLockAcquire(SlotTableLock, LW_EXCLUSIVE);
-
-	if (!OidIsValid(slotrelOid))
-	{
-		sprintf(msg, "%s", "load adb_slot failed.adb_slot doesn't exist.");
-		goto slot_handler_finish;
-	}
-
-	rel = heap_open(slotrelOid, AccessShareLock);
 	snapshot = RegisterSnapshot(GetLatestSnapshot());
-	scan = heap_beginscan(rel, snapshot, 0, NULL);
-	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	/* order by slotid */
+	scan = systable_beginscan(rel, AdbSlotSlotidIndexId, true, snapshot, 0, NULL);
+
+	last_slotid = 0;
+	while ((tuple = systable_getnext(scan)) != NULL)
 	{
 		slotForm = (Form_adb_slot) GETSTRUCT(tuple);
+		if (slotForm->slotid > SLOTSIZE ||
+			slotForm->slotid < 0)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Invalid slot id \"%d\" from adb_slot", slotForm->slotid)));
+		}
+		if (slotForm->slotid != last_slotid)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("slot id is not continuous"),
+					 errdetail("between %d and %d", last_slotid, slotForm->slotid)));
+		}
+
 		//slotnode[slotForm->slotid] = PGXCNodeGetNodeIdFromName(NameStr(slotForm->nodename), PGXC_NODE_DATANODE);
-		slotnode[slotForm->slotid] = get_pgxc_nodeoid(NameStr(slotForm->nodename));
+		load_slotnode[slotForm->slotid] = get_pgxc_nodeoid(NameStr(slotForm->slotnodename));
 
 		if(INVALID_SLOT_VALUE == slotnode[slotForm->slotid])
 		{
-			sprintf(msg, "%s load adb_slot failed.node name %s in adb_slot table does not exist in pgxc_node", PGXCNodeName, NameStr(slotForm->nodename));
-			break;
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+					 errmsg("%s load adb_slot failed. node name %s in adb_slot table does not exist in pgxc_node",
+					 		PGXCNodeName, NameStr(slotForm->slotnodename))));
 		}
-		slotstatus[slotForm->slotid] = slotForm->status;
-		i++;
+		load_slotstatus[slotForm->slotid] = slotForm->slotstatus;
+		++last_slotid;
 	}
-	heap_endscan(scan);
+	systable_endscan(scan);
 	UnregisterSnapshot(snapshot);
 
-	heap_close(rel, AccessShareLock);
+	/* lock relation until transaction end */
+	heap_close(rel, NoLock);
 
-
-slot_handler_finish:
-
-	if(i!=SLOTSIZE)
+	if (last_slotid != SLOTSIZE)
 	{
-		/* if adb_slot is empty no need init slot array */
-		if (i != 0)
-			InitSlotArrary(INVALID_SLOT_VALUE);
-
-		LWLockRelease(SlotTableLock);
-
-		if(0==strcmp("",msg))
-			sprintf(msg, "load adb_slot failed. the total num of slot in adb_slot table is not %d", SLOTSIZE);
-
-		elog(ERROR, "%s", msg);
-	}
-	else
-	{
-		LWLockRelease(SlotTableLock);
-
-		elog(LOG, "load adb_slot success.");
-		for(i=0; i<SLOTSIZE; i++)
-		{
-			elog(DEBUG1, "slotid=%d-nodeindex=%d-status=%d", i, slotnode[i], slotstatus[i]);
-		}
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("load adb_slot failed. the total num of slot in adb_slot table is not %d", SLOTSIZE),
+				 errdetail("total number is %d", last_slotid)));
 	}
 
+	/* update share memory */
+	LWLockAcquire(SlotTableLock, LW_EXCLUSIVE);
+	memcpy(slotnode, load_slotnode, sizeof(*slotnode)*SLOTSIZE);
+	memcpy(slotstatus, load_slotstatus, sizeof(*slotstatus)*SLOTSIZE);
+	LWLockRelease(SlotTableLock);
 
-}
-
-static void
-SlotUploadFromRemoteDB(void)
-{
-	int			ret;
-	char		msg[200];
-	char		sql[200];
-	char*		pextent_count;
-	char*		ptable_count;
-	char*		pconn_count;
-
-
-	strcpy(msg,"");
-	pextent_count = ptable_count = pconn_count = NULL;
-
-	if (SPI_connect() != SPI_OK_CONNECT)
-	{
-		strcpy(msg,"SPI_connect failed");
-		goto slot_handler_finish;
-	}
-
-	/*1.1check extension exists*/
-	ret = SPI_execute(SELECT_CHECK_DBLINK, true, 0);
-	if (ret != SPI_OK_SELECT)
-	{
-		sprintf(msg, "load adb_slot failed.%s result is %d",SELECT_CHECK_DBLINK, ret);
-		goto slot_handler_finish;
-	}
-	if(0==SPI_processed)
-	{
-		sprintf(msg, "load adb_slot failed.%s result is null.",SELECT_CHECK_DBLINK);
-		goto slot_handler_finish;
-	}
-	pextent_count = SPI_getvalue(SPI_tuptable->vals[0],SPI_tuptable->tupdesc, 1);
-	if(1!=atoi(pextent_count))
-	{
-		sprintf(msg, "load adb_slot failed.%s result is %d",SELECT_CHECK_DBLINK, atoi(pextent_count));
-		goto slot_handler_finish;
-	}
-
-	/*1.2check connect exists*/
-	ret = SPI_execute(SELECT_CHECK_CONNECT, true, 0);
-	if (ret != SPI_OK_SELECT)
-	{
-		sprintf(msg, "load adb_slot failed.%s result is %d",SELECT_CHECK_CONNECT, ret);
-		goto slot_handler_finish;
-	}
-	if(0==SPI_processed)
-	{
-		sprintf(msg, "load adb_slot failed.%s result is null.",SELECT_CHECK_CONNECT);
-		goto slot_handler_finish;
-	}
-
-	pconn_count = SPI_getvalue(SPI_tuptable->vals[0],SPI_tuptable->tupdesc, 1);
-
-	/*2. create connect*/
-	sprintf(sql, CREATE_DBLINK_CONNECT, SlotDatabaseName, PostPortNumber);
-	if(0==atoi(pconn_count))
-	{
-		ret = SPI_execute(sql, false, 0);
-		if (ret != SPI_OK_SELECT)
-		{
-			sprintf(msg, "load adb_slot failed.%s result is %d",sql, ret);
-			goto slot_handler_finish;
-		}
-	}
-
-	/*3. flush slot*/
-	ret = SPI_execute(FLUSH_SLOT_BY_DBLINK, false, 0);
-	if (ret != SPI_OK_SELECT)
-	{
-		sprintf(msg, "load adb_slot failed.%s result is %d",FLUSH_SLOT_BY_DBLINK, ret);
-		goto slot_handler_finish;
-	}
-
-
-	/*4. drop connection*/
-	ret = SPI_execute(DROP_DBLINK_CONNECT, false, 0);
-	if (ret != SPI_OK_SELECT)
-	{
-		sprintf(msg, "load adb_slot failed.%s result is %d",DROP_DBLINK_CONNECT, ret);
-		goto slot_handler_finish;
-	}
-
-	SPI_freetuptable(SPI_tuptable);
-	SPI_finish();
-
-	return;
-
-slot_handler_finish:
-	elog(ERROR, "%s", msg);
-	return;
-
+	/* cleanup */
+	pfree(load_slotnode);
+	pfree(load_slotstatus);
 }
 
 Datum
@@ -850,18 +624,10 @@ nodeid_from_hashvalue(PG_FUNCTION_ARGS)
 	PG_RETURN_INT32(pnodeindex);
 }
 
-
-Oid get_nodeid_from_hashvalue(void)
-{
-	Oid			typeId[1];
-	typeId[0] = INT4OID;
-	return LookupFuncName(list_make1(makeString("nodeid_from_hashvalue")), 1, typeId, false);
-}
-
 void InitSLOTPGXCNodeOid(void)
 {
 	SLOTPGXCNodeOid = get_pgxc_nodeoid(PGXCNodeName);
-	elog(DEBUG1, "NodeName=%s-SLOTPGXCNodeOid=%d", PGXCNodeName,SLOTPGXCNodeOid);
+	ereport(DEBUG1, (errmsg("NodeName=%s-SLOTPGXCNodeOid=%d", PGXCNodeName, SLOTPGXCNodeOid)));
 }
 
 /*

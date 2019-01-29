@@ -2223,7 +2223,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 									  list_make1(result),
 									  InvalidOid, InvalidOid,
 									  COERCE_EXPLICIT_CALL);
-		result = (Expr*)makeFuncExpr(GetNodeIdFromHashValue,
+		result = (Expr*)makeFuncExpr(F_NODEID_FROM_HASHVALUE,
 			INT4OID,
 			list_make1((Expr*)result),
 			exprType((Node*)result), exprCollation((Node*)result),

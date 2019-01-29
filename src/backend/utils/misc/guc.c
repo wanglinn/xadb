@@ -4350,17 +4350,6 @@ static struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"slot_database_name", PGC_USERSET, CUSTOM_OPTIONS,
-		gettext_noop("The database that adb.adb_slot exists in."),
-		NULL,
-		GUC_IS_NAME
-		},
-		&SlotDatabaseName,
-		"postgres",
-		NULL, NULL, NULL
-	},
-
-	{
 		/* Can't be set in postgresql.conf */
 		{"adb_version", PGC_INTERNAL, PRESET_OPTIONS,
 			gettext_noop("Shows the AntDB server version."),
