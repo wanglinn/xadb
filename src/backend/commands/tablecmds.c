@@ -13362,6 +13362,12 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	foreach(item, subCmds)
 	{
 		AlterTableCmd *cmd = (AlterTableCmd *) lfirst(item);
+		if (cmd->subtype != AT_DistributeBy && cmd->def && rel->rd_locator_info
+				&& rel->rd_locator_info->locatorType == LOCATOR_TYPE_HASHMAP)
+			ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+					errmsg("not support ALTER hashmap table ADD/DELETE/TO node")));
+
 		switch (cmd->subtype)
 		{
 			case AT_DistributeBy:
