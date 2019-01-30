@@ -146,6 +146,9 @@ check_Slot_options(List *options, char **pnodename, char *pnodestatus)
 
 void SlotGetInfo(int slotid, int* pnodeindex, int* pstatus)
 {
+	int nodeindex;
+	int status;
+
 	if (slotid >= SLOTSIZE ||
 		slotid < 0)
 	{
@@ -155,38 +158,44 @@ void SlotGetInfo(int slotid, int* pnodeindex, int* pstatus)
 	}
 
 	LWLockAcquire(SlotTableLock, LW_SHARED);
-	*pnodeindex = slotnode[slotid];
-	*pstatus = slotstatus[slotid];
+	nodeindex = slotnode[slotid];
+	status = slotstatus[slotid];
 	LWLockRelease(SlotTableLock);
 
 	/*
 	* if this is the firt time slot info is used after db starts,
 	* flush slot info to memory.
 	*/
-	if(((*pnodeindex)==UNINIT_SLOT_VALUE)
-		|| ((*pstatus)==UNINIT_SLOT_VALUE))
+	if (nodeindex==UNINIT_SLOT_VALUE ||
+		status==UNINIT_SLOT_VALUE)
+	{
 		SlotUploadFromCurrentDB();
 
-	LWLockAcquire(SlotTableLock, LW_SHARED);
-	*pnodeindex = slotnode[slotid];
-	*pstatus = slotstatus[slotid];
-	LWLockRelease(SlotTableLock);
-
-	/*if slot table is invalid, flush slot cmd will set UNINIT_SLOT_VALUE*/
-	Assert((*pnodeindex)!=UNINIT_SLOT_VALUE);
-	Assert((*pstatus)!=UNINIT_SLOT_VALUE);
-
-	if(((*pnodeindex)==INVALID_SLOT_VALUE)
-		||((*pstatus)==INVALID_SLOT_VALUE))
-		elog(ERROR, "slot is invalid.slot %d can not be used. nodeindex=%d status=%d",
-		slotid,*pnodeindex, *pstatus);
-
-	if((DatanodeInClusterPlan)&&IS_PGXC_DATANODE)
-	{
-		*pnodeindex = GetCurrentCnRdcID(get_pgxc_nodename(*pnodeindex));
-		Assert((*pnodeindex)!=InvalidOid);
+		LWLockAcquire(SlotTableLock, LW_SHARED);
+		nodeindex = slotnode[slotid];
+		status = slotstatus[slotid];
+		LWLockRelease(SlotTableLock);
 	}
 
+	if (nodeindex==INVALID_SLOT_VALUE ||
+		status==INVALID_SLOT_VALUE)
+		elog(ERROR, "slot is invalid. slot %d can not be used. nodeindex=%d status=%d",
+					slotid, nodeindex, status);
+
+	if (DatanodeInClusterPlan &&
+		IS_PGXC_DATANODE)
+	{
+		int newindex = GetCurrentCnRdcID(get_pgxc_nodename(nodeindex));
+		if (newindex == InvalidOid)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Can not found node OID %u in datanode", nodeindex)));
+		else
+			nodeindex = newindex;
+	}
+
+	*pnodeindex = nodeindex;
+	*pstatus = status;
 }
 
 
