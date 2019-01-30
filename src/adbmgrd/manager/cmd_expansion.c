@@ -120,7 +120,7 @@ ADBSQL
 */
 /*adb schema*/
 #define IS_ADB_SCHEMA_EXISTS						"select count(*) from pg_namespace where nspname = 'adb';"
-#define CREATE_SCHEMA 								"create schema adb;"
+#define CREATE_SCHEMA 								"create schema if not exists adb;"
 
 /*adb_slot_clean*/
 #define ADB_SLOT_CLEAN_TABLE						"adb_slot_clean"
@@ -1307,6 +1307,8 @@ Datum mgr_expand_clean_init(PG_FUNCTION_ARGS)
 
 		//1.
 		hexp_pqexec_direct_execute_utility(pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+		/* create schema if not exists adb */
+		hexp_pqexec_direct_execute_utility(pg_conn, CREATE_SCHEMA, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 		//create adb.adb_slot_clean,
 		hexp_pqexec_direct_execute_utility(pg_conn, CREATE_ADB_SLOT_CLEAN_TABLE, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 		//create clean database
