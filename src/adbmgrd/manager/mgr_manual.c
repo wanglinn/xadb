@@ -1744,20 +1744,22 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		bRefreshParam = true;
 		/* set parameters the given slave node in postgresql.conf */
 		resetStringInfo(&infosendmsg);
-		ereport(LOG, (errmsg("on %s \"%s\" set synchronous_standby_names=%s", nodeTypeStrData.data, nodeNameData.data, syncStateData.data)));
-		ereport(NOTICE, (errmsg("on %s \"%s\" set synchronous_standby_names=%s", nodeTypeStrData.data, nodeNameData.data, syncStateData.data)));
+		ereport(LOG, (errmsg("on %s \"%s\" set synchronous_standby_names=%s", nodeTypeStrData.data
+				,nodeNameData.data, "''")));
+		ereport(NOTICE, (errmsg("on %s \"%s\" set synchronous_standby_names=%s", nodeTypeStrData.data
+				,nodeNameData.data, "''")));
 		if (!bgtmKind)
 			mgr_add_parm(nodeNameData.data, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
 		else
 			mgr_add_parm(nodeNameData.data, GTM_TYPE_GTM_MASTER, &infosendmsg);
-		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", syncStateData.data, &infosendmsg);
+		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "''", &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, nodeInfoS.nodepath, &infosendmsg
 				, nodeInfoS.nodehost, &getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
 		{
 			bgetAgentCmdRst = true;
 			ereport(ERROR, (errmsg("on %s \"%s\" set synchronous_standby_names=%s fail, %s"
-				, nodeTypeStrData.data, nodeNameData.data, syncStateData.data, getAgentCmdRst.description.data)));
+				, nodeTypeStrData.data, nodeNameData.data, "''", getAgentCmdRst.description.data)));
 		}
 
 		/* set the given slave node pg_hba.conf for streaming replication*/
@@ -1874,9 +1876,6 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		PG_RE_THROW();
 	}PG_END_TRY();
 
-	pfree(restmsg.data);
-	pfree(syncStateData.data);
-
 	initStringInfo(&strerr);
 	if (!bgtmKind)
 	{
@@ -1895,6 +1894,8 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 			ereport(WARNING, (errmsg("%s", getAgentCmdRst.description.data)));
 			appendStringInfo(&strerr, "update pgxc_node on coordinators fail: %s\n", getAgentCmdRst.description.data);
 		}
+		/*flush expand slot */
+		hexp_alter_slotinfo_nodename(pgConn, NameStr(nodeMasterNameData), NameStr(nodeNameData));
 	}
 	else
 	{
@@ -1931,6 +1932,27 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 			PG_RE_THROW();
 		}PG_END_TRY();
 	}
+	/* set parameters the given slave node in postgresql.conf */
+	resetStringInfo(&infosendmsg);
+	ereport(LOG, (errmsg("on given %s \"%s\" set synchronous_standby_names=%s"
+		, nodeTypeStrData.data, nodeNameData.data, syncStateData.data)));
+	ereport(NOTICE, (errmsg("on given %s \"%s\" set synchronous_standby_names=%s"
+		, nodeTypeStrData.data, nodeNameData.data, syncStateData.data)));
+	if (!bgtmKind)
+		mgr_add_parm(nodeNameData.data, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
+	else
+		mgr_add_parm(nodeNameData.data, GTM_TYPE_GTM_MASTER, &infosendmsg);
+	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", syncStateData.data, &infosendmsg);
+	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, nodeInfoS.nodepath, &infosendmsg
+			, nodeInfoS.nodehost, &getAgentCmdRst);
+	if (!getAgentCmdRst.ret)
+	{
+		ereport(ERROR, (errmsg("on given %s \"%s\" set synchronous_standby_names=%s fail, %s"
+			, nodeTypeStrData.data, nodeNameData.data, syncStateData.data, getAgentCmdRst.description.data)));
+	}
+
+	pfree(restmsg.data);
+	pfree(syncStateData.data);
 	/*unlock cluster*/
 	mgr_unlock_cluster(&pgConn);
 

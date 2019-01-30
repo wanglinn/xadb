@@ -6697,10 +6697,16 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 		appendStringInfo(&infosendsyncmsg, "%s", infosendsyncmsgtmp.data);
 		pfree(infosendsyncmsgtmp.data);
 	}
-	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names"
-						, infosendsyncmsg.len !=0 ? infosendsyncmsg.data:"", &infosendmsg);
 
-	/*refresh pgxc_node on all coordiantors*/
+	/* set new datanode master synchronous_standby_names = '' */
+	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names"
+					, "", &infosendmsg);
+	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, cndnPath, &infosendmsg
+					, mgr_node->nodehost, getAgentCmdRst);
+	resetStringInfo(&infosendmsg);
+	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names"
+					, infosendsyncmsg.len !=0 ? infosendsyncmsg.data:"", &infosendmsg);
+	/*refresh pgxc_node on all coordiantors and datanode masters */
 	getrefresh = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, mgr_node->nodetype
 					, NameStr(mgr_node->nodename), getAgentCmdRst, pg_conn, cnoid, slaveNodeName.data);
 	if(!getrefresh)
@@ -6708,6 +6714,29 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 		getAgentCmdRst->ret = getrefresh;
 		appendStringInfo(&recorderr, "%s\n", (getAgentCmdRst->description).data);
 	}
+
+	/*flush expand slot */
+	mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
+	if(!HeapTupleIsValid(mastertuple))
+	{
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+			,errmsg("datanode master \"%s\" dosen't exist", cndnname->data)));
+	}
+	else
+	{
+		mgr_nodemaster = (Form_mgr_node)GETSTRUCT(mastertuple);
+		namestrcpy(&masterNameData, NameStr(mgr_nodemaster->nodename));
+		ReleaseSysCache(mastertuple);
+	}
+
+	PG_TRY();
+	{
+		hexp_alter_slotinfo_nodename(*pg_conn, masterNameData.data, newMasterNodeName.data);
+	}PG_CATCH();
+	{
+		ereport(WARNING, (errmsg("update adb.adb_slot fail, check and modify (use update method) the pgxc_node of all coordinators and datanode masters if need, then check and modify (use the command on adbmgr: EXPAND ALTER NODENAME  source_node TO dest_node) adb_slot table on coordinator")));
+		appendStringInfoString(&recorderr, "update adb_slot fail, check and modify (use update method) the pgxc_node of all coordinators and datanode masters if need, then check and modify (use the command on adbmgr: EXPAND ALTER NODENAME  source_node TO dest_node) adb_slot table on coordinator\n");
+	}PG_END_TRY();
 
 	/*unlock cluster*/
 	mgr_unlock_cluster(pg_conn);
@@ -10376,13 +10405,39 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 			appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
 		}
 	}
-	pfree(cmdstring.data);
-	pfree(newMasterAddress);
+
+	/* update the pgxc_node information on datanode masters */
+	foreach(dn_lc, prefer_cndn->datanode_list)
+	{
+		resetStringInfo(&cmdstring);
+		tuple_in = (HeapTuple)lfirst(dn_lc);
+		mgr_node_in = (Form_mgr_node)GETSTRUCT(tuple_in);
+		Assert(mgr_node_in);
+		appendStringInfo(&cmdstring, "set force_parallel_mode = off; EXECUTE DIRECT ON (\"%s\") 'select pg_alter_node(''%s'', ''%s'', ''%s'', %d, %s);'"
+				,strcmp(NameStr(mgr_node_in->nodename), NameStr(masternameData)) == 0 ?
+					dnname : NameStr(mgr_node_in->nodename)
+				,NameStr(masternameData)
+				,dnname
+				,newMasterAddress
+				,newMasterPort
+				,"false");
+		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
+		if (try<0)
+		{
+			result = false;
+			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
+				,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
+			appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
+		}
+	}
+
 	if (recorderr.len > 0)
 	{
 		appendStringInfo(&(getAgentCmdRst->description), "%s", recorderr.data);
 	}
+	pfree(newMasterAddress);
 	pfree(recorderr.data);
+	pfree(cmdstring.data);
 
 	return result;
 }

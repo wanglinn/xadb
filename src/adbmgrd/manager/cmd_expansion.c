@@ -147,6 +147,7 @@ ADBSQL
 #define ALTER_SLOT_STATUS_BY_SLOTID 				"alter slot %d with(status = %s);"
 #define ALTER_SLOT_NODE_NAME_STATUS_BY_SLOTID 		"alter slot %d with(nodename='%s',status = %s);"
 #define VACUUM_ADB_SLOT_CLEAN_TABLE					"clean slot \"%s\" \"%s\";"
+#define ALTER_SLOT_NODE_NAME_SLOTID					"alter slot %d with(nodename='%s');"
 
 /*pgxc_node*/
 #define SELECT_COUNT_FROM_PGXC_NODE					"select count(*) from pgxc_node;"
@@ -256,6 +257,7 @@ static void hexp_check_hash_meta(void);
 static void hexp_check_hash_meta_dn(PGconn *pgconn, PGconn *pgconn_dn, char* node_name);
 
 static void hexp_init_dn_pgxcnode_addnode(Form_mgr_node mgr_node, DN_NODE* dn_node, int dn_node_index, char* cnpath);
+static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name);
 
 /*expansion*/
 
@@ -2700,7 +2702,7 @@ static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnp
 
 static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* pdn_status, char* cnpath)
 {
-	PGconn * volatile dn_pg_conn = NULL;
+	PGconn *dn_pg_conn = NULL;
 
 	pdn_status->checked = false;
 	pdn_status->node_status = SlotStatusInvalid;
@@ -4693,3 +4695,67 @@ Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype
 	return HeapTupleGetDatum(tup_result);
 }
 
+void hexp_alter_slotinfo_nodename(PGconn *pgconn, char* src_node_name, char* dst_node_name)
+{
+	char sql[100];
+	PGresult* res;
+	int i = 0;
+	ExecStatusType status;
+	int slotid = -1;
+	SlotArrayIndex = 0;
+
+	hexp_pqexec_direct_execute_utility(pgconn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+
+	hexp_get_sourcenode_slotid(pgconn, src_node_name);
+	for(i=0; i<SlotArrayIndex; i++)
+	{
+		slotid = SlotIdArray[i];
+
+		sprintf(sql, ALTER_SLOT_NODE_NAME_SLOTID, slotid, dst_node_name);
+		res = PQexec(pgconn, sql);
+		status = PQresultStatus(res);
+		switch(status)
+		{
+			case PGRES_COMMAND_OK:
+				break;
+			default:
+				ereport(ERROR, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
+		}
+		PQclear(res);
+	}
+
+	hexp_pqexec_direct_execute_utility(pgconn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+	hexp_pqexec_direct_execute_utility(pgconn, "flush slot;", MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+}
+
+static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name)
+{
+	PGresult* res;
+	char sql[200];
+	ExecStatusType status;
+	int i = 0;
+
+	sprintf(sql, SELECT_SLOTID_STATUS_FROM_ADB_SLOT_BY_NODE, src_node_name);
+	res = PQexec(pgconn,  sql);
+	status = PQresultStatus(res);
+	switch(status)
+	{
+		case PGRES_TUPLES_OK:
+			break;
+		default:
+			ereport(ERROR, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
+	}
+	if (0==PQntuples(res))
+	{
+		PQclear(res);
+		ereport(ERROR, (errmsg("%s runs error. result is null.", SELECT_PGXC_NODE)));
+	}
+
+	SlotArrayIndex = 0;
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		SlotIdArray[SlotArrayIndex] = atoi(PQgetvalue(res, i, 0));
+		SlotArrayIndex++;
+	}
+	PQclear(res);
+}
