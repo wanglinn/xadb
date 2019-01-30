@@ -34,6 +34,7 @@ extern void SlotShmemInit(void);
 extern Size SlotShmemSize(void);
 
 extern void SlotGetInfo(int slotid, int* pnodeindex, int* pstatus);
+extern List *GetSlotNodeOids(void);
 
 extern void SlotAlter(AlterSlotStmt *stmt);
 extern void SlotCreate(CreateSlotStmt *stmt);

@@ -36,9 +36,9 @@
 /* Shared memory tables of slot definitions */
 static int *slotnode = NULL;
 static int *slotstatus = NULL;
+static Oid *unique_slot_oids = NULL;	/* terminal by InvalidOid, order by slotid */
 
 static HeapTuple search_adb_slot_tuple_by_slotid(Relation rel, int slotid);
-static void InitSlotArrary(int value);
 static void SlotUploadFromCurrentDB(void);
 static void check_Slot_options(List *options, char **pnodename, char *pnodestatus);
 static int32 DatumGetHashAndModulo(Datum datum, Oid typid, bool isnull);
@@ -54,16 +54,6 @@ bool	DatanodeInClusterPlan;
 
 static Oid	SLOTPGXCNodeOid = InvalidOid;
 
-static void InitSlotArrary(int value)
-{
-	int i=0;
-	for(i=0; i<SLOTSIZE; i++)
-	{
-		slotnode[i] = value;
-		slotstatus[i] = value;
-	}
-}
-
 /*
  * SlotShmemInit
  *	Initializes shared memory tables of Coordinators and Datanodes.
@@ -71,15 +61,26 @@ static void InitSlotArrary(int value)
 void
 SlotShmemInit(void)
 {
+	Size i;
 	bool found;
 
 	slotnode = ShmemInitStruct("node in adb slot table",
 							   SlotShmemSize(),
 							   &found);
-	slotstatus = (void*)(slotnode + SLOTSIZE);
-	slotstatus = (void*)(((char*)slotnode) + MAXALIGN(mul_size(sizeof(*slotnode), SLOTSIZE)));
+	slotstatus = (int*)(((char*)slotnode) + MAXALIGN(mul_size(sizeof(*slotnode), SLOTSIZE)));
+	unique_slot_oids = (Oid*)(((char*)slotstatus) + MAXALIGN(mul_size(sizeof(*slotstatus), SLOTSIZE)));
+
 	if (!found)
-		InitSlotArrary(UNINIT_SLOT_VALUE);
+	{
+		i = SLOTSIZE;
+		do
+		{
+			--i;
+			slotnode[i] = UNINIT_SLOT_VALUE;
+			slotstatus[i] = UNINIT_SLOT_VALUE;
+			unique_slot_oids[i] = InvalidOid;
+		}while(i > 0);
+	}
 }
 
 
@@ -90,8 +91,13 @@ SlotShmemInit(void)
 Size
 SlotShmemSize(void)
 {
-	return add_size(MAXALIGN(mul_size(sizeof(*slotnode), SLOTSIZE)),
-					MAXALIGN(mul_size(sizeof(*slotstatus), SLOTSIZE)));
+	Size size;
+
+	size = MAXALIGN(mul_size(sizeof(*slotnode), SLOTSIZE));
+	size = add_size(size, MAXALIGN(mul_size(sizeof(*slotstatus), SLOTSIZE)));
+	size = add_size(size, MAXALIGN(mul_size(sizeof(*unique_slot_oids), SLOTSIZE)));
+
+	return size;
 }
 
 
@@ -198,6 +204,28 @@ void SlotGetInfo(int slotid, int* pnodeindex, int* pstatus)
 	*pstatus = status;
 }
 
+/*
+ * result all slot using datanode's object id list
+ * it order by slot id
+ */
+List *GetSlotNodeOids(void)
+{
+	List *list = NIL;
+	Size i;
+
+	LWLockAcquire(SlotTableLock, LW_SHARED);
+	if (!OidIsValid(unique_slot_oids[0]))
+	{
+		LWLockRelease(SlotTableLock);
+		SlotUploadFromCurrentDB();
+		LWLockAcquire(SlotTableLock, LW_SHARED);
+	}
+	for(i=0;i<SLOTSIZE && OidIsValid(unique_slot_oids[i]);++i)
+		list = lappend_oid(list, unique_slot_oids[i]);
+	LWLockRelease(SlotTableLock);
+
+	return list;
+}
 
 /*
 * select adb slot table by slotid
@@ -541,9 +569,13 @@ SlotUploadFromCurrentDB(void)
 	HeapTuple		tuple;
 	Form_adb_slot	slotForm;
 	Snapshot		snapshot;
+	List		   *oids;
+	ListCell	   *lc;
 	int			   *load_slotnode;
 	int			   *load_slotstatus;
 	int				last_slotid;
+	Oid				oid;
+	Size			i;
 
 	load_slotnode = palloc(sizeof(*load_slotnode)*SLOTSIZE);
 	load_slotstatus = palloc(sizeof(*load_slotstatus)*SLOTSIZE);
@@ -560,6 +592,7 @@ SlotUploadFromCurrentDB(void)
 	scan = systable_beginscan(rel, AdbSlotSlotidIndexId, true, snapshot, 0, NULL);
 
 	last_slotid = 0;
+	oids = NIL;
 	while ((tuple = systable_getnext(scan)) != NULL)
 	{
 		slotForm = (Form_adb_slot) GETSTRUCT(tuple);
@@ -578,16 +611,17 @@ SlotUploadFromCurrentDB(void)
 					 errdetail("between %d and %d", last_slotid, slotForm->slotid)));
 		}
 
-		//slotnode[slotForm->slotid] = PGXCNodeGetNodeIdFromName(NameStr(slotForm->nodename), PGXC_NODE_DATANODE);
-		load_slotnode[slotForm->slotid] = get_pgxc_nodeoid(NameStr(slotForm->slotnodename));
-
-		if(INVALID_SLOT_VALUE == slotnode[slotForm->slotid])
+		oid = get_pgxc_nodeoid(NameStr(slotForm->slotnodename));
+		if(!OidIsValid(oid))
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 					 errmsg("%s load adb_slot failed. node name %s in adb_slot table does not exist in pgxc_node",
 					 		PGXCNodeName, NameStr(slotForm->slotnodename))));
 		}
+
+		load_slotnode[slotForm->slotid] = oid;
+		oids = list_append_unique_oid(oids, oid);
 		load_slotstatus[slotForm->slotid] = slotForm->slotstatus;
 		++last_slotid;
 	}
@@ -609,11 +643,17 @@ SlotUploadFromCurrentDB(void)
 	LWLockAcquire(SlotTableLock, LW_EXCLUSIVE);
 	memcpy(slotnode, load_slotnode, sizeof(*slotnode)*SLOTSIZE);
 	memcpy(slotstatus, load_slotstatus, sizeof(*slotstatus)*SLOTSIZE);
+	i = 0;
+	foreach(lc, oids)
+		unique_slot_oids[i++] = lfirst_oid(lc);
+	if (i<SLOTSIZE)
+		unique_slot_oids[i++] = InvalidOid;
 	LWLockRelease(SlotTableLock);
 
 	/* cleanup */
 	pfree(load_slotnode);
 	pfree(load_slotstatus);
+	list_free(oids);
 }
 
 Datum
