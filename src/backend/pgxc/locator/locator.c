@@ -55,6 +55,7 @@
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
+#include "pgxc/slot.h"
 #include "postmaster/autovacuum.h"
 #include "utils/typcache.h"
 #include "pgxc/slot.h"
@@ -831,12 +832,6 @@ RelationIdBuildLocator(Oid relid)
 	RelationLocInfo*relationLocInfo;
 	int				j;
 
-	Relation		relPgxcNode;
-	HeapScanDesc	relPgxcNodeScan;
-	HeapTuple		pgxcNodeTuple;
-	Form_pgxc_node	pgxc_node;
-
-
 	ScanKeyInit(&skey,
 				Anum_pgxc_class_pcrelid,
 				BTEqualStrategyNumber, F_OIDEQ,
@@ -866,18 +861,7 @@ RelationIdBuildLocator(Oid relid)
 	}
 	else
 	{
-		//add all node in pgxc node table
-		relPgxcNode = heap_open(PgxcNodeRelationId, AccessShareLock);
-		relPgxcNodeScan = heap_beginscan_catalog(relPgxcNode, 0, NULL);
-		while((pgxcNodeTuple = heap_getnext(relPgxcNodeScan, ForwardScanDirection)) != NULL)
-		{
-			pgxc_node = (Form_pgxc_node) GETSTRUCT(pgxcNodeTuple);
-			if(PGXC_NODE_DATANODE == pgxc_node->node_type)
-				relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
-							HeapTupleGetOid(pgxcNodeTuple));
-		}
-		heap_endscan(relPgxcNodeScan);
-		heap_close(relPgxcNode, AccessShareLock);
+		relationLocInfo->nodeids = GetSlotNodeOids();
 	}
 	relationLocInfo->funcid = InvalidOid;
 	relationLocInfo->funcAttrNums = NIL;
