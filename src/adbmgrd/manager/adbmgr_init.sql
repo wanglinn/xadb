@@ -1180,5 +1180,4 @@ mgr_expand_clean_init(),
 mgr_expand_clean_start(),
 mgr_expand_clean_end()
 from public;
-INSERT INTO adbmgr.parm VALUES ('#', 'slot_database_name', 'postgres', 'user', 'string', NULL, NULL, NULL, NULL);
 
