@@ -18360,10 +18360,10 @@ dumpAdbmgrTable(Archive *fout)
 	appendPQExpBuffer(dbQry, "LIST HOST;");
 	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
 	Assert(PQnfields(res) == 7);
+	resetPQExpBuffer(addstrdata);
 	for (i = 0; i < PQntuples(res); i++)
 	{
-		resetPQExpBuffer(addstrdata);
-		appendPQExpBuffer(addstrdata, "ADD HOST \"%s\" (user=\"%s\", port=%s, protocol=%s, agentport=%s, address=\"%s\", adbhome=\"%s\");",
+		appendPQExpBuffer(addstrdata, "ADD HOST \"%s\" (user=\"%s\", port=%s, protocol=%s, agentport=%s, address=\"%s\", adbhome=\"%s\");\n",
 			PQgetvalue(res, i, 0),
 			PQgetvalue(res, i, 1),
 			PQgetvalue(res, i, 2),
@@ -18371,16 +18371,15 @@ dumpAdbmgrTable(Archive *fout)
 			PQgetvalue(res, i, 4),
 			PQgetvalue(res, i, 5),
 			PQgetvalue(res, i, 6));
-
-		ArchiveEntry(fout, nilCatalogId, createDumpId(),
-			"mgr_host",
-			"pg_catalog",
-			NULL, "",
-			false, "DEFAULT", SECTION_NONE,
-			addstrdata->data, "", "",
-			NULL, 0,
-			NULL, NULL);
 	}
+	ArchiveEntry(fout, nilCatalogId, createDumpId(),
+		"mgr_host",
+		"pg_catalog",
+		NULL, "",
+		false, "DEFAULT", SECTION_NONE,
+		addstrdata->data, "", "",
+		NULL, 0,
+		NULL, NULL);
 	PQclear(res);
 
 	/* Get the mgr_node table*/
@@ -18388,11 +18387,11 @@ dumpAdbmgrTable(Archive *fout)
 	appendPQExpBuffer(dbQry, "LIST NODE;");
 	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
 	Assert(PQnfields(res) == 10);
+	resetPQExpBuffer(addstrdata);
 	for (i = 0; i < PQntuples(res); i++)
 	{
-		resetPQExpBuffer(addstrdata);
 		if (strlen(PQgetvalue(res, i, 5)))
-			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" FOR \"%s\" (host=\"%s\", port=%s, sync_state=\"%s\",path=\"%s\");",
+			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" FOR \"%s\" (host=\"%s\", port=%s, sync_state=\"%s\",path=\"%s\");\n",
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 0),
 				PQgetvalue(res, i, 3),
@@ -18401,28 +18400,28 @@ dumpAdbmgrTable(Archive *fout)
 				PQgetvalue(res, i, 5),
 				PQgetvalue(res, i, 6));
 		else if (strcmp(PQgetvalue(res, i, 9), "t") == 0)
-			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\", readonly=true);",
+			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\", readonly=true);\n",
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 0),
 				PQgetvalue(res, i, 1),
 				PQgetvalue(res, i, 4),
 				PQgetvalue(res, i, 6));
 		else
-			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\");",
+			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\");\n",
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 0),
 				PQgetvalue(res, i, 1),
 				PQgetvalue(res, i, 4),
 				PQgetvalue(res, i, 6));
-		ArchiveEntry(fout, nilCatalogId, createDumpId(),
-			"mgr_node",
-			"pg_catalog",
-			NULL, "",
-			false, "DEFAULT", SECTION_NONE,
-			addstrdata->data, "", "",
-			NULL, 0,
-			NULL, NULL);
 	}
+	ArchiveEntry(fout, nilCatalogId, createDumpId(),
+		"mgr_node",
+		"pg_catalog",
+		NULL, "",
+		false, "DEFAULT", SECTION_NONE,
+		addstrdata->data, "", "",
+		NULL, 0,
+		NULL, NULL);
 	PQclear(res);
 
 	/* Get the mgr_updateparm table*/
@@ -18430,11 +18429,11 @@ dumpAdbmgrTable(Archive *fout)
 	appendPQExpBuffer(dbQry, "LIST PARAM;");
 	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
 	Assert(PQnfields(res) == 4);
+	resetPQExpBuffer(addstrdata);
 	for (i = 0; i < PQntuples(res); i++)
 	{
-		resetPQExpBuffer(addstrdata);
 		if (strcmp(PQgetvalue(res, i, 0), "*") == 0)
-			appendPQExpBuffer(addstrdata, "SET %s %s (\"%s\"=\"%s\");",
+			appendPQExpBuffer(addstrdata, "SET %s %s (\"%s\"=\"%s\") FORCE;\n",
 				strcasecmp(PQgetvalue(res, i, 1), "datanode master|slave") == 0 ? "datanode"
 					:(strcasecmp(PQgetvalue(res, i, 1), "gtm master|slave") == 0 ? "gtm"
 						:(strcasecmp(PQgetvalue(res, i, 1), "coordinator master|slave") == 0
@@ -18443,20 +18442,20 @@ dumpAdbmgrTable(Archive *fout)
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 3));
 		else
-			appendPQExpBuffer(addstrdata, "SET %s \"%s\" (\"%s\"=\"%s\");",
+			appendPQExpBuffer(addstrdata, "SET %s \"%s\" (\"%s\"=\"%s\") FORCE;\n",
 				PQgetvalue(res, i, 1),
 				PQgetvalue(res, i, 0),
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 3));
-		ArchiveEntry(fout, nilCatalogId, createDumpId(),
-			"mgr_updateparm",
-			"pg_catalog",
-			NULL, "",
-			false, "DEFAULT", SECTION_NONE,
-			addstrdata->data, "", "",
-			NULL, 0,
-			NULL, NULL);
 	}
+	ArchiveEntry(fout, nilCatalogId, createDumpId(),
+		"mgr_updateparm",
+		"pg_catalog",
+		NULL, "",
+		false, "DEFAULT", SECTION_NONE,
+		addstrdata->data, "", "",
+		NULL, 0,
+		NULL, NULL);
 	PQclear(res);
 
 	/* Get the mgr_hba table*/
@@ -18464,21 +18463,21 @@ dumpAdbmgrTable(Archive *fout)
 	appendPQExpBuffer(dbQry, "LIST HBA");
 	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
 	Assert(PQnfields(res) == 2);
+	resetPQExpBuffer(addstrdata);
 	for (i = 0; i < PQntuples(res); i++)
 	{
-		resetPQExpBuffer(addstrdata);
-		appendPQExpBuffer(addstrdata, "ADD HBA \"%s\" (\"%s\");",
+		appendPQExpBuffer(addstrdata, "ADD HBA \"%s\" (\"%s\");\n",
 			PQgetvalue(res, i, 0),
 			PQgetvalue(res, i, 1));
-		ArchiveEntry(fout, nilCatalogId, createDumpId(),
-			"mgr_hba",
-			"pg_catalog",
-			NULL, "",
-			false, "DEFAULT", SECTION_DATA,
-			addstrdata->data, "", "",
-			NULL, 0,
-			NULL, NULL);
 	}
+	ArchiveEntry(fout, nilCatalogId, createDumpId(),
+		"mgr_hba",
+		"pg_catalog",
+		NULL, "",
+		false, "DEFAULT", SECTION_DATA,
+		addstrdata->data, "", "",
+		NULL, 0,
+		NULL, NULL);
 	PQclear(res);
 
 	/* Get the job table*/
@@ -18486,11 +18485,11 @@ dumpAdbmgrTable(Archive *fout)
 	appendPQExpBuffer(dbQry, "LIST JOB");
 	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
 	Assert(PQnfields(res) == 7);
+	resetPQExpBuffer(addstrdata);
 	for (i = 0; i < PQntuples(res); i++)
 	{
-		resetPQExpBuffer(addstrdata);
 		retstr = respacechr(PQgetvalue(res, i, 5), '\'', "''");
-		appendPQExpBuffer(addstrdata, "ADD JOB \"%s\" (nexttime=\"%s\", interval=%s, status=%s, command='%s', desc=\"%s\");",
+		appendPQExpBuffer(addstrdata, "ADD JOB \"%s\" (nexttime=\"%s\", interval=%s, status=%s, command='%s', desc=\"%s\");\n",
 			PQgetvalue(res, i, 1),
 			PQgetvalue(res, i, 2),
 			PQgetvalue(res, i, 3),
@@ -18498,15 +18497,15 @@ dumpAdbmgrTable(Archive *fout)
 			retstr == NULL ? "''" : retstr,
 			strcmp(PQgetvalue(res, i, 6), "") != 0 ? PQgetvalue(res, i, 6):" ");
 		pfree(retstr);
-		ArchiveEntry(fout, nilCatalogId, createDumpId(),
-			"monitor_job",
-			"pg_catalog",
-			NULL, "",
-			false, "DEFAULT", SECTION_DATA,
-			addstrdata->data, "", "",
-			NULL, 0,
-			NULL, NULL);
 	}
+	ArchiveEntry(fout, nilCatalogId, createDumpId(),
+		"monitor_job",
+		"pg_catalog",
+		NULL, "",
+		false, "DEFAULT", SECTION_DATA,
+		addstrdata->data, "", "",
+		NULL, 0,
+		NULL, NULL);
 	PQclear(res);
 
 	/* Get the item table*/
@@ -18514,22 +18513,22 @@ dumpAdbmgrTable(Archive *fout)
 	appendPQExpBuffer(dbQry, "LIST ITEM");
 	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
 	Assert(PQnfields(res) == 3);
+	resetPQExpBuffer(addstrdata);
 	for (i = 0; i < PQntuples(res); i++)
 	{
-		resetPQExpBuffer(addstrdata);
-		appendPQExpBuffer(addstrdata, "ADD ITEM \"%s\" (path=\"%s\", desc=\"%s\");",
+		appendPQExpBuffer(addstrdata, "ADD ITEM \"%s\" (path=\"%s\", desc=\"%s\");\n",
 			PQgetvalue(res, i, 0),
 			PQgetvalue(res, i, 1),
 			strcmp(PQgetvalue(res, i, 2), "") != 0 ? PQgetvalue(res, i, 2):" ");
-		ArchiveEntry(fout, nilCatalogId, createDumpId(),
-			"monitor_item",
-			"pg_catalog",
-			NULL, "",
-			false, "DEFAULT", SECTION_DATA,
-			addstrdata->data, "", "",
-			NULL, 0,
-			NULL, NULL);
 	}
+	ArchiveEntry(fout, nilCatalogId, createDumpId(),
+		"monitor_item",
+		"pg_catalog",
+		NULL, "",
+		false, "DEFAULT", SECTION_DATA,
+		addstrdata->data, "", "",
+		NULL, 0,
+		NULL, NULL);
 	PQclear(res);
 
 	destroyPQExpBuffer(addstrdata);
