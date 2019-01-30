@@ -743,7 +743,6 @@
 									# (change requires restart)
 #adbmonitor_naptime = 1min			# time between adb monitor runs
 #mgr_database_name = ''             # The database name mgr connects to
-#slot_database_name = 'postgres'    # The database that adb.adb_slot exists in.
 #------------------------------------------------------------------------------
 # CONFIG FILE INCLUDES
 #------------------------------------------------------------------------------
