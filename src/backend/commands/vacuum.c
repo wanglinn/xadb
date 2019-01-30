@@ -71,6 +71,7 @@
 #include "pgxc/execRemote.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/slot.h"
 #include "storage/mem_toc.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
@@ -1887,8 +1888,18 @@ static List* get_vacuum_rel_node(List *nodes, Oid reloid, bool need_vacuum)
 	if (need_vacuum ||
 		classForm->pclocatortype != LOCATOR_TYPE_REPLICATED)
 	{
-		for (i=0;i<count;++i)
-			nodes = list_append_unique_oid(nodes, oids[i]);
+		if (classForm->pclocatortype == LOCATOR_TYPE_HASHMAP)
+		{
+			ListCell *lc;
+			List *slot_oids = GetSlotNodeOids();
+			foreach(lc, slot_oids)
+				nodes = list_append_unique_oid(nodes, lfirst_oid(lc));
+			list_free(slot_oids);
+		}else
+		{
+			for (i=0;i<count;++i)
+				nodes = list_append_unique_oid(nodes, oids[i]);
+		}
 	}else
 	{
 		for (i=0;i<count;++i)
@@ -1936,7 +1947,7 @@ static List* get_vacuum_all_coord(List *relations, MemoryContext context)
 		tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(lfirst_oid(lc)));
 		if (!HeapTupleIsValid(tuple))
 			continue;	/* should not happen, but ... */
-		
+
 		classForm = (Form_pg_class) GETSTRUCT(tuple);
 		if (classForm->relpersistence == RELPERSISTENCE_TEMP)
 		{
