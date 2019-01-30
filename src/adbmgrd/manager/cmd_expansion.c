@@ -2626,7 +2626,11 @@ static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnp
 	connect_user = get_hostuser_from_hostoid(coordhostoid);
 
 	/*get the adbmanager ip*/
-	mgr_get_self_address(coordhost, coordport, &self_address);
+	if (!mgr_get_self_address(coordhost, coordport, &self_address))
+	{
+		ereport(ERROR,
+				(errmsg("can not connect node %s, is it running?", NameStr(mgr_node->nodename))));
+	}
 
 	/*set adbmanager ip to the coordinator if need*/
 	initStringInfo(&(getAgentCmdRst.description));
@@ -2647,6 +2651,7 @@ static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnp
 		{
 			breload = true;
 			PQfinish((PGconn*)*pg_conn);
+			*pg_conn = NULL;
 			resetStringInfo(&infosendmsg);
 			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, DEFAULT_DB, connect_user, self_address.data, 31, "trust", &infosendmsg);
 			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cnpath, &infosendmsg, coordhostoid, &getAgentCmdRst);
@@ -2695,7 +2700,7 @@ static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnp
 
 static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* pdn_status, char* cnpath)
 {
-	PGconn * dn_pg_conn = NULL;
+	PGconn * volatile dn_pg_conn = NULL;
 
 	pdn_status->checked = false;
 	pdn_status->node_status = SlotStatusInvalid;
