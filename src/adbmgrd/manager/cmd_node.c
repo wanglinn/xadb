@@ -9468,9 +9468,9 @@ Datum mgr_list_acl_all(PG_FUNCTION_ARGS)
 }
 
 /**
- * @brief  
- * @note   
- * @retval 
+ * @brief
+ * @note
+ * @retval
  */
 Datum mgr_list_nodesize_all(PG_FUNCTION_ARGS)
 {
@@ -9547,10 +9547,10 @@ Datum mgr_list_nodesize_all(PG_FUNCTION_ARGS)
 	ma = ma_connect_hostoid(mgr_node->nodehost);
 	if(!ma_isconnected(ma))
 	{
-		tup_result = build_list_nodesize_tuple(&(mgr_node->nodename), 
+		tup_result = build_list_nodesize_tuple(&(mgr_node->nodename),
 												   mgr_node->nodetype,
 												   mgr_node->nodeport,
-												   nodepath, 
+												   nodepath,
 												   0 );
 		ma_close(ma);
 		ereport(INFO, (errmsg("ndoename \"%s\" : agent is not running", NameStr(mgr_node->nodename))));
@@ -9582,10 +9582,10 @@ Datum mgr_list_nodesize_all(PG_FUNCTION_ARGS)
 			//check result data
 			if (strlen(getAgentCmdRst.description.data) > 20)
 				ereport(INFO, (errmsg("ndoename \"%s\" %s", NameStr(mgr_node->nodename), getAgentCmdRst.description.data)));
-			tup_result = build_list_nodesize_tuple(&(mgr_node->nodename), 
+			tup_result = build_list_nodesize_tuple(&(mgr_node->nodename),
 												   mgr_node->nodetype,
 												   mgr_node->nodeport,
-												   nodepath, 
+												   nodepath,
 												   pg_strtouint64(getAgentCmdRst.description.data, NULL, 10));
 			//free getAgentCmdRst.description.data
 			if(getAgentCmdRst.description.data)
@@ -10559,7 +10559,7 @@ static bool mgr_extension_pg_stat_statements(char cmdtype, char *extension_name)
 
 bool mgr_get_self_address(char *server_address, int server_port, Name self_address)
 {
-		int sock;
+		pgsocket sock;
 		int nRet;
 		struct sockaddr_in serv_addr;
 		struct sockaddr_in addr;
@@ -10582,6 +10582,7 @@ bool mgr_get_self_address(char *server_address, int server_port, Name self_addre
 		if (connect(sock,(struct sockaddr*)&serv_addr,sizeof(serv_addr)) == -1)
 		{
 			ereport(WARNING, (errmsg("on ADB Manager sock connect \"%s\" \"%d\" fail", server_address, server_port)));
+			closesocket(sock);
 			return false;
 		}
 
@@ -10590,10 +10591,11 @@ bool mgr_get_self_address(char *server_address, int server_port, Name self_addre
 		if(nRet == -1)
 		{
 			ereport(WARNING, (errmsg("on ADB Manager sock connect \"%s\" \"%d\" to getsockname fail", server_address, server_port)));
+			closesocket(sock);
 			return false;
 		}
 		namestrcpy(self_address, inet_ntoa(addr.sin_addr));
-		close(sock);
+		closesocket(sock);
 
 		return true;
 }
