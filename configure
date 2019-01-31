@@ -829,6 +829,7 @@ with_blocksize
 with_segsize
 with_wal_blocksize
 with_wal_segsize
+with_hashmap_slot_size
 with_CC
 enable_depend
 enable_cassert
@@ -1530,6 +1531,8 @@ Optional Packages:
                           set WAL block size in kB [8]
   --with-wal-segsize=SEGSIZE
                           set WAL segment size in MB [16]
+  --with-hashmap-slot-size=HASHMAP_SLOTSIZE
+                          set HASHMAP slot size [1024]
   --with-CC=CMD           set compiler (deprecated)
   --with-icu              build with ICU support
   --with-tcl              build Tcl modules (PL/Tcl)
@@ -3886,6 +3889,45 @@ $as_echo "${wal_segsize}MB" >&6; }
 
 cat >>confdefs.h <<_ACEOF
 #define XLOG_SEG_SIZE (${wal_segsize} * 1024 * 1024)
+_ACEOF
+
+
+#
+# HASHMAP slot size
+#
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for HASHMAP slot size" >&5
+$as_echo_n "checking for HASHMAP slot size... " >&6; }
+
+
+
+# Check whether --with-hashmap-slot-size was given.
+if test "${with_hashmap_slot_size+set}" = set; then :
+  withval=$with_hashmap_slot_size;
+  case $withval in
+    yes)
+      as_fn_error $? "argument required for --with-hashmap-slot-size option" "$LINENO" 5
+      ;;
+    no)
+      as_fn_error $? "argument required for --with-hashmap-slot-size option" "$LINENO" 5
+      ;;
+    *)
+      hashmap_slot_size=$withval
+      ;;
+  esac
+
+else
+  hashmap_slot_size=1024
+fi
+
+
+if test "${hashmap_slot_size}" -lt 64 -o "${hashmap_slot_size}" -gt 65535; then
+  as_fn_error $? "Invalid HASHMAP slot size. Allowed values between 64 and 65535." "$LINENO" 5
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: ${hashmap_slot_size}" >&5
+$as_echo "${hashmap_slot_size}" >&6; }
+
+cat >>confdefs.h <<_ACEOF
+#define HASHMAP_SLOTSIZE ${hashmap_slot_size}
 _ACEOF
 
 

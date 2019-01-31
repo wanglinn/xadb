@@ -67,12 +67,12 @@ SlotShmemInit(void)
 	slotnode = ShmemInitStruct("node in adb slot table",
 							   SlotShmemSize(),
 							   &found);
-	slotstatus = (int*)(((char*)slotnode) + MAXALIGN(mul_size(sizeof(*slotnode), SLOTSIZE)));
-	unique_slot_oids = (Oid*)(((char*)slotstatus) + MAXALIGN(mul_size(sizeof(*slotstatus), SLOTSIZE)));
+	slotstatus = (int*)(((char*)slotnode) + MAXALIGN(mul_size(sizeof(*slotnode), HASHMAP_SLOTSIZE)));
+	unique_slot_oids = (Oid*)(((char*)slotstatus) + MAXALIGN(mul_size(sizeof(*slotstatus), HASHMAP_SLOTSIZE)));
 
 	if (!found)
 	{
-		i = SLOTSIZE;
+		i = HASHMAP_SLOTSIZE;
 		do
 		{
 			--i;
@@ -93,9 +93,9 @@ SlotShmemSize(void)
 {
 	Size size;
 
-	size = MAXALIGN(mul_size(sizeof(*slotnode), SLOTSIZE));
-	size = add_size(size, MAXALIGN(mul_size(sizeof(*slotstatus), SLOTSIZE)));
-	size = add_size(size, MAXALIGN(mul_size(sizeof(*unique_slot_oids), SLOTSIZE)));
+	size = MAXALIGN(mul_size(sizeof(*slotnode), HASHMAP_SLOTSIZE));
+	size = add_size(size, MAXALIGN(mul_size(sizeof(*slotstatus), HASHMAP_SLOTSIZE)));
+	size = add_size(size, MAXALIGN(mul_size(sizeof(*unique_slot_oids), HASHMAP_SLOTSIZE)));
 
 	return size;
 }
@@ -155,7 +155,7 @@ void SlotGetInfo(int slotid, int* pnodeindex, int* pstatus)
 	int nodeindex;
 	int status;
 
-	if (slotid >= SLOTSIZE ||
+	if (slotid >= HASHMAP_SLOTSIZE ||
 		slotid < 0)
 	{
 		ereport(ERROR,
@@ -220,7 +220,7 @@ List *GetSlotNodeOids(void)
 		SlotUploadFromCurrentDB();
 		LWLockAcquire(SlotTableLock, LW_SHARED);
 	}
-	for(i=0;i<SLOTSIZE && OidIsValid(unique_slot_oids[i]);++i)
+	for(i=0;i<HASHMAP_SLOTSIZE && OidIsValid(unique_slot_oids[i]);++i)
 		list = lappend_oid(list, unique_slot_oids[i]);
 	LWLockRelease(SlotTableLock);
 
@@ -274,8 +274,8 @@ SlotCreate(CreateSlotStmt *stmt)
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("must be superuser to create slot")));
 
-	if ((slotid<SLOTBEGIN)||(slotid>SLOTEND))
-		elog(ERROR, "slotid must be between %d and %d", SLOTBEGIN, SLOTEND);
+	if ((slotid<0)||(slotid>=HASHMAP_SLOTSIZE))
+		elog(ERROR, "slotid must be between %d and %d", 0, HASHMAP_SLOTSIZE-1);
 
 	/* Filter options */
 	check_Slot_options(stmt->options, &nodename, &slotstatus);
@@ -555,7 +555,7 @@ static int32 DatumGetHashAndModulo(Datum datum, Oid typid, bool isnull)
 		return 0;
 
 	hashvalue = execHashValue(datum, typid, InvalidOid);
-	datum = DirectFunctionCall2(int4mod, Int32GetDatum(hashvalue), Int32GetDatum(SLOTSIZE));
+	datum = DirectFunctionCall2(int4mod, Int32GetDatum(hashvalue), Int32GetDatum(HASHMAP_SLOTSIZE));
 	datum = DirectFunctionCall1(int4abs, datum);
 
 	return DatumGetInt32(datum);
@@ -577,8 +577,8 @@ SlotUploadFromCurrentDB(void)
 	Oid				oid;
 	Size			i;
 
-	load_slotnode = palloc(sizeof(*load_slotnode)*SLOTSIZE);
-	load_slotstatus = palloc(sizeof(*load_slotstatus)*SLOTSIZE);
+	load_slotnode = palloc(sizeof(*load_slotnode)*HASHMAP_SLOTSIZE);
+	load_slotstatus = palloc(sizeof(*load_slotstatus)*HASHMAP_SLOTSIZE);
 
 	rel = heap_open(AdbSlotRelationId, AccessShareLock);
 	if (!RelationIsValid(rel))
@@ -596,7 +596,7 @@ SlotUploadFromCurrentDB(void)
 	while ((tuple = systable_getnext(scan)) != NULL)
 	{
 		slotForm = (Form_adb_slot) GETSTRUCT(tuple);
-		if (slotForm->slotid > SLOTSIZE ||
+		if (slotForm->slotid >= HASHMAP_SLOTSIZE ||
 			slotForm->slotid < 0)
 		{
 			ereport(ERROR,
@@ -631,22 +631,22 @@ SlotUploadFromCurrentDB(void)
 	/* lock relation until transaction end */
 	heap_close(rel, NoLock);
 
-	if (last_slotid != SLOTSIZE)
+	if (last_slotid != HASHMAP_SLOTSIZE)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-				 errmsg("load adb_slot failed. the total num of slot in adb_slot table is not %d", SLOTSIZE),
+				 errmsg("load adb_slot failed. the total num of slot in adb_slot table is not %d", HASHMAP_SLOTSIZE),
 				 errdetail("total number is %d", last_slotid)));
 	}
 
 	/* update share memory */
 	LWLockAcquire(SlotTableLock, LW_EXCLUSIVE);
-	memcpy(slotnode, load_slotnode, sizeof(*slotnode)*SLOTSIZE);
-	memcpy(slotstatus, load_slotstatus, sizeof(*slotstatus)*SLOTSIZE);
+	memcpy(slotnode, load_slotnode, sizeof(*slotnode)*HASHMAP_SLOTSIZE);
+	memcpy(slotstatus, load_slotstatus, sizeof(*slotstatus)*HASHMAP_SLOTSIZE);
 	i = 0;
 	foreach(lc, oids)
 		unique_slot_oids[i++] = lfirst_oid(lc);
-	if (i<SLOTSIZE)
+	if (i<HASHMAP_SLOTSIZE)
 		unique_slot_oids[i++] = InvalidOid;
 	LWLockRelease(SlotTableLock);
 
