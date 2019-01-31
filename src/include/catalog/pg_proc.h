@@ -5715,7 +5715,7 @@ DESCR("get the name of the node");
 DATA(insert OID = 9116 ( adb_node_oid		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 26 "" _null_ _null_ _null_ _null_ _null_ adb_node_oid _null_ _null_ _null_ ));
 DESCR("get the object ID of the node");
 
-DATA(insert OID = 9118 ( pgxc_pool_reload	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_pool_reload _null_ _null_ _null_ ));
+DATA(insert OID = 9118 ( pgxc_pool_reload	PGNSP PGUID 12 1 0 0 0 f f f f t f v u 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_pool_reload _null_ _null_ _null_ ));
 DESCR("reload connection information in pooler and reload server sessions");
 DATA(insert OID = 9119 (  pgxc_is_committed	PGNSP PGUID 12 1 1 0 0 f f f f t t s s 1 0 16 "28" _null_ _null_ _null_ _null_ _null_ pgxc_is_committed _null_ _null_ _null_ ));
 DESCR("is given GXID committed or aborted?");
