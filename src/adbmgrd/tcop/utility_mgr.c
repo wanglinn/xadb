@@ -162,7 +162,7 @@ void mgr_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 		monitor_delete_data((MonitorDeleteData*)parsetree, params, dest);
 		break;
 	case T_ClusterSlotInitStmt:
-		mgr_cluster_slot_init((ClusterSlotInitStmt*)parsetree, params, dest);
+		mgr_cluster_slot_init((ClusterSlotInitStmt*)parsetree, params, dest, queryString);
 		break;
 	case T_MGRFlushParam:
 		mgr_flushparam((MGRFlushParam*)parsetree, params, dest);

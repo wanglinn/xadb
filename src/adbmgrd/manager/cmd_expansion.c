@@ -98,14 +98,6 @@ typedef struct DN_STATUS
 	NameData	pgxc_node_name;
 } DN_STATUS;
 
-typedef struct DN_SLOT_INIT
-{
-	NameData	nodename;
-	int			start_pos;
-	int			end_pos;
-	bool		front_pos_exists;
-} DN_SLOT_INIT;
-
 typedef struct DN_NODE
 {
 	NameData	nodename;
@@ -136,6 +128,7 @@ ADBSQL
 #define SELECT_HASH_TABLE							"select relname, pgn.nspname from pgxc_class xcc , pg_class pgc , pg_namespace pgn where xcc.pclocatortype = 'B' and xcc.pcrelid = pgc.oid and pgc.relnamespace = pgn.oid and pgn.nspname!='information_schema';"
 #define INSERT_ADB_SLOT_CLEAN_TABLE					"insert into adb.adb_slot_clean(dbname, name, schema) values('%s', '%s', '%s');"
 /*adb_slot*/
+#define SELECT_MIN_MAX_COUNT_SLOTID_ADB_SLOT		"select min(slotid),max(slotid),count(slotid) from pg_catalog.adb_slot"
 #define SELECT_ADB_SLOT_TABLE_COUNT					"select count(*) from pg_catalog.adb_slot;"
 #define SELECT_STATUS_COUNT_FROM_ADB_SLOT_BY_NODE 	"select slotstatus as status, count(*) from pg_catalog.adb_slot where slotnodename = '%s' group by status;"
 #define SELECT_COUNT_FROM_ADB_SLOT_BY_NODE 			"select count(*) from pg_catalog.adb_slot where slotnodename = '%s'"
@@ -240,16 +233,6 @@ static bool hexp_check_cluster_status_internal(DN_STATUS* dn_status, int* pdn_st
 static int  hexp_dn_slot_status_from_dn_status(DN_STATUS* dn_status, int dn_status_index, char* nodename);
 static int  hexp_cluster_slot_status_from_dn_status(DN_STATUS* dn_status, int dn_status_index);
 
-static void hexp_dn_slot_init_find_front(DN_SLOT_INIT *dn_slot_init, int dn_slot_init_index, int pos);
-static void	hexp_dn_slot_init_end(DN_SLOT_INIT *dn_slot_init, int dn_slot_init_index);
-static void	hexp_dn_slot_init_init(DN_SLOT_INIT *dn_slot_init);
-static int 	hexp_dn_slot_init_find_node(DN_SLOT_INIT *dn_slot_init, int *pdn_slot_init_index, char* nodename);
-static void hexp_dn_slot_init_add_node(DN_SLOT_INIT *dn_slot_init, int *pdn_slot_init_index, char* nodename);
-static void hexp_dn_slot_init_add_spos(DN_SLOT_INIT *dn_slot_init, int *pdn_slot_init_index, char* nodename, int value);
-static void hexp_dn_slot_init_add_epos(DN_SLOT_INIT *dn_slot_init, int *pdn_slot_init_index, char* nodename, int value);
-static void hexp_parse_slot_options(List *options, DN_SLOT_INIT *dn_slot_init, int *pdn_slot_init_index);
-static void hexp_dn_slot_init_insert(PGconn *pgconn,	DN_SLOT_INIT *dn_slot_init, int dn_slot_init_index);
-
 static void hexp_execute_cmd_get_reloid(PGconn *pg_conn, char *sqlstr, char* ret);
 static void hexp_import_hash_meta(PGconn *pgconn, PGconn *pgconn_dn, char* node_name);
 
@@ -258,6 +241,7 @@ static void hexp_check_hash_meta_dn(PGconn *pgconn, PGconn *pgconn_dn, char* nod
 
 static void hexp_init_dn_pgxcnode_addnode(Form_mgr_node mgr_node, DN_NODE* dn_node, int dn_node_index, char* cnpath);
 static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name);
+static void report_slot_range_invalid(PartitionRangeDatum *prd, ParseState *parser) pg_attribute_noreturn();
 
 /*expansion*/
 
@@ -1711,61 +1695,6 @@ Datum mgr_cluster_pgxcnode_check(PG_FUNCTION_ARGS)
 	return HeapTupleGetDatum(tup_result);
 }
 
-Datum mgr_cluster_slot_init_func(PG_FUNCTION_ARGS)
-{
-	List			*options;
-	DN_SLOT_INIT	dn_slot_init[MaxDNMaster];
-	int 			dn_slot_init_index;
-	int 			i;
-	StringInfoData 	serialize;
-	PGconn * co_pg_conn = NULL;
-	Oid cnoid;
-
-	options = (List*)PG_GETARG_CSTRING(0);
-	dn_slot_init_index = 0;
-
-	if (RecoveryInProgress())
-		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
-
-	PG_TRY();
-	{
-		hexp_check_cluster_pgxcnode();
-
-		//parse value list and check
-		hexp_parse_slot_options(options, dn_slot_init, &dn_slot_init_index);
-
-		initStringInfo(&serialize);
-		for(i=0; i<dn_slot_init_index; i++)
-			appendStringInfo(&serialize,"node %s start=%d, end=%d\n", dn_slot_init[i].nodename.data, dn_slot_init[i].start_pos, dn_slot_init[i].end_pos);
-		elog(INFO, "%s", serialize.data);
-
-		hexp_get_coordinator_conn(&co_pg_conn, &cnoid);
-
-		//check pg_catalog.adb_slot slot number is zero.
-		if(hexp_check_select_result_count(co_pg_conn, SELECT_ADB_SLOT_TABLE_COUNT))
-			ereport(ERROR, (errmsg("pg_catalog.adb_slot is not empty. ")));
-
-		//create slot
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		hexp_dn_slot_init_insert(co_pg_conn, dn_slot_init, dn_slot_init_index);
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-
-		PQfinish(co_pg_conn);
-		co_pg_conn = NULL;
-	}PG_CATCH();
-	{
-		if(co_pg_conn)
-		{
-			PQfinish(co_pg_conn);
-			co_pg_conn = NULL;
-		}
-		PG_RE_THROW();
-	}PG_END_TRY();
-
-	PG_RETURN_BOOL(true);
-}
-
-
 Datum mgr_import_hash_meta(PG_FUNCTION_ARGS)
 {
 	HeapTuple tup_result;
@@ -2011,214 +1940,6 @@ Datum mgr_checkout_dnslave_status(PG_FUNCTION_ARGS)
 	pfree(getAgentCmdRst.description.data);
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple_result));
 }
-
-static void hexp_dn_slot_init_find_front(DN_SLOT_INIT *dn_slot_init, int dn_slot_init_index, int pos)
-{
-	int i;
-	if(0==dn_slot_init[pos].start_pos)
-	{
-		dn_slot_init[pos].front_pos_exists = true;
-		return;
-	}
-
-	for(i=0; i<dn_slot_init_index; i++)
-	{
-		if((dn_slot_init[i].end_pos+1) == dn_slot_init[pos].start_pos)
-			dn_slot_init[pos].front_pos_exists = true;
-	}
-	return;
-}
-
-static void hexp_dn_slot_init_end(DN_SLOT_INIT *dn_slot_init, int dn_slot_init_index)
-{
-	int i, len;
-	len = 0;
-	for(i=0; i<dn_slot_init_index; i++)
-	{
-		if(strcmp("", NameStr(dn_slot_init[i].nodename))==0)
-			ereport(ERROR, (errmsg("nodes slot info is inconsistent. some node's name is invalid.")));
-
-		if(-1==dn_slot_init[i].start_pos)
-			ereport(ERROR, (errmsg("nodes slot info is inconsistent. some node's spos is invalid.")));
-
-		if(-1==dn_slot_init[i].end_pos)
-			ereport(ERROR, (errmsg("nodes slot info is inconsistent. some node's epos is invalid.")));
-
-		if(dn_slot_init[i].end_pos <= dn_slot_init[i].start_pos)
-			ereport(ERROR, (errmsg("%s slot info is inconsistent. end pos must be bigger than start pos.",dn_slot_init[i].nodename.data)));
-
-		len += dn_slot_init[i].end_pos - dn_slot_init[i].start_pos + 1;
-	}
-
-	if(len!=SLOTSIZE)
-		ereport(ERROR, (errmsg("nodes slot info is inconsistent. slot number is not 1024.")));
-
-	for(i=0; i<dn_slot_init_index; i++)
-	{
-		hexp_dn_slot_init_find_front(dn_slot_init, dn_slot_init_index, i);
-	}
-
-	for(i=0; i<dn_slot_init_index; i++)
-	{
-		if(!dn_slot_init[i].front_pos_exists)
-			ereport(ERROR, (errmsg("%s slot info is inconsistent. slot number is not continuous.", dn_slot_init[i].nodename.data)));
-	}
-
-}
-
-static void hexp_dn_slot_init_init(DN_SLOT_INIT *dn_slot_init)
-{
-	int i = 0;
-	for(i=0; i<MaxDNMaster; i++)
-	{
-		namestrcpy(&dn_slot_init[i].nodename, "");
-		dn_slot_init[i].start_pos= -1;
-		dn_slot_init[i].end_pos= -1;
-		dn_slot_init[i].front_pos_exists = false;
-	}
-	return;
-}
-
-static int hexp_dn_slot_init_find_node(DN_SLOT_INIT *dn_slot_init, int *pdn_slot_init_index, char* nodename)
-{
-	int i = 0;
-	for(i=0; i<*pdn_slot_init_index; i++)
-	{
-		if(strcmp(nodename, NameStr(dn_slot_init[i].nodename))==0)
-			break;
-	}
-
-	if(i==(*pdn_slot_init_index))
-		ereport(ERROR, (errmsg("%s node doesn't exist.", nodename)));
-
-	return i;
-}
-
-static void hexp_dn_slot_init_add_node(DN_SLOT_INIT *dn_slot_init, int *pdn_slot_init_index, char* nodename)
-{
-	int i = 0;
-
-	if((*pdn_slot_init_index)==MaxDNMaster)
-		ereport(ERROR, (errmsg("node num exceed %d.", MaxDNMaster)));
-
-	for(i=0; i<*pdn_slot_init_index; i++)
-	{
-		if(strcmp(nodename, NameStr(dn_slot_init[i].nodename))==0)
-			break;
-	}
-
-	if(i<(*pdn_slot_init_index))
-		ereport(ERROR, (errmsg("%s node exists.", nodename)));
-
-	namestrcpy(&dn_slot_init[*pdn_slot_init_index].nodename, nodename);
-	(*pdn_slot_init_index)++;
-}
-
-static void hexp_dn_slot_init_add_spos(DN_SLOT_INIT *dn_slot_init, int *pdn_slot_init_index, char* nodename, int value)
-{
-	int pos = 0;
-
-	pos = hexp_dn_slot_init_find_node(dn_slot_init, pdn_slot_init_index, nodename);
-
-	if(-1!=dn_slot_init[pos].start_pos)
-		ereport(ERROR, (errmsg("%s node's start pos has been initialized.", nodename)));
-
-	dn_slot_init[pos].start_pos = value;
-}
-
-static void hexp_dn_slot_init_add_epos(DN_SLOT_INIT *dn_slot_init, int *pdn_slot_init_index, char* nodename, int value)
-{
-	int pos = 0;
-
-	pos = hexp_dn_slot_init_find_node(dn_slot_init, pdn_slot_init_index, nodename);
-
-	if(-1!=dn_slot_init[pos].end_pos)
-		ereport(ERROR, (errmsg("%s node's end pos has been initialized.", nodename)));
-
-	dn_slot_init[pos].end_pos = value;
-}
-
-static void
-hexp_parse_slot_options(List *options, DN_SLOT_INIT *dn_slot_init, int *pdn_slot_init_index)
-{
-	ListCell   *option;
-	int 		slotpos;
-	char*		pname;
-
-	if (!options)
-		ereport(ERROR, (errmsg("No options specified.")));
-
-	hexp_dn_slot_init_init(dn_slot_init);
-
-	/* Filter options */
-	foreach(option, options)
-	{
-		DefElem    *defel = (DefElem *) lfirst(option);
-
-		if (strcmp(defel->defname, "node") == 0)
-		{
-			if(!hexp_activate_dn_exist(defGetString(defel)))
-				ereport(ERROR, (errmsg("datanode master %s running doesn't exist.", defGetString(defel))));
-
-			hexp_dn_slot_init_add_node(dn_slot_init, pdn_slot_init_index, defGetString(defel));
-		}
-		else
-		{
-			slotpos = defGetInt32(defel);
-
-			if((slotpos<0) || (slotpos>SLOTSIZE-1))
-				ereport(ERROR, (errmsg("slot value range is 0..1024.")));
-
-			pname = defel->defname;
-
-			if(defel->defname[0]=='s')
-			{
-				hexp_dn_slot_init_add_spos(dn_slot_init, pdn_slot_init_index, pname+1, slotpos);
-			}
-			else if(defel->defname[0]=='e')
-			{
-				hexp_dn_slot_init_add_epos(dn_slot_init, pdn_slot_init_index, pname+1, slotpos);
-			}
-			else
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("incorrect option: %s", defel->defname)));
-
-		}
-	}
-
-	hexp_dn_slot_init_end(dn_slot_init, *pdn_slot_init_index);
-
-}
-
-static void hexp_dn_slot_init_insert(PGconn *pgconn,	DN_SLOT_INIT *dn_slot_init, int dn_slot_init_index)
-{
-	char sql[100];
-	PGresult* res;
-	int i,j;
-	ExecStatusType status;
-
-	for(i=0; i<dn_slot_init_index; i++)
-	{
-		for(j=dn_slot_init[i].start_pos; j<=dn_slot_init[i].end_pos; j++)
-		{
-			sprintf(sql, CREATE_SLOT, j, dn_slot_init[i].nodename.data);
-			res = PQexec(pgconn, sql);
-			status = PQresultStatus(res);
-			switch(status)
-			{
-				case PGRES_COMMAND_OK:
-					break;
-				default:
-					ereport(ERROR, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
-			}
-			PQclear(res);
-		}
-	}
-}
-
-
-
 
 Datum hexp_expand_check_show_status(bool check)
 {
@@ -2717,7 +2438,7 @@ static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* 
 
 	PG_TRY();
 	{
-		hexp_get_dn_conn(&dn_pg_conn, mgr_node, cnpath);
+		hexp_get_dn_conn((PGconn**)&dn_pg_conn, mgr_node, cnpath);
 		hexp_get_dn_slot_param_status(dn_pg_conn, pdn_status);
 		PQfinish(dn_pg_conn);
 		dn_pg_conn = NULL;
@@ -4575,18 +4296,178 @@ static void hexp_set_expended_node_state(char *nodename, bool search_init, bool 
 	pfree(info);
 }
 
-void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, DestReceiver *dest)
+static void report_slot_range_invalid(PartitionRangeDatum *prd, ParseState *parser)
 {
-	if (mgr_has_priv_add())
+	ereport(ERROR,
+			(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+			 parser_errposition(parser, prd->location),
+			 errmsg("Invalid slot id"),
+			 errdetail("Valid value is [0, %d)", SLOTSIZE)));
+	abort();	/* never run */
+}
+
+void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, DestReceiver *dest, const char *query)
+{
+	PGconn			   *volatile pg_conn = NULL;
+	PGresult		   *volatile pg_result = NULL;
+	ParseState		   *parser;
+	ListCell		   *lc;
+	DefElem			   *defel;
+	PartitionBoundSpec *pbs;
+	StringInfoData		sql;
+	Oid					cnoid;
+
+	if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be superuser to init slot")));
+
+	hexp_check_cluster_pgxcnode();
+	initStringInfo(&sql);
+
+	parser = make_parsestate(NULL);
+	parser->p_sourcetext = query;
+
+	PG_TRY();
 	{
-		DirectFunctionCall1(mgr_cluster_slot_init_func, PointerGetDatum(node->options));
-		return;
-	}
-	else
+		/* connect to coordinator */
+		hexp_get_coordinator_conn((PGconn**)&pg_conn, &cnoid);
+
+		/* begin transaction */
+		hexp_pqexec_direct_execute_utility(pg_conn,
+										   SQL_BEGIN_TRANSACTION,
+										   MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+
+		foreach(lc, node->options)
+		{
+			defel = lfirst_node(DefElem, lc);
+			if (!hexp_activate_dn_exist(defel->defname))
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						 parser_errposition(parser, defel->location),
+						 errmsg("datanode master %s running doesn't exist.", defel->defname)));
+
+			pbs = castNode(PartitionBoundSpec, defel->arg);
+			if (pbs->strategy == PARTITION_STRATEGY_RANGE)
+			{
+				PartitionRangeDatum *lower = linitial_node(PartitionRangeDatum, pbs->lowerdatums);
+				PartitionRangeDatum *upper = linitial_node(PartitionRangeDatum, pbs->upperdatums);
+				int start,end;
+
+				/* get lower */
+				if (lower->kind == PARTITION_RANGE_DATUM_MINVALUE)
+				{
+					start = 0;
+				}else if (lower->kind == PARTITION_RANGE_DATUM_VALUE)
+				{
+					start = intVal(lower->value);
+					if (start<0 || start>=SLOTSIZE)
+						report_slot_range_invalid(lower, parser);
+				}else
+				{
+					report_slot_range_invalid(lower, parser);
+				}
+
+				/* get upper */
+				if (upper->kind == PARTITION_RANGE_DATUM_MAXVALUE)
+				{
+					end = SLOTSIZE;
+				}else if (upper->kind == PARTITION_RANGE_DATUM_VALUE)
+				{
+					end = intVal(upper->value);
+					if (end<=0 || end>SLOTSIZE)
+						report_slot_range_invalid(upper, parser);
+				}else
+				{
+					report_slot_range_invalid(upper, parser);
+				}
+
+				/* create slot */
+				while(start<end)
+				{
+					resetStringInfo(&sql);
+					appendStringInfo(&sql, CREATE_SLOT, start, defel->defname);
+					hexp_pqexec_direct_execute_utility(pg_conn,
+													   sql.data,
+													   MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+					++start;
+				}
+			}else if(pbs->strategy == PARTITION_STRATEGY_LIST)
+			{
+				ListCell			   *lc2;
+				PartitionRangeDatum	   *datum;
+				int						value;
+				foreach(lc2, pbs->listdatums)
+				{
+					/* get value */
+					datum = lfirst_node(PartitionRangeDatum, lc2);
+					if (datum->kind == PARTITION_RANGE_DATUM_MINVALUE)
+					{
+						value = 0;
+					}else if (datum->kind == PARTITION_RANGE_DATUM_MAXVALUE)
+					{
+						value = SLOTSIZE-1;
+					}else
+					{
+						value = intVal(datum->value);
+						if (value < 0 || value >= SLOTSIZE)
+							report_slot_range_invalid(datum, parser);
+					}
+
+					/* create slot */
+					resetStringInfo(&sql);
+					appendStringInfo(&sql, CREATE_SLOT, value, defel->defname);
+					hexp_pqexec_direct_execute_utility(pg_conn,
+													   sql.data,
+													   MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+				}
+			}else
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("Unknown strategy type %u", pbs->strategy),
+						 parser_errposition(parser, pbs->location)));
+			}
+		}
+
+		/* check status */
+		resetStringInfo(&sql);
+		pg_result = PQexec(pg_conn, SELECT_MIN_MAX_COUNT_SLOTID_ADB_SLOT);
+		if (PQresultStatus(pg_result) != PGRES_TUPLES_OK)
+			ereport(ERROR,
+					(errmsg("query slot status error:%s", PQerrorMessage(pg_conn))));
+
+		if (atoi(PQgetvalue(pg_result, 0, 0)) != 0 || /* min(slotid) != 0 */
+			atoi(PQgetvalue(pg_result, 0, 1)) != SLOTSIZE-1 || /* max(slotid) != SLOTSIZE-1 */
+			atoi(PQgetvalue(pg_result, 0, 2)) != SLOTSIZE) /* count != SLOTSIZE */
+			ereport(INFO,
+					(errmsg("slot initialize not full, you need initialize other again"),
+					 errdetail("current min is %s, max is %s and count is %s",
+							   PQgetvalue(pg_result, 0, 0),
+							   PQgetvalue(pg_result, 0, 1),
+							   PQgetvalue(pg_result, 0, 2))));
+		PQclear(pg_result);
+
+		/* commit transaction */
+		hexp_pqexec_direct_execute_utility(pg_conn,
+										   SQL_COMMIT_TRANSACTION,
+										   MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+	}PG_CATCH();
 	{
-		ereport(ERROR, (errmsg("permission denied")));
-		return ;
-	}
+		if (pg_result != NULL)
+			PQclear(pg_result);
+
+		if (pg_conn != NULL)
+		{
+			/* rollback transaction, and ignore result */
+			PQsendQuery(pg_conn, SQL_ROLLBACK_TRANSACTION);
+			PQfinish(pg_conn);
+		}
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	pfree(sql.data);
+	free_parsestate(parser);
 }
 
 
