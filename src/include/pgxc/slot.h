@@ -16,9 +16,8 @@ extern bool adb_slot_enable_mvcc;
 extern bool adb_slot_enable_clean;
 extern bool hash_distribute_by_hashmap_default;
 
-#define SLOTSIZE	1024
-#define SLOTBEGIN	0
-#define SLOTEND		(SLOTSIZE-1)
+#define HASHMAP_SLOTBEGIN	0
+#define HASHMAP_SLOTEND		(HASHMAP_SLOTSIZE-1)
 
 #define UNINIT_SLOT_VALUE	  	-2
 #define INVALID_SLOT_VALUE		InvalidOid

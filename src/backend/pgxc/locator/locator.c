@@ -522,7 +522,8 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 						int32 hashVal = execHashValue(dist_col_values[0],
 							dist_col_types[0],InvalidOid);
 						modulo = execModuloValue(Int32GetDatum(hashVal),
-							INT4OID, SLOTSIZE);
+												 INT4OID,
+												 HASHMAP_SLOTSIZE);
 						SlotGetInfo(modulo, &nodeIndex, &slotstatus);
 						exec_nodes->nodeids = list_make1_oid(nodeIndex);
 				}
@@ -1282,7 +1283,7 @@ GetInvolvedNodes(RelationLocInfo *rel_loc,
 				} else
 				{
 					int32 hashVal = execHashValue(dist_values[0], dist_types[0], InvalidOid);
-					modulo = execModuloValue(Int32GetDatum(hashVal), INT4OID, SLOTSIZE);
+					modulo = execModuloValue(Int32GetDatum(hashVal), INT4OID, HASHMAP_SLOTSIZE);
 					SlotGetInfo(modulo, &nodeIndex, &slotstatus);
 					node_list = list_make1_oid(nodeIndex);
 				}

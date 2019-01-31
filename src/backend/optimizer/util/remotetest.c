@@ -505,7 +505,7 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 
 
 	if(LOCATOR_TYPE_HASHMAP==loc_info->locatorType)
-		expr = makeModuloExpr(expr, SLOTSIZE);
+		expr = makeModuloExpr(expr, HASHMAP_SLOTSIZE);
 	else
 		expr = makeModuloExpr(expr, list_length(loc_info->nodeids));
 

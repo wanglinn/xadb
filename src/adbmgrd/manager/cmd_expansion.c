@@ -73,8 +73,6 @@ char* 	MsgSlotStatus[5] =
 	"MoveHalfWay"
 	};
 
-#define SLOTSIZE 1024
-
 #define MaxDNMaster 20
 
 typedef struct DN_STATUS
@@ -175,8 +173,8 @@ ADBSQL
 #define MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK	0
 #define MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE	1
 
-int	SlotIdArray[SLOTSIZE];
-int	SlotStatusArray[SLOTSIZE];
+int	SlotIdArray[HASHMAP_SLOTSIZE];
+int	SlotStatusArray[HASHMAP_SLOTSIZE];
 int	SlotArrayIndex = 0;
 
 /*hot expansion definition end*/
@@ -3440,7 +3438,7 @@ static void hexp_slot_all_clean_to_online(PGconn *pgconn)
 	ExecStatusType status;
 
 
-	for( i=0; i<SLOTSIZE ; i++)
+	for( i=0; i<HASHMAP_SLOTSIZE ; i++)
 	{
 		sprintf(sql, ALTER_SLOT_STATUS_BY_SLOTID, i, SLOT_STATUS_ONLINE);
 		res = PQexec(pgconn, sql);
@@ -3471,10 +3469,10 @@ int  hexp_cluster_slot_status_from_dn_status(DN_STATUS* dn_status, int dn_status
 		clean_count += dn_status[i].clean_count;
 	}
 
-	if (SLOTSIZE!=(online_count+move_count+clean_count))
+	if (HASHMAP_SLOTSIZE!=(online_count+move_count+clean_count))
 		ereport(ERROR, (errmsg("cluster slot is not initialized. slot number is not 1024.")));
 
-	if (SLOTSIZE==online_count)
+	if (HASHMAP_SLOTSIZE==online_count)
 		return ClusterSlotStatusOnline;
 
 	if (0!=move_count)
@@ -4288,7 +4286,7 @@ static void report_slot_range_invalid(PartitionRangeDatum *prd, ParseState *pars
 			(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
 			 parser_errposition(parser, prd->location),
 			 errmsg("Invalid slot id"),
-			 errdetail("Valid value is [0, %d)", SLOTSIZE)));
+			 errdetail("Valid value is [0, %d)", HASHMAP_SLOTSIZE)));
 	abort();	/* never run */
 }
 
@@ -4347,7 +4345,7 @@ void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, Dest
 				}else if (lower->kind == PARTITION_RANGE_DATUM_VALUE)
 				{
 					start = intVal(lower->value);
-					if (start<0 || start>=SLOTSIZE)
+					if (start<0 || start>=HASHMAP_SLOTSIZE)
 						report_slot_range_invalid(lower, parser);
 				}else
 				{
@@ -4357,11 +4355,11 @@ void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, Dest
 				/* get upper */
 				if (upper->kind == PARTITION_RANGE_DATUM_MAXVALUE)
 				{
-					end = SLOTSIZE;
+					end = HASHMAP_SLOTSIZE;
 				}else if (upper->kind == PARTITION_RANGE_DATUM_VALUE)
 				{
 					end = intVal(upper->value);
-					if (end<=0 || end>SLOTSIZE)
+					if (end<=0 || end>HASHMAP_SLOTSIZE)
 						report_slot_range_invalid(upper, parser);
 				}else
 				{
@@ -4392,11 +4390,11 @@ void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, Dest
 						value = 0;
 					}else if (datum->kind == PARTITION_RANGE_DATUM_MAXVALUE)
 					{
-						value = SLOTSIZE-1;
+						value = HASHMAP_SLOTSIZE-1;
 					}else
 					{
 						value = intVal(datum->value);
-						if (value < 0 || value >= SLOTSIZE)
+						if (value < 0 || value >= HASHMAP_SLOTSIZE)
 							report_slot_range_invalid(datum, parser);
 					}
 
@@ -4424,8 +4422,8 @@ void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, Dest
 					(errmsg("query slot status error:%s", PQerrorMessage(pg_conn))));
 
 		if (atoi(PQgetvalue(pg_result, 0, 0)) != 0 || /* min(slotid) != 0 */
-			atoi(PQgetvalue(pg_result, 0, 1)) != SLOTSIZE-1 || /* max(slotid) != SLOTSIZE-1 */
-			atoi(PQgetvalue(pg_result, 0, 2)) != SLOTSIZE) /* count != SLOTSIZE */
+			atoi(PQgetvalue(pg_result, 0, 1)) != HASHMAP_SLOTSIZE-1 || /* max(slotid) != HASHMAP_SLOTSIZE-1 */
+			atoi(PQgetvalue(pg_result, 0, 2)) != HASHMAP_SLOTSIZE) /* count != HASHMAP_SLOTSIZE */
 			ereport(INFO,
 					(errmsg("slot initialize not full, you need initialize other again"),
 					 errdetail("current min is %s, max is %s and count is %s",

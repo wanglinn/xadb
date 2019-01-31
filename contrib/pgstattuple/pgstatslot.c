@@ -47,7 +47,7 @@ typedef struct schema_table
 	NameData	table;
 } schema_table;
 
-pgstattuple_slot pgstattuple_slots[SLOTSIZE];
+pgstattuple_slot pgstattuple_slots[HASHMAP_SLOTSIZE];
 
 
 PG_FUNCTION_INFO_V1(pgstatslot);
@@ -269,7 +269,7 @@ pg_hashtables(PG_FUNCTION_ARGS)
 static void init_pgstattuple_slots(void)
 {
 	int i;
-	for(i=0; i<SLOTSIZE; i++)
+	for(i=0; i<HASHMAP_SLOTSIZE; i++)
 	{
 		pgstattuple_slots[i].tuple_count 	= 0;
 		pgstattuple_slots[i].tuple_len 		= 0;
@@ -491,7 +491,7 @@ void build_pgstatslot_type(
 	memset(values, 0, sizeof(values));
 	memset(nulls, 0, sizeof(nulls));
 	values[column_index++] = CStringGetTextDatum(PGXCNodeName);
-	values[column_index++] = Int32GetDatum(SLOTSIZE);
+	values[column_index++] = Int32GetDatum(HASHMAP_SLOTSIZE);
 	values[column_index++] = CStringGetTextDatum("");
 	values[column_index++] = Int64GetDatum(stat->table_len);
 	values[column_index++] = Int64GetDatum(stat->tuple_count);
@@ -504,7 +504,7 @@ void build_pgstatslot_type(
 	values[column_index++] = Float8GetDatumFast(free_percent);
 	tuplestore_putvalues(tupstore, tupdesc, values, nulls);
 
-	for(row_id=0; row_id<SLOTSIZE; row_id++)
+	for(row_id=0; row_id<HASHMAP_SLOTSIZE; row_id++)
 	{
 		if((pgstattuple_slots[row_id].tuple_count==0)
 			&&(pgstattuple_slots[row_id].dead_tuple_count==0))

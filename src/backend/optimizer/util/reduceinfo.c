@@ -2216,7 +2216,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 		Assert(list_length(reduce->params) == 1);
 		result = makeHashExpr(linitial(reduce->params));
 
-		result = makeModuloExpr(result, SLOTSIZE);
+		result = makeModuloExpr(result, HASHMAP_SLOTSIZE);
 		Assert(exprType((Node*)result) == INT4OID);
 		result = (Expr*) makeFuncExpr(F_INT4ABS,
 									  INT4OID,
