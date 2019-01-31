@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_list_node_size.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-LISTNODE">
+<refentry id="MGR-LIST-NODE-size">
   <refmeta>
     <refentrytitle>LIST NODE SIZE</refentrytitle>
     <manvolnum>7</manvolnum>
@@ -12,10 +12,10 @@ ADB documentation
 
   <refnamediv>
     <refname>LIST NODE SIZE</refname>
-    <refpurpose>show the content of node table</refpurpose>
+    <refpurpose>show the amount of data file space occupied.</refpurpose>
   </refnamediv>
 
-  <indexterm zone="mgr-listnode">
+  <indexterm zone="mgr-list-node-size">
     <primary>LIST NODE SIZE</primary>
   </indexterm>
 
@@ -32,7 +32,7 @@ LIST NODE PRETTY SIZE ALL|<replaceable class="parameter">node_name</replaceable>
   <refsect1>
     <title>Description</title>
     <para>
-      <command>LIST NODE SIZE</command> show the content of the node table.
+      <command>LIST NODE SIZE</command> show the amount of data file space occupied.
     </para>
   </refsect1>
   <refsect1>
@@ -62,14 +62,6 @@ LIST NODE PRETTY SIZE ALL|<replaceable class="parameter">node_name</replaceable>
         LIST NODE SIZE datanode_name1;
       </programlisting>
     </para>
-  </refsect1>
-  <refsect1>
-    <title>See Also</title>
-    <simplelist type="inline">
-      <member><xref linkend="mgr-adddatanode"></member>
-      <member><xref linkend="mgr-alterdatanode"></member>
-      <member><xref linkend="mgr-dropdatanode"></member>
-    </simplelist>
   </refsect1>
 
 </refentry>

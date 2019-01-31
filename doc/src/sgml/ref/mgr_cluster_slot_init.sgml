@@ -1,0 +1,43 @@
+<!--
+doc/src/sgml/ref/mgr_list_node_size.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-CLUSTER-SLOT-INIT">
+  <refmeta>
+    <refentrytitle>CLUSTER SLOT INIT</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>CLUSTER SLOT INIT</refname>
+    <refpurpose>Initialize slot information.</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-cluster-slot-init">
+    <primary>LIST NODE SIZE</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+CLUSTER SLOT INIT(nodename slot_parts [,...])
+
+slot_parts is:
+  FROM id TO id -- [from, to)
+  or
+  in (id, [,...])
+
+id is:
+  MINVALUE|MAXVALUE|number
+
+    </synopsis>
+  </refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+      <command>CLUSTER SLOT INIT</command> Initialize slot information.
+    </para>
+  </refsect1>
+
+</refentry>
