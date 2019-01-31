@@ -6047,9 +6047,6 @@ DESCR("expend clean end");
 DATA(insert OID = 4712 (  mgr_expand_show_status      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_expand_show_status _null_ _null_ _null_ ));
 DESCR("show expand status");
 
-DATA(insert OID = 4714 (  mgr_cluster_slot_init_func        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 3 0 16 "16 2275 2276" _null_ _null_ _null_ _null_ _null_ mgr_cluster_slot_init_func _null_ _null_ _null_ ));
-DESCR("mgr cluster slot init ");
-
 DATA(insert OID = 4715 (  mgr_cluster_pgxcnode_init      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_cluster_pgxcnode_init _null_ _null_ _null_ ));
 DESCR("init all datanode's dn info in pgxc_node consistent with coor's");
 
