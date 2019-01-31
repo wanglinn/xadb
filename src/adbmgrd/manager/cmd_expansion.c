@@ -243,20 +243,6 @@ static void hexp_init_dn_pgxcnode_addnode(Form_mgr_node mgr_node, DN_NODE* dn_no
 static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name);
 static void report_slot_range_invalid(PartitionRangeDatum *prd, ParseState *parser) pg_attribute_noreturn();
 
-/*expansion*/
-
-char* hexp_get_database(void)
-{
-	char* database = NULL;
-	if(0!=strcmp(MGRDatabaseName,""))
-		database = MGRDatabaseName;
-	else
-		database = DefaultDatabaseName;
-
-	Assert(NULL!=database);
-	return database;
-}
-
 /*
  * expand sourcenode to destnode
  */

@@ -444,7 +444,6 @@ extern Datum mgr_cluster_pgxcnode_check(PG_FUNCTION_ARGS);
 void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, DestReceiver *dest, const char *query);
 bool get_agent_info_from_hostoid(const Oid hostOid, char *agent_addr, int *agent_port);
 Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype, bool nodetypechange, bool bforce);
-extern char* hexp_get_database(void);
 bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid);
 
 extern bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg);
