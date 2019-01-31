@@ -10747,7 +10747,7 @@
   proargtypes => '', proallargtypes => '{xid,xid}', proargmodes => '{o,o}',
   proargnames => '{local,agtm}', prosrc => 'sync_local_xid' },
 { oid => '8895', row_macros => 'ADB',
-  descr => 'refresh pgxc_class hashmap table nodeoids',
+  descr => 'invalidate all relations cache',
   proname => 'adb_invalidate_relcache_all', provolatile => 'v',
   proparallel => 'r', prorettype => 'bool', proargtypes => '',
   proallargtypes => '', proargmodes => '', proargnames => '',
