@@ -1895,7 +1895,8 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 			appendStringInfo(&strerr, "update pgxc_node on coordinators fail: %s\n", getAgentCmdRst.description.data);
 		}
 		/*flush expand slot */
-		hexp_alter_slotinfo_nodename(pgConn, NameStr(nodeMasterNameData), NameStr(nodeNameData));
+		if(hexp_check_select_result_count(pgConn, SELECT_ADB_SLOT_TABLE_COUNT))
+			hexp_alter_slotinfo_nodename(pgConn, NameStr(nodeMasterNameData), NameStr(nodeNameData));
 	}
 	else
 	{

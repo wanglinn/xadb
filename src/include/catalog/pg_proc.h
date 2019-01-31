@@ -5740,7 +5740,7 @@ DATA(insert OID = 8894 ( sync_local_xid	 PGNSP PGUID 12 10 100 0 0 f f f f t t s
 DESCR("synchronize the local next XID with AGTM");
 
 DATA(insert OID = 5009 ( adb_invalidate_relcache_all  PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ adb_invalidate_relcache_all _null_ _null_ _null_ ));
-DESCR("refresh pgxc_class hashmap table nodeoids");
+DESCR("invalidate all relations cache");
 
 #endif
 

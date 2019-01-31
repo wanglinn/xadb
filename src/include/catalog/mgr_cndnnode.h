@@ -67,6 +67,9 @@ typedef FormData_mgr_node *Form_mgr_node;
 #define SHUTDOWN_I  "immediate"
 #define TAKEPLAPARM_N  "none"
 
+/*adb_slot*/
+#define SELECT_ADB_SLOT_TABLE_COUNT		"select count(*) from pg_catalog.adb_slot;"
+
 typedef enum AGENT_STATUS
 {
 	AGENT_DOWN = 4, /*the number is enum PGPing max_value + 1*/

@@ -209,7 +209,6 @@ static void hexp_init_dn_pgxcnode_check(Form_mgr_node mgr_node, char* cnpath);
 static void hexp_check_set_all_dn_status(DN_STATUS* pdn_status, int dn_status_index, bool is_vacuum_state);
 static void hexp_check_parent_dn_status(DN_STATUS* pdn_status, int dn_status_index, int expendedid, Oid masterid);
 
-static bool hexp_check_select_result_count(PGconn *pg_conn, char* sql);
 static int 	hexp_select_result_count(PGconn *pg_conn, char* sql);
 
 static void hexp_slot_1_online_to_move(	PGconn *pgconn, char* src_node_name,	char* dst_node_name);
@@ -490,7 +489,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		/*
 		7.refresh hashmap table nodeoids in pgxc_class
 		*/
-		ereport(INFO, (errmsg("update nodeoids of hashmap table in pgxc_class.if this step fails, use 'select adb_invalidate_relcache_all() on all coordinators.")));
+		ereport(INFO, (errmsg("invalidate all relations cache.if this step fails, use 'select adb_invalidate_relcache_all() on all coordinators.")));
 		if (!mgr_execute_direct_on_all_coord(&co_pg_conn, "select adb_invalidate_relcache_all();",
 			3, PGRES_TUPLES_OK, &strinfo))
 			ereport(WARNING, (errmsg("%s, use 'select adb_invalidate_relcache_all() on the coordinators.", strinfo.data)));
@@ -2789,7 +2788,7 @@ static int hexp_select_result_count(PGconn *pg_conn, char* sql)
 return false if result is 0.
 return true  if result is not 0.
 */
-static bool hexp_check_select_result_count(PGconn *pg_conn, char* sql)
+bool hexp_check_select_result_count(PGconn *pg_conn, char* sql)
 {
 	ExecStatusType status;
 	PGresult *res;
