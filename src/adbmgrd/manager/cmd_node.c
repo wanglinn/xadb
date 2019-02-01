@@ -10273,6 +10273,7 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 	bool is_preferred = false;
 	bool result = true;
 	bool bExecDirect = false;
+	bool slotIsNotEmpty = true;
 	const int maxnum = 5;
 	int try = 0;
 	int newMasterPort;
@@ -10406,30 +10407,30 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 	}
 
 	/* update the pgxc_node information on datanode masters */
-	if(hexp_check_select_result_count(*pg_conn, SELECT_ADB_SLOT_TABLE_COUNT))
+	slotIsNotEmpty = hexp_check_select_result_count(*pg_conn, SELECT_ADB_SLOT_TABLE_COUNT);
+	foreach(dn_lc, prefer_cndn->datanode_list)
 	{
-		foreach(dn_lc, prefer_cndn->datanode_list)
+		resetStringInfo(&cmdstring);
+		tuple_in = (HeapTuple)lfirst(dn_lc);
+		mgr_node_in = (Form_mgr_node)GETSTRUCT(tuple_in);
+		Assert(mgr_node_in);
+		if (!slotIsNotEmpty && strcmp(NameStr(mgr_node_in->nodename), NameStr(masternameData)) != 0)
+			continue;
+		appendStringInfo(&cmdstring, "set force_parallel_mode = off; EXECUTE DIRECT ON (\"%s\") 'select pg_alter_node(''%s'', ''%s'', ''%s'', %d, %s);'"
+				,strcmp(NameStr(mgr_node_in->nodename), NameStr(masternameData)) == 0 ?
+					dnname : NameStr(mgr_node_in->nodename)
+				,NameStr(masternameData)
+				,dnname
+				,newMasterAddress
+				,newMasterPort
+				,"false");
+		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
+		if (try<0)
 		{
-			resetStringInfo(&cmdstring);
-			tuple_in = (HeapTuple)lfirst(dn_lc);
-			mgr_node_in = (Form_mgr_node)GETSTRUCT(tuple_in);
-			Assert(mgr_node_in);
-			appendStringInfo(&cmdstring, "set force_parallel_mode = off; EXECUTE DIRECT ON (\"%s\") 'select pg_alter_node(''%s'', ''%s'', ''%s'', %d, %s);'"
-					,strcmp(NameStr(mgr_node_in->nodename), NameStr(masternameData)) == 0 ?
-						dnname : NameStr(mgr_node_in->nodename)
-					,NameStr(masternameData)
-					,dnname
-					,newMasterAddress
-					,newMasterPort
-					,"false");
-			try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
-			if (try<0)
-			{
-				result = false;
-				ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
-					,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
-				appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
-			}
+			result = false;
+			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
+				,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
+			appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
 		}
 	}
 
