@@ -213,11 +213,6 @@ retry:
 
 /*
  * Compare the tuple and slot and check if they have equal values.
- *
- * We use binary datum comparison which might return false negatives but
- * that's the best we can do here as there may be multiple notions of
- * equality for the data types and table columns don't specify which one
- * to use.
  */
 static bool
 tuple_equals_slot(TupleDesc desc, HeapTuple tup, TupleTableSlot *slot)
@@ -403,7 +398,7 @@ ExecSimpleRelationInsert(EState *estate, TupleTableSlot *slot)
 		if (rel->rd_att->constr)
 			ExecConstraints(resultRelInfo, slot, estate);
 
-		/* Store the slot into tuple that we can inspect. */
+		/* Materialize slot into a tuple that we can scribble upon. */
 		tuple = ExecMaterializeSlot(slot);
 
 		/* OK, store the tuple and create index entries for it */
@@ -468,7 +463,7 @@ ExecSimpleRelationUpdate(EState *estate, EPQState *epqstate,
 		if (rel->rd_att->constr)
 			ExecConstraints(resultRelInfo, slot, estate);
 
-		/* Store the slot into tuple that we can write. */
+		/* Materialize slot into a tuple that we can scribble upon. */
 		tuple = ExecMaterializeSlot(slot);
 
 		/* OK, update the tuple and index entries for it */

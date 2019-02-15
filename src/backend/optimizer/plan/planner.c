@@ -38,6 +38,7 @@
 #endif
 #include "optimizer/clauses.h"
 #include "optimizer/cost.h"
+#include "optimizer/paramassign.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
 #include "optimizer/plancat.h"
@@ -730,7 +731,7 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 #endif
 	root->hasRecursion = hasRecursion;
 	if (hasRecursion)
-		root->wt_param_id = SS_assign_special_param(root);
+		root->wt_param_id = assign_special_exec_param(root);
 	else
 		root->wt_param_id = -1;
 	root->non_recursive_path = NULL;
@@ -1709,7 +1710,7 @@ inheritance_planner(PlannerInfo *root)
 									 returningLists,
 									 rowMarks,
 									 NULL,
-									 SS_assign_special_param(root)));
+									 assign_special_exec_param(root)));
 #ifdef ADB
 	if (cluster_valid)
 	{
@@ -1726,7 +1727,7 @@ inheritance_planner(PlannerInfo *root)
 														  returningLists,
 														  rowMarks,
 														  NULL,
-														  SS_assign_special_param(root));
+														  assign_special_exec_param(root));
 		if (set_modifytable_path_reduceinfo(root, modify))
 		{
 			PlannerInfo *subroot;
@@ -2413,7 +2414,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		{
 			path = (Path *) create_lockrows_path(root, final_rel, path,
 												 root->rowMarks,
-												 SS_assign_special_param(root));
+												 assign_special_exec_param(root));
 		}
 
 		/*
@@ -2542,7 +2543,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 										returningLists,
 										rowMarks,
 										parse->onConflict,
-										SS_assign_special_param(root));
+										assign_special_exec_param(root));
 		}
 
 		/* And shove it into final_rel */
@@ -7923,7 +7924,7 @@ static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *
 		Assert(result_rinfo == NULL);
 		result_rinfo = rep_rinfo;
 	}
-	
+
 	if (result_rinfo == NULL)
 	{
 		/* not all match */

@@ -959,26 +959,36 @@ RelationGetPartitionQual(Relation rel)
  *
  * Returns an expression tree describing the passed-in relation's partition
  * constraint.
+ *
+ * If the relation is not found, or is not a partition, or there is no
+ * partition constraint, return NULL.  We must guard against the first two
+ * cases because this supports a SQL function that could be passed any OID.
+ * The last case shouldn't happen in v10, but cope anyway.
  */
 Expr *
 get_partition_qual_relid(Oid relid)
 {
-	Relation	rel = heap_open(relid, AccessShareLock);
 	Expr	   *result = NULL;
-	List	   *and_args;
 
-	/* Do the work only if this relation is a partition. */
-	if (rel->rd_rel->relispartition)
+	/* Do the work only if this relation exists and is a partition. */
+	if (get_rel_relispartition(relid))
 	{
+		Relation	rel = relation_open(relid, AccessShareLock);
+		List	   *and_args;
+
 		and_args = generate_partition_qual(rel);
-		if (list_length(and_args) > 1)
+
+		/* Convert implicit-AND list format to boolean expression */
+		if (and_args == NIL)
+			result = NULL;
+		else if (list_length(and_args) > 1)
 			result = makeBoolExpr(AND_EXPR, and_args, -1);
 		else
 			result = linitial(and_args);
-	}
 
-	/* Keep the lock. */
-	heap_close(rel, NoLock);
+		/* Keep the lock, to allow safe deparsing against the rel by caller. */
+		relation_close(rel, NoLock);
+	}
 
 	return result;
 }
@@ -1167,7 +1177,10 @@ RelationGetPartitionDispatchInfo(Relation rel,
  * get_partition_operator
  *
  * Return oid of the operator of given strategy for a given partition key
- * column.
+ * column.  It is assumed that the partitioning key is of the same type as the
+ * chosen partitioning opclass, or at least binary-compatible.  In the latter
+ * case, *need_relabel is set to true if the opclass is not of a polymorphic
+ * type, otherwise false.
  */
 static Oid
 get_partition_operator(PartitionKey key, int col, StrategyNumber strategy,
@@ -1176,40 +1189,26 @@ get_partition_operator(PartitionKey key, int col, StrategyNumber strategy,
 	Oid			operoid;
 
 	/*
-	 * First check if there exists an operator of the given strategy, with
-	 * this column's type as both its lefttype and righttype, in the
-	 * partitioning operator family specified for the column.
+	 * Get the operator in the partitioning opfamily using the opclass'
+	 * declared input type as both left- and righttype.
 	 */
 	operoid = get_opfamily_member(key->partopfamily[col],
-								  key->parttypid[col],
-								  key->parttypid[col],
+								  key->partopcintype[col],
+								  key->partopcintype[col],
 								  strategy);
+	if (!OidIsValid(operoid))
+		elog(ERROR, "missing operator %d(%u,%u) in partition opfamily %u",
+			 strategy, key->partopcintype[col], key->partopcintype[col],
+			 key->partopfamily[col]);
 
 	/*
-	 * If one doesn't exist, we must resort to using an operator in the same
-	 * operator family but with the operator class declared input type.  It is
-	 * OK to do so, because the column's type is known to be binary-coercible
-	 * with the operator class input type (otherwise, the operator class in
-	 * question would not have been accepted as the partitioning operator
-	 * class).  We must however inform the caller to wrap the non-Const
-	 * expression with a RelabelType node to denote the implicit coercion. It
-	 * ensures that the resulting expression structurally matches similarly
-	 * processed expressions within the optimizer.
+	 * If the partition key column is not of the same type as the operator
+	 * class and not polymorphic, tell caller to wrap the non-Const expression
+	 * in a RelabelType.  This matches what parse_coerce.c does.
 	 */
-	if (!OidIsValid(operoid))
-	{
-		operoid = get_opfamily_member(key->partopfamily[col],
-									  key->partopcintype[col],
-									  key->partopcintype[col],
-									  strategy);
-		if (!OidIsValid(operoid))
-			elog(ERROR, "missing operator %d(%u,%u) in opfamily %u",
-				 strategy, key->partopcintype[col], key->partopcintype[col],
-				 key->partopfamily[col]);
-		*need_relabel = true;
-	}
-	else
-		*need_relabel = false;
+	*need_relabel = (key->parttypid[col] != key->partopcintype[col] &&
+					 key->partopcintype[col] != RECORDOID &&
+					 !IsPolymorphicType(key->partopcintype[col]));
 
 	return operoid;
 }
@@ -1844,8 +1843,8 @@ generate_partition_qual(Relation rel)
 		return copyObject(rel->rd_partcheck);
 
 	/* Grab at least an AccessShareLock on the parent table */
-	parent = heap_open(get_partition_parent(RelationGetRelid(rel)),
-					   AccessShareLock);
+	parent = relation_open(get_partition_parent(RelationGetRelid(rel)),
+						   AccessShareLock);
 
 	/* Get pg_class.relpartbound */
 	tuple = SearchSysCache1(RELOID, RelationGetRelid(rel));
@@ -1889,7 +1888,7 @@ generate_partition_qual(Relation rel)
 	MemoryContextSwitchTo(oldcxt);
 
 	/* Keep the parent locked until commit */
-	heap_close(parent, NoLock);
+	relation_close(parent, NoLock);
 
 	return result;
 }

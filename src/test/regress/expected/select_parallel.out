@@ -396,6 +396,68 @@ select count(*) from tenk1 group by twenty;
    500
 (20 rows)
 
+-- test handling of SRFs in targetlist (bug in 10.0)
+explain (costs off)
+   select count(*), generate_series(1,2) from tenk1 group by twenty;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ ProjectSet
+   ->  Finalize GroupAggregate
+         Group Key: twenty
+         ->  Gather Merge
+               Workers Planned: 4
+               ->  Partial GroupAggregate
+                     Group Key: twenty
+                     ->  Sort
+                           Sort Key: twenty
+                           ->  Parallel Seq Scan on tenk1
+(10 rows)
+
+select count(*), generate_series(1,2) from tenk1 group by twenty;
+ count | generate_series 
+-------+-----------------
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+   500 |               1
+   500 |               2
+(40 rows)
+
 --test rescan behavior of gather merge
 set enable_material = false;
 explain (costs off)
@@ -511,6 +573,51 @@ explain (costs off)
          Index Cond: (unique1 = 1)
 (5 rows)
 
+-- Window function calculation can't be pushed to workers.
+explain (costs off, verbose)
+  select count(*) from tenk1 a where (unique1, two) in
+    (select unique1, row_number() over() from tenk1 b);
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
+ Aggregate
+   Output: count(*)
+   ->  Hash Semi Join
+         Hash Cond: ((a.unique1 = b.unique1) AND (a.two = (row_number() OVER (?))))
+         ->  Gather
+               Output: a.unique1, a.two
+               Workers Planned: 4
+               ->  Parallel Seq Scan on public.tenk1 a
+                     Output: a.unique1, a.two
+         ->  Hash
+               Output: b.unique1, (row_number() OVER (?))
+               ->  WindowAgg
+                     Output: b.unique1, row_number() OVER (?)
+                     ->  Gather
+                           Output: b.unique1
+                           Workers Planned: 4
+                           ->  Parallel Index Only Scan using tenk1_unique1 on public.tenk1 b
+                                 Output: b.unique1
+(18 rows)
+
+-- LIMIT/OFFSET within sub-selects can't be pushed to workers.
+explain (costs off)
+  select * from tenk1 a where two in
+    (select two from tenk1 b where stringu1 like '%AAAA' limit 3);
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Hash Semi Join
+   Hash Cond: (a.two = b.two)
+   ->  Gather
+         Workers Planned: 4
+         ->  Parallel Seq Scan on tenk1 a
+   ->  Hash
+         ->  Limit
+               ->  Gather
+                     Workers Planned: 4
+                     ->  Parallel Seq Scan on tenk1 b
+                           Filter: (stringu1 ~~ '%AAAA'::text)
+(11 rows)
+
 -- to increase the parallel query test coverage
 EXPLAIN (analyze, timing off, summary off, costs off) SELECT * FROM tenk1;
                          QUERY PLAN                          
@@ -521,6 +628,33 @@ EXPLAIN (analyze, timing off, summary off, costs off) SELECT * FROM tenk1;
    ->  Parallel Seq Scan on tenk1 (actual rows=2000 loops=5)
 (4 rows)
 
+-- test passing expanded-value representations to workers
+CREATE FUNCTION make_some_array(int,int) returns int[] as
+$$declare x int[];
+  begin
+    x[1] := $1;
+    x[2] := $2;
+    return x;
+  end$$ language plpgsql parallel safe;
+CREATE TABLE fooarr(f1 text, f2 int[], f3 text);
+INSERT INTO fooarr VALUES('1', ARRAY[1,2], 'one');
+PREPARE pstmt(text, int[]) AS SELECT * FROM fooarr WHERE f1 = $1 AND f2 = $2;
+EXPLAIN (COSTS OFF) EXECUTE pstmt('1', make_some_array(1,2));
+                            QUERY PLAN                            
+------------------------------------------------------------------
+ Gather
+   Workers Planned: 3
+   ->  Parallel Seq Scan on fooarr
+         Filter: ((f1 = '1'::text) AND (f2 = '{1,2}'::integer[]))
+(4 rows)
+
+EXECUTE pstmt('1', make_some_array(1,2));
+ f1 |  f2   | f3  
+----+-------+-----
+ 1  | {1,2} | one
+(1 row)
+
+DEALLOCATE pstmt;
 -- provoke error in worker
 select stringu1::int2 from tenk1 where unique1 = 1;
 ERROR:  invalid input syntax for integer: "BAAAAA"

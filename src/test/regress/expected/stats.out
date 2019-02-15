@@ -6,7 +6,7 @@
 --
 -- conditio sine qua non
 SHOW track_counts;  -- must be on
- track_counts 
+ track_counts
 --------------
  on
 (1 row)
@@ -79,9 +79,9 @@ end
 $$ language plpgsql;
 -- test effects of TRUNCATE on n_live_tup/n_dead_tup counters
 CREATE TABLE trunc_stats_test(id serial);
-CREATE TABLE trunc_stats_test1(id serial) distribute by replication;
+CREATE TABLE trunc_stats_test1(id serial, stuff text) distribute by replication;
 CREATE TABLE trunc_stats_test2(id serial);
-CREATE TABLE trunc_stats_test3(id serial);
+CREATE TABLE trunc_stats_test3(id serial, stuff text);
 CREATE TABLE trunc_stats_test4(id serial);
 -- check that n_live_tup is reset to 0 after truncate
 INSERT INTO trunc_stats_test DEFAULT VALUES;
@@ -130,14 +130,14 @@ INSERT INTO trunc_stats_test4 DEFAULT VALUES;
 ROLLBACK;
 -- do a seqscan
 SELECT count(*) FROM tenk2;
- count 
+ count
 -------
  10000
 (1 row)
 
 -- do an indexscan
 SELECT count(*) FROM tenk2 WHERE unique1 = 1;
- count 
+ count
 -------
      1
 (1 row)
@@ -151,16 +151,16 @@ SELECT count(*) FROM tenk2 WHERE unique1 = 1;
 \c -
 -- wait for stats collector to update
 SELECT wait_for_stats();
- wait_for_stats 
+ wait_for_stats
 ----------------
- 
+
 (1 row)
 
 -- check effects
 SELECT relname, n_tup_ins, n_tup_upd, n_tup_del, n_live_tup, n_dead_tup
   FROM pg_stat_user_tables
  WHERE relname like 'trunc_stats_test%' order by relname;
-      relname      | n_tup_ins | n_tup_upd | n_tup_del | n_live_tup | n_dead_tup 
+      relname      | n_tup_ins | n_tup_upd | n_tup_del | n_live_tup | n_dead_tup
 -------------------+-----------+-----------+-----------+------------+------------
  trunc_stats_test  |         3 |         0 |         0 |          0 |          0
  trunc_stats_test1 |         4 |         2 |         1 |          1 |          0
@@ -175,7 +175,7 @@ SELECT st.seq_scan >= pr.seq_scan + 1,
        st.idx_tup_fetch >= pr.idx_tup_fetch + 1
   FROM pg_stat_user_tables AS st, pg_class AS cl, prevstats AS pr
  WHERE st.relname='tenk2' AND cl.relname='tenk2';
- ?column? | ?column? | ?column? | ?column? 
+ ?column? | ?column? | ?column? | ?column?
 ----------+----------+----------+----------
  t        | t        | t        | t
 (1 row)
@@ -184,14 +184,14 @@ SELECT st.heap_blks_read + st.heap_blks_hit >= pr.heap_blks + cl.relpages,
        st.idx_blks_read + st.idx_blks_hit >= pr.idx_blks + 1
   FROM pg_statio_user_tables AS st, pg_class AS cl, prevstats AS pr
  WHERE st.relname='tenk2' AND cl.relname='tenk2';
- ?column? | ?column? 
+ ?column? | ?column?
 ----------+----------
  t        | t
 (1 row)
 
 SELECT pr.snap_ts < pg_stat_get_snapshot_timestamp() as snapshot_newer
 FROM prevstats AS pr;
- snapshot_newer 
+ snapshot_newer
 ----------------
  t
 (1 row)

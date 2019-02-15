@@ -840,14 +840,7 @@ ExecParallelGetQueryDesc(shm_toc *toc, DestReceiver *receiver,
 	paramspace = shm_toc_lookup(toc, PARALLEL_KEY_PARAMS, false);
 	paramLI = RestoreParamList(&paramspace);
 
-	/*
-	 * Create a QueryDesc for the query.
-	 *
-	 * It's not obvious how to obtain the query string from here; and even if
-	 * we could copying it would take more cycles than not copying it. But
-	 * it's a bit unsatisfying to just use a dummy string here, so consider
-	 * revising this someday.
-	 */
+	/* Create a QueryDesc for the query. */
 	return CreateQueryDesc(pstmt,
 						   queryString,
 						   GetActiveSnapshot(), InvalidSnapshot,
@@ -979,9 +972,6 @@ ParallelQueryMain(dsm_segment *seg, shm_toc *toc)
 	/* Report workers' query for monitoring purposes */
 	pgstat_report_activity(STATE_RUNNING, debug_query_string);
 
-	/* Prepare to track buffer usage during query execution. */
-	InstrStartParallelQuery();
-
 	/* Attach to the dynamic shared memory area. */
 	area_space = shm_toc_lookup(toc, PARALLEL_KEY_DSA, false);
 	area = dsa_attach_in_place(area_space, seg);
@@ -992,6 +982,15 @@ ParallelQueryMain(dsm_segment *seg, shm_toc *toc)
 	/* Special executor initialization steps for parallel workers */
 	queryDesc->planstate->state->es_query_dsa = area;
 	ExecParallelInitializeWorker(queryDesc->planstate, toc);
+
+	/*
+	 * Prepare to track buffer usage during query execution.
+	 *
+	 * We do this after starting up the executor to match what happens in the
+	 * leader, which also doesn't count buffer accesses that occur during
+	 * executor startup.
+	 */
+	InstrStartParallelQuery();
 
 	/* Run the plan */
 	ExecutorRun(queryDesc, ForwardScanDirection, 0L, true);

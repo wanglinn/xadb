@@ -1696,7 +1696,10 @@ xml_errorHandler(void *data, xmlErrorPtr error)
 		appendStringInfo(errorBuf, "line %d: ", error->line);
 	if (name != NULL)
 		appendStringInfo(errorBuf, "element %s: ", name);
-	appendStringInfoString(errorBuf, error->message);
+	if (error->message != NULL)
+		appendStringInfoString(errorBuf, error->message);
+	else
+		appendStringInfoString(errorBuf, "(no message provided)");
 
 	/*
 	 * Append context information to errorBuf.
@@ -4505,11 +4508,21 @@ XmlTableGetValue(TableFuncScanState *state, int colnum,
 			else if (count == 1)
 			{
 				xmlChar    *str;
+				xmlNodePtr	node;
 
-				str = xmlNodeListGetString(xtCxt->doc,
-										   xpathobj->nodesetval->nodeTab[0]->xmlChildrenNode,
-										   1);
+				/*
+				 * Most nodes (elements and even attributes) store their data
+				 * in children nodes. If they don't have children nodes, it
+				 * means that they are empty (e.g. <element/>). Text nodes and
+				 * CDATA sections are an exception: they don't have children
+				 * but have content in the Text/CDATA node itself.
+				 */
+				node = xpathobj->nodesetval->nodeTab[0];
+				if (node->type != XML_CDATA_SECTION_NODE &&
+					node->type != XML_TEXT_NODE)
+					node = node->xmlChildrenNode;
 
+				str = xmlNodeListGetString(xtCxt->doc, node, 1);
 				if (str != NULL)
 				{
 					PG_TRY();
@@ -4526,13 +4539,7 @@ XmlTableGetValue(TableFuncScanState *state, int colnum,
 				}
 				else
 				{
-					/*
-					 * This line ensure mapping of empty tags to PostgreSQL
-					 * value. Usually we would to map a empty tag to empty
-					 * string. But this mapping can create empty string when
-					 * user doesn't expect it - when empty tag is enforced by
-					 * libxml2 - when user uses a text() function for example.
-					 */
+					/* Ensure mapping of empty tags to PostgreSQL values. */
 					cstr = "";
 				}
 			}
