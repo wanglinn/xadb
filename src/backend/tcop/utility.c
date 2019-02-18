@@ -2346,7 +2346,9 @@ ProcessUtilitySlow(ParseState *pstate,
 			case T_CreateFunctionStmt:	/* CREATE FUNCTION */
 				address = CreateFunction(pstate, (CreateFunctionStmt *) parsetree);
 #ifdef ADB
-				ExecRemoteUtilityStmt(&utilityContext);
+				/* if function is temp, don't send create command to other nodes */
+				if (isTempNamespace(GetFunctionNamespace(address.objectId, false)) == false)
+					ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
 
