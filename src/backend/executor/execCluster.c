@@ -520,6 +520,10 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 	/* make sure remote send tuple(s) */
 	stmt->commandType = CMD_SELECT;
 
+	/* this is a fake PlannedStmt */
+	stmt->stmt_location = -1;
+	stmt->stmt_len = 0;
+
 	initStringInfo(&msg);
 	SerializePlanInfo(&msg, stmt, estate->es_param_list_info, &context);
 
