@@ -2383,8 +2383,15 @@ re_generate_append_:
 					parallel_workers = 0;
 					foreach(l, exclude)
 					{
-						if(!list_member_oid(storage, lfirst_oid(l)))
-							new_exclude = lappend_oid(new_exclude, lfirst_oid(l));
+						Oid exclude_node = lfirst_oid(l);
+						foreach (lc_path, subpaths)
+						{
+							if (IsPathExcludeNodeOid(lfirst(lc_path), exclude_node) == false)
+								break;
+						}
+						/* must all paths exclude */
+						if (lc_path == NULL)
+							new_exclude = lappend_oid(new_exclude, exclude_node);
 					}
 					reduce_info = MakeRandomReduceInfo(storage);
 					reduce_info->exclude_exec = new_exclude;
@@ -2405,9 +2412,12 @@ re_generate_append_:
 						add_cluster_partial_path(rel, path);
 					else
 						add_cluster_path(rel, path);
-					list_free(storage);
-					list_free(exclude);
+				}else
+				{
+					list_free(subpaths);
 				}
+				list_free(storage);
+				list_free(exclude);
 			}
 
 #define MY_MAKE_PATH(reduce_list_test_fun_, new_reduce_info_)							\
