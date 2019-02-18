@@ -1434,6 +1434,29 @@ FunctionIsVisible(Oid funcid)
 	return visible;
 }
 
+#ifdef ADB
+Oid GetFunctionNamespace(Oid funcid, bool missing_ok)
+{
+	HeapTuple	proctup;
+	Form_pg_proc procform;
+	Oid			pronamespace;
+
+	proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
+	if (!HeapTupleIsValid(proctup))
+	{
+		if (missing_ok)
+			return InvalidOid;
+		elog(ERROR, "cache lookup failed for function %u", funcid);
+	}
+	procform = (Form_pg_proc) GETSTRUCT(proctup);
+
+	pronamespace = procform->pronamespace;
+
+	ReleaseSysCache(proctup);
+
+	return pronamespace;
+}
+#endif /* ADB */
 
 /*
  * OpernameGetOprid
