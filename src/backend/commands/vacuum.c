@@ -1955,15 +1955,27 @@ static List* get_vacuum_all_coord(List *relations, MemoryContext context)
 			ReleaseSysCache(tuple);
 			continue;
 		}
-		if (classForm->relkind == RELKIND_RELATION ||
-			classForm->relkind == RELKIND_MATVIEW ||
-			classForm->relkind == RELKIND_PARTITIONED_TABLE ||
+
+		if (classForm->relkind == RELKIND_MATVIEW ||
 			classForm->relkind == RELKIND_FOREIGN_TABLE)
 		{
+			/* materialized view and foreign table need update on other coordinator */
 			ReleaseSysCache(tuple);
 			list = GetAllCnIDL(false);
 			break;
 		}
+
+		if ((classForm->relkind == RELKIND_RELATION ||
+			 classForm->relkind == RELKIND_PARTITIONED_TABLE) &&
+			is_relid_remote(lfirst_oid(lc)))
+		{
+			/* only remote relation need update on other coordinator */
+			ReleaseSysCache(tuple);
+			list = GetAllCnIDL(false);
+			break;
+		}
+
+		ReleaseSysCache(tuple);
 	}
 
 	MemoryContextSwitchTo(old_context);
