@@ -153,6 +153,10 @@ extern bool IsReduceInfoListCoordinator(List *list);
 								  !IsReduceInfoFinalReplicated(r))
 extern bool IsReduceInfoListInOneNode(List *list);
 
+#define IsReduceInfoExclude(r, oid) list_member_oid(r->exclude_exec, oid)
+extern bool IsReduceInfoListExclude(List *list, Oid oid);
+extern bool IsPathExcludeNodeOid(Path *path, Oid oid);
+
 extern bool IsReduceInfoStorageSubset(const ReduceInfo *rinfo, List *oidlist);
 extern bool IsReduceInfoExecuteSubset(const ReduceInfo *rinfo, List *oidlist);
 extern bool IsReduceInfoListExecuteSubset(List *reduce_info_list, List *oidlist);
