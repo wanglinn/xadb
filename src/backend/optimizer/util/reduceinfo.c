@@ -1124,6 +1124,28 @@ bool IsReduceInfoListInOneNode(List *list)
 	return false;
 }
 
+bool IsReduceInfoListExclude(List *list, Oid oid)
+{
+	ReduceInfo *info;
+	ListCell *lc;
+
+	foreach(lc, list)
+	{
+		info = lfirst(lc);
+		if (IsReduceInfoExclude(info, oid))
+			return true;
+	}
+
+	return false;
+}
+
+bool IsPathExcludeNodeOid(Path *path, Oid oid)
+{
+	List *reducelist = get_reduce_info_list(path);
+
+	return IsReduceInfoListExclude(reducelist, oid);
+}
+
 bool IsReduceInfoStorageSubset(const ReduceInfo *rinfo, List *oidlist)
 {
 	ListCell *lc;
