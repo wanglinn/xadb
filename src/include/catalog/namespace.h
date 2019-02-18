@@ -88,6 +88,9 @@ extern FuncCandidateList FuncnameGetCandidates(List *names,
 					  bool expand_defaults,
 					  bool missing_ok);
 extern bool FunctionIsVisible(Oid funcid);
+#ifdef ADB
+extern Oid GetFunctionNamespace(Oid funcid, bool missing_ok);
+#endif /* ADB */
 
 extern Oid	OpernameGetOprid(List *names, Oid oprleft, Oid oprright);
 extern FuncCandidateList OpernameGetCandidates(List *names, char oprkind,
