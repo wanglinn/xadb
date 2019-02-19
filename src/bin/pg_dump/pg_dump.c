@@ -18339,8 +18339,6 @@ dumpAdbmgrTable(Archive *fout)
 
 	if (g_verbose)
 		write_msg(NULL, "saving mgr_host,mgr_node definition\n");
-	/* Make sure we are in proper schema */
-	selectSourceSchema(fout, "pg_catalog");
 
 	/* Get the mgr_host table*/
 	appendPQExpBuffer(dbQry, "LIST HOST;");
