@@ -581,7 +581,6 @@ bool		distribute_by_replication_default;
 bool		print_reduce_debug_log = false;
 bool		enable_aux_dml = false;
 bool		adb_slot_enable_mvcc;
-char*		SlotDatabaseName;
 bool		hash_distribute_by_hashmap_default;
 #endif
 
