@@ -186,9 +186,10 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 
 %type <ival> ConstraintAttributeElem ConstraintAttributeSpec
 
-%type <ival>	key_actions key_delete key_match key_update key_action
+%type <ival>	cursor_options
+				key_actions key_delete key_match key_update key_action
 				for_locking_strength
-				opt_nulls_order opt_column opt_set_data TableLikeOptionList
+				opt_hold opt_nulls_order opt_column opt_set_data TableLikeOptionList
 				TableLikeOption opt_nowait_or_skip
 
 %type <jexpr>	joined_table
@@ -234,12 +235,14 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	AexprConst a_expr AlterTableStmt alter_column_default AlterObjectSchemaStmt
 	alter_using
 	b_expr
+	ClosePortalStmt
 	common_table_expr columnDef columnref CreateStmt ctext_expr columnElem
 	ColConstraint ColConstraintElem ConstraintAttr CreateRoleStmt
 	case_default case_expr /*case_when*/ case_when_item c_expr
 	ConstraintElem CreateSeqStmt CreateAsStmt connect_by_clause
-	DeleteStmt DropStmt def_arg
+	DeclareCursorStmt DeleteStmt DropStmt def_arg
 	ExplainStmt ExplainableStmt explain_option_arg ExclusionWhereClause
+	FetchStmt fetch_args
 	func_application func_arg_expr func_expr func_table for_locking_item
 	having_clause
 	indirection_el InsertStmt IndexStmt
@@ -263,7 +266,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 %type <defelt>	generic_option_elem alter_generic_option_elem
 
 %type <str> all_Op attr_name access_method_clause access_method
-	ColId ColLabel
+	ColId ColLabel cursor_name
 	explain_option_name extract_arg
 	iso_level index_name
 	MathOp
@@ -296,17 +299,18 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 %type <subclus> OptSubCluster OptSubClusterInternal
 /* ADB_END */
 
-%token <keyword> ACCESS ADD_P ALL ALTER ANALYZE ANALYSE AND ABORT_P
+%token <keyword> ABSOLUTE_P ACCESS ADD_P ALL ALTER ANALYZE ANALYSE AND ABORT_P
 	ANY AS ASC AUDIT AUTHORIZATION ACTION ALWAYS
 	ADMIN
-	BEGIN_P BETWEEN BFILE BIGINT BINARY_FLOAT BINARY_DOUBLE BLOB BOOLEAN_P BOTH BY BYTE_P
-	CASCADE CASE CAST CATALOG_P CHAR_P CHARACTERISTICS CHECK CLUSTER COLUMN COMMIT COMMENT
-	COLLATION CONVERSION_P CONNECTION
+	BACKWARD BEGIN_P BETWEEN BFILE BIGINT BINARY BINARY_FLOAT BINARY_DOUBLE
+	BLOB BOOLEAN_P BOTH BY BYTE_P
+	CASCADE CASE CAST CATALOG_P CHAR_P CHARACTERISTICS CHECK CLOSE CLUSTER
+	COLUMN COMMIT COMMENT COLLATION CONVERSION_P CONNECTION
 	COMMITTED COMPRESS COLLATE CONNECT CONSTRAINT CYCLE NOCYCLE
 	CONSTRAINTS CLOB COALESCE CONTENT_P CONTINUE_P CREATE CROSS CURRENT_DATE
 	CURRENT_P CURRENT_TIMESTAMP CURRVAL CURSOR CONCURRENTLY CONFIGURATION
 	CACHE NOCACHE COMMENTS
-	DATE_P DAY_P DBTIMEZONE_P DEC DECIMAL_P DEFAULT DEFERRABLE DELETE_P DESC DISTINCT
+	DATE_P DAY_P DBTIMEZONE_P DEC DECIMAL_P DECLARE DEFAULT DEFERRABLE DELETE_P DESC DISTINCT
 	DO DOCUMENT_P DOUBLE_P DROP DEFERRED DATA_P DEFAULTS
 	DISABLE_P PREPARE PREPARED DOMAIN_P DICTIONARY
 
@@ -316,17 +320,17 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 
 	ELSE END_P ESCAPE EXCLUSIVE EXISTS EXPLAIN EXTRACT
 	ENABLE_P EXCLUDE EVENT EXTENSION EXCLUDING ENCRYPTED
-	FALSE_P FILE_P FIRST_P FLOAT_P FOR FROM FOREIGN FULL
+	FALSE_P FETCH FILE_P FIRST_P FLOAT_P FOR FORWARD FROM FOREIGN FULL
 	GLOBAL GRANT GREATEST GROUP_P HAVING
-	HOUR_P
+	HOLD HOUR_P
 	IDENTIFIED IF_P IMMEDIATE IN_P INCREMENT INDEX INITIAL_P INSERT INHERIT INITIALLY
-	INHERITS INCLUDING INDEXES INNER_P
+	INHERITS INCLUDING INDEXES INNER_P INSENSITIVE
 	IDENTITY_P INTEGER INTERSECT INTO INTERVAL INT_P IS ISOLATION
 	LAST_P
 	JOIN
 	KEY
 	LEADING LEAST LEFT LEVEL LIMIT LIKE LOCAL LOCALTIMESTAMP LOCK_P LOG_P LONG_P
-	MATERIALIZED MAXEXTENTS MINUS MINUTE_P MLSLABEL MODE MODIFY MONTH_P
+	MATERIALIZED MAXEXTENTS MINUS MINUTE_P MLSLABEL MODE MODIFY MONTH_P MOVE
 	MATCH MAXVALUE NOMAXVALUE  MINVALUE NOMINVALUE
 	NAMES NCHAR NCLOB NEXT NEXTVAL NOAUDIT NOCOMPRESS NOT NOWAIT NULL_P NULLIF NUMBER_P
 	NUMERIC NVARCHAR2 NO
@@ -338,9 +342,9 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	PARTIAL PRIMARY PARSER PASSWORD
 	RAW READ REAL RECURSIVE RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
 	RETURNING RETURN_P REVOKE REUSE RIGHT ROLE ROLLBACK ROW ROWID ROWNUM ROWS
-	REFERENCES REPLICA RULE RELEASE
+	REFERENCES REPLICA RULE RELATIVE_P RELEASE
 	SCHEMA SECOND_P SELECT SERIALIZABLE SESSION SESSIONTIMEZONE SET SHARE SHOW SIZE SEARCH
-	SMALLINT SIMPLE SETOF STATISTICS SAVEPOINT SEQUENCE SYSID SOME
+	SMALLINT SIMPLE SETOF STATISTICS SAVEPOINT SEQUENCE SYSID SOME SCROLL
 	SNAPSHOT START STORAGE SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
 	TABLE TEMP TEMPLATE TEMPORARY THEN TIME TIMESTAMP TO TRAILING
 	TRANSACTION TREAT TRIM TRUNCATE TRIGGER TRUE_P TABLESPACE
@@ -460,13 +464,16 @@ stmtmulti: stmtmulti ';' stmt
 stmt:
 	  AlterTableStmt
 	| AlterObjectSchemaStmt
+	| ClosePortalStmt
 	| CreateAsStmt
 	| CreateStmt
 	| CreateSeqStmt
 	| CreateRoleStmt
+	| DeclareCursorStmt
 	| DeleteStmt
 	| DropStmt
 	| ExplainStmt
+	| FetchStmt
 	| InsertStmt
 	| IndexStmt
 	| RenameStmt
@@ -5614,6 +5621,221 @@ zone_value:
 			| LOCAL									{ $$ = NULL; }
 		;
 
+/*****************************************************************************
+ *
+ *		QUERY :
+ *				close <portalname>
+ *
+ *****************************************************************************/
+
+ClosePortalStmt:
+			CLOSE cursor_name
+				{
+					ClosePortalStmt *n = makeNode(ClosePortalStmt);
+					n->portalname = $2;
+					$$ = (Node *)n;
+				}
+			| CLOSE ALL
+				{
+					ClosePortalStmt *n = makeNode(ClosePortalStmt);
+					n->portalname = NULL;
+					$$ = (Node *)n;
+				}
+		;
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *				CURSOR STATEMENTS
+ *
+ *****************************************************************************/
+DeclareCursorStmt: DECLARE cursor_name cursor_options CURSOR opt_hold FOR SelectStmt
+				{
+					DeclareCursorStmt *n = makeNode(DeclareCursorStmt);
+					n->portalname = $2;
+					/* currently we always set FAST_PLAN option */
+					n->options = $3 | $5 | CURSOR_OPT_FAST_PLAN;
+					n->query = $7;
+					$$ = (Node *)n;
+				}
+		;
+
+
+cursor_name:	name						{ $$ = $1; }
+		;
+
+cursor_options: /*EMPTY*/					{ $$ = 0; }
+			| cursor_options NO SCROLL		{ $$ = $1 | CURSOR_OPT_NO_SCROLL; }
+			| cursor_options SCROLL			{ $$ = $1 | CURSOR_OPT_SCROLL; }
+			| cursor_options BINARY			{ $$ = $1 | CURSOR_OPT_BINARY; }
+			| cursor_options INSENSITIVE	{ $$ = $1 | CURSOR_OPT_INSENSITIVE; }
+		;
+
+opt_hold: /* EMPTY */						{ $$ = 0; }
+			| WITH HOLD						{ $$ = CURSOR_OPT_HOLD; }
+			| WITHOUT HOLD					{ $$ = 0; }
+		;
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *			fetch/move
+ *
+ *****************************************************************************/
+
+FetchStmt:	FETCH fetch_args
+				{
+					FetchStmt *n = (FetchStmt *) $2;
+					n->ismove = false;
+					$$ = (Node *)n;
+				}
+			| MOVE fetch_args
+				{
+					FetchStmt *n = (FetchStmt *) $2;
+					n->ismove = true;
+					$$ = (Node *)n;
+				}
+		;
+
+fetch_args:	cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $1;
+					n->direction = FETCH_FORWARD;
+					n->howMany = 1;
+					$$ = (Node *)n;
+				}
+			| from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $2;
+					n->direction = FETCH_FORWARD;
+					n->howMany = 1;
+					$$ = (Node *)n;
+				}
+			| NEXT opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $3;
+					n->direction = FETCH_FORWARD;
+					n->howMany = 1;
+					$$ = (Node *)n;
+				}
+			| PRIOR opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $3;
+					n->direction = FETCH_BACKWARD;
+					n->howMany = 1;
+					$$ = (Node *)n;
+				}
+			| FIRST_P opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $3;
+					n->direction = FETCH_ABSOLUTE;
+					n->howMany = 1;
+					$$ = (Node *)n;
+				}
+			| LAST_P opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $3;
+					n->direction = FETCH_ABSOLUTE;
+					n->howMany = -1;
+					$$ = (Node *)n;
+				}
+			| ABSOLUTE_P SignedIconst opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $4;
+					n->direction = FETCH_ABSOLUTE;
+					n->howMany = $2;
+					$$ = (Node *)n;
+				}
+			| RELATIVE_P SignedIconst opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $4;
+					n->direction = FETCH_RELATIVE;
+					n->howMany = $2;
+					$$ = (Node *)n;
+				}
+			| SignedIconst opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $3;
+					n->direction = FETCH_FORWARD;
+					n->howMany = $1;
+					$$ = (Node *)n;
+				}
+			| ALL opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $3;
+					n->direction = FETCH_FORWARD;
+					n->howMany = FETCH_ALL;
+					$$ = (Node *)n;
+				}
+			| FORWARD opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $3;
+					n->direction = FETCH_FORWARD;
+					n->howMany = 1;
+					$$ = (Node *)n;
+				}
+			| FORWARD SignedIconst opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $4;
+					n->direction = FETCH_FORWARD;
+					n->howMany = $2;
+					$$ = (Node *)n;
+				}
+			| FORWARD ALL opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $4;
+					n->direction = FETCH_FORWARD;
+					n->howMany = FETCH_ALL;
+					$$ = (Node *)n;
+				}
+			| BACKWARD opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $3;
+					n->direction = FETCH_BACKWARD;
+					n->howMany = 1;
+					$$ = (Node *)n;
+				}
+			| BACKWARD SignedIconst opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $4;
+					n->direction = FETCH_BACKWARD;
+					n->howMany = $2;
+					$$ = (Node *)n;
+				}
+			| BACKWARD ALL opt_from_in cursor_name
+				{
+					FetchStmt *n = makeNode(FetchStmt);
+					n->portalname = $4;
+					n->direction = FETCH_BACKWARD;
+					n->howMany = FETCH_ALL;
+					$$ = (Node *)n;
+				}
+		;
+
+from_in:	FROM									{}
+			| IN_P									{}
+		;
+
+opt_from_in:	from_in								{}
+			| /* EMPTY */							{}
+		;
+
+
 /*********************************************************/
 col_name_keyword:
 	  BIGINT
@@ -5763,18 +5985,21 @@ type_func_name_keyword:
 unreserved_keyword:
 	  ANALYSE
 	| ABORT_P
+	| ABSOLUTE_P
 	| ADMIN
 	| ANALYZE
 	| ALWAYS
 	| ACTION
 	| ALTER
+	| BACKWARD
 	| BEGIN_P
 	| BFILE
+	| BINARY
 	| BLOB
 	| BYTE_P
 	| CASCADE
 	| CACHE
-	| NOCACHE
+	| CLOSE
 	| CATALOG_P
 	| CONNECTION
 	| CHARACTERISTICS
@@ -5792,6 +6017,7 @@ unreserved_keyword:
 	| CYCLE
 	| NOCYCLE
 	| DAY_P
+	| DECLARE
 	| DEFERRED
 	| DICTIONARY
 	| DOCUMENT_P
@@ -5811,8 +6037,11 @@ unreserved_keyword:
 	| EVENT
 	| EXTENSION
 	| EXCLUSIVE
+	| FETCH
 	| FIRST_P
+	| FORWARD
 	| GLOBAL
+	| HOLD
 	| IDENTITY_P
 	| IF_P
 	| INDEX
@@ -5820,6 +6049,7 @@ unreserved_keyword:
 	| INDEXES
 	| INCLUDING
 	| INHERITS
+	| INSENSITIVE
 	| ISOLATION
 	| KEY
 	| LAST_P
@@ -5834,8 +6064,10 @@ unreserved_keyword:
 	| MINVALUE
 	| NOMINVALUE
 	| MONTH_P
+	| MOVE
 	| NAMES
 	| NCHAR
+	| NOCACHE
 	| NODE
 	| NCLOB
 	| NO
@@ -5860,6 +6092,7 @@ unreserved_keyword:
 	| PRIVILEGES
 	| PURGE
 	| READ
+	| RELATIVE_P
 	| RELEASE
 	| REPEATABLE
 	| REPLACE
@@ -5875,6 +6108,7 @@ unreserved_keyword:
 	| ROLE
 	| ROLLBACK
 	| SCHEMA
+	| SCROLL
 	| SECOND_P
 	| SEQUENCE
 	| SHARE
