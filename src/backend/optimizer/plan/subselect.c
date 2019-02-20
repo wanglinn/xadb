@@ -2377,6 +2377,11 @@ static bool SS_finalize_plan_walker(Plan *plan, void *none, PlannerInfo *root)
 		{
 			plan->allParam = bms_copy(outerPlan(plan)->allParam);
 			plan->extParam = bms_copy(outerPlan(plan)->extParam);
+		}else if (IsA(plan, SubqueryScan))
+		{
+			Plan *subplan = ((SubqueryScan*)plan)->subplan;
+			plan->allParam = bms_copy(subplan->allParam);
+			plan->extParam = bms_copy(subplan->extParam);
 		}else
 		{
 			ereport(ERROR,
