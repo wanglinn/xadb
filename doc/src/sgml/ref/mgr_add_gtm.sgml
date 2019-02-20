@@ -29,7 +29,8 @@ ADD GTM SLAVE <replaceable class="parameter">slave_name</replaceable> FOR <repla
     HOST = <replaceable class="parameter">IP_address</replaceable>,
     PORT = <replaceable class="parameter">port_number</replaceable>,
     SYNC_STATE = <replaceable class="parameter">sync_mode</replaceable>,
-    PATH = <replaceable class="parameter">pg_data</replaceable>
+    PATH = <replaceable class="parameter">pg_data</replaceable>,
+    ZONE = <replaceable class="parameter">zone_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
 
@@ -105,6 +106,16 @@ ADD GTM SLAVE <replaceable class="parameter">slave_name</replaceable> FOR <repla
         <listitem>
           <para>
     Your data directory.
+          </para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">ZONE</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Data center name, the default value is guc parameter mgr_zone "local".
           </para>
         </listitem>
       </varlistentry>

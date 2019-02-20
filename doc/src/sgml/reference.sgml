@@ -377,6 +377,9 @@
    &mgrStopGtm;
    &mgrSwitchoverDatanode
    &mgrSwitchoverGtm
+   &mgrZonePromote
+   &mgrZoneConfig
+   &mgrZoneClear
 </reference>
 
 <reference id="reference-monitor">

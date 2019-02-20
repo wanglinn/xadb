@@ -4653,6 +4653,18 @@ static struct config_string ConfigureNamesString[] =
 	},
 #endif
 
+#ifdef ADBMGRD
+	{
+		{"mgr_zone", PGC_USERSET, CLIENT_CONN_LOCALE,
+			gettext_noop("Set zone"),
+			NULL,
+			GUC_IS_NAME | GUC_REPORT
+		},
+		&mgr_zone,
+		"local",
+		NULL, NULL, NULL
+	},
+#endif
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, NULL, NULL, NULL, NULL

@@ -38,6 +38,7 @@ LIST NODE  [ ( <replaceable class="parameter">option</replaceable> ) ] [ <replac
     PATH
     INITIALIZED
     INCLUSTER
+    ZONE
 </synopsis>
 </refsynopsisdiv>
   <refsect1>
@@ -139,6 +140,15 @@ LIST NODE  [ ( <replaceable class="parameter">option</replaceable> ) ] [ <replac
     <listitem>
      <para>
       Node name, corresponds to the name column in the node table.
+      </para>
+    </listitem>
+  </varlistentry>
+  <varlistentry>
+    <term><literal>ZONE</literal>
+    </term>
+    <listitem>
+     <para>
+      The datanode center name.
       </para>
     </listitem>
   </varlistentry>

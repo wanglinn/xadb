@@ -34,6 +34,8 @@ CATALOG(mgr_node,4813,NodeRelationId)
 	/* check the node is read only */
 	bool		nodereadonly;
 
+	NameData	nodezone;
+
 #ifdef CATALOG_VARLEN
 
 	text		nodepath;		/* node data path */
@@ -61,6 +63,9 @@ typedef FormData_mgr_node *Form_mgr_node;
 #define CNDN_TYPE_COORDINATOR		'C'
 #define CNDN_TYPE_DATANODE		'D'
 #define CNDN_TYPE_GTM			'G'
+
+/* not exist node type */
+#define CNDN_TYPE_NONE			'0'
 
 #define SHUTDOWN_S  "smart"
 #define SHUTDOWN_F  "fast"

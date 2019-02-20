@@ -188,7 +188,6 @@ static void hexp_get_coordinator_conn(PGconn **pg_conn, Oid *cnoid);
 static void hexp_get_coordinator_conn_output(PGconn **pg_conn, Oid *cnoid, char* out_host, char* out_port, char* out_db, char* out_user);
 static void hexp_mgr_pqexec_getlsn(PGconn **pg_conn, char *sqlstr, int* phvalue, int* plvalue);
 static void hexp_parse_pair_lsn(char* strvalue, int* phvalue, int* plvalue);
-static void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, int ret_type);
 static void hexp_update_slot_get_slotinfo(
 			PGconn *pgconn, char* src_node_name,
 			int* ppart1_slotid_startid, int* ppart1_slotid_len,
@@ -3864,7 +3863,7 @@ static void hexp_mgr_pqexec_getlsn(PGconn **pg_conn, char *sqlstr, int* phvalue,
 }
 
 
-static void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, int ret_type)
+void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, int ret_type)
 {
 	PGresult *res;
 
@@ -4561,6 +4560,12 @@ Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype
 
 void hexp_alter_slotinfo_nodename(PGconn *pgconn, char* src_node_name, char* dst_node_name)
 {
+	hexp_alter_slotinfo_nodename_noflush(pgconn, src_node_name, dst_node_name);
+	hexp_pqexec_direct_execute_utility(pgconn, "flush slot;", MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+}
+
+void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name)
+{
 	char sql[100];
 	PGresult* res;
 	int i = 0;
@@ -4589,7 +4594,6 @@ void hexp_alter_slotinfo_nodename(PGconn *pgconn, char* src_node_name, char* dst
 	}
 
 	hexp_pqexec_direct_execute_utility(pgconn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-	hexp_pqexec_direct_execute_utility(pgconn, "flush slot;", MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 }
 
 static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name)

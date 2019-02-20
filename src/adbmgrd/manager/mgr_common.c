@@ -24,6 +24,7 @@
 #define MAXPATH (512-1)
 #define RETRY 3
 #define SLEEP_MICRO 100*1000     /* 100 millisec */
+char *mgr_zone;
 
 static struct enum_sync_state sync_state_tab[] =
 {
@@ -962,7 +963,7 @@ void mgr_recv_sql_stringvalues_msg(ManagerAgent	*ma, StringInfo resultstrdata)
 */
 bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid)
 {
-	ScanKeyData key[4];
+	ScanKeyData key[5];
 	Form_mgr_node mgr_node;
 	Relation relNode;
 	HeapScanDesc relScan;
@@ -994,8 +995,13 @@ bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid)
 				,BTEqualStrategyNumber
 				,F_BOOLEQ
 				,BoolGetDatum(false));
+	ScanKeyInit(&key[4]
+				,Anum_mgr_node_nodezone
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,CStringGetDatum(mgr_zone));	
 	relNode = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(relNode, 4, key);
+	relScan = heap_beginscan_catalog(relNode, 5, key);
 	for (iloop = 0; iloop < 2; iloop++)
 	{
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
@@ -2217,7 +2223,7 @@ char *get_nodepath_from_tupleoid(Oid tupleOid)
 
 int mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int sync_state_sync, Oid excludeOid, Name slaveNodeName)
 {
-	ScanKeyData key[4];
+	ScanKeyData key[5];
 	HeapTuple tuple;
 	HeapScanDesc relScan;
 	int res = PQPING_NO_RESPONSE;
@@ -2252,7 +2258,12 @@ int mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int sync_sta
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,NameGetDatum(&sync_state_name));
-	relScan = heap_beginscan_catalog(relNode, 4, key);
+	ScanKeyInit(&key[4]
+		,Anum_mgr_node_nodezone
+		,BTEqualStrategyNumber
+		,F_NAMEEQ
+		,CStringGetDatum(mgr_zone));
+	relScan = heap_beginscan_catalog(relNode, 5, key);
 
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
@@ -2312,7 +2323,7 @@ int mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int sync_sta
 
 bool mgr_get_slave_node(Relation relNode, Oid masterTupleOid, int SYNC_STATE_SYNC, Oid excludeOid, Name slaveNodeName)
 {
-	ScanKeyData key[4];
+	ScanKeyData key[5];
 	HeapTuple tuple;
 	HeapScanDesc relScan;
 	bool bget = false;
@@ -2340,8 +2351,13 @@ bool mgr_get_slave_node(Relation relNode, Oid masterTupleOid, int SYNC_STATE_SYN
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,NameGetDatum(&sync_state_name));
+	ScanKeyInit(&key[4]
+		,Anum_mgr_node_nodezone
+		,BTEqualStrategyNumber
+		,F_NAMEEQ
+		,CStringGetDatum(mgr_zone));
 	relNode = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(relNode, 4, key);
+	relScan = heap_beginscan_catalog(relNode, 5, key);
 
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
@@ -2425,7 +2441,7 @@ char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype)
 
 char *mgr_get_agtm_name(void)
 {
-	ScanKeyData key[1];
+	ScanKeyData key[2];
 	Relation relNode;
 	HeapScanDesc relScan;
 	char *nodename = NULL;
@@ -2437,8 +2453,13 @@ char *mgr_get_agtm_name(void)
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(GTM_TYPE_GTM_MASTER));
+	ScanKeyInit(&key[1]
+		,Anum_mgr_node_nodezone
+		,BTEqualStrategyNumber
+		,F_NAMEEQ
+		,CStringGetDatum(mgr_zone));
 	relNode = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(relNode, 1, key);
+	relScan = heap_beginscan_catalog(relNode, 2, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -4342,4 +4363,66 @@ void check_node_incluster(void)
 	heap_endscan(scan);
 	UnregisterSnapshot(snapshot);
 	heap_close(relNode, AccessShareLock);
+}
+
+/*
+* mgr_check_nodename_repeate
+*
+* given the node name, check the node table has the repeate node name
+*/
+bool mgr_check_nodename_repeate(Relation rel, char *nodename)
+{
+	ScanKeyData key[1];
+	HeapScanDesc relScan;
+	HeapTuple tuple =NULL;
+	NameData nameattrdata;
+	bool bres = false;
+
+	Assert(nodename);
+	namestrcpy(&nameattrdata, nodename);
+	ScanKeyInit(&key[0]
+		,Anum_mgr_node_nodename
+		,BTEqualStrategyNumber, F_NAMEEQ
+		,NameGetDatum(&nameattrdata));
+	relScan = heap_beginscan_catalog(rel, 1, key);
+	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+	{
+		bres = true;
+		break;
+	}
+	heap_endscan(relScan);
+
+	return bres;
+}
+
+/* get the nodetype of given nodename */
+char mgr_get_nodetype(Name nodename)
+{
+	Relation rel_node;
+	HeapScanDesc rel_scan;
+	ScanKeyData key[1];
+	HeapTuple tuple;
+	Form_mgr_node mgr_node;
+	char nodetype = CNDN_TYPE_NONE;
+
+	Assert(nodename && nodename->data);
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodename
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,CStringGetDatum(nodename));
+
+	rel_node = heap_open(NodeRelationId, AccessShareLock);
+	rel_scan = heap_beginscan_catalog(rel_node, 1, key);
+	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		nodetype = mgr_node->nodetype;
+	}
+
+	heap_endscan(rel_scan);
+	heap_close(rel_node, AccessShareLock);
+
+	return nodetype;
 }

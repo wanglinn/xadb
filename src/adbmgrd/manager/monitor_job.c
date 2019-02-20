@@ -564,7 +564,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 {
 	GetAgentCmdRst getAgentCmdRst;
 	HeapTuple tuple = NULL;
-	ScanKeyData key[3];
+	ScanKeyData key[4];
 	Relation relNode;
 	HeapScanDesc relScan;
 	Form_mgr_node mgr_node;
@@ -611,8 +611,13 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 		,BTEqualStrategyNumber
 		,F_BOOLEQ
 		,BoolGetDatum(true));
+	ScanKeyInit(&key[3]
+		,Anum_mgr_node_nodezone
+		,BTEqualStrategyNumber
+		,F_NAMEEQ
+		,CStringGetDatum(mgr_zone));
 	relNode = heap_open(NodeRelationId, RowExclusiveLock);
-	relScan = heap_beginscan_catalog(relNode, 3, key);
+	relScan = heap_beginscan_catalog(relNode, 4, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
