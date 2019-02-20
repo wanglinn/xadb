@@ -21,7 +21,7 @@ ADB documentation
 
   <refsynopsisdiv>
     <synopsis>
-APPEND COORDINATOR MASTER <replaceable class="parameter">node_name</replaceable>
+APPEND COORDINATOR { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
 

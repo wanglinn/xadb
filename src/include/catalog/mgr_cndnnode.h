@@ -21,6 +21,7 @@ CATALOG(mgr_node,4813)
 	Oid			nodemasternameoid;	/* 0 stands for the node is not slave*/
 	bool		nodeincluster;		/*check the node in cluster*/
 	bool		nodereadonly;		/* check the node is read only */
+	NameData	nodezone;
 #ifdef CATALOG_VARLEN
 	text		nodepath;		/* node data path */
 #endif						/* CATALOG_VARLEN */
@@ -37,7 +38,7 @@ typedef FormData_mgr_node *Form_mgr_node;
  *		compiler constants for mgr_node
  * ----------------
  */
-#define Natts_mgr_node							10
+#define Natts_mgr_node							11
 #define Anum_mgr_node_nodename					1
 #define Anum_mgr_node_nodehost					2
 #define Anum_mgr_node_nodetype					3
@@ -47,7 +48,8 @@ typedef FormData_mgr_node *Form_mgr_node;
 #define Anum_mgr_node_nodemasternameOid			7
 #define Anum_mgr_node_nodeincluster				8
 #define Anum_mgr_node_nodereadonly				9
-#define Anum_mgr_node_nodepath					10
+#define Anum_mgr_node_nodezone					10
+#define Anum_mgr_node_nodepath					11
 
 #define CNDN_TYPE_COORDINATOR_MASTER		'c'
 #define CNDN_TYPE_COORDINATOR_SLAVE			's'
@@ -61,6 +63,9 @@ typedef FormData_mgr_node *Form_mgr_node;
 #define CNDN_TYPE_COORDINATOR		'C'
 #define CNDN_TYPE_DATANODE		'D'
 #define CNDN_TYPE_GTM			'G'
+
+/* not exist node type */
+#define CNDN_TYPE_NONE			'0'
 
 #define SHUTDOWN_S  "smart"
 #define SHUTDOWN_F  "fast"

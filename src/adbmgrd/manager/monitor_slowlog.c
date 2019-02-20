@@ -38,6 +38,7 @@
 #define GETTODAYSTARTTIME(time) ((time+8*3600)/(3600*24)*(3600*24)-8*3600)
 #define GETLASTDAYSTARTTIME(time) ((time+8*3600)/(3600*24)*(3600*24)-8*3600-24*3600)
 #define GETTOMARROWSTARTTIME(time) ((time+8*3600)/(3600*24)*(3600*24)-8*3600+24*3600)
+char *mgr_zone;
 
 /*see the content of adbmgr_init.sql: "insert into pg_catalog.monitor_host_threshold"
 * the values are the same in adbmgr_init.sql for given items
@@ -254,7 +255,7 @@ Datum monitor_slowlog_insert_data(PG_FUNCTION_ARGS)
 	ListCell *cell;
 	bool haveget = false;
 	HeapScanDesc rel_scan;
-	ScanKeyData key[3];
+	ScanKeyData key[4];
 	Form_mgr_node mgr_node;
 	Form_mgr_host mgr_host;
 	HeapTuple tuple;
@@ -273,11 +274,17 @@ Datum monitor_slowlog_insert_data(PG_FUNCTION_ARGS)
 		,F_BOOLEQ
 		,BoolGetDatum(true));
 	ScanKeyInit(&key[2]
+		,Anum_mgr_node_nodezone
+		,BTEqualStrategyNumber
+		,F_NAMEEQ
+		,CStringGetDatum(mgr_zone));
+	ScanKeyInit(&key[3]
 		,Anum_mgr_node_nodeincluster
 		,BTEqualStrategyNumber
 		,F_BOOLEQ
 		,BoolGetDatum(true));
-	rel_scan = heap_beginscan_catalog(rel_node, 3, key);
+
+	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);

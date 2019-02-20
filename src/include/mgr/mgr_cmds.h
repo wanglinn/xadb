@@ -155,8 +155,9 @@ extern Datum mgr_init_dn_slave_all(PG_FUNCTION_ARGS);
 extern void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmdRst, Relation noderel, HeapTuple aimtuple, char *masterhostaddress, uint32 masterport, char *mastername);
 
 extern Datum mgr_start_cn_master(PG_FUNCTION_ARGS);
+extern Datum mgr_start_cn_slave(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_cn_master(PG_FUNCTION_ARGS);
-extern Datum mgr_stop_cn_master_all(PG_FUNCTION_ARGS);
+extern Datum mgr_stop_cn_slave(PG_FUNCTION_ARGS);
 extern Datum mgr_start_dn_master(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_dn_master(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_dn_master_all(PG_FUNCTION_ARGS);
@@ -274,6 +275,7 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 extern char mgr_change_cmdtype_unbackend(char cmdtype);
 extern HeapTuple build_common_command_tuple_four_col(const Name name, char type, bool status, const char *description);
 extern bool mgr_check_param_reload_postgresqlconf(char nodetype, Oid hostoid, int nodeport, char *address, char *check_param, char *expect_result);
+extern char mgr_get_nodetype(Name nodename);
 
 /* monitor_hostpage.c */
 extern Datum monitor_get_hostinfo(PG_FUNCTION_ARGS);
@@ -450,6 +452,17 @@ extern bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg
 extern bool RemoveHba(const AppendNodeInfo *nodeinfo, const StringInfo infosendmsg);
 extern bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const int iloop, const int res_type, StringInfo strinfo);
 extern void hexp_alter_slotinfo_nodename(PGconn *pgconn, char* src_node_name, char* dst_node_name);
+extern void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name);
 extern bool hexp_check_select_result_count(PGconn *pg_conn, char* sql);
+extern void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, int ret_type);
+
+/* zone */
+extern bool mgr_check_nodename_repeate(Relation rel, char *nodename);
+extern bool mgr_checknode_in_currentzone(const char *zone, const Oid TupleOid);
+extern Datum mgr_zone_promote(PG_FUNCTION_ARGS);
+extern Datum mgr_zone_config_all(PG_FUNCTION_ARGS);
+extern HeapTuple mgr_get_nodetuple_by_name_zone(Relation rel, char *nodename, char *nodezone);
+extern Datum mgr_zone_clear(PG_FUNCTION_ARGS);
+extern bool mgr_node_has_slave_inzone(Relation rel, char *zone, Oid mastertupleoid);
 
 #endif /* MGR_CMDS_H */

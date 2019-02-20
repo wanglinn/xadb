@@ -293,6 +293,10 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrStopGtm         SYSTEM "mgr_stop_gtm.sgml">
 <!ENTITY mgrSwitchoverDatanode      SYSTEM "mgr_switchover_datanode.sgml">
 <!ENTITY mgrSwitchoverGtm   SYSTEM "mgr_switchover_gtm.sgml">
+<!ENTITY mgrZoneClear       SYSTEM "mgr_zone_clear.sgml">
+<!ENTITY mgrZoneConfig      SYSTEM "mgr_zone_config.sgml">
+<!ENTITY mgrZonePromote     SYSTEM "mgr_zone_promote.sgml">
+
 
 <!-- ADB monitor command -->
 <!ENTITY monitorAddJob      SYSTEM "monitor_add_job.sgml">

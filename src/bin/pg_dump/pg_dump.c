@@ -17821,33 +17821,36 @@ dumpAdbmgrTable(Archive *fout)
 	resetPQExpBuffer(dbQry);
 	appendPQExpBuffer(dbQry, "LIST NODE;");
 	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
-	Assert(PQnfields(res) == 10);
+	Assert(PQnfields(res) == 11);
 	resetPQExpBuffer(addstrdata);
 	for (i = 0; i < PQntuples(res); i++)
 	{
 		if (strlen(PQgetvalue(res, i, 5)))
-			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" FOR \"%s\" (host=\"%s\", port=%s, sync_state=\"%s\",path=\"%s\");\n",
+			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" FOR \"%s\" (host=\"%s\", port=%s, sync_state=\"%s\",path=\"%s\",zone=\"%s\");\n",
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 0),
 				PQgetvalue(res, i, 3),
 				PQgetvalue(res, i, 1),
 				PQgetvalue(res, i, 4),
 				PQgetvalue(res, i, 5),
-				PQgetvalue(res, i, 6));
+				PQgetvalue(res, i, 6),
+				PQgetvalue(res, i, 10));
 		else if (strcmp(PQgetvalue(res, i, 9), "t") == 0)
-			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\", readonly=true);\n",
+			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\", readonly=true,zone=\"%s\");\n",
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 0),
 				PQgetvalue(res, i, 1),
 				PQgetvalue(res, i, 4),
-				PQgetvalue(res, i, 6));
+				PQgetvalue(res, i, 6),
+				PQgetvalue(res, i, 10));
 		else
-			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\");\n",
+			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\",zone=\"%s\");\n",
 				PQgetvalue(res, i, 2),
 				PQgetvalue(res, i, 0),
 				PQgetvalue(res, i, 1),
 				PQgetvalue(res, i, 4),
-				PQgetvalue(res, i, 6));
+				PQgetvalue(res, i, 6),
+				PQgetvalue(res, i, 10));
 	}
 	ArchiveEntry(fout, nilCatalogId, createDumpId(),
 		"mgr_node",
