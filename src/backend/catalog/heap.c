@@ -1619,7 +1619,7 @@ GetRelationDistributionItems(Oid relid,
 							 errmsg("Invalid distribution column specified")));
 				}
 
-				if (!IsTypeDistributable(descriptor->attrs[local_attnum - 1]->atttypid))
+				if (!IsTypeDistributable(TupleDescAttr(descriptor, local_attnum - 1)->atttypid))
 				{
 					ereport(ERROR,
 						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
