@@ -5721,7 +5721,7 @@ DATA(insert OID = 9119 (  pgxc_is_committed	PGNSP PGUID 12 1 1 0 0 f f f f t t s
 DESCR("is given GXID committed or aborted?");
 DATA(insert OID = 9120 ( pgxc_lock_for_backup	PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pgxc_lock_for_backup _null_ _null_ _null_ ));
 DESCR("lock the cluster for taking backup");
-DATA(insert OID = 9121 ( nodeid_from_hashvalue		PGNSP PGUID 12 1 0 0 0 f f f f f f v s 1 0 20 "23" _null_ _null_ _null_ _null_ _null_ nodeid_from_hashvalue _null_ _null_ _null_ ));
+DATA(insert OID = 9121 ( nodeid_from_hashvalue		PGNSP PGUID 12 1 0 0 0 f f f f f f v s 1 0 23 "23" _null_ _null_ _null_ _null_ _null_ nodeid_from_hashvalue _null_ _null_ _null_ ));
 
 
 DATA(insert OID = 8890 (  pool_close_idle_conn		PGNSP PGUID 12 1 0 0 0 f f f f f f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pool_close_idle_conn _null_ _null_ _null_ ));
