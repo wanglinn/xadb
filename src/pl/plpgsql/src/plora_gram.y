@@ -1975,8 +1975,7 @@ stmt_dynexecute : POK_EXECUTE POK_IMMEDIATE
 						new->query = expr;
 						new->into = false;
 						new->strict = false;
-						new->rec = NULL;
-						new->row = NULL;
+						new->target = NULL;
 						new->params = NIL;
 
 						/*
@@ -1993,7 +1992,7 @@ stmt_dynexecute : POK_EXECUTE POK_IMMEDIATE
 								if (new->into)			/* multiple INTO */
 									yyerror("syntax error");
 								new->into = true;
-								read_into_target(&new->rec, &new->row);
+								read_into_target(&new->target);
 								endtoken = yylex();
 							}
 							else if (endtoken == POK_USING)
