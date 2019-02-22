@@ -1314,7 +1314,7 @@ BuildFieldFromCStrings(AttInMetadata *attinmeta, char *value, int fieldnum)
 	int			index;
 
 	index = fieldnum - 1;
-	Assert(!tupdesc->attrs[index]->attisdropped);
+	Assert(TupleDescAttr(tupdesc ,index)->attisdropped);
 
 	dvalue = (Datum) palloc(sizeof(Datum));
 	dvalue = InputFunctionCall(&attinmeta->attinfuncs[index],
