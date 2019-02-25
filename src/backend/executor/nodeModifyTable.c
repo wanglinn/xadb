@@ -295,7 +295,6 @@ ExecInsert(ModifyTableState *mtstate,
 	ModifyTable *node = (ModifyTable *) mtstate->ps.plan;
 	OnConflictAction onconflict = node->onConflictAction;
 #ifdef ADB
-	int partidx = -1;
 	TupleConversionMap *map;
 	HeapTuple parentTuple = NULL;
 	TupleTableSlot *parentSlot = NULL;
@@ -454,19 +453,11 @@ ExecInsert(ModifyTableState *mtstate,
 			}
 
 			/* get the top partition relation slot */
-			if(mtstate->mt_partition_dispatch_info)
+			if(mtstate->mt_partition_tuple_routing)
 			{
-				for(partidx=0; partidx < mtstate->mt_num_partitions; partidx++)
-				{
-					Oid relid = RelationGetRelid(mtstate->mt_partitions[partidx].ri_RelationDesc);
-					if (tuple->t_tableOid == relid)
-					{
-						break;
-					}
-				}
-
-				Assert(partidx>=0);
-				map = mtstate->mt_partition_tupconv_maps[partidx];
+				int map_index = resultRelInfo - mtstate->resultRelInfo;
+				Assert(map_index >= 0 && map_index < mtstate->mt_nplans);
+				map = tupconv_map_for_subplan(mtstate, map_index);
 				if (map)
 				{
 					parentTuple = do_reverse_convert_tuple(tuple, map);
@@ -477,7 +468,6 @@ ExecInsert(ModifyTableState *mtstate,
 					 * dedicated slot for that.
 					 */
 					parentSlot = MakeSingleTupleTableSlot(planSlot->tts_tupleDescriptor);
-					parentSlot = ExecCopySlot(parentSlot, planSlot);
 					ExecStoreTuple(parentTuple, parentSlot, InvalidBuffer, true);
 				}
 			}
