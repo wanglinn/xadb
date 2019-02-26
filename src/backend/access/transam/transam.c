@@ -27,7 +27,9 @@
 #ifdef ADB
 #include "agtm/agtm.h"
 #include "pgxc/pgxc.h"
+#include "replication/snapreceiver.h"
 #include "storage/proc.h"
+#include "utils/timestamp.h"
 #include "utils/tqual.h"
 #include <time.h>
 #endif /* ADB */
@@ -162,7 +164,7 @@ bool							/* true if given transaction committed */
 TransactionIdDidCommit(TransactionId transactionId)
 {
 #ifdef ADB
-	return TransactionIdDidCommitGTM(transactionId, true);
+	return TransactionIdDidCommitGTM(transactionId, !IsGTMNode());
 }
 bool TransactionIdDidCommitGTM(TransactionId transactionId, bool try_gtm)
 {
@@ -178,24 +180,15 @@ bool TransactionIdDidCommitGTM(TransactionId transactionId, bool try_gtm)
 	{
 #ifdef ADB
 		if (try_gtm &&
-			IsUnderAGTM() &&
-			XidInMVCCSnapshot(transactionId, GetRecentGTMSnapshot(false)))
+			IsUnderAGTM())
 		{
-			time_t now,end;
-			end = time(0);
-			end += WaitGlobalTransaction/1000;
-			while(XidInMVCCSnapshot(transactionId, GetRecentGTMSnapshot(true)))
+			TimestampTz end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
+			if (SnapRcvWaitTopTransactionEnd(transactionId, end) == false)
 			{
-				now = time(0);
-				if (now > end)
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-							 errmsg("attempted to local committed but global uncommitted transaction, which version is %u", transactionId),
-							 errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
-				}
-				pg_usleep(1000);
-				CHECK_FOR_INTERRUPTS();
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						 errmsg("attempted to local committed but global uncommitted transaction, which version is %u", transactionId),
+						 errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
 			}
 		}
 #endif /* ADB */
