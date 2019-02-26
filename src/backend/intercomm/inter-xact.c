@@ -40,9 +40,10 @@ typedef enum
 	TP_ABORT	= 1 << 3,
 } TwoPhaseState;
 
-#define INTER_TWO_PHASE_SEND		0x1
-#define INTER_TWO_PHASE_RECV		0x2
-#define INTER_TWO_PHASE_NO_ERROR	0x4
+#define INTER_TWO_PHASE_SEND		0x1		/* send SQL command */
+#define INTER_TWO_PHASE_RECV		0x2		/* recv SQL command result */
+#define INTER_TWO_PHASE_NO_ERROR	0x4		/* don't report send and recv error */
+#define INTER_TWO_PHASE_MISS_OK		0x8		/* add "if exist" to SQL command */
 #define INTER_TWO_PHASE_SEND_RECV	(INTER_TWO_PHASE_SEND|INTER_TWO_PHASE_RECV)
 
 static InterXactStateData TopInterXactStateData = {
@@ -60,7 +61,7 @@ static InterXactStateData TopInterXactStateData = {
 
 static void ResetInterXactState(InterXactState state);
 static const char* InterXactGetTransactionSQL(TwoPhaseState state, const char *gid, bool missing_ok, char **sql);
-static void InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool missing_ok);
+static void InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, int tp_flags);
 static void InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, int tp_flags);
 
 /*
@@ -701,7 +702,7 @@ InterXactBegin(InterXactState state, const List *node_list)
 void
 InterXactPrepare(const char *gid, Oid *nodes, int nnodes)
 {
-	InterXactTwoPhase(gid, nodes, nnodes, TP_PREPARE, false);
+	InterXactTwoPhase(gid, nodes, nnodes, TP_PREPARE, INTER_TWO_PHASE_SEND_RECV);
 }
 
 /*
@@ -712,7 +713,10 @@ InterXactPrepare(const char *gid, Oid *nodes, int nnodes)
 void
 InterXactCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok)
 {
-	InterXactTwoPhase(gid, nodes, nnodes, TP_COMMIT, missing_ok);
+	int flags = INTER_TWO_PHASE_SEND_RECV;
+	if (missing_ok)
+		flags |= INTER_TWO_PHASE_MISS_OK;
+	InterXactTwoPhase(gid, nodes, nnodes, TP_COMMIT, flags);
 }
 
 /*
@@ -723,29 +727,13 @@ InterXactCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok)
 void
 InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool normal)
 {
-	if (normal)
-		InterXactTwoPhase(gid, nodes, nnodes, TP_ABORT, missing_ok);
-	else
-	{
-		List *handle_list = GetNodeHandleList(nodes, nnodes, false, true, false, NULL);
-		char *command;
-		const char *command_tag;
+	int flags = INTER_TWO_PHASE_SEND_RECV;
+	if (!normal)
+		flags |= INTER_TWO_PHASE_NO_ERROR;
+	if (missing_ok)
+		flags |= INTER_TWO_PHASE_MISS_OK;
 
-		if (gid && gid[0])
-		{
-			command = psprintf("ROLLBACK PREPARED%s '%s';",
-							   missing_ok ? " IF EXISTS" : "", gid);
-			command_tag = TRANS_ROLLBACK_PREPARED_TAG;
-		} else
-		{
-			command = psprintf("ROLLBACK TRANSACTION;");
-			command_tag = TRANS_ROLLBACK_TAG;
-		}
-		InterXactTwoPhaseInternal(handle_list, command, command_tag,
-								  INTER_TWO_PHASE_SEND_RECV|INTER_TWO_PHASE_NO_ERROR);
-		pfree(command);
-		list_free(handle_list);
-	}
+	InterXactTwoPhase(gid, nodes, nnodes, TP_ABORT, flags);
 }
 
 /*
@@ -812,7 +800,7 @@ InterXactGetTransactionSQL(TwoPhaseState state, const char *gid, bool missing_ok
  * InterXactTwoPhase
  */
 static void
-InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool missing_ok)
+InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, int tp_flags)
 {
 	List * volatile handle_list;
 	char * volatile command = NULL;
@@ -824,9 +812,12 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 
 	PG_TRY();
 	{
-		command_tag = InterXactGetTransactionSQL(tp_state, gid, missing_ok, (char**)&command);
+		command_tag = InterXactGetTransactionSQL(tp_state,
+												 gid,
+												 (tp_flags & INTER_TWO_PHASE_MISS_OK) ? true:false,
+												 (char**)&command);
 		Assert(command_tag != NULL && command != NULL);
-		InterXactTwoPhaseInternal(handle_list, command, command_tag, INTER_TWO_PHASE_SEND_RECV);
+		InterXactTwoPhaseInternal(handle_list, command, command_tag, tp_flags);
 		pfree(command);
 		list_free(handle_list);
 	} PG_CATCH();
@@ -843,6 +834,7 @@ InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_
 {
 	NodeHandle	   *handle;
 	ListCell	   *lc_handle;
+	Assert((tp_flags & INTER_TWO_PHASE_SEND_RECV) != 0);
 
 	if (tp_flags & INTER_TWO_PHASE_SEND)
 	{
