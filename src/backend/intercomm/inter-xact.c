@@ -40,6 +40,11 @@ typedef enum
 	TP_ABORT	= 1 << 3,
 } TwoPhaseState;
 
+#define INTER_TWO_PHASE_SEND		0x1
+#define INTER_TWO_PHASE_RECV		0x2
+#define INTER_TWO_PHASE_NO_ERROR	0x4
+#define INTER_TWO_PHASE_SEND_RECV	(INTER_TWO_PHASE_SEND|INTER_TWO_PHASE_RECV)
+
 static InterXactStateData TopInterXactStateData = {
 	NULL,						/* current MemoryContext */
 	NULL,						/* two-phase GID */
@@ -56,7 +61,7 @@ static InterXactStateData TopInterXactStateData = {
 static void ResetInterXactState(InterXactState state);
 static const char* InterXactGetTransactionSQL(TwoPhaseState state, const char *gid, bool missing_ok, char **sql);
 static void InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool missing_ok);
-static void InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, bool no_error);
+static void InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, int tp_flags);
 
 /*
  * GetPGconnAttatchCurrentInterXact
@@ -736,7 +741,8 @@ InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool no
 			command = psprintf("ROLLBACK TRANSACTION;");
 			command_tag = TRANS_ROLLBACK_TAG;
 		}
-		InterXactTwoPhaseInternal(handle_list, command, command_tag, true);
+		InterXactTwoPhaseInternal(handle_list, command, command_tag,
+								  INTER_TWO_PHASE_SEND_RECV|INTER_TWO_PHASE_NO_ERROR);
 		pfree(command);
 		list_free(handle_list);
 	}
@@ -820,7 +826,7 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 	{
 		command_tag = InterXactGetTransactionSQL(tp_state, gid, missing_ok, (char**)&command);
 		Assert(command_tag != NULL && command != NULL);
-		InterXactTwoPhaseInternal(handle_list, command, command_tag, false);
+		InterXactTwoPhaseInternal(handle_list, command, command_tag, INTER_TWO_PHASE_SEND_RECV);
 		pfree(command);
 		list_free(handle_list);
 	} PG_CATCH();
@@ -833,24 +839,43 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 }
 
 static void
-InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, bool no_error)
+InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, int tp_flags)
 {
 	NodeHandle	   *handle;
 	ListCell	   *lc_handle;
 
-	foreach (lc_handle, handle_list)
+	if (tp_flags & INTER_TWO_PHASE_SEND)
 	{
-		handle = (NodeHandle *) lfirst(lc_handle);
-		if (!HandleSendQueryTree(handle, InvalidCommandId, NULL, command, NULL) ||
-			!HandleFinishCommand(handle, command_tag))
+		foreach (lc_handle, handle_list)
 		{
-			if (no_error)
-				continue;
+			handle = (NodeHandle *) lfirst(lc_handle);
+			if (!HandleSendQueryTree(handle, InvalidCommandId, NULL, command, NULL))
+			{
+				if (tp_flags & INTER_TWO_PHASE_NO_ERROR)
+					continue;
 
-			ereport(ERROR,
-					(errmsg("Fail to \"%s\" on remote node.", command),
-					 errnode(NameStr(handle->node_name)),
-					 errdetail("%s", HandleGetError(handle))));
+				ereport(ERROR,
+						(errmsg("Fail send \"%s\" to remote node \"%s\".", command, NameStr(handle->node_name)),
+						 errnode(NameStr(handle->node_name)),
+						 errdetail("%s", HandleGetError(handle))));
+			}
+		}
+	}
+	if (tp_flags & INTER_TWO_PHASE_RECV)
+	{
+		foreach (lc_handle, handle_list)
+		{
+			handle = (NodeHandle *) lfirst(lc_handle);
+			if (!HandleFinishCommand(handle, command_tag))
+			{
+				if (tp_flags & INTER_TWO_PHASE_NO_ERROR)
+					continue;
+
+				ereport(ERROR,
+						(errmsg("Fail recv \"%s\" from remote node \"%s\".", command, NameStr(handle->node_name)),
+						 errnode(NameStr(handle->node_name)),
+						 errdetail("%s", HandleGetError(handle))));
+			}
 		}
 	}
 }
