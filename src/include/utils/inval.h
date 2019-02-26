@@ -63,4 +63,9 @@ extern void CacheRegisterRelcacheCallback(RelcacheCallbackFunction func,
 extern void CallSyscacheCallbacks(int cacheid, uint32 hashvalue);
 
 extern void InvalidateSystemCaches(void);
+
+#ifdef ADB
+extern void InvalidateRemoteNode(void);
+#endif /* ADB */
+
 #endif							/* INVAL_H */

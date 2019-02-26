@@ -110,6 +110,16 @@ typedef struct
 	Oid			relId;			/* relation ID */
 } SharedInvalSnapshotMsg;
 
+#ifdef ADB
+#define SHAREDINVALNODE_ID		(-6)
+
+typedef struct
+{
+	int8		id;				/* type field --- must be first */
+	Oid			nodeId;			/* node ID, or 0 for all */
+}SharedInvalNode;
+#endif /* ADB */
+
 typedef union
 {
 	int8		id;				/* type field --- must be first */
@@ -119,6 +129,9 @@ typedef union
 	SharedInvalSmgrMsg sm;
 	SharedInvalRelmapMsg rm;
 	SharedInvalSnapshotMsg sn;
+#ifdef ADB
+	SharedInvalNode sinode;
+#endif /* ADB */
 } SharedInvalidationMessage;
 
 

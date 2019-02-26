@@ -114,6 +114,8 @@
 #ifdef ADB
 #include "catalog/pg_aux_class.h"
 #include "catalog/pgxc_class.h"
+#include "catalog/pgxc_node_d.h"
+#include "libpq/libpq-node.h"
 #endif /* ADB */
 
 
@@ -626,6 +628,12 @@ LocalExecuteInvalidationMessage(SharedInvalidationMessage *msg)
 		else if (msg->rm.dbId == MyDatabaseId)
 			InvalidateCatalogSnapshot();
 	}
+#ifdef ADB
+	else if (msg->id == SHAREDINVALNODE_ID)
+	{
+		PQNForceReleaseWhenTransactionFinish();
+	}
+#endif /* ADB */
 	else
 		elog(FATAL, "unrecognized SI message ID: %d", msg->id);
 }
@@ -1212,6 +1220,12 @@ CacheInvalidateHeapTuple(Relation relation,
 		relationId = auxtup->relid;
 		databaseId = MyDatabaseId;
 	}
+	else if (tupleRelId == PgxcNodeRelationId)
+	{
+		InvalidateRemoteNode();
+		PQNForceReleaseWhenTransactionFinish();
+		return;
+	}
 #endif /* ADB */
 	else
 		return;
@@ -1492,3 +1506,31 @@ CallSyscacheCallbacks(int cacheid, uint32 hashvalue)
 		i = ccitem->link - 1;
 	}
 }
+
+#ifdef ADB
+static void AddNodeInvalidationMessage(InvalidationListHeader *hdr, Oid nodeId)
+{
+	SharedInvalidationMessage msg;
+
+	/* Don't add a duplicate item */
+	ProcessMessageList(hdr->rclist,
+					   if (msg->sinode.id == SHAREDINVALNODE_ID &&
+						   msg->sinode.nodeId == nodeId)
+					   return);
+
+	/* OK, add the item */
+	msg.sinode.id = SHAREDINVALNODE_ID;
+	msg.sinode.nodeId = nodeId;
+	/* check AddCatcacheInvalidationMessage() for an explanation */
+	VALGRIND_MAKE_MEM_DEFINED(&msg, sizeof(msg));
+
+	AddInvalidationMessage(&hdr->rclist, &msg);
+}
+
+void InvalidateRemoteNode(void)
+{
+	AddNodeInvalidationMessage(&transInvalInfo->CurrentCmdInvalidMsgs,
+							   InvalidOid);
+}
+
+#endif /* ADB */

@@ -125,6 +125,10 @@ standby_desc_invalidations(StringInfo buf,
 			appendStringInfo(buf, " relmap db %u", msg->rm.dbId);
 		else if (msg->id == SHAREDINVALSNAPSHOT_ID)
 			appendStringInfo(buf, " snapshot %u", msg->sn.relId);
+#ifdef ADB
+		else if (msg->id == SHAREDINVALNODE_ID)
+			appendStringInfo(buf, " node %u", msg->sinode.nodeId);
+#endif /* ADB */
 		else
 			appendStringInfo(buf, " unrecognized id %d", msg->id);
 	}
