@@ -293,6 +293,7 @@ static CommandId currentCommandId;
 static bool currentCommandIdUsed;
 
 #ifdef ADB
+static bool coordCommandIdUsed;
 /*
  * Parameters for communication control of Command ID between Postgres-XC nodes.
  * isCommandIdReceived is used to determine of a command ID has been received by a remote
@@ -813,6 +814,10 @@ CommandId
 GetCurrentCommandId(bool used)
 {
 #ifdef ADB
+	return GetCurrentCommandIdCoord(used, true);
+}
+CommandId GetCurrentCommandIdCoord(bool used, bool coord_used)
+{
 	/* If coordinator has sent a command id, remote node should use it */
 	if (IsConnFromCoord() && isCommandIdReceived)
 	{
@@ -836,6 +841,10 @@ GetCurrentCommandId(bool used)
 		 */
 		Assert(!IsParallelWorker());
 		currentCommandIdUsed = true;
+#ifdef ADB
+		if (coord_used)
+			coordCommandIdUsed = true;
+#endif /* ADB */
 	}
 	return currentCommandId;
 }
@@ -2235,6 +2244,7 @@ StartTransaction(void)
 	currentCommandId = FirstCommandId;
 	currentCommandIdUsed = false;
 #ifdef ADB
+	coordCommandIdUsed = false;
 	/*
 	 * Parameters related to global command ID control for transaction.
 	 * Send the 1st command ID.
@@ -2429,6 +2439,10 @@ CommitTransaction(void)
 	TransactionState s = CurrentTransactionState;
 	TransactionId latestXid;
 	bool		is_parallel_worker;
+#ifdef ADB
+	bool		use_2pc_commit = true;
+	Oid			generated_tx_node = InvalidOid;
+#endif /* ADB */
 
 	is_parallel_worker = (s->blockState == TBLOCK_PARALLEL_INPROGRESS);
 
@@ -2472,7 +2486,35 @@ CommitTransaction(void)
 					  : XACT_EVENT_PRE_COMMIT);
 
 #if defined(ADB)
-	StartCommitRemoteXact(s);
+	if (IsGTMCnNode())
+	{
+		Oid *oids;
+		int other_node_trans_count;
+		oids = InterXactBeginNodes(s->interXactState, false, &other_node_trans_count);
+		if (other_node_trans_count == 0 || /* no other node generated transaction */
+			(coordCommandIdUsed == false && /* or only one node generated transaction */
+			 other_node_trans_count == 1))  /*    and this coordinator not generated transaction */
+		{
+			use_2pc_commit = false;
+			if (other_node_trans_count == 0)
+			{
+				generated_tx_node = InvalidOid;
+			}else
+			{
+				Assert(other_node_trans_count == 1);
+				generated_tx_node = oids[0];
+				Assert(OidIsValid(generated_tx_node));
+			}
+		}
+	}
+
+	if (use_2pc_commit)
+	{
+		StartCommitRemoteXact(s);
+	}else if(OidIsValid(generated_tx_node))
+	{
+		InterXactCommit(NULL, &generated_tx_node, 1, false);
+	}
 #endif
 
 	/*
@@ -2555,7 +2597,8 @@ CommitTransaction(void)
 	 * WAL record transaction commit, let GTM commit before send invalid message
 	 * and release locks, if at after then other session(backend) maybe use old system info
 	 */
-	EndCommitRemoteXact(s);
+	if (use_2pc_commit)
+		EndCommitRemoteXact(s);
 #endif /* ADB */
 
 	/*
