@@ -753,10 +753,10 @@ static bool WaitSnapRcvCondTransactionComplate(void *context)
 	xcnt = SnapRcv->xcnt;
 	while(xcnt>0)
 	{
-		xid = SnapRcv->xip[xcnt--];
+		xid = SnapRcv->xip[--xcnt];
 
 		/* active, wait */
-		if (xid == txid)
+		if (TransactionIdEquals(xid, txid))
 			return true;
 
 		if (NormalTransactionIdPrecedes(xmax, xid))
