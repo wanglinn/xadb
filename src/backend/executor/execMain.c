@@ -233,7 +233,14 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 				(eflags & EXEC_FLAG_UPDATE_CMD_ID) ||
 #endif /* ADB */
 				queryDesc->plannedstmt->hasModifyingCTE)
+			{
+#ifdef ADB
+				if (IsCnNode())
+					estate->es_output_cid = GetCurrentCommandIdCoord(true, false);
+				else
+#endif
 				estate->es_output_cid = GetCurrentCommandId(true);
+			}
 
 			/*
 			 * A SELECT without modifying CTEs can't possibly queue triggers,
@@ -248,6 +255,11 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 		case CMD_INSERT:
 		case CMD_DELETE:
 		case CMD_UPDATE:
+#ifdef ADB
+			if (IsCnNode())
+				estate->es_output_cid = GetCurrentCommandIdCoord(true, false);
+			else
+#endif
 			estate->es_output_cid = GetCurrentCommandId(true);
 			break;
 
