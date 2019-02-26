@@ -1174,13 +1174,16 @@ PoolManagerGetConnectionsOid(List *oidlist)
 	pq_beginmessage(&buf, PM_MSG_GET_CONNECT);
 
 	/* send agtm listen port */
-#if 0
-	val = agtm_GetListenPort();
-	if(val < 1 || val > 65535)
-		ereport(ERROR, (errmsg("Invalid agtm listen port %d", val)));
-#else
-	val = 0;
-#endif
+	if (IsGTMNode())
+	{
+		/* -1 for no GTM */
+		val = -1;
+	}else
+	{
+		val = agtm_GetListenPort();
+		if(val < 1 || val > 65535)
+			ereport(ERROR, (errmsg("Invalid agtm listen port %d", val)));
+	}
 	pool_sendint(&buf, val);
 
 	send_host_info(&buf, oidlist);

@@ -3577,7 +3577,7 @@ static struct config_int ConfigureNamesInt[] =
 			NULL
 		},
 		&AGtmPort,
-		6666, 1, 65535,
+		6666, -1, 65535,
 		check_agtm_port, NULL, NULL
 	},
 
