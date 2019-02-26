@@ -54,6 +54,7 @@ static InterXactStateData TopInterXactStateData = {
 };
 
 static void ResetInterXactState(InterXactState state);
+static const char* InterXactGetTransactionSQL(TwoPhaseState state, const char *gid, bool missing_ok, char **sql);
 static void InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool missing_ok);
 static void InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, bool no_error);
 
@@ -742,13 +743,73 @@ InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool no
 }
 
 /*
+ * InterXactGetSQL
+ * return command tag
+ */
+static const char*
+InterXactGetTransactionSQL(TwoPhaseState state, const char *gid, bool missing_ok, char **command)
+{
+	const char *command_tag = NULL;
+
+	switch (state)
+	{
+		case TP_PREPARE:
+			if (gid && gid[0])
+			{
+				if (command)
+					*command = psprintf("PREPARE TRANSACTION '%s';", gid);
+				command_tag = TRANS_PREPARE_TAG;
+			}else
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("prepare remote transaction not give id")));
+			}
+			break;
+		case TP_COMMIT:
+			if (gid && gid[0])
+			{
+				if (command)
+					*command = psprintf("COMMIT PREPARED%s '%s';",
+										missing_ok ? " IF EXISTS" : "", gid);
+				command_tag = TRANS_COMMIT_PREPARED_TAG;
+			} else
+			{
+				if (command)
+					*command = pstrdup("COMMIT TRANSACTION;");
+				command_tag = TRANS_COMMIT_TAG;
+			}
+			break;
+		case TP_ABORT:
+			if (gid && gid[0])
+			{
+				if (command)
+					*command = psprintf("ROLLBACK PREPARED%s '%s';",
+									missing_ok ? " IF EXISTS" : "", gid);
+				command_tag = TRANS_ROLLBACK_PREPARED_TAG;
+			} else
+			{
+				if (command)
+					*command = pstrdup("ROLLBACK TRANSACTION;");
+				command_tag = TRANS_ROLLBACK_TAG;
+			}
+			break;
+		default:
+			Assert(false);
+			break;
+	}
+
+	return command_tag;
+}
+
+/*
  * InterXactTwoPhase
  */
 static void
 InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, bool missing_ok)
 {
-	List		   *handle_list;
-	char		   *command = NULL;
+	List * volatile handle_list;
+	char * volatile command = NULL;
 	const char	   *command_tag;
 
 	handle_list = GetNodeHandleList(nodes, nnodes, false, false, true, NULL);
@@ -757,47 +818,10 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 
 	PG_TRY();
 	{
-		switch (tp_state)
-		{
-			case TP_PREPARE:
-				if (gid && gid[0])
-				{
-					command = psprintf("PREPARE TRANSACTION '%s';", gid);
-					command_tag = TRANS_PREPARE_TAG;
-					InterXactTwoPhaseInternal(handle_list, command, command_tag, false);
-				}
-				break;
-			case TP_COMMIT:
-				if (gid && gid[0])
-				{
-					command = psprintf("COMMIT PREPARED%s '%s';",
-									   missing_ok ? " IF EXISTS" : "", gid);
-					command_tag = TRANS_COMMIT_PREPARED_TAG;
-				} else
-				{
-					command = psprintf("COMMIT TRANSACTION;");
-					command_tag = TRANS_COMMIT_TAG;
-				}
-				InterXactTwoPhaseInternal(handle_list, command, command_tag, false);
-				break;
-			case TP_ABORT:
-				if (gid && gid[0])
-				{
-					command = psprintf("ROLLBACK PREPARED%s '%s';",
-									   missing_ok ? " IF EXISTS" : "", gid);
-					command_tag = TRANS_ROLLBACK_PREPARED_TAG;
-				} else
-				{
-					command = psprintf("ROLLBACK TRANSACTION;");
-					command_tag = TRANS_ROLLBACK_TAG;
-				}
-				InterXactTwoPhaseInternal(handle_list, command, command_tag, false);
-				break;
-			default:
-				Assert(false);
-				break;
-		}
-		safe_pfree(command);
+		command_tag = InterXactGetTransactionSQL(tp_state, gid, missing_ok, (char**)&command);
+		Assert(command_tag != NULL && command != NULL);
+		InterXactTwoPhaseInternal(handle_list, command, command_tag, false);
+		pfree(command);
 		list_free(handle_list);
 	} PG_CATCH();
 	{
