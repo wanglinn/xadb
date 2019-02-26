@@ -733,6 +733,7 @@
 #print_reduce_debug_log = false     # Print debug log of adb reduce
 #enable_cluster_plan = on
 #hash_distribute_by_hashmap_default = false	# Set default hash distribution type
+#auto_release_connect = off			# release connects for connected other nodes when transaction finish
 
 #------------------------------------------------------------------------------
 # ADB MONITOR PARAMETERS

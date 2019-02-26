@@ -582,6 +582,7 @@ bool		print_reduce_debug_log = false;
 bool		enable_aux_dml = false;
 bool		adb_slot_enable_mvcc;
 bool		hash_distribute_by_hashmap_default;
+extern bool auto_release_connect;	/* in libpq-node.c */
 #endif
 
 #ifdef DEBUG_ADB
@@ -2218,7 +2219,17 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
-#endif
+
+	{
+		{"auto_release_connect", PGC_USERSET, COORDINATORS,
+			gettext_noop("release connects for connected other nodes when transaction finish"),
+			NULL
+		},
+		&auto_release_connect,
+		false,
+		NULL, NULL, NULL
+	},
+#endif /* ADB */
 
 #ifdef DEBUG_ADB
 	{

@@ -45,12 +45,19 @@ const PQNHookFunctions PQNFalseHookFunctions =
 };
 
 static HTAB *htab_oid_pgconn = NULL;
+bool auto_release_connect = false;	/* guc */
+static bool force_release_connect = false;
 
 static void init_htab_oid_pgconn(void);
 static List* apply_for_node_use_oid(List *oid_list);
 static List* pg_conn_attach_socket(int *fds, Size n);
 static bool PQNExecFinish(PGconn *conn, const PQNHookFunctions *hook);
 static int PQNIsConnecting(PGconn *conn);
+
+void PQNForceReleaseWhenTransactionFinish()
+{
+	force_release_connect = true;
+}
 
 List *PQNGetConnUseOidList(List *oid_list)
 {
@@ -668,21 +675,42 @@ re_select_:
 
 void PQNReleaseAllConnect(void)
 {
-	HASH_SEQ_STATUS seq_status;
-	OidPGconn *op;
-	if(htab_oid_pgconn == NULL || hash_get_num_entries(htab_oid_pgconn) == 0)
+	HASH_SEQ_STATUS	seq_status;
+	OidPGconn	   *op;
+	bool			release_connect;
+
+	if (htab_oid_pgconn == NULL ||
+		hash_get_num_entries(htab_oid_pgconn) == 0)
 		return;
+
+	if (auto_release_connect ||
+		force_release_connect)
+		release_connect = true;
+	else
+		release_connect = false;
 
 	hash_seq_init(&seq_status, htab_oid_pgconn);
 	while((op = hash_seq_search(&seq_status)) != NULL)
 	{
 		PQNExecFinish_trouble(op->conn);
-		PQdetach(op->conn);
-		op->conn = NULL;
+		if (release_connect ||
+			PQtransactionStatus(op->conn) != PQTRANS_IDLE)
+		{
+			PQdetach(op->conn);
+			op->conn = NULL;
+			hash_search(htab_oid_pgconn,
+						&op->oid,
+						HASH_REMOVE,
+						NULL);
+		}
 	}
-	hash_destroy(htab_oid_pgconn);
-	htab_oid_pgconn = NULL;
-	PoolManagerReleaseConnections(false);
+	if (release_connect)
+	{
+		hash_destroy(htab_oid_pgconn);
+		htab_oid_pgconn = NULL;
+		PoolManagerReleaseConnections(false);
+		force_release_connect = false;
+	}
 }
 
 void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int elevel, bool free_result)
