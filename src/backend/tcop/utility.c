@@ -2348,7 +2348,10 @@ ProcessUtilitySlow(ParseState *pstate,
 #ifdef ADB
 				/* if function is temp, don't send create command to other nodes */
 				if (isTempNamespace(GetFunctionNamespace(address.objectId, false)) == false)
+				{
+					utilityContext.stmt = pstmt->utilityStmt;
 					ExecRemoteUtilityStmt(&utilityContext);
+				}
 #endif
 				break;
 
