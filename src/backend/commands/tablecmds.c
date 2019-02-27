@@ -955,6 +955,9 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 
 		/* Tranform the bound values */
 		pstate = make_parsestate(NULL);
+#ifdef ADB_MULTI_GRAM
+		pstate->p_grammar = stmt->grammar;
+#endif
 		pstate->p_sourcetext = queryString;
 
 		bound = transformPartitionBound(pstate, parent, stmt->partbound);
