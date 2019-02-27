@@ -274,6 +274,7 @@ static PathTarget* update_window_target(PathTarget *input_target,
 static bool rti_is_base_rel(PlannerInfo *root, Index rti);
 static bool get_path_rewind_subplan_ids(Path *path, Bitmapset **pbms);
 static Path *apply_volatile_tlist_cluster_path(PlannerInfo *root, PathTarget *target, Path *path, RelOptInfo *rel);
+static bool subquery_can_cluster_gather(PlannerInfo *root, PlannerInfo *start);
 #endif
 
 
@@ -4880,10 +4881,7 @@ create_grouping_paths(PlannerInfo *root,
 		gcontext.has_agg = parse->hasAggs;
 		gcontext.can_sort = can_sort;
 		gcontext.can_hash = can_hash;
-		gcontext.can_gather = (root->parent_root == NULL &&
-							   !expression_have_exec_param((Expr*)parse->havingQual) &&
-							   !expr_have_exec_param_and_node((Expr*)target->exprs, T_SubPlan, T_SubLink, T_Invalid) &&
-							   !expression_have_reduce_plan((Expr*)parse->havingQual, root->glob));
+		gcontext.can_gather = subquery_can_cluster_gather(root, root);
 
 		if (!no_partial)
 		{
@@ -8239,6 +8237,54 @@ static Path *apply_volatile_tlist_cluster_path(PlannerInfo *root, PathTarget *ta
 	new_path->reduce_is_valid = true;
 
 	return new_path;
+}
+
+static bool subquery_can_cluster_gather(PlannerInfo *root, PlannerInfo *start)
+{
+	bool has_subquery = false;
+	Query	*parse;
+
+	check_stack_depth();
+
+	if (root == NULL)
+		return true;
+
+	if (root != start && root->simple_rel_array_size)
+	{
+		RelOptInfo *rel;
+		int			i;
+
+		for(i=1;i<root->simple_rel_array_size;++i)
+		{
+			rel = root->simple_rel_array[i];
+			if (rel == NULL)
+				continue;
+			
+			if (IS_SIMPLE_REL(rel))
+			{
+				if (rel->rtekind == RTE_RELATION &&
+					rel->loc_info != NULL)
+				{
+					return false;
+				}
+
+				if (rel->rtekind == RTE_SUBQUERY)
+				{
+					if (has_subquery)
+						return false;
+					has_subquery = true;
+				}
+			}
+		}
+	}
+
+	parse = root->parse;
+	if (expression_have_exec_param((Expr*)parse->havingQual) ||
+		expr_have_exec_param_and_node((Expr*)parse->targetList, T_SubPlan, T_SubLink, T_Invalid) ||
+		expression_have_reduce_plan((Expr*)parse->havingQual, root->glob))
+		return false;
+
+	return subquery_can_cluster_gather(root->parent_root, start);
 }
 
 #endif /* ADB */
