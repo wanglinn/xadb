@@ -135,6 +135,9 @@ typedef struct _psqlSettings
 	int			fetch_count;
 	int			histsize;
 	int			ignoreeof;
+#ifdef ADB
+	int		retry;
+#endif
 	PSQL_ECHO	echo;
 	PSQL_ECHO_HIDDEN echo_hidden;
 	PSQL_ERROR_ROLLBACK on_error_rollback;

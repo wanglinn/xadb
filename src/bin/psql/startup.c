@@ -1134,6 +1134,21 @@ plsql_mode_hook(const char *newval)
 
 #endif /* ADB_GRAM_ORA */
 
+#ifdef ADB
+static bool
+retry_hook(const char *newval)
+{
+	return ParseVariableNum(newval, "RETRY", &pset.retry);
+}
+
+static char *
+retry_substitute_hook(char *newval)
+{
+	if (newval == NULL)
+		newval = pg_strdup("0");
+	return newval;
+}
+#endif
 
 static void
 EstablishVariableSpace(void)
@@ -1202,4 +1217,9 @@ EstablishVariableSpace(void)
 					 bool_substitute_hook,
 					 plsql_mode_hook);
 #endif /* ADB_GRAM_ORA */
+#ifdef ADB
+	SetVariableHooks(pset.vars, "RETRY",
+					retry_substitute_hook,
+					retry_hook);
+#endif
 }

@@ -1418,8 +1418,27 @@ SendQuery(const char *query)
 		results = PQexec(pset.db, query);
 
 		/* these operations are included in the timing result: */
-		ResetCancelConn();
 		OK = ProcessResult(&results);
+#ifdef ADB
+		if (!OK && pset.retry != 0)
+		{
+			int retry = pset.retry;
+			int retry_step = 1;
+			while(retry > 0)
+			{
+				PQclear(results);
+				psql_error("INFO: query retry %d time(s).\n", retry_step);
+				results = PQexec(pset.db, query);
+				if ((OK = ProcessResult(&results)) && OK)
+					break;
+				retry--;
+				retry_step++;
+				pg_usleep(10*1000L);
+			}
+
+		}
+#endif
+		ResetCancelConn();
 #ifdef ADB_GRAM_ORA
 		}
 #endif /* ADB_GRAM_ORA */
