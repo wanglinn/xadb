@@ -377,7 +377,7 @@ char *get_hostuser_from_hostoid(Oid hostOid)
 /*
 * get msg from agent
 */
-bool mgr_recv_msg_original_result(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst, bool bOriginalResult)
+bool mgr_recv_msg_original_result(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst, AGENT_RESULT_MsgTYPE resultType)
 {
 	char			msg_type;
 	StringInfoData recvbuf;
@@ -410,23 +410,20 @@ bool mgr_recv_msg_original_result(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdR
 		else if(msg_type == AGT_MSG_RESULT)
 		{
 			getAgentCmdRst->ret = true;
-			if (bOriginalResult == -1)
+			switch(resultType)
 			{
-				appendStringInfoString(&(getAgentCmdRst->description), recvbuf.data);
-			}
-			else
-			{
-				if (bOriginalResult)
-				{
+				case AGENT_RESULT_LOG:
 					appendStringInfoString(&(getAgentCmdRst->description), recvbuf.data);
 					ereport(NOTICE, (errmsg("receive msg: %s", recvbuf.data)));
 					ereport(LOG, (errmsg("receive msg: %s", recvbuf.data)));
-				}
-				else
-				{
+					break;
+				case AGENT_RESULT_DEBUG:
 					appendStringInfoString(&(getAgentCmdRst->description), run_success);
 					ereport(DEBUG1, (errmsg("receive msg: %s", recvbuf.data)));
-				}
+					break;
+				case AGENT_RESULT_MESSAGE:
+					appendStringInfoString(&(getAgentCmdRst->description), recvbuf.data);
+					break;
 			}
 			initdone = true;
 			break;
@@ -438,13 +435,13 @@ bool mgr_recv_msg_original_result(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdR
 
 bool mgr_recv_msg(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst)
 {
-	return mgr_recv_msg_original_result(ma, getAgentCmdRst, false);
+	return mgr_recv_msg_original_result(ma, getAgentCmdRst, AGENT_RESULT_DEBUG);
 }
 
 //get node size from agent
 bool mgr_recv_msg_for_nodesize(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst)
 {
-	return mgr_recv_msg_original_result(ma, getAgentCmdRst, -1);
+	return mgr_recv_msg_original_result(ma, getAgentCmdRst, AGENT_RESULT_MESSAGE);
 }
 
 /*
@@ -1557,7 +1554,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 
 	appendStringInfo(&infosendmsg, "%s/bin/pg_controldata '%s' | grep 'Minimum recovery ending location:' |awk '{print $5}'"
 				, adbhome, master_nodeinfo.nodepath);
-	resA = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB, infosendmsg.data, master_nodeinfo.nodehost, &restmsg, true);
+	resA = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB, infosendmsg.data, master_nodeinfo.nodehost, &restmsg, AGENT_RESULT_LOG);
 	if (resA)
 	{
 		if (restmsg.len == 0)
@@ -1569,7 +1566,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	resetStringInfo(&restmsg);
 	resetStringInfo(&infosendmsg);
 	appendStringInfo(&infosendmsg, "%s/bin/pg_controldata '%s' |grep 'Min recovery ending loc' |awk '{print $6}'", adbhome, master_nodeinfo.nodepath);
-	resB = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB, infosendmsg.data, master_nodeinfo.nodehost, &restmsg, true);
+	resB = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB, infosendmsg.data, master_nodeinfo.nodehost, &restmsg, AGENT_RESULT_LOG);
 	if (resB)
 	{
 		if (restmsg.len == 0)
@@ -1604,7 +1601,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 				, slave_nodeinfo.nodepath, master_nodeinfo.nodeaddr
 				, master_nodeinfo.nodeport, slave_nodeinfo.nodeusername, nodename);
 
-	res = mgr_ma_send_cmd_get_original_result(cmdtype, infosendmsg.data, slave_nodeinfo.nodehost, strinfo, true);
+	res = mgr_ma_send_cmd_get_original_result(cmdtype, infosendmsg.data, slave_nodeinfo.nodehost, strinfo, AGENT_RESULT_LOG);
 	pfree(restmsg.data);
 	pfree(infosendmsg.data);
 	pfree_AppendNodeInfo(master_nodeinfo);
@@ -1616,7 +1613,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 * send adbmgr command string to agent; if fail, the error information in strinfo
 *
 */
-bool mgr_ma_send_cmd_get_original_result(char cmdtype, char *cmdstr, Oid hostOid, StringInfo strinfo, bool bOriginalResult)
+bool mgr_ma_send_cmd_get_original_result(char cmdtype, char *cmdstr, Oid hostOid, StringInfo strinfo, AGENT_RESULT_MsgTYPE resultType)
 {
 	char *hostaddr;
 	char cmdheadstr[64];
@@ -1655,7 +1652,7 @@ bool mgr_ma_send_cmd_get_original_result(char cmdtype, char *cmdstr, Oid hostOid
 	}
 	/*check the receive msg*/
 	initStringInfo(&(getAgentCmdRst.description));
-	res = mgr_recv_msg_original_result(ma, &getAgentCmdRst, bOriginalResult);
+	res = mgr_recv_msg_original_result(ma, &getAgentCmdRst, resultType);
 	ma_close(ma);
 	appendStringInfoString(strinfo, getAgentCmdRst.description.data);
 	pfree(getAgentCmdRst.description.data);
@@ -1665,7 +1662,7 @@ bool mgr_ma_send_cmd_get_original_result(char cmdtype, char *cmdstr, Oid hostOid
 
 bool mgr_ma_send_cmd(char cmdtype, char *cmdstr, Oid hostOid, StringInfo strinfo)
 {
-	return mgr_ma_send_cmd_get_original_result(cmdtype, cmdstr, hostOid, strinfo, false);
+	return mgr_ma_send_cmd_get_original_result(cmdtype, cmdstr, hostOid, strinfo, AGENT_RESULT_DEBUG);
 }
 
 /*
@@ -4284,7 +4281,7 @@ bool mgr_update_pgxcnode_readonly_coord(void)
 			appendStringInfo(&sqlinfo, "%s", sqlstrinfodn.data);
 			appendStringInfo(&sqlinfo, "set force_parallel_mode = off; select pgxc_pool_reload();\"");
 			mgr_ma_send_cmd_get_original_result(AGT_CMD_PSQL_CMD, sqlinfo.data, mgr_node->nodehost,
-					&restmsg, true);
+					&restmsg, AGENT_RESULT_LOG);
 			if ((restmsg.len >0 && restmsg.data[0] == '\0') || restmsg.len == 0)
 			{
 				bnormal = false;

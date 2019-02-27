@@ -5787,7 +5787,7 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 	}
 
 	/*check the receive msg*/
-	execRes = mgr_recv_msg_original_result(ma, &getAgentCmdRst, false);
+	execRes = mgr_recv_msg_original_result(ma, &getAgentCmdRst, AGENT_RESULT_DEBUG);
 	if (!execRes)
 	{
 		ereport(WARNING, (errmsg("config all, create node on all coordinators fail %s",
@@ -5822,7 +5822,7 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 		goto func_end;
 	}
 	/* check the receive msg */
-	execRes = mgr_recv_msg_original_result(ma, &getAgentCmdRst, false);
+	execRes = mgr_recv_msg_original_result(ma, &getAgentCmdRst, AGENT_RESULT_DEBUG);
 	if (!execRes)
 		ereport(WARNING, (errmsg("config all, select pgxc_pool_reload() fail %s",
 		getAgentCmdRst.description.data)));
