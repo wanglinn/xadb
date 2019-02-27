@@ -141,7 +141,7 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 			resetStringInfo(&infosendmsg);
 			resetStringInfo(&restmsg);
 			appendStringInfo(&infosendmsg, " promote -D %s", nodePath);
-			mgr_ma_send_cmd_get_original_result(AGT_CMD_DN_FAILOVER, infosendmsg.data, mgr_node->nodehost, &restmsg, true);
+			mgr_ma_send_cmd_get_original_result(AGT_CMD_DN_FAILOVER, infosendmsg.data, mgr_node->nodehost, &restmsg, AGENT_RESULT_LOG);
 			if (restmsg.len != 0 && strstr(restmsg.data, "server promoted") != NULL)
 			{
 				ereport(LOG, (errmsg("promote \"%s\" %s", NameStr(mgr_node->nodename), restmsg.data)));
@@ -193,7 +193,7 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 			resetStringInfo(&infosendmsg);
 			resetStringInfo(&restmsg);
 			appendStringInfo(&infosendmsg, " promote -D %s", nodePath);
-			mgr_ma_send_cmd_get_original_result(AGT_CMD_DN_FAILOVER, infosendmsg.data, mgr_node->nodehost, &restmsg, true);
+			mgr_ma_send_cmd_get_original_result(AGT_CMD_DN_FAILOVER, infosendmsg.data, mgr_node->nodehost, &restmsg, AGENT_RESULT_LOG);
 			if (restmsg.len != 0 && strstr(restmsg.data, "server promoted") != NULL)
 			{
 				ereport(LOG, (errmsg("promote \"%s\" %s", NameStr(mgr_node->nodename), restmsg.data)));

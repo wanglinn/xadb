@@ -97,7 +97,7 @@ static bool check_pghba_exist_info(HbaInfo *checkinfo, HbaInfo *infohead);
 static char *pghba_info_parse(char *ptmp, HbaInfo *newinfo, StringInfo infoparastr);
 static bool check_hba_vaild(char * datapath, HbaInfo * info_head);
 static void cmd_get_batch_job_result(int cmd_type, StringInfo buf);
-static int cmd_get_node_folder_size(const char *basePath, bool checkSoftLink, unsigned long long *folderSize, long *pathDepth);
+static bool cmd_get_node_folder_size(const char *basePath, bool checkSoftLink, unsigned long long *folderSize, long *pathDepth);
 static void check_stack_depth(void);
 static bool stack_is_too_deep(void);
 /* max_stack_depth converted to bytes for speed of checking */
@@ -1725,7 +1725,6 @@ static void cmd_checkout_node(StringInfo msg)
 
 /**
  * @brief  analyze message
- * @note   
  * @param  msg: mgr message
  * @param  checkSoftLink: check soft link mark
  * @retval None
@@ -1740,7 +1739,7 @@ static void cmd_list_node_folder_size_msg(StringInfo msg, bool checkSoftLink)
 
 	rec_msg_string = agt_getmsgstring(msg);
 	folderSize = 0LL;
-	if (cmd_get_node_folder_size(rec_msg_string, checkSoftLink, &folderSize, &pathDepth)<0)
+	if (!cmd_get_node_folder_size(rec_msg_string, checkSoftLink, &folderSize, &pathDepth))
 	{
 		ereport(ERROR, (errmsg("count size fail.")));
 	}
@@ -1753,27 +1752,20 @@ static void cmd_list_node_folder_size_msg(StringInfo msg, bool checkSoftLink)
 }
 /**
  * @brief  get folder size
- * @note   
- * @param  *basePath: node path
- * @param  *folderSize: folder size result
- * @retval 
- */
-/**
- * @brief  get folder size
- * @note   
  * @param  *basePath: node path
  * @param  checkSoftLink: check soft link
  * @param  *folderSize: folder size result
  * @param  *pathDepth: recursive query depth
  * @retval 
  */
-static int cmd_get_node_folder_size(const char *basePath, bool checkSoftLink, unsigned long long *folderSize, long *pathDepth)
+static bool cmd_get_node_folder_size(const char *basePath, bool checkSoftLink, unsigned long long *folderSize, long *pathDepth)
 {
 	DIR *dir;
     struct dirent *ptr;
     struct stat statbuff;   //file struct
     char base[1000];    	//path
     char filePath[1000];    //path
+	mode_t st_mode;			//file type
 	
 	(*pathDepth)++;
 	check_stack_depth();	//check endless loop
@@ -1783,32 +1775,29 @@ static int cmd_get_node_folder_size(const char *basePath, bool checkSoftLink, un
     }
     while ((ptr=readdir(dir)) != NULL)
     {   
-        if(strcmp(ptr->d_name,".")==0 || strcmp(ptr->d_name,"..")==0)    //current dir OR parrent dir
+        if(strcmp(ptr->d_name,".")==0 || strcmp(ptr->d_name,"..")==0)    /*current dir OR parrent dir*/
             continue;
-        else if(ptr->d_type == 8 )     //file
-        {   
-			memset(filePath,'\0',sizeof(filePath));
-			strcpy(filePath, basePath);
-			strcat(filePath,"/");
-			strcat(filePath,ptr->d_name);
-            //get file info
-            if(stat(filePath, &statbuff) < 0){
-                ereport(ERROR, (errmsg("Open file error. current file:%s",filePath)));
-                return -2;
-            }else{
-                *folderSize += statbuff.st_size;
-            }
-        }
-		else if(ptr->d_type == 10 && checkSoftLink)  //linke
-        {
-            char buf[1024];
-            ssize_t len;
-			memset(filePath,'\0',sizeof(filePath));
-			strcpy(filePath, basePath);
-			strcat(filePath,"/");
-			strcat(filePath,ptr->d_name);
-			
-            if ((len = readlink(filePath, buf, 1024 - 1)) != -1) 	//get target file path
+
+		memset(filePath,'\0',sizeof(filePath));
+		strcpy(filePath, basePath);
+		strcat(filePath,"/");
+		strcat(filePath,ptr->d_name);
+
+		/*get file info*/
+		if(lstat(filePath, &statbuff) < 0){
+			ereport(ERROR, (errmsg("Open file error. current file:%s",filePath)));
+			return false;
+		}
+		st_mode = statbuff.st_mode;
+		if(S_ISREG(st_mode))		/*file*/
+		{
+			*folderSize += statbuff.st_size;
+		}
+		else if(S_ISLNK(st_mode) && checkSoftLink)	/*linke*/
+		{
+			char buf[1024];
+        	ssize_t len;
+			if ((len = readlink(filePath, buf, 1024 - 1)) != -1) 	/*get target file path*/
 			{
                 buf[len] = '\0';       
                 cmd_get_node_folder_size(buf, checkSoftLink, folderSize, pathDepth);
@@ -1817,18 +1806,18 @@ static int cmd_get_node_folder_size(const char *basePath, bool checkSoftLink, un
 			{
 				ereport(ERROR, (errmsg("read link file. current link file:%s", filePath)));
 			}
-        }
-        else if(ptr->d_type == 4)    //dir
-        {   
-            memset(base,'\0',sizeof(base));
+		}
+		else if(S_ISDIR(st_mode))	/*dir*/
+		{	
+			memset(base,'\0',sizeof(base));
             strcpy(base,basePath);
             strcat(base,"/");
             strcat(base,ptr->d_name);
-            cmd_get_node_folder_size(base, checkSoftLink, folderSize, pathDepth);
-        }
+			cmd_get_node_folder_size(base, checkSoftLink, folderSize, pathDepth);
+		}
     }
     closedir(dir);
-	return 0;
+	return true;
 }
 
 static bool parse_checkout_node_msg(const StringInfo msg, Name host, Name port, Name user)

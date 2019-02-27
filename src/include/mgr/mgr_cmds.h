@@ -70,6 +70,14 @@ typedef enum
 	EXTENSION_DROP
 }extension_operator;
 
+/* agent result message type */
+typedef enum AGENT_RESULT_MsgTYPE 
+{
+	AGENT_RESULT_LOG = 0,
+	AGENT_RESULT_DEBUG = 1,
+	AGENT_RESULT_MESSAGE = 2
+}AGENT_RESULT_MsgTYPE;
+
 typedef struct InitNodeInfo
 {
 	Relation rel_node;
@@ -266,8 +274,8 @@ extern bool mgr_promote_node(char cmdtype, Oid hostOid, char *path, StringInfo s
 extern bool mgr_check_node_connect(char nodetype, Oid hostOid, int nodeport);
 extern bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo);
 extern bool mgr_ma_send_cmd(char cmdtype, char *cmdstr, Oid hostOid, StringInfo strinfo);
-extern bool mgr_ma_send_cmd_get_original_result(char cmdtype, char *cmdstr, Oid hostOid, StringInfo strinfo, bool bOriginalResult);
-extern bool mgr_recv_msg_original_result(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst, bool bOriginalResult);
+extern bool mgr_ma_send_cmd_get_original_result(char cmdtype, char *cmdstr, Oid hostOid, StringInfo strinfo, AGENT_RESULT_MsgTYPE resultType);
+extern bool mgr_recv_msg_original_result(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst, AGENT_RESULT_MsgTYPE resultType);
 extern void mgr_get_cmd_head_word(char cmdtype, char *str);
 extern bool mgr_check_node_recovery_finish(char nodetype, Oid hostoid, int nodeport, char *address);
 extern char mgr_get_master_type(char nodetype);
