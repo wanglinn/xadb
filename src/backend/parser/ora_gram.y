@@ -78,6 +78,13 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 static void add_alias_if_need(List *parseTree);
 static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subselect, int location);
 #define MAKE_ANY_A_EXPR(name_, l_, r_, loc_) (Node*)makeA_Expr(AEXPR_OP_ANY, list_make1(makeString(pstrdup(name_))), l_, r_, loc_)
+
+typedef struct OraclePartitionSpec
+{
+	PartitionSpec	   *partitionSpec;
+	List			   *children;		/* list of CreateStmt */
+}OraclePartitionSpec;
+
 %}
 
 %expect 0
@@ -122,6 +129,9 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	AccessPriv			*accesspriv;
 	InsertStmt			*istmt;
 	VariableSetStmt		*vsetstmt;
+	PartitionElem		*partelem;
+	OraclePartitionSpec *partspec;
+	PartitionBoundSpec	*partboundspec;
 /* ADB_BEGIN */
 	DistributeBy		*distby;
 	PGXCSubCluster		*subclus;
@@ -299,6 +309,14 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 %type <fun_param> func_arg func_arg_with_default
 %type <fun_param_mode> arg_class
 
+%type <partspec>	PartitionSpec OptPartitionSpec
+%type <str>			part_strategy
+%type <partelem>	part_elem
+%type <list>		part_params
+%type <partboundspec> ForValues
+%type <list>		ora_part_child_list range_datum_list
+%type <node>		ora_part_child PartitionRangeDatum
+
 /* ADB_BEGIN */
 %type <distby>	OptDistributeBy
 %type <distby>	OptDistributeByInternal
@@ -334,7 +352,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	IDENTIFIED IF_P IMMEDIATE IN_P INOUT INCREMENT INDEX INITIAL_P INSERT INHERIT INITIALLY
 	INHERITS INCLUDING INDEXES INNER_P INSENSITIVE
 	IDENTITY_P INTEGER INTERSECT INTO INTERVAL INT_P IS ISOLATION
-	LAST_P
+	LAST_P LESS
 	JOIN
 	KEY
 	LEADING LEAST LEFT LEVEL LIMIT LIKE LOCAL LOCALTIMESTAMP LOCK_P LOG_P LONG_P
@@ -354,7 +372,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	SCHEMA SECOND_P SELECT SERIALIZABLE SESSION SESSIONTIMEZONE SET SHARE SHOW SIZE SEARCH
 	SMALLINT SIMPLE SETOF STATISTICS SAVEPOINT SEQUENCE SYSID SOME SCROLL
 	SNAPSHOT START STORAGE SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
-	TABLE TEMP TEMPLATE TEMPORARY THEN TIME TIMESTAMP TO TRAILING
+	TABLE TEMP TEMPLATE TEMPORARY THAN THEN TIME TIMESTAMP TO TRAILING
 	TRANSACTION TREAT TRIM TRUNCATE TRIGGER TRUE_P TABLESPACE
 	TYPE_P TEXT_P
 	UID UNCOMMITTED UNION UNIQUE UPDATE USER USING UNLOGGED
@@ -3107,7 +3125,7 @@ ConstTypename:
  *****************************************************************************/
 
 CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
-			OptInherit OptWith OnCommitOption OptTableSpace
+			OptInherit OptPartitionSpec OptWith OnCommitOption OptTableSpace
 /* ADB_BEGIN */
 			OptDistributeBy OptSubCluster
 /* ADB_END */
@@ -3119,18 +3137,23 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->tableElts = $6;
 					n->inhRelations = $8;
 					n->constraints = NIL;
-					n->options = $9;
-					n->oncommit = $10;
-					n->tablespacename = $11;
+					n->options = $10;
+					n->oncommit = $11;
+					n->tablespacename = $12;
 					n->if_not_exists = false;
 /* ADB_BEGIN */
-					n->distributeby = $12;
-					n->subcluster = $13;
+					n->distributeby = $13;
+					n->subcluster = $14;
 /* ADB_END */
+					if ($9)
+					{
+						n->partspec = $9->partitionSpec;
+						n->child_rels = $9->children;
+					}
 					$$ = (Node *)n;
 				}
 		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name '('
-			OptTableElementList ')' OptInherit OptWith OnCommitOption
+			OptTableElementList ')' OptInherit OptPartitionSpec OptWith OnCommitOption
 			OptTableSpace
 /* ADB_BEGIN */
 			OptDistributeBy OptSubCluster
@@ -3142,6 +3165,74 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->relation = $7;
 					n->tableElts = $9;
 					n->inhRelations = $11;
+					n->constraints = NIL;
+					n->options = $13;
+					n->oncommit = $14;
+					n->tablespacename = $15;
+					n->if_not_exists = true;
+/* ADB_BEGIN */
+					n->distributeby = $16;
+					n->subcluster = $17;
+					if (n->inhRelations != NULL && n->distributeby != NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
+								 parser_errposition(exprLocation((Node *) n->distributeby))));
+/* ADB_END */
+					if ($12)
+					{
+						n->partspec = $12->partitionSpec;
+						n->child_rels = $12->children;
+					}
+					$$ = (Node *)n;
+				}
+		| CREATE OptTemp TABLE qualified_name OF any_name
+			OptTypedTableElementList OptPartitionSpec OptWith OnCommitOption OptTableSpace
+/* ADB_BEGIN */
+			OptDistributeBy OptSubCluster
+/* ADB_END */
+				{
+					CreateStmt *n = makeNode(CreateStmt);
+					n->grammar = PARSE_GRAM_ORACLE;
+					$4->relpersistence = $2;
+					n->relation = $4;
+					n->tableElts = $7;
+					n->ofTypename = makeTypeNameFromNameList($6);
+					n->ofTypename->location = @6;
+					n->constraints = NIL;
+					n->options = $9;
+					n->oncommit = $10;
+					n->tablespacename = $11;
+					n->if_not_exists = false;
+/* ADB_BEGIN */
+					n->distributeby = $12;
+					n->subcluster = $13;
+					if (n->inhRelations != NULL && n->distributeby != NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
+								 parser_errposition(exprLocation((Node *) n->distributeby))));
+/* ADB_END */
+					if ($8)
+					{
+						n->partspec = $8->partitionSpec;
+						n->child_rels = $8->children;
+					}
+					$$ = (Node *)n;
+				}
+		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name OF any_name
+			OptTypedTableElementList OptPartitionSpec OptWith OnCommitOption OptTableSpace
+/* ADB_BEGIN */
+			OptDistributeBy OptSubCluster
+/* ADB_END */
+				{
+					CreateStmt *n = makeNode(CreateStmt);
+					n->grammar = PARSE_GRAM_ORACLE;
+					$7->relpersistence = $2;
+					n->relation = $7;
+					n->tableElts = $10;
+					n->ofTypename = makeTypeNameFromNameList($9);
+					n->ofTypename->location = @9;
 					n->constraints = NIL;
 					n->options = $12;
 					n->oncommit = $13;
@@ -3156,64 +3247,11 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
 								 parser_errposition(exprLocation((Node *) n->distributeby))));
 /* ADB_END */
-					$$ = (Node *)n;
-				}
-		| CREATE OptTemp TABLE qualified_name OF any_name
-			OptTypedTableElementList OptWith OnCommitOption OptTableSpace
-/* ADB_BEGIN */
-			OptDistributeBy OptSubCluster
-/* ADB_END */
-				{
-					CreateStmt *n = makeNode(CreateStmt);
-					n->grammar = PARSE_GRAM_ORACLE;
-					$4->relpersistence = $2;
-					n->relation = $4;
-					n->tableElts = $7;
-					n->ofTypename = makeTypeNameFromNameList($6);
-					n->ofTypename->location = @6;
-					n->constraints = NIL;
-					n->options = $8;
-					n->oncommit = $9;
-					n->tablespacename = $10;
-					n->if_not_exists = false;
-/* ADB_BEGIN */
-					n->distributeby = $11;
-					n->subcluster = $12;
-					if (n->inhRelations != NULL && n->distributeby != NULL)
-						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
-								 parser_errposition(exprLocation((Node *) n->distributeby))));
-/* ADB_END */
-					$$ = (Node *)n;
-				}
-		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name OF any_name
-			OptTypedTableElementList OptWith OnCommitOption OptTableSpace
-/* ADB_BEGIN */
-			OptDistributeBy OptSubCluster
-/* ADB_END */
-				{
-					CreateStmt *n = makeNode(CreateStmt);
-					n->grammar = PARSE_GRAM_ORACLE;
-					$7->relpersistence = $2;
-					n->relation = $7;
-					n->tableElts = $10;
-					n->ofTypename = makeTypeNameFromNameList($9);
-					n->ofTypename->location = @9;
-					n->constraints = NIL;
-					n->options = $11;
-					n->oncommit = $12;
-					n->tablespacename = $13;
-					n->if_not_exists = true;
-/* ADB_BEGIN */
-					n->distributeby = $14;
-					n->subcluster = $15;
-					if (n->inhRelations != NULL && n->distributeby != NULL)
-						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
-								 parser_errposition(exprLocation((Node *) n->distributeby))));
-/* ADB_END */
+					if ($11)
+					{
+						n->partspec = $11->partitionSpec;
+						n->child_rels = $11->children;
+					}
 					$$ = (Node *)n;
 				}
 		;
@@ -3254,6 +3292,162 @@ OptTemp:	TEMPORARY					{ $$ = RELPERSISTENCE_TEMP; }
 OptInherit: INHERITS '(' qualified_name_list ')'	{ $$ = $3; }
 			| /*EMPTY*/								{ $$ = NIL; }
 		;
+
+OptPartitionSpec:
+			  PartitionSpec
+				{
+					$$ = $1;
+				}
+			| PartitionSpec '(' ora_part_child_list ')'
+				{
+					$$ =  $1;
+					$$->children = $3;
+				}
+			| /*EMPTY*/
+				{
+					$$ = NULL;
+				}
+		;
+
+PartitionSpec: PARTITION BY part_strategy '(' part_params ')'
+				{
+					PartitionSpec *n = makeNode(PartitionSpec);
+
+					n->strategy = $3;
+					n->partParams = $5;
+					n->location = @1;
+
+					$$ = palloc0(sizeof(OraclePartitionSpec));
+					$$->partitionSpec = n;
+				}
+		;
+
+part_strategy:	IDENT					{ $$ = $1; }
+				| unreserved_keyword	{ $$ = pstrdup($1); }
+		;
+
+part_params:	part_elem						{ $$ = list_make1($1); }
+			| part_params ',' part_elem			{ $$ = lappend($1, $3); }
+		;
+
+part_elem: ColId opt_collate opt_class
+				{
+					PartitionElem *n = makeNode(PartitionElem);
+
+					n->name = $1;
+					n->expr = NULL;
+					n->collation = $2;
+					n->opclass = $3;
+					n->location = @1;
+					$$ = n;
+				}
+			| func_expr_windowless opt_collate opt_class
+				{
+					PartitionElem *n = makeNode(PartitionElem);
+
+					n->name = NULL;
+					n->expr = $1;
+					n->collation = $2;
+					n->opclass = $3;
+					n->location = @1;
+					$$ = n;
+				}
+			| '(' a_expr ')' opt_collate opt_class
+				{
+					PartitionElem *n = makeNode(PartitionElem);
+
+					n->name = NULL;
+					n->expr = $2;
+					n->collation = $4;
+					n->opclass = $5;
+					n->location = @1;
+					$$ = n;
+				}
+		;
+
+ora_part_child_list:
+		  ora_part_child							{ $$ = list_make1($1); }
+		| ora_part_child_list ',' ora_part_child	{ $$ = lappend($1, $3); }
+		;
+
+ora_part_child:
+		PARTITION qualified_name ForValues OptWith OnCommitOption OptTableSpace
+			{
+				CreateStmt *n = makeNode(CreateStmt);
+				n->grammar = PARSE_GRAM_ORACLE;
+				n->relation = $2;
+				n->partbound = $3;
+				n->options = $4;
+				n->oncommit = $5;
+				n->tablespacename = $6;
+
+				$$ = (Node*)n;
+			}
+		;
+
+ForValues:
+			/* a LIST partition */
+			  VALUES '(' expr_list ')'
+				{
+					PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
+
+					n->strategy = PARTITION_STRATEGY_LIST;
+					n->listdatums = $3;
+					n->location = @2;
+
+					$$ = n;
+				}
+
+			/* a RANGE partition */
+			| VALUES FROM '(' range_datum_list ')' TO '(' range_datum_list ')'
+				{
+					PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
+
+					n->strategy = PARTITION_STRATEGY_RANGE;
+					n->lowerdatums = $4;
+					n->upperdatums = $8;
+					n->location = @2;
+
+					$$ = n;
+				}
+			| VALUES LESS THAN '(' range_datum_list ')'
+				{
+						PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
+
+						n->strategy = PARTITION_STRATEGY_RANGE;
+						n->lowerdatums = NIL;
+						n->upperdatums = $5;
+						n->location = @2;
+
+						$$ = n;
+				}
+		;
+
+range_datum_list:
+			PartitionRangeDatum					{ $$ = list_make1($1); }
+			| range_datum_list ',' PartitionRangeDatum
+												{ $$ = lappend($1, $3); }
+		;
+
+PartitionRangeDatum: a_expr
+				{
+					PartitionRangeDatum *n;
+					if (!IsA($1, A_Const))
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("syntax error"),
+								 parser_errposition(@1)));
+					}
+					n = makeNode(PartitionRangeDatum);
+
+					n->kind = PARTITION_RANGE_DATUM_VALUE;
+					n->value = $1;
+					n->location = @1;
+
+					$$ = (Node *) n;
+				}
+			;
 
 create_generic_options:
 	  /* empty */						{ $$ = NIL; }
@@ -6760,6 +6954,7 @@ unreserved_keyword:
 	| ISOLATION
 	| KEY
 	| LAST_P
+	| LESS
 	| LIMIT
 	| LOCAL
 	| LOG_P
@@ -6840,6 +7035,7 @@ unreserved_keyword:
 	| TEMP
 	| TEMPLATE
 	| TEMPORARY
+	| THAN
 	| TRANSACTION
 	| TRUNCATE
 	| TYPE_P

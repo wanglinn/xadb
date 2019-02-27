@@ -931,6 +931,83 @@ pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,
 	}
 #endif
 
+#ifdef ADB_GRAM_ORA
+	if (IsA(parsetree->stmt, CreateStmt) &&
+		castNode(CreateStmt, parsetree->stmt)->grammar == PARSE_GRAM_ORACLE &&
+		castNode(CreateStmt, parsetree->stmt)->child_rels != NIL)
+	{
+		ListCell   *lc;
+		List	   *child_queries;
+		List	   *last_range_upperdatums = NIL;
+		CreateStmt *child;
+		CreateStmt *parent = castNode(CreateStmt, parsetree->stmt);
+		RawStmt	   *raw = palloc(sizeof(RawStmt));
+		memcpy(raw, parsetree, sizeof(RawStmt));
+
+		if (parent->partspec == NULL)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("relation \"%s\" is not a partition table", parent->relation->relname)));
+		}
+
+		/* user maybe using "VALUES LESS THAN (...)", it is not have min values */
+		if (pg_strcasecmp(parent->partspec->strategy, "range") == 0)
+		{
+			PartitionRangeDatum *range_datum;
+			int n = list_length(parent->partspec->partParams);
+			while(n>0)
+			{
+				range_datum = makeNode(PartitionRangeDatum);
+				range_datum->kind = PARTITION_RANGE_DATUM_MINVALUE;
+				range_datum->location = -1;
+				last_range_upperdatums = lappend(last_range_upperdatums, range_datum);
+				--n;
+			}
+		}
+
+		foreach(lc, parent->child_rels)
+		{
+			child = lfirst_node(CreateStmt, lc);
+			child->inhRelations = list_make1(parent->relation);
+			child->relation->relpersistence = parent->relation->relpersistence;
+
+			if (last_range_upperdatums != NIL)
+			{
+				PartitionBoundSpec *partbound = child->partbound;
+				if (partbound->strategy != PARTITION_STRATEGY_RANGE)
+				{
+					int pos;
+					if (partbound->location >= 0 && query_string != NULL)
+						pos = pg_mbstrlen_with_len(query_string, partbound->location) + 1;
+					else
+						pos = -1;
+
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("syntax error"),
+							 pos >= 0 ? errposition(pos):0));
+				}
+
+				if (partbound->lowerdatums == NIL)
+					partbound->lowerdatums = last_range_upperdatums;
+				last_range_upperdatums = partbound->upperdatums;
+			}
+
+			raw->stmt = (Node*)child;
+			child_queries = pg_analyze_and_rewrite_for_gram(raw,
+															query_string,
+															paramTypes,
+															numParams,
+															queryEnv,
+															PARSE_GRAM_ORACLE);
+			querytree_list = list_union(querytree_list, child_queries);
+			pfree(child_queries);
+		}
+		pfree(raw);
+	}
+#endif /* ADB_GRAM_ORA */
+
 	TRACE_POSTGRESQL_QUERY_REWRITE_DONE(query_string);
 
 	return querytree_list;
