@@ -776,3 +776,21 @@ CREATE OR REPLACE FUNCTION oracle.replace(text, text)
 --ADBONLY CLUSTER SAFE
     CALLED ON NULL INPUT;
 
+/*
+ * dbms_output schema
+ * add put_line function
+ */
+create schema IF NOT EXISTS dbms_output;
+
+create or replace function dbms_output.put_line(putout in text)
+RETURNS void AS $$
+  DECLARE
+    ret_val text;
+  BEGIN
+    ret_val:=putout;
+    RAISE NOTICE  '%',ret_val;
+  end;
+  $$
+  IMMUTABLE
+--ADBONLY CLUSTER SAFE
+  LANGUAGE PLPGSQL;
