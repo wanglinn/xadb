@@ -2777,7 +2777,7 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 							false,
 							false,
 							EXEC_ON_ALL_NODES,
-							NULL,
+							(Node *)stmt,
 							queryString,
 							NULL
 						};
