@@ -794,3 +794,11 @@ RETURNS void AS $$
   IMMUTABLE
 --ADBONLY CLUSTER SAFE
   LANGUAGE PLPGSQL;
+
+create schema IF NOT EXISTS  dbms_lock;
+create or replace function dbms_lock.sleep(sleep_second in double precision) 
+  RETURNS void  AS
+    'select pg_sleep($1);'
+  IMMUTABLE
+--ADBONLY CLUSTER SAFE
+LANGUAGE SQL;
