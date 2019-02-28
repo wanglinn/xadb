@@ -114,6 +114,7 @@ typedef struct OraclePartitionSpec
 	TypeName			*typnam;
 	FunctionParameter   *fun_param;
 	FunctionParameterMode fun_param_mode;
+	ObjectWithArgs		*objwithargs;
 	DefElem				*defelt;
 	SortBy				*sortby;
 	WindowDef			*windef;
@@ -202,6 +203,8 @@ typedef struct OraclePartitionSpec
 				opt_hold opt_nulls_order opt_column opt_set_data TableLikeOptionList
 				TableLikeOption opt_nowait_or_skip
 
+%type <objwithargs> function_with_argtypes
+
 %type <jexpr>	joined_table
 
 %type <node>	join_qual
@@ -222,6 +225,7 @@ typedef struct OraclePartitionSpec
 	definition def_list
 	explain_option_list expr_list extract_list
 	from_clause from_list func_arg_list func_args_with_defaults func_args_with_defaults_list
+	function_with_argtypes_list func_args func_args_list
 	func_alias_clause func_name for_locking_clause for_locking_items
 	group_clause
 	indirection insert_column_list interval_second index_params
@@ -250,7 +254,7 @@ typedef struct OraclePartitionSpec
 	BlockCodeStmt
 	ClosePortalStmt
 	common_table_expr columnDef columnref CreateStmt ctext_expr columnElem
-	ColConstraint ColConstraintElem ConstraintAttr CreateProcedureStmt CreateRoleStmt
+	ColConstraint ColConstraintElem ConstraintAttr CreateProcedureStmt DropProcedureStmt CreateRoleStmt
 	case_default case_expr /*case_when*/ case_when_item c_expr
 	ConstraintElem CreateSeqStmt CreateAsStmt connect_by_clause
 	DeclareCursorStmt DeleteStmt DropStmt def_arg
@@ -499,6 +503,7 @@ stmt:
 	| CreateProcedureStmt
 	| DeclareCursorStmt
 	| DeleteStmt
+	| DropProcedureStmt
 	| DropStmt
 	| ExplainStmt
 	| FetchStmt
@@ -3579,7 +3584,98 @@ where_or_current_clause:
 document_or_content: DOCUMENT_P						{ $$ = XMLOPTION_DOCUMENT; }
 			| CONTENT_P								{ $$ = XMLOPTION_CONTENT; }
 		;
-
+DropProcedureStmt:
+			DROP PROCEDURE function_with_argtypes_list opt_drop_behavior
+				{
+					DropStmt *n = makeNode(DropStmt);
+					n->removeType = OBJECT_FUNCTION;
+					n->objects = $3;
+					n->behavior = $4;
+					n->missing_ok = false;
+					n->concurrent = false;
+					$$ = (Node *)n;
+				}
+			| DROP PROCEDURE IF_P EXISTS function_with_argtypes_list opt_drop_behavior
+				{
+					DropStmt *n = makeNode(DropStmt);
+					n->removeType = OBJECT_FUNCTION;
+					n->objects = $5;
+					n->behavior = $6;
+					n->missing_ok = true;
+					n->concurrent = false;
+					$$ = (Node *)n;
+				}
+			|	DROP FUNCTION function_with_argtypes_list opt_drop_behavior
+				{
+					DropStmt *n = makeNode(DropStmt);
+					n->removeType = OBJECT_FUNCTION;
+					n->objects = $3;
+					n->behavior = $4;
+					n->missing_ok = false;
+					n->concurrent = false;
+					$$ = (Node *)n;
+				}
+			| DROP FUNCTION IF_P EXISTS function_with_argtypes_list opt_drop_behavior
+				{
+					DropStmt *n = makeNode(DropStmt);
+					n->removeType = OBJECT_FUNCTION;
+					n->objects = $5;
+					n->behavior = $6;
+					n->missing_ok = true;
+					n->concurrent = false;
+					$$ = (Node *)n;
+				}
+		;
+function_with_argtypes_list:
+			function_with_argtypes
+				{ $$ = list_make1($1); }
+			| function_with_argtypes_list ',' function_with_argtypes
+				{ $$ = lappend($1, $3); }
+		;
+function_with_argtypes:
+			func_name func_args
+				{
+					ObjectWithArgs *n = makeNode(ObjectWithArgs);
+					n->objname = $1;
+					n->objargs = extractArgTypes($2);
+					$$ = n;
+				}
+			/*
+			 * Because of reduce/reduce conflicts, we can t use func_name
+			 * below, but we can write it out the long way, which actually
+			 * allows more cases.
+			 */
+			| type_func_name_keyword
+				{
+					ObjectWithArgs *n = makeNode(ObjectWithArgs);
+					n->objname = list_make1(makeString(pstrdup($1)));
+					n->args_unspecified = true;
+					$$ = n;
+				}
+			| ColId
+				{
+					ObjectWithArgs *n = makeNode(ObjectWithArgs);
+					n->objname = list_make1(makeString($1));
+					n->args_unspecified = true;
+					$$ = n;
+				}
+			| ColId indirection
+				{
+					ObjectWithArgs *n = makeNode(ObjectWithArgs);
+					n->objname = check_func_name(lcons(makeString($1), $2),
+												  yyscanner);
+					n->args_unspecified = true;
+					$$ = n;
+				}
+		;
+func_args:	'(' func_args_list ')'					{ $$ = $2; }
+			| '(' ')'								{ $$ = NIL; }
+		;
+func_args_list:
+			func_arg								{ $$ = list_make1($1); }
+			| func_args_list ',' func_arg			{ $$ = lappend($1, $3); }
+		;
+					
 DropStmt:
 	DROP drop_type IF_P EXISTS any_name_list opt_drop_behavior DropStmt_opt_purge
 		{
