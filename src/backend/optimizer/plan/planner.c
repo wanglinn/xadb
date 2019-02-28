@@ -8284,7 +8284,11 @@ static bool subquery_can_cluster_gather(PlannerInfo *root, PlannerInfo *start)
 		expression_have_reduce_plan((Expr*)parse->havingQual, root->glob))
 		return false;
 
-	return subquery_can_cluster_gather(root->parent_root, start);
+	/*
+	 * for now, parent maybe not generated enough info,
+	 * so we just return "can not generate cluster [merge] gather"
+	 */
+	return (root->parent_root == NULL) ? true:false;
 }
 
 #endif /* ADB */
