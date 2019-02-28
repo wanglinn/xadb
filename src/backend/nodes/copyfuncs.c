@@ -3374,6 +3374,9 @@ CopyCreateStmtFields(const CreateStmt *from, CreateStmt *newnode)
 	COPY_NODE_FIELD(distributeby);
 	COPY_NODE_FIELD(subcluster);
 #endif
+#ifdef ADB_GRAM_ORA
+	COPY_NODE_FIELD(child_rels);
+#endif
 }
 
 static CreateStmt *
