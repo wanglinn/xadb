@@ -921,6 +921,12 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("Cluster plan not support CustomScan yet!")));
 		break;	/* keep compiler quiet */
+	case T_ClusterGather:
+	case T_ClusterMergeGather:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Invalid plan tree, because have one more cluster gather")));
+		break;	/* keep compiler quiet */
 	default:
 		break;
 	}
@@ -978,6 +984,12 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("Cluster plan not support CustomScan yet!")));
+		break;	/* keep compiler quiet */
+	case T_ClusterGather:
+	case T_ClusterMergeGather:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Invalid plan tree, because have one more cluster gather")));
 		break;	/* keep compiler quiet */
 	case T_Agg:
 		if (((Agg*)node)->aggsplit != AGGSPLIT_INITIAL_SERIAL &&
