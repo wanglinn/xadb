@@ -1123,6 +1123,78 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	 */
 	relation_close(rel, NoLock);
 
+#ifdef ADB_GRAM_ORA
+	if (stmt->grammar == PARSE_GRAM_ORACLE &&
+		stmt->child_rels != NIL)
+	{
+		ListCell	   *lc;
+		CreateStmt	   *child;
+		List		   *last_range_upperdatums;
+		CreateStmt		tmpStmt;
+		ObjectAddress	tmpAddr;
+
+		if (stmt->partspec == NULL)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+					 errmsg("relation \"%s\" is not a partition table", stmt->relation->relname)));
+
+		}
+
+		/* user maybe using "VALUES LESS THAN (...)", it is not have min values */
+		last_range_upperdatums = NIL;
+		if (pg_strcasecmp(stmt->partspec->strategy, "range") == 0)
+		{
+			int n = list_length(stmt->partspec->partParams);
+			while(n>0)
+			{
+				last_range_upperdatums = lappend(last_range_upperdatums,
+												 makeColumnRef("minvalue", NIL, -1, NULL));
+				--n;
+			}
+		}
+
+		foreach(lc, stmt->child_rels)
+		{
+			child = lfirst_node(CreateStmt, lc);
+			memcpy(&tmpStmt, child, sizeof(CreateStmt));
+
+			tmpStmt.inhRelations = list_make1(stmt->relation);
+			tmpStmt.relation->relpersistence = stmt->relation->relpersistence;
+
+			if (last_range_upperdatums != NIL)
+			{
+				PartitionBoundSpec *partbound = tmpStmt.partbound;
+				if (partbound->strategy != PARTITION_STRATEGY_RANGE)
+				{
+					int pos;
+					if (partbound->location >= 0 && queryString != NULL)
+						pos = pg_mbstrlen_with_len(queryString, partbound->location) + 1;
+					else
+						pos = -1;
+
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+							 errmsg("invalid bound specification for a range partition"),
+							 pos >= 0 ? errposition(pos):0));
+				}
+
+				if (partbound->lowerdatums == NIL)
+				{
+					tmpStmt.partbound = palloc(sizeof(PartitionBoundSpec));
+					memcpy(tmpStmt.partbound, child->partbound, sizeof(PartitionBoundSpec));
+					tmpStmt.partbound->lowerdatums = last_range_upperdatums;
+				}
+				last_range_upperdatums = partbound->upperdatums;
+			}
+
+			(void)DefineRelation(&tmpStmt, RELKIND_RELATION, InvalidOid, &tmpAddr, queryString);
+		}
+
+		CacheInvalidateRelcacheByRelid(relationId);
+	}
+#endif /* ADB_GRAM_ORA */
+
 	return address;
 }
 
