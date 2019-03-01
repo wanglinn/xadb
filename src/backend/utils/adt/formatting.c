@@ -6302,6 +6302,12 @@ ora_DCH_from_char(FormatNode *node, char *in, TmFromChar *out)
 				from_char_parse_int(&out->ssss, &s, n);
 				SKIP_THth(s, n->suffix);
 				break;
+#ifdef ADB_GRAM_ORA
+			case DCH_SSSSS:
+				from_char_parse_int(&out->ssss, &s, n);
+				SKIP_THth(s, n->suffix);
+				break;
+#endif
 			case DCH_tz:
 			case DCH_TZ:
 			case DCH_OF:
