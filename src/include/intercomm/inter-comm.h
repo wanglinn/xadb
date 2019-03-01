@@ -128,6 +128,8 @@ extern void InterXactUtility(InterXactState state, Snapshot snapshot, const char
 extern void InterXactBegin(InterXactState state, const List *node_list);
 extern void InterXactPrepare(const char *gid, Oid *nodes, int nnodes);
 extern void InterXactCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok);
+extern void InterXactSendCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool ignore_error);
+extern void InterXactRecvCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool ignore_error);
 extern void InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool ignore_error);
 
 extern void RemoteXactCommit(int nnodes, Oid *nodes);

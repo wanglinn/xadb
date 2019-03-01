@@ -719,6 +719,26 @@ InterXactCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok)
 	InterXactTwoPhase(gid, nodes, nnodes, TP_COMMIT, flags);
 }
 
+void InterXactSendCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool ignore_error)
+{
+	int flags = INTER_TWO_PHASE_SEND;
+	if (missing_ok)
+		flags |= INTER_TWO_PHASE_MISS_OK;
+	if (ignore_error)
+		flags |= INTER_TWO_PHASE_NO_ERROR;
+	InterXactTwoPhase(gid, nodes, nnodes, TP_COMMIT, flags);
+}
+
+void InterXactRecvCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool ignore_error)
+{
+	int flags = INTER_TWO_PHASE_RECV;
+	if (missing_ok)
+		flags |= INTER_TWO_PHASE_MISS_OK;
+	if (ignore_error)
+		flags |= INTER_TWO_PHASE_NO_ERROR;
+	InterXactTwoPhase(gid, nodes, nnodes, TP_COMMIT, flags);
+}
+
 /*
  * InterXactAbort
  *
