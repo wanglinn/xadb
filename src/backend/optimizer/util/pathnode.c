@@ -4752,9 +4752,11 @@ create_cluster_reduce_path(PlannerInfo *root,
 	crp->path.pathtype = T_ClusterReduce;
 	crp->path.reduce_info_list = rinfo_list;
 	crp->path.reduce_is_valid = true;
-	crp->path.parallel_safe = sub_path->parallel_safe;
-	crp->path.parallel_aware = sub_path->parallel_aware;
-	crp->path.parallel_workers = sub_path->parallel_workers;
+
+	/* cluster reduce not support parallel for now */
+	crp->path.parallel_safe = false;
+	crp->path.parallel_aware = false;
+	crp->path.parallel_workers = 0;
 
 	/* ClusterReducePath or "ClusterMergeReducePath" */
 	if (pathkeys_contained_in(pathkeys, sub_path->pathkeys))
