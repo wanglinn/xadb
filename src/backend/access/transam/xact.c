@@ -2513,7 +2513,7 @@ CommitTransaction(void)
 		StartCommitRemoteXact(s);
 	}else if(OidIsValid(generated_tx_node))
 	{
-		InterXactCommit(NULL, &generated_tx_node, 1, false);
+		InterXactSendCommit(NULL, &generated_tx_node, 1, false, false);
 	}
 #endif
 
@@ -2599,6 +2599,8 @@ CommitTransaction(void)
 	 */
 	if (use_2pc_commit)
 		EndCommitRemoteXact(s);
+	else if(OidIsValid(generated_tx_node))
+		InterXactRecvCommit(NULL, &generated_tx_node, 1, false, false);
 #endif /* ADB */
 
 	/*
