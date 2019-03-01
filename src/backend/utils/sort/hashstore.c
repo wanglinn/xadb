@@ -348,21 +348,26 @@ static void hashstore_put_data(Hashstorestate *state, HashStoreBufferDesc *desc,
 	{
 		page = HashStoreBufferIdGetPage(state, desc->buf_id);
 		free_size = PageGetFreeSpace(page);
-		Assert(free_size > 0);
-		offset = PageAddItemExtended(page, (Item)data, Min(free_size, len), InvalidOffsetNumber, 0);
-		if(offset == InvalidOffsetNumber)
-			ereport(ERROR, (errmsg("failed to add tuple to hash store page")));
-		desc->state |= BM_DIRTY;
+		Assert(free_size >= 0);
+		if (free_size > MAXIMUM_ALIGNOF)
+		{
+			free_size -= (free_size % MAXIMUM_ALIGNOF);
 
-		if (free_size >= len)
-			return;
+			offset = PageAddItemExtended(page, (Item)data, Min(free_size, len), InvalidOffsetNumber, 0);
+			if(offset == InvalidOffsetNumber)
+				ereport(ERROR, (errmsg("failed to add tuple to hash store page")));
+			desc->state |= BM_DIRTY;
 
-		itemid = PageGetItemId(page, offset);
-		Assert(ItemIdIsNormal(itemid));
-		ItemIdMarkMultiData(itemid);
+			if (free_size >= len)
+				return;
 
-		data += free_size;
-		len -= free_size;
+			itemid = PageGetItemId(page, offset);
+			Assert(ItemIdIsNormal(itemid));
+			ItemIdMarkMultiData(itemid);
+
+			data += free_size;
+			len -= free_size;
+		}
 		desc = hashstore_get_store_page(state, hashvalue);
 	}
 }
