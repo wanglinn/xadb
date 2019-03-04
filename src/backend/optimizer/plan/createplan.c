@@ -7414,7 +7414,8 @@ static Plan *create_reducescan_plan(PlannerInfo *root, ReduceScanPath *path, int
 	base_clauses = list_difference_ptr(path->path.parent->baserestrictinfo, path->rescan_clauses);
 	path->path.parent->baserestrictinfo = base_clauses;
 	subplan = create_plan_recurse(root, path->reducepath, flags & ~(EXEC_FLAG_REWIND|EXEC_FLAG_BACKWARD));
-	Assert(IsA(outerPlan(subplan), SeqScan));
+	Assert(IsA(outerPlan(subplan), SeqScan) ||
+		   IsA(outerPlan(subplan), CteScan));
 
 	rc = makeNode(ReduceScan);
 	outerPlan(rc) = subplan;

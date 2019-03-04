@@ -3280,22 +3280,62 @@ set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		if(final_rel->cheapest_cluster_total_path)
 		{
 			Path *cheapest_path = final_rel->cheapest_cluster_total_path;
-			Path *cluster_path = create_ctescan_path(root, rel, NULL);
+			Path *cluster_path;
 			Path *normal_path = linitial(rel->pathlist);
 			List *reduce_info_list = get_reduce_info_list(cheapest_path);
+			List *exec_param_clauses = NIL;
 
-			/* we need have diffent cost for cluster path and not cluster path */
-			normal_path->startup_cost = cteplan->startup_cost;
-			normal_path->total_cost = cteplan->total_cost;
-			cluster_path->startup_cost = cheapest_path->startup_cost;
-			cluster_path->total_cost = cheapest_path->total_cost;
-			cluster_path->rows = cheapest_path->rows;
+			if (root->must_replicate)
+			{
+				ListCell *lc;
+				foreach(lc, rel->baserestrictinfo)
+				{
+					RestrictInfo *ri = lfirst_node(RestrictInfo, lc);
+					if (expression_have_exec_param(ri->clause))
+						exec_param_clauses = lappend(exec_param_clauses, ri);
+				}
+			}
 
-			cluster_path->reduce_info_list = ConvertReduceInfoList(reduce_info_list,
-														   subroot->upper_targets[UPPERREL_FINAL],
-														   rel->relid);
-			cluster_path->reduce_is_valid = true;
-			add_cluster_path(rel, cluster_path);
+			if (exec_param_clauses)
+			{
+				List *base_clauses = list_difference(rel->baserestrictinfo, exec_param_clauses);
+				List *save_clauses = rel->baserestrictinfo;
+				rel->baserestrictinfo = base_clauses;
+				rel->baserestrictinfo = save_clauses;
+
+				cluster_path = create_ctescan_path(root, rel, NULL);
+				cluster_path->reduce_info_list = ConvertReduceInfoList(reduce_info_list,
+															subroot->upper_targets[UPPERREL_FINAL],
+															rel->relid);
+				cluster_path->reduce_is_valid = true;
+
+				cluster_path = (Path*)try_reducescan_path(root,
+														  rel,
+														  rel->reltarget,
+														  cluster_path,
+														  list_make1(MakeFinalReplicateReduceInfo()),
+														  NIL,
+														  exec_param_clauses);
+			}else
+			{
+				cluster_path = create_ctescan_path(root, rel, NULL);
+				cluster_path->reduce_info_list = ConvertReduceInfoList(reduce_info_list,
+															subroot->upper_targets[UPPERREL_FINAL],
+															rel->relid);
+				cluster_path->reduce_is_valid = true;
+			}
+
+			if (cluster_path)
+			{
+				/* we need have diffent cost for cluster path and not cluster path */
+				normal_path->startup_cost = cteplan->startup_cost;
+				normal_path->total_cost = cteplan->total_cost;
+				cluster_path->startup_cost = cheapest_path->startup_cost;
+				cluster_path->total_cost = cheapest_path->total_cost;
+				cluster_path->rows = cheapest_path->rows;
+
+				add_cluster_path(rel, cluster_path);
+			}
 		}
 	}
 #endif /* ADB */
