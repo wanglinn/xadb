@@ -4324,7 +4324,8 @@ ReduceScanPath *try_reducescan_path(PlannerInfo *root, RelOptInfo *rel, PathTarg
 	ReduceScanPath *rs;
 	Assert(restrict_list_have_exec_param(clauses) ||
 		   expression_have_exec_param((Expr*)target->exprs));
-	if (subpath->pathtype != T_SeqScan ||
+	if ((subpath->pathtype != T_SeqScan &&
+		subpath->pathtype != T_CteScan) ||
 		PATH_REQ_OUTER(subpath))
 		return NULL;
 
