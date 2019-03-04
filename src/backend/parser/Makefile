@@ -20,6 +20,9 @@ OBJS= analyze.o gram.o scan.o parser.o \
 ifeq ($(enable_grammar_oracle),yes)
 	OBJS += ora_gram.o
 endif
+ifeq ($(enable_grammar_db2),yes)
+	OBJS += db2_gram.o
+endif
 
 include $(top_srcdir)/src/backend/common.mk
 
@@ -38,6 +41,8 @@ include $(top_srcdir)/src/backend/common.mk
 gram.h: gram.c
 	touch $@
 ora_gram.h: ora_gram.c
+	touch $@
+db2_gram.h: db2_gram.c
 	touch $@
 
 gram.c: BISONFLAGS += -d
@@ -61,10 +66,23 @@ ora_gram.c: $(abs_top_srcdir)/$(subdir)/ora_gram.y drop-adb.pl modify-line.pl
 ifdef BISON
 	$(BISON) $(BISONFLAGS) -o tmp_$@ ora_gram.y
 else
-	@$(missing) bison gram.y $@
+	@$(missing) bison ora_gram.y $@
 endif
 	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_ora_gram.c ora_gram.c ora_gram.y "$<"
 	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_ora_gram.h ora_gram.h ora_gram.y "$<"
+endif
+
+db2_gram.c: BISONFLAGS += -d
+ifneq ($(enable_cluster),yes)
+db2_gram.c: $(abs_top_srcdir)/$(subdir)/db2_gram.y drop-adb.pl modify-line.pl
+	$(PERL) $(abs_top_srcdir)/$(subdir)/drop-adb.pl $< db2_gram.y
+ifdef BISON
+	$(BISON) $(BISONFLAGS) -o tmp_$@ db2_gram.y
+else
+	@$(missing) bison db2_gram.y $@
+endif
+	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_db2_gram.c db2_gram.c db2_gram.y "$<"
+	$(PERL) $(abs_top_srcdir)/$(subdir)/modify-line.pl tmp_db2_gram.h db2_gram.h db2_gram.y "$<"
 endif
 
 scan.c: FLEXFLAGS = -CF -p -p
@@ -74,9 +92,16 @@ scan.c: FLEX_FIX_WARNING=yes
 
 # Force these dependencies to be known even without dependency info built:
 gram.o ora_gram.o scan.o parser.o: gram.h
-
+ifeq ($(enable_grammar_oracle),yes)
+ora_gram.o scan.o parser.o: ora_gram.h
+endif
+ifeq ($(enable_grammar_db2),yes)
+db2_gram.o scan.o parser.o: db2_gram.h
+endif
 
 # gram.c, gram.h, and scan.c are in the distribution tarball, so they
 # are not cleaned here.
 clean distclean maintainer-clean:
-	rm -f lex.backup tmp_gram.h tmp_gram.c tmp_ora_gram.h tmp_ora_gram.c
+	rm -f lex.backup tmp_gram.h tmp_gram.c \
+	tmp_ora_gram.h tmp_ora_gram.c \
+	tmp_db2_gram.h tmp_db2_gram.c
