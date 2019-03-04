@@ -465,7 +465,12 @@ static const struct config_enum_entry adb_aux_types[] = {
 #ifdef ADB_MULTI_GRAM
 static const struct config_enum_entry parse_grammer_options[] = {
 	{"postgres", PARSE_GRAM_POSTGRES, false},
+#ifdef ADB_GRAM_ORA
 	{"oracle", PARSE_GRAM_ORACLE, false},
+#endif /* ADB_GRAM_ORA */
+#ifdef ADB_GRAM_DB2
+	{"db2", PARSE_GRAM_DB2, false},
+#endif /* ADB_GRAM_DB2 */
 	{NULL, 0, false}
 };
 #endif

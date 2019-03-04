@@ -61,6 +61,9 @@ extern List *pg_analyze_and_rewrite(RawStmt *parsetree,
 #ifdef ADB_GRAM_ORA
 extern List *ora_parse_query(const char *query_string);
 #endif
+#ifdef ADB_GRAM_DB2
+extern List *db2_parse_query(const char *query_string);
+#endif
 
 #ifdef ADB_MULTI_GRAM
 extern List *pg_analyze_and_rewrite_for_gram(RawStmt *parsetree, const char *query_string,

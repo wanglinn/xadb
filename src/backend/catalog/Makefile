@@ -60,9 +60,15 @@ else
   MYCPPFLAGS += -DNADB
 endif
 
+ifeq ($(adb_multi_gram),yes)
+  MYCPPFLAGS += -DADB_MULTI_GRAM
+endif
 ifeq ($(enable_grammar_oracle),yes)
   CATALOG_HEADERS += ora_cast.h
-  MYCPPFLAGS += -DADB_GRAM_ORA -DADB_MULTI_GRAM
+  MYCPPFLAGS += -DADB_GRAM_ORA
+endif
+ifeq ($(enable_grammar_db2),yes)
+  MYCPPFLAGS += -DADB_GRAM_DB2
 endif
 
 GENERATED_HEADERS := $(CATALOG_HEADERS:%.h=%_d.h) schemapg.h

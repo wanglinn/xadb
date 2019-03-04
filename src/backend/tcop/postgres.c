@@ -714,6 +714,9 @@ List *parse_query_auto_gram(const char *query_string, ParseGrammar *gram)
 		,{"oracle", 6, PARSE_GRAM_ORACLE}
 		,{"ora", 3, PARSE_GRAM_ORACLE}
 #endif
+#ifdef ADB_GRAM_DB2
+		,{"db2", 3, PARSE_GRAM_DB2}
+#endif
 	};
 	const char *str;
 	ParseGrammar grammer;
@@ -772,11 +775,15 @@ List *parse_query_for_gram(const char *query_string, ParseGrammar grammer)
 #ifdef ADB_GRAM_ORA
 	case PARSE_GRAM_ORACLE:
 		return ora_parse_query(query_string);
-#endif
+#endif /* ADB_GRAM_ORA */
+#ifdef ADB_GRAM_DB2
+	case PARSE_GRAM_DB2:
+		return db2_parse_query(query_string);
+#endif /* ADB_GRAM_DB2 */
 	default:
 		ereport(ERROR, (errmsg("Unknown grammar %d", grammer)
 				, errcode(ERRCODE_INTERNAL_ERROR)
-				, errhint("Use SQL:\"set grammar=postgres|oracle\" to change grammar")));
+				, errhint("Use SQL:\"set grammar=postgres|oracle|db2\" to change grammar")));
 		break;
 	}
 	return NIL;
@@ -796,9 +803,23 @@ List *parse_query_for_gram(const char *query_string, ParseGrammar grammer)
  * we've seen a COMMIT or ABORT command; when we are in abort state, other
  * commands are not processed any further than the raw parse stage.
  */
+#ifdef ADB_MULTI_GRAM
+static List *
+gram_parse_query(const char *query_string,
+				 List *(parse_fun)(const char*));
+List * pg_parse_query(const char *query_string)
+{
+	return gram_parse_query(query_string, raw_parser);
+}
+static List *
+gram_parse_query(const char *query_string,
+				 List *(parse_fun)(const char*))
+{
+#else
 List *
 pg_parse_query(const char *query_string)
 {
+#endif
 	List	   *raw_parsetree_list;
 
 	TRACE_POSTGRESQL_QUERY_PARSE_START(query_string);
@@ -806,7 +827,11 @@ pg_parse_query(const char *query_string)
 	if (log_parser_stats)
 		ResetUsage();
 
+#ifdef ADB_MULTI_GRAM
+	raw_parsetree_list = (*parse_fun)(query_string);
+#else
 	raw_parsetree_list = raw_parser(query_string);
+#endif /* ADB_MULTI_GRAM */
 
 	if (log_parser_stats)
 		ShowUsage("PARSER STATISTICS");
@@ -832,36 +857,16 @@ pg_parse_query(const char *query_string)
 #ifdef ADB_GRAM_ORA
 List *ora_parse_query(const char *query_string)
 {
-	List	   *raw_parsetree_list;
-
-	TRACE_POSTGRESQL_QUERY_PARSE_START(query_string);
-
-	if (log_parser_stats)
-		ResetUsage();
-
-	raw_parsetree_list = ora_raw_parser(query_string);
-
-	if (log_parser_stats)
-		ShowUsage("PARSER STATISTICS");
-
-#ifdef COPY_PARSE_PLAN_TREES
-	/* Optional debugging check: pass raw parsetrees through copyObject() */
-	{
-		List	   *new_list = (List *) copyObject(raw_parsetree_list);
-
-		/* This checks both copyObject() and the equal() routines... */
-		if (!equal(new_list, raw_parsetree_list))
-			elog(WARNING, "copyObject() failed to produce an equal raw parse tree");
-		else
-			raw_parsetree_list = new_list;
-	}
-#endif
-
-	TRACE_POSTGRESQL_QUERY_PARSE_DONE(query_string);
-
-	return raw_parsetree_list;
+	return gram_parse_query(query_string, ora_raw_parser);
 }
 #endif /* ADB_GRAM_ORA */
+
+#ifdef ADB_GRAM_DB2
+List *db2_parse_query(const char *query_string)
+{
+	return gram_parse_query(query_string, db2_raw_parser);
+}
+#endif /* ADB_GRAM_DB2 */
 
 /*
  * Given a raw parsetree (gram.y output), and optionally information about
