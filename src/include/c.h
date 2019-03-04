@@ -105,6 +105,7 @@
 #endif
 
 #if defined(AGTM) || defined(ADBMGRD) || defined(INITMGR) || defined(INITAGTM)
+#undef ADB_GRAM_DB2
 #undef ADB_GRAM_ORA
 #undef ADB_MULTI_GRAM
 #endif

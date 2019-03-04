@@ -38,6 +38,9 @@ extern List *raw_parser(const char *str);
 #ifdef ADB_GRAM_ORA
 extern List *ora_raw_parser(const char *str);
 #endif
+#ifdef ADB_GRAM_DB2
+extern List *db2_raw_parser(const char *str);
+#endif /* ADB_GRAM_DB2 */
 
 /* Utility functions exported by gram.y (perhaps these should be elsewhere) */
 extern List *SystemFuncName(char *name);

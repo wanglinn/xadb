@@ -15,6 +15,9 @@
 /* Define if building universal (internal helper macro) */
 #undef AC_APPLE_UNIVERSAL_BUILD
 
+/* Define to 1 to enable db2 grammar */
+#undef ADB_GRAM_DB2
+
 /* Define to 1 to enable oracle grammar */
 #undef ADB_GRAM_ORA
 

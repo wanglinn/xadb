@@ -3506,9 +3506,16 @@ void PushOverrideSearchPathForGrammar(int grammar)
 	case PARSE_GRAM_POSTGRES:
 		ns_gram = PG_CATALOG_NAMESPACE;
 		break;
+#ifdef ADB_GRAM_ORA
 	case PARSE_GRAM_ORACLE:
 		ns_gram = PG_ORACLE_NAMESPACE;
 		break;
+#endif /* ADB_GRAM_ORA */
+#ifdef ADB_GRAM_DB2
+	case PARSE_GRAM_DB2:
+		ns_gram = PG_CATALOG_NAMESPACE;
+		break;
+#endif /* ADB_GRAM_DB2 */
 	/* no default, we need a compiler a warning */
 	}
 	/* and report an error when not case all grammar */
@@ -4411,7 +4418,14 @@ Oid	get_namespace_for_gram(int grammar)
 		return PG_ORACLE_NAMESPACE;
 #else
 		break;
-#endif
+#endif /* PARSE_GRAM_ORACLE */
+	case PARSE_GRAM_DB2:
+#ifdef ADB_GRAM_DB2
+		return PG_CATALOG_NAMESPACE;
+#else
+		break;
+#endif /* ADB_GRAM_DB2 */
+
 	/* no default, need a warning */
 	}
 

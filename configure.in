@@ -208,9 +208,17 @@ PGAC_ARG_BOOL(enable,grammar-oracle, yes,
 AC_SUBST(enable_grammar_oracle)
 
 #
+# oracle grammar
+#
+PGAC_ARG_BOOL(enable,grammar-db2, yes,
+              [enable db2 grammar],
+              [AC_DEFINE(ADB_GRAM_DB2, 1, [Define to 1 to enable db2 grammar])])
+AC_SUBST(enable_grammar_db2)
+
+#
 # multi grammar
 #
-if test "$enable_grammar_oracle" = yes; then
+if test "$enable_grammar_oracle" = yes -o "$enable_grammar_db2" = yes; then
   adb_multi_gram="yes"
   AC_DEFINE(ADB_MULTI_GRAM, 1, [Define to 1 to enable AntDB multi-grammar])
 else

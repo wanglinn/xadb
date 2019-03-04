@@ -719,14 +719,20 @@ TypeName *typeStringToTypeNameForGrammar(const char *str, ParseGrammar grammar)
 	raw_parsetree_list = NIL;
 	switch(grammar)
 	{
+	case PARSE_GRAM_POSTGRES:
+		raw_parsetree_list = raw_parser(buf.data);
+		break;
 #ifdef ADB_GRAM_ORA
 	case PARSE_GRAM_ORACLE:
 		raw_parsetree_list = ora_raw_parser(buf.data);
 		break;
 #endif
-	case PARSE_GRAM_POSTGRES:
-		raw_parsetree_list = raw_parser(buf.data);
+#ifdef ADB_GRAM_DB2
+	case PARSE_GRAM_DB2:
+		raw_parsetree_list = db2_raw_parser(buf.data);
 		break;
+#endif
+
 	/* keep a compiler warning */
 	}
 #else

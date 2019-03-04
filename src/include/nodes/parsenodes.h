@@ -69,7 +69,8 @@ typedef enum SortByNulls
 typedef enum ParseGrammar
 {
 	PARSE_GRAM_POSTGRES = 0,
-	PARSE_GRAM_ORACLE
+	PARSE_GRAM_ORACLE,
+	PARSE_GRAM_DB2
 } ParseGrammar;
 
 #define IsOracleGram(gram)	((gram) == PARSE_GRAM_ORACLE)

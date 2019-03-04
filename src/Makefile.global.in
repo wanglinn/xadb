@@ -63,6 +63,7 @@ abs_top_builddir = @abs_top_builddir@
 abs_top_srcdir = @abs_top_srcdir@
 enable_cluster = @enable_cluster@
 enable_grammar_oracle = @enable_grammar_oracle@
+enable_grammar_db2 = @enable_grammar_db2@
 adb_multi_gram = @adb_multi_gram@
 
 ifneq ($(vpath_build),yes)

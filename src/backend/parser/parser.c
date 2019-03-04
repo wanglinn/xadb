@@ -144,6 +144,13 @@ List* ora_raw_parser(const char *str)
 }
 #endif /* ADB_GRAM_ORA */
 
+#ifdef ADB_GRAM_DB2
+List* db2_raw_parser(const char *str)
+{
+	return raw_parser(str);
+}
+#endif /* ADB_GRAM_ORA */
+
 /*
  * Intermediate filter between parser and core lexer (core_yylex in scan.l).
  *

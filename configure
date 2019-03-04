@@ -750,6 +750,7 @@ enable_debug
 enable_strong_random
 enable_rpath
 adb_multi_gram
+enable_grammar_db2
 enable_grammar_oracle
 enable_cluster
 default_port
@@ -818,6 +819,7 @@ enable_nls
 with_pgport
 enable_cluster
 enable_grammar_oracle
+enable_grammar_db2
 enable_rpath
 enable_spinlocks
 enable_atomics
@@ -1499,6 +1501,7 @@ Optional Features:
   --disable-cluster       enable cluster module
   --disable-grammar-oracle
                           enable oracle grammar
+  --disable-grammar-db2   enable db2 grammar
   --disable-rpath         do not embed shared library search path in
                           executables
   --disable-spinlocks     do not use spinlocks
@@ -3225,9 +3228,41 @@ fi
 
 
 #
+# oracle grammar
+#
+
+
+# Check whether --enable-grammar-db2 was given.
+if test "${enable_grammar_db2+set}" = set; then :
+  enableval=$enable_grammar_db2;
+  case $enableval in
+    yes)
+
+$as_echo "#define ADB_GRAM_DB2 1" >>confdefs.h
+
+      ;;
+    no)
+      :
+      ;;
+    *)
+      as_fn_error $? "no argument expected for --enable-grammar-db2 option" "$LINENO" 5
+      ;;
+  esac
+
+else
+  enable_grammar_db2=yes
+
+$as_echo "#define ADB_GRAM_DB2 1" >>confdefs.h
+
+fi
+
+
+
+
+#
 # multi grammar
 #
-if test "$enable_grammar_oracle" = yes; then
+if test "$enable_grammar_oracle" = yes -o "$enable_grammar_db2" = yes; then
   adb_multi_gram="yes"
 
 $as_echo "#define ADB_MULTI_GRAM 1" >>confdefs.h

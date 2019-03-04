@@ -56,9 +56,15 @@ ifeq ($(enable_cluster),yes)
   POSTGRES_BKI_SRCS += adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h adb_ha_sync_log.h adb_slot.h
   MYCPPFLAGS += -DADB
 endif
+ifeq ($(adb_multi_gram),yes)
+  MYCPPFLAGS += -DADB_MULTI_GRAM
+endif
 ifeq ($(enable_grammar_oracle),yes)
-  MYCPPFLAGS += -DADB_GRAM_ORA -DADB_MULTI_GRAM
+  MYCPPFLAGS += -DADB_GRAM_ORA
   POSTGRES_BKI_SRCS += ora_cast.h
+endif
+ifeq ($(enable_grammar_db2),yes)
+  MYCPPFLAGS += -DADB_GRAM_DB2
 endif
 
 POSTGRES_BKI_SRCS += toasting.h indexing.h
