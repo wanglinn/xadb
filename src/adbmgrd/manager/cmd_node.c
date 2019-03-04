@@ -329,7 +329,6 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 						, errmsg("the name \"%s\" is already exist in node table", NameStr(name))));
 		}
 		/* check the master exist */
-		mastertype = mgr_get_master_type(nodetype);
 		if (mastertype != nodetype)
 		{
 			if (CNDN_TYPE_COORDINATOR_SLAVE == nodetype)
@@ -355,6 +354,13 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 				heap_freetuple(checktuple);
 				ereport(ERROR, (errcode(ERRCODE_DUPLICATE_OBJECT)
 					,errmsg("not support add the node of coordinator slave for coordinator slave")));
+			}
+			if ((nodetype == CNDN_TYPE_DATANODE_SLAVE && CNDN_TYPE_DATANODE_MASTER != mgr_node->nodetype)
+					|| (nodetype == GTM_TYPE_GTM_SLAVE && GTM_TYPE_GTM_MASTER != mgr_node->nodetype))
+			{
+				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+					, errmsg("the type of node \"%s\" is not %s"
+						, NameStr(mastername), mgr_nodetype_str(mastertype))));
 			}
 			if ((strcmp(zoneData.data, NameStr(mgr_node->nodezone))!=0)
 				&& mgr_node_has_slave_inzone(rel, zoneData.data, masterTupleOid))

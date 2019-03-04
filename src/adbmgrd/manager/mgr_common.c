@@ -2388,6 +2388,8 @@ char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype)
 	Relation relNode;
 	HeapScanDesc relScan;
 	char *masterName = NULL;
+	char mastertype;
+	char checkmtype;
 
 	namestrcpy(&nodenameData, nodename);
 	ScanKeyInit(&key[0],
@@ -2417,6 +2419,7 @@ char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype)
 		}
 		mgr_nodem = (Form_mgr_node)GETSTRUCT(masterTuple);
 		Assert(mgr_nodem);
+		mastertype = mgr_nodem->nodetype;
 		masterName = pstrdup(NameStr(mgr_nodem->nodename));
 		ReleaseSysCache(masterTuple);
 		break;
@@ -2427,6 +2430,11 @@ char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype)
 	if (masterName == NULL)
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 			,errmsg("the master of node \"%s\" does not exist", nodename)));
+	checkmtype = mgr_get_master_type(nodetype);
+	if (mastertype != checkmtype)
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+			,errmsg("the type of node \"%s\" is not %s", masterName, mgr_nodetype_str(checkmtype))));
+
 	return masterName;
 }
 
