@@ -1614,11 +1614,7 @@ TruncateRelation(Relation rel, SubTransactionId mySubid)
  */
 
 void
-#ifdef ADB
-ExecuteTruncate(TruncateStmt *stmt, const char *sql_statement)
-#else
-ExecuteTruncate(TruncateStmt *stmt)
-#endif
+ExecuteTruncate(TruncateStmt *stmt ADB_ONLY_COMMA_ARG2(const char *sql_statement, PlannedStmt *pstmt))
 {
 	List	   *rels = NIL;
 	List	   *relids = NIL;
@@ -1747,6 +1743,8 @@ ExecuteTruncate(TruncateStmt *stmt)
 	if (IsCnMaster() && !has_temp)
 	{
 		RemoteQuery *step = makeNode(RemoteQuery);
+		RawStmt raw;
+		StringInfoData sql_node;
 
 		step->combine_type = COMBINE_TYPE_SAME;
 		step->exec_nodes = NULL;
@@ -1754,7 +1752,15 @@ ExecuteTruncate(TruncateStmt *stmt)
 		step->force_autocommit = false;
 		step->exec_type = EXEC_ON_ALL_NODES;
 		step->is_temp = false;
+		NodeSetTag(&raw, T_RawStmt);
+		raw.stmt = (Node*)stmt;
+		raw.stmt_location = pstmt->stmt_location;
+		raw.stmt_len = pstmt->stmt_len;
+		initStringInfo(&sql_node);
+		saveNode(&sql_node, (Node*)&raw);
+		step->sql_node = &sql_node;
 		(void) ExecInterXactUtility(step, GetCurrentInterXactState());
+		pfree(sql_node.data);
 		pfree(step->sql_statement);
 		pfree(step);
 	}

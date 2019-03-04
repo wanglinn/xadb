@@ -56,13 +56,12 @@ extern void CheckTableNotInUse(Relation rel, const char *stmt);
 extern void CheckTableNotAux(Relation rel, const char *stmt);
 
 extern void TruncateRelation(Relation rel, SubTransactionId mySubid);
-
-extern void ExecuteTruncate(TruncateStmt *stmt, const char *sql_statement);
-#else
-extern void ExecuteTruncate(TruncateStmt *stmt);
+struct PlannedStmt;
 #endif
 extern void ExecuteTruncateGuts(List *explicit_rels, List *relids, List *relids_logged,
 					DropBehavior behavior, bool restart_seqs);
+
+extern void ExecuteTruncate(TruncateStmt *stmt ADB_ONLY_COMMA_ARG2(const char *sql_statement, struct PlannedStmt *pstmt));
 
 extern void SetRelationHasSubclass(Oid relationId, bool relhassubclass);
 

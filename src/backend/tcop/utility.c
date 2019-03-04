@@ -727,16 +727,12 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			break;
 
 		case T_TruncateStmt:
-#ifdef ADB
 			/*
 			 * In Postgres-XC, TRUNCATE needs to be launched to remote nodes
 			 * before AFTER triggers. As this needs an internal control it is
 			 * managed by this function internally.
 			 */
-			ExecuteTruncate((TruncateStmt *) parsetree, this_query_str);
-#else
-			ExecuteTruncate((TruncateStmt *) parsetree);
-#endif
+			ExecuteTruncate((TruncateStmt *) parsetree ADB_ONLY_COMMA_ARG2(this_query_str, pstmt));
 			break;
 
 		case T_CopyStmt:
