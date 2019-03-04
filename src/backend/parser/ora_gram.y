@@ -390,7 +390,7 @@ typedef struct OraclePartitionSpec
 /*
  * same specific token
  */
-%token	ORACLE_JOIN_OP CONNECT_BY CONNECT_BY_NOCYCLE NULLS_LA
+%token	ORACLE_JOIN_OP CONNECT_BY CONNECT_BY_NOCYCLE NULLS_LA DROP_PARTITION
 
 /* Precedence: lowest to highest */
 %right	RETURN_P RETURNING PRIMARY
@@ -1040,7 +1040,7 @@ RenameStmt: ALTER INDEX qualified_name RENAME TO name
  *	ALTER [ TABLE | INDEX | SEQUENCE | VIEW | MATERIALIZED VIEW ] variations
  *
  * Note: we accept all subcommands for each of the five variants, and sort
- * out what's really legal at execution time.
+ * out what s really legal at execution time.
  *****************************************************************************/
 
 AlterTableStmt:
@@ -1104,6 +1104,27 @@ AlterTableStmt:
 					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
+			/* ALTER TABLE <table_name> DROP PARTITION sub_table_name */
+			|	ALTER TABLE relation_expr DROP_PARTITION any_name_list
+				{
+					DropStmt *n = makeNode(DropStmt);
+					n->removeType = OBJECT_TABLE;
+					n->missing_ok = FALSE;
+					n->objects = $5;
+					n->behavior = DROP_RESTRICT;
+					n->concurrent = false;
+					$$ = (Node *)n;
+				}
+			/*|ALTER TABLE <table_name> TRUNCATE PARTITION sub_table_name */
+			| ALTER TABLE relation_expr TRUNCATE PARTITION relation_expr_list
+				{
+					TruncateStmt *n = makeNode(TruncateStmt);
+					n->relations = $6;
+					n->restart_seqs = false;
+					n->behavior = DROP_RESTRICT;
+					$$ = (Node *)n;
+				}
+
 		;
 
 alter_table_cmds:
@@ -7451,6 +7472,16 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 			PUSH_LOOKAHEAD(&look1);
 		}
 		break;
+	case DROP:
+		LEX_LOOKAHEAD(&look1);
+		if (look1.token == PARTITION)
+		{
+			cur_token = DROP_PARTITION;
+		}else
+		{
+			PUSH_LOOKAHEAD(&look1);
+		}
+		break;	
 	case ';':
 		yyextra->parsing_first_token = true;
 		break;

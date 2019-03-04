@@ -62,6 +62,10 @@ typedef struct
 	AppendRelInfo *appinfo;
 } adjust_appendrel_attrs_context;
 
+#ifdef ADB
+static int get_reduce_union_path(PlannerInfo *root, Path *path, void *context);
+#endif /* ADB */
+
 static RelOptInfo *recurse_set_operations(Node *setOp, PlannerInfo *root,
 					   List *colTypes, List *colCollations,
 					   bool junkOK,
@@ -765,9 +769,11 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 	{
 		ListCell *lc;
 		ListCell *lc2;
+		bool isReduceInfoListIncludeExpr = false;
 		List *all_paths = result_rel->cluster_pathlist;
 		result_rel->cluster_pathlist = NIL;
 		result_rel->cluster_partial_pathlist = NIL;
+
 		foreach(lc, all_paths)
 		{
 			Path *subpath = lfirst(lc);
@@ -782,13 +788,47 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 			}
 			foreach(lc2, tlist)
 			{
-				if (ReduceInfoListIncludeExpr(reduce_info_list, lfirst(lc2)))
+				if (ReduceInfoListIncludeExpr(reduce_info_list, ((TargetEntry *)lfirst(lc2))->expr))
 				{
 					Path *path = make_union_unique(op, lfirst(lc), tlist, root);
 					path->reduce_info_list = reduce_info_list;
 					path->reduce_is_valid = true;
 					add_cluster_path(result_rel, path);
+					isReduceInfoListIncludeExpr = true;
 				}
+			}
+		}
+		/* There are no shard key in the expr */
+		if(!isReduceInfoListIncludeExpr)
+		{
+			foreach(lc, all_paths)
+			{	
+				Path *subpath = lfirst(lc);
+				Path *reducePath;
+				Path *unionPath;
+				List *storage_list;
+
+				ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(subpath),
+																&storage_list,
+																NULL);
+				/* Create a new reduce path with exprs */
+				ReducePathByExpr((Expr*)(subpath->pathtarget->exprs),
+									root,
+									result_rel,
+									subpath,
+									storage_list,
+									NIL,
+									get_reduce_union_path,
+									(void*)&reducePath,
+									REDUCE_TYPE_HASH,
+									//REDUCE_TYPE_HASHMAP,
+									REDUCE_TYPE_MODULO,
+									REDUCE_TYPE_NONE);
+				
+				unionPath = make_union_unique(op, reducePath, tlist, root);
+				unionPath->reduce_info_list = get_reduce_info_list(reducePath);
+				unionPath->reduce_is_valid = true;
+				add_cluster_path(result_rel, unionPath);
 			}
 		}
 	}
@@ -2382,3 +2422,11 @@ adjust_appendrel_attrs_multilevel(PlannerInfo *root, Node *node,
 	/* Now translate for this child */
 	return adjust_appendrel_attrs(root, node, appinfo);
 }
+
+#ifdef ADB
+static int get_reduce_union_path(PlannerInfo *root, Path *reducePath, void *context)
+{	
+	*((Path**)context) = reducePath;
+	return 0;
+}
+#endif /* ADB */
