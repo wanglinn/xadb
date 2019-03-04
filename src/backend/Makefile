@@ -144,6 +144,9 @@ parser/gram.h: parser/gram.y
 parser/ora_gram.h: parser/ora_gram.y
 	$(MAKE) -C parser ora_gram.h
 
+parser/db2_gram.h: parser/db2_gram.y
+	$(MAKE) -C parser db2_gram.h
+
 storage/lmgr/lwlocknames.h: storage/lmgr/generate-lwlocknames.pl storage/lmgr/lwlocknames.txt
 	$(MAKE) -C storage/lmgr lwlocknames.h lwlocknames.c
 
@@ -178,6 +181,11 @@ $(top_builddir)/src/include/parser/gram.h: parser/gram.h
 	  $(LN_S) "$$prereqdir/$(notdir $<)" .
 
 $(top_builddir)/src/include/parser/ora_gram.h: parser/ora_gram.h
+	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
+	  cd '$(dir $@)' && rm -f $(notdir $@) && \
+	  $(LN_S) "$$prereqdir/$(notdir $<)" .
+
+$(top_builddir)/src/include/parser/db2_gram.h: parser/db2_gram.h
 	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
 	  cd '$(dir $@)' && rm -f $(notdir $@) && \
 	  $(LN_S) "$$prereqdir/$(notdir $<)" .

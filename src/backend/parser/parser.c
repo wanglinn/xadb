@@ -39,8 +39,13 @@
 #include "miscadmin.h"
 #include "parser/ora_gramparse.h"
 #include "parser/parse_target.h"
+#endif /* ADB_GRAM_ORA */
 
+#ifdef ADB_GRAM_DB2
+#include "parser/db2_gramparse.h"
+#endif /* ADB_GRAM_DB2 */
 
+#ifdef ADB_GRAM_ORA
 typedef enum MutatorConnectByExprKind
 {
 	 MCBEK_LEFT = 1
@@ -145,9 +150,56 @@ List* ora_raw_parser(const char *str)
 #endif /* ADB_GRAM_ORA */
 
 #ifdef ADB_GRAM_DB2
+static List* db2_yyparse_internal(const char *str, core_yyscan_t yyscanner)
+{
+	List *stmts = NIL;;
+	MemoryContext volatile oldcontext = CurrentMemoryContext;
+
+	PG_TRY();
+	{
+		if (db2_yyparse(yyscanner) != 0)
+			stmts = NIL;
+		else
+			stmts = db2_yyget_extra(yyscanner)->parsetree;
+	}PG_CATCH();
+	{
+		ErrorData  *edata;
+
+		/* Save error info in our stmt_mcontext */
+		MemoryContextSwitchTo(oldcontext);
+		edata = CopyErrorData();
+		FlushErrorState();
+
+		if (edata->sqlerrcode != ERRCODE_SYNTAX_ERROR)
+			ReThrowError(edata);
+		
+		stmts = raw_parser(str);
+	}PG_END_TRY();
+
+	return stmts;
+}
+
 List* db2_raw_parser(const char *str)
 {
-	return raw_parser(str);
+	List *stmts;
+	core_yyscan_t yyscanner;
+	db2_yy_extra_type yyextra;
+
+	/* initialize the flex scanner */
+	yyscanner = scanner_init(str, &yyextra.core_yy_extra,
+							 db2ScanKeywords, db2NumScanKeywords);
+
+	/* initialize the bison parser */
+	db2_parser_init(&yyextra);
+
+	/* Parse! */
+	//yyresult = db2_yyparse(yyscanner);
+	stmts = db2_yyparse_internal(str, yyscanner);
+
+	/* Clean up (release memory) */
+	scanner_finish(yyscanner);
+
+	return stmts;
 }
 #endif /* ADB_GRAM_ORA */
 

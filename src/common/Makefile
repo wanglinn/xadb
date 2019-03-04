@@ -55,6 +55,9 @@ OBJS_FRONTEND = $(OBJS_COMMON) fe_memutils.o file_utils.o restricted_token.o
 ifeq ($(enable_grammar_oracle),yes)
   OBJS_FRONTEND += ora_keywords.o
 endif
+ifeq ($(enable_grammar_db2),yes)
+  OBJS_FRONTEND += db2_keywords.o
+endif
 
 OBJS_PG_FRONTEND = $(OBJS_FRONTEND:%.o=%_pg.o)
 
@@ -62,6 +65,10 @@ OBJS_SRV = $(OBJS_COMMON:%.o=%_srv.o)
 ifeq ($(enable_grammar_oracle),yes)
   OBJS_SRV += ora_keywords_srv.o
 endif
+ifeq ($(enable_grammar_db2),yes)
+  OBJS_SRV += db2_keywords_srv.o
+endif
+
 
 OBJS_MGR = $(OBJS_COMMON:%.o=%_mgr.o)
 
@@ -127,11 +134,13 @@ $(top_builddir)/src/include/parser/gram.h: $(top_srcdir)/src/backend/parser/gram
 	$(MAKE) -C $(top_builddir)/src/backend $(top_builddir)/src/include/parser/gram.h
 $(top_builddir)/src/include/parser/ora_gram.h: $(top_srcdir)/src/backend/parser/ora_gram.y
 	$(MAKE) -C $(top_builddir)/src/backend $(top_builddir)/src/include/parser/ora_gram.h
+$(top_builddir)/src/include/parser/db2_gram.h: $(top_srcdir)/src/backend/parser/db2_gram.y
+	$(MAKE) -C $(top_builddir)/src/backend $(top_builddir)/src/include/parser/db2_gram.h
 $(top_builddir)/src/adbmgrd/include/parser/gram.h: $(top_srcdir)/src/backend/parser/gram.y
 	$(MAKE) -C $(top_builddir)/src/adbmgrd $@
 
 ifeq ($(enable_grammar_oracle),yes)
-keywords.o: $(top_srcdir)/src/include/parser/kwlist.h $(top_builddir)/src/include/parser/ora_gram.h
+keywords.o: $(top_srcdir)/src/include/parser/kwlist.h
 else
 keywords.o: $(top_srcdir)/src/include/parser/kwlist.h
 endif
@@ -139,6 +148,7 @@ keywords_srv.o: $(top_builddir)/src/include/parser/gram.h $(top_srcdir)/src/incl
 keywords_mgr.o: $(top_builddir)/src/adbmgrd/include/parser/gram.h
 
 ora_keywords.o: $(top_srcdir)/src/include/parser/ora_kwlist.h $(top_builddir)/src/include/parser/ora_gram.h
+db2_keywords.o: $(top_srcdir)/src/include/parser/db2_kwlist.h $(top_builddir)/src/include/parser/db2_gram.h
 
 clean distclean maintainer-clean:
 	rm -f libpgcommon.a libpgcommon_srv.a $(OBJS_FRONTEND) $(OBJS_SRV)
