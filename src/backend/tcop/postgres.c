@@ -4758,7 +4758,7 @@ PostgresMain(int argc, char *argv[],
 		ResetNodeExecutor();
 
 		/* Make sure the old PGconn will dump the trash data */
-		PQNReleaseAllConnect();
+		PQNReleaseAllConnect(true);
 #endif
 
 		if (am_walsender)
@@ -4842,7 +4842,7 @@ PostgresMain(int argc, char *argv[],
 			ResetNodeExecutor();
 
 			/* Make sure the old PGconn will dump the trash data */
-			PQNReleaseAllConnect();
+			PQNReleaseAllConnect(false);
 		}
 #endif
 		/*
