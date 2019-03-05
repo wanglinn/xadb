@@ -44,6 +44,7 @@ const PQNHookFunctions PQNFalseHookFunctions =
 	PQNDefHookResult
 };
 
+extern char *PGXCNodeName;	/* GUC */
 static HTAB *htab_oid_pgconn = NULL;
 bool auto_release_connect = false;	/* guc */
 static bool force_release_connect = false;
@@ -124,7 +125,7 @@ static List* apply_for_node_use_oid(List *oid_list)
 	List *result = NIL;
 	ListCell *lc, *lc2;
 	OidPGconn *op;
-	const char *ver_str;
+	const char *param_str;
 
 	foreach(lc, oid_list)
 	{
@@ -167,13 +168,22 @@ static List* apply_for_node_use_oid(List *oid_list)
 				op->conn = linitial(conn_list);
 				op->type = '\0';
 				conn_list = list_delete_first(conn_list);
-				ver_str = PQparameterStatus(op->conn, "adb_version");
-				if (ver_str &&
-					strcmp(ver_str, ADB_VERSION) != 0)
+
+				param_str = PQparameterStatus(op->conn, "adb_version");
+				if (param_str &&
+					strcmp(param_str, ADB_VERSION) != 0)
 				{
 					ereport(ERROR,
 							(errmsg("node %u version is \"%s\" not same to coordinator version \"%s\"",
-									lfirst_oid(lc), ver_str, ADB_VERSION)));
+									lfirst_oid(lc), param_str, ADB_VERSION)));
+				}
+
+				param_str = PQparameterStatus(op->conn, "pgxc_node_name");
+				if (param_str && pg_strcasecmp(param_str, PGXCNodeName) == 0)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_DUPLICATE_OBJECT),
+							 errmsg("duplicate pgxc_node_name \"%s\"", param_str)));
 				}
 			}
 		}PG_CATCH();
