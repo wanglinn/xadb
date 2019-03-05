@@ -822,14 +822,16 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	mgr_add_parm(s_coordname, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
 	mgr_append_pgconf_paras_str_int("port", dest_nodeinfo.nodeport, &infosendmsg);
 	mgr_append_pgconf_paras_str_str("hot_standby", "on", &infosendmsg);
-	ereport(LOG, (errmsg("update port=%d, hot_standby=on in postgresql.conf of coordinator \"%s\"", dest_nodeinfo.nodeport, s_coordname)));
-	ereport(NOTICE, (errmsg("update port=%d, hot_standby=on in postgresql.conf of coordinator \"%s\"", dest_nodeinfo.nodeport, s_coordname)));
+	ereport(LOG, (errmsg("update port=%d, hot_standby=on in postgresql.conf of coordinator \"%s\""
+		, dest_nodeinfo.nodeport, s_coordname)));
+	ereport(NOTICE, (errmsg("update port=%d, hot_standby=on in postgresql.conf of coordinator \"%s\""
+		, dest_nodeinfo.nodeport, s_coordname)));
 	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, dest_nodeinfo.nodepath, &infosendmsg, dest_nodeinfo.nodehost, &getAgentCmdRst);
 	if (!getAgentCmdRst.ret)
 	{
 		appendStringInfo(&strerr, "update \"port=%d, hot_standby=on\" in postgresql.conf of coordinator \"%s\" fail, %s\n"
 		, dest_nodeinfo.nodeport, s_coordname, getAgentCmdRst.description.data);
-		ereport(WARNING, (errmsg("update port=%d, hot_standby=on in postgresql.conf of coordinator \"%s\" fail, %s"
+		ereport(WARNING, (errmsg("update port=%d, hot_standby=on\" in postgresql.conf of coordinator \"%s\" fail, %s"
 		, dest_nodeinfo.nodeport, s_coordname, getAgentCmdRst.description.data)));
 	}
 	/* update recovery.conf of coordinator*/
@@ -892,7 +894,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		if (!(mgr_node->nodeincluster == true || ObjectIdGetDatum(tuple) == dest_nodeinfo.tupleoid))
+		if ((mgr_node->nodeincluster != true) && (HeapTupleGetOid(tuple) != dest_nodeinfo.tupleoid))
 			continue;
 		nodetypestr = mgr_nodetype_str(mgr_node->nodetype);
 		resetStringInfo(&(getAgentCmdRst.description));
@@ -903,7 +905,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", AGTM_USER, dest_nodeinfo.nodeaddr
 				, 32, "trust", &infosendmsg);
 		else
-			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", dest_nodeinfo.nodeusername, dest_nodeinfo.nodeaddr, 32, "trust"
+			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", dest_nodeinfo.nodeaddr, 32, "trust"
 			, &infosendmsg);
 		datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel_node), &isNull);
 		if(isNull)
@@ -1177,12 +1179,6 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		if (!rest)
 			ereport(ERROR, (errmsg("create node \"%s\" on all coordiantors in cluster fail", s_coordname)));
 
-		resetStringInfo(&infosendmsg);
-		appendStringInfo(&infosendmsg, "SELECT PGXC_POOL_RELOAD();");
-		rest = mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_TUPLES_OK, &strerr);
-		if (!rest)
-			ereport(ERROR, (errmsg("execute \"SELECT PGXC_POOL_RELOAD()\" on all coordiantors in cluster fail")));
-
 		/*check xlog position again*/
 		ereport(LOG, (errmsg("wait max %d seconds to check coordinator \"%s\", \"%s\" have the same xlog position"
 			, iMax, m_nodename.data, s_coordname)));
@@ -1236,13 +1232,15 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		}
 
 		/*set the coordinator*/
-		ereport(LOG, (errmsg("on coordinator \"%s\", set hot_standby=off", s_coordname)));
-		resetStringInfo(&infosendmsg);
-		ereport(NOTICE, (errmsg("on coordinator \"%s\", set hot_standby=off", s_coordname)));
+		ereport(LOG, (errmsg("on coordinator \"%s\", set hot_standby=off, pgxc_node_name='%s'"
+			, s_coordname, s_coordname)));
+		ereport(NOTICE, (errmsg("on coordinator \"%s\", set hot_standby=off, pgxc_node_name='%s'"
+			, s_coordname, s_coordname)));
 		resetStringInfo(&infosendmsg);
 		resetStringInfo(&(getAgentCmdRst.description));
 		mgr_add_parm(s_coordname, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
 		mgr_append_pgconf_paras_str_str("hot_standby", "off", &infosendmsg);
+		mgr_append_pgconf_paras_str_str("pgxc_node_name", s_coordname, &infosendmsg);
 		/* for read only coordinator */
 		if (mgr_get_coord_readtype(s_coordname))
 			mgr_append_pgconf_paras_str_str("default_transaction_read_only", "on", &infosendmsg);
@@ -1277,6 +1275,12 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 				(errmsg("the coordinator \"%s\" is not running normal", s_coordname),
 					errhint("try \"monitor all\" to check the nodes status")));
 		}
+
+		resetStringInfo(&infosendmsg);
+		appendStringInfo(&infosendmsg, "SELECT PGXC_POOL_RELOAD();");
+		rest = mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_TUPLES_OK, &strerr);
+		if (!rest)
+			ereport(ERROR, (errmsg("execute \"SELECT PGXC_POOL_RELOAD()\" on all coordiantors in cluster fail")));
 
 	}PG_CATCH();
 	{

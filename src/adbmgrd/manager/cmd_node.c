@@ -134,7 +134,7 @@ static void mgr_pg_dumpall_input_node(const Oid dn_master_oid, const int32 dn_ma
 static void mgr_rm_dumpall_temp_file(Oid dnhostoid,char *temp_file);
 static void mgr_start_node_with_restoremode(const char *nodepath, Oid hostoid, char nodetype);
 static void mgr_create_node_on_all_coord(PG_FUNCTION_ARGS, char nodetype, char *dnname, Oid dnhostoid, int32 dnport);
-static void mgr_drop_node_on_all_coord(char nodetype, char *nodename);
+static bool mgr_drop_node_on_all_coord(char nodetype, char *nodename);
 static void mgr_set_inited_incluster(char *nodename, char nodetype, bool checkvalue, bool setvalue);
 static void mgr_add_hbaconf_all(char *dnusername, char *dnaddr, bool check_incluster);
 static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relation noderel, GetAgentCmdRst *getAgentCmdRst, HeapTuple aimtuple, char *cndnPath, PGconn **pg_conn, Oid cnoid);
@@ -202,7 +202,7 @@ static bool mgr_check_syncstate_node_exist(Relation rel, Oid masterTupleOid, int
 static bool mgr_check_node_path(Relation rel, Oid hostoid, char *path);
 static bool mgr_check_node_port(Relation rel, Oid hostoid, int port);
 static void mgr_update_one_potential_to_sync(Relation rel, Oid mastertupleoid, bool bincluster, bool excludeoid);
-static void exec_remove_coordinator(char *nodename);
+static bool exec_remove_coordinator(char *nodename);
 
 static bool get_local_ip(Name local_ip);
 extern HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, int32 nodeport, const char *nodepath, int64 nodesize);
@@ -4791,7 +4791,7 @@ static void mgr_create_node_on_all_coord(PG_FUNCTION_ARGS, char nodetype, char *
 	the coordinator from pgxc_node table.
 	it just remove the tuple, but it didn't change the primary and preferred value
 */
-static void mgr_drop_node_on_all_coord(char nodetype, char *nodename)
+static bool mgr_drop_node_on_all_coord(char nodetype, char *nodename)
 {
 	InitNodeInfo *info;
 	ScanKeyData key[3];
@@ -4852,7 +4852,6 @@ static void mgr_drop_node_on_all_coord(char nodetype, char *nodename)
 
 			ereport(ERROR, (errmsg("could not connect socket for agent \"%s\".",
 							get_hostname_from_hostoid(mgr_node->nodehost))));
-			return;
 		}
 
 		initStringInfo(&psql_cmd);
@@ -4886,21 +4885,23 @@ static void mgr_drop_node_on_all_coord(char nodetype, char *nodename)
 			heap_close(info->rel_node, AccessShareLock);
 			pfree(info);
 
-			return;
+			return execRes;
 		}
 
 		/*check the receive msg*/
 		execRes = mgr_recv_msg(ma, &getAgentCmdRst);
 		ma_close(ma);
 		if (!execRes)
-			ereport(WARNING, (errmsg("drop node on all coordinators fail %s",
-				getAgentCmdRst.description.data)));
+			ereport(WARNING, (errmsg("drop node \"%s\" on coordinators \"%s\" fail %s"
+				,nodename, NameStr(mgr_node->nodename), getAgentCmdRst.description.data)));
 	}
 
 	heap_endscan(info->rel_scan);
 	heap_close(info->rel_node, AccessShareLock);
 	pfree(info);
 	pfree(getAgentCmdRst.description.data);
+
+	return execRes;
 }
 
 void mgr_start_node(char nodetype, const char *nodepath, Oid hostoid)
@@ -11116,6 +11117,8 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	int removeRWNode = 0;
 	bool bsync_exist;
 	bool isNull;
+	bool res;
+	bool hasFailOnce = false;
 	Oid selftupleoid;
 	Datum datumPath;
 	GetAgentCmdRst getAgentCmdRst;
@@ -11235,10 +11238,12 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 		{
 			val = lfirst(cell);
 			Assert(val && IsA(val, String));
-			exec_remove_coordinator(strVal(val));
+			res = exec_remove_coordinator(strVal(val));
+			if (!hasFailOnce && !res)
+				hasFailOnce = true;
 		}
 		heap_close(rel, RowExclusiveLock);
-		PG_RETURN_BOOL(true);
+		PG_RETURN_BOOL(!hasFailOnce);
 	}
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
@@ -11361,7 +11366,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 * exec_remove_coordinator
 * 	remove coordinator
 */
-static void exec_remove_coordinator(char *nodename)
+static bool exec_remove_coordinator(char *nodename)
 {
 	HeapTuple tuple;
 	Relation relNode;
@@ -11369,6 +11374,7 @@ static void exec_remove_coordinator(char *nodename)
 	char *userName;
 	char *nodeAddr;
 	bool isRunning;
+	bool res = true;
 
 	relNode = heap_open(NodeRelationId, AccessShareLock);
 	tuple = mgr_get_tuple_node_from_name_type(relNode, nodename);
@@ -11401,10 +11407,12 @@ static void exec_remove_coordinator(char *nodename)
 		ereport(ERROR, (errmsg("coordinator master \"%s\" , stop it first", nodename)));
 	}
 	/* modify the pgxc_node table, because the coordinator has stoppend so it's not need to add ddl lock */
-	mgr_drop_node_on_all_coord(CNDN_TYPE_COORDINATOR_MASTER, nodename);
+	res = mgr_drop_node_on_all_coord(CNDN_TYPE_COORDINATOR_MASTER, nodename);
 
 	/* modify the mgr_node table */
 	mgr_set_inited_incluster(nodename, CNDN_TYPE_COORDINATOR_MASTER, true, false);
+
+	return res;
 }
 /*
 * check the node pingNode ok max_try times
