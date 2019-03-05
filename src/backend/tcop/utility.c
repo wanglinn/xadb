@@ -2801,8 +2801,6 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 							queryString,
 							NULL
 						};
-
-	HOLD_INTERRUPTS();
 #endif /* ADB */
 	switch (stmt->removeType)
 	{
@@ -2876,9 +2874,6 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 #endif
 			break;
 	}
-#ifdef ADB
-	RESUME_INTERRUPTS();
-#endif /* ADB */
 }
 
 
