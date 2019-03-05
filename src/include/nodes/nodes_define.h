@@ -2382,6 +2382,9 @@ BEGIN_NODE(CreateStmt)
 	NODE_NODE(DistributeBy,distributeby)
 	NODE_NODE(PGXCSubCluster,subcluster)
 #endif
+#ifdef ADB_GRAM_ORA
+	NODE_NODE(List,child_rels)
+#endif
 END_NODE(CreateStmt)
 #endif /* NO_NODE_CreateStmt */
 
