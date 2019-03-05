@@ -676,12 +676,19 @@ re_select_:
 	RESUME_CANCEL_INTERRUPTS();
 }
 
-void PQNReleaseAllConnect(void)
+void PQNReleaseAllConnect(bool request_cancel)
 {
 	HASH_SEQ_STATUS seq_status;
 	OidPGconn *op;
 	if(htab_oid_pgconn == NULL || hash_get_num_entries(htab_oid_pgconn) == 0)
 		return;
+
+	if (request_cancel)
+	{
+		hash_seq_init(&seq_status, htab_oid_pgconn);
+		while((op = hash_seq_search(&seq_status)) != NULL)
+			PQrequestCancel(op->conn);
+	}
 
 	hash_seq_init(&seq_status, htab_oid_pgconn);
 	while((op = hash_seq_search(&seq_status)) != NULL)
