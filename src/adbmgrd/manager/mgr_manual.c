@@ -1601,7 +1601,8 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	}
 	PG_CATCH();
 	{
-		pfree_AppendNodeInfo(nodeInfoS);
+		if (isExistS)
+			pfree_AppendNodeInfo(nodeInfoS);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -1637,7 +1638,8 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	PG_CATCH();
 	{
 		pfree_AppendNodeInfo(nodeInfoS);
-		pfree_AppendNodeInfo(nodeInfoM);
+		if (isExistM)
+			pfree_AppendNodeInfo(nodeInfoM);
 
 		PG_RE_THROW();
 	}PG_END_TRY();
