@@ -1422,7 +1422,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 			pfree_AppendNodeInfo(master_nodeinfo);
 			pfree_AppendNodeInfo(slave_nodeinfo);
 			nodetypestr = mgr_nodetype_str(mastertype);
-			appendStringInfo(strinfo, "%s \"%s\" does not running normal", nodetypestr, nodename);
+			appendStringInfo(strinfo, "%s \"%s\" does not running normal", nodetypestr, masterNameData.data);
 			pfree(nodetypestr);
 			pfree(getAgentCmdRst.description.data);
 			return false;
