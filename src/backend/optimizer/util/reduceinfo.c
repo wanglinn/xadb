@@ -2272,14 +2272,16 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 		break;
 	case REDUCE_TYPE_MODULO:
 		Assert(list_length(reduce->params) == 1);
-		result = makeModuloExpr(linitial(reduce->params), list_length(reduce->storage_nodes));
-		result = (Expr*)coerce_to_target_type(NULL, (Node*)result,
-								exprType((Node*)result),
-								INT4OID,
-								-1,
-								COERCION_EXPLICIT,
-								COERCE_IMPLICIT_CAST,
-								-1);
+		result = linitial(reduce->params);
+		result = (Expr*)coerce_to_target_type(NULL,
+											  (Node*)result,
+											  exprType((Node*)result),
+											  INT4OID,
+											  -1,
+											  COERCION_EXPLICIT,
+											  COERCE_IMPLICIT_CAST,
+											  -1);
+		result = makeModuloExpr(result, list_length(reduce->storage_nodes));
 		result = (Expr*) makeFuncExpr(F_INT4ABS,
 									  INT4OID,
 									  list_make1(result),
@@ -2586,39 +2588,6 @@ static int CompareOid(const void *a, const void *b)
 
 bool CanModuloType(Oid type, bool no_error)
 {
-	Operator	tup;
-	List	   *op;
-	Form_pg_operator opform;
-	bool		result;
-
-	op = SystemFuncName("%");
-	tup = oper(NULL, op, type, INT4OID, no_error, -1);
-	if(!HeapTupleIsValid(tup))
-	{
-		Assert(no_error == true);
-		result = false;
-	}else
-	{
-		opform = (Form_pg_operator) GETSTRUCT(tup);
-		/* Check it's not a shell */
-		if (!RegProcedureIsValid(opform->oprcode))
-		{
-			if (no_error == false)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_UNDEFINED_FUNCTION),
-						 errmsg("operator is only a shell: %s %s %s",
-								format_type_be(type),
-								NameListToString(op),
-								format_type_be(INT4OID))));
-			}
-			result = false;
-		}else
-		{
-			result = true;
-		}
-		ReleaseSysCache(tup);
-	}
-	list_free(op);
-	return result;
+	Oid target = INT4OID;
+	return can_coerce_type(1, &type, &target, COERCION_EXPLICIT);
 }
