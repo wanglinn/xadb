@@ -1532,7 +1532,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	AppendNodeInfo nodeInfoM;
 	Form_mgr_node mgr_node;
 	Form_mgr_node mgr_slavenode;
-	PGconn *pgConn;
+	PGconn *pgConn = NULL;
 	StringInfoData restmsg;
 	StringInfoData infosendmsg;
 	StringInfoData strerr;
