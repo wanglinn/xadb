@@ -80,6 +80,12 @@ ReduceInfo *MakeHashmapReduceInfo(const List *storage, const List *exclude, cons
 	Oid typoid;
 	AssertArg(storage && IsA(storage, OidList) && param);
 	AssertArg(exclude == NIL || IsA(exclude, OidList));
+	if (IsSlotNodeOidsEqualOidList(storage) == false)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("can not make a hashmap reduce info, because storage not equal slot OIDs")));
+	}
 
 	typoid = exprType((Node*)param);
 	typeCache = lookup_type_cache(typoid, TYPECACHE_HASH_PROC);
@@ -407,6 +413,9 @@ int HashmapPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path
 	AssertArg(root && rel && path && storage && func);
 
 	if(expr == NULL)
+		return 0;
+
+	if (IsSlotNodeOidsEqualOidList(storage) == false)
 		return 0;
 
 	if(IsA(expr, List))
