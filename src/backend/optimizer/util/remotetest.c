@@ -460,7 +460,14 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 		expr = makeHashExpr((Expr*)node);
 		break;
 	case LOCATOR_TYPE_MODULO:
-		expr = (Expr*)node;
+		expr = (Expr*)coerce_to_target_type(NULL,
+											(Node*)node,
+											exprType((Node*)node),
+											INT4OID,
+											-1,
+											COERCION_EXPLICIT,
+											COERCE_IMPLICIT_CAST,
+											-1);
 		break;
 	case LOCATOR_TYPE_USER_DEFINED:
 		if(list_length(loc_info->funcAttrNums) != 1)

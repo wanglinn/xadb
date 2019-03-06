@@ -747,14 +747,14 @@ int32 execModuloValue(Datum datum, Oid typid, int right)
 
 	get_typlenbyval(typid, &typlen, &boolValue);
 	left = makeConst(typid, -1, InvalidOid, typlen, datum, false, boolValue);
-	expr = makeModuloExpr((Expr*)left, right);
-	expr = (Expr*)coerce_to_target_type(NULL, (Node*)expr,
-										exprType((Node*)expr),
+	expr = (Expr*)coerce_to_target_type(NULL, (Node*)left,
+										typid,
 										INT4OID,
 										-1,
 										COERCION_EXPLICIT,
 										COERCE_IMPLICIT_CAST,
 										-1);
+	expr = makeModuloExpr(expr, right);
 
 	exprState = ExecInitExpr(expr, NULL);
 	result = ExecEvalExpr(exprState, GetPerTupleExprContext(estate), &boolValue);
