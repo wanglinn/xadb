@@ -2420,6 +2420,7 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 	List	   *base_inner_pathlist;
 	List	   *base_outer_pathlist;
 	ListCell   *lc1;
+	PlannerGlobal *glob = root->glob;
 	int			resultRelation;
 	bool		nestjoinOK;
 	bool		useallclauses pg_attribute_unused(); /* when create merge join path we need this, for now just set attribute to unused */
@@ -2597,6 +2598,7 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 			List *outer_exec = ReduceInfoListGetExecuteOidList(all_outer_reduce);
 			List *inner_exec = ReduceInfoListGetExecuteOidList(all_inner_reduce);
 			List *storage = list_union_oid(outer_exec, inner_exec);
+			bool no_coord_oid = !list_member_oid(storage, PGXCNodeOid);
 			storage = SortOidList(storage);
 			if(storage)
 			{
@@ -2615,7 +2617,7 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 																  &path);
 				if(path && list_member_ptr(reduce_inner_pathlist, path) == false)
 					reduce_inner_pathlist = lappend(reduce_inner_pathlist, path);
-/*re_reduce_join_:*/
+re_reduce_join_:
 				ReducePathListByExpr((Expr*)outer_exprs,
 									 root,
 									 outerrel,
@@ -2625,8 +2627,8 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 									 ReducePathSave2List,
 									 (void*)&outer_pathlist,
 									 REDUCE_TYPE_HASH,
-									 REDUCE_TYPE_HASHMAP,
-									 REDUCE_TYPE_MODULO,
+									 (glob->has_hashmap_rel && no_coord_oid) ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
+									 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 									 REDUCE_TYPE_NONE);
 				ReducePathListByExpr((Expr*)inner_exprs,
 									 root,
@@ -2637,22 +2639,20 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 									 ReducePathSave2List,
 									 (void*)&inner_pathlist,
 									 REDUCE_TYPE_HASH,
-									 REDUCE_TYPE_HASHMAP,
-									 REDUCE_TYPE_MODULO,
+									 (glob->has_hashmap_rel && no_coord_oid) ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
+									 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 									 REDUCE_TYPE_NONE);
 			}
 			tried_join |= add_cluster_paths_to_joinrel_internal(&jcontext, outer_pathlist, inner_pathlist, nestjoinOK, false);
 			list_free(outer_pathlist);
 			list_free(inner_pathlist);
-			/* don't use coordiator to reduce in hashmap distribution*/
-			/*
-			if(storage && list_member_oid(storage, PGXCNodeOid) == false)
+			if(storage && no_coord_oid)
 			{
 				outer_pathlist = inner_pathlist = NIL;
 				storage = SortOidList(lappend_oid(storage, PGXCNodeOid));
+				no_coord_oid = false;
 				goto re_reduce_join_;
 			}
-			*/
 			list_free(outer_exec);
 			list_free(inner_exec);
 			list_free(storage);

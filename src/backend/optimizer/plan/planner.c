@@ -4868,6 +4868,7 @@ create_grouping_paths(PlannerInfo *root,
 	{
 		CreateGrupingPathsContext gcontext;
 		Path *cheapest_cluster_path = input_rel->cheapest_cluster_total_path;
+		PlannerGlobal *glob = root->glob;
 
 		bool no_partial = (agg_costs->hasNonPartial || agg_costs->hasNonSerial);
 		bool tried_cluster_agg = false;
@@ -4987,8 +4988,8 @@ create_grouping_paths(PlannerInfo *root,
 									 create_cluster_grouping_path,
 									 &gcontext,
 									 REDUCE_TYPE_HASH,
-									 REDUCE_TYPE_HASHMAP,
-									 REDUCE_TYPE_MODULO,
+									 glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
+									 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 									 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
 									 REDUCE_TYPE_NONE);
 					list_free(storage_list);
@@ -5015,8 +5016,8 @@ create_grouping_paths(PlannerInfo *root,
 								 create_cluster_grouping_path,
 								 &gcontext,
 								 REDUCE_TYPE_HASH,
-								 REDUCE_TYPE_HASHMAP,
-								 REDUCE_TYPE_MODULO,
+								 glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
+								 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 								 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
 								 REDUCE_TYPE_NONE);
 				list_free(storage_list);
@@ -5121,8 +5122,8 @@ create_grouping_paths(PlannerInfo *root,
 									 create_cluster_grouping_path,
 									 &gcontext,
 									 groupExprs ? REDUCE_TYPE_HASH : REDUCE_TYPE_IGNORE,
-									 groupExprs ? REDUCE_TYPE_HASHMAP : REDUCE_TYPE_IGNORE,
-									 groupExprs ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
+									 (groupExprs && glob->has_hashmap_rel) ? REDUCE_TYPE_HASHMAP : REDUCE_TYPE_IGNORE,
+									 (groupExprs && glob->has_modulo_rel) ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
 									 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
 									 REDUCE_TYPE_NONE);
 					list_free(storage_list);
@@ -6246,6 +6247,7 @@ create_distinct_paths(PlannerInfo *root,
 		List *reduce_list;
 		List *storage_list;
 		List *exclude_list;
+		PlannerGlobal *glob = root->glob;
 		Assert(distinctExprs != NIL);
 
 		dcontext.can_hash = grouping_is_hashable(parse->distinctClause);
@@ -6284,8 +6286,8 @@ create_distinct_paths(PlannerInfo *root,
 								 create_cluster_distinct_path,
 								 &dcontext,
 								 REDUCE_TYPE_HASH,
-								 REDUCE_TYPE_HASHMAP,
-								 REDUCE_TYPE_MODULO,
+								 glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
+								 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 								 REDUCE_TYPE_COORDINATOR,
 								 REDUCE_TYPE_NONE);
 			if(list_member_oid(storage_list, PGXCNodeOid) == false)
@@ -6300,10 +6302,8 @@ create_distinct_paths(PlannerInfo *root,
 									 create_cluster_distinct_path,
 									 &dcontext,
 									 REDUCE_TYPE_HASH,
-									 REDUCE_TYPE_HASHMAP,
-									 REDUCE_TYPE_MODULO,
+									 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 									 REDUCE_TYPE_NONE);
-
 			}
 
 			list_free(storage_list);
