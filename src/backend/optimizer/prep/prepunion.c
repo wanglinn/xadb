@@ -794,6 +794,7 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 		List *all_paths = result_rel->cluster_pathlist;
 		result_rel->cluster_pathlist = NIL;
 		result_rel->cluster_partial_pathlist = NIL;
+		PlannerGlobal *glob = root->glob;
 
 		foreach(lc, all_paths)
 		{
@@ -842,8 +843,8 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 									get_reduce_union_path,
 									(void*)&reducePath,
 									REDUCE_TYPE_HASH,
-									//REDUCE_TYPE_HASHMAP,
-									REDUCE_TYPE_MODULO,
+									glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
+									glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 									REDUCE_TYPE_NONE);
 				
 				unionPath = make_union_unique(op, reducePath, tlist, root);
