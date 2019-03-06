@@ -1622,10 +1622,12 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	HeapTuple gtmmastertuple;
 	NameData cndnnamedata;
 	HeapTuple mastertuple;
-	PGconn *pg_conn;
+	PGconn *pg_conn = NULL;
+	MemoryContext volatile oldcontext = CurrentMemoryContext;
 
 	getAgentCmdRst->ret = false;
 	initStringInfo(&infosendmsg);
+	initStringInfo(&strinfoport);
 	/*get column values from aimtuple*/
 	mgr_node = (Form_mgr_node)GETSTRUCT(aimtuple);
 	Assert(mgr_node);
@@ -1746,256 +1748,269 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			zmode = "node";
 			break;
 	}
-	/*init coordinator/datanode*/
-	if (AGT_CMD_CNDN_CNDN_INIT == cmdtype)
+
+	PG_TRY();
 	{
-		appendStringInfo(&infosendmsg, " -D %s", cndnPath);
-		if (with_data_checksums)
-			appendStringInfo(&infosendmsg, " --nodename %s -E UTF8 --locale=C -k", cndnname);
-		else
-			appendStringInfo(&infosendmsg, " --nodename %s -E UTF8 --locale=C", cndnname);
-	} /*init gtm*/
-	else if (AGT_CMD_GTM_INIT == cmdtype)
-	{
-		if (with_data_checksums)
-			appendStringInfo(&infosendmsg, " -U \"" AGTM_USER "\" -D %s -E UTF8 --locale=C -k", cndnPath);
-		else
-			appendStringInfo(&infosendmsg, " -U \"" AGTM_USER "\" -D %s -E UTF8 --locale=C", cndnPath);
-	} /*init gtm slave*/
-	else if (AGT_CMD_GTM_SLAVE_INIT == cmdtype)
-	{
-		/*get gtm masterport, masterhostaddress*/
-		gtmmastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
-		if(!HeapTupleIsValid(gtmmastertuple))
+		/*init coordinator/datanode*/
+		if (AGT_CMD_CNDN_CNDN_INIT == cmdtype)
 		{
-			appendStringInfo(&(getAgentCmdRst->description), "gtm master dosen't exist");
-			getAgentCmdRst->ret = false;
-			ereport(LOG, (errcode(ERRCODE_UNDEFINED_OBJECT)
-				, errmsg("gtm master does not exist")));
-			pfree(infosendmsg.data);
-			pfree(hostaddress);
+			appendStringInfo(&infosendmsg, " -D %s", cndnPath);
+			if (with_data_checksums)
+				appendStringInfo(&infosendmsg, " --nodename %s -E UTF8 --locale=C -k", cndnname);
+			else
+				appendStringInfo(&infosendmsg, " --nodename %s -E UTF8 --locale=C", cndnname);
+		} /*init gtm*/
+		else if (AGT_CMD_GTM_INIT == cmdtype)
+		{
+			if (with_data_checksums)
+				appendStringInfo(&infosendmsg, " -U \"" AGTM_USER "\" -D %s -E UTF8 --locale=C -k", cndnPath);
+			else
+				appendStringInfo(&infosendmsg, " -U \"" AGTM_USER "\" -D %s -E UTF8 --locale=C", cndnPath);
+		} /*init gtm slave*/
+		else if (AGT_CMD_GTM_SLAVE_INIT == cmdtype)
+		{
+			/*get gtm masterport, masterhostaddress*/
+			gtmmastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
+			if(!HeapTupleIsValid(gtmmastertuple))
+			{
+				appendStringInfo(&(getAgentCmdRst->description), "gtm master dosen't exist");
+				getAgentCmdRst->ret = false;
+				ereport(LOG, (errcode(ERRCODE_UNDEFINED_OBJECT)
+					, errmsg("gtm master does not exist")));
+				pfree(infosendmsg.data);
+				pfree(hostaddress);
+				return;
+			}
+			mgr_node_gtm = (Form_mgr_node)GETSTRUCT(gtmmastertuple);
+			Assert(gtmmastertuple);
+			masterport = mgr_node_gtm->nodeport;
+			masterhostOid = mgr_node_gtm->nodehost;
+			mastername = NameStr(mgr_node_gtm->nodename);
+			masterhostaddress = get_hostaddress_from_hostoid(masterhostOid);
+			appendStringInfo(&infosendmsg, " -p %u", masterport);
+			appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
+			appendStringInfo(&infosendmsg, " -D %s", cndnPath);
+			appendStringInfo(&infosendmsg, " -U %s", AGTM_USER);
+			appendStringInfo(&infosendmsg, " --nodename %s", cndnname);
+			ReleaseSysCache(gtmmastertuple);
+			/*check it need start gtm master*/
+			appendStringInfo(&strinfoport, "%d", masterport);
+			ismasterrunning = pingNode_user(masterhostaddress, strinfoport.data, AGTM_USER);
+			pfree(masterhostaddress);
+			if(ismasterrunning != 0)
+			{
+				appendStringInfo(&(getAgentCmdRst->description), "gtm master \"%s\" is not running normal", mastername);
+				getAgentCmdRst->ret = false;
+				ereport(WARNING, (errmsg("gtm master \"%s\" is not running normal", mastername)));
+				pfree(infosendmsg.data);
+				pfree(hostaddress);
+				return;
+			}
+		}
+		else if (AGT_CMD_GTM_START_MASTER == cmdtype || AGT_CMD_GTM_START_SLAVE == cmdtype)
+		{
+			appendStringInfo(&infosendmsg, " %s -D %s -o -i -w -c -l %s/logfile", cmdmode, cndnPath, cndnPath);
+		}
+		else if (AGT_CMD_GTM_STOP_MASTER == cmdtype || AGT_CMD_GTM_STOP_SLAVE == cmdtype)
+		{
+			appendStringInfo(&infosendmsg, " %s -D %s -m %s -o -i -w -c", cmdmode, cndnPath, shutdown_mode);
+		}
+		/*stop coordinator/datanode*/
+		else if(AGT_CMD_CN_STOP == cmdtype || AGT_CMD_DN_STOP == cmdtype)
+		{
+			appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
+			appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c", zmode, shutdown_mode);
+		}
+		else if (AGT_CMD_GTM_SLAVE_FAILOVER == cmdtype)
+		{
+			/*pause cluster*/
+			mgr_lock_cluster(&pg_conn, &cnoid);
+			/*stop gtm master*/
+			mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
+			if(!HeapTupleIsValid(mastertuple))
+			{
+				mgr_unlock_cluster(&pg_conn);
+				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+					,errmsg("gtm master \"%s\" does not exist", cndnname)));
+			}
+			DatumStopDnMaster = DirectFunctionCall1(mgr_stop_one_gtm_master, (Datum)0);
+			if(DatumGetObjectId(DatumStopDnMaster) == InvalidOid)
+				ereport(WARNING, (errmsg("stop gtm master \"%s\" fail", cndnname)));
+			ReleaseSysCache(mastertuple);
+
+			appendStringInfo(&infosendmsg, " %s -w -D %s", cmdmode, cndnPath);
+		}
+		else if (AGT_CMD_DN_MASTER_PROMOTE == cmdtype)
+		{
+			appendStringInfo(&infosendmsg, " %s -w -D %s", cmdmode, cndnPath);
+		}
+		else if (AGT_CMD_DN_FAILOVER == cmdtype)
+		{
+			/*pause cluster*/
+			mgr_lock_cluster(&pg_conn, &cnoid);
+			/*stop datanode master*/
+			 mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
+			 if(!HeapTupleIsValid(mastertuple))
+			 {
+				mgr_unlock_cluster(&pg_conn);
+				ereport(WARNING, (errcode(ERRCODE_UNDEFINED_OBJECT)
+					,errmsg("datanode master \"%s\" dosen't exist", cndnname)));
+			 }
+			 else
+			 {
+					mgr_nodetmp = (Form_mgr_node)GETSTRUCT(mastertuple);
+					Assert(mgr_nodetmp);
+					DatumStopDnMaster = DirectFunctionCall1(mgr_stop_one_dn_master, CStringGetDatum(NameStr(mgr_nodetmp->nodename)));
+					if(DatumGetObjectId(DatumStopDnMaster) == InvalidOid)
+							 ereport(WARNING, (errmsg("stop datanode master \"%s\" fail", cndnname)));
+					ReleaseSysCache(mastertuple);
+			 }
+
+			appendStringInfo(&infosendmsg, " %s -w -D %s", cmdmode, cndnPath);
+		}
+		else if (AGT_CMD_AGTM_RESTART == cmdtype)
+		{
+			appendStringInfo(&infosendmsg, " %s -D %s -w -m %s -l %s/logfile", cmdmode, cndnPath, shutdown_mode, cndnPath);
+		}
+		else if (AGT_CMD_DN_RESTART == cmdtype || AGT_CMD_CN_RESTART == cmdtype)
+		{
+			appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
+			appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c -l %s/logfile", zmode, shutdown_mode, cndnPath);
+		}
+		else if (AGT_CMD_CLEAN_NODE == cmdtype)
+		{
+			appendStringInfo(&infosendmsg, "rm -rf %s; mkdir -p %s; chmod 0700 %s", cndnPath, cndnPath, cndnPath);
+		}
+		else if (AGT_CMD_GTM_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTM_START_SLAVE_BACKEND == cmdtype)
+		{
+			cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
+			appendStringInfo(&infosendmsg, " %s -D %s -o -i -w -c -W -l %s/logfile", cmdmode, cndnPath, cndnPath);
+		}
+		else if (AGT_CMD_GTM_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTM_STOP_SLAVE_BACKEND == cmdtype)
+		{
+			cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
+			appendStringInfo(&infosendmsg, " %s -D %s -m %s -o -i -w -c -W", cmdmode, cndnPath, shutdown_mode);
+		}
+		else if(AGT_CMD_CN_STOP_BACKEND == cmdtype || AGT_CMD_DN_STOP_BACKEND == cmdtype)
+		{
+			cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
+			appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
+				appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c -W", zmode, shutdown_mode);
+		}
+		else if (AGT_CMD_CN_START_BACKEND == cmdtype || AGT_CMD_DN_START_BACKEND == cmdtype)
+		{
+			cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
+			appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
+			appendStringInfo(&infosendmsg, " -Z %s -o -i -w -c -W -l %s/logfile", zmode, cndnPath);
+		}
+		else /*dn,cn start*/
+		{
+			appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
+			appendStringInfo(&infosendmsg, " -Z %s -o -i -w -c -l %s/logfile", zmode, cndnPath);
+		}
+		if (-1 != cmdtype_s)
+			execRes= mgr_ma_send_cmd(cmdtype_s, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
+		else
+			execRes= mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
+
+		getAgentCmdRst->ret = execRes;
+		if (!execRes)
+		{
+			if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTM_SLAVE_FAILOVER == cmdtype)
+				mgr_unlock_cluster(&pg_conn);
 			return;
 		}
-		mgr_node_gtm = (Form_mgr_node)GETSTRUCT(gtmmastertuple);
-		Assert(gtmmastertuple);
-		masterport = mgr_node_gtm->nodeport;
-		masterhostOid = mgr_node_gtm->nodehost;
-		mastername = NameStr(mgr_node_gtm->nodename);
-		masterhostaddress = get_hostaddress_from_hostoid(masterhostOid);
-		appendStringInfo(&infosendmsg, " -p %u", masterport);
-		appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
-		appendStringInfo(&infosendmsg, " -D %s", cndnPath);
-		appendStringInfo(&infosendmsg, " -U %s", AGTM_USER);
-		appendStringInfo(&infosendmsg, " --nodename %s", cndnname);
-		ReleaseSysCache(gtmmastertuple);
-		/*check it need start gtm master*/
-		initStringInfo(&strinfoport);
-		appendStringInfo(&strinfoport, "%d", masterport);
-		ismasterrunning = pingNode_user(masterhostaddress, strinfoport.data, AGTM_USER);
-		pfree(masterhostaddress);
-		pfree(strinfoport.data);
-		if(ismasterrunning != 0)
+		/*when init, 1. update gtm system table's column to set initial is true 2. refresh postgresql.conf*/
+		if (execRes && AGT_CMD_GTM_INIT == cmdtype)
 		{
-			appendStringInfo(&(getAgentCmdRst->description), "gtm master \"%s\" is not running normal", mastername);
-			getAgentCmdRst->ret = false;
-			ereport(WARNING, (errmsg("gtm master \"%s\" is not running normal", mastername)));
-			pfree(infosendmsg.data);
-			pfree(hostaddress);
-			return;
+			/*update node system table's column to set initial is true when cmd is init*/
+			mgr_node->nodeinited = true;
+			heap_inplace_update(noderel, aimtuple);
+			/*refresh postgresql.conf of this node*/
+			resetStringInfo(&(getAgentCmdRst->description));
+			resetStringInfo(&infosendmsg);
+			mgr_add_parameters_pgsqlconf(tupleOid, nodetype, cndnport, &infosendmsg);
+			mgr_add_parm(cndnname, nodetype, &infosendmsg);
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+			/*refresh pg_hba.conf*/
+			resetStringInfo(&(getAgentCmdRst->description));
+			resetStringInfo(&infosendmsg);
+			mgr_add_parameters_hbaconf((mgr_node->nodemasternameoid == 0) ? HeapTupleGetOid(aimtuple):mgr_node->nodemasternameoid
+				, GTM_TYPE_GTM_MASTER, &infosendmsg);
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
 		}
-	}
-	else if (AGT_CMD_GTM_START_MASTER == cmdtype || AGT_CMD_GTM_START_SLAVE == cmdtype)
-	{
-		appendStringInfo(&infosendmsg, " %s -D %s -o -i -w -c -l %s/logfile", cmdmode, cndnPath, cndnPath);
-	}
-	else if (AGT_CMD_GTM_STOP_MASTER == cmdtype || AGT_CMD_GTM_STOP_SLAVE == cmdtype)
-	{
-		appendStringInfo(&infosendmsg, " %s -D %s -m %s -o -i -w -c", cmdmode, cndnPath, shutdown_mode);
-	}
-	/*stop coordinator/datanode*/
-	else if(AGT_CMD_CN_STOP == cmdtype || AGT_CMD_DN_STOP == cmdtype)
-	{
-		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
-		appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c", zmode, shutdown_mode);
-	}
-	else if (AGT_CMD_GTM_SLAVE_FAILOVER == cmdtype)
-	{
-		/*pause cluster*/
-		mgr_lock_cluster(&pg_conn, &cnoid);
-		/*stop gtm master*/
-		mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
-		if(!HeapTupleIsValid(mastertuple))
+		/*when init, 1. update gtm system table's column to set initial is true 2. refresh postgresql.conf*/
+		if (execRes && AGT_CMD_GTM_SLAVE_INIT == cmdtype)
 		{
-			mgr_unlock_cluster(&pg_conn);
-			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-				,errmsg("gtm master \"%s\" does not exist", cndnname)));
+			/*update node system table's column to set initial is true when cmd is init*/
+			mgr_node->nodeinited = true;
+			heap_inplace_update(noderel, aimtuple);
+			/*refresh postgresql.conf of this node*/
+			resetStringInfo(&(getAgentCmdRst->description));
+			resetStringInfo(&infosendmsg);
+			mgr_add_parameters_pgsqlconf(tupleOid, nodetype, cndnport, &infosendmsg);
+			mgr_add_parm(cndnname, nodetype, &infosendmsg);
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+			/*refresh pg_hba.conf*/
+			resetStringInfo(&(getAgentCmdRst->description));
+			resetStringInfo(&infosendmsg);
+			mgr_add_parameters_hbaconf((mgr_node->nodemasternameoid == 0)? HeapTupleGetOid(aimtuple):mgr_node->nodemasternameoid
+				, GTM_TYPE_GTM_MASTER, &infosendmsg);
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+			/*refresh recovry.conf*/
+			resetStringInfo(&(getAgentCmdRst->description));
+			resetStringInfo(&infosendmsg);
+			mgr_add_parameters_recoveryconf(nodetype, cndnname, nodemasternameoid, &infosendmsg);
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
 		}
-		DatumStopDnMaster = DirectFunctionCall1(mgr_stop_one_gtm_master, (Datum)0);
-		if(DatumGetObjectId(DatumStopDnMaster) == InvalidOid)
-			ereport(WARNING, (errmsg("stop gtm master \"%s\" fail", cndnname)));
-		ReleaseSysCache(mastertuple);
 
-		appendStringInfo(&infosendmsg, " %s -w -D %s", cmdmode, cndnPath);
-	}
-	else if (AGT_CMD_DN_MASTER_PROMOTE == cmdtype)
-	{
-		appendStringInfo(&infosendmsg, " %s -w -D %s", cmdmode, cndnPath);
-	}
-	else if (AGT_CMD_DN_FAILOVER == cmdtype)
-	{
-		/*pause cluster*/
-		mgr_lock_cluster(&pg_conn, &cnoid);
-		/*stop datanode master*/
-		 mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
-		 if(!HeapTupleIsValid(mastertuple))
-		 {
-			mgr_unlock_cluster(&pg_conn);
-			ereport(WARNING, (errcode(ERRCODE_UNDEFINED_OBJECT)
-				,errmsg("datanode master \"%s\" dosen't exist", cndnname)));
-		 }
-		 else
-		 {
-				mgr_nodetmp = (Form_mgr_node)GETSTRUCT(mastertuple);
-				Assert(mgr_nodetmp);
-				DatumStopDnMaster = DirectFunctionCall1(mgr_stop_one_dn_master, CStringGetDatum(NameStr(mgr_nodetmp->nodename)));
-				if(DatumGetObjectId(DatumStopDnMaster) == InvalidOid)
-						 ereport(WARNING, (errmsg("stop datanode master \"%s\" fail", cndnname)));
-				ReleaseSysCache(mastertuple);
-		 }
-
-		appendStringInfo(&infosendmsg, " %s -w -D %s", cmdmode, cndnPath);
-	}
-	else if (AGT_CMD_AGTM_RESTART == cmdtype)
-	{
-		appendStringInfo(&infosendmsg, " %s -D %s -w -m %s -l %s/logfile", cmdmode, cndnPath, shutdown_mode, cndnPath);
-	}
-	else if (AGT_CMD_DN_RESTART == cmdtype || AGT_CMD_CN_RESTART == cmdtype)
-	{
-		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
-		appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c -l %s/logfile", zmode, shutdown_mode, cndnPath);
-	}
-	else if (AGT_CMD_CLEAN_NODE == cmdtype)
-	{
-		appendStringInfo(&infosendmsg, "rm -rf %s; mkdir -p %s; chmod 0700 %s", cndnPath, cndnPath, cndnPath);
-	}
-	else if (AGT_CMD_GTM_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTM_START_SLAVE_BACKEND == cmdtype)
-	{
-		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
-		appendStringInfo(&infosendmsg, " %s -D %s -o -i -w -c -W -l %s/logfile", cmdmode, cndnPath, cndnPath);
-	}
-	else if (AGT_CMD_GTM_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTM_STOP_SLAVE_BACKEND == cmdtype)
-	{
-		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
-		appendStringInfo(&infosendmsg, " %s -D %s -m %s -o -i -w -c -W", cmdmode, cndnPath, shutdown_mode);
-	}
-	else if(AGT_CMD_CN_STOP_BACKEND == cmdtype || AGT_CMD_DN_STOP_BACKEND == cmdtype)
-	{
-		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
-		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
-			appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c -W", zmode, shutdown_mode);
-	}
-	else if (AGT_CMD_CN_START_BACKEND == cmdtype || AGT_CMD_DN_START_BACKEND == cmdtype)
-	{
-		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
-		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
-		appendStringInfo(&infosendmsg, " -Z %s -o -i -w -c -W -l %s/logfile", zmode, cndnPath);
-	}
-	else /*dn,cn start*/
-	{
-		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
-		appendStringInfo(&infosendmsg, " -Z %s -o -i -w -c -l %s/logfile", zmode, cndnPath);
-	}
-	if (-1 != cmdtype_s)
-		execRes= mgr_ma_send_cmd(cmdtype_s, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
-	else
-		execRes= mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
-
-	getAgentCmdRst->ret = execRes;
-	if (!execRes)
-	{
-		if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTM_SLAVE_FAILOVER == cmdtype)
-			mgr_unlock_cluster(&pg_conn);
-		return;
-	}
-	/*when init, 1. update gtm system table's column to set initial is true 2. refresh postgresql.conf*/
-	if (execRes && AGT_CMD_GTM_INIT == cmdtype)
-	{
 		/*update node system table's column to set initial is true when cmd is init*/
-		mgr_node->nodeinited = true;
-		heap_inplace_update(noderel, aimtuple);
-		/*refresh postgresql.conf of this node*/
-		resetStringInfo(&(getAgentCmdRst->description));
-		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_pgsqlconf(tupleOid, nodetype, cndnport, &infosendmsg);
-		mgr_add_parm(cndnname, nodetype, &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
-		/*refresh pg_hba.conf*/
-		resetStringInfo(&(getAgentCmdRst->description));
-		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_hbaconf((mgr_node->nodemasternameoid == 0) ? HeapTupleGetOid(aimtuple):mgr_node->nodemasternameoid
-			, GTM_TYPE_GTM_MASTER, &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
-	}
-	/*when init, 1. update gtm system table's column to set initial is true 2. refresh postgresql.conf*/
-	if (execRes && AGT_CMD_GTM_SLAVE_INIT == cmdtype)
-	{
-		/*update node system table's column to set initial is true when cmd is init*/
-		mgr_node->nodeinited = true;
-		heap_inplace_update(noderel, aimtuple);
-		/*refresh postgresql.conf of this node*/
-		resetStringInfo(&(getAgentCmdRst->description));
-		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_pgsqlconf(tupleOid, nodetype, cndnport, &infosendmsg);
-		mgr_add_parm(cndnname, nodetype, &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
-		/*refresh pg_hba.conf*/
-		resetStringInfo(&(getAgentCmdRst->description));
-		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_hbaconf((mgr_node->nodemasternameoid == 0)? HeapTupleGetOid(aimtuple):mgr_node->nodemasternameoid
-			, GTM_TYPE_GTM_MASTER, &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
-		/*refresh recovry.conf*/
-		resetStringInfo(&(getAgentCmdRst->description));
-		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_recoveryconf(nodetype, cndnname, nodemasternameoid, &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
-	}
+		if (AGT_CMD_CNDN_CNDN_INIT == cmdtype && execRes)
+		{
+			mgr_node->nodeinited = true;
+			heap_inplace_update(noderel, aimtuple);
+			/*refresh postgresql.conf of this node*/
+			resetStringInfo(&(getAgentCmdRst->description));
+			resetStringInfo(&infosendmsg);
+			mgr_add_parameters_pgsqlconf(tupleOid, nodetype, cndnport, &infosendmsg);
+			mgr_add_parm(cndnname, nodetype, &infosendmsg);
+			if (bReadOnly)
+				mgr_append_pgconf_paras_str_str("default_transaction_read_only", "on", &infosendmsg);
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+			/*refresh pg_hba.conf*/
+			resetStringInfo(&(getAgentCmdRst->description));
+			resetStringInfo(&infosendmsg);
+			mgr_add_parameters_hbaconf((mgr_node->nodemasternameoid == 0)? HeapTupleGetOid(aimtuple):mgr_node->nodemasternameoid
+				, nodetype, &infosendmsg);
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+		}
 
-	/*update node system table's column to set initial is true when cmd is init*/
-	if (AGT_CMD_CNDN_CNDN_INIT == cmdtype && execRes)
-	{
-		mgr_node->nodeinited = true;
-		heap_inplace_update(noderel, aimtuple);
-		/*refresh postgresql.conf of this node*/
-		resetStringInfo(&(getAgentCmdRst->description));
-		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_pgsqlconf(tupleOid, nodetype, cndnport, &infosendmsg);
-		mgr_add_parm(cndnname, nodetype, &infosendmsg);
-		if (bReadOnly)
-			mgr_append_pgconf_paras_str_str("default_transaction_read_only", "on", &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
-		/*refresh pg_hba.conf*/
-		resetStringInfo(&(getAgentCmdRst->description));
-		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_hbaconf((mgr_node->nodemasternameoid == 0)? HeapTupleGetOid(aimtuple):mgr_node->nodemasternameoid
-			, nodetype, &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
-	}
+		/*failover execute success*/
+		if(AGT_CMD_DN_FAILOVER == cmdtype && execRes)
+		{
+			namestrcpy(&cndnnamedata, cndnname);
+			mgr_after_datanode_failover_handle(nodemasternameoid, &cndnnamedata, cndnport, hostaddress, noderel, getAgentCmdRst, aimtuple, cndnPath, nodetype, &pg_conn, cnoid);
+		}
 
-	/*failover execute success*/
-	if(AGT_CMD_DN_FAILOVER == cmdtype && execRes)
+		/*gtm failover*/
+		if (AGT_CMD_GTM_SLAVE_FAILOVER == cmdtype && execRes)
+		{
+			mgr_after_gtm_failover_handle(hostaddress, cndnport, noderel, getAgentCmdRst, aimtuple, cndnPath, &pg_conn, cnoid);
+		}
+	}PG_CATCH();
 	{
-		namestrcpy(&cndnnamedata, cndnname);
-		mgr_after_datanode_failover_handle(nodemasternameoid, &cndnnamedata, cndnport, hostaddress, noderel, getAgentCmdRst, aimtuple, cndnPath, nodetype, &pg_conn, cnoid);
-	}
+		ErrorData  *edata;
 
-	/*gtm failover*/
-	if (AGT_CMD_GTM_SLAVE_FAILOVER == cmdtype && execRes)
-	{
-		mgr_after_gtm_failover_handle(hostaddress, cndnport, noderel, getAgentCmdRst, aimtuple, cndnPath, &pg_conn, cnoid);
-	}
+		if (pg_conn)
+			mgr_unlock_cluster(&pg_conn);
+		/* Save error info in our stmt_mcontext */
+		MemoryContextSwitchTo(oldcontext);
+		edata = CopyErrorData();
+		FlushErrorState();
+	}PG_END_TRY();
 
 	pfree(infosendmsg.data);
+	pfree(strinfoport.data);
 	pfree(hostaddress);
 }
 
@@ -6824,104 +6839,124 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 	NameData slaveNodeName;
 	NameData newMasterNodeName;
 	NameData masterNameData;
+	MemoryContext volatile oldcontext = CurrentMemoryContext;
 
 	initStringInfo(&recorderr);
-	resetStringInfo(&(getAgentCmdRst->description));
-	mgr_node = (Form_mgr_node)GETSTRUCT(aimtuple);
-	Assert(mgr_node);
-	namestrcpy(&newMasterNodeName, NameStr(mgr_node->nodename));
-	oldMasterTupleOid = mgr_node->nodemasternameoid;
-	newmastertupleoid = HeapTupleGetOid(aimtuple);
-	address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-	sprintf(coordport_buf, "%d", mgr_node->nodeport);
-
-	/*check recovery finish*/
-	mgr_check_node_connect(mgr_node->nodetype, mgr_node->nodehost, mgr_node->nodeport);
-
-	/* get the sync slave node for new datanode master */
 	initStringInfo(&infosendmsg);
 	initStringInfo(&infosendsyncmsg);
-	namestrcpy(&slaveNodeName, "");
-	syncNum = mgr_get_master_sync_string(oldMasterTupleOid, true, newmastertupleoid, &infosendsyncmsg);
-	/*refresh master's postgresql.conf*/
-	if(infosendsyncmsg.len != 0)
-	{
-		int i = 0;
-		if (syncNum == 0)
-			syncNum++;
-		while(i<infosendsyncmsg.len && infosendsyncmsg.data[i] != ',' && i<NAMEDATALEN)
-		{
-			slaveNodeName.data[i] = infosendsyncmsg.data[i];
-			i++;
-		}
-		if (i<NAMEDATALEN)
-			slaveNodeName.data[i] = '\0';
-		hasOtherSlave = true;
-	}
-	else
-	{
-		pingres = mgr_get_normal_slave_node(noderel, nodemasternameoid, SYNC_STATE_ASYNC
-											, newmastertupleoid, &slaveNodeName);
-		rest = false;
-		if (pingres != PQPING_OK)
-			rest = mgr_get_slave_node(noderel, nodemasternameoid, SYNC_STATE_ASYNC, newmastertupleoid
-										, slaveNodeName.data[0] == '\0' ? NULL:&slaveNodeName);
-		if (pingres == PQPING_OK || rest)
-		{
-			appendStringInfo(&infosendsyncmsg, "%s", slaveNodeName.data);
-			syncNum++;
-		}
-		else
-			hasOtherSlave = false;
-	}
-	if (infosendsyncmsg.len != 0)
-	{
-		initStringInfo(&infosendsyncmsgtmp);
-		appendStringInfo(&infosendsyncmsgtmp, "%d (%s)", syncNum, infosendsyncmsg.data);
-		resetStringInfo(&infosendsyncmsg);
-		appendStringInfo(&infosendsyncmsg, "%s", infosendsyncmsgtmp.data);
-		pfree(infosendsyncmsgtmp.data);
-	}
-
-	/* set new datanode master synchronous_standby_names = '' */
-	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names"
-					, "", &infosendmsg);
-	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, cndnPath, &infosendmsg
-					, mgr_node->nodehost, getAgentCmdRst);
-	resetStringInfo(&infosendmsg);
-	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names"
-					, infosendsyncmsg.len !=0 ? infosendsyncmsg.data:"", &infosendmsg);
-	/*refresh pgxc_node on all coordiantors and datanode masters */
-	getrefresh = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, mgr_node->nodetype
-					, NameStr(mgr_node->nodename), getAgentCmdRst, pg_conn, cnoid, slaveNodeName.data);
-	if(!getrefresh)
-	{
-		getAgentCmdRst->ret = getrefresh;
-		appendStringInfo(&recorderr, "%s\n", (getAgentCmdRst->description).data);
-	}
-
-	/*flush expand slot */
-	mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
-	if(!HeapTupleIsValid(mastertuple))
-	{
-		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-			,errmsg("datanode master \"%s\" dosen't exist", cndnname->data)));
-	}
-	else
-	{
-		mgr_nodemaster = (Form_mgr_node)GETSTRUCT(mastertuple);
-		namestrcpy(&masterNameData, NameStr(mgr_nodemaster->nodename));
-		ReleaseSysCache(mastertuple);
-	}
-
 	PG_TRY();
 	{
-		if(hexp_check_select_result_count(*pg_conn, SELECT_ADB_SLOT_TABLE_COUNT))
-			hexp_alter_slotinfo_nodename(*pg_conn, masterNameData.data, newMasterNodeName.data);
+		resetStringInfo(&(getAgentCmdRst->description));
+		mgr_node = (Form_mgr_node)GETSTRUCT(aimtuple);
+		Assert(mgr_node);
+		namestrcpy(&newMasterNodeName, NameStr(mgr_node->nodename));
+		oldMasterTupleOid = mgr_node->nodemasternameoid;
+		newmastertupleoid = HeapTupleGetOid(aimtuple);
+		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		sprintf(coordport_buf, "%d", mgr_node->nodeport);
+
+		/*check recovery finish*/
+		mgr_check_node_connect(mgr_node->nodetype, mgr_node->nodehost, mgr_node->nodeport);
+
+		/* get the sync slave node for new datanode master */
+		namestrcpy(&slaveNodeName, "");
+		syncNum = mgr_get_master_sync_string(oldMasterTupleOid, true, newmastertupleoid, &infosendsyncmsg);
+		/*refresh master's postgresql.conf*/
+		if(infosendsyncmsg.len != 0)
+		{
+			int i = 0;
+			if (syncNum == 0)
+				syncNum++;
+			while(i<infosendsyncmsg.len && infosendsyncmsg.data[i] != ',' && i<NAMEDATALEN)
+			{
+				slaveNodeName.data[i] = infosendsyncmsg.data[i];
+				i++;
+			}
+			if (i<NAMEDATALEN)
+				slaveNodeName.data[i] = '\0';
+			hasOtherSlave = true;
+		}
+		else
+		{
+			pingres = mgr_get_normal_slave_node(noderel, nodemasternameoid, SYNC_STATE_ASYNC
+												, newmastertupleoid, &slaveNodeName);
+			rest = false;
+			if (pingres != PQPING_OK)
+				rest = mgr_get_slave_node(noderel, nodemasternameoid, SYNC_STATE_ASYNC, newmastertupleoid
+											, slaveNodeName.data[0] == '\0' ? NULL:&slaveNodeName);
+			if (pingres == PQPING_OK || rest)
+			{
+				appendStringInfo(&infosendsyncmsg, "%s", slaveNodeName.data);
+				syncNum++;
+			}
+			else
+				hasOtherSlave = false;
+		}
+		if (infosendsyncmsg.len != 0)
+		{
+			initStringInfo(&infosendsyncmsgtmp);
+			appendStringInfo(&infosendsyncmsgtmp, "%d (%s)", syncNum, infosendsyncmsg.data);
+			resetStringInfo(&infosendsyncmsg);
+			appendStringInfo(&infosendsyncmsg, "%s", infosendsyncmsgtmp.data);
+			pfree(infosendsyncmsgtmp.data);
+		}
+
+		/* set new datanode master synchronous_standby_names = '' */
+		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names"
+						, "", &infosendmsg);
+		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, cndnPath, &infosendmsg
+						, mgr_node->nodehost, getAgentCmdRst);
+		resetStringInfo(&infosendmsg);
+		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names"
+						, infosendsyncmsg.len !=0 ? infosendsyncmsg.data:"", &infosendmsg);
+		/*refresh pgxc_node on all coordiantors and datanode masters */
+		getrefresh = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, mgr_node->nodetype
+						, NameStr(mgr_node->nodename), getAgentCmdRst, pg_conn, cnoid, slaveNodeName.data);
+		if(!getrefresh)
+		{
+			getAgentCmdRst->ret = getrefresh;
+			appendStringInfo(&recorderr, "%s\n", (getAgentCmdRst->description).data);
+		}
+
+		/*flush expand slot */
+		mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
+		if(!HeapTupleIsValid(mastertuple))
+		{
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+				,errmsg("datanode master \"%s\" dosen't exist", cndnname->data)));
+		}
+		else
+		{
+			mgr_nodemaster = (Form_mgr_node)GETSTRUCT(mastertuple);
+			namestrcpy(&masterNameData, NameStr(mgr_nodemaster->nodename));
+			ReleaseSysCache(mastertuple);
+		}
+
+		PG_TRY();
+		{
+			if(hexp_check_select_result_count(*pg_conn, SELECT_ADB_SLOT_TABLE_COUNT))
+				hexp_alter_slotinfo_nodename(*pg_conn, masterNameData.data, newMasterNodeName.data);
+		}PG_CATCH();
+		{
+			ErrorData  *edata;
+			ereport(WARNING, (errmsg("update adb_slot fail, check and modify (use update method) the pgxc_node of all coordinators and datanode masters if need, then check and modify (use the command on adbmgr: EXPAND ALTER NODENAME  source_node TO dest_node) adb_slot table on coordinator")));
+			appendStringInfoString(&recorderr, "update adb_slot fail, check and modify (use update method) the pgxc_node of all coordinators and datanode masters if need, then check and modify (use the command on adbmgr: EXPAND ALTER NODENAME  source_node TO dest_node) adb_slot table on coordinator\n");
+
+			MemoryContextSwitchTo(oldcontext);
+			edata = CopyErrorData();
+			FlushErrorState();
+
+		}PG_END_TRY();
 	}PG_CATCH();
 	{
-		ereport(WARNING, (errmsg("update adb_slot fail, check and modify (use update method) the pgxc_node of all coordinators and datanode masters if need, then check and modify (use the command on adbmgr: EXPAND ALTER NODENAME  source_node TO dest_node) adb_slot table on coordinator")));
-		appendStringInfoString(&recorderr, "update adb_slot fail, check and modify (use update method) the pgxc_node of all coordinators and datanode masters if need, then check and modify (use the command on adbmgr: EXPAND ALTER NODENAME  source_node TO dest_node) adb_slot table on coordinator\n");
+		ErrorData  *edata;
+
+		mgr_unlock_cluster(pg_conn);
+		MemoryContextSwitchTo(oldcontext);
+		edata = CopyErrorData();
+		FlushErrorState();
+
+		return;
 	}PG_END_TRY();
 
 	/*unlock cluster*/
@@ -10442,6 +10477,8 @@ void mgr_unlock_cluster(PGconn **pg_conn)
 	const int maxnum = 15;
 	char *sqlstr = "set FORCE_PARALLEL_MODE = off; SELECT PG_UNPAUSE_CLUSTER();";
 
+	if (!*pg_conn)
+		return;
 	ereport(NOTICE, (errmsg("unlock cluster: %s", sqlstr)));
 	ereport(LOG, (errmsg("unlock cluster: %s", sqlstr)));
 	try = mgr_pqexec_boolsql_try_maxnum(pg_conn, sqlstr, maxnum, CMD_SELECT);
@@ -10451,6 +10488,7 @@ void mgr_unlock_cluster(PGconn **pg_conn)
 			,errmsg("execute \"%s\" fail %s", sqlstr, PQerrorMessage((PGconn*)*pg_conn))));
 	}
 	PQfinish(*pg_conn);
+	*pg_conn = NULL;
 
 	if (strcmp(paramV.data, "-1") != 0)
 	{
