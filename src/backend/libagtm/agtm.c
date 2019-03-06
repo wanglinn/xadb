@@ -1035,7 +1035,9 @@ parse_seqOption_to_string(List * seqOptions, StringInfo strOption)
 {
 	ListCell   *option;
 	int listSize = list_length(seqOptions);
+	int listSizeOffset = strOption->cursor;
 
+	/* must binary, at this function last maybe change it */
 	appendBinaryStringInfo(strOption, (const char *) &listSize, sizeof(listSize));
 
 	if(listSize == 0)
@@ -1044,6 +1046,13 @@ parse_seqOption_to_string(List * seqOptions, StringInfo strOption)
 	foreach(option, seqOptions)
 	{
 		DefElem    *defel = (DefElem *) lfirst(option);
+
+		if (strcmp(defel->defname, "owned_by") == 0)
+		{
+			/* ignore "OWNED BY" */
+			listSize--;
+			continue;
+		}
 
 		if(defel->defnamespace)
 		{
@@ -1125,19 +1134,6 @@ parse_seqOption_to_string(List * seqOptions, StringInfo strOption)
 					appendStringInfoString(strOption, strNode);
 					break;
 				}
-				case T_List:
-				{
-					if (strcmp(defel->defname, "owned_by") == 0)
-						listSize = listSize -1;
-
-					if (listSize == 0)
-					{
-						initStringInfo(strOption);
-						appendBinaryStringInfo(strOption, (const char *) &listSize, sizeof(listSize));
-						return;
-					}
-					break;
-				}
 				default:
 				{
 					ereport(ERROR,
@@ -1153,5 +1149,13 @@ parse_seqOption_to_string(List * seqOptions, StringInfo strOption)
 		}
 
 		appendBinaryStringInfo(strOption, (const char *)&defel->defaction, sizeof(defel->defaction));
+	}
+
+	if (listSize != list_length(seqOptions))
+	{
+		/* has ignored option(s) */
+		memcpy(strOption->data + listSizeOffset,
+			   &listSize,
+			   sizeof(listSize));
 	}
 }
