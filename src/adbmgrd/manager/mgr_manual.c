@@ -671,8 +671,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 		resetStringInfo(&(getAgentCmdRst.description));
 		str = mgr_nodetype_str(master_nodeinfo.nodetype);
 		ereport(NOTICE, (errmsg("refresh %s \"%s\" synchronous_standby_names='%s'", str,
-			nodenamedata.data, strinfo_sync.len == 0 ? "''" : strinfo_sync.data)));
-		pfree(str);
+			nodemasternamedata.data, strinfo_sync.len == 0 ? "''" : strinfo_sync.data)));
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD,
 								master_nodeinfo.nodepath,
 								&infosendmsg,
@@ -680,9 +679,11 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 								&getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
 		{
-			ereport(WARNING, (errmsg("refresh synchronous_standby_names of datanode master \"%s\" fail, %s", nodenamedata.data, getAgentCmdRst.description.data)));
+			ereport(WARNING, (errmsg("refresh synchronous_standby_names of %s \"%s\" fail, %s"
+			,str, nodemasternamedata.data, getAgentCmdRst.description.data)));
 			res = false;
 		}
+		pfree(str);
 	}
 
 	pfree_AppendNodeInfo(master_nodeinfo);
