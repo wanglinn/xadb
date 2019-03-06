@@ -227,6 +227,40 @@ List *GetSlotNodeOids(void)
 	return list;
 }
 
+bool IsSlotNodeOidsEqualOidList(const List *list)
+{
+	Size i;
+	int count_found;
+
+	if (list == NIL)
+		return false;	/* quick quit */
+
+	count_found = 0;
+
+	LWLockAcquire(SlotTableLock, LW_SHARED);
+	if (!OidIsValid(unique_slot_oids[0]))
+	{
+		LWLockRelease(SlotTableLock);
+		SlotUploadFromCurrentDB();
+		LWLockAcquire(SlotTableLock, LW_SHARED);
+	}
+
+	for(i=0;i<HASHMAP_SLOTSIZE && OidIsValid(unique_slot_oids[i]);++i)
+	{
+		if (list_member_oid(list, unique_slot_oids[i]))
+		{
+			count_found++;
+		}else
+		{
+			LWLockRelease(SlotTableLock);
+			return false;
+		}
+	}
+	LWLockRelease(SlotTableLock);
+
+	return (list_length(list) == count_found);
+}
+
 /*
 * select adb slot table by slotid
 */
