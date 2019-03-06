@@ -150,6 +150,8 @@ typedef struct PlannerGlobal
 	char		maxParallelHazard;	/* worst PROPARALLEL hazard level */
 
 #ifdef ADB
+	bool		has_modulo_rel;	/* has distribute by modulo table? */
+	bool		has_hashmap_rel; /* has distribute by hashmap table? */
 	bool		clusterPlanOK;	/* cluster plan potentially OK? */
 	int			usedRemoteAux;	/* count of used of auxiliary table for test remote node execute on */
 #endif /* ADB */
