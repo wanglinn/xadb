@@ -275,6 +275,7 @@ static bool rti_is_base_rel(PlannerInfo *root, Index rti);
 static bool get_path_rewind_subplan_ids(Path *path, Bitmapset **pbms);
 static Path *apply_volatile_tlist_cluster_path(PlannerInfo *root, PathTarget *target, Path *path, RelOptInfo *rel);
 static bool subquery_can_cluster_gather(PlannerInfo *root, PlannerInfo *start);
+static bool get_query_tree_cluster_info(Node *node, PlannerGlobal *glob);
 #endif
 
 
@@ -392,7 +393,10 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	}
 
 #ifdef ADB
+	glob->has_hashmap_rel = glob->has_modulo_rel = false;
 	glob->clusterPlanOK = (IsCnMaster() && CLUSTER_PLAN_OK(cursorOptions, parse));
+	if (glob->clusterPlanOK)
+		get_query_tree_cluster_info((Node*)parse, glob);
 #endif /* ADB */
 
 	/*
@@ -8291,4 +8295,48 @@ static bool subquery_can_cluster_gather(PlannerInfo *root, PlannerInfo *start)
 	return (root->parent_root == NULL) ? true:false;
 }
 
+static bool get_query_tree_cluster_info(Node *node, PlannerGlobal *glob)
+{
+	check_stack_depth();
+
+	if (node == NULL)
+		return false;
+
+	if (IsA(node, RangeTblEntry))
+	{
+		RangeTblEntry  *rte = (RangeTblEntry*)node;
+		Relation		rel;
+		char			locatorType;
+
+		if (rte->rtekind == RTE_RELATION &&
+			OidIsValid(rte->relid))
+		{
+			rel = relation_open(rte->relid, NoLock);
+			if (rel->rd_locator_info)
+			{
+				locatorType = rel->rd_locator_info->locatorType;
+				if (locatorType == LOCATOR_TYPE_HASHMAP)
+					glob->has_hashmap_rel = true;
+				else if(locatorType == LOCATOR_TYPE_MODULO)
+					glob->has_modulo_rel = true;
+			}
+			relation_close(rel, NoLock);
+
+			if (glob->has_hashmap_rel &&
+				glob->has_modulo_rel)
+				return true;
+		}
+		return false;
+	}
+
+	if (IsA(node, Query))
+	{
+		return query_tree_walker(castNode(Query, node),
+								 get_query_tree_cluster_info,
+								 glob,
+								 QTW_EXAMINE_RTES);
+	}
+
+	return expression_tree_walker(node, get_query_tree_cluster_info, glob);
+}
 #endif /* ADB */
