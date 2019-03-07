@@ -119,6 +119,20 @@ typedef struct nodeInfo
 	bool isPreferred;
 }nodeInfo;
 
+
+struct enum_recovery_status
+{
+	int type;
+	char *name;
+};
+
+typedef enum RECOVERY_STATUS
+{
+	RECOVERY_IN,
+	RECOVERY_NOT_IN,
+	RECOVERY_UNKNOWN
+}recovery_status;
+
 extern bool with_data_checksums;
 
 #define DEFAULT_DB "postgres"
