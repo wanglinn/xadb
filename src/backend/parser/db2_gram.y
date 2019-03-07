@@ -57,6 +57,7 @@
 #include "utils/datetime.h"
 #include "utils/numeric.h"
 #include "utils/xml.h"
+#include "nodes/makefuncs.h"
 
 
 /*
@@ -189,6 +190,9 @@ static int db2_yylex(union YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanne
 %type <node>	stmt
 %type <str>		ColLabel ColId NonReservedWord type_function_name
 
+%type <node>	RenameStmt
+%type <range> 	relation_expr qualified_name
+%type <str> 	name
 /*
  * Non-keyword token types.  These are hard-wired into the "flex" lexer.
  * They must be listed first so that their numeric codes do not depend on
@@ -211,7 +215,7 @@ static int db2_yylex(union YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanne
  */
 
 /* ordinary key words in alphabetical order */
-%token <keyword> ADD_P AFTER ALL ALLOCATE ALLOW ALTERAND ANY AS
+%token <keyword> ADD_P AFTER ALL ALLOCATE ALLOW ALTER AND ANY AS
 	ARRAY1 ARRAY_EXISTS1 
 	ASENSITIVE ASSOCIATE ASUTIME AT AUDIT AUX AUXILIARY
 
@@ -339,9 +343,44 @@ stmt:
 							(errcode(ERRCODE_SYNTAX_ERROR),
 							 errmsg("syntax error")));
 				}
+			| RenameStmt
 			| /*EMPTY*/
 				{ $$ = NULL; }
 		;
+
+
+/*****************************************************************************
+ *
+ *		QUERY : 
+ *				RENAME TABLE old_table_name to new_table_name
+ *
+ *****************************************************************************/
+
+
+RenameStmt: RENAME TABLE relation_expr TO name
+				{
+					RenameStmt *n = makeNode(RenameStmt);
+					n->renameType = OBJECT_TABLE;
+					n->relation = $3;
+					n->subname = NULL;
+					n->newname = $5;
+					n->missing_ok = false;
+					$$ = (Node *)n;
+				}
+		;
+relation_expr:
+			qualified_name
+				{
+					/* inheritance query, implicitly */
+					$$ = $1;
+					$$->inh = true;
+					$$->alias = NULL;
+				}
+		;
+qualified_name:
+		  ColId { $$ = makeRangeVar(NULL, $1, @1); }
+		;
+name:		ColId { $$ = $1; };
 
 /*
  * Name classification hierarchy.
@@ -423,7 +462,8 @@ reserved_keyword:
 			| ALL
 			| ALLOCATE
 			| ALLOW
-			| ALTERAND
+			| ALTER
+			| AND
 			| ANY
 			| AS
 			| ARRAY1

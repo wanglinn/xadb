@@ -152,7 +152,7 @@ List* ora_raw_parser(const char *str)
 #ifdef ADB_GRAM_DB2
 static List* db2_yyparse_internal(const char *str, core_yyscan_t yyscanner)
 {
-	List *stmts = NIL;;
+	List *stmts = NIL;
 	MemoryContext volatile oldcontext = CurrentMemoryContext;
 
 	PG_TRY();
