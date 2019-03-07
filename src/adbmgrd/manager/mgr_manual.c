@@ -1798,7 +1798,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 			mgr_add_parm(nodeNameData.data, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
 		else
 			mgr_add_parm(nodeNameData.data, GTM_TYPE_GTM_MASTER, &infosendmsg);
-		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "''", &infosendmsg);
+		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, nodeInfoS.nodepath, &infosendmsg
 				, nodeInfoS.nodehost, &getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
