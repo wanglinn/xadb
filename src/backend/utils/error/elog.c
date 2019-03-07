@@ -533,6 +533,10 @@ errfinish(int dummy,...)
 		if (PG_exception_stack == NULL && whereToSendOutput == DestRemote)
 			whereToSendOutput = DestNone;
 
+#ifdef ADB
+		PQNRequestCancelAllconnect();
+#endif /* ADB */
+
 		/*
 		 * fflush here is just to improve the odds that we get to see the
 		 * error message, in case things are so hosed that proc_exit crashes.
@@ -559,6 +563,9 @@ errfinish(int dummy,...)
 		 * XXX: what if we are *in* the postmaster?  abort() won't kill our
 		 * children...
 		 */
+#ifdef ADB
+		PQNRequestCancelAllconnect();
+#endif /* ADB */
 		fflush(stdout);
 		fflush(stderr);
 		abort();
