@@ -2318,103 +2318,6 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			scanjoin_targets = list_make1(scanjoin_target);
 			scanjoin_targets_contain_srfs = NIL;
 		}
-#ifdef ADB
-		if (current_rel->cluster_pathlist &&
-			!has_cluster_hazard((Node*)scanjoin_target->exprs, false))
-		{
-			Path *path;
-			List *reduce_info = NULL;
-			List *new_pathlist = NIL;
-			bool try_reduce = root->must_replicate && expression_have_exec_param((Expr*)scanjoin_target->exprs);
-			bool has_volatile = contain_volatile_functions((Node*)scanjoin_target->exprs);
-			if(try_reduce)
-				reduce_info = list_make1(MakeFinalReplicateReduceInfo());
-
-			foreach(lc, current_rel->cluster_pathlist)
-			{
-				Path *subpath = lfirst(lc);
-				Assert(subpath->param_info == NULL);
-
-				if (has_volatile &&
-					(subpath = apply_volatile_tlist_cluster_path(root, scanjoin_target, subpath, current_rel)) == NULL)
-					continue;
-
-				if (try_reduce)
-				{
-					if(!IsA(subpath, ReduceScanPath))
-					{
-						subpath = (Path*)try_reducescan_path(root,
-															 current_rel,
-															 scanjoin_target,
-															 subpath,
-															 reduce_info,
-															 subpath->pathkeys,
-															 NIL);
-					}
-					if(subpath)
-					{
-						Assert(is_projection_capable_path(subpath));
-						new_pathlist = lappend(new_pathlist, subpath);
-					}
-					continue;
-				}
-
-				path = apply_projection_to_path(root, current_rel, subpath, scanjoin_target);
-				if (path != subpath)
-				{
-					lfirst(lc) = path;
-					if (subpath == current_rel->cheapest_cluster_startup_path)
-						current_rel->cheapest_cluster_startup_path = path;
-					if (subpath == current_rel->cheapest_cluster_total_path)
-						current_rel->cheapest_cluster_total_path = path;
-					if (subpath == current_rel->cheapest_replicate_path)
-						current_rel->cheapest_replicate_path = path;
-				}
-			}
-			if(try_reduce)
-			{
-				list_free(current_rel->cluster_pathlist);
-				list_free(current_rel->cheapest_cluster_parameterized_paths);
-				current_rel->cheapest_cluster_startup_path =
-					current_rel->cheapest_cluster_total_path =
-					current_rel->cheapest_replicate_path = NULL;
-				current_rel->cheapest_cluster_parameterized_paths = NIL;
-				if(new_pathlist)
-				{
-					current_rel->cluster_pathlist = new_pathlist;
-					set_cheapest(current_rel);
-				}else
-				{
-					current_rel->cluster_pathlist = NIL;
-					if(current_rel->cluster_partial_pathlist)
-					{
-						list_free(current_rel->cluster_partial_pathlist);
-						current_rel->cluster_partial_pathlist = NIL;
-					}
-				}
-			}
-			if (is_parallel_safe(root, (Node*)scanjoin_target->exprs))
-			{
-				foreach(lc, current_rel->cluster_partial_pathlist)
-				{
-					Path *subpath = lfirst(lc);
-					Assert(subpath->param_info == NULL);
-
-					lfirst(lc) = create_projection_path(root,
-														current_rel,
-														subpath,
-														scanjoin_target);
-				}
-			}else if (current_rel->cluster_partial_pathlist)
-			{
-				list_free(current_rel->cluster_partial_pathlist);
-				current_rel->cluster_partial_pathlist = NIL;
-			}
-		}else
-		{
-			current_rel->cluster_pathlist = NIL;
-		}
-#endif /* ADB */
 
 		/* Apply scan/join target. */
 		scanjoin_target_same_exprs = list_length(scanjoin_targets) == 1
@@ -8392,6 +8295,9 @@ apply_scanjoin_target_to_paths(PlannerInfo *root,
 
 		/* Can't use parallel query above this level. */
 		rel->partial_pathlist = NIL;
+#ifdef ADB
+		rel->cluster_partial_pathlist = NIL;
+#endif /* ADB */
 		rel->consider_parallel = false;
 	}
 
@@ -8420,6 +8326,12 @@ apply_scanjoin_target_to_paths(PlannerInfo *root,
 													  NULL, 0, false, NIL,
 													  -1));
 		rel->partial_pathlist = NIL;
+#ifdef ADB
+		rel->cluster_pathlist = list_make1(create_append_path(root, rel, NIL, NIL,
+															  NULL, 0, false, NIL,
+															  -1));
+		rel->cluster_partial_pathlist = NIL;
+#endif /* ADB */
 		set_cheapest(rel);
 		Assert(IS_DUMMY_REL(rel));
 
@@ -8484,6 +8396,81 @@ apply_scanjoin_target_to_paths(PlannerInfo *root,
 			lfirst(lc) = newpath;
 		}
 	}
+
+#ifdef ADB
+	if (rel->cluster_pathlist &&
+		!has_cluster_hazard((Node*)scanjoin_target->exprs, false))
+	{
+		Path *subpath;
+		List *reduce_info = NULL;
+		List *new_pathlist = NIL;
+		bool try_reduce = root->must_replicate && expression_have_exec_param((Expr*)scanjoin_target->exprs);
+		bool has_volatile = contain_volatile_functions((Node*)scanjoin_target->exprs);
+		if(try_reduce)
+			reduce_info = list_make1(MakeFinalReplicateReduceInfo());
+
+		foreach(lc, rel->cluster_pathlist)
+		{
+			subpath = lfirst(lc);
+			Assert(subpath->param_info == NULL);
+
+			if (has_volatile &&
+				(subpath = apply_volatile_tlist_cluster_path(root, scanjoin_target, subpath, rel)) == NULL)
+				continue;
+
+			if (try_reduce &&
+				!IsA(subpath, ReduceScanPath))
+			{
+				subpath = (Path*)try_reducescan_path(root,
+													 rel,
+													 scanjoin_target,
+													 subpath,
+													 reduce_info,
+													 subpath->pathkeys,
+													 NIL);
+			}
+
+			if (subpath)
+			{
+				if (tlist_same_exprs)
+					subpath->pathtarget->sortgrouprefs =
+						scanjoin_target->sortgrouprefs;
+				else
+					subpath = (Path *)create_projection_path(root, rel, subpath, scanjoin_target);
+				new_pathlist = lappend(new_pathlist, subpath);
+			}
+		}
+		list_free(rel->cluster_pathlist);
+		rel->cluster_pathlist = new_pathlist;
+
+		if(try_reduce)
+		{
+			list_free(rel->cheapest_cluster_parameterized_paths);
+			rel->cheapest_cluster_parameterized_paths = NIL;
+
+			if (rel->cluster_partial_pathlist != NIL)
+			{
+				/* cluster reduce not support partial for now */
+				list_free(rel->cluster_partial_pathlist);
+				rel->cluster_partial_pathlist = NIL;
+			}
+		}
+
+		foreach(lc, rel->cluster_partial_pathlist)
+		{
+			subpath = lfirst(lc);
+
+			lfirst(lc) = create_projection_path(root,
+												rel,
+												subpath,
+												scanjoin_target);
+		}
+	}else
+	{
+		rel->cluster_pathlist = NIL;
+		rel->cluster_partial_pathlist = NIL;
+	}
+#endif /* ADB */
 
 	/* Now fix things up if scan/join target contains SRFs */
 	if (root->parse->hasTargetSRFs)
