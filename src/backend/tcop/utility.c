@@ -1359,6 +1359,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 					{
 						utilityContext.exec_type = exec_type;
 						utilityContext.is_temp = is_temp;
+						utilityContext.stmt = (Node*)stmt;
 						ExecRemoteUtilityStmt(&utilityContext);
 					}
 				}
