@@ -284,6 +284,7 @@ extern char mgr_change_cmdtype_unbackend(char cmdtype);
 extern HeapTuple build_common_command_tuple_four_col(const Name name, char type, bool status, const char *description);
 extern bool mgr_check_param_reload_postgresqlconf(char nodetype, Oid hostoid, int nodeport, char *address, char *check_param, char *expect_result);
 extern char mgr_get_nodetype(Name nodename);
+extern int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport , StringInfo strinfo, Name recoveryStrInfo);
 
 /* monitor_hostpage.c */
 extern Datum monitor_get_hostinfo(PG_FUNCTION_ARGS);
@@ -385,12 +386,8 @@ extern void mgr_add_hbaconf(char nodetype, char *dnusername, char *dnaddr);
 extern void mgr_check_dir_exist_and_priv(Oid hostoid, char *dir);
 extern void mgr_pgbasebackup(char nodetype, AppendNodeInfo *appendnodeinfo, AppendNodeInfo *parentnodeinfo);
 extern void mgr_start_node(char nodetype, const char *nodepath, Oid hostoid);
-extern HeapTuple build_common_command_tuple_for_monitor(const Name name
-                                                        ,char type
-                                                        ,bool status
-                                                        ,const char *description
-                                                        ,const Name hostaddr
-                                                        ,const int port);
+extern HeapTuple build_common_command_tuple_for_monitor(const Name name, char type, bool status, const char *description
+                                                        ,const Name hostaddr, const int port, const Name recoveryStatus);
 extern bool mgr_get_self_address(char *server_address, int server_port, Name self_address);
 
 extern Datum monitor_handle_coordinator(PG_FUNCTION_ARGS);

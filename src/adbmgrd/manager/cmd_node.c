@@ -112,18 +112,20 @@ static struct enum_sync_state sync_state_tab[] =
 	{-1, NULL}
 };
 
+static struct enum_recovery_status enum_recovery_status_tab[] =
+{
+	{RECOVERY_IN, "true"},
+	{RECOVERY_NOT_IN, "false"},
+	{RECOVERY_UNKNOWN, "unknown"},
+	{-1, NULL}
+};
+
 #define DEFAULT_WAIT	60
 
 void release_append_node_info(AppendNodeInfo *node_info, bool is_release);
 
 static TupleDesc common_command_tuple_desc = NULL;
 static TupleDesc get_common_command_tuple_desc_for_monitor(void);
-HeapTuple build_common_command_tuple_for_monitor(const Name name
-                                                        ,char type
-                                                        ,bool status
-                                                        ,const char *description
-                                                        ,const Name hostaddr
-                                                        ,const int port);
 static void mgr_get_appendnodeinfo(char node_type, char *nodename, AppendNodeInfo *appendnodeinfo);
 static void mgr_append_init_cndnmaster(AppendNodeInfo *appendnodeinfo);
 static void mgr_get_other_parm(char node_type, StringInfo infosendmsg);
@@ -2327,14 +2329,13 @@ Datum mgr_monitor_all(PG_FUNCTION_ARGS)
 	HeapTuple tup;
 	HeapTuple tup_result;
 	Form_mgr_node mgr_node;
-	StringInfoData port;
-	StringInfoData strdata;
+	StringInfoData resultstrdata;
 	NameData host;
+	NameData recoveryStatus;
+	char nodetype;
 	char *host_addr = NULL;
-	char *user = NULL;
-	const char *error_str = NULL;
-	bool is_valid = false;
-	int ret = 0;
+	char *nodetypeStr = NULL;
+	int ret = PQPING_REJECT;
 
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -2371,58 +2372,40 @@ Datum mgr_monitor_all(PG_FUNCTION_ARGS)
 	mgr_node = (Form_mgr_node)GETSTRUCT(tup);
 	Assert(mgr_node);
 
+	nodetype = mgr_node->nodetype;
 	host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
-	user = get_hostuser_from_hostoid(mgr_node->nodehost);
-	initStringInfo(&port);
-	appendStringInfo(&port, "%d", mgr_node->nodeport);
-	is_valid = is_valid_ip(host_addr);
-	if (is_valid)
+	initStringInfo(&resultstrdata);
+	ret = mgr_get_monitor_node_result(nodetype, mgr_node->nodehost, mgr_node->nodeport
+	, &resultstrdata, &recoveryStatus);
+
+	/* check the node recovery status */
+	nodetypeStr = mgr_nodetype_str(nodetype);
+	if (nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_DATANODE_MASTER
+		|| nodetype == GTM_TYPE_GTM_MASTER)
 	{
-		if (mgr_node->nodetype == GTM_TYPE_GTM_MASTER || mgr_node->nodetype == GTM_TYPE_GTM_SLAVE)
-			ret = pingNode_user(host_addr, port.data, AGTM_USER);
-		else
-			ret = pingNode_user(host_addr, port.data, user);
-		switch (ret)
-		{
-			case PQPING_OK:
-				error_str = "running";
-				break;
-			case PQPING_REJECT:
-				error_str = "server is alive but rejecting connections";
-				break;
-			case PQPING_NO_RESPONSE:
-				error_str = "not running";
-				break;
-			case PQPING_NO_ATTEMPT:
-				error_str = "connection not attempted (bad params)";
-				break;
-			case AGENT_DOWN:
-			{
-				initStringInfo(&strdata);
-				appendStringInfo(&strdata, "could not connect socket for agent \"%s\"", host_addr);
-				error_str = strdata.data;
-				break;
-			}
-			default:
-				break;
-		}
+		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
+			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+				, NameStr(mgr_node->nodename), recoveryStatus.data)));
 	}
 	else
-		error_str = "could not establish host connection";
+	{
+		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
+			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+				, NameStr(mgr_node->nodename), recoveryStatus.data)));
+	}
 
+	pfree(nodetypeStr);
 	namestrcpy(&host, host_addr);
 	tup_result = build_common_command_tuple_for_monitor(
 				&(mgr_node->nodename)
-				,mgr_node->nodetype
+				,nodetype
 				,ret == PQPING_OK ? true:false
-				,error_str
+				,resultstrdata.data
 				,&host
-				,mgr_node->nodeport);
-	if(AGENT_DOWN == ret)
-		pfree(strdata.data);
-	pfree(port.data);
+				,mgr_node->nodeport
+				,&recoveryStatus);
+	pfree(resultstrdata.data);
 	pfree(host_addr);
-	pfree(user);
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
 
@@ -2436,14 +2419,13 @@ Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS)
 	HeapTuple tup;
 	HeapTuple tup_result;
 	Form_mgr_node mgr_node;
-	StringInfoData port;
-	StringInfoData strdata;
+	StringInfoData resultstrdata;
 	NameData host;
+	NameData recoveryStatus;
+	char nodetype;
 	char *host_addr = NULL;
-	bool is_valid = false;
-	const char *error_str = NULL;
-	char *user;
-	int ret = 0;
+	char *nodetypeStr = NULL;
+	int ret = PQPING_REJECT;
 
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -2476,58 +2458,40 @@ Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS)
 		/* if node type is datanode master ,datanode slave. */
 		if (mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER || mgr_node->nodetype == CNDN_TYPE_DATANODE_SLAVE)
 		{
+			initStringInfo(&resultstrdata);
+			nodetype = mgr_node->nodetype;
 			host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
-			user = get_hostuser_from_hostoid(mgr_node->nodehost);
-			initStringInfo(&port);
-			appendStringInfo(&port, "%d", mgr_node->nodeport);
+			ret = mgr_get_monitor_node_result(nodetype, mgr_node->nodehost, mgr_node->nodeport
+			, &resultstrdata, &recoveryStatus);
 
-			is_valid = is_valid_ip(host_addr);
-			if (is_valid)
+			/* check the node recovery status */
+			nodetypeStr = mgr_nodetype_str(nodetype);
+			if (nodetype == CNDN_TYPE_DATANODE_MASTER)
 			{
-				ret = pingNode_user(host_addr, port.data, user);
-				switch (ret)
-				{
-					case PQPING_OK:
-						error_str = "running";
-						break;
-					case PQPING_REJECT:
-						error_str = "server is alive but rejecting connections";
-						break;
-					case PQPING_NO_RESPONSE:
-						error_str = "not running";
-						break;
-					case PQPING_NO_ATTEMPT:
-						error_str = "connection not attempted (bad params)";
-						break;
-					case AGENT_DOWN:
-					{
-						initStringInfo(&strdata);
-						appendStringInfo(&strdata, "could not connect socket for agent \"%s\"", host_addr);
-						error_str = strdata.data;
-						break;
-					}
-					default:
-						error_str = "unknown the type of ping node return";
-						break;
-				}
+				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
+					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+						, NameStr(mgr_node->nodename), recoveryStatus.data)));
 			}
 			else
-				error_str = "could not establish host connection";
+			{
+				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
+					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+						, NameStr(mgr_node->nodename), recoveryStatus.data)));
+			}
 
+			pfree(nodetypeStr);
 			namestrcpy(&host, host_addr);
 			tup_result = build_common_command_tuple_for_monitor(
 						&(mgr_node->nodename)
-						,mgr_node->nodetype
+						,nodetype
 						,ret == 0 ? true:false
-						,error_str
+						,resultstrdata.data
 						,&host
-						,mgr_node->nodeport);
+						,mgr_node->nodeport
+						,&recoveryStatus);
 
-			pfree(user);
-			pfree(port.data);
 			pfree(host_addr);
-			if(AGENT_DOWN == ret)
-				pfree(strdata.data);
+			pfree(resultstrdata.data);
 			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 		}
 		else
@@ -2550,13 +2514,14 @@ Datum mgr_monitor_gtm_all(PG_FUNCTION_ARGS)
 	HeapTuple tup;
 	HeapTuple tup_result;
 	Form_mgr_node mgr_node;
-	StringInfoData port;
+	StringInfoData resultstrdata;
 	StringInfoData strdata;
 	NameData host;
-	char *host_addr;
-	bool is_valid = false;
-	const char *error_str = NULL;
-	int ret = 0;
+	NameData recoveryStatus;
+	char nodetype;
+	char *host_addr = NULL;
+	char *nodetypeStr = NULL;
+	int ret = PQPING_REJECT;
 
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -2589,55 +2554,43 @@ Datum mgr_monitor_gtm_all(PG_FUNCTION_ARGS)
 		/* if node type is gtm master ,gtm slave. */
 		if (mgr_node->nodetype == GTM_TYPE_GTM_MASTER || mgr_node->nodetype == GTM_TYPE_GTM_SLAVE)
 		{
+			initStringInfo(&resultstrdata);
+			initStringInfo(&strdata);
+			nodetype = mgr_node->nodetype;
 			host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
-			initStringInfo(&port);
-			appendStringInfo(&port, "%d", mgr_node->nodeport);
+			ret = mgr_get_monitor_node_result(nodetype, mgr_node->nodehost, mgr_node->nodeport
+			, &resultstrdata, &recoveryStatus);
 
-			is_valid = is_valid_ip(host_addr);
-			if (is_valid)
+			/* check the node recovery status */
+			nodetypeStr = mgr_nodetype_str(nodetype);
+			if (nodetype == GTM_TYPE_GTM_MASTER)
 			{
-				ret = pingNode_user(host_addr, port.data, AGTM_USER);
-				switch (ret)
+				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
 				{
-					case PQPING_OK:
-						error_str = "running";
-						break;
-					case PQPING_REJECT:
-						error_str = "server is alive but rejecting connections";
-						break;
-					case PQPING_NO_RESPONSE:
-						error_str = "not running";
-						break;
-					case PQPING_NO_ATTEMPT:
-						error_str = "connection not attempted (bad params)";
-						break;
-					case AGENT_DOWN:
-					{
-						initStringInfo(&strdata);
-						appendStringInfo(&strdata, "could not connect socket for agent \"%s\"", host_addr);
-						error_str = strdata.data;
-						break;
-					}
-					default:
-						error_str = "unknown the type of ping node return";
-						break;
+					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+						, NameStr(mgr_node->nodename), recoveryStatus.data)));
 				}
 			}
 			else
-				error_str = "could not establish host connection";
+			{
+				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
+					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+						, NameStr(mgr_node->nodename), recoveryStatus.data)));
+			}
 
+			pfree(nodetypeStr);
 			namestrcpy(&host, host_addr);
 			tup_result = build_common_command_tuple_for_monitor(
 						&(mgr_node->nodename)
-						,mgr_node->nodetype
+						,nodetype
 						,ret == 0 ? true:false
-						,error_str
+						,resultstrdata.data
 						,&host
-						,mgr_node->nodeport);
-			pfree(port.data);
+						,mgr_node->nodeport
+						,&recoveryStatus);
+
 			pfree(host_addr);
-			if(AGENT_DOWN == ret)
-				pfree(strdata.data);
+			pfree(resultstrdata.data);
 			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 		}
 		else
@@ -2661,15 +2614,13 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 	List *nodenamelist=NIL;
 	HeapTuple tup, tup_result;
 	Form_mgr_node mgr_node;
-	StringInfoData port;
-	StringInfoData strdata;
+	StringInfoData resultstrdata;
 	NameData host;
-	char *host_addr;
-	char *nodename;
-	bool is_valid = false;
-	const char *error_str = NULL;
-	char *user;
-	int ret = 0;
+	NameData recoveryStatus;
+	char *host_addr = NULL;
+	char *nodename = NULL;
+	char *nodetypeStr = NULL;
+	int ret = PQPING_REJECT;
 	char nodetype;
 
 	nodetype = PG_GETARG_CHAR(0);
@@ -2745,60 +2696,39 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errmsg("node type is not right: %s", nodename)));
 
 	host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
-	user = get_hostuser_from_hostoid(mgr_node->nodehost);
-	initStringInfo(&port);
-	appendStringInfo(&port, "%d", mgr_node->nodeport);
+	initStringInfo(&resultstrdata);
+	ret = mgr_get_monitor_node_result(mgr_node->nodetype, mgr_node->nodehost, mgr_node->nodeport
+			, &resultstrdata, &recoveryStatus);
 
-	is_valid = is_valid_ip(host_addr);
-	if (is_valid)
+	/* check the node recovery status */
+	nodetypeStr = mgr_nodetype_str(nodetype);
+	if (nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_DATANODE_MASTER
+		|| nodetype == GTM_TYPE_GTM_MASTER)
 	{
-		if (mgr_node->nodetype == GTM_TYPE_GTM_MASTER || mgr_node->nodetype == GTM_TYPE_GTM_SLAVE)
-			ret = pingNode_user(host_addr, port.data, AGTM_USER);
-		else
-			ret = pingNode_user(host_addr, port.data, user);
-		switch (ret)
-		{
-			case PQPING_OK:
-				error_str = "running";
-				break;
-			case PQPING_REJECT:
-				error_str = "server is alive but rejecting connections";
-				break;
-			case PQPING_NO_RESPONSE:
-				error_str = "not running";
-				break;
-			case PQPING_NO_ATTEMPT:
-				error_str = "connection not attempted (bad params)";
-				break;
-			case AGENT_DOWN:
-			{
-				initStringInfo(&strdata);
-				appendStringInfo(&strdata, "could not connect socket for agent \"%s\"", host_addr);
-				error_str = strdata.data;
-				break;
-			}
-			default:
-				error_str = "unknown the type of ping node return";
-				break;
-		}
+		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
+			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+				, NameStr(mgr_node->nodename), recoveryStatus.data)));
 	}
 	else
-		error_str = "could not establish host connection";
+	{
+		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
+			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+				, NameStr(mgr_node->nodename), recoveryStatus.data)));
+	}
 
+	pfree(nodetypeStr);
 	namestrcpy(&host, host_addr);
 	tup_result = build_common_command_tuple_for_monitor(
 				&(mgr_node->nodename)
-				,mgr_node->nodetype
+				,nodetype
 				,ret == 0 ? true:false
-				,error_str
+				,resultstrdata.data
 				,&host
-				,mgr_node->nodeport);
+				,mgr_node->nodeport
+				,&recoveryStatus);
 
-	pfree(user);
-	pfree(port.data);
 	pfree(host_addr);
-	if(AGENT_DOWN == ret)
-		pfree(strdata.data);
+	pfree(resultstrdata.data);
 	heap_freetuple(tup);
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
@@ -2814,15 +2744,13 @@ Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	Form_mgr_node mgr_node;
 	ScanKeyData  key[1];
-	StringInfoData port;
-	StringInfoData strdata;
+	StringInfoData resultstrdata;
 	NameData host;
-	char *host_addr;
-	char *user;
-	int ret = 0;
+	NameData recoveryStatus;
+	char *host_addr = NULL;
+	char *nodetypeStr = NULL;
+	int ret = PQPING_REJECT;
 	char nodetype;
-	bool is_valid = false;
-	const char *error_str = NULL;
 
 	nodetype = PG_GETARG_CHAR(0);
 
@@ -2868,154 +2796,137 @@ Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
 	mgr_node = (Form_mgr_node)GETSTRUCT(tup);
 	Assert(mgr_node);
 
+	initStringInfo(&resultstrdata);
 	host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
-	user = get_hostuser_from_hostoid(mgr_node->nodehost);
-	initStringInfo(&port);
-	appendStringInfo(&port, "%d", mgr_node->nodeport);
+	ret = mgr_get_monitor_node_result(mgr_node->nodetype, mgr_node->nodehost, mgr_node->nodeport
+			, &resultstrdata, &recoveryStatus);
 
-	is_valid = is_valid_ip(host_addr);
-	if (is_valid)
+	/* check the node recovery status */
+	if (nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_DATANODE_MASTER
+		|| nodetype == GTM_TYPE_GTM_MASTER)
 	{
-		if (mgr_node->nodetype == GTM_TYPE_GTM_MASTER || mgr_node->nodetype == GTM_TYPE_GTM_SLAVE)
-			ret = pingNode_user(host_addr, port.data, AGTM_USER);
-		else
-			ret = pingNode_user(host_addr, port.data, user);
-		switch (ret)
+		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
 		{
-			case PQPING_OK:
-				error_str = "running";
-				break;
-			case PQPING_REJECT:
-				error_str = "server is alive but rejecting connections";
-				break;
-			case PQPING_NO_RESPONSE:
-				error_str = "not running";
-				break;
-			case PQPING_NO_ATTEMPT:
-				error_str = "connection not attempted (bad params)";
-				break;
-			case AGENT_DOWN:
-			{
-				initStringInfo(&strdata);
-				appendStringInfo(&strdata, "could not connect socket for agent \"%s\"", host_addr);
-				error_str = strdata.data;
-				break;
-			}
-			default:
-				error_str = "unknown the type of ping node return";
-				break;
+			nodetypeStr = mgr_nodetype_str(nodetype);
+			ereport(WARNING, (errmsg("%s %s is in recovery status", nodetypeStr, NameStr(mgr_node->nodename))));
+			pfree(nodetypeStr);
 		}
 	}
 	else
-		error_str = "could not establish host connection";
+	{
+		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
+		{
+			nodetypeStr = mgr_nodetype_str(nodetype);
+			ereport(WARNING, (errmsg("%s %s is not in recovery status", nodetypeStr, NameStr(mgr_node->nodename))));
+			pfree(nodetypeStr);
+		}
+	}
 
 	namestrcpy(&host, host_addr);
 	tup_result = build_common_command_tuple_for_monitor(
 				&(mgr_node->nodename)
-				,mgr_node->nodetype
+				,nodetype
 				,ret == 0 ? true:false
-				,error_str
+				,resultstrdata.data
 				,&host
-				,mgr_node->nodeport);
+				,mgr_node->nodeport
+				,&recoveryStatus);
 
-	pfree(user);
-	pfree(port.data);
 	pfree(host_addr);
-	if(AGENT_DOWN == ret)
-		pfree(strdata.data);
+	pfree(resultstrdata.data);
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
 
-HeapTuple build_common_command_tuple_for_monitor(const Name name
-                                                        ,char type
-                                                        ,bool status
-                                                        ,const char *description
-                                                        ,const Name hostaddr
-                                                        ,const int port)
+HeapTuple build_common_command_tuple_for_monitor(const Name name, char type, bool status, const char *description
+						,const Name hostaddr, const int port, const Name recoveryStatus)
 {
-    Datum datums[6];
-    bool nulls[6];
-    TupleDesc desc;
-    NameData typestr;
-    AssertArg(name && description);
-    desc = get_common_command_tuple_desc_for_monitor();
+	Datum datums[7];
+	bool nulls[7];
+	TupleDesc desc;
+	NameData typestr;
+	AssertArg(name && description);
+	desc = get_common_command_tuple_desc_for_monitor();
 
-    AssertArg(desc && desc->natts == 6
-        && TupleDescAttr(desc, 0)->atttypid == NAMEOID
-        && TupleDescAttr(desc, 1)->atttypid == NAMEOID
-        && TupleDescAttr(desc, 2)->atttypid == BOOLOID
-        && TupleDescAttr(desc, 3)->atttypid == TEXTOID
-        && TupleDescAttr(desc, 4)->atttypid == NAMEOID
-        && TupleDescAttr(desc, 5)->atttypid == INT4OID);
+	AssertArg(desc && desc->natts == 7
+		&& TupleDescAttr(desc, 0)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 1)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 2)->atttypid == BOOLOID
+		&& TupleDescAttr(desc, 3)->atttypid == TEXTOID
+		&& TupleDescAttr(desc, 4)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 5)->atttypid == INT4OID
+		&& TupleDescAttr(desc, 6)->atttypid == NAMEOID);
 
-    switch(type)
-    {
-        case GTM_TYPE_GTM_MASTER:
-                namestrcpy(&typestr, "gtm master");
-                break;
-        case GTM_TYPE_GTM_SLAVE:
-                namestrcpy(&typestr, "gtm slave");
-                break;
-        case CNDN_TYPE_COORDINATOR_MASTER:
-                namestrcpy(&typestr, "coordinator master");
-                break;
-        case CNDN_TYPE_COORDINATOR_SLAVE:
-                namestrcpy(&typestr, "coordinator slave");
-                break;
-        case CNDN_TYPE_DATANODE_MASTER:
-                namestrcpy(&typestr, "datanode master");
-                break;
-        case CNDN_TYPE_DATANODE_SLAVE:
-                namestrcpy(&typestr, "datanode slave");
-                break;
-        default:
-                namestrcpy(&typestr, "unknown type");
-                break;
-    }
+	switch(type)
+	{
+		case GTM_TYPE_GTM_MASTER:
+			namestrcpy(&typestr, "gtm master");
+			break;
+		case GTM_TYPE_GTM_SLAVE:
+			namestrcpy(&typestr, "gtm slave");
+			break;
+		case CNDN_TYPE_COORDINATOR_MASTER:
+			namestrcpy(&typestr, "coordinator master");
+			break;
+		case CNDN_TYPE_COORDINATOR_SLAVE:
+			namestrcpy(&typestr, "coordinator slave");
+			break;
+		case CNDN_TYPE_DATANODE_MASTER:
+			namestrcpy(&typestr, "datanode master");
+			break;
+		case CNDN_TYPE_DATANODE_SLAVE:
+			namestrcpy(&typestr, "datanode slave");
+			break;
+		default:
+			namestrcpy(&typestr, "unknown type");
+			break;
+	}
 
 
-    datums[0] = NameGetDatum(name);
-    datums[1] = NameGetDatum(&typestr);
-    datums[2] = BoolGetDatum(status);
-    datums[3] = CStringGetTextDatum(description);
-    datums[4] = NameGetDatum(hostaddr);
-    datums[5] = Int32GetDatum(port);
-    nulls[0] = nulls[1] = nulls[2] = nulls[3] = nulls[4] = nulls[5] = false;
-    return heap_form_tuple(desc, datums, nulls);
+	datums[0] = NameGetDatum(name);
+	datums[1] = NameGetDatum(&typestr);
+	datums[2] = BoolGetDatum(status);
+	datums[3] = CStringGetTextDatum(description);
+	datums[4] = NameGetDatum(hostaddr);
+	datums[5] = Int32GetDatum(port);
+	datums[6] = NameGetDatum(recoveryStatus);
+	nulls[0] = nulls[1] = nulls[2] = nulls[3] = nulls[4] = nulls[5] = nulls[6] = false;
+	return heap_form_tuple(desc, datums, nulls);
 }
 
 static TupleDesc get_common_command_tuple_desc_for_monitor(void)
 {
-    if(common_command_tuple_desc == NULL)
-    {
-        MemoryContext volatile old_context = MemoryContextSwitchTo(TopMemoryContext);
-        TupleDesc volatile desc = NULL;
-        PG_TRY();
-        {
-            desc = CreateTemplateTupleDesc(6, false);
-            TupleDescInitEntry(desc, (AttrNumber) 1, "nodename",
-                               NAMEOID, -1, 0);
-            TupleDescInitEntry(desc, (AttrNumber) 2, "nodetype",
-                               NAMEOID, -1, 0);
-            TupleDescInitEntry(desc, (AttrNumber) 3, "status",
-                               BOOLOID, -1, 0);
-            TupleDescInitEntry(desc, (AttrNumber) 4, "description",
-                               TEXTOID, -1, 0);
-            TupleDescInitEntry(desc, (AttrNumber) 5, "host",
-                               NAMEOID, -1, 0);
-            TupleDescInitEntry(desc, (AttrNumber) 6, "port",
-                               INT4OID, -1, 0);
-            common_command_tuple_desc = BlessTupleDesc(desc);
-        }PG_CATCH();
-        {
-            if(desc)
-                FreeTupleDesc(desc);
-            PG_RE_THROW();
-        }PG_END_TRY();
-        (void)MemoryContextSwitchTo(old_context);
-    }
-    Assert(common_command_tuple_desc);
-    return common_command_tuple_desc;
+	if(common_command_tuple_desc == NULL)
+	{
+		MemoryContext volatile old_context = MemoryContextSwitchTo(TopMemoryContext);
+		TupleDesc volatile desc = NULL;
+		PG_TRY();
+		{
+			desc = CreateTemplateTupleDesc(7, false);
+			TupleDescInitEntry(desc, (AttrNumber) 1, "nodename",
+						NAMEOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 2, "nodetype",
+						NAMEOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 3, "status",
+						BOOLOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 4, "description",
+						TEXTOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 5, "host",
+						NAMEOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 6, "port",
+						INT4OID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 7, "recovery",
+						NAMEOID, -1, 0);
+			common_command_tuple_desc = BlessTupleDesc(desc);
+		}PG_CATCH();
+		{
+			if(desc)
+				FreeTupleDesc(desc);
+			PG_RE_THROW();
+		}PG_END_TRY();
+		(void)MemoryContextSwitchTo(old_context);
+	}
+	Assert(common_command_tuple_desc);
+	return common_command_tuple_desc;
 }
 
 /*

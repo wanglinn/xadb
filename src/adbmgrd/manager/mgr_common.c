@@ -24,6 +24,8 @@
 #define MAXPATH (512-1)
 #define RETRY 3
 #define SLEEP_MICRO 100*1000     /* 100 millisec */
+#define SQL_PG_IS_IN_RECOVERY "select pg_is_in_recovery()"
+
 char *mgr_zone;
 
 static struct enum_sync_state sync_state_tab[] =
@@ -31,6 +33,14 @@ static struct enum_sync_state sync_state_tab[] =
 	{SYNC_STATE_SYNC, "sync"},
 	{SYNC_STATE_ASYNC, "async"},
 	{SYNC_STATE_POTENTIAL, "potential"},
+	{-1, NULL}
+};
+
+static struct enum_recovery_status enum_recovery_status_tab[] =
+{
+	{RECOVERY_IN, "true"},
+	{RECOVERY_NOT_IN, "false"},
+	{RECOVERY_UNKNOWN, "unknown"},
 	{-1, NULL}
 };
 
@@ -4430,4 +4440,82 @@ char mgr_get_nodetype(Name nodename)
 	heap_close(rel_node, AccessShareLock);
 
 	return nodetype;
+}
+
+int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
+	, StringInfo strinfo, Name recoveryStrInfo)
+{
+	int ret = PQPING_REJECT;
+	int agentport = 0;
+	bool is_valid = false;
+	char nodeport_buf[10];
+	char *hostAddr;
+	char *user;
+	StringInfoData resultstrdata;
+
+	sprintf(nodeport_buf, "%d", nodeport);
+
+	resetStringInfo(strinfo);
+	namestrcpy(recoveryStrInfo, enum_recovery_status_tab[RECOVERY_UNKNOWN].name);
+	hostAddr = get_hostaddress_from_hostoid(hostOid);
+	user = get_hostuser_from_hostoid(hostOid);
+	initStringInfo(&resultstrdata);
+	is_valid = is_valid_ip(hostAddr);
+
+	if (is_valid)
+	{
+		if (nodetype == GTM_TYPE_GTM_MASTER || nodetype == GTM_TYPE_GTM_SLAVE)
+			ret = pingNode_user(hostAddr, nodeport_buf, AGTM_USER);
+		else
+			ret = pingNode_user(hostAddr, nodeport_buf, user);
+		switch (ret)
+		{
+			case PQPING_OK:
+				appendStringInfoString(strinfo, "running");
+				agentport = get_agentPort_from_hostoid(hostOid);
+				monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_IS_IN_RECOVERY
+					, (nodetype == GTM_TYPE_GTM_MASTER || nodetype == GTM_TYPE_GTM_SLAVE) ? AGTM_USER:user
+					, hostAddr, nodeport, DEFAULT_DB, &resultstrdata);
+				if (resultstrdata.len != 0)
+				{
+					if (strcmp(resultstrdata.data, "f") ==0)
+					{
+						namestrcpy(recoveryStrInfo, enum_recovery_status_tab[RECOVERY_NOT_IN].name);
+					}
+					else if (strcmp(resultstrdata.data, "t") ==0)
+						namestrcpy(recoveryStrInfo, enum_recovery_status_tab[RECOVERY_IN].name);
+					else
+					{
+						/* do nothing */
+					}
+				}
+				break;
+			case PQPING_REJECT:
+				appendStringInfoString(strinfo, "server is alive but rejecting connections");
+				break;
+			case PQPING_NO_RESPONSE:
+				appendStringInfoString(strinfo, "not running");
+				break;
+			case PQPING_NO_ATTEMPT:
+				appendStringInfoString(strinfo, "connection not attempted (bad params)");
+				break;
+			case AGENT_DOWN:
+			{
+				appendStringInfo(strinfo, "could not connect socket for agent \"%s\"", hostAddr);
+				break;
+			}
+			default:
+				break;
+		}
+	}
+	else
+	{
+		appendStringInfoString(strinfo, "could not establish host connection");
+	}
+
+	pfree(user);
+	pfree(hostAddr);
+	pfree(resultstrdata.data);
+
+	return ret;
 }
