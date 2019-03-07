@@ -3636,6 +3636,10 @@ ProcessInterrupts(void)
 		bool		lock_timeout_occurred;
 		bool		stmt_timeout_occurred;
 
+#ifdef ADB
+		PQNRequestCancelAllconnect();
+#endif /* ADB */
+
 		QueryCancelPending = false;
 
 		/*
@@ -4719,7 +4723,7 @@ PostgresMain(int argc, char *argv[],
 		ResetNodeExecutor();
 
 		/* Make sure the old PGconn will dump the trash data */
-		PQNReleaseAllConnect(true);
+		PQNReleaseAllConnect(false);
 #endif
 
 		if (am_walsender)

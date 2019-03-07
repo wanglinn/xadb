@@ -890,7 +890,7 @@ PGXCNodeCleanAndRelease(int code, Datum arg)
 	ResetNodeExecutor();
 
 	/* Make sure the old PGconn will dump the trash data */
-	PQNReleaseAllConnect(true);
+	PQNReleaseAllConnect(false);
 
 	/* Disconnect from Pooler */
 	PoolManagerDisconnect();
