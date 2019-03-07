@@ -6,6 +6,7 @@
 #include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
+#include "executor/executor.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/pg_list.h"
@@ -2590,4 +2591,100 @@ bool CanModuloType(Oid type, bool no_error)
 {
 	Oid target = INT4OID;
 	return can_coerce_type(1, &type, &target, COERCION_EXPLICIT);
+}
+
+typedef struct ReduceSetExprState
+{
+	uint32	current;
+	uint32	count;
+	Oid		oids[FLEXIBLE_ARRAY_MEMBER];
+}ReduceSetExprState;
+
+static Datum ExecReduceExpr(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond *isDone)
+{
+	Datum datum = ExecEvalExpr(state, econtext, isnull);
+	*isDone = ExprSingleResult;
+	return datum;
+}
+
+static Datum ExecReduceSetExpr(ReduceSetExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond *isDone)
+{
+	Oid oid;
+
+re_start_:
+	if (state->current < state->count)
+	{
+		oid = state->oids[state->current];
+		++(state->current);
+		*isnull = false;
+		*isDone = ExprMultipleResult;
+	}else if(state->current == state->count)
+	{
+		++(state->current);
+		oid = InvalidOid;
+		*isnull = true;
+		*isDone = ExprEndResult;
+	}else if(state->current > state->count)
+	{
+		/* reloop */
+		state->current = 0;
+		oid = InvalidOid;
+		goto re_start_;
+	}
+
+	return ObjectIdGetDatum(oid);
+}
+
+ReduceExprState* ExecInitReduceExpr(Expr *expr)
+{
+	ReduceExprState *result;
+	if (IsA(expr, FuncExpr) &&
+		((FuncExpr*)expr)->funcid == F_ARRAY_UNNEST)
+	{
+		ReduceSetExprState *set;
+		oidvector *ov;
+		Const *c = linitial(castNode(FuncExpr, expr)->args);
+
+		if (list_length(castNode(FuncExpr, expr)->args) != 1 ||
+			(c = linitial(castNode(FuncExpr, expr)->args)) == NULL ||
+			!IsA(c, Const) ||
+			((Const*)c)->constisnull ||
+			((Const*)c)->consttype != OIDARRAYOID ||
+			(ov = (oidvector*)DatumGetPointer(c->constvalue))->elemtype != OIDOID ||
+			ov->dim1 < 0 ||
+			ov->lbound1 != 0)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Invalid reduce expr")));
+		}
+
+		if (ov->dim1 == 1)
+		{
+			c = makeConst(OIDOID,
+						  -1,
+						  InvalidOid,
+						  sizeof(Oid),
+						  ObjectIdGetDatum(ov->values[0]),
+						  false,
+						  true);
+			return ExecInitReduceExpr((Expr*)c);
+		}
+
+		set = palloc0(offsetof(ReduceSetExprState, oids)+sizeof(Oid)*ov->dim1);
+		/* set->current = 0; don't need */
+		set->count = ov->dim1;
+		memcpy(set->oids, ov->values, sizeof(Oid)*ov->dim1);
+
+		result = palloc(sizeof(ReduceExprState));
+		result->state = set;
+		result->evalfunc = (Datum(*)(void*, ExprContext*, bool*,ExprDoneCond*))ExecReduceSetExpr;
+	}else
+	{
+		result = palloc(sizeof(ReduceExprState));
+		result->state = ExecInitExpr(expr, NULL);
+		result->evalfunc = (Datum(*)(void*, ExprContext*, bool*,ExprDoneCond*))ExecReduceExpr;
+	}
+
+	return result;
 }

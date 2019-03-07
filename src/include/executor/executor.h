@@ -437,6 +437,29 @@ extern Datum ExecMakeFunctionResultSet(SetExprState *fcache,
 						  bool *isNull,
 						  ExprDoneCond *isDone);
 
+#if !defined(FRONTEND) && defined(ADB)
+typedef struct ReduceExprState
+{
+	void *state;
+	Datum (*evalfunc)(void *expression,
+					  ExprContext *econtext,
+					  bool *isnull,
+					  ExprDoneCond *isDone);
+}ReduceExprState;
+
+/* in reduceinfo.c */
+extern ReduceExprState* ExecInitReduceExpr(Expr *expr);
+
+static inline Datum
+ExecEvalReduceExpr(ReduceExprState *state,
+				   ExprContext *econtext,
+				   bool *isnull,
+				   ExprDoneCond *isDone)
+{
+	return state->evalfunc(state->state, econtext, isnull, isDone);
+}
+#endif /* !defined(FRONTEND) && defined(ADB) */
+
 /*
  * prototypes from functions in execScan.c
  */
