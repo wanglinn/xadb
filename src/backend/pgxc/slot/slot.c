@@ -602,7 +602,6 @@ SlotUploadFromCurrentDB(void)
 	SysScanDesc		scan;
 	HeapTuple		tuple;
 	Form_adb_slot	slotForm;
-	Snapshot		snapshot;
 	List		   *oids;
 	ListCell	   *lc;
 	int			   *load_slotnode;
@@ -621,9 +620,8 @@ SlotUploadFromCurrentDB(void)
 				 err_generic_string(PG_DIAG_TABLE_NAME, "adb_slot"),
 				 errmsg("load adb_slot failed. relation adb_slot doesn't exist.")));
 
-	snapshot = RegisterSnapshot(GetLatestSnapshot());
 	/* order by slotid */
-	scan = systable_beginscan(rel, AdbSlotSlotidIndexId, true, snapshot, 0, NULL);
+	scan = systable_beginscan(rel, AdbSlotSlotidIndexId, true, GetActiveSnapshot(), 0, NULL);
 
 	last_slotid = 0;
 	oids = NIL;
@@ -660,7 +658,6 @@ SlotUploadFromCurrentDB(void)
 		++last_slotid;
 	}
 	systable_endscan(scan);
-	UnregisterSnapshot(snapshot);
 
 	/* lock relation until transaction end */
 	heap_close(rel, NoLock);
