@@ -585,6 +585,7 @@ bool		print_reduce_debug_log = false;
 bool		enable_aux_dml = false;
 bool		adb_slot_enable_mvcc;
 bool		hash_distribute_by_hashmap_default;
+bool		force_enable_reduce_rewind = false;	/* in nodeClusterReduce.c */
 #endif
 
 #ifdef DEBUG_ADB
@@ -2070,6 +2071,16 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&hash_distribute_by_hashmap_default,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"force_enable_reduce_rewind", PGC_USERSET, QUERY_TUNING_OTHER,
+			gettext_noop("force enable can rewind for cluster reduce plan."),
+			NULL
+		},
+		&force_enable_reduce_rewind,
 		false,
 		NULL, NULL, NULL
 	},

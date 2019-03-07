@@ -17,6 +17,7 @@
 
 extern bool enable_cluster_plan;
 extern bool print_reduce_debug_log;
+extern bool force_enable_reduce_rewind;	/* GUC */
 
 #define PlanGetTargetNodes(plan)	\
 	((ClusterReduce *) (plan))->reduce_oids
@@ -137,7 +138,8 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	 * must include REWIND in the tuplestore eflags, else tuplestore_trim
 	 * might throw away too much.
 	 */
-	if (eflags & EXEC_FLAG_BACKWARD)
+	if (force_enable_reduce_rewind ||
+		(eflags & EXEC_FLAG_BACKWARD))
 		crstate->eflags |= EXEC_FLAG_REWIND;
 
 	crstate->port = NULL;
