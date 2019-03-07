@@ -100,7 +100,7 @@ typedef enum EolType
 typedef struct CopyFromReduceState
 {
 	ExprContext			   *econtext;
-	ExprState			   *reduce;
+	ReduceExprState		   *reduce;
 	TupleTableSlot		   *base_slot;
 	TupleTableSlot		   *convert_slot;
 	TupleTypeConvert	   *convert_state;
@@ -261,7 +261,7 @@ typedef struct CopyStateData
 	TupleTableSlot  *cs_tupleslot;
 	TupleTableSlot  *cs_tsConvert;
 	TupleTypeConvert *cs_convert;
-	ExprState		*cs_reduce_state;
+	ReduceExprState *cs_reduce_state;
 	Expr			*cs_reduce_expr;
 	CustomNextRowFunction NextRowFrom;
 	void			*func_data;		/* function NextRowFrom's user data, default is TupleTableSlot for target rel */
@@ -5381,7 +5381,7 @@ void DoClusterCopy(CopyStmt *stmt, StringInfo mem_toc)
 static uint64 CoordinatorCopyFrom(CopyState cstate)
 {
 	TupleTypeConvert   *type_convert;
-	ExprState		   *expr_state;
+	ReduceExprState	   *expr_state;
 	TupleTableSlot	   *ts_convert;
 	ListCell		   *lc;
 	PGconn			   *conn;
@@ -5436,18 +5436,7 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 	ts_convert = cstate->cs_tsConvert;
 	if (cstate->cs_reduce_state == NULL)
 	{
-		Expr *expr = cstate->cs_reduce_expr;
-		Assert(cstate->cs_reduce_expr != NULL);
-		if ((IsA(expr, FuncExpr) &&((FuncExpr *) expr)->funcretset) ||
-			(IsA(expr, OpExpr) &&((OpExpr *) expr)->opretset))
-		{
-			cstate->cs_reduce_state = (ExprState*)ExecInitFunctionResultSet(expr,
-																			econtext,
-																			NULL);
-		}else
-		{
-			cstate->cs_reduce_state = ExecInitExpr(expr, NULL);
-		}
+		cstate->cs_reduce_state = ExecInitReduceExpr(cstate->cs_reduce_expr);
 	}
 	expr_state = cstate->cs_reduce_state;
 	initStringInfo(&buf);
@@ -5492,20 +5481,7 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 		econtext->ecxt_scantuple = slot;
 		for(;;)
 		{
-			Datum datum;
-			if (IsA(expr_state, SetExprState))
-			{
-				datum = ExecMakeFunctionResultSet((SetExprState*)expr_state,
-												  econtext,
-												  NULL,
-#warning need a real MemoryContext
-												  &isnull,
-												  &done);
-			}else
-			{
-				datum = ExecEvalExpr(expr_state, econtext, &isnull);
-				done = ExprSingleResult;
-			}
+			Datum datum = ExecEvalReduceExpr(expr_state, econtext, &isnull, &done);
 			if (done != ExprEndResult)
 			{
 				/* send to remote */
@@ -6063,16 +6039,7 @@ static void InitCopyFromReduce(CopyFromReduceState *state, TupleDesc desc, Expr 
 
 	MemSet(state, 0, sizeof(*state));
 	state->econtext = CreateStandaloneExprContext();
-	if ((IsA(reduce, FuncExpr) && ((FuncExpr*)reduce)->funcretset) ||
-		(IsA(reduce, OpExpr) && ((OpExpr*)reduce)->opretset))
-	{
-		state->reduce = (ExprState*)ExecInitFunctionResultSet(reduce,
-															  state->econtext,
-															  NULL);
-	}else
-	{
-		state->reduce = ExecInitExpr(reduce, NULL);
-	}
+	state->reduce = ExecInitReduceExpr(reduce);
 	state->base_slot = MakeSingleTupleTableSlot(desc);
 	state->convert_state = create_type_convert(desc, true, true);
 	if (state->convert_state)
@@ -6247,19 +6214,7 @@ static TupleTableSlot* NextRowFromReduce(CopyState cstate, ExprContext *econtext
 				rnodes = NIL;
 				for(;;)
 				{
-					if (IsA(state->reduce, SetExprState))
-					{
-						datum = ExecMakeFunctionResultSet((SetExprState*)state->reduce,
-														  econtext,
-														  NULL,
-#warning need a real MemoryContext
-														  &isNull,
-														  &done);
-					}else
-					{
-						datum = ExecEvalExpr(state->reduce, econtext, &isNull);
-						done = ExprSingleResult;
-					}
+					datum = ExecEvalReduceExpr(state->reduce, econtext, &isNull, &done);
 					if (done == ExprEndResult)
 					{
 						break;

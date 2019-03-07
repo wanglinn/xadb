@@ -222,15 +222,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 		expr = node->reduce;
 	}
 	Assert(expr != NULL);
-	if ((IsA(expr, FuncExpr) &&((FuncExpr *) expr)->funcretset) ||
-		(IsA(expr, OpExpr) &&((OpExpr *) expr)->opretset))
-	{
-		crstate->reduceState = (ExprState*)ExecInitFunctionResultSet(expr, crstate->ps.ps_ExprContext, &crstate->ps);
-	}else
-	{
-		Assert(!expression_returns_set((Node *) expr));
-		crstate->reduceState = ExecInitExpr(expr, &crstate->ps);
-	}
+	crstate->reduceState = ExecInitReduceExpr(expr);
 
 	estate->es_reduce_plan_inited = true;
 
@@ -271,20 +263,7 @@ GetSlotFromOuter(ClusterReduceState *node)
 			econtext->ecxt_outertuple = outerslot;
 			for(;;)
 			{
-				Datum datum;
-				if (IsA(node->reduceState, SetExprState))
-				{
-					datum = ExecMakeFunctionResultSet((SetExprState*)(node->reduceState),
-													  econtext,
-													  NULL,
-#warning need a real MemoryContext
-													  &isNull,
-													  &done);
-				}else
-				{
-					datum = ExecEvalExpr(node->reduceState, econtext, &isNull);
-					done = ExprSingleResult;
-				}
+				Datum datum = ExecEvalReduceExpr(node->reduceState, econtext, &isNull, &done);
 				if(done == ExprEndResult)
 				{
 					break;

@@ -2306,7 +2306,7 @@ typedef ReduceEntryData *ReduceEntry;
 typedef struct ClusterReduceState
 {
 	PlanState		ps;
-	ExprState	   *reduceState;
+	struct ReduceExprState *reduceState;
 	struct RdcPort *port;			/* RdcPort for current ClusterReduce plan node */
 	List		   *closed_remote;	/* list of remote reduce which tell MSG_PLAN_CLOSE */
 	bool			eof_underlying; /* reached end of underlying plan? */
