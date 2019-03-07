@@ -291,8 +291,8 @@ set_cheapest(RelOptInfo *parent_rel)
 										  &parent_rel->cheapest_cluster_parameterized_paths);
 	}
 	parent_rel->cluster_unique_pathlist = NIL;
-	Assert(parent_rel->cheapest_replicate_path == NULL);
-	Assert(parent_rel->cheapest_coordinator_path == NULL);
+	parent_rel->cheapest_replicate_path = NULL;
+	parent_rel->cheapest_coordinator_path = NULL;
 	cheapest_param_replicate = cheapest_param_coordinator = NULL;
 	foreach(lc, parent_rel->cluster_pathlist)
 	{
