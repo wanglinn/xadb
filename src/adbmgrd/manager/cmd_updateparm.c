@@ -1467,7 +1467,7 @@ static int mgr_check_parm_value(char *name, char *value, int vartype, char *parm
 
 		case PGC_INT:
 			{
-				int			newval;
+				int newval;
 				int min;
 				int max;
 
@@ -1476,6 +1476,7 @@ static int mgr_check_parm_value(char *name, char *value, int vartype, char *parm
 					const char *hintmsg;
 					char *pvalue;
 					int len = strlen(value);
+					int times = 1;
 					pvalue = (char *)palloc(len+1);
 					memset(pvalue, 0, len+1);
 					if (len > 2 && value[0] == '\'' && value[len-1] == '\'')
@@ -1494,14 +1495,21 @@ static int mgr_check_parm_value(char *name, char *value, int vartype, char *parm
 								 hintmsg ? errhint("%s", _(hintmsg)) : 0));
 						return 0;
 					}
-					pfree(pvalue);
+
 					if (strcmp(parmmin, "") ==0 || strcmp(parmmax, "") ==0)
 					{
+						pfree(pvalue);
 						return 1;
 					}
+					else
+					{
+						if (strspn(pvalue, "-0123456789") != strlen(pvalue))
+							times = atoi(parmunit) == 0 ? 1:atoi(parmunit);
+					}
+					pfree(pvalue);
 					min = atoi(parmmin);
 					max = atoi(parmmax);
-					if (newval < min || newval > max)
+					if (newval < min*times || newval*1.0/times > max)
 					{
 						ereport(elevel,
 								(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
