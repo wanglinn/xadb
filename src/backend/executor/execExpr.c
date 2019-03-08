@@ -72,7 +72,51 @@ static bool isAssignmentIndirectionExpr(Expr *expr);
 static void ExecInitCoerceToDomain(ExprEvalStep *scratch, CoerceToDomain *ctest,
 					   PlanState *parent, ExprState *state,
 					   Datum *resv, bool *resnull);
+#ifdef ADB
+typedef struct ClusterReduceWalkerContext
+{
+	ExprState	   *state;
+	PlanState	   *parent;
+	PlannedStmt	   *stmt;
+	Datum		   *resv;
+	bool		   *resnull;
+}ClusterReduceWalkerContext;
 
+static bool PlanTreeHaveClusterReduce(Plan *plan, void *context)
+{
+	if (plan == NULL)
+		return false;
+	if (IsA(plan, ClusterReduce))
+		return true;
+	return plan_tree_walker(plan, context, PlanTreeHaveClusterReduce, context);
+}
+
+static bool EEOPParamExecForClusterReduce(Node *node, ClusterReduceWalkerContext *context)
+{
+	check_stack_depth();
+	if (node == NULL)
+		return false;
+
+	if (IsA(node, Param) &&
+		((Param*)node)->paramkind == PARAM_EXEC)
+	{
+		Param *parm = (Param*)node;
+		if (PlanTreeHaveClusterReduce(list_nth(context->stmt->subplans, parm->paramid),
+									  context->stmt))
+		{
+			ExecInitExprRec((Expr*)node,
+							context->parent,
+							context->state,
+							context->resv,
+							context->resnull);
+		}
+		return false;
+	}
+
+	return expression_tree_walker(node, EEOPParamExecForClusterReduce, context);
+}
+
+#endif /* ADB */
 
 /*
  * ExecInitExpr: prepare an expression tree for execution
@@ -1305,6 +1349,23 @@ ExecInitExprRec(Expr *node, PlanState *parent, ExprState *state,
 				bool	   *casenull = NULL;
 				ListCell   *lc;
 
+#ifdef ADB
+				/*
+				 * when list of CaseWhen have multi ExecParam from ClusterReduce,
+				 * we must execute all ClusterReduce, so we fetch ExecParam first.
+				 */
+				ClusterReduceWalkerContext context;
+				if (parent != NULL)
+				{
+					context.state = state;
+					context.parent = parent;
+					context.stmt = parent->state->es_plannedstmt;
+					/* we will not use result */
+					context.resv = resv;
+					context.resnull = resnull;
+					(void)EEOPParamExecForClusterReduce((Node*)node, &context);
+				}
+#endif /* ADB */
 				/*
 				 * If there's a test expression, we have to evaluate it and
 				 * save the value where the CaseTestExpr placeholders can find
