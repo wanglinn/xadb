@@ -429,7 +429,7 @@ static HashStoreBufferDesc *hashstore_get_store_page(Hashstorestate *state, uint
 	Assert(desc->tag == head->last);
 	page = HashStoreBufferIdGetPage(state, desc->buf_id);
 	Assert (hashstore_page_get_next_block(page) == InvalidBlockNumber);
-	if (PageGetFreeSpace(page) < (sizeof(uint32)+sizeof(ItemIdData))) /* min size must >= sizeof(hashvalue)+sizeof(ItemIdData) */
+	if (PageGetFreeSpace(page) <= MAXIMUM_ALIGNOF) /* min size must > MAXIMUM_ALIGNOF */
 	{
 		HashStoreBufferDesc *old_desc = desc;
 		uint32 old_desc_state = old_desc->state;
