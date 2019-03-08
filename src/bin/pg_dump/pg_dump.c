@@ -15816,7 +15816,8 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 		}
 		if (include_nodes &&
 			tbinfo->pgxc_node_names != NULL &&
-			tbinfo->pgxc_node_names[0] != '\0')
+			tbinfo->pgxc_node_names[0] != '\0' &&
+			tbinfo->pgxclocatortype != 'B')
 		{
 			appendPQExpBuffer(q, "\nTO NODE (%s)", tbinfo->pgxc_node_names);
 		}
