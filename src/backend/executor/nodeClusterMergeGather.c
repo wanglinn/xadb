@@ -174,8 +174,7 @@ re_get_:
 		result = node->slots[i];
 	}
 
-	node->ps.ps_ExprContext->ecxt_outertuple = result;
-	return ExecProject(node->ps.ps_ProjInfo);
+	return result;
 }
 
 void ExecFinishClusterMergeGather(ClusterMergeGatherState *node)
