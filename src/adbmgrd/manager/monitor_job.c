@@ -589,6 +589,9 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 	bool result = true;
 	bool rest;
 
+	/*check gtm master running normal */
+	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
+
 	/* check the node in cluster */
 	check_node_incluster();
 	namestrcpy(&s_nodename, "coordinator");
