@@ -1001,6 +1001,8 @@ GetCurrentTransactionStartTimestamp(void)
 	 * In ADB, Transaction start timestamp is the value received
 	 * from AGTM along with first Snapshot.
 	 */
+	if (globalXactStartTimestamp == 0)
+		globalXactStartTimestamp = xactStartTimestamp;
 	return globalXactStartTimestamp;
 #else
 	return xactStartTimestamp;
