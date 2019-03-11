@@ -74,6 +74,7 @@ double		cursor_tuple_fraction = DEFAULT_CURSOR_TUPLE_FRACTION;
 int			force_parallel_mode = FORCE_PARALLEL_OFF;
 #ifdef ADB
 extern bool enable_cluster_plan;
+extern bool enable_coordinator_calculate; /* GUC in guc.c */
 #endif /* ADB */
 
 /* Hook for plugins to get control in planner() */
@@ -513,7 +514,8 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 			nodeOids = get_remote_nodes(root, best_path, false);
 
 			sub_plan_id = 0;
-			nodeOids = list_append_unique_oid(nodeOids, PGXCNodeOid);
+			if (enable_coordinator_calculate)
+				nodeOids = list_append_unique_oid(nodeOids, PGXCNodeOid);
 			reduce_list = list_make1(MakeReplicateReduceInfo(nodeOids));
 			forboth(lc_subroot, root->glob->subroots, lc_subplan, root->glob->subplans)
 			{
@@ -6290,7 +6292,8 @@ create_distinct_paths(PlannerInfo *root,
 								 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 								 REDUCE_TYPE_COORDINATOR,
 								 REDUCE_TYPE_NONE);
-			if(list_member_oid(storage_list, PGXCNodeOid) == false)
+			if (enable_coordinator_calculate &&
+				list_member_oid(storage_list, PGXCNodeOid) == false)
 			{
 				storage_list = SortOidList(lappend_oid(storage_list, PGXCNodeOid));
 				ReducePathListByExpr((Expr*)distinctExprs,
@@ -8263,7 +8266,7 @@ static bool subquery_can_cluster_gather(PlannerInfo *root, PlannerInfo *start)
 			rel = root->simple_rel_array[i];
 			if (rel == NULL)
 				continue;
-			
+
 			if (IS_SIMPLE_REL(rel))
 			{
 				if (rel->rtekind == RTE_RELATION &&

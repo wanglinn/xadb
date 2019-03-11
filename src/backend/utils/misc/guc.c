@@ -586,6 +586,7 @@ bool		enable_aux_dml = false;
 bool		adb_slot_enable_mvcc;
 bool		hash_distribute_by_hashmap_default;
 bool		force_enable_reduce_rewind = false;	/* in nodeClusterReduce.c */
+bool		enable_coordinator_calculate = true;
 #endif
 
 #ifdef DEBUG_ADB
@@ -2082,6 +2083,16 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&force_enable_reduce_rewind,
 		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enable_coordinator_calculate", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("enable calculate in coordinator."),
+			NULL
+		},
+		&enable_coordinator_calculate,
+		true,
 		NULL, NULL, NULL
 	},
 #endif

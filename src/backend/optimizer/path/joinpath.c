@@ -113,6 +113,8 @@ typedef struct ClusterJoinContext
 #define PATH_PARAM_OUTER_REL(path, rel)	\
 	((path)->param_info && !bms_is_subset((path)->param_info->ppi_req_outer, (rel)->relids))
 
+extern bool enable_coordinator_calculate;	/* GUC in guc.c */
+
 static Path* get_cheapest_join_path(ClusterJoinContext *jcontext,
 									Path *outer_path,
 									CostSelector criterion,
@@ -2646,7 +2648,7 @@ re_reduce_join_:
 			tried_join |= add_cluster_paths_to_joinrel_internal(&jcontext, outer_pathlist, inner_pathlist, nestjoinOK, false);
 			list_free(outer_pathlist);
 			list_free(inner_pathlist);
-			if(storage && no_coord_oid)
+			if(storage && no_coord_oid && enable_coordinator_calculate)
 			{
 				outer_pathlist = inner_pathlist = NIL;
 				storage = SortOidList(lappend_oid(storage, PGXCNodeOid));
@@ -2707,7 +2709,7 @@ re_reduce_join_:
 				outer_path = lfirst(lc1);
 				if (PATH_PARAM_BY_REL(outer_path, innerrel))
 					continue;
-				
+
 				set_all_join_inner_path(&jcontext, outer_path, inner_pathlist);
 				inner_path = get_cheapest_join_path(&jcontext, outer_path, TOTAL_COST, true, &reduce_list);
 				if (inner_path)
