@@ -387,6 +387,14 @@ pg_relation_size(PG_FUNCTION_ARGS)
 	if (rel == NULL)
 		PG_RETURN_NULL();
 
+#ifdef ADB
+	if (IsCnMaster() &&
+		rel->rd_rel->relkind == RELKIND_INDEX &&
+		GetRelationLocInfo(rel->rd_index->indrelid))
+	{
+		size = pgxc_exec_sizefunc(relOid, "pg_relation_size", text_to_cstring(forkName));
+	}else
+#endif /* ADB */
 	size = calculate_relation_size(&(rel->rd_node), rel->rd_backend,
 								   forkname_to_number(text_to_cstring(forkName)));
 
@@ -1252,7 +1260,6 @@ pgxc_exec_sizefunc(Oid relOid, char *funcname, char *extra_arg)
 
 	rel = relation_open(relOid, AccessShareLock);
 
-	if (rel->rd_locator_info)
 	/* get relation name including any needed schema prefix and quoting */
 	relname = quote_qualified_identifier(get_namespace_name(rel->rd_rel->relnamespace),
 	                                     RelationGetRelationName(rel));
