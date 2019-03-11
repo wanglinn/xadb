@@ -59,6 +59,7 @@ static void executeCommand(PGconn *conn, const char *query);
 #ifdef ADB
 static void dumpNodes(PGconn *conn);
 static void dumpNodeGroups(PGconn *conn);
+static void dumpAdbSlot(PGconn *conn);
 #endif
 
 static char pg_dump_bin[MAXPGPATH];
@@ -96,6 +97,7 @@ static char *filename = NULL;
 
 #ifdef ADB
 static int	dump_nodes = 0;
+static int dump_adb_slot = 0;
 static int include_nodes = 0;
 #endif
 
@@ -152,6 +154,7 @@ main(int argc, char *argv[])
 		{"no-unlogged-table-data", no_argument, &no_unlogged_table_data, 1},
 #ifdef ADB
 		{"dump-nodes", no_argument, &dump_nodes, 1},
+		{"dump-adb_slot", no_argument, &dump_adb_slot, 1},
 		{"include-nodes", no_argument, &include_nodes, 1},
 #endif
 
@@ -593,7 +596,10 @@ main(int argc, char *argv[])
 			dumpNodes(conn);
 			dumpNodeGroups(conn);
 		}
-#endif
+		if (dump_adb_slot)
+			dumpAdbSlot(conn);
+
+#endif		
 	}
 
 	if (!globals_only && !roles_only && !tablespaces_only)
@@ -663,8 +669,9 @@ help(void)
 			 "                               use SET SESSION AUTHORIZATION commands instead of\n"
 			 "                               ALTER OWNER commands to set ownership\n"));
 #ifdef ADB
-	printf(_("	--dump-nodes				 include nodes and node groups in the dump\n"));
-	printf(_("	--include-nodes 			 include TO NODE clause in the dumped CREATE TABLE commands\n"));
+	printf(_("  --dump-nodes                 include nodes and node groups in the dump\n"));
+	printf(_("  --dump-adb_slot              include adb_slot in the dump\n"));
+	printf(_("  --include-nodes              include TO NODE clause in the dumped CREATE TABLE commands\n"));
 #endif
 
 	printf(_("\nConnection options:\n"));
@@ -1954,6 +1961,44 @@ dumpNodeGroups(PGconn *conn)
 		fprintf(OPF, "%s\n", PQgetvalue(res, i, PQfnumber(res, "group_query")));
 	}
 	fprintf(OPF, "\n");
+
+	PQclear(res);
+	destroyPQExpBuffer(query);
+}
+
+static void
+dumpAdbSlot(PGconn *conn)
+{
+	PQExpBuffer query;
+	PGresult *res;
+	int numRow;
+	int numCol;
+	int i;
+	int j;
+
+	query = createPQExpBuffer();
+
+	appendPQExpBuffer(query, "select * from pg_catalog.adb_slot order by slotid");
+
+	res = executeQuery(conn, query->data);
+
+	numRow = PQntuples(res);
+	numCol = PQnfields(res);
+
+	if (numRow > 0)
+		fprintf(OPF, "--\n-- adb_slot\n--\n\n");
+	Assert(numCol > 0);
+
+	fprintf(OPF, "set xc_maintenance_mode = on;\n"
+				"copy pg_catalog.adb_slot from stdin;\n");
+	for (i = 0; i < numRow; i++)
+	{
+		for (j = 0; j < numCol-1; j++)
+			fprintf(OPF, "%s\t", PQgetvalue(res, i, j));
+		fprintf(OPF, "%s\n", PQgetvalue(res, i, j));
+	}
+	fprintf(OPF, "\\.\n");
+	fprintf(OPF, "reset xc_maintenance_mode;\n");
 
 	PQclear(res);
 	destroyPQExpBuffer(query);
