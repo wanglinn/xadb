@@ -101,7 +101,8 @@ static bool EEOPParamExecForClusterReduce(Node *node, ClusterReduceWalkerContext
 		((Param*)node)->paramkind == PARAM_EXEC)
 	{
 		Param *parm = (Param*)node;
-		if (PlanTreeHaveClusterReduce(list_nth(context->stmt->subplans, parm->paramid),
+		if ((list_length(context->stmt->subplans) >= parm->paramid)
+			&& PlanTreeHaveClusterReduce(list_nth(context->stmt->subplans, parm->paramid),
 									  context->stmt))
 		{
 			ExecInitExprRec((Expr*)node,
