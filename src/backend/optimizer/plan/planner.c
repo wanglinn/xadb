@@ -8429,13 +8429,16 @@ apply_scanjoin_target_to_paths(PlannerInfo *root,
 			if (try_reduce &&
 				!IsA(subpath, ReduceScanPath))
 			{
-				subpath = (Path*)try_reducescan_path(root,
-													 rel,
-													 scanjoin_target,
-													 subpath,
-													 reduce_info,
-													 subpath->pathkeys,
-													 NIL);
+				if (PATH_REQ_OUTER(subpath))
+					subpath = NULL;
+				else
+					subpath = (Path*)create_reducescan_path(root,
+															rel,
+															scanjoin_target,
+															subpath,
+															reduce_info,
+															subpath->pathkeys,
+															NIL);
 			}
 
 			if (subpath)

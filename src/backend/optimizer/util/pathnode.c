@@ -4804,17 +4804,14 @@ create_cluster_reduce_path(PlannerInfo *root,
 									 -1.0);
 }
 
-ReduceScanPath *try_reducescan_path(PlannerInfo *root, RelOptInfo *rel, PathTarget *target,
+ReduceScanPath *create_reducescan_path(PlannerInfo *root, RelOptInfo *rel, PathTarget *target,
 									Path *subpath, List *reduce_info,
 									List *pathkeys, List *clauses)
 {
 	ReduceScanPath *rs;
 	Assert(restrict_list_have_exec_param(clauses) ||
 		   expression_have_exec_param((Expr*)target->exprs));
-	if ((subpath->pathtype != T_SeqScan &&
-		subpath->pathtype != T_CteScan) ||
-		PATH_REQ_OUTER(subpath))
-		return NULL;
+	Assert(!PATH_REQ_OUTER(subpath));
 
 	subpath = create_cluster_reduce_path(root, subpath, reduce_info, rel, pathkeys);
 
@@ -4823,9 +4820,9 @@ ReduceScanPath *try_reducescan_path(PlannerInfo *root, RelOptInfo *rel, PathTarg
 	rs->path.pathtype = T_ReduceScan;
 	rs->path.parent = rel;
 	rs->path.pathtarget = target;
-	rs->path.parallel_aware = subpath->parallel_aware;
-	rs->path.parallel_safe = subpath->parallel_safe;
-	rs->path.parallel_workers = subpath->parallel_workers;
+	rs->path.parallel_aware = false;
+	rs->path.parallel_safe = false;
+	rs->path.parallel_workers = 0;
 	cost_material(&rs->path, subpath->startup_cost, subpath->total_cost, subpath->rows, subpath->pathtarget->width);
 	rs->path.pathkeys = pathkeys;
 	rs->rescan_clauses = clauses;

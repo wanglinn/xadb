@@ -41,7 +41,7 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 	rcs->ss.ps.qual = ExecInitQual(node->plan.qual, (PlanState *) rcs);
 
 	outer_plan = outerPlan(node);
-	outerPlanState(rcs) = ExecInitNode(outer_plan, estate, eflags);
+	outerPlanState(rcs) = ExecInitNode(outer_plan, estate, eflags & ~(EXEC_FLAG_REWIND|EXEC_FLAG_BACKWARD));
 	tupDesc = ExecGetResultType(outerPlanState(rcs));
 
 	/*

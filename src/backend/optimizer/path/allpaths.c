@@ -149,6 +149,7 @@ static void remove_unused_subquery_outputs(Query *subquery, RelOptInfo *rel);
 static bool set_path_reduce_info_worker(Path *path, List *reduce_info_list);
 static bool get_subplan_ref_walker(Expr *expr, int *subplan_ref);
 static int get_max_parallel_workers(List *pathlist);
+static RelOptInfo* make_no_execparam_base_rel(PlannerInfo *root, RelOptInfo *baserel, List *exec_param_clauses);
 #endif /* ADB */
 
 /*
@@ -771,9 +772,8 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		ListCell *lc;
 		List *reduce_info_list;
 		ReduceInfo *rinfo;
-		List *save_clauses;
+		RelOptInfo *current_rel;
 		List *exec_param_clauses;
-		List *base_clauses;
 		List *exclude = NIL;
 		RelationLocInfo *loc_info = rel->loc_info;
 		if (IsLocatorDistributedByValue(loc_info->locatorType) ||
@@ -846,36 +846,50 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		}
 
 		exec_param_clauses = NIL;
-		save_clauses = rel->baserestrictinfo;
-		if(root->must_replicate)
+		foreach(lc, rel->baserestrictinfo)
 		{
-			foreach(lc, save_clauses)
+			RestrictInfo *ri = lfirst(lc);
+			if(expression_have_exec_param(ri->clause))
 			{
-				RestrictInfo *ri = lfirst(lc);
-				if(expression_have_exec_param(ri->clause))
-				{
-					exec_param_clauses = lappend(exec_param_clauses, ri);
-				}
-			}
-			if(exec_param_clauses)
-			{
-				base_clauses = list_difference_ptr(save_clauses, exec_param_clauses);
-				rel->baserestrictinfo = base_clauses;
+				exec_param_clauses = lappend(exec_param_clauses, ri);
 			}
 		}
 
-		add_path(rel, create_seqscan_path(root, rel, required_outer, 0));
+		if(exec_param_clauses)
+		{
+			/* make a no EXEC_PARAM qual list RelOptInfo */
+			current_rel = make_no_execparam_base_rel(root, rel, exec_param_clauses);
+		}else
+		{
+			current_rel = rel;
+		}
+
+		add_path(current_rel, create_seqscan_path(root, current_rel, required_outer, 0));
+
+		/* If appropriate, consider parallel sequential scan */
+		if (current_rel->consider_parallel && required_outer == NULL)
+			create_plain_partial_paths(root, current_rel);
 
 		/* Consider index scans */
-		create_index_paths(root, rel);
+		create_index_paths(root, current_rel);
 
 		/* Consider TID scans */
-		create_tidscan_paths(root, rel);
+		create_tidscan_paths(root, current_rel);
 
 		reduce_info_list = list_make1(rinfo);
 
 		/* recost pathlist */
-		foreach(lc, rel->pathlist)
+		foreach(lc, current_rel->pathlist)
+		{
+			path = lfirst(lc);
+
+			set_path_reduce_info_worker(path, reduce_info_list);
+
+			recost_plain_path(path, rinfo);
+		}
+
+		/* same idea to recost partial pathlist */
+		foreach(lc, current_rel->partial_pathlist)
 		{
 			path = lfirst(lc);
 
@@ -888,52 +902,35 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		{
 			List *replicate = list_make1(MakeFinalReplicateReduceInfo());
 
-			foreach(lc, rel->pathlist)
+			generate_gather_paths(root, current_rel, false);
+
+			foreach(lc, current_rel->pathlist)
 			{
 				path = lfirst(lc);
-				path = (Path*)try_reducescan_path(root, rel, path->pathtarget, lfirst(lc), replicate, path->pathkeys, exec_param_clauses);
-				if(path)
-				{
-					/* just using lappend, don't need add_cluster_path(...) */
-					rel->cluster_pathlist = lappend(rel->cluster_pathlist, path);
-				}
+				path = (Path*)create_reducescan_path(root,
+													 rel,
+													 rel->reltarget,
+													 path,
+													 replicate,
+													 path->pathkeys,
+													 exec_param_clauses);
+				/* don't need add_cluster_path */
+				rel->cluster_pathlist = lappend(rel->cluster_pathlist, path);
 			}
-			if(rel->cluster_pathlist == NIL)
-			{
-				path = create_seqscan_path(root, rel, required_outer, 0);
-				set_path_reduce_info_worker(path, reduce_info_list);
-				recost_plain_path(path, rinfo);
-				path = (Path*)try_reducescan_path(root, rel, path->pathtarget, path, replicate, NULL, exec_param_clauses);
-				Assert(path);
-				rel->cluster_pathlist = list_make1(path);
-			}
-			rel->baserestrictinfo = save_clauses;
 		}else
 		{
+			Assert(rel == current_rel);
 			/* move pathlist to cluster_pathlist */
 			rel->cluster_pathlist = rel->pathlist;
-
-			/* If appropriate, consider parallel sequential scan */
-			if (rel->consider_parallel && required_outer == NULL)
-			{
-				create_plain_partial_paths(root, rel);
-				/* move pathlist to cluster_partial_pathlist */
-				foreach(lc, rel->partial_pathlist)
-				{
-					path = lfirst(lc);
-
-					set_path_reduce_info_worker(path, reduce_info_list);
-
-					recost_plain_path(path, rinfo);
-					add_cluster_partial_path(rel, path);
-				}
-				rel->partial_pathlist = NIL;
-			}
+			rel->pathlist = NIL;
+			rel->cluster_partial_pathlist = rel->partial_pathlist;
+			rel->partial_pathlist = NIL;
 		}
-		rel->pathlist = NIL;
 	}
 
 no_cluster_paths_:
+	Assert(rel->pathlist == NIL);
+	Assert(rel->partial_pathlist == NIL);
 	if (!create_plainrel_rqpath(root, rel, rte, required_outer))
 	{
 #endif
@@ -3284,58 +3281,49 @@ set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			Path *normal_path = linitial(rel->pathlist);
 			List *reduce_info_list = get_reduce_info_list(cheapest_path);
 			List *exec_param_clauses = NIL;
+			RelOptInfo *current_rel;
+			ListCell *lc;
 
-			if (root->must_replicate)
+			foreach(lc, rel->baserestrictinfo)
 			{
-				ListCell *lc;
-				foreach(lc, rel->baserestrictinfo)
-				{
-					RestrictInfo *ri = lfirst_node(RestrictInfo, lc);
-					if (expression_have_exec_param(ri->clause))
-						exec_param_clauses = lappend(exec_param_clauses, ri);
-				}
+				RestrictInfo *ri = lfirst_node(RestrictInfo, lc);
+				if (expression_have_exec_param(ri->clause))
+					exec_param_clauses = lappend(exec_param_clauses, ri);
 			}
 
 			if (exec_param_clauses)
 			{
-				List *base_clauses = list_difference(rel->baserestrictinfo, exec_param_clauses);
-				List *save_clauses = rel->baserestrictinfo;
-				rel->baserestrictinfo = base_clauses;
-				rel->baserestrictinfo = save_clauses;
-
-				cluster_path = create_ctescan_path(root, rel, NULL);
-				cluster_path->reduce_info_list = ConvertReduceInfoList(reduce_info_list,
-															subroot->upper_targets[UPPERREL_FINAL],
-															rel->relid);
-				cluster_path->reduce_is_valid = true;
-
-				cluster_path = (Path*)try_reducescan_path(root,
-														  rel,
-														  rel->reltarget,
-														  cluster_path,
-														  list_make1(MakeFinalReplicateReduceInfo()),
-														  NIL,
-														  exec_param_clauses);
+				current_rel = make_no_execparam_base_rel(root, rel, exec_param_clauses);
 			}else
 			{
-				cluster_path = create_ctescan_path(root, rel, NULL);
-				cluster_path->reduce_info_list = ConvertReduceInfoList(reduce_info_list,
-															subroot->upper_targets[UPPERREL_FINAL],
-															rel->relid);
-				cluster_path->reduce_is_valid = true;
+				current_rel = rel;
 			}
 
-			if (cluster_path)
+			cluster_path = create_ctescan_path(root, current_rel, NULL);
+			cluster_path->reduce_info_list = ConvertReduceInfoList(reduce_info_list,
+																   subroot->upper_targets[UPPERREL_FINAL],
+																   rel->relid);
+			cluster_path->reduce_is_valid = true;
+
+			if(exec_param_clauses)
 			{
-				/* we need have diffent cost for cluster path and not cluster path */
-				normal_path->startup_cost = cteplan->startup_cost;
-				normal_path->total_cost = cteplan->total_cost;
-				cluster_path->startup_cost = cheapest_path->startup_cost;
-				cluster_path->total_cost = cheapest_path->total_cost;
-				cluster_path->rows = cheapest_path->rows;
-
-				add_cluster_path(rel, cluster_path);
+				cluster_path = (Path*)create_reducescan_path(root,
+															 rel,
+															 rel->reltarget,
+															 cluster_path,
+															 list_make1(MakeFinalReplicateReduceInfo()),
+															 NIL,
+															 exec_param_clauses);
 			}
+
+			/* we need have diffent cost for cluster path and not cluster path */
+			normal_path->startup_cost = cteplan->startup_cost;
+			normal_path->total_cost = cteplan->total_cost;
+			cluster_path->startup_cost = cheapest_path->startup_cost;
+			cluster_path->total_cost = cheapest_path->total_cost;
+			cluster_path->rows = cheapest_path->rows;
+
+			add_cluster_path(rel, cluster_path);
 		}
 	}
 #endif /* ADB */
@@ -4590,6 +4578,79 @@ static int get_max_parallel_workers(List *pathlist)
 
 	return max_parallel_workers;
 }
+
+static RelOptInfo* make_no_execparam_base_rel(PlannerInfo *root, RelOptInfo *baserel, List *exec_param_clauses)
+{
+	RelOptInfo *no_param_rel;
+	List	   *tlist_vars;
+	ListCell   *lc;
+	Relids		relids;
+
+	Assert(baserel->rtekind == RTE_CTE || baserel->rtekind == RTE_RELATION);
+
+	no_param_rel = palloc(sizeof(RelOptInfo));
+	memcpy(no_param_rel, baserel, sizeof(RelOptInfo));
+	baserel->no_param_rel = no_param_rel;
+	no_param_rel->baserestrictinfo = list_difference_ptr(baserel->baserestrictinfo, exec_param_clauses);
+
+	/* rebuild path target */
+	relids = bms_make_singleton(0);
+	no_param_rel->reltarget = create_empty_pathtarget();
+
+	/* replace baserel, function add_vars_to_targetlist need it */
+	Assert(root->simple_rel_array[baserel->relid] == baserel);
+	root->simple_rel_array[baserel->relid] = no_param_rel;
+	/* add needed vars */
+	tlist_vars = pull_var_clause((Node*)baserel->reltarget->exprs, PVC_INCLUDE_PLACEHOLDERS);
+	if (tlist_vars)
+	{
+		add_vars_to_targetlist(root, tlist_vars, relids, true);
+		list_free(tlist_vars);
+	}
+	foreach (lc, exec_param_clauses)
+	{
+		tlist_vars = pull_var_clause((Node*)(lfirst_node(RestrictInfo, lc)->clause),
+									 PVC_INCLUDE_PLACEHOLDERS);
+		if (tlist_vars)
+		{
+			add_vars_to_targetlist(root, tlist_vars, relids, true);
+			list_free(tlist_vars);
+		}
+	}
+	/* resotre baserel */
+	root->simple_rel_array[baserel->relid] = baserel;
+	bms_free(relids);
+
+	no_param_rel->rows = 0.0;
+	if (no_param_rel->rtekind == RTE_RELATION)
+	{
+		RangeTblEntry *rte = root->simple_rte_array[no_param_rel->relid];
+		get_relation_info(root, rte->relid, rte->inh, no_param_rel);
+	}else
+	{
+		Size attr_count = no_param_rel->max_attr - no_param_rel->min_attr + 1;
+		no_param_rel->attr_needed = palloc0(sizeof(Relids)*attr_count);
+		no_param_rel->attr_widths = palloc0(sizeof(int32)*attr_count);
+	}
+
+	if (baserel->rtekind != RTE_CTE)
+	{
+		check_index_predicates(root, no_param_rel);
+
+		no_param_rel->rows = 0.0;
+		if(root->glob->parallelModeOK)
+			set_rel_consider_parallel(root, no_param_rel, root->simple_rte_array[baserel->relid]);
+		set_baserel_size_estimates(root, no_param_rel);
+	}
+
+	no_param_rel->pathlist = NIL;
+	no_param_rel->partial_pathlist = NIL;
+	no_param_rel->cluster_pathlist = NIL;
+	no_param_rel->cluster_partial_pathlist = NIL;
+
+	return no_param_rel;
+}
+
 #endif /* ADB */
 
 /*****************************************************************************
