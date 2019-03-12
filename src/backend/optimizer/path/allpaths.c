@@ -917,6 +917,8 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			foreach(lc, current_rel->pathlist)
 			{
 				path = lfirst(lc);
+				if (PATH_REQ_OUTER(path))
+					continue;
 				path = (Path*)create_reducescan_path(root,
 													 rel,
 													 rel->reltarget,
@@ -4187,6 +4189,10 @@ static RelOptInfo* make_no_execparam_base_rel(PlannerInfo *root, RelOptInfo *bas
 	memcpy(no_param_rel, baserel, sizeof(RelOptInfo));
 	baserel->no_param_rel = no_param_rel;
 	no_param_rel->baserestrictinfo = list_difference_ptr(baserel->baserestrictinfo, exec_param_clauses);
+
+	/* don't need index paths for join */
+	no_param_rel->joininfo = NIL;
+	no_param_rel->has_eclass_joins = false;
 
 	if (no_param_rel->rtekind == RTE_RELATION)
 	{
