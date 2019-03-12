@@ -7108,23 +7108,11 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 static Plan *create_reducescan_plan(PlannerInfo *root, ReduceScanPath *path, int flags)
 {
 	ListCell   *lc;
-	Bitmapset *attnos;
-	List *tlist;
-	List *base_clauses;
 	List *clauses;
 	ReduceScan *rc;
-	Plan *subplan;
-	Index relid;
-	int x,resno;
-
-	base_clauses = list_difference_ptr(path->path.parent->baserestrictinfo, path->rescan_clauses);
-	path->path.parent->baserestrictinfo = base_clauses;
-	subplan = create_plan_recurse(root, path->reducepath, flags & ~(EXEC_FLAG_REWIND|EXEC_FLAG_BACKWARD));
-	Assert(IsA(outerPlan(subplan), SeqScan) ||
-		   IsA(outerPlan(subplan), CteScan));
 
 	rc = makeNode(ReduceScan);
-	outerPlan(rc) = subplan;
+	outerPlan(rc) = create_plan_recurse(root, path->reducepath, CP_EXACT_TLIST);
 	rc->plan.targetlist = build_path_tlist(root, &path->path);
 
 	clauses = order_qual_clauses(root, path->rescan_clauses);
@@ -7134,22 +7122,6 @@ static Plan *create_reducescan_plan(PlannerInfo *root, ReduceScanPath *path, int
 		rc->plan.qual = lappend(rc->plan.qual,
 								lfirst_node(RestrictInfo, lc)->clause);
 	}
-
-	relid = path->path.parent->relid;
-	attnos = NULL;
-	pull_varattnos((Node*)rc->plan.targetlist, relid, &attnos);
-	pull_varattnos((Node*)rc->plan.qual, relid, &attnos);
-
-	tlist = NIL;
-	while((x=bms_first_member(attnos)) >= 0)
-	{
-		Var * var = find_var((Node*)rc->plan.targetlist, x, relid);
-		if(var == NULL)
-			var = find_var((Node*)rc->plan.qual, x, relid);
-		Assert(var != NULL);
-		tlist = lappend(tlist, var);
-	}
-	bms_free(attnos);
 
 	if (enable_hashscan)
 	{
@@ -7182,28 +7154,8 @@ static Plan *create_reducescan_plan(PlannerInfo *root, ReduceScanPath *path, int
 				}
 			}
 		}
-		foreach(lc, rc->scan_hash_keys)
-		{
-			clause = lfirst(lc);
-			if (list_member(tlist, clause) == false)
-				tlist = lappend(tlist, clause);
-		}
 	}
 
-	resno = 0;
-	foreach(lc, tlist)
-	{
-		++resno;
-		lfirst(lc) = makeTargetEntry(lfirst(lc),
-									 resno,
-									 NULL,
-									 false);
-	}
-
-	for(subplan=outerPlan(rc);subplan;subplan=outerPlan(subplan))
-	{
-		subplan->targetlist = tlist;
-	}
 	copy_generic_path_info(&rc->plan, &path->path);
 	return &rc->plan;
 }

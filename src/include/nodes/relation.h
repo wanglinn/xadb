@@ -630,6 +630,9 @@ typedef struct RelOptInfo
 
 	/* used by "other" relations */
 	Relids		top_parent_relids;	/* Relids of topmost parents */
+#ifdef ADB
+	struct RelOptInfo *no_param_rel;	/* for ReduceScan */
+#endif /* ADB */
 } RelOptInfo;
 
 /*

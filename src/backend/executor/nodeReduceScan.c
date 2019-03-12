@@ -48,7 +48,7 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 	ExecInitScanTupleSlot(estate, &rcs->ss);
 
 	outer_plan = outerPlan(node);
-	outerPlanState(rcs) = ExecInitNode(outer_plan, estate, eflags);
+	outerPlanState(rcs) = ExecInitNode(outer_plan, estate, eflags & ~(EXEC_FLAG_REWIND|EXEC_FLAG_BACKWARD));
 
 	/*
 	 * initialize tuple type.  no need to initialize projection info because

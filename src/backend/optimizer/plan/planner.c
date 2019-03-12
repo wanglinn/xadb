@@ -2203,15 +2203,18 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 
 				if (try_reduce)
 				{
-					if(!IsA(subpath, ReduceScanPath))
+					if (!IsA(subpath, ReduceScanPath))
 					{
-						subpath = (Path*)try_reducescan_path(root,
-															 current_rel,
-															 scanjoin_target,
-															 subpath,
-															 reduce_info,
-															 subpath->pathkeys,
-															 NIL);
+						if (PATH_REQ_OUTER(subpath))
+							subpath = NULL;
+						else
+							subpath = (Path*)create_reducescan_path(root,
+																	current_rel,
+																	scanjoin_target,
+																	subpath,
+																	reduce_info,
+																	subpath->pathkeys,
+																	NIL);
 					}
 					if(subpath)
 					{
