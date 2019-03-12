@@ -19,7 +19,7 @@
 #define run_success "success"
 #define PRIV_GRANT        'G'
 #define PRIV_REVOKE       'R'
-
+#define MONITOR_CLUSTERSTR "cluster"
 
 typedef struct GetAgentCmdRst
 {
@@ -97,6 +97,32 @@ struct tuple_cndn
 	List *coordiantor_list;
 	List *datanode_list;
 };
+
+/*see the content : insert into mgr.dbthreshold in adbmgr_init.sql*/
+typedef enum DbthresholdObject
+{
+	OBJECT_NODE_HEAPHIT = 11,
+	OBJECT_NODE_COMMITRATE,
+	OBJECT_NODE_STANDBYDELAY,
+	OBJECT_NODE_LOCKS,
+	OBJECT_NODE_CONNECT,
+	OBJECT_NODE_LONGTRANS,
+	OBJECT_NODE_UNUSEDINDEX,
+	OBJECT_CLUSTER_HEAPHIT = 21,
+	OBJECT_CLUSTER_COMMITRATE,
+	OBJECT_CLUSTER_STANDBYDELAY,
+	OBJECT_CLUSTER_LOCKS,
+	OBJECT_CLUSTER_CONNECT,
+	OBJECT_CLUSTER_LONGTRANS,
+	OBJECT_CLUSTER_UNUSEDINDEX
+}DbthresholdObject;
+
+typedef enum AlarmLevel
+{
+	ALARM_WARNING = 1,
+	ALARM_CRITICAL,
+	ALARM_EMERGENCY
+}AlarmLevel;
 
 /* host commands, in cmd_host.c */
 
@@ -317,9 +343,12 @@ extern HeapTuple check_record_yestoday_today(Relation rel, int *callstoday, int 
 extern void monitor_insert_record(Relation rel, int agentport, TimestampTz time, char *dbname, char *dbuser, float singletime, int calls, char *querystr, char *user, char *address, int port);
 
 /*monitor_dbthreshold.c*/
-extern Datum get_dbthreshold(PG_FUNCTION_ARGS);
 extern char *monitor_get_timestamptz_onenode(int agentport, char *user, char *address, int port);
 extern bool monitor_get_sqlvalues_one_node(int agentport, char *sqlstr, char *user, char *address, int port, char * dbname, int64 iarray[], int len);
+extern void mthreshold_levelvalue_positiveseq(DbthresholdObject objectype, char *address, const char *time
+		, int value, char *descp);
+extern void mthreshold_levelvalue_impositiveseq(DbthresholdObject objectype, char *address, const char * time
+		, int value, char *descp);
 
 /*mgr_updateparm*/
 extern void mgr_add_updateparm(MGRUpdateparm *node, ParamListInfo params, DestReceiver *dest);

@@ -78,7 +78,7 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 	char *agtmHost = NULL;
 	char nodePortBuf[10];
 	int i = 0;
-	int agtmPort;
+	int agtmPort = 0;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));

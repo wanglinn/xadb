@@ -5876,9 +5876,6 @@ DESCR("monitor_databaseitem_insert_data");
 DATA(insert OID = 4992 ( monitor_slowlog_insert_data      PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 25 "" _null_ _null_ _null_ _null_ _null_ monitor_slowlog_insert_data _null_ _null_ _null_ ));
 DESCR("monitor_slowlog_insert_data");
 
-DATA(insert OID = 4993 ( get_dbthreshold      PGNSP PGUID 12 1 0 0 0 f f f f t f s s 0 0 25 "" _null_ _null_ _null_ _null_ _null_ get_dbthreshold _null_ _null_ _null_ ));
-DESCR("get_dbthreshold");
-
 DATA(insert OID = 4906 (  mgr_clean_all        PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,19,16,25}" "{o,o,o,o}" "{nodename,nodetype,status,description}" _null_ _null_ mgr_clean_all _null_ _null_ _null_ ));
 DESCR("clean all");
 
