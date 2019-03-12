@@ -38,9 +38,15 @@
 #include "access/xact.h"
 #include "utils/date.h"
 
-static void monitor_get_sum_all_onetypenode_onedb(Relation rel_node, char *sqlstr, char *dbname, char nodetype, int64 iarray[], int len);
+static void monitor_get_sum_all_onetypenode_onedb(Relation rel_node, char *sqlstr, char *dbname
+								, char nodetype, int64 iarray[], int len);
+static int64 monitor_standbydelay(char nodetype);
+static int64 monitor_all_typenode_usedbname_locksnum(Relation rel_node, char *sqlstr, char *dbname
+		, char nodetype, int gettype);
 
-#define DEFAULT_DB "postgres"
+#define SQLSTRSTANDBYDELAY  "select CASE WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0 ELSE  " \
+	"round(EXTRACT (EPOCH FROM now() - pg_last_xact_replay_timestamp())) end;"
+
 char *mgr_zone;
 
 typedef enum ResultChoice
@@ -226,7 +232,7 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 	StringInfoData sqlstr_heaphit_read_indexsize;
 	StringInfoData sqlstr_commit_connect_longidle_prepare;
 	char *sqlunusedindex = "select count(*) from  pg_stat_user_indexes where idx_scan = 0";
-	char *sqlstrstandbydelay = "select CASE WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0  ELSE round(EXTRACT (EPOCH FROM now() - pg_last_xact_replay_timestamp())) end;";
+	const char *clustertime = NULL;
 	Monitor_Threshold monitor_threshold;
 
 	rel = heap_open(MdatabaseitemRelationId, RowExclusiveLock);
@@ -290,6 +296,10 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 		/*the database index size, unit: MB */
 		indexsize = iarray_heaphit_read_indexsize[2];
 
+		clustertime = timestamptz_to_str(GetCurrentTimestamp());
+		mthreshold_levelvalue_impositiveseq(OBJECT_CLUSTER_HEAPHIT, MONITOR_CLUSTERSTR, clustertime
+				, heaphitrate, "heaphit rate");
+
 		/*get all coordinators' result then sum them*/
 		/*
 		* xact_commit, xact_rollback, numbackends, longquerynum, idlequerynum, preparednum
@@ -320,12 +330,30 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 		/*unused index on datanode master, get min
 		* " select count(*) from  pg_stat_user_indexes where idx_scan = 0"  on one database, get min on every dn master
 		*/
-		unusedindexnum = monitor_get_sqlres_all_typenode_usedbname(rel_node, sqlunusedindex, dbname, CNDN_TYPE_DATANODE_MASTER, GET_MIN);
+		unusedindexnum = monitor_get_sqlres_all_typenode_usedbname(rel_node, sqlunusedindex
+				, dbname, CNDN_TYPE_DATANODE_MASTER, GET_MIN);
 
 		/*get locks on coordinator, get max*/
 		appendStringInfo(&sqllocksStrData, "select count(*) from pg_locks ,pg_database where pg_database.Oid = pg_locks.database and pg_database.datname=\'%s\';", dbname);
-		locksnum = monitor_get_sqlres_all_typenode_usedbname(rel_node, sqllocksStrData.data, dbname, CNDN_TYPE_COORDINATOR_MASTER, GET_MAX);
+		locksnum = monitor_all_typenode_usedbname_locksnum(rel_node, sqllocksStrData.data
+				, dbname, CNDN_TYPE_COORDINATOR_MASTER, GET_MAX);
 
+		/* check warning threshold */
+		clustertime = timestamptz_to_str(GetCurrentTimestamp());
+		mthreshold_levelvalue_impositiveseq(OBJECT_CLUSTER_COMMITRATE, MONITOR_CLUSTERSTR
+				, clustertime, commitrate, "commit rate");
+		mthreshold_levelvalue_positiveseq(OBJECT_CLUSTER_LONGTRANS, MONITOR_CLUSTERSTR, clustertime
+				, longquerynum, "long transactions");
+		mthreshold_levelvalue_positiveseq(OBJECT_CLUSTER_LONGTRANS, MONITOR_CLUSTERSTR, clustertime
+				, idlequerynum, "idle transactions");
+		mthreshold_levelvalue_positiveseq(OBJECT_CLUSTER_CONNECT, MONITOR_CLUSTERSTR, clustertime
+				, connectnum, "connect");
+		mthreshold_levelvalue_positiveseq(OBJECT_CLUSTER_LOCKS, MONITOR_CLUSTERSTR, clustertime
+				, locksnum, "locks");
+		mthreshold_levelvalue_positiveseq(OBJECT_CLUSTER_UNUSEDINDEX, MONITOR_CLUSTERSTR, clustertime
+				, unusedindexnum, "unused index");
+		mthreshold_levelvalue_positiveseq(OBJECT_CLUSTER_LOCKS, MONITOR_CLUSTERSTR, clustertime
+				, locksnum, "locks");
 
 		/*autovacuum*/
 		if(bfrist)
@@ -341,7 +369,7 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 			dbage = iarray_vacuum_archive_dbage[2];
 
 			/*standby delay*/
-			standbydelay = monitor_get_sqlres_all_typenode_usedbname(rel_node, sqlstrstandbydelay, DEFAULT_DB, CNDN_TYPE_DATANODE_SLAVE, GET_MAX);
+			standbydelay = monitor_standbydelay(CNDN_TYPE_DATANODE_SLAVE);
 		}
 
 		/*build tuple*/
@@ -592,7 +620,7 @@ HeapTuple monitor_build_databasetps_qps_tuple(Relation rel, const TimestampTz ti
 static void monitor_get_sum_all_onetypenode_onedb(Relation rel_node, char *sqlstr, char *dbname, char nodetype, int64 iarray[], int len)
 {
 	/*get node user, port*/
-	HeapScanDesc rel_scan;
+	HeapScanDesc rel_scan = NULL;
 	ScanKeyData key[4];
 	HeapTuple tuple;
 	HeapTuple tup;
@@ -600,6 +628,7 @@ static void monitor_get_sum_all_onetypenode_onedb(Relation rel_node, char *sqlst
 	Form_mgr_host mgr_host;
 	char *user = NULL;
 	char *address = NULL;
+	char *nodetime = NULL;
 	int port;
 	int agentport = 0;
 	int64 *iarraytmp;
@@ -607,58 +636,107 @@ static void monitor_get_sum_all_onetypenode_onedb(Relation rel_node, char *sqlst
 	bool bfirst = true;
 
 	iarraytmp = (int64 *)palloc(sizeof(int64)*len);
-	ScanKeyInit(&key[0],
-		Anum_mgr_node_nodetype
-		,BTEqualStrategyNumber
-		,F_CHAREQ
-		,CharGetDatum(nodetype));
-	ScanKeyInit(&key[1]
-		,Anum_mgr_node_nodeinited
-		,BTEqualStrategyNumber
-		,F_BOOLEQ
-		,BoolGetDatum(true));
-	ScanKeyInit(&key[2]
-		,Anum_mgr_node_nodeincluster
-		,BTEqualStrategyNumber
-		,F_BOOLEQ
-		,BoolGetDatum(true));
-	ScanKeyInit(&key[3]
-		,Anum_mgr_node_nodezone
-		,BTEqualStrategyNumber
-		,F_NAMEEQ
-		,CStringGetDatum(mgr_zone));
-	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
-	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+
+	PG_TRY();
 	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		port = mgr_node->nodeport;
-		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		if(bfirst)
+		ScanKeyInit(&key[0],
+			Anum_mgr_node_nodetype
+			,BTEqualStrategyNumber
+			,F_CHAREQ
+			,CharGetDatum(nodetype));
+		ScanKeyInit(&key[1]
+			,Anum_mgr_node_nodeinited
+			,BTEqualStrategyNumber
+			,F_BOOLEQ
+			,BoolGetDatum(true));
+		ScanKeyInit(&key[2]
+			,Anum_mgr_node_nodeincluster
+			,BTEqualStrategyNumber
+			,F_BOOLEQ
+			,BoolGetDatum(true));
+		ScanKeyInit(&key[3]
+			,Anum_mgr_node_nodezone
+			,BTEqualStrategyNumber
+			,F_NAMEEQ
+			,CStringGetDatum(mgr_zone));
+		rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+		while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 		{
-			user = get_hostuser_from_hostoid(mgr_node->nodehost);
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgr_node);
+			port = mgr_node->nodeport;
+			address = get_hostaddress_from_hostoid(mgr_node->nodehost);
+			if(bfirst)
+			{
+				user = get_hostuser_from_hostoid(mgr_node->nodehost);
+			}
+			bfirst = false;
+			memset(iarraytmp, 0, len*sizeof(int64));
+			/*get agent port*/
+			tup = SearchSysCache1(HOSTHOSTOID, ObjectIdGetDatum(mgr_node->nodehost));
+			if(!(HeapTupleIsValid(tup)))
+			{
+				ereport(ERROR, (errmsg("host oid \"%u\" not exist", mgr_node->nodehost)
+					, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
+					, errcode(ERRCODE_INTERNAL_ERROR)));
+			}
+			mgr_host = (Form_mgr_host)GETSTRUCT(tup);
+			Assert(mgr_host);
+			agentport = mgr_host->hostagentport;
+			ReleaseSysCache(tup);
+			monitor_get_sqlvalues_one_node(agentport, sqlstr, user, address, port,dbname, iarraytmp, len);
+			for(iloop=0; iloop<len; iloop++)
+			{
+				iarray[iloop] += iarraytmp[iloop];
+			}
+
+			/* check warn threshold */
+			if (nodetype == CNDN_TYPE_COORDINATOR_MASTER && len == 6)
+			{
+				nodetime = monitor_get_timestamptz_onenode(agentport, user, address, port);
+				if(nodetime == NULL)
+				{
+					ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION)
+						,errmsg("get time from node error,")));
+				}
+				mthreshold_levelvalue_impositiveseq(OBJECT_NODE_COMMITRATE, address, nodetime
+					, iarraytmp[0]+iarraytmp[1] == 0 ? 100 : (iarraytmp[0]*1.0/(iarraytmp[0]+iarraytmp[1])*100.0)
+					,  "commit rate");
+				mthreshold_levelvalue_positiveseq(OBJECT_NODE_CONNECT, address, nodetime
+					, iarraytmp[2], "connect");
+				mthreshold_levelvalue_positiveseq(OBJECT_NODE_LONGTRANS, address, nodetime
+					, iarraytmp[3], "long transactions");
+				mthreshold_levelvalue_positiveseq(OBJECT_NODE_LONGTRANS, address, nodetime
+					, iarraytmp[4], "idle transactions");
+				pfree(nodetime);
+			}
+			else if (nodetype == CNDN_TYPE_DATANODE_MASTER && len == 3)
+			{
+				nodetime = monitor_get_timestamptz_onenode(agentport, user, address, port);
+				if(nodetime == NULL)
+				{
+					ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION)
+						,errmsg("get time from node error,")));
+				}
+				mthreshold_levelvalue_impositiveseq(OBJECT_NODE_HEAPHIT, address, nodetime
+					, iarraytmp[0]+iarraytmp[1] == 0 ? 100 : (iarraytmp[0]*1.0/(iarraytmp[0]+iarraytmp[1])*100.0)
+					,  "heaphit rate");
+				pfree(nodetime);
+			}
+
+			pfree(address);
 		}
-		bfirst = false;
-		memset(iarraytmp, 0, len*sizeof(int64));
-		/*get agent port*/
-		tup = SearchSysCache1(HOSTHOSTOID, ObjectIdGetDatum(mgr_node->nodehost));
-		if(!(HeapTupleIsValid(tup)))
-		{
-			ereport(ERROR, (errmsg("host oid \"%u\" not exist", mgr_node->nodehost)
-				, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
-				, errcode(ERRCODE_INTERNAL_ERROR)));
-		}
-		mgr_host = (Form_mgr_host)GETSTRUCT(tup);
-		Assert(mgr_host);
-		agentport = mgr_host->hostagentport;
-		ReleaseSysCache(tup);
-		monitor_get_sqlvalues_one_node(agentport, sqlstr, user, address, port,dbname, iarraytmp, len);
-		for(iloop=0; iloop<len; iloop++)
-		{
-			iarray[iloop] += iarraytmp[iloop];
-		}
-		pfree(address);
-	}
+	}PG_CATCH();
+	{
+		if(user)
+			pfree(user);
+		if (rel_scan)
+			heap_endscan(rel_scan);
+		pfree(iarraytmp);
+
+		PG_RE_THROW();
+	}PG_END_TRY();
+
 	if(user)
 	{
 		pfree(user);
@@ -718,4 +796,221 @@ void monitor_get_stringvalues(char cmdtype, int agentport, char *sqlstr, char *u
 			,errmsg("get sqlstr:%s \n\tresult fail", sqlstr)));
 		return;
 	}
+}
+
+/*
+ * get the largest delay time from given standby nodes
+ */
+static int64 monitor_standbydelay(char nodetype)
+{
+	Relation hostrel;
+	Relation noderel;
+	HeapScanDesc hostrel_scan;
+	HeapScanDesc noderel_scan;
+	Form_mgr_host mgr_host;
+	Form_mgr_node mgr_node;
+	HeapTuple hosttuple;
+	HeapTuple nodetuple;
+	HeapTuple tup;
+	bool isNull = false;
+	Datum datumaddress;
+	Oid hostoid;
+	ScanKeyData key[2];
+	int64 nodedelay = 0;
+	int64 maxdelay = 0;
+	int clusterstandbydelay = 0;
+	int port = 0;
+	int agentport = 0;
+	NameData ndatauser;
+	char *address;
+	char *nodetime;
+	const char *clustertime;
+	bool getnode = false;
+
+	hostrel = heap_open(HostRelationId, AccessShareLock);
+	hostrel_scan = heap_beginscan_catalog(hostrel, 0, NULL);
+	noderel = heap_open(NodeRelationId, AccessShareLock);
+
+	PG_TRY();
+	{
+		while((hosttuple = heap_getnext(hostrel_scan, ForwardScanDirection)) != NULL)
+		{
+			getnode = false;
+			mgr_host = (Form_mgr_host)GETSTRUCT(hosttuple);
+			Assert(mgr_host);
+			datumaddress = heap_getattr(hosttuple, Anum_mgr_host_hostaddr, RelationGetDescr(hostrel), &isNull);
+			if(isNull)
+			{
+				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+					, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
+					, errmsg("column hostaddress is null")));
+			}
+			address = TextDatumGetCString(datumaddress);
+			namestrcpy(&ndatauser, NameStr(mgr_host->hostuser));
+			hostoid = HeapTupleGetOid(hosttuple);
+			/*find datanode master in node systbl, which hosttuple's nodehost is hostoid*/
+			ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodehost
+				,BTEqualStrategyNumber, F_OIDEQ
+				,ObjectIdGetDatum(hostoid));
+			ScanKeyInit(&key[1]
+				,Anum_mgr_node_nodezone
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,CStringGetDatum(mgr_zone));
+			noderel_scan = heap_beginscan_catalog(noderel, 2, key);
+			while((nodetuple = heap_getnext(noderel_scan, ForwardScanDirection)) != NULL)
+			{
+				mgr_node = (Form_mgr_node)GETSTRUCT(nodetuple);
+				Assert(mgr_node);
+				/*check the nodetype*/
+				if (mgr_node->nodetype != CNDN_TYPE_DATANODE_SLAVE)
+					continue;
+				/*get port*/
+				port = mgr_node->nodeport;
+				/*get agent port*/
+				tup = SearchSysCache1(HOSTHOSTOID, ObjectIdGetDatum(mgr_node->nodehost));
+				if(!(HeapTupleIsValid(tup)))
+				{
+					ereport(ERROR, (errmsg("host oid \"%u\" not exist", mgr_node->nodehost)
+						, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
+						, errcode(ERRCODE_INTERNAL_ERROR)));
+				}
+				mgr_host = (Form_mgr_host)GETSTRUCT(tup);
+				Assert(mgr_host);
+				agentport = mgr_host->hostagentport;
+				ReleaseSysCache(tup);
+				nodedelay = monitor_get_onesqlvalue_one_node(agentport, SQLSTRSTANDBYDELAY, ndatauser.data
+									, address, port, DEFAULT_DB);
+				if (nodedelay > maxdelay)
+					maxdelay = nodedelay;
+				clusterstandbydelay = clusterstandbydelay + nodedelay;
+
+				nodetime = monitor_get_timestamptz_onenode(agentport, ndatauser.data, address, port);
+				if(nodetime == NULL)
+				{
+					ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION)
+						,errmsg("get time from node error,")));
+				}
+				mthreshold_levelvalue_positiveseq(OBJECT_NODE_STANDBYDELAY, address, nodetime
+						, nodedelay, "standby delay");
+				pfree(nodetime);
+			}
+			heap_endscan(noderel_scan);
+		}
+	}PG_CATCH();
+	{
+		heap_endscan(hostrel_scan);
+		heap_close(hostrel, AccessShareLock);
+		heap_close(noderel, AccessShareLock);
+
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	heap_endscan(hostrel_scan);
+	heap_close(hostrel, AccessShareLock);
+	heap_close(noderel, AccessShareLock);
+	/*check cluster*/
+	clustertime = timestamptz_to_str(GetCurrentTimestamp());
+	mthreshold_levelvalue_positiveseq(OBJECT_NODE_STANDBYDELAY, MONITOR_CLUSTERSTR, clustertime
+				, clusterstandbydelay, "standby delay");
+
+	return maxdelay;
+}
+
+static int64 monitor_all_typenode_usedbname_locksnum(Relation rel_node, char *sqlstr, char *dbname, char nodetype, int gettype)
+{
+	/*get datanode master user, port*/
+	HeapScanDesc rel_scan;
+	ScanKeyData key[4];
+	HeapTuple tuple;
+	HeapTuple tup;
+	Form_mgr_node mgr_node;
+	Form_mgr_host mgr_host;
+	char *user;
+	char *address;
+	char *nodetime;
+	int port;
+	int64 result = 0;
+	int64 resulttmp = 0;
+	int agentport;
+	bool bfirst = true;
+
+	ScanKeyInit(&key[0],
+		Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(nodetype));
+	ScanKeyInit(&key[1]
+		,Anum_mgr_node_nodeinited
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	ScanKeyInit(&key[2]
+		,Anum_mgr_node_nodeincluster
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	ScanKeyInit(&key[3]
+		,Anum_mgr_node_nodezone
+		,BTEqualStrategyNumber
+		,F_NAMEEQ
+		,CStringGetDatum(mgr_zone));
+	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		port = mgr_node->nodeport;
+		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		user = get_hostuser_from_hostoid(mgr_node->nodehost);
+		/*get agent port*/
+		tup = SearchSysCache1(HOSTHOSTOID, ObjectIdGetDatum(mgr_node->nodehost));
+		if(!(HeapTupleIsValid(tup)))
+		{
+			heap_endscan(rel_scan);
+			ereport(ERROR, (errmsg("host oid \"%u\" not exist", mgr_node->nodehost)
+				, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
+				, errcode(ERRCODE_INTERNAL_ERROR)));
+		}
+		mgr_host = (Form_mgr_host)GETSTRUCT(tup);
+		Assert(mgr_host);
+		agentport = mgr_host->hostagentport;
+		ReleaseSysCache(tup);
+		resulttmp = monitor_get_onesqlvalue_one_node(agentport, sqlstr, user, address, port, dbname);
+
+		/* check warning threshold */
+		nodetime = monitor_get_timestamptz_onenode(agentport, user, address, port);
+		if(nodetime == NULL)
+		{
+			heap_endscan(rel_scan);
+			ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION)
+				,errmsg("get time from node error,")));
+		}
+		mthreshold_levelvalue_positiveseq(OBJECT_NODE_LOCKS, address, nodetime, resulttmp, "locks");
+		pfree(nodetime);
+
+		if(bfirst && gettype==GET_MIN) result = resulttmp;
+		bfirst = false;
+		switch(gettype)
+		{
+			case GET_MIN:
+				if(resulttmp < result) result = resulttmp;
+				break;
+			case GET_MAX:
+				if(resulttmp>result) result = resulttmp;
+				break;
+			case GET_SUM:
+				result = result + resulttmp;
+				break;
+			default:
+				result = 0;
+				break;
+		};
+		pfree(user);
+		pfree(address);
+	}
+	heap_endscan(rel_scan);
+
+	return result;
 }
