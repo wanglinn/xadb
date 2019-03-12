@@ -85,7 +85,7 @@ List* PQNGetAllConns(void)
 	{
 		result = lappend(result, op->conn);
 	}
-	
+
 	return result;
 }
 
@@ -680,22 +680,27 @@ void PQNReleaseAllConnect(bool request_cancel)
 {
 	HASH_SEQ_STATUS seq_status;
 	OidPGconn *op;
+	bool force_close;
 	if(htab_oid_pgconn == NULL || hash_get_num_entries(htab_oid_pgconn) == 0)
 		return;
 
 	if (request_cancel)
 		PQNRequestCancelAllconnect();
 
+	force_close = false;
 	hash_seq_init(&seq_status, htab_oid_pgconn);
 	while((op = hash_seq_search(&seq_status)) != NULL)
 	{
 		PQNExecFinish_trouble(op->conn);
+		if (force_close == false &&
+			PQstatus(op->conn) != CONNECTION_OK)
+			force_close = true;
 		PQdetach(op->conn);
 		op->conn = NULL;
 	}
 	hash_destroy(htab_oid_pgconn);
 	htab_oid_pgconn = NULL;
-	PoolManagerReleaseConnections(false);
+	PoolManagerReleaseConnections(force_close);
 }
 
 void PQNRequestCancelAllconnect(void)
@@ -993,7 +998,7 @@ void* PQNMakeDefHookFunctions(Size size)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("invalid size %zu of PQNHookFunctions", size)));
-	
+
 	pub = palloc0(size);
 	memcpy(pub, &PQNDefaultHookFunctions, sizeof(*pub));
 
@@ -1026,7 +1031,7 @@ bool PQNDefHookCopyInOnly(PQNHookFunctions *pub, struct pg_conn *conn)
 bool PQNDefHookResult(PQNHookFunctions *pub, struct pg_conn *conn, struct pg_result *res)
 {
 	ExecStatusType status;
-	
+
 	if (res)
 	{
 		status = PQresultStatus(res);
