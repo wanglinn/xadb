@@ -4593,6 +4593,18 @@ static RelOptInfo* make_no_execparam_base_rel(PlannerInfo *root, RelOptInfo *bas
 	baserel->no_param_rel = no_param_rel;
 	no_param_rel->baserestrictinfo = list_difference_ptr(baserel->baserestrictinfo, exec_param_clauses);
 
+	if (no_param_rel->rtekind == RTE_RELATION)
+	{
+		RangeTblEntry *rte = root->simple_rte_array[no_param_rel->relid];
+		no_param_rel->rows = 0.0;
+		get_relation_info(root, rte->relid, rte->inh, no_param_rel);
+	}else
+	{
+		Size attr_count = no_param_rel->max_attr - no_param_rel->min_attr + 1;
+		no_param_rel->attr_needed = palloc0(sizeof(Relids)*attr_count);
+		no_param_rel->attr_widths = palloc0(sizeof(int32)*attr_count);
+	}
+
 	/* rebuild path target */
 	relids = bms_make_singleton(0);
 	no_param_rel->reltarget = create_empty_pathtarget();
@@ -4620,18 +4632,6 @@ static RelOptInfo* make_no_execparam_base_rel(PlannerInfo *root, RelOptInfo *bas
 	/* resotre baserel */
 	root->simple_rel_array[baserel->relid] = baserel;
 	bms_free(relids);
-
-	no_param_rel->rows = 0.0;
-	if (no_param_rel->rtekind == RTE_RELATION)
-	{
-		RangeTblEntry *rte = root->simple_rte_array[no_param_rel->relid];
-		get_relation_info(root, rte->relid, rte->inh, no_param_rel);
-	}else
-	{
-		Size attr_count = no_param_rel->max_attr - no_param_rel->min_attr + 1;
-		no_param_rel->attr_needed = palloc0(sizeof(Relids)*attr_count);
-		no_param_rel->attr_widths = palloc0(sizeof(int32)*attr_count);
-	}
 
 	if (baserel->rtekind != RTE_CTE)
 	{
