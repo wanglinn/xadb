@@ -381,9 +381,6 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	/*
 	 * run plan
 	 */
-#ifdef ADB
-	ExecuteReduceScanOuter((ReduceScanState*)(queryDesc->planstate), NULL);
-#endif /* ADB */
 	if (!ScanDirectionIsNoMovement(direction))
 	{
 		if (execute_once && queryDesc->already_executed)
@@ -1794,6 +1791,10 @@ ExecutePlan(EState *estate,
 	estate->es_use_parallel_mode = use_parallel_mode;
 	if (use_parallel_mode)
 		EnterParallelMode();
+
+#ifdef ADB
+	ExecuteReduceScanOuter((ReduceScanState*)(planstate), NULL);
+#endif /* ADB */
 
 	/*
 	 * Loop until we've processed the proper number of tuples from the plan.
