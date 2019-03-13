@@ -4046,6 +4046,7 @@ static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn)
 				,F_BOOLEQ
 				,BoolGetDatum(true));
 
+	initStringInfo(&psql_cmd);
 	info = palloc(sizeof(*info));
 	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
@@ -4060,15 +4061,24 @@ static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn)
 			||(mgr_node->nodetype==CNDN_TYPE_COORDINATOR_MASTER)))
 			continue;
 
-		initStringInfo(&psql_cmd);
+		resetStringInfo(&psql_cmd);
 		appendStringInfo(&psql_cmd, " EXECUTE DIRECT ON (%s) ", NameStr(mgr_node->nodename));
 		appendStringInfo(&psql_cmd, " 'select pgxc_pool_reload();'");
 		hexp_pqexec_direct_execute_utility(pg_conn, psql_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE);
+
+		if (mgr_node->nodetype==CNDN_TYPE_COORDINATOR_MASTER)
+		{
+			resetStringInfo(&psql_cmd);
+			appendStringInfo(&psql_cmd, " EXECUTE DIRECT ON (%s) ", NameStr(mgr_node->nodename));
+			appendStringInfo(&psql_cmd, " 'select pool_close_idle_conn();'");
+			hexp_pqexec_direct_execute_utility(pg_conn, psql_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE);
+		}
 	}
 
 	heap_endscan(info->rel_scan);
 	heap_close(info->rel_node, AccessShareLock);
 	pfree(info);
+	pfree(psql_cmd.data);
 }
 
 static bool hexp_get_nodeinfo_from_table(char *node_name, char node_type, AppendNodeInfo *nodeinfo)
