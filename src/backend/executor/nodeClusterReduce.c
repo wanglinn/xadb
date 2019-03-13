@@ -315,8 +315,6 @@ GetSlotFromOuter(ClusterReduceState *node)
 
 			if (outerValid)
 				return outerslot;
-
-			ExecClearTuple(outerslot);
 		} else
 		{
 			/* Here we send eof to remote plan nodes */
