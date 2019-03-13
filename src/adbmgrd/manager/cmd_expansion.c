@@ -271,7 +271,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 	Oid cnoid;
 
 	char phase1_msg[100];
-	char phase3_msg[100];
+	char phase3_msg[256];
 
 	char* database ;
 	if(0!=strcmp(MGRDatabaseName,""))
@@ -700,7 +700,7 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 	PGconn * co_pg_conn = NULL;
 	Oid cnoid;
 	char phase1_msg[100];
-	char phase3_msg[100];
+	char phase3_msg[256];
 	char *gtmMasterName;
 	bool before_basebackup;
 	bool after_basebackup;
@@ -2204,7 +2204,7 @@ static void hexp_get_dn_slot_param_status(
 			DN_STATUS* pdn_status)
 {
 	PGresult* res;
-	char sql[100];
+	char sql[256];
 	ExecStatusType status;
 	int dbstatus;
 	int dbcount;
