@@ -2300,6 +2300,12 @@ WalSndKill(int code, Datum arg)
 	/* Mark WalSnd struct as no longer being in use. */
 	walsnd->pid = 0;
 	SpinLockRelease(&walsnd->mutex);
+
+#if defined(ADB) || defined(AGTM)
+	if(rep_max_avail_flag)
+		WakeUpAllWakedBackend();
+#endif
+
 }
 
 /*
