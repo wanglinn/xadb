@@ -1800,6 +1800,20 @@ exec_parse_message(const char *query_string,	/* string to execute */
 	{
 		int i;
 		Assert(paramTypes);
+		/* transaction exit stmt have no param, don't need test IsTransactionExitStmt */
+		if (IsAbortedTransactionBlockState())
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_IN_FAILED_SQL_TRANSACTION),
+					 errmsg("current transaction is aborted, "
+							"commands ignored until end of transaction block"),
+					 errdetail_abort()));
+		}else if(!IsTransactionState())
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_TRANSACTION_STATE),
+					 errmsg("not in transaction state")));
+		}
 		/* we don't expect type mod */
 		for (i = 0; i < numParams; i++)
 			parseTypeString(paramTypeNames[i], &paramTypes[i], NULL, false);
