@@ -2097,6 +2097,29 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 #endif
 
+#if defined(ADB) || defined(AGTM)
+	{
+		{"rep_max_avail_flag", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enable replication max avail available level"),
+			NULL
+		},
+		&rep_max_avail_flag,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"rep_read_archive_path_flag", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Find xlog in rep_read_archive_path in wal sender."),
+			NULL
+		},
+		&rep_read_archive_path_flag,
+		false,
+		NULL, NULL, NULL
+	},
+
+#endif
+
 #ifdef DEBUG_ADB
 	{
 		{"adb_debug", PGC_SUSET, DEVELOPER_OPTIONS,
@@ -3509,6 +3532,19 @@ static struct config_int ConfigureNamesInt[] =
 
 #endif /* ADB */
 
+#if defined(ADB) || defined(AGTM)
+	{
+		{"rep_max_avail_lsn_lag", PGC_POSTMASTER, CONN_AUTH_SETTINGS,
+			gettext_noop("Sets the maximum lsn lag under replication max available level."),
+			NULL
+		},
+		&rep_max_avail_lsn_lag,
+		8192, 1, 8192*10,
+		NULL, NULL, NULL
+	},
+
+#endif /* ADB || AGTM */
+
 #ifdef AGTM
 	{
 		{"agtm_port", PGC_INTERNAL, CONN_AUTH,
@@ -4428,6 +4464,20 @@ static struct config_string ConfigureNamesString[] =
 		&nls_timestamp_tz_format,
 		"YYYY-MM-DD HH24:MI:SS.US TZ",
 		NULL, NULL, NULL
+	},
+#endif
+
+#if defined(ADB) || defined(AGTM)
+
+	{
+		{"rep_read_archive_path", PGC_USERSET, CLIENT_CONN_LOCALE,
+			gettext_noop("archive xlog path"),
+			NULL,
+			GUC_IS_NAME | GUC_REPORT
+		},
+		&rep_read_archive_path,
+		"",
+		NULL,NULL,NULL
 	},
 #endif
 

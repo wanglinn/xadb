@@ -2390,6 +2390,14 @@ retry:
 			XLogFilePath(path, curFileTimeLine, sendSegNo);
 
 			sendFile = BasicOpenFile(path, O_RDONLY | PG_BINARY, 0);
+
+#if defined(ADB) || defined(AGTM)
+			if (rep_read_archive_path_flag && (sendFile < 0))
+			{
+				ArchiveXLogFilePath(path, curFileTimeLine, sendSegNo);
+				sendFile = BasicOpenFile(path, O_RDONLY | PG_BINARY, 0);
+			}
+#endif
 			if (sendFile < 0)
 			{
 				/*
