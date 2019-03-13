@@ -536,16 +536,17 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 				{
 					Assert(sub_final->cheapest_replicate_path != NULL);
 					path = sub_final->cheapest_replicate_path;
-					replace_replicate_reduce(path, reduce_list);
 
 					if (bms_is_member(sub_plan_id, glob->rewindPlanIDs) &&
 						!ExecMaterializesOutput(path->pathtype))
 						path = (Path*)create_material_path(path->parent, path);
 				}
 
+				replace_replicate_reduce(path, reduce_list);
 				lfirst(lc_subplan) = create_plan(subroot, path);
 			}
 			bms_free(cte_planids);
+			replace_replicate_reduce(best_path, reduce_list);
 		}
 	}
 #endif /* ADB */
