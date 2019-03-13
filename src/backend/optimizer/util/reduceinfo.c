@@ -2226,6 +2226,13 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	Expr *result;
 	AssertArg(reduce && list_length(reduce->storage_nodes) > 0);
 
+	if (reduce->type != REDUCE_TYPE_HASHMAP &&
+		list_member_oid(reduce->storage_nodes, InvalidOid))
+	{
+		ereport(ERROR,
+				(errmsg("reduce info has an invalid OID")));
+	}
+
 	switch(reduce->type)
 	{
 	case REDUCE_TYPE_HASH:
