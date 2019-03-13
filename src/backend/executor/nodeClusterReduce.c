@@ -271,13 +271,19 @@ GetSlotFromOuter(ClusterReduceState *node)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg("ReduceExpr return a null value")));
+							 errmsg("reduce expression for plan %d returned a null value", node->ps.plan->plan_node_id)));
 				}else
 				{
 					oid = DatumGetObjectId(datum);
 					if(oid == PGXCNodeOid)
+					{
 						outerValid = true;
-					else
+					}else if(!OidIsValid(oid))
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_INTERNAL_ERROR),
+								 errmsg("reduce expression for plan %d returned an invalid OID", node->ps.plan->plan_node_id)));
+					}else
 					{
 						/* This tuple should be sent to remote nodes */
 						if (!list_member_oid(node->closed_remote, oid))
