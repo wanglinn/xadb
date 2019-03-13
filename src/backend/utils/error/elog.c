@@ -2772,6 +2772,25 @@ log_line_prefix(StringInfo buf, ErrorData *edata)
 				else
 					appendStringInfoString(buf, unpack_sql_state(edata->sqlerrcode));
 				break;
+/* ADB_BEGIN */
+			case 'f':
+				if (padding != 0)
+					appendStringInfo(buf, "%*s", padding, edata->filename);
+				else
+					appendStringInfoString(buf, edata->filename);
+				break;
+			case 'F':
+				if (padding != 0)
+					appendStringInfo(buf, "%*s", padding, edata->funcname);
+				else
+					appendStringInfoString(buf, edata->funcname);
+				break;
+			case 'L':
+				if (padding != 0)
+					appendStringInfo(buf, "%*d", padding, edata->lineno);
+				else
+					appendStringInfo(buf, "%u", edata->lineno);
+/* ADB_END */
 			default:
 				/* format error - ignore it */
 				break;

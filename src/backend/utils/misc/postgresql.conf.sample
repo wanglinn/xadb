@@ -480,6 +480,9 @@
 					#   %x = transaction ID (0 if none)
 					#   %q = stop here in non-session
 					#        processes
+					#   %f = file name
+					#   %F = function name
+					#   %L = file line number
 					#   %% = '%'
 					# e.g. '<%u%%%d> '
 #log_lock_waits = off			# log lock waits >= deadlock_timeout
