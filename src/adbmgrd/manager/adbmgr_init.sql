@@ -778,14 +778,56 @@ CREATE VIEW adbmgr.get_datanode_node_topology AS
 
 -- for ADB monitor the topology in home page : get coordinator node topology
 CREATE VIEW adbmgr.get_coordinator_node_topology AS
-    select n.nodename AS node_name,
-        n.nodeport AS node_port,
-        h.hostaddr AS node_ip
-    from mgr_node n, mgr_host h
-    where n.nodeincluster = true and
-        n.nodeinited = true and
-        n.nodehost = h.oid and
-        n.nodetype = 'c';
+    select '{'|| ARRAY_TO_STRING || '}' as coordinator_result
+    from(
+    select ARRAY_TO_STRING(
+                            array(
+                                    select case f.nodetype
+                                           when 'c' then '"master"'
+                                           when 's' then '"slave"'
+                                           end
+                                           || ':' || '{' || '"node_name"' || ':' || '"' || f.nodename || '"' || ','
+                                                         || '"node_port"' || ':' ||        f.nodeport        || ','
+                                                         || '"node_ip"'   || ':' || '"' || f.hostaddr || '"' || ','
+                                                         || '"sync_state"'|| ':' || '"' || f.nodesync || '"' ||
+                                                     '}'
+                                    from(
+                                            select n.nodename,n.oid,n.nodetype,n.nodesync,n.nodeport,n.nodemasternameoid, h.hostaddr
+                                            from mgr_node n, mgr_host h
+                                            where n.nodemasternameoid = '0' and
+                                                  n.nodename = x.nodename  and
+                                                  n.nodetype = 'c' and
+                                                  h.oid = n.nodehost and
+                                                  n.nodeincluster = true and
+                                                  n.nodeinited = true
+
+                                            union all
+
+                                            select t2.nodename,t2.oid,t2.nodetype,t2.nodesync,t2.nodeport,t2.nodemasternameoid,t2.hostaddr
+                                            from (
+                                                    select n.nodename,n.oid,n.nodetype,n.nodeport,n.nodemasternameoid,h.hostaddr
+                                                    from mgr_node n,mgr_host h
+                                                    where n.nodemasternameoid = '0' and
+                                                          n.nodename = x.nodename and
+                                                          n.nodetype = 'c' and
+                                                          h.oid = n.nodehost and
+                                                          n.nodeincluster = true and
+                                                          n.nodeinited = true
+                                                ) t1
+                                                left join
+                                                (
+                                                    select n.nodename,n.oid,n.nodetype,n.nodesync,n.nodeport,n.nodemasternameoid,h.hostaddr
+                                                    from mgr_node n,mgr_host h
+                                                    where h.oid = n.nodehost and
+                                                          n.nodeincluster = true and
+                                                          n.nodeinited = true
+                                                ) t2
+                                                on t1.oid = t2.nodemasternameoid and t2.nodetype in ('s','n')
+                                        ) as f
+                                ), ','
+                        )from (select nodename from mgr_node where nodetype = 'c') x
+        ) r;
+
 
 -- for ADB monitor the topology in home page : get agtm node topology
 CREATE VIEW adbmgr.get_agtm_node_topology AS
@@ -794,25 +836,52 @@ CREATE VIEW adbmgr.get_agtm_node_topology AS
     select ARRAY_TO_STRING(
                             array(
                                     select case f.nodetype
-                                        when 'g' then '"master"'
-                                        when 'p' then '"slave"'
-                                        end
-                                        || ':' || '{' || '"node_name"' || ':' || '"' || f.nodename || '"' || ','
-                                                      || '"node_port"' || ':' ||        f.nodeport        || ','
-                                                      || '"node_ip"'   || ':' || '"' || f.hostaddr || '"' || ','
-                                                      || '"sync_state"'|| ':' || '"' || f.nodesync || '"' ||
-                                                '}'
+                                           when 'g' then '"master"'
+                                           when 'p' then '"slave"'
+                                           end
+                                           || ':' || '{' || '"node_name"' || ':' || '"' || f.nodename || '"' || ','
+                                                         || '"node_port"' || ':' ||        f.nodeport        || ','
+                                                         || '"node_ip"'   || ':' || '"' || f.hostaddr || '"' || ','
+                                                         || '"sync_state"'|| ':' || '"' || f.nodesync || '"' ||
+                                                     '}'
                                     from(
-                                        select n.nodename,n.oid,n.nodetype,n.nodesync,n.nodeport,n.nodemasternameoid, h.hostaddr
-                                        from mgr_node n, mgr_host h
-                                        where n.nodeincluster = true and
-                                              n.nodeinited = true and
-                                              n.nodehost = h.oid and
-                                              n.nodetype in ('g', 'p', 'e')
-                                        ) f
+                                            select n.nodename,n.oid,n.nodetype,n.nodesync,n.nodeport,n.nodemasternameoid, h.hostaddr
+                                            from mgr_node n, mgr_host h
+                                            where n.nodemasternameoid = '0' and
+                                                  n.nodename = x.nodename  and
+                                                  n.nodetype = 'g' and
+                                                  h.oid = n.nodehost and
+                                                  n.nodeincluster = true and
+                                                  n.nodeinited = true
+
+                                            union all
+
+                                            select t2.nodename,t2.oid,t2.nodetype,t2.nodesync,t2.nodeport,t2.nodemasternameoid,t2.hostaddr
+                                            from (
+                                                    select n.nodename,n.oid,n.nodetype,n.nodeport,n.nodemasternameoid,h.hostaddr
+                                                    from mgr_node n,mgr_host h
+                                                    where n.nodemasternameoid = '0' and
+                                                          n.nodename = x.nodename and
+                                                          n.nodetype = 'g' and
+                                                          h.oid = n.nodehost and
+                                                          n.nodeincluster = true and
+                                                          n.nodeinited = true
+                                                ) t1
+                                                left join
+                                                (
+                                                    select n.nodename,n.oid,n.nodetype,n.nodesync,n.nodeport,n.nodemasternameoid,h.hostaddr
+                                                    from mgr_node n,mgr_host h
+                                                    where h.oid = n.nodehost and
+                                                          n.nodeincluster = true and
+                                                          n.nodeinited = true
+                                                ) t2
+                                                on t1.oid = t2.nodemasternameoid and t2.nodetype in ('p','n')
+                                        ) as f
+
                                 ) -- end array
                             , ','
                         ) -- end ARRAY_TO_STRING
+                        from (select nodename from mgr_node where nodetype = 'g') x
         ) r;
 
 -- insert default values into monitor_host_threthold.
