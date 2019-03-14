@@ -41,8 +41,6 @@ static int pool_block_recv(pgsocket sock, void *ptr, uint32 size);
 static const char sock_path[] = {".s.PGPOOL"};
 
 static void StreamDoUnlink(int code, Datum arg);
-
-static int	Lock_AF_UNIX(void);
 #endif
 
 /*
@@ -56,7 +54,8 @@ pool_listen()
 				len;
 	struct sockaddr_un unix_addr;
 
-	if (Lock_AF_UNIX() < 0)
+	if (unlink(sock_path) != 0 &&
+		errno != ENOENT)
 		return -1;
 
 	/* create a Unix domain stream socket */
@@ -103,18 +102,6 @@ StreamDoUnlink(int code, Datum arg)
 	unlink(sock_path);
 }
 #endif   /* HAVE_UNIX_SOCKETS */
-
-#ifdef HAVE_UNIX_SOCKETS
-static int
-Lock_AF_UNIX(void)
-{
-	CreateSocketLockFile(sock_path, true, "");
-
-	unlink(sock_path);
-
-	return 0;
-}
-#endif
 
 /*
  * Connect to pooler listening on specified port

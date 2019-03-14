@@ -455,7 +455,7 @@ static void PoolerLoop(void)
 	if(server_fd == PGINVALID_SOCKET)
 	{
 		ereport(PANIC, (errcode_for_socket_access(),
-			errmsg("Can not listen pool manager unix socket on %s", pool_get_sock_path())));
+			errmsg("Can not listen pool manager unix socket on %s:%m", pool_get_sock_path())));
 	}
 	if(!pg_set_noblock(server_fd))
 	{
