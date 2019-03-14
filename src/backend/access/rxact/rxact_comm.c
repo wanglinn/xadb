@@ -56,7 +56,6 @@ rxact_listen(void)
 	int maxconn;
 	struct sockaddr_un unix_addr;
 
-	CreateSocketLockFile(rxact_sock_path, true, "");
 	unlink(rxact_sock_path);
 
 	/* create a Unix domain stream socket */
