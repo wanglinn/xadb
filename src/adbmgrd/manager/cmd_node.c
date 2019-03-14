@@ -10227,7 +10227,7 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 	char *connect_user = NULL;
 	char cnpath[1024];
 	int try = 0;
-	const int maxnum = 15;
+	const int maxnum = 3;
 	NameData self_address;
 	NameData nodename;
 	GetAgentCmdRst getAgentCmdRst;
@@ -10411,7 +10411,7 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 void mgr_unlock_cluster(PGconn **pg_conn)
 {
 	int try = 0;
-	const int maxnum = 15;
+	const int maxnum = 3;
 	char *sqlstr = "set FORCE_PARALLEL_MODE = off; SELECT PG_UNPAUSE_CLUSTER();";
 
 	if (!*pg_conn)
@@ -10458,7 +10458,7 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 	bool result = true;
 	bool bExecDirect = false;
 	bool slotIsNotEmpty = true;
-	const int maxnum = 5;
+	const int maxnum = 3;
 	int try = 0;
 	int newMasterPort;
 	Oid oldMasterTupleOid;
