@@ -1435,6 +1435,12 @@ static void agent_handle_input(PoolAgent * agent, StringInfo s)
 		case PM_MSG_GET_CONNECT:
 			{
 				agent->agtm_port = pool_getint(s);
+				if (agent->agtm_port <= 0 || agent->agtm_port > 65535)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_PROTOCOL_VIOLATION),
+							 errmsg("invalid agtm port number %d", agent->agtm_port)));
+				}
 				agent_acquire_connections(agent, s);
 				AssertState(agent->list_wait != NIL);
 			}
@@ -1643,6 +1649,13 @@ send_agtm_port_:
 				if(slot->last_user_pid != agent->pid
 					|| slot->last_agtm_port != agent->agtm_port)
 				{
+					if (agent->agtm_port <= 0 ||
+						agent->agtm_port > 65536)
+					{
+						ereport(FATAL,
+								(errcode(ERRCODE_INTERNAL_ERROR),
+								 errmsg("invalid agtm port %d for agent", agent->agtm_port)));
+					}
 					if(pqSendAgtmListenPort(slot->conn, slot->owner->agtm_port) < 0)
 					{
 						save_slot_error(slot);
