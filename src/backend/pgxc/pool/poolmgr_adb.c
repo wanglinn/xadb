@@ -2606,6 +2606,8 @@ reget_slot_result_:
 	status = PQresultStatus(result);
 	if(PGRES_FATAL_ERROR == status)
 	{
+		slot->slot_state = SLOT_STATE_ERROR;
+		slot->last_agtm_port = 0;
 		if(slot->last_error == NULL)
 		{
 			PG_TRY();
@@ -2614,7 +2616,6 @@ reget_slot_result_:
 			}PG_CATCH();
 			{
 				PQclear(result);
-				slot->slot_state = SLOT_STATE_ERROR;
 				PG_RE_THROW();
 			}PG_END_TRY();
 		}
@@ -2729,6 +2730,8 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 					if(tmp_slot->owner == NULL)
 					{
 						slot = tmp_slot;
+						slot->last_agtm_port = 0;
+						slot->last_user_pid = 0;
 						ereport(DEBUG1,
 						(errmsg("[pool] get slot from idle_slot, backend pid : %d,",
 						agent->pid)));
@@ -2747,6 +2750,8 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 					if(tmp_slot->owner == NULL)
 					{
 						slot = tmp_slot;
+						slot->last_agtm_port = 0;
+						slot->last_user_pid = 0;
 						ereport(DEBUG1,
 						(errmsg("[pool] get slot from uninit_slot, slot state : %d, backend pid : %d,",
 						slot->slot_state, agent->pid)));
