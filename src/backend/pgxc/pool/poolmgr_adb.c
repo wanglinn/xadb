@@ -15,18 +15,14 @@
 #include "lib/ilist.h"
 #include "lib/stringinfo.h"
 #include "miscadmin.h"
-#include "nodes/nodes.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/poolutils.h"
 #include "postmaster/postmaster.h"		/* For Unix_socket_directories */
 #include "storage/ipc.h"
 #include "tcop/tcopprot.h"
-#include "utils/builtins.h"
 #include "utils/guc.h"
-#include "utils/lsyscache.h"
 #include "utils/memutils.h"
-#include "utils/resowner.h"
 #include "utils/varlena.h"
 #include "utils/syscache.h"
 #include "libpq-fe.h"
@@ -1165,6 +1161,7 @@ PoolManagerGetConnectionsOid(List *oidlist)
 	StringInfoData buf;
 	int val;
 
+re_try_:
 	if (!poolHandle)
 		PoolManagerReconnect();
 	Assert(poolHandle != NULL);
@@ -1189,8 +1186,15 @@ PoolManagerGetConnectionsOid(List *oidlist)
 	send_host_info(&buf, oidlist);
 
 	/* send message */
-	pool_putmessage(&poolHandle->port, (char)(buf.cursor), buf.data, buf.len);
-	pool_flush(&poolHandle->port);
+	if (pool_putmessage(&poolHandle->port, (char)(buf.cursor), buf.data, buf.len) != 0 ||
+		pool_flush(&poolHandle->port) != 0 ||
+		poolHandle->port.SendPointer != 0)
+	{
+		PoolManagerCloseHandle(poolHandle);
+		poolHandle = NULL;
+		pfree(buf.data);
+		goto re_try_;
+	}
 
 	/* Receive response */
 	val = list_length(oidlist);
@@ -1216,6 +1220,7 @@ PoolManagerAbortTransactions(char *dbname, char *username, int **proc_pids)
 	StringInfoData buf;
 	AssertArg(proc_pids);
 
+re_try_:
 	if (!poolHandle)
 		PoolManagerReconnect();
 	Assert(poolHandle);
@@ -1228,7 +1233,15 @@ PoolManagerAbortTransactions(char *dbname, char *username, int **proc_pids)
 	/* send user name */
 	pool_sendstring(&buf, username);
 
-	pool_end_flush_msg(&(poolHandle->port), &buf);
+	if (pool_putmessage(&(poolHandle->port), (char)buf.cursor, buf.data, buf.len) != 0 ||
+		pool_flush(&(poolHandle->port)) != 0 ||
+		poolHandle->port.SendPointer != 0)
+	{
+		PoolManagerCloseHandle(poolHandle);
+		poolHandle = NULL;
+		pfree(buf.data);
+		goto re_try_;
+	}
 
 	return pool_recvpids(&(poolHandle->port), proc_pids);
 }
@@ -3228,6 +3241,8 @@ Datum pool_close_idle_conn(PG_FUNCTION_ARGS)
 
 	if (!(IS_PGXC_COORDINATOR || IsConnFromCoord()))
 		PG_RETURN_BOOL(true);
+
+re_try_:
 	if (!poolHandle)
 		PoolManagerReconnect();
 	Assert(poolHandle != NULL);
@@ -3235,7 +3250,14 @@ Datum pool_close_idle_conn(PG_FUNCTION_ARGS)
 	pq_beginmessage(&buf, PM_MSG_CLOSE_IDLE_CONNECT);
 	/* send message */
 	pool_putmessage(&poolHandle->port, (char)(buf.cursor), buf.data, buf.len);
-	pool_flush(&poolHandle->port);
+	if (pool_flush(&poolHandle->port)||
+		poolHandle->port.SendPointer != 0)
+	{
+		PoolManagerCloseHandle(poolHandle);
+		poolHandle = NULL;
+		pfree(buf.data);
+		goto re_try_;
+	}
 
 	pfree(buf.data);
 	PG_RETURN_BOOL(true);
