@@ -1000,9 +1000,8 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	 */
 	relation_close(rel, NoLock);
 
-#ifdef ADB_GRAM_ORA
-	if (stmt->grammar == PARSE_GRAM_ORACLE &&
-		stmt->child_rels != NIL)
+#if defined(ADB_GRAM_ORA) || defined(ADB_GRAM_DB2)
+	if ((stmt->grammar == PARSE_GRAM_ORACLE || stmt->grammar == PARSE_GRAM_DB2) && stmt->child_rels != NIL)
 	{
 		ListCell	   *lc;
 		CreateStmt	   *child;

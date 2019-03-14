@@ -2277,7 +2277,7 @@ typedef struct CreateStmt
 	DistributeBy *distributeby;	/* distribution to use, or NULL */
 	PGXCSubCluster *subcluster;	/* subcluster of table */
 #endif
-#ifdef ADB_GRAM_ORA
+#if defined(ADB_GRAM_ORA) || defined(ADB_GRAM_DB2)
 	List	   *child_rels;		/* list of CreateStmt */
 #endif /* ADB */
 } CreateStmt;
