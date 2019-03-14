@@ -3396,7 +3396,13 @@ reaper(SIGNAL_ARGS)
 		if (IS_PGXC_COORDINATOR && pid == PgPoolerPID)
 		{
 			PgPoolerPID = 0;
-			if (!EXIT_STATUS_0(exitstatus))
+			/*
+			 * now poolmgr not using any shared memory and lock
+			 * so don't need kill other child */
+			if (WIFEXITED(exitstatus))
+				LogChildExit(LOG, _("pool manager process"),
+							 pid, exitstatus);
+			else
 				HandleChildCrash(pid, exitstatus,
 								 _("pool manager process"));
 			continue;
