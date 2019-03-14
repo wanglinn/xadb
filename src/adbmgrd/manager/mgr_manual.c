@@ -1525,7 +1525,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	int iloop = 0;
 	int nodePort;
 	int nodeSlaveSyncKind = SYNC_STATE_ASYNC;
-	const int iMax = 90;
+	const int iMax = 10;
 	int syncNum = 0;
 	Oid cnOid;
 	HeapTuple tuple;
