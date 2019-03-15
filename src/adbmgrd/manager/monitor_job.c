@@ -147,6 +147,7 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 	bool status = false;
 	Datum datumtime;
 	TimestampTz current_time = 0;
+	pid_t ppid;
 
 	if_not_exists = PG_GETARG_BOOL(0);
 	jobname = PG_GETARG_CSTRING(1);
@@ -277,6 +278,9 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 	/*close relation */
 	heap_close(rel, RowExclusiveLock);
 
+	ppid = getppid();
+	kill(ppid, SIGHUP);
+
 	PG_RETURN_BOOL(true);
 }
 
@@ -322,6 +326,7 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 	bool bAlterAll = false;
 	Datum datumtime;
 	HeapScanDesc relScan;
+	pid_t ppid;
 
 	jobname = PG_GETARG_CSTRING(0);
 	options = (List *)PG_GETARG_POINTER(1);
@@ -439,6 +444,9 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 	}
 	/* at end, close relation */
 	heap_close(rel, RowExclusiveLock);
+
+	ppid = getppid();
+	kill(ppid, SIGHUP);
 
 	PG_RETURN_BOOL(true);
 }
