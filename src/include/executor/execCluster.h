@@ -10,6 +10,7 @@
 
 struct Plan;
 struct EState;
+struct PlanState;
 struct CopyStmt;
 
 typedef void (*ClusterCustom_function)(StringInfo mem_toc);
@@ -17,8 +18,8 @@ typedef void (*ClusterCustom_function)(StringInfo mem_toc);
 
 extern Oid GetCurrentCnRdcID(const char *rdc_name);
 extern void exec_cluster_plan(const void *splan, int length);
-extern PlanState* ExecStartClusterPlan(Plan *plan, EState *estate
-								, int eflags, List *rnodes);
+extern struct PlanState* ExecStartClusterPlan(Plan *plan, struct EState *estate,
+											  int eflags, List *rnodes);
 extern List* ExecStartClusterCopy(List *rnodes, struct CopyStmt *stmt, StringInfo mem_toc, uint32 flag);
 extern List *ExecStartClusterAuxPadding(List *rnodes, Node *stmt, StringInfo mem_toc, uint32 flag);
 
