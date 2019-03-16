@@ -1930,21 +1930,38 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		/* refresh pgxc_node on all coordinators */
 		ereport(LOG, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node on all coordinators", nodeNameData.data)));
 		ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node on all coordinators", nodeNameData.data)));
-		if (strcmp(NameStr(nodeInfoS.sync_state), sync_state_tab[SYNC_STATE_SYNC].name) == 0)
-			res = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, nodeType, nodeNameData.data
-					, &getAgentCmdRst, &pgConn, cnOid, nodeMasterNameData.data);
-		else
-			res = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, nodeType, nodeNameData.data
-						, &getAgentCmdRst, &pgConn, cnOid, newSyncSlaveName.data);
-		if (!res)
+		PG_TRY();
 		{
-			rest = false;
-			ereport(WARNING, (errmsg("%s", getAgentCmdRst.description.data)));
-			appendStringInfo(&strerr, "update pgxc_node on coordinators fail: %s\n", getAgentCmdRst.description.data);
-		}
-		/*flush expand slot */
-		if(hexp_check_select_result_count(pgConn, SELECT_ADB_SLOT_TABLE_COUNT))
-			hexp_alter_slotinfo_nodename(pgConn, NameStr(nodeMasterNameData), NameStr(nodeNameData));
+			if (strcmp(NameStr(nodeInfoS.sync_state), sync_state_tab[SYNC_STATE_SYNC].name) == 0)
+				res = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, nodeType, nodeNameData.data
+						, &getAgentCmdRst, &pgConn, cnOid, nodeMasterNameData.data);
+			else
+				res = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, nodeType, nodeNameData.data
+							, &getAgentCmdRst, &pgConn, cnOid, newSyncSlaveName.data);
+			if (!res)
+			{
+				rest = false;
+				ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
+				appendStringInfo(&strerr, "update pgxc_node on coordinators fail: %s\n", getAgentCmdRst.description.data);
+			}
+			/*flush expand slot */
+			if(hexp_check_select_result_count(pgConn, SELECT_ADB_SLOT_TABLE_COUNT))
+				hexp_alter_slotinfo_nodename(pgConn, NameStr(nodeMasterNameData), NameStr(nodeNameData));
+		}PG_CATCH();
+		{
+			ereport(LOG, (errmsg("rollback start:")));
+			ereport(NOTICE, (errmsg("rollback start:")));
+			mgr_unlock_cluster(&pgConn);
+			pfree_AppendNodeInfo(nodeInfoS);
+			pfree_AppendNodeInfo(nodeInfoM);
+			pfree(infosendmsg.data);
+			pfree(getAgentCmdRst.description.data);
+			pfree(restmsg.data);
+			pfree(syncStateData.data);
+			ereport(LOG, (errmsg("rollback end")));
+			ereport(NOTICE, (errmsg("rollback end")));
+			PG_RE_THROW();
+		}PG_END_TRY();
 	}
 	else
 	{
@@ -1987,23 +2004,33 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		, nodeTypeStrData.data, nodeNameData.data, syncStateData.data)));
 	ereport(NOTICE, (errmsg("on given %s \"%s\" set synchronous_standby_names=%s"
 		, nodeTypeStrData.data, nodeNameData.data, syncStateData.data)));
-	if (!bgtmKind)
-		mgr_add_parm(nodeNameData.data, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
-	else
-		mgr_add_parm(nodeNameData.data, GTM_TYPE_GTM_MASTER, &infosendmsg);
-	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", syncStateData.data, &infosendmsg);
-	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, nodeInfoS.nodepath, &infosendmsg
-			, nodeInfoS.nodehost, &getAgentCmdRst);
-	if (!getAgentCmdRst.ret)
+	PG_TRY();
 	{
-		ereport(ERROR, (errmsg("on given %s \"%s\" set synchronous_standby_names=%s fail, %s"
-			, nodeTypeStrData.data, nodeNameData.data, syncStateData.data, getAgentCmdRst.description.data)));
-	}
+		if (!bgtmKind)
+			mgr_add_parm(nodeNameData.data, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
+		else
+			mgr_add_parm(nodeNameData.data, GTM_TYPE_GTM_MASTER, &infosendmsg);
+		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", syncStateData.data, &infosendmsg);
+		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, nodeInfoS.nodepath, &infosendmsg
+				, nodeInfoS.nodehost, &getAgentCmdRst);
+		if (!getAgentCmdRst.ret)
+		{
+			ereport(ERROR, (errmsg("on given %s \"%s\" set synchronous_standby_names=%s fail, %s"
+				, nodeTypeStrData.data, nodeNameData.data, syncStateData.data, getAgentCmdRst.description.data)));
+		}
+	}PG_CATCH();
+	{
+		mgr_unlock_cluster(&pgConn);
+		pfree(restmsg.data);
+		pfree(syncStateData.data);
 
-	pfree(restmsg.data);
-	pfree(syncStateData.data);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
 	/*unlock cluster*/
 	mgr_unlock_cluster(&pgConn);
+	pfree(restmsg.data);
+	pfree(syncStateData.data);
 
 	PG_TRY();
 	{
