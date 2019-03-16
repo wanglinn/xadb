@@ -288,7 +288,8 @@ void adb_get_all_node_oid_list(List **list_coord, List **list_datanode, bool ord
 static void
 check_node_options(const char *node_name, List *options, char **node_host,
 			int *node_port, char *node_type,
-			bool *is_primary, bool *is_preferred)
+			bool *is_primary, bool *is_preferred,
+			char **new_node_name)
 {
 	ListCell   *option;
 
@@ -339,6 +340,11 @@ check_node_options(const char *node_name, List *options, char **node_host,
 		else if (strcmp(defel->defname, "preferred") == 0)
 		{
 			*is_preferred = defGetBoolean(defel);
+		}
+		else if (new_node_name &&
+			strcmp(defel->defname, "name") == 0)
+		{
+			*new_node_name = defGetString(defel);
 		}
 		else
 		{
@@ -479,7 +485,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	/* Filter options */
 	check_node_options(node_name, stmt->options, &node_host,
 				&node_port, &node_type,
-				&is_primary, &is_preferred);
+				&is_primary, &is_preferred, NULL);
 
 	/* Compute node identifier */
 	node_id = generate_node_id(node_name);
@@ -555,6 +561,7 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 {
 	const char *node_name = stmt->node_name;
 	char	   *node_host_old, *node_host_new = NULL;
+	char	   *new_node_name = NULL;
 	int			node_port_old, node_port_new;
 	char		node_type_old, node_type_new;
 	bool		is_primary;
@@ -599,7 +606,8 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 					   &node_port_new,
 					   &node_type_new,
 					   &is_primary,
-					   &is_preferred);
+					   &is_preferred,
+					   &new_node_name);
 
 	if (node_host_new != NULL)
 	{
@@ -636,6 +644,14 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 	MemSet(new_record, 0, sizeof(new_record));
 	MemSet(new_record_nulls, false, sizeof(new_record_nulls));
 	MemSet(new_record_repl, false, sizeof(new_record_repl));
+	if (new_node_name &&
+		strcmp(new_node_name, node_name) != 0)
+	{
+		PreventInterTransactionChain(node_oid, "ALTER NODE NAME");
+		new_record[Anum_pgxc_node_node_name - 1] = DirectFunctionCall1(namein, CStringGetDatum(new_node_name));
+		new_record_repl[Anum_pgxc_node_node_name - 1] = true;
+		new_record_nulls[Anum_pgxc_node_node_name - 1] = false;
+	}
 	new_record[Anum_pgxc_node_node_port - 1] = Int32GetDatum(node_port_new);
 	new_record_repl[Anum_pgxc_node_node_port - 1] = true;
 	new_record[Anum_pgxc_node_node_host - 1] =
