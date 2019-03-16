@@ -1528,6 +1528,9 @@ BEGIN_NODE(RelOptInfo)
 	NODE_NODE(List,joininfo)
 	NODE_SCALAR(bool,has_eclass_joins)
 	NODE_RELIDS(Relids,top_parent_relids)
+#ifdef ADB
+	NODE_NODE(RelOptInfo,no_param_rel)
+#endif
 END_NODE(RelOptInfo)
 #endif /* NO_NODE_RelOptInfo */
 
@@ -2388,7 +2391,7 @@ BEGIN_NODE(CreateStmt)
 	NODE_NODE(DistributeBy,distributeby)
 	NODE_NODE(PGXCSubCluster,subcluster)
 #endif
-#ifdef ADB_GRAM_ORA
+#if defined(ADB_GRAM_ORA) || defined(ADB_GRAM_DB2)
 	NODE_NODE(List,child_rels)
 #endif
 END_NODE(CreateStmt)
