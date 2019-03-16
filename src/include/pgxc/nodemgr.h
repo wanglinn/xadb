@@ -30,6 +30,7 @@ extern void adb_get_all_node_oid_array(Oid **pparr, uint32 *ncoord, uint32 *ndat
 extern void adb_get_all_node_oid_list(List **list_coord, List **list_datanode, bool order_name);
 
 extern void PgxcNodeAlter(AlterNodeStmt *stmt);
+extern void ClusterNodeAlter(StringInfo mem_toc);
 extern void PgxcNodeCreate(CreateNodeStmt *stmt);
 extern void PgxcNodeRemove(DropNodeStmt *stmt);
 

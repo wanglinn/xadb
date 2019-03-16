@@ -3428,8 +3428,9 @@ typedef struct CreateNodeStmt
 typedef struct AlterNodeStmt
 {
 	NodeTag		type;
-	char		*node_name;
-	List		*options;
+	char	   *node_name;
+	List	   *options;
+	List	   *node_list;
 } AlterNodeStmt;
 
 /*

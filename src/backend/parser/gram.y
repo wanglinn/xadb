@@ -10742,7 +10742,7 @@ pgxcnode_list:
  *					[ PORT = portnum, ]
  *					[ PRIMARY [ = boolean ], ]
  *					[ PREFERRED [ = boolean ], ]
- *				)
+ *				) [ ON (nodename [,...])]
  *
  *****************************************************************************/
 
@@ -10751,6 +10751,14 @@ AlterNodeStmt: ALTER NODE pgxcnode_name OptWith
 					AlterNodeStmt *n = makeNode(AlterNodeStmt);
 					n->node_name = $3;
 					n->options = $4;
+					$$ = (Node *)n;
+				}
+			| ALTER NODE pgxcnode_name OptWith ON '(' pgxcnode_list ')'
+				{
+					AlterNodeStmt *n = makeNode(AlterNodeStmt);
+					n->node_name = $3;
+					n->options = $4;
+					n->node_list = $7;
 					$$ = (Node *)n;
 				}
 		;

@@ -23,9 +23,12 @@
 #include "catalog/indexing.h"
 #include "catalog/pgxc_node.h"
 #include "commands/defrem.h"
+#include "executor/execCluster.h"
 #include "intercomm/inter-node.h"
+#include "libpq/libpq-node.h"
 #include "nodes/parsenodes.h"
 #include "storage/lwlock.h"
+#include "storage/mem_toc.h"
 #include "storage/shmem.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
@@ -36,6 +39,7 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/slot.h"
 
+#define REMOTE_KEY_ALTER_NODE	1
 
 typedef struct NodeOidInfo
 {
@@ -546,8 +550,8 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
  *
  * Alter a PGXC node
  */
-void
-PgxcNodeAlter(AlterNodeStmt *stmt)
+static void
+PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 {
 	const char *node_name = stmt->node_name;
 	char	   *node_host_old, *node_host_new = NULL;
@@ -658,6 +662,86 @@ PgxcNodeAlter(AlterNodeStmt *stmt)
 	heap_close(rel, NoLock);
 }
 
+void
+PgxcNodeAlter(AlterNodeStmt *stmt)
+{
+	ListCell   *lc;
+	Value	   *value;
+	List	   *nodeOids;
+	List	   *remoteList;
+	Oid			oid;
+	bool		include_myself = false;
+
+	if (stmt->node_list == NIL)
+		include_myself = true;
+
+	nodeOids = NIL;
+	foreach(lc, stmt->node_list)
+	{
+		value = lfirst(lc);
+		if (strcasecmp(PGXCNodeName, strVal(value)) == 0)
+		{
+			include_myself = true;
+			if (IsConnFromCoord())
+				break;
+			else
+				continue;
+		}
+		if (IsConnFromApp())
+		{
+			oid = get_pgxc_nodeoid(strVal(value));
+			Assert(oid != PGXCNodeOid);
+
+			nodeOids = list_append_unique_oid(nodeOids, oid);
+		}
+	}
+
+	remoteList = NIL;
+	if (nodeOids != NIL)
+	{
+		StringInfoData msg;
+		initStringInfo(&msg);
+
+		ClusterTocSetCustomFun(&msg, ClusterNodeAlter);
+
+		begin_mem_toc_insert(&msg, REMOTE_KEY_ALTER_NODE);
+		saveNode(&msg, (Node*)stmt);
+		end_mem_toc_insert(&msg, REMOTE_KEY_ALTER_NODE);
+
+		remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
+		pfree(msg.data);
+	}
+
+	if (include_myself)
+		PgxcNodeAlterLocal(stmt);
+
+	if (remoteList)
+	{
+		PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+		list_free(remoteList);
+	}
+	list_free(nodeOids);
+}
+
+void ClusterNodeAlter(StringInfo mem_toc)
+{
+	AlterNodeStmt *stmt;
+	StringInfoData buf;
+
+	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_ALTER_NODE, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("Can not found AlterNodeStmt in cluster message"),
+				 errcode(ERRCODE_PROTOCOL_VIOLATION)));
+	}
+	buf.len = buf.maxlen;
+	buf.cursor = 0;
+
+	stmt = castNode(AlterNodeStmt, loadNode(&buf));
+
+	PgxcNodeAlterLocal(stmt);
+}
 
 /*
  * PgxcNodeRemove
