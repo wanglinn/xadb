@@ -3355,8 +3355,7 @@ bool mgr_alter_sync_refresh_pgxcnode_readnode(Oid includeOid, Oid excludeOid)
 			/* update the preferred datanode information on pgxc_node of read only coordinator */
 			resetStringInfo(&restmsg);
 			resetStringInfo(&sqlstrmsg);
-			appendStringInfo(&sqlstrmsg
-				, "set force_parallel_mode = off; select pgxc_pool_reload(); select pool_close_idle_conn();");
+			appendStringInfo(&sqlstrmsg, "set force_parallel_mode = off; select pgxc_pool_reload();");
 			ereport(LOG, (errmsg("on read only coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename)
 					, sqlstrmsg.data)));
 			monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data
@@ -3880,7 +3879,7 @@ List *mgr_append_coord_update_pgxcnode(StringInfo sqlstrmsg, List *dnList, Name 
 		heap_endscan(relScan);
 	}
 
-	appendStringInfo(sqlstrmsg, "select pgxc_pool_reload(); select pool_close_idle_conn();");
+	appendStringInfo(sqlstrmsg, "select pgxc_pool_reload();");
 	heap_close(relNode, AccessShareLock);
 
 	return newDnList;
@@ -4121,8 +4120,7 @@ bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrda
 				,DEFAULT_DB
 				,user);
 			appendStringInfo(&infosendmsg, "%s", infostrdata->data);
-			appendStringInfo(&infosendmsg
-					, " set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload(); select pool_close_idle_conn();\"");
+			appendStringInfo(&infosendmsg, " set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
 			pfree(user);
 			/* connection agent */
 			ma = ma_connect_hostoid(mgr_node->nodehost);
@@ -4299,8 +4297,7 @@ bool mgr_update_pgxcnode_readonly_coord(void)
 			resetStringInfo(&restmsg);
 			appendStringInfo(&sqlinfo, "%s", sqlstrinfocn.data);
 			appendStringInfo(&sqlinfo, "%s", sqlstrinfodn.data);
-			appendStringInfo(&sqlinfo
-				, "set force_parallel_mode = off; select pgxc_pool_reload(); select pool_close_idle_conn();\"");
+			appendStringInfo(&sqlinfo, "set force_parallel_mode = off; select pgxc_pool_reload();\"");
 			mgr_ma_send_cmd_get_original_result(AGT_CMD_PSQL_CMD, sqlinfo.data, mgr_node->nodehost,
 					&restmsg, AGENT_RESULT_LOG);
 			if ((restmsg.len >0 && restmsg.data[0] == '\0') || restmsg.len == 0)

@@ -1284,11 +1284,6 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		rest = mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_TUPLES_OK, &strerr);
 		if (!rest)
 			ereport(ERROR, (errmsg("execute \"SELECT PGXC_POOL_RELOAD()\" on all coordiantors in cluster fail")));
-		resetStringInfo(&infosendmsg);
-		appendStringInfo(&infosendmsg, "select pool_close_idle_conn();");
-		rest = mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_TUPLES_OK, &strerr);
-		if (!rest)
-			ereport(ERROR, (errmsg("execute \"select pool_close_idle_conn()\" on all coordiantors in cluster fail")));
 
 	}PG_CATCH();
 	{
@@ -1302,9 +1297,6 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 
 			resetStringInfo(&infosendmsg);
 			appendStringInfo(&infosendmsg, "SELECT PGXC_POOL_RELOAD();");
-			(void) mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_TUPLES_OK, &strerr);
-			resetStringInfo(&infosendmsg);
-			appendStringInfo(&infosendmsg, "select pool_close_idle_conn();");
 			(void) mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_TUPLES_OK, &strerr);
 		}
 		mgr_unlock_cluster(&pg_conn);
@@ -2731,9 +2723,7 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
 		resetStringInfo(&infosendsyncmsg);
-		appendStringInfo(&infosendsyncmsg
-			,"EXECUTE DIRECT ON (\"%s\") 'select pgxc_pool_reload()'; EXECUTE DIRECT ON (\"%s\") 'select pool_close_idle_conn()';"
-			, NameStr(mgr_node->nodename), NameStr(mgr_node->nodename));
+		appendStringInfo(&infosendsyncmsg,"EXECUTE DIRECT ON (\"%s\") 'select pgxc_pool_reload()';", NameStr(mgr_node->nodename));
 		ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", cnnamedata.data, infosendsyncmsg.data)));
 		ereport(NOTICE, (errmsg("on coordinator \"%s\" execute \"%s\"", cnnamedata.data, infosendsyncmsg.data)));
 		try = maxtry;

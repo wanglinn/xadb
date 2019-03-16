@@ -102,7 +102,9 @@ typedef struct NodeSizeInfo
 
 bool with_data_checksums = false;
 Oid specHostOid = 0;
+Oid clusterLockCoordNodeOid = 0;
 NameData paramV;
+NameData clusterLockCoordNodeName;
 
 static struct enum_sync_state sync_state_tab[] =
 {
@@ -4683,7 +4685,7 @@ static void mgr_create_node_on_all_coord(PG_FUNCTION_ARGS, char nodetype, char *
 							,addressnode
 							,dnport);
 
-		appendStringInfo(&psql_cmd, " set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload(); select pool_close_idle_conn();\"");
+		appendStringInfo(&psql_cmd, " set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
 
 		ma_beginmessage(&buf, AGT_MSG_COMMAND);
 		ma_sendbyte(&buf, AGT_CMD_PSQL_CMD);
@@ -4800,7 +4802,7 @@ static bool mgr_drop_node_on_all_coord(char nodetype, char *nodename)
 
 
 		appendStringInfo(&psql_cmd, " DROP NODE \\\"%s\\\";", nodename);
-		appendStringInfo(&psql_cmd, " set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload(); select pool_close_idle_conn();\"");
+		appendStringInfo(&psql_cmd, " set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
 
 		ma_beginmessage(&buf, AGT_MSG_COMMAND);
 		ma_sendbyte(&buf, AGT_CMD_PSQL_CMD);
@@ -5745,7 +5747,7 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 						,mgr_node_out->nodeport
 						,DEFAULT_DB
 						,cnUser);
-	appendStringInfoString(&cmdstring, "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload(); select pool_close_idle_conn();\"");
+	appendStringInfoString(&cmdstring, "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
 	ma = ma_connect_hostoid(mgr_node_out->nodehost);
 	if(!ma_isconnected(ma))
 	{
@@ -6508,10 +6510,8 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 			mgr_nodetmp = (Form_mgr_node)GETSTRUCT(tuple);
 			Assert(mgr_nodetmp);
 			resetStringInfo(&infosendsyncmsg);
-			appendStringInfo(&infosendsyncmsg
-			,"set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") 'select pgxc_pool_reload()'; \
-			EXECUTE DIRECT ON (\"%s\") 'select pool_close_idle_conn()';"
-			, NameStr(mgr_nodetmp->nodename), NameStr(mgr_nodetmp->nodename));
+			appendStringInfo(&infosendsyncmsg,"set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") \
+				'select pgxc_pool_reload()';", NameStr(mgr_nodetmp->nodename));
 			ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", cnnamedata.data, infosendsyncmsg.data)));
 			try = maxtry;
 			while(try-- >= 0)
@@ -7864,8 +7864,7 @@ static bool mgr_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 				pfree(host_address);
 			}
 		}
-		appendStringInfoString(&cmdstring
-			, "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();select pool_close_idle_conn();\"");
+		appendStringInfoString(&cmdstring, "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
 
 		/* connection agent */
 		ma = ma_connect_hostoid(mgr_node_out->nodehost);
@@ -8256,8 +8255,7 @@ static bool mgr_modify_coord_pgxc_node(Relation rel_node, StringInfo infostrdata
 			,DEFAULT_DB
 			,user);
 		appendStringInfo(&infosendmsg, "%s", infostrdata->data);
-		appendStringInfo(&infosendmsg
-			, " set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload(); select pool_close_idle_conn();\"");
+		appendStringInfo(&infosendmsg, " set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
 		pfree(user);
 		/* connection agent */
 		ma = ma_connect_hostoid(mgr_node->nodehost);
@@ -10281,7 +10279,8 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 			coordhost = get_hostaddress_from_hostoid(coordhostoid);
 			connect_user = get_hostuser_from_hostoid(coordhostoid);
 			*cnoid = HeapTupleGetOid(tuple);
-
+			clusterLockCoordNodeOid = *cnoid;
+			namestrcpy(&clusterLockCoordNodeName, NameStr(mgr_node->nodename));
 			/*get the adbmanager ip*/
 			memset(self_address.data, 0, NAMEDATALEN);
 			bgetAddress = mgr_get_self_address(coordhost, coordport, &self_address);
@@ -10382,8 +10381,10 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 	}
 
 	/*lock cluster*/
-	ereport(NOTICE, (errmsg("lock cluster: %s", "set FORCE_PARALLEL_MODE = off; SELECT PG_PAUSE_CLUSTER();")));
-	ereport(LOG, (errmsg("lock cluster: %s", "set FORCE_PARALLEL_MODE = off; SELECT PG_PAUSE_CLUSTER();")));
+	ereport(NOTICE, (errmsg("lock cluster on coordinator %s : set FORCE_PARALLEL_MODE = off; SELECT PG_PAUSE_CLUSTER();"
+	  , clusterLockCoordNodeName.data)));
+	ereport(LOG, (errmsg("lock cluster on coordinator %s : set FORCE_PARALLEL_MODE = off; SELECT PG_PAUSE_CLUSTER();"
+	  , clusterLockCoordNodeName.data)));
 	try = mgr_pqexec_boolsql_try_maxnum(pg_conn, "set FORCE_PARALLEL_MODE = off; \
 				SELECT PG_PAUSE_CLUSTER();", maxnum, CMD_SELECT);
 	if (try < 0)
@@ -10418,20 +10419,24 @@ void mgr_unlock_cluster(PGconn **pg_conn)
 {
 	int try = 0;
 	const int maxnum = 3;
+	Relation relNode = NULL;
+	HeapScanDesc rel_scan = NULL;
+	HeapTuple tuple = NULL;
+	Form_mgr_node mgr_node;
+	StringInfoData cmdstring;
+	ScanKeyData key[1];
 	char *sqlstr = "set FORCE_PARALLEL_MODE = off; SELECT PG_UNPAUSE_CLUSTER();";
 
 	if (!*pg_conn)
 		return;
-	ereport(NOTICE, (errmsg("unlock cluster: %s", sqlstr)));
-	ereport(LOG, (errmsg("unlock cluster: %s", sqlstr)));
+	ereport(NOTICE, (errmsg("on coordinator \"%s\" : unlock cluster: %s", clusterLockCoordNodeName.data, sqlstr)));
+	ereport(LOG, (errmsg("on coordinator \"%s\" : unlock cluster: %s", clusterLockCoordNodeName.data, sqlstr)));
 	try = mgr_pqexec_boolsql_try_maxnum(pg_conn, sqlstr, maxnum, CMD_SELECT);
 	if (try<0)
 	{
 		ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
 			,errmsg("execute \"%s\" fail %s", sqlstr, PQerrorMessage((PGconn*)*pg_conn))));
 	}
-	PQfinish(*pg_conn);
-	*pg_conn = NULL;
 
 	if (strcmp(paramV.data, "-1") != 0)
 	{
@@ -10441,6 +10446,51 @@ void mgr_unlock_cluster(PGconn **pg_conn)
 		mgr_set_all_nodetype_param(CNDN_TYPE_COORDINATOR_MASTER, "pool_release_to_idle_timeout", paramV.data);
 	}
 
+	initStringInfo(&cmdstring);
+	/* close idle process */
+	relNode = heap_open(NodeRelationId, AccessShareLock);
+	ScanKeyInit(&key[0]
+		,Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
+	rel_scan = heap_beginscan_catalog(relNode, 1, key);
+	while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		if (clusterLockCoordNodeOid == HeapTupleGetOid(tuple))
+			continue;
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		resetStringInfo(&cmdstring);
+		appendStringInfo(&cmdstring, "set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") 'select pool_close_idle_conn();'"
+			, NameStr(mgr_node->nodename));
+		ereport(NOTICE, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+		ereport(LOG, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
+		if (try<0)
+		{
+			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
+				,errmsg("execute \"%s\" fail %s", cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
+		}
+
+	}
+
+	resetStringInfo(&cmdstring);
+	appendStringInfo(&cmdstring, "set FORCE_PARALLEL_MODE = off; select pool_close_idle_conn();");
+	ereport(NOTICE, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+	ereport(LOG, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+	try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
+	if (try<0)
+	{
+		ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
+			,errmsg("execute \"%s\" fail %s", cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
+	}
+
+	heap_endscan(rel_scan);
+	heap_close(relNode, AccessShareLock);
+
+	PQfinish(*pg_conn);
+	*pg_conn = NULL;
 }
 
 bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname
@@ -10580,12 +10630,10 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 
 		resetStringInfo(&cmdstring);
 		if (!bExecDirect)
-			appendStringInfo(&cmdstring, "%s"
-				, "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload(); select pool_close_idle_conn();");
+			appendStringInfo(&cmdstring, "%s", "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();");
 		else
 			appendStringInfo(&cmdstring, "set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") \
-				'select pgxc_pool_reload();'; EXECUTE DIRECT ON (\"%s\") 'select pool_close_idle_conn();'"
-				, NameStr(mgr_node_out->nodename), NameStr(mgr_node_out->nodename));
+				'select pgxc_pool_reload();'", NameStr(mgr_node_out->nodename));
 		pg_usleep(100000L);
 		ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", cnnamedata.data, cmdstring.data)));
 		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);

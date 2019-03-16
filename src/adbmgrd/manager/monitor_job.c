@@ -740,28 +740,22 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 						}
 						PQclear(res);
 
-						res = PQexec(conn
-							, "set force_parallel_mode = off; select pgxc_pool_reload(); select pool_close_idle_conn();");
+						res = PQexec(conn, "set force_parallel_mode = off; select pgxc_pool_reload()");
 						if(PQresultStatus(res) == PGRES_TUPLES_OK)
 						{
-							ereport(LOG
-								, (errmsg("from ADBMGR, on coordinator \"%s\" : %s, result: %s"
-									, NameStr(mgr_node->nodename)
-								,"set force_parallel_mode = off; select pgxc_pool_reload(); select pool_close_idle_conn();", "t")));
-							ereport(NOTICE
-								, (errmsg("from ADBMGR, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
-								,"set force_parallel_mode = off; select pgxc_pool_reload(); select pool_close_idle_conn();", "t")));
+							ereport(LOG, (errmsg("from ADBMGR, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
+								,"set force_parallel_mode = off; select pgxc_pool_reload()", "t")));
+							ereport(NOTICE, (errmsg("from ADBMGR, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
+								,"set force_parallel_mode = off; select pgxc_pool_reload()", "t")));
 						}
 						else
 						{
 							result = false;
 							ereport(WARNING, (errmsg("from ADBMGR, on coordinator \"%s\", execute \"%s\" fail: %s"
-								, NameStr(mgr_node->nodename)
-								, "set force_parallel_mode = off; select pgxc_pool_reload(); select pool_close_idle_conn();"
+								, NameStr(mgr_node->nodename), "set force_parallel_mode = off; select pgxc_pool_reload()"
 								, PQresultErrorMessage(res))));
 							appendStringInfo(&strerr, "from ADBMGR, on coordinator \"%s\" execute \"%s\" fail: %s\n"
-								, NameStr(mgr_node->nodename)
-								, "set force_parallel_mode = off; select pgxc_pool_reload(); select pool_close_idle_conn();"
+								, NameStr(mgr_node->nodename), "set force_parallel_mode = off; select pgxc_pool_reload()"
 								, PQresultErrorMessage(res));
 						}
 						PQclear(res);
@@ -807,16 +801,12 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 
 					resetStringInfo(&restmsg);
 					monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort
-						, "set force_parallel_mode = off; select pgxc_pool_reload(); select pool_close_idle_conn();"
+						, "set force_parallel_mode = off; select pgxc_pool_reload()"
 						,userName, address, mgr_node->nodeport, DEFAULT_DB, &restmsg);
-					ereport(LOG, (errmsg("from agent, on coordinator \"%s\" : %s, result: %s"
-						, NameStr(mgr_node->nodename)
-						, "set force_parallel_mode = off; select pgxc_pool_reload(); select pool_close_idle_conn();"
-						, restmsg.data)));
-					ereport(NOTICE, (errmsg("from agent, on coordinator \"%s\" : %s, result: %s"
-						, NameStr(mgr_node->nodename)
-						, "set force_parallel_mode = off; select pgxc_pool_reload(); select pool_close_idle_conn();"
-						, restmsg.data)));
+					ereport(LOG, (errmsg("from agent, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
+						, "set force_parallel_mode = off; select pgxc_pool_reload()", restmsg.data)));
+					ereport(NOTICE, (errmsg("from agent, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
+						, "set force_parallel_mode = off; select pgxc_pool_reload()", restmsg.data)));
 					if (restmsg.len != 0)
 					{
 						if (strcasecmp(restmsg.data, "t") != 0)
@@ -824,8 +814,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 							result = false;
 							appendStringInfo(&strerr, "from agent, on coordinator \"%s\" execute \"%s\" fail: %s\n"
 								, NameStr(mgr_node->nodename)
-								, "set force_parallel_mode = off; select pgxc_pool_reload();select pool_close_idle_conn();"
-								, restmsg.data);
+								, "set force_parallel_mode = off; select pgxc_pool_reload()", restmsg.data);
 						}
 					}
 				}
@@ -833,12 +822,12 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 				{
 					result = false;
 					ereport(WARNING, (errmsg("on address \"%s\" the agent is not running normal; \
-						you need execute \"%s\" and \"set force_parallel_mode = off; select pgxc_pool_reload();select pool_close_idle_conn();\" \
+						you need execute \"%s\" and \"set force_parallel_mode = off; select pgxc_pool_reload()\" \
 						on coordinator \"%s\" by yourself !!!", address, infosendmsg.data, NameStr(mgr_node->nodename))));
 					appendStringInfo(&strerr,"on address \"%s\" the agent is not running normal; \
-						you need execute \"%s\" and \"set force_parallel_mode = off; select pgxc_pool_reload();select pool_close_idle_conn();\" \
-						on coordinator \"%s\" by yourself !!!",
-						address, infosendmsg.data, NameStr(mgr_node->nodename));
+						you need execute \"%s\" and \"set force_parallel_mode = off; select pgxc_pool_reload()\" \
+						on coordinator \"%s\" by yourself !!!" \
+						, address, infosendmsg.data, NameStr(mgr_node->nodename));
 				}
 			}
 		}
