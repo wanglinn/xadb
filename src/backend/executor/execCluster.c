@@ -25,6 +25,7 @@
 #include "nodes/plannodes.h"
 #include "parser/parsetree.h"
 #include "pgstat.h"
+#include "pgxc/nodemgr.h"
 #include "storage/lmgr.h"
 #include "storage/mem_toc.h"
 #include "tcop/dest.h"
@@ -134,6 +135,7 @@ static const ClusterCustomExecInfo cluster_custom_execute[] =
 		{CLUSTER_CUSTOM_EXEC_FUNC(DoClusterHeapScan)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRefreshMatView)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_vacuum)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeAlter)}
 	};
 
 static void set_cluster_display(const char *activity, bool force, ClusterCoordInfo *info);

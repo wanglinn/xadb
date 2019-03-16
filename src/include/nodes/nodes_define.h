@@ -748,6 +748,7 @@ END_NODE(RemoteQuery)
 BEGIN_NODE(AlterNodeStmt)
 	NODE_STRING(node_name)
 	NODE_NODE(List,options)
+	NODE_NODE(List,node_list)
 END_NODE(AlterNodeStmt)
 #endif /* NO_NODE_AlterNodeStmt */
 
