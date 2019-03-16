@@ -4033,6 +4033,7 @@ static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn)
 	Form_mgr_node mgr_node;
 	StringInfoData psql_cmd;
 
+	initStringInfo(&psql_cmd);
 	//select all inicialized and incluster node
 	ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodeinited
