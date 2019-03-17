@@ -292,10 +292,16 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 {
 	Relation relNode;
 	HeapTuple tuple;
+	HeapTuple tupleout;
+	HeapTuple tuplein;
 	HeapTuple masterTuple;
 	HeapTuple tupResult;
 	HeapScanDesc relScan;
+	HeapScanDesc relScanout;
+	HeapScanDesc relScanin;
 	Form_mgr_node mgr_node;
+	Form_mgr_node mgr_node_out;
+	Form_mgr_node mgr_node_in;
 	Form_mgr_node mgr_nodeM;
 	StringInfoData infosendmsg;
 	StringInfoData infosendmsgdn;
@@ -306,6 +312,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 	ScanKeyData key[3];
 	NameData name;
 	NameData cnName;
+	NameData cnNameM;
 	NameData selfAddress;
 	Datum datumPath;
 	List *newNameList = NIL;
@@ -313,7 +320,6 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 	ListCell   *newceil;
 	ListCell   *oldceil;
 	PGconn *pgConn;
-	char *userName;
 	char *cnUserName;
 	char *hostAddress;
 	char *cnHostAddress;
@@ -323,7 +329,6 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 	char *oldname;
 	char coordPortBuf[10];
 	int i = 0;
-	int agentPort;
 	Oid coordHostOid;
 	bool bres = true;
 	bool isNull = false;
@@ -374,52 +379,15 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 			,CStringGetDatum(currentZone));
 
 	relNode = heap_open(NodeRelationId, RowExclusiveLock);
-	relScan = heap_beginscan_catalog(relNode, 2, key);
+	relScanout = heap_beginscan_catalog(relNode, 2, key);
 	PG_TRY();
 	{
-		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-		{
-			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgr_node);
-			if (mgr_checknode_in_currentzone(currentZone, mgr_node->nodemasternameoid))
-				continue;
-			hostAddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
-
-			if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype
-				 || CNDN_TYPE_DATANODE_MASTER == mgr_node->nodetype)
-			{
-				masterTuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(mgr_node->nodemasternameoid));
-				if(!HeapTupleIsValid(masterTuple))
-				{
-					heap_endscan(relScan);
-					heap_close(relNode, RowExclusiveLock);
-					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-						, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\"", NameStr(mgr_node->nodename), currentZone)));
-				}
-				mgr_nodeM = (Form_mgr_node)GETSTRUCT(masterTuple);
-				Assert(mgr_nodeM);
-				if (CNDN_TYPE_DATANODE_MASTER == mgr_node->nodetype)
-				{
-					newNameList = lappend(newNameList, NameStr(mgr_node->nodename));
-					oldNameList = lappend(oldNameList, NameStr(mgr_nodeM->nodename));
-				}
-				appendStringInfo(&infosendmsg, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=false) on (\"%s\");"
-					,NameStr(mgr_nodeM->nodename), NameStr(mgr_node->nodename)
-					, hostAddress, mgr_node->nodeport
-					,NameStr(mgr_nodeM->nodename));
-				if (CNDN_TYPE_DATANODE_MASTER == mgr_node->nodetype)
-					appendStringInfo(&infosendmsg, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=false) on (\"%s\");"
-						,NameStr(mgr_nodeM->nodename), NameStr(mgr_node->nodename)
-						, hostAddress, mgr_node->nodeport, NameStr(mgr_nodeM->nodename));
-				ReleaseSysCache(masterTuple);
-			}
-			pfree(hostAddress);
-		}
-
 		mgr_get_active_node(&cnName, CNDN_TYPE_COORDINATOR_MASTER, InvalidOid);
 		tuple = mgr_get_tuple_node_from_name_type(relNode, NameStr(cnName));
 		if (!HeapTupleIsValid(tuple))
 		{
+			heap_endscan(relScanout);
+			heap_close(relNode, RowExclusiveLock);
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				,errmsg("get tuple information of coordinator \"%s\" fail", NameStr(cnName))));
 		}
@@ -429,6 +397,22 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 		cnUserName = get_hostuser_from_hostoid(coordHostOid);
 		cnHostAddress = get_hostaddress_from_hostoid(coordHostOid);
 		sprintf(coordPortBuf, "%d", mgr_node->nodeport);
+
+		masterTuple = SearchSysCache1(NODENODEOID
+			, ObjectIdGetDatum(mgr_node->nodemasternameoid));
+		if(!HeapTupleIsValid(masterTuple))
+		{
+			heap_endscan(relScanout);
+			heap_close(relNode, RowExclusiveLock);
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+				, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\""
+					, NameStr(mgr_node->nodename), currentZone)));
+		}
+		mgr_nodeM = (Form_mgr_node)GETSTRUCT(masterTuple);
+		Assert(mgr_nodeM);
+		namestrcpy(&cnNameM, NameStr(mgr_nodeM->nodename));
+		ReleaseSysCache(masterTuple);
+
 		pgConn = PQsetdbLogin(cnHostAddress, coordPortBuf, NULL, NULL, DEFAULT_DB, cnUserName, NULL);
 		if (PQstatus((PGconn*)pgConn) != CONNECTION_OK)
 		{
@@ -457,95 +441,194 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 		}
 		if(hexp_check_select_result_count(pgConn, SELECT_ADB_SLOT_TABLE_COUNT))
 			bexpandStatus = true;
-		PQfinish(pgConn);
-		heap_freetuple(tuple);
 
-		heap_endscan(relScan);
-		ScanKeyInit(&key[0]
-					,Anum_mgr_node_nodeincluster
-					,BTEqualStrategyNumber
-					,F_BOOLEQ
-					,BoolGetDatum(true));
-		ScanKeyInit(&key[1]
-				,Anum_mgr_node_nodezone
-				,BTEqualStrategyNumber
-				,F_NAMEEQ
-				,CStringGetDatum(currentZone));	
-		relScan = heap_beginscan_catalog(relNode, 2, key);
-		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+		hexp_pqexec_direct_execute_utility(pgConn,SQL_BEGIN_TRANSACTION
+			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+
+		/* update coordinator pgxc_node */
+		resetStringInfo(&infosendmsg);
+		while((tupleout = heap_getnext(relScanout, ForwardScanDirection)) != NULL)
 		{
-			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgr_node);
-			if (mgr_checknode_in_currentzone(currentZone, mgr_node->nodemasternameoid))
+			mgr_node_out = (Form_mgr_node)GETSTRUCT(tupleout);
+			Assert(mgr_node_out);
+			if (mgr_node_out->nodetype != CNDN_TYPE_COORDINATOR_MASTER
+				&& mgr_node_out->nodetype != CNDN_TYPE_DATANODE_MASTER)
 				continue;
-			if (mgr_node->nodetype != CNDN_TYPE_DATANODE_MASTER
-				&& mgr_node->nodetype != CNDN_TYPE_COORDINATOR_MASTER)
+			if (mgr_checknode_in_currentzone(currentZone, mgr_node_out->nodemasternameoid))
 				continue;
-			bDnMaster = false;
-			hostAddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
-
-			if (mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER)
+			hostAddress = get_hostaddress_from_hostoid(mgr_node_out->nodehost);
+			masterTuple = SearchSysCache1(NODENODEOID
+				, ObjectIdGetDatum(mgr_node_out->nodemasternameoid));
+			if(!HeapTupleIsValid(masterTuple))
 			{
-				resetStringInfo(&infosendmsgdn);
-				masterTuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(mgr_node->nodemasternameoid));
-				if(!HeapTupleIsValid(masterTuple))
-				{
-					heap_endscan(relScan);
-					heap_close(relNode, RowExclusiveLock);
-					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-						, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\"", NameStr(mgr_node->nodename), currentZone)));
-				}
-				mgr_nodeM = (Form_mgr_node)GETSTRUCT(masterTuple);
-				if (bexpandStatus)
-					appendStringInfo(&infosendmsgdn, "%s", infosendmsgdns.data);
-				else
-					appendStringInfo(&infosendmsgdn, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=false) on (\"%s\");"
-						,NameStr(mgr_nodeM->nodename), NameStr(mgr_node->nodename), hostAddress
-						, mgr_node->nodeport, NameStr(mgr_node->nodename));
-				ReleaseSysCache(masterTuple);
-				bDnMaster = true;
+				heap_endscan(relScanout);
+				heap_close(relNode, RowExclusiveLock);
+				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+					, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\"", NameStr(mgr_node_out->nodename), currentZone)));
 			}
-			ereport(LOG, (errmsg("in zone %s on %s master \"%s\" execute \"%s\"", currentZone
-				, bDnMaster ?  "datanode" : "coordinator"
-				, NameStr(mgr_node->nodename), bDnMaster ? infosendmsgdn.data : infosendmsg.data)));
-			ereport(NOTICE, (errmsg("in zone %s on %s master \"%s\" execute \"%s\"", currentZone
-				, bDnMaster ?  "datanode" : "coordinator"
-				, NameStr(mgr_node->nodename), bDnMaster ? infosendmsgdn.data : infosendmsg.data)));
-			i = 0;
-			userName = get_hostuser_from_hostoid(mgr_node->nodehost);
-			agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
-			while(i++<3)
+			mgr_nodeM = (Form_mgr_node)GETSTRUCT(masterTuple);
+			Assert(mgr_nodeM);
+			if (CNDN_TYPE_DATANODE_MASTER == mgr_node_out->nodetype)
 			{
-				resetStringInfo(&restmsg);
-				monitor_get_stringvalues(AGT_CMD_GET_EXPLAIN_STRINGVALUES, agentPort
-				, bDnMaster ? infosendmsgdn.data : infosendmsg.data
-				, userName, hostAddress, mgr_node->nodeport, AGTM_DBNAME, &restmsg);
-				if ((restmsg.len != 0) && (strcasecmp(restmsg.data, "t\n") ==0))
-					break;
+				newNameList = lappend(newNameList, NameStr(mgr_node_out->nodename));
+				oldNameList = lappend(oldNameList, NameStr(mgr_nodeM->nodename));
 			}
-			pfree(userName);
+			appendStringInfo(&infosendmsg
+				, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=false) on (\"%s\");"
+				,NameStr(mgr_nodeM->nodename), NameStr(mgr_node_out->nodename)
+				, hostAddress, mgr_node_out->nodeport
+				,NameStr(cnNameM));
+			ReleaseSysCache(masterTuple);
 			pfree(hostAddress);
 
-			if ((restmsg.len == 0) || ((restmsg.len !=0) && (strcasecmp(restmsg.data, "t\n") !=0)))
-			{
-				bres = false;
-				ereport(WARNING, (errmsg("in zone %s on %s master \"%s\" execute %s fail %s", currentZone
-				, bDnMaster ? "datanode" : "coordinator"
-				, NameStr(mgr_node->nodename)
-				, bDnMaster ? infosendmsgdn.data : infosendmsg.data
-				, restmsg.len == 0 ? "":restmsg.data)));
-				appendStringInfo(&resultmsg, "in zone %s on %s master \"%s\" execute %s fail %s\n", currentZone
-				, bDnMaster ? "datanode" : "coordinator"
-				, NameStr(mgr_node->nodename)
-				, bDnMaster ? infosendmsgdn.data : infosendmsg.data
-				, restmsg.len == 0 ? "":restmsg.data);
-			}
-				
 		}
+		heap_endscan(relScanout);
+		/* execute command */
+		hexp_pqexec_direct_execute_utility(pgConn
+			, infosendmsg.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+
+		/* out the other coordinator */
+		relScanout = heap_beginscan_catalog(relNode, 2, key);
+		while((tupleout = heap_getnext(relScanout, ForwardScanDirection)) != NULL)
+		{
+			mgr_node_out = (Form_mgr_node)GETSTRUCT(tupleout);
+			Assert(mgr_node_out);
+			if (mgr_node_out->nodetype != CNDN_TYPE_COORDINATOR_MASTER)
+				continue;
+			if (strcmp(NameStr(mgr_node_out->nodename), NameStr(cnName)) == 0)
+				continue;
+			if (mgr_checknode_in_currentzone(currentZone, mgr_node_out->nodemasternameoid))
+				continue;
+			resetStringInfo(&infosendmsg);
+			relScanin = heap_beginscan_catalog(relNode, 2, key);
+			while((tuplein = heap_getnext(relScanin, ForwardScanDirection)) != NULL)
+			{
+				mgr_node_in = (Form_mgr_node)GETSTRUCT(tuplein);
+				Assert(mgr_node_in);
+				if (mgr_node_in->nodetype != CNDN_TYPE_COORDINATOR_MASTER
+					&& mgr_node_in->nodetype != CNDN_TYPE_DATANODE_MASTER)
+					continue;
+				if (mgr_checknode_in_currentzone(currentZone, mgr_node_in->nodemasternameoid))
+					continue;
+				hostAddress = get_hostaddress_from_hostoid(mgr_node_in->nodehost);
+				masterTuple = SearchSysCache1(NODENODEOID
+					, ObjectIdGetDatum(mgr_node_in->nodemasternameoid));
+				if(!HeapTupleIsValid(masterTuple))
+				{
+					heap_endscan(relScanin);
+					heap_close(relNode, RowExclusiveLock);
+					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+						, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\"", NameStr(mgr_node_in->nodename), currentZone)));
+				}
+				mgr_nodeM = (Form_mgr_node)GETSTRUCT(masterTuple);
+				Assert(mgr_nodeM);
+				appendStringInfo(&infosendmsg
+					, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=false) on (\"%s\");"
+					,NameStr(mgr_nodeM->nodename), NameStr(mgr_node_in->nodename)
+					, hostAddress, mgr_node_in->nodeport
+					,NameStr(mgr_node_out->nodename));
+				ReleaseSysCache(masterTuple);
+				pfree(hostAddress);
+			}
+			heap_endscan(relScanin);
+			hexp_pqexec_direct_execute_utility(pgConn
+				, infosendmsg.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+		}
+		heap_endscan(relScanout);
+
+		/* update datanode master pgxc_node */
+		if (!bexpandStatus)
+		{
+			relScanin = heap_beginscan_catalog(relNode, 2, key);
+			while((tuplein = heap_getnext(relScanin, ForwardScanDirection)) != NULL)
+			{
+				mgr_node_in = (Form_mgr_node)GETSTRUCT(tuplein);
+				Assert(mgr_node_in);
+				if (mgr_node_in->nodetype != CNDN_TYPE_DATANODE_MASTER)
+					continue;
+				if (mgr_checknode_in_currentzone(currentZone, mgr_node_in->nodemasternameoid))
+					continue;
+				resetStringInfo(&infosendmsg);
+				hostAddress = get_hostaddress_from_hostoid(mgr_node_in->nodehost);
+				masterTuple = SearchSysCache1(NODENODEOID
+					, ObjectIdGetDatum(mgr_node_in->nodemasternameoid));
+				if(!HeapTupleIsValid(masterTuple))
+				{
+					heap_endscan(relScanin);
+					heap_close(relNode, RowExclusiveLock);
+					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+						, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\"", NameStr(mgr_node_in->nodename), currentZone)));
+				}
+				mgr_nodeM = (Form_mgr_node)GETSTRUCT(masterTuple);
+				Assert(mgr_nodeM);
+				appendStringInfo(&infosendmsg
+					, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=false) on (\"%s\");"
+					,NameStr(mgr_nodeM->nodename), NameStr(mgr_node_in->nodename)
+					, hostAddress, mgr_node_in->nodeport
+					,NameStr(mgr_node_in->nodename));
+				ReleaseSysCache(masterTuple);
+				pfree(hostAddress);
+				hexp_pqexec_direct_execute_utility(pgConn
+					, infosendmsg.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+			}
+			heap_endscan(relScanin);
+		}
+		else
+		{
+			relScanout = heap_beginscan_catalog(relNode, 2, key);
+			while((tupleout = heap_getnext(relScanout, ForwardScanDirection)) != NULL)
+			{
+				mgr_node_out = (Form_mgr_node)GETSTRUCT(tupleout);
+				Assert(mgr_node_out);
+				if (mgr_node_out->nodetype != CNDN_TYPE_DATANODE_MASTER)
+					continue;
+				if (strcmp(NameStr(mgr_node_out->nodename), NameStr(cnName)) == 0)
+					continue;
+				if (mgr_checknode_in_currentzone(currentZone, mgr_node_out->nodemasternameoid))
+					continue;
+				resetStringInfo(&infosendmsg);
+				relScanin = heap_beginscan_catalog(relNode, 2, key);
+				while((tuplein = heap_getnext(relScanin, ForwardScanDirection)) != NULL)
+				{
+					mgr_node_in = (Form_mgr_node)GETSTRUCT(tuplein);
+					Assert(mgr_node_in);
+					if (mgr_node_in->nodetype != CNDN_TYPE_DATANODE_MASTER)
+						continue;
+					if (mgr_checknode_in_currentzone(currentZone, mgr_node_in->nodemasternameoid))
+						continue;
+					hostAddress = get_hostaddress_from_hostoid(mgr_node_in->nodehost);
+					masterTuple = SearchSysCache1(NODENODEOID
+						, ObjectIdGetDatum(mgr_node_in->nodemasternameoid));
+					if(!HeapTupleIsValid(masterTuple))
+					{
+						heap_endscan(relScanin);
+						heap_close(relNode, RowExclusiveLock);
+						ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+							, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\"", NameStr(mgr_node_in->nodename), currentZone)));
+					}
+					mgr_nodeM = (Form_mgr_node)GETSTRUCT(masterTuple);
+					Assert(mgr_nodeM);
+					appendStringInfo(&infosendmsg
+						, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=false) on (\"%s\");"
+						,NameStr(mgr_nodeM->nodename), NameStr(mgr_node_in->nodename)
+						, hostAddress, mgr_node_in->nodeport
+						,NameStr(mgr_node_out->nodename));
+					ReleaseSysCache(masterTuple);
+					pfree(hostAddress);
+				}
+				heap_endscan(relScanin);
+				hexp_pqexec_direct_execute_utility(pgConn
+					, infosendmsg.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+			}
+			heap_endscan(relScanout);
+		}
+
+		hexp_pqexec_direct_execute_utility(pgConn,SQL_COMMIT_TRANSACTION
+			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+		PQfinish(pgConn);
 
 		ereport(LOG, (errmsg("in zone %s refresh pgxc_node_name on all coordinator masters and datanode masters then restart", currentZone)));
 		ereport(NOTICE, (errmsg("in zone %s refresh pgxc_node_name on all coordinator masters and datanode masters  then restart", currentZone)));
-		heap_endscan(relScan);
 		ScanKeyInit(&key[0]
 					,Anum_mgr_node_nodeincluster
 					,BTEqualStrategyNumber
@@ -632,6 +715,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 					, getAgentCmdRst.description.data);
 			}
 		}
+		heap_endscan(relScan);
 
 		if(bexpandStatus)
 		{
@@ -664,7 +748,6 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 
 		if (bres)
 		{
-			heap_endscan(relScan);
 			ereport(LOG, (errmsg("in zone %s make the node of master type clear: the column mastername is null, sync_stat is null", currentZone)));
 			ereport(NOTICE, (errmsg("in zone %s make the node of master type clear: the column mastername is null, sync_stat is null", currentZone)));
 			ScanKeyInit(&key[0]
@@ -699,9 +782,11 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 					continue;
 				CatalogTupleDelete(relNode, &(tuple->t_self));
 			}
+			heap_endscan(relScan);
 		}
 	}PG_CATCH();
 	{
+		heap_close(relNode, RowExclusiveLock);
 		pfree(infosendmsg.data);
 		pfree(infosendmsgdn.data);
 		pfree(infosendmsgdns.data);
@@ -711,9 +796,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 		PG_RE_THROW();
 	}PG_END_TRY();
 
-	heap_endscan(relScan);
 	heap_close(relNode, RowExclusiveLock);
-
 	pfree(infosendmsg.data);
 	pfree(infosendmsgdn.data);
 	pfree(infosendmsgdns.data);
