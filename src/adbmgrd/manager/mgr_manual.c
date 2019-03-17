@@ -729,7 +729,6 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	bool b_running_dest = false;
 	bool res = false;
 	bool isNull = false;
-	int iloop = 0;
 
 	/* get the input variable */
 	m_coordname = PG_GETARG_CSTRING(0);
@@ -856,25 +855,6 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 			, restmsg.data, s_coordname, getAgentCmdRst.description.data);
 		ereport(WARNING, (errmsg("update recovery.conf of coordinator \"%s\" fail, %s", s_coordname
 			, getAgentCmdRst.description.data)));
-	}
-
-	/* rm .s.PGPOOL.lock, .s.PGRXACT.lock in s_coordname path*/
-	iloop = 0;
-	while(iloop++ < 2)
-	{
-		resetStringInfo(&restmsg);
-		resetStringInfo(&infosendmsg);
-		if (1 == iloop)
-			appendStringInfo(&infosendmsg, "%s/.s.PGPOOL.lock", dest_nodeinfo.nodepath);
-		else
-			if (CNDN_TYPE_COORDINATOR_MASTER == src_nodeinfo.nodetype)
-				appendStringInfo(&infosendmsg, "%s/.s.PGRXACT.lock", dest_nodeinfo.nodepath);
-		res = mgr_ma_send_cmd(AGT_CMD_RM, infosendmsg.data, dest_nodeinfo.nodehost, &restmsg);
-		if (!res)
-		{
-			appendStringInfo(&strerr,"%s rm %s fail, %s\n", dest_nodeinfo.nodeaddr, infosendmsg.data, restmsg.data);
-			ereport(WARNING, (errmsg("%s rm %s fail, %s", dest_nodeinfo.nodeaddr, infosendmsg.data, restmsg.data)));
-		}
 	}
 
 	/* start the coordinator */
