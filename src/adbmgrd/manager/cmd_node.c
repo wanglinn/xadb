@@ -104,7 +104,6 @@ bool with_data_checksums = false;
 Oid specHostOid = 0;
 Oid clusterLockCoordNodeOid = 0;
 NameData paramV;
-NameData clusterLockCoordNodeName;
 
 static struct enum_sync_state sync_state_tab[] =
 {
@@ -1625,7 +1624,6 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	NameData cndnnamedata;
 	HeapTuple mastertuple;
 	PGconn *pg_conn = NULL;
-	MemoryContext volatile oldcontext = CurrentMemoryContext;
 
 	getAgentCmdRst->ret = false;
 	initStringInfo(&infosendmsg);
@@ -2007,14 +2005,9 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		}
 	}PG_CATCH();
 	{
-		ErrorData  *edata;
-
 		if (pg_conn)
 			mgr_unlock_cluster(&pg_conn);
-		/* Save error info in our stmt_mcontext */
-		MemoryContextSwitchTo(oldcontext);
-		edata = CopyErrorData();
-		FlushErrorState();
+		PG_RE_THROW();
 	}PG_END_TRY();
 
 end:
@@ -3598,7 +3591,7 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		if (!bres || !dnList)
 			ereport(WARNING, (errmsg("on coordinator \"%s\", reset the preperred datanode fail. please, do it manual", nodename.data)));
 		seqNum = mgr_get_node_sequence(nodename.data, CNDN_TYPE_COORDINATOR_MASTER, true);
-		newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode, seqNum);
+		newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode, seqNum, nodename.data);
 		Assert(newDnList);
 		bres = mgr_try_max_times_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data
 				, appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr, appendnodeinfo.nodeport
@@ -6778,7 +6771,6 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 	NameData slaveNodeName;
 	NameData newMasterNodeName;
 	NameData masterNameData;
-	MemoryContext volatile oldcontext = CurrentMemoryContext;
 
 	initStringInfo(&recorderr);
 	initStringInfo(&infosendmsg);
@@ -6877,25 +6869,16 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 				hexp_alter_slotinfo_nodename(*pg_conn, masterNameData.data, newMasterNodeName.data);
 		}PG_CATCH();
 		{
-			ErrorData  *edata;
 			ereport(WARNING, (errmsg("update adb_slot fail, check and modify (use update method) the pgxc_node of all coordinators and datanode masters if need, then check and modify (use the command on adbmgr: EXPAND ALTER NODENAME  source_node TO dest_node) adb_slot table on coordinator")));
 			appendStringInfoString(&recorderr, "update adb_slot fail, check and modify (use update method) the pgxc_node of all coordinators and datanode masters if need, then check and modify (use the command on adbmgr: EXPAND ALTER NODENAME  source_node TO dest_node) adb_slot table on coordinator\n");
 
-			MemoryContextSwitchTo(oldcontext);
-			edata = CopyErrorData();
-			FlushErrorState();
+			PG_RE_THROW();
 
 		}PG_END_TRY();
 	}PG_CATCH();
 	{
-		ErrorData  *edata;
-
 		mgr_unlock_cluster(pg_conn);
-		MemoryContextSwitchTo(oldcontext);
-		edata = CopyErrorData();
-		FlushErrorState();
-
-		return;
+		PG_RE_THROW();
 	}PG_END_TRY();
 
 	/*unlock cluster*/
@@ -7854,11 +7837,12 @@ static bool mgr_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 				{
 					is_preferred = false;
 				}
-				appendStringInfo(&cmdstring, "alter node \\\"%s\\\" with(host='%s', port=%d, preferred = %s);"
+				appendStringInfo(&cmdstring, "alter node \"%s\" with(host='%s', port=%d, preferred = %s) on (\"%s\");"
 									,NameStr(mgr_node_in->nodename)
 									,host_address
 									,mgr_node_in->nodeport
-									,true == is_preferred ? "true":"false");
+									,true == is_preferred ? "true":"false"
+									,NameStr(mgr_node_out->nodename));
 				pfree(host_address);
 			}
 		}
@@ -10565,6 +10549,8 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 
 	initStringInfo(&cmdstring);
 	coordinator_num = 0;
+	hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn,SQL_BEGIN_TRANSACTION
+				, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 	foreach(lc_out, prefer_cndn->coordiantor_list)
 	{
 		coordinator_num = coordinator_num + 1;
@@ -10599,77 +10585,114 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 				}
 				resetStringInfo(&cmdstring);
 				if (!bExecDirect)
-					appendStringInfo(&cmdstring, "set force_parallel_mode = off; select pg_alter_node('%s', '%s', '%s', %d, %s);"
+					appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
 									,strcmp(NameStr(mgr_node_in->nodename), masternameData.data) == 0 ? masternameData.data:NameStr(mgr_node_in->nodename)
 									,strcmp(NameStr(mgr_node_in->nodename), masternameData.data) == 0 ? dnname:NameStr(mgr_node_in->nodename)
 									,strcmp(NameStr(mgr_node_in->nodename), masternameData.data) == 0 ? newMasterAddress : host_address
 									,strcmp(NameStr(mgr_node_in->nodename), masternameData.data) == 0 ? newMasterPort : mgr_node_in->nodeport
-									,true == is_preferred ? "true":"false");
+									,true == is_preferred ? "true":"false"
+									,NameStr(cnnamedata));
 				else
-					appendStringInfo(&cmdstring, "set force_parallel_mode = off; EXECUTE DIRECT ON (\"%s\") 'select pg_alter_node(''%s'', ''%s'', ''%s'', %d, %s);'"
-									,NameStr(mgr_node_out->nodename)
+					appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
 									,strcmp(NameStr(mgr_node_in->nodename), masternameData.data) == 0 ? masternameData.data:NameStr(mgr_node_in->nodename)
 									,strcmp(NameStr(mgr_node_in->nodename), masternameData.data) == 0 ? dnname:NameStr(mgr_node_in->nodename)
 									,strcmp(NameStr(mgr_node_in->nodename), masternameData.data) == 0 ? newMasterAddress : host_address
 									,strcmp(NameStr(mgr_node_in->nodename), masternameData.data) == 0 ? newMasterPort : mgr_node_in->nodeport
-									,true == is_preferred ? "true":"false");
+									,true == is_preferred ? "true":"false"
+									,NameStr(mgr_node_out->nodename));
 				pfree(host_address);
 				ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", cnnamedata.data, cmdstring.data)));
-				try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
+				try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_UTILITY);
 				if (try<0)
 				{
 					result = false;
-					ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
+					appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n"
+						, cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
+					ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION)
 						,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
-					appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
+					break;
 				}
 			}
 		}
+	}
 
-		resetStringInfo(&cmdstring);
-		if (!bExecDirect)
-			appendStringInfo(&cmdstring, "%s", "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();");
-		else
-			appendStringInfo(&cmdstring, "set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") \
-				'select pgxc_pool_reload();'", NameStr(mgr_node_out->nodename));
-		pg_usleep(100000L);
-		ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", cnnamedata.data, cmdstring.data)));
-		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
-		if (try < 0)
-		{
-			result = false;
-			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
-				,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
-			appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
-		}
+	if (!result)
+	{
+		appendStringInfo(&recorderr, "not update the pgxc_node information on any datanode masters\n");
+		goto end;
 	}
 
 	/* update the pgxc_node information on datanode masters */
 	slotIsNotEmpty = hexp_check_select_result_count(*pg_conn, SELECT_ADB_SLOT_TABLE_COUNT);
 	foreach(dn_lc, prefer_cndn->datanode_list)
 	{
+		if (!result)
+			goto end;
 		resetStringInfo(&cmdstring);
 		tuple_in = (HeapTuple)lfirst(dn_lc);
 		mgr_node_in = (Form_mgr_node)GETSTRUCT(tuple_in);
 		Assert(mgr_node_in);
-		if (!slotIsNotEmpty && strcmp(NameStr(mgr_node_in->nodename), NameStr(masternameData)) != 0)
-			continue;
-		appendStringInfo(&cmdstring, "set force_parallel_mode = off; EXECUTE DIRECT ON (\"%s\") 'select pg_alter_node(''%s'', ''%s'', ''%s'', %d, %s);'"
-				,strcmp(NameStr(mgr_node_in->nodename), NameStr(masternameData)) == 0 ?
-					dnname : NameStr(mgr_node_in->nodename)
-				,NameStr(masternameData)
-				,dnname
-				,newMasterAddress
-				,newMasterPort
-				,"false");
-		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
-		if (try<0)
+		if (slotIsNotEmpty ||
+			(!slotIsNotEmpty && strcmp(NameStr(mgr_node_in->nodename), NameStr(masternameData)) == 0))
 		{
-			result = false;
-			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
-				,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
-			appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
+			appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
+					,NameStr(masternameData)
+					,dnname
+					,newMasterAddress
+					,newMasterPort
+					,"false"
+					,strcmp(NameStr(mgr_node_in->nodename), NameStr(masternameData)) == 0 ?
+						dnname : NameStr(mgr_node_in->nodename));
+			try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_UTILITY);
+			if (try<0)
+			{
+				result = false;
+				appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n"
+					, cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
+				ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION)
+					,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
+				break;
+			}
 		}
+	}
+
+end:
+	if (result)
+		hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn,SQL_COMMIT_TRANSACTION
+			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+	else
+		hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn,SQL_ROLLBACK_TRANSACTION
+			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+
+	/* on coordinator , select pgxc_pool_reload() */
+	foreach(lc_out, prefer_cndn->coordiantor_list)
+	{
+		if (!result)
+			break;
+		tuple_out = (HeapTuple)lfirst(lc_out);
+		mgr_node_out = (Form_mgr_node)GETSTRUCT(tuple_out);
+		Assert(mgr_node_out);
+		datanode_num = 0;
+		bExecDirect = (cnoid != HeapTupleGetOid(tuple_out));
+		resetStringInfo(&cmdstring);
+
+		if (!bExecDirect)
+			appendStringInfo(&cmdstring, "%s", "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();");
+		else
+			appendStringInfo(&cmdstring, "set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") \
+				'select pgxc_pool_reload();'", NameStr(mgr_node_out->nodename));
+			pg_usleep(100000L);
+			ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", cnnamedata.data, cmdstring.data)));
+			try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
+			if (try < 0)
+			{
+				result = false;
+				ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
+					,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data
+						, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
+				appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n"
+					, cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
+			}
 	}
 
 	if (recorderr.len > 0)
@@ -10711,7 +10734,8 @@ int mgr_pqexec_boolsql_try_maxnum(PGconn **pg_conn, char *sqlstr, const int maxn
 				,errmsg("on coordinator   execute \"%s\" fail %s", sqlstr, PQerrorMessage((PGconn*)*pg_conn))));
 			}
 		}
-		else if (CMD_UPDATE == sqltype || CMD_DELETE == sqltype || CMD_INSERT == sqltype)
+		else if (CMD_UPDATE == sqltype || CMD_DELETE == sqltype 
+			|| CMD_INSERT == sqltype || CMD_UTILITY == sqltype)
 		{
 			if (PQresultStatus(res) == PGRES_COMMAND_OK)
 			{

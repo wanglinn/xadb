@@ -21,6 +21,13 @@
 #define PRIV_REVOKE       'R'
 #define MONITOR_CLUSTERSTR "cluster"
 
+#define SQL_BEGIN_TRANSACTION	"begin transaction;"
+#define SQL_COMMIT_TRANSACTION	"commit;"
+#define SQL_ROLLBACK_TRANSACTION	"rollback;"
+
+#define MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK	0
+#define MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE	1
+
 typedef struct GetAgentCmdRst
 {
 	NameData nodename;
@@ -448,7 +455,7 @@ extern bool mgr_get_dnlist(Name oldPreferredNode, char *separateStr, StringInfo 
 extern void mgr_set_preferred_node(char *oldPreferredNode, char *preferredDnName
 		,char *coordname, char *userName, char *nodeAddress, int agentPort, int nodePort);
 
-extern List *mgr_append_coord_update_pgxcnode(StringInfo sqlstrmsg, List *dnList, Name oldPreferredNode, int nodeSeqNum);
+extern List *mgr_append_coord_update_pgxcnode(StringInfo sqlstrmsg, List *dnList, Name oldPreferredNode, int nodeSeqNum, char *execNodeName);
 extern bool mgr_get_coord_readtype(char *nodeName);
 extern int mgr_get_node_sequence(char *nodeName, char nodeType, bool bReadOnly);
 extern Oid mgr_get_nodeMaster_tupleOid(char *nodeName);

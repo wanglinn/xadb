@@ -403,11 +403,14 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 					newNameList = lappend(newNameList, NameStr(mgr_node->nodename));
 					oldNameList = lappend(oldNameList, NameStr(mgr_nodeM->nodename));
 				}
-				appendStringInfo(&infosendmsg, "select pg_alter_node('%s', '%s', '%s', %d, false);"
-					,NameStr(mgr_nodeM->nodename), NameStr(mgr_node->nodename), hostAddress, mgr_node->nodeport);
+				appendStringInfo(&infosendmsg, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=false) on (\"%s\");"
+					,NameStr(mgr_nodeM->nodename), NameStr(mgr_node->nodename)
+					, hostAddress, mgr_node->nodeport
+					,NameStr(mgr_nodeM->nodename));
 				if (CNDN_TYPE_DATANODE_MASTER == mgr_node->nodetype)
-					appendStringInfo(&infosendmsgdns, "select pg_alter_node('%s', '%s', '%s', %d, false);"
-						,NameStr(mgr_nodeM->nodename), NameStr(mgr_node->nodename), hostAddress, mgr_node->nodeport);
+					appendStringInfo(&infosendmsg, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=false) on (\"%s\");"
+						,NameStr(mgr_nodeM->nodename), NameStr(mgr_node->nodename)
+						, hostAddress, mgr_node->nodeport, NameStr(mgr_nodeM->nodename));
 				ReleaseSysCache(masterTuple);
 			}
 			pfree(hostAddress);
@@ -496,8 +499,9 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 				if (bexpandStatus)
 					appendStringInfo(&infosendmsgdn, "%s", infosendmsgdns.data);
 				else
-					appendStringInfo(&infosendmsgdn, "set force_parallel_mode = off; select pg_alter_node('%s', '%s', '%s', %d, false);"
-						,NameStr(mgr_nodeM->nodename), NameStr(mgr_node->nodename), hostAddress, mgr_node->nodeport);
+					appendStringInfo(&infosendmsgdn, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=false) on (\"%s\");"
+						,NameStr(mgr_nodeM->nodename), NameStr(mgr_node->nodename), hostAddress
+						, mgr_node->nodeport, NameStr(mgr_node->nodename));
 				ReleaseSysCache(masterTuple);
 				bDnMaster = true;
 			}

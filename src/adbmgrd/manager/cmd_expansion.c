@@ -166,13 +166,6 @@ ADBSQL
 #define SQL_XC_MAINTENANCE_MODE_ON 					"set xc_maintenance_mode = on;"
 #define SQL_XC_MAINTENANCE_MODE_OFF 				"set xc_maintenance_mode = off;"
 
-#define SQL_BEGIN_TRANSACTION 						"begin transaction;"
-#define SQL_COMMIT_TRANSACTION 						"commit;"
-#define SQL_ROLLBACK_TRANSACTION 					"rollback;"
-
-#define MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK	0
-#define MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE	1
-
 int	SlotIdArray[HASHMAP_SLOTSIZE];
 int	SlotStatusArray[HASHMAP_SLOTSIZE];
 int	SlotArrayIndex = 0;

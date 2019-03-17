@@ -2925,40 +2925,23 @@ bool mgr_refresh_pgxc_readnode(PGconn **pg_conn, bool bExecDirect, char *readOnl
 		if (strcmp(newSyncSlaveName, "") == 0)
 		{
 			/* use the new master info to replace the old master info on coordinator */
-			if (!bExecDirect)
-				appendStringInfo(&cmdstring, "set force_parallel_mode = off; select pg_alter_node('%s', '%s', '%s', %d, %s);"
-					,NameStr(mgr_nodeOld->nodename)
-					,newMasterName
-					,newMasterAddress
-					,newMasterPort
-					,"false");
-			else
-				appendStringInfo(&cmdstring, "set force_parallel_mode = off; EXECUTE DIRECT ON (\"%s\") 'select pg_alter_node(''%s'', ''%s'', ''%s'', %d, %s);'"
-					,readOnlyNodeName
-					,NameStr(mgr_nodeOld->nodename)
-					,newMasterName
-					,newMasterAddress
-					,newMasterPort
-					,"false");
-
+			appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
+				,NameStr(mgr_nodeOld->nodename)
+				,newMasterName
+				,newMasterAddress
+				,newMasterPort
+				,"false"
+				,bExecDirect ? readOnlyNodeName : execSqlNode);
 		}
 		else
 		{
-			if (!bExecDirect)
-				appendStringInfo(&cmdstring, "set force_parallel_mode = off; select pg_alter_node('%s', '%s', '%s', %d, %s);"
-					,NameStr(mgr_nodeOld->nodename)
-					,newSyncSlaveName
-					,newSyncSlaveAddress
-					,newSyncSlavePort
-					,"false");
-			else
-				appendStringInfo(&cmdstring, "set force_parallel_mode = off; EXECUTE DIRECT ON (\"%s\") 'select pg_alter_node(''%s'', ''%s'', ''%s'', %d, %s);';"
-					,readOnlyNodeName
-					,NameStr(mgr_nodeOld->nodename)
-					,newSyncSlaveName
-					,newSyncSlaveAddress
-					,newSyncSlavePort
-					,"false");
+			appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
+				,NameStr(mgr_nodeOld->nodename)
+				,newSyncSlaveName
+				,newSyncSlaveAddress
+				,newSyncSlavePort
+				,"false"
+				,bExecDirect ? readOnlyNodeName : execSqlNode);
 		}
 	}
 	else if (strcmp(NameStr(tmpNodeName), newMasterName) == 0)
@@ -2970,21 +2953,13 @@ bool mgr_refresh_pgxc_readnode(PGconn **pg_conn, bool bExecDirect, char *readOnl
 		else
 		{
 			/* use the new master info to replace the old master info on coordinator */
-			if (!bExecDirect)
-				appendStringInfo(&cmdstring, "set force_parallel_mode = off; select pg_alter_node('%s', '%s', '%s', %d, %s);"
-					,newMasterName
-					,newSyncSlaveName
-					,newSyncSlaveAddress
-					,newSyncSlavePort
-					,"false");
-			else
-				appendStringInfo(&cmdstring, "set force_parallel_mode = off; EXECUTE DIRECT ON (\"%s\") 'select pg_alter_node(''%s'', ''%s'', ''%s'', %d, %s);';"
-					,readOnlyNodeName
-					,newMasterName
-					,newSyncSlaveName
-					,newSyncSlaveAddress
-					,newSyncSlavePort
-					,"false");
+			appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
+				,newMasterName
+				,newSyncSlaveName
+				,newSyncSlaveAddress
+				,newSyncSlavePort
+				,"false"
+				,bExecDirect ? readOnlyNodeName : execSqlNode);
 		}
 
 	}
@@ -3089,12 +3064,13 @@ bool mgr_refresh_pgxc_readnode(PGconn **pg_conn, bool bExecDirect, char *readOnl
 				Assert(mgr_node);
 				port = mgr_node->nodeport;
 				address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-				appendStringInfo(&cmdstring, "select pg_alter_node('%s', '%s', '%s', %d, %s);"
+				appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
 					,NameStr(tmpNodeName)
 					,NameStr(tmpNodeName)
 					,address
 					,port
-					,"false");
+					,"false"
+					,NameStr(clusterLockCoordNodeName));
 				pfree(address);
 				heap_freetuple(tuple);
 			}
@@ -3107,12 +3083,13 @@ bool mgr_refresh_pgxc_readnode(PGconn **pg_conn, bool bExecDirect, char *readOnl
 			Assert(mgr_node);
 			port = mgr_node->nodeport;
 			address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-			appendStringInfo(&cmdstring, "select pg_alter_node('%s', '%s', '%s', %d, %s);"
+			appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
 				,NameStr(preferredDnName)
 				,NameStr(preferredDnName)
 				,address
 				,port
-				,"true");
+				,"true"
+				,execSqlNode);
 			pfree(address);
 			heap_freetuple(tuple);
 		}
@@ -3128,13 +3105,13 @@ bool mgr_refresh_pgxc_readnode(PGconn **pg_conn, bool bExecDirect, char *readOnl
 				Assert(mgr_node);
 				port = mgr_node->nodeport;
 				address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-				appendStringInfo(&cmdstring, "EXECUTE DIRECT ON (\"%s\") 'select pg_alter_node(''%s'', ''%s'', ''%s'', %d, %s);';"
-					,readOnlyNodeName
+				appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
 					,NameStr(tmpNodeName)
 					,NameStr(tmpNodeName)
 					,address
 					,port
-					,"false");
+					,"false"
+					,readOnlyNodeName);
 				pfree(address);
 				heap_freetuple(tuple);
 			}
@@ -3147,13 +3124,13 @@ bool mgr_refresh_pgxc_readnode(PGconn **pg_conn, bool bExecDirect, char *readOnl
 			Assert(mgr_node);
 			port = mgr_node->nodeport;
 			address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-			appendStringInfo(&cmdstring, "EXECUTE DIRECT ON (\"%s\") 'select pg_alter_node(''%s'', ''%s'', ''%s'', %d, %s);';"
-				,readOnlyNodeName
+			appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
 				,NameStr(preferredDnName)
 				,NameStr(preferredDnName)
 				,address
 				,port
-				,"true");
+				,"true"
+				,readOnlyNodeName);
 			pfree(address);
 			heap_freetuple(tuple);
 		}
@@ -3298,10 +3275,11 @@ bool mgr_alter_sync_refresh_pgxcnode_readnode(Oid includeOid, Oid excludeOid)
 									}
 									newDnList = lappend(newDnList, pstrdup(NameStr(mgr_nodetmp->nodename)));
 									dnAddress = get_hostaddress_from_hostoid(mgr_nodetmp->nodehost);
-									appendStringInfo(&sqlstrmsg, "select pg_alter_node('%s', '%s', '%s', %d, %s);"
-														, nodeName, NameStr(mgr_nodetmp->nodename), dnAddress
-														, mgr_nodetmp->nodeport
-														, bsame ? "true":"false");
+									appendStringInfo(&sqlstrmsg, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
+										, nodeName, NameStr(mgr_nodetmp->nodename), dnAddress
+										, mgr_nodetmp->nodeport
+										, bsame ? "true":"false"
+										,NameStr(mgr_node->nodename));
 									pfree(dnAddress);
 								}
 								else
@@ -3324,10 +3302,11 @@ bool mgr_alter_sync_refresh_pgxcnode_readnode(Oid includeOid, Oid excludeOid)
 								}
 								newDnList = lappend(newDnList, pstrdup(NameStr(mgr_nodetmp->nodename)));
 								dnAddress = get_hostaddress_from_hostoid(mgr_nodetmp->nodehost);
-								appendStringInfo(&sqlstrmsg, "select pg_alter_node('%s', '%s', '%s', %d, %s);"
-													, nodeName, NameStr(mgr_nodetmp->nodename), dnAddress
-													, mgr_nodetmp->nodeport
-													, bsame ? "true":"false");
+								appendStringInfo(&sqlstrmsg, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
+									, nodeName, NameStr(mgr_nodetmp->nodename), dnAddress
+									, mgr_nodetmp->nodeport
+									, bsame ? "true":"false"
+									, NameStr(mgr_node->nodename));
 								pfree(dnAddress);
 							}
 							else
@@ -3766,12 +3745,13 @@ void mgr_set_preferred_node(char *oldPreferredNode, char * preferredDnName, char
 				Assert(mgr_node);
 				port = mgr_node->nodeport;
 				address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-				appendStringInfo(&sqlstrmsg, "select pg_alter_node('%s', '%s', '%s', %d, %s);"
+				appendStringInfo(&sqlstrmsg, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
 					,oldPreferredNode
 					,oldPreferredNode
 					,address
 					,port
-					,"false");
+					,"false"
+					,coordname);
 				pfree(address);
 				heap_freetuple(tuple);
 			}
@@ -3786,12 +3766,13 @@ void mgr_set_preferred_node(char *oldPreferredNode, char * preferredDnName, char
 			Assert(mgr_node);
 			port = mgr_node->nodeport;
 			address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-			appendStringInfo(&sqlstrmsg, "select pg_alter_node('%s', '%s', '%s', %d, %s);"
+			appendStringInfo(&sqlstrmsg, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
 				,preferredDnName
 				,preferredDnName
 				,address
 				,port
-				,"true");
+				,"true"
+				,coordname);
 			pfree(address);
 			heap_freetuple(tuple);
 		}
@@ -3811,9 +3792,9 @@ void mgr_set_preferred_node(char *oldPreferredNode, char * preferredDnName, char
 
 /*
 * get the datanode name list in dnList, if the datanode is master type and it has sync slave node,
-* use the function "pg_alter_node" to update the tuple information.
+* use the function "alter node" to update the tuple information.
 */
-List *mgr_append_coord_update_pgxcnode(StringInfo sqlstrmsg, List *dnList, Name oldPreferredNode, int nodeSeqNum)
+List *mgr_append_coord_update_pgxcnode(StringInfo sqlstrmsg, List *dnList, Name oldPreferredNode, int nodeSeqNum, char *execNodeName)
 {
 	ListCell *dnCeil;
 	Relation relNode;
@@ -3864,11 +3845,12 @@ List *mgr_append_coord_update_pgxcnode(StringInfo sqlstrmsg, List *dnList, Name 
 					namestrcpy(&nameData, NameStr(mgr_syncNode->nodename));
 					address = get_hostaddress_from_hostoid(mgr_syncNode->nodehost);
 					port = mgr_syncNode->nodeport;
-					appendStringInfo(sqlstrmsg, "select pg_alter_node('%s', '%s', '%s', %d, %s);"
+					appendStringInfo(sqlstrmsg, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
 						, nodeName, NameStr(mgr_syncNode->nodename), address
 						, port
-						, (strcmp(oldPreferredNode->data, NameStr(mgr_node->nodename)) == 0)
-							? "true":"false");
+						, (strcmp(oldPreferredNode->data, NameStr(mgr_node->nodename)) == 0) 
+							? "true":"false"
+						, execNodeName);
 					pfree(address);
 					heap_freetuple(syncNodeTuple);
 				}
