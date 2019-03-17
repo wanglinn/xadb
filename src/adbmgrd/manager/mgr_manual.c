@@ -1357,7 +1357,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 			int seqNum = 0;
 			resetStringInfo(&sqlstrmsg);
 			seqNum = mgr_get_node_sequence(s_coordname, CNDN_TYPE_COORDINATOR_MASTER, true);
-			newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode, seqNum);
+			newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode, seqNum, s_coordname);
 			Assert(newDnList);
 			ereport(LOG, (errmsg("on coordinator \"%s\", update the pgxc_node table", s_coordname)));
 			ereport(NOTICE, (errmsg("on coordinator \"%s\", update the pgxc_node table", s_coordname)));

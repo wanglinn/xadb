@@ -137,4 +137,6 @@ extern bool with_data_checksums;
 
 #define DEFAULT_DB "postgres"
 
+NameData clusterLockCoordNodeName;
+
 #endif /* MGR_CNDNNODE_H */
