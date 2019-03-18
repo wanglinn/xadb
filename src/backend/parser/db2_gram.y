@@ -189,13 +189,11 @@ typedef struct OraclePartitionSpec
 /* ADB_END */
 }
 
-/* ADB_BEGIN */
 %type <keyword>	unreserved_keyword
-/* ADB_END */
 %type <keyword> reserved_keyword col_name_keyword
 %type <list>	stmtblock stmtmulti
 %type <node>	stmt
-%type <str>		ColLabel ColId NonReservedWord type_function_name 
+%type <str>		ColLabel ColId type_function_name 
 
 %type <node>	RenameStmt
 %type <range> 	relation_expr qualified_name
@@ -532,36 +530,22 @@ name:		ColId { $$ = $1; };
 /* Column identifier --- names that can be column, table, etc names.
  */
 ColId:		IDENT									{ $$ = $1; }
-/* ADB_BEGIN */
 			| unreserved_keyword					{ $$ = pstrdup($1); }
-/* ADB_END */
 			| col_name_keyword						{ $$ = pstrdup($1); }
 		;
 
 /* Type/function identifier --- names that can be type or function names.
  */
 type_function_name:	IDENT							{ $$ = $1; }
-/* ADB_BEGIN */
 			| unreserved_keyword					{ $$ = pstrdup($1); }
-/* ADB_END */
 			//| type_func_name_keyword				{ $$ = pstrdup($1); }
-		;
-
-/* Any not-fully-reserved word --- these names can be, eg, role names.
- */
-NonReservedWord:	IDENT							{ $$ = $1; }
-/* ADB_BEGIN */
-			| unreserved_keyword					{ $$ = pstrdup($1); }
-/* ADB_END */
 		;
 
 /* Column label --- allowed labels in "AS" clauses.
  * This presently includes *all* Postgres keywords.
  */
-ColLabel:	IDENT									{ $$ = $1; }
-/* ADB_BEGIN */
+ColLabel:	IDENT	
 			| unreserved_keyword					{ $$ = pstrdup($1); }
-/* ADB_END */
 			| reserved_keyword						{ $$ = pstrdup($1); }
 			| col_name_keyword						{ $$ = pstrdup($1); }
 			//| type_func_name_keyword				{ $$ = pstrdup($1); }
@@ -2161,15 +2145,15 @@ col_name_keyword:
 
 /* "Unreserved" keywords --- available for use as any kind of name.
  */
-/* ADB_BEGIN */
 unreserved_keyword:
-			  DIRECT
-			| DISTRIBUTE
-			| LESS
+			  LESS
 			| RANGE
 			| THAN
-		;
+/* ADB_BEGIN */
+			| DIRECT
+			| DISTRIBUTE
 /* ADB_END */
+		;
 
 /* Reserved keyword --- these keywords are usable only as a ColLabel.
  *
