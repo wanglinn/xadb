@@ -1703,6 +1703,7 @@ typedef struct ClusterGatherPath
 {
 	Path		path;
 	Path	   *subpath;
+	List	   *rnodes;
 } ClusterGatherPath;
 
 typedef struct ClusterMergeGatherPath
