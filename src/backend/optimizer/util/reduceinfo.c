@@ -2387,8 +2387,18 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	return result;
 }
 
-/* make (adb_node_oid() = nodeoid) expr */
-Expr *CreateNodeOidEqualOid(Oid nodeoid)
+static Const* makeOidConst(Oid oid)
+{
+	return makeConst(OIDOID,
+					 -1,
+					 InvalidOid,
+					 sizeof(Oid),
+					 ObjectIdGetDatum(oid),
+					 false,
+					 true);
+}
+
+static Expr* CreateNodeOidOperatorOid(const char *operator, Expr *expr)
 {
 	OpExpr *op = makeNode(OpExpr);
 	op->args = list_make2(makeFuncExpr(F_ADB_NODE_OID,
@@ -2397,21 +2407,31 @@ Expr *CreateNodeOidEqualOid(Oid nodeoid)
 									   InvalidOid,
 									   InvalidOid,
 									   COERCE_EXPLICIT_CALL),
-						  makeConst(OIDOID,
-									-1,
-									InvalidOid,
-									sizeof(Oid),
-									ObjectIdGetDatum(nodeoid),
-									false,
-									true));
-	op->opno = get_operid("=", OIDOID, OIDOID, PG_CATALOG_NAMESPACE);
+						  expr);
+	op->opno = get_operid(operator, OIDOID, exprType((Node*)expr), PG_CATALOG_NAMESPACE);
 	Assert(OidIsValid(op->opno));
-	op->opfuncid = F_OIDEQ;
-	op->opresulttype = BOOLOID;
+	op->opfuncid = get_opcode(op->opno);
+	op->opresulttype = get_op_rettype(op->opno);
 	op->opretset = false;
 	op->opcollid = op->inputcollid = InvalidOid;
 	op->location = -1;
 	return (Expr*)op;
+}
+
+/* make (adb_node_oid() = nodeoid) expr */
+Expr *CreateNodeOidEqualOid(Oid nodeoid)
+{
+	return CreateNodeOidOperatorOid("=", (Expr*)makeOidConst(nodeoid));
+}
+
+Expr *CreateNodeOidEqualExpr(Expr *expr)
+{
+	return CreateNodeOidOperatorOid("=", expr);
+}
+
+Expr *CreateNodeOidNotEqualOid(Oid nodeoid)
+{
+	return CreateNodeOidOperatorOid("<>", (Expr*)makeOidConst(nodeoid));
 }
 
 bool EqualReduceExpr(Expr *left, Expr *right)
