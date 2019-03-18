@@ -387,7 +387,6 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 		if (!HeapTupleIsValid(tuple))
 		{
 			heap_endscan(relScanout);
-			heap_close(relNode, RowExclusiveLock);
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				,errmsg("get tuple information of coordinator \"%s\" fail", NameStr(cnName))));
 		}
@@ -403,7 +402,6 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 		if(!HeapTupleIsValid(masterTuple))
 		{
 			heap_endscan(relScanout);
-			heap_close(relNode, RowExclusiveLock);
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\""
 					, NameStr(mgr_node->nodename), currentZone)));
@@ -462,7 +460,6 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 			if(!HeapTupleIsValid(masterTuple))
 			{
 				heap_endscan(relScanout);
-				heap_close(relNode, RowExclusiveLock);
 				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 					, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\"", NameStr(mgr_node_out->nodename), currentZone)));
 			}
@@ -516,7 +513,6 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 				if(!HeapTupleIsValid(masterTuple))
 				{
 					heap_endscan(relScanin);
-					heap_close(relNode, RowExclusiveLock);
 					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 						, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\"", NameStr(mgr_node_in->nodename), currentZone)));
 				}
@@ -555,7 +551,6 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 				if(!HeapTupleIsValid(masterTuple))
 				{
 					heap_endscan(relScanin);
-					heap_close(relNode, RowExclusiveLock);
 					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 						, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\"", NameStr(mgr_node_in->nodename), currentZone)));
 				}
@@ -602,7 +597,6 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 					if(!HeapTupleIsValid(masterTuple))
 					{
 						heap_endscan(relScanin);
-						heap_close(relNode, RowExclusiveLock);
 						ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 							, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\"", NameStr(mgr_node_in->nodename), currentZone)));
 					}
