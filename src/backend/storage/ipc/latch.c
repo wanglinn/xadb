@@ -792,7 +792,7 @@ ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, Latch *latch)
 #endif
 }
 
-#ifdef ADB
+#if defined(ADB) || defined(AGTM)
 void RemoveWaitEvent(WaitEventSet *set, int pos)
 {
 	WaitEvent  *event;
@@ -876,7 +876,7 @@ void* GetWaitEventData(WaitEventSet *set, int pos)
 	Assert(pos < set->nevents);
 	return set->events[pos].user_data;
 }
-#endif /* ADB */
+#endif /* #if defined(ADB) || defined(AGTM) */
 
 #if defined(WAIT_USE_EPOLL)
 /*
