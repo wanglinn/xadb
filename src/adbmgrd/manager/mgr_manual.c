@@ -1906,8 +1906,6 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	if (!bgtmKind)
 	{
 		/* refresh pgxc_node on all coordinators */
-		ereport(LOG, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node on all coordinators", nodeNameData.data)));
-		ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node on all coordinators", nodeNameData.data)));
 		PG_TRY();
 		{
 			if (strcmp(NameStr(nodeInfoS.sync_state), sync_state_tab[SYNC_STATE_SYNC].name) == 0)
@@ -1922,9 +1920,6 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 				ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
 				appendStringInfo(&strerr, "update pgxc_node on coordinators fail: %s\n", getAgentCmdRst.description.data);
 			}
-			/*flush expand slot */
-			if(hexp_check_select_result_count(pgConn, SELECT_ADB_SLOT_TABLE_COUNT))
-				hexp_alter_slotinfo_nodename(pgConn, NameStr(nodeMasterNameData), NameStr(nodeNameData));
 		}PG_CATCH();
 		{
 			ereport(LOG, (errmsg("rollback start:")));
