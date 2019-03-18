@@ -489,6 +489,7 @@ static void PoolerLoop(void)
 		/* Cleanup something */
 		EmitErrorReport();
 		FlushErrorState();
+		AtEOXact_HashTables(false);
 		error_context_stack = NULL;
 	}
 	PG_exception_stack = &local_sigjmp_buf;
