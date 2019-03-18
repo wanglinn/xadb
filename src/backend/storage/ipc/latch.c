@@ -817,15 +817,15 @@ void RemoveWaitEvent(WaitEventSet *set, int pos)
 #elif defined(WAIT_USE_POLL)
 	memcpy(&set->pollfds[pos],
 		   &set->pollfds[pos+1],
-		   sizeof(set->pollfds[0]) * (set->nevents-pos));
+		   sizeof(set->pollfds[0]) * (set->nevents-pos-1));
 #elif defined(WAIT_USE_WIN32)
 	memcpy(&set->handles[pos+1],
 		   &set->handles[pos+2],
-		   sizeof(set->handles[0]) * (set->nevents-pos));
+		   sizeof(set->handles[0]) * (set->nevents-pos-1));
 #endif
 	memcpy(&set->events[pos],
 		   &set->events[pos+1],
-		   sizeof(WaitEvent*) * (set->nevents-pos));
+		   sizeof(set->events[0]) * (set->nevents-pos-1));
 	set->nevents--;
 	for(;pos<set->nevents;++pos)
 	{
@@ -834,6 +834,10 @@ void RemoveWaitEvent(WaitEventSet *set, int pos)
 		{
 			set->latch_pos--;
 		}
+#if defined(WAIT_USE_EPOLL)
+		/* modify epoll_event::data */
+		WaitEventAdjustEpoll(set, event, EPOLL_CTL_MOD);
+#endif
 	}
 }
 
