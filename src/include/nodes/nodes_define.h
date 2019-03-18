@@ -1899,6 +1899,7 @@ END_NODE(RemoteQueryPath)
 BEGIN_NODE(ClusterGatherPath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(Path,subpath)
+	NODE_NODE(List,rnodes)
 END_NODE(ClusterGatherPath)
 #endif /* NO_NODE_ClusterGatherPath */
 

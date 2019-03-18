@@ -845,7 +845,6 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 
 	switch(nodeTag(node))
 	{
-	case T_ValuesScan:
 	case T_FunctionScan:
 	case T_ForeignScan:
 		{

@@ -60,12 +60,14 @@
 #ifdef ADB
 #include "catalog/pg_namespace.h"
 #include "catalog/pgxc_node.h"
+#include "executor/executor.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
 #include "optimizer/pgxcplan.h"
 #include "optimizer/reduceinfo.h"
 #include "optimizer/restrictinfo.h"
 #include "utils/fmgroids.h"
+#include "utils/memutils.h"
 #endif
 
 
@@ -305,6 +307,7 @@ static bool group_by_has_partkey(RelOptInfo *input_rel,
 #ifdef ADB
 static void separate_rowmarks(PlannerInfo *root);
 static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path);
+static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subpath, List **exec_nodes);
 static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify);
 static bool is_remote_relation(PlannerInfo *root, Index relid);
 static bool modify_have_auxiliary(PlannerInfo *root, Index relid);
@@ -2532,64 +2535,97 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				rti_is_base_rel(root, parse->resultRelation) &&
 				!has_any_triggers_subclass(root, parse->resultRelation, CMD_INSERT) &&
 				!have_remote_query_path(path) &&
-				is_remote_relation(root, parse->resultRelation) &&
-				(path->rows >= 5.0 ||
-				 modify_have_auxiliary(root, parse->resultRelation)))
+				is_remote_relation(root, parse->resultRelation))
 			{
-				ResultPath *rp;
 				ModifyTablePath *modify;
-				Expr *node_oid_eq;
-				Assert(OidIsValid(PGXCNodeOid));
-				node_oid_eq = CreateNodeOidEqualOid(PGXCNodeOid);
-				if(IsA(path, ResultPath))
+				Path *simple_insert = NULL;
+				List *exec_nodes;
+				bool has_auxiliary = modify_have_auxiliary(root, parse->resultRelation);
+
+				if (has_auxiliary == false &&
+					root->parent_root == NULL &&
+					(simple_insert = try_simple_remote_insert(root, parse->resultRelation, path, &exec_nodes)) != NULL)
 				{
-					rp = (ResultPath*)path;
-					rp->quals = lcons(node_oid_eq, rp->quals);
+					ClusterGatherPath *gather;
+					modify = create_modifytable_path(root, final_rel,
+													 parse->commandType,
+													 parse->canSetTag,
+													 parse->resultRelation,
+													 NIL,
+													 false,
+													 list_make1_int(parse->resultRelation),
+													 list_make1(simple_insert),
+													 list_make1(root),
+													 withCheckOptionLists,
+													 returningLists,
+													 rowMarks,
+													 parse->onConflict,
+													 SS_assign_special_param(root));
+					set_modifytable_path_reduceinfo(root, modify);
+					modify->under_cluster = true;
+					gather = create_cluster_gather_path((Path*)modify, final_rel);
+					gather->rnodes = exec_nodes;
+					path = (Path*)gather;
+				}else if (has_auxiliary || path->rows >= 5.0)
+				{
+					ResultPath *rp;
+					Expr *node_oid_eq;
+					Assert(OidIsValid(PGXCNodeOid));
+					node_oid_eq = CreateNodeOidEqualOid(PGXCNodeOid);
+					if(IsA(path, ResultPath))
+					{
+						rp = (ResultPath*)path;
+						rp->quals = lcons(node_oid_eq, rp->quals);
+					}else
+					{
+						rp = create_result_path(root, current_rel, path->pathtarget, list_make1(node_oid_eq));
+					}
+					memcpy(rp, path, sizeof(Path));
+					NodeSetTag(rp, T_ResultPath);
+					rp->path.pathtype = T_Result;
+					if((Path*)rp != path)
+						rp->subpath = path;
+					path = (Path*)rp;
+
+					/* set path reduce at coordinator */
+					if (path->reduce_is_valid == false)
+					{
+						path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
+						path->reduce_is_valid = true;
+					}else
+					{
+						Assert(IsReduceInfoListCoordinator(path->reduce_info_list));
+					}
+
+					/* make reduce path */
+					path = reduce_to_relation_insert(root, parse->resultRelation, path);
+					Assert(path);
+
+					modify =
+						create_modifytable_path(root, final_rel,
+												parse->commandType,
+												parse->canSetTag,
+												parse->resultRelation,
+												NIL,
+												false,
+												list_make1_int(parse->resultRelation),
+												list_make1(path),
+												list_make1(root),
+												withCheckOptionLists,
+												returningLists,
+												rowMarks,
+												parse->onConflict,
+												SS_assign_special_param(root));
+					set_modifytable_path_reduceinfo(root, modify);
+					Assert(modify->path.reduce_is_valid && modify->path.reduce_info_list != NIL);
+					modify->under_cluster = true;
+					path = (Path*)create_cluster_gather_path((Path*)modify, final_rel);
 				}else
 				{
-					rp = create_result_path(root, current_rel, path->pathtarget, list_make1(node_oid_eq));
+					goto not_cluster_insert_path_;
 				}
-				memcpy(rp, path, sizeof(Path));
-				NodeSetTag(rp, T_ResultPath);
-				rp->path.pathtype = T_Result;
-				if((Path*)rp != path)
-					rp->subpath = path;
-				path = (Path*)rp;
-
-				/* set path reduce at coordinator */
-				if (path->reduce_is_valid == false)
-				{
-					path->reduce_info_list = list_make1(MakeCoordinatorReduceInfo());
-					path->reduce_is_valid = true;
-				}else
-				{
-					Assert(IsReduceInfoListCoordinator(path->reduce_info_list));
-				}
-
-				/* make reduce path */
-				path = reduce_to_relation_insert(root, parse->resultRelation, path);
-				Assert(path);
-
-				modify =
-					create_modifytable_path(root, final_rel,
-											parse->commandType,
-											parse->canSetTag,
-											parse->resultRelation,
-											NIL,
-											false,
-											list_make1_int(parse->resultRelation),
-											list_make1(path),
-											list_make1(root),
-											withCheckOptionLists,
-											returningLists,
-											rowMarks,
-											parse->onConflict,
-											SS_assign_special_param(root));
-				set_modifytable_path_reduceinfo(root, modify);
-				Assert(modify->path.reduce_is_valid && modify->path.reduce_info_list != NIL);
-				modify->under_cluster = true;
-				path = (Path*)create_cluster_gather_path((Path*)modify, final_rel);
 			}else
+not_cluster_insert_path_:
 #endif /* ADB */
 			path = (Path *)
 				create_modifytable_path(root, final_rel,
@@ -8772,13 +8808,9 @@ group_by_has_partkey(RelOptInfo *input_rel,
 	return true;
 }
 #ifdef ADB
-static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path)
+static RelationLocInfo *get_relid_location_info(PlannerInfo *root, Index rel_id)
 {
-	ReduceInfo *reduce_info;
 	RelationLocInfo *loc_info;
-	List *reduce_list;
-	List *storage_nodes;
-
 	if (rel_id < root->simple_rel_array_size &&
 		root->simple_rel_array[rel_id] != NULL)
 	{
@@ -8796,7 +8828,17 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 			loc_info = NULL;
 		relation_close(rel, NoLock);
 	}
+	return loc_info;
+}
 
+static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path)
+{
+	ReduceInfo *reduce_info;
+	RelationLocInfo *loc_info;
+	List *reduce_list;
+	List *storage_nodes;
+
+	loc_info = get_relid_location_info(root, rel_id);
 	if(loc_info == NULL)
 		return NULL;
 
@@ -8883,6 +8925,208 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 	}
 
 	return path;
+}
+
+static bool not_only_const(Node *node)
+{
+	if (node == NULL ||
+		IsA(node, Const))
+		return false;
+
+	if (IsA(node, List))
+	{
+		ListCell *lc;
+		foreach (lc, (List*)node)
+		{
+			if (not_only_const(lfirst(lc)))
+				return true;
+		}
+		return false;
+	}
+	return true;
+}
+
+static Node* mutator_reduce_varno(Node *node, void *context)
+{
+	if (node == NULL)
+		return NULL;
+	if (IsA(node, Var))
+	{
+		Var *var = palloc(sizeof(Var));
+		memcpy(var, node, sizeof(Var));
+		var->varno = (Index)(Size)context;
+		return (Node*)var;
+	}
+
+	return expression_tree_mutator(node, mutator_reduce_varno, context);
+}
+
+static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subpath, List **exec_nodes)
+{
+	List			   *storage_nodes;
+	RelationLocInfo	   *loc_info;
+	ReduceInfo		   *rinfo;
+	RangeTblEntry	   *rte;
+	Expr			   *reduce_expr;
+	ReduceExprState	   *reduce_state;
+	ExprContext		   *econtext;
+	TupleTableSlot	   *slot;
+	ListCell		   *lc;
+	Relation			rel;
+	Datum				datum;
+	int					i;
+	ExprDoneCond		done;
+	bool				isnull;
+
+	if (subpath->param_info ||
+		subpath->parent->baserestrictinfo != NIL)
+		return NULL;
+
+	if (IsA(subpath, ResultPath))
+	{
+		if (((ResultPath*)subpath)->subpath == NULL &&
+			((ResultPath*)subpath)->quals == NIL &&
+			not_only_const((Node*)subpath->pathtarget->exprs) == false)
+		{
+			/* OK, it is a simple row insert */
+			rte = planner_rt_fetch(relid, root);
+			loc_info = get_relid_location_info(root, relid);
+			if (IsRelationReplicated(loc_info))
+			{
+				((ResultPath*)subpath)->quals = list_make1(CreateNodeOidNotEqualOid(PGXCNodeOid));
+				*exec_nodes = list_copy(loc_info->nodeids);
+				return subpath;
+			}
+			rel = relation_open(rte->relid, NoLock);
+			rinfo = MakeReduceInfoFromLocInfo(loc_info, NIL, rte->relid, relid);
+			reduce_expr = CreateExprUsingReduceInfo(rinfo);
+			reduce_state = ExecInitReduceExpr(reduce_expr);
+			econtext = CreateStandaloneExprContext();
+			slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
+
+			i=0;
+			foreach(lc, subpath->pathtarget->exprs)
+			{
+				Const *c = lfirst_node(Const, lc);
+				slot->tts_values[i] = c->constvalue;
+				slot->tts_isnull[i] = c->constisnull;
+				++i;
+			}
+			ExecStoreVirtualTuple(slot);
+
+			storage_nodes = NIL;
+			econtext->ecxt_scantuple = slot;
+			for(;;)
+			{
+				datum = ExecEvalReduceExpr(reduce_state, econtext, &isnull, &done);
+				if (done == ExprEndResult)
+				{
+					break;
+				}else if(isnull)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("reduce expr result a null value")));
+				}else
+				{
+					storage_nodes = lappend_oid(storage_nodes, DatumGetObjectId(datum));
+					if (done == ExprSingleResult)
+						break;
+				}
+			}
+
+			ExecDropSingleTupleTableSlot(slot);
+			FreeExprContext(econtext, true);
+			RelationClose(rel);
+
+			*exec_nodes = storage_nodes;
+			((ResultPath*)subpath)->quals = list_make1(CreateNodeOidNotEqualOid(PGXCNodeOid));
+			return subpath;
+		}
+	}else if(subpath->pathtype == T_ValuesScan)
+	{
+		RangeTblEntry *values_rte = planner_rt_fetch(subpath->parent->relid, root);
+		Assert(values_rte->rtekind == RTE_VALUES);
+		if (not_only_const((Node*)values_rte->values_lists) == false)
+		{
+			/* OK, it is values(..),(...) insert */
+			ListCell *lc_values;
+			rte = planner_rt_fetch(relid, root);
+			loc_info = get_relid_location_info(root, relid);
+			if (IsRelationReplicated(loc_info))
+			{
+				ResultPath *result_path = create_result_path(root,
+															 subpath->parent,
+															 subpath->pathtarget,
+															 list_make1(CreateNodeOidNotEqualOid(PGXCNodeOid)));
+				result_path->subpath = subpath;
+				*exec_nodes = list_copy(loc_info->nodeids);
+				return (Path*)result_path;
+			}else if(loc_info->locatorType != LOCATOR_TYPE_RANDOM)
+			{
+				rel = relation_open(rte->relid, NoLock);
+				rinfo = MakeReduceInfoFromLocInfo(loc_info, NIL, rte->relid, relid);
+				reduce_expr = CreateExprUsingReduceInfo(rinfo);
+				reduce_state = ExecInitReduceExpr(reduce_expr);
+				econtext = CreateStandaloneExprContext();
+				slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
+
+				storage_nodes = NIL;
+				foreach(lc_values, values_rte->values_lists)
+				{
+					i=0;
+					ExecClearTuple(slot);
+					ResetExprContext(econtext);
+					foreach(lc, lfirst_node(List, lc_values))
+					{
+						Const *c = lfirst_node(Const, lc);
+						slot->tts_values[i] = c->constvalue;
+						slot->tts_isnull[i] = c->constisnull;
+						++i;
+					}
+					econtext->ecxt_scantuple = ExecStoreVirtualTuple(slot);
+
+					for(;;)
+					{
+						datum = ExecEvalReduceExpr(reduce_state, econtext, &isnull, &done);
+						if (done == ExprEndResult)
+						{
+							break;
+						}else if(isnull)
+						{
+							ereport(ERROR,
+									(errcode(ERRCODE_INTERNAL_ERROR),
+									errmsg("reduce expr result a null value")));
+						}else
+						{
+							storage_nodes = list_append_unique_oid(storage_nodes, DatumGetObjectId(datum));
+							if (done == ExprSingleResult ||
+								list_length(storage_nodes) == list_length(loc_info->nodeids))
+								break;
+						}
+					}
+					/* quick end */
+					if(list_length(storage_nodes) == list_length(loc_info->nodeids))
+						break;
+				}
+
+				ExecDropSingleTupleTableSlot(slot);
+				FreeExprContext(econtext, true);
+				RelationClose(rel);
+
+				reduce_expr = (Expr*)mutator_reduce_varno((Node*)reduce_expr,
+														  (void*)(Size)subpath->parent->relid);
+				subpath = (Path*)create_filter_path(root,
+													subpath->parent,
+													subpath,
+													subpath->pathtarget,
+													list_make1(CreateNodeOidEqualExpr(reduce_expr)));
+				*exec_nodes = storage_nodes;
+				return subpath;
+			}
+		}
+	}
+	return NULL;
 }
 
 static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify)

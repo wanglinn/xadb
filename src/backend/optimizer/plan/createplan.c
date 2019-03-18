@@ -7180,7 +7180,10 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 	Assert(subpath->reduce_is_valid);
 
 	plan = makeNode(ClusterGather);
-	plan->rnodes = get_remote_nodes(root, subpath, true);
+	if (path->rnodes)
+		plan->rnodes = path->rnodes;
+	else
+		plan->rnodes = get_remote_nodes(root, subpath, true);
 	replace_reduce_replicate_nodes(subpath, plan->rnodes);
 	reduce_list = get_reduce_info_list(subpath);
 	plan->gatherType = get_gather_type(reduce_list);
