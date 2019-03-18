@@ -4553,13 +4553,7 @@ Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype
 	return HeapTupleGetDatum(tup_result);
 }
 
-void hexp_alter_slotinfo_nodename(PGconn *pgconn, char* src_node_name, char* dst_node_name)
-{
-	hexp_alter_slotinfo_nodename_noflush(pgconn, src_node_name, dst_node_name);
-	hexp_pqexec_direct_execute_utility(pgconn, "flush slot;", MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-}
-
-void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name)
+void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction)
 {
 	char sql[100];
 	PGresult* res;
@@ -4568,7 +4562,9 @@ void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, c
 	int slotid = -1;
 	SlotArrayIndex = 0;
 
-	hexp_pqexec_direct_execute_utility(pgconn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+	if (startTransaction)
+		hexp_pqexec_direct_execute_utility(pgconn,SQL_BEGIN_TRANSACTION
+			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 
 	hexp_get_sourcenode_slotid(pgconn, src_node_name);
 	for(i=0; i<SlotArrayIndex; i++)
@@ -4588,7 +4584,9 @@ void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, c
 		PQclear(res);
 	}
 
-	hexp_pqexec_direct_execute_utility(pgconn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+	if (startTransaction)
+		hexp_pqexec_direct_execute_utility(pgconn,SQL_COMMIT_TRANSACTION
+			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 }
 
 static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name)

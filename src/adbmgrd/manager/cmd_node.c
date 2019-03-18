@@ -1915,6 +1915,8 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			mgr_unlock_cluster(&pg_conn);
 			pg_conn = NULL;
 		}
+
+		PG_RE_THROW();
 	}PG_END_TRY();
 
 	getAgentCmdRst->ret = execRes;
@@ -6850,33 +6852,6 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 			getAgentCmdRst->ret = getrefresh;
 			appendStringInfo(&recorderr, "%s\n", (getAgentCmdRst->description).data);
 		}
-
-		/*flush expand slot */
-		mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
-		if(!HeapTupleIsValid(mastertuple))
-		{
-			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-				,errmsg("datanode master \"%s\" dosen't exist", cndnname->data)));
-		}
-		else
-		{
-			mgr_nodemaster = (Form_mgr_node)GETSTRUCT(mastertuple);
-			namestrcpy(&masterNameData, NameStr(mgr_nodemaster->nodename));
-			ReleaseSysCache(mastertuple);
-		}
-
-		PG_TRY();
-		{
-			if(hexp_check_select_result_count(*pg_conn, SELECT_ADB_SLOT_TABLE_COUNT))
-				hexp_alter_slotinfo_nodename(*pg_conn, masterNameData.data, newMasterNodeName.data);
-		}PG_CATCH();
-		{
-			ereport(WARNING, (errmsg("update adb_slot fail, check and modify (use update method) the pgxc_node of all coordinators and datanode masters if need, then check and modify (use the command on adbmgr: EXPAND ALTER NODENAME  source_node TO dest_node) adb_slot table on coordinator")));
-			appendStringInfoString(&recorderr, "update adb_slot fail, check and modify (use update method) the pgxc_node of all coordinators and datanode masters if need, then check and modify (use the command on adbmgr: EXPAND ALTER NODENAME  source_node TO dest_node) adb_slot table on coordinator\n");
-
-			PG_RE_THROW();
-
-		}PG_END_TRY();
 	}PG_CATCH();
 	{
 		mgr_unlock_cluster(pg_conn);
@@ -10551,6 +10526,11 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 
 	initStringInfo(&cmdstring);
 	coordinator_num = 0;
+	ereport(LOG, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node"
+			" on all coordinators", dnname)));
+	ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node"
+			" on all coordinators", dnname)));
+
 	hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn,SQL_BEGIN_TRANSACTION
 				, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 	foreach(lc_out, prefer_cndn->coordiantor_list)
@@ -10612,24 +10592,29 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 						, cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
 					ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION)
 						,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
-					break;
 				}
 			}
 		}
 	}
 
-	if (!result)
-	{
-		appendStringInfo(&recorderr, "not update the pgxc_node information on any datanode masters\n");
-		goto end;
-	}
-
 	/* update the pgxc_node information on datanode masters */
 	slotIsNotEmpty = hexp_check_select_result_count(*pg_conn, SELECT_ADB_SLOT_TABLE_COUNT);
+	if (slotIsNotEmpty)
+	{
+		ereport(LOG, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node"
+			" on all datanode masters", dnname)));
+		ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node"
+			" on all datanode masters", dnname)));
+	}
+	else
+	{
+		ereport(LOG, (errmsg("refresh the new datanode master \"%s\" information in its pgxc_node"
+		, dnname)));
+		ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in its pgxc_node"
+		, dnname)));
+	}
 	foreach(dn_lc, prefer_cndn->datanode_list)
 	{
-		if (!result)
-			goto end;
 		resetStringInfo(&cmdstring);
 		tuple_in = (HeapTuple)lfirst(dn_lc);
 		mgr_node_in = (Form_mgr_node)GETSTRUCT(tuple_in);
@@ -10653,24 +10638,31 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 					, cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
 				ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION)
 					,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
-				break;
 			}
 		}
 	}
 
-end:
-	if (result)
-		hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn,SQL_COMMIT_TRANSACTION
-			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-	else
-		hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn,SQL_ROLLBACK_TRANSACTION
+	/* update adb_slot */
+	if (slotIsNotEmpty)
+	{
+		ereport(LOG, (errmsg("refresh the new datanode master \"%s\" information in adb_slot"
+			, dnname)));
+		ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in adb_slot"
+			, dnname)));
+		hexp_alter_slotinfo_nodename_noflush((PGconn*)*pg_conn, NameStr(masternameData), dnname, false);
+		hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn, "flush slot;"
+				, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+	}
+
+	hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn,SQL_COMMIT_TRANSACTION
 			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 
 	/* on coordinator , select pgxc_pool_reload() */
+	ereport(LOG, (errmsg("select pgxc_pool_reload() on all coordinators")));
+	ereport(NOTICE, (errmsg("select pgxc_pool_reload() on all coordinators")));
+
 	foreach(lc_out, prefer_cndn->coordiantor_list)
 	{
-		if (!result)
-			break;
 		tuple_out = (HeapTuple)lfirst(lc_out);
 		mgr_node_out = (Form_mgr_node)GETSTRUCT(tuple_out);
 		Assert(mgr_node_out);

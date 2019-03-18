@@ -492,8 +492,7 @@ bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid);
 extern bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg);
 extern bool RemoveHba(const AppendNodeInfo *nodeinfo, const StringInfo infosendmsg);
 extern bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const int iloop, const int res_type, StringInfo strinfo);
-extern void hexp_alter_slotinfo_nodename(PGconn *pgconn, char* src_node_name, char* dst_node_name);
-extern void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name);
+extern void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction);
 extern bool hexp_check_select_result_count(PGconn *pg_conn, char* sql);
 extern void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, int ret_type);
 
