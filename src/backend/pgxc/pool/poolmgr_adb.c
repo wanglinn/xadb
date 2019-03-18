@@ -443,7 +443,7 @@ static void PoolerLoop(void)
 	DatabasePool *db_pool;
 	ADBNodePool *nodes_pool;
 	ADBNodePoolSlot *slot;
-	dlist_iter iter;
+	dlist_mutable_iter miter;
 	HASH_SEQ_STATUS hseq1,hseq2;
 	sigjmp_buf	local_sigjmp_buf;
 	time_t next_close_idle_time, next_idle_released_time, cur_time;
@@ -555,9 +555,9 @@ static void PoolerLoop(void)
 			hash_seq_init(&hseq2, db_pool->htab_nodes);
 			while((nodes_pool = hash_seq_search(&hseq2)) != NULL)
 			{
-				dlist_foreach(iter, &(nodes_pool->busy_slot))
+				dlist_foreach_modify(miter, &(nodes_pool->busy_slot))
 				{
-					slot = dlist_container(ADBNodePoolSlot, dnode, iter.cur);
+					slot = dlist_container(ADBNodePoolSlot, dnode, miter.cur);
 					rval = 0;	/* temp use rval for poll event */
 					switch(slot->slot_state)
 					{
@@ -575,7 +575,13 @@ static void PoolerLoop(void)
 						break;
 					case SLOT_STATE_ERROR:
 						if(PQisBusy(slot->conn))
+						{
 							rval = POLLIN;
+						}else if(slot->owner == NULL)
+						{
+							destroy_slot(slot, false);
+							continue;
+						}
 						break;
 					default:
 						break;
@@ -1766,7 +1772,10 @@ end_params_local_:
 			Assert(info && info->slot == slot);
 			pfree(info->info.hostname);
 			MemSet(info, 0, sizeof(*info));
-			idle_slot(slot, true);
+			if (slot->slot_state == SLOT_STATE_ERROR)
+				destroy_slot(slot, false);
+			else
+				idle_slot(slot, true);
 		}
 		PG_RE_THROW();
 	}PG_END_TRY();
