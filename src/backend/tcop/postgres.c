@@ -4549,7 +4549,7 @@ PostgresMain(int argc, char *argv[],
 	 */
 #ifdef AGTM
 	if(IsUnderPostmaster)
-		start_agtm_listen();
+		begin_agtm_multi_client_service();
 #endif /* AGTM */
 	BeginReportingGUCOptions();
 
