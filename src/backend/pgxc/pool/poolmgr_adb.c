@@ -1277,11 +1277,14 @@ void PoolManagerCleanConnectionOid(List *oidlist, const char *dbname, const char
 
 void PoolManagerReleaseConnections(bool force_close)
 {
-	Assert(poolHandle);
-	pool_putmessage(&(poolHandle->port)
-		, force_close ? PM_MSG_CLOSE_CONNECT:PM_MSG_RELEASE_CONNECT
-		, NULL, 0);
-	pool_flush(&(poolHandle->port));
+	if(poolHandle)
+	{
+		pool_putmessage(&(poolHandle->port),
+						force_close ? PM_MSG_CLOSE_CONNECT:PM_MSG_RELEASE_CONNECT,
+						NULL,
+						0);
+		pool_flush(&(poolHandle->port));
+	}
 }
 
 static void pooler_quickdie(SIGNAL_ARGS)
