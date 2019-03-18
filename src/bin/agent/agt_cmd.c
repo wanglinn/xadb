@@ -407,14 +407,14 @@ static void cmd_check_dir_exist(StringInfo msg)
 	{
 		if ((chmod(dir_path, 0700))!= 0)
 			ereport(ERROR,
-				(errmsg("append master node: chmod \"%s\" 0700 fail, %s", dir_path, strerror(errno))));
+				(errmsg("append the node: chmod \"%s\" 0700 fail, %s", dir_path, strerror(errno))));
 	}
 	/* data directory exists and not empty*/
 	chkdir = opendir(dir_path);
 	if (chkdir == NULL)
 	{
 		ereport(ERROR,
-			(errmsg("append master node: open directory \"%s\" fail, %s", dir_path, strerror(errno))));
+			(errmsg("append the node: open directory \"%s\" fail, %s", dir_path, strerror(errno))));
 	}
 	else
 	{
@@ -426,7 +426,7 @@ static void cmd_check_dir_exist(StringInfo msg)
 				continue;
 			}
 			ereport(ERROR,
-				(errmsg("append master node: directory \"%s\" is not empty", dir_path)));
+				(errmsg("append the node: directory \"%s\" is not empty", dir_path)));
 		}
 	}
 
