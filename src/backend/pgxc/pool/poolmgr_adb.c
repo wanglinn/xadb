@@ -1543,11 +1543,11 @@ static void agent_check_waiting_slot(PoolAgent *agent)
 	volAgent = agent;
 
 	/*
-	 * SLOT_STATE_IDLE					-> SLOT_STATE_QUERY_PARAMS_SESSION
-	 * SLOT_STATE_END_RESET_ALL			-> SLOT_STATE_QUERY_PARAMS_SESSION
+	 * SLOT_STATE_IDLE					-> SLOT_STATE_QUERY_AGTM_PORT
+	 * SLOT_STATE_END_RESET_ALL			-> SLOT_STATE_QUERY_AGTM_PORT
+	 * SLOT_STATE_END_AGTM_PORT			-> SLOT_STATE_QUERY_PARAMS_SESSION
 	 * SLOT_STATE_END_PARAMS_SESSION	-> SLOT_STATE_QUERY_PARAMS_LOCAL
-	 * SLOT_STATE_END_PARAMS_LOCAL		-> SLOT_STATE_QUERY_AGTM_PORT
-	 * SLOT_STATE_END_AGTM_PORT			-> SLOT_STATE_LOCKED
+	 * SLOT_STATE_END_PARAMS_LOCAL		-> SLOT_STATE_LOCKED
 	 * SLOT_STATE_RELEASED				-> SLOT_STATE_QUERY_RESET_ALL or SLOT_STATE_LOCKED
 	 */
 	all_ready = true;
@@ -1565,91 +1565,12 @@ static void agent_check_waiting_slot(PoolAgent *agent)
 				break;
 			case SLOT_STATE_IDLE:
 			case SLOT_STATE_END_RESET_ALL:
-send_session_params_:
-				if(agent->session_params != NULL)
-				{
-					if(!PQsendQuery(slot->conn, agent->session_params))
-					{
-						save_slot_error(slot);
-						break;
-					}
-					slot->slot_state = SLOT_STATE_QUERY_PARAMS_SESSION;
-					COPY_PARAMS_MAGIC(slot->session_magic, agent->session_magic);
-					Assert(slot->current_list != NULL_SLOT);
-					if (slot->current_list != BUSY_SLOT)
-					{
-						dlist_delete(&slot->dnode);
-						dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
-						SET_SLOT_LIST(slot, BUSY_SLOT);
-					}
-					break;
-				}
-				goto send_local_params_;
-			case SLOT_STATE_LOCKED:
-				continue;
-			case SLOT_STATE_RELEASED:
-				if (slot->last_user_pid != agent->pid)
-				{
-					slot->last_agtm_port = 0;
-					if(!PQsendQuery(slot->conn, "reset all"))
-					{
-						save_slot_error(slot);
-						break;
-					}
-					slot->slot_state = SLOT_STATE_QUERY_RESET_ALL;
-					Assert(slot->current_list != NULL_SLOT);
-					if (slot->current_list != BUSY_SLOT)
-					{
-						dlist_delete(&slot->dnode);
-						dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
-						SET_SLOT_LIST(slot, BUSY_SLOT);
-					}
-				}else if(!EQUAL_PARAMS_MAGIC(slot->session_magic, agent->session_magic))
-				{
-					goto send_session_params_;
-				}else if(!EQUAL_PARAMS_MAGIC(slot->local_magic, agent->local_magic))
-				{
-					goto send_local_params_;
-				}else if (slot->last_agtm_port != agent->agtm_port)
-				{
-					goto send_agtm_port_;
-				}else
-				{
-					slot->slot_state = SLOT_STATE_LOCKED;
-					slot->last_user_pid = agent->pid;
-				}
-				break;
-			case SLOT_STATE_END_AGTM_PORT:
-				slot->slot_state = SLOT_STATE_LOCKED;
-				break;
-			case SLOT_STATE_END_PARAMS_SESSION:
-send_local_params_:
-				if(agent->local_params)
-				{
-					if(!PQsendQuery(slot->conn, agent->local_params))
-					{
-						save_slot_error(slot);
-						break;
-					}
-					slot->slot_state = SLOT_STATE_QUERY_PARAMS_LOCAL;
-					COPY_PARAMS_MAGIC(slot->local_magic, agent->session_magic);
-					Assert(slot->current_list != NULL_SLOT);
-					if (slot->current_list != BUSY_SLOT)
-					{
-						dlist_delete(&slot->dnode);
-						dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
-						SET_SLOT_LIST(slot, BUSY_SLOT);
-					}
-					break;
-				}
-				goto send_agtm_port_;
-			case SLOT_STATE_END_PARAMS_LOCAL:
 send_agtm_port_:
-				if(slot->last_user_pid != agent->pid
-					|| slot->last_agtm_port != agent->agtm_port)
+				if (slot->last_user_pid != agent->pid ||
+					slot->last_agtm_port != agent->agtm_port)
 				{
 					if (agent->agtm_port <= 0 ||
-						agent->agtm_port > 65536)
+						agent->agtm_port > 65535)
 					{
 						ereport(FATAL,
 								(errcode(ERRCODE_INTERNAL_ERROR),
@@ -1671,8 +1592,88 @@ send_agtm_port_:
 					}
 				}else
 				{
-					slot->slot_state = SLOT_STATE_LOCKED;
+					goto send_session_params_;
 				}
+				break;
+			case SLOT_STATE_LOCKED:
+				continue;
+			case SLOT_STATE_RELEASED:
+				if (slot->last_user_pid != agent->pid)
+				{
+					slot->last_agtm_port = 0;
+					if(!PQsendQuery(slot->conn, "reset all"))
+					{
+						save_slot_error(slot);
+						break;
+					}
+					slot->slot_state = SLOT_STATE_QUERY_RESET_ALL;
+					Assert(slot->current_list != NULL_SLOT);
+					if (slot->current_list != BUSY_SLOT)
+					{
+						dlist_delete(&slot->dnode);
+						dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
+						SET_SLOT_LIST(slot, BUSY_SLOT);
+					}
+				}else if (slot->last_agtm_port != agent->agtm_port)
+				{
+					goto send_agtm_port_;
+				}else if(!EQUAL_PARAMS_MAGIC(slot->session_magic, agent->session_magic))
+				{
+					goto send_session_params_;
+				}else if(!EQUAL_PARAMS_MAGIC(slot->local_magic, agent->local_magic))
+				{
+					goto send_local_params_;
+				}else
+				{
+					slot->slot_state = SLOT_STATE_LOCKED;
+					slot->last_user_pid = agent->pid;
+				}
+				break;
+			case SLOT_STATE_END_AGTM_PORT:
+send_session_params_:
+				if(agent->session_params != NULL)
+				{
+					if(!PQsendQuery(slot->conn, agent->session_params))
+					{
+						save_slot_error(slot);
+						break;
+					}
+					slot->slot_state = SLOT_STATE_QUERY_PARAMS_SESSION;
+					COPY_PARAMS_MAGIC(slot->session_magic, agent->session_magic);
+					Assert(slot->current_list != NULL_SLOT);
+					if (slot->current_list != BUSY_SLOT)
+					{
+						dlist_delete(&slot->dnode);
+						dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
+						SET_SLOT_LIST(slot, BUSY_SLOT);
+					}
+					break;
+				}
+				goto send_local_params_;
+			case SLOT_STATE_END_PARAMS_SESSION:
+send_local_params_:
+				if(agent->local_params)
+				{
+					if(!PQsendQuery(slot->conn, agent->local_params))
+					{
+						save_slot_error(slot);
+						break;
+					}
+					slot->slot_state = SLOT_STATE_QUERY_PARAMS_LOCAL;
+					COPY_PARAMS_MAGIC(slot->local_magic, agent->session_magic);
+					Assert(slot->current_list != NULL_SLOT);
+					if (slot->current_list != BUSY_SLOT)
+					{
+						dlist_delete(&slot->dnode);
+						dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
+						SET_SLOT_LIST(slot, BUSY_SLOT);
+					}
+					break;
+				}
+				goto end_params_local_;
+			case SLOT_STATE_END_PARAMS_LOCAL:
+end_params_local_:
+				slot->slot_state = SLOT_STATE_LOCKED;
 				break;
 			default:
 				break;
