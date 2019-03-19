@@ -64,6 +64,7 @@
 /* don't overwrite manual choice */
 #elif defined(HAVE_SYS_EPOLL_H)
 #define WAIT_USE_EPOLL
+#define ADB_USE_OFFSET_EVENT_ADDR
 #elif defined(HAVE_POLL)
 #define WAIT_USE_POLL
 #elif WIN32
@@ -863,6 +864,14 @@ WaitEventSet* EnlargeWaitEventSet(WaitEventSet *set, int nevents)
 	newset->epoll_fd = set->epoll_fd;
 	memcpy(newset->epoll_ret_events, set->epoll_ret_events,
 		   sizeof(set->epoll_ret_events[0]) * set->nevents);
+#ifndef ADB_USE_OFFSET_EVENT_ADDR
+	{
+		/* update epoll_event::data.ptr */
+		int i;
+		for (i=0;i<newset->nevents;++i)
+			WaitEventAdjustEpoll(newset, &newset->events[i], EPOLL_CTL_MOD);
+	}
+#endif /* ADB_USE_OFFSET_EVENT_ADDR */
 #elif defined(WAIT_USE_POLL)
 	memcpy(newset->pollfds, set->pollfds,
 		   sizeof(set->pollfds[0]) * set->nevents);
@@ -893,7 +902,12 @@ WaitEventAdjustEpoll(WaitEventSet *set, WaitEvent *event, int action)
 	int			rc;
 
 	/* pointer to our event, returned by epoll_wait */
+#ifdef ADB_USE_OFFSET_EVENT_ADDR
+	epoll_ev.data.u64 = (event - set->events);
+	Assert(epoll_ev.data.u64 < set->nevents);
+#else
 	epoll_ev.data.ptr = event;
+#endif
 	/* always wait for errors */
 	epoll_ev.events = EPOLLERR | EPOLLHUP;
 
@@ -1180,7 +1194,12 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 		 cur_epoll_event++)
 	{
 		/* epoll's data pointer is set to the associated WaitEvent */
+#ifdef ADB_USE_OFFSET_EVENT_ADDR
+		Assert(cur_epoll_event->data.u64 < set->nevents);
+		cur_event = &(set->events[cur_epoll_event->data.u64]);
+#else
 		cur_event = (WaitEvent *) cur_epoll_event->data.ptr;
+#endif
 
 		occurred_events->pos = cur_event->pos;
 		occurred_events->user_data = cur_event->user_data;
