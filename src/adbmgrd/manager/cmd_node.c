@@ -1920,9 +1920,17 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	getAgentCmdRst->ret = execRes;
 	if (!execRes && pg_conn)
 	{
+		/* check the slave node running status, if it had promote to master, skip this error */
 		if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTM_SLAVE_FAILOVER == cmdtype)
-			mgr_unlock_cluster(&pg_conn);
-		goto end;
+		{
+			if (mgr_check_node_recovery_finish(nodetype, hostOid, cndnport, hostaddress))
+				execRes = true;
+			else
+			{
+				mgr_unlock_cluster(&pg_conn);
+				goto end;
+			}
+		}
 	}
 	/*when init, 1. update gtm system table's column to set initial is true 2. refresh postgresql.conf*/
 	if (execRes && AGT_CMD_GTM_INIT == cmdtype)
