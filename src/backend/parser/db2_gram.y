@@ -52,6 +52,7 @@
 #include "catalog/namespace.h"
 #include "parser/db2_gramparse.h"
 #include "parser/parser.h"
+#include "parser/parse_type.h"
 #include "parser/parse_expr.h"
 #include "storage/lmgr.h"
 #include "utils/date.h"
@@ -278,7 +279,7 @@ typedef struct OraclePartitionSpec
 	KEEP KEY
 
 	LABEL LANGUAGE LAST_P LC_CTYPE_P LEAVE LEFT LIKE LOCAL LOCALE LOCATOR
-	LOCATORS LOCK_P LOCKMAX LOCKSIZE LONG LOOP
+	LOCATORS LOCK_P LOCKMAX LOCKSIZE LONG_P LOOP
 
 	MAINTAINED MATERIALIZED MICROSECOND_P MICROSECONDS MINUTEMINUTES MODIFIES
 	MONTH_P MONTHS
@@ -328,7 +329,8 @@ typedef struct OraclePartitionSpec
 				INCREMENT INHERITS INITIALLY INT_P INTEGER INTERVAL MATCH MAXVALUE MINUTE_P 
 				MINVALUE NAME_P NATIONAL NCHAR NUMERIC OIDS OPERATOR OPTIONS OWNED PARTIAL 
 				PRIMARY POSTFIXOP REAL RESTART SETOF SMALLINT START STARTING TEMP TEMPORARY TIME 
-				TIMESTAMP TRUE_P UNLOGGED VARCHAR VARYING WITH_LA WITHOUT UMINUS CLOB RANGE
+				TIMESTAMP TRUE_P UNLOGGED VARCHAR VARYING WITH_LA WITHOUT UMINUS CLOB DBCLOB BLOB RANGE
+				NUMBER_P DATE_P
 				THAN LESS /* ora */
 
 
@@ -779,6 +781,11 @@ Numeric:	INT_P
 					$$ = $2;
 					$$->location = @1;
 				}
+			| DOUBLE_P
+				{
+					$$ = SystemTypeName("float8");
+					$$->location = @1;
+				}
 			| DOUBLE_P PRECISION
 				{
 					$$ = SystemTypeName("float8");
@@ -807,6 +814,12 @@ Numeric:	INT_P
 					$$ = SystemTypeName("bool");
 					$$->location = @1;
 				}
+			| NUMBER_P opt_type_modifiers
+				{
+					$$ = SystemTypeName("numeric");
+					$$->typmods = $2;
+					$$->location = @1;
+				}
 		;
 /*
  * SQL bit-field data types
@@ -820,12 +833,18 @@ Bit:		BitWithLength
 				{
 					$$ = $1;
 				}
+			| BLOB					
+				{ $$ = SystemTypeNameLocation("bytea", @1); }
 		;
 /*
  * SQL date/time types
  */
 ConstDatetime:
-			TIMESTAMP '(' Iconst ')' opt_timezone
+			DATE_P
+				{
+					$$ = OracleTypeNameLocation("date", @1);
+				}
+			| TIMESTAMP '(' Iconst ')' opt_timezone
 				{
 					if ($5)
 						$$ = SystemTypeName("timestamptz");
@@ -1803,6 +1822,8 @@ Character:  CharacterWithLength
 				{
 					$$ = $1;
 				}
+			| CLOB		{ $$ = SystemTypeNameLocation("text", @1); }
+			| DBCLOB	{ $$ = SystemTypeNameLocation("text", @1); }
 		;
 ConstCharacter:  CharacterWithLength
 				{
@@ -1849,6 +1870,8 @@ character:
 										{ $$ = $3 ? "varchar": "bpchar"; }
 			| NCHAR opt_varying
 										{ $$ = $2 ? "varchar": "bpchar"; }
+			| LONG_P VARCHAR				
+										{ $$ = "text";}
 		;
 opt_varying:
 			VARYING									{ $$ = TRUE; }
@@ -2124,10 +2147,23 @@ reloption_elem:
  * looks too much like a function call for an LR(1) parser.
  */
 col_name_keyword:
-			CHAR_P
+			  BIGINT
+			| BLOB
+			| BOOLEAN_P
+			| CHAR_P
 			| CHARACTER
 			| CLOB
+			| DATE_P
+			| DBCLOB
+			| DEC
+			| DECIMAL_P
+			| FLOAT_P
 			| INT_P
+			| INTEGER
+			| NUMBER_P
+			| NUMERIC
+			| REAL
+			| SMALLINT
 			| VARCHAR
 		;
 /*
@@ -2234,7 +2270,6 @@ reserved_keyword:
 			| DISTINCT
 			| DO
 			| DOCUMENT_P
-			| DOUBLE_P
 			| DROP
 			| DSSIZE
 			| DYNAMIC
@@ -2309,7 +2344,7 @@ reserved_keyword:
 			| LOCK_P
 			| LOCKMAX
 			| LOCKSIZE
-			| LONG
+			| LONG_P
 			| LOOP
 			| MAINTAINED
 			| MATERIALIZED
