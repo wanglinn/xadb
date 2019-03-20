@@ -610,7 +610,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 	struct sockaddr_in *serv_addr = NULL;
 	handleDnGtmArg nodeArg;
 	GetAgentCmdRst getAgentCmdRst;
-	PGconn* conn;
+	PGconn* conn = NULL;
 	PGresult *result;
 
 	/* default failover used "force" */
@@ -816,6 +816,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 			if (PQstatus(conn) != CONNECTION_OK)
 			{
 				PQfinish(conn);
+				conn = NULL;
 				resetStringInfo(&infosendmsg);
 				/*get the adbmanager ip*/
 				memset(selfAddress.data, 0, NAMEDATALEN);
@@ -895,6 +896,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 			hexp_pqexec_direct_execute_utility(conn,SQL_COMMIT_TRANSACTION
 				, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 			PQfinish(conn);
+			conn = NULL;
 
 			/* update the unnormal coordinator infomation in mgr_ndoe */
 			mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(unNormalNodeTupleOid));
@@ -966,6 +968,9 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 
 	}PG_CATCH();
 	{
+		PQfinish(conn);
+		conn = NULL;
+
 		i = 0;
 		if (fdHandle)
 		{
