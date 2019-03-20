@@ -40,6 +40,7 @@
 #include "pgxc/slot.h"
 
 #define REMOTE_KEY_ALTER_NODE	1
+#define REMOTE_KEY_REMOVE_NODE	2
 
 typedef struct NodeOidInfo
 {
@@ -760,12 +761,12 @@ void ClusterNodeAlter(StringInfo mem_toc)
 }
 
 /*
- * PgxcNodeRemove
+ * PgxcNodeRemoveLocal
  *
  * Remove a PGXC node
  */
-void
-PgxcNodeRemove(DropNodeStmt *stmt)
+static void
+PgxcNodeRemoveLocal(DropNodeStmt *stmt)
 {
 	Relation	relation;
 	HeapTuple	tup;
@@ -816,6 +817,87 @@ PgxcNodeRemove(DropNodeStmt *stmt)
 	ReleaseSysCache(tup);
 
 	heap_close(relation, RowExclusiveLock);
+}
+
+void
+PgxcNodeRemove(DropNodeStmt *stmt)
+{
+	ListCell   *lc;
+	Value	   *value;
+	List	   *nodeOids;
+	List	   *remoteList;
+	Oid			oid;
+	bool		include_myself = false;
+
+	if (stmt->node_list == NIL)
+		include_myself = true;
+
+	nodeOids = NIL;
+	foreach(lc, stmt->node_list)
+	{
+		value = lfirst(lc);
+		if (strcasecmp(PGXCNodeName, strVal(value)) == 0)
+		{
+			include_myself = true;
+			if (IsConnFromCoord())
+				break;
+			else
+				continue;
+		}
+		if (IsConnFromApp())
+		{
+			oid = get_pgxc_nodeoid(strVal(value));
+			Assert(oid != PGXCNodeOid);
+
+			nodeOids = list_append_unique_oid(nodeOids, oid);
+		}
+	}
+
+	remoteList = NIL;
+	if (nodeOids != NIL)
+	{
+		StringInfoData msg;
+		initStringInfo(&msg);
+
+		ClusterTocSetCustomFun(&msg, ClusterNodeRemove);
+
+		begin_mem_toc_insert(&msg, REMOTE_KEY_REMOVE_NODE);
+		saveNode(&msg, (Node*)stmt);
+		end_mem_toc_insert(&msg, REMOTE_KEY_REMOVE_NODE);
+
+		remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
+		pfree(msg.data);
+	}
+
+	if (include_myself)
+		PgxcNodeRemoveLocal(stmt);
+
+	if (remoteList)
+	{
+		PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+		list_free(remoteList);
+	}
+	list_free(nodeOids);
+}
+
+void ClusterNodeRemove(StringInfo mem_toc)
+{
+	DropNodeStmt *stmt;
+	StringInfoData buf;
+
+	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_REMOVE_NODE, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("Can not found DropNodeStmt in cluster message"),
+				 errcode(ERRCODE_PROTOCOL_VIOLATION)));
+	}
+	buf.len = buf.maxlen;
+	buf.cursor = 0;
+
+	stmt = castNode(DropNodeStmt, loadNode(&buf));
+
+	PgxcNodeRemoveLocal(stmt);
 }
 
 void

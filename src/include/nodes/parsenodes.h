@@ -3441,6 +3441,7 @@ typedef struct DropNodeStmt
 {
 	NodeTag		type;
 	char		*node_name;
+	List		*node_list;
 } DropNodeStmt;
 
 
