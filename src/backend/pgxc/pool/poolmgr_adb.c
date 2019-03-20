@@ -575,6 +575,8 @@ static void PoolerLoop(void)
 							rval = POLLIN;
 						}else if(slot->owner == NULL)
 						{
+							dlist_delete(&slot->dnode);
+							SET_SLOT_LIST(slot, NULL_SLOT);
 							destroy_slot(slot, false);
 							continue;
 						}
