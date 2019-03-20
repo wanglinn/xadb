@@ -102,11 +102,11 @@ typedef struct handleDnGtmArg
 }handleDnGtmArg;
 
 static HeapTuple montiot_job_get_item_tuple(Relation rel_job, Name jobname);
-static bool mgr_element_in_array(Oid tupleOid, int array[], int count);
 static int mgr_nodeType_Num_incluster(const int masterNodeOid, Relation relNode, const char nodeType);
 static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int selectTimeOut);
 static int mgr_get_fd_noblock(fdCtl *fdHandle, int totalNum);
 static void mgr_check_handle_node_func_arg(handleDnGtmArg *nodeArg);
+static bool monitor_node_connect_status(fdCtl *fdHandle, int num, char *nodename, int *nodeId);
 
 /*
 * ADD ITEM jobname(jobname, filepath, desc)
@@ -570,309 +570,493 @@ static HeapTuple montiot_job_get_item_tuple(Relation rel_job, Name jobname)
 */
 Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 {
-	GetAgentCmdRst getAgentCmdRst;
-	HeapTuple tuple = NULL;
-	ScanKeyData key[4];
 	Relation relNode;
 	HeapScanDesc relScan;
+	HeapTuple tuple;
+	HeapTuple mastertuple;
+	HeapTuple tupResult;
 	Form_mgr_node mgr_node;
+	ScanKeyData key[3];
+	StringInfoData constr;
 	StringInfoData infosendmsg;
 	StringInfoData restmsg;
 	StringInfoData strerr;
-	NameData s_nodename;
-	HeapTuple tup_result;
-	PGconn* conn;
-	PGresult *res;
-	StringInfoData constr;
-	int nodePort;
+	NameData masterName;
+	NameData selfAddress;
+	Datum datumPath;
+	int nargs;
+	int nmasterNum = 0;
+	int createFdNum = 0;
+	int i = 0;
+	int nodeId = -1;
+	int totalMasterNode = 0;
+	char *address = NULL;
+	char *user = NULL;
+	char *nodePath = NULL;
+	char *normalNodeAddress = NULL;
+	bool rest = true;
+	bool bnameNull = false;
+	bool isNull = false;
+	bool bGetSelfAddress = false;
+	int ret = 0;
+	int tryMax = 3;
 	int agentPort;
-	int iloop = 0;
-	int count = 0;
-	int coordNum = 0;
-	int dropCoordOidArray[1000];
-	char *address;
-	char *userName;
-	char portBuf[10];
-	Oid tupleOid;
-	bool result = true;
-	bool rest;
+	int normalNodePort = 0;
+	Oid normalNodeHostOid;
+	Oid unNormalNodeTupleOid;
+	fdCtl *fdHandle = NULL;
+	struct sockaddr_in *serv_addr = NULL;
+	handleDnGtmArg nodeArg;
+	GetAgentCmdRst getAgentCmdRst;
+	PGconn* conn;
+	PGresult *result;
 
-	/*check gtm master running normal */
-	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
+	/* default failover used "force" */
+	nodeArg.bforce = true;
+	/* default check number */
+	nodeArg.reconnect_attempts = 3;
+	/* default check interval time, unit : S */
+	nodeArg.reconnect_interval = 2;
+	/* default select timeout, unit : S */
+	nodeArg.select_timeout = 15;
 
-	/* check the node in cluster */
-	check_node_incluster();
-	namestrcpy(&s_nodename, "coordinator");
-	initStringInfo(&infosendmsg);
-	/* check the status of all coordinator in cluster */
-	memset(dropCoordOidArray, 0, 1000);
-	memset(portBuf, 0, sizeof(portBuf));
-	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodetype
-		,BTEqualStrategyNumber
-		,F_CHAREQ
-		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
-	ScanKeyInit(&key[1],
+	/* check the argv num */
+	namestrcpy(&masterName, "");
+	nargs = PG_NARGS();
+	switch(nargs)
+	{
+		case 5:
+			nodeArg.select_timeout= PG_GETARG_UINT32(4);
+		case 4:
+			nodeArg.reconnect_interval = PG_GETARG_UINT32(3);
+		case 3:
+			nodeArg.reconnect_attempts = PG_GETARG_UINT32(2);
+		case 2:
+			nodeArg.bforce = PG_GETARG_BOOL(1);
+		case 1:
+			namestrcpy(&masterName, PG_GETARG_CSTRING(0));
+		case 0:
+			break;
+		default:
+			/* error */
+			break;
+	}
+
+	if (masterName.data[0] == '\0')
+		bnameNull = true;
+
+	/* check the nodename exist */
+	if ((!bnameNull) && (!mgr_check_node_exist_incluster(&masterName, true)))
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+			,errmsg("coordinator master \"%s\" does not exist in cluster", NameStr(masterName))));
+
+	/* check the input value */
+	mgr_check_handle_node_func_arg(&nodeArg);
+
+	relNode = heap_open(NodeRelationId, AccessShareLock);
+	ScanKeyInit(&key[0],
 		Anum_mgr_node_nodeincluster
 		,BTEqualStrategyNumber
 		,F_BOOLEQ
 		,BoolGetDatum(true));
-	ScanKeyInit(&key[2]
+	ScanKeyInit(&key[1]
 		,Anum_mgr_node_nodeinited
 		,BTEqualStrategyNumber
 		,F_BOOLEQ
 		,BoolGetDatum(true));
-	ScanKeyInit(&key[3]
-		,Anum_mgr_node_nodezone
+	ScanKeyInit(&key[2]
+		,Anum_mgr_node_nodetype
 		,BTEqualStrategyNumber
-		,F_NAMEEQ
-		,CStringGetDatum(mgr_zone));
-	relNode = heap_open(NodeRelationId, RowExclusiveLock);
-	relScan = heap_beginscan_catalog(relNode, 4, key);
-	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		coordNum++;
-		nodePort = mgr_node->nodeport;
-		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		rest = port_occupancy_test(address, nodePort);
-		if (!rest)
-		{
-			/*check it two times again*/
-			pg_usleep(1000000L);
-			rest = port_occupancy_test(address, nodePort);
-			if (!rest)
-			{
-				pg_usleep(1000000L);
-				rest = port_occupancy_test(address, nodePort);
-			}
-		}
-		/*record drop coordinator*/
-		if (!rest)
-		{
-			dropCoordOidArray[iloop] = HeapTupleGetOid(tuple);
-			iloop++;
-			appendStringInfo(&infosendmsg, "drop node \"%s\"; ", NameStr(mgr_node->nodename));
-		}
+		,F_CHAREQ
+		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
+	relScan = heap_beginscan_catalog(relNode, 3, key);
 
-		pfree(address);
-	}
-	count = iloop;
+	/* get total coordinator master num */
+	totalMasterNode = mgr_nodeType_Num_incluster(0, relNode, CNDN_TYPE_COORDINATOR_MASTER);
+	if (!bnameNull)
+		nmasterNum = 1;
+	else
+		nmasterNum = totalMasterNode;
 
-	if (coordNum == count)
-	{
-		heap_endscan(relScan);
-		heap_close(relNode, RowExclusiveLock);
-		pfree(infosendmsg.data);
-		ereport(ERROR, (errmsg("all coordinators in cluster are not running normal!!!")));
-	}
-
-	if (0 == count)
-	{
-		heap_endscan(relScan);
-		heap_close(relNode, RowExclusiveLock);
-		pfree(infosendmsg.data);
-		tup_result = build_common_command_tuple(&s_nodename, true, "all coordinators in cluster are running normal");
-		return HeapTupleGetDatum(tup_result);
-	}
-
-	/*remove coordinator out of cluster*/
 	initStringInfo(&constr);
+	initStringInfo(&infosendmsg);
 	initStringInfo(&restmsg);
 	initStringInfo(&strerr);
 	initStringInfo(&(getAgentCmdRst.description));
-	appendStringInfo(&strerr, "%s\n", infosendmsg.data);
 
-	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+	PG_TRY();
 	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		userName = get_hostuser_from_hostoid(mgr_node->nodehost);
-		tupleOid = HeapTupleGetOid(tuple);
-		rest = mgr_element_in_array(tupleOid, dropCoordOidArray, count);
-		memset(portBuf, 0, sizeof(portBuf));
-		snprintf(portBuf, sizeof(portBuf), "%d", mgr_node->nodeport);
-		if (!rest)
+		if (nmasterNum < 1)
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+				,errmsg("there is not any coordinator master in cluster")));
+
+		fdHandle = (fdCtl *)palloc0(sizeof(fdCtl) * nmasterNum);
+		if (!fdHandle)
+			ereport(ERROR, (errmsg("malloc %lu byte fail: %s", sizeof(fdCtl) * nmasterNum, strerror(errno))));
+
+		serv_addr = (struct sockaddr_in *)palloc0(sizeof(struct sockaddr_in) * nmasterNum);
+		if (!serv_addr)
+			ereport(ERROR, (errmsg("malloc %lu byte fail: %s", sizeof(struct sockaddr_in) * nmasterNum, strerror(errno))));
+
+		/* create nmasterNum socket noblock fd */
+		createFdNum = mgr_get_fd_noblock(fdHandle, nmasterNum);
+		if (createFdNum != nmasterNum)
+			ereport(ERROR, (errmsg("create noblock socket fd fail: %s", strerror(errno))));
+
+		/* traversal the coordinator master */
+		i = 0;
+		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{
-			resetStringInfo(&constr);
-			appendStringInfo(&constr, "host='%s' port=%d user=%s connect_timeout=5"
-				, address, mgr_node->nodeport, userName);
-			rest = PQping(constr.data);
-			if (rest == PQPING_OK)
-			{
-				PG_TRY();
-				{
-					/*drop the coordinator*/
-					resetStringInfo(&constr);
-					appendStringInfo(&constr, "postgresql://%s@%s:%d/%s", userName, address, mgr_node->nodeport, AGTM_DBNAME);
-					appendStringInfoCharMacro(&constr, '\0');
-					conn = PQconnectdb(constr.data);
-					if (PQstatus(conn) != CONNECTION_OK)
-					{
-						result = false;
-						ereport(WARNING, (errmsg("on ADBMGR cannot connect coordinator \"%s\"", NameStr(mgr_node->nodename))));
-						appendStringInfo(&strerr, "on ADBMGR cannot connect coordinator \"%s\" \
-								, you need do \"%s\" and \"set force_parallel_mode = off; select pgxc_pool_reload()\" \
-								on coordinator \"%s\" by yourself!!!\n"
-							, NameStr(mgr_node->nodename), infosendmsg.data, NameStr(mgr_node->nodename));
-					}
-					else
-					{
-						res = PQexec(conn, infosendmsg.data);
-						if(PQresultStatus(res) == PGRES_COMMAND_OK)
-						{
-							ereport(LOG, (errmsg("from ADBMGR, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
-								,infosendmsg.data, PQcmdStatus(res))));
-							ereport(NOTICE, (errmsg("from ADBMGR, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
-								,infosendmsg.data, PQcmdStatus(res))));
-						}
-						else
-						{
-							result = false;
-							ereport(WARNING, (errmsg("from ADBMGR, on coordinator \"%s\", execute \"%s\" fail: %s"
-								, NameStr(mgr_node->nodename), infosendmsg.data, PQresultErrorMessage(res))));
-							appendStringInfo(&strerr, "from ADBMGR, on coordinator \"%s\" execute \"%s\" fail: %s\n"
-							, NameStr(mgr_node->nodename), infosendmsg.data, PQresultErrorMessage(res));
-						}
-						PQclear(res);
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgr_node);
+			if(!bnameNull)
+				if (strcmp(masterName.data, NameStr(mgr_node->nodename)) !=0)
+					continue;
+			address = get_hostaddress_from_hostoid(mgr_node->nodehost);
+			namestrcpy(&(fdHandle[i].nodename), NameStr(mgr_node->nodename));
+			fdHandle[i].port = mgr_node->nodeport;
+			fdHandle[i].address = address;
 
-						res = PQexec(conn, "set force_parallel_mode = off; select pgxc_pool_reload()");
-						if(PQresultStatus(res) == PGRES_TUPLES_OK)
-						{
-							ereport(LOG, (errmsg("from ADBMGR, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
-								,"set force_parallel_mode = off; select pgxc_pool_reload()", "t")));
-							ereport(NOTICE, (errmsg("from ADBMGR, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
-								,"set force_parallel_mode = off; select pgxc_pool_reload()", "t")));
-						}
-						else
-						{
-							result = false;
-							ereport(WARNING, (errmsg("from ADBMGR, on coordinator \"%s\", execute \"%s\" fail: %s"
-								, NameStr(mgr_node->nodename), "set force_parallel_mode = off; select pgxc_pool_reload()"
-								, PQresultErrorMessage(res))));
-							appendStringInfo(&strerr, "from ADBMGR, on coordinator \"%s\" execute \"%s\" fail: %s\n"
-								, NameStr(mgr_node->nodename), "set force_parallel_mode = off; select pgxc_pool_reload()"
-								, PQresultErrorMessage(res));
-						}
-						PQclear(res);
-					}
-					PQfinish(conn);
+			serv_addr[i].sin_family = AF_INET;
+			serv_addr[i].sin_port = htons(mgr_node->nodeport);
+			serv_addr[i].sin_addr.s_addr = inet_addr(address);
+			i++;
+		}
 
-				}PG_CATCH();
-				{
-					ereport(WARNING, (errmsg("the command result : %s", strerr.data)));
-					pfree(address);
-					pfree(userName);
-					heap_endscan(relScan);
-					heap_close(relNode, RowExclusiveLock);
+		i = 0;
+		while (i < nmasterNum)
+		{
+			fdHandle[i].connected = connect(fdHandle[i].fd, (struct sockaddr *)&serv_addr[i], sizeof(struct sockaddr_in));
+			fdHandle[i].connectedError = errno;
+			i++;
+		}
 
-					pfree(constr.data);
-					pfree(restmsg.data);
-					pfree(strerr.data);
-					pfree(infosendmsg.data);
-					pfree(getAgentCmdRst.description.data);
-					PG_RE_THROW();
-				}PG_END_TRY();
-			}
+		i = 0;
+		while (i<nodeArg.reconnect_attempts)
+		{
+			ret = mgr_get_async_connect_result(fdHandle, nmasterNum, nodeArg.select_timeout);
+			if (ret)
+				pg_usleep(nodeArg.reconnect_interval*1000000L);
 			else
+				break;
+			i++;
+		}
+
+		if (ret)
+		{
+			ereport(WARNING, (errmsg("the total number of coordinator master which is not running "
+					"normal : %d" , ret)));
+			if (ret == totalMasterNode)
+				ereport(ERROR, (errmsg("all coordinators in cluster are not running normal")));
+
+			/* get one running normal coordinator */
+			heap_rescan(relScan, key);
+			while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 			{
+				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+				Assert(mgr_node);
+
+				if (!bnameNull)
+				{
+					if(strcmp(NameStr(mgr_node->nodename), NameStr(masterName)) == 0)
+						continue;
+				}
+				else
+				{
+					if(!monitor_node_connect_status(fdHandle, createFdNum, NameStr(mgr_node->nodename)
+							, &nodeId))
+					continue;
+				}
+				normalNodeAddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
+				normalNodePort = mgr_node->nodeport;
+				user = get_hostuser_from_hostoid(mgr_node->nodehost);
+				normalNodeHostOid = mgr_node->nodehost;
+				datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(relNode), &isNull);
+				if(isNull)
+				{
+					ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+						, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
+						, errmsg("column cndnpath is null")));
+				}
+				/*get cndnPath from aimtuple*/
+				nodePath = pstrdup(TextDatumGetCString(datumPath));
+				break;
+			}
+			Assert(user);
+
+			/* get one running unnormal coordinator */
+			heap_rescan(relScan, key);
+			while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+			{
+				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+				Assert(mgr_node);
+
+				if (!bnameNull)
+				{
+					if(strcmp(NameStr(mgr_node->nodename), NameStr(masterName)) != 0)
+						continue;
+				}
+				else
+				{
+					if(monitor_node_connect_status(fdHandle, createFdNum, NameStr(mgr_node->nodename)
+							, &nodeId))
+					continue;
+				}
+				namestrcpy(&masterName, NameStr(mgr_node->nodename));
+				unNormalNodeTupleOid= HeapTupleGetOid(tuple);
+				break;
+			}
+
+			/* connect to the normal coordinator */
+			appendStringInfo(&constr, "postgresql://%s@%s:%d/%s", user, normalNodeAddress
+				, normalNodePort, DEFAULT_DB);
+			conn = PQconnectdb(constr.data);
+			if (PQstatus(conn) != CONNECTION_OK)
+			{
+				PQfinish(conn);
+				resetStringInfo(&infosendmsg);
+				/*get the adbmanager ip*/
+				memset(selfAddress.data, 0, NAMEDATALEN);
+				bGetSelfAddress = mgr_get_self_address(normalNodeAddress, normalNodePort, &selfAddress);
+				if (!bGetSelfAddress)
+				{
+					ereport(ERROR, (errmsg("on AntDB Manager get local address fail, cannot connect "
+						"to coordinator from AntDB Manager")));
+				}
+
+				mgr_add_oneline_info_pghbaconf(CONNECT_HOST, DEFAULT_DB, user, selfAddress.data
+					, 31, "trust", &infosendmsg);
+				i = 0;
+				while(i++ < tryMax)
+				{
+					resetStringInfo(&(getAgentCmdRst.description));
+					getAgentCmdRst.ret = 0;
+					mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, nodePath, &infosendmsg
+						, normalNodeHostOid, &getAgentCmdRst);
+					mgr_reload_conf(normalNodeHostOid, nodePath);
+					if (getAgentCmdRst.ret)
+						break;
+				}
+				if (!getAgentCmdRst.ret)
+				{
+					ereport(ERROR, (errmsg("set ADB Manager ip \"%s\" to %s coordinator %s/pg_hba,conf fail %s"
+						, selfAddress.data, normalNodeAddress, nodePath
+						, getAgentCmdRst.description.data)));
+				}
+				conn = PQconnectdb(constr.data);
+				if (PQstatus(conn) != CONNECTION_OK)
+					ereport(ERROR,
+					(errmsg("Fail to connect to coordinator %s", PQerrorMessage(conn)),
+						errhint("coordinator info(host=%s port=%d dbname=%s user=%s)",
+							normalNodeAddress, normalNodePort, DEFAULT_DB, user)));
+			}
+
+			hexp_pqexec_direct_execute_utility(conn,SQL_BEGIN_TRANSACTION
+				, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+			/* on all running normal coordinators to drop unNormal node */
+			i = 0;
+			heap_rescan(relScan, key);
+			while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+			{
+				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+				Assert(mgr_node);
+
+				if (!bnameNull)
+				{
+					if(strcmp(NameStr(mgr_node->nodename), NameStr(masterName)) == 0)
+						continue;
+				}
+				else
+				{
+					if(!monitor_node_connect_status(fdHandle, createFdNum, NameStr(mgr_node->nodename)
+							, &nodeId))
+						continue;
+				}
+				resetStringInfo(&infosendmsg);
+				appendStringInfo(&infosendmsg, "drop node \"%s\" on (\"%s\");"
+						,NameStr(masterName), NameStr(mgr_node->nodename));
+				ereport(LOG, (errmsg("on coordinator master \"%s\" : %s"
+					, NameStr(mgr_node->nodename), infosendmsg.data)));
+				ereport(NOTICE, (errmsg("on coordinator master \"%s\" : %s"
+					, NameStr(mgr_node->nodename), infosendmsg.data)));
+
+				result = PQexec(conn, infosendmsg.data);
+				if(PQresultStatus(result) != PGRES_COMMAND_OK)
+				{
+					PQclear(result);
+					ereport(ERROR, (errmsg("on coordinator master \"%s\" : %s, result: %s"
+						, NameStr(mgr_node->nodename), infosendmsg.data, PQerrorMessage(conn))));
+				}
+				PQclear(result);
+			}
+
+			hexp_pqexec_direct_execute_utility(conn,SQL_COMMIT_TRANSACTION
+				, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+			PQfinish(conn);
+
+			/* update the unnormal coordinator infomation in mgr_ndoe */
+			mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(unNormalNodeTupleOid));
+			if(!HeapTupleIsValid(mastertuple))
+			{
+				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+					, errmsg("coordinator master \"%s\" does not exist", NameStr(masterName))));
+			}
+			mgr_node = (Form_mgr_node)GETSTRUCT(mastertuple);
+			Assert(mastertuple);
+			mgr_node->nodeinited = false;
+			mgr_node->nodeincluster = false;
+			heap_inplace_update(relNode, mastertuple);
+			ReleaseSysCache(mastertuple);
+
+			/* on all normal coordinators execute select pgxc_pool_reload() */
+			resetStringInfo(&infosendmsg);
+			appendStringInfo(&infosendmsg, "select pgxc_pool_reload();");
+			heap_rescan(relScan, key);
+			while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+			{
+				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+				Assert(mgr_node);
+				if (!bnameNull)
+				{
+					if(strcmp(NameStr(mgr_node->nodename), NameStr(masterName)) == 0)
+						continue;
+				}
+				else
+				{
+					if(!monitor_node_connect_status(fdHandle, createFdNum, NameStr(mgr_node->nodename)
+							, &nodeId))
+						continue;
+				}
 				agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
+				address = get_hostaddress_from_hostoid(mgr_node->nodehost);
 				rest = port_occupancy_test(address, agentPort);
+
 				/* agent running normal */
 				if (rest)
 				{
 					resetStringInfo(&restmsg);
-					monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES_COMMAND, agentPort, infosendmsg.data
-					,userName, address, mgr_node->nodeport, DEFAULT_DB, &restmsg);
-					ereport(LOG, (errmsg("from agent, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
-						, infosendmsg.data, restmsg.len == 0 ? "f":restmsg.data)));
-					ereport(NOTICE, (errmsg("from agent, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
-						, infosendmsg.data, restmsg.len == 0 ? "f":restmsg.data)));
-					if (restmsg.len == 0)
+					monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, infosendmsg.data
+					,user, address, mgr_node->nodeport, DEFAULT_DB, &restmsg);
+					ereport(LOG, (errmsg("from agent, on coordinator master \"%s\" : %s"
+						, NameStr(mgr_node->nodename), infosendmsg.data)));
+					ereport(NOTICE, (errmsg("from agent, on coordinator master \"%s\" : %s"
+						, NameStr(mgr_node->nodename), infosendmsg.data)));
+					if (restmsg.len == 0 || strcmp(restmsg.data, "t")!=0)
 					{
-						result = false;
-						appendStringInfo(&strerr, "from agent, on coordinator \"%s\" execute \"%s\" fail\n"
-							, NameStr(mgr_node->nodename), infosendmsg.data);
-					}
-
-					resetStringInfo(&restmsg);
-					monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort
-						, "set force_parallel_mode = off; select pgxc_pool_reload()"
-						,userName, address, mgr_node->nodeport, DEFAULT_DB, &restmsg);
-					ereport(LOG, (errmsg("from agent, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
-						, "set force_parallel_mode = off; select pgxc_pool_reload()", restmsg.data)));
-					ereport(NOTICE, (errmsg("from agent, on coordinator \"%s\" : %s, result: %s", NameStr(mgr_node->nodename)
-						, "set force_parallel_mode = off; select pgxc_pool_reload()", restmsg.data)));
-					if (restmsg.len != 0)
-					{
-						if (strcasecmp(restmsg.data, "t") != 0)
-						{
-							result = false;
-							appendStringInfo(&strerr, "from agent, on coordinator \"%s\" execute \"%s\" fail: %s\n"
-								, NameStr(mgr_node->nodename)
-								, "set force_parallel_mode = off; select pgxc_pool_reload()", restmsg.data);
-						}
+						ereport(WARNING, (errmsg("from agent, on coordinator master \"%s\" : %s, result: %s"
+							, NameStr(mgr_node->nodename)
+							, infosendmsg.data, restmsg.len == 0 ? "false":restmsg.data)));
+						appendStringInfo(&strerr, "on coordinator master \"%s\" execute \"select pgxc_pool_reload()\" fail\n", NameStr(mgr_node->nodename));
 					}
 				}
 				else
 				{
-					result = false;
-					ereport(WARNING, (errmsg("on address \"%s\" the agent is not running normal; \
-						you need execute \"%s\" and \"set force_parallel_mode = off; select pgxc_pool_reload()\" \
-						on coordinator \"%s\" by yourself !!!", address, infosendmsg.data, NameStr(mgr_node->nodename))));
-					appendStringInfo(&strerr,"on address \"%s\" the agent is not running normal; \
-						you need execute \"%s\" and \"set force_parallel_mode = off; select pgxc_pool_reload()\" \
-						on coordinator \"%s\" by yourself !!!" \
-						, address, infosendmsg.data, NameStr(mgr_node->nodename));
+					appendStringInfo(&strerr, "agent is not running normal, "
+						"on coordinator master \"%s\" execute \"select pgxc_pool_reload()\" fail\n"
+						, NameStr(mgr_node->nodename));
+					ereport(WARNING, (errmsg("on address \"%s\" the agent is not running normal; "
+						"you need execute \"select pgxc_pool_reload()\" on coordinator master \"%s\" by yourself"
+						, address, NameStr(mgr_node->nodename))));
 				}
+				pfree(address);
 			}
 		}
-		else
+
+	}PG_CATCH();
+	{
+		i = 0;
+		if (fdHandle)
 		{
-			mgr_node->nodeinited = false;
-			mgr_node->nodeincluster = false;
-			heap_inplace_update(relNode, tuple);
+			while (i < createFdNum)
+			{
+				if (fdHandle[i].fd == -1)
+					break;
+				close(fdHandle[i].fd);
+				i++;
+			}
+
+			i = 0;
+			if (createFdNum == nmasterNum)
+			{
+				while (i < nmasterNum)
+				{
+					if (fdHandle[i].address)
+						pfree(fdHandle[i].address);
+					i++;
+				}
+			}
+			pfree(fdHandle);
 		}
+		if (serv_addr)
+			pfree(serv_addr);
+		heap_endscan(relScan);
+		heap_close(relNode, AccessShareLock);
 
-		pfree(address);
-		pfree(userName);
+		if (user)
+			pfree(user);
+		if (nodePath)
+			pfree(nodePath);
+		if (normalNodeAddress)
+			pfree(normalNodeAddress);
+		pfree(strerr.data);
+		pfree(restmsg.data);
+		pfree(constr.data);
+		pfree(infosendmsg.data);
+		pfree(getAgentCmdRst.description.data);
+
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	pfree(serv_addr);
+	i = 0;
+	while (i < nmasterNum)
+	{
+		close(fdHandle[i].fd);
+		pfree(fdHandle[i].address);
+		i++;
 	}
-	heap_endscan(relScan);
-	heap_close(relNode, RowExclusiveLock);
+	pfree(fdHandle);
 
+	heap_endscan(relScan);
+	heap_close(relNode, AccessShareLock);
+
+	if (bnameNull && (!ret))
+		namestrcpy(&masterName, "coordinator master");
+	if (!ret)
+	{
+		/* all datanode master running normal */
+		if (bnameNull)
+			tupResult = build_common_command_tuple(&masterName, true, "all coordinator master in cluster are running normal");
+		else
+			tupResult = build_common_command_tuple(&masterName, true, "the coordinator master in cluster is running normal");
+	}
+	else
+	{
+		tupResult = build_common_command_tuple(&masterName, strerr.len == 0 ? true:false
+			,strerr.len == 0 ? "execute remove coordinator command success" : strerr.data);
+	}
+
+	/* record the result */
+	if (ret)
+		ereport(LOG, (errmsg("execute the command for monitor_handle_coordinator : \n remove nodename:%s, \n result:%s, \n description:%s"
+			, NameStr(masterName)
+			, strerr.len == 0 ? "true" : "false"
+			, (strerr.len == 0 ? "execute remove coordinator command success" : strerr.data))));
+	if (user)
+		pfree(user);
+	if (nodePath)
+		pfree(nodePath);
+	if (normalNodeAddress)
+		pfree(normalNodeAddress);
+	pfree(strerr.data);
 	pfree(restmsg.data);
 	pfree(constr.data);
 	pfree(infosendmsg.data);
 	pfree(getAgentCmdRst.description.data);
-	if (strerr.len > 2)
-	{
-		if (strerr.data[strerr.len-2] == '\n')
-			strerr.data[strerr.len-2] = '\0';
-		if (strerr.data[strerr.len-1] == '\n')
-			strerr.data[strerr.len-1] = '\0';
-	}
-	ereport(LOG, (errmsg("monitor handle coordinator result : %s, description : %s"
-		,result==true?"true":"false", strerr.data)));
-	tup_result = build_common_command_tuple(&s_nodename, result, strerr.data);
-	pfree(strerr.data);
-	return HeapTupleGetDatum(tup_result);
+
+	return HeapTupleGetDatum(tupResult);
 }
 
-
-static bool mgr_element_in_array(Oid tupleOid, int array[], int count)
-{
-	int iloop = 0;
-
-	while(iloop < count)
-	{
-		if(array[iloop] == tupleOid)
-			return true;
-		iloop++;
-	}
-	return false;
-}
 
 /*
 * check the substring "subjobstr" is in the "JOB" table of "COMMAND" column content
@@ -1693,4 +1877,22 @@ static void mgr_check_handle_node_func_arg(handleDnGtmArg *nodeArg)
 			,errmsg("the fifth input parameter select_timeout = %d, not in the limit 2<=select_timeout<=120, default value is 15"
 			, nodeArg->select_timeout), errhint("try \"add job\" for more information")));
 
+}
+
+static bool monitor_node_connect_status(fdCtl *fdHandle, int num, char *nodename, int *nodeId)
+{
+	int i;
+
+	Assert(nodename);
+	*nodeId = -1;
+	for(i=0; i<num; i++)
+	{
+		if (strcmp(NameStr(fdHandle[i].nodename), nodename) == 0)
+		{
+			*nodeId = i;
+			return fdHandle[i].connectStatus;
+		}
+	}
+
+	return false;
 }
