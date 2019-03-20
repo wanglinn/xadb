@@ -6005,9 +6005,6 @@ DESCR("mgr append activate coordinator");
 DATA(insert OID = 4897 (  mgr_switchover_func       PGNSP PGUID 12 10 400 0 0 f f f f t t s s 3 0 2249 "23 2275 23" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_switchover_func _null_ _null_ _null_ ));
 DESCR("mgr switchover");
 
-DATA(insert OID = 4896 (  monitor_handle_coordinator       PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "23 2275 23" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_coordinator _null_ _null_ _null_ ));
-DESCR("monitor auto handle coordinator");
-
 DATA(insert OID = 4895 ( mgr_start_cn_slave      PGNSP PGUID 12 1 0 2276 0 f f f f f t s s 1 0 2249 "2276" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_start_cn_slave _null_ _null_ _null_ ));
 DESCR("start coordinator slave");
 
@@ -6068,17 +6065,23 @@ DESCR("import coordinator hash table meta info to datanode");
 DATA(insert OID = 4717 (  mgr_cluster_hash_meta_check      PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ mgr_cluster_hash_meta_check _null_ _null_ _null_ ));
 DESCR("check hash table meta info consistency in cluster");
 
-DATA(insert OID = 4013 (  monitor_handle_datanode       PGNSP PGUID 12 10 400 2276 0 f f f f t t s s 1 0 2249 "2275 16 23 23 23" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_datanode _null_ _null_ _null_ ));
+DATA(insert OID = 4013 (  monitor_handle_datanode       PGNSP PGUID 12 10 400 2276 0 f f f f t t s u 1 0 2249 "2275 16 23 23 23" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_datanode _null_ _null_ _null_ ));
 DESCR("monitor auto handle datanode master");
 
-DATA(insert OID = 4012 (  monitor_handle_gtm       PGNSP PGUID 12 10 400 2276 0 f f f f t t s s 1 0 2249 "2275 16 23 23 23" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_gtm _null_ _null_ _null_ ));
+DATA(insert OID = 4012 (  monitor_handle_gtm       PGNSP PGUID 12 10 400 2276 0 f f f f t t s u 1 0 2249 "2275 16 23 23 23" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_gtm _null_ _null_ _null_ ));
 DESCR("monitor auto handle gtm master");
 
-DATA(insert OID = 4011 (  monitor_handle_datanode       PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_datanode _null_ _null_ _null_ ));
+DATA(insert OID = 4005 (  monitor_handle_coordinator      PGNSP PGUID 12 10 400 2276 0 f f f f t t s u 1 0 2249 "2275 16 23 23 23" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_coordinator _null_ _null_ _null_ ));
+DESCR("monitor auto handle coordinator master");
+
+DATA(insert OID = 4011 (  monitor_handle_datanode       PGNSP PGUID 12 10 400 0 0 f f f f t t s u 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_datanode _null_ _null_ _null_ ));
 DESCR("monitor auto handle datanode master");
 
-DATA(insert OID = 4010 (  monitor_handle_gtm       PGNSP PGUID 12 10 400 0 0 f f f f t t s s 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_gtm _null_ _null_ _null_ ));
+DATA(insert OID = 4010 (  monitor_handle_gtm       PGNSP PGUID 12 10 400 0 0 f f f f t t s u 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_gtm _null_ _null_ _null_ ));
 DESCR("monitor auto handle gtm master");
+
+DATA(insert OID = 4006 (  monitor_handle_coordinator       PGNSP PGUID 12 10 400 0 0 f f f f t t s u 0 0 2249 "" "{19,16,25}" "{o,o,o}" "{nodename,status,description}" _null_ _null_ monitor_handle_coordinator _null_ _null_ _null_ ));
+DESCR("monitor auto handle coordinator master");
 
 #endif
 
