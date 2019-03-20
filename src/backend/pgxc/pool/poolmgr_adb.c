@@ -601,6 +601,22 @@ static void PoolerLoop(void)
 							continue;
 						}
 						break;
+					case SLOT_STATE_IDLE:
+					case SLOT_STATE_END_AGTM_PORT:
+					case SLOT_STATE_END_PARAMS_SESSION:
+					case SLOT_STATE_END_PARAMS_LOCAL:
+					case SLOT_STATE_END_RESET_ALL:
+						if (slot->owner == NULL)
+						{
+							dlist_delete(&slot->dnode);
+							SET_SLOT_LIST(slot, NULL_SLOT);
+							if (slot->slot_state == SLOT_STATE_IDLE)
+								idle_slot(slot, false);
+							else
+								destroy_slot(slot, false);
+							continue;
+						}
+						break;
 					default:
 						break;
 					}
