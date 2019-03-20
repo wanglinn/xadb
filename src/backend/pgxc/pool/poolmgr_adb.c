@@ -33,6 +33,26 @@
 #define START_POOL_ALLOC	512
 #define STEP_POLL_ALLOC		8
 
+#ifndef PMGRLOG
+#define PMGRLOG DEBUG5
+#endif
+#ifdef PMGR_LOG_USE_BT
+#include <execinfo.h>
+static int PMGR_BACKTRACE_DETIAL()
+{
+	void *addrs[5];
+	char addr_str[lengthof(addrs)*((SIZEOF_VOID_P*2)+1)]={'\0'};
+	int n = backtrace(addrs, lengthof(addrs));
+	while(n--)
+		sprintf(&addr_str[strlen(addr_str)],
+				"%p%c", addrs[n], n ? ',':'\0');
+	errdetail("%s", addr_str);
+	return 0;
+}
+#else
+#define PMGR_BACKTRACE_DETIAL() 0
+#endif
+
 #define PM_MSG_ABORT_TRANSACTIONS	'a'
 #define PM_MSG_SEND_LOCAL_COMMAND	'b'
 #define PM_MSG_CONNECT				'c'
@@ -588,6 +608,10 @@ static void PoolerLoop(void)
 					default:
 						break;
 					}
+					ereport(PMGRLOG,
+							(errmsg("test busy slot %p fd %d state %d owner %p pid %d pool(%d)",
+									slot, PQsocket(slot->conn), slot->slot_state, slot->owner,
+									slot->owner ? slot->owner->pid:0, rval)));
 					if(rval != 0)
 					{
 						if(poll_count == poll_max)
@@ -801,6 +825,9 @@ static void agent_create(volatile pgsocket new_fd)
 		INIT_PARAMS_MAGIC(agent, session_magic);
 		INIT_PARAMS_MAGIC(agent, local_magic);
 
+		ereport(PMGRLOG,
+				(errmsg("accept a new agent %p socket %d", agent, new_fd)));
+
 		MemSet(&ctl, 0, sizeof(ctl));
 		ctl.keysize = sizeof(HostInfo);
 		ctl.entrysize = sizeof(ConnectedInfo);
@@ -1005,6 +1032,12 @@ agent_init(PoolAgent *agent, const char *database, const char *user_name,
 {
 	MemoryContext oldcontext;
 
+	ereport(PMGRLOG,
+			(errmsg("agent_init agent %p pid %d database=\"%s\" user_name=\"%s\" pgoptions=\"%s\"",
+					agent, agent->pid, database ? database:"NULL",
+					user_name ? user_name:"NULL", pgoptions ? pgoptions:"NULL"),
+			 PMGR_BACKTRACE_DETIAL()));
+
 	AssertArg(agent);
 	if(database == NULL || user_name == NULL)
 		return false;
@@ -1038,6 +1071,10 @@ agent_destroy(PoolAgent *agent)
 	HASH_SEQ_STATUS hseq;
 
 	AssertArg(agent);
+
+	ereport(PMGRLOG,
+			(errmsg("agent begin destroy %p pid %d", agent, agent->pid),
+			 PMGR_BACKTRACE_DETIAL()));
 
 	if(Socket(agent->port) != PGINVALID_SOCKET)
 		closesocket(Socket(agent->port));
@@ -1076,6 +1113,13 @@ agent_destroy(PoolAgent *agent)
 				dlist_delete(miter.cur);
 				SET_SLOT_LIST(slot, NULL_SLOT);
 				idle_slot(slot, true);
+			}else
+			{
+				ereport(PMGRLOG,
+						(errmsg("agent %p pid %d not call idle_slot(%p) state %d owner is %p pid %d",
+								agent, agent->pid, slot, slot->slot_state,
+								slot->owner, slot->owner ? slot->owner->pid:0),
+						 PMGR_BACKTRACE_DETIAL()));
 			}
 		}
 	}
@@ -1099,6 +1143,11 @@ agent_destroy(PoolAgent *agent)
 				dlist_delete(&slot->dnode);
 				SET_SLOT_LIST(slot, NULL_SLOT);
 			}
+
+			ereport(PMGRLOG,
+					(errmsg("agent %p pid %d will idle waiting slot slot %p state %d",
+							agent, agent->pid, slot, slot->slot_state),
+					 PMGR_BACKTRACE_DETIAL()));
 
 			idle_slot(slot, true);
 		}
@@ -1588,9 +1637,18 @@ send_agtm_port_:
 								(errcode(ERRCODE_INTERNAL_ERROR),
 								 errmsg("invalid agtm port %d for agent", agent->agtm_port)));
 					}
+					ereport(PMGRLOG,
+							(errmsg("agent %p pid %d begin send waiting slot %p state %d agtm port %d",
+									agent, agent->pid, slot, slot->slot_state, agent->agtm_port),
+							 PMGR_BACKTRACE_DETIAL()));
 					if(pqSendAgtmListenPort(slot->conn, slot->owner->agtm_port) < 0)
 					{
 						save_slot_error(slot);
+						ereport(PMGRLOG,
+								(errmsg("agent %p pid %d send waiting slot %p new state %d agtm port %d failed:\"%s\"",
+										agent, agent->pid, slot, slot->slot_state, agent->agtm_port,
+										slot->last_error),
+								PMGR_BACKTRACE_DETIAL()));
 						break;
 					}
 					slot->last_agtm_port = agent->agtm_port;
@@ -1612,10 +1670,19 @@ send_agtm_port_:
 			case SLOT_STATE_RELEASED:
 				if (slot->last_user_pid != agent->pid)
 				{
+					ereport(PMGRLOG,
+							(errmsg("agent %p pid %d begin \"reset all\" waiting slot %p state %d last user pid %d",
+									agent, agent->pid, slot, slot->slot_state, slot->last_user_pid),
+							 PMGR_BACKTRACE_DETIAL()));
 					slot->last_agtm_port = 0;
 					if(!PQsendQuery(slot->conn, "reset all"))
 					{
 						save_slot_error(slot);
+						ereport(PMGRLOG,
+								(errmsg("agent %p pid %d send \"reset all\" waiting slot %p state %d last user pid %d failed:\"%s\"",
+										agent, agent->pid, slot, slot->slot_state, slot->last_user_pid,
+										slot->last_error),
+								 PMGR_BACKTRACE_DETIAL()));
 						break;
 					}
 					slot->slot_state = SLOT_STATE_QUERY_RESET_ALL;
@@ -1637,6 +1704,9 @@ send_agtm_port_:
 					goto send_local_params_;
 				}else
 				{
+					ereport(PMGRLOG,
+							(errmsg("agent %p pid %d locked released slot %p", agent, agent->pid, slot),
+							 PMGR_BACKTRACE_DETIAL()));
 					slot->slot_state = SLOT_STATE_LOCKED;
 					slot->last_user_pid = agent->pid;
 				}
@@ -1645,9 +1715,17 @@ send_agtm_port_:
 send_session_params_:
 				if(agent->session_params != NULL)
 				{
+					ereport(PMGRLOG,
+							(errmsg("agent %p pid %d begin send waiting slot %p state %d session params \"%s\"",
+									agent, agent->pid, slot, slot->slot_state, agent->session_params),
+							 PMGR_BACKTRACE_DETIAL()));
 					if(!PQsendQuery(slot->conn, agent->session_params))
 					{
 						save_slot_error(slot);
+						ereport(PMGRLOG,
+								(errmsg("agent %p pid %d begin send waiting slot %p new state %d session params \"%s\" failed:\"%s\"",
+										agent, agent->pid, slot, slot->slot_state, agent->session_params, slot->last_error),
+								 PMGR_BACKTRACE_DETIAL()));
 						break;
 					}
 					slot->slot_state = SLOT_STATE_QUERY_PARAMS_SESSION;
@@ -1666,9 +1744,17 @@ send_session_params_:
 send_local_params_:
 				if(agent->local_params)
 				{
+					ereport(PMGRLOG,
+							(errmsg("agent %p pid %d begin send waiting slot %p state %d local params \"%s\"",
+									agent, agent->pid, slot, slot->slot_state, agent->session_params),
+							 PMGR_BACKTRACE_DETIAL()));
 					if(!PQsendQuery(slot->conn, agent->local_params))
 					{
 						save_slot_error(slot);
+						ereport(PMGRLOG,
+								(errmsg("agent %p pid %d begin send waiting slot %p new state %d local params \"%s\" failed:\"%s\"",
+										agent, agent->pid, slot, slot->slot_state, agent->session_params, slot->last_error),
+								 PMGR_BACKTRACE_DETIAL()));
 						break;
 					}
 					slot->slot_state = SLOT_STATE_QUERY_PARAMS_LOCAL;
@@ -1685,6 +1771,10 @@ send_local_params_:
 				goto end_params_local_;
 			case SLOT_STATE_END_PARAMS_LOCAL:
 end_params_local_:
+				ereport(PMGRLOG,
+						(errmsg("agent %p pid %d locked waiting slot %p last state %d",
+								agent, agent->pid, slot, slot->slot_state),
+						 PMGR_BACKTRACE_DETIAL()));
 				slot->slot_state = SLOT_STATE_LOCKED;
 				break;
 			default:
@@ -1718,8 +1808,9 @@ end_params_local_:
 							}
 						}
 						slot->retry++;
-						ereport(DEBUG1, (errmsg("[pool] reconnect three thimes : %d, backend pid : %d",
-							slot->retry,slot->owner->pid)));
+						ereport(PMGRLOG,
+								(errmsg("[pool] agent %p pid %d reconnect slot %p thimes %d",
+										agent, agent->pid, slot, slot->retry)));
 					}
 					else
 					{
@@ -1787,6 +1878,10 @@ end_params_local_:
 		static int *pfds = NULL;
 		static Size max_fd = 0;
 		Size count,index;
+		ereport(PMGRLOG,
+				(errmsg("agent %p pid %d all waiting slot %d locked",
+						agent, agent->pid, list_length(agent->list_wait)),
+				 PMGR_BACKTRACE_DETIAL()));
 		PG_TRY();
 		{
 			if(max_fd == 0)
@@ -2096,6 +2191,11 @@ static void destroy_slot(ADBNodePoolSlot *slot, bool send_cancel)
 {
 	AssertArg(slot);
 
+	ereport(PMGRLOG,
+			(errmsg("agent %p pid %d begin destroy slot %p last state %d",
+					slot->owner, slot->owner ? slot->owner->pid:0,
+					slot, slot->slot_state),
+			 PMGR_BACKTRACE_DETIAL()));
 #if 0
 	{
 		/* check slot in using ? */
@@ -2138,6 +2238,11 @@ static void destroy_slot(ADBNodePoolSlot *slot, bool send_cancel)
 static void release_slot(ADBNodePoolSlot *slot, bool force_close)
 {
 	AssertArg(slot);
+	ereport(PMGRLOG,
+			(errmsg("agent %p pid %d begin release slot %p last state %d",
+					slot->owner, slot->owner ? slot->owner->pid:0,
+					slot, slot->slot_state),
+			 PMGR_BACKTRACE_DETIAL()));
 	if(force_close)
 	{
 		destroy_slot(slot, false);
@@ -2163,6 +2268,11 @@ static void release_slot(ADBNodePoolSlot *slot, bool force_close)
 static void idle_slot(ADBNodePoolSlot *slot, bool reset)
 {
 	AssertArg(slot);
+	ereport(PMGRLOG,
+			(errmsg("agent %p pid %d begin idle slot %p last state %d",
+					slot->owner, slot->owner ? slot->owner->pid:0,
+					slot, slot->slot_state),
+			 PMGR_BACKTRACE_DETIAL()));
 	SET_SLOT_OWNER(slot, NULL);
 	slot->last_user_pid = 0;
 	slot->released_time = time(NULL);
@@ -2192,8 +2302,17 @@ static void idle_slot(ADBNodePoolSlot *slot, bool reset)
 				break;
 		}
 		/*  SLOT_STATE_ERROR  state will be destory */
+		ereport(PMGRLOG,
+				(errmsg("idle_slot(%p) begin reset slot agent %p pid %d last state %d",
+						slot, slot->owner, slot->owner?slot->owner->pid:0, slot->slot_state),
+				PMGR_BACKTRACE_DETIAL()));
 		if(!PQsendQuery(slot->conn, "reset all"))
 		{
+			ereport(PMGRLOG,
+					(errmsg("idle_slot(%p) begin reset slot agent %p pid %d last state %d failed:\"%s\"",
+							slot, slot->owner, slot->owner?slot->owner->pid:0, slot->slot_state,
+							PQerrorMessage(slot->conn)),
+					 PMGR_BACKTRACE_DETIAL()));
 			destroy_slot(slot, false);
 			return;
 		}
@@ -2315,6 +2434,10 @@ static time_t close_timeout_idle_slots(time_t cur_time)
 				Assert(slot->slot_state == SLOT_STATE_IDLE);
 				if(slot->released_time <= need_close_time)
 				{
+					ereport(PMGRLOG,
+							(errmsg("begin destroy timeout idle slot %p last agent %p pid %d",
+									slot, slot->owner, slot->owner ? slot->owner->pid:0),
+							 PMGR_BACKTRACE_DETIAL()));
 					Assert(slot->current_list != NULL_SLOT);
 					dlist_delete(miter.cur);
 					SET_SLOT_LIST(slot, NULL_SLOT);
@@ -2357,6 +2480,10 @@ static time_t idle_timeout_released_slots(time_t cur_time)
 				AssertState(slot->current_list == RELEASED_SLOT);
 				if (slot->released_time <= need_idle_time)
 				{
+					ereport(PMGRLOG,
+							(errmsg("begin release timeout idle slot %p last agent %p pid %d",
+									slot, slot->owner, slot->owner ? slot->owner->pid:0),
+							 PMGR_BACKTRACE_DETIAL()));
 					dlist_delete(miter.cur);
 					SET_SLOT_LIST(slot, NULL_SLOT);
 					idle_slot(slot, true);
@@ -2466,8 +2593,18 @@ static void agent_release_connections(PoolAgent *agent, bool force_destroy)
 	while ((info=hash_seq_search(&hseq)) != NULL)
 	{
 		slot = info->slot;
+		ereport(PMGRLOG,
+				(errmsg("agent %p pid %d begin release connections for slot %p last state %d",
+						agent, agent->pid, slot, slot->slot_state),
+				 PMGR_BACKTRACE_DETIAL()));
 		if (list_member_ptr(agent->list_wait, slot))
+		{
+			ereport(PMGRLOG,
+					(errmsg("agent %p pid %d not released connections for slot %p last state %d, it in waiting list",
+							agent, agent->pid, slot, slot->slot_state),
+					 PMGR_BACKTRACE_DETIAL()));
 			continue;
+		}
 		Assert(slot->slot_state == SLOT_STATE_LOCKED
 			&& slot->owner == agent
 			&& slot->last_user_pid == agent->pid);
@@ -2491,10 +2628,20 @@ static void agent_idle_connections(PoolAgent *agent, bool force_destroy)
 	while ((info=hash_seq_search(&hseq)) != NULL)
 	{
 		slot = info->slot;
+		ereport(PMGRLOG,
+				(errmsg("agent %p pid %d begin idle connections for slot %p last state %d",
+						agent, agent->pid, slot, slot->slot_state),
+				 PMGR_BACKTRACE_DETIAL()));
 		if((slot->slot_state == SLOT_STATE_RELEASED || slot->slot_state == SLOT_STATE_LOCKED)
 			&& slot->last_user_pid == agent->pid)
 		{
 			idle_slot(slot, true);
+		}else
+		{
+			ereport(PMGRLOG,
+					(errmsg("agent %p pid %d not idle connections for slot %p last state %d last user pid %d",
+							agent, agent->pid, slot, slot->slot_state, slot->last_user_pid),
+					 PMGR_BACKTRACE_DETIAL()));
 		}
 		hash_search(agent->connected_node, &info->info, HASH_REMOVE, NULL);
 		pfree(info->info.hostname);
@@ -2506,6 +2653,11 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 {
 	AssertArg(slot);
 
+	ereport(PMGRLOG,
+			(errmsg("begin process slot %p state %d owner %p pid %d last error:\"%s\"",
+					slot, slot->slot_state, slot->owner, slot->owner ? slot->owner->pid:0,
+					slot->last_error ? slot->last_error:"NULL"),
+			 PMGR_BACKTRACE_DETIAL()));
 	if(slot->last_error)
 	{
 		pfree(slot->last_error);
@@ -2531,6 +2683,10 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 		case PGRES_POLLING_FAILED:
 			save_slot_error(slot);
 			slot->slot_state = SLOT_STATE_ERROR;
+			ereport(PMGRLOG,
+					(errmsg("process connectiong slot %p owner %p pid %d got error:\"%s\"",
+							slot, slot->owner, slot->owner ? slot->owner->pid:0, slot->last_error),
+					 PMGR_BACKTRACE_DETIAL()));
 			break;
 		case PGRES_POLLING_READING:
 		case PGRES_POLLING_WRITING:
@@ -2547,6 +2703,10 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 			&& get_slot_result(slot) == false
 			&& slot->owner == NULL)
 			{
+				ereport(PMGRLOG,
+						(errmsg("process slot %p owner %p pid %d got error:\"%s\"",
+								slot, slot->owner, slot->owner ? slot->owner->pid:0, PQerrorMessage(slot->conn)),
+						 PMGR_BACKTRACE_DETIAL()));
 				Assert(slot->current_list != NULL_SLOT);
 				dlist_delete(&slot->dnode);
 				SET_SLOT_LIST(slot, NULL_SLOT);
@@ -2561,6 +2721,10 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 		{
 			if(slot->slot_state == SLOT_STATE_ERROR)
 			{
+				ereport(PMGRLOG,
+						(errmsg("process slot %p owner %p pid %d got error:\"%s\"",
+								slot, slot->owner, slot->owner ? slot->owner->pid:0, slot->last_error),
+						 PMGR_BACKTRACE_DETIAL()));
 				if(slot->owner == NULL)
 				{
 					Assert(slot->current_list != NULL_SLOT);
@@ -2571,6 +2735,10 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 				break;
 			}
 			slot->slot_state += 1;
+			ereport(PMGRLOG,
+					(errmsg("process slot %p owner %p pid %d change to new state %d",
+							slot, slot->owner, slot->owner ? slot->owner->pid:0, slot->slot_state),
+						PMGR_BACKTRACE_DETIAL()));
 
 			if(slot->slot_state == SLOT_STATE_END_RESET_ALL)
 			{
@@ -2583,16 +2751,27 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 				if(slot->slot_state == SLOT_STATE_END_RESET_ALL)
 				{
 					/* let remote close agtm */
+					ereport(PMGRLOG,
+							(errmsg("begin send standalone slot %p invalid agtm port last port %d",
+									slot, slot->last_agtm_port),
+							 PMGR_BACKTRACE_DETIAL()));
 					slot->last_agtm_port = 0;
 					if(pqSendAgtmListenPort(slot->conn, 0) < 0)
 					{
 						save_slot_error(slot);
+						ereport(PMGRLOG,
+								(errmsg("send standalone slot %p invalid agtm port got error:\"%s\"",
+										slot, slot->last_error),
+								 PMGR_BACKTRACE_DETIAL()));
 						break;
 					}
 					slot->slot_state = SLOT_STATE_QUERY_AGTM_PORT;
 				}else if(slot->slot_state == SLOT_STATE_END_AGTM_PORT)
 				{
 					/* let slot to idle queue */
+					ereport(PMGRLOG,
+							(errmsg("send standalone slot %p invalid agtm port success move to idle slot", slot),
+							 PMGR_BACKTRACE_DETIAL()));
 					Assert(slot->parent);
 					slot->last_agtm_port = 0;
 					slot->slot_state = SLOT_STATE_IDLE;
@@ -2691,6 +2870,11 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 		{
 			info.hostname = (char*)pool_getstring(msg);
 			info.port = (uint16)pool_getint(msg);
+			ereport(PMGRLOG,
+					(errmsg("agent %p pid %d begin acquire connect %s:%d",
+							agent, agent->pid, info.hostname, info.port),
+					 PMGR_BACKTRACE_DETIAL()));
+
 			if (hash_search(agent->connected_node, &info, HASH_FIND, NULL) != NULL)
 				ereport(ERROR, (errmsg("double get node connect for %s:%d", info.hostname, info.port)));
 
@@ -2747,9 +2931,9 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 				{
 					AssertState(tmp_slot->owner == agent);
 					slot = tmp_slot;
-					ereport(DEBUG1,
-						(errmsg("[pool] get slot from released_slot, backend pid : %d,",
-						agent->pid)));
+					ereport(PMGRLOG,
+							(errmsg("agent %p pid %d got released slot %p", agent, agent->pid, slot),
+							 PMGR_BACKTRACE_DETIAL()));
 					break;
 				}
 			}
@@ -2766,9 +2950,9 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 						slot = tmp_slot;
 						slot->last_agtm_port = 0;
 						slot->last_user_pid = 0;
-						ereport(DEBUG1,
-						(errmsg("[pool] get slot from idle_slot, backend pid : %d,",
-						agent->pid)));
+						ereport(PMGRLOG,
+								(errmsg("agent %p pid %d got idle slot %p", agent, agent->pid, slot),
+								 PMGR_BACKTRACE_DETIAL()));
 						break;
 					}
 				}
@@ -2786,9 +2970,9 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 						slot = tmp_slot;
 						slot->last_agtm_port = 0;
 						slot->last_user_pid = 0;
-						ereport(DEBUG1,
-						(errmsg("[pool] get slot from uninit_slot, slot state : %d, backend pid : %d,",
-						slot->slot_state, agent->pid)));
+						ereport(PMGRLOG,
+								(errmsg("agent %p pid %d got uninit slot %p", agent, agent->pid, slot),
+								 PMGR_BACKTRACE_DETIAL()));
 						break;
 					}
 				}
@@ -2804,8 +2988,9 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 				INIT_SLOT_PARAMS_MAGIC(slot, local_magic);
 				dlist_push_head(&node_pool->uninit_slot, &slot->dnode);
 				SET_SLOT_LIST(slot, UNINIT_SLOT);
-				ereport(DEBUG1,
-						(errmsg("[pool] Alloc new slot, slot state SLOT_STATE_UNINIT")));
+				ereport(PMGRLOG,
+						(errmsg("agent %p pid %d alloc new slot %p", agent, agent->pid, slot),
+						 PMGR_BACKTRACE_DETIAL()));
 			}
 
 			/* save slot into agent waiting list */
@@ -2831,9 +3016,10 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 				slot->poll_state = PGRES_POLLING_WRITING;
 				slot->conn->funs = &funs;
 				slot->retry = 0;
-				ereport(DEBUG1,
-						(errmsg("[pool] begin connect, connstr : %s,backend pid :%d slot state SLOT_STATE_CONNECTING",
-						node_pool->connstr, agent->pid)));
+				ereport(PMGRLOG,
+						(errmsg("agent %p pid %d begin slot %p connect \"%s\"",
+								agent, agent->pid, slot, node_pool->connstr),
+						 PMGR_BACKTRACE_DETIAL()));
 			}
 
 			SET_SLOT_OWNER(slot, agent);
