@@ -2174,6 +2174,10 @@ static void idle_slot(ADBNodePoolSlot *slot, bool reset)
 	{
 		destroy_slot(slot, false);
 	}
+	else if (slot->slot_state == SLOT_STATE_ERROR)
+	{
+		destroy_slot(slot, false);
+	}
 	else if(reset)
 	{
 		switch(slot->slot_state)
