@@ -3621,7 +3621,7 @@ bool mgr_check_list_in(List *list, char *checkName)
 }
 
 bool mgr_try_max_times_get_stringvalues(char cmdtype, int agentPort, char *sqlStr, char *userName
-				, char *nodeAddress, int nodePort, char *dbname, StringInfo restmsg, int max)
+				, char *nodeAddress, int nodePort, char *dbname, StringInfo restmsg, int max, char *checkResultStr)
 {
 	bool bres = false;
 	int k = 0;
@@ -3630,6 +3630,7 @@ bool mgr_try_max_times_get_stringvalues(char cmdtype, int agentPort, char *sqlSt
 	Assert(userName);
 	Assert(nodeAddress);
 	Assert(dbname);
+	Assert(checkResultStr);
 
 	while (k++ < max)
 	{
@@ -3638,12 +3639,26 @@ bool mgr_try_max_times_get_stringvalues(char cmdtype, int agentPort, char *sqlSt
 			,userName, nodeAddress, nodePort, dbname, restmsg);
 		/* check result */
 
-		if (restmsg->len > 0 && restmsg->data[0] != '\0')
+		if (cmdtype == AGT_CMD_GET_SQL_STRINGVALUES)
 		{
-			if (strcmp(restmsg->data, "t") == 0)
+			if (restmsg->len > 0 && restmsg->data[0] != '\0')
 			{
-				bres = true;
-				break;
+				if (strcmp(restmsg->data, "t") == 0)
+				{
+					bres = true;
+					break;
+				}
+			}
+		}
+		else
+		{
+			if (restmsg->len > 0 && restmsg->data[0] != '\0')
+			{
+				if (strcmp(restmsg->data, checkResultStr) == 0)
+				{
+					bres = true;
+					break;
+				}
 			}
 		}
 	}
@@ -3779,8 +3794,8 @@ void mgr_set_preferred_node(char *oldPreferredNode, char * preferredDnName, char
 		heap_close(relNode, AccessShareLock);
 		ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", coordname, sqlstrmsg.data)));
 		resetStringInfo(&restmsg);
-		bres = mgr_try_max_times_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort
-			, sqlstrmsg.data, userName, nodeAddress, nodePort, DEFAULT_DB, &restmsg, 3);
+		bres = mgr_try_max_times_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES_COMMAND, agentPort
+			, sqlstrmsg.data, userName, nodeAddress, nodePort, DEFAULT_DB, &restmsg, 3, "ALTER NODE");
 		if (!bres)
 			ereport(WARNING, (errmsg("on coordinator \"%s\" execute \"%s\" fail, you need to check it"
 				, coordname, sqlstrmsg.data)));

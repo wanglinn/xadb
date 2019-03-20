@@ -3605,9 +3605,9 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		seqNum = mgr_get_node_sequence(nodename.data, CNDN_TYPE_COORDINATOR_MASTER, true);
 		newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode, seqNum, nodename.data);
 		Assert(newDnList);
-		bres = mgr_try_max_times_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data
+		bres = mgr_try_max_times_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES_COMMAND, agentPort, sqlstrmsg.data
 				, appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr, appendnodeinfo.nodeport
-				, DEFAULT_DB, &restmsg, 3);
+				, DEFAULT_DB, &restmsg, 3, "ALTER NODE");
 		if (!bres)
 			ereport(WARNING, (errmsg("on coordinator \"%s\" execute \"%s\" fail, you need to check it"
 				, nodename.data, sqlstrmsg.data)));
@@ -5444,7 +5444,7 @@ Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
 			else
 				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 					,errmsg("datanode master \"%s\" does not have running normal synchronous slave node", nodename)
-					,errhint("if the master has one normal asynchronous slave node and you want to promote it to master, execute \"FAILOVER DATANODE %s\" to force promote the slave node to master", nodename)));
+					,errhint("if the master has one normal asynchronous slave node and you want to promote it to master, execute \"FAILOVER DATANODE %s FORCE\" to force promote the slave node to master", nodename)));
 		}
 		else
 		{
@@ -6244,7 +6244,7 @@ Datum mgr_failover_gtm(PG_FUNCTION_ARGS)
 			else
 				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 					,errmsg("gtm master \"%s\" does not have running normal synchronous slave node", nodename)
-					,errhint("if the master has one normal asynchronous slave node and you want to promote it to master, execute \"FAILOVER GTM %s\" to force promote the slave node to master", nodename)));
+					,errhint("if the master has one normal asynchronous slave node and you want to promote it to master, execute \"FAILOVER GTM %s FORCE\" to force promote the slave node to master", nodename)));
 		}
 		else
 		{
@@ -10391,7 +10391,7 @@ void mgr_unlock_cluster(PGconn **pg_conn)
 	HeapTuple tuple = NULL;
 	Form_mgr_node mgr_node;
 	StringInfoData cmdstring;
-	ScanKeyData key[1];
+	ScanKeyData key[3];
 	char *sqlstr = "set FORCE_PARALLEL_MODE = off; SELECT PG_UNPAUSE_CLUSTER();";
 
 	if (!*pg_conn)
@@ -10421,7 +10421,17 @@ void mgr_unlock_cluster(PGconn **pg_conn)
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
-	rel_scan = heap_beginscan_catalog(relNode, 1, key);
+	ScanKeyInit(&key[1]
+				,Anum_mgr_node_nodeinited
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+	ScanKeyInit(&key[2]
+				,Anum_mgr_node_nodeincluster
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+	rel_scan = heap_beginscan_catalog(relNode, 3, key);
 	while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		if (clusterLockCoordNodeOid == HeapTupleGetOid(tuple))
