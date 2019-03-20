@@ -136,6 +136,7 @@ static const ClusterCustomExecInfo cluster_custom_execute[] =
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRefreshMatView)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_vacuum)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeAlter)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeRemove)}
 	};
 
 static void set_cluster_display(const char *activity, bool force, ClusterCoordInfo *info);

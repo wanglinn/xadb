@@ -762,6 +762,7 @@ END_NODE(CreateNodeStmt)
 #ifndef NO_NODE_DropNodeStmt
 BEGIN_NODE(DropNodeStmt)
 	NODE_STRING(node_name)
+	NODE_NODE(List,node_list)
 END_NODE(DropNodeStmt)
 #endif /* NO_NODE_DropNodeStmt */
 

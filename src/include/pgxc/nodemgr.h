@@ -33,6 +33,7 @@ extern void PgxcNodeAlter(AlterNodeStmt *stmt);
 extern void ClusterNodeAlter(StringInfo mem_toc);
 extern void PgxcNodeCreate(CreateNodeStmt *stmt);
 extern void PgxcNodeRemove(DropNodeStmt *stmt);
+extern void ClusterNodeRemove(StringInfo mem_toc);
 
 extern void InitPGXCNodeIdentifier(void);
 

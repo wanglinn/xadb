@@ -11154,7 +11154,7 @@ AlterNodeStmt: ALTER NODE pgxcnode_name OptWith
 /*****************************************************************************
  *
  *		QUERY:
- *				DROP NODE nodename
+ *				DROP NODE nodename [ ON (nodename [,...]) ]
  *
  *****************************************************************************/
 
@@ -11162,6 +11162,13 @@ DropNodeStmt: DROP NODE pgxcnode_name
 				{
 					DropNodeStmt *n = makeNode(DropNodeStmt);
 					n->node_name = $3;
+					$$ = (Node *)n;
+				}
+			| DROP NODE pgxcnode_name ON '(' pgxcnode_list ')'
+				{
+					DropNodeStmt *n = makeNode(DropNodeStmt);
+					n->node_name = $3;
+					n->node_list = $6;
 					$$ = (Node *)n;
 				}
 		;
