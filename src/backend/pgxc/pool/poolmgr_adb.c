@@ -2528,6 +2528,7 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 		{
 		case PGRES_POLLING_FAILED:
 			save_slot_error(slot);
+			slot->slot_state = SLOT_STATE_ERROR;
 			break;
 		case PGRES_POLLING_READING:
 		case PGRES_POLLING_WRITING:
