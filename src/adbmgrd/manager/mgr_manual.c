@@ -1339,8 +1339,8 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 			Assert(newDnList);
 			ereport(LOG, (errmsg("on coordinator \"%s\", update the pgxc_node table", s_coordname)));
 			ereport(NOTICE, (errmsg("on coordinator \"%s\", update the pgxc_node table", s_coordname)));
-			bres = mgr_try_max_times_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data, userName
-							, nodeAddress, nodePort, DEFAULT_DB, &restmsg, 3);
+			bres = mgr_try_max_times_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES_COMMAND, agentPort, sqlstrmsg.data, userName
+							, nodeAddress, nodePort, DEFAULT_DB, &restmsg, 3, "ALTER NODE");
 			if (!bres)
 				ereport(WARNING, (errmsg("on coordinator \"%s\" execute \"%s\" fail, you need to check it"
 					, s_coordname
