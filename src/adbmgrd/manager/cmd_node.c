@@ -5404,6 +5404,7 @@ Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
 	if(force_get)
 		force = true;
 	relNode = heap_open(NodeRelationId, RowExclusiveLock);
+	initStringInfo(&(getAgentCmdRst.description));
 
 	PG_TRY();
 	{
@@ -5466,24 +5467,24 @@ Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
 			}
 		}
 
+		slaveTuple = mgr_get_tuple_node_from_name_type(relNode, slaveNodeName.data);
+		mgr_runmode_cndn_get_result(AGT_CMD_DN_FAILOVER, &getAgentCmdRst, relNode, slaveTuple, TAKEPLAPARM_N);
+		heap_freetuple(slaveTuple);
+
+		tup_result = build_common_command_tuple(
+			&(slaveNodeName)
+			, getAgentCmdRst.ret
+			, getAgentCmdRst.description.data);
+		ereport(LOG, (errmsg("the command for failover:\nresult is: %s\ndescription is: %s\n", getAgentCmdRst.ret == true ? "true" : "false", getAgentCmdRst.description.data)));
 	}PG_CATCH();
 	{
 		heap_close(relNode, RowExclusiveLock);
+		pfree(getAgentCmdRst.description.data);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
-	initStringInfo(&(getAgentCmdRst.description));
-	slaveTuple = mgr_get_tuple_node_from_name_type(relNode, slaveNodeName.data);
-	mgr_runmode_cndn_get_result(AGT_CMD_DN_FAILOVER, &getAgentCmdRst, relNode, slaveTuple, TAKEPLAPARM_N);
-	heap_freetuple(slaveTuple);
-
-	tup_result = build_common_command_tuple(
-		&(slaveNodeName)
-		, getAgentCmdRst.ret
-		, getAgentCmdRst.description.data);
-	ereport(LOG, (errmsg("the command for failover:\nresult is: %s\ndescription is: %s\n", getAgentCmdRst.ret == true ? "true" : "false", getAgentCmdRst.description.data)));
-	pfree(getAgentCmdRst.description.data);
 	heap_close(relNode, RowExclusiveLock);
+	pfree(getAgentCmdRst.description.data);
 
 	return HeapTupleGetDatum(tup_result);
 }
@@ -6758,10 +6759,8 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 	StringInfoData recorderr;
 	StringInfoData infosendsyncmsgtmp;
 	HeapScanDesc rel_scan;
-	HeapTuple mastertuple;
 	Form_mgr_node mgr_node;
 	Form_mgr_node mgr_nodetmp;
-	Form_mgr_node mgr_nodemaster;
 	HeapTuple tuple;
 	Oid newmastertupleoid;
 	Oid oldMasterTupleOid;
@@ -6897,19 +6896,22 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 	pfree(infosendsyncmsg.data);
 
 	/*delete old master record in node systbl*/
-	mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
-	if(!HeapTupleIsValid(mastertuple))
+	rel_scan = heap_beginscan_catalog(noderel, 0, NULL);
+	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
-		ereport(WARNING, (errcode(ERRCODE_UNDEFINED_OBJECT)
-			,errmsg("datanode master \"%s\" dosen't exist", cndnname->data)));
+		mgr_nodetmp = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_nodetmp);
+		if (HeapTupleGetOid(tuple) != oldMasterTupleOid)
+			continue;
+		mgr_nodetmp->nodeinited = false;
+		mgr_nodetmp->nodeincluster = false;
+		heap_inplace_update(noderel, tuple);
+		namestrcpy(&masterNameData, NameStr(mgr_nodetmp->nodename));
+		CatalogTupleDelete(noderel, &tuple->t_self);
+		break;
 	}
-	else
-	{
-		mgr_nodemaster = (Form_mgr_node)GETSTRUCT(mastertuple);
-		namestrcpy(&masterNameData, NameStr(mgr_nodemaster->nodename));
-		CatalogTupleDelete(noderel, &mastertuple->t_self);
-		ReleaseSysCache(mastertuple);
-	}
+	heap_endscan(rel_scan);
+
 	/*change slave type to master type*/
 	mgr_node = (Form_mgr_node)GETSTRUCT(aimtuple);
 	Assert(mgr_node);
