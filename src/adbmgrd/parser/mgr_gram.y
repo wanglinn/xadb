@@ -1916,10 +1916,29 @@ CleanAllStmt:
 /*hba start*/
 
 AddHbaStmt:
-	ADD_P HBA set_ident '(' NodeConstList ')'
+	ADD_P HBA GTM set_ident '(' NodeConstList ')'
 	{
 		SelectStmt *stmt = makeNode(SelectStmt);
-		List *args = lappend($5, makeStringConst($3,@3));
+		List *args = lappend($6, makeStringConst($4,@4));
+		args = lappend(args, makeIntConst(CNDN_TYPE_GTM,@3));
+		stmt->targetList = list_make1(make_star_target(-1));
+		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_add_hba", args));
+		$$ = (Node*)stmt;
+	}
+	|	ADD_P HBA COORDINATOR set_ident '(' NodeConstList ')'
+	{
+		SelectStmt *stmt = makeNode(SelectStmt);
+		List *args = lappend($6, makeStringConst($4,@4));
+		args = lappend(args, makeIntConst(CNDN_TYPE_COORDINATOR,@3));
+		stmt->targetList = list_make1(make_star_target(-1));
+		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_add_hba", args));
+		$$ = (Node*)stmt;
+	}
+	|	ADD_P HBA DATANODE set_ident '(' NodeConstList ')'
+	{
+		SelectStmt *stmt = makeNode(SelectStmt);
+		List *args = lappend($6, makeStringConst($4,@4));
+		args = lappend(args, makeIntConst(CNDN_TYPE_DATANODE,@3));
 		stmt->targetList = list_make1(make_star_target(-1));
 		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_add_hba", args));
 		$$ = (Node*)stmt;

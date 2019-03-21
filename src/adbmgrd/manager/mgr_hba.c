@@ -77,8 +77,8 @@ void add_hba_table_to_file(char *coord_name);
 //extern void mgr_reload_conf(Oid hostoid, char *nodepath);
 //extern HbaInfo* parse_hba_file(const char *filename);
 /*--------------------------------------------------------------------*/
-static void mgr_add_hba_all(List *args_list, GetAgentCmdRst *err_msg);
-static void mgr_add_hba_one(char *coord_name, List *args_list, bool record_err_msg,bool is_check_value, GetAgentCmdRst *err_msg);
+static void mgr_add_hba_all(char type, char *hbastr, GetAgentCmdRst *err_msg);
+static void mgr_add_hba_one(char nodetype, char *nodename, char *hbastr, bool record_err_msg,bool is_check_value, GetAgentCmdRst *err_msg);
 static void drop_hba_all(GetAgentCmdRst *err_msg);
 static void drop_hba_nodename_all(char *coord_name, GetAgentCmdRst *err_msg);
 static void drop_hba_all_value(List *args_list, GetAgentCmdRst *err_msg);
@@ -96,6 +96,7 @@ static List *parse_hba_list(List *args_list);
 static void joint_hba_send_str(char *hbavalue, StringInfo infosendmsg);
 static void joint_hba_table_str(char *hbavalue, StringInfo infomsg);
 static bool is_digit_str(char *s_digit);
+static bool mgr_type_include(char nodetype, char type);
 /*--------------------------------------------------------------------*/
 
 Datum mgr_list_hba_by_name(PG_FUNCTION_ARGS)
@@ -165,7 +166,17 @@ Datum mgr_add_hba(PG_FUNCTION_ARGS)
 	OperateHbaType handle_type = HANDLE_NO;
 	HeapTuple tup_result;
 	List *args_list = NIL;
-	char *coord_name;
+	char *nodename = NULL;
+	char *hbastr = NULL;
+	char type = CNDN_TYPE_COORDINATOR;
+	char nodetype;
+	ScanKeyData key[2];
+	NameData nodedataname;
+	HeapTuple tuple;
+	Form_mgr_node mgr_node;
+	Relation rel_node;
+	HeapScanDesc rel_scan;
+
 	err_msg.ret = true;
 	initStringInfo(&err_msg.description);
 	/*step 1: parase args,and get nodename,hba values;
@@ -175,69 +186,91 @@ Datum mgr_add_hba(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errmsg("args is null")));
 	}
 	args_list = get_fcinfo_namelist("", 0, fcinfo);
-	if(args_list->length < 2)
+	if(args_list->length < 3)
 	{
 		ereport(ERROR, (errmsg("args is not enough")));
 	}
-	coord_name = llast(args_list);
-	if(strcmp(coord_name,"*") == 0)
+	hbastr = lfirst(list_head(args_list));
+	nodename = lsecond(args_list);
+	type = llast_int(args_list);
+
+	namestrcpy(&nodedataname, "*");
+	if(strcmp(nodename,"*") == 0)
 		handle_type = HBA_ALL;
 	else
 		handle_type = HBA_NODENAME_ALL;
-	/*step 2: operate add hba comamnd*/
-	args_list = list_delete(args_list, llast(args_list)); /*remove nodename from list*/
 	if(HBA_ALL == handle_type)
 	{
-		mgr_add_hba_all(args_list, &err_msg);
+		mgr_add_hba_all(type, hbastr, &err_msg);
 	}
 	else if(HBA_NODENAME_ALL == handle_type)
 	{
-		mgr_add_hba_one(coord_name, args_list, true, true, &err_msg);
+		rel_node = heap_open(NodeRelationId, AccessShareLock);
+		namestrcpy(&nodedataname, nodename);
+		ScanKeyInit(&key[0]
+			,Anum_mgr_node_nodename
+			,BTEqualStrategyNumber
+			,F_NAMEEQ
+			,CStringGetDatum(&nodedataname));
+		ScanKeyInit(&key[1]
+			,Anum_mgr_node_nodeincluster
+			,BTEqualStrategyNumber
+			,F_BOOLEQ
+			,BoolGetDatum(true));
+		rel_scan = heap_beginscan_catalog(rel_node, 2, key);
+		tuple = heap_getnext(rel_scan, ForwardScanDirection);
+		if (!HeapTupleIsValid(tuple))
+			ereport(ERROR, (errmsg("the node does not exist in cluster")));
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		nodetype = mgr_node->nodetype;
+		heap_endscan(rel_scan);
+		heap_close(rel_node, AccessShareLock);
+		if (!mgr_type_include(nodetype, type))
+			ereport(ERROR, (errmsg("the node's type is not right")));
+
+		mgr_add_hba_one(nodetype, nodename, hbastr, true, true, &err_msg);
 	}
 	/*step 3: show the state of operating drop hba commands */
-	tup_result = tuple_form_table_hba((Name)coord_name
+	tup_result = tuple_form_table_hba(&nodedataname
 									,true == err_msg.ret ? "success" : err_msg.description.data);
 
 	pfree(err_msg.description.data);
 	return HeapTupleGetDatum(tup_result);
 }
 
-static void mgr_add_hba_all(List *args_list, GetAgentCmdRst *err_msg)
+static void mgr_add_hba_all(char type, char *hbastr, GetAgentCmdRst *err_msg)
 {
 	Relation rel;
 	HeapScanDesc rel_scan;
 	Form_mgr_node mgr_node;
 	HeapTuple tuple;
-	ScanKeyData key[1];
-	char *coord_name;
 	bool record_err_msg = true;
-	ScanKeyInit(&key[0],
-			Anum_mgr_node_nodetype
-			,BTEqualStrategyNumber
-			,F_CHAREQ
-			,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
 
-	rel = heap_open(NodeRelationId, RowExclusiveLock);
-	rel_scan = heap_beginscan_catalog(rel, 1, key);
+	rel = heap_open(NodeRelationId, AccessShareLock);
+	rel_scan = heap_beginscan_catalog(rel, 0, NULL);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		coord_name = NameStr(mgr_node->nodename);
-		mgr_add_hba_one(coord_name, args_list, record_err_msg, true, err_msg);
+		if (!mgr_type_include(mgr_node->nodetype, type))
+			continue;
+		mgr_add_hba_one(mgr_node->nodetype, NameStr(mgr_node->nodename)
+			, hbastr, record_err_msg, true, err_msg);
 		record_err_msg = false;
 	}
 
 	heap_endscan(rel_scan);
-	heap_close(rel, RowExclusiveLock);
+	heap_close(rel, AccessShareLock);
 }
 
-static void mgr_add_hba_one(char *coord_name, List *args_list, bool record_err_msg, bool is_check_exist, GetAgentCmdRst *err_msg)
+static void mgr_add_hba_one(char nodetype, char *nodename, char *hbastr, bool record_err_msg, bool is_check_exist, GetAgentCmdRst *err_msg)
 {
 	AppendNodeInfo nodeinfo;
 
 	ListCell *lc, *lc_elem;
 	List *list_elem = NIL;
+	List *args_list = NIL;
 	char *str_elem, *str;
 	StringInfoData infosendmsg;
 	StringInfoData hbainfomsg;
@@ -250,20 +283,22 @@ static void mgr_add_hba_one(char *coord_name, List *args_list, bool record_err_m
 	memset(datum, 0, sizeof(datum));
 	memset(isnull, 0, sizeof(isnull));
 
-	Assert(coord_name);
-	Assert(args_list);
+	Assert(nodename);
+	Assert(hbastr);
 	initStringInfo(&getAgentCmdRst.description);
 	/*step1: check the nodename is exist in the mgr_node table and make sure it has been initialized*/
-	is_valid = get_active_node_info(CNDN_TYPE_COORDINATOR_MASTER, coord_name, &nodeinfo);
+	is_valid = get_active_node_info(nodetype, nodename, &nodeinfo);
 	if (!is_valid)
 	{
-		ereport(ERROR, (errmsg("the adb cluaster has no active coordinator")));
+		ereport(ERROR, (errmsg("%s \"%s\" is not running normal"
+			, mgr_nodetype_str(nodetype), nodename)));
 	}
 
 	/*step2: parser the hba values and check whether it's valid*/
 	initStringInfo(&infosendmsg);/*send to agent*/
 	initStringInfo(&hbasendmsg);/*add to hba value*/
 	initStringInfo(&hbainfomsg);/*store one hba contxt*/
+	args_list = lappend(args_list, (void *)hbastr);
 	foreach(lc, args_list)
 	{
 		resetStringInfo(&hbainfomsg);
@@ -286,10 +321,10 @@ static void mgr_add_hba_one(char *coord_name, List *args_list, bool record_err_m
 		if (is_check_exist)
 		{
 			/*check the value whether exist in the hba table*/
-			is_exist = check_hba_tuple_exist(coord_name, hbainfomsg.data);
+			is_exist = check_hba_tuple_exist(nodename, hbainfomsg.data);
 			if(is_exist)
 			{
-				appendStringInfo(&err_msg->description, "nodename %s with values \"%s\" has existed.\n", coord_name, hbainfomsg.data);
+				appendStringInfo(&err_msg->description, "nodename %s with values \"%s\" has existed.\n", nodename, hbainfomsg.data);
 				err_msg->ret = false;
 				continue;
 			}
@@ -322,7 +357,7 @@ static void mgr_add_hba_one(char *coord_name, List *args_list, bool record_err_m
 								,&getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
 		{
-			appendStringInfo(&err_msg->description,"add hba %s execute in agent failure\n",coord_name);
+			appendStringInfo(&err_msg->description,"add hba %s execute in agent failure\n",nodename);
 			appendStringInfo(&err_msg->description,"hba info sync error\n");
 			err_msg->ret = false;
 		}
@@ -339,7 +374,7 @@ static void mgr_add_hba_one(char *coord_name, List *args_list, bool record_err_m
 		foreach(lc, list_elem)
 		{
 			str_elem = lfirst(lc);
-			datum[Anum_mgr_hba_nodename - 1] = CStringGetDatum(coord_name); /* CString compatible Name */
+			datum[Anum_mgr_hba_nodename - 1] = CStringGetDatum(nodename); /* CString compatible Name */
 			datum[Anum_mgr_hba_value - 1] = CStringGetTextDatum(str_elem);
 			tuple_insert_table_hba(datum, isnull);
 		}
@@ -350,6 +385,7 @@ static void mgr_add_hba_one(char *coord_name, List *args_list, bool record_err_m
 		pfree(lfirst(lc));
 	}
 	list_free(list_elem);
+	list_free(args_list);
 	pfree(hbainfomsg.data);
 	pfree(infosendmsg.data);
 	pfree(hbasendmsg.data);
@@ -764,8 +800,9 @@ void add_hba_table_to_file(char *coord_name)
 	Form_mgr_hba mgr_hba;
 	ScanKeyData scankey[1];
 	char *hba_value;
-	List *value_list = NIL;
+	char nodetype;
 	GetAgentCmdRst err_msg;
+	NameData nodenamedata;
 
 	Assert(coord_name);
 	initStringInfo(&(err_msg.description));
@@ -788,15 +825,13 @@ void add_hba_table_to_file(char *coord_name)
 		Assert(mgr_hba);
 		coord_name = NameStr(mgr_hba->nodename);
 		hba_value = TextDatumGetCString(&(mgr_hba->hbavalue));
-
-		value_list = lappend(value_list, (void *)hba_value);
-		mgr_add_hba_one((char *)coord_name, value_list, true, false, &err_msg);
+		namestrcpy(&nodenamedata, coord_name);
+		nodetype = mgr_get_nodetype(&nodenamedata);
+		mgr_add_hba_one(nodetype, (char *)coord_name, hba_value, true, false, &err_msg);
 		if (!err_msg.ret)
 		{
 			ereport(ERROR, (errmsg("add hba info \"%s\" to coordinator \"%s\"", hba_value, coord_name)));
 		}
-		list_free(value_list);
-		value_list = NIL;
 		resetStringInfo(&(err_msg.description));
 		err_msg.ret = true;
 	}
@@ -1117,4 +1152,28 @@ static bool is_digit_str(char *s_digit)
 		return false;
 	else
 		return true;
+}
+
+static bool mgr_type_include(char nodetype, char type)
+{
+	if (type == CNDN_TYPE_GTM)
+	{
+		if (nodetype == GTM_TYPE_GTM_MASTER
+			|| nodetype == GTM_TYPE_GTM_SLAVE)
+			return true;
+	}
+	else if (type == CNDN_TYPE_COORDINATOR)
+	{
+		if (nodetype == CNDN_TYPE_COORDINATOR_MASTER
+			|| nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
+			return true;
+	}
+	else
+	{
+		if (nodetype == CNDN_TYPE_DATANODE_MASTER
+			|| nodetype == CNDN_TYPE_DATANODE_SLAVE)
+			return true;
+	}
+
+	return false;
 }
