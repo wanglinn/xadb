@@ -1597,12 +1597,10 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 	ScanKeyData key[3];
 	StringInfoData cmdstrmsg;
 	NameData masterName;
-	NameData slaveNodeName;
 	int nargs;
 	int nmasterNum = 0;
 	int createFdNum = 0;
 	int i = 0;
-	int pingres = PQPING_NO_RESPONSE;
 	char *address;
 	bool bnameNull = false;
 	bool res = true;
@@ -1745,49 +1743,19 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 			{
 				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 				Assert(mgr_node);
-				pingres = mgr_get_normal_slave_node(relNode, HeapTupleGetOid(tuple)
-													, SYNC_STATE_SYNC, InvalidOid, &slaveNodeName);
 				bexec = true;
-				if (pingres != PQPING_OK)
-				{
-					if (!nodeArg.bforce)
-					{
-						bexec = false;
-						ereport(WARNING, (errmsg("the gtm master \"%s\" is not running normal and has not active sync slave node"
-							, NameStr(mgr_node->nodename))));
-					}
-					else
-					{
-						pingres = mgr_get_normal_slave_node(relNode, HeapTupleGetOid(tuple)
-													, SYNC_STATE_POTENTIAL, InvalidOid, &slaveNodeName);
-						if (pingres != PQPING_OK)
-						{
-							pingres = mgr_get_normal_slave_node(relNode, HeapTupleGetOid(tuple)
-													, SYNC_STATE_ASYNC, InvalidOid, &slaveNodeName);
-							if (pingres != PQPING_OK)
-							{
-								bexec = false;
-								ereport(WARNING, (errmsg("the gtm master \"%s\" is not running normal and has not active slave node"
-														, NameStr(mgr_node->nodename))));
-							}
-						}
-					}
-				}
 
 				ereport(LOG, (errmsg("check gtm slave status in job end")));
 
-				if (bexec)
-				{
-					initStringInfo(&cmdstrmsg);
-					appendStringInfo(&cmdstrmsg, "failover gtm %s %s", NameStr(mgr_node->nodename), nodeArg.bforce ? "FORCE":"");
-					ereport(WARNING, (errmsg("the gtm master \"%s\" is not running normal and will notice ADBMGR to do \"%s\" command"
-					, NameStr(mgr_node->nodename), cmdstrmsg.data)));
-					/* do failover command */
-					res = DirectFunctionCall2(mgr_failover_gtm, CStringGetDatum(NameStr(mgr_node->nodename)), BoolGetDatum(nodeArg.bforce));
-					if (!res)
-						ereport(WARNING, (errmsg("on ADBMGR do command \"%s\" fail, check the log" , cmdstrmsg.data)));
-					pfree(cmdstrmsg.data);
-				}
+				initStringInfo(&cmdstrmsg);
+				appendStringInfo(&cmdstrmsg, "failover gtm %s %s", NameStr(mgr_node->nodename), nodeArg.bforce ? "FORCE":"");
+				ereport(WARNING, (errmsg("the gtm master \"%s\" is not running normal and will notice ADBMGR to do \"%s\" command"
+				, NameStr(mgr_node->nodename), cmdstrmsg.data)));
+				/* do failover command */
+				res = DirectFunctionCall2(mgr_failover_gtm, CStringGetDatum(NameStr(mgr_node->nodename)), BoolGetDatum(nodeArg.bforce));
+				if (!res)
+					ereport(WARNING, (errmsg("on ADBMGR do command \"%s\" fail, check the log" , cmdstrmsg.data)));
+				pfree(cmdstrmsg.data);
 
 			}
 			else
