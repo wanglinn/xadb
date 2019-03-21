@@ -1879,6 +1879,10 @@ end_params_local_:
 							   HASH_REMOVE,
 							   NULL);
 			Assert(info && info->slot == slot);
+			ereport(PMGRLOG,
+					(errmsg("agent %p pid %d removed slot %p for %s:%d",
+							agent, agent->pid, info->slot, info->info.hostname, info->info.port),
+					 PMGR_BACKTRACE_DETIAL()));
 			pfree(info->info.hostname);
 			MemSet(info, 0, sizeof(*info));
 			if (slot->slot_state == SLOT_STATE_ERROR)
@@ -1938,6 +1942,10 @@ end_params_local_:
 								   &slot->parent->hostinfo,
 								   HASH_REMOVE,
 								   NULL);
+				ereport(PMGRLOG,
+						(errmsg("agent %p pid %d removed slot %p for %s:%d",
+								agent, agent->pid, slot, info->info.hostname, info->info.port),
+						 PMGR_BACKTRACE_DETIAL()));
 				Assert(info);
 				pfree(info->info.hostname);
 				release_slot(slot, false);
@@ -2626,6 +2634,10 @@ static void agent_release_connections(PoolAgent *agent, bool force_destroy)
 			&& slot->last_user_pid == agent->pid);
 
 		hash_search(agent->connected_node, &info->info, HASH_REMOVE, NULL);
+		ereport(PMGRLOG,
+				(errmsg("agent %p pid %d removed slot %p for %s:%d",
+						agent, agent->pid, slot, info->info.hostname, info->info.port),
+				 PMGR_BACKTRACE_DETIAL()));
 		pfree(info->info.hostname);
 		info->info.hostname = NULL;
 		release_slot(slot, force_destroy);
@@ -2645,8 +2657,8 @@ static void agent_idle_connections(PoolAgent *agent, bool force_destroy)
 	{
 		slot = info->slot;
 		ereport(PMGRLOG,
-				(errmsg("agent %p pid %d begin idle connections for slot %p last state %d",
-						agent, agent->pid, slot, slot->slot_state),
+				(errmsg("agent %p pid %d begin idle connections for slot %p last state %d for %s:%d",
+						agent, agent->pid, slot, slot->slot_state, info->info.hostname, info->info.port),
 				 PMGR_BACKTRACE_DETIAL()));
 		if((slot->slot_state == SLOT_STATE_RELEASED || slot->slot_state == SLOT_STATE_LOCKED)
 			&& slot->last_user_pid == agent->pid)
@@ -2660,6 +2672,10 @@ static void agent_idle_connections(PoolAgent *agent, bool force_destroy)
 					 PMGR_BACKTRACE_DETIAL()));
 		}
 		hash_search(agent->connected_node, &info->info, HASH_REMOVE, NULL);
+		ereport(PMGRLOG,
+				(errmsg("agent %p pid %d removed slot %p for %s:%d",
+						agent, agent->pid, slot, info->info.hostname, info->info.port),
+				 PMGR_BACKTRACE_DETIAL()));
 		pfree(info->info.hostname);
 		info->info.hostname = NULL;
 	}
@@ -2884,6 +2900,7 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 
 		while(count-- > 0)
 		{
+			ConnectedInfo *cinfo;
 			info.hostname = (char*)pool_getstring(msg);
 			info.port = (uint16)pool_getint(msg);
 			ereport(PMGRLOG,
@@ -2891,8 +2908,16 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 							agent, agent->pid, info.hostname, info.port),
 					 PMGR_BACKTRACE_DETIAL()));
 
-			if (hash_search(agent->connected_node, &info, HASH_FIND, NULL) != NULL)
+			if ((cinfo = hash_search(agent->connected_node, &info, HASH_FIND, NULL)) != NULL)
+			{
+				ereport(PMGRLOG,
+						(errmsg("agent %p pid %d found connected slot %p owner %p oid %d for %s:%d",
+								agent, agent->pid,
+								cinfo->slot, cinfo->slot->owner, cinfo->slot->owner ? cinfo->slot->owner->pid:0,
+								info.hostname, info.port),
+						 PMGR_BACKTRACE_DETIAL()));
 				ereport(ERROR, (errmsg("double get node connect for %s:%d", info.hostname, info.port)));
+			}
 
 			node_pool = hash_search(agent->db_pool->htab_nodes, &info, HASH_ENTER, &found);
 			if (!found)
@@ -3048,6 +3073,10 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 										 &info,
 										 HASH_ENTER,
 										 NULL);
+			ereport(PMGRLOG,
+					(errmsg("agent %p pid %d entry slot %p for %s:%d",
+							agent, agent->pid, slot, info.hostname, info.port),
+					 PMGR_BACKTRACE_DETIAL()));
 			connected_info->slot = slot;
 			connected_info->info.hostname = MemoryContextStrdup(agent->mctx, connected_info->info.hostname);
 		}
@@ -3067,6 +3096,10 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 				if (connected_info != NULL)
 				{
 					Assert(connected_info->slot == slot);
+					ereport(PMGRLOG,
+							(errmsg("agent %p pid %d removed slot %p for %s:%d",
+									agent, agent->pid, slot, connected_info->info.hostname, connected_info->info.port),
+							 PMGR_BACKTRACE_DETIAL()));
 					if (connected_info->info.hostname != slot->parent->hostinfo.hostname)
 						pfree(connected_info->info.hostname);
 					MemSet(connected_info, 0, sizeof(*connected_info));
