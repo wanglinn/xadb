@@ -6205,6 +6205,8 @@ Datum mgr_failover_gtm(PG_FUNCTION_ARGS)
 	if(force_get)
 		force = true;
 
+	ereport(LOG, (errmsg("check gtm slave status in failover cmd start")));
+
 	relNode = heap_open(NodeRelationId, RowExclusiveLock);
 	PG_TRY();
 	{
@@ -6271,6 +6273,8 @@ Datum mgr_failover_gtm(PG_FUNCTION_ARGS)
 		heap_close(relNode, RowExclusiveLock);
 		PG_RE_THROW();
 	}PG_END_TRY();
+
+	ereport(LOG, (errmsg("check gtm slave status in failover cmd end")));
 
 	initStringInfo(&(getAgentCmdRst.description));
 	slaveTuple = mgr_get_tuple_node_from_name_type(relNode, slaveNodeName.data);
@@ -10217,6 +10221,8 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
 
+	ereport(LOG, (errmsg("get active coordinator to connect start")));
+
 	for (iloop = 0; iloop < max; iloop++)
 	{
 		/*get active coordinator to connect*/
@@ -10326,6 +10332,8 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 				coordhost, coordport, DEFAULT_DB, connect_user)));
 	}
 
+	ereport(LOG, (errmsg("get active coordinator to connect end")));
+
 	/* get the value of pool_release_to_idle_timeout to record */
 	try = 0;
 	namestrcpy(&paramV, "-1");
@@ -10342,11 +10350,13 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 	}
 	if (strcmp(paramV.data, "-1") != 0)
 	{
+		ereport(LOG, (errmsg("set pool_release_to_idle_timeout = -1 start")));
 		ereport(NOTICE, (errmsg("set all coordinators pool_release_to_idle_timeout = -1, original value is '%s'", paramV.data)));
 		ereport(LOG, (errmsg("set all coordinators pool_release_to_idle_timeout = -1, original value is '%s'", paramV.data)));
 		/* set all coordinators pool_release_to_idle_timeout = -1 */
 		mgr_set_all_nodetype_param(CNDN_TYPE_COORDINATOR_MASTER, "pool_release_to_idle_timeout", "-1");
 		pg_usleep(300000L);
+		ereport(LOG, (errmsg("set pool_release_to_idle_timeout = -1 end")));
 	}
 
 	/*lock cluster*/
