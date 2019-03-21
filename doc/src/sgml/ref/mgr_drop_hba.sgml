@@ -21,7 +21,7 @@ ADB documentation
 
   <refsynopsisdiv>
     <synopsis>
-DROP HBA { ALL | coord_name } [ ( "hba_value" [, ...] ) ]
+DROP HBA { ALL | nodename } [ ( "hba_value" [, ...] ) ]
 </synopsis>
 </refsynopsisdiv>
   <refsect1>
