@@ -1651,6 +1651,8 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 	/* check the input value */
 	mgr_check_handle_node_func_arg(&nodeArg);
 
+	ereport(DEBUG1, (errmsg("check gtm master status start")));
+
 	relNode = heap_open(NodeRelationId, AccessShareLock);
 	/* get total gtm master num */
 	if (!bnameNull)
@@ -1727,11 +1729,15 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 			i++;
 		}
 
+		ereport(DEBUG1, (errmsg("check gtm master status end")));
+
 		if (ret)
 		{
 			Assert(!fdHandle[0].connectStatus);
 			ereport(WARNING, (errmsg("the number of gtm master which is not running normal : %d" , ret)));
 			/* check the gtm master has slave node */
+			ereport(LOG, (errmsg("check gtm slave status in job start")));
+
 			relScan = heap_beginscan_catalog(relNode, 3, key);
 			if((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 			{
@@ -1765,6 +1771,9 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 						}
 					}
 				}
+
+				ereport(LOG, (errmsg("check gtm slave status in job end")));
+
 				if (bexec)
 				{
 					initStringInfo(&cmdstrmsg);

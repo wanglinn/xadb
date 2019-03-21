@@ -2465,7 +2465,6 @@ static bool mgr_check_active_connect_in_coordinator(PGconn *pgConn, const Oid cn
 		ereport(LOG, (errmsg("check active connections on %s %s", nodeTypeStr, NameStr(mgr_node->nodename))));
 		ereport(NOTICE, (errmsg("check active connections on %s %s", nodeTypeStr, NameStr(mgr_node->nodename))));
 		resetStringInfo(&cmdstring);
-		pfree(nodeTypeStr);
 		/*for coordiantor connect*/
 		resetStringInfo(&cmdstring);
 		if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype)
@@ -2491,7 +2490,10 @@ static bool mgr_check_active_connect_in_coordinator(PGconn *pgConn, const Oid cn
 			if (p == NULL)
 				rest = false;
 			else if (strcmp(p, "0") != 0)
+			{
+				ereport(WARNING, (errmsg("there are active connections on %s %s", nodeTypeStr, NameStr(mgr_node->nodename))));
 				rest = false;
+			}
 			else
 				rest = true;
 			PQclear(res);
@@ -2503,6 +2505,7 @@ static bool mgr_check_active_connect_in_coordinator(PGconn *pgConn, const Oid cn
 			ereport(WARNING, (errmsg("%s", PQerrorMessage(pgConn))));
 		}
 
+		pfree(nodeTypeStr);
 		if (rest == false)
 			break;
 	}
