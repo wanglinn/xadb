@@ -1594,6 +1594,9 @@ exprLocation(const Node *expr)
 		case T_LevelExpr:
 			loc = ((const LevelExpr*)expr)->location;
 			break;
+		case T_PriorExpr:
+			loc = ((const PriorExpr*)expr)->location;
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			/* for any other node type it's just unknown... */

@@ -1140,6 +1140,10 @@ _outRangeVar(StringInfo str, const RangeVar *node)
 	WRITE_CHAR_FIELD(relpersistence);
 	WRITE_NODE_FIELD(alias);
 	WRITE_LOCATION_FIELD(location);
+#ifdef ADB_GRAM_ORA
+	WRITE_BOOL_FIELD(from_connect_by);
+	WRITE_BOOL_FIELD(no_special);
+#endif /* ADB_GRAM_ORA */
 }
 
 static void
@@ -2811,6 +2815,18 @@ _outDeclareCursorStmt(StringInfo str, const DeclareCursorStmt *node)
 	WRITE_NODE_FIELD(query);
 }
 
+#ifdef ADB_GRAM_ORA
+static void
+_outOracleConnectBy(StringInfo str, const OracleConnectBy *node)
+{
+	WRITE_NODE_TYPE("ORACLECONNECTBY");
+
+	WRITE_BOOL_FIELD(no_cycle);
+	WRITE_NODE_FIELD(start_with);
+	WRITE_NODE_FIELD(connect_by);
+}
+#endif /* ADB_GRAM_ORA */
+
 static void
 _outSelectStmt(StringInfo str, const SelectStmt *node)
 {
@@ -2834,6 +2850,9 @@ _outSelectStmt(StringInfo str, const SelectStmt *node)
 	WRITE_BOOL_FIELD(all);
 	WRITE_NODE_FIELD(larg);
 	WRITE_NODE_FIELD(rarg);
+#ifdef ADB_GRAM_ORA
+	WRITE_NODE_FIELD(ora_connect_by);
+#endif /* ADB_GRAM_ORA */
 }
 
 static void
@@ -3132,6 +3151,11 @@ _outCommonTableExpr(StringInfo str, const CommonTableExpr *node)
 	WRITE_NODE_FIELD(ctecoltypes);
 	WRITE_NODE_FIELD(ctecoltypmods);
 	WRITE_NODE_FIELD(ctecolcollations);
+#ifdef ADB_GRAM_ORA
+	WRITE_NODE_FIELD(scbp_list);
+	WRITE_NODE_FIELD(scbp_alias);
+	WRITE_BOOL_FIELD(have_level);
+#endif /* ADB_GRAM_ORA */
 }
 
 static void
@@ -4066,6 +4090,9 @@ outNode(StringInfo str, const void *obj)
 				break;
 			case T_LevelExpr:
 				_outLevelExpr(str, obj);
+				break;
+			case T_OracleConnectBy:
+				_outOracleConnectBy(str, obj);
 				break;
 #endif /* ADB_GRAM_ORA */
 			case T_InferenceElem:

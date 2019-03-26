@@ -3077,9 +3077,7 @@ columnref:	ColId
 				}
 			| LEVEL
 				{
-					LevelExpr *n = makeNode(LevelExpr);
-					n->location = @1;
-					$$ = (Node*)n;
+					$$ = makeColumnRef(pstrdup($1), NIL, @1, yyscanner);
 				}
 			| ColId indirection
 				{
@@ -3672,7 +3670,7 @@ func_args_list:
 			func_arg								{ $$ = list_make1($1); }
 			| func_args_list ',' func_arg			{ $$ = lappend($1, $3); }
 		;
-					
+
 DropStmt:
 	DROP drop_type IF_P EXISTS any_name_list opt_drop_behavior DropStmt_opt_purge
 		{
@@ -7482,7 +7480,7 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 		{
 			PUSH_LOOKAHEAD(&look1);
 		}
-		break;	
+		break;
 	case NULLS_P:
 		LEX_LOOKAHEAD(&look1);
 		if (look1.token == FIRST_P || look1.token == LAST_P)

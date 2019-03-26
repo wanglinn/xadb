@@ -115,6 +115,10 @@ _equalRangeVar(const RangeVar *a, const RangeVar *b)
 	COMPARE_SCALAR_FIELD(relpersistence);
 	COMPARE_NODE_FIELD(alias);
 	COMPARE_LOCATION_FIELD(location);
+#ifdef ADB_GRAM_ORA
+	COMPARE_SCALAR_FIELD(from_connect_by);
+	COMPARE_SCALAR_FIELD(no_special);
+#endif /* ADB_GRAM_ORA */
 
 	return true;
 }
@@ -1081,6 +1085,18 @@ _equalUpdateStmt(const UpdateStmt *a, const UpdateStmt *b)
 	return true;
 }
 
+#ifdef ADB_GRAM_ORA
+static bool
+_equalOracleConnectBy(const OracleConnectBy *a, const OracleConnectBy *b)
+{
+	COMPARE_SCALAR_FIELD(no_cycle);
+	COMPARE_NODE_FIELD(start_with);
+	COMPARE_NODE_FIELD(connect_by);
+
+	return true;
+}
+#endif /* ADB_GRAM_ORA */
+
 static bool
 _equalSelectStmt(const SelectStmt *a, const SelectStmt *b)
 {
@@ -1102,6 +1118,9 @@ _equalSelectStmt(const SelectStmt *a, const SelectStmt *b)
 	COMPARE_SCALAR_FIELD(all);
 	COMPARE_NODE_FIELD(larg);
 	COMPARE_NODE_FIELD(rarg);
+#ifdef ADB_GRAM_ORA
+	COMPARE_NODE_FIELD(ora_connect_by);
+#endif /* ADB_GRAM_ORA */
 
 	return true;
 }
@@ -2850,6 +2869,11 @@ _equalCommonTableExpr(const CommonTableExpr *a, const CommonTableExpr *b)
 	COMPARE_NODE_FIELD(ctecoltypes);
 	COMPARE_NODE_FIELD(ctecoltypmods);
 	COMPARE_NODE_FIELD(ctecolcollations);
+#ifdef ADB_GRAM_ORA
+	COMPARE_NODE_FIELD(scbp_list);
+	COMPARE_NODE_FIELD(scbp_alias);
+	COMPARE_SCALAR_FIELD(have_level);
+#endif /* ADB_GRAM_ORA */
 
 	return true;
 }
@@ -3353,6 +3377,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_LevelExpr:
 			retval = _equalLevelExpr(a, b);
+			break;
+		case T_OracleConnectBy:
+			retval = _equalOracleConnectBy(a, b);
 			break;
 #endif /* ADB_GRAM_ORA */
 
