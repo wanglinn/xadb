@@ -21,7 +21,18 @@
 #include "parser/parse_cte.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
-
+#ifdef ADB_GRAM_ORA
+#include "access/heapam.h"
+#include "access/sysattr.h"
+#include "catalog/heap.h"
+#include "miscadmin.h"
+#include "nodes/makefuncs.h"
+#include "parser/parser.h"
+#include "parser/parse_clause.h"
+#include "parser/parse_expr.h"
+#include "parser/parse_relation.h"
+#include "utils/rel.h"
+#endif /* ADB_GRAM_ORA */
 
 /* Enumeration of contexts in which a self-reference is disallowed */
 typedef enum
@@ -90,7 +101,6 @@ static void TopologicalSort(ParseState *pstate, CteItem *items, int numitems);
 static void checkWellFormedRecursion(CteState *cstate);
 static bool checkWellFormedRecursionWalker(Node *node, CteState *cstate);
 static void checkWellFormedSelectStmt(SelectStmt *stmt, CteState *cstate);
-
 
 /*
  * transformWithClause -
@@ -971,3 +981,344 @@ checkWellFormedSelectStmt(SelectStmt *stmt, CteState *cstate)
 		}
 	}
 }
+
+#ifdef ADB_GRAM_ORA
+typedef struct ParseOracleConnectByContext
+{
+	CommonTableExpr	   *cte;
+	ParseState		   *pstate;
+	RangeTblEntry	   *rte;
+	Bitmapset		   *using_attnos;
+	char			   *cte_name;
+	List			   *scbp_list;	/* sys_connect_by_path expressions */
+	List			   *scbp_alias;	/* sys_connect_by_path alias "char*" */
+	bool				have_level;	/* have LevelExpr expression */
+}ParseOracleConnectByContext;
+
+bool is_sys_connect_by_path_expr(Node *node)
+{
+	if(node != NULL && IsA(node, FuncCall))
+	{
+		FuncCall *func = (FuncCall*)node;
+		if(list_length(func->funcname) == 1
+			&& list_length(func->args) == 2
+			&& func->agg_order == NIL
+			&& func->agg_star == false
+			&& func->agg_distinct == false
+			&& func->func_variadic == false
+			&& func->over == NULL
+			&& IsA(linitial(func->funcname), String)
+			&& strcmp(strVal(linitial(func->funcname)), "sys_connect_by_path") == 0)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool search_using_column(Node *node, ParseOracleConnectByContext *context)
+{
+	check_stack_depth();
+
+	if (node == NULL)
+	{
+		return false;
+	}else if (is_sys_connect_by_path_expr(node))
+	{
+		if (list_member(context->scbp_list, node) == false)
+			context->scbp_list = lappend(context->scbp_list, node);
+	}else if (IsA(node, LevelExpr))
+	{
+		context->have_level = true;
+		return false;
+	}else if (IsA(node, ColumnRef))
+	{
+		Var *var;
+		ColumnRef *cref = (ColumnRef*)node;
+		if (list_length(cref->fields) == 1 &&
+			IsA(linitial(cref->fields), String) &&
+			strcmp(strVal(linitial(cref->fields)), "level") == 0)
+		{
+			context->have_level = true;
+			return false;
+		}
+		if (IsA(llast(cref->fields), A_Star))
+		{
+			context->using_attnos = bms_add_member(context->using_attnos,
+												   InvalidAttrNumber-FirstLowInvalidHeapAttributeNumber);
+			return false;
+		}
+		var = (Var*)transformExpr(context->pstate, node, EXPR_KIND_OTHER);
+		if (var != NULL &&
+			IsA(var, Var) &&
+			var->varno == 1 && /* we only have one RTE */
+			var->varlevelsup == 0)
+		{
+			/* when has whole, don't need add normale attribute */
+			if (var->varattno <= 0 ||
+				!bms_is_member(InvalidAttrNumber-FirstLowInvalidHeapAttributeNumber, context->using_attnos))
+			{
+				context->using_attnos = bms_add_member(context->using_attnos,
+													   var->varattno - FirstLowInvalidHeapAttributeNumber);
+			}
+		}
+		return false;
+	}else if (IsA(node, SubLink))
+	{
+		SubLink *sublink = (SubLink*)node;
+		/* ignore subselect */
+		return search_using_column(sublink->testexpr, context);
+	}
+
+	return node_tree_walker(node, search_using_column, context);
+}
+
+static List* append_column_ref_target(List *list, const char *colname, bool on_right)
+{
+	ResTarget *target;
+	ColumnRef *cref;
+
+	cref = makeNode(ColumnRef);
+	cref->fields = lappend(cref->fields, makeString(pstrdup(colname)));
+	cref->location = -1;
+
+	target = makeNode(ResTarget);
+	target->val = (Node*)cref;
+	target->location = -1;
+
+	return lappend(list, target);
+}
+
+static char* generate_unique_name(const char *template, List *exist_names)
+{
+	ListCell *lc;
+	int i;
+	char buf[NAMEDATALEN];
+
+	i=0;
+	strcpy(buf, template);
+
+re_check_:
+	foreach(lc, exist_names)
+	{
+		if (strcmp(buf, strVal(lfirst(lc))) == 0)
+		{
+			sprintf(buf, "%s_%d", template, ++i);
+			goto re_check_;
+		}
+	}
+
+	return pstrdup(buf);
+}
+
+static List* make_union_all_targetlist(ParseOracleConnectByContext *context, bool on_right)
+{
+	List			   *result = NIL;
+	Bitmapset		   *bms = context->using_attnos;
+	List			   *colnames = context->rte->eref->colnames;
+	ListCell		   *lc,*lc2;
+	ResTarget		   *target;
+	Node			   *expr;
+	Form_pg_attribute	attr;
+	const char		   *colname;
+	int					x;
+	AttrNumber			attno;
+
+	/* process attribute */
+	x = -1;
+	while ((x = bms_next_member(bms, x)) >= 0)
+	{
+		attno = x + FirstLowInvalidHeapAttributeNumber;
+		if (attno < 0)
+		{
+			/* sys attribute */
+			attr = SystemAttributeDefinition(attno, true);
+			colname = NameStr(attr->attname);
+		}else if (attno == 0)
+		{
+			/* has whole */
+			ListCell *lc;
+			foreach(lc, colnames)
+				result = append_column_ref_target(result, strVal(lfirst(lc)), on_right);
+			/* don't need loop more */
+			break;
+		}else
+		{
+			/* normal attribute */
+			Value *value = list_nth(colnames, attno-1);
+			colname = strVal(value);
+		}
+		result = append_column_ref_target(result, colname, on_right);
+	}
+
+	/* has level expression? */
+	if (context->have_level)
+	{
+		if (on_right)
+		{
+			PriorExpr *prior;
+
+			/* "PRIOR LEVEL" */
+			prior = makeNode(PriorExpr);
+			prior->expr = makeColumnRef("level", NIL, -1, NULL);
+			prior->location = -1;
+
+			/* "(PRIOR LEVEL)+1" */
+			expr = (Node*)makeSimpleA_Expr(AEXPR_OP, "+", (Node*)prior, makeIntConst(1, -1), -1);
+		}else
+		{
+			/* 1::int8 as level */
+			expr = makeIntConst(1, -1);
+			expr = makeTypeCast(expr,
+								makeTypeNameFromNameList(SystemFuncName("int8")),
+								-1);
+		}
+		target = makeNode(ResTarget);
+		target->val = expr;
+		target->name = "level";
+		target->location = -1;
+		result = lappend(result, target);
+	}
+
+	/* have sys_conect_by_path? */
+	Assert(list_length(context->scbp_list) == list_length(context->scbp_alias));
+	forboth (lc, context->scbp_list, lc2, context->scbp_alias)
+	{
+		if (on_right)
+		{
+			PriorExpr *prior;
+			/* PRIOR expr1 */
+			expr = makeColumnRef(lfirst(lc2), NIL, -1, NULL);
+			prior = makeNode(PriorExpr);
+			prior->expr = expr;
+			prior->location = -1;
+			/* (PRIOR expr1) || expr2 */
+			expr = (Node*)makeA_Expr(AEXPR_OP,
+									 list_make1(makeString("||")),
+									 (Node*)prior,
+									 llast(lfirst_node(FuncCall, lc)->args),
+									 -1);
+
+			/* ((PRIOR expr1) || expr2) || expr1 */
+			expr = (Node*)makeA_Expr(AEXPR_OP,
+									 list_make1(makeString("||")),
+									 (Node*)expr,
+									 linitial(lfirst_node(FuncCall, lc)->args),
+									 -1);
+		}else
+		{
+			expr = linitial(lfirst_node(FuncCall, lc)->args);
+		}
+		target = makeNode(ResTarget);
+		target->val = expr;
+		target->name = lfirst(lc2);
+		target->location = -1;
+		result = lappend(result, target);
+	}
+
+	return result;
+}
+
+List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt)
+{
+	ParseOracleConnectByContext context;
+	SelectStmt		   *larg;
+	SelectStmt		   *rarg;
+	RangeVar		   *range_var;
+	RangeVar		   *range_base;
+	CommonTableExpr	   *cte;
+	ListCell		   *lc;
+
+	MemSet(&context, 0, sizeof(context));
+	context.pstate = make_parsestate(pstate);
+
+	range_base = linitial(stmt->fromClause);
+	if (!IsA(range_base, RangeVar))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("connect by only support RangeVar for now"),
+				 parser_errposition(pstate, exprLocation((Node*)range_base))));
+	}
+	transformFromClause(context.pstate, stmt->fromClause);
+	if (list_length(context.pstate->p_rtable) != 1)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("connect by only support one table yet"),
+				 parser_errposition(pstate, exprLocation((Node*)range_base))));
+	}
+	context.rte = linitial_node(RangeTblEntry, context.pstate->p_rtable);
+
+	/* search using column */
+	search_using_column((Node*)stmt->distinctClause, &context);
+	search_using_column((Node*)stmt->targetList, &context);
+	search_using_column(stmt->whereClause, &context);
+	search_using_column((Node*)stmt->groupClause, &context);
+	search_using_column(stmt->havingClause, &context);
+	search_using_column((Node*)stmt->windowClause, &context);
+	search_using_column((Node*)stmt->sortClause, &context);
+	search_using_column(stmt->ora_connect_by->connect_by, &context);
+
+	/* generate special names */
+	if (context.have_level)
+	{
+		foreach (lc, context.rte->eref->colnames)
+		{
+			if (strcmp(strVal(lfirst(lc)), "level") == 0)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_AMBIGUOUS_COLUMN),
+						 errmsg("column reference \"%s\" is ambiguous", "level")));
+			}
+		}
+	}
+	foreach (lc, context.scbp_list)
+	{
+		context.scbp_alias = lappend(context.scbp_alias,
+									 generate_unique_name("scbp", context.rte->eref->colnames));
+	}
+
+	/* make union all left SelectStmt */
+	larg = makeNode(SelectStmt);
+	range_var = copyObject(range_base);
+	range_var->no_special = true;
+	larg->fromClause = list_make1(range_var);
+	larg->whereClause = stmt->ora_connect_by->start_with;
+	larg->targetList = make_union_all_targetlist(&context, false);
+
+	/* cte name is RTE alias name */
+	context.cte_name = pstrdup(context.rte->eref->aliasname);
+
+	/* make union all right SelectStmt and target list */
+	rarg = makeNode(SelectStmt);
+	rarg->targetList = make_union_all_targetlist(&context, true);
+
+	/* make union all right fromClause */
+	range_var = copyObject(range_base);
+	range_var->from_connect_by = true;
+	rarg->fromClause = list_make1(range_var);
+
+	/* set "connect by" expression to right's where clause */
+	rarg->whereClause = stmt->ora_connect_by->connect_by;
+
+	/* generate final CommonTableExpr */
+	cte = makeNode(CommonTableExpr);
+	cte->cterecursive = true;
+	cte->ctename = context.cte_name;
+	cte->ctequery = makeSetOp(SETOP_UNION, true, (Node*)larg, (Node*)rarg);
+	/* copy special info */
+	cte->have_level = context.have_level;
+	cte->scbp_list = context.scbp_list;
+	foreach (lc, context.scbp_alias)
+		cte->scbp_alias = lappend(cte->scbp_alias, makeString(lfirst(lc)));
+
+	pstate->p_ctenamespace = lappend(pstate->p_ctenamespace, cte);
+	analyzeCTE(pstate, cte);
+
+	range_var = makeRangeVar(NULL, context.cte_name, -1);
+	transformFromClause(pstate, list_make1(range_var));
+
+	return lappend(cteList, cte);
+}
+#endif /* ADB_GRAM_ORA */

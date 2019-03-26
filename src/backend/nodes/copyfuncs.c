@@ -1323,6 +1323,10 @@ _copyRangeVar(const RangeVar *from)
 	COPY_SCALAR_FIELD(relpersistence);
 	COPY_NODE_FIELD(alias);
 	COPY_LOCATION_FIELD(location);
+#ifdef ADB_GRAM_ORA
+	COPY_SCALAR_FIELD(from_connect_by);
+	COPY_SCALAR_FIELD(no_special);
+#endif /* ADB_GRAM_ORA */
 
 	return newnode;
 }
@@ -2623,6 +2627,11 @@ _copyCommonTableExpr(const CommonTableExpr *from)
 	COPY_NODE_FIELD(ctecoltypes);
 	COPY_NODE_FIELD(ctecoltypmods);
 	COPY_NODE_FIELD(ctecolcollations);
+#ifdef ADB_GRAM_ORA
+	COPY_NODE_FIELD(scbp_list);
+	COPY_NODE_FIELD(scbp_alias);
+	COPY_SCALAR_FIELD(have_level);
+#endif /* ADB_GRAM_ORA */
 
 	return newnode;
 }
@@ -3195,6 +3204,19 @@ _copyUpdateStmt(const UpdateStmt *from)
 	return newnode;
 }
 
+#ifdef ADB_GRAM_ORA
+static OracleConnectBy *
+_copyOracleConnectBy(const OracleConnectBy *from)
+{
+	OracleConnectBy *newnode = makeNode(OracleConnectBy);
+	COPY_SCALAR_FIELD(no_cycle);
+	COPY_NODE_FIELD(start_with);
+	COPY_NODE_FIELD(connect_by);
+
+	return newnode;
+}
+#endif /* ADB_GRAM_ORA */
+
 static SelectStmt *
 _copySelectStmt(const SelectStmt *from)
 {
@@ -3217,6 +3239,9 @@ _copySelectStmt(const SelectStmt *from)
 	COPY_SCALAR_FIELD(all);
 	COPY_NODE_FIELD(larg);
 	COPY_NODE_FIELD(rarg);
+#ifdef ADB_GRAM_ORA
+	COPY_NODE_FIELD(ora_connect_by);
+#endif /* ADB_GRAM_ORA */
 
 	return newnode;
 }
@@ -6131,6 +6156,9 @@ copyObjectImpl(const void *from)
 			break;
 		case T_PriorExpr:
 			retval = _copyPriorExpr(from);
+			break;
+		case T_OracleConnectBy:
+			retval = _copyOracleConnectBy(from);
 			break;
 #endif /* ADB_GRAM_ORA */
 #ifdef ADB

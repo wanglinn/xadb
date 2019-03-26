@@ -877,6 +877,10 @@ BEGIN_NODE(RangeVar)
 	NODE_SCALAR(char,relpersistence)
 	NODE_NODE(Alias,alias)
 	NODE_SCALAR(int,location)
+#ifdef ADB_GRAM_ORA
+	NODE_SCALAR(bool,from_connect_by)
+	NODE_SCALAR(bool,no_special)
+#endif
 END_NODE(RangeVar)
 #endif /* NO_NODE_RangeVar */
 
@@ -1399,6 +1403,14 @@ BEGIN_NODE(LevelExpr)
 	NODE_SCALAR(int,location)
 END_NODE(LevelExpr)
 #endif /* NO_NODE_LevelExpr */
+
+#ifndef NO_NODE_OracleConnectBy
+BEGIN_NODE(OracleConnectBy)
+	NODE_SCALAR(bool,no_cycle)
+	NODE_NODE(Node,start_with)
+	NODE_NODE(Node,connect_by)
+END_NODE(OracleConnectBy)
+#endif /* NO_NODE_OracleConnectBy */
 
 #endif
 
@@ -2253,6 +2265,9 @@ BEGIN_NODE(SelectStmt)
 	NODE_SCALAR(bool,all)
 	NODE_NODE(SelectStmt,larg)
 	NODE_NODE(SelectStmt,rarg)
+#ifdef ADB_GRAM_ORA
+	NODE_NODE(OracleConnectBy,ora_connect_by)
+#endif
 END_NODE(SelectStmt)
 #endif /* NO_NODE_SelectStmt */
 
@@ -3788,6 +3803,11 @@ BEGIN_NODE(CommonTableExpr)
 	NODE_NODE(List,ctecoltypes)
 	NODE_NODE(List,ctecoltypmods)
 	NODE_NODE(List,ctecolcollations)
+#ifdef ADB_GRAM_ORA
+	NODE_NODE(List,scbp_list)
+	NODE_NODE(List,scbp_alias)
+	NODE_SCALAR(bool,have_level)
+#endif
 END_NODE(CommonTableExpr)
 #endif /* NO_NODE_CommonTableExpr */
 

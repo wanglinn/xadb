@@ -47,7 +47,9 @@
 #include "utils/fmgroids.h"
 #endif
 #ifdef ADB_GRAM_ORA
+#include "nodes/nodes.h"
 #include "oraschema/oracoerce.h"
+#include "parser/parse_cte.h"
 #endif
 
 /* GUC parameters */
@@ -231,10 +233,48 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 			}
 			break;
 		case T_PriorExpr:
+			if (pstate == NULL ||
+				list_length(pstate->p_namespace) != 2)
+			{
+				goto transform_prior_expr_error_;
+			}else
+			{
+				ParseNamespaceItem * volatile cte = linitial(pstate->p_namespace);
+				ParseNamespaceItem * volatile rel = llast(pstate->p_namespace);
+				if (cte->p_rte->rtekind != RTE_CTE ||
+					cte->p_cols_visible || cte->p_rel_visible ||
+					rel->p_rte->rtekind != RTE_RELATION ||
+					rel->p_cols_visible == false || rel->p_rel_visible == false)
+					goto transform_prior_expr_error_;
+				/* change rel and col visiable */
+				cte->p_cols_visible = cte->p_rel_visible = true;
+				rel->p_cols_visible = rel->p_rel_visible = false;
+				PG_TRY();
+				{
+					result = transformExprRecurse(pstate, ((PriorExpr*)expr)->expr);
+				}PG_CATCH();
+				{
+					/* restore visiable */
+					cte->p_cols_visible = cte->p_rel_visible = false;
+					rel->p_cols_visible = rel->p_rel_visible = true;
+					PG_RE_THROW();
+				}PG_END_TRY();
+				/* restore visiable */
+				cte->p_cols_visible = cte->p_rel_visible = false;
+				rel->p_cols_visible = rel->p_rel_visible = true;
+			}
+			break;
+transform_prior_expr_error_:
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("syntax error"),
+					 parser_errposition(pstate, ((PriorExpr*)expr)->location)));
+			break;
 		case T_LevelExpr:
-			ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
-				,errmsg("syntax error")
-				,parser_errposition(pstate, exprLocation(expr))));
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("syntax error"),
+					 parser_errposition(pstate, ((LevelExpr*)expr)->location)));
 			break;
 #endif /* ADB_GRAM_ORA */
 
@@ -1750,6 +1790,32 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 
 	if (IsOracleParseGram(pstate))
 		oldContext = OraCoercionContextSwitchTo(ORA_COERCE_COMMON_FUNCTION);
+
+	/* is sys_connect_by_path ? */
+	if (pstate->p_grammar == PARSE_GRAM_ORACLE &&
+		pstate->p_ctenamespace != NIL &&
+		is_sys_connect_by_path_expr((Node*)fn))
+	{
+		CommonTableExpr *cte;
+		ListCell *lc2;
+		int i;
+		foreach (args, pstate->p_ctenamespace)
+		{
+			cte = lfirst_node(CommonTableExpr, args);
+			i = 0;
+			foreach (lc2, cte->scbp_list)
+			{
+				if (equal((Node*)fn, lfirst(lc2)))
+				{
+					ColumnRef *cref = makeNode(ColumnRef);
+					cref->fields = list_make1(list_nth(cte->scbp_alias, i));
+					cref->location = fn->location;
+					return transformColumnRef(pstate, cref);
+				}
+				++i;
+			}
+		}
+	}
 
 	PG_TRY();
 	{

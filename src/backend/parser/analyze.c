@@ -1425,6 +1425,12 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	/* make WINDOW info available for window functions, too */
 	pstate->p_windowdefs = stmt->windowClause;
 
+#ifdef ADB_GRAM_ORA
+	if (stmt->ora_connect_by)
+	{
+		qry->cteList = analyzeOracleConnectBy(qry->cteList, pstate, stmt);
+	}else
+#endif /* ADB_GRAM_ORA */
 	/* process the FROM clause */
 	transformFromClause(pstate, stmt->fromClause);
 #ifdef ADB_GRAM_ORA

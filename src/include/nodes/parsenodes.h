@@ -1484,6 +1484,11 @@ typedef struct CommonTableExpr
 	List	   *ctecoltypes;	/* OID list of output column type OIDs */
 	List	   *ctecoltypmods;	/* integer list of output column typmods */
 	List	   *ctecolcollations;	/* OID list of column collation OIDs */
+#ifdef ADB_GRAM_ORA
+	List	   *scbp_list;		/* list of sys_connect_by_path function */
+	List	   *scbp_alias;		/* list String of sys_connect_by_path alias */
+	bool		have_level;		/* have level expression */
+#endif /* ADB_GRAM_ORA */
 } CommonTableExpr;
 
 #ifdef ADB_GRAM_ORA
@@ -1747,6 +1752,16 @@ typedef struct UpdateStmt
 	WithClause *withClause;		/* WITH clause */
 } UpdateStmt;
 
+#ifdef ADB_GRAM_ORA
+typedef struct OracleConnectBy
+{
+	NodeTag		type;
+	bool		no_cycle;
+	Node	   *start_with;
+	Node	   *connect_by;
+}OracleConnectBy;
+#endif /* ADB_GRAM_ORA */
+
 /* ----------------------
  *		Select Statement
  *
@@ -1812,6 +1827,9 @@ typedef struct SelectStmt
 	struct SelectStmt *larg;	/* left child */
 	struct SelectStmt *rarg;	/* right child */
 	/* Eventually add fields for CORRESPONDING spec here */
+#ifdef ADB_GRAM_ORA
+	OracleConnectBy *ora_connect_by;
+#endif /* ADB_GRAM_ORA */
 } SelectStmt;
 
 

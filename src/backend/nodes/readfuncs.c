@@ -418,6 +418,11 @@ _readCommonTableExpr(void)
 	READ_NODE_FIELD(ctecoltypes);
 	READ_NODE_FIELD(ctecoltypmods);
 	READ_NODE_FIELD(ctecolcollations);
+#ifdef ADB_GRAM_ORA
+	READ_NODE_FIELD(scbp_list);
+	READ_NODE_FIELD(scbp_alias);
+	READ_BOOL_FIELD(have_level);
+#endif /* ADB_GRAM_ORA */
 
 	READ_DONE();
 }
@@ -471,6 +476,10 @@ _readRangeVar(void)
 	READ_CHAR_FIELD(relpersistence);
 	READ_NODE_FIELD(alias);
 	READ_LOCATION_FIELD(location);
+#ifdef ADB_GRAM_ORA
+	READ_BOOL_FIELD(from_connect_by);
+	READ_BOOL_FIELD(no_special);
+#endif /* ADB_GRAM_ORA */
 
 	READ_DONE();
 }
