@@ -2102,8 +2102,8 @@ opt_class:	any_name								{ $$ = $1; }
 			| /*EMPTY*/								{ $$ = NIL; }
 		;
 
-opt_nulls_order: NULLS_P FIRST_P				{ $$ = SORTBY_NULLS_FIRST; }
-			| NULLS_P LAST_P					{ $$ = SORTBY_NULLS_LAST; }
+opt_nulls_order: NULLS_LA FIRST_P				{ $$ = SORTBY_NULLS_FIRST; }
+			| NULLS_LA LAST_P					{ $$ = SORTBY_NULLS_LAST; }
 			| /*EMPTY*/						{ $$ = SORTBY_NULLS_DEFAULT; }
 		;
 
@@ -5879,12 +5879,12 @@ simple_select:
 		| values_clause { $$ = $1; }
 		;
 
-sortby: a_expr opt_asc_desc
+sortby: a_expr opt_asc_desc opt_nulls_order
 		{
 			$$ = makeNode(SortBy);
 			$$->node = $1;
 			$$->sortby_dir = $2;
-			$$->sortby_nulls = SORTBY_NULLS_DEFAULT;
+			$$->sortby_nulls = $3;
 			$$->useOp = NIL;
 			$$->location = -1;		/* no operator */
 		}
@@ -7069,6 +7069,7 @@ unreserved_keyword:
 	| NO
 	| NOCYCLE
 	| NEXT
+	| NULLS_P
 	/*| NEXTVAL*/
 	| NVARCHAR2
 	| OFF
@@ -7482,6 +7483,12 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 			PUSH_LOOKAHEAD(&look1);
 		}
 		break;	
+	case NULLS_P:
+		LEX_LOOKAHEAD(&look1);
+		if (look1.token == FIRST_P || look1.token == LAST_P)
+			cur_token = NULLS_LA;
+		PUSH_LOOKAHEAD(&look1);
+		break;
 	case ';':
 		yyextra->parsing_first_token = true;
 		break;
