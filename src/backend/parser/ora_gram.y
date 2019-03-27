@@ -133,6 +133,7 @@ typedef struct OraclePartitionSpec
 	PartitionElem		*partelem;
 	OraclePartitionSpec *partspec;
 	PartitionBoundSpec	*partboundspec;
+	OracleConnectBy		*connectby;
 /* ADB_BEGIN */
 	DistributeBy		*distby;
 	PGXCSubCluster		*subclus;
@@ -178,6 +179,7 @@ typedef struct OraclePartitionSpec
 
 %type <boolean>	opt_all opt_byte_char opt_restart_seqs opt_verbose opt_no_inherit
 				opt_unique opt_concurrently opt_with_data opt_or_replace
+				connect_by_opt_nocycle
 
 %type <dbehavior>	opt_drop_behavior
 
@@ -256,7 +258,7 @@ typedef struct OraclePartitionSpec
 	common_table_expr columnDef columnref CreateStmt ctext_expr columnElem
 	ColConstraint ColConstraintElem ConstraintAttr CreateProcedureStmt DropProcedureStmt CreateRoleStmt
 	case_default case_expr /*case_when*/ case_when_item c_expr
-	ConstraintElem CreateSeqStmt CreateAsStmt connect_by_clause
+	ConstraintElem CreateSeqStmt CreateAsStmt
 	DeclareCursorStmt DeleteStmt DropStmt def_arg
 	ExplainStmt ExplainableStmt explain_option_arg ExclusionWhereClause
 	FetchStmt fetch_args
@@ -320,6 +322,7 @@ typedef struct OraclePartitionSpec
 %type <partboundspec> ForValues
 %type <list>		ora_part_child_list range_datum_list
 %type <node>		ora_part_child PartitionRangeDatum
+%type <connectby>	opt_connect_by_clause connect_by_clause
 
 /* ADB_BEGIN */
 %type <distby>	OptDistributeBy
@@ -5853,7 +5856,7 @@ SimpleTypename:
 
 simple_select:
 		SELECT opt_distinct target_list from_clause where_clause
-		group_clause having_clause
+		group_clause having_clause opt_connect_by_clause
 			{
 				SelectStmt *n = makeNode(SelectStmt);
 				n->distinctClause = $2;
@@ -5862,33 +5865,8 @@ simple_select:
 				n->whereClause = $5;
 				n->groupClause = $6;
 				n->havingClause = $7;
+				n->ora_connect_by = $8;
 				$$ = (Node*)n;
-			}
-		| SELECT opt_distinct target_list from_clause where_clause
-			group_clause having_clause
-			start_with_clause connect_by_clause
-			{
-				SelectStmt *n = makeNode(SelectStmt);
-				n->distinctClause = $2;
-				n->targetList = $3;
-				n->fromClause = $4;
-				n->whereClause = $5;
-				n->groupClause = $6;
-				n->havingClause = $7;
-				$$ = makeConnectByStmt(n, $8, $9, yyscanner);
-			}
-		| SELECT opt_distinct target_list from_clause where_clause
-			group_clause having_clause
-			connect_by_clause opt_start_with_clause
-			{
-				SelectStmt *n = makeNode(SelectStmt);
-				n->distinctClause = $2;
-				n->targetList = $3;
-				n->fromClause = $4;
-				n->whereClause = $5;
-				n->groupClause = $6;
-				n->havingClause = $7;
-				$$ = makeConnectByStmt(n, $9, $8, yyscanner);
 			}
 		| select_clause UNION opt_all select_clause
 			{
@@ -5932,9 +5910,33 @@ opt_start_with_clause:
 start_with_clause: START WITH a_expr		{ $$ = $3; }
 	;
 
+connect_by_opt_nocycle:
+	  CONNECT_BY			{ $$ = false; }
+	| CONNECT_BY_NOCYCLE	{ $$ = true; }
+	;
+
+opt_connect_by_clause:
+		  connect_by_clause					{ $$ = $1; }
+		| /* empty */						{ $$ = NULL; }
+		;
+
 connect_by_clause:
-	  CONNECT_BY a_expr			%prec END_P		{ $$ = $2; }
-	| CONNECT_BY_NOCYCLE a_expr	%prec END_P		{ $$ = $2; }	/* ignore NOCYCLE keyword */
+	  start_with_clause connect_by_opt_nocycle a_expr
+		{
+			OracleConnectBy *n = makeNode(OracleConnectBy);
+			n->no_cycle = $2;
+			n->start_with = $1;
+			n->connect_by = $3;
+			$$ = n;
+		}
+	| connect_by_opt_nocycle a_expr opt_start_with_clause
+		{
+			OracleConnectBy *n = makeNode(OracleConnectBy);
+			n->no_cycle = $1;
+			n->start_with = $3;
+			n->connect_by = $2;
+			$$ = n;
+		}
 	;
 
 TableElement:

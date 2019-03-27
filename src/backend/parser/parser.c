@@ -512,29 +512,6 @@ check_sequence_name(List *names, core_yyscan_t yyscanner, int location)
 
 	return list_make1(makeStringConst(buf.data, location));
 }
-
-Node *makeConnectByStmt(SelectStmt *stmt, Node *start, Node *connect_by,
-								core_yyscan_t yyscanner)
-{
-	AssertArg(stmt && connect_by && yyscanner);
-	AssertArg(stmt->withClause == NULL);
-
-	/* get base rel name */
-	if(list_length(stmt->fromClause) != 1
-		|| !IsA(linitial(stmt->fromClause), RangeVar))
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("connect by only support one table yet"),
-				 scanner_errposition(exprLocation((Node*)stmt->fromClause), yyscanner)));
-	}
-
-	stmt->ora_connect_by = makeNode(OracleConnectBy);
-	stmt->ora_connect_by->start_with = start;
-	stmt->ora_connect_by->connect_by = connect_by;
-
-	return (Node*)stmt;
-}
 #endif /* ADB_GRAM_ORA */
 
 /* makeRoleSpec
