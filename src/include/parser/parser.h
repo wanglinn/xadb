@@ -65,8 +65,6 @@ extern Node *makeAConst(Value *v, int location);
 extern Node *makeBoolAConst(bool state, int location);
 #ifdef ADB_GRAM_ORA
 extern List *check_sequence_name(List *names, core_yyscan_t yyscanner, int location);
-extern Node *makeConnectByStmt(SelectStmt *stmt, Node *start, Node *connect_by,
-							core_yyscan_t yyscanner);
 #endif
 extern RoleSpec *makeRoleSpec(RoleSpecType type, int location);
 extern void check_qualified_name(List *names, core_yyscan_t yyscanner);
