@@ -31,6 +31,7 @@
 #include "parser/parse_clause.h"
 #include "parser/parse_expr.h"
 #include "parser/parse_relation.h"
+#include "parser/parsetree.h"
 #include "utils/rel.h"
 #endif /* ADB_GRAM_ORA */
 
@@ -992,6 +993,8 @@ typedef struct ParseOracleConnectByContext
 	char			   *cte_name;
 	List			   *scbp_list;	/* sys_connect_by_path expressions */
 	List			   *scbp_alias;	/* sys_connect_by_path alias "char*" */
+	int					rtindex;
+	bool				searching_rtindex;	/* is searching which rte need connect by? */
 	bool				have_level;	/* have LevelExpr expression */
 }ParseOracleConnectByContext;
 
@@ -1051,9 +1054,26 @@ static bool search_using_column(Node *node, ParseOracleConnectByContext *context
 		var = (Var*)transformExpr(context->pstate, node, EXPR_KIND_OTHER);
 		if (var != NULL &&
 			IsA(var, Var) &&
-			var->varno == 1 && /* we only have one RTE */
 			var->varlevelsup == 0)
 		{
+			if (context->searching_rtindex)
+			{
+				if (context->rtindex <= 0)
+				{
+					context->rtindex = var->varno;
+				}else if(context->rtindex != var->varno)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("connect by using relation is not unique"),
+							 parser_errposition(context->pstate, exprLocation(node))));
+				}
+			}else if(context->rtindex != var->varno)
+			{
+				/* ignore other relation */
+				return false;
+			}
+
 			/* when has whole, don't need add normale attribute */
 			if (var->varattno <= 0 ||
 				!bms_is_member(InvalidAttrNumber-FirstLowInvalidHeapAttributeNumber, context->using_attnos))
@@ -1068,6 +1088,9 @@ static bool search_using_column(Node *node, ParseOracleConnectByContext *context
 		SubLink *sublink = (SubLink*)node;
 		/* ignore subselect */
 		return search_using_column(sublink->testexpr, context);
+	}else if (IsA(node, RangeSubselect))
+	{
+		return false;
 	}
 
 	return node_tree_walker(node, search_using_column, context);
@@ -1089,23 +1112,45 @@ static List* append_column_ref_target(List *list, const char *colname, bool on_r
 	return lappend(list, target);
 }
 
-static char* generate_unique_name(const char *template, List *exist_names)
+static bool pstate_has_column_name(const char *colname, ParseState *pstate)
 {
 	ListCell *lc;
-	int i;
+	ListCell *lc2;
+	ParseNamespaceItem *nsitem;
+	RangeTblEntry *rte;
+
+	foreach(lc, pstate->p_namespace)
+	{
+		nsitem = lfirst(lc);
+		rte = nsitem->p_rte;
+
+		/* Ignore table-only items */
+		if (!nsitem->p_cols_visible)
+			continue;
+		/* If not inside LATERAL, ignore lateral-only items */
+		if (nsitem->p_lateral_only && !pstate->p_lateral_active)
+			continue;
+
+		foreach (lc2, rte->eref->colnames)
+		{
+			if (strcmp(strVal(lfirst(lc2)), colname) == 0)
+				return true;
+		}
+	}
+
+	return false;
+}
+
+static char* generate_unique_name(const char *template, ParseState *pstate)
+{
+	int i = 0;
 	char buf[NAMEDATALEN];
 
-	i=0;
 	strcpy(buf, template);
 
-re_check_:
-	foreach(lc, exist_names)
+	while (pstate_has_column_name(buf, pstate))
 	{
-		if (strcmp(buf, strVal(lfirst(lc))) == 0)
-		{
-			sprintf(buf, "%s_%d", template, ++i);
-			goto re_check_;
-		}
+		sprintf(buf, "%s_%d", template, ++i);
 	}
 
 	return pstrdup(buf);
@@ -1229,26 +1274,48 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	CommonTableExpr	   *cte;
 	ListCell		   *lc;
 
+	Assert(stmt->ora_connect_by != NULL &&
+		   stmt->ora_connect_by->connect_by != NULL);
+
 	MemSet(&context, 0, sizeof(context));
 	context.pstate = make_parsestate(pstate);
 
-	range_base = linitial(stmt->fromClause);
-	if (!IsA(range_base, RangeVar))
+	transformFromClause(context.pstate, copyObject(stmt->fromClause));
+	/* search whitch rte we need transform with connect by */
+	context.searching_rtindex = true;
+	context.rtindex = -1;
+	search_using_column(stmt->ora_connect_by->connect_by, &context);
+	if (context.rtindex <= 0)
+	{
+		/* should not be hapen */
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("no connect by relation found")));
+	}
+	context.searching_rtindex = false;
+	context.rte = rt_fetch(context.rtindex, context.pstate->p_rtable);
+	if (context.rte->rtekind != RTE_RELATION)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("connect by only support RangeVar for now"),
-				 parser_errposition(pstate, exprLocation((Node*)range_base))));
+				 errmsg("connect by only support RangeVar for now")));
 	}
-	transformFromClause(context.pstate, stmt->fromClause);
-	if (list_length(context.pstate->p_rtable) != 1)
+	if (list_length(context.pstate->p_namespace) == 1)
 	{
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("connect by only support one table yet"),
-				 parser_errposition(pstate, exprLocation((Node*)range_base))));
+		range_base = linitial_node(RangeVar, stmt->fromClause);
+	}else
+	{
+		/* make RangeVar from RTE */
+		Relation rel = relation_open(context.rte->relid, NoLock);
+		range_base = makeNode(RangeVar);
+		range_base->relname = pstrdup(RelationGetRelationName(rel));
+		range_base->schemaname = get_namespace_name(RelationGetNamespace(rel));
+		range_base->inh = context.rte->inh;
+		range_base->relpersistence = RelationGetForm(rel)->relpersistence;
+		range_base->alias = context.rte->alias;
+		range_base->location = -1;
+		relation_close(rel, NoLock);
 	}
-	context.rte = linitial_node(RangeTblEntry, context.pstate->p_rtable);
 
 	/* search using column */
 	search_using_column((Node*)stmt->distinctClause, &context);
@@ -1258,25 +1325,20 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	search_using_column(stmt->havingClause, &context);
 	search_using_column((Node*)stmt->windowClause, &context);
 	search_using_column((Node*)stmt->sortClause, &context);
-	search_using_column(stmt->ora_connect_by->connect_by, &context);
+	search_using_column((Node*)stmt->fromClause, &context);
 
-	/* generate special names */
-	if (context.have_level)
+	if (context.have_level &&
+		pstate_has_column_name("level", context.pstate))
 	{
-		foreach (lc, context.rte->eref->colnames)
-		{
-			if (strcmp(strVal(lfirst(lc)), "level") == 0)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_AMBIGUOUS_COLUMN),
-						 errmsg("column reference \"%s\" is ambiguous", "level")));
-			}
-		}
+		ereport(ERROR,
+				(errcode(ERRCODE_AMBIGUOUS_COLUMN),
+				 errmsg("column reference \"%s\" is ambiguous", "level"),
+				 err_generic_string(PG_DIAG_COLUMN_NAME, "level")));
 	}
 	foreach (lc, context.scbp_list)
 	{
 		context.scbp_alias = lappend(context.scbp_alias,
-									 generate_unique_name("scbp", context.rte->eref->colnames));
+									 generate_unique_name("scbp", context.pstate));
 	}
 
 	/* make union all left SelectStmt */
@@ -1287,8 +1349,8 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	larg->whereClause = stmt->ora_connect_by->start_with;
 	larg->targetList = make_union_all_targetlist(&context, false);
 
-	/* cte name is RTE alias name */
-	context.cte_name = pstrdup(context.rte->eref->aliasname);
+	/* cte name is RTE relation name */
+	context.cte_name = pstrdup(range_base->relname);
 
 	/* make union all right SelectStmt and target list */
 	rarg = makeNode(SelectStmt);
@@ -1316,8 +1378,9 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	pstate->p_ctenamespace = lappend(pstate->p_ctenamespace, cte);
 	analyzeCTE(pstate, cte);
 
-	range_var = makeRangeVar(NULL, context.cte_name, -1);
-	transformFromClause(pstate, list_make1(range_var));
+	transformFromClause(pstate, stmt->fromClause);
+
+	free_parsestate(context.pstate);
 
 	return lappend(cteList, cte);
 }
