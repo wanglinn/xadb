@@ -1138,7 +1138,7 @@ transformFromClauseItem(ParseState *pstate, Node *n,
 			rte = NULL;
 		}else if (rv->from_connect_by)
 		{
-			const char *relname = (rv->alias ? rv->alias->aliasname : rv->relname);
+			const char *relname = rv->relname;
 			CommonTableExpr *cte;
 			RangeTblRef *rtr;
 			Index		levelsup;
