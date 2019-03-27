@@ -100,6 +100,9 @@
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 #include "utils/typcache.h"
+#if defined(ADB_GRAM_ORA) || defined(ADB_GRAM_DB2)
+#include "mb/pg_wchar.h"
+#endif /* defined(ADB_GRAM_ORA) || defined(ADB_GRAM_DB2) */
 #ifdef ADB
 #include "agtm/agtm.h"
 #include "catalog/pg_proc.h"
