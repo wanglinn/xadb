@@ -69,6 +69,8 @@ make_parsestate(ParseState *parentParseState)
 #ifdef ADB_MULTI_GRAM
 		pstate->p_pre_expr_hook = parentParseState->p_pre_expr_hook;
 		pstate->p_post_expr_hook = parentParseState->p_post_expr_hook;
+		pstate->p_from_item_hook_state = parentParseState->p_from_item_hook_state;
+		pstate->p_pre_from_item_hook = parentParseState->p_pre_from_item_hook;
 		pstate->p_grammar = parentParseState->p_grammar;
 #endif
 	}
