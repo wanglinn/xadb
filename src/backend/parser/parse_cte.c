@@ -105,6 +105,7 @@ typedef struct ParseOracleConnectByContext
 	bool				have_level;	/* have LevelExpr expression */
 
 	/* for ParseFromItem hook */
+	Node			   *source_item;
 	RangeVar		   *union_all_larg;
 	RangeVar		   *union_all_rarg;
 	PreParseFromClauseItemHook
@@ -1311,28 +1312,22 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	}
 	context.searching_rtindex = false;
 	context.rte = rt_fetch(context.rtindex, context.pstate->p_rtable);
-	if (context.rte->rtekind != RTE_RELATION)
+	context.source_item = searchFromClauseItem(context.pstate, stmt->fromClause, context.rtindex);
+	if (context.source_item == NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Can not found from clause item for \"%s\"", context.rte->eref->aliasname)));
+	}
+	if (context.rte->rtekind != RTE_RELATION ||
+		!IsA(context.source_item, RangeVar))
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("connect by only support RangeVar for now")));
+				 parser_errposition(pstate, exprLocation(context.source_item)),
+				 errmsg("connect by only support relation for now")));
 	}
-	if (list_length(context.pstate->p_namespace) == 1)
-	{
-		range_base = linitial_node(RangeVar, stmt->fromClause);
-	}else
-	{
-		/* make RangeVar from RTE */
-		Relation rel = relation_open(context.rte->relid, NoLock);
-		range_base = makeNode(RangeVar);
-		range_base->relname = pstrdup(RelationGetRelationName(rel));
-		range_base->schemaname = get_namespace_name(RelationGetNamespace(rel));
-		range_base->inh = context.rte->inh;
-		range_base->relpersistence = RelationGetForm(rel)->relpersistence;
-		range_base->alias = context.rte->alias;
-		range_base->location = -1;
-		relation_close(rel, NoLock);
-	}
+	range_base = (RangeVar*)context.source_item;
 
 	/* search using column */
 	search_using_column((Node*)stmt->distinctClause, &context);
