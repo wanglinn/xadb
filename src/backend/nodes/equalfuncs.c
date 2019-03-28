@@ -114,10 +114,6 @@ _equalRangeVar(const RangeVar *a, const RangeVar *b)
 	COMPARE_SCALAR_FIELD(relpersistence);
 	COMPARE_NODE_FIELD(alias);
 	COMPARE_LOCATION_FIELD(location);
-#ifdef ADB_GRAM_ORA
-	COMPARE_SCALAR_FIELD(from_connect_by);
-	COMPARE_SCALAR_FIELD(no_special);
-#endif /* ADB_GRAM_ORA */
 
 	return true;
 }
