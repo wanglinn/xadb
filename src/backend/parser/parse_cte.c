@@ -1155,19 +1155,25 @@ static bool pstate_has_column_name(const char *colname, ParseState *pstate)
 	return false;
 }
 
-static char* generate_unique_name(const char *template, ParseState *pstate)
+static void generate_unique_scbp_names(ParseOracleConnectByContext *context)
 {
+	ParseState *pstate = context->pstate;
+	ListCell *lc;
 	int i = 0;
 	char buf[NAMEDATALEN];
 
-	strcpy(buf, template);
+	strcpy(buf, "scbp");
 
-	while (pstate_has_column_name(buf, pstate))
+	foreach (lc, context->scbp_list)
 	{
-		sprintf(buf, "%s_%d", template, ++i);
-	}
+		while (pstate_has_column_name(buf, pstate))
+		{
+			sprintf(buf, "scbp_%d", ++i);
+		}
 
-	return pstrdup(buf);
+		context->scbp_alias = lappend(context->scbp_alias,
+									  makeString(pstrdup(buf)));
+	}
 }
 
 static List* make_union_all_targetlist(ParseOracleConnectByContext *context, bool on_right)
@@ -1247,7 +1253,7 @@ static List* make_union_all_targetlist(ParseOracleConnectByContext *context, boo
 		{
 			PriorExpr *prior;
 			/* PRIOR expr1 */
-			expr = makeColumnRef(lfirst(lc2), NIL, -1, NULL);
+			expr = makeColumnRef(strVal(lfirst(lc2)), NIL, -1, NULL);
 			prior = makeNode(PriorExpr);
 			prior->expr = expr;
 			prior->location = -1;
@@ -1270,7 +1276,7 @@ static List* make_union_all_targetlist(ParseOracleConnectByContext *context, boo
 		}
 		target = makeNode(ResTarget);
 		target->val = expr;
-		target->name = lfirst(lc2);
+		target->name = strVal(lfirst(lc2));
 		target->location = -1;
 		result = lappend(result, target);
 	}
@@ -1284,7 +1290,6 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	SelectStmt		   *larg;
 	SelectStmt		   *rarg;
 	RangeVar		   *range_base;
-	ListCell		   *lc;
 
 	Assert(stmt->ora_connect_by != NULL &&
 		   stmt->ora_connect_by->connect_by != NULL);
@@ -1347,11 +1352,8 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 				 errmsg("column reference \"%s\" is ambiguous", "level"),
 				 err_generic_string(PG_DIAG_COLUMN_NAME, "level")));
 	}
-	foreach (lc, context.scbp_list)
-	{
-		context.scbp_alias = lappend(context.scbp_alias,
-									 generate_unique_name("scbp", context.pstate));
-	}
+	if (context.scbp_list)
+		generate_unique_scbp_names(&context);
 
 	/* make union all left SelectStmt */
 	larg = makeNode(SelectStmt);
@@ -1382,8 +1384,7 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	/* copy special info */
 	context.cte->have_level = context.have_level;
 	context.cte->scbp_list = context.scbp_list;
-	foreach (lc, context.scbp_alias)
-		context.cte->scbp_alias = lappend(context.cte->scbp_alias, makeString(lfirst(lc)));
+	context.cte->scbp_alias = context.scbp_alias;
 
 	pstate->p_pre_from_item_hook = parseOracleConnectByHook;
 	pstate->p_from_item_hook_state = &context;
