@@ -1386,7 +1386,9 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	context.cte->scbp_list = context.scbp_list;
 	context.cte->scbp_alias = context.scbp_alias;
 
+	context.prev_hook = pstate->p_pre_from_item_hook;
 	pstate->p_pre_from_item_hook = parseOracleConnectByHook;
+	context.prev_hook_state = pstate->p_from_item_hook_state;
 	pstate->p_from_item_hook_state = &context;
 	PG_TRY();
 	{
