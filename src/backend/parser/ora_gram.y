@@ -393,7 +393,7 @@ typedef struct OraclePartitionSpec
 /*
  * same specific token
  */
-%token	ORACLE_JOIN_OP CONNECT_BY CONNECT_BY_NOCYCLE NULLS_LA DROP_PARTITION
+%token	ORACLE_JOIN_OP CONNECT_BY CONNECT_BY_NOCYCLE NULLS_LA DROP_PARTITION LIMIT_LA
 
 /* Precedence: lowest to highest */
 %right	RETURN_P RETURNING PRIMARY
@@ -5562,6 +5562,8 @@ opt_select_limit:
 limit_clause:
 			LIMIT select_limit_value
 				{ $$ = $2; }
+			| LIMIT_LA select_limit_value
+				{ $$ = $2; }
 			| LIMIT select_limit_value ',' select_offset_value
 				{
 					/* Disabled because it was too confusing, bjm 2002-02-18 */
@@ -7511,6 +7513,16 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 		LEX_LOOKAHEAD(&look1);
 		if (look1.token == FIRST_P || look1.token == LAST_P)
 			cur_token = NULLS_LA;
+		PUSH_LOOKAHEAD(&look1);
+		break;
+	case LIMIT:
+		LEX_LOOKAHEAD(&look1);
+		if (look1.token == ICONST || look1.token == PARAM)
+		{
+			cur_token = LIMIT_LA;
+		}else{
+			cur_token = LIMIT;
+		}
 		PUSH_LOOKAHEAD(&look1);
 		break;
 	case ';':
