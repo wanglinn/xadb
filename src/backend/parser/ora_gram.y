@@ -249,6 +249,9 @@ typedef struct OraclePartitionSpec
 	transaction_mode_list /*transaction_mode_list_or_empty*/ trim_list
 	var_list within_group_clause
 
+%type <list>	group_by_list
+%type <node>	group_by_item rollup_clause empty_grouping_set cube_clause grouping_sets_clause
+
 %type <node>
 	AexprConst a_expr AlterTableStmt alter_column_default AlterObjectSchemaStmt
 	alter_using
@@ -340,7 +343,7 @@ typedef struct OraclePartitionSpec
 	CASCADE CASE CAST CATALOG_P CHAR_P CHARACTERISTICS CHECK CLOSE CLUSTER
 	COLUMN COMMIT COMMENT COLLATION CONVERSION_P CONNECTION
 	COMMITTED COMPRESS COLLATE CONNECT CONSTRAINT CYCLE NOCYCLE
-	CONSTRAINTS CLOB COALESCE CONTENT_P CONTINUE_P CREATE CROSS CURRENT_DATE
+	CONSTRAINTS CLOB COALESCE CONTENT_P CONTINUE_P CREATE CROSS CUBE CURRENT_DATE
 	CURRENT_P CURRENT_TIMESTAMP CURRENT_USER CURRVAL CURSOR CONCURRENTLY CONFIGURATION
 	CACHE NOCACHE COMMENTS
 	DATE_P DAY_P DBTIMEZONE_P DEC DECIMAL_P DECLARE DEFAULT DEFERRABLE DELETE_P DESC DISTINCT
@@ -354,7 +357,7 @@ typedef struct OraclePartitionSpec
 	ELSE END_P ESCAPE EXCLUSIVE EXISTS EXPLAIN EXTRACT
 	ENABLE_P EXCLUDE EVENT EXTENSION EXCLUDING ENCRYPTED
 	FALSE_P FETCH FILE_P FIRST_P FLOAT_P FOLLOWING FOR FORWARD FROM FOREIGN FULL FUNCTION
-	GLOBAL GRANT GREATEST GROUP_P HAVING
+	GLOBAL GRANT GREATEST GROUP_P GROUPING HAVING
 	HOLD HOUR_P
 	IDENTIFIED IF_P IMMEDIATE IN_P INOUT INCREMENT INDEX INITIAL_P INSERT INHERIT INITIALLY
 	INHERITS INCLUDING INDEXES INNER_P INSENSITIVE
@@ -374,9 +377,9 @@ typedef struct OraclePartitionSpec
 	PCTFREE PIPELINED PRECISION PRESERVE PRIOR PRIVILEGES PUBLIC PURGE
 	PARTITION PRECEDING PROCEDURE PARTIAL PRIMARY PARSER PASSWORD PARALLEL_ENABLE
 	RANGE RAW READ REAL RECURSIVE RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
-	RETURNING RETURN_P REVOKE REUSE RIGHT ROLE ROLLBACK ROW ROWID ROWNUM ROWS
+	RETURNING RETURN_P REVOKE REUSE RIGHT ROLE ROLLBACK ROLLUP ROW ROWID ROWNUM ROWS
 	REFERENCES REPLICA RULE RELATIVE_P RELEASE RESULT_CACHE
-	SCHEMA SECOND_P SELECT SERIALIZABLE SESSION SESSIONTIMEZONE SET SHARE SHOW SIZE SEARCH
+	SCHEMA SECOND_P SELECT SERIALIZABLE SESSION SESSIONTIMEZONE SET SETS SHARE SHOW SIZE SEARCH
 	SMALLINT SIMPLE SETOF STATISTICS SAVEPOINT SEQUENCE SYSID SOME SCROLL
 	SNAPSHOT START STORAGE SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
 	TABLE TEMP TEMPLATE TEMPORARY THAN THEN TIME TIMESTAMP TO TRAILING
@@ -402,7 +405,7 @@ typedef struct OraclePartitionSpec
 %left	HI_THEN_LIMIT
 %left		UNION MINUS /*EXCEPT*/
 //%left		INTERSECT
-%nonassoc	CASE CAST SOME
+%nonassoc	CASE CAST SOME ROLLUP CUBE
 %left		WHEN END_P
 %left		OR
 %left		AND
@@ -4661,8 +4664,51 @@ within_group_clause:
 
 group_clause:
 		GROUP_P BY expr_list					{ $$ = $3; }
+		| GROUP_P BY group_by_list				{ $$ = $3; }
 		| /*EMPTY*/								{ $$ = NIL; }
 	;
+group_by_list:
+			group_by_item							{ $$ = list_make1($1); }
+			| group_by_list ',' group_by_item		{ $$ = lappend($1,$3); }
+		;
+group_by_item:
+			  empty_grouping_set			{ $$ = $1; }
+			| cube_clause							{ $$ = $1; }
+			| rollup_clause						{ $$ = $1; }
+			| grouping_sets_clause		{ $$ = $1; }
+		;
+
+empty_grouping_set:
+			'(' ')'
+				{
+					$$ = (Node *) makeGroupingSet(GROUPING_SET_EMPTY, NIL, @1);
+				}
+		;
+
+/*
+ * These hacks rely on setting precedence of CUBE and ROLLUP below that of '(',
+ * so that they shift in these rules rather than reducing the conflicting
+ * unreserved_keyword rule.
+ */
+rollup_clause:
+			ROLLUP '(' expr_list ')'
+				{
+					$$ = (Node *) makeGroupingSet(GROUPING_SET_ROLLUP, $3, @1);
+				}
+		;
+cube_clause:
+			CUBE '(' expr_list ')'
+				{
+					$$ = (Node *) makeGroupingSet(GROUPING_SET_CUBE, $3, @1);
+				}
+		;
+
+grouping_sets_clause:
+			GROUPING SETS '(' group_by_list ')'
+				{
+					$$ = (Node *) makeGroupingSet(GROUPING_SET_SETS, $4, @1);
+				}
+		;
 
 having_clause:
 		HAVING a_expr							{ $$ = $2; }
@@ -6836,6 +6882,7 @@ col_name_keyword:
 	| END_P
 	| EXISTS
 	| FLOAT_P
+	| GROUPING
 	| INT_P
 	| INOUT
 	| INTEGER
@@ -7005,6 +7052,7 @@ unreserved_keyword:
 	| CONNECT
 	| CONSTRAINTS
 	/*| CURRVAL*/
+	| CUBE
 	| CURRENT_USER
 	| CURSOR
 	| CYCLE
@@ -7113,10 +7161,12 @@ unreserved_keyword:
 	| REPLICA
 	| ROLE
 	| ROLLBACK
+	| ROLLUP
 	| SCHEMA
 	| SCROLL
 	| SECOND_P
 	| SEQUENCE
+	| SETS
 	| SHARE
 	| STATISTICS
 	| SERIALIZABLE
