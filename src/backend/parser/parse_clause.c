@@ -1136,38 +1136,6 @@ transformFromClauseItem(ParseState *pstate, Node *n,
 		int			rtindex;
 
 		/* Check if it's a CTE or tuplestore reference */
-#ifdef ADB_GRAM_ORA
-		if (rv->no_special)
-		{
-			rte = NULL;
-		}else if (rv->from_connect_by)
-		{
-			const char *relname = rv->relname;
-			CommonTableExpr *cte;
-			RangeTblRef *rtr;
-			Index		levelsup;
-			cte = scanNameSpaceForCTE(pstate, relname, &levelsup);
-			if (cte == NULL ||
-				levelsup != 2)	/* 2 for in CTE SELECT */
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Can't found CTE \"%s\" for connect by", relname),
-						 parser_errposition(pstate, exprLocation((Node*)n))));
-			}
-			rte = addRangeTableEntryForCTE(pstate, cte, levelsup, rv, true);
-			rtindex = list_length(pstate->p_rtable);
-			Assert(rte == rt_fetch(rtindex, pstate->p_rtable));
-			/* add to join list */
-			rtr = makeNode(RangeTblRef);
-			rtr->rtindex = rtindex;
-			pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
-			/* let rel and column not visiable */
-			pstate->p_namespace = lappend(pstate->p_namespace,
-										  makeNamespaceItem(rte, false, false, false, true));
-			rte = NULL;
-		}else
-#endif /* ADB_GRAM_ORA */
 		rte = getRTEForSpecialRelationTypes(pstate, rv);
 
 		/* if not found above, must be a table reference */

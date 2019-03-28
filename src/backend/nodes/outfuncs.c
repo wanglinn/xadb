@@ -1140,10 +1140,6 @@ _outRangeVar(StringInfo str, const RangeVar *node)
 	WRITE_CHAR_FIELD(relpersistence);
 	WRITE_NODE_FIELD(alias);
 	WRITE_LOCATION_FIELD(location);
-#ifdef ADB_GRAM_ORA
-	WRITE_BOOL_FIELD(from_connect_by);
-	WRITE_BOOL_FIELD(no_special);
-#endif /* ADB_GRAM_ORA */
 }
 
 static void

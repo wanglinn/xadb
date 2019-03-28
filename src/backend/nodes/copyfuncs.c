@@ -1259,10 +1259,6 @@ _copyRangeVar(const RangeVar *from)
 	COPY_SCALAR_FIELD(relpersistence);
 	COPY_NODE_FIELD(alias);
 	COPY_LOCATION_FIELD(location);
-#ifdef ADB_GRAM_ORA
-	COPY_SCALAR_FIELD(from_connect_by);
-	COPY_SCALAR_FIELD(no_special);
-#endif /* ADB_GRAM_ORA */
 
 	return newnode;
 }

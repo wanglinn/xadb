@@ -464,10 +464,6 @@ _readRangeVar(void)
 	READ_CHAR_FIELD(relpersistence);
 	READ_NODE_FIELD(alias);
 	READ_LOCATION_FIELD(location);
-#ifdef ADB_GRAM_ORA
-	READ_BOOL_FIELD(from_connect_by);
-	READ_BOOL_FIELD(no_special);
-#endif /* ADB_GRAM_ORA */
 
 	READ_DONE();
 }

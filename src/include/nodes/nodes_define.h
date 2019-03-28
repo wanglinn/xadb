@@ -830,10 +830,6 @@ BEGIN_NODE(RangeVar)
 	NODE_SCALAR(char,relpersistence)
 	NODE_NODE(Alias,alias)
 	NODE_SCALAR(int,location)
-#ifdef ADB_GRAM_ORA
-	NODE_SCALAR(bool,from_connect_by)
-	NODE_SCALAR(bool,no_special)
-#endif
 END_NODE(RangeVar)
 #endif /* NO_NODE_RangeVar */
 
