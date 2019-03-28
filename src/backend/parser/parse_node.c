@@ -67,6 +67,8 @@ make_parsestate(ParseState *parentParseState)
 		/* query environment stays in context for the whole parse analysis */
 		pstate->p_queryEnv = parentParseState->p_queryEnv;
 #ifdef ADB_MULTI_GRAM
+		pstate->p_pre_expr_hook = parentParseState->p_pre_expr_hook;
+		pstate->p_post_expr_hook = parentParseState->p_post_expr_hook;
 		pstate->p_grammar = parentParseState->p_grammar;
 #endif
 	}
