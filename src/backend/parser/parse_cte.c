@@ -90,6 +90,34 @@ typedef struct CteState
 	RecursionContext context;	/* context to allow or disallow self-ref */
 } CteState;
 
+#ifdef ADB_GRAM_ORA
+typedef struct ParseOracleConnectByContext
+{
+	CommonTableExpr	   *cte;
+	ParseState		   *pstate;
+	RangeTblEntry	   *rte;
+	Bitmapset		   *using_attnos;
+	char			   *cte_name;
+	List			   *scbp_list;	/* sys_connect_by_path expressions */
+	List			   *scbp_alias;	/* sys_connect_by_path alias "char*" */
+	int					rtindex;
+	bool				searching_rtindex;	/* is searching which rte need connect by? */
+	bool				have_level;	/* have LevelExpr expression */
+
+	/* for ParseFromItem hook */
+	RangeVar		   *union_all_larg;
+	RangeVar		   *union_all_rarg;
+	PreParseFromClauseItemHook
+						prev_hook;
+	void			   *prev_hook_state;
+}ParseOracleConnectByContext;
+
+#define CONNECT_BY_LEVELS_UP 2
+
+static Node* parseOracleConnectByHook(ParseState *pstate, Node *n,
+									  RangeTblEntry **top_rte, int *top_rti,
+									  List **namespace, void *state);
+#endif /* ADB_GRAM_ORA */
 
 static void analyzeCTE(ParseState *pstate, CommonTableExpr *cte);
 
@@ -984,20 +1012,6 @@ checkWellFormedSelectStmt(SelectStmt *stmt, CteState *cstate)
 }
 
 #ifdef ADB_GRAM_ORA
-typedef struct ParseOracleConnectByContext
-{
-	CommonTableExpr	   *cte;
-	ParseState		   *pstate;
-	RangeTblEntry	   *rte;
-	Bitmapset		   *using_attnos;
-	char			   *cte_name;
-	List			   *scbp_list;	/* sys_connect_by_path expressions */
-	List			   *scbp_alias;	/* sys_connect_by_path alias "char*" */
-	int					rtindex;
-	bool				searching_rtindex;	/* is searching which rte need connect by? */
-	bool				have_level;	/* have LevelExpr expression */
-}ParseOracleConnectByContext;
-
 bool is_sys_connect_by_path_expr(Node *node)
 {
 	if(node != NULL && IsA(node, FuncCall))
@@ -1269,9 +1283,7 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	ParseOracleConnectByContext context;
 	SelectStmt		   *larg;
 	SelectStmt		   *rarg;
-	RangeVar		   *range_var;
 	RangeVar		   *range_base;
-	CommonTableExpr	   *cte;
 	ListCell		   *lc;
 
 	Assert(stmt->ora_connect_by != NULL &&
@@ -1343,9 +1355,8 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 
 	/* make union all left SelectStmt */
 	larg = makeNode(SelectStmt);
-	range_var = copyObject(range_base);
-	range_var->no_special = true;
-	larg->fromClause = list_make1(range_var);
+	context.union_all_larg = copyObject(range_base);
+	larg->fromClause = list_make1(context.union_all_larg);
 	larg->whereClause = stmt->ora_connect_by->start_with;
 	larg->targetList = make_union_all_targetlist(&context, false);
 
@@ -1357,31 +1368,147 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	rarg->targetList = make_union_all_targetlist(&context, true);
 
 	/* make union all right fromClause */
-	range_var = copyObject(range_base);
-	range_var->from_connect_by = true;
-	rarg->fromClause = list_make1(range_var);
+	context.union_all_rarg = copyObject(range_base);
+	rarg->fromClause = list_make1(context.union_all_rarg);
 
 	/* set "connect by" expression to right's where clause */
 	rarg->whereClause = stmt->ora_connect_by->connect_by;
 
 	/* generate final CommonTableExpr */
-	cte = makeNode(CommonTableExpr);
-	cte->cterecursive = true;
-	cte->ctename = context.cte_name;
-	cte->ctequery = makeSetOp(SETOP_UNION, true, (Node*)larg, (Node*)rarg);
+	context.cte = makeNode(CommonTableExpr);
+	context.cte->cterecursive = true;
+	context.cte->ctename = context.cte_name;
+	context.cte->ctequery = makeSetOp(SETOP_UNION, true, (Node*)larg, (Node*)rarg);
 	/* copy special info */
-	cte->have_level = context.have_level;
-	cte->scbp_list = context.scbp_list;
+	context.cte->have_level = context.have_level;
+	context.cte->scbp_list = context.scbp_list;
 	foreach (lc, context.scbp_alias)
-		cte->scbp_alias = lappend(cte->scbp_alias, makeString(lfirst(lc)));
+		context.cte->scbp_alias = lappend(context.cte->scbp_alias, makeString(lfirst(lc)));
 
-	pstate->p_ctenamespace = lappend(pstate->p_ctenamespace, cte);
-	analyzeCTE(pstate, cte);
+	pstate->p_pre_from_item_hook = parseOracleConnectByHook;
+	pstate->p_from_item_hook_state = &context;
+	PG_TRY();
+	{
+		pstate->p_ctenamespace = lappend(pstate->p_ctenamespace, context.cte);
+		analyzeCTE(pstate, context.cte);
+	}PG_CATCH();
+	{
+		pstate->p_pre_from_item_hook = context.prev_hook;
+		pstate->p_from_item_hook_state = context.prev_hook_state;
+		PG_RE_THROW();
+	}PG_END_TRY();
+	pstate->p_pre_from_item_hook = context.prev_hook;
+	pstate->p_from_item_hook_state = context.prev_hook_state;
 
 	transformFromClause(pstate, stmt->fromClause);
 
 	free_parsestate(context.pstate);
 
-	return lappend(cteList, cte);
+	return lappend(cteList, context.cte);
 }
+
+static ParseNamespaceItem* make_simple_namespace_item(RangeTblEntry *rte, bool visiable)
+{
+	ParseNamespaceItem *nsitem = palloc0(sizeof(ParseNamespaceItem));
+
+	nsitem->p_rte = rte;
+	nsitem->p_rel_visible = nsitem->p_cols_visible = visiable;
+	nsitem->p_lateral_only = false;
+	nsitem->p_lateral_ok = true;
+
+	return nsitem;
+}
+
+static Node* ParseOracleConnectByLarg(ParseState *pstate, RangeVar *rv,
+										  RangeTblEntry **top_rte, int *top_rti,
+										  List **namespace,
+										  ParseOracleConnectByContext *context)
+{
+	/*
+	 * like transformFromClauseItem(RangeVar),
+	 * but not call getRTEForSpecialRelationTypes
+	 */
+	RangeTblEntry *rte = addRangeTableEntry(pstate, rv, rv->alias, rv->inh, true);
+	RangeTblRef *rtr = makeNode(RangeTblRef);
+
+	rtr->rtindex = list_length(pstate->p_rtable);
+	Assert(rte == rt_fetch(rtr->rtindex, pstate->p_rtable));
+
+	*top_rte = rte;
+	*top_rti = rtr->rtindex;
+	*namespace = list_make1(make_simple_namespace_item(rte, true));
+
+	return (Node*)rtr;
+}
+
+static Node* ParseOracleConnectByRarg(ParseState *pstate, RangeVar *rv,
+									  RangeTblEntry **top_rte, int *top_rti,
+									  List **namespace,
+									  ParseOracleConnectByContext *context)
+{
+	RangeTblEntry *rte;
+	RangeTblRef *rtr;
+
+	rte = addRangeTableEntryForCTE(pstate,
+								   context->cte,
+								   CONNECT_BY_LEVELS_UP,
+								   rv, true);
+	rtr = makeNode(RangeTblRef);
+	rtr->rtindex = list_length(pstate->p_rtable);
+	Assert(rte == rt_fetch(rtr->rtindex, pstate->p_rtable));
+	/* add to join list */
+	pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
+	/* let rel and column not visiable */
+	pstate->p_namespace = lappend(pstate->p_namespace,
+								  make_simple_namespace_item(rte, false));
+
+	return ParseOracleConnectByLarg(pstate,
+									rv,
+									top_rte,
+									top_rti,
+									namespace,
+									context);
+}
+
+static Node* parseOracleConnectByHook(ParseState *pstate, Node *n,
+									  RangeTblEntry **top_rte, int *top_rti,
+									  List **namespace, void *state)
+{
+	ParseOracleConnectByContext *context = state;
+	Node *result = NULL;
+	RangeVar *rv;
+
+	if (n != NULL && IsA(n, RangeVar))
+	{
+		rv = (RangeVar*)n;
+		if (rv == context->union_all_larg)
+		{
+			result=ParseOracleConnectByLarg(pstate,
+											rv,
+											top_rte,
+											top_rti,
+											namespace,
+											context);
+		}else if(rv == context->union_all_rarg)
+		{
+			result=ParseOracleConnectByRarg(pstate,
+											rv,
+											top_rte,
+											top_rti,
+											namespace,
+											context);
+		}
+	}
+
+	if (result == NULL &&
+		context->prev_hook)
+	{
+		result = (*context->prev_hook)(pstate, n, top_rte,
+									   top_rti, namespace,
+									   context->prev_hook_state);
+	}
+
+	return result;
+}
+
 #endif /* ADB_GRAM_ORA */
