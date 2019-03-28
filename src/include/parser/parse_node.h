@@ -86,6 +86,9 @@ typedef Node *(*CoerceParamHook) (ParseState *pstate, Param *param,
 #ifdef ADB_MULTI_GRAM
 typedef Node *(*PreParseExprHook) (ParseState *pstate, Node *expr);
 typedef Node *(*PostParseExprHook)(ParseState *pstate, Node *expr, Node *node);
+typedef Node *(*PreParseFromClauseItemHook)(ParseState *pstate, Node *n,
+											RangeTblEntry **top_rte, int *top_rti,
+											List **namespace, void *hook_state);
 #endif /* ADB_MULTI_GRAM */
 #ifdef ADB_GRAM_ORA
 #define IsOracleParseGram(pstate) \
@@ -225,6 +228,8 @@ struct ParseState
 #if defined(ADB_MULTI_GRAM)
 	PreParseExprHook p_pre_expr_hook;
 	PostParseExprHook p_post_expr_hook;
+	void	   *p_from_item_hook_state;
+	PreParseFromClauseItemHook p_pre_from_item_hook;
 	enum ParseGrammar p_grammar;
 #endif
 };

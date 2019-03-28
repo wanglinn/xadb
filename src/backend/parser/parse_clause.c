@@ -1117,6 +1117,16 @@ transformFromClauseItem(ParseState *pstate, Node *n,
 						RangeTblEntry **top_rte, int *top_rti,
 						List **namespace)
 {
+#ifdef ADB_MULTI_GRAM
+	if (pstate->p_pre_from_item_hook)
+	{
+		Node *node = (*pstate->p_pre_from_item_hook)(pstate, n, top_rte, top_rti, namespace,
+													 pstate->p_from_item_hook_state);
+		if (node != NULL)
+			return node;
+	}
+#endif /* ADB_MULTI_GRAM */
+
 	if (IsA(n, RangeVar))
 	{
 		/* Plain relation reference, or perhaps a CTE reference */
