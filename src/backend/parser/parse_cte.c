@@ -108,6 +108,13 @@ typedef struct ParseOracleConnectByContext
 	Node			   *source_item;
 	RangeVar		   *union_all_larg;
 	RangeVar		   *union_all_rarg;
+
+	/* if not NULL, ParseOracleConnectByLarg need parse larg as CTE */
+	CommonTableExpr	   *union_all_lcte;
+	/* if union_all_lcte is not NULL, it using in ParseOracleConnectByLarg */
+	RangeVar		   *source_rv;
+	Index				lcte_levelsup;
+
 	PreParseFromClauseItemHook
 						prev_hook;
 	void			   *prev_hook_state;
@@ -1285,6 +1292,28 @@ static List* make_union_all_targetlist(ParseOracleConnectByContext *context, boo
 	return result;
 }
 
+static char *generate_new_cte_name(ParseState *pstate)
+{
+	ListCell *lc;
+	CommonTableExpr *cte;
+	int i=0;
+	char buf[NAMEDATALEN];
+
+	strcpy(buf, "connect_by_cte");
+re_check_:
+	foreach (lc, pstate->p_ctenamespace)
+	{
+		cte = lfirst_node(CommonTableExpr, lc);
+		if (strcmp(buf, cte->ctename) == 0)
+		{
+			sprintf(buf, "connect_by_cte_%d", ++i);
+			goto re_check_;
+		}
+	}
+
+	return pstrdup(buf);
+}
+
 List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt)
 {
 	ParseOracleConnectByContext context;
@@ -1318,16 +1347,43 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Can not found from clause item for \"%s\"", context.rte->eref->aliasname)));
-	}
-	if (context.rte->rtekind != RTE_RELATION ||
-		!IsA(context.source_item, RangeVar))
+		return NULL; /* never run */
+	}else if (IsA(context.source_item, RangeVar))
+	{
+		range_base = (RangeVar*)context.source_item;
+		if (context.rte->rtekind == RTE_RELATION ||
+			context.rte->rtekind == RTE_NAMEDTUPLESTORE)
+		{
+			/* nothing todo */
+		}else if(context.rte->rtekind == RTE_CTE)
+		{
+			/* remember CTE */
+			context.union_all_lcte = scanNameSpaceForCTE(pstate, range_base->relname, &context.lcte_levelsup);
+			if (context.union_all_lcte == NULL)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Can not found CTE fro reference \"%s\"", range_base->relname)));
+			}
+
+			/* and we must generate a new CTE name */
+			range_base = makeRangeVar(NULL, generate_new_cte_name(pstate), -1);
+			range_base->alias = makeAlias(context.rte->eref->aliasname, NIL);
+		}else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("unknown RTE type %d for connect by",context.rte->rtekind)));
+		}
+		context.source_rv = range_base;
+	}else
 	{
 		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
+				(errcode(ERRCODE_INTERNAL_ERROR),
 				 parser_errposition(pstate, exprLocation(context.source_item)),
 				 errmsg("connect by only support relation for now")));
+		return NULL; /* never run */
 	}
-	range_base = (RangeVar*)context.source_item;
 
 	/* search using column */
 	search_using_column((Node*)stmt->distinctClause, &context);
@@ -1389,6 +1445,7 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	{
 		pstate->p_ctenamespace = lappend(pstate->p_ctenamespace, context.cte);
 		analyzeCTE(pstate, context.cte);
+		transformFromClause(pstate, stmt->fromClause);
 	}PG_CATCH();
 	{
 		pstate->p_pre_from_item_hook = context.prev_hook;
@@ -1398,11 +1455,9 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	pstate->p_pre_from_item_hook = context.prev_hook;
 	pstate->p_from_item_hook_state = context.prev_hook_state;
 
-	transformFromClause(pstate, stmt->fromClause);
-
 	free_parsestate(context.pstate);
 
-	return lappend(cteList, context.cte);
+	return pstate->p_ctenamespace;
 }
 
 static ParseNamespaceItem* make_simple_namespace_item(RangeTblEntry *rte, bool visiable)
@@ -1417,18 +1472,40 @@ static ParseNamespaceItem* make_simple_namespace_item(RangeTblEntry *rte, bool v
 	return nsitem;
 }
 
-static Node* ParseOracleConnectByLarg(ParseState *pstate, RangeVar *rv,
-										  RangeTblEntry **top_rte, int *top_rti,
-										  List **namespace,
-										  ParseOracleConnectByContext *context)
+static Node* ParseOracleConnectByLarg(ParseState *pstate, Node *node,
+									  RangeTblEntry **top_rte, int *top_rti,
+									  List **namespace,
+									  ParseOracleConnectByContext *context)
 {
 	/*
-	 * like transformFromClauseItem(RangeVar),
-	 * but not call getRTEForSpecialRelationTypes
+	 * like transformFromClauseItem(RangeVar)
 	 */
-	RangeTblEntry *rte = addRangeTableEntry(pstate, rv, rv->alias, rv->inh, true);
-	RangeTblRef *rtr = makeNode(RangeTblRef);
+	RangeTblEntry *rte;
+	RangeTblRef *rtr;
 
+	if (node == context->source_item)
+	{
+		/* top select stmt */
+		rte = addRangeTableEntryForCTE(pstate,
+									   context->cte,
+									   0,
+									   context->source_rv,
+									   true);
+	}else if (context->union_all_lcte)
+	{
+		/* "union all" left is from CTE */
+		rte = addRangeTableEntryForCTE(pstate,
+									   context->union_all_lcte,
+									   context->lcte_levelsup + CONNECT_BY_LEVELS_UP,
+									   context->source_rv,
+									   true);
+	}else
+	{
+		RangeVar *rv = castNode(RangeVar, node);
+		rte = addRangeTableEntry(pstate, rv, rv->alias, rv->inh, true);
+	}
+
+	rtr = makeNode(RangeTblRef);
 	rtr->rtindex = list_length(pstate->p_rtable);
 	Assert(rte == rt_fetch(rtr->rtindex, pstate->p_rtable));
 
@@ -1461,7 +1538,7 @@ static Node* ParseOracleConnectByRarg(ParseState *pstate, RangeVar *rv,
 								  make_simple_namespace_item(rte, false));
 
 	return ParseOracleConnectByLarg(pstate,
-									rv,
+									(Node*)rv,
 									top_rte,
 									top_rti,
 									namespace,
@@ -1474,23 +1551,22 @@ static Node* parseOracleConnectByHook(ParseState *pstate, Node *n,
 {
 	ParseOracleConnectByContext *context = state;
 	Node *result = NULL;
-	RangeVar *rv;
 
-	if (n != NULL && IsA(n, RangeVar))
+	if (n != NULL)
 	{
-		rv = (RangeVar*)n;
-		if (rv == context->union_all_larg)
+		if ((void*)n == context->union_all_larg ||
+			n == context->source_item)
 		{
 			result=ParseOracleConnectByLarg(pstate,
-											rv,
+											n,
 											top_rte,
 											top_rti,
 											namespace,
 											context);
-		}else if(rv == context->union_all_rarg)
+		}else if((void*)n == context->union_all_rarg)
 		{
 			result=ParseOracleConnectByRarg(pstate,
-											rv,
+											(RangeVar*)n,
 											top_rte,
 											top_rti,
 											namespace,
