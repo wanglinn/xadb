@@ -239,29 +239,40 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 				goto transform_prior_expr_error_;
 			}else
 			{
-				ParseNamespaceItem * volatile cte = linitial(pstate->p_namespace);
-				ParseNamespaceItem * volatile rel = llast(pstate->p_namespace);
-				if (cte->p_rte->rtekind != RTE_CTE ||
-					cte->p_cols_visible || cte->p_rel_visible ||
-					rel->p_rte->rtekind != RTE_RELATION ||
-					rel->p_cols_visible == false || rel->p_rel_visible == false)
+				ParseNamespaceItem * volatile rarg = linitial(pstate->p_namespace);
+				ParseNamespaceItem * volatile larg = llast(pstate->p_namespace);
+				if (rarg->p_rte->rtekind != RTE_CTE ||
+					rarg->p_cols_visible || rarg->p_rel_visible ||
+					(larg->p_rte->rtekind != RTE_RELATION &&
+					 larg->p_rte->rtekind != RTE_NAMEDTUPLESTORE &&
+					 larg->p_rte->rtekind != RTE_CTE) ||
+					larg->p_cols_visible == false || larg->p_rel_visible == false)
+				{
 					goto transform_prior_expr_error_;
+				}else
+				{
+					Index cte_levelsup;
+					CommonTableExpr *cte = scanNameSpaceForCTE(pstate, rarg->p_rte->ctename, &cte_levelsup);
+					if (cte == NULL ||
+						cte_levelsup != 2)
+						goto transform_prior_expr_error_;
+				}
 				/* change rel and col visiable */
-				cte->p_cols_visible = cte->p_rel_visible = true;
-				rel->p_cols_visible = rel->p_rel_visible = false;
+				rarg->p_cols_visible = rarg->p_rel_visible = true;
+				larg->p_cols_visible = larg->p_rel_visible = false;
 				PG_TRY();
 				{
 					result = transformExprRecurse(pstate, ((PriorExpr*)expr)->expr);
 				}PG_CATCH();
 				{
 					/* restore visiable */
-					cte->p_cols_visible = cte->p_rel_visible = false;
-					rel->p_cols_visible = rel->p_rel_visible = true;
+					rarg->p_cols_visible = rarg->p_rel_visible = false;
+					larg->p_cols_visible = larg->p_rel_visible = true;
 					PG_RE_THROW();
 				}PG_END_TRY();
 				/* restore visiable */
-				cte->p_cols_visible = cte->p_rel_visible = false;
-				rel->p_cols_visible = rel->p_rel_visible = true;
+				rarg->p_cols_visible = rarg->p_rel_visible = false;
+				larg->p_cols_visible = larg->p_rel_visible = true;
 			}
 			break;
 transform_prior_expr_error_:
