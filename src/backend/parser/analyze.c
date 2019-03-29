@@ -1462,6 +1462,15 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	 * that these functions can also change the targetList, so it's passed to
 	 * them by reference.
 	 */
+#ifdef ADB_GRAM_ORA
+	if (pstate->p_grammar == PARSE_GRAM_ORACLE &&
+		pstate->p_hasAggs &&
+		stmt->groupClause == NIL)
+	{
+		/* when has aggregate, but not has group, we can ignore sort clause */
+		qry->sortClause = NIL;
+	}else
+#endif /* ADB_GRAM_ORA */
 	qry->sortClause = transformSortClause(pstate,
 										  stmt->sortClause,
 										  &qry->targetList,
