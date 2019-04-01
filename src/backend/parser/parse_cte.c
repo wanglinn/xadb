@@ -1332,7 +1332,10 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	context.searching_rtindex = true;
 	context.rtindex = -1;
 	search_using_column(stmt->ora_connect_by->connect_by, &context);
-	if (context.rtindex <= 0)
+	if (list_length(pstate->p_rtable) == 1)
+	{
+		context.rtindex = 1;
+	}else if (context.rtindex <= 0)
 	{
 		/* should not be hapen */
 		ereport(ERROR,
