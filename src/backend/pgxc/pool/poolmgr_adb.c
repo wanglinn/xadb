@@ -1512,7 +1512,8 @@ static void agent_handle_input(PoolAgent * agent, StringInfo s)
 		case PM_MSG_GET_CONNECT:
 			{
 				agent->agtm_port = pool_getint(s);
-				if (agent->agtm_port <= 0 || agent->agtm_port > 65535)
+				if (!IsGTMCnNode() &&
+					(agent->agtm_port <= 0 || agent->agtm_port > 65535))
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_PROTOCOL_VIOLATION),
@@ -1644,8 +1645,9 @@ static void agent_check_waiting_slot(PoolAgent *agent)
 			case SLOT_STATE_IDLE:
 			case SLOT_STATE_END_RESET_ALL:
 send_agtm_port_:
-				if (slot->last_user_pid != agent->pid ||
-					slot->last_agtm_port != agent->agtm_port)
+				if (!IsGTMCnNode() &&
+					(slot->last_user_pid != agent->pid ||
+					 slot->last_agtm_port != agent->agtm_port))
 				{
 					if (agent->agtm_port <= 0 ||
 						agent->agtm_port > 65535)
@@ -1710,7 +1712,8 @@ send_agtm_port_:
 						dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
 						SET_SLOT_LIST(slot, BUSY_SLOT);
 					}
-				}else if (slot->last_agtm_port != agent->agtm_port)
+				}else if (!IsGTMCnNode() &&
+					slot->last_agtm_port != agent->agtm_port)
 				{
 					goto send_agtm_port_;
 				}else if(!EQUAL_PARAMS_MAGIC(slot->session_magic, agent->session_magic))
@@ -2781,6 +2784,9 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 
 			if(slot->owner == NULL)
 			{
+				if (IsGTMCnNode() &&
+					slot->slot_state == SLOT_STATE_END_RESET_ALL)
+					slot->slot_state = SLOT_STATE_END_AGTM_PORT;
 				if(slot->slot_state == SLOT_STATE_END_RESET_ALL)
 				{
 					/* let remote close agtm */
