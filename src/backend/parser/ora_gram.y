@@ -6942,7 +6942,6 @@ reserved_keyword:
 	| CONSTRAINT
 	| COLLATE
 	| COMPRESS
-	| CONTENT_P
 	| CREATE
 	| CURRENT_P
 	| DEFAULT
@@ -7070,6 +7069,7 @@ unreserved_keyword:
 	| CLOB
 	| COMMIT
 	| CONFIGURATION
+	| CONTENT_P
 	| CONVERSION_P
 	| COMMITTED
 	| CONTINUE_P
