@@ -3965,7 +3965,7 @@ static bool
 planstate_exec_walk_param(Node *expr, void *context)
 {
 	Assert(context);
-	if (IsA(expr, Param))
+	if (expr != NULL && IsA(expr, Param))
 	{
 		QualWalkContext	   *qual_walk_context = (QualWalkContext *) context;
 		ExprContext		   *econtext = qual_walk_context->econtext;
