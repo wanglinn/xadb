@@ -270,7 +270,8 @@ DefineSequence(ParseState *pstate, CreateSeqStmt *seq)
 	 * Remote Coordinator is in charge of creating sequence in AGTM.
 	 * If sequence is temporary, it is not necessary to create it on AGTM.
 	 */
-	if (IsCnMaster() &&
+	if (!IsGTMNode() &&
+		IsCnMaster() &&
 		(seq->sequence->relpersistence == RELPERSISTENCE_PERMANENT ||
 		 seq->sequence->relpersistence == RELPERSISTENCE_UNLOGGED))
 	{
