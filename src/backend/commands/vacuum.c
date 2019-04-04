@@ -2053,11 +2053,14 @@ static List* get_vacuum_all_coord(List *relations, MemoryContext context)
 	ListCell	   *lc;
 	List		   *list = NIL;
 	MemoryContext	old_context = MemoryContextSwitchTo(context);
-	Assert(relations == NIL || IsA(relations, OidList));
 
 	foreach(lc, relations)
 	{
-		tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(lfirst_oid(lc)));
+		VacuumRelation *rel = lfirst_node(VacuumRelation, lc);
+		Oid oid = rel->oid;
+		if (!OidIsValid(oid))
+			oid = RangeVarGetRelid(rel->relation, NoLock, true);
+		tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(oid));
 		if (!HeapTupleIsValid(tuple))
 			continue;	/* should not happen, but ... */
 
