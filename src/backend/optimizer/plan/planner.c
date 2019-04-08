@@ -7876,21 +7876,6 @@ static bool not_only_const(Node *node)
 	return true;
 }
 
-static Node* mutator_reduce_varno(Node *node, void *context)
-{
-	if (node == NULL)
-		return NULL;
-	if (IsA(node, Var))
-	{
-		Var *var = palloc(sizeof(Var));
-		memcpy(var, node, sizeof(Var));
-		var->varno = (Index)(Size)context;
-		return (Node*)var;
-	}
-
-	return expression_tree_mutator(node, mutator_reduce_varno, context);
-}
-
 static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subpath, List **exec_nodes)
 {
 	List			   *storage_nodes;
@@ -7981,6 +7966,7 @@ static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subp
 		{
 			/* OK, it is values(..),(...) insert */
 			ListCell *lc_values;
+			TupleDesc desc;
 			rte = planner_rt_fetch(relid, root);
 			loc_info = get_relid_location_info(root, relid);
 			if (IsRelationReplicated(loc_info))
@@ -7994,12 +7980,31 @@ static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subp
 				return (Path*)result_path;
 			}else if(loc_info->locatorType != LOCATOR_TYPE_RANDOM)
 			{
-				rel = relation_open(rte->relid, NoLock);
-				rinfo = MakeReduceInfoFromLocInfo(loc_info, NIL, rte->relid, relid);
+				rinfo = MakeReduceInfoUsingPathTarget(loc_info, NIL, subpath->pathtarget);
 				reduce_expr = CreateExprUsingReduceInfo(rinfo);
+				if (IsA(reduce_expr, Const))
+				{
+					Const *c = (Const*)reduce_expr;
+					if (c->consttype != OIDOID ||
+						c->constisnull)
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_INTERNAL_ERROR),
+								 errmsg("Invalid const reduce expr")));
+					}
+					subpath = (Path*)create_filter_path(root,
+														subpath->parent,
+														subpath,
+														subpath->pathtarget,
+														list_make1(CreateNodeOidEqualExpr(reduce_expr)));
+					*exec_nodes = list_make1_oid(DatumGetObjectId(c->constvalue));
+					return subpath;
+				}
+
 				reduce_state = ExecInitReduceExpr(reduce_expr);
 				econtext = CreateStandaloneExprContext();
-				slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
+				desc = ExecTypeFromExprList(linitial_node(List, values_rte->values_lists));
+				slot = MakeSingleTupleTableSlot(desc);
 
 				storage_nodes = NIL;
 				foreach(lc_values, values_rte->values_lists)
@@ -8041,11 +8046,9 @@ static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subp
 				}
 
 				ExecDropSingleTupleTableSlot(slot);
+				FreeTupleDesc(desc);
 				FreeExprContext(econtext, true);
-				RelationClose(rel);
 
-				reduce_expr = (Expr*)mutator_reduce_varno((Node*)reduce_expr,
-														  (void*)(Size)subpath->parent->relid);
 				subpath = (Path*)create_filter_path(root,
 													subpath->parent,
 													subpath,
