@@ -51,6 +51,7 @@ extern ReduceInfo *MakeFinalReplicateReduceInfo(void);
 extern ReduceInfo *MakeRandomReduceInfo(const List *storage);
 extern ReduceInfo *MakeCoordinatorReduceInfo(void);
 extern ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const List *exclude, Oid reloid, Index relid);
+extern ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const List *exclude, PathTarget *target);
 extern ReduceInfo *MakeReduceInfoAs(const ReduceInfo *reduce, List *params);
 extern ReduceInfo *ConvertReduceInfo(const ReduceInfo *reduce, const PathTarget *target, Index new_relid);
 extern List *ConvertReduceInfoList(const List *reduce_list, const PathTarget *target, Index new_relid);
