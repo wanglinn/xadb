@@ -288,6 +288,54 @@ ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const Lis
 	return rinfo;
 }
 
+ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const List *exclude, PathTarget *target)
+{
+	ReduceInfo *rinfo;
+	List *rnodes = loc_info->nodeids;
+
+	if(IsRelationReplicated(loc_info))
+	{
+		rinfo = MakeReplicateReduceInfo(rnodes);
+	}else if(loc_info->locatorType == LOCATOR_TYPE_RANDOM)
+	{
+		rinfo = MakeRandomReduceInfo(rnodes);
+	}else if(loc_info->locatorType == LOCATOR_TYPE_HASH)
+	{
+		rinfo = MakeHashReduceInfo(rnodes,
+								   exclude,
+								   list_nth(target->exprs, loc_info->partAttrNum-1));
+	}else if(loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
+	{
+		rinfo = MakeHashmapReduceInfo(rnodes,
+									  exclude,
+									  list_nth(target->exprs, loc_info->partAttrNum-1));
+	}else if(loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
+	{
+		ListCell *lc;
+		List *args = NIL;
+		foreach (lc, loc_info->funcAttrNums)
+			args = lappend(args, list_nth(target->exprs, lfirst_int(lc)-1));
+
+		rinfo = MakeCustomReduceInfo(rnodes,
+									 exclude,
+									 args,
+									 loc_info->funcid,
+									 loc_info->relid);
+	}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
+	{
+		rinfo = MakeModuloReduceInfo(rnodes,
+									 exclude,
+									 list_nth(target->exprs, loc_info->partAttrNum-1));
+	}else
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("unknown locator type %d", loc_info->locatorType)));
+	}
+	return rinfo;
+
+}
+
 ReduceInfo *MakeReduceInfoAs(const ReduceInfo *reduce, List *params)
 {
 	ReduceInfo *rinfo = CopyReduceInfoExtend(reduce, REDUCE_MARK_ALL & ~REDUCE_MARK_PARAMS);
