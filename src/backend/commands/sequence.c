@@ -729,7 +729,8 @@ nextval_internal(Oid relid, bool check_permissions)
 	ReleaseSysCache(pgstuple);
 
 #ifdef ADB
-	if (!RelationUsesLocalBuffers(seqrel))
+	if (!RelationUsesLocalBuffers(seqrel) &&
+		!IsGTMNode())
 	{
 		char * seqName = NULL;
 		char * databaseName = NULL;
