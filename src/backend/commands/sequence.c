@@ -592,7 +592,9 @@ AlterSequence(ParseState *pstate, AlterSeqStmt *stmt)
 	 * Remote Coordinator is in charge of create sequence in AGTM
 	 * If sequence is temporary, no need to go through GTM.
 	 */
-	 if (IsCnMaster() && seqrel->rd_backend != MyBackendId)
+	if (IsCnMaster() &&
+		!IsGTMNode() &&
+		!RelationUsesLocalBuffers(seqrel))
 	{
 		char * databaseName = NULL;
 		char * schemaName = NULL;
