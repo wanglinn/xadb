@@ -1245,7 +1245,7 @@ doDeletion(const ObjectAddress *object, int flags)
 				 * Do not do extra process if this session is connected to a remote
 				 * Coordinator.
 				 */
-				if (!IsCnMaster())
+				if (!IsCnMaster() || IsGTMNode())
 					break;
 
 				/*
