@@ -7894,7 +7894,8 @@ static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subp
 	bool				isnull;
 
 	if (subpath->param_info ||
-		subpath->parent->baserestrictinfo != NIL)
+		subpath->parent->baserestrictinfo != NIL ||
+		contain_volatile_functions((Node*)subpath->pathtarget->exprs))
 		return NULL;
 
 	if (IsA(subpath, ResultPath))
