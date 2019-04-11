@@ -1436,6 +1436,7 @@ List* analyzeOracleConnectBy(List *cteList, ParseState *pstate, SelectStmt *stmt
 	context.cte->have_level = context.have_level;
 	context.cte->scbp_list = context.scbp_list;
 	context.cte->scbp_alias = context.scbp_alias;
+	context.cte->from_connect_by = true;
 
 	context.prev_hook = pstate->p_pre_from_item_hook;
 	pstate->p_pre_from_item_hook = parseOracleConnectByHook;
@@ -1545,6 +1546,33 @@ static Node* ParseOracleConnectByRarg(ParseState *pstate, RangeVar *rv,
 									context);
 }
 
+/* like scanNameSpaceForCTE, but skip connect by generated CTE */
+static CommonTableExpr*
+scanNameSpaceForNormalCTE(ParseState *pstate, const char *refname, Index *ctelevelsup)
+{
+	Index		levelsup;
+
+	for (levelsup = 0;
+		 pstate != NULL;
+		 pstate = pstate->parentParseState, levelsup++)
+	{
+		ListCell   *lc;
+
+		foreach(lc, pstate->p_ctenamespace)
+		{
+			CommonTableExpr *cte = (CommonTableExpr *) lfirst(lc);
+
+			if (cte->from_connect_by == false &&
+				strcmp(cte->ctename, refname) == 0)
+			{
+				*ctelevelsup = levelsup;
+				return cte;
+			}
+		}
+	}
+	return NULL;
+}
+
 static Node* parseOracleConnectByHook(ParseState *pstate, Node *n,
 									  RangeTblEntry **top_rte, int *top_rti,
 									  List **namespace, void *state)
@@ -1571,6 +1599,32 @@ static Node* parseOracleConnectByHook(ParseState *pstate, Node *n,
 											top_rti,
 											namespace,
 											context);
+		}else if(IsA(n, RangeVar) &&
+			((RangeVar*)n)->schemaname == NULL)
+		{
+			RangeVar *rv = (RangeVar*)n;
+			CommonTableExpr *cte;
+			RangeTblEntry *rte;
+			RangeTblRef *rtr;
+			Index		levelsup;
+
+			cte = scanNameSpaceForNormalCTE(pstate, rv->relname, &levelsup);
+			if (cte)
+				rte = addRangeTableEntryForCTE(pstate, cte, levelsup, rv, true);
+			else if (scanNameSpaceForENR(pstate, rv->relname))
+				rte = addRangeTableEntryForENR(pstate, rv, true);
+			else
+				rte = addRangeTableEntry(pstate, rv, rv->alias, rv->inh, true);
+
+			rtr = makeNode(RangeTblRef);
+			rtr->rtindex = list_length(pstate->p_rtable);
+			Assert(rte == rt_fetch(rtr->rtindex, pstate->p_rtable));
+
+			*top_rte = rte;
+			*top_rti = rtr->rtindex;
+			*namespace = list_make1(make_simple_namespace_item(rte, true));
+
+			result = (Node*)rtr;
 		}
 	}
 

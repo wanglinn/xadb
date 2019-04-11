@@ -1488,6 +1488,7 @@ typedef struct CommonTableExpr
 	List	   *scbp_list;		/* list of sys_connect_by_path function */
 	List	   *scbp_alias;		/* list String of sys_connect_by_path alias */
 	bool		have_level;		/* have level expression */
+	bool		from_connect_by;
 #endif /* ADB_GRAM_ORA */
 } CommonTableExpr;
 
