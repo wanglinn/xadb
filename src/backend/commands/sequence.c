@@ -1174,7 +1174,8 @@ setval_oid(PG_FUNCTION_ARGS)
 	int64		next = PG_GETARG_INT64(1);
 
 #ifdef ADB
-	if (get_rel_persistence(relid) != RELPERSISTENCE_TEMP)
+	if (get_rel_persistence(relid) != RELPERSISTENCE_TEMP &&
+		!IsGTMNode())
 	{
 		Relation	seqrel;
 		SeqTable	elm;
