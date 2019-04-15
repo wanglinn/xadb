@@ -60,7 +60,7 @@ static void _SPI_pgxc_prepare_plan(const char *src, List *src_parsetree,
 
 static int _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 				  Snapshot snapshot, Snapshot crosscheck_snapshot,
-				  bool read_only, bool fire_triggers, uint64 tcount);
+				  bool read_only, bool fire_triggers, uint64 tcount ADB_MULTI_GRAM_COMMA_ARG(ParseGrammar grammar));
 
 static ParamListInfo _SPI_convert_params(int nargs, Oid *argtypes,
 					Datum *Values, const char *Nulls);
@@ -443,7 +443,7 @@ SPI_execute_direct(const char *remote_sql, char *nodename)
 	_SPI_pgxc_prepare_plan(execdirect.data, list_make1(&raw), &plan ADB_MULTI_GRAM_COMMA_ARG(PARSE_GRAM_POSTGRES));
 
 	res = _SPI_execute_plan(&plan, NULL,
-							InvalidSnapshot, InvalidSnapshot, false, true, 0);
+							InvalidSnapshot, InvalidSnapshot, false, true, 0 ADB_MULTI_GRAM_COMMA_ARG(PARSE_GRAM_POSTGRES));
 
 	_SPI_end_call(true);
 	return res;
@@ -480,7 +480,7 @@ SPI_execute_grammar(const char *src, bool read_only, long tcount, ParseGrammar g
 
 	res = _SPI_execute_plan(&plan, NULL,
 							InvalidSnapshot, InvalidSnapshot,
-							read_only, true, tcount);
+							read_only, true, tcount ADB_MULTI_GRAM_COMMA_ARG(grammar));
 
 	_SPI_end_call(true);
 	return res;
@@ -521,7 +521,7 @@ SPI_execute_plan(SPIPlanPtr plan, Datum *Values, const char *Nulls,
 							_SPI_convert_params(plan->nargs, plan->argtypes,
 												Values, Nulls),
 							InvalidSnapshot, InvalidSnapshot,
-							read_only, true, tcount);
+							read_only, true, tcount ADB_MULTI_GRAM_COMMA_ARG(PARSE_GRAM_POSTGRES));
 
 	_SPI_end_call(true);
 	return res;
@@ -550,7 +550,7 @@ SPI_execute_plan_with_paramlist(SPIPlanPtr plan, ParamListInfo params,
 
 	res = _SPI_execute_plan(plan, params,
 							InvalidSnapshot, InvalidSnapshot,
-							read_only, true, tcount);
+							read_only, true, tcount ADB_MULTI_GRAM_COMMA_ARG(PARSE_GRAM_POSTGRES));
 
 	_SPI_end_call(true);
 	return res;
@@ -591,7 +591,7 @@ SPI_execute_snapshot(SPIPlanPtr plan,
 							_SPI_convert_params(plan->nargs, plan->argtypes,
 												Values, Nulls),
 							snapshot, crosscheck_snapshot,
-							read_only, fire_triggers, tcount);
+							read_only, fire_triggers, tcount ADB_MULTI_GRAM_COMMA_ARG(PARSE_GRAM_POSTGRES));
 
 	_SPI_end_call(true);
 	return res;
@@ -657,7 +657,7 @@ SPI_execute_with_args_grammar(const char *src,
 
 	res = _SPI_execute_plan(&plan, paramLI,
 							InvalidSnapshot, InvalidSnapshot,
-							read_only, true, tcount);
+							read_only, true, tcount ADB_MULTI_GRAM_COMMA_ARG(grammar));
 
 	_SPI_end_call(true);
 	return res;
@@ -2206,7 +2206,7 @@ _SPI_prepare_oneshot_plan(const char *src, SPIPlanPtr plan ADB_MULTI_GRAM_COMMA_
 static int
 _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 				  Snapshot snapshot, Snapshot crosscheck_snapshot,
-				  bool read_only, bool fire_triggers, uint64 tcount)
+				  bool read_only, bool fire_triggers, uint64 tcount ADB_MULTI_GRAM_COMMA_ARG(ParseGrammar grammar))
 {
 	int			my_res = 0;
 	uint64		my_processed = 0;
@@ -2289,19 +2289,37 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 			else if (plan->parserSetup != NULL)
 			{
 				Assert(plan->nargs == 0);
+#ifdef ADB_MULTI_GRAM
+				stmt_list = pg_analyze_and_rewrite_params_for_gram(parsetree,
+																   src,
+																   plan->parserSetup,
+																   plan->parserSetupArg,
+																   _SPI_current->queryEnv,
+																   grammar);
+#else /* ADB_MULTI_GRAM */
 				stmt_list = pg_analyze_and_rewrite_params(parsetree,
 														  src,
 														  plan->parserSetup,
 														  plan->parserSetupArg,
 														  _SPI_current->queryEnv);
+#endif /* ADB_MULTI_GRAM */
 			}
 			else
 			{
+#ifdef ADB_MULTI_GRAM
+				stmt_list = pg_analyze_and_rewrite_for_gram(parsetree,
+															src,
+															plan->argtypes,
+															plan->nargs,
+															_SPI_current->queryEnv,
+															grammar);
+#else /* ADB_MULTI_GRAM */
 				stmt_list = pg_analyze_and_rewrite(parsetree,
 												   src,
 												   plan->argtypes,
 												   plan->nargs,
 												   _SPI_current->queryEnv);
+#endif
 			}
 
 			/* Finish filling in the CachedPlanSource */
