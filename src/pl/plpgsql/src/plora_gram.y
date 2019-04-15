@@ -3840,8 +3840,8 @@ static PLoraSQL_type* read_type_define(char *name, int location)
 	PLpgSQL_type *typ;
 	Oid typeid;
 	int arr_loc = -1;
-	int ndim = -1;
 	int tok = yylex();
+	bool is_array = false;
 
 	if (tok == POK_REF)
 	{
@@ -3860,7 +3860,9 @@ static PLoraSQL_type* read_type_define(char *name, int location)
 			goto read_error_;
 		if (yylex() != ICONST)
 			goto read_error_;
-		ndim = yylval.ival;
+		if (yylval.ival <= 0)
+			goto read_error_;
+		is_array = true;
 		if (yylex() != ')' )
 			goto read_error_;
 
@@ -3886,13 +3888,19 @@ static PLoraSQL_type* read_type_define(char *name, int location)
 						 plpgsql_scanner_errposition(arr_loc)));
 			return plora_build_type(name, location, typeid, -1);
 		}
+	}else if (tok == POK_TABLE)
+	{
+		if (yylex() != POK_OF)
+			goto read_error_;
+		is_array = true;
+		tok = yylex();
 	}
 
 	typ = read_datatype(tok);
 	if (yylex() != ';')
 		goto read_error_;
 
-	if (ndim >= 0)
+	if (is_array)
 	{
 		typeid = get_array_type(typ->typoid);
 		if (!OidIsValid(typeid))
