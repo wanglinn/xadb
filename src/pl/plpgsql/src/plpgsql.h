@@ -220,6 +220,9 @@ typedef struct PLpgSQL_type
 	Oid			collation;		/* from pg_type, but can be overridden */
 	bool		typisarray;		/* is "true" array, or domain over one */
 	int32		atttypmod;		/* typmod (taken from someplace else) */
+#ifdef ADB_GRAM_ORA
+	int			cursor_dno;		/* only for "cursor%rowtype" */
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_type;
 
 #ifdef ADB_GRAM_ORA
@@ -402,6 +405,9 @@ typedef struct PLpgSQL_rec
 
 	/* We always store record variables as "expanded" records */
 	ExpandedRecordHeader *erh;
+#ifdef ADB_GRAM_ORA
+	int			cursor_dno;		/* only for "variable cursor%rowtype" */
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_rec;
 
 /*

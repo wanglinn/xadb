@@ -2639,8 +2639,9 @@ read_datatype(int tok)
 {
 	StringInfoData		ds;
 	char			   *type_name;
+	PLpgSQL_type	   *result;
+	char			   *dtname;
 	int					startlocation;
-	PLpgSQL_type		*result;
 	int					parenlevel = 0;
 
 	/* Should only be called while parsing DECLARE sections */
@@ -2656,42 +2657,16 @@ read_datatype(int tok)
 	 * If we have a simple or composite identifier, check for %TYPE
 	 * and %ROWTYPE constructs.
 	 */
+	dtname = NULL;
 	if (tok == T_WORD)
 	{
-		char   *dtname = yylval.word.ident;
-
-		tok = yylex();
-		if (tok == '%')
-		{
-			tok = yylex();
-			if (tok_is_reserved_keyword(tok, &yylval,
-										POK_TYPE, "type"))
-			{
-				result = plpgsql_parse_wordtype(dtname);
-				if (result)
-					goto end_read_datatype_;
-			}else if (tok == T_WORD &&
-				yylval.word.quoted == false &&
-				strcmp(yylval.word.ident, "rowtype") == 0)
-			{
-				result = plpgsql_parse_wordrowtype(dtname);
-				if (result)
-					goto end_read_datatype_;
-			}
-		}else
-		{
-			result = plpgsql_find_wordtype(dtname);
-			if (result)
-			{
-				plpgsql_push_back_token(tok);
-				return result;
-			}
-		}
-	}
-	else if (plorasql_token_is_unreserved_keyword(tok))
+		dtname = yylval.word.ident;
+	}else if(plorasql_token_is_unreserved_keyword(tok))
 	{
-		char   *dtname = pstrdup(yylval.keyword);
-
+		dtname = pstrdup(yylval.keyword);
+	}
+	if (dtname != NULL)
+	{
 		tok = yylex();
 		if (tok == '%')
 		{
@@ -2706,6 +2681,29 @@ read_datatype(int tok)
 				yylval.word.quoted == false &&
 				strcmp(yylval.word.ident, "rowtype") == 0)
 			{
+				PLpgSQL_var *var;
+				PLpgSQL_nsitem *item = plpgsql_ns_lookup(plpgsql_ns_top(),
+														 false,
+														 dtname,
+														 NULL,
+														 NULL,
+														 NULL);
+				if (item != NULL &&
+					item->itemtype == PLPGSQL_NSTYPE_VAR &&
+					(var = (PLpgSQL_var*)plpgsql_Datums[item->itemno]) != NULL)
+				{
+					result = NULL;
+					if (var->datatype->typoid == RECORDOID)
+					{
+						result = var->datatype;
+					}else if(var->datatype->typoid == REFCURSOROID)
+					{
+						result = plpgsql_build_datatype(RECORDOID, -1, InvalidOid);
+						result->cursor_dno = var->dno;
+					}
+					if (result)
+						goto end_read_datatype_;
+				}
 				result = plpgsql_parse_wordrowtype(dtname);
 				if (result)
 					goto end_read_datatype_;

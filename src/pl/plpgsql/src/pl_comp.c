@@ -1967,6 +1967,9 @@ plpgsql_build_variable(const char *refname, int lineno, PLpgSQL_type *dtype,
 				rec = plpgsql_build_record(refname, lineno,
 										   dtype, dtype->typoid,
 										   add2namespace);
+#ifdef ADB_GRAM_ORA
+				rec->cursor_dno = dtype->cursor_dno;
+#endif /* ADB_GRAM_ORA */
 				result = (PLpgSQL_variable *) rec;
 				break;
 			}

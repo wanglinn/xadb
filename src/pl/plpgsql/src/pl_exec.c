@@ -442,6 +442,7 @@ static int exec_stmt_goto(PLpgSQL_execstate *estate, PLpgSQL_stmt_goto *stmt);
 static int exec_stmt_func(PLpgSQL_execstate *estate, PLpgSQL_stmt_func *stmt);
 static int exec_stmt_sub_commit(PLpgSQL_execstate *estate, PLpgSQL_stmt_sub_commit *stmt);
 static int exec_stmt_sub_rollback(PLpgSQL_execstate *estate, PLpgSQL_stmt_sub_rollback *stmt);
+static TupleDesc plpgsql_get_cursor_result_type(PLpgSQL_var *var);
 #endif /* ADB_GRAM_ORA */
 static ListCell *find_stmt_for_label(List *stmts, const char *label);
 
@@ -5214,6 +5215,27 @@ exec_assign_value(PLpgSQL_execstate *estate,
 				rec = (PLpgSQL_rec *) (estate->datums[recfield->recparentno]);
 				erh = rec->erh;
 
+#ifdef ADB_GRAM_ORA
+				if (estate->grammar == PARSE_GRAM_ORACLE &&
+					erh == NULL &&
+					rec->cursor_dno > 0)
+				{
+					PLpgSQL_var *var;
+					TupleDesc tupdesc;
+					if (rec->cursor_dno > estate->ndatums ||
+						(var = (PLpgSQL_var *)(estate->datums[rec->cursor_dno])) == NULL ||
+						var->dtype != PLPGSQL_DTYPE_VAR)
+					{
+						ereport(ERROR,
+								(errmsg("invalid datum number %d for cursor%%rowtype", rec->cursor_dno)));
+					}
+					tupdesc = plpgsql_get_cursor_result_type(var);
+					/* set the target to NULL(s) */
+					exec_move_row(estate, (PLpgSQL_variable*)rec, NULL, tupdesc);
+					erh = rec->erh;
+				}
+#endif /* ADB_GRAM_ORA */
+
 				/*
 				 * If record variable is NULL, instantiate it if it has a
 				 * named composite type, else complain.  (This won't change
@@ -8778,6 +8800,32 @@ Datum plorasql_expr_callback(PG_FUNCTION_ARGS)
 	}
 
 	PG_RETURN_DATUM(result);
+}
+
+TupleDesc plpgsql_get_cursor_result_type(PLpgSQL_var *var)
+{
+	char *curname = NULL;
+	Portal portal;
+	if (var->datatype->typoid != REFCURSOROID)
+		ereport(ERROR,
+				(errmsg("variable \"%s\" is not a cursor", var->refname)));
+	if (var->isnull)
+		ereport(ERROR,
+				(errmsg("cursor \"%s\" is not opend", var->refname)));
+
+	curname = TextDatumGetCString(var->value);
+	portal = SPI_cursor_find(curname);
+	pfree(curname);
+
+	if (portal && portal->queryDesc && portal->queryDesc->tupDesc)
+	{
+		return portal->queryDesc->tupDesc;
+	}else
+	{
+		ereport(ERROR,
+				(errmsg("can not found portal for cursor \"%s\"", var->refname)));
+	}
+	return NULL;	/* never run */
 }
 
 #endif /* ADB_GRAM_ORA */
