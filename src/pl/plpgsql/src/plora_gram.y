@@ -123,7 +123,8 @@ static PLpgSQL_expr    *read_cursor_args(PLpgSQL_var *cursor, int until, const c
 static PLpgSQL_stmt_func *read_func_stmt(int startloc, int endloc);
 static PLoraSQL_type   *plora_build_type(char *name, int location, Oid oid, int typmod);
 static PLoraSQL_type   *read_type_define(char *name, int location);
-static	PLpgSQL_stmt	*make_piperow_stmt(int location);
+static PLpgSQL_stmt	*make_piperow_stmt(int location);
+static bool list_have_sub_transaction(List *list);
 
 %}
 
@@ -391,6 +392,7 @@ pl_block_top	: decl_sect_top POK_BEGIN proc_sect exception_sect POK_END opt_labe
 						new->initvarnos = $1.initvarnos;
 						new->body		= $3;
 						new->exceptions	= $4;
+						new->have_sub_transaction = list_have_sub_transaction(new->body);
 
 						if ($1.label == NULL &&
 							$6 != NULL)
@@ -488,6 +490,7 @@ pl_block		: decl_sect POK_BEGIN proc_sect exception_sect POK_END opt_label
 						new->initvarnos = $1.initvarnos;
 						new->body		= $3;
 						new->exceptions	= $4;
+						new->have_sub_transaction = list_have_sub_transaction(new->body);
 
 						check_labels($1.label, $6, @6);
 						plpgsql_ns_pop();
@@ -836,13 +839,11 @@ proc_stmt		: pl_block ';'
 						{
 							$$ = $2;
 							castStmt(sub_commit, SUB_COMMIT, $$)->label = $1;
-							plpgsql_curr_compile->have_sub_trans = true;
 						}
 				| opt_block_label stmt_rollback
 						{
 							$$ = $2;
 							castStmt(sub_rollback, SUB_ROLLBACK, $$)->label = $1;
-							plpgsql_curr_compile->have_sub_trans = true;
 						}
 				| opt_block_label stmt_dynexecute
 						{ $$ = $2; castStmt(dynexecute, DYNEXECUTE, $$)->label = $1; }
@@ -4041,4 +4042,19 @@ make_piperow_stmt(int location)
 	}
 
 	return (PLpgSQL_stmt *) new;
+}
+
+static bool list_have_sub_transaction(List *list)
+{
+	ListCell *lc;
+	PLpgSQL_stmt *stmt;
+	foreach (lc, list)
+	{
+		stmt = lfirst(lc);
+		if (stmt->cmd_type == PLPGSQL_STMT_SUB_COMMIT ||
+			stmt->cmd_type == PLPGSQL_STMT_SUB_ROLLBACK)
+			return true;
+	}
+
+	return false;
 }

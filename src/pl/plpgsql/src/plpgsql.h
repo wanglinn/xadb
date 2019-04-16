@@ -525,6 +525,9 @@ typedef struct PLpgSQL_stmt_block
 	int			n_initvars;		/* Length of initvarnos[] */
 	int		   *initvarnos;		/* dnos of variables declared in this block */
 	PLpgSQL_exception_block *exceptions;
+#ifdef ADB_GRAM_ORA
+	bool		have_sub_transaction;
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_stmt_block;
 
 /*
@@ -1063,9 +1066,6 @@ typedef struct PLpgSQL_function
 #ifdef ADB_MULTI_GRAM
 	ParseGrammar grammar;
 #endif /* ADB_MULTI_GRAM */
-#ifdef ADB_GRAM_ORA
-	bool		have_sub_trans;
-#endif /* ADB_GRAM_ORA */
 } PLpgSQL_function;
 
 /*

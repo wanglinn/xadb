@@ -599,29 +599,7 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 	 */
 	estate.err_text = NULL;
 	estate.err_stmt = (PLpgSQL_stmt *) (func->action);
-#ifdef ADB_GRAM_ORA
-	if (func->have_sub_trans)
-	{
-		ResourceOwner volatile oldowner = CurrentResourceOwner;
-		MemoryContext volatile oldcontext = CurrentMemoryContext;
-
-		BeginInternalSubTransaction(NULL);
-		PG_TRY();
-		{
-			rc = exec_stmt_block(&estate, func->action);
-		}PG_CATCH();
-		{
-			RollbackAndReleaseCurrentSubTransaction();
-			PG_RE_THROW();
-		}PG_END_TRY();
-
-		ReleaseCurrentSubTransaction();
-		MemoryContextSwitchTo(oldcontext);
-		CurrentResourceOwner = oldowner;
-	}else
-#endif
 	rc = exec_stmt_block(&estate, func->action);
-
 	if (rc == PLPGSQL_RC_GOTO)
 	{
 		ereport(ERROR,
@@ -1671,7 +1649,11 @@ exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 		}
 	}
 
-	if (block->exceptions)
+	if (block->exceptions
+#ifdef ADB_GRAM_ORA
+		|| block->have_sub_transaction
+#endif /* ADB_GRAM_ORA */
+		)
 	{
 		/*
 		 * Execute the statements in the block's body inside a sub-transaction
@@ -1804,7 +1786,7 @@ re_do_in_try_:
 			exec_eval_cleanup(estate);
 
 			/* Look for a matching exception handler */
-			foreach(e, block->exceptions->exc_list)
+			foreach(e, block->exceptions ? block->exceptions->exc_list:NIL)
 			{
 				PLpgSQL_exception *exception = (PLpgSQL_exception *) lfirst(e);
 
@@ -5012,6 +4994,7 @@ static int exec_stmt_sub_commit(PLpgSQL_execstate *estate, PLpgSQL_stmt_sub_comm
 	MemoryContextSwitchTo(oldcontext);
 	BeginInternalSubTransaction(NULL);
 	CurrentResourceOwner = oldowner;
+	plpgsql_create_econtext(estate);
 
 	return PLPGSQL_RC_OK;
 }
@@ -5025,6 +5008,7 @@ static int exec_stmt_sub_rollback(PLpgSQL_execstate *estate, PLpgSQL_stmt_sub_ro
 	MemoryContextSwitchTo(oldcontext);
 	BeginInternalSubTransaction(NULL);
 	CurrentResourceOwner = oldowner;
+	plpgsql_create_econtext(estate);
 
 	return PLPGSQL_RC_OK;
 }
