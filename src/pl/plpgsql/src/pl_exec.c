@@ -4295,6 +4295,7 @@ exec_stmt_execsql(PLpgSQL_execstate *estate,
 		if (stmt->bulk_collect)
 		{
 			PLpgSQL_datum *parent;
+			PLpgSQL_datum *fields;
 			ArrayBuildStateAny *astate;
 			Datum datum;
 			Oid typeoid;
@@ -4303,18 +4304,39 @@ exec_stmt_execsql(PLpgSQL_execstate *estate,
 			bool isnull;
 
 			if (target->dtype == PLPGSQL_DTYPE_ROW)
-				parent = estate->datums[((PLpgSQL_row*)target)->parent_dno];
-			else if (target->dtype == PLPGSQL_DTYPE_REC)
+			{
+				PLpgSQL_row *row = (PLpgSQL_row*)target;
+				if (row->rowtupdesc == NULL)
+				{
+					/* from read_into_scalar_list, single column */
+					if (row->nfields != 1)
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_INTERNAL_ERROR),
+								 errmsg("PLpgSQL_row type error")));
+					}
+					fields = estate->datums[row->varnos[0]];
+				}else
+				{
+					fields = (PLpgSQL_datum*)target;
+				}
+				parent = estate->datums[row->parent_dno];
+			}else if (target->dtype == PLPGSQL_DTYPE_REC)
+			{
 				parent = estate->datums[((PLpgSQL_rec*)target)->parent_dno];
-			else
+				fields = (PLpgSQL_datum*)target;
+			}else
+			{
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
 						 errmsg("unknown bulk collect insert item type %d", target->dtype)));
+			}
+
 			astate = NULL;
 			for (i=0; i<n; ++i)
 			{
 				exec_move_row(estate, target, tuptab->vals[i], tuptab->tupdesc);
-				exec_eval_datum(estate, (PLpgSQL_datum*)target, &typeoid, &typemod, &datum, &isnull);
+				exec_eval_datum(estate, fields, &typeoid, &typemod, &datum, &isnull);
 				astate = accumArrayResultAny(astate,
 											 datum,
 											 isnull,
