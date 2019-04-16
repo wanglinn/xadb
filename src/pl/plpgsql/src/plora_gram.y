@@ -284,7 +284,7 @@ static	PLpgSQL_stmt	*make_piperow_stmt(int location);
 
 %token <keyword> POK_RESOURCE POK_REVOKE
 
-%token <keyword> POK_SELECT POK_SHARE POK_SIZE POK_SQL POK_START POK_SUBTYPE
+%token <keyword> POK_SELECT POK_SHARE POK_SIZE POK_SQL POK_START POK_STRICT POK_SUBTYPE
 
 %token <keyword> POK_TABAUTH POK_TABLE POK_THEN POK_TO POK_TYPE
 
@@ -2872,6 +2872,7 @@ make_execsql_stmt(int firsttoken, int location)
 			have_into = true;
 			if (into_start_loc < 0)		/* maybe have [BULK COLLECT] */
 				into_start_loc = yylloc;
+
 			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
 			read_into_target(&target, bulk_collect);
 			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_EXPR;
@@ -3083,6 +3084,8 @@ read_into_target(PLpgSQL_variable **target, bool bulk_collect)
 	*target = NULL;
 
 	tok = yylex();
+	if (tok == POK_STRICT)
+		tok = yylex();	/* ignore STRICT keyword */
 
 	/*
 	 * Currently, a row or record variable can be the single INTO target,
