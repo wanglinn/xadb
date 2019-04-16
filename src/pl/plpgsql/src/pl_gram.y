@@ -1801,7 +1801,7 @@ stmt_raise		: K_RAISE
 						PLpgSQL_stmt_raise		*new;
 						int	tok;
 
-						new = palloc(sizeof(PLpgSQL_stmt_raise));
+						new = palloc0(sizeof(PLpgSQL_stmt_raise));
 
 						new->cmd_type	= PLPGSQL_STMT_RAISE;
 						new->lineno		= plpgsql_location_to_lineno(@1);
@@ -1945,7 +1945,7 @@ stmt_assert		: opt_block_label K_ASSERT
 						PLpgSQL_stmt_assert		*new;
 						int	tok;
 
-						new = palloc(sizeof(PLpgSQL_stmt_assert));
+						new = palloc0(sizeof(PLpgSQL_stmt_assert));
 
 						new->cmd_type	= PLPGSQL_STMT_ASSERT;
 						new->lineno		= plpgsql_location_to_lineno(@2);
@@ -2024,7 +2024,7 @@ stmt_dynexecute : K_EXECUTE
 												  true, true, true,
 												  NULL, &endtoken);
 
-						new = palloc(sizeof(PLpgSQL_stmt_dynexecute));
+						new = palloc0(sizeof(PLpgSQL_stmt_dynexecute));
 						new->cmd_type = PLPGSQL_STMT_DYNEXECUTE;
 						new->lineno = plpgsql_location_to_lineno(@1);
 						new->query = expr;
@@ -2204,7 +2204,7 @@ stmt_close		: K_CLOSE cursor_variable ';'
 					{
 						PLpgSQL_stmt_close *new;
 
-						new = palloc(sizeof(PLpgSQL_stmt_close));
+						new = palloc0(sizeof(PLpgSQL_stmt_close));
 						new->cmd_type = PLPGSQL_STMT_CLOSE;
 						new->lineno = plpgsql_location_to_lineno(@1);
 						new->curvar = $2->dno;
@@ -2329,7 +2329,7 @@ exception_sect	:
 						 * current block.
 						 */
 						int			lineno = plpgsql_location_to_lineno(@1);
-						PLpgSQL_exception_block *new = palloc(sizeof(PLpgSQL_exception_block));
+						PLpgSQL_exception_block *new = palloc0(sizeof(PLpgSQL_exception_block));
 						PLpgSQL_variable *var;
 
 						var = plpgsql_build_variable("sqlstate", lineno,
@@ -3055,7 +3055,7 @@ make_execsql_stmt(int firsttoken, int location)
 
 	check_sql_expr(expr->query, location, 0);
 
-	execsql = palloc(sizeof(PLpgSQL_stmt_execsql));
+	execsql = palloc0(sizeof(PLpgSQL_stmt_execsql));
 	execsql->cmd_type = PLPGSQL_STMT_EXECSQL;
 	execsql->lineno  = plpgsql_location_to_lineno(location);
 	execsql->sqlstmt = expr;
@@ -4050,7 +4050,7 @@ make_case(int location, PLpgSQL_expr *t_expr,
 {
 	PLpgSQL_stmt_case	*new;
 
-	new = palloc(sizeof(PLpgSQL_stmt_case));
+	new = palloc0(sizeof(PLpgSQL_stmt_case));
 	new->cmd_type = PLPGSQL_STMT_CASE;
 	new->lineno = plpgsql_location_to_lineno(location);
 	new->t_expr = t_expr;
