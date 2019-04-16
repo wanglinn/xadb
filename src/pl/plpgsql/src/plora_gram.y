@@ -103,7 +103,7 @@ static  PLpgSQL_stmt	*make_case(int location, PLpgSQL_expr *t_expr,
 								   List *case_when_list, List *else_stmts);
 static	char			*NameOfDatum(PLwdatum *wdatum);
 static	void			 check_assignable(PLpgSQL_datum *datum, int location);
-static	void			 read_into_target(PLpgSQL_variable **target);
+static	void			 read_into_target(PLpgSQL_variable **target, bool bulk_collect);
 static	PLpgSQL_row		*read_into_scalar_list(char *initial_name,
 											   PLpgSQL_datum *initial_datum,
 											   int initial_location);
@@ -1957,7 +1957,7 @@ stmt_fetch		: POK_FETCH opt_fetch_direction cursor_variable POK_INTO
 						PLpgSQL_variable *target;
 
 						/* We have already parsed everything through the INTO keyword */
-						read_into_target(&target);
+						read_into_target(&target, false);
 
 						if (yylex() != ';')
 							yyerror("syntax error");
@@ -2082,7 +2082,7 @@ stmt_dynexecute : POK_EXECUTE POK_IMMEDIATE
 								if (new->into)			/* multiple INTO */
 									yyerror("syntax error");
 								new->into = true;
-								read_into_target(&new->target);
+								read_into_target(&new->target, false);
 								endtoken = yylex();
 							}
 							else if (endtoken == POK_USING)
@@ -2803,6 +2803,7 @@ make_execsql_stmt(int firsttoken, int location)
 	bool				have_into = false;
 	int					into_start_loc = -1;
 	int					into_end_loc = -1;
+	bool				bulk_collect = false;
 
 	initStringInfo(&ds);
 
@@ -2849,6 +2850,17 @@ make_execsql_stmt(int firsttoken, int location)
 			break;
 		if (tok == 0)
 			yyerror("unexpected end of function definition");
+		if (tok == POK_BULK)
+		{
+			/* [BULK COLLECT] INTO */
+			into_start_loc = yylloc;
+			if ((tok = yylex()) != POK_COLLECT ||
+				(tok = yylex()) != POK_INTO)
+			{
+				yyerror("syntax error");
+			}
+			bulk_collect = true;
+		}
 		if (tok == POK_INTO)
 		{
 			if (prev_tok == POK_INSERT)
@@ -2858,9 +2870,10 @@ make_execsql_stmt(int firsttoken, int location)
 			if (have_into)
 				yyerror("INTO specified more than once");
 			have_into = true;
-			into_start_loc = yylloc;
+			if (into_start_loc < 0)		/* maybe have [BULK COLLECT] */
+				into_start_loc = yylloc;
 			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
-			read_into_target(&target);
+			read_into_target(&target, bulk_collect);
 			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_EXPR;
 		}
 	}
@@ -2902,6 +2915,7 @@ make_execsql_stmt(int firsttoken, int location)
 	execsql->into	 = have_into;
 	execsql->strict	 = true;
 	execsql->target	 = target;
+	execsql->bulk_collect = bulk_collect;
 
 	return (PLpgSQL_stmt *) execsql;
 }
@@ -3061,7 +3075,7 @@ check_assignable(PLpgSQL_datum *datum, int location)
  * INTO keyword.
  */
 static void
-read_into_target(PLpgSQL_variable **target)
+read_into_target(PLpgSQL_variable **target, bool bulk_collect)
 {
 	int			tok;
 
@@ -3080,6 +3094,15 @@ read_into_target(PLpgSQL_variable **target)
 	switch (tok)
 	{
 		case T_DATUM:
+			if (bulk_collect &&
+				yylval.wdatum.datum->dtype != PLPGSQL_DTYPE_VAR)
+			{
+				ereport(ERROR,
+						(errmsg("vairable \"%s\" is not an array", NameOfDatum(&(yylval.wdatum))),
+						 errcode(ERRCODE_SYNTAX_ERROR),
+						 parser_errposition(yylloc)));
+			}
+
 			if (yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_ROW ||
 				yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_REC)
 			{
@@ -3092,6 +3115,45 @@ read_into_target(PLpgSQL_variable **target)
 							 errmsg("record variable cannot be part of multiple-item INTO list"),
 							 parser_errposition(yylloc)));
 				plpgsql_push_back_token(tok);
+			}
+			else if (bulk_collect)
+			{
+				PLpgSQL_var *var = (PLpgSQL_var*)yylval.wdatum.datum;
+				PLpgSQL_type *elem_type;
+				PLpgSQL_variable *elem_var;
+				Oid elem_type_oid;
+				Assert(yylval.wdatum.datum->dtype == PLPGSQL_DTYPE_VAR);	/* we checked */
+
+				elem_type_oid = get_element_type(var->datatype->typoid);
+				if (!OidIsValid(elem_type_oid))
+				{
+					ereport(ERROR,
+							(errmsg("vairable \"%s\" is not an array", var->refname),
+							 errcode(ERRCODE_SYNTAX_ERROR),
+							 parser_errposition(yylloc)));
+				}
+				elem_type = plpgsql_build_datatype(elem_type_oid,
+												   var->datatype->atttypmod,
+												   var->datatype->collation);
+				elem_var = plpgsql_build_variable("*internal*",
+												  var->lineno,
+												  elem_type,
+												  false);
+				if (elem_var->dtype == PLPGSQL_DTYPE_REC)
+				{
+					((PLpgSQL_rec*)elem_var)->parent_dno = var->dno;
+				}else if (elem_var->dtype == PLPGSQL_DTYPE_ROW)
+				{
+					((PLpgSQL_row*)elem_var)->parent_dno = var->dno;
+				}else
+				{
+					PLpgSQL_row *row = read_into_scalar_list(var->refname,
+															 (PLpgSQL_datum*)elem_var,
+															 yylloc);
+					row->parent_dno = var->dno;
+					elem_var = (PLpgSQL_variable*)row;
+				}
+				*target = elem_var;
 			}
 			else
 			{
@@ -3166,7 +3228,7 @@ read_into_scalar_list(char *initial_name,
 	 */
 	plpgsql_push_back_token(tok);
 
-	row = palloc(sizeof(PLpgSQL_row));
+	row = palloc0(sizeof(PLpgSQL_row));
 	row->dtype = PLPGSQL_DTYPE_ROW;
 	row->refname = pstrdup("*internal*");
 	row->lineno = plpgsql_location_to_lineno(initial_location);
@@ -3201,7 +3263,7 @@ make_scalar_list1(char *initial_name,
 
 	check_assignable(initial_datum, location);
 
-	row = palloc(sizeof(PLpgSQL_row));
+	row = palloc0(sizeof(PLpgSQL_row));
 	row->dtype = PLPGSQL_DTYPE_ROW;
 	row->refname = pstrdup("*internal*");
 	row->lineno = lineno;

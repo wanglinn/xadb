@@ -4168,6 +4168,12 @@ exec_stmt_execsql(PLpgSQL_execstate *estate,
 	 * forcing completion of a sequential scan.  So don't do it unless we need
 	 * to enforce strictness.
 	 */
+#ifdef ADB_GRAM_ORA
+	if (stmt->bulk_collect)
+	{
+		tcount = 0;
+	}else
+#endif /* ADB_GRAM_ORA */
 	if (stmt->into)
 	{
 		if (stmt->strict || stmt->mod_stmt)
@@ -4285,6 +4291,45 @@ exec_stmt_execsql(PLpgSQL_execstate *estate,
 			/* set the target to NULL(s) */
 			exec_move_row(estate, target, NULL, tuptab->tupdesc);
 		}
+#ifdef ADB_GRAM_ORA
+		if (stmt->bulk_collect)
+		{
+			PLpgSQL_datum *parent;
+			ArrayBuildStateAny *astate;
+			Datum datum;
+			Oid typeoid;
+			int32 typemod;
+			int i;
+			bool isnull;
+
+			if (target->dtype == PLPGSQL_DTYPE_ROW)
+				parent = estate->datums[((PLpgSQL_row*)target)->parent_dno];
+			else if (target->dtype == PLPGSQL_DTYPE_REC)
+				parent = estate->datums[((PLpgSQL_rec*)target)->parent_dno];
+			else
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("unknown bulk collect insert item type %d", target->dtype)));
+			astate = NULL;
+			for (i=0; i<n; ++i)
+			{
+				exec_move_row(estate, target, tuptab->vals[i], tuptab->tupdesc);
+				exec_eval_datum(estate, (PLpgSQL_datum*)target, &typeoid, &typemod, &datum, &isnull);
+				astate = accumArrayResultAny(astate,
+											 datum,
+											 isnull,
+											 typeoid,
+											 CurrentMemoryContext);
+			}
+			Assert(astate != NULL);
+			exec_assign_value(estate,
+							  parent,
+							  makeArrayResultAny(astate, get_eval_mcontext(estate), true),
+							  false,
+							  get_array_type(typeoid),
+							  typemod);
+		}
+#endif /* ADB_GRAM_ORA */
 		else
 		{
 			if (n > 1 && (stmt->strict || stmt->mod_stmt))

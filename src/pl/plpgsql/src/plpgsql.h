@@ -380,6 +380,9 @@ typedef struct PLpgSQL_row
 	int			nfields;
 	char	  **fieldnames;
 	int		   *varnos;
+#ifdef ADB_GRAM_ORA
+	int			parent_dno;		/* only for bluk collect insert */
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_row;
 
 /*
@@ -407,6 +410,7 @@ typedef struct PLpgSQL_rec
 	ExpandedRecordHeader *erh;
 #ifdef ADB_GRAM_ORA
 	int			cursor_dno;		/* only for "variable cursor%rowtype" */
+	int			parent_dno;		/* only for bluk collect insert */
 #endif /* ADB_GRAM_ORA */
 } PLpgSQL_rec;
 
@@ -915,6 +919,9 @@ typedef struct PLpgSQL_stmt_execsql
 	bool		strict;			/* INTO STRICT flag */
 	PLpgSQL_variable *target;	/* INTO target (record or row) */
 	char	   *label;
+#ifdef ADB_GRAM_ORA
+	bool		bulk_collect;	/* BULK COLLECT INTO */
+#endif /* ADB_GRAM_ORA */
 } PLpgSQL_stmt_execsql;
 
 /*
