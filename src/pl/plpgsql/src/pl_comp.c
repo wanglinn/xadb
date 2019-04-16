@@ -2216,6 +2216,9 @@ build_datatype(HeapTuple typeTup, int32 typmod, Oid collation)
 	else
 		typ->typisarray = false;
 	typ->atttypmod = typmod;
+#ifdef ADB_GRAM_ORA
+	typ->cursor_dno = -1;
+#endif /* ADB_GRAM_ORA */
 
 	return typ;
 }
