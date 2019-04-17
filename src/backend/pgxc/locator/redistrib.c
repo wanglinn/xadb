@@ -30,13 +30,52 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #ifdef ADB
+#include "access/heapam.h"
+#include "access/htup_details.h"
+#include "access/multixact.h"
+#include "commands/cluster.h"
+#include "commands/copy.h"
+#include "executor/clusterReceiver.h"
+#include "executor/execCluster.h"
+#include "executor/executor.h"
+#include "executor/tuptable.h"
 #include "intercomm/inter-comm.h"
+#include "libpq/libpq-fe.h"
+#include "libpq/pqformat.h"
+#include "nodes/makefuncs.h"
+#include "optimizer/reduceinfo.h"
+#include "pgxc/locator.h"
+#include "storage/mem_toc.h"
+#include "utils/builtins.h"
+#include "utils/fmgroids.h"
+#include "utils/memutils.h"
+
 #endif
 
 #define IsCommandTypePreUpdate(x) (x == CATALOG_UPDATE_BEFORE || \
 								   x == CATALOG_UPDATE_BOTH)
 #define IsCommandTypePostUpdate(x) (x == CATALOG_UPDATE_AFTER || \
 									x == CATALOG_UPDATE_BOTH)
+#ifdef ADB
+extern bool enable_cluster_plan;
+
+#define SHADOW_RELATION_PREFIX		"pg_temp_"
+#define REMOTE_KEY_CREATE_SHADOW_TABLE		1
+#define REMOTE_KEY_REDIST_SHADOW_DATA		2
+#define REMOTE_KEY_SWAP_SHADOW_SOURCE_TABLE	3
+
+typedef struct ShadowReduceState
+{
+	Relation		redist_currentRelation;
+	HeapScanDesc	redist_currentScanDesc;
+	TupleTableSlot *redist_ScanTupleSlot;
+	TupleTableSlot *redist_ResultTupleSlot;
+	ExprContext	   *redist_ExprContext;
+	ProjectionInfo *redist_ProjInfo;
+} ShadowReduceState;
+
+#endif
+
 
 /* Functions used for the execution of redistribution commands */
 static void distrib_execute_query(char *sql, bool is_temp, ExecNodes *exec_nodes);
@@ -61,6 +100,19 @@ static void pgxc_redist_build_replicate_to_distrib(RedistribState *distribState,
 static void pgxc_redist_build_default(RedistribState *distribState);
 static void pgxc_redist_add_reindex(RedistribState *distribState);
 
+#ifdef ADB
+static void distrib_create_shadow(RedistribState *distribState, RedistribCommand *command);
+static void distrib_reduce_shadow(RedistribState *distribState, RedistribCommand *command);
+static void distrib_swap_shadow_source(RedistribState *distribState, RedistribCommand *command);
+static void DoReduceDataForShadowRel(Relation master,
+					   Relation shadow,
+					   List *rnodes,
+					   AuxiliaryRelCopy *redistcopy);
+static void distrib_swap_shadow_source(RedistribState *distribState, RedistribCommand *command);
+static List *distrib_get_remote_reduce_nodelist(RelationLocInfo *oldLocInfo, RelationLocInfo *newLocInfo
+						, RedistribCommand *command);
+
+#endif
 
 /*
  * PGXCRedistribTable
@@ -359,12 +411,34 @@ distrib_execute_command(RedistribState *distribState, RedistribCommand *command)
 	switch (command->type)
 	{
 		case DISTRIB_COPY_TO:
-			distrib_copy_to(distribState);
+#ifdef ADB
+			if (distribState->canReduce)
+			{
+				distrib_create_shadow(distribState, command);
+				distrib_reduce_shadow(distribState, command);
+			}
+			else
+#endif
+				distrib_copy_to(distribState);
 			break;
 		case DISTRIB_COPY_FROM:
-			distrib_copy_from(distribState, command->execNodes);
+#ifdef ADB
+			if (distribState->canReduce && distribState->createShadowRel)
+			{
+				distrib_swap_shadow_source(distribState, command);
+			}
+			else
+#endif
+				distrib_copy_from(distribState, command->execNodes);
 			break;
 		case DISTRIB_TRUNCATE:
+#ifdef ADB
+			if (distribState->canReduce && distribState->createShadowRel)
+			{
+				/*do nothing */
+			}
+			else
+#endif
 			distrib_truncate(distribState, command->execNodes);
 			break;
 		case DISTRIB_REINDEX:
@@ -847,6 +921,11 @@ makeRedistribState(Oid relOid)
 	res->relid = relOid;
 	res->commands = NIL;
 	res->store = NULL;
+	res->shadowRelid = InvalidOid;
+	res->createShadowRel = false;
+	res->canReduce = false;
+	res->oldLocInfo = NULL;
+	res->newLocInfo = NULL;
 	return res;
 }
 
@@ -870,6 +949,10 @@ FreeRedistribState(RedistribState *state)
 		list_free(state->commands);
 	if (state->store)
 		tuplestore_clear(state->store);
+
+	FreeRelationLocInfo(state->oldLocInfo);
+	FreeRelationLocInfo(state->newLocInfo);
+
 }
 
 /*
@@ -927,3 +1010,588 @@ distrib_execute_query(char *sql, bool is_temp, ExecNodes *exec_nodes)
 	/* Be sure to advance the command counter after the last command */
 	CommandCounterIncrement();
 }
+
+#ifdef ADB
+/*
+ * create shadow table
+ *
+ */
+static void
+distrib_create_shadow(RedistribState *distribState, RedistribCommand *command)
+{
+	StringInfoData msg;
+	List *remoteList = NIL;
+	List *nodeOids = NIL;
+	Relation rel;
+	Oid relid;
+	Oid relnamespace;
+	Oid reltablespace;
+	char relpersistence = RELPERSISTENCE_TEMP;
+	char *relname;
+	int flag;
+	Oid OIDNewHeap;
+
+	relid = distribState->relid;
+	relname = get_rel_name(relid);
+	rel = relation_open(relid, NoLock);
+	relnamespace = RelationGetNamespace(rel);
+	reltablespace = rel->rd_rel->reltablespace;
+	relpersistence = rel->rd_rel->relpersistence;
+	relation_close(rel, NoLock);
+
+	ereport(DEBUG1,
+			(errmsg("create shadow relation \"%s.%s%d\" for relation \"%s.%s\""
+					, get_namespace_name(relnamespace)
+					, SHADOW_RELATION_PREFIX, relid
+					, get_namespace_name(relnamespace)
+					, relname)));
+
+	initStringInfo(&msg);
+	nodeOids = distrib_get_remote_reduce_nodelist(distribState->oldLocInfo
+							, distribState->newLocInfo, command);
+	ClusterTocSetCustomFun(&msg, ClusterCreateShadowTable);
+
+	begin_mem_toc_insert(&msg, REMOTE_KEY_CREATE_SHADOW_TABLE);
+	save_node_string(&msg, relname);
+	appendBinaryStringInfo(&msg, (char *)&relnamespace, sizeof(relnamespace));
+	appendBinaryStringInfo(&msg, (char *)&reltablespace, sizeof(reltablespace));
+	appendBinaryStringInfo(&msg, (char *)&relpersistence, sizeof(relpersistence));
+	end_mem_toc_insert(&msg, REMOTE_KEY_CREATE_SHADOW_TABLE);
+
+	flag = EXEC_CLUSTER_FLAG_NEED_REDUCE;
+	remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
+
+	if (remoteList)
+	{
+		PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+		list_free(remoteList);
+	}
+
+	list_free(nodeOids);
+	pfree(msg.data);
+
+	Assert(relpersistence != RELPERSISTENCE_TEMP);
+	OIDNewHeap = make_new_heap(relid, reltablespace, relpersistence, ExclusiveLock);
+
+	distribState->createShadowRel = true;
+
+	GetCurrentCommandId(true);
+	CommandCounterIncrement();
+}
+
+void
+ClusterCreateShadowTable(StringInfo msg)
+{
+	Oid relid;
+	Oid relnamespace;
+	Oid reltablespace;
+	Oid OIDNewHeap;
+	char relpersistence;
+	const char *relname;
+	StringInfoData buf;
+
+	buf.data = mem_toc_lookup(msg, REMOTE_KEY_CREATE_SHADOW_TABLE, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("Can not found shadowRelationInfo in cluster message"),
+				 errcode(ERRCODE_PROTOCOL_VIOLATION)));
+	}
+	buf.len = buf.maxlen;
+	buf.cursor = 0;
+
+	relname = pq_getmsgrawstring(&buf);
+	pq_copymsgbytes(&buf, (char *)&(relnamespace), sizeof(relnamespace));
+	pq_copymsgbytes(&buf, (char *)&(reltablespace), sizeof(reltablespace));
+	pq_copymsgbytes(&buf, (char *)&(relpersistence), sizeof(relpersistence));
+	relid = get_relname_relid(relname, relnamespace);
+
+	ereport(DEBUG1,
+			(errmsg("create shadow relation \"%s.%s%d\" for relation \"%s.%s\""
+					, get_namespace_name(relnamespace)
+					, SHADOW_RELATION_PREFIX, relid
+					, get_namespace_name(relnamespace)
+					, relname)));
+
+	Assert((relpersistence != RELPERSISTENCE_TEMP));
+	OIDNewHeap = make_new_heap(relid, reltablespace, relpersistence, ExclusiveLock);
+
+	RelationCacheInvalidateEntry(OIDNewHeap);
+
+	CommandCounterIncrement();
+}
+
+static List *
+MakeMainRelTargetForShadow(Relation mainRel, Relation shadowRel, Index relid, bool targetEntry)
+{
+	Form_pg_attribute	main_attr;
+	Form_pg_attribute	shadow_attr;
+	TupleDesc			main_desc = RelationGetDescr(mainRel);
+	TupleDesc			shadow_desc = RelationGetDescr(shadowRel);
+	Var				   *var;
+	TargetEntry		   *te;
+	List			   *result = NIL;
+	int					anum;
+	int					i;
+	int					j;
+	char			   *attname;
+
+	for(i=0;i<shadow_desc->natts;++i)
+	{
+		shadow_attr = TupleDescAttr(shadow_desc, i);
+		if (shadow_attr->attisdropped)
+			continue;
+
+		++anum;
+		attname = NameStr(shadow_attr->attname);
+
+		for(j=0;j<main_desc->natts;++j)
+		{
+			main_attr = TupleDescAttr(main_desc, j);
+			if (main_attr->attisdropped)
+				continue;
+
+			if (strcmp(attname, NameStr(main_attr->attname)) == 0)
+				break;
+		}
+		if (j >= main_desc->natts)
+			main_attr = NULL;
+
+		var = makeVar(relid, main_attr->attnum, main_attr->atttypid, main_attr->atttypmod
+						, main_attr->attcollation, 0);
+		if (targetEntry)
+		{
+			te = makeTargetEntry((Expr*)var, (AttrNumber)anum
+									, pstrdup(NameStr(main_attr->attname)), false);
+			result = lappend(result, te);
+		}else
+		{
+			result = lappend(result, var);
+		}
+	}
+
+	return result;
+}
+
+
+static AuxiliaryRelCopy *
+MakeShadowRelCopyInfoFromMaster(Relation masterRel, Relation shadowRel, int shadowId)
+{
+	AuxiliaryRelCopy *redist_copy;
+	ReduceInfo		 *rinfo;
+
+	redist_copy = palloc0(sizeof(*redist_copy));
+	redist_copy->schemaname = get_namespace_name(RelationGetNamespace(shadowRel));
+	redist_copy->relname = pstrdup(RelationGetRelationName(shadowRel));
+	redist_copy->targetList = MakeMainRelTargetForShadow(masterRel, shadowRel, 1, true);
+
+	rinfo = MakeReduceInfoFromLocInfo(shadowRel->rd_locator_info, NIL
+										, RelationGetRelid(shadowRel), 1);
+	redist_copy->reduce = CreateExprUsingReduceInfo(rinfo);
+
+	redist_copy->id = shadowId;
+
+	return redist_copy;
+}
+static void
+distrib_reduce_shadow(RedistribState *distribState, RedistribCommand *command)
+{
+	StringInfoData msg;
+	Oid relid;
+	Oid relnamespace;
+	int flag;
+	char *relname;
+	List *nodeOids = NIL;
+	List *mnodeOids = NIL;
+	List *remoteList = NIL;
+	List *redistcopylist = NIL;
+	AuxiliaryRelCopy *redistcopy;
+	char shadowRelName[64];
+	Relation masterRel;
+	Relation shadowRel;
+	Oid shadowRelid;
+
+	Assert(command->type == DISTRIB_COPY_TO);
+
+	flag = EXEC_CLUSTER_FLAG_NEED_REDUCE | EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE;
+	relid = distribState->relid;
+	relname = get_rel_name(relid);
+	masterRel = heap_open(relid, NoLock);
+	relnamespace = RelationGetNamespace(masterRel);
+
+	sprintf(shadowRelName, "%s%d", SHADOW_RELATION_PREFIX, relid);
+	shadowRelid = get_relname_relid(shadowRelName, relnamespace);
+
+	ereport(DEBUG1,
+			(errmsg("reduce source relation \"%s.%s\" data for shadow relation \"%s.%s\""
+					, get_namespace_name(relnamespace)
+					, relname
+					, get_namespace_name(relnamespace)
+					, shadowRelName)));
+
+	nodeOids = distrib_get_remote_reduce_nodelist(distribState->oldLocInfo
+							, distribState->newLocInfo, command);
+
+	shadowRel = heap_open(shadowRelid, NoLock);
+	if (shadowRel->rd_locator_info)
+		FreeRelationLocInfo(shadowRel->rd_locator_info);
+	shadowRel->rd_locator_info = CopyRelationLocInfo(distribState->newLocInfo);
+	redistcopy = MakeShadowRelCopyInfoFromMaster(masterRel, shadowRel, 0);
+	redistcopylist = lappend(redistcopylist, redistcopy);
+
+	initStringInfo(&msg);
+	mnodeOids = list_copy(nodeOids);
+	ClusterTocSetCustomFun(&msg, ClusterRedistShadowData);
+	begin_mem_toc_insert(&msg, REMOTE_KEY_REDIST_SHADOW_DATA);
+	if (flag & EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE)
+		mnodeOids = lappend_oid(mnodeOids, PGXCNodeOid);
+	saveNode(&msg, (const Node *)mnodeOids);
+	save_node_string(&msg, relname);
+	appendBinaryStringInfo(&msg, (char *)&relnamespace, sizeof(relnamespace));
+	end_mem_toc_insert(&msg, REMOTE_KEY_REDIST_SHADOW_DATA);
+
+	begin_mem_toc_insert(&msg, AUX_REL_COPY_INFO);
+	SerializeAuxRelCopyInfo(&msg, redistcopylist);
+	end_mem_toc_insert(&msg, AUX_REL_COPY_INFO);
+
+	remoteList = ExecClusterCustomFunctionDistrib(nodeOids, &msg, flag);
+
+	if (flag & EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE)
+	{
+		DoReduceDataForShadowRel(masterRel,
+					shadowRel,
+					nodeOids,
+					redistcopy);
+	}
+
+	heap_close(masterRel, NoLock);
+	heap_close(shadowRel, NoLock);
+
+	/* cleanup */
+	if (remoteList)
+	{
+		ListCell	   *lc;
+		PGconn		   *conn;
+
+		foreach(lc, remoteList)
+		{
+			conn = lfirst(lc);
+			if (PQisCopyInState(conn))
+				PQputCopyEnd(conn, NULL);
+		}
+	}
+
+	list_free(remoteList);
+
+	list_free(nodeOids);
+	list_free(mnodeOids);
+	pfree(msg.data);
+
+	CommandCounterIncrement();
+}
+
+static void
+DoReduceDataForShadowRel(Relation masterRel,
+					   Relation shadowRel,
+					   List *rnodes,
+					   AuxiliaryRelCopy *redistcopy)
+{
+	MemoryContext	shadow_context;
+	MemoryContext	old_context;
+	TupleDesc		scan_desc;
+	TupleDesc		result_desc;
+	ShadowReduceState state;
+
+	Assert(masterRel && shadowRel);
+	Assert(redistcopy);
+	Assert(list_length(rnodes) > 0);
+
+	PushActiveSnapshot(GetTransactionSnapshot());
+
+	shadow_context = AllocSetContextCreate(CurrentMemoryContext,
+											"DoReduceDataForShadowRel",
+											ALLOCSET_DEFAULT_SIZES);
+	old_context = MemoryContextSwitchTo(shadow_context);
+
+	scan_desc = RelationGetDescr(masterRel);
+	state.redist_currentRelation = masterRel;
+	state.redist_currentScanDesc = heap_beginscan(masterRel,
+											   GetActiveSnapshot(),
+											   0, NULL);
+	state.redist_ScanTupleSlot = MakeSingleTupleTableSlot(scan_desc);
+	result_desc = RelationGetDescr(shadowRel);
+
+	state.redist_ResultTupleSlot = MakeSingleTupleTableSlot(result_desc);
+	state.redist_ExprContext = CreateStandaloneExprContext();
+	state.redist_ProjInfo = ExecBuildProjectionInfo(redistcopy->targetList,
+													state.redist_ExprContext,
+													state.redist_ResultTupleSlot,
+													NULL,
+													scan_desc);
+
+	ClusterCopyFromReduce(shadowRel,
+						redistcopy->reduce,
+						rnodes,
+						redistcopy->id,
+						false,
+						NextRowForPadding,
+						&state);
+
+	ReScanExprContext(state.redist_ExprContext);
+
+	FreeExprContext(state.redist_ExprContext, true);
+	ExecDropSingleTupleTableSlot(state.redist_ScanTupleSlot);
+	ExecDropSingleTupleTableSlot(state.redist_ResultTupleSlot);
+	if (state.redist_currentScanDesc != NULL)
+		heap_endscan(state.redist_currentScanDesc);
+
+	MemoryContextSwitchTo(old_context);
+	MemoryContextDelete(shadow_context);
+
+	PopActiveSnapshot();
+}
+
+void
+ClusterRedistShadowData(StringInfo msg)
+{
+	Oid relid;
+	Oid shadowRelid;
+	Oid relnamespace;
+	const char *relname;
+	char shadowRelName[64];
+	StringInfoData buf;
+	Relation master;
+	Relation shadow;
+	List *rnodes;
+	AuxiliaryRelCopy *redistcopy = NULL;
+	List *redistcopylist = NIL;
+
+	buf.data = mem_toc_lookup(msg, REMOTE_KEY_REDIST_SHADOW_DATA, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("Can not found shadowRelationReduceDataInfo in cluster message"),
+				 errcode(ERRCODE_PROTOCOL_VIOLATION)));
+	}
+	buf.len = buf.maxlen;
+	buf.cursor = 0;
+
+	rnodes = (List*)loadNode(&buf);
+
+	relname = load_node_string(&buf, false);
+	pq_copymsgbytes(&buf, (char *)&(relnamespace), sizeof(relnamespace));
+
+	buf.data = mem_toc_lookup(msg, AUX_REL_COPY_INFO, &buf.len);
+	Assert(buf.data != NULL && buf.len > 0);
+	buf.maxlen = buf.len;
+	buf.cursor = 0;
+	redistcopylist = RestoreAuxRelCopyInfo(&buf);
+
+	relid = get_relname_relid(relname, relnamespace);
+
+	sprintf(shadowRelName, "%s%d", SHADOW_RELATION_PREFIX, relid);
+	shadowRelid = get_relname_relid(shadowRelName, relnamespace);
+
+	ereport(DEBUG1,
+			(errmsg("reduce source relation \"%s.%s\" data for shadow relation \"%s.%s\""
+					, get_namespace_name(relnamespace)
+					, relname
+					, get_namespace_name(relnamespace)
+					, shadowRelName)));
+
+	master = heap_open(relid, AccessShareLock);
+	shadow = heap_open(shadowRelid, AccessShareLock);
+
+	redistcopy = (AuxiliaryRelCopy *)linitial(redistcopylist);
+
+	DoReduceDataForShadowRel(master,
+						shadow,
+						rnodes,
+						redistcopy);
+
+	heap_close(master, AccessShareLock);
+	heap_close(shadow, AccessShareLock);
+
+	CommandCounterIncrement();
+}
+
+static void
+distrib_swap_shadow_source(RedistribState *distribState, RedistribCommand *command)
+{
+	StringInfoData msg;
+	List *remoteList = NIL;
+	List *nodeOids = NIL;
+	Relation rel;
+	Oid relid;
+	Oid shadowRelid;
+	Oid relnamespace;
+	Oid reltablespace;
+	char relpersistence = RELPERSISTENCE_TEMP;
+	char *relname;
+	char shadowRelName[64];
+	int flag;
+	bool is_system_catalog;
+	bool swap_toast_by_content;
+
+	Assert(command->type == DISTRIB_COPY_FROM);
+
+	relid = distribState->relid;
+	relname = get_rel_name(relid);
+	rel = relation_open(relid, NoLock);
+	relnamespace = RelationGetNamespace(rel);
+	reltablespace = rel->rd_rel->reltablespace;
+	relpersistence = rel->rd_rel->relpersistence;
+	relation_close(rel, NoLock);
+
+	sprintf(shadowRelName, "%s%d", SHADOW_RELATION_PREFIX, relid);
+	shadowRelid = get_relname_relid(shadowRelName, relnamespace);
+
+	ereport(DEBUG1,
+			(errmsg("swap source relation \"%s.%s\" file with shadow relation \"%s.%s\" file"
+					, get_namespace_name(relnamespace)
+					, relname
+					, get_namespace_name(relnamespace)
+					, shadowRelName)));
+
+	initStringInfo(&msg);
+	nodeOids = distrib_get_remote_reduce_nodelist(distribState->oldLocInfo
+						, distribState->newLocInfo, command);
+
+	ClusterTocSetCustomFun(&msg, ClusterSwapShadowSourceTable);
+
+	begin_mem_toc_insert(&msg, REMOTE_KEY_SWAP_SHADOW_SOURCE_TABLE);
+	save_node_string(&msg, relname);
+	appendBinaryStringInfo(&msg, (char *)&relnamespace, sizeof(relnamespace));
+	appendBinaryStringInfo(&msg, (char *)&reltablespace, sizeof(reltablespace));
+	appendBinaryStringInfo(&msg, (char *)&relpersistence, sizeof(relpersistence));
+	end_mem_toc_insert(&msg, REMOTE_KEY_SWAP_SHADOW_SOURCE_TABLE);
+
+	flag = EXEC_CLUSTER_FLAG_NEED_REDUCE;
+	remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
+
+	if (remoteList)
+	{
+		PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+		list_free(remoteList);
+	}
+
+	list_free(nodeOids);
+	pfree(msg.data);
+
+	/* swap the self shadow file with source file */
+	is_system_catalog = false;
+	swap_toast_by_content = false;
+	finish_heap_swap(relid, shadowRelid, is_system_catalog,
+					 swap_toast_by_content, false, true,
+					 RecentXmin, GetCurrentCommandId(true), relpersistence);
+
+	GetCurrentCommandId(true);
+	CommandCounterIncrement();
+}
+
+void
+ClusterSwapShadowSourceTable(StringInfo msg)
+{
+	Oid relid;
+	Oid relnamespace;
+	Oid reltablespace;
+	Oid shadowRelid;
+	char relpersistence;
+	const char *relname;
+	char shadowRelName[64];
+	bool is_system_catalog;
+	bool swap_toast_by_content;
+	StringInfoData buf;
+
+	buf.data = mem_toc_lookup(msg, REMOTE_KEY_SWAP_SHADOW_SOURCE_TABLE, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("Can not found shadowRelationInfo in cluster message"),
+				 errcode(ERRCODE_PROTOCOL_VIOLATION)));
+	}
+	buf.len = buf.maxlen;
+	buf.cursor = 0;
+
+	relname = pq_getmsgrawstring(&buf);
+	pq_copymsgbytes(&buf, (char *)&(relnamespace), sizeof(relnamespace));
+	pq_copymsgbytes(&buf, (char *)&(reltablespace), sizeof(reltablespace));
+	pq_copymsgbytes(&buf, (char *)&(relpersistence), sizeof(relpersistence));
+	relid = get_relname_relid(relname, relnamespace);
+
+	sprintf(shadowRelName, "%s%d", SHADOW_RELATION_PREFIX, relid);
+	shadowRelid = get_relname_relid(shadowRelName, relnamespace);
+
+	ereport(DEBUG1,
+			(errmsg("sawp source relation \"%s.%s\" file with shadow relation \"%s.%s\" file"
+					, get_namespace_name(relnamespace)
+					, relname
+					, get_namespace_name(relnamespace)
+					, shadowRelName)));
+
+	is_system_catalog = false;
+	swap_toast_by_content = false;
+	finish_heap_swap(relid, shadowRelid, is_system_catalog,
+					 swap_toast_by_content, false, true,
+					 RecentXmin, GetCurrentCommandId(true), relpersistence);
+
+	CommandCounterIncrement();
+}
+
+/*
+* check the table can use reduce method to redistribute the data
+*/
+bool
+distrib_can_use_reduce(Relation rel, RelationLocInfo *oldLocInfo, RelationLocInfo *newLocInfo)
+{
+	if (!enable_cluster_plan)
+		return false;
+
+	if (!oldLocInfo || !newLocInfo)
+		return false;
+
+	/* ordinary table */
+	if (rel->rd_rel->relkind != RELKIND_RELATION)
+		return false;
+
+	/* regular table */
+	if (rel->rd_rel->relpersistence != RELPERSISTENCE_PERMANENT)
+		return false;
+
+	/* not support partition table */
+	if (rel->rd_partdesc)
+		return false;
+
+	/* not support replication table */
+	if (oldLocInfo->locatorType == LOCATOR_TYPE_REPLICATED
+			&& newLocInfo->locatorType == LOCATOR_TYPE_REPLICATED)
+		return false;
+
+	return true;
+}
+
+static List *
+distrib_get_remote_reduce_nodelist(RelationLocInfo *oldLocInfo, RelationLocInfo *newLocInfo
+							, RedistribCommand *command)
+{
+	List *nodeOids = NIL;
+	ListCell *lc;
+
+	Assert(oldLocInfo && newLocInfo);
+	Assert(command);
+
+	if ((command->type == DISTRIB_COPY_TO || command->type == DISTRIB_COPY_FROM)
+		&& IsRelationReplicated(oldLocInfo))
+		nodeOids = list_copy(GetPreferredRepNodeIds(oldLocInfo->nodeids));
+	else
+		/* All nodes necessary */
+		nodeOids = list_copy(oldLocInfo->nodeids);
+
+	foreach(lc, newLocInfo->nodeids)
+	{
+		nodeOids = list_append_unique_oid(nodeOids, lfirst_oid(lc));
+	}
+
+	return nodeOids;
+}
+#endif /* ADB*/

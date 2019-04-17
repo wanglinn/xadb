@@ -75,6 +75,9 @@ extern void DoPaddingDataForAuxRel(Relation master,
 								   Relation auxrel,
 								   List *rnodes,
 								   AuxiliaryRelCopy *auxcopy);
+extern TupleTableSlot *
+NextRowForPadding(CopyState cstate, ExprContext *context, void *data);
+
 #endif /* ADB */
 
 #endif							/* COPY_H */

@@ -420,7 +420,6 @@ static List* LoadAuxRelCopyInfo(StringInfo mem_toc);
 static void ApplyCopyToAuxiliary(CopyState parent, List *rnodes);
 static TupleTableSlot* NextRowFromReduce(CopyState cstate, ExprContext *context, void *data);
 static TupleTableSlot* NextRowFromTidBufFile(CopyState cstate, ExprContext *context, void *data);
-static TupleTableSlot *NextRowForPadding(CopyState cstate, ExprContext *context, void *data);
 #endif
 
 /*
@@ -6673,7 +6672,7 @@ typedef struct AuxPaddingState
 	ProjectionInfo *aux_ProjInfo;
 } AuxPaddingState;
 
-static TupleTableSlot *
+TupleTableSlot *
 NextRowForPadding(CopyState cstate, ExprContext *context, void *data)
 {
 	AuxPaddingState*state = (AuxPaddingState *) data;
