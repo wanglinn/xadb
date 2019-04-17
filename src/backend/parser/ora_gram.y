@@ -5904,16 +5904,16 @@ SimpleTypename:
 
 simple_select:
 		SELECT opt_distinct target_list from_clause where_clause
-		group_clause having_clause opt_connect_by_clause
+		opt_connect_by_clause group_clause having_clause
 			{
 				SelectStmt *n = makeNode(SelectStmt);
 				n->distinctClause = $2;
 				n->targetList = $3;
 				n->fromClause = $4;
 				n->whereClause = $5;
-				n->groupClause = $6;
-				n->havingClause = $7;
-				n->ora_connect_by = $8;
+				n->groupClause = $7;
+				n->havingClause = $8;
+				n->ora_connect_by = $6;
 				$$ = (Node*)n;
 			}
 		| select_clause UNION opt_all select_clause
