@@ -6173,13 +6173,15 @@ type_function_name:	IDENT							{ $$ = $1; }
 
 UpdateStmt:
 	  UPDATE relation_expr_opt_alias SET set_clause_list
+		from_clause
 	  where_or_current_clause returning_clause
 		{
 			UpdateStmt *n = makeNode(UpdateStmt);
 			n->relation = $2;
 			n->targetList = $4;
-			n->whereClause = $5;
-			n->returningList = $6;
+			n->fromClause = $5;
+			n->whereClause = $6;
+			n->returningList = $7;
 			$$ = (Node*)n;
 		}
 	| UPDATE '(' UpdateSelectStmt ')' SET set_clause_list returning_clause
