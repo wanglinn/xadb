@@ -7579,8 +7579,9 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 		break;
 	case ORDER:
 		LEX_LOOKAHEAD(&look1);
-		if (look1.token == SIBLINGS)
-			break;
+		if (look1.token != SIBLINGS)
+			PUSH_LOOKAHEAD(&look1);
+		break;
 	case ';':
 		yyextra->parsing_first_token = true;
 		break;
