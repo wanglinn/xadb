@@ -13549,7 +13549,7 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	redistribState->newLocInfo = CopyRelationLocInfo(newLocInfo);
 	redistribState->createShadowRel = false;
 	redistribState->canReduce = distrib_can_use_reduce(rel
-		, redistribState->oldLocInfo, redistribState->newLocInfo);
+		, redistribState->oldLocInfo, redistribState->newLocInfo, subCmds);
 
 	/* Build the command tree for table redistribution */
 	PGXCRedistribCreateCommandList(redistribState, newLocInfo);
