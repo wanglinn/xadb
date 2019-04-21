@@ -1269,18 +1269,9 @@ distrib_reduce_shadow(RedistribState *distribState, RedistribCommand *command)
 	/* cleanup */
 	if (remoteList)
 	{
-		ListCell	   *lc;
-		PGconn		   *conn;
-
-		foreach(lc, remoteList)
-		{
-			conn = lfirst(lc);
-			if (PQisCopyInState(conn))
-				PQputCopyEnd(conn, NULL);
-		}
+		PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+		list_free(remoteList);
 	}
-
-	list_free(remoteList);
 
 	list_free(nodeOids);
 	list_free(mnodeOids);
@@ -1541,8 +1532,11 @@ ClusterSwapShadowSourceTable(StringInfo msg)
 * check the table can use reduce method to redistribute the data
 */
 bool
-distrib_can_use_reduce(Relation rel, RelationLocInfo *oldLocInfo, RelationLocInfo *newLocInfo)
+distrib_can_use_reduce(Relation rel, RelationLocInfo *oldLocInfo, RelationLocInfo *newLocInfo
+	, List *subCmds)
 {
+	ListCell   *item;
+
 	if (!enable_cluster_plan)
 		return false;
 
@@ -1565,6 +1559,19 @@ distrib_can_use_reduce(Relation rel, RelationLocInfo *oldLocInfo, RelationLocInf
 	if (oldLocInfo->locatorType == LOCATOR_TYPE_REPLICATED
 			&& newLocInfo->locatorType == LOCATOR_TYPE_REPLICATED)
 		return false;
+
+	if (!subCmds)
+		return false;
+
+	foreach(item, subCmds)
+	{
+		AlterTableCmd *cmd = (AlterTableCmd *) lfirst(item);
+		if (cmd->subtype != AT_DistributeBy
+			&& cmd->subtype != AT_SubCluster
+			&& cmd->subtype != AT_AddNodeList
+			&& cmd->subtype != AT_DeleteNodeList)
+			return false;
+	}
 
 	return true;
 }

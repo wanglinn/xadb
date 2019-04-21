@@ -61,6 +61,9 @@
 #define REMOTE_KEY_CUSTOM_FUNCTION			0xFFFFFF0C
 #define REMOTE_KEY_COORD_INFO				0xFFFFFF0D
 
+#define CLUSTER_CUSTOM_NEED_SEND_STAT			1
+#define CLUSTER_CUSTOM_NO_NEED_SEND_STAT		2
+
 typedef struct ClusterPlanContext
 {
 	bool transaction_read_only;		/* is read only plan */
@@ -80,8 +83,9 @@ typedef struct ClusterCustomExecInfo
 {
 	ClusterCustom_function func;
 	const char *FuncString;
+	const int flag;
 }ClusterCustomExecInfo;
-#define CLUSTER_CUSTOM_EXEC_FUNC(fun_)	fun_, #fun_
+#define CLUSTER_CUSTOM_EXEC_FUNC(fun_, flag) fun_, #fun_, flag
 
 typedef struct ClusterCoordInfo
 {
@@ -133,14 +137,14 @@ static const ClusterCustomExecInfo* find_custom_func_info(StringInfo mem_toc, bo
 
 static const ClusterCustomExecInfo cluster_custom_execute[] =
 	{
-		{CLUSTER_CUSTOM_EXEC_FUNC(DoClusterHeapScan)}
-		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRefreshMatView)}
-		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_vacuum)}
-		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeAlter)}
-		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeRemove)}
-		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterCreateShadowTable)}
-		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRedistShadowData)}
-		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterSwapShadowSourceTable)}
+		{CLUSTER_CUSTOM_EXEC_FUNC(DoClusterHeapScan, CLUSTER_CUSTOM_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRefreshMatView, CLUSTER_CUSTOM_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_vacuum, CLUSTER_CUSTOM_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeAlter, CLUSTER_CUSTOM_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeRemove, CLUSTER_CUSTOM_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterCreateShadowTable, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRedistShadowData, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterSwapShadowSourceTable, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
 	};
 
 static void set_cluster_display(const char *activity, bool force, ClusterCoordInfo *info);
@@ -239,9 +243,12 @@ void exec_cluster_plan(const void *splan, int length)
 	}
 
 	/* send stat */
-	initStringInfo(&msg);
-	if(SerializeTableStat(&msg))
-		pq_putmessage('d', msg.data, msg.len);
+	if ((!custom_fun) || (custom_fun->flag != CLUSTER_CUSTOM_NO_NEED_SEND_STAT))
+	{
+		initStringInfo(&msg);
+		if(SerializeTableStat(&msg))
+			pq_putmessage('d', msg.data, msg.len);
+	}
 	pfree(msg.data);
 
 	if (ActiveSnapshotSet())

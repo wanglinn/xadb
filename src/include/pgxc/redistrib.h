@@ -87,7 +87,7 @@ extern void FreeRedistribCommand(RedistribCommand *command);
 extern void ClusterCreateShadowTable(StringInfo buf);
 extern void ClusterRedistShadowData(StringInfo msg);
 extern void ClusterSwapShadowSourceTable(StringInfo msg);
-extern bool distrib_can_use_reduce(Relation rel, RelationLocInfo *oldLocInfo, RelationLocInfo *newLocInfo);
+extern bool distrib_can_use_reduce(Relation rel, RelationLocInfo *oldLocInfo, RelationLocInfo *newLocInfo, List *subCmds);
 #endif
 
 #endif  /* REDISTRIB_H */
