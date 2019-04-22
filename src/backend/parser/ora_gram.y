@@ -2777,6 +2777,13 @@ c_expr: columnref
 			r->location = @1;
 			$$ = (Node *)r;
 		}
+	| GROUPING '(' expr_list ')'
+			{
+				GroupingFunc *g = makeNode(GroupingFunc);
+				g->args = $3;
+				g->location = @1;
+				$$ = (Node *)g;
+			}
 	;
 
 /* Column identifier --- names that can be column, table, etc names.
