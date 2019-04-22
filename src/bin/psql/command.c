@@ -4425,7 +4425,7 @@ lookup_object_oid(EditableObjectType obj_type, const char *desc,
 			 * query to retrieve the function's OID using a cast to regproc or
 			 * regprocedure (as appropriate).
 			 */
-			appendPQExpBufferStr(query, "SELECT ");
+			appendPQExpBufferStr(query, PG_GRAM_HINT "SELECT ");
 			appendStringLiteralConn(query, desc, pset.db);
 			appendPQExpBuffer(query, "::pg_catalog.%s::pg_catalog.oid",
 							  strchr(desc, '(') ? "regprocedure" : "regproc");
@@ -4438,7 +4438,7 @@ lookup_object_oid(EditableObjectType obj_type, const char *desc,
 			 * this code doesn't check if the relation is actually a view.
 			 * We'll detect that in get_create_object_cmd().
 			 */
-			appendPQExpBufferStr(query, "SELECT ");
+			appendPQExpBufferStr(query, PG_GRAM_HINT "SELECT ");
 			appendStringLiteralConn(query, desc, pset.db);
 			appendPQExpBuffer(query, "::pg_catalog.regclass::pg_catalog.oid");
 			break;
@@ -4480,7 +4480,7 @@ get_create_object_cmd(EditableObjectType obj_type, Oid oid,
 	{
 		case EditableFunction:
 			printfPQExpBuffer(query,
-							  "SELECT pg_catalog.pg_get_functiondef(%u)",
+							  PG_GRAM_HINT "SELECT pg_catalog.pg_get_functiondef(%u)",
 							  oid);
 			break;
 
@@ -4502,7 +4502,7 @@ get_create_object_cmd(EditableObjectType obj_type, Oid oid,
 			if (pset.sversion >= 90400)
 			{
 				printfPQExpBuffer(query,
-								  "SELECT nspname, relname, relkind, "
+								  PG_GRAM_HINT "SELECT nspname, relname, relkind, "
 								  "pg_catalog.pg_get_viewdef(c.oid, true), "
 								  "array_remove(array_remove(c.reloptions,'check_option=local'),'check_option=cascaded') AS reloptions, "
 								  "CASE WHEN 'check_option=local' = ANY (c.reloptions) THEN 'LOCAL'::text "
@@ -4515,7 +4515,7 @@ get_create_object_cmd(EditableObjectType obj_type, Oid oid,
 			else if (pset.sversion >= 90200)
 			{
 				printfPQExpBuffer(query,
-								  "SELECT nspname, relname, relkind, "
+								  PG_GRAM_HINT "SELECT nspname, relname, relkind, "
 								  "pg_catalog.pg_get_viewdef(c.oid, true), "
 								  "c.reloptions AS reloptions, "
 								  "NULL AS checkoption "
@@ -4527,7 +4527,7 @@ get_create_object_cmd(EditableObjectType obj_type, Oid oid,
 			else
 			{
 				printfPQExpBuffer(query,
-								  "SELECT nspname, relname, relkind, "
+								  PG_GRAM_HINT "SELECT nspname, relname, relkind, "
 								  "pg_catalog.pg_get_viewdef(c.oid, true), "
 								  "NULL AS reloptions, "
 								  "NULL AS checkoption "

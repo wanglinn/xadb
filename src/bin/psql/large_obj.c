@@ -279,7 +279,7 @@ do_lo_list(void)
 	if (pset.sversion >= 90000)
 	{
 		snprintf(buf, sizeof(buf),
-				 "SELECT oid as \"%s\",\n"
+				 PG_GRAM_HINT "SELECT oid as \"%s\",\n"
 				 "  pg_catalog.pg_get_userbyid(lomowner) as \"%s\",\n"
 				 "  pg_catalog.obj_description(oid, 'pg_largeobject') as \"%s\"\n"
 				 "  FROM pg_catalog.pg_largeobject_metadata "
@@ -291,7 +291,7 @@ do_lo_list(void)
 	else
 	{
 		snprintf(buf, sizeof(buf),
-				 "SELECT loid as \"%s\",\n"
+				 PG_GRAM_HINT "SELECT loid as \"%s\",\n"
 				 "  pg_catalog.obj_description(loid, 'pg_largeobject') as \"%s\"\n"
 				 "FROM (SELECT DISTINCT loid FROM pg_catalog.pg_largeobject) x\n"
 				 "ORDER BY 1",
