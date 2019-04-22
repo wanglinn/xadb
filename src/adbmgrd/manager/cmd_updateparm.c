@@ -2327,7 +2327,6 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	bool bnormalValue = true;
 	bool bgetAddress = false;
 	bool breloadCn = false;
-	bool breloadGtm = false;
 	char *user;
 	char *hostAddr = NULL;
 	char *parmunit;
@@ -2335,14 +2334,11 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	char *parmmaxval;
 	char *parmenumval;
 	char *parmtype;
-	char *agtmName;
 	char *kValue = NULL;
 	char cnPath[MAXPGPATH];
-	char gtmPath[MAXPGPATH];
 	char kNodeType;
 	char ptype;
 	Oid coordHostOid;
-	Oid gtmHostOid;
 
 	struct PG_STAT_STATEMENT
 	{
@@ -2387,7 +2383,6 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	initStringInfo(&cnInfoSendMsg);
 	initStringInfo(&gtmInfoSendMsg);
 	initStringInfo(&(getAgentCmdRst.description));
-	agtmName = mgr_get_agtm_name();
 
 	PG_TRY();
 	{
@@ -2506,108 +2501,6 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 		PQclear(res);
 		PQfinish(conn);
 
-		/*connect gtm master */
-		nodeTuple = mgr_get_tuple_node_from_name_type(relNode, agtmName);
-		if (!HeapTupleIsValid(nodeTuple))
-		{
-			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-				,errmsg("get tuple information of gtm master \"%s\" fail", agtmName)));
-		}
-		mgr_node = (Form_mgr_node)GETSTRUCT(nodeTuple);
-		Assert(mgr_node);
-		gtmHostOid = mgr_node->nodehost;
-		nodePort = mgr_node->nodeport;
-		hostAddr = get_hostaddress_from_hostoid(gtmHostOid);
-		resetStringInfo(&conStr);
-		appendStringInfo(&conStr, "postgresql://%s@%s:%d/%s", AGTM_USER, hostAddr, nodePort, DEFAULT_DB);
-		appendStringInfoCharMacro(&conStr, '\0');
-		conn = PQconnectdb(conStr.data);
-		if (PQstatus(conn) != CONNECTION_OK)
-		{
-			PQfinish(conn);
-			/* get the adbmgr local address, and set the ip to gtm master pg_hba.conf */
-			memset(selfAddress.data, 0, NAMEDATALEN);
-			bgetAddress = mgr_get_self_address(hostAddr, nodePort, &selfAddress);
-			if (!bgetAddress)
-			{
-				pfree(hostAddr);
-				heap_freetuple(nodeTuple);
-				ereport(ERROR, (errmsg("on ADB Manager get local address fail and can not connect to agtm master \"%s\" from ADB Manager", agtmName)));
-			}
-			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, DEFAULT_DB, AGTM_USER, selfAddress.data, 31, "trust", &gtmInfoSendMsg);
-			datumPath = heap_getattr(nodeTuple, Anum_mgr_node_nodepath, RelationGetDescr(relNode), &isNull);
-			if (isNull)
-			{
-				pfree(hostAddr);
-				heap_freetuple(nodeTuple);
-				ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
-					, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
-					, errmsg("column nodepath is null")));
-			}
-			strncpy(gtmPath, TextDatumGetCString(datumPath), MAXPGPATH-1);
-			gtmPath[strlen(gtmPath)] = '\0';
-			resetStringInfo(&(getAgentCmdRst.description));
-			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, gtmPath, &gtmInfoSendMsg, gtmHostOid, &getAgentCmdRst);
-			mgr_reload_conf(gtmHostOid, gtmPath);
-			if (!getAgentCmdRst.ret)
-			{
-				pfree(hostAddr);
-				heap_freetuple(nodeTuple);
-				ereport(ERROR, (errmsg("set ADB Manager ip \"%s\" to gtm master \"%s\" %s/pg_hba.conf fail %s", selfAddress.data, agtmName, gtmPath, getAgentCmdRst.description.data)));
-			}
-			breloadGtm = true;
-			/* try connect again */
-			conn = PQconnectdb(conStr.data);
-			if (PQstatus(conn) != CONNECTION_OK)
-			{
-				pfree(hostAddr);
-				heap_freetuple(nodeTuple);
-				ereport(ERROR, (errmsg("%s", PQerrorMessage(conn))));
-			}
-
-		}
-		pfree(hostAddr);
-		heap_freetuple(nodeTuple);
-		res = PQexec(conn, sqlStrmsg.data);
-		if (PQresultStatus(res) != PGRES_TUPLES_OK)
-		{
-			if (NULL == PQresultErrorMessage(res))
-				ereport(ERROR, (errmsg("%s" , "execute the sql fail")));
-			else
-				ereport(ERROR, (errmsg("%s" , PQresultErrorMessage(res))));
-		}
-		nRows = PQntuples(res);
-		nColumn = PQnfields(res);
-		Assert(Natts_mgr_parm == nColumn + 1);
-		memset(isnull, 0, sizeof(isnull));
-		for (iloop=0; iloop<nRows; iloop++)
-		{
-			memset(datum, 0, sizeof(datum));
-			namestrcpy(&parmname, PQgetvalue(res, iloop, 0));
-			namestrcpy(&parmvalue, PQgetvalue(res, iloop, 1));
-			namestrcpy(&parmcontext, PQgetvalue(res, iloop, 2));
-			namestrcpy(&parmvartype, PQgetvalue(res, iloop, 3));
-			parmunit = PQgetvalue(res, iloop, 4);
-			parmminval = PQgetvalue(res, iloop, 5);
-			parmmaxval = PQgetvalue(res, iloop, 6);
-			parmenumval = PQgetvalue(res, iloop, 7);
-			datum[Anum_mgr_parm_parmtype-1] = CharGetDatum(PARM_TYPE_GTM);
-			datum[Anum_mgr_parm_parmname-1] = NameGetDatum(&parmname);
-			datum[Anum_mgr_parm_parmvalue-1] = NameGetDatum(&parmvalue);
-			datum[Anum_mgr_parm_parmcontext-1] = NameGetDatum(&parmcontext);
-			datum[Anum_mgr_parm_parmvartype-1] = NameGetDatum(&parmvartype);
-			datum[Anum_mgr_parm_parmunit-1] = CStringGetTextDatum(parmunit);
-			datum[Anum_mgr_parm_parmminval-1] = CStringGetTextDatum(parmminval);
-			datum[Anum_mgr_parm_parmmaxval-1] = CStringGetTextDatum(parmmaxval);
-			datum[Anum_mgr_parm_parmenumval-1] = CStringGetTextDatum(parmenumval);
-			/* now, we can insert record */
-			newTuple = heap_form_tuple(RelationGetDescr(relParm), datum, isnull);
-			CatalogTupleInsert(relParm, newTuple);
-			heap_freetuple(newTuple);
-		}
-		PQclear(res);
-		PQfinish(conn);
-
 		/* insert the pg_stat_statement parameters */
 		memset(isnull, 0, sizeof(isnull));
 		for (i=0; i<sizeof(pg_stat_statement)/sizeof(struct PG_STAT_STATEMENT); i++)
@@ -2649,21 +2542,8 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 				ereport(WARNING, (errmsg("remove ADB Manager ip \"%s\" from coordinator \"%s\" %s/pg_hba.conf fail %s", selfAddress.data, NameStr(cnName), cnPath, getAgentCmdRst.description.data)));
 			mgr_reload_conf(coordHostOid, cnPath);
 		}
-		if (breloadGtm)
-		{
-			resetStringInfo(&(getAgentCmdRst.description));
-			mgr_send_conf_parameters(AGT_CMD_CNDN_DELETE_PGHBACONF
-									,gtmPath
-									,&gtmInfoSendMsg
-									,gtmHostOid
-									,&getAgentCmdRst);
-			if (!getAgentCmdRst.ret)
-				ereport(WARNING, (errmsg("remove ADB Manager ip \"%s\" from gtm master \"%s\" %s/pg_hba.conf fail %s", selfAddress.data, agtmName, gtmPath, getAgentCmdRst.description.data)));
-			mgr_reload_conf(gtmHostOid, gtmPath);
-		}
 	}PG_CATCH();
 	{
-		pfree(agtmName);
 		pfree(conStr.data);
 		pfree(sqlStrmsg.data);
 		pfree(cnInfoSendMsg.data);
@@ -2674,7 +2554,6 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 		PG_RE_THROW();
 	}PG_END_TRY();
 
-	pfree(agtmName);
 	pfree(sqlStrmsg.data);
 	pfree(conStr.data);
 	pfree(cnInfoSendMsg.data);

@@ -248,7 +248,6 @@ extern bool mgr_refresh_pgxc_node_tbl(char *cndnname, int32 cndnport, char *cndn
 extern void mgr_send_conf_parameters(char filetype, char *datapath, StringInfo infosendmsg, Oid hostoid, GetAgentCmdRst *getAgentCmdRst);
 extern void mgr_append_pgconf_paras_str_str(char *key, char *value, StringInfo infosendmsg);
 extern void mgr_append_pgconf_paras_str_int(char *key, int value, StringInfo infosendmsg);
-extern void mgr_get_gtm_host_port(StringInfo infosendmsg);
 extern void mgr_append_infostr_infostr(StringInfo infostr, StringInfo sourceinfostr);
 extern void mgr_add_parameters_pgsqlconf(Oid tupleOid, char nodetype, int cndnport, StringInfo infosendparamsg);
 extern void mgr_append_pgconf_paras_str_quotastr(char *key, char *value, StringInfo infosendmsg);

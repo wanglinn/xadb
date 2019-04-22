@@ -1695,7 +1695,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		case AGT_CMD_CN_START:
 		case AGT_CMD_CN_START_BACKEND:
 			cmdmode = "start";
-			zmode = "coordinator";
+			zmode = "gtm_coord";
 			break;
 		case AGT_CMD_CN_STOP:
 		case AGT_CMD_CN_STOP_BACKEND:
@@ -3014,7 +3014,6 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 		resetStringInfo(&infosendmsg);
 		mgr_get_other_parm(CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
 		mgr_add_parm(appendnodeinfo.nodename, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
-		mgr_get_gtm_host_port(&infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", appendnodeinfo.nodeport, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
 								appendnodeinfo.nodepath,
@@ -3460,7 +3459,6 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		resetStringInfo(&infosendmsg);
 		mgr_get_other_parm(CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
 		mgr_add_parm(appendnodeinfo.nodename, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
-		mgr_get_gtm_host_port(&infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", appendnodeinfo.nodeport, &infosendmsg);
 		if (bReadOnly)
 			mgr_append_pgconf_paras_str_str("default_transaction_read_only", "on", &infosendmsg);
@@ -4686,7 +4684,7 @@ static void mgr_create_node_on_all_coord(PG_FUNCTION_ARGS, char nodetype, char *
 							,addressnode
 							,dnport);
 
-		appendStringInfo(&psql_cmd, " set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
+		appendStringInfo(&psql_cmd, " select pgxc_pool_reload();\"");
 
 		ma_beginmessage(&buf, AGT_MSG_COMMAND);
 		ma_sendbyte(&buf, AGT_CMD_PSQL_CMD);
@@ -5749,7 +5747,7 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 						,mgr_node_out->nodeport
 						,DEFAULT_DB
 						,cnUser);
-	appendStringInfoString(&cmdstring, "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
+	appendStringInfoString(&cmdstring, "select pgxc_pool_reload();\"");
 	ma = ma_connect_hostoid(mgr_node_out->nodehost);
 	if(!ma_isconnected(ma))
 	{
@@ -5867,55 +5865,6 @@ void mgr_append_pgconf_paras_str_quotastr(char *key, char *value, StringInfo inf
 }
 
 /*
-* read gtm_port gtm_host from system table:gtm, add gtm_host gtm_port to infosendmsg
-* ,use '\0' to interval
-*/
-void mgr_get_gtm_host_port(StringInfo infosendmsg)
-{
-	char *gtm_host;
-	Relation rel_node;
-	HeapScanDesc rel_scan;
-	Form_mgr_node mgr_node;
-	ScanKeyData key[2];
-	HeapTuple tuple;
-	bool gettuple = false;
-	int nodePort;
-
-	/*get the gtm_port, gtm_host*/
-	ScanKeyInit(&key[0],
-		Anum_mgr_node_nodetype
-		,BTEqualStrategyNumber
-		,F_CHAREQ
-		,CharGetDatum(GTM_TYPE_GTM_MASTER));
-	ScanKeyInit(&key[1]
-		,Anum_mgr_node_nodezone
-		,BTEqualStrategyNumber
-		,F_NAMEEQ
-		,CStringGetDatum(mgr_zone));
-	rel_node = heap_open(NodeRelationId, AccessShareLock);
-	rel_scan = heap_beginscan_catalog(rel_node, 2, key);
-	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
-	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		gtm_host = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		nodePort = mgr_node->nodeport;
-		gettuple = true;
-		break;
-	}
-	heap_endscan(rel_scan);
-	heap_close(rel_node, AccessShareLock);
-	if(!gettuple)
-	{
-		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-			,errmsg("gtm master does not exist")));
-	}
-	mgr_append_pgconf_paras_str_quotastr("agtm_host", gtm_host, infosendmsg);
-	mgr_append_pgconf_paras_str_int("agtm_port", nodePort, infosendmsg);
-	pfree(gtm_host);
-}
-
-/*
 * add the content of sourceinfostr to infostr, the string in sourceinfostr use '\0' to interval
 */
 void mgr_append_infostr_infostr(StringInfo infostr, StringInfo sourceinfostr)
@@ -5951,11 +5900,6 @@ void mgr_add_parameters_pgsqlconf(Oid tupleOid, char nodetype, int cndnport, Str
 	mgr_append_pgconf_paras_str_quotastr("log_destination", "csvlog", infosendparamsg);
 	mgr_append_pgconf_paras_str_str("logging_collector", "on", infosendparamsg);
 	mgr_append_pgconf_paras_str_quotastr("log_directory", "pg_log", infosendparamsg);
-	/*agtm postgresql.conf does not need these*/
-	if(GTM_TYPE_GTM_MASTER != nodetype && GTM_TYPE_GTM_SLAVE != nodetype)
-	{
-		mgr_get_gtm_host_port(infosendparamsg);
-	}
 }
 
 /*
