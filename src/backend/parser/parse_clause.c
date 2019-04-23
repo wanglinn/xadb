@@ -738,7 +738,7 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 	rte = addRangeTableEntryForFunction(pstate,
 										funcnames, funcexprs, coldeflists,
 										r, is_lateral, true);
-	/* Oracle syntax compatible, support default column name ‘cloumn_value’ */
+	/* Oracle syntax compatible, support default column name ‘column_value’ */
 	if (pstate->p_grammar == PARSE_GRAM_ORACLE &&
 		r->alias == NULL &&
 		list_length(rte->eref->colnames) == 1)

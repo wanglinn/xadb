@@ -205,14 +205,14 @@ typedef struct OraclePartitionSpec
 				opt_hold opt_nulls_order opt_column opt_set_data TableLikeOptionList
 				TableLikeOption opt_nowait_or_skip
 
-%type <objwithargs> function_with_argtypes
+%type <objwithargs> aggregate_with_argtypes function_with_argtypes operator_with_argtypes
 
 %type <jexpr>	joined_table
 
 %type <node>	join_qual
 %type <jtype>	join_type
 
-%type <objtype>	drop_type
+%type <objtype>	comment_type_any_name drop_type comment_type_name
 
 %type <keyword>
 	col_name_keyword
@@ -221,7 +221,7 @@ typedef struct OraclePartitionSpec
 	unreserved_keyword
 
 %type <list>
-	any_operator any_name any_name_list attrs alter_generic_options
+	aggr_args aggr_args_list any_operator any_name any_name_list attrs alter_generic_options
 	case_when_list create_generic_options cte_list ctext_expr_list ctext_row
 	ColQualList
 	definition def_list
@@ -234,7 +234,7 @@ typedef struct OraclePartitionSpec
 	locked_rels_list
 	multiple_set_clause
 	name_list
-	OptTableElementList opt_distinct opt_for_locking_clause
+	oper_argtypes OptTableElementList opt_distinct opt_for_locking_clause
 	opt_indirection opt_interval opt_name_list opt_sort_clause
 	OptWith OptTypedTableElementList
 	opt_type_mod opt_type_modifiers opt_definition opt_collate opt_class opt_select_limit
@@ -259,7 +259,7 @@ typedef struct OraclePartitionSpec
 	BlockCodeStmt
 	ClosePortalStmt
 	common_table_expr columnDef columnref CreateStmt ctext_expr columnElem
-	ColConstraint ColConstraintElem ConstraintAttr CreateProcedureStmt DropProcedureStmt CreateRoleStmt
+	ColConstraint ColConstraintElem CommentStmt ConstraintAttr CreateProcedureStmt DropProcedureStmt CreateRoleStmt
 	case_default case_expr /*case_when*/ case_when_item c_expr
 	ConstraintElem CreateSeqStmt CreateAsStmt
 	DeclareCursorStmt DeleteStmt DropStmt def_arg
@@ -288,7 +288,7 @@ typedef struct OraclePartitionSpec
 
 %type <defelt>	generic_option_elem alter_generic_option_elem
 
-%type <str> all_Op attr_name access_method_clause access_method
+%type <str> all_Op attr_name access_method_clause access_method comment_text
 	ColId ColLabel cursor_name
 	explain_option_name extract_arg
 	iso_level index_name
@@ -315,7 +315,7 @@ typedef struct OraclePartitionSpec
 %type <vsetstmt> set_rest set_rest_more
 %type <windef> over_clause window_specification opt_frame_clause frame_extent frame_bound
 %type <with> with_clause opt_with_clause
-%type <fun_param> func_arg func_arg_with_default
+%type <fun_param> aggr_arg func_arg func_arg_with_default
 %type <fun_param_mode> arg_class
 
 %type <partspec>	PartitionSpec OptPartitionSpec
@@ -335,18 +335,18 @@ typedef struct OraclePartitionSpec
 %type <subclus> OptSubCluster OptSubClusterInternal
 /* ADB_END */
 
-%token <keyword> ABSOLUTE_P ACCESS ADD_P ALL ALTER ANALYZE ANALYSE AND ABORT_P
+%token <keyword> ABSOLUTE_P ACCESS ADD_P AGGREGATE ALL ALTER ANALYZE ANALYSE AND ABORT_P
 	ANY AS ASC AUDIT AUTHORIZATION ACTION ALWAYS AT
 	ADMIN AUTHID
 	BACKWARD BEGIN_P BETWEEN BFILE BIGINT BINARY BINARY_FLOAT BINARY_DOUBLE
 	BLOB BOOLEAN_P BOTH BY BYTE_P
-	CASCADE CASE CAST CATALOG_P CHAR_P CHARACTERISTICS CHECK CLOSE CLUSTER
+	CASCADE CASE CAST CATALOG_P CHAR_P CHARACTERISTICS CHECK CLASS CLOSE CLUSTER
 	COLUMN COMMIT COMMENT COLLATION CONVERSION_P CONNECTION
 	COMMITTED COMPRESS COLLATE CONNECT CONSTRAINT CYCLE NOCYCLE
 	CONSTRAINTS CLOB COALESCE CONTENT_P CONTINUE_P CREATE CROSS CUBE CURRENT_DATE
 	CURRENT_P CURRENT_TIMESTAMP CURRENT_USER CURRVAL CURSOR CONCURRENTLY CONFIGURATION
 	CACHE NOCACHE COMMENTS
-	DATE_P DAY_P DBTIMEZONE_P DEC DECIMAL_P DECLARE DEFAULT DEFERRABLE DELETE_P DESC DISTINCT
+	DATABASE DATE_P DAY_P DBTIMEZONE_P DEC DECIMAL_P DECLARE DEFAULT DEFERRABLE DELETE_P DESC DISTINCT
 	DO DOCUMENT_P DOUBLE_P DROP DEFERRED DATA_P DEFAULTS DEFINER DETERMINISTIC
 	DISABLE_P PREPARE PREPARED DOMAIN_P DICTIONARY
 
@@ -356,7 +356,7 @@ typedef struct OraclePartitionSpec
 
 	ELSE END_P ESCAPE EXCLUSIVE EXISTS EXPLAIN EXTRACT
 	ENABLE_P EXCLUDE EVENT EXTENSION EXCLUDING ENCRYPTED
-	FALSE_P FETCH FILE_P FIRST_P FLOAT_P FOLLOWING FOR FORWARD FROM FOREIGN FULL FUNCTION
+	FALSE_P FAMILY FETCH FILE_P FIRST_P FLOAT_P FOLLOWING FOR FORWARD FROM FOREIGN FULL FUNCTION
 	GLOBAL GRANT GREATEST GROUP_P GROUPING HAVING
 	HOLD HOUR_P
 	IDENTIFIED IF_P IMMEDIATE IN_P INOUT INCREMENT INDEX INITIAL_P INSERT INHERIT INITIALLY
@@ -365,30 +365,30 @@ typedef struct OraclePartitionSpec
 	LAST_P LESS
 	JOIN
 	KEY
-	LEADING LEAST LEFT LEVEL LIMIT LIKE LOCAL LOCALTIMESTAMP LOCK_P LOG_P LONG_P
+	LANGUAGE LARGE_P LEADING LEAST LEFT LEVEL LIMIT LIKE LOCAL LOCALTIMESTAMP LOCK_P LOG_P LONG_P
 	MATERIALIZED MAXEXTENTS MINUS MINUTE_P MLSLABEL MOD MODE MODIFY MONTH_P MOVE
-	MATCH MAXVALUE NOMAXVALUE  MINVALUE NOMINVALUE
+	MATCH MAXVALUE METHOD NOMAXVALUE  MINVALUE NOMINVALUE
 	NAMES NCHAR NCLOB NEXT NEXTVAL NOAUDIT NOCOMPRESS NOT NOWAIT NULL_P NULLIF NUMBER_P
-	NUMERIC NVARCHAR2 NO
+	NUMERIC NVARCHAR2 NO NONE
 	/* PGXC add NODE token */
 	NODE NULLS_P
-	OF OFF OFFLINE OFFSET ON ONLINE ONLY OPERATOR OPTION OR ORDER OUT_P OUTER_P
+	OBJECT_P OF OFF OFFLINE OFFSET ON ONLINE ONLY OPERATOR OPTION OR ORDER OUT_P OUTER_P
 	OWNER OIDS OPTIONS OVER OWNED
-	PCTFREE PIPELINED PRECISION PRESERVE PRIOR PRIVILEGES PUBLIC PURGE
-	PARTITION PRECEDING PROCEDURE PARTIAL PRIMARY PARSER PASSWORD PARALLEL_ENABLE
+	PCTFREE PIPELINED PRECISION PRESERVE PRIOR PRIVILEGES PUBLIC PUBLICATION PURGE
+	PARTITION PRECEDING PROCEDURAL PROCEDURE PARTIAL PRIMARY PARSER PASSWORD PARALLEL_ENABLE POLICY
 	RANGE RAW READ REAL RECURSIVE RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
 	RETURNING RETURN_P REVOKE REUSE RIGHT ROLE ROLLBACK ROLLUP ROW ROWID ROWNUM ROWS
 	REFERENCES REPLICA RULE RELATIVE_P RELEASE RESULT_CACHE
-	SCHEMA SECOND_P SELECT SERIALIZABLE SESSION SESSIONTIMEZONE SET SETS SHARE SHOW SIBLINGS SIZE SEARCH
+	SCHEMA SECOND_P SELECT SERIALIZABLE SERVER SESSION SESSIONTIMEZONE SET SETS SHARE SHOW SIBLINGS SIZE SEARCH
 	SMALLINT SIMPLE SETOF STATISTICS SAVEPOINT SEQUENCE SYSID SOME SCROLL
-	SNAPSHOT START STORAGE SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
+	SNAPSHOT START STORAGE SUBSCRIPTION SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
 	TABLE TEMP TEMPLATE TEMPORARY THAN THEN TIME TIMESTAMP TO TRAILING
-	TRANSACTION TREAT TRIM TRUNCATE TRIGGER TRUE_P TABLESPACE
+	TRANSACTION TRANSFORM TREAT TRIM TRUNCATE TRIGGER TRUE_P TABLESPACE
 	TYPE_P TEXT_P
 	UID UNCOMMITTED UNION UNIQUE UPDATE USER USING UNLOGGED
 	UNENCRYPTED UNTIL UNBOUNDED
 	VALIDATE VALUES VARCHAR VARCHAR2 VERBOSE VIEW VALID
-	WHEN WHENEVER WHERE WITH WRITE WITHIN WITHOUT WORK
+	WHEN WHENEVER WHERE WITH WRAPPER WRITE WITHIN WITHOUT WORK
 	XML_P
 	YEAR_P
 	ZONE
@@ -502,6 +502,7 @@ stmt:
 	| AlterObjectSchemaStmt
 	| BlockCodeStmt
 	| ClosePortalStmt
+	| CommentStmt
 	| CreateAsStmt
 	| CreateStmt
 	| CreateSeqStmt
@@ -6901,6 +6902,325 @@ opt_from_in:	from_in								{}
 		;
 
 
+/*****************************************************************************
+ *
+ *	The COMMENT ON statement can take different forms based upon the type of
+ *	the object associated with the comment. The form of the statement is:
+ *
+ *	COMMENT ON [ [ ACCESS METHOD | CONVERSION | COLLATION |
+ *                 DATABASE | DOMAIN |
+ *                 EXTENSION | EVENT TRIGGER | FOREIGN DATA WRAPPER |
+ *                 FOREIGN TABLE | INDEX | [PROCEDURAL] LANGUAGE |
+ *                 MATERIALIZED VIEW | POLICY | ROLE | SCHEMA | SEQUENCE |
+ *                 SERVER | STATISTICS | TABLE | TABLESPACE |
+ *                 TEXT SEARCH CONFIGURATION | TEXT SEARCH DICTIONARY |
+ *                 TEXT SEARCH PARSER | TEXT SEARCH TEMPLATE | TYPE |
+ *                 VIEW] <objname> |
+ *				 AGGREGATE <aggname> (arg1, ...) |
+ *				 CAST (<src type> AS <dst type>) |
+ *				 COLUMN <relname>.<colname> |
+ *				 CONSTRAINT <constraintname> ON <relname> |
+ *				 CONSTRAINT <constraintname> ON DOMAIN <domainname> |
+ *				 FUNCTION <funcname> (arg1, arg2, ...) |
+ *				 LARGE OBJECT <oid> |
+ *				 OPERATOR <op> (leftoperand_typ, rightoperand_typ) |
+ *				 OPERATOR CLASS <name> USING <access-method> |
+ *				 OPERATOR FAMILY <name> USING <access-method> |
+ *				 RULE <rulename> ON <relname> |
+ *				 TRIGGER <triggername> ON <relname> ]
+ *			   IS { 'text' | NULL }
+ *
+ *****************************************************************************/
+
+CommentStmt:
+			COMMENT ON comment_type_any_name any_name IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = $3;
+					n->object = (Node *) $4;
+					n->comment = $6;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON comment_type_name name IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = $3;
+					n->object = (Node *) makeString($4);
+					n->comment = $6;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON TYPE_P Typename IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_TYPE;
+					n->object = (Node *) $4;
+					n->comment = $6;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON DOMAIN_P Typename IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_DOMAIN;
+					n->object = (Node *) $4;
+					n->comment = $6;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON AGGREGATE aggregate_with_argtypes IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_AGGREGATE;
+					n->object = (Node *) $4;
+					n->comment = $6;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON FUNCTION function_with_argtypes IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_FUNCTION;
+					n->object = (Node *) $4;
+					n->comment = $6;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON OPERATOR operator_with_argtypes IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_OPERATOR;
+					n->object = (Node *) $4;
+					n->comment = $6;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON CONSTRAINT name ON any_name IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_TABCONSTRAINT;
+					n->object = (Node *) lappend($6, makeString($4));
+					n->comment = $8;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON CONSTRAINT name ON DOMAIN_P any_name IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_DOMCONSTRAINT;
+					/*
+					 * should use Typename not any_name in the production, but
+					 * there's a shift/reduce conflict if we do that, so fix it
+					 * up here.
+					 */
+					n->object = (Node *) list_make2(makeTypeNameFromNameList($7), makeString($4));
+					n->comment = $9;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON POLICY name ON any_name IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_POLICY;
+					n->object = (Node *) lappend($6, makeString($4));
+					n->comment = $8;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON RULE name ON any_name IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_RULE;
+					n->object = (Node *) lappend($6, makeString($4));
+					n->comment = $8;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON TRANSFORM FOR Typename LANGUAGE name IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_TRANSFORM;
+					n->object = (Node *) list_make2($5, makeString($7));
+					n->comment = $9;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON TRIGGER name ON any_name IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_TRIGGER;
+					n->object = (Node *) lappend($6, makeString($4));
+					n->comment = $8;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON OPERATOR CLASS any_name USING access_method IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_OPCLASS;
+					n->object = (Node *) lcons(makeString($7), $5);
+					n->comment = $9;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON OPERATOR FAMILY any_name USING access_method IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_OPFAMILY;
+					n->object = (Node *) lcons(makeString($7), $5);
+					n->comment = $9;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON LARGE_P OBJECT_P NumericOnly IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_LARGEOBJECT;
+					n->object = (Node *) $5;
+					n->comment = $7;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON CAST '(' Typename AS Typename ')' IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_CAST;
+					n->object = (Node *) list_make2($5, $7);
+					n->comment = $10;
+					$$ = (Node *) n;
+				}
+		;
+
+aggregate_with_argtypes:
+			func_name aggr_args
+				{
+					ObjectWithArgs *n = makeNode(ObjectWithArgs);
+					n->objname = $1;
+					n->objargs = extractAggrArgTypes($2);
+					$$ = n;
+				}
+		;
+
+comment_text:
+			Sconst								{ $$ = $1; }
+			| NULL_P							{ $$ = NULL; }
+		;
+
+/* object types taking any_name */
+comment_type_any_name:
+			COLUMN								{ $$ = OBJECT_COLUMN; }
+			| INDEX								{ $$ = OBJECT_INDEX; }
+			| SEQUENCE							{ $$ = OBJECT_SEQUENCE; }
+			| STATISTICS						{ $$ = OBJECT_STATISTIC_EXT; }
+			| TABLE								{ $$ = OBJECT_TABLE; }
+			| VIEW								{ $$ = OBJECT_VIEW; }
+			| MATERIALIZED VIEW					{ $$ = OBJECT_MATVIEW; }
+			| COLLATION							{ $$ = OBJECT_COLLATION; }
+			| CONVERSION_P						{ $$ = OBJECT_CONVERSION; }
+			| FOREIGN TABLE						{ $$ = OBJECT_FOREIGN_TABLE; }
+			| TEXT_P SEARCH CONFIGURATION		{ $$ = OBJECT_TSCONFIGURATION; }
+			| TEXT_P SEARCH DICTIONARY			{ $$ = OBJECT_TSDICTIONARY; }
+			| TEXT_P SEARCH PARSER				{ $$ = OBJECT_TSPARSER; }
+			| TEXT_P SEARCH TEMPLATE			{ $$ = OBJECT_TSTEMPLATE; }
+		;
+
+/* object types taking name */
+comment_type_name:
+			ACCESS METHOD						{ $$ = OBJECT_ACCESS_METHOD; }
+			| DATABASE							{ $$ = OBJECT_DATABASE; }
+			| EVENT TRIGGER						{ $$ = OBJECT_EVENT_TRIGGER; }
+			| EXTENSION							{ $$ = OBJECT_EXTENSION; }
+			| FOREIGN DATA_P WRAPPER			{ $$ = OBJECT_FDW; }
+			| opt_procedural LANGUAGE			{ $$ = OBJECT_LANGUAGE; }
+			| PUBLICATION						{ $$ = OBJECT_PUBLICATION; }
+			| ROLE								{ $$ = OBJECT_ROLE; }
+			| SCHEMA							{ $$ = OBJECT_SCHEMA; }
+			| SERVER							{ $$ = OBJECT_FOREIGN_SERVER; }
+			| SUBSCRIPTION						{ $$ = OBJECT_SUBSCRIPTION; }
+			| TABLESPACE						{ $$ = OBJECT_TABLESPACE; }
+	;
+
+operator_with_argtypes:
+			any_operator oper_argtypes
+				{
+					ObjectWithArgs *n = makeNode(ObjectWithArgs);
+					n->objname = $1;
+					n->objargs = $2;
+					$$ = n;
+				}
+		;
+oper_argtypes:
+		'(' Typename ')'
+				{
+				   ereport(ERROR,
+						   (errcode(ERRCODE_SYNTAX_ERROR),
+							errmsg("missing argument"),
+							errhint("Use NONE to denote the missing argument of a unary operator."),
+							parser_errposition(@3)));
+				}
+			| '(' Typename ',' Typename ')'
+					{ $$ = list_make2($2, $4); }
+			| '(' NONE ',' Typename ')'					/* left unary */
+				{ $$ = list_make2(NULL, $4); }
+			| '(' Typename ',' NONE ')'					/* right unary */
+					{ $$ = list_make2($2, NULL); }
+		;
+
+/* Aggregate args can be most things that function args can be */
+aggr_arg:	func_arg
+				{
+					if (!($1->mode == FUNC_PARAM_IN ||
+						  $1->mode == FUNC_PARAM_VARIADIC))
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								 errmsg("aggregates cannot have output arguments"),
+								 parser_errposition(@1)));
+					$$ = $1;
+				}
+		;
+
+/*
+ * The SQL standard offers no guidance on how to declare aggregate argument
+ * lists, since it doesn't have CREATE AGGREGATE etc.  We accept these cases:
+ *
+ * (*)									- normal agg with no args
+ * (aggr_arg,...)						- normal agg with args
+ * (ORDER BY aggr_arg,...)				- ordered-set agg with no direct args
+ * (aggr_arg,... ORDER BY aggr_arg,...)	- ordered-set agg with direct args
+ *
+ * The zero-argument case is spelled with '*' for consistency with COUNT(*).
+ *
+ * An additional restriction is that if the direct-args list ends in a
+ * VARIADIC item, the ordered-args list must contain exactly one item that
+ * is also VARIADIC with the same type.  This allows us to collapse the two
+ * VARIADIC items into one, which is necessary to represent the aggregate in
+ * pg_proc.  We check this at the grammar stage so that we can return a list
+ * in which the second VARIADIC item is already discarded, avoiding extra work
+ * in cases such as DROP AGGREGATE.
+ *
+ * The return value of this production is a two-element list, in which the
+ * first item is a sublist of FunctionParameter nodes (with any duplicate
+ * VARIADIC item already dropped, as per above) and the second is an integer
+ * Value node, containing -1 if there was no ORDER BY and otherwise the number
+ * of argument declarations before the ORDER BY.  (If this number is equal
+ * to the first sublist's length, then we dropped a duplicate VARIADIC item.)
+ * This representation is passed as-is to CREATE AGGREGATE; for operations
+ * on existing aggregates, we can just apply extractArgTypes to the first
+ * sublist.
+ */
+aggr_args:	'(' '*' ')'
+				{
+					$$ = list_make2(NIL, makeInteger(-1));
+				}
+			| '(' aggr_args_list ')'
+				{
+					$$ = list_make2($2, makeInteger(-1));
+				}
+			| '(' ORDER BY aggr_args_list ')'
+				{
+					$$ = list_make2($4, makeInteger(0));
+				}
+			| '(' aggr_args_list ORDER BY aggr_args_list ')'
+				{
+					/* this is the only case requiring consistency checking */
+					$$ = makeOrderedSetArgs($2, $5, yyscanner);
+				}
+		;
+aggr_args_list:
+			aggr_arg								{ $$ = list_make1($1); }
+			| aggr_args_list ',' aggr_arg			{ $$ = lappend($1, $3); }
+		;
+
+opt_procedural:
+			PROCEDURAL								{}
+			| /*EMPTY*/								{}
+		;
+
 /*********************************************************/
 col_name_keyword:
 	  BIGINT
@@ -6924,6 +7244,7 @@ col_name_keyword:
 	| PIPELINED
 	| SETOF
 	| SMALLINT
+	| NONE
 	| NUMERIC
 	| OUT_P
 	| REAL
@@ -7055,10 +7376,11 @@ unreserved_keyword:
 	  ANALYSE
 	| ABORT_P
 	| ABSOLUTE_P
+	| ACTION
 	| ADMIN
+	| AGGREGATE
 	| ANALYZE
 	| ALWAYS
-	| ACTION
 	| ALTER
 	| AT
 	| AUTHID
@@ -7075,6 +7397,7 @@ unreserved_keyword:
 	| CATALOG_P
 	| CONNECTION
 	| CHARACTERISTICS
+	| CLASS
 	| CLOB
 	| COMMIT
 	| CONFIGURATION
@@ -7090,6 +7413,7 @@ unreserved_keyword:
 	| CURRENT_USER
 	| CURSOR
 	| CYCLE
+	| DATABASE
 	| DAY_P
 	| DECLARE
 	| DEFERRED
@@ -7130,6 +7454,8 @@ unreserved_keyword:
 	| INSENSITIVE
 	| ISOLATION
 	| KEY
+	| LANGUAGE
+	| LARGE_P
 	| LAST_P
 	| LESS
 	| LIMIT
@@ -7139,6 +7465,7 @@ unreserved_keyword:
 	| MINUTE_P
 	| MATCH
 	| MAXVALUE
+	| METHOD
 	| NOMAXVALUE
 	| MINVALUE
 	| NOMINVALUE
@@ -7156,6 +7483,7 @@ unreserved_keyword:
 	| NULLS_P
 	/*| NEXTVAL*/
 	| NVARCHAR2
+	| OBJECT_P
 	| OFF
 	| OFFSET
 	| OIDS
@@ -7165,8 +7493,10 @@ unreserved_keyword:
 	| OPTIONS
 	| PARALLEL_ENABLE
 	| PARSER
+	| PARTIAL
 	| PARTITION
 	| PASSWORD
+	| POLICY
 	| PRECISION
 	| PRECEDING
 	| PREPARE
@@ -7174,8 +7504,8 @@ unreserved_keyword:
 	| PRESERVE
 	| PRIMARY
 	| PROCEDURE
-	| PARTIAL
 	| PRIVILEGES
+	| PUBLICATION
 	| PURGE
 	| RANGE
 	| READ
@@ -7196,10 +7526,12 @@ unreserved_keyword:
 	| ROLE
 	| ROLLBACK
 	| ROLLUP
+	| PROCEDURAL
 	| SCHEMA
 	| SCROLL
 	| SECOND_P
 	| SEQUENCE
+	| SERVER
 	| SETS
 	| SHARE
 	| STATISTICS
@@ -7207,17 +7539,19 @@ unreserved_keyword:
 	| SHOW
 	| SOME
 	| SYSID
-	| SEARCH
 	| SAVEPOINT
+	| SEARCH
 	| SIBLINGS
 	| SIMPLE
 	| SNAPSHOT
 	| STORAGE
+	| SUBSCRIPTION
 	| TEMP
 	| TEMPLATE
 	| TEMPORARY
 	| THAN
 	| TRANSACTION
+	| TRANSFORM
 	| TRUNCATE
 	| TYPE_P
 	| TEXT_P
@@ -7230,6 +7564,7 @@ unreserved_keyword:
 	| VERBOSE
 	| VIEW
 	| VALID
+	| WRAPPER
 	| WRITE
 	| WORK
 	| WITHIN
