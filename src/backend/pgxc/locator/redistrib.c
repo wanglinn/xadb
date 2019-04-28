@@ -1253,7 +1253,7 @@ distrib_reduce_shadow(RedistribState *distribState, RedistribCommand *command)
 	SerializeAuxRelCopyInfo(&msg, redistcopylist);
 	end_mem_toc_insert(&msg, AUX_REL_COPY_INFO);
 
-	remoteList = ExecClusterCustomFunctionDistrib(nodeOids, &msg, flag);
+	remoteList = ExecClusterCustomFunction(nodeOids, &msg, flag);
 
 	if (flag & EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE)
 	{

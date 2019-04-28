@@ -713,6 +713,12 @@ List* ExecClusterCustomFunction(List *rnodes, StringInfo mem_toc, uint32 flag)
 		end_mem_toc_insert(mem_toc, REMOTE_KEY_REDUCE_INFO);
 	}
 
+	if (flag & EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE)
+	{
+		Assert(context.have_reduce);
+		context.start_self_reduce = true;
+	}
+
 	return StartRemotePlan(mem_toc, rnodes, &context, (flag & EXEC_CLUSTER_FLAG_NOT_START_TRANS) ? false:true);
 }
 
@@ -1840,35 +1846,4 @@ static void set_cluster_display(const char *activity, bool force, ClusterCoordIn
 		set_ps_display(buf.data, force);
 		pfree(buf.data);
 	}
-}
-
-List*
-ExecClusterCustomFunctionDistrib(List *rnodes, StringInfo mem_toc, uint32 flag)
-{
-	ClusterPlanContext context;
-
-	/* check custom function */
-	find_custom_func_info(mem_toc, false);
-
-	SerializeTransactionInfo(mem_toc);
-
-	SerializeCoordinatorInfo(mem_toc);
-
-	MemSet(&context, 0, sizeof(context));
-	context.transaction_read_only = ((flag & EXEC_CLUSTER_FLAG_READ_ONLY) ? true:false);
-	if (flag & EXEC_CLUSTER_FLAG_NEED_REDUCE)
-	{
-		context.have_reduce = true;
-		begin_mem_toc_insert(mem_toc, REMOTE_KEY_REDUCE_INFO);
-		appendStringInfoChar(mem_toc, (char)((flag & EXEC_CLUSTER_FLAG_USE_MEM_REDUCE) ? true:false));
-		end_mem_toc_insert(mem_toc, REMOTE_KEY_REDUCE_INFO);
-	}
-
-	if (flag & EXEC_CLUSTER_FLAG_NEED_SELF_REDUCE)
-	{
-		Assert(context.have_reduce);
-		context.start_self_reduce = true;
-	}
-
-	return StartRemotePlan(mem_toc, rnodes, &context, (flag & EXEC_CLUSTER_FLAG_NOT_START_TRANS) ? false:true);
 }
