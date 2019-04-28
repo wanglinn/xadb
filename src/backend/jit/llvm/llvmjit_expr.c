@@ -2505,6 +2505,14 @@ llvm_compile_expr(ExprState *state)
 				LLVMBuildBr(b, opblocks[i + 1]);
 				break;
 
+#ifdef ADB_GRAM_ORA
+			case EEOP_ROW_NUMBER:
+				build_EvalXFunc(b, mod, "ExecEvalRowNumber",
+								v_state, v_econtext, op);
+				LLVMBuildBr(b, opblocks[i + 1]);
+				break;
+#endif /* ADB_GRAM_ORA */
+
 			case EEOP_LAST:
 				Assert(false);
 				break;

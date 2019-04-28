@@ -689,6 +689,10 @@ extern ExprEvalOp ExecEvalStepOp(ExprState *state, ExprEvalStep *op);
 
 extern Datum ExecInterpExprStillValid(ExprState *state, ExprContext *econtext, bool *isNull);
 extern void CheckExprStillValid(ExprState *state, ExprContext *econtext);
+#if defined(ADB_GRAM_ORA) && defined(USE_LLVM)
+extern void ExecEvalRowNumber(ExprState *state, ExprEvalStep *op,
+					   ExprContext *econtext);
+#endif /* ADB_GRAM_ORA */
 
 /*
  * Non fast-path execution functions. These are externs instead of statics in

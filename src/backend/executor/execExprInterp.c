@@ -1778,6 +1778,14 @@ out:
 	return state->resvalue;
 }
 
+#if defined(ADB_GRAM_ORA) && defined(USE_LLVM)
+void ExecEvalRowNumber(ExprState *state, ExprEvalStep *op,
+					   ExprContext *econtext)
+{
+	*op->resvalue = Int64GetDatum(state->parent->rownum);
+	*op->resnull = false;
+}
+#endif /* ADB_GRAM_ORA */
 /*
  * Expression evaluation callback that performs extra checks before executing
  * the expression. Declared extern so other methods of execution can use it
