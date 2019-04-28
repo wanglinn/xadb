@@ -4763,6 +4763,10 @@ set_deparse_planstate(deparse_namespace *dpns, PlanState *ps)
 		dpns->inner_planstate = ((CteScanState *) ps)->cteplanstate;
 	else if (IsA(ps, ModifyTableState))
 		dpns->inner_planstate = ps;
+#ifdef ADB_GRAM_ORA
+	else if (IsA(ps, ConnectByState))
+		dpns->inner_planstate = outerPlanState(ps);
+#endif /* ADB_GRAM_ORA */
 	else
 		dpns->inner_planstate = innerPlanState(ps);
 
@@ -9556,6 +9560,15 @@ get_rule_expr(Node *node, deparse_context *context,
 #ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			appendStringInfoString(buf, ".row");
+			break;
+
+		case T_PriorExpr:
+			appendStringInfoString(buf, "PRIOR ");
+			if (!IsA(((PriorExpr*)node)->expr, Var))
+				appendStringInfoChar(buf, '(');
+			get_rule_expr(((PriorExpr*)node)->expr, context, showimplicit);
+			if (!IsA(((PriorExpr*)node)->expr, Var))
+				appendStringInfo(buf, ")");
 			break;
 #endif /* ADB_GRAM_ORA */
 

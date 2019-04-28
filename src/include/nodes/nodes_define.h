@@ -67,6 +67,7 @@
  *   ReduceScanState
  *   EmptyResultState
  *   ParamTuplestoreScanState
+ *   ConnectByState
  *   ExprState
  *   AggrefExprState
  *   WindowFuncExprState
@@ -627,6 +628,19 @@ BEGIN_NODE(Limit)
 END_NODE(Limit)
 #endif /* NO_NODE_Limit */
 
+#ifdef ADB_GRAM_ORA
+
+#ifndef NO_NODE_ConnectByPlan
+BEGIN_NODE(ConnectByPlan)
+	NODE_BASE2(Plan,plan)
+	NODE_BITMAPSET(Bitmapset,hash_quals)
+	NODE_NODE(List,start_with)
+	NODE_SCALAR(int,num_buckets)
+END_NODE(ConnectByPlan)
+#endif /* NO_NODE_ConnectByPlan */
+
+#endif
+
 #ifndef NO_NODE_NestLoopParam
 BEGIN_NODE(NestLoopParam)
 	NODE_SCALAR(int,paramno)
@@ -859,6 +873,10 @@ END_NODE(ParamTuplestoreScan)
 #endif
 
 #ifdef ADB
+
+#endif
+
+#ifdef ADB_GRAM_ORA
 
 #endif
 
@@ -1942,6 +1960,18 @@ NODE_SAME(FilterPath, ResultPath)
 
 #endif
 
+#ifdef ADB_GRAM_ORA
+
+#ifndef NO_NODE_ConnectByPath
+BEGIN_NODE(ConnectByPath)
+	NODE_BASE2(Path,path)
+	NODE_NODE(Path,subpath)
+	NODE_SCALAR(int,num_buckets)
+END_NODE(ConnectByPath)
+#endif /* NO_NODE_ConnectByPath */
+
+#endif
+
 #ifndef NO_NODE_EquivalenceClass
 BEGIN_NODE(EquivalenceClass)
 	NODE_NODE(List,ec_opfamilies)
@@ -2177,6 +2207,9 @@ BEGIN_NODE(Query)
 	NODE_SCALAR(bool,has_to_save_cmd_id)
 	NODE_SCALAR(bool,in_sub_plan)
 	NODE_SCALAR(bool,in_explain)
+#endif
+#ifdef ADB_GRAM_ORA
+	NODE_NODE(OracleConnectBy,connect_by)
 #endif
 END_NODE(Query)
 #endif /* NO_NODE_Query */
@@ -3804,6 +3837,7 @@ BEGIN_NODE(CommonTableExpr)
 	NODE_NODE(List,scbp_list)
 	NODE_NODE(List,scbp_alias)
 	NODE_SCALAR(bool,have_level)
+	NODE_SCALAR(bool,from_connect_by)
 #endif
 END_NODE(CommonTableExpr)
 #endif /* NO_NODE_CommonTableExpr */

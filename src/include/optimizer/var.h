@@ -39,5 +39,8 @@ extern Node *flatten_join_alias_vars(PlannerInfo *root, Node *node);
 #ifdef ADB
 extern Var *find_var(Node *node, int attno, Index relid);
 #endif /* ADB */
+#ifdef ADB_GRAM_ORA
+extern Relids pull_varnos_no_prior(Node *node);
+#endif /* ADB_GRAM_ORA */
 
 #endif							/* VAR_H */

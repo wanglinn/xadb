@@ -64,6 +64,10 @@ typedef struct
 	indexed_tlist *inner_itlist;
 	Index		acceptable_rel;
 	int			rtoffset;
+#ifdef ADB_GRAM_ORA
+	indexed_tlist *sub_itlist;	/* for connect by */
+	int			cur_prior_val;
+#endif /* ADB_GRAM_ORA */
 } fix_join_expr_context;
 
 typedef struct
@@ -121,6 +125,9 @@ static Node *fix_scan_expr(PlannerInfo *root, Node *node, int rtoffset);
 static Node *fix_scan_expr_mutator(Node *node, fix_scan_expr_context *context);
 static bool fix_scan_expr_walker(Node *node, fix_scan_expr_context *context);
 static void set_join_references(PlannerInfo *root, Join *join, int rtoffset);
+#ifdef ADB_GRAM_ORA
+static void set_connect_by_references(PlannerInfo *root, ConnectByPlan *plan, int rtoffset);
+#endif /* ADB_GRAM_ORA */
 static void set_upper_references(PlannerInfo *root, Plan *plan, int rtoffset);
 static void set_param_references(PlannerInfo *root, Plan *plan);
 static Node *convert_combining_aggrefs(Node *node, void *context);
@@ -142,6 +149,13 @@ static List *fix_join_expr(PlannerInfo *root,
 			  indexed_tlist *outer_itlist,
 			  indexed_tlist *inner_itlist,
 			  Index acceptable_rel, int rtoffset);
+#ifdef ADB_GRAM_ORA
+static List *fix_connect_by_expr(PlannerInfo *root,
+								 List *clauses,
+								 indexed_tlist *sub_itlist,
+								 Index acceptable_rel,
+								 int rtoffset);
+#endif /* ADB_GRAM_ORA */
 static Node *fix_join_expr_mutator(Node *node,
 					  fix_join_expr_context *context);
 static Node *fix_upper_expr(PlannerInfo *root,
@@ -1169,6 +1183,11 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 			}
 			break;
 #endif /* ADB */
+#ifdef ADB_GRAM_ORA
+		case T_ConnectByPlan:
+			set_connect_by_references(root, (ConnectByPlan*)plan, rtoffset);
+			break;
+#endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(plan));
@@ -1895,6 +1914,33 @@ set_join_references(PlannerInfo *root, Join *join, int rtoffset)
 	pfree(inner_itlist);
 }
 
+#ifdef ADB_GRAM_ORA
+static void set_connect_by_references(PlannerInfo *root, ConnectByPlan *plan, int rtoffset)
+{
+	Plan		   *sub_plan = outerPlan(plan);
+	indexed_tlist  *sub_itlist = build_tlist_index(sub_plan->targetlist);
+
+	plan->start_with = (List*)fix_upper_expr(root,
+											 (Node*)plan->start_with,
+											 sub_itlist,
+											 OUTER_VAR,
+											 rtoffset);
+
+	plan->plan.qual = fix_connect_by_expr(root,
+										  plan->plan.qual,
+										  sub_itlist,
+										  (Index)0,
+										  rtoffset);
+
+	plan->plan.targetlist = (List*)fix_upper_expr(root,
+												  (Node*)plan->plan.targetlist,
+												  sub_itlist,
+												  INNER_VAR,
+												  rtoffset);
+	pfree(sub_itlist);
+}
+#endif /* ADB_GRAM_ORA */
+
 /*
  * set_upper_references
  *	  Update the targetlist and quals of an upper-level plan node
@@ -2436,8 +2482,31 @@ fix_join_expr(PlannerInfo *root,
 	context.inner_itlist = inner_itlist;
 	context.acceptable_rel = acceptable_rel;
 	context.rtoffset = rtoffset;
+#ifdef ADB_GRAM_ORA
+	context.sub_itlist = NULL;	/* for connect by */
+	context.cur_prior_val = 0;
+#endif /* ADB_GRAM_ORA */
 	return (List *) fix_join_expr_mutator((Node *) clauses, &context);
 }
+#ifdef ADB_GRAM_ORA
+static List *fix_connect_by_expr(PlannerInfo *root,
+								 List *clauses,
+								 indexed_tlist *sub_itlist,
+								 Index acceptable_rel,
+								 int rtoffset)
+{
+	fix_join_expr_context context;
+
+	context.root = root;
+	context.outer_itlist = NULL;
+	context.inner_itlist = sub_itlist;	/* default Var is from INNER */
+	context.acceptable_rel = acceptable_rel;
+	context.rtoffset = rtoffset;
+	context.sub_itlist = sub_itlist;
+	context.cur_prior_val = 0;
+	return (List *) fix_join_expr_mutator((Node *) clauses, &context);
+}
+#endif /* ADB_GRAM_ORA */
 
 static Node *
 fix_join_expr_mutator(Node *node, fix_join_expr_context *context)
@@ -2513,6 +2582,29 @@ fix_join_expr_mutator(Node *node, fix_join_expr_context *context)
 	}
 	if (IsA(node, Param))
 		return fix_param_node(context->root, (Param *) node);
+#ifdef ADB_GRAM_ORA
+	if (IsA(node, PriorExpr))
+	{
+		PriorExpr *expr = (PriorExpr*)node;
+		Assert(context->sub_itlist != NULL);
+
+		if (context->cur_prior_val == 0)
+		{
+			context->inner_itlist = NULL;
+			context->outer_itlist = context->sub_itlist;
+		}
+		++(context->cur_prior_val);
+		expr->expr = fix_join_expr_mutator(expr->expr, context);
+		--(context->cur_prior_val);
+		if (context->cur_prior_val == 0)
+		{
+			context->inner_itlist = context->sub_itlist;
+			context->outer_itlist = NULL;
+		}
+
+		return node;
+	}
+#endif /* ADB_GRAM_ORA */
 
 	/* Try matching more complex expressions too, if tlists have any */
 	converted_whole_row = is_converted_whole_row_reference(node);

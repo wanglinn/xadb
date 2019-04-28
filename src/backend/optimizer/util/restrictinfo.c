@@ -17,6 +17,10 @@
 #include "optimizer/clauses.h"
 #include "optimizer/restrictinfo.h"
 #include "optimizer/var.h"
+#ifdef ADB_GRAM_ORA
+#include "nodes/nodeFuncs.h"
+#include "utils/lsyscache.h"
+#endif /* ADB_GRAM_ORA */
 
 
 static RestrictInfo *make_restrictinfo_internal(Expr *clause,
@@ -535,3 +539,97 @@ join_clause_is_movable_into(RestrictInfo *rinfo,
 
 	return true;
 }
+
+#ifdef ADB_GRAM_ORA
+static bool have_prior_expr(Expr *expr, void *context)
+{
+	if (expr == NULL)
+		return false;
+	if (IsA(expr, PriorExpr))
+		return true;
+	return expression_tree_walker((Node*)expr, have_prior_expr, NULL);
+}
+
+RestrictInfo* make_connect_by_restrictinfo(Expr *expr)
+{
+	RestrictInfo   *ri = NULL;
+	OpExpr		   *op;
+	Expr		   *larg;
+	Expr		   *rarg;
+	Relids			left_relids;
+	Relids			right_relids;
+	Oid				ltype;
+	bool			left_have_prior;
+	bool			right_have_prior;
+
+	if (is_opclause(expr) &&
+		list_length(((OpExpr*)expr)->args) == 2)
+	{
+		op = (OpExpr*)expr;
+		larg = linitial(op->args);
+		rarg = llast(op->args);
+
+		ri = make_simple_restrictinfo(expr);
+
+		/* rebuild relids */
+		bms_free(ri->left_relids);
+		bms_free(ri->right_relids);
+		bms_free(ri->clause_relids);
+		ri->left_relids = ri->right_relids = ri->clause_relids = NULL;
+
+		left_have_prior = have_prior_expr(larg, NULL);
+		left_relids = left_have_prior ? pull_varnos((Node*)larg) : pull_varnos_no_prior((Node*)larg);
+
+		right_have_prior = have_prior_expr(rarg, NULL);
+		right_relids = have_prior_expr ? pull_varnos((Node*)rarg) : pull_varnos_no_prior((Node*)rarg);
+
+		ri->clause_relids = bms_union(left_relids, right_relids);
+
+		if (left_have_prior != right_have_prior &&
+			!bms_is_empty(left_relids) &&
+			!bms_is_empty(right_relids))
+		{
+			ri->can_join = true;
+
+			/* move prior expr to left */
+			if (right_have_prior)
+			{
+				CommuteOpExpr(op);
+				ri->left_relids = right_relids;
+				ri->right_relids = left_relids;
+			}else
+			{
+				ri->left_relids = left_relids;
+				ri->right_relids = right_relids;
+			}
+			ri->outer_is_left = true;
+
+			if (contain_volatile_functions((Node*)expr) == false)
+			{
+				ltype = exprType(linitial(op->args));
+
+				/* check hash joinable */
+				if (op_hashjoinable(op->opno, ltype))
+					ri->hashjoinoperator = op->opno;
+
+				/* check merge joinable */
+				if (op_mergejoinable(op->opno, ltype))
+					ri->mergeopfamilies = get_mergejoin_opfamilies(op->opno);
+			}
+		}else
+		{
+			ri->can_join = false;
+			ri->left_relids = left_relids;
+			ri->right_relids = right_relids;
+		}
+	}
+
+	if (ri == NULL)
+	{
+		ri = make_simple_restrictinfo(expr);
+		ri->can_join = false;
+	}
+
+	return ri;
+}
+#endif /* ADB_GRAM_ORA */

@@ -2360,4 +2360,21 @@ typedef struct ParamTuplestoreScanState
 
 #endif /* ADB */
 
+#ifdef ADB_GRAM_ORA
+typedef struct ConnectByState
+{
+	PlanState			ps;
+	ExprState		   *start_with;
+	ExprState		   *joinclause;
+	List			   *left_hashfuncs;
+	List			   *right_hashfuncs;
+	Tuplestorestate	   *ts;		/* null if using hash */
+	struct Hashstorestate *hs;	/* not null if using hash */
+	TupleTableSlot	   *outer_slot;
+	TupleTableSlot	   *inner_slot;
+	void			   *private_state;
+	bool				initialized;
+}ConnectByState;
+#endif /* ADB_GRAM_ORA */
+
 #endif							/* EXECNODES_H */

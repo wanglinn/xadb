@@ -209,6 +209,12 @@ static RelOptInfo *create_grouping_paths(PlannerInfo *root,
 					  bool target_parallel_safe,
 					  const AggClauseCosts *agg_costs,
 					  grouping_sets_data *gd);
+#ifdef ADB_GRAM_ORA
+static RelOptInfo *create_connect_by_paths(PlannerInfo *root,
+										   RelOptInfo *input_rel,
+										   PathTarget *target,
+										   bool target_parallel_safe);
+#endif /* ADB_GRAM_ORA */
 static bool is_degenerate_grouping(PlannerInfo *root);
 static void create_degenerate_grouping_paths(PlannerInfo *root,
 								 RelOptInfo *input_rel,
@@ -259,6 +265,10 @@ static PathTarget *make_group_input_target(PlannerInfo *root,
 static PathTarget *make_partial_grouping_target(PlannerInfo *root,
 							 PathTarget *grouping_target,
 							 Node *havingQual);
+#ifdef ADB_GRAM_ORA
+static PathTarget *make_connect_by_input_target(PlannerInfo *root,
+												PathTarget *output_target);
+#endif /* ADB_GRAM_ORA */
 static List *postprocess_setop_tlist(List *new_tlist, List *orig_tlist);
 static List *select_active_windows(PlannerInfo *root, WindowFuncLists *wflists);
 static PathTarget *make_window_input_target(PlannerInfo *root,
@@ -1098,6 +1108,19 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 												 EXPRKIND_QUAL);
 		}
 	}
+
+#ifdef ADB_GRAM_ORA
+	if (parse->connect_by)
+	{
+		OracleConnectBy *connect_by = parse->connect_by;
+		connect_by->start_with = preprocess_expression(root,
+													   connect_by->start_with,
+													   EXPRKIND_QUAL);
+		connect_by->connect_by = preprocess_expression(root,
+													   connect_by->connect_by,
+													   EXPRKIND_QUAL);
+	}
+#endif /* ADB_GRAM_ORA */
 
 	/*
 	 * Now that we are done preprocessing expressions, and in particular done
@@ -2104,6 +2127,12 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		List	   *activeWindows = NIL;
 		grouping_sets_data *gset_data = NULL;
 		standard_qp_extra qp_extra;
+#ifdef ADB_GRAM_ORA
+		PathTarget *connect_by_target;
+		List	   *connect_by_targets;
+		List	   *connect_by_targets_contain_srfs;
+		bool		connect_by_target_parallel_safe;
+#endif /* ADB_GRAM_ORA */
 
 		/* A recursive query should always have setOperations */
 		Assert(!root->hasRecursion);
@@ -2286,6 +2315,17 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			scanjoin_target_parallel_safe = grouping_target_parallel_safe;
 		}
 
+#ifdef ADB_GRAM_ORA
+		connect_by_target = scanjoin_target;
+		connect_by_target_parallel_safe = scanjoin_target_parallel_safe;
+		if (parse->connect_by)
+		{
+			scanjoin_target = make_connect_by_input_target(root, connect_by_target);
+			scanjoin_target_parallel_safe =
+				is_parallel_safe(root, (Node*)scanjoin_target->exprs);
+		}
+#endif /* ADB_GRAM_ORA */
+
 		/*
 		 * If there are any SRFs in the targetlist, we must separate each of
 		 * these PathTargets into SRF-computing and SRF-free targets.  Replace
@@ -2307,11 +2347,23 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			sort_input_target = linitial_node(PathTarget, sort_input_targets);
 			Assert(!linitial_int(sort_input_targets_contain_srfs));
 			/* likewise for grouping_target vs. scanjoin_target */
-			split_pathtarget_at_srfs(root, grouping_target, scanjoin_target,
+			split_pathtarget_at_srfs(root, grouping_target,
+#ifdef ADB_GRAM_ORA
+									 connect_by_target,
+#else /* ADB_GRAM_ORA */
+									 scanjoin_target,
+#endif /* ADB_GRAM_ORA */
 									 &grouping_targets,
 									 &grouping_targets_contain_srfs);
 			grouping_target = linitial_node(PathTarget, grouping_targets);
 			Assert(!linitial_int(grouping_targets_contain_srfs));
+#ifdef ADB_GRAM_ORA
+			split_pathtarget_at_srfs(root, connect_by_target, scanjoin_target,
+									 &connect_by_targets,
+									 &connect_by_targets_contain_srfs);
+			connect_by_target = linitial_node(PathTarget, connect_by_targets);
+			Assert(!linitial_int(connect_by_targets_contain_srfs));
+#endif /* ADB_GRAM_ORA */
 			/* scanjoin_target will not have any SRFs precomputed for it */
 			split_pathtarget_at_srfs(root, scanjoin_target, NULL,
 									 &scanjoin_targets,
@@ -2327,6 +2379,9 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			grouping_targets = grouping_targets_contain_srfs = NIL;
 			scanjoin_targets = list_make1(scanjoin_target);
 			scanjoin_targets_contain_srfs = NIL;
+#ifdef ADB_GRAM_ORA
+			connect_by_targets = connect_by_targets_contain_srfs = NIL;
+#endif /* ADB_GRAM_ORA */
 		}
 
 		/* Apply scan/join target. */
@@ -2347,6 +2402,22 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		root->upper_targets[UPPERREL_FINAL] = final_target;
 		root->upper_targets[UPPERREL_WINDOW] = sort_input_target;
 		root->upper_targets[UPPERREL_GROUP_AGG] = grouping_target;
+#ifdef ADB_GRAM_ORA
+		root->upper_targets[UPPERREL_CONNECT_BY] = connect_by_target;
+
+		if (parse->connect_by)
+		{
+			current_rel = create_connect_by_paths(root,
+												  current_rel,
+												  connect_by_target,
+												  connect_by_target_parallel_safe);
+			/* Fix things up if grouping_target contains SRFs */
+			if (parse->hasTargetSRFs)
+				adjust_paths_for_srfs(root, current_rel,
+									  connect_by_targets,
+									  connect_by_targets_contain_srfs);
+		}
+#endif /* ADB_GRAM_ORA */
 
 		/*
 		 * If we have grouping and/or aggregation, consider ways to implement
@@ -4515,6 +4586,45 @@ make_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 	return grouped_rel;
 }
 
+#ifdef ADB_GRAM_ORA
+static RelOptInfo *create_connect_by_paths(PlannerInfo *root,
+										   RelOptInfo *input_rel,
+										   PathTarget *target,
+										   bool target_parallel_safe)
+{
+	OracleConnectBy *connect_by = root->parse->connect_by;
+	RelOptInfo	   *connect_rel;
+
+	/* create connect relation */
+	connect_rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
+	connect_rel->reltarget = target;
+	deconstruct_connect_by(root, connect_rel);
+
+	/* set is parallel safe */
+	if (input_rel->consider_parallel &&
+		target_parallel_safe &&
+		is_parallel_safe(root, connect_by->start_with) &&
+		is_parallel_safe(root, connect_by->connect_by))
+		connect_rel->consider_parallel = true;
+
+	connect_rel->rows = input_rel->rows;
+
+	connect_rel->serverid = input_rel->serverid;
+	connect_rel->userid = input_rel->userid;
+	connect_rel->useridiscurrent = input_rel->useridiscurrent;
+	connect_rel->fdwroutine = input_rel->fdwroutine;
+
+	add_paths_to_connect_by_rel(root, connect_rel, input_rel);
+
+	if (connect_rel->pathlist == NIL)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("could not implement CONNECT BY")));
+
+	set_cheapest(connect_rel);
+	return connect_rel;
+}
+#endif /* ADB_GRAM_ORA */
 /*
  * is_degenerate_grouping
  *
@@ -6378,6 +6488,33 @@ make_partial_grouping_target(PlannerInfo *root,
 	return set_pathtarget_cost_width(root, partial_target);
 }
 
+#ifdef ADB_GRAM_ORA
+static PathTarget *make_connect_by_input_target(PlannerInfo *root,
+												PathTarget *output_target)
+{
+	Query			   *parse = root->parse;
+	OracleConnectBy	   *connect_by = parse->connect_by;
+	PathTarget		   *input_target;
+	List			   *exprs;
+	List			   *base_vars;
+
+	input_target = create_empty_pathtarget();
+
+	exprs = list_copy(output_target->exprs);
+	if (connect_by->start_with)
+		exprs = lappend(exprs, connect_by->start_with);
+	exprs = lappend(exprs, connect_by->connect_by);
+
+	base_vars = pull_var_clause((Node*)exprs, PVC_INCLUDE_PLACEHOLDERS);
+	add_new_columns_to_pathtarget(input_target, base_vars);
+
+	list_free(base_vars);
+	list_free(exprs);
+
+	/* XXX this causes some redundant cost calculation ... */
+	return set_pathtarget_cost_width(root, input_target);
+}
+#endif /* ADB_GRAM_ORA */
 /*
  * mark_partial_aggref
  *	  Adjust an Aggref to make it represent a partial-aggregation step.

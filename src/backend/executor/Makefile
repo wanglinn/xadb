@@ -38,5 +38,8 @@ ifeq ($(enable_cluster),yes)
 		  clusterHeapScan.o
 	CFLAGS += -I$(top_srcdir)/src/interfaces
 endif
+ifeq ($(enable_grammar_oracle),yes)
+  OBJS += nodeConnectBy.o
+endif
 
 include $(top_srcdir)/src/backend/common.mk

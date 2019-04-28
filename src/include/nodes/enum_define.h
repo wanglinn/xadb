@@ -82,6 +82,9 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_SetOp)
 	ENUM_VALUE(T_LockRows)
 	ENUM_VALUE(T_Limit)
+#ifdef ADB_GRAM_ORA
+	ENUM_VALUE(T_ConnectByPlan)
+#endif
 	ENUM_VALUE(T_NestLoopParam)
 	ENUM_VALUE(T_PlanRowMark)
 	ENUM_VALUE(T_PartitionPruneInfo)
@@ -157,6 +160,9 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_ReduceScanState)
 	ENUM_VALUE(T_EmptyResultState)
 	ENUM_VALUE(T_ParamTuplestoreScanState)
+#endif
+#ifdef ADB_GRAM_ORA
+	ENUM_VALUE(T_ConnectByState)
 #endif
 	ENUM_VALUE(T_Alias)
 	ENUM_VALUE(T_RangeVar)
@@ -272,6 +278,9 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_ClusterReducePath)
 	ENUM_VALUE(T_ReduceScanPath)
 	ENUM_VALUE(T_FilterPath)
+#endif
+#ifdef ADB_GRAM_ORA
+	ENUM_VALUE(T_ConnectByPath)
 #endif
 	ENUM_VALUE(T_EquivalenceClass)
 	ENUM_VALUE(T_EquivalenceMember)
@@ -1236,6 +1245,9 @@ BEGIN_ENUM(UpperRelationKind)
 	ENUM_VALUE(UPPERREL_WINDOW)
 	ENUM_VALUE(UPPERREL_DISTINCT)
 	ENUM_VALUE(UPPERREL_ORDERED)
+#ifdef ADB_GRAM_ORA
+	ENUM_VALUE(UPPERREL_CONNECT_BY)
+#endif
 	ENUM_VALUE(UPPERREL_FINAL)
 END_ENUM(UpperRelationKind)
 #endif /* NO_ENUM_UpperRelationKind */

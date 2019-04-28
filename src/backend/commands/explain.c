@@ -1229,6 +1229,15 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_Hash:
 			pname = sname = "Hash";
 			break;
+#ifdef ADB_GRAM_ORA
+		case T_ConnectByPlan:
+			if (bms_is_empty(((ConnectByPlan*)plan)->hash_quals))
+				sname = "Connect By";
+			else
+				sname = "Hash Connect By";
+			pname = sname;
+			break;
+#endif /* ADB_GRAM_ORA */
 		default:
 			pname = sname = "???";
 			break;
@@ -1882,6 +1891,27 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
 			break;
 #endif /* ADB */
+#ifdef ADB_GRAM_ORA
+		case T_ConnectByPlan:
+			if (((ConnectByPlan*)plan)->start_with)
+				show_upper_qual(((ConnectByPlan*)plan)->start_with, "Start With", planstate, ancestors, es);
+			show_upper_qual(plan->qual, "Connect By", planstate, ancestors, es);
+			if (bms_is_empty(((ConnectByPlan*)plan)->hash_quals) == false)
+			{
+				List *quals = NIL;
+				ListCell *lc;
+				int i;
+				for (i=0,lc=list_head(plan->qual);lc!=NULL;lc=lnext(lc),++i)
+				{
+					if (bms_is_member(i, ((ConnectByPlan*)plan)->hash_quals))
+						quals = lappend(quals, lfirst(lc));
+				}
+				show_upper_qual(quals, "Hash Cond", planstate, ancestors, es);
+				list_free(quals);
+				ExplainPropertyInteger("Hash Buckets", NULL, ((ConnectByPlan*)plan)->num_buckets, es);
+			}
+			break;
+#endif /* ADB_GRAM_ORA */
 		default:
 			break;
 	}

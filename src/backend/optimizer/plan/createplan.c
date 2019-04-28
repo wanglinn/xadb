@@ -326,6 +326,10 @@ static bool find_cluster_reduce_expr(Path *path, List **pplist);
 static void set_scan_execute_oids(Scan *scan, Path *path, PlannerInfo *root);
 #endif /* ADB */
 
+#ifdef ADB_GRAM_ORA
+static ConnectByPlan *create_connect_by_plan(PlannerInfo *root, ConnectByPath *path);
+#endif /* ADB_GRAM_ORA */
+
 /*
  * create_plan
  *	  Creates the access plan for a query by recursively processing the
@@ -576,7 +580,12 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 		case T_ReduceScan:
 			plan = (Plan*) create_reducescan_plan(root, (ReduceScanPath*)best_path, flags);
 			break;
-#endif
+#endif /* ADB */
+#ifdef ADB_GRAM_ORA
+		case T_ConnectByPlan:
+			plan = (Plan*) create_connect_by_plan(root, (ConnectByPath*)best_path);
+			break;
+#endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) best_path->pathtype);
@@ -7611,3 +7620,38 @@ static void set_scan_execute_oids(Scan *scan, Path *path, PlannerInfo *root)
 }
 
 #endif /* ADB */
+
+#ifdef ADB_GRAM_ORA
+static ConnectByPlan *create_connect_by_plan(PlannerInfo *root, ConnectByPath *path)
+{
+	ListCell	   *lc;
+	List		   *list;
+	ConnectByPlan  *plan;
+	int i;
+
+	plan = makeNode(ConnectByPlan);
+	plan->plan.targetlist = build_path_tlist(root, (Path*)path);
+	outerPlan(plan) = create_plan_recurse(root, path->subpath, CP_EXACT_TLIST);
+
+	list = order_qual_clauses(root, path->path.parent->joininfo);
+	for (i=0,lc=list_head(list);lc!=NULL;lc=lnext(lc))
+	{
+		RestrictInfo *ri = lfirst_node(RestrictInfo, lc);
+		plan->plan.qual = lappend(plan->plan.qual, ri->clause);
+		if (ri->can_join &&
+			OidIsValid(ri->hashjoinoperator))
+		{
+			plan->hash_quals = bms_add_member(plan->hash_quals, i);
+		}
+		++i;
+	}
+
+	list = order_qual_clauses(root, path->path.parent->baserestrictinfo);
+	plan->start_with = extract_actual_clauses(list, false);
+
+	copy_generic_path_info(&plan->plan, &path->path);
+	plan->num_buckets = path->num_buckets;
+
+	return plan;
+}
+#endif /* ADB_GRAM_ORA */

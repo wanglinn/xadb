@@ -65,6 +65,11 @@ extern void generate_partitionwise_join_paths(PlannerInfo *root,
 extern void add_cluster_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 											List *childrels, List *partitioned_rels);
 #endif /* ADB */
+#ifdef ADB_GRAM_ORA
+extern void add_paths_to_connect_by_rel(PlannerInfo *root,
+										RelOptInfo *connect_rel,
+										RelOptInfo *input_rel);
+#endif /* ADB_GRAM_ORA */
 #ifdef OPTIMIZER_DEBUG
 extern void debug_print_rel(PlannerInfo *root, RelOptInfo *rel);
 #endif
@@ -105,6 +110,7 @@ extern void add_paths_to_joinrel(PlannerInfo *root, RelOptInfo *joinrel,
 					 RelOptInfo *outerrel, RelOptInfo *innerrel,
 					 JoinType jointype, SpecialJoinInfo *sjinfo,
 					 List *restrictlist);
+
 #ifdef ADB
 /*
  * rquerypath.c

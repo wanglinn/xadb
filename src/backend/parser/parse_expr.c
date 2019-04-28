@@ -233,53 +233,27 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 			}
 			break;
 		case T_PriorExpr:
-			if (pstate == NULL ||
-				list_length(pstate->p_namespace) != 2)
+			if (pstate->p_expr_kind != EXPR_KIND_CONNECT_BY)
 			{
-				goto transform_prior_expr_error_;
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("syntax error"),
+						 errhint("prior only can using in connect by"),
+						 parser_errposition(pstate, ((PriorExpr*)expr)->location)));
 			}else
 			{
-				ParseNamespaceItem * volatile rarg = linitial(pstate->p_namespace);
-				ParseNamespaceItem * volatile larg = llast(pstate->p_namespace);
-				if (rarg->p_rte->rtekind != RTE_CTE ||
-					rarg->p_cols_visible || rarg->p_rel_visible ||
-					(larg->p_rte->rtekind != RTE_RELATION &&
-					 larg->p_rte->rtekind != RTE_NAMEDTUPLESTORE &&
-					 larg->p_rte->rtekind != RTE_CTE) ||
-					larg->p_cols_visible == false || larg->p_rel_visible == false)
+				PriorExpr *prior = makeNode(PriorExpr);
+				prior->location = ((PriorExpr*)expr)->location;
+				prior->expr = transformExprRecurse(pstate, ((PriorExpr*)expr)->expr);
+				if (!IsA(prior->expr, Var))
 				{
-					goto transform_prior_expr_error_;
-				}else
-				{
-					Index cte_levelsup;
-					CommonTableExpr *cte = scanNameSpaceForCTE(pstate, rarg->p_rte->ctename, &cte_levelsup);
-					if (cte == NULL ||
-						cte_levelsup != 2)
-						goto transform_prior_expr_error_;
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("syntax error"),
+							 parser_errposition(pstate, exprLocation(((PriorExpr*)expr)->expr))));
 				}
-				/* change rel and col visiable */
-				rarg->p_cols_visible = rarg->p_rel_visible = true;
-				larg->p_cols_visible = larg->p_rel_visible = false;
-				PG_TRY();
-				{
-					result = transformExprRecurse(pstate, ((PriorExpr*)expr)->expr);
-				}PG_CATCH();
-				{
-					/* restore visiable */
-					rarg->p_cols_visible = rarg->p_rel_visible = false;
-					larg->p_cols_visible = larg->p_rel_visible = true;
-					PG_RE_THROW();
-				}PG_END_TRY();
-				/* restore visiable */
-				rarg->p_cols_visible = rarg->p_rel_visible = false;
-				larg->p_cols_visible = larg->p_rel_visible = true;
+				result = (Node*)prior;
 			}
-			break;
-transform_prior_expr_error_:
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("syntax error"),
-					 parser_errposition(pstate, ((PriorExpr*)expr)->location)));
 			break;
 		case T_LevelExpr:
 			ereport(ERROR,
@@ -2474,6 +2448,11 @@ transformSubLink(ParseState *pstate, SubLink *sublink)
 		case EXPR_KIND_CALL_ARGUMENT:
 			err = _("cannot use subquery in CALL argument");
 			break;
+#ifdef ADB_GRAM_ORA
+		case EXPR_KIND_START_WITH:
+		case EXPR_KIND_CONNECT_BY:
+			break; /* okay */
+#endif /* ADB_GRAM_ORA */
 
 			/*
 			 * There is intentionally no default: case here, so that the
@@ -4226,6 +4205,12 @@ ParseExprKindName(ParseExprKind exprKind)
 			return "PARTITION BY";
 		case EXPR_KIND_CALL_ARGUMENT:
 			return "CALL";
+#ifdef ADB_GRAM_ORA
+		case EXPR_KIND_START_WITH:
+			return "START WITH";
+		case EXPR_KIND_CONNECT_BY:
+			return "CONNECT BY";
+#endif /* ADB_GRAM_ORA */
 
 			/*
 			 * There is intentionally no default: case here, so that the

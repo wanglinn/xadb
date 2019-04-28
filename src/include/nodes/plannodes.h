@@ -1048,6 +1048,15 @@ typedef struct ParamTuplestoreScan
 
 #endif /* ADB */
 
+#ifdef ADB_GRAM_ORA
+typedef struct ConnectByPlan
+{
+	Plan		plan;				/* all connect by clauses in plan::qual */
+	Bitmapset  *hash_quals;			/* can using hash connect by join clauses */
+	List	   *start_with;			/* start with clauses */
+	int			num_buckets;		/* number of buckets expected when hash_quals not null */
+}ConnectByPlan;
+#endif /* ADB_GRAM_ORA */
 /*
  * RowMarkType -
  *	  enums for types of row-marking operations

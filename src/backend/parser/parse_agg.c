@@ -529,6 +529,20 @@ check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 				err = _("grouping operations are not allowed in CALL arguments");
 
 			break;
+#ifdef ADB_GRAM_ORA
+		case EXPR_KIND_START_WITH:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in start with expression");
+			else
+				err = _("grouping operations are not allowed in start with expression");
+			break;
+		case EXPR_KIND_CONNECT_BY:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in connect by expression");
+			else
+				err = _("grouping operations are not allowed in connect by expression");
+			break;
+#endif /* ADB_GRAM_ORA */
 
 			/*
 			 * There is intentionally no default: case here, so that the
@@ -912,6 +926,14 @@ transformWindowFuncCall(ParseState *pstate, WindowFunc *wfunc,
 		case EXPR_KIND_CALL_ARGUMENT:
 			err = _("window functions are not allowed in CALL arguments");
 			break;
+#ifdef ADB_GRAM_ORA
+		case EXPR_KIND_START_WITH:
+			err = _("window functions are not allowed in start with expression");
+			break;
+		case EXPR_KIND_CONNECT_BY:
+			err = _("window functions are not allowed in connect by expression");
+			break;
+#endif /* ADB_GRAM_ORA */
 
 			/*
 			 * There is intentionally no default: case here, so that the

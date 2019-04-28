@@ -72,6 +72,7 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_operator.h"
 #include "parser/parser.h"
+#include "parser/parse_expr.h"
 #include "parser/parse_type.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
@@ -1425,12 +1426,6 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	/* make WINDOW info available for window functions, too */
 	pstate->p_windowdefs = stmt->windowClause;
 
-#ifdef ADB_GRAM_ORA
-	if (stmt->ora_connect_by)
-	{
-		qry->cteList = analyzeOracleConnectBy(qry->cteList, pstate, stmt);
-	}else
-#endif /* ADB_GRAM_ORA */
 	/* process the FROM clause */
 	transformFromClause(pstate, stmt->fromClause);
 #ifdef ADB_GRAM_ORA
@@ -1439,6 +1434,21 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 								EXPR_KIND_WHERE, "WHERE");
 
 	qual = transformFromAndWhere(pstate, qual);
+
+	if (stmt->ora_connect_by)
+	{
+		OracleConnectBy *new_ = makeNode(OracleConnectBy);
+		OracleConnectBy *old = stmt->ora_connect_by;
+		new_->no_cycle = old->no_cycle;
+		if (old->start_with)
+		{
+			new_->start_with = transformExpr(pstate, old->start_with, EXPR_KIND_START_WITH);
+			new_->start_with = coerce_to_boolean(pstate, new_->start_with, "START WITH");
+		}
+		new_->connect_by = transformExpr(pstate, old->connect_by, EXPR_KIND_CONNECT_BY);
+		new_->connect_by = coerce_to_boolean(pstate, new_->connect_by, "CONNECT BY");
+		qry->connect_by = new_;
+	}
 #endif /* ADB_GRAM_ORA */
 	/* transform targetlist */
 	qry->targetList = transformTargetList(pstate, stmt->targetList,

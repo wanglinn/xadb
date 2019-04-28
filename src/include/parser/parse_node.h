@@ -71,6 +71,10 @@ typedef enum ParseExprKind
 	EXPR_KIND_PARTITION_BOUND,	/* partition bound expression */
 	EXPR_KIND_PARTITION_EXPRESSION, /* PARTITION BY expression */
 	EXPR_KIND_CALL_ARGUMENT		/* procedure argument in CALL */
+#ifdef ADB_GRAM_ORA
+	,EXPR_KIND_CONNECT_BY			/* CONNECT BY expression */
+	,EXPR_KIND_START_WITH			/* START WITH expression */
+#endif /* ADB_GRAM_ORA */
 } ParseExprKind;
 
 

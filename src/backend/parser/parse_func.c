@@ -2464,6 +2464,14 @@ check_srf_call_placement(ParseState *pstate, Node *last_srf, int location)
 		case EXPR_KIND_CALL_ARGUMENT:
 			err = _("set-returning functions are not allowed in CALL arguments");
 			break;
+#ifdef ADB_GRAM_ORA
+		case EXPR_KIND_START_WITH:
+			err = _("set-returning functions are not allowed in start with expressions");
+			break;
+		case EXPR_KIND_CONNECT_BY:
+			err = _("set-returning functions are not allowed in connect by expressions");
+			break;
+#endif /* ADB_GRAM_ORA */
 
 			/*
 			 * There is intentionally no default: case here, so that the

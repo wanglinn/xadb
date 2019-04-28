@@ -81,6 +81,9 @@ typedef enum UpperRelationKind
 	UPPERREL_WINDOW,			/* result of window functions, if any */
 	UPPERREL_DISTINCT,			/* result of "SELECT DISTINCT", if any */
 	UPPERREL_ORDERED,			/* result of ORDER BY, if any */
+#ifdef ADB_GRAM_ORA
+	UPPERREL_CONNECT_BY,		/* result of CONNECT BY, if any */
+#endif /* ADB_GRAM_ORA */
 	UPPERREL_FINAL				/* result of any remaining top-level actions */
 	/* NB: UPPERREL_FINAL must be last enum entry; it's used to size arrays */
 } UpperRelationKind;
@@ -1872,6 +1875,15 @@ typedef struct ReduceScanPath
 typedef ResultPath FilterPath;
 
 #endif /* ADB */
+
+#ifdef ADB_GRAM_ORA
+typedef struct ConnectByPath
+{
+	Path		path;
+	Path	   *subpath;
+	int			num_buckets;		/* number of buckets expected when can use hash join */
+}ConnectByPath;
+#endif /* ADB_GRAM_ORA */
 
 /*
  * Restriction clause info.

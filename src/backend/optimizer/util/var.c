@@ -32,6 +32,9 @@ typedef struct
 {
 	Relids		varnos;
 	int			sublevels_up;
+#ifdef ADB_GRAM_ORA
+	bool		include_prior;
+#endif /* ADB_GRAM_ORA */
 } pull_varnos_context;
 
 typedef struct
@@ -98,6 +101,9 @@ pull_varnos(Node *node)
 
 	context.varnos = NULL;
 	context.sublevels_up = 0;
+#ifdef ADB_GRAM_ORA
+	context.include_prior = true;
+#endif /* ADB_GRAM_ORA */
 
 	/*
 	 * Must be prepared to start with a Query or a bare expression tree; if
@@ -123,6 +129,9 @@ pull_varnos_of_level(Node *node, int levelsup)
 
 	context.varnos = NULL;
 	context.sublevels_up = levelsup;
+#ifdef ADB_GRAM_ORA
+	context.include_prior = true;
+#endif /* ADB_GRAM_ORA */
 
 	/*
 	 * Must be prepared to start with a Query or a bare expression tree; if
@@ -136,11 +145,38 @@ pull_varnos_of_level(Node *node, int levelsup)
 	return context.varnos;
 }
 
+#ifdef ADB_GRAM_ORA
+Relids pull_varnos_no_prior(Node *node)
+{
+	pull_varnos_context context;
+
+	context.varnos = NULL;
+	context.sublevels_up = 0;
+	context.include_prior = false;
+
+	/*
+	 * Must be prepared to start with a Query or a bare expression tree; if
+	 * it's a Query, we don't want to increment sublevels_up.
+	 */
+	query_or_expression_tree_walker(node,
+									pull_varnos_walker,
+									(void *) &context,
+									0);
+
+	return context.varnos;
+}
+#endif /* ADB_GRAM_ORA */
+
 static bool
 pull_varnos_walker(Node *node, pull_varnos_context *context)
 {
 	if (node == NULL)
 		return false;
+#ifdef ADB_GRAM_ORA
+	if (context->include_prior == false &&
+		IsA(node, PriorExpr))
+		return false;
+#endif /* ADB_GRAM_ORA */
 	if (IsA(node, Var))
 	{
 		Var		   *var = (Var *) node;

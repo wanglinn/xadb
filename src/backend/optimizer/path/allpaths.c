@@ -4659,6 +4659,48 @@ static RelOptInfo* make_no_execparam_base_rel(PlannerInfo *root, RelOptInfo *bas
 
 #endif /* ADB */
 
+#ifdef ADB_GRAM_ORA
+void add_paths_to_connect_by_rel(PlannerInfo *root,
+								 RelOptInfo *connect_rel,
+								 RelOptInfo *input_rel)
+{
+	RestrictInfo   *ri;
+	ListCell	   *lc;
+	Path		   *subpath;
+	List		   *hash_quals = NIL;
+	JoinCostWorkspace workspace;
+
+	foreach (lc, connect_rel->joininfo)
+	{
+		ri = lfirst_node(RestrictInfo, lc);
+		if (ri->can_join &&
+			OidIsValid(ri->hashjoinoperator))
+			hash_quals = lappend(hash_quals, ri);
+	}
+
+	foreach(lc, input_rel->pathlist)
+	{
+		ConnectByPath *path = makeNode(ConnectByPath);
+		path->path.pathtype = T_ConnectByPlan;
+		path->path.parent = connect_rel;
+		path->subpath = subpath = lfirst(lc);
+		path->path.pathtarget = connect_rel->reltarget;
+		path->path.rows = connect_rel->rows;
+		if (hash_quals)
+		{
+			initial_cost_hashjoin(root, &workspace, JOIN_INNER, hash_quals, subpath, subpath, NULL, false);
+			path->num_buckets = workspace.numbuckets;
+		}
+		path->path.startup_cost = workspace.startup_cost;
+		path->path.total_cost = workspace.total_cost;
+
+		add_path(connect_rel, (Path*)path);
+	}
+
+	list_free(hash_quals);
+}
+#endif /* ADB_GRAM_ORA */
+
 /*****************************************************************************
  *			DEBUG SUPPORT
  *****************************************************************************/

@@ -85,6 +85,9 @@ typedef enum NodeTag
 	T_SetOp,
 	T_LockRows,
 	T_Limit,
+#ifdef ADB_GRAM_ORA
+	T_ConnectByPlan,
+#endif /* ADB_GRAM_ORA */
 	/* these aren't subclasses of Plan: */
 	T_NestLoopParam,
 	T_PlanRowMark,
@@ -172,6 +175,9 @@ typedef enum NodeTag
 	T_EmptyResultState,
 	T_ParamTuplestoreScanState,
 #endif
+#ifdef ADB_GRAM_ORA
+	T_ConnectByState,
+#endif /* ADB_GRAM_ORA */
 
 	/*
 	 * TAGS FOR PRIMITIVE NODES (primnodes.h)
@@ -305,6 +311,9 @@ typedef enum NodeTag
 	T_ReduceScanPath,
 	T_FilterPath,
 #endif
+#ifdef ADB_GRAM_ORA
+	T_ConnectByPath,
+#endif /* ADB_GRAM_ORA */
 	/* these aren't subclasses of Path: */
 	T_EquivalenceClass,
 	T_EquivalenceMember,

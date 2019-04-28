@@ -3141,6 +3141,9 @@ _copyQuery(const Query *from)
 	COPY_SCALAR_FIELD(in_sub_plan);
 	COPY_SCALAR_FIELD(in_explain);
 #endif
+#ifdef ADB_GRAM_ORA
+	COPY_NODE_FIELD(connect_by);
+#endif /* ADB_GRAM_ORA */
 
 	return newnode;
 }
@@ -5170,7 +5173,22 @@ _copyDropSlotStmt(const DropSlotStmt *from)
 	return newnode;
 }
 
-#endif
+#endif /* ADB */
+
+#ifdef ADB_GRAM_ORA
+static ConnectByPlan *
+_copyConnectByPlan(const ConnectByPlan *from)
+{
+	ConnectByPlan *newnode = makeNode(ConnectByPlan);
+
+	CopyPlanFields(&from->plan, &newnode->plan);
+	COPY_BITMAPSET_FIELD(hash_quals);
+	COPY_NODE_FIELD(start_with);
+	COPY_SCALAR_FIELD(num_buckets);
+
+	return newnode;
+}
+#endif /* ADB_GRAM_ORA */
 
 #ifdef ADBMGRD
 
@@ -5208,7 +5226,7 @@ _copyMGRAlterHost(const MGRAlterHost *from)
 	return newnode;
 }
 
-#endif
+#endif /* ADBMGRD */
 
 /*
  * copyObjectImpl -- implementation of copyObject(); see nodes/nodes.h
@@ -6192,6 +6210,12 @@ copyObjectImpl(const void *from)
 			retval = _copyParamTuplestoreScan(from);
 			break;
 #endif /* ADB */
+
+#ifdef ADB_GRAM_ORA
+		case T_ConnectByPlan:
+			retval = _copyConnectByPlan(from);
+			break;
+#endif /* ADB_GRAM_ORA */
 
 #ifdef ADBMGRD
 		case T_MGRAddHost:

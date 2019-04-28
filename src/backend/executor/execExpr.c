@@ -2126,6 +2126,10 @@ ExecInitExprRec(Expr *node, ExprState *state,
 				ExprEvalPushStep(state, &scratch);
 				break;
 			}
+		case T_PriorExpr:
+			/* ignore PriorExpr self */
+			ExecInitExprRec((Expr*)(((PriorExpr*)node)->expr), state, resv, resnull);
+			break;
 #endif /* ADB_GRAM_ORA */
 
 		default:

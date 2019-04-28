@@ -178,6 +178,24 @@ build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
 			list_free(having_vars);
 		}
 	}
+
+#ifdef ADB_GRAM_ORA
+	if (root->parse->connect_by)
+	{
+		Bitmapset *where_needed = bms_make_singleton(0);
+		OracleConnectBy *connect_by = root->parse->connect_by;
+		List *vars = pull_var_clause(connect_by->start_with, PVC_INCLUDE_PLACEHOLDERS);
+		if (vars)
+		{
+			add_vars_to_targetlist(root, vars, where_needed, true);
+			list_free(vars);
+		}
+
+		vars = pull_var_clause(connect_by->connect_by, PVC_INCLUDE_PLACEHOLDERS);
+		add_vars_to_targetlist(root, vars, where_needed, true);
+		list_free(vars);
+	}
+#endif /* ADB_GRAM_ORA */
 }
 
 /*
@@ -2662,3 +2680,31 @@ check_hashjoinable(RestrictInfo *restrictinfo)
 		!contain_volatile_functions((Node *) clause))
 		restrictinfo->hashjoinoperator = opno;
 }
+
+#ifdef ADB_GRAM_ORA
+void deconstruct_connect_by(PlannerInfo *root, RelOptInfo *rel)
+{
+	ListCell *lc;
+	List *list;
+	Query *parse = root->parse;
+	Assert(rel->joininfo == NIL && rel->baserestrictinfo == NIL);
+	Assert(parse->connect_by != NULL && parse->connect_by->connect_by != NULL);
+
+	list = NIL;
+	if (parse->connect_by->start_with)
+	{
+		foreach(lc, castNode(List, parse->connect_by->start_with))
+		{
+			list = lappend(list, make_simple_restrictinfo(lfirst(lc)));
+		}
+		rel->baserestrictinfo = list;
+		list = NIL;
+	}
+
+	foreach(lc, castNode(List, parse->connect_by->connect_by))
+	{
+		list = lappend(list, make_connect_by_restrictinfo(lfirst(lc)));
+	}
+	rel->joininfo = list;
+}
+#endif /* ADB_GRAM_ORA */

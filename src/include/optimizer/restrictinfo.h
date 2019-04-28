@@ -43,5 +43,8 @@ extern bool join_clause_is_movable_to(RestrictInfo *rinfo, RelOptInfo *baserel);
 extern bool join_clause_is_movable_into(RestrictInfo *rinfo,
 							Relids currentrelids,
 							Relids current_and_outer);
+#ifdef ADB_GRAM_ORA
+extern RestrictInfo* make_connect_by_restrictinfo(Expr *expr);
+#endif /* ADB_GRAM_ORA */
 
 #endif							/* RESTRICTINFO_H */

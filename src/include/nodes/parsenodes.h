@@ -217,6 +217,10 @@ typedef struct Query
 	bool		in_sub_plan;
 	bool		in_explain;		/* true when execute EXPLAIN */
 #endif
+#ifdef ADB_GRAM_ORA
+	/* for oracle connect by */
+	struct OracleConnectBy *connect_by;
+#endif /* ADB_GRAM_ORA */
 } Query;
 
 

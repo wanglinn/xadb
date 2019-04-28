@@ -276,6 +276,9 @@ exprType(const Node *expr)
 		case T_ColumnRefJoin:
 			type = exprType((Node*)(((ColumnRefJoin*)expr)->var));
 			break;
+		case T_PriorExpr:
+			type = exprType(((PriorExpr*)expr)->expr);
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
@@ -933,6 +936,9 @@ exprCollation(const Node *expr)
 			break;
 		case T_ColumnRefJoin:
 			coll = exprCollation((Node*)(((ColumnRefJoin*)expr)->var));
+			break;
+		case T_PriorExpr:
+			coll = exprCollation(((PriorExpr*)expr)->expr);
 			break;
 #endif /* ADB_GRAM_ORA */
 		default:

@@ -123,8 +123,10 @@
 #include "executor/nodeEmptyResult.h"
 #include "executor/nodeParamTuplestoreScan.h"
 #include "executor/nodeReduceScan.h"
-#endif
-
+#endif /* ADB */
+#ifdef ADB_GRAM_ORA
+#include "executor/nodeConnectBy.h"
+#endif /* ADB_GRAM_ORA */
 
 static TupleTableSlot *ExecProcNodeFirst(PlanState *node);
 static TupleTableSlot *ExecProcNodeInstr(PlanState *node);
@@ -406,6 +408,11 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 			result = (PlanState*) ExecInitParamTuplestoreScan((ParamTuplestoreScan*)node, estate, eflags);
 			break;
 #endif
+#ifdef ADB_GRAM_ORA
+		case T_ConnectByPlan:
+			result = (PlanState*) ExecInitConnectBy((ConnectByPlan*)node, estate, eflags);
+			break;
+#endif /* ADB_GRAM_ORA */
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
@@ -802,7 +809,12 @@ ExecEndNode(PlanState *node)
 		case T_ParamTuplestoreScanState:
 			ExecEndParamTuplestoreScan((ParamTuplestoreScanState*) node);
 			break;
-#endif
+#endif /* ADB */
+#ifdef ADB_GRAM_ORA
+		case T_ConnectByState:
+			ExecEndConnectBy((ConnectByState*) node);
+			break;
+#endif /* ADB_GRAM_ORA */
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));

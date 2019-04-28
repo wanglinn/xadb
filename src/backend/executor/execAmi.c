@@ -68,7 +68,10 @@
 #include "executor/nodeEmptyResult.h"
 #include "executor/nodeParamTuplestoreScan.h"
 #include "executor/nodeReduceScan.h"
-#endif
+#endif /* ADB */
+#ifdef ADB_GRAM_ORA
+#include "executor/nodeConnectBy.h"
+#endif /* ADB_GRAM_ORA */
 
 
 static bool IndexSupportsBackwardScan(Oid indexid);
@@ -327,6 +330,12 @@ ExecReScan(PlanState *node)
 			ExecReScanReduceScan((ReduceScanState *) node);
 			break;
 #endif /* ADB */
+
+#ifdef ADB_GRAM_ORA
+		case T_ConnectByState:
+			ExecReScanConnectBy((ConnectByState*) node);
+			break;
+#endif /* ADB_GRAM_ORA */
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
