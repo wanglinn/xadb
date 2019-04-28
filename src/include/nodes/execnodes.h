@@ -2373,7 +2373,7 @@ typedef struct ConnectByState
 	TupleTableSlot	   *outer_slot;
 	TupleTableSlot	   *inner_slot;
 	void			   *private_state;
-	bool				initialized;
+	bool				processing_root;
 }ConnectByState;
 #endif /* ADB_GRAM_ORA */
 

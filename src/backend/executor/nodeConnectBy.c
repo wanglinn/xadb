@@ -11,18 +11,18 @@
 #include "utils/tuplestore.h"
 
 /* for no order connect by */
-typedef struct TuplestoreHashState
+typedef struct TuplestoreConnectByState
 {
 	Tuplestorestate *scan_ts;
 	Tuplestorestate *save_ts;
 	int				hash_reader;
 	bool			inner_ateof;
-}TuplestoreHashState;
+}TuplestoreConnectByState;
 
 static TupleTableSlot *ExecTuplestoreConnectBy(PlanState *pstate);
 static ExprState *makeHashExprState(Expr *expr, Oid hash_oid, PlanState *ps);
 static uint32 getHashValue(List *hashlist, ExprContext *econtext);
-static void fullConnectByTuplestoreStartWit(ConnectByState *ps, Tuplestorestate *ts);
+static TupleTableSlot* fullConnectByTuplestoreStartWit(ConnectByState *ps, Tuplestorestate *ts);
 
 ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflags)
 {
@@ -83,14 +83,14 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 	}
 	cbstate->ps.ExecProcNode = ExecTuplestoreConnectBy;
 	{
-		TuplestoreHashState *state = palloc0(sizeof(TuplestoreHashState));
+		TuplestoreConnectByState *state = palloc0(sizeof(TuplestoreConnectByState));
 		cbstate->private_state = state;
 		state->hash_reader = INVALID_HASHSTORE_READER;
 		state->inner_ateof = true;
 		state->scan_ts = tuplestore_begin_heap(false, false, work_mem/2);
 		state->save_ts = tuplestore_begin_heap(false, false, work_mem/2);
 	}
-	cbstate->initialized = false;
+	cbstate->processing_root = true;
 
 	return cbstate;
 }
@@ -100,13 +100,21 @@ static TupleTableSlot *ExecTuplestoreConnectBy(PlanState *pstate)
 	ConnectByState *cbstate = castNode(ConnectByState, pstate);
 	TupleTableSlot *outer_slot = cbstate->outer_slot;
 	TupleTableSlot *inner_slot = cbstate->inner_slot;
-	TuplestoreHashState *state = cbstate->private_state;
+	TuplestoreConnectByState *state = cbstate->private_state;
 	ExprContext *econtext = cbstate->ps.ps_ExprContext;
 
-	if (cbstate->initialized == false)
+	if (cbstate->processing_root)
 	{
-		fullConnectByTuplestoreStartWit(cbstate, state->scan_ts);
-		cbstate->initialized = true;
+		outer_slot = fullConnectByTuplestoreStartWit(cbstate, state->save_ts);
+		if (!TupIsNull(outer_slot))
+		{
+			econtext->ecxt_outertuple = NULL;
+			econtext->ecxt_innertuple = outer_slot;
+			return ExecProject(pstate->ps_ProjInfo);
+		}
+		outer_slot = cbstate->outer_slot;
+		state->inner_ateof = true;
+		cbstate->processing_root = false;
 	}
 
 re_get_tuplestore_connect_by_:
@@ -116,7 +124,21 @@ re_get_tuplestore_connect_by_:
 		tuplestore_gettupleslot(state->scan_ts, true, true, outer_slot);
 		MemoryContextSwitchTo(oldcontext);
 		if (TupIsNull(outer_slot))
-			return ExecClearTuple(pstate->ps_ProjInfo->pi_state.resultslot);
+		{
+			/* switch work tuplestore */
+			Tuplestorestate *ts = state->save_ts;
+			state->save_ts = state->scan_ts;
+			state->scan_ts = ts;
+			tuplestore_clear(state->save_ts);
+
+			/* read new data from last saved tuplestore */
+			oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(pstate));
+			tuplestore_gettupleslot(state->scan_ts, true, true, outer_slot);
+			MemoryContextSwitchTo(oldcontext);
+
+			if (TupIsNull(outer_slot))	/* no more data, end plan */
+				return ExecClearTuple(pstate->ps_ProjInfo->pi_state.resultslot);
+		}
 
 		if (cbstate->hs)
 		{
@@ -155,19 +177,12 @@ re_get_tuplestore_connect_by_:
 		state->hash_reader = INVALID_HASHSTORE_READER;
 	}
 	state->inner_ateof = true;
-	if (tuplestore_ateof(state->scan_ts))
-	{
-		Tuplestorestate *ts = state->save_ts;
-		state->save_ts = state->scan_ts;
-		state->scan_ts = ts;
-		tuplestore_clear(state->save_ts);
-	}
 	goto re_get_tuplestore_connect_by_;
 }
 
 void ExecEndConnectBy(ConnectByState *node)
 {
-	TuplestoreHashState *state = node->private_state;
+	TuplestoreConnectByState *state = node->private_state;
 	ExecEndNode(outerPlanState(node));
 	tuplestore_end(state->scan_ts);
 	tuplestore_end(state->save_ts);
@@ -219,7 +234,7 @@ static uint32 getHashValue(List *hashlist, ExprContext *econtext)
 	return hash_value;
 }
 
-static void fullConnectByTuplestoreStartWit(ConnectByState *ps, Tuplestorestate *start_ts)
+static TupleTableSlot* fullConnectByTuplestoreStartWit(ConnectByState *ps, Tuplestorestate *start_ts)
 {
 	Hashstorestate *hs = ps->hs;
 	Tuplestorestate *outer_ts = ps->ts;
@@ -253,6 +268,11 @@ static void fullConnectByTuplestoreStartWit(ConnectByState *ps, Tuplestorestate 
 		econtext->ecxt_outertuple = slot;
 		if (ps->start_with == NULL ||
 			ExecQual(ps->start_with, econtext))
+		{
 			tuplestore_puttupleslot(start_ts, slot);
+			return slot;
+		}
 	}
+
+	return NULL;
 }
