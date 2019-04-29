@@ -279,6 +279,9 @@ exprType(const Node *expr)
 		case T_PriorExpr:
 			type = exprType(((PriorExpr*)expr)->expr);
 			break;
+		case T_LevelExpr:
+			type = INT8OID;
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
@@ -940,6 +943,9 @@ exprCollation(const Node *expr)
 		case T_PriorExpr:
 			coll = exprCollation(((PriorExpr*)expr)->expr);
 			break;
+		case T_LevelExpr:
+			coll = InvalidOid;
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
@@ -1144,6 +1150,7 @@ exprSetCollation(Node *expr, Oid collation)
 			break;
 #ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
+		case T_LevelExpr:
 			Assert(!OidIsValid(collation));
 			break;
 		case T_ColumnRefJoin:

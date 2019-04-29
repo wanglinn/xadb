@@ -2,6 +2,7 @@
 
 #include "catalog/pg_type_d.h"
 #include "executor/executor.h"
+#include "executor/execExpr.h"
 #include "executor/nodeConnectBy.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
@@ -15,6 +16,7 @@ typedef struct TuplestoreConnectByState
 {
 	Tuplestorestate *scan_ts;
 	Tuplestorestate *save_ts;
+	uint64			level;
 	int				hash_reader;
 	bool			inner_ateof;
 }TuplestoreConnectByState;
@@ -89,6 +91,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 		state->inner_ateof = true;
 		state->scan_ts = tuplestore_begin_heap(false, false, work_mem/2);
 		state->save_ts = tuplestore_begin_heap(false, false, work_mem/2);
+		state->level = 1L;
 	}
 	cbstate->processing_root = true;
 
@@ -138,6 +141,7 @@ re_get_tuplestore_connect_by_:
 
 			if (TupIsNull(outer_slot))	/* no more data, end plan */
 				return ExecClearTuple(pstate->ps_ProjInfo->pi_state.resultslot);
+			++(state->level);
 		}
 
 		if (cbstate->hs)
@@ -275,4 +279,13 @@ static TupleTableSlot* fullConnectByTuplestoreStartWit(ConnectByState *ps, Tuple
 	}
 
 	return NULL;
+}
+
+void ExecEvalLevelExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
+{
+	ConnectByState *cbstate = castNode(ConnectByState, state->parent);
+	TuplestoreConnectByState *tstate = cbstate->private_state;
+
+	*op->resvalue = Int64GetDatum(tstate->level);
+	*op->resnull = false;
 }

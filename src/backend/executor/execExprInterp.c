@@ -395,6 +395,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 		&&CASE_EEOP_AGG_ORDERED_TRANS_TUPLE,
 #ifdef ADB_GRAM_ORA
 		&&CASE_EEOP_ROW_NUMBER,
+		&&CASE_EEOP_LEVEL_EXPR,
 #endif
 		&&CASE_EEOP_LAST
 	};
@@ -1760,6 +1761,13 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 		{
 			*op->resvalue = Int64GetDatum(state->parent->rownum);
 			*op->resnull = false;
+
+			EEO_NEXT();
+		}
+
+		EEO_CASE(EEOP_LEVEL_EXPR)
+		{
+			ExecEvalLevelExpr(state, op, econtext);
 
 			EEO_NEXT();
 		}

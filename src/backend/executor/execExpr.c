@@ -2130,6 +2130,17 @@ ExecInitExprRec(Expr *node, ExprState *state,
 			/* ignore PriorExpr self */
 			ExecInitExprRec((Expr*)(((PriorExpr*)node)->expr), state, resv, resnull);
 			break;
+		case T_LevelExpr:
+			if (state->parent == NULL ||
+				!IsA(state->parent, ConnectByState))
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("LEVEL expression only can using in connect by")));
+			}
+			scratch.opcode = EEOP_LEVEL_EXPR;
+			ExprEvalPushStep(state, &scratch);
+			break;
 #endif /* ADB_GRAM_ORA */
 
 		default:

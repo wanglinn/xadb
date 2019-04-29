@@ -256,10 +256,7 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 			}
 			break;
 		case T_LevelExpr:
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("syntax error"),
-					 parser_errposition(pstate, ((LevelExpr*)expr)->location)));
+			result = (Node*)expr;
 			break;
 #endif /* ADB_GRAM_ORA */
 

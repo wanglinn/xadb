@@ -3089,7 +3089,9 @@ columnref:	ColId
 				}
 			| LEVEL
 				{
-					$$ = makeColumnRef(pstrdup($1), NIL, @1, yyscanner);
+					LevelExpr *n = makeNode(LevelExpr);
+					n->location = @1;
+					$$ = (Node*)n;
 				}
 			| ColId indirection
 				{

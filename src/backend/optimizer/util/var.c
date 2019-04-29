@@ -672,6 +672,17 @@ pull_var_clause_walker(Node *node, pull_var_clause_context *context)
 		else
 			elog(ERROR, "PlaceHolderVar found where not expected");
 	}
+#ifdef ADB_GRAM_ORA
+	else if (context->flags & PVC_INCLUDE_CONNECT_BY_EXPRS)
+	{
+		if (IsA(node, LevelExpr))
+		{
+			context->varlist = lappend(context->varlist, node);
+			return false;
+		}
+	}
+#endif /* ADB_GRAM_ORA */
+
 	return expression_tree_walker(node, pull_var_clause_walker,
 								  (void *) context);
 }
@@ -915,3 +926,20 @@ Var *find_var(Node *node, int attno, Index relid)
 }
 
 #endif /* ADB */
+
+#ifdef ADB_GRAM_ORA
+
+static bool have_level_expr_walker(Node *node, void *context)
+{
+	if (node == NULL)
+		return false;
+	if (IsA(node, LevelExpr))
+		return true;
+	return expression_tree_walker(node, have_level_expr_walker, NULL);
+}
+
+bool have_level_expr(Node *node)
+{
+	return have_level_expr_walker(node, NULL);
+}
+#endif /* ADB_GRAM_ORA */

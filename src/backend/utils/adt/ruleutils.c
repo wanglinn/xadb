@@ -9570,6 +9570,10 @@ get_rule_expr(Node *node, deparse_context *context,
 			if (!IsA(((PriorExpr*)node)->expr, Var))
 				appendStringInfo(buf, ")");
 			break;
+
+		case T_LevelExpr:
+			appendStringInfoString(buf, "level");
+			break;
 #endif /* ADB_GRAM_ORA */
 
 		case T_TableFunc:

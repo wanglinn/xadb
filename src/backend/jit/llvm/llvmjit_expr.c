@@ -2511,6 +2511,12 @@ llvm_compile_expr(ExprState *state)
 								v_state, v_econtext, op);
 				LLVMBuildBr(b, opblocks[i + 1]);
 				break;
+
+			case EEOP_LEVEL_EXPR:
+				build_EvalXFunc(b, mod, "ExecEvalLevelExpr",
+								v_state, v_econtext, op);
+				LLVMBuildBr(b, opblocks[i + 1]);
+				break;
 #endif /* ADB_GRAM_ORA */
 
 			case EEOP_LAST:

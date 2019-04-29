@@ -553,6 +553,13 @@ add_eq_member(EquivalenceClass *ec, Expr *expr, Relids relids,
 	em->em_is_child = is_child;
 	em->em_datatype = datatype;
 
+#ifdef ADB_GRAM_ORA
+	if (bms_is_empty(relids) &&
+		have_level_expr((Node*)expr))
+	{
+		/* nothing todo, just don't set em_is_const and ec_has_const to true */
+	}else
+#endif /* ADB_GRAM_ORA */
 	if (bms_is_empty(relids))
 	{
 		/*

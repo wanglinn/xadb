@@ -233,6 +233,7 @@ typedef enum ExprEvalOp
 
 #ifdef ADB_GRAM_ORA
 	EEOP_ROW_NUMBER,
+	EEOP_LEVEL_EXPR,
 #endif
 
 	/* non-existent operation, used e.g. to check array lengths */
@@ -752,5 +753,10 @@ extern void ExecEvalAggOrderedTransDatum(ExprState *state, ExprEvalStep *op,
 							 ExprContext *econtext);
 extern void ExecEvalAggOrderedTransTuple(ExprState *state, ExprEvalStep *op,
 							 ExprContext *econtext);
+
+#ifdef ADB_GRAM_ORA
+/* in nodeConnectBy.c */
+extern void ExecEvalLevelExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext);
+#endif /* ADB_GRAM_ORA */
 
 #endif							/* EXEC_EXPR_H */

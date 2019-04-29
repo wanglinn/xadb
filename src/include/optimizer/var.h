@@ -25,7 +25,9 @@
 											 * output list */
 #define PVC_RECURSE_PLACEHOLDERS	0x0020	/* recurse into PlaceHolderVar
 											 * arguments */
-
+#ifdef ADB_GRAM_ORA
+#define PVC_INCLUDE_CONNECT_BY_EXPRS	0x0040
+#endif /* ADB_GRAM_ORA */
 
 extern Relids pull_varnos(Node *node);
 extern Relids pull_varnos_of_level(Node *node, int levelsup);
@@ -41,6 +43,7 @@ extern Var *find_var(Node *node, int attno, Index relid);
 #endif /* ADB */
 #ifdef ADB_GRAM_ORA
 extern Relids pull_varnos_no_prior(Node *node);
+extern bool have_level_expr(Node *node);
 #endif /* ADB_GRAM_ORA */
 
 #endif							/* VAR_H */

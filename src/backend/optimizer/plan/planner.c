@@ -6364,6 +6364,9 @@ make_group_input_target(PlannerInfo *root, PathTarget *final_target)
 	non_group_vars = pull_var_clause((Node *) non_group_cols,
 									 PVC_RECURSE_AGGREGATES |
 									 PVC_RECURSE_WINDOWFUNCS |
+#ifdef ADB_GRAM_ORA
+									 PVC_INCLUDE_CONNECT_BY_EXPRS |
+#endif /* ADB_GRAM_ORA */
 									 PVC_INCLUDE_PLACEHOLDERS);
 	add_new_columns_to_pathtarget(input_target, non_group_vars);
 
@@ -6784,6 +6787,9 @@ make_window_input_target(PlannerInfo *root,
 	flattenable_vars = pull_var_clause((Node *) flattenable_cols,
 									   PVC_INCLUDE_AGGREGATES |
 									   PVC_RECURSE_WINDOWFUNCS |
+#ifdef ADB_GRAM_ORA
+									   PVC_INCLUDE_CONNECT_BY_EXPRS |
+#endif /* ADB_GRAM_ORA */
 									   PVC_INCLUDE_PLACEHOLDERS);
 	add_new_columns_to_pathtarget(input_target, flattenable_vars);
 
