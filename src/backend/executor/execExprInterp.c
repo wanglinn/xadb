@@ -396,6 +396,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 #ifdef ADB_GRAM_ORA
 		&&CASE_EEOP_ROW_NUMBER,
 		&&CASE_EEOP_LEVEL_EXPR,
+		&&CASE_EEOP_SYS_CONNECT_BY_PATH,
 #endif
 		&&CASE_EEOP_LAST
 	};
@@ -1768,6 +1769,13 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 		EEO_CASE(EEOP_LEVEL_EXPR)
 		{
 			ExecEvalLevelExpr(state, op, econtext);
+
+			EEO_NEXT();
+		}
+
+		EEO_CASE(EEOP_SYS_CONNECT_BY_PATH)
+		{
+			ExecEvalSysConnectByPathExpr(state, op, econtext);
 
 			EEO_NEXT();
 		}

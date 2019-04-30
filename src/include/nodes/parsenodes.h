@@ -1515,6 +1515,18 @@ typedef struct LevelExpr
 	int			location;		/* token location, or -1 if unknown */
 } LevelExpr;
 
+/*
+ * oracle sys_connect_by_path(exrp1, expr2 [,...]) expression
+ */
+typedef struct SysConnectByPathExpr
+{
+	NodeTag		type;
+	AttrNumber	priorAttno;		/* last value from OUTER_VAR */
+	List	   *args;
+	Oid			collation;		/* OID of collation, or InvalidOid if none */
+	int			location;		/* token location, or -1 if unknown */
+} SysConnectByPathExpr;
+
 #endif /* ADB_GRAM_ORA */
 
 /* Convenience macro to get the output tlist of a CTE's query */

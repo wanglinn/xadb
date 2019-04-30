@@ -234,6 +234,7 @@ typedef enum ExprEvalOp
 #ifdef ADB_GRAM_ORA
 	EEOP_ROW_NUMBER,
 	EEOP_LEVEL_EXPR,
+	EEOP_SYS_CONNECT_BY_PATH,
 #endif
 
 	/* non-existent operation, used e.g. to check array lengths */
@@ -641,6 +642,17 @@ typedef struct ExprEvalStep
 			int			transno;
 			int			setoff;
 		}			agg_trans;
+
+#ifdef ADB_GRAM_ORA
+		/* for EEOP_SYS_CONNECT_BY_PATH */
+		struct
+		{
+			Datum	   *arg;
+			bool	   *argnull;
+			short		narg;
+			AttrNumber	attnum;
+		}			scbp;
+#endif /* ADB_GRAM_ORA */
 	}			d;
 } ExprEvalStep;
 
@@ -757,6 +769,7 @@ extern void ExecEvalAggOrderedTransTuple(ExprState *state, ExprEvalStep *op,
 #ifdef ADB_GRAM_ORA
 /* in nodeConnectBy.c */
 extern void ExecEvalLevelExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext);
+extern void ExecEvalSysConnectByPathExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext);
 #endif /* ADB_GRAM_ORA */
 
 #endif							/* EXEC_EXPR_H */

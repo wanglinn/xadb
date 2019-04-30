@@ -282,6 +282,9 @@ exprType(const Node *expr)
 		case T_LevelExpr:
 			type = INT8OID;
 			break;
+		case T_SysConnectByPathExpr:
+			type = VARCHAR2OID;
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
@@ -946,6 +949,9 @@ exprCollation(const Node *expr)
 		case T_LevelExpr:
 			coll = InvalidOid;
 			break;
+		case T_SysConnectByPathExpr:
+			coll = ((SysConnectByPathExpr*)expr)->collation;
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
@@ -1155,6 +1161,9 @@ exprSetCollation(Node *expr, Oid collation)
 			break;
 		case T_ColumnRefJoin:
 			exprSetCollation((Node*)(((ColumnRefJoin*)expr)->var), collation);
+			break;
+		case T_SysConnectByPathExpr:
+			((SysConnectByPathExpr*)expr)->collation = collation;
 			break;
 #endif /* ADB_GRAM_ORA */
 		default:
@@ -1609,6 +1618,9 @@ exprLocation(const Node *expr)
 			break;
 		case T_PriorExpr:
 			loc = ((const PriorExpr*)expr)->location;
+			break;
+		case T_SysConnectByPathExpr:
+			loc = ((const SysConnectByPathExpr*)expr)->location;
 			break;
 #endif /* ADB_GRAM_ORA */
 		default:
@@ -2276,6 +2288,8 @@ expression_tree_walker(Node *node,
 			return walker(((ColumnRefJoin*)node)->column, context);
 		case T_PriorExpr:
 			return walker(((PriorExpr*)node)->expr, context);
+		case T_SysConnectByPathExpr:
+			return walker(((SysConnectByPathExpr*)node)->args, context);
 #endif /* ADB_GRAM_ORA */
 		case T_RangeTblFunction:
 			return walker(((RangeTblFunction *) node)->funcexpr, context);
@@ -3173,6 +3187,17 @@ expression_tree_mutator(Node *node,
 				return (Node*)newnode;
 			}
 			break;
+		case T_SysConnectByPathExpr:
+			{
+				SysConnectByPathExpr *old = (SysConnectByPathExpr*)node;
+				SysConnectByPathExpr *newnode;
+
+				FLATCOPY(newnode, old, SysConnectByPathExpr);
+				MUTATE(newnode->args, old->args, List *);
+
+				return (Node*)newnode;
+			}
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d",
@@ -3622,6 +3647,10 @@ raw_expression_tree_walker(Node *node,
 			break;
 		case T_PriorExpr:
 			if(walker(((PriorExpr*)node)->expr, context))
+				return true;
+			break;
+		case T_SysConnectByPathExpr:
+			if (walker(((SysConnectByPathExpr*)node)->args, context))
 				return true;
 			break;
 #endif /* ADB_GRAM_ORA */

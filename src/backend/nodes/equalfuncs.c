@@ -784,6 +784,26 @@ static bool _equalLevelExpr(const LevelExpr *a, const LevelExpr *b)
 	return true;
 }
 
+static bool
+_equalSysConnectByPathExpr(const SysConnectByPathExpr *a, const SysConnectByPathExpr *b)
+{
+	/* ignore priorAttno, it is for run time */
+	COMPARE_NODE_FIELD(args);
+	COMPARE_SCALAR_FIELD(collation);
+
+	return true;
+}
+
+static bool
+_equalOracleConnectBy(const OracleConnectBy *a, const OracleConnectBy *b)
+{
+	COMPARE_SCALAR_FIELD(no_cycle);
+	COMPARE_NODE_FIELD(start_with);
+	COMPARE_NODE_FIELD(connect_by);
+
+	return true;
+}
+
 #endif /* ADB_GRAM_ORA */
 
 static bool
@@ -1069,18 +1089,6 @@ _equalUpdateStmt(const UpdateStmt *a, const UpdateStmt *b)
 
 	return true;
 }
-
-#ifdef ADB_GRAM_ORA
-static bool
-_equalOracleConnectBy(const OracleConnectBy *a, const OracleConnectBy *b)
-{
-	COMPARE_SCALAR_FIELD(no_cycle);
-	COMPARE_NODE_FIELD(start_with);
-	COMPARE_NODE_FIELD(connect_by);
-
-	return true;
-}
-#endif /* ADB_GRAM_ORA */
 
 static bool
 _equalSelectStmt(const SelectStmt *a, const SelectStmt *b)
@@ -3393,6 +3401,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_LevelExpr:
 			retval = _equalLevelExpr(a, b);
+			break;
+		case T_SysConnectByPathExpr:
+			retval = _equalSysConnectByPathExpr(a, b);
 			break;
 		case T_OracleConnectBy:
 			retval = _equalOracleConnectBy(a, b);

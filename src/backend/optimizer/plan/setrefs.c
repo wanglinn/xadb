@@ -1915,8 +1915,55 @@ set_join_references(PlannerInfo *root, Join *join, int rtoffset)
 }
 
 #ifdef ADB_GRAM_ORA
+static bool fix_connect_by_exprs_walker(Node *node, List **targetlist)
+{
+	if (node == NULL)
+		return false;
+	if (IsA(node, SysConnectByPathExpr))
+	{
+		ListCell *lc;
+		TargetEntry *te;
+		SysConnectByPathExpr *scbp = (SysConnectByPathExpr*)node;
+		AttrNumber attno = 0;
+
+		/* fix arguments first, maybe have other connect by exprs too */
+		foreach(lc, scbp->args)
+			fix_connect_by_exprs_walker(lfirst(lc), targetlist);
+
+		/* is last sys_connect_by_expr value in target list? */
+		foreach (lc, *targetlist)
+		{
+			++attno;
+			te = lfirst_node(TargetEntry, lc);
+			if (equal(node, te->expr))
+			{
+				scbp->priorAttno = attno;
+				break;
+			}
+		}
+
+		if (lc == NULL)
+		{
+			Assert(attno == list_length(*targetlist));
+			scbp->priorAttno = attno+1;
+			/* not found, make a new junk */
+			te = makeTargetEntry((Expr*)copyObject(node),
+								 scbp->priorAttno,
+								 NULL,
+								 true);
+			*targetlist = lappend(*targetlist, te);
+		}
+		Assert(scbp->priorAttno != InvalidAttrNumber);
+
+		return false;
+	}
+
+	return expression_tree_walker(node, fix_connect_by_exprs_walker, targetlist);
+}
+
 static void set_connect_by_references(PlannerInfo *root, ConnectByPlan *plan, int rtoffset)
 {
+	List		   *save_targetlist;
 	Plan		   *sub_plan = outerPlan(plan);
 	indexed_tlist  *sub_itlist = build_tlist_index(sub_plan->targetlist);
 
@@ -1931,6 +1978,19 @@ static void set_connect_by_references(PlannerInfo *root, ConnectByPlan *plan, in
 										  sub_itlist,
 										  (Index)0,
 										  rtoffset);
+
+	/* save targetlist include all target from subplan */
+	save_targetlist = copyObject(sub_plan->targetlist);
+	/*
+	 * and save targetlist include outher exprs
+	 * eg. last sys_connect_by_path() value
+	 */
+	fix_connect_by_exprs_walker((Node*)plan->plan.targetlist, &save_targetlist);
+	plan->save_targetlist = (List*)fix_upper_expr(root,
+												  (Node*)save_targetlist,
+												  sub_itlist,
+												  INNER_VAR,
+												  rtoffset);
 
 	plan->plan.targetlist = (List*)fix_upper_expr(root,
 												  (Node*)plan->plan.targetlist,

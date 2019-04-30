@@ -2517,6 +2517,12 @@ llvm_compile_expr(ExprState *state)
 								v_state, v_econtext, op);
 				LLVMBuildBr(b, opblocks[i + 1]);
 				break;
+
+			case EEOP_SYS_CONNECT_BY_PATH:
+				build_EvalXFunc(b, mod, "ExecEvalSysConnectByPathExpr",
+								v_state, v_econtext, op);
+				LLVMBuildBr(b, opblocks[i + 1]);
+				break;
 #endif /* ADB_GRAM_ORA */
 
 			case EEOP_LAST:

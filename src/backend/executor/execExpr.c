@@ -78,6 +78,10 @@ static void ExecBuildAggTransCall(ExprState *state, AggState *aggstate,
 					  ExprEvalStep *scratch,
 					  FunctionCallInfo fcinfo, AggStatePerTrans pertrans,
 					  int transno, int setno, int setoff, bool ishash);
+#ifdef ADB_GRAM_ORA
+static void ExecInitSysConnectByPathExpr(ExprEvalStep *scratch, ExprState *state,
+										 SysConnectByPathExpr *expr);
+#endif /* ADB_GRAM_ORA */
 
 
 /*
@@ -2141,6 +2145,17 @@ ExecInitExprRec(Expr *node, ExprState *state,
 			scratch.opcode = EEOP_LEVEL_EXPR;
 			ExprEvalPushStep(state, &scratch);
 			break;
+		case T_SysConnectByPathExpr:
+			if (state->parent == NULL ||
+				!IsA(state->parent, ConnectByState))
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("sys_connect_by_path() function only can using in connect by")));
+			}
+			ExecInitSysConnectByPathExpr(&scratch, state, (SysConnectByPathExpr*)node);
+			ExprEvalPushStep(state, &scratch);
+			break;
 #endif /* ADB_GRAM_ORA */
 
 		default:
@@ -3375,3 +3390,55 @@ ExecBuildGroupingEqual(TupleDesc ldesc, TupleDesc rdesc,
 
 	return state;
 }
+
+#ifdef ADB_GRAM_ORA
+static void ExecInitSysConnectByPathExpr(ExprEvalStep *scratch, ExprState *state,
+										 SysConnectByPathExpr *expr)
+{
+	ListCell   *lc;
+	Oid			func;
+	int			i;
+	int			nargs = list_length(expr->args);
+	bool		isvarian;
+	scratch->d.scbp.arg = palloc((sizeof(Datum) + sizeof(bool))*nargs);
+	scratch->d.scbp.argnull = (bool*)(&scratch->d.scbp.arg[nargs]);
+	scratch->d.scbp.narg = nargs;
+	scratch->d.scbp.attnum = expr->priorAttno - 1;
+
+	i = 0;
+	foreach(lc, expr->args)
+	{
+		Expr *arg = (Expr*)lfirst(lc);
+		getTypeOutputInfo(exprType((Node*)arg), &func, &isvarian);
+		if (IsA(arg, Const))
+		{
+			Const *c = (Const*)arg;
+			scratch->d.scbp.argnull[i] = c->constisnull;
+			if (c->constisnull)
+			{
+				--(scratch->d.scbp.narg);
+			}else
+			{
+				scratch->d.scbp.arg[i] = CStringGetDatum(OidOutputFunctionCall(func, c->constvalue));
+				scratch->d.scbp.argnull[i] = false;
+			}
+		}else
+		{
+			ExprEvalStep step;
+			step.opcode = 0;
+			step.resvalue = &scratch->d.scbp.arg[i];
+			step.resnull = &scratch->d.scbp.argnull[i];
+			ExecInitFunc(&step,
+						 (Expr*)expr,
+						 list_make1(arg),
+						 func,
+						 InvalidOid,
+						 state);
+			ExprEvalPushStep(state, &step);
+		}
+		++i;
+	}
+
+	scratch->opcode = EEOP_SYS_CONNECT_BY_PATH;
+}
+#endif /* ADB_GRAM_ORA */

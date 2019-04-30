@@ -230,6 +230,7 @@ typedef enum NodeTag
 #ifdef ADB_GRAM_ORA
 	T_RownumExpr,
 	T_LevelExpr,
+	T_SysConnectByPathExpr,
 	T_OracleConnectBy,
 #endif
 	T_InferenceElem,

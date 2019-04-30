@@ -1052,6 +1052,7 @@ typedef struct ParamTuplestoreScan
 typedef struct ConnectByPlan
 {
 	Plan		plan;				/* all connect by clauses in plan::qual */
+	List	   *save_targetlist;	/* for save last */
 	Bitmapset  *hash_quals;			/* can using hash connect by join clauses */
 	List	   *start_with;			/* start with clauses */
 	int			num_buckets;		/* number of buckets expected when hash_quals not null */

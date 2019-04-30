@@ -7,6 +7,7 @@
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
+#include "utils/builtins.h"
 #include "utils/hashstore.h"
 #include "utils/lsyscache.h"
 #include "utils/tuplestore.h"
@@ -24,12 +25,13 @@ typedef struct TuplestoreConnectByState
 static TupleTableSlot *ExecTuplestoreConnectBy(PlanState *pstate);
 static ExprState *makeHashExprState(Expr *expr, Oid hash_oid, PlanState *ps);
 static uint32 getHashValue(List *hashlist, ExprContext *econtext);
-static TupleTableSlot* fullConnectByTuplestoreStartWit(ConnectByState *ps, Tuplestorestate *ts);
+static TupleTableSlot* ExecConnectByTuplestoreStartWith(ConnectByState *ps, Tuplestorestate *ts);
 
 ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflags)
 {
 	ConnectByState *cbstate = makeNode(ConnectByState);
 	TupleDesc input_desc;
+	TupleDesc save_desc;
 
 	cbstate->ps.plan = (Plan*)node;
 	cbstate->ps.state = estate;
@@ -43,7 +45,13 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 	ExecInitResultTupleSlotTL(estate, &cbstate->ps);
 	ExecAssignProjectionInfo(&cbstate->ps, input_desc);
 
-	cbstate->outer_slot = ExecInitExtraTupleSlot(estate, input_desc);
+	save_desc = ExecTypeFromTL(node->save_targetlist, false);
+	cbstate->outer_slot = ExecInitExtraTupleSlot(estate, save_desc);
+	cbstate->pj_save_targetlist = ExecBuildProjectionInfo(node->save_targetlist,
+														  cbstate->ps.ps_ExprContext,
+														  ExecInitExtraTupleSlot(estate, save_desc),
+														  &cbstate->ps,
+														  input_desc);
 	cbstate->inner_slot = ExecInitExtraTupleSlot(estate, input_desc);
 
 	cbstate->start_with = ExecInitQual(node->start_with, &cbstate->ps);
@@ -101,24 +109,24 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 static TupleTableSlot *ExecTuplestoreConnectBy(PlanState *pstate)
 {
 	ConnectByState *cbstate = castNode(ConnectByState, pstate);
-	TupleTableSlot *outer_slot = cbstate->outer_slot;
-	TupleTableSlot *inner_slot = cbstate->inner_slot;
 	TuplestoreConnectByState *state = cbstate->private_state;
-	ExprContext *econtext = cbstate->ps.ps_ExprContext;
+	TupleTableSlot *outer_slot;
+	TupleTableSlot *inner_slot;
+	ExprContext *econtext;
 
 	if (cbstate->processing_root)
 	{
-		outer_slot = fullConnectByTuplestoreStartWit(cbstate, state->save_ts);
+		outer_slot = ExecConnectByTuplestoreStartWith(cbstate, state->save_ts);
 		if (!TupIsNull(outer_slot))
-		{
-			econtext->ecxt_outertuple = NULL;
-			econtext->ecxt_innertuple = outer_slot;
-			return ExecProject(pstate->ps_ProjInfo);
-		}
-		outer_slot = cbstate->outer_slot;
+			return outer_slot;
+
 		state->inner_ateof = true;
 		cbstate->processing_root = false;
 	}
+
+	outer_slot = cbstate->outer_slot;
+	inner_slot = cbstate->inner_slot;
+	econtext = cbstate->ps.ps_ExprContext;
 
 re_get_tuplestore_connect_by_:
 	if (state->inner_ateof)
@@ -170,7 +178,8 @@ re_get_tuplestore_connect_by_:
 		econtext->ecxt_outertuple = outer_slot;
 		if (ExecQualAndReset(cbstate->joinclause, econtext))
 		{
-			tuplestore_puttupleslot(state->save_ts, inner_slot);
+			tuplestore_puttupleslot(state->save_ts,
+									ExecProject(cbstate->pj_save_targetlist));
 			return ExecProject(pstate->ps_ProjInfo);
 		}
 	}
@@ -238,13 +247,14 @@ static uint32 getHashValue(List *hashlist, ExprContext *econtext)
 	return hash_value;
 }
 
-static TupleTableSlot* fullConnectByTuplestoreStartWit(ConnectByState *ps, Tuplestorestate *start_ts)
+static TupleTableSlot* ExecConnectByTuplestoreStartWith(ConnectByState *ps, Tuplestorestate *start_ts)
 {
 	Hashstorestate *hs = ps->hs;
 	Tuplestorestate *outer_ts = ps->ts;
 	PlanState	   *outer_ps = outerPlanState(ps);
 	ExprContext	   *econtext = ps->ps.ps_ExprContext;
 	TupleTableSlot *slot;
+	TupleTableSlot *save_slot;
 	uint32			hashvalue;
 
 #ifdef USE_ASSERT_CHECKING
@@ -254,6 +264,7 @@ static TupleTableSlot* fullConnectByTuplestoreStartWit(ConnectByState *ps, Tuple
 #endif
 	for(;;)
 	{
+		ResetExprContext(econtext);
 		slot = ExecProcNode(outer_ps);
 		if (TupIsNull(slot))
 			break;
@@ -273,8 +284,11 @@ static TupleTableSlot* fullConnectByTuplestoreStartWit(ConnectByState *ps, Tuple
 		if (ps->start_with == NULL ||
 			ExecQual(ps->start_with, econtext))
 		{
-			tuplestore_puttupleslot(start_ts, slot);
-			return slot;
+			econtext->ecxt_innertuple = slot;
+			econtext->ecxt_outertuple = NULL;
+			save_slot = ExecProject(ps->pj_save_targetlist);
+			tuplestore_puttupleslot(start_ts, save_slot);
+			return ExecProject(ps->ps.ps_ProjInfo);
 		}
 	}
 
@@ -288,4 +302,47 @@ void ExecEvalLevelExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext
 
 	*op->resvalue = Int64GetDatum(tstate->level);
 	*op->resnull = false;
+}
+
+void ExecEvalSysConnectByPathExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
+{
+	ConnectByState *cbstate = castNode(ConnectByState, state->parent);
+	StringInfoData buf;
+	short narg;
+	bool isnull = true;
+
+	initStringInfo(&buf);
+	if (cbstate->processing_root == false)
+	{
+		TupleTableSlot *slot = econtext->ecxt_outertuple;
+		char *prior_str;
+		AttrNumber attnum = op->d.scbp.attnum;
+
+		slot_getsomeattrs(slot, attnum+1);
+		if (slot->tts_isnull[attnum] == false)
+		{
+			prior_str = TextDatumGetCString(slot->tts_values[attnum]);
+			appendStringInfoString(&buf, prior_str);
+			pfree(prior_str);
+			isnull = false;
+		}
+	}
+
+	narg = op->d.scbp.narg;
+	while (narg > 0)
+	{
+		--narg;
+		if (op->d.scbp.argnull[narg] == false)
+		{
+			appendStringInfoString(&buf, DatumGetCString(op->d.scbp.arg[narg]));
+			isnull = false;
+		}
+	}
+
+	*op->resnull = isnull;
+	if (isnull == false)
+	{
+		text *result = cstring_to_text_with_len(buf.data, buf.len);
+		*op->resvalue = PointerGetDatum(result);
+	}
 }

@@ -2372,6 +2372,7 @@ typedef struct ConnectByState
 	struct Hashstorestate *hs;	/* not null if using hash */
 	TupleTableSlot	   *outer_slot;
 	TupleTableSlot	   *inner_slot;
+	ProjectionInfo	   *pj_save_targetlist;
 	void			   *private_state;
 	bool				processing_root;
 }ConnectByState;

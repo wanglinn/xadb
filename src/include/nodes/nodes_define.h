@@ -633,6 +633,7 @@ END_NODE(Limit)
 #ifndef NO_NODE_ConnectByPlan
 BEGIN_NODE(ConnectByPlan)
 	NODE_BASE2(Plan,plan)
+	NODE_NODE(List,save_targetlist)
 	NODE_BITMAPSET(Bitmapset,hash_quals)
 	NODE_NODE(List,start_with)
 	NODE_SCALAR(int,num_buckets)
@@ -1418,6 +1419,15 @@ BEGIN_NODE(LevelExpr)
 	NODE_SCALAR(int,location)
 END_NODE(LevelExpr)
 #endif /* NO_NODE_LevelExpr */
+
+#ifndef NO_NODE_SysConnectByPathExpr
+BEGIN_NODE(SysConnectByPathExpr)
+	NODE_SCALAR(AttrNumber,priorAttno)
+	NODE_NODE(List,args)
+	NODE_SCALAR(Oid,collation)
+	NODE_SCALAR(int,location)
+END_NODE(SysConnectByPathExpr)
+#endif /* NO_NODE_SysConnectByPathExpr */
 
 #ifndef NO_NODE_OracleConnectBy
 BEGIN_NODE(OracleConnectBy)

@@ -212,6 +212,7 @@ BEGIN_ENUM(NodeTag)
 #ifdef ADB_GRAM_ORA
 	ENUM_VALUE(T_RownumExpr)
 	ENUM_VALUE(T_LevelExpr)
+	ENUM_VALUE(T_SysConnectByPathExpr)
 	ENUM_VALUE(T_OracleConnectBy)
 #endif
 	ENUM_VALUE(T_InferenceElem)

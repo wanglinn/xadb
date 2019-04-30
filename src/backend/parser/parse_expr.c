@@ -1775,28 +1775,26 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 
 	/* is sys_connect_by_path ? */
 	if (pstate->p_grammar == PARSE_GRAM_ORACLE &&
-		pstate->p_ctenamespace != NIL &&
-		is_sys_connect_by_path_expr((Node*)fn))
+		list_length(fn->funcname) == 1 &&
+		list_length(fn->args) >= 1 &&	/* extension, support more than 1 arguments */
+		fn->agg_order == NIL &&
+		fn->agg_star == false &&
+		fn->agg_distinct == false &&
+		fn->func_variadic == false &&
+		fn->over == NULL &&
+		IsA(linitial(fn->funcname), String) &&
+		strcmp(strVal(linitial(fn->funcname)), "sys_connect_by_path") == 0)
 	{
-		CommonTableExpr *cte;
-		ListCell *lc2;
-		int i;
-		foreach (args, pstate->p_ctenamespace)
+		ListCell *lc;
+		SysConnectByPathExpr *scbp = makeNode(SysConnectByPathExpr);
+		scbp->location = fn->location;
+		foreach (lc, fn->args)
 		{
-			cte = lfirst_node(CommonTableExpr, args);
-			i = 0;
-			foreach (lc2, cte->scbp_list)
-			{
-				if (equal((Node*)fn, lfirst(lc2)))
-				{
-					ColumnRef *cref = makeNode(ColumnRef);
-					cref->fields = list_make1(list_nth(cte->scbp_alias, i));
-					cref->location = fn->location;
-					return transformColumnRef(pstate, cref);
-				}
-				++i;
-			}
+			scbp->args = lappend(scbp->args,
+								 transformExprRecurse(pstate, lfirst(lc)));
 		}
+
+		return (Node*)scbp;
 	}
 
 	PG_TRY();

@@ -9557,6 +9557,11 @@ get_rule_expr(Node *node, deparse_context *context,
 				}
 			}
 			break;
+
+		case T_TableFunc:
+			get_tablefunc((TableFunc *) node, context, showimplicit);
+			break;
+
 #ifdef ADB_GRAM_ORA
 		case T_RownumExpr:
 			appendStringInfoString(buf, ".row");
@@ -9574,11 +9579,19 @@ get_rule_expr(Node *node, deparse_context *context,
 		case T_LevelExpr:
 			appendStringInfoString(buf, "level");
 			break;
-#endif /* ADB_GRAM_ORA */
 
-		case T_TableFunc:
-			get_tablefunc((TableFunc *) node, context, showimplicit);
+		case T_SysConnectByPathExpr:
+			{
+				ListCell *lc;
+				appendStringInfoString(buf, "sys_connect_by_path(");
+				foreach (lc, ((SysConnectByPathExpr*)node)->args)
+				{
+					get_rule_expr(lfirst(lc), context, showimplicit);
+					appendStringInfoChar(buf, lnext(lc) ? ',':')');
+				}
+			}
 			break;
+#endif /* ADB_GRAM_ORA */
 
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
