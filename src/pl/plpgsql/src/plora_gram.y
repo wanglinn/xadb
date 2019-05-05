@@ -103,7 +103,7 @@ static  PLpgSQL_stmt	*make_case(int location, PLpgSQL_expr *t_expr,
 								   List *case_when_list, List *else_stmts);
 static	char			*NameOfDatum(PLwdatum *wdatum);
 static	void			 check_assignable(PLpgSQL_datum *datum, int location);
-static	void			 read_into_target(PLpgSQL_variable **target, bool bulk_collect);
+static	void			 read_into_target(PLpgSQL_variable **target, bool bulk_collect, bool *strict);
 static	PLpgSQL_row		*read_into_scalar_list(char *initial_name,
 											   PLpgSQL_datum *initial_datum,
 											   int initial_location);
@@ -1958,7 +1958,7 @@ stmt_fetch		: POK_FETCH opt_fetch_direction cursor_variable POK_INTO
 						PLpgSQL_variable *target;
 
 						/* We have already parsed everything through the INTO keyword */
-						read_into_target(&target, false);
+						read_into_target(&target, false, NULL);
 
 						if (yylex() != ';')
 							yyerror("syntax error");
@@ -2083,7 +2083,7 @@ stmt_dynexecute : POK_EXECUTE POK_IMMEDIATE
 								if (new->into)			/* multiple INTO */
 									yyerror("syntax error");
 								new->into = true;
-								read_into_target(&new->target, false);
+								read_into_target(&new->target, false, NULL);
 								endtoken = yylex();
 							}
 							else if (endtoken == POK_USING)
@@ -2805,6 +2805,7 @@ make_execsql_stmt(int firsttoken, int location)
 	int					into_start_loc = -1;
 	int					into_end_loc = -1;
 	bool				bulk_collect = false;
+	bool				have_strict = false;
 
 	initStringInfo(&ds);
 
@@ -2875,7 +2876,7 @@ make_execsql_stmt(int firsttoken, int location)
 				into_start_loc = yylloc;
 
 			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
-			read_into_target(&target, bulk_collect);
+			read_into_target(&target, bulk_collect, &have_strict);
 			plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_EXPR;
 		}
 	}
@@ -2915,7 +2916,7 @@ make_execsql_stmt(int firsttoken, int location)
 	execsql->lineno  = plpgsql_location_to_lineno(location);
 	execsql->sqlstmt = expr;
 	execsql->into	 = have_into;
-	execsql->strict	 = true;
+	execsql->strict	 = have_strict;
 	execsql->target	 = target;
 	execsql->bulk_collect = bulk_collect;
 
@@ -3077,7 +3078,7 @@ check_assignable(PLpgSQL_datum *datum, int location)
  * INTO keyword.
  */
 static void
-read_into_target(PLpgSQL_variable **target, bool bulk_collect)
+read_into_target(PLpgSQL_variable **target, bool bulk_collect, bool *strict)
 {
 	int			tok;
 
@@ -3086,7 +3087,11 @@ read_into_target(PLpgSQL_variable **target, bool bulk_collect)
 
 	tok = yylex();
 	if (tok == POK_STRICT)
-		tok = yylex();	/* ignore STRICT keyword */
+	{
+		tok = yylex();
+		if (strict)
+			*strict = true;
+	}
 
 	/*
 	 * Currently, a row or record variable can be the single INTO target,

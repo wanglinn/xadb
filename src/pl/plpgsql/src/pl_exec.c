@@ -4274,7 +4274,7 @@ exec_stmt_execsql(PLpgSQL_execstate *estate,
 			exec_move_row(estate, target, NULL, tuptab->tupdesc);
 		}
 #ifdef ADB_GRAM_ORA
-		if (stmt->bulk_collect)
+		else if (stmt->bulk_collect)
 		{
 			PLpgSQL_datum *parent;
 			PLpgSQL_datum *fields;
