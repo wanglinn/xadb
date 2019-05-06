@@ -22,7 +22,7 @@ ADB documentation
   <refsynopsisdiv>
   <synopsis>
 ADD HBA GTM { ALL | nodename } ( "hba_value" )
-ADD HBA COORDINAOTR { ALL | nodename } ( "hba_value" )
+ADD HBA COORDINATOR { ALL | nodename } ( "hba_value" )
 ADD HBA DATANODE { ALL | nodename } ( "hba_value" )
 
 <phrase>where hba_value must be the following:</phrase>
