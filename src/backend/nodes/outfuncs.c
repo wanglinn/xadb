@@ -2882,6 +2882,8 @@ _outOracleConnectBy(StringInfo str, const OracleConnectBy *node)
 	WRITE_BOOL_FIELD(no_cycle);
 	WRITE_NODE_FIELD(start_with);
 	WRITE_NODE_FIELD(connect_by);
+	WRITE_NODE_FIELD(sortClause);
+	WRITE_NODE_FIELD(sort_tlist);
 }
 #endif /* ADB_GRAM_ORA */
 

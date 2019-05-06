@@ -1776,6 +1776,8 @@ typedef struct OracleConnectBy
 	bool		no_cycle;
 	Node	   *start_with;
 	Node	   *connect_by;
+	List	   *sortClause;
+	List	   *sort_tlist;		/* using only in planner */
 }OracleConnectBy;
 #endif /* ADB_GRAM_ORA */
 

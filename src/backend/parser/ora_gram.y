@@ -68,6 +68,20 @@
 #define pg_yyget_extra(yyscanner) (*((base_yy_extra_type **) (yyscanner)))
 
 union YYSTYPE;					/* need forward reference for tok_is_keyword */
+
+typedef struct OraclePartitionSpec
+{
+	PartitionSpec	   *partitionSpec;
+	List			   *children;		/* list of CreateStmt */
+}OraclePartitionSpec;
+
+typedef struct SelectSortClause
+{
+	List	   *sortClause;
+	int			sort_loc;		/* location for "order" keyword */
+	int			siblings_loc;	/* location for "siblings" if exists, or -1 */
+}SelectSortClause;
+
 static void ora_yyerror(YYLTYPE *yylloc, core_yyscan_t yyscanner, const char *msg);
 static int ora_yylex(union YYSTYPE *lvalp, YYLTYPE *yylloc, core_yyscan_t yyscanner);
 static Node *makeDeleteStmt(RangeVar *range, Alias *alias, WithClause *with, Node *where, List *returning);
@@ -78,12 +92,11 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 static void add_alias_if_need(List *parseTree);
 static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subselect, int location);
 #define MAKE_ANY_A_EXPR(name_, l_, r_, loc_) (Node*)makeA_Expr(AEXPR_OP_ANY, list_make1(makeString(pstrdup(name_))), l_, r_, loc_)
-
-typedef struct OraclePartitionSpec
-{
-	PartitionSpec	   *partitionSpec;
-	List			   *children;		/* list of CreateStmt */
-}OraclePartitionSpec;
+static void oracleInsertSelectOptions(SelectStmt *stmt,
+									  SelectSortClause *sortClause, List *lockingClause,
+									  Node *limitOffset, Node *limitCount,
+									  WithClause *withClause,
+									  core_yyscan_t yyscanner);
 
 %}
 
@@ -134,6 +147,7 @@ typedef struct OraclePartitionSpec
 	OraclePartitionSpec *partspec;
 	PartitionBoundSpec	*partboundspec;
 	OracleConnectBy		*connectby;
+	SelectSortClause	*select_order_by;
 /* ADB_BEGIN */
 	DistributeBy		*distby;
 	PGXCSubCluster		*subclus;
@@ -326,6 +340,7 @@ typedef struct OraclePartitionSpec
 %type <list>		ora_part_child_list range_datum_list
 %type <node>		ora_part_child PartitionRangeDatum
 %type <connectby>	opt_connect_by_clause connect_by_clause
+%type <select_order_by> opt_select_sort_clause select_sort_clause
 
 /* ADB_BEGIN */
 %type <distby>	OptDistributeBy
@@ -5491,27 +5506,27 @@ select_with_parens:
 
 select_no_parens:
 		simple_select					{ $$ = $1; }
-		| select_clause sort_clause
+		| select_clause select_sort_clause
 			{
-				insertSelectOptions((SelectStmt *) $1, $2, NIL,
-									NULL, NULL, NULL,
-									yyscanner);
+				oracleInsertSelectOptions((SelectStmt *) $1, $2, NIL,
+										  NULL, NULL, NULL,
+										  yyscanner);
 				$$ = $1;
 			}
-		| select_clause opt_sort_clause for_locking_clause opt_select_limit
+		| select_clause opt_select_sort_clause for_locking_clause opt_select_limit
 			{
-				insertSelectOptions((SelectStmt *) $1, $2, $3,
-									list_nth($4, 0), list_nth($4, 1),
-									NULL,
-									yyscanner);
+				oracleInsertSelectOptions((SelectStmt *) $1, $2, $3,
+										  list_nth($4, 0), list_nth($4, 1),
+										  NULL,
+										  yyscanner);
 				$$ = $1;
 			}
-		| select_clause opt_sort_clause select_limit opt_for_locking_clause
+		| select_clause opt_select_sort_clause select_limit opt_for_locking_clause
 			{
-				insertSelectOptions((SelectStmt *) $1, $2, $4,
-									list_nth($3, 0), list_nth($3, 1),
-									NULL,
-									yyscanner);
+				oracleInsertSelectOptions((SelectStmt *) $1, $2, $4,
+										  list_nth($3, 0), list_nth($3, 1),
+										  NULL,
+										  yyscanner);
 				$$ = $1;
 			}
 		| with_clause select_clause
@@ -5522,28 +5537,28 @@ select_no_parens:
 									yyscanner);
 				$$ = $2;
 			}
-		| with_clause select_clause sort_clause
+		| with_clause select_clause select_sort_clause
 			{
-				insertSelectOptions((SelectStmt *) $2, $3, NIL,
-									NULL, NULL,
-									$1,
-									yyscanner);
+				oracleInsertSelectOptions((SelectStmt *) $2, $3, NIL,
+										  NULL, NULL,
+										  $1,
+										  yyscanner);
 				$$ = $2;
 			}
-		| with_clause select_clause opt_sort_clause for_locking_clause opt_select_limit
+		| with_clause select_clause opt_select_sort_clause for_locking_clause opt_select_limit
 			{
-				insertSelectOptions((SelectStmt *) $2, $3, $4,
-									list_nth($5, 0), list_nth($5, 1),
-									$1,
-									yyscanner);
+				oracleInsertSelectOptions((SelectStmt *) $2, $3, $4,
+										  list_nth($5, 0), list_nth($5, 1),
+										  $1,
+										  yyscanner);
 				$$ = $2;
 			}
-		| with_clause select_clause opt_sort_clause select_limit opt_for_locking_clause
+		| with_clause select_clause opt_select_sort_clause select_limit opt_for_locking_clause
 			{
-				insertSelectOptions((SelectStmt *) $2, $3, $5,
-									list_nth($4, 0), list_nth($4, 1),
-									$1,
-									yyscanner);
+				oracleInsertSelectOptions((SelectStmt *) $2, $3, $5,
+										  list_nth($4, 0), list_nth($4, 1),
+										  $1,
+										  yyscanner);
 				$$ = $2;
 			}
 		;
@@ -5959,6 +5974,30 @@ opt_sort_clause:
 	  sort_clause						{ $$ = $1; }
 	| /* empty */						{ $$ = NIL; }
 	;
+
+select_sort_clause:
+		  ORDER BY sortby_list
+			{
+				SelectSortClause *n = palloc0(sizeof(SelectSortClause));
+				n->sortClause = $3;
+				n->siblings_loc = -1;
+				n->sort_loc = @1;
+				$$ = n;
+			}
+		| ORDER SIBLINGS BY sortby_list
+			{
+				SelectSortClause *n = palloc0(sizeof(SelectSortClause));
+				n->sortClause = $4;
+				n->siblings_loc = @2;
+				n->sort_loc = @1;
+				$$ = n;
+			}
+		;
+
+opt_select_sort_clause:
+		  select_sort_clause			{ $$ = $1; }
+		| /* empty */					{ $$ = NULL; }
+		;
 
 opt_start_with_clause:
 	  start_with_clause					{ $$ = $1; }
@@ -7923,11 +7962,6 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 		}
 		PUSH_LOOKAHEAD(&look1);
 		break;
-	case ORDER:
-		LEX_LOOKAHEAD(&look1);
-		if (look1.token != SIBLINGS)
-			PUSH_LOOKAHEAD(&look1);
-		break;
 	case ';':
 		yyextra->parsing_first_token = true;
 		break;
@@ -8095,4 +8129,45 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 	n->subselect = subselect;
 	n->location = location;
 	return (Node*)n;
+}
+
+static void oracleInsertSelectOptions(SelectStmt *stmt,
+									  SelectSortClause *sortClause, List *lockingClause,
+									  Node *limitOffset, Node *limitCount,
+									  WithClause *withClause,
+									  core_yyscan_t yyscanner)
+{
+	List *sort_clause = NIL;
+	if (sortClause)
+	{
+		if(sortClause->siblings_loc == -1)
+		{
+			/* no siblings */
+			sort_clause = sortClause->sortClause;
+		}else
+		{
+			Assert(sortClause->siblings_loc >= 0);
+			if (stmt->ora_connect_by == NULL)
+			{
+				char *scanbuf = ora_yyget_extra(yyscanner)->core_yy_extra.scanbuf;
+				/* no connect by */
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						  /* translator: first %s is typically the translation of "syntax error" */
+						  errmsg("%s at or near \"%s\"", _("syntax error"), scanbuf + sortClause->siblings_loc),
+						  parser_errposition(sortClause->siblings_loc)));
+			}else if(stmt->ora_connect_by->sortClause)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("multiple ORDER BY clauses not allowed"),
+						 parser_errposition(sortClause->sort_loc)));
+			}else
+			{
+				stmt->ora_connect_by->sortClause = sortClause->sortClause;
+			}
+		}
+	}
+	insertSelectOptions(stmt, sort_clause,
+						lockingClause, limitOffset, limitCount, withClause, yyscanner);
 }

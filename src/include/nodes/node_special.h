@@ -633,6 +633,15 @@ NODE_SPECIAL_MEB(NextValueExpr)
 	seqid NODE_OID(class,seqid)
 END_SPECIAL_MEB(NextValueExpr)
 
+/* ADB_GRAM_ORA */
+NODE_SPECIAL_MEB(ConnectByPlan)
+	sortColIdx NODE_SCALAR_POINT(AttrNumber,sortColIdx,NODE_ARG_->numCols)
+	sortOperators NODE_SCALAR_POINT(Oid,sortOperators,NODE_ARG_->numCols)
+	collations NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numCols)
+	nullsFirst NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
+END_SPECIAL_MEB(ConnectByPlan)
+/* ADB_GRAM_ORA */
+
 /*******************************************************************/
 
 /* ENUM_IF_DEFINED(type_name, macro_name [, ...]) */

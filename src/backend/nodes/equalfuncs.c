@@ -800,6 +800,8 @@ _equalOracleConnectBy(const OracleConnectBy *a, const OracleConnectBy *b)
 	COMPARE_SCALAR_FIELD(no_cycle);
 	COMPARE_NODE_FIELD(start_with);
 	COMPARE_NODE_FIELD(connect_by);
+	COMPARE_NODE_FIELD(sortClause);
+	COMPARE_NODE_FIELD(sort_tlist);
 
 	return true;
 }

@@ -4,6 +4,7 @@
 #include "executor/executor.h"
 #include "executor/execExpr.h"
 #include "executor/nodeConnectBy.h"
+#include "lib/ilist.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -22,10 +23,30 @@ typedef struct TuplestoreConnectByState
 	bool			inner_ateof;
 }TuplestoreConnectByState;
 
+typedef struct TuplestoreConnectByLeaf
+{
+	slist_node		snode;
+	MinimalTuple	outer_tup;
+	Tuplesortstate *scan_ts;
+	int				reader;
+}TuplestoreConnectByLeaf;
+
+typedef struct TuplesortConnectByState
+{
+	slist_head		slist_level;
+	slist_head		slist_idle;
+	uint64			level;
+	ProjectionInfo *sort_project;
+	TupleTableSlot *sort_slot;
+}TuplesortConnectByState;
+
 static TupleTableSlot *ExecTuplestoreConnectBy(PlanState *pstate);
+static TupleTableSlot *ExecTuplesortConnectBy(PlanState *pstate);
 static ExprState *makeHashExprState(Expr *expr, Oid hash_oid, PlanState *ps);
 static uint32 getHashValue(List *hashlist, ExprContext *econtext);
-static TupleTableSlot* ExecConnectByTuplestoreStartWith(ConnectByState *ps, Tuplestorestate *ts);
+static TupleTableSlot* ExecConnectByStartWith(ConnectByState *ps);
+static TuplestoreConnectByLeaf* GetconnectBySortLeaf(ConnectByState *ps);
+static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, TupleTableSlot *parent_slot);
 
 ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflags)
 {
@@ -91,15 +112,36 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 		cbstate->ts = tuplestore_begin_heap(false, false, work_mem);
 		tuplestore_set_eflags(cbstate->ts, EXEC_FLAG_REWIND);
 	}
-	cbstate->ps.ExecProcNode = ExecTuplestoreConnectBy;
+
+	if (node->numCols == 0)
 	{
 		TuplestoreConnectByState *state = palloc0(sizeof(TuplestoreConnectByState));
+		cbstate->ps.ExecProcNode = ExecTuplestoreConnectBy;
 		cbstate->private_state = state;
 		state->hash_reader = INVALID_HASHSTORE_READER;
 		state->inner_ateof = true;
 		state->scan_ts = tuplestore_begin_heap(false, false, work_mem/2);
 		state->save_ts = tuplestore_begin_heap(false, false, work_mem/2);
 		state->level = 1L;
+	}else
+	{
+		TuplestoreConnectByLeaf *leaf;
+		TuplesortConnectByState *state = palloc0(sizeof(TuplesortConnectByState));
+		cbstate->ps.ExecProcNode = ExecTuplesortConnectBy;
+		cbstate->private_state = state;
+		state->level = 1L;
+		slist_init(&state->slist_level);
+		slist_init(&state->slist_idle);
+		state->sort_slot = ExecInitExtraTupleSlot(estate, 
+												  ExecTypeFromTL(node->sort_targetlist, false));
+		state->sort_project = ExecBuildProjectionInfo(node->sort_targetlist,
+													  cbstate->ps.ps_ExprContext,
+													  state->sort_slot,
+													  &cbstate->ps,
+													  input_desc);
+
+		leaf = GetconnectBySortLeaf(cbstate);
+		slist_push_head(&state->slist_level, &leaf->snode);
 	}
 	cbstate->processing_root = true;
 
@@ -112,13 +154,19 @@ static TupleTableSlot *ExecTuplestoreConnectBy(PlanState *pstate)
 	TuplestoreConnectByState *state = cbstate->private_state;
 	TupleTableSlot *outer_slot;
 	TupleTableSlot *inner_slot;
-	ExprContext *econtext;
+	ExprContext *econtext = cbstate->ps.ps_ExprContext;
 
 	if (cbstate->processing_root)
 	{
-		outer_slot = ExecConnectByTuplestoreStartWith(cbstate, state->save_ts);
-		if (!TupIsNull(outer_slot))
-			return outer_slot;
+		inner_slot = ExecConnectByStartWith(cbstate);
+		if (!TupIsNull(inner_slot))
+		{
+			econtext->ecxt_innertuple = inner_slot;
+			econtext->ecxt_outertuple = NULL;
+			tuplestore_puttupleslot(state->save_ts,
+									ExecProject(cbstate->pj_save_targetlist));
+			return ExecProject(pstate->ps_ProjInfo);
+		}
 
 		state->inner_ateof = true;
 		cbstate->processing_root = false;
@@ -157,7 +205,7 @@ re_get_tuplestore_connect_by_:
 			econtext->ecxt_innertuple = NULL;
 			econtext->ecxt_outertuple = outer_slot;
 			state->hash_reader = hashstore_begin_read(cbstate->hs,
-													getHashValue(cbstate->left_hashfuncs, econtext));
+													  getHashValue(cbstate->left_hashfuncs, econtext));
 		}else
 		{
 			tuplestore_rescan(cbstate->ts);
@@ -193,16 +241,124 @@ re_get_tuplestore_connect_by_:
 	goto re_get_tuplestore_connect_by_;
 }
 
+static TupleTableSlot *ExecTuplesortConnectBy(PlanState *pstate)
+{
+	ConnectByState *cbstate = castNode(ConnectByState, pstate);
+	TuplesortConnectByState *state = cbstate->private_state;
+	ExprContext *econtext = cbstate->ps.ps_ExprContext;
+	TupleTableSlot *outer_slot;
+	TupleTableSlot *inner_slot;
+	TupleTableSlot *sort_slot;
+	TuplestoreConnectByLeaf *leaf;
+
+	if (cbstate->processing_root)
+	{
+		leaf = slist_head_element(TuplestoreConnectByLeaf, snode, &state->slist_level);
+		Assert(leaf->snode.next == NULL);
+		for(;;)
+		{
+			inner_slot = ExecConnectByStartWith(cbstate);
+			if (TupIsNull(inner_slot))
+				break;
+
+			econtext->ecxt_innertuple = inner_slot;
+			econtext->ecxt_outertuple = NULL;
+			tuplesort_puttupleslot(leaf->scan_ts,
+								   ExecProject(state->sort_project));
+		}
+		tuplesort_performsort(leaf->scan_ts);
+		leaf->outer_tup = NULL;
+		cbstate->processing_root = false;
+	}
+
+	outer_slot = cbstate->outer_slot;
+	inner_slot = cbstate->inner_slot;
+	sort_slot = state->sort_slot;
+
+re_get_tuplesort_connect_by_:
+	if (slist_is_empty(&state->slist_level))
+	{
+		Assert(state->level == 0L);
+		return ExecClearTuple(pstate->ps_ResultTupleSlot);
+	}
+
+	leaf = slist_head_element(TuplestoreConnectByLeaf, snode, &state->slist_level);
+	if (tuplesort_gettupleslot(leaf->scan_ts, true, false, sort_slot, NULL) == false)
+	{
+		/* end of current leaf */
+		slist_pop_head_node(&state->slist_level);
+		slist_push_head(&state->slist_idle, &leaf->snode);
+		--state->level;
+		tuplesort_end(leaf->scan_ts);
+		leaf->scan_ts = NULL;
+		if (leaf->outer_tup)
+		{
+			pfree(leaf->outer_tup);
+			leaf->outer_tup = NULL;
+		}
+		goto re_get_tuplesort_connect_by_;
+	}
+	
+	if (leaf->outer_tup)
+	{
+		Assert(state->level > 1L);
+		ExecStoreMinimalTuple(leaf->outer_tup, outer_slot, false);
+	}else
+	{
+		Assert(state->level == 1L);
+		ExecClearTuple(outer_slot);
+	}
+	econtext->ecxt_outertuple = outer_slot;
+	econtext->ecxt_innertuple = sort_slot;
+	ExecProject(pstate->ps_ProjInfo);
+	/* function GetNextTuplesortLeaf well free Datum, so we need materialize result */
+	ExecMaterializeSlot(pstate->ps_ResultTupleSlot);
+
+	leaf = GetNextTuplesortLeaf(cbstate, 
+								ExecProject(cbstate->pj_save_targetlist));
+	if (leaf)
+	{
+		slist_push_head(&state->slist_level, &leaf->snode);
+		++state->level;
+	}
+
+	return pstate->ps_ResultTupleSlot;
+}
+
 void ExecEndConnectBy(ConnectByState *node)
 {
-	TuplestoreConnectByState *state = node->private_state;
 	ExecEndNode(outerPlanState(node));
-	tuplestore_end(state->scan_ts);
-	tuplestore_end(state->save_ts);
 	if (node->hs)
 		hashstore_end(node->hs);
 	if (node->ts)
 		tuplestore_end(node->ts);
+	if (castNode(ConnectByPlan, node->ps.plan)->numCols)
+	{
+		TuplesortConnectByState *state = node->private_state;
+		TuplestoreConnectByLeaf *leaf;
+		slist_node *node;
+		while (slist_is_empty(&state->slist_idle) == false)
+		{
+			node = slist_pop_head_node(&state->slist_idle);
+			leaf = slist_container(TuplestoreConnectByLeaf, snode, node);
+			Assert (leaf->scan_ts == NULL);
+			pfree(leaf);
+		}
+		while (slist_is_empty(&state->slist_level) == false)
+		{
+			node = slist_pop_head_node(&state->slist_level);
+			leaf = slist_container(TuplestoreConnectByLeaf, snode, node);
+			tuplesort_end(leaf->scan_ts);
+			if (leaf->outer_tup)
+				pfree(leaf->outer_tup);
+			pfree(leaf);
+		}
+	}else
+	{
+		TuplestoreConnectByState *state = node->private_state;
+		tuplestore_end(state->scan_ts);
+		tuplestore_end(state->save_ts);
+	}
 	ExecFreeExprContext(&node->ps);
 }
 
@@ -247,14 +403,13 @@ static uint32 getHashValue(List *hashlist, ExprContext *econtext)
 	return hash_value;
 }
 
-static TupleTableSlot* ExecConnectByTuplestoreStartWith(ConnectByState *ps, Tuplestorestate *start_ts)
+static TupleTableSlot* ExecConnectByStartWith(ConnectByState *ps)
 {
 	Hashstorestate *hs = ps->hs;
 	Tuplestorestate *outer_ts = ps->ts;
 	PlanState	   *outer_ps = outerPlanState(ps);
 	ExprContext	   *econtext = ps->ps.ps_ExprContext;
 	TupleTableSlot *slot;
-	TupleTableSlot *save_slot;
 	uint32			hashvalue;
 
 #ifdef USE_ASSERT_CHECKING
@@ -284,23 +439,113 @@ static TupleTableSlot* ExecConnectByTuplestoreStartWith(ConnectByState *ps, Tupl
 		if (ps->start_with == NULL ||
 			ExecQual(ps->start_with, econtext))
 		{
-			econtext->ecxt_innertuple = slot;
-			econtext->ecxt_outertuple = NULL;
-			save_slot = ExecProject(ps->pj_save_targetlist);
-			tuplestore_puttupleslot(start_ts, save_slot);
-			return ExecProject(ps->ps.ps_ProjInfo);
+			return slot;
 		}
 	}
 
 	return NULL;
 }
 
+static TuplestoreConnectByLeaf* GetconnectBySortLeaf(ConnectByState *ps)
+{
+	TuplestoreConnectByLeaf *leaf;
+	MemoryContext oldcontext;
+	TuplesortConnectByState *state = ps->private_state;
+	ConnectByPlan *node = castNode(ConnectByPlan, ps->ps.plan);
+
+	if (slist_is_empty(&state->slist_idle))
+	{
+		leaf = MemoryContextAllocZero(GetMemoryChunkContext(ps), sizeof(*leaf));
+		if (ps->hs)
+			leaf->reader = INVALID_HASHSTORE_READER;
+		else
+			leaf->reader = -1;
+	}else
+	{
+		slist_node *node = slist_pop_head_node(&state->slist_idle);
+		leaf = slist_container(TuplestoreConnectByLeaf, snode, node);
+	}
+
+	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(ps));
+	leaf->scan_ts = tuplesort_begin_heap(state->sort_slot->tts_tupleDescriptor,
+										 node->numCols,
+										 node->sortColIdx,
+										 node->sortOperators,
+										 node->collations,
+										 node->nullsFirst,
+										 0,
+										 NULL,
+										 false);
+	MemoryContextSwitchTo(oldcontext);
+
+	return leaf;
+}
+
+static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, TupleTableSlot *outer_slot)
+{
+	TuplesortConnectByState *state = cbstate->private_state;
+	ExprContext *econtext = cbstate->ps.ps_ExprContext;
+	TupleTableSlot *inner_slot = cbstate->inner_slot;
+	TuplestoreConnectByLeaf *leaf;
+	int reader;
+	Assert(!TupIsNull(outer_slot));
+
+	ExecMaterializeSlot(outer_slot);
+	econtext->ecxt_outertuple = outer_slot;
+	econtext->ecxt_innertuple = NULL;
+	if (cbstate->hs)
+	{
+		reader = hashstore_begin_read(cbstate->hs,
+									  getHashValue(cbstate->left_hashfuncs, econtext));
+	}else
+	{
+		tuplestore_rescan(cbstate->ts);
+	}
+
+	leaf = NULL;
+	for (;;)
+	{
+		if (cbstate->hs)
+			hashstore_next_slot(cbstate->hs, inner_slot, reader, false);
+		else
+			tuplestore_gettupleslot(cbstate->ts, true, false, inner_slot);
+		if (TupIsNull(inner_slot))
+			break;
+		econtext->ecxt_innertuple = inner_slot;
+		if (ExecQualAndReset(cbstate->joinclause, econtext))
+		{
+			if (leaf == NULL)
+				leaf = GetconnectBySortLeaf(cbstate);
+			tuplesort_puttupleslot(leaf->scan_ts,
+								   ExecProject(state->sort_project));
+		}
+	}
+
+	if (cbstate->hs)
+		hashstore_end_read(cbstate->hs, reader);
+	if (leaf)
+	{
+		MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
+		leaf->outer_tup = ExecCopySlotMinimalTuple(outer_slot);
+		MemoryContextSwitchTo(oldcontext);
+		tuplesort_performsort(leaf->scan_ts);
+	}
+	return leaf;
+}
+
 void ExecEvalLevelExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 {
 	ConnectByState *cbstate = castNode(ConnectByState, state->parent);
-	TuplestoreConnectByState *tstate = cbstate->private_state;
-
-	*op->resvalue = Int64GetDatum(tstate->level);
+	
+	if (castNode(ConnectByPlan, cbstate->ps.plan)->numCols)
+	{
+		TuplesortConnectByState *state = cbstate->private_state;
+		*op->resvalue = Int64GetDatum(state->level);
+	}else
+	{
+		TuplestoreConnectByState *state = cbstate->private_state;
+		*op->resvalue = Int64GetDatum(state->level);
+	}
 	*op->resnull = false;
 }
 
@@ -309,10 +554,20 @@ void ExecEvalSysConnectByPathExpr(ExprState *state, ExprEvalStep *op, ExprContex
 	ConnectByState *cbstate = castNode(ConnectByState, state->parent);
 	StringInfoData buf;
 	short narg;
+	bool is_root;
 	bool isnull = true;
 
 	initStringInfo(&buf);
-	if (cbstate->processing_root == false)
+	if (castNode(ConnectByPlan, cbstate->ps.plan)->numCols)
+	{
+		TuplesortConnectByState *state = cbstate->private_state;
+		is_root = (state->level == 1L ? true:false);
+	}else
+	{
+		TuplestoreConnectByState *state = cbstate->private_state;
+		is_root = (state->level == 1L ? true:false);
+	}
+	if (is_root == false)
 	{
 		TupleTableSlot *slot = econtext->ecxt_outertuple;
 		char *prior_str;

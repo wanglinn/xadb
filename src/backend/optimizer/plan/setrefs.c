@@ -1961,6 +1961,18 @@ static bool fix_connect_by_exprs_walker(Node *node, List **targetlist)
 	return expression_tree_walker(node, fix_connect_by_exprs_walker, targetlist);
 }
 
+static TargetEntry* find_target_list_expr(List *tlist, Expr *expr)
+{
+	ListCell *lc;
+	foreach (lc, tlist)
+	{
+		if (equal(lfirst_node(TargetEntry, lc)->expr, expr))
+			return lfirst(lc);
+	}
+
+	return NULL;
+}
+
 static void set_connect_by_references(PlannerInfo *root, ConnectByPlan *plan, int rtoffset)
 {
 	List		   *save_targetlist;
@@ -1981,6 +1993,7 @@ static void set_connect_by_references(PlannerInfo *root, ConnectByPlan *plan, in
 
 	/* save targetlist include all target from subplan */
 	save_targetlist = copyObject(sub_plan->targetlist);
+
 	/*
 	 * and save targetlist include outher exprs
 	 * eg. last sys_connect_by_path() value
@@ -1997,6 +2010,52 @@ static void set_connect_by_references(PlannerInfo *root, ConnectByPlan *plan, in
 												  sub_itlist,
 												  INNER_VAR,
 												  rtoffset);
+
+	if (root->parse->connect_by->sortClause)
+	{
+		SortGroupClause *sortcl;
+		ListCell	   *lc;
+		TargetEntry	   *te,*new_te;
+		OracleConnectBy *connect_by = root->parse->connect_by;
+		List		   *sort_tlist = copyObject(sub_plan->targetlist);
+		int numCol = list_length(connect_by->sortClause);
+
+		plan->numCols = numCol;
+		plan->sortColIdx = palloc(sizeof(plan->sortColIdx[0]) * numCol);
+		plan->sortOperators = palloc(sizeof(plan->sortOperators[0]) * numCol);
+		plan->collations = palloc(sizeof(plan->collations[0]) * numCol);
+		plan->nullsFirst = palloc(sizeof(plan->nullsFirst[0]) * numCol);
+
+		numCol = 0;
+		foreach (lc, connect_by->sortClause)
+		{
+			sortcl = lfirst_node(SortGroupClause, lc);
+			te = get_sortgroupclause_tle(sortcl, connect_by->sort_tlist);
+			new_te = find_target_list_expr(sort_tlist, te->expr);
+			if (new_te == NULL)
+			{
+				new_te = makeTargetEntry(te->expr,
+										(AttrNumber)list_length(sort_tlist)+1,
+										NULL,
+										true);
+				sort_tlist = lappend(sort_tlist, new_te);
+			}
+
+			plan->sortColIdx[numCol] = new_te->resno;
+			plan->sortOperators[numCol] = sortcl->sortop;
+			plan->collations[numCol] = exprCollation((Node*)te->expr);
+			plan->nullsFirst[numCol] = sortcl->nulls_first;
+
+			++numCol;
+		}
+
+		plan->sort_targetlist = (List*)fix_upper_expr(root,
+													  (Node*)sort_tlist,
+													  sub_itlist,
+													  INNER_VAR,
+													  rtoffset);
+	}
+
 	pfree(sub_itlist);
 }
 #endif /* ADB_GRAM_ORA */

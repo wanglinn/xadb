@@ -6514,6 +6514,13 @@ static PathTarget *make_connect_by_input_target(PlannerInfo *root,
 	list_free(base_vars);
 	list_free(exprs);
 
+	if (connect_by->sortClause != NIL)
+	{
+		base_vars = pull_var_clause((Node*)connect_by->sort_tlist, PVC_INCLUDE_PLACEHOLDERS);
+		add_new_columns_to_pathtarget(input_target, base_vars);
+		list_free(base_vars);
+	}
+
 	/* XXX this causes some redundant cost calculation ... */
 	return set_pathtarget_cost_width(root, input_target);
 }

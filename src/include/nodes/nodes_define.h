@@ -637,6 +637,11 @@ BEGIN_NODE(ConnectByPlan)
 	NODE_BITMAPSET(Bitmapset,hash_quals)
 	NODE_NODE(List,start_with)
 	NODE_SCALAR(int,num_buckets)
+	NODE_SCALAR(int,numCols)
+	NODE_SCALAR_POINT(AttrNumber,sortColIdx,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(Oid,sortOperators,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
 END_NODE(ConnectByPlan)
 #endif /* NO_NODE_ConnectByPlan */
 
@@ -1434,6 +1439,8 @@ BEGIN_NODE(OracleConnectBy)
 	NODE_SCALAR(bool,no_cycle)
 	NODE_NODE(Node,start_with)
 	NODE_NODE(Node,connect_by)
+	NODE_NODE(List,sortClause)
+	NODE_NODE(List,sort_tlist)
 END_NODE(OracleConnectBy)
 #endif /* NO_NODE_OracleConnectBy */
 

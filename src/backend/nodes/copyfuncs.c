@@ -3223,6 +3223,8 @@ _copyOracleConnectBy(const OracleConnectBy *from)
 	COPY_SCALAR_FIELD(no_cycle);
 	COPY_NODE_FIELD(start_with);
 	COPY_NODE_FIELD(connect_by);
+	COPY_NODE_FIELD(sortClause);
+	COPY_NODE_FIELD(sort_tlist);
 
 	return newnode;
 }
@@ -5197,6 +5199,11 @@ _copyConnectByPlan(const ConnectByPlan *from)
 	COPY_NODE_FIELD(save_targetlist);
 	COPY_BITMAPSET_FIELD(hash_quals);
 	COPY_NODE_FIELD(start_with);
+	COPY_POINTER_FIELD(sortColIdx, from->numCols * sizeof(AttrNumber));
+	COPY_POINTER_FIELD(sortOperators, from->numCols * sizeof(Oid));
+	COPY_POINTER_FIELD(collations, from->numCols * sizeof(Oid));
+	COPY_POINTER_FIELD(nullsFirst, from->numCols * sizeof(bool));
+	COPY_SCALAR_FIELD(numCols);
 	COPY_SCALAR_FIELD(num_buckets);
 
 	return newnode;

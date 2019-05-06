@@ -1056,6 +1056,12 @@ typedef struct ConnectByPlan
 	Bitmapset  *hash_quals;			/* can using hash connect by join clauses */
 	List	   *start_with;			/* start with clauses */
 	int			num_buckets;		/* number of buckets expected when hash_quals not null */
+	int			numCols;			/* number of sort-key columns */
+	AttrNumber *sortColIdx;			/* their indexes in the target list */
+	Oid		   *sortOperators;		/* OIDs of operators to sort them by */
+	Oid		   *collations;			/* OIDs of collations */
+	bool	   *nullsFirst;			/* NULLS FIRST/LAST directions */
+	List	   *sort_targetlist;	/* for order by leaf */
 }ConnectByPlan;
 #endif /* ADB_GRAM_ORA */
 /*

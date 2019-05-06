@@ -1439,6 +1439,7 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	{
 		OracleConnectBy *new_ = makeNode(OracleConnectBy);
 		OracleConnectBy *old = stmt->ora_connect_by;
+		int save_next_resno = pstate->p_next_resno;
 		new_->no_cycle = old->no_cycle;
 		if (old->start_with)
 		{
@@ -1447,7 +1448,13 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 		}
 		new_->connect_by = transformExpr(pstate, old->connect_by, EXPR_KIND_CONNECT_BY);
 		new_->connect_by = coerce_to_boolean(pstate, new_->connect_by, "CONNECT BY");
+		new_->sortClause = transformSortClause(pstate,
+											   old->sortClause,
+											   &new_->sort_tlist,
+											   EXPR_KIND_ORDER_BY,
+											   true);
 		qry->connect_by = new_;
+		pstate->p_next_resno = save_next_resno;
 	}
 #endif /* ADB_GRAM_ORA */
 	/* transform targetlist */

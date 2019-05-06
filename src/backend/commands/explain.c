@@ -1910,6 +1910,21 @@ ExplainNode(PlanState *planstate, List *ancestors,
 				list_free(quals);
 				ExplainPropertyInteger("Hash Buckets", NULL, ((ConnectByPlan*)plan)->num_buckets, es);
 			}
+			if (((ConnectByPlan*)plan)->numCols > 0)
+			{
+				List *tmp_list = plan->targetlist;
+				plan->targetlist = ((ConnectByPlan*)plan)->sort_targetlist;
+				show_sort_group_keys(planstate,
+									 "Sort Key",
+									 ((ConnectByPlan*)plan)->numCols,
+									 ((ConnectByPlan*)plan)->sortColIdx,
+									 ((ConnectByPlan*)plan)->sortOperators,
+									 ((ConnectByPlan*)plan)->collations,
+									 ((ConnectByPlan*)plan)->nullsFirst,
+									 ancestors,
+									 es);
+				plan->targetlist = tmp_list;
+			}
 			break;
 #endif /* ADB_GRAM_ORA */
 		default:
