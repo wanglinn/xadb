@@ -2374,6 +2374,7 @@ typedef struct ConnectByState
 	TupleTableSlot	   *inner_slot;
 	ProjectionInfo	   *pj_save_targetlist;
 	void			   *private_state;
+	int64				level;
 	bool				processing_root;
 }ConnectByState;
 #endif /* ADB_GRAM_ORA */
