@@ -2986,6 +2986,18 @@ finalize_plan(PlannerInfo *root, Plan *plan,
 			break;
 #endif /* ADB */
 
+#ifdef ADB_GRAM_ORA
+		case T_ConnectByPlan:
+			{
+				ConnectByPlan *cbp = (ConnectByPlan*)plan;
+				finalize_primnode((Node*)cbp->start_with, &context);
+				finalize_primnode((Node*)cbp->save_targetlist, &context);
+				finalize_primnode((Node*)cbp->sort_targetlist, &context);
+				context.paramids = bms_add_members(context.paramids, scan_params);
+			}
+			break;
+#endif /* ADB_GRAM_ORA */
+
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(plan));
