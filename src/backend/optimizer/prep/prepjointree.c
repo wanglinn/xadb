@@ -1484,6 +1484,9 @@ is_simple_subquery(Query *subquery, RangeTblEntry *rte,
 		subquery->limitOffset ||
 		subquery->limitCount ||
 		subquery->hasForUpdate ||
+#ifdef ADB_GRAM_ORA
+		subquery->connect_by ||
+#endif /* ADB_GRAM_ORA */
 		subquery->cteList)
 		return false;
 
