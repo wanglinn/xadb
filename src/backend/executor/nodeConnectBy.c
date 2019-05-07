@@ -310,13 +310,13 @@ re_get_tuplesort_connect_by_:
 	/* function GetNextTuplesortLeaf well free Datum, so we need materialize result */
 	ExecMaterializeSlot(pstate->ps_ResultTupleSlot);
 
+	++(cbstate->level);
 	leaf = GetNextTuplesortLeaf(cbstate, 
 								ExecProject(cbstate->pj_save_targetlist));
 	if (leaf)
-	{
 		slist_push_head(&state->slist_level, &leaf->snode);
-		++(cbstate->level);
-	}
+	else
+		--(cbstate->level);
 
 	return pstate->ps_ResultTupleSlot;
 }
