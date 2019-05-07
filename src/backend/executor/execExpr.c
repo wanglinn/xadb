@@ -2125,7 +2125,8 @@ ExecInitExprRec(Expr *node, ExprState *state,
 							(errcode(ERRCODE_INTERNAL_ERROR),
 							 errmsg("RowNumber expr must have parent plan state")));
 
-				scratch.opcode = EEOP_ROW_NUMBER;
+				scratch.d.ptr64.ptr = &(state->parent->rownum);
+				scratch.opcode = EEOP_PTR_INT64;
 
 				ExprEvalPushStep(state, &scratch);
 				break;
@@ -2142,7 +2143,8 @@ ExecInitExprRec(Expr *node, ExprState *state,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("LEVEL expression only can using in connect by")));
 			}
-			scratch.opcode = EEOP_LEVEL_EXPR;
+			scratch.d.ptr64.ptr = &((ConnectByState*)state->parent)->level;
+			scratch.opcode = EEOP_PTR_INT64;
 			ExprEvalPushStep(state, &scratch);
 			break;
 		case T_SysConnectByPathExpr:

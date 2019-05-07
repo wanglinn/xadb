@@ -232,8 +232,7 @@ typedef enum ExprEvalOp
 	EEOP_AGG_ORDERED_TRANS_TUPLE,
 
 #ifdef ADB_GRAM_ORA
-	EEOP_ROW_NUMBER,
-	EEOP_LEVEL_EXPR,
+	EEOP_PTR_INT64,
 	EEOP_SYS_CONNECT_BY_PATH,
 #endif
 
@@ -644,6 +643,11 @@ typedef struct ExprEvalStep
 		}			agg_trans;
 
 #ifdef ADB_GRAM_ORA
+		struct
+		{
+			int64	   *ptr;
+		}			ptr64;
+
 		/* for EEOP_SYS_CONNECT_BY_PATH */
 		struct
 		{
@@ -702,10 +706,6 @@ extern ExprEvalOp ExecEvalStepOp(ExprState *state, ExprEvalStep *op);
 
 extern Datum ExecInterpExprStillValid(ExprState *state, ExprContext *econtext, bool *isNull);
 extern void CheckExprStillValid(ExprState *state, ExprContext *econtext);
-#if defined(ADB_GRAM_ORA) && defined(USE_LLVM)
-extern void ExecEvalRowNumber(ExprState *state, ExprEvalStep *op,
-					   ExprContext *econtext);
-#endif /* ADB_GRAM_ORA */
 
 /*
  * Non fast-path execution functions. These are externs instead of statics in
@@ -768,7 +768,6 @@ extern void ExecEvalAggOrderedTransTuple(ExprState *state, ExprEvalStep *op,
 
 #ifdef ADB_GRAM_ORA
 /* in nodeConnectBy.c */
-extern void ExecEvalLevelExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext);
 extern void ExecEvalSysConnectByPathExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext);
 #endif /* ADB_GRAM_ORA */
 

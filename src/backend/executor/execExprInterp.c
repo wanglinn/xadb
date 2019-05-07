@@ -394,8 +394,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 		&&CASE_EEOP_AGG_ORDERED_TRANS_DATUM,
 		&&CASE_EEOP_AGG_ORDERED_TRANS_TUPLE,
 #ifdef ADB_GRAM_ORA
-		&&CASE_EEOP_ROW_NUMBER,
-		&&CASE_EEOP_LEVEL_EXPR,
+		&&CASE_EEOP_PTR_INT64,
 		&&CASE_EEOP_SYS_CONNECT_BY_PATH,
 #endif
 		&&CASE_EEOP_LAST
@@ -1758,17 +1757,15 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 		}
 
 #ifdef ADB_GRAM_ORA
-		EEO_CASE(EEOP_ROW_NUMBER)
+		EEO_CASE(EEOP_PTR_INT64)
 		{
-			*op->resvalue = Int64GetDatum(state->parent->rownum);
+#ifdef USE_FLOAT8_BYVAL
+			*op->resvalue = *op->d.ptr64.ptr;
+#else
+			/* need palloc ? */
+			*op->resvalue = PointerGetDatum(op->d.ptr64.ptr);
+#endif
 			*op->resnull = false;
-
-			EEO_NEXT();
-		}
-
-		EEO_CASE(EEOP_LEVEL_EXPR)
-		{
-			ExecEvalLevelExpr(state, op, econtext);
 
 			EEO_NEXT();
 		}
@@ -1794,14 +1791,6 @@ out:
 	return state->resvalue;
 }
 
-#if defined(ADB_GRAM_ORA) && defined(USE_LLVM)
-void ExecEvalRowNumber(ExprState *state, ExprEvalStep *op,
-					   ExprContext *econtext)
-{
-	*op->resvalue = Int64GetDatum(state->parent->rownum);
-	*op->resnull = false;
-}
-#endif /* ADB_GRAM_ORA */
 /*
  * Expression evaluation callback that performs extra checks before executing
  * the expression. Declared extern so other methods of execution can use it

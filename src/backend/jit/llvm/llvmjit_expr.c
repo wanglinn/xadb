@@ -2506,17 +2506,20 @@ llvm_compile_expr(ExprState *state)
 				break;
 
 #ifdef ADB_GRAM_ORA
-			case EEOP_ROW_NUMBER:
-				build_EvalXFunc(b, mod, "ExecEvalRowNumber",
-								v_state, v_econtext, op);
-				LLVMBuildBr(b, opblocks[i + 1]);
-				break;
-
-			case EEOP_LEVEL_EXPR:
-				build_EvalXFunc(b, mod, "ExecEvalLevelExpr",
-								v_state, v_econtext, op);
-				LLVMBuildBr(b, opblocks[i + 1]);
-				break;
+			case EEOP_PTR_INT64:
+				{
+					LLVMValueRef v_ptr = l_ptr_const(op->d.ptr64.ptr,
+													 l_ptr(TypeSizeT));
+#ifdef USE_FLOAT8_BYVAL
+					LLVMValueRef v_value = LLVMBuildLoad(b, v_ptr, "");
+					LLVMBuildStore(b, v_value, v_resvaluep);
+#else
+					LLVMBuildStore(b, v_ptr, v_resvaluep);
+#endif /* USE_FLOAT8_BYVAL */
+					LLVMBuildStore(b, l_sbool_const(0), v_resnullp);
+					LLVMBuildBr(b, opblocks[i + 1]);
+					break;
+				}
 
 			case EEOP_SYS_CONNECT_BY_PATH:
 				build_EvalXFunc(b, mod, "ExecEvalSysConnectByPathExpr",

@@ -525,14 +525,6 @@ static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, Tu
 	return leaf;
 }
 
-void ExecEvalLevelExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
-{
-	ConnectByState *cbstate = castNode(ConnectByState, state->parent);
-	
-	*op->resvalue = Int64GetDatum(cbstate->level);
-	*op->resnull = false;
-}
-
 void ExecEvalSysConnectByPathExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 {
 	ConnectByState *cbstate = castNode(ConnectByState, state->parent);
