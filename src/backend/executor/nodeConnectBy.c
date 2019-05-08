@@ -245,6 +245,7 @@ static TupleTableSlot *ExecTuplesortConnectBy(PlanState *pstate)
 	TupleTableSlot *outer_slot;
 	TupleTableSlot *inner_slot;
 	TupleTableSlot *sort_slot;
+	TupleTableSlot *save_slot;
 	TuplestoreConnectByLeaf *leaf;
 
 	if (cbstate->processing_root)
@@ -310,9 +311,9 @@ re_get_tuplesort_connect_by_:
 	/* function GetNextTuplesortLeaf well free Datum, so we need materialize result */
 	ExecMaterializeSlot(pstate->ps_ResultTupleSlot);
 
+	save_slot = ExecProject(cbstate->pj_save_targetlist);
 	++(cbstate->level);
-	leaf = GetNextTuplesortLeaf(cbstate, 
-								ExecProject(cbstate->pj_save_targetlist));
+	leaf = GetNextTuplesortLeaf(cbstate, save_slot);
 	if (leaf)
 		slist_push_head(&state->slist_level, &leaf->snode);
 	else
