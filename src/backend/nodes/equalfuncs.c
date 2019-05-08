@@ -795,6 +795,15 @@ _equalSysConnectByPathExpr(const SysConnectByPathExpr *a, const SysConnectByPath
 }
 
 static bool
+_equalConnectByRootExpr(const ConnectByRootExpr *a, const ConnectByRootExpr *b)
+{
+	COMPARE_NODE_FIELD(expr);
+	/* ignore priorAttno, it is for run time */
+
+	return true;
+}
+
+static bool
 _equalOracleConnectBy(const OracleConnectBy *a, const OracleConnectBy *b)
 {
 	COMPARE_SCALAR_FIELD(no_cycle);
@@ -3406,6 +3415,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_SysConnectByPathExpr:
 			retval = _equalSysConnectByPathExpr(a, b);
+			break;
+		case T_ConnectByRootExpr:
+			retval = _equalConnectByRootExpr(a, b);
 			break;
 		case T_OracleConnectBy:
 			retval = _equalOracleConnectBy(a, b);

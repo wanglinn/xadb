@@ -642,6 +642,7 @@ BEGIN_NODE(ConnectByPlan)
 	NODE_SCALAR_POINT(Oid,sortOperators,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
+	NODE_NODE(List,sort_targetlist)
 END_NODE(ConnectByPlan)
 #endif /* NO_NODE_ConnectByPlan */
 
@@ -1433,6 +1434,14 @@ BEGIN_NODE(SysConnectByPathExpr)
 	NODE_SCALAR(int,location)
 END_NODE(SysConnectByPathExpr)
 #endif /* NO_NODE_SysConnectByPathExpr */
+
+#ifndef NO_NODE_ConnectByRootExpr
+BEGIN_NODE(ConnectByRootExpr)
+	NODE_NODE(Node,expr)
+	NODE_SCALAR(AttrNumber,priorAttno)
+	NODE_SCALAR(int,location)
+END_NODE(ConnectByRootExpr)
+#endif /* NO_NODE_ConnectByRootExpr */
 
 #ifndef NO_NODE_OracleConnectBy
 BEGIN_NODE(OracleConnectBy)

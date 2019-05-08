@@ -285,6 +285,9 @@ exprType(const Node *expr)
 		case T_SysConnectByPathExpr:
 			type = VARCHAR2OID;
 			break;
+		case T_ConnectByRootExpr:
+			type = exprType(((ConnectByRootExpr*)expr)->expr);
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
@@ -952,6 +955,9 @@ exprCollation(const Node *expr)
 		case T_SysConnectByPathExpr:
 			coll = ((SysConnectByPathExpr*)expr)->collation;
 			break;
+		case T_ConnectByRootExpr:
+			coll = exprCollation(((ConnectByRootExpr*)expr)->expr);
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
@@ -1164,6 +1170,9 @@ exprSetCollation(Node *expr, Oid collation)
 			break;
 		case T_SysConnectByPathExpr:
 			((SysConnectByPathExpr*)expr)->collation = collation;
+			break;
+		case T_ConnectByRootExpr:
+			exprSetCollation(((ConnectByRootExpr*)expr)->expr, collation);
 			break;
 #endif /* ADB_GRAM_ORA */
 		default:
@@ -1621,6 +1630,9 @@ exprLocation(const Node *expr)
 			break;
 		case T_SysConnectByPathExpr:
 			loc = ((const SysConnectByPathExpr*)expr)->location;
+			break;
+		case T_ConnectByRootExpr:
+			loc = ((const ConnectByRootExpr*)expr)->location;
 			break;
 #endif /* ADB_GRAM_ORA */
 		default:
@@ -2290,6 +2302,8 @@ expression_tree_walker(Node *node,
 			return walker(((PriorExpr*)node)->expr, context);
 		case T_SysConnectByPathExpr:
 			return walker(((SysConnectByPathExpr*)node)->args, context);
+		case T_ConnectByRootExpr:
+			return walker(((ConnectByRootExpr*)node)->expr, context);
 #endif /* ADB_GRAM_ORA */
 		case T_RangeTblFunction:
 			return walker(((RangeTblFunction *) node)->funcexpr, context);
@@ -3198,6 +3212,17 @@ expression_tree_mutator(Node *node,
 				return (Node*)newnode;
 			}
 			break;
+		case T_ConnectByRootExpr:
+			{
+				ConnectByRootExpr *old = (ConnectByRootExpr*)node;
+				ConnectByRootExpr *newnode;
+
+				FLATCOPY(newnode, old, ConnectByRootExpr);
+				MUTATE(newnode->expr, old->expr, Node *);
+
+				return (Node*)newnode;
+			}
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			elog(ERROR, "unrecognized node type: %d",
@@ -3651,6 +3676,10 @@ raw_expression_tree_walker(Node *node,
 			break;
 		case T_SysConnectByPathExpr:
 			if (walker(((SysConnectByPathExpr*)node)->args, context))
+				return true;
+			break;
+		case T_ConnectByRootExpr:
+			if (walker(((ConnectByRootExpr*)node)->expr, context))
 				return true;
 			break;
 #endif /* ADB_GRAM_ORA */

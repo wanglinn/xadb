@@ -231,6 +231,7 @@ typedef enum NodeTag
 	T_RownumExpr,
 	T_LevelExpr,
 	T_SysConnectByPathExpr,
+	T_ConnectByRootExpr,
 	T_OracleConnectBy,
 #endif
 	T_InferenceElem,

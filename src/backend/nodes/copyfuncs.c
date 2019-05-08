@@ -2189,6 +2189,17 @@ static SysConnectByPathExpr* _copySysConnectByPathExpr(const SysConnectByPathExp
 	return newnode;
 }
 
+static ConnectByRootExpr* _copyConnectByRootExpr(const ConnectByRootExpr *from)
+{
+	ConnectByRootExpr *newnode = makeNode(ConnectByRootExpr);
+
+	COPY_NODE_FIELD(expr);
+	COPY_SCALAR_FIELD(priorAttno);
+	COPY_SCALAR_FIELD(location);
+
+	return newnode;
+}
+
 #endif /* ADB_GRAM_ORA */
 
 /*
@@ -6193,6 +6204,9 @@ copyObjectImpl(const void *from)
 			break;
 		case T_SysConnectByPathExpr:
 			retval = _copySysConnectByPathExpr(from);
+			break;
+		case T_ConnectByRootExpr:
+			retval = _copyConnectByRootExpr(from);
 			break;
 		case T_OracleConnectBy:
 			retval = _copyOracleConnectBy(from);

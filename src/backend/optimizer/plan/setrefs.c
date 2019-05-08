@@ -1915,52 +1915,6 @@ set_join_references(PlannerInfo *root, Join *join, int rtoffset)
 }
 
 #ifdef ADB_GRAM_ORA
-static bool fix_connect_by_exprs_walker(Node *node, List **targetlist)
-{
-	if (node == NULL)
-		return false;
-	if (IsA(node, SysConnectByPathExpr))
-	{
-		ListCell *lc;
-		TargetEntry *te;
-		SysConnectByPathExpr *scbp = (SysConnectByPathExpr*)node;
-		AttrNumber attno = 0;
-
-		/* fix arguments first, maybe have other connect by exprs too */
-		foreach(lc, scbp->args)
-			fix_connect_by_exprs_walker(lfirst(lc), targetlist);
-
-		/* is last sys_connect_by_expr value in target list? */
-		foreach (lc, *targetlist)
-		{
-			++attno;
-			te = lfirst_node(TargetEntry, lc);
-			if (equal(node, te->expr))
-			{
-				scbp->priorAttno = attno;
-				break;
-			}
-		}
-
-		if (lc == NULL)
-		{
-			Assert(attno == list_length(*targetlist));
-			scbp->priorAttno = attno+1;
-			/* not found, make a new junk */
-			te = makeTargetEntry((Expr*)copyObject(node),
-								 scbp->priorAttno,
-								 NULL,
-								 true);
-			*targetlist = lappend(*targetlist, te);
-		}
-		Assert(scbp->priorAttno != InvalidAttrNumber);
-
-		return false;
-	}
-
-	return expression_tree_walker(node, fix_connect_by_exprs_walker, targetlist);
-}
-
 static TargetEntry* find_target_list_expr(List *tlist, Expr *expr)
 {
 	ListCell *lc;
@@ -1971,6 +1925,62 @@ static TargetEntry* find_target_list_expr(List *tlist, Expr *expr)
 	}
 
 	return NULL;
+}
+
+static List* find_special_expr_in_target_list(List *tlist, Expr *expr, AttrNumber *attno)
+{
+	TargetEntry *te = find_target_list_expr(tlist, expr);
+
+	if (te == NULL)
+	{
+		*attno = list_length(tlist)+1;
+		te = makeTargetEntry(copyObject(expr),
+							 *attno,
+							 NULL,
+							 true);
+		tlist = lappend(tlist, te);
+	}else
+	{
+		*attno = te->resno;
+	}
+
+	return tlist;
+}
+
+static bool fix_connect_by_exprs_walker(Node *node, List **targetlist)
+{
+	if (node == NULL)
+		return false;
+	if (IsA(node, SysConnectByPathExpr))
+	{
+		ListCell *lc;
+		SysConnectByPathExpr *scbp = (SysConnectByPathExpr*)node;
+
+		/* fix arguments first, maybe have other connect by exprs too */
+		foreach(lc, scbp->args)
+			fix_connect_by_exprs_walker(lfirst(lc), targetlist);
+
+		*targetlist = find_special_expr_in_target_list(*targetlist,
+													   (Expr*)node,
+													   &scbp->priorAttno);
+		Assert(scbp->priorAttno != InvalidAttrNumber);
+
+		return false;
+	}else if(IsA(node, ConnectByRootExpr))
+	{
+		ConnectByRootExpr *expr = (ConnectByRootExpr*)node;
+
+		fix_connect_by_exprs_walker(expr->expr, targetlist);
+
+		*targetlist = find_special_expr_in_target_list(*targetlist,
+													   (Expr*)node,
+													   &expr->priorAttno);
+		Assert(expr->priorAttno != InvalidAttrNumber);
+
+		return false;
+	}
+
+	return expression_tree_walker(node, fix_connect_by_exprs_walker, targetlist);
 }
 
 static void set_connect_by_references(PlannerInfo *root, ConnectByPlan *plan, int rtoffset)

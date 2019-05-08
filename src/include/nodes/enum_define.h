@@ -213,6 +213,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_RownumExpr)
 	ENUM_VALUE(T_LevelExpr)
 	ENUM_VALUE(T_SysConnectByPathExpr)
+	ENUM_VALUE(T_ConnectByRootExpr)
 	ENUM_VALUE(T_OracleConnectBy)
 #endif
 	ENUM_VALUE(T_InferenceElem)

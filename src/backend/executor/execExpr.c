@@ -47,7 +47,9 @@
 #include "utils/datum.h"
 #include "utils/lsyscache.h"
 #include "utils/typcache.h"
-
+#ifdef ADB_GRAM_ORA
+#include "utils/fmgroids.h"
+#endif /* ADB_GRAM_ORA */
 
 typedef struct LastAttnumInfo
 {
@@ -2157,6 +2159,68 @@ ExecInitExprRec(Expr *node, ExprState *state,
 			}
 			ExecInitSysConnectByPathExpr(&scratch, state, (SysConnectByPathExpr*)node);
 			ExprEvalPushStep(state, &scratch);
+			break;
+		case T_ConnectByRootExpr:
+			if (state->parent == NULL ||
+				!IsA(state->parent, ConnectByState))
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("connect_by_root operator only can using in connect by")));
+			}else
+			{
+				ExprEvalStep step;
+				ConnectByRootExpr *expr = (ConnectByRootExpr*)node;
+				int not_true_jump;
+				int true_done_jump;
+
+				/* level = 1 ? */
+				{
+					List *args;
+					LevelExpr level;
+					NodeSetTag(&level, T_LevelExpr);
+					level.location = -1;
+					args = list_make2(&level, makeConst(INT8OID,
+														-1,
+														InvalidOid,
+														sizeof(int64),
+														Int64GetDatum(1),
+														false,
+														true));
+					ExecInitFunc(&step, node, args, F_INT8EQ, InvalidOid, state);
+					step.resvalue = resv;
+					step.resnull = resnull;
+					ExprEvalPushStep(state, &step);
+				}
+
+				/* not true jump(jump if level <> 1) */
+				step.opcode = EEOP_JUMP_IF_NOT_TRUE;
+				step.d.jump.jumpdone = -1; /* computed later */
+				not_true_jump = state->steps_len;
+				ExprEvalPushStep(state, &step);
+
+				/* if true (level = 1) */
+				ExecInitExprRec((Expr*)expr->expr, state, resv, resnull);
+				step.opcode = EEOP_JUMP;
+				step.d.jump.jumpdone = -1; /*computed later */
+				true_done_jump = state->steps_len;
+				ExprEvalPushStep(state, &step);
+
+				/* not true code */
+				Assert(state->steps[not_true_jump].opcode == EEOP_JUMP_IF_NOT_TRUE);
+				state->steps[not_true_jump].d.jump.jumpdone = state->steps_len;
+				step.opcode = EEOP_OUTER_FETCHSOME;
+				step.d.fetch.last_var = expr->priorAttno;
+				step.d.fetch.known_desc = NULL;
+				ExprEvalPushStep(state, &step);
+				step.opcode = EEOP_OUTER_VAR;
+				step.d.var.attnum = expr->priorAttno-1;
+				step.d.var.vartype = exprType(expr->expr);
+				ExprEvalPushStep(state, &step);
+
+				Assert(state->steps[true_done_jump].opcode == EEOP_JUMP);
+				state->steps[true_done_jump].d.jump.jumpdone = state->steps_len;
+			}
 			break;
 #endif /* ADB_GRAM_ORA */
 

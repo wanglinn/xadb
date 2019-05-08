@@ -9591,6 +9591,11 @@ get_rule_expr(Node *node, deparse_context *context,
 				}
 			}
 			break;
+		case T_ConnectByRootExpr:
+			appendStringInfo(buf, "connect_by_root(");
+			get_rule_expr(((ConnectByRootExpr*)node)->expr, context, showimplicit);
+			appendStringInfoChar(buf, ')');
+			break;
 #endif /* ADB_GRAM_ORA */
 
 		default:

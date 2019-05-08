@@ -1527,6 +1527,14 @@ typedef struct SysConnectByPathExpr
 	int			location;		/* token location, or -1 if unknown */
 } SysConnectByPathExpr;
 
+typedef struct ConnectByRootExpr
+{
+	NodeTag		type;
+	Node	   *expr;
+	AttrNumber	priorAttno;		/* last value from OUTER_VAR */
+	int			location;
+}ConnectByRootExpr;
+
 #endif /* ADB_GRAM_ORA */
 
 /* Convenience macro to get the output tlist of a CTE's query */

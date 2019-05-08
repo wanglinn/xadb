@@ -258,6 +258,13 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 		case T_LevelExpr:
 			result = (Node*)expr;
 			break;
+		case T_ConnectByRootExpr:
+			{
+				ConnectByRootExpr *node = (ConnectByRootExpr*)expr;
+				node->expr = transformExprRecurse(pstate, (Node*)node->expr);
+				result = (Node*)node;
+			}
+			break;
 #endif /* ADB_GRAM_ORA */
 
 		case T_ParamRef:
@@ -1776,25 +1783,36 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 	/* is sys_connect_by_path ? */
 	if (pstate->p_grammar == PARSE_GRAM_ORACLE &&
 		list_length(fn->funcname) == 1 &&
-		list_length(fn->args) >= 1 &&	/* extension, support more than 1 arguments */
 		fn->agg_order == NIL &&
 		fn->agg_star == false &&
 		fn->agg_distinct == false &&
 		fn->func_variadic == false &&
 		fn->over == NULL &&
-		IsA(linitial(fn->funcname), String) &&
-		strcmp(strVal(linitial(fn->funcname)), "sys_connect_by_path") == 0)
+		IsA(linitial(fn->funcname), String))
 	{
-		ListCell *lc;
-		SysConnectByPathExpr *scbp = makeNode(SysConnectByPathExpr);
-		scbp->location = fn->location;
-		foreach (lc, fn->args)
+		const char *funcname = strVal(linitial(fn->funcname));
+		if (list_length(fn->args) >= 1 &&	/* extension, support more than 1 arguments */
+			strcmp(funcname, "sys_connect_by_path") == 0)
 		{
-			scbp->args = lappend(scbp->args,
-								 transformExprRecurse(pstate, lfirst(lc)));
-		}
+			ListCell *lc;
+			SysConnectByPathExpr *scbp = makeNode(SysConnectByPathExpr);
+			scbp->location = fn->location;
+			foreach (lc, fn->args)
+			{
+				scbp->args = lappend(scbp->args,
+									 transformExprRecurse(pstate, lfirst(lc)));
+			}
 
-		return (Node*)scbp;
+			return (Node*)scbp;
+		}
+		if (list_length(fn->args) == 1 &&
+			strcmp(funcname, "connect_by_root") == 0)
+		{
+			ConnectByRootExpr *node = makeNode(ConnectByRootExpr);
+			node->location = fn->location;
+			node->expr = linitial(fn->args);
+			return transformExprRecurse(pstate, (Node*)node);
+		}
 	}
 
 	PG_TRY();

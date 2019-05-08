@@ -769,6 +769,7 @@ extern void ExecEvalAggOrderedTransTuple(ExprState *state, ExprEvalStep *op,
 #ifdef ADB_GRAM_ORA
 /* in nodeConnectBy.c */
 extern void ExecEvalSysConnectByPathExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext);
+extern void ExecEvalConnectByRootExpr(ExprState *state, ExprEvalStep *op, ExprContext *econtext);
 #endif /* ADB_GRAM_ORA */
 
 #endif							/* EXEC_EXPR_H */

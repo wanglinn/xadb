@@ -2019,6 +2019,9 @@ FigureColnameInternal(Node *node, char **name)
 		case T_LevelExpr:
 			*name = "level";
 			return 2;
+		case T_ConnectByRootExpr:
+			*name = "connectbyroot";
+			return 1;
 #endif /* ADB_GRAM_ORA */
 		default:
 			break;
