@@ -354,8 +354,6 @@ my %typeoids;
 my %types;
 foreach my $row (@{ $catalog_data{pg_type} })
 {
-	$typeoids{ $row->{typname} } = $row->{oid};
-	$types{ $row->{typname} }    = $row;
 # ADB_BEGIN
 	# let type support namespace.type
 	if (defined $row->{typnamespace} && $row->{typnamespace} ne 'PGNSP')
@@ -364,7 +362,12 @@ foreach my $row (@{ $catalog_data{pg_type} })
 		$typeoids { $key } = $row->{oid};
 		$types{ $key }    = $row;
 	}
+	else
 # ADB_END
+	{
+		$typeoids{ $row->{typname} } = $row->{oid};
+		$types{ $row->{typname} }    = $row;
+	}
 }
 
 # Map catalog name to OID lookup.

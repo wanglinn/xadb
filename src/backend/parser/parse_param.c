@@ -164,7 +164,7 @@ variable_paramref_hook(ParseState *pstate, ParamRef *pref)
 	{
 #ifdef ADB_GRAM_ORA
 		if (IsOracleParseGram(pstate))
-			*pptype = VARCHAR2OID;
+			*pptype = ORACLE_VARCHAR2OID;
 		else
 #endif
 		*pptype = UNKNOWNOID;

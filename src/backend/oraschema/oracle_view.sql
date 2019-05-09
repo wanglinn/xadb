@@ -8,7 +8,7 @@
  */
 CREATE OR REPLACE VIEW oracle.dual ("DUMMY") AS
     SELECT
-        'X'::varchar2(1);
+        'X'::oracle.varchar2(1);
 
 CREATE RULE insert_dual AS ON INSERT TO oracle.dual DO INSTEAD NOTHING;
 CREATE RULE update_dual AS ON UPDATE TO oracle.dual DO INSTEAD NOTHING;
@@ -19,8 +19,8 @@ GRANT SELECT ON oracle.dual TO PUBLIC;
 CREATE OR REPLACE VIEW  oracle.dba_tables
 AS
 SELECT
-upper(nsp.nspname::text)::varchar2(30) AS owner,
-upper(cls.relname::text)::varchar2(30) AS table_name,
+upper(nsp.nspname::text)::oracle.varchar2(30) AS owner,
+upper(cls.relname::text)::oracle.varchar2(30) AS table_name,
 cls.reltuples AS  NUM_ROWS,
 cls.relpages AS  BLOCKS
 FROM pg_class cls
@@ -162,7 +162,7 @@ AS
 SELECT upper(con.table_schema::text) AS OWNER,
    upper(con.table_name::text) AS TABLE_NAME,
    upper(con.constraint_name::text) AS CONSTRAINT_NAME,
-   'P'::varchar2(10) AS CONSTRAINT_TYPE,
+   'P'::oracle.varchar2(10) AS CONSTRAINT_TYPE,
    upper(con.table_schema::text) AS INDEX_OWNER,
    upper(con.constraint_name::text) AS INDEX_NAME
   FROM information_schema.constraint_table_usage con
@@ -183,8 +183,8 @@ GRANT SELECT ON oracle.user_constraints TO PUBLIC;
 
 CREATE OR REPLACE VIEW  oracle.dba_objects
 AS
-SELECT upper(nsp.nspname::text)::varchar2(30) AS owner,
-    upper(c.relname::text)::varchar2(30) AS object_name,
+SELECT upper(nsp.nspname::text)::oracle.varchar2(30) AS owner,
+    upper(c.relname::text)::oracle.varchar2(30) AS object_name,
     CASE c.relkind
         WHEN 'r' THEN 'TABLE'
         WHEN 'v' THEN 'VIEW'
@@ -202,7 +202,7 @@ SELECT upper(nsp.nspname::text)::varchar2(30) AS owner,
   WHERE (nsp.nspname <> ALL (ARRAY['information_schema'::name, 'pg_catalog'::name]))
   AND nsp.nspname !~~ 'pg_toast%'::text
 UNION ALL
-SELECT upper(n.nspname::text)::varchar2(30) AS owner,
+SELECT upper(n.nspname::text)::oracle.varchar2(30) AS owner,
    upper(p.proname) AS object_name,
    CASE
        WHEN p.prorettype = 'pg_catalog.trigger'::pg_catalog.regtype THEN 'TRIGGER'

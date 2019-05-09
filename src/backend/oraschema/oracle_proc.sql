@@ -185,14 +185,14 @@ CREATE OR REPLACE FUNCTION oracle.new_time(tt timestamp with time zone, z1 text,
  */
 CREATE OR REPLACE FUNCTION oracle.next_day(oracle.date, text)
     RETURNS oracle.date
-    AS $$SELECT (oracle.ora_next_day($1::oracle.date, $2) + $1::time)::oracle.date;$$
+    AS $$SELECT (oracle.ora_next_day($1::date, $2) + $1::time)::oracle.date;$$
     LANGUAGE SQL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.next_day(timestamptz, text)
     RETURNS oracle.date
-    AS $$SELECT (oracle.ora_next_day($1::oracle.date, $2) + $1::time)::oracle.date;$$
+    AS $$SELECT (oracle.ora_next_day($1::date, $2) + $1::time)::oracle.date;$$
     LANGUAGE SQL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
@@ -669,7 +669,7 @@ CREATE OR REPLACE FUNCTION oracle.length(char)
  * Parameter Type: (varchar)
  * Parameter Type: (text)
  */
-CREATE OR REPLACE FUNCTION oracle.lengthb(varchar2)
+CREATE OR REPLACE FUNCTION oracle.lengthb(oracle.varchar2)
     RETURNS integer
     AS 'byteaoctetlen'
     LANGUAGE INTERNAL
@@ -680,23 +680,23 @@ CREATE OR REPLACE FUNCTION oracle.lengthb(varchar2)
 /* string functions for varchar2 type
  * these are 'byte' versions of corresponsing text/varchar functions
  */
-CREATE OR REPLACE FUNCTION oracle.substrb(varchar2, integer)
-    RETURNS varchar2
+CREATE OR REPLACE FUNCTION oracle.substrb(oracle.varchar2, integer)
+    RETURNS oracle.varchar2
     AS 'bytea_substr_no_len'
     LANGUAGE INTERNAL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
     STRICT;
 
-CREATE OR REPLACE FUNCTION oracle.substrb(varchar2, integer, integer)
-    RETURNS varchar2
+CREATE OR REPLACE FUNCTION oracle.substrb(oracle.varchar2, integer, integer)
+    RETURNS oracle.varchar2
     AS 'bytea_substr'
     LANGUAGE INTERNAL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
     STRICT;
 
-CREATE OR REPLACE FUNCTION oracle.strposb(varchar2, varchar2)
+CREATE OR REPLACE FUNCTION oracle.strposb(oracle.varchar2, oracle.varchar2)
     RETURNS integer
     AS 'byteapos'
     LANGUAGE INTERNAL

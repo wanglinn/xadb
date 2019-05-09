@@ -283,7 +283,7 @@ exprType(const Node *expr)
 			type = INT8OID;
 			break;
 		case T_SysConnectByPathExpr:
-			type = VARCHAR2OID;
+			type = ORACLE_VARCHAR2OID;
 			break;
 		case T_ConnectByRootExpr:
 			type = exprType(((ConnectByRootExpr*)expr)->expr);
