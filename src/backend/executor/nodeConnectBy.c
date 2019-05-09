@@ -158,7 +158,7 @@ static TupleTableSlot *ExecTuplestoreConnectBy(PlanState *pstate)
 		if (!TupIsNull(inner_slot))
 		{
 			econtext->ecxt_innertuple = inner_slot;
-			econtext->ecxt_outertuple = NULL;
+			econtext->ecxt_outertuple = ExecClearTuple(cbstate->outer_slot);
 			tuplestore_puttupleslot(state->save_ts,
 									ExecProject(cbstate->pj_save_targetlist));
 			return ExecProject(pstate->ps_ProjInfo);
