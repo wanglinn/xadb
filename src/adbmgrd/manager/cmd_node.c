@@ -209,6 +209,7 @@ static bool exec_remove_coordinator(char *nodename);
 
 static bool get_local_ip(Name local_ip);
 extern HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, int32 nodeport, const char *nodepath, int64 nodesize);
+static void mgr_get_gtm_host_snapsender_port(StringInfo infosendmsg);
 
 #if (Natts_mgr_node != 11)
 #error "need change code"
@@ -5900,6 +5901,12 @@ void mgr_add_parameters_pgsqlconf(Oid tupleOid, char nodetype, int cndnport, Str
 	mgr_append_pgconf_paras_str_quotastr("log_destination", "csvlog", infosendparamsg);
 	mgr_append_pgconf_paras_str_str("logging_collector", "on", infosendparamsg);
 	mgr_append_pgconf_paras_str_quotastr("log_directory", "pg_log", infosendparamsg);
+	if(nodetype == CNDN_TYPE_DATANODE_MASTER
+		|| nodetype == CNDN_TYPE_DATANODE_SLAVE
+		|| nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+	{
+		mgr_get_gtm_host_snapsender_port(infosendparamsg);
+	}
 }
 
 /*
@@ -11998,4 +12005,51 @@ bool get_active_node_info(const char node_type, const char *node_name, AppendNod
 	heap_close(info->rel_node, AccessShareLock);
 	pfree(info);
 	return true;
+}
+
+/*
+* read gtm_port gtm_host from system table:gtm, add agtm_host, snapsender_port to infosendmsg
+* ,use '\0' to interval
+*/
+static void
+mgr_get_gtm_host_snapsender_port(StringInfo infosendmsg)
+{
+	char *gtm_host = NULL;
+	Relation rel_node;
+	HeapScanDesc rel_scan;
+	Form_mgr_node mgr_node;
+	ScanKeyData key[2];
+	HeapTuple tuple;
+	Oid snapsender_port;
+
+	/*get the gtm_port, gtm_host*/
+	ScanKeyInit(&key[0]
+				, Anum_mgr_node_nodetype
+				, BTEqualStrategyNumber
+				, F_CHAREQ
+				, CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
+	ScanKeyInit(&key[1]
+				, Anum_mgr_node_nodezone
+				, BTEqualStrategyNumber
+				, F_NAMEEQ
+				, CStringGetDatum(mgr_zone));
+	rel_node = heap_open(NodeRelationId, AccessShareLock);
+	rel_scan = heap_beginscan_catalog(rel_node, 2, key);
+	while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		gtm_host = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		snapsender_port = mgr_node->nodeport+1;
+		break;
+	}
+	heap_endscan(rel_scan);
+	heap_close(rel_node, AccessShareLock);
+	if (!gtm_host)
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+		, errmsg("the type of gmt_coord for coordinator does not exist")));
+
+	mgr_append_pgconf_paras_str_quotastr("agtm_host", gtm_host, infosendmsg);
+	mgr_append_pgconf_paras_str_int("snapsender_port", snapsender_port, infosendmsg);
+	pfree(gtm_host);
 }
