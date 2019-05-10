@@ -140,6 +140,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 		slist_push_head(&state->slist_level, &leaf->snode);
 	}
 	cbstate->level = 1L;
+	cbstate->rescan_reader = -1;
 	cbstate->processing_root = true;
 
 	return cbstate;
@@ -386,7 +387,53 @@ void ExecEndConnectBy(ConnectByState *node)
 
 void ExecReScanConnectBy(ConnectByState *node)
 {
-	elog(ERROR, "not support ExecReScanConnectBy yet!");
+	PlanState *outer_ps = outerPlanState(node);
+
+	ExecClearTuple(node->ps.ps_ResultTupleSlot);
+
+	node->processing_root = true;
+	node->level = 1L;
+	if (castNode(ConnectByPlan, node->ps.plan)->numCols == 0)
+	{
+		TuplestoreConnectByState *state = node->private_state;
+		tuplestore_clear(state->save_ts);
+		tuplestore_clear(state->scan_ts);
+	}else
+	{
+		slist_node *slistnode;
+		TuplestoreConnectByLeaf *leaf;
+		TuplesortConnectByState *state = node->private_state;
+		while (slist_is_empty(&state->slist_level) == false)
+		{
+			slistnode = slist_pop_head_node(&state->slist_level);
+			slist_push_head(&state->slist_idle, slistnode);
+			leaf = slist_container(TuplestoreConnectByLeaf, snode, slistnode);
+			tuplesort_end(leaf->scan_ts);
+			leaf->scan_ts = NULL;
+			if (leaf->outer_tup)
+			{
+				pfree(leaf->outer_tup);
+				leaf->outer_tup = NULL;
+			}
+		}
+	}
+	if (outer_ps->chgParam != NULL)
+	{
+		if (node->hs)
+			hashstore_clear(node->hs);
+		else
+			tuplestore_clear(node->ts);
+		node->is_rescan = false;
+		node->eof_underlying = false;
+		ExecReScan(outer_ps);
+	}else
+	{
+		if (node->hs)
+			node->rescan_reader = hashstore_begin_seq_read(node->hs);
+		else
+			tuplestore_rescan(node->ts);
+		node->is_rescan = true;
+	}
 }
 
 static ExprState *makeHashExprState(Expr *expr, Oid hash_oid, PlanState *ps)
@@ -442,20 +489,47 @@ static TupleTableSlot* ExecConnectByStartWith(ConnectByState *ps)
 #endif
 	for(;;)
 	{
-		ResetExprContext(econtext);
-		slot = ExecProcNode(outer_ps);
-		if (TupIsNull(slot))
-			break;
-
-		if (hs)
+		if (ps->is_rescan)
 		{
-			econtext->ecxt_innertuple = slot;
-			hashvalue = getHashValue(ps->right_hashfuncs, econtext);
-			hashstore_put_tupleslot(hs, slot, hashvalue);
-			econtext->ecxt_innertuple = NULL;
+			slot = ps->inner_slot;
+			if (hs)
+				hashstore_next_slot(hs, slot, ps->rescan_reader, false);
+			else
+				tuplestore_gettupleslot(outer_ts, true, false, slot);
+			if (TupIsNull(slot))
+			{
+				if (hs)
+				{
+					hashstore_end_read(hs, ps->rescan_reader);
+					ps->rescan_reader = INVALID_HASHSTORE_READER;
+				}
+				ps->is_rescan = false;
+				continue;	/* try is is eof underlying? */
+			}
+		}else if (ps->eof_underlying == false)
+		{
+			ResetExprContext(econtext);
+			slot = ExecProcNode(outer_ps);
+			if (TupIsNull(slot))
+			{
+				ps->eof_underlying = true;
+				break;
+			}
+
+			if (hs)
+			{
+				econtext->ecxt_innertuple = slot;
+				hashvalue = getHashValue(ps->right_hashfuncs, econtext);
+				hashstore_put_tupleslot(hs, slot, hashvalue);
+				econtext->ecxt_innertuple = NULL;
+			}else
+			{
+				tuplestore_puttupleslot(outer_ts, slot);
+			}
 		}else
 		{
-			tuplestore_puttupleslot(outer_ts, slot);
+			/* not in rescan and eof underlying */
+			break;
 		}
 
 		econtext->ecxt_outertuple = slot;

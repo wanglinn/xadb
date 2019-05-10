@@ -2375,6 +2375,9 @@ typedef struct ConnectByState
 	ProjectionInfo	   *pj_save_targetlist;
 	void			   *private_state;
 	int64				level;
+	int					rescan_reader;		/* valid if is_rescan and using hashstore */
+	bool				is_rescan;
+	bool				eof_underlying;
 	bool				processing_root;
 }ConnectByState;
 #endif /* ADB_GRAM_ORA */
