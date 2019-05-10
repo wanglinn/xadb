@@ -2712,16 +2712,16 @@ Character:
 		}
 	| VARCHAR2
 		{
-			$$ = SystemTypeNameLocation("varchar2", @1);
+			$$ = OracleTypeNameLocation("varchar2", @1);
 		}
 	| VARCHAR2 '(' Iconst opt_byte_char ')'
 		{
-			$$ = SystemTypeNameLocation("varchar2", @1);
+			$$ = OracleTypeNameLocation("varchar2", @1);
 			$$->typmods = list_make1(makeIntConst($3, @3));
 		}
 	| NVARCHAR2 '(' Iconst ')'
 		{
-			$$ = SystemTypeNameLocation("nvarchar2", @1);
+			$$ = OracleTypeNameLocation("nvarchar2", @1);
 			$$->typmods = list_make1(makeIntConst($3, @3));
 		}
 	| CHAR_P '(' Iconst opt_byte_char ')'
