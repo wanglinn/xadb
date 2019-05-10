@@ -1894,14 +1894,18 @@ ExplainNode(PlanState *planstate, List *ancestors,
 #ifdef ADB_GRAM_ORA
 		case T_ConnectByPlan:
 			if (((ConnectByPlan*)plan)->start_with)
+			{
 				show_upper_qual(((ConnectByPlan*)plan)->start_with, "Start With", planstate, ancestors, es);
-			show_upper_qual(plan->qual, "Connect By", planstate, ancestors, es);
-			if (bms_is_empty(((ConnectByPlan*)plan)->hash_quals) == false)
+				show_instrumentation_count("Rows Removed by Start With", 2, planstate, es);
+			}
+			show_upper_qual(((ConnectByPlan*)plan)->join_quals, "Connect By", planstate, ancestors, es);
+			if (es->verbose &&
+				bms_is_empty(((ConnectByPlan*)plan)->hash_quals) == false)
 			{
 				List *quals = NIL;
 				ListCell *lc;
 				int i;
-				for (i=0,lc=list_head(plan->qual);lc!=NULL;lc=lnext(lc),++i)
+				for (i=0,lc=list_head(((ConnectByPlan*)plan)->join_quals);lc!=NULL;lc=lnext(lc),++i)
 				{
 					if (bms_is_member(i, ((ConnectByPlan*)plan)->hash_quals))
 						quals = lappend(quals, lfirst(lc));
@@ -1924,6 +1928,12 @@ ExplainNode(PlanState *planstate, List *ancestors,
 									 ancestors,
 									 es);
 				plan->targetlist = tmp_list;
+			}
+			if (plan->qual)
+			{
+				show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
+				show_instrumentation_count("Rows Removed by Filter", 1,
+										   planstate, es);
 			}
 			break;
 #endif /* ADB_GRAM_ORA */

@@ -4604,7 +4604,8 @@ static RelOptInfo *create_connect_by_paths(PlannerInfo *root,
 	if (input_rel->consider_parallel &&
 		target_parallel_safe &&
 		is_parallel_safe(root, connect_by->start_with) &&
-		is_parallel_safe(root, connect_by->connect_by))
+		is_parallel_safe(root, connect_by->connect_by) &&
+		is_parallel_safe(root, (Node*)connect_rel->baserestrictinfo))
 		connect_rel->consider_parallel = true;
 
 	connect_rel->rows = input_rel->rows;
@@ -6517,6 +6518,15 @@ static PathTarget *make_connect_by_input_target(PlannerInfo *root,
 	if (connect_by->sortClause != NIL)
 	{
 		base_vars = pull_var_clause((Node*)connect_by->sort_tlist, PVC_INCLUDE_PLACEHOLDERS);
+		add_new_columns_to_pathtarget(input_target, base_vars);
+		list_free(base_vars);
+	}
+
+	if (root->parse->jointree &&
+		IsA(root->parse->jointree, FromExpr))
+	{
+		FromExpr *f = (FromExpr*)root->parse->jointree;
+		base_vars = pull_var_clause(f->quals, PVC_INCLUDE_PLACEHOLDERS);
 		add_new_columns_to_pathtarget(input_target, base_vars);
 		list_free(base_vars);
 	}

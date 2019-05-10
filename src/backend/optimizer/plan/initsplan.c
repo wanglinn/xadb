@@ -871,6 +871,38 @@ deconstruct_recurse(PlannerInfo *root, Node *jtnode, bool below_outer_join,
 		/*
 		 * Now process the top-level quals.
 		 */
+#ifdef ADB_GRAM_ORA
+		if (f->quals &&
+			root->parse->connect_by)
+		{
+			/* top-level to connect qual */
+			RestrictInfo *ri;
+			RelOptInfo *rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
+			List *baserestrictinfo = NIL;
+			List *vars = pull_var_clause(f->quals, PVC_INCLUDE_PLACEHOLDERS);
+
+			if (vars)
+			{
+				add_vars_to_targetlist(root, vars, bms_make_singleton(0), true);
+				list_free(vars);
+			}
+
+			foreach(l, (List*) f->quals)
+			{
+				/* like make_simple_restrictinfo, but special security level */
+				ri = make_restrictinfo(lfirst(l),
+									   true,
+									   false,
+									   false,
+									   root->qual_security_level,
+									   NULL,
+									   NULL,
+									   NULL);
+				baserestrictinfo = lappend(baserestrictinfo, ri);
+			}
+			rel->baserestrictinfo = baserestrictinfo;
+		}else
+#endif /* ADB_GRAM_ORA */
 		foreach(l, (List *) f->quals)
 		{
 			Node	   *qual = (Node *) lfirst(l);
@@ -2687,20 +2719,10 @@ void deconstruct_connect_by(PlannerInfo *root, RelOptInfo *rel)
 	ListCell *lc;
 	List *list;
 	Query *parse = root->parse;
-	Assert(rel->joininfo == NIL && rel->baserestrictinfo == NIL);
+	Assert(rel->joininfo == NIL);
 	Assert(parse->connect_by != NULL && parse->connect_by->connect_by != NULL);
 
 	list = NIL;
-	if (parse->connect_by->start_with)
-	{
-		foreach(lc, castNode(List, parse->connect_by->start_with))
-		{
-			list = lappend(list, make_simple_restrictinfo(lfirst(lc)));
-		}
-		rel->baserestrictinfo = list;
-		list = NIL;
-	}
-
 	foreach(lc, castNode(List, parse->connect_by->connect_by))
 	{
 		list = lappend(list, make_connect_by_restrictinfo(lfirst(lc)));

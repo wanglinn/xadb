@@ -7637,7 +7637,7 @@ static ConnectByPlan *create_connect_by_plan(PlannerInfo *root, ConnectByPath *p
 	for (i=0,lc=list_head(list);lc!=NULL;lc=lnext(lc))
 	{
 		RestrictInfo *ri = lfirst_node(RestrictInfo, lc);
-		plan->plan.qual = lappend(plan->plan.qual, ri->clause);
+		plan->join_quals = lappend(plan->join_quals, ri->clause);
 		if (ri->can_join &&
 			OidIsValid(ri->hashjoinoperator))
 		{
@@ -7647,7 +7647,9 @@ static ConnectByPlan *create_connect_by_plan(PlannerInfo *root, ConnectByPath *p
 	}
 
 	list = order_qual_clauses(root, path->path.parent->baserestrictinfo);
-	plan->start_with = extract_actual_clauses(list, false);
+	plan->plan.qual = extract_actual_clauses(list, false);
+
+	plan->start_with = castNode(List, root->parse->connect_by->start_with);
 
 	copy_generic_path_info(&plan->plan, &path->path);
 	plan->num_buckets = path->num_buckets;

@@ -73,7 +73,8 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 	cbstate->inner_slot = ExecInitExtraTupleSlot(estate, input_desc);
 
 	cbstate->start_with = ExecInitQual(node->start_with, &cbstate->ps);
-	cbstate->joinclause = ExecInitQual(node->plan.qual, &cbstate->ps);
+	cbstate->ps.qual = ExecInitQual(node->plan.qual, &cbstate->ps);
+	cbstate->joinclause = ExecInitQual(node->join_quals, &cbstate->ps);
 	if (bms_is_empty(node->hash_quals) == false)
 	{
 		ListCell   *lc;
@@ -82,7 +83,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 		Oid			right_hash;
 		int			i;
 
-		for (i=0,lc=list_head(node->plan.qual);lc!=NULL;lc=lnext(lc),++i)
+		for (i=0,lc=list_head(node->join_quals);lc!=NULL;lc=lnext(lc),++i)
 		{
 			if (bms_is_member(i, node->hash_quals) == false)
 				continue;
@@ -154,6 +155,7 @@ static TupleTableSlot *ExecTuplestoreConnectBy(PlanState *pstate)
 
 	if (cbstate->processing_root)
 	{
+reget_start_with_:
 		inner_slot = ExecConnectByStartWith(cbstate);
 		if (!TupIsNull(inner_slot))
 		{
@@ -161,7 +163,13 @@ static TupleTableSlot *ExecTuplestoreConnectBy(PlanState *pstate)
 			econtext->ecxt_outertuple = ExecClearTuple(cbstate->outer_slot);
 			tuplestore_puttupleslot(state->save_ts,
 									ExecProject(cbstate->pj_save_targetlist));
-			return ExecProject(pstate->ps_ProjInfo);
+			if (pstate->qual == NULL ||
+				ExecQual(pstate->qual, econtext))
+			{
+				return ExecProject(pstate->ps_ProjInfo);
+			}
+			InstrCountFiltered1(pstate, 1);
+			goto reget_start_with_;
 		}
 
 		state->inner_ateof = true;
@@ -224,7 +232,12 @@ re_get_tuplestore_connect_by_:
 		{
 			tuplestore_puttupleslot(state->save_ts,
 									ExecProject(cbstate->pj_save_targetlist));
-			return ExecProject(pstate->ps_ProjInfo);
+			if (pstate->qual == NULL ||
+				ExecQual(pstate->qual, econtext))
+			{
+				return ExecProject(pstate->ps_ProjInfo);
+			}
+			InstrCountFiltered1(pstate, 1);
 		}
 	}
 
@@ -246,6 +259,7 @@ static TupleTableSlot *ExecTuplesortConnectBy(PlanState *pstate)
 	TupleTableSlot *inner_slot;
 	TupleTableSlot *sort_slot;
 	TupleTableSlot *save_slot;
+	TupleTableSlot *result_slot;
 	TuplestoreConnectByLeaf *leaf;
 
 	if (cbstate->processing_root)
@@ -307,9 +321,17 @@ re_get_tuplesort_connect_by_:
 	}
 	econtext->ecxt_outertuple = outer_slot;
 	econtext->ecxt_innertuple = sort_slot;
-	ExecProject(pstate->ps_ProjInfo);
-	/* function GetNextTuplesortLeaf well free Datum, so we need materialize result */
-	ExecMaterializeSlot(pstate->ps_ResultTupleSlot);
+	if (pstate->qual == NULL ||
+		ExecQual(pstate->qual, econtext))
+	{
+		result_slot = ExecProject(pstate->ps_ProjInfo);
+		/* function GetNextTuplesortLeaf well free Datum, so we need materialize result */
+		ExecMaterializeSlot(pstate->ps_ResultTupleSlot);
+	}else
+	{
+		InstrCountFiltered1(pstate, 1);
+		result_slot = ExecClearTuple(pstate->ps_ResultTupleSlot);
+	}
 
 	save_slot = ExecProject(cbstate->pj_save_targetlist);
 	++(cbstate->level);
@@ -318,6 +340,9 @@ re_get_tuplesort_connect_by_:
 		slist_push_head(&state->slist_level, &leaf->snode);
 	else
 		--(cbstate->level);
+
+	if (TupIsNull(result_slot))
+		goto re_get_tuplesort_connect_by_;	/* removed by qual */
 
 	return pstate->ps_ResultTupleSlot;
 }
@@ -407,6 +432,7 @@ static TupleTableSlot* ExecConnectByStartWith(ConnectByState *ps)
 	PlanState	   *outer_ps = outerPlanState(ps);
 	ExprContext	   *econtext = ps->ps.ps_ExprContext;
 	TupleTableSlot *slot;
+	uint64			removed = 0;
 	uint32			hashvalue;
 
 #ifdef USE_ASSERT_CHECKING
@@ -436,10 +462,13 @@ static TupleTableSlot* ExecConnectByStartWith(ConnectByState *ps)
 		if (ps->start_with == NULL ||
 			ExecQual(ps->start_with, econtext))
 		{
+			InstrCountFiltered2(ps, removed);
 			return slot;
 		}
+		++removed;
 	}
 
+	InstrCountFiltered2(ps, removed);
 	return NULL;
 }
 
