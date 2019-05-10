@@ -59,6 +59,7 @@ typedef struct HashReader
 	OffsetNumber	cur_offset;
 	OffsetNumber	max_offset;
 	bool			is_idle;
+	bool			is_seq;		/* is sequence read? */
 	uint32			hashvalue;
 	StringInfoData	buf;
 }HashReader;
@@ -120,10 +121,8 @@ void hashstore_put_tupleslot(Hashstorestate *state, TupleTableSlot *slot, uint32
 	hashstore_put_mintuple(state, ExecFetchSlotMinimalTuple(slot), hashvalue);
 }
 
-int hashstore_begin_read(Hashstorestate *state, uint32 hashvalue)
+static int hashstore_alloc_reader(Hashstorestate *state)
 {
-	HashReader *reader;
-	HashBucketHead *head;
 	int ptr;
 	int i;
 
@@ -158,6 +157,16 @@ int hashstore_begin_read(Hashstorestate *state, uint32 hashvalue)
 		MemoryContextSwitchTo(old_context);
 	}
 
+	return ptr;
+}
+
+int hashstore_begin_read(Hashstorestate *state, uint32 hashvalue)
+{
+	HashReader *reader;
+	HashBucketHead *head;
+	int ptr;
+
+	ptr = hashstore_alloc_reader(state);
 	Assert(ptr > 0);
 	reader = &(state->reader[ptr-1]);
 	Assert(reader->is_idle);
@@ -175,6 +184,28 @@ int hashstore_begin_read(Hashstorestate *state, uint32 hashvalue)
 	reader->max_offset = FirstOffsetNumber;
 	reader->hashvalue = hashvalue;
 	reader->is_idle = false;
+	reader->is_seq = false;
+
+	return ptr;
+}
+
+int hashstore_begin_seq_read(Hashstorestate *state)
+{
+	HashReader *reader;
+	int ptr;
+
+	ptr = hashstore_alloc_reader(state);
+	Assert(ptr > 0);
+	reader = &(state->reader[ptr-1]);
+	Assert(reader->is_idle);
+
+	reader->next_block = 0;
+	reader->cur_block = InvalidBlockNumber;
+	reader->cur_offset = MaxOffsetNumber;
+	reader->max_offset = FirstOffsetNumber;
+	reader->hashvalue = 0;
+	reader->is_idle = false;
+	reader->is_seq = true;
 
 	return ptr;
 }
@@ -203,13 +234,17 @@ TupleTableSlot* hashstore_next_slot(Hashstorestate *state, TupleTableSlot *slot,
 re_get_:
 	if (hr->cur_offset > hr->max_offset)
 	{
-		if (hr->next_block == InvalidBlockNumber)
+		if (hr->next_block == InvalidBlockNumber ||
+			hr->next_block >= state->next_block)
 			return ExecClearTuple(slot);
 		hr->cur_block = hr->next_block;
 		desc = hashstore_read_page(state, hr->cur_block);
 		Assert(desc->tag == hr->cur_block);
 		page = HashStoreBufferIdGetPage(state, desc->buf_id);
-		hr->next_block = hashstore_page_get_next_block(page);
+		if (hr->is_seq)
+			++(hr->next_block);
+		else
+			hr->next_block = hashstore_page_get_next_block(page);
 		hr->cur_offset = FirstOffsetNumber;
 		hr->max_offset = PageGetMaxOffsetNumber(page);
 	}
@@ -219,7 +254,9 @@ re_get_:
 	hr->buf.len = HASH_VALUE_OFFSET;
 	hashstore_get_data(state, hr, &hr->buf);
 	phashvalue = (uint32*)(&hr->buf.data[HASH_VALUE_OFFSET]);
-	if (*phashvalue != hr->hashvalue)
+	if (hr->is_seq)
+		hr->hashvalue = *phashvalue;
+	else if (*phashvalue != hr->hashvalue)
 		goto re_get_;
 
 	hr->cache_tuple = (MinimalTuple)(hr->buf.data);
@@ -229,6 +266,17 @@ re_get_:
 	if (copy)
 		return ExecStoreMinimalTuple(heap_copy_minimal_tuple(hr->cache_tuple), slot, true);
 	return ExecStoreMinimalTuple(hr->cache_tuple, slot, false);
+}
+
+uint32 hashstore_get_reader_hashvalue(Hashstorestate *state, int reader)
+{
+	HashReader *hr;
+	AssertArg(state && reader < state->max_reader);
+
+	hr = &(state->reader[reader-1]);
+	AssertArg(hr->is_idle == false);
+
+	return hr->hashvalue;
 }
 
 void hashstore_clear(Hashstorestate *state)
