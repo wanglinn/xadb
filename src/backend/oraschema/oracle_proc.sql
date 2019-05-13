@@ -122,9 +122,9 @@ CREATE OR REPLACE FUNCTION oracle.instr(str text, patt text, start int default 1
 /*
  * Function: ADD_MONTHS
  */
-CREATE FUNCTION oracle.add_months(TIMESTAMP WITH TIME ZONE, INTEGER)
+CREATE OR REPLACE FUNCTION oracle.add_months(TIMESTAMP WITH TIME ZONE, INTEGER)
      RETURNS TIMESTAMP
-     AS $$SELECT oracle.add_months($1::oracle.date, $2) + $1::pg_catalog.time;$$
+     AS $$SELECT oracle.add_months($1::pg_catalog.date, $2) + $1::pg_catalog.time;$$
      LANGUAGE SQL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
@@ -135,7 +135,7 @@ CREATE FUNCTION oracle.add_months(TIMESTAMP WITH TIME ZONE, INTEGER)
  */
 CREATE OR REPLACE FUNCTION oracle.last_day(TIMESTAMP WITH TIME ZONE)
     RETURNS oracle.date
-    AS $$SELECT (oracle.last_day($1::oracle.date) + $1::time)::oracle.date;$$
+    AS $$SELECT (oracle.last_day($1::pg_catalog.date) + $1::time)::oracle.date;$$
     LANGUAGE SQL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
@@ -144,9 +144,9 @@ CREATE OR REPLACE FUNCTION oracle.last_day(TIMESTAMP WITH TIME ZONE)
 /*
  * Function: months_between
  */
-CREATE FUNCTION oracle.months_between(TIMESTAMP WITH TIME ZONE, TIMESTAMP WITH TIME ZONE)
+CREATE OR REPLACE FUNCTION oracle.months_between(TIMESTAMP WITH TIME ZONE, TIMESTAMP WITH TIME ZONE)
     RETURNS NUMERIC
-    AS $$SELECT oracle.months_between($1::oracle.date, $2::oracle.date);$$
+    AS $$SELECT oracle.months_between($1::pg_catalog.date, $2::pg_catalog.date);$$
     LANGUAGE SQL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
