@@ -2172,7 +2172,7 @@ static PriorExpr* _copyPriorExpr(const PriorExpr *from)
 	PriorExpr *newnode = makeNode(PriorExpr);
 
 	COPY_LOCATION_FIELD(location);
-	COPY_SCALAR_FIELD(expr);
+	COPY_NODE_FIELD(expr);
 
 	return newnode;
 }
