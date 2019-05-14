@@ -196,6 +196,13 @@ build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
 		add_vars_to_targetlist(root, vars, where_needed, true);
 		list_free(vars);
 
+		vars = pull_var_clause((Node*)connect_by->sort_tlist, PVC_INCLUDE_PLACEHOLDERS);
+		if (vars)
+		{
+			add_vars_to_targetlist(root, vars, where_needed, true);
+			list_free(vars);
+		}
+
 		if (rel->baserestrictinfo)
 		{
 			ListCell *lc;
