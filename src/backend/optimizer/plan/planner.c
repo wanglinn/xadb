@@ -866,6 +866,28 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	if (parse->cteList)
 		SS_process_ctes(root);
 
+#ifdef ADB_GRAM_ORA
+	if (parse->connect_by)
+	{
+		Node *quals = NULL;
+		RelOptInfo *rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
+		OracleConnectBy *connect_by = parse->connect_by;
+		FromExpr *f = castNode(FromExpr, parse->jointree);
+		connect_by->start_with = preprocess_expression(root,
+													   connect_by->start_with,
+													   EXPRKIND_QUAL);
+		connect_by->connect_by = preprocess_expression(root,
+													   connect_by->connect_by,
+													   EXPRKIND_QUAL);
+		if (f->quals)
+		{
+			quals = preprocess_expression(root, f->quals, EXPRKIND_QUAL);
+			f->quals = NULL;
+		}
+		deconstruct_connect_by(root, rel, castNode(List, quals));
+	}
+#endif /* ADB_GRAM_ORA */
+
 	/*
 	 * Look for ANY and EXISTS SubLinks in WHERE and JOIN/ON clauses, and try
 	 * to transform them into joins.  Note that this step does not descend
@@ -1108,19 +1130,6 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 												 EXPRKIND_QUAL);
 		}
 	}
-
-#ifdef ADB_GRAM_ORA
-	if (parse->connect_by)
-	{
-		OracleConnectBy *connect_by = parse->connect_by;
-		connect_by->start_with = preprocess_expression(root,
-													   connect_by->start_with,
-													   EXPRKIND_QUAL);
-		connect_by->connect_by = preprocess_expression(root,
-													   connect_by->connect_by,
-													   EXPRKIND_QUAL);
-	}
-#endif /* ADB_GRAM_ORA */
 
 	/*
 	 * Now that we are done preprocessing expressions, and in particular done
@@ -4598,7 +4607,6 @@ static RelOptInfo *create_connect_by_paths(PlannerInfo *root,
 	/* create connect relation */
 	connect_rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
 	connect_rel->reltarget = target;
-	deconstruct_connect_by(root, connect_rel);
 
 	/* set is parallel safe */
 	if (input_rel->consider_parallel &&

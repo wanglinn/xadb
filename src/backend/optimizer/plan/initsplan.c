@@ -184,6 +184,7 @@ build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
 	{
 		Bitmapset *where_needed = bms_make_singleton(0);
 		OracleConnectBy *connect_by = root->parse->connect_by;
+		RelOptInfo *rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
 		List *vars = pull_var_clause(connect_by->start_with, PVC_INCLUDE_PLACEHOLDERS);
 		if (vars)
 		{
@@ -194,6 +195,21 @@ build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
 		vars = pull_var_clause(connect_by->connect_by, PVC_INCLUDE_PLACEHOLDERS);
 		add_vars_to_targetlist(root, vars, where_needed, true);
 		list_free(vars);
+
+		if (rel->baserestrictinfo)
+		{
+			ListCell *lc;
+			foreach(lc, rel->baserestrictinfo)
+			{
+				vars = pull_var_clause((Node*)lfirst_node(RestrictInfo, lc)->clause,
+									   PVC_INCLUDE_PLACEHOLDERS);
+				if (vars)
+				{
+					add_vars_to_targetlist(root, vars, where_needed, true);
+					list_free(vars);
+				}
+			}
+		}
 	}
 #endif /* ADB_GRAM_ORA */
 }
@@ -871,38 +887,6 @@ deconstruct_recurse(PlannerInfo *root, Node *jtnode, bool below_outer_join,
 		/*
 		 * Now process the top-level quals.
 		 */
-#ifdef ADB_GRAM_ORA
-		if (f->quals &&
-			root->parse->connect_by)
-		{
-			/* top-level to connect qual */
-			RestrictInfo *ri;
-			RelOptInfo *rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
-			List *baserestrictinfo = NIL;
-			List *vars = pull_var_clause(f->quals, PVC_INCLUDE_PLACEHOLDERS);
-
-			if (vars)
-			{
-				add_vars_to_targetlist(root, vars, bms_make_singleton(0), true);
-				list_free(vars);
-			}
-
-			foreach(l, (List*) f->quals)
-			{
-				/* like make_simple_restrictinfo, but special security level */
-				ri = make_restrictinfo(lfirst(l),
-									   true,
-									   false,
-									   false,
-									   root->qual_security_level,
-									   NULL,
-									   NULL,
-									   NULL);
-				baserestrictinfo = lappend(baserestrictinfo, ri);
-			}
-			rel->baserestrictinfo = baserestrictinfo;
-		}else
-#endif /* ADB_GRAM_ORA */
 		foreach(l, (List *) f->quals)
 		{
 			Node	   *qual = (Node *) lfirst(l);
@@ -2714,12 +2698,13 @@ check_hashjoinable(RestrictInfo *restrictinfo)
 }
 
 #ifdef ADB_GRAM_ORA
-void deconstruct_connect_by(PlannerInfo *root, RelOptInfo *rel)
+void deconstruct_connect_by(PlannerInfo *root, RelOptInfo *rel, List *quals)
 {
 	ListCell *lc;
 	List *list;
 	Query *parse = root->parse;
 	Assert(rel->joininfo == NIL);
+	Assert(rel->baserestrictinfo == NIL);
 	Assert(parse->connect_by != NULL && parse->connect_by->connect_by != NULL);
 
 	list = NIL;
@@ -2728,5 +2713,13 @@ void deconstruct_connect_by(PlannerInfo *root, RelOptInfo *rel)
 		list = lappend(list, make_connect_by_restrictinfo(lfirst(lc)));
 	}
 	rel->joininfo = list;
+
+	list = NIL;
+	foreach (lc, quals)
+	{
+		list = lappend(list,
+							make_simple_restrictinfo(lfirst(lc)));
+	}
+	rel->baserestrictinfo = list;
 }
 #endif /* ADB_GRAM_ORA */
