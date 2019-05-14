@@ -142,9 +142,7 @@ static const ClusterCustomExecInfo cluster_custom_execute[] =
 		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_vacuum, CLUSTER_CUSTOM_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeAlter, CLUSTER_CUSTOM_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeRemove, CLUSTER_CUSTOM_NEED_SEND_STAT)}
-		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterCreateShadowTable, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
-		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRedistShadowData, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
-		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterSwapShadowSourceTable, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRedistributeRelation, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
 	};
 
 static void set_cluster_display(const char *activity, bool force, ClusterCoordInfo *info);

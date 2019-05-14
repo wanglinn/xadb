@@ -509,7 +509,6 @@ static void ATExecEnableRowSecurity(Relation rel);
 static void ATExecDisableRowSecurity(Relation rel);
 static void ATExecForceNoForceRowSecurity(Relation rel, bool force_rls);
 #ifdef ADB
-static void AtExecDistributeBy(Relation rel, DistributeBy *options);
 static void AtExecSubCluster(Relation rel, PGXCSubCluster *options);
 static void AtExecAddNode(Relation rel, List *options);
 static void AtExecDeleteNode(Relation rel, List *options);
@@ -4167,8 +4166,55 @@ ATController(AlterTableStmt *parsetree,
 
 	/* Close the relation, but keep lock until commit */
 	relation_close(rel, NoLock);
-
 #ifdef ADB
+	if (redistribState && redistribState->canReduce)
+	{
+		ListCell *item;
+		ListCell *lcmd;
+		ListCell *ltab;
+		List *subcmds;
+		AlterTableCmd * cmd;
+		AlteredTableInfo *tab;
+		int pass;
+
+		for (pass = 0; pass < AT_NUM_PASSES; pass++)
+		{
+			foreach(ltab, wqueue)
+			{
+				tab = (AlteredTableInfo *) lfirst(ltab);
+				subcmds = tab->subcmds[pass];
+				if (subcmds == NIL)
+					continue;
+				else
+					break;
+			}
+		}
+
+		lcmd = list_head(subcmds);
+		cmd =  (AlterTableCmd *) lfirst(lcmd);
+
+		distrib_build_shadow_relation(redistribState, DISTRIB_COPY_TO);
+
+		ATRewriteCatalogs(&wqueue, lockmode);
+		if (need_rebuid_locator)
+		{
+			CacheInvalidateRelcache(rel);
+			RelationCacheInvalidateEntry(RelationGetRelid(rel));
+		}
+
+		distrib_rewrite_catalog_swap_file(redistribState, DISTRIB_COPY_FROM, cmd, lockmode);
+		foreach(item, redistribState->commands)
+		{
+			RedistribCommand *command = (RedistribCommand *)lfirst(item);
+			if (command->type == DISTRIB_REINDEX)
+				distrib_reindex(redistribState, command->execNodes);
+		}
+		FreeRedistribState(redistribState);
+		if (IsCnMaster())
+			RegisterPostAlterTableAction(ATPaddingAuxData, (void *) wqueue);
+	}
+	else
+	{
 	/* Perform pre-catalog-update redistribution operations */
 	PGXCRedistribTable(redistribState, CATALOG_UPDATE_BEFORE);
 #endif
@@ -4198,6 +4244,7 @@ ATController(AlterTableStmt *parsetree,
 	/* Phase 4: register alter table postoperations */
 	if (IsCnMaster())
 		RegisterPostAlterTableAction(ATPaddingAuxData, (void *) wqueue);
+	}
 #endif
 }
 
@@ -13593,7 +13640,7 @@ ATExecGenericOptions(Relation rel, List *options)
 /*
  * ALTER TABLE <name> DISTRIBUTE BY ...
  */
-static void
+void
 AtExecDistributeBy(Relation rel, DistributeBy *options)
 {
 	Oid relid;
@@ -16824,5 +16871,36 @@ checkTwoTblDistributebyType(Relation destRel, Relation sourceRel, bool checkByCo
 	}
 
 	return true;
+}
+
+void
+DistribRewriteCatalogs(AlterTableCmd *cmd, Oid childOID, LOCKMODE lockmode)
+{
+	Relation rel;
+
+	rel = heap_open(childOID, lockmode);
+
+	switch (cmd->subtype)
+	{
+		case AT_DistributeBy:
+			AtExecDistributeBy(rel, (DistributeBy *) cmd->def);
+			break;
+		case AT_SubCluster:
+			AtExecSubCluster(rel, (PGXCSubCluster *) cmd->def);
+			break;
+		case AT_AddNodeList:
+			AtExecAddNode(rel, (List *) cmd->def);
+			break;
+		case AT_DeleteNodeList:
+			AtExecDeleteNode(rel, (List *) cmd->def);
+			break;
+		default: /* oops */
+			heap_close(rel, lockmode);
+			elog(ERROR, "unrecognized alter table type: %d",
+				 (int)cmd->subtype);
+			break;
+	}
+
+	heap_close(rel, lockmode);
 }
 #endif
