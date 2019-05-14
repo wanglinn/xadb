@@ -5217,6 +5217,7 @@ _copyConnectByPlan(const ConnectByPlan *from)
 	COPY_POINTER_FIELD(nullsFirst, from->numCols * sizeof(bool));
 	COPY_SCALAR_FIELD(numCols);
 	COPY_SCALAR_FIELD(num_buckets);
+	COPY_NODE_FIELD(sort_targetlist);
 
 	return newnode;
 }
