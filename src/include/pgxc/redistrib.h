@@ -84,10 +84,19 @@ extern void FreeRedistribState(RedistribState *state);
 extern void FreeRedistribCommand(RedistribCommand *command);
 
 #ifdef ADB
-extern void ClusterCreateShadowTable(StringInfo buf);
-extern void ClusterRedistShadowData(StringInfo msg);
-extern void ClusterSwapShadowSourceTable(StringInfo msg);
-extern bool distrib_can_use_reduce(Relation rel, RelationLocInfo *oldLocInfo, RelationLocInfo *newLocInfo, List *subCmds);
+extern void ClusterRedistributeRelation(StringInfo buf);
+extern bool distrib_can_use_reduce(Relation rel
+				, RelationLocInfo *oldLocInfo
+				, RelationLocInfo *newLocInfo
+				, List *subCmds);
+extern void distrib_build_shadow_relation(RedistribState *distribState
+					, RedistribOperation commandType);
+extern void distrib_rewrite_catalog_swap_file(RedistribState *distribState
+					, RedistribOperation commandType
+					, AlterTableCmd *cmd
+					, LOCKMODE lockmode);
+extern void distrib_reindex(RedistribState *distribState, ExecNodes *exec_nodes);
+
 #endif
 
 #endif  /* REDISTRIB_H */
