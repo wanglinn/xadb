@@ -170,7 +170,7 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 // %type <boolean>	opt_pretty
 %type <list>	dataNameList
 
-%type <list>	general_options opt_general_options general_option_list HbaParaList
+%type <list>	general_options opt_general_options general_option_list
 				AConstList targetList ObjList var_list NodeConstList set_parm_general_options
 				OptRoleList name_list privilege_list username_list hostname_list
 				AlterOptRoleList slot_value_list slot_in_value_list
@@ -1945,11 +1945,30 @@ AddHbaStmt:
 	}
 	;
 
-DropHbaStmt:
-	DROP HBA set_ident HbaParaList
+DropHbaStmt: 
+	DROP HBA GTM set_ident '(' NodeConstList ')'
 	{
 		SelectStmt *stmt = makeNode(SelectStmt);
-		List *args = lappend($4, makeStringConst($3,@3));
+		List *args = lappend($6, makeStringConst($4,@4));
+		args = lappend(args, makeIntConst(CNDN_TYPE_GTM,@3));
+		stmt->targetList = list_make1(make_star_target(-1));
+		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_drop_hba", args));
+		$$ = (Node*)stmt;
+	}
+	|	DROP HBA COORDINATOR set_ident '(' NodeConstList ')'
+	{
+		SelectStmt *stmt = makeNode(SelectStmt);
+		List *args = lappend($6, makeStringConst($4,@4));
+		args = lappend(args, makeIntConst(CNDN_TYPE_COORDINATOR,@3));
+		stmt->targetList = list_make1(make_star_target(-1));
+		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_drop_hba", args));
+		$$ = (Node*)stmt;
+	}
+	|	DROP HBA DATANODE set_ident '(' NodeConstList ')'
+	{
+		SelectStmt *stmt = makeNode(SelectStmt);
+		List *args = lappend($6, makeStringConst($4,@4));
+		args = lappend(args, makeIntConst(CNDN_TYPE_DATANODE,@3));
 		stmt->targetList = list_make1(make_star_target(-1));
 		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_drop_hba", args));
 		$$ = (Node*)stmt;
@@ -1971,11 +1990,6 @@ ListHbaStmt:
 		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_list_hba_by_name", $3));
 		$$ = (Node*)stmt;
 	}
-	;
-
-HbaParaList:
-	'(' NodeConstList ')' 	{$$ = $2;}
-	| /*empty*/             {$$ = NIL;}
 	;
 
 /*hba end*/

@@ -12,7 +12,7 @@ ADB documentation
 
   <refnamediv>
     <refname>DROP HBA</refname>
-    <refpurpose>drop the content from the hba table. The hba_value format "conntype database user ip mask method".</refpurpose>
+    <refpurpose>drop the content from the hba table and postgresql.conf, the hba_value format "conntype database user ip mask method".</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-drophba">
@@ -20,14 +20,20 @@ ADB documentation
   </indexterm>
 
   <refsynopsisdiv>
-    <synopsis>
-DROP HBA { ALL | nodename } [ ( "hba_value" [, ...] ) ]
+  <synopsis>
+DROP HBA GTM { ALL | nodename } ( "hba_value" )
+DROP HBA COORDINATOR { ALL | nodename } ( "hba_value" )
+DROP HBA DATANODE { ALL | nodename } ( "hba_value" )
+
+<phrase>where hba_value must be the following:</phrase>
+
+    host database user IP-address IP-mask auth-method
 </synopsis>
 </refsynopsisdiv>
   <refsect1>
     <title>Description</title>
     <para>
-   <command>DROP HBA</command> drop the content from the hba table,and it's alse delete from the pg_hba.conf file.
+   <command>DROP HBA</command> drop the content to the hba table,and it's alse drop it in pg_hba.conf file.
 The hba_value must be the format "conntype database user ip mask method".
     </para>
   </refsect1>
@@ -35,13 +41,13 @@ The hba_value must be the format "conntype database user ip mask method".
   <refsect1>
     <title>Examples</title>
   <para>
-   drop the specified content from all the pg_hba.conf file which own to coordinator:
+   drop the content to all coordinator's pg_hba.conf file:
 <programlisting>
-drop hba all("host postgres gz 10.14.23.100 32 trust","host postgres gz 10.14.23.101 trust");
+drop hba all("host postgres gz 10.14.23.100 32 trust","host postgres gz 10.14.23.101 24 trust");
 </programlisting>
   </para>
   <para>
-   rop the specified content from the coord1's pg_hba.conf file:
+   drop the content to the specified coordinator's pg_hba.conf file:
 <programlisting>
 drop hba coord1("host postgres mas 10.1.226.202 32 trust");
 </programlisting>
@@ -51,7 +57,7 @@ drop hba coord1("host postgres mas 10.1.226.202 32 trust");
     <title>See Also</title>
 
     <simplelist type="inline">
-      <member><xref linkend="mgr-addhba"></member>
+      <member><xref linkend="mgr-drophba"></member>
       <member><xref linkend="mgr-listhba"></member>
     </simplelist>
   </refsect1>

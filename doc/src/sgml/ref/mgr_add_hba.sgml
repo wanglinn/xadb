@@ -33,7 +33,7 @@ ADD HBA DATANODE { ALL | nodename } ( "hba_value" )
   <refsect1>
     <title>Description</title>
     <para>
-   <command>ADD HBA</command> add the content to the hba table,and it's alse add to pg_hba.conf file.
+   <command>ADD HBA</command> add the content to the hba table and postgresql.conf, and it's alse add to pg_hba.conf file.
 The hba_value must be the format "conntype database user ip mask method".
     </para>
   </refsect1>
