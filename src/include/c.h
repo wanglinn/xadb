@@ -83,6 +83,9 @@
 #undef ADB_MULTI_GRAM
 #endif
 
+/* This macro just to mark which code is ADB extension feature */
+#define ADB_EXT 1
+
 /* ----------------------------------------------------------------
  *				Section 1: compiler characteristics
  *
