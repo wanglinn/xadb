@@ -24,7 +24,7 @@ static StringInfoData agtm_pq_buf = {NULL, 0, 0, 0};
 /* events */
 typedef struct AGTMWaitEventData AGTMWaitEventData;
 typedef int (*OnAGTMEventFunction)(WaitEvent *event, StringInfo buf);
-typedef void (*OnAGTMPreWaitEventFunction)(AGTMWaitEventData *data, int pos);
+typedef int (*OnAGTMPreWaitEventFunction)(AGTMWaitEventData *data, int pos, StringInfo inBuf);
 struct AGTMWaitEventData
 {
 	OnAGTMEventFunction event_func;
@@ -49,9 +49,9 @@ typedef struct AGTMNodeWaitEventData
 
 static int on_agtm_postmaster_death(WaitEvent *event, StringInfo buf);
 static int on_agtm_listen_event(WaitEvent *event, StringInfo buf);
-static void on_agtm_main_pre_event(AGTMWaitEventData* data, int pos);
+static int on_agtm_main_pre_event(AGTMWaitEventData* data, int pos, StringInfo buf);
 static int on_agtm_main_client_event(WaitEvent *event, StringInfo buf);
-static void on_agtm_node_pre_event(AGTMWaitEventData* data, int pos);
+static int on_agtm_node_pre_event(AGTMWaitEventData* data, int pos, StringInfo inBuf);
 static int on_agtm_node_client_event(WaitEvent *event, StringInfo buf);
 
 static const AGTMWaitEventData agtm_event_postmaster_death_data = {on_agtm_postmaster_death, NULL};
@@ -177,7 +177,9 @@ static int agtm_ReadCommand(StringInfo inBuf)
 			--nevent;
 			evd = GetWaitEventData(agtm_wait_event_set, nevent);
 			if (evd->pre_wait)
-				(*evd->pre_wait)(evd, nevent);
+				firstChar = (*evd->pre_wait)(evd, nevent, inBuf);
+			if (firstChar != 0)
+				goto end_try_node_;
 		}
 		/* pre_wait maybe remove itself */
 		if (agtm_event_cur_count <= AGTM_WAIT_EVENT_EXIT_SIZE)
@@ -274,10 +276,11 @@ static int on_agtm_listen_event(WaitEvent *event, StringInfo buf)
 	return 0;
 }
 
-static void on_agtm_main_pre_event(AGTMWaitEventData* data, int pos)
+static int on_agtm_main_pre_event(AGTMWaitEventData* data, int pos, StringInfo inBuf)
 {
 	AGTMMainWaitEventData *wed = (AGTMMainWaitEventData*)data;
 	int new_events;
+	int	firstChar;
 
 	Assert(GetWaitEventData(agtm_wait_event_set, pos) == data);
 	Assert(wed->base.pre_wait == on_agtm_main_pre_event);
@@ -288,7 +291,18 @@ static void on_agtm_main_pre_event(AGTMWaitEventData* data, int pos)
 		RemoveWaitEvent(agtm_wait_event_set, pos);
 		--agtm_event_cur_count;
 		pfree(wed);
-		return;
+		return 0;
+	}
+
+	/* have unread message ? */
+	firstChar = agtm_try_port_msg(inBuf);
+	if(firstChar == 'X')
+	{
+		wed->closing = true;
+	}else if(firstChar != 0)
+	{
+		pq_switch_to_socket();
+		return firstChar;
 	}
 
 	new_events = socket_is_send_pending() ? WL_SOCKET_WRITEABLE:WL_SOCKET_READABLE;
@@ -300,6 +314,7 @@ static void on_agtm_main_pre_event(AGTMWaitEventData* data, int pos)
 						NULL);
 		wed->cur_event = new_events;
 	}
+	return 0;
 }
 
 static int on_agtm_main_client_event(WaitEvent *event, StringInfo buf)
@@ -335,7 +350,7 @@ main_client_free_:
 	return 0;
 }
 
-static void on_agtm_node_pre_event(AGTMWaitEventData* data, int pos)
+static int on_agtm_node_pre_event(AGTMWaitEventData* data, int pos, StringInfo inBuf)
 {
 	AGTMNodeWaitEventData *wed = (AGTMNodeWaitEventData*)data;
 	pq_comm_node *node = wed->node;
@@ -349,7 +364,7 @@ static void on_agtm_node_pre_event(AGTMWaitEventData* data, int pos)
 		--agtm_event_cur_count;
 		pq_node_close(node);
 		pfree(wed);
-		return;
+		return 0;
 	}
 
 	new_event = send_pending ? WL_SOCKET_WRITEABLE:WL_SOCKET_READABLE;
@@ -361,6 +376,7 @@ static void on_agtm_node_pre_event(AGTMWaitEventData* data, int pos)
 						NULL);
 		wed->cur_event = new_event;
 	}
+	return 0;
 }
 
 static int on_agtm_node_client_event(WaitEvent *event, StringInfo buf)
