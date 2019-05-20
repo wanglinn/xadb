@@ -2443,6 +2443,9 @@ _equalFuncCall(const FuncCall *a, const FuncCall *b)
 	COMPARE_SCALAR_FIELD(agg_distinct);
 	COMPARE_SCALAR_FIELD(func_variadic);
 	COMPARE_NODE_FIELD(over);
+#ifdef ADB_EXT
+	COMPARE_NODE_FIELD(agg_keep);
+#endif /* ADB_EXT */
 	COMPARE_LOCATION_FIELD(location);
 
 	return true;
@@ -3232,6 +3235,20 @@ _equalMGRAlterHost(const MGRAlterHost *a, const MGRAlterHost *b)
 	return true;
 }
 #endif
+
+#ifdef ADB_EXT
+static KeepClause *
+_equalKeepClause(const KeepClause *a, const KeepClause *b)
+{
+	KeepClause *newnode = makeNode(KeepClause);
+
+	COMPARE_SCALAR_FIELD(rank_first);
+	COMPARE_NODE_FIELD(keep_order);
+	COMPARE_LOCATION_FIELD(location);
+
+	return newnode;
+}
+#endif /* ADB_EXT */
 
 /*
  * equal
@@ -4030,6 +4047,11 @@ equal(const void *a, const void *b)
 			retval = _equalMGRAlterHost(a, b);
 			break;
 #endif
+#ifdef ADB_EXT
+		case T_KeepClause:
+			retval = _equalKeepClause(a, b);
+			break;
+#endif /* ADB_EXT */
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(a));

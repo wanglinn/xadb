@@ -88,6 +88,9 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	bool		is_column = (fn == NULL);
 	List	   *agg_order = (fn ? fn->agg_order : NIL);
 	Expr	   *agg_filter = NULL;
+#ifdef ADB_EXT
+	KeepClause *agg_keep = (fn ? fn->agg_keep : NULL);
+#endif /* ADB_EXT */
 	bool		agg_within_group = (fn ? fn->agg_within_group : false);
 	bool		agg_star = (fn ? fn->agg_star : false);
 	bool		agg_distinct = (fn ? fn->agg_distinct : false);
@@ -220,6 +223,9 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	 */
 	could_be_projection = (nargs == 1 && !proc_call &&
 						   agg_order == NIL && agg_filter == NULL &&
+#ifdef ADB_EXT
+						   agg_keep == NULL &&
+#endif /* ADB_EXT */
 						   !agg_star && !agg_distinct && over == NULL &&
 						   !func_variadic && argnames == NIL &&
 						   list_length(funcname) == 1 &&
@@ -344,6 +350,14 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 					 errmsg("OVER specified, but %s is not a window function nor an aggregate function",
 							NameListToString(funcname)),
 					 parser_errposition(pstate, location)));
+#ifdef ADB_EXT
+		if (agg_keep)
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("KEEP specified, but %s is not an aggregate function",
+							NameListToString(funcname)),
+					 parser_errposition(pstate, location)));
+#endif /* ADB_EXT */
 	}
 
 	/*
@@ -750,6 +764,13 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		/* agglevelsup will be set by transformAggregateCall */
 		aggref->aggsplit = AGGSPLIT_SIMPLE; /* planner might change this */
 		aggref->location = location;
+#ifdef ADB_EXT
+		if (agg_keep)
+		{
+			aggref->aggkeep = agg_keep->keep_order;
+			aggref->rank_first = agg_keep->rank_first;
+		}
+#endif /* ADB_EXT */
 
 		/*
 		 * Reject attempt to call a parameterless aggregate without (*)
@@ -860,6 +881,14 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 					 errmsg("window functions cannot return sets"),
 					 parser_errposition(pstate, location)));
+
+#ifdef ADB_EXT
+		if (agg_keep != NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("aggregate KEEP is not implemented for window functions"),
+					 parser_errposition(pstate, agg_keep->location)));
+#endif /* ADB_EXT */
 
 		/* parse_agg.c does additional window-func-specific processing */
 		transformWindowFuncCall(pstate, wfunc, over);

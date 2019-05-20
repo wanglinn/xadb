@@ -496,6 +496,9 @@ typedef enum NodeTag
 	T_ColumnRefJoin,
 	T_PriorExpr,
 #endif
+#ifdef ADB_EXT
+	T_KeepClause,
+#endif /* ADB_EXT */
 	T_ParamRef,
 	T_A_Const,
 	T_FuncCall,

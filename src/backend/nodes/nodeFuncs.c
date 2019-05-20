@@ -1635,6 +1635,11 @@ exprLocation(const Node *expr)
 			loc = ((const ConnectByRootExpr*)expr)->location;
 			break;
 #endif /* ADB_GRAM_ORA */
+#ifdef ADB_EXT
+		case T_KeepClause:
+			loc = ((const KeepClause *)expr)->location;
+			break;
+#endif /* ADB_EXT */
 		default:
 			/* for any other node type it's just unknown... */
 			loc = -1;
@@ -1982,6 +1987,11 @@ expression_tree_walker(Node *node,
 					return true;
 				if (walker((Node *) expr->aggfilter, context))
 					return true;
+#ifdef ADB_EXT
+				if (expression_tree_walker((Node*) expr->aggkeep,
+										   walker, context))
+					return true;
+#endif /* ADB_EXT */
 			}
 			break;
 		case T_GroupingFunc:
@@ -2619,6 +2629,9 @@ expression_tree_mutator(Node *node,
 				MUTATE(newnode->aggorder, aggref->aggorder, List *);
 				MUTATE(newnode->aggdistinct, aggref->aggdistinct, List *);
 				MUTATE(newnode->aggfilter, aggref->aggfilter, Expr *);
+#ifdef ADB_EXT
+				MUTATE(newnode->aggkeep, aggref->aggkeep, List *);
+#endif /* ADB_EXT */
 				return (Node *) newnode;
 			}
 			break;
@@ -3224,6 +3237,18 @@ expression_tree_mutator(Node *node,
 			}
 			break;
 #endif /* ADB_GRAM_ORA */
+#ifdef ADB_EXT
+		case T_KeepClause:
+			{
+				KeepClause *old = (KeepClause*)node;
+				KeepClause *newnode;
+
+				FLATCOPY(newnode, old, KeepClause);
+				MUTATE(newnode->keep_order, old->keep_order, List *);
+
+				return (Node*)newnode;
+			}
+#endif /* ADB_EXT */
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(node));
@@ -3896,6 +3921,10 @@ raw_expression_tree_walker(Node *node,
 			break;
 		case T_CommonTableExpr:
 			return walker(((CommonTableExpr *) node)->ctequery, context);
+#ifdef ADB_EXT
+		case T_KeepClause:
+			return walker(((KeepClause *) node)->keep_order, context);
+#endif /* ADB_EXT */
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(node));

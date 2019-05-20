@@ -152,6 +152,9 @@ static void oracleInsertSelectOptions(SelectStmt *stmt,
 	DistributeBy		*distby;
 	PGXCSubCluster		*subclus;
 /* ADB_END */
+/* ADB_EXT */
+	KeepClause			*keep;
+/* ADB_EXT */
 }
 
 /*
@@ -341,6 +344,7 @@ static void oracleInsertSelectOptions(SelectStmt *stmt,
 %type <node>		ora_part_child PartitionRangeDatum
 %type <connectby>	opt_connect_by_clause connect_by_clause
 %type <select_order_by> opt_select_sort_clause select_sort_clause
+%type <keep>		keep_clause
 
 /* ADB_BEGIN */
 %type <distby>	OptDistributeBy
@@ -363,7 +367,7 @@ static void oracleInsertSelectOptions(SelectStmt *stmt,
 	CACHE NOCACHE COMMENTS
 	DATABASE DATE_P DAY_P DBTIMEZONE_P DEC DECIMAL_P DECLARE DEFAULT DEFERRABLE DELETE_P DESC DISTINCT
 	DO DOCUMENT_P DOUBLE_P DROP DEFERRED DATA_P DEFAULTS DEFINER DETERMINISTIC
-	DISABLE_P PREPARE PREPARED DOMAIN_P DICTIONARY
+	DISABLE_P PREPARE PREPARED DOMAIN_P DICTIONARY DENSE_RANK
 
 	/* ADB_BEGIN */
 	DISTRIBUTE
@@ -379,7 +383,7 @@ static void oracleInsertSelectOptions(SelectStmt *stmt,
 	IDENTITY_P INTEGER INTERSECT INTO INTERVAL INT_P IS ISOLATION
 	LAST_P LESS
 	JOIN
-	KEY
+	KEEP KEY
 	LANGUAGE LARGE_P LEADING LEAST LEFT LEVEL LIMIT LIKE LOCAL LOCALTIMESTAMP LOCK_P LOG_P LONG_P
 	MATERIALIZED MAXEXTENTS MINUS MINUTE_P MLSLABEL MOD MODE MODIFY MONTH_P MOVE
 	MATCH MAXVALUE METHOD NOMAXVALUE  MINVALUE NOMINVALUE
@@ -3960,11 +3964,11 @@ func_table: func_application
  * (Note that many of the special SQL functions wouldn't actually make any
  * sense as functional index entries, but we ignore that consideration here.)
  */
-func_expr: func_application within_group_clause over_clause
+func_expr: func_application within_group_clause keep_clause over_clause
 			{
 				FuncCall *n = (FuncCall *) $1;
 
-				if ($2 != NIL || $3)
+				if ($2 != NIL)
 				{
 					if (IsA(n, FuncCall))
 					{
@@ -3987,14 +3991,13 @@ func_expr: func_application within_group_clause over_clause
 						/* oracle "within group (...)" same to postgres func(arg... order by ...) */
 						n->agg_within_group = false;
 
-						n->over = $3;
 					}else
 					{
 						/* not FuncCall, not support "within group ..." and "over ..." */
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("syntax error"),
-								 parser_errposition($2 != NIL ? @2:@3)));
+								 parser_errposition($2 != NIL ? @2:($3 != NULL ? @3:($4 ? @4:-1)))));
 					}
 				}
 				if (IsA(n, FuncCall))
@@ -4011,6 +4014,8 @@ func_expr: func_application within_group_clause over_clause
 							n->args = lappend(n->args, makeNullAConst(-1));
 						}
 					}
+					n->agg_keep = $3;
+					n->over = $4;
 				}
 				$$ = $1;
 			}
@@ -4019,6 +4024,30 @@ func_expr: func_application within_group_clause over_clause
 				$$ = $1;
 			}
 		;
+
+keep_clause:
+		  KEEP '(' DENSE_RANK FIRST_P ORDER BY sortby_list ')'
+			{
+				KeepClause *n = makeNode(KeepClause);
+				n->rank_first = true;
+				n->keep_order = $7;
+				n->location = @1;
+
+				$$ = n;
+			}
+		| KEEP '(' DENSE_RANK LAST_P ORDER BY sortby_list ')'
+			{
+				KeepClause *n = makeNode(KeepClause);
+				n->rank_first = false;
+				n->keep_order = $7;
+				n->location = @1;
+
+				$$ = n;
+			}
+		| /* EMPTY */
+			{
+				$$ = NULL;
+			}
 
 over_clause: OVER window_specification
 				{ $$ = $2; }
@@ -7462,6 +7491,7 @@ unreserved_keyword:
 	| DECLARE
 	| DEFERRED
 	| DEFINER
+	| DENSE_RANK
 	| DETERMINISTIC
 	| DICTIONARY
 	| DOCUMENT_P
@@ -7497,6 +7527,7 @@ unreserved_keyword:
 	| INHERITS
 	| INSENSITIVE
 	| ISOLATION
+	| KEEP
 	| KEY
 	| LANGUAGE
 	| LARGE_P

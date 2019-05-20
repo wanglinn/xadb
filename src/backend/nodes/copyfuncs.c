@@ -1481,6 +1481,10 @@ _copyAggref(const Aggref *from)
 	COPY_NODE_FIELD(aggorder);
 	COPY_NODE_FIELD(aggdistinct);
 	COPY_NODE_FIELD(aggfilter);
+#ifdef ADB_EXT
+	COPY_NODE_FIELD(aggkeep);
+	COPY_SCALAR_FIELD(rank_first);
+#endif /* ADB_EXT */
 	COPY_SCALAR_FIELD(aggstar);
 	COPY_SCALAR_FIELD(aggvariadic);
 	COPY_SCALAR_FIELD(aggkind);
@@ -2758,6 +2762,9 @@ _copyFuncCall(const FuncCall *from)
 	COPY_SCALAR_FIELD(agg_distinct);
 	COPY_SCALAR_FIELD(func_variadic);
 	COPY_NODE_FIELD(over);
+#ifdef ADB_EXT
+	COPY_NODE_FIELD(agg_keep);
+#endif /* ADB_EXT */
 	COPY_LOCATION_FIELD(location);
 
 	return newnode;
@@ -5261,6 +5268,20 @@ _copyMGRAlterHost(const MGRAlterHost *from)
 
 #endif /* ADBMGRD */
 
+#ifdef ADB_EXT
+static KeepClause *
+_copyKeepClause(const KeepClause *from)
+{
+	KeepClause *newnode = makeNode(KeepClause);
+
+	COPY_SCALAR_FIELD(rank_first);
+	COPY_NODE_FIELD(keep_order);
+	COPY_LOCATION_FIELD(location);
+
+	return newnode;
+}
+#endif /* ADB_EXT */
+
 /*
  * copyObjectImpl -- implementation of copyObject(); see nodes/nodes.h
  *
@@ -6267,6 +6288,11 @@ copyObjectImpl(const void *from)
 			retval = _copyMGRAlterHost(from);
 			break;
 #endif
+#ifdef ADB_EXT
+		case T_KeepClause:
+			retval = _copyKeepClause(from);
+			break;
+#endif /* ADB_EXT */
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(from));
 			retval = 0;			/* keep compiler quiet */

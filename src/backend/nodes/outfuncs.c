@@ -2929,6 +2929,9 @@ _outFuncCall(StringInfo str, const FuncCall *node)
 	WRITE_BOOL_FIELD(agg_distinct);
 	WRITE_BOOL_FIELD(func_variadic);
 	WRITE_NODE_FIELD(over);
+#ifdef ADB_EXT
+	WRITE_NODE_FIELD(agg_keep);
+#endif /* ADB_EXT */
 	WRITE_LOCATION_FIELD(location);
 }
 
@@ -3830,6 +3833,18 @@ _outLevelExpr(StringInfo str, const LevelExpr *node)
 }
 #endif /* ADB_GRAM_ORA */
 
+#ifdef ADB_EXT
+static void
+_outKeepClause(StringInfo str, const KeepClause *node)
+{
+	WRITE_NODE_TYPE("KEEPCLAUSE");
+
+	WRITE_BOOL_FIELD(rank_first);
+	WRITE_NODE_FIELD(keep_order);
+	WRITE_LOCATION_FIELD(location);
+}
+#endif /* ADB_EXT */
+
 /*
  * outNode -
  *	  converts a Node into ascii string and append it to 'str'
@@ -4505,6 +4520,11 @@ outNode(StringInfo str, const void *obj)
 				_outExecNodes(str, obj);
 				break;
 #endif
+#ifdef ADB_EXT
+			case T_KeepClause:
+				_outKeepClause(str, obj);
+				break;
+#endif /* ADB_EXT */
 
 			default:
 

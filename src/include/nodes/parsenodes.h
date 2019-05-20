@@ -400,6 +400,15 @@ typedef struct RoleSpec
 	int			location;		/* token location, or -1 if unknown */
 } RoleSpec;
 
+#ifdef ADB_EXT
+typedef struct KeepClause
+{
+	NodeTag		type;
+	bool		rank_first;		/* DENSE_RANK FIRST if true, false for LAST */
+	List	   *keep_order;		/* ORDER BY list */
+	int			location;		/* location of "keep" */
+}KeepClause;
+#endif /* ADB_EXT */
 /*
  * FuncCall - a function or aggregate invocation
  *
@@ -426,6 +435,9 @@ typedef struct FuncCall
 	bool		agg_distinct;	/* arguments were labeled DISTINCT */
 	bool		func_variadic;	/* last argument was labeled VARIADIC */
 	struct WindowDef *over;		/* OVER clause, if any */
+#ifdef ADB_EXT
+	KeepClause *agg_keep;		/* KEEP clause, if any */
+#endif /* ADB_EXT */
 	int			location;		/* token location, or -1 if unknown */
 } FuncCall;
 

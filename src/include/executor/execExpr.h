@@ -231,6 +231,12 @@ typedef enum ExprEvalOp
 	EEOP_AGG_ORDERED_TRANS_DATUM,
 	EEOP_AGG_ORDERED_TRANS_TUPLE,
 
+#ifdef ADB_EXT
+	EEOP_AGG_KEEP_TRANS_TUPLE,
+	EEOP_AGG_KEEP_TRANS_ORDER_DATUM,
+	EEOP_AGG_KEEP_TRANS_ORDER_TUPLE,
+#endif /* ADB_EXT */
+
 #ifdef ADB_GRAM_ORA
 	EEOP_PTR_INT64,
 	EEOP_SYS_CONNECT_BY_PATH,
@@ -765,6 +771,11 @@ extern void ExecEvalAggOrderedTransDatum(ExprState *state, ExprEvalStep *op,
 							 ExprContext *econtext);
 extern void ExecEvalAggOrderedTransTuple(ExprState *state, ExprEvalStep *op,
 							 ExprContext *econtext);
+#ifdef ADB_EXT
+extern void ExecEvalAggKeepTuple(ExprState *state, ExprEvalStep *op, ExprContext *econtext);
+extern void ExecEvalAggKeepOrderDatum(ExprState *state, ExprEvalStep *op, ExprContext *econtext);
+extern void ExecEvalAggKeepOrderTuple(ExprState *state, ExprEvalStep *op, ExprContext *econtext);
+#endif /* ADB_EXT */
 
 #ifdef ADB_GRAM_ORA
 /* in nodeConnectBy.c */

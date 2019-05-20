@@ -988,6 +988,10 @@ BEGIN_NODE(Aggref)
 	NODE_NODE(List,aggorder)
 	NODE_NODE(List,aggdistinct)
 	NODE_NODE(Expr,aggfilter)
+#ifdef ADB_EXT
+	NODE_NODE(List,aggkeep)
+	NODE_SCALAR(bool,rank_first)
+#endif
 	NODE_SCALAR(bool,aggstar)
 	NODE_SCALAR(bool,aggvariadic)
 	NODE_SCALAR(char,aggkind)
@@ -3386,6 +3390,18 @@ END_NODE(PriorExpr)
 
 #endif
 
+#ifdef ADB_EXT
+
+#ifndef NO_NODE_KeepClause
+BEGIN_NODE(KeepClause)
+	NODE_SCALAR(bool,rank_first)
+	NODE_NODE(List,keep_order)
+	NODE_SCALAR(int,location)
+END_NODE(KeepClause)
+#endif /* NO_NODE_KeepClause */
+
+#endif
+
 #ifndef NO_NODE_ParamRef
 BEGIN_NODE(ParamRef)
 	NODE_SCALAR(int,number)
@@ -3411,6 +3427,9 @@ BEGIN_NODE(FuncCall)
 	NODE_SCALAR(bool,agg_distinct)
 	NODE_SCALAR(bool,func_variadic)
 	NODE_NODE(WindowDef,over)
+#ifdef ADB_EXT
+	NODE_NODE(KeepClause,agg_keep)
+#endif
 	NODE_SCALAR(int,location)
 END_NODE(FuncCall)
 #endif /* NO_NODE_FuncCall */

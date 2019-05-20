@@ -252,6 +252,11 @@ static void advance_transition_function(AggState *aggstate,
 							AggStatePerTrans pertrans,
 							AggStatePerGroup pergroupstate);
 static void advance_aggregates(AggState *aggstate);
+#ifdef ADB_EXT
+static void process_keep_aggregate_multi(AggState *aggstate,
+								AggStatePerTrans pertrans,
+								AggStatePerGroup pergroupstate);
+#endif /* ADB_EXT */
 static void process_ordered_aggregate_single(AggState *aggstate,
 								 AggStatePerTrans pertrans,
 								 AggStatePerGroup pergroupstate);
@@ -465,6 +470,15 @@ initialize_aggregate(AggState *aggstate, AggStatePerTrans pertrans,
 									 pertrans->sortNullsFirst,
 									 work_mem, NULL, false);
 	}
+
+#ifdef ADB_EXT
+	pergroupstate->transKeepValue = false;
+
+	if (pertrans->keepSlot)
+	{
+		ExecClearTuple(pertrans->keepSlot[aggstate->current_set]);
+	}
+#endif /* ADB_EXT */
 
 	/*
 	 * (Re)set transValue to the initial value.
@@ -683,6 +697,50 @@ advance_aggregates(AggState *aggstate)
 	ExecEvalExprSwitchContext(aggstate->phase->evaltrans,
 							  aggstate->tmpcontext,
 							  &dummynull);
+}
+
+static void process_keep_aggregate_multi(AggState *aggstate,
+								AggStatePerTrans pertrans,
+								AggStatePerGroup pergroupstate)
+{
+	AggStateKeepTransValue *trans_value = (AggStateKeepTransValue*)DatumGetPointer(pergroupstate->transValue);
+	ExprContext *tmpcontext = aggstate->tmpcontext;
+	FunctionCallInfo fcinfo = &pertrans->transfn_fcinfo;
+	TupleTableSlot *slot = trans_value->slot;
+	Tuplestorestate *ts = trans_value->ts;
+	int			numTransInputs = pertrans->numTransInputs;
+	int			i;
+
+	pergroupstate->transValue = (Datum)0;
+	pergroupstate->transKeepValue = false;
+	while (tuplestore_gettupleslot(ts, true, false, slot))
+	{
+		CHECK_FOR_INTERRUPTS();
+
+		/*
+		 * Extract the first numTransInputs columns as datums to pass to
+		 * the transfn.
+		 */
+		slot_getsomeattrs(slot, numTransInputs);
+
+		/* Load values into fcinfo */
+		/* Start from 1, since the 0th arg will be the transition value */
+		for (i = 0; i < numTransInputs; i++)
+		{
+			fcinfo->arg[i + 1] = slot->tts_values[i];
+			fcinfo->argnull[i + 1] = slot->tts_isnull[i];
+		}
+
+		advance_transition_function(aggstate, pertrans, pergroupstate);
+
+		/* Reset context each time */
+		ResetExprContext(tmpcontext);
+	}
+
+	ExecClearTuple(trans_value->slot);
+	ExecDropSingleTupleTableSlot(trans_value->slot);
+	tuplestore_end(trans_value->ts);
+	pfree(trans_value);
 }
 
 /*
@@ -1140,6 +1198,16 @@ finalize_aggregates(AggState *aggstate,
 		AggStatePerGroup pergroupstate;
 
 		pergroupstate = &pergroup[transno];
+
+#ifdef ADB_EXT
+		if (pergroupstate->transKeepValue)
+		{
+			process_keep_aggregate_multi(aggstate,
+										 &aggstate->pertrans[transno],
+										 pergroupstate);
+			Assert(pergroupstate->transKeepValue == false);
+		}
+#endif /* ADB_EXT */
 
 		if (pertrans->numSortCols > 0)
 		{
@@ -3070,12 +3138,53 @@ build_pertrans_for_aggref(AggStatePerTrans pertrans,
 	 * slot corresponding to the aggregated inputs (including sort
 	 * expressions) of the agg.
 	 */
-	if (numSortCols > 0 || aggref->aggfilter)
+	if (numSortCols > 0 ||
+#ifdef ADB_EXT
+		aggref->aggkeep ||
+#endif /* ADB_EXT */
+		aggref->aggfilter)
 	{
 		pertrans->sortdesc = ExecTypeFromTL(aggref->args, false);
 		pertrans->sortslot =
 			ExecInitExtraTupleSlot(estate, pertrans->sortdesc);
 	}
+
+#ifdef ADB_EXT
+	if (aggref->aggkeep)
+	{
+		int numKeepCols;
+		numKeepCols = pertrans->numKeepCols = list_length(aggref->aggkeep);
+		pertrans->keepSupport = palloc0(sizeof(SortSupportData) * numKeepCols);
+
+		i = 0;
+		foreach(lc, aggref->aggkeep)
+		{
+			SortGroupClause *sortcl = lfirst_node(SortGroupClause, lc);
+			TargetEntry *tle = get_sortgroupclause_tle(sortcl, aggref->args);
+			SortSupport sortKey = pertrans->keepSupport + i;
+
+			/* the parser should have made sure of this */
+			Assert(OidIsValid(sortcl->sortop));
+
+			sortKey->ssup_attno = tle->resno;
+			sortKey->ssup_collation = exprCollation((Node *) tle->expr);
+			sortKey->ssup_nulls_first = sortcl->nulls_first;
+			sortKey->abbreviate = false;
+			sortKey->ssup_cxt = CurrentMemoryContext;
+			PrepareSortSupportFromOrderingOp(sortcl->sortop, sortKey);
+
+			i++;
+		}
+		Assert(i == numKeepCols);
+
+		if (numSortCols > 0)
+		{
+			pertrans->keepSlot = palloc0(sizeof(pertrans->keepSlot[0]) * numGroupingSets);
+			for (i=0;i<numGroupingSets;++i)
+				pertrans->keepSlot[i] = ExecInitExtraTupleSlot(estate, pertrans->sortdesc);
+		}
+	}
+#endif /* ADB_EXT */
 
 	if (numSortCols > 0)
 	{
@@ -3224,6 +3333,10 @@ find_compatible_peragg(Aggref *newagg, AggState *aggstate,
 			newagg->aggstar != existingRef->aggstar ||
 			newagg->aggvariadic != existingRef->aggvariadic ||
 			newagg->aggkind != existingRef->aggkind ||
+#ifdef ADB_EXT
+			newagg->rank_first != existingRef->rank_first ||
+			!equal(newagg->aggkeep, existingRef->aggkeep) ||
+#endif /* ADB_EXT */
 			!equal(newagg->args, existingRef->args) ||
 			!equal(newagg->aggorder, existingRef->aggorder) ||
 			!equal(newagg->aggdistinct, existingRef->aggdistinct) ||
@@ -3412,6 +3525,11 @@ ExecReScanAgg(AggState *node)
 				tuplesort_end(pertrans->sortstates[setno]);
 				pertrans->sortstates[setno] = NULL;
 			}
+#ifdef ADB_EXT
+			if (pertrans->keepSlot &&
+				pertrans->keepSlot[setno])
+				ExecClearTuple(pertrans->keepSlot[setno]);
+#endif /* ADB_EXT */
 		}
 	}
 

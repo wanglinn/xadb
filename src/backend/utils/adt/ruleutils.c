@@ -9925,6 +9925,16 @@ get_agg_expr(Aggref *aggref, deparse_context *context,
 		}
 	}
 
+#ifdef ADB_EXT
+	if (aggref->aggkeep)
+	{
+		appendStringInfoString(buf, ") KEEP (DENSE_RANK ");
+		appendStringInfoString(buf, aggref->rank_first ? "FIRST":"LAST");
+		appendStringInfoString(buf, " ORDER BY ");
+		get_rule_orderby(aggref->aggkeep, aggref->args, false, context);
+	}
+#endif /* ADB_EXT */
+
 	if (aggref->aggfilter != NULL)
 	{
 		appendStringInfoString(buf, ") FILTER (WHERE ");

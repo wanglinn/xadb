@@ -393,6 +393,11 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 		&&CASE_EEOP_AGG_PLAIN_TRANS,
 		&&CASE_EEOP_AGG_ORDERED_TRANS_DATUM,
 		&&CASE_EEOP_AGG_ORDERED_TRANS_TUPLE,
+#ifdef ADB_EXT
+		&&CASE_EEOP_AGG_KEEP_TRANS_TUPLE,
+		&&CASE_EEOP_AGG_KEEP_TRANS_ORDER_DATUM,
+		&&CASE_EEOP_AGG_KEEP_TRANS_ORDER_TUPLE,
+#endif /* ADB_EXT */
 #ifdef ADB_GRAM_ORA
 		&&CASE_EEOP_PTR_INT64,
 		&&CASE_EEOP_SYS_CONNECT_BY_PATH,
@@ -1755,6 +1760,29 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 
 			EEO_NEXT();
 		}
+
+#ifdef ADB_EXT
+		EEO_CASE(EEOP_AGG_KEEP_TRANS_TUPLE)
+		{
+			ExecEvalAggKeepTuple(state, op, econtext);
+
+			EEO_NEXT();
+		}
+
+		EEO_CASE(EEOP_AGG_KEEP_TRANS_ORDER_DATUM)
+		{
+			ExecEvalAggKeepOrderDatum(state, op, econtext);
+
+			EEO_NEXT();
+		}
+
+		EEO_CASE(EEOP_AGG_KEEP_TRANS_ORDER_TUPLE)
+		{
+			ExecEvalAggKeepOrderTuple(state, op, econtext);
+
+			EEO_NEXT();
+		}
+#endif /* ADB_EXT */
 
 #ifdef ADB_GRAM_ORA
 		EEO_CASE(EEOP_PTR_INT64)
@@ -4151,3 +4179,232 @@ ExecEvalAggOrderedTransTuple(ExprState *state, ExprEvalStep *op,
 	ExecStoreVirtualTuple(pertrans->sortslot);
 	tuplesort_puttupleslot(pertrans->sortstates[setno], pertrans->sortslot);
 }
+
+#ifdef ADB_EXT
+void ExecEvalAggKeepTuple(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
+{
+	AggState		   *aggstate;
+	AggStatePerGroup	pergroup;
+	TupleTableSlot	   *cur_slot;
+	TupleTableSlot	   *pre_slot;
+	AggStatePerTrans	pertrans;
+	AggStateKeepTransValue
+					   *trans_value;
+	int					i,
+						keepCols,
+						compare_all,
+						compare_item;
+	Datum				datum1,
+						datum2;
+	bool				isNull1,
+						isNull2;
+
+	aggstate = op->d.agg_trans.aggstate;
+	pertrans = op->d.agg_trans.pertrans;
+	cur_slot = ExecClearTuple(pertrans->sortslot);
+	cur_slot->tts_nvalid = pertrans->numInputs;
+	ExecStoreVirtualTuple(cur_slot);
+
+	pergroup = &aggstate->all_pergroups
+		[op->d.agg_trans.setoff]
+		[op->d.agg_trans.transno];
+
+	/* If transValue has not yet been initialized, do so now. */
+	if (pergroup->transKeepValue == false)
+	{
+		MemoryContext oldcontext = MemoryContextSwitchTo(aggstate->curaggcontext->ecxt_per_tuple_memory);
+		trans_value = palloc(sizeof(*trans_value));
+		trans_value->slot = MakeSingleTupleTableSlot(pertrans->sortdesc);
+		trans_value->ts = tuplestore_begin_heap(false, false, 0);
+		pergroup->transValue = PointerGetDatum(trans_value);
+		pergroup->transKeepValue = true;
+		MemoryContextSwitchTo(oldcontext);
+
+		/* and save it */
+		pre_slot = ExecCopySlot(trans_value->slot, cur_slot);
+		slot_getallattrs(pre_slot);
+		tuplestore_puttupleslot(trans_value->ts, pre_slot);
+		return;
+	}else
+	{
+		trans_value = (AggStateKeepTransValue*)DatumGetPointer(pergroup->transValue);
+		pre_slot = trans_value->slot;
+	}
+
+	compare_all = 0;
+	keepCols = pertrans->numKeepCols;
+	for (i=0;i<keepCols;++i)
+	{
+		SortSupport sortKey = pertrans->keepSupport + i;
+		datum1 = slot_getattr(pre_slot, sortKey->ssup_attno, &isNull1);
+		datum2 = slot_getattr(cur_slot, sortKey->ssup_attno, &isNull2);
+
+		compare_item = ApplySortComparator(datum1, isNull1,
+											datum2, isNull2,
+											sortKey);
+		if (compare_item != 0)
+		{
+			compare_all = compare_item;
+			break;
+		}
+	}
+
+	if (compare_all == 0)
+	{
+		tuplestore_puttupleslot(trans_value->ts, cur_slot);
+	}else if((compare_all < 0 ? true:false) != pertrans->aggref->rank_first)
+	{
+		/* (pre < cur and keep last)
+		 * or
+		 * (pre > cur and keep first)
+		 * clear pre datums
+		 */
+		ExecCopySlot(pre_slot, cur_slot);
+		slot_getallattrs(pre_slot);
+		tuplestore_clear(trans_value->ts);
+		tuplestore_puttupleslot(trans_value->ts, pre_slot);
+	}
+}
+void ExecEvalAggKeepOrderDatum(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
+{
+	TupleTableSlot *pre_slot;
+	TupleTableSlot *cur_slot;
+	AggStatePerTrans pertrans = op->d.agg_trans.pertrans;
+	int			setno = op->d.agg_trans.setno;
+	bool		replace = false;
+	bool		keep = false;
+	pre_slot = pertrans->keepSlot[setno];
+	cur_slot = ExecClearTuple(pertrans->sortslot);
+	cur_slot->tts_nvalid = 1;
+	ExecStoreVirtualTuple(cur_slot);
+
+	if (TupIsNull(pre_slot))
+	{
+		keep = replace = true;
+	}else
+	{
+		int compare = ApplySortComparator(pre_slot->tts_values[0],
+										  pre_slot->tts_isnull[0],
+										  cur_slot->tts_values[0],
+										  cur_slot->tts_isnull[0],
+										  pertrans->keepSupport);
+		if (compare == 0)
+		{
+			keep = true;
+		}else if ((compare < 0 ? true:false) != pertrans->aggref->rank_first)
+		{
+			/* (pre < cur and keep last)
+			 * or
+			 * (pre > cur and keep first)
+			 * clear pre datums
+			 */
+			MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state->parent));
+			Form_pg_attribute attr = TupleDescAttr(pertrans->sortdesc, 0);
+			tuplesort_end(pertrans->sortstates[setno]);
+			pertrans->sortstates[setno] = tuplesort_begin_datum(attr->atttypid,
+																pertrans->sortOperators[0],
+																pertrans->sortCollations[0],
+																pertrans->sortNullsFirst[0],
+																work_mem,
+																NULL,
+																false);
+			MemoryContextSwitchTo(oldcontext);
+			replace = keep = true;
+		}
+	}
+
+	if (replace)
+	{
+		ExecCopySlot(pre_slot, cur_slot);
+		slot_getsomeattrs(pre_slot, 1);
+	}
+	if (keep)
+	{
+		tuplesort_putdatum(pertrans->sortstates[setno],
+						   cur_slot->tts_values[0],
+						   cur_slot->tts_isnull[0]);
+	}
+}
+
+void ExecEvalAggKeepOrderTuple(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
+{
+	TupleTableSlot *pre_slot,
+				   *cur_slot;
+	AggStatePerTrans pertrans = op->d.agg_trans.pertrans;
+	int			setno = op->d.agg_trans.setno,
+				i,
+				keepCols,
+				compare_all,
+				compare_item;
+	Datum		datum1,
+				datum2;
+	bool		isNull1,
+				isNull2;
+	bool		replace = false,
+				keep = false;
+
+	cur_slot = ExecClearTuple(pertrans->sortslot);
+	cur_slot->tts_nvalid = pertrans->numInputs;
+	ExecStoreVirtualTuple(cur_slot);
+
+	pre_slot = pertrans->keepSlot[setno];
+	if (TupIsNull(pre_slot))
+	{
+		keep = replace = true;
+	}else
+	{
+		compare_all = 0;
+		keepCols = pertrans->numKeepCols;
+		for (i=0;i<keepCols;++i)
+		{
+			SortSupport sortKey = pertrans->keepSupport + i;
+			datum1 = slot_getattr(pre_slot, sortKey->ssup_attno, &isNull1);
+			datum2 = slot_getattr(cur_slot, sortKey->ssup_attno, &isNull2);
+
+			compare_item = ApplySortComparator(datum1, isNull1,
+											   datum2, isNull2,
+											   sortKey);
+			if (compare_item != 0)
+			{
+				compare_all = compare_item;
+				break;
+			}
+		}
+
+		if (compare_all == 0)
+		{
+			keep = true;
+		}else if((compare_all < 0 ? true:false) != pertrans->aggref->rank_first)
+		{
+			/* (pre < cur and keep last)
+			 * or
+			 * (pre > cur and keep first)
+			 * clear pre datums
+			 */
+			MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state->parent));
+			tuplesort_end(pertrans->sortstates[setno]);
+			pertrans->sortstates[setno] = tuplesort_begin_heap(pertrans->sortdesc,
+															   pertrans->numSortCols,
+															   pertrans->sortColIdx,
+															   pertrans->sortOperators,
+															   pertrans->sortCollations,
+															   pertrans->sortNullsFirst,
+															   work_mem,
+															   NULL,
+															   false);
+			MemoryContextSwitchTo(oldcontext);
+			replace = keep = true;
+		}
+	}
+
+	if (replace)
+	{
+		ExecCopySlot(pre_slot, cur_slot);
+		slot_getallattrs(pre_slot);
+	}
+	if (keep)
+	{
+		tuplesort_puttupleslot(pertrans->sortstates[setno], cur_slot);
+	}
+}
+#endif /* ADB_EXT */

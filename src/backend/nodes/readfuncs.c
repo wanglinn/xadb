@@ -2589,6 +2589,20 @@ _readPartitionRangeDatum(void)
 	READ_DONE();
 }
 
+#ifdef ADB_EXT
+static KeepClause *
+_readKeepClause(void)
+{
+	READ_LOCALS(KeepClause);
+
+	READ_BOOL_FIELD(rank_first);
+	READ_NODE_FIELD(keep_order);
+	READ_LOCATION_FIELD(location);
+
+	READ_DONE();
+}
+#endif /* ADB_EXT */
+
 /*
  * parseNodeString
  *
@@ -2857,6 +2871,10 @@ parseNodeString(void)
 	else if (MATCH("TYPENAME", 8))
 		return_value = _readTypeName();
 #endif /* AGTM */
+#ifdef ADB_EXT
+	else if (MATCH("KEEPCLAUSE", 10))
+		return_value = _readKeepClause();
+#endif /* ADB_EXT */
 	else
 	{
 		elog(ERROR, "badly formatted node string \"%.32s\"...", token);

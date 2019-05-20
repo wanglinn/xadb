@@ -2505,6 +2505,26 @@ llvm_compile_expr(ExprState *state)
 				LLVMBuildBr(b, opblocks[i + 1]);
 				break;
 
+#ifdef ADB_EXT
+			case EEOP_AGG_KEEP_TRANS_TUPLE:
+				build_EvalXFunc(b, mod, "ExecEvalAggKeepTuple",
+								v_state, v_econtext, op);
+				LLVMBuildBr(b, opblocks[i + 1]);
+				break;
+
+			case EEOP_AGG_KEEP_TRANS_ORDER_DATUM:
+				build_EvalXFunc(b, mod, "ExecEvalAggKeepOrderDatum",
+								v_state, v_econtext, op);
+				LLVMBuildBr(b, opblocks[i + 1]);
+				break;
+
+			case EEOP_AGG_KEEP_TRANS_ORDER_TUPLE:
+				build_EvalXFunc(b, mod, "ExecEvalAggKeepOrderTuple",
+								v_state, v_econtext, op);
+				LLVMBuildBr(b, opblocks[i + 1]);
+				break;
+#endif /* ADB_EXT */
+
 #ifdef ADB_GRAM_ORA
 			case EEOP_PTR_INT64:
 				{

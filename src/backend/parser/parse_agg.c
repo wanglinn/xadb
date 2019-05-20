@@ -229,6 +229,21 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 		pstate->p_next_resno = save_next_resno;
 	}
 
+#ifdef ADB_EXT
+	if (agg->aggkeep)
+	{
+		save_next_resno = pstate->p_next_resno;
+		pstate->p_next_resno = list_length(tlist)+1;
+
+		agg->aggkeep = transformSortClause(pstate,
+										   agg->aggkeep,
+										   &tlist,
+										   EXPR_KIND_ORDER_BY,
+										   true);
+		pstate->p_next_resno = save_next_resno;
+	}
+#endif /* ADB_EXT */
+
 	/* Update the Aggref with the transformation results */
 	agg->args = tlist;
 	agg->aggorder = torder;

@@ -564,6 +564,11 @@ get_agg_clause_costs_walker(Node *node, get_agg_clause_costs_context *context)
 			costs->hasNonPartial = true;
 		}
 
+#ifdef ADB_EXT
+		if (aggref->aggkeep != NIL)
+			costs->hasNonPartial = true;
+#endif /* ADB_EXT */
+
 		/*
 		 * Check whether partial aggregation is feasible, unless we already
 		 * found out that we can't do it.

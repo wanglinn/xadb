@@ -315,6 +315,10 @@ typedef struct Aggref
 	List	   *aggorder;		/* ORDER BY (list of SortGroupClause) */
 	List	   *aggdistinct;	/* DISTINCT (list of SortGroupClause) */
 	Expr	   *aggfilter;		/* FILTER expression, if any */
+#ifdef ADB_EXT
+	List	   *aggkeep;		/* KEEP ORDER BY (list of SortGroupClause), if any */
+	bool		rank_first;		/* valid if aggkeep is not null */
+#endif /* ADB_EXT */
 	bool		aggstar;		/* true if argument list was really '*' */
 	bool		aggvariadic;	/* true if variadic arguments have been
 								 * combined into an array last argument */

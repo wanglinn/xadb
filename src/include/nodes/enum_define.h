@@ -439,6 +439,9 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_ColumnRefJoin)
 	ENUM_VALUE(T_PriorExpr)
 #endif
+#ifdef ADB_EXT
+	ENUM_VALUE(T_KeepClause)
+#endif
 	ENUM_VALUE(T_ParamRef)
 	ENUM_VALUE(T_A_Const)
 	ENUM_VALUE(T_FuncCall)

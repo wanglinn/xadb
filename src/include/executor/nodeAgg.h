@@ -164,6 +164,12 @@ typedef struct AggStatePerTransData
 	FunctionCallInfoData serialfn_fcinfo;
 
 	FunctionCallInfoData deserialfn_fcinfo;
+
+#ifdef ADB_EXT
+	int			numKeepCols;
+	TupleTableSlot **keepSlot;	/* when numSortCols or numDistinctCols is not zero */
+	SortSupport keepSupport;
+#endif /* ADB_EXT */
 }			AggStatePerTransData;
 
 /*
@@ -222,6 +228,14 @@ typedef struct AggStatePerAggData
 	bool		shareable;
 }			AggStatePerAggData;
 
+#ifdef ADB_EXT
+typedef struct AggStateKeepTransValue
+{
+	TupleTableSlot *slot;
+	Tuplestorestate *ts;
+}AggStateKeepTransValue;
+#endif /* ADB_EXT */
+
 /*
  * AggStatePerGroupData - per-aggregate-per-group working state
  *
@@ -255,6 +269,10 @@ typedef struct AggStatePerGroupData
 	 * NULL and not auto-replace it with a later input value. Only the first
 	 * non-NULL input will be auto-substituted.
 	 */
+
+#ifdef ADB_EXT
+	bool		transKeepValue;	/* true if transValue is AggStateKeepTransValue point */
+#endif /* ADB_EXT */
 }			AggStatePerGroupData;
 
 /*

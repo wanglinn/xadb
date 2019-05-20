@@ -2962,6 +2962,10 @@ ExecBuildAggTrans(AggState *aggstate, AggStatePerPhase phase,
 								&deform);
 		get_last_attnums_walker((Node *) pertrans->aggref->aggfilter,
 								&deform);
+#ifdef ADB_EXT
+		get_last_attnums_walker((Node *)pertrans->aggref->aggkeep,
+								&deform);
+#endif /* ADB_EXT */
 	}
 	ExecPushExprSlots(state, &deform);
 
@@ -3070,6 +3074,25 @@ ExecBuildAggTrans(AggState *aggstate, AggStatePerPhase phase,
 			}
 			argno++;
 		}
+#ifdef ADB_EXT
+		else if (pertrans->numKeepCols > 0)
+		{
+			/* fetch input */
+			Datum	   *values = pertrans->sortslot->tts_values;
+			bool	   *nulls = pertrans->sortslot->tts_isnull;
+
+			strictnulls = nulls;
+
+			foreach(arg, pertrans->aggref->args)
+			{
+				TargetEntry *source_tle = (TargetEntry *) lfirst(arg);
+
+				ExecInitExprRec(source_tle->expr, state,
+								&values[argno], &nulls[argno]);
+				argno++;
+			}
+		}
+#endif /* ADB_EXT */
 		else if (pertrans->numSortCols == 0)
 		{
 			/*
@@ -3133,7 +3156,12 @@ ExecBuildAggTrans(AggState *aggstate, AggStatePerPhase phase,
 		 * just keep the prior transValue. This is true for both plain and
 		 * sorted/distinct aggregates.
 		 */
-		if (trans_fcinfo->flinfo->fn_strict && numInputs > 0)
+		if (trans_fcinfo->flinfo->fn_strict &&
+			(
+#ifdef ADB_EXT
+			 pertrans->numKeepCols > 0 ||
+#endif
+			 numInputs > 0))
 		{
 			scratch.opcode = EEOP_AGG_STRICT_INPUT_CHECK;
 			scratch.d.agg_strict_input_check.nulls = strictnulls;
@@ -3241,6 +3269,9 @@ ExecBuildAggTransCall(ExprState *state, AggState *aggstate,
 	 * still need to do this.
 	 */
 	if (pertrans->numSortCols == 0 &&
+#ifdef ADB_EXT
+		pertrans->numKeepCols == 0 &&
+#endif /* ADB_EXT */
 		fcinfo->flinfo->fn_strict &&
 		pertrans->initValueIsNull)
 	{
@@ -3259,6 +3290,9 @@ ExecBuildAggTransCall(ExprState *state, AggState *aggstate,
 	}
 
 	if (pertrans->numSortCols == 0 &&
+#ifdef ADB_EXT
+		pertrans->numKeepCols == 0 &&
+#endif /* ADB_EXT */
 		fcinfo->flinfo->fn_strict)
 	{
 		scratch->opcode = EEOP_AGG_STRICT_TRANS_CHECK;
@@ -3278,6 +3312,23 @@ ExecBuildAggTransCall(ExprState *state, AggState *aggstate,
 	}
 
 	/* invoke appropriate transition implementation */
+#ifdef ADB_EXT
+	if (pertrans->numKeepCols > 0)
+	{
+		if (pertrans->numSortCols == 0)
+		{
+			scratch->opcode = EEOP_AGG_KEEP_TRANS_TUPLE;
+		}else if (pertrans->numSortCols == 1 &&
+			pertrans->numInputs == 1)
+		{
+			scratch->opcode = EEOP_AGG_KEEP_TRANS_ORDER_DATUM;
+		}else
+		{
+			Assert(pertrans->numInputs > 1);
+			scratch->opcode = EEOP_AGG_KEEP_TRANS_ORDER_TUPLE;
+		}
+	}else
+#endif /* ADB_EXT */
 	if (pertrans->numSortCols == 0 && pertrans->transtypeByVal)
 		scratch->opcode = EEOP_AGG_PLAIN_TRANS_BYVAL;
 	else if (pertrans->numSortCols == 0)
