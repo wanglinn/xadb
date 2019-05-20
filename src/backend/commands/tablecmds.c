@@ -1039,6 +1039,7 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 
 			tmpStmt.inhRelations = list_make1(stmt->relation);
 			tmpStmt.relation->relpersistence = stmt->relation->relpersistence;
+			tmpStmt.distributeby = stmt->distributeby;
 
 			if (last_range_upperdatums != NIL)
 			{
