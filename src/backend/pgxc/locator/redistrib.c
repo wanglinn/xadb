@@ -119,7 +119,8 @@ static TupleTableSlot *NextRowForDistribScanNone(CopyState cstate, ExprContext *
 static List *MakeMainRelTargetForShadow(Relation mainRel, Index relid, bool targetEntry);
 static int process_distrib_cmd(void *context, const char *data, int len);
 static AuxiliaryRelCopy *MakeShadowRelCopyInfoFromMaster(Relation masterRel, RelationLocInfo *newLocInfo, int shadowId);
-
+static bool distrib_local_node_need_reduce(char masterLocatorType, char shadowLocatorType
+				, Oid preferred, Oid PGXCNodeOid);
 #endif
 
 /*
@@ -1187,6 +1188,7 @@ DoReduceDataForShadowRel(Relation masterRel,
 	TupleDesc		scan_desc;
 	TupleDesc		result_desc;
 	ShadowReduceState state;
+	bool			needReduce = true;
 
 	Assert(masterRel && shadowRel);
 	Assert(redistcopy);
@@ -1215,9 +1217,9 @@ DoReduceDataForShadowRel(Relation masterRel,
 													NULL,
 													scan_desc);
 
-	if (masterLocatorType == LOCATOR_TYPE_REPLICATED
-		&& shadowLocatorType == LOCATOR_TYPE_RANDOM
-		&& preferred != PGXCNodeOid)
+	needReduce = distrib_local_node_need_reduce(masterLocatorType, shadowLocatorType
+				, preferred, PGXCNodeOid);
+	if (!needReduce)
 	{
 		ClusterCopyFromReduce(shadowRel,
 							redistcopy->reduce,
@@ -1257,6 +1259,8 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 {
 	StringInfoData msg;
 	List *remoteList = NIL;
+	List *dnNodeOids = NIL;
+	List *cnNodeOids = NIL;
 	List *nodeOids = NIL;
 	List *tableOIDs = NIL;
 	List *childOids = NIL;
@@ -1273,13 +1277,78 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 	Assert(commandType == DISTRIB_COPY_FROM);
 
 	initStringInfo(&msg);
-	nodeOids = distrib_get_remote_reduce_nodelist(distribState->oldLocInfo
+	cnNodeOids = GetAllCnIDL(false);
+	dnNodeOids = distrib_get_remote_reduce_nodelist(distribState->oldLocInfo
 						, distribState->newLocInfo, commandType);
+	nodeOids = list_copy(cnNodeOids);
 
+	foreach(lc, dnNodeOids)
+	{
+		nodeOids = list_append_unique_oid(nodeOids, lfirst_oid(lc));
+	}
+
+	/* rewrite the catatlog */
+	resetStringInfo(&msg);
+	tableOIDs = find_all_inheritors(distribState->relid, AccessExclusiveLock, NULL);
+	if (list_length(tableOIDs) > 1)
+	{
+		ClusterTocSetCustomFun(&msg, ClusterRedistributeRelation);
+		flag = EXEC_CLUSTER_FLAG_NEED_REDUCE;
+		remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
+
+		foreach(lc, tableOIDs)
+		{
+			childOID = lfirst_oid(lc);
+			childOids = find_all_inheritors(childOID, AccessExclusiveLock, NULL);
+			childRel = heap_open(childOID, AccessExclusiveLock);
+			childRelname = get_rel_name(childOID);
+
+			relnamespace = RelationGetNamespace(childRel);
+			reltablespace = childRel->rd_rel->reltablespace;
+			relpersistence = childRel->rd_rel->relpersistence;
+			childNspname = get_namespace_name(relnamespace);
+
+			if (childOID != distribState->relid)
+			{
+				ereport(DEBUG1,
+						(errmsg("rewrite system catalogs for relation \"%s.%s\""
+						, childNspname, childRelname)));
+				DistribRewriteCatalogs(cmd, childOID, lockmode);
+
+				resetStringInfo(&msg);
+				appendStringInfoChar(&msg, REMOTE_KEY_REWRITE_CATALOG_TABLE);
+				appendBinaryStringInfo(&msg, (char *)&lockmode, sizeof(lockmode));
+				save_node_string(&msg, childRelname);
+				save_node_string(&msg, childNspname);
+				saveNode(&msg, (Node *)cmd);
+				PQNputCopyData(remoteList, msg.data, msg.len);
+
+				GetCurrentCommandId(true);
+				CommandCounterIncrement();
+			}
+
+			heap_close(childRel, NoLock);
+			pfree(childRelname);
+			pfree(childNspname);
+		}
+
+		if (remoteList)
+		{
+			ListCell *lc;
+
+			foreach(lc, remoteList)
+				PQputCopyEnd(lfirst(lc), NULL);
+
+			PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+			list_free(remoteList);
+		}
+	}
+
+	/* swap source relation file with shadow relation file */
 	resetStringInfo(&msg);
 	ClusterTocSetCustomFun(&msg, ClusterRedistributeRelation);
 	flag = EXEC_CLUSTER_FLAG_NEED_REDUCE;
-	remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
+	remoteList = ExecClusterCustomFunction(dnNodeOids, &msg, 0);
 
 	tableOIDs = find_all_inheritors(distribState->relid, AccessExclusiveLock, NULL);
 	foreach(lc, tableOIDs)
@@ -1294,27 +1363,8 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 		relpersistence = childRel->rd_rel->relpersistence;
 		childNspname = get_namespace_name(relnamespace);
 
-		if (childOID != distribState->relid)
-		{
-			ereport(DEBUG1,
-					(errmsg("rewrite system catalogs for relation \"%s.%s\""
-					, childNspname, childRelname)));
-			DistribRewriteCatalogs(cmd, childOID, lockmode);
-
-			resetStringInfo(&msg);
-			appendStringInfoChar(&msg, REMOTE_KEY_REWRITE_CATALOG_TABLE);
-			appendBinaryStringInfo(&msg, (char *)&lockmode, sizeof(lockmode));
-			save_node_string(&msg, childRelname);
-			save_node_string(&msg, childNspname);
-			saveNode(&msg, (Node *)cmd);
-			PQNputCopyData(remoteList, msg.data, msg.len);
-
-			GetCurrentCommandId(true);
-			CommandCounterIncrement();
-		}
-
 		if (list_length(childOids) > 1
-			&& childRel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
+				&& childRel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 		{
 			heap_close(childRel, NoLock);
 			pfree(childRelname);
@@ -1353,6 +1403,8 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 	}
 
 	list_free(tableOIDs);
+	list_free(cnNodeOids);
+	list_free(dnNodeOids);
 	list_free(nodeOids);
 	pfree(msg.data);
 }
@@ -1389,10 +1441,6 @@ distrib_can_use_reduce(Relation rel
 	if (rel->rd_rel->relpersistence != RELPERSISTENCE_PERMANENT)
 		return false;
 
-	/* not support replication table */
-	if (newLocInfo->locatorType == LOCATOR_TYPE_REPLICATED)
-		return false;
-
 	if (!subCmds)
 		return false;
 
@@ -1419,12 +1467,7 @@ distrib_get_remote_reduce_nodelist(RelationLocInfo *oldLocInfo
 
 	Assert(oldLocInfo && newLocInfo);
 
-	if ((commandType == DISTRIB_COPY_TO || commandType == DISTRIB_COPY_FROM)
-		&& IsRelationReplicated(oldLocInfo))
-		nodeOids = list_copy(GetPreferredRepNodeIds(oldLocInfo->nodeids));
-	else
-		/* All nodes necessary */
-		nodeOids = list_copy(oldLocInfo->nodeids);
+	nodeOids = list_copy(oldLocInfo->nodeids);
 
 	foreach(lc, newLocInfo->nodeids)
 	{
@@ -1597,5 +1640,17 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 	CommandCounterIncrement();
 
 	return 0;
+}
+
+static bool
+distrib_local_node_need_reduce(char masterLocatorType, char shadowLocatorType
+				, Oid preferred, Oid PGXCNodeOid)
+{
+	if (masterLocatorType != LOCATOR_TYPE_REPLICATED)
+		return true;
+	if (preferred == PGXCNodeOid)
+		return true;
+
+	return false;
 }
 #endif /* ADB*/
