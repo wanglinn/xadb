@@ -2907,11 +2907,6 @@ _equalCommonTableExpr(const CommonTableExpr *a, const CommonTableExpr *b)
 	COMPARE_NODE_FIELD(ctecoltypes);
 	COMPARE_NODE_FIELD(ctecoltypmods);
 	COMPARE_NODE_FIELD(ctecolcollations);
-#ifdef ADB_GRAM_ORA
-	COMPARE_NODE_FIELD(scbp_list);
-	COMPARE_NODE_FIELD(scbp_alias);
-	COMPARE_SCALAR_FIELD(have_level);
-#endif /* ADB_GRAM_ORA */
 
 	return true;
 }

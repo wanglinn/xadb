@@ -3219,11 +3219,6 @@ _outCommonTableExpr(StringInfo str, const CommonTableExpr *node)
 	WRITE_NODE_FIELD(ctecoltypes);
 	WRITE_NODE_FIELD(ctecoltypmods);
 	WRITE_NODE_FIELD(ctecolcollations);
-#ifdef ADB_GRAM_ORA
-	WRITE_NODE_FIELD(scbp_list);
-	WRITE_NODE_FIELD(scbp_alias);
-	WRITE_BOOL_FIELD(have_level);
-#endif /* ADB_GRAM_ORA */
 }
 
 static void

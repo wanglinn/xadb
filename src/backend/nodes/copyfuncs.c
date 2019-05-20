@@ -2650,11 +2650,6 @@ _copyCommonTableExpr(const CommonTableExpr *from)
 	COPY_NODE_FIELD(ctecoltypes);
 	COPY_NODE_FIELD(ctecoltypmods);
 	COPY_NODE_FIELD(ctecolcollations);
-#ifdef ADB_GRAM_ORA
-	COPY_NODE_FIELD(scbp_list);
-	COPY_NODE_FIELD(scbp_alias);
-	COPY_SCALAR_FIELD(have_level);
-#endif /* ADB_GRAM_ORA */
 
 	return newnode;
 }

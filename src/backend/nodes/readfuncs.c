@@ -418,11 +418,6 @@ _readCommonTableExpr(void)
 	READ_NODE_FIELD(ctecoltypes);
 	READ_NODE_FIELD(ctecoltypmods);
 	READ_NODE_FIELD(ctecolcollations);
-#ifdef ADB_GRAM_ORA
-	READ_NODE_FIELD(scbp_list);
-	READ_NODE_FIELD(scbp_alias);
-	READ_BOOL_FIELD(have_level);
-#endif /* ADB_GRAM_ORA */
 
 	READ_DONE();
 }

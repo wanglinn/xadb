@@ -3879,12 +3879,6 @@ BEGIN_NODE(CommonTableExpr)
 	NODE_NODE(List,ctecoltypes)
 	NODE_NODE(List,ctecoltypmods)
 	NODE_NODE(List,ctecolcollations)
-#ifdef ADB_GRAM_ORA
-	NODE_NODE(List,scbp_list)
-	NODE_NODE(List,scbp_alias)
-	NODE_SCALAR(bool,have_level)
-	NODE_SCALAR(bool,from_connect_by)
-#endif
 END_NODE(CommonTableExpr)
 #endif /* NO_NODE_CommonTableExpr */
 

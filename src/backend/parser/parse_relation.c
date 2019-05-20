@@ -2709,27 +2709,6 @@ expandRelAttrs(ParseState *pstate, RangeTblEntry *rte,
 	ListCell   *name,
 			   *var;
 	List	   *te_list = NIL;
-#ifdef ADB_GRAM_ORA
-	CommonTableExpr *cte = NULL;
-	if (pstate->p_grammar == PARSE_GRAM_ORACLE &&
-		rte->rtekind == RTE_CTE &&
-		pstate->p_ctenamespace != NIL &&
-		sublevels_up == 0)
-	{
-		/* find "connect by" generated CommonTableExpr */
-		CommonTableExpr *tmp;
-		foreach (name, pstate->p_ctenamespace)
-		{
-			tmp = lfirst_node(CommonTableExpr, name);
-			if (strcmp(tmp->ctename, rte->ctename) == 0)
-			{
-				if (tmp->have_level || tmp->scbp_alias)
-					cte = tmp;
-				break;
-			}
-		}
-	}
-#endif /* ADB_GRAM_ORA */
 
 	expandRTE(rte, rtindex, sublevels_up, location, false,
 			  &names, &vars);
@@ -2746,17 +2725,6 @@ expandRelAttrs(ParseState *pstate, RangeTblEntry *rte,
 		char	   *label = strVal(lfirst(name));
 		Var		   *varnode = (Var *) lfirst(var);
 		TargetEntry *te;
-#ifdef ADB_GRAM_ORA
-		if (cte)
-		{
-			/* ignore junk for connect by expression */
-			if (cte->have_level &&
-				strcmp(label, "level") == 0)
-				continue;
-			if (list_member(cte->scbp_alias, lfirst(name)))
-				continue;
-		}
-#endif /* ADB_GRAM_ORA */
 
 		te = makeTargetEntry((Expr *) varnode,
 							 (AttrNumber) pstate->p_next_resno++,
