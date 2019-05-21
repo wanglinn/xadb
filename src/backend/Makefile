@@ -174,6 +174,12 @@ submake-utils-headers:
 .PHONY: generated-headers
 
 generated-headers: $(top_builddir)/src/include/parser/gram.h $(top_builddir)/src/include/storage/lwlocknames.h submake-catalog-headers submake-utils-headers
+ifeq ($(enable_grammar_oracle),yes)
+generated-headers: $(top_builddir)/src/include/parser/ora_gram.h
+endif
+ifeq ($(enable_grammar_db2),yes)
+generated-headers:$(top_builddir)/src/include/parser/db2_gram.h
+endif
 
 $(top_builddir)/src/include/parser/gram.h: parser/gram.h
 	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
