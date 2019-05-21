@@ -32,4 +32,6 @@ extern void SaveTableStatSnapshot(void);
 extern bool SerializeTableStat(StringInfo buf);
 extern void DestroyTableStateSnapshot(void);
 
+extern List* ExecClusterCustomFunctionDistrib(List *rnodes, StringInfo mem_toc, uint32 flag);
+
 #endif /* EXEC_CLUSTER_H */

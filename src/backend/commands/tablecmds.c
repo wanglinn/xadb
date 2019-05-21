@@ -13847,6 +13847,8 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	oldLocInfo = RelationGetLocInfo(rel);
 	Assert(oldLocInfo);
 
+	redistribState->oldLocInfo = CopyRelationLocInfo(oldLocInfo);
+
 	/*
 	 * Get a copy of the locator information that will be modified by
 	 * successive ALTER TABLE commands.
@@ -13927,6 +13929,11 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	/* Build relation node list for new locator info */
 	for (i = 0; i < new_num; i++)
 		newLocInfo->nodeids = lappend_oid(newLocInfo->nodeids, new_oid_array[i]);
+
+	redistribState->newLocInfo = CopyRelationLocInfo(newLocInfo);
+	redistribState->createShadowRel = false;
+	redistribState->canReduce = distrib_can_use_reduce(rel
+		, redistribState->oldLocInfo, redistribState->newLocInfo);
 
 	/* Build the command tree for table redistribution */
 	PGXCRedistribCreateCommandList(redistribState, newLocInfo);

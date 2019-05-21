@@ -64,8 +64,13 @@ typedef struct RedistribCommand {
  */
 typedef struct RedistribState {
 	Oid			relid;			/* Oid of relation redistributed */
-	List	   *commands;		/* List of commands */
+	Oid			shadowRelid;	/* Oid of shadow relation */
+	List		*commands;		/* List of commands */
 	Tuplestorestate *store;		/* Tuple store used for temporary data storage */
+	bool	createShadowRel;	/* flag of create shadow Relation for reduce */
+	bool	canReduce;		/* flag of the relation can use reduce to redistribute data */
+	RelationLocInfo *oldLocInfo;	/* the locinfo for the source relation */
+	RelationLocInfo *newLocInfo;	/* the locinfo for the shadow relation */
 } RedistribState;
 
 extern void PGXCRedistribTable(RedistribState *distribState, RedistribCatalog type);
@@ -77,5 +82,12 @@ extern RedistribCommand *makeRedistribCommand(RedistribOperation type,
 extern RedistribState *makeRedistribState(Oid relOid);
 extern void FreeRedistribState(RedistribState *state);
 extern void FreeRedistribCommand(RedistribCommand *command);
+
+#ifdef ADB
+extern void ClusterCreateShadowTable(StringInfo buf);
+extern void ClusterRedistShadowData(StringInfo msg);
+extern void ClusterSwapShadowSourceTable(StringInfo msg);
+extern bool distrib_can_use_reduce(Relation rel, RelationLocInfo *oldLocInfo, RelationLocInfo *newLocInfo);
+#endif
 
 #endif  /* REDISTRIB_H */
