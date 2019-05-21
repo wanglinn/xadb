@@ -2705,7 +2705,11 @@ check_hashjoinable(RestrictInfo *restrictinfo)
 }
 
 #ifdef ADB_GRAM_ORA
-void deconstruct_connect_by(PlannerInfo *root, RelOptInfo *rel, List *quals)
+/*
+ * deconstruct quals to rel
+ * return JOIN quals
+ */
+List *deconstruct_connect_by(PlannerInfo *root, RelOptInfo *rel, List *quals)
 {
 	ListCell *lc;
 	List *list;
@@ -2724,9 +2728,17 @@ void deconstruct_connect_by(PlannerInfo *root, RelOptInfo *rel, List *quals)
 	list = NIL;
 	foreach (lc, quals)
 	{
-		list = lappend(list,
-							make_simple_restrictinfo(lfirst(lc)));
+		RestrictInfo *ri = make_simple_restrictinfo(lfirst(lc));
+		if (ri->can_join)
+		{
+			list = lappend(list, lfirst(lc));
+			pfree(ri);
+		}else
+		{
+			rel->baserestrictinfo = lappend(rel->baserestrictinfo, ri);
+		}
 	}
-	rel->baserestrictinfo = list;
+
+	return list;
 }
 #endif /* ADB_GRAM_ORA */

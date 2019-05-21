@@ -825,6 +825,9 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	bool		hasOuterJoins;
 	RelOptInfo *final_rel;
 	ListCell   *l;
+#ifdef ADB_GRAM_ORA
+	FromExpr   *root_from = castNode(FromExpr, parse->jointree);
+#endif
 
 	/* Create a PlannerInfo data structure for this subquery */
 	root = makeNode(PlannerInfo);
@@ -865,28 +868,6 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	 */
 	if (parse->cteList)
 		SS_process_ctes(root);
-
-#ifdef ADB_GRAM_ORA
-	if (parse->connect_by)
-	{
-		Node *quals = NULL;
-		RelOptInfo *rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
-		OracleConnectBy *connect_by = parse->connect_by;
-		FromExpr *f = castNode(FromExpr, parse->jointree);
-		connect_by->start_with = preprocess_expression(root,
-													   connect_by->start_with,
-													   EXPRKIND_QUAL);
-		connect_by->connect_by = preprocess_expression(root,
-													   connect_by->connect_by,
-													   EXPRKIND_QUAL);
-		if (f->quals)
-		{
-			quals = preprocess_expression(root, f->quals, EXPRKIND_QUAL);
-			f->quals = NULL;
-		}
-		deconstruct_connect_by(root, rel, castNode(List, quals));
-	}
-#endif /* ADB_GRAM_ORA */
 
 	/*
 	 * Look for ANY and EXISTS SubLinks in WHERE and JOIN/ON clauses, and try
@@ -1223,6 +1204,31 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	 */
 	if (hasOuterJoins)
 		reduce_outer_joins(root);
+
+#ifdef ADB_GRAM_ORA
+	if (root_from &&
+		parse->connect_by)
+	{
+		List *quals;// = castNode(List, root_from->quals);
+		RelOptInfo *rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
+		OracleConnectBy *connect_by = parse->connect_by;
+		connect_by->start_with = preprocess_expression(root,
+													   connect_by->start_with,
+													   EXPRKIND_QUAL);
+		connect_by->connect_by = preprocess_expression(root,
+													   connect_by->connect_by,
+													   EXPRKIND_QUAL);
+		if (root_from->quals == NULL ||
+			IsA(root_from->quals, List))
+		{
+			quals = (List*)root_from->quals;
+		}else
+		{
+			quals = (List*)preprocess_expression(root, root_from->quals, EXPRKIND_QUAL);
+		}
+		root_from->quals = (Node*)deconstruct_connect_by(root, rel, quals);
+	}
+#endif
 
 	/*
 	 * Do the main planning.  If we have an inherited target relation, that
@@ -6509,6 +6515,7 @@ static PathTarget *make_connect_by_input_target(PlannerInfo *root,
 	PathTarget		   *input_target;
 	List			   *exprs;
 	List			   *base_vars;
+	RelOptInfo		   *rel;
 
 	input_target = create_empty_pathtarget();
 
@@ -6537,6 +6544,23 @@ static PathTarget *make_connect_by_input_target(PlannerInfo *root,
 		base_vars = pull_var_clause(f->quals, PVC_INCLUDE_PLACEHOLDERS);
 		add_new_columns_to_pathtarget(input_target, base_vars);
 		list_free(base_vars);
+	}
+
+	rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
+	if (rel->baserestrictinfo != NIL)
+	{
+		ListCell *lc;
+		RestrictInfo *ri;
+		foreach (lc, rel->baserestrictinfo)
+		{
+			ri = lfirst_node(RestrictInfo, lc);
+			base_vars = pull_var_clause((Node*)ri->clause, PVC_INCLUDE_PLACEHOLDERS);
+			if (base_vars)
+			{
+				add_new_columns_to_pathtarget(input_target, base_vars);
+				list_free(base_vars);
+			}
+		}
 	}
 
 	/* XXX this causes some redundant cost calculation ... */
@@ -9418,7 +9442,7 @@ static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *
 		Assert(result_rinfo == NULL);
 		result_rinfo = rep_rinfo;
 	}
-	
+
 	if (result_rinfo == NULL)
 	{
 		/* not all match */

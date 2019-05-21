@@ -103,7 +103,7 @@ extern RestrictInfo *build_implied_join_equality(Oid opno,
 							Index security_level);
 extern void match_foreign_keys_to_quals(PlannerInfo *root);
 #ifdef ADB_GRAM_ORA
-extern void deconstruct_connect_by(PlannerInfo *root, RelOptInfo *rel, List *quals);
+extern List *deconstruct_connect_by(PlannerInfo *root, RelOptInfo *rel, List *quals);
 #endif /* ADB_GRAM_ORA */
 
 /*
