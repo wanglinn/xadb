@@ -3350,6 +3350,21 @@ query_tree_mutator(Query *query,
 		MUTATE(query->cteList, query->cteList, List *);
 	else						/* else copy CTE list as-is */
 		query->cteList = copyObject(query->cteList);
+#ifdef ADB_GRAM_ORA
+	if (query->connect_by)
+	{
+		OracleConnectBy *old =query->connect_by;
+		OracleConnectBy *newnode;
+
+		FLATCOPY(newnode, old, OracleConnectBy);
+		MUTATE(newnode->start_with, old->start_with, Node *);
+		MUTATE(newnode->connect_by, old->connect_by, Node *);
+		MUTATE(newnode->sortClause, old->sortClause, List *);
+		MUTATE(newnode->sort_tlist, old->sort_tlist, List *);
+
+		query->connect_by = newnode;
+	}
+#endif /* ADB_GRAM_ORA */
 	query->rtable = range_table_mutator(query->rtable,
 										mutator, context, flags);
 	return query;
