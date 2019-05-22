@@ -1093,6 +1093,17 @@ pull_up_simple_subquery(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte,
 	Assert(parse->setOperations == NULL);
 	parse->havingQual = pullup_replace_vars(parse->havingQual, &rvcontext);
 
+#ifdef ADB_GRAM_ORA
+	if (parse->connect_by)
+	{
+		OracleConnectBy *connect_by = parse->connect_by;
+		connect_by->start_with = pullup_replace_vars(connect_by->start_with, &rvcontext);
+		connect_by->connect_by = pullup_replace_vars(connect_by->connect_by, &rvcontext);
+		connect_by->sortClause = (List*)pullup_replace_vars((Node*)connect_by->sortClause, &rvcontext);
+		connect_by->sort_tlist = (List*)pullup_replace_vars((Node*)connect_by->sort_tlist, &rvcontext);
+	}
+#endif /* ADB_GRAM_ORA */
+
 	/*
 	 * Replace references in the translated_vars lists of appendrels. When
 	 * pulling up an appendrel member, we do not need PHVs in the list of the
