@@ -97,10 +97,10 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 			}
 			cbstate->left_hashfuncs = lappend(cbstate->left_hashfuncs,
 											  makeHashExprState(linitial(op->args), left_hash, &cbstate->ps));
-								
+
 			cbstate->right_hashfuncs = lappend(cbstate->right_hashfuncs,
 											   makeHashExprState(llast(op->args), right_hash, &cbstate->ps));
-								
+
 		}
 		Assert(cbstate->left_hashfuncs != NULL);
 		Assert(cbstate->right_hashfuncs != NULL);
@@ -128,7 +128,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 		cbstate->private_state = state;
 		slist_init(&state->slist_level);
 		slist_init(&state->slist_idle);
-		state->sort_slot = ExecInitExtraTupleSlot(estate, 
+		state->sort_slot = ExecInitExtraTupleSlot(estate,
 												  ExecTypeFromTL(node->sort_targetlist, false));
 		state->sort_project = ExecBuildProjectionInfo(node->sort_targetlist,
 													  cbstate->ps.ps_ExprContext,
@@ -160,6 +160,7 @@ reget_start_with_:
 		inner_slot = ExecConnectByStartWith(cbstate);
 		if (!TupIsNull(inner_slot))
 		{
+			CHECK_FOR_INTERRUPTS();
 			econtext->ecxt_innertuple = inner_slot;
 			econtext->ecxt_outertuple = ExecClearTuple(cbstate->outer_slot);
 			tuplestore_puttupleslot(state->save_ts,
@@ -220,6 +221,7 @@ re_get_tuplestore_connect_by_:
 
 	for(;;)
 	{
+		CHECK_FOR_INTERRUPTS();
 		if (cbstate->hs)
 			hashstore_next_slot(cbstate->hs, inner_slot, state->hash_reader, false);
 		else
@@ -269,6 +271,7 @@ static TupleTableSlot *ExecTuplesortConnectBy(PlanState *pstate)
 		Assert(leaf->snode.next == NULL);
 		for(;;)
 		{
+			CHECK_FOR_INTERRUPTS();
 			inner_slot = ExecConnectByStartWith(cbstate);
 			if (TupIsNull(inner_slot))
 				break;
@@ -288,6 +291,7 @@ static TupleTableSlot *ExecTuplesortConnectBy(PlanState *pstate)
 	sort_slot = state->sort_slot;
 
 re_get_tuplesort_connect_by_:
+	CHECK_FOR_INTERRUPTS();
 	if (slist_is_empty(&state->slist_level))
 	{
 		Assert(cbstate->level == 0L);
@@ -310,7 +314,7 @@ re_get_tuplesort_connect_by_:
 		}
 		goto re_get_tuplesort_connect_by_;
 	}
-	
+
 	if (leaf->outer_tup)
 	{
 		Assert(cbstate->level > 1L);
@@ -601,6 +605,7 @@ static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, Tu
 	leaf = NULL;
 	for (;;)
 	{
+		CHECK_FOR_INTERRUPTS();
 		if (cbstate->hs)
 			hashstore_next_slot(cbstate->hs, inner_slot, reader, false);
 		else
