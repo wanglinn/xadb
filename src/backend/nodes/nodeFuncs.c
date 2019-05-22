@@ -1165,6 +1165,9 @@ exprSetCollation(Node *expr, Oid collation)
 		case T_LevelExpr:
 			Assert(!OidIsValid(collation));
 			break;
+		case T_PriorExpr:
+			exprSetCollation(((PriorExpr*)expr)->expr, collation);
+			break;
 		case T_ColumnRefJoin:
 			exprSetCollation((Node*)(((ColumnRefJoin*)expr)->var), collation);
 			break;
@@ -2314,6 +2317,19 @@ expression_tree_walker(Node *node,
 			return walker(((SysConnectByPathExpr*)node)->args, context);
 		case T_ConnectByRootExpr:
 			return walker(((ConnectByRootExpr*)node)->expr, context);
+		case T_OracleConnectBy:
+			{
+				OracleConnectBy *connect_by = (OracleConnectBy*)node;
+				if (walker(connect_by->start_with, context))
+					return true;
+				if (walker(connect_by->connect_by, context))
+					return true;
+				if (walker(connect_by->sortClause, context))
+					return true;
+				if (walker(connect_by->sort_tlist, connect))
+					return true;
+			}
+			break;
 #endif /* ADB_GRAM_ORA */
 		case T_RangeTblFunction:
 			return walker(((RangeTblFunction *) node)->funcexpr, context);
@@ -2403,6 +2419,20 @@ query_tree_walker(Query *query,
 		if (range_table_walker(query->rtable, walker, context, flags))
 			return true;
 	}
+#ifdef ADB_GRAM_ORA
+	if (query->connect_by)
+	{
+		OracleConnectBy *connect_by = (OracleConnectBy*)query->connect_by;
+		if (walker(connect_by->start_with, context))
+			return true;
+		if (walker(connect_by->connect_by, context))
+			return true;
+		if (walker(connect_by->sortClause, context))
+			return true;
+		if (walker(connect_by->sort_tlist, connect))
+			return true;
+	}
+#endif /* ADB_GRAM_ORA */
 	return false;
 }
 
@@ -3236,6 +3266,19 @@ expression_tree_mutator(Node *node,
 				return (Node*)newnode;
 			}
 			break;
+		case T_OracleConnectBy:
+			{
+				OracleConnectBy *old = (OracleConnectBy*)node;
+				OracleConnectBy *newnode;
+
+				FLATCOPY(newnode, old, OracleConnectBy);
+				MUTATE(newnode->start_with, old->start_with, Node *);
+				MUTATE(newnode->connect_by, old->connect_by, Node *);
+				MUTATE(newnode->sortClause, old->sortClause, List *);
+				MUTATE(newnode->sort_tlist, old->sort_tlist, List *);
+
+				return (Node*)newnode;
+			}
 #endif /* ADB_GRAM_ORA */
 #ifdef ADB_EXT
 		case T_KeepClause:
