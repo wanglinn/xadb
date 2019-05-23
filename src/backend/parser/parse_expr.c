@@ -2181,11 +2181,22 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 			ltype = exprType(expr);
 			typcategory = TypeCategory(stype);
 
-			if (IsPreferredType(typcategory, ltype))
-				stype = ltype;
+			if (ltype == UNKNOWNOID &&
+				typcategory == TYPCATEGORY_NUMERIC)
+			{
+				/*
+				 * up to numeric
+				 * think about decode('11.11',0,0,1)
+				 */
+				stype = NUMERICOID;
+			}else
+			{
+				if (IsPreferredType(typcategory, ltype))
+					stype = ltype;
 
-			if (stype == UNKNOWNOID)
-				stype = TEXTOID;
+				if (stype == UNKNOWNOID)
+					stype = TEXTOID;
+			}
 		}
 
 		oldContext = OraCoercionContextSwitchTo(ORA_COERCE_SPECIAL_FUNCTION);
