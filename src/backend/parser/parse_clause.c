@@ -738,13 +738,15 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 	rte = addRangeTableEntryForFunction(pstate,
 										funcnames, funcexprs, coldeflists,
 										r, is_lateral, true);
-	/* Oracle syntax compatible, support default column name ‘column_value’ */
+#ifdef ADB_GRAM_ORA
+	/* Oracle syntax compatible, support default column name 'column_value' */
 	if (pstate->p_grammar == PARSE_GRAM_ORACLE &&
 		r->alias == NULL &&
 		list_length(rte->eref->colnames) == 1)
-	{	
+	{
 		rte->eref = makeAlias(rte->eref->aliasname, list_make1(makeString("column_value")));
 	}
+#endif /* ADB_GRAM_ORA */
 
 	return rte;
 }
