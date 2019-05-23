@@ -1432,6 +1432,9 @@ distrib_can_use_reduce(Relation rel
 	if (!oldLocInfo || !newLocInfo)
 		return false;
 
+	if (EqualRelationLocInfo(oldLocInfo, newLocInfo))
+		return false;
+
 	/* ordinary table */
 	if (rel->rd_rel->relkind != RELKIND_RELATION
 		&& rel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
