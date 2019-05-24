@@ -205,7 +205,7 @@ static void oracleInsertSelectOptions(SelectStmt *stmt,
 
 %type <istmt>	insert_rest insert_rest_no_cols
 
-%type <into>  create_as_target /*into_clause*/
+%type <into>  into_clause create_as_target /*into_clause*/
 
 %type <ival>
 	document_or_content
@@ -299,7 +299,7 @@ static void oracleInsertSelectOptions(SelectStmt *stmt,
 	where_clause where_or_current_clause
 	zone_value
 
-%type <range> qualified_name relation_expr relation_expr_opt_alias
+%type <range> OptTempTableName qualified_name relation_expr relation_expr_opt_alias
 
 %type <sortby>	sortby
 
@@ -5964,17 +5964,18 @@ SimpleTypename:
 	;
 
 simple_select:
-		SELECT opt_distinct target_list from_clause where_clause
+		SELECT opt_distinct target_list into_clause from_clause where_clause
 		opt_connect_by_clause group_clause having_clause
 			{
 				SelectStmt *n = makeNode(SelectStmt);
 				n->distinctClause = $2;
 				n->targetList = $3;
-				n->fromClause = $4;
-				n->whereClause = $5;
-				n->groupClause = $7;
-				n->havingClause = $8;
-				n->ora_connect_by = $6;
+				n->intoClause = $4;
+				n->fromClause = $5;
+				n->whereClause = $6;
+				n->groupClause = $8;
+				n->havingClause = $9;
+				n->ora_connect_by = $7;
 				$$ = (Node*)n;
 			}
 		| select_clause UNION opt_all select_clause
@@ -5986,6 +5987,39 @@ simple_select:
 				$$ = makeSetOp(SETOP_EXCEPT, $3, $1, $4);
 			}
 		| values_clause { $$ = $1; }
+		;
+
+into_clause:
+			INTO OptTempTableName
+				{
+					$$ = makeNode(IntoClause);
+					$$->rel = $2;
+					$$->colNames = NIL;
+					$$->options = NIL;
+					$$->onCommit = ONCOMMIT_NOOP;
+					$$->tableSpaceName = NULL;
+					$$->viewQuery = NULL;
+					$$->skipData = false;
+				}
+			| /*EMPTY*/
+				{ $$ = NULL; }
+		;
+
+/*
+ * Redundancy here is needed to avoid shift/reduce conflicts,
+ * since TEMP is not a reserved word.  See also OptTemp.
+ */
+OptTempTableName:
+			TABLE qualified_name
+				{
+					$$ = $2;
+					$$->relpersistence = RELPERSISTENCE_PERMANENT;
+				}
+			| qualified_name
+				{
+					$$ = $1;
+					$$->relpersistence = RELPERSISTENCE_PERMANENT;
+				}
 		;
 
 sortby: a_expr opt_asc_desc opt_nulls_order
