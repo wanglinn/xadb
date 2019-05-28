@@ -97,7 +97,7 @@ static void oracleInsertSelectOptions(SelectStmt *stmt,
 									  Node *limitOffset, Node *limitCount,
 									  WithClause *withClause,
 									  core_yyscan_t yyscanner);
-
+static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %}
 
 %expect 0
@@ -3120,8 +3120,23 @@ columnref:	ColId
 					$$ = (Node*)n;
 				}
 			| ColId indirection
-				{
-					$$ = makeColumnRef($1, $2, @1, yyscanner);
+				{	
+					ListCell		*lc1, *lc2;
+					List 			*list;
+					//Grammar support: select a.b.c.d =>> select ((a.b).c).d
+					if(list_length($2) > 2)
+					{
+						A_Indirection *in = makeNode(A_Indirection);
+						lc1 = list_head($2);
+						lc2 = lnext(lc1);
+						list = list_make1(lfirst(lc1));
+						in->arg = makeColumnRef($1, list, @1 + (list_length($2)-1), yyscanner);
+						in->indirection = list_make1(lfirst(lc2));
+						$$ = (Node *)listToIndirection(in, lnext(lc2));
+					}else
+					{
+						$$ = makeColumnRef($1, $2, @1, yyscanner);
+					}
 				}
 			| columnref ORACLE_JOIN_OP
 				{
@@ -8255,4 +8270,16 @@ static void oracleInsertSelectOptions(SelectStmt *stmt,
 	}
 	insertSelectOptions(stmt, sort_clause,
 						lockingClause, limitOffset, limitCount, withClause, yyscanner);
+}
+
+static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc)
+{	
+	if(lc != NULL)
+	{	
+		A_Indirection *sub_in = makeNode(A_Indirection);
+		sub_in->arg = (Node *)in;
+		sub_in->indirection = list_make1(lfirst(lc));
+		return listToIndirection(sub_in, lnext(lc));
+	}
+	return in;
 }
