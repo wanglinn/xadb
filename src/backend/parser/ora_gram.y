@@ -6158,6 +6158,23 @@ table_ref:
 					ora_yyget_extra(yyscanner)->has_no_alias_subquery = true;
 				$$ = (Node *) n;
 			}
+		| TABLE select_with_parens opt_alias_clause
+			{
+				RangeSubselect *n = makeNode(RangeSubselect);
+				n->lateral = false;
+				n->subquery = $2;
+				n->alias = $3;
+				if(n->alias == NULL)
+					ora_yyget_extra(yyscanner)->has_no_alias_subquery = true;
+				$$ = (Node *) n;
+				if (IsA($2, SelectStmt) &&
+					((SelectStmt*)$2)->targetList != NIL)
+				{
+					ResTarget *rt = linitial_node(ResTarget, ((SelectStmt*)$2)->targetList);
+					if (rt->name == NULL)
+					rt->name = pstrdup("column_value");
+				}
+			}
 		| joined_table
 			{
 				$$ = (Node *) $1;
