@@ -1662,7 +1662,8 @@ for_variable	: T_DATUM
 					{
 						$$.name = NameOfDatum(&($1));
 						$$.lineno = plpgsql_location_to_lineno(@1);
-						if ($1.datum->dtype == PLPGSQL_DTYPE_ROW)
+						if ($1.datum->dtype == PLPGSQL_DTYPE_ROW
+							|| $1.datum->dtype == PLPGSQL_DTYPE_REC)
 						{
 							$$.scalar = NULL;
 							$$.row = $1.datum;
