@@ -3124,7 +3124,7 @@ columnref:	ColId
 					ListCell		*lc1, *lc2;
 					List 			*list;
 					//Grammar support: select a.b.c.d =>> select ((a.b).c).d
-					if(list_length($2) > 2)
+					if(list_length($2) >= 2)
 					{
 						A_Indirection *in = makeNode(A_Indirection);
 						lc1 = list_head($2);
