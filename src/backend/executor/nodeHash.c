@@ -61,6 +61,10 @@ static HashJoinTuple ExecParallelHashTupleAlloc(HashJoinTable hashtable,
 						   dsa_pointer *shared);
 static void MultiExecPrivateHash(HashState *node);
 static void MultiExecParallelHash(HashState *node);
+#ifdef ADB_EXT
+static void MultiExecPrivateHashExt(HashState *node, TupleTableSlot *(*call_back)(), void *user_data);
+static void MultiExecParallelHashExt(HashState *node, TupleTableSlot *(*call_back)(), void *user_data);
+#endif /* ADB_EXT */
 static inline HashJoinTuple ExecParallelHashFirstTuple(HashJoinTable table,
 						   int bucketno);
 static inline HashJoinTuple ExecParallelHashNextTuple(HashJoinTable table,
@@ -127,6 +131,22 @@ MultiExecHash(HashState *node)
 	return NULL;
 }
 
+void MultiExecHashEx(HashState *node, TupleTableSlot *(*call_back)(), void *userdata)
+{
+	/* must provide our own instrumentation support */
+	if (node->ps.instrument)
+		InstrStartNode(node->ps.instrument);
+
+	if (node->parallel_state != NULL)
+		MultiExecParallelHashExt(node, call_back, userdata);
+	else
+		MultiExecPrivateHashExt(node, call_back, userdata);
+
+	/* must provide our own instrumentation support */
+	if (node->ps.instrument)
+		InstrStopNode(node->ps.instrument, node->hashtable->partialTuples);
+}
+
 /* ----------------------------------------------------------------
  *		MultiExecPrivateHash
  *
@@ -137,6 +157,13 @@ MultiExecHash(HashState *node)
 static void
 MultiExecPrivateHash(HashState *node)
 {
+#ifdef ADB_EXT
+	return MultiExecPrivateHashExt(node, NULL, NULL);
+}
+static void
+MultiExecPrivateHashExt(HashState *node, TupleTableSlot *(*call_back)(), void *user_data)
+{
+#endif /* ADB_EXT */
 	PlanState  *outerNode;
 	List	   *hashkeys;
 	HashJoinTable hashtable;
@@ -162,6 +189,10 @@ MultiExecPrivateHash(HashState *node)
 	for (;;)
 	{
 		slot = ExecProcNode(outerNode);
+#ifdef ADB_EXT
+		if (call_back)
+			slot = (*call_back)(user_data, slot);
+#endif
 		if (TupIsNull(slot))
 			break;
 		/* We have to compute the hash value */
@@ -212,6 +243,13 @@ MultiExecPrivateHash(HashState *node)
 static void
 MultiExecParallelHash(HashState *node)
 {
+#ifdef ADB_EXT
+	return MultiExecParallelHashExt(node, NULL, NULL);
+}
+static void
+MultiExecParallelHashExt(HashState *node, TupleTableSlot *(*call_back)(), void *user_data)
+{
+#endif /* ABD_EXT */
 	ParallelHashJoinState *pstate;
 	PlanState  *outerNode;
 	List	   *hashkeys;
@@ -279,6 +317,10 @@ MultiExecParallelHash(HashState *node)
 			for (;;)
 			{
 				slot = ExecProcNode(outerNode);
+#ifdef ADB_EXT
+				if (call_back)
+					slot = (*call_back)(user_data, slot);
+#endif /* ADB_EXT */
 				if (TupIsNull(slot))
 					break;
 				econtext->ecxt_innertuple = slot;
@@ -1953,6 +1995,50 @@ ExecScanHashBucket(HashJoinState *hjstate,
 	 */
 	return false;
 }
+
+#ifdef ADB_EXT
+bool ExecScanHashBucketExt(ExprContext *econtext, ExprState *hjclauses,
+						   HashJoinTuple *curTuple, uint32 hashvalue,
+						   int skew_no, int bucket_no,
+						   HashJoinTable hashtable,
+						   TupleTableSlot *slot)
+{
+	HashJoinTuple hashTuple = *curTuple;
+	if (hashTuple != NULL)
+		hashTuple = hashTuple->next.unshared;
+	else if (skew_no != INVALID_SKEW_BUCKET_NO)
+		hashTuple = hashtable->skewBucket[skew_no]->tuples;
+	else
+		hashTuple = hashtable->buckets.unshared[bucket_no];
+
+	while (hashTuple != NULL)
+	{
+		if (hashTuple->hashvalue == hashvalue)
+		{
+			TupleTableSlot *inntuple;
+
+			/* insert hashtable's tuple into exec slot so ExecQual sees it */
+			inntuple = ExecStoreMinimalTuple(HJTUPLE_MINTUPLE(hashTuple),
+											 slot,
+											 false);	/* do not pfree */
+			econtext->ecxt_innertuple = inntuple;
+
+			if (ExecQualAndReset(hjclauses, econtext))
+			{
+				*curTuple = hashTuple;
+				return true;
+			}
+		}
+
+		hashTuple = hashTuple->next.unshared;
+	}
+
+	/*
+	 * no match
+	 */
+	return false;
+}
+#endif /* ADB_EXT */
 
 /*
  * ExecParallelScanHashBucket

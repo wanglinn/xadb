@@ -21,6 +21,9 @@ struct SharedHashJoinBatch;
 
 extern HashState *ExecInitHash(Hash *node, EState *estate, int eflags);
 extern Node *MultiExecHash(HashState *node);
+#ifdef ADB_EXT
+extern void MultiExecHashEx(HashState *node, TupleTableSlot *(*call_back)(), void *userdata);
+#endif /* ADB_EXT */
 extern void ExecEndHash(HashState *node);
 extern void ExecReScanHash(HashState *node);
 
@@ -58,6 +61,13 @@ extern bool ExecParallelScanHashBucket(HashJoinState *hjstate, ExprContext *econ
 extern void ExecPrepHashTableForUnmatched(HashJoinState *hjstate);
 extern bool ExecScanHashTableForUnmatched(HashJoinState *hjstate,
 							  ExprContext *econtext);
+#ifdef ADB_EXT
+extern bool ExecScanHashBucketExt(ExprContext *econtext, ExprState *hjclauses,
+								  HashJoinTuple *curTuple, uint32 hashvalue,
+								  int skew_no, int bucket_no,
+								  HashJoinTable hashtable,
+								  TupleTableSlot *slot);
+#endif /* ADB_EXT */
 extern void ExecHashTableReset(HashJoinTable hashtable);
 extern void ExecHashTableResetMatchFlags(HashJoinTable hashtable);
 extern void ExecChooseHashTableSize(double ntuples, int tupwidth, bool useskew,
