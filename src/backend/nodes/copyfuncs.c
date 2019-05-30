@@ -5210,7 +5210,7 @@ _copyConnectByPlan(const ConnectByPlan *from)
 
 	CopyPlanFields(&from->plan, &newnode->plan);
 	COPY_NODE_FIELD(save_targetlist);
-	COPY_BITMAPSET_FIELD(hash_quals);
+	COPY_NODE_FIELD(hash_quals);
 	COPY_NODE_FIELD(join_quals);
 	COPY_NODE_FIELD(start_with);
 	COPY_POINTER_FIELD(sortColIdx, from->numCols * sizeof(AttrNumber));
@@ -5218,7 +5218,6 @@ _copyConnectByPlan(const ConnectByPlan *from)
 	COPY_POINTER_FIELD(collations, from->numCols * sizeof(Oid));
 	COPY_POINTER_FIELD(nullsFirst, from->numCols * sizeof(bool));
 	COPY_SCALAR_FIELD(numCols);
-	COPY_SCALAR_FIELD(num_buckets);
 	COPY_NODE_FIELD(sort_targetlist);
 
 	return newnode;

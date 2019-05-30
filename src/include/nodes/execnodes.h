@@ -2366,10 +2366,8 @@ typedef struct ConnectByState
 	PlanState			ps;
 	ExprState		   *start_with;
 	ExprState		   *joinclause;
-	List			   *left_hashfuncs;
-	List			   *right_hashfuncs;
 	Tuplestorestate	   *ts;		/* null if using hash */
-	struct Hashstorestate *hs;	/* not null if using hash */
+	HashJoinTable		hjt;	/* not null if using hash */
 	TupleTableSlot	   *outer_slot;
 	TupleTableSlot	   *inner_slot;
 	ProjectionInfo	   *pj_save_targetlist;

@@ -2403,7 +2403,7 @@ re_generate_append_:
 													 NULL,
 													 parallel_workers,
 													 generate_partial ? enable_parallel_append:false,
-													 partitioned_rels, 
+													 partitioned_rels,
 													 -1);
 					path->reduce_info_list = list_make1(reduce_info);
 					path->reduce_is_valid = true;
@@ -4678,6 +4678,10 @@ void add_paths_to_connect_by_rel(PlannerInfo *root,
 			hash_quals = lappend(hash_quals, ri);
 	}
 
+	JoinPathExtraData extra;
+	MemSet(&extra, 0, sizeof(extra));
+	extra.restrictlist = connect_rel->joininfo;
+
 	foreach(lc, input_rel->pathlist)
 	{
 		ConnectByPath *path = makeNode(ConnectByPath);
@@ -4688,8 +4692,10 @@ void add_paths_to_connect_by_rel(PlannerInfo *root,
 		path->path.rows = connect_rel->rows;
 		if (hash_quals)
 		{
-			initial_cost_hashjoin(root, &workspace, JOIN_INNER, hash_quals, subpath, subpath, NULL, false);
-			path->num_buckets = workspace.numbuckets;
+			initial_cost_hashjoin(root, &workspace, JOIN_INNER, hash_quals, subpath, subpath, &extra, false);
+		}else
+		{
+			initial_cost_nestloop(root, &workspace, JOIN_INNER, subpath, subpath, &extra);
 		}
 		path->path.startup_cost = workspace.startup_cost;
 		path->path.total_cost = workspace.total_cost;

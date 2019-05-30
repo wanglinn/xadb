@@ -2000,6 +2000,11 @@ static void set_connect_by_references(PlannerInfo *root, ConnectByPlan *plan, in
 										   sub_itlist,
 										   (Index)0,
 										   rtoffset);
+	plan->hash_quals = fix_connect_by_expr(root,
+										   plan->hash_quals,
+										   sub_itlist,
+										   (Index)0,
+										   rtoffset);
 
 	/* save targetlist include all target from subplan */
 	save_targetlist = copyObject(sub_plan->targetlist);

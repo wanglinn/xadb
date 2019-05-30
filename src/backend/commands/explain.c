@@ -1231,7 +1231,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			break;
 #ifdef ADB_GRAM_ORA
 		case T_ConnectByPlan:
-			if (bms_is_empty(((ConnectByPlan*)plan)->hash_quals))
+			if (((ConnectByPlan*)plan)->hash_quals == NIL)
 				sname = "Connect By";
 			else
 				sname = "Hash Connect By";
@@ -1899,21 +1899,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 				show_instrumentation_count("Rows Removed by Start With", 2, planstate, es);
 			}
 			show_upper_qual(((ConnectByPlan*)plan)->join_quals, "Connect By", planstate, ancestors, es);
-			if (es->verbose &&
-				bms_is_empty(((ConnectByPlan*)plan)->hash_quals) == false)
-			{
-				List *quals = NIL;
-				ListCell *lc;
-				int i;
-				for (i=0,lc=list_head(((ConnectByPlan*)plan)->join_quals);lc!=NULL;lc=lnext(lc),++i)
-				{
-					if (bms_is_member(i, ((ConnectByPlan*)plan)->hash_quals))
-						quals = lappend(quals, lfirst(lc));
-				}
-				show_upper_qual(quals, "Hash Cond", planstate, ancestors, es);
-				list_free(quals);
-				ExplainPropertyInteger("Hash Buckets", NULL, ((ConnectByPlan*)plan)->num_buckets, es);
-			}
+			show_upper_qual(((ConnectByPlan*)plan)->hash_quals, "Hash Cond", planstate, ancestors, es);
 			if (((ConnectByPlan*)plan)->numCols > 0)
 			{
 				List *tmp_list = plan->targetlist;

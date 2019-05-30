@@ -7637,13 +7637,53 @@ static ConnectByPlan *create_connect_by_plan(PlannerInfo *root, ConnectByPath *p
 	for (i=0,lc=list_head(list);lc!=NULL;lc=lnext(lc))
 	{
 		RestrictInfo *ri = lfirst_node(RestrictInfo, lc);
-		plan->join_quals = lappend(plan->join_quals, ri->clause);
 		if (ri->can_join &&
 			OidIsValid(ri->hashjoinoperator))
 		{
-			plan->hash_quals = bms_add_member(plan->hash_quals, i);
+			plan->hash_quals = lappend(plan->hash_quals, ri->clause);
+		}else
+		{
+			plan->join_quals = lappend(plan->join_quals, ri->clause);
 		}
 		++i;
+	}
+
+	if (list_length(plan->hash_quals) == 1)
+	{
+		OpExpr	   *clause = linitial_node(OpExpr, plan->hash_quals);
+		Node	   *node = linitial(clause->args);
+		Hash	   *hash_plan;
+		Oid			skewTable = InvalidOid;
+		AttrNumber	skewColumn = InvalidAttrNumber;
+		bool		skewInherit = false;
+
+		while (IsA(node, RelabelType))
+			node = (Node*)((RelabelType*) node)->arg;
+		if (IsA(node, Var))
+		{
+			Var		   *var = (Var *) node;
+			RangeTblEntry *rte;
+
+			rte = root->simple_rte_array[var->varno];
+			if (rte->rtekind == RTE_RELATION)
+			{
+				skewTable = rte->relid;
+				skewColumn = var->varattno;
+				skewInherit = rte->inh;
+			}
+		}
+
+		hash_plan = make_hash(outerPlan(plan),
+							  skewTable,
+							  skewColumn,
+							  skewInherit);
+		/*
+		 * Set Hash node's startup & total costs equal to total cost of input
+		 * plan; this only affects EXPLAIN display not decisions.
+		 */
+		copy_plan_costsize(&hash_plan->plan, outerPlan(plan));
+		hash_plan->plan.startup_cost = hash_plan->plan.total_cost;
+		outerPlan(plan) = (Plan*)hash_plan;
 	}
 
 	list = order_qual_clauses(root, path->path.parent->baserestrictinfo);
@@ -7652,7 +7692,6 @@ static ConnectByPlan *create_connect_by_plan(PlannerInfo *root, ConnectByPath *p
 	plan->start_with = castNode(List, root->parse->connect_by->start_with);
 
 	copy_generic_path_info(&plan->plan, &path->path);
-	plan->num_buckets = path->num_buckets;
 
 	return plan;
 }

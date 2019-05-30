@@ -1881,7 +1881,6 @@ typedef struct ConnectByPath
 {
 	Path		path;
 	Path	   *subpath;
-	int			num_buckets;		/* number of buckets expected when can use hash join */
 }ConnectByPath;
 #endif /* ADB_GRAM_ORA */
 
