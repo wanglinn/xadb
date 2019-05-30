@@ -30,5 +30,10 @@ extern void ExecHashJoinInitializeWorker(HashJoinState *state,
 
 extern void ExecHashJoinSaveTuple(MinimalTuple tuple, uint32 hashvalue,
 					  BufFile **fileptr);
+#ifdef ADB_EXT
+extern TupleTableSlot *ExecHashJoinReadTuple(BufFile *file,
+											 uint32 *hashvalue,
+											 TupleTableSlot *tupleSlot);
+#endif /* ADB_EXT */
 
 #endif							/* NODEHASHJOIN_H */

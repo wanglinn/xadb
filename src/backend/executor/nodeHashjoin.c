@@ -139,10 +139,15 @@ static TupleTableSlot *ExecHashJoinOuterGetTuple(PlanState *outerNode,
 static TupleTableSlot *ExecParallelHashJoinOuterGetTuple(PlanState *outerNode,
 								  HashJoinState *hjstate,
 								  uint32 *hashvalue);
+#ifdef ADB_EXT
+#define ExecHashJoinGetSavedTuple(hjstate, file, hashvalue, slot)	\
+		ExecHashJoinReadTuple(file, hashvalue, slot)
+#else /* ADB_EXT */
 static TupleTableSlot *ExecHashJoinGetSavedTuple(HashJoinState *hjstate,
 						  BufFile *file,
 						  uint32 *hashvalue,
 						  TupleTableSlot *tupleSlot);
+#endif /* ADB_EXT */
 static bool ExecHashJoinNewBatch(HashJoinState *hjstate);
 static bool ExecParallelHashJoinNewBatch(HashJoinState *hjstate);
 static void ExecParallelHashJoinPartitionOuter(HashJoinState *node);
@@ -1248,11 +1253,18 @@ ExecHashJoinSaveTuple(MinimalTuple tuple, uint32 hashvalue,
  * On success, *hashvalue is set to the tuple's hash value, and the tuple
  * itself is stored in the given slot.
  */
+#ifdef ADB_EXT
+TupleTableSlot *
+ExecHashJoinReadTuple(BufFile *file,
+					  uint32 *hashvalue,
+					  TupleTableSlot *tupleSlot)
+#else
 static TupleTableSlot *
 ExecHashJoinGetSavedTuple(HashJoinState *hjstate,
 						  BufFile *file,
 						  uint32 *hashvalue,
 						  TupleTableSlot *tupleSlot)
+#endif /* ADB_EXT */
 {
 	uint32		header[2];
 	size_t		nread;
