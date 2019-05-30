@@ -453,7 +453,7 @@ reget_hash_connect_by_:
 					if (state->outer_save[i] != NULL)
 					{
 						RestartBufFile(state->outer_save[i]);
-						not_empty = true;;
+						not_empty = true;
 					}
 				}
 				if (not_empty == false)
@@ -524,10 +524,14 @@ reget_hash_connect_by_:
 
 		econtext->ecxt_outertuple = outer_slot;
 		ExecHashGetBucketAndBatch(hjt, hashvalue, &bucket_no, &batch_no);
-		save_slot = ExecProject(cbstate->pj_save_targetlist);
-		ExecHashJoinSaveTuple(ExecFetchSlotMinimalTuple(save_slot),
-							  hashvalue,
-							  &state->outer_save[batch_no]);
+		if (hjt->innerBatchFile[batch_no] != NULL)
+		{
+			/* don't need save it when inner batch is empty */
+			save_slot = ExecProject(cbstate->pj_save_targetlist);
+			ExecHashJoinSaveTuple(ExecFetchSlotMinimalTuple(save_slot),
+								hashvalue,
+								&state->outer_save[batch_no]);
+		}
 	}
 	econtext->ecxt_outertuple = outer_slot;
 
