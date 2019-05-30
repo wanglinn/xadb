@@ -7691,6 +7691,18 @@ static ConnectByPlan *create_connect_by_plan(PlannerInfo *root, ConnectByPath *p
 
 	plan->start_with = castNode(List, root->parse->connect_by->start_with);
 
+	if (path->path.param_info)
+	{
+		plan->start_with = (List*)
+			replace_nestloop_params(root, (Node*)plan->start_with);
+		plan->join_quals = (List*)
+			replace_nestloop_params(root, (Node*)plan->join_quals);
+		plan->hash_quals = (List*)
+			replace_nestloop_params(root, (Node*)plan->hash_quals);
+		plan->plan.qual = (List*)
+			replace_nestloop_params(root, (Node*)plan->plan.qual);
+	}
+
 	copy_generic_path_info(&plan->plan, &path->path);
 
 	return plan;
