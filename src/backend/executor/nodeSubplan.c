@@ -1523,3 +1523,50 @@ static void clean_subplan_hashstore(QueryDesc *queryDesc)
 }
 
 #endif /* ADB */
+
+#ifdef ADB_EXT
+bool IsQualHasEmptySubPlan(PlanState *pstate, List *quals)
+{
+	OpExpr		   *op;
+	SubPlan		   *subplan;
+	SubPlanState   *sstate;
+	ListCell	   *lc,*lc2;
+	if (pstate->subPlan == NIL)
+		return false;
+
+	foreach (lc, quals)
+	{
+		subplan = (SubPlan*)lfirst(lc);
+		if (!IsA(subplan, SubPlan) ||
+			subplan->subLinkType != ANY_SUBLINK ||
+			subplan->useHashTable == false ||
+			!IsA(subplan->testexpr, OpExpr))
+			continue;
+		op = (OpExpr*)(subplan->testexpr);
+		if (list_length(op->args) != 2)
+			continue;
+
+		/* find SubPlanState */
+		sstate = NULL;
+		foreach (lc2, pstate->subPlan)
+		{
+			if (IsA(lfirst(lc2), SubPlanState) &&
+				lfirst_node(SubPlanState, lc2)->subplan == subplan)
+			{
+				sstate = lfirst(lc2);
+				break;
+			}
+		}
+		if (sstate == NULL)
+			continue;
+
+		/* okay, test it */
+		if (TupleHashTableMembers(sstate->hashtable) == 0 &&
+			(sstate->hashnulls == NULL ||
+			 TupleHashTableMembers(sstate->hashnulls) == 0))
+			return true;
+	}
+
+	return false;
+}
+#endif /* ADB_EXT */
