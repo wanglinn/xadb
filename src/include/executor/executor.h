@@ -142,6 +142,9 @@ extern TupleHashEntry FindTupleHashEntry(TupleHashTable hashtable,
 				   TupleTableSlot *slot,
 				   ExprState *eqcomp,
 				   FmgrInfo *hashfunctions);
+#ifdef ADB_EXT
+extern uint32 TupleHashTableMembers(TupleHashTable hashtable);
+#endif /* ADB_EXT */
 
 /*
  * prototypes from functions in execJunk.c

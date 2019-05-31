@@ -217,6 +217,13 @@ BuildTupleHashTable(PlanState *parent,
 	return hashtable;
 }
 
+#ifdef ADB_EXT
+uint32 TupleHashTableMembers(TupleHashTable hashtable)
+{
+	return hashtable->hashtab->members;
+}
+#endif /* ADB_EXT */
+
 /*
  * Find or create a hashtable entry for the tuple group containing the
  * given tuple.  The tuple must be the same type as the hashtable entries.
