@@ -393,6 +393,51 @@ static TupleTableSlot *ExecHashConnectBy(PlanState *pstate)
 			/* seek batch file to start */
 			for(i=0;i<hjt->nbatch;++i)
 				RestartBufFile(hjt->outerBatchFile[i]);
+		}else if (cbstate->is_rescan)
+		{
+			int i;
+			/* make start with */
+			for(i=hjt->nbatch;--i>=0;)
+			{
+				BufFile *file = hjt->innerBatchFile[i];
+				uint32 hashvalue;
+				if (file == NULL)
+					continue;
+
+				RestartBufFile(file);
+				for(;;)
+				{
+					ExecHashJoinReadTuple(file, &hashvalue, inner_slot);
+					if (TupIsNull(inner_slot))
+						break;
+					InsertRootHashValue(cbstate, inner_slot);
+				}
+			}
+			for (i=hjt->nSkewBuckets;--i>=0;)
+			{
+				HashJoinTuple hashTuple;
+				if (hjt->skewBucket[i])
+				{
+					hashTuple = hjt->skewBucket[i]->tuples;
+					while (hashTuple)
+					{
+						ExecStoreMinimalTuple(HJTUPLE_MINTUPLE(hashTuple),
+											  inner_slot,
+											  false);
+						InsertRootHashValue(cbstate, inner_slot);
+						hashTuple = hashTuple->next.unshared;
+					}
+				}
+			}
+			/* seek batch file to start */
+			for(i=0;i<hjt->nbatch;++i)
+				RestartBufFile(hjt->outerBatchFile[i]);
+			if (hjt->nbatch > 1)
+			{
+				hjt->curbatch = -1;
+				ExecHashNewBatch(hjt, state, inner_slot);
+			}
+			cbstate->is_rescan = false;
 		}
 
 reget_start_with_:
@@ -871,7 +916,6 @@ static void ExecReScanHashConnectBy(ConnectByState *cbstate, HashConnectByState 
 	{
 		if (cbstate->processing_root == false)
 		{
-			TupleTableSlot *slot = cbstate->inner_slot;
 			/* clear outer */
 			for (i=hjt->nbatch;--i>=0;)
 			{
@@ -881,48 +925,7 @@ static void ExecReScanHashConnectBy(ConnectByState *cbstate, HashConnectByState 
 					hjt->outerBatchFile[i] = NULL;
 				}
 			}
-			/* make start with */
-			for(i=hjt->nbatch;--i>=0;)
-			{
-				BufFile *file = hjt->innerBatchFile[i];
-				uint32 hashvalue;
-
-				if (file == NULL)
-					continue;
-
-				RestartBufFile(file);
-				for(;;)
-				{
-					ExecHashJoinReadTuple(file, &hashvalue, slot);
-					if (TupIsNull(slot))
-						break;
-					InsertRootHashValue(cbstate, slot);
-				}
-			}
-			for (i=hjt->nSkewBuckets;--i>=0;)
-			{
-				HashJoinTuple hashTuple;
-				if (hjt->skewBucket[i])
-				{
-					hashTuple = hjt->skewBucket[i]->tuples;
-					while (hashTuple)
-					{
-						ExecStoreMinimalTuple(HJTUPLE_MINTUPLE(hashTuple),
-											  slot,
-											  false);
-						InsertRootHashValue(cbstate, slot);
-						hashTuple = hashTuple->next.unshared;
-					}
-				}
-			}
-		}
-		if (hjt->curbatch == 0)
-		{
-			RestartBufFile(hjt->outerBatchFile[0]);
-		}else
-		{
-			hjt->curbatch = -1;
-			ExecHashNewBatch(hjt, state, cbstate->inner_slot);
+			cbstate->is_rescan = true;
 		}
 	}else
 	{
