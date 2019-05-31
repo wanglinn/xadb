@@ -738,6 +738,7 @@ static void ProcessHashsortRoot(ConnectByState *cbstate, HashsortConnectByLeaf *
 	context.start_with = cbstate->start_with;
 	context.sort_project = state->base.sort_project;
 	context.tss = leaf->base.scan_ts;
+	context.cbstate = cbstate;
 
 	if (hjt == NULL)
 	{
