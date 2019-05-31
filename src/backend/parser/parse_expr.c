@@ -2172,6 +2172,7 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 			Node		   *sexpr;
 			Oid				ltype;
 			TYPCATEGORY		typcategory;
+			char			*funcname;
 
 			Assert(IsA(cw->expr, A_Expr));
 			aexpr = (A_Expr *)cw->expr;
@@ -2189,7 +2190,23 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 				 * think about decode('11.11',0,0,1)
 				 */
 				stype = NUMERICOID;
-			}else
+			}
+			else if (expr && nodeTag(expr) == T_FuncExpr
+					&& stype == INT4OID && ltype == TEXTOID)
+			{
+				/*
+				* up to numeric
+				* select decode(nvl('77.63',0),0,0,1) from dual;
+				* select decode(nvl2('77.63', '77.63', 0), 0,0,1) from dual;
+				*/
+				funcname = get_func_name(((FuncExpr *)expr)->funcid);
+				if (funcname && (strcmp(funcname, "nvl") == 0
+							|| strcmp(funcname, "nvl2") == 0))
+					stype = NUMERICOID;
+				if (funcname)
+					pfree(funcname);
+			}
+			else
 			{
 				if (IsPreferredType(typcategory, ltype))
 					stype = ltype;
