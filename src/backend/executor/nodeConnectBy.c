@@ -1254,7 +1254,7 @@ static TuplestoreConnectByLeaf *GetNextHashsortLeaf(ConnectByState *cbstate, Tup
 			hjt->buckets.unshared[bucketno] == NULL)
 		{
 			/* load batch and bucketno */
-			BufFile *file = hjt->outerBatchFile[batchno];
+			BufFile *file = hjt->innerBatchFile[batchno];
 			uint32 hashval;
 			int batch,bucket;
 			if (file == NULL)
