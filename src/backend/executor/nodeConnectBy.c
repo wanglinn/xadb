@@ -730,7 +730,9 @@ static void ProcessHashsortRoot(ConnectByState *cbstate, HashsortConnectByLeaf *
 		if (hjt->outerBatchFile == NULL)
 		{
 			Assert(hjt->nbatch == 1);
+			Assert(hjt->innerBatchFile == NULL);
 			hjt->outerBatchFile = MemoryContextAllocZero(hjt->hashCxt, sizeof(BufFile**));
+			hjt->innerBatchFile = MemoryContextAllocZero(hjt->hashCxt, sizeof(BufFile**));
 		}
 
 		/* save batch 0 to BufFile, we need reload */
@@ -741,11 +743,10 @@ static void ProcessHashsortRoot(ConnectByState *cbstate, HashsortConnectByLeaf *
 			{
 				ExecHashJoinSaveTuple(HJTUPLE_MINTUPLE(hashTuple),
 									  hashTuple->hashvalue,
-									  &hjt->outerBatchFile[0]);
+									  &hjt->innerBatchFile[0]);
 				hashTuple = hashTuple->next.unshared;
 			}
 		}
-
 	}else
 	{
 		TupleTableSlot *inner_slot = cbstate->inner_slot;
@@ -870,6 +871,10 @@ void ExecEndConnectBy(ConnectByState *node)
 			if (hjt->outerBatchFile &&
 				hjt->outerBatchFile[0])
 				BufFileClose(hjt->outerBatchFile[0]);
+			if (hjt->innerBatchFile &&
+				hjt->innerBatchFile[0])
+				BufFileClose(hjt->innerBatchFile[0]);
+
 			ExecHashTableDestroy(hjt);
 			node->hjt = NULL;
 		}
@@ -891,6 +896,9 @@ static void ExecReScanNestConnectBy(ConnectByState *cbstate, NestConnectByState 
 			tuplestore_clear(cbstate->ts);
 		cbstate->is_rescan = false;
 		cbstate->eof_underlying = false;
+	}else
+	{
+		cbstate->is_rescan = true;
 	}
 }
 
@@ -958,6 +966,26 @@ static void ExecReScanTuplesortConnectBy(ConnectByState *cbstate, TuplesortConne
 			leaf->outer_tup = NULL;
 		}
 	}
+
+	if (CONNECT_BY_METHOD(cbstate) == CB_TUPLESORT)
+	{
+		if (outerPlanState(cbstate)->chgParam != NULL)
+		{
+			tuplestore_clear(cbstate->ts);
+			cbstate->is_rescan = false;
+			cbstate->eof_underlying = false;
+		}else
+		{
+			tuplestore_rescan(cbstate->ts);
+			cbstate->is_rescan = true;
+		}
+		leaf = GetConnectBySortLeaf(cbstate);
+	}else
+	{
+		Assert(CONNECT_BY_METHOD(cbstate) == CB_HASHSORT);
+		leaf = (TuplestoreConnectByLeaf*)GetConnectByHashSortLeaf(cbstate);
+	}
+	slist_push_head(&state->slist_level, &leaf->snode);
 }
 
 static void ExecReScanHashsortConnectBy(ConnectByState *cbstate, HashsortConnectByState *state)
