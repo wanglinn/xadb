@@ -490,6 +490,7 @@ reget_start_with_:
 				goto reget_start_with_;
 			}
 			econtext->ecxt_innertuple = inner_slot;
+			econtext->ecxt_outertuple = ExecClearTuple(cbstate->outer_slot);
 			if (pstate->qual == NULL ||
 				ExecQual(pstate->qual, econtext))
 			{
