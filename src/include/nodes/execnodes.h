@@ -2373,7 +2373,7 @@ typedef struct ConnectByState
 	ProjectionInfo	   *pj_save_targetlist;
 	void			   *private_state;
 	int64				level;
-	int					rescan_reader;		/* valid if is_rescan and using hashstore */
+	int					check_start_state;		/* optimize for start with has subplan */
 	bool				is_rescan;
 	bool				eof_underlying;
 	bool				processing_root;

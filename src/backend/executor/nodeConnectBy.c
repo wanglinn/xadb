@@ -7,6 +7,7 @@
 #include "executor/nodeConnectBy.h"
 #include "executor/nodeHash.h"
 #include "executor/nodeHashjoin.h"
+#include "executor/nodeSubplan.h"
 #include "lib/ilist.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
@@ -14,6 +15,27 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/tuplestore.h"
+
+#define START_WITH_UNCHECK		0
+#define START_WITH_NOT_EMPTY	1
+#define START_WITH_HAS_EMPTY	-1
+
+#define CHECK_START_WITH(cbstate_)												\
+	do																			\
+	{																			\
+		if ((cbstate_)->check_start_state == START_WITH_UNCHECK)				\
+		{																		\
+			ConnectByPlan *plan = castNode(ConnectByPlan, (cbstate_)->ps.plan);	\
+			if (IsQualHasEmptySubPlan(&(cbstate_)->ps, plan->start_with))		\
+			{																	\
+				(cbstate_)->check_start_state = START_WITH_HAS_EMPTY;			\
+				return ExecClearTuple(slot);									\
+			}else																\
+			{																	\
+				(cbstate_)->check_start_state = START_WITH_NOT_EMPTY;			\
+			}																	\
+		}																		\
+	}while(0)
 
 typedef enum CBMethod
 {
@@ -90,6 +112,7 @@ typedef struct InsertRootHashSortContext
 	ExprState	   *start_with;
 	ProjectionInfo *sort_project;
 	Tuplesortstate *tss;
+	ConnectByState *cbstate;
 }InsertRootHashSortContext;
 
 static TupleTableSlot *ExecNestConnectBy(PlanState *pstate);
@@ -244,7 +267,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 	}
 
 	cbstate->level = 1L;
-	cbstate->rescan_reader = -1;
+	cbstate->check_start_state = START_WITH_UNCHECK;
 	cbstate->processing_root = true;
 
 	return cbstate;
@@ -766,6 +789,8 @@ static void ProcessHashsortRoot(ConnectByState *cbstate, HashsortConnectByLeaf *
 					if (TupIsNull(inner_slot))
 						break;
 					InsertRootHashSortValue(&context, inner_slot);
+					if (TupIsNull(inner_slot))
+						return;
 				}
 			}
 		}
@@ -1037,6 +1062,7 @@ void ExecReScanConnectBy(ConnectByState *node)
 
 	node->processing_root = true;
 	node->level = 1L;
+	node->check_start_state = START_WITH_UNCHECK;
 }
 
 static TupleTableSlot* ExecNestConnectByStartWith(ConnectByState *ps)
@@ -1088,6 +1114,12 @@ static TupleTableSlot* ExecNestConnectByStartWith(ConnectByState *ps)
 			return slot;
 		}
 		++removed;
+		CHECK_START_WITH(ps);
+		if (ps->check_start_state == START_WITH_HAS_EMPTY)
+		{
+			ExecClearTuple(slot);
+			break;
+		}
 	}
 
 	InstrCountFiltered2(ps, removed);
@@ -1285,6 +1317,8 @@ static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSl
 
 	if (TupIsNull(slot))
 		return slot;
+	if (cbstate->check_start_state == START_WITH_HAS_EMPTY)
+		return ExecClearTuple(slot);
 
 	saved = false;
 	econtext = cbstate->ps.ps_ExprContext;
@@ -1310,7 +1344,11 @@ static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSl
 								  &hjt->outerBatchFile[batch_no]);
 			saved = true;
 		}
+	}else
+	{
+		CHECK_START_WITH(cbstate);
 	}
+
 
 	if (!saved)
 		InstrCountFiltered2(cbstate, 1);
@@ -1335,6 +1373,14 @@ static TupleTableSlot *InsertRootHashSortValue(InsertRootHashSortContext *contex
 		econtext->ecxt_innertuple = slot;
 		tuplesort_puttupleslot(context->tss,
 							   ExecProject(context->sort_project));
+	}else
+	{
+		register ConnectByState *cbstate = context->cbstate;
+		CHECK_START_WITH(cbstate);
+		if (cbstate->check_start_state == START_WITH_HAS_EMPTY)
+			ExecClearTuple(slot);
+		else
+			InstrCountFiltered2(cbstate, 1);
 	}
 
 	return slot;
