@@ -1429,6 +1429,9 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 	List	   *rnonvars;
 	bool		useOr;
 	ListCell   *l;
+#ifdef ADB_GRAM_ORA
+	Oid			ltype;
+#endif /* ADB_GRAM_ORA */
 
 	/*
 	 * If the operator is <>, combine with AND not OR.
@@ -1458,6 +1461,9 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 	 */
 	lexpr = transformExprRecurse(pstate, a->lexpr);
 	rexprs = rvars = rnonvars = NIL;
+#ifdef ADB_GRAM_ORA
+	ltype = exprType(lexpr);
+#endif /* ADB_GRAM_ORA */
 	foreach(l, (List *) a->rexpr)
 	{
 		Node	   *rexpr = transformExprRecurse(pstate, lfirst(l));
@@ -1469,7 +1475,7 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 		 * the expressions in each expression_list must match in number and
 		 * data type the expressions to the left of the operator.
 		 */
-		if (IsOracleParseGram(pstate))
+		if (IsOracleParseGram(pstate) && ltype != UNKNOWNOID)
 		{
 			if (IsNullConst(rexpr))
 				rexpr = (Node *) makeNullConst(UNKNOWNOID, -1, InvalidOid);
@@ -1479,9 +1485,7 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 					OraCoercionContextSwitchTo(ORA_COERCE_COMMON_FUNCTION);
 				PG_TRY();
 				{
-					rexpr = coerce_to_common_type(pstate, rexpr,
-											  exprType(lexpr),
-											  "IN");
+					rexpr = coerce_to_common_type(pstate, rexpr, ltype, "IN");
 				} PG_CATCH();
 				{
 					(void) OraCoercionContextSwitchTo(oldContext);
