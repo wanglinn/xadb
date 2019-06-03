@@ -2991,6 +2991,17 @@ transformDistinctClause(ParseState *pstate,
 	 * effect will be that the TLE value will be made unique according to both
 	 * sortops.
 	 */
+#ifdef ADB_GRAM_ORA
+	if (pstate->p_grammar == PARSE_GRAM_ORACLE)
+	{
+		/*
+		 * oracle support "select distinct x from t1 order by y,cast(x as integer)",
+		 * so don't report an error, and don't add SORT target into distinct
+		 *
+		 * here is nothing to, just don't run "foreach"
+		 */
+	}else
+#endif /* ADB_GRAM_ORA */
 	foreach(slitem, sortClause)
 	{
 		SortGroupClause *scl = (SortGroupClause *) lfirst(slitem);
