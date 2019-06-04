@@ -1315,14 +1315,12 @@ static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSl
 	uint32			hashvalue;
 	int				bucket_no;
 	int				batch_no;
-	bool			saved;
 
 	if (TupIsNull(slot))
 		return slot;
 	if (cbstate->check_start_state == START_WITH_HAS_EMPTY)
 		return ExecClearTuple(slot);
 
-	saved = false;
 	econtext = cbstate->ps.ps_ExprContext;
 	ResetExprContext(econtext);
 	econtext->ecxt_outertuple = slot;
@@ -1331,29 +1329,24 @@ static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSl
 	{
 		HashConnectByState *state = cbstate->private_state;
 		hjt = cbstate->hjt;
-		if (ExecHashGetHashValue(hjt,
-								 econtext,
-								 state->outer_HashKeys,
-								 true,
-								 false,
-								 &hashvalue))
-		{
-			econtext->ecxt_innertuple = slot;
-			econtext->ecxt_outertuple = ExecClearTuple(cbstate->outer_slot);
-			ExecHashGetBucketAndBatch(hjt, hashvalue, &bucket_no, &batch_no);
-			ExecHashJoinSaveTuple(ExecFetchSlotMinimalTuple(ExecProject(cbstate->pj_save_targetlist)),
-								  hashvalue,
-								  &hjt->outerBatchFile[batch_no]);
-			saved = true;
-		}
+		ExecHashGetHashValue(hjt,
+							 econtext,
+							 state->outer_HashKeys,
+							 true,
+							 true,	/* we need return this tuple, when is null we also need a hashvalue */
+							 &hashvalue);
+		econtext->ecxt_innertuple = slot;
+		econtext->ecxt_outertuple = ExecClearTuple(cbstate->outer_slot);
+		ExecHashGetBucketAndBatch(hjt, hashvalue, &bucket_no, &batch_no);
+		ExecHashJoinSaveTuple(ExecFetchSlotMinimalTuple(ExecProject(cbstate->pj_save_targetlist)),
+							  hashvalue,
+							  &hjt->outerBatchFile[batch_no]);
 	}else
 	{
 		CHECK_START_WITH(cbstate);
+		InstrCountFiltered2(cbstate, 1);
 	}
 
-
-	if (!saved)
-		InstrCountFiltered2(cbstate, 1);
 	return slot;
 }
 
