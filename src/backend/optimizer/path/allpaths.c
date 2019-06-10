@@ -4593,6 +4593,7 @@ static RelOptInfo* make_no_execparam_base_rel(PlannerInfo *root, RelOptInfo *bas
 	no_param_rel = palloc(sizeof(RelOptInfo));
 	memcpy(no_param_rel, baserel, sizeof(RelOptInfo));
 	baserel->no_param_rel = no_param_rel;
+	no_param_rel->consider_parallel = false;
 	no_param_rel->baserestrictinfo = list_difference_ptr(baserel->baserestrictinfo, exec_param_clauses);
 
 	/* don't need index paths for join */
