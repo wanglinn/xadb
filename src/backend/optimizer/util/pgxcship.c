@@ -856,6 +856,8 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 			pgxc_set_exprtype_shippability(exprType(node), sc_context);
 			pgxc_set_shippability_reason(sc_context, SS_NEEDS_COORD);
 			break;
+		case T_PriorExpr:
+			break;
 #endif /* ADB_GRAM_ORA */
 		case T_Aggref:
 		{
@@ -1432,6 +1434,15 @@ pgxc_is_query_shippable(Query *query, int query_level)
 	ExecNodes	*exec_nodes;
 	bool		canShip = true;
 	Bitmapset	*shippability;
+
+#ifdef ADB_GRAM_ORA
+	/*
+	 * PGXC send Query using PG grammar, but it not support CONNECT BY yet,
+	 * so can't ship
+	 */
+	if (query->connect_by)
+		return NULL;
+#endif
 
 	memset(&sc_context, 0, sizeof(sc_context));
 	/* let's assume that by default query is shippable */
