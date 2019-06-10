@@ -983,8 +983,8 @@ get_compute_hash_function(Oid type, char locator)
 			return "hashint2vector";
 
 #if defined(ADB_GRAM_ORA)
-		case VARCHAR2OID:
-		case NVARCHAR2OID:
+		case ORACLE_VARCHAR2OID:
+		case ORACLE_NVARCHAR2OID:
 #endif
 		case VARCHAROID:
 		case TEXTOID:
