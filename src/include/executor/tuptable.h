@@ -136,13 +136,6 @@ typedef struct TupleTableSlot
 	uint32		tts_off;		/* saved state for slot_deform_tuple */
 	bool		tts_fixedTupleDescriptor;	/* descriptor can't be changed */
 #ifdef ADB
-	/*
-	 * PGXC extension to support tuples sent from remote Datanode.
-	 */
-	char	   *tts_dataRow;		/* Tuple data in DataRow format */
-	int			tts_dataLen;		/* Actual length of the data row */
-	bool		tts_shouldFreeRow;	/* should pfree tts_dataRow? */
-	struct AttInMetadata *tts_attinmeta;	/* store here info to extract values from the DataRow */
 	Oid			tts_xcnodeoid;		/* Oid of node from where the datarow is fetched */
 #endif
 } TupleTableSlot;
@@ -192,10 +185,6 @@ extern bool slot_getsysattr(TupleTableSlot *slot, int attnum,
 extern void slot_getmissingattrs(TupleTableSlot *slot, int startAttNum, int lastAttNum);
 
 #ifdef ADB
-extern TupleTableSlot *ExecStoreDataRowTuple(char *msg,
-			size_t len, Oid msgnode_oid,
-			TupleTableSlot *slot,
-			bool shouldFree);
 extern MinimalTuple ExecCopyRemoteSlotMinimalTuple(TupleTableSlot *slot);
 extern Oid ExecFetchSlotTupleOid(TupleTableSlot *slot);
 #endif

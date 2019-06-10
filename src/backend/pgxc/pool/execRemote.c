@@ -253,30 +253,6 @@ CloseRemoteQueryState(RemoteQueryState *rqstate)
 	}
 }
 
-#if 0
-/*
- * copy the datarow from RemoteQueryState to the given slot, in the slot's memory
- * context
- */
-static void
-CopyDataRowTupleToSlot(RemoteQueryState *rqstate, TupleTableSlot *slot)
-{
-	char 		*msg;
-	MemoryContext	oldcontext;
-
-	oldcontext = MemoryContextSwitchTo(slot->tts_mcxt);
-	msg = (char *)palloc(rqstate->currentRow.msglen);
-	memcpy(msg, rqstate->currentRow.msg, rqstate->currentRow.msglen);
-	ExecStoreDataRowTuple(msg, rqstate->currentRow.msglen,
-							rqstate->currentRow.msgnode, slot, true);
-	pfree(rqstate->currentRow.msg);
-	rqstate->currentRow.msg = NULL;
-	rqstate->currentRow.msglen = 0;
-	rqstate->currentRow.msgnode = 0;
-	MemoryContextSwitchTo(oldcontext);
-}
-#endif
-
 RemoteQueryState *
 ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 {
@@ -1168,22 +1144,6 @@ SetDataRowForIntParams(JunkFilter *junkfilter,
 	else
 	{
 		Assert(rq_state->rqs_num_params == numparams);
-	}
-
-	/*
-	 * If we already have the data row, just copy that, and we are done. One
-	 * scenario where we can have the data row is for INSERT ... SELECT.
-	 * Effectively, in this case, we just re-use the data row from SELECT as-is
-	 * for BIND row of INSERT. But just make sure all of the data required to
-	 * bind is available in the slot. If there are junk attributes to be added
-	 * in the BIND row, we cannot re-use the data row as-is.
-	 */
-	if (!junkfilter && dataSlot && dataSlot->tts_dataRow)
-	{
-		rq_state->paramval_data = (char *)palloc(dataSlot->tts_dataLen);
-		memcpy(rq_state->paramval_data, dataSlot->tts_dataRow, dataSlot->tts_dataLen);
-		rq_state->paramval_len = dataSlot->tts_dataLen;
-		return;
 	}
 
 	initStringInfo(&buf);

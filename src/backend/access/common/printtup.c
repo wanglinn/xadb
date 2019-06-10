@@ -410,30 +410,6 @@ printtup(TupleTableSlot *slot, DestReceiver *self)
 	int			natts = typeinfo->natts;
 	int			i;
 
-#ifdef ADB
-	bool		have_anyarray = false;
-	Form_pg_attribute atts = typeinfo->attrs;
-
-	for (i = 0; i < natts; i++)
-	{
-		if (atts[i].atttypid == ANYARRAYOID)
-		{
-			have_anyarray = true;
-			break;
-		}
-	}
-	/*
-	 * If we are having DataRow-based tuple we do not have to encode attribute
-	 * values, just send over the DataRow message as we received it from the
-	 * Datanode
-	 */
-	if (slot->tts_dataRow && !have_anyarray)
-	{
-		pq_putmessage('D', slot->tts_dataRow, slot->tts_dataLen);
-		return true;
-	}
-#endif
-
 	/* Set or update my derived attribute info, if needed */
 	if (myState->attrinfo != typeinfo || myState->nattrs != natts)
 		printtup_prepare_info(myState, typeinfo, natts);
