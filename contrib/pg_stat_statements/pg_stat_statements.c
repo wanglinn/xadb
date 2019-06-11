@@ -2914,6 +2914,9 @@ JumbleExpr(pgssJumbleState *jstate, Node *node)
 		case T_ColumnRefJoin:
 			JumbleExpr(jstate, (Node*)(((ColumnRefJoin*)node)->var));
 			break;
+		case T_LevelExpr:
+			RecordConstLocation(jstate, ((LevelExpr*)node)->location);
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			/* Only a warning, since we can stumble along anyway */
