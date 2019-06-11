@@ -29,6 +29,7 @@ typedef enum
 {
 	REMOTE_CONN_APP,
 	REMOTE_CONN_COORD,
+	REMOTE_CONN_AGTM,
 	REMOTE_CONN_RXACTMGR,
 	REMOTE_CONN_DATANODE
 } RemoteConnTypes;
@@ -49,7 +50,8 @@ extern Datum xc_lockForBackupKey2;
 #define REMOTE_CONN_TYPE		remoteConnType
 
 #define IsConnFromApp()			(remoteConnType == REMOTE_CONN_APP)
-#define IsConnFromCoord()		(remoteConnType == REMOTE_CONN_COORD)
+#define IsConnFomrGTM()			(remoteConnType == REMOTE_CONN_AGTM)
+#define IsConnFromCoord()		(remoteConnType == REMOTE_CONN_COORD || remoteConnType == REMOTE_CONN_AGTM)
 #define IsConnFromDatanode()	(remoteConnType == REMOTE_CONN_DATANODE)
 #define IsConnFromRxactMgr()	(remoteConnType == REMOTE_CONN_RXACTMGR)
 

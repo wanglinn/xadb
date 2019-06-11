@@ -2940,7 +2940,7 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 														 node_pool->parent->db_info.database,
 														 node_pool->parent->db_info.user_name,
 														 node_pool->parent->db_info.pgoptions,
-														 "coordinator");
+														 IsGTMNode() ? "AGTM" : "coordinator");
 					MemoryContextSwitchTo(old_context);
 				}PG_CATCH();
 				{

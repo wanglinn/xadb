@@ -445,6 +445,7 @@ static const struct config_enum_entry force_parallel_mode_options[] = {
  */
 static const struct config_enum_entry pgxc_conn_types[] = {
 	{"application", REMOTE_CONN_APP, false},
+	{"AGTM", REMOTE_CONN_AGTM, false},
 	{"coordinator", REMOTE_CONN_COORD, false},
 	{"datanode", REMOTE_CONN_DATANODE, false},
 	{"rxactmgr", REMOTE_CONN_RXACTMGR, false},
