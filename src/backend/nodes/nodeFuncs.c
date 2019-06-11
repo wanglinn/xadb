@@ -4602,6 +4602,9 @@ bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
 	case T_ReduceScanPath:
 		WALK_CHILD_PATH(ReduceScanPath, reducepath);
 		break;
+	case T_ConnectByPath:
+		WALK_CHILD_PATH(ConnectByPath, subpath);
+		break;
 	case T_List:
 		{
 			ListCell *lc;
