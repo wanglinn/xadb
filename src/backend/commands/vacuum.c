@@ -480,10 +480,9 @@ vacuum(int options, List *relations, VacuumParams *params,
 					analyze_rel(vrel->oid, vrel->relation, options|VACOPT_IN_CLUSTER, params,
 								vrel->va_cols, in_outer_xact, vac_strategy);
 				else
-#else
+#endif /* ADB */
 				analyze_rel(vrel->oid, vrel->relation, options, params,
 							vrel->va_cols, in_outer_xact, vac_strategy);
-#endif /* ADB */
 
 				if (use_own_xacts)
 				{
