@@ -2737,6 +2737,23 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 		IsA(query->utilityStmt, DeclareCursorStmt))
 		cursorOptions |= ((DeclareCursorStmt *) query->utilityStmt)->options;
 
+	if (query->commandType == CMD_INSERT)
+	{
+		ListCell *lc;
+		RangeTblEntry *rte;
+		/* test has volatile expr */
+		if (list_length(query->rtable) == 1 && /* only insert target, it is "insert into target VALUES(...)" */
+			contain_volatile_functions((Node*)query->targetList))
+			return NULL;
+		foreach (lc, query->rtable)
+		{
+			rte = lfirst_node(RangeTblEntry, lc);
+			if (rte->rtekind == RTE_VALUES &&
+				contain_volatile_functions((Node*)rte->values_lists))
+				return NULL;
+		}
+	}
+
 	exec_nodes = NULL;
 
 	if (enable_pushdown_art)
