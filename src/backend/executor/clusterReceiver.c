@@ -494,6 +494,8 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 	buf.data = (char*)msg;
 	buf.maxlen = buf.len = len;
 	buf.cursor = (sizeof(bool)+sizeof(int));
+	if (desc->natts <= 0)
+		return;		/* zero of attributes in the tuple */
 	for(i=j=0;i<desc->natts;++i)
 	{
 		if (TupleDescAttr(desc, i)->attisdropped)
