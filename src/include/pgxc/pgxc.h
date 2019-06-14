@@ -50,7 +50,7 @@ extern Datum xc_lockForBackupKey2;
 #define REMOTE_CONN_TYPE		remoteConnType
 
 #define IsConnFromApp()			(remoteConnType == REMOTE_CONN_APP)
-#define IsConnFomrGTM()			(remoteConnType == REMOTE_CONN_AGTM)
+#define IsConnFromGTM()			(remoteConnType == REMOTE_CONN_AGTM)
 #define IsConnFromCoord()		(remoteConnType == REMOTE_CONN_COORD || remoteConnType == REMOTE_CONN_AGTM)
 #define IsConnFromDatanode()	(remoteConnType == REMOTE_CONN_DATANODE)
 #define IsConnFromRxactMgr()	(remoteConnType == REMOTE_CONN_RXACTMGR)
