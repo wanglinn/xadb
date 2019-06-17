@@ -29,6 +29,10 @@
 #ifdef ADB
 #include "agtm/agtm.h"
 #include "pgxc/pgxc.h"
+#include "commands/copy.h"	/* for SimpleNextCopyFromNewFE */
+#include "executor/clusterReceiver.h"	/* for CLUSTER_MSG_TRANSACTION_ID */
+#include "libpq/libpq.h"
+#include "libpq/pqformat.h"
 
 /*
  * Parameters as below are used only in Datanode or NoMaster-Coordinator.
@@ -231,11 +235,39 @@ ObtainGlobalTransactionId(bool isSubXact)
 	return GlobalXid;
 }
 
+static TransactionId GetXidFromCoord(int level)
+{
+	StringInfoData buf;
+	TransactionId xid;
+
+	initStringInfo(&buf);
+	appendStringInfoChar(&buf, CLUSTER_MSG_TRANSACTION_ID);
+	appendBinaryStringInfoNT(&buf, (char*)&level, sizeof(level));
+	pq_putmessage('d', buf.data, buf.len);
+
+	resetStringInfo(&buf);
+	GetCopyDataFromNewFE(&buf, true, false);
+	
+	if (pq_getmsgbyte(&buf) != CLUSTER_MSG_TRANSACTION_ID)
+		goto failed_get_xid_;
+	pq_copymsgbytes(&buf, (char*)&xid, sizeof(xid));
+	pq_getmsgend(&buf);
+
+	return xid;
+
+failed_get_xid_:
+	ereport(ERROR,
+			(errcode(ERRCODE_PROTOCOL_VIOLATION),
+			 errmsg("invalid coordinator message format")));
+	return InvalidTransactionId;	/* keep compler quiet */
+}
+
 TransactionId
-GetNewGlobalTransactionId(bool isSubXact)
+GetNewGlobalTransactionId(int level)
 {
 	TransactionId xid;
 	TransactionId gxid;
+	bool isSubXact = level > 1;
 
 	/*
 	 * Workers synchronize transaction state at the beginning of each parallel
@@ -340,7 +372,10 @@ GetNewGlobalTransactionId(bool isSubXact)
 		}
 	}
 
-	gxid = ObtainGlobalTransactionId(isSubXact);
+	if (IsConnFromGTM())
+		gxid = GetXidFromCoord(level);
+	else
+		gxid = ObtainGlobalTransactionId(isSubXact);
 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 
