@@ -234,9 +234,11 @@ agtm_execute_query(const char *query)
 
 void agtm_BeginTransaction(void)
 {
-	char * agtm_begin_cmd = NULL;
+	char *agtm_begin_cmd;
 
-	if (!IsUnderAGTM() || IsGTMNode())
+	if (!IsUnderAGTM() ||
+		IsGTMNode() ||
+		IsConnFromGTM())
 		return ;
 
 	if (!GetForceXidFromAGTM() && !IsCnMaster())
