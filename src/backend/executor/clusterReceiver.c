@@ -52,6 +52,7 @@ static void cluster_receive_destroy(DestReceiver *self);
 static bool serialize_instrument_walker(PlanState *ps, SerializeInstrumentContext *context);
 static void restore_instrument_message(PlanState *ps, const char *msg, int len, struct pg_conn *conn);
 static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *context);
+static void process_transaction_message(const char *msg, int len, struct pg_conn *conn);
 
 void serialize_rdc_listen_port_message(StringInfo buf, int port)
 {
@@ -113,6 +114,10 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 	}else if (*msg == CLUSTER_MSG_TABLE_STAT)
 	{
 		ClusterRecvTableStat(msg+1, len-1);
+		return false;
+	}else if (*msg == CLUSTER_MSG_TRANSACTION_ID)
+	{
+		process_transaction_message(msg+1, len-1, conn);
 		return false;
 	}else
 	{
@@ -182,6 +187,9 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 		break;
 	case CLUSTER_MSG_TABLE_STAT:
 		ClusterRecvTableStat(msg+1, len-1);
+		break;
+	case CLUSTER_MSG_TRANSACTION_ID:
+		process_transaction_message(msg+1, len-1, conn);
 		break;
 	default:
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
@@ -780,6 +788,36 @@ static void restore_instrument_message(PlanState *ps, const char *msg, int len, 
 			ereport(ERROR, (errmsg("plan node %d not found", context.plan_id)));
 		}
 	}
+}
+
+static void process_transaction_message(const char *msg, int len, struct pg_conn *conn)
+{
+	List *list;
+	StringInfoData buf;
+	int level;
+	TransactionId xid;
+	char send_msg[5];
+
+	buf.data = (char*)msg;
+	buf.len = buf.maxlen = len;
+	buf.cursor = 0;
+
+	pq_copymsgbytes(&buf, (char*)&level, sizeof(level));
+	if (level != 1)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("not support sub transaction yet!")));
+	}
+
+	xid = GetTopTransactionId();
+	send_msg[0] = CLUSTER_MSG_TRANSACTION_ID;
+	memcpy(&send_msg[1], &xid, sizeof(xid));
+
+	list = list_make1(conn);
+	PQNputCopyData(list, send_msg, sizeof(send_msg));
+	PQNFlush(list, true);
+	list_free(list);
 }
 
 void put_executor_end_msg(bool flush)
