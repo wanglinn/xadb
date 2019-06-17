@@ -769,6 +769,15 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 		if (IS_PGXC_DATANODE &&
 			IsConnFromCoord())
 		{
+			if (IsConnFromGTM())
+			{
+				/*
+				 * GetCurrentTransactionId must in copy mode, after send_sample_rows_to_coord
+				 * need transaction ID, and after send_sample_rows_to_coord() coordinator
+				 * maybe end copy mode, so get transaction id must before send_sample_rows_to_coord
+				 */
+				GetCurrentTransactionId();
+			}
 			send_sample_rows_to_coord(onerel, rows, numrows, totalrows, totaldeadrows);
 		}else if (IsCnMaster() &&
 			(onerel->rd_locator_info != NULL ||
@@ -3241,10 +3250,11 @@ typedef struct RecvRelNumContext
 	int32				relpages;
 }RecvRelNumContext;
 
+typedef int (*CopyDataFunction)(void *context, struct pg_conn *conn, const char *data, int len);
 typedef struct HookSampleFunctions
 {
 	PQNHookFunctions		funcs;
-	SimpleCopyDataFunction	recvfun;
+	CopyDataFunction		recvfun;
 	List				   *conns;
 	List				   *got_end_conns;
 	void				   *context;
@@ -3341,7 +3351,7 @@ static void DestroyRecvRelNumContext(RecvRelNumContext *context)
 	DestroySampleContext(&context->base, true);
 }
 
-static int NextSampleRowFromRaw(void *context, const char *data, int len)
+static int NextSampleRowFromRaw(void *context, struct pg_conn *conn, const char *data, int len)
 {
 	HeapTuple	tup;
 	RecvSampleRowsContext *rs = (RecvSampleRowsContext*)context;
@@ -3350,7 +3360,7 @@ static int NextSampleRowFromRaw(void *context, const char *data, int len)
 	{
 		rs->base.got_run_end = true;
 		return 1;
-	}else if (clusterRecvTupleEx(rs->base.rstate, data, len, NULL))
+	}else if (clusterRecvTupleEx(rs->base.rstate, data, len, conn))
 	{
 		tup = ExecCopySlotTuple(rs->base.rstate->base_slot);
 		if (rs->currows < rs->targrows)
@@ -3382,7 +3392,12 @@ static int NextSampleRowFromRaw(void *context, const char *data, int len)
 	return 0;
 }
 
-static int NextSampleOtherFromRaw(void *context, const char *data, int len)
+static int NextSampleRowFromCoord(void *context, const char *data, int len)
+{
+	return NextSampleRowFromRaw(context, NULL, data, len);
+}
+
+static int NextSampleOtherFromRaw(void *context, struct pg_conn *conn, const char *data, int len)
 {
 	RecvSampleOtherContext *rso = (RecvSampleOtherContext*)context;
 
@@ -3390,7 +3405,7 @@ static int NextSampleOtherFromRaw(void *context, const char *data, int len)
 	{
 		rso->base.got_run_end = true;
 		return 1;
-	}else if (clusterRecvTupleEx(rso->base.rstate, data, len, NULL))
+	}else if (clusterRecvTupleEx(rso->base.rstate, data, len, conn))
 	{
 		TupleTableSlot *slot = rso->base.rstate->base_slot;
 		Assert(slot->tts_tupleDescriptor->natts == 2);
@@ -3406,7 +3421,12 @@ static int NextSampleOtherFromRaw(void *context, const char *data, int len)
 	return 0;
 }
 
-static int NextRelNumFromRaw(void *context, const char *data, int len)
+static int NextSampleOtherFromCoord(void *context, const char *data, int len)
+{
+	return NextSampleOtherFromRaw(context, NULL, data, len);
+}
+
+static int NextRelNumFromRaw(void *context, struct pg_conn *conn, const char *data, int len)
 {
 	RecvRelNumContext *renc = (RecvRelNumContext*)context;
 
@@ -3414,7 +3434,7 @@ static int NextRelNumFromRaw(void *context, const char *data, int len)
 	{
 		renc->base.got_run_end = true;
 		return 1;
-	}else if(clusterRecvTupleEx(renc->base.rstate, data, len, NULL))
+	}else if(clusterRecvTupleEx(renc->base.rstate, data, len, conn))
 	{
 		TupleTableSlot *slot = renc->base.rstate->base_slot;
 		Assert(slot->tts_tupleDescriptor->natts == 1);
@@ -3427,6 +3447,11 @@ static int NextRelNumFromRaw(void *context, const char *data, int len)
 	return 0;
 }
 
+static int NextRelNumFromCoord(void *context, const char *data, int len)
+{
+	return NextRelNumFromRaw(context, NULL, data, len);
+}
+
 static bool HookSampleFunc(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
 {
 	HookSampleFunctions *funcs = (HookSampleFunctions*)pub;
@@ -3437,7 +3462,7 @@ static bool HookSampleFunc(PQNHookFunctions *pub, struct pg_conn *conn, const ch
 		return true;
 	}else
 	{
-		(*funcs->recvfun)(funcs->context, buf, len);
+		(*funcs->recvfun)(funcs->context, conn, buf, len);
 		return false;
 	}
 }
@@ -3495,7 +3520,7 @@ static TupleTableSlot* OnceTupleFunction(OnceTupleContext *context)
 	}
 }
 
-static void acquire_sample_coord_master(void *context, SimpleCopyDataFunction recvfun, List *conns)
+static void acquire_sample_coord_master(void *context, CopyDataFunction recvfun, List *conns)
 {
 	HookSampleFunctions	hook;
 	hook.funcs = PQNDefaultHookFunctions;
@@ -3623,7 +3648,7 @@ static int acquire_sample_rows_coord_slave(Relation onerel, int elevel,
 
 	/* recv rows */
 	InitSampleRowsContext(&context, RelationGetDescr(onerel), rows, targrows);
-	SimpleNextCopyFromNewFE(NextSampleRowFromRaw, &context);
+	SimpleNextCopyFromNewFE(NextSampleRowFromCoord, &context);
 	if (context.base.got_run_end == false)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
@@ -3632,7 +3657,7 @@ static int acquire_sample_rows_coord_slave(Relation onerel, int elevel,
 
 	/* recv other info */
 	InitSampleOtherContext(&other);
-	SimpleNextCopyFromNewFE(NextSampleOtherFromRaw, &other);
+	SimpleNextCopyFromNewFE(NextSampleOtherFromCoord, &other);
 	if (other.base.got_run_end == false)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
@@ -3709,7 +3734,7 @@ static int32 acquire_relpage_num_coord_slave(void)
 	RecvRelNumContext	context;
 	
 	InitRecvRelNumContext(&context);
-	SimpleNextCopyFromNewFE(NextRelNumFromRaw, &context);
+	SimpleNextCopyFromNewFE(NextRelNumFromCoord, &context);
 	if (context.base.got_run_end == false)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
