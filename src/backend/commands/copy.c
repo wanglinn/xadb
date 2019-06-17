@@ -798,6 +798,64 @@ end_read:
 	return result;
 }
 
+bool GetCopyDataFromNewFE(StringInfo buf, bool flush_write, bool copy_done_ok)
+{
+	int				mtype;
+	if (flush_write)
+		pq_flush();
+
+readmessage:
+	HOLD_CANCEL_INTERRUPTS();
+	pq_startmsgread();
+	mtype = pq_getbyte();
+	if (mtype == EOF)
+		ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 errmsg("unexpected EOF on client connection with an open transaction")));
+	if (pq_getmessage(buf, 0))
+		ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 errmsg("unexpected EOF on client connection with an open transaction")));
+	RESUME_CANCEL_INTERRUPTS();
+	switch (mtype)
+	{
+		case 'd':	/* CopyData */
+			break;
+		case 'c':	/* CopyDone */
+			/* COPY IN correctly terminated by frontend */
+			if (copy_done_ok == false)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_CONNECTION_FAILURE),
+						 errmsg("unexpected EOF on client connection with an open transaction")));
+			}
+			return false;
+		case 'f':	/* CopyFail */
+			ereport(ERROR,
+					(errcode(ERRCODE_QUERY_CANCELED),
+					 errmsg("COPY from stdin failed: %s",
+							pq_getmsgstring(buf))));
+			break;
+		case 'H':	/* Flush */
+		case 'S':	/* Sync */
+
+			/*
+				* Ignore Flush/Sync for the convenience of client
+				* libraries (such as libpq) that may send those
+				* without noticing that the command they just
+				* sent was COPY.
+				*/
+			goto readmessage;
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					 errmsg("unexpected message type 0x%02X during COPY from stdin",
+							mtype)));
+			break;
+	}
+
+	return true;
+}
 #endif /* ADB */
 
 /*

@@ -52,6 +52,7 @@ extern void DoClusterCopy(CopyStmt *stmt, struct StringInfoData *mem_toc);
 extern void ClusterCopyFromReduce(Relation rel, Expr *reduce, List *remote_oids, int id, bool freeze, CustomNextRowFunction fun, void *data);
 extern void ClusterDummyCopyFromReduce(List *target, Expr *reduce, List *remote_oids, int id, CustomNextRowFunction fun, void *data);
 extern int SimpleNextCopyFromNewFE(SimpleCopyDataFunction fun, void *context);
+extern bool GetCopyDataFromNewFE(StringInfo buf, bool flush_write, bool copy_done_ok);
 
 typedef struct AuxiliaryRelCopy
 {
