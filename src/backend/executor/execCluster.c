@@ -77,6 +77,7 @@ typedef struct ClusterErrorHookContext
 	ErrorContextCallback	callback;
 	Oid						saved_node_oid;
 	bool					saved_enable_cluster_plan;
+	bool					saved_in_cluster_mode;
 }ClusterErrorHookContext;
 
 typedef struct ClusterCustomExecInfo
@@ -100,6 +101,7 @@ typedef struct GetRDCListenPortHook
 }GetRDCListenPortHook;
 
 extern bool enable_cluster_plan;
+bool in_cluster_mode = false;
 
 static void ExecClusterPlanStmt(StringInfo buf, ClusterCoordInfo *info);
 static void ExecClusterCopyStmt(StringInfo buf, ClusterCoordInfo *info);
@@ -1492,6 +1494,8 @@ static void SetupClusterErrorHook(ClusterErrorHookContext *context)
 
 	context->saved_node_oid = PGXCNodeOid;
 	context->saved_enable_cluster_plan = enable_cluster_plan;
+	context->saved_in_cluster_mode = in_cluster_mode;
+	in_cluster_mode = true;
 	context->callback.arg = context;
 	context->callback.callback = ExecClusterErrorHookNode;
 	context->callback.previous = error_context_stack;
@@ -1503,6 +1507,7 @@ static void RestoreClusterHook(ClusterErrorHookContext *context)
 	PGXCNodeOid = context->saved_node_oid;
 	enable_cluster_plan = context->saved_enable_cluster_plan;
 	error_context_stack = context->callback.previous;
+	in_cluster_mode = context->saved_in_cluster_mode;
 }
 
 static bool RelationIsCoordOnly(Oid relid)

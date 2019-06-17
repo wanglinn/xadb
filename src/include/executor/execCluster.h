@@ -13,6 +13,8 @@ struct EState;
 struct PlanState;
 struct CopyStmt;
 
+extern PGDLLIMPORT bool in_cluster_mode;
+
 typedef void (*ClusterCustom_function)(StringInfo mem_toc);
 #define ClusterTocSetCustomFun(toc, fun) ClusterTocSetCustomFunStr(toc, #fun)
 
