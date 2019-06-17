@@ -31,6 +31,7 @@
 #include "pgxc/pgxc.h"
 #include "commands/copy.h"	/* for SimpleNextCopyFromNewFE */
 #include "executor/clusterReceiver.h"	/* for CLUSTER_MSG_TRANSACTION_ID */
+#include "executor/execCluster.h"		/* for in_cluster_mode */
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 
@@ -239,6 +240,22 @@ static TransactionId GetXidFromCoord(int level)
 {
 	StringInfoData buf;
 	TransactionId xid;
+
+	if (level == 1 &&
+		GlobalXidSetFromCOOR &&
+		GlobalXid != InvalidGlobalTransactionId)
+		return GlobalXid;
+
+	if (in_cluster_mode == false)
+	{
+		/*
+		 * only in COPY BOTH mode can request transaction id,
+		 * CLUSTER COMMANDS is in COPY BOTH mode
+		 */
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("not in cluster command mode")));
+	}
 
 	initStringInfo(&buf);
 	appendStringInfoChar(&buf, CLUSTER_MSG_TRANSACTION_ID);
