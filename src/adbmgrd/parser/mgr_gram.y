@@ -160,7 +160,7 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 				CreateUserStmt DropUserStmt GrantStmt privilege username hostname
 				AlterUserStmt AddJobitemStmt AlterJobitemStmt DropJobitemStmt ListJobStmt
 				AddExtensionStmt DropExtensionStmt RemoveNodeStmt FailoverManualStmt SwitchoverStmt
-				ZoneStmt
+				ZoneStmt GetBoottimeStmt
 
 				ExpandNodeStmt CheckNodeStmt ClusterSlotInitStmt
 				ClusterPgxcNodeInitStmt ClusterPgxcNodeCheckStmt
@@ -197,7 +197,7 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 %token<keyword>	ADD_P DEPLOY DROP ALTER LIST CREATE ACL CLUSTER
 %token<keyword>	IF_P EXISTS NOT FOR IN_P MINVALUE MAXVALUE
 %token<keyword>	FALSE_P TRUE_P
-%token<keyword>	HOST MONITOR PARAM HBA HA
+%token<keyword>	HOST MONITOR PARAM HBA HA BOOTTIME
 %token<keyword>	INIT GTM MASTER SLAVE ALL NODE COORDINATOR DATANODE
 %token<keyword>	PRETTY SIZE WITH SLINK
 %token<keyword> PASSWORD CLEAN RESET WHERE ROW_ID
@@ -312,6 +312,7 @@ stmt :
 	| FailoverManualStmt
 	| SwitchoverStmt
 	| ZoneStmt
+	| GetBoottimeStmt
 	| /* empty */
 		{ $$ = NULL; }
 	;
@@ -2337,6 +2338,7 @@ ListNodeStmt:
 			check_host_name_isvaild($4);
 		}
 	;
+
 InitNodeStmt:
 INIT ALL
 	{
@@ -3150,6 +3152,54 @@ ZoneStmt:
 		}
 	;
 
+GetBoottimeStmt:
+		BOOTTIME opt_general_all
+		{
+			SelectStmt *stmt;
+			check_node_incluster();
+			stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("boottime_all"), -1));
+			$$ = (Node*)stmt;
+		}
+		| 	BOOTTIME GTM opt_general_all
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_boottime_gtm_all", NULL));
+			$$ = (Node*)stmt;
+		}
+		| 	BOOTTIME DATANODE opt_general_all
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_boottime_datanode_all", NULL));
+			$$ = (Node*)stmt;
+		}
+		| 	BOOTTIME COORDINATOR opt_general_all
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_boottime_coordinator_all", NULL));
+			$$ = (Node*)stmt;
+		}
+		| 	BOOTTIME node_type NodeConstList
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = lcons(makeIntConst($2, @2), $3);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_boottime_nodetype_namelist", args));
+			$$ = (Node*)stmt;
+		}
+		|   BOOTTIME node_type opt_general_all
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *arg = list_make1(makeIntConst($2,-1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_boottime_nodetype_all", arg));
+			$$ = (Node*)stmt;
+		};
+
 unreserved_keyword:
 	  ACL
 	| ACTIVATE
@@ -3158,6 +3208,7 @@ unreserved_keyword:
 	| AGENT
 	| ALTER
 	| APPEND
+	| BOOTTIME
 	| CHECK_PASSWORD
 	| CHECK_USER
 	| CLEAN
