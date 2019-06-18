@@ -141,7 +141,6 @@ typedef FormData_pg_proc *Form_pg_proc;
 #define PROKIND_WINDOW 'w'
 #define PROKIND_PROCEDURE 'p'
 
-
 /*
  * Symbolic values for provolatile column: these indicate whether the result
  * of a function is dependent *only* on the values of its explicit arguments,

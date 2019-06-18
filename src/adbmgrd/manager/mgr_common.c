@@ -25,6 +25,7 @@
 #define RETRY 3
 #define SLEEP_MICRO 100*1000     /* 100 millisec */
 #define SQL_PG_IS_IN_RECOVERY "select pg_is_in_recovery()"
+#define SQL_PG_QUERY_STARTTIME "select pg_postmaster_start_time()"
 
 char *mgr_zone;
 
@@ -4440,7 +4441,7 @@ char mgr_get_nodetype(Name nodename)
 }
 
 int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
-	, StringInfo strinfo, Name recoveryStrInfo)
+	, StringInfo strinfo, StringInfo starttime, Name recoveryStrInfo)
 {
 	int ret = PQPING_REJECT;
 	int agentport = 0;
@@ -4453,6 +4454,7 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 	sprintf(nodeport_buf, "%d", nodeport);
 
 	resetStringInfo(strinfo);
+	resetStringInfo(starttime);
 	namestrcpy(recoveryStrInfo, enum_recovery_status_tab[RECOVERY_UNKNOWN].name);
 	hostAddr = get_hostaddress_from_hostoid(hostOid);
 	user = get_hostuser_from_hostoid(hostOid);
@@ -4486,19 +4488,36 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 						/* do nothing */
 					}
 				}
+                
+				initStringInfo(&resultstrdata);
+				monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_QUERY_STARTTIME
+					, (nodetype == GTM_TYPE_GTM_MASTER || nodetype == GTM_TYPE_GTM_SLAVE) ? AGTM_USER:user
+					, hostAddr, nodeport, DEFAULT_DB, &resultstrdata);
+				if (resultstrdata.len != 0)
+				{
+				    appendStringInfoString(starttime, resultstrdata.data);
+				}
+				else 
+				{
+				     appendStringInfoString(starttime, "unknow");
+				}
 				break;
 			case PQPING_REJECT:
 				appendStringInfoString(strinfo, "server is alive but rejecting connections");
+				appendStringInfoString(starttime, "unknow");
 				break;
 			case PQPING_NO_RESPONSE:
 				appendStringInfoString(strinfo, "not running");
+				appendStringInfoString(starttime, "unknow");
 				break;
 			case PQPING_NO_ATTEMPT:
 				appendStringInfoString(strinfo, "connection not attempted (bad params)");
+				appendStringInfoString(starttime, "unknow");
 				break;
 			case AGENT_DOWN:
 			{
 				appendStringInfo(strinfo, "could not connect socket for agent \"%s\"", hostAddr);
+				appendStringInfoString(starttime, "unknow");
 				break;
 			}
 			default:

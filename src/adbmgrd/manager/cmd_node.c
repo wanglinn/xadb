@@ -126,7 +126,10 @@ static struct enum_recovery_status enum_recovery_status_tab[] =
 void release_append_node_info(AppendNodeInfo *node_info, bool is_release);
 
 static TupleDesc common_command_tuple_desc = NULL;
+static TupleDesc common_boottime_tuple_desc = NULL;
+
 static TupleDesc get_common_command_tuple_desc_for_monitor(void);
+static TupleDesc get_common_command_tuple_desc_for_boottime(void);
 static void mgr_get_appendnodeinfo(char node_type, char *nodename, AppendNodeInfo *appendnodeinfo);
 static void mgr_append_init_cndnmaster(AppendNodeInfo *appendnodeinfo);
 static void mgr_get_other_parm(char node_type, StringInfo infosendmsg);
@@ -175,6 +178,7 @@ static void mgr_manage_append(char command_type, char *user_list_str);
 static void mgr_manage_failover(char command_type, char *user_list_str);
 static void mgr_manage_clean(char command_type, char *user_list_str);
 static void mgr_manage_list(char command_type, char *user_list_str);
+static void mgr_manage_boottime(char command_type, char *user_list_str);
 static void mgr_check_username_valid(List *username_list);
 static void mgr_check_command_valid(List *command_list);
 static List *get_username_list(void);
@@ -195,6 +199,7 @@ static bool mgr_acl_append(char *username);
 static bool mgr_acl_failover(char *username);
 static bool mgr_acl_clean(char *username);
 static bool mgr_acl_init(char *username);
+static bool mgr_acl_boottime(char *username);
 static bool mgr_has_table_priv(char *rolename, char *tablename, char *priv_type);
 static bool mgr_has_func_priv(char *rolename, char *funcname, char *priv_type);
 static List *get_username_list(void);
@@ -2325,10 +2330,7 @@ Datum mgr_runmode_cndn(char nodetype, char cmdtype, List* nodenamelist , char *s
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
 
-/*
- * MONITOR ALL
- */
-Datum mgr_monitor_all(PG_FUNCTION_ARGS)
+Datum mgr_boottime_all(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
 	InitNodeInfo *info;
@@ -2336,6 +2338,7 @@ Datum mgr_monitor_all(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	Form_mgr_node mgr_node;
 	StringInfoData resultstrdata;
+	StringInfoData starttime;
 	NameData host;
 	NameData recoveryStatus;
 	char nodetype;
@@ -2381,8 +2384,102 @@ Datum mgr_monitor_all(PG_FUNCTION_ARGS)
 	nodetype = mgr_node->nodetype;
 	host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
 	initStringInfo(&resultstrdata);
+	initStringInfo(&starttime);
 	ret = mgr_get_monitor_node_result(nodetype, mgr_node->nodehost, mgr_node->nodeport
-	, &resultstrdata, &recoveryStatus);
+	, &resultstrdata, &starttime, &recoveryStatus);
+
+	/* check the node recovery status */
+	nodetypeStr = mgr_nodetype_str(nodetype);
+	if (nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_DATANODE_MASTER
+		|| nodetype == GTM_TYPE_GTM_MASTER)
+	{
+		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
+			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+				, NameStr(mgr_node->nodename), recoveryStatus.data)));
+	}
+	else
+	{
+		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
+			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+				, NameStr(mgr_node->nodename), recoveryStatus.data)));
+	}
+
+	pfree(nodetypeStr);
+	namestrcpy(&host, host_addr);
+	tup_result = build_common_command_tuple_for_boottime(
+				&(mgr_node->nodename)
+				,nodetype
+				,ret == PQPING_OK ? true:false
+				,resultstrdata.data
+				,starttime.data
+				,&host);
+	pfree(resultstrdata.data);
+	pfree(starttime.data);
+	pfree(host_addr);
+	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+}
+
+
+/*
+* MONITOR ALL
+*/
+Datum mgr_monitor_all(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	InitNodeInfo *info;
+	HeapTuple tup;
+	HeapTuple tup_result;
+	Form_mgr_node mgr_node;
+	StringInfoData resultstrdata;
+	StringInfoData starttime;
+	NameData host;
+	NameData recoveryStatus;
+	char nodetype;
+	char *host_addr = NULL;
+	char *nodetypeStr = NULL;
+	int ret = PQPING_REJECT;
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		MemoryContext oldcontext;
+
+		funcctx = SRF_FIRSTCALL_INIT();
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		info = palloc(sizeof(*info));
+		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 0, NULL);
+		info->lcp =NULL;
+		/* save info */
+		funcctx->user_fctx = info;
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	Assert(funcctx);
+	info = funcctx->user_fctx;
+	Assert(info);
+
+	tup = heap_getnext(info->rel_scan, ForwardScanDirection);
+	if(tup == NULL)
+	{
+		/* end of row */
+		heap_endscan(info->rel_scan);
+		heap_close(info->rel_node, AccessShareLock);
+		pfree(info);
+		SRF_RETURN_DONE(funcctx);
+	}
+
+	mgr_node = (Form_mgr_node)GETSTRUCT(tup);
+	Assert(mgr_node);
+
+	nodetype = mgr_node->nodetype;
+	host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+	initStringInfo(&resultstrdata);
+	initStringInfo(&starttime);
+	ret = mgr_get_monitor_node_result(nodetype, mgr_node->nodehost, mgr_node->nodeport
+	, &resultstrdata, &starttime, &recoveryStatus);
 
 	/* check the node recovery status */
 	nodetypeStr = mgr_nodetype_str(nodetype);
@@ -2407,10 +2504,12 @@ Datum mgr_monitor_all(PG_FUNCTION_ARGS)
 				,nodetype
 				,ret == PQPING_OK ? true:false
 				,resultstrdata.data
+				,starttime.data
 				,&host
 				,mgr_node->nodeport
 				,&recoveryStatus);
 	pfree(resultstrdata.data);
+	pfree(starttime.data);
 	pfree(host_addr);
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
@@ -2426,6 +2525,7 @@ Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	Form_mgr_node mgr_node;
 	StringInfoData resultstrdata;
+	StringInfoData starttime;
 	NameData host;
 	NameData recoveryStatus;
 	char nodetype;
@@ -2465,10 +2565,11 @@ Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS)
 		if (mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER || mgr_node->nodetype == CNDN_TYPE_DATANODE_SLAVE)
 		{
 			initStringInfo(&resultstrdata);
+			initStringInfo(&starttime);
 			nodetype = mgr_node->nodetype;
 			host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
 			ret = mgr_get_monitor_node_result(nodetype, mgr_node->nodehost, mgr_node->nodeport
-			, &resultstrdata, &recoveryStatus);
+			, &resultstrdata, &starttime, &recoveryStatus);
 
 			/* check the node recovery status */
 			nodetypeStr = mgr_nodetype_str(nodetype);
@@ -2492,12 +2593,14 @@ Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS)
 						,nodetype
 						,ret == 0 ? true:false
 						,resultstrdata.data
+						,starttime.data
 						,&host
 						,mgr_node->nodeport
 						,&recoveryStatus);
 
 			pfree(host_addr);
 			pfree(resultstrdata.data);
+			pfree(starttime.data);
 			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 		}
 		else
@@ -2521,6 +2624,7 @@ Datum mgr_monitor_gtm_all(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	Form_mgr_node mgr_node;
 	StringInfoData resultstrdata;
+	StringInfoData starttime;
 	StringInfoData strdata;
 	NameData host;
 	NameData recoveryStatus;
@@ -2561,11 +2665,12 @@ Datum mgr_monitor_gtm_all(PG_FUNCTION_ARGS)
 		if (mgr_node->nodetype == GTM_TYPE_GTM_MASTER || mgr_node->nodetype == GTM_TYPE_GTM_SLAVE)
 		{
 			initStringInfo(&resultstrdata);
+			initStringInfo(&starttime);
 			initStringInfo(&strdata);
 			nodetype = mgr_node->nodetype;
 			host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
 			ret = mgr_get_monitor_node_result(nodetype, mgr_node->nodehost, mgr_node->nodeport
-			, &resultstrdata, &recoveryStatus);
+			, &resultstrdata, &starttime, &recoveryStatus);
 
 			/* check the node recovery status */
 			nodetypeStr = mgr_nodetype_str(nodetype);
@@ -2591,12 +2696,14 @@ Datum mgr_monitor_gtm_all(PG_FUNCTION_ARGS)
 						,nodetype
 						,ret == 0 ? true:false
 						,resultstrdata.data
+						,starttime.data
 						,&host
 						,mgr_node->nodeport
 						,&recoveryStatus);
 
 			pfree(host_addr);
 			pfree(resultstrdata.data);
+			pfree(starttime.data);
 			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 		}
 		else
@@ -2610,9 +2717,304 @@ Datum mgr_monitor_gtm_all(PG_FUNCTION_ARGS)
 }
 
 /*
- * monitor nodetype(datanode master/slave|coordinator|gtm master/slave) namelist ...
+ * BOOTTIME GTM ALL;
  */
-Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
+Datum mgr_boottime_gtm_all(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	InitNodeInfo *info;
+	HeapTuple tup;
+	HeapTuple tup_result;
+	Form_mgr_node mgr_node;
+	StringInfoData resultstrdata;
+	StringInfoData starttime;
+	StringInfoData strdata;
+	NameData host;
+	NameData recoveryStatus;
+	char nodetype;
+	char *host_addr = NULL;
+	char *nodetypeStr = NULL;
+	int ret = PQPING_REJECT;
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		MemoryContext oldcontext;
+
+		funcctx = SRF_FIRSTCALL_INIT();
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		info = palloc(sizeof(*info));
+		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 0, NULL);
+		info->lcp =NULL;
+
+		/* save info */
+		funcctx->user_fctx = info;
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	Assert(funcctx);
+	info = funcctx->user_fctx;
+	Assert(info);
+
+	while ((tup = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tup);
+		Assert(mgr_node);
+
+		/* if node type is gtm master ,gtm slave. */
+		if (mgr_node->nodetype == GTM_TYPE_GTM_MASTER || mgr_node->nodetype == GTM_TYPE_GTM_SLAVE)
+		{
+			initStringInfo(&resultstrdata);
+			initStringInfo(&starttime);
+			initStringInfo(&strdata);
+			nodetype = mgr_node->nodetype;
+			host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+			ret = mgr_get_monitor_node_result(nodetype, mgr_node->nodehost, mgr_node->nodeport
+			, &resultstrdata, &starttime, &recoveryStatus);
+
+			/* check the node recovery status */
+			nodetypeStr = mgr_nodetype_str(nodetype);
+			if (nodetype == GTM_TYPE_GTM_MASTER)
+			{
+				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
+				{
+					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+						, NameStr(mgr_node->nodename), recoveryStatus.data)));
+				}
+			}
+			else
+			{
+				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
+					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+						, NameStr(mgr_node->nodename), recoveryStatus.data)));
+			}
+
+			pfree(nodetypeStr);
+			namestrcpy(&host, host_addr);
+			tup_result = build_common_command_tuple_for_boottime(
+						&(mgr_node->nodename)
+						,nodetype
+						,ret == 0 ? true:false
+						,resultstrdata.data
+						,starttime.data
+						,&host);
+
+			pfree(host_addr);
+			pfree(resultstrdata.data);
+			pfree(starttime.data);
+			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+		}
+		else
+			continue;
+	}
+
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);
+	pfree(info);
+	SRF_RETURN_DONE(funcctx);
+}
+
+/*
+ * BOOTTIME DATANODE ALL;
+ */
+Datum mgr_boottime_datanode_all(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	InitNodeInfo *info;
+	HeapTuple tup;
+	HeapTuple tup_result;
+	Form_mgr_node mgr_node;
+	StringInfoData resultstrdata;
+	StringInfoData starttime;
+	NameData host;
+	NameData recoveryStatus;
+	char nodetype;
+	char *host_addr = NULL;
+	char *nodetypeStr = NULL;
+	int ret = PQPING_REJECT;
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		MemoryContext oldcontext;
+
+		funcctx = SRF_FIRSTCALL_INIT();
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		info = palloc(sizeof(*info));
+		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 0, NULL);
+		info->lcp =NULL;
+
+		/* save info */
+		funcctx->user_fctx = info;
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	Assert(funcctx);
+	info = funcctx->user_fctx;
+	Assert(info);
+
+	while ((tup = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tup);
+		Assert(mgr_node);
+
+		/* if node type is datanode master ,datanode slave. */
+		if (mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER || mgr_node->nodetype == CNDN_TYPE_DATANODE_SLAVE)
+		{
+			initStringInfo(&resultstrdata);
+			initStringInfo(&starttime);
+			nodetype = mgr_node->nodetype;
+			host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+			ret = mgr_get_monitor_node_result(nodetype, mgr_node->nodehost, mgr_node->nodeport
+			, &resultstrdata, &starttime, &recoveryStatus);
+
+			/* check the node recovery status */
+			nodetypeStr = mgr_nodetype_str(nodetype);
+			if (nodetype == CNDN_TYPE_DATANODE_MASTER)
+			{
+				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
+					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+						, NameStr(mgr_node->nodename), recoveryStatus.data)));
+			}
+			else
+			{
+				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
+					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+						, NameStr(mgr_node->nodename), recoveryStatus.data)));
+			}
+
+			pfree(nodetypeStr);
+			namestrcpy(&host, host_addr);
+			tup_result = build_common_command_tuple_for_boottime(
+						&(mgr_node->nodename)
+						,nodetype
+						,ret == 0 ? true:false
+						,resultstrdata.data
+						,starttime.data
+						,&host);
+
+			pfree(host_addr);
+			pfree(resultstrdata.data);
+			pfree(starttime.data);
+			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+		}
+		else
+			continue;
+	}
+
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);
+	pfree(info);
+	SRF_RETURN_DONE(funcctx);
+}
+
+/*
+ * BOOTTIME COORDINATOR ALL;
+ */
+Datum mgr_boottime_coordinator_all(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	InitNodeInfo *info;
+	HeapTuple tup;
+	HeapTuple tup_result;
+	Form_mgr_node mgr_node;
+	StringInfoData resultstrdata;
+	StringInfoData starttime;
+	NameData host;
+	NameData recoveryStatus;
+	char nodetype;
+	char *host_addr = NULL;
+	char *nodetypeStr = NULL;
+	int ret = PQPING_REJECT;
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		MemoryContext oldcontext;
+
+		funcctx = SRF_FIRSTCALL_INIT();
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		info = palloc(sizeof(*info));
+		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 0, NULL);
+		info->lcp =NULL;
+
+		/* save info */
+		funcctx->user_fctx = info;
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	Assert(funcctx);
+	info = funcctx->user_fctx;
+	Assert(info);
+
+	while ((tup = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tup);
+		Assert(mgr_node);
+
+		/* if node type is coordinator master ,coordinator slave. */
+		if (mgr_node->nodetype == CNDN_TYPE_COORDINATOR_MASTER || mgr_node->nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
+		{
+			initStringInfo(&resultstrdata);
+			initStringInfo(&starttime);
+			nodetype = mgr_node->nodetype;
+			host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+			ret = mgr_get_monitor_node_result(nodetype, mgr_node->nodehost, mgr_node->nodeport
+			, &resultstrdata, &starttime, &recoveryStatus);
+
+			/* check the node recovery status */
+			nodetypeStr = mgr_nodetype_str(nodetype);
+			if (nodetype == CNDN_TYPE_DATANODE_MASTER)
+			{
+				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
+					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+						, NameStr(mgr_node->nodename), recoveryStatus.data)));
+			}
+			else
+			{
+				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
+					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+						, NameStr(mgr_node->nodename), recoveryStatus.data)));
+			}
+
+			pfree(nodetypeStr);
+			namestrcpy(&host, host_addr);
+			tup_result = build_common_command_tuple_for_boottime(
+						&(mgr_node->nodename)
+						,nodetype
+						,ret == 0 ? true:false
+						,resultstrdata.data
+						,starttime.data
+						,&host);
+
+			pfree(host_addr);
+			pfree(resultstrdata.data);
+			pfree(starttime.data);
+			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+		}
+		else
+			continue;
+	}
+
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);
+	pfree(info);
+	SRF_RETURN_DONE(funcctx);
+}
+
+/*
+ * boottime nodetype(datanode master/slave|coordinator|gtm master/slave) namelist ...
+ */
+Datum mgr_boottime_nodetype_namelist(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
 	InitNodeInfo *info;
@@ -2621,6 +3023,7 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 	HeapTuple tup, tup_result;
 	Form_mgr_node mgr_node;
 	StringInfoData resultstrdata;
+	StringInfoData starttime;
 	NameData host;
 	NameData recoveryStatus;
 	char *host_addr = NULL;
@@ -2703,8 +3106,142 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 
 	host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
 	initStringInfo(&resultstrdata);
+	initStringInfo(&starttime);
 	ret = mgr_get_monitor_node_result(mgr_node->nodetype, mgr_node->nodehost, mgr_node->nodeport
-			, &resultstrdata, &recoveryStatus);
+			, &resultstrdata, &starttime, &recoveryStatus);
+
+	/* check the node recovery status */
+	nodetypeStr = mgr_nodetype_str(nodetype);
+	if (nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_DATANODE_MASTER
+		|| nodetype == GTM_TYPE_GTM_MASTER)
+	{
+		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
+			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+				, NameStr(mgr_node->nodename), recoveryStatus.data)));
+	}
+	else
+	{
+		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
+			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
+				, NameStr(mgr_node->nodename), recoveryStatus.data)));
+	}
+
+	pfree(nodetypeStr);
+	namestrcpy(&host, host_addr);
+	tup_result = build_common_command_tuple_for_boottime(
+				&(mgr_node->nodename)
+				,nodetype
+				,ret == 0 ? true:false
+				,resultstrdata.data
+				,starttime.data
+				,&host);
+
+	pfree(host_addr);
+	pfree(resultstrdata.data);
+	pfree(starttime.data);
+	heap_freetuple(tup);
+	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+}
+
+
+/*
+ * monitor nodetype(datanode master/slave|coordinator|gtm master/slave) namelist ...
+ */
+Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	InitNodeInfo *info;
+	ListCell **lcp;
+	List *nodenamelist=NIL;
+	HeapTuple tup, tup_result;
+	Form_mgr_node mgr_node;
+	StringInfoData resultstrdata;
+	StringInfoData starttime;
+	NameData host;
+	NameData recoveryStatus;
+	char *host_addr = NULL;
+	char *nodename = NULL;
+	char *nodetypeStr = NULL;
+	int ret = PQPING_REJECT;
+	char nodetype;
+
+	nodetype = PG_GETARG_CHAR(0);
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		MemoryContext oldcontext;
+
+		funcctx = SRF_FIRSTCALL_INIT();
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
+
+		info = palloc(sizeof(*info));
+		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
+		*(info->lcp) = list_head(nodenamelist);
+		info->rel_node = heap_open(NodeRelationId, RowExclusiveLock);
+
+		/* save info */
+		funcctx->user_fctx = info;
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+
+	funcctx = SRF_PERCALL_SETUP();
+	Assert(funcctx);
+	info = funcctx->user_fctx;
+	Assert(info);
+
+	lcp = info->lcp;
+	if (*lcp == NULL)
+	{
+		heap_close(info->rel_node, RowExclusiveLock);
+		pfree(info);
+		SRF_RETURN_DONE(funcctx);
+	}
+
+	nodename = (char *)lfirst(*lcp);
+	*lcp = lnext(*lcp);
+	tup = mgr_get_tuple_node_from_name_type(info->rel_node, nodename);
+	if (!HeapTupleIsValid(tup))
+	{
+		switch (nodetype)
+		{
+			case CNDN_TYPE_COORDINATOR_MASTER:
+				ereport(ERROR, (errmsg("coordinator master \"%s\" does not exist", nodename)));
+				break;
+			case CNDN_TYPE_COORDINATOR_SLAVE:
+				ereport(ERROR, (errmsg("coordinator slave \"%s\" does not exist", nodename)));
+				break;
+			case CNDN_TYPE_DATANODE_MASTER:
+				ereport(ERROR, (errmsg("datanode master \"%s\" does not exist", nodename)));
+				break;
+			case CNDN_TYPE_DATANODE_SLAVE:
+				ereport(ERROR, (errmsg("datanode slave \"%s\" does not exist", nodename)));
+				break;
+			case GTM_TYPE_GTM_MASTER:
+				ereport(ERROR, (errmsg("gtm master \"%s\" does not exist", nodename)));
+				break;
+			case GTM_TYPE_GTM_SLAVE:
+				ereport(ERROR, (errmsg("gtm slave \"%s\" does not exist", nodename)));
+				break;
+			default:
+				ereport(ERROR, (errmsg("node type \"%c\" does not exist", nodetype)));
+				break;
+		}
+	}
+
+	mgr_node = (Form_mgr_node)GETSTRUCT(tup);
+	Assert(mgr_node);
+
+	if (nodetype != mgr_node->nodetype)
+		ereport(ERROR, (errmsg("node type is not right: %s", nodename)));
+
+	host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+	initStringInfo(&resultstrdata);
+	initStringInfo(&starttime);
+	ret = mgr_get_monitor_node_result(mgr_node->nodetype, mgr_node->nodehost, mgr_node->nodeport
+			, &resultstrdata, &starttime, &recoveryStatus);
 
 	/* check the node recovery status */
 	nodetypeStr = mgr_nodetype_str(nodetype);
@@ -2729,20 +3266,22 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 				,nodetype
 				,ret == 0 ? true:false
 				,resultstrdata.data
+				,starttime.data
 				,&host
 				,mgr_node->nodeport
 				,&recoveryStatus);
 
 	pfree(host_addr);
 	pfree(resultstrdata.data);
+	pfree(starttime.data);
 	heap_freetuple(tup);
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
 
 /*
- * MONITOR nodetype(DATANODE MASTER/SLAVE |COORDINATOR |GTM MASTER|SLAVE) ALL
+ * boottime nodetype(DATANODE MASTER/SLAVE |COORDINATOR |GTM MASTER|SLAVE) ALL
  */
-Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
+Datum mgr_boottime_nodetype_all(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
 	InitNodeInfo *info;
@@ -2751,6 +3290,7 @@ Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
 	Form_mgr_node mgr_node;
 	ScanKeyData  key[1];
 	StringInfoData resultstrdata;
+	StringInfoData starttime;
 	NameData host;
 	NameData recoveryStatus;
 	char *host_addr = NULL;
@@ -2803,9 +3343,117 @@ Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
 	Assert(mgr_node);
 
 	initStringInfo(&resultstrdata);
+	initStringInfo(&starttime);
 	host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
 	ret = mgr_get_monitor_node_result(mgr_node->nodetype, mgr_node->nodehost, mgr_node->nodeport
-			, &resultstrdata, &recoveryStatus);
+			, &resultstrdata, &starttime, &recoveryStatus);
+
+	/* check the node recovery status */
+	if (nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_DATANODE_MASTER
+		|| nodetype == GTM_TYPE_GTM_MASTER)
+	{
+		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
+		{
+			nodetypeStr = mgr_nodetype_str(nodetype);
+			ereport(WARNING, (errmsg("%s %s is in recovery status", nodetypeStr, NameStr(mgr_node->nodename))));
+			pfree(nodetypeStr);
+		}
+	}
+	else
+	{
+		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
+		{
+			nodetypeStr = mgr_nodetype_str(nodetype);
+			ereport(WARNING, (errmsg("%s %s is not in recovery status", nodetypeStr, NameStr(mgr_node->nodename))));
+			pfree(nodetypeStr);
+		}
+	}
+
+	namestrcpy(&host, host_addr);
+	tup_result = build_common_command_tuple_for_boottime(
+				&(mgr_node->nodename)
+				,nodetype
+				,ret == 0 ? true:false
+				,resultstrdata.data
+				,starttime.data
+				,&host);
+
+	pfree(host_addr);
+	pfree(resultstrdata.data);
+	pfree(starttime.data);
+	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+}
+
+
+/*
+ * MONITOR nodetype(DATANODE MASTER/SLAVE |COORDINATOR |GTM MASTER|SLAVE) ALL
+ */
+Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	InitNodeInfo *info;
+	HeapTuple tup;
+	HeapTuple tup_result;
+	Form_mgr_node mgr_node;
+	ScanKeyData  key[1];
+	StringInfoData resultstrdata;
+	StringInfoData starttime;
+	NameData host;
+	NameData recoveryStatus;
+	char *host_addr = NULL;
+	char *nodetypeStr = NULL;
+	int ret = PQPING_REJECT;
+	char nodetype;
+
+	nodetype = PG_GETARG_CHAR(0);
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		MemoryContext oldcontext;
+
+		funcctx = SRF_FIRSTCALL_INIT();
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		info = palloc(sizeof(*info));
+		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+
+		ScanKeyInit(&key[0]
+					,Anum_mgr_node_nodetype
+					,BTEqualStrategyNumber
+					,F_CHAREQ
+					,CharGetDatum(nodetype));
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 1, key);
+		info->lcp =NULL;
+
+		/* save info */
+		funcctx->user_fctx = info;
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	Assert(funcctx);
+	info = funcctx->user_fctx;
+	Assert(info);
+
+	tup = heap_getnext(info->rel_scan, ForwardScanDirection);
+	if(tup == NULL)
+	{
+		/* end of row */
+		heap_endscan(info->rel_scan);
+		heap_close(info->rel_node, AccessShareLock);
+		pfree(info);
+		SRF_RETURN_DONE(funcctx);
+	}
+
+	mgr_node = (Form_mgr_node)GETSTRUCT(tup);
+	Assert(mgr_node);
+
+	initStringInfo(&resultstrdata);
+	initStringInfo(&starttime);
+	host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+	ret = mgr_get_monitor_node_result(mgr_node->nodetype, mgr_node->nodehost, mgr_node->nodeport
+			, &resultstrdata, &starttime, &recoveryStatus);
 
 	/* check the node recovery status */
 	if (nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_DATANODE_MASTER
@@ -2834,33 +3482,89 @@ Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
 				,nodetype
 				,ret == 0 ? true:false
 				,resultstrdata.data
+				,starttime.data
 				,&host
 				,mgr_node->nodeport
 				,&recoveryStatus);
 
 	pfree(host_addr);
 	pfree(resultstrdata.data);
+	pfree(starttime.data);
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
 
-HeapTuple build_common_command_tuple_for_monitor(const Name name, char type, bool status, const char *description
-						,const Name hostaddr, const int port, const Name recoveryStatus)
+HeapTuple build_common_command_tuple_for_boottime(const Name name, char type, bool status, const char *description,
+						const char *starttime ,const Name hostaddr)
 {
-	Datum datums[7];
-	bool nulls[7];
+	Datum datums[6];
+	bool nulls[6];
+	TupleDesc desc;
+	NameData typestr;
+	AssertArg(name && description);
+	desc = get_common_command_tuple_desc_for_boottime();
+
+	AssertArg(desc && desc->natts == 6
+		&& TupleDescAttr(desc, 0)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 1)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 2)->atttypid == BOOLOID
+		&& TupleDescAttr(desc, 3)->atttypid == TEXTOID
+		&& TupleDescAttr(desc, 4)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 5)->atttypid == TEXTOID);
+
+	switch(type)
+	{
+		case GTM_TYPE_GTM_MASTER:
+			namestrcpy(&typestr, "gtm master");
+			break;
+		case GTM_TYPE_GTM_SLAVE:
+			namestrcpy(&typestr, "gtm slave");
+			break;
+		case CNDN_TYPE_COORDINATOR_MASTER:
+			namestrcpy(&typestr, "coordinator master");
+			break;
+		case CNDN_TYPE_COORDINATOR_SLAVE:
+			namestrcpy(&typestr, "coordinator slave");
+			break;
+		case CNDN_TYPE_DATANODE_MASTER:
+			namestrcpy(&typestr, "datanode master");
+			break;
+		case CNDN_TYPE_DATANODE_SLAVE:
+			namestrcpy(&typestr, "datanode slave");
+			break;
+		default:
+			namestrcpy(&typestr, "unknown type");
+			break;
+	}
+
+	datums[0] = NameGetDatum(name);
+	datums[1] = NameGetDatum(&typestr);
+	datums[2] = BoolGetDatum(status);
+	datums[3] = CStringGetTextDatum(description);
+	datums[4] = NameGetDatum(hostaddr);
+	datums[5] = CStringGetTextDatum(starttime);
+	nulls[0] = nulls[1] = nulls[2] = nulls[3] = nulls[4] = nulls[5] = false;
+	return heap_form_tuple(desc, datums, nulls);
+}
+
+HeapTuple build_common_command_tuple_for_monitor(const Name name, char type, bool status, const char *description,
+						const char *starttime ,const Name hostaddr, const int port, const Name recoveryStatus)
+{
+	Datum datums[8];
+	bool nulls[8];
 	TupleDesc desc;
 	NameData typestr;
 	AssertArg(name && description);
 	desc = get_common_command_tuple_desc_for_monitor();
 
-	AssertArg(desc && desc->natts == 7
+	AssertArg(desc && desc->natts == 8
 		&& TupleDescAttr(desc, 0)->atttypid == NAMEOID
 		&& TupleDescAttr(desc, 1)->atttypid == NAMEOID
 		&& TupleDescAttr(desc, 2)->atttypid == BOOLOID
 		&& TupleDescAttr(desc, 3)->atttypid == TEXTOID
 		&& TupleDescAttr(desc, 4)->atttypid == NAMEOID
 		&& TupleDescAttr(desc, 5)->atttypid == INT4OID
-		&& TupleDescAttr(desc, 6)->atttypid == NAMEOID);
+		&& TupleDescAttr(desc, 6)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 7)->atttypid == TEXTOID);
 
 	switch(type)
 	{
@@ -2895,8 +3599,43 @@ HeapTuple build_common_command_tuple_for_monitor(const Name name, char type, boo
 	datums[4] = NameGetDatum(hostaddr);
 	datums[5] = Int32GetDatum(port);
 	datums[6] = NameGetDatum(recoveryStatus);
-	nulls[0] = nulls[1] = nulls[2] = nulls[3] = nulls[4] = nulls[5] = nulls[6] = false;
+	datums[7] = CStringGetTextDatum(starttime);
+	nulls[0] = nulls[1] = nulls[2] = nulls[3] = nulls[4] = nulls[5] = nulls[6] = nulls[7] = false;
 	return heap_form_tuple(desc, datums, nulls);
+}
+
+static TupleDesc get_common_command_tuple_desc_for_boottime(void)
+{
+    if(common_boottime_tuple_desc == NULL)
+    {
+        MemoryContext volatile old_context = MemoryContextSwitchTo(TopMemoryContext);
+        TupleDesc volatile desc = NULL;
+        PG_TRY();
+        {
+            desc = CreateTemplateTupleDesc(6, false);
+            TupleDescInitEntry(desc, (AttrNumber) 1, "nodename",
+                        NAMEOID, -1, 0);
+            TupleDescInitEntry(desc, (AttrNumber) 2, "nodetype",
+                        NAMEOID, -1, 0);
+            TupleDescInitEntry(desc, (AttrNumber) 3, "status",
+                        BOOLOID, -1, 0);
+            TupleDescInitEntry(desc, (AttrNumber) 4, "description",
+                        TEXTOID, -1, 0);
+            TupleDescInitEntry(desc, (AttrNumber) 5, "host",
+                        NAMEOID, -1, 0);
+            TupleDescInitEntry(desc, (AttrNumber) 6, "boot time",
+                        TEXTOID, -1, 0);
+            common_boottime_tuple_desc = BlessTupleDesc(desc);
+        }PG_CATCH();
+        {
+            if(desc)
+                FreeTupleDesc(desc);
+            PG_RE_THROW();
+        }PG_END_TRY();
+        (void)MemoryContextSwitchTo(old_context);
+    }
+    Assert(common_boottime_tuple_desc);
+    return common_boottime_tuple_desc;
 }
 
 static TupleDesc get_common_command_tuple_desc_for_monitor(void)
@@ -2907,7 +3646,7 @@ static TupleDesc get_common_command_tuple_desc_for_monitor(void)
 		TupleDesc volatile desc = NULL;
 		PG_TRY();
 		{
-			desc = CreateTemplateTupleDesc(7, false);
+			desc = CreateTemplateTupleDesc(8, false);
 			TupleDescInitEntry(desc, (AttrNumber) 1, "nodename",
 						NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 2, "nodetype",
@@ -2922,6 +3661,8 @@ static TupleDesc get_common_command_tuple_desc_for_monitor(void)
 						INT4OID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 7, "recovery",
 						NAMEOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 8, "boot time",
+						TEXTOID, -1, 0);
 			common_command_tuple_desc = BlessTupleDesc(desc);
 		}PG_CATCH();
 		{
@@ -8618,6 +9359,8 @@ Datum mgr_priv_list_to_all(PG_FUNCTION_ARGS)
 			mgr_manage_init(command_type, username_list_str);
 		else if (strcmp(strVal(command), "list") == 0)
 			mgr_manage_list(command_type, username_list_str);
+		else if (strcmp(strVal(command), "boottime") == 0)
+			mgr_manage_boottime(command_type, username_list_str);
 		else if (strcmp(strVal(command), "monitor") == 0)
 			mgr_manage_monitor(command_type, username_list_str);
 		else if (strcmp(strVal(command), "reset") == 0)
@@ -8675,6 +9418,7 @@ static void mgr_priv_all(char command_type, char *username_list_str)
 	mgr_manage_flush(command_type, username_list_str);
 	mgr_manage_init(command_type, username_list_str);
 	mgr_manage_list(command_type, username_list_str);
+	mgr_manage_boottime(command_type, username_list_str);
 	mgr_manage_monitor(command_type, username_list_str);
 	mgr_manage_reset(command_type, username_list_str);
 	mgr_manage_set(command_type, username_list_str);
@@ -8736,6 +9480,8 @@ Datum mgr_priv_manage(PG_FUNCTION_ARGS)
 			mgr_manage_init(command_type, username_list_str);
 		else if (strcmp(strVal(command), "list") == 0)
 			mgr_manage_list(command_type, username_list_str);
+		else if (strcmp(strVal(command), "boottime") == 0)
+			mgr_manage_boottime(command_type, username_list_str);
 		else if (strcmp(strVal(command), "monitor") == 0)
 			mgr_manage_monitor(command_type, username_list_str);
 		else if (strcmp(strVal(command), "reset") == 0)
@@ -9242,6 +9988,62 @@ static void mgr_manage_monitor(char command_type, char *user_list_str)
 		appendStringInfoString(&commandsql, ";");
 		appendStringInfoString(&commandsql, "REVOKE select ON ");
 		appendStringInfoString(&commandsql, "adbmgr.monitor_all ");
+		appendStringInfoString(&commandsql, "FROM ");
+	}
+	else
+		ereport(ERROR, (errmsg("command type is wrong: %c", command_type)));
+
+	appendStringInfoString(&commandsql, user_list_str);
+
+	if ((ret = SPI_connect()) < 0)
+		ereport(ERROR, (errmsg("grant/revoke: SPI_connect failed: error code %d", ret)));
+
+	exec_ret = SPI_execute(commandsql.data, false, 0);
+	if (exec_ret != SPI_OK_UTILITY)
+		ereport(ERROR, (errmsg("grant/revoke: SPI_execute failed: error code %d", exec_ret)));
+
+	SPI_finish();
+	return;
+}
+
+static void mgr_manage_boottime(char command_type, char *user_list_str)
+{
+    StringInfoData commandsql;
+	int exec_ret;
+	int ret;
+	initStringInfo(&commandsql);
+
+	if (command_type == PRIV_GRANT)
+	{
+		// grant execute on function func_name [, ...] to user_name [, ...];
+		// grant select on schema.view [, ...] to user [, ...]
+		appendStringInfoString(&commandsql, "GRANT EXECUTE ON FUNCTION ");
+		appendStringInfoString(&commandsql, "mgr_boottime_gtm_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_datanode_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_coordinator_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_namelist(bigint, \"any\"), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_all(bigint) ");
+		appendStringInfoString(&commandsql, "TO ");
+		appendStringInfoString(&commandsql, user_list_str);
+		appendStringInfoString(&commandsql, ";");
+		appendStringInfoString(&commandsql, "GRANT select ON ");
+		appendStringInfoString(&commandsql, "adbmgr.boottime_all ");
+		appendStringInfoString(&commandsql, "TO ");
+	}else if (command_type == PRIV_REVOKE)
+	{
+		// revoke execute on function func_name [, ...] from user_name [, ...];
+		// revoke select on schema.view [, ...] from user [, ...]
+		appendStringInfoString(&commandsql, "REVOKE EXECUTE ON FUNCTION ");
+		appendStringInfoString(&commandsql, "mgr_boottime_gtm_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_datanode_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_coordinator_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_namelist(bigint, \"any\"), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_all(bigint) ");
+		appendStringInfoString(&commandsql, "FROM ");
+		appendStringInfoString(&commandsql, user_list_str);
+		appendStringInfoString(&commandsql, ";");
+		appendStringInfoString(&commandsql, "REVOKE select ON ");
+		appendStringInfoString(&commandsql, "adbmgr.boottime_all ");
 		appendStringInfoString(&commandsql, "FROM ");
 	}
 	else
@@ -9774,6 +10576,9 @@ static void mgr_get_acl_by_username(char *username, StringInfo acl)
 	if (mgr_acl_init(username))
 		appendStringInfo(acl, "init ");
 
+	if (mgr_acl_boottime(username))
+		appendStringInfo(acl, "boottime ");
+
 	if (mgr_acl_list(username))
 		appendStringInfo(acl, "list ");
 
@@ -9942,6 +10747,22 @@ static bool mgr_acl_add(char *username)
 	f3 = mgr_has_func_priv(username, "mgr_add_hba(\"any\")", "execute");
 
 	return (f1 && f2 && f3);
+}
+
+static bool mgr_acl_boottime(char *username)
+{
+    bool f1, f2, f3, f4, f5;
+	bool t1;
+
+	f1 = mgr_has_func_priv(username, "mgr_boottime_nodetype_all(bigint)", "execute");
+	f2 = mgr_has_func_priv(username, "mgr_boottime_nodetype_namelist(bigint, \"any\")", "execute");
+	f3 = mgr_has_func_priv(username, "mgr_boottime_gtm_all()", "execute");
+	f4 = mgr_has_func_priv(username, "mgr_boottime_datanode_all()", "execute");
+	f5 = mgr_has_func_priv(username, "mgr_boottime_coordinator_all()", "execute");
+	
+	t1 = mgr_has_table_priv(username, "adbmgr.boottime_all", "select");
+
+	return (f1 && f2 && f3 && f4 && f5 && t1);
 }
 
 static bool mgr_acl_start(char *username)

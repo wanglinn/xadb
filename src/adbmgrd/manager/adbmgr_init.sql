@@ -109,6 +109,18 @@ CREATE VIEW adbmgr.monitor_all AS
 				when 'datanode slave' then 5
 			End) ASC;
 
+--boottime all
+CREATE VIEW adbmgr.boottime_all AS
+        select * from mgr_boottime_all() order by 1,
+			(case nodetype
+				when 'gtm master' then 0
+				when 'gtm slave' then 1
+				when 'coordinator master' then 2
+				when 'coordinator slave' then 3
+				when 'datanode master' then 4
+				when 'datanode slave' then 5
+			End) ASC;
+
 --list hba
 CREATE VIEW adbmgr.hba AS
 		select * from mgr_hba order by nodename;
@@ -162,6 +174,11 @@ CREATE VIEW adbmgr.initdatanodeall AS
     SELECT 'init datanode master' AS "operation type",* FROM mgr_init_dn_master(NULL)
     UNION all
     SELECT 'init datanode slave' AS "operation type", * FROM mgr_init_dn_slave_all();
+
+--boottime all
+--boottime coordinator all
+CREATE VIEW adbmgr.boottime_nodetype_all AS
+    SELECT 'coordinator master' AS "operation type", * FROM mgr_boottime_nodetype_all(NULL);
 
 --start datanode all
 CREATE VIEW adbmgr.start_datanode_all AS
@@ -1108,6 +1125,16 @@ mgr_monitor_datanode_all(),
 mgr_monitor_nodetype_namelist(bigint, "any"),
 mgr_monitor_nodetype_all(bigint),
 mgr_monitor_ha()
+from public;
+
+--boottime
+revoke execute on function
+mgr_boottime_gtm_all(),
+mgr_boottime_datanode_all(),
+mgr_boottime_coordinator_all(),
+mgr_boottime_all(),
+mgr_boottime_nodetype_namelist(bigint, "any"),
+mgr_boottime_nodetype_all(bigint)
 from public;
 
 --switchover

@@ -195,6 +195,8 @@ extern Datum mgr_init_dn_master(PG_FUNCTION_ARGS);
 extern Datum mgr_init_dn_slave_all(PG_FUNCTION_ARGS);
 extern void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmdRst, Relation noderel, HeapTuple aimtuple, char *masterhostaddress, uint32 masterport, char *mastername);
 
+extern Datum mgr_boottime_nodetype_all(PG_FUNCTION_ARGS);;
+
 extern Datum mgr_start_cn_master(PG_FUNCTION_ARGS);
 extern Datum mgr_start_cn_slave(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_cn_master(PG_FUNCTION_ARGS);
@@ -209,11 +211,19 @@ extern Datum mgr_stop_agent_all(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS);
 extern Datum mgr_runmode_cndn(char nodetype, char cmdtype, List *namelist, char *shutdown_mode, PG_FUNCTION_ARGS);
 
+extern Datum mgr_boottime_all(PG_FUNCTION_ARGS);
+extern Datum mgr_boottime_gtm_all(PG_FUNCTION_ARGS);
+extern Datum mgr_boottime_datanode_all(PG_FUNCTION_ARGS);
+extern Datum mgr_boottime_coordinator_all(PG_FUNCTION_ARGS);
+
 extern Datum mgr_monitor_all(PG_FUNCTION_ARGS);
 extern Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS);
 extern Datum mgr_monitor_gtm_all(PG_FUNCTION_ARGS);
 
 extern Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS);
+extern Datum mgr_boottime_nodetype_all(PG_FUNCTION_ARGS);
+extern Datum mgr_boottime_nodetype_namelist(PG_FUNCTION_ARGS);
+
 extern Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS);
 extern Datum mgr_monitor_agent_all(PG_FUNCTION_ARGS);
 extern Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS);
@@ -316,7 +326,7 @@ extern char mgr_change_cmdtype_unbackend(char cmdtype);
 extern HeapTuple build_common_command_tuple_four_col(const Name name, char type, bool status, const char *description);
 extern bool mgr_check_param_reload_postgresqlconf(char nodetype, Oid hostoid, int nodeport, char *address, char *check_param, char *expect_result);
 extern char mgr_get_nodetype(Name nodename);
-extern int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport , StringInfo strinfo, Name recoveryStrInfo);
+extern int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport , StringInfo strinfo, StringInfo starttime, Name recoveryStrInfo);
 
 /* monitor_hostpage.c */
 extern Datum monitor_get_hostinfo(PG_FUNCTION_ARGS);
@@ -421,8 +431,10 @@ extern void mgr_add_hbaconf(char nodetype, char *dnusername, char *dnaddr);
 extern void mgr_check_dir_exist_and_priv(Oid hostoid, char *dir);
 extern void mgr_pgbasebackup(char nodetype, AppendNodeInfo *appendnodeinfo, AppendNodeInfo *parentnodeinfo);
 extern void mgr_start_node(char nodetype, const char *nodepath, Oid hostoid);
+extern HeapTuple build_common_command_tuple_for_boottime(const Name name, char type, bool status, const char *description,
+						const char *starttime ,const Name hostaddr);
 extern HeapTuple build_common_command_tuple_for_monitor(const Name name, char type, bool status, const char *description
-                                                        ,const Name hostaddr, const int port, const Name recoveryStatus);
+                                                        ,const char *starttime, const Name hostaddr, const int port, const Name recoveryStatus);
 extern bool mgr_get_self_address(char *server_address, int server_port, Name self_address);
 
 extern Datum monitor_handle_coordinator(PG_FUNCTION_ARGS);
