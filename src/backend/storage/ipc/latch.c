@@ -889,6 +889,20 @@ void* GetWaitEventData(WaitEventSet *set, int pos)
 	Assert(pos < set->nevents);
 	return set->events[pos].user_data;
 }
+
+pgsocket GetWaitEventSocket(WaitEventSet *set, int pos)
+{
+	Assert(pos < set->nevents);
+	return set->events[pos].fd;
+}
+
+WaitEvent* GetWaitEventInfo(WaitEventSet *set, int pos, WaitEvent *event)
+{
+	Assert(pos < set->nevents);
+	Assert(event != NULL);
+	memcpy(event, &set->events[pos], sizeof(*event));
+	return event;
+}
 #endif /* ADB */
 
 #if defined(WAIT_USE_EPOLL)

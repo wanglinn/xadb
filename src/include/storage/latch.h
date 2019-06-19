@@ -171,6 +171,8 @@ extern void ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, Latch *la
 extern void RemoveWaitEvent(WaitEventSet *set, int pos);
 extern WaitEventSet* EnlargeWaitEventSet(WaitEventSet *set, int nevents);
 extern void* GetWaitEventData(WaitEventSet *set, int pos);
+extern pgsocket GetWaitEventSocket(WaitEventSet *set, int pos);
+extern WaitEvent* GetWaitEventInfo(WaitEventSet *set, int pos, WaitEvent *event);
 #endif /* ADB */
 
 extern int WaitEventSetWait(WaitEventSet *set, long timeout,
