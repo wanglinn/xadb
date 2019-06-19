@@ -120,6 +120,7 @@ extern char func_volatile(Oid funcid);
 extern char func_parallel(Oid funcid);
 #ifdef ADB
 extern char func_cluster(Oid funcid);
+extern char func_slave(Oid funcid);
 #endif /* ADB */
 extern char get_func_prokind(Oid funcid);
 extern bool get_func_leakproof(Oid funcid);

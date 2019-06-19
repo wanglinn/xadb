@@ -34,7 +34,15 @@ extern CommandDest whereToSendOutput;
 extern PGDLLIMPORT const char *debug_query_string;
 extern int	max_stack_depth;
 extern int	PostAuthDelay;
-
+#ifdef ADB
+typedef enum
+{
+	SQLTYPE_UNINIT,
+	SQLTYPE_READ,
+	SQLTYPE_WRITE
+}SqlTypeLevel;
+extern SqlTypeLevel sql_readonly;
+#endif
 /* GUC-configurable parameters */
 
 typedef enum

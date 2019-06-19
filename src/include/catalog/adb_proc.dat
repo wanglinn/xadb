@@ -1,16 +1,16 @@
 # adb_proc.dat
 [
 
-{ proowner => 'pg_backend_pid()', proclustersafe => 'r' },
-{ proowner => 'pg_table_size(regclass)', proclustersafe => 'u' },
-{ proowner => 'pg_indexes_size(regclass)', proclustersafe => 'u' },
-{ proowner => 'pg_relation_size(regclass,text)', proclustersafe => 'u' },
-{ proowner => 'pg_total_relation_size(regclass)', proclustersafe => 'u' },
-{ proowner => 'pg_database_size(oid)', proclustersafe => 'u' },
-{ proowner => 'pg_database_size(name)', proclustersafe => 'u' },
-{ proowner => 'nextval(regclass)', proclustersafe => 'r' },
-{ proowner => 'currval(regclass)', proclustersafe => 'r' },
-{ proowner => 'setval(regclass,int8)', proclustersafe => 'r' },
-{ proowner => 'setval(regclass,int8,bool)', proclustersafe => 'r' },
+{ proowner => 'pg_backend_pid()', proclustersafe => 'r', proslavesafe => 'r'},
+{ proowner => 'pg_table_size(regclass)', proclustersafe => 'u', proslavesafe => 'u'},
+{ proowner => 'pg_indexes_size(regclass)', proclustersafe => 'u', proslavesafe => 'u' },
+{ proowner => 'pg_relation_size(regclass,text)', proclustersafe => 'u', proslavesafe => 'u' },
+{ proowner => 'pg_total_relation_size(regclass)', proclustersafe => 'u', proslavesafe => 'u' },
+{ proowner => 'pg_database_size(oid)', proclustersafe => 'u', proslavesafe => 'u' },
+{ proowner => 'pg_database_size(name)', proclustersafe => 'u', proslavesafe => 'u' },
+{ proowner => 'nextval(regclass)', proclustersafe => 'r', proslavesafe => 'r' },
+{ proowner => 'currval(regclass)', proclustersafe => 'r', proslavesafe => 'r' },
+{ proowner => 'setval(regclass,int8)', proclustersafe => 'r', proslavesafe => 'r' },
+{ proowner => 'setval(regclass,int8,bool)', proclustersafe => 'r', proslavesafe => 'r' },
 
 ]

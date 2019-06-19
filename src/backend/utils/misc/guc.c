@@ -524,6 +524,7 @@ bool		Debug_print_grammar = false;
 #endif /* defined(ADB) || defined(ADB_MULTI_GRAM) */
 #ifdef ADB
 bool		enable_cluster_plan = true;
+bool		enable_readsql_on_slave = false;
 #endif
 bool		Debug_print_rewritten = false;
 bool		Debug_pretty_print = true;
@@ -1432,6 +1433,15 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&enable_hashscan,
 		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_readsql_on_slave", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the readonly sql execute on datanode slaves."),
+			NULL
+		},
+		&enable_readsql_on_slave,
+		false,
 		NULL, NULL, NULL
 	},
 #endif

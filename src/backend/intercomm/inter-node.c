@@ -294,6 +294,9 @@ MakeNodeHandleEntryByTuple(HeapTuple htup)
 		case PGXC_NODE_DATANODE:
 			node_type = TYPE_DN_NODE;
 			break;
+		case PGXC_NODE_DATANODESLAVE:
+			node_type = TYPE_DN_SLAVENODE;
+			break;
 		default:
 			Assert(false);
 			break;

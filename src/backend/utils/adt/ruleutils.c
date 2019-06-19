@@ -2606,13 +2606,16 @@ pg_get_functiondef(PG_FUNCTION_ARGS)
 	{
 		HeapTuple adb_proc_tup = SearchSysCache1(ADBPROCID, ObjectIdGetDatum(funcid));
 		char cluster_safe;
+		char slave_safe;
 		if(HeapTupleIsValid(adb_proc_tup))
 		{
 			cluster_safe = ((Form_adb_proc)GETSTRUCT(adb_proc_tup))->proclustersafe;
+			slave_safe = ((Form_adb_proc)GETSTRUCT(adb_proc_tup))->proslavesafe;
 			ReleaseSysCache(adb_proc_tup);
 		}else
 		{
 			cluster_safe = PROC_CLUSTER_SAFE;
+			slave_safe = PROC_SLAVE_SAFE;
 		}
 		switch(cluster_safe)
 		{
@@ -2623,6 +2626,17 @@ pg_get_functiondef(PG_FUNCTION_ARGS)
 				appendStringInfoString(&buf, " CLUSTER RESTRICTED");
 				break;
 			case PROC_CLUSTER_UNSAFE:
+				break;
+		}
+		switch(slave_safe)
+		{
+			case PROC_SLAVE_SAFE:
+				appendStringInfoString(&buf, " SLAVE SAFE");
+				break;
+			case PROC_SLAVE_RESTRICTED:
+				appendStringInfoString(&buf, " SLAVE RESTRICTED");
+				break;
+			case PROC_SLAVE_UNSAFE:
 				break;
 		}
 	}

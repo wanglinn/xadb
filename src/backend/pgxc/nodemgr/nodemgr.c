@@ -324,15 +324,19 @@ check_node_options(const char *node_name, List *options, char **node_host,
 			type_loc = defGetString(defel);
 
 			if (strcmp(type_loc, "coordinator") != 0 &&
-				strcmp(type_loc, "datanode") != 0)
+				strcmp(type_loc, "datanode") != 0 &&
+				strcmp(type_loc, "datanode slave") != 0)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("type value is incorrect, specify 'coordinator or 'datanode'")));
+						 errmsg("type value is incorrect, specify"
+							" 'coordinator or 'datanode' or 'datanode slave'")));
 
 			if (strcmp(type_loc, "coordinator") == 0)
 				*node_type = PGXC_NODE_COORDINATOR;
-			else
+			else if (strcmp(type_loc, "datanode") == 0)
 				*node_type = PGXC_NODE_DATANODE;
+			else
+				*node_type = PGXC_NODE_DATANODESLAVE;
 		}
 		else if (strcmp(defel->defname, "primary") == 0)
 		{
@@ -454,6 +458,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	bool		nulls[Natts_pgxc_node];
 	Datum		values[Natts_pgxc_node];
 	const char *node_name = stmt->node_name;
+	const char *node_mastername = stmt->node_mastername;
 	int		i;
 	/* Options with default values */
 	char	   *node_host = NULL;
@@ -543,6 +548,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	values[Anum_pgxc_node_nodeis_primary - 1] = BoolGetDatum(is_primary);
 	values[Anum_pgxc_node_nodeis_preferred - 1] = BoolGetDatum(is_preferred);
 	values[Anum_pgxc_node_node_id - 1] = node_id;
+	values[Anum_pgxc_node_node_mastername - 1] = DirectFunctionCall1(namein, CStringGetDatum(node_mastername));
 
 	htup = heap_form_tuple(pgxcnodesrel->rd_att, values, nulls);
 

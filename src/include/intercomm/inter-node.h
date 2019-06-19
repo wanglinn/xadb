@@ -22,6 +22,7 @@ typedef enum
 {
 	TYPE_CN_NODE		= 1 << 0,	/* coordinator node */
 	TYPE_DN_NODE		= 1 << 1,	/* datanode node */
+	TYPE_DN_SLAVENODE	= 1 << 2,	/* datanode slave node */
 } NodeType;
 
 typedef struct NodeHandle

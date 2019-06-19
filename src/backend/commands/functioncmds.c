@@ -627,6 +627,26 @@ interpret_func_cluster(DefElem *defel)
 		return PROPARALLEL_UNSAFE;		/* keep compiler quiet */
 	}
 }
+
+static char
+interpret_func_slave(DefElem *defel)
+{
+	char *str = strVal(defel->arg);
+
+	if (strcmp(str, "safe") == 0)
+		return PROPARALLEL_SAFE;
+	else if (strcmp(str, "unsafe") == 0)
+		return PROPARALLEL_UNSAFE;
+	else if (strcmp(str, "restricted") == 0)
+		return PROPARALLEL_RESTRICTED;
+	else
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("parameter \"slave\" must be SAFE, RESTRICTED, or UNSAFE")));
+		return PROPARALLEL_UNSAFE; /* keep compiler quiet */
+	}
+}
 #endif /* ADB */
 
 /*
@@ -679,7 +699,7 @@ compute_function_attributes(ParseState *pstate,
 							ArrayType **proconfig,
 							float4 *procost,
 							float4 *prorows,
-							char *parallel_p ADB_ONLY_COMMA_ARG(char *cluster_p))
+							char *parallel_p ADB_ONLY_COMMA_ARG2(char *cluster_p, char *slave_p))
 {
 	ListCell   *option;
 	DefElem    *as_item = NULL;
@@ -696,6 +716,7 @@ compute_function_attributes(ParseState *pstate,
 	DefElem    *parallel_item = NULL;
 #ifdef ADB
 	DefElem    *cluster_item = NULL;
+	DefElem    *slave_item = NULL;
 #endif /* ADB */
 
 	foreach(option, options)
@@ -751,6 +772,14 @@ compute_function_attributes(ParseState *pstate,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("conflicting or redundant options")));
 			cluster_item = defel;
+		}
+		else if (strcmp(defel->defname, "slave") == 0)
+		{
+			if (slave_item)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+			slave_item = defel;
 		}
 #endif /* ADB */
 		else if (compute_common_attribute(pstate,
@@ -830,6 +859,8 @@ compute_function_attributes(ParseState *pstate,
 #ifdef ADB
 	if (cluster_item)
 		*cluster_p = interpret_func_cluster(cluster_item);
+	if (slave_item)
+		*slave_p = interpret_func_cluster(slave_item);
 #endif /* ADB */
 }
 
@@ -940,6 +971,7 @@ CreateFunction(ParseState *pstate, CreateFunctionStmt *stmt)
 	char		parallel;
 #ifdef ADB
 	char		cluster = PROC_CLUSTER_UNSAFE;
+	char		slave = PROC_SLAVE_UNSAFE;
 	ObjectAddress addr;
 #endif /* ADB */
 
@@ -971,7 +1003,7 @@ CreateFunction(ParseState *pstate, CreateFunctionStmt *stmt)
 								&as_clause, &language, &transformDefElem,
 								&isWindowFunc, &volatility,
 								&isStrict, &security, &isLeakProof,
-								&proconfig, &procost, &prorows, &parallel ADB_ONLY_COMMA_ARG(&cluster));
+								&proconfig, &procost, &prorows, &parallel ADB_ONLY_COMMA_ARG2(&cluster, &slave));
 
 	/* Look up the language and validate permissions */
 	languageTuple = SearchSysCache1(LANGNAME, PointerGetDatum(language));
@@ -1180,6 +1212,8 @@ CreateFunction(ParseState *pstate, CreateFunctionStmt *stmt)
 		isnull[Anum_adb_proc_proowner-1] = false;
 		values[Anum_adb_proc_proclustersafe-1] = cluster;
 		isnull[Anum_adb_proc_proclustersafe-1] = false;
+		values[Anum_adb_proc_proslavesafe - 1] = slave;
+		isnull[Anum_adb_proc_proslavesafe - 1] = false;
 		rel = heap_open(AdbProcRelationId, RowExclusiveLock);
 		tup = SearchSysCache1(ADBPROCID, ObjectIdGetDatum(addr.objectId));
 		if(HeapTupleIsValid(tup))
@@ -1188,6 +1222,7 @@ CreateFunction(ParseState *pstate, CreateFunctionStmt *stmt)
 			bool replace[Natts_adb_proc];
 			replace[Anum_adb_proc_proowner-1] = false;
 			replace[Anum_adb_proc_proclustersafe-1] = true;
+			replace[Anum_adb_proc_proslavesafe-1] = true;
 			tup = heap_modify_tuple(old_tup, RelationGetDescr(rel), values, isnull, replace);
 			CatalogTupleUpdate(rel, &tup->t_self, tup);
 			ReleaseSysCache(old_tup);
@@ -1289,8 +1324,10 @@ AlterFunction(ParseState *pstate, AlterFunctionStmt *stmt)
 	DefElem    *parallel_item = NULL;
 #ifdef ADB
 	DefElem    *cluster_item = NULL;
+	DefElem    *slave_item = NULL;
 	Relation	adb_proc_rel = InvalidRelation;
 	char		cluster_safe = PROPARALLEL_UNSAFE;
+	char		slave_safe = PROPARALLEL_UNSAFE;
 #endif /* ADB */
 	ObjectAddress address;
 
@@ -1330,6 +1367,13 @@ AlterFunction(ParseState *pstate, AlterFunctionStmt *stmt)
 						errmsg("conflicting or redundant options")));
 			else
 				cluster_item = defel;
+		else if (strcmp(defel->defname, "slave") == 0)
+			if (slave_item)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+			else
+				slave_item = defel;
 		else
 #endif /* ADB */
 		if (compute_common_attribute(pstate,
@@ -1346,9 +1390,12 @@ AlterFunction(ParseState *pstate, AlterFunctionStmt *stmt)
 			elog(ERROR, "option \"%s\" not recognized", defel->defname);
 	}
 #ifdef ADB
-	if(cluster_item)
+	if(cluster_item || slave_item)
 	{
-		cluster_safe = interpret_func_cluster(cluster_item);
+		if (cluster_item)
+			cluster_safe = interpret_func_cluster(cluster_item);
+		if (slave_item)
+			slave_safe = interpret_func_slave(slave_item);
 		adb_proc_rel = heap_open(AdbProcRelationId, RowExclusiveLock);
 	}
 #endif /* ADB */
@@ -1441,6 +1488,8 @@ AlterFunction(ParseState *pstate, AlterFunctionStmt *stmt)
 		isnull[Anum_adb_proc_proowner-1] = false;
 		values[Anum_adb_proc_proclustersafe-1] = CharGetDatum(cluster_safe);
 		isnull[Anum_adb_proc_proclustersafe-1] = false;
+		values[Anum_adb_proc_proslavesafe - 1] = CharGetDatum(slave_safe);
+		isnull[Anum_adb_proc_proslavesafe - 1] = false;
 		adb_tup = SearchSysCache1(ADBPROCID, ObjectIdGetDatum(funcOid));
 		if(HeapTupleIsValid(adb_tup))
 		{
@@ -1449,6 +1498,7 @@ AlterFunction(ParseState *pstate, AlterFunctionStmt *stmt)
 			for(i=0;i<Natts_adb_proc;++i)
 				repl[i] = false;
 			repl[Anum_adb_proc_proclustersafe-1] = true;
+			repl[Anum_adb_proc_proslavesafe-1] = true;
 			adb_tup = heap_modify_tuple(old_tup, RelationGetDescr(adb_proc_rel), values, isnull, repl);
 			ReleaseSysCache(old_tup);
 			CatalogTupleUpdate(adb_proc_rel, &adb_tup->t_self, adb_tup);

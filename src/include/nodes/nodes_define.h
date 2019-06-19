@@ -776,6 +776,7 @@ END_NODE(AlterNodeStmt)
 #ifndef NO_NODE_CreateNodeStmt
 BEGIN_NODE(CreateNodeStmt)
 	NODE_STRING(node_name)
+	NODE_STRING(node_mastername)
 	NODE_NODE(List,options)
 END_NODE(CreateNodeStmt)
 #endif /* NO_NODE_CreateNodeStmt */

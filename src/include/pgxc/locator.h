@@ -171,4 +171,5 @@ extern List *GetInvolvedNodes(RelationLocInfo *rel_loc, int nelems, Datum* dist_
 							  Oid* dist_types, RelationAccessType accessType);
 extern List *GetInvolvedNodesByQuals(Oid reloid, Index varno, Node *quals, RelationAccessType relaccess);
 extern List *GetInvolvedNodesByMultQuals(RelationLocInfo *rel_loc, Index varno, Node *quals, RelationAccessType relaccess);
+extern List *adbUseDnSlaveNodeids(List *nodeids);
 #endif   /* LOCATOR_H */

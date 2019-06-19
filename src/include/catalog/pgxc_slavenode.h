@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *
- * pgxc_node.h
- *	  definition of the system "PGXC node" relation (pgxc_node)
+ * pgxc_slavenode.h
+ *	  definition of the system "PGXC slavenode" relation (pgxc_slavenode)
  *
  *
  * Portions Copyright (c) 1996-2011, PostgreSQL Global Development Group
@@ -9,7 +9,7 @@
  * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
  * Portions Copyright (c) 2014-2017, ADB Development Group
  *
- * src/include/catalog/pgxc_node.h
+ * src/include/catalog/pgxc_slavenode.h
  *
  * NOTES
  *	  the genbki.pl script reads this file and generates .bki
@@ -17,13 +17,13 @@
  *
  *-------------------------------------------------------------------------
  */
-#ifndef PGXC_NODE_H
-#define PGXC_NODE_H
+#ifndef PGXC_SLAVENODE_H
+#define PGXC_SLAVENODE_H
 
 #include "catalog/genbki.h"
-#include "catalog/pgxc_node_d.h"
+#include "catalog/pgxc_slavenode_d.h"
 
-CATALOG(pgxc_node,9015,PgxcNodeRelationId) BKI_SHARED_RELATION
+CATALOG(pgxc_slavenode,4993,PgxcSlaveNodeRelationId) BKI_SHARED_RELATION
 {
 	NameData	node_name;
 
@@ -52,28 +52,25 @@ CATALOG(pgxc_node,9015,PgxcNodeRelationId) BKI_SHARED_RELATION
 	 * Is this node preferred
 	 */
 	bool		nodeis_preferred;
-
 	/*
 	 * Node identifier to be used at places where a fixed length node identification is required
 	 */
 	int32		node_id;
-
 	/*
-	 * the master name of the node
+	 * the node's master name
 	 */
 	NameData	node_mastername;
-} FormData_pgxc_node;
+} FormData_pgxc_slavenode;
 
-typedef FormData_pgxc_node *Form_pgxc_node;
+typedef FormData_pgxc_slavenode *Form_pgxc_slavenode;
 
 #ifdef EXPOSE_TO_CLIENT_CODE
 
 /* Possible types of nodes */
-#define PGXC_NODE_COORDINATOR		'C'
-#define PGXC_NODE_DATANODE			'D'
-#define PGXC_NODE_DATANODESLAVE		'E'
-#define PGXC_NODE_NONE				'N'
+#define PGXC_SLAVE_NODE_COORDINATOR		'c'
+#define PGXC_SLAVE_NODE_DATANODE		'd'
+#define PGXC_NODE_NONE					'N'
 
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 
-#endif							/* PGXC_NODE_H */
+#endif							/* PGXC_SLAVENODE_H */

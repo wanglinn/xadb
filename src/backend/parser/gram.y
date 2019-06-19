@@ -696,7 +696,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 	XML_P XMLATTRIBUTES XMLCONCAT XMLELEMENT XMLEXISTS XMLFOREST XMLNAMESPACES
 	XMLPARSE XMLPI XMLROOT XMLSERIALIZE XMLTABLE
 
-	YEAR_P YES_P
+	YEAR_P YES_P SLAVE
 
 	ZONE
 /* ADB_BEGIN */
@@ -8313,6 +8313,10 @@ common_func_opt_item:
 				{
 					$$ = makeDefElem("cluster", (Node *)makeString($2), @1);
 				}
+			| SLAVE ColId
+				{
+					$$ = makeDefElem("slave", (Node *)makeString($2), @1);
+				}
 		;
 
 createfunc_opt_item:
@@ -11100,7 +11104,16 @@ CreateNodeStmt: CREATE NODE pgxcnode_name OptWith
 				{
 					CreateNodeStmt *n = makeNode(CreateNodeStmt);
 					n->node_name = $3;
+					n->node_mastername = "";
 					n->options = $4;
+					$$ = (Node *)n;
+				}
+			|	CREATE NODE pgxcnode_name FOR pgxcnode_name OptWith
+				{
+					CreateNodeStmt *n = makeNode(CreateNodeStmt);
+					n->node_name = $3;
+					n->node_mastername = $5;
+					n->options = $6;
 					$$ = (Node *)n;
 				}
 		;
@@ -16023,6 +16036,7 @@ unreserved_keyword:
 			| SHOW
 			| SIMPLE
 			| SKIP
+			| SLAVE
 /* ADB BEGIN */
 			| SLOT
 /* ADB END */

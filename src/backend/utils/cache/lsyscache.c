@@ -1640,6 +1640,30 @@ char func_cluster(Oid funcid)
 
 	return result;
 }
+
+char func_slave(Oid funcid)
+{
+	HeapTuple tup;
+	char resCluster;
+	char resSlave = PROC_SLAVE_UNSAFE;
+
+	tup = SearchSysCache1(ADBPROCID, ObjectIdGetDatum(funcid));
+	if (HeapTupleIsValid(tup))
+	{
+		resCluster = ((Form_adb_proc) GETSTRUCT(tup))->proclustersafe;
+		if (resCluster != PROC_CLUSTER_SAFE)
+			resSlave = PROC_SLAVE_UNSAFE;
+		else
+			resSlave = ((Form_adb_proc)GETSTRUCT(tup))->proslavesafe;
+		ReleaseSysCache(tup);
+	}
+	else
+	{
+		resSlave = PROC_SLAVE_UNSAFE;
+	}
+
+	return resSlave;
+}
 #endif /* ADB */
 
 /*

@@ -3523,6 +3523,7 @@ typedef struct CreateNodeStmt
 {
 	NodeTag		type;
 	char		*node_name;
+	char		*node_mastername;
 	List		*options;
 } CreateNodeStmt;
 

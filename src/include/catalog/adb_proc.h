@@ -11,6 +11,7 @@ CATALOG(adb_proc,9018,AdbProcRelationId) BKI_WITHOUT_OIDS
 
 	/* cluster safe? see PROC_CLUSTER_XXX */
 	char		proclustersafe;
+	char		proslavesafe;
 }FormData_adb_proc;
 
 typedef FormData_adb_proc *Form_adb_proc;
@@ -23,6 +24,13 @@ typedef FormData_adb_proc *Form_adb_proc;
 #define PROC_CLUSTER_RESTRICTED	'r'
 /* can not run in cluster plan */
 #define PROC_CLUSTER_UNSAFE		'u'
+
+/* can run in datanode master or datanode slave*/
+#define PROC_SLAVE_SAFE			's'
+/* can run in datanode master only */
+#define PROC_SLAVE_RESTRICTED	'r'
+/* can not run in datanode slave */
+#define PROC_SLAVE_UNSAFE		'u'
 
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 

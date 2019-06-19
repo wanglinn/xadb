@@ -39,6 +39,7 @@ ALTER FUNCTION <replaceable>name</replaceable> [ ( [ [ <replaceable class="param
     [ EXTERNAL ] SECURITY INVOKER | [ EXTERNAL ] SECURITY DEFINER
     PARALLEL { UNSAFE | RESTRICTED | SAFE }
     CLUSTER { UNSAFE | RESTRICTED | SAFE }
+    SLAVE { UNSAFE | RESTRICTED | SAFE }
     COST <replaceable class="parameter">execution_cost</replaceable>
     ROWS <replaceable class="parameter">result_rows</replaceable>
     SET <replaceable class="parameter">configuration_parameter</replaceable> { TO | = } { <replaceable class="parameter">value</replaceable> | DEFAULT }

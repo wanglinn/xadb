@@ -34,6 +34,7 @@
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
 #include "executor/executor.h"
+#include "intercomm/inter-node.h"
 #include "nodes/execnodes.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodes.h"
@@ -59,6 +60,7 @@
 #include "postmaster/autovacuum.h"
 #include "utils/typcache.h"
 #include "pgxc/slot.h"
+#include "tcop/tcopprot.h"
 
 #define PUSH_REDUCE_EXPR_BMS	1
 #define PUSH_REDUCE_EXPR_LIST	2
@@ -93,10 +95,15 @@ typedef struct CreateReduceExprContext
 } CreateReduceExprContext;
 
 static Expr *pgxc_find_distcol_expr(Index varno, AttrNumber attrNum, Node *quals);
+static RelationLocInfo *adbUseDnSlaveNodeLocInfo(RelationLocInfo *srcInfo);
+static Oid adbGetSlaveNodeid(Oid masterid);
 
 Oid		primary_data_node = InvalidOid;
 int		num_preferred_data_nodes = 0;
 Oid		preferred_data_node[MAX_PREFERRED_NODES];
+#ifdef ADB
+extern bool enable_readsql_on_slave;
+#endif
 
 /*
  * GetPreferredRepNodeIds
@@ -922,7 +929,12 @@ GetRelationLocInfo(Oid relid)
 	Assert(rel->rd_isvalid);
 
 	if (rel->rd_locator_info)
-		ret_loc_info = CopyRelationLocInfo(rel->rd_locator_info);
+	{
+		if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)
+			ret_loc_info = adbUseDnSlaveNodeLocInfo(rel->rd_locator_info);
+		else
+			ret_loc_info = CopyRelationLocInfo(rel->rd_locator_info);
+	}
 
 	relation_close(rel, AccessShareLock);
 
@@ -1459,4 +1471,87 @@ GetInvolvedNodesByMultQuals(RelationLocInfo *rel_loc, Index varno, Node *quals, 
 	pfree(distcol_types);
 
 	return node_list;
+}
+
+static RelationLocInfo *
+adbUseDnSlaveNodeLocInfo(RelationLocInfo *srcInfo)
+{
+	RelationLocInfo *destInfo;
+
+	Assert(srcInfo);palloc0(sizeof(RelationLocInfo));
+	destInfo = (RelationLocInfo *) palloc0(sizeof(RelationLocInfo));
+
+	destInfo->relid = srcInfo->relid;
+	destInfo->locatorType = srcInfo->locatorType;
+	destInfo->partAttrNum = srcInfo->partAttrNum;
+	destInfo->nodeids = adbUseDnSlaveNodeids(srcInfo->nodeids);
+	destInfo->funcid = srcInfo->funcid;
+	destInfo->funcAttrNums = list_copy(srcInfo->funcAttrNums);
+
+	return destInfo;
+}
+
+List *
+adbUseDnSlaveNodeids(List *nodeids)
+{
+	ListCell *lc;
+	List *slaveNodeListids = NIL;
+	Oid slaveNodeid;
+
+	if (!nodeids)
+		return NIL;
+	foreach (lc, nodeids)
+	{
+		slaveNodeid = adbGetSlaveNodeid(lfirst_oid(lc));
+		if (!OidIsValid(slaveNodeid))
+		{
+			if (slaveNodeListids)
+				pfree(slaveNodeListids);
+			return list_copy(nodeids);
+		}
+
+		lfirst_oid(lc) = slaveNodeid;
+		slaveNodeListids = lappend_oid(slaveNodeListids, slaveNodeid);
+	}
+
+	return slaveNodeListids;
+}
+
+static Oid
+adbGetSlaveNodeid(Oid masterid)
+{
+	const char *masterName;
+	Relation rel;
+	HeapScanDesc scan;
+	HeapTuple tuple;
+	ScanKeyData key[1];
+	Oid slaveid = InvalidOid;
+
+	if (!OidIsValid(masterid))
+		return masterid;
+
+	masterName = GetNodeName(masterid);
+
+	if (!masterName)
+		ereport(ERROR, (errcode(ERRCODE_INVALID_OBJECT_DEFINITION)
+			, errmsg("cannot find the datanode master which oid is \"%u\" "
+				"in pgxc_node of coordinator", masterid)));
+
+	ScanKeyInit(&key[0]
+		, Anum_pgxc_node_node_mastername
+		, BTEqualStrategyNumber
+		, F_NAMEEQ
+		, CStringGetDatum(masterName));
+	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	scan = heap_beginscan_catalog(rel, 1, key);
+	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		slaveid = HeapTupleGetOid(tuple);
+		break;
+	}
+
+	heap_endscan(scan);
+	heap_close(rel, AccessShareLock);
+
+	return slaveid;
 }

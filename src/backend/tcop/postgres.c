@@ -149,7 +149,10 @@ int			max_stack_depth = 100;
 /* wait N seconds to allow attach from a debugger */
 int			PostAuthDelay = 0;
 
-
+#ifdef ADB
+/* record the sql is read only or not read only */
+SqlTypeLevel	sql_readonly = SQLTYPE_UNINIT;
+#endif
 
 /* ----------------
  *		private variables
@@ -1290,6 +1293,9 @@ exec_simple_query(const char *query_string)
 	bool		use_implicit_block;
 	char		msec_str[32];
 
+#ifdef ADB
+	sql_readonly = SQLTYPE_UNINIT;
+#endif
 	/*
 	 * Report query to various monitoring facilities.
 	 */
