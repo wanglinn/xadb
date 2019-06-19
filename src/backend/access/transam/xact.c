@@ -2302,6 +2302,8 @@ StartTransaction(void)
 	/*
 	 * For ADB, transaction start timestamp has to follow the AGTM timeline
 	 */
+	if (IsGTMNode())
+		globalXactStartTimestamp = xactStartTimestamp;
 	pgstat_report_xact_timestamp(globalXactStartTimestamp);
 #else
 	pgstat_report_xact_timestamp(xactStartTimestamp);
