@@ -2483,6 +2483,22 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 								 parser_errposition(cxt->pstate, constraint->location)));
 				}
 			}
+#ifdef ADB
+			if (IS_PGXC_COORDINATOR ||
+				(IS_PGXC_DATANODE &&
+				 !useLocalXid &&
+				 !isRestoreMode))
+			{
+				/*
+				 * Set fallback distribution column.
+				 * If not set, set it to first column in index.
+				 * If primary key, we prefer that over a unique constraint.
+				 */
+				if (index->indexParams == NIL &&
+					(index->primary || !cxt->fallback_dist_col))
+					cxt->fallback_dist_col = pstrdup(key);
+			}
+#endif
 
 			/* OK, add it to the index definition */
 			iparam = makeNode(IndexElem);
@@ -2587,20 +2603,6 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 					 errmsg("column \"%s\" named in key does not exist", key),
 					 parser_errposition(cxt->pstate, constraint->location)));
 
-#ifdef ADB
-		if (IS_PGXC_COORDINATOR ||
-			(IS_PGXC_DATANODE&&!useLocalXid&&!isRestoreMode))
-		{
-			/*
-			 * Set fallback distribution column.
-			 * If not set, set it to first column in index.
-			 * If primary key, we prefer that over a unique constraint.
-			 */
-			if (index->indexParams == NIL &&
-				(index->primary || !cxt->fallback_dist_col))
-				cxt->fallback_dist_col = pstrdup(key);
-		}
-#endif
 		/* OK, add it to the index definition */
 		iparam = makeNode(IndexElem);
 		iparam->name = pstrdup(key);
