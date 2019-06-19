@@ -8073,9 +8073,9 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 									 create_cluster_grouping_path,
 									 &gcontext,
 									 groupExprs ? REDUCE_TYPE_HASH : REDUCE_TYPE_IGNORE,
-									 groupExprs ? REDUCE_TYPE_HASHMAP : REDUCE_TYPE_IGNORE,
-									 groupExprs ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
-									 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
+									 (groupExprs && glob->has_hashmap_rel) ? REDUCE_TYPE_HASHMAP : REDUCE_TYPE_IGNORE,
+									 (groupExprs && glob->has_modulo_rel) ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
+									 gcontext.can_gather ? REDUCE_TYPE_GATHER : REDUCE_TYPE_COORDINATOR,
 									 REDUCE_TYPE_NONE);
 					list_free(storage_list);
 				}
