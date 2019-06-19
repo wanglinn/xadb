@@ -453,11 +453,18 @@ ExecInsert(ModifyTableState *mtstate,
 			}
 
 			/* get the top partition relation slot */
-			if(mtstate->mt_partition_tuple_routing)
+			if (mtstate->mt_partition_tuple_routing &&
+				mtstate->mt_partition_tuple_routing->parent_child_tupconv_maps)
 			{
-				int map_index = resultRelInfo - mtstate->resultRelInfo;
-				Assert(map_index >= 0 && map_index < mtstate->mt_nplans);
-				map = tupconv_map_for_subplan(mtstate, map_index);
+				PartitionTupleRouting *proute = mtstate->mt_partition_tuple_routing;
+				int map_index;
+				for (map_index=0;map_index<proute->num_partitions;++map_index)
+				{
+					if (proute->partitions[map_index] == resultRelInfo)
+						break;
+				}
+				Assert(map_index >= 0 && map_index < proute->num_partitions);
+				map = proute->parent_child_tupconv_maps[map_index];
 				if (map)
 				{
 					parentTuple = do_reverse_convert_tuple(tuple, map);
