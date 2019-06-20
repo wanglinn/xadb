@@ -303,7 +303,13 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	ExecInitScanTupleSlot(estate, &rqstate->ss, scan_type);
 
 	rqstate->iterSlot = ExecInitExtraTupleSlot(estate, scan_type);
-	rqstate->convertSlot = ExecInitExtraTupleSlot(estate, scan_type);
+
+	/*
+	 * convert slot maybe change descripor when need convert,
+	 * so we can not create an fixed slot
+	 */
+	rqstate->convertSlot = ExecInitExtraTupleSlot(estate, NULL);
+	ExecSetSlotDescriptor(rqstate->convertSlot, scan_type);
 
 	/*
 	 * convert will be set while the tuple description
