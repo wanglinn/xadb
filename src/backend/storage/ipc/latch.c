@@ -512,7 +512,7 @@ ResetLatch(volatile Latch *latch)
 	pg_memory_barrier();
 }
 
-/* ADB */
+/* ADB_EXT */
 static WaitEventSet *AllocWaitEventSet(MemoryContext context, int nevents)
 {
 	WaitEventSet *set;
@@ -561,7 +561,7 @@ static WaitEventSet *AllocWaitEventSet(MemoryContext context, int nevents)
 
 	return set;
 }
-/* end ADB */
+/* end ADB_EXT */
 
 /*
  * Create a WaitEventSet with space for nevents different events to wait for.
@@ -793,7 +793,7 @@ ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, Latch *latch)
 #endif
 }
 
-#ifdef ADB
+#ifdef ADB_EXT
 void RemoveWaitEvent(WaitEventSet *set, int pos)
 {
 	WaitEvent  *event;
@@ -903,7 +903,7 @@ WaitEvent* GetWaitEventInfo(WaitEventSet *set, int pos, WaitEvent *event)
 	memcpy(event, &set->events[pos], sizeof(*event));
 	return event;
 }
-#endif /* ADB */
+#endif /* ADB_EXT */
 
 #if defined(WAIT_USE_EPOLL)
 /*
