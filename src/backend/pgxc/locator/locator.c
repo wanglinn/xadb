@@ -95,7 +95,6 @@ typedef struct CreateReduceExprContext
 } CreateReduceExprContext;
 
 static Expr *pgxc_find_distcol_expr(Index varno, AttrNumber attrNum, Node *quals);
-static RelationLocInfo *adbUseDnSlaveNodeLocInfo(RelationLocInfo *srcInfo);
 static Oid adbGetSlaveNodeid(Oid masterid);
 
 Oid		primary_data_node = InvalidOid;
@@ -866,10 +865,24 @@ RelationIdBuildLocator(Oid relid)
 		for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
 			relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
 							pgxc_class->nodeoids.values[j]);
+
+		if (enable_readsql_on_slave)
+		{
+			relationLocInfo->masternodeids = list_copy(relationLocInfo->nodeids);
+			relationLocInfo->slavenodeids = adbUseDnSlaveNodeids(relationLocInfo->nodeids);
+		}
+
+		if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)
+			adbUpdateListNodeids(relationLocInfo->nodeids, relationLocInfo->slavenodeids);
 	}
 	else
 	{
 		relationLocInfo->nodeids = GetSlotNodeOids();
+		if (enable_readsql_on_slave)
+		{
+			relationLocInfo->masternodeids = list_copy(relationLocInfo->nodeids);
+			relationLocInfo->slavenodeids = adbUseDnSlaveNodeids(relationLocInfo->nodeids);
+		}
 	}
 	relationLocInfo->funcid = InvalidOid;
 	relationLocInfo->funcAttrNums = NIL;
@@ -924,16 +937,21 @@ GetRelationLocInfo(Oid relid)
 {
 	RelationLocInfo *ret_loc_info = NULL;
 	Relation	rel = relation_open(relid, AccessShareLock);
+	List *masterNodeids = NIL;
 
 	/* Relation needs to be valid */
 	Assert(rel->rd_isvalid);
 
 	if (rel->rd_locator_info)
 	{
+		ret_loc_info = CopyRelationLocInfo(rel->rd_locator_info);
 		if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)
-			ret_loc_info = adbUseDnSlaveNodeLocInfo(rel->rd_locator_info);
-		else
-			ret_loc_info = CopyRelationLocInfo(rel->rd_locator_info);
+		{
+			masterNodeids = adbGetRelationNodeids(relid);
+			adbUpdateListNodeids(rel->rd_locator_info->nodeids, masterNodeids);
+			if (masterNodeids)
+				pfree(masterNodeids);
+		}
 	}
 
 	relation_close(rel, AccessShareLock);
@@ -1009,6 +1027,13 @@ FreeRelationLocInfo(RelationLocInfo *relationLocInfo)
 	if (relationLocInfo)
 	{
 		list_free(relationLocInfo->nodeids);
+		if (enable_readsql_on_slave)
+		{
+			if (relationLocInfo->masternodeids)
+				list_free(relationLocInfo->masternodeids);
+			if (relationLocInfo->slavenodeids)
+				list_free(relationLocInfo->slavenodeids);
+		}
 		list_free(relationLocInfo->funcAttrNums);
 		pfree(relationLocInfo);
 	}
@@ -1473,24 +1498,6 @@ GetInvolvedNodesByMultQuals(RelationLocInfo *rel_loc, Index varno, Node *quals, 
 	return node_list;
 }
 
-static RelationLocInfo *
-adbUseDnSlaveNodeLocInfo(RelationLocInfo *srcInfo)
-{
-	RelationLocInfo *destInfo;
-
-	Assert(srcInfo);palloc0(sizeof(RelationLocInfo));
-	destInfo = (RelationLocInfo *) palloc0(sizeof(RelationLocInfo));
-
-	destInfo->relid = srcInfo->relid;
-	destInfo->locatorType = srcInfo->locatorType;
-	destInfo->partAttrNum = srcInfo->partAttrNum;
-	destInfo->nodeids = adbUseDnSlaveNodeids(srcInfo->nodeids);
-	destInfo->funcid = srcInfo->funcid;
-	destInfo->funcAttrNums = list_copy(srcInfo->funcAttrNums);
-
-	return destInfo;
-}
-
 List *
 adbUseDnSlaveNodeids(List *nodeids)
 {
@@ -1499,7 +1506,10 @@ adbUseDnSlaveNodeids(List *nodeids)
 	Oid slaveNodeid;
 
 	if (!nodeids)
-		return NIL;
+		ereport(ERROR,
+			(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("the list of datanode master nodeids is NIL")));
+
 	foreach (lc, nodeids)
 	{
 		slaveNodeid = adbGetSlaveNodeid(lfirst_oid(lc));
@@ -1507,10 +1517,12 @@ adbUseDnSlaveNodeids(List *nodeids)
 		{
 			if (slaveNodeListids)
 				pfree(slaveNodeListids);
-			return list_copy(nodeids);
+			ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("the datanode master nodeid is \"%d\", get its slave nodeid fail"
+					, lfirst_oid(lc))));
 		}
 
-		lfirst_oid(lc) = slaveNodeid;
 		slaveNodeListids = lappend_oid(slaveNodeListids, slaveNodeid);
 	}
 
@@ -1554,4 +1566,74 @@ adbGetSlaveNodeid(Oid masterid)
 	heap_close(rel, AccessShareLock);
 
 	return slaveid;
+}
+
+List *
+adbGetRelationNodeids(Oid relid)
+{
+	List *nodeids = NIL;
+	Relation pcrel;
+	ScanKeyData skey;
+	SysScanDesc pcscan;
+	HeapTuple htup;
+	Form_pgxc_class pgxc_class;
+	int j = 0;
+
+	ScanKeyInit(&skey,
+				Anum_pgxc_class_pcrelid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(relid));
+	pcrel = heap_open(PgxcClassRelationId, AccessShareLock);
+	pcscan = systable_beginscan(pcrel, PgxcClassPgxcRelIdIndexId, true,
+								NULL, 1, &skey);
+	htup = systable_getnext(pcscan);
+	if (!HeapTupleIsValid(htup))
+	{
+		systable_endscan(pcscan);
+		heap_close(pcrel, AccessShareLock);
+		return NIL;
+	}
+
+	pgxc_class = (Form_pgxc_class)GETSTRUCT(htup);
+
+	if (pgxc_class->pclocatortype != LOCATOR_TYPE_HASHMAP)
+	{
+		for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
+		{
+			nodeids = lappend_oid(nodeids,
+							pgxc_class->nodeoids.values[j]);
+		}
+	}
+	else
+	{
+		nodeids = GetSlotNodeOids();
+	}
+
+	systable_endscan(pcscan);
+	heap_close(pcrel, AccessShareLock);
+
+	return nodeids;
+}
+
+void
+adbUpdateListNodeids(List *destList, List *sourceList)
+{
+	ListCell *lc1;
+	ListCell *lc2;
+
+	if (!destList || !sourceList)
+		ereport(ERROR,
+			(errcode(ERRCODE_STRING_DATA_LENGTH_MISMATCH),
+			errmsg("the list destList or sourceList is NIL")));
+
+	if (list_length(destList) != list_length(sourceList))
+		ereport(ERROR,
+			(errcode(ERRCODE_STRING_DATA_LENGTH_MISMATCH),
+			errmsg("the length of destList, sourceList is not equeal")));
+
+	forboth(lc1, destList, lc2, sourceList)
+	{
+		Assert(OidIsValid(lfirst_oid(lc2)));
+		lfirst_oid(lc1) = lfirst_oid(lc2);
+	}
 }

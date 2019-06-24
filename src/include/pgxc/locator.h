@@ -75,6 +75,8 @@ typedef struct RelationLocInfo
 	char		locatorType;			/* locator type, see above */
 	AttrNumber	partAttrNum;			/* Distribution column attribute */
 	List	   *nodeids;				/* Node ids where data is located */
+	List	   *masternodeids;
+	List	   *slavenodeids;
 	Oid			funcid;					/* Oid of user-defined distribution function */
 	List	   *funcAttrNums;			/* Attributes indices used for user-defined function  */
 } RelationLocInfo;
@@ -172,4 +174,6 @@ extern List *GetInvolvedNodes(RelationLocInfo *rel_loc, int nelems, Datum* dist_
 extern List *GetInvolvedNodesByQuals(Oid reloid, Index varno, Node *quals, RelationAccessType relaccess);
 extern List *GetInvolvedNodesByMultQuals(RelationLocInfo *rel_loc, Index varno, Node *quals, RelationAccessType relaccess);
 extern List *adbUseDnSlaveNodeids(List *nodeids);
+extern List *adbGetRelationNodeids(Oid relid);
+extern void adbUpdateListNodeids(List *destList, List *sourceList);
 #endif   /* LOCATOR_H */
