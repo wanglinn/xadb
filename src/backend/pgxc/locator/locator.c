@@ -860,13 +860,16 @@ RelationIdBuildLocator(Oid relid)
 	relationLocInfo->locatorType = pgxc_class->pclocatortype;
 	relationLocInfo->partAttrNum = pgxc_class->pcattnum;
 	relationLocInfo->nodeids = NIL;
+	relationLocInfo->masternodeids = NIL;
+	relationLocInfo->slavenodeids = NIL;
+
 	if (pgxc_class->pclocatortype != LOCATOR_TYPE_HASHMAP)
 	{
 		for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
 			relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
 							pgxc_class->nodeoids.values[j]);
 
-		if (enable_readsql_on_slave)
+		if (enable_readsql_on_slave && IsCnMaster())
 		{
 			relationLocInfo->masternodeids = list_copy(relationLocInfo->nodeids);
 			relationLocInfo->slavenodeids = adbUseDnSlaveNodeids(relationLocInfo->nodeids);
@@ -878,7 +881,7 @@ RelationIdBuildLocator(Oid relid)
 	else
 	{
 		relationLocInfo->nodeids = GetSlotNodeOids();
-		if (enable_readsql_on_slave)
+		if (enable_readsql_on_slave && IsCnMaster())
 		{
 			relationLocInfo->masternodeids = list_copy(relationLocInfo->nodeids);
 			relationLocInfo->slavenodeids = adbUseDnSlaveNodeids(relationLocInfo->nodeids);
