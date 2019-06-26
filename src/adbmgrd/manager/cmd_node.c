@@ -216,7 +216,7 @@ static bool get_local_ip(Name local_ip);
 extern HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, int32 nodeport, const char *nodepath, int64 nodesize);
 static void mgr_get_gtm_host_snapsender_port(StringInfo infosendmsg);
 
-#if (Natts_mgr_node != 11)
+#if (Natts_mgr_node != 13)
 #error "need change code"
 #endif
 
@@ -253,6 +253,7 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 	NameData sync_state_name;
 	NameData hostname;
 	NameData zoneData;
+	NameData curestatus;
 	Datum datum[Natts_mgr_node];
 	ObjectAddress myself;
 	ObjectAddress host;
@@ -581,6 +582,10 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 	datum[Anum_mgr_node_nodeincluster-1] = BoolGetDatum(false);
 	/* now, node is not initialized*/
 	datum[Anum_mgr_node_nodeinited-1] = BoolGetDatum(false);
+	/* by default adb doctor extension would not work on this node until it has been initiated and it is in cluster. */
+	datum[Anum_mgr_node_allowcure-1] = BoolGetDatum(true);
+	namestrcpy(&curestatus, CURE_STATUS_NORMAL);
+	datum[Anum_mgr_node_curestatus-1] = NameGetDatum(&curestatus);
 
 	/* now, we can insert record */
 	newtuple = heap_form_tuple(RelationGetDescr(rel), datum, isnull);
@@ -874,7 +879,7 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 					, get_hostname_from_hostoid(hostoid), newport)
 					,errhint("try \"list node;\" for more information")));
 		}
-		/*check this tuple initd or not, if it has inited and in cluster, check whether it can be alter*/
+		/*check if this tuple is initiated. If it has been initiated and it is in cluster, then we check whether it can be altered*/
 		if(bnodeInCluster)
 		{
 			if(got[Anum_mgr_node_nodesync-1] == true)

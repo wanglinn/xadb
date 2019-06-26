@@ -4088,6 +4088,12 @@ BEGIN_NODE(MGRFlushHost)
 END_NODE(MGRFlushHost)
 #endif /* NO_NODE_MGRFlushHost */
 
+#ifndef NO_NODE_MGRDoctorSet
+BEGIN_NODE(MGRDoctorSet)
+	NODE_NODE(List, options)
+END_NODE(MGRDoctorSet)
+#endif /* NO_NODE_MGRDoctorSet */
+
 #ifndef NO_NODE_MonitorJobitemAdd
 BEGIN_NODE(MonitorJobitemAdd)
 	NODE_SCALAR(bool,if_not_exists)

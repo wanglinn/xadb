@@ -33,4 +33,6 @@ extern void ma_endmessage(StringInfo buf, ManagerAgent *ma);
 extern const char *ma_getmsgstring(StringInfo msg);
 #define ma_getmsgend      pq_getmsgend
 
+extern pgsocket ma_getsock(ManagerAgent *ma);
+
 #endif /* MANAGER_AGENT_H */

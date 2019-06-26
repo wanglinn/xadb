@@ -36,6 +36,16 @@ CATALOG(mgr_node,4813,NodeRelationId)
 
 	NameData	nodezone;
 
+	/* 
+	 * a flag that indication "adb doctor extension" whether work or not.
+	 * doctor process will not launched until this node by has been initiated and it is in cluster.
+	 * or else, doctor process auto exit.
+	 */
+	bool		allowcure;
+
+	/* see the macro definition which prefixed by CURE_STATUS below */
+	NameData	curestatus;
+
 #ifdef CATALOG_VARLEN
 
 	text		nodepath;		/* node data path */
@@ -140,5 +150,11 @@ extern bool with_data_checksums;
 #define DEFAULT_DB "postgres"
 
 NameData clusterLockCoordNodeName;
+
+#define CURE_STATUS_NORMAL "normal"
+#define CURE_STATUS_CURING "healing"
+#define CURE_STATUS_WAIT_SWITCH "wait switch"
+#define CURE_STATUS_SWITCHING "switching"
+
 
 #endif /* MGR_CNDNNODE_H */

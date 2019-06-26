@@ -5,6 +5,7 @@ top_builddir = ..
 include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = \
+		adb_doctor	\
 		adminpack	\
 		amcheck		\
 		auth_delay	\

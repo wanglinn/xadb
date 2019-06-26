@@ -44,6 +44,9 @@ const char *mgr_CreateCommandTag(Node *parsetree)
 	case T_MGRFlushHost:
 		tag = "FLUSH HOST";
 		break;
+	case T_MGRDoctorSet: 
+		tag = "SET DOCTOR";
+		break;
 	case T_MonitorJobitemAdd:
 		tag = "ADD ITEM";
 		break;
@@ -127,6 +130,9 @@ void mgr_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 		break;
 	case T_MGRFlushHost:
 		mgr_flushhost((MGRFlushHost*)parsetree, params, dest);
+		break;
+	case T_MGRDoctorSet: 
+		mgr_doctor_set_param((MGRDoctorSet*)parsetree, params, dest);
 		break;
 	case T_MonitorJobitemAdd:
 		monitor_jobitem_add((MonitorJobitemAdd*)parsetree, params, dest);

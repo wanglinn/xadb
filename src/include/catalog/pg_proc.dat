@@ -11458,5 +11458,27 @@
   proallargtypes => '{name,bool,text}', proargmodes => '{o,o,o}',
   proargnames => '{nodename,status,description}',
   prosrc => 'monitor_handle_coordinator' },
+{ oid => '5018', row_macros => 'ADBMGRD',
+  descr => 'start doctor',
+  proname => 'mgr_doctor_start', provolatile => 'v', proparallel => 'u',
+  prorettype => 'bool', proargtypes => '',
+  prosrc => 'mgr_doctor_start'
+},
+{ oid => '5019', row_macros => 'ADBMGRD',
+  descr => 'stop doctor',
+  proname => 'mgr_doctor_stop', 
+  provolatile => 'v', proparallel => 'u', prorettype => 'bool',
+  proargtypes => '',
+  prosrc => 'mgr_doctor_stop'
+},
+{ oid => '5020', row_macros => 'ADBMGRD',
+  descr => 'set doctor',
+  proname => 'mgr_doctor_param', procost => '10', 
+  provolatile => 'v', proparallel => 'u', prorettype => 'bool',
+  proargtypes => '', proargmodes => '{i,i}', proallargtypes => '{int4,int4}',
+  proargnames => '{arg1, arg2}',
+  prosrc => 'mgr_doctor_param'
+},
+
 # ADB_END
 ]

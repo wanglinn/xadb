@@ -13,6 +13,7 @@
 #include "utils/timestamp.h"
 #include "../../interfaces/libpq/libpq-fe.h"
 #include "catalog/mgr_node.h"
+#include "catalog/mgr_host.h"
 #include "utils/relcache.h"
 #include "access/heapam.h"
 
@@ -141,6 +142,7 @@ extern bool port_occupancy_test(const char *ip_address, const int port);
 extern bool get_node_type_str(int node_type, Name node_type_str);
 
 extern Datum mgr_start_agent_all(PG_FUNCTION_ARGS);
+extern bool mgr_start_agent_execute(Form_mgr_host mgr_host,char* hostaddr,char *hostadbhome, char *password, char** retMessage);
 extern Datum mgr_start_agent_hostnamelist(PG_FUNCTION_ARGS);
 
 extern Datum mgr_deploy_all(PG_FUNCTION_ARGS);
@@ -494,6 +496,12 @@ extern Datum mgr_cluster_pgxcnode_init(PG_FUNCTION_ARGS);
 extern Datum mgr_import_hash_meta(PG_FUNCTION_ARGS);
 extern Datum mgr_cluster_hash_meta_check(PG_FUNCTION_ARGS);
 extern Datum mgr_cluster_pgxcnode_check(PG_FUNCTION_ARGS);
+
+/* online doctor functions */
+extern Datum mgr_doctor_start(PG_FUNCTION_ARGS);
+extern Datum mgr_doctor_stop(PG_FUNCTION_ARGS);
+extern Datum mgr_doctor_param(PG_FUNCTION_ARGS);
+extern void mgr_doctor_set_param(MGRDoctorSet * node, ParamListInfo params, DestReceiver * dest);
 
 /*online expand internal function*/
 void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, DestReceiver *dest, const char *query);

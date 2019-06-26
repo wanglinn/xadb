@@ -1283,3 +1283,98 @@ GetBackgroundWorkerTypeByPid(pid_t pid)
 
 	return result;
 }
+
+/*
+ * Given bgw_library_name and bgw_type, terminate the matched background workers.
+ * if wait set to true, Wait for background workers to stop, or else just signal to terminate.
+ */
+void TerminateBackgroundWorkerByBgwType(char *bgw_library_name, char *bgw_type, bool wait)
+{
+	int slotno;
+	bool signal_postmaster = false;
+	int nwait = 0;
+	BackgroundWorkerHandle *handles = NULL;
+
+	LWLockAcquire(BackgroundWorkerLock, LW_SHARED);
+
+	if (wait)
+	{
+		handles = palloc(sizeof(BackgroundWorkerHandle) * BackgroundWorkerData->total_slots);
+	}
+	for (slotno = 0; slotno < BackgroundWorkerData->total_slots; slotno++)
+	{
+		BackgroundWorkerSlot *slot = &BackgroundWorkerData->slot[slotno];
+
+		if (slot->in_use && 
+			strcmp(slot->worker.bgw_library_name, bgw_library_name) == 0 && 
+			strcmp(slot->worker.bgw_type, bgw_type) == 0)
+		{
+			slot->terminate = true;
+			signal_postmaster = true;
+			if (wait)
+			{
+				handles[nwait].slot = slotno;
+				handles[nwait].generation = slot->generation;
+				nwait++;
+			}
+		}
+	}
+
+	LWLockRelease(BackgroundWorkerLock);
+
+	/* Make sure the postmaster notices the change to shared memory. */
+	if (signal_postmaster)
+		SendPostmasterSignal(PMSIGNAL_BACKGROUND_WORKER_CHANGE);
+
+	if(wait){
+		if (nwait > 0)
+		{
+			int i ;
+			for (i = 0; i < nwait; i++)
+			{
+				WaitForBackgroundWorkerShutdown(&handles[i]);
+			}
+		}
+		pfree(handles);
+	}
+}
+
+/* 
+ * Given the bgw_library_name and bgw_type, Report by SIGUSR1 to the matched background workers.
+ */
+void ReportByBgwType(char *bgw_library_name, char *bgw_type)
+{
+	int slotno;
+	int num = 0;
+	pid_t *pids;
+
+	pids = palloc(sizeof(pid_t) * BackgroundWorkerData->total_slots);
+
+	LWLockAcquire(BackgroundWorkerLock, LW_SHARED);
+
+	for (slotno = 0; slotno < BackgroundWorkerData->total_slots; slotno++)
+	{
+		BackgroundWorkerSlot *slot = &BackgroundWorkerData->slot[slotno];
+
+		if (slot->in_use &&
+			strcmp(slot->worker.bgw_library_name, bgw_library_name) == 0 &&
+			strcmp(slot->worker.bgw_type, bgw_type) == 0 &&
+			slot->pid > 0 )
+		{
+			pids[num]=slot->pid;
+			num++;
+		}
+	}
+
+	LWLockRelease(BackgroundWorkerLock);
+
+	if (num > 0)
+	{
+		int i;
+		for (i = 0; i < num; i++)
+		{
+			kill(pids[i], SIGUSR1);
+		}
+	}
+	pfree(pids);
+}

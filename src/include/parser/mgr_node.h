@@ -91,6 +91,12 @@ typedef struct MGRUpdateparmReset
 	List		*options;		/* list of DefElem */
 }MGRUpdateparmReset;
 
+typedef struct MGRDoctorSet{
+	NodeTag type;
+	List * options;
+
+}MGRDoctorSet;
+
 typedef struct MGRMonitorAgent
 {
 	NodeTag		type;

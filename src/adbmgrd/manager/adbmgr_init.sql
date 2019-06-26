@@ -1239,3 +1239,11 @@ mgr_expand_clean_start(),
 mgr_expand_clean_end()
 from public;
 
+--doctor
+revoke execute on function
+mgr_doctor_start(),
+mgr_doctor_stop(),
+mgr_doctor_param()
+from public;
+
+create extension adb_doctor;

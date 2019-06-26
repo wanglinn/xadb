@@ -592,6 +592,9 @@ typedef enum NodeTag
 	,T_MGRUpdateparmReset
 	,T_MGRStartAgent
 	,T_MGRFlushHost
+	/* Doctor begin */
+	,T_MGRDoctorSet
+	/* Doctor End */
 	,T_MonitorJobitemAdd
 	,T_MonitorJobitemAlter
 	,T_MonitorJobitemDrop

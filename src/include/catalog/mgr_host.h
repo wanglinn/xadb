@@ -24,6 +24,9 @@ CATALOG(mgr_host,4802,HostRelationId)
 	/* agent port */
 	int32		hostagentport;
 
+	/* a flag that indication "adb doctor extension" whether work or not. */
+	bool		allowcure;
+
 #ifdef CATALOG_VARLEN
 	/* host address */
 	text		hostaddr;

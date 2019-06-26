@@ -502,3 +502,8 @@ static void left_stringbuf(StringInfo buf)
 		buf->cursor = 0;
 	}
 }
+
+pgsocket ma_getsock(ManagerAgent *ma)
+{
+	return ma->sock;
+}

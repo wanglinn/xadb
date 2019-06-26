@@ -32,6 +32,8 @@
 #include "miscadmin.h"
 #include "nodes/parsenodes.h"
 #include "parser/mgr_node.h"
+#include "postmaster/bgworker.h" 
+// #include "contrib/adb_doctor.h"
 
 /*
  * The YY_EXTRA data that a flex scanner allows us to pass around.  Private
@@ -165,6 +167,7 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 				ExpandNodeStmt CheckNodeStmt ClusterSlotInitStmt
 				ClusterPgxcNodeInitStmt ClusterPgxcNodeCheckStmt
 				ImportHashMetaStmt ClusterHashMetaCheckStmt
+				 StartDoctorStmt StopDoctorStmt SetDoctorParamStmt
 %type <node>	ListNodeSize
 %type <node>	opt_nodesize_with_list  opt_nodesize_with_list_items
 // %type <boolean>	opt_pretty
@@ -222,6 +225,9 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 				GET_THRESHOLD_TYPE GET_THRESHOLD_ALL_TYPE CHECK_PASSWORD GET_DB_THRESHOLD_ALL_TYPE
 				GET_ALARM_INFO_ASC GET_ALARM_INFO_DESC RESOLVE_ALARM GET_ALARM_INFO_COUNT
 				GET_CLUSTER_TPS_QPS GET_CLUSTER_CONNECT_DBSIZE_INDEXSIZE
+/* ADB_DOCTOR_BEGIN */
+%token<keyword>	DOCTOR
+/* ADB_DOCTOR_END */
 %%
 /*
  *	The target production for the whole parse.
@@ -313,6 +319,11 @@ stmt :
 	| SwitchoverStmt
 	| ZoneStmt
 	| GetBoottimeStmt
+	/* DOCTOR BEGIN */
+	| SetDoctorParamStmt
+	| StartDoctorStmt
+	| StopDoctorStmt
+/* ADB END */
 	| /* empty */
 		{ $$ = NULL; }
 	;
@@ -3137,6 +3148,36 @@ ZoneStmt:
 			$$ = (Node*)stmt;
 		}
 	;
+	/* ADB DOCTOR BEGIN */
+StartDoctorStmt: 
+		START DOCTOR 
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_doctor_start", NULL));
+			$$ = (Node*)stmt;
+		}
+
+StopDoctorStmt:
+		STOP DOCTOR
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_doctor_stop", NULL));
+			$$ = (Node*)stmt;
+		}
+	
+SetDoctorParamStmt:
+		SET DOCTOR opt_general_options
+		{
+			MGRDoctorSet *node = makeNode(MGRDoctorSet);
+			node -> options = $3;
+			$$ = (Node*)node;
+		} 
+
+/* ADB DOCTOR END */
+
+
 
 GetBoottimeStmt:
 		BOOTTIME opt_general_all
@@ -3203,6 +3244,7 @@ unreserved_keyword:
 	| CLUSTER
 	| DATA_CHECKSUMS
 	| DEPLOY
+	| DOCTOR
 	| DROP
 	| EXISTS
 	| EXTENSION

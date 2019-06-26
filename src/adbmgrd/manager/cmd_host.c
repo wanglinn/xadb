@@ -70,7 +70,7 @@ typedef struct InitDeployInfo
 	ListCell  **lcp;
 }InitDeployInfo;
 
-#if (Natts_mgr_host != 7)
+#if (Natts_mgr_host != 8)
 #error "need change code"
 #endif
 
@@ -1410,6 +1410,66 @@ Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 	pfree(message.data);
 	pfree(exec_path.data);
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+}
+
+bool mgr_start_agent_execute(Form_mgr_host mgr_host,char* hostaddr,char *hostadbhome, char *password, char** retMessage)
+{
+	Datum datumpath;
+	int ret;
+	char *host_addr;
+	StringInfoData message;
+	StringInfoData exec_path;
+
+	/* get exec path */
+	if(hostadbhome == NULL || strlen(hostadbhome) ==0)
+	{
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
+			, errmsg("column hostadbhome is null")));
+	}
+	
+	initStringInfo(&message);
+	initStringInfo(&exec_path);
+	if(retMessage != NULL)
+	{
+		*retMessage = message.data;
+	}
+
+	appendStringInfo(&exec_path
+		, "export LD_LIBRARY_PATH=%s/lib:$LD_LIBRARY_PATH;", hostadbhome);
+	appendStringInfoString(&exec_path, hostadbhome);
+	if(exec_path.data[exec_path.len] != '/')
+		appendStringInfoChar(&exec_path, '/');
+	appendStringInfoString(&exec_path, "bin/agent");
+
+	/* append argument */
+	appendStringInfo(&exec_path, " -b -P %u", mgr_host->hostagentport);
+
+	/* get host address */
+	if(hostaddr == NULL || strlen(hostaddr) ==0)
+		host_addr = NameStr(mgr_host->hostname);
+	else
+		host_addr = hostaddr;
+
+	/* exec start */
+	if(mgr_host->hostproto == HOST_PROTOCOL_TELNET)
+	{
+		appendStringInfoString(&message, _("telnet not support yet"));
+		ret = 1;
+	}else if(mgr_host->hostproto == HOST_PROTOCOL_SSH)
+	{
+		ret = ssh2_start_agent(host_addr
+			, mgr_host->hostport
+			, NameStr(mgr_host->hostuser)
+			, password /* password for libssh2*/
+			, exec_path.data
+			, &message);
+	}else
+	{
+		appendStringInfo(&message, _("unknown protocol '%d'"), mgr_host->hostproto);
+		ret = 1;
+	}
+	return ret==0;
 }
 
 Datum mgr_stop_agent_all(PG_FUNCTION_ARGS)

@@ -67,7 +67,6 @@
 #define BGWORKER_CLASS_PARALLEL					0x0010
 /* add additional bgworker classes here */
 
-
 typedef void (*bgworker_main_type) (Datum main_arg);
 
 /*
@@ -158,4 +157,9 @@ extern void BackgroundWorkerInitializeConnectionByOid(Oid dboid, Oid useroid, ui
 extern void BackgroundWorkerBlockSignals(void);
 extern void BackgroundWorkerUnblockSignals(void);
 
-#endif							/* BGWORKER_H */
+/* Terminate a group of bgworkers with same bgw_library_name and bgw_type */
+extern void TerminateBackgroundWorkerByBgwType(char *bgw_library_name, char *bgw_type, bool wait);
+/* Report something may be changed to a group of bgworker with same bgw_library_name and bgw_type */
+extern void ReportByBgwType(char *bgw_library_name, char *bgw_type);
+
+#endif /* BGWORKER_H */

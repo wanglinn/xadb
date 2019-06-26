@@ -1,0 +1,5 @@
+comment = 'cure the adb cluster automatically'
+default_version = '1.0'
+module_pathname = '$libdir/adb_doctor'
+relocatable = false
+schema = adb_doctor

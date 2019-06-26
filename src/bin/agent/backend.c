@@ -63,6 +63,9 @@ void agent_backend(pgsocket fd)
 		case AGT_MSG_EXIT:
 			exit(EXIT_SUCCESS);
 			break;
+		case AGT_MSG_IDLE:
+			/* reponse idle message, do it as heartbeat message. */
+			break;
 		default:
 			ereport(FATAL, (errcode(ERRCODE_PROTOCOL_VIOLATION)
 				, errmsg("invalid message type")));
