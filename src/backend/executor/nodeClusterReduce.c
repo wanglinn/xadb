@@ -190,6 +190,11 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 		crstate->eof_network = true;
 
 	/*
+	 * Initialize result slot, type and projection.
+	 */
+	ExecInitResultTupleSlotTL(estate, &crstate->ps);
+
+	/*
 	 * Do not connect Reduce subprocess at this time.
 	 */
 	if (!(eflags & (EXEC_FLAG_EXPLAIN_ONLY | EXEC_FLAG_IN_SUBPLAN)))
@@ -206,11 +211,6 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	outerPlan = outerPlan(node);
 	outerPlanState(crstate) = ExecInitNode(outerPlan, estate, eflags);
 	tupDesc = ExecGetResultType(outerPlanState(crstate));
-
-	/*
-	 * Initialize result slot, type and projection.
-	 */
-	ExecInitResultTupleSlotTL(estate, &crstate->ps);
 
 	/* init reduce expr */
 	if(node->special_node == PGXCNodeOid)
