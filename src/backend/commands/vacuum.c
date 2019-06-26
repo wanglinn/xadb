@@ -1809,6 +1809,14 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	if (onerel)
 		relation_close(onerel, NoLock);
 
+#ifdef ADB
+	if (conns != NIL)
+	{
+		cluster_recv_exec_end(conns);
+		list_free(conns);
+	}
+#endif /* ADB */
+
 	/*
 	 * Complete the transaction and free all temporary memory used.
 	 */
@@ -1829,14 +1837,6 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	 * Now release the session-level lock on the master table.
 	 */
 	UnlockRelationIdForSession(&onerelid, lmode);
-
-#ifdef ADB
-	if (conns != NIL)
-	{
-		cluster_recv_exec_end(conns);
-		list_free(conns);
-	}
-#endif /* ADB */
 
 	/* Report that we really did it. */
 	return true;
