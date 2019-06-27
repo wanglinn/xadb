@@ -742,17 +742,36 @@ RevalidateCachedQuery(CachedPlanSource *plansource,
 	if (rawtree == NULL)
 		tlist = NIL;
 	else if (plansource->parserSetup != NULL)
+#ifdef ADB_MULTI_GRAM
+		tlist = pg_analyze_and_rewrite_params_for_gram(rawtree,
+													   plansource->query_string,
+													   plansource->parserSetup,
+													   plansource->parserSetupArg,
+													   queryEnv,
+													   plansource->grammar);
+
+#else
 		tlist = pg_analyze_and_rewrite_params(rawtree,
 											  plansource->query_string,
 											  plansource->parserSetup,
 											  plansource->parserSetupArg,
 											  queryEnv);
+#endif /* ADB_MULTI_GRAM */
 	else
+#ifdef ADB_MULTI_GRAM
+		tlist = pg_analyze_and_rewrite_for_gram(rawtree,
+												plansource->query_string,
+												plansource->param_types,
+												plansource->num_params,
+												queryEnv,
+												plansource->grammar);
+#else
 		tlist = pg_analyze_and_rewrite(rawtree,
 									   plansource->query_string,
 									   plansource->param_types,
 									   plansource->num_params,
 									   queryEnv);
+#endif /* ADB_MULTI_GRAM */
 
 	/* Release snapshot if we got one */
 	if (snapshot_set)
