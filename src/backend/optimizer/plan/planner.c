@@ -2747,10 +2747,10 @@ not_cluster_insert_path_:
 				{
 					path = (Path*)create_cluster_gather_path(path, final_rel);
 				}
-			}else if(parse->sortClause
-					&& !pathkeys_contained_in(path->pathkeys, root->sort_pathkeys))
+			}else if(parse->sortClause &&
+					!pathkeys_contained_in(root->sort_pathkeys, path->pathkeys))
 			{
-				path = (Path*)create_sort_path(root, final_rel, path, root->sort_pathkeys, -1.0);
+				path = (Path*)create_sort_path(root, final_rel, path, root->sort_pathkeys, limit_tuples);
 			}
 
 			if (planner_need_limit && !created_limit)
