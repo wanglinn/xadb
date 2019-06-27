@@ -420,9 +420,18 @@ static void save_ParamExternData(StringInfo buf, const ParamExternData *node)
 BEGIN_STRUCT(ParamListInfoData)
 	NODE_SCALAR(int, numParams)
 	do{
-		int i;
-		for(i=0;i<node->numParams;++i)
-			save_ParamExternData(buf, &(node->params[i]));
+		int i, nparams = node->numParams;
+		if (node->paramFetch)
+		{
+			ParamFetchHook fetch = node->paramFetch;
+			ParamExternData parmdata;
+			for (i=0;i<nparams;++i)
+				save_ParamExternData(buf, fetch((ParamListInfo)node, i+1, false, &parmdata));
+		}else
+		{
+			for(i=0;i<nparams;++i)
+				save_ParamExternData(buf, &(node->params[i]));
+		}
 	}while(0);
 END_STRUCT(ParamListInfoData)
 
@@ -1146,26 +1155,14 @@ Node* loadNodeAndHookWithTag(struct StringInfoData *buf, void* (*hook)()
 
 void SaveParamList(struct StringInfoData *buf, ParamListInfo paramLI)
 {
-	int			nparams;
-	int			i;
-
 	/* Write number of parameters. */
-	if (paramLI == NULL || paramLI->numParams <= 0)
+	if (paramLI == NULL ||
+		paramLI->numParams <= 0)
 	{
 		SAVE_IS_NULL();
 		return;
-	}else
-	{
-		nparams = paramLI->numParams;
 	}
 
-	if (paramLI->paramFetch != NULL)
-	{
-		for (i = 0; i < nparams; i++)
-		{
-			(*paramLI->paramFetch) (paramLI, i + 1, false, &paramLI->params[i]);
-		}
-	}
 	SAVE_IS_NOT_NULL();
 	save_ParamListInfoData(buf, paramLI, NULL, NULL);
 }
