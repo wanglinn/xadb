@@ -690,6 +690,7 @@ SetDataRowForExtParams(ParamListInfo paraminfo, RemoteQueryState *rq_state)
 	int i;
 	int real_num_params = 0;
 	RemoteQuery *node = (RemoteQuery*) rq_state->ss.ps.plan;
+	ParamExternData *params = NULL;
 
 	/* If there are no parameters, there is no data to BIND. */
 	if (!paraminfo)
@@ -713,14 +714,16 @@ SetDataRowForExtParams(ParamListInfo paraminfo, RemoteQueryState *rq_state)
 	 * It is necessary to fetch parameters
 	 * before looking at the output value.
 	 */
+	if (paraminfo->paramFetch)
+		params = palloc0(sizeof(params[0]) * paraminfo->numParams);
 	for (i = 0; i < paraminfo->numParams; i++)
 	{
 		ParamExternData *param;
 
-		param = &paraminfo->params[i];
-
-		if (!OidIsValid(param->ptype) && paraminfo->paramFetch != NULL)
-			(*paraminfo->paramFetch) (paraminfo, i + 1, false, param);
+		if (paraminfo->paramFetch)
+			param = paraminfo->paramFetch(paraminfo, i + 1, false, &params[i]);
+		else
+			param = &paraminfo->params[i];
 
 		/*
 		 * This is the last parameter found as useful, so we need
@@ -741,6 +744,8 @@ SetDataRowForExtParams(ParamListInfo paraminfo, RemoteQueryState *rq_state)
 	{
 		rq_state->paramval_data = NULL;
 		rq_state->paramval_len = 0;
+		if (params)
+			pfree(params);
 		return;
 	}
 
@@ -753,8 +758,13 @@ SetDataRowForExtParams(ParamListInfo paraminfo, RemoteQueryState *rq_state)
 	/* Parameter values */
 	for (i = 0; i < real_num_params; i++)
 	{
-		ParamExternData *param = &paraminfo->params[i];
+		ParamExternData *param;
 		uint32 n32;
+
+		if (paraminfo->paramFetch)
+			param = &params[i];
+		else
+			param = &paraminfo->params[i];
 
 		/*
 		 * Parameters with no types are considered as NULL and treated as integer
@@ -818,13 +828,22 @@ SetDataRowForExtParams(ParamListInfo paraminfo, RemoteQueryState *rq_state)
 	{
 		rq_state->rqs_num_params = real_num_params;
 		rq_state->rqs_param_types = (Oid *) palloc(sizeof(Oid) * real_num_params);
-		for (i = 0; i < real_num_params; i++)
-			rq_state->rqs_param_types[i] = paraminfo->params[i].ptype;
+		if (params)
+		{
+			for (i = 0; i < real_num_params; i++)
+				rq_state->rqs_param_types[i] = params[i].ptype;
+		}else
+		{
+			for (i = 0; i < real_num_params; i++)
+				rq_state->rqs_param_types[i] = paraminfo->params[i].ptype;
+		}
 	}
 
 	/* Assign the newly allocated data row to paramval */
 	rq_state->paramval_data = buf.data;
 	rq_state->paramval_len = buf.len;
+	if (params)
+		pfree(params);
 }
 
 
