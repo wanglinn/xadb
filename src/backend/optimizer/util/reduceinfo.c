@@ -1376,7 +1376,10 @@ List *ReduceInfoListConcatExtend(List *dest, List *src, int mark)
 {
 	ListCell *lc;
 	foreach(lc, src)
-		dest = lappend(dest, CopyReduceInfoExtend(lfirst(lc), mark));
+	{
+		if (ReduceInfoListMemberExtend(dest, lfirst(lc), mark) == false)
+			dest = lappend(dest, CopyReduceInfoExtend(lfirst(lc), mark));
+	}
 	return dest;
 }
 
@@ -1451,14 +1454,20 @@ bool CompReduceInfoList(List *left, List *right, int mark)
 
 bool ReduceInfoListMember(List *reduce_info_list, ReduceInfo *reduce_info)
 {
+	return ReduceInfoListMemberExtend(reduce_info_list, reduce_info, REDUCE_MARK_ALL);
+}
+
+bool ReduceInfoListMemberExtend(const List *reduce_info_list, const ReduceInfo *reduce_info, int mark)
+{
 	ListCell *lc;
 	AssertArg(reduce_info);
 	foreach(lc, reduce_info_list)
 	{
-		if(IsReduceInfoEqual(lfirst(lc), reduce_info))
+		if(CompReduceInfo(lfirst(lc), reduce_info, mark))
 			return true;
 	}
 	return false;
+
 }
 
 List* GetPathListReduceInfoList(List *pathlist)
