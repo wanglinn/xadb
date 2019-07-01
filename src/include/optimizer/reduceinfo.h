@@ -183,6 +183,7 @@ extern bool CompReduceInfoList(List *left, List *right, int mark);
 #define IsReduceInfoListEqual(l,r) CompReduceInfoList(l, r, REDUCE_MARK_ALL)
 
 extern bool ReduceInfoListMember(List *reduce_info_list, ReduceInfo *reduce_info);
+extern bool ReduceInfoListMemberExtend(const List *reduce_info_list, const ReduceInfo *reduce_info, int mark);
 extern List* GetPathListReduceInfoList(List *pathlist);
 
 extern int ReduceInfoIncludeExpr(ReduceInfo *reduce, Expr *expr);
