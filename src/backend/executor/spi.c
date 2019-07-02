@@ -1989,6 +1989,9 @@ _SPI_pgxc_prepare_plan(const char *src, List *src_parsetree, SPIPlanPtr plan ADB
 									  src,
 									  ADB_ONLY_ARG(NULL)
 									  CreateCommandTag(parsetree->stmt));
+#ifdef ADB_MULTI_GRAM
+		plansource->grammar = grammar;
+#endif /* ADB_MULTI_GRAM */
 
 		/*
 		 * Parameter datatypes are driven by parserSetup hook if provided,
