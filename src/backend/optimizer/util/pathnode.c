@@ -5031,8 +5031,9 @@ struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab, PlannerInfo *roo
 		MemSet(&hctl, 0, sizeof(hctl));
 		hctl.keysize = sizeof(Oid);
 		hctl.entrysize = sizeof(ExecNodeInfo);
+		hctl.hash = oid_hash;
 		hctl.hcxt = CurrentMemoryContext;
-		context.htab = hash_create("hash execute node info", 128, &hctl, HASH_ELEM|HASH_CONTEXT);
+		context.htab = hash_create("hash execute node info", 128, &hctl, HASH_ELEM|HASH_CONTEXT|HASH_FUNCTION);
 	}else
 	{
 		context.htab = htab;
