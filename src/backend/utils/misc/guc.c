@@ -593,6 +593,10 @@ extern bool auto_release_connect;	/* in libpq-node.c */
 bool		enable_coordinator_calculate = true;
 #endif
 
+#ifdef ADB_EXT
+int			adb_custom_plan_tries = 5;
+#endif
+
 #ifdef DEBUG_ADB
 bool		ADB_DEBUG;
 #endif
@@ -3597,6 +3601,18 @@ static struct config_int ConfigureNamesInt[] =
 		4096, 64, MAX_KILOBYTES,
 		NULL, NULL, NULL
 	},
+
+#ifdef ADB_EXT
+	{
+		{"adb_custom_plan_tries", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Sets the maximum number of custome plan tries number that can be active at one time."),
+			NULL
+		},
+		&adb_custom_plan_tries,
+		5, 0, 100,
+		NULL, NULL, NULL
+	},
+#endif /* ADB_EXT */
 
 #ifdef ADB
 	{

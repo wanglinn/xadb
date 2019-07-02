@@ -78,6 +78,10 @@
 static bool drop_datanode_statements(Plan *plannode, Node *GlobOrStmt, void *context);
 #endif
 
+#ifdef ADB_EXT
+extern int adb_custom_plan_tries;
+#endif /* ADB_EXT */
+
 /*
  * We must skip "overhead" operations that involve database access when the
  * cached plan's subject statement is a transaction control command.
@@ -1161,7 +1165,13 @@ choose_custom_plan(CachedPlanSource *plansource, ParamListInfo boundParams)
 		return true;
 
 	/* Generate custom plans until we have done at least 5 (arbitrary) */
-	if (plansource->num_custom_plans < 5)
+	int max_custom_plan_tries = 5;
+	
+#ifdef ADB_EXT
+	max_custom_plan_tries = adb_custom_plan_tries;
+#endif /* ADB_EXT */
+
+	if (plansource->num_custom_plans < max_custom_plan_tries)
 		return true;
 
 	avg_custom_cost = plansource->total_custom_cost / plansource->num_custom_plans;
