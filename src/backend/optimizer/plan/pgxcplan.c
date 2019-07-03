@@ -2847,28 +2847,24 @@ static RemoteQuery *
 pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_direct)
 {
 	RemoteQuery		*query_step;
-	StringInfoData	buf;
 	RangeTblEntry	*dummy_rte;
 	List			*collected_rtable;
-	List			*junk_tlist = NIL;
-	ListCell		*cell;
-	TargetEntry     *currentTle ;
+	List			*tlist;
+
+	if (has_junk_tlist_entry)
+		tlist = extract_nonjunk_tlist_entries(query->targetList, false);
+	else
+		tlist = query->targetList;
+
 	/* EXECUTE DIRECT statements have their RemoteQuery node already built when analyzing */
 	if (is_exec_direct)
 	{
 		Assert(IsA(query->utilityStmt, RemoteQuery));
 		query_step = (RemoteQuery *)query->utilityStmt;
 		query->utilityStmt = NULL;
-		/* Remove the junk TargetEntry */
-		foreach(cell, query->targetList) {
-			currentTle = (TargetEntry*)lfirst(cell);
-			if (currentTle->resjunk) {
-   				junk_tlist = lappend(junk_tlist, currentTle);
-			}
-		}
-		if (junk_tlist != NIL) {
-			query->targetList = list_difference(query->targetList, junk_tlist);
-		}
+		/* Remove the junk TargetEntry if has */
+		if (tlist != query->targetList)
+			query->targetList = tlist;
 	}
 	else
 	{
@@ -2884,14 +2880,14 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	/* Deparse query tree to get step query. */
 	if (query_step->sql_statement == NULL)
 	{
+		StringInfoData	buf;
 		initStringInfo(&buf);
 		/*
 		 * We always finalise aggregates on datanodes for FQS.
 		 * Use the expressions for ORDER BY or GROUP BY clauses.
 		 */
 		deparse_query(query, &buf, NIL, true, false);
-		query_step->sql_statement = pstrdup(buf.data);
-		pfree(buf.data);
+		query_step->sql_statement = buf.data;
 	}
 
 	/* Optimize multi-node handling */
@@ -2949,14 +2945,14 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	if (is_exec_direct)
 		dummy_rte->relname = "__EXECUTE_DIRECT__";
 	else
-		dummy_rte->relname	   = "__REMOTE_FQS_QUERY__";
-	dummy_rte->eref		   = makeAlias("__REMOTE_FQS_QUERY__", NIL);
+		dummy_rte->relname = "__REMOTE_FQS_QUERY__";
+	dummy_rte->eref = makeAlias("__REMOTE_FQS_QUERY__", NIL);
 	/* Rest will be zeroed out in makeNode() */
 
 	query->rtable = lappend(query->rtable, dummy_rte);
 	query_step->scan.scanrelid 	= list_length(query->rtable);
-	query_step->scan.plan.targetlist = query->targetList;
-	query_step->base_tlist = query->targetList;
+	query_step->scan.plan.targetlist = tlist;
+	query_step->base_tlist = tlist;
 
 	/*
 	 * Append the range table entries collected from the sub-query-trees to the
