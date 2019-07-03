@@ -1650,11 +1650,7 @@ char func_slave(Oid funcid)
 	tup = SearchSysCache1(ADBPROCID, ObjectIdGetDatum(funcid));
 	if (HeapTupleIsValid(tup))
 	{
-		resCluster = ((Form_adb_proc) GETSTRUCT(tup))->proclustersafe;
-		if (resCluster != PROC_CLUSTER_SAFE)
-			resSlave = PROC_SLAVE_UNSAFE;
-		else
-			resSlave = ((Form_adb_proc)GETSTRUCT(tup))->proslavesafe;
+		resSlave = ((Form_adb_proc)GETSTRUCT(tup))->proslavesafe;
 		ReleaseSysCache(tup);
 	}
 	else
