@@ -1518,15 +1518,13 @@ adbUseDnSlaveNodeids(List *nodeids)
 		slaveNodeid = adbGetSlaveNodeid(lfirst_oid(lc));
 		if (!OidIsValid(slaveNodeid))
 		{
-			if (slaveNodeListids)
-				pfree(slaveNodeListids);
-			ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("the datanode master nodeid is \"%d\", get its slave nodeid fail"
-					, lfirst_oid(lc))));
+			//If there is no slave, master replaces
+			slaveNodeListids = lappend_oid(slaveNodeListids, lfirst_oid(lc));
 		}
-
-		slaveNodeListids = lappend_oid(slaveNodeListids, slaveNodeid);
+		else
+		{
+			slaveNodeListids = lappend_oid(slaveNodeListids, slaveNodeid);
+		}
 	}
 
 	return slaveNodeListids;
