@@ -300,6 +300,18 @@ void agt_beginmessage(StringInfo buf, char msgtype)
 	appendStringInfoCharMacro(buf, '\0');
 }
 
+void agt_beginmessage_reuse(StringInfo buf, char msgtype)
+{
+	AssertArg(msgtype != '\0');
+	resetStringInfo(buf);
+
+	appendStringInfoCharMacro(buf, msgtype);
+	appendStringInfoCharMacro(buf, '\0');
+	appendStringInfoCharMacro(buf, '\0');
+	appendStringInfoCharMacro(buf, '\0');
+	appendStringInfoCharMacro(buf, '\0');
+}
+
 /* --------------------------------
  *		agt_sendbyte		- append a raw byte to a StringInfo buffer
  * --------------------------------
@@ -399,6 +411,20 @@ agt_sendint64(StringInfo buf, int64 i)
 void
 agt_endmessage(StringInfo buf)
 {
+	agt_putmessage(buf);
+	/* no need to complain about any failure, since pqcomm.c already did */
+	pfree(buf->data);
+	buf->data = NULL;
+	/*memset(buf, 0, sizeof(*buf));*/
+}
+
+void agt_endmessage_reuse(StringInfo buf)
+{
+	agt_putmessage(buf);
+}
+
+void agt_putmessage(StringInfo buf)
+{
 	uint32 n32;
 	Assert(buf->len >= 5 && buf->data[0] != '\0');
 	/*Assert(memcmp(&(buf->data[1]), "\0\0\0\0", 4) == 0);*/
@@ -414,11 +440,7 @@ agt_endmessage(StringInfo buf)
 	pg_set_block(client_sock);
 	(void)agt_internal_putbytes(buf->data, buf->len);
 	agt_comm_busy = false;
-	/* no need to complain about any failure, since pqcomm.c already did */
-	pfree(buf->data);
-	/*memset(buf, 0, sizeof(*buf));*/
 }
-
 
 /* --------------------------------
  *		agt_getmsgbyte	- get a raw byte from a message buffer

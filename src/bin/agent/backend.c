@@ -12,6 +12,7 @@ void agent_backend(pgsocket fd)
 {
 	sigjmp_buf	local_sigjmp_buf;
 	StringInfoData input_message;
+	StringInfoData echo_message;
 	int msg_type;
 
 	pqsignal(SIGCHLD, SIG_DFL);
@@ -26,6 +27,7 @@ void agent_backend(pgsocket fd)
 										 "ErrorContext",
 										 ALLOCSET_DEFAULT_SIZES);
 	initStringInfo(&input_message);
+	initStringInfo(&echo_message);
 	MemoryContextSwitchTo(MessageContext);
 
 	PG_exception_stack = &local_sigjmp_buf;
@@ -71,7 +73,13 @@ void agent_backend(pgsocket fd)
 				, errmsg("invalid message type")));
 			break;
 		}
-		agt_endmessage(&input_message);
+		if(msg_type != AGT_MSG_IDLE)
+		{
+			/* Echo back the message that sended by client. */
+			agt_beginmessage_reuse(&echo_message, msg_type);
+			appendStringInfoString(&echo_message, input_message.data);
+			agt_endmessage_reuse(&echo_message);
+		}
 		agt_put_msg(AGT_MSG_IDLE, NULL, 0);
 	}
 
