@@ -3184,7 +3184,9 @@ fix_remote_expr_mutator(Node *node, fix_remote_expr_context *context)
 		elog(ERROR, "variable not found in base remote scan target lists");
 	}
 	/* Try matching more complex expressions too, if tlists have any */
-	if (context->base_itlist->has_non_vars)
+	if (context->base_itlist->has_non_vars ||
+		(context->base_itlist->has_conv_whole_rows &&
+		 is_converted_whole_row_reference(node)))
 	{
 		newvar = search_indexed_tlist_for_non_var((Expr*)node,
 												  context->base_itlist,
