@@ -4,9 +4,26 @@
 #include "lib/stringinfo.h"
 #include "libpq/pqformat.h"
 
+/*
+ * These macros are needed to let error-handling code be portable between
+ * Unix and Windows.  (ugh)
+ */
+#ifndef SOCK_ERRNO
+#ifdef WIN32
+#define SOCK_ERRNO (WSAGetLastError())
+#define SOCK_STRERROR winsock_strerror
+#define SOCK_ERRNO_SET(e) WSASetLastError(e)
+#else
+#define SOCK_ERRNO errno
+#define SOCK_STRERROR pqStrerror
+#define SOCK_ERRNO_SET(e) (errno = (e))
+#endif
+#endif
+
 typedef struct ManagerAgent ManagerAgent;
 
 extern ManagerAgent* ma_connect(const char *host, unsigned short port);
+extern ManagerAgent* ma_connect_noblock(const char *host, unsigned short port);
 extern ManagerAgent* ma_connect_hostoid(Oid hostoid);
 extern bool ma_isconnected(const ManagerAgent *ma);
 extern const char* ma_last_error_msg(const ManagerAgent *ma);

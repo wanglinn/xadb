@@ -13,6 +13,7 @@
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/syscache.h"
+#include "datatype/timestamp.h"
 
 struct ManagerAgent
 {
@@ -110,6 +111,73 @@ re_connect_:
 		}
 		agent->in_buf.cursor += sizeof(ma_idle_msg_str);
 		break;
+	}
+
+	pg_freeaddrinfo_all(AF_UNSPEC, agent->addrs);
+	agent->addrs = NULL;
+	if(agent->sock == PGINVALID_SOCKET)
+		ma_set_error(agent, "can not connect any address for host \"%s:%u\"", host, port);
+
+	return agent;
+}
+
+ManagerAgent* ma_connect_noblock(const char *host, unsigned short port)
+{
+	struct addrinfo *addr;
+	ManagerAgent *agent;
+	int ret;
+
+	AssertArg(host != NULL && port != 0);
+
+	agent = make_manager_agent_handle(host, port);
+	Assert(agent);
+	/* has error ? */
+	if(agent->err_buf.len)
+		return agent;
+
+	agent->sock = PGINVALID_SOCKET;
+	
+	for(addr = agent->addrs;addr;addr=addr->ai_next)
+	{
+		/* skip unix socket */
+		if(IS_AF_UNIX(addr->ai_family))
+			continue;
+		agent->sock = socket(addr->ai_family, SOCK_STREAM, 0);
+		if(agent->sock == PGINVALID_SOCKET)
+		{
+			if(addr->ai_next)
+				continue;
+			ma_set_error(agent, "could not create socket: %m");
+			return agent;
+		}
+		if (!pg_set_noblock(agent->sock))
+		{
+			if(addr->ai_next)
+				continue;
+			ma_set_error(agent, "could not set socket to nonblocking mode: %m");
+			return agent;
+		}
+		ret = connect(agent->sock, addr->ai_addr, addr->ai_addrlen);
+		if(ret < 0)
+		{
+			CHECK_FOR_INTERRUPTS();
+			if (SOCK_ERRNO == EINPROGRESS ||
+#ifdef WIN32
+				SOCK_ERRNO == EWOULDBLOCK ||
+#endif
+				SOCK_ERRNO == EINTR)
+				{
+					/*
+					* This is fine - we're in non-blocking mode, and
+					* the connection is in progress.  Tell caller to
+					* wait for write-ready on socket.
+					*/
+					return agent;
+				}
+				/* otherwise, trouble */
+				closesocket(agent->sock);
+				agent->sock = PGINVALID_SOCKET;
+		}
 	}
 
 	pg_freeaddrinfo_all(AF_UNSPEC, agent->addrs);
