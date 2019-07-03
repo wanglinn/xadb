@@ -219,6 +219,39 @@ count_nonjunk_tlist_entries(List *tlist)
 	return len;
 }
 
+#ifdef ADB_EXT
+bool has_junk_tlist_entry(List *tlist)
+{
+	ListCell *lc;
+
+	foreach (lc, tlist)
+	{
+		if (lfirst_node(TargetEntry, lc)->resjunk)
+			return true;
+	}
+
+	return false;
+}
+
+List *extract_nonjunk_tlist_entries(List *tlist, bool copy)
+{
+	ListCell   *lc;
+	List	   *result = NIL;
+
+	foreach (lc, tlist)
+	{
+		if (lfirst_node(TargetEntry, lc)->resjunk == false)
+		{
+			if (copy)
+				result = lappend(result, copyObject(lfirst(lc)));
+			else
+				result = lappend(result, lfirst(lc));
+		}
+	}
+
+	return result;
+}
+#endif /* ADB_EXT */
 
 /*
  * tlist_same_exprs

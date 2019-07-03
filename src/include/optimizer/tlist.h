@@ -25,6 +25,10 @@ extern List *add_to_flat_tlist(List *tlist, List *exprs);
 extern List *get_tlist_exprs(List *tlist, bool includeJunk);
 
 extern int	count_nonjunk_tlist_entries(List *tlist);
+#ifdef ADB_EXT
+extern bool has_junk_tlist_entry(List *tlist);
+extern List *extract_nonjunk_tlist_entries(List *tlist, bool copy);
+#endif /* ADB_EXT */
 
 extern bool tlist_same_exprs(List *tlist1, List *tlist2);
 
