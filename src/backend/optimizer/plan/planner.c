@@ -1944,7 +1944,8 @@ inheritance_planner(PlannerInfo *root)
 									 NULL,
 									 SS_assign_special_param(root)));
 #ifdef ADB
-	if (cluster_valid)
+	if (cluster_valid &&
+		has_any_triggers_subclass(root, parse->resultRelation, parse->commandType) == false)
 	{
 		ModifyTablePath *modify = create_modifytable_path(root,
 														  final_rel,
