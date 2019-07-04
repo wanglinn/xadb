@@ -1644,10 +1644,14 @@ char func_cluster(Oid funcid)
 char func_slave(Oid funcid)
 {
 	HeapTuple tup;
-	char resCluster;
 	char resSlave = PROC_SLAVE_UNSAFE;
 
 	tup = SearchSysCache1(ADBPROCID, ObjectIdGetDatum(funcid));
+
+	/* At present, it is considered that the system function id not registered in adb_porc is safe. */
+	if (!tup)
+		return PROC_SLAVE_SAFE;
+
 	if (HeapTupleIsValid(tup))
 	{
 		resSlave = ((Form_adb_proc)GETSTRUCT(tup))->proslavesafe;

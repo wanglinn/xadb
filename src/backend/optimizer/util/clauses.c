@@ -1301,19 +1301,17 @@ bool check_query_not_readonly_walker(Node *node, void *context)
 	if (node == NULL)
 		return false;
 
+	/* check funcExpr */
+	if (check_functions_in_node(node, check_function_not_readonly_walker, context))
+	{
+		return true;
+	}
 	/* check onConflict --OnConflictExpr */
-	if(IsA(node, OnConflictExpr))
+	else  if(IsA(node, OnConflictExpr))
 	{
 		if(node != NULL)
 			return true;
 	}
-	/* check funcExpr --havingQual */
-	else if (IsA(node, FuncExpr))
-	{
-		Oid funcid = ((FuncExpr *)node)->funcid;
-		if (func_slave(funcid) != PROC_SLAVE_SAFE)
-			return true;
-	}	
 	/* check query tree */
 	else if(IsA(node, Query))
 	{
@@ -1349,6 +1347,7 @@ static bool check_function_not_readonly_walker(Oid funcid, void *context)
 {
 	if (func_slave(funcid) != PROC_SLAVE_SAFE)
 		return true;
+	return false;
 }
 #endif
 
