@@ -114,11 +114,13 @@ static bool contain_volatile_functions_walker_without_check_RownumExpr(Node *nod
 #endif /* ADB_GRAM_ORA */
 
 #ifdef ADB
+extern bool enable_readsql_on_slave;
 typedef struct has_cluster_hazard_arg
 {
 	bool allow_restricted;
 }has_cluster_hazard_arg;
 static bool has_cluster_hazard_walker(Node *node, has_cluster_hazard_arg *context);
+static bool check_function_not_readonly_walker(Oid funcid, void *context);
 #endif
 static bool contain_nonstrict_functions_walker(Node *node, void *context);
 static bool contain_context_dependent_node(Node *clause);
@@ -1286,6 +1288,68 @@ bool has_cluster_hazard(Node *node, bool allow_restricted)
 	return has_cluster_hazard_walker(node, &context);
 }
 
+/**
+ *  callback function, check query if the read-only.
+ *  return: 
+ * 		true:	not read-only
+ * 		false:	is read-only
+ */
+bool check_query_not_readonly_walker(Node *node, void *context)
+{
+	
+	/* Skip the null check */
+	if (node == NULL)
+		return false;
+
+	/* check onConflict --OnConflictExpr */
+	if(IsA(node, OnConflictExpr))
+	{
+		if(node != NULL)
+			return true;
+	}
+	/* check funcExpr --havingQual */
+	else if (IsA(node, FuncExpr))
+	{
+		Oid funcid = ((FuncExpr *)node)->funcid;
+		if (func_slave(funcid) != PROC_SLAVE_SAFE)
+			return true;
+	}	
+	/* check query tree */
+	else if(IsA(node, Query))
+	{
+		Query *query = (Query *) node;
+
+		/* Non-read-only are no longer checked */
+		if(sql_readonly == SQLTYPE_WRITE || enable_readsql_on_slave == false)
+			return true;
+			
+		/* skip explain */
+		if (query->commandType == CMD_UTILITY &&
+			query->utilityStmt &&
+			IsA(query->utilityStmt, ExplainStmt))
+		{
+			ExplainStmt *explain = (ExplainStmt *)query->utilityStmt;
+			query = (Query *)explain->query;
+		}
+		/* only check selectStmt */
+		if(!query || query->commandType != CMD_SELECT)
+			return true;
+
+		/* check range table */
+		if(query->rtable && range_table_walker(query->rtable, check_query_not_readonly_walker, NULL, 0))
+			return true;
+			
+		return query_tree_walker(query, check_query_not_readonly_walker, NULL, 0);
+	}
+
+	/* Recurse to check arguments */
+	return expression_tree_walker(node, check_query_not_readonly_walker, context);
+}
+static bool check_function_not_readonly_walker(Oid funcid, void *context)
+{
+	if (func_slave(funcid) != PROC_SLAVE_SAFE)
+		return true;
+}
 #endif
 
 /*****************************************************************************

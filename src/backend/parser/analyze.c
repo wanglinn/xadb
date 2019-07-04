@@ -137,8 +137,6 @@ static Query *transformExecDirectStmt(ParseState *pstate, ExecDirectStmt *stmt);
 static bool IsExecDirectUtilityStmt(Node *node);
 static bool is_relation_child(RangeTblEntry *child_rte, List *rtable);
 static bool is_rel_child_of_rel(RangeTblEntry *child_rte, RangeTblEntry *parent_rte);
-static SqlTypeLevel adbCheckSqlReadonly(ParseState *pstate, RawStmt *parseTree, Query *result);
-static bool contain_func_slave_walker(Node *node, void *context);
 #endif /* ADB */
 #ifdef ADB_GRAM_ORA
 static Node* transformFromAndWhere(ParseState *pstate, Node *quals);
@@ -327,9 +325,23 @@ transformTopLevelStmt(ParseState *pstate, RawStmt *parseTree)
 	result->stmt_len = parseTree->stmt_len;
 #ifdef ADB
 	if (enable_readsql_on_slave == true)
-	{
-	 if (sql_readonly != SQLTYPE_WRITE)
-		sql_readonly = adbCheckSqlReadonly(pstate, parseTree, result);
+	{	
+		Query *query = result;
+		/* skip explain */
+		if (query->commandType == CMD_UTILITY &&
+			query->utilityStmt &&
+			IsA(query->utilityStmt, ExplainStmt))
+		{
+			ExplainStmt *explain = (ExplainStmt *)query->utilityStmt;
+			query = (Query *)explain->query;
+		}
+
+		if (!GetTopTransactionIdIfAny() &&
+			sql_readonly != SQLTYPE_WRITE && 
+			!check_query_not_readonly_walker((Node *)query, NULL))
+			sql_readonly = SQLTYPE_READ;
+		else
+			sql_readonly = SQLTYPE_WRITE;
 	}
 	else
 		sql_readonly = SQLTYPE_WRITE;
@@ -4985,106 +4997,5 @@ re_generate_name_:
 
 	query->cteList = lappend(query->cteList, cte);
 	return cte;
-}
-
-static SqlTypeLevel
-adbCheckSqlReadonly(ParseState *pstate, RawStmt *parseTree, Query *result)
-{
-	SelectStmt	*stmt;
-	ListCell	*lc;
-	ListCell	*lcell;
-	Query		*sub_action;
-	Query **sub_action_ptr;
-	SqlTypeLevel readonly = SQLTYPE_READ;
-
-	if (!result->rtable)
-		return SQLTYPE_WRITE;
-
-	if (enable_readsql_on_slave == false)
-		return SQLTYPE_WRITE;
-
-	if (sql_readonly == SQLTYPE_WRITE)
-		return SQLTYPE_WRITE;
-
-	if (!IsA(parseTree->stmt, SelectStmt))
-	{
-		return SQLTYPE_WRITE;
-	}
-
-	stmt = (SelectStmt *) parseTree->stmt;
-	while (stmt && stmt->op != SETOP_NONE)
-		stmt = stmt->larg;
-	Assert(stmt && IsA(stmt, SelectStmt) &&stmt->larg == NULL);
-	if (stmt->intoClause)
-		return SQLTYPE_WRITE;
-
-	sub_action = getInsertSelectQuery(result, &sub_action_ptr);
-
-	foreach (lc, result->rtable)
-	{
-		RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
-		if (rte->rtekind == RTE_FUNCTION)
-		{
-			foreach(lcell, rte->functions)
-			{
-				RangeTblFunction *rtfunc = (RangeTblFunction *) lfirst(lc);
-				Node *expr = rtfunc->funcexpr ;
-				if (expr && IsA(expr, FuncExpr))
-				{
-					Oid funcid = ((FuncExpr *)expr)->funcid;
-					char slave_safe = func_slave(funcid);
-
-					if (slave_safe == PROC_SLAVE_SAFE && readonly != SQLTYPE_WRITE)
-						readonly = SQLTYPE_READ;
-					else
-					{
-						return SQLTYPE_WRITE;
-					}
-				}
-			}
-		}
-	}
-
-	foreach (lc, result->targetList)
-	{
-		TargetEntry *tle = (TargetEntry *) lfirst(lc);
-
-		if (tle->expr && IsA(tle->expr, FuncExpr))
-		{
-			Oid funcid = ((FuncExpr *)tle->expr)->funcid;
-			char slave_safe = func_slave(funcid);
-
-			if (slave_safe == PROC_SLAVE_SAFE && readonly != SQLTYPE_WRITE)
-				readonly = SQLTYPE_READ;
-			else
-			{
-				return SQLTYPE_WRITE;
-			}
-		}
-
-	}
-
-	if (result->jointree)
-		if (contain_func_slave_walker(result->jointree->quals, NULL))
-			readonly = SQLTYPE_WRITE;
-
-	return readonly;
-}
-
-static bool
-contain_func_slave_walker(Node *node, void *context)
-{
-	if (node == NULL)
-		return false;
-
-	if (IsA(node, FuncExpr))
-	{
-		Oid funcid = ((FuncExpr *)node)->funcid;
-		char slave_safe = func_slave(funcid);
-
-		if (slave_safe != PROC_SLAVE_SAFE)
-			return true;
-	}
-	return expression_tree_walker(node, contain_func_slave_walker, context);
 }
 #endif /* ADB */

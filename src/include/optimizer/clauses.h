@@ -73,6 +73,7 @@ extern bool contain_volatile_functions_without_check_RownumExpr(Node *clause);
 #endif
 #ifdef ADB
 extern bool has_cluster_hazard(Node *node, bool allow_restricted);
+extern bool check_query_not_readonly_walker(Node *node, void *context);
 #endif
 
 extern Relids find_nonnullable_rels(Node *clause);
