@@ -61,7 +61,7 @@ CATALOG(pgxc_node,9015,PgxcNodeRelationId) BKI_SHARED_RELATION
 	/*
 	 * the master name of the node
 	 */
-	NameData	node_mastername;
+	Oid			node_master_oid;
 } FormData_pgxc_node;
 
 typedef FormData_pgxc_node *Form_pgxc_node;

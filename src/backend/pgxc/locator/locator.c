@@ -1518,7 +1518,7 @@ adbUseDnSlaveNodeids(List *nodeids)
 		slaveNodeid = adbGetSlaveNodeid(lfirst_oid(lc));
 		if (!OidIsValid(slaveNodeid))
 		{
-			//If there is no slave, master replaces
+			/* If there is no slave, master replaces */
 			slaveNodeListids = lappend_oid(slaveNodeListids, lfirst_oid(lc));
 		}
 		else
@@ -1551,10 +1551,10 @@ adbGetSlaveNodeid(Oid masterid)
 				"in pgxc_node of coordinator", masterid)));
 
 	ScanKeyInit(&key[0]
-		, Anum_pgxc_node_node_mastername
+		, Anum_pgxc_node_node_master_oid
 		, BTEqualStrategyNumber
-		, F_NAMEEQ
-		, CStringGetDatum(masterName));
+		, F_OIDEQ
+		, ObjectIdGetDatum(masterid));
 	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
 	scan = heap_beginscan_catalog(rel, 1, key);
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)

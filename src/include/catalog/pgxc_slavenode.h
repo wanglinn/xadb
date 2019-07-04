@@ -59,7 +59,7 @@ CATALOG(pgxc_slavenode,4993,PgxcSlaveNodeRelationId) BKI_SHARED_RELATION
 	/*
 	 * the node's master name
 	 */
-	NameData	node_mastername;
+	Oid			node_master_oid;
 } FormData_pgxc_slavenode;
 
 typedef FormData_pgxc_slavenode *Form_pgxc_slavenode;

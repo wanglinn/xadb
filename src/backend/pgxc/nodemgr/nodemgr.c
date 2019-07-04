@@ -467,6 +467,28 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	bool		is_primary = false;
 	bool		is_preferred = false;
 	Datum		node_id;
+	ListCell   *option;
+
+	/* check datandoe master name */
+	if(node_mastername)
+	{
+		foreach(option, stmt->options)
+		{
+			DefElem *defel = (DefElem *) lfirst(option);
+			if (strcmp(defel->defname, "type") == 0)
+			{
+				char *str = strVal(defel->arg);
+				if (strcmp(str, "datanode slave") == 0)
+				{
+					if(get_pgxc_nodeoid(node_mastername) == InvalidOid)
+						ereport(ERROR,
+								(errcode(ERRCODE_DUPLICATE_OBJECT),
+								errmsg("Nonexistent master node name")));
+				}
+			}
+		}
+
+	}
 
 	/* Only a DB administrator can add nodes */
 	if (!superuser())
@@ -548,7 +570,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	values[Anum_pgxc_node_nodeis_primary - 1] = BoolGetDatum(is_primary);
 	values[Anum_pgxc_node_nodeis_preferred - 1] = BoolGetDatum(is_preferred);
 	values[Anum_pgxc_node_node_id - 1] = node_id;
-	values[Anum_pgxc_node_node_mastername - 1] = DirectFunctionCall1(namein, CStringGetDatum(node_mastername));
+	values[Anum_pgxc_node_node_master_oid - 1] = ObjectIdGetDatum(node_mastername ? get_pgxc_nodeoid(node_mastername) : 0);
 
 	htup = heap_form_tuple(pgxcnodesrel->rd_att, values, nulls);
 
