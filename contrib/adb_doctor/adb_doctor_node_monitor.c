@@ -1,4 +1,9 @@
-
+/*--------------------------------------------------------------------------
+ *
+ * Copyright (c) 2018-2019, Asiainfo Database Innovation Lab
+ *
+ * -------------------------------------------------------------------------
+ */
 #include "postgres.h"
 #include "pgstat.h"
 #include "miscadmin.h"
@@ -30,9 +35,9 @@ static volatile sig_atomic_t gotSigusr1 = false;
 
 void adbDoctorNodeMonitorMain(Datum main_arg)
 {
-    pg_usleep(20 * 1000000);
-
     AdbDoctorNodeData *data;
+
+    //pg_usleep(20 * 1000000);
 
     pqsignal(SIGTERM, handleSigterm);
     pqsignal(SIGUSR1, handleSigusr1);
@@ -63,9 +68,14 @@ static void nodeMonitorMainLoop(AdbDoctorNodeData *data)
     long timeout;
     PGconn *conn;
 
-    conn = connectDB(data, 3);
-    if (conn == NULL)
-        proc_exit(1);
+    while (true)
+    {
+        conn = connectDB(data, 3);
+        if (conn == NULL)
+            pg_usleep(200 * 1000000);
+        else
+            break;
+    }
 
     while (!gotSigterm)
     {
@@ -136,6 +146,7 @@ static void handleSigusr1(SIGNAL_ARGS)
 static void attachNodeDataShm(Datum main_arg, AdbDoctorNodeData **dataP)
 {
     dsm_segment *seg;
+    shm_toc *toc;
     AdbDoctorNodeData *dataInShm;
     AdbDoctorNodeData *data;
     Adb_Doctor_Bgworker_Type type;
@@ -147,7 +158,7 @@ static void attachNodeDataShm(Datum main_arg, AdbDoctorNodeData **dataP)
         ereport(ERROR,
                 (errmsg("unable to map individual dynamic shared memory segment")));
 
-    shm_toc *toc = shm_toc_attach(ADB_DOCTOR_SHM_DATA_MAGIC, dsm_segment_address(seg));
+    toc = shm_toc_attach(ADB_DOCTOR_SHM_DATA_MAGIC, dsm_segment_address(seg));
     if (toc == NULL)
         ereport(ERROR,
                 (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),

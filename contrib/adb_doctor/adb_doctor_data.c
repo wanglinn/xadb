@@ -1,6 +1,5 @@
 /*--------------------------------------------------------------------------
  *
- * 
  * Copyright (c) 2018-2019, Asiainfo Database Innovation Lab
  *
  * -------------------------------------------------------------------------
@@ -29,7 +28,7 @@ Size sizeofAdbDoctorBgworkerData(AdbDoctorBgworkerData *data)
     {
         size = 0;
         ereport(ERROR,
-                (errmsg("unrecognized type:%d", type)));
+                (errmsg("Unrecognized Adb_Doctor_Bgworker_Type:%d", type)));
     }
     return size;
 }
@@ -110,6 +109,12 @@ bool equalsAdbDoctorBgworkerData(AdbDoctorBgworkerData *data1, AdbDoctorBgworker
 bool equalsAdbDoctorHostData(AdbDoctorHostData *data1, AdbDoctorHostData *data2)
 {
     bool result;
+    AdbDoctorList *cloneList1;
+    AdbDoctorList *cloneList2;
+    dlist_mutable_iter iter1;
+    AdbDoctorLink *link1;
+    dlist_mutable_iter iter2;
+    AdbDoctorLink *link2;
 
     if (dlist_is_empty(&data1->list->head) ||
         dlist_is_empty(&data2->list->head) ||
@@ -117,14 +122,6 @@ bool equalsAdbDoctorHostData(AdbDoctorHostData *data1, AdbDoctorHostData *data2)
     {
         return false;
     }
-
-    AdbDoctorList *cloneList1;
-    AdbDoctorList *cloneList2;
-
-    dlist_mutable_iter iter1;
-    AdbDoctorLink *link1;
-    dlist_mutable_iter iter2;
-    AdbDoctorLink *link2;
 
     cloneList1 = cloneAdbDoctorList(data1->list);
     cloneList2 = cloneAdbDoctorList(data2->list);
@@ -138,9 +135,7 @@ bool equalsAdbDoctorHostData(AdbDoctorHostData *data1, AdbDoctorHostData *data2)
             if (equalsAdbMgrHostWrapper(link1->data, link2->data))
             {
                 deleteFromAdbDoctorList(cloneList1, iter1);
-                pfreeAdbDoctorLink(link1, false);
                 deleteFromAdbDoctorList(cloneList2, iter2);
-                pfreeAdbDoctorLink(link2, false);
                 break;
             }
             else

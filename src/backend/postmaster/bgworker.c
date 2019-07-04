@@ -1284,6 +1284,7 @@ GetBackgroundWorkerTypeByPid(pid_t pid)
 	return result;
 }
 
+/* ADB DOCTOR START */
 /*
  * Given bgw_library_name and bgw_type, terminate the matched background workers.
  * if wait set to true, Wait for background workers to stop, or else just signal to terminate.
@@ -1342,10 +1343,11 @@ void TerminateBackgroundWorkerByBgwType(char *bgw_library_name, char *bgw_type, 
 /* 
  * Given the bgw_library_name and bgw_type, Report by SIGUSR1 to the matched background workers.
  */
-void ReportByBgwType(char *bgw_library_name, char *bgw_type)
+void ReportToBackgroundWorkerByBgwType(char *bgw_library_name, char *bgw_type)
 {
 	int slotno;
 	int num = 0;
+	int i;
 	pid_t *pids;
 
 	pids = palloc(sizeof(pid_t) * BackgroundWorkerData->total_slots);
@@ -1370,7 +1372,6 @@ void ReportByBgwType(char *bgw_library_name, char *bgw_type)
 
 	if (num > 0)
 	{
-		int i;
 		for (i = 0; i < num; i++)
 		{
 			kill(pids[i], SIGUSR1);
@@ -1378,3 +1379,4 @@ void ReportByBgwType(char *bgw_library_name, char *bgw_type)
 	}
 	pfree(pids);
 }
+/* ADB DOCTOR END */

@@ -1,6 +1,5 @@
 /*--------------------------------------------------------------------------
  *
- * 
  * Copyright (c) 2018-2019, Asiainfo Database Innovation Lab
  *
  * -------------------------------------------------------------------------
@@ -10,10 +9,11 @@
 
 void pfreeAdbDoctorList(AdbDoctorList *src, bool freeData)
 {
-	if (src == NULL)
-		return;
 	dlist_mutable_iter miter;
 	AdbDoctorLink *link;
+
+	if (src == NULL)
+		return;
 
 	dlist_foreach_modify(miter, &src->head)
 	{
@@ -35,16 +35,16 @@ void pfreeAdbDoctorLink(AdbDoctorLink *src, bool freeData)
 		return;
 	if (freeData)
 	{
-		// if (src->pfreeData == NULL)
-		// {
-		// 	ereport(LOG,
-		// 			(errmsg("Function pfreeData is NULL, may cause memory leakage! ")));
-		// 	pfree(src->data);
-		// }
-		// else
-		// {
-		src->pfreeData(src->data);
-		// }
+		if (src->pfreeData == NULL)
+		{
+			ereport(DEBUG1,
+					(errmsg("Function pfreeData is NULL, may cause memory leakage! ")));
+			pfree(src->data);
+		}
+		else
+		{
+			src->pfreeData(src->data);
+		}
 	}
 	pfree(src);
 	src = NULL;
@@ -70,7 +70,6 @@ void appendAdbDoctorList(AdbDoctorList *destList, AdbDoctorList *srcList, bool d
 		if (drain)
 		{
 			deleteFromAdbDoctorList(srcList, miter);
-			pfreeAdbDoctorLink(srcLink, false);
 			destLink = srcLink;
 		}
 		else

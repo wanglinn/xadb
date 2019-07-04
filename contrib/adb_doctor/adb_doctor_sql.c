@@ -1,24 +1,26 @@
-/*------------------------------------------
+/*--------------------------------------------------------------------------
  *
+ * Copyright (c) 2018-2019, Asiainfo Database Innovation Lab
  *
- * adb_doctor_sql.c
- *
- *
- *
- * -----------------------------------------
+ * -------------------------------------------------------------------------
  */
 #include "postgres.h"
 #include "utils/builtins.h"
 #include "access/htup_details.h"
 #include "executor/spi.h"
 #include "adb_doctor_sql.h"
+#include "utils/formatting.h"
 
 static void wrapMgrNode(HeapTuple tuple, TupleDesc tupdesc, AdbMgrNodeWrapper *wrapper);
 static void wrapMgrHost(HeapTuple tuple, TupleDesc tupdesc, AdbMgrHostWrapper *wrapper);
 
-void SPI_updateConfParam(char *key, char *value)
+void SPI_updateAdbDoctorConf(char *key, char *value)
 {
 	StringInfoData buf;
+	int ret;
+	char *key_lower;
+	/* k must be lowercase string */
+	key_lower = asc_tolower(key, strlen(key));
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "update %s.%s set %s = '%s' where %s = '%s'",
 					 ADB_DOCTOR_SCHEMA,
@@ -26,9 +28,10 @@ void SPI_updateConfParam(char *key, char *value)
 					 ADB_DOCTOR_CONF_ATTR_VALUE,
 					 value,
 					 ADB_DOCTOR_CONF_ATTR_KEY,
-					 key);
-	int ret = SPI_execute(buf.data, false, 0);
+					 key_lower);
+	ret = SPI_execute(buf.data, false, 0);
 	pfree(buf.data);
+	pfree(key_lower);
 
 	if (ret != SPI_OK_UPDATE)
 		ereport(ERROR,
@@ -45,10 +48,13 @@ void SPI_updateConfParam(char *key, char *value)
  * The result is returned in memory allocated using palloc.
  * You can use pfree to release the memory when you don't need it anymore.
  */
-char *SPI_selectConfValue(char *key)
+char *SPI_selectAdbDoctConfByKey(char *key)
 {
 	char *v;
 	StringInfoData buf;
+	int ret;
+	uint64 rows;
+
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "select %s from %s.%s where %s = '%s'",
 					 ADB_DOCTOR_CONF_ATTR_VALUE,
@@ -56,14 +62,14 @@ char *SPI_selectConfValue(char *key)
 					 ADB_DOCTOR_CONF_RELNAME,
 					 ADB_DOCTOR_CONF_ATTR_KEY,
 					 key);
-	int ret = SPI_execute(buf.data, false, 0);
+	ret = SPI_execute(buf.data, false, 0);
 	pfree(buf.data);
 
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("SPI_execute failed: error code %d", ret)));
-	int rows = SPI_processed;
+	rows = SPI_processed;
 	if (rows == 1 && SPI_tuptable != NULL)
 	{
 		v = SPI_getvalue(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 1);
@@ -74,21 +80,28 @@ char *SPI_selectConfValue(char *key)
 		return NULL;
 	}
 }
-
-void SPI_selectAllConfValue(AdbDoctorConf **confP, MemoryContext ctx)
+static int SPI_selectAdbDoctorConfInt(char *key)
 {
-	char *datalevelStr = SPI_selectConfValue(ADB_DOCTOR_CONF_KEY_DATALEVEL);
-	int datalevel = pg_atoi(datalevelStr, 4, 0);
-	pfree(datalevelStr);
-	char *probeintervalStr = SPI_selectConfValue(ADB_DOCTOR_CONF_KEY_PROBEINTERVAL);
-	int probeinterval = pg_atoi(probeintervalStr, 4, 0);
-	pfree(probeintervalStr);
+	char *valueStr = SPI_selectAdbDoctConfByKey(key);
+	int value = pg_atoi(valueStr, sizeof(int), 0);
+	pfree(valueStr);
+	return value;
+}
+
+void SPI_selectAdbDoctorConfAll(AdbDoctorConf **confP, MemoryContext ctx)
+{
+	int datalevel = SPI_selectAdbDoctorConfInt(ADB_DOCTOR_CONF_KEY_DATALEVEL);
+	int probeinterval = SPI_selectAdbDoctorConfInt(ADB_DOCTOR_CONF_KEY_PROBEINTERVAL);
+	int agentdeadline = SPI_selectAdbDoctorConfInt(ADB_DOCTOR_CONF_KEY_AGENTDEADLINE);
 
 	MemoryContext oldCtx = MemoryContextSwitchTo(ctx);
 
+	/* do outside the spi memory context because the spi will be freed. */
 	AdbDoctorConf *conf = palloc0(sizeof(AdbDoctorConf));
-	conf->datalevel = safeGetAdbDoctorConf_datalevel(datalevel);
-	conf->probeinterval = safeGetAdbDoctorConf_probeinterval(probeinterval);
+	conf->datalevel = datalevel;
+	conf->probeinterval = probeinterval;
+	conf->agentdeadline = agentdeadline;
+	safeAdbDoctorConf(conf);
 	*confP = conf;
 
 	MemoryContextSwitchTo(oldCtx);
@@ -100,11 +113,12 @@ AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx)
 	AdbDoctorLink *link;
 	AdbDoctorNodeData *data;
 	AdbMgrNodeWrapper *wrapper;
-	uint64 rows;
-	uint64 j;
+	uint64 rows, j;
+	int ret;
 	HeapTuple tuple;
 	TupleDesc tupdesc;
 	StringInfoData buf;
+	MemoryContext oldCtx;
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
@@ -121,7 +135,7 @@ AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx)
 					 CURE_STATUS_NORMAL,
 					 CURE_STATUS_CURING);
 
-	int ret = SPI_execute(buf.data, false, 0);
+	ret = SPI_execute(buf.data, false, 0);
 	pfree(buf.data);
 
 	if (ret != SPI_OK_SELECT)
@@ -129,7 +143,7 @@ AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx)
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("SPI_execute failed: error code %d", ret)));
 
-	MemoryContext oldCtx = MemoryContextSwitchTo(ctx);
+	oldCtx = MemoryContextSwitchTo(ctx);
 
 	rows = SPI_processed;
 	if (rows > 0 && SPI_tuptable != NULL)
@@ -170,11 +184,12 @@ AdbDoctorList *SPI_selectMgrNodeForSwitcher(MemoryContext ctx)
 	AdbDoctorLink *link;
 	AdbDoctorSwitcherData *data;
 	AdbMgrNodeWrapper *wrapper;
-	uint64 rows;
-	uint64 j;
+	uint64 rows, j;
+	int ret;
 	HeapTuple tuple;
 	TupleDesc tupdesc;
 	StringInfoData buf;
+	MemoryContext oldCtx;
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
@@ -195,7 +210,7 @@ AdbDoctorList *SPI_selectMgrNodeForSwitcher(MemoryContext ctx)
 					 CNDN_TYPE_DATANODE_MASTER,
 					 GTM_TYPE_GTM_MASTER);
 
-	int ret = SPI_execute(buf.data, false, 0);
+	ret = SPI_execute(buf.data, false, 0);
 	pfree(buf.data);
 
 	if (ret != SPI_OK_SELECT)
@@ -203,7 +218,7 @@ AdbDoctorList *SPI_selectMgrNodeForSwitcher(MemoryContext ctx)
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("SPI_execute failed: error code %d", ret)));
 
-	MemoryContext oldCtx = MemoryContextSwitchTo(ctx);
+	oldCtx = MemoryContextSwitchTo(ctx);
 
 	rows = SPI_processed;
 	if (rows > 0 && SPI_tuptable != NULL)
@@ -243,6 +258,7 @@ AdbDoctorHostData *SPI_selectMgrHostForMonitor(MemoryContext ctx)
 	AdbDoctorHostData *hostData;
 	AdbDoctorList *list;
 	StringInfoData buf;
+	MemoryContext oldCtx;
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
@@ -254,7 +270,7 @@ AdbDoctorHostData *SPI_selectMgrHostForMonitor(MemoryContext ctx)
 	list = SPI_selectMgrHost(ctx, buf.data);
 	pfree(buf.data);
 
-	MemoryContext oldCtx = MemoryContextSwitchTo(ctx);
+	oldCtx = MemoryContextSwitchTo(ctx);
 
 	if (list != NULL)
 	{
@@ -272,6 +288,51 @@ AdbDoctorHostData *SPI_selectMgrHostForMonitor(MemoryContext ctx)
 
 	return hostData;
 }
+
+AdbMgrHostWrapper *SPI_selectMgrHostByOid(MemoryContext ctx, Oid oid)
+{
+	AdbMgrHostWrapper *wrapper;
+	StringInfoData buf;
+	HeapTuple tuple;
+	TupleDesc tupdesc;
+	uint64 rows;
+	int ret;
+	MemoryContext oldCtx;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 "select *  \n"
+					 "from pg_catalog.mgr_host \n"
+					 "WHERE oid = %u",
+					 oid);
+
+	ret = SPI_execute(buf.data, false, 0);
+	pfree(buf.data);
+	if (ret != SPI_OK_SELECT)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("SPI_execute failed: error code %d", ret)));
+
+	rows = SPI_processed;
+
+	oldCtx = MemoryContextSwitchTo(ctx);
+
+	tupdesc = SPI_tuptable->tupdesc;
+	if (rows == 1 && SPI_tuptable != NULL)
+	{
+		tuple = SPI_tuptable->vals[0];
+		wrapper = palloc0(sizeof(AdbMgrHostWrapper));
+		wrapMgrHost(tuple, tupdesc, wrapper);
+	}
+	else
+	{
+		wrapper = NULL;
+	}
+
+	MemoryContextSwitchTo(oldCtx);
+
+	return wrapper;
+}
 /*
  * The result is returned in memory allocated using palloc.
  * You can use pfree to release the memory when you don't need it anymore.
@@ -282,12 +343,13 @@ AdbDoctorList *SPI_selectMgrNode(MemoryContext ctx, char *sql)
 	AdbDoctorList *list;
 	AdbDoctorLink *link;
 	AdbMgrNodeWrapper *wrapper;
-	uint64 rows;
-	uint64 j;
+	uint64 rows, j;
+	int ret;
 	HeapTuple tuple;
 	TupleDesc tupdesc;
+	MemoryContext oldCtx;
 
-	int ret = SPI_execute(sql, false, 0);
+	ret = SPI_execute(sql, false, 0);
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -295,7 +357,7 @@ AdbDoctorList *SPI_selectMgrNode(MemoryContext ctx, char *sql)
 
 	rows = SPI_processed;
 
-	MemoryContext oldCtx = MemoryContextSwitchTo(ctx);
+	oldCtx = MemoryContextSwitchTo(ctx);
 
 	if (rows > 0 && SPI_tuptable != NULL)
 	{
@@ -334,12 +396,13 @@ AdbDoctorList *SPI_selectMgrHost(MemoryContext ctx, char *sql)
 	AdbDoctorList *list;
 	AdbDoctorLink *link;
 	AdbMgrHostWrapper *wrapper;
-	uint64 rows;
-	uint64 j;
+	uint64 rows, j;
+	int ret;
 	HeapTuple tuple;
 	TupleDesc tupdesc;
+	MemoryContext oldCtx;
 
-	int ret = SPI_execute(sql, false, 0);
+	ret = SPI_execute(sql, false, 0);
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -347,7 +410,7 @@ AdbDoctorList *SPI_selectMgrHost(MemoryContext ctx, char *sql)
 
 	rows = SPI_processed;
 
-	MemoryContext oldCtx = MemoryContextSwitchTo(ctx);
+	oldCtx = MemoryContextSwitchTo(ctx);
 
 	if (rows > 0 && SPI_tuptable != NULL)
 	{
@@ -440,10 +503,12 @@ static void wrapMgrHost(HeapTuple tuple, TupleDesc tupdesc, AdbMgrHostWrapper *w
 {
 	Datum datum;
 	bool isNull;
+	Oid oid;
+	Form_mgr_host tmp;
 
-	Oid oid = HeapTupleGetOid(tuple);
+	oid = HeapTupleGetOid(tuple);
 	wrapper->oid = oid;
-	Form_mgr_host tmp = (Form_mgr_host)GETSTRUCT(tuple);
+	tmp = (Form_mgr_host)GETSTRUCT(tuple);
 	wrapper->fdmh = *tmp;
 	datum = heap_getattr(tuple, Anum_mgr_host_hostaddr, tupdesc, &isNull);
 	if (!isNull)

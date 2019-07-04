@@ -1,6 +1,5 @@
 /*--------------------------------------------------------------------------
  *
- * 
  * Copyright (c) 2018-2019, Asiainfo Database Innovation Lab
  *
  * -------------------------------------------------------------------------
@@ -36,7 +35,7 @@ bool compareAndUpdateAdbDoctorConf(AdbDoctorConf *staleConf,
  * update the value of confInLocal, then return true.
  */
 bool compareShmAndUpdateAdbDoctorConf(AdbDoctorConf *confInLocal,
-										  AdbDoctorConfShm *shm)
+									  AdbDoctorConfShm *shm)
 {
 	AdbDoctorConf *copyOfShm;
 
@@ -48,7 +47,8 @@ bool compareShmAndUpdateAdbDoctorConf(AdbDoctorConf *confInLocal,
 bool equalsAdbDoctorConf(AdbDoctorConf *conf1, AdbDoctorConf *conf2)
 {
 	return conf1->datalevel == conf2->datalevel &&
-		   conf1->probeinterval == conf2->probeinterval;
+		   conf1->probeinterval == conf2->probeinterval &&
+		   conf1->agentdeadline == conf2->agentdeadline;
 }
 
 AdbDoctorConfShm *setupAdbDoctorConfShm(AdbDoctorConf *conf)
@@ -89,6 +89,7 @@ AdbDoctorConfShm *setupAdbDoctorConfShm(AdbDoctorConf *conf)
 AdbDoctorConfShm *attachAdbDoctorConfShm(dsm_handle handle, char *name)
 {
 	dsm_segment *seg;
+	shm_toc *toc;
 	AdbDoctorConf *confInShm;
 	int tocKey = 0;
 	AdbDoctorConfShm *confShm;
@@ -99,7 +100,7 @@ AdbDoctorConfShm *attachAdbDoctorConfShm(dsm_handle handle, char *name)
 		ereport(ERROR,
 				(errmsg("unable to map common dynamic shared memory segment")));
 
-	shm_toc *toc = shm_toc_attach(ADB_DOCTOR_CONF_SHM_MAGIC, dsm_segment_address(seg));
+	toc = shm_toc_attach(ADB_DOCTOR_CONF_SHM_MAGIC, dsm_segment_address(seg));
 	if (toc == NULL)
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
@@ -117,16 +118,17 @@ AdbDoctorConfShm *attachAdbDoctorConfShm(dsm_handle handle, char *name)
 AdbDoctorConf *copyAdbDoctorConfFromShm(AdbDoctorConfShm *shm)
 {
 	AdbDoctorConf *confInShm;
+	AdbDoctorConf *copy;
+
 	Assert(shm != NULL);
 	confInShm = shm->confInShm;
 	Assert(confInShm != NULL);
 
-	AdbDoctorConf *copy = palloc0(sizeof(AdbDoctorConf));
+	copy = palloc0(sizeof(AdbDoctorConf));
 	LWLockAcquire(&confInShm->lock, LW_SHARED);
 	*copy = *confInShm;
 	LWLockRelease(&confInShm->lock);
-	copy->datalevel = safeGetAdbDoctorConf_datalevel(copy->datalevel);
-	copy->probeinterval = safeGetAdbDoctorConf_probeinterval(copy->probeinterval);
+	safeAdbDoctorConf(copy);
 	return copy;
 }
 
@@ -138,7 +140,52 @@ void refreshAdbDoctorConfInShm(AdbDoctorConf *confInLocal, AdbDoctorConfShm *shm
 	Assert(confInShm != NULL);
 
 	LWLockAcquire(&confInShm->lock, LW_EXCLUSIVE);
-	confInShm->datalevel = confInLocal->datalevel;
-	confInShm->probeinterval = confInLocal->probeinterval;
+	copyAdbDoctorConfAvoidLock(confInShm, confInLocal);
 	LWLockRelease(&confInShm->lock);
+}
+
+extern void validateAdbDoctorConfElement(char *k, char *v)
+{
+	if (k == NULL || strlen(k) == 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("parameter k:%s must not empty", k)));
+	if (v == NULL || strlen(v) == 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("parameter v:%s must not empty", v)));
+	if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_DATALEVEL) == 0)
+	{
+		if (!isValidAdbDoctorConf_datalevel(pg_atoi(v, sizeof(int), 0)))
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("datalevel must between %d and %d",
+							NO_DATA_LOST_BUT_MAY_SLOW,
+							MAY_LOST_DATA_BUT_QUICK)));
+	}
+	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_PROBEINTERVAL) == 0)
+	{
+		if (!isValidAdbDoctorConf_probeinterval(pg_atoi(v, sizeof(int), 0)))
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("probeinterval must between %d and %d",
+							ADB_DOCTOR_CONF_PROBEINTERVAL_MIN,
+							ADB_DOCTOR_CONF_PROBEINTERVAL_MAX)));
+	}
+	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_AGENTDEADLINE) == 0)
+	{
+		if (!isValidAdbDoctorConf_agentdeadline(pg_atoi(v, sizeof(int), 0)))
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("agentdeadline must between %d and %d",
+							ADB_DOCTOR_CONF_AGENTDEADLINE_MIN,
+							ADB_DOCTOR_CONF_AGENTDEADLINE_MAX)));
+	}
+	else
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("unrecognize adb doctor conf key:%s",
+						k)));
+	}
 }

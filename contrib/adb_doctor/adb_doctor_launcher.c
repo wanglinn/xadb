@@ -1,9 +1,8 @@
-/*-------------------------------------------
+/*--------------------------------------------------------------------------
  *
- * adb_doctor_launcher.c 
+ * Copyright (c) 2018-2019, Asiainfo Database Innovation Lab
  *
- * launch and control doctor processes
- *-------------------------------------------
+ * -------------------------------------------------------------------------
  */
 #include "postgres.h"
 #include "pgstat.h"
@@ -62,20 +61,20 @@ static void launchDoctorList(AdbDoctorList *dataList);
 static AdbDoctorBgworkerStatus *launchDoctor(AdbDoctorBgworkerData *data);
 
 /* terminate functions */
-static void terminateAllDoctor();
+static void terminateAllDoctor(void);
 static void terminateDoctorList(AdbDoctorList *dataList);
 static void terminateDoctorByName(char *name);
 static void terminateDoctor(AdbDoctorBgworkerStatus *bgworkerStatus, bool waitFor);
 
 /* check the doctor process running status */
-static void checkDoctorRunningStatus();
+static void checkDoctorRunningStatus(void);
 
 /* signal doctor process */
 static void signalDoctorByName(char *name);
 static void signalDoctorList(AdbDoctorList *dataList);
 
 /* bgworkerStatusList saved the stale doctor data, read it out as list */
-static AdbDoctorList *getStaleBgworkerDataList();
+static AdbDoctorList *getStaleBgworkerDataList(void);
 
 static void compareAndRefreshDoctor(bool confChanged,
                                     AdbDoctorList *staleDataList,
@@ -103,13 +102,13 @@ static volatile sig_atomic_t gotSigusr1 = false;
  */
 void adbDoctorLauncherMain(Datum main_arg)
 {
-    //pg_usleep(20 * 1000000);
-
     dsm_segment *segBackend = NULL;
     shm_mq_handle *mqh = NULL;
     bool needNotify = false;
     AdbDoctorList *dataList = NULL;
     AdbDoctorConf *conf = NULL;
+
+    //pg_usleep(20 * 1000000);
 
     pqsignal(SIGTERM, handleSigterm);
     pqsignal(SIGUSR1, handleSigusr1);
@@ -119,12 +118,15 @@ void adbDoctorLauncherMain(Datum main_arg)
     {
         adbDoctorStopBgworkers(false);
 
-        BackgroundWorkerInitializeConnection("postgres", NULL, 0);
+        BackgroundWorkerInitializeConnection(ADBMGR_DBNAME, NULL, 0);
 
         /* if can not attach to shm, it may restarted by postmaster */
         attachShm(main_arg, &needNotify, &segBackend, &mqh);
         if (needNotify)
             notifyAdbDoctorRegistrant();
+
+        ereport(LOG,
+                (errmsg("%s started", MyBgworkerEntry->bgw_name)));
 
         queryBgworkerDataAndConf(&conf, &dataList);
 
@@ -140,9 +142,6 @@ void adbDoctorLauncherMain(Datum main_arg)
 
         if (segBackend != NULL)
             dsm_detach(segBackend);
-
-        ereport(LOG,
-                (errmsg("%s started", MyBgworkerEntry->bgw_name)));
     }
     PG_CATCH();
     {
@@ -172,14 +171,12 @@ void adbDoctorLauncherMain(Datum main_arg)
         /* clean all resources */
         terminateAllDoctor();
         pfreeAdbDoctorConfShm(confShm);
-
         proc_exit(1);
     }
     PG_END_TRY();
 
     terminateAllDoctor();
     pfreeAdbDoctorConfShm(confShm);
-
     proc_exit(1);
 }
 
@@ -515,7 +512,7 @@ static AdbDoctorBgworkerDataShm *setupDataShm(AdbDoctorBgworkerStatus *bgworkerS
     else
     {
         ereport(ERROR,
-                (errmsg("unrecognized type:%d", type)));
+                (errmsg("Unrecognized Adb_Doctor_Bgworker_Type:%d", type)));
     }
     return dataShm;
 }
@@ -556,7 +553,7 @@ static void registerDoctorAsBgworker(AdbDoctorBgworkerStatus *bgworkerStatus, Ad
     else
     {
         ereport(ERROR,
-                (errmsg("unrecognized type:%d", type)));
+                (errmsg("Unrecognized Adb_Doctor_Bgworker_Type:%d", type)));
     }
     snprintf(worker.bgw_type, BGW_MAXLEN, ADB_DOCTOR_BGW_TYPE_WORKER);
     worker.bgw_main_arg = UInt32GetDatum(dsm_segment_handle(dataShm->seg));
@@ -567,7 +564,7 @@ static void registerDoctorAsBgworker(AdbDoctorBgworkerStatus *bgworkerStatus, Ad
     if (!RegisterDynamicBackgroundWorker(&worker, &handle))
         ereport(ERROR,
                 (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-                 errmsg("could not register background process"),
+                 errmsg("Could not register background process"),
                  errhint("You may need to increase max_worker_processes.")));
 
     bgworkerStatus->handle = handle;
@@ -688,7 +685,7 @@ static AdbDoctorBgworkerStatus *launchDoctor(AdbDoctorBgworkerData *data)
 /* 
  * clean up all doctor, teminate all the processes and free the memory
  */
-static void terminateAllDoctor()
+static void terminateAllDoctor(void)
 {
     AdbDoctorBgworkerStatus *bgworkerStatus;
     dlist_mutable_iter miter;
@@ -770,7 +767,7 @@ static void terminateDoctor(AdbDoctorBgworkerStatus *bgworkerStatus, bool waitFo
  * if status = BGWH_STOPPED, terminate it to ensure it would not restart.
  * status == BGWH_POSTMASTER_DIED, indicate there some error occured.
  */
-static void checkDoctorRunningStatus()
+static void checkDoctorRunningStatus(void)
 {
     AdbDoctorBgworkerStatus *bgworkerStatus;
     BgwHandleStatus status;
@@ -855,16 +852,14 @@ static void signalDoctorList(AdbDoctorList *dataList)
  */
 static void queryBgworkerDataAndConf(AdbDoctorConf **confP, AdbDoctorList **dataListP)
 {
+    MemoryContext oldContext;
     AdbDoctorList *dataList;
     AdbDoctorList *nodeDataList;
     AdbDoctorList *switcherDataList;
     AdbDoctorHostData *hostData;
     int ret;
 
-    /* must palloc here, do not palloc in spi context. */
-    dataList = newAdbDoctorList();
-
-    MemoryContext oldContext = CurrentMemoryContext;
+    oldContext = CurrentMemoryContext;
 
     SetCurrentStatementStartTimestamp();
     StartTransactionCommand();
@@ -877,7 +872,7 @@ static void queryBgworkerDataAndConf(AdbDoctorConf **confP, AdbDoctorList **data
     PushActiveSnapshot(GetTransactionSnapshot());
 
     /* query out all configuration values from table adb_doctor_conf */
-    SPI_selectAllConfValue(confP, oldContext);
+    SPI_selectAdbDoctorConfAll(confP, oldContext);
 
     /* query out all data from table mgr_node that need to be monitored */
     nodeDataList = SPI_selectMgrNodeForMonitor(oldContext);
@@ -894,6 +889,8 @@ static void queryBgworkerDataAndConf(AdbDoctorConf **confP, AdbDoctorList **data
 
     MemoryContextSwitchTo(oldContext);
 
+    /* must palloc here, do not palloc in spi context. */
+    dataList = newAdbDoctorList();
     /* because SPI will free his memory context, so append data here. */
     appendAdbDoctorList(dataList, nodeDataList, true);
     appendAdbDoctorBgworkerData(dataList, (AdbDoctorBgworkerData *)hostData);
@@ -942,6 +939,11 @@ static void handleSigusr1(SIGNAL_ARGS)
  */
 void attachShm(Datum main_arg, bool *needNotify, dsm_segment **segP, shm_mq_handle **mqhP)
 {
+    dsm_segment *seg;
+    shm_toc *toc;
+    shm_mq *mq;
+    shm_mq_handle *mqh;
+
     if (main_arg == 0)
     {
         /* Indicate called directly from postmaster */
@@ -949,7 +951,7 @@ void attachShm(Datum main_arg, bool *needNotify, dsm_segment **segP, shm_mq_hand
         return;
     }
     CurrentResourceOwner = ResourceOwnerCreate(NULL, MyBgworkerEntry->bgw_name);
-    dsm_segment *seg = dsm_attach(DatumGetUInt32(main_arg));
+    seg = dsm_attach(DatumGetUInt32(main_arg));
     if (seg == NULL)
     {
         *needNotify = false;
@@ -962,14 +964,14 @@ void attachShm(Datum main_arg, bool *needNotify, dsm_segment **segP, shm_mq_hand
         ereport(LOG,
                 (errmsg("map dynamic shared memory segment success")));
         *segP = seg;
-        shm_toc *toc = shm_toc_attach(ADB_DOCTOR_LAUNCHER_MAGIC, dsm_segment_address(seg));
+        toc = shm_toc_attach(ADB_DOCTOR_LAUNCHER_MAGIC, dsm_segment_address(seg));
         if (toc == NULL)
             ereport(ERROR,
                     (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
                      errmsg("bad magic number in dynamic shared memory segment")));
-        shm_mq *mq = shm_toc_lookup(toc, 0, false);
+        mq = shm_toc_lookup(toc, 0, false);
         shm_mq_set_sender(mq, MyProc);
-        shm_mq_handle *mqh = shm_mq_attach(mq, seg, NULL);
+        mqh = shm_mq_attach(mq, seg, NULL);
         *mqhP = mqh;
     }
 }
@@ -989,7 +991,7 @@ static void sendBackendMessage(shm_mq_handle *outqh, char *message)
 /**
  * bgworkerStatusList saved the stale doctor data, read it out as list
  */
-static AdbDoctorList *getStaleBgworkerDataList()
+static AdbDoctorList *getStaleBgworkerDataList(void)
 {
     AdbDoctorList *staleList;
     AdbDoctorBgworkerStatus *bgworkerStatus;
@@ -1037,10 +1039,10 @@ static void compareAndRefreshDoctor(bool confChanged,
                             &changedDataList,
                             &identicalDataList);
 
-    logAdbDoctorBgworkerDataList(addedDataList, "addedDataList", LOG);
-    logAdbDoctorBgworkerDataList(deletedDataList, "deletedDataList", LOG);
-    logAdbDoctorBgworkerDataList(changedDataList, "changedDataList", LOG);
-    logAdbDoctorBgworkerDataList(identicalDataList, "identicalDataList", LOG);
+    // logAdbDoctorBgworkerDataList(addedDataList, "addedDataList", LOG);
+    // logAdbDoctorBgworkerDataList(deletedDataList, "deletedDataList", LOG);
+    // logAdbDoctorBgworkerDataList(changedDataList, "changedDataList", LOG);
+    // logAdbDoctorBgworkerDataList(identicalDataList, "identicalDataList", LOG);
 
     /* if deleted, terminate it. */
     terminateDoctorList(deletedDataList);
@@ -1096,6 +1098,10 @@ static void compareBgworkerDataList(AdbDoctorList *staleDataList,
     AdbDoctorList *deletedDataList;
     AdbDoctorList *changedDataList;
     AdbDoctorList *identicalDataList;
+    dlist_mutable_iter freshIter;
+    AdbDoctorLink *freshLink;
+    dlist_mutable_iter staleIter;
+    AdbDoctorLink *staleLink;
 
     changedDataList = newAdbDoctorList();
     identicalDataList = newAdbDoctorList();
@@ -1104,11 +1110,6 @@ static void compareBgworkerDataList(AdbDoctorList *staleDataList,
      * get information of added,deleted,changed through comparing the fresh and stale data(mgr_node,mgr_host).
      * when all of this comparison done, the above lists can be used to do some thing about control doctor process.
      */
-    dlist_mutable_iter freshIter;
-    AdbDoctorLink *freshLink;
-    dlist_mutable_iter staleIter;
-    AdbDoctorLink *staleLink;
-
     dlist_foreach_modify(freshIter, &freshDataList->head)
     {
         freshLink = dlist_container(AdbDoctorLink, wi_links, freshIter.cur);
@@ -1123,13 +1124,13 @@ static void compareBgworkerDataList(AdbDoctorList *staleDataList,
                  * anther benifit is when all of the comparision done, 
                  * the remaining data in staleList exactly is deletedList.  
                  */
-                deleteFromAdbDoctorList(staleDataList,staleIter);
+                deleteFromAdbDoctorList(staleDataList, staleIter);
 
                 /* 
                  * we delete it from list, the benifit is when all iteration completed, 
                  * the remaing data in freshList exactly is addedList.
                  */
-                deleteFromAdbDoctorList(freshDataList,freshIter);
+                deleteFromAdbDoctorList(freshDataList, freshIter);
 
                 /* 
                  * the "equals" function means nothing is changed on the data, 

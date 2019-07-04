@@ -293,6 +293,9 @@ Datum mgr_add_host_func(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
 			,errmsg("address \"%s\" is already in host table", address)));
 	}
+	/* ADB DOCTOR BEGIN */
+	datum[Anum_mgr_host_allowcure-1] = BoolGetDatum(true);
+	/* ADB DOCTOR END */
 	/* now, we can insert record */
 	tuple = heap_form_tuple(RelationGetDescr(rel), datum, isnull);
 	CatalogTupleInsert(rel, tuple);
@@ -1414,7 +1417,6 @@ Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 
 bool mgr_start_agent_execute(Form_mgr_host mgr_host,char* hostaddr,char *hostadbhome, char *password, char** retMessage)
 {
-	Datum datumpath;
 	int ret;
 	char *host_addr;
 	StringInfoData message;
@@ -1423,9 +1425,9 @@ bool mgr_start_agent_execute(Form_mgr_host mgr_host,char* hostaddr,char *hostadb
 	/* get exec path */
 	if(hostadbhome == NULL || strlen(hostadbhome) ==0)
 	{
-		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
-			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
-			, errmsg("column hostadbhome is null")));
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+                        err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host"),
+                        errmsg("column hostadbhome is null")));
 	}
 	
 	initStringInfo(&message);

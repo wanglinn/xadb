@@ -157,9 +157,11 @@ extern void BackgroundWorkerInitializeConnectionByOid(Oid dboid, Oid useroid, ui
 extern void BackgroundWorkerBlockSignals(void);
 extern void BackgroundWorkerUnblockSignals(void);
 
+/* ADB DOCTOR START */
 /* Terminate a group of bgworkers with same bgw_library_name and bgw_type */
 extern void TerminateBackgroundWorkerByBgwType(char *bgw_library_name, char *bgw_type, bool wait);
 /* Report something may be changed to a group of bgworker with same bgw_library_name and bgw_type */
-extern void ReportByBgwType(char *bgw_library_name, char *bgw_type);
+extern void ReportToBackgroundWorkerByBgwType(char *bgw_library_name, char *bgw_type);
+/* ADB DOCTOR END */
 
 #endif /* BGWORKER_H */

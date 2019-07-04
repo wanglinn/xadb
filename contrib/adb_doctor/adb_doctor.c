@@ -1,9 +1,12 @@
 /*--------------------------------------------------------------------------
+ * 
+ * Copyright (c) 2018-2019, Asiainfo Database Innovation Lab
+ * 
  * user interface of control adb_doctor, support function below:
  * select adb_doctor_start,
  * select adb_doctor_stop,
  * select adb_doctor_param.
- * adb_doctor.c
+ *
  * -------------------------------------------------------------------------
  */
 
@@ -38,10 +41,17 @@ static BackgroundWorkerHandle *startupLauncher(dsm_segment *seg);
 static bool isLauncherOK(Size len, char *message);
 static void waitForLauncherOK(BackgroundWorkerHandle *launcherHandle, shm_mq_handle *inqh);
 
+/**
+ * Start all doctor process.
+ * Register an "adb doctor launcher" process with "postmaster", which runs as a 
+ * background worker. The "adb doctor launcher" will start the doctor process 
+ * according to the table MGR_NODE, MGR_HOST in the MGR database.
+ */
 Datum
 	adb_doctor_start(PG_FUNCTION_ARGS)
 {
 	dsm_segment *seg;
+	shm_mq *mq;
 	shm_mq_handle *inqh;
 	BackgroundWorkerHandle *launcherHandle;
 	bool masterMode;
@@ -50,7 +60,7 @@ Datum
 
 	adbDoctorStopLauncher(false);
 
-	shm_mq *mq = setupShmMQ(&seg);
+	mq = setupShmMQ(&seg);
 	launcherHandle = startupLauncher(seg);
 
 	on_dsm_detach(seg, cleanupAdbDoctorBgworker, PointerGetDatum(launcherHandle));
@@ -67,6 +77,9 @@ Datum
 	PG_RETURN_VOID();
 }
 
+/**
+ * Stop all doctor processes.
+ */
 Datum
 	adb_doctor_stop(PG_FUNCTION_ARGS)
 {
@@ -75,55 +88,36 @@ Datum
 	PG_RETURN_VOID();
 }
 
+/**
+ * Set configuration variables stored in table adb_doctor_conf.
+ * Use like this: select adb_doctor.adb_doctor_param('name', 'value');
+ */
 Datum
 	adb_doctor_param(PG_FUNCTION_ARGS)
 {
-	int32 datalevel = PG_GETARG_INT32(0);
-	int32 probeinterval = PG_GETARG_INT32(1);
+	text *k_txt = PG_GETARG_TEXT_PP(0);
+	text *v_txt = PG_GETARG_TEXT_PP(1);
+	char *k;
+	char *v;
 	int ret;
-	char datalevelStr[12];
-	char probeintervalStr[12];
 
-	/* if value < 0, means ignore it. */
-	if (datalevel >= 0)
-	{
-		if (!isValidAdbDoctorConf_datalevel(datalevel))
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("datalevel must between %d and %d",
-							NO_DATA_LOST_BUT_MAY_SLOW,
-							MAY_LOST_DATA_BUT_QUICK)));
-	}
+	k = text_to_cstring(k_txt);
+	v = text_to_cstring(v_txt);
 
-	/* if value < 0, means ignore it. */
-	if (probeinterval >= 0)
-	{
-		if (!isValidAdbDoctorConf_probeinterval(probeinterval))
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("probeinterval must between %d and %d",
-							ADB_DOCTOR_CONF_PROBEINTERVAL_MIN,
-							ADB_DOCTOR_CONF_PROBEINTERVAL_MAX)));
-	}
-
+	validateAdbDoctorConfElement(k, v);
 	ret = SPI_connect();
 	if (ret != SPI_OK_CONNECT)
 	{
 		ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE),
 						(errmsg("SPI_connect failed, connect return:%d", ret))));
 	}
-	pg_ltoa(datalevel, datalevelStr);
-	if (datalevel >= 0)
-		SPI_updateConfParam(ADB_DOCTOR_CONF_KEY_DATALEVEL, datalevelStr);
-
-	pg_ltoa(probeinterval, probeintervalStr);
-	if (probeinterval >= 0)
-		SPI_updateConfParam(ADB_DOCTOR_CONF_KEY_PROBEINTERVAL, probeintervalStr);
-
+	SPI_updateAdbDoctorConf(k, v);
 	SPI_finish();
 
 	adbDoctorSignalLauncher();
 
+	pfree(k);
+	pfree(v);
 	PG_RETURN_VOID();
 }
 
@@ -135,6 +129,8 @@ setupShmMQ(dsm_segment **segp)
 	dsm_segment *seg;
 	Size segsize;
 	shm_toc *toc;
+	shm_mq *mq;
+
 	shm_toc_initialize_estimator(&e);
 	shm_toc_estimate_chunk(&e, queue_size);
 	shm_toc_estimate_keys(&e, 1);
@@ -145,7 +141,7 @@ setupShmMQ(dsm_segment **segp)
 	toc = shm_toc_create(ADB_DOCTOR_LAUNCHER_MAGIC, dsm_segment_address(seg),
 						 segsize);
 
-	shm_mq *mq = shm_mq_create(shm_toc_allocate(toc, (Size)queue_size), (Size)queue_size);
+	mq = shm_mq_create(shm_toc_allocate(toc, (Size)queue_size), (Size)queue_size);
 	shm_toc_insert(toc, 0, mq);
 	shm_mq_set_receiver(mq, MyProc);
 	return mq;
@@ -182,7 +178,9 @@ static BackgroundWorkerHandle *startupLauncher(dsm_segment *seg)
 
 static bool isLauncherOK(Size len, char *message)
 {
-	Size expectedLen = strlen(ADB_DOCTORS_LAUNCH_OK);
+	Size expectedLen;
+
+	expectedLen = strlen(ADB_DOCTORS_LAUNCH_OK);
 	if (len != expectedLen)
 		return false;
 	if (strcmp(message, ADB_DOCTORS_LAUNCH_OK) != 0)
@@ -194,6 +192,9 @@ static void waitForLauncherOK(BackgroundWorkerHandle *launcherHandle, shm_mq_han
 {
 	BgwHandleStatus status;
 	pid_t pid;
+	shm_mq_result res;
+	Size len;
+	void *message;
 
 	/* wait for postmaster startup the worker, and then we setup next worker */
 	status = WaitForBackgroundWorkerStartup(launcherHandle, &pid);
@@ -202,10 +203,6 @@ static void waitForLauncherOK(BackgroundWorkerHandle *launcherHandle, shm_mq_han
 				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
 				 errmsg("could not start background process"),
 				 errhint("More details may be available in the server log.")));
-
-	shm_mq_result res;
-	Size len;
-	void *message;
 
 	while (true)
 	{
@@ -240,7 +237,7 @@ void adbDoctorStopBgworkers(bool waitForStopped)
 
 void adbDoctorSignalLauncher(void)
 {
-	ReportByBgwType(ADB_DOCTOR_BGW_LIBRARY_NAME, ADB_DOCTOR_BGW_TYPE_LAUNCHER);
+	ReportToBackgroundWorkerByBgwType(ADB_DOCTOR_BGW_LIBRARY_NAME, ADB_DOCTOR_BGW_TYPE_LAUNCHER);
 }
 
 void cleanupAdbDoctorBgworker(dsm_segment *seg, Datum arg)
@@ -262,4 +259,18 @@ void notifyAdbDoctorRegistrant(void)
 		proc_exit(0);
 	}
 	SetLatch(&registrant->procLatch);
+}
+
+void usleepIgnoreSignal(long microsec)
+{
+	TimestampTz current;
+	TimestampTz latest;
+	current = GetCurrentTimestamp();
+	while (microsec > 0)
+	{
+		latest = current;
+		pg_usleep(microsec);
+		current = GetCurrentTimestamp();
+		microsec -= (current - latest);
+	}
 }

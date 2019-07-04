@@ -1,7 +1,5 @@
-
 /*--------------------------------------------------------------------------
  *
- * 
  * Copyright (c) 2018-2019, Asiainfo Database Innovation Lab
  *
  * -------------------------------------------------------------------------
@@ -13,16 +11,20 @@
 #include "adb_doctor_conf.h"
 #include "adb_doctor_data.h"
 
+#ifndef ADBMGR_DBNAME
+#define ADBMGR_DBNAME "postgres"
+#endif
 
 #define ADB_DOCTOR_SCHEMA "adb_doctor"
 
 /* SPI functions */
-extern char *SPI_selectConfValue(char *key);
-extern void SPI_selectAllConfValue(AdbDoctorConf **confP, MemoryContext ctx);
-extern void SPI_updateConfParam(char *key, char *value);
+extern char *SPI_selectAdbDoctConfByKey(char *key);
+extern void SPI_selectAdbDoctorConfAll(AdbDoctorConf **confP, MemoryContext ctx);
+extern void SPI_updateAdbDoctorConf(char *key, char *value);
 extern AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx);
 extern AdbDoctorList *SPI_selectMgrNodeForSwitcher(MemoryContext ctx);
 extern AdbDoctorHostData *SPI_selectMgrHostForMonitor(MemoryContext ctx);
+extern AdbMgrHostWrapper *SPI_selectMgrHostByOid(MemoryContext ctx, Oid oid);
 extern AdbDoctorList *SPI_selectMgrNode(MemoryContext ctx, char *sql);
 extern AdbDoctorList *SPI_selectMgrHost(MemoryContext ctx, char *sql);
 
