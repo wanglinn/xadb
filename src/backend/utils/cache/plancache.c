@@ -1169,6 +1169,8 @@ choose_custom_plan(CachedPlanSource *plansource, ParamListInfo boundParams)
 	
 #ifdef ADB_EXT
 	max_custom_plan_tries = adb_custom_plan_tries;
+	if (max_custom_plan_tries == -1)
+		return true;
 #endif /* ADB_EXT */
 
 	if (plansource->num_custom_plans < max_custom_plan_tries)

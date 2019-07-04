@@ -3609,7 +3609,7 @@ static struct config_int ConfigureNamesInt[] =
 			NULL
 		},
 		&adb_custom_plan_tries,
-		5, 0, 100,
+		5, -1, 100,
 		NULL, NULL, NULL
 	},
 #endif /* ADB_EXT */
