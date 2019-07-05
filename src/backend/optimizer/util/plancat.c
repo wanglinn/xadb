@@ -1929,19 +1929,36 @@ has_row_triggers(PlannerInfo *root, Index rti, CmdType event)
 
 #ifdef ADB
 
+extern bool reloid_list_has_any_triggers(List *list, CmdType event);
+
 bool has_any_triggers_subclass(PlannerInfo *root, Index rti, CmdType event)
 {
+	RangeTblEntry  *rte = planner_rt_fetch(rti, root);
+	return reloid_has_any_triggers_subclass(rte->relid, event);
+}
+
+bool reloid_has_any_triggers_subclass(Oid reloid, CmdType event)
+{
 	List		   *list;
+	bool			result = false;
+
+	if (!has_subclass(reloid))
+		list = list_make1_oid(reloid);
+	else
+		list = find_all_inheritors(reloid, NoLock, NULL);
+	result = reloid_list_has_any_triggers(list, event);
+
+	list_free(list);
+	return result;
+}
+
+bool reloid_list_has_any_triggers(List *list, CmdType event)
+{
 	ListCell	   *lc;
 	Relation		relation;
 	TriggerDesc	   *trigDesc;
-	RangeTblEntry  *rte = planner_rt_fetch(rti, root);
 	bool			result = false;
 
-	if (!has_subclass(rte->relid))
-		list = list_make1_oid(rte->relid);
-	else
-		list = find_all_inheritors(rte->relid, NoLock, NULL);
 	foreach(lc, list)
 	{
 		relation = heap_open(lfirst_oid(lc), NoLock);
@@ -1981,7 +1998,6 @@ bool has_any_triggers_subclass(PlannerInfo *root, Index rti, CmdType event)
 			break;
 	}
 
-	list_free(list);
 	return result;
 }
 
