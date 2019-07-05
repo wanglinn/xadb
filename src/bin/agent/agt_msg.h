@@ -4,6 +4,7 @@
 #include "lib/stringinfo.h"
 
 void agt_msg_init(pgsocket fd_client);
+void agt_close();
 
 /* return first char for message */
 int agt_get_msg(StringInfo msg);
@@ -20,7 +21,7 @@ void agt_sendint(StringInfo buf, int i, int b);
 void agt_sendint64(StringInfo buf, int64 i);
 void agt_endmessage(StringInfo buf);
 void agt_endmessage_reuse(StringInfo buf);
-void agt_putmessage(StringInfo buf);
+void agt_put_msg_stringinfo(StringInfo buf);
 
 int	agt_getmsgbyte(StringInfo msg);
 unsigned int agt_getmsgint(StringInfo msg, int b);

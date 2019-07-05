@@ -42,6 +42,12 @@ void agt_msg_init(pgsocket fd_client)
 	/*agt_in_msg_cur = agt_in_msg_len = 0;*/
 }
 
+void agt_close()
+{
+	closesocket(client_sock);
+	client_sock = PGINVALID_SOCKET;
+}
+
 int agt_get_msg(StringInfo msg)
 {
 	char msg_type;
@@ -411,7 +417,7 @@ agt_sendint64(StringInfo buf, int64 i)
 void
 agt_endmessage(StringInfo buf)
 {
-	agt_putmessage(buf);
+	agt_put_msg_stringinfo(buf);
 	/* no need to complain about any failure, since pqcomm.c already did */
 	pfree(buf->data);
 	buf->data = NULL;
@@ -420,10 +426,10 @@ agt_endmessage(StringInfo buf)
 
 void agt_endmessage_reuse(StringInfo buf)
 {
-	agt_putmessage(buf);
+	agt_put_msg_stringinfo(buf);
 }
 
-void agt_putmessage(StringInfo buf)
+void agt_put_msg_stringinfo(StringInfo buf)
 {
 	uint32 n32;
 	Assert(buf->len >= 5 && buf->data[0] != '\0');

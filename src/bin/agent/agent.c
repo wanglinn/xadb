@@ -27,6 +27,7 @@ static void service_run(void) __attribute__((noreturn));
 static void agt_sig_die(SIGNAL_ARGS);
 static void agt_sig_cancel(SIGNAL_ARGS);
 static void apt_sig_child(SIGNAL_ARGS);
+sigjmp_buf agent_reset_sigjmp_buf;
 
 int main(int argc, char **argv)
 {
@@ -34,8 +35,26 @@ int main(int argc, char **argv)
 	progname = get_progname(argv[0]);
 
 	parse_options(argc, argv);
-	start_listen();
 	MemoryContextInit();
+	MemoryContextSwitchTo(TopMemoryContext);
+	if (sigsetjmp(agent_reset_sigjmp_buf, 1) != 0)
+	{
+		/* since not using PG_TRY, must reset error stack by hand */
+		error_context_stack = NULL;
+
+		/* Forget any pending QueryCancel */
+		QueryCancelPending = false; /* second to avoid race condition */
+
+		/* Ensure to close socket listen */
+		closesocket(listen_sock);
+
+		MemoryContextSwitchTo(TopMemoryContext);
+		FlushErrorState();
+		MemoryContextReset(TopMemoryContext);
+	}
+	MemoryContextSwitchTo(TopMemoryContext);
+
+	start_listen();
 	begin_service();
 	service_run();
 
@@ -105,24 +124,47 @@ static void show_help(bool exit_succes)
 static void start_listen(void)
 {
 	struct sockaddr_in listen_addr;
+	int one = 1;
+	int nTry = 0;
 
-	listen_sock = socket(AF_INET, SOCK_STREAM, 0);
-	if(listen_sock == PGINVALID_SOCKET)
+	/* give it 10 chances to bind */
+	while (true)
 	{
-		fprintf(stderr, _("could not bind %s socket: %m"), _("IPv4"));
-		exit(EXIT_FAILURE);
-	}
+		listen_sock = socket(AF_INET, SOCK_STREAM, 0);
+		if (listen_sock == PGINVALID_SOCKET)
+		{
+			fprintf(stderr, _("could not bind %s socket: %m"), _("IPv4"));
+			exit(EXIT_FAILURE);
+		}
 
-	memset(&listen_addr, 0, sizeof(listen_addr));
-	listen_addr.sin_family = AF_INET;
-	listen_addr.sin_port = htons((unsigned short)listen_port);
-	listen_addr.sin_addr.s_addr = INADDR_ANY;
-	if(bind(listen_sock, (struct sockaddr *)&listen_addr,sizeof(listen_addr)) < 0
-		|| listen(listen_sock, PG_SOMAXCONN) < 0)
-	{
-		fprintf(stderr, _("could not listen on %s socket: %m"), _("IPv4"));
-		closesocket(listen_sock);
-		exit(EXIT_FAILURE);
+		if ((setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR,
+						(char *)&one, sizeof(one))) == -1)
+		{
+			fprintf(stderr, _("setsockopt(SO_REUSEADDR) failed for %s port \"%d\": %m"), _("IPv4"), listen_port);
+			closesocket(listen_sock);
+			exit(EXIT_FAILURE);
+		}
+
+		memset(&listen_addr, 0, sizeof(listen_addr));
+		listen_addr.sin_family = AF_INET;
+		listen_addr.sin_port = htons((unsigned short)listen_port);
+		listen_addr.sin_addr.s_addr = INADDR_ANY;
+	
+		if (bind(listen_sock, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0 || listen(listen_sock, PG_SOMAXCONN) < 0)
+		{
+			nTry++;
+			fprintf(stderr, _("could not listen on %s socket: %m"), _("IPv4"));
+			closesocket(listen_sock);
+			if(nTry > 10)
+				exit(EXIT_FAILURE);
+			else
+			{
+				/* pg_usleep() is useless,why? */
+				sleep(1);
+				continue;
+			}
+		}
+		break;
 	}
 
 	if(listen_port == 0)

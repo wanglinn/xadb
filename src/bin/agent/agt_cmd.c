@@ -28,6 +28,7 @@
 
 #define BUFFER_SIZE 4096
 
+extern sigjmp_buf agent_reset_sigjmp_buf;
 
 #if defined(ADB) || defined(ADBMGRD)
 	#define GTM_CTL_VERSION "agtm_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
@@ -100,6 +101,7 @@ static void cmd_get_batch_job_result(int cmd_type, StringInfo buf);
 static bool cmd_get_node_folder_size(const char *basePath, bool checkSoftLink, unsigned long long *folderSize, long *pathDepth);
 static void check_stack_depth(void);
 static bool stack_is_too_deep(void);
+static void cmd_reset_agent(StringInfo msg);
 /* max_stack_depth converted to bytes for speed of checking */
 static long max_stack_depth_bytes = 100 * 1024L;
 
@@ -231,6 +233,9 @@ void do_agent_command(StringInfo buf)
 		break;
 	case AGT_CMD_LIST_NODESIZE_CHECK_SOFTLINK:
 		cmd_list_node_folder_size_msg(buf, true);
+		break;
+	case AGT_CMD_RESET_AGENT:
+		cmd_reset_agent(buf);
 		break;
 	default:
 		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)
@@ -1936,4 +1941,17 @@ stack_is_too_deep(void)
 #endif   /* IA64 */
 
 	return false;
+}
+
+static void cmd_reset_agent(StringInfo msg)
+{
+	StringInfoData output;
+
+	initStringInfo(&output);
+	appendStringInfoString(&output, "Got reset command, I must go to reset.");
+	agt_put_msg(AGT_MSG_RESULT, output.data, output.len);
+	agt_flush();
+	pfree(output.data);
+	agt_close();
+	siglongjmp(agent_reset_sigjmp_buf, 1);
 }

@@ -1,6 +1,7 @@
 #include "agent.h"
 
 #include <signal.h>
+#include <unistd.h>
 
 #include "agt_msg.h"
 #include "agt_utility.h"
@@ -14,6 +15,7 @@ void agent_backend(pgsocket fd)
 	StringInfoData input_message;
 	StringInfoData echo_message;
 	int msg_type;
+	pid_t ppid;
 
 	pqsignal(SIGCHLD, SIG_DFL);
 	PG_exception_stack = NULL;
@@ -66,6 +68,15 @@ void agent_backend(pgsocket fd)
 			exit(EXIT_SUCCESS);
 			break;
 		case AGT_MSG_IDLE:
+			/* is father process died? */
+			ppid = getppid();
+			if(ppid == 1)
+			{
+				/* Send the message that parent process died. */
+				agt_beginmessage_reuse(&echo_message, AGT_MSG_EXIT);
+				appendStringInfoString(&echo_message, "My parent AGENT process died!");
+				agt_endmessage_reuse(&echo_message);
+			}
 			/* reponse idle message, do it as heartbeat message. */
 			break;
 		default:
@@ -81,6 +92,7 @@ void agent_backend(pgsocket fd)
 			agt_endmessage_reuse(&echo_message);
 		}
 		agt_put_msg(AGT_MSG_IDLE, NULL, 0);
+		agt_flush();
 	}
 
 	exit(EXIT_FAILURE);
