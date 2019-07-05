@@ -12,6 +12,7 @@
  * -------------------------------------------------------------------------
  */
 #include <math.h>
+
 #include "postgres.h"
 #include "pgstat.h"
 #include "miscadmin.h"
@@ -49,11 +50,16 @@ typedef struct TolerationTime
 
 typedef enum MonitorAgentError
 {
-    MONITOR_AGENT_ERROR_INVALID_VALUE = -1, /* illegal value. */
     MONITOR_AGENT_ERROR_CONNECT = 1,
     MONITOR_AGENT_ERROR_MESSAGE,
     MONITOR_AGENT_ERROR_HEARTBEAT
 } MonitorAgentError;
+
+typedef enum RestartAgentMode
+{
+    RESTART_AGENT_MODE_SSH = 1,
+    RESTART_AGENT_MODE_SEND_MESSAGE
+} RestartAgentMode;
 
 typedef enum MonitorAgentStatus
 {
@@ -81,7 +87,6 @@ typedef struct ManagerAgentWrapper
     TimestampTz connectTime;
     TimestampTz activeTime;
     TimestampTz restartTime;
-    bool restarting;
     /* Use left shift, right shift operation to increase the delay time of restart. */
     int restartFactor;
     bool restartFactorIncrease;
@@ -118,9 +123,13 @@ static void stopMonitorAgent(ManagerAgentWrapper *agentWrapper);
 static bool restartMonitorAgent(ManagerAgentWrapper *agentWrapper);
 static bool connectTimedOut(ManagerAgentWrapper *agentWrapper, TimestampTz currentTime);
 static bool allowReconnectAgent(ManagerAgentWrapper *agentWrapper);
-static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper, TimestampTz currentTime);
-static bool restartAgent(ManagerAgentWrapper *agentWrapper);
-static bool heartbeatAgent(ManagerAgentWrapper *agentWrapper);
+static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper);
+static bool restartAgent(ManagerAgentWrapper *agentWrapper, RestartAgentMode mode);
+static bool restartAgentBySSH(ManagerAgentWrapper *agentWrapper);
+static bool restartAgentByCmdMessage(ManagerAgentWrapper *agentWrapper);
+static bool sendHeartbeatMessage(ManagerAgentWrapper *agentWrapper);
+static bool sendStopAgentMessage(ManagerAgentWrapper *agentWrapper);
+static bool sendResetAgentMessage(ManagerAgentWrapper *agentWrapper);
 static void nextRestartFactor(ManagerAgentWrapper *agentWrapper);
 
 static void invalidateEventPosition(ManagerAgentWrapper *agentWrapper);
@@ -349,14 +358,22 @@ static TolerationTime *newTolerationTime(int agentdeadlineSecs)
 
     deadlineMs = safeAdbDoctorConf_agentdeadline(agentdeadlineSecs) * 1000L;
     tt->agentdeadlineMs = deadlineMs;
-    tt->waitEventTimeoutMs = LIMIT_VALUE_RANGE(1000, 10000, floor(deadlineMs / 30));
+    tt->waitEventTimeoutMs = LIMIT_VALUE_RANGE(500, 10000, floor(deadlineMs / 30));
     /* treat waitEventTimeoutMs as the minimum time unit, any time variable less then it is meaningless. */
     minTimeMs = tt->waitEventTimeoutMs;
-    tt->connectTimeoutMs = LIMIT_VALUE_RANGE(Max(minTimeMs, 1000), 10000, floor(deadlineMs / 10));
-    tt->reconnectDelayMs = LIMIT_VALUE_RANGE(minTimeMs, 10000, floor(deadlineMs / 10));
-    tt->heartbeatTimoutMs = LIMIT_VALUE_RANGE(Max(minTimeMs, 3000), 180000, deadlineMs);
-    tt->heartbeatIntervalMs = LIMIT_VALUE_RANGE(Max(minTimeMs, 1000), 60000, floor(tt->heartbeatTimoutMs / 3));
+    tt->connectTimeoutMs = LIMIT_VALUE_RANGE(Max(minTimeMs, 1000), 10000, floor(deadlineMs / 20));
+    tt->reconnectDelayMs = LIMIT_VALUE_RANGE(minTimeMs, 10000, floor(deadlineMs / 20));
+    tt->heartbeatTimoutMs = LIMIT_VALUE_RANGE(Max(minTimeMs, 3000), 180000, floor(deadlineMs / 2));
+    tt->heartbeatIntervalMs = LIMIT_VALUE_RANGE(Max(minTimeMs, 1000), 60000, floor(tt->heartbeatTimoutMs / 2));
     tt->restartDelayMs = LIMIT_VALUE_RANGE(Max(minTimeMs, 10000), 120000, floor(deadlineMs / 2));
+    ereport(LOG, (errmsg("agentdeadlineMs:%ld, waitEventTimeoutMs:%ld, "
+                         "connectTimeoutMs:%ld, reconnectDelayMs:%ld, "
+                         "heartbeatTimoutMs:%ld, heartbeatIntervalMs:%ld, "
+                         "restartDelayMs:%ld",
+                         tt->agentdeadlineMs, tt->waitEventTimeoutMs,
+                         tt->connectTimeoutMs, tt->reconnectDelayMs,
+                         tt->heartbeatTimoutMs, tt->heartbeatIntervalMs,
+                         tt->restartDelayMs)));
     return tt;
 }
 
@@ -476,7 +493,7 @@ static void transferToNormal(ManagerAgentWrapper *agentWrapper)
         agentWrapper->previousStatus = agentWrapper->currentStatus;
         agentWrapper->currentStatus = MONITOR_AGENT_STATUS_NORMAL;
         clearAgentErrors(agentWrapper);
-        ereport(LOG, (errmsg("Host name:%s, address:%s, agent running normal!",
+        ereport(LOG, (errmsg("%s:%s, AGENT STATUS NORMAL!",
                              NameStr(agentWrapper->hostWrapper->fdmh.hostname),
                              agentWrapper->hostWrapper->hostaddr)));
     }
@@ -508,7 +525,7 @@ static void handleNormalStatus(ManagerAgentWrapper *agentWrapper, TimestampTz cu
                                         tolerationTime->heartbeatIntervalMs))
     {
         /* send heartbeat to agent. */
-        if (!heartbeatAgent(agentWrapper))
+        if (!sendHeartbeatMessage(agentWrapper))
         {
             recordAgentError(agentWrapper, MONITOR_AGENT_ERROR_MESSAGE);
             transferToPending(agentWrapper);
@@ -538,6 +555,9 @@ static void transferToPending(ManagerAgentWrapper *agentWrapper)
     {
         agentWrapper->previousStatus = agentWrapper->currentStatus;
         agentWrapper->currentStatus = MONITOR_AGENT_STATUS_PENDING;
+        ereport(LOG, (errmsg("%s:%s, AGENT STATUS PENDING!",
+                             NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+                             agentWrapper->hostWrapper->hostaddr)));
     }
 }
 
@@ -620,7 +640,7 @@ static void transferToCrashed(ManagerAgentWrapper *agentWrapper)
     {
         agentWrapper->previousStatus = agentWrapper->currentStatus;
         agentWrapper->currentStatus = MONITOR_AGENT_STATUS_CRASHED;
-        ereport(LOG, (errmsg("Host name:%s, address:%s, agent crashed!",
+        ereport(LOG, (errmsg("%s:%s, AGENT STATUS CRASHED!",
                              NameStr(agentWrapper->hostWrapper->fdmh.hostname),
                              agentWrapper->hostWrapper->hostaddr)));
     }
@@ -633,15 +653,12 @@ static void transferToCrashed(ManagerAgentWrapper *agentWrapper)
  * we can. In order to prevent frequent restarts, we set a "restart delay" variable.
  * the "restart delay" variable will dynamically increase or decrease according to  
  * the restart frequency, after restart it, try to start monitor it. 
- * we do not clear errors unless this agent become normal.
  */
 static void handleCrashedStatus(ManagerAgentWrapper *agentWrapper, TimestampTz currentTime)
 {
     Assert(agentWrapper->currentStatus == MONITOR_AGENT_STATUS_CRASHED);
-    if (allowRestartAgent(agentWrapper, currentTime))
-    {
-        restartAgent(agentWrapper);
-    }
+
+    restartAgent(agentWrapper, RESTART_AGENT_MODE_SSH);
     /* 
      * if an agent is treated as crashed, Regardless of whether the restart is 
      * successful, try to connect to that agent for monitor. Whether or not the 
@@ -790,6 +807,9 @@ static bool startMonitorAgent(ManagerAgentWrapper *agentWrapper)
     bool connected;
 
     agentWrapper->connectTime = GetCurrentTimestamp();
+    ereport(LOG, (errmsg("%s:%s, start connect.",
+                         NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+                         agentWrapper->hostWrapper->hostaddr)));
     agent = ma_connect_noblock(agentWrapper->hostWrapper->hostaddr, agentWrapper->hostWrapper->fdmh.hostagentport);
     agentWrapper->agent = agent;
     connected = ma_isconnected(agent);
@@ -845,14 +865,14 @@ static bool restartMonitorAgent(ManagerAgentWrapper *agentWrapper)
 
 static bool connectTimedOut(ManagerAgentWrapper *agentWrapper, TimestampTz currentTime)
 {
-    return TimestampDifferenceExceeds(agentWrapper->connectTime,
+    return TimestampDifferenceExceeds(Max(agentWrapper->activeTime, agentWrapper->connectTime),
                                       currentTime,
                                       tolerationTime->connectTimeoutMs);
 }
 
 static bool allowReconnectAgent(ManagerAgentWrapper *agentWrapper)
 {
-    return TimestampDifferenceExceeds(agentWrapper->connectTime,
+    return TimestampDifferenceExceeds(Max(agentWrapper->activeTime, agentWrapper->connectTime),
                                       GetCurrentTimestamp(),
                                       tolerationTime->connectTimeoutMs +
                                           tolerationTime->reconnectDelayMs);
@@ -862,7 +882,7 @@ static bool allowReconnectAgent(ManagerAgentWrapper *agentWrapper)
  * Allow restart agent means that the difference between "restartTime" and "currentTime"
  * exceeds "restartDelay", and the configuration in table mgr_host shows allow to do it.
  */
-static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper, TimestampTz currentTime)
+static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 {
     int ret;
     long realRestartDelayMs;
@@ -873,7 +893,7 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper, TimestampTz cur
     /* We don't want to restart too often.  */
     realRestartDelayMs = tolerationTime->restartDelayMs * (1 << agentWrapper->restartFactor);
     allow = TimestampDifferenceExceeds(agentWrapper->restartTime,
-                                       currentTime,
+                                       GetCurrentTimestamp(),
                                        realRestartDelayMs);
     if (!allow)
     {
@@ -897,7 +917,7 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper, TimestampTz cur
     host = SPI_selectMgrHostByOid(oldContext, hostOid);
     if (host == NULL)
     {
-        ereport(LOG, (errmsg("Host name:%s, address:%s, oid:%u not exists in the table.",
+        ereport(LOG, (errmsg("%s:%s, oid:%u not exists in the table.",
                              NameStr(agentWrapper->hostWrapper->fdmh.hostname),
                              agentWrapper->hostWrapper->hostaddr,
                              hostOid)));
@@ -917,11 +937,48 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper, TimestampTz cur
     return allow;
 }
 
-static bool restartAgent(ManagerAgentWrapper *agentWrapper)
+static bool restartAgent(ManagerAgentWrapper *agentWrapper, RestartAgentMode mode)
+{
+    if (allowRestartAgent(agentWrapper))
+    {
+        agentWrapper->restartTime = GetCurrentTimestamp();
+        /* Modify the value of the variable that controls the restart frequency. */
+        nextRestartFactor(agentWrapper);
+
+        if (mode == RESTART_AGENT_MODE_SSH)
+        {
+            return restartAgentBySSH(agentWrapper);
+        }
+        else if (mode == RESTART_AGENT_MODE_SEND_MESSAGE)
+        {
+            return restartAgentByCmdMessage(agentWrapper);
+        }
+        else
+        {
+            ereport(LOG, (errmsg("%s:%s, restart forbidden, unknow restart mode:%d.",
+                                 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+                                 agentWrapper->hostWrapper->hostaddr,
+                                 mode)));
+            return false;
+        }
+    }
+    else
+    {
+        // ereport(LOG, (errmsg("%s:%s, restart too often, wait for a while.",
+        //                      NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+        //                      agentWrapper->hostWrapper->hostaddr)));
+        return false;
+    }
+}
+
+static bool restartAgentBySSH(ManagerAgentWrapper *agentWrapper)
 {
     bool done;
     char *retMessage = NULL;
 
+    ereport(LOG, (errmsg("%s:%s, restart agent by ssh begin.",
+                         NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+                         agentWrapper->hostWrapper->hostaddr)));
     done = mgr_start_agent_execute(&agentWrapper->hostWrapper->fdmh,
                                    agentWrapper->hostWrapper->hostaddr,
                                    agentWrapper->hostWrapper->hostadbhome,
@@ -929,18 +986,15 @@ static bool restartAgent(ManagerAgentWrapper *agentWrapper)
                                    &retMessage);
     /* The previous operations will take a while, we need precise time to prevent repeated restarts. */
     agentWrapper->restartTime = GetCurrentTimestamp();
-    /* Modify the value of the variable that controls the restart frequency. */
-    nextRestartFactor(agentWrapper);
-
     if (done)
     {
-        ereport(LOG, (errmsg("Host name:%s, address:%s, restart agent completed.",
+        ereport(LOG, (errmsg("%s:%s, restart agent by ssh successfully.",
                              NameStr(agentWrapper->hostWrapper->fdmh.hostname),
                              agentWrapper->hostWrapper->hostaddr)));
     }
     else
     {
-        ereport(LOG, (errmsg("Host name:%s, address:%s, restart agent failed:%s.",
+        ereport(LOG, (errmsg("%s:%s, restart agent by ssh failed:%s.",
                              NameStr(agentWrapper->hostWrapper->fdmh.hostname),
                              agentWrapper->hostWrapper->hostaddr,
                              retMessage)));
@@ -950,12 +1004,58 @@ static bool restartAgent(ManagerAgentWrapper *agentWrapper)
     return done;
 }
 
-static bool heartbeatAgent(ManagerAgentWrapper *agentWrapper)
+static bool restartAgentByCmdMessage(ManagerAgentWrapper *agentWrapper)
+{
+    bool done;
+    done = sendStopAgentMessage(agentWrapper) &&
+           sendResetAgentMessage(agentWrapper);
+    /* The previous operations will take a while, we need precise time to prevent repeated restarts. */
+    agentWrapper->restartTime = GetCurrentTimestamp();
+    if (done)
+    {
+        ereport(LOG, (errmsg("%s:%s, sent reset agent message successfully.",
+                             NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+                             agentWrapper->hostWrapper->hostaddr)));
+    }
+    else
+    {
+        ereport(LOG, (errmsg("%s:%s, sent reset agent message failed.",
+                             NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+                             agentWrapper->hostWrapper->hostaddr)));
+    }
+    return done;
+}
+
+static bool sendHeartbeatMessage(ManagerAgentWrapper *agentWrapper)
 {
     StringInfoData buf;
     initStringInfo(&buf);
     /* send idle message, do it as heartbeat message. */
     ma_beginmessage(&buf, AGT_MSG_IDLE);
+    ma_endmessage(&buf, agentWrapper->agent);
+    return ma_flush(agentWrapper->agent, false);
+}
+
+static bool sendStopAgentMessage(ManagerAgentWrapper *agentWrapper)
+{
+    StringInfoData buf;
+    initStringInfo(&buf);
+    /* send idle message, do it as heartbeat message. */
+    ma_beginmessage(&buf, AGT_MSG_COMMAND);
+    ma_sendbyte(&buf, AGT_CMD_STOP_AGENT);
+    ma_sendstring(&buf, "stop agent");
+    ma_endmessage(&buf, agentWrapper->agent);
+    return ma_flush(agentWrapper->agent, false);
+}
+
+static bool sendResetAgentMessage(ManagerAgentWrapper *agentWrapper)
+{
+    StringInfoData buf;
+    initStringInfo(&buf);
+    /* send idle message, do it as heartbeat message. */
+    ma_beginmessage(&buf, AGT_MSG_COMMAND);
+    ma_sendbyte(&buf, AGT_CMD_RESET_AGENT);
+    ma_sendstring(&buf, "close socket then reset");
     ma_endmessage(&buf, agentWrapper->agent);
     return ma_flush(agentWrapper->agent, false);
 }
@@ -969,39 +1069,53 @@ static void nextRestartFactor(ManagerAgentWrapper *agentWrapper)
 {
     int restartFactor;
     bool restartFactorIncrease;
+    int resetDelayMs;
 
-    restartFactor = agentWrapper->restartFactor;
-    restartFactorIncrease = agentWrapper->restartFactorIncrease;
-    if (restartFactorIncrease)
+    /* Reset to default value for more than 2 maximum delay cycles */
+    resetDelayMs = 2 * tolerationTime->restartDelayMs * (1 << RESTART_FACTOR_MAX);
+    if (TimestampDifferenceExceeds(agentWrapper->restartTime,
+                                   GetCurrentTimestamp(),
+                                   resetDelayMs))
     {
-        if (restartFactor >= RESTART_FACTOR_MAX)
-        {
-            /* hit the maximum, reverse. */
-            restartFactor--;
-            restartFactorIncrease = false;
-        }
-        else
-        {
-            restartFactor++;
-        }
+        /* reset to default value */
+        restartFactor = 0;
+        restartFactorIncrease = true;
     }
     else
     {
-        if (restartFactor <= 0)
+        restartFactor = agentWrapper->restartFactor;
+        restartFactorIncrease = agentWrapper->restartFactorIncrease;
+        if (restartFactorIncrease)
         {
-            /* hit the minimum, reverse. */
-            restartFactor++;
-            restartFactorIncrease = true;
+            if (restartFactor >= RESTART_FACTOR_MAX)
+            {
+                /* hit the maximum, reverse. */
+                restartFactor--;
+                restartFactorIncrease = false;
+            }
+            else
+            {
+                restartFactor++;
+            }
         }
         else
         {
-            restartFactor--;
+            if (restartFactor <= 0)
+            {
+                /* hit the minimum, reverse. */
+                restartFactor++;
+                restartFactorIncrease = true;
+            }
+            else
+            {
+                restartFactor--;
+            }
         }
-    }
-    /* negative value is not allowed. */
-    if (restartFactor < 0)
-    {
-        restartFactor = 0;
+        /* negative value is not allowed. */
+        if (restartFactor < 0)
+        {
+            restartFactor = 0;
+        }
     }
     agentWrapper->restartFactor = restartFactor;
     agentWrapper->restartFactorIncrease = restartFactorIncrease;
@@ -1111,15 +1225,15 @@ static void OnAgentMsgEvent(WaitEvent *event)
         msg_type = ma_get_message(agentWrapper->agent, &recvbuf);
         if (msg_type == AGT_MSG_IDLE)
         {
-            ereport(LOG, (errmsg("Host name:%s, address:%s, agent idle.",
-                                 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-                                 agentWrapper->hostWrapper->hostaddr)));
+            ereport(DEBUG1, (errmsg("%s:%s, agent idle.",
+                                    NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+                                    agentWrapper->hostWrapper->hostaddr)));
             transferToNormal(agentWrapper);
             break;
         }
         else if (msg_type == '\0')
         {
-            ereport(LOG, (errmsg("Host name:%s, address:%s, receive message failed.",
+            ereport(LOG, (errmsg("%s:%s, receive message failed.",
                                  NameStr(agentWrapper->hostWrapper->fdmh.hostname),
                                  agentWrapper->hostWrapper->hostaddr)));
             /* 
@@ -1137,7 +1251,7 @@ static void OnAgentMsgEvent(WaitEvent *event)
         else if (msg_type == AGT_MSG_ERROR)
         {
             /* ignore error message */
-            ereport(LOG, (errmsg("Host name:%s, address:%s, receive error message:%s",
+            ereport(LOG, (errmsg("%s:%s, receive error message:%s",
                                  NameStr(agentWrapper->hostWrapper->fdmh.hostname),
                                  agentWrapper->hostWrapper->hostaddr,
                                  ma_get_err_info(&recvbuf, AGT_MSG_RESULT))));
@@ -1149,7 +1263,7 @@ static void OnAgentMsgEvent(WaitEvent *event)
         }
         else if (msg_type == AGT_MSG_RESULT)
         {
-            ereport(LOG, (errmsg("Host name:%s, address:%s, receive message:%s",
+            ereport(LOG, (errmsg("%s:%s, receive message:%s",
                                  NameStr(agentWrapper->hostWrapper->fdmh.hostname),
                                  agentWrapper->hostWrapper->hostaddr,
                                  recvbuf.data)));
@@ -1158,11 +1272,22 @@ static void OnAgentMsgEvent(WaitEvent *event)
         }
         else if (msg_type == AGT_MSG_COMMAND)
         {
-            ereport(LOG, (errmsg("Host name:%s, address:%s, receive message:%s",
+            ereport(LOG, (errmsg("%s:%s, receive message:%s",
                                  NameStr(agentWrapper->hostWrapper->fdmh.hostname),
                                  agentWrapper->hostWrapper->hostaddr,
                                  recvbuf.data)));
             transferToNormal(agentWrapper);
+            break;
+        }
+        else if (msg_type == AGT_MSG_EXIT)
+        {
+            ereport(LOG, (errmsg("%s:%s, receive message:%s",
+                                 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+                                 agentWrapper->hostWrapper->hostaddr,
+                                 recvbuf.data)));
+            transferToNormal(agentWrapper);
+            /* Do not close this connection.use this connection to start agent main process. */
+            restartAgentByCmdMessage(agentWrapper);
             break;
         }
     }
