@@ -60,6 +60,7 @@
 #include "executor/execCluster.h"
 #include "intercomm/inter-comm.h"
 #include "libpq/libpq-fe.h"
+#include "optimizer/plancat.h"
 #include "optimizer/reduceinfo.h"
 #include "parser/analyze.h"
 #include "pgxc/pgxc.h"
@@ -2976,13 +2977,22 @@ CopyFrom(CopyState cstate)
 													  proute, estate,
 													  leaf_part_index);
 				Assert(resultRelInfo != NULL);
+#ifdef ADB
+				if (IsConnFromCoord() &&
+					resultRelInfo->ri_TrigDesc)
+				{
+					/* wen data from coordinator, trig call in coordinator */
+					FreeTriggerDesc(resultRelInfo->ri_TrigDesc);
+					resultRelInfo->ri_TrigDesc = NULL;
+				}
+#endif /* ADB */
 			}
 
 #ifdef ADB
-		if (resultRelInfo->ri_RelationDesc->rd_auxlist != NIL)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("cannot route inserted tuples to a has auxiliary table")));
+			if (resultRelInfo->ri_RelationDesc->rd_auxlist != NIL)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot route inserted tuples to a has auxiliary table")));
 #endif /* ADB */
 
 			/*
@@ -3610,9 +3620,7 @@ BeginCopyFrom(ParseState *pstate,
 		 * when has insert before or after trigger, we call trigger and save tuple to tuplestore,
 		 * when all row readed, read tuple from tuplestore and send it to datanode
 		 */
-		if (rel->trigdesc &&
-			(rel->trigdesc->trig_insert_before_row ||
-			 rel->trigdesc->trig_insert_after_row))
+		if (reloid_has_any_triggers_subclass(RelationGetRelid(rel), CMD_INSERT))
 		{
 			cstate->NextRowFrom = NextLineCallTrigger;
 			cstate->cs_tuplestore = tuplestore_begin_heap(false, false, work_mem);
@@ -5498,6 +5506,9 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 	expr_state = cstate->cs_reduce_state;
 	initStringInfo(&buf);
 
+	/* Prepare to catch AFTER triggers. */
+	AfterTriggerBeginQuery();
+
 	/* Set up callback to identify error line number */
 	errcallback.callback = CopyFromErrorCallback;
 	errcallback.arg = (void *) cstate;
@@ -5622,6 +5633,8 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 {
 	EState *estate = econtext->ecxt_estate;
 	ResultRelInfo  *resultRelInfo;
+	ResultRelInfo *saved_resultRelInfo = NULL;
+	ModifyTableState *mtstate;
 	TupleTableSlot *slot;
 	TupleTableSlot *myslot;
 	TupleTableSlot *relslot;
@@ -5631,13 +5644,13 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 	TupleDesc desc;
 	Datum *values;
 	bool *isnull;
+	TupleConversionMap *tcmap;
 	MemoryContext query_context = estate->es_query_cxt;
 	MemoryContext old_context = MemoryContextSwitchTo(query_context);
 	MemoryContext tup_context = GetPerTupleMemoryContext(estate);
 	uint64 processed = 0L;
 	Oid loaded_oid;
 	int cur_lineno;
-	bool br_trigger;
 
 	/*
 	 * We need a ResultRelInfo so we can use the regular executor's
@@ -5661,8 +5674,44 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 	/* Triggers might need a slot as well */
 	estate->es_trig_tuple_slot = ExecInitExtraTupleSlot(estate, NULL);
 
-	/* Prepare to catch AFTER triggers. */
-	AfterTriggerBeginQuery();
+	/*
+	 * If there are any triggers with transition tables on the named relation,
+	 * we need to be prepared to capture transition tuples.
+	 */
+	cstate->transition_capture =
+		MakeTransitionCaptureState(cstate->rel->trigdesc,
+								   RelationGetRelid(cstate->rel),
+								   CMD_INSERT);
+
+	/*
+	 * If the named relation is a partitioned table, initialize state for
+	 * CopyFrom tuple routing.
+	 */
+	if (cstate->rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
+	{
+		PartitionTupleRouting *proute;
+
+		proute = cstate->partition_tuple_routing =
+			ExecSetupPartitionTupleRouting(NULL, cstate->rel);
+
+		/*
+		 * If we are capturing transition tuples, they may need to be
+		 * converted from partition format back to partitioned table format
+		 * (this is only ever necessary if a BEFORE trigger modifies the
+		 * tuple).
+		 */
+		if (cstate->transition_capture != NULL)
+			ExecSetupChildParentMapForLeaf(proute);
+
+		mtstate = makeNode(ModifyTableState);
+		mtstate->ps.plan = NULL;
+		mtstate->ps.state = estate;
+		mtstate->operation = CMD_INSERT;
+		mtstate->resultRelInfo = estate->es_result_relations;
+	}else
+	{
+		mtstate = NULL;
+	}
 
 	/*
 	 * Check BEFORE STATEMENT insertion triggers. It's debatable whether we
@@ -5679,7 +5728,6 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 
 	myslot = cstate->cs_tupleslot;
 	store = cstate->cs_tuplestore;
-	br_trigger = cstate->rel->trigdesc->trig_insert_before_row;
 
 	for(;;)
 	{
@@ -5700,13 +5748,85 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 		/* Triggers and stuff need to be invoked in query context. */
 		MemoryContextSwitchTo(query_context);
 
-		if (br_trigger)
+		/* Place tuple in tuple slot --- but slot shouldn't free it */
+		slot = relslot;
+		ExecStoreTuple(tuple, slot, InvalidBuffer, false);
+		tcmap = NULL;
+
+		/* Determine the partition to heap_insert the tuple into */
+		if (cstate->partition_tuple_routing)
 		{
-			slot = ExecStoreTuple(tuple, relslot, InvalidBuffer, false);
+			int			leaf_part_index;
+			PartitionTupleRouting *proute = cstate->partition_tuple_routing;
+
+			/*
+			 * Away we go ... If we end up not finding a partition after all,
+			 * ExecFindPartition() does not return and errors out instead.
+			 * Otherwise, the returned value is to be used as an index into
+			 * arrays mt_partitions[] and mt_partition_tupconv_maps[] that
+			 * will get us the ResultRelInfo and TupleConversionMap for the
+			 * partition, respectively.
+			 */
+			leaf_part_index = ExecFindPartition(resultRelInfo,
+												proute->partition_dispatch_info,
+												slot,
+												estate);
+			Assert(leaf_part_index >= 0 &&
+				   leaf_part_index < proute->num_partitions);
+
+			/*
+			 * Save the old ResultRelInfo and switch to the one corresponding
+			 * to the selected partition.
+			 */
+			saved_resultRelInfo = resultRelInfo;
+			resultRelInfo = proute->partitions[leaf_part_index];
+			if (resultRelInfo == NULL)
+			{
+				resultRelInfo = ExecInitPartitionInfo(mtstate,
+													  saved_resultRelInfo,
+													  proute, estate,
+													  leaf_part_index);
+				Assert(resultRelInfo != NULL);
+			}
+			if (resultRelInfo->ri_RelationDesc->rd_auxlist != NIL)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot route inserted tuples to a has auxiliary table")));
+
+			/*
+			 * For ExecInsertIndexTuples() to work on the partition's indexes
+			 */
+			estate->es_result_relation_info = resultRelInfo;
+
+			/*
+			 * If we're capturing transition tuples, we might need to convert
+			 * from the partition rowtype to parent rowtype.
+			 * And if there are any BEFORE triggers on the partition
+			 */
+			if (cstate->transition_capture != NULL &&
+				resultRelInfo->ri_TrigDesc &&
+				resultRelInfo->ri_TrigDesc->trig_insert_before_row)
+			{
+				tcmap = TupConvMapForLeaf(proute, saved_resultRelInfo, leaf_part_index);
+			}
+
+			/*
+			 * We might need to convert from the parent rowtype to the
+			 * partition rowtype.
+			 */
+			tuple = ConvertPartitionTupleSlot(proute->parent_child_tupconv_maps[leaf_part_index],
+											  tuple,
+											  proute->partition_tuple_slot,
+											  &slot);
+
+			tuple->t_tableOid = RelationGetRelid(resultRelInfo->ri_RelationDesc);
+		}
+
+		/* BEFORE ROW INSERT Triggers */
+		if (resultRelInfo->ri_TrigDesc &&
+			resultRelInfo->ri_TrigDesc->trig_insert_before_row)
+		{
 			slot = ExecBRInsertTriggers(estate, resultRelInfo, slot);
-		}else
-		{
-			slot = relslot;
 		}
 
 		if (!TupIsNull(slot))
@@ -5716,6 +5836,13 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 
 			/* tstuple is like rel tuple, but we append a line number, now we make a new tuple */
 			MemoryContextSwitchTo(tup_context);
+			if (tcmap)
+			{
+				slot = ExecStoreTuple(do_convert_tuple(tuple, tcmap),
+									  relslot,
+									  InvalidBuffer,
+									  true);
+			}
 			slot_getallattrs(slot);
 			ExecClearTuple(myslot);
 			memcpy(myslot->tts_values, slot->tts_values, sizeof(Datum) * desc->natts);
@@ -5731,7 +5858,21 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 			tuplestore_puttuple(store, tstuple);
 		}
 		++processed;
+
+		/* Restore the saved ResultRelInfo */
+		if (saved_resultRelInfo)
+		{
+			resultRelInfo = saved_resultRelInfo;
+			estate->es_result_relation_info = resultRelInfo;
+		}
 	}
+
+	/* Close all the partitioned tables, leaf partitions, and their indices */
+	if (cstate->partition_tuple_routing)
+		ExecCleanupTupleRouting(mtstate, cstate->partition_tuple_routing);
+
+	/* Close any trigger target relations */
+	ExecCleanUpTriggerState(estate);
 
 	cstate->count_tuple = processed;
 	cstate->cur_attname = NULL;
