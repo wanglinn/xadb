@@ -4,6 +4,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <time.h>
+#include <math.h>
 #include "access/hash.h"
 #include "access/htup_details.h"
 #include "access/xact.h"
@@ -158,6 +159,7 @@ typedef struct ADBNodePoolSlot
 	int					last_agtm_port;		/* last send agtm port */
 	bool				has_temp;			/* have temp object? */
 	int					retry;				/* try to reconnect times, at most three times */
+	int64				last_retry_time;	/* last retry time, in order to do backoff time wait retry */
 	uint32				session_magic;		/* sended session params magic number */
 	uint32				local_magic;		/* sended local params magic number */
 	SlotCurrentList		current_list;
@@ -1608,6 +1610,8 @@ static void agent_check_waiting_slot(PoolAgent *agent)
 	PoolAgent *volatile volAgent;
 	ErrorContextCallback err_calback;
 	bool all_ready;
+	int64 now_val;
+	ADBNodePool *node_pool;
 	AssertArg(agent);
 	if(agent->list_wait == NIL)
 		return;
@@ -1800,43 +1804,49 @@ end_params_local_:
 			{
 				if(slot->retry < RetryTimes)
 				{
-					ADBNodePool *node_pool;
+					struct timeval now;
+					gettimeofday(&now, NULL);
+					now_val = (int64)now.tv_sec * 1000000 + (int64)now.tv_usec;
 					node_pool = slot->parent;
-					if (node_pool->connstr != NULL)
+					if (now_val - slot->last_retry_time > (int64)pow(2,(double)slot->retry)*10000)
 					{
-						PQfinish(slot->conn);
-						slot->conn = PQconnectStart(node_pool->connstr);
+						if (node_pool->connstr != NULL)
+						{
+							PQfinish(slot->conn);
+							slot->conn = PQconnectStart(node_pool->connstr);
 
-						if(slot->conn == NULL)
-						{
-							ereport(ERROR,
-								(errcode(ERRCODE_OUT_OF_MEMORY)
-								,errmsg("out of memory")));
-						}else if(PQstatus(slot->conn) != CONNECTION_BAD)
-						{
-							slot->slot_state = SLOT_STATE_CONNECTING;
-							slot->poll_state = PGRES_POLLING_WRITING;
-							if (slot->current_list != BUSY_SLOT)
+							if(slot->conn == NULL)
 							{
-								dlist_delete(&slot->dnode);
-								dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
-								SET_SLOT_LIST(slot, BUSY_SLOT);
+								ereport(ERROR,
+									(errcode(ERRCODE_OUT_OF_MEMORY)
+									,errmsg("out of memory")));
+							}else if(PQstatus(slot->conn) != CONNECTION_BAD)
+							{
+								slot->slot_state = SLOT_STATE_CONNECTING;
+								slot->poll_state = PGRES_POLLING_WRITING;
+								if (slot->current_list != BUSY_SLOT)
+								{
+									dlist_delete(&slot->dnode);
+									dlist_push_head(&slot->parent->busy_slot, &slot->dnode);
+									SET_SLOT_LIST(slot, BUSY_SLOT);
+								}
 							}
+							slot->retry++;
+							ereport(PMGRLOG,
+									(errmsg("[pool] agent %p pid %d reconnect slot %p thimes %d",
+											agent, agent->pid, slot, slot->retry)));
 						}
-						slot->retry++;
-						ereport(PMGRLOG,
-								(errmsg("[pool] agent %p pid %d reconnect slot %p thimes %d",
-										agent, agent->pid, slot, slot->retry)));
-					}
-					else
-					{
-						slot->retry = RetryTimes;
-						ereport(WARNING,
-							(errmsg("node_pool->connstr is NULL, may be pgxc_pool_reload free wrong datanode connection")));
+						else
+						{
+							slot->retry = RetryTimes;
+							ereport(WARNING,
+								(errmsg("node_pool->connstr is NULL, may be pgxc_pool_reload free wrong datanode connection")));
+						}
+						slot->last_retry_time = now_val;
 					}
 				}
 			}
-			if(slot->slot_state == SLOT_STATE_ERROR)
+			if(slot->slot_state == SLOT_STATE_ERROR && slot->retry >= RetryTimes)
 			{
 				ereport(ERROR, (errmsg("reconnect three thimes , %s", PQerrorMessage(slot->conn))));
 			}
@@ -2725,6 +2735,8 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 			break;
 		case PGRES_POLLING_OK:
 			slot->slot_state = SLOT_STATE_IDLE;
+			slot->retry = 0;
+			slot->last_retry_time = 0;
 			break;
 		default:
 			break;
@@ -2916,7 +2928,10 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 								cinfo->slot, cinfo->slot->owner, cinfo->slot->owner ? cinfo->slot->owner->pid:0,
 								info.hostname, info.port),
 						 PMGR_BACKTRACE_DETIAL()));
-				ereport(ERROR, (errmsg("double get node connect for %s:%d", info.hostname, info.port)));
+				if (cinfo->slot) {
+					destroy_slot(cinfo->slot, false);
+					cinfo->slot = NULL;
+				}
 			}
 
 			node_pool = hash_search(agent->db_pool->htab_nodes, &info, HASH_ENTER, &found);
@@ -3057,6 +3072,7 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 				slot->poll_state = PGRES_POLLING_WRITING;
 				slot->conn->funs = &funs;
 				slot->retry = 0;
+				slot->last_retry_time = 0;
 				ereport(PMGRLOG,
 						(errmsg("agent %p pid %d begin slot %p connect \"%s\"",
 								agent, agent->pid, slot, node_pool->connstr),
