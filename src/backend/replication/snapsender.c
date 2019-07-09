@@ -169,6 +169,7 @@ void SnapSenderMain(void)
 	pqsignal(SIGINT, SIG_IGN);
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
+	pqsignal(SIGHUP, SIG_IGN);
 	pqsignal(SIGTERM, SnapSenderSigTermHandler);
 	pqsignal(SIGQUIT, SnapSenderQuickDieHander);
 	sigdelset(&BlockSig, SIGQUIT);
