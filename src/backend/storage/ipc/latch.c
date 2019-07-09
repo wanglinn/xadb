@@ -1052,6 +1052,14 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 				 WaitEvent *occurred_events, int nevents,
 				 uint32 wait_event_info)
 {
+#ifdef ADB_EXT
+	return WaitEventSetWaitSignal(set, timeout, occurred_events, nevents, wait_event_info, false);
+}
+int WaitEventSetWaitSignal(WaitEventSet *set, long timeout,
+				 WaitEvent *occurred_events, int nevents,
+				 uint32 wait_event_info, bool end_when_signal)
+{
+#endif
 	int			returned_events = 0;
 	instr_time	start_time;
 	instr_time	cur_time;
@@ -1144,6 +1152,10 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 			if (cur_timeout <= 0)
 				break;
 		}
+#ifdef ADB_EXT
+		if (rc == 0 && end_when_signal)
+			break;
+#endif 
 	}
 #ifndef WIN32
 	waiting = false;

@@ -178,6 +178,9 @@ extern WaitEvent* GetWaitEventInfo(WaitEventSet *set, int pos, WaitEvent *event)
 extern int WaitEventSetWait(WaitEventSet *set, long timeout,
 				 WaitEvent *occurred_events, int nevents,
 				 uint32 wait_event_info);
+extern int WaitEventSetWaitSignal(WaitEventSet *set, long timeout,
+				 WaitEvent *occurred_events, int nevents,
+				 uint32 wait_event_info, bool end_when_signal);
 extern int WaitLatch(volatile Latch *latch, int wakeEvents, long timeout,
 		  uint32 wait_event_info);
 extern int WaitLatchOrSocket(volatile Latch *latch, int wakeEvents,

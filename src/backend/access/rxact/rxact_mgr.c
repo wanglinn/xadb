@@ -262,7 +262,6 @@ static void
 RxactMgrQuickdie(SIGNAL_ARGS)
 {
 	rxact_need_exit = true;
-	FreeWaitEventSet(rxact_wait_event_set);
 }
 
 static void RxactMarkAutoTransaction(void)
@@ -420,11 +419,12 @@ static void RxactLoop(void)
 		}
 		
 		/* wait event  nevents */
-		nevents = WaitEventSetWait(rxact_wait_event_set,
+		nevents = WaitEventSetWaitSignal(rxact_wait_event_set,
 								   -1L, //-1L or 1000,
 								   rxact_wait_event,
 								   rxact_event_cur_count,
-								   WAIT_EVENT_CLIENT_WRITE);
+								   WAIT_EVENT_CLIENT_WRITE,
+								   true);
 		CHECK_FOR_INTERRUPTS();
 		for(i=0; i<nevents; ++i)
 		{	
@@ -469,6 +469,7 @@ static void RxactLoop(void)
 			last_time = cur_time;
 		}
 	}
+	FreeWaitEventSet(rxact_wait_event_set);
 }
 
 static void RemoteXactBaseInit(void)
