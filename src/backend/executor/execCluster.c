@@ -790,7 +790,7 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 		 */
 		PlanRowMark *rowmark;
 		new_stmt->rowMarks = NIL;
-		foreach (lc, new_stmt->rowMarks)
+		foreach (lc, stmt->rowMarks)
 		{
 			rowmark = copyObject(lfirst(lc));
 
