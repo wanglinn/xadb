@@ -5602,10 +5602,10 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 		ExecASInsertTriggers(estate, estate->es_result_relations, cstate->transition_capture);
 
 		ExecCloseIndices(estate->es_result_relations);
-
-		/* Handle queued AFTER triggers */
-		AfterTriggerEndQuery(estate);
 	}
+
+	/* Handle queued AFTER triggers */
+	AfterTriggerEndQuery(estate);
 
 	MemoryContextSwitchTo(oldcontext);
 
