@@ -1333,6 +1333,16 @@ lreplace:;
 			if (proute == NULL)
 				ExecPartitionCheckEmitError(resultRelInfo, slot, estate);
 
+#ifdef ADB
+			if (IsCnNode() &&
+				resultRemoteRel)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("remote query not support move the row into other partition yet!")));
+			}
+#endif /* ADB */
+
 			/*
 			 * Row movement, part 1.  Delete the tuple, but skip RETURNING
 			 * processing. We want to return rows from INSERT.
