@@ -1320,15 +1320,11 @@ bool check_query_not_readonly_walker(Node *node, void *context)
 		/* Non-read-only are no longer checked */
 		if(sql_readonly == SQLTYPE_WRITE || enable_readsql_on_slave == false)
 			return true;
-			
-		/* skip explain */
-		if (query->commandType == CMD_UTILITY &&
-			query->utilityStmt &&
-			IsA(query->utilityStmt, ExplainStmt))
-		{
-			ExplainStmt *explain = (ExplainStmt *)query->utilityStmt;
-			query = (Query *)explain->query;
-		}
+		
+		/* Do not send lock parameters to the slave node */
+		if (query->rowMarks)
+			return true;
+		
 		/* only check selectStmt */
 		if(!query || query->commandType != CMD_SELECT)
 			return true;
