@@ -903,6 +903,21 @@ WaitEvent* GetWaitEventInfo(WaitEventSet *set, int pos, WaitEvent *event)
 	memcpy(event, &set->events[pos], sizeof(*event));
 	return event;
 }
+
+WaitEvent* FindWaitEventInfoWithData(WaitEventSet *set, int start_pos, void *user_data, WaitEvent *event)
+{
+	int pos,count;
+	for (pos=start_pos,count=set->nevents;pos<count;++pos)
+	{
+		if (set->events[pos].user_data == user_data)
+		{
+			memcpy(event, &set->events[pos], sizeof(*event));
+			return event;
+		}
+	}
+
+	return NULL;
+}
 #endif /* ADB_EXT */
 
 #if defined(WAIT_USE_EPOLL)

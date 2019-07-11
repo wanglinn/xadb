@@ -173,6 +173,7 @@ extern WaitEventSet* EnlargeWaitEventSet(WaitEventSet *set, int nevents);
 extern void* GetWaitEventData(WaitEventSet *set, int pos);
 extern pgsocket GetWaitEventSocket(WaitEventSet *set, int pos);
 extern WaitEvent* GetWaitEventInfo(WaitEventSet *set, int pos, WaitEvent *event);
+extern WaitEvent* FindWaitEventInfoWithData(WaitEventSet *set, int start_pos, void *user_data, WaitEvent *event);
 #endif /* ADB_EXT */
 
 extern int WaitEventSetWait(WaitEventSet *set, long timeout,
