@@ -2917,6 +2917,12 @@ JumbleExpr(pgssJumbleState *jstate, Node *node)
 		case T_LevelExpr:
 			RecordConstLocation(jstate, ((LevelExpr*)node)->location);
 			break;
+		case T_SysConnectByPathExpr:
+			JumbleExpr(jstate, (Node*)(((SysConnectByPathExpr*)node)->args));
+			break;
+		case T_ConnectByRootExpr:
+			JumbleExpr(jstate, ((ConnectByRootExpr*)node)->expr);
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			/* Only a warning, since we can stumble along anyway */
