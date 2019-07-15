@@ -54,6 +54,38 @@
 #include "utils/tqual.h"
 #include "utils/tuplesort.h"
 
+#ifdef ADB
+#include "access/visibilitymap.h"
+#include "agtm/agtm.h"
+#include "catalog/catalog.h"
+#include "catalog/heap.h"
+#include "catalog/pgxc_class.h"
+#include "commands/copy.h"
+#include "commands/defrem.h"
+#include "executor/clusterReceiver.h"
+#include "executor/executor.h"
+#include "executor/execCluster.h"
+#include "intercomm/inter-comm.h"
+#include "libpq/libpq.h"
+#include "libpq/libpq-fe.h"
+#include "libpq/libpq-node.h"
+#include "libpq/pqformat.h"
+#include "nodes/makefuncs.h"
+#include "pgxc/execRemote.h"
+#include "pgxc/nodemgr.h"
+#include "pgxc/pgxc.h"
+#include "pgxc/slot.h"
+#include "storage/mem_toc.h"
+#include "utils/lsyscache.h"
+
+#define REMOTE_KEY_CLUSTER_INFO	0x1
+typedef struct ClusterCluHookFuncs
+{
+	PQNHookFunctions pub;
+	PGconn *conn;			/* last exec end PGconn* */
+}ClusterCluHookFuncs;
+
+#endif /* ADB */
 
 /*
  * This struct is used to pass around the information on tables to be
@@ -66,7 +98,6 @@ typedef struct
 	Oid			indexOid;
 } RelToCluster;
 
-
 static void rebuild_relation(Relation OldHeap, Oid indexOid, bool verbose);
 static void copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex,
 			   bool verbose, bool *pSwapToastByContent,
@@ -77,6 +108,270 @@ static void reform_and_rewrite_tuple(HeapTuple tuple,
 						 Datum *values, bool *isnull,
 						 bool newRelHasOids, RewriteState rwstate);
 
+
+#ifdef ADB
+static int process_master_cluster_cmd(bool *verbose_in,const char *data, int len)
+{
+	char *namespace;
+	char *relname;
+	char *indexname;
+	RangeVar *range = NULL;
+	int mtype;
+	Oid tableOid;
+	Oid indexOid;
+
+	StringInfoData buf;
+	buf.data = (char*)data;
+	buf.maxlen = buf.len = len;
+	buf.cursor = 0;
+
+	mtype = pq_getmsgbyte(&buf);
+	switch(mtype)
+	{
+	case CLUSTER_CMD_CLUSTER:
+		namespace = load_node_string(&buf, false);
+		relname = load_node_string(&buf, false);
+		range = makeRangeVar(namespace, relname, -1);
+		indexname = load_node_string(&buf, false);
+
+		tableOid = RangeVarGetRelid(range, AccessShareLock, true);
+		indexOid = get_relname_relid(indexname, get_rel_namespace(tableOid));
+
+		cluster_rel(tableOid, indexOid, false, *verbose_in);
+
+		put_executor_end_msg(true);
+		break;
+
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("unexpected cluster command 0x%02X during COPY from coordinator",
+						mtype)));
+		break;
+	}
+
+	if (range)
+		pfree(range);
+
+	return 0;
+}
+
+static void send_cluster_cmd(List *conns, Oid tableOid, Oid indexOid)
+{
+	StringInfoData	buf;
+	char	   *namespace;
+	char	   *indexname;
+
+	initStringInfo(&buf);
+	appendStringInfoChar(&buf, CLUSTER_CMD_CLUSTER);
+
+	namespace = get_namespace_name(get_rel_namespace(tableOid));
+	indexname = get_rel_name(indexOid);
+	save_node_string(&buf, namespace);
+	save_node_string(&buf, get_rel_name(tableOid));
+	save_node_string(&buf, indexname);
+
+	pfree(namespace);
+	pfree(indexname);
+
+	PQNputCopyData(conns, buf.data, buf.len);
+	PQNFlush(conns, true);
+
+	pfree(buf.data);
+	return;
+}
+
+static List* get_cluster_rel_datanode(List *nodes, Oid reloid)
+{
+	HeapTuple		tuple;
+	Form_pgxc_class	classForm;
+	Oid			   *oids;
+	int				i;
+	int				count;
+
+	tuple = SearchSysCache1(PGXCCLASSRELID, ObjectIdGetDatum(reloid));
+	if (!HeapTupleIsValid(tuple))
+		return nodes;
+
+	classForm = (Form_pgxc_class) GETSTRUCT(tuple);
+	oids = classForm->nodeoids.values;
+	count = classForm->nodeoids.dim1;
+	if (classForm->pclocatortype != LOCATOR_TYPE_REPLICATED)
+	{
+		if (classForm->pclocatortype == LOCATOR_TYPE_HASHMAP)
+		{
+			ListCell *lc;
+			List *slot_oids = GetSlotNodeOids();
+			foreach(lc, slot_oids)
+				nodes = list_append_unique_oid(nodes, lfirst_oid(lc));
+			list_free(slot_oids);
+		}else
+		{
+			for (i=0;i<count;++i)
+				nodes = list_append_unique_oid(nodes, oids[i]);
+		}
+	}else
+	{
+		for (i=0;i<count;++i)
+		{
+			if (is_pgxc_nodepreferred(oids[i]))
+			{
+				nodes = list_append_unique_oid(nodes, oids[i]);
+				break;
+			}
+		}
+		if (i>=count)
+			nodes = list_append_unique_oid(nodes, oids[0]);
+	}
+
+	ReleaseSysCache(tuple);
+
+	return nodes;
+}
+
+static List* get_cluster_rel_nodes(List *listIO, Oid tableOid)
+{
+	HeapTuple		tuple;
+	Form_pg_class	classForm;
+	List		   *list_cn = NIL;
+
+	tuple = SearchSysCache1(RELOID, tableOid);
+	if (!HeapTupleIsValid(tuple))
+		return listIO;	/* should not happen, but ... */
+
+	classForm = (Form_pg_class) GETSTRUCT(tuple);
+	if (classForm->relpersistence == RELPERSISTENCE_TEMP ||
+		classForm->relkind == RELKIND_MATVIEW ||
+		classForm->relkind == RELKIND_FOREIGN_TABLE)
+	{
+		ReleaseSysCache(tuple);
+		return listIO;
+	}
+
+	if ((classForm->relkind == RELKIND_RELATION ||
+		 classForm->relkind == RELKIND_PARTITIONED_TABLE) &&
+		is_relid_remote(tableOid))
+	{
+		listIO = get_cluster_rel_datanode(listIO, tableOid);
+		list_cn = GetAllCnIDL(false);
+		listIO = list_concat_unique_oid(listIO, list_cn);;
+	}
+
+	ReleaseSysCache(tuple);
+	return listIO;
+}
+
+static List* get_cluster_rel_list_nodes(List *rvs, MemoryContext context)
+{
+	ListCell   *rv;
+	List *result = NIL;
+
+	foreach(rv, rvs)
+	{
+		RelToCluster *rvtc = (RelToCluster *) lfirst(rv);
+		result = get_cluster_rel_nodes(result, rvtc->tableOid);
+	}
+
+	return result;
+}
+
+void cluster_cluster(struct StringInfoData *msg)
+{
+	StringInfoData	buf;
+	bool verbose;
+
+	buf.data = mem_toc_lookup(msg, REMOTE_KEY_CLUSTER_INFO, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Can not found cluster info")));
+	}
+	buf.cursor = 0;
+	buf.len = buf.maxlen;
+	verbose = (bool)pq_getmsgbyte(&buf);
+
+	SimpleNextCopyFromNewFE((SimpleCopyDataFunction)process_master_cluster_cmd, &verbose);
+}
+
+static bool ClusterCluExecEndHookCopyOut(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
+{
+	if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		ClusterCluHookFuncs *context = (ClusterCluHookFuncs*)pub;
+		context->conn = conn;
+		return true;
+	}
+
+	return clusterRecvTuple(NULL, buf, len, NULL, conn);
+}
+
+static void cluster_clu_recv_exec_end(List *conns)
+{
+	ClusterCluHookFuncs context;
+	if (conns == NIL)
+		conns = PQNGetAllConns();
+	else
+		conns = list_copy(conns);
+
+	context.pub = PQNDefaultHookFunctions;
+	context.pub.HookCopyOut = ClusterCluExecEndHookCopyOut;
+	while (conns)
+	{
+		context.conn = NULL;
+		PQNListExecFinish(conns, NULL, &context.pub, true);
+		Assert(context.conn != NULL);
+		conns = list_delete_ptr(conns, context.conn);
+	}
+}
+
+static void send_cluster_cluster_function(List *node_list, int flags, bool verbose)
+{
+	List *list_conns;
+	StringInfoData buf;
+
+	if (node_list == NIL)
+		return;
+
+	initStringInfo(&buf);
+	ClusterTocSetCustomFun(&buf, cluster_cluster);
+
+	begin_mem_toc_insert(&buf, REMOTE_KEY_CLUSTER_INFO);
+	appendStringInfoChar(&buf, verbose);
+	end_mem_toc_insert(&buf, REMOTE_KEY_CLUSTER_INFO);
+
+	if (ActiveSnapshotSet() == false)
+		PushActiveSnapshot(GetTransactionSnapshot());
+
+	list_conns = ExecClusterCustomFunction(node_list, &buf, flags);
+	pfree(buf.data);
+	list_free(list_conns);
+}
+
+static List* send_cluster_cluster_rel(List *node_list, Oid tableOid, Oid indexOid)
+{
+	List *conn_list;
+	ListCell   *lc;
+
+	if (node_list == NIL)
+		return NIL;
+
+	conn_list = NIL;
+	foreach(lc, node_list)
+	{
+		PGconn *conn = PQNFindConnUseOid(lfirst_oid(lc));
+		if (conn == NULL)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("remote node %u not connected", lfirst_oid(lc))));
+		}
+		conn_list = lappend(conn_list, conn);
+	}
+	send_cluster_cmd(conn_list, tableOid, indexOid);
+	return conn_list;
+}
+#endif /* ADB */
 
 /*---------------------------------------------------------------------------
  * This cluster code allows for clustering multiple tables at once. Because
@@ -105,10 +400,15 @@ static void reform_and_rewrite_tuple(HeapTuple tuple,
 void
 cluster(ClusterStmt *stmt, bool isTopLevel)
 {
+#ifdef ADB
+	List *list_table_conns = NIL;
+	List *cur_list = NIL;
+#endif /* ADB */
+
 	if (stmt->relation != NULL)
 	{
 		/* This is the single-relation case. */
-		Oid			tableOid,
+		Oid 		tableOid,
 					indexOid = InvalidOid;
 		Relation	rel;
 
@@ -185,8 +485,26 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 		/* close relation, keep lock till commit */
 		heap_close(rel, NoLock);
 
+#ifdef ADB
+		cur_list = get_cluster_rel_nodes(cur_list, tableOid);
+
+		send_cluster_cluster_function(cur_list,
+									  EXEC_CLUSTER_FLAG_NOT_START_TRANS,
+									  stmt->verbose);
+		list_table_conns = send_cluster_cluster_rel(cur_list, tableOid, indexOid);
+		list_free(cur_list);
+#endif /* ADB */
+
 		/* Do the job. */
 		cluster_rel(tableOid, indexOid, false, stmt->verbose);
+
+#ifdef ADB
+		if (list_table_conns)
+		{
+			cluster_clu_recv_exec_end(list_table_conns);
+			list_free(list_table_conns);
+		}
+#endif /* ADB */
 	}
 	else
 	{
@@ -198,6 +516,9 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 		List	   *rvs;
 		ListCell   *rv;
 
+#ifdef ADB
+		List	   *list_node_oid = NIL;
+#endif /* ADB */
 		/*
 		 * We cannot run this form of CLUSTER inside a user transaction block;
 		 * we'd be holding locks way too long.
@@ -215,10 +536,19 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 												ALLOCSET_DEFAULT_SIZES);
 
 		/*
-		 * Build the list of relations to cluster.  Note that this lives in
+		 * Build the list of relations to cluster.	Note that this lives in
 		 * cluster_context.
 		 */
 		rvs = get_tables_to_cluster(cluster_context);
+
+#ifdef ADB
+		list_node_oid = get_cluster_rel_list_nodes(rvs, cluster_context);
+
+		START_CLUSTER_OWNER_XACT_SECTION();
+		send_cluster_cluster_function(list_node_oid,
+									  EXEC_CLUSTER_FLAG_NOT_START_TRANS,
+									  stmt->verbose);
+#endif
 
 		/* Commit to get out of starting transaction */
 		PopActiveSnapshot();
@@ -233,11 +563,31 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 			StartTransactionCommand();
 			/* functions in indexes may want a snapshot set */
 			PushActiveSnapshot(GetTransactionSnapshot());
+
+#ifdef ADB
+			cur_list = NIL;
+			cur_list = get_cluster_rel_nodes(cur_list, rvtc->tableOid);
+			list_table_conns = send_cluster_cluster_rel(cur_list, rvtc->tableOid, rvtc->indexOid);
+			list_free(cur_list);
+#endif /* ADB */
+
 			/* Do the job. */
 			cluster_rel(rvtc->tableOid, rvtc->indexOid, true, stmt->verbose);
+#ifdef ADB
+			if (list_table_conns)
+			{
+				cluster_clu_recv_exec_end(list_table_conns);
+				list_free(list_table_conns);
+			}
+#endif
+
 			PopActiveSnapshot();
 			CommitTransactionCommand();
 		}
+
+#ifdef ADB
+		END_CLUSTER_OWNER_XACT_SECTION();
+#endif
 
 		/* Start a new transaction for the cleanup work. */
 		StartTransactionCommand();
@@ -274,7 +624,7 @@ cluster_rel(Oid tableOid, Oid indexOid, bool recheck, bool verbose)
 
 	/*
 	 * We grab exclusive access to the target rel and index for the duration
-	 * of the transaction.  (This is redundant for the single-transaction
+	 * of the transaction.	(This is redundant for the single-transaction
 	 * case, since cluster() already did it.)  The index lock is taken inside
 	 * check_index_is_clusterable.
 	 */
@@ -309,7 +659,7 @@ cluster_rel(Oid tableOid, Oid indexOid, bool recheck, bool verbose)
 		 * check in the "recheck" case is appropriate (which currently means
 		 * somebody is executing a database-wide CLUSTER), because there is
 		 * another check in cluster() which will stop any attempt to cluster
-		 * remote temp tables by name.  There is another check in cluster_rel
+		 * remote temp tables by name.	There is another check in cluster_rel
 		 * which is redundant, but we leave it for extra safety.
 		 */
 		if (RELATION_IS_OTHER_TEMP(OldHeap))
@@ -402,7 +752,7 @@ cluster_rel(Oid tableOid, Oid indexOid, bool recheck, bool verbose)
 
 	/*
 	 * All predicate locks on the tuples or pages are about to be made
-	 * invalid, because we move tuples around.  Promote them to relation
+	 * invalid, because we move tuples around.	Promote them to relation
 	 * locks.  Predicate locks on indexes will be promoted when they are
 	 * reindexed.
 	 */
@@ -413,6 +763,8 @@ cluster_rel(Oid tableOid, Oid indexOid, bool recheck, bool verbose)
 
 	/* NB: rebuild_relation does heap_close() on OldHeap */
 }
+
+
 
 /*
  * Verify that the specified heap and index are valid to cluster on
@@ -1689,7 +2041,7 @@ finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap,
  * clustered.
  */
 static List *
-get_tables_to_cluster(MemoryContext cluster_context)
+get_tables_to_cluster(MemoryContext context)
 {
 	Relation	indRelation;
 	HeapScanDesc scan;
@@ -1712,6 +2064,8 @@ get_tables_to_cluster(MemoryContext cluster_context)
 				BTEqualStrategyNumber, F_BOOLEQ,
 				BoolGetDatum(true));
 	scan = heap_beginscan_catalog(indRelation, 1, &entry);
+
+	old_context = MemoryContextSwitchTo(context);
 	while ((indexTuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		index = (Form_pg_index) GETSTRUCT(indexTuple);
@@ -1723,22 +2077,19 @@ get_tables_to_cluster(MemoryContext cluster_context)
 		 * We have to build the list in a different memory context so it will
 		 * survive the cross-transaction processing
 		 */
-		old_context = MemoryContextSwitchTo(cluster_context);
-
 		rvtc = (RelToCluster *) palloc(sizeof(RelToCluster));
 		rvtc->tableOid = index->indrelid;
 		rvtc->indexOid = index->indexrelid;
 		rvs = lcons(rvtc, rvs);
 
-		MemoryContextSwitchTo(old_context);
 	}
+	MemoryContextSwitchTo(old_context);
 	heap_endscan(scan);
 
 	relation_close(indRelation, AccessShareLock);
 
 	return rvs;
 }
-
 
 /*
  * Reconstruct and rewrite the given tuple

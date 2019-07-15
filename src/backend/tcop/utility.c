@@ -894,30 +894,12 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			break;
 
 		case T_ClusterStmt:
-			/* we choose to allow this during "read only" transactions */
-			PreventCommandDuringRecovery("CLUSTER");
-			/* forbidden in parallel mode due to CommandIsReadOnly */
-			cluster((ClusterStmt *) parsetree, isTopLevel);
-#ifdef ADB
-			if (IsCnMaster())
 			{
-				ClusterStmt *stmt = (ClusterStmt *) parsetree;
-				bool need_remote = true;
-
-				if (stmt->relation)
-				{
-					Relation rel = relation_openrv(stmt->relation, NoLock);
-					need_remote = (RelationGetLocInfo(rel) != NULL);
-					relation_close(rel, NoLock);
-				}
-				if(need_remote)
-				{
-					utilityContext.force_autocommit = true;
-					utilityContext.exec_type = EXEC_ON_DATANODES;
-					ExecRemoteUtilityStmt(&utilityContext);
-				}
+				/* we choose to allow this during "read only" transactions */
+				PreventCommandDuringRecovery("CLUSTER");
+				/* forbidden in parallel mode due to CommandIsReadOnly */
+				cluster((ClusterStmt *) parsetree, isTopLevel);
 			}
-#endif
 			break;
 
 		case T_VacuumStmt:

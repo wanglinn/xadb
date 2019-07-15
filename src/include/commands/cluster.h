@@ -17,10 +17,14 @@
 #include "storage/lock.h"
 #include "utils/relcache.h"
 
+#ifdef ADB
+#define CLUSTER_CMD_CLUSTER				0x90
+extern void cluster_cluster(struct StringInfoData *msg);
+#endif /* ADB */
 
+extern void ExecCluster(ClusterStmt *stmt, bool isTopLevel);
 extern void cluster(ClusterStmt *stmt, bool isTopLevel);
-extern void cluster_rel(Oid tableOid, Oid indexOid, bool recheck,
-			bool verbose);
+extern void cluster_rel(Oid tableOid, Oid indexOid, bool recheck, bool verbose);
 extern void check_index_is_clusterable(Relation OldHeap, Oid indexOid,
 						   bool recheck, LOCKMODE lockmode);
 extern void mark_index_clustered(Relation rel, Oid indexOid, bool is_internal);

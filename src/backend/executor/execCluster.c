@@ -7,6 +7,7 @@
 #include "commands/defrem.h"
 #include "commands/matview.h"
 #include "commands/vacuum.h"
+#include "commands/cluster.h"
 #include "executor/nodeEmptyResult.h"
 #include "executor/clusterHeapScan.h"
 #include "executor/execdesc.h"
@@ -144,6 +145,7 @@ static const ClusterCustomExecInfo cluster_custom_execute[] =
 		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_vacuum, CLUSTER_CUSTOM_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeAlter, CLUSTER_CUSTOM_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeRemove, CLUSTER_CUSTOM_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_cluster, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRedistributeRelation, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
 	};
 
