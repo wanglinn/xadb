@@ -1526,7 +1526,10 @@ heap_beginscan_internal(Relation relation, Snapshot snapshot,
 	scan->rs_ctup.t_tableOid = RelationGetRelid(relation);
 
 #if defined(ADB)
-	scan->rs_ctup.t_xc_node_id = PGXCNodeIdentifier;
+	if (PGXCNodeIdentifier == 0 && PGXCNodeName)
+		scan->rs_ctup.t_xc_node_id  = hash_any((unsigned char *)PGXCNodeName, strlen(PGXCNodeName));
+	else
+		scan->rs_ctup.t_xc_node_id = PGXCNodeIdentifier;
 #endif
 
 	/*
