@@ -1936,10 +1936,10 @@ RelationIdGetRelation(Oid relationId)
 	RelationIdCacheLookup(relationId, rd);
 
 #ifdef ADB
-	if (enable_readsql_on_slave)
+	if (rd && rd->rd_locator_info && rd->rd_locator_info->nodeids)
 	{
-		if (sql_readonly == SQLTYPE_READ
-			&& rd && rd->rd_locator_info && rd->rd_locator_info->nodeids)
+		MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(rd));
+		if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)
 		{
 			if (rd->rd_locator_info->slavenodeids != NIL)
 				adbUpdateListNodeids(rd->rd_locator_info->nodeids
@@ -1955,9 +1955,7 @@ RelationIdGetRelation(Oid relationId)
 					list_free(slaveNodeids);
 			}
 		}
-
-		if (sql_readonly != SQLTYPE_READ
-			&& rd && rd->rd_locator_info && rd->rd_locator_info->nodeids)
+		else
 		{
 			if (rd->rd_locator_info->masternodeids)
 			{
@@ -1972,6 +1970,7 @@ RelationIdGetRelation(Oid relationId)
 					list_free(masterNodeids);
 			}
 		}
+		MemoryContextSwitchTo(oldcontext);
 	}
 #endif
 

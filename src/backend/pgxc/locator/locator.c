@@ -940,22 +940,12 @@ GetRelationLocInfo(Oid relid)
 {
 	RelationLocInfo *ret_loc_info = NULL;
 	Relation	rel = relation_open(relid, AccessShareLock);
-	List *masterNodeids = NIL;
 
 	/* Relation needs to be valid */
 	Assert(rel->rd_isvalid);
 
 	if (rel->rd_locator_info)
-	{
 		ret_loc_info = CopyRelationLocInfo(rel->rd_locator_info);
-		if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)
-		{
-			masterNodeids = adbGetRelationNodeids(relid);
-			adbUpdateListNodeids(rel->rd_locator_info->nodeids, masterNodeids);
-			if (masterNodeids)
-				pfree(masterNodeids);
-		}
-	}
 
 	relation_close(rel, AccessShareLock);
 
