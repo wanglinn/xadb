@@ -3687,16 +3687,16 @@ static TupleDesc get_common_command_tuple_desc_for_monitor(void)
 Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 {
 	AppendNodeInfo appendnodeinfo;
-	AppendNodeInfo agtm_m_nodeinfo;
+	/*AppendNodeInfo agtm_m_nodeinfo;
 	bool agtm_m_is_exist = false;
-	bool agtm_m_is_running = false; /* agtm master status */
+	bool agtm_m_is_running = false;*/ /* agtm master status */
 	bool is_add_hba;
 	bool result = true;
 	AppendNodeInfo nodeinfo;
 	StringInfoData send_hba_msg;
 	StringInfoData infosendmsg;
 	NameData nodename;
-	NameData gtmMasterNameData;
+	//NameData gtmMasterNameData;
 	Oid coordhostoid;
 	int32 coordport;
 	int max_locktry = 600;
@@ -3704,7 +3704,7 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 	int ret = 0;
 	char *coordhost;
 	char *temp_file;
-	char *gtmMasterName;
+	//char *gtmMasterName;
 	char nodeport_buf[10];
 	char coordport_buf[10];
 	Oid dnhostoid;
@@ -3717,7 +3717,7 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	memset(&appendnodeinfo, 0, sizeof(AppendNodeInfo));
-	memset(&agtm_m_nodeinfo, 0, sizeof(AppendNodeInfo));
+	//memset(&agtm_m_nodeinfo, 0, sizeof(AppendNodeInfo));
 
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
@@ -3731,27 +3731,28 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 		/* get node info for append datanode master */
 		mgr_check_appendnodeinfo(CNDN_TYPE_DATANODE_MASTER, appendnodeinfo.nodename);
 		mgr_get_appendnodeinfo(CNDN_TYPE_DATANODE_MASTER, nodename.data, &appendnodeinfo);
-		gtmMasterName = mgr_get_agtm_name();
+		/* gtmMasterName = mgr_get_agtm_name();
 		namestrcpy(&gtmMasterNameData, gtmMasterName);
 		pfree(gtmMasterName);
 		get_nodeinfo(gtmMasterNameData.data, GTM_TYPE_GTM_MASTER, &agtm_m_is_exist, &agtm_m_is_running, &agtm_m_nodeinfo);
+		*/
 		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 
-		if (agtm_m_is_exist)
+		/* if (agtm_m_is_exist)
 		{
 			if (agtm_m_is_running)
-			{
+			{*/
 				/* append "host all postgres  ip/32" for agtm master pg_hba.conf and reload it. */
-				mgr_add_hbaconf(GTM_TYPE_GTM_MASTER, AGTM_USER, appendnodeinfo.nodeaddr);
+				/* mgr_add_hbaconf(GTM_TYPE_GTM_MASTER, AGTM_USER, appendnodeinfo.nodeaddr);
 			}
 			else
 			{ ereport(ERROR, (errmsg("gtm master is not running")));}
 		}
 		else
-		{ ereport(ERROR, (errmsg("gtm master is not initialized")));}
+		{ ereport(ERROR, (errmsg("gtm master is not initialized")));}*/
 
 		/* for gtm slave */
-		mgr_add_hbaconf(GTM_TYPE_GTM_SLAVE, AGTM_USER, appendnodeinfo.nodeaddr);
+		/* mgr_add_hbaconf(GTM_TYPE_GTM_SLAVE, AGTM_USER, appendnodeinfo.nodeaddr); */
 
 		/* step 1: init workdir */
 		mgr_check_dir_exist_and_priv(appendnodeinfo.nodehost, appendnodeinfo.nodepath);
@@ -3762,6 +3763,9 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 		mgr_get_other_parm(CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
 		mgr_add_parm(appendnodeinfo.nodename, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", appendnodeinfo.nodeport, &infosendmsg);
+		/* add for 4.1 no gtm. */
+		mgr_get_gtm_host_snapsender_port(&infosendmsg);
+
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
 								appendnodeinfo.nodepath,
 								&infosendmsg,
@@ -3882,7 +3886,7 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 
 	pfree(getAgentCmdRst.description.data);
 	pfree_AppendNodeInfo(appendnodeinfo);
-	pfree_AppendNodeInfo(agtm_m_nodeinfo);
+	//pfree_AppendNodeInfo(agtm_m_nodeinfo);
 
 	return HeapTupleGetDatum(tup_result);
 }
@@ -3894,8 +3898,8 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 {
 	AppendNodeInfo appendnodeinfo;
 	AppendNodeInfo parentnodeinfo;
-	AppendNodeInfo agtm_m_nodeinfo;
-	bool agtm_m_is_exist, agtm_m_is_running; /* agtm master status */
+	/* AppendNodeInfo agtm_m_nodeinfo;
+	bool agtm_m_is_exist, agtm_m_is_running;*/ /* agtm master status */
 	bool dnmaster_is_running; /* datanode master status */
 	bool result = true;
 	bool bsyncnode = false;
@@ -3905,12 +3909,12 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 	StringInfoData infostrparam;
 	StringInfoData infostrparamtmp;
 	NameData nodename;
-	NameData gtmMasterNameData;
+	/* NameData gtmMasterNameData; */
 	HeapTuple tup_result;
 	GetAgentCmdRst getAgentCmdRst;
 	const int max_pingtry = 60;
 	char nodeport_buf[10];
-	char *gtmMasterName;
+	/* char *gtmMasterName; */
 	Oid mastertupleoid;
 	Relation rel;
 	int syncNum = 0;
@@ -3920,7 +3924,7 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 
 	memset(&appendnodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&parentnodeinfo, 0, sizeof(AppendNodeInfo));
-	memset(&agtm_m_nodeinfo, 0, sizeof(AppendNodeInfo));
+	//memset(&agtm_m_nodeinfo, 0, sizeof(AppendNodeInfo));
 
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
@@ -3946,31 +3950,31 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 		heap_close(rel, AccessShareLock);
 		mgr_get_parent_appendnodeinfo(appendnodeinfo.nodemasteroid, &parentnodeinfo);
 		/* gtm master */
-		gtmMasterName =  mgr_get_agtm_name();
+		/* gtmMasterName =  mgr_get_agtm_name();
 		namestrcpy(&gtmMasterNameData, gtmMasterName);
 		pfree(gtmMasterName);
-		get_nodeinfo(gtmMasterNameData.data, GTM_TYPE_GTM_MASTER, &agtm_m_is_exist, &agtm_m_is_running, &agtm_m_nodeinfo);
+		get_nodeinfo(gtmMasterNameData.data, GTM_TYPE_GTM_MASTER, &agtm_m_is_exist, &agtm_m_is_running, &agtm_m_nodeinfo);*/
 		mastertupleoid = appendnodeinfo.nodemasteroid;
 		/* step 1: make sure datanode master, agtm master or agtm slave is running. */
 		dnmaster_is_running = is_node_running(parentnodeinfo.nodeaddr, parentnodeinfo.nodeport, parentnodeinfo.nodeusername);
 		if (!dnmaster_is_running)
 			ereport(ERROR, (errmsg("datanode master \"%s\" is not running", parentnodeinfo.nodename)));
 
-		if (agtm_m_is_exist)
+		/* if (agtm_m_is_exist)
 		{
 			if (agtm_m_is_running)
-			{
+			{*/
 				/* append "host all postgres  ip/32" for agtm master pg_hba.conf and reload it. */
-				mgr_add_hbaconf(GTM_TYPE_GTM_MASTER, AGTM_USER, appendnodeinfo.nodeaddr);
+				/* mgr_add_hbaconf(GTM_TYPE_GTM_MASTER, AGTM_USER, appendnodeinfo.nodeaddr);
 			}
 			else
 				{	ereport(ERROR, (errmsg("gtm master is not running")));}
 		}
 		else
-		{	ereport(ERROR, (errmsg("gtm master is not initialized")));}
+		{	ereport(ERROR, (errmsg("gtm master is not initialized")));}*/
 
 		/* append "host all postgres ip/32" for agtm slave pg_hba.conf and reload it. */
-		mgr_add_hbaconf_by_masteroid(agtm_m_nodeinfo.tupleoid, "all", AGTM_USER, appendnodeinfo.nodeaddr);
+		//mgr_add_hbaconf_by_masteroid(agtm_m_nodeinfo.tupleoid, "all", AGTM_USER, appendnodeinfo.nodeaddr);
 
 		/* for datanode slave , which has the same datanode master */
 		mgr_add_hbaconf_by_masteroid(mastertupleoid, "replication", appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr);
@@ -4006,6 +4010,8 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 		mgr_append_pgconf_paras_str_str("hot_standby", "on", &infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", appendnodeinfo.nodeport, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", appendnodeinfo.nodename, &infosendmsg);
+		mgr_get_gtm_host_snapsender_port(&infosendmsg);
+
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
 								appendnodeinfo.nodepath,
 								&infosendmsg,
@@ -4111,7 +4117,7 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 	pfree(recorderr.data);
 	pfree_AppendNodeInfo(appendnodeinfo);
 	pfree_AppendNodeInfo(parentnodeinfo);
-	pfree_AppendNodeInfo(agtm_m_nodeinfo);
+	//pfree_AppendNodeInfo(agtm_m_nodeinfo);
 
 	return HeapTupleGetDatum(tup_result);
 }
@@ -6142,7 +6148,8 @@ Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
-	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
+	//mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
+	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 
 	if(force_get)
 		force = true;
@@ -11336,8 +11343,8 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 	ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node"
 			" on all coordinators", dnname)));
 
-	hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn,SQL_BEGIN_TRANSACTION
-				, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+	/* hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn,SQL_BEGIN_TRANSACTION
+				, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK); */
 	foreach(lc_out, prefer_cndn->coordiantor_list)
 	{
 		coordinator_num = coordinator_num + 1;
@@ -11459,8 +11466,8 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 				, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 	}
 
-	hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn,SQL_COMMIT_TRANSACTION
-			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+	/* hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn,SQL_COMMIT_TRANSACTION
+			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK); */
 
 	/* on coordinator , select pgxc_pool_reload() */
 	ereport(LOG, (errmsg("select pgxc_pool_reload() on all coordinators")));
