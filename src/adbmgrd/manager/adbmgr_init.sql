@@ -123,7 +123,17 @@ CREATE VIEW adbmgr.boottime_all AS
 
 --list hba
 CREATE VIEW adbmgr.hba AS
-		select * from mgr_hba order by nodename;
+    select CASE mgr_node.nodetype
+      WHEN 'g' THEN 'gtm'
+      WHEN 'p' THEN 'gtm'
+      WHEN 'c' THEN 'coordinator'
+      WHEN 's' THEN 'coordinator'
+      WHEN 'd' THEN 'datanode'
+      WHEN 'b' THEN 'datanode'
+	  END AS nodetype,
+	  mgr_hba.nodename,
+	  mgr_hba.hbavalue 
+	  from mgr_hba inner join mgr_node ON mgr_hba.nodename=mgr_node.nodename;
 
 --init all
 CREATE VIEW adbmgr.initall AS
