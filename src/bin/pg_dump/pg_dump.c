@@ -17901,13 +17901,14 @@ dumpAdbmgrTable(Archive *fout)
 	resetPQExpBuffer(dbQry);
 	appendPQExpBuffer(dbQry, "LIST HBA");
 	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
-	Assert(PQnfields(res) == 2);
+	Assert(PQnfields(res) == 3);
 	resetPQExpBuffer(addstrdata);
 	for (i = 0; i < PQntuples(res); i++)
 	{
-		appendPQExpBuffer(addstrdata, "ADD HBA \"%s\" (\"%s\");\n",
+		appendPQExpBuffer(addstrdata, "ADD HBA %s \"%s\" (\"%s\");\n",
 			PQgetvalue(res, i, 0),
-			PQgetvalue(res, i, 1));
+			PQgetvalue(res, i, 1),
+			PQgetvalue(res, i, 2));
 	}
 	ArchiveEntry(fout, nilCatalogId, createDumpId(),
 		"mgr_hba",
