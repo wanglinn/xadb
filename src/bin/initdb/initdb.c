@@ -2260,6 +2260,14 @@ make_postgres(FILE *cmdfd)
 	static const char *const postgres_setup[] = {
 		"CREATE DATABASE postgres;\n\n",
 		"COMMENT ON DATABASE postgres IS 'default administrative connection database';\n\n",
+#ifdef ADB
+		"CREATE DATABASE antdb;\n\n",
+		"COMMENT ON DATABASE antdb IS 'default application connection database';\n\n",
+#endif
+#ifdef INITMGR
+		"CREATE DATABASE antdbmgr;\n\n",
+		"COMMENT ON DATABASE antdbmgr IS 'default antdbmgr connection database';\n\n",
+#endif /* INITMGR */
 		NULL
 	};
 
