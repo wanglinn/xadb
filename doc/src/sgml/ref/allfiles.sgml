@@ -288,6 +288,7 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrSetGtm          SYSTEM "mgr_set_gtm.sgml">
 <!ENTITY mgrSetClusterInit  SYSTEM "mgr_set_cluster_init.sgml">
 <!ENTITY mgrShow            SYSTEM "mgr_show.sgml">
+<!ENTITY mgrShow            SYSTEM "mgr_show_hba.sgml">
 <!ENTITY mgrStartAgent      SYSTEM "mgr_start_agent.sgml">
 <!ENTITY mgrStartAll        SYSTEM "mgr_start_all.sgml">
 <!ENTITY mgrStartCoordinator SYSTEM "mgr_start_coordinator.sgml">

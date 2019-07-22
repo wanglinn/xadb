@@ -228,6 +228,7 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 /* ADB_DOCTOR_BEGIN */
 %token<keyword>	DOCTOR
 /* ADB_DOCTOR_END */
+
 %%
 /*
  *	The target production for the whole parse.
@@ -1983,7 +1984,6 @@ ListHbaStmt:
 		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_list_hba_by_name", $3));
 		$$ = (Node*)stmt;
 	}
-	;
 
 HbaParaList:
 	'(' NodeConstList ')' 	{$$ = $2;}
@@ -1991,7 +1991,6 @@ HbaParaList:
 	;
 
 /*hba end*/
-
 /* gtm/coordinator/datanode
 */
 
@@ -2833,13 +2832,29 @@ ListMonitor:
 	;
 
 ShowStmt:
-	SHOW Ident var_showparam
+	SHOW PARAM Ident var_showparam
 	{
 		SelectStmt *stmt = makeNode(SelectStmt);
-		List *args = list_make1(makeStringConst($2, @2));
-		args = lappend(args, makeStringConst($3, @3));
+		List *args = list_make1(makeStringConst($3, @3));
+		args = lappend(args, makeStringConst($4, @4));
 		stmt->targetList = list_make1(make_star_target(-1));
 		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_show_var_param", args));
+		$$ = (Node*)stmt;
+	}
+	|
+	SHOW HBA NodeConstList
+	{
+		SelectStmt *stmt = makeNode(SelectStmt);
+		stmt->targetList = list_make1(make_star_target(-1));
+		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_show_hba_all", $3));
+		$$ = (Node*)stmt;
+	}
+	| SHOW HBA opt_general_all
+	{
+		SelectStmt *stmt = makeNode(SelectStmt);
+		List *args = list_make1(makeNullAConst(-1));
+		stmt->targetList = list_make1(make_star_target(-1));
+		stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_show_hba_all", args));
 		$$ = (Node*)stmt;
 	}
 	;

@@ -47,6 +47,9 @@
 #define HBA_RESULT_COLUMN  			2
 #define HBA_ELEM_NUM				6
 #define is_digit(c) ((unsigned)(c) - '0' <= 9)
+#define SQL_PG_HBA_FILE_RULES "select type,trim(both '{}' from database::varchar), \
+		trim(both '{}' from user_name::varchar) \
+		,address,masklen(netmask::inet) ,auth_method from pg_hba_file_rules"
 
 typedef enum OperateHbaType
 {
@@ -68,6 +71,7 @@ typedef struct TableInfo
 #error "need change hba code"
 #endif
 static TupleDesc common_command_tuple_desc = NULL;
+static TupleDesc hba_file_reules_tuple_desc = NULL;
 
 /*--------------------------------------------------------------------*/
 void mgr_clean_hba_table(char *coord_name, char *values);
@@ -98,6 +102,175 @@ static void joint_hba_table_str(char *hbavalue, StringInfo infomsg);
 static bool is_digit_str(char *s_digit);
 static bool mgr_type_include(char nodetype, char type);
 /*--------------------------------------------------------------------*/
+static TupleDesc get_hba_conf_tuple_desc(void)
+{
+	if(hba_file_reules_tuple_desc == NULL)
+	{
+		MemoryContext volatile old_context = MemoryContextSwitchTo(TopMemoryContext);
+		TupleDesc volatile desc = NULL;
+		PG_TRY();
+		{
+			desc = CreateTemplateTupleDesc(3, false);
+			TupleDescInitEntry(desc, (AttrNumber) 1, "nodetype", NAMEOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 2, "nodename", NAMEOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 3, "hbavalue", TEXTOID, -1, 0);
+			hba_file_reules_tuple_desc = BlessTupleDesc(desc);
+		}PG_CATCH();
+		{
+			if(desc)
+				FreeTupleDesc(desc);
+			PG_RE_THROW();
+		}PG_END_TRY();
+		(void)MemoryContextSwitchTo(old_context);
+	}
+	Assert(hba_file_reules_tuple_desc);
+	return hba_file_reules_tuple_desc;
+}
+
+static HeapTuple build_hba_conf_file_tuple(const Form_mgr_node mgr_node, const StringInfoData* resultstrdata)
+{
+	int i = 0;
+	char *value;
+	int position = 0;
+	StringInfoData hbavaluedata;
+	NameData name[2];
+	Datum datums[3];
+	bool nulls[3];
+	TupleDesc desc;
+	AssertArg(mgr_node && resultstrdata);
+	desc = get_hba_conf_tuple_desc();
+
+	AssertArg(desc && desc->natts == 3
+		&& TupleDescAttr(desc, 0)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 1)->atttypid == NAMEOID
+		&& TupleDescAttr(desc, 2)->atttypid == TEXTOID);
+
+	if (mgr_node->nodetype == GTM_TYPE_GTM_SLAVE || mgr_node->nodetype == GTM_TYPE_GTM_MASTER)
+		namestrcpy(&name[0], "gtm");
+	else if (mgr_node->nodetype == CNDN_TYPE_DATANODE_SLAVE || mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER)
+		namestrcpy(&name[0], "datanode");
+	else if (mgr_node->nodetype == CNDN_TYPE_COORDINATOR_SLAVE || mgr_node->nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+		namestrcpy(&name[0], "coordinator");
+	else
+		namestrcpy(&name[0], "unknown nodetype");
+
+	namestrcpy(&name[1], NameStr(mgr_node->nodename));
+
+	initStringInfo(&hbavaluedata);
+	position = 0;
+	i = 0;
+	while(1)
+	{
+		if(position >= resultstrdata->len)
+			break;
+		value = &(resultstrdata->data[position]);
+		if (*value)
+		{
+			appendStringInfo(&hbavaluedata, "%s ", value);
+			position = position + strlen(value);
+		}
+		position = position + 1;
+		i++;
+		if (i == 6)
+		{
+			appendStringInfo(&hbavaluedata, "\n");
+			i = 0;
+		}
+	}
+
+	datums[0] = NameGetDatum(&name[0]);
+	datums[1] = NameGetDatum(&name[1]);
+	datums[2] = CStringGetTextDatum(hbavaluedata.data);
+
+	nulls[0] = nulls[1] = nulls[2] = false;
+	pfree(hbavaluedata.data);
+	return heap_form_tuple(desc, datums, nulls);
+}
+
+Datum mgr_show_hba_all(PG_FUNCTION_ARGS)
+{
+	HeapTuple tup_result;
+	HeapTuple tuple;
+	Form_mgr_node mgr_node;
+	char nodetype;
+	FuncCallContext *funcctx;
+	StringInfoData resultstrdata;
+	
+	InitNodeInfo *info;
+	char *nodestrname;
+	List *nodenamelist;
+	ScanKeyData key[1];
+	char *hostAddr;
+	char *user;
+	int agentport;
+
+	/* stuff done only on the first call of the function */
+	if (SRF_IS_FIRSTCALL())
+	{
+		MemoryContext oldcontext;
+	
+		funcctx = SRF_FIRSTCALL_INIT();
+
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		info = palloc(sizeof(*info));
+
+		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+		if(!PG_ARGISNULL(0))
+		{
+			nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
+			nodestrname = (char *) lfirst(list_head(nodenamelist));
+			ScanKeyInit(&key[0]
+				,Anum_mgr_hba_nodename
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,CStringGetDatum(nodestrname));
+			info->rel_scan = heap_beginscan_catalog(info->rel_node, 1, key);
+		}
+		else
+		{
+			info->rel_scan = heap_beginscan_catalog(info->rel_node, 0, NULL);
+		}
+
+		info->lcp = NULL;
+		funcctx->user_fctx = info;
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	Assert(funcctx);
+	info = funcctx->user_fctx;
+	Assert(info);
+
+	//todo rollback
+	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+
+		agentport = get_agentPort_from_hostoid(mgr_node->nodehost);
+		hostAddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		user = get_hostuser_from_hostoid(mgr_node->nodehost);
+		initStringInfo(&resultstrdata);
+		nodetype = mgr_node->nodetype;
+		
+		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_HBA_FILE_RULES
+			, (nodetype == GTM_TYPE_GTM_MASTER || nodetype == GTM_TYPE_GTM_SLAVE) ? AGTM_USER:user
+			, hostAddr, mgr_node->nodeport, DEFAULT_DB, &resultstrdata);
+
+		tup_result = build_hba_conf_file_tuple(mgr_node, &resultstrdata);
+
+		pfree(resultstrdata.data);
+		pfree(user);
+		pfree(hostAddr);
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+	}
+
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);
+	pfree(info);
+	SRF_RETURN_DONE(funcctx);
+}
 
 Datum mgr_list_hba_by_name(PG_FUNCTION_ARGS)
 {
@@ -160,6 +333,7 @@ Datum mgr_list_hba_by_name(PG_FUNCTION_ARGS)
 		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 	}
 }
+
 Datum mgr_add_hba(PG_FUNCTION_ARGS)
 {
 	GetAgentCmdRst err_msg;

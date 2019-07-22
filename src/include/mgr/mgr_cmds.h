@@ -388,6 +388,7 @@ extern void mgr_clean_hba_table(char *coord_name, char *values);
 extern void add_hba_table_to_file(char *coord_name);
 extern void add_one_to_hba_file(const char *coord_name, const char *hba_value, GetAgentCmdRst *err_msg);
 extern Datum mgr_list_hba_by_name(PG_FUNCTION_ARGS);
+extern Datum mgr_show_hba_all(PG_FUNCTION_ARGS);
 extern Datum mgr_drop_hba(PG_FUNCTION_ARGS);
 extern Datum mgr_add_hba(PG_FUNCTION_ARGS);
 

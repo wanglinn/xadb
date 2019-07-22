@@ -1115,6 +1115,7 @@ revoke execute on function mgr_failover_gtm(cstring, bool), mgr_failover_one_dn(
 
 -- show
 revoke execute on function mgr_show_var_param( "any") from public;
+revoke execute on function mgr_show_hba_all("any") from public;
 
 -- append
 revoke execute on function

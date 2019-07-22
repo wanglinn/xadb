@@ -9933,13 +9933,15 @@ static void mgr_manage_show(char command_type, char *user_list_str)
 	{
 		/*grant execute on function func_name [, ...] to user_name [, ...] */
 		appendStringInfoString(&commandsql, "GRANT EXECUTE ON FUNCTION ");
-		appendStringInfoString(&commandsql, "mgr_show_var_param(\"any\") ");
+		appendStringInfoString(&commandsql, "mgr_show_var_param(\"any\"), ");
+		appendStringInfoString(&commandsql, "mgr_show_hba_all(\"any\") ");
 		appendStringInfoString(&commandsql, "TO ");
 	}else if (command_type == PRIV_REVOKE)
 	{
 		/*revoke execute on function func_name [, ...] from user_name [, ...] */
 		appendStringInfoString(&commandsql, "REVOKE EXECUTE ON FUNCTION ");
-		appendStringInfoString(&commandsql, "mgr_show_var_param(\"any\") ");
+		appendStringInfoString(&commandsql, "mgr_show_var_param(\"any\"), ");
+		appendStringInfoString(&commandsql, "mgr_show_hba_all(\"any\") ");
 		appendStringInfoString(&commandsql, "FROM ");
 	}
 	else
@@ -10799,7 +10801,10 @@ static bool mgr_acl_start(char *username)
 
 static bool mgr_acl_show(char *username)
 {
-	return mgr_has_func_priv(username, "mgr_show_var_param(\"any\")", "execute");
+	bool f1, f2;
+	f1 = mgr_has_func_priv(username, "mgr_show_var_param(\"any\")", "execute");
+	f2 = mgr_has_func_priv(username, "mgr_show_hba_all(\"any\")", "execute");
+	return (f1 && f2);
 }
 
 static bool mgr_acl_monitor(char *username)

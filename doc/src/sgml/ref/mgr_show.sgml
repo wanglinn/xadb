@@ -3,25 +3,25 @@ doc/src/sgml/ref/mgr_show.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-SHOW">
+<refentry id="MGR-SHOW-PARAM">
   <refmeta>
-    <refentrytitle>SHOW</refentrytitle>
+    <refentrytitle>SHOW PARAM</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>SHOW</refname>
+    <refname>SHOW PARAM</refname>
     <refpurpose>show the valid parameters which is belong to the view of pg_settings</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-show">
-    <primary>SHOW</primary>
+    <primary>SHOW PARAM</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-<command>SHOW</command> <replaceable class="parameter">node_name</replaceable> <replaceable class="parameter">parameter</replaceable>
+<command>SHOW PARAM</command> <replaceable class="parameter">node_name</replaceable> <replaceable class="parameter">parameter</replaceable>
 </synopsis>
   </refsynopsisdiv>
 

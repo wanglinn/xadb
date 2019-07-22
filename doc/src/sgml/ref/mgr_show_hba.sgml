@@ -1,0 +1,58 @@
+<!--
+doc/src/sgml/ref/mgr_show_hba.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-SHOW-HBA">
+  <refmeta>
+    <refentrytitle>SHOW HBA</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>SHOW HBA</refname>
+    <refpurpose>show the content of the pg_hba.conf file</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-listhba">
+    <primary>SHOW HBA</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+  <synopsis>
+SHOW HBA { ALL | <replaceable class="parameter">coord_name</replaceable> [, ...] }
+</synopsis>
+</refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+   <command>SHOW HBA</command> show the content of the pg_hba.conf file.
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Examples</title>
+  <para>
+   Show all content of the pg_hba.conf file:
+<programlisting>
+SHOW HBA ALL;
+</programlisting>
+  </para>
+  <para>
+   List the content of of the pg_hba.conf file for coord_name:
+<programlisting>
+SHOW HBA coord_name;
+</programlisting>
+  </para>
+  </refsect1>
+      <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-addhba"></member>
+      <member><xref linkend="mgr-drophba"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>
