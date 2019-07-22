@@ -4,7 +4,7 @@
 #include "lib/stringinfo.h"
 
 void agt_msg_init(pgsocket fd_client);
-void agt_close();
+void agt_close(void);
 
 /* return first char for message */
 int agt_get_msg(StringInfo msg);
