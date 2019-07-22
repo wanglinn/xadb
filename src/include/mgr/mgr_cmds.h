@@ -142,7 +142,7 @@ extern bool port_occupancy_test(const char *ip_address, const int port);
 extern bool get_node_type_str(int node_type, Name node_type_str);
 
 extern Datum mgr_start_agent_all(PG_FUNCTION_ARGS);
-extern bool mgr_start_agent_execute(Form_mgr_host mgr_host,char* hostaddr,char *hostadbhome, char *password, char** retMessage);
+extern GetAgentCmdRst *mgr_start_agent_execute(Form_mgr_host mgr_host,char* hostaddr,char *hostadbhome, char *password);
 extern Datum mgr_start_agent_hostnamelist(PG_FUNCTION_ARGS);
 
 extern Datum mgr_deploy_all(PG_FUNCTION_ARGS);
@@ -434,6 +434,8 @@ extern void mgr_add_hbaconf(char nodetype, char *dnusername, char *dnaddr);
 extern void mgr_check_dir_exist_and_priv(Oid hostoid, char *dir);
 extern void mgr_pgbasebackup(char nodetype, AppendNodeInfo *appendnodeinfo, AppendNodeInfo *parentnodeinfo);
 extern void mgr_start_node(char nodetype, const char *nodepath, Oid hostoid);
+extern GetAgentCmdRst *mgr_start_node_execute(char nodetype, const char *nodepath, char *hostaddr, int32 hostagentport);
+extern GetAgentCmdRst *mgr_stop_node_execute(char nodetype, const char *nodepath, char *hostaddr, int32 hostagentport, char *shutdown_mode);
 extern HeapTuple build_common_command_tuple_for_boottime(const Name name, char type, bool status, const char *description,
 						const char *starttime ,const Name hostaddr);
 extern HeapTuple build_common_command_tuple_for_monitor(const Name name, char type, bool status, const char *description

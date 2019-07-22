@@ -151,10 +151,12 @@ extern bool with_data_checksums;
 
 NameData clusterLockCoordNodeName;
 
+/* the value of curestatus is not case sensitive */
 #define CURE_STATUS_NORMAL "normal"
-#define CURE_STATUS_CURING "healing"
-#define CURE_STATUS_WAIT_SWITCH "wait switch"
+#define CURE_STATUS_CURING "curing"
+#define CURE_STATUS_WAIT_SWITCH "waitswitch"
 #define CURE_STATUS_SWITCHING "switching"
+#define CURE_STATUS_DANGER "danger"
 
 
 #endif /* MGR_CNDNNODE_H */

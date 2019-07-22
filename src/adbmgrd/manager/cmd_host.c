@@ -1415,27 +1415,29 @@ Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
 
-bool mgr_start_agent_execute(Form_mgr_host mgr_host,char* hostaddr,char *hostadbhome, char *password, char** retMessage)
+/*
+* GetAgentCmdRst.ret == 0, means success,
+* otherwise, see error message in GetAgentCmdRst.description.
+* The return result is palloced, so pfree it if it useless.
+*/
+GetAgentCmdRst *mgr_start_agent_execute(Form_mgr_host mgr_host,char* hostaddr,char *hostadbhome, char *password)
 {
 	int ret;
 	char *host_addr;
-	StringInfoData message;
+	GetAgentCmdRst *cmdRst;
 	StringInfoData exec_path;
 
+	cmdRst = palloc0(sizeof(GetAgentCmdRst));
+	initStringInfo(&cmdRst->description);
 	/* get exec path */
 	if(hostadbhome == NULL || strlen(hostadbhome) ==0)
 	{
-		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
-                        err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host"),
-                        errmsg("column hostadbhome is null")));
+		cmdRst->ret = -1;
+		appendStringInfoString(&(cmdRst->description), "hostadbhome can be empty");
+		return cmdRst;
 	}
-	
-	initStringInfo(&message);
+
 	initStringInfo(&exec_path);
-	if(retMessage != NULL)
-	{
-		*retMessage = message.data;
-	}
 
 	appendStringInfo(&exec_path
 		, "export LD_LIBRARY_PATH=%s/lib:$LD_LIBRARY_PATH;", hostadbhome);
@@ -1456,22 +1458,26 @@ bool mgr_start_agent_execute(Form_mgr_host mgr_host,char* hostaddr,char *hostadb
 	/* exec start */
 	if(mgr_host->hostproto == HOST_PROTOCOL_TELNET)
 	{
-		appendStringInfoString(&message, _("telnet not support yet"));
-		ret = 1;
-	}else if(mgr_host->hostproto == HOST_PROTOCOL_SSH)
-	{
-		ret = ssh2_start_agent(host_addr
-			, mgr_host->hostport
-			, NameStr(mgr_host->hostuser)
-			, password /* password for libssh2*/
-			, exec_path.data
-			, &message);
-	}else
-	{
-		appendStringInfo(&message, _("unknown protocol '%d'"), mgr_host->hostproto);
+		appendStringInfoString(&cmdRst->description, _("telnet not support yet"));
 		ret = 1;
 	}
-	return ret==0;
+	else if(mgr_host->hostproto == HOST_PROTOCOL_SSH)
+	{
+		ret = ssh2_start_agent(host_addr,
+			mgr_host->hostport,
+			NameStr(mgr_host->hostuser),
+			password, /* password for libssh2*/
+			exec_path.data,
+			&cmdRst->description);
+	}
+	else
+	{
+		appendStringInfo(&cmdRst->description, _("unknown protocol '%d'"), mgr_host->hostproto);
+		ret = 1;
+	}
+	pfree(exec_path.data);
+	cmdRst->ret = ret;
+	return cmdRst;
 }
 
 Datum mgr_stop_agent_all(PG_FUNCTION_ARGS)
