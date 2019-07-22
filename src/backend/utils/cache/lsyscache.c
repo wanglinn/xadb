@@ -3390,6 +3390,22 @@ get_pgxc_nodename(Oid nodeid)
 	return result;
 }
 
+void get_pgxc_node_name_and_host(Oid nodeoid, Name name, Name host)
+{
+	HeapTuple		tuple;
+	Form_pgxc_node	nodeForm;
+
+	tuple = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(nodeoid));
+
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for node %u", nodeoid);
+
+	nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
+	namestrcpy(name, NameStr(nodeForm->node_name));
+	namestrcpy(host, NameStr(nodeForm->node_host));
+	ReleaseSysCache(tuple);
+}
+
 char * get_pgxc_groupname(Oid groupid)
 {
 	HeapTuple			tuple;
