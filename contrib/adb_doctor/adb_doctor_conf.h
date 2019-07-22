@@ -28,15 +28,18 @@
 #define ADB_DOCTOR_CONF_KEY_NODEDEADLINE "nodedeadline"
 #define ADB_DOCTOR_CONF_KEY_AGENTDEADLINE "agentdeadline"
 
-#define CHECK_ADB_DOCTOR_CONF_MIN_MAX(ptr, minMember, maxMember)        \
-	do                                                                  \
-	{                                                                   \
-		if (ptr->minMember < 1)                                         \
-			ereport(ERROR, (errmsg(#minMember " must > 0")));           \
-		if (ptr->maxMember < 1)                                         \
-			ereport(ERROR, (errmsg(#maxMember " must > 0")));           \
-		if (ptr->minMember > ptr->maxMember)                            \
-			ereport(ERROR, (errmsg(#maxMember " must > " #minMember))); \
+#define CHECK_ADB_DOCTOR_CONF_MIN_MAX(ptr, minMember, maxMember) \
+	do                                                           \
+	{                                                            \
+		if (ptr->minMember < 1)                                  \
+			ereport(ERROR,                                       \
+					(errmsg(#minMember " must > 0")));           \
+		if (ptr->maxMember < 1)                                  \
+			ereport(ERROR,                                       \
+					(errmsg(#maxMember " must > 0")));           \
+		if (ptr->minMember > ptr->maxMember)                     \
+			ereport(ERROR,                                       \
+					(errmsg(#maxMember " must > " #minMember))); \
 	} while (0)
 
 typedef enum Adb_Doctor_Conf_Datalevel
@@ -49,11 +52,12 @@ typedef enum Adb_Doctor_Conf_Datalevel
 typedef struct AdbDoctorConf
 {
 	LWLock lock;
-	/* below three elements are editable */
+	/* Below three elements are editable */
 	int datalevel;
 	int nodedeadline;
 	int agentdeadline;
-	/* below three elements are not editable */
+	/* The elements below are not editable, keep these member names 
+	 * the same as the k field values in the table adb_doctor_conf */
 	int node_restart_crashed_master;
 	int node_restart_master_timeout_ms;
 	int node_shutdown_timeout_ms;
@@ -100,7 +104,6 @@ static inline void pfreeAdbDoctorConfShm(AdbDoctorConfShm *confShm)
 }
 
 extern void checkAdbDoctorConf(AdbDoctorConf *src);
-extern bool equalsAdbDoctorConf(AdbDoctorConf *conf1, AdbDoctorConf *conf2);
 extern bool equalsAdbDoctorConfIgnoreLock(AdbDoctorConf *conf1,
 										  AdbDoctorConf *conf2);
 extern AdbDoctorConfShm *setupAdbDoctorConfShm(AdbDoctorConf *conf);

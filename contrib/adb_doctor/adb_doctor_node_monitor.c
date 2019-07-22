@@ -210,7 +210,8 @@ void adbDoctorNodeMonitorMain(Datum main_arg)
 		attachNodeDataShm(main_arg, &data);
 		notifyAdbDoctorRegistrant();
 		ereport(LOG,
-				(errmsg("%s started", MyBgworkerEntry->bgw_name)));
+				(errmsg("%s started",
+						MyBgworkerEntry->bgw_name)));
 
 		confShm = attachAdbDoctorConfShm(data->header.commonShmHandle,
 										 MyBgworkerEntry->bgw_name);
@@ -405,7 +406,8 @@ static void handleConnectionStatusConnecting(MonitorNodeInfo *nodeInfo)
 	else
 	{
 		ereport(ERROR,
-				(errmsg("Unexpected PostgresPollingStatusType:%d", pollType)));
+				(errmsg("Unexpected PostgresPollingStatusType:%d",
+						pollType)));
 	}
 	if (isConnectTimedOut(nodeInfo))
 	{
@@ -503,15 +505,17 @@ static void handleConnectionStatusBad(MonitorNodeInfo *nodeInfo)
 	}
 	else
 	{
-		ereport(DEBUG1, (errmsg("%s, connect node too often",
-								MyBgworkerEntry->bgw_name)));
+		ereport(DEBUG1,
+				(errmsg("%s, connect node too often",
+						MyBgworkerEntry->bgw_name)));
 	}
 }
 
 static void toConnectionStatusConnecting(MonitorNodeInfo *nodeInfo)
 {
-	ereport(DEBUG1, (errmsg("%s, start connect node",
-							MyBgworkerEntry->bgw_name)));
+	ereport(DEBUG1,
+			(errmsg("%s, start connect node",
+					MyBgworkerEntry->bgw_name)));
 	nodeInfo->connnectionStatus = NODE_CONNNECTION_STATUS_CONNECTING;
 	nodeInfo->connectTime = GetCurrentTimestamp();
 }
@@ -520,13 +524,15 @@ static void toConnectionStatusSucceeded(MonitorNodeInfo *nodeInfo)
 {
 	if (nodeInfo->connnectionStatus == NODE_CONNNECTION_STATUS_CONNECTING)
 	{
-		ereport(DEBUG1, (errmsg("%s, connect node succeeded",
-								MyBgworkerEntry->bgw_name)));
+		ereport(DEBUG1,
+				(errmsg("%s, connect node succeeded",
+						MyBgworkerEntry->bgw_name)));
 	}
 	else if (nodeInfo->connnectionStatus == NODE_CONNNECTION_STATUS_QUERYING)
 	{
-		ereport(DEBUG1, (errmsg("%s, query node succeeded",
-								MyBgworkerEntry->bgw_name)));
+		ereport(DEBUG1,
+				(errmsg("%s, query node succeeded",
+						MyBgworkerEntry->bgw_name)));
 		/* reset queryfail control factor */
 		nodeInfo->nQueryfails = 0;
 	}
@@ -541,16 +547,18 @@ static void toConnectionStatusSucceeded(MonitorNodeInfo *nodeInfo)
 
 static void toConnectionStatusQuerying(MonitorNodeInfo *nodeInfo)
 {
-	ereport(DEBUG1, (errmsg("%s, start query node",
-							MyBgworkerEntry->bgw_name)));
+	ereport(DEBUG1,
+			(errmsg("%s, start query node",
+					MyBgworkerEntry->bgw_name)));
 	nodeInfo->queryTime = GetCurrentTimestamp();
 	nodeInfo->connnectionStatus = NODE_CONNNECTION_STATUS_QUERYING;
 }
 
 static void toConnectionStatusBad(MonitorNodeInfo *nodeInfo)
 {
-	ereport(LOG, (errmsg("%s, connect node bad",
-						 MyBgworkerEntry->bgw_name)));
+	ereport(LOG,
+			(errmsg("%s, connect node bad",
+					MyBgworkerEntry->bgw_name)));
 	nodeInfo->waitEvents = 0;
 	nodeInfo->queryHandler = NULL;
 	nodeInfo->connnectionStatus = NODE_CONNNECTION_STATUS_BAD;
@@ -638,8 +646,9 @@ static void handleRunningStatusPending(MonitorNodeInfo *nodeInfo)
 		{
 			if (isShutdownTimedout(nodeInfo))
 			{
-				ereport(LOG, (errmsg("%s, node is too long in shutdown mode",
-									 MyBgworkerEntry->bgw_name)));
+				ereport(LOG,
+						(errmsg("%s, node is too long in shutdown mode",
+								MyBgworkerEntry->bgw_name)));
 				if (shutdownNode(nodeInfo, SHUTDOWN_I))
 				{
 					startupNode(nodeInfo);
@@ -675,8 +684,9 @@ static void handleRunningStatusPending(MonitorNodeInfo *nodeInfo)
 
 static void toRunningStatusNormal(MonitorNodeInfo *nodeInfo)
 {
-	ereport(LOG, (errmsg("%s, node running normally",
-						 MyBgworkerEntry->bgw_name)));
+	ereport(LOG,
+			(errmsg("%s, node running normally",
+					MyBgworkerEntry->bgw_name)));
 	nodeInfo->runningStatus = NODE_RUNNING_STATUS_NORMAL;
 	nodeInfo->nRestarts = 0;
 	nodeInfo->crashedTime = 0;
@@ -687,16 +697,18 @@ static void toRunningStatusNormal(MonitorNodeInfo *nodeInfo)
 
 static void toRunningStatusCrashed(MonitorNodeInfo *nodeInfo)
 {
-	ereport(LOG, (errmsg("%s, node crashed",
-						 MyBgworkerEntry->bgw_name)));
+	ereport(LOG,
+			(errmsg("%s, node crashed",
+					MyBgworkerEntry->bgw_name)));
 	nodeInfo->runningStatus = NODE_RUNNING_STATUS_CRASHED;
 	nodeInfo->crashedTime = GetCurrentTimestamp();
 }
 
 static void toRunningStatusPending(MonitorNodeInfo *nodeInfo)
 {
-	ereport(LOG, (errmsg("%s, node pending",
-						 MyBgworkerEntry->bgw_name)));
+	ereport(LOG,
+			(errmsg("%s, node pending",
+					MyBgworkerEntry->bgw_name)));
 	nodeInfo->runningStatus = NODE_RUNNING_STATUS_PENDING;
 }
 
@@ -748,8 +760,9 @@ static void handleNodeCrashed(MonitorNodeInfo *nodeInfo)
 
 static void handleNodeDangerous(MonitorNodeInfo *nodeInfo)
 {
-	ereport(LOG, (errmsg("%s, node is running dangerously",
-						 MyBgworkerEntry->bgw_name)));
+	ereport(LOG,
+			(errmsg("%s, node is running dangerously",
+					MyBgworkerEntry->bgw_name)));
 	/* Check if monitor this node responsibility is still me. */
 	checkAndReplaceAdbMgrNode(&nodeInfo->node);
 	checkAndUpdateCurestatus(nodeInfo->node, CURE_STATUS_DANGER);
@@ -772,8 +785,9 @@ static bool tryRestartNode(MonitorNodeInfo *nodeInfo)
 	}
 	else
 	{
-		ereport(DEBUG1, (errmsg("%s, restart node too often",
-								MyBgworkerEntry->bgw_name)));
+		ereport(DEBUG1,
+				(errmsg("%s, restart node too often",
+						MyBgworkerEntry->bgw_name)));
 		return false;
 	}
 }
@@ -792,24 +806,26 @@ static void nodeWaitSwitch(MonitorNodeInfo *nodeInfo)
 	}
 	else
 	{
-		ereport(ERROR, (errmsg("%s, can not do wait switch operation on a slave node.",
-							   MyBgworkerEntry->bgw_name)));
+		ereport(ERROR,
+				(errmsg("%s, can not do wait switch operation on a slave node.",
+						MyBgworkerEntry->bgw_name)));
 	}
 }
 
 static bool startupNode(MonitorNodeInfo *nodeInfo)
 {
 	bool ok;
-	GetAgentCmdRst *cmdRst;
-	AdbMgrHostWrapper *host = NULL;
+	GetAgentCmdRst *volatile cmdRst = NULL;
+	AdbMgrHostWrapper *volatile host = NULL;
 
 	nodeInfo->nRestarts++;
 	nodeInfo->restartTime = GetCurrentTimestamp();
 	/* Modify the value of the variable that controls the restart frequency. */
 	nextRestartFactor(nodeInfo);
 
-	ereport(LOG, (errmsg("%s, startup node",
-						 MyBgworkerEntry->bgw_name)));
+	ereport(LOG,
+			(errmsg("%s, startup node",
+					MyBgworkerEntry->bgw_name)));
 	PG_TRY();
 	{
 		host = getAdbMgrHostData(nodeInfo->node);
@@ -818,10 +834,11 @@ static bool startupNode(MonitorNodeInfo *nodeInfo)
 										host->hostaddr,
 										host->fdmh.hostagentport);
 		ok = cmdRst->ret;
-		ereport(LOG, (errmsg("%s, startup node result:%d, message:%s",
-							 MyBgworkerEntry->bgw_name,
-							 cmdRst->ret,
-							 cmdRst->description.data)));
+		ereport(LOG,
+				(errmsg("%s, startup node result:%d, message:%s",
+						MyBgworkerEntry->bgw_name,
+						cmdRst->ret,
+						cmdRst->description.data)));
 	}
 	PG_CATCH();
 	{
@@ -843,12 +860,13 @@ static bool startupNode(MonitorNodeInfo *nodeInfo)
 static bool shutdownNode(MonitorNodeInfo *nodeInfo, char *shutdownMode)
 {
 	bool ok;
-	GetAgentCmdRst *cmdRst = NULL;
-	AdbMgrHostWrapper *host = NULL;
+	GetAgentCmdRst *volatile cmdRst = NULL;
+	AdbMgrHostWrapper *volatile host = NULL;
 
-	ereport(LOG, (errmsg("%s, shutdown node %s",
-						 MyBgworkerEntry->bgw_name,
-						 shutdownMode)));
+	ereport(LOG,
+			(errmsg("%s, shutdown node %s",
+					MyBgworkerEntry->bgw_name,
+					shutdownMode)));
 	PG_TRY();
 	{
 		host = getAdbMgrHostData(nodeInfo->node);
@@ -858,10 +876,11 @@ static bool shutdownNode(MonitorNodeInfo *nodeInfo, char *shutdownMode)
 									   host->fdmh.hostagentport,
 									   shutdownMode);
 		ok = cmdRst->ret;
-		ereport(LOG, (errmsg("%s, shutdown node result:%d, message:%s",
-							 MyBgworkerEntry->bgw_name,
-							 cmdRst->ret,
-							 cmdRst->description.data)));
+		ereport(LOG,
+				(errmsg("%s, shutdown node result:%d, message:%s",
+						MyBgworkerEntry->bgw_name,
+						cmdRst->ret,
+						cmdRst->description.data)));
 	}
 	PG_CATCH();
 	{
@@ -902,8 +921,9 @@ static void startConnection(MonitorNodeInfo *nodeInfo)
 	pfree(conninfo.data);
 	if (nodeInfo->conn == NULL)
 	{
-		ereport(ERROR, (errmsg("%s, libpq has been unable to allocate a new PGconn structure",
-							   MyBgworkerEntry->bgw_name)));
+		ereport(ERROR,
+				(errmsg("%s, libpq has been unable to allocate a new PGconn structure",
+						MyBgworkerEntry->bgw_name)));
 	}
 	if (PQstatus(nodeInfo->conn) == CONNECTION_BAD)
 	{
@@ -944,8 +964,9 @@ static void resetConnection(MonitorNodeInfo *nodeInfo)
 static void closeConnection(MonitorNodeInfo *nodeInfo)
 {
 	toConnectionStatusBad(nodeInfo);
-	ereport(LOG, (errmsg("%s, close node connection",
-						 MyBgworkerEntry->bgw_name)));
+	ereport(LOG,
+			(errmsg("%s, close node connection",
+					MyBgworkerEntry->bgw_name)));
 	PQfinish(nodeInfo->conn);
 	nodeInfo->conn = NULL;
 }
@@ -964,8 +985,9 @@ static bool startQuery(MonitorNodeInfo *nodeInfo, NodeQuerySqlType sqlType)
 
 	if (nodeInfo->queryHandler != NULL)
 	{
-		ereport(LOG, (errmsg("%s, query is busy",
-							 MyBgworkerEntry->bgw_name)));
+		ereport(LOG,
+				(errmsg("%s, query is busy",
+						MyBgworkerEntry->bgw_name)));
 		return false;
 	}
 	if (!beyondQueryInterval(nodeInfo))
@@ -996,7 +1018,8 @@ static bool startQuery(MonitorNodeInfo *nodeInfo, NodeQuerySqlType sqlType)
 	else
 	{
 		ereport(ERROR,
-				(errmsg("Unexpected NodeQuerySqlType:%d", sqlType)));
+				(errmsg("Unexpected NodeQuerySqlType:%d",
+						sqlType)));
 	}
 
 	/* After sending any command or data on a nonblocking connection, call PQflush. */
@@ -1015,8 +1038,9 @@ static bool cancelQuery(MonitorNodeInfo *nodeInfo)
 	int errbufsize;
 	int ret;
 
-	ereport(DEBUG1, (errmsg("%s, cancel query",
-							MyBgworkerEntry->bgw_name)));
+	ereport(DEBUG1,
+			(errmsg("%s, cancel query",
+					MyBgworkerEntry->bgw_name)));
 	cancle = PQgetCancel(nodeInfo->conn);
 	if (cancle == NULL)
 	{
@@ -1030,8 +1054,10 @@ static bool cancelQuery(MonitorNodeInfo *nodeInfo)
 	ret = PQcancel(cancle, errbuf, errbufsize) == 1;
 	if (ret != 1)
 	{
-		ereport(LOG, (errmsg("%s, cancel query error:%s",
-							 MyBgworkerEntry->bgw_name, errbuf)));
+		ereport(LOG,
+				(errmsg("%s, cancel query error:%s",
+						MyBgworkerEntry->bgw_name,
+						errbuf)));
 	}
 	pfree(errbuf);
 	PQfreeCancel(cancle);
@@ -1127,12 +1153,16 @@ static bool simple_print_query_handler(MonitorNodeInfo *nodeInfo,
 	/* first, print out the attribute names */
 	nFields = PQnfields(pgResult);
 	for (i = 0; i < nFields; i++)
-		ereport(LOG, (errmsg("%-15s", PQfname(pgResult, i))));
+		ereport(LOG,
+				(errmsg("%-15s",
+						PQfname(pgResult, i))));
 	/* next, print out the rows */
 	for (i = 0; i < PQntuples(pgResult); i++)
 	{
 		for (j = 0; j < nFields; j++)
-			ereport(LOG, (errmsg("%-15s", PQgetvalue(pgResult, i, j))));
+			ereport(LOG,
+					(errmsg("%-15s",
+							PQgetvalue(pgResult, i, j))));
 	}
 	return true;
 }
@@ -1164,10 +1194,11 @@ static bool PQgetResultAction(MonitorNodeInfo *nodeInfo)
 				/* Although the sql execution error, but still treat the node
 				 * as running normally. If there a sqlstate can determine the
 				 * node exception, handle that exception. */
-				ereport(LOG, (errmsg("%s, sql execution error, sqlstate:%s, ErrorMessage:%s",
-									 MyBgworkerEntry->bgw_name,
-									 sqlstate,
-									 PQresultErrorMessage(pgResult))));
+				ereport(LOG,
+						(errmsg("%s, sql execution error, sqlstate:%s, ErrorMessage:%s",
+								MyBgworkerEntry->bgw_name,
+								sqlstate,
+								PQresultErrorMessage(pgResult))));
 				PQclear(pgResult);
 				return PQgetResultAction(nodeInfo);
 			}
@@ -1304,10 +1335,11 @@ static void nextRestartFactor(MonitorNodeInfo *nodeInfo)
 
 static void occurredError(MonitorNodeInfo *nodeInfo, NodeError error)
 {
-	ereport(LOG, (errmsg("%s, %s, PQerrorMessage:%s",
-						 MyBgworkerEntry->bgw_name,
-						 NODE_ERROR_MSG[(int)error - 1],
-						 PQerrorMessage(nodeInfo->conn))));
+	ereport(LOG,
+			(errmsg("%s, %s, PQerrorMessage:%s",
+					MyBgworkerEntry->bgw_name,
+					NODE_ERROR_MSG[(int)error - 1],
+					PQerrorMessage(nodeInfo->conn))));
 	if (error == NODE_ERROR_CONNECT_TIMEDOUT ||
 		error == NODE_ERROR_CONNECT_FAIL ||
 		error == NODE_CANNOT_CONNECT_STARTUP ||
@@ -1335,7 +1367,8 @@ static void occurredError(MonitorNodeInfo *nodeInfo, NodeError error)
 	else
 	{
 		ereport(ERROR,
-				(errmsg("Unexpected NodeError:%d", error)));
+				(errmsg("Unexpected NodeError:%d",
+						error)));
 	}
 }
 
@@ -1412,9 +1445,10 @@ static AdbMgrHostWrapper *getAdbMgrHostData(AdbMgrNodeWrapper *node)
 	SPI_CONNECT_TRANSACTIONAL_START(ret);
 	if (ret != SPI_OK_CONNECT)
 	{
-		ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE),
-						(errmsg("SPI_connect failed, connect return:%d",
-								ret))));
+		ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 (errmsg("SPI_connect failed, connect return:%d",
+						 ret))));
 	}
 	host = SPI_selectMgrHostByOid(oldContext, node->fdmn.nodehost);
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
@@ -1422,8 +1456,9 @@ static AdbMgrHostWrapper *getAdbMgrHostData(AdbMgrNodeWrapper *node)
 	MemoryContextSwitchTo(oldContext);
 	if (!host)
 	{
-		ereport(ERROR, (errmsg("%s get host info failed",
-							   MyBgworkerEntry->bgw_name)));
+		ereport(ERROR,
+				(errmsg("%s get host info failed",
+						MyBgworkerEntry->bgw_name)));
 	}
 	return host;
 }
@@ -1441,9 +1476,10 @@ static void checkAndReplaceAdbMgrNode(AdbMgrNodeWrapper **nodeP)
 	SPI_CONNECT_TRANSACTIONAL_START(ret);
 	if (ret != SPI_OK_CONNECT)
 	{
-		ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE),
-						(errmsg("SPI_connect failed, connect return:%d",
-								ret))));
+		ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 (errmsg("SPI_connect failed, connect return:%d",
+						 ret))));
 	}
 	nodeDataInDB = SPI_selectMgrNodeByOid(oldContext, nodeDataInMem->oid);
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
@@ -1452,19 +1488,22 @@ static void checkAndReplaceAdbMgrNode(AdbMgrNodeWrapper **nodeP)
 
 	if (!nodeDataInDB)
 	{
-		ereport(ERROR, (errmsg("%s, node data not exists in database",
-							   MyBgworkerEntry->bgw_name)));
+		ereport(ERROR,
+				(errmsg("%s, node data not exists in database",
+						MyBgworkerEntry->bgw_name)));
 	}
 	if (!nodeDataInDB->fdmn.allowcure)
 	{
-		ereport(ERROR, (errmsg("%s, cure node not allowed",
-							   MyBgworkerEntry->bgw_name)));
+		ereport(ERROR,
+				(errmsg("%s, cure node not allowed",
+						MyBgworkerEntry->bgw_name)));
 	}
 	checkCurestatus(nodeDataInDB);
 	if (!equalsAdbMgrNodeWrapper(nodeDataInMem, nodeDataInDB))
 	{
-		ereport(ERROR, (errmsg("%s, node data has changed in database",
-							   MyBgworkerEntry->bgw_name)));
+		ereport(ERROR,
+				(errmsg("%s, node data has changed in database",
+						MyBgworkerEntry->bgw_name)));
 	}
 	pfreeAdbMgrNodeWrapper(nodeDataInMem);
 	*nodeP = nodeDataInDB;
@@ -1489,8 +1528,10 @@ static void checkAndUpdateCurestatus(AdbMgrNodeWrapper *node, char *newCurestatu
 	SPI_CONNECT_TRANSACTIONAL_START(ret);
 	if (ret != SPI_OK_CONNECT)
 	{
-		ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE),
-						(errmsg("SPI_connect failed, connect return:%d", ret))));
+		ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 (errmsg("SPI_connect failed, connect return:%d",
+						 ret))));
 	}
 	ret = SPI_updateMgrNodeCureStatus(node->oid,
 									  NameStr(node->fdmn.curestatus),
@@ -1508,9 +1549,10 @@ static void checkAndUpdateCurestatus(AdbMgrNodeWrapper *node, char *newCurestatu
 
 	if (ret != 1)
 	{
-		ereport(ERROR, (errmsg("%s, can not transit to curestatus:%s",
-							   MyBgworkerEntry->bgw_name,
-							   newCurestatus)));
+		ereport(ERROR,
+				(errmsg("%s, can not transit to curestatus:%s",
+						MyBgworkerEntry->bgw_name,
+						newCurestatus)));
 	}
 	else
 	{
@@ -1523,9 +1565,10 @@ static void checkCurestatus(AdbMgrNodeWrapper *node)
 	if (pg_strcasecmp(NameStr(node->fdmn.curestatus), CURE_STATUS_NORMAL) != 0 &&
 		pg_strcasecmp(NameStr(node->fdmn.curestatus), CURE_STATUS_CURING) != 0)
 	{
-		ereport(ERROR, (errmsg("%s, node curestatus:%s, it is not my responsibility",
-							   MyBgworkerEntry->bgw_name,
-							   NameStr(node->fdmn.curestatus))));
+		ereport(ERROR,
+				(errmsg("%s, node curestatus:%s, it is not my responsibility",
+						MyBgworkerEntry->bgw_name,
+						NameStr(node->fdmn.curestatus))));
 	}
 }
 
@@ -1689,20 +1732,21 @@ static NodeConfiguration *newNodeConfiguration(AdbDoctorConf *conf)
 	nc->restartMasterTimeoutMs = conf->node_restart_master_timeout_ms;
 	nc->shutdownTimeoutMs = conf->node_shutdown_timeout_ms;
 	nc->connectionErrorNumMax = conf->node_connection_error_num_max;
-	ereport(LOG, (errmsg("%s configuration: "
-						 "deadlineMs:%ld, waitEventTimeoutMs:%ld, "
-						 "connectTimeoutMs:%ld, reconnectDelayMs:%ld, "
-						 "queryTimoutMs:%ld, queryIntervalMs:%ld, "
-						 "restartDelayMs:%ld, holdConnectionMs:%ld, "
-						 "restartCrashedMaster:%d, restartMasterTimeoutMs:%ld, "
-						 "shutdownTimeoutMs:%ld, connectionErrorNumMax:%d",
-						 MyBgworkerEntry->bgw_name,
-						 nc->deadlineMs, nc->waitEventTimeoutMs,
-						 nc->connectTimeoutMs, nc->reconnectDelayMs,
-						 nc->queryTimoutMs, nc->queryIntervalMs,
-						 nc->restartDelayMs, nc->holdConnectionMs,
-						 nc->restartCrashedMaster, nc->restartMasterTimeoutMs,
-						 nc->shutdownTimeoutMs, nc->connectionErrorNumMax)));
+	ereport(LOG,
+			(errmsg("%s configuration: "
+					"deadlineMs:%ld, waitEventTimeoutMs:%ld, "
+					"connectTimeoutMs:%ld, reconnectDelayMs:%ld, "
+					"queryTimoutMs:%ld, queryIntervalMs:%ld, "
+					"restartDelayMs:%ld, holdConnectionMs:%ld, "
+					"restartCrashedMaster:%d, restartMasterTimeoutMs:%ld, "
+					"shutdownTimeoutMs:%ld, connectionErrorNumMax:%d",
+					MyBgworkerEntry->bgw_name,
+					nc->deadlineMs, nc->waitEventTimeoutMs,
+					nc->connectTimeoutMs, nc->reconnectDelayMs,
+					nc->queryTimoutMs, nc->queryIntervalMs,
+					nc->restartDelayMs, nc->holdConnectionMs,
+					nc->restartCrashedMaster, nc->restartMasterTimeoutMs,
+					nc->shutdownTimeoutMs, nc->connectionErrorNumMax)));
 	return nc;
 }
 

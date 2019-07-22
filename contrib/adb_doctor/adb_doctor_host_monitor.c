@@ -186,7 +186,8 @@ void adbDoctorHostMonitorMain(Datum main_arg)
 		attachHostDataShm(main_arg, &data);
 		notifyAdbDoctorRegistrant();
 		ereport(LOG,
-				(errmsg("%s started", MyBgworkerEntry->bgw_name)));
+				(errmsg("%s started",
+						MyBgworkerEntry->bgw_name)));
 
 		confShm = attachAdbDoctorConfShm(data->header.commonShmHandle,
 										 MyBgworkerEntry->bgw_name);
@@ -350,7 +351,8 @@ static void examineAgentsStatus(void)
 		else
 		{
 			ereport(ERROR,
-					(errmsg("Unexpected AgentConnectionStatus:%d.", connectionStatus)));
+					(errmsg("Unexpected AgentConnectionStatus:%d.",
+							connectionStatus)));
 		}
 
 		runningStatus = agentWrapper->runningStatus;
@@ -365,7 +367,8 @@ static void examineAgentsStatus(void)
 		else
 		{
 			ereport(ERROR,
-					(errmsg("Unexpected AgentRunningStatus:%d.", runningStatus)));
+					(errmsg("Unexpected AgentRunningStatus:%d.",
+							runningStatus)));
 		}
 	}
 }
@@ -441,17 +444,19 @@ static void handleConnectionStatusBad(ManagerAgentWrapper *agentWrapper)
 	}
 	else
 	{
-		ereport(DEBUG1, (errmsg("%s:%s, connect agent too often",
-								NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-								agentWrapper->hostWrapper->hostaddr)));
+		ereport(DEBUG1,
+				(errmsg("%s:%s, connect agent too often",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr)));
 	}
 }
 
 static void toConnectionStatusConnecting(ManagerAgentWrapper *agentWrapper)
 {
-	ereport(DEBUG1, (errmsg("%s:%s, start connect agent",
-							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							agentWrapper->hostWrapper->hostaddr)));
+	ereport(DEBUG1,
+			(errmsg("%s:%s, start connect agent",
+					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+					agentWrapper->hostWrapper->hostaddr)));
 	agentWrapper->connectionStatus = AGENT_CONNNECTION_STATUS_CONNECTING;
 	agentWrapper->connectTime = GetCurrentTimestamp();
 }
@@ -463,9 +468,10 @@ static void toConnectionStatusSucceeded(ManagerAgentWrapper *agentWrapper)
 {
 	if (agentWrapper->connectionStatus != AGENT_CONNNECTION_STATUS_SUCCEEDED)
 	{
-		ereport(DEBUG1, (errmsg("%s:%s, connection status succeeded",
-								NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-								agentWrapper->hostWrapper->hostaddr)));
+		ereport(DEBUG1,
+				(errmsg("%s:%s, connection status succeeded",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr)));
 		agentWrapper->connectionStatus = AGENT_CONNNECTION_STATUS_SUCCEEDED;
 		/* clear all errors */
 		resetAdbDoctorErrorRecorder(agentWrapper->errors);
@@ -485,17 +491,19 @@ static void toConnectionStatusSucceeded(ManagerAgentWrapper *agentWrapper)
  */
 static void toConnectionStatusBad(ManagerAgentWrapper *agentWrapper, MonitorAgentError error)
 {
-	ereport(DEBUG1, (errmsg("%s:%s, error:%s",
-							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							agentWrapper->hostWrapper->hostaddr,
-							AGENT_ERROR_MSG[(int)error - 1])));
+	ereport(DEBUG1,
+			(errmsg("%s:%s, error:%s",
+					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+					agentWrapper->hostWrapper->hostaddr,
+					AGENT_ERROR_MSG[(int)error - 1])));
 	appendAdbDoctorErrorRecorder(agentWrapper->errors, (int)error);
 	agentWrapper->connectionStatus = AGENT_CONNNECTION_STATUS_BAD;
 	/* sentinel, ensure to free resources. */
 	stopMonitorAgent(agentWrapper);
-	ereport(DEBUG1, (errmsg("%s:%s, connection status bad",
-							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							agentWrapper->hostWrapper->hostaddr)));
+	ereport(DEBUG1,
+			(errmsg("%s:%s, connection status bad",
+					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+					agentWrapper->hostWrapper->hostaddr)));
 }
 
 static void handleRunningStatusNormal(ManagerAgentWrapper *agentWrapper)
@@ -549,18 +557,20 @@ static void handleRunningStatusCrashed(ManagerAgentWrapper *agentWrapper)
 static void toRunningStatusNormal(ManagerAgentWrapper *agentWrapper)
 {
 	agentWrapper->runningStatus = AGENT_RUNNING_STATUS_NORMAL;
-	ereport(LOG, (errmsg("%s:%s, agent status normal",
-						 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						 agentWrapper->hostWrapper->hostaddr)));
+	ereport(LOG,
+			(errmsg("%s:%s, agent status normal",
+					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+					agentWrapper->hostWrapper->hostaddr)));
 }
 
 static void toRunningStatusCrashed(ManagerAgentWrapper *agentWrapper)
 {
 	agentWrapper->runningStatus = AGENT_RUNNING_STATUS_CRASHED;
 	agentWrapper->crashedTime = GetCurrentTimestamp();
-	ereport(LOG, (errmsg("%s:%s, agent status crashed",
-						 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						 agentWrapper->hostWrapper->hostaddr)));
+	ereport(LOG,
+			(errmsg("%s:%s, agent status crashed",
+					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+					agentWrapper->hostWrapper->hostaddr)));
 }
 
 /**
@@ -693,25 +703,29 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 	SPI_CONNECT_TRANSACTIONAL_START(ret);
 	if (ret != SPI_OK_CONNECT)
 	{
-		ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE),
-						(errmsg("SPI_connect failed, connect return:%d.", ret))));
+		ereport(ERROR,
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 (errmsg("SPI_connect failed, connect return:%d.",
+						 ret))));
 	}
 
 	hostOid = agentWrapper->hostWrapper->oid;
 	host = SPI_selectMgrHostByOid(oldContext, hostOid);
 	if (host == NULL)
 	{
-		ereport(ERROR, (errmsg("%s:%s, oid:%u not exists in the table.",
-							   NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							   agentWrapper->hostWrapper->hostaddr,
-							   hostOid)));
+		ereport(ERROR,
+				(errmsg("%s:%s, oid:%u not exists in the table.",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr,
+						hostOid)));
 	}
 	if (!equalsAdbMgrHostWrapper(agentWrapper->hostWrapper, host))
 	{
-		ereport(ERROR, (errmsg("%s:%s, oid:%u has changed in the table.",
-							   NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							   agentWrapper->hostWrapper->hostaddr,
-							   hostOid)));
+		ereport(ERROR,
+				(errmsg("%s:%s, oid:%u has changed in the table.",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr,
+						hostOid)));
 	}
 	allow = host->fdmh.allowcure;
 	pfreeAdbMgrHostWrapper(host);
@@ -740,18 +754,20 @@ static bool restartAgent(ManagerAgentWrapper *agentWrapper, RestartAgentMode mod
 		}
 		else
 		{
-			ereport(LOG, (errmsg("%s:%s, restart forbidden, unknow restart mode:%d.",
-								 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-								 agentWrapper->hostWrapper->hostaddr,
-								 mode)));
+			ereport(LOG,
+					(errmsg("%s:%s, restart forbidden, unknow restart mode:%d.",
+							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+							agentWrapper->hostWrapper->hostaddr,
+							mode)));
 			return false;
 		}
 	}
 	else
 	{
-		ereport(DEBUG1, (errmsg("%s:%s, restart too often, wait for a while.",
-								NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-								agentWrapper->hostWrapper->hostaddr)));
+		ereport(DEBUG1,
+				(errmsg("%s:%s, restart too often, wait for a while.",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr)));
 		return false;
 	}
 }
@@ -760,9 +776,10 @@ static bool restartAgentBySSH(ManagerAgentWrapper *agentWrapper)
 {
 	GetAgentCmdRst *cmdRst;
 
-	ereport(LOG, (errmsg("%s:%s, restart agent by ssh begin.",
-						 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						 agentWrapper->hostWrapper->hostaddr)));
+	ereport(LOG,
+			(errmsg("%s:%s, restart agent by ssh begin.",
+					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+					agentWrapper->hostWrapper->hostaddr)));
 	cmdRst = mgr_start_agent_execute(&agentWrapper->hostWrapper->fdmh,
 									 agentWrapper->hostWrapper->hostaddr,
 									 agentWrapper->hostWrapper->hostadbhome,
@@ -771,16 +788,18 @@ static bool restartAgentBySSH(ManagerAgentWrapper *agentWrapper)
 	agentWrapper->restartTime = GetCurrentTimestamp();
 	if (cmdRst->ret == 0)
 	{
-		ereport(LOG, (errmsg("%s:%s, restart agent by ssh successfully.",
-							 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							 agentWrapper->hostWrapper->hostaddr)));
+		ereport(LOG,
+				(errmsg("%s:%s, restart agent by ssh successfully.",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr)));
 	}
 	else
 	{
-		ereport(LOG, (errmsg("%s:%s, restart agent by ssh failed:%s.",
-							 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							 agentWrapper->hostWrapper->hostaddr,
-							 cmdRst->description.data)));
+		ereport(LOG,
+				(errmsg("%s:%s, restart agent by ssh failed:%s.",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr,
+						cmdRst->description.data)));
 	}
 	pfree(cmdRst->description.data);
 	pfree(cmdRst);
@@ -809,15 +828,17 @@ static bool sendHeartbeatMessage(ManagerAgentWrapper *agentWrapper)
 	done = ma_flush(agentWrapper->agent, false);
 	if (done)
 	{
-		ereport(DEBUG1, (errmsg("%s:%s, sent message idle",
-								NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-								agentWrapper->hostWrapper->hostaddr)));
+		ereport(DEBUG1,
+				(errmsg("%s:%s, sent message idle",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr)));
 	}
 	else
 	{
-		ereport(LOG, (errmsg("%s:%s, sent message idle failed.",
-							 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							 agentWrapper->hostWrapper->hostaddr)));
+		ereport(LOG,
+				(errmsg("%s:%s, sent message idle failed.",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr)));
 	}
 	return done;
 }
@@ -835,15 +856,17 @@ static bool sendStopAgentMessage(ManagerAgentWrapper *agentWrapper)
 	done = ma_flush(agentWrapper->agent, false);
 	if (done)
 	{
-		ereport(DEBUG1, (errmsg("%s:%s, sent message stop agent",
-								NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-								agentWrapper->hostWrapper->hostaddr)));
+		ereport(DEBUG1,
+				(errmsg("%s:%s, sent message stop agent",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr)));
 	}
 	else
 	{
-		ereport(LOG, (errmsg("%s:%s, sent message stop agent failed.",
-							 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							 agentWrapper->hostWrapper->hostaddr)));
+		ereport(LOG,
+				(errmsg("%s:%s, sent message stop agent failed.",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr)));
 	}
 	return done;
 }
@@ -861,15 +884,17 @@ static bool sendResetAgentMessage(ManagerAgentWrapper *agentWrapper)
 	done = ma_flush(agentWrapper->agent, false);
 	if (done)
 	{
-		ereport(DEBUG1, (errmsg("%s:%s, sent message reset agent",
-								NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-								agentWrapper->hostWrapper->hostaddr)));
+		ereport(DEBUG1,
+				(errmsg("%s:%s, sent message reset agent",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr)));
 	}
 	else
 	{
-		ereport(LOG, (errmsg("%s:%s, sent message reset agent failed.",
-							 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							 agentWrapper->hostWrapper->hostaddr)));
+		ereport(LOG,
+				(errmsg("%s:%s, sent message reset agent failed.",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr)));
 	}
 	return done;
 }
@@ -928,9 +953,10 @@ static void addAgentWaitEventToSet(ManagerAgentWrapper *agentWrapper, uint32 eve
 static void ModifyAgentWaitEventSet(ManagerAgentWrapper *agentWrapper, uint32 events)
 {
 	if (agentWrapper->event_pos < 0)
-		ereport(ERROR, (errmsg("%s:%s, modify WaitEventSet error",
-							   NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							   agentWrapper->hostWrapper->hostaddr)));
+		ereport(ERROR,
+				(errmsg("%s:%s, modify WaitEventSet error",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr)));
 	ModifyWaitEvent(agentWaitEventSet, agentWrapper->event_pos, events, NULL);
 }
 
@@ -992,9 +1018,10 @@ static void OnAgentConnectionEvent(WaitEvent *event)
 {
 	ManagerAgentWrapper *agentWrapper;
 	agentWrapper = (ManagerAgentWrapper *)event->user_data;
-	ereport(DEBUG1, (errmsg("%s:%s, connected agent",
-							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							agentWrapper->hostWrapper->hostaddr)));
+	ereport(DEBUG1,
+			(errmsg("%s:%s, connected agent",
+					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+					agentWrapper->hostWrapper->hostaddr)));
 	/* Connected to agent, should send or receive message */
 	agentWrapper->wed.fun = OnAgentMessageEvent;
 	/* indicate that the connection may has been established */
@@ -1018,9 +1045,10 @@ static void OnAgentMessageEvent(WaitEvent *event)
 		msg_type = ma_get_message(agentWrapper->agent, &recvbuf);
 		if (msg_type == AGT_MSG_IDLE)
 		{
-			ereport(DEBUG1, (errmsg("%s:%s, receive message idle",
-									NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-									agentWrapper->hostWrapper->hostaddr)));
+			ereport(DEBUG1,
+					(errmsg("%s:%s, receive message idle",
+							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+							agentWrapper->hostWrapper->hostaddr)));
 			toConnectionStatusSucceeded(agentWrapper);
 			break;
 		}
@@ -1038,10 +1066,11 @@ static void OnAgentMessageEvent(WaitEvent *event)
 		else if (msg_type == AGT_MSG_ERROR)
 		{
 			/* ignore error message */
-			ereport(LOG, (errmsg("%s:%s, receive error message:%s",
-								 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-								 agentWrapper->hostWrapper->hostaddr,
-								 ma_get_err_info(&recvbuf, AGT_MSG_RESULT))));
+			ereport(LOG,
+					(errmsg("%s:%s, receive error message:%s",
+							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+							agentWrapper->hostWrapper->hostaddr,
+							ma_get_err_info(&recvbuf, AGT_MSG_RESULT))));
 			break;
 		}
 		else if (msg_type == AGT_MSG_NOTICE)
@@ -1050,28 +1079,31 @@ static void OnAgentMessageEvent(WaitEvent *event)
 		}
 		else if (msg_type == AGT_MSG_RESULT)
 		{
-			ereport(LOG, (errmsg("%s:%s, receive message:%s",
-								 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-								 agentWrapper->hostWrapper->hostaddr,
-								 recvbuf.data)));
+			ereport(LOG,
+					(errmsg("%s:%s, receive message:%s",
+							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+							agentWrapper->hostWrapper->hostaddr,
+							recvbuf.data)));
 			toConnectionStatusSucceeded(agentWrapper);
 			break;
 		}
 		else if (msg_type == AGT_MSG_COMMAND)
 		{
-			ereport(LOG, (errmsg("%s:%s, receive message:%s",
-								 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-								 agentWrapper->hostWrapper->hostaddr,
-								 recvbuf.data)));
+			ereport(LOG,
+					(errmsg("%s:%s, receive message:%s",
+							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+							agentWrapper->hostWrapper->hostaddr,
+							recvbuf.data)));
 			toConnectionStatusSucceeded(agentWrapper);
 			break;
 		}
 		else if (msg_type == AGT_MSG_EXIT)
 		{
-			ereport(LOG, (errmsg("%s:%s, receive message:%s",
-								 NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-								 agentWrapper->hostWrapper->hostaddr,
-								 recvbuf.data)));
+			ereport(LOG,
+					(errmsg("%s:%s, receive message:%s",
+							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+							agentWrapper->hostWrapper->hostaddr,
+							recvbuf.data)));
 			toConnectionStatusSucceeded(agentWrapper);
 			/* Do not close this connection.use this connection to start agent main process. */
 			restartAgentByCmdMessage(agentWrapper);
@@ -1143,16 +1175,17 @@ static HostConfiguration *newHostConfiguration(AdbDoctorConf *conf)
 										   conf->agent_restart_delay_ms_max,
 										   floor(deadlineMs / 2));
 	hc->connectionErrorNumMax = conf->agent_connection_error_num_max;
-	ereport(LOG, (errmsg("%s configuration: "
-						 "agentdeadlineMs:%ld, waitEventTimeoutMs:%ld, "
-						 "connectTimeoutMs:%ld, reconnectDelayMs:%ld, "
-						 "heartbeatTimoutMs:%ld, heartbeatIntervalMs:%ld, "
-						 "restartDelayMs:%ld, connectionErrorNumMax:%d",
-						 MyBgworkerEntry->bgw_name,
-						 hc->agentdeadlineMs, hc->waitEventTimeoutMs,
-						 hc->connectTimeoutMs, hc->reconnectDelayMs,
-						 hc->heartbeatTimoutMs, hc->heartbeatIntervalMs,
-						 hc->restartDelayMs, hc->connectionErrorNumMax)));
+	ereport(LOG,
+			(errmsg("%s configuration: "
+					"agentdeadlineMs:%ld, waitEventTimeoutMs:%ld, "
+					"connectTimeoutMs:%ld, reconnectDelayMs:%ld, "
+					"heartbeatTimoutMs:%ld, heartbeatIntervalMs:%ld, "
+					"restartDelayMs:%ld, connectionErrorNumMax:%d",
+					MyBgworkerEntry->bgw_name,
+					hc->agentdeadlineMs, hc->waitEventTimeoutMs,
+					hc->connectTimeoutMs, hc->reconnectDelayMs,
+					hc->heartbeatTimoutMs, hc->heartbeatIntervalMs,
+					hc->restartDelayMs, hc->connectionErrorNumMax)));
 	return hc;
 }
 

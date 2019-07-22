@@ -124,7 +124,8 @@ Datum
 	if (ret != SPI_OK_CONNECT)
 	{
 		ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE),
-						(errmsg("SPI_connect failed, connect return:%d", ret))));
+						(errmsg("SPI_connect failed, connect return:%d",
+								ret))));
 	}
 	SPI_updateAdbDoctorConf(k, v);
 	SPI_finish();
@@ -181,10 +182,12 @@ static BackgroundWorkerHandle *startupLauncher(dsm_segment *seg)
 	worker.bgw_notify_pid = MyProcPid;
 
 	if (!RegisterDynamicBackgroundWorker(&worker, &handle))
+	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
 				 errmsg("could not register background process"),
 				 errhint("You may need to increase max_worker_processes.")));
+	}
 	ereport(LOG,
 			(errmsg("register adb doctor launcher success")));
 
@@ -214,10 +217,12 @@ static bool waitForLauncherOK(BackgroundWorkerHandle *launcherHandle, shm_mq_han
 	/* wait for postmaster startup the worker, and then we setup next worker */
 	status = WaitForBackgroundWorkerStartup(launcherHandle, &pid);
 	if (status != BGWH_STARTED)
+	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
 				 errmsg("could not start background process"),
 				 errhint("More details may be available in the server log.")));
+	}
 
 	while (true)
 	{
@@ -225,13 +230,6 @@ static bool waitForLauncherOK(BackgroundWorkerHandle *launcherHandle, shm_mq_han
 		res = shm_mq_receive(inqh, &len, &message, false);
 		if (res == SHM_MQ_SUCCESS)
 		{
-			// if (!isLauncherOK(len, message))
-			// {
-			// 	ereport(ERROR,
-			// 			(errmsg("launch doctor worker failed"),
-			// 			 errdetail("please view server log for detail")));
-			// }
-			// break;
 			return isLauncherOK(len, message);
 		}
 		else

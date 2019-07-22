@@ -171,6 +171,7 @@ int countAdbDoctorErrorRecorder(AdbDoctorErrorRecorder *recorder,
 			if (recorder->errors[i].errorno == errornos[j])
 			{
 				count++;
+				break;
 			}
 			else
 			{

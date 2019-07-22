@@ -137,7 +137,8 @@ void adbDoctorLauncherMain(Datum main_arg)
 			notifyAdbDoctorRegistrant();
 
 		ereport(LOG,
-				(errmsg("%s started", MyBgworkerEntry->bgw_name)));
+				(errmsg("%s started",
+						MyBgworkerEntry->bgw_name)));
 
 		queryBgworkerDataAndConf(&conf, &dataList);
 		if (!conf)
@@ -589,7 +590,8 @@ setupDataShm(AdbDoctorBgworkerStatus *bgworkerStatus)
 	else
 	{
 		ereport(ERROR,
-				(errmsg("Unrecognized Adb_Doctor_Bgworker_Type:%d", type)));
+				(errmsg("Unrecognized Adb_Doctor_Bgworker_Type:%d",
+						type)));
 	}
 	return dataShm;
 }
@@ -633,7 +635,8 @@ static void registerDoctorAsBgworker(AdbDoctorBgworkerStatus *bgworkerStatus,
 	else
 	{
 		ereport(ERROR,
-				(errmsg("Unrecognized Adb_Doctor_Bgworker_Type:%d", type)));
+				(errmsg("Unrecognized Adb_Doctor_Bgworker_Type:%d",
+						type)));
 	}
 	snprintf(worker.bgw_type, BGW_MAXLEN, ADB_DOCTOR_BGW_TYPE_WORKER);
 	worker.bgw_main_arg = UInt32GetDatum(dsm_segment_handle(dataShm->seg));

@@ -70,13 +70,6 @@ void checkAdbDoctorConf(AdbDoctorConf *src)
 								  agent_restart_delay_ms_max);
 }
 
-bool equalsAdbDoctorConf(AdbDoctorConf *conf1, AdbDoctorConf *conf2)
-{
-	return conf1->datalevel == conf2->datalevel &&
-		   conf1->nodedeadline == conf2->nodedeadline &&
-		   conf1->agentdeadline == conf2->agentdeadline;
-}
-
 bool equalsAdbDoctorConfIgnoreLock(AdbDoctorConf *conf1,
 								   AdbDoctorConf *conf2)
 {

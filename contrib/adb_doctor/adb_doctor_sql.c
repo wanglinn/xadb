@@ -41,12 +41,15 @@ void SPI_updateAdbDoctorConf(char *key, char *value)
 	if (ret != SPI_OK_UPDATE)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: error code %d", ret)));
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
 
 	if (SPI_processed != 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: expected the number of rows:%d, but actual:%lu", 1, SPI_processed)));
+				 errmsg("SPI_execute failed: expected the number of rows:%d, but actual:%lu",
+						1,
+						SPI_processed)));
 }
 
 /*
@@ -73,7 +76,8 @@ char *SPI_selectAdbDoctConfByKey(char *key)
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: error code %d", ret)));
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
 	rows = SPI_processed;
 	if (rows == 1 && SPI_tuptable != NULL)
 	{
@@ -99,7 +103,8 @@ int SPI_selectAdbDoctorConfInt(char *key)
 	else
 	{
 		ereport(ERROR,
-				(errmsg("%s, invalid value : NULL", key)));
+				(errmsg("%s, invalid value : NULL",
+						key)));
 	}
 }
 
@@ -126,7 +131,8 @@ AdbDoctorConf *SPI_selectAdbDoctorConfAll(MemoryContext ctx)
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: error code %d", ret)));
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
 
 	oldCtx = MemoryContextSwitchTo(ctx);
 
@@ -149,7 +155,8 @@ AdbDoctorConf *SPI_selectAdbDoctorConfAll(MemoryContext ctx)
 			else
 			{
 				ereport(ERROR,
-						(errmsg("%s, invalid value : NULL", keyStr)));
+						(errmsg("%s, invalid value : NULL",
+								keyStr)));
 			}
 			if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_DATALEVEL) == 0)
 			{
@@ -309,7 +316,8 @@ AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx)
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: error code %d", ret)));
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
 
 	oldCtx = MemoryContextSwitchTo(ctx);
 
@@ -382,7 +390,8 @@ AdbDoctorList *SPI_selectMgrNodeForSwitcher(MemoryContext ctx)
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: error code %d", ret)));
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
 
 	oldCtx = MemoryContextSwitchTo(ctx);
 
@@ -440,7 +449,8 @@ AdbMgrNodeWrapper *SPI_selectMgrNodeByOid(MemoryContext ctx, Oid oid)
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: error code %d", ret)));
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
 
 	rows = SPI_processed;
 
@@ -482,7 +492,8 @@ int SPI_updateMgrNodeCureStatus(Oid oid, char *oldValue, char *newValue)
 	if (ret != SPI_OK_UPDATE)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: error code %d", ret)));
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
 
 	return (int)SPI_processed;
 }
@@ -543,7 +554,8 @@ AdbMgrHostWrapper *SPI_selectMgrHostByOid(MemoryContext ctx, Oid oid)
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: error code %d", ret)));
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
 
 	rows = SPI_processed;
 
@@ -586,7 +598,8 @@ AdbDoctorList *SPI_selectMgrNode(MemoryContext ctx, char *sql)
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: error code %d", ret)));
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
 
 	rows = SPI_processed;
 
@@ -639,7 +652,8 @@ AdbDoctorList *SPI_selectMgrHost(MemoryContext ctx, char *sql)
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: error code %d", ret)));
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
 
 	rows = SPI_processed;
 
