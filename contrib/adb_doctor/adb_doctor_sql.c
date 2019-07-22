@@ -11,6 +11,11 @@
 #include "adb_doctor_sql.h"
 #include "utils/formatting.h"
 
+#define SELECT_MGR_NODE_SQL "SELECT t1.*,t1.oid,t2.hostuser,t2.hostaddr \n" \
+							" FROM pg_catalog.mgr_node t1 \n"               \
+							" LEFT JOIN pg_catalog.mgr_host t2 ON t1.nodehost = t2.oid \n"
+#define SELECT_MGR_HOST_SQL "select *  \n from pg_catalog.mgr_host \n"
+
 static void wrapMgrNode(HeapTuple tuple, TupleDesc tupdesc, AdbMgrNodeWrapper *wrapper);
 static void wrapMgrHost(HeapTuple tuple, TupleDesc tupdesc, AdbMgrHostWrapper *wrapper);
 
@@ -19,7 +24,7 @@ void SPI_updateAdbDoctorConf(char *key, char *value)
 	StringInfoData buf;
 	int ret;
 	char *key_lower;
-	/* k must be lowercase string */
+	/* k is not case sensitive */
 	key_lower = asc_tolower(key, strlen(key));
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "update %s.%s set %s = '%s' where %s = '%s'",
@@ -80,31 +85,196 @@ char *SPI_selectAdbDoctConfByKey(char *key)
 		return NULL;
 	}
 }
-static int SPI_selectAdbDoctorConfInt(char *key)
+
+int SPI_selectAdbDoctorConfInt(char *key)
 {
+	int value;
 	char *valueStr = SPI_selectAdbDoctConfByKey(key);
-	int value = pg_atoi(valueStr, sizeof(int), 0);
-	pfree(valueStr);
-	return value;
+	if (valueStr)
+	{
+		value = pg_atoi(valueStr, sizeof(int), 0);
+		pfree(valueStr);
+		return value;
+	}
+	else
+	{
+		ereport(ERROR,
+				(errmsg("%s, invalid value : NULL", key)));
+	}
 }
 
-void SPI_selectAdbDoctorConfAll(AdbDoctorConf **confP, MemoryContext ctx)
+AdbDoctorConf *SPI_selectAdbDoctorConfAll(MemoryContext ctx)
 {
-	int datalevel = SPI_selectAdbDoctorConfInt(ADB_DOCTOR_CONF_KEY_DATALEVEL);
-	int probeinterval = SPI_selectAdbDoctorConfInt(ADB_DOCTOR_CONF_KEY_PROBEINTERVAL);
-	int agentdeadline = SPI_selectAdbDoctorConfInt(ADB_DOCTOR_CONF_KEY_AGENTDEADLINE);
+	AdbDoctorConf *conf;
+	StringInfoData buf;
+	int ret, j, valueInt;
+	uint64 rows;
+	HeapTuple tuple;
+	TupleDesc tupdesc;
+	MemoryContext oldCtx;
+	char *keyStr, *valueStr;
 
-	MemoryContext oldCtx = MemoryContextSwitchTo(ctx);
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "select %s,%s from %s.%s",
+					 ADB_DOCTOR_CONF_ATTR_KEY,
+					 ADB_DOCTOR_CONF_ATTR_VALUE,
+					 ADB_DOCTOR_SCHEMA,
+					 ADB_DOCTOR_CONF_RELNAME);
+	ret = SPI_execute(buf.data, false, 0);
+	pfree(buf.data);
 
-	/* do outside the spi memory context because the spi will be freed. */
-	AdbDoctorConf *conf = palloc0(sizeof(AdbDoctorConf));
-	conf->datalevel = datalevel;
-	conf->probeinterval = probeinterval;
-	conf->agentdeadline = agentdeadline;
-	safeAdbDoctorConf(conf);
-	*confP = conf;
+	if (ret != SPI_OK_SELECT)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("SPI_execute failed: error code %d", ret)));
+
+	oldCtx = MemoryContextSwitchTo(ctx);
+
+	rows = SPI_processed;
+	if (rows > 0 && SPI_tuptable != NULL)
+	{
+		/* do outside the spi memory context because the spi will be freed. */
+		conf = palloc0(sizeof(AdbDoctorConf));
+
+		tupdesc = SPI_tuptable->tupdesc;
+		for (j = 0; j < rows; j++)
+		{
+			tuple = SPI_tuptable->vals[j];
+			keyStr = SPI_getvalue(tuple, tupdesc, 1);
+			valueStr = SPI_getvalue(tuple, tupdesc, 2);
+			if (valueStr)
+			{
+				valueInt = pg_atoi(valueStr, sizeof(int), 0);
+			}
+			else
+			{
+				ereport(ERROR,
+						(errmsg("%s, invalid value : NULL", keyStr)));
+			}
+			if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_DATALEVEL) == 0)
+			{
+				conf->datalevel = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_NODEDEADLINE) == 0)
+			{
+				conf->nodedeadline = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_AGENTDEADLINE) == 0)
+			{
+				conf->agentdeadline = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_restart_crashed_master") == 0)
+			{
+				conf->node_restart_crashed_master = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_restart_master_timeout_ms") == 0)
+			{
+				conf->node_restart_master_timeout_ms = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_shutdown_timeout_ms") == 0)
+			{
+				conf->node_shutdown_timeout_ms = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_connection_error_num_max") == 0)
+			{
+				conf->node_connection_error_num_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_connect_timeout_ms_min") == 0)
+			{
+				conf->node_connect_timeout_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_connect_timeout_ms_max") == 0)
+			{
+				conf->node_connect_timeout_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_reconnect_delay_ms_min") == 0)
+			{
+				conf->node_reconnect_delay_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_reconnect_delay_ms_max") == 0)
+			{
+				conf->node_reconnect_delay_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_query_timeout_ms_min") == 0)
+			{
+				conf->node_query_timeout_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_query_timeout_ms_max") == 0)
+			{
+				conf->node_query_timeout_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_query_interval_ms_min") == 0)
+			{
+				conf->node_query_interval_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_query_interval_ms_max") == 0)
+			{
+				conf->node_query_interval_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_restart_delay_ms_min") == 0)
+			{
+				conf->node_restart_delay_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_restart_delay_ms_max") == 0)
+			{
+				conf->node_restart_delay_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_connection_error_num_max") == 0)
+			{
+				conf->agent_connection_error_num_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_connect_timeout_ms_min") == 0)
+			{
+				conf->agent_connect_timeout_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_connect_timeout_ms_max") == 0)
+			{
+				conf->agent_connect_timeout_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_reconnect_delay_ms_min") == 0)
+			{
+				conf->agent_reconnect_delay_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_reconnect_delay_ms_max") == 0)
+			{
+				conf->agent_reconnect_delay_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_heartbeat_timeout_ms_min") == 0)
+			{
+				conf->agent_heartbeat_timeout_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_heartbeat_timeout_ms_max") == 0)
+			{
+				conf->agent_heartbeat_timeout_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_heartbeat_interval_ms_min") == 0)
+			{
+				conf->agent_heartbeat_interval_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_heartbeat_interval_ms_max") == 0)
+			{
+				conf->agent_heartbeat_interval_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_restart_delay_ms_min") == 0)
+			{
+				conf->agent_restart_delay_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_restart_delay_ms_max") == 0)
+			{
+				conf->agent_restart_delay_ms_max = valueInt;
+			}
+			pfree(keyStr);
+			pfree(valueStr);
+		}
+		checkAdbDoctorConf(conf);
+	}
+	else
+	{
+		conf = NULL;
+	}
 
 	MemoryContextSwitchTo(oldCtx);
+	return conf;
 }
 
 AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx)
@@ -122,9 +292,7 @@ AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx)
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
-					 "SELECT t1.*,t1.oid,t2.hostuser,t2.hostaddr \n"
-					 " FROM pg_catalog.mgr_node t1 \n"
-					 " LEFT JOIN pg_catalog.mgr_host t2 ON t1.nodehost = t2.oid \n"
+					 SELECT_MGR_NODE_SQL
 					 " WHERE t1.nodeinited = %d::boolean \n"
 					 " AND t1.nodeincluster = %d::boolean \n"
 					 " AND t1.allowcure = %d::boolean \n"
@@ -193,9 +361,7 @@ AdbDoctorList *SPI_selectMgrNodeForSwitcher(MemoryContext ctx)
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
-					 "SELECT t1.*,t1.oid,t2.hostuser,t2.hostaddr \n"
-					 " FROM pg_catalog.mgr_node t1 \n"
-					 " LEFT JOIN pg_catalog.mgr_host t2 ON t1.nodehost = t2.oid \n"
+					 SELECT_MGR_NODE_SQL
 					 " WHERE t1.nodeinited = %d::boolean \n"
 					 " AND t1.nodeincluster = %d::boolean \n"
 					 " AND t1.allowcure = %d::boolean \n"
@@ -253,6 +419,74 @@ AdbDoctorList *SPI_selectMgrNodeForSwitcher(MemoryContext ctx)
 	return list;
 }
 
+AdbMgrNodeWrapper *SPI_selectMgrNodeByOid(MemoryContext ctx, Oid oid)
+{
+	AdbMgrNodeWrapper *wrapper;
+	StringInfoData buf;
+	HeapTuple tuple;
+	TupleDesc tupdesc;
+	uint64 rows;
+	int ret;
+	MemoryContext oldCtx;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 SELECT_MGR_NODE_SQL
+					 " WHERE t1.oid = %u",
+					 oid);
+
+	ret = SPI_execute(buf.data, false, 0);
+	pfree(buf.data);
+	if (ret != SPI_OK_SELECT)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("SPI_execute failed: error code %d", ret)));
+
+	rows = SPI_processed;
+
+	oldCtx = MemoryContextSwitchTo(ctx);
+
+	tupdesc = SPI_tuptable->tupdesc;
+	if (rows == 1 && SPI_tuptable != NULL)
+	{
+		tuple = SPI_tuptable->vals[0];
+		wrapper = palloc0(sizeof(AdbMgrNodeWrapper));
+		wrapMgrNode(tuple, tupdesc, wrapper);
+	}
+	else
+	{
+		wrapper = NULL;
+	}
+
+	MemoryContextSwitchTo(oldCtx);
+
+	return wrapper;
+}
+
+int SPI_updateMgrNodeCureStatus(Oid oid, char *oldValue, char *newValue)
+{
+	StringInfoData buf;
+	int ret;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 "update pg_catalog.mgr_node  \n"
+					 "set curestatus = '%s' \n"
+					 "WHERE oid = %u \n"
+					 "and curestatus = '%s' \n",
+					 newValue,
+					 oid,
+					 oldValue);
+	ret = SPI_execute(buf.data, false, 0);
+	pfree(buf.data);
+	if (ret != SPI_OK_UPDATE)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("SPI_execute failed: error code %d", ret)));
+
+	return (int)SPI_processed;
+}
+
 AdbDoctorHostData *SPI_selectMgrHostForMonitor(MemoryContext ctx)
 {
 	AdbDoctorHostData *hostData;
@@ -262,8 +496,7 @@ AdbDoctorHostData *SPI_selectMgrHostForMonitor(MemoryContext ctx)
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
-					 "select *  \n"
-					 "from pg_catalog.mgr_host \n"
+					 SELECT_MGR_HOST_SQL
 					 "WHERE allowcure = %d::boolean",
 					 true);
 
@@ -301,8 +534,7 @@ AdbMgrHostWrapper *SPI_selectMgrHostByOid(MemoryContext ctx, Oid oid)
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
-					 "select *  \n"
-					 "from pg_catalog.mgr_host \n"
+					 SELECT_MGR_HOST_SQL
 					 "WHERE oid = %u",
 					 oid);
 
@@ -333,6 +565,7 @@ AdbMgrHostWrapper *SPI_selectMgrHostByOid(MemoryContext ctx, Oid oid)
 
 	return wrapper;
 }
+
 /*
  * The result is returned in memory allocated using palloc.
  * You can use pfree to release the memory when you don't need it anymore.

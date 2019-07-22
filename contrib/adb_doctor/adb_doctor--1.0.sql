@@ -19,25 +19,187 @@ CREATE OR REPLACE FUNCTION adb_doctor_param(k pg_catalog.text default '',
 	AS 'MODULE_PATHNAME' LANGUAGE C;
 
 CREATE TABLE IF NOT EXISTS adb_doctor_conf (
-    k       varchar(64) PRIMARY KEY, -- k must be lowercase string
-    v       varchar(256) NOT NULL,
-	desp	varchar
+    k       	varchar(64) PRIMARY KEY, -- k is not case sensitive
+    v       	varchar(256) NOT NULL,
+	editable	boolean NOT NULL,
+	desp		varchar
 );
 
 INSERT INTO adb_doctor_conf VALUES (
 	'datalevel',
 	'0',
+	't',
 	'useless'
 );
 
 INSERT INTO adb_doctor_conf VALUES (
-	'probeinterval',
+	'nodedeadline',
 	'30',
-	'useless'
+	't',
+	'NODE死线，单位秒，判定NODE运行状态的最大忍耐时间。'
 );
 
 INSERT INTO adb_doctor_conf VALUES (
 	'agentdeadline',
 	'30',
-	'AGENT死线，单位秒，如果一直不能明确判定AGENT的运行状态，则一旦达到这个时间，认为AGENT已经崩溃，这是一个悲观值，通常情况下程序能够自动识别出AGENT的运行状态。'
+	't',
+	'AGENT死线，单位秒，判定AGENT运行状态的最大忍耐时间。'
+);
+
+
+-- The following data does not allow user editing
+
+-- node monitor
+INSERT INTO adb_doctor_conf VALUES (
+	'node_restart_crashed_master',
+	'1',
+	'f',
+	'当master节点崩溃的时候，是否重启MASTER节点。1：重启master，0：不重启master而立刻进行主备切换。'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_restart_master_timeout_ms',
+	'60000',
+	'f',
+	'当master节点崩溃的时候，重启MASTER节点超时毫秒数。'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_shutdown_timeout_ms',
+	'60000',
+	'f',
+	'node处于shutdown状态的最大毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_connection_error_num_max',
+	'3',
+	'f',
+	'node连接错误最大个数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_connect_timeout_ms_min',
+	'2000',
+	'f',
+	'node连接超时最小毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_connect_timeout_ms_max',
+	'60000',
+	'f',
+	'node连接超时最大毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_reconnect_delay_ms_min',
+	'1000',
+	'f',
+	'node重连延迟最小毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_reconnect_delay_ms_max',
+	'10000',
+	'f',
+	'node重连延迟最大毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_query_timeout_ms_min',
+	'2000',
+	'f',
+	'node查询超时最小毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_query_timeout_ms_max',
+	'60000',
+	'f',
+	'node查询超时最大毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_query_interval_ms_min',
+	'2000',
+	'f',
+	'node查询间隔最小毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_query_interval_ms_max',
+	'60000',
+	'f',
+	'node查询间隔最大毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_restart_delay_ms_min',
+	'30000',
+	'f',
+	'node重启延迟最小毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_restart_delay_ms_max',
+	'300000',
+	'f',
+	'node重启延迟最大毫秒数'
+);
+
+
+-- host monitor
+INSERT INTO adb_doctor_conf VALUES (
+	'agent_connection_error_num_max',
+	'3',
+	'f',
+	'agent连接错误最大个数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'agent_connect_timeout_ms_min',
+	'2000',
+	'f',
+	'agent连接超时最小毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'agent_connect_timeout_ms_max',
+	'60000',
+	'f',
+	'agent连接超时最大毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'agent_reconnect_delay_ms_min',
+	'1000',
+	'f',
+	'agent重连延迟最小毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'agent_reconnect_delay_ms_max',
+	'10000',
+	'f',
+	'agent重连延迟最大毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'agent_heartbeat_timeout_ms_min',
+	'2000',
+	'f',
+	'agent心跳消息超时最小毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'agent_heartbeat_timeout_ms_max',
+	'60000',
+	'f',
+	'agent心跳消息超时最大毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'agent_heartbeat_interval_ms_min',
+	'2000',
+	'f',
+	'agent心跳消息间隔最小毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'agent_heartbeat_interval_ms_max',
+	'60000',
+	'f',
+	'agent心跳消息间隔最大毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'agent_restart_delay_ms_min',
+	'10000',
+	'f',
+	'agent重启延迟最小毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'agent_restart_delay_ms_max',
+	'120000',
+	'f',
+	'agent重启延迟最大毫秒数'
 );

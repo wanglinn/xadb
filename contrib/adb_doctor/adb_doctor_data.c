@@ -55,6 +55,9 @@ bool isSameAdbDoctorBgworkerData(AdbDoctorBgworkerData *data1, AdbDoctorBgworker
     }
 }
 
+/**
+ * All fields equal except allowcure curestatus 
+ */
 bool equalsAdbMgrNodeWrapper(AdbMgrNodeWrapper *data1, AdbMgrNodeWrapper *data2)
 {
     return data1->oid == data2->oid &&
@@ -73,6 +76,9 @@ bool equalsAdbMgrNodeWrapper(AdbMgrNodeWrapper *data1, AdbMgrNodeWrapper *data2)
            strcmp(data1->hostaddr, data2->hostaddr) == 0;
 }
 
+/**
+ * All fields equal except allowcure 
+ */
 bool equalsAdbMgrHostWrapper(AdbMgrHostWrapper *data1, AdbMgrHostWrapper *data2)
 {
     return data1->oid == data2->oid &&

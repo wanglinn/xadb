@@ -11,44 +11,95 @@
 #include "storage/lwlock.h"
 #include "adb_doctor_conf.h"
 
-/* 
- * compare the conf values. if conf changed, update the value of staleConf, return true.
- * either conf changed or not, the freshConf will be pfreed.
- */
-bool compareAndUpdateAdbDoctorConf(AdbDoctorConf *staleConf,
-								   AdbDoctorConf *freshConf)
+void checkAdbDoctorConf(AdbDoctorConf *src)
 {
-	if (!equalsAdbDoctorConf(staleConf, freshConf))
+	if (src->datalevel < NO_DATA_LOST_BUT_MAY_SLOW ||
+		src->datalevel > MAY_LOST_DATA_BUT_QUICK)
 	{
-		memcpy(staleConf, freshConf, sizeof(AdbDoctorConf));
-		pfree(freshConf);
-		return true;
+		src->datalevel = NO_DATA_LOST_BUT_MAY_SLOW;
 	}
-	else
-	{
-		pfree(freshConf);
-		return false;
-	}
-}
-/* 
- * compare conf in local whith conf in shm. if conf changed,
- * update the value of confInLocal, then return true.
- */
-bool compareShmAndUpdateAdbDoctorConf(AdbDoctorConf *confInLocal,
-									  AdbDoctorConfShm *shm)
-{
-	AdbDoctorConf *copyOfShm;
-
-	copyOfShm = copyAdbDoctorConfFromShm(shm);
-
-	return compareAndUpdateAdbDoctorConf(confInLocal, copyOfShm);
+	src->nodedeadline = LIMIT_VALUE_RANGE(ADB_DOCTOR_CONF_NODEDEADLINE_MIN,
+										  ADB_DOCTOR_CONF_NODEDEADLINE_MAX,
+										  src->nodedeadline);
+	src->agentdeadline = LIMIT_VALUE_RANGE(ADB_DOCTOR_CONF_AGENTDEADLINE_MIN,
+										   ADB_DOCTOR_CONF_AGENTDEADLINE_MAX,
+										   src->agentdeadline);
+	src->node_restart_crashed_master = LIMIT_VALUE_RANGE(0, 1,
+														 src->node_restart_crashed_master);
+	if (src->node_restart_master_timeout_ms < 1)
+		ereport(ERROR,
+				(errmsg("node_restart_master_timeout_ms must > 0")));
+	if (src->node_shutdown_timeout_ms < 1)
+		ereport(ERROR,
+				(errmsg("node_shutdown_timeout_ms must > 0")));
+	if (src->node_connection_error_num_max < 1)
+		ereport(ERROR,
+				(errmsg("node_connection_error_num_max must > 0")));
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
+								  node_connect_timeout_ms_min,
+								  node_connect_timeout_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
+								  node_reconnect_delay_ms_min,
+								  node_reconnect_delay_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
+								  node_query_timeout_ms_min,
+								  node_query_timeout_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
+								  node_query_interval_ms_min,
+								  node_query_interval_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
+								  node_restart_delay_ms_min,
+								  node_restart_delay_ms_max);
+	if (src->agent_connection_error_num_max < 1)
+		ereport(ERROR,
+				(errmsg("agent_connection_error_num_max must > 0")));
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
+								  agent_connect_timeout_ms_min,
+								  agent_connect_timeout_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
+								  agent_reconnect_delay_ms_min,
+								  agent_reconnect_delay_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
+								  agent_heartbeat_timeout_ms_min,
+								  agent_heartbeat_timeout_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
+								  agent_heartbeat_interval_ms_min,
+								  agent_heartbeat_interval_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
+								  agent_restart_delay_ms_min,
+								  agent_restart_delay_ms_max);
 }
 
 bool equalsAdbDoctorConf(AdbDoctorConf *conf1, AdbDoctorConf *conf2)
 {
 	return conf1->datalevel == conf2->datalevel &&
-		   conf1->probeinterval == conf2->probeinterval &&
+		   conf1->nodedeadline == conf2->nodedeadline &&
 		   conf1->agentdeadline == conf2->agentdeadline;
+}
+
+bool equalsAdbDoctorConfIgnoreLock(AdbDoctorConf *conf1,
+								   AdbDoctorConf *conf2)
+{
+	Size addrOffset;
+	Size objectSize = sizeof(AdbDoctorConf);
+	Size lockSize = sizeof(LWLock);
+	Size lockOffset = offsetof(AdbDoctorConf, lock);
+	/* if the lock is the first element? */
+	if (lockOffset > 0)
+	{
+		if (memcmp(conf1, conf2, lockOffset) != 0)
+			return false;
+	}
+	addrOffset = lockOffset + lockSize;
+	/* if the lock is the last element? */
+	if (addrOffset < objectSize)
+	{
+		if (memcmp(((char *)conf1) + addrOffset,
+				   ((char *)conf2) + addrOffset,
+				   objectSize - addrOffset) != 0)
+			return false;
+	}
+	return true;
 }
 
 AdbDoctorConfShm *setupAdbDoctorConfShm(AdbDoctorConf *conf)
@@ -72,7 +123,7 @@ AdbDoctorConfShm *setupAdbDoctorConfShm(AdbDoctorConf *conf)
 						 segsize);
 
 	confInShm = shm_toc_allocate(toc, sizeof(AdbDoctorConf));
-	*confInShm = *conf;
+	memcpy(confInShm, conf, sizeof(AdbDoctorConf));
 
 	LWLockInitialize(&confInShm->lock, LWLockNewTrancheId());
 	LWLockRegisterTranche(confInShm->lock.tranche, "adb_doctor_conf");
@@ -120,32 +171,61 @@ AdbDoctorConf *copyAdbDoctorConfFromShm(AdbDoctorConfShm *shm)
 	AdbDoctorConf *confInShm;
 	AdbDoctorConf *copy;
 
-	Assert(shm != NULL);
+	Assert(shm);
 	confInShm = shm->confInShm;
-	Assert(confInShm != NULL);
+	Assert(confInShm);
 
-	copy = palloc0(sizeof(AdbDoctorConf));
+	copy = palloc(sizeof(AdbDoctorConf));
 	LWLockAcquire(&confInShm->lock, LW_SHARED);
-	*copy = *confInShm;
+	memcpy(copy, confInShm, sizeof(AdbDoctorConf));
 	LWLockRelease(&confInShm->lock);
-	safeAdbDoctorConf(copy);
 	return copy;
 }
 
-void refreshAdbDoctorConfInShm(AdbDoctorConf *confInLocal, AdbDoctorConfShm *shm)
+/**
+ * Memory copy bypass the element lock. 
+ */
+void copyAdbDoctorConfAvoidLock(AdbDoctorConf *dest,
+								AdbDoctorConf *src)
+{
+	Size addrOffset;
+	Size objectSize = sizeof(AdbDoctorConf);
+	Size lockSize = sizeof(LWLock);
+	Size lockOffset = offsetof(AdbDoctorConf, lock);
+	/* if the lock is the first element? */
+	if (lockOffset > 0)
+	{
+		/* Copy the data before lock */
+		memcpy(dest, src, lockOffset);
+	}
+	addrOffset = lockOffset + lockSize;
+	/* if the lock is the last element? */
+	if (addrOffset < objectSize)
+	{
+		/* Copy the data after lock */
+		memcpy(((char *)dest) + addrOffset,
+			   ((char *)src) + addrOffset,
+			   objectSize - addrOffset);
+	}
+}
+
+void refreshAdbDoctorConfInShm(AdbDoctorConf *confInLocal,
+							   AdbDoctorConfShm *shm)
 {
 	AdbDoctorConf *confInShm;
-	Assert(shm != NULL);
+
+	Assert(shm);
 	confInShm = shm->confInShm;
-	Assert(confInShm != NULL);
+	Assert(confInShm);
 
 	LWLockAcquire(&confInShm->lock, LW_EXCLUSIVE);
 	copyAdbDoctorConfAvoidLock(confInShm, confInLocal);
 	LWLockRelease(&confInShm->lock);
 }
 
-extern void validateAdbDoctorConfElement(char *k, char *v)
+void validateAdbDoctorConfEditableEntry(char *k, char *v)
 {
+	int v_int;
 	if (k == NULL || strlen(k) == 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -154,27 +234,31 @@ extern void validateAdbDoctorConfElement(char *k, char *v)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("parameter v:%s must not empty", v)));
+	v_int = pg_atoi(v, sizeof(int), 0);
 	if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_DATALEVEL) == 0)
 	{
-		if (!isValidAdbDoctorConf_datalevel(pg_atoi(v, sizeof(int), 0)))
+		if (v_int < NO_DATA_LOST_BUT_MAY_SLOW ||
+			v_int > MAY_LOST_DATA_BUT_QUICK)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("datalevel must between %d and %d",
 							NO_DATA_LOST_BUT_MAY_SLOW,
 							MAY_LOST_DATA_BUT_QUICK)));
 	}
-	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_PROBEINTERVAL) == 0)
+	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_NODEDEADLINE) == 0)
 	{
-		if (!isValidAdbDoctorConf_probeinterval(pg_atoi(v, sizeof(int), 0)))
+		if (v_int < ADB_DOCTOR_CONF_NODEDEADLINE_MIN ||
+			v_int > ADB_DOCTOR_CONF_NODEDEADLINE_MAX)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("probeinterval must between %d and %d",
-							ADB_DOCTOR_CONF_PROBEINTERVAL_MIN,
-							ADB_DOCTOR_CONF_PROBEINTERVAL_MAX)));
+					 errmsg("nodedeadline must between %d and %d",
+							ADB_DOCTOR_CONF_NODEDEADLINE_MIN,
+							ADB_DOCTOR_CONF_NODEDEADLINE_MAX)));
 	}
 	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_AGENTDEADLINE) == 0)
 	{
-		if (!isValidAdbDoctorConf_agentdeadline(pg_atoi(v, sizeof(int), 0)))
+		if (v_int < ADB_DOCTOR_CONF_AGENTDEADLINE_MIN ||
+			v_int > ADB_DOCTOR_CONF_AGENTDEADLINE_MAX)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("agentdeadline must between %d and %d",

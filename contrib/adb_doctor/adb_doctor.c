@@ -39,7 +39,7 @@ void _PG_init(void);
 static shm_mq *setupShmMQ(dsm_segment **segp);
 static BackgroundWorkerHandle *startupLauncher(dsm_segment *seg);
 static bool isLauncherOK(Size len, char *message);
-static void waitForLauncherOK(BackgroundWorkerHandle *launcherHandle, shm_mq_handle *inqh);
+static bool waitForLauncherOK(BackgroundWorkerHandle *launcherHandle, shm_mq_handle *inqh);
 
 /**
  * Start all doctor process.
@@ -55,6 +55,7 @@ Datum
 	shm_mq_handle *inqh;
 	BackgroundWorkerHandle *launcherHandle;
 	bool masterMode;
+	bool launcherOk;
 
 	masterMode = !RecoveryInProgress();
 
@@ -68,13 +69,26 @@ Datum
 	if (masterMode)
 	{
 		inqh = shm_mq_attach(mq, seg, launcherHandle);
-		waitForLauncherOK(launcherHandle, inqh);
+		launcherOk = waitForLauncherOK(launcherHandle, inqh);
+	}
+	else
+	{
+		launcherOk = true;
 	}
 
-	cancel_on_dsm_detach(seg, cleanupAdbDoctorBgworker, PointerGetDatum(launcherHandle));
-
-	dsm_detach(seg);
-	PG_RETURN_VOID();
+	if (launcherOk)
+	{
+		cancel_on_dsm_detach(seg, cleanupAdbDoctorBgworker, PointerGetDatum(launcherHandle));
+		dsm_detach(seg);
+		PG_RETURN_VOID();
+	}
+	else
+	{
+		dsm_detach(seg);
+		ereport(ERROR,
+				(errmsg("launch doctor worker failed"),
+				 errdetail("please view server log for detail")));
+	}
 }
 
 /**
@@ -104,7 +118,8 @@ Datum
 	k = text_to_cstring(k_txt);
 	v = text_to_cstring(v_txt);
 
-	validateAdbDoctorConfElement(k, v);
+	validateAdbDoctorConfEditableEntry(k, v);
+
 	ret = SPI_connect();
 	if (ret != SPI_OK_CONNECT)
 	{
@@ -188,7 +203,7 @@ static bool isLauncherOK(Size len, char *message)
 	return true;
 }
 
-static void waitForLauncherOK(BackgroundWorkerHandle *launcherHandle, shm_mq_handle *inqh)
+static bool waitForLauncherOK(BackgroundWorkerHandle *launcherHandle, shm_mq_handle *inqh)
 {
 	BgwHandleStatus status;
 	pid_t pid;
@@ -210,13 +225,14 @@ static void waitForLauncherOK(BackgroundWorkerHandle *launcherHandle, shm_mq_han
 		res = shm_mq_receive(inqh, &len, &message, false);
 		if (res == SHM_MQ_SUCCESS)
 		{
-			if (!isLauncherOK(len, message))
-			{
-				ereport(ERROR,
-						(errmsg("launch doctor worker failed"),
-						 errdetail("please view server log for detail")));
-			}
-			break;
+			// if (!isLauncherOK(len, message))
+			// {
+			// 	ereport(ERROR,
+			// 			(errmsg("launch doctor worker failed"),
+			// 			 errdetail("please view server log for detail")));
+			// }
+			// break;
+			return isLauncherOK(len, message);
 		}
 		else
 		{
