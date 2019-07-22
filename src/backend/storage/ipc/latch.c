@@ -794,6 +794,21 @@ ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, Latch *latch)
 }
 
 #ifdef ADB_EXT
+void* ModifyWaitEventData(WaitEventSet *set, int pos, void *user_data)
+{
+	void	   *old;
+	WaitEvent  *event;
+
+	Assert(pos < set->nevents);
+
+	event = &set->events[pos];
+
+	old = event->user_data;
+	event->user_data = user_data;
+
+	return old;
+}
+
 void RemoveWaitEvent(WaitEventSet *set, int pos)
 {
 	WaitEvent  *event;
@@ -953,7 +968,9 @@ WaitEventAdjustEpoll(WaitEventSet *set, WaitEvent *event, int action)
 	else
 	{
 		Assert(event->fd != PGINVALID_SOCKET);
+#ifndef ADB
 		Assert(event->events & (WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE));
+#endif /* !defined(ADB) */
 
 		if (event->events & WL_SOCKET_READABLE)
 			epoll_ev.events |= EPOLLIN;
@@ -996,7 +1013,9 @@ WaitEventAdjustPoll(WaitEventSet *set, WaitEvent *event)
 	}
 	else
 	{
+#ifndef ADB
 		Assert(event->events & (WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE));
+#endif /* !defined(ADB) */
 		pollfd->events = 0;
 		if (event->events & WL_SOCKET_READABLE)
 			pollfd->events |= POLLIN;
