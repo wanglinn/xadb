@@ -738,6 +738,7 @@
 #hash_distribute_by_hashmap_default = false	# Set default hash distribution type
 #auto_release_connect = off			# release connects for connected other nodes when transaction finish
 #enable_readsql_on_slave = false	# Enable readonly sql execute on datanode slaves
+#enable_readsql_on_slave_async = false	# Enable readonly sql execute on datanode async slaves
 #------------------------------------------------------------------------------
 # ADB MONITOR PARAMETERS
 #------------------------------------------------------------------------------

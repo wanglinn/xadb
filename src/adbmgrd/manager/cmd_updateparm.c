@@ -283,6 +283,17 @@ static void mgr_add_givenname_updateparm(MGRUpdateparm *parm_node, Name nodename
 			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 				, errmsg("permission denied: \"%s\" shoule be modified in \"node\" table before init all, \nuse \"list node\" to get information", key.data)));
 		}
+		/* Check the read and write separation settings */
+		if ((strcmp(key.data, "enable_readsql_on_slave") == 0 && strcmp(value.data, "on") == 0) || strcmp(key.data, "enable_readsql_on_slave_async") == 0)
+		{
+			bool isSlaveSync = strcmp(value.data, "on") == 0 ? true : false;
+			if (!mgr_update_cn_pgxcnode_readonlysql_slave(key.data, isSlaveSync))
+			{
+				pfree(enumvalue.data);
+				ereport(ERROR, (errmsg("Adding read-only standby node information to coord failed")));
+			}
+		}
+
 		if (!parm_node->is_force)
 		{
 			/*check the parameter is right for the type node of postgresql.conf*/

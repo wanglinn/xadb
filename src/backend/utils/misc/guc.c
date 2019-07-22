@@ -525,6 +525,7 @@ bool		Debug_print_grammar = false;
 #ifdef ADB
 bool		enable_cluster_plan = true;
 bool		enable_readsql_on_slave = false;
+bool		enable_readsql_on_slave_async = false;
 #endif
 bool		Debug_print_rewritten = false;
 bool		Debug_pretty_print = true;
@@ -1445,6 +1446,15 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&enable_readsql_on_slave,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_readsql_on_slave_async", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the readonly sql execute on async datanode slaves."),
+			NULL
+		},
+		&enable_readsql_on_slave_async,
 		false,
 		NULL, NULL, NULL
 	},

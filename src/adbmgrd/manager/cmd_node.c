@@ -89,6 +89,13 @@ typedef struct NodeSizeInfo
 	ListCell  **lcp;
 }NodeSizeInfo;
 
+typedef struct MgrNodeInfo
+{
+	Oid				masterOid;
+	Form_mgr_node	masterNode;
+	Form_mgr_node	slaveNode;
+}MgrNodeInfo;
+
 #define MAX_PREPARED_TRANSACTIONS_DEFAULT	120
 #define PG_DUMPALL_TEMP_FILE "/tmp/pg_dumpall_temp"
 #define MAX_WAL_SENDERS_NUM	5
@@ -211,6 +218,7 @@ static bool mgr_check_node_path(Relation rel, Oid hostoid, char *path);
 static bool mgr_check_node_port(Relation rel, Oid hostoid, int port);
 static void mgr_update_one_potential_to_sync(Relation rel, Oid mastertupleoid, bool bincluster, bool excludeoid);
 static bool exec_remove_coordinator(char *nodename);
+static bool get_async_slave_info(void);
 
 static bool get_local_ip(Name local_ip);
 extern HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, int32 nodeport, const char *nodepath, int64 nodesize);
@@ -13050,4 +13058,271 @@ mgr_get_gtm_host_snapsender_port(StringInfo infosendmsg)
 	mgr_append_pgconf_paras_str_quotastr("agtm_host", gtm_host, infosendmsg);
 	mgr_append_pgconf_paras_str_int("snapsender_port", snapsender_port, infosendmsg);
 	pfree(gtm_host);
+}
+
+/* Automatically add read-only standby node information to coordinate */
+bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync)
+{
+	InitNodeInfo	*info;
+	ScanKeyData		cnkey[2], ndkey[2], ndskey[3];
+	HeapTuple		tuple;
+	Form_mgr_node	mgr_node, master_node;
+	MgrNodeInfo		*mgr_node_info;
+	List			*dnMasters = NIL;
+	ListCell		*cell;
+	NameData		nodeSync;
+	StringInfoData	connStr, execSql, checkSql;
+	bool			isSlaveAsync;
+	Oid				coordHostOid;
+	int				nodePort;
+	char			*user;
+	char			*hostAddr = NULL;
+	PGconn			*conn = NULL;
+	PGresult		*res = NULL;
+
+	info = palloc(sizeof(*info));
+	info->rel_node = heap_open(NodeRelationId, AccessShareLock);	/* open table */
+	info->lcp = NULL;
+
+	/* Set whether asynchronous slave nodes are available */
+	if (strcmp(updateKey, "enable_readsql_on_slave_async") == 0)
+		isSlaveAsync = isSlaveSync;
+	else
+		isSlaveAsync = get_async_slave_info();
+
+	/* get datanode master info */
+	ScanKeyInit(&ndkey[0]
+				,Anum_mgr_node_nodeinited
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+	ScanKeyInit(&ndkey[1]
+			,Anum_mgr_node_nodetype
+			,BTEqualStrategyNumber
+			,F_CHAREQ
+			,CharGetDatum(CNDN_TYPE_DATANODE_MASTER));
+	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, ndkey);
+	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		master_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(master_node);
+		mgr_node_info = palloc0(sizeof(MgrNodeInfo));
+		mgr_node_info->masterNode = master_node;
+		mgr_node_info->masterOid = HeapTupleGetOid(tuple);
+		dnMasters = lappend(dnMasters, mgr_node_info);
+	}
+	Assert(list_length(dnMasters) > 0);
+	heap_endscan(info->rel_scan);
+	
+	/* get DN slave info by DN master */
+	namestrcpy(&nodeSync, "sync");
+	ScanKeyInit(&ndskey[0]
+				,Anum_mgr_node_nodeinited
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+
+	/* get slave info */
+	foreach (cell, dnMasters)
+	{
+		mgr_node_info = (MgrNodeInfo *) lfirst(cell);
+		mgr_node_info->slaveNode = NULL;
+
+		ScanKeyInit(&ndskey[1]
+				,Anum_mgr_node_nodemasternameoid
+				,BTEqualStrategyNumber
+				,F_OIDEQ
+				,ObjectIdGetDatum(mgr_node_info->masterOid));
+		ScanKeyInit(&ndskey[2]
+				,Anum_mgr_node_nodesync
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,NameGetDatum(&nodeSync));
+
+		/* In read-write separation mode, synchronous slave node is used by default, 
+		 * and asynchronous slave node can be used if no synchronous slave node exists. */
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 3, ndskey);
+		if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+		{
+			mgr_node_info->slaveNode = (Form_mgr_node)GETSTRUCT(tuple);
+		}
+		/* Allow reading of asynchronous node slave */
+		else if (isSlaveAsync)
+		{
+			heap_endscan(info->rel_scan);
+			ScanKeyInit(&ndskey[2]
+					,Anum_mgr_node_nodesync
+					,BTEqualStrategyNumber
+					,F_NAMENE
+					,NameGetDatum(&nodeSync));
+			
+			info->rel_scan = heap_beginscan_catalog(info->rel_node, 3, ndskey);
+			if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+			{
+				mgr_node_info->slaveNode = (Form_mgr_node)GETSTRUCT(tuple);
+			}
+		}
+		heap_endscan(info->rel_scan);
+	}
+
+	/* get CN master info */
+	ScanKeyInit(&cnkey[0]
+				,Anum_mgr_node_nodeinited
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+	ScanKeyInit(&cnkey[1]
+			,Anum_mgr_node_nodetype
+			,BTEqualStrategyNumber
+			,F_CHAREQ
+			,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
+	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, cnkey);
+	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		
+		coordHostOid = mgr_node->nodehost;
+		nodePort = mgr_node->nodeport;
+		user = get_hostuser_from_hostoid(coordHostOid);
+		hostAddr = get_hostaddress_from_hostoid(coordHostOid);
+
+		/* init coordinate connect string */
+		initStringInfo(&connStr);
+		appendStringInfo(&connStr, "postgresql://%s@%s:%d/%s", user, hostAddr, nodePort, DEFAULT_DB);
+		appendStringInfoCharMacro(&connStr, '\0');
+		pfree(hostAddr);
+		pfree(user);
+		/* get coordinate connect */
+		conn = PQconnectdb(connStr.data);
+		if (PQstatus(conn) != CONNECTION_OK)
+		{
+			PQfinish(conn);
+			pfree(connStr.data);
+			pfree(info);
+			ereport(ERROR, (errmsg("%s", PQerrorMessage(conn))));
+		}
+		
+		initStringInfo(&execSql);
+		foreach (cell, dnMasters)
+		{
+			mgr_node_info = (MgrNodeInfo *) lfirst(cell);
+			if (mgr_node_info->slaveNode == NULL)
+			{
+				/* delete unused slave node info */
+				appendStringInfo(&execSql, 
+							"delete from pgxc_node where node_master_oid = (select oid from pgxc_node where node_name = '%s');", 
+							mgr_node_info->masterNode->nodename.data);
+				continue;
+			}
+			else
+			{
+				initStringInfo(&checkSql);
+				appendStringInfo(&checkSql, "select * from pgxc_node where node_master_oid = (select oid from pgxc_node where node_name = '%s');", mgr_node_info->masterNode->nodename.data);
+				res = PQexec(conn, checkSql.data);
+				if (PQresultStatus(res) != PGRES_TUPLES_OK)
+				{
+					PQclear(res);
+					PQfinish(conn);
+					pfree(connStr.data);
+					pfree(execSql.data);
+					pfree(checkSql.data);
+					ereport(ERROR, (errmsg("%s" , "execute the check sql fail")));
+					break;
+				}
+				/* Add nonexistent, or update existing */
+				if(PQntuples(res) == 0)
+				{
+					appendStringInfo(&execSql, 
+							"create node %s for %s with(type='datanode slave', host='%s', port=%d);", 
+							mgr_node_info->slaveNode->nodename.data,
+							mgr_node_info->masterNode->nodename.data,
+							get_hostaddress_from_hostoid(mgr_node_info->slaveNode->nodehost),
+							mgr_node_info->slaveNode->nodeport);
+				}
+				else
+				{
+					appendStringInfo(&execSql, 
+							"update pgxc_node set node_name = '%s', node_host = '%s', node_port = %d where node_master_oid = (select oid from pgxc_node where node_name = '%s');",
+							mgr_node_info->slaveNode->nodename.data,
+							get_hostaddress_from_hostoid(mgr_node_info->slaveNode->nodehost),
+							mgr_node_info->slaveNode->nodeport,
+							mgr_node_info->masterNode->nodename.data);
+				}
+				PQclear(res);
+			}
+		}
+		res = PQexec(conn, execSql.data);
+		if (PQresultStatus(res) != PGRES_COMMAND_OK)
+		{
+			PQclear(res);
+			PQfinish(conn);
+			ereport(ERROR, (errmsg("%s" , "execute the update sql fail")));
+			continue;
+		}
+		PQclear(res);
+		PQfinish(conn);
+		pfree(connStr.data);
+	}
+	pfree(execSql.data);
+	pfree(checkSql.data);
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);	/* close table */
+	pfree(info);
+	return true;
+}
+
+
+/* Gets whether the asynchronous slave node is available in read-write separation mode */
+static bool
+get_async_slave_info(void)
+{
+	Relation rel_updateparm;
+	Form_mgr_updateparm mgr_updateparm;
+	ScanKeyData key[1];
+	HeapScanDesc rel_scan;
+	HeapTuple tuple;
+	NameData updateparmkey;
+	char *updateParmValue = NULL;
+	bool isAsyncInfo;
+
+	namestrcpy(&updateparmkey, "enable_readsql_on_slave_async");
+	ScanKeyInit(&key[0]
+		,Anum_mgr_updateparm_updateparmkey
+		,BTEqualStrategyNumber
+		,F_NAMEEQ
+		,NameGetDatum(&updateparmkey));
+	rel_updateparm = heap_open(UpdateparmRelationId, AccessShareLock);
+	rel_scan = heap_beginscan_catalog(rel_updateparm, 1, key);
+	tuple = heap_getnext(rel_scan, ForwardScanDirection);
+	if (tuple != NULL)
+	{
+		bool isNull = false;
+		Datum datumValue;
+
+		mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(tuple);
+		Assert(mgr_updateparm);
+		/*get key, value*/
+		datumValue = heap_getattr(tuple, Anum_mgr_updateparm_updateparmvalue, RelationGetDescr(rel_updateparm), &isNull);
+		if(isNull)
+		{
+			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+				, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_updateparm")
+				, errmsg("column value is null")));
+		}
+		updateParmValue = pstrdup(TextDatumGetCString(datumValue));
+
+		if (strcmp(updateParmValue, "on") == 0)
+			isAsyncInfo = true;
+		else
+			isAsyncInfo = false;
+	}
+	else
+	{
+		isAsyncInfo = false;
+	}
+	heap_endscan(rel_scan);
+	heap_close(rel_updateparm, AccessShareLock);	/* close table */
+
+	return isAsyncInfo;
 }
