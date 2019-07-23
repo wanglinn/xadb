@@ -8,13 +8,15 @@
 #include "adb_doctor_utils.h"
 #include "utils/palloc.h"
 
-AdbDoctorBounceNum *newAdbDoctorBounceNum(int max)
+AdbDoctorBounceNum *newAdbDoctorBounceNum(int min, int max)
 {
 	AdbDoctorBounceNum *obj;
-	Assert(max > 0);
+	Assert(max > min);
 	obj = palloc(sizeof(AdbDoctorBounceNum));
-	resetAdbDoctorBounceNum(obj);
+	obj->min = min;
 	obj->max = max;
+	obj->num = min;
+	obj->increase = true;
 	return obj;
 }
 
@@ -29,10 +31,14 @@ void pfreeAdbDoctorBounceNum(AdbDoctorBounceNum *src)
 
 void resetAdbDoctorBounceNum(AdbDoctorBounceNum *src)
 {
-	src->num = 0;
+	src->num = src->min;
 	src->increase = true;
 }
 
+/**
+ * if it hit the maximum, decrease it,
+ * if it hit the minimum, increase it.
+ */
 void nextAdbDoctorBounceNum(AdbDoctorBounceNum *src)
 {
 	Assert(src->max > 0);
@@ -51,7 +57,7 @@ void nextAdbDoctorBounceNum(AdbDoctorBounceNum *src)
 	}
 	else
 	{
-		if (src->num <= 0)
+		if (src->num <= src->min)
 		{
 			/* hit the minimum, reverse. */
 			src->num++;
@@ -61,11 +67,6 @@ void nextAdbDoctorBounceNum(AdbDoctorBounceNum *src)
 		{
 			src->num--;
 		}
-	}
-	/* negative value is not allowed. */
-	if (src->num < 0)
-	{
-		src->num = 0;
 	}
 }
 

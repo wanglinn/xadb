@@ -164,6 +164,7 @@ static bool isShouldResetConnection(MonitorNodeInfo *nodeInfo);
 static bool beyondReconnectDelay(MonitorNodeInfo *nodeInfo);
 static bool beyondQueryInterval(MonitorNodeInfo *nodeInfo);
 static bool beyondRestartDelay(MonitorNodeInfo *nodeInfo);
+static bool shouldResetRestartFactor(MonitorNodeInfo *nodeInfo);
 static void nextRestartFactor(MonitorNodeInfo *nodeInfo);
 
 static void occurredError(MonitorNodeInfo *nodeInfo, NodeError error);
@@ -768,7 +769,7 @@ static void handleNodeDangerous(MonitorNodeInfo *nodeInfo)
 	checkAndUpdateCurestatus(nodeInfo->node, CURE_STATUS_DANGER);
 	closeConnection(nodeInfo);
 	/* This node is running dangerously, shut it down */
-	shutdownNode(nodeInfo, SHUTDOWN_F);
+	shutdownNode(nodeInfo, SHUTDOWN_I);
 	notifyAdbDoctorRegistrant();
 	/* I can't handle this situation, bye bye. */
 	raise(SIGTERM);
@@ -1306,24 +1307,38 @@ static bool beyondQueryInterval(MonitorNodeInfo *nodeInfo)
 static bool beyondRestartDelay(MonitorNodeInfo *nodeInfo)
 {
 	long realRestartDelayMs;
-	/* We don't want to restart too often.  */
-	realRestartDelayMs = nodeConfiguration->restartDelayMs *
-						 (1 << nodeInfo->restartFactor->num);
+
+	if (shouldResetRestartFactor(nodeInfo))
+	{
+		resetAdbDoctorBounceNum(nodeInfo->restartFactor);
+		return true;
+	}
+	else
+	{
+		/* We don't want to restart too often.  */
+		realRestartDelayMs = nodeConfiguration->restartDelayMs *
+							 (1 << nodeInfo->restartFactor->num);
+		return TimestampDifferenceExceeds(nodeInfo->restartTime,
+										  GetCurrentTimestamp(),
+										  realRestartDelayMs);
+	}
+}
+
+static bool shouldResetRestartFactor(MonitorNodeInfo *nodeInfo)
+{
+	long resetDelayMs;
+	/* Reset to default value for more than 2 maximum delay cycles */
+	resetDelayMs = nodeConfiguration->restartDelayMs *
+				   (1 << nodeInfo->restartFactor->max);
+	resetDelayMs = resetDelayMs * 2;
 	return TimestampDifferenceExceeds(nodeInfo->restartTime,
 									  GetCurrentTimestamp(),
-									  realRestartDelayMs);
+									  resetDelayMs);
 }
 
 static void nextRestartFactor(MonitorNodeInfo *nodeInfo)
 {
-	int resetDelayMs;
-	/* Reset to default value for more than 2 maximum delay cycles */
-	resetDelayMs = nodeConfiguration->restartDelayMs *
-				   (1 << nodeInfo->restartFactor->num);
-	resetDelayMs = resetDelayMs * 2;
-	if (TimestampDifferenceExceeds(nodeInfo->restartTime,
-								   GetCurrentTimestamp(),
-								   resetDelayMs))
+	if (shouldResetRestartFactor(nodeInfo))
 	{
 		resetAdbDoctorBounceNum(nodeInfo->restartFactor);
 	}
@@ -1499,6 +1514,15 @@ static void checkAndReplaceAdbMgrNode(AdbMgrNodeWrapper **nodeP)
 						MyBgworkerEntry->bgw_name)));
 	}
 	checkCurestatus(nodeDataInDB);
+	if (pg_strcasecmp(NameStr(nodeDataInMem->fdmn.curestatus),
+					  NameStr(nodeDataInDB->fdmn.curestatus)) != 0)
+	{
+		ereport(ERROR,
+				(errmsg("%s, node curestatus not matched, in memory:%s, but in database:%s",
+						MyBgworkerEntry->bgw_name,
+						NameStr(nodeDataInMem->fdmn.curestatus),
+						NameStr(nodeDataInDB->fdmn.curestatus))));
+	}
 	if (!equalsAdbMgrNodeWrapper(nodeDataInMem, nodeDataInDB))
 	{
 		ereport(ERROR,
@@ -1514,13 +1538,6 @@ static void checkAndUpdateCurestatus(AdbMgrNodeWrapper *node, char *newCurestatu
 	int ret;
 	MemoryContext oldContext;
 
-	if (pg_strcasecmp(NameStr(node->fdmn.curestatus),
-					  newCurestatus) == 0)
-	{
-		/* old status equals new status, no need to update. */
-		return;
-	}
-
 	checkCurestatus(node);
 
 	oldContext = CurrentMemoryContext;
@@ -1533,6 +1550,9 @@ static void checkAndUpdateCurestatus(AdbMgrNodeWrapper *node, char *newCurestatu
 				 (errmsg("SPI_connect failed, connect return:%d",
 						 ret))));
 	}
+
+	/* Even if the old curestatus is equal to the new curestatus, 
+	 * still need to update the curestatus. */
 	ret = SPI_updateMgrNodeCureStatus(node->oid,
 									  NameStr(node->fdmn.curestatus),
 									  newCurestatus);
@@ -1771,7 +1791,7 @@ static MonitorNodeInfo *newMonitorNodeInfo(AdbMgrNodeWrapper *node)
 	nodeInfo->shutdownTime = 0;
 	nodeInfo->recoveryTime = 0;
 	nodeInfo->nQueryfails = 0;
-	nodeInfo->restartFactor = newAdbDoctorBounceNum(5);
+	nodeInfo->restartFactor = newAdbDoctorBounceNum(0, 5);
 	nodeInfo->connectionErrors = newAdbDoctorErrorRecorder(100);
 	return nodeInfo;
 }

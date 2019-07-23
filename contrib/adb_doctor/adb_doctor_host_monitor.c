@@ -128,6 +128,8 @@ static bool restartAgentByCmdMessage(ManagerAgentWrapper *agentWrapper);
 static bool sendHeartbeatMessage(ManagerAgentWrapper *agentWrapper);
 static bool sendStopAgentMessage(ManagerAgentWrapper *agentWrapper);
 static bool sendResetAgentMessage(ManagerAgentWrapper *agentWrapper);
+static bool beyondRestartDelay(ManagerAgentWrapper *agentWrapper);
+static bool shouldResetRestartFactor(ManagerAgentWrapper *agentWrapper);
 static void nextRestartFactor(ManagerAgentWrapper *agentWrapper);
 
 static void invalidateEventPosition(ManagerAgentWrapper *agentWrapper);
@@ -290,7 +292,7 @@ static void initializeAgentsConnection(AdbDoctorList *agentList)
 		invalidateEventPosition(agentWrapper);
 		agentWrapper->agent = NULL;
 		agentWrapper->connectionStatus = AGENT_CONNNECTION_STATUS_BAD;
-		agentWrapper->runningStatus = AGENT_RUNNING_STATUS_CRASHED;
+		agentWrapper->runningStatus = AGENT_RUNNING_STATUS_NORMAL;
 		agentWrapper->connectTime = 0;
 		agentWrapper->sendMessageTime = 0;
 		agentWrapper->activeTime = 0;
@@ -298,7 +300,7 @@ static void initializeAgentsConnection(AdbDoctorList *agentList)
 		agentWrapper->restartTime = 0;
 		agentWrapper->restartFactor = 0;
 		agentWrapper->hostWrapper = hostlink->data;
-		agentWrapper->restartFactor = newAdbDoctorBounceNum(5);
+		agentWrapper->restartFactor = newAdbDoctorBounceNum(0, 5);
 		agentWrapper->errors = newAdbDoctorErrorRecorder(100);
 
 		startMonitorAgent(agentWrapper);
@@ -385,7 +387,7 @@ static void handleConnectionStatusConnecting(ManagerAgentWrapper *agentWrapper,
 	}
 	else
 	{
-		/* if connect successfuly, the event handler will transit status to succeded  */
+		/* if connect successfuly, the event handler will transit status to succeeded  */
 	}
 }
 
@@ -515,7 +517,7 @@ static void handleRunningStatusNormal(ManagerAgentWrapper *agentWrapper)
 	}
 	else
 	{
-		/*  */
+		/* Continuous monitoring error */
 	}
 }
 
@@ -545,11 +547,23 @@ static void handleRunningStatusCrashed(ManagerAgentWrapper *agentWrapper)
 	{
 		if (agentWrapper->crashedTime > 0)
 		{
-			restartAgent(agentWrapper, RESTART_AGENT_MODE_SSH);
+			if (restartAgent(agentWrapper, RESTART_AGENT_MODE_SSH))
+			{
+				/* Get a brand new connection to agent just like 
+				 * that agent is running normally.*/
+				resetAdbDoctorErrorRecorder(agentWrapper->errors);
+				stopMonitorAgent(agentWrapper);
+				startMonitorAgent(agentWrapper);
+			}
+			else
+			{
+				/* Will still connect to agent, but there may be a delay */
+			}
 		}
 		else
 		{
-			/* in initialized status */
+			/* In initialized status, assume the agent is running normally. */
+			toRunningStatusNormal(agentWrapper);
 		}
 	}
 }
@@ -681,19 +695,16 @@ static void stopMonitorAgent(ManagerAgentWrapper *agentWrapper)
 static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 {
 	int ret;
-	long realRestartDelayMs;
-	bool allow;
 	AdbMgrHostWrapper *host;
 	Oid hostOid;
 	MemoryContext oldContext;
 	/* We don't want to restart too often.  */
-	realRestartDelayMs = hostConfiguration->restartDelayMs *
-						 (1 << agentWrapper->restartFactor->num);
-	allow = TimestampDifferenceExceeds(agentWrapper->restartTime,
-									   GetCurrentTimestamp(),
-									   realRestartDelayMs);
-	if (!allow)
+	if (!beyondRestartDelay(agentWrapper))
 	{
+		ereport(DEBUG1,
+				(errmsg("%s:%s, restart agent too often",
+						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
+						agentWrapper->hostWrapper->hostaddr)));
 		return false;
 	}
 
@@ -727,13 +738,13 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 						agentWrapper->hostWrapper->hostaddr,
 						hostOid)));
 	}
-	allow = host->fdmh.allowcure;
 	pfreeAdbMgrHostWrapper(host);
 
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
 
 	MemoryContextSwitchTo(oldContext);
-	return allow;
+
+	return host->fdmh.allowcure;
 }
 
 static bool restartAgent(ManagerAgentWrapper *agentWrapper, RestartAgentMode mode)
@@ -774,6 +785,7 @@ static bool restartAgent(ManagerAgentWrapper *agentWrapper, RestartAgentMode mod
 
 static bool restartAgentBySSH(ManagerAgentWrapper *agentWrapper)
 {
+	bool done;
 	GetAgentCmdRst *cmdRst;
 
 	ereport(LOG,
@@ -788,6 +800,7 @@ static bool restartAgentBySSH(ManagerAgentWrapper *agentWrapper)
 	agentWrapper->restartTime = GetCurrentTimestamp();
 	if (cmdRst->ret == 0)
 	{
+		done = true;
 		ereport(LOG,
 				(errmsg("%s:%s, restart agent by ssh successfully.",
 						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
@@ -795,6 +808,7 @@ static bool restartAgentBySSH(ManagerAgentWrapper *agentWrapper)
 	}
 	else
 	{
+		done = false;
 		ereport(LOG,
 				(errmsg("%s:%s, restart agent by ssh failed:%s.",
 						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
@@ -803,7 +817,7 @@ static bool restartAgentBySSH(ManagerAgentWrapper *agentWrapper)
 	}
 	pfree(cmdRst->description.data);
 	pfree(cmdRst);
-	return cmdRst->ret == 0;
+	return done;
 }
 
 static bool restartAgentByCmdMessage(ManagerAgentWrapper *agentWrapper)
@@ -899,21 +913,43 @@ static bool sendResetAgentMessage(ManagerAgentWrapper *agentWrapper)
 	return done;
 }
 
-/**
- * Use variable restartFactor to control the next restart time,
- * if it hit the maximum, decrease it,
- * if it hit the minimum, increase it.
- */
-static void nextRestartFactor(ManagerAgentWrapper *agentWrapper)
+static bool beyondRestartDelay(ManagerAgentWrapper *agentWrapper)
+{
+	long realRestartDelayMs;
+	if (shouldResetRestartFactor(agentWrapper))
+	{
+		resetAdbDoctorBounceNum(agentWrapper->restartFactor);
+		return true;
+	}
+	else
+	{
+		/* We don't want to restart too often.  */
+		realRestartDelayMs = hostConfiguration->restartDelayMs *
+							 (1 << agentWrapper->restartFactor->num);
+		return TimestampDifferenceExceeds(agentWrapper->restartTime,
+										  GetCurrentTimestamp(),
+										  realRestartDelayMs);
+	}
+}
+
+static bool shouldResetRestartFactor(ManagerAgentWrapper *agentWrapper)
 {
 	int resetDelayMs;
 	/* Reset to default value for more than 2 maximum delay cycles */
 	resetDelayMs = hostConfiguration->restartDelayMs *
-				   (1 << agentWrapper->restartFactor->num);
+				   (1 << agentWrapper->restartFactor->max);
 	resetDelayMs = resetDelayMs * 2;
-	if (TimestampDifferenceExceeds(agentWrapper->restartTime,
-								   GetCurrentTimestamp(),
-								   resetDelayMs))
+	return TimestampDifferenceExceeds(agentWrapper->restartTime,
+									  GetCurrentTimestamp(),
+									  resetDelayMs);
+}
+
+/**
+ * Use variable restartFactor to control the next restart time,
+ */
+static void nextRestartFactor(ManagerAgentWrapper *agentWrapper)
+{
+	if (shouldResetRestartFactor(agentWrapper))
 	{
 		resetAdbDoctorBounceNum(agentWrapper->restartFactor);
 	}
@@ -1019,12 +1055,13 @@ static void OnAgentConnectionEvent(WaitEvent *event)
 	ManagerAgentWrapper *agentWrapper;
 	agentWrapper = (ManagerAgentWrapper *)event->user_data;
 	ereport(DEBUG1,
-			(errmsg("%s:%s, connected agent",
+			(errmsg("%s:%s, agent connection event",
 					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
 					agentWrapper->hostWrapper->hostaddr)));
-	/* Connected to agent, should send or receive message */
+	/* This not indicate that the agent connection is good, 
+	 * should read from socket to determine the connection status,
+	 * so listen the readable event then read from socket. */
 	agentWrapper->wed.fun = OnAgentMessageEvent;
-	/* indicate that the connection may has been established */
 	ModifyAgentWaitEventSet(agentWrapper, WL_SOCKET_READABLE);
 }
 

@@ -41,6 +41,7 @@
 typedef struct AdbDoctorBounceNum
 {
 	int num;
+	int min;
 	int max;
 	bool increase;
 } AdbDoctorBounceNum;
@@ -59,7 +60,7 @@ typedef struct AdbDoctorErrorRecorder
 	TimestampTz firstErrorTime;
 } AdbDoctorErrorRecorder;
 
-extern AdbDoctorBounceNum *newAdbDoctorBounceNum(int max);
+extern AdbDoctorBounceNum *newAdbDoctorBounceNum(int min, int max);
 extern void pfreeAdbDoctorBounceNum(AdbDoctorBounceNum *src);
 extern void resetAdbDoctorBounceNum(AdbDoctorBounceNum *src);
 extern void nextAdbDoctorBounceNum(AdbDoctorBounceNum *src);
